@@ -3911,14 +3911,19 @@ namespace nkuidesign {
 			uint32 nP = 0u, hors = 0u;
 			float32 yMin, yMax, xMin, xMax, xMaxP, yMaxP;
 			mesurer(p0, nP, hors, yMin, yMax, xMin, xMax, xMaxP, yMaxP);
-			const bool premiereRouge = !p0.couleurs.Empty() && (p0.couleurs[0] >> 24) == 0xFFu && ((p0.couleurs[0] >> 8) & 0xFFu) == 0u;
+			// la couleur est prise au MILIEU de la bande : la premiere est rouge DOMINANT,
+			// pas rouge pur -- et la derniere atteint vraiment le dernier arret
+			const bool premiereRouge = !p0.couleurs.Empty() && ((p0.couleurs[0] >> 24) & 0xFFu) > 200u
+									   && ((p0.couleurs[0] >> 8) & 0xFFu) < 60u;
 			const bool derniereBleue = !p0.couleurs.Empty() && ((p0.couleurs[(uint32)p0.couleurs.Size() - 1u] >> 8) & 0xFFu) > 0xF0u;
 			snprintf(det, sizeof(det), "%u polygone(s), %u point(s) hors contour, y %.1f..%.1f, x %.1f..%.1f, 1re bande : y max %.1f (rouge=%d), derniere bleue=%d",
 					 nP, hors, yMin, yMax, xMin, xMax, yMaxP, premiereRouge ? 1 : 0, derniereBleue ? 1 : 0);
-			check("49a. LE DEGRADE SUIT L'ARRONDI : 24 bandes en polygones, aucun point hors du contour arrondi, "
+			check("49a. LE DEGRADE SUIT L'ARRONDI : une bande par 2 px, en polygones, aucun point hors du contour arrondi, "
 				  "la forme couverte de haut en bas, du rouge au bleu",
-				  nP == 24u && hors == 0u && yMin < Y0 + 0.6f && yMax > Y0 + H - 0.6f && xMin < X0 + 0.6f
-					  && xMax > X0 + W - 0.6f && yMaxP < Y0 + H / 24.f + 0.6f && premiereRouge && derniereBleue,
+				  nP == (uint32)renderdetail::NkBandesDegrade(H) && hors == 0u && yMin < Y0 + 0.6f
+					  && yMax > Y0 + H - 0.6f && xMin < X0 + 0.6f && xMax > X0 + W - 0.6f
+					  && yMaxP < Y0 + H / (float32)renderdetail::NkBandesDegrade(H) + 0.6f && premiereRouge
+					  && derniereBleue,
 				  det);
 			// 49b. la premiere bande (dans l'arc) est PLUS ETROITE que la forme : elle ne sort pas des coins
 			float32 xMinP = 1e9f;
@@ -3937,19 +3942,21 @@ namespace nkuidesign {
 					 nP, hors, xMaxP, W / 24.f, yMaxP);
 			check("49c. l'ANGLE est honore : a 270 (gauche -> droite) la premiere bande est une tranche VERTICALE a gauche, "
 				  "toujours dans le contour",
-				  nP == 24u && hors == 0u && xMaxP < X0 + W / 24.f + 0.6f && yMaxP > Y0 + H - 12.f, det);
+				  nP == (uint32)renderdetail::NkBandesDegrade(W) && hors == 0u
+					  && xMaxP < X0 + W / (float32)renderdetail::NkBandesDegrade(W) + 0.6f && yMaxP > Y0 + H - 12.f,
+				  det);
 			// 49d. sans arrondi : les bandes sont des rectangles pleine largeur (rien n'a change pour un rect droit)
 			dD.nodes[(uint32)f].fills[0].degrade.angle = 0.f;
 			dD.nodes[(uint32)f].radius = 0.f;
 			PeintrePoly pDroit;
 			RenderDocument(pDroit, dD, surfD);
-			bool quatrePoints = pDroit.tailles.Size() == 24u;
+			bool quatrePoints = pDroit.tailles.Size() == (uint32)renderdetail::NkBandesDegrade(H);
 			for (uint32 i = 0; quatrePoints && i < (uint32)pDroit.tailles.Size(); ++i)
 				if (pDroit.tailles[i] != 4)
 					quatrePoints = false;
 			mesurer(pDroit, nP, hors, yMin, yMax, xMin, xMax, xMaxP, yMaxP);
 			snprintf(det, sizeof(det), "%u polygone(s) a 4 points=%d, x %.1f..%.1f", nP, quatrePoints ? 1 : 0, xMin, xMax);
-			check("49d. sans arrondi, 24 rectangles pleine largeur : un rect droit garde son degrade d'avant",
+			check("49d. sans arrondi, des rectangles pleine largeur (un par 2 px) : un rect droit garde son degrade",
 				  quatrePoints && xMin < X0 + 0.6f && xMax > X0 + W - 0.6f, det);
 			// 49e. un peintre SANS polygone (l'enregistreur du kit) retombe sur les bandes d'avant : rien ne casse
 			dD.nodes[(uint32)f].radius = 20.f;
@@ -3960,8 +3967,8 @@ namespace nkuidesign {
 				if (sansPoly.cmds[i].op == NkPaintOp::FillColor && sansPoly.cmds[i].w > W - 0.6f && sansPoly.cmds[i].h < H / 24.f + 1.f)
 					++bandes;
 			snprintf(det, sizeof(det), "%u bande(s) rectangulaires chez un peintre sans polygone", bandes);
-			check("49e. un peintre sans polygone retombe sur les 24 bandes d'avant (le repli est nomme, pas silencieux)",
-				  bandes == 24u, det);
+			check("49e. un peintre sans polygone retombe sur des bandes rectangulaires, MEME calcul de couleur (le repli est nomme)",
+				  bandes == (uint32)renderdetail::NkBandesDegrade(H), det);
 		}
 		// ── 50. LES OMBRES PAR COIN ──────────────────────────────────────────
 		{
@@ -4243,6 +4250,116 @@ namespace nkuidesign {
 			snprintf(det, sizeof(det), "%u trait(s) de 100 px sur %u commande(s)", lignes, (uint32)rec.cmds.Size());
 			check("52. une ligne HORIZONTALE (hauteur nulle) se voit : une forme ouverte n'a besoin que d'une dimension",
 				  lignes == 1u, det);
+		}
+		// ── 53. LE DEGRADE, SOLIDE ET ROBUSTE : les cinq pieges ──────────────
+		{
+			using renderdetail::NkCouleurDegradeEn;
+			using renderdetail::NkBandesDegrade;
+			auto arret = [](float32 pos, const char *coul, float32 op) {
+				NkArretDegrade a;
+				a.position = pos;
+				a.couleur = NkString(coul);
+				a.opacite = op;
+				return a;
+			};
+			char det[300];
+			// 53a. L'ARRET TRANSPARENT : rouge opaque -> rouge transparent. Le milieu
+			// doit rester ROUGE (interpolation premultipliee) ; une interpolation
+			// naive donnerait du gris sale (r qui tombe vers 0 avec l'alpha).
+			{
+				NkDegrade g;
+				g.arrets.PushBack(arret(0.f, "#ff0000", 100.f));
+				g.arrets.PushBack(arret(1.f, "#ff0000", 0.f));
+				const uint32 c = NkCouleurDegradeEn(g, 0.5f);
+				const uint32 R = (c >> 24) & 0xFFu, G = (c >> 16) & 0xFFu, B = (c >> 8) & 0xFFu, A = c & 0xFFu;
+				snprintf(det, sizeof(det), "milieu = R%u V%u B%u A%u (attendu R255 V0 B0 A~128)", R, G, B, A);
+				check("53a. ARRET TRANSPARENT : « rouge opaque -> transparent » reste ROUGE en s'effacant "
+					  "(interpolation premultipliee) -- une interpolation naive passerait par du gris sale",
+					  R > 250u && G < 5u && B < 5u && A > 120u && A < 136u, det);
+			}
+			// 53b. deux couleurs opaques : le milieu est bien la moyenne (sRGB direct, l'espace NOMME)
+			{
+				NkDegrade g;
+				g.arrets.PushBack(arret(0.f, "#000000", 100.f));
+				g.arrets.PushBack(arret(1.f, "#ffffff", 100.f));
+				const uint32 c = NkCouleurDegradeEn(g, 0.5f);
+				const uint32 R = (c >> 24) & 0xFFu;
+				snprintf(det, sizeof(det), "milieu = %u (sRGB direct : 128 ; un melange lineaire donnerait ~188)", R);
+				check("53b. L'ESPACE EST NOMME -- sRGB direct, celui de Lunacy : noir -> blanc donne 128 au milieu",
+					  R > 125u && R < 131u, det);
+			}
+			// 53c. arrets NON TRIES et hors bornes : l'ordre du fichier n'a aucune autorite
+			{
+				NkDegrade g;
+				g.arrets.PushBack(arret(1.f, "#0000ff", 100.f)); // le dernier, ecrit en premier
+				g.arrets.PushBack(arret(0.f, "#ff0000", 100.f));
+				const uint32 avant = NkCouleurDegradeEn(g, -0.5f);
+				const uint32 apres = NkCouleurDegradeEn(g, 1.5f);
+				const uint32 mid = NkCouleurDegradeEn(g, 0.5f);
+				snprintf(det, sizeof(det), "avant=%08X (rouge attendu), apres=%08X (bleu attendu), milieu=%08X", avant, apres, mid);
+				check("53c. arrets NON TRIES : tries a la lecture ; avant le premier et apres le dernier, "
+					  "la couleur du BORD, jamais du noir",
+					  avant == 0xFF0000FFu && apres == 0x0000FFFFu && ((mid >> 24) & 0xFFu) > 120u
+						  && ((mid >> 8) & 0xFFu) > 120u,
+					  det);
+			}
+			// 53d. DOUBLON de position = coupure franche (une fonctionnalite, pas un bug)
+			{
+				NkDegrade g;
+				g.arrets.PushBack(arret(0.f, "#ff0000", 100.f));
+				g.arrets.PushBack(arret(0.5f, "#ff0000", 100.f));
+				g.arrets.PushBack(arret(0.5f, "#0000ff", 100.f));
+				g.arrets.PushBack(arret(1.f, "#0000ff", 100.f));
+				const uint32 juste = NkCouleurDegradeEn(g, 0.49f);
+				const uint32 apres = NkCouleurDegradeEn(g, 0.51f);
+				snprintf(det, sizeof(det), "0.49 -> %08X (rouge), 0.51 -> %08X (bleu)", juste, apres);
+				check("53d. DEUX ARRETS A LA MEME POSITION = coupure franche : rouge d'un cote, bleu de l'autre, "
+					  "aucun melange -- c'est ce qui fait les bandes nettes",
+					  juste == 0xFF0000FFu && apres == 0x0000FFFFu, det);
+			}
+			// 53e. UN SEUL arret = uni de cette couleur ; zero = rien (pas de division par zero)
+			{
+				NkDegrade g;
+				g.arrets.PushBack(arret(0.3f, "#00ff00", 50.f));
+				const uint32 a0 = NkCouleurDegradeEn(g, 0.f), a1 = NkCouleurDegradeEn(g, 1.f);
+				NkDegrade vide;
+				const uint32 z = NkCouleurDegradeEn(vide, 0.5f);
+				snprintf(det, sizeof(det), "un arret : t=0 -> %08X, t=1 -> %08X (attendu 00FF0080) ; zero arret -> %08X", a0, a1, z);
+				check("53e. UN SEUL arret = un uni de cette couleur (opacite comprise), partout ; zero arret ne calcule rien",
+					  a0 == a1 && ((a0 >> 16) & 0xFFu) == 0xFFu && (a0 & 0xFFu) > 120u && (a0 & 0xFFu) < 136u && z == 0u, det);
+			}
+			// 53f. LES BANDES SUIVENT LA TAILLE : 24 pour une pastille, 192 au plafond
+			{
+				const int32 b16 = NkBandesDegrade(16.f), b200 = NkBandesDegrade(200.f), b2000 = NkBandesDegrade(2000.f);
+				snprintf(det, sizeof(det), "16 px -> %d bandes, 200 px -> %d, 2000 px -> %d", b16, b200, b2000);
+				check("53f. le nombre de bandes SUIT la taille dessinee (une par 2 px, borne 24..192) : 24 bandes "
+					  "suffisent pour une pastille, pas pour un fond de 800 px",
+					  b16 == 24 && b200 == 100 && b2000 == 192, det);
+			}
+			// 53g. l'opacite par arret : additive au fichier, relue a l'identique
+			{
+				NkUIDocument dOp;
+				dOp.NewDocument("Toile", NkAuthor::Humain);
+				const int32 f = dOp.AddChild(0, "", NkAuthor::Humain);
+				NkRemplissage rf;
+				rf.couleur = NkString("#ff0000");
+				rf.degrade.type = NkString("lineaire");
+				rf.degrade.arrets.PushBack(arret(0.f, "#ff0000", 100.f));
+				rf.degrade.arrets.PushBack(arret(1.f, "#ff0000", 0.f));
+				dOp.nodes[(uint32)f].fills.PushBack(rf);
+				NkString s;
+				dOp.Save(s);
+				NkUIDocument relu;
+				const bool ok = relu.Load(s.Data());
+				const NkDegrade *g = (ok && relu.IsValidIndex(f) && !relu.nodes[(uint32)f].fills.Empty())
+										? &relu.nodes[(uint32)f].fills[0].degrade : nullptr;
+				const bool relus = g && g->arrets.Size() == 2u && g->arrets[0].opacite == 100.f
+								   && g->arrets[1].opacite == 0.f;
+				const bool additif = strstr(s.Data(), "1:#ff0000:0") != nullptr && strstr(s.Data(), "0:#ff0000 ") != nullptr;
+				snprintf(det, sizeof(det), "relus=%d additif=%d", relus ? 1 : 0, additif ? 1 : 0);
+				check("53g. l'OPACITE PAR ARRET fait l'aller-retour, additive : rien n'est ecrit tant qu'elle vaut 100",
+					  relus && additif, det);
+			}
 		}
 		snprintf(tail, sizeof(tail), "\n=== RESULTAT : %d / %d ===\n", pass, total);
 		rep.Append(tail);

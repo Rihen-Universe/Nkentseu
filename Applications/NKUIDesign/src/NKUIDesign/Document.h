@@ -310,6 +310,10 @@ namespace nkuidesign {
 	struct NkArretDegrade {
 			float32 position = 0.f; ///< 0..1 le long de l'axe
 			NkString couleur;		///< hexa « #rrggbb »
+			/// L'OPACITE DE CET ARRET (0..100), comme la liste d'arrets de Lunacy
+			/// (capture 04/09 : `0% · pastille · FFFFFF · 100% · poubelle`).
+			/// Additive : absente du fichier tant qu'elle vaut 100.
+			float32 opacite = 100.f;
 	};
 
 	/// UN DEGRADE porte par un remplissage.
@@ -2179,6 +2183,10 @@ namespace nkuidesign {
 								out.Append(f.degrade.arrets[ai].couleur.Empty()
 											   ? "-"
 											   : f.degrade.arrets[ai].couleur.Data());
+								if (f.degrade.arrets[ai].opacite != 100.f) {
+									out.Append(':');
+									WriteNum(out, f.degrade.arrets[ai].opacite);
+								}
 							}
 							out.Append('\n');
 						}
@@ -2918,6 +2926,14 @@ namespace nkuidesign {
 									while (*q && *q != ' ' && k + 1 < (uint32)sizeof(mot))
 										mot[k++] = *q++;
 									mot[k] = '\0';
+									// `<coul>` ou `<coul>:<opacite>` : additive
+									for (uint32 z = 0; z < k; ++z)
+										if (mot[z] == ':') {
+											mot[z] = '\0';
+											ar.opacite = ParseNum(mot + z + 1);
+											k = z;
+											break;
+										}
 									if (k > 0 && !(k == 1 && mot[0] == '-'))
 										ar.couleur = NkString(mot);
 								}

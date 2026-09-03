@@ -476,6 +476,108 @@ namespace nkuidesign {
 		/// LE CONTOUR ARRONDI d'un rectangle, en polygone (sens horaire a l'ecran),
 		/// `seg` segments par arc ; rayons deja bornes (NkGBornerRayons). Rend le
 		/// nombre de points ; `out` recoit 2 floats par point (au plus 4*(seg+1)).
+		// ════════════════════════════════════════════════════════════════════
+		//  LE CALCUL D'UN DEGRADE — « solide et robuste » (Rodolf, 04/09)
+		// ════════════════════════════════════════════════════════════════════
+		/// 🔑 L'ESPACE D'INTERPOLATION EST NOMME : **sRGB direct**, sur les valeurs
+		///    telles qu'elles sont stockees — c'est ce que font Lunacy et Figma par
+		///    defaut. Un espace non dit est une convention cachee, et on en a deja
+		///    paye une cette semaine avec l'angle. (Lunacy propose LCH/OKLCH/OKLAB
+		///    comme MODELES DE SAISIE — capture 04/09 — pas comme espace de melange :
+		///    le jour ou l'un d'eux servira au melange, c'est ICI que ca se change.)
+		///
+		/// ⚠️ ET L'INTERPOLATION SE FAIT SUR LA COULEUR PREMULTIPLIEE des qu'une
+		///    opacite varie. « Rouge opaque -> transparent » interpole naivement
+		///    passe par du GRIS SALE, parce qu'on tire vers un rgba(0,0,0,0) dont
+		///    les composantes ne veulent rien dire. Premultiplie, le rouge reste
+		///    rouge en s'effacant. C'est le defaut le plus visible d'un degrade mal
+		///    fait, et il est INVISIBLE sur un banc qui n'essaie que des arrets
+		///    opaques — la sonde 53 en contient un transparent.
+		struct NkArretsTries {
+				enum { kMax = 32 };
+				nkentseu::uint32 ordre[kMax] = {};
+				nkentseu::uint32 nb = 0;
+				/// Les arrets par POSITION CROISSANTE — jamais l'ordre du fichier :
+				/// l'utilisateur glisse un arret par-dessus un autre, et le document
+				/// garde l'ordre de saisie. Tri par insertion, stable : deux arrets a
+				/// la MEME position gardent leur ordre relatif, et c'est ce qui fait la
+				/// COUPURE FRANCHE (une fonctionnalite, pas un bug).
+				explicit NkArretsTries(const NkDegrade &g) {
+					for (nkentseu::uint32 i = 0; i < (nkentseu::uint32)g.arrets.Size() && nb < kMax; ++i) {
+						nkentseu::uint32 k = nb;
+						while (k > 0 && g.arrets[ordre[k - 1]].position > g.arrets[i].position) {
+							ordre[k] = ordre[k - 1];
+							--k;
+						}
+						ordre[k] = i;
+						++nb;
+					}
+				}
+		};
+		/// La couleur d'un degrade en `t` (0..1), en RGBA (alpha dans l'octet bas).
+		/// Zero arret : transparent (l'appelant ne doit pas appeler). UN arret :
+		/// SA couleur partout — un uni, pas une division par zero. Avant le premier
+		/// et apres le dernier : la couleur du bord, jamais du noir.
+		inline nkentseu::uint32 NkCouleurDegradeEn(const NkDegrade &g, nkentseu::float32 t) {
+			const NkArretsTries tri(g);
+			if (tri.nb == 0u)
+				return 0u;
+			auto rgbaDe = [&](nkentseu::uint32 i) -> nkentseu::uint32 {
+				const NkArretDegrade &a = g.arrets[i];
+				const nkentseu::uint32 base = NkGHexRGBA(a.couleur.Data());
+				const nkentseu::float32 op =
+					(a.opacite < 0.f ? 0.f : (a.opacite > 100.f ? 100.f : a.opacite)) * 0.01f;
+				const nkentseu::uint32 al = (nkentseu::uint32)((nkentseu::float32)(base & 0xFFu) * op + 0.5f);
+				return (base & 0xFFFFFF00u) | (al & 0xFFu);
+			};
+			if (tri.nb == 1u)
+				return rgbaDe(tri.ordre[0]);
+			const nkentseu::float32 p0 = g.arrets[tri.ordre[0]].position;
+			const nkentseu::float32 pN = g.arrets[tri.ordre[tri.nb - 1u]].position;
+			if (t <= p0)
+				return rgbaDe(tri.ordre[0]);
+			if (t >= pN)
+				return rgbaDe(tri.ordre[tri.nb - 1u]);
+			nkentseu::uint32 s = 0;
+			while (s + 2u < tri.nb && g.arrets[tri.ordre[s + 1u]].position < t)
+				++s;
+			const nkentseu::uint32 A = tri.ordre[s], B = tri.ordre[s + 1u];
+			const nkentseu::float32 pa = g.arrets[A].position, pb = g.arrets[B].position;
+			const nkentseu::float32 span = pb - pa;
+			nkentseu::float32 k = span > 0.0001f ? (t - pa) / span : 1.f; // doublon = coupure franche
+			if (k < 0.f)
+				k = 0.f;
+			if (k > 1.f)
+				k = 1.f;
+			const nkentseu::uint32 ca = rgbaDe(A), cb = rgbaDe(B);
+			const nkentseu::float32 aa = (nkentseu::float32)(ca & 0xFFu) / 255.f;
+			const nkentseu::float32 ab = (nkentseu::float32)(cb & 0xFFu) / 255.f;
+			const nkentseu::float32 al = aa + (ab - aa) * k;
+			nkentseu::uint32 out = 0u;
+			for (nkentseu::int32 dec = 24; dec >= 8; dec -= 8) {
+				const nkentseu::float32 va = (nkentseu::float32)((ca >> dec) & 0xFFu) * aa; // premultipliee
+				const nkentseu::float32 vb = (nkentseu::float32)((cb >> dec) & 0xFFu) * ab;
+				nkentseu::float32 v = va + (vb - va) * k;
+				if (al > 0.0001f)
+					v /= al; // et on revient en couleur droite pour le peintre
+				if (v < 0.f)
+					v = 0.f;
+				if (v > 255.f)
+					v = 255.f;
+				out |= ((nkentseu::uint32)(v + 0.5f)) << dec;
+			}
+			return out | ((nkentseu::uint32)(al * 255.f + 0.5f) & 0xFFu);
+		}
+		/// LE NOMBRE DE BANDES SUIT LA TAILLE DESSINEE : 24 bandes suffisent pour
+		/// une pastille, pas pour un fond de 800 px. Une bande par 2 px, bornee.
+		inline nkentseu::int32 NkBandesDegrade(nkentseu::float32 etendue) {
+			nkentseu::int32 n = (nkentseu::int32)(etendue * 0.5f + 0.5f);
+			if (n < 24)
+				n = 24;
+			if (n > 192)
+				n = 192;
+			return n;
+		}
 		inline nkentseu::uint32 NkGContourArrondi(const NkPaintRect &r, const nkentseu::float32 c[4],
 												  nkentseu::float32 *out, nkentseu::uint32 seg) {
 			const nkentseu::float32 x0 = r.x, y0 = r.y, x1 = r.x + r.w, y1 = r.y + r.h;
@@ -975,63 +1077,19 @@ namespace nkuidesign {
 				//    angle de 90° fait quelque chose -- un champ que le fichier
 				//    porte et que l'ecran ignore est exactement le defaut que ce
 				//    chantier repare ailleurs.
+				// Le repli, pour un peintre sans polygone : des bandes droites, MEME
+				// calcul de couleur (une seule verite).
 				auto peindreDegradeBandes = [&](const NkDegrade &g) {
 					if (!g.Actif())
 						return false;
-					const int32 kBandes = 24; // finesse : nommee, pas devinee
-					for (int32 b = 0; b < kBandes; ++b) {
-						const float32 t0 = (float32)b / (float32)kBandes;
-						const float32 t1 = (float32)(b + 1) / (float32)kBandes;
-						// l'arret encadrant : on cherche le segment qui contient t0
-						uint32 i0 = 0;
-						while (i0 + 2u < (uint32)g.arrets.Size()
-							   && g.arrets[i0 + 1].position < t0)
-							++i0;
-						const NkArretDegrade &a0 = g.arrets[i0];
-						const NkArretDegrade &a1 = g.arrets[i0 + 1];
-						const float32 span = (a1.position - a0.position);
-						const float32 k = span > 0.0001f ? (t0 - a0.position) / span : 0.f;
-						const uint32 c0 = NkGHexRGBA(a0.couleur.Data());
-						const uint32 c1 = NkGHexRGBA(a1.couleur.Data());
-						auto mix = [&](uint32 dec) -> uint32 {
-							const float32 v0 = (float32)((c0 >> dec) & 0xFFu);
-							const float32 v1 = (float32)((c1 >> dec) & 0xFFu);
-							float32 v = v0 + (v1 - v0) * (k < 0.f ? 0.f : k > 1.f ? 1.f : k);
-							if (v < 0.f)
-								v = 0.f;
-							if (v > 255.f)
-								v = 255.f;
-							return (uint32)(v + 0.5f);
-						};
-						const uint32 col = (mix(24) << 24) | (mix(16) << 16) | (mix(8) << 8)
-										   | 0xFFu;
+					const int32 kB = renderdetail::NkBandesDegrade(r.h);
+					for (int32 b = 0; b < kB; ++b) {
+						const float32 t0 = (float32)b / (float32)kB;
+						const float32 t1 = (float32)(b + 1) / (float32)kB;
 						const NkPaintRect rb{r.x, r.y + r.h * t0, r.w, r.h * (t1 - t0) + 0.5f};
-						p.FillColor(rb, col, 0.f);
+						p.FillColor(rb, renderdetail::NkCouleurDegradeEn(g, (t0 + t1) * 0.5f), 0.f);
 					}
 					return true;
-				};
-				// ── LA COULEUR D'UN DEGRADE EN t (0..1) ─────────────────────────────
-				auto couleurDegrade = [&](const NkDegrade &g, float32 t0) -> uint32 {
-					uint32 i0 = 0;
-					while (i0 + 2u < (uint32)g.arrets.Size() && g.arrets[i0 + 1].position < t0)
-						++i0;
-					const NkArretDegrade &a0 = g.arrets[i0];
-					const NkArretDegrade &a1 = g.arrets[i0 + 1];
-					const float32 span = (a1.position - a0.position);
-					const float32 k = span > 0.0001f ? (t0 - a0.position) / span : 0.f;
-					const uint32 c0 = NkGHexRGBA(a0.couleur.Data());
-					const uint32 c1 = NkGHexRGBA(a1.couleur.Data());
-					auto mix = [&](uint32 dec) -> uint32 {
-						const float32 v0 = (float32)((c0 >> dec) & 0xFFu);
-						const float32 v1 = (float32)((c1 >> dec) & 0xFFu);
-						float32 v = v0 + (v1 - v0) * (k < 0.f ? 0.f : k > 1.f ? 1.f : k);
-						if (v < 0.f)
-							v = 0.f;
-						if (v > 255.f)
-							v = 255.f;
-						return (uint32)(v + 0.5f);
-					};
-					return (mix(24) << 24) | (mix(16) << 16) | (mix(8) << 8) | 0xFFu;
 				};
 				// ── LE DEGRADE SUIT LA FORME, ET HONORE SON ANGLE ───────────────────
 				// Le contour arrondi (8 segments par arc) est decoupe en bandes
@@ -1057,7 +1115,7 @@ namespace nkuidesign {
 					if (etendue <= 0.001f)
 						return peindreDegradeBandes(g);
 					const float32 cx = r.x + r.w * 0.5f, cy = r.y + r.h * 0.5f;
-					const int32 kBandes = 24; // finesse : nommee, pas devinee
+					const int32 kBandes = renderdetail::NkBandesDegrade(etendue);
 					bool polygoneSu = true;
 					for (int32 b = 0; b < kBandes && polygoneSu; ++b) {
 						const float32 t0 = (float32)b / (float32)kBandes;
@@ -1100,7 +1158,11 @@ namespace nkuidesign {
 						}
 						if (np < 3u)
 							continue; // la bande ne touche pas la forme (coins tres arrondis)
-						if (!p.PolygonHex(poly, (int32)np, couleurDegrade(g, t0)))
+						// la couleur au MILIEU de la bande : une bande represente son
+						// intervalle, pas son bord (sinon la derniere n'atteint jamais
+						// la couleur du dernier arret)
+						const uint32 colB = renderdetail::NkCouleurDegradeEn(g, (t0 + t1) * 0.5f);
+						if (!p.PolygonHex(poly, (int32)np, colB))
 							polygoneSu = false; // ce peintre n'a pas de polygone : repli
 					}
 					if (!polygoneSu)
