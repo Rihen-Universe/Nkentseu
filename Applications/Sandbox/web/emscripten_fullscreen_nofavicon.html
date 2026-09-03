@@ -121,7 +121,22 @@
 
         // Configuration Emscripten
         var Module = {
-            preRun: [],
+            // ?diag=1 : rallume les traces [WebDiag] du RHI. Par defaut la
+            // console ne porte que les deux lignes [NkWeb], la ligne de budget
+            // d'unites de texture et le HUD -- ~40 lignes de dump par sampler,
+            // chacune avec sa pile dans les outils de developpement, ne disent
+            // rien a un utilisateur et coutent cher quand ils sont ouverts.
+            preRun: [function () {
+                try {
+                    var p = new URLSearchParams(window.location.search || "");
+                    var d = p.get("diag");
+                    if (d && d !== "0") {
+                        Module.ENV = Module.ENV || {};
+                        Module.ENV.NK_WEB_DIAG = d;
+                        console.log("[NkWeb] diagnostic RHI ACTIF (?diag=" + d + ")");
+                    }
+                } catch (e) {}
+            }],
             postRun: [],
             arguments: [],
             print: (function() {

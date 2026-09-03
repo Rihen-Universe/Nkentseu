@@ -106,6 +106,9 @@ namespace nkentseu {
 		// de tampon), une lecture d'environnement par appel couterait plus que
 		// la trace elle-meme.
 		static const bool actif = []() noexcept {
+			// Deux sources, une seule garde : la variable d'environnement (bureau,
+			// CI) et celle que la page pose depuis `?diag=1` (Emscripten mappe
+			// Module.ENV sur getenv). Cote utilisateur, l'URL suffit.
 			const char *v = ::getenv("NK_WEB_DIAG");
 			return v && v[0] && v[0] != '0';
 		}();
@@ -2307,18 +2310,25 @@ namespace nkentseu {
 					// >= 16 rendrait TOUS les draws du programme invalides.
 					if (loc >= 0)
 						glUniform1i(loc, (GLint)NkWebRemapTexUnit((uint32)f.binding));
-					// NKTEMP-DIAG : a retirer (assignations d'unites)
-					fprintf(stderr, "[WebDiag] prog=%u '%s' assign '%s' bind=%d unit=%u loc=%d\n", prog,
-							desc.debugName ? desc.debugName : "?", f.name, f.binding,
-							NkWebRemapTexUnit((uint32)f.binding), loc);
+					// DIAGNOSTIC, derriere la garde depuis le 2026-09-04 : ce dump
+					// imprimait une ligne PAR SAMPLER, inconditionnellement -- ~40
+					// lignes, chacune avec sa pile d'appels dans les outils de
+					// developpement. C'est ce qui rendait le chargement « hyper
+					// lent » quand ils sont ouverts, et ca ne dit rien a un
+					// utilisateur. Un journal silencieux par defaut, verbeux a la
+					// demande (?diag=1).
+					if (NkWebDiagEnabled())
+						fprintf(stderr, "[WebDiag] prog=%u '%s' assign '%s' bind=%d unit=%u loc=%d\n", prog,
+								desc.debugName ? desc.debugName : "?", f.name, f.binding,
+								NkWebRemapTexUnit((uint32)f.binding), loc);
 				}
 			}
 			glUseProgram((GLuint)prevProg);
 		}
-		// NKTEMP-DIAG : a retirer (instrumentation samplers/unites WebGL2).
+		// DIAGNOSTIC, derriere la garde depuis le 2026-09-04 (cf. ci-dessus).
 		// Dump de TOUS les uniforms sampler actifs du programme et de l'unite
 		// qui leur est reellement assignee apres la re-application.
-		{
+		if (NkWebDiagEnabled()) {
 			GLint uniformCount = 0;
 			glGetProgramiv(prog, GL_ACTIVE_UNIFORMS, &uniformCount);
 			for (GLint u = 0; u < uniformCount; ++u) {
