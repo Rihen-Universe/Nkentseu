@@ -127,6 +127,15 @@ namespace nkentseu {
 								   const char *text, const NkColor &col, float32 angleDeg,
 								   const NkVec2 &pivot, float32 maxWidth = -1.f, float32 skew = 0.f,
 								   const char *textEnd = nullptr) noexcept;
+				/// Texte sous une TRANSFORMEE AFFINE 2x3 (colonnes (x,y,1) ; |a c e| |b d f|).
+				/// C'est LA boucle de glyphes ; `AddText` (identite) et `AddTextTourne`
+				/// (rotation autour d'un pivot) n'en sont que des portes. Rotation,
+				/// miroir et ECHELLE passent par la meme matrice que les formes.
+				void AddTextTransforme(const NkFont *face, uint32 texId, const NkVec2 &baseline,
+									   const char *text, const NkColor &col, float32 ta, float32 tb,
+									   float32 tc, float32 td, float32 te, float32 tf,
+									   float32 maxWidth = -1.f, float32 skew = 0.f,
+									   const char *textEnd = nullptr) noexcept;
 				// Texte à l'ÉCHELLE : quads et avances multipliés par `scale`
 				// (géométrie `NkFontScaleRenderer`, NKFont — la couche du dessous
 				// la portait déjà). Sert au texte d'un DOCUMENT zoomé : palier

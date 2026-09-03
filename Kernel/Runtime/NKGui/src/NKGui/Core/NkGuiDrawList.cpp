@@ -411,6 +411,26 @@ namespace nkentseu {
 										  const char *text, const NkColor &col, float32 angleDeg,
 										  const NkVec2 &pivot, float32 maxWidth, float32 skew,
 										  const char *textEnd) noexcept {
+			// LA PORTE TOURNEE : une rotation autour d'un pivot est une affine.
+			if (angleDeg == 0.f) {
+				AddTextTransforme(face, texId, baseline, text, col, 1.f, 0.f, 0.f, 1.f, 0.f, 0.f,
+								  maxWidth, skew, textEnd);
+				return;
+			}
+			const float32 rad = angleDeg * 0.017453292519943295f;
+			const float32 sn = std::sin(rad), cs = std::cos(rad);
+			// p' = P + R (p - P)  ->  e = Px - (a Px + c Py), f = Py - (b Px + d Py)
+			const float32 ma = cs, mb = sn, mc = -sn, md = cs;
+			const float32 me = pivot.x - (ma * pivot.x + mc * pivot.y);
+			const float32 mf = pivot.y - (mb * pivot.x + md * pivot.y);
+			AddTextTransforme(face, texId, baseline, text, col, ma, mb, mc, md, me, mf, maxWidth,
+							  skew, textEnd);
+		}
+
+		void NkGuiDrawList::AddTextTransforme(const NkFont *face, uint32 texId, const NkVec2 &baseline,
+											  const char *text, const NkColor &col, float32 ta, float32 tb,
+											  float32 tc, float32 td, float32 te, float32 tf, float32 maxWidth,
+											  float32 skew, const char *textEnd) noexcept {
 			if (!face || !text || !*text || texId == 0u)
 				return;
 			const uint32 c = NkGuiPackColor(col);
@@ -431,18 +451,14 @@ namespace nkentseu {
 			// sin/cos UNE fois, et seulement s'il y a un angle : la porte `AddText`
 			// ne paie aucune trigonometrie. Le calage au pixel s'est fait AVANT, sur
 			// la ligne droite -- un texte tourne ne se cale pas au pixel.
-			const bool tourneVraiment = (angleDeg != 0.f);
-			float32 sn = 0.f, cs = 1.f;
-			if (tourneVraiment) {
-				const float32 rad = angleDeg * 0.017453292519943295f;
-				sn = std::sin(rad);
-				cs = std::cos(rad);
-			}
+			// L'AFFINE, appliquee aux quatre sommets de chaque quad. A l'identite,
+			// `tourne` rend son entree telle quelle : les appelants d'avant ne paient rien.
+			const bool tourneVraiment =
+				!(ta == 1.f && tb == 0.f && tc == 0.f && td == 1.f && te == 0.f && tf == 0.f);
 			auto tourne = [&](NkVec2 v) -> NkVec2 {
 				if (!tourneVraiment)
 					return v;
-				const float32 dx = v.x - pivot.x, dy = v.y - pivot.y;
-				return NkVec2{pivot.x + dx * cs - dy * sn, pivot.y + dx * sn + dy * cs};
+				return NkVec2{ta * v.x + tc * v.y + te, tb * v.x + td * v.y + tf};
 			};
 
 			while (p < end) {
