@@ -5,6 +5,7 @@
 #include <cstdio>
 #include <cmath> // sqrt du repli (2026-09-04) // repli de melange dit une fois (2026-09-04)
 #include "NkVFXSystem.h"
+#include "NkParticleStoreGPU.h"
 #include "NKRenderer/Shader/NkShaderLibrary.h" // shader des particules (2026-09-04)
 #include "NKLogger/NkLog.h"
 #include "NKRenderer/Mesh/NkMeshSystem.h"
@@ -185,8 +186,10 @@ namespace nkentseu {
 
 		// ── Émetteurs ─────────────────────────────────────────────────────────────
 		// La cible demandee -> la cible obtenue, DITE quand elle differe (une fois par
-		// emetteur). Le stockage GPU n'est pas livre : tout retombe sur CPU aujourd'hui,
-		// et la ligne au journal dit pourquoi (pas de compute / pas encore livre).
+		// emetteur). Depuis le 05/09 le stockage GPU existe (NkParticleStoreGPU) : AUTO = GPU
+		// des que le device a le compute ; sans compute -> CPU dit. Un solveur (SPH) force
+		// le CPU (dit dans CreateEmitter), et un refus du stockage GPU (NkSL, pipeline, tampon)
+		// retombe sur le CPU en le disant -- jamais en silence.
 		static NkSimTarget NkResolveSimTarget(NkIDevice *dev, NkSimTarget demande, uint64 id) {
 			const bool compute = dev && dev->GetCaps().computeShaders;
 			if (demande == NkSimTarget::CPU)
@@ -200,10 +203,7 @@ namespace nkentseu {
 								 (unsigned long long)id);
 				return NkSimTarget::CPU;
 			}
-			// Compute present : le stockage GPU viendrait ici (plan (B)). Pas livre -> dit.
-			std::fprintf(stderr, "[NkVFX] emetteur %llu : simTarget=%s, compute present mais stockage GPU pas encore livre -> CPU\n",
-						 (unsigned long long)id, demande == NkSimTarget::AUTO ? "AUTO" : "GPU");
-			return NkSimTarget::CPU;
+			return NkSimTarget::GPU;
 		}
 
 		NkEmitterId NkVFXSystem::CreateEmitter(const NkEmitterDesc &desc) {
@@ -213,8 +213,28 @@ namespace nkentseu {
 			e->enabled = true;
 			e->spawnAccum = 0.f;
 			e->resolved = NkResolveSimTarget(mDevice, desc.simTarget, e->id.id);
-			// Le stockage (CPU SoA ; le GPU viendra derriere la meme interface).
-			{
+			// Le stockage : GPU (trois tampons + noyau NkSL) si la cible resolue est GPU et qu'aucun
+			// solveur n'est branche ; sinon CPU SoA -- chaque repli est DIT.
+			if (e->resolved == NkSimTarget::GPU && desc.solver) {
+				std::fprintf(stderr, "[NkVFX] emetteur %llu : un solveur (SPH) est branche -> stockage CPU (le SPH GPU vient apres)\n",
+							 (unsigned long long)e->id.id);
+				e->resolved = NkSimTarget::CPU;
+			}
+			if (e->resolved == NkSimTarget::GPU) {
+				auto *gpu = memory::NkGetDefaultAllocator().New<NkParticleStoreGPU>();
+				if (gpu->Init(mDevice, desc)) {
+					e->store = gpu;
+					std::fprintf(stderr, "[NkVFX] emetteur %llu : simTarget=%s -> GPU (noyau NkSL, %u emplacements)\n",
+								 (unsigned long long)e->id.id, desc.simTarget == NkSimTarget::AUTO ? "AUTO" : "GPU", desc.maxParticles);
+				} else {
+					std::fprintf(stderr, "[NkVFX] emetteur %llu : stockage GPU refuse (%s) -> CPU\n", (unsigned long long)e->id.id,
+								 gpu->FailReason());
+					gpu->Shutdown(mDevice);
+					memory::NkGetDefaultAllocator().Delete(gpu);
+					e->resolved = NkSimTarget::CPU;
+				}
+			}
+			if (!e->store) {
 				auto *cpu = memory::NkGetDefaultAllocator().New<NkParticleStoreCPU>();
 				cpu->solver = desc.solver;
 				if (!cpu->Init(mDevice, desc))

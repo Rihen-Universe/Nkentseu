@@ -2295,6 +2295,18 @@ static NkTexHandle CreateLanternCubeCookie(NkTextureLibrary *texLib, NkIDevice *
 					d.velocityDir = {0.f, 1.f, 0.f};
 					d.velocityRand = 0.6f;
 					d.maxParticles = 1000;
+					// NK_VFX_TARGET=cpu|gpu : la cible de simulation demandee (defaut AUTO = GPU si compute) (2026-09-05).
+					if (const char *tg = std::getenv("NK_VFX_TARGET"); tg && tg[0])
+						d.simTarget = (tg[0] == 'g') ? NkSimTarget::GPU : (tg[0] == 'c') ? NkSimTarget::CPU : NkSimTarget::AUTO;
+					// NK_VFX_DETERMINISTE=1 : fontaine SANS hasard (direction fixe, vitesse fixe, vie fixe ; la rotation
+					// reste tiree mais le disque de repli est symetrique) -- deux cibles doivent donner la meme image (2026-09-05).
+					if (const char *dm = std::getenv("NK_VFX_DETERMINISTE"); dm && dm[0] == '1') {
+						d.velocityRand = 0.f;
+						d.velocityDir = {0.35f, 1.f, 0.f};
+						d.speedMin = d.speedMax = 2.f;
+						d.lifeMin = d.lifeMax = 1.5f;
+						d.gravity = {0.f, -3.f, 0.f};
+					}
 					// NK_VFX_BLEND=additive|alpha|opaque : le melange declare (2026-09-04).
 					if (const char *bm = std::getenv("NK_VFX_BLEND"); bm && bm[0]) {
 						if (bm[0] == 'a' && bm[1] == 'l')
@@ -4241,7 +4253,13 @@ static NkTexHandle CreateLanternCubeCookie(NkTextureLibrary *texLib, NkIDevice *
 					}
 				if (kProbe)
 					if (NkVFXSystem *vfx = ctx.renderer->GetVFX()) {
-						vfx->Update(dt, camData);
+						// NK_FIXED_DT=1 : pas fixe 1/60 s (2026-09-05) -- deux cibles CPU/GPU comparees au MEME instant
+						// physique ; au dt reel, deux courses ne sont jamais a la meme image (mesure : 225 contre 144 i/s).
+						static const bool kFixedDt = [] {
+							const char *e = std::getenv("NK_FIXED_DT");
+							return e && e[0] == '1';
+						}();
+						vfx->Update(kFixedDt ? (1.f / 60.f) : dt, camData);
 						// sonde VFX : compte -- toutes les 30 images
 						if ((ctx.frame % 30u) == 0u)
 							std::fprintf(stderr, "[VFX PROBE] frame %u : dt=%g total particules vivantes=%u  cam=(%g,%g,%g)->(%g,%g,%g)\n",
