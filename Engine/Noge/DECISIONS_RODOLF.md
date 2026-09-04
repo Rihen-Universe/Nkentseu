@@ -1769,6 +1769,76 @@ mesure sur DFSPH ; la mesurer sur un fluide qui s'éjecte mesurerait l'éjection
 Coût actuel (Debug) : 2 048 particules + 8 800 fantômes, 145-180 ms/image à 16 sous-pas ; 4 096 :
 270-350 ms.
 
+### ✅ 04/09 (nuit, 3) — DFSPH : LE REPOS TIENT (`650a3730`) — décision du coordinateur, arbitrage délégué par Rodolf
+
+Bender & Koschier 2015, en réutilisant tout (grille O(N), fantômes Akinci, sonde, scènes **inchangées**) :
+noyau **cubique** pour W et ∇W (un seul noyau, α cohérent — poly6/spiky mélangés fausseraient α) ; listes de
+voisines construites une fois par sous-pas ; α_i = ρ_i / (|Σ m∇W|² + Σ|m∇W|²) ; solveur de **divergence
+nulle** (particules à ≥ 20 voisines fluides) ; XSPH + gravité ; solveur de **densité constante** (ρ* borné à
+ρ₀ en surface libre, itéré jusqu'à résidu moyen < 0,1 %, bornes d'itérations comptées et dites) ; CFL 0,4·h/vmax
+**mesuré**, sous-pas comptés. Plus d'équation d'état.
+
+**Témoins (Debug, 2 048 particules + 8 800 fantômes)** — les mêmes scènes que ce soir :
+
+| témoin | WCSPH (nuit, 2) | **DFSPH** |
+|---|---|---|
+| repos ρ/ρ₀ moyen après 2 s | 0,77 | **1,001** (min 0,996 / max 1,004) |
+| repos, couche du sol | 0,86 | **1,001** |
+| repos calme (vmax à 3 s) | 7,2 m/s, croissant | **0,067 m/s**, décroissant (0,47 → 0,26 → 0,11 → 0,08) |
+| sous-pas / image | 16-40 | **1** (dam break : 2) |
+| itérations | — | densité 24-26 (résidu 0,09 %), divergence 1 ; aucune borne atteinte |
+| conservation | vert | **vert** (2048/2048, 256,01 kg) |
+| mutation « projection coupée » | 5,21 rouge | **5,90 rouge** (discrimine) |
+| coût / image | 145-180 ms (16 sous-pas) | **43-53 ms** (1 sous-pas, ~26 traversées) |
+| dam break, front à t = 0,25 s | 0,52 m | 0,535 m — **ÉCHEC selon Ritter** (2√(g h₀)·t = 1,40 m) |
+
+📌 **Sur le dam break, dit tel quel** : le critère écrit (Ritter : lit sec, non visqueux, eau peu profonde)
+donne 1,40 m à 0,25 s pour h₀ = 0,8 m ; mesuré 0,535 m, écart 62 %. La référence **expérimentale** (Martin &
+Moyce 1952, colonne a = 0,8 m, T = t√(2g/a) = 1,24) donne un front nettement plus lent que Ritter à ce T — de
+l'ordre de x/a ≈ 1,6-1,7, soit ≈ 0,5-0,6 m parcourus. **Je ne l'ai pas vérifié contre les tables** : la scène
+et le critère restent tels quels ; à trancher avec la table sous les yeux, pas de mémoire. L'image montre une
+nappe cohérente qui avance et remonte sur le mur opposé (`Captures/noge_fluide_dam_break_dfsph_2026-09-04.png`,
+Release, ci-dessous).
+
+### 📏 04/09 (nuit, 4) — DFSPH en RELEASE : les cinq témoins, la mutation, la courbe O(N)
+
+Binaire Release 21:58:37, scènes inchangées, Ilyana lue avant/après (VRAM 4,7-5,6 Go, 57-95 %, PID 11904).
+
+| témoin (scène repos, 2 048 + 8 800 fantômes, 10 s) | mesure | verdict |
+|---|---|---|
+| repos ρ/ρ₀ moyen après 2 s | **1,001** (min 0,996 / max 1,004) | ✅ ± 5 % |
+| couche du sol | **1,001** | ✅ ± 5 % |
+| vmax décroissant depuis le repos | 0,26 (1 s) → 0,10 (5 s) → 0,06 (9 s) → **0,038 m/s** à la fin | ✅ < 0,1 |
+| conservation | 2048/2048, 256,01 kg constants | ✅ |
+| 10 s stable | 9,98 s, vmax global 0,92 m/s, 0 NaN, 1 sous-pas, 24-26 itérations (résidu 0,09 %) | ✅ |
+| mutation « projection coupée » | ρ/ρ₀ = 5,90, tout s'empile | ✅ rouge, discrimine |
+| dam break, front à t = 0,25 s (4 096) | 0,535 m contre 1,40 (Ritter) — écart 62 % | 🔴 **ROUGE selon le critère écrit** |
+| filet maxSpeed = 8 m/s pendant le dam break | mord (vmax global 8,00 ; 185 bornées à 50 653) | ⚠️ dit — la scène garde ses 8 m/s |
+
+Coût Release : 2 048 particules **12,4-12,9 ms/image** (Debug 43-53).
+
+**Courbe O(N) (scène dam, Release, par image, frames 30 / 60)** :
+
+| N | fantômes | sous-pas | itérations dens. | ms / image | µs / (particule · traversée) |
+|---|---|---|---|---|---|
+| 1 000 | 6 304 | 2 / 1 | 5 / 7 | 5,1 / **3,1** | 0,51 / 0,45 |
+| 10 648 | 27 520 | 3 / 2 | 15 / 9,5 | 142 / **69** | 0,30 / 0,34 |
+| 50 653 | 75 404 | 4 / 3 | 30 / 13,3 | 1 345 / **713** | 0,35 / 0,35 |
+
+🔴 **Le témoin « 50 000 ≤ 50 × 1 000 » est ROUGE tel qu'écrit** : 713 / 3,1 = **228×** pour 50,6× de
+particules. **Mais la grille, elle, est O(N)** : par particule et par traversée de voisinage, le coût est
+**constant** (0,35-0,45 µs, il baisse même). Ce qui grossit avec N n'est pas le voisinage, ce sont **les
+sous-pas** (la grande colonne tombe plus vite : 1 → 3) et **les itérations de Jacobi** du solveur de densité
+(7 → 13 : l'information de pression traverse un domaine plus grand une voisine à la fois). C'est la
+propriété connue des projections itérées ; les remèdes classiques sont le **démarrage à chaud** (κ de l'image
+précédente) et la tolérance relative — nommés, pas faits.
+
+📌 **Sur le dam break** : Ritter suppose un lit sec, aucune viscosité, l'eau peu profonde et une colonne
+infinie ; l'expérience (Martin & Moyce 1952) donne à T = t√(2g/a) ≈ 1,24 un front nettement plus lent. Le
+critère reste tel quel : **à trancher avec la table sous les yeux**, pas de mémoire.
+`Captures/noge_fluide_dam_break_dfsph_2026-09-04.png` (Release, image 40) : une nappe cohérente, pas une
+éclaboussure de billes.
+
 ### 🔩 04/09 (nuit) — JENGA 2.6 : ce qui est appliqué, ce qui est mesuré en retour
 
 - **`-static` — le défaut était chez nous** : `config/toolchain.jenga:55` (bloc Windows natif) promettait
