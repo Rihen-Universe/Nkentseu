@@ -140,6 +140,7 @@ with project("NKImage"):
     with filter("(system:Linux || system:macOS || (system:Windows && !options:windows-runtime=uwp && !system:XboxSeries && !system:XboxOne)) && !system:Android && !system:iOS && !system:Web"):
         with test():
             testfiles(["tests/**.cpp"])
+            testmaintemplate("tests/nk_main_fourni_par_le_test.cpp")  # la suite fournit son main() (2026-09-04)
             links([
                 "NKImage",
                 "NKMemory",
