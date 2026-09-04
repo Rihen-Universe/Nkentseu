@@ -2007,7 +2007,12 @@ namespace nkentseu {
 		// E.6b : cubemap procedurale 128x128x6 pour point light.
 		// Chaque face = pattern "X" : 2 bandes diagonales lumineuses sur fond noir.
 		// Tres contraste pour etre clairement visible meme avec autres lumieres.
-		static NkTexHandle CreateLanternCubeCookie(NkTextureLibrary *texLib, NkIDevice *dev) {
+				static const char *NkFormatMs(float32 ms) {
+			static char b[32];
+			std::snprintf(b, sizeof(b), "%.3f", ms);
+			return b;
+		}
+static NkTexHandle CreateLanternCubeCookie(NkTextureLibrary *texLib, NkIDevice *dev) {
 			const uint32 S = 128;
 			NkTextureCreateDesc d;
 			d.width = S;
@@ -2214,6 +2219,51 @@ namespace nkentseu {
 						else
 							d.blend = NkBlendMode::NK_ADDITIVE;
 						std::fprintf(stderr, "[VFX PROBE] blend demande : %s -> mode %u\n", bm, (unsigned)d.blend);
+					}
+					// Borne 2 (2026-09-04). NK_VFX_TEXTURE=damier : un damier 2x2 (magenta / vert,
+					// 64x64 texels pour rester net en filtrage lineaire) -- les quatre quadrants
+					// doivent se lire sur la particule. NK_VFX_ONE=1 : UNE particule immobile et
+					// grande, face camera. NK_VFX_COUNT=N : N particules vivantes en regime etabli
+					// (courbe du cout).
+					if (const char *tx = std::getenv("NK_VFX_TEXTURE"); tx && tx[0] == 'd') {
+						if (NkTextureLibrary *tl = ctx.renderer->GetTextures()) {
+							const uint32 S = 64;
+							static uint8 px[64 * 64 * 4];
+							for (uint32 y = 0; y < S; ++y)
+								for (uint32 x = 0; x < S; ++x) {
+									const bool magenta = ((x < S / 2) == (y < S / 2));
+									uint8 *p = &px[(y * S + x) * 4];
+									p[0] = magenta ? 255 : 0;
+									p[1] = magenta ? 0 : 255;
+									p[2] = magenta ? 255 : 0;
+									p[3] = 255;
+								}
+							NkTextureCreateDesc td;
+							td.pixels = px;
+							td.width = S;
+							td.height = S;
+							td.debugName = "VfxProbeDamier";
+							d.texture = tl->Create(td);
+							std::fprintf(stderr, "[VFX PROBE] texture damier 2x2 (64x64) posee sur l'emetteur\n");
+						}
+					}
+					if (const char *one = std::getenv("NK_VFX_ONE"); one && one[0] == '1') {
+						d.ratePerSec = 60.f; // nait des la premiere image ; maxParticles = 1 borne a UNE
+						d.position = {-1.3f, 0.9f, 0.f}; // a gauche et bas : hors du panneau HUD translucide qui recouvrait le quadrant haut-droit
+						d.lifeMin = d.lifeMax = 1000.f;
+						d.speedMin = d.speedMax = 0.f;
+						d.sizeStart = d.sizeEnd = 1.5f;
+						d.gravity = {0.f, 0.f, 0.f};
+						d.velocityRand = 0.f;
+						d.colorStart = d.colorEnd = {1.f, 1.f, 1.f, 1.f};
+						d.maxParticles = 1;
+					}
+					if (const char *cnt = std::getenv("NK_VFX_COUNT"); cnt && cnt[0]) {
+						const uint32 n = (uint32)std::atoi(cnt);
+						d.maxParticles = n;
+						d.ratePerSec = (float32)n; // n vivantes en ~1 s, vie 1-2 s : regime etabli ~ n
+						d.lifeMin = 1.f;
+						d.lifeMax = 2.f;
 					}
 					NkEmitterId eid = vfx->CreateEmitter(d);
 					std::fprintf(stderr, "[VFX PROBE] emetteur cree id=%llu (vfx=%p)\n", (unsigned long long)eid.id, (void *)vfx);
@@ -4007,6 +4057,10 @@ namespace nkentseu {
 										 (unsigned)ctx.frame, dt, (unsigned)vfx->GetActiveParticleCount(),
 										 camData.position.x, camData.position.y, camData.position.z,
 										 camData.target.x, camData.target.y, camData.target.z);
+						if ((ctx.frame % 30u) == 0u)
+							std::fprintf(stderr, "[VFX PROBE] frame %u : GPU %s ms  CPU %.3f ms  (chrono GPU %s)\n", (unsigned)ctx.frame,
+										ctx.renderer->GetStats().gpuTimeValid ? NkFormatMs(ctx.renderer->GetStats().gpuTimeMs) : "--", ctx.renderer->GetStats().cpuTimeMs,
+										ctx.renderer->GetStats().gpuTimeValid ? "mesure" : "ABSENT");
 					}
 			}
 

@@ -1,4 +1,5 @@
 #pragma once
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // =============================================================================
 // NkRendererTypes.h  — NKRenderer v5.0  (Core/)
 //
@@ -667,6 +668,7 @@ namespace nkentseu {
 				uint32 lightsActive = 0; // lights affecting visible geometry
 				uint32 shadowCasters = 0;
 				float32 gpuTimeMs = 0.f;
+				bool gpuTimeValid = false; // faux tant qu'aucune requete GPU n'a repondu : le HUD dit « -- », pas 0.00 (2026-09-04)
 				float32 cpuTimeMs = 0.f;
 				float32 cullTimeMs = 0.f;
 				float32 shadowTimeMs = 0.f;

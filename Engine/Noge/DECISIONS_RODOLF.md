@@ -1564,6 +1564,34 @@ chaîne racine libérée 4,987 m** (rien d'autre ne retenait), coupée = trois r
 personne ne tombe. Une première contre-épreuve « coupée tombe » était fausse *par construction* :
 une racine dérivée est ancrée — le témoin devait libérer la racine, pas couper la chaîne.
 
+### ✨ 04/09 (soir) — PARTICULES, borne 2 : la TEXTURE rend, et le chrono GPU MESURE
+
+**A. La texture.** `NkEmitterDesc::texture` était déclarée et jamais lue. Un layout de descripteurs
+`{binding 1 : image+sampler}` partagé par les trois pipelines, un descripteur par émetteur lié à
+`CreateEmitter`, `@binding(set=0, binding=1) uniform sampler2D tParticle` dans `particles.frag.nksl`
+— la texture définit la forme et la teinte, la couleur du sommet la module. **Sans texture, le repli
+est dit** (`[NkVFX] emetteur 1 sans texture : repli disque doux blanc 32x32`) : le disque doux qui
+vivait en dur dans le fragment est devenu une texture générée à l'init — même rendu qu'avant.
+**Témoin en pixels** : une particule immobile portant un damier 2×2 magenta/vert → **quatre cellules**
+lisibles (1 386 / 837 / 1 710 / 1 667 px), deux diagonales perpendiculaires (|cos| 0,19) qui se
+croisent (écart 5,7 px). `Captures/noge_particules_texture_2026-09-04.png`. Piège rencontré : le
+panneau HUD translucide recouvrait le quadrant haut-droit et faussait le compte — la sonde pose
+la particule hors du panneau ; *la capture de sa seule fenêtre inclut son propre HUD*.
+
+**B. Le chrono GPU.** `NkIDevice::BeginTimestampQuery/EndTimestampQuery/GetTimestampResults` étaient
+des corps **vides** qu'aucun backend ne surchargeait, et personne n'écrivait `gpuTimeMs` : le
+`GPU: 0.00ms` du HUD n'était pas tronqué, il n'existait pas. Désormais OpenGL pose
+`glQueryCounter(GL_TIMESTAMP)` en début/fin de frame (anneau de 4, lecture sans blocage), le
+renderer remplit `gpuTimeMs` et un `gpuTimeValid` ; **sans instrument le HUD dit `GPU:--`**, pas
+0.00. **La courbe** (`renderdemo --demo=2`, 640×480, images 150/180) : 0 particule **1,4–4,2 ms** ·
+500 **2,2–2,6** · 5 000 **2,7–6,1** · 50 000 **8,8 ms puis 37 / 69 / 182 / 364 ms** (CPU 21–667 ms :
+simulation + 9,6 Mo de sommets réécrits chaque image). Elle varie avec le nombre ; **50 000 ne
+tiennent pas 16 ms, de loin**. Réserve dite : Ilyana occupait le GPU à 47–100 % pendant ces mesures
+(PID 11904 inchangé) — les valeurs absolues sont celles d'un GPU partagé, la pente est réelle.
+
+**C. Le jeu global Vulkan** (`uCam` lié par nom sur le chemin aplati GL, le sampler au set 0
+binding 1 à côté) : **nommé, pas fait** — la borne suivante.
+
 ### ✨ 04/09 — PARTICULES, borne 1 : le MÉLANGE déclaré est celui qui rend (la texture, pas encore)
 
 `NkEmitterDesc::blend` était **déclaré et jamais lu** : un seul pipeline, Additive, pour tous — le
