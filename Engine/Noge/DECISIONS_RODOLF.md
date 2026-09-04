@@ -1445,6 +1445,26 @@ et `ApplyFKSkinning` la lisent). Ce n'est pas une seconde *structure*, c'est un 
 et un exemplaire peut diverger. La retirer, c'est faire passer le squelette à chaque consommateur
 du clip (NKRenderer, Noge, éditeur) — un lot à part, à trancher, pas à glisser dans celui-ci.
 
+### 🔩 04/09 (nuit) — JENGA 2.6 : ce qui est appliqué, ce qui est mesuré en retour
+
+- **`-static` — le défaut était chez nous** : `config/toolchain.jenga:55` (bloc Windows natif) promettait
+  le lien statique en commentaire et ne passait que `--target`. Corrigé (`-static-libstdc++ -static-libgcc
+  -static -Wl,-Bstatic -lpthread` ; sans `-static`, `libwinpthread-1.dll` restait importée). Témoin :
+  `objdump -p NKMath_Tests.exe` ne liste plus aucune DLL de chaîne, et l'exe lancé avec
+  `PATH=/c/Windows/System32` seul rend 8/8.
+- **`testownmain()`** remplace mes trois fichiers vides (NKPhysics, NKCollision, NKImage — supprimés) ;
+  NKSerialization, NKECS, NKXR, NKAudio déclarent chacun **une** sous-suite (`Smoke`, `EntitySerialization`,
+  `Xr`, `Audio`).
+- **Défaut de Jenga 2.6 mesuré** : le contexte `test()` remet `_currentProject` à `None` à sa sortie
+  (`Api.py:999`) au lieu de rendre le projet parent → un **second** `with test("…")` dans le même projet
+  échoue (*« test context must be placed directly inside a project block »*) — et tout mot du DSL écrit
+  après un bloc `test()` dans un projet est **silencieusement ignoré** (`_currentProject` vaut `None`).
+  Les autres sous-suites (NKSerialization ×5, NKECS ×1, NKXR ×1, les deux bancs NKLogger/NKTime) sont
+  **nommées** dans les `.jenga`, pas déclarées. À Jenga : `__exit__` doit rendre `self._parent`.
+- **`testmainfile()`** : remplit `excludeMainFiles` que le Builder ne lit nulle part — mot inerte, nommé.
+- **`NKCode.jenga:345`** : aucun `-static` dans ce fichier aujourd'hui (grep) — le signalement ne se
+  retrouve pas, dit tel quel.
+
 ### 🟢 04/09 (soir) — MODULES DONT LES TESTS SONT ROUVERTS (`Nkentseu.jenga:451-453`, `allow=[...]`)
 
 Jenga 2.5.0 (`dutc/dute(enable=True, allow=[...])`, source `D:\Projets\MacShared\Projets\Jenga`,
