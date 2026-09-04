@@ -87,8 +87,6 @@ with project("NKTime"):
             # bench_sleep.cpp a son PROPRE main() (un banc de temps, pas un cas unitaire) : il ne peut pas cohabiter
             # avec le main automatique d Unitest. Exclu de la SUITE, pas supprime -- a lancer comme programme (2026-09-04).
             excludefiles(["tests/bench_sleep.cpp"])
-        # JENGA 2.6, DEFAUT MESURE (2026-09-04) : le contexte test() remet _currentProject a None a sa
-        # sortie (Api.py:999) au lieu de rendre le projet parent -> un SECOND with test() dans le meme
-        # projet echoue (« test context must be placed directly inside a project block »). Une seule
-        # sous-suite par projet tant que Jenga ne le corrige pas ; le banc reste exclu :
+        # Jenga 2.6.1 permet plusieurs test() par projet ; le banc reste HORS suite par choix (un banc de temps
+        # n est pas un cas unitaire), a lancer comme programme (2026-09-04) :
         #   Bench (bench_sleep.cpp), testownmain().
