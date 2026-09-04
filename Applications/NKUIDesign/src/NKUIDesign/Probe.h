@@ -5303,6 +5303,168 @@ namespace nkuidesign {
 						  prof >= 1 && angle1 > 80.f && angle1 < 100.f && noeudFixe1 && pos1 > 0.65f && pos1 < 0.85f && noeudFixe2 && noeudBouge,
 						  det);
 				}
+				// 60j. ② LA SAISIE DIRECTE DU CODE COULEUR, par UNE porte (NkPorteHex / NkPorteNombre) :
+				// l'hexa du popover (`ff0000` sans #), un champ de valeur (clic net -> frappe, `0`
+				// dans R), l'hexa sur la LIGNE (`00ff00`), et `zz` refuse sans rien perdre.
+				{
+					// ⚠️ SANS POLICE (pas de fenetre), le champ du kit ne « consomme » pas le clic
+					//    (il lui faut une face pour poser le caret) et EndFrame defocalise. La sonde
+					//    le dit et consomme elle-meme le clic d'appui sur un champ texte.
+					auto frappe = [&](float32 mx, float32 my, bool bas, const char *texte, bool entree, bool toutSel, bool appuiChamp = false) {
+						ctxI.input.mousePos = {mx, my};
+						ctxI.input.mouseDown[0] = bas;
+						if (entree)
+							ctxI.input.SetKey(nkgui::NkGuiKey::Enter, true);
+						ctxI.BeginFrame(0.016f);
+						if (toutSel)
+							ctxI.input.wantSelectAll = true;
+						for (const char *q = texte; q && *q; ++q)
+							ctxI.input.PushChar((uint32)(unsigned char)*q);
+						ctxI.BeginLayout({340.f, 0.f, 260.f, 900.f});
+						insp.OnUI(ec);
+						NkDessinerPickerDemande(ctxI, stI);
+						if (appuiChamp && ctxI.inputId != 0u)
+							ctxI.inputClickConsumed = true;
+						ctxI.EndFrame();
+						if (entree)
+							ctxI.input.SetKey(nkgui::NkGuiKey::Enter, false);
+					};
+					// vider le champ comme a la main : Fin, puis neuf Retour arriere (le
+					// caret d'un clic sans police est au debut ; « tout selectionner » est
+					// une commande de la coquille, pas une touche)
+					auto touche = [&](nkgui::NkGuiKey k, float32 mx, float32 my) {
+						ctxI.input.SetKey(k, true);
+						frappe(mx, my, false, "", false, false);
+						ctxI.input.SetKey(k, false);
+						frappe(mx, my, false, "", false, false);
+					};
+					auto vider = [&](float32 mx, float32 my) {
+						touche(nkgui::NkGuiKey::End, mx, my);
+						for (int32 k = 0; k < 9; ++k)
+							touche(nkgui::NkGuiKey::Backspace, mx, my);
+					};
+					auto peint = [&](const char *hex) {
+						NkRecordingPaint rec;
+						RenderDocument(rec, stI.doc, NkPaintRect{0.f, 0.f, 600.f, 900.f});
+						const nkentseu::uint32 rgba = renderdetail::NkGCouleur(hex);
+						uint32 n = 0u;
+						for (uint32 i = 0; i < (uint32)rec.cmds.Size(); ++i)
+							if ((rec.cmds[i].op == NkPaintOp::Fill || rec.cmds[i].op == NkPaintOp::FillColor) && rec.cmds[i].rgba == rgba)
+								++n;
+						return n;
+					};
+					// 1. l'hexa du popover, sur rc fills[0]
+					stI.SelectSingle(rc);
+					stI.picker = DesignState::DemandePicker();
+					stI.picker.ouvert = true;
+					stI.picker.id = ctxI.GetId("##sonde.popover.saisie");
+					stI.picker.genre = 1u;
+					stI.picker.noeud = rc;
+					stI.picker.index = 0;
+					stI.picker.ancre = {360.f, 200.f, 16.f, 16.f};
+					frappe(-1.f, -1.f, false, "", false, false);
+					frappe(-1.f, -1.f, false, "", false, false);
+					float32 px = 1e9f, py = 1e9f, pxM = -1e9f;
+					for (uint32 i = 0; i < (uint32)ctxI.dlOverlay.vtx.Size(); ++i) {
+						if (ctxI.dlOverlay.vtx[i].pos.x < px) px = ctxI.dlOverlay.vtx[i].pos.x;
+						if (ctxI.dlOverlay.vtx[i].pos.y < py) py = ctxI.dlOverlay.vtx[i].pos.y;
+						if (ctxI.dlOverlay.vtx[i].pos.x > pxM) pxM = ctxI.dlOverlay.vtx[i].pos.x;
+					}
+					const float32 x0 = px + 0.5f + 8.f, x1 = pxM - 0.5f - 8.f;
+					const float32 yR = py + 0.5f + 8.f + 26.f + 168.f + 3.f;
+					nkgui::NkRect rmM, chM[3], opM;
+					NkRangeeModele(x0, x1, yR, rmM, chM, opM);
+					const float32 hx = chM[0].x + 20.f, hy = yR + 10.f;
+					// le modele est peut-etre reste sur HSB (sonde 60g) : on remet Hex par le menu
+					frappe(rmM.x + 20.f, hy, false, "", false, false);
+					frappe(rmM.x + 20.f, hy, true, "", false, false);
+					frappe(rmM.x + 20.f, hy, false, "", false, false);
+					const float32 hexY = rmM.y - 9.f * 20.f - 4.f + 2.f + 10.f; // la rangee Hex (k=0)
+					frappe(rmM.x + 20.f, hexY, false, "", false, false);
+					frappe(rmM.x + 20.f, hexY, true, "", false, false);
+					frappe(rmM.x + 20.f, hexY, false, "", false, false);
+					frappe(-1.f, -1.f, false, "", false, false);
+					frappe(hx, hy, false, "", false, false);
+					frappe(hx, hy, true, "", false, false, true);
+					frappe(hx, hy, false, "", false, false);
+					const bool focus1 = ctxI.inputId != 0u && ctxI.popupDepth == 1;
+					vider(hx, hy);
+					frappe(hx, hy, false, "ff0000", false, false);
+					frappe(hx, hy, false, "", true, false);
+					frappe(-1.f, -1.f, false, "", false, false);
+					const NkString c1 = stI.doc.nodes[(uint32)rc].fills[0].couleur;
+					const bool hexaPopover = NkComponentDecl::StrEq(c1.Data(), "#ff0000") && peint("#ff0000") >= 1u;
+					// 2. le refus : `zz` ne change rien et ne perd rien
+					frappe(hx, hy, false, "", false, false);
+					frappe(hx, hy, true, "", false, false, true);
+					frappe(hx, hy, false, "", false, false);
+					vider(hx, hy);
+					frappe(hx, hy, false, "zz", false, false);
+					frappe(hx, hy, false, "", true, false);
+					frappe(-1.f, -1.f, false, "", false, false);
+					const bool refus = NkComponentDecl::StrEq(stI.doc.nodes[(uint32)rc].fills[0].couleur.Data(), "#ff0000");
+					// 3. le champ R : menu du modele -> RGB, clic net sur le champ 0, `0`, Entree
+					frappe(rmM.x + 20.f, hy, false, "", false, false);
+					frappe(rmM.x + 20.f, hy, true, "", false, false);
+					frappe(rmM.x + 20.f, hy, false, "", false, false);
+					const float32 ry = rmM.y - 9.f * 20.f - 4.f + 2.f + 1.f * 20.f + 10.f; // la rangee RGB (k=1)
+					frappe(rmM.x + 20.f, ry, false, "", false, false);
+					frappe(rmM.x + 20.f, ry, true, "", false, false);
+					frappe(rmM.x + 20.f, ry, false, "", false, false);
+					frappe(-1.f, -1.f, false, "", false, false);
+					frappe(hx, hy, false, "", false, false);
+					frappe(hx, hy, true, "", false, false, true);
+					frappe(hx, hy, false, "", false, false); // le clic net : la saisie s'ouvre
+					frappe(hx, hy, false, "0", false, true);
+					frappe(hx, hy, false, "", true, false);
+					frappe(-1.f, -1.f, false, "", false, false);
+					const NkString c3 = stI.doc.nodes[(uint32)rc].fills[0].couleur;
+					const bool champR = NkComponentDecl::StrEq(c3.Data(), "#000000");
+					stI.picker = DesignState::DemandePicker();
+					frappe(-1.f, -1.f, false, "", false, false);
+					// 4. l'hexa sur la LIGNE du noeud a cle simple (rs) : `00ff00`
+					int32 rs2 = -1;
+					for (uint32 i = 0; i < (uint32)stI.doc.nodes.Size(); ++i)
+						if (NkComponentDecl::StrEq(stI.doc.nodes[i].label.Data(), "Bouton_Connexion"))
+							rs2 = (int32)i;
+					bool ligne = false;
+					NkString c4;
+					if (rs2 >= 0) {
+						stI.SelectSingle(rs2);
+						frappe(-1.f, -1.f, false, "", false, false);
+						frappe(-1.f, -1.f, false, "", false, false);
+						const NkString cAv = stI.doc.nodes[(uint32)rs2].fills.Empty() ? stI.doc.nodes[(uint32)rs2].fill
+																				  : stI.doc.nodes[(uint32)rs2].fills[0].couleur;
+						const nkentseu::uint32 rgbaAv = renderdetail::NkGCouleur(cAv.Data());
+						float32 sx0 = 1e9f, sy0 = 1e9f, sx1 = -1e9f, sy1 = -1e9f;
+						for (uint32 i = 0; i < (uint32)ctxI.dl.vtx.Size(); ++i) {
+							const auto &vt = ctxI.dl.vtx[i];
+							if (vt.col == rgbaAv || vt.col == ((rgbaAv >> 24) | ((rgbaAv >> 8) & 0xFF00u) | ((rgbaAv << 8) & 0xFF0000u) | (rgbaAv << 24))) {
+								if (vt.pos.x < sx0) sx0 = vt.pos.x;
+								if (vt.pos.y < sy0) sy0 = vt.pos.y;
+								if (vt.pos.x > sx1) sx1 = vt.pos.x;
+								if (vt.pos.y > sy1) sy1 = vt.pos.y;
+							}
+						}
+						const float32 lx = sx1 + 30.f, ly = (sy0 + sy1) * 0.5f;
+						frappe(lx, ly, false, "", false, false);
+						frappe(lx, ly, true, "", false, false, true);
+						frappe(lx, ly, false, "", false, false);
+						vider(lx, ly);
+						frappe(lx, ly, false, "00ff00", false, false);
+						frappe(lx, ly, false, "", true, false);
+						frappe(-1.f, -1.f, false, "", false, false);
+						c4 = stI.doc.nodes[(uint32)rs2].fills.Empty() ? NkString("(aucune)") : stI.doc.nodes[(uint32)rs2].fills[0].couleur;
+						ligne = NkComponentDecl::StrEq(c4.Data(), "#00ff00") && peint("#00ff00") >= 1u;
+					}
+					stI.SelectSingle(rc);
+					snprintf(det, sizeof(det),
+							 "champ focalise dans le popover=%d ; popover : `ff0000` -> %s ; `zz` refuse=%d ; champ R `0` -> %s ; ligne : `00ff00` -> %s",
+							 focus1 ? 1 : 0, c1.Data(), refus ? 1 : 0, c3.Data(), c4.Data() ? c4.Data() : "?");
+					check("60j. ② LA SAISIE DIRECTE DU CODE COULEUR par UNE porte : l'hexa du popover (sans #), un champ "
+						  "de valeur au clic net, l'hexa sur la LIGNE -- la couleur peinte suit, `zz` est refuse sans rien perdre",
+						  focus1 && hexaPopover && refus && champR && ligne, det);
+				}
 				stI.picker = DesignState::DemandePicker();
 			}
 		}

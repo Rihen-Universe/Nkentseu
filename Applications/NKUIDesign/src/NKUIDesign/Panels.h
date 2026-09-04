@@ -9770,6 +9770,48 @@ namespace nkuidesign {
 			if (*q == '.')
 				*q = ',';
 	}
+	/// ② LA PORTE DE SAISIE D'UNE COULEUR -- unique : le popover, les lignes, les etats, les
+	/// effets, l'apparence passent ICI. Accepte `1976d2`, `#1976D2`, `  #1976d2 `, et une
+	/// reference `@cle` ; normalise en `#` + minuscules DANS le tampon. Illisible : rend
+	/// false et ne touche pas au tampon (la valeur d'avant reste, rien n'est perdu).
+	inline bool NkPorteHex(char *buf, nkentseu::uint32 cap) {
+		if (!buf || cap < 8u)
+			return false;
+		char s[16];
+		nkentseu::uint32 n = 0u;
+		const char *q = buf;
+		while (*q == ' ')
+			++q;
+		if (*q == '@') { // une reference : elle se valide au resolveur, pas ici
+			return NkEstReference(q);
+		}
+		if (*q == '#')
+			++q;
+		for (; *q && n < 15u; ++q) {
+			const char c = *q;
+			if (c == ' ')
+				break;
+			const bool ok = (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F');
+			if (!ok)
+				return false;
+			s[n++] = (c >= 'A' && c <= 'F') ? (char)(c - 'A' + 'a') : c;
+		}
+		if (n != 6u)
+			return false;
+		buf[0] = '#';
+		for (nkentseu::uint32 k = 0; k < 6u; ++k)
+			buf[1 + k] = s[k];
+		buf[7] = '\0';
+		return true;
+	}
+	/// ② LA PORTE DE SAISIE D'UN NOMBRE -- la virgule, le point, le signe ; borne a [mn, mx].
+	inline bool NkPorteNombre(const char *s, nkentseu::float32 mn, nkentseu::float32 mx, nkentseu::float32 &v) {
+		nkentseu::float32 x = 0.f;
+		if (!NkLireNombreFr(s, x))
+			return false;
+		v = x < mn ? mn : (x > mx ? mx : x);
+		return true;
+	}
 	/// La rangee modele de Lunacy : `[Modele ˅]  v1  v2  v3  [opacite %]` -- UNE geometrie,
 	/// lue par le popover et par la sonde (qui mesure que `-54,00` tient dans un champ).
 	inline void NkRangeeModele(nkentseu::float32 x0, nkentseu::float32 x1, nkentseu::float32 y, nkgui::NkRect &menu,
@@ -10019,7 +10061,7 @@ namespace nkuidesign {
 				{
 					const NkRect rh = {x0, y + 3.f, 80.f, costume::HControle};
 					ctx.SetNextItemRect(rh);
-					if (nkgui::InputText(ctx, "##nkuidesign.popover.bord.hex", d.hex, 10) && NkHexLisible(d.hex)) {
+					if (nkgui::InputText(ctx, "##nkuidesign.popover.bord.hex", d.hex, 10) && NkPorteHex(d.hex, (uint32)sizeof(d.hex))) {
 						b.couleur = NkString(d.hex);
 						touche();
 					}
@@ -10441,7 +10483,7 @@ namespace nkuidesign {
 					if (mModeleCouleur == 0) {
 						const NkRect rh = {rv3[0].x, y + 3.f, rv3[2].x + rv3[2].w - rv3[0].x, costume::HControle};
 						ctx.SetNextItemRect(rh);
-						if (nkgui::InputText(ctx, "##nkuidesign.popover.hex", d.hex, 10) && NkHexLisible(d.hex)) {
+						if (nkgui::InputText(ctx, "##nkuidesign.popover.hex", d.hex, 10) && NkPorteHex(d.hex, (uint32)sizeof(d.hex))) {
 							couleurCourante = NkString(d.hex);
 							touche();
 						}
@@ -11263,23 +11305,56 @@ namespace nkuidesign {
 					snprintf(b, sizeof(b), "%d", (int32)v);
 				else
 					snprintf(b, sizeof(b), "%.2f", (double)v);
-				BoiteChamp(ctx, r, b, petit);
 				const nkgui::NkGuiId gid = ctx.GetId(id);
 				bool change = false;
-				const bool dans = ctx.popupDepth == 0
+				// ② LA FRAPPE : un clic SANS glisser ouvre la saisie (Entree valide par la
+				//    porte NkPorteNombre, Echap ou un clic ailleurs abandonne)
+				if (mSaisieChamp == gid) {
+					ctx.SetNextItemRect(r);
+					const bool entree = nkgui::InputText(ctx, id, mSaisieBuf, (int32)sizeof(mSaisieBuf));
+					if (entree) {
+						float32 nv = v;
+						if (NkPorteNombre(mSaisieBuf, vmin, vmax, nv) && nv != v) {
+							v = nv;
+							change = true;
+						}
+						mSaisieChamp = 0;
+						ctx.inputId = nkgui::NKGUI_ID_NONE;
+					} else if (ctx.inputId != gid || ctx.input.KeyPressed(nkgui::NkGuiKey::Escape)) {
+						mSaisieChamp = 0; // le focus est parti : on abandonne
+						if (ctx.inputId == gid)
+							ctx.inputId = nkgui::NKGUI_ID_NONE;
+					}
+					return change;
+				}
+				BoiteChamp(ctx, r, b, petit);
+				// un champ DANS un popover repond aussi (il etait mort sous `popupDepth == 0`)
+				const bool dans = (ctx.popupDepth == 0 || ctx.curPopupLevel >= 0)
 								  && NkGuiRectContains(r, ctx.input.mousePos);
 				if (dans)
 					ctx.wantCursor = nkgui::NkGuiCursor::ResizeEW;
 				if (dans && ctx.input.mouseClicked[0]) {
 					mDragChamp = gid;
 					mDragDernierX = ctx.input.mousePos.x;
+					mDragBouge = false;
 				}
 				if (mDragChamp == gid) {
-					if (!ctx.input.mouseDown[0])
+					if (!ctx.input.mouseDown[0]) {
 						mDragChamp = 0;
-					else {
+						if (!mDragBouge && dans) { // un clic net : la saisie s'ouvre
+							mSaisieChamp = gid;
+							if (decimales >= 0)
+								NkEcrireNombreFr(mSaisieBuf, (uint32)sizeof(mSaisieBuf), v, decimales);
+							else if (v == (float32)(int32)v)
+								snprintf(mSaisieBuf, sizeof(mSaisieBuf), "%d", (int32)v);
+							else
+								snprintf(mSaisieBuf, sizeof(mSaisieBuf), "%.2f", (double)v);
+							ctx.inputId = gid; // le focus clavier, sans second clic
+						}
+					} else {
 						const float32 dx = ctx.input.mousePos.x - mDragDernierX;
 						if (dx != 0.f) {
+							mDragBouge = true;
 							mDragDernierX = ctx.input.mousePos.x;
 							float32 nv = v + dx * vitesse;
 							if (nv < vmin)
@@ -12382,7 +12457,7 @@ namespace nkuidesign {
 						snprintf(idH, sizeof(idH), "##insp.etat.hex%u", e);
 						ctx.SetNextItemRect({xChamp, costume::BandeY(r.y),
 											 x1 - xChamp, costume::HControle});
-						if (nkgui::InputText(ctx, idH, mEtatsBuf[e], 10) || pickerEtat) {
+						if ((nkgui::InputText(ctx, idH, mEtatsBuf[e], 10) && NkPorteHex(mEtatsBuf[e], (uint32)sizeof(mEtatsBuf[e]))) || pickerEtat) {
 							NkApparenceEtat &bloc = NkBlocEtat(*n, etats[e]);
 							bloc.fond = NkString(mEtatsBuf[e]);
 							if (bloc.Vide())
@@ -12532,7 +12607,7 @@ namespace nkuidesign {
 						snprintf(idHex, sizeof(idHex), "##insp.effet.hex%u", i);
 						ctx.SetNextItemRect({col.hexX, costume::BandeY(r.y), col.hexW,
 											 costume::HControle});
-						if (nkgui::InputText(ctx, idHex, mEffetsBuf[i], 10) || pickerEffe) {
+						if ((nkgui::InputText(ctx, idHex, mEffetsBuf[i], 10) && NkPorteHex(mEffetsBuf[i], 10u)) || pickerEffe) {
 							e.couleur = NkString(mEffetsBuf[i]);
 							mSt->doc.MarkHumanEdit(mSt->selected);
 						}
@@ -13510,7 +13585,7 @@ namespace nkuidesign {
 							   ctx.theme.textMuted, 1.f);
 				}
 				ctx.SetNextItemRect({sw.x + 24.f, costume::BandeY(r.y), x1 - (sw.x + 24.f), costume::HControle});
-				if (nkgui::InputText(ctx, id, buf, 10)) {
+				if (nkgui::InputText(ctx, id, buf, 10) && NkPorteHex(buf, 10u)) {
 					cle = NkString(buf);
 					mSt->doc.MarkHumanEdit(mSt->selected);
 					return true;
@@ -13649,8 +13724,24 @@ namespace nkuidesign {
 						const nkgui::NkColor cr = res ? NkCouleurDepuisHex(res) : nkgui::NkColor{255, 0, 255, 255};
 						dl.AddRectFilled({sw.x + 1.f, sw.y + 1.f, sw.w - 2.f, sw.h - 2.f}, cr, 2.f);
 					}
-					costume::Texte(dl, F.px10, col.hexX, costume::CentrerBande(F.px10, r.y), nomLigne,
-								   (NkEstReference(mFillsBuf[i]) && !varLigne) ? nkgui::NkColor{220, 60, 60, 255} : encre);
+					const bool hexaEditable = !ligneImage && !(gApercu && gApercu->Actif()) && !NkEstReference(mFillsBuf[i]);
+					if (hexaEditable) {
+						// ② Lunacy : le code se tape sur la ligne aussi -- par la porte
+						char idHex[32];
+						snprintf(idHex, sizeof(idHex), "##insp.fill.hex%u", i);
+						ctx.SetNextItemRect({col.hexX, costume::BandeY(r.y), col.hexW, costume::HControle});
+						if (nkgui::InputText(ctx, idHex, mFillsBuf[i], 10) && NkPorteHex(mFillsBuf[i], (uint32)sizeof(mFillsBuf[i]))) {
+							n->MaterialiserFills();
+							const uint32 k = simple ? 0u : i;
+							if (k < (uint32)n->fills.Size())
+								n->fills[k].couleur = NkString(mFillsBuf[i]);
+							mSt->doc.MarkHumanEdit(mSt->selected);
+							mSt->host.SyncTo(mSt->doc);
+							mFillsGen = -1;
+						}
+					} else
+						costume::Texte(dl, F.px10, col.hexX, costume::CentrerBande(F.px10, r.y), nomLigne,
+									   (NkEstReference(mFillsBuf[i]) && !varLigne) ? nkgui::NkColor{220, 60, 60, 255} : encre);
 					char idOp[32];
 					snprintf(idOp, sizeof(idOp), "insp.fill.op%u", i);
 					const NkRect ro = {col.opacX, costume::BandeY(r.y), 30.f, costume::HControle};
@@ -13840,7 +13931,24 @@ namespace nkuidesign {
 								const size_t l = strlen(nomB);
 								snprintf(nomB + l, sizeof(nomB) - l, "%s", bd->extremite.Data());
 							}
-							costume::Texte(dl, F.px10, col.hexX, costume::CentrerBande(F.px10, r.y), nomB, encre);
+							// ② le code de la bordure se tape sur la ligne, par la porte ; la
+							//    description (epaisseur, position...) suit
+							char idHexB[32];
+							snprintf(idHexB, sizeof(idHexB), "##insp.bord.hex%u", i);
+							const float32 wHex = col.hexW > 110.f ? 58.f : col.hexW * 0.5f;
+							ctx.SetNextItemRect({col.hexX, costume::BandeY(r.y), wHex, costume::HControle});
+							if (nkgui::InputText(ctx, idHexB, mBordsBuf[i], 10) && NkPorteHex(mBordsBuf[i], (uint32)sizeof(mBordsBuf[i]))) {
+								n->MaterialiserBorders();
+								const uint32 k = simple ? 0u : i;
+								if (k < (uint32)n->borders.Size())
+									n->borders[k].couleur = NkString(mBordsBuf[i]);
+								mSt->doc.MarkHumanEdit(mSt->selected);
+								mSt->host.SyncTo(mSt->doc);
+								mBordsGen = -1;
+							}
+							dl.PushClipRect({col.hexX + wHex + 4.f, r.y, col.hexW - wHex - 4.f, r.h}, true);
+							costume::Texte(dl, F.px10, col.hexX + wHex + 4.f, costume::CentrerBande(F.px10, r.y), nomB, encre);
+							dl.PopClipRect();
 						}
 						char idOp[32];
 						snprintf(idOp, sizeof(idOp), "insp.bord.op%u", i);
@@ -14322,6 +14430,9 @@ namespace nkuidesign {
 			bool mModeleMenuOuvert = false;
 			bool mFusionMenuOuvert = false; ///< la goutte : les 18 modes, Normal operant
 			bool mCadrageMenuOuvert = false; ///< image : Fill / Fit / Stretch / Tile / Crop
+			nkgui::NkGuiId mSaisieChamp = 0; ///< ② le champ numerique en cours de FRAPPE
+			char mSaisieBuf[24] = {};
+			bool mDragBouge = false; ///< le glisser a bouge : ce n'etait pas un clic
 			int32 mArretSel = 0;
 			int32 mArretDrag = -1;
 			int32 mEtatsNode = -1;
