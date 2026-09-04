@@ -39,7 +39,7 @@ main** — la prochaine régénération l'effacerait.*
 
 | lignes de comportement | livré | partiel | absent | écarté |
 |---|---|---|---|---|
-| **178** | **75** | **30** | **72** | **1** |
+| **178** | **75** | **31** | **71** | **1** |
 
 ### Par chapitre — où l'on est fort, où l'on est faible
 
@@ -53,7 +53,7 @@ main** — la prochaine régénération l'effacerait.*
 | 5. Toile et vue | 3 | 4 | 9 | 0 |
 | 6. Transformations | 13 | 1 | 7 | 0 |
 | 7. Calques et groupes | 9 | 1 | 6 | 1 |
-| 8. Propriétés | 10 | 11 | 19 | 0 |
+| 8. Propriétés | 10 | 12 | 18 | 0 |
 | 9. Composants et instances | 5 | 1 | 4 | 0 |
 
 ### La liste nommée — PARTIELS
@@ -104,6 +104,7 @@ main** — la prochaine régénération l'effacerait.*
 - Position intérieure / centrée / extérieure
 - Extrémités (*caps*), jonctions (*folds*), têtes de flèche
 - Ombre interne
+- Mode de fusion PAR REMPLISSAGE (18 modes : Normal, Darken, Multiply, Plus Darker, Color Burn, Lighten, Screen, Plus Lighter, Color Dodge, Overlay, Soft Light, Hard Light, Difference, Exclusion, Hue, Saturation, Color, Luminosity)
 - Styles de couleur nommés (la ligne de remplissage porte « Dark Primary ») et `Styles` / `Variables` au rail de gauche
 - Opacité + mode de fusion du CALQUE (section `LAYER`)
 - Alignement horizontal (4)
@@ -196,7 +197,6 @@ main** — la prochaine régénération l'effacerait.*
 - *Tints* (une teinte unique sur un groupe ou une instance)
 - Pointillés (tiret / écart)
 - Un tracé ouvert n'accepte que la position « centrée »
-- Mode de fusion PAR REMPLISSAGE (18 modes : Normal, Darken, Multiply, Plus Darker, Color Burn, Lighten, Screen, Plus Lighter, Color Dodge, Overlay, Soft Light, Hard Light, Difference, Exclusion, Hue, Saturation, Color, Luminosity)
 - Flou gaussien
 - Flou d'arrière-plan
 - Gras / italique / souligné

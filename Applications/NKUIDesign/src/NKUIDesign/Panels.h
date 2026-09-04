@@ -10391,7 +10391,10 @@ namespace nkuidesign {
 					mFusionMenuOuvert = false;
 					if (fusionChoix > 0) {
 						char msgF[160];
-						snprintf(msgF, sizeof(msgF), "Mode de fusion « %s » enregistré (fichier, export) — pas encore peint : le peintre rend Normal.",
+						const bool exact = renderdetail::NkFusionExacte(f.fusion) != NkComponentPaint::NkPaintBlend::Alpha;
+						snprintf(msgF, sizeof(msgF),
+								 exact ? "Mode de fusion « %s » : peint (état de mélange du GPU, exact) et enregistré."
+									   : "Mode de fusion « %s » enregistré (fichier, export) — pas encore peint : le peintre rend Normal.",
 								 kNkFusionLib[fusionChoix]);
 						mSt->status = NkString(msgF);
 					} else
@@ -10478,7 +10481,7 @@ namespace nkuidesign {
 						if (svG) {
 							const int32 kf = NkIndiceFusion(f.fusion.Data());
 							char msgG[160];
-							snprintf(msgG, sizeof(msgG), "Mode de fusion : %s — les 18 se choisissent et s'enregistrent ; seul Normal est peint.",
+							snprintf(msgG, sizeof(msgG), "Mode de fusion : %s — les 18 se choisissent et s'enregistrent ; Multiply, Screen, Darken, Lighten, Plus Lighter sont peints.",
 									 kf >= 0 ? kNkFusionLib[kf] : f.fusion.Data());
 							mSt->status = NkString(msgG);
 						}

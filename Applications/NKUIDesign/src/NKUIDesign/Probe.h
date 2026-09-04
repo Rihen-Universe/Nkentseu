@@ -6005,7 +6005,7 @@ namespace nkuidesign {
 						if (ctxI.dlOverlay.vtx[i].pos.x < px) px = ctxI.dlOverlay.vtx[i].pos.x;
 						if (ctxI.dlOverlay.vtx[i].pos.y < py) py = ctxI.dlOverlay.vtx[i].pos.y;
 					}
-					const float32 x0 = px + 0.5f + 8.f, y0 = py + 0.5f + 8.f;
+					const float32 x0 = px + 0.5f + 8.f, y0 = py + 0.5f + 8.f, x1m = px + 0.5f + 250.f - 8.f;
 					auto clic = [&](float32 x, float32 y) {
 						image6(x, y, false);
 						image6(x, y, true);
@@ -6017,13 +6017,19 @@ namespace nkuidesign {
 					clic(x0 + 20.f, yMenu + 2.f + 2.f * 18.f + 9.f); // colonne 0, ligne 2 : Multiply
 					const NkString m1 = stI.doc.nodes[(uint32)rc].fills[0].fusion;
 					const bool choisi = NkComponentDecl::StrEq(m1.Data(), "multiply");
-					const bool dit = stI.status.Data() && strstr(stI.status.Data(), "pas encore peint") != nullptr;
+					// ②-2 : Multiply est EXACT au GPU, le pied dit « peint » ; Overlay lit la
+					// destination, le pied dit « pas encore peint »
+					const bool ditPeint = stI.status.Data() && strstr(stI.status.Data(), "exact") != nullptr;
 					NkString s;
 					stI.doc.Save(s);
 					const bool ecrit = strstr(s.Data(), "fusion=multiply") != nullptr;
 					NkUIDocument relu;
 					const bool relus = relu.Load(s.Data()) && relu.IsValidIndex(rc) && !relu.nodes[(uint32)rc].fills.Empty()
 									   && NkComponentDecl::StrEq(relu.nodes[(uint32)rc].fills[0].fusion.Data(), "multiply");
+					clic(gx, gy);
+					clic(x0 + (x1m - x0) * 0.5f + 20.f, yMenu + 2.f + 9.f); // colonne 1, ligne 0 : Overlay
+					const bool overlay = NkComponentDecl::StrEq(stI.doc.nodes[(uint32)rc].fills[0].fusion.Data(), "overlay");
+					const bool dit = stI.status.Data() && strstr(stI.status.Data(), "pas encore peint") != nullptr;
 					clic(gx, gy);
 					clic(x0 + 20.f, yMenu + 2.f + 9.f); // Normal : efface
 					const bool efface = stI.doc.nodes[(uint32)rc].fills[0].fusion.Empty();
@@ -6032,11 +6038,12 @@ namespace nkuidesign {
 					const bool rienNormal = strstr(s2.Data(), "fusion=") == nullptr;
 					stI.picker = DesignState::DemandePicker();
 					image6(-1.f, -1.f, false);
-					snprintf(det, sizeof(det), "Multiply choisi -> `%s` (dit au pied=%d) ; fichier `fusion=multiply`=%d ; relu=%d ; Normal -> efface=%d, rien au fichier=%d",
-							 m1.Data() ? m1.Data() : "", dit ? 1 : 0, ecrit ? 1 : 0, relus ? 1 : 0, efface ? 1 : 0, rienNormal ? 1 : 0);
+					snprintf(det, sizeof(det), "Multiply choisi -> `%s` (pied : peint, exact=%d) ; fichier `fusion=multiply`=%d ; relu=%d ; Overlay -> `overlay`=%d (pied : pas encore peint=%d) ; Normal -> efface=%d, rien au fichier=%d",
+							 m1.Data() ? m1.Data() : "", ditPeint ? 1 : 0, ecrit ? 1 : 0, relus ? 1 : 0, overlay ? 1 : 0, dit ? 1 : 0, efface ? 1 : 0, rienNormal ? 1 : 0);
 					check("60q. ②-1 LES 18 MODES DE FUSION SE CHOISISSENT : « Multiply » par le menu s'ecrit dans le modele (cle CSS), "
-						  "part au fichier et en revient, le pied dit qu'il n'est pas peint ; « Normal » l'efface, rien au fichier",
-						  choisi && dit && ecrit && relus && efface && rienNormal, det);
+						  "part au fichier et en revient, le pied dit qu'il est peint (exact) ; « Overlay » s'ecrit et le pied dit "
+						  "« pas encore peint » ; « Normal » l'efface, rien au fichier",
+						  choisi && ditPeint && ecrit && relus && overlay && dit && efface && rienNormal, det);
 				}
 				stI.picker = DesignState::DemandePicker();
 			}
@@ -6550,6 +6557,74 @@ namespace nkuidesign {
 					 rienParDefaut ? 1 : 0, relus ? 1 : 0, identique ? 1 : 0);
 			check("65a. ① L'ORIGINE ET LES RAYONS font l'aller-retour, additifs (rien au fichier par defaut), un jeton inconnu `zz=42` preserve",
 				  rienParDefaut && relus && identique, det);
+		}
+		// ── 67. ②-2 LES CINQ MODES EXACTS SE PEIGNENT, les treize autres non ─────
+		//    A l'enregistreur : un remplissage `multiply` est encadre de PushBlend(Multiply) /
+		//    PopBlend ; `screen` de PushBlend(Screen) ; `overlay` (lit la destination) n'a
+		//    aucun PushBlend -- il est enregistre et dit, pas approxime ; un `continue` (un
+		//    remplissage invisible) ne laisse pas de mode derriere lui (les Push et Pop se
+		//    comptent). Le dorsal reel se mesure en pixels avec une fenetre (`--capture`).
+		{
+			char det[400];
+			static const char *const kModes[4] = {"multiply", "screen", "overlay", ""};
+			const uint16 kAttendu[4] = {(uint16)NkComponentPaint::NkPaintBlend::Multiply, (uint16)NkComponentPaint::NkPaintBlend::Screen, 0u, 0u};
+			bool ok = true;
+			for (uint32 m = 0; m < 4u; ++m) {
+				NkUIDocument dB;
+				dB.NewDocument("Toile", NkAuthor::Humain);
+				dB.nodes[0].layout.kind = NkLayoutKind::Free;
+				const int32 f = dB.AddChild(0, "", NkAuthor::Humain);
+				NkUINode &nf = dB.nodes[(uint32)f];
+				nf.shape = NkString("rect");
+				nf.width.mode = NkSizeMode::Fixed;
+				nf.width.value = 100.f;
+				nf.height.mode = NkSizeMode::Fixed;
+				nf.height.value = 60.f;
+				NkRemplissage r0;
+				r0.couleur = NkString("#808080");
+				NkRemplissage r1;
+				r1.couleur = NkString("#808080");
+				r1.fusion = NkString(kModes[m]);
+				NkRemplissage rInvisible; // un `continue` dans la boucle : pas de mode oublie
+				rInvisible.couleur = NkString("#ff0000");
+				rInvisible.fusion = NkString("screen");
+				rInvisible.visible = false;
+				nf.fills.PushBack(r0);
+				nf.fills.PushBack(r1);
+				nf.fills.PushBack(rInvisible);
+				NkRecordingPaint rec;
+				RenderDocument(rec, dB, NkPaintRect{0.f, 0.f, 400.f, 300.f});
+				uint32 nPush = 0u, nPop = 0u, fillsSousMode = 0u;
+				uint16 modeVu = 0u;
+				int32 prof = 0;
+				for (uint32 i = 0; i < (uint32)rec.cmds.Size(); ++i) {
+					const NkPaintCmd &c = rec.cmds[i];
+					if (c.op == NkPaintOp::PushBlend) {
+						++nPush;
+						++prof;
+						modeVu = c.icon;
+					} else if (c.op == NkPaintOp::PopBlend) {
+						++nPop;
+						--prof;
+					} else if ((c.op == NkPaintOp::Fill || c.op == NkPaintOp::FillColor) && prof > 0)
+						++fillsSousMode;
+				}
+				const bool attenduPush = kAttendu[m] != 0u;
+				const bool bon = (attenduPush ? (nPush == 1u && nPop == 1u && modeVu == kAttendu[m] && fillsSousMode >= 1u)
+											  : (nPush == 0u && nPop == 0u))
+								 && prof == 0;
+				if (!bon)
+					ok = false;
+				const size_t l = strlen(det);
+				if (m == 0u)
+					det[0] = '\0';
+				snprintf(det + (m == 0u ? 0 : l), sizeof(det) - (m == 0u ? 0 : l), "%s`%s` : Push=%u Pop=%u mode=%u remplissages sous mode=%u",
+						 m == 0u ? "" : " ; ", kModes[m][0] ? kModes[m] : "normal", nPush, nPop, (unsigned)modeVu, fillsSousMode);
+			}
+			check("67. ②-2 LES CINQ MODES EXACTS SE PEIGNENT : `multiply` et `screen` encadres de PushBlend / PopBlend a "
+				  "l'enregistreur (le bon mode, un remplissage dessous), `overlay` et normal sans aucun -- et un remplissage "
+				  "invisible ne laisse pas de mode derriere lui",
+				  ok, det);
 		}
 		snprintf(tail, sizeof(tail), "\n=== RESULTAT : %d / %d ===\n", pass, total);
 		rep.Append(tail);

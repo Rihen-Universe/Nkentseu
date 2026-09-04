@@ -1,3 +1,4 @@
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // =============================================================================
 // main.cpp — NkUIDesign : designer des interfaces a partir de composants declares.
 //
@@ -177,6 +178,9 @@ static constexpr int32 kCaptureFramePrete = 8;
 ///    sélectionnée ne dessine aucun champ). *Une capture d'un état vide ne
 ///    témoigne que du vide.* Ce drapeau met l'inspecteur dans l'état PLEIN.
 static char gSelectionner[128] = {0};
+// --scene-fusion : avant la photo, six paires de rectangles superposes, un mode de
+// fusion par paire -- le temoin en PIXELS des modes exacts, sur le dorsal reel (②-2).
+static bool gSceneFusion = false;
 // ⚠️ PAS de gPanneau ici : `--panneau=<titre>` EXISTE DEJA (gPanneauInitial,
 //    mise en scene ecran 9). J'en avais ecrit un doublon avant de chercher —
 //    la porte « chercher avant d'ecrire » vaut aussi pour ses propres ajouts.
@@ -192,6 +196,40 @@ static void CaptureTick(NkEditorFrameContext &ec, void *user) {
 	//    CONTEXTE (jamais la vraie souris : elle ne nous appartient pas) : la
 	//    position est repoussee hors ecran a chaque frame, avant les panneaux.
 	ec.Ui().input.mousePos = {-10000.f, -10000.f};
+	if (gCaptureFrame == 1 && gSceneFusion) {
+		// LA SCENE DES MODES DE FUSION : fond #808080, dessus #606060 (#a0a0a0 pour
+		// Lighten, sinon max = le fond) ; attendu au pixel : normal #606060, multiply
+		// #303030, screen #b0b0b0, darken #606060, lighten #a0a0a0, plus lighter #e0e0e0.
+		using namespace nkuidesign;
+		gDesign.doc.NewDocument("Scene fusion", NkAuthor::Humain);
+		gDesign.doc.nodes[0].layout.kind = NkLayoutKind::Free;
+		static const char *const kModes[6] = {"", "multiply", "screen", "darken", "lighten", "plus-lighter"};
+		for (nkentseu::uint32 k = 0; k < 6u; ++k) {
+			for (nkentseu::uint32 couche = 0; couche < 2u; ++couche) {
+				const nkentseu::int32 id = gDesign.doc.AddChild(0, "", NkAuthor::Humain);
+				if (id < 0)
+					continue;
+				NkUINode &n = gDesign.doc.nodes[(nkentseu::uint32)id];
+				n.shape = NkString("rect");
+				n.label = NkString(couche == 0u ? "fond" : kModes[k][0] ? kModes[k] : "normal");
+				n.width.mode = NkSizeMode::Fixed;
+				n.width.value = couche == 0u ? 120.f : 80.f;
+				n.height.mode = NkSizeMode::Fixed;
+				n.height.value = couche == 0u ? 120.f : 80.f;
+				n.posX = 40.f + 140.f * (nkentseu::float32)k + (couche == 0u ? 0.f : 20.f);
+				n.posY = 60.f + (couche == 0u ? 0.f : 20.f);
+				NkRemplissage f;
+				f.couleur = NkString(couche == 0u ? "#808080" : (k == 4u ? "#a0a0a0" : "#606060"));
+				if (couche == 1u && kModes[k][0])
+					f.fusion = NkString(kModes[k]);
+				n.fills.PushBack(f);
+			}
+		}
+		gDesign.Recompute(NkPaintRect{0.f, 0.f, 1400.f, 900.f});
+		gDesign.host.SyncTo(gDesign.doc);
+		gDesign.SelectClear();
+		puts("[NKUIDesign] --scene-fusion : six paires posees (normal, multiply, screen, darken, lighten, plus-lighter)");
+	}
 	if (gCaptureFrame == 1 && gSelectionner[0]) {
 		// ⚠️ PLUSIEURS LIBELLES, SEPARES PAR VIRGULE — parce que Rodolf dit
 		//    « l'objet OU LES OBJETS », et qu'un banc qui ne sait selectionner
@@ -8462,6 +8500,10 @@ int nkmain(const NkEntryState &state) {
 			// On note le chemin ; la boucle normale démarre, CaptureTick arme le
 			// readback à la frame 8, la coquille se ferme, et le verdict se lit
 			// sur le FICHIER après Run() — l'effet, pas l'intention.
+			if (NkComponentDecl::StrEq(a, "--scene-fusion")) {
+				gSceneFusion = true; // avec --capture : le temoin en pixels des modes de fusion
+				continue;
+			}
 			if (argT.StartsWith("--capture=")) {
 				const NkString chemin = argT.SubStr(10);
 				uint32 i = 0;

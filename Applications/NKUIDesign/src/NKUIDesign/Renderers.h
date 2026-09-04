@@ -849,6 +849,43 @@ namespace nkuidesign {
 				out[k] = a[k];
 			return nOut;
 		}
+		/// ②-2 LE MODE DE FUSION QUE LE GPU DONNE EXACTEMENT : Multiply, Screen, Darken,
+		///    Lighten, Plus Lighter -- rend le NkPaintBlend a pousser ; Alpha pour normal
+		///    ET pour les treize autres (Overlay, Soft Light... : ils lisent la destination,
+		///    ils sont enregistres et dits, pas approximes).
+		inline NkComponentPaint::NkPaintBlend NkFusionExacte(const NkString &fusion) {
+			if (fusion.Empty())
+				return NkComponentPaint::NkPaintBlend::Alpha;
+			const char *c = fusion.Data();
+			if (StrEq(c, "multiply"))
+				return NkComponentPaint::NkPaintBlend::Multiply;
+			if (StrEq(c, "screen"))
+				return NkComponentPaint::NkPaintBlend::Screen;
+			if (StrEq(c, "darken"))
+				return NkComponentPaint::NkPaintBlend::Darken;
+			if (StrEq(c, "lighten"))
+				return NkComponentPaint::NkPaintBlend::Lighten;
+			if (StrEq(c, "plus-lighter"))
+				return NkComponentPaint::NkPaintBlend::PlusLighter;
+			return NkComponentPaint::NkPaintBlend::Alpha;
+		}
+		/// La garde : pousse le mode a la construction, le retire a la destruction --
+		/// un `continue` dans la boucle des remplissages ne laisse jamais un mode derriere lui.
+		struct NkGardeFusion {
+				NkComponentPaint &p;
+				bool actif;
+				NkGardeFusion(NkComponentPaint &peintre, const NkString &fusion) : p(peintre), actif(false) {
+					const NkComponentPaint::NkPaintBlend b = NkFusionExacte(fusion);
+					if (b != NkComponentPaint::NkPaintBlend::Alpha) {
+						p.PushBlend(b);
+						actif = true;
+					}
+				}
+				~NkGardeFusion() {
+					if (actif)
+						p.PopBlend();
+				}
+		};
 		/// Le genre de degrade, tranche UNE fois : 0 lineaire (et tout type inconnu, dit),
 		/// 1 radial, 2 angulaire, 3 losange.
 		inline nkentseu::int32 NkGenreDegrade(const NkDegrade &g) {
@@ -1556,6 +1593,9 @@ namespace nkuidesign {
 						const NkRemplissage &f = n.fills[fi];
 						if (!f.visible)
 							continue;
+						// ②-2 le mode de fusion EXACT de ce remplissage, pousse au peintre le temps
+						//     de le peindre (Multiply, Screen, Darken, Lighten, Plus Lighter)
+						const renderdetail::NkGardeFusion gardeFusion(p, f.fusion);
 						// LE DEGRADE PRIME SUR LA COULEUR UNIE du meme
 						// remplissage : c'est ce que l'utilisateur a pose en
 						// dernier, et les deux ne peuvent pas coexister a
