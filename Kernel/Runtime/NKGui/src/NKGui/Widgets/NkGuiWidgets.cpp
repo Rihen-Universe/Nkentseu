@@ -4825,6 +4825,10 @@ namespace nkentseu {
 		}
 
 		// ── Image / Icône ───────────────────────────────────────────────────────
+		bool BeginPopupId(NkGuiContext &ctx, NkGuiId id, const NkRect &rect,
+						  const NkRect &ancre) noexcept {
+			return BeginPopupLevel(ctx, id, 0, rect, ancre);
+		}
 		bool BeginPopup(NkGuiContext &ctx, const char *idStr, const NkRect &rect,
 						const NkRect &ancre) noexcept {
 			// La porte d'entree de `EndPopup`, deja publique : elle n'ajoute aucun
