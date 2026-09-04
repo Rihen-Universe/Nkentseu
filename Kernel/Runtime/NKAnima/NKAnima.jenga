@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
+# AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 """
 NKAnima — Substrat d'animation (C++17, ZÉRO STL, AUCUN GPU)
 ===============================================================
@@ -98,3 +99,9 @@ with project("NKAnima"):
         defines(["NDEBUG"])
         optimize("Speed")
         symbols(False)
+
+    # La suite du module (2026-09-04) : les temoins de NkAnimaTest devenus TEST_CASE.
+    # Meme filtre de plateforme que NKCore ; l activation est dans Nkentseu.jenga (allow=).
+    with filter("(system:Linux || system:macOS || (system:Windows && !options:windows-runtime=uwp && !system:XboxSeries && !system:XboxOne)) && !system:Android && !system:iOS && !system:Web"):
+        with test():
+            testfiles(["tests/**.cpp"])

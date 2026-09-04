@@ -1462,7 +1462,7 @@ Liste, un module par commit, mise à jour à chaque ajout :
   `testmaintemplate()` est vide → `NKPhysics.jenga` pointe un fichier **vide à dessein**
   (`tests/nk_main_fourni_par_le_test.cpp`). C'est un contournement explicite, dit dans le fichier ;
   la forme propre (« la suite fournit son main ») est à demander à Jenga.
-- `NKAnima` — **pas de suite** (`with test()` absent, pas de `tests/`) : rien à rouvrir, à écrire un jour.
+- `NKAnima_Tests` — 8 réussis, 8 au total, 8 réussies, 8 au total (build+run 14 s) — **suite créée depuis les bancs existants** de NkAnimaTest (les huit SelfTests du module, aucun cas nouveau ; `tests/test_selftests.cpp`, `with test()` dans `NKAnima.jenga`). Mutation du noyau FK (`world[j] = local[j]`) → `M2_NkAnimRetarget` rouge *par `jenga test`*, restauré → vert. Restent dans l'application : NkRoleContext (NKRenderer), NKAudio, et les trois témoins de câblage de l'éditeur (XBot.glb demande un actif).
 
 - `NKFileSystem_Tests` — 3 réussis, 3 au total, 11 réussies, 11 au total (build+run 27 s)
 - `NKStream_Tests` — 3 réussis, 3 au total, 10 réussies, 10 au total (build+run 32 s)
