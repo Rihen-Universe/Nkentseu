@@ -1332,8 +1332,19 @@ namespace nkuidesign {
 					nkgui::NkRect ancre = {0.f, 0.f, 0.f, 0.f};
 					char hex[12] = {};
 					bool change = false;
+					// LA CIBLE (genre 1 = un remplissage : le popover EDITE le modele)
+					nkentseu::uint8 genre = 0;
+					nkentseu::int32 noeud = -1;
+					nkentseu::int32 index = -1;
+					nkentseu::int32 arretSel = 0; ///< l'ARRET COURANT : c'est lui que le selecteur edite
+					nkentseu::int32 arretDrag = -1;
+					nkentseu::uint32 synchro = 0xFFFFFFFFu; ///< cle du dernier tampon hexa resynchronise
 			};
 			DemandePicker picker;
+			/// Le popover d'un remplissage est dessine par l'INSPECTEUR (ses aides),
+			/// mais appele par le crochet d'overlay : ce pont le rend joignable.
+			void (*popoverRemplissage)(nkgui::NkGuiContext &, void *) = nullptr;
+			void *popoverUser = nullptr;
 			void Consigner(const char *t) {
 				journal.PushBack(NkString(t ? t : ""));
 			}
@@ -9446,6 +9457,21 @@ namespace nkuidesign {
 	/// et rend `true` — l'appelant fait alors ce qu'il fait déjà quand on tape le
 	/// code à la main. Le champ hexadécimal RESTE : un sélecteur qui supprimerait
 	/// la saisie au clavier serait une régression déguisée en fonctionnalité.
+	/// LES SIX TYPES DE REMPLISSAGE de Lunacy (capture du 04/09), dans son ordre.
+	/// Le format les porte tous (texte libre, inconnu preserve) ; le peintre ne
+	/// rend que le lineaire, et l'interface le dit.
+	static const char *const kNkTypesRemplissageCle[6] = {"", "lineaire", "radial", "angulaire",
+															  "losange", "image"};
+	static const char *const kNkTypesRemplissageLib[6] = {"Uni", "Linéaire", "Radial", "Angulaire",
+															  "Losange", "Image"};
+	inline const char *NkNomTypeRemplissage(const NkDegrade &g) {
+		if (!g.Actif())
+			return kNkTypesRemplissageLib[0];
+		for (nkentseu::uint32 k = 1; k < 6u; ++k)
+			if (NkComponentDecl::StrEq(g.type.Data(), kNkTypesRemplissageCle[k]))
+				return kNkTypesRemplissageLib[k];
+		return g.type.Empty() ? kNkTypesRemplissageLib[1] : g.type.Data(); // inconnu : son mot
+	}
 	/// « #rrggbb » -> couleur ; illisible -> gris moyen (et NkHexLisible le dit).
 	inline bool NkHexLisible(const char *hex) {
 		if (!hex || hex[0] != '#')
@@ -9514,6 +9540,10 @@ namespace nkuidesign {
 		using namespace nkentseu;
 		if (!st.picker.ouvert)
 			return;
+		if (st.picker.genre == 1u && st.popoverRemplissage) {
+			st.popoverRemplissage(ctx, st.popoverUser); // le popover complet (types, rampe, liste)
+			return;
+		}
 		float32 col[4] = {0.5f, 0.5f, 0.5f, 1.f};
 		const nkgui::NkColor c0 = NkCouleurDepuisHex(st.picker.hex);
 		col[0] = (float32)c0.r / 255.f;
@@ -9563,7 +9593,293 @@ namespace nkuidesign {
 
 		public:
 			explicit InspectorPanel(DesignState *st)
-				: NkEditorPanel("Inspecteur", NkEditorDockSide::NK_RIGHT), mSt(st) {}
+				: NkEditorPanel("Inspecteur", NkEditorDockSide::NK_RIGHT), mSt(st) {
+				// le pont : le crochet d'overlay appellera CE panneau pour le popover
+				if (mSt) {
+					mSt->popoverRemplissage = &InspectorPanel::PopoverRemplissageC;
+					mSt->popoverUser = this;
+				}
+			}
+			static void PopoverRemplissageC(NkGuiContext &ctx, void *u) {
+				static_cast<InspectorPanel *>(u)->DessinerPopoverRemplissage(ctx);
+			}
+			/// LE POPOVER D'UN REMPLISSAGE, comme chez Lunacy (captures du 04/09) : la
+			/// rangée des types · le sélecteur (carré SV + teinte), qui édite l'ARRÊT
+			/// COURANT quand un dégradé est actif · hexa + opacité · la barre d'arrêts ·
+			/// la liste. Appelé par le crochet d'overlay (entrée réelle), jamais par le
+			/// panneau (entrée masquée par le shell dès qu'un popup est survolé).
+			void DessinerPopoverRemplissage(NkGuiContext &ctx) {
+				DesignState::DemandePicker &d = mSt->picker;
+				if (!d.ouvert || !mSt->doc.IsValidIndex(d.noeud)) {
+					d.ouvert = false;
+					return;
+				}
+				NkUINode &n = mSt->doc.nodes[(uint32)d.noeud];
+				if (d.index < 0 || (uint32)d.index >= (uint32)n.fills.Size()) {
+					d.ouvert = false;
+					return;
+				}
+				NkRemplissage &f = n.fills[(uint32)d.index];
+				NkDegrade &g = f.degrade;
+				auto &F = costume::Fontes();
+				auto touche = [&]() {
+					if (!n.instanceDe.Empty())
+						n.ecarts |= NkUINode::EcartRemplissages;
+					mSt->doc.MarkHumanEdit(d.noeud);
+					mSt->host.SyncTo(mSt->doc);
+					mFillsGen = -1; // la ligne se resynchronise
+				};
+				if (g.Actif() && (d.arretSel < 0 || (uint32)d.arretSel >= (uint32)g.arrets.Size()))
+					d.arretSel = 0;
+				// LA COULEUR COURANTE : celle de l'arrêt courant si dégradé, sinon celle du remplissage
+				NkString &couleurCourante = g.Actif() ? g.arrets[(uint32)d.arretSel].couleur : f.couleur;
+				const uint32 cleSync = ((uint32)d.noeud << 20) ^ ((uint32)d.index << 12) ^ (uint32)(g.Actif() ? d.arretSel + 1 : 0);
+				if (d.synchro != cleSync) {
+					d.synchro = cleSync;
+					snprintf(d.hex, sizeof(d.hex), "%s", couleurCourante.Data() ? couleurCourante.Data() : "");
+				}
+				// ── LA BOÎTE ──────────────────────────────────────────────────────
+				const float32 pw = 236.f;
+				const float32 hTypes = 26.f, hPicker = 160.f + 16.f + 6.f * (ctx.ItemHeight() + ctx.layout.itemSpacingY);
+				const float32 hHex = 26.f;
+				const float32 hRampe = g.Actif() ? 26.f + 26.f * (float32)(g.arrets.Size() < 12u ? g.arrets.Size() : 12u) : 0.f;
+				const float32 ph = 8.f + hTypes + hPicker + hHex + hRampe + 8.f;
+				const NkRect sw = d.ancre;
+				NkRect pr = {sw.x - pw - 8.f, sw.y - 8.f, pw, ph};
+				if (pr.x < 2.f)
+					pr.x = 2.f;
+				if (pr.y + pr.h > (float32)ctx.viewH)
+					pr.y = (float32)ctx.viewH - pr.h - 2.f;
+				if (pr.y < 2.f)
+					pr.y = 2.f;
+				if (!ctx.IsPopupOpen(d.id))
+					ctx.OpenPopup(d.id);
+				if (!nkgui::BeginPopupId(ctx, d.id, pr, sw)) {
+					d.ouvert = false; // clic dehors / Échap
+					return;
+				}
+				auto &dl = ctx.DL();
+				const float32 x0 = pr.x + 8.f, x1 = pr.x + pr.w - 8.f;
+				float32 y = pr.y + 8.f;
+				// ── 1. LES TYPES (six, dans l'ordre de Lunacy) — ils se replient ──
+				{
+					float32 xt = x0, yt = y;
+					for (uint32 k = 0; k < 6u; ++k) {
+						const bool estUni = (k == 0u);
+						const bool actif = estUni ? !g.Actif()
+												  : (g.Actif() && (NkComponentDecl::StrEq(g.type.Data(), kNkTypesRemplissageCle[k])
+																   || (k == 1u && g.type.Empty())));
+						const float32 lw = costume::Largeur(F.px9, kNkTypesRemplissageLib[k]) + 10.f;
+						if (xt + lw > x1 && xt > x0) {
+							yt += 24.f;
+							xt = x0;
+						}
+						const NkRect rb = {xt, yt, lw, 20.f};
+						xt += lw + 3.f;
+						const bool sv = NkGuiRectContains(rb, ctx.input.mousePos);
+						dl.AddRectFilled(rb, actif ? ctx.theme.accent : CouleurInput(), 4.f);
+						dl.AddRect(rb, sv ? ctx.theme.accent : ctx.theme.border, 1.f, 4.f);
+						costume::Texte(dl, F.px9, rb.x + 5.f, costume::CentrerY(F.px9, rb.y, 20.f),
+									   kNkTypesRemplissageLib[k], actif ? ctx.theme.panel : ctx.theme.text);
+						if (sv && ctx.input.mouseClicked[0]) {
+							if (estUni)
+								g.arrets.Clear();
+							else {
+								g.type = NkString(kNkTypesRemplissageCle[k]);
+								if (!g.Actif()) {
+									NkArretDegrade a0, a1;
+									a0.position = 0.f;
+									a0.couleur = NkString(f.couleur.Empty() ? "#ffffff" : f.couleur.Data());
+									a1.position = 1.f;
+									a1.couleur = NkString("#1976d2");
+									g.arrets.PushBack(a0);
+									g.arrets.PushBack(a1);
+									d.arretSel = 0;
+								}
+							}
+							touche();
+							if (k >= 2u)
+								mSt->status = NkString("Ce type est NOMMÉ, pas encore peint : le fond prend la couleur du "
+													   "premier arrêt. Le format le garde intact.");
+						}
+					}
+					y = yt + 26.f;
+				}
+				// ── 2. LE SÉLECTEUR — il édite l'arrêt courant (ou le remplissage uni) ──
+				{
+					float32 col[4] = {0.5f, 0.5f, 0.5f, 1.f};
+					const nkgui::NkColor c0 = NkCouleurDepuisHex(d.hex);
+					col[0] = (float32)c0.r / 255.f;
+					col[1] = (float32)c0.g / 255.f;
+					col[2] = (float32)c0.b / 255.f;
+					ctx.layout.cursor = {x0, y};
+					ctx.layout.lineStartX = x0;
+					if (nkgui::ColorPicker4(ctx, "##nkuidesign.popover.pick", col, nkgui::NkGuiColorFlags::NoAlpha)) {
+						static const char *const kHex = "0123456789abcdef";
+						d.hex[0] = '#';
+						for (int32 k = 0; k < 3; ++k) {
+							float32 v = col[k];
+							if (v < 0.f)
+								v = 0.f;
+							if (v > 1.f)
+								v = 1.f;
+							const int32 o = (int32)(v * 255.f + 0.5f);
+							d.hex[1 + k * 2] = kHex[(o >> 4) & 0xF];
+							d.hex[2 + k * 2] = kHex[o & 0xF];
+						}
+						d.hex[7] = '\0';
+						couleurCourante = NkString(d.hex);
+						touche();
+					}
+					y += hPicker;
+				}
+				// ── 3. HEXA + OPACITÉ (du remplissage, ou de l'arrêt courant) ─────
+				{
+					const NkRect rh = {x0, y + 3.f, 80.f, costume::HControle};
+					ctx.SetNextItemRect(rh);
+					if (nkgui::InputText(ctx, "##nkuidesign.popover.hex", d.hex, 10) && NkHexLisible(d.hex)) {
+						couleurCourante = NkString(d.hex);
+						touche();
+					}
+					float32 &opRef = g.Actif() ? g.arrets[(uint32)d.arretSel].opacite : f.opacite;
+					const NkRect ro = {x1 - 40.f - 12.f, y + 3.f, 40.f, costume::HControle};
+					float32 op = opRef;
+					if (ChampNombre(ctx, "insp.popover.op", ro, op, 1.f, 0.f, 100.f)) {
+						opRef = op;
+						touche();
+					}
+					costume::Texte(dl, F.px9, ro.x + ro.w + 3.f, costume::CentrerY(F.px9, ro.y, 20.f), "%",
+								   ctx.theme.textMuted);
+					y += hHex;
+				}
+				// ── 4. LA BARRE D'ARRÊTS et 5. LA LISTE ──────────────────────────
+				if (g.Actif()) {
+					const NkRect barre = {x0, y + 5.f, x1 - x0 - 2.f * 22.f - 6.f, 14.f};
+					for (int32 s = 0; s < 48; ++s) {
+						const float32 t0 = (float32)s / 48.f, t1 = (float32)(s + 1) / 48.f;
+						const uint32 c = renderdetail::NkCouleurDegradeEn(g, (t0 + t1) * 0.5f);
+						dl.AddRectFilled({barre.x + barre.w * t0, barre.y, barre.w * (t1 - t0) + 0.5f, barre.h},
+										 {(uint8)((c >> 24) & 0xFFu), (uint8)((c >> 16) & 0xFFu), (uint8)((c >> 8) & 0xFFu),
+										  (uint8)(c & 0xFFu)});
+					}
+					dl.AddRect(barre, ctx.theme.border, 1.f);
+					const bool surBarre = NkGuiRectContains(barre, ctx.input.mousePos);
+					int32 surArret = -1;
+					for (uint32 ai = 0; ai < (uint32)g.arrets.Size(); ++ai) {
+						const float32 px = barre.x + barre.w * g.arrets[ai].position;
+						const bool choisi = d.arretSel == (int32)ai;
+						// comme Lunacy : la pastille COURANTE est pleine et cerclée, les autres creuses
+						if (choisi) {
+							dl.AddCircleFilled({px, barre.y + barre.h + 5.f}, 5.f, ctx.theme.accent);
+							dl.AddCircle({px, barre.y + barre.h + 5.f}, 6.f, ctx.theme.text, 1.f);
+						} else {
+							dl.AddCircleFilled({px, barre.y + barre.h + 5.f}, 4.f, ctx.theme.panel);
+							dl.AddCircle({px, barre.y + barre.h + 5.f}, 4.f, ctx.theme.text, 1.f);
+						}
+						// LA ZONE SAISISSABLE COUVRE CE QUI EST DESSINÉ (12 px), jamais moins
+						const nkgui::NkRect zone = {px - 7.f, barre.y + barre.h - 2.f, 14.f, 14.f};
+						if (NkGuiRectContains(zone, ctx.input.mousePos))
+							surArret = (int32)ai;
+					}
+					// UNE SEULE DÉCISION, ORDONNÉE : la poignée d'abord, la barre ensuite
+					if (ctx.input.mouseClicked[0]) {
+						if (surArret >= 0) {
+							d.arretSel = surArret;
+							d.arretDrag = surArret;
+						} else if (surBarre) {
+							const float32 pos = (ctx.input.mousePos.x - barre.x) / (barre.w > 0.f ? barre.w : 1.f);
+							const int32 ajoute = renderdetail::NkAjouterArretDegrade(g, pos, (uint32)kMaxArretsUI);
+							if (ajoute >= 0) {
+								d.arretSel = ajoute;
+								touche();
+							} else
+								mSt->status = NkString("Douze arrêts au maximum dans l'éditeur.");
+						}
+					}
+					if (d.arretDrag >= 0) {
+						if (ctx.input.mouseDown[0] && (uint32)d.arretDrag < (uint32)g.arrets.Size()) {
+							float32 pos = (ctx.input.mousePos.x - barre.x) / (barre.w > 0.f ? barre.w : 1.f);
+							if (pos < 0.f)
+								pos = 0.f;
+							if (pos > 1.f)
+								pos = 1.f;
+							if (pos != g.arrets[(uint32)d.arretDrag].position) {
+								g.arrets[(uint32)d.arretDrag].position = pos;
+								touche();
+							}
+						} else
+							d.arretDrag = -1;
+					}
+					// inverser, ajouter au milieu
+					for (uint32 b2 = 0; b2 < 2u; ++b2) {
+						const NkRect rb2 = {barre.x + barre.w + 6.f + (float32)b2 * 22.f, y + 2.f, 20.f, 20.f};
+						const bool sv2 = NkGuiRectContains(rb2, ctx.input.mousePos);
+						dl.AddRectFilled(rb2, CouleurInput(), 4.f);
+						dl.AddRect(rb2, sv2 ? ctx.theme.accent : ctx.theme.border, 1.f, 4.f);
+						costume::Texte(dl, F.px10, rb2.x + 6.f, costume::CentrerY(F.px10, rb2.y, 20.f),
+									   b2 == 0u ? "\xE2\x87\x84" : "+", ctx.theme.text);
+						if (sv2 && ctx.input.mouseClicked[0]) {
+							if (b2 == 0u)
+								for (uint32 ai = 0; ai < (uint32)g.arrets.Size(); ++ai)
+									g.arrets[ai].position = 1.f - g.arrets[ai].position;
+							else
+								renderdetail::NkAjouterArretDegrade(g, 0.5f, (uint32)kMaxArretsUI);
+							touche();
+						}
+					}
+					y += 26.f;
+					// LA LISTE : position · pastille · hexa · opacité · poubelle ; la ligne courante s'allume
+					int32 aSupprimer = -1;
+					for (uint32 ai = 0; ai < (uint32)g.arrets.Size() && ai < (uint32)kMaxArretsUI; ++ai) {
+						NkArretDegrade &ar = g.arrets[ai];
+						const NkRect ra = {x0, y, x1 - x0, 24.f};
+						const bool choisi = d.arretSel == (int32)ai;
+						if (choisi)
+							dl.AddRectFilled(ra, {ctx.theme.accent.r, ctx.theme.accent.g, ctx.theme.accent.b, 28}, 4.f);
+						char idPos[48];
+						snprintf(idPos, sizeof(idPos), "insp.pop.pos%u", ai);
+						const NkRect rpos = {ra.x + 2.f, ra.y + 2.f, 40.f, costume::HControle};
+						float32 pc = ar.position * 100.f;
+						if (ChampNombre(ctx, idPos, rpos, pc, 1.f, 0.f, 100.f)) {
+							ar.position = pc * 0.01f;
+							touche();
+						}
+						costume::Texte(dl, F.px9, rpos.x + rpos.w + 1.f, costume::CentrerY(F.px9, ra.y, 24.f), "%",
+									   ctx.theme.textMuted);
+						const NkRect swA = {rpos.x + rpos.w + 12.f, ra.y + 4.f, 16.f, 16.f};
+						dl.AddRectFilled(swA, NkCouleurDepuisHex(ar.couleur.Data()), 3.f);
+						dl.AddRect(swA, choisi ? ctx.theme.accent : ctx.theme.border, 1.f, 3.f);
+						costume::Texte(dl, F.px9, swA.x + 22.f, costume::CentrerY(F.px9, ra.y, 24.f),
+									   ar.couleur.Data() ? ar.couleur.Data() : "", ctx.theme.text);
+						char idOpA[48];
+						snprintf(idOpA, sizeof(idOpA), "insp.pop.op%u", ai);
+						const NkRect ropA = {x1 - 22.f - 6.f - 36.f - 12.f, ra.y + 2.f, 36.f, costume::HControle};
+						float32 opA = ar.opacite;
+						if (ChampNombre(ctx, idOpA, ropA, opA, 1.f, 0.f, 100.f)) {
+							ar.opacite = opA;
+							touche();
+						}
+						costume::Texte(dl, F.px9, ropA.x + ropA.w + 2.f, costume::CentrerY(F.px9, ra.y, 24.f), "%",
+									   ctx.theme.textMuted);
+						const NkRect rsup = {x1 - 20.f, ra.y + 2.f, 20.f, 20.f};
+						const bool svS = NkGuiRectContains(rsup, ctx.input.mousePos);
+						costume::IcPoubelle(dl, rsup.x + 4.f, rsup.y + 4.f, svS ? ctx.theme.text : ctx.theme.textMuted);
+						if (svS && ctx.input.mouseClicked[0])
+							aSupprimer = (int32)ai;
+						else if (ctx.input.mouseClicked[0] && NkGuiRectContains(ra, ctx.input.mousePos)
+								 && !NkGuiRectContains(rpos, ctx.input.mousePos) && !NkGuiRectContains(ropA, ctx.input.mousePos))
+							d.arretSel = (int32)ai; // la ligne s'allume, le sélecteur passe sur cet arrêt
+						y += 26.f;
+					}
+					if (aSupprimer >= 0 && (uint32)aSupprimer < (uint32)g.arrets.Size()) {
+						g.arrets.RemoveAt((uint32)aSupprimer);
+						if (d.arretSel >= (int32)g.arrets.Size())
+							d.arretSel = (int32)g.arrets.Size() - 1;
+						touche();
+					}
+				}
+				nkgui::EndPopup(ctx);
+			}
 
 			void OnUI(NkEditorFrameContext &ec) override {
 				auto &ctx = ec.Ui();
@@ -12394,288 +12710,34 @@ namespace nkuidesign {
 					// 2. l'HEXA — la seule écriture qui NE matérialise PAS : tant
 					//    qu'on ne change qu'une couleur, un document d'avant garde
 					//    sa clé simple et son octet près.
-					char idHex[32];
-					snprintf(idHex, sizeof(idHex), "##insp.fill.hex%u", i);
-					ctx.SetNextItemRect({col.hexX, costume::BandeY(r.y), col.hexW, costume::HControle});
-					if (nkgui::InputText(ctx, idHex, mFillsBuf[i], 10) || pickerFill) {
-						if (simple)
-							n->fill = NkString(mFillsBuf[i]);
-						else
-							n->fills[i].couleur = NkString(mFillsBuf[i]);
-						// 🔑 ÉDITER UNE INSTANCE POSE LA SURCHARGE (Q51 R2′) : sa
-						//    couleur devient SIENNE, et la prochaine mise à jour
-						//    du composant ne la reprendra pas.
-						//    ⚠️ Sans cette ligne, la propagation écraserait le
-						//       travail de la main *en silence* — la perte que
-						//       §15.4 interdit déjà au détachement. Le bit est la
-						//       seule chose qui distingue « j'ai voulu cette
-						//       couleur » de « j'ai hérité celle-là ».
-						if (!n->instanceDe.Empty())
-							n->ecarts |= NkUINode::EcartRemplissages;
-						mSt->doc.MarkHumanEdit(mSt->selected);
-					}
-					// ── LE DEGRADE DE CE REMPLISSAGE ────────────────────────
-					// 🔑 LE GESTE, PAS LE CHAMP : un dégradé se règle par ses
-					//    ARRÊTS. Ce lot en livre deux — le minimum qui peint —
-					//    éditables comme deux couleurs, plus une pastille qui
-					//    bascule dégradé / uni. *Un geste vrai vaut mieux que
-					//    trois demi-contrôles*, et le reste (déplacer un arrêt,
-					//    en ajouter un troisième, l'angle) est NOMMÉ, pas
-					//    esquissé.
-					if (!simple && i < (uint32)n->fills.Size()) {
-						NkDegrade &g = n->fills[i].degrade;
-						// ── LE TYPE DE REMPLISSAGE (capture Lunacy du 04/09) ──────────
-						// Six vignettes chez Lunacy, six mots ici : Uni · Linéaire ·
-						// Radial · Angulaire · Losange · Image. Le format les porte tous
-						// (texte libre, inconnu préservé) ; le peintre ne rend QUE le
-						// linéaire, et l'interface le dit au lieu de faire semblant.
-						static const char *const kTypesCle[6] = {"", "lineaire", "radial", "angulaire",
-																 "losange", "image"};
-						static const char *const kTypesLib[6] = {"Uni", "Linéaire", "Radial", "Angulaire",
-																 "Losange", "Image"};
-						{
-							const NkRect rt = ctx.NextItemRect(-1.f, costume::HRangee);
-							costume::Texte(dl, F.px10, rt.x + 12.f, costume::CentrerBande(F.px10, rt.y),
-										   "Type", ctx.theme.textMuted);
-							// ⚠️ ELLE SE REPLIE : six boutons bout a bout depassent la largeur
-							//    du panneau -- c'est ce que Rodolf a vu sortir du cadre. Une
-							//    rangee qui deborde est un defaut, pas un detail.
-							const float32 xtDeb = rt.x + 12.f + ColChampsCalc(rt.w - 24.f);
-							const float32 xtFin = rt.x + rt.w - 12.f;
-							float32 xt = xtDeb;
-							float32 yt = rt.y;
-							for (uint32 k = 0; k < 6u; ++k) {
-								const bool estUni = (k == 0u);
-								const bool actif = estUni ? !g.Actif()
-														 : (g.Actif()
-															&& (NkComponentDecl::StrEq(g.type.Data(), kTypesCle[k])
-																|| (k == 1u && g.type.Empty())));
-								const float32 lw = costume::Largeur(F.px9, kTypesLib[k]) + 10.f;
-								if (xt + lw > xtFin && xt > xtDeb) { // on replie
-									const NkRect suite = ctx.NextItemRect(-1.f, costume::HRangee);
-									yt = suite.y;
-									xt = xtDeb;
-								}
-								const NkRect rb = {xt, costume::BandeY(yt), lw, costume::HControle};
-								xt += lw + 3.f;
-								const bool sv = ctx.popupDepth == 0 && NkGuiRectContains(rb, ctx.input.mousePos);
-								dl.AddRectFilled(rb, actif ? ctx.theme.accent : CouleurInput(), 4.f);
-								dl.AddRect(rb, sv ? ctx.theme.accent : ctx.theme.border, 1.f, 4.f);
-								costume::Texte(dl, F.px9, rb.x + 5.f, costume::CentrerY(F.px9, rb.y, 20.f),
-											   kTypesLib[k], actif ? ctx.theme.panel : ctx.theme.text);
-								if (sv && ctx.input.mouseClicked[0]) {
-									if (estUni)
-										g.arrets.Clear(); // un remplissage sans arrêts EST un uni
-									else {
-										g.type = NkString(kTypesCle[k]);
-										if (!g.Actif()) {
-											NkArretDegrade a0, a1;
-											a0.position = 0.f;
-											a0.couleur = NkString(n->fills[i].couleur.Empty()
-																  ? "#ffffff" : n->fills[i].couleur.Data());
-											a1.position = 1.f;
-											a1.couleur = NkString("#1976d2");
-											g.arrets.PushBack(a0);
-											g.arrets.PushBack(a1);
-										}
-									}
-									if (!n->instanceDe.Empty())
-										n->ecarts |= NkUINode::EcartRemplissages;
-									mSt->doc.MarkHumanEdit(mSt->selected);
-									mSt->host.SyncTo(mSt->doc);
-									if (k >= 2u)
-										mSt->status = NkString(
-											"Ce type est NOMMÉ, pas encore peint : le fond prend la couleur du "
-											"premier arrêt. Le format le garde intact.");
-								} else if (sv)
-									mSt->status = NkString(k == 0u ? "Remplissage uni — aucun arrêt."
-																  : (k == 1u ? "Dégradé linéaire — peint."
-																		 : "Nommé, pas encore peint."));
-							}
+					// ── LA LIGNE, COMME CHEZ LUNACY : pastille · nom · opacité · œil · poubelle
+					// Le détail (types, sélecteur, hexa, rampe, liste) vit dans le POPOVER,
+					// dessiné par DessinerPopoverRemplissage via le crochet d'overlay.
+					// C'est ce qui garantit qu'une ligne ne sort jamais du cadre.
+					if (mSt->picker.ouvert && mSt->picker.id == ctx.GetId(idPast)) {
+						if (simple) {
+							n->MaterialiserFills(); // le popover édite `fills[k]`, jamais la clé simple
+							mFillsGen = -1;
 						}
-						if (g.Actif()) {
-							// ── LA BARRE D'ARRÊTS ────────────────────────────────────
-							const NkRect rbar = ctx.NextItemRect(-1.f, costume::HRangee);
-							const float32 bx0 = rbar.x + 12.f;
-							const float32 bw = rbar.w - 24.f - 2.f * 22.f;
-							const NkRect barre = {bx0, rbar.y + 5.f, bw, 14.f};
-							// l'aperçu : le MÊME calcul que le peintre (une seule vérité)
-							for (int32 s = 0; s < 48; ++s) {
-								const float32 t0 = (float32)s / 48.f, t1 = (float32)(s + 1) / 48.f;
-								const uint32 c = renderdetail::NkCouleurDegradeEn(g, (t0 + t1) * 0.5f);
-								const nkgui::NkColor col = {(uint8)((c >> 24) & 0xFFu), (uint8)((c >> 16) & 0xFFu),
-															(uint8)((c >> 8) & 0xFFu), (uint8)(c & 0xFFu)};
-								dl.AddRectFilled({barre.x + barre.w * t0, barre.y, barre.w * (t1 - t0) + 0.5f,
-												  barre.h}, col);
-							}
-							dl.AddRect(barre, ctx.theme.border, 1.f);
-							const bool surBarre = ctx.popupDepth == 0 && NkGuiRectContains(barre, ctx.input.mousePos);
-							int32 surArret = -1;
-							for (uint32 ai = 0; ai < (uint32)g.arrets.Size(); ++ai) {
-								const float32 px = barre.x + barre.w * g.arrets[ai].position;
-								const bool choisi = mArretFill == (int32)i && mArretSel == (int32)ai;
-								dl.AddCircleFilled({px, barre.y + barre.h + 4.f}, choisi ? 5.f : 4.f,
-												   choisi ? ctx.theme.accent : ctx.theme.text);
-								const nkgui::NkRect zone = {px - 6.f, barre.y + barre.h - 2.f, 12.f, 12.f};
-								if (ctx.popupDepth == 0 && NkGuiRectContains(zone, ctx.input.mousePos))
-									surArret = (int32)ai;
-							}
-							if (surArret >= 0 && ctx.input.mouseClicked[0]) {
-								mArretFill = (int32)i;
-								mArretSel = surArret;
-								mArretDrag = surArret;
-							} else if (surBarre && ctx.input.mouseClicked[0]) {
-								// CLIC SUR LA BARRE = AJOUTER un arrêt, à sa couleur d'ici
-								float32 pos = (ctx.input.mousePos.x - barre.x) / (barre.w > 0.f ? barre.w : 1.f);
-								if (pos < 0.f)
-									pos = 0.f;
-								if (pos > 1.f)
-									pos = 1.f;
-								// LA fonction partagee : le clic sur la barre et (a venir) le
-								// clic sur le segment de la toile appellent la MEME.
-								const int32 ajoute =
-									renderdetail::NkAjouterArretDegrade(g, pos, (uint32)kMaxArretsUI);
-								if (ajoute >= 0) {
-									mArretFill = (int32)i;
-									mArretSel = ajoute;
-									mSt->doc.MarkHumanEdit(mSt->selected);
-									mSt->host.SyncTo(mSt->doc);
-								} else
-									mSt->status = NkString("Douze arrêts au maximum dans l'éditeur.");
-							} else if (surBarre)
-								mSt->status = NkString("Barre d'arrêts : cliquer pour AJOUTER, glisser une "
-													   "pastille pour la DÉPLACER.");
-							if (mArretDrag >= 0 && mArretFill == (int32)i) {
-								if (ctx.input.mouseDown[0]) {
-									if (mArretDrag < (int32)g.arrets.Size()) {
-										float32 pos = (ctx.input.mousePos.x - barre.x) / (barre.w > 0.f ? barre.w : 1.f);
-										if (pos < 0.f)
-											pos = 0.f;
-										if (pos > 1.f)
-											pos = 1.f;
-										if (pos != g.arrets[(uint32)mArretDrag].position) {
-											g.arrets[(uint32)mArretDrag].position = pos;
-											mSt->doc.MarkHumanEdit(mSt->selected);
-											mSt->host.SyncTo(mSt->doc);
-										}
-										char msg[96];
-										snprintf(msg, sizeof(msg), "Arrêt %d : %.0f %%", mArretDrag + 1,
-												 (double)(pos * 100.f));
-										mSt->status = NkString(msg);
-									}
-								} else
-									mArretDrag = -1;
-							}
-							// INVERSER et AJOUTER, à droite de la barre (comme Lunacy)
-							for (uint32 b2 = 0; b2 < 2u; ++b2) {
-								const NkRect rb2 = {barre.x + barre.w + 6.f + (float32)b2 * 22.f,
-													costume::BandeY(rbar.y), 20.f, costume::HControle};
-								const bool sv2 = ctx.popupDepth == 0 && NkGuiRectContains(rb2, ctx.input.mousePos);
-								dl.AddRectFilled(rb2, CouleurInput(), 4.f);
-								dl.AddRect(rb2, sv2 ? ctx.theme.accent : ctx.theme.border, 1.f, 4.f);
-								costume::Texte(dl, F.px10, rb2.x + 6.f, costume::CentrerY(F.px10, rb2.y, 20.f),
-											   b2 == 0u ? "\xE2\x87\x84" : "+", ctx.theme.text);
-								if (sv2 && ctx.input.mouseClicked[0]) {
-									if (b2 == 0u)
-										for (uint32 ai = 0; ai < (uint32)g.arrets.Size(); ++ai)
-											g.arrets[ai].position = 1.f - g.arrets[ai].position;
-									else
-										renderdetail::NkAjouterArretDegrade(g, 0.5f, (uint32)kMaxArretsUI);
-									mSt->doc.MarkHumanEdit(mSt->selected);
-									mSt->host.SyncTo(mSt->doc);
-								} else if (sv2)
-									mSt->status = NkString(b2 == 0u ? "Inverser le dégradé."
-																	   : "Ajouter un arrêt au milieu.");
-							}
-							// ── LA LISTE DES ARRÊTS : position · pastille · hex · opacité · poubelle
-							int32 aSupprimer = -1;
-							for (uint32 ai = 0; ai < (uint32)g.arrets.Size(); ++ai) {
-								if (ai >= (uint32)kMaxArretsUI) {
-									const NkRect rx = ctx.NextItemRect(-1.f, 18.f);
-									costume::Texte(dl, F.px9, rx.x + 24.f, costume::CentrerY(F.px9, rx.y, 18.f),
-												   "(trop d'arrêts pour l'éditeur — le fichier les garde)",
-												   ctx.theme.textMuted);
-									break;
-								}
-								NkArretDegrade &ar = g.arrets[ai];
-								const NkRect ra = ctx.NextItemRect(-1.f, costume::HRangee);
-								const bool choisi = mArretFill == (int32)i && mArretSel == (int32)ai;
-								if (choisi)
-									dl.AddRectFilled({ra.x + 8.f, ra.y, ra.w - 16.f, ra.h},
-													 {ctx.theme.accent.r, ctx.theme.accent.g, ctx.theme.accent.b, 28}, 4.f);
-								char idPos[48];
-								snprintf(idPos, sizeof(idPos), "insp.deg%u.pos%u", i, ai);
-								const NkRect rpos = {ra.x + 16.f, costume::BandeY(ra.y), 40.f, costume::HControle};
-								float32 pc = ar.position * 100.f;
-								if (ChampNombre(ctx, idPos, rpos, pc, 1.f, 0.f, 100.f)) {
-									ar.position = pc * 0.01f;
-									mSt->doc.MarkHumanEdit(mSt->selected);
-									mSt->host.SyncTo(mSt->doc);
-								}
-								costume::Texte(dl, F.px9, rpos.x + rpos.w + 2.f, costume::CentrerBande(F.px9, ra.y),
-											   "%", ctx.theme.textMuted);
-								const NkRect swA = {rpos.x + rpos.w + 16.f, ra.y + (costume::HRangee - 16.f) * 0.5f,
-													16.f, 16.f};
-								char idPastA[48];
-								snprintf(idPastA, sizeof(idPastA), "##insp.deg%u.past%u", i, ai);
-								const bool pickA =
-									NkPastilleCouleur(ctx, *mSt, idPastA, swA, mArretsBuf[i][ai],
-													  (uint32)sizeof(mArretsBuf[i][ai]));
-								char idA[48];
-								snprintf(idA, sizeof(idA), "##insp.deg%u.arret%u", i, ai);
-								const float32 xa = swA.x + 22.f;
-								// bornes : poubelle a droite, opacite avant elle -- le champ hexa
-								// prend CE QUI RESTE, jamais plus (rien ne sort du cadre)
-								const float32 xFin = ra.x + ra.w - 30.f - 4.f - 34.f - 10.f;
-								float32 wHex = xFin - xa;
-								if (wHex < 40.f)
-									wHex = 40.f;
-								ctx.SetNextItemRect({xa, costume::BandeY(ra.y), wHex, costume::HControle});
-								if (nkgui::InputText(ctx, idA, mArretsBuf[i][ai], 10) || pickA) {
-									ar.couleur = NkString(mArretsBuf[i][ai]);
-									if (!n->instanceDe.Empty())
-										n->ecarts |= NkUINode::EcartRemplissages;
-									mSt->doc.MarkHumanEdit(mSt->selected);
-									mSt->host.SyncTo(mSt->doc);
-								}
-								char idOpA[48];
-								snprintf(idOpA, sizeof(idOpA), "insp.deg%u.op%u", i, ai);
-								const NkRect ropA = {xa + wHex + 4.f, costume::BandeY(ra.y), 34.f,
-													 costume::HControle};
-								float32 opA = ar.opacite;
-								if (ChampNombre(ctx, idOpA, ropA, opA, 1.f, 0.f, 100.f)) {
-									ar.opacite = opA;
-									mSt->doc.MarkHumanEdit(mSt->selected);
-									mSt->host.SyncTo(mSt->doc);
-								}
-								costume::Texte(dl, F.px9, ropA.x + ropA.w + 2.f, costume::CentrerBande(F.px9, ra.y),
-											   "%", ctx.theme.textMuted);
-								const NkRect rsup = {ra.x + ra.w - 30.f, costume::BandeY(ra.y), 20.f,
-													 costume::HControle};
-								const bool svS = ctx.popupDepth == 0 && NkGuiRectContains(rsup, ctx.input.mousePos);
-								costume::IcPoubelle(dl, rsup.x + 4.f, rsup.y + 4.f,
-													svS ? ctx.theme.text : ctx.theme.textMuted);
-								if (svS && ctx.input.mouseClicked[0])
-									aSupprimer = (int32)ai;
-								else if (svS)
-									mSt->status = NkString("Supprimer cet arrêt.");
-								if (ctx.popupDepth == 0 && NkGuiRectContains(ra, ctx.input.mousePos)
-									&& ctx.input.mouseClicked[0] && !svS) {
-									mArretFill = (int32)i;
-									mArretSel = (int32)ai;
-								}
-							}
-							if (aSupprimer >= 0 && (uint32)aSupprimer < (uint32)g.arrets.Size()) {
-								g.arrets.RemoveAt((uint32)aSupprimer);
-								if (mArretSel >= (int32)g.arrets.Size())
-									mArretSel = (int32)g.arrets.Size() - 1;
-								mSt->doc.MarkHumanEdit(mSt->selected);
-								mSt->host.SyncTo(mSt->doc);
-							}
+						mSt->picker.genre = 1u;
+						mSt->picker.noeud = mSt->selected;
+						mSt->picker.index = (int32)(simple ? 0u : i);
+					}
+					(void)pickerFill;
+					const NkDegrade *gApercu = (!simple && i < (uint32)n->fills.Size()) ? &n->fills[i].degrade : nullptr;
+					if (gApercu && gApercu->Actif()) {
+						// l'APERÇU RÉEL du dégradé dans la pastille, par le calcul du document
+						for (int32 s = 0; s < 8; ++s) {
+							const uint32 c = renderdetail::NkCouleurDegradeEn(*gApercu, ((float32)s + 0.5f) / 8.f);
+							dl.AddRectFilled({sw.x + 1.f + (sw.w - 2.f) * (float32)s / 8.f, sw.y + 1.f,
+											  (sw.w - 2.f) / 8.f + 0.5f, sw.h - 2.f},
+											 {(uint8)((c >> 24) & 0xFFu), (uint8)((c >> 16) & 0xFFu),
+											  (uint8)((c >> 8) & 0xFFu), 255});
 						}
 					}
-					// 3. l'OPACITÉ — la toucher MATÉRIALISE (la clé simple ne sait
-					//    pas la dire).
+					const char *nomLigne = gApercu && gApercu->Actif() ? NkNomTypeRemplissage(*gApercu)
+										   : (mFillsBuf[i][0] ? mFillsBuf[i] : "\xE2\x80\x94");
+					costume::Texte(dl, F.px10, col.hexX, costume::CentrerBande(F.px10, r.y), nomLigne, encre);
 					char idOp[32];
 					snprintf(idOp, sizeof(idOp), "insp.fill.op%u", i);
 					const NkRect ro = {col.opacX, costume::BandeY(r.y), 30.f, costume::HControle};
@@ -12985,15 +13047,24 @@ namespace nkuidesign {
 											   ctx.theme.textMuted);
 								const float32 xc = xc0 + ColChampsCalc(rc.w - 24.f);
 								// quatre champs dans la place disponible, jamais au-dela du bord
-								float32 lc = (rc.x + rc.w - 12.f - xc - 3.f * 2.f) * 0.25f;
+								// QUAND QUATRE NE TIENNENT PAS, DEUX RANGEES DE DEUX : un minimum de
+								// largeur est un debordement differe (mesure : sonde 60a, 170 px).
+								const float32 dispo = rc.x + rc.w - 12.f - xc;
+								const uint32 parLigne = dispo >= 4.f * 26.f ? 4u : 2u;
+								float32 lc = (dispo - 2.f * (float32)(parLigne - 1u)) / (float32)parLigne;
 								if (lc > 34.f)
 									lc = 34.f;
-								if (lc < 22.f)
-									lc = 22.f;
+								if (lc < 8.f)
+									lc = 8.f;
+								float32 yc = rc.y;
 								for (uint32 kc = 0; kc < 4u; ++kc) {
+									if (kc > 0u && kc % parLigne == 0u) {
+										const NkRect suite = ctx.NextItemRect(-1.f, costume::HRangee);
+										yc = suite.y;
+									}
 									char idc[48];
 									snprintf(idc, sizeof(idc), "insp.bord.%u.cote.%u", i, kc);
-									const NkRect rk = {xc + (float32)kc * (lc + 2.f), costume::BandeY(rc.y), lc,
+									const NkRect rk = {xc + (float32)(kc % parLigne) * (lc + 2.f), costume::BandeY(yc), lc,
 													   costume::HControle};
 									float32 v = listeOk ? n->borders[kb].Cote(kc) : ep;
 									if (ChampNombre(ctx, idc, rk, v, 0.25f, 0.f, 64.f)) {
@@ -13308,8 +13379,15 @@ namespace nkuidesign {
 						costume::Texte(dl, F.px10, x0, costume::CentrerBande(F.px10, r.y), "Échelle",
 									   ctx.theme.textMuted);
 						const float32 xc = x0 + ColChampsCalc(r.w - 24.f);
-						const NkRect rx = {xc, costume::BandeY(r.y), 48.f, costume::HControle};
-						const NkRect ry = {xc + 48.f + (float32)costume::EspSerre, costume::BandeY(r.y), 48.f,
+						// deux champs dans la place disponible (le « x » a droite garde 12 px),
+						// jamais au-dela du bord (mesure : sonde 60a, 170 px)
+						float32 wch = (r.x + r.w - 12.f - 12.f - xc - (float32)costume::EspSerre) * 0.5f;
+						if (wch > 48.f)
+							wch = 48.f;
+						if (wch < 8.f)
+							wch = 8.f;
+						const NkRect rx = {xc, costume::BandeY(r.y), wch, costume::HControle};
+						const NkRect ry = {xc + wch + (float32)costume::EspSerre, costume::BandeY(r.y), wch,
 										   costume::HControle};
 						if (peutE) {
 							ChampNombreMulti(

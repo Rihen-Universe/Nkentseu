@@ -4655,6 +4655,117 @@ namespace nkuidesign {
 				  "le plafond tient",
 				  idx == 2 && avant == apres && ailleurs == 0xBFBFBFFFu && nb == 12u, det);
 		}
+		// ── 60. L'INSPECTEUR A DEUX LARGEURS : RIEN NE SORT DU CADRE ─────────
+		// « Une largeur reduite est un cas d'epreuve, pas un accident. » Le
+		// panneau se dessine sans fenetre (contexte NKGui sans fenetre), a 260
+		// puis a 170 px, et on mesure l'etendue en x de TOUS les sommets peints.
+		{
+			static nkgui::NkGuiContext ctxI;
+			char det[320];
+			if (!ctxI.Init(600, 900)) {
+				check("60. l'inspecteur sans fenetre", false, "Init a refuse");
+			} else {
+				static DesignState stI;
+				stI.doc.NewDocument("Toile", NkAuthor::Humain);
+				const int32 pg = stI.doc.AddChild(0, "", NkAuthor::Humain);
+				stI.doc.nodes[(uint32)pg].shape = NkString("frame");
+				stI.doc.nodes[(uint32)pg].layout.kind = NkLayoutKind::Free;
+				stI.doc.nodes[(uint32)pg].width.mode = NkSizeMode::Fixed;
+				stI.doc.nodes[(uint32)pg].width.value = 400.f;
+				stI.doc.nodes[(uint32)pg].height.mode = NkSizeMode::Fixed;
+				stI.doc.nodes[(uint32)pg].height.value = 300.f;
+				const int32 rc = stI.doc.AddChild(pg, "", NkAuthor::Humain);
+				{
+					NkUINode &n = stI.doc.nodes[(uint32)rc];
+					n.shape = NkString("rect");
+					n.width.mode = NkSizeMode::Fixed;
+					n.width.value = 120.f;
+					n.height.mode = NkSizeMode::Fixed;
+					n.height.value = 40.f;
+					NkRemplissage f1;
+					f1.couleur = NkString("#1976d2");
+					NkRemplissage f2; // un degrade a trois arrets
+					f2.couleur = NkString("#ffffff");
+					f2.degrade.type = NkString("lineaire");
+					for (uint32 k = 0; k < 3u; ++k) {
+						NkArretDegrade ar;
+						ar.position = (float32)k * 0.5f;
+						ar.couleur = NkString(k == 0 ? "#fafcff" : (k == 1 ? "#d11313" : "#1976d1"));
+						f2.degrade.arrets.PushBack(ar);
+					}
+					n.fills.PushBack(f1);
+					n.fills.PushBack(f2);
+					NkBordure b;
+					b.couleur = NkString("#30363d");
+					b.epaisseur = 2.f;
+					n.borders.PushBack(b);
+				}
+				stI.Recompute(NkPaintRect{0.f, 0.f, 600.f, 900.f});
+				stI.SelectSingle(rc);
+				static InspectorPanel insp(&stI);
+				NkEditorFrameContext ec;
+				ec.ui = &ctxI;
+				ec.dt = 0.016f;
+				float32 yDebMin = 1e9f, yDebMax = -1e9f;
+				auto image = [&](float32 largeur, bool popover, float32 &xMax, uint32 &nSommets, uint32 &nOverlay) {
+					const nkgui::NkRect region = {600.f - largeur, 0.f, largeur, 900.f};
+					ctxI.input.mousePos = {-1.f, -1.f};
+					ctxI.input.mouseDown[0] = false;
+					ctxI.BeginFrame(0.016f);
+					ctxI.BeginLayout(region);
+					insp.OnUI(ec);
+					if (popover)
+						NkDessinerPickerDemande(ctxI, stI);
+					xMax = -1e9f;
+					yDebMin = 1e9f;
+					yDebMax = -1e9f;
+					for (uint32 i = 0; i < (uint32)ctxI.dl.vtx.Size(); ++i) {
+						if (ctxI.dl.vtx[i].pos.x > xMax)
+							xMax = ctxI.dl.vtx[i].pos.x;
+						if (ctxI.dl.vtx[i].pos.x > 600.5f) { // ou ca deborde
+							if (ctxI.dl.vtx[i].pos.y < yDebMin) yDebMin = ctxI.dl.vtx[i].pos.y;
+							if (ctxI.dl.vtx[i].pos.y > yDebMax) yDebMax = ctxI.dl.vtx[i].pos.y;
+						}
+					}
+					nSommets = (uint32)ctxI.dl.vtx.Size();
+					nOverlay = (uint32)ctxI.dlOverlay.vtx.Size();
+					ctxI.EndFrame();
+				};
+				float32 x260 = 0.f, x170 = 0.f;
+				uint32 n260 = 0u, n170 = 0u, o = 0u;
+				image(260.f, false, x260, n260, o);
+				image(170.f, false, x170, n170, o);
+				snprintf(det, sizeof(det), "260 px : %u sommets, x max %.1f (bord 600) ; 170 px : %u sommets, x max %.1f "
+										   "(bord 600) ; ce qui deborde a 170 px est entre y=%.0f et y=%.0f",
+						 n260, x260, n170, x170, yDebMin, yDebMax);
+				check("60a. L'INSPECTEUR A 260 PUIS A 170 PX : aucun sommet peint ne depasse le bord droit du "
+					  "panneau -- rien ne sort du cadre, mesure au temoin",
+					  n260 > 0u && n170 > 0u && x260 <= 600.5f && x170 <= 600.5f, det);
+				// 60b. le POPOVER du remplissage (degrade) dessine, dans la couche overlay, dans l'ecran
+				stI.picker = DesignState::DemandePicker();
+				stI.picker.ouvert = true;
+				stI.picker.id = ctxI.GetId("##sonde.popover");
+				stI.picker.genre = 1u;
+				stI.picker.noeud = rc;
+				stI.picker.index = 1;
+				stI.picker.ancre = {360.f, 200.f, 16.f, 16.f};
+				float32 xp = 0.f;
+				uint32 np = 0u, op = 0u;
+				image(260.f, true, xp, np, op);
+				image(260.f, true, xp, np, op);
+				float32 oxMin = 1e9f, oxMax = -1e9f;
+				for (uint32 i = 0; i < (uint32)ctxI.dlOverlay.vtx.Size(); ++i) {
+					if (ctxI.dlOverlay.vtx[i].pos.x < oxMin) oxMin = ctxI.dlOverlay.vtx[i].pos.x;
+					if (ctxI.dlOverlay.vtx[i].pos.x > oxMax) oxMax = ctxI.dlOverlay.vtx[i].pos.x;
+				}
+				snprintf(det, sizeof(det), "popover : %u sommets overlay, x %.0f..%.0f (ecran 0..600), ouvert=%d, arret courant=%d",
+						 op, oxMin, oxMax, stI.picker.ouvert ? 1 : 0, stI.picker.arretSel);
+				check("60b. LE POPOVER D'UN DEGRADE (types, selecteur, hexa, barre, liste de trois arrets) dessine "
+					  "dans l'overlay, a GAUCHE de sa pastille, et reste dans l'ecran",
+					  stI.picker.ouvert && op > 300u && oxMin >= 0.f && oxMax <= 600.5f && oxMax <= 360.f, det);
+				stI.picker = DesignState::DemandePicker();
+			}
+		}
 		snprintf(tail, sizeof(tail), "\n=== RESULTAT : %d / %d ===\n", pass, total);
 		rep.Append(tail);
 
