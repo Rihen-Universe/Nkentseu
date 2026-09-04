@@ -4978,6 +4978,229 @@ namespace nkuidesign {
 						  "virgule, le point et le signe",
 						  ratesRgb == 0u && ratesHsb == 0u && hexaIntact && lecture && ecriture, det);
 				}
+				// 60h. LE SELECTEUR S'APPLIQUE A L'OBJET (Rodolf, 04/09 : « quand je modifie le
+				// color picker ca ne se reflete pas sur l'objet, uni ou degrade »). Sans fenetre :
+				// un clic dans le carre SV du popover ; puis le MODELE a change, et la commande
+				// de remplissage ENREGISTREE du noeud a change de couleur -- noeud libre, degrade,
+				// instance (la surcharge doit gagner, et l'autre instance ne pas bouger).
+				{
+					auto souris = [&](float32 mx, float32 my, bool bas) {
+						ctxI.input.mousePos = {mx, my};
+						ctxI.input.mouseDown[0] = bas;
+						ctxI.BeginFrame(0.016f);
+						ctxI.BeginLayout({340.f, 0.f, 260.f, 900.f});
+						insp.OnUI(ec);
+						NkDessinerPickerDemande(ctxI, stI);
+						ctxI.EndFrame();
+					};
+					auto boite = [&](float32 &px, float32 &py) {
+						px = 1e9f;
+						py = 1e9f;
+						for (uint32 i = 0; i < (uint32)ctxI.dlOverlay.vtx.Size(); ++i) {
+							if (ctxI.dlOverlay.vtx[i].pos.x < px) px = ctxI.dlOverlay.vtx[i].pos.x;
+							if (ctxI.dlOverlay.vtx[i].pos.y < py) py = ctxI.dlOverlay.vtx[i].pos.y;
+						}
+					};
+					auto compter = [&](nkentseu::uint32 rgba) {
+						NkRecordingPaint rec;
+						RenderDocument(rec, stI.doc, NkPaintRect{0.f, 0.f, 600.f, 900.f});
+						uint32 n = 0u;
+						for (uint32 i = 0; i < (uint32)rec.cmds.Size(); ++i)
+							if ((rec.cmds[i].op == NkPaintOp::Fill || rec.cmds[i].op == NkPaintOp::FillColor) && rec.cmds[i].rgba == rgba)
+								++n;
+						return n;
+					};
+					auto empreinte = [&]() {
+						NkRecordingPaint rec;
+						RenderDocument(rec, stI.doc, NkPaintRect{0.f, 0.f, 600.f, 900.f});
+						nkentseu::uint32 h = 2166136261u;
+						for (uint32 i = 0; i < (uint32)rec.cmds.Size(); ++i)
+							h = (h ^ rec.cmds[i].rgba) * 16777619u;
+						return h;
+					};
+					// un clic au centre du carre SV du popover ouvert sur (noeud, index, arret)
+					auto cliquerSV = [&](int32 noeud, int32 index, int32 arret) {
+						stI.picker = DesignState::DemandePicker();
+						stI.picker.ouvert = true;
+						stI.picker.id = ctxI.GetId("##sonde.popover.applique");
+						stI.picker.genre = 1u;
+						stI.picker.noeud = noeud;
+						stI.picker.index = index;
+						stI.picker.arretSel = arret;
+						stI.picker.ancre = {360.f, 200.f, 16.f, 16.f};
+						souris(-1.f, -1.f, false);
+						souris(-1.f, -1.f, false);
+						float32 px, py;
+						boite(px, py);
+						const float32 cx = px + 0.5f + 8.f + 80.f, cy = py + 0.5f + 8.f + 26.f + 80.f;
+						souris(cx, cy, false); // le survol precede l'appui (le kit resout le survol a l'image d'avant)
+						souris(cx, cy, true);
+						souris(cx, cy, false);
+						souris(-1.f, -1.f, false);
+						stI.picker = DesignState::DemandePicker();
+						souris(-1.f, -1.f, false);
+					};
+					// 1. le noeud libre, uni
+					const nkentseu::uint32 bleu = renderdetail::NkGCouleur("#1976d2");
+					const uint32 avantLibre = compter(bleu);
+					stI.SelectSingle(rc);
+					cliquerSV(rc, 0, 0);
+					const NkString cLibre = stI.doc.nodes[(uint32)rc].fills[0].couleur;
+					const bool modeleLibre = NkHexLisible(cLibre.Data()) && !NkComponentDecl::StrEq(cLibre.Data(), "#1976d2");
+					const uint32 apresLibreAncien = compter(bleu);
+					const uint32 apresLibreNouveau = compter(renderdetail::NkGCouleur(cLibre.Data()));
+					// 2. le degrade (fills[1], arret 0 = #fafcff)
+					const nkentseu::uint32 avantDeg = empreinte();
+					cliquerSV(rc, 1, 0);
+					const NkString cArret = stI.doc.nodes[(uint32)rc].fills[1].degrade.arrets[0].couleur;
+					const bool modeleDeg = NkHexLisible(cArret.Data()) && !NkComponentDecl::StrEq(cArret.Data(), "#fafcff");
+					const bool dessinDeg = empreinte() != avantDeg;
+					// 3. l'instance : un composant extrait d'un bouton bleu, deux instances ; on
+					//    edite la premiere -- elle change, la seconde non
+					const int32 bt = stI.doc.AddChild(pg, "", NkAuthor::Humain);
+					stI.doc.nodes[(uint32)bt].shape = NkString("rect");
+					stI.doc.nodes[(uint32)bt].label = NkString("Bouton");
+					stI.doc.nodes[(uint32)bt].width.mode = NkSizeMode::Fixed;
+					stI.doc.nodes[(uint32)bt].width.value = 100.f;
+					stI.doc.nodes[(uint32)bt].height.mode = NkSizeMode::Fixed;
+					stI.doc.nodes[(uint32)bt].height.value = 30.f;
+					{
+						NkRemplissage fb;
+						fb.couleur = NkString("#2e7d32");
+						stI.doc.nodes[(uint32)bt].fills.PushBack(fb);
+					}
+					const int32 decl = stI.doc.ExtraireComposant(bt, "", "bouton");
+					const int32 a1 = stI.doc.InstancierComposant(decl, pg);
+					const int32 a2 = stI.doc.InstancierComposant(decl, pg);
+					bool instanceOk = false;
+					uint32 avantInst = 0u, apresInstAncien = 0u, apresInstNouveau = 0u;
+					NkString cInst, cAutre;
+					if (decl >= 0 && stI.doc.IsValidIndex(a1) && stI.doc.IsValidIndex(a2)) {
+						stI.Recompute(NkPaintRect{0.f, 0.f, 600.f, 900.f});
+						const nkentseu::uint32 vert = renderdetail::NkGCouleur("#2e7d32");
+						avantInst = compter(vert);
+						stI.SelectSingle(a1);
+						souris(-1.f, -1.f, false);
+						cliquerSV(a1, 0, 0);
+						cInst = stI.doc.nodes[(uint32)a1].fills.Empty() ? NkString("(vide)") : stI.doc.nodes[(uint32)a1].fills[0].couleur;
+						cAutre = stI.doc.nodes[(uint32)a2].fills.Empty() ? NkString("(vide)") : stI.doc.nodes[(uint32)a2].fills[0].couleur;
+						apresInstAncien = compter(vert);
+						apresInstNouveau = NkHexLisible(cInst.Data()) ? compter(renderdetail::NkGCouleur(cInst.Data())) : 0u;
+						instanceOk = NkHexLisible(cInst.Data()) && !NkComponentDecl::StrEq(cInst.Data(), "#2e7d32")
+									 && NkComponentDecl::StrEq(cAutre.Data(), "#2e7d32") && apresInstAncien < avantInst
+									 && apresInstNouveau >= 1u;
+					}
+					stI.SelectSingle(rc);
+					snprintf(det, sizeof(det),
+							 "libre : #1976d2 -> %s, commandes bleues %u -> %u, nouvelles %u ; degrade : arret0 #fafcff -> %s, dessin change=%d ; "
+							 "instance : #2e7d32 -> %s (l'autre : %s), vertes %u -> %u, nouvelles %u",
+							 cLibre.Data(), avantLibre, apresLibreAncien, apresLibreNouveau, cArret.Data(), dessinDeg ? 1 : 0,
+							 cInst.Data() ? cInst.Data() : "?", cAutre.Data() ? cAutre.Data() : "?", avantInst, apresInstAncien, apresInstNouveau);
+					check("60h. LE SELECTEUR S'APPLIQUE A L'OBJET : un clic dans le carre SV change le modele ET la commande "
+						  "de remplissage enregistree -- noeud libre, arret de degrade, instance (l'autre instance ne bouge pas)",
+						  modeleLibre && apresLibreAncien < avantLibre && apresLibreNouveau >= 1u && modeleDeg && dessinDeg && instanceOk,
+						  det);
+				}
+				// 60i. LE CAS DE RODOLF : son Bouton_Connexion porte la CLE SIMPLE `fond = #0969da`
+				// (pas de liste). Le geste complet : clic sur la pastille de la LIGNE, survol
+				// puis clic dans le carre SV -- et la commande de remplissage ENREGISTREE du
+				// noeud doit avoir change de couleur. C'est ce qu'il voit ne pas se produire.
+				{
+					const int32 rs = stI.doc.AddChild(pg, "", NkAuthor::Humain);
+					stI.doc.nodes[(uint32)rs].shape = NkString("rect");
+					stI.doc.nodes[(uint32)rs].label = NkString("Bouton_Connexion");
+					stI.doc.nodes[(uint32)rs].width.mode = NkSizeMode::Fixed;
+					stI.doc.nodes[(uint32)rs].width.value = 180.f;
+					stI.doc.nodes[(uint32)rs].height.mode = NkSizeMode::Fixed;
+					stI.doc.nodes[(uint32)rs].height.value = 36.f;
+					stI.doc.nodes[(uint32)rs].fill = NkString("#0969da"); // la cle simple, comme son fichier
+					stI.Recompute(NkPaintRect{0.f, 0.f, 600.f, 900.f});
+					stI.SelectSingle(rs);
+					stI.picker = DesignState::DemandePicker();
+					// L'ORDRE DE LA COQUILLE : le corps (les panneaux) voit une souris MASQUEE
+					// des que le pointeur est sur un popup ; l'entree reelle est restauree
+					// avant le crochet d'overlay. La sonde reproduit ce masquage.
+					auto image2 = [&](float32 mx, float32 my, bool bas) {
+						ctxI.input.mousePos = {mx, my};
+						ctxI.input.mouseDown[0] = bas;
+						ctxI.BeginFrame(0.016f);
+						ctxI.BeginLayout({340.f, 0.f, 260.f, 900.f});
+						bool surPopup = false;
+						for (int32 i = 0; i < ctxI.popupDepth; ++i)
+							if (nkgui::NkGuiRectContains(ctxI.popupRects[i], ctxI.input.mousePos))
+								surPopup = true;
+						nkgui::NkGuiInput sauve = ctxI.input;
+						if (surPopup) {
+							ctxI.input.mousePos = {-100000.f, -100000.f};
+							for (int32 i = 0; i < 3; ++i) {
+								ctxI.input.mouseClicked[i] = false;
+								ctxI.input.mouseDown[i] = false;
+								ctxI.input.mouseDoubleClicked[i] = false;
+							}
+						}
+						insp.OnUI(ec);
+						if (surPopup)
+							ctxI.input = sauve;
+						NkDessinerPickerDemande(ctxI, stI);
+						ctxI.EndFrame();
+					};
+					auto compterBleu = [&](nkentseu::uint32 rgba) {
+						NkRecordingPaint rec;
+						RenderDocument(rec, stI.doc, NkPaintRect{0.f, 0.f, 600.f, 900.f});
+						uint32 n = 0u;
+						for (uint32 i = 0; i < (uint32)rec.cmds.Size(); ++i)
+							if ((rec.cmds[i].op == NkPaintOp::Fill || rec.cmds[i].op == NkPaintOp::FillColor) && rec.cmds[i].rgba == rgba)
+								++n;
+						return n;
+					};
+					const nkentseu::uint32 bleuR = renderdetail::NkGCouleur("#0969da");
+					const uint32 avant = compterBleu(bleuR);
+					image2(-1.f, -1.f, false);
+					image2(-1.f, -1.f, false);
+					// la pastille de la ligne : le rectangle plein de sa couleur dans la couche du panneau
+					float32 sx0 = 1e9f, sy0 = 1e9f, sx1 = -1e9f, sy1 = -1e9f;
+					for (uint32 i = 0; i < (uint32)ctxI.dl.vtx.Size(); ++i) {
+						const auto &vt = ctxI.dl.vtx[i];
+						if (vt.col == 0xFFDA6909u || vt.col == 0x0969DAFFu) {
+							if (vt.pos.x < sx0) sx0 = vt.pos.x;
+							if (vt.pos.y < sy0) sy0 = vt.pos.y;
+							if (vt.pos.x > sx1) sx1 = vt.pos.x;
+							if (vt.pos.y > sy1) sy1 = vt.pos.y;
+						}
+					}
+					const bool pastilleVue = sx1 > sx0 && sy1 > sy0 && sx1 - sx0 < 40.f;
+					const float32 pcx = (sx0 + sx1) * 0.5f, pcy = (sy0 + sy1) * 0.5f;
+					image2(pcx, pcy, false);
+					image2(pcx, pcy, true);
+					image2(pcx, pcy, false);
+					image2(pcx, pcy, false);
+					const bool demande = stI.picker.ouvert && stI.picker.genre == 1u && stI.picker.noeud == rs;
+					// le popover : sa boite, puis le carre SV
+					float32 px = 1e9f, py = 1e9f;
+					for (uint32 i = 0; i < (uint32)ctxI.dlOverlay.vtx.Size(); ++i) {
+						if (ctxI.dlOverlay.vtx[i].pos.x < px) px = ctxI.dlOverlay.vtx[i].pos.x;
+						if (ctxI.dlOverlay.vtx[i].pos.y < py) py = ctxI.dlOverlay.vtx[i].pos.y;
+					}
+					const float32 cx = px + 0.5f + 8.f + 80.f, cy = py + 0.5f + 8.f + 26.f + 80.f;
+					image2(cx, cy, false);
+					image2(cx, cy, true);
+					image2(cx, cy, false);
+					image2(-1.f, -1.f, false);
+					const NkUINode &ns = stI.doc.nodes[(uint32)rs];
+					const NkString cListe = ns.fills.Empty() ? NkString("(aucune)") : ns.fills[0].couleur;
+					const uint32 apresAncien = compterBleu(bleuR);
+					const uint32 apresNouveau = NkHexLisible(cListe.Data()) ? compterBleu(renderdetail::NkGCouleur(cListe.Data())) : 0u;
+					stI.picker = DesignState::DemandePicker();
+					image2(-1.f, -1.f, false);
+					snprintf(det, sizeof(det),
+							 "pastille vue=%d a (%.0f,%.0f) ; demande=%d ; cle simple `%s`, liste `%s` ; commandes #0969da %u -> %u, "
+							 "nouvelles %u",
+							 pastilleVue ? 1 : 0, pcx, pcy, demande ? 1 : 0, ns.fill.Data() ? ns.fill.Data() : "", cListe.Data(),
+							 avant, apresAncien, apresNouveau);
+					check("60i. LE CAS DE RODOLF (cle simple `fond = #0969da`, par la pastille de la LIGNE) : le clic "
+						  "dans le carre SV change la couleur PEINTE du noeud",
+						  pastilleVue && demande && avant >= 1u && apresAncien < avant && apresNouveau >= 1u, det);
+				}
 				stI.picker = DesignState::DemandePicker();
 			}
 		}
