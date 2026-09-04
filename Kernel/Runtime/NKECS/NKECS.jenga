@@ -141,8 +141,19 @@ with project("NKECS"):
                 "NKMath",
                 "NKPlatform",
             ])
-        # JENGA 2.6, DEFAUT MESURE (2026-09-04) : le contexte test() remet _currentProject a None a sa
-        # sortie (Api.py:999) au lieu de rendre le projet parent -> un SECOND with test() dans le meme
-        # projet echoue (« test context must be placed directly inside a project block »). Une seule
-        # sous-suite par projet tant que Jenga ne le corrige pas ; les autres sont nommees ici :
-        #   ReflectBridge (test_reflect_bridge.cpp), memes links, testownmain().
+        # Jenga 2.6.1 : la seconde sous-suite (2026-09-04).
+        with test("ReflectBridge"):
+            testfiles(["tests/test_reflect_bridge.cpp"])
+            testownmain()
+            links([
+                "NKECS",
+                "NKReflection",
+                "NKSerialization",
+                "NKThreading",
+                "NKContainers",
+                "NKCore",
+                "NKMemory",
+                "NKLogger",
+                "NKMath",
+                "NKPlatform",
+            ])
