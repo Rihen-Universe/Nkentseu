@@ -4373,6 +4373,9 @@ namespace nkuidesign {
 				check("54. le selecteur de couleur : contexte sans fenetre", false, "Init a refuse");
 			} else {
 				static DesignState stP;
+				// ④ le selecteur suit la selection : la sonde selectionne un noeud, comme l'application
+				stP.doc.NewDocument("Toile", NkAuthor::Humain);
+				stP.SelectSingle(stP.doc.AddChild(0, "", NkAuthor::Humain));
 				stP.picker = DesignState::DemandePicker();
 				char hex[12] = "#1976d2";
 				const nkgui::NkRect sw = {240.f, 60.f, 16.f, 16.f};
@@ -5955,6 +5958,72 @@ namespace nkuidesign {
 					check("60t. ② LES ZONES DE DETECTION (tolerance nommee, 12 px ecran) : l'arc se prend 11 px hors de sa boite, "
 						  "le bord droit 10 px au-dela, et le centre d'un petit noeud le deplace encore (bande bornee au tiers)",
 						  rot > 30.f && w1 > w0 + 5.f && deplace, det);
+				}
+				// 60u. ④ LE SELECTEUR SE FERME : un clic dans le vide de la toile deselectionne et le
+				// popover se ferme (le popup du kit aussi) ; selectionner un autre noeud le ferme ;
+				// une deselection par le modele le ferme ; le clic dans le vide n'est pas consomme.
+				{
+					static PreviewPanel toileU(&stI);
+					auto sceneU = [&](float32 mx, float32 my, bool bas) {
+						ctxI.input.mousePos = {mx, my};
+						ctxI.input.mouseDown[0] = bas;
+						ctxI.BeginFrame(0.016f);
+						ctxI.BeginLayout({0.f, 0.f, 340.f, 900.f});
+						toileU.OnUI(ec);
+						ctxI.BeginLayout({340.f, 0.f, 260.f, 900.f});
+						insp.OnUI(ec);
+						NkDessinerPickerDemande(ctxI, stI);
+						ctxI.EndFrame();
+					};
+					auto ouvrir = [&]() {
+						stI.SelectSingle(rc);
+						stI.picker = DesignState::DemandePicker();
+						stI.picker.ouvert = true;
+						stI.picker.id = ctxI.GetId("##sonde.popover.fermeture");
+						stI.picker.genre = 1u;
+						stI.picker.noeud = rc;
+						stI.picker.index = 0;
+						stI.picker.ancre = {590.f, 20.f, 16.f, 16.f};
+						for (int32 k = 0; k < 32; ++k)
+							sceneU(-1.f, -1.f, false);
+					};
+					// 1. le clic dans le vide de la toile
+					ouvrir();
+					const bool ouvertAvant = stI.picker.ouvert && ctxI.popupDepth >= 1;
+					sceneU(300.f, 600.f, false);
+					sceneU(300.f, 600.f, true);
+					sceneU(300.f, 600.f, false);
+					sceneU(-1.f, -1.f, false);
+					sceneU(-1.f, -1.f, false);
+					const int32 selVide = stI.selected;
+					const bool videDeselectionne = !stI.doc.IsValidIndex(stI.selected) || stI.selected == 0;
+					const bool fermeVide = !stI.picker.ouvert && ctxI.popupDepth == 0;
+					// 2. un autre noeud selectionne
+					ouvrir();
+					int32 autre = -1;
+					for (uint32 i = 0; i < (uint32)stI.doc.nodes.Size(); ++i)
+						if ((int32)i != rc && stI.doc.nodes[i].parent == pg) {
+							autre = (int32)i;
+							break;
+						}
+					stI.SelectSingle(autre);
+					sceneU(-1.f, -1.f, false);
+					sceneU(-1.f, -1.f, false);
+					const bool fermeAutre = !stI.picker.ouvert && ctxI.popupDepth == 0;
+					// 3. la deselection par le modele
+					ouvrir();
+					stI.SelectClear();
+					sceneU(-1.f, -1.f, false);
+					sceneU(-1.f, -1.f, false);
+					const bool fermeRien = !stI.picker.ouvert && ctxI.popupDepth == 0;
+					stI.SelectSingle(rc);
+					sceneU(-1.f, -1.f, false);
+					snprintf(det, sizeof(det), "ouvert avant=%d ; clic dans le vide : selection=%d (deselectionne=%d), ferme=%d ; autre noeud (%d) : ferme=%d ; deselection par le modele : ferme=%d",
+							 ouvertAvant ? 1 : 0, selVide, videDeselectionne ? 1 : 0, fermeVide ? 1 : 0, autre, fermeAutre ? 1 : 0, fermeRien ? 1 : 0);
+					check("60u. ④ LE SELECTEUR SE FERME quand rien n'est selectionne ou qu'on clique dans le vide : le vide "
+						  "deselectionne (le clic n'est pas consomme) et le popover se ferme, un autre noeud le ferme, une "
+						  "deselection le ferme -- le popup du kit avec",
+						  ouvertAvant && videDeselectionne && fermeVide && autre >= 0 && fermeAutre && fermeRien, det);
 				}
 				stI.picker = DesignState::DemandePicker();
 			}

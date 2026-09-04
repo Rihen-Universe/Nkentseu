@@ -10120,6 +10120,13 @@ namespace nkuidesign {
 		using namespace nkentseu;
 		if (!st.picker.ouvert)
 			return;
+		// ④ rien de selectionne : le selecteur generique (etats, effets) se ferme aussi
+		if (st.picker.genre == 0u && !st.doc.IsValidIndex(st.selected)) {
+			if (ctx.IsPopupOpen(st.picker.id))
+				ctx.ClosePopup();
+			st.picker.ouvert = false;
+			return;
+		}
 		if (st.picker.genre == 1u && st.popoverRemplissage) {
 			st.popoverRemplissage(ctx, st.popoverUser); // le popover complet (types, rampe, liste)
 			return;
@@ -10220,7 +10227,9 @@ namespace nkuidesign {
 			/// forme fermée, et dit). Appelé par le crochet d'overlay, jamais par le panneau.
 			void DessinerPopoverBordure(NkGuiContext &ctx) {
 				DesignState::DemandePicker &d = mSt->picker;
-				if (!d.ouvert || !mSt->doc.IsValidIndex(d.noeud)) {
+				if (!d.ouvert || !mSt->doc.IsValidIndex(d.noeud) || mSt->selected != d.noeud) {
+					if (d.ouvert && ctx.IsPopupOpen(d.id)) // ④ il suit la selection
+						ctx.ClosePopup();
 					d.ouvert = false;
 					return;
 				}
@@ -10391,7 +10400,13 @@ namespace nkuidesign {
 			void DessinerPopoverRemplissage(NkGuiContext &ctx) {
 				DesignState::DemandePicker &d = mSt->picker;
 				renderdetail::NkPoserResolveur(&mSt->doc);
-				if (!d.ouvert || !mSt->doc.IsValidIndex(d.noeud)) {
+				// ④ LE SELECTEUR SUIT LA SELECTION (Rodolf : « fermer le picker lorsque rien n'est
+				//    selectionne ou si on a clique dans le vide ») : le noeud disparu, deselectionne
+				//    (le vide de la toile deselectionne), ou remplace par un autre -> il se ferme,
+				//    et le popup du kit avec lui.
+				if (!d.ouvert || !mSt->doc.IsValidIndex(d.noeud) || mSt->selected != d.noeud) {
+					if (d.ouvert && ctx.IsPopupOpen(d.id))
+						ctx.ClosePopup();
 					d.ouvert = false;
 					return;
 				}
