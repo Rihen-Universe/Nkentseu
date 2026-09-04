@@ -161,8 +161,10 @@ namespace nkentseu {
 
 		void NkVFXSystem::Shutdown() {
 			for (auto *e : mEmitters) {
-				if (e->vbo.IsValid())
-					mDevice->DestroyBuffer(e->vbo);
+				if (e->store) {
+					e->store->Shutdown(mDevice);
+					memory::NkGetDefaultAllocator().Delete(e->store);
+				}
 				memory::NkGetDefaultAllocator().Delete(e);
 			}
 			for (auto *t : mTrails) {
@@ -182,20 +184,45 @@ namespace nkentseu {
 		}
 
 		// ── Émetteurs ─────────────────────────────────────────────────────────────
+		// La cible demandee -> la cible obtenue, DITE quand elle differe (une fois par
+		// emetteur). Le stockage GPU n'est pas livre : tout retombe sur CPU aujourd'hui,
+		// et la ligne au journal dit pourquoi (pas de compute / pas encore livre).
+		static NkSimTarget NkResolveSimTarget(NkIDevice *dev, NkSimTarget demande, uint64 id) {
+			const bool compute = dev && dev->GetCaps().computeShaders;
+			if (demande == NkSimTarget::CPU)
+				return NkSimTarget::CPU;
+			if (!compute) {
+				if (demande == NkSimTarget::AUTO)
+					std::fprintf(stderr, "[NkVFX] emetteur %llu : simTarget=AUTO -> CPU (pas de compute sur ce device)\n",
+								 (unsigned long long)id);
+				else
+					std::fprintf(stderr, "[NkVFX] emetteur %llu : simTarget=GPU demande, pas de compute sur ce device -> CPU\n",
+								 (unsigned long long)id);
+				return NkSimTarget::CPU;
+			}
+			// Compute present : le stockage GPU viendrait ici (plan (B)). Pas livre -> dit.
+			std::fprintf(stderr, "[NkVFX] emetteur %llu : simTarget=%s, compute present mais stockage GPU pas encore livre -> CPU\n",
+						 (unsigned long long)id, demande == NkSimTarget::AUTO ? "AUTO" : "GPU");
+			return NkSimTarget::CPU;
+		}
+
 		NkEmitterId NkVFXSystem::CreateEmitter(const NkEmitterDesc &desc) {
 			Emitter *e = memory::NkGetDefaultAllocator().New<Emitter>();
 			e->id = {mNextId++};
 			e->desc = desc;
-			e->particles.Resize(desc.maxParticles);
-			e->freeSlots.Reserve(desc.maxParticles);
-			for (uint32 i = desc.maxParticles; i > 0; --i)
-				e->freeSlots.PushBack(i - 1); // l'emplacement 0 sort en premier
 			e->enabled = true;
 			e->spawnAccum = 0.f;
-
-			// Tampon PAR INSTANCE : un NkParticleInstance (24 o) par emplacement -- huit fois
-			// moins que les six NkVertexParticle de 32 o d'avant (2026-09-04).
-			e->vbo = mDevice->CreateBuffer(NkBufferDesc::VertexDynamic(desc.maxParticles * sizeof(NkParticleInstance)));
+			e->resolved = NkResolveSimTarget(mDevice, desc.simTarget, e->id.id);
+			// Le stockage (CPU SoA ; le GPU viendra derriere la meme interface).
+			{
+				auto *cpu = memory::NkGetDefaultAllocator().New<NkParticleStoreCPU>();
+				cpu->solver = desc.solver;
+				if (!cpu->Init(mDevice, desc))
+					logger.Errorf("[NkVFXSystem] emetteur %llu : stockage CPU sans tampon d'instances -- rien ne se dessinera\n",
+								  (unsigned long long)e->id.id);
+				e->store = cpu;
+			}
+			e->births.Reserve(64);
 
 			// Borne 2 : la texture DECLAREE est celle qui rend ; sans texture, le repli, DIT.
 			if (mTexLayout.IsValid() && mTexLib) {
@@ -216,8 +243,10 @@ namespace nkentseu {
 		void NkVFXSystem::DestroyEmitter(NkEmitterId &id) {
 			for (uint32 i = 0; i < (uint32)mEmitters.Size(); i++) {
 				if (mEmitters[i]->id.id == id.id) {
-					if (mEmitters[i]->vbo.IsValid())
-						mDevice->DestroyBuffer(mEmitters[i]->vbo);
+					if (mEmitters[i]->store) {
+						mEmitters[i]->store->Shutdown(mDevice);
+						memory::NkGetDefaultAllocator().Delete(mEmitters[i]->store);
+					}
 					if (mEmitters[i]->texSet.IsValid())
 						mDevice->FreeDescriptorSet(mEmitters[i]->texSet);
 					memory::NkGetDefaultAllocator().Delete(mEmitters[i]);
@@ -257,64 +286,63 @@ namespace nkentseu {
 					uint32 n = (count > 0) ? count : (uint32)e->desc.burstCount;
 					for (uint32 i = 0; i < n; i++)
 						SpawnParticle(e);
+					if (e->store && !e->births.Empty()) {
+						e->store->Spawn(e->births.Data(), (uint32)e->births.Size());
+						e->births.Clear();
+					}
 					return;
 				}
 			}
 		}
 
-		void NkVFXSystem::SpawnParticle(Emitter *e) {
-			// L'emplacement libre vient de la pile, en O(1) -- plus de balayage.
-			if (e->freeSlots.Empty())
+		void NkVFXSystem::SpawnBirths(NkEmitterId id, const NkParticleBirth *births, uint32 n) {
+			if (!births || n == 0)
 				return;
-			const uint32 slot = e->freeSlots.Back();
-			e->freeSlots.PopBack();
-			{
-				Particle &p = e->particles[slot];
-				{
-					p.alive = true;
-					p.maxLife = NkRandRange(e->desc.lifeMin, e->desc.lifeMax);
-					p.life = p.maxLife;
-					p.size = e->desc.sizeStart;
-					p.rotation = NkRandF() * 2 * math::NK_PI_F;
-					p.rotSpeed = NkRandRange(-2.f, 2.f);
-					p.color = e->desc.colorStart;
-
-					// Position selon shape
-					switch (e->desc.shape) {
-						case NkEmitterShape::SPHERE:
-							p.pos = {e->desc.position.x + NkRandDir().x * e->desc.radius,
-									 e->desc.position.y + NkRandDir().y * e->desc.radius,
-									 e->desc.position.z + NkRandDir().z * e->desc.radius};
-							break;
-						case NkEmitterShape::BOX: {
-							NkVec3f b = e->desc.boxSize;
-							p.pos = {e->desc.position.x + NkRandRange(-b.x, b.x) * 0.5f,
-									 e->desc.position.y + NkRandRange(-b.y, b.y) * 0.5f,
-									 e->desc.position.z + NkRandRange(-b.z, b.z) * 0.5f};
-							break;
-						}
-						default:
-							p.pos = e->desc.position;
-							break;
-					}
-
-					// Vitesse
-					NkVec3f d = {
-						e->desc.velocityDir.x * (1.f - e->desc.velocityRand) + NkRandDir().x * e->desc.velocityRand,
-						e->desc.velocityDir.y * (1.f - e->desc.velocityRand) + NkRandDir().y * e->desc.velocityRand,
-						e->desc.velocityDir.z * (1.f - e->desc.velocityRand) + NkRandDir().z * e->desc.velocityRand,
-					};
-					float32 spd = NkRandRange(e->desc.speedMin, e->desc.speedMax);
-					float32 len = sqrtf(d.x * d.x + d.y * d.y + d.z * d.z);
-					if (len > 1e-5f) {
-						d.x /= len;
-						d.y /= len;
-						d.z /= len;
-					}
-					p.vel = {d.x * spd, d.y * spd, d.z * spd};
-					e->aliveCount++;
+			for (auto *e : mEmitters)
+				if (e->id.id == id.id && e->store) {
+					e->store->Spawn(births, n);
+					return;
 				}
+		}
+
+		void NkVFXSystem::SpawnParticle(Emitter *e) {
+			// Le CPU decide QUI nait (forme, alea, vitesse) pour toutes les cibles ; le
+			// stockage recoit une NkParticleBirth. Memes tirages, meme ordre qu'avant.
+			NkParticleBirth b;
+			b.life = NkRandRange(e->desc.lifeMin, e->desc.lifeMax);
+			b.rotation = NkRandF() * 2 * math::NK_PI_F;
+			b.rotSpeed = NkRandRange(-2.f, 2.f);
+			switch (e->desc.shape) {
+				case NkEmitterShape::SPHERE:
+					b.pos = {e->desc.position.x + NkRandDir().x * e->desc.radius,
+							 e->desc.position.y + NkRandDir().y * e->desc.radius,
+							 e->desc.position.z + NkRandDir().z * e->desc.radius};
+					break;
+				case NkEmitterShape::BOX: {
+					NkVec3f bx = e->desc.boxSize;
+					b.pos = {e->desc.position.x + NkRandRange(-bx.x, bx.x) * 0.5f,
+							 e->desc.position.y + NkRandRange(-bx.y, bx.y) * 0.5f,
+							 e->desc.position.z + NkRandRange(-bx.z, bx.z) * 0.5f};
+					break;
+				}
+				default:
+					b.pos = e->desc.position;
+					break;
 			}
+			NkVec3f d = {
+				e->desc.velocityDir.x * (1.f - e->desc.velocityRand) + NkRandDir().x * e->desc.velocityRand,
+				e->desc.velocityDir.y * (1.f - e->desc.velocityRand) + NkRandDir().y * e->desc.velocityRand,
+				e->desc.velocityDir.z * (1.f - e->desc.velocityRand) + NkRandDir().z * e->desc.velocityRand,
+			};
+			float32 spd = NkRandRange(e->desc.speedMin, e->desc.speedMax);
+			float32 len = sqrtf(d.x * d.x + d.y * d.y + d.z * d.z);
+			if (len > 1e-5f) {
+				d.x /= len;
+				d.y /= len;
+				d.z /= len;
+			}
+			b.vel = {d.x * spd, d.y * spd, d.z * spd};
+			e->births.PushBack(b);
 		}
 
 		// ── Update ────────────────────────────────────────────────────────────────
@@ -325,7 +353,7 @@ namespace nkentseu {
 			mProfile = NkVFXProfile{}; // la mesure repart a chaque image
 			for (auto *e : mEmitters) {
 				UpdateEmitter(e, dt, cam);
-				mTotalParticles += e->aliveCount;
+				mTotalParticles += e->store ? e->store->AliveCount() : 0u;
 			}
 			for (auto *t : mTrails)
 				UpdateTrail(t, dt);
@@ -341,7 +369,10 @@ namespace nkentseu {
 		}
 
 		void NkVFXSystem::UpdateEmitter(Emitter *e, float32 dt, const NkCamera3DData &cam) {
-			// Spawn
+			(void)cam;
+			if (!e->store)
+				return;
+			// Naissances de l'image (CPU, toujours), poussees d'un coup au stockage.
 			const int64 t0 = ::nkentseu::NkChrono::Now().nanoseconds;
 			if (e->enabled && e->desc.ratePerSec > 0.f) {
 				e->spawnAccum += e->desc.ratePerSec * dt;
@@ -351,71 +382,20 @@ namespace nkentseu {
 					e->spawnAccum -= 1.f;
 				}
 			}
+			if (!e->births.Empty()) {
+				e->store->Spawn(e->births.Data(), (uint32)e->births.Size());
+				e->births.Clear();
+			}
 			const int64 t1 = ::nkentseu::NkChrono::Now().nanoseconds;
 			mProfile.spawnMs += (float32)((t1 - t0) / 1.0e6);
-			e->aliveCount = 0;
-			// Simuler particules actives
-			for (auto &p : e->particles) {
-				if (!p.alive)
-					continue;
-				p.life -= dt;
-				if (p.life <= 0.f) {
-					p.alive = false;
-					e->freeSlots.PushBack((uint32)(&p - e->particles.Data())); // l'emplacement redevient libre
-					continue;
-				}
-
-				// Physique
-				p.vel.x += e->desc.gravity.x * dt;
-				p.vel.y += e->desc.gravity.y * dt;
-				p.vel.z += e->desc.gravity.z * dt;
-				p.pos.x += p.vel.x * dt;
-				p.pos.y += p.vel.y * dt;
-				p.pos.z += p.vel.z * dt;
-				p.rotation += p.rotSpeed * dt;
-
-				// Interpolation couleur/taille
-				float32 t = 1.f - (p.life / p.maxLife);
-				p.color.x = e->desc.colorStart.x + (e->desc.colorEnd.x - e->desc.colorStart.x) * t;
-				p.color.y = e->desc.colorStart.y + (e->desc.colorEnd.y - e->desc.colorStart.y) * t;
-				p.color.z = e->desc.colorStart.z + (e->desc.colorEnd.z - e->desc.colorStart.z) * t;
-				p.color.w = e->desc.colorStart.w + (e->desc.colorEnd.w - e->desc.colorStart.w) * t;
-				p.size = e->desc.sizeStart + (e->desc.sizeEnd - e->desc.sizeStart) * t;
-
-				e->aliveCount++;
-			}
-
-			const int64 t2 = ::nkentseu::NkChrono::Now().nanoseconds;
-			mProfile.simMs += (float32)((t2 - t1) / 1.0e6);
-			mProfile.alive += e->aliveCount;
-			// Upload billboard VBO
-			if (e->aliveCount == 0 || !e->vbo.IsValid())
-				return;
-
-			// UN enregistrement de 24 o par particule vivante (2026-09-04, soir) : le
-			// quad s'expanse sur le GPU par instanciation, le coin vient du tampon
-			// statique mQuadVB. Avant : six NkVertexParticle de 32 o par particule --
-			// 3,8-4,5 ms de sommets + 9,3 Mo d'envoi par image a 50 000.
-			NkVector<NkParticleInstance> &inst = mScratchInst; // reutilise : pas de reallocation par image
-			inst.Clear();
-			inst.Reserve(e->aliveCount);
-			for (auto &p : e->particles) {
-				if (!p.alive)
-					continue;
-				NkParticleInstance r;
-				r.pos = p.pos;
-				r.size = p.size;
-				r.color = ((uint32)(p.color.w * 255) << 24) | ((uint32)(p.color.z * 255) << 16) |
-						  ((uint32)(p.color.y * 255) << 8) | (uint32)(p.color.x * 255);
-				r.rotation = p.rotation;
-				inst.PushBack(r);
-			}
-			const int64 t3 = ::nkentseu::NkChrono::Now().nanoseconds;
-			mProfile.buildMs += (float32)((t3 - t2) / 1.0e6);
-			mDevice->WriteBuffer(e->vbo, inst.Data(), (uint32)inst.Size() * sizeof(NkParticleInstance));
-			const int64 t4 = ::nkentseu::NkChrono::Now().nanoseconds;
-			mProfile.uploadMs += (float32)((t4 - t3) / 1.0e6);
-			mProfile.uploadBytes += (uint32)inst.Size() * (uint32)sizeof(NkParticleInstance);
+			// Le pas : integration + instances + envoi (CPU) -- ou Dispatch (GPU, plan).
+			NkParticleStepStats st;
+			e->store->Step(nullptr, e->desc, dt, st);
+			mProfile.simMs += st.simMs;
+			mProfile.buildMs += st.buildMs;
+			mProfile.uploadMs += st.uploadMs;
+			mProfile.uploadBytes += st.uploadBytes;
+			mProfile.alive += st.alive;
 		}
 
 		// ── Trails ────────────────────────────────────────────────────────────────
@@ -533,7 +513,7 @@ namespace nkentseu {
 		// ── Render ────────────────────────────────────────────────────────────────
 		void NkVFXSystem::Render(NkICommandBuffer *cmd, const NkCamera3DData &cam) {
 			for (auto *e : mEmitters)
-				if (e->aliveCount > 0)
+				if (e->store && e->store->DrawCount() > 0)
 					RenderEmitter(cmd, e, cam);
 			for (auto *t : mTrails)
 				if (t->points.Size() > 1)
@@ -567,9 +547,9 @@ namespace nkentseu {
 			cmd->BindGraphicsPipeline(PipelineFor(e->desc.blend)); // le melange DECLARE est celui qui rend
 			if (e->texSet.IsValid())
 				cmd->BindDescriptorSet(e->texSet, 0); // la texture DECLAREE (ou le repli dit)
-			cmd->BindVertexBuffer(0, mQuadVB, 0); // les six coins, statiques, partages
-			cmd->BindVertexBuffer(1, e->vbo, 0);  // un enregistrement de 24 o par particule, PAR INSTANCE
-			cmd->Draw(6, e->aliveCount, 0, 0);    // six sommets x N instances : le quad s'expanse sur le GPU
+			cmd->BindVertexBuffer(0, mQuadVB, 0);                  // les six coins, statiques, partages
+			cmd->BindVertexBuffer(1, e->store->InstanceBuffer(), 0); // un enregistrement de 24 o par instance, du stockage
+			cmd->Draw(6, e->store->DrawCount(), 0, 0);             // six sommets x N instances : le quad s'expanse sur le GPU
 			mProfile.drawMs += (float32)((::nkentseu::NkChrono::Now().nanoseconds - t0) / 1.0e6);
 		}
 
