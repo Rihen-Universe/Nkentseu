@@ -46,6 +46,28 @@ namespace nkentseu {
 				float32 lowerAngle = 0.f, upperAngle = 0.f;
 		};
 
+		// La table d'attributs PAR DEFAUT derivee de la vue (2026-09-04) : une
+		// capsule du joint vers son parent, la racine ancree (KINEMATIC, sphere).
+		// C'est ce que l'editeur (NkRagdollBridge) fabriquait a cote de Build ;
+		// un seul constructeur, donc la derivation vit ici, a cote de lui.
+		// `out` : count entrees, ecrites en entier.
+		inline void NkRagdollAttrsFromSkeleton(const NkSkeletonView &skel, float32 boneRadius, NkRagdollBoneAttr *out) {
+			for (uint32 i = 0; i < skel.count; ++i) {
+				NkRagdollBoneAttr &a = out[i];
+				a = NkRagdollBoneAttr{};
+				const NkVec3f pos = skel.restPos[i];
+				const int32 p = skel.parent[i];
+				a.jointType = NkJointType::BALL;
+				a.jointPivot = pos;
+				if (p >= 0 && (uint32)p < skel.count) {
+					a.shape = collision::NkShape::Capsule3D(pos, skel.restPos[(uint32)p], boneRadius);
+				} else {
+					a.type = NkBodyType::KINEMATIC; // racine ancree : on la pilote, elle ne tombe pas
+					a.shape = collision::NkShape::Sphere(pos, boneRadius * 1.5f);
+				}
+			}
+		}
+
 		class NkRagdoll {
 			public:
 				// Construit le ragdoll dans `world`. `group` = bit de layer dédié : les os
