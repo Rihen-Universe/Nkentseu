@@ -1461,7 +1461,7 @@ Mon aveu du midi était mal formulé : `jenga test` **trouve** les 60 projets `*
 le nom du module au lieu de `NKPhysics_Tests`. La cause réelle : **`Nkentseu.jenga:451-453`,
 `dutc(enable=True)` / `dute(enable=True)`** (compilation *et* exécution des tests désactivées), depuis
 `5d90c862` du 2026-03-12. Mesure : 77 fichiers, **64 compilent** en isolation, 13 cassés (9 modules),
-17 modules déclarent `with test()` sans dossier ; `test_physics.cpp` lié à la main → **61/61**.
+20 modules déclarent `with test()` sans dossier ; `test_physics.cpp` lié à la main → **61/61**.
 Tableau complet dans `echanges/noge.questions.md`. **Rien n'est branché** avant que Rodolf tranche.
 
 ### ✅ 04/09 — UN SEUL CONSTRUCTEUR DE RAGDOLL
