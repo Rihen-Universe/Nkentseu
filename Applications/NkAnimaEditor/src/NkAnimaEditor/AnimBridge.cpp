@@ -1,3 +1,4 @@
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // =============================================================================
 // AnimBridge.cpp — implémentation du pont. SEUL TU à inclure NKRenderer (anim).
 // =============================================================================
@@ -24,7 +25,8 @@
 #include "NKRenderer/Tools/PostProcess/NkPostProcessStack.h" // Execute() tonemap ACES
 #include "NKRenderer/Core/NkRenderGraph.h"					 // Execute() pipeline complet (option A)
 #include "NKGui/NkGuiRHIBackend.h"							 // RegisterTexture (Integrations/NKGui)
-#include "NkAnimaEditor/NkRagdollBridge.h"					 // couplage ragdoll <-> squelette (NKPhysics)
+#include "NkAnimaEditor/NkRagdollBridge.h"
+#include "NKAnima/Skeleton/NkSkeletonDef.h" // LA conversion locale -> monde (2026-09-04)					 // couplage ragdoll <-> squelette (NKPhysics)
 #include "NKAnima/Physics/NkPoseMass.h"						 // M3.1 : distribution de masse + COM
 #include "NKAnima/Physics/NkBalance.h"						 // M3.2 : équilibre, polygone de support
 #include "NKAnima/Physics/NkContactDetector.h"				 // M3.3 : détection des appuis au sol
@@ -538,13 +540,10 @@ namespace nkanima {
 			inChain[k] = false;
 		for (uint32 i = 0; i < n; ++i)
 			inChain[(uint32)chain[i]] = true;
-		for (uint32 oi = 0; oi < (uint32)g.topo.Size(); ++oi) {
-			uint32 k = g.topo[oi];
-			if (inChain[k])
-				continue;
-			int32 p = g.clip.jointParent[k];
-			out[k] = (p >= 0) ? (out[(uint32)p] * baseLocal[k]) : out[k];
-		}
+		// LA conversion du squelette (NkAnima, Skeleton/) : la chaine IK est fixee
+		// (skip), les racines gardent leur monde (rootsFixed).
+		anim::NkForwardKinematics(g.clip.jointParent.Data(), g.topo.Data(), jc, baseLocal.Data(), out.Data(),
+								  inChain.Data(), true);
 		g.worldEdit = out;
 	}
 
@@ -582,14 +581,15 @@ namespace nkanima {
 		out[(uint32)jsel] = NkMat4f::Translate(jp) * (Rz.ToMat4() * rotP(M));
 		// propage : enfants recalculés depuis le parent (ordre topo). Les joints hors
 		// sous-arbre de jsel retrouvent leur monde inchangé (parent non bougé).
-		for (uint32 oi = 0; oi < (uint32)g.topo.Size(); ++oi) {
-			uint32 k = g.topo[oi];
-			if (k == (uint32)jsel)
-				continue;
-			int32 p = g.clip.jointParent[k];
-			if (p < 0)
-				continue;
-			out[k] = out[(uint32)p] * baseLocal[k];
+		{
+			// LA conversion du squelette (NkAnima, Skeleton/) : le joint saisi est
+			// fixe (skip), les racines gardent leur monde (rootsFixed).
+			NkVector<bool> fixe;
+			fixe.Resize(g.topo.Size());
+			for (uint32 k = 0; k < (uint32)fixe.Size(); ++k)
+				fixe[k] = (k == (uint32)jsel);
+			anim::NkForwardKinematics(g.clip.jointParent.Data(), g.topo.Data(), (uint32)g.topo.Size(),
+									  baseLocal.Data(), out.Data(), fixe.Data(), true);
 		}
 		g.worldEdit = out;
 	}
@@ -614,14 +614,15 @@ namespace nkanima {
 		out[(uint32)jsel].position.y += dy;
 		out[(uint32)jsel].position.z += dz;
 		// propage : le sous-arbre suit (offset local conservé), le reste inchangé.
-		for (uint32 oi = 0; oi < (uint32)g.topo.Size(); ++oi) {
-			uint32 k = g.topo[oi];
-			if (k == (uint32)jsel)
-				continue;
-			int32 p = g.clip.jointParent[k];
-			if (p < 0)
-				continue;
-			out[k] = out[(uint32)p] * baseLocal[k];
+		{
+			// LA conversion du squelette (NkAnima, Skeleton/) : le joint saisi est
+			// fixe (skip), les racines gardent leur monde (rootsFixed).
+			NkVector<bool> fixe;
+			fixe.Resize(g.topo.Size());
+			for (uint32 k = 0; k < (uint32)fixe.Size(); ++k)
+				fixe[k] = (k == (uint32)jsel);
+			anim::NkForwardKinematics(g.clip.jointParent.Data(), g.topo.Data(), (uint32)g.topo.Size(),
+									  baseLocal.Data(), out.Data(), fixe.Data(), true);
 		}
 		g.worldEdit = out;
 	}

@@ -1,3 +1,4 @@
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // =============================================================================
 // Nkentseu/IO/NkGLTFIO.cpp
 // =============================================================================
@@ -189,6 +190,10 @@ namespace nkentseu {
 					b.bindPose = b.inverseBindPose.Inverse();
 				}
 			}
+			// L'ordre topologique se calcule A L'IMPORT (2026-09-04) : c'est lui que suit
+			// LA conversion locale -> monde (NkSkeletonDef::LocalToWorld). Sans lui, elle
+			// retombe sur l'ordre d'index et suppose parent avant enfant.
+			def->BuildTopo();
 			ecs::NkSkeleton skel = ecs::NkSkeleton::FromDef(def);
 			for (uint32 j = 0; j < boneCount; ++j) {
 				const int32 nodeIdx = data.skinJoints[j];

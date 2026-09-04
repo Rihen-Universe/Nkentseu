@@ -1436,6 +1436,25 @@ existantes recensées — reciblage (`WorldOf` de test), `NkIKSolver`, `NkLocomo
 jiggle) référencent par index et **aucune ne redit `parent`** (mesuré : 0 sur 4) · bancs
 d'animphys à l'identique depuis leur nouvelle maison · consommateurs recompilés, la liste.
 
+### ✅ 04/09 — UNE SEULE CONVERSION POSE → MONDE, dans `Skeleton/`
+
+**Sept** boucles `world[j] = world[parent] × local[j]` vivaient dans sept endroits : le clip
+(`ApplyFKSkinning`), le reciblage (`WorldOf`), `FromLocalBind` lui-même, l'IK de Noge
+(`BuildWorldPose`, qui supposait *parent avant enfant* sans `topo`), et l'éditeur (trois
+propagations partielles : chaîne IK fixée, joint saisi). Une seule désormais :
+`NkForwardKinematics` / `NkSkeletonDef::LocalToWorld` (`Skeleton/NkSkeletonDef.h`), avec les
+deux boutons dont l'éditeur a besoin (`skip[]`, `rootsFixed`) et le repli *ordre d'index* quand
+`topo` est vide. **Mesuré en passant** : `BuildTopo` n'était appelé que par le banc — les
+squelettes réels (glTF, démos) n'avaient **jamais** d'ordre topologique ; `NkGLTFIO` le calcule
+maintenant **à l'import**. Témoin : test 0 juge la conversion contre la **géométrie à la main**
+(joint 2 de la chaîne à 30° = (−0,5 ; 1,866 ; 0)), pas contre elle-même ; mutation du noyau
+(`world[j] = local[j]`) → `[ FAIL ] M2` ; restauré → 13/14. Consommateurs reconstruits :
+NkAnimaTest 26/26, Nogee 44/44, NkAnimaEditor 31/31, NkLocomotionDemo 41/41 (banc 9/0).
+
+Désordre listé, pas corrigé : `NkAnimaEditor/NkRagdollBridge.h` construit *ses* corps rigides
+depuis `bindGlobal` — une seconde fabrique de ragdoll à côté de `physics::NkRagdoll::Build`
+(pas une seconde structure de squelette : il lit des matrices, pas des `parent`).
+
 ### ✅ 04/09 — LA TROISIÈME STRUCTURE A DISPARU : `physics::NkBoneDef` → vue du squelette + attributs
 
 `NkRagdoll.h` portait un `NkBoneDef` (parent + corps + joint) : un second squelette qui **redisait

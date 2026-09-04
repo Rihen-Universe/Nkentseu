@@ -20,6 +20,11 @@
 > `-fsyntax-only`** (configuration de syntaxe, ni Debug ni Release — aucune des
 > affirmations ci-dessous ne dépend d'un comportement d'exécution).
 
+> 🧭 **2026-09-04, fin de journée** — la conversion pose → monde (FK) n'existe qu'en un endroit
+> (`Skeleton/NkSkeletonDef.h` : `NkForwardKinematics`, `LocalToWorld`) ; le ragdoll de NKPhysics se
+> construit depuis une **vue** du squelette + des attributs physiques (`NkBoneDef` physique supprimé) ;
+> `NkGLTFIO` calcule `topo` à l'import. Prochain : `NkRagdollBridge` (éditeur) sur `physics::NkRagdoll`.
+>
 > 🗂️ **Arborescence du 2026-09-04** — le module n'est plus plat : `Skeleton/ Clip/ Retarget/
 > Motion/ Physics/ Edit/` + `NKAnima.h` à la racine (rien d'autre). `Physics/` est l'ex-module
 > NKAnimPhysics, entré ici le même jour (décision de Rodolf, pour casser un cycle). Les chemins

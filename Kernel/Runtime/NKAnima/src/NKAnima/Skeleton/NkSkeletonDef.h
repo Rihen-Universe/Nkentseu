@@ -51,6 +51,40 @@ namespace nkentseu {
 		// L'ACTIF PARTAGE. Les instances le referencent par NkSharedPtr ; le
 		// modifier apres creation modifierait TOUTES les instances — c'est le
 		// contrat d'un USkeleton, on ne le cache pas.
+		// ── LA conversion pose locale -> monde (2026-09-04), en UN endroit ──────
+		// world[j] = world[parent(j)] * local[j], dans l'ordre `topo` (parent avant
+		// enfant). Six boucles la redisaient (clip, retarget, IK de Noge, editeur
+		// x3) ; elles appellent ceci. Deux boutons, pour l'edition :
+		//   skip[j]     : le monde de j est deja fixe (chaine IK, joint saisi) --
+		//                 on ne le recalcule pas, ses enfants en heritent ;
+		//   rootsFixed  : les racines gardent le monde deja present dans `world`
+		//                 (l'editeur pose la racine lui-meme) au lieu de local[j].
+		// `topo` nul ou vide : ordre d'index, en supposant parent avant enfant --
+		// la convention des exporteurs, et l'ancien comportement de l'IK.
+		template <class ParentOf>
+		inline void NkForwardKinematicsCore(const uint32 *topo, uint32 n, ParentOf parentOf,
+											const math::NkMat4f *local, math::NkMat4f *world,
+											const bool *skip, bool rootsFixed) {
+			for (uint32 oi = 0; oi < n; ++oi) {
+				const uint32 j = topo ? topo[oi] : oi;
+				if (j >= n || (skip && skip[j]))
+					continue;
+				const int32 p = parentOf(j);
+				if (p >= 0 && (uint32)p < n)
+					world[j] = world[(uint32)p] * local[j];
+				else if (!rootsFixed)
+					world[j] = local[j];
+			}
+		}
+		// Forme « tableaux bruts » : pour les topologies que possede un clip ou un
+		// editeur (jointParent / jointTopo), sans NkSkeletonDef sous la main.
+		inline void NkForwardKinematics(const int32 *parent, const uint32 *topo, uint32 n,
+										const math::NkMat4f *local, math::NkMat4f *world,
+										const bool *skip = nullptr, bool rootsFixed = false) {
+			NkForwardKinematicsCore(topo, n, [parent](uint32 j) { return parent[j]; }, local, world, skip,
+									rootsFixed);
+		}
+
 		struct NkSkeletonDef {
 				NkVector<NkBoneDef> bones; // dimensionne au reel, aucun plafond
 				NkVector<uint32> topo;	   // ordre topologique (parent avant enfant), cf. BuildTopo
@@ -67,6 +101,15 @@ namespace nkentseu {
 					return -1;
 				}
 
+				// Pose locale (une NkMat4f par joint, Count() entrees) -> monde. Voir
+				// NkForwardKinematics ; `topo` vide -> ordre d'index.
+				void LocalToWorld(const math::NkMat4f *local, math::NkMat4f *world, const bool *skip = nullptr,
+								  bool rootsFixed = false) const {
+					const uint32 n = Count();
+					const uint32 *order = ((uint32)topo.Size() == n && n > 0) ? topo.Data() : nullptr;
+					NkForwardKinematicsCore(order, n, [this](uint32 j) { return Parent(j); }, local, world, skip,
+											rootsFixed);
+				}
 				[[nodiscard]] int32 Parent(uint32 j) const noexcept {
 					return j < Count() ? bones[(NkVector<NkBoneDef>::SizeType)j].parent : -1;
 				}
@@ -177,13 +220,14 @@ namespace nkentseu {
 						out.bones.Clear();
 						return false;
 					}
-					// FK dans l'ordre topologique : le parent est toujours deja en monde.
-					for (uint32 k = 0; k < (uint32)out.topo.Size(); ++k) {
-						const uint32 j = out.topo[(NkVector<uint32>::SizeType)k];
-						NkBoneDef &b = out.bones[(NkVector<NkBoneDef>::SizeType)j];
-						const math::NkMat4f &loc = localBind[(NkVector<math::NkMat4f>::SizeType)j];
-						b.bindPose = (b.parent >= 0) ? out.bones[(NkVector<NkBoneDef>::SizeType)b.parent].bindPose * loc
-													 : loc;
+					// FK par LA conversion (2026-09-04) -- la meme que le clip, le reciblage,
+					// l'IK et l'editeur ; si elle se trompe, le test 0 du reciblage rougit.
+					NkVector<math::NkMat4f> world;
+					world.Resize((NkVector<math::NkMat4f>::SizeType)n);
+					NkForwardKinematics(parents.Data(), out.topo.Data(), n, localBind.Data(), world.Data());
+					for (uint32 k = 0; k < n; ++k) {
+						NkBoneDef &b = out.bones[(NkVector<NkBoneDef>::SizeType)k];
+						b.bindPose = world[(NkVector<math::NkMat4f>::SizeType)k];
 						b.inverseBindPose = b.bindPose.Inverse();
 					}
 					return true;
