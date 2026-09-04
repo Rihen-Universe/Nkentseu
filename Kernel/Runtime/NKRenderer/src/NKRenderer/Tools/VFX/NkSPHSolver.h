@@ -60,6 +60,8 @@ namespace nkentseu {
 				float32 maxSpeed = 0.f;
 				float32 ms = 0.f;
 				float32 maxX = 0.f, maxY = 0.f, minY = 0.f; // front (rupture de barrage), hauteur (repos)
+				uint32 boundary = 0;						  // particules fantomes de paroi (fixes)
+				float32 densityFloorMean = 0.f;				  // densite moyenne de la couche du sol (y < ymin + h)
 		};
 
 		class NkSPHSolver final : public NkIParticleSolver {
@@ -87,6 +89,16 @@ namespace nkentseu {
 				NkVector<uint32> mSorted; // indices de mAlive triés par cellule
 				NkVector<float32> mDensity, mPressure;
 				NkVector<NkVec3f> mAccel;
+				// PAROIS PAR PARTICULES FANTOMES (04/09 nuit) : deux couches fixes autour de la
+				// boite, d'espacement h/2, de meme masse ; comptees dans la densite (Akinci :
+				// pression miroir p_b = p_i, rho_b = rho0), jamais integrees. Sans elles la
+				// couche du sol voyait moitie moins de voisines : densite et pression tombaient,
+				// le bloc s'affaissait et se secouait (rho/rho0 0,79-0,94 au repos, mesure).
+				NkVector<NkVec3f> mBound;
+				NkVec3f mBoundMin = {0, 0, 0}, mBoundMax = {0, 0, 0};
+				float32 mBoundH = 0.f;
+				NkVector<NkVec3f> mPosAll; // vivantes puis fantomes, pour la grille
+				void BuildBoundary();
 				NkSPHStats mStats;
 		};
 
