@@ -10218,6 +10218,38 @@ namespace nkuidesign {
 				auto &dl = ctx.DL();
 				const float32 x0 = pr.x + 8.f, x1 = pr.x + pr.w - 8.f;
 				float32 y = pr.y + 8.f;
+				// ── ③ LE MENU DE LA GOUTTE : RECLAME EN PREMIER, PEINT EN DERNIER ─────
+				// Rodolf : « quand on clique sur la goutte son panneau est visible en partie
+				// car il n'est pas en avant-plan ». Il etait peint a sa rangee, puis tout le
+				// reste du popover se peignait par-dessus. Son rectangle est connu d'ici :
+				// un clic qui y tombe est tranche AVANT tout widget (le selecteur, dessous,
+				// ne le prend pas) ; le dessin vient a la fin, sur la meme couche.
+				static const char *const kFusion[18] = {"Normal", "Darken", "Multiply", "Plus Darker", "Color Burn", "Lighten",
+															 "Screen", "Plus Lighter", "Color Dodge", "Overlay", "Soft Light",
+															 "Hard Light", "Difference", "Exclusion", "Hue", "Saturation", "Color",
+															 "Luminosity"};
+				const NkRect rMenuFusion = {x0, y + 26.f, x1 - x0, 9.f * 18.f + 4.f};
+				const NkRect rGoutte = {x0 + 156.f, y + 2.f, 18.f, 18.f};
+				int32 fusionChoix = -1;
+				if (mFusionMenuOuvert && ctx.input.mouseClicked[0]) {
+					if (NkGuiRectContains(rMenuFusion, ctx.input.mousePos)) {
+						const float32 colW = rMenuFusion.w * 0.5f;
+						const int32 col = ctx.input.mousePos.x >= rMenuFusion.x + colW ? 1 : 0;
+						int32 ligne = (int32)((ctx.input.mousePos.y - rMenuFusion.y - 2.f) / 18.f);
+						if (ligne < 0)
+							ligne = 0;
+						if (ligne > 8)
+							ligne = 8;
+						fusionChoix = col * 9 + ligne;
+						ctx.input.mouseClicked[0] = false; // le menu a pris le clic
+					} else if (!NkGuiRectContains(rGoutte, ctx.input.mousePos))
+						mFusionMenuOuvert = false; // clic dehors : il se ferme, le clic agit ensuite
+				}
+				if (fusionChoix == 0)
+					mFusionMenuOuvert = false; // Normal, le seul operant
+				else if (fusionChoix > 0)
+					mSt->status = NkString("Ce mode de fusion est nommé (Lunacy en a 18), pas peint : le peintre ne "
+										   "sait rendre que Normal.");
 				// ── 1. LES SIX VIGNETTES (dessinées, sur UNE rangée), la goutte, la croix ──
 				// Rodolf : « des images de preset sur Uni, Linéaire, Radial, Angulaire,
 				// Losange, Image -- sans oublier la goutte ». Pas de texte, pas de glyphe :
@@ -10291,7 +10323,7 @@ namespace nkuidesign {
 					// séparateur, la GOUTTE (fusion), la CROIX -- dessinés
 					dl.AddLine({x0 + 150.f, y + 3.f}, {x0 + 150.f, y + 19.f}, ctx.theme.border, 1.f);
 					{
-						const NkRect rg = {x0 + 156.f, y + 2.f, 18.f, 18.f};
+						const NkRect rg = rGoutte;
 						const bool svG = NkGuiRectContains(rg, ctx.input.mousePos);
 						const nkgui::NkColor cg = (svG || mFusionMenuOuvert) ? ctx.theme.text : ctx.theme.textMuted;
 						dl.AddTriangleFilled({rg.x + 9.f, rg.y + 2.f}, {rg.x + 14.f, rg.y + 10.f}, {rg.x + 4.f, rg.y + 10.f}, cg);
@@ -10313,36 +10345,6 @@ namespace nkuidesign {
 							ctx.input.mouseClicked[0] = false;
 							fermerPopover = true;
 						}
-					}
-					// le menu de la goutte, dessiné DANS la boîte, sur deux colonnes
-					if (mFusionMenuOuvert) {
-						static const char *const kFusion[18] = {"Normal", "Darken", "Multiply", "Plus Darker", "Color Burn", "Lighten",
-																	 "Screen", "Plus Lighter", "Color Dodge", "Overlay", "Soft Light",
-																	 "Hard Light", "Difference", "Exclusion", "Hue", "Saturation", "Color",
-																	 "Luminosity"};
-						const NkRect rl = {x0, y + 26.f, x1 - x0, 9.f * 18.f + 4.f};
-						dl.AddRectFilled(rl, ctx.theme.panel, 4.f);
-						dl.AddRect(rl, ctx.theme.border, 1.f, 4.f);
-						for (uint32 k = 0; k < 18u; ++k) {
-							const NkRect rr = {rl.x + 2.f + (float32)(k / 9u) * (rl.w * 0.5f), rl.y + 2.f + (float32)(k % 9u) * 18.f,
-											   rl.w * 0.5f - 4.f, 18.f};
-							const bool operant = (k == 0u);
-							const bool svR = NkGuiRectContains(rr, ctx.input.mousePos);
-							if (svR && operant)
-								dl.AddRectFilled(rr, ctx.theme.rowHover, 3.f);
-							costume::Texte(dl, F.px9, rr.x + 5.f, costume::CentrerY(F.px9, rr.y, 18.f), kFusion[k],
-										   operant ? ctx.theme.accent : ctx.theme.textDisabled);
-							if (svR && ctx.input.mouseClicked[0]) {
-								ctx.input.mouseClicked[0] = false;
-								if (operant)
-									mFusionMenuOuvert = false;
-								else
-									mSt->status = NkString("Ce mode de fusion est nommé (Lunacy en a 18), pas peint : le peintre ne "
-														   "sait rendre que Normal.");
-							}
-						}
-						if (ctx.input.mouseClicked[0] && !NkGuiRectContains(rl, ctx.input.mousePos))
-							mFusionMenuOuvert = false;
 					}
 					y += 26.f;
 				}
@@ -10424,6 +10426,7 @@ namespace nkuidesign {
 						costume::Texte(dl, F.px9, rr.x + rr.w + 4.f, costume::CentrerY(F.px9, rr.y, 20.f), "°",
 									   ctx.theme.textMuted);
 					}
+					DessinerMenuFusion(ctx, rMenuFusion, kFusion);
 					nkgui::EndPopup(ctx);
 					if (fermerPopover) {
 						d.ouvert = false;
@@ -10692,11 +10695,33 @@ namespace nkuidesign {
 						touche();
 					}
 				}
+				DessinerMenuFusion(ctx, rMenuFusion, kFusion); // ③ l'incrustation se peint en dernier
 				nkgui::EndPopup(ctx);
 				if (fermerPopover) { // la croix
 					d.ouvert = false;
 					ctx.ClosePopup();
 				}
+			}
+			/// ③ Le menu des 18 modes de fusion, PEINT EN DERNIER dans la boite (sur deux
+			/// colonnes) ; ses clics sont tranches au debut du popover, pas ici.
+			void DessinerMenuFusion(NkGuiContext &ctx, const NkRect &rl, const char *const *kFusion) {
+				if (!mFusionMenuOuvert)
+					return;
+				auto &dl = ctx.DL();
+				auto &F = costume::Fontes();
+				dl.AddRectFilled(rl, ctx.theme.panel, 4.f);
+				dl.AddRect(rl, ctx.theme.border, 1.f, 4.f);
+				for (uint32 k = 0; k < 18u; ++k) {
+					const NkRect rr = {rl.x + 2.f + (float32)(k / 9u) * (rl.w * 0.5f), rl.y + 2.f + (float32)(k % 9u) * 18.f,
+									   rl.w * 0.5f - 4.f, 18.f};
+					const bool operant = (k == 0u);
+					const bool svR = NkGuiRectContains(rr, ctx.input.mousePos);
+					if (svR && operant)
+						dl.AddRectFilled(rr, ctx.theme.rowHover, 3.f);
+					costume::Texte(dl, F.px9, rr.x + 5.f, costume::CentrerY(F.px9, rr.y, 18.f), kFusion[k],
+								   operant ? ctx.theme.accent : ctx.theme.textDisabled);
+				}
+				costume::Texte(dl, F.px9, rl.x + 6.f, rl.y + rl.h - 14.f, "", ctx.theme.textMuted);
 			}
 
 			void OnUI(NkEditorFrameContext &ec) override {

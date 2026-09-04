@@ -5465,6 +5465,84 @@ namespace nkuidesign {
 						  "de valeur au clic net, l'hexa sur la LIGNE -- la couleur peinte suit, `zz` est refuse sans rien perdre",
 						  focus1 && hexaPopover && refus && champR && ligne, det);
 				}
+				// 60l. ③ LE MENU DE LA GOUTTE : peint APRES le selecteur (il etait recouvert : « visible
+				// en partie ») et reclame AVANT lui (un clic sur « Normal », qui tombe au-dessus du
+				// carre SV, ferme le menu et ne change PAS la couleur).
+				{
+					stI.SelectSingle(rc);
+					stI.picker = DesignState::DemandePicker();
+					stI.picker.ouvert = true;
+					stI.picker.id = ctxI.GetId("##sonde.popover.goutte");
+					stI.picker.genre = 1u;
+					stI.picker.noeud = rc;
+					stI.picker.index = 0;
+					stI.picker.ancre = {360.f, 200.f, 16.f, 16.f};
+					auto image3 = [&](float32 mx, float32 my, bool bas) {
+						ctxI.input.mousePos = {mx, my};
+						ctxI.input.mouseDown[0] = bas;
+						ctxI.BeginFrame(0.016f);
+						ctxI.BeginLayout({340.f, 0.f, 260.f, 900.f});
+						insp.OnUI(ec);
+						NkDessinerPickerDemande(ctxI, stI);
+						ctxI.EndFrame();
+					};
+					image3(-1.f, -1.f, false);
+					image3(-1.f, -1.f, false);
+					float32 px = 1e9f, py = 1e9f;
+					for (uint32 i = 0; i < (uint32)ctxI.dlOverlay.vtx.Size(); ++i) {
+						if (ctxI.dlOverlay.vtx[i].pos.x < px) px = ctxI.dlOverlay.vtx[i].pos.x;
+						if (ctxI.dlOverlay.vtx[i].pos.y < py) py = ctxI.dlOverlay.vtx[i].pos.y;
+					}
+					const float32 x0 = px + 0.5f + 8.f, y0 = py + 0.5f + 8.f;
+					const NkString avant = stI.doc.nodes[(uint32)rc].fills[0].couleur;
+					// la goutte : x0 + 156 .. +174, y0 + 2 .. +20
+					const float32 gx = x0 + 165.f, gy = y0 + 11.f;
+					image3(gx, gy, false);
+					image3(gx, gy, true);
+					image3(gx, gy, false);
+					image3(-1.f, -1.f, false);
+					// ou sont les coins blancs du carre SV, et ou sont les sommets du menu (le fond
+					// du menu est un rectangle de theme.panel de 9*18+4 px de haut a y0 + 26)
+					const nkentseu::uint32 panel = nkgui::NkGuiPackColor(ctxI.theme.panel);
+					uint32 iBlanc = 0u, iMenu = 0u, nMenu = 0u;
+					const float32 yMenu = y0 + 26.f;
+					for (uint32 i = 0; i < (uint32)ctxI.dlOverlay.vtx.Size(); ++i) {
+						const auto &vt = ctxI.dlOverlay.vtx[i];
+						if (vt.col == 0xFFFFFFFFu && vt.pos.y > y0 + 20.f && vt.pos.y < y0 + 200.f && iBlanc == 0u)
+							iBlanc = i;
+						// le fond du menu est arrondi (4 px) : ses premiers sommets sont pres du coin, pas dessus
+						if (vt.col == panel && vt.pos.y >= yMenu - 0.5f && vt.pos.y <= yMenu + 6.f && vt.pos.x >= x0 - 0.5f && vt.pos.x <= x0 + 6.f) {
+							if (nMenu == 0u)
+								iMenu = i;
+							++nMenu;
+						}
+					}
+					const bool peintApres = nMenu > 0u && iBlanc > 0u && iMenu > iBlanc;
+					// un clic sur « Normal » (colonne 0, ligne 0) : au-dessus du carre SV
+					const float32 nx = x0 + 20.f, ny = yMenu + 2.f + 9.f;
+					image3(nx, ny, false);
+					image3(nx, ny, true);
+					image3(nx, ny, false);
+					image3(-1.f, -1.f, false);
+					const NkString apres = stI.doc.nodes[(uint32)rc].fills[0].couleur;
+					uint32 nMenuApres = 0u;
+					for (uint32 i = 0; i < (uint32)ctxI.dlOverlay.vtx.Size(); ++i) {
+						const auto &vt = ctxI.dlOverlay.vtx[i];
+						if (vt.col == panel && vt.pos.y >= yMenu - 0.5f && vt.pos.y <= yMenu + 6.f && vt.pos.x >= x0 - 0.5f && vt.pos.x <= x0 + 6.f)
+							++nMenuApres;
+					}
+					const bool ferme = nMenuApres == 0u;
+					const bool couleurIntacte = NkComponentDecl::StrEq(avant.Data(), apres.Data());
+					stI.picker = DesignState::DemandePicker();
+					image3(-1.f, -1.f, false);
+					snprintf(det, sizeof(det),
+							 "menu ouvert : sommet du menu a l'indice %u, coin blanc du carre a %u (menu apres=%d) ; clic sur « Normal » "
+							 "au-dessus du carre : menu ferme=%d, couleur %s -> %s (intacte=%d)",
+							 iMenu, iBlanc, peintApres ? 1 : 0, ferme ? 1 : 0, avant.Data(), apres.Data(), couleurIntacte ? 1 : 0);
+					check("60l. ③ LE MENU DE LA GOUTTE se peint APRES le selecteur (au-dessus) et reclame AVANT lui : un clic "
+						  "sur « Normal » par-dessus le carre SV ferme le menu sans changer la couleur",
+						  peintApres && ferme && couleurIntacte, det);
+				}
 				stI.picker = DesignState::DemandePicker();
 			}
 		}
