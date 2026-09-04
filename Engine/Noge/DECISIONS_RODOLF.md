@@ -1455,6 +1455,7 @@ Liste, un module par commit, mise à jour à chaque ajout :
 - `NKMath_Tests` — 8/8, 499 assertions ; **témoin de l'interrupteur** : mutation `NkRectT::Contains` → 7/8 rouge
   *par `jenga test`* (`NKmathmoke_VectorAndRectTypes`), restauré → 8/8.
 
+- `NKContainers_Tests` — 32 réussis, 32 au total, 141 réussies, 141 au total (build+run 20 s)
 **Défaut nommé, pas corrigé ici** : les exécutables de test (et les applis) sont liés **dynamiquement** à
 `libstdc++-6.dll`/`libgcc_s_seh-1.dll`/`libwinpthread-1.dll` malgré `config/toolchain.jenga:92-94`
 (`-static-libgcc -static-libstdc++ -static`), et le runner de `jenga test` ne pose pas le `PATH` de la
