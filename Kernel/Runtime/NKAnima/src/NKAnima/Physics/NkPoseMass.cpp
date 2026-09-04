@@ -2,10 +2,10 @@
 // NKAnimPhysics/NkPoseMass.cpp — implémentation (voir NkPoseMass.h)
 // AUTEUR : Rihen — LICENCE : usage régi par le fichier LICENSE à la racine du dépôt
 // =============================================================================
-#include "NKAnimPhysics/NkPoseMass.h"
+#include "NKAnima/Physics/NkPoseMass.h"
 
 namespace nkentseu {
-	namespace animphys {
+	namespace anim {
 
 		using math::NkMat4f;
 		using math::NkVec3f;
@@ -204,5 +204,5 @@ namespace nkentseu {
 			return true;
 		}
 
-	} // namespace animphys
+	} // namespace anim
 } // namespace nkentseu

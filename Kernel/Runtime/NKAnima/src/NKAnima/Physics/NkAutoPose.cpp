@@ -1,12 +1,12 @@
 // =============================================================================
 // NKAnimPhysics/NkAutoPose.cpp  —  M3.5 : auto-posing (voir .h).
 // =============================================================================
-#include "NKAnimPhysics/NkAutoPose.h"
-#include "NKAnimPhysics/NkPoseBalancer.h"
-#include "NKAnimPhysics/NkBalance.h"
+#include "NKAnima/Physics/NkAutoPose.h"
+#include "NKAnima/Physics/NkPoseBalancer.h"
+#include "NKAnima/Physics/NkBalance.h"
 
 namespace nkentseu {
-	namespace animphys {
+	namespace anim {
 
 		using math::NkVec3f;
 
@@ -127,5 +127,5 @@ namespace nkentseu {
 			return ok;
 		}
 
-	} // namespace animphys
+	} // namespace anim
 } // namespace nkentseu

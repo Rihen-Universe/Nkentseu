@@ -15,10 +15,10 @@
 #include "NKCore/NkTypes.h"
 #include "NKMath/NKMath.h"
 #include "NKContainers/Sequential/NkVector.h"
-#include "NKAnimPhysics/NkPoseMass.h"
+#include "NKAnima/Physics/NkPoseMass.h"
 
 namespace nkentseu {
-	namespace animphys {
+	namespace anim {
 
 		struct NkAutoPose {
 			public:
@@ -37,5 +37,5 @@ namespace nkentseu {
 				static bool SelfTest();
 		};
 
-	} // namespace animphys
+	} // namespace anim
 } // namespace nkentseu

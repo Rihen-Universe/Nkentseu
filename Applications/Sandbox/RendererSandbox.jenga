@@ -53,7 +53,6 @@ def sandboxusenkrenderer(project_name: str, source_files: list, app_id_suffix: s
             # Physique (sonde vehicule NK_VEHICLE_PROBE, 2026-09-04)
             "%{NKPhysics.location}/src",
             "%{NKCollision.location}/src",
-            "%{NKAnimPhysics.location}/src",
             "%{NKSerialization.location}/src",
             "%{NKReflection.location}/src",
             "%{NKMedia.location}/src",
@@ -78,7 +77,7 @@ def sandboxusenkrenderer(project_name: str, source_files: list, app_id_suffix: s
             "NKPhysics", "NKCollision",  # sonde vehicule ; leurs refs (NKMath, NKContainers) sont en aval
             "NKEvent", "NKWindow", "NKGlad", "NKLogger",
             "NKMath", "NKTime", "NKStream", "NKFileSystem",
-            "NKContainers", "NKMemory", "NKCore", "NKPlatform", "NKThreading", "NKRHI", "NKRenderer", "NKAnima", "NKAnimPhysics", "NKSL",
+            "NKContainers", "NKMemory", "NKCore", "NKPlatform", "NKThreading", "NKRHI", "NKRenderer", "NKAnima", "NKSL",
             "NKSerialization", "NKReflection"
         ]
         if use_nkimage:

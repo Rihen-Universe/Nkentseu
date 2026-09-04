@@ -29,7 +29,7 @@ _GLSLANG_LIBS_WINDOWS = [
 ]
 _IS_MINGW = "mingw" in TC_WINDOWS.lower()
 
-with project("NkAnimPhysTest"):
+with project("NkAnimaTest"):
     consoleapp()
     language("C++")
     cppdialect("C++17")
@@ -37,10 +37,11 @@ with project("NkAnimPhysTest"):
     files(["src/main.cpp"])
 
     nkentseudependson(
-        # NKAnimPhysics : les suites M3.1 a M3.6 portent sur ce module depuis son
-        # extraction hors de NKRenderer (2026-08-14). NKRenderer reste requis pour
-        # les suites M2 (NkAnimRetarget) et M4bis (NkRoleContext).
-        ["NKAnimPhysics", "NKAnima",
+        # Le banc de NKAnima (ex-NkAnimPhysTest, renomme le 2026-09-04 quand
+        # NKAnimPhysics a rejoint NKAnima). Suites M3.1 a M3.6 (physique de pose),
+        # M2 (NkAnimRetarget), M4bis (NkRoleContext). NKRenderer reste requis pour
+        # M2/M4bis.
+        ["NKAnima",
          "NKRenderer", "NKRHI", "NKSL", "NKWindow", "NKEvent", "NKFont", "NKImage", "NKAudio", "NKMedia",
          "NKFileSystem", "NKSerialization", "NKReflection", "NKGlad", "NKMath", "NKTime",
          "NKStream", "NKLogger", "NKContainers", "NKMemory", "NKCore", "NKPlatform",

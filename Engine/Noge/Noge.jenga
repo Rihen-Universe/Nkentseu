@@ -76,7 +76,6 @@ with project("Noge"):
         "%{NKRenderer.location}/src",
         # Substrats d animation extraits de NKRenderer le 2026-08-14.
         "%{NKAnima.location}/src",
-        "%{NKAnimPhysics.location}/src",  # NKRenderer/NkRenderer.h (moteur 2D/3D Noge)
         "%{NKCollision.location}/src", # NKCollision (pont physique ECS)
         "%{NKPhysics.location}/src",   # NKPhysics/NkPhysicsWorld.h (NkPhysicsSystem)
         "%{NKNavigation.location}/src", # NKNavigation/NkNavMesh.h (NkNavAgentComponent/NkNavigationSystem)

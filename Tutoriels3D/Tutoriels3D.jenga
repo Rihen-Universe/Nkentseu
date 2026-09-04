@@ -54,7 +54,7 @@ def tutoproject(name, sources):
             "NKMath", "NKTime", "NKStream", "NKFileSystem",
             "NKContainers", "NKMemory", "NKCore", "NKPlatform", "NKThreading", "NKRHI", "NKRenderer", "NKSL",
             "NKSerialization", "NKReflection", "NKImage", "NKFont",
-            # NKAnima/NKAnimPhysics : APRES NKRenderer, car c est NKRenderer qui
+            # NKAnima (qui contient l ex-NKAnimPhysics depuis le 2026-09-04) : APRES NKRenderer, car c est NKRenderer qui
             # y refere (NkAnimationSystem.cpp:45 -> anim::NkAnimationPlayer::Update ;
             # NkPoseDebugDraw -> solveur d equilibre) et le linker est mono-passe.
             # Absents ici depuis l extraction du 2026-08-14 : le registre
@@ -63,7 +63,7 @@ def tutoproject(name, sources):
             # MANUELLE, donc rien ne l a forcee a suivre l extraction. Les 4 Tuto0x
             # echouaient au LINK depuis, invisible tant que le build complet ne
             # tournait pas (chantier 11, releve 2 du 2026-08-15).
-            "NKAnima", "NKAnimPhysics",
+            "NKAnima",
         ]
         if USE_NKGLSLANG:
             _BASE_LINKS.append("NKGLSlang")

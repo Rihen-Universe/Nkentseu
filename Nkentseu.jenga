@@ -829,16 +829,10 @@ with workspace("Nkentseu", location="."):
 
 
 
-    # NKAnimPhysics (pose physiquement correcte : masse/COM, equilibre, contacts,
-    # correction de pose et de clip). Extrait de NKRenderer/Tools/Animation le
-    # 2026-08-14 -- bloc de decision "substrats animation" du CLAUDE.md parent.
-    # CPU pur, headless, Foundation seule. NE depend PAS de NKPhysics aujourd hui :
-    # voir l en-tete de NKAnimPhysics.jenga, qui dit pourquoi, et ou brancher le
-    # pont le jour venu (NkRagdoll, jamais un second pont).
-
-    with include("Kernel/Runtime/NKAnimPhysics/NKAnimPhysics.jenga"):
-
-        pass
+    # NKAnimPhysics a REJOINT NKAnima le 2026-09-04 (NKAnima/src/NKAnima/Physics/) :
+    # decision de Rodolf, motivee par un CYCLE -- NKAnima dependait d animphys, et
+    # animphys devait consommer NkSkeletonDef qui vit dans NKAnima. Meme socle,
+    # zero GPU. 21 modules Runtime au lieu de 22.
 
 
 
@@ -1222,7 +1216,7 @@ with workspace("Nkentseu", location="."):
 
         pass
 
-    with include("Applications/NkAnimPhysTest/NkAnimPhysTest.jenga"):
+    with include("Applications/NkAnimaTest/NkAnimaTest.jenga"):
 
         pass
 

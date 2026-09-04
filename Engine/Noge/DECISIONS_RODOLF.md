@@ -1392,6 +1392,50 @@ elles coexistent dans `nkentseu::anim`, comme deux types voisins et distincts.
 | 💸 **coût** | `NkString` contre `char[64]` : l'actif partagé est **copié par valeur dans l'ECS** au moment de la construction. Un `NkString` y met une allocation par os. |
 | 🔴 **risque** | six consommateurs recompilent, et **c'est un changement de contrat, pas un déplacement** — le recensement doit passer par le compilateur, comme pour `NkSkeleton`, où `NkAssetIODemo` atteignait le type par un **champ** sans jamais écrire son nom. |
 
+### 🗂️ 04/09 — NKAnima a une arborescence, et NKAnimPhysics y est entré
+
+`src/NKAnima/` était **plat** (9 fichiers) ; y verser six paires de plus en aurait fait quinze en
+vrac. Convention des voisins mesurée (anglais, PascalCase) → `Skeleton/ Clip/ Retarget/ Motion/
+Physics/ Edit/`, un `NKAnima.h` d'agrégation à la racine et **rien d'autre** — *la racine est un
+contrat, pas une salle d'attente*. `NkAnimationEditor` va dans `Edit/` parce que c'est un **modèle
+sans UI** (lu : aucun include NKGui). `git mv` partout, l'histoire suit ; `NkAnimPhysTest` devient
+`NkAnimaTest`, le banc du module ; `NKAnimPhysics.jenga` supprimée, **huit références** de build
+retirées ou reportées ; **21 modules Runtime au lieu de 22**. NKRenderer dépendait déjà de NKAnima :
+aucune dépendance nouvelle.
+
+### 🔴 LE COMPTE ÉTAIT DE TROIS, PAS DEUX — et NKAnimPhysics rentre dans NKAnima (04/09, après-midi)
+
+Rodolf : *« j'espère que ce n'est pas un chantier dupliqué »* puis *« pourquoi ne pas
+mettre NkAnimPhysique dans NkAnima ? »*. Mesuré :
+
+| structure | où | ce qu'elle redit | sort |
+|---|---|---|---|
+| `anim::NkSkeletonDef` | NKAnima | — | **la cible** |
+| `anim::NkRetargetSkeleton` | reciblage | parent, repos local, noms, topo | ✅ **supprimée** (ci-dessous) |
+| **`physics::NkBoneDef`** | `NKPhysics/NkRagdoll.h` | **`parent`** + corps rigide + joint | 🔴 **à absorber** : un os du squelette unifié + une table d'**attributs physiques** (forme, matériau, joint, limites) — jamais un second squelette qui redit `parent` |
+
+**Deux prémisses corrigées par la lecture** : `NkClipBalancePass.h` ne fait que *citer*
+`NkRagdoll.h` dans un commentaire — **aucune inclusion**, sa `.jenga` dit vrai ; et
+`NkRagdoll::Build` **est implémenté** (inline) **et exercé** par `NKPhysics/tests/test_physics.cpp`
+(deux sites) — pas « déclaré, non livré ».
+
+**Le cycle qui décide du déménagement** : NKAnima dépend d'animphys ; dès qu'animphys consomme
+`NkSkeletonDef`, animphys → NKAnima → animphys. On le rentre : `NKAnima/src/NKAnima/Physique/`,
+mêmes noms de fichiers (`git mv`), espace `anim`, `.jenga` supprimée, **huit références** de build
+retirées ou reportées, `NkAnimPhysTest` devient le banc de NKAnima. NKRenderer dépendait **déjà** de
+NKAnima (mesuré) : aucune dépendance nouvelle. **Déclaré vs consommé** : NKRenderer inclut vraiment
+(2 fichiers) ; RendererSandbox et Tutoriels3D déclarent sans inclure ; NkAnimaEditor inclut **sans
+déclarer**.
+
+**La conversion pose → positions monde vit en UN endroit** (NKAnima), pas une par appelant : les FK
+existantes recensées — reciblage (`WorldOf` de test), `NkIKSolver`, `NkLocomotion`, `AnimBridge`
+(éditeur) — sont autant de copies candidates à converger. Non fait dans ce lot au-delà du reciblage.
+
+**Critères de fin, mesurables** : 21 modules Runtime au lieu de 22 · une seule définition de la
+**topologie** (parent + repos) — `NkSkeletonDef` — les autres structs (pose par instance, IK,
+jiggle) référencent par index et **aucune ne redit `parent`** (mesuré : 0 sur 4) · bancs
+d'animphys à l'identique depuis leur nouvelle maison · consommateurs recompilés, la liste.
+
 ### ✅ EXÉCUTÉ LE 04/09 — une seule structure, la conversion à l'import, le témoin qui mord
 
 **`NkRetargetSkeleton` n'existe plus** — pas un alias, pas un « au cas où » :

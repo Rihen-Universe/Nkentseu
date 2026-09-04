@@ -1,3 +1,4 @@
+// Physics/ — la physique de POSE (masse, equilibre, appuis, auto-pose) : cinematique, zero GPU, ex-NKAnimPhysics.
 // =============================================================================
 // NKAnimPhysics/NkPoseMass.h
 // -----------------------------------------------------------------------------
@@ -24,7 +25,7 @@
 #include "NKMath/NKMath.h"
 
 namespace nkentseu {
-	namespace animphys {
+	namespace anim {
 
 		// Modèle de masse d'un squelette : une masse relative par joint.
 		struct NkPoseMass {
@@ -57,5 +58,5 @@ namespace nkentseu {
 				static bool SelfTest();
 		};
 
-	} // namespace animphys
+	} // namespace anim
 } // namespace nkentseu
