@@ -49,49 +49,26 @@
 //   • Pas de correction de volume (epaules qui s'interpenetrent) : c'est du
 //     post-traitement de pose, pas du reciblage.
 //
+// UNE SEULE STRUCTURE DE SQUELETTE (2026-09-04)
+//   Le reciblage consomme `NkSkeletonDef` — LA structure du moteur, partagee
+//   par l'ECS, la peau et les systemes a venir. L'ancienne `NkRetargetSkeleton`
+//   (locaux + noms + topo) N'EXISTE PLUS : ce qu'elle stockait se derive de
+//   l'actif (BindLocal), ce qu'elle apportait (BuildTopo avec detection de
+//   cycle, BindHeight) vit sur l'actif. La convention de repos est absorbee UNE
+//   fois, a l'import (NkSkeletonDef::FromLocalBind) — jamais dans une seconde
+//   structure qui la porterait en parallele.
+//
 // CPU PUR, zero GPU : testable en headless, meme pendant un entrainement.
 // -----------------------------------------------------------------------------
 
 #include "NKMath/NKMath.h"
 #include "NKAnima/NkAnimation.h"
+#include "NKAnima/NkSkeletonDef.h"
 
 #include "NKContainers/String/NkString.h"
 
 namespace nkentseu {
 	namespace anim {
-
-		// Description d'un squelette pour le reciblage. Volontairement independante
-		// de NkAnimationClip : on recible VERS un personnage qui n'a pas encore
-		// d'animation, il n'aurait donc aucun clip a fournir.
-		struct NkRetargetSkeleton {
-				NkVector<int32> parent;			 ///< parent de chaque joint (-1 = racine)
-				NkVector<NkMat4f> bindLocal;	 ///< pose de REPOS, en LOCAL (relative au parent)
-				NkVector<NkString> names;		 ///< noms des joints (appariement)
-				NkVector<uint32> topo;			 ///< ordre topologique (parent avant enfant)
-
-				uint32 Count() const {
-					return (uint32)parent.Size();
-				}
-
-				// Position MONDE d'un joint en pose de repos (FK sur les locaux).
-				// Sert au rapport de taille : c'est la seule mesure qui ne depende ni
-				// du maillage, ni d'une convention d'unite.
-				NkVec3f BindWorldPos(uint32 j) const;
-				// Matrice MONDE de repos (FK des locaux). C'est elle qui donne
-				// l'inverseBind du squelette cible : le laisser a l'identite ferait
-				// appliquer la pose COMPLETE au maillage au lieu de son ecart au repos.
-				NkMat4f BindWorld(uint32 j) const;
-
-				// Hauteur de la pose de repos = amplitude verticale entre le joint le
-				// plus bas et le plus haut. Choisie plutot que « longueur de la jambe »
-				// parce qu'elle ne suppose AUCUNE convention de nommage : elle marche
-				// sur un quadrupede, un bras robotise ou un personnage.
-				float32 BindHeight() const;
-
-				// Construit `topo` depuis `parent` (parents avant enfants). Renvoie false
-				// si le graphe a un cycle — auquel cas la FK boucherait a l'infini.
-				bool BuildTopo();
-		};
 
 		// Table d'appariement : pour chaque joint CIBLE, l'indice du joint SOURCE
 		// (-1 = non apparie). Orientee cible parce que c'est la cible qu'on remplit :
@@ -130,12 +107,11 @@ namespace nkentseu {
 			public:
 				// ── APPARIEMENT PAR NOM ─────────────────────────────────────────────
 				// Compare les noms NORMALISES : minuscules, sans espaces, sans tirets ni
-				// soulignes, et sans prefixe de rig (tout ce qui precede le premier ':',
+				// soulignes, et sans prefixe de rig (tout ce qui precede le dernier ':',
 				// ce qui absorbe « mixamorig:Hips » -> « hips »). Sans cette
 				// normalisation, deux rigs decrivant le meme squelette n'apparient rien.
 				// Renvoie le nombre de joints apparies.
-				static uint32 BuildMapByName(const NkRetargetSkeleton &src, const NkRetargetSkeleton &dst,
-											 NkRetargetMap &out);
+				static uint32 BuildMapByName(const NkSkeletonDef &src, const NkSkeletonDef &dst, NkRetargetMap &out);
 
 				// Normalisation exposee : l'interface l'utilisera pour montrer POURQUOI
 				// deux noms s'apparient (ou pas), au lieu de laisser l'utilisateur
@@ -147,9 +123,9 @@ namespace nkentseu {
 				// outLocal : dimensionne a dst.Count(), rempli pour TOUS les joints —
 				//            les non apparies recoivent leur pose de REPOS.
 				// Renvoie false si les tailles sont incoherentes.
-				static bool RetargetPose(const NkRetargetSkeleton &src, const NkRetargetSkeleton &dst,
-										 const NkRetargetMap &map, const NkVector<NkMat4f> &srcLocal,
-										 NkVector<NkMat4f> &outLocal, const NkRetargetParams &p = NkRetargetParams{});
+				static bool RetargetPose(const NkSkeletonDef &src, const NkSkeletonDef &dst, const NkRetargetMap &map,
+										 const NkVector<NkMat4f> &srcLocal, NkVector<NkMat4f> &outLocal,
+										 const NkRetargetParams &p = NkRetargetParams{});
 
 				// ── RECIBLAGE D'UN CLIP ENTIER ──────────────────────────────────────
 				// Produit un clip joue sur `dst`. Le clip source DOIT etre en mode LOCAL
@@ -157,14 +133,14 @@ namespace nkentseu {
 				// perdu la hierarchie, on ne peut plus rien recibler a partir de lui.
 				// Les cles sont reprises telles quelles (memes temps) : le reciblage
 				// change la POSE, jamais le RYTHME.
-				static bool RetargetClip(const NkAnimationClip &srcClip, const NkRetargetSkeleton &src,
-										 const NkRetargetSkeleton &dst, const NkRetargetMap &map,
-										 NkAnimationClip &outClip, const NkRetargetParams &p = NkRetargetParams{});
+				static bool RetargetClip(const NkAnimationClip &srcClip, const NkSkeletonDef &src,
+										 const NkSkeletonDef &dst, const NkRetargetMap &map, NkAnimationClip &outClip,
+										 const NkRetargetParams &p = NkRetargetParams{});
 
 				// Rapport de taille entre deux squelettes (hauteur de repos cible /
 				// source). 1 si l'une des deux est degeneree — plutot que de diviser par
 				// zero et d'expedier le personnage a l'infini.
-				static float32 HeightRatio(const NkRetargetSkeleton &src, const NkRetargetSkeleton &dst);
+				static float32 HeightRatio(const NkSkeletonDef &src, const NkSkeletonDef &dst);
 
 				// Auto-test headless (aucun GPU).
 				static bool SelfTest();
