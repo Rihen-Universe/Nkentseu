@@ -2216,6 +2216,10 @@ static NkTexHandle CreateLanternCubeCookie(NkTextureLibrary *texLib, NkIDevice *
 					sSph.params.maxSpeed = 8.f;
 					sSph.params.maxSubSteps = 24;
 					if (const char *np = std::getenv("NK_SPH_NOPRESSURE"); np && np[0] == '1') sSph.pressureEnabled = false;
+					if (const char *kk = std::getenv("NK_SPH_K"); kk && kk[0]) sSph.params.stiffness = (float32)std::atof(kk); // raideur de l'equation d'etat (c = sqrt(k))
+					if (const char *mu = std::getenv("NK_SPH_MU"); mu && mu[0]) sSph.params.viscosity = (float32)std::atof(mu);
+					if (const char *ms = std::getenv("NK_SPH_MAXSUB"); ms && ms[0]) sSph.params.maxSubSteps = (uint32)std::atoi(ms);
+					if (const char *g0 = std::getenv("NK_SPH_G0"); g0 && g0[0] == '1') sSph.params.gravity = {0.f, 0.f, 0.f}; // reseau parfait sans gravite : rien ne doit bouger
 					const float32 d = sSph.params.h * 0.5f; // espacement du reseau
 					NkVec3f bmin, bmax, blockMin, blockMax;
 					if (repos || conserve) {
@@ -4137,9 +4141,9 @@ static NkTexHandle CreateLanternCubeCookie(NkTextureLibrary *texLib, NkIDevice *
 						if (st->sphTime > 2.f) { st->sphRhoSum += ss.densityMean; ++st->sphRhoN; }
 						const float32 rho0 = st->sphSolver->params.restDensity;
 						if ((ctx.frame % 30u) == 0u)
-							std::fprintf(stderr, "[SPH PROBE] frame %u t=%.2fs : vivantes %u  rho/rho0 moy %.3f (min %.3f max %.3f)  vmax %.2f m/s  bornees %u  sous-pas %u  front x=%.3f  y[%.3f..%.3f]  %.2f ms\n",
+							std::fprintf(stderr, "[SPH PROBE] frame %u t=%.2fs : vivantes %u  rho/rho0 moy %.3f (min %.3f max %.3f)  vmax %.2f m/s  bornees %u  sous-pas %u  front x=%.3f  y[%.3f..%.3f]  sol rho/rho0 %.3f  fantomes %u  %.2f ms\n",
 										 (unsigned)ctx.frame, st->sphTime, ss.alive, ss.densityMean / rho0, ss.densityMin / rho0, ss.densityMax / rho0, ss.maxSpeed,
-										 ss.speedClamped, ss.subSteps, ss.maxX, ss.minY, ss.maxY, ss.ms);
+										 ss.speedClamped, ss.subSteps, ss.maxX, ss.minY, ss.maxY, ss.densityFloorMean / rho0, ss.boundary, ss.ms);
 						// rupture de barrage : front a t ~ 0,25 s compare a x0 + 2 sqrt(g h0) t (eau peu profonde)
 						if (st->sphScene == 0 && st->sphTime >= 0.25f && st->sphTime < 0.25f + fdt) {
 							const float32 attendu = st->sphX0 + 2.f * sqrtf(9.8f * st->sphH0) * st->sphTime;
