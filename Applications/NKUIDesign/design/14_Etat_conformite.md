@@ -38,7 +38,7 @@ main** — la prochaine régénération l'effacerait.*
 
 | lignes de comportement | livré | partiel | absent | écarté |
 |---|---|---|---|---|
-| **178** | **75** | **28** | **74** | **1** |
+| **178** | **75** | **29** | **73** | **1** |
 
 ### Par chapitre — où l'on est fort, où l'on est faible
 
@@ -52,7 +52,7 @@ main** — la prochaine régénération l'effacerait.*
 | 5. Toile et vue | 3 | 4 | 9 | 0 |
 | 6. Transformations | 13 | 1 | 7 | 0 |
 | 7. Calques et groupes | 9 | 1 | 6 | 1 |
-| 8. Propriétés | 10 | 9 | 21 | 0 |
+| 8. Propriétés | 10 | 10 | 20 | 0 |
 | 9. Composants et instances | 5 | 1 | 4 | 0 |
 
 ### La liste nommée — PARTIELS
@@ -97,7 +97,8 @@ main** — la prochaine régénération l'effacerait.*
 
 - Une ligne = pastille (aperçu réel) · nom · œil · poubelle ; le détail dans le popover
 - Appliquer à une multi-sélection ; « contenu mixte » signalé
-- Dégradés linéaire / radial / angulaire, avec étapes de couleur déplaçables
+- Dégradés linéaire / radial / angulaire, avec étapes de couleur déplaçables, poignées sur la toile
+- Remplissage image et ses cinq cadrages (`Fill` · `Fit` · `Stretch` · `Tile` · `Crop`)
 - Saisie HEX / RGBA / HSB / HSL
 - Position intérieure / centrée / extérieure
 - Extrémités (*caps*), jonctions (*folds*), têtes de flèche
@@ -187,7 +188,6 @@ main** — la prochaine régénération l'effacerait.*
 **8. Propriétés**
 
 - Réordonner (l'ordre change le rendu)
-- Remplissage image et ses cadrages (menu `Fill ˅`)
 - Pipette pour prélever une couleur (capture 04/09 : en bas à gauche du popover)
 - Règle de remplissage non-zero / pair-impair
 - Mode de fusion par remplissage
