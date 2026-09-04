@@ -80,9 +80,19 @@ with project("NKSerialization"):
         with test("Smoke"):
             testfiles(["tests/test_smoke.cpp"])
             testownmain()
-        # JENGA 2.6, DEFAUT MESURE (2026-09-04) : le contexte test() remet _currentProject a None a sa
-        # sortie (Api.py:999) au lieu de rendre le projet parent -> un SECOND with test() dans le meme
-        # projet echoue (« test context must be placed directly inside a project block »). Une seule
-        # sous-suite par projet tant que Jenga ne le corrige pas ; les autres sont nommees ici :
-        #   ReflectSerializer (test_reflect_serializer.cpp), ReflectPhase3, ReflectPhase5,
-        #   ReflectObjContainer, Bench (benchmark_smoke.cpp) -- chacune a son main(), testownmain().
+        # Jenga 2.6.1 : test() rend le projet -> une sous-suite par fichier a main() (2026-09-04).
+        with test("ReflectSerializer"):
+            testfiles(["tests/test_reflect_serializer.cpp"])
+            testownmain()
+        with test("ReflectPhase3"):
+            testfiles(["tests/test_reflect_phase3.cpp"])
+            testownmain()
+        with test("ReflectPhase5"):
+            testfiles(["tests/test_reflect_phase5.cpp"])
+            testownmain()
+        with test("ReflectObjContainer"):
+            testfiles(["tests/test_reflect_objcontainer.cpp"])
+            testownmain()
+        with test("Bench"):
+            testfiles(["tests/benchmark_smoke.cpp"])
+            testownmain()
