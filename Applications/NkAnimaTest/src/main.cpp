@@ -1,3 +1,4 @@
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // =============================================================================
 // NkAnimPhysTest — tests headless de la couche physique d'animation (NkAnima M3).
 // AUCUN device GPU : pur CPU, sûr à lancer même pendant un entraînement GPU.

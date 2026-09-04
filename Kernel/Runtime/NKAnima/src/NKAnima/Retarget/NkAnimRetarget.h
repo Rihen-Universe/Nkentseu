@@ -3,7 +3,7 @@
 // -----------------------------------------------------------------------------
 // @File    NkAnimRetarget.h
 // @Brief   RECIBLAGE d'animation : rejouer un clip d'un squelette sur un AUTRE.
-// @Author  Rihen
+// @Author  TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // @License Proprietary - All Rights Reserved (see LICENSE)
 //
 // PROBLEME RESOLU

@@ -1,4 +1,5 @@
 #pragma once
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // Skeleton/ — LA structure de squelette du moteur (topologie + repos, monde) ; tout le reste la reference par index.
 // -----------------------------------------------------------------------------
 // FICHIER: NKAnima/NkSkeletonDef.h

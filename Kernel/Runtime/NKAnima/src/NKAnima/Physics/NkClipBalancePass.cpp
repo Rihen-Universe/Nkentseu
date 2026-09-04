@@ -1,3 +1,4 @@
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // =============================================================================
 // NKAnimPhysics/NkClipBalancePass.cpp — M3.6 : pont anim (voir .h).
 // =============================================================================

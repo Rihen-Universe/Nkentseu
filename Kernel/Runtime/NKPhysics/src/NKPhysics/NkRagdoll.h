@@ -1,4 +1,5 @@
 #pragma once
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // =============================================================================
 // NkRagdoll.h — Assemblage d'un corps articulé depuis une HIÉRARCHIE D'OS. [M9]
 // GÉNÉRIQUE (aucune morphologie figée) : on décrit des os (parent, pose, forme,
@@ -12,18 +13,35 @@
 namespace nkentseu {
 	namespace physics {
 
-		// Description d'un os (un corps rigide + son joint vers le parent).
-		struct NkBoneDef {
-				int32 parent = -1;	// index de l'os parent (-1 = racine)
-				NkVec3f position{}; // pose du corps (centre de masse)
-				NkQuatf orientation{};
-				collision::NkShape shape; // forme de collision (capsule/box…)
+		// ── UNE SEULE DEFINITION DE SQUELETTE (2026-09-04) ─────────────────────
+		// Il y avait ici un troisieme `NkBoneDef` (parent + corps rigide + joint) :
+		// un second squelette qui REDISAIT `parent`, et c'est exactement ce qui
+		// diverge un jour. Rodolf : « j'espere que ce n'est pas un chantier
+		// duplique » -- c'en etait un, a cet endroit precis.
+		// Desormais le ragdoll se construit depuis une VUE du squelette du moteur
+		// (les parents et la pose de repos MONDE, en tableaux bruts : NKPhysics
+		// n'inclut pas NKAnima, et la vue n'est pas une copie) plus une table
+		// d'ATTRIBUTS PHYSIQUES par os. Un os = le squelette + ses attributs.
+		struct NkSkeletonView {
+				const int32 *parent = nullptr;	   // index du parent (-1 = racine)
+				const NkVec3f *restPos = nullptr;  // pose de repos MONDE du joint
+				const NkQuatf *restRot = nullptr;  // orientation de repos MONDE (nullptr = identite)
+				uint32 count = 0;
+		};
+		// Ce qu'un os a de PHYSIQUE, et rien de topologique.
+		struct NkRagdollBoneAttr {
+				// DYNAMIC par defaut ; STATIC/KINEMATIC pour EPINGLER un os (une racine
+				// tenue). C'est CreateBody qui en deduit la masse inverse : changer le
+				// type apres coup laisse invMass = 1 et le solveur pousse un mur.
+				NkBodyType type = NkBodyType::DYNAMIC;
+				NkVec3f comOffset{};		  // centre de masse, relatif au joint (repere monde au repos)
+				collision::NkShape shape;	  // forme de collision (capsule/box…), repere MONDE au repos
 				NkPhysicsMaterial material{};
 				uint32 flags = NK_BODY_NONE;
-				// Joint reliant cet os à son parent (ignoré si racine) :
+				// Joint reliant cet os a son parent (ignore si racine) :
 				NkJointType jointType = NkJointType::BALL;
 				NkVec3f jointPivot{};		// pivot monde (articulation)
-				NkVec3f jointAxis{0, 0, 1}; // REVOLUTE : axe de charnière
+				NkVec3f jointAxis{0, 0, 1}; // REVOLUTE : axe de charniere
 				bool limitEnabled = false;
 				float32 lowerAngle = 0.f, upperAngle = 0.f;
 		};
@@ -33,15 +51,17 @@ namespace nkentseu {
 				// Construit le ragdoll dans `world`. `group` = bit de layer dédié : les os
 				// partagent ce bit et l'excluent de leur masque -> AUCUNE self-collision,
 				// mais collision normale avec le reste du monde.
-				void Build(NkPhysicsWorld &world, const NkBoneDef *bones, uint32 count, uint32 group = 0x2u) {
+				void Build(NkPhysicsWorld &world, const NkSkeletonView &skel, const NkRagdollBoneAttr *attrs,
+						   uint32 group = 0x2u) {
 					mBodies.Clear();
 					mJoints.Clear();
+					const uint32 count = skel.count;
 					for (uint32 i = 0; i < count; ++i) {
-						const NkBoneDef &bd = bones[i];
+						const NkRagdollBoneAttr &bd = attrs[i];
 						NkBodyDef def;
-						def.type = NkBodyType::DYNAMIC;
-						def.position = bd.position;
-						def.orientation = bd.orientation;
+						def.type = bd.type;
+						def.position = skel.restPos[i] + bd.comOffset; // la pose vient du SQUELETTE
+						def.orientation = skel.restRot ? skel.restRot[i] : NkQuatf::Identity();
 						def.material = bd.material;
 						def.flags = bd.flags;
 						def.layer = group;
@@ -50,10 +70,11 @@ namespace nkentseu {
 						mJoints.PushBack(NK_INVALID_JOINT);
 					}
 					for (uint32 i = 0; i < count; ++i) {
-						const NkBoneDef &bd = bones[i];
-						if (bd.parent < 0 || (uint32)bd.parent >= count)
+						const NkRagdollBoneAttr &bd = attrs[i];
+						const int32 parent = skel.parent[i]; // la topologie vient du SQUELETTE
+						if (parent < 0 || (uint32)parent >= count)
 							continue;
-						const NkBodyId p = mBodies[(uint32)bd.parent], c = mBodies[i];
+						const NkBodyId p = mBodies[(uint32)parent], c = mBodies[i];
 						NkJointId jid = NK_INVALID_JOINT;
 						switch (bd.jointType) {
 							case NkJointType::REVOLUTE:

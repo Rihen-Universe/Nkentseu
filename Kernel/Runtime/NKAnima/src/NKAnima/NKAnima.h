@@ -1,4 +1,5 @@
 #pragma once
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // =============================================================================
 // NKAnima.h — l'en-tête d'AGRÉGATION du module. Le seul fichier de la racine.
 //

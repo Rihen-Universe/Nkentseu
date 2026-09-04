@@ -16,7 +16,7 @@
 // Pure Foundation (NKMath + NKContainers) : AUCUN GPU, testable headless. Le rendu
 // de la courbe (debug) et le solveur IK sont chez le consommateur (éditeur NkAnima).
 //
-// AUTEUR : Rihen — LICENCE : usage régi par le fichier LICENSE à la racine du dépôt
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen — LICENCE : usage régi par le fichier LICENSE à la racine du dépôt
 // =============================================================================
 #pragma once
 

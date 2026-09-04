@@ -1,3 +1,4 @@
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // =============================================================================
 // NkSystemsRevivalTest — reanimation de `Noge/Systems`, un systeme a la fois
 // =============================================================================
@@ -21,6 +22,7 @@
 #include "Noge/Systems/NkPhysicsSystems.h"
 #include "Noge/Physics/NkPhysicsMesh.h"
 #include "NKPhysics/NkPhysicsWorld.h"
+#include "NKPhysics/NkRagdoll.h" // banc RAGDOLL (2026-09-04)
 #include "NKPhysics/NkVehicle.h" // banc VEHICULE (2026-09-03) // banc COUPLE (2026-09-03)
 #include "Noge/ECS/Components/Animation/NkAnimation.h"
 #include "Noge/ECS/Components/Core/NkTransform.h"
@@ -558,6 +560,77 @@ int main() {
 				  "CONTRE-EPREUVE : avec mu = 0,01 la voiture PATINE (moins du quart de l'avance normale) -- le frottement est bien mesure");
 			delete car;
 		}
+	}
+
+	// =========================================================================
+	// RAGDOLL DEPUIS UNE VUE DU SQUELETTE (2026-09-04). La troisieme structure
+	// de squelette (`physics::NkBoneDef`, qui REDISAIT `parent`) a disparu : la
+	// topologie et le repos viennent d'une NkSkeletonView, la physique d'une
+	// table NkRagdollBoneAttr. Ce banc est le SEUL a exercer NkRagdoll::Build :
+	// `jenga test` ne trouve aucun projet de test dans cet espace de travail
+	// (mesure : « No test projects found », meme avec --force), donc
+	// NKPhysics/tests/test_physics.cpp n'est compile par personne aujourd'hui.
+	// TEMOIN : la MEME table d'attributs, deux topologies -> deux comportements.
+	// =========================================================================
+	{
+		using namespace nkentseu::physics;
+		const float32 h = 1.f / 60.f;
+		// Trois joints de repos alignes a la verticale ; chaque corps pend SOUS
+		// son joint (comOffset != 0, pour que « la pose vient de la vue » morde).
+		// La racine est EPINGLEE (STATIC) par son attribut : c'est CreateBody qui
+		// en deduit invMass = 0 -- un type change apres coup laisserait le
+		// solveur pousser un mur (mesure : la chaine s'affaissait de 1,26 m).
+		const NkVec3f rest[3] = {{0.f, 5.f, 0.f}, {0.f, 4.f, 0.f}, {0.f, 3.f, 0.f}};
+		NkRagdollBoneAttr attrs[3];
+		for (int k = 0; k < 3; ++k) {
+			attrs[k].comOffset = {0.f, -0.5f, 0.f};
+			attrs[k].shape = collision::NkShape::Box3D({0.f, rest[k].y - 0.5f, 0.f}, {0.1f, 0.5f, 0.1f});
+			attrs[k].jointType = NkJointType::BALL;
+			attrs[k].jointPivot = rest[k];
+		}
+		attrs[0].type = NkBodyType::STATIC;
+		// Construit, laisse tomber 1 s, rend la position du dernier corps, le
+		// nombre de joints, et imprime les trois hauteurs (la mesure, pas l'avis).
+		auto lance = [&](const int32 *parents, NkVec3f &outPosAuBuild, uint32 &outJoints) -> NkVec3f {
+			NkPhysicsWorld world;
+			world.SetGravity({0.f, -9.81f, 0.f});
+			NkSkeletonView skel;
+			skel.parent = parents;
+			skel.restPos = rest;
+			skel.count = 3;
+			nkentseu::physics::NkRagdoll rag; // Noge a SON NkRagdoll (NkPhysicsMesh.h) : nom qualifie
+			rag.Build(world, skel, attrs);
+			outPosAuBuild = world.GetBody(rag.Body(2))->position;
+			outJoints = 0;
+			for (uint32 i = 0; i < rag.Count(); ++i)
+				if (rag.Joint(i) != NK_INVALID_JOINT)
+					++outJoints;
+			for (int i = 0; i < 60; ++i)
+				world.Step(h);
+			std::printf("  [ragdoll] y apres 1 s (parents %d,%d,%d) : racine %.3f  os1 %.3f  os2 %.3f\n", parents[0],
+						parents[1], parents[2], world.GetBody(rag.Body(0))->position.y,
+						world.GetBody(rag.Body(1))->position.y, world.GetBody(rag.Body(2))->position.y);
+			return world.GetBody(rag.Body(2))->position;
+		};
+		const int32 chaine[3] = {-1, 0, 1};
+		const int32 coupee[3] = {-1, -1, -1};
+		NkVec3f pBuild{}, pBuildCoupee{};
+		uint32 jChaine = 0, jCoupee = 0;
+		const NkVec3f pChaine = lance(chaine, pBuild, jChaine);
+		const NkVec3f pCoupee = lance(coupee, pBuildCoupee, jCoupee);
+		// 1) La POSE vient de la vue : corps 2 = repos[2] + comOffset, au Build.
+		Check(std::fabs(pBuild.y - 2.5f) < 1e-4f && std::fabs(pBuildCoupee.y - 2.5f) < 1e-4f,
+			  "RAGDOLL : la pose initiale vient de la vue du squelette (repos + comOffset = 2,5)");
+		// 2) La TOPOLOGIE vient de la vue : 2 joints en chaine, 0 coupee.
+		Check(jChaine == 2 && jCoupee == 0,
+			  "RAGDOLL : les joints suivent les parents de la vue (2 en chaine, 0 coupee)");
+		// 3) Le comportement suit : en chaine, le dernier corps reste PENDU a la
+		//    racine epinglee ; coupe, il tombe librement (~4,9 m en 1 s) -- le
+		//    temoin varie comme le sujet.
+		const float32 chuteChaine = 2.5f - pChaine.y, chuteCoupee = 2.5f - pCoupee.y;
+		Check(chuteChaine < 0.5f, "RAGDOLL : en chaine, le dernier corps reste pendu a la racine epinglee (chute < 0,5 m)");
+		Check(chuteCoupee > 3.5f, "CONTRE-EPREUVE RAGDOLL : topologie coupee -> le meme corps tombe librement (> 3,5 m)");
+		std::printf("  [ragdoll] chute 1 s : chaine %.3f m, coupee %.3f m\n", chuteChaine, chuteCoupee);
 	}
 
 	std::printf("=== Resultat : %d OK / %d FAIL ===\n", gPass, gFail);

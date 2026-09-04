@@ -1436,6 +1436,29 @@ existantes recensées — reciblage (`WorldOf` de test), `NkIKSolver`, `NkLocomo
 jiggle) référencent par index et **aucune ne redit `parent`** (mesuré : 0 sur 4) · bancs
 d'animphys à l'identique depuis leur nouvelle maison · consommateurs recompilés, la liste.
 
+### ✅ 04/09 — LA TROISIÈME STRUCTURE A DISPARU : `physics::NkBoneDef` → vue du squelette + attributs
+
+`NkRagdoll.h` portait un `NkBoneDef` (parent + corps + joint) : un second squelette qui **redisait
+`parent`**. Remplacé par `NkSkeletonView` (parents + repos monde, tableaux bruts — NKPhysics
+n'inclut pas NKAnima, la vue n'est pas une copie) et `NkRagdollBoneAttr` (type de corps, offset
+du centre de masse, forme, matériau, joint et limites — *rien de topologique*). `Build(world,
+vue, attrs)`. **Critère de fin au grep** : parmi `struct Nk*Bone*/Nk*Skel*`, seul `NkSkeletonDef`
+définit `parent` ; `NkIKBone`, `NkJiggleBone`, `NkRagdollBoneLink` référencent par index.
+
+**Deux choses apprises en le prouvant.** (1) `jenga test` répond *« No test projects found »*
+même avec `--force`, alors que 42 `.jenga` déclarent `with test()` : **`NKPhysics/tests/
+test_physics.cpp` n'est compilé par personne** — ma phrase de l'après-midi « exercé par
+test_physics.cpp » était vraie du texte, fausse du binaire. Les deux sites y sont réécrits quand
+même ; le **seul banc qui exerce `NkRagdoll::Build` est désormais NkSystemsRevivalTest**
+(+4 checks, 52/52). (2) Épingler la racine en changeant `type = STATIC` *après* `Build` laissait
+`invMass = 1` : le solveur poussait un mur et la chaîne s'affaissait de 1,26 m. Le type de corps
+est un **attribut physique de l'os** (`NkRagdollBoneAttr::type`), `CreateBody` en déduit la masse.
+Témoin : même table d'attributs, topologie **chaîne** → le dernier corps reste pendu (0,000 m) ;
+topologie **coupée** → il tombe de 4,987 m en 1 s. Le témoin varie comme le sujet.
+
+Désordre listé, pas corrigé : Noge a *son* `NkRagdoll` (`Physics/NkPhysicsMesh.h`, données du
+composant) homonyme de `physics::NkRagdoll` — ambigu sous `using namespace`, à qualifier.
+
 ### 🧪 04/09 — LA PREUVE PAR MUTATION, et ce qu'elle a d'abord raté
 
 Conversion à l'import cassée (`bindPose = loc`, FK sans le parent) → le banc doit rougir.

@@ -1,3 +1,4 @@
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // =============================================================================
 // NkAnimationEditor.cpp — logique d'édition de timeline (sans UI)
 // =============================================================================

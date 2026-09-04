@@ -1,7 +1,7 @@
 // -----------------------------------------------------------------------------
 // @File    NkAnimRetarget.cpp
 // @Brief   Reciblage d'animation entre squelettes. Voir l'en-tete pour les regles.
-// @Author  Rihen
+// @Author  TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // @License Proprietary - All Rights Reserved (see LICENSE)
 // -----------------------------------------------------------------------------
 

@@ -1,3 +1,4 @@
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // =============================================================================
 // NKRenderer/Tools/Animation/NkMotionPath.cpp — animation par courbe (voir .h).
 // =============================================================================
