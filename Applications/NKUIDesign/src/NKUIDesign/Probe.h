@@ -7161,6 +7161,237 @@ namespace nkuidesign {
 				}
 			}
 		}
+		// ── 69. LES STYLES DE CALQUE ET DE TEXTE (§15.15, lot du 05/09) : un nom pour un
+		//    ensemble ; le MEME mecanisme que les instances (copie a la modification sous
+		//    les bits d'ecart) ; le fichier par les memes ecrivains et lecteurs que le noeud ;
+		//    un style absent est DIT, jamais un rendu vide ; le rail ; la rangee de section.
+		{
+			static nkgui::NkGuiContext ctxS;
+			char det[560];
+			if (!ctxS.Init(600, 900)) {
+				check("69. les styles", false, "Init a refuse");
+			} else {
+				static DesignState stS;
+				NkUIDocument &dS = stS.doc;
+				dS.NewDocument("Toile", NkAuthor::Humain);
+				const int32 pg = dS.AddChild(0, "", NkAuthor::Humain);
+				dS.nodes[(uint32)pg].shape = NkString("frame");
+				dS.nodes[(uint32)pg].layout.kind = NkLayoutKind::Free;
+				dS.nodes[(uint32)pg].width.mode = NkSizeMode::Fixed;
+				dS.nodes[(uint32)pg].width.value = 400.f;
+				dS.nodes[(uint32)pg].height.mode = NkSizeMode::Fixed;
+				dS.nodes[(uint32)pg].height.value = 300.f;
+				auto rectDe = [&](float32 y, const char *couleur) {
+					const int32 r = dS.AddChild(pg, "", NkAuthor::Humain);
+					NkUINode &n = dS.nodes[(uint32)r];
+					n.shape = NkString("rect");
+					n.posX = 10.f;
+					n.posY = y;
+					n.width.mode = NkSizeMode::Fixed;
+					n.width.value = 100.f;
+					n.height.mode = NkSizeMode::Fixed;
+					n.height.value = 40.f;
+					NkRemplissage f;
+					f.couleur = NkString(couleur);
+					n.fills.PushBack(f);
+					return r;
+				};
+				auto texteDe = [&](float32 y) {
+					const int32 r = dS.AddChild(pg, "", NkAuthor::Humain);
+					NkUINode &n = dS.nodes[(uint32)r];
+					n.shape = NkString("text");
+					n.text = NkString("Titre");
+					n.posX = 200.f;
+					n.posY = y;
+					n.fontPx = 12.f;
+					return r;
+				};
+				auto couleurPeinte = [&](int32 noeud) -> uint32 {
+					NkPaintRect sfc;
+					sfc.x = 0.f;
+					sfc.y = 0.f;
+					sfc.w = 600.f;
+					sfc.h = 900.f;
+					NkLayoutResult lay;
+					NkComputeLayout(dS, sfc, lay);
+					const NkPaintRect r = lay.At(noeud);
+					NkVector<uint8> masques;
+					for (uint32 i = 0; i < (uint32)dS.nodes.Size(); ++i) {
+						masques.PushBack(dS.nodes[i].masque ? 1u : 0u);
+						if (i != 0u && (int32)i != noeud && (int32)i != pg)
+							dS.nodes[i].masque = true;
+					}
+					NkRecordingPaint rec;
+					RenderDocument(rec, dS, sfc);
+					for (uint32 i = 0; i < (uint32)dS.nodes.Size(); ++i)
+						dS.nodes[i].masque = masques[i] != 0u;
+					uint32 dernier = 0u;
+					for (uint32 i = 0; i < (uint32)rec.cmds.Size(); ++i) {
+						const NkPaintCmd &c = rec.cmds[i];
+						if (c.op == NkPaintOp::FillColor && c.x == r.x && c.y == r.y && c.w == r.w && c.h == r.h)
+							dernier = c.rgba;
+					}
+					return dernier;
+				};
+				NkVariable enc;
+				enc.cle = NkString("encre");
+				enc.valeur = NkString("#112233");
+				dS.variables.PushBack(enc);
+				// ── 69a. modele + format : creer depuis un calque, lier un second, ecrire, relire ──
+				const int32 r1 = rectDe(10.f, "#1976d2");
+				const int32 r2 = rectDe(60.f, "#aaaaaa");
+				{
+					NkBordure b;
+					b.couleur = NkString("#30363d");
+					b.epaisseur = 2.f;
+					dS.nodes[(uint32)r1].borders.PushBack(b);
+					NkEffet e;
+					e.couleur = NkString("#000000");
+					dS.nodes[(uint32)r1].effets.PushBack(e);
+				}
+				const int32 si = dS.CreerStyleDepuis(r1, false, "Bouton");
+				const bool lie2 = dS.LierStyle(r2, "calque_1");
+				const int32 t1 = texteDe(10.f), t2 = texteDe(60.f);
+				dS.nodes[(uint32)t1].fontPx = 24.f;
+				dS.nodes[(uint32)t1].fontWeight = 700.f;
+				dS.nodes[(uint32)t1].textColor = NkString("@encre");
+				const int32 ti = dS.CreerStyleDepuis(t1, true, "Titre");
+				const bool lieT = dS.LierStyle(t2, "texte_1");
+				const bool creeOk = si == 0 && ti == 1 && NkComponentDecl::StrEq(dS.styles[0].cle.Data(), "calque_1")
+									&& NkComponentDecl::StrEq(dS.styles[0].nom.Data(), "Bouton")
+									&& NkComponentDecl::StrEq(dS.nodes[(uint32)r1].styleCalque.Data(), "calque_1") && lie2
+									&& NkComponentDecl::StrEq(dS.nodes[(uint32)r2].styleCalque.Data(), "calque_1")
+									&& NkUIDocument::MemeEmpreinte(dS.nodes[(uint32)r1], dS.nodes[(uint32)r2], NkUINode::EcartRemplissages)
+									&& dS.nodes[(uint32)r2].borders.Size() == 1u && dS.nodes[(uint32)r2].effets.Size() == 1u
+									&& couleurPeinte(r2) == 0x1976D2FFu && lieT && dS.nodes[(uint32)t2].fontPx == 24.f
+									&& dS.nodes[(uint32)t2].fontWeight == 700.f && NkComponentDecl::StrEq(dS.nodes[(uint32)t2].textColor.Data(), "@encre");
+				NkString s1;
+				dS.Save(s1);
+				const char *txt = s1.Data() ? s1.Data() : "";
+				auto compte = [](const char *h, const char *m) {
+					uint32 c = 0u;
+					for (const char *p = strstr(h, m); p; p = strstr(p + 1, m))
+						++c;
+					return c;
+				};
+				const bool ecrit = strstr(txt, "\nstyle = calque_1 genre=calque nom=\"Bouton\"\n  fond_1 = #1976d2 100 1\n  bord_1 = #30363d") != nullptr
+								   && strstr(txt, "\n  effet_1 = ") != nullptr
+								   && strstr(txt, "\nstyle = texte_1 genre=texte nom=\"Titre\"\n  police_px = 24\n  graisse = 700\n  couleur_texte = @encre\n") != nullptr
+								   && compte(txt, "  style_calque = calque_1\n") == 2u && compte(txt, "  style_texte = texte_1\n") == 2u;
+				// l'inconnu sur la ligne `style`, preserve ; l'aller-retour identique ; sans style, aucune ligne
+				NkString s2;
+				{
+					const char *pos = strstr(txt, "nom=\"Bouton\"");
+					const uint32 coupe = pos ? (uint32)(pos - txt) + 12u : 0u;
+					for (uint32 i = 0; i < coupe; ++i)
+						s2.Append(txt[i]);
+					s2.Append(" futur=x");
+					s2.Append(txt + coupe);
+				}
+				NkUIDocument relu;
+				const bool ok = relu.Load(s2.Data());
+				const NkStyle *rs = ok ? relu.TrouverStyle("calque_1") : nullptr;
+				const bool relus = rs && NkComponentDecl::StrEq(rs->nom.Data(), "Bouton") && NkComponentDecl::StrEq(rs->inconnus.Data(), "futur=x")
+								   && NkUIDocument::MemeEmpreinte(rs->apparence, dS.styles[0].apparence, NkUINode::EcartRemplissages)
+								   && NkUIDocument::MemeEmpreinte(rs->apparence, dS.styles[0].apparence, NkUINode::EcartBordures)
+								   && NkUIDocument::MemeEmpreinte(rs->apparence, dS.styles[0].apparence, NkUINode::EcartEffets)
+								   && relu.TrouverStyle("texte_1") && relu.TrouverStyle("texte_1")->apparence.fontPx == 24.f
+								   && relu.IsValidIndex(r2) && NkComponentDecl::StrEq(relu.nodes[(uint32)r2].styleCalque.Data(), "calque_1")
+								   && relu.nodes.Size() == dS.nodes.Size();
+				NkString s3;
+				if (ok)
+					relu.Save(s3);
+				const bool reemis = ok && strstr(s3.Data(), "futur=x") != nullptr;
+				NkUIDocument relu2;
+				NkString s4;
+				const bool identique = relu2.Load(s1.Data()) && (relu2.Save(s4), NkComponentDecl::StrEq(s4.Data(), s1.Data()));
+				NkUIDocument dSans;
+				dSans.NewDocument("Toile", NkAuthor::Humain);
+				NkString sS;
+				dSans.Save(sS);
+				const bool additif = strstr(sS.Data(), "style") == nullptr;
+				snprintf(det, sizeof(det), "crees=%d (calque_1 « Bouton », texte_1 « Titre », r2 lie : mêmes remplissages, bordure, effet, peint 1976D2) ; "
+										   "ecrit=%d ; relu=%d (inconnu preserve) ; reemis=%d ; aller-retour identique=%d ; sans style aucune ligne=%d",
+						 creeOk ? 1 : 0, ecrit ? 1 : 0, relus ? 1 : 0, reemis ? 1 : 0, identique ? 1 : 0, additif ? 1 : 0);
+				check("69a. LE MODELE ET LE FORMAT : un style de calque cree depuis un rectangle (remplissages + bordures + effets), "
+					  "un second rectangle le lie et prend l'ensemble ; un style de texte (taille, graisse, couleur « @encre ») ; "
+					  "`style = <cle> genre=... nom=\"...\"` puis fond_i / bord_i / effet_i / police_px par LES MEMES ecrivains, "
+					  "`style_calque` / `style_texte` sur les noeuds ; relu par les memes lecteurs, inconnu preserve, aller-retour "
+					  "octet pour octet, un document sans style ne gagne aucune ligne",
+					  creeOk && ecrit && relus && reemis && identique && additif, det);
+				// ── 69b. PROPAGATION, SURCHARGE, REINITIALISATION (Q51, les bits des instances) ──
+				NkStyle *st = dS.TrouverStyleMut("calque_1");
+				st->apparence.fills[0].couleur = NkString("#ff0000");
+				const int32 touches1 = dS.PropagerStyle("calque_1");
+				const bool suivent = touches1 == 2 && couleurPeinte(r1) == 0xFF0000FFu && couleurPeinte(r2) == 0xFF0000FFu;
+				dS.nodes[(uint32)r1].fills[0].couleur = NkString("#00ff00"); // la main ecrit sur r1
+				dS.MarkHumanEdit(r1);
+				const bool ecartLeve = dS.nodes[(uint32)r1].Surcharge(NkUINode::EcartRemplissages)
+									   && !dS.nodes[(uint32)r1].Surcharge(NkUINode::EcartBordures);
+				st->apparence.fills[0].couleur = NkString("#0000ff");
+				st->apparence.borders[0].epaisseur = 5.f;
+				const int32 touches2 = dS.PropagerStyle("calque_1");
+				const bool tient = touches2 == 2 && couleurPeinte(r1) == 0x00FF00FFu && couleurPeinte(r2) == 0x0000FFFFu
+								   && dS.nodes[(uint32)r1].borders[0].epaisseur == 5.f; // la bordure, non surchargee, suit
+				const bool reinit = dS.ReinitialiserEcartStyle(r1, NkUINode::EcartRemplissages) && couleurPeinte(r1) == 0x0000FFFFu
+									&& !dS.nodes[(uint32)r1].Surcharge(NkUINode::EcartRemplissages);
+				snprintf(det, sizeof(det), "rouge -> %d touches, peints %08X / %08X ; r1 ecrit vert -> ecart remplissages=%d (bordures non) ; "
+										   "bleu + bordure 5 -> %d touches, r1 %08X (tient) r2 %08X (suit), bordure r1 %.0f ; reinit -> %d",
+						 touches1, couleurPeinte(r1), couleurPeinte(r2), ecartLeve ? 1 : 0, touches2, couleurPeinte(r1), couleurPeinte(r2),
+						 dS.nodes[(uint32)r1].borders[0].epaisseur, reinit ? 1 : 0);
+				check("69b. LA PROPAGATION (Q51, les bits des instances) : modifier le style change les deux rectangles ; une couleur "
+					  "posee a la main sur l'un leve SON bit (pas celui des bordures) et tient a la propagation suivante pendant que "
+					  "l'autre suit et que sa bordure suit ; « Reinitialiser » rend la main au style",
+					  suivent && ecartLeve && tient && reinit, det);
+				// ── 69c. LE STYLE DE TEXTE, et la variable DANS le style ──
+				NkStyle *tt = dS.TrouverStyleMut("texte_1");
+				tt->apparence.fontPx = 30.f;
+				const int32 touchesT = dS.PropagerStyle("texte_1");
+				const bool texteSuit = touchesT == 2 && dS.nodes[(uint32)t1].fontPx == 30.f && dS.nodes[(uint32)t2].fontPx == 30.f;
+				dS.nodes[(uint32)t1].fontWeight = 400.f;
+				dS.MarkHumanEdit(t1);
+				tt->apparence.fontPx = 36.f;
+				dS.PropagerStyle("texte_1");
+				const bool texteTient = dS.nodes[(uint32)t1].Surcharge(NkUINode::EcartTexte) && dS.nodes[(uint32)t1].fontPx == 30.f
+										&& dS.nodes[(uint32)t2].fontPx == 36.f;
+				const uint32 usagesEncre = dS.CompterUsagesVariable("encre");
+				dS.variables[0].valeur = NkString("#445566");
+				renderdetail::NkPoserResolveur(&dS);
+				const uint32 encreResolue = renderdetail::NkGCouleur(dS.nodes[(uint32)t2].textColor.Data());
+				snprintf(det, sizeof(det), "taille 30 -> %d touches (t1 %.0f, t2 %.0f) ; t1 graisse 400 a la main puis style 36 -> t1 %.0f (tient, ecart texte=%d), t2 %.0f ; "
+										   "« @encre » : %u usages (t1, t2, le style) ; variable -> #445566 : le texte lie rend %08X",
+						 touchesT, dS.nodes[(uint32)t1].fontPx, dS.nodes[(uint32)t2].fontPx, dS.nodes[(uint32)t1].fontPx,
+						 dS.nodes[(uint32)t1].Surcharge(NkUINode::EcartTexte) ? 1 : 0, dS.nodes[(uint32)t2].fontPx, usagesEncre, encreResolue);
+				check("69c. LE STYLE DE TEXTE : la taille se propage aux deux textes ; une graisse posee a la main leve l'ecart texte "
+					  "et tient ; ET la variable dans le style : « @encre » compte trois usages (deux textes, le style), et changer la "
+					  "variable change ce que le texte lie rend -- les deux propagations se composent",
+					  texteSuit && texteTient && usagesEncre == 3u && encreResolue == 0x445566FFu, det);
+				// ── 69d. UN STYLE ABSENT EST DIT, JAMAIS UN RENDU VIDE ; DETACHER ──
+				const int32 r3 = rectDe(110.f, "#777777");
+				dS.nodes[(uint32)r3].styleCalque = NkString("fantome");
+				const bool absentDit = dS.TrouverStyle("fantome") == nullptr && couleurPeinte(r3) == 0x777777FFu && dS.PropagerStyle("fantome") == 0;
+				const bool detache = dS.DetacherStyle(r2, false) && dS.nodes[(uint32)r2].styleCalque.Empty();
+				st->apparence.fills[0].couleur = NkString("#123456");
+				dS.PropagerStyle("calque_1");
+				const bool detacheTient = couleurPeinte(r2) == 0x0000FFFFu && couleurPeinte(r1) == 0x123456FFu;
+				snprintf(det, sizeof(det), "« fantome » : absent=%d, r3 peint %08X (ses valeurs), propagation 0 ; r2 detache=%d puis style -> #123456 : r2 %08X (garde), r1 %08X (suit)",
+						 dS.TrouverStyle("fantome") == nullptr ? 1 : 0, couleurPeinte(r3), detache ? 1 : 0, couleurPeinte(r2), couleurPeinte(r1));
+				check("69d. UN STYLE ABSENT EST DIT (introuvable) ET LE CALQUE GARDE SES VALEURS -- jamais un rendu vide ; "
+					  "« Detacher » rend les valeurs locales : le calque detache ne suit plus, l'autre suit encore",
+					  absentDit && detache && detacheTient, det);
+				// ── 69e. LA SUPPRESSION GARDEE, le detachement de tous ──
+				uint32 uRefus = 0u;
+				const bool refuse = !dS.SupprimerStyle("calque_1", &uRefus) && uRefus == 1u && dS.styles.Size() == 2u;
+				const uint32 detaches = dS.DetacherTousStyle("calque_1");
+				const bool supprime = dS.SupprimerStyle("calque_1") && dS.styles.Size() == 1u && dS.nodes[(uint32)r1].styleCalque.Empty()
+									  && couleurPeinte(r1) == 0x123456FFu;
+				snprintf(det, sizeof(det), "suppression refusee=%d (utilise par %u) ; detaches %u ; supprime ensuite=%d, r1 garde %08X, styles restants %u",
+						 refuse ? 1 : 0, uRefus, detaches, supprime ? 1 : 0, couleurPeinte(r1), (uint32)dS.styles.Size());
+				check("69e. LA SUPPRESSION REFUSE tant qu'un calque lie le style (le nombre dit) ; tout detacher rend les valeurs "
+					  "locales ; puis la suppression passe et le calque garde ce qu'il montrait",
+					  refuse && detaches == 1u && supprime, det);
+			}
+		}
 		snprintf(tail, sizeof(tail), "\n=== RESULTAT : %d / %d ===\n", pass, total);
 		rep.Append(tail);
 

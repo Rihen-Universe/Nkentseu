@@ -1159,6 +1159,12 @@ namespace nkuidesign {
 			///    au-dessus de `NkDeclarationComposant` : `component` désigne un
 			///    composant **de code** (C++, statique, absent du fichier).
 			NkString instanceDe;
+			/// LES STYLES LIES (§15.15) : la cle d'un style de calque (remplissages,
+			/// bordures, effets) et d'un style de texte (taille, graisse, couleur).
+			/// Additifs (`style_calque`, `style_texte`) ; les bits d'ecart sont CEUX des
+			/// instances -- une propriete surchargee tient, quel que soit celui qui pousse.
+			NkString styleCalque;
+			NkString styleTexte;
 
 			/// ── LES ÉCARTS, PROPRIÉTÉ PAR PROPRIÉTÉ ──────────────────────────
 			/// Un masque de bits : chaque bit dit « cette propriété est À MOI,
@@ -1289,6 +1295,29 @@ namespace nkuidesign {
 	///    ce n'est pas un detail d'implementation : une declaration doit pouvoir
 	///    **voyager** -- etre partagee, vendue, importee. Un sous-arbre qui vivrait
 	///    dans le vecteur du document ne se detacherait jamais proprement.
+	// ════════════════════════════════════════════════════════════════════════
+	//  LE STYLE : un nom pour UN ENSEMBLE (§15.15, 05/09)
+	// ════════════════════════════════════════════════════════════════════════
+	/// `genre` : « calque » (remplissages + bordures + effets) ou « texte » (taille,
+	/// graisse, couleur) -- texte libre, inconnu preserve. L'ensemble vit dans
+	/// `apparence`, un noeud SANS geometrie : c'est ce qui permet au fichier de
+	/// relire `fond_i` / `bord_i` / `effet_i` / `police_px` / `graisse` /
+	/// `couleur_texte` d'un style AVEC LES LECTEURS DU NOEUD, et de les ecrire avec
+	/// ses ecrivains. Pas un second parseur, pas un second ecrivain.
+	/// ⚠️ La police (famille) n'est pas dans le modele du noeud : le style de texte
+	///    ne la porte pas non plus -- un parametre declare non honore serait pire
+	///    qu'absent.
+	struct NkStyle {
+			NkString cle;
+			NkString nom;
+			NkString genre;
+			NkString inconnus;
+			NkUINode apparence;
+			bool EstTexte() const {
+				return NkComponentDecl::StrEq(genre.Data(), "texte");
+			}
+	};
+
 	struct NkDeclarationComposant {
 			NkIdentiteComposant identite;
 			NkVector<NkUINode> arbre; ///< racine = indice 0
@@ -1424,6 +1453,267 @@ namespace nkuidesign {
 			NkVariable *TrouverVariableMut(const char *cle) {
 				return const_cast<NkVariable *>(TrouverVariable(cle));
 			}
+			// ── LES STYLES (§15.15, 05/09) : le MEME mecanisme que les instances ──
+			// Un style se PROPAGE par copie a la modification, sous les bits d'ecart
+			// des instances (`NkTousLesEcarts`) ; un ecart se DETECTE a l'edition
+			// humaine (MarkHumanEdit) -- une porte, pas seize sites. L'EMPREINTE d'un
+			// ensemble est ce que le fichier ecrirait : une seule verite pour comparer.
+			NkVector<NkStyle> styles;
+			const NkStyle *TrouverStyle(const char *cle) const {
+				if (!cle)
+					return nullptr;
+				if (*cle == '@')
+					++cle;
+				for (uint32 i = 0; i < (uint32)styles.Size(); ++i)
+					if (NkComponentDecl::StrEq(styles[i].cle.Data(), cle))
+						return &styles[i];
+				return nullptr;
+			}
+			NkStyle *TrouverStyleMut(const char *cle) {
+				return const_cast<NkStyle *>(TrouverStyle(cle));
+			}
+			/// Les bits d'ecart que couvre un genre de style.
+			static uint32 BitsDuGenre(bool texte) {
+				return texte ? NkUINode::EcartTexte
+							 : (NkUINode::EcartRemplissages | NkUINode::EcartBordures | NkUINode::EcartEffets);
+			}
+			/// L'EMPREINTE d'une propriete : ce que le fichier ecrirait pour elle.
+			static NkString Empreinte(const NkUINode &n, uint32 bit) {
+				NkString s;
+				if (bit == NkUINode::EcartRemplissages) {
+					s.Append(n.fill);
+					s.Append('|');
+					EcrireFonds(s, n.fills);
+				} else if (bit == NkUINode::EcartBordures) {
+					s.Append(n.borderColor);
+					s.Append('|');
+					WriteNum(s, n.borderW);
+					s.Append('|');
+					EcrireBords(s, n.borders);
+				} else if (bit == NkUINode::EcartEffets)
+					EcrireEffets(s, n.effets);
+				else if (bit == NkUINode::EcartTexte) {
+					WriteNum(s, n.fontPx);
+					s.Append('|');
+					WriteNum(s, n.fontWeight);
+					s.Append('|');
+					s.Append(n.textColor);
+				}
+				return s;
+			}
+			static bool MemeEmpreinte(const NkUINode &a, const NkUINode &b, uint32 bit) {
+				const NkString ea = Empreinte(a, bit), eb = Empreinte(b, bit);
+				return NkComponentDecl::StrEq(ea.Data() ? ea.Data() : "", eb.Data() ? eb.Data() : "");
+			}
+			/// COPIER une propriete d'un noeud a l'autre (le style vers le noeud, ou l'inverse).
+			static void CopierPropriete(NkUINode &vers, const NkUINode &de, uint32 bit) {
+				if (bit == NkUINode::EcartRemplissages) {
+					vers.fill = de.fill;
+					vers.fills = de.fills;
+				} else if (bit == NkUINode::EcartBordures) {
+					vers.borderColor = de.borderColor;
+					vers.borderW = de.borderW;
+					vers.borders = de.borders;
+				} else if (bit == NkUINode::EcartEffets)
+					vers.effets = de.effets;
+				else if (bit == NkUINode::EcartTexte) {
+					vers.fontPx = de.fontPx;
+					vers.fontWeight = de.fontWeight;
+					vers.textColor = de.textColor;
+				}
+			}
+			static const NkString &RefStyle(const NkUINode &n, bool texte) {
+				return texte ? n.styleTexte : n.styleCalque;
+			}
+			static NkString &RefStyleMut(NkUINode &n, bool texte) {
+				return texte ? n.styleTexte : n.styleCalque;
+			}
+			/// PROPAGER un style a tout ce qui le lie, sauf les proprietes surchargees --
+			/// le patron de `PropagerVersInstances`, les memes bits. Rend le nombre de
+			/// noeuds touches.
+			int32 PropagerStyle(const char *cle) {
+				const NkStyle *st = TrouverStyle(cle);
+				if (!st)
+					return 0;
+				const bool texte = st->EstTexte();
+				const uint32 bits = BitsDuGenre(texte);
+				int32 touches = 0;
+				for (uint32 i = 0; i < (uint32)nodes.Size(); ++i) {
+					NkUINode &n = nodes[i];
+					if (!NkComponentDecl::StrEq(RefStyle(n, texte).Data(), st->cle.Data()))
+						continue;
+					bool bouge = false;
+					for (uint32 bit = 1u; bit <= NkUINode::EcartTexte; bit <<= 1u) {
+						if (!(bits & bit) || n.Surcharge(bit))
+							continue;
+						if (!MemeEmpreinte(n, st->apparence, bit)) {
+							CopierPropriete(n, st->apparence, bit);
+							bouge = true;
+						}
+					}
+					if (bouge)
+						++touches;
+				}
+				return touches;
+			}
+			/// LA DETECTION D'ECART a l'edition humaine : le noeud lie un style et
+			/// l'ensemble differe -> c'est la main qui vient de l'ecrire, le bit se leve.
+			void DetecterEcartsStyle(int32 node) {
+				if (!IsValidIndex(node))
+					return;
+				NkUINode &n = nodes[(uint32)node];
+				for (int32 g = 0; g < 2; ++g) {
+					const bool texte = g == 1;
+					const NkStyle *st = RefStyle(n, texte).Empty() ? nullptr : TrouverStyle(RefStyle(n, texte).Data());
+					if (!st)
+						continue;
+					const uint32 bits = BitsDuGenre(texte);
+					for (uint32 bit = 1u; bit <= NkUINode::EcartTexte; bit <<= 1u)
+						if ((bits & bit) && !n.Surcharge(bit) && !MemeEmpreinte(n, st->apparence, bit))
+							n.ecarts |= bit;
+				}
+			}
+			/// LIER : le noeud prend le style ENTIER (ses ecarts du genre s'effacent --
+			/// lier, c'est choisir de suivre), puis la propagation le sert.
+			bool LierStyle(int32 node, const char *cle) {
+				const NkStyle *st = TrouverStyle(cle);
+				if (!st || !IsValidIndex(node))
+					return false;
+				NkUINode &n = nodes[(uint32)node];
+				RefStyleMut(n, st->EstTexte()) = st->cle;
+				n.ecarts &= ~BitsDuGenre(st->EstTexte());
+				PropagerStyle(st->cle.Data());
+				return true;
+			}
+			/// DETACHER : la reference s'efface, les valeurs restent -- locales desormais.
+			bool DetacherStyle(int32 node, bool texte) {
+				if (!IsValidIndex(node) || RefStyle(nodes[(uint32)node], texte).Empty())
+					return false;
+				RefStyleMut(nodes[(uint32)node], texte) = NkString("");
+				nodes[(uint32)node].ecarts &= ~BitsDuGenre(texte);
+				return true;
+			}
+			/// REINITIALISER une surcharge : le bit tombe, le style reprend la main.
+			bool ReinitialiserEcartStyle(int32 node, uint32 bit) {
+				if (!IsValidIndex(node))
+					return false;
+				NkUINode &n = nodes[(uint32)node];
+				const bool texte = bit == NkUINode::EcartTexte;
+				if (RefStyle(n, texte).Empty())
+					return false;
+				n.ecarts &= ~bit;
+				PropagerStyle(RefStyle(n, texte).Data());
+				return true;
+			}
+			/// APPLIQUER AU STYLE : l'ensemble du noeud devient celui du style (la branche
+			/// « appliquer a l'original » de Q51), ses ecarts tombent, la propagation part.
+			int32 AppliquerAuStyle(int32 node, bool texte) {
+				if (!IsValidIndex(node))
+					return -1;
+				NkUINode &n = nodes[(uint32)node];
+				NkStyle *st = RefStyle(n, texte).Empty() ? nullptr : TrouverStyleMut(RefStyle(n, texte).Data());
+				if (!st)
+					return -1;
+				const uint32 bits = BitsDuGenre(texte);
+				for (uint32 bit = 1u; bit <= NkUINode::EcartTexte; bit <<= 1u)
+					if (bits & bit)
+						CopierPropriete(st->apparence, n, bit);
+				n.ecarts &= ~bits;
+				return PropagerStyle(st->cle.Data());
+			}
+			/// CREER UN STYLE DEPUIS UN NOEUD (le geste de Lunacy, sur la section) :
+			/// l'ensemble du noeud devient le style, et le noeud le lie. Cle unique
+			/// « calque_N » / « texte_N », nom « Style N » / « Texte N ». Rend l'indice.
+			int32 CreerStyleDepuis(int32 node, bool texte, const char *nom) {
+				if (!IsValidIndex(node))
+					return -1;
+				NkString cle, nomDef;
+				for (uint32 k = 1u; k < 100000u; ++k) {
+					char num[16];
+					uint32 l = 0u, t = k;
+					char tmp[16];
+					do {
+						tmp[l++] = (char)('0' + t % 10u);
+						t /= 10u;
+					} while (t && l < 15u);
+					uint32 z = 0u;
+					while (l)
+						num[z++] = tmp[--l];
+					num[z] = '\0';
+					cle = NkString(texte ? "texte_" : "calque_");
+					cle.Append(num);
+					nomDef = NkString(texte ? "Texte " : "Style ");
+					nomDef.Append(num);
+					if (!TrouverStyle(cle.Data()))
+						break;
+				}
+				NkStyle st;
+				st.cle = cle;
+				st.nom = nom && *nom ? NkString(nom) : nomDef;
+				st.genre = NkString(texte ? "texte" : "calque");
+				const uint32 bits = BitsDuGenre(texte);
+				for (uint32 bit = 1u; bit <= NkUINode::EcartTexte; bit <<= 1u)
+					if (bits & bit)
+						CopierPropriete(st.apparence, nodes[(uint32)node], bit);
+				styles.PushBack(st);
+				LierStyle(node, cle.Data());
+				return (int32)styles.Size() - 1;
+			}
+			/// Combien de noeuds (document et declarations) lient ce style.
+			uint32 CompterUsagesStyle(const char *cle) const {
+				const NkStyle *st = TrouverStyle(cle);
+				if (!st)
+					return 0u;
+				const bool texte = st->EstTexte();
+				uint32 n = 0u;
+				for (uint32 i = 0; i < (uint32)nodes.Size(); ++i)
+					if (NkComponentDecl::StrEq(RefStyle(nodes[i], texte).Data(), st->cle.Data()))
+						++n;
+				for (uint32 d = 0; d < (uint32)declarations.Size(); ++d)
+					for (uint32 j = 0; j < (uint32)declarations[d].arbre.Size(); ++j)
+						if (NkComponentDecl::StrEq(RefStyle(declarations[d].arbre[j], texte).Data(), st->cle.Data()))
+							++n;
+				return n;
+			}
+			/// DETACHER TOUT ce qui lie ce style (les valeurs restent). Rend le nombre.
+			uint32 DetacherTousStyle(const char *cle) {
+				const NkStyle *st = TrouverStyle(cle);
+				if (!st)
+					return 0u;
+				const bool texte = st->EstTexte();
+				const NkString c = st->cle;
+				uint32 n = 0u;
+				for (uint32 i = 0; i < (uint32)nodes.Size(); ++i)
+					if (NkComponentDecl::StrEq(RefStyle(nodes[i], texte).Data(), c.Data())) {
+						RefStyleMut(nodes[i], texte) = NkString("");
+						nodes[i].ecarts &= ~BitsDuGenre(texte);
+						++n;
+					}
+				for (uint32 d = 0; d < (uint32)declarations.Size(); ++d)
+					for (uint32 j = 0; j < (uint32)declarations[d].arbre.Size(); ++j)
+						if (NkComponentDecl::StrEq(RefStyle(declarations[d].arbre[j], texte).Data(), c.Data())) {
+							RefStyleMut(declarations[d].arbre[j], texte) = NkString("");
+							++n;
+						}
+				return n;
+			}
+			/// SUPPRIMER un style : REFUSE tant qu'il est utilise (le nombre dit).
+			bool SupprimerStyle(const char *cle, uint32 *usages = nullptr) {
+				const NkStyle *st = TrouverStyle(cle);
+				if (!st)
+					return false;
+				const uint32 u = CompterUsagesStyle(cle);
+				if (usages)
+					*usages = u;
+				if (u > 0u)
+					return false;
+				for (uint32 i = 0; i < (uint32)styles.Size(); ++i)
+					if (&styles[i] == st) {
+						styles.RemoveAt(i);
+						return true;
+					}
+				return false;
+			}
 			// ── LA VARIABLE DANS L'INTERFACE (§15.14, lot du 05/09) ─────────────
 			/// UN SEUL VISITEUR de toutes les couleurs d'un noeud : cle simple,
 			/// texte, bord, listes de remplissages et leurs arrets, bordures, effets,
@@ -1457,6 +1747,8 @@ namespace nkuidesign {
 				for (uint32 d = 0; d < (uint32)declarations.Size(); ++d)
 					for (uint32 j = 0; j < (uint32)declarations[d].arbre.Size(); ++j)
 						VisiterCouleursNoeud(declarations[d].arbre[j], f);
+				for (uint32 si = 0; si < (uint32)styles.Size(); ++si) // un style qui reference une variable EST un usage
+					VisiterCouleursNoeud(styles[si].apparence, f);
 			}
 			template <class F>
 			void VisiterCouleurs(F &&f) const {
@@ -1465,6 +1757,8 @@ namespace nkuidesign {
 				for (uint32 d = 0; d < (uint32)declarations.Size(); ++d)
 					for (uint32 j = 0; j < (uint32)declarations[d].arbre.Size(); ++j)
 						VisiterCouleursNoeud(declarations[d].arbre[j], f);
+				for (uint32 si = 0; si < (uint32)styles.Size(); ++si)
+					VisiterCouleursNoeud(styles[si].apparence, f);
 			}
 			/// Combien de couleurs du document referencent cette variable.
 			uint32 CompterUsagesVariable(const char *cle) const {
@@ -1668,6 +1962,9 @@ namespace nkuidesign {
 				title = NkString(docTitle && *docTitle ? docTitle : "Interface sans titre");
 				prov = NkProvenance();
 				langues.Clear();
+				variables.Clear(); // 05/09 : aucun des deux ne les vidait -- un chargement gardait les variables du document d'avant
+				modeCourant = NkString();
+				styles.Clear();
 				prov.author = by;
 				// Les deux metriques que tout document possede. Elles existent des la
 				// creation parce qu'un agencement les DESIGNE par leur nom : un document
@@ -2255,6 +2552,7 @@ namespace nkuidesign {
 			void MarkHumanEdit(int32 node) {
 				if (!IsValidIndex(node))
 					return;
+				DetecterEcartsStyle(node); // §15.15 : la main vient d'ecrire -- ce qui differe du style est un ecart
 				NkProvenance &p = nodes[(uint32)node].prov;
 				if (p.author != NkAuthor::Humain)
 					p.corrected = true;
@@ -2336,6 +2634,160 @@ namespace nkuidesign {
 			/// motif que ce depot passe son temps a retirer (« le peintre a ete
 			/// ecrit deux fois »).
 			/// @param motCle `noeud` pour le document, `dnoeud` dans une declaration.
+			// ── LES TROIS LISTES S'ECRIVENT ICI, ET NULLE PART AILLEURS ────────
+			// Extraites d'`EcrireNoeud` le 05/09 pour que le STYLE (§15.15) ecrive ses
+			// listes avec les memes ecrivains -- et pour que l'EMPREINTE d'un ensemble
+			// (ce que le fichier ecrirait) serve de comparateur : une seule verite.
+			static void EcrireFonds(NkString &out, const NkVector<NkRemplissage> &fills) {
+				// La LISTE (Lunacy FILLS) : une ligne par remplissage,
+				// `fond_<i>` a partir de 1, « couleur opacite visible ».
+				// Meme patron additif que `texte_<langue>` : la cle
+				// n'existe que si la liste existe.
+				for (uint32 fi = 0; fi < (uint32)fills.Size(); ++fi) {
+					const NkRemplissage &f = fills[fi];
+					out.Append("  fond_");
+					WriteNum(out, (float32)(fi + 1));
+					out.Append(" = ");
+					out.Append(f.couleur.Empty() ? "-" : f.couleur.Data());
+					out.Append(' ');
+					WriteNum(out, f.opacite);
+					out.Append(' ');
+					out.Append(f.visible ? "1" : "0");
+					// additifs : rien tant que tout vaut son defaut
+					if (!f.genre.Empty()) {
+						out.Append(" genre=");
+						out.Append(f.genre);
+					}
+					if (!f.cadrage.Empty()) {
+						out.Append(" cadrage=");
+						out.Append(f.cadrage);
+					}
+					if (!f.image.Empty()) {
+						out.Append(" image=");
+						out.Append(f.image);
+					}
+					if (f.rotationImage != 0.f) {
+						out.Append(" rotation_image=");
+						WriteNum(out, f.rotationImage);
+					}
+					if (!f.fusion.Empty()) {
+						out.Append(" fusion=");
+						out.Append(f.fusion);
+					}
+					if (!f.inconnus.Empty()) {
+						out.Append(' ');
+						out.Append(f.inconnus);
+					}
+					out.Append('\n');
+					// `degrade_<i> = <type> <angle> <pos>:<coul> ...`
+					// ⚠️ ADDITIVE : pas d'arrets, pas de cle. Un remplissage
+					//    uni ne gagne pas une ligne parce qu'un degrade
+					//    existe ailleurs dans le fichier.
+					if (f.degrade.Actif()) {
+						out.Append("  degrade_");
+						WriteNum(out, (float32)(fi + 1));
+						out.Append(" = ");
+						out.Append(f.degrade.type.Empty() ? "lineaire"
+														  : f.degrade.type.Data());
+						out.Append(' ');
+						WriteNum(out, f.degrade.angle);
+						// ① origine et rayons : ADDITIFS, hors defaut seulement
+						if (f.degrade.origineX != 0.5f || f.degrade.origineY != 0.5f) {
+							out.Append(" o=");
+							WriteNum(out, f.degrade.origineX);
+							out.Append(',');
+							WriteNum(out, f.degrade.origineY);
+						}
+						if (f.degrade.rayonX != 0.5f || f.degrade.rayonY != 0.5f) {
+							out.Append(" r=");
+							WriteNum(out, f.degrade.rayonX);
+							out.Append(',');
+							WriteNum(out, f.degrade.rayonY);
+						}
+						if (!f.degrade.inconnus.Empty()) {
+							out.Append(' ');
+							out.Append(f.degrade.inconnus);
+						}
+						for (uint32 ai = 0; ai < (uint32)f.degrade.arrets.Size(); ++ai) {
+							out.Append(' ');
+							WriteNum(out, f.degrade.arrets[ai].position);
+							out.Append(':');
+							out.Append(f.degrade.arrets[ai].couleur.Empty()
+										   ? "-"
+										   : f.degrade.arrets[ai].couleur.Data());
+							if (f.degrade.arrets[ai].opacite != 100.f) {
+								out.Append(':');
+								WriteNum(out, f.degrade.arrets[ai].opacite);
+							}
+						}
+						out.Append('\n');
+					}
+				}
+			}
+			static void EcrireBords(NkString &out, const NkVector<NkBordure> &borders) {
+				for (uint32 bi = 0; bi < (uint32)borders.Size(); ++bi) {
+					const NkBordure &b = borders[bi];
+					out.Append("  bord_");
+					WriteNum(out, (float32)(bi + 1));
+					out.Append(" = ");
+					out.Append(b.couleur.Empty() ? "-" : b.couleur.Data());
+					out.Append(' ');
+					WriteNum(out, b.opacite);
+					out.Append(' ');
+					out.Append(b.visible ? "1" : "0");
+					out.Append(' ');
+					WriteNum(out, b.epaisseur);
+					out.Append(' ');
+					out.Append(NkBordurePosNom(b.position));
+					// additifs : rien tant que tout vaut son defaut
+					if (!b.CotesEgaux()) {
+						out.Append(" cotes=");
+						for (uint32 k = 0; k < 4u; ++k) {
+							if (k)
+								out.Append(',');
+							WriteNum(out, b.Cote(k));
+						}
+					}
+					if (!b.jointure.Empty()) {
+						out.Append(" jointure=");
+						out.Append(b.jointure);
+					}
+					if (!b.extremite.Empty()) {
+						out.Append(" extremite=");
+						out.Append(b.extremite);
+					}
+					if (!b.inconnus.Empty()) {
+						out.Append(' ');
+						out.Append(b.inconnus);
+					}
+					out.Append('\n');
+				}
+			}
+			static void EcrireEffets(NkString &out, const NkVector<NkEffet> &effets) {
+			for (uint32 ei = 0; ei < (uint32)effets.Size(); ++ei) {
+				const NkEffet &e = effets[ei];
+				out.Append("  effet_");
+				WriteNum(out, (float32)(ei + 1));
+				out.Append(" = ");
+				out.Append(NkEffetTypeNom(e.type));
+				out.Append(' ');
+				WriteNum(out, e.x);
+				out.Append(' ');
+				WriteNum(out, e.y);
+				out.Append(' ');
+				WriteNum(out, e.flou);
+				out.Append(' ');
+				WriteNum(out, e.etendue);
+				out.Append(' ');
+				out.Append(e.couleur.Empty() ? "-" : e.couleur.Data());
+				out.Append(' ');
+				WriteNum(out, e.opacite);
+				out.Append(' ');
+				out.Append(e.visible ? "1" : "0");
+				out.Append('\n');
+			}
+			}
+
 			void EcrireNoeud(NkString &out, const NkUINode &n, uint32 i,
 							 const char *motCle) const {
 				out.Append('\n');
@@ -2410,90 +2862,7 @@ namespace nkuidesign {
 				//    de la liste donnerait un fichier a deux verites, et le
 				//    lecteur devrait choisir -- c'est-a-dire deviner.
 				if (!n.fills.Empty()) {
-					// La LISTE (Lunacy FILLS) : une ligne par remplissage,
-					// `fond_<i>` a partir de 1, « couleur opacite visible ».
-					// Meme patron additif que `texte_<langue>` : la cle
-					// n'existe que si la liste existe.
-					for (uint32 fi = 0; fi < (uint32)n.fills.Size(); ++fi) {
-						const NkRemplissage &f = n.fills[fi];
-						out.Append("  fond_");
-						WriteNum(out, (float32)(fi + 1));
-						out.Append(" = ");
-						out.Append(f.couleur.Empty() ? "-" : f.couleur.Data());
-						out.Append(' ');
-						WriteNum(out, f.opacite);
-						out.Append(' ');
-						out.Append(f.visible ? "1" : "0");
-						// additifs : rien tant que tout vaut son defaut
-						if (!f.genre.Empty()) {
-							out.Append(" genre=");
-							out.Append(f.genre);
-						}
-						if (!f.cadrage.Empty()) {
-							out.Append(" cadrage=");
-							out.Append(f.cadrage);
-						}
-						if (!f.image.Empty()) {
-							out.Append(" image=");
-							out.Append(f.image);
-						}
-						if (f.rotationImage != 0.f) {
-							out.Append(" rotation_image=");
-							WriteNum(out, f.rotationImage);
-						}
-						if (!f.fusion.Empty()) {
-							out.Append(" fusion=");
-							out.Append(f.fusion);
-						}
-						if (!f.inconnus.Empty()) {
-							out.Append(' ');
-							out.Append(f.inconnus);
-						}
-						out.Append('\n');
-						// `degrade_<i> = <type> <angle> <pos>:<coul> ...`
-						// ⚠️ ADDITIVE : pas d'arrets, pas de cle. Un remplissage
-						//    uni ne gagne pas une ligne parce qu'un degrade
-						//    existe ailleurs dans le fichier.
-						if (f.degrade.Actif()) {
-							out.Append("  degrade_");
-							WriteNum(out, (float32)(fi + 1));
-							out.Append(" = ");
-							out.Append(f.degrade.type.Empty() ? "lineaire"
-															  : f.degrade.type.Data());
-							out.Append(' ');
-							WriteNum(out, f.degrade.angle);
-							// ① origine et rayons : ADDITIFS, hors defaut seulement
-							if (f.degrade.origineX != 0.5f || f.degrade.origineY != 0.5f) {
-								out.Append(" o=");
-								WriteNum(out, f.degrade.origineX);
-								out.Append(',');
-								WriteNum(out, f.degrade.origineY);
-							}
-							if (f.degrade.rayonX != 0.5f || f.degrade.rayonY != 0.5f) {
-								out.Append(" r=");
-								WriteNum(out, f.degrade.rayonX);
-								out.Append(',');
-								WriteNum(out, f.degrade.rayonY);
-							}
-							if (!f.degrade.inconnus.Empty()) {
-								out.Append(' ');
-								out.Append(f.degrade.inconnus);
-							}
-							for (uint32 ai = 0; ai < (uint32)f.degrade.arrets.Size(); ++ai) {
-								out.Append(' ');
-								WriteNum(out, f.degrade.arrets[ai].position);
-								out.Append(':');
-								out.Append(f.degrade.arrets[ai].couleur.Empty()
-											   ? "-"
-											   : f.degrade.arrets[ai].couleur.Data());
-								if (f.degrade.arrets[ai].opacite != 100.f) {
-									out.Append(':');
-									WriteNum(out, f.degrade.arrets[ai].opacite);
-								}
-							}
-							out.Append('\n');
-						}
-					}
+					EcrireFonds(out, n.fills);
 				} else if (!n.fill.Empty())
 					Field(out, "fond", n.fill.Data());
 				if (!n.textColor.Empty())
@@ -2504,43 +2873,7 @@ namespace nkuidesign {
 				//    non plus : elle appartient à la même notion, et un fichier
 				//    qui porte les deux ferait choisir le lecteur.
 				if (!n.borders.Empty()) {
-					for (uint32 bi = 0; bi < (uint32)n.borders.Size(); ++bi) {
-						const NkBordure &b = n.borders[bi];
-						out.Append("  bord_");
-						WriteNum(out, (float32)(bi + 1));
-						out.Append(" = ");
-						out.Append(b.couleur.Empty() ? "-" : b.couleur.Data());
-						out.Append(' ');
-						WriteNum(out, b.opacite);
-						out.Append(' ');
-						out.Append(b.visible ? "1" : "0");
-						out.Append(' ');
-						WriteNum(out, b.epaisseur);
-						out.Append(' ');
-						out.Append(NkBordurePosNom(b.position));
-						// additifs : rien tant que tout vaut son defaut
-						if (!b.CotesEgaux()) {
-							out.Append(" cotes=");
-							for (uint32 k = 0; k < 4u; ++k) {
-								if (k)
-									out.Append(',');
-								WriteNum(out, b.Cote(k));
-							}
-						}
-						if (!b.jointure.Empty()) {
-							out.Append(" jointure=");
-							out.Append(b.jointure);
-						}
-						if (!b.extremite.Empty()) {
-							out.Append(" extremite=");
-							out.Append(b.extremite);
-						}
-						if (!b.inconnus.Empty()) {
-							out.Append(' ');
-							out.Append(b.inconnus);
-						}
-						out.Append('\n');
-					}
+					EcrireBords(out, n.borders);
 				} else if (!n.borderColor.Empty())
 					Field(out, "couleur_bord", n.borderColor.Data());
 				// LES SOMMETS DEPLACES : `sommet_<i> = x y [rayon]` (unitaire -1..1).
@@ -2591,28 +2924,7 @@ namespace nkuidesign {
 					out.Append('\n');
 				}
 				// LES EFFETS : `effet_<i> = type x y flou etendue couleur opacite visible`.
-				for (uint32 ei = 0; ei < (uint32)n.effets.Size(); ++ei) {
-					const NkEffet &e = n.effets[ei];
-					out.Append("  effet_");
-					WriteNum(out, (float32)(ei + 1));
-					out.Append(" = ");
-					out.Append(NkEffetTypeNom(e.type));
-					out.Append(' ');
-					WriteNum(out, e.x);
-					out.Append(' ');
-					WriteNum(out, e.y);
-					out.Append(' ');
-					WriteNum(out, e.flou);
-					out.Append(' ');
-					WriteNum(out, e.etendue);
-					out.Append(' ');
-					out.Append(e.couleur.Empty() ? "-" : e.couleur.Data());
-					out.Append(' ');
-					WriteNum(out, e.opacite);
-					out.Append(' ');
-					out.Append(e.visible ? "1" : "0");
-					out.Append('\n');
-				}
+				EcrireEffets(out, n.effets);
 				if (!n.alignText.Empty())
 					Field(out, "texte_aligne", n.alignText.Data());
 				if (!n.target.Empty())
@@ -2702,6 +3014,11 @@ namespace nkuidesign {
 				}
 				// ── L'INSTANCE ET SES ÉCARTS (composants de document) ────
 				// Mêmes règles additives : un nœud ordinaire n'écrit rien.
+				// LES STYLES LIES (§15.15), additifs
+				if (!n.styleCalque.Empty())
+					Field(out, "style_calque", n.styleCalque.Data());
+				if (!n.styleTexte.Empty())
+					Field(out, "style_texte", n.styleTexte.Data());
 				if (!n.instanceDe.Empty()) {
 					out.Append("  instance = ");
 					out.Append(n.instanceDe);
@@ -2832,6 +3149,51 @@ namespace nkuidesign {
 
 				for (uint32 i = 0; i < (uint32)nodes.Size(); ++i)
 					EcrireNoeud(out, nodes[i], i, "noeud");
+				// LES STYLES (§15.15), en fin de fichier, additifs : rien tant qu'il n'y en
+				// a pas. `style = <cle> genre=<g> nom="..."`, puis les listes de l'ensemble
+				// par LES MEMES ecrivains que le noeud.
+				for (uint32 si = 0; si < (uint32)styles.Size(); ++si) {
+					const NkStyle &st = styles[si];
+					out.Append("\nstyle = ");
+					out.Append(st.cle);
+					out.Append(" genre=");
+					out.Append(st.genre.Empty() ? "calque" : st.genre.Data());
+					if (!st.nom.Empty()) {
+						out.Append(" nom=\"");
+						out.Append(st.nom);
+						out.Append('\"');
+					}
+					if (!st.inconnus.Empty()) {
+						out.Append(' ');
+						out.Append(st.inconnus);
+					}
+					out.Append('\n');
+					const NkUINode &a = st.apparence;
+					if (st.EstTexte()) {
+						if (a.fontPx != 0.f) {
+							out.Append("  police_px = ");
+							WriteNum(out, a.fontPx);
+							out.Append('\n');
+						}
+						if (a.fontWeight != 0.f) {
+							out.Append("  graisse = ");
+							WriteNum(out, a.fontWeight);
+							out.Append('\n');
+						}
+						if (!a.textColor.Empty())
+							Field(out, "couleur_texte", a.textColor.Data());
+					} else {
+						if (!a.fills.Empty())
+							EcrireFonds(out, a.fills);
+						else if (!a.fill.Empty())
+							Field(out, "fond", a.fill.Data());
+						if (!a.borders.Empty())
+							EcrireBords(out, a.borders);
+						else if (!a.borderColor.Empty())
+							Field(out, "couleur_bord", a.borderColor.Data());
+						EcrireEffets(out, a.effets);
+					}
+				}
 			}
 
 			/// Rend `true` si l'en-tete a ete vu, qu'au moins une racine existe, et
@@ -2856,6 +3218,9 @@ namespace nkuidesign {
 				title = NkString("");
 				prov = NkProvenance();
 				langues.Clear();
+				variables.Clear(); // 05/09 : aucun des deux ne les vidait -- un chargement gardait les variables du document d'avant
+				modeCourant = NkString();
+				styles.Clear();
 
 				bool sawHeader = false;
 				bool inNode = false;
@@ -2863,6 +3228,9 @@ namespace nkuidesign {
 				/// Vrai entre `composant N` et le prochain `noeud` : les `dnoeud`
 				/// et les cles d'identite appartiennent alors a la declaration.
 				bool dansDecl = false;
+				/// Vrai entre `style = ...` et le prochain bloc : les cles de listes vont
+				/// a l'APPARENCE du style, par les memes lecteurs que le noeud (§15.15).
+				bool dansStyle = false;
 				/// Les listes d'enfants des nœuds de DECLARATION, dans l'ordre de
 				/// lecture toutes declarations confondues. Meme role que
 				/// `childLists` : `enfants` est la seule verite sur la structure,
@@ -2899,11 +3267,12 @@ namespace nkuidesign {
 					if (StrEq(key, "nkuidoc")) {
 						sawHeader = true;
 					} else if (StrEq(key, "noeud")) {
-						FlushOverrides(pendingOverrides, inNode);
+						FlushOverrides(pendingOverrides, inNode && !dansStyle);
 						nodes.PushBack(NkUINode());
 						childLists.PushBack(NkVector<int32>());
 						inNode = true;
 						dansDecl = false;
+						dansStyle = false;
 					} else if (StrEq(key, "composant") && !inNode) {
 						// ── UNE DECLARATION S'OUVRE ──────────────────────────
 						// ⚠️ `&& !inNode` EST LA MOITIE QUI COMPTE : `composant`
@@ -2914,11 +3283,56 @@ namespace nkuidesign {
 						//    est exactement ce que le modele §15.1 interdit.
 						declarations.PushBack(NkDeclarationComposant());
 						dansDecl = true;
+						dansStyle = false;
 					} else if (StrEq(key, "dnoeud") && dansDecl) {
-						FlushOverrides(pendingOverrides, inNode);
+						FlushOverrides(pendingOverrides, inNode && !dansStyle);
 						declarations[(uint32)declarations.Size() - 1].arbre.PushBack(NkUINode());
 						declChildLists.PushBack(NkVector<int32>());
 						inNode = true;
+						dansStyle = false;
+					} else if (StrEq(key, "style")) {
+						// ── UN STYLE S'OUVRE (§15.15) : `<cle> genre=<g> nom="..." [inconnu]` ;
+						//    les lignes qui suivent (fond_i, bord_i, effet_i, police_px,
+						//    graisse, couleur_texte) vont a son apparence par les lecteurs du noeud
+						FlushOverrides(pendingOverrides, inNode && !dansStyle);
+						NkStyle st;
+						const char *q = val;
+						char mot[256];
+						bool premier = true;
+						while (*q) {
+							while (*q == ' ')
+								++q;
+							if (!*q)
+								break;
+							uint32 z = 0;
+							if (StrStartsWith(q, "nom=\"")) {
+								q += 5;
+								while (*q && *q != '\"' && z + 1 < (uint32)sizeof(mot))
+									mot[z++] = *q++;
+								if (*q == '\"')
+									++q;
+								mot[z] = '\0';
+								st.nom = NkString(mot);
+								continue;
+							}
+							while (*q && *q != ' ' && z + 1 < (uint32)sizeof(mot))
+								mot[z++] = *q++;
+							mot[z] = '\0';
+							if (premier) {
+								st.cle = NkString(mot);
+								premier = false;
+							} else if (StrStartsWith(mot, "genre="))
+								st.genre = NkString(mot + 6);
+							else {
+								if (!st.inconnus.Empty())
+									st.inconnus.Append(' ');
+								st.inconnus.Append(mot);
+							}
+						}
+						styles.PushBack(st);
+						inNode = true;
+						dansDecl = false;
+						dansStyle = true;
 					} else if (dansDecl && !inNode) {
 						// ── L'IDENTITE DE LA DECLARATION EN COURS ────────────
 						NkIdentiteComposant &id =
@@ -3025,6 +3439,7 @@ namespace nkuidesign {
 						//    lecteur du document, pas avec une copie. Une seconde
 						//    copie aurait diverge au premier champ ajoute.
 						NkUINode &n =
+							dansStyle ? styles[(uint32)styles.Size() - 1].apparence :
 							dansDecl
 								? declarations[(uint32)declarations.Size() - 1]
 									  .arbre[(uint32)declarations[(uint32)declarations.Size() - 1]
@@ -3086,6 +3501,10 @@ namespace nkuidesign {
 							n.role = NkString(val);
 						else if (StrEq(key, "fond"))
 							n.fill = NkString(val);
+						else if (StrEq(key, "style_calque"))
+							n.styleCalque = NkString(val);
+						else if (StrEq(key, "style_texte"))
+							n.styleTexte = NkString(val);
 						else if (key[0] == 'f' && key[1] == 'o' && key[2] == 'n'
 								 && key[3] == 'd' && key[4] == '_') {
 							// `fond_<i> = couleur opacite visible`. ⚠️ L'INDICE DU
@@ -3481,7 +3900,7 @@ namespace nkuidesign {
 					}
 					SkipLine(p);
 				}
-				FlushOverrides(pendingOverrides, inNode);
+				FlushOverrides(pendingOverrides, inNode && !dansStyle);
 
 				if (!sawHeader || nodes.Size() == 0)
 					return false;
