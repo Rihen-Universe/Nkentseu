@@ -1626,6 +1626,82 @@ pendant la mesure, donc **le chiffre sera celui d'un GPU partagé**, dit.
 comportement inchangé, mêmes chiffres qu'au lot A ; (b) `NkParticleStoreGPU` + noyau, sur OpenGL
 d'abord (le seul dorsal où les particules sont éprouvées à l'image) ; (c) les témoins.
 
+### ✅ 04/09 (soir) — PLAN (B), étape (a) LIVRÉE : l'état derrière `NkIParticleStore` (`25e89b6c`)
+
+`NkParticleStoreCPU` (SoA : `pos`, `vel`, `life`, `maxLife`, `size`, `rotation`, `rotSpeed`, `color`,
+`alive`, pile d'emplacements libres, un `NkParticleInstance` de 24 o par vivante) derrière
+`NkIParticleStore` ; `NkIParticleSolver` (forces à la place de la gravité — la porte du SPH) ;
+`simTarget = AUTO` **remplace** `simMode` (déclaré le 10/05, jamais lu ni écrit) ; `AUTO` résolu et **dit
+une fois par émetteur** — aujourd'hui toujours CPU : « compute présent mais stockage GPU pas encore
+livré -> CPU » (le stockage GPU **n'est pas livré**, c'est dit, pas simulé) ; `SpawnBirths(id, births,
+n)` additif (réseau d'un bloc de fluide) ; le dessin lit `InstanceBuffer()`/`DrawCount()` — un seul chemin.
+
+**Mesuré en chemin, deux fois** : (1) trois passes SoA sur `capacity` doublaient l'intégration
+(1,4-1,9 → 3,6 ms à 50 000) → boucle fusionnée ; (2) toujours 3,5-4,6 → en **Debug**,
+`NkVector::operator[]` est un appel par accès sur neuf colonnes ; l'ancienne boucle tenait une référence
+sur la structure → pointeurs bruts pris une fois par pas. **Témoin final** (Debug, OpenGL, 640×480,
+images 150/180, GPU partagé) : 50 000 → **intégration 0,93-1,11 ms** (lot A : 1,4-1,9), **sommets
+0,73-0,94** (lot A : 0,98-1,61), envoi 0,08-0,16 (1 168 Ko) ; 5 000 → 0,10 / 0,07 / 0,015 ; 500 → 0,01 /
+0,009 / 0,01. Damier : quatre cellules, boîte identique à ±3 px. *Une mesure prise après chaque geste,
+pas une à la fin : la première version « équivalente » était deux fois plus lente.*
+
+### 🌊 04/09 (soir) — FLUIDES : mesuré (il n'y a rien), famille fixée (SPH sur le stockage), PLAN avant le code
+
+**Mesuré, rien supposé** : aucun `NkFluid*`, aucun SPH, aucune hauteur d'eau dans le code (recherche par
+nom de fichier ET par symbole : `class/struct Nk*Fluid|SPH|Water|Ocean|HeightField|Wave` → seuls `NkSphere`
+et deux `*SphereParams` répondent) ; `Kernel/Runtime/NKSimulation` = README « SPÉCIFICATION, aucun code,
+pas dans `Nkentseu.jenga` » + `docs/ROADMAP.md` (D1 océan FFT, D3 gaz eulérien, **D4 fluides particulaires
+« SPH d'abord, puis FLIP/PIC »**, M1 « `NkVFXSystem` : séparer l'état du dessin ») ; `NkSimulationRenderer`
+= stub PV3DE (émotions, blend shapes), 131 l., pas de fluide ; « Water » = un **shader de surface** (vagues
+de Gerstner, réfraction/réflexion/écume) que seul `Sandbox/Base05/NkRendererDemo.cpp` appelle via
+`CreateWaterMaterial` — symbole **absent** de NKRenderer.
+
+**Rodolf** : *« si tu ne trouves pas, on crée. »* **Famille fixée (coordinateur, recommandation) : SPH sur
+le stockage des particules, CPU d'abord** ; hauteur d'eau (lac, mer — le plugin Water d'Unreal) nommée,
+pas maintenant.
+
+**Où vit l'état — mesuré** : les particules appartiennent à `NkVFXSystem` (NKRenderer), désormais derrière
+`NkIParticleStore` / `NkParticleStoreCPU` (SoA : `pos`, `vel`, `life`, `size`, `color`… — étape (a) du plan
+(B), ce soir). Le solveur va **du côté du propriétaire**, pas un troisième exemplaire :
+`Kernel/Runtime/NKRenderer/src/NKRenderer/Tools/VFX/NkSPHSolver.{h,cpp}`, une implémentation de
+`NkIParticleSolver` que le stockage CPU appelle à la place de sa gravité. ⚠️ Le README de NKSimulation dit
+que l'état ne devrait pas vivre dans le moteur de rendu (M1) : c'est exactement ce que l'interface prépare —
+le jour où NKSimulation naît, `NkParticleStore*` et `NkSPHSolver` y déménagent **sans changer le dessin**.
+
+**Un fluide = un émetteur** dont `desc.solver` pointe un `NkSPHSolver` : forme d'émission, débit, `Burst`,
+texture, mélange, dessin par quad instancié — tout est réutilisé. Le solveur ajoute à chaque particule
+une **densité** et une **pression** et fait s'exercer des forces entre voisines.
+
+**Noyau (WCSPH classique, Müller 2003 / Monaghan)** :
+- voisinage par **grille uniforme** de cellule `h` (rayon de lissage), reconstruite chaque pas : tri par
+  cellule (comptage + préfixe, O(N)), voisines = 27 cellules. **C'est la grille qui décide O(N) contre
+  O(N²)** — on a payé O(N²) ce matin sur la naissance ;
+- densité ρᵢ = Σⱼ m·W_poly6(rᵢⱼ, h) ; pression pᵢ = k·(ρᵢ − ρ₀) (équation d'état linéaire, raideur `k` ;
+  Tait γ=7 nommée pour plus tard) ;
+- forces : pression −Σⱼ m·(pᵢ+pⱼ)/(2ρⱼ)·∇W_spiky ; viscosité μ·Σⱼ m·(vⱼ−vᵢ)/ρⱼ·∇²W_visc ; gravité ; puis
+  **bornes** : boîte `bounds` avec restitution `e` (position ramenée sur la paroi, vitesse normale
+  inversée × e). Pas de STL, pas d'allocation par pas (tableaux réutilisés).
+- paramètres exposés (`NkSPHParams`) : `h` (0,1 m), `restDensity` ρ₀ (1000), `stiffness` k (200),
+  `viscosity` μ (0,1), `particleMass` m (dérivée de ρ₀·h³ par défaut), `gravity`, `bounds` min/max,
+  `restitution` (0,3), `maxSpeed` (borne de stabilité, dite si elle mord). Le pas de temps : celui de
+  l'émetteur, **sous-pas** jusqu'à `dt ≤ 0,4·h/maxSpeed` (CFL), nombre de sous-pas dit au profil.
+
+**Témoins chiffrés, AVANT l'image** (banc `NKRenderer_Tests` ou sonde `NK_SPH_PROBE`, sans fenêtre) :
+(a) **conservation** — 1 000 particules dans une boîte close, N vivantes constant et masse Σm constante à
+epsilon ; (b) **repos** — un bloc lâché dans une boîte atteint une hauteur stable et la densité moyenne
+revient à **ρ₀ ± 5 %** — *c'est le test qui dit qu'un SPH est un SPH et pas des billes* ; (c) **rupture de
+barrage** — front à t = 1 s comparé à x ≈ 2·√(g·h₀)·t (eau peu profonde), à 20 % ; (d) **stabilité** —
+10 s sans explosion (vitesse max bornée). **Mutation** : pression coupée → (b) rougit (la densité ne
+revient pas à ρ₀ : tout s'empile).
+
+**Puis l'image** : dam break capturé dans ma fenêtre (particules bleues, `NK_CAPTURE`),
+`Captures/noge_fluide_dam_break_2026-09-04.png`, Ilyana lue avant/après. **Coût** : courbe
+1 000 / 10 000 / 50 000 sur CPU, chiffre honnête (Debug, dit).
+
+**Ce qui recompile** : NKRenderer seul (nouveaux fichiers, `NkEmitterDesc::solver` déjà ajouté à l'étape
+(a)) ; les 10 includers de `NkVFXSystem.h` recompilent pour le champ, aucune signature publique ne change.
+**GPU** : viendra par la cible de simulation (plan (B)), pas maintenant.
+
 ### 🔩 04/09 (nuit) — JENGA 2.6 : ce qui est appliqué, ce qui est mesuré en retour
 
 - **`-static` — le défaut était chez nous** : `config/toolchain.jenga:55` (bloc Windows natif) promettait
