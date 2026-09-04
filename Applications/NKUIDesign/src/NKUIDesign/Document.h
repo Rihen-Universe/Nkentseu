@@ -669,6 +669,32 @@ namespace nkuidesign {
 		return signe * m;
 	}
 
+	/// DEUX LISTES DE REMPLISSAGES SONT-ELLES LA MEME CHOSE ? Couleur, opacite,
+	/// oeil, et le degrade entier (type, angle, arrets avec leur opacite). Sert
+	/// a la propagation vers les instances : comparer les TAILLES laissait
+	/// passer un changement de couleur, c'est-a-dire le cas courant.
+	inline bool NkMemesRemplissages(const NkVector<NkRemplissage> &a,
+									const NkVector<NkRemplissage> &b) {
+		if (a.Size() != b.Size())
+			return false;
+		for (uint32 i = 0; i < (uint32)a.Size(); ++i) {
+			const NkRemplissage &x = a[i], &y = b[i];
+			if (!NkComponentDecl::StrEq(x.couleur.Data(), y.couleur.Data())
+				|| x.opacite != y.opacite || x.visible != y.visible)
+				return false;
+			if (!NkComponentDecl::StrEq(x.degrade.type.Data(), y.degrade.type.Data())
+				|| x.degrade.angle != y.degrade.angle
+				|| x.degrade.arrets.Size() != y.degrade.arrets.Size())
+				return false;
+			for (uint32 k = 0; k < (uint32)x.degrade.arrets.Size(); ++k) {
+				const NkArretDegrade &p = x.degrade.arrets[k], &q = y.degrade.arrets[k];
+				if (p.position != q.position || p.opacite != q.opacite
+					|| !NkComponentDecl::StrEq(p.couleur.Data(), q.couleur.Data()))
+					return false;
+			}
+		}
+		return true;
+	}
 	struct NkUINode;
 	/// FEUILLE ou GROUPE : une planche (`frame`) est toujours un groupe ; un
 	/// genre declare fait un groupe (meme vide) ; sinon, des enfants font un
@@ -1906,7 +1932,11 @@ namespace nkuidesign {
 							n.fill = ref.fill;
 							bouge = true;
 						}
-						if (n.fills.Size() != ref.fills.Size()) {
+						// ⚠️ LE CONTENU, PAS LE NOMBRE. Comparer les tailles laissait
+						//    passer le cas le plus courant : changer la COULEUR du
+						//    composant sans changer le nombre de remplissages. Aucune
+						//    instance ne suivait (mesure : sonde 58b, « 0 touchee »).
+						if (!NkMemesRemplissages(n.fills, ref.fills)) {
 							n.fills = ref.fills;
 							bouge = true;
 						}

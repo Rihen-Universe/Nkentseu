@@ -4536,6 +4536,97 @@ namespace nkuidesign {
 				  "honorent tous l'arret intermediaire -- le calcul ne regarde jamais le type pour compter",
 				  tousPareils && milieuxVus == 5u && douzeOk, det);
 		}
+		// ── 58. DEUX BOUTONS, DEUX COULEURS, UN SEUL COMPOSANT ───────────────
+		{
+			NkUIDocument dI;
+			dI.NewDocument("Toile", NkAuthor::Humain);
+			const int32 pg = dI.AddChild(0, "", NkAuthor::Humain);
+			dI.nodes[(uint32)pg].shape = NkString("frame");
+			dI.nodes[(uint32)pg].layout.kind = NkLayoutKind::Free;
+			dI.nodes[(uint32)pg].width.mode = NkSizeMode::Fixed;
+			dI.nodes[(uint32)pg].width.value = 400.f;
+			dI.nodes[(uint32)pg].height.mode = NkSizeMode::Fixed;
+			dI.nodes[(uint32)pg].height.value = 300.f;
+			// un bouton, bleu, qu'on ERIGE en composant (jamais implicitement)
+			const int32 bt = dI.AddChild(pg, "", NkAuthor::Humain);
+			dI.nodes[(uint32)bt].shape = NkString("rect");
+			dI.nodes[(uint32)bt].label = NkString("Bouton");
+			dI.nodes[(uint32)bt].width.mode = NkSizeMode::Fixed;
+			dI.nodes[(uint32)bt].width.value = 120.f;
+			dI.nodes[(uint32)bt].height.mode = NkSizeMode::Fixed;
+			dI.nodes[(uint32)bt].height.value = 40.f;
+			{
+				NkRemplissage f;
+				f.couleur = NkString("#1976d2");
+				dI.nodes[(uint32)bt].fills.PushBack(f);
+			}
+			const int32 decl = dI.ExtraireComposant(bt, "", "bouton");
+			const uint32 nDeclApres = (uint32)dI.declarations.Size();
+			const int32 a1 = dI.InstancierComposant(decl, pg);
+			const int32 a2 = dI.InstancierComposant(decl, pg);
+			char det[300];
+			if (decl < 0 || !dI.IsValidIndex(a1) || !dI.IsValidIndex(a2)) {
+				check("58. deux instances d'un composant", false, "l'extraction ou l'instanciation a refuse");
+			} else {
+				// LE GESTE, exactement comme l'inspecteur le fait : on ecrit la
+				// couleur DANS L'INSTANCE et on marque la surcharge.
+				dI.nodes[(uint32)a1].MaterialiserFills();
+				if (!dI.nodes[(uint32)a1].fills.Empty())
+					dI.nodes[(uint32)a1].fills[0].couleur = NkString("#d21976");
+				dI.nodes[(uint32)a1].ecarts |= NkUINode::EcartRemplissages;
+				dI.MarkHumanEdit(a1);
+				const char *c1 = dI.nodes[(uint32)a1].fills.Empty() ? "" : dI.nodes[(uint32)a1].fills[0].couleur.Data();
+				const char *c2 = dI.nodes[(uint32)a2].fills.Empty() ? "" : dI.nodes[(uint32)a2].fills[0].couleur.Data();
+				const bool separees = NkComponentDecl::StrEq(c1, "#d21976") && NkComponentDecl::StrEq(c2, "#1976d2");
+				const bool memeComposant = NkComponentDecl::StrEq(dI.nodes[(uint32)a1].instanceDe.Data(),
+																   dI.nodes[(uint32)a2].instanceDe.Data());
+				const bool aucunNouveau = (uint32)dI.declarations.Size() == nDeclApres;
+				snprintf(det, sizeof(det), "instance 1 = %s, instance 2 = %s ; meme composant=%d ; %u declaration(s) "
+										   "avant et apres",
+						 c1, c2, memeComposant ? 1 : 0, (uint32)dI.declarations.Size());
+				check("58a. changer la couleur d'UNE instance ne touche pas l'autre, et NE CREE AUCUN composant : "
+					  "la couleur n'est qu'une propriete, et l'ecart vit sur l'instance",
+					  separees && memeComposant && aucunNouveau, det);
+				// 58b. la DECLARATION change : l'instance sans surcharge suit, celle qui
+				// a surcharge TIENT (c'est la moitie de Q51 qu'un banc peut prouver)
+				if (!dI.declarations[(uint32)decl].arbre.Empty()) {
+					NkUINode &ref = dI.declarations[(uint32)decl].arbre[0];
+					ref.MaterialiserFills();
+					if (!ref.fills.Empty())
+						ref.fills[0].couleur = NkString("#00aa00");
+					else {
+						NkRemplissage f;
+						f.couleur = NkString("#00aa00");
+						ref.fills.PushBack(f);
+					}
+				}
+				const int32 touchees = dI.PropagerVersInstances(decl);
+				const char *d1 = dI.nodes[(uint32)a1].fills.Empty() ? "" : dI.nodes[(uint32)a1].fills[0].couleur.Data();
+				const char *d2 = dI.nodes[(uint32)a2].fills.Empty() ? "" : dI.nodes[(uint32)a2].fills[0].couleur.Data();
+				const bool surchargeTient = NkComponentDecl::StrEq(d1, "#d21976");
+				const bool libreSuit = NkComponentDecl::StrEq(d2, "#00aa00");
+				snprintf(det, sizeof(det), "%d instance(s) touchee(s) ; surchargee = %s (tient), libre = %s "
+										   "(suit la declaration #00aa00)",
+						 touchees, d1, d2);
+				check("58b. la DECLARATION change : l'instance qui a surcharge sa couleur la GARDE, et celle "
+					  "qui n'a rien surcharge SUIT -- la propagation compare le CONTENU, pas le nombre",
+					  surchargeTient && libreSuit && touchees >= 1, det);
+				// 58c. l'aller-retour : la surcharge est un fait du document, pas de la session
+				NkString s;
+				dI.Save(s);
+				NkUIDocument relu;
+				const bool chargee = relu.Load(s.Data());
+				const bool ecartRelu = chargee && relu.IsValidIndex(a1)
+									   && relu.nodes[(uint32)a1].Surcharge(NkUINode::EcartRemplissages)
+									   && !relu.nodes[(uint32)a2].Surcharge(NkUINode::EcartRemplissages);
+				snprintf(det, sizeof(det), "aller-retour : ecart relu sur l'instance 1=%d, absent sur la 2=%d",
+						 (chargee && relu.IsValidIndex(a1) && relu.nodes[(uint32)a1].Surcharge(NkUINode::EcartRemplissages)) ? 1 : 0,
+						 (chargee && relu.IsValidIndex(a2) && !relu.nodes[(uint32)a2].Surcharge(NkUINode::EcartRemplissages)) ? 1 : 0);
+				check("58c. la SURCHARGE survit a l'aller-retour (`ecarts` au fichier) : c'est un fait du "
+					  "document, pas de la session",
+					  ecartRelu, det);
+			}
+		}
 		snprintf(tail, sizeof(tail), "\n=== RESULTAT : %d / %d ===\n", pass, total);
 		rep.Append(tail);
 
