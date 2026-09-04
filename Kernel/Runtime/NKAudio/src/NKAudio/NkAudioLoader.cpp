@@ -1,3 +1,4 @@
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // -----------------------------------------------------------------------------
 // FICHIER: NKAudio/src/NKAudio/NkAudioLoader.cpp
 // DESCRIPTION: Implémentation du chargeur audio (WAV natif, stubs MP3/OGG/FLAC)
@@ -142,7 +143,10 @@ namespace nkentseu {
 		// ──────────────────────────────────────────────────────────────────────
 
 		AudioFormat AudioLoader::DetectFormat(const uint8 *data, usize size) {
-			if (!data || size < 4)
+			// La garde disait `size < 4` alors que la branche ID3 accepte 3 octets et la branche
+			// sync MP3 en accepte 2 : le test « MP3 ID3 » (3 octets) rendait UNKNOWN. La garde
+			// suit desormais la plus courte des branches (2026-09-04).
+			if (!data || size < 2)
 				return AudioFormat::UNKNOWN;
 
 			// WAV : RIFF header
