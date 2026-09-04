@@ -146,10 +146,26 @@ def _jenga_depuis_wheel():
                 if n.startswith("Jenga/") and not n.endswith("/"):
                     z.extract(n, stage)
         if os.path.isdir(os.path.join(cible, "Core")):
-            return stage, os.path.basename(whls[0])
-    return "", ""
+            # ⚠️ FRAICHEUR, PAS SEULEMENT NUMERO. Le 2026-09-04 : wheel 2.4.0 du
+            # 2 sept. 15h45, deux commits Jenga le meme soir a 23h33 et 23h37,
+            # numero inchange. La comparaison de versions ci-dessous ne pouvait
+            # RIEN voir : elle compare des nombres, et les nombres etaient
+            # egaux. NKCode embarquait donc un Jenga sans le correctif
+            # « plus de .vscode pour qui ne code pas sur VSCode » -- en silence,
+            # exactement ce que ce fichier pretendait avoir rendu impossible.
+            # On compte les sources de Jenga/ plus recentes que le wheel.
+            _t_whl = os.path.getmtime(whls[0])
+            _perimes = 0
+            for _d, _, _fs in os.walk(os.path.join(r, "Jenga")):
+                if "__pycache__" in _d:
+                    continue
+                for _f in _fs:
+                    if _f.endswith(".py") and os.path.getmtime(os.path.join(_d, _f)) > _t_whl:
+                        _perimes += 1
+            return stage, os.path.basename(whls[0]), _perimes
+    return "", "", 0
 
-_JENGA_STAGE, _JENGA_WHL = _jenga_depuis_wheel()
+_JENGA_STAGE, _JENGA_WHL, _JENGA_PERIMES = _jenga_depuis_wheel()
 _HAS_JENGA_SRC = bool(_JENGA_STAGE)
 if _HAS_JENGA_SRC:
     print("[NKCode] Jenga embarque depuis le wheel : " + _JENGA_WHL)
@@ -165,10 +181,29 @@ if _HAS_JENGA_SRC:
               + " alors que le jenga du systeme est en " + _fmt(_V_SYS) + ".")
         print("[NKCode]   NKCode construira donc AUTREMENT que votre terminal.")
         print("[NKCode]   Remede : ./cri.sh dans le depot Jenga, puis reconstruire NKCode.")
+    elif not _V_SYS:
+        # Ne pas savoir est une reponse : on la DIT, sinon l'absence de `jenga`
+        # dans le PATH du processus de construction rend la garde muette, et
+        # muette ressemble a « tout va bien ».
+        print("[NKCode] NOTE : `jenga --version` injoignable depuis ce processus ; "
+              "la comparaison wheel/systeme n'a pas pu etre faite.")
+    # ⚠️ MEME NUMERO, CODE DIFFERENT : le cas que la comparaison ci-dessus ne
+    # voit pas. Un seul fichier source plus recent que le wheel suffit.
+    if _JENGA_PERIMES:
+        print("[NKCode] ATTENTION : le wheel " + _JENGA_WHL + " est PERIME -- "
+              + str(_JENGA_PERIMES) + " fichier(s) de Jenga/ sont plus recents que lui, "
+              "a numero de version egal.")
+        print("[NKCode]   NKCode embarquerait un Jenga sans ces changements.")
+        print("[NKCode]   Remede : ./cri.sh dans le depot Jenga, puis reconstruire NKCode.")
 else:
     print("[NKCode] ATTENTION : aucun wheel Jenga trouve (dist/*.whl) -> le paquet "
           "n'aura PAS de Jenga embarque, et les boutons Construire/Executer seront "
           "inoperants. Produisez-le avec ./cri.sh dans le depot Jenga.")
+
+# Chaine MinGW/ucrt64 ? (meme test que NKIlyana, Model, NkAnimPhysTest...)
+# Reproduit de `main` (commit ad0779cb) pour la beta.7 : cette branche ne
+# l'avait pas, et l'exe repartait avec libstdc++-6.dll en import direct.
+_IS_MINGW = "mingw" in TC_WINDOWS.lower()
 
 _VULKAN_SDK     = _norm(os.getenv("VULKAN_SDK", ""))
 _VULKAN_INCLUDE = _norm(os.path.join(_VULKAN_SDK, "Include")) if _VULKAN_SDK else ""
@@ -278,6 +313,36 @@ with project("NKCode"):
         if _WANT_VULKAN:
             _WIN_LINKS.append("vulkan-1")
         links(_WIN_LINKS)
+
+        # ── Runtime MinGW EN STATIQUE — corrige l'issue beta #15 ──────────────
+        # Sans cela, NKCode.exe importe libstdc++-6.dll, libgcc_s_seh-1.dll et
+        # (une fois les deux premieres figees) libwinpthread-1.dll, que le
+        # chargeur resout PAR LE PATH — donc chez l'UTILISATEUR. Un testeur a
+        # ainsi recu « NKCode.exe - Point d'entree introuvable : clock_gettime64
+        # est introuvable dans C:\msys64\ucrt64\bin\libstdc++-6.dll » : son
+        # msys64, installe pour la toolchain, portait une autre version.
+        # Symptome visible a l'ouverture d'une NOUVELLE FENETRE, car le
+        # processus fils herite du PATH de l'IDE — d'ou un bug « qui varie selon
+        # la machine ». MakeNkCodeDist.py ne livrait aucune de ces trois DLL.
+        #
+        # `-static` et pas seulement `-static-libstdc++ -static-libgcc` : ces
+        # deux drapeaux laissent libwinpthread-1.dll en import DIRECT (elle
+        # etait masquee derriere libstdc++), et le pilote clang ajoute son
+        # `-lwinpthread` APRES nos ldflags — un `-Wl,-Bstatic ... -Bdynamic`
+        # encadrant ne l'attrape donc pas (essaye, sans effet).
+        # NKIlyana.jenga deconseille `-static` seul (« casse la selection lld »)
+        # : VERIFIE sur main le 2026-08-28, ce n'est pas le cas pour NKCode —
+        # build 23/23, table d'imports sans aucune DLL MinGW, et l'IDE demarre.
+        # Si un jour le lien casse, le repli est NKIlyana : les deux drapeaux
+        # `-static-libstdc++ -static-libgcc` PLUS la livraison de
+        # libwinpthread-1.dll a cote de l'exe.
+        #
+        # Reproduit de `main` (ad0779cb) le 2026-09-04 : la beta.7 etait
+        # repartie AVEC les deux DLL en import, faute d'avoir ce commit sur cette
+        # branche. Verifie ici par objdump apres rebuild. A la fusion avec main,
+        # garder la version de main : c'est la meme.
+        if _IS_MINGW:
+            ldflags(["-static"])
 
     # ===== Linux XLib (defaut) ===================================================
     with filter("system:Linux && options:linux-backend=xlib || system:Linux && !options:linux-backend && !options:headless"):
