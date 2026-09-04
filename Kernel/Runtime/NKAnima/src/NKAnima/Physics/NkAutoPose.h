@@ -8,7 +8,7 @@
 // reste en équilibre. Pondération réglable (curseur intention artistique ↔ physique).
 // Pure Foundation (NKMath + NKContainers) : AUCUN GPU, testable headless.
 //
-// AUTEUR : Rihen — LICENCE : usage régi par le fichier LICENSE à la racine du dépôt
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen — LICENCE : usage régi par le fichier LICENSE à la racine du dépôt
 // =============================================================================
 #pragma once
 

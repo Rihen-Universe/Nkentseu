@@ -17,7 +17,7 @@
 // (`NKPhysics/NkRagdoll.h` : Build / ReadPose / SetActive / SetPoseTargets).
 // Si un jour ce fichier doit parler à la physique, il passe PAR LUI.
 //
-// AUTEUR : Rihen — LICENCE : usage régi par le fichier LICENSE à la racine du dépôt
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen — LICENCE : usage régi par le fichier LICENSE à la racine du dépôt
 // =============================================================================
 #pragma once
 

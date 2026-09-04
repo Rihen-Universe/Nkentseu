@@ -15,7 +15,7 @@
 // (démo/éditeur) via NkRender3D::DrawDebug* — le module reste pur et réutilisable
 // jeu (Noge) + app (NkAnima).
 //
-// AUTEUR : Rihen — LICENCE : usage régi par le fichier LICENSE à la racine du dépôt
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen — LICENCE : usage régi par le fichier LICENSE à la racine du dépôt
 // =============================================================================
 #pragma once
 

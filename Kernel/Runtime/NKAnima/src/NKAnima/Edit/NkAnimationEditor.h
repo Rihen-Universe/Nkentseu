@@ -1,3 +1,4 @@
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // Edit/ — le MODELE d'edition (poses-cles, curseur, selection, undo) ; aucune interface ici, elle vit dans NkAnimaEditor.
 // =============================================================================
 // NkAnimationEditor.h — NkAnima M1.c : logique d'édition de timeline (SANS UI)

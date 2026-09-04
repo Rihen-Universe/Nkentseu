@@ -17,7 +17,7 @@
 // dégénéré : pour un vrai équilibre latéral, fournir les COINS de chaque appui
 // (≥3 points formant une aire). Le module gère 0/1/2/≥3 points proprement.
 //
-// AUTEUR : Rihen — LICENCE : usage régi par le fichier LICENSE à la racine du dépôt
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen — LICENCE : usage régi par le fichier LICENSE à la racine du dépôt
 // =============================================================================
 #pragma once
 

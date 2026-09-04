@@ -1,3 +1,4 @@
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // =============================================================================
 // NKAnimPhysics/NkPoseBalancer.cpp  —  M3.4 : optimiseur de pose.
 // =============================================================================

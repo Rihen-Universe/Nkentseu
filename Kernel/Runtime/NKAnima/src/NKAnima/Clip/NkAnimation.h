@@ -30,7 +30,7 @@
 //   NkBlendTree1D/2D  — melange de clips, bone-local, AVANT la FK
 //   NkAnimStateMachine— HFSM : etats, transitions, crossfade
 //
-// AUTEUR : Rihen — LICENCE : usage regi par le fichier LICENSE a la racine du depot
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen — LICENCE : usage regi par le fichier LICENSE a la racine du depot
 // =============================================================================
 
 #ifndef __NKENTSEU_NKANIMATION_NKANIMATION_H__

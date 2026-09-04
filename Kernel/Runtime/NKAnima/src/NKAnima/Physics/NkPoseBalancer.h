@@ -13,7 +13,7 @@
 // hiérarchie du squelette, respect des limites d'angle articulaires (NkIKSystem),
 // lissage multi-frame. Pure Foundation : AUCUN GPU, testable headless.
 //
-// AUTEUR : Rihen — LICENCE : usage régi par le fichier LICENSE à la racine du dépôt
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen — LICENCE : usage régi par le fichier LICENSE à la racine du dépôt
 // =============================================================================
 #pragma once
 

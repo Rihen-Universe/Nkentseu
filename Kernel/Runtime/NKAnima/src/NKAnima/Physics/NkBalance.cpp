@@ -1,6 +1,6 @@
 // =============================================================================
 // NKAnimPhysics/NkBalance.cpp — implémentation (voir NkBalance.h)
-// AUTEUR : Rihen — LICENCE : usage régi par le fichier LICENSE à la racine du dépôt
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen — LICENCE : usage régi par le fichier LICENSE à la racine du dépôt
 // =============================================================================
 #include "NKAnima/Physics/NkBalance.h"
 
