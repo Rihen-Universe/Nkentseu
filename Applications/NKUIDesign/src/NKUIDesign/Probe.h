@@ -5703,6 +5703,183 @@ namespace nkuidesign {
 							  dansFenetre && defile && pyMax2 <= 420.5f, det);
 					}
 				}
+				// 60p. LE DEGRADE SURVIT A LA GEOMETRIE (Rodolf : « des que je modifie la geometrie, le
+				// degrade disparait ») : son noeud a cle simple, le degrade pose PAR LE POPOVER (la
+				// vignette Lineaire), puis deplacer sur la toile, tirer une poignee de forme,
+				// changer la largeur. Apres chaque geste : la liste d'arrets est dans le document,
+				// le dessin enregistre est encore un degrade, et le fichier le garde.
+				{
+					struct PeintrePolyP : public NkRecordingPaint {
+							uint32 nPoly = 0u;
+							bool PolygonHex(const float32 *, int32, uint32) override {
+								++nPoly;
+								return true;
+							}
+					};
+					int32 rs3 = -1;
+					for (uint32 i = 0; i < (uint32)stI.doc.nodes.Size(); ++i)
+						if (NkComponentDecl::StrEq(stI.doc.nodes[i].label.Data(), "Bouton_Connexion"))
+							rs3 = (int32)i;
+					bool poseParPopover = false, apresDeplacer = false, apresPoignee = false, apresLargeur = false, fichier = false;
+					uint32 polyAvant = 0u, polyApres = 0u;
+					char etape[160] = "";
+					if (rs3 >= 0) {
+						NkUINode &n3 = stI.doc.nodes[(uint32)rs3];
+						n3.posX = 40.f; // a l'ecart des autres noeuds des sondes
+						n3.posY = 120.f;
+						stI.Recompute(NkPaintRect{0.f, 0.f, 600.f, 900.f});
+						stI.SelectSingle(rs3);
+						static PreviewPanel toile3(&stI);
+						auto scene3 = [&](float32 mx, float32 my, bool bas) {
+							ctxI.input.mousePos = {mx, my};
+							ctxI.input.mouseDown[0] = bas;
+							ctxI.BeginFrame(0.016f);
+							ctxI.BeginLayout({0.f, 0.f, 340.f, 900.f});
+							toile3.OnUI(ec);
+							ctxI.BeginLayout({340.f, 0.f, 260.f, 900.f});
+							insp.OnUI(ec);
+							NkDessinerPickerDemande(ctxI, stI);
+							ctxI.EndFrame();
+						};
+						auto tirer3 = [&](float32 x0, float32 y0, float32 x1, float32 y1) {
+							scene3(x0, y0, false);
+							scene3(x0, y0, true);
+							scene3((x0 + x1) * 0.5f, (y0 + y1) * 0.5f, true);
+							scene3(x1, y1, true);
+							scene3(x1, y1, false);
+							scene3(-1.f, -1.f, false);
+						};
+						auto degradeVivant = [&]() {
+							const NkUINode &q = stI.doc.nodes[(uint32)rs3];
+							return !q.fills.Empty() && q.fills[0].degrade.Actif();
+						};
+						auto polygones = [&]() {
+							PeintrePolyP rec;
+							RenderDocument(rec, stI.doc, NkPaintRect{0.f, 0.f, 600.f, 900.f});
+							return rec.nPoly;
+						};
+						// LE VRAI PEINTRE DE LA TOILE (NkDesignPaint -> triangles dans ctxI.dl) : combien de
+						// sommets de couleurs de bande (ni blanc, ni accent, ni la couleur unie) dans la boite
+						// mesure JUSTE sous une transformee (le noeud n'est plus dans sa boite de
+						// disposition) : les sommets de la toile AVEC le degrade moins ceux SANS
+						// (arrets retires le temps d'une image) = ce que les bandes ajoutent
+						auto sommetsToile = [&]() -> uint32 {
+							scene3(-1.f, -1.f, false);
+							const uint32 avec = (uint32)ctxI.dl.vtx.Size();
+							NkVector<NkArretDegrade> garde = n3.fills[0].degrade.arrets;
+							n3.fills[0].degrade.arrets.Clear();
+							scene3(-1.f, -1.f, false);
+							const uint32 sans = (uint32)ctxI.dl.vtx.Size();
+							n3.fills[0].degrade.arrets = garde;
+							scene3(-1.f, -1.f, false);
+							return avec > sans ? avec - sans : 0u;
+						};
+						// 1. le degrade pose par le popover : la vignette « Lineaire » (2e vignette)
+						stI.picker = DesignState::DemandePicker();
+						stI.picker.ouvert = true;
+						stI.picker.id = ctxI.GetId("##sonde.popover.geometrie");
+						stI.picker.genre = 1u;
+						stI.picker.noeud = rs3;
+						stI.picker.index = 0;
+						stI.picker.ancre = {590.f, 20.f, 16.f, 16.f};
+						n3.MaterialiserFills();
+						scene3(-1.f, -1.f, false);
+						scene3(-1.f, -1.f, false);
+						float32 px = 1e9f, py = 1e9f;
+						for (uint32 i = 0; i < (uint32)ctxI.dlOverlay.vtx.Size(); ++i) {
+							if (ctxI.dlOverlay.vtx[i].pos.x < px) px = ctxI.dlOverlay.vtx[i].pos.x;
+							if (ctxI.dlOverlay.vtx[i].pos.y < py) py = ctxI.dlOverlay.vtx[i].pos.y;
+						}
+						const float32 vx = px + 0.5f + 8.f + 24.f + 12.f, vy = py + 0.5f + 8.f + 11.f; // la 2e vignette (24 px + 4)
+						scene3(vx, vy, false);
+						scene3(vx, vy, true);
+						scene3(vx, vy, false);
+						scene3(-1.f, -1.f, false);
+						poseParPopover = degradeVivant();
+						polyAvant = polygones();
+						scene3(-1.f, -1.f, false);
+						const uint32 toileAvant = sommetsToile();
+						snprintf(etape, sizeof(etape), "pose par la vignette=%d (arrets=%u, polygones=%u)", poseParPopover ? 1 : 0,
+								 (uint32)(n3.fills.Empty() ? 0u : n3.fills[0].degrade.arrets.Size()), polyAvant);
+						stI.picker = DesignState::DemandePicker();
+						scene3(-1.f, -1.f, false);
+						// 2. deplacer le corps sur la toile
+						NkLayoutResult scr;
+						stI.ProjectToScreen(scr);
+						NkPaintRect r3 = scr.At(rs3);
+						tirer3(r3.x + r3.w * 0.5f, r3.y + r3.h * 0.5f - 6.f, r3.x + r3.w * 0.5f + 25.f, r3.y + r3.h * 0.5f + 9.f);
+						apresDeplacer = degradeVivant();
+						// 3. tirer la poignee de forme du bord droit
+						stI.ProjectToScreen(scr);
+						r3 = scr.At(rs3);
+						tirer3(r3.x + r3.w - 1.f, r3.y + r3.h * 0.5f, r3.x + r3.w + 30.f, r3.y + r3.h * 0.5f);
+						apresPoignee = degradeVivant();
+						// 4. la largeur par le modele (ce que le champ W ecrit)
+						n3.width.value += 10.f;
+						stI.doc.MarkHumanEdit(rs3);
+						stI.Recompute(NkPaintRect{0.f, 0.f, 600.f, 900.f});
+						scene3(-1.f, -1.f, false);
+						apresLargeur = degradeVivant();
+						polyApres = polygones();
+						scene3(-1.f, -1.f, false);
+						const uint32 toileApres = sommetsToile();
+						{
+							const size_t l = strlen(etape);
+							snprintf(etape + l, sizeof(etape) - l, " ; TOILE (vrai peintre) : sommets de bandes %u -> %u", toileAvant, toileApres);
+						}
+						apresLargeur = apresLargeur && toileAvant >= 100u && toileApres >= 100u;
+						// 4b. les autres chemins de l'application : rotation, arrondi, l'observateur
+						//     d'historique puis un rechargement depuis son instantane (Annuler), la
+						//     propagation vers les instances, la resynchronisation de l'hote
+						n3.rotation = 30.f;
+						n3.radius = 12.f;
+						n3.echelleX = 1.3f; // la matrice effective devient non identite : le vrai peintre transforme
+						n3.echelleY = 0.8f;
+						stI.doc.MarkHumanEdit(rs3);
+						stI.Recompute(NkPaintRect{0.f, 0.f, 600.f, 900.f});
+						stI.host.SyncTo(stI.doc);
+						scene3(-1.f, -1.f, false);
+						const uint32 toileTransforme = sommetsToile();
+						const bool apresRotation = degradeVivant() && polygones() >= 24u && toileTransforme >= 100u;
+						{
+							const size_t l = strlen(etape);
+							snprintf(etape + l, sizeof(etape) - l, " ; sous rotation+echelle, toile : %u sommets", toileTransforme);
+						}
+						n3.echelleX = n3.echelleY = 1.f;
+						{
+							NkString ser;
+							for (int32 k = 0; k < 10; ++k) {
+								ser = NkString();
+								stI.doc.Save(ser);
+								stI.histoire.Observer(ser);
+							}
+							stI.RechargerDepuis(ser);
+						}
+						const bool apresRecharge = degradeVivant();
+						stI.doc.PropagerVersInstances(-1);
+						const bool apresPropagation = degradeVivant();
+						{
+							const size_t l = strlen(etape);
+							snprintf(etape + l, sizeof(etape) - l, " ; rotation+arrondi=%d, recharge (annuler)=%d, propagation=%d",
+									 apresRotation ? 1 : 0, apresRecharge ? 1 : 0, apresPropagation ? 1 : 0);
+						}
+						apresLargeur = apresLargeur && apresRotation && apresRecharge && apresPropagation;
+						// 5. le fichier
+						NkString s;
+						stI.doc.Save(s);
+						NkUIDocument relu;
+						fichier = relu.Load(s.Data()) && relu.IsValidIndex(rs3) && !relu.nodes[(uint32)rs3].fills.Empty()
+								  && relu.nodes[(uint32)rs3].fills[0].degrade.Actif();
+						if (!n3.fills.Empty())
+							n3.fills[0].degrade.arrets.Clear();
+					}
+					stI.SelectSingle(rc);
+					snprintf(det, sizeof(det), "%s ; apres deplacer=%d, apres poignee=%d, apres largeur=%d (polygones %u -> %u) ; fichier=%d",
+							 etape, apresDeplacer ? 1 : 0, apresPoignee ? 1 : 0, apresLargeur ? 1 : 0, polyAvant, polyApres, fichier ? 1 : 0);
+					check("60p. LE DEGRADE SURVIT A LA GEOMETRIE : pose par le popover sur un noeud a cle simple, il reste apres un "
+						  "deplacement, une poignee de forme, un changement de largeur -- dans le document, au dessin, au fichier",
+						  poseParPopover && apresDeplacer && apresPoignee && apresLargeur && polyApres >= 24u && fichier, det);
+				}
 				stI.picker = DesignState::DemandePicker();
 			}
 		}
