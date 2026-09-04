@@ -5276,7 +5276,10 @@ namespace nkuidesign {
 						const float32 l = nkentseu::math::NkSqrt(dx * dx + dy * dy);
 						dx /= l > 0.001f ? l : 1.f;
 						dy /= l > 0.001f ? l : 1.f;
-						const float32 ax0 = ex - dy * 13.f, ay0 = ey + dx * 13.f; // dans l'anneau, hors du disque
+						// dans l'anneau, hors du disque, AU-DELA de l'extremite (le long de l'axe) : loin des
+						// poignees de forme -- a petit zoom, un point perpendiculaire tomberait sur un coin,
+						// et la zone la plus proche du pointeur gagnerait, comme il se doit
+						const float32 ax0 = ex + dx * 13.f, ay0 = ey + dy * 13.f;
 						scene(ax0, ay0, false);
 						const int32 curseurAnneau = stI.curseurDegrade;
 						const float32 pos0 = gd.arrets[0].position, pos1 = gd.arrets[1].position, pos2 = gd.arrets[2].position;
@@ -5293,7 +5296,7 @@ namespace nkuidesign {
 						dy /= l2 > 0.001f ? l2 : 1.f;
 						float32 s3 = 0.f, c3 = 1.f;
 						NkSinCosDeg(3.f, s3, c3); // la direction de l'angle 3 : (-sin 3, cos 3)
-						tirer(ex - dy * 13.f, ey + dx * 13.f, pvx - s3 * 60.f, pvy + c3 * 60.f);
+						tirer(ex + dx * 13.f, ey + dy * 13.f, pvx - s3 * 60.f, pvy + c3 * 60.f);
 						const float32 angleAimante = gd.angle;
 						const bool ok = posMilieu > 0.7f && posMilieu < 0.9f && angleApresGlisse == 0.f && curseurDisque == 1
 										&& curseurAnneau == 2 && angleApresTour > 80.f && angleApresTour < 100.f && positionsIntactes
@@ -5799,6 +5802,92 @@ namespace nkuidesign {
 						  "part au fichier et en revient, le pied dit qu'il est peint (exact) ; « Overlay » s'ecrit et le pied dit "
 						  "« pas encore peint » ; « Normal » l'efface, rien au fichier",
 						  choisi && ditPeint && ecrit && relus && overlay && dit && efface && rienNormal, det);
+				}
+				// 60s. LA ROTATION DU NOEUD SURVIT AUX POIGNEES DE DEGRADE (Rodolf, 04/09 soir : « le
+				// systeme de rotation ne fonctionne plus ») : sans degrade, puis avec un lineaire a 45
+				// degres (ses extremites tombent aux coins, la ou vivent les arcs de rotation),
+				// popover ferme -- tirer l'arc du coin haut-droit autour du centre tourne le noeud.
+				// La regle : quand deux zones se chevauchent, LA PLUS PROCHE DU POINTEUR gagne.
+				{
+					static PreviewPanel toileR(&stI);
+					auto sceneR = [&](float32 mx, float32 my, bool bas) {
+						ctxI.input.mousePos = {mx, my};
+						ctxI.input.mouseDown[0] = bas;
+						ctxI.BeginFrame(0.016f);
+						ctxI.BeginLayout({0.f, 0.f, 340.f, 900.f});
+						toileR.OnUI(ec);
+						ctxI.BeginLayout({340.f, 0.f, 260.f, 900.f});
+						insp.OnUI(ec);
+						NkDessinerPickerDemande(ctxI, stI);
+						ctxI.EndFrame();
+					};
+					NkUINode &nd = stI.doc.nodes[(uint32)rc];
+					NkDegrade &gd = nd.fills[1].degrade;
+					const NkVector<NkArretDegrade> arretsGarde = gd.arrets;
+					float32 rotApres[2] = {0.f, 0.f};
+					bool fixe[2] = {false, false};
+					for (uint32 cas = 0; cas < 2u; ++cas) {
+						if (cas == 0u)
+							gd.arrets.Clear(); // sans degrade
+						else {
+							gd.arrets = arretsGarde; // avec : lineaire a 45 degres, popover ferme
+							gd.type = NkString("lineaire");
+							gd.angle = 45.f;
+						}
+						nd.rotation = 0.f;
+						stI.picker = DesignState::DemandePicker();
+						stI.SelectSingle(rc);
+						if (cas == 0u) {
+							ctxI.popupDepth = 0; // popover ferme, pile de popups videe
+						} else {
+							// popover OUVERT sur le degrade, comme Rodolf travaille
+							stI.picker.ouvert = true;
+							stI.picker.id = ctxI.GetId("##sonde.popover.rotation");
+							stI.picker.genre = 1u;
+							stI.picker.noeud = rc;
+							stI.picker.index = 1;
+							stI.picker.ancre = {590.f, 20.f, 16.f, 16.f};
+						}
+						// deux appuis au meme point a moins de 0,4 s = un DOUBLE-CLIC pour le kit (le
+						// cas 0 vient d'appuyer la) : on laisse passer le delai, comme une main
+						for (int32 k = 0; k < 32; ++k)
+							sceneR(-1.f, -1.f, false);
+						const int32 prof = ctxI.popupDepth;
+						NkLayoutResult scr;
+						stI.ProjectToScreen(scr);
+						const NkPaintRect rs = scr.At(rc);
+						const NkPaintRect arc = NkPoigneeRotation(rs, 1u, NkTaillePoigneeRotation()); // haut-droit
+						const float32 ax = arc.x + arc.w * 0.5f, ay = arc.y + arc.h * 0.5f;
+						const float32 cx = rs.x + rs.w * 0.5f, cy = rs.y + rs.h * 0.5f;
+						const float32 posX0 = nd.posX, posY0 = nd.posY;
+						// tirer l'arc d'un quart de tour horaire autour du centre
+						stI.diagClic[0] = '\0';
+						const int32 selAv = stI.selected;
+						sceneR(ax, ay, false);
+						const int32 sel0 = stI.selected;
+						sceneR(ax, ay, true);
+						const int32 sel1 = stI.selected;
+						printf("DIAG60s cas%u : prof=%d selection avant=%d survol=%d appui=%d (rc=%d) rs(%.0f,%.0f,%.0f,%.0f) arc(%.0f,%.0f) clic=%s\n", cas, prof, selAv, sel0, sel1, rc,
+							   (double)rs.x, (double)rs.y, (double)rs.w, (double)rs.h, (double)ax, (double)ay, stI.diagClic);
+						sceneR(cx + (ay - cy) * -1.f, cy + (ax - cx), true);
+						const int32 sel2 = stI.selected;
+						sceneR(cx - (ay - cy), cy + (ax - cx), true);
+						sceneR(cx - (ay - cy), cy + (ax - cx), false);
+						sceneR(-1.f, -1.f, false);
+						printf("DIAG60s cas%u : selection pendant=%d fin=%d rotation rc=%.0f clic=%s\n", cas, sel2, stI.selected, (double)nd.rotation, stI.diagClic);
+						rotApres[cas] = nd.rotation;
+						fixe[cas] = nd.posX == posX0 && nd.posY == posY0 && (cas == 0u ? prof == 0 : prof >= 1);
+						nd.rotation = 0.f;
+					}
+					gd.arrets = arretsGarde;
+					gd.angle = 0.f;
+					stI.Recompute(NkPaintRect{0.f, 0.f, 600.f, 900.f});
+					sceneR(-1.f, -1.f, false);
+					snprintf(det, sizeof(det), "sans degrade, popover ferme : rotation 0 -> %.0f (noeud fixe=%d) ; avec lineaire a 45, popover OUVERT : rotation 0 -> %.0f (noeud fixe, popup present=%d)",
+							 (double)rotApres[0], fixe[0] ? 1 : 0, (double)rotApres[1], fixe[1] ? 1 : 0);
+					check("60s. LA ROTATION DU NOEUD tient avec et sans degrade : l'arc du coin tourne le noeud d'un quart de tour, "
+						  "meme quand une extremite de degrade tombe au coin -- la zone la plus proche du pointeur gagne",
+						  rotApres[0] > 60.f && rotApres[0] < 120.f && rotApres[1] > 60.f && rotApres[1] < 120.f && fixe[0] && fixe[1], det);
 				}
 				stI.picker = DesignState::DemandePicker();
 			}

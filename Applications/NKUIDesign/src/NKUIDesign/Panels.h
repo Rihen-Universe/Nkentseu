@@ -3639,7 +3639,14 @@ namespace nkuidesign {
 						NkMatPoint(NkMatInverse(NkMatEffective(mSt->doc, screen, mSt->selected)), mxD, myD);
 						const int32 genreD = renderdetail::NkGenreDegrade(g);
 						int32 zone = 0;
-						const int32 qui = renderdetail::NkPointageDegrade(genreD, rsD, g, mxD, myD, zone);
+						float32 dGrad2 = 1e30f;
+						// ① LES ANNEAUX n'existent que popover ouvert sur ce remplissage (regle ⑥) ;
+						//    et une poignee de forme ou un arc de rotation PLUS PROCHE du pointeur
+						//    fait ceder la poignee de degrade (Rodolf : « le systeme de rotation ne
+						//    fonctionne plus ») -- la meme decision qu'au survol.
+						int32 qui = renderdetail::NkPointageDegrade(genreD, rsD, g, mxD, myD, zone, PopoverSurRemplissage(fi), &dGrad2);
+						if (qui != -1 && PoigneeDeFormePlusProche(selDeg, rsD, mxD, myD, dGrad2))
+							qui = -1;
 						if (qui >= 0 || qui <= -3) {
 							mDegDrag = qui;
 							mDegFill = fi;
@@ -3675,7 +3682,10 @@ namespace nkuidesign {
 						}
 					}
 				}
-				if (!modeGraphe && !mMenuCtx.open && in.mousePressed && ctx.popupDepth == 0
+				// ① MEME GARDE QUE LES DEGRADES (regle ⑥) : le popover de remplissage est ouvert
+				//    pendant qu'on travaille ; `popupDepth == 0` interdisait toute rotation tant
+				//    qu'il l'etait (Rodolf : « le systeme de rotation ne fonctionne plus »).
+				if (!modeGraphe && !mMenuCtx.open && in.mousePressed && !NkSourisSurPopup(ctx)
 					&& mSt->doc.IsValidIndex(mSt->selected) && mSt->selected != 0
 					&& screen.Has(mSt->selected)) {
 					const NkUINode &selRot = mSt->doc.nodes[(uint32)mSt->selected];
@@ -3725,7 +3735,7 @@ namespace nkuidesign {
 				// ⚠️ APRES la rotation, qui a priorite : ses quatre boites sont EN
 				//    DEHORS des coins, celles-ci les recouvrent en partie. Si la
 				//    rotation a deja reclame, on ne reclame pas par-dessus.
-				if (!modeGraphe && !mMenuCtx.open && in.mousePressed && ctx.popupDepth == 0
+				if (!modeGraphe && !mMenuCtx.open && in.mousePressed && !NkSourisSurPopup(ctx)
 					&& mRotDrag < 0 && mSt->doc.IsValidIndex(mSt->selected) && mSt->selected != 0
 					&& screen.Has(mSt->selected) && !mSt->modeForme.Actif()) {
 					const NkUINode &hs = mSt->doc.nodes[(uint32)mSt->selected];
@@ -5101,11 +5111,15 @@ namespace nkuidesign {
 									mDegAimante = false;
 								}
 							}
-							// ── LE SURVOL : le curseur annonce le geste AVANT le clic ──
+							// ── LE SURVOL : le curseur annonce le geste AVANT le clic -- la MEME decision
+							//    que la reclamation (anneaux popover ouvert, la zone la plus proche gagne)
 							int32 zoneS = 0;
-							const int32 survol = (mDegDrag == -1 && !NkSourisSurPopup(ctx))
-													 ? renderdetail::NkPointageDegrade(genreT, rs, g, mxS, myS, zoneS)
-													 : -1;
+							float32 dSurvol2 = 1e30f;
+							int32 survol = (mDegDrag == -1 && !NkSourisSurPopup(ctx))
+											   ? renderdetail::NkPointageDegrade(genreT, rs, g, mxS, myS, zoneS, PopoverSurRemplissage(fi), &dSurvol2)
+											   : -1;
+							if (survol != -1 && PoigneeDeFormePlusProche(selDeg, rs, mxS, myS, dSurvol2))
+								survol = -1;
 							const bool tourneS = (mDegDrag != -1 && mDegFill == fi && mDegDrag >= 0 && mDegZone == 1)
 												 || (survol >= 0 && zoneS == 1);
 							const bool glisseS = (mDegDrag != -1 && mDegFill == fi && !tourneS)
@@ -6298,6 +6312,47 @@ namespace nkuidesign {
 
 			/// LA BANDE DE SAISIE D'UNE POIGNEE, en pixels ECRAN, de chaque cote
 			/// du bord. Une seule constante pour les DEUX sites qui la lisent.
+			/// ① Le popover de remplissage est-il ouvert SUR ce remplissage du noeud selectionne ?
+			///    C'est la condition des anneaux de rotation d'axe (regle ⑥).
+			bool PopoverSurRemplissage(int32 fi) const {
+				return mSt->picker.ouvert && mSt->picker.genre == 1u && mSt->picker.noeud == mSt->selected && mSt->picker.index == fi;
+			}
+			/// ① QUAND DEUX ZONES SE CHEVAUCHENT, LA PLUS PROCHE DU POINTEUR GAGNE : un arc de
+			///    rotation (pointeur dans sa boite) ou une poignee de forme (pointeur dans sa
+			///    bande) plus proche que la poignee de degrade visee (distance au carre) la fait
+			///    ceder. Le point est dans le repere droit du noeud, comme les deux reclamations.
+			bool PoigneeDeFormePlusProche(const NkUINode &n, const NkPaintRect &rs, float32 mx, float32 my, float32 dGrad2) const {
+				float32 dAutre2 = 1e30f;
+				if (NkPeutTourner(n)) {
+					const float32 tr = NkTaillePoigneeRotation();
+					for (uint32 k = 0; k < NkNbPoigneesRotation(); ++k) {
+						const NkPaintRect pr = NkPoigneeRotation(rs, k, tr);
+						if (mx >= pr.x && mx <= pr.x + pr.w && my >= pr.y && my <= pr.y + pr.h) {
+							const float32 dx = mx - (pr.x + pr.w * 0.5f), dy = my - (pr.y + pr.h * 0.5f);
+							if (dx * dx + dy * dy < dAutre2)
+								dAutre2 = dx * dx + dy * dy;
+						}
+					}
+				}
+				const bool pose = n.parent >= 0 && mSt->doc.IsValidIndex(n.parent)
+								  && mSt->doc.nodes[(uint32)n.parent].layout.kind == NkLayoutKind::Free;
+				if (pose && n.width.mode == NkSizeMode::Fixed && n.height.mode == NkSizeMode::Fixed) {
+					// LES HUIT POIGNEES DE FORME (coins et milieux de bords), des POINTS comme les
+					// pastilles : un bord entier battrait toujours une pastille posee dessus
+					const float32 kB = kPoignee;
+					const float32 xs[3] = {rs.x, rs.x + rs.w * 0.5f, rs.x + rs.w}, ys[3] = {rs.y, rs.y + rs.h * 0.5f, rs.y + rs.h};
+					for (uint32 i = 0; i < 3u; ++i)
+						for (uint32 j = 0; j < 3u; ++j) {
+							if (i == 1u && j == 1u)
+								continue; // le centre n'est pas une poignee
+							const float32 dx = mx - xs[i], dy = my - ys[j];
+							const float32 q = dx * dx + dy * dy;
+							if (q <= kB * kB && q < dAutre2)
+								dAutre2 = q;
+						}
+				}
+				return dAutre2 < dGrad2;
+			}
 			static constexpr float32 kPoignee = 6.f;
 
 			/// ARMER un redimensionnement par poignees. Appelee depuis DEUX

@@ -788,12 +788,20 @@ namespace nkuidesign {
 		///    (>= 0, zone 1 : tourner), puis le segment (-2 : ajouter un arret), sinon la
 		///    toile (-1). Le centre prime sur un arret pose dessus (le 0 % y est).
 		inline nkentseu::int32 NkPointageDegrade(nkentseu::int32 genre, const NkPaintRect &r, const NkDegrade &g,
-												 nkentseu::float32 px, nkentseu::float32 py, nkentseu::int32 &zone) {
+												 nkentseu::float32 px, nkentseu::float32 py, nkentseu::int32 &zone,
+												 bool anneaux = true, nkentseu::float32 *distance2 = nullptr) {
 			zone = 0;
+			if (distance2)
+				*distance2 = 1e30f;
 			const NkAxeDegrade a = NkAxeDegradeGenre(genre, r, g);
 			const nkentseu::float32 d2Disque = kNkDisquePoignee * kNkDisquePoignee;
 			const nkentseu::float32 rAnneau = kNkDisquePoignee + kNkAnneauPoignee;
 			auto d2 = [&](nkentseu::float32 x, nkentseu::float32 y) { return (px - x) * (px - x) + (py - y) * (py - y); };
+			auto rendre = [&](nkentseu::int32 code, nkentseu::float32 q) {
+				if (distance2)
+					*distance2 = q;
+				return code;
+			};
 			nkentseu::int32 meilleur = -1;
 			nkentseu::float32 d2min = d2Disque;
 			for (nkentseu::uint32 i = 0; i < (nkentseu::uint32)g.arrets.Size(); ++i) {
@@ -812,36 +820,40 @@ namespace nkuidesign {
 				const NkGeomDegrade m = NkGeomDegradeDe(r, g);
 				const nkentseu::float32 dc = d2(m.ox, m.oy);
 				if (dc <= d2Disque && (meilleur < 0 || g.arrets[(nkentseu::uint32)meilleur].position <= 0.03f || dc < d2min))
-					return -3;
+					return rendre(-3, dc);
 			}
 			if (meilleur >= 0)
-				return meilleur;
+				return rendre(meilleur, d2min);
 			if (genre != 0) {
 				const NkGeomDegrade m = NkGeomDegradeDe(r, g);
 				if (d2(m.ox + m.rx, m.oy) <= d2Disque)
-					return -4;
+					return rendre(-4, d2(m.ox + m.rx, m.oy));
 				if (d2(m.ox, m.oy - m.ry) <= d2Disque)
-					return -5;
+					return rendre(-5, d2(m.ox, m.oy - m.ry));
 			}
-			// l'anneau : la pastille la plus proche, si le pointeur est dans sa couronne
-			d2min = rAnneau * rAnneau;
-			for (nkentseu::uint32 i = 0; i < (nkentseu::uint32)g.arrets.Size(); ++i) {
-				nkentseu::float32 hx = 0.f, hy = 0.f;
-				NkPoigneeDegrade(a, g.arrets[i].position, hx, hy);
-				const nkentseu::float32 q = d2(hx, hy);
-				if (q <= d2min) {
-					d2min = q;
-					meilleur = (nkentseu::int32)i;
+			// l'anneau : la pastille la plus proche, si le pointeur est dans sa couronne --
+			// seulement quand on l'a demande (popover ouvert sur ce remplissage, regle ⑥)
+			if (anneaux) {
+				d2min = rAnneau * rAnneau;
+				for (nkentseu::uint32 i = 0; i < (nkentseu::uint32)g.arrets.Size(); ++i) {
+					nkentseu::float32 hx = 0.f, hy = 0.f;
+					NkPoigneeDegrade(a, g.arrets[i].position, hx, hy);
+					const nkentseu::float32 q = d2(hx, hy);
+					if (q <= d2min) {
+						d2min = q;
+						meilleur = (nkentseu::int32)i;
+					}
 				}
-			}
-			if (meilleur >= 0) {
-				zone = 1;
-				return meilleur;
+				if (meilleur >= 0) {
+					zone = 1;
+					return rendre(meilleur, d2min);
+				}
 			}
 			const nkentseu::float32 tt = NkParamSurAxeDegrade(a, px, py);
 			nkentseu::float32 sx = 0.f, sy = 0.f;
 			NkPoigneeDegrade(a, tt, sx, sy);
-			return d2(sx, sy) <= kNkTolSegment * kNkTolSegment ? -2 : -1;
+			const nkentseu::float32 qs = d2(sx, sy);
+			return qs <= kNkTolSegment * kNkTolSegment ? rendre(-2, qs) : -1;
 		}
 		inline nkentseu::int32 NkRemplissageDegradeToile(const NkUINode &n) {
 			for (nkentseu::uint32 i = (nkentseu::uint32)n.fills.Size(); i > 0; --i) {
