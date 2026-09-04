@@ -144,6 +144,70 @@ namespace nkentseu {
 			return gProdTools && !DirExists(DefaultCompilerBin());
 		}
 
+		// ── Aides locales a Configure() ────────────────────────────────────────
+		namespace {
+			// Comparaison de chaines sans dependance : NkText.h fournit NkFindSub,
+			// pas d'egalite stricte, et on ne veut pas tirer <cstring> pour ca.
+			bool SameStr(const char *a, const char *b) {
+				if (!a || !b) return a == b;
+				while (*a && *a == *b) { ++a; ++b; }
+				return *a == *b;
+			}
+
+			// Pose PATH dans l'environnement du PROCESS — celui dont heritent le
+			// terminal integre, le worker Python et les sous-processus compilateur.
+			void SetProcessPath(const NkString &value) {
+#if defined(_WIN32)
+				_putenv_s("PATH", value.CStr());
+#else
+				::setenv("PATH", value.CStr(), 1);
+#endif
+			}
+
+			// Dossier personnel, sans passer par NkOpenWsState (Shell/) : Project/
+			// ne doit pas dependre de la coquille, et Configure() tourne avant elle.
+			NkString HomeDir() {
+#if defined(_WIN32)
+				const char *h = std::getenv("USERPROFILE");
+#else
+				const char *h = std::getenv("HOME");
+#endif
+				return NkString(h ? h : "");
+			}
+
+			// La preference compilateur : NKCODE_COMPILER (env) prime, sinon la
+			// ligne `compiler=` de ~/.nkcode/settings.cfg. Vide si aucune des deux.
+			// Le fichier est du key=value une ligne par cle, ecrit par
+			// NkSettingsState::Save() ; on ne lit QUE cette cle, sans parseur.
+			NkString ReadCompilerPreference() {
+				if (const char *env = std::getenv("NKCODE_COMPILER"); env && *env)
+					return NkString(env);
+				const NkString home = HomeDir();
+				if (home.Empty())
+					return NkString();
+				const NkString cfg = home + "/.nkcode/settings.cfg";
+				if (!NkFile::Exists(cfg.CStr()))
+					return NkString();
+				const NkString txt = NkFile::ReadAllText(cfg.CStr());
+				const char *p = txt.CStr();
+				static const char kKey[] = "compiler=";
+				while (*p) {
+					// debut de ligne : la cle doit y etre EXACTEMENT, pas en sous-chaine
+					const char *k = kKey;
+					const char *q = p;
+					while (*k && *q == *k) { ++q; ++k; }
+					if (!*k) {
+						NkString v;
+						while (*q && *q != '\r' && *q != '\n') v += *q++;
+						return v;
+					}
+					while (*p && *p != '\n') ++p;
+					if (*p) ++p;
+				}
+				return NkString();
+			}
+		} // namespace
+
 		void NkEmbeddedJenga::Configure(const NkString &exeDir) {
 			gExeDir = exeDir;
 			// Prod : tools/ a cote de NKCode.exe (pose par le packaging, Phase 5).
@@ -178,61 +242,68 @@ namespace nkentseu {
 				if (env && *env && DirExists(NkString(env) + "/Jenga"))
 					gJengaSrc = env;
 			}
-			// Compilateur PAR DEFAUT embarque (tools/compilers/llvm-mingw, pose par
-			// scripts/MakeNkCodeDist.py) : prefixe le PATH du PROCESS pour que le
-			// ToolchainManager de Jenga (qui detecte clang via PATH, preference
-			// `clang-mingw` en tete sur Windows) le trouve — herite par le worker
-			// Python ET ses subprocess compilateur. Un clang deja installe par
-			// l'utilisateur garde priorite ? NON : le notre est PREFIXE volontairement
-			// (comportement reproductible chez tous les testeurs) ; un power-user
-			// peut toujours forcer --toolchain ou retirer tools/compilers.
+			// ── Compilateur : L'UTILISATEUR CHOISIT ──────────────────────────────
+			//
+			// Avant : le compilateur embarque (tools/compilers/llvm-mingw sous
+			// Windows, tools/compilers/zig ailleurs) etait PREFIXE au PATH sans
+			// appel, « pour un comportement reproductible chez tous les testeurs ».
+			// Consequence : quelqu'un qui avait deja clang, gcc ou MSVC sur sa
+			// machine se retrouvait a compiler avec le notre sans l'avoir demande,
+			// et sans moyen simple de reprendre la main — le commentaire renvoyait a
+			// `--toolchain` ou a la suppression de tools/compilers. Decision du
+			// 2026-09-04 : ce n'est pas a l'outil de decider avec quoi on compile.
+			//
+			// UNE preference, trois valeurs, lue ici avant tout le reste :
+			//   ""  ou "embarque"  -> le compilateur de NKCode est PREFIXE (defaut :
+			//                         quelqu'un qui n'a rien obtient quelque chose)
+			//   "systeme"          -> il est SUFFIXE : le compilateur deja installe
+			//                         garde la main, le notre ne sert qu'en repli
+			//   un chemin          -> ce dossier bin/ est prefixe a la place du notre
+			//
+			// Source, par priorite : la variable NKCODE_COMPILER (scripts, tests),
+			// puis la ligne `compiler=` de ~/.nkcode/settings.cfg — celle que
+			// l'ecran Parametres ecrit. Configure() tourne avant que NkSettings
+			// existe, d'ou la lecture directe du fichier ici.
+			//
+			// Herite par le terminal integre (CreateProcessW/forkpty sans
+			// environnement explicite), par le worker Python et par les
+			// sous-processus compilateur de Jenga : un seul reglage, partout.
 #if defined(_WIN32)
-			{
-				const NkString binDir = exeDir + "/tools/compilers/llvm-mingw/bin";
-				if (DirExists(binDir)) {
-					const char *cur = std::getenv("PATH");
-					const NkString merged = binDir + ";" + (cur ? cur : "");
-					_putenv_s("PATH", merged.CStr());
-				}
-			}
-			// `tools/` contient AUSSI le shim `jenga.cmd` (pose par
-			// scripts/MakeNkCodeDist.py) qui appelle le Python embarque. En
-			// prefixant le PATH, un `jenga ...` tape dans le TERMINAL INTEGRE — ou
-			// lance par une commande qui a besoin d'un vrai terminal, comme
-			// `jenga gdb` — fonctionne aussi sans Python installe. Sans ce shim,
-			// seules les commandes routees vers l'interpreteur marchaient.
-			if (gProdTools) {
-				const char *cur = std::getenv("PATH");
-				const NkString merged = (exeDir + "/tools") + ";" + (cur ? cur : "");
-				_putenv_s("PATH", merged.CStr());
-			}
+			const char kPathSep = ';';
 #else
-			// ── UNIX : meme logique, separateur ':' et setenv ─────────────────
-			//
-			// Ce bloc n'existait pas : tout ce qui precede etait enferme dans
-			// « #if defined(_WIN32) ». Un compilateur embarque cote Linux aurait
-			// donc ete PRESENT dans le paquet et JAMAIS utilise — le PATH n'etant
-			// jamais prefixe, Jenga serait retombe sur le clang/gcc du systeme,
-			// voire sur rien du tout chez un testeur qui n'en a pas.
-			//
-			// Le compilateur par defaut sous Linux est ZIG (tools/compilers/zig),
-			// et non llvm-mingw qui, lui, produit des binaires Windows.
+			const char kPathSep = ':';
+#endif
 			{
-				const NkString zigDir = exeDir + "/tools/compilers/zig";
-				if (DirExists(zigDir)) {
+				const NkString pref  = ReadCompilerPreference();
+				const NkString ours  = DefaultCompilerBin();
+				NkString dirToAdd;
+				bool prefix = true;
+				if (SameStr(pref.CStr(), "systeme")) {
+					dirToAdd = ours;  prefix = false;
+				} else if (pref.Empty() || SameStr(pref.CStr(), "embarque")) {
+					dirToAdd = ours;  prefix = true;
+				} else {
+					dirToAdd = pref;  prefix = true;   // dossier bin/ choisi par l'utilisateur
+				}
+				if (DirExists(dirToAdd)) {
 					const char *cur = std::getenv("PATH");
-					const NkString merged = zigDir + ":" + (cur ? cur : "");
-					::setenv("PATH", merged.CStr(), 1);
+					const NkString c = cur ? cur : "";
+					const NkString merged = prefix ? (dirToAdd + kPathSep + c)
+					                               : (c + kPathSep + dirToAdd);
+					SetProcessPath(merged);
 				}
 			}
-			// Shim `jenga` (equivalent du jenga.cmd de Windows) : permet de taper
-			// `jenga ...` dans le terminal integre sans Python installe.
+			// `tools/` contient le shim `jenga` (jenga.cmd sous Windows, script sh
+			// ailleurs, poses par scripts/MakeNkCodeDist.py) qui appelle le Python
+			// embarque. En prefixant le PATH, un `jenga ...` tape dans le TERMINAL
+			// INTEGRE — ou lance par une commande qui a besoin d'un vrai terminal,
+			// comme `jenga gdb` — fonctionne aussi sans Python installe. Ce shim,
+			// lui, reste toujours prefixe : il n'entre en concurrence avec rien.
 			if (gProdTools) {
 				const char *cur = std::getenv("PATH");
-				const NkString merged = (exeDir + "/tools") + ":" + (cur ? cur : "");
-				::setenv("PATH", merged.CStr(), 1);
+				const NkString merged = (exeDir + "/tools") + kPathSep + (cur ? cur : "");
+				SetProcessPath(merged);
 			}
-#endif
 			gConfigured = true;
 		}
 

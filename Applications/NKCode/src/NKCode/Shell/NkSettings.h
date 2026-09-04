@@ -37,6 +37,11 @@ namespace nkentseu {
 				// ── Jenga ──
 				char jengaPath[320] = "jenga";
 				char gitPath[320] = "git";
+				// Compilateur : "" ou "embarque" = celui de NKCode (prefixe au PATH) ;
+				// "systeme" = celui deja installe sur la machine (le notre en repli) ;
+				// un chemin = ce dossier bin/ a la place du notre. Lu par
+				// NkEmbeddedJenga::Configure AVANT cet ecran, directement dans le cfg.
+				char compiler[320] = "";
 				int32 jobs = 0; // 0 = auto (CPU-1)
 				bool regTc = true, incCache = true, daemon = true;
 				// ── Theme ──
@@ -98,6 +103,7 @@ namespace nkentseu {
 					kv("cacheDir", NkString(cacheDir));
 					kv("jengaPath", NkString(jengaPath));
 					kv("gitPath", NkString(gitPath));
+					kv("compiler", NkString(compiler));
 					ki("jobs", jobs);
 					ki("regTc", regTc);
 					ki("incCache", incCache);
@@ -214,6 +220,8 @@ namespace nkentseu {
 									cp(jengaPath, sizeof(jengaPath));
 								else if (is("gitPath"))
 									cp(gitPath, sizeof(gitPath));
+								else if (is("compiler"))
+									cp(compiler, sizeof(compiler));
 								else if (is("jobs"))
 									jobs = iv;
 								else if (is("regTc"))
@@ -258,6 +266,7 @@ namespace nkentseu {
 					cacheDir[0] = '\0';
 					NkStrCopy(jengaPath, sizeof(jengaPath), d.jengaPath);
 					NkStrCopy(gitPath, sizeof(gitPath), d.gitPath);
+					NkStrCopy(compiler, sizeof(compiler), d.compiler);
 					jobs = d.jobs;
 					regTc = d.regTc;
 					incCache = d.incCache;
@@ -772,6 +781,13 @@ namespace nkentseu {
 			else if (s->cat == 2) {
 				label(NkT("set.jengahdr"));
 				pathRow(NkT("set.jengapath"), s->jengaPath, sizeof(s->jengaPath), true, 23);
+				// Compilateur : L'UTILISATEUR CHOISIT. Vide = celui de NKCode ; « systeme »
+				// = celui deja installe (le notre en repli) ; un dossier = ce bin/ la.
+				// Lu par NkEmbeddedJenga::Configure au demarrage — un redemarrage
+				// applique le choix au terminal, au worker Jenga et aux toolchains.
+				pathRow(NkT("set.compiler"), s->compiler, sizeof(s->compiler), true, 25);
+				u.Text(ctrlX, y, NkT("set.compilerhint"), NkCol::mutedFg);
+				y += u.s(24);
 				{
 					rowLabel(NkT("set.versiondet"));
 					const bool ok = !s->jengaVersion.Empty();
