@@ -58,7 +58,7 @@
 #include "NKContainers/Sequential/NkVector.h"
 #include "Noge/ECS/Components/Animation/NkAnimation.h"
 #include "Noge/Rigging/NkIKSolver.h"
-#include "NKAnima/NkAnimation.h"
+#include "NKAnima/Clip/NkAnimation.h"
 #include "NKPhysics/NkPhysicsWorld.h"
 #include "NKCollision/NkColTypes.h"
 

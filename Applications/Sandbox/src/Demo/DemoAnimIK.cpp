@@ -17,7 +17,7 @@
 #include "NKRenderer/Mesh/NkGLTFMaterialBridge.h"
 #include "NKRenderer/Mesh/NkMeshSystem.h"
 #include "NKRenderer/Tools/Render3D/NkRender3D.h"
-#include "NKAnima/NkAnimation.h"
+#include "NKAnima/Clip/NkAnimation.h"
 #include "NKRenderer/Tools/IK/NkIKSystem.h"
 #include "NKLogger/NkLog.h"
 #include <cmath>

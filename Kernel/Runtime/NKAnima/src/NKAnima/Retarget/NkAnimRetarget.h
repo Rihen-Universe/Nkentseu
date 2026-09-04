@@ -1,4 +1,5 @@
 #pragma once
+// Retarget/ — rejouer un clip d'un squelette sur un autre ; consomme Skeleton/, n'en redefinit rien.
 // -----------------------------------------------------------------------------
 // @File    NkAnimRetarget.h
 // @Brief   RECIBLAGE d'animation : rejouer un clip d'un squelette sur un AUTRE.
@@ -62,8 +63,8 @@
 // -----------------------------------------------------------------------------
 
 #include "NKMath/NKMath.h"
-#include "NKAnima/NkAnimation.h"
-#include "NKAnima/NkSkeletonDef.h"
+#include "NKAnima/Clip/NkAnimation.h"
+#include "NKAnima/Skeleton/NkSkeletonDef.h"
 
 #include "NKContainers/String/NkString.h"
 

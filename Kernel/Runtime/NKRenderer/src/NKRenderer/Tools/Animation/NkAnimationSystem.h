@@ -17,7 +17,7 @@
 //
 // AUTEUR : Rihen — LICENCE : usage regi par le fichier LICENSE a la racine du depot
 // =============================================================================
-#include "NKAnima/NkAnimation.h"
+#include "NKAnima/Clip/NkAnimation.h"
 #include "NKRenderer/Core/NkRendererTypes.h"
 #include "NKRenderer/Core/NkCamera.h"
 #include "NKRenderer/Core/NkRendererConfig.h"

@@ -1,4 +1,5 @@
 #pragma once
+// Clip/ — les clips : cles, pistes, echantillonnage, melange, machine d'etats.
 // =============================================================================
 // NKAnima/NkAnimation.h — modele d'animation, substrat autonome
 // -----------------------------------------------------------------------------

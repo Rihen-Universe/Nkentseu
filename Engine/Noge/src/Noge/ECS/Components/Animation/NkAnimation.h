@@ -15,7 +15,7 @@
 #include "NKECS/Core/NkTypeRegistry.h"
 #include "../Core/NkTransform.h"
 #include "NKMemory/NkSharedPtr.h"   // NkSkeletonDef : actif PARTAGE, jamais copie
-#include "NKAnima/NkSkeletonDef.h"  // l'actif lui-meme, descendu dans NKAnima le 02/09
+#include "NKAnima/Skeleton/NkSkeletonDef.h"  // l'actif lui-meme, descendu dans NKAnima le 02/09
 #include "NKContainers/Sequential/NkVector.h"
 #include <cstring>
 

@@ -21,7 +21,7 @@
 #include "Noge/Anim/NkLocomotion.h"
 #include "Noge/ECS/Components/Core/NkTransform.h"
 #include "NKECS/World/NkWorld.h"
-#include "NKAnima/NkAnimation.h"
+#include "NKAnima/Clip/NkAnimation.h"
 #include "NKMemory/NkAllocator.h"
 #include "NKLogger/NkLog.h"
 #include <cstring>

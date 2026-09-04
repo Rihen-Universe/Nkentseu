@@ -54,7 +54,7 @@
 #include "NKRenderer/Tools/VFX/NkVFXSystem.h"
 #include "NKRenderer/Tools/Offscreen/NkOffscreenTarget.h"
 #include "NKRenderer/Tools/Simulation/NkSimulationRenderer.h"
-#include "NKAnima/NkAnimation.h"
+#include "NKAnima/Clip/NkAnimation.h"
 #include "NKRenderer/Tools/Overlay/NkOverlayRenderer.h"
 
 using namespace nkentseu;

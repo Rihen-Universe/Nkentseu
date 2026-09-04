@@ -1,3 +1,4 @@
+// Motion/ — la couche trajectoire (spline + suivi), le premier des trois etages de Cascadeur.
 // =============================================================================
 // NKAnima/NkMotionPath.h
 // -----------------------------------------------------------------------------
