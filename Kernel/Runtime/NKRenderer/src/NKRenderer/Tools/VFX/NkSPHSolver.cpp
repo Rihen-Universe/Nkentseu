@@ -440,7 +440,7 @@ namespace nkentseu {
 			// 6) intégration des positions, filets (vitesse, boîte), statistiques
 			const NkVec3f bmin = params.boundsMin, bmax = params.boundsMax;
 			float32 rhoMin = 1e30f, rhoMax = 0.f, rhoSum = 0.f, vmax = 0.f;
-			float32 xmax = -1e30f, ymax = -1e30f, ymin = 1e30f;
+			float32 xmax = -1e30f, ymax = -1e30f, ymin = 1e30f, xdense = -1e30f;
 			float32 floorSum = 0.f;
 			uint32 floorN = 0;
 			const float32 vcap2 = params.maxSpeed * params.maxSpeed;
@@ -469,6 +469,7 @@ namespace nkentseu {
 				V[i] = v;
 				P[i] = p;
 				if (p.x > xmax) xmax = p.x;
+				if (D[k] >= 0.5f * rho0 && p.x > xdense) xdense = p.x;
 				if (p.y > ymax) ymax = p.y;
 				if (p.y < ymin) ymin = p.y;
 				const float32 sp = sqrtf(v.x * v.x + v.y * v.y + v.z * v.z);
@@ -490,6 +491,7 @@ namespace nkentseu {
 			mStats.densityFloorMean = floorN ? floorSum / (float32)floorN : 0.f;
 			mStats.maxSpeed = vmax;
 			mStats.maxX = xmax;
+			mStats.frontDenseX = xdense > -1e29f ? xdense : xmax;
 			mStats.maxY = ymax;
 			mStats.minY = ymin;
 		}

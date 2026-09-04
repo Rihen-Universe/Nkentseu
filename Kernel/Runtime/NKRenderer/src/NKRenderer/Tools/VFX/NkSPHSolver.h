@@ -61,6 +61,8 @@ namespace nkentseu {
 				float32 maxSpeed = 0.f;
 				float32 ms = 0.f;
 				float32 maxX = 0.f, maxY = 0.f, minY = 0.f; // front (rupture de barrage), hauteur (repos)
+				float32 frontDenseX = 0.f;					  // max x des particules a rho >= 0,5 rho0 : le front que l'on FILME,
+															  // pas l'eclat isole qui vole devant (mesure du 04/09)
 				uint32 boundary = 0;						  // particules fantômes de paroi (fixes)
 				float32 densityFloorMean = 0.f;				  // densité moyenne de la couche du sol (y < ymin + h)
 				// DFSPH : par image (moyennes sur les sous-pas), la trace les dit
