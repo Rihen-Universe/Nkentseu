@@ -1507,6 +1507,125 @@ dit tel quel. **Ce qu'il te reste** : recharger `renderdemo.html?demo=2` (Releas
   prédécesseur avait rencontré. À décider : extraire seulement si le wheel est plus récent que
   `Build/_jenga-embed/`, ou ne le faire qu'à la construction de NKCode.
 
+### ✅ 04/09 (soir) — PARTICULES (A) : le quad s'expanse sur le GPU par INSTANCIATION (`860d0e70`)
+
+**Mesuré avant d'écrire** — ce que NKRHI expose le plus proprement sur les quatre dorsaux : le taux
+**par instance** est honoré partout (`glVertexArrayBindingDivisor` bureau, `glVertexAttribDivisor` par
+attribut sur WebGL2, `VK_VERTEX_INPUT_RATE_INSTANCE`, `D3D11_INPUT_PER_INSTANCE_DATA`, DX12 idem),
+`Draw(vertexCount, instanceCount)` est branché partout, `gl_VertexID`/`gl_InstanceID` sont mappés dans
+tous les générateurs NkSL. La voie « `gl_VertexID` + tampon lu dans le VS » exige un SSBO — **WebGL2 n'en
+a pas** : l'instanciation est la seule qui porte partout, y compris le chemin Apple. Software : ne boucle
+les instances que si `shader->usesInstancing`, posé à la main pour un seul shader
+(`NkSoftwareDevice.cpp:1580`) — nommé, pas traité (dorsal encore bogué par ailleurs).
+
+**Ce qui a changé** : `particles.vert.nksl` lit `aCorner` (binding 0, six `vec2` statiques, 48 o, un
+tampon pour tous les émetteurs) et `aPos/aColor/aSize/aRotation` (binding 1, PAR INSTANCE) ;
+`NkParticleInstance` = 24 o (`static_assert`) ; le tampon d'un émetteur = `maxParticles × 24` (÷8) ;
+`Draw(6, vivantes)`. Le fragment et la texture (borne 2) ne bougent pas.
+
+**Témoin** (renderdemo **Debug**, OpenGL, 640×480, images 150/180, GPU partagé avec Ilyana 13-95 %) :
+
+| N | sommets avant → après | envoi avant → après | GPU passe VFX |
+|---|---|---|---|
+| 500 | 0,04-0,08 → **0,015-0,016 ms** | 0,015-0,026 (92 Ko) → **0,012-0,014 (11 Ko)** | 0,008 = 0,008 |
+| 5 000 | 0,65-0,74 → **0,17-0,21** | 0,11-0,13 (936 Ko) → **0,027-0,031 (116 Ko)** | 0,015 = 0,015 |
+| 50 000 | 4,3-5,1 → **0,98-1,61** | 1,0-1,5 (9 277 Ko) → **0,15-0,23 (1 168 Ko)** | 0,086 → 0,088-0,092 |
+
+Sommets + envoi à 50 000 : **5,3-6,6 → 1,1-1,8 ms** (÷3,7-4,8 — **pas ÷6**, dit tel quel : la boucle
+parcourt encore `maxParticles` et empaquette la couleur ; l'envoi seul fait ÷6,5, les octets ÷8).
+Image CPU 11,0-14,0 → 8,3-11,1 ms. **Pixels** : damier 2×2 sur une particule immobile, quatre cellules
+lisibles avant et après, boîte identique à ±2 px ; **deux courses du même binaire diffèrent déjà de 15 %**
+des pixels de la boîte (rotation aléatoire à la naissance) et avant/après tombe dans ce plancher
+(moyenne 6-15 contre 14,7) — *le plancher de bruit se mesure avant de comparer*.
+`Captures/noge_particules_instancie_2026-09-04.png`.
+
+⚠️ **Dits, pas corrigés — antérieurs au lot (lignes non touchées)** : sur **DX11** la particule se dessine
+mais en **lame verticale** — le repère caméra est lu par `uCam.view[0][0], [1][0], [2][0]`, indexation
+GLSL (colonne, ligne) que HLSL lit (ligne, colonne) ; sur **Vulkan** elle ne se dessine pas (jeu global
+`uCam`, nommé le 04/09 matin). Les deux relèvent du même lot « jeu global Vulkan + repère caméra
+portable » ; la voie propre est de passer `right`/`up` caméra dans `uCam` plutôt que de les extraire
+d'une matrice dont l'indexation change de dialecte.
+
+### 📐 04/09 (soir) — PLAN (B) : simulation « à la Unreal », cible PAR ÉMETTEUR — écrit AVANT le code
+
+**Décision de Rodolf** : `simTarget = Auto | CPU | GPU` par émetteur, `Auto` par défaut = GPU si le
+device a le compute, sinon CPU **dit** au journal ; l'état derrière une interface de stockage
+(CPU SoA / GPU SSBO) ; **un seul chemin de dessin** (l'instancié du lot A) ; noyau NkSL pour
+l'intégration ; ce que le jeu relit d'un émetteur GPU arrive **une image plus tard**.
+
+**Mesuré avant le plan** :
+- `NkEmitterDesc::simMode` (`NkSimMode {CPU, GPU}`) **existe déjà, écrit nulle part, lu nulle part** —
+  un des six champs « déclarés, jamais lus ». Le plan le **remplace** par `simTarget` (`NkSimTarget
+  {AUTO, CPU, GPU}`, défaut `AUTO`) plutôt que d'ajouter un second champ pour la même chose : aucun
+  appelant ne le nomme, donc additif en effet.
+- Le compute existe déjà dans NKRenderer : `NkIBLCompute::CompileKernel` est **le précédent à copier**
+  (NkSL `@stage(compute)` → GLSL, puis HLSL/SPIR-V/MSL par `NkShaderConverter`, `CreateShader`,
+  `NkDescriptorSetLayoutDesc::Add(binding, NK_STORAGE_BUFFER, NK_COMPUTE)`, `CreateComputePipeline`,
+  repli CPU dit). ⚠️ `NkAnimationSystem::Init` crée un pipeline « MorphTargets » **sans shader** : une
+  coquille, pas un précédent.
+- La capacité : `NkDeviceCaps::computeShaders` (renseignée par `NkGLHasComputeAndSSBO` sur GL ; **faux
+  sur WebGL2 quelle que soit la version**) ; `NkBufferDesc::Storage(sz, cpuRead)` ; `ReadBuffer` pour la
+  relecture ; `UAVBarrier` entre compute et dessin ; `NkDescriptorWrite{type=NK_STORAGE_BUFFER}`.
+
+**Interface (dans `NkVFXSystem.h`, additive)** :
+```cpp
+enum class NkSimTarget : uint8 { AUTO, CPU, GPU };   // remplace NkSimMode (jamais lu)
+struct NkEmitterDesc { ...; NkSimTarget simTarget = NkSimTarget::AUTO; ... };
+// Le stockage de l'état d'UN émetteur -- le dessin ne connaît que InstanceBuffer()/DrawCount().
+struct NkIParticleStore {
+    virtual ~NkIParticleStore() = default;
+    virtual bool Init(NkIDevice*, const NkEmitterDesc&) = 0;
+    virtual void Spawn(const NkParticleBirth* births, uint32 n) = 0;   // le CPU décide QUI naît, toujours
+    virtual void Step(NkICommandBuffer* cmd, float dt) = 0;            // CPU : boucle ; GPU : Dispatch
+    virtual NkBufferHandle InstanceBuffer() const = 0;                // NkParticleInstance × N, binding 1
+    virtual uint32 DrawCount() const = 0;                              // CPU : vivantes ; GPU : maxParticles (mortes = taille 0)
+    virtual uint32 AliveCount() const = 0;                             // GPU : valeur de l'image PRÉCÉDENTE (relecture différée), dit
+    virtual bool IsGPU() const = 0;
+};
+```
+`NkParticleBirth` = {pos, vel, life, sizeStart/End, colorStart/End, rotation, rotSpeed} — la naissance
+reste sur le CPU (formes d'émission, aléa, `Burst`) : c'est ce que fait Niagara pour la partie
+« spawn » des émetteurs GPU simples, et ça garde **un seul générateur** d'aléa et une seule sémantique
+de `NkEmitterDesc` pour les deux cibles. Le CPU pousse `n` naissances par image (quelques Ko), jamais
+l'état.
+
+**Les deux stockages** :
+- `NkParticleStoreCPU` : l'existant (`particles`, `freeSlots`, `aliveCount`, construction des
+  enregistrements) déplacé tel quel derrière l'interface — **comportement inchangé, mêmes chiffres**.
+- `NkParticleStoreGPU` : trois SSBO — `state` (pos, vel, life, maxLife, size0/1, color0/1, rot, rotSpeed :
+  64 o × max), `births` (× max naissances/image), `counter` (naissances consommées, vivantes) — et le
+  tampon d'instances du lot A **créé avec `NK_STORAGE_BUFFER | NK_VERTEX_BUFFER`** : le noyau écrit
+  `NkParticleInstance` dedans, le dessin le lit — un seul chemin de dessin, aucune copie. Noyau NkSL
+  `particles_sim.comp.nksl` (`local_size_x = 256`) : par emplacement, si mort et naissances restantes →
+  `atomicAdd` sur le compteur, initialise depuis `births[k]` ; puis intégration (gravité, vie, taille et
+  couleur interpolées, rotation) ; écrit l'instance (taille 0 si mort). `Dispatch(ceil(max/256))` puis
+  `UAVBarrier(instances)` avant la passe VFX. Relecture : `ReadBuffer(counter)` sur la copie de l'image
+  **précédente** (`Storage(…, cpuRead=true)`, anneau de 2) → `AliveCount()` a une image de retard, écrit
+  dans l'en-tête.
+- `Auto` : `caps.computeShaders && !web` → GPU ; sinon CPU **et une ligne** `[NkVFX] emetteur N :
+  simTarget=Auto -> CPU (pas de compute sur ce device)` — une fois par émetteur.
+
+**Ce qui change dans `NkVFXSystem`** : `Emitter` garde `desc`, `id`, `texSet`, `spawnAccum`, `enabled`
+et reçoit `NkIParticleStore* store` ; `SpawnParticle`/`UpdateEmitter` deviennent « produire les
+naissances de l'image » + `store->Step` ; `RenderEmitter` lie `mQuadVB` + `store->InstanceBuffer()` et
+tire `store->DrawCount()` ; `Profile()` garde ses postes (naissance / intégration / sommets / envoi
+deviennent, côté GPU, naissance CPU / envoi des naissances / dispatch) ; `GetActiveParticleCount` somme
+les `AliveCount()`. `SetEmitterPos`, `Burst`, `EnableEmitter` inchangés.
+
+**Ce qui recompile** : `NkVFXSystem.h` a **10 includers** (NKRenderer, Noge `NkParticleSystem`,
+NK3DModeler, DemoRW, Sandbox, NkSimulationRenderer…) → NKRenderer + ces applications ; aucun n'utilise
+`simMode`, aucune signature publique ne change hormis le champ renommé.
+
+**Témoins prévus** : (1) même émetteur en `CPU` et en `GPU`, même graine, même image à epsilon
+(damier, une particule immobile ; puis 5 000 en régime établi, comparaison de la boîte, plancher de bruit
+mesuré avant) ; (2) `Auto` sur Web → la ligne « -> CPU » au journal, image inchangée ; (3) courbe
+50 000 / 500 000 / 1 000 000 en GPU, chiffre honnête, cible 1 000 000 sous 16 ms — Ilyana sur le GPU
+pendant la mesure, donc **le chiffre sera celui d'un GPU partagé**, dit.
+
+**Ordre d'exécution** : (a) `simTarget` + `Auto` résolu et dit + interface + `NkParticleStoreCPU` —
+comportement inchangé, mêmes chiffres qu'au lot A ; (b) `NkParticleStoreGPU` + noyau, sur OpenGL
+d'abord (le seul dorsal où les particules sont éprouvées à l'image) ; (c) les témoins.
+
 ### 🔩 04/09 (nuit) — JENGA 2.6 : ce qui est appliqué, ce qui est mesuré en retour
 
 - **`-static` — le défaut était chez nous** : `config/toolchain.jenga:55` (bloc Windows natif) promettait
