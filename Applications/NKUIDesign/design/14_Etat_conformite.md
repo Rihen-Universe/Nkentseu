@@ -9,7 +9,7 @@
 > de comportement avec leur geste, leur état et ce qui manque — reste dans
 > `13_Lunacy_reference_interaction.md`. Ici, on regroupe.
 
-**Dernière régénération : 2026-09-02.** La partie chiffrée est produite par
+**Dernière régénération : 2026-09-05** (compte identique au 02/09 : le lot « variable dans l'interface » et le rail Variables laissent les deux lignes concernées **partielles**, ce qui est vrai — voir doc 13 §8.2 / §8.4). La partie chiffrée est produite par
 `python compte_etat.py --document` ; **elle ne s'écrit pas à la main.** Le reste
 — les familles, les trois groupes, les coûts — est du **jugement**, et le script
 n'y touche jamais.

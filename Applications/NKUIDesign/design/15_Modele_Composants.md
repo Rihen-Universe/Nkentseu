@@ -647,7 +647,118 @@ dans l'interface.
 `2026-09-04_lunacy_modele_oklab_rangee_creer_variable.png`)** : la variable de couleur
 se crée **dans le sélecteur**, par un bouton « Create Color Variable » sous la rangée
 du modèle — pas depuis un rail. Le rail `Variables` sert ensuite à la retrouver,
-la renommer, la lier. C'est par ce bouton que le lot « rail Styles / Variables »
-commence ; il attend l'œil de Rodolf. Nommé aussi, pas fait : **le plan du
+la renommer, la lier. Nommé aussi, pas fait : **le plan du
 sélecteur suit le modèle** (LCH, LAB, OKLAB montrent une autre nappe que le carré
 saturation / valeur).
+
+**État codé au 05/09** (commits `69af37b2` et `34a1b2bf`, sondes 68a-f, 239/239) :
+
+- **le bouton « Créer une variable de couleur »** sous la rangée modèle : un clic
+  crée « Couleur N » (clé `couleur_N`) depuis la couleur courante — remplissage
+  **ou arrêt de dégradé** — et cette couleur la **référence** ; rien ne change à
+  l'écran, le pied et la Console le disent ;
+- quand la couleur courante **référence** une variable, le sélecteur montre
+  pastille · nom (ou « @x : variable absente » en rouge) · **« Détacher »** (le
+  littéral que l'œil voyait ; absente : magenta, dit) ; le tampon hexa montre la
+  valeur **résolue** ; les trois écritures (carré SV, hexa, RGB / HSB) passent par
+  **une porte** : si la couleur référence une variable, c'est **la variable** qui
+  s'écrit (`PoserValeur`, dans le mode courant s'il est déclaré, dans le défaut
+  sinon) — tout ce qui la référence suit, la référence tient, **aucun écart
+  d'instance** n'est posé (le remplissage de l'instance n'a pas changé). C'est la
+  propagation Q51 par la référence, le même chemin qu'`a428bb2b` ;
+- le modèle : **un seul visiteur** de toutes les couleurs (clé simple, texte, bord,
+  remplissages et arrêts, bordures, effets, états, arbres des déclarations), lu
+  trois fois — `CompterUsagesVariable`, `DetacherVariable`, `SupprimerVariable`
+  (**refuse** tant qu'elle est utilisée, le nombre dit). *Un champ de couleur
+  ajouté ailleurs serait un usage invisible : c'est pour ça qu'il n'y a qu'une
+  table* ;
+- **deux modes** (clair / sombre) : le document se réenregistre avec ses valeurs
+  par mode et son mode courant, se relit, et rend différemment selon le mode
+  (sonde 68e) — la place de Dark Pro / Light Pro est **éprouvée**, la bascule
+  d'interface reste nommée ;
+- **le rail `Variables`** (gauche, onglet à côté de la Hiérarchie, la place de
+  Lunacy) : pastille du mode courant, **nom renommable sur place** (clic, frappe,
+  clic ailleurs), clé « @… », une ligne par mode, badge d'usages ×N, **poubelle
+  gardée** (« utilisée par N remplissages — détachez-les d'abord ») ; le mode
+  courant est **dit** en tête ; vide, le rail dit où l'on crée une variable. Le
+  témoin sans fenêtre clique dans les rectangles que le panneau a dessinés
+  (`RectNom`, `RectPoubelle`), pas dans une géométrie devinée.
+
+**Le geste attend l'œil de Rodolf** (l'onglet, le renommage à la souris, le rendu
+du bouton dans le popover) — listé, pas déclaré livré. **Nommé, pas fait** :
+**lier une variable existante** depuis le sélecteur (une liste sous le bouton, ou
+le glisser depuis le rail) ; la **bascule de mode** dans l'interface ; le nom
+d'une variable dans le popover de **bordure** ; les **styles** (§15.15).
+
+## 15.15 🏗️ STYLES DE CALQUE ET DE TEXTE — le plan, écrit avant le code (05/09)
+
+**Pas fait, et pas bricolé.** Le temps de la nuit a été mis sur la variable dans
+l'interface (§15.14, éprouvée) ; le style est un objet de plus, avec sa propre
+propagation, et il mérite d'être posé d'un bloc. Voici le plan, pour qu'il se code
+sans re-décider.
+
+### Ce que c'est (rappel du périmètre tranché)
+
+Un **style de calque** = un nom pour un ensemble **remplissages + bordures +
+effets** ; un **style de texte** = un nom pour **police + taille + graisse +
+couleur**. Un style peut **référencer des variables** (ses couleurs sont des
+`@clé` comme ailleurs — rien de neuf à écrire pour ça, `NkGCouleur` résout).
+
+### Le modèle
+
+- `NkStyle { clé, nom, genre ("calque" | "texte", texte libre, inconnu préservé),
+  fills, borders, effets, police, taille, graisse, couleurTexte, inconnus }` —
+  déclaré dans le document (`NkUIDocument::styles`), comme `variables`.
+- Le nœud porte **une référence par genre** : `styleCalque = @clé`,
+  `styleTexte = @clé` (clés additives, absentes tant qu'aucun style n'est lié ;
+  un document d'avant se réenregistre octet pour octet).
+- 🔴 **La propagation est celle de Q51 / §15.6, mot pour mot, et par le MÊME
+  mécanisme que les instances** : le nœud lié **hérite** des listes du style tant
+  qu'il n'a pas posé d'écart ; poser une couleur sur un nœud lié **matérialise**
+  la liste (`MaterialiserFills`, déjà là) et lève le bit `EcartRemplissages` —
+  exactement ce que fait une instance vis-à-vis de sa déclaration. Modifier le
+  style propage donc à tout ce qui le lie **sauf** les propriétés surchargées.
+  Pas un second chemin : la table `NkTousLesEcarts` nomme déjà les bits.
+- **Résolution** : `FondEffectif()`, les bordures et les effets lus par le
+  peintre passent par une porte `NkListesEffectives(n, doc)` qui rend celles du
+  nœud si l'écart est levé, celles du style sinon — **un seul endroit**, lu par
+  le peintre, le pointage et l'inspecteur.
+
+### Le format
+
+```
+style = primaire genre=calque nom="Bouton primaire"
+style_fond_1 = primaire @accent 100
+style_bord_1 = primaire #30363d 2
+style_effet_1 = primaire ombre #000000 0 2 8
+style = titre genre=texte nom="Titre" police=Inter taille=24 graisse=700 couleur=@encre
+```
+Les lignes `style_*` réutilisent **les mêmes lecteurs** que `fond_i` / `bord_i` /
+`effet_i` d'un nœud (une clé de style devant) : pas un second parseur.
+
+### L'interface
+
+- Le rail **`Styles`** (à côté de `Variables`) : liste, nom renommable, aperçu
+  (une pastille des remplissages), usages ×N, poubelle gardée — même gabarit que
+  `VariablesPanel`, dont on **extrait** le squelette de rangée plutôt que de le
+  recopier.
+- Dans l'inspecteur : en tête de FILLS / BORDERS / EFFECTS, une rangée « Style :
+  (aucun) ˅ » pour lier / délier ; « Créer un style depuis ce calque » dans le
+  menu de la section (le geste de Lunacy : *Create style* sur la section).
+- Un style **lié** montre ses lignes **grisées** (héritées) jusqu'à la première
+  édition, qui les matérialise et le dit (« surcharge locale — Réinitialiser »).
+
+### Les témoins, écrits d'avance
+
+1. un style de calque lié à deux rectangles : modifier le style change les deux ;
+   poser une couleur sur l'un lève l'écart, il tient, l'autre suit ;
+2. un style de texte lié à deux textes : idem sur la taille ;
+3. l'aller-retour fichier : les lignes `style_*`, l'inconnu préservé, un
+   document sans style ne gagne aucune ligne ;
+4. un style dont une couleur est `@variable` : changer la variable change les
+   deux rectangles (les deux propagations se composent) ;
+5. la suppression gardée (« utilisé par N calques ») ;
+6. le rail : renommer, garde, supprimer (le gabarit de 68f).
+
+**Coût estimé** : moyen — un lot d'une nuit, à condition de ne pas écrire un
+second chemin de propagation. C'est le point à surveiller à la relecture.
