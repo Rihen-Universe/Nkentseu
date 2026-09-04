@@ -12,6 +12,7 @@
 //                            -> RenderGraph -> Flush.
 // =============================================================================
 #include "NKRenderer/Tools/VFX/NkVFXSystem.h" // sonde VFX
+#include "NKRenderer/Tools/VFX/NkSPHSolver.h" // sonde fluide SPH (2026-09-04)
 #include "NKPhysics/NkVehicle.h"          // sonde VEHICULE (NK_VEHICLE_PROBE=1)
 #include <cstdlib>
 #include <cstdio>
@@ -40,6 +41,9 @@ namespace nkentseu {
 	namespace demo {
 
 		struct Demo3DState {
+	NkSPHSolver *sphSolver = nullptr; // sonde SPH (2026-09-04)
+	uint32 sphCount = 0; uint32 sphScene = 0; float32 sphH0 = 0.f, sphX0 = 0.f, sphTime = 0.f;
+	float32 sphRhoSum = 0.f; uint32 sphRhoN = 0; float32 sphVmaxAll = 0.f; bool sphNaN = false;
 				NkMeshHandle meshSphere;
 				NkMeshHandle meshPlane;
 				NkMeshHandle meshCube;
@@ -2194,6 +2198,70 @@ static NkTexHandle CreateLanternCubeCookie(NkTextureLibrary *texLib, NkIDevice *
 				st->veh->AddWheel({0.8f, -0.5f, -1.3f}, NkWheel::kPowered);
 				std::fprintf(stderr, "[VEHICULE PROBE] voiture creee (chassis id=%u)\n", (unsigned)st->veh->Chassis());
 			}
+			// ── SONDE FLUIDE SPH (2026-09-04), sous NK_SPH_PROBE=1 seulement ─────────────
+			// NK_SPH_SCENE=repos|dam|conserve (defaut dam). Un emetteur sans debit, un bloc
+			// de naissances sur un reseau (h/2), le solveur SPH comme `desc.solver`.
+			// NK_SPH_NOPRESSURE=1 : la mutation (pression coupee) -- le temoin repos DOIT rougir.
+			// NK_SPH_N=<cote> : cote du bloc en particules (defaut 20 -> 8 000 en dam, 4 000 en repos).
+			if (const char *sp = std::getenv("NK_SPH_PROBE"); sp && sp[0] == '1') {
+				if (NkVFXSystem *vfx = ctx.renderer->GetVFX()) {
+					static NkSPHSolver sSph;
+					const char *scene = std::getenv("NK_SPH_SCENE");
+					const bool repos = scene && scene[0] == 'r';
+					const bool conserve = scene && scene[0] == 'c';
+					uint32 cote = 20;
+					if (const char *n = std::getenv("NK_SPH_N"); n && n[0]) cote = (uint32)std::atoi(n);
+					if (cote < 2) cote = 2;
+					sSph.params.h = 0.1f;
+					sSph.params.maxSpeed = 8.f;
+					sSph.params.maxSubSteps = 24;
+					if (const char *np = std::getenv("NK_SPH_NOPRESSURE"); np && np[0] == '1') sSph.pressureEnabled = false;
+					const float32 d = sSph.params.h * 0.5f; // espacement du reseau
+					NkVec3f bmin, bmax, blockMin, blockMax;
+					if (repos || conserve) {
+						// boite de la largeur du bloc : la surface libre reste plate, la densite doit revenir a rho0
+						const float32 w = (float32)cote * d;
+						bmin = {-w * 0.5f, -1.f, -w * 0.5f};
+						bmax = {w * 0.5f, 1.5f, w * 0.5f};
+						// NK_SPH_DROP=1 : le bloc part 0,3 m au-dessus du sol (chute) ; sinon il est POSE dessus
+						// (mesure du 04/09 : separer « le repos tient » de « l'impact casse »).
+						const char *drop = std::getenv("NK_SPH_DROP");
+						const float32 y0 = -1.f + ((drop && drop[0] == '1') ? 0.3f : 0.f);
+						blockMin = {-w * 0.5f, y0, -w * 0.5f};
+						blockMax = {w * 0.5f, y0 + (float32)(cote / 2) * d, w * 0.5f};
+					} else {
+						// rupture de barrage : bloc h0 = cote*d dans le tiers gauche d'une boite 3x plus longue
+						const float32 w = (float32)cote * d;
+						bmin = {-1.5f * w, -1.f, -w * 0.5f};
+						bmax = {1.5f * w, -1.f + 2.5f * w, w * 0.5f};
+						blockMin = {-1.5f * w, -1.f, -w * 0.5f};
+						blockMax = {-0.5f * w, -1.f + w, w * 0.5f};
+					}
+					sSph.params.boundsMin = bmin;
+					sSph.params.boundsMax = bmax;
+					NkVector<NkParticleBirth> births;
+					const uint32 nb = NkSPHSolver::FillBlock(births, blockMin, blockMax, d);
+					NkEmitterDesc fd;
+					fd.position = {0.f, 0.f, 0.f};
+					fd.ratePerSec = 0.f;
+					fd.maxParticles = nb + 16;
+					fd.sizeStart = fd.sizeEnd = d * 1.6f;
+					fd.colorStart = fd.colorEnd = {0.25f, 0.55f, 1.f, 0.9f};
+					fd.blend = NkBlendMode::NK_ALPHA;
+					fd.gravity = {0.f, 0.f, 0.f}; // la gravite est celle du solveur
+					fd.solver = &sSph;
+					NkEmitterId fid = vfx->CreateEmitter(fd);
+					vfx->SpawnBirths(fid, births.Data(), (uint32)births.Size());
+					std::fprintf(stderr, "[SPH PROBE] scene=%s particules=%u h=%g d=%g masse=%g rho0=%g k=%g mu=%g pression=%d boite=[%g,%g,%g]-[%g,%g,%g]\n",
+								 repos ? "repos" : (conserve ? "conserve" : "dam"), nb, sSph.params.h, d, sSph.params.Mass(), sSph.params.restDensity,
+								 sSph.params.stiffness, sSph.params.viscosity, (int)sSph.pressureEnabled, bmin.x, bmin.y, bmin.z, bmax.x, bmax.y, bmax.z);
+					st->sphSolver = &sSph;
+					st->sphCount = nb;
+					st->sphH0 = blockMax.y - blockMin.y;
+					st->sphX0 = blockMax.x;
+					st->sphScene = repos ? 1 : (conserve ? 2 : 0);
+				}
+			}
 			if (const char *probe = std::getenv("NK_VFX_PROBE"); probe && probe[0] == '1') {
 				if (NkVFXSystem *vfx = ctx.renderer->GetVFX()) {
 					NkEmitterDesc d;
@@ -4039,6 +4107,10 @@ static NkTexHandle CreateLanternCubeCookie(NkTextureLibrary *texLib, NkIDevice *
 					const char *e = std::getenv("NK_VFX_PROBE");
 					return e && e[0] == '1';
 				}();
+				static const unsigned maxFramesProbe = [] { // pour le verdict SPH a la derniere image
+					const char *e = std::getenv("NK_MAXFRAMES");
+					return e ? (unsigned)std::atoi(e) : 0u;
+				}();
 				// sonde VEHICULE : plein gaz 1 s apres le depart, braquage doux ensuite
 				if (st->veh && st->vehWorld) {
 					st->vehClock += dt;
@@ -4052,6 +4124,44 @@ static NkTexHandle CreateLanternCubeCookie(NkTextureLibrary *texLib, NkIDevice *
 									 (int)st->veh->Wheel(2).grounded, (int)st->veh->Wheel(3).grounded);
 					}
 				}
+				// sonde SPH : pas FIXE 1/60 (reproductible), verdicts chiffres a la derniere image
+				if (st->sphSolver)
+					if (NkVFXSystem *vfx = ctx.renderer->GetVFX()) {
+						const float32 fdt = 1.f / 60.f;
+						if (!kProbe)
+							vfx->Update(fdt, camData);
+						st->sphTime += fdt;
+						const NkSPHStats &ss = st->sphSolver->Stats();
+						if (ss.densityMean != ss.densityMean || ss.maxSpeed != ss.maxSpeed) st->sphNaN = true;
+						if (ss.maxSpeed > st->sphVmaxAll) st->sphVmaxAll = ss.maxSpeed;
+						if (st->sphTime > 2.f) { st->sphRhoSum += ss.densityMean; ++st->sphRhoN; }
+						const float32 rho0 = st->sphSolver->params.restDensity;
+						if ((ctx.frame % 30u) == 0u)
+							std::fprintf(stderr, "[SPH PROBE] frame %u t=%.2fs : vivantes %u  rho/rho0 moy %.3f (min %.3f max %.3f)  vmax %.2f m/s  bornees %u  sous-pas %u  front x=%.3f  y[%.3f..%.3f]  %.2f ms\n",
+										 (unsigned)ctx.frame, st->sphTime, ss.alive, ss.densityMean / rho0, ss.densityMin / rho0, ss.densityMax / rho0, ss.maxSpeed,
+										 ss.speedClamped, ss.subSteps, ss.maxX, ss.minY, ss.maxY, ss.ms);
+						// rupture de barrage : front a t ~ 0,25 s compare a x0 + 2 sqrt(g h0) t (eau peu profonde)
+						if (st->sphScene == 0 && st->sphTime >= 0.25f && st->sphTime < 0.25f + fdt) {
+							const float32 attendu = st->sphX0 + 2.f * sqrtf(9.8f * st->sphH0) * st->sphTime;
+							const float32 mesure = ss.maxX;
+							const float32 ecart = fabsf((mesure - st->sphX0) - (attendu - st->sphX0)) / (attendu - st->sphX0);
+							std::fprintf(stderr, "[SPH TEMOIN] dam break t=%.3fs : front mesure %.3f m (parcouru %.3f), attendu %.3f (parcouru %.3f), ecart %.0f %% -> %s\n",
+										 st->sphTime, mesure, mesure - st->sphX0, attendu, attendu - st->sphX0, ecart * 100.f, ecart <= 0.2f ? "OK" : "ECHEC (>20 %)");
+						}
+						if (maxFramesProbe && ctx.frame + 1 == maxFramesProbe) {
+							const float32 rhoMoy = st->sphRhoN ? st->sphRhoSum / (float32)st->sphRhoN : 0.f;
+							const bool okN = ss.alive == st->sphCount;
+							const bool okRho = fabsf(rhoMoy / rho0 - 1.f) <= 0.05f;
+							const bool okStab = !st->sphNaN && st->sphVmaxAll < st->sphSolver->params.maxSpeed;
+							std::fprintf(stderr, "[SPH TEMOIN] conservation : vivantes %u / %u, masse %.4f kg -> %s\n", ss.alive, st->sphCount,
+										 ss.alive * st->sphSolver->params.Mass(), okN ? "OK" : "ECHEC");
+							if (st->sphScene == 1)
+								std::fprintf(stderr, "[SPH TEMOIN] repos : rho/rho0 moyen apres 2 s = %.3f (surface y=%.3f) -> %s\n", rhoMoy / rho0, ss.maxY,
+											 okRho ? "OK (+-5 %)" : "ECHEC (hors +-5 %)");
+							std::fprintf(stderr, "[SPH TEMOIN] stabilite : %.2f s simulees, vmax global %.2f m/s, NaN=%d -> %s\n", st->sphTime, st->sphVmaxAll,
+										 (int)st->sphNaN, okStab ? "OK" : "ECHEC");
+						}
+					}
 				if (kProbe)
 					if (NkVFXSystem *vfx = ctx.renderer->GetVFX()) {
 						vfx->Update(dt, camData);
