@@ -1874,6 +1874,40 @@ réel, nommé, non corrigé.** Le repos, lui, tient toujours (1,001, sol compris
 mesure de vmax sans le filet 8 m/s ; plan B étapes b-c (stockage GPU + noyau NkSL). Ils attendent la
 prochaine session, dans cet ordre.
 
+### 📏 04/09 (nuit, 6) — LES CAUSES DU FRONT TROP RAPIDE : une expérience par hypothèse, un chiffre chacune
+
+Deux références séparées dans la sonde, scène inchangée (Release, 4 096 particules, h = 0,1) :
+**Cébron & Sigrist 2D** (arXiv:1002.3213, fig. 4, colonne carrée, T = t√(g/H), courbe SPH « Numerical [9] »
+**lue à l'œil ± 0,05**, pas tabulée) = cible à 15 % pour un SPH de même famille ; **Martin & Moyce 1952**
+(table via Lethe, n² = 2, adimensionnement T = t√(n²g/a)) = référence physique, 30 % une fois le frottement
+modélisé. Boutons d'instrument (jamais la scène) : `NK_SPH_SURF` (borne de surface 1 dure / 0 aucune / 2
+douce), `NK_SPH_ALPHA` (viscosité artificielle de Monaghan, c = 50), `NK_SPH_WALL` (poids XSPH des
+fantômes : frottement de paroi), `NK_SPH_H` (résolution). Métrique d'agglutination : particules à ρ > 1,1 ρ₀.
+
+| expérience | Cébron 2D (Z−1, moyen / max) | M&M (sans / avec retard de vanne +0,175) | agglutinées | note |
+|---|---|---|---|---|
+| **base** (borne dure, α = 0, paroi 1) | **41 % / 49 %** | 140 % / 81 % | 0 | trop rapide partout |
+| borne de surface **aucune** | 80 % | 105 % | 0 | 🔴 **le solveur se fige** : front −0,025 m constant, 100 itérations plafond, 4 096 bornées |
+| borne de surface **douce** | 79 % | 104 % | **222** | figé aussi, et l'agglutination apparaît (instabilité de traction) |
+| **α = 0,05** | **19 % / 36 %** | 96 % / 51 % | 0 | phase tardive dans la cible (16, 10, 5, 0 %), phase précoce 30-36 % |
+| α = 0,05 + paroi 0 (glissement libre) | 21 % | 100 % / 54 % | 0 | la paroi vaut ±2 % |
+| paroi 0 seule | 48 % | 152 % / 90 % | 0 | idem, légèrement pire que base |
+| **α = 0,075** | **13 % / 24 % → OK ±15 %** | 60 % / **26 %** | 1 | ⚠️ mais le **repos** n'est plus calme : vmax 1,19 m/s à la fin (au lieu de 0,04), 5,99 global, ρ min 0,84 |
+| α = 0,1 | 14 % / 34 % → OK | 32 % / **15 % → OK** | 0 | le front tardif devient trop LENT (T ≥ 1,9 : 23-34 %) et le front dense décroche de l'éclat |
+| α = 0,2 | 480 % | 842 % | 0 | 🔴 explose dès t = 0,05 s : viscosité explicite hors de sa stabilité |
+| α = 0,05 à **h = 0,05** (32 768) | 393 % | 700 % | 0 | 🔴 explose aussi : l'α artificiel dépend de la résolution, cause de l'explosion non établie |
+
+🔑 **Lecture** : (1) la borne dure ρ* ≥ ρ₀ n'est pas le levier — sans elle le solveur ne converge plus ; (2) le
+frottement de paroi via XSPH ne pèse rien ; (3) **la cause est l'absence de viscosité** : α = 0,075 met le
+front à 13 % de la référence SPH 2D et à 26 % de l'expérience (retard de vanne compris) — **mais casse le
+repos calme** (1,19 m/s). Les deux témoins se paient l'un par l'autre avec une viscosité *artificielle*
+explicite ; **le défaut du solveur reste α = 0** (repos vert, front rouge, tous deux dits). **Suite nommée** :
+viscosité **physique** (laminaire, Morris 1997 ou Monaghan-Cleary-Gingold) avec sa **CFL visqueuse**, qui
+n'agit pas au repos et ne dépend pas de la résolution ; puis, si M&M reste hors 30 %, le canal 3D à la
+géométrie de M&M (n² = 2). Le SPH GPU attend un front juste **et** un repos calme ensemble.
+
+Toujours non fait de ce lot : démarrage à chaud + tolérance relative ; vmax sans filet ; plan B b-c.
+
 ### 🔩 04/09 (nuit) — JENGA 2.6 : ce qui est appliqué, ce qui est mesuré en retour
 
 - **`-static` — le défaut était chez nous** : `config/toolchain.jenga:55` (bloc Windows natif) promettait
