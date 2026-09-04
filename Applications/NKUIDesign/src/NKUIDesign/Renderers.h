@@ -376,6 +376,36 @@ namespace nkuidesign {
 			}
 			return (v << 8) | 0xFFu;
 		}
+		// ── LE RESOLVEUR COURANT : pose par celui qui dessine, explicite ─────────
+		/// Une couleur peut etre une REFERENCE (« @cle ») a une variable du document.
+		/// Le peintre ne connait pas le document : celui qui dessine POSE le
+		/// resolveur (NkDrawDocument a la racine ; l'inspecteur avant ses apercus).
+		/// Une reference vers une variable absente rend MAGENTA et se note --
+		/// jamais silencieusement noire.
+		struct NkResolveurCouleur {
+				const NkUIDocument *doc = nullptr;
+				const char *derniereAbsente = nullptr; ///< la cle de la derniere reference non trouvee
+		};
+		inline NkResolveurCouleur &NkResolveurCourant() {
+			static NkResolveurCouleur r;
+			return r;
+		}
+		inline void NkPoserResolveur(const NkUIDocument *doc) {
+			NkResolveurCourant().doc = doc;
+			NkResolveurCourant().derniereAbsente = nullptr;
+		}
+		/// La couleur d'un texte de couleur du document : litteral ou reference.
+		inline nkentseu::uint32 NkGCouleur(const char *c) {
+			if (!NkEstReference(c))
+				return NkGHexRGBA(c);
+			NkResolveurCouleur &r = NkResolveurCourant();
+			const char *v = r.doc ? r.doc->ResoudreCouleur(c) : nullptr;
+			if (!v) {
+				r.derniereAbsente = c;
+				return 0xFF00FFFFu; // MAGENTA : la variable est absente, et ca se voit
+			}
+			return NkGHexRGBA(v);
+		}
 
 		/// LE FOND D'UN NŒUD, OPACITÉ COMPRISE — le seul endroit qui traduit la
 		/// liste de remplissages en une couleur pour les peintres de FORME.
@@ -391,7 +421,7 @@ namespace nkuidesign {
 			const char *c = n.FondEffectif();
 			if (!c)
 				return 0x808080FFu;
-			const nkentseu::uint32 rgba = NkGHexRGBA(c);
+			const nkentseu::uint32 rgba = NkGCouleur(c);
 			const nkentseu::float32 o = n.FondOpacite();
 			if (o >= 100.f)
 				return rgba;
@@ -524,7 +554,7 @@ namespace nkuidesign {
 				return 0u;
 			auto rgbaDe = [&](nkentseu::uint32 i) -> nkentseu::uint32 {
 				const NkArretDegrade &a = g.arrets[i];
-				const nkentseu::uint32 base = NkGHexRGBA(a.couleur.Data());
+				const nkentseu::uint32 base = NkGCouleur(a.couleur.Data());
 				const nkentseu::float32 op =
 					(a.opacite < 0.f ? 0.f : (a.opacite > 100.f ? 100.f : a.opacite)) * 0.01f;
 				const nkentseu::uint32 al = (nkentseu::uint32)((nkentseu::float32)(base & 0xFFu) * op + 0.5f);
@@ -909,7 +939,7 @@ namespace nkuidesign {
 		/// LA PORTE NOMMEE : une `NkBordure` (couleur en texte, opacite) devient
 		/// une couleur resolue, puis c'est le meme anneau. Comportement inchange.
 		inline nkentseu::uint32 NkGBordureRGBA(const NkBordure &b) {
-			const nkentseu::uint32 base = NkGHexRGBA(b.couleur.Data());
+			const nkentseu::uint32 base = NkGCouleur(b.couleur.Data());
 			const nkentseu::float32 k =
 				(b.opacite < 0.f ? 0.f : (b.opacite > 100.f ? 100.f : b.opacite)) * 0.01f;
 			const nkentseu::uint32 a = (nkentseu::uint32)((base & 0xFFu) * k + 0.5f);
@@ -917,7 +947,7 @@ namespace nkuidesign {
 		}
 		inline void NkGCadre(NkComponentPaint &p, const NkPaintRect &r, const NkBordure &b,
 							 const nkentseu::float32 R[4], nkentseu::uint32 interieur) {
-			const nkentseu::uint32 base = NkGHexRGBA(b.couleur.Data());
+			const nkentseu::uint32 base = NkGCouleur(b.couleur.Data());
 			const nkentseu::float32 k =
 				(b.opacite < 0.f ? 0.f : (b.opacite > 100.f ? 100.f : b.opacite)) * 0.01f;
 			const nkentseu::uint32 a = (nkentseu::uint32)((base & 0xFFu) * k + 0.5f);
@@ -975,7 +1005,7 @@ namespace nkuidesign {
 				const NkEffet &e = n.effets[i];
 				if (!e.visible || e.couleur.Empty() || e.type != NkEffetType::OmbrePortee)
 					continue;
-				const nkentseu::uint32 base = NkGHexRGBA(e.couleur.Data());
+				const nkentseu::uint32 base = NkGCouleur(e.couleur.Data());
 				const nkentseu::float32 op =
 					(e.opacite < 0.f ? 0.f : (e.opacite > 100.f ? 100.f : e.opacite)) * 0.01f;
 				if (op <= 0.f)
@@ -1336,7 +1366,7 @@ namespace nkuidesign {
 						}
 						if (f.couleur.Empty())
 							continue;
-						const uint32 base = NkGHexRGBA(f.couleur.Data());
+						const uint32 base = NkGCouleur(f.couleur.Data());
 						const float32 k = (f.opacite < 0.f ? 0.f
 										   : f.opacite > 100.f ? 100.f
 															   : f.opacite)
@@ -1368,7 +1398,7 @@ namespace nkuidesign {
 					}
 					fondPeint = peint;
 				} else if (!n.fill.Empty()) {
-					rgbaFond = NkGHexRGBA(n.fill.Data());
+					rgbaFond = NkGCouleur(n.fill.Data());
 					NkGRectCoins(p, r, rgbaFond, Rc);
 					fondPeint = true;
 				} else {
@@ -1636,7 +1666,7 @@ namespace nkuidesign {
 					// repli doit se voir.
 					const uint32 rgba = (n.textColor.Empty() || !traduit)
 											? p.ColorOf(roleTexte)
-											: NkGHexRGBA(n.textColor.Data());
+											: NkGCouleur(n.textColor.Data());
 					const float32 corps = (n.fontPx > 0.f ? n.fontPx : 12.f) * host.docScale;
 					p.TextHex(r, t, rgba, roleTexte, al, corps, n.fontWeight);
 				} else
@@ -1849,6 +1879,8 @@ namespace nkuidesign {
 
 	inline void NkDrawDocument(NkComponentPaint &p, const NkComponentInput &in, const NkUIDocument &doc,
 							   const NkLayoutResult &lay, NkDocumentHost &host, int32 node = 0) {
+		if (node == 0)
+			renderdetail::NkPoserResolveur(&doc); // les references « @cle » se resolvent ici
 		if (!doc.IsValidIndex(node) || !lay.Has(node))
 			return;
 		// ── MASQUE : NI LUI, NI SA DESCENDANCE (vague 2) ────────────────────

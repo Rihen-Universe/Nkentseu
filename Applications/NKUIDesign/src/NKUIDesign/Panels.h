@@ -9911,6 +9911,7 @@ namespace nkuidesign {
 			/// panneau (entrée masquée par le shell dès qu'un popup est survolé).
 			void DessinerPopoverRemplissage(NkGuiContext &ctx) {
 				DesignState::DemandePicker &d = mSt->picker;
+				renderdetail::NkPoserResolveur(&mSt->doc);
 				if (!d.ouvert || !mSt->doc.IsValidIndex(d.noeud)) {
 					d.ouvert = false;
 					return;
@@ -13124,6 +13125,7 @@ namespace nkuidesign {
 			void CorpsRemplissages(NkGuiContext &ctx) {
 				if (!SectionOuverte("REMPLISSAGES"))
 					return;
+				renderdetail::NkPoserResolveur(&mSt->doc); // les apercus resolvent « @cle »
 				NkUINode *n = NoeudMutable();
 				if (!n) {
 					designkit::KeyValue(ctx, "Remplissages", "-");
@@ -13218,10 +13220,23 @@ namespace nkuidesign {
 											  (uint8)((c >> 8) & 0xFFu), 255});
 						}
 					}
+					// LE NOM DE LA VARIABLE sur la ligne quand le remplissage la reference
+					// (« Dark Primary », comme sa capture) ; absente : dit, en rouge
+					const NkVariable *varLigne = NkEstReference(mFillsBuf[i]) ? mSt->doc.TrouverVariable(mFillsBuf[i]) : nullptr;
+					char absente[64];
+					snprintf(absente, sizeof(absente), "%s : variable absente", mFillsBuf[i]);
 					const char *nomLigne = ligneImage ? NkNomTypeRemplissage(n->fills[i])
 										   : (gApercu && gApercu->Actif() ? NkNomTypeRemplissage(n->fills[i])
-																	: (mFillsBuf[i][0] ? mFillsBuf[i] : "\xE2\x80\x94"));
-					costume::Texte(dl, F.px10, col.hexX, costume::CentrerBande(F.px10, r.y), nomLigne, encre);
+																	: (varLigne ? (varLigne->nom.Empty() ? varLigne->cle.Data() : varLigne->nom.Data())
+																				: (NkEstReference(mFillsBuf[i]) ? absente
+																									  : (mFillsBuf[i][0] ? mFillsBuf[i] : "\xE2\x80\x94"))));
+					if (NkEstReference(mFillsBuf[i])) { // la pastille montre la couleur RESOLUE
+						const char *res = mSt->doc.ResoudreCouleur(mFillsBuf[i]);
+						const nkgui::NkColor cr = res ? NkCouleurDepuisHex(res) : nkgui::NkColor{255, 0, 255, 255};
+						dl.AddRectFilled({sw.x + 1.f, sw.y + 1.f, sw.w - 2.f, sw.h - 2.f}, cr, 2.f);
+					}
+					costume::Texte(dl, F.px10, col.hexX, costume::CentrerBande(F.px10, r.y), nomLigne,
+								   (NkEstReference(mFillsBuf[i]) && !varLigne) ? nkgui::NkColor{220, 60, 60, 255} : encre);
 					char idOp[32];
 					snprintf(idOp, sizeof(idOp), "insp.fill.op%u", i);
 					const NkRect ro = {col.opacX, costume::BandeY(r.y), 30.f, costume::HControle};

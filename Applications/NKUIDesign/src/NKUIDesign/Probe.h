@@ -4940,6 +4940,144 @@ namespace nkuidesign {
 				  "dans la boite) -- la source n'est pas chargee, et c'est dit, pas simule",
 				  fond && clairs == 16u && hors == 0u, det);
 		}
+		// ── 63. LA VARIABLE DE COULEUR : reference, litteral, absente, modes, Q51 ─
+		{
+			auto rectAvecFond = [](NkUIDocument &d, int32 parent, const char *couleur) {
+				const int32 f = d.AddChild(parent, "", NkAuthor::Humain);
+				NkUINode &n = d.nodes[(uint32)f];
+				n.shape = NkString("rect");
+				n.posX = 10.f;
+				n.posY = 10.f;
+				n.width.mode = NkSizeMode::Fixed;
+				n.width.value = 40.f;
+				n.height.mode = NkSizeMode::Fixed;
+				n.height.value = 40.f;
+				NkRemplissage r;
+				r.couleur = NkString(couleur);
+				n.fills.PushBack(r);
+				return f;
+			};
+			auto couleurPeinte = [](NkUIDocument &d, int32 noeud) -> uint32 {
+				NkPaintRect s;
+				s.x = 0.f;
+				s.y = 0.f;
+				s.w = 600.f;
+				s.h = 400.f;
+				NkLayoutResult lay;
+				NkComputeLayout(d, s, lay);
+				const NkPaintRect r = lay.At(noeud);
+				// on ne peint QUE ce noeud : tout le reste est masque le temps de la mesure
+				NkVector<uint8> masques;
+				for (uint32 i = 0; i < (uint32)d.nodes.Size(); ++i) {
+					masques.PushBack(d.nodes[i].masque ? 1u : 0u);
+					if (i != 0u && (int32)i != noeud)
+						d.nodes[i].masque = true;
+				}
+				NkRecordingPaint rec;
+				RenderDocument(rec, d, s);
+				for (uint32 i = 0; i < (uint32)d.nodes.Size(); ++i)
+					d.nodes[i].masque = masques[i] != 0u;
+				uint32 dernier = 0u;
+				for (uint32 i = 0; i < (uint32)rec.cmds.Size(); ++i) {
+					const NkPaintCmd &c = rec.cmds[i];
+					if (c.op == NkPaintOp::FillColor && c.x == r.x && c.y == r.y && c.w == r.w && c.h == r.h)
+						dernier = c.rgba;
+				}
+				return dernier;
+			};
+			char det[320];
+			NkUIDocument dV;
+			dV.NewDocument("Toile", NkAuthor::Humain);
+			NkVariable prim;
+			prim.cle = NkString("primaire");
+			prim.nom = NkString("Dark Primary");
+			prim.valeur = NkString("#1976d2");
+			NkValeurMode sombre;
+			sombre.mode = NkString("sombre");
+			sombre.valeur = NkString("#0d47a1");
+			prim.parMode.PushBack(sombre);
+			dV.variables.PushBack(prim);
+			const int32 ref = rectAvecFond(dV, 0, "@primaire");
+			const int32 lit = rectAvecFond(dV, 0, "#ff0000");
+			const int32 abs = rectAvecFond(dV, 0, "@inconnue");
+			// 63a. reference, litteral, absente
+			const uint32 cRef = couleurPeinte(dV, ref), cLit = couleurPeinte(dV, lit), cAbs = couleurPeinte(dV, abs);
+			const bool absenteDite = renderdetail::NkResolveurCourant().derniereAbsente != nullptr;
+			snprintf(det, sizeof(det), "reference -> %08X (1976D2FF), litteral -> %08X (FF0000FF), absente -> %08X (magenta), dite=%d",
+					 cRef, cLit, cAbs, absenteDite ? 1 : 0);
+			check("63a. UNE REFERENCE (« @primaire ») se peint a la valeur de la variable, un litteral reste lui-meme, "
+				  "et une variable ABSENTE se voit (magenta) et se DIT -- jamais silencieusement noire",
+				  cRef == 0x1976D2FFu && cLit == 0xFF0000FFu && cAbs == 0xFF00FFFFu && absenteDite, det);
+			// 63b. les MODES : le meme document rend differemment selon son mode courant
+			dV.modeCourant = NkString("sombre");
+			const uint32 cSombre = couleurPeinte(dV, ref);
+			dV.modeCourant = NkString("clair"); // un mode que la variable ne declare pas : la valeur par defaut
+			const uint32 cClair = couleurPeinte(dV, ref);
+			dV.modeCourant = NkString();
+			snprintf(det, sizeof(det), "mode sombre -> %08X (0D47A1FF) ; mode clair (non declare) -> %08X (defaut 1976D2FF)", cSombre, cClair);
+			check("63b. LES MODES, place reservee : la meme reference rend la valeur du mode courant, et un mode "
+				  "que la variable ne declare pas retombe sur sa valeur par defaut -- Dark Pro / Light Pro sans recopier",
+				  cSombre == 0x0D47A1FFu && cClair == 0x1976D2FFu, det);
+			// 63c. le format : la ligne `variable`, le nom entre guillemets, le mode, l'inconnu preserve, additif
+			dV.modeCourant = NkString("sombre");
+			NkString s1;
+			dV.Save(s1);
+			const bool cles = strstr(s1.Data(), "variable = primaire #1976d2 nom=\"Dark Primary\" @sombre=#0d47a1") != nullptr
+							  && strstr(s1.Data(), "mode = sombre") != nullptr && strstr(s1.Data(), "fond_1 = @primaire ") != nullptr;
+			NkString s2;
+			const char *pos = strstr(s1.Data(), "@sombre=#0d47a1");
+			const uint32 coupe = (uint32)(pos - s1.Data()) + 15u;
+			for (uint32 i = 0; i < coupe; ++i)
+				s2.Append(s1.Data()[i]);
+			s2.Append(" futur=x");
+			s2.Append(s1.Data() + coupe);
+			NkUIDocument relu;
+			const bool ok = relu.Load(s2.Data());
+			const NkVariable *rv = ok ? relu.TrouverVariable("primaire") : nullptr;
+			const bool relus = rv && NkComponentDecl::StrEq(rv->nom.Data(), "Dark Primary")
+							   && NkComponentDecl::StrEq(rv->valeur.Data(), "#1976d2") && rv->parMode.Size() == 1u
+							   && NkComponentDecl::StrEq(rv->parMode[0].valeur.Data(), "#0d47a1")
+							   && NkComponentDecl::StrEq(rv->inconnus.Data(), "futur=x")
+							   && NkComponentDecl::StrEq(relu.modeCourant.Data(), "sombre")
+							   && relu.IsValidIndex(ref) && NkComponentDecl::StrEq(relu.nodes[(uint32)ref].fills[0].couleur.Data(), "@primaire");
+			NkString s3;
+			if (ok)
+				relu.Save(s3);
+			const bool reemis = ok && strstr(s3.Data(), "futur=x") != nullptr;
+			NkUIDocument dSans;
+			dSans.NewDocument("Toile", NkAuthor::Humain);
+			NkString sS;
+			dSans.Save(sS);
+			const bool additif = strstr(sS.Data(), "variable = ") == nullptr && strstr(sS.Data(), "mode = ") == nullptr;
+			dV.modeCourant = NkString();
+			snprintf(det, sizeof(det), "cles=%d relus=%d reemis=%d ; document sans variable : aucune ligne=%d", cles ? 1 : 0,
+					 relus ? 1 : 0, reemis ? 1 : 0, additif ? 1 : 0);
+			check("63c. LE FORMAT : `variable = <cle> <valeur> nom=\"...\" @mode=valeur`, `mode = ...`, la reference "
+				  "« @primaire » dans `fond_`, l'inconnu preserve, et un document sans variable ne gagne aucune ligne",
+				  cles && relus && reemis && additif, det);
+			// 63d. Q51 par la reference : un composant dont le fond est « @primaire », deux instances ;
+			// l'une pose un litteral (surcharge locale) ; on change la variable -> l'autre suit, elle tient
+			const int32 bt = rectAvecFond(dV, 0, "@primaire");
+			dV.nodes[(uint32)bt].label = NkString("Bouton");
+			const int32 decl = dV.ExtraireComposant(bt, "", "bouton");
+			const int32 a1 = dV.InstancierComposant(decl, 0);
+			const int32 a2 = dV.InstancierComposant(decl, 0);
+			bool q51 = false;
+			if (decl >= 0 && dV.IsValidIndex(a1) && dV.IsValidIndex(a2)) {
+				dV.nodes[(uint32)a1].MaterialiserFills();
+				if (!dV.nodes[(uint32)a1].fills.Empty())
+					dV.nodes[(uint32)a1].fills[0].couleur = NkString("#ff0000");
+				dV.nodes[(uint32)a1].ecarts |= NkUINode::EcartRemplissages;
+				dV.variables[0].valeur = NkString("#00aa00"); // la variable change
+				const uint32 c1 = couleurPeinte(dV, a1), c2 = couleurPeinte(dV, a2);
+				q51 = c1 == 0xFF0000FFu && c2 == 0x00AA00FFu;
+				snprintf(det, sizeof(det), "variable -> #00aa00 : instance surchargee (litteral) -> %08X (tient), instance libre (@primaire) -> %08X (suit)", c1, c2);
+			} else
+				snprintf(det, sizeof(det), "extraction ou instanciation refusee");
+			check("63d. LA PROPAGATION Q51, par la reference : changer la variable propage a tout ce qui la reference ; "
+				  "une surcharge locale (un litteral pose sur une instance) TIENT -- meme mecanisme que les composants",
+				  q51, det);
+		}
 		snprintf(tail, sizeof(tail), "\n=== RESULTAT : %d / %d ===\n", pass, total);
 		rep.Append(tail);
 

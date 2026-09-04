@@ -308,6 +308,38 @@ namespace nkuidesign {
 	///    en DEPLACANT des arrets, jamais en tapant une chaine. Le modele porte
 	///    donc la position comme une VALEUR MANIPULABLE, pas comme un rang.
 	inline bool StrStartsWith(const char *s, const char *prefixe);
+	// ════════════════════════════════════════════════════════════════════════
+	//  LA VARIABLE : un nom pour UNE valeur (§15.14, 04/09)
+	// ════════════════════════════════════════════════════════════════════════
+	/// Une valeur par MODE : la place reservee pour Dark Pro / Light Pro.
+	struct NkValeurMode {
+			NkString mode;	 ///< « clair », « sombre »... texte libre
+			NkString valeur; ///< la valeur dans ce mode
+	};
+	/// `cle` : sans espace, c'est elle qu'une reference nomme (« @primaire »).
+	/// `nom` : libre, celui que la ligne affiche (« Dark Primary »). `valeur` :
+	/// la valeur par defaut ; `parMode` : les valeurs par mode ; `inconnus` :
+	/// les jetons non compris de la ligne `variable`, reemis tels quels.
+	struct NkVariable {
+			NkString cle;
+			NkString nom;
+			NkString valeur;
+			NkVector<NkValeurMode> parMode;
+			NkString inconnus;
+			/// La valeur pour ce mode -- ou la valeur par defaut si le mode n'en a pas.
+			const char *ValeurPour(const char *mode) const {
+				if (mode && *mode)
+					for (uint32 i = 0; i < (uint32)parMode.Size(); ++i)
+						if (NkComponentDecl::StrEq(parMode[i].mode.Data(), mode))
+							return parMode[i].valeur.Data();
+				return valeur.Data();
+			}
+	};
+	/// Une couleur est-elle une REFERENCE (« @cle ») plutot qu'une valeur ?
+	inline bool NkEstReference(const char *c) {
+		return c && c[0] == '@' && c[1];
+	}
+
 	struct NkArretDegrade {
 			float32 position = 0.f; ///< 0..1 le long de l'axe
 			NkString couleur;		///< hexa « #rrggbb »
@@ -1341,6 +1373,28 @@ namespace nkuidesign {
 			/// multilingue 01/09) : la principale n'a pas de code (c'est `texte`).
 			/// Vide = document monolingue — il se reenregistre octet pour octet.
 			NkVector<NkString> langues;
+			/// LES VARIABLES du document, et son mode courant (vide = le defaut).
+			NkVector<NkVariable> variables;
+			NkString modeCourant;
+			const NkVariable *TrouverVariable(const char *cle) const {
+				if (!cle)
+					return nullptr;
+				if (*cle == '@')
+					++cle;
+				for (uint32 i = 0; i < (uint32)variables.Size(); ++i)
+					if (NkComponentDecl::StrEq(variables[i].cle.Data(), cle))
+						return &variables[i];
+				return nullptr;
+			}
+			/// RESOUDRE une couleur : un litteral revient tel quel ; une reference
+			/// donne la valeur de la variable dans le mode courant ; une reference
+			/// vers une variable ABSENTE rend nullptr -- l'appelant le DIT.
+			const char *ResoudreCouleur(const char *c) const {
+				if (!NkEstReference(c))
+					return c;
+				const NkVariable *v = TrouverVariable(c);
+				return v ? v->ValeurPour(modeCourant.Data()) : nullptr;
+			}
 
 			// ── LE PROPRIETAIRE DES NOMS PORTES PAR LES TYPES DU KIT ───────────
 			// `NkSizeDecl::valueMetric` est un `const char*` (cf. NkDocStringPool.h).
@@ -2526,6 +2580,35 @@ namespace nkuidesign {
 				out.Append("origine = ");
 				out.Append(prov.origin);
 				out.Append('\n');
+				// LES VARIABLES, additives : rien tant qu'il n'y en a pas
+				if (!modeCourant.Empty()) {
+					out.Append("mode = ");
+					out.Append(modeCourant);
+					out.Append('\n');
+				}
+				for (uint32 vi = 0; vi < (uint32)variables.Size(); ++vi) {
+					const NkVariable &v = variables[vi];
+					out.Append("variable = ");
+					out.Append(v.cle);
+					out.Append(' ');
+					out.Append(v.valeur.Empty() ? "-" : v.valeur.Data());
+					if (!v.nom.Empty()) {
+						out.Append(" nom=\"");
+						out.Append(v.nom);
+						out.Append('\"');
+					}
+					for (uint32 mi = 0; mi < (uint32)v.parMode.Size(); ++mi) {
+						out.Append(" @");
+						out.Append(v.parMode[mi].mode);
+						out.Append('=');
+						out.Append(v.parMode[mi].valeur);
+					}
+					if (!v.inconnus.Empty()) {
+						out.Append(' ');
+						out.Append(v.inconnus);
+					}
+					out.Append('\n');
+				}
 				// Les langues SUPPLEMENTAIRES du document (multilingue 01/09) --
 				// la ligne n'existe que si le document en declare : un document
 				// monolingue se reenregistre octet pour octet.
@@ -2685,6 +2768,59 @@ namespace nkuidesign {
 							prov.corrected = val[0] == '1';
 						else if (StrEq(key, "origine"))
 							prov.origin = NkString(val);
+						else if (StrEq(key, "mode"))
+							modeCourant = NkString(val);
+						else if (StrEq(key, "variable")) {
+							// `<cle> <valeur> [nom="..."] [@mode=valeur]... [inconnu]`
+							NkVariable v;
+							const char *q = val;
+							char mot[256];
+							auto suivant = [&q, &mot]() -> uint32 {
+								while (*q == ' ')
+									++q;
+								uint32 z = 0;
+								if (StrStartsWith(q, "nom=\"")) { // un nom entre guillemets, espaces compris
+									while (*q && *q != '\"' && z + 1 < (uint32)sizeof(mot))
+										mot[z++] = *q++;
+									if (*q == '\"')
+										mot[z++] = *q++;
+									while (*q && *q != '\"' && z + 1 < (uint32)sizeof(mot))
+										mot[z++] = *q++;
+									if (*q == '\"')
+										++q;
+								} else
+									while (*q && *q != ' ' && z + 1 < (uint32)sizeof(mot))
+										mot[z++] = *q++;
+								mot[z] = '\0';
+								return z;
+							};
+							if (suivant() > 0)
+								v.cle = NkString(mot);
+							if (suivant() > 0 && !(mot[0] == '-' && mot[1] == '\0'))
+								v.valeur = NkString(mot);
+							while (suivant() > 0) {
+								if (StrStartsWith(mot, "nom=\""))
+									v.nom = NkString(mot + 5); // la guillemet fermante a ete consommee
+								else if (mot[0] == '@') {
+									NkValeurMode vm;
+									uint32 e = 1;
+									while (mot[e] && mot[e] != '=')
+										++e;
+									if (mot[e] == '=') {
+										mot[e] = '\0';
+										vm.mode = NkString(mot + 1);
+										vm.valeur = NkString(mot + e + 1);
+										v.parMode.PushBack(vm);
+									}
+								} else {
+									if (!v.inconnus.Empty())
+										v.inconnus.Append(' ');
+									v.inconnus.Append(mot);
+								}
+							}
+							if (!v.cle.Empty())
+								variables.PushBack(v);
+						}
 						else if (StrEq(key, "langues")) {
 							// la liste des codes de langue, separes par des espaces
 							const char *q = val;
