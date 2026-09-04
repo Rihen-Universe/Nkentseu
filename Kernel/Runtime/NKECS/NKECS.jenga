@@ -125,8 +125,10 @@ with project("NKECS"):
 
     # Tests unitaires (desktop uniquement)
     with filter("(system:Linux || system:macOS || (system:Windows && !options:windows-runtime=uwp && !system:XboxSeries && !system:XboxOne)) && !system:Android && !system:iOS && !system:Web"):
-        with test():
-            testfiles(["tests/**.cpp"])
+        # Deux fichiers, deux main() : une sous-suite par fichier (Jenga 2.6, 2026-09-04).
+        with test("EntitySerialization"):
+            testfiles(["tests/test_entity_serialization.cpp"])
+            testownmain()
             links([
                 "NKECS",
                 "NKReflection",
@@ -139,3 +141,8 @@ with project("NKECS"):
                 "NKMath",
                 "NKPlatform",
             ])
+        # JENGA 2.6, DEFAUT MESURE (2026-09-04) : le contexte test() remet _currentProject a None a sa
+        # sortie (Api.py:999) au lieu de rendre le projet parent -> un SECOND with test() dans le meme
+        # projet echoue (« test context must be placed directly inside a project block »). Une seule
+        # sous-suite par projet tant que Jenga ne le corrige pas ; les autres sont nommees ici :
+        #   ReflectBridge (test_reflect_bridge.cpp), memes links, testownmain().
