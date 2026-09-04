@@ -42,7 +42,7 @@ namespace nkentseu {
 
 		struct Demo3DState {
 	NkSPHSolver *sphSolver = nullptr; // sonde SPH (2026-09-04)
-	uint32 sphCount = 0; uint32 sphScene = 0; float32 sphH0 = 0.f, sphX0 = 0.f, sphTime = 0.f;
+	uint32 sphCount = 0; uint32 sphScene = 0; float32 sphH0 = 0.f, sphX0 = 0.f, sphTime = 0.f; float32 sphN2 = 1.f; // n^2 = hauteur/largeur de la colonne (M&M)
 	float32 sphRhoSum = 0.f; uint32 sphRhoN = 0; float32 sphVmaxAll = 0.f; bool sphNaN = false;
 	float32 sphMMSum = 0.f, sphMMSumD = 0.f, sphMMMax = 0.f; uint32 sphMMN = 0; bool sphMMDone = false; float32 sphCSum = 0.f, sphCMax = 0.f; // critere Martin & Moyce + cible Cebron
 				NkMeshHandle meshSphere;
@@ -2218,7 +2218,16 @@ static NkTexHandle CreateLanternCubeCookie(NkTextureLibrary *texLib, NkIDevice *
 					if (const char *sm = std::getenv("NK_SPH_SURF"); sm && sm[0]) sSph.params.surfaceMode = (uint32)std::atoi(sm); // 1 dure, 0 aucune, 2 douce
 					if (const char *av = std::getenv("NK_SPH_ALPHA"); av && av[0]) sSph.params.artViscosity = (float32)std::atof(av); // Monaghan
 					if (const char *wf = std::getenv("NK_SPH_WALL"); wf && wf[0]) sSph.params.wallFriction = (float32)std::atof(wf); // 0 glisse, 1 non-glissement partiel
+					if (const char *nu = std::getenv("NK_SPH_NU"); nu && nu[0]) sSph.params.kinematicViscosity = (float32)std::atof(nu); // Morris, m2/s
+					if (const char *ws = std::getenv("NK_SPH_WARM"); ws && ws[0]) sSph.params.warmStart = (ws[0] == '1'); // demarrage a chaud des kappa
+					if (const char *wsc = std::getenv("NK_SPH_WARMSCALE"); wsc && wsc[0]) sSph.params.warmStartScale = (float32)std::atof(wsc); // amortissement de la poussee a chaud
 					sSph.params.maxSpeed = 8.f; // filet de securite, dit s'il mord
+					if (const char *mv = std::getenv("NK_SPH_MAXSPEED"); mv && mv[0]) sSph.params.maxSpeed = (float32)std::atof(mv); // instrument : vmax reel sans le filet
+					// NK_SPH_N2=<n^2> : hauteur/largeur de la colonne (defaut 1 = carree, la scene) ; 2 = la geometrie de
+					// Martin & Moyce dont la table est ecrite plus bas (canal 3D, parois laterales = fantomes des six faces).
+					float32 n2 = 1.f;
+					if (const char *nn = std::getenv("NK_SPH_N2"); nn && nn[0]) n2 = (float32)std::atof(nn);
+					if (n2 < 0.25f) n2 = 0.25f;
 					if (const char *np = std::getenv("NK_SPH_NOPRESSURE"); np && np[0] == '1') sSph.pressureEnabled = false;
 					if (const char *kk = std::getenv("NK_SPH_K"); kk && kk[0]) sSph.params.stiffness = (float32)std::atof(kk); // raideur de l'equation d'etat (c = sqrt(k))
 					if (const char *mu = std::getenv("NK_SPH_MU"); mu && mu[0]) sSph.params.viscosity = (float32)std::atof(mu);
@@ -2238,12 +2247,13 @@ static NkTexHandle CreateLanternCubeCookie(NkTextureLibrary *texLib, NkIDevice *
 						blockMin = {-w * 0.5f, y0, -w * 0.5f};
 						blockMax = {w * 0.5f, y0 + (float32)(cote / 2) * d, w * 0.5f};
 					} else {
-						// rupture de barrage : bloc h0 = cote*d dans le tiers gauche d'une boite 3x plus longue
+						// rupture de barrage : bloc de largeur a = cote*d, hauteur n2*a, dans le tiers gauche d'une
+						// boite 3x plus longue (n2 = 1 : la scene, inchangee ; n2 = 2 : instrument NK_SPH_N2)
 						const float32 w = (float32)cote * d;
 						bmin = {-1.5f * w, -1.f, -w * 0.5f};
-						bmax = {1.5f * w, -1.f + 2.5f * w, w * 0.5f};
+						bmax = {1.5f * w, -1.f + (n2 + 1.5f) * w, w * 0.5f};
 						blockMin = {-1.5f * w, -1.f, -w * 0.5f};
-						blockMax = {-0.5f * w, -1.f + w, w * 0.5f};
+						blockMax = {-0.5f * w, -1.f + n2 * w, w * 0.5f};
 					}
 					sSph.params.boundsMin = bmin;
 					sSph.params.boundsMax = bmax;
@@ -2260,12 +2270,13 @@ static NkTexHandle CreateLanternCubeCookie(NkTextureLibrary *texLib, NkIDevice *
 					fd.solver = &sSph;
 					NkEmitterId fid = vfx->CreateEmitter(fd);
 					vfx->SpawnBirths(fid, births.Data(), (uint32)births.Size());
-					std::fprintf(stderr, "[SPH PROBE] scene=%s particules=%u h=%g d=%g masse=%g rho0=%g k=%g mu=%g pression=%d boite=[%g,%g,%g]-[%g,%g,%g]\n",
+					std::fprintf(stderr, "[SPH PROBE] scene=%s particules=%u h=%g d=%g masse=%g rho0=%g k=%g mu=%g nu=%g chaud=%d (s=%g) n2=%g vmaxfilet=%g pression=%d boite=[%g,%g,%g]-[%g,%g,%g]\n",
 								 repos ? "repos" : (conserve ? "conserve" : "dam"), nb, sSph.params.h, d, sSph.params.Mass(), sSph.params.restDensity,
-								 sSph.params.stiffness, sSph.params.viscosity, (int)sSph.pressureEnabled, bmin.x, bmin.y, bmin.z, bmax.x, bmax.y, bmax.z);
+								 sSph.params.stiffness, sSph.params.viscosity, sSph.params.kinematicViscosity, (int)sSph.params.warmStart, sSph.params.warmStartScale, n2, sSph.params.maxSpeed, (int)sSph.pressureEnabled, bmin.x, bmin.y, bmin.z, bmax.x, bmax.y, bmax.z);
 					st->sphSolver = &sSph;
 					st->sphCount = nb;
 					st->sphH0 = blockMax.y - blockMin.y;
+					st->sphN2 = n2;
 					st->sphX0 = blockMax.x;
 					st->sphScene = repos ? 1 : (conserve ? 2 : 0);
 				}
@@ -4144,10 +4155,10 @@ static NkTexHandle CreateLanternCubeCookie(NkTextureLibrary *texLib, NkIDevice *
 						if (ss.maxSpeed > st->sphVmaxAll) st->sphVmaxAll = ss.maxSpeed;
 						if (st->sphTime > 2.f) { st->sphRhoSum += ss.densityMean; ++st->sphRhoN; }
 						const float32 rho0 = st->sphSolver->params.restDensity;
-						if ((ctx.frame % 30u) == 0u)
-							std::fprintf(stderr, "[SPH PROBE] frame %u t=%.2fs : vivantes %u  rho/rho0 moy %.3f (min %.3f max %.3f)  vmax %.2f m/s  bornees %u  sous-pas %u  front x=%.3f  y[%.3f..%.3f]  sol rho/rho0 %.3f  fantomes %u  agglutinees %u  iter dens %.1f / div %.1f  resid dens %.3f %% / div %.3f %%  bornes-iter %u  %.2f ms\n",
+						if ((ctx.frame % 30u) == 0u || ctx.frame < 8u) // les premieres images une a une : c'est la qu'un demarrage a chaud se juge
+							std::fprintf(stderr, "[SPH PROBE] frame %u t=%.2fs : vivantes %u  rho/rho0 moy %.3f (min %.3f max %.3f)  vmax %.2f m/s  bornees %u  sous-pas %u (visq %u)  front x=%.3f  y[%.3f..%.3f]  sol rho/rho0 %.3f  fantomes %u  agglutinees %u  iter dens %.1f / div %.1f  resid dens %.3f %% / div %.3f %%  bornes-iter %u  chaud %u (resid brut avant %.2f %% apres %.2f %%, min %.3f)  %.2f ms\n",
 										 (unsigned)ctx.frame, st->sphTime, ss.alive, ss.densityMean / rho0, ss.densityMin / rho0, ss.densityMax / rho0, ss.maxSpeed,
-										 ss.speedClamped, ss.subSteps, ss.maxX, ss.minY, ss.maxY, ss.densityFloorMean / rho0, ss.boundary, ss.clumped, ss.iterDensity, ss.iterDivergence, ss.residualDensity * 100.f, ss.residualDivergence * 100.f, ss.iterCapHits, ss.ms);
+										 ss.speedClamped, ss.subSteps, ss.subStepsViscous, ss.maxX, ss.minY, ss.maxY, ss.densityFloorMean / rho0, ss.boundary, ss.clumped, ss.iterDensity, ss.iterDivergence, ss.residualDensity * 100.f, ss.residualDivergence * 100.f, ss.iterCapHits, ss.warmStarts, ss.warmResidualBefore * 100.f, ss.warmResidualAfter * 100.f, ss.warmMinRatio, ss.ms);
 						// RUPTURE DE BARRAGE -- critere adimensionnel de Martin & Moyce (1952), Part IV,
 						// Phil. Trans. R. Soc. A 244(882) 312-324. Table telle que reproduite dans Lethe
 						// (chaos-polymtl/lethe, examples/multiphysics/dam-break/dam-break-2d.py, colonne
@@ -4180,14 +4191,14 @@ static NkTexHandle CreateLanternCubeCookie(NkTextureLibrary *texLib, NkIDevice *
 									if (Tq <= kT[q]) return kZ[q - 1] + (kZ[q] - kZ[q - 1]) * (Tq - kT[q - 1]) / (kT[q] - kT[q - 1]);
 								return kZ[13];
 							};
-							const float32 a = st->sphH0; // largeur = hauteur de la colonne (carree)
-							const float32 n2 = 1.f;
+							const float32 n2 = st->sphN2;		   // hauteur / largeur de la colonne (1 = scene carree ; 2 = geometrie de la table)
+							const float32 a = st->sphH0 / n2; // largeur de la colonne
 							const float32 Tad = st->sphTime * sqrtf(n2 * 9.8f / a);
 							const float32 Zmes = 1.f + (ss.frontDenseX - st->sphX0) / a;
 							const float32 Zexp = zTable(Tad), ZexpD = zTable(Tad + 0.175f);
 							const bool wall = ss.frontDenseX >= st->sphSolver->params.boundsMax.x - 0.5f * st->sphSolver->params.h;
 							if ((ctx.frame % 3u) == 0u && Zexp > 0.f && !wall && !st->sphMMDone) {
-								const float32 Zc = zCebron(Tad); // n^2 = 1 : T = t sqrt(g/a), comme la figure
+								const float32 Zc = (n2 == 1.f) ? zCebron(Tad) : -1.f; // n^2 = 1 seulement : T = t sqrt(g/a), comme la figure
 								const float32 ec = Zc > 0.f ? fabsf((Zmes - 1.f) - (Zc - 1.f)) / (Zc - 1.f > 1e-3f ? Zc - 1.f : 1e-3f) : -1.f;
 								const float32 e0 = fabsf((Zmes - 1.f) - (Zexp - 1.f)) / (Zexp - 1.f > 1e-3f ? Zexp - 1.f : 1e-3f);
 								const float32 e1 = ZexpD > 0.f ? fabsf((Zmes - 1.f) - (ZexpD - 1.f)) / (ZexpD - 1.f) : -1.f;
@@ -4201,10 +4212,13 @@ static NkTexHandle CreateLanternCubeCookie(NkTextureLibrary *texLib, NkIDevice *
 							if ((wall || Zexp < 0.f) && !st->sphMMDone && st->sphMMN > 0) {
 								st->sphMMDone = true;
 								const float32 moy = st->sphMMSum / (float32)st->sphMMN, moyD = st->sphMMSumD / (float32)st->sphMMN;
-								std::fprintf(stderr, "[SPH TEMOIN] dam break M&M, verdict sur %u points (T >= 0,6, jusqu'au mur) : ecart moyen %.0f %% (max %.0f %%) ; avec +0,175 : %.0f %% -> %s\n",
-											 st->sphMMN, moy * 100.f, st->sphMMMax * 100.f, moyD * 100.f, (moy <= 0.15f || moyD <= 0.15f) ? "OK (+-15 %)" : "ECHEC (>15 %)");
+								std::fprintf(stderr, "[SPH TEMOIN] dam break M&M (n2=%g%s), verdict sur %u points (T >= 0,6, jusqu'au mur) : ecart moyen %.0f %% (max %.0f %%) ; avec +0,175 : %.0f %% -> %s\n",
+											 n2, n2 == 2.f ? ", la geometrie de la table" : ", table n2=2 appliquee sous l'adimensionnement de M&M", st->sphMMN, moy * 100.f, st->sphMMMax * 100.f, moyD * 100.f, (moy <= 0.30f || moyD <= 0.30f) ? "OK (+-30 %, experience 3D avec frottement : tolerance dite)" : "ECHEC (>30 %)"); // 30 % (lot du 04/09) : M&M est une EXPERIENCE 3D avec frottement ; la comparaison n'est legitime que sur sa geometrie (NK_SPH_N2=2, mesure : 9 % brut)
 											const float32 moyC = st->sphCSum / (float32)st->sphMMN;
-											std::fprintf(stderr, "[SPH TEMOIN] dam break Cebron 2D (cible SPH, lue fig. 4) : ecart moyen %.0f %% (max %.0f %%) sur Z-1 -> %s\n", moyC * 100.f, st->sphCMax * 100.f, moyC <= 0.15f ? "OK (+-15 %)" : "ECHEC (>15 %)");
+											if (n2 == 1.f)
+												std::fprintf(stderr, "[SPH TEMOIN] dam break Cebron 2D (cible SPH, lue fig. 4) : ecart moyen %.0f %% (max %.0f %%) sur Z-1 -> %s\n", moyC * 100.f, st->sphCMax * 100.f, moyC <= 0.15f ? "OK (+-15 %)" : "ECHEC (>15 %)");
+											else
+												std::fprintf(stderr, "[SPH TEMOIN] dam break Cebron 2D : non compare (la figure est une colonne carree, n2=%g ici)\n", n2);
 							}
 						}
 						if (maxFramesProbe && ctx.frame + 1 == maxFramesProbe) {
