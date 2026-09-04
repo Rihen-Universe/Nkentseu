@@ -5113,11 +5113,11 @@ namespace nkuidesign {
 								costume::Texte(dlp, F.px11, r1.x + 10.f, // [hors-echelle: transcrit, menu Cible 22.20]
 											   costume::CentrerY(F.px11, r1.y, r1.h), cible,
 											   ctx.theme.text);
-								costume::Texte(dlp, F.px11,
-											   r1.x + r1.w - 10.f
-												   - costume::Largeur(F.px11, "\xE2\x9C\x93"),
-											   costume::CentrerY(F.px11, r1.y, r1.h),
-											   "\xE2\x9C\x93", ctx.theme.textMuted);
+								{ // ✓ DESSINÉ (deux traits) -- jamais un glyphe Unicode pour une icône
+									const float32 cx = r1.x + r1.w - 20.f, cy = r1.y + r1.h * 0.5f;
+									dlp.AddLine({cx, cy}, {cx + 3.f, cy + 3.f}, ctx.theme.textMuted, 1.5f);
+									dlp.AddLine({cx + 3.f, cy + 3.f}, {cx + 9.f, cy - 4.f}, ctx.theme.textMuted, 1.5f);
+								}
 								// rangée 2 : « Générer la version mobile » — grisée
 								// avec raison si la page est DÉJÀ une cible Mobile.
 								const NkRect r2 = {r1.x, r1.y + r1.h + 2.f, r1.w, r1.h};
@@ -10006,19 +10006,7 @@ namespace nkuidesign {
 				//    mesurees comme au dessin, le selecteur sans ses six rangees (③), la
 				//    rangee modele, la barre, la liste. C'est ce qui permet de remonter
 				//    le popover quand il depasserait le bas -- une seule regle pour tous.
-				const float32 pwCalc = 236.f;
-				float32 hTypes = 26.f;
-				{
-					float32 xt = 8.f;
-					for (uint32 k = 0; k < 6u; ++k) {
-						const float32 lw = costume::Largeur(F.px9, kNkTypesRemplissageLib[k]) + 10.f;
-						if (xt + lw > pwCalc - 8.f && xt > 8.f) {
-							hTypes += 24.f;
-							xt = 8.f;
-						}
-						xt += lw + 3.f;
-					}
-				}
+				const float32 hTypes = 26.f; // ① une seule rangee de vignettes dessinees
 				const float32 hPicker = 160.f + 8.f;
 				const float32 hHex = 26.f; // la rangee modele + valeurs (Hex ˅ / RGB / HSB)
 				const float32 hRampe = g.Actif() ? 26.f + 26.f * (float32)(g.arrets.Size() < 12u ? g.arrets.Size() : 12u) : 0.f;
@@ -10041,32 +10029,55 @@ namespace nkuidesign {
 				auto &dl = ctx.DL();
 				const float32 x0 = pr.x + 8.f, x1 = pr.x + pr.w - 8.f;
 				float32 y = pr.y + 8.f;
-				// ── 1. LES TYPES (six, dans l'ordre de Lunacy) — ils se replient ──
+				// ── 1. LES SIX VIGNETTES (dessinées, sur UNE rangée), la goutte, la croix ──
+				// Rodolf : « des images de preset sur Uni, Linéaire, Radial, Angulaire,
+				// Losange, Image -- sans oublier la goutte ». Pas de texte, pas de glyphe :
+				// des primitives. La vignette active porte l'anneau d'accent.
+				bool fermerPopover = false;
 				{
-					float32 xt = x0, yt = y;
+					const nkgui::NkColor sombre = {70, 70, 70, 255}, clair = {215, 215, 215, 255};
 					for (uint32 k = 0; k < 6u; ++k) {
-						const bool estUni = (k == 0u);
-						const bool estImage = (k == 5u);
+						const bool estUni = (k == 0u), estImage = (k == 5u);
 						const bool actif = estImage ? f.EstImage()
 											: (estUni ? (!g.Actif() && !f.EstImage())
 													  : (!f.EstImage() && g.Actif()
 														 && (NkComponentDecl::StrEq(g.type.Data(), kNkTypesRemplissageCle[k])
 															 || (k == 1u && g.type.Empty()))));
-						const float32 lw = costume::Largeur(F.px9, kNkTypesRemplissageLib[k]) + 10.f;
-						if (xt + lw > x1 && xt > x0) {
-							yt += 24.f;
-							xt = x0;
+						const NkRect v = {x0 + (float32)k * 24.f, y + 2.f, 18.f, 18.f};
+						const bool sv = NkGuiRectContains({v.x - 3.f, v.y - 3.f, 24.f, 24.f}, ctx.input.mousePos);
+						// le fond de la vignette
+						dl.AddRectFilled(v, sombre, 2.f);
+						if (estUni)
+							dl.AddRectFilled(v, clair, 2.f);
+						else if (k == 1u) { // linéaire : six bandes du sombre au clair
+							for (int32 s = 0; s < 6; ++s) {
+								const uint8 gr = (uint8)(70 + (215 - 70) * s / 5);
+								dl.AddRectFilled({v.x + 3.f * (float32)s, v.y, 3.f, v.h}, nkgui::NkColor{gr, gr, gr, 255});
+							}
+						} else if (k == 2u) // radial : un disque clair au centre
+							dl.AddCircleFilled({v.x + 9.f, v.y + 9.f}, 5.f, clair);
+						else if (k == 3u) { // angulaire : un quart clair et sa ligne
+							dl.AddRectFilled({v.x + 9.f, v.y, 9.f, 9.f}, clair);
+							dl.AddTriangleFilled({v.x + 9.f, v.y + 9.f}, {v.x + 18.f, v.y + 9.f}, {v.x + 18.f, v.y + 18.f},
+												 {150, 150, 150, 255});
+						} else if (k == 4u) { // losange
+							const nkgui::NkVec2 lo[4] = {{v.x + 9.f, v.y + 2.f}, {v.x + 16.f, v.y + 9.f}, {v.x + 9.f, v.y + 16.f},
+														 {v.x + 2.f, v.y + 9.f}};
+							dl.AddConvexPolyFilled(lo, 4, clair);
+						} else { // image : le damier
+							for (int32 dy = 0; dy < 3; ++dy)
+								for (int32 dx = 0; dx < 3; ++dx)
+									if (((dx + dy) & 1) == 0)
+										dl.AddRectFilled({v.x + 6.f * (float32)dx, v.y + 6.f * (float32)dy, 6.f, 6.f}, clair);
 						}
-						const NkRect rb = {xt, yt, lw, 20.f};
-						xt += lw + 3.f;
-						const bool sv = NkGuiRectContains(rb, ctx.input.mousePos);
-						dl.AddRectFilled(rb, actif ? ctx.theme.accent : CouleurInput(), 4.f);
-						dl.AddRect(rb, sv ? ctx.theme.accent : ctx.theme.border, 1.f, 4.f);
-						costume::Texte(dl, F.px9, rb.x + 5.f, costume::CentrerY(F.px9, rb.y, 20.f),
-									   kNkTypesRemplissageLib[k], actif ? ctx.theme.panel : ctx.theme.text);
+						dl.AddRect(v, actif ? ctx.theme.accent : (sv ? ctx.theme.text : ctx.theme.border), actif ? 2.f : 1.f, 2.f);
+						if (sv)
+							mSt->status = NkString(k == 0u ? "Remplissage uni." : k == 1u ? "Dégradé linéaire — peint."
+												   : k == 5u ? "Image — le damier tant que la source n'est pas chargée."
+															 : "Nommé, pas encore peint : le fond prend la couleur du premier arrêt.");
 						if (sv && ctx.input.mouseClicked[0]) {
 							if (estImage) {
-								f.genre = NkString("image"); // un TYPE de remplissage, pas un groupe
+								f.genre = NkString("image");
 								g.arrets.Clear();
 							} else if (estUni) {
 								f.genre = NkString();
@@ -10086,15 +10097,65 @@ namespace nkuidesign {
 								}
 							}
 							touche();
-							if (k == 5u)
-								mSt->status = NkString("Image : la source n'est pas encore chargée -- le fond montre le damier, "
-													   "le cadrage est gardé au fichier.");
-							else if (k >= 2u)
-								mSt->status = NkString("Ce type est NOMMÉ, pas encore peint : le fond prend la couleur du "
-													   "premier arrêt. Le format le garde intact.");
 						}
 					}
-					y = yt + 26.f;
+					// séparateur, la GOUTTE (fusion), la CROIX -- dessinés
+					dl.AddLine({x0 + 150.f, y + 3.f}, {x0 + 150.f, y + 19.f}, ctx.theme.border, 1.f);
+					{
+						const NkRect rg = {x0 + 156.f, y + 2.f, 18.f, 18.f};
+						const bool svG = NkGuiRectContains(rg, ctx.input.mousePos);
+						const nkgui::NkColor cg = (svG || mFusionMenuOuvert) ? ctx.theme.text : ctx.theme.textMuted;
+						dl.AddTriangleFilled({rg.x + 9.f, rg.y + 2.f}, {rg.x + 14.f, rg.y + 10.f}, {rg.x + 4.f, rg.y + 10.f}, cg);
+						dl.AddCircleFilled({rg.x + 9.f, rg.y + 11.f}, 5.f, cg);
+						if (svG)
+							mSt->status = NkString("Mode de fusion du remplissage : Normal — les 17 autres sont nommés, pas peints.");
+						if (svG && ctx.input.mouseClicked[0]) {
+							mFusionMenuOuvert = !mFusionMenuOuvert;
+							ctx.input.mouseClicked[0] = false;
+						}
+					}
+					{
+						const NkRect rx = {x1 - 16.f, y + 3.f, 16.f, 16.f};
+						const bool svX = NkGuiRectContains(rx, ctx.input.mousePos);
+						const nkgui::NkColor cx = svX ? ctx.theme.text : ctx.theme.textMuted;
+						dl.AddLine({rx.x + 4.f, rx.y + 4.f}, {rx.x + 12.f, rx.y + 12.f}, cx, 1.5f);
+						dl.AddLine({rx.x + 12.f, rx.y + 4.f}, {rx.x + 4.f, rx.y + 12.f}, cx, 1.5f);
+						if (svX && ctx.input.mouseClicked[0]) {
+							ctx.input.mouseClicked[0] = false;
+							fermerPopover = true;
+						}
+					}
+					// le menu de la goutte, dessiné DANS la boîte, sur deux colonnes
+					if (mFusionMenuOuvert) {
+						static const char *const kFusion[18] = {"Normal", "Darken", "Multiply", "Plus Darker", "Color Burn", "Lighten",
+																	 "Screen", "Plus Lighter", "Color Dodge", "Overlay", "Soft Light",
+																	 "Hard Light", "Difference", "Exclusion", "Hue", "Saturation", "Color",
+																	 "Luminosity"};
+						const NkRect rl = {x0, y + 26.f, x1 - x0, 9.f * 18.f + 4.f};
+						dl.AddRectFilled(rl, ctx.theme.panel, 4.f);
+						dl.AddRect(rl, ctx.theme.border, 1.f, 4.f);
+						for (uint32 k = 0; k < 18u; ++k) {
+							const NkRect rr = {rl.x + 2.f + (float32)(k / 9u) * (rl.w * 0.5f), rl.y + 2.f + (float32)(k % 9u) * 18.f,
+											   rl.w * 0.5f - 4.f, 18.f};
+							const bool operant = (k == 0u);
+							const bool svR = NkGuiRectContains(rr, ctx.input.mousePos);
+							if (svR && operant)
+								dl.AddRectFilled(rr, ctx.theme.rowHover, 3.f);
+							costume::Texte(dl, F.px9, rr.x + 5.f, costume::CentrerY(F.px9, rr.y, 18.f), kFusion[k],
+										   operant ? ctx.theme.accent : ctx.theme.textDisabled);
+							if (svR && ctx.input.mouseClicked[0]) {
+								ctx.input.mouseClicked[0] = false;
+								if (operant)
+									mFusionMenuOuvert = false;
+								else
+									mSt->status = NkString("Ce mode de fusion est nommé (Lunacy en a 18), pas peint : le peintre ne "
+														   "sait rendre que Normal.");
+							}
+						}
+						if (ctx.input.mouseClicked[0] && !NkGuiRectContains(rl, ctx.input.mousePos))
+							mFusionMenuOuvert = false;
+					}
+					y += 26.f;
 				}
 				if (f.EstImage()) {
 					// ── LE POPOVER IMAGE, comme sa capture : damier · « Remove background » ·
@@ -10144,6 +10205,10 @@ namespace nkuidesign {
 									   ctx.theme.textMuted);
 					}
 					nkgui::EndPopup(ctx);
+					if (fermerPopover) {
+						d.ouvert = false;
+						ctx.ClosePopup();
+					}
 					return;
 				}
 				// ── 2. LE SÉLECTEUR — il édite l'arrêt courant (ou le remplissage uni) ──
@@ -10329,8 +10394,15 @@ namespace nkuidesign {
 						const bool sv2 = NkGuiRectContains(rb2, ctx.input.mousePos);
 						dl.AddRectFilled(rb2, CouleurInput(), 4.f);
 						dl.AddRect(rb2, sv2 ? ctx.theme.accent : ctx.theme.border, 1.f, 4.f);
-						costume::Texte(dl, F.px10, rb2.x + 6.f, costume::CentrerY(F.px10, rb2.y, 20.f),
-									   b2 == 0u ? "\xE2\x87\x84" : "+", ctx.theme.text);
+						if (b2 == 0u) { // ⇄ DESSINÉ : deux flèches -- jamais un glyphe, l'atlas ne le garantit pas
+							const float32 cy1 = rb2.y + 7.f, cy2 = rb2.y + 13.f;
+							dl.AddLine({rb2.x + 4.f, cy1}, {rb2.x + 15.f, cy1}, ctx.theme.text, 1.2f);
+							dl.AddTriangleFilled({rb2.x + 16.f, cy1}, {rb2.x + 12.f, cy1 - 3.f}, {rb2.x + 12.f, cy1 + 3.f}, ctx.theme.text);
+							dl.AddLine({rb2.x + 5.f, cy2}, {rb2.x + 16.f, cy2}, ctx.theme.text, 1.2f);
+							dl.AddTriangleFilled({rb2.x + 4.f, cy2}, {rb2.x + 8.f, cy2 - 3.f}, {rb2.x + 8.f, cy2 + 3.f}, ctx.theme.text);
+						} else
+							costume::Texte(dl, F.px10, rb2.x + 6.f, costume::CentrerY(F.px10, rb2.y, 20.f), "+",
+										   ctx.theme.text);
 						if (sv2 && ctx.input.mouseClicked[0]) {
 							if (b2 == 0u)
 								for (uint32 ai = 0; ai < (uint32)g.arrets.Size(); ++ai)
@@ -10392,6 +10464,10 @@ namespace nkuidesign {
 					}
 				}
 				nkgui::EndPopup(ctx);
+				if (fermerPopover) { // la croix
+					d.ouvert = false;
+					ctx.ClosePopup();
+				}
 			}
 
 			void OnUI(NkEditorFrameContext &ec) override {
@@ -14055,6 +14131,7 @@ namespace nkuidesign {
 			int32 mArretFill = -1; ///< quel remplissage porte la selection
 			int32 mModeleCouleur = 0;   ///< 0 Hex, 1 RGB, 2 HSB (les autres : nommes)
 			bool mModeleMenuOuvert = false;
+			bool mFusionMenuOuvert = false; ///< la goutte : les 18 modes, Normal operant
 			int32 mArretSel = 0;
 			int32 mArretDrag = -1;
 			int32 mEtatsNode = -1;
