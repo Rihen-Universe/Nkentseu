@@ -20,6 +20,14 @@
 > `-fsyntax-only`** (configuration de syntaxe, ni Debug ni Release — aucune des
 > affirmations ci-dessous ne dépend d'un comportement d'exécution).
 
+> ⚠️ **UNIFICATION DU 2026-09-04 — `NkRetargetSkeleton` n'existe plus.** Décision
+> de Rodolf : *« on les unifie dans NkAnima car elle sera utile pour plusieurs
+> systèmes qui en auront besoin. »* `NkSkeletonDef` (`NkSkeletonDef.h`) est LA
+> structure de squelette du module ; le reciblage la consomme ; la convention de
+> repos est absorbée une fois à l'import (`FromLocalBind`), le local se dérive.
+> Les mentions de `NkRetargetSkeleton` plus bas décrivent l'état **avant** cette
+> date — on ne corrige pas un journal, on le date.
+
 ## Ce que le module EST
 
 Le **modèle** d'animation : ce qui calcule une pose. Aucun GPU, aucun

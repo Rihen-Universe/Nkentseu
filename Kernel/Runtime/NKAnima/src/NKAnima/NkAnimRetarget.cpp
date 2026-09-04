@@ -10,77 +10,6 @@
 namespace nkentseu {
 	namespace anim {
 
-		// ── NkRetargetSkeleton ──────────────────────────────────────────────────
-		NkMat4f NkRetargetSkeleton::BindWorld(uint32 j) const {
-			// FK en REMONTANT la chaine : on compose les locaux du joint jusqu'a la
-			// racine. Remonter plutot que descendre evite d'exiger `topo` — utile
-			// justement quand on est en train de le construire.
-			if (j >= Count())
-				return NkMat4f::Identity();
-			NkMat4f acc = bindLocal[j];
-			int32 p = parent[j];
-			uint32 guard = 0;
-			while (p >= 0 && p < (int32)Count() && guard++ < 4096u) {
-				acc = bindLocal[(uint32)p] * acc;
-				p = parent[(uint32)p];
-			}
-			return acc;
-		}
-
-		NkVec3f NkRetargetSkeleton::BindWorldPos(uint32 j) const {
-			// FK en remontant la chaine : on compose les locaux du joint jusqu'a la
-			// racine. Remonter plutot que descendre evite d'exiger `topo` — utile
-			// justement quand on est en train de le construire.
-			return BindWorld(j) * NkVec3f{0.f, 0.f, 0.f};
-		}
-
-		float32 NkRetargetSkeleton::BindHeight() const {
-			const uint32 n = Count();
-			if (n == 0)
-				return 0.f;
-			float32 lo = 1e30f, hi = -1e30f;
-			for (uint32 i = 0; i < n; ++i) {
-				const float32 y = BindWorldPos(i).y;
-				if (y < lo)
-					lo = y;
-				if (y > hi)
-					hi = y;
-			}
-			const float32 h = hi - lo;
-			return (h > 0.f) ? h : 0.f;
-		}
-
-		bool NkRetargetSkeleton::BuildTopo() {
-			const uint32 n = Count();
-			topo.Clear();
-			if (n == 0)
-				return true;
-			NkVector<uint8> done;
-			done.Resize(n);
-			for (uint32 i = 0; i < n; ++i)
-				done[i] = 0;
-			// Passes successives : a chaque tour on emet les joints dont le parent est
-			// deja emis. Si un tour n'emet RIEN alors qu'il reste des joints, il y a un
-			// cycle — on le dit plutot que de boucler.
-			uint32 emitted = 0, guard = 0;
-			while (emitted < n && guard++ <= n) {
-				uint32 before = emitted;
-				for (uint32 i = 0; i < n; ++i) {
-					if (done[i])
-						continue;
-					const int32 p = parent[i];
-					if (p < 0 || (p < (int32)n && done[(uint32)p])) {
-						topo.PushBack(i);
-						done[i] = 1;
-						emitted++;
-					}
-				}
-				if (emitted == before)
-					return false; // cycle
-			}
-			return emitted == n;
-		}
-
 		// ── Normalisation des noms ──────────────────────────────────────────────
 		NkString NkAnimRetarget::NormalizeJointName(const NkString &raw) {
 			const char *s = raw.CStr();
@@ -108,8 +37,7 @@ namespace nkentseu {
 			return out;
 		}
 
-		uint32 NkAnimRetarget::BuildMapByName(const NkRetargetSkeleton &src, const NkRetargetSkeleton &dst,
-											  NkRetargetMap &out) {
+		uint32 NkAnimRetarget::BuildMapByName(const NkSkeletonDef &src, const NkSkeletonDef &dst, NkRetargetMap &out) {
 			const uint32 ns = src.Count(), nd = dst.Count();
 			out.targetToSource.Clear();
 			out.targetToSource.Resize(nd);
@@ -120,11 +48,10 @@ namespace nkentseu {
 			NkVector<NkString> srcNorm;
 			srcNorm.Resize(ns);
 			for (uint32 i = 0; i < ns; ++i)
-				srcNorm[i] = (i < (uint32)src.names.Size()) ? NormalizeJointName(src.names[i]) : NkString("");
+				srcNorm[i] = NormalizeJointName(NkString(src.bones[i].name));
 			uint32 matched = 0;
 			for (uint32 j = 0; j < nd; ++j) {
-				const NkString dn =
-					(j < (uint32)dst.names.Size()) ? NormalizeJointName(dst.names[j]) : NkString("");
+				const NkString dn = NormalizeJointName(NkString(dst.bones[j].name));
 				if (dn.Empty())
 					continue;
 				for (uint32 i = 0; i < ns; ++i) {
@@ -138,7 +65,7 @@ namespace nkentseu {
 			return matched;
 		}
 
-		float32 NkAnimRetarget::HeightRatio(const NkRetargetSkeleton &src, const NkRetargetSkeleton &dst) {
+		float32 NkAnimRetarget::HeightRatio(const NkSkeletonDef &src, const NkSkeletonDef &dst) {
 			const float32 hs = src.BindHeight(), hd = dst.BindHeight();
 			// Un squelette degenere (tous les joints au meme endroit) donnerait une
 			// division par zero et expedierait le personnage a l'infini. On rend 1 :
@@ -149,9 +76,9 @@ namespace nkentseu {
 		}
 
 		// ── Reciblage d'une pose ────────────────────────────────────────────────
-		bool NkAnimRetarget::RetargetPose(const NkRetargetSkeleton &src, const NkRetargetSkeleton &dst,
-										  const NkRetargetMap &map, const NkVector<NkMat4f> &srcLocal,
-										  NkVector<NkMat4f> &outLocal, const NkRetargetParams &p) {
+		bool NkAnimRetarget::RetargetPose(const NkSkeletonDef &src, const NkSkeletonDef &dst, const NkRetargetMap &map,
+										  const NkVector<NkMat4f> &srcLocal, NkVector<NkMat4f> &outLocal,
+										  const NkRetargetParams &p) {
 			const uint32 ns = src.Count(), nd = dst.Count();
 			if (nd == 0 || !map.Valid(nd))
 				return false;
@@ -165,11 +92,13 @@ namespace nkentseu {
 				// quelques os — c'est la norme, pas l'exception.
 				const int32 si = map.targetToSource[j];
 				if (si < 0 || (uint32)si >= ns) {
-					outLocal[j] = (j < (uint32)dst.bindLocal.Size()) ? dst.bindLocal[j] : NkMat4f::Identity();
+					outLocal[j] = dst.BindLocal(j);
 					continue;
 				}
-				const NkMat4f &srcBind = src.bindLocal[(uint32)si];
-				const NkMat4f &dstBind = dst.bindLocal[j];
+				// Le repos LOCAL se DERIVE de l'actif (monde) : une seule source de
+				// verite, absorbee une fois a l'import.
+				const NkMat4f srcBind = src.BindLocal((uint32)si);
+				const NkMat4f dstBind = dst.BindLocal(j);
 				// REGLE 1 : on transfere l'ECART au repos, pas la transform absolue.
 				//   delta  = repos_source⁻¹ × source_courante
 				//   sortie = repos_cible × delta
@@ -178,7 +107,7 @@ namespace nkentseu {
 				NkMat4f res = dstBind * delta;
 
 				// REGLE 2 : la translation appartient au personnage, sauf pour la racine.
-				const bool isRoot = (j < (uint32)dst.parent.Size()) && (dst.parent[j] < 0);
+				const bool isRoot = dst.Parent(j) < 0;
 				if (!isRoot && !p.transferBoneTranslation) {
 					// On remet la translation du REPOS : l'os garde sa longueur, seule
 					// son orientation suit le mouvement.
@@ -200,9 +129,9 @@ namespace nkentseu {
 		}
 
 		// ── Reciblage d'un clip ─────────────────────────────────────────────────
-		bool NkAnimRetarget::RetargetClip(const NkAnimationClip &srcClip, const NkRetargetSkeleton &src,
-										  const NkRetargetSkeleton &dst, const NkRetargetMap &map,
-										  NkAnimationClip &outClip, const NkRetargetParams &p) {
+		bool NkAnimRetarget::RetargetClip(const NkAnimationClip &srcClip, const NkSkeletonDef &src,
+										  const NkSkeletonDef &dst, const NkRetargetMap &map, NkAnimationClip &outClip,
+										  const NkRetargetParams &p) {
 			// Un clip deja converti en matrices de SKINNING a perdu la hierarchie : il
 			// n'y a plus de transform local a recibler. On refuse plutot que de
 			// produire une pose absurde a partir de donnees incompatibles.
@@ -218,20 +147,15 @@ namespace nkentseu {
 			outClip.loop = srcClip.loop;
 			outClip.skeletalLocal = true;
 			outClip.boneCount = nd;
-			outClip.jointParent = dst.parent;
+			outClip.jointParent = dst.ParentVector();
 			outClip.jointTopo = dst.topo;
-			// L'inverseBind reste celui de la CIBLE : c'est son maillage qu'on va
-			// deformer. Reprendre celui de la source deformerait le bon squelette avec
-			// la mauvaise pose de reference.
 			// L'inverseBind est celui de la CIBLE : c'est son maillage qu'on deformera.
-			// On le DEDUIT de sa pose de repos (inverse de la position monde de repos)
-			// plutot que de le laisser a l'identite : a l'identite, le skinning
-			// appliquerait la pose complete au lieu de l'ecart au repos, et le
-			// personnage exploserait des la premiere frame.
+			// L'actif le STOCKE deja (inverseBindPose) : plus rien a deduire, et une
+			// seule source de verite pour la peau et le reciblage.
 			outClip.jointInverseBind.Clear();
 			outClip.jointInverseBind.Resize(nd);
 			for (uint32 j = 0; j < nd; ++j)
-				outClip.jointInverseBind[j] = dst.BindWorld(j).Inverse();
+				outClip.jointInverseBind[j] = dst.bones[j].inverseBindPose;
 
 			// TOUS LES TEMPS DE CLES sont repris tels quels : le reciblage change la
 			// POSE, jamais le RYTHME. Rechantillonner introduirait un flou temporel
@@ -275,7 +199,7 @@ namespace nkentseu {
 				for (uint32 b = 0; b < ns; ++b) {
 					srcPose[b] = (b < (uint32)srcClip.boneTracks.Size() && srcClip.boneTracks[b].KeyCount() > 0)
 									 ? srcClip.boneTracks[b].Evaluate(t)
-									 : ((b < (uint32)src.bindLocal.Size()) ? src.bindLocal[b] : NkMat4f::Identity());
+									 : src.BindLocal(b);
 				}
 				if (!RetargetPose(src, dst, map, srcPose, dstPose, p))
 					return false;
@@ -293,24 +217,33 @@ namespace nkentseu {
 			// Squelette a 3 joints en chaine verticale : racine -> milieu -> bout.
 			// `lift` = longueur de chaque segment, `tilt` = rotation de repos du
 			// milieu (c'est elle qui simule la difference T-pose / A-pose).
-			NkRetargetSkeleton MakeChain(float32 lift, float32 tiltDeg, const char *prefix) {
-				NkRetargetSkeleton s;
-				s.parent.PushBack(-1);
-				s.parent.PushBack(0);
-				s.parent.PushBack(1);
+			//
+			// Depuis l'unification : les LOCAUX sont convertis UNE fois, ici, par
+			// NkSkeletonDef::FromLocalBind — exactement le chemin qu'un importateur
+			// prendra. Le test 0 verifie que cette conversion se retourne.
+			NkSkeletonDef MakeChain(float32 lift, float32 tiltDeg, const char *prefix, NkVector<NkMat4f> *outLocal = nullptr) {
+				NkVector<int32> parents;
+				parents.PushBack(-1);
+				parents.PushBack(0);
+				parents.PushBack(1);
 				const float32 a = tiltDeg * 3.14159265f / 180.f;
 				NkMat4f rot = NkMat4f::RotationZ(NkAngle::FromRad(a));
-				s.bindLocal.PushBack(NkMat4f::Identity());
-				s.bindLocal.PushBack(NkMat4f::Translate({0.f, lift, 0.f}) * rot);
-				s.bindLocal.PushBack(NkMat4f::Translate({0.f, lift, 0.f}));
+				NkVector<NkMat4f> local;
+				local.PushBack(NkMat4f::Identity());
+				local.PushBack(NkMat4f::Translate({0.f, lift, 0.f}) * rot);
+				local.PushBack(NkMat4f::Translate({0.f, lift, 0.f}));
 				NkString n0(prefix), n1(prefix), n2(prefix);
 				n0 += "Hips";
 				n1 += "Spine";
 				n2 += "Head";
-				s.names.PushBack(n0);
-				s.names.PushBack(n1);
-				s.names.PushBack(n2);
-				s.BuildTopo();
+				NkVector<const char *> names;
+				names.PushBack(n0.CStr());
+				names.PushBack(n1.CStr());
+				names.PushBack(n2.CStr());
+				NkSkeletonDef s;
+				NkSkeletonDef::FromLocalBind(parents, local, names, s);
+				if (outLocal)
+					*outLocal = local;
 				return s;
 			}
 			bool Near(float32 a, float32 b, float32 eps = 1e-3f) {
@@ -320,30 +253,64 @@ namespace nkentseu {
 			bool NearV(const NkVec3f &a, const NkVec3f &b, float32 eps = 1e-3f) {
 				return Near(a.x, b.x, eps) && Near(a.y, b.y, eps) && Near(a.z, b.z, eps);
 			}
+			bool NearM(const NkMat4f &a, const NkMat4f &b, float32 eps = 1e-4f) {
+				for (int r = 0; r < 4; ++r)
+					for (int c = 0; c < 4; ++c)
+						if (!Near(a[r][c], b[r][c], eps))
+							return false;
+				return true;
+			}
 			// Position MONDE d'un joint pour une pose LOCALE donnee.
-			NkVec3f WorldOf(const NkRetargetSkeleton &sk, const NkVector<NkMat4f> &local, uint32 j) {
+			NkVec3f WorldOf(const NkSkeletonDef &sk, const NkVector<NkMat4f> &local, uint32 j) {
 				NkMat4f acc = local[j];
-				int32 p = sk.parent[j];
+				int32 p = sk.Parent(j);
 				uint32 guard = 0;
 				while (p >= 0 && guard++ < 4096u) {
 					acc = local[(uint32)p] * acc;
-					p = sk.parent[(uint32)p];
+					p = sk.Parent((uint32)p);
 				}
 				return acc * NkVec3f{0.f, 0.f, 0.f};
+			}
+			// Pose de repos locale de tous les joints (ce que l'ancien `bindLocal` stockait).
+			NkVector<NkMat4f> RestLocal(const NkSkeletonDef &sk) {
+				NkVector<NkMat4f> out;
+				for (uint32 j = 0; j < sk.Count(); ++j)
+					out.PushBack(sk.BindLocal(j));
+				return out;
 			}
 		} // namespace
 
 		bool NkAnimRetarget::SelfTest() {
 			bool ok = true;
 
+			// 0) LA CONVERSION SE RETOURNE — le temoin de l'unification (2026-09-04).
+			//    La convention de repos est absorbee UNE fois a l'import (locaux ->
+			//    monde) ; le reciblage lit le local DERIVE. Sur une chaine dont le
+			//    repos est INCLINE (30°, le cas ou la convention differe), chaque
+			//    local derive doit redonner le local d'origine a epsilon pres, et
+			//    l'inverseBind stocke doit etre l'inverse exact du monde. Sans cela,
+			//    la conversion serait fausse ET silencieuse : tout le reste passerait
+			//    sur une pose de repos deformee.
+			{
+				NkVector<NkMat4f> local;
+				NkSkeletonDef s = MakeChain(1.f, 30.f, "", &local);
+				ok = ok && (s.Count() == 3) && (s.topo.Size() == 3);
+				for (uint32 j = 0; j < 3; ++j) {
+					ok = ok && NearM(s.BindLocal(j), local[j]);
+					ok = ok && NearM(s.BindWorld(j) * s.bones[j].inverseBindPose, NkMat4f::Identity());
+				}
+				// Et le monde n'est PAS le local : sinon la conversion n'aurait rien fait.
+				ok = ok && !NearM(s.BindWorld(2), local[2]);
+			}
+
 			// 1) APPARIEMENT PAR NOM malgre les prefixes d'exportateur et les
 			//    separateurs. Sans normalisation, « mixamorig:Spine » et « spine »
 			//    n'apparieraient RIEN — cas le plus courant en pratique.
 			{
-				NkRetargetSkeleton a = MakeChain(1.f, 0.f, "mixamorig:");
-				NkRetargetSkeleton b = MakeChain(1.f, 0.f, "");
-				b.names[1] = NkString("SPINE");	 // casse differente
-				b.names[2] = NkString("He_ad");	 // souligne parasite
+				NkSkeletonDef a = MakeChain(1.f, 0.f, "mixamorig:");
+				NkSkeletonDef b = MakeChain(1.f, 0.f, "");
+				std::strncpy(b.bones[1].name, "SPINE", NkBoneDef::kMaxBoneNameLen - 1); // casse differente
+				std::strncpy(b.bones[2].name, "He_ad", NkBoneDef::kMaxBoneNameLen - 1); // souligne parasite
 				NkRetargetMap m;
 				ok = ok && (BuildMapByName(a, b, m) == 3);
 			}
@@ -351,10 +318,10 @@ namespace nkentseu {
 			// 2) IDENTITE : recibler un squelette sur LUI-MEME ne doit RIEN changer.
 			//    C'est le garde-fou minimal ; s'il tombe, tout le reste est faux.
 			{
-				NkRetargetSkeleton a = MakeChain(1.f, 20.f, "");
+				NkSkeletonDef a = MakeChain(1.f, 20.f, "");
 				NkRetargetMap m;
 				BuildMapByName(a, a, m);
-				NkVector<NkMat4f> pose = a.bindLocal;
+				NkVector<NkMat4f> pose = RestLocal(a);
 				pose[1] = pose[1] * NkMat4f::RotationZ(NkAngle::FromRad(0.5f));
 				NkVector<NkMat4f> out;
 				ok = ok && RetargetPose(a, a, m, pose, out);
@@ -367,14 +334,15 @@ namespace nkentseu {
 			//    naive du transform local imposerait le repos de la source a la cible :
 			//    le bout du squelette cible se retrouverait a la verticale au lieu de
 			//    rester incline. C'est exactement le bug « bras qui tombent » du
-			//    reciblage naif.
+			//    reciblage naif. — Memes attentes qu'avant l'unification, a epsilon :
+			//    c'est le temoin « avant/apres » du reciblage lui-meme.
 			{
-				NkRetargetSkeleton src = MakeChain(1.f, 0.f, "");
-				NkRetargetSkeleton dst = MakeChain(1.f, 30.f, "");
+				NkSkeletonDef src = MakeChain(1.f, 0.f, "");
+				NkSkeletonDef dst = MakeChain(1.f, 30.f, "");
 				NkRetargetMap m;
 				BuildMapByName(src, dst, m);
 				NkVector<NkMat4f> out;
-				ok = ok && RetargetPose(src, dst, m, src.bindLocal, out);
+				ok = ok && RetargetPose(src, dst, m, RestLocal(src), out);
 				// Le bout de la cible doit etre PILE a sa position de repos.
 				ok = ok && NearV(WorldOf(dst, out, 2), dst.BindWorldPos(2));
 				// Et il ne doit PAS etre a la position de repos de la source (sinon on
@@ -387,11 +355,11 @@ namespace nkentseu {
 			//    rester la sienne. Transferer la translation la ramenerait a celle de
 			//    la source — le personnage se disloquerait.
 			{
-				NkRetargetSkeleton src = MakeChain(1.f, 0.f, "");
-				NkRetargetSkeleton dst = MakeChain(2.f, 0.f, "");
+				NkSkeletonDef src = MakeChain(1.f, 0.f, "");
+				NkSkeletonDef dst = MakeChain(2.f, 0.f, "");
 				NkRetargetMap m;
 				BuildMapByName(src, dst, m);
-				NkVector<NkMat4f> pose = src.bindLocal;
+				NkVector<NkMat4f> pose = RestLocal(src);
 				pose[1] = pose[1] * NkMat4f::RotationZ(NkAngle::FromRad(0.7f));
 				NkVector<NkMat4f> out;
 				ok = ok && RetargetPose(src, dst, m, pose, out);
@@ -403,11 +371,11 @@ namespace nkentseu {
 			//    deplacee d'une unite : la cible doit avancer de DEUX. Sans ce facteur,
 			//    un grand personnage ferait les pas d'un petit et patinerait.
 			{
-				NkRetargetSkeleton src = MakeChain(1.f, 0.f, "");
-				NkRetargetSkeleton dst = MakeChain(2.f, 0.f, "");
+				NkSkeletonDef src = MakeChain(1.f, 0.f, "");
+				NkSkeletonDef dst = MakeChain(2.f, 0.f, "");
 				NkRetargetMap m;
 				BuildMapByName(src, dst, m);
-				NkVector<NkMat4f> pose = src.bindLocal;
+				NkVector<NkMat4f> pose = RestLocal(src);
 				pose[0] = NkMat4f::Translate({1.f, 0.f, 0.f});
 				NkVector<NkMat4f> out;
 				ok = ok && RetargetPose(src, dst, m, pose, out);
@@ -424,14 +392,14 @@ namespace nkentseu {
 			//    l'identite s'effondrerait sur son parent ; les rigs different toujours
 			//    par quelques os, ce cas est la norme.
 			{
-				NkRetargetSkeleton src = MakeChain(1.f, 0.f, "");
-				NkRetargetSkeleton dst = MakeChain(1.f, 0.f, "");
-				dst.names[2] = NkString("OsQuiNExistePasChezLaSource");
+				NkSkeletonDef src = MakeChain(1.f, 0.f, "");
+				NkSkeletonDef dst = MakeChain(1.f, 0.f, "");
+				std::strncpy(dst.bones[2].name, "OsQuiNExistePasChezLaSource", NkBoneDef::kMaxBoneNameLen - 1);
 				NkRetargetMap m;
 				ok = ok && (BuildMapByName(src, dst, m) == 2);
 				NkVector<NkMat4f> out;
-				ok = ok && RetargetPose(src, dst, m, src.bindLocal, out);
-				ok = ok && NearV(out[2] * NkVec3f{0.f, 0.f, 0.f}, dst.bindLocal[2] * NkVec3f{0.f, 0.f, 0.f});
+				ok = ok && RetargetPose(src, dst, m, RestLocal(src), out);
+				ok = ok && NearV(out[2] * NkVec3f{0.f, 0.f, 0.f}, dst.BindLocal(2) * NkVec3f{0.f, 0.f, 0.f});
 				// et surtout PAS l'identite (qui donnerait l'origine)
 				ok = ok && !NearV(out[2] * NkVec3f{0.f, 0.f, 0.f}, NkVec3f{0.f, 0.f, 0.f});
 			}
@@ -441,8 +409,8 @@ namespace nkentseu {
 			//    de skinning doit etre REFUSE : la hierarchie y est perdue, on ne peut
 			//    plus rien recibler.
 			{
-				NkRetargetSkeleton src = MakeChain(1.f, 0.f, "");
-				NkRetargetSkeleton dst = MakeChain(2.f, 15.f, "");
+				NkSkeletonDef src = MakeChain(1.f, 0.f, "");
+				NkSkeletonDef dst = MakeChain(2.f, 15.f, "");
 				NkRetargetMap m;
 				BuildMapByName(src, dst, m);
 				NkAnimationClip clip;
@@ -450,15 +418,18 @@ namespace nkentseu {
 				clip.boneCount = 3;
 				clip.duration = 1.f;
 				clip.boneTracks.Resize(3);
-				clip.boneTracks[1].AddKey(0.f, src.bindLocal[1]);
-				clip.boneTracks[1].AddKey(0.5f, src.bindLocal[1] * NkMat4f::RotationZ(NkAngle::FromRad(0.4f)));
-				clip.boneTracks[1].AddKey(1.f, src.bindLocal[1]);
+				const NkMat4f b1 = src.BindLocal(1);
+				clip.boneTracks[1].AddKey(0.f, b1);
+				clip.boneTracks[1].AddKey(0.5f, b1 * NkMat4f::RotationZ(NkAngle::FromRad(0.4f)));
+				clip.boneTracks[1].AddKey(1.f, b1);
 				NkAnimationClip out;
 				ok = ok && RetargetClip(clip, src, dst, m, out);
 				ok = ok && (out.boneCount == 3) && (out.boneTracks.Size() == 3);
 				ok = ok && (out.boneTracks[1].KeyCount() == 3);
 				ok = ok && Near(out.boneTracks[1].GetKey(1).time, 0.5f);
 				ok = ok && Near(out.duration, 1.f);
+				// L'inverseBind du clip EST celui de l'actif cible (une seule source).
+				ok = ok && NearM(out.jointInverseBind[2], dst.bones[2].inverseBindPose);
 				// Refus d'un clip en matrices de skinning.
 				NkAnimationClip skin = clip;
 				skin.skeletalLocal = false;
@@ -467,16 +438,21 @@ namespace nkentseu {
 			}
 
 			// 8) GARDES. Cycle dans la hierarchie -> BuildTopo doit REFUSER plutot que
-			//    boucler ; squelette degenere -> rapport 1 plutot qu'une division par
-			//    zero qui expedierait le personnage a l'infini.
+			//    boucler (et FromLocalBind ne doit produire aucun actif a moitie) ;
+			//    squelette degenere -> rapport 1 plutot qu'une division par zero qui
+			//    expedierait le personnage a l'infini.
 			{
-				NkRetargetSkeleton bad;
-				bad.parent.PushBack(1);
-				bad.parent.PushBack(0);
-				bad.bindLocal.PushBack(NkMat4f::Identity());
-				bad.bindLocal.PushBack(NkMat4f::Identity());
-				ok = ok && !bad.BuildTopo();
-				NkRetargetSkeleton flat = MakeChain(0.f, 0.f, "");
+				NkVector<int32> badParents;
+				badParents.PushBack(1);
+				badParents.PushBack(0);
+				NkVector<NkMat4f> badLocal;
+				badLocal.PushBack(NkMat4f::Identity());
+				badLocal.PushBack(NkMat4f::Identity());
+				NkVector<const char *> noNames;
+				NkSkeletonDef bad;
+				ok = ok && !NkSkeletonDef::FromLocalBind(badParents, badLocal, noNames, bad);
+				ok = ok && (bad.Count() == 0);
+				NkSkeletonDef flat = MakeChain(0.f, 0.f, "");
 				ok = ok && Near(HeightRatio(flat, flat), 1.f);
 			}
 			return ok;

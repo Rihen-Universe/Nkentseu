@@ -98,7 +98,8 @@ temps ; une feuille qui efface l'historique fait re-trancher.*
 | ~~**F**~~ 🚗 | ✅ **TRANCHÉ (a) ET LIVRÉ le 03/09.** Le couple s'intègre pour tout le monde (`d471956d`, bancs des consommateurs au même compte) ; `NkVehicle` livré selon la conception — roue par raycast, suspension à trois gardes, adhérence en vitesse à annuler bornée par le cercle de friction, **dans** le pas fixe, surface à 16 lignes. Banc **48/48** avec contre-épreuve (`µ = 0,01` → elle patine) et **deux mutations prouvées**. Reste : Ackermann, réglage sur les deux voitures du dépôt. Détail : `CONCEPTION_VEHICULE.md` §7. | — | fait |
 | **F′** 🚗 | **Le jeu de voiture peut s'ouvrir** — c'était ta condition : *« si et seulement si la physique est prête »*. Elle l'est, headless. **Ce qui manque pour le dire à l'image** : une capture d'une voiture qui roule dans `renderdemo` (GPU → Ilyana d'abord). | **toi** | dire quand |
 | **F₀** 🚗 | **La physique de véhicule : (a) ou (b) ?** *(historique)* La conception est écrite (`Engine/Noge/CONCEPTION_VEHICULE.md`, ~2,5-3 j). ⚠️ **Une seule question t'attend** : l'étape 0 corrige `NkIntegrator` — le champ `torque` existe et **n'est jamais intégré** — donc pour **tout le monde**, ragdoll compris. **(a)** on corrige le socle (ma recommandation : c'est un défaut, pas un choix) ; **(b)** le véhicule recopie chez lui. | **toi** | une phrase |
-| ~~**E**~~ | 🟢 **TRANCHÉ (04/09) : on unifie dans `NKAnima`.** Rodolf, contre ma recommandation — et une mesure prise après sa décision lui donne raison : `NkRetargetSkeleton` **n'a aucun consommateur hors du module**, l'unification ne casse donc aucun contrat public. Plan écrit au **bloc 11**, ~½ j, **non exécuté, rien ne bloque**. | — | à faire |
+| ~~**E**~~ | ✅ **FAIT le 04/09.** `NkRetargetSkeleton` a disparu, `NkSkeletonDef` est LA structure, conversion à l'import (`FromLocalBind`), local dérivé. Témoin : conversion qui se retourne à 1e-4 sur un repos incliné + reciblage aux mêmes poses qu'avant. Détail bloc 11. | — | fait |
+| **E₁** | *(historique)* 🟢 **TRANCHÉ (04/09) : on unifie dans `NKAnima`.** Rodolf, contre ma recommandation — et une mesure prise après sa décision lui donne raison : `NkRetargetSkeleton` **n'a aucun consommateur hors du module**, l'unification ne casse donc aucun contrat public. Plan écrit au **bloc 11**, ~½ j, **non exécuté, rien ne bloque**. | — | à faire |
 | **E₀** | 🦴 **Faut-il UNIFIER les deux conventions de pose de repos ?** *(historique)* `NkRetargetSkeleton` (local relatif au parent) contre `NkSkeletonDef` (matrices bind/inverse-bind). Mesure faite : **ce ne sont pas deux versions d'une même chose**. Coûts, apports et recommandation au **bloc 11**. | **toi** | une phrase |
 | **D** | 🦴 **Où vit `NkSkeletonDef`** — la seule vraie décision d'architecture qui reste. Détail et candidat mesuré au **bloc 6**. | **toi** | une phrase |
 
@@ -1390,6 +1391,39 @@ elles coexistent dans `nkentseu::anim`, comme deux types voisins et distincts.
 | 💸 **coût** | `topo` + détection de cycle n'existent pas côté `NkSkeletonDef` : soit on les ajoute (et on alourdit l'actif partagé), soit on les perd (et on réintroduit le risque de boucle infinie que `BuildTopo` attrape). |
 | 💸 **coût** | `NkString` contre `char[64]` : l'actif partagé est **copié par valeur dans l'ECS** au moment de la construction. Un `NkString` y met une allocation par os. |
 | 🔴 **risque** | six consommateurs recompilent, et **c'est un changement de contrat, pas un déplacement** — le recensement doit passer par le compilateur, comme pour `NkSkeleton`, où `NkAssetIODemo` atteignait le type par un **champ** sans jamais écrire son nom. |
+
+### ✅ EXÉCUTÉ LE 04/09 — une seule structure, la conversion à l'import, le témoin qui mord
+
+**`NkRetargetSkeleton` n'existe plus** — pas un alias, pas un « au cas où » :
+`grep` sur tout le code rend zéro, seules les archives (ce bloc, le rapport, la
+roadmap du module) la nomment encore, datée. `NkSkeletonDef` a gagné exactement
+ce que le plan disait : `topo` + `BuildTopo()` (détection de cycle conservée),
+`BindLocal(j)` **dérivé** (`inverse(monde(parent)) × monde(j)`, jamais stocké),
+`BindWorld/BindWorldPos/BindHeight`, `ParentVector()`, et **`FromLocalBind()` —
+la conversion, à l'import, une fois** : FK dans l'ordre topologique, monde et
+inverse-monde remplis, aucun actif produit à moitié si la hiérarchie a un cycle.
+
+**Le reciblage consomme l'actif** : cinq signatures passent de
+`const NkRetargetSkeleton &` à `const NkSkeletonDef &` ; `RetargetClip` prend
+désormais `jointInverseBind` **dans l'actif** (`inverseBindPose`) au lieu de le
+recalculer — une seule source de vérité pour la peau et le reciblage.
+
+**Le témoin, et il est double :**
+- **test 0, neuf** : sur une chaîne dont le repos est **incliné de 30°** (le cas
+  où la convention diffère), chaque `BindLocal(j)` dérivé **redonne le local
+  d'origine** à 1e-4, `monde × inverse-monde = identité`, et le monde **n'est pas**
+  le local (sinon la conversion n'aurait rien fait) ;
+- **test 3, inchangé dans ses attentes** : source au repos plat, cible au repos à
+  30° → le bout de la cible reste **pile à sa position de repos**, et pas à
+  celle de la source. *Mêmes poses à ε qu'avant l'unification* — c'est
+  l'animation reciblée avant/après que la consigne demandait.
+
+`NkAnimPhysTest` : `[ OK ] M2 NkAnimRetarget`, **13/14 suites** — le même compte
+qu'avant (la 14ᵉ est `XBot.glb`, absent du dépôt, préexistant).
+
+**Ce qui a recompilé — la liste, pas l'impression** : `NKAnima` 9/9,
+`NkAnimPhysTest` 27/27, puis la chaîne des consommateurs de l'actif — voir le
+message du commit pour les comptes.
 
 ### 🟢 TRANCHÉ PAR RODOLF (04/09) — **on unifie, contre ma recommandation**
 
