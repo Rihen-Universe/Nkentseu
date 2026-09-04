@@ -7159,6 +7159,32 @@ namespace nkuidesign {
 						  "un clic ailleurs le termine ; detachee, la poubelle supprime et le dit",
 						  rects && garde && enRenommage && renomme && fini && detaches == 1u && supprimee, det);
 				}
+				// ── 68g. LIER UNE VARIABLE EXISTANTE depuis le selecteur : « Lier ˅ » a droite de
+				//    « Creer une variable », la liste depliee DANS le popover, un clic fait de
+				//    la couleur courante une reference
+				{
+					const int32 vp = stV.doc.CreerVariableCouleur("#0a555f", "Pétrole");
+					stV.SelectSingle(rc); // rc porte un litteral depuis 68c
+					ouvrir(rc);
+					boite(px, py);
+					const uint32 avantG = couleurPeinte(stV.doc, rc);
+					cliquer(px + 0.5f + 250.f - 8.f - 30.f, py + kYRangeeVar); // « Lier ˅ »
+					boite(px, py);
+					const float32 hAvant = -1e9f;
+					(void)hAvant;
+					cliquer(px + 0.5f + 8.f + 100.f, py + kYRangeeVar + 24.f); // la premiere variable de la liste
+					const NkString refG = stV.doc.nodes[(uint32)rc].fills[0].couleur;
+					NkString attendu("@");
+					attendu.Append(stV.doc.variables[(uint32)vp].cle);
+					const uint32 apresG = couleurPeinte(stV.doc, rc);
+					const bool piedG = stV.status.Data() && strstr(stV.status.Data(), "Pétrole") != nullptr;
+					fermer();
+					snprintf(det, sizeof(det), "variable « Pétrole » (%s) ; remplissage %08X -> « %s » (attendu « %s »), peint %08X (0A555FFF), pied=%d",
+							 stV.doc.variables[(uint32)vp].cle.Data(), avantG, refG.Data() ? refG.Data() : "?", attendu.Data(), apresG, piedG ? 1 : 0);
+					check("68g. LIER UNE VARIABLE EXISTANTE depuis le selecteur : « Lier ˅ » deplie la liste des variables DANS le "
+						  "popover, un clic sur « Pétrole » fait du remplissage une reference et il rend la couleur de la variable",
+						  vp >= 0 && NkComponentDecl::StrEq(refG.Data(), attendu.Data()) && apresG == 0x0A555FFFu && avantG != apresG && piedG, det);
+				}
 			}
 		}
 		// ── 69. LES STYLES DE CALQUE ET DE TEXTE (§15.15, lot du 05/09) : un nom pour un

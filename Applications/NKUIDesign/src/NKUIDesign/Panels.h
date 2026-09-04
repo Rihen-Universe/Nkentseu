@@ -10848,12 +10848,20 @@ namespace nkuidesign {
 				// VARIABLE (Lunacy, capture `..._creer_variable.png` : le bouton « Create
 				// Color Variable » sous la rangee du modele ; ou le nom + « Detacher »)
 				const float32 hHex = 26.f + 26.f;
+				// LIER UNE VARIABLE EXISTANTE : la liste se deplie DANS le popover (une rangee
+				// de 20 px par variable, six au plus -- au-dela, le rail Variables), et la
+				// boite grandit d'autant ; rien tant que la liste est repliee ou que la
+				// couleur courante reference deja une variable
+				const uint32 nVarsDoc = (uint32)mSt->doc.variables.Size();
+				const uint32 nVarsListe = nVarsDoc < 6u ? nVarsDoc : 6u;
+				const bool listeVars = mVarsDeplie && nVarsDoc > 0u && !NkEstReference(couleurCourante.Data()) && !f.EstImage();
+				const float32 hVars = listeVars ? 4.f + 20.f * (float32)nVarsListe : 0.f;
 				// ④ la rangee de la barre fait 34 px : ses pastilles (centre a +24, rayon 6)
 				//    descendent a +30 -- a 26 px la rangee suivante les recouvrait (Rodolf)
 				const int32 genreP = renderdetail::NkGenreDegrade(g);
 				const float32 hRampe = g.Actif() ? 34.f + 26.f + (genreP != 0 ? 52.f : 0.f) + 26.f * (float32)(g.arrets.Size() < 12u ? g.arrets.Size() : 12u) : 0.f; // barre, angle, (rayons, origine), liste
 				const float32 ph = f.EstImage() ? 8.f + hTypes + 116.f + 26.f + 26.f + 26.f + 8.f
-												   : 8.f + hTypes + hPicker + hHex + hRampe + 8.f;
+												   : 8.f + hTypes + hPicker + hHex + hVars + hRampe + 8.f;
 				const NkRect sw = d.ancre;
 				NkRect pr = {sw.x - pw - 8.f, sw.y - 8.f, pw, ph};
 				// ⑤ LE POPOVER NE SORT JAMAIS DE LA FENETRE : sa hauteur est BORNEE ; ce qui
@@ -11244,12 +11252,59 @@ namespace nkuidesign {
 													: "Variable absente : couleur détachée en magenta (la valeur d'origine est perdue).");
 							}
 						} else {
-							const bool svC = NkGuiRectContains(rv, ctx.input.mousePos);
-							dl.AddRectFilled(rv, svC ? ctx.theme.rowHover : CouleurInput(), 4.f);
-							dl.AddRect(rv, svC ? ctx.theme.accent : ctx.theme.border, 1.f, 4.f);
-							const char *lib = "Créer une variable de couleur";
+							// « Creer une variable de couleur » -- et, quand le document en a deja,
+							// « Lier ˅ » a droite : la liste des variables se deplie DANS le popover
+							const NkRect rLi = {x1 - 60.f, rv.y, 60.f, 20.f};
+							const NkRect rv2 = nVarsDoc > 0u ? NkRect{rv.x, rv.y, rv.w - 64.f, rv.h} : rv;
+							const bool svC = NkGuiRectContains(rv2, ctx.input.mousePos);
+							dl.AddRectFilled(rv2, svC ? ctx.theme.rowHover : CouleurInput(), 4.f);
+							dl.AddRect(rv2, svC ? ctx.theme.accent : ctx.theme.border, 1.f, 4.f);
+							const char *lib = nVarsDoc > 0u ? "Créer une variable" : "Créer une variable de couleur";
 							const float32 lw = costume::Largeur(F.px10, lib);
-							costume::Texte(dl, F.px10, rv.x + (rv.w - lw) * 0.5f, costume::CentrerY(F.px10, rv.y, 20.f), lib, ctx.theme.text);
+							costume::Texte(dl, F.px10, rv2.x + (rv2.w - lw) * 0.5f, costume::CentrerY(F.px10, rv2.y, 20.f), lib, ctx.theme.text);
+							if (nVarsDoc > 0u) {
+								const bool svL = NkGuiRectContains(rLi, ctx.input.mousePos);
+								dl.AddRectFilled(rLi, svL ? ctx.theme.rowHover : CouleurInput(), 4.f);
+								dl.AddRect(rLi, (svL || mVarsDeplie) ? ctx.theme.accent : ctx.theme.border, 1.f, 4.f);
+								const char *libL = mVarsDeplie ? "Lier \xCB\x84" : "Lier \xCB\x85";
+								costume::Texte(dl, F.px10, rLi.x + (rLi.w - costume::Largeur(F.px10, libL)) * 0.5f,
+											   costume::CentrerY(F.px10, rLi.y, 20.f), libL, ctx.theme.text);
+								if (svL && ctx.input.mouseClicked[0]) {
+									ctx.input.mouseClicked[0] = false;
+									mVarsDeplie = !mVarsDeplie;
+								}
+								if (listeVars) {
+									for (uint32 vi = 0; vi < nVarsListe; ++vi) {
+										const NkVariable &vv = mSt->doc.variables[vi];
+										const NkRect rr = {rv.x, rv.y + 24.f + 20.f * (float32)vi, rv.w, 20.f};
+										const bool svR = NkGuiRectContains(rr, ctx.input.mousePos);
+										if (svR)
+											dl.AddRectFilled(rr, ctx.theme.rowHover, 3.f);
+										const char *resV = vv.ValeurPour(mSt->doc.modeCourant.Data());
+										const NkRect sw2 = {rr.x + 3.f, rr.y + 3.f, 14.f, 14.f};
+										if (NkHexLisible(resV))
+											dl.AddRectFilled(sw2, NkCouleurDepuisHex(resV), 3.f);
+										dl.AddRect(sw2, ctx.theme.border, 1.f, 3.f);
+										costume::Texte(dl, F.px10, sw2.x + sw2.w + 6.f, costume::CentrerY(F.px10, rr.y, 20.f),
+													   vv.nom.Empty() ? vv.cle.Data() : vv.nom.Data(), ctx.theme.text);
+										if (svR && ctx.input.mouseClicked[0]) {
+											ctx.input.mouseClicked[0] = false;
+											NkString ref("@");
+											ref.Append(vv.cle);
+											couleurCourante = ref; // cette couleur suit desormais la variable
+											d.synchro = 0xFFFFFFFFu;
+											mVarsDeplie = false;
+											touche();
+											char msg[160];
+											snprintf(msg, sizeof(msg), "Couleur liée à la variable « %s » : elle la suit désormais.",
+													 vv.nom.Empty() ? vv.cle.Data() : vv.nom.Data());
+											mSt->DireAuPied(msg);
+										}
+									}
+									if (nVarsDoc > nVarsListe)
+										mSt->DireAuPied("Six variables affichées ; les autres sont dans le rail Variables.");
+								}
+							}
 							if (svC && ctx.input.mouseClicked[0]) {
 								ctx.input.mouseClicked[0] = false;
 								const char *val = NkHexLisible(d.hex) ? d.hex : couleurCourante.Data();
@@ -11268,7 +11323,7 @@ namespace nkuidesign {
 							}
 						}
 					}
-					y += hHex;
+					y += hHex + hVars;
 				}
 				// ── 4. LA BARRE D'ARRÊTS et 5. LA LISTE ──────────────────────────
 				if (g.Actif()) {
@@ -15461,6 +15516,7 @@ namespace nkuidesign {
 			NkRect mRectStyle[2][6] = {};
 			NkVector<NkRect> mRectStyleListe[2];
 			bool mStyleDeplie[2] = {false, false};
+			bool mVarsDeplie = false; ///< la liste des variables depliee sous « Lier ˅ » (popover)
 			char mBordColBuf[12] = {};
 			/// Les generations d'historique vues par les tampons (une
 			/// annulation recharge sans changer la selection).
