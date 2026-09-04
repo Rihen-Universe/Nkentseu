@@ -1445,6 +1445,15 @@ et `ApplyFKSkinning` la lisent). Ce n'est pas une seconde *structure*, c'est un 
 et un exemplaire peut diverger. La retirer, c'est faire passer le squelette à chaque consommateur
 du clip (NKRenderer, Noge, éditeur) — un lot à part, à trancher, pas à glisser dans celui-ci.
 
+### 🚦 04/09 (soir) — RÉOUVERTURE DES TESTS : Jenga n'a pas de forme par module
+
+Rodolf : « on suit ta recommandation », module par module. **Mesuré dans Jenga** : `dutc`/`dute` sont
+à portée d'espace de travail, sans liste blanche ni activation par projet ; `jenga test --force` ne
+parvient pas au Builder, qui rebloque. Je n'ai rien bricolé dans `Nkentseu.jenga` : la demande à Jenga
+(liste blanche + `--force` transmis) est écrite dans `echanges/noge.questions.md`. **Aucun module n'est
+rouvert** à ce jour ; l'ordre prévu quand la forme existera : Foundation (NKCore, NKMemory, NKMath,
+NKContainers), NKPhysics (61/61 à la main), NKAnima, puis le reste — un module par commit.
+
 ### 🔧 04/09 (soir) — LES 13 TESTS CASSÉS RÉPARÉS, sans rien brancher
 
 Deux catégories tenues séparées. **Renommée, le test suit** : `NkRect→NkRectI`, `NkCompare→NkMemCompare`,
