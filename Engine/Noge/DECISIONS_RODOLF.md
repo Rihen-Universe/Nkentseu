@@ -1471,14 +1471,15 @@ Liste, un module par commit, mise à jour à chaque ajout :
 - `NKCamera_Tests` — 3 réussis, 3 au total, 7 réussies, 7 au total (build+run 70 s)
 - `NKCollision_Tests` — All tests passed for NKCollision_Tests. (main nu, fichier vide en testmaintemplate ; build+run 28 s)
 - `NKImage_Tests` — All tests passed for NKImage_Tests. (main nu, fichier vide en testmaintemplate ; build+run 37 s)
-- `NKThreading_Tests` — **NON rouvert, test qui a raison** : l'édition de liens échoue sur
-  `NkLatch::Wait/NkLatch`, `NkEvent::Set/Reset/IsSignaled/Pulse/Wait`, `NkBarrier::Wait` — les trois
-  classes sont *déclarées* (`Synchronization/*.h`, `NKENTSEU_THREADING_CLASS_EXPORT`), leurs `.cpp` sont
-  compilés mais **ne contiennent aucune définition** (`nm NKThreading.lib` : 0 symbole). *Déclaré, pas
-  livré*, au cœur du module ; les 12 cas de la suite ne peuvent pas se lier tant que ces trois
-  primitives n'existent pas. Défaut de module nommé, **pas corrigé dans ce lot** (ce n'est pas trivial :
-  c'est écrire un latch, un event et une barrière).
-
+- `NKThreading_Tests` — Tests : 14 réussis, 14 au total, Assertions : 50 réussies, 50 au total (build+run 18 s) — **rouvert après avoir ÉCRIT les QUATRE primitives**
+  (`NkLatch`, `NkEvent`, `NkBarrier`, et `NkReaderWriterLock` découverte en reliant : déclarées, exportées, jamais définies — 0 symbole). Écrites sur
+  `NkMutex` + `NkConditionVariable` (`WaitUntil` sur horloge monotone), sans STL : latch à usage unique
+  (`CountDown` ne remonte jamais, `Wait` relit l'état à l'échéance), événement manuel/automatique
+  (`Set` persiste — un `Set` avant `Wait` ne se perd pas ; `Pulse` transitoire, par génération en manuel,
+  par consommation en automatique), barrière à phases (le dernier arrivé mène, `Reset` force la phase).
+  **Deux cas ajoutés qui rougissent sans moi** : `EventSetBeforeWaitIsNotLost` et `EventTimedWaitReturns`
+  (bornes 35 ms ≤ t < 1 s, jamais un test qui pend). Mutation « `Set` n'a d'effet que si quelqu'un attend »
+  → le premier rougit *par `jenga test`* ; restauré → vert.
 - `NKPlatform_Tests` — 0 réussis, 0 au total, 0 réussies, 0 au total (build+run 18 s)
 - `NKLogger_Tests` — 2 réussis, 2 au total, 5 réussies, 5 au total (build+run 28 s)
 - `NKTime_Tests` — 5 réussis, 5 au total, 24 réussies, 24 au total (build+run 27 s)
