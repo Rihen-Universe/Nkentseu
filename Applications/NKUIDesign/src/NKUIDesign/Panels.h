@@ -1345,6 +1345,11 @@ namespace nkuidesign {
 			/// 0 rien, 1 glisser le long de l'axe, 2 tourner -- ecrit par la toile a chaque
 			/// image, lu par la sonde (« le curseur annonce correspond au geste »).
 			nkentseu::int32 curseurDegrade = 0;
+			/// ③ L'INFO-BULLE d'une poignee : le geste qu'elle annonce (vide : aucune), publie
+			///    une fois le delai passe (0,4 s de survol immobile sur la meme poignee).
+			NkString bulle;
+			nkentseu::float32 bulleDelai = 0.f;   ///< le temps de survol accumule sur la poignee courante
+			nkentseu::int32 bulleGeste = 0;		  ///< la poignee survolee (0 : aucune), pour remettre le delai a zero
 			/// Le popover d'un remplissage est dessine par l'INSPECTEUR (ses aides),
 			/// mais appele par le crochet d'overlay : ce pont le rend joignable.
 			void (*popoverRemplissage)(nkgui::NkGuiContext &, void *) = nullptr;
@@ -3704,6 +3709,8 @@ namespace nkuidesign {
 							const float32 tolA = pr.w * 0.5f + NkTolerancePoignee();
 							if (dxA * dxA + dyA * dyA > tolA * tolA)
 								continue;
+							if (PoigneeDeFormePlusProche(selRot, rsRot, mxR, myR, dxA * dxA + dyA * dyA))
+								continue; // une poignee de forme plus proche : le coin redimensionne, son exterieur tourne
 							mRotDrag = (int32)k;
 							mRotBase = selRot.rotation;
 							mRotAngle0 = NkAngleDeg(ccxR, ccyR, ctx.input.mousePos.x, ctx.input.mousePos.y);
@@ -4897,6 +4904,9 @@ namespace nkuidesign {
 								const float32 dxA = mxS - (pr.x + pr.w * 0.5f), dyA = myS - (pr.y + pr.h * 0.5f);
 								const float32 tolA = pr.w * 0.5f + NkTolerancePoignee(); // ② la meme zone qu'a la reclamation
 								const bool sv = !NkSourisSurPopup(ctx) && dxA * dxA + dyA * dyA <= tolA * tolA;
+								if (sv && mRotDrag < 0 && mDegDrag == -1 && mSt->curseurDegrade == 0
+									&& !PoigneeDeFormePlusProche(selN, rs, mxS, myS, dxA * dxA + dyA * dyA))
+									AnnoncerBulle(ctx, 6); // ③ « Tourner » -- sauf si une poignee de forme est plus proche
 								// 🔴 ELLES NE SE PEIGNENT PLUS AU REPOS, ET C'EST LE
 								//    RETOUR DE RODOLF DU 01/09 AU SOIR : « ça
 								//    n'épouse pas, regarde bien ». Agrandie ×5, sa
@@ -5131,6 +5141,12 @@ namespace nkuidesign {
 							const bool glisseS = (mDegDrag != -1 && mDegFill == fi && !tourneS)
 												 || (survol >= 0 && zoneS == 0) || survol <= -3;
 							mSt->curseurDegrade = tourneS ? 2 : (glisseS ? 1 : 0);
+							// ③ la bulle de la poignee de degrade survolee (les autres poignees plus bas)
+							if (mDegDrag == -1 && survol != -1) {
+								const int32 geste = survol >= 0 ? (zoneS == 1 ? 1 : 2) : (survol == -3 ? 3 : (survol == -4 ? 4 : (survol == -5 ? 5 : 0)));
+								if (geste != 0)
+									AnnoncerBulle(ctx, geste);
+							}
 							const uint32 rgbaAccent = paint.ColorOf(accent);
 							const int32 courant = (mSt->picker.ouvert && mSt->picker.genre == 1u
 												   && mSt->picker.noeud == mSt->selected && mSt->picker.index == fi)
@@ -5251,6 +5267,26 @@ namespace nkuidesign {
 							}
 						}
 					}
+					// ③ les poignees de forme : la bande d'un bord, survolee -> « Redimensionner »
+					if (!mBulleVue && mRotDrag < 0 && mDegDrag == -1 && !mMoving && !mDragging) {
+						const NkUINode &selB = mSt->doc.nodes[(uint32)mSt->selected];
+						const bool poseB = selB.parent >= 0 && mSt->doc.IsValidIndex(selB.parent)
+										   && mSt->doc.nodes[(uint32)selB.parent].layout.kind == NkLayoutKind::Free;
+						if (poseB && selB.width.mode == NkSizeMode::Fixed && selB.height.mode == NkSizeMode::Fixed && !NkSourisSurPopup(ctx)) {
+							const float32 kBX = NkBandeBord(rs.w), kBY = NkBandeBord(rs.h);
+							const bool dansX = mxS >= rs.x - kBX && mxS <= rs.x + rs.w + kBX;
+							const bool dansY = myS >= rs.y - kBY && myS <= rs.y + rs.h + kBY;
+							auto pres = [](float32 v, float32 c, float32 tol) { const float32 d = v - c; return (d < 0.f ? -d : d) <= tol; };
+							if ((dansY && (pres(mxS, rs.x, kBX) || pres(mxS, rs.x + rs.w, kBX))) || (dansX && (pres(myS, rs.y, kBY) || pres(myS, rs.y + rs.h, kBY))))
+								AnnoncerBulle(ctx, 7);
+						}
+					}
+					if (!mBulleVue) { // rien de survole : la bulle s'eteint, le delai repart
+						mSt->bulleGeste = 0;
+						mSt->bulleDelai = 0.f;
+						mSt->bulle = NkString();
+					}
+					mBulleVue = false;
 					if (tourne)
 						paint.PopTransform(); // le badge et les puces restent droits
 					// LA PUCE D'ANGLE pendant la rotation (decision de Rodolf : oui),
@@ -6318,6 +6354,29 @@ namespace nkuidesign {
 
 			/// LA BANDE DE SAISIE D'UNE POIGNEE, en pixels ECRAN, de chaque cote
 			/// du bord. Une seule constante pour les DEUX sites qui la lisent.
+			/// ③ L'INFO-BULLE : le geste annonce par la poignee survolee, apres 0,4 s immobile sur la
+			///    MEME poignee. Le kit peint (SetTooltip, overlay, au-dessus de tout) ; la toile tient
+			///    le delai et publie le texte (DesignState::bulle) -- une sonde sans police le lit.
+			///    Gestes : 1 tourner l'axe, 2 glisser l'arret, 3 deplacer l'origine, 4 rayon X,
+			///    5 rayon Y, 6 tourner (le noeud), 7 redimensionner.
+			void AnnoncerBulle(NkGuiContext &ctx, int32 geste) {
+				static const char *const kTextes[8] = {"", "Tourner l'axe", "Glisser l'arrêt", "Déplacer l'origine", "Rayon X",
+														"Rayon Y", "Tourner", "Redimensionner (Maj : proportionnel)"};
+				if (geste <= 0 || geste > 7)
+					return;
+				if (mSt->bulleGeste != geste) {
+					mSt->bulleGeste = geste;
+					mSt->bulleDelai = 0.f;
+					mSt->bulle = NkString();
+				}
+				mSt->bulleDelai += ctx.input.dt;
+				mBulleVue = true;
+				if (mSt->bulleDelai >= 0.4f) {
+					mSt->bulle = NkString(kTextes[geste]);
+					nkgui::SetTooltip(ctx, kTextes[geste]);
+				}
+			}
+			bool mBulleVue = false; ///< une poignee a annonce sa bulle cette image
 			/// ① Le popover de remplissage est-il ouvert SUR ce remplissage du noeud selectionne ?
 			///    C'est la condition des anneaux de rotation d'axe (regle ⑥).
 			bool PopoverSurRemplissage(int32 fi) const {

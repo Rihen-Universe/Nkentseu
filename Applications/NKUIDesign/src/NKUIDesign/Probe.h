@@ -6025,6 +6025,87 @@ namespace nkuidesign {
 						  "deselection le ferme -- le popup du kit avec",
 						  ouvertAvant && videDeselectionne && fermeVide && autre >= 0 && fermeAutre && fermeRien, det);
 				}
+				// 60v. ③ LES INFO-BULLES : survoler une poignee 0,4 s l'annonce -- l'anneau d'une extremite
+				// dit « Tourner l'axe », le disque d'un arret « Glisser l'arret », l'arc du noeud
+				// « Tourner », le bord droit « Redimensionner » ; avant le delai, rien ; en partant,
+				// rien. (Sans police, le kit ne peint pas la bulle : le texte publie en temoigne.)
+				{
+					static PreviewPanel toileV(&stI);
+					auto sceneV = [&](float32 mx, float32 my) {
+						ctxI.input.mousePos = {mx, my};
+						ctxI.input.mouseDown[0] = false;
+						ctxI.BeginFrame(0.016f);
+						ctxI.BeginLayout({0.f, 0.f, 340.f, 900.f});
+						toileV.OnUI(ec);
+						ctxI.BeginLayout({340.f, 0.f, 260.f, 900.f});
+						insp.OnUI(ec);
+						NkDessinerPickerDemande(ctxI, stI);
+						ctxI.EndFrame();
+					};
+					NkUINode &nd = stI.doc.nodes[(uint32)rc];
+					NkDegrade &gd = nd.fills[1].degrade;
+					gd.type = NkString("lineaire");
+					gd.angle = 0.f;
+					if (gd.arrets.Size() < 3u) {
+						gd.arrets.Clear();
+						for (uint32 k = 0; k < 3u; ++k) {
+							NkArretDegrade ar;
+							ar.position = (float32)k * 0.5f;
+							ar.couleur = NkString(k == 0 ? "#fafcff" : (k == 1 ? "#d11313" : "#1976d1"));
+							gd.arrets.PushBack(ar);
+						}
+					}
+					nd.rotation = 0.f;
+					stI.SelectSingle(rc);
+					stI.picker = DesignState::DemandePicker();
+					stI.picker.ouvert = true; // les anneaux existent popover ouvert
+					stI.picker.id = ctxI.GetId("##sonde.popover.bulle");
+					stI.picker.genre = 1u;
+					stI.picker.noeud = rc;
+					stI.picker.index = 1;
+					stI.picker.ancre = {590.f, 20.f, 16.f, 16.f};
+					for (int32 k = 0; k < 4; ++k)
+						sceneV(-1.f, -1.f);
+					NkLayoutResult scr;
+					stI.ProjectToScreen(scr);
+					const NkPaintRect rs = scr.At(rc);
+					const renderdetail::NkAxeDegrade axe = renderdetail::NkAxeDegradeGenre(0, rs, gd);
+					auto survoler = [&](float32 x, float32 y, int32 images) {
+						for (int32 k = 0; k < images; ++k)
+							sceneV(x, y);
+						return NkString(stI.bulle.Data() ? stI.bulle.Data() : "");
+					};
+					// a. l'anneau de l'extremite (au-dela, le long de l'axe) : avant le delai rien, apres « Tourner l'axe »
+					float32 ex = 0.f, ey = 0.f;
+					renderdetail::NkPoigneeDegrade(axe, 1.f, ex, ey);
+					float32 dx = axe.bx - axe.ax, dy = axe.by - axe.ay;
+					const float32 l = nkentseu::math::NkSqrt(dx * dx + dy * dy);
+					dx /= l > 0.001f ? l : 1.f;
+					dy /= l > 0.001f ? l : 1.f;
+					const NkString avant = survoler(ex + dx * 13.f, ey + dy * 13.f, 5);   // 0,08 s
+					const NkString anneau = survoler(ex + dx * 13.f, ey + dy * 13.f, 30); // + 0,48 s
+					// b. le disque de l'arret du milieu
+					float32 mx0 = 0.f, my0 = 0.f;
+					renderdetail::NkPoigneeDegrade(axe, 0.5f, mx0, my0);
+					const NkString disque = survoler(mx0, my0, 35);
+					// c. l'arc de rotation du noeud (coin haut-droit)
+					const NkPaintRect arc = NkPoigneeRotation(rs, 1u, NkTaillePoigneeRotation());
+					const NkString tourner = survoler(arc.x + arc.w * 0.5f, arc.y + arc.h * 0.5f, 35);
+					// d. le bord droit, a mi-hauteur, loin des pastilles : « Redimensionner »
+					const NkString bord = survoler(rs.x + rs.w + 3.f, rs.y + rs.h * 0.25f, 35);
+					// e. en partant : rien
+					const NkString parti = survoler(-1.f, -1.f, 3);
+					stI.picker = DesignState::DemandePicker();
+					sceneV(-1.f, -1.f);
+					snprintf(det, sizeof(det), "avant 0,4 s : « %s » ; anneau : « %s » ; disque : « %s » ; arc : « %s » ; bord : « %s » ; parti : « %s »",
+							 avant.Data() ? avant.Data() : "", anneau.Data(), disque.Data(), tourner.Data(), bord.Data(), parti.Data() ? parti.Data() : "");
+					check("60v. ③ LES INFO-BULLES des poignees : rien avant 0,4 s, puis « Tourner l'axe » sur l'anneau, « Glisser "
+						  "l'arret » sur le disque, « Tourner » sur l'arc, « Redimensionner » sur le bord, rien en partant",
+						  avant.Empty() && NkComponentDecl::StrEq(anneau.Data(), "Tourner l'axe") && NkComponentDecl::StrEq(disque.Data(), "Glisser l'arrêt")
+							  && NkComponentDecl::StrEq(tourner.Data(), "Tourner") && NkComponentDecl::StrEq(bord.Data(), "Redimensionner (Maj : proportionnel)")
+							  && parti.Empty(),
+						  det);
+				}
 				stI.picker = DesignState::DemandePicker();
 			}
 		}
