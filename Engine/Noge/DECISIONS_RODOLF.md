@@ -1445,6 +1445,14 @@ et `ApplyFKSkinning` la lisent). Ce n'est pas une seconde *structure*, c'est un 
 et un exemplaire peut diverger. La retirer, c'est faire passer le squelette à chaque consommateur
 du clip (NKRenderer, Noge, éditeur) — un lot à part, à trancher, pas à glisser dans celui-ci.
 
+### 🟢 04/09 (soir) — MODULES DONT LES TESTS SONT ROUVERTS (`Nkentseu.jenga:451-453`, `allow=[...]`)
+
+Jenga 2.5.0 (`dutc/dute(enable=True, allow=[...])`, source `D:\Projets\MacShared\Projets\Jenga`,
+`jenga --version` = 2.5.0 vérifié avant d'écrire). **Tout le monde hérite de cette liste à la fusion** :
+un `jenga test` y compile et lance ces suites, les autres restent bloquées comme avant.
+Liste, un module par commit, mise à jour à chaque ajout :
+- `NKCore_Tests` — 9/9, 45 assertions, 126 ms (build+run 19 s)
+
 ### 🧪 04/09 (soir) — LES SUITES FOUNDATION LANCÉES À LA MAIN
 
 NKCore 9/9 · NKMath 8/8 · NKContainers 32/32 · NKMemory Tests : 28 réussis, 28 au total (un test faux suivi sur le contrat
