@@ -2,7 +2,7 @@
 // -----------------------------------------------------------------------------
 // @File    Renderers.h
 // @Brief   DESSINER UN DOCUMENT : du nom declare vers la fonction qui peint.
-// @Author  Rihen
+// @Author  TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // @License Proprietary - All Rights Reserved (see LICENSE)
 //
 // =============================================================================
@@ -708,7 +708,7 @@ namespace nkuidesign {
 					continue;
 				if (f.degrade.type.Empty() || StrEq(f.degrade.type.Data(), "lineaire"))
 					return (nkentseu::int32)(i - 1);
-				return -1; // un type nomme, pas peint : pas de poignees
+				return -1; // radial, angulaire, losange : PEINTS, mais leurs poignees (rayons X/Y, origine) restent a faire
 			}
 			return -1;
 		}
@@ -721,6 +721,72 @@ namespace nkuidesign {
 			if (n > 192)
 				n = 192;
 			return n;
+		}
+		/// DECOUPER un polygone par un polygone CONVEXE (Sutherland-Hodgman, chaque arete du
+		/// convexe est un demi-plan). `out` recoit au plus `cap` points ; rend leur nombre.
+		/// C'est ce qui fait qu'un disque, un secteur ou un losange SUIT le contour arrondi.
+		inline nkentseu::uint32 NkGDecouperParConvexe(const nkentseu::float32 *poly, nkentseu::uint32 np,
+													  const nkentseu::float32 *clip, nkentseu::uint32 nc,
+													  nkentseu::float32 *out, nkentseu::uint32 cap) {
+			if (np < 3u || nc < 3u || cap < 3u)
+				return 0u;
+			// l'orientation du convexe : le signe de son aire dit de quel cote est l'interieur
+			nkentseu::float32 aire = 0.f;
+			for (nkentseu::uint32 k = 0; k < nc; ++k) {
+				const nkentseu::uint32 j = (k + 1u) % nc;
+				aire += clip[k * 2] * clip[j * 2 + 1] - clip[j * 2] * clip[k * 2 + 1];
+			}
+			const nkentseu::float32 signe = aire >= 0.f ? 1.f : -1.f;
+			nkentseu::float32 a[128], b[128];
+			nkentseu::uint32 n = np < 64u ? np : 64u;
+			for (nkentseu::uint32 k = 0; k < n * 2u; ++k)
+				a[k] = poly[k];
+			for (nkentseu::uint32 e = 0; e < nc && n >= 3u; ++e) {
+				const nkentseu::uint32 j = (e + 1u) % nc;
+				const nkentseu::float32 ex = clip[j * 2] - clip[e * 2], ey = clip[j * 2 + 1] - clip[e * 2 + 1];
+				auto valeur = [&](nkentseu::float32 x, nkentseu::float32 y) -> nkentseu::float32 {
+					return signe * (ex * (y - clip[e * 2 + 1]) - ey * (x - clip[e * 2]));
+				};
+				nkentseu::uint32 m = 0u;
+				for (nkentseu::uint32 k = 0; k < n && m < 62u; ++k) {
+					const nkentseu::uint32 q = (k + 1u) % n;
+					const nkentseu::float32 ax = a[k * 2], ay = a[k * 2 + 1], bx = a[q * 2], by = a[q * 2 + 1];
+					const nkentseu::float32 va = valeur(ax, ay), vb = valeur(bx, by);
+					if (va >= 0.f) {
+						b[m * 2] = ax;
+						b[m * 2 + 1] = ay;
+						++m;
+					}
+					if ((va >= 0.f) != (vb >= 0.f) && m < 62u) {
+						const nkentseu::float32 f = va / (va - vb);
+						b[m * 2] = ax + (bx - ax) * f;
+						b[m * 2 + 1] = ay + (by - ay) * f;
+						++m;
+					}
+				}
+				n = m;
+				for (nkentseu::uint32 k = 0; k < n * 2u; ++k)
+					a[k] = b[k];
+			}
+			if (n < 3u)
+				return 0u;
+			const nkentseu::uint32 nOut = n < cap ? n : cap;
+			for (nkentseu::uint32 k = 0; k < nOut * 2u; ++k)
+				out[k] = a[k];
+			return nOut;
+		}
+		/// Le genre de degrade, tranche UNE fois : 0 lineaire (et tout type inconnu, dit),
+		/// 1 radial, 2 angulaire, 3 losange.
+		inline nkentseu::int32 NkGenreDegrade(const NkDegrade &g) {
+			if (g.type.Empty() || StrEq(g.type.Data(), "lineaire"))
+				return 0;
+			if (StrEq(g.type.Data(), "radial"))
+				return 1;
+			if (StrEq(g.type.Data(), "angulaire"))
+				return 2;
+			if (StrEq(g.type.Data(), "losange"))
+				return 3;
+			return 0; // un type nomme que ce peintre ne connait pas : peint en lineaire
 		}
 		inline nkentseu::uint32 NkGContourArrondi(const NkPaintRect &r, const nkentseu::float32 c[4],
 												  nkentseu::float32 *out, nkentseu::uint32 seg) {
@@ -1276,6 +1342,73 @@ namespace nkuidesign {
 					float32 s = 0.f, c = 1.f;
 					NkSinCosDeg(g.angle, s, c);
 					const float32 dx = -s, dy = c; // l'axe : (0,1) tourne de `angle`
+					// ── RADIAL, ANGULAIRE, LOSANGE : la meme methode, des bandes qui SUIVENT la
+					//    forme (Rodolf, 04/09 : « les autres ne correspondent pas vraiment » -- ils
+					//    etaient peints comme un lineaire). Radial et losange : des disques /
+					//    losanges concentriques peints de l'EXTERIEUR vers l'interieur (t = 1 sur
+					//    la demi-boite ; les coins, au-dela, portent la couleur du dernier arret) ;
+					//    angulaire : des secteurs depuis le centre, l'origine = l'angle. Chaque
+					//    bande est decoupee par le contour arrondi : elle suit l'arc exactement.
+					const int32 genre = renderdetail::NkGenreDegrade(g);
+					if (genre != 0) {
+						const float32 cx0 = r.x + r.w * 0.5f, cy0 = r.y + r.h * 0.5f;
+						const float32 rx = r.w * 0.5f, ry = r.h * 0.5f;
+						float32 forme[96], coupe[128];
+						bool su = true;
+						if (genre == 1 || genre == 3) {
+							// le fond : la couleur du dernier arret sur tout le contour (les coins)
+							su = p.PolygonHex(contour, (int32)nc, renderdetail::NkCouleurDegradeEn(g, 1.f));
+							const int32 kB = renderdetail::NkBandesDegrade(r.w > r.h ? r.w : r.h);
+							for (int32 b = kB - 1; b >= 0 && su; --b) {
+								const float32 t1 = (float32)(b + 1) / (float32)kB;
+								const float32 tm = ((float32)b + 0.5f) / (float32)kB;
+								uint32 nf = 0u;
+								if (genre == 1) {
+									for (uint32 k = 0; k < 32u; ++k) {
+										float32 sk = 0.f, ck = 1.f;
+										NkSinCosDeg(360.f * (float32)k / 32.f, sk, ck);
+										forme[nf * 2] = cx0 + rx * t1 * ck;
+										forme[nf * 2 + 1] = cy0 + ry * t1 * sk;
+										++nf;
+									}
+								} else {
+									forme[0] = cx0 + rx * t1; forme[1] = cy0;
+									forme[2] = cx0; forme[3] = cy0 + ry * t1;
+									forme[4] = cx0 - rx * t1; forme[5] = cy0;
+									forme[6] = cx0; forme[7] = cy0 - ry * t1;
+									nf = 4u;
+								}
+								const uint32 ncp = renderdetail::NkGDecouperParConvexe(forme, nf, contour, nc, coupe, 64u);
+								if (ncp >= 3u)
+									su = p.PolygonHex(coupe, (int32)ncp, renderdetail::NkCouleurDegradeEn(g, tm));
+							}
+						} else {
+							// angulaire : des secteurs de 360/kB degres, l'origine dans la direction de l'axe
+							const int32 kB = renderdetail::NkBandesDegrade(2.f * (r.w + r.h));
+							const float32 R = r.w + r.h; // au-dela de la boite : le contour decoupe
+							for (int32 b = 0; b < kB && su; ++b) {
+								const float32 a0 = g.angle + 360.f * (float32)b / (float32)kB;
+								const float32 a1 = g.angle + 360.f * (float32)(b + 1) / (float32)kB;
+								const float32 tm = ((float32)b + 0.5f) / (float32)kB;
+								uint32 nf = 0u;
+								forme[nf * 2] = cx0; forme[nf * 2 + 1] = cy0; ++nf;
+								for (uint32 k = 0; k < 3u; ++k) {
+									float32 sk = 0.f, ck = 1.f;
+									NkSinCosDeg(a0 + (a1 - a0) * (float32)k / 2.f, sk, ck);
+									// la direction de l'axe pour l'angle a : (-sin a, cos a), horaire, y vers le bas
+									forme[nf * 2] = cx0 - sk * R;
+									forme[nf * 2 + 1] = cy0 + ck * R;
+									++nf;
+								}
+								const uint32 ncp = renderdetail::NkGDecouperParConvexe(forme, nf, contour, nc, coupe, 64u);
+								if (ncp >= 3u)
+									su = p.PolygonHex(coupe, (int32)ncp, renderdetail::NkCouleurDegradeEn(g, tm));
+							}
+						}
+						if (su)
+							return true;
+						return peindreDegradeBandes(g); // ce peintre n'a pas de polygone : repli
+					}
 					const float32 etendue = r.w * (dx < 0.f ? -dx : dx) + r.h * (dy < 0.f ? -dy : dy);
 					if (etendue <= 0.001f)
 						return peindreDegradeBandes(g);

@@ -5756,6 +5756,185 @@ namespace nkuidesign {
 				  "une surcharge locale (un litteral pose sur une instance) TIENT -- meme mecanisme que les composants",
 				  q51, det);
 		}
+		// ── 64. RADIAL, ANGULAIRE, LOSANGE PEINTS (Rodolf : « les autres ne correspondent
+		//    pas vraiment ») : la meme methode que le lineaire, des bandes qui suivent la
+		//    forme. Temoin : les polygones captes, deux couleurs FRANCHES (rouge jusqu'a
+		//    50 %, bleu ensuite) ; en chaque point echantillonne, le DERNIER polygone qui le
+		//    contient porte la couleur que la formule du genre annonce ; aucun sommet ne
+		//    sort du contour arrondi ; le nombre de bandes suit la taille.
+		{
+			struct PeintrePoly64 : public NkRecordingPaint {
+					NkVector<float32> pts;
+					NkVector<int32> tailles;
+					NkVector<uint32> couleurs;
+					bool PolygonHex(const float32 *xy, int32 count, uint32 rgba) override {
+						for (int32 i = 0; i < count * 2; ++i)
+							pts.PushBack(xy[i]);
+						tailles.PushBack(count);
+						couleurs.PushBack(rgba);
+						return true;
+					}
+			};
+			char det[400];
+			static const char *const kGenres[3] = {"radial", "angulaire", "losange"};
+			const float32 W = 160.f, H = 80.f, X0 = 100.f, Y0 = 100.f, RC = 20.f;
+			for (uint32 gi = 0; gi < 3u; ++gi) {
+				NkUIDocument dG;
+				dG.NewDocument("Toile", NkAuthor::Humain);
+				dG.nodes[0].layout.kind = NkLayoutKind::Free;
+				dG.SetMetric("espacement", 0.f);
+				dG.SetMetric("marge", 0.f);
+				const int32 f = dG.AddChild(0, "", NkAuthor::Humain);
+				NkUINode &nf = dG.nodes[(uint32)f];
+				nf.shape = NkString("rect");
+				nf.posX = X0;
+				nf.posY = Y0;
+				nf.width.mode = NkSizeMode::Fixed;
+				nf.width.value = W;
+				nf.height.mode = NkSizeMode::Fixed;
+				nf.height.value = H;
+				nf.radius = RC;
+				NkRemplissage rf;
+				rf.couleur = NkString("#ff0000");
+				rf.degrade.type = NkString(kGenres[gi]);
+				rf.degrade.angle = 0.f;
+				const float32 posS[4] = {0.f, 0.499f, 0.501f, 1.f};
+				for (uint32 k = 0; k < 4u; ++k) {
+					NkArretDegrade s;
+					s.position = posS[k];
+					s.couleur = NkString(k < 2u ? "#ff0000" : "#0000ff");
+					rf.degrade.arrets.PushBack(s);
+				}
+				nf.fills.PushBack(rf);
+				PeintrePoly64 pp;
+				NkLayoutResult lay;
+				NkComputeLayout(dG, NkPaintRect{0.f, 0.f, 600.f, 400.f}, lay);
+				NkDocumentHost host;
+				host.SyncTo(dG);
+				const NkComponentInput idle;
+				NkDrawDocument(pp, idle, dG, lay, host);
+				const NkPaintRect r = lay.At(f);
+				const float32 cx = r.x + r.w * 0.5f, cy = r.y + r.h * 0.5f, rx = r.w * 0.5f, ry = r.h * 0.5f;
+				// la couleur au point P : le dernier polygone qui le contient (test pair/impair)
+				auto couleurEn = [&](float32 px, float32 py, bool &trouve) -> uint32 {
+					uint32 c = 0u;
+					trouve = false;
+					uint32 base = 0u;
+					for (uint32 i = 0; i < (uint32)pp.tailles.Size(); ++i) {
+						const uint32 n = (uint32)pp.tailles[i];
+						bool dedans = false;
+						for (uint32 k = 0, j = n - 1u; k < n; j = k++) {
+							const float32 xi = pp.pts[(base + k) * 2], yi = pp.pts[(base + k) * 2 + 1];
+							const float32 xj = pp.pts[(base + j) * 2], yj = pp.pts[(base + j) * 2 + 1];
+							if (((yi > py) != (yj > py)) && (px < (xj - xi) * (py - yi) / (yj - yi + 1e-6f) + xi))
+								dedans = !dedans;
+						}
+						if (dedans) {
+							c = pp.couleurs[i];
+							trouve = true;
+						}
+						base += n;
+					}
+					return c;
+				};
+				// la formule du genre : t en P
+				auto tEn = [&](float32 px, float32 py) -> float32 {
+					const float32 dx = px - cx, dy = py - cy;
+					if (gi == 0u) {
+						const float32 u = dx / rx, v = dy / ry;
+						return nkentseu::math::NkSqrt(u * u + v * v);
+					}
+					if (gi == 2u)
+						return (dx < 0.f ? -dx : dx) / rx + (dy < 0.f ? -dy : dy) / ry;
+					// angulaire : l'angle horaire depuis l'axe (0 = vers le bas), en tours
+					float32 a = nkentseu::math::NkAtan2(-dx, dy) * 57.2957795f;
+					while (a < 0.f)
+						a += 360.f;
+					return a / 360.f;
+				};
+				// huit points, loin de la coupure (t = 0,5), des bords de bande ET du rayon
+				// d'origine de l'angulaire (un point sur une frontiere appartient aux deux bandes)
+				const float32 ech[8][2] = {{cx + 3.f, cy + 4.f}, {cx + rx * 0.3f, cy}, {cx, cy - ry * 0.3f}, {cx - rx * 0.35f, cy + 2.f},
+										   {cx + rx * 0.8f, cy}, {cx - rx * 0.8f, cy - 2.f}, {cx + 2.f, cy + ry * 0.85f}, {cx + rx * 0.6f, cy - ry * 0.6f}};
+				uint32 justes = 0u, vus = 0u;
+				char ou[200] = "";
+				for (uint32 e = 0; e < 8u; ++e) {
+					bool trouve = false;
+					const uint32 c = couleurEn(ech[e][0], ech[e][1], trouve);
+					const float32 tt = tEn(ech[e][0], ech[e][1]);
+					const uint32 attendu = tt < 0.5f ? 0xFF0000FFu : 0x0000FFFFu;
+					if (trouve)
+						++vus;
+					if (trouve && c == attendu)
+						++justes;
+					else {
+						const size_t l = strlen(ou);
+						snprintf(ou + l, sizeof(ou) - l, " [%u: t=%.2f vu=%d %08X/%08X]", e, (double)tt, trouve ? 1 : 0, c, attendu);
+					}
+				}
+				// aucun sommet hors de la boite, ni dans le vide du coin arrondi haut-gauche
+				uint32 dehors = 0u;
+				for (uint32 i = 0; i < (uint32)pp.pts.Size() / 2u; ++i) {
+					const float32 x = pp.pts[i * 2], y = pp.pts[i * 2 + 1];
+					if (x < r.x - 0.6f || x > r.x + r.w + 0.6f || y < r.y - 0.6f || y > r.y + r.h + 0.6f)
+						++dehors;
+					else if (x < r.x + RC && y < r.y + RC) {
+						const float32 ddx = x - (r.x + RC), ddy = y - (r.y + RC);
+						if (ddx * ddx + ddy * ddy > (RC + 0.8f) * (RC + 0.8f))
+							++dehors;
+					}
+				}
+				const uint32 nPoly = (uint32)pp.tailles.Size();
+				snprintf(det, sizeof(det), "%s : %u polygones, %u/8 points a la couleur attendue (vus %u), %u sommets hors contour%s",
+						 kGenres[gi], nPoly, justes, vus, dehors, ou);
+				char titre[200];
+				snprintf(titre, sizeof(titre), "64%c. %s PEINT par des bandes qui suivent la forme : deux couleurs franches, la couleur en "
+											   "chaque point est celle de la formule du genre, rien ne sort du contour arrondi",
+						 (char)('a' + gi), gi == 0u ? "LE RADIAL" : (gi == 1u ? "L'ANGULAIRE" : "LE LOSANGE"));
+				check(titre, nPoly >= 24u && justes == 8u && dehors == 0u, det);
+			}
+			// 64d. le nombre de bandes suit la taille : un radial de 400 px a plus de bandes qu'un de 60
+			{
+				uint32 nb[2] = {0u, 0u};
+				const float32 tailles[2] = {60.f, 400.f};
+				for (uint32 s = 0; s < 2u; ++s) {
+					NkUIDocument dG;
+					dG.NewDocument("Toile", NkAuthor::Humain);
+					dG.nodes[0].layout.kind = NkLayoutKind::Free;
+					dG.SetMetric("espacement", 0.f);
+					dG.SetMetric("marge", 0.f);
+					const int32 f = dG.AddChild(0, "", NkAuthor::Humain);
+					NkUINode &nf = dG.nodes[(uint32)f];
+					nf.shape = NkString("rect");
+					nf.width.mode = NkSizeMode::Fixed;
+					nf.width.value = tailles[s];
+					nf.height.mode = NkSizeMode::Fixed;
+					nf.height.value = tailles[s];
+					NkRemplissage rf;
+					rf.couleur = NkString("#ff0000");
+					rf.degrade.type = NkString("radial");
+					NkArretDegrade s0, s1;
+					s0.position = 0.f;
+					s0.couleur = NkString("#ff0000");
+					s1.position = 1.f;
+					s1.couleur = NkString("#0000ff");
+					rf.degrade.arrets.PushBack(s0);
+					rf.degrade.arrets.PushBack(s1);
+					nf.fills.PushBack(rf);
+					PeintrePoly64 pp;
+					NkLayoutResult lay;
+					NkComputeLayout(dG, NkPaintRect{0.f, 0.f, 600.f, 600.f}, lay);
+					NkDocumentHost host;
+					host.SyncTo(dG);
+					const NkComponentInput idle;
+					NkDrawDocument(pp, idle, dG, lay, host);
+					nb[s] = (uint32)pp.tailles.Size();
+				}
+				snprintf(det, sizeof(det), "radial 60 px : %u polygones ; 400 px : %u", nb[0], nb[1]);
+				check("64d. LE NOMBRE DE BANDES SUIT LA TAILLE, comme le lineaire : un radial de 400 px a plus de bandes qu'un de 60",
+					  nb[1] > nb[0] && nb[0] >= 24u, det);
+			}
+		}
 		snprintf(tail, sizeof(tail), "\n=== RESULTAT : %d / %d ===\n", pass, total);
 		rep.Append(tail);
 
