@@ -10205,6 +10205,10 @@ namespace nkuidesign {
 												   : 8.f + hTypes + hPicker + hHex + hRampe + 8.f;
 				const NkRect sw = d.ancre;
 				NkRect pr = {sw.x - pw - 8.f, sw.y - 8.f, pw, ph};
+				// ⑤ LE POPOVER NE SORT JAMAIS DE LA FENETRE : sa hauteur est BORNEE ; ce qui
+				//    deborde, c'est la liste des arrets, et elle DEFILE (ascenseur plus bas)
+				if (pr.h > (float32)ctx.viewH - 4.f)
+					pr.h = (float32)ctx.viewH - 4.f;
 				if (pr.x < 2.f)
 					pr.x = 2.f;
 				if (pr.y + pr.h > (float32)ctx.viewH)
@@ -10648,10 +10652,33 @@ namespace nkuidesign {
 						y += 26.f;
 					}
 					// LA LISTE : position · pastille · hexa · opacité · poubelle ; la ligne courante s'allume
+					// ⑤ ELLE DEFILE quand elle deborde : la zone visible va d'ici au bas du popover ;
+					//    molette dessus, ou glisser sur l'ascenseur ; les rangees hors zone ne se
+					//    dessinent pas et ne prennent aucun clic.
+					const uint32 nArrets = (uint32)g.arrets.Size() < (uint32)kMaxArretsUI ? (uint32)g.arrets.Size() : (uint32)kMaxArretsUI;
+					const NkRect zone = {x0, y, x1 - x0, pr.y + pr.h - 8.f - y};
+					const float32 hListe = 26.f * (float32)nArrets;
+					const bool defile = hListe > zone.h + 0.5f && zone.h > 20.f;
+					const float32 defilMax = defile ? hListe - zone.h : 0.f;
+					if (!defile)
+						mListeDefil = 0.f;
+					if (defile && NkGuiRectContains(zone, ctx.input.mousePos) && ctx.input.wheel != 0.f)
+						mListeDefil -= ctx.input.wheel * 26.f;
+					if (mListeDefil < 0.f)
+						mListeDefil = 0.f;
+					if (mListeDefil > defilMax)
+						mListeDefil = defilMax;
+					if (defile)
+						dl.PushClipRect({zone.x, zone.y, zone.w, zone.h}, true);
+					y -= mListeDefil;
 					int32 aSupprimer = -1;
-					for (uint32 ai = 0; ai < (uint32)g.arrets.Size() && ai < (uint32)kMaxArretsUI; ++ai) {
+					for (uint32 ai = 0; ai < nArrets; ++ai) {
 						NkArretDegrade &ar = g.arrets[ai];
 						const NkRect ra = {x0, y, x1 - x0, 24.f};
+						if (defile && (ra.y + ra.h < zone.y || ra.y > zone.y + zone.h)) {
+							y += 26.f; // hors de la zone visible : ni dessin, ni clic
+							continue;
+						}
 						const bool choisi = d.arretSel == (int32)ai;
 						if (choisi)
 							dl.AddRectFilled(ra, {ctx.theme.accent.r, ctx.theme.accent.g, ctx.theme.accent.b, 28}, 4.f);
@@ -10686,9 +10713,38 @@ namespace nkuidesign {
 						if (svS && ctx.input.mouseClicked[0])
 							aSupprimer = (int32)ai;
 						else if (ctx.input.mouseClicked[0] && NkGuiRectContains(ra, ctx.input.mousePos)
+								 && NkGuiRectContains(zone, ctx.input.mousePos)
 								 && !NkGuiRectContains(rpos, ctx.input.mousePos) && !NkGuiRectContains(ropA, ctx.input.mousePos))
 							d.arretSel = (int32)ai; // la ligne s'allume, le sélecteur passe sur cet arrêt
 						y += 26.f;
+					}
+					if (defile) {
+						dl.PopClipRect();
+						// L'ASCENSEUR : une piste au bord droit, un curseur proportionnel, qui se glisse
+						const NkRect piste = {x1 - 4.f, zone.y, 4.f, zone.h};
+						const float32 hCurseur = zone.h * (zone.h / hListe) < 16.f ? 16.f : zone.h * (zone.h / hListe);
+						const float32 course = zone.h - hCurseur;
+						const NkRect curseur = {piste.x, piste.y + course * (defilMax > 0.f ? mListeDefil / defilMax : 0.f), 4.f, hCurseur};
+						const bool svC = NkGuiRectContains(curseur, ctx.input.mousePos);
+						dl.AddRectFilled(piste, ctx.theme.border, 2.f);
+						dl.AddRectFilled(curseur, (svC || mDefilDrag) ? ctx.theme.accent : ctx.theme.textMuted, 2.f);
+						if (svC && ctx.input.mouseClicked[0]) {
+							mDefilDrag = true;
+							mDefilDernierY = ctx.input.mousePos.y;
+							ctx.input.mouseClicked[0] = false;
+						}
+						if (mDefilDrag) {
+							if (!ctx.input.mouseDown[0])
+								mDefilDrag = false;
+							else if (course > 0.f) {
+								mListeDefil += (ctx.input.mousePos.y - mDefilDernierY) * (defilMax / course);
+								mDefilDernierY = ctx.input.mousePos.y;
+								if (mListeDefil < 0.f)
+									mListeDefil = 0.f;
+								if (mListeDefil > defilMax)
+									mListeDefil = defilMax;
+							}
+						}
 					}
 					if (aSupprimer >= 0 && (uint32)aSupprimer < (uint32)g.arrets.Size()) {
 						g.arrets.RemoveAt((uint32)aSupprimer);
@@ -14458,6 +14514,9 @@ namespace nkuidesign {
 			bool mFusionMenuOuvert = false; ///< la goutte : les 18 modes, Normal operant
 			bool mCadrageMenuOuvert = false; ///< image : Fill / Fit / Stretch / Tile / Crop
 			nkgui::NkGuiId mSaisieChamp = 0; ///< ② le champ numerique en cours de FRAPPE
+			float32 mListeDefil = 0.f;	 ///< ⑤ le defilement de la liste des arrets (px)
+			bool mDefilDrag = false;	 ///< ⑤ le curseur de l'ascenseur se glisse
+			float32 mDefilDernierY = 0.f;
 			char mSaisieBuf[24] = {};
 			bool mDragBouge = false; ///< le glisser a bouge : ce n'etait pas un clic
 			int32 mArretSel = 0;

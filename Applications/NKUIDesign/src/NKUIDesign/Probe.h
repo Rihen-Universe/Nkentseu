@@ -5603,6 +5603,106 @@ namespace nkuidesign {
 						  "est au-dessus du haut de la boite du champ Angle, mesure sur la couche overlay",
 						  disjoints, det);
 				}
+				// 60n. ⑤ L'ASCENSEUR : une fenetre de 420 px, douze arrets -- le popover tient dans
+				// la fenetre (tous ses sommets dedans), la liste DEFILE a la molette (les boites
+				// des rangees se decalent de 13 px pour une demi-crans), et rien ne sort.
+				{
+					static nkgui::NkGuiContext ctxS;
+					if (!ctxS.Init(600, 420)) {
+						check("60n. ⑤ l'ascenseur : contexte 600x420", false, "Init a refuse");
+					} else {
+						NkDegrade &g12 = stI.doc.nodes[(uint32)rc].fills[1].degrade;
+						while (g12.arrets.Size() < 12u) {
+							const float32 tA = 0.05f + 0.9f * (float32)g12.arrets.Size() / 12.f;
+							if (renderdetail::NkAjouterArretDegrade(g12, tA, 12u) < 0)
+								break;
+						}
+						stI.SelectSingle(rc);
+						stI.picker = DesignState::DemandePicker();
+						stI.picker.ouvert = true;
+						stI.picker.id = ctxS.GetId("##sonde.popover.ascenseur");
+						stI.picker.genre = 1u;
+						stI.picker.noeud = rc;
+						stI.picker.index = 1;
+						stI.picker.arretSel = 0;
+						stI.picker.ancre = {360.f, 100.f, 16.f, 16.f};
+						NkEditorFrameContext ecS;
+						ecS.ui = &ctxS;
+						ecS.dt = 0.016f;
+						auto image5 = [&](float32 mx, float32 my, float32 molette) {
+							ctxS.input.mousePos = {mx, my};
+							ctxS.input.mouseDown[0] = false;
+							ctxS.BeginFrame(0.016f);
+							ctxS.input.wheel = molette;
+							ctxS.BeginLayout({340.f, 0.f, 260.f, 420.f});
+							insp.OnUI(ecS);
+							NkDessinerPickerDemande(ctxS, stI);
+							ctxS.EndFrame();
+						};
+						image5(-1.f, -1.f, 0.f);
+						image5(-1.f, -1.f, 0.f);
+						float32 px = 1e9f, py = 1e9f, pyMax = -1e9f;
+						for (uint32 i = 0; i < (uint32)ctxS.dlOverlay.vtx.Size(); ++i) {
+							const auto &vt = ctxS.dlOverlay.vtx[i];
+							if (vt.pos.x < px) px = vt.pos.x;
+							if (vt.pos.y < py) py = vt.pos.y;
+							if (vt.pos.y > pyMax) pyMax = vt.pos.y;
+						}
+						const bool dansFenetre = py >= 0.f && pyMax <= 420.5f;
+						const float32 x0 = px + 0.5f + 8.f;
+						const float32 yListe = py + 0.5f + 8.f + 26.f + 168.f + 26.f + 34.f + 26.f; // apres la rangee Angle
+						const nkentseu::uint32 boite = nkgui::NkGuiPackColor(
+							nkentseu::editorkit::NkThemeUnpack(stI.theme.Get(nkentseu::editorkit::NkRole::InputBg)));
+						// les boites du champ « position » des rangees visibles : x0+2 .. x0+42
+						auto boitesY = [&](float32 &yMin, uint32 &n) {
+							yMin = 1e9f;
+							n = 0u;
+							for (uint32 i = 0; i < (uint32)ctxS.dlOverlay.vtx.Size(); ++i) {
+								const auto &vt = ctxS.dlOverlay.vtx[i];
+								if (vt.col == boite && vt.pos.x >= x0 + 1.5f && vt.pos.x <= x0 + 8.f && vt.pos.y >= yListe - 30.f) {
+									if (vt.pos.y < yMin) yMin = vt.pos.y;
+									++n;
+								}
+							}
+						};
+						float32 yAvant = 0.f, yApres = 0.f;
+						uint32 nAvant = 0u, nApres = 0u;
+						boitesY(yAvant, nAvant);
+						// la molette sur la liste : une demi-cran vers le bas = 13 px
+						image5(x0 + 100.f, yListe + 30.f, -0.5f);
+						image5(-1.f, -1.f, 0.f);
+						boitesY(yApres, nApres);
+						// le bas VISIBLE : chaque commande porte son rectangle de decoupe ; un sommet
+						// au-dela est rogne par le scissor, il ne se voit pas
+						float32 pyMax2 = -1e9f;
+						for (uint32 c = 0; c < (uint32)ctxS.dlOverlay.cmds.Size(); ++c) {
+							const auto &cmd = ctxS.dlOverlay.cmds[c];
+							const float32 basClip = cmd.clipRect.y + cmd.clipRect.h;
+							for (uint32 k = cmd.idxOffset; k < cmd.idxOffset + cmd.idxCount && k < (uint32)ctxS.dlOverlay.idx.Size(); ++k) {
+								const uint32 vi = ctxS.dlOverlay.idx[k];
+								if (vi >= (uint32)ctxS.dlOverlay.vtx.Size())
+									continue;
+								float32 yv = ctxS.dlOverlay.vtx[vi].pos.y;
+								if (yv > basClip)
+									yv = basClip;
+								if (yv > pyMax2)
+									pyMax2 = yv;
+							}
+						}
+						const bool defile = nAvant > 0u && nApres > 0u && yApres < yAvant - 5.f;
+						stI.picker = DesignState::DemandePicker();
+						image5(-1.f, -1.f, 0.f);
+						while (g12.arrets.Size() > 3u)
+							g12.arrets.RemoveAt(g12.arrets.Size() - 1u);
+						snprintf(det, sizeof(det),
+								 "fenetre 420 : popover y %.0f..%.0f (dans la fenetre=%d), %u arrets ; boites de la liste (x0=%.0f, yListe=%.0f) : "
+								 "%u sommets, premiere a y=%.1f puis, apres une demi-cran de molette, %u sommets, a y=%.1f (defile=%d) ; bas VISIBLE apres=%.0f",
+								 py, pyMax, dansFenetre ? 1 : 0, 12u, x0, yListe, nAvant, yAvant, nApres, yApres, defile ? 1 : 0, pyMax2);
+						check("60n. ⑤ L'ASCENSEUR DU POPOVER : douze arrets dans une fenetre de 420 px -- le popover tient dans la "
+							  "fenetre, la liste defile a la molette (l'interieur bouge, pas le popover)",
+							  dansFenetre && defile && pyMax2 <= 420.5f, det);
+					}
+				}
 				stI.picker = DesignState::DemandePicker();
 			}
 		}
