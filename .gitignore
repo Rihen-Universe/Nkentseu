@@ -716,6 +716,7 @@ GUIDE_GIT_MULTI_AGENTS.md
 !/Captures/nk_web_headless.png
 !/Captures/noge_vehicule_*
 !/Captures/noge_particules_*
+!/Captures/noge_fluide_*
 !/Captures/model_loaders/
 /Captures/model_loaders/*
 !/Captures/model_loaders/fbx_FuturisticCar.png
