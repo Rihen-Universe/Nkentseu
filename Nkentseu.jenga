@@ -448,9 +448,9 @@ with workspace("Nkentseu", location="."):
 
 
 
-    dutc(enable=True, allow=["NKCore_Tests", "NKMath_Tests", "NKContainers_Tests", "NKMemory_Tests", "NKPhysics_Tests", "NKFileSystem_Tests", "NKStream_Tests", "NKReflection_Tests"])  # reouverture module par module (2026-09-04, Rodolf : « on suit ta recommandation »)
+    dutc(enable=True, allow=["NKCore_Tests", "NKMath_Tests", "NKContainers_Tests", "NKMemory_Tests", "NKPhysics_Tests", "NKFileSystem_Tests", "NKStream_Tests", "NKReflection_Tests", "NKWindow_Tests"])  # reouverture module par module (2026-09-04, Rodolf : « on suit ta recommandation »)
 
-    dute(enable=True, allow=["NKCore_Tests", "NKMath_Tests", "NKContainers_Tests", "NKMemory_Tests", "NKPhysics_Tests", "NKFileSystem_Tests", "NKStream_Tests", "NKReflection_Tests"])
+    dute(enable=True, allow=["NKCore_Tests", "NKMath_Tests", "NKContainers_Tests", "NKMemory_Tests", "NKPhysics_Tests", "NKFileSystem_Tests", "NKStream_Tests", "NKReflection_Tests", "NKWindow_Tests"])
 
 
 
