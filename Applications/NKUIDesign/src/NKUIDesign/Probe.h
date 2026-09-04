@@ -4790,6 +4790,69 @@ namespace nkuidesign {
 				stI.picker = DesignState::DemandePicker();
 			}
 		}
+		// ── 61. LES POIGNEES DE DEGRADE : une geometrie, deux lecteurs ───────
+		{
+			using renderdetail::NkAxeDegrade;
+			using renderdetail::NkAxeDegradeDe;
+			using renderdetail::NkPoigneeDegrade;
+			using renderdetail::NkQuiPrendLeClicDegrade;
+			NkDegrade g;
+			for (uint32 k = 0; k < 3u; ++k) {
+				NkArretDegrade ar;
+				ar.position = (float32)k * 0.5f;
+				ar.couleur = NkString("#ff0000");
+				g.arrets.PushBack(ar);
+			}
+			const NkPaintRect r{100.f, 100.f, 120.f, 60.f};
+			char det[300];
+			// 61a. angle 0 (haut -> bas) : trois poignees sur la verticale du centre
+			NkAxeDegrade a0 = NkAxeDegradeDe(r, g);
+			float32 x0, y0, x1, y1, x2, y2;
+			NkPoigneeDegrade(a0, 0.f, x0, y0);
+			NkPoigneeDegrade(a0, 0.5f, x1, y1);
+			NkPoigneeDegrade(a0, 1.f, x2, y2);
+			const bool vertical = x0 == 160.f && y0 == 100.f && x1 == 160.f && y1 == 130.f && x2 == 160.f && y2 == 160.f;
+			// angle 270 (gauche -> droite) : sur l'horizontale du centre
+			g.angle = 270.f;
+			NkAxeDegrade a270 = NkAxeDegradeDe(r, g);
+			float32 hx0, hy0, hx2, hy2;
+			NkPoigneeDegrade(a270, 0.f, hx0, hy0);
+			NkPoigneeDegrade(a270, 1.f, hx2, hy2);
+			const bool horizontal = hx0 > 99.9f && hx0 < 100.1f && hy0 > 129.9f && hy0 < 130.1f && hx2 > 219.9f
+									&& hx2 < 220.1f;
+			g.angle = 0.f;
+			snprintf(det, sizeof(det), "angle 0 : (%.0f,%.0f) (%.0f,%.0f) (%.0f,%.0f) ; angle 270 : (%.0f,%.0f) -> (%.0f,%.0f)",
+					 x0, y0, x1, y1, x2, y2, hx0, hy0, hx2, hy2);
+			check("61a. UNE POIGNEE PAR ARRET, a sa position sur l'axe : trois arrets = trois poignees (0, 50, 100 %), "
+				  "et l'axe tourne avec l'angle -- la meme convention que le peintre",
+				  vertical && horizontal, det);
+			// 61b. UNE SEULE DECISION, ORDONNEE : a 6.5 px de la poignee du milieu, c'est la POIGNEE (pas un arret
+			// parasite) ; sur le segment loin des poignees, c'est le SEGMENT (-2) ; ailleurs, la toile (-1)
+			const int32 surPoignee = NkQuiPrendLeClicDegrade(a0, g, 160.f, 136.5f, 8.f, 5.f);
+			const int32 surSegment = NkQuiPrendLeClicDegrade(a0, g, 161.f, 145.f, 8.f, 5.f);
+			const int32 surRien = NkQuiPrendLeClicDegrade(a0, g, 190.f, 145.f, 8.f, 5.f);
+			const int32 auBord = NkQuiPrendLeClicDegrade(a0, g, 167.5f, 130.f, 8.f, 5.f); // au bord de la pastille
+			snprintf(det, sizeof(det), "a 6.5 px sous la poignee du milieu -> %d (poignee 1) ; sur le segment -> %d (-2) ; "
+									   "loin -> %d (-1) ; au bord de la pastille -> %d (poignee 1)",
+					 surPoignee, surSegment, surRien, auBord);
+			check("61b. QUI PREND LE CLIC : la poignee AVANT le segment, le segment AVANT la toile -- un clic au "
+				  "bord d'une pastille ne cree jamais un arret parasite",
+				  surPoignee == 1 && surSegment == -2 && surRien == -1 && auBord == 1, det);
+			// 61c. seul le LINEAIRE a ses poignees : un type nomme, pas peint, n'en montre pas
+			NkUINode nL, nR;
+			NkRemplissage fL;
+			fL.degrade = g;
+			nL.fills.PushBack(fL);
+			NkRemplissage fR;
+			fR.degrade = g;
+			fR.degrade.type = NkString("radial");
+			nR.fills.PushBack(fR);
+			const int32 iL = renderdetail::NkRemplissageDegradeToile(nL), iR = renderdetail::NkRemplissageDegradeToile(nR);
+			snprintf(det, sizeof(det), "lineaire -> remplissage %d ; radial (nomme, pas peint) -> %d", iL, iR);
+			check("61c. seules les poignees du LINEAIRE se montrent : une poignee sur un degrade que le peintre ne rend "
+				  "pas serait un dessin faux",
+				  iL == 0 && iR == -1, det);
+		}
 		snprintf(tail, sizeof(tail), "\n=== RESULTAT : %d / %d ===\n", pass, total);
 		rep.Append(tail);
 

@@ -596,6 +596,92 @@ namespace nkuidesign {
 			g.arrets.PushBack(ar);
 			return (nkentseu::int32)g.arrets.Size() - 1;
 		}
+		// ════════════════════════════════════════════════════════════════════
+		//  LES POIGNEES DE DEGRADE SUR LA TOILE — la geometrie, UNE fois
+		// ════════════════════════════════════════════════════════════════════
+		/// L'AXE d'un degrade lineaire dans le repere du rectangle : du point 0 %
+		/// au point 100 %. Meme convention d'angle que le peintre (0 = haut -> bas,
+		/// horaire), meme etendue (w|sin| + h|cos|) : ce que la poignee montre est
+		/// exactement ce que la bande peint.
+		struct NkAxeDegrade {
+				nkentseu::float32 ax = 0.f, ay = 0.f, bx = 0.f, by = 0.f;
+		};
+		inline NkAxeDegrade NkAxeDegradeDe(const NkPaintRect &r, const NkDegrade &g) {
+			nkentseu::float32 s = 0.f, c = 1.f;
+			NkSinCosDeg(g.angle, s, c);
+			const nkentseu::float32 dx = -s, dy = c;
+			const nkentseu::float32 et = r.w * (dx < 0.f ? -dx : dx) + r.h * (dy < 0.f ? -dy : dy);
+			const nkentseu::float32 cx = r.x + r.w * 0.5f, cy = r.y + r.h * 0.5f;
+			NkAxeDegrade a;
+			a.ax = cx - dx * et * 0.5f;
+			a.ay = cy - dy * et * 0.5f;
+			a.bx = cx + dx * et * 0.5f;
+			a.by = cy + dy * et * 0.5f;
+			return a;
+		}
+		/// La poignee de l'arret `t` sur l'axe.
+		inline void NkPoigneeDegrade(const NkAxeDegrade &a, nkentseu::float32 t, nkentseu::float32 &x,
+									 nkentseu::float32 &y) {
+			x = a.ax + (a.bx - a.ax) * t;
+			y = a.ay + (a.by - a.ay) * t;
+		}
+		/// Le parametre (0..1) du point le plus proche sur l'axe -- ce qu'un glisser ecrit.
+		inline nkentseu::float32 NkParamSurAxeDegrade(const NkAxeDegrade &a, nkentseu::float32 px,
+													  nkentseu::float32 py) {
+			const nkentseu::float32 vx = a.bx - a.ax, vy = a.by - a.ay;
+			const nkentseu::float32 l2 = vx * vx + vy * vy;
+			if (l2 <= 0.0001f)
+				return 0.f;
+			nkentseu::float32 t = ((px - a.ax) * vx + (py - a.ay) * vy) / l2;
+			if (t < 0.f)
+				t = 0.f;
+			if (t > 1.f)
+				t = 1.f;
+			return t;
+		}
+		/// 🔑 QUI PREND LE CLIC -- UNE SEULE DECISION, ORDONNEE : la poignee la plus
+		///    proche si le point est a moins de `tolPoignee` d'elle (>= 0 : son
+		///    indice) ; SINON le segment s'il est a moins de `tolSegment` (-2 :
+		///    ajouter un arret ici) ; sinon rien (-1 : la toile). Ecrite ainsi, et
+		///    pas comme deux tests independants, pour qu'une tentative de saisir une
+		///    poignee ne cree jamais un arret parasite.
+		inline nkentseu::int32 NkQuiPrendLeClicDegrade(const NkAxeDegrade &a, const NkDegrade &g,
+													   nkentseu::float32 px, nkentseu::float32 py,
+													   nkentseu::float32 tolPoignee,
+													   nkentseu::float32 tolSegment) {
+			nkentseu::int32 meilleur = -1;
+			nkentseu::float32 d2min = tolPoignee * tolPoignee;
+			for (nkentseu::uint32 i = 0; i < (nkentseu::uint32)g.arrets.Size(); ++i) {
+				nkentseu::float32 hx = 0.f, hy = 0.f;
+				NkPoigneeDegrade(a, g.arrets[i].position, hx, hy);
+				const nkentseu::float32 d2 = (px - hx) * (px - hx) + (py - hy) * (py - hy);
+				if (d2 <= d2min) {
+					d2min = d2;
+					meilleur = (nkentseu::int32)i;
+				}
+			}
+			if (meilleur >= 0)
+				return meilleur;
+			const nkentseu::float32 t = NkParamSurAxeDegrade(a, px, py);
+			nkentseu::float32 sx = 0.f, sy = 0.f;
+			NkPoigneeDegrade(a, t, sx, sy);
+			const nkentseu::float32 d2 = (px - sx) * (px - sx) + (py - sy) * (py - sy);
+			return d2 <= tolSegment * tolSegment ? -2 : -1;
+		}
+		/// Le remplissage dont les poignees se montrent : le PLUS HAUT visible qui
+		/// porte un degrade LINEAIRE (le seul peint -- une poignee sur un degrade
+		/// invisible serait un dessin faux). -1 sinon.
+		inline nkentseu::int32 NkRemplissageDegradeToile(const NkUINode &n) {
+			for (nkentseu::uint32 i = (nkentseu::uint32)n.fills.Size(); i > 0; --i) {
+				const NkRemplissage &f = n.fills[i - 1];
+				if (!f.visible || !f.degrade.Actif())
+					continue;
+				if (f.degrade.type.Empty() || StrEq(f.degrade.type.Data(), "lineaire"))
+					return (nkentseu::int32)(i - 1);
+				return -1; // un type nomme, pas peint : pas de poignees
+			}
+			return -1;
+		}
 		/// LE NOMBRE DE BANDES SUIT LA TAILLE DESSINEE : 24 bandes suffisent pour
 		/// une pastille, pas pour un fond de 800 px. Une bande par 2 px, bornee.
 		inline nkentseu::int32 NkBandesDegrade(nkentseu::float32 etendue) {

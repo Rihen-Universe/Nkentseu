@@ -3595,6 +3595,54 @@ namespace nkuidesign {
 							mSt->status = NkString("Cliquer pour fermer l'avis — le détail reste dans la Console.");
 					}
 				}
+				// ── LES POIGNEES DE DEGRADE RECLAMENT AVANT TOUT ──────────────────
+				// Une poignee par arret sur le segment (captures de Rodolf du 04/09) :
+				// la poignee prend le clic avant le segment, le segment avant la toile
+				// -- une seule decision ordonnee (NkQuiPrendLeClicDegrade). Le point
+				// souris est ramene dans le repere de l'objet, comme pour la rotation.
+				if (!modeGraphe && !mMenuCtx.open && in.mousePressed && ctx.popupDepth == 0
+					&& mSt->doc.IsValidIndex(mSt->selected) && mSt->selected != 0
+					&& screen.Has(mSt->selected)) {
+					NkUINode &selDeg = mSt->doc.nodes[(uint32)mSt->selected];
+					const int32 fi = renderdetail::NkRemplissageDegradeToile(selDeg);
+					if (fi >= 0) {
+						NkDegrade &g = selDeg.fills[(uint32)fi].degrade;
+						const NkPaintRect rsD = screen.At(mSt->selected);
+						float32 mxD = ctx.input.mousePos.x, myD = ctx.input.mousePos.y;
+						NkMatPoint(NkMatInverse(NkMatEffective(mSt->doc, screen, mSt->selected)), mxD, myD);
+						const renderdetail::NkAxeDegrade axe = renderdetail::NkAxeDegradeDe(rsD, g);
+						const int32 qui = renderdetail::NkQuiPrendLeClicDegrade(axe, g, mxD, myD, 8.f, 5.f);
+						if (qui >= 0) {
+							mDegDrag = qui;
+							mDegFill = fi;
+							if (mSt->picker.ouvert && mSt->picker.genre == 1u && mSt->picker.noeud == mSt->selected
+								&& mSt->picker.index == fi)
+								mSt->picker.arretSel = qui; // le selecteur passe sur cet arret
+							in.mousePressed = false;
+							ctx.input.mouseClicked[0] = false;
+						} else if (qui == -2) {
+							// LE SEGMENT, hors de toute poignee : un arret nait ICI, par la
+							// meme fonction que la barre du popover
+							const float32 tA = renderdetail::NkParamSurAxeDegrade(axe, mxD, myD);
+							const int32 ajoute = renderdetail::NkAjouterArretDegrade(g, tA, 12u);
+							if (ajoute >= 0) {
+								mDegDrag = ajoute;
+								mDegFill = fi;
+								if (!selDeg.instanceDe.Empty())
+									selDeg.ecarts |= NkUINode::EcartRemplissages;
+								mSt->doc.MarkHumanEdit(mSt->selected);
+								mSt->host.SyncTo(mSt->doc);
+								if (mSt->picker.ouvert && mSt->picker.genre == 1u && mSt->picker.noeud == mSt->selected
+									&& mSt->picker.index == fi)
+									mSt->picker.arretSel = ajoute;
+								mSt->status = NkString("Arrêt ajouté sur le segment — glissez-le, la barre le montre aussi.");
+							} else
+								mSt->status = NkString("Douze arrêts au maximum dans l'éditeur.");
+							in.mousePressed = false;
+							ctx.input.mouseClicked[0] = false;
+						}
+					}
+				}
 				if (!modeGraphe && !mMenuCtx.open && in.mousePressed && ctx.popupDepth == 0
 					&& mSt->doc.IsValidIndex(mSt->selected) && mSt->selected != 0
 					&& screen.Has(mSt->selected)) {
@@ -4931,6 +4979,55 @@ namespace nkuidesign {
 					// LE BADGE DE ROLE (Banani RoleBadge) : pilule 9 px au-dessus a
 					// gauche de la selection, en FRANCAIS sur la toile (la maquette
 					// ecrit « Bouton » sur la toile et « Button » dans l'arbre).
+					// ── LES POIGNEES DE DEGRADE : une par arret, sur le segment ───────
+					{
+						NkUINode &selDeg = mSt->doc.nodes[(uint32)mSt->selected];
+						const int32 fi = renderdetail::NkRemplissageDegradeToile(selDeg);
+						if (fi >= 0) {
+							NkDegrade &g = selDeg.fills[(uint32)fi].degrade;
+							const renderdetail::NkAxeDegrade axe = renderdetail::NkAxeDegradeDe(rs, g);
+							// le glisser d'une poignee : l'arret suit la souris le long de l'axe
+							if (mDegDrag >= 0 && mDegFill == fi) {
+								if (ctx.input.mouseDown[0] && (uint32)mDegDrag < (uint32)g.arrets.Size()) {
+									const float32 tA = renderdetail::NkParamSurAxeDegrade(axe, mxS, myS);
+									if (tA != g.arrets[(uint32)mDegDrag].position) {
+										g.arrets[(uint32)mDegDrag].position = tA;
+										if (!selDeg.instanceDe.Empty())
+											selDeg.ecarts |= NkUINode::EcartRemplissages;
+										mSt->doc.MarkHumanEdit(mSt->selected);
+										mSt->host.SyncTo(mSt->doc);
+									}
+									char msg[64];
+									snprintf(msg, sizeof(msg), "Arrêt %d : %.0f %%", mDegDrag + 1, (double)(tA * 100.f));
+									mSt->status = NkString(msg);
+								} else
+									mDegDrag = -1;
+							}
+							// le segment, puis une poignee par arret (la courante plus grosse)
+							paint.Line(axe.ax, axe.ay, axe.bx, axe.by, accent, 1.5f);
+							const uint32 rgbaAccent = paint.ColorOf(accent);
+							const int32 courant = (mSt->picker.ouvert && mSt->picker.genre == 1u
+												   && mSt->picker.noeud == mSt->selected && mSt->picker.index == fi)
+													  ? mSt->picker.arretSel
+													  : (mDegDrag >= 0 && mDegFill == fi ? mDegDrag : -1);
+							for (uint32 ai = 0; ai < (uint32)g.arrets.Size(); ++ai) {
+								float32 hx = 0.f, hy = 0.f;
+								renderdetail::NkPoigneeDegrade(axe, g.arrets[ai].position, hx, hy);
+								const float32 ray = (int32)ai == courant ? 7.f : 5.5f;
+								float32 anneau[24], disque[24];
+								for (uint32 k = 0; k < 12u; ++k) {
+									float32 s = 0.f, c = 1.f;
+									NkSinCosDeg(30.f * (float32)k, s, c);
+									anneau[k * 2] = hx + c * ray;
+									anneau[k * 2 + 1] = hy + s * ray;
+									disque[k * 2] = hx + c * (ray - 2.f);
+									disque[k * 2 + 1] = hy + s * (ray - 2.f);
+								}
+								paint.PolygonHex(anneau, 12, (int32)ai == courant ? rgbaAccent : 0xFFFFFFFFu);
+								paint.PolygonHex(disque, 12, renderdetail::NkGHexRGBA(g.arrets[ai].couleur.Data()));
+							}
+						}
+					}
 					if (tourne)
 						paint.PopTransform(); // le badge et les puces restent droits
 					// LA PUCE D'ANGLE pendant la rotation (decision de Rodolf : oui),
@@ -6106,6 +6203,8 @@ namespace nkuidesign {
 			///    saisi. On applique un ÉCART, pas une valeur absolue — l'objet
 			///    part de là où il est.
 			int32 mRotDrag = -1;
+			int32 mDegDrag = -1; ///< l'arret de degrade qu'on glisse sur la toile (-1 : aucun)
+			int32 mDegFill = -1; ///< et son remplissage
 			float32 mGesteSX0 = 1.f; ///< echelle du noeud au depart du geste de poignee
 			float32 mGesteSY0 = 1.f;
 			float32 mRotBase = 0.f;
