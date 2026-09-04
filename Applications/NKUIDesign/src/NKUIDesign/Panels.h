@@ -12437,7 +12437,13 @@ namespace nkuidesign {
 							const NkRect rt = ctx.NextItemRect(-1.f, costume::HRangee);
 							costume::Texte(dl, F.px10, rt.x + 12.f, costume::CentrerBande(F.px10, rt.y),
 										   "Type", ctx.theme.textMuted);
-							float32 xt = rt.x + 12.f + ColChampsCalc(rt.w - 24.f);
+							// ⚠️ ELLE SE REPLIE : six boutons bout a bout depassent la largeur
+							//    du panneau -- c'est ce que Rodolf a vu sortir du cadre. Une
+							//    rangee qui deborde est un defaut, pas un detail.
+							const float32 xtDeb = rt.x + 12.f + ColChampsCalc(rt.w - 24.f);
+							const float32 xtFin = rt.x + rt.w - 12.f;
+							float32 xt = xtDeb;
+							float32 yt = rt.y;
 							for (uint32 k = 0; k < 6u; ++k) {
 								const bool estUni = (k == 0u);
 								const bool actif = estUni ? !g.Actif()
@@ -12445,7 +12451,12 @@ namespace nkuidesign {
 															&& (NkComponentDecl::StrEq(g.type.Data(), kTypesCle[k])
 																|| (k == 1u && g.type.Empty())));
 								const float32 lw = costume::Largeur(F.px9, kTypesLib[k]) + 10.f;
-								const NkRect rb = {xt, costume::BandeY(rt.y), lw, costume::HControle};
+								if (xt + lw > xtFin && xt > xtDeb) { // on replie
+									const NkRect suite = ctx.NextItemRect(-1.f, costume::HRangee);
+									yt = suite.y;
+									xt = xtDeb;
+								}
+								const NkRect rb = {xt, costume::BandeY(yt), lw, costume::HControle};
 								xt += lw + 3.f;
 								const bool sv = ctx.popupDepth == 0 && NkGuiRectContains(rb, ctx.input.mousePos);
 								dl.AddRectFilled(rb, actif ? ctx.theme.accent : CouleurInput(), 4.f);
@@ -12626,7 +12637,13 @@ namespace nkuidesign {
 								char idA[48];
 								snprintf(idA, sizeof(idA), "##insp.deg%u.arret%u", i, ai);
 								const float32 xa = swA.x + 22.f;
-								ctx.SetNextItemRect({xa, costume::BandeY(ra.y), 74.f, costume::HControle});
+								// bornes : poubelle a droite, opacite avant elle -- le champ hexa
+								// prend CE QUI RESTE, jamais plus (rien ne sort du cadre)
+								const float32 xFin = ra.x + ra.w - 30.f - 4.f - 34.f - 10.f;
+								float32 wHex = xFin - xa;
+								if (wHex < 40.f)
+									wHex = 40.f;
+								ctx.SetNextItemRect({xa, costume::BandeY(ra.y), wHex, costume::HControle});
 								if (nkgui::InputText(ctx, idA, mArretsBuf[i][ai], 10) || pickA) {
 									ar.couleur = NkString(mArretsBuf[i][ai]);
 									if (!n->instanceDe.Empty())
@@ -12636,7 +12653,8 @@ namespace nkuidesign {
 								}
 								char idOpA[48];
 								snprintf(idOpA, sizeof(idOpA), "insp.deg%u.op%u", i, ai);
-								const NkRect ropA = {xa + 78.f, costume::BandeY(ra.y), 34.f, costume::HControle};
+								const NkRect ropA = {xa + wHex + 4.f, costume::BandeY(ra.y), 34.f,
+													 costume::HControle};
 								float32 opA = ar.opacite;
 								if (ChampNombre(ctx, idOpA, ropA, opA, 1.f, 0.f, 100.f)) {
 									ar.opacite = opA;
@@ -12979,7 +12997,12 @@ namespace nkuidesign {
 								costume::Texte(dl, F.px10, xc0, costume::CentrerBande(F.px10, rc.y), "Côtés",
 											   ctx.theme.textMuted);
 								const float32 xc = xc0 + ColChampsCalc(rc.w - 24.f);
-								const float32 lc = 34.f;
+								// quatre champs dans la place disponible, jamais au-dela du bord
+								float32 lc = (rc.x + rc.w - 12.f - xc - 3.f * 2.f) * 0.25f;
+								if (lc > 34.f)
+									lc = 34.f;
+								if (lc < 22.f)
+									lc = 22.f;
 								for (uint32 kc = 0; kc < 4u; ++kc) {
 									char idc[48];
 									snprintf(idc, sizeof(idc), "insp.bord.%u.cote.%u", i, kc);

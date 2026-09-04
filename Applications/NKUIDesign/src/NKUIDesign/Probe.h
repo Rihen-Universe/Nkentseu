@@ -4491,6 +4491,51 @@ namespace nkuidesign {
 					  && !NkFormeOuverte(cadre),
 				  det);
 		}
+		// ── 57. N ARRETS, POUR TOUS LES TYPES ────────────────────────────────
+		// Rodolf : « on peut ajouter des pastilles sur les degrades si on veut,
+		// donc le lineaire peut avoir plus de 2 ». Le calcul ne regarde JAMAIS le
+		// type pour compter les arrets -- cette sonde le prouve plutot que de le
+		// promettre, et elle protege la propriete contre une future optimisation
+		// qui traiterait le lineaire « a deux bouts ».
+		{
+			auto arret = [](float32 pos, const char *coul) {
+				NkArretDegrade a;
+				a.position = pos;
+				a.couleur = NkString(coul);
+				return a;
+			};
+			static const char *const kTypes[5] = {"lineaire", "radial", "angulaire", "losange", "conique_inconnu"};
+			bool tousPareils = true;
+			uint32 milieuxVus = 0u;
+			for (uint32 k = 0; k < 5u; ++k) {
+				NkDegrade g;
+				g.type = NkString(kTypes[k]);
+				g.arrets.PushBack(arret(0.f, "#ff0000"));
+				g.arrets.PushBack(arret(0.5f, "#00ff00")); // l'arret DU MILIEU
+				g.arrets.PushBack(arret(1.f, "#0000ff"));
+				const uint32 c = renderdetail::NkCouleurDegradeEn(g, 0.5f);
+				if (((c >> 16) & 0xFFu) > 0xF0u && ((c >> 24) & 0xFFu) < 0x10u)
+					++milieuxVus; // vert pur au milieu : l'arret intermediaire compte
+				else
+					tousPareils = false;
+			}
+			// et douze arrets se lisent aussi bien que trois
+			NkDegrade douze;
+			douze.type = NkString("lineaire");
+			for (uint32 i = 0; i < 12u; ++i) {
+				char h[12];
+				snprintf(h, sizeof(h), "#%02x0000", (uint32)(i * 20u));
+				douze.arrets.PushBack(arret((float32)i / 11.f, h));
+			}
+			const uint32 c11 = renderdetail::NkCouleurDegradeEn(douze, 1.f);
+			const bool douzeOk = ((c11 >> 24) & 0xFFu) == 220u;
+			char det[220];
+			snprintf(det, sizeof(det), "%u/5 types honorent l'arret du milieu ; douze arrets : dernier = %02X (attendu DC)",
+					 milieuxVus, (uint32)((c11 >> 24) & 0xFFu));
+			check("57. N ARRETS POUR TOUS LES TYPES : lineaire, radial, angulaire, losange et un type INCONNU "
+				  "honorent tous l'arret intermediaire -- le calcul ne regarde jamais le type pour compter",
+				  tousPareils && milieuxVus == 5u && douzeOk, det);
+		}
 		snprintf(tail, sizeof(tail), "\n=== RESULTAT : %d / %d ===\n", pass, total);
 		rep.Append(tail);
 
