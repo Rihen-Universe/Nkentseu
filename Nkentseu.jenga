@@ -1701,9 +1701,14 @@ with workspace("Nkentseu", location="."):
         pass
 
 
-    # GemCrush
-    with include("Applications/Gemcrush/GemCrush.jenga"):
-        pass
+    # GemCrush — SEULEMENT si son .jenga est la. Sur cette branche le dossier
+    # n'a jamais ete commite (il l'est sur main) : depuis f9b68097 (2026-09-01)
+    # un clone frais — donc tout runner GitHub Actions — echouait des le
+    # chargement du workspace (« External file not found »), quelle que soit
+    # la cible demandee. Constate le 2026-09-04 sur le build macOS de NKCode.
+    if os.path.isfile(os.path.join(_WORKSPACE_ROOT, "Applications", "Gemcrush", "GemCrush.jenga")):
+        with include("Applications/Gemcrush/GemCrush.jenga"):
+            pass
 
     # Les trois jeux de plateau, batis sur la coquille moderne NkCanvasApp.
     # Ils servent aussi de PREUVE a cette coquille : une base qui n a qu un
