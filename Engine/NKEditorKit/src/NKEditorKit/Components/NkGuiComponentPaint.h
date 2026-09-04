@@ -3,7 +3,7 @@
 // @File    NkGuiComponentPaint.h
 // @Brief   Implementation MINCE de `NkComponentPaint` sur la liste d'affichage
 //          de NKGui — le strict necessaire pour qu'un composant s'affiche.
-// @Author  Rihen
+// @Author  TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // @License Proprietary - All Rights Reserved (see LICENSE)
 //
 // =============================================================================
@@ -295,6 +295,13 @@ namespace nkentseu {
 				void PopTransform() override {
 					if (mSpT > 0)
 						--mSpT;
+				}
+				// ── LE MODE DE MELANGE (2026-09-04) : la liste de dessin le porte par commande ──
+				void PushBlend(NkPaintBlend b) override {
+					mCtx.DL().PushBlend((nkgui::NkGuiBlend)(uint8)b);
+				}
+				void PopBlend() override {
+					mCtx.DL().PopBlend();
 				}
 			protected:
 				/// La transformee en vigueur, ou nullptr a l'identite / hors pile.

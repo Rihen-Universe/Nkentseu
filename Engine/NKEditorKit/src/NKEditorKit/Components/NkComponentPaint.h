@@ -2,7 +2,7 @@
 // -----------------------------------------------------------------------------
 // @File    NkComponentPaint.h
 // @Brief   Le PEINTRE vu par un composant : une interface, pas une implementation.
-// @Author  Rihen
+// @Author  TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // @License Proprietary - All Rights Reserved (see LICENSE)
 //
 // =============================================================================
@@ -338,6 +338,14 @@ namespace nkentseu {
 				///    `NkRecordingPaint` l'ENREGISTRE (le temoin sans ecran la voit).
 				virtual void PushTransform(const NkPaintTransform &t) { (void)t; }
 				virtual void PopTransform() {}
+
+				// ── LE MODE DE MELANGE (2026-09-04) -- AJOUT ADDITIF ─────────────
+				/// Ce que l'etat de melange du GPU donne EXACTEMENT : les valeurs sont
+				/// celles de `NkGuiBlend`. Un peintre qui ne sait pas melanger ignore
+				/// les deux appels (le defaut) : il peint en alpha, comme avant.
+				enum class NkPaintBlend : uint8 { Alpha = 0, Multiply, Screen, Darken, Lighten, PlusLighter };
+				virtual void PushBlend(NkPaintBlend b) { (void)b; }
+				virtual void PopBlend() {}
 		};
 
 	} // namespace editorkit

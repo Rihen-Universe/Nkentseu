@@ -1,4 +1,5 @@
 #pragma once
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // -----------------------------------------------------------------------------
 // @File    NkGuiDrawList.h
 // @Brief   Liste de commandes de dessin NKGui — sortie indépendante du backend.
@@ -31,12 +32,27 @@ namespace nkentseu {
 			TexturedTriangles ///< triangles texturés (texte/atlas/image)
 		};
 
+		/// ── AJOUT ADDITIF DU 2026-09-04 : LE MODE DE MELANGE PAR COMMANDE ──────
+		/// Ce que l'etat de melange du GPU donne EXACTEMENT (sans lire la destination) :
+		/// Alpha (le defaut, celui de toujours), Multiply, Screen, Darken, Lighten,
+		/// PlusLighter. Le dorsal traduit chaque valeur en son etat ; un dorsal qui
+		/// ne connait pas une valeur peint en alpha.
+		enum class NkGuiBlend : uint8 {
+			Alpha = 0,
+			Multiply,
+			Screen,
+			Darken,
+			Lighten,
+			PlusLighter
+		};
+
 		struct NkGuiDrawCmd {
 				NkGuiDrawCmdType type = NkGuiDrawCmdType::Triangles;
 				uint32 idxOffset = 0;
 				uint32 idxCount = 0;
 				uint32 texId = 0;
 				NkRect clipRect = {0.f, 0.f, 1.0e9f, 1.0e9f};
+				NkGuiBlend blend = NkGuiBlend::Alpha; ///< 2026-09-04 : additif, defaut alpha
 		};
 
 		// Empaquetage couleur (cohérent avec le dépaquetage côté backend).
@@ -51,6 +67,9 @@ namespace nkentseu {
 				NkVector<NkGuiDrawCmd> cmds;
 				NkRect clipStack[32] = {};
 				int32 clipDepth = 0;
+				// 2026-09-04 : la pile des modes de melange (meme patron que la decoupe)
+				NkGuiBlend blendStack[16] = {};
+				int32 blendDepth = 0;
 				float32 thickScale = 1.f; ///< échelle DPI des épaisseurs de traits/bordures (préservée par Reset)
 
 				// ── Cycle de frame ────────────────────────────────────────────────
@@ -61,6 +80,19 @@ namespace nkentseu {
 				NkRect CurrentClip() const noexcept;
 				void PushClipRect(const NkRect &r, bool intersect = true) noexcept;
 				void PopClipRect() noexcept;
+				// ── 2026-09-04 : le mode de melange en vigueur (additif) ──────────
+				NkGuiBlend CurrentBlend() const noexcept {
+					return blendDepth > 0 ? blendStack[blendDepth - 1] : NkGuiBlend::Alpha;
+				}
+				void PushBlend(NkGuiBlend b) noexcept {
+					if (blendDepth < 16)
+						blendStack[blendDepth] = b;
+					++blendDepth; // au-dela : on compte, on n'applique pas
+				}
+				void PopBlend() noexcept {
+					if (blendDepth > 0)
+						--blendDepth;
+				}
 
 				// ── Primitives ────────────────────────────────────────────────────
 				void AddRectFilled(const NkRect &r, const NkColor &col, float32 rounding = 0.f) noexcept;

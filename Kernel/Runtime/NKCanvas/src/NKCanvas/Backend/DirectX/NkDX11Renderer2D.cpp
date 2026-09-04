@@ -1,3 +1,4 @@
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // =============================================================================
 // NkDX11Renderer2D.cpp — DirectX 11 2D renderer
 // Uses a single VS/PS pair with one CB for the projection matrix.
@@ -399,6 +400,24 @@ namespace nkentseu {
 					  mBlendAlpha);
 			MakeBlend(D3D11_BLEND_SRC_ALPHA, D3D11_BLEND_ONE, D3D11_BLEND_ONE, D3D11_BLEND_ONE, mBlendAdd);
 			MakeBlend(D3D11_BLEND_DEST_COLOR, D3D11_BLEND_ZERO, D3D11_BLEND_ONE, D3D11_BLEND_ZERO, mBlendMul);
+			// 2026-09-04 : les quatre modes exacts de plus (l'operation en parametre)
+			auto MakeBlendOp = [&](D3D11_BLEND src, D3D11_BLEND dst, D3D11_BLEND_OP op,
+								   ComPtr<ID3D11BlendState> &out) -> bool {
+				D3D11_BLEND_DESC bd{};
+				bd.RenderTarget[0].BlendEnable = TRUE;
+				bd.RenderTarget[0].SrcBlend = src;
+				bd.RenderTarget[0].DestBlend = dst;
+				bd.RenderTarget[0].BlendOp = op;
+				bd.RenderTarget[0].SrcBlendAlpha = D3D11_BLEND_ONE;
+				bd.RenderTarget[0].DestBlendAlpha = D3D11_BLEND_INV_SRC_ALPHA;
+				bd.RenderTarget[0].BlendOpAlpha = D3D11_BLEND_OP_ADD;
+				bd.RenderTarget[0].RenderTargetWriteMask = D3D11_COLOR_WRITE_ENABLE_ALL;
+				return SUCCEEDED(mDevice->CreateBlendState(&bd, &out));
+			};
+			MakeBlendOp(D3D11_BLEND_ONE, D3D11_BLEND_INV_SRC_COLOR, D3D11_BLEND_OP_ADD, mBlendScreen);
+			MakeBlendOp(D3D11_BLEND_ONE, D3D11_BLEND_ONE, D3D11_BLEND_OP_MIN, mBlendDarken);
+			MakeBlendOp(D3D11_BLEND_ONE, D3D11_BLEND_ONE, D3D11_BLEND_OP_MAX, mBlendLighten);
+			MakeBlendOp(D3D11_BLEND_ONE, D3D11_BLEND_ONE, D3D11_BLEND_OP_ADD, mBlendPlus);
 
 			D3D11_BLEND_DESC bdn{}; // no blend
 			bdn.RenderTarget[0].RenderTargetWriteMask = D3D11_COLOR_WRITE_ENABLE_ALL;
@@ -529,6 +548,18 @@ namespace nkentseu {
 					break;
 				case NkBlendMode::NK_MULTIPLY:
 					mDevCtx->OMSetBlendState(mBlendMul.Get(), factor, 0xFFFFFFFF);
+					break;
+				case NkBlendMode::NK_SCREEN:
+					mDevCtx->OMSetBlendState(mBlendScreen.Get(), factor, 0xFFFFFFFF);
+					break;
+				case NkBlendMode::NK_DARKEN:
+					mDevCtx->OMSetBlendState(mBlendDarken.Get(), factor, 0xFFFFFFFF);
+					break;
+				case NkBlendMode::NK_LIGHTEN:
+					mDevCtx->OMSetBlendState(mBlendLighten.Get(), factor, 0xFFFFFFFF);
+					break;
+				case NkBlendMode::NK_PLUS_LIGHTER:
+					mDevCtx->OMSetBlendState(mBlendPlus.Get(), factor, 0xFFFFFFFF);
 					break;
 				default:
 					mDevCtx->OMSetBlendState(mBlendNone.Get(), factor, 0xFFFFFFFF);

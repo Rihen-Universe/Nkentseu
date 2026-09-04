@@ -2,7 +2,7 @@
 // -----------------------------------------------------------------------------
 // @File    NkRecordingPaint.h
 // @Brief   Un peintre qui n'affiche rien et ENREGISTRE tout — le banc headless.
-// @Author  Rihen
+// @Author  TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // @License Proprietary - All Rights Reserved (see LICENSE)
 //
 // =============================================================================
@@ -70,6 +70,9 @@ namespace nkentseu {
 			// 2026-09-03 : la transformee du peintre. EN FIN, avant Count.
 			PushTransform,
 			PopTransform,
+			// 2026-09-04 : le mode de melange du peintre. EN FIN, avant Count.
+			PushBlend,
+			PopBlend,
 			Count
 		};
 
@@ -103,6 +106,10 @@ namespace nkentseu {
 					return "PushTransform";
 				case NkPaintOp::PopTransform:
 					return "PopTransform";
+				case NkPaintOp::PushBlend:
+					return "PushBlend";
+				case NkPaintOp::PopBlend:
+					return "PopBlend";
 				default:
 					return "?";
 			}
@@ -229,6 +236,13 @@ namespace nkentseu {
 				}
 				void PopTransform() override {
 					Push(NkPaintOp::PopTransform, {0.f, 0.f, 0.f, 0.f}, 0, 0, 0, 0.f, 0, 0, nullptr);
+				}
+				/// 2026-09-04 : le mode dans `icon` (sa valeur NkPaintBlend), rien d'autre
+				void PushBlend(NkPaintBlend b) override {
+					Push(NkPaintOp::PushBlend, {0.f, 0.f, 0.f, 0.f}, 0, 0, 0, 0.f, (uint16)b, 0, nullptr);
+				}
+				void PopBlend() override {
+					Push(NkPaintOp::PopBlend, {0.f, 0.f, 0.f, 0.f}, 0, 0, 0, 0.f, 0, 0, nullptr);
 				}
 				void PushClip(const NkPaintRect &r) override {
 					++mClipDepth;
