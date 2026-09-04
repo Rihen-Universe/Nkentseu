@@ -4763,6 +4763,30 @@ namespace nkuidesign {
 				check("60b. LE POPOVER D'UN DEGRADE (types, selecteur, hexa, barre, liste de trois arrets) dessine "
 					  "dans l'overlay, a GAUCHE de sa pastille, et reste dans l'ecran",
 					  stI.picker.ouvert && op > 300u && oxMin >= 0.f && oxMax <= 600.5f && oxMax <= 360.f, det);
+				// 60c. le popover de BORDURE (genre 2) : hexa, epaisseur, position, cotes,
+				// jointure, extremites -- dans l'overlay, a gauche, dans l'ecran
+				stI.picker = DesignState::DemandePicker();
+				stI.picker.ouvert = true;
+				stI.picker.id = ctxI.GetId("##sonde.popover.bord");
+				stI.picker.genre = 2u;
+				stI.picker.noeud = rc;
+				stI.picker.index = 0;
+				stI.picker.ancre = {360.f, 300.f, 16.f, 16.f};
+				image(260.f, true, xp, np, op);
+				image(260.f, true, xp, np, op);
+				oxMin = 1e9f;
+				oxMax = -1e9f;
+				for (uint32 i = 0; i < (uint32)ctxI.dlOverlay.vtx.Size(); ++i) {
+					if (ctxI.dlOverlay.vtx[i].pos.x < oxMin) oxMin = ctxI.dlOverlay.vtx[i].pos.x;
+					if (ctxI.dlOverlay.vtx[i].pos.x > oxMax) oxMax = ctxI.dlOverlay.vtx[i].pos.x;
+				}
+				snprintf(det, sizeof(det), "popover de bordure : %u sommets overlay, x %.0f..%.0f (ecran 0..600), ouvert=%d ; "
+										   "panneau a 260 px : %u sommets (etait 3777 avec les trois rangees)",
+						 op, oxMin, oxMax, stI.picker.ouvert ? 1 : 0, np);
+				check("60c. LE POPOVER D'UNE BORDURE (selecteur, hexa, epaisseur, position, cotes, jointure, "
+					  "extremites) dessine dans l'overlay, a gauche de sa pastille, dans l'ecran -- et le panneau "
+					  "a perdu ses trois rangees",
+					  stI.picker.ouvert && op > 300u && oxMin >= 0.f && oxMax <= 360.f && np < 3777u, det);
 				stI.picker = DesignState::DemandePicker();
 			}
 		}

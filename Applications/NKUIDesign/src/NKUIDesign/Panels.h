@@ -1345,6 +1345,7 @@ namespace nkuidesign {
 			/// mais appele par le crochet d'overlay : ce pont le rend joignable.
 			void (*popoverRemplissage)(nkgui::NkGuiContext &, void *) = nullptr;
 			void *popoverUser = nullptr;
+			void (*popoverBordure)(nkgui::NkGuiContext &, void *) = nullptr; ///< genre 2
 			void Consigner(const char *t) {
 				journal.PushBack(NkString(t ? t : ""));
 			}
@@ -9544,6 +9545,10 @@ namespace nkuidesign {
 			st.popoverRemplissage(ctx, st.popoverUser); // le popover complet (types, rampe, liste)
 			return;
 		}
+		if (st.picker.genre == 2u && st.popoverBordure) {
+			st.popoverBordure(ctx, st.popoverUser); // hexa, epaisseur, position, cotes, jointure, extremites
+			return;
+		}
 		float32 col[4] = {0.5f, 0.5f, 0.5f, 1.f};
 		const nkgui::NkColor c0 = NkCouleurDepuisHex(st.picker.hex);
 		col[0] = (float32)c0.r / 255.f;
@@ -9598,7 +9603,201 @@ namespace nkuidesign {
 				if (mSt) {
 					mSt->popoverRemplissage = &InspectorPanel::PopoverRemplissageC;
 					mSt->popoverUser = this;
+					mSt->popoverBordure = &InspectorPanel::PopoverBordureC;
 				}
+			}
+			static void PopoverBordureC(NkGuiContext &ctx, void *u) {
+				static_cast<InspectorPanel *>(u)->DessinerPopoverBordure(ctx);
+			}
+			/// Une rangée de choix (trois boutons) dans un popover ; rend l'indice cliqué ou -1.
+			int32 RangeeChoix(NkGuiContext &ctx, float32 x0, float32 x1, float32 y, const char *titre,
+							  const char *const *libs, uint32 nb, int32 actif, bool grise) {
+				auto &F = costume::Fontes();
+				auto &dl = ctx.DL();
+				costume::Texte(dl, F.px10, x0, costume::CentrerY(F.px10, y, 22.f), titre, ctx.theme.textMuted);
+				float32 xj = x0 + 62.f;
+				int32 clique = -1;
+				for (uint32 c = 0; c < nb; ++c) {
+					const float32 lw = costume::Largeur(F.px9, libs[c]) + 10.f;
+					if (xj + lw > x1 && xj > x0 + 62.f) { // se replie
+						y += 22.f;
+						xj = x0 + 62.f;
+					}
+					const NkRect rb = {xj, y + 1.f, lw, 20.f};
+					xj += lw + 3.f;
+					const bool sv = !grise && NkGuiRectContains(rb, ctx.input.mousePos);
+					const bool est = (int32)c == actif;
+					dl.AddRectFilled(rb, est ? ctx.theme.accent : CouleurInput(), 4.f);
+					dl.AddRect(rb, sv ? ctx.theme.accent : ctx.theme.border, 1.f, 4.f);
+					costume::Texte(dl, F.px9, rb.x + 5.f, costume::CentrerY(F.px9, rb.y, 20.f), libs[c],
+								   grise ? ctx.theme.textDisabled : (est ? ctx.theme.panel : ctx.theme.text));
+					if (sv && ctx.input.mouseClicked[0])
+						clique = (int32)c;
+				}
+				return clique;
+			}
+			/// LE POPOVER D'UNE BORDURE : le sélecteur (couleur) · hexa + opacité ·
+			/// épaisseur + position · côtés · jointure · extrémités (grisées sur une
+			/// forme fermée, et dit). Appelé par le crochet d'overlay, jamais par le panneau.
+			void DessinerPopoverBordure(NkGuiContext &ctx) {
+				DesignState::DemandePicker &d = mSt->picker;
+				if (!d.ouvert || !mSt->doc.IsValidIndex(d.noeud)) {
+					d.ouvert = false;
+					return;
+				}
+				NkUINode &n = mSt->doc.nodes[(uint32)d.noeud];
+				if (d.index < 0 || (uint32)d.index >= (uint32)n.borders.Size()) {
+					d.ouvert = false;
+					return;
+				}
+				NkBordure &b = n.borders[(uint32)d.index];
+				auto &F = costume::Fontes();
+				auto touche = [&]() {
+					mSt->doc.MarkHumanEdit(d.noeud);
+					mSt->host.SyncTo(mSt->doc);
+					mBordsGen = -1;
+				};
+				const uint32 cleSync = ((uint32)d.noeud << 20) ^ ((uint32)d.index << 12) ^ 0xB0Du;
+				if (d.synchro != cleSync) {
+					d.synchro = cleSync;
+					snprintf(d.hex, sizeof(d.hex), "%s", b.couleur.Data() ? b.couleur.Data() : "");
+				}
+				const float32 pw = 236.f;
+				const float32 hPicker = 160.f + 16.f + 6.f * (ctx.ItemHeight() + ctx.layout.itemSpacingY);
+				const float32 ph = 8.f + hPicker + 26.f + 26.f + 26.f + 24.f + 24.f + 8.f;
+				const NkRect sw = d.ancre;
+				NkRect pr = {sw.x - pw - 8.f, sw.y - 8.f, pw, ph};
+				if (pr.x < 2.f)
+					pr.x = 2.f;
+				if (pr.y + pr.h > (float32)ctx.viewH)
+					pr.y = (float32)ctx.viewH - pr.h - 2.f;
+				if (pr.y < 2.f)
+					pr.y = 2.f;
+				if (!ctx.IsPopupOpen(d.id))
+					ctx.OpenPopup(d.id);
+				if (!nkgui::BeginPopupId(ctx, d.id, pr, sw)) {
+					d.ouvert = false;
+					return;
+				}
+				auto &dl = ctx.DL();
+				const float32 x0 = pr.x + 8.f, x1 = pr.x + pr.w - 8.f;
+				float32 y = pr.y + 8.f;
+				// 1. le sélecteur
+				{
+					float32 col[4] = {0.5f, 0.5f, 0.5f, 1.f};
+					const nkgui::NkColor c0 = NkCouleurDepuisHex(d.hex);
+					col[0] = (float32)c0.r / 255.f;
+					col[1] = (float32)c0.g / 255.f;
+					col[2] = (float32)c0.b / 255.f;
+					ctx.layout.cursor = {x0, y};
+					ctx.layout.lineStartX = x0;
+					if (nkgui::ColorPicker4(ctx, "##nkuidesign.popover.bord.pick", col, nkgui::NkGuiColorFlags::NoAlpha)) {
+						static const char *const kHex = "0123456789abcdef";
+						d.hex[0] = '#';
+						for (int32 k = 0; k < 3; ++k) {
+							float32 v = col[k] < 0.f ? 0.f : (col[k] > 1.f ? 1.f : col[k]);
+							const int32 o = (int32)(v * 255.f + 0.5f);
+							d.hex[1 + k * 2] = kHex[(o >> 4) & 0xF];
+							d.hex[2 + k * 2] = kHex[o & 0xF];
+						}
+						d.hex[7] = '\0';
+						b.couleur = NkString(d.hex);
+						touche();
+					}
+					y += hPicker;
+				}
+				// 2. hexa + opacité
+				{
+					const NkRect rh = {x0, y + 3.f, 80.f, costume::HControle};
+					ctx.SetNextItemRect(rh);
+					if (nkgui::InputText(ctx, "##nkuidesign.popover.bord.hex", d.hex, 10) && NkHexLisible(d.hex)) {
+						b.couleur = NkString(d.hex);
+						touche();
+					}
+					const NkRect ro = {x1 - 40.f - 12.f, y + 3.f, 40.f, costume::HControle};
+					float32 op = b.opacite;
+					if (ChampNombre(ctx, "insp.popover.bord.op", ro, op, 1.f, 0.f, 100.f)) {
+						b.opacite = op;
+						touche();
+					}
+					costume::Texte(dl, F.px9, ro.x + ro.w + 3.f, costume::CentrerY(F.px9, ro.y, 20.f), "%",
+								   ctx.theme.textMuted);
+					y += 26.f;
+				}
+				// 3. épaisseur + position
+				{
+					costume::Texte(dl, F.px10, x0, costume::CentrerY(F.px10, y + 3.f, 20.f), "Épaisseur",
+								   ctx.theme.textMuted);
+					const NkRect re = {x0 + 62.f, y + 3.f, 40.f, costume::HControle};
+					float32 ep = b.epaisseur > 0.f ? b.epaisseur : 1.f;
+					if (ChampNombre(ctx, "insp.popover.bord.ep", re, ep, 0.25f, 0.f, 64.f)) {
+						b.epaisseur = ep;
+						touche();
+					}
+					costume::Texte(dl, F.px9, re.x + re.w + 4.f, costume::CentrerY(F.px9, re.y, 20.f), "px",
+								   ctx.theme.textMuted);
+					y += 26.f;
+					static const char *const kPos[3] = {"intérieur", "centré", "extérieur"};
+					const int32 actif = b.position == NkBordurePos::Interieur ? 0 : (b.position == NkBordurePos::Centre ? 1 : 2);
+					const int32 c = RangeeChoix(ctx, x0, x1, y, "Position", kPos, 3u, actif, false);
+					if (c >= 0) {
+						b.position = c == 0 ? NkBordurePos::Interieur : (c == 1 ? NkBordurePos::Centre : NkBordurePos::Exterieur);
+						touche();
+					}
+					y += 26.f;
+				}
+				// 4. côtés : haut, droite, bas, gauche -- deux rangées de deux
+				{
+					costume::Texte(dl, F.px10, x0, costume::CentrerY(F.px10, y + 1.f, 22.f), "Côtés",
+								   ctx.theme.textMuted);
+					const float32 xc = x0 + 62.f;
+					float32 lc = (x1 - xc - 2.f) * 0.5f;
+					if (lc > 44.f)
+						lc = 44.f;
+					static const char *const kCote[4] = {"H", "D", "B", "G"};
+					for (uint32 kc = 0; kc < 4u; ++kc) {
+						char idc[48];
+						snprintf(idc, sizeof(idc), "insp.popover.bord.cote.%u", kc);
+						const NkRect rk = {xc + (float32)(kc % 2u) * (lc + 2.f), y + 1.f + (float32)(kc / 2u) * 24.f, lc,
+										   costume::HControle};
+						float32 v = b.Cote(kc);
+						if (ChampNombre(ctx, idc, rk, v, 0.25f, 0.f, 64.f)) {
+							b.cotes[kc] = v;
+							touche();
+						}
+						costume::Texte(dl, F.px9, rk.x + 3.f, rk.y - 9.f, kCote[kc], ctx.theme.textMuted);
+					}
+					y += 48.f;
+				}
+				// 5. jointure, 6. extrémités (grisées sur une forme fermée, et dit)
+				{
+					static const char *const kJoint[3] = {"onglet", "rond", "biseau"};
+					static const char *const kExtCle[3] = {"plate", "ronde", "carree"};
+					static const char *const kExtLib[3] = {"plate", "ronde", "carrée"};
+					int32 aj = 0;
+					for (int32 c = 1; c < 3; ++c)
+						if (NkComponentDecl::StrEq(b.jointure.Data(), kJoint[c]))
+							aj = c;
+					const int32 cj = RangeeChoix(ctx, x0, x1, y, "Jointure", kJoint, 3u, aj, false);
+					if (cj >= 0) {
+						b.jointure = cj == 0 ? NkString() : NkString(kJoint[cj]);
+						touche();
+					}
+					y += 24.f;
+					const bool ouverte = NkFormeOuverte(n);
+					int32 ae = 0;
+					for (int32 c = 1; c < 3; ++c)
+						if (NkComponentDecl::StrEq(b.extremite.Data(), kExtCle[c]))
+							ae = c;
+					const int32 ce = RangeeChoix(ctx, x0, x1, y, "Extrémités", kExtLib, 3u, ae, !ouverte);
+					if (ce >= 0 && ouverte) {
+						b.extremite = ce == 0 ? NkString() : NkString(kExtCle[ce]);
+						touche();
+					}
+					if (!ouverte && NkGuiRectContains({x0, y, x1 - x0, 22.f}, ctx.input.mousePos))
+						mSt->status = NkString("Extrémités : une forme fermée n'en a pas — elles valent pour une ligne.");
+				}
+				nkgui::EndPopup(ctx);
 			}
 			static void PopoverRemplissageC(NkGuiContext &ctx, void *u) {
 				static_cast<InspectorPanel *>(u)->DessinerPopoverRemplissage(ctx);
@@ -12889,21 +13088,45 @@ namespace nkuidesign {
 						// LES MEMES COLONNES QUE REMPLISSAGES, par construction.
 						const ColonnesRangee col = ColonnesDe(r);
 						const bool visible = simple ? true : n->borders[i].visible;
+						const NkColor encre = visible ? ctx.theme.text : ctx.theme.textDisabled;
 						const NkRect sw = {col.pastille, r.y + (costume::HRangee - 16.f) * 0.5f, 16.f,
 										   16.f};
 							char idPast[40];
 						snprintf(idPast, sizeof(idPast), "##insp.bord.pastille%u", i);
 						const bool pickerBord =
 							NkPastilleCouleur(ctx, *mSt, idPast, sw, mBordsBuf[i], (uint32)sizeof(mBordsBuf[i]));
-						char idHex[32];
-						snprintf(idHex, sizeof(idHex), "##insp.bord.hex%u", i);
-						ctx.SetNextItemRect({col.hexX, costume::BandeY(r.y), col.hexW, costume::HControle});
-						if (nkgui::InputText(ctx, idHex, mBordsBuf[i], 10) || pickerBord) {
-							if (simple)
-								n->borderColor = NkString(mBordsBuf[i]);
-							else
-								n->borders[i].couleur = NkString(mBordsBuf[i]);
-							mSt->doc.MarkHumanEdit(mSt->selected);
+						// ── LA LIGNE, COMME CHEZ LUNACY : pastille · nom · opacité · œil · poubelle
+						// Le détail (hexa, épaisseur, position, côtés, jointure, extrémités) vit
+						// dans le POPOVER de bordure (DessinerPopoverBordure, via l'overlay).
+						if (mSt->picker.ouvert && mSt->picker.id == ctx.GetId(idPast)) {
+							if (simple) {
+								n->MaterialiserBorders();
+								mBordsGen = -1;
+							}
+							mSt->picker.genre = 2u;
+							mSt->picker.noeud = mSt->selected;
+							mSt->picker.index = (int32)(simple ? 0u : i);
+						}
+						(void)pickerBord;
+						{
+							const NkBordure *bd = (!simple && i < (uint32)n->borders.Size()) ? &n->borders[i] : nullptr;
+							const float32 epN = bd ? (bd->epaisseur > 0.f ? bd->epaisseur : 1.f)
+												   : (n->borderW > 0.f ? n->borderW : 1.f);
+							const NkBordurePos posN = bd ? bd->position : NkBordurePos::Interieur;
+							char nomB[96];
+							snprintf(nomB, sizeof(nomB), "%g px \xC2\xB7 %s%s%s%s%s", (double)epN,
+									 posN == NkBordurePos::Interieur ? "intérieur"
+									 : posN == NkBordurePos::Centre  ? "centré"
+																		   : "extérieur",
+									 (bd && !bd->CotesEgaux()) ? " \xC2\xB7 par côté" : "",
+									 (bd && !bd->jointure.Empty()) ? " \xC2\xB7 " : "",
+									 (bd && !bd->jointure.Empty()) ? bd->jointure.Data() : "",
+									 (bd && !bd->extremite.Empty()) ? " \xC2\xB7 " : "");
+							if (bd && !bd->extremite.Empty()) {
+								const size_t l = strlen(nomB);
+								snprintf(nomB + l, sizeof(nomB) - l, "%s", bd->extremite.Data());
+							}
+							costume::Texte(dl, F.px10, col.hexX, costume::CentrerBande(F.px10, r.y), nomB, encre);
 						}
 						char idOp[32];
 						snprintf(idOp, sizeof(idOp), "insp.bord.op%u", i);
@@ -12976,158 +13199,7 @@ namespace nkuidesign {
 							}
 						}
 					}
-					// ── LIGNE 2 : épaisseur + POSITION (la ligne « 1  Outside ⌄ »)
-					{
-						const NkRect r = ctx.NextItemRect(-1.f, 24.f);
-						const float32 x0 = r.x + 34.f, x1 = r.x + r.w - 12.f;
-						char idEp[32];
-						snprintf(idEp, sizeof(idEp), "insp.bord.ep%u", i);
-						const NkRect re = {x0, r.y + 2.f, 40.f, 20.f};
-						float32 ep = simple ? (n->borderW > 0.f ? n->borderW : 1.f)
-											: n->borders[i].epaisseur;
-						if (ChampNombre(ctx, idEp, re, ep, 0.25f, 0.f, 64.f)) {
-							if (simple)
-								n->borderW = ep;
-							else
-								n->borders[i].epaisseur = ep;
-							mSt->doc.MarkHumanEdit(mSt->selected);
-						}
-						costume::Texte(dl, F.px9, re.x + re.w + 4.f,
-									   costume::CentrerY(F.px9, r.y + 2.f, 20.f), "px",
-									   ctx.theme.textMuted);
-						// LA POSITION — un bouton qui CYCLE, et qui DIT sa valeur.
-						// ⚠️ Lunacy ouvre un menu déroulant ; on cycle, faute d'un
-						//    combo assez étroit pour 235 px. Ce qui compte est que
-						//    les trois valeurs soient atteignables ET honorées au
-						//    dessin (elles le sont : cf. NkGCadre). Le déroulant
-						//    est un habillage, pas une capacité — il est nommé.
-						const NkBordurePos pos =
-							simple ? NkBordurePos::Interieur : n->borders[i].position;
-						const char *nomPos = (pos == NkBordurePos::Interieur) ? "intérieur"
-											 : (pos == NkBordurePos::Centre)  ? "centré"
-																			  : "extérieur";
-						const float32 pw = costume::Largeur(F.px10, nomPos) + 18.f;
-						const NkRect rp = {x1 - pw, r.y + 2.f, pw, 20.f};
-						const bool sv =
-							ctx.popupDepth == 0 && NkGuiRectContains(rp, ctx.input.mousePos);
-						dl.AddRectFilled(rp, CouleurInput(), 4.f);
-						dl.AddRect(rp, sv ? ctx.theme.accent : ctx.theme.border, 1.f, 4.f);
-						costume::Texte(dl, F.px10, rp.x + costume::PadChamp,
-									   costume::CentrerY(F.px10, rp.y, 20.f), nomPos,
-									   ctx.theme.text);
-						costume::ChevronCombo7(dl, rp.x + rp.w - 11.f, rp.y + 7.5f,
-											   ctx.theme.textMuted);
-						if (sv && ctx.input.mouseClicked[0]) {
-							n->MaterialiserBorders();
-							const uint32 k = simple ? 0u : i;
-							if (k < (uint32)n->borders.Size()) {
-								const NkBordurePos suivant =
-									(n->borders[k].position == NkBordurePos::Interieur)
-										? NkBordurePos::Centre
-									: (n->borders[k].position == NkBordurePos::Centre)
-										? NkBordurePos::Exterieur
-										: NkBordurePos::Interieur;
-								n->borders[k].position = suivant;
-								mSt->status = NkString(
-									suivant == NkBordurePos::Interieur   ? "Bordure : intérieure."
-									: suivant == NkBordurePos::Centre    ? "Bordure : centrée."
-																		 : "Bordure : extérieure.");
-							}
-							mSt->doc.MarkHumanEdit(mSt->selected);
-						}
-						// ── PAR COTE, JOINTURE, EXTREMITES (materialise au premier geste) ──
-						{
-							const uint32 kb = simple ? 0u : i;
-							const bool listeOk = kb < (uint32)n->borders.Size();
-							const float32 xc0 = r.x + 12.f;
-							// Cotes : haut, droite, bas, gauche
-							{
-								const NkRect rc = ctx.NextItemRect(-1.f, costume::HRangee);
-								costume::Texte(dl, F.px10, xc0, costume::CentrerBande(F.px10, rc.y), "Côtés",
-											   ctx.theme.textMuted);
-								const float32 xc = xc0 + ColChampsCalc(rc.w - 24.f);
-								// quatre champs dans la place disponible, jamais au-dela du bord
-								// QUAND QUATRE NE TIENNENT PAS, DEUX RANGEES DE DEUX : un minimum de
-								// largeur est un debordement differe (mesure : sonde 60a, 170 px).
-								const float32 dispo = rc.x + rc.w - 12.f - xc;
-								const uint32 parLigne = dispo >= 4.f * 26.f ? 4u : 2u;
-								float32 lc = (dispo - 2.f * (float32)(parLigne - 1u)) / (float32)parLigne;
-								if (lc > 34.f)
-									lc = 34.f;
-								if (lc < 8.f)
-									lc = 8.f;
-								float32 yc = rc.y;
-								for (uint32 kc = 0; kc < 4u; ++kc) {
-									if (kc > 0u && kc % parLigne == 0u) {
-										const NkRect suite = ctx.NextItemRect(-1.f, costume::HRangee);
-										yc = suite.y;
-									}
-									char idc[48];
-									snprintf(idc, sizeof(idc), "insp.bord.%u.cote.%u", i, kc);
-									const NkRect rk = {xc + (float32)(kc % parLigne) * (lc + 2.f), costume::BandeY(yc), lc,
-													   costume::HControle};
-									float32 v = listeOk ? n->borders[kb].Cote(kc) : ep;
-									if (ChampNombre(ctx, idc, rk, v, 0.25f, 0.f, 64.f)) {
-										n->MaterialiserBorders();
-										if (kb < (uint32)n->borders.Size())
-											n->borders[kb].cotes[kc] = v;
-										mSt->doc.MarkHumanEdit(mSt->selected);
-									}
-								}
-								if (ctx.popupDepth == 0 && NkGuiRectContains(rc, ctx.input.mousePos))
-									mSt->status = NkString(
-										"Épaisseur par côté : haut, droite, bas, gauche — elles se raccordent dans l'arc.");
-							}
-							// Jointure et Extremites : trois choix chacune
-							for (uint32 ligne = 0; ligne < 2u; ++ligne) {
-								const bool ouverte = NkFormeOuverte(*n);
-								const bool grise = ligne == 1u && !ouverte;
-								const NkRect rj = ctx.NextItemRect(-1.f, costume::HRangee);
-								if (grise)
-									ctx.BeginDisabled();
-								costume::Texte(dl, F.px10, xc0, costume::CentrerBande(F.px10, rj.y),
-											   ligne == 0u ? "Jointure" : "Extrémités", ctx.theme.textMuted);
-								static const char *const kJoint[3] = {"onglet", "rond", "biseau"};
-								static const char *const kExt[3] = {"plate", "ronde", "carree"};
-								static const char *const kExtLib[3] = {"plate", "ronde", "carrée"};
-								const NkString &val = listeOk ? (ligne == 0u ? n->borders[kb].jointure : n->borders[kb].extremite)
-															: NkString();
-								float32 xj = xc0 + ColChampsCalc(rj.w - 24.f);
-								for (uint32 c3 = 0; c3 < 3u; ++c3) {
-									const char *cle = ligne == 0u ? kJoint[c3] : kExt[c3];
-									const char *lib = ligne == 0u ? kJoint[c3] : kExtLib[c3];
-									const bool actif = c3 == 0u ? val.Empty() || NkComponentDecl::StrEq(val.Data(), cle)
-															  : NkComponentDecl::StrEq(val.Data(), cle);
-									const float32 lw = costume::Largeur(F.px10, lib) + 12.f;
-									const NkRect rb3 = {xj, costume::BandeY(rj.y), lw, costume::HControle};
-									xj += lw + (float32)costume::EspSerre;
-									const bool sv3 = !grise && ctx.popupDepth == 0 && NkGuiRectContains(rb3, ctx.input.mousePos);
-									dl.AddRectFilled(rb3, actif ? ctx.theme.accent : CouleurInput(), 4.f);
-									dl.AddRect(rb3, sv3 ? ctx.theme.accent : ctx.theme.border, 1.f, 4.f);
-									costume::Texte(dl, F.px10, rb3.x + 6.f, costume::CentrerY(F.px10, rb3.y, 20.f), lib,
-												   actif ? ctx.theme.panel : ctx.theme.text);
-									if (sv3 && ctx.input.mouseClicked[0]) {
-										n->MaterialiserBorders();
-										if (kb < (uint32)n->borders.Size()) {
-											NkString &cible = ligne == 0u ? n->borders[kb].jointure : n->borders[kb].extremite;
-											cible = c3 == 0u ? NkString() : NkString(cle); // le defaut n'ecrit rien
-										}
-										mSt->doc.MarkHumanEdit(mSt->selected);
-									}
-								}
-								if (grise) {
-									ctx.EndDisabled();
-									if (ctx.popupDepth == 0 && NkGuiRectContains(rj, ctx.input.mousePos))
-										mSt->status = NkString(
-											"Extrémités : une forme fermée n'en a pas — elles valent pour une ligne.");
-								} else if (ctx.popupDepth == 0 && NkGuiRectContains(rj, ctx.input.mousePos)) {
-									mSt->status = NkString(ligne == 0u
-															   ? "Jointure aux coins droits : onglet, rond (arrondi de l'épaisseur), biseau (coupé)."
-															   : "Extrémités de la ligne : plate, ronde (deux disques), carrée (prolongée d'une demi-épaisseur).");
-								}
-							}
-						}
-					}
+					// (l'épaisseur, la position, les côtés, la jointure et les extrémités sont dans le popover)
 				}
 				if (rienDePose) {
 					const NkRect r = ctx.NextItemRect(-1.f, 20.f);
