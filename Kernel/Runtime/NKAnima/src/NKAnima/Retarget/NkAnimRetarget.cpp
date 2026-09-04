@@ -301,6 +301,12 @@ namespace nkentseu {
 				}
 				// Et le monde n'est PAS le local : sinon la conversion n'aurait rien fait.
 				ok = ok && !NearM(s.BindWorld(2), local[2]);
+				// COURT-CIRCUIT : un squelette dont la conversion est fausse ne doit pas
+				// nourrir les tests suivants -- ils la supposent juste et finiraient en
+				// assertion d'indice (mesure sous mutation, 2026-09-04) au lieu d'un
+				// FAIL lisible. Le temoin doit ROUGIR, pas planter.
+				if (!ok)
+					return false;
 			}
 
 			// 1) APPARIEMENT PAR NOM malgre les prefixes d'exportateur et les

@@ -1436,6 +1436,18 @@ existantes recensées — reciblage (`WorldOf` de test), `NkIKSolver`, `NkLocomo
 jiggle) référencent par index et **aucune ne redit `parent`** (mesuré : 0 sur 4) · bancs
 d'animphys à l'identique depuis leur nouvelle maison · consommateurs recompilés, la liste.
 
+### 🧪 04/09 — LA PREUVE PAR MUTATION, et ce qu'elle a d'abord raté
+
+Conversion à l'import cassée (`bindPose = loc`, FK sans le parent) → le banc doit rougir.
+**Deux rounds l'ont laissée passer.** Non parce que le témoin était mauvais : parce que le
+binaire ne contenait pas la mutation — un en-tête modifié, un build « SUCCESS », et une lib
+ou un exe pas relié. *Un build vert qui ne reconstruit pas ce qu'on mesure est un build qui
+ment* — troisième fois ce chantier. Nettoyage dur (objets + lib + exe supprimés), rebuild :
+**abandon par assertion d'indice** avant même le rapport. Un témoin qui *plante* n'est pas
+un témoin qui *rougit* : court-circuit posé après le test 0 (un squelette dont la conversion
+est fausse ne nourrit pas les tests suivants). Résultat : mutation → **`[ FAIL ] M2`, 12/14** ;
+restauration → **`[ OK ] M2`, 13/14**. Le témoin mord, proprement.
+
 ### ✅ EXÉCUTÉ LE 04/09 — une seule structure, la conversion à l'import, le témoin qui mord
 
 **`NkRetargetSkeleton` n'existe plus** — pas un alias, pas un « au cas où » :
