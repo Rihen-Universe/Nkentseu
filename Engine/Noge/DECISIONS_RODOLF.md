@@ -1727,6 +1727,48 @@ le dire tel quel vaut mieux qu'un réglage qui cache.*
 110-130 ms à 6 sous-pas. La grille est bien O(N) (2× particules → 2× temps) ; la courbe 1 000 / 10 000 /
 50 000 attend un noyau qui tient au repos — la mesurer sur un fluide qui bout mesurerait le bouillonnement.
 
+### 🔴 04/09 (nuit, 2) — SPH : parois fantômes + Monaghan livrés, TOUJOURS ROUGE ; le choix nommé avec son chiffre : DFSPH
+
+Lot du coordinateur exécuté dans l'ordre : (1) **parois par particules fantômes** — deux couches fixes
+sur les six faces, espacement h/2, même masse, comptées dans la densité, pression miroir (Akinci),
+jamais intégrées (8 800 fantômes pour la boîte du repos) ; (2) **terme de pression de Monaghan**
+`(p_i/ρ_i² + p_j/ρ_j²)`. Les scènes de la sonde n'ont pas bougé ; la trace dit maintenant la densité de
+la couche du sol et le nombre de fantômes ; `NK_SPH_K`, `NK_SPH_MU`, `NK_SPH_MAXSUB`, `NK_SPH_G0` pilotent
+les expériences sans recompiler.
+
+**Témoins, inchangés en verdict** : conservation VERTE ; repos ρ/ρ₀ = 0,77 (avant 0,79-0,94), la
+surface monte à +1,48 ; dam break 0,52 m parcourus (avant 0,35) contre 1,40 ; vmax collé à 8 m/s.
+Mutation pression coupée : 5,21 (le témoin discrimine toujours).
+
+**Les expériences qui tranchent, une par hypothèse** :
+| hypothèse | expérience | résultat |
+|---|---|---|
+| bug de code (forces non nulles sur un réseau symétrique) | gravité nulle depuis le réseau parfait (`NK_SPH_G0=1`) | **immobile** : vmax 0,00 pendant 2 s, ρ 0,977 (surface 0,81) → le code est cohérent |
+| pas de temps | CFL 0,4 → 0,15 (6 → 16 sous-pas) | identique |
+| impact de la chute | bloc posé sur le sol | identique |
+| pression négative | bornée à 0 | identique |
+| support des parois | fantômes, 2 couches | identique (sol ρ/ρ₀ 0,86 : la couche du sol ne touche même pas les fantômes, elle rebondit) |
+| compressibilité de l'équation d'état | k = 200 → **1 000** → **3 000** (c = 14 → 31 → 55 m/s, 36-40 sous-pas) | **PIRE à chaque cran** : ρ moy 0,77 → 0,65 → 0,60, vmax 8 partout |
+
+🔑 **Lecture** : la densité maximale ne dépasse jamais 1,05-1,13 — le fluide ne se comprime pas, il
+**s'éjecte**. Une compression locale de quelques % (gradient spiky en 1/r, 27 voisines seulement à
+h = 2d) produit une accélération de plusieurs milliers de m/s² ; plus k est grand, plus l'éjection est
+violente. Un WCSPH explicite à cette résolution vit dans une fenêtre étroite (c ≥ 10·vmax **et** Δρ ≤ 1 %)
+que ce montage n'atteint pas ; le rendre stable demanderait h = 3-4d (4× plus de voisines, 8× plus cher)
+ou un noyau à correction de densité.
+
+**Choix nommé, avec son chiffre — à coder au prochain lot, pas ce soir** : **DFSPH** (Bender & Koschier
+2015) : plus d'équation d'état — deux projections par pas (densité constante, divergence nulle), ρ tenu à
+**0,1-1 %** par construction, pas de temps **4-5 ms** à h = 0,1 (CFL 0,4·h/vmax avec vmax ≈ 4-8 m/s) soit
+**3-4 sous-pas par image au lieu de 16-40** ; chaque itération coûte ≈ 2 passes de voisinage (comme un pas
+WCSPH), 2-5 itérations par projection → **≈ 10-20 passes par image contre 32-80 aujourd'hui** : moins cher
+ET stable. Estimation : ~1 j (facteur α par particule, boucle de correction, réutilisation de la grille,
+des fantômes et des témoins tels quels). La courbe 1 000 / 10 000 / 50 000 en Release (témoin O(N)) se
+mesure sur DFSPH ; la mesurer sur un fluide qui s'éjecte mesurerait l'éjection.
+
+Coût actuel (Debug) : 2 048 particules + 8 800 fantômes, 145-180 ms/image à 16 sous-pas ; 4 096 :
+270-350 ms.
+
 ### 🔩 04/09 (nuit) — JENGA 2.6 : ce qui est appliqué, ce qui est mesuré en retour
 
 - **`-static` — le défaut était chez nous** : `config/toolchain.jenga:55` (bloc Windows natif) promettait
