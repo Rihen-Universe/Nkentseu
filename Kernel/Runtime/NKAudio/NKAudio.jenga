@@ -129,6 +129,10 @@ with project("NKAudio"):
         "(system:Windows && !options:windows-runtime=uwp && "
         "!system:XboxSeries && !system:XboxOne)) && !system:Android && !system:iOS"
     ):
-        with test():
-            testfiles(["tests/**.cpp"])
+        # Cinq fichiers a main() : NkAudioTests.cpp (52 NK_TEST, macro maison) devient la suite ;
+        # TestAudioFormats / TestFLAC / TestMP3 / TestStreaming lisent des fichiers audio :
+        # des bancs, hors des suites (Jenga 2.6, 2026-09-04).
+        with test("Audio"):
+            testfiles(["tests/NkAudioTests.cpp"])
+            testownmain()
             includedirs(["tests"])

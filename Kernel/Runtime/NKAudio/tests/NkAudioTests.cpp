@@ -428,7 +428,10 @@ static void TestEffects() {
 	float32 buf[512] = {};
 	for (int32 i = 0; i < 512; ++i)
 		buf[i] = (i % 2 == 0) ? 1.0f : -1.0f;
-	lp.Process(buf, 256, 2);
+	// TEST FAUX, suivi (2026-09-04) : en stereo entrelacee (256 frames x 2), le motif +1/-1
+	// est CONSTANT par canal (canal 0 = +1, canal 1 = -1) : un continu, qu'un passe-bas laisse
+	// passer -- rms restait a 1. Le signal voulu est un ton de Nyquist : 512 frames MONO.
+	lp.Process(buf, 512, 1);
 	// Signal haute fréquence doit être atténué
 	float32 rmsAfter = 0.0f;
 	for (int32 i = 0; i < 512; ++i)
