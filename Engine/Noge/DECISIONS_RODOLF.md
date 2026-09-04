@@ -1445,6 +1445,68 @@ et `ApplyFKSkinning` la lisent). Ce n'est pas une seconde *structure*, c'est un 
 et un exemplaire peut diverger. La retirer, c'est faire passer le squelette à chaque consommateur
 du clip (NKRenderer, Noge, éditeur) — un lot à part, à trancher, pas à glisser dans celui-ci.
 
+### ✅ 04/09 (soir) — NORMALES DE NOGE : le contrat et le test disent ce que fait le code (`f360fdd4`)
+
+Rodolf : *« on va faire la même chose que le modeleur. »* Le code est la référence : `NkEditMesh.cpp`
+(`NkEmFaceCross`, 31/07 et 16/08) calcule **(p2 − p0) × (p1 − p0)**, soit **−Z** pour le triangle
+(0,0,0), (1,0,0), (0,1,0) — trigonométrique vu de +Z. `NkEditableMesh.h` promettait « ordre CCW » (26/07)
+et le test attendait +Z : **c'est le contrat et le test qui ont été corrigés**, pas le code — retourner le
+produit vectoriel aurait inversé toutes les normales du modeleur (faces arrière, éclairage, sens des
+extrusions). Le contrat porte désormais une **CONVENTION D'ORIENTATION** en tête de fichier (formule,
+exemple mesuré, ce qu'il faut énumérer pour obtenir +Z) ; les trois cas (`SingleTriangle`,
+`RecalcNormalsSmooth`, `FlipNormals`) attendent le signe que le code produit.
+**Témoin** : `jenga test --project Noge_Tests` **8/11 → 11/11, 52/52 assertions, EXIT=0** (binaire
+20:16:12 > source 20:13:54).
+📌 **Fait mesuré, non tranché** : `NkDescs.h:284` déclare `frontFace = NkFrontFace::NK_CCW` par défaut
+alors que le commentaire de `NkEditMesh.cpp` dit « le moteur rend en FRONT = HORAIRE ». Deux textes pour
+un seul code ; à lire avec les primitives de `NkMeshSystem` avant d'en faire une règle.
+
+### ✅ 04/09 (soir) — WEB : la capacité fautive était `GL_FRAMEBUFFER_SRGB` — et le build web était cassé par le chrono GPU (`bfdedf70`)
+
+**Mesuré, pas deviné.** L'instrument `[WebDiag] GLERR` disait « in glDisable » sans dire quoi ; il lit
+maintenant l'argument (`va_arg`) : **`glDisable(cap=0x8DB9)` = `GL_FRAMEBUFFER_SRGB`**, posé par
+`NkOpenGLDevice::BeginFrame` **à chaque image**. En ES/WebGL2 l'encodage sRGB est un **format**, pas un
+interrupteur — la question ne se pose pas (même famille que la garde EGL et `NkGLHasComputeAndSSBO`).
+Les gardes `GL_DEPTH_CLAMP`/`GL_MULTISAMPLE` datent du 31/07 : elles n'étaient pas en cause.
+- **Garde par capacité** : `NkGLHasFramebufferSrgbControl()` — bureau : vrai ; ES/Web : seulement avec
+  `EXT_sRGB_write_control` (demandée comme l'anisotropie) → `mHasFramebufferSrgbControl`, dit une fois au
+  journal quand absent ; `BeginFrame` ne touche l'interrupteur que s'il existe.
+- **Une erreur répétée se dit une fois puis se tait** : le triplet (erreur, fonction, argument) est
+  mémorisé (table fixe de 32) ; le budget global de 40 d'avant laissait passer 40 fois la même ligne.
+- 🔴 **Le build web était DÉJÀ cassé**, par le chrono GPU (`cdec0d7f`, 16h41) : `glad_glQueryCounter` et
+  `glad_glGetQueryObjectui64v` sont *déclarés* par `glad/gl.h` (bureau) mais seul `gles2.c` est lié sur
+  Web → `wasm-ld: undefined symbol`, 30/31. **Le contrôle `if (!glad_glQueryCounter)` ne protège pas d'un
+  échec de LIEN.** Sur ES le chrono est `EXT_disjoint_timer_query` : pointeurs `EXT` déclarés localement
+  (`glad/gles2.h` est inconciliable avec `glad/gl.h`), nuls → « chrono GPU absent », dit une fois, HUD « -- ».
+  Le binaire du soir de Rodolf (00:20) précédait ce commit : il n'a pas vu la casse.
+- **Outillage** : `Tools/web_headless_mesure.sh` + `Tools/web_headless_pilote.mjs` — http.server 9002 +
+  Edge headless piloté par DevTools (Node 22 d'emsdk). La boucle web est `emscripten_sleep(0)` sous
+  Asyncify : **une image = un `setTimeout` ≤ 1 ms, pas `requestAnimationFrame`** (le premier compteur
+  rendait 0 image pendant que 33 avertissements prouvaient des images) ; dessins WebGL comptés en
+  contrôle croisé (~1 050 par image).
+**Témoin** : avant → GLERR `cap=0x8DB9` dès l'image 1 (×33 navigateur, puis l'instrument) ; après →
+**0 GLERR, 0 `INVALID_ENUM`, 0 avertissement WebGL sur 80 puis 88 images** (deux courses, plafond 240 s,
+168 images propres cumulées), renderer lu **ANGLE D3D11 / RTX 3070** (pas SwiftShader), ~0,4-0,6 img/s
+(GPU partagé avec Ilyana à 50-95 % + onglet headless — ce n'est pas la vitesse de Rodolf) ;
+`[NkWeb] preparation terminee` présente (162 / 167 / 215 ms). Build web 30/31 → SUCCESS ; bureau
+renderdemo Debug 42/42. La borne « 100 images en une course » n'est pas atteinte (88 au plafond de temps),
+dit tel quel. **Ce qu'il te reste** : recharger `renderdemo.html?demo=2` (Release-Web reconstruit 20:34)
+— ta console ne doit plus porter ni `INVALID_ENUM` ni `GLERR`.
+
+### 🔩 04/09 (soir) — JENGA 2.6.2 : forme propre remise, wheel NKCode lu (`a1343480`)
+
+- `NKSerialization.jenga:95` reprend `%{NKMath.location}/src` (le défaut était le **filtre**, pas la
+  sous-suite : `_filteredIncludeDirs` jamais expansé, corrigé côté Jenga aux trois étages). Témoin :
+  `NKSerialization_ReflectPhase5_Tests` **117 passed, 0 failed**.
+- `jenga info --no-daemon` depuis la racine : **`[NKCode] Jenga embarque depuis le wheel :
+  jenga-2.6.2-py3-none-any.whl`**, `Build/_jenga-embed/` ré-extrait à 20:43.
+- 📌 **Observation de l'agent Jenga, à toi, pas traitée** : `NKCode.jenga` tente **plus de vingt
+  écritures dans `Build/_jenga-embed/` à CHAQUE évaluation** de l'espace de travail (`_jenga_depuis_wheel`,
+  l. 74-105 : efface et ré-extrait le wheel au chargement du `.jenga`). Un fichier de build qui écrit au
+  chargement — c'est probablement le `Build/_jenga-embed` « régénéré par chaque build voisin » que mon
+  prédécesseur avait rencontré. À décider : extraire seulement si le wheel est plus récent que
+  `Build/_jenga-embed/`, ou ne le faire qu'à la construction de NKCode.
+
 ### 🔩 04/09 (nuit) — JENGA 2.6 : ce qui est appliqué, ce qui est mesuré en retour
 
 - **`-static` — le défaut était chez nous** : `config/toolchain.jenga:55` (bloc Windows natif) promettait
@@ -1503,7 +1565,7 @@ Liste, un module par commit, mise à jour à chaque ajout :
 - `NKPlatform_Tests` — 0 réussis, 0 au total, 0 réussies, 0 au total (build+run 18 s)
 - `NKLogger_Tests` — 2 réussis, 2 au total, 5 réussies, 5 au total (build+run 28 s)
 - `NKTime_Tests` — 5 réussis, 5 au total, 24 réussies, 24 au total (build+run 27 s)
-- `Noge_Tests` — 8 réussis, 5 échoués, 11 au total, 47 réussies, 5 échouées, 52 au total (build+run 130 s) — **rouvert AVEC ses rouges, informatifs** : les trois cas
+- `Noge_Tests` — ✅ **11 réussis, 11 au total, 52 assertions (04/09 soir, `f360fdd4`)** : Rodolf a tranché « on va faire la même chose que le modeleur », le contrat et le test disent désormais ce que le code fait (bloc ci-dessous). *Historique :* 8 réussis, 5 échoués, 11 au total, 47 réussies, 5 échouées, 52 au total (build+run 130 s) — **rouvert AVEC ses rouges, informatifs** : les trois cas
   rouges (`SingleTriangle`, `RecalcNormalsSmooth`, `FlipNormals`) attendent une normale **+Z** pour un
   triangle donné **CCW** dans le plan XY — c'est le contrat écrit de `NkEditableMesh.h:117-129`
   (« dans l'ordre CCW »). Or `NkEditMesh.cpp:315` calcule `(p2 − p0) × (p1 − p0)`, soit **−Z** pour ce
