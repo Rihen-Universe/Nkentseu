@@ -1319,6 +1319,21 @@ namespace nkuidesign {
 			NkVector<NkString> journal;
 			/// L'AVIS : un bandeau sur la toile qui RESTE jusqu'au clic.
 			NkString avis;
+			// ── LA DEMANDE DE SELECTEUR DE COULEUR ──────────────────────────
+			/// ⚠️ LE SELECTEUR NE SE DESSINE PAS DANS LE PANNEAU, ET C'EST UNE
+			///    NECESSITE, PAS UN GOUT : le shell masque l'entree du corps des
+			///    qu'un popup est survole (`mousePos = {-100000, -100000}`) et ne
+			///    la restaure QU'APRES les panneaux. Un popup dessine depuis un
+			///    panneau s'affiche et ne repond a rien -- c'est ce que Rodolf a
+			///    vu le 04/09. La pastille DEMANDE ; le crochet d'overlay DESSINE.
+			struct DemandePicker {
+					bool ouvert = false;
+					nkgui::NkGuiId id = 0;
+					nkgui::NkRect ancre = {0.f, 0.f, 0.f, 0.f};
+					char hex[12] = {};
+					bool change = false;
+			};
+			DemandePicker picker;
 			void Consigner(const char *t) {
 				journal.PushBack(NkString(t ? t : ""));
 			}
@@ -9393,79 +9408,111 @@ namespace nkuidesign {
 	/// et rend `true` — l'appelant fait alors ce qu'il fait déjà quand on tape le
 	/// code à la main. Le champ hexadécimal RESTE : un sélecteur qui supprimerait
 	/// la saisie au clavier serait une régression déguisée en fonctionnalité.
-	inline bool NkPastilleCouleur(nkgui::NkGuiContext &ctx, const char *idStr, const nkgui::NkRect &sw,
-								  char *hexBuf, nkentseu::uint32 cap) {
-		using namespace nkentseu;
-		auto nyb = [](char c) -> int32 {
+	/// « #rrggbb » -> couleur ; illisible -> gris moyen (et NkHexLisible le dit).
+	inline bool NkHexLisible(const char *hex) {
+		if (!hex || hex[0] != '#')
+			return false;
+		for (nkentseu::int32 i = 1; i <= 6; ++i) {
+			const char c = hex[i];
+			const bool ok = (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F');
+			if (!ok)
+				return false;
+		}
+		return true;
+	}
+	inline nkgui::NkColor NkCouleurDepuisHex(const char *hex) {
+		if (!NkHexLisible(hex))
+			return {128, 128, 128, 255};
+		auto nyb = [](char c) -> nkentseu::int32 {
 			if (c >= '0' && c <= '9')
 				return c - '0';
 			if (c >= 'a' && c <= 'f')
 				return c - 'a' + 10;
-			if (c >= 'A' && c <= 'F')
-				return c - 'A' + 10;
-			return -1;
+			return c - 'A' + 10;
 		};
-		float32 col[4] = {0.5f, 0.5f, 0.5f, 1.f};
-		bool lisible = hexBuf && hexBuf[0] == '#';
-		if (lisible)
-			for (int32 k = 0; k < 3; ++k) {
-				const int32 h1 = nyb(hexBuf[1 + k * 2]), h2 = nyb(hexBuf[2 + k * 2]);
-				if (h1 < 0 || h2 < 0) {
-					lisible = false;
-					break;
-				}
-				col[k] = (float32)(h1 * 16 + h2) / 255.f;
-			}
-		const nkgui::NkColor teinte = {(uint8)(col[0] * 255.f + 0.5f), (uint8)(col[1] * 255.f + 0.5f),
-									   (uint8)(col[2] * 255.f + 0.5f), 255};
+		return {(nkentseu::uint8)(nyb(hex[1]) * 16 + nyb(hex[2])),
+				(nkentseu::uint8)(nyb(hex[3]) * 16 + nyb(hex[4])),
+				(nkentseu::uint8)(nyb(hex[5]) * 16 + nyb(hex[6])), 255};
+	}
+	inline bool NkPastilleCouleur(nkgui::NkGuiContext &ctx, DesignState &st, const char *idStr,
+								  const nkgui::NkRect &sw, char *hexBuf, nkentseu::uint32 cap) {
+		using namespace nkentseu;
+		const nkgui::NkColor teinte = NkCouleurDepuisHex(hexBuf);
+		const bool lisible = NkHexLisible(hexBuf);
 		const nkgui::NkGuiId id = ctx.GetId(idStr);
 		bool survol = false, tenu = false;
 		const bool clic = ctx.ButtonBehavior(id, sw, nkgui::NkGuiButtonFlags::None, -1.f, -1.f, &survol, &tenu);
+		const bool ouvertIci = st.picker.ouvert && st.picker.id == id;
 		if (lisible)
 			ctx.DL().AddRectFilled(sw, teinte, 3.f);
-		ctx.DL().AddRect(sw, (survol || ctx.IsPopupOpen(id)) ? ctx.theme.accent : ctx.theme.border, 1.f, 3.f);
+		ctx.DL().AddRect(sw, (survol || ouvertIci) ? ctx.theme.accent : ctx.theme.border, 1.f, 3.f);
 		if (!lisible)
 			ctx.DL().AddLine({sw.x + 3.f, sw.y + 13.f}, {sw.x + 13.f, sw.y + 3.f}, ctx.theme.textMuted, 1.f);
 		if (clic) {
-			if (ctx.IsPopupOpen(id))
-				ctx.ClosePopup();
-			else
-				ctx.OpenPopup(id);
-		}
-		bool change = false;
-		if (ctx.IsPopupOpen(id)) {
-			// mêmes mesures que `ColorEdit4` du kit : carré 160 + barre de teinte
-			const float32 pw = 160.f + 12.f + 16.f + 24.f;
-			const float32 ph = 160.f + 16.f + 6.f * (ctx.ItemHeight() + ctx.layout.itemSpacingY);
-			nkgui::NkRect pr = {sw.x, sw.y + sw.h + 2.f, pw, ph};
-			if (pr.y + pr.h > (float32)ctx.viewH)
-				pr.y = sw.y - ph - 2.f;
-			if (pr.y < 0.f)
-				pr.y = 2.f;
-			if (pr.x + pr.w > (float32)ctx.viewW)
-				pr.x = (float32)ctx.viewW - pr.w - 2.f;
-			if (nkgui::BeginPopup(ctx, idStr, pr, sw)) {
-				if (nkgui::ColorPicker4(ctx, "##pick", col, nkgui::NkGuiColorFlags::NoAlpha))
-					change = true;
-				nkgui::EndPopup(ctx);
+			if (ouvertIci)
+				st.picker.ouvert = false; // second clic : on referme
+			else {
+				st.picker.ouvert = true;
+				st.picker.id = id;
+				st.picker.ancre = sw;
+				st.picker.change = false;
+				snprintf(st.picker.hex, sizeof(st.picker.hex), "%s", hexBuf ? hexBuf : "");
 			}
 		}
-		if (change && hexBuf && cap >= 8u) {
-			static const char *kHex = "0123456789abcdef";
-			hexBuf[0] = '#';
-			for (int32 k = 0; k < 3; ++k) {
-				float32 v = col[k];
-				if (v < 0.f)
-					v = 0.f;
-				if (v > 1.f)
-					v = 1.f;
-				const int32 o = (int32)(v * 255.f + 0.5f);
-				hexBuf[1 + k * 2] = kHex[(o >> 4) & 0xF];
-				hexBuf[2 + k * 2] = kHex[o & 0xF];
-			}
-			hexBuf[7] = '\0';
+		// LE RETOUR : le crochet d'overlay a bouge la couleur -> on la reprend, et
+		// l'appelant fait ce qu'il fait deja quand on tape le code a la main.
+		if (ouvertIci && st.picker.change && hexBuf && cap >= 8u) {
+			snprintf(hexBuf, (size_t)cap, "%s", st.picker.hex);
+			st.picker.change = false;
+			return true;
 		}
-		return change;
+		return false;
+	}
+
+	/// LE SELECTEUR LUI-MEME, dessine par le CROCHET D'OVERLAY (apres les
+	/// panneaux) : c'est le seul endroit ou l'entree est REELLE. Le `ColorPicker4`
+	/// est celui de `NKGui` -- on n'en construit toujours aucun.
+	inline void NkDessinerPickerDemande(nkgui::NkGuiContext &ctx, DesignState &st) {
+		using namespace nkentseu;
+		if (!st.picker.ouvert)
+			return;
+		float32 col[4] = {0.5f, 0.5f, 0.5f, 1.f};
+		const nkgui::NkColor c0 = NkCouleurDepuisHex(st.picker.hex);
+		col[0] = (float32)c0.r / 255.f;
+		col[1] = (float32)c0.g / 255.f;
+		col[2] = (float32)c0.b / 255.f;
+		const nkgui::NkRect sw = st.picker.ancre;
+		const float32 pw = 160.f + 12.f + 16.f + 24.f;
+		const float32 ph = 160.f + 16.f + 6.f * (ctx.ItemHeight() + ctx.layout.itemSpacingY);
+		nkgui::NkRect pr = {sw.x - pw - 8.f, sw.y + sw.h + 2.f, pw, ph}; // a GAUCHE : le panneau est a droite
+		if (pr.x < 2.f)
+			pr.x = 2.f;
+		if (pr.y + pr.h > (float32)ctx.viewH)
+			pr.y = (float32)ctx.viewH - pr.h - 2.f;
+		if (pr.y < 2.f)
+			pr.y = 2.f;
+		if (!ctx.IsPopupOpen(st.picker.id))
+			ctx.OpenPopup(st.picker.id);
+		if (nkgui::BeginPopupId(ctx, st.picker.id, pr, sw)) {
+			if (nkgui::ColorPicker4(ctx, "##nkuidesign.picker", col, nkgui::NkGuiColorFlags::NoAlpha)) {
+				static const char *const kHex = "0123456789abcdef";
+				st.picker.hex[0] = '#';
+				for (int32 k = 0; k < 3; ++k) {
+					float32 v = col[k];
+					if (v < 0.f)
+						v = 0.f;
+					if (v > 1.f)
+						v = 1.f;
+					const int32 o = (int32)(v * 255.f + 0.5f);
+					st.picker.hex[1 + k * 2] = kHex[(o >> 4) & 0xF];
+					st.picker.hex[2 + k * 2] = kHex[o & 0xF];
+				}
+				st.picker.hex[7] = '\0';
+				st.picker.change = true;
+			}
+			nkgui::EndPopup(ctx);
+		} else
+			st.picker.ouvert = false; // clic dehors / Echap : le shell a ferme
 	}
 
 	class InspectorPanel : public NkEditorPanel {
@@ -11076,7 +11123,7 @@ namespace nkuidesign {
 					char idPast[40];
 					snprintf(idPast, sizeof(idPast), "##insp.etat.pastille%u", e);
 					const bool pickerEtat =
-						NkPastilleCouleur(ctx, idPast, sw, mEtatsBuf[e], (uint32)sizeof(mEtatsBuf[e]));
+						NkPastilleCouleur(ctx, *mSt, idPast, sw, mEtatsBuf[e], (uint32)sizeof(mEtatsBuf[e]));
 					// LE CHAMP HEXA DU FOND -- la moitié qui rend le geste VRAI :
 					// une section qui liste sans poser n'est pas utilisable.
 					// ⚠️ VIDER LE CHAMP RETIRE LA SURCHARGE (retour à l'hérité) et
@@ -11234,7 +11281,7 @@ namespace nkuidesign {
 							char idPast[40];
 						snprintf(idPast, sizeof(idPast), "##insp.effet.pastille%u", i);
 						const bool pickerEffe =
-							NkPastilleCouleur(ctx, idPast, sw, mEffetsBuf[i], (uint32)sizeof(mEffetsBuf[i]));
+							NkPastilleCouleur(ctx, *mSt, idPast, sw, mEffetsBuf[i], (uint32)sizeof(mEffetsBuf[i]));
 						char idHex[32];
 						snprintf(idHex, sizeof(idHex), "##insp.effet.hex%u", i);
 						ctx.SetNextItemRect({col.hexX, costume::BandeY(r.y), col.hexW,
@@ -12305,7 +12352,7 @@ namespace nkuidesign {
 					char idPast[40];
 					snprintf(idPast, sizeof(idPast), "##insp.fill.pastille%u", i);
 					const bool pickerFill =
-						NkPastilleCouleur(ctx, idPast, sw, mFillsBuf[i], (uint32)sizeof(mFillsBuf[i]));
+						NkPastilleCouleur(ctx, *mSt, idPast, sw, mFillsBuf[i], (uint32)sizeof(mFillsBuf[i]));
 					// 2. l'HEXA — la seule écriture qui NE matérialise PAS : tant
 					//    qu'on ne change qu'une couleur, un document d'avant garde
 					//    sa clé simple et son octet près.
@@ -12536,7 +12583,7 @@ namespace nkuidesign {
 								char idPastA[48];
 								snprintf(idPastA, sizeof(idPastA), "##insp.deg%u.past%u", i, ai);
 								const bool pickA =
-									NkPastilleCouleur(ctx, idPastA, swA, mArretsBuf[i][ai],
+									NkPastilleCouleur(ctx, *mSt, idPastA, swA, mArretsBuf[i][ai],
 													  (uint32)sizeof(mArretsBuf[i][ai]));
 								char idA[48];
 								snprintf(idA, sizeof(idA), "##insp.deg%u.arret%u", i, ai);
@@ -12742,7 +12789,7 @@ namespace nkuidesign {
 							char idPast[40];
 						snprintf(idPast, sizeof(idPast), "##insp.bord.pastille%u", i);
 						const bool pickerBord =
-							NkPastilleCouleur(ctx, idPast, sw, mBordsBuf[i], (uint32)sizeof(mBordsBuf[i]));
+							NkPastilleCouleur(ctx, *mSt, idPast, sw, mBordsBuf[i], (uint32)sizeof(mBordsBuf[i]));
 						char idHex[32];
 						snprintf(idHex, sizeof(idHex), "##insp.bord.hex%u", i);
 						ctx.SetNextItemRect({col.hexX, costume::BandeY(r.y), col.hexW, costume::HControle});

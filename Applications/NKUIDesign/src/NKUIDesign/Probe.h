@@ -4361,6 +4361,56 @@ namespace nkuidesign {
 					  relus && additif, det);
 			}
 		}
+		// ── 54. LE SELECTEUR : LA PASTILLE DEMANDE, L'OVERLAY DESSINE ────────
+		// Le defaut trouve le 04/09 : un popup dessine DEPUIS un panneau vit avec
+		// une souris a moins cent mille -- le shell masque l'entree du corps des
+		// qu'un popup est survole et ne la restaure qu'apres les panneaux. La
+		// sonde porte la souris elle-meme, sans fenetre.
+		{
+			static nkgui::NkGuiContext ctxP;
+			char det[320];
+			if (!ctxP.Init(400, 600)) {
+				check("54. le selecteur de couleur : contexte sans fenetre", false, "Init a refuse");
+			} else {
+				static DesignState stP;
+				stP.picker = DesignState::DemandePicker();
+				char hex[12] = "#1976d2";
+				const nkgui::NkRect sw = {240.f, 60.f, 16.f, 16.f};
+				auto image = [&](float32 mx, float32 my, bool bas, bool overlay) {
+					ctxP.input.mousePos = {mx, my};
+					ctxP.input.mouseDown[0] = bas;
+					ctxP.BeginFrame(0.016f);
+					ctxP.BeginLayout({0.f, 0.f, 300.f, 600.f});
+					NkPastilleCouleur(ctxP, stP, "##sonde.pastille", sw, hex, (uint32)sizeof(hex));
+					if (overlay)
+						NkDessinerPickerDemande(ctxP, stP);
+					const uint32 n = (uint32)ctxP.dlOverlay.vtx.Size();
+					ctxP.EndFrame();
+					return n;
+				};
+				// 1. survol : aucune demande
+				image(248.f, 68.f, false, true);
+				const bool riendemande = !stP.picker.ouvert;
+				// 2. appui puis relachement sur la pastille : LA DEMANDE est posee
+				image(248.f, 68.f, true, true);
+				const uint32 apresRelache = image(248.f, 68.f, false, true);
+				const bool demande = stP.picker.ouvert && stP.picker.id != 0u
+									 && NkComponentDecl::StrEq(stP.picker.hex, "#1976d2");
+				// 3. l'image suivante : le selecteur DESSINE dans la couche overlay
+				const uint32 dessine = image(248.f, 68.f, false, true);
+				const bool tient = stP.picker.ouvert && ctxP.IsPopupOpen(stP.picker.id);
+				// 4. CONTROLE NEGATIF : sans le crochet d'overlay, rien n'est peint --
+				//    c'est exactement ce que voyait Rodolf avant le remede.
+				const uint32 sansOverlay = image(248.f, 68.f, false, false);
+				snprintf(det, sizeof(det),
+						 "survol : aucune demande=%d ; apres relachement : demande=%d (overlay %u) ; image "
+						 "suivante : dessine %u sommets, popup ouvert=%d ; SANS le crochet : %u sommets",
+						 riendemande ? 1 : 0, demande ? 1 : 0, apresRelache, dessine, tient ? 1 : 0, sansOverlay);
+				check("54. LE SELECTEUR : la pastille DEMANDE (dans le panneau), le crochet d'OVERLAY dessine "
+					  "(la ou l'entree est reelle) -- et sans ce crochet, rien n'est peint",
+					  riendemande && demande && tient && dessine > 200u && sansOverlay == 0u, det);
+			}
+		}
 		snprintf(tail, sizeof(tail), "\n=== RESULTAT : %d / %d ===\n", pass, total);
 		rep.Append(tail);
 

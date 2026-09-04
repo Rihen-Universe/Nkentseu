@@ -464,6 +464,11 @@ namespace nkentseu {
 		// qu'il est ouvert : l'app dessine SES widgets dedans, puis EndPopup.
 		NKENTSEU_NKGUI_API bool BeginPopup(NkGuiContext &ctx, const char *idStr, const NkRect &rect,
 										   const NkRect &ancre) noexcept;
+		// La meme porte, par ID deja calcule : indispensable quand celui qui OUVRE
+		// et celui qui DESSINE ne sont pas dans la meme pile d'identites (un
+		// panneau ouvre, le crochet d'overlay dessine).
+		NKENTSEU_NKGUI_API bool BeginPopupId(NkGuiContext &ctx, NkGuiId id, const NkRect &rect,
+											 const NkRect &ancre) noexcept;
 		NKENTSEU_NKGUI_API void EndPopup(NkGuiContext &ctx) noexcept;
 
 		// ── Menus (barre + sous-menus imbriqués + contextuel) ─────────────────

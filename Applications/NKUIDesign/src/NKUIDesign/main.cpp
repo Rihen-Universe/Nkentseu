@@ -6864,6 +6864,10 @@ static void FocusPanel(const char *titre); // defini plus bas (il tient gShell)
 
 static void EcrireReleveUI(NkEditorFrameContext &ec, void *) {
 	CalerLargeursDock(ec.Ui());
+	// LE SELECTEUR DE COULEUR : ici et pas dans le panneau -- c'est le seul
+	// endroit ou l'entree de la souris est REELLE (le shell la masque pendant
+	// les panneaux des qu'un popup est survole).
+	nkuidesign::NkDessinerPickerDemande(ec.Ui(), gDesign);
 	// LE MENU DES ROLES (ecrans 5-6-7) : dessine en OVERLAY, par-dessus les
 	// panneaux ; choisir ECRIT la cle `role` du noeud (le geste
 	// « promouvoir » du §4.3). Le code 0x01 = retirer le role.
