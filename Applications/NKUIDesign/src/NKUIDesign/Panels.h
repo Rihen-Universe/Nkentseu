@@ -2309,6 +2309,25 @@ namespace nkuidesign {
 		h[7] = '\0';
 		return NkString(h);
 	}
+	/// Le pointeur est-il SUR un popup ouvert ? C'est la seule chose qu'une reclamation de
+	/// la toile doit refuser -- pas « un popup existe » : le popover de remplissage est
+	/// ouvert pendant qu'on regle un degrade sur la toile (Rodolf, 04/09).
+	inline bool NkSourisSurPopup(const nkgui::NkGuiContext &ctx) {
+		for (nkentseu::int32 i = 0; i < ctx.popupDepth; ++i)
+			if (nkgui::NkGuiRectContains(ctx.popupRects[i], ctx.input.mousePos))
+				return true;
+		return false;
+	}
+	/// L'angle (degres, convention 0 = haut -> bas, 90 = droite -> gauche) dont l'axe
+	/// pointe du centre vers (vx, vy). Meme matrice que la rotation du noeud.
+	inline nkentseu::float32 NkAngleDegradeVers(nkentseu::float32 vx, nkentseu::float32 vy) {
+		nkentseu::float32 a = nkentseu::math::NkAtan2(-vx, vy) * 57.2957795f;
+		while (a < 0.f)
+			a += 360.f;
+		while (a >= 360.f)
+			a -= 360.f;
+		return a;
+	}
 	class PalettePanel : public NkEditorPanel {
 		public:
 			explicit PalettePanel(DesignState *st)
@@ -3600,7 +3619,12 @@ namespace nkuidesign {
 				// la poignee prend le clic avant le segment, le segment avant la toile
 				// -- une seule decision ordonnee (NkQuiPrendLeClicDegrade). Le point
 				// souris est ramene dans le repere de l'objet, comme pour la rotation.
-				if (!modeGraphe && !mMenuCtx.open && in.mousePressed && ctx.popupDepth == 0
+				// ⚠️ MESURE DU 04/09 (Rodolf : « ca deplace plutot la geometrie ») : la garde
+				//    etait `ctx.popupDepth == 0` -- or le popover de remplissage est OUVERT
+				//    pendant qu'on regle le degrade. La poignee ne reclamait plus, et la
+				//    toile deplacait le noeud. Ce qu'il faut refuser, c'est le pointeur SUR
+				//    un popup, rien d'autre.
+				if (!modeGraphe && !mMenuCtx.open && in.mousePressed && !NkSourisSurPopup(ctx)
 					&& mSt->doc.IsValidIndex(mSt->selected) && mSt->selected != 0
 					&& screen.Has(mSt->selected)) {
 					NkUINode &selDeg = mSt->doc.nodes[(uint32)mSt->selected];
@@ -4989,16 +5013,45 @@ namespace nkuidesign {
 							// le glisser d'une poignee : l'arret suit la souris le long de l'axe
 							if (mDegDrag >= 0 && mDegFill == fi) {
 								if (ctx.input.mouseDown[0] && (uint32)mDegDrag < (uint32)g.arrets.Size()) {
-									const float32 tA = renderdetail::NkParamSurAxeDegrade(axe, mxS, myS);
-									if (tA != g.arrets[(uint32)mDegDrag].position) {
-										g.arrets[(uint32)mDegDrag].position = tA;
-										if (!selDeg.instanceDe.Empty())
-											selDeg.ecarts |= NkUINode::EcartRemplissages;
-										mSt->doc.MarkHumanEdit(mSt->selected);
-										mSt->host.SyncTo(mSt->doc);
+									// LES EXTREMITES ORIENTENT (Lunacy : les deux bouts de l'axe se
+									// deplacent), les arrets intermediaires GLISSENT le long de l'axe.
+									uint32 iMin = 0u, iMax = 0u;
+									for (uint32 ai = 1; ai < (uint32)g.arrets.Size(); ++ai) {
+										if (g.arrets[ai].position < g.arrets[iMin].position)
+											iMin = ai;
+										if (g.arrets[ai].position > g.arrets[iMax].position)
+											iMax = ai;
 									}
+									const bool extremite = ((uint32)mDegDrag == iMin || (uint32)mDegDrag == iMax) && iMin != iMax;
 									char msg[64];
-									snprintf(msg, sizeof(msg), "Arrêt %d : %.0f %%", mDegDrag + 1, (double)(tA * 100.f));
+									if (extremite) {
+										float32 vx = mxS - (rs.x + rs.w * 0.5f), vy = myS - (rs.y + rs.h * 0.5f);
+										if ((uint32)mDegDrag == iMin) {
+											vx = -vx;
+											vy = -vy;
+										}
+										if (vx * vx + vy * vy > 9.f) {
+											const float32 a = NkAngleDegradeVers(vx, vy);
+											if (a != g.angle) {
+												g.angle = a;
+												if (!selDeg.instanceDe.Empty())
+													selDeg.ecarts |= NkUINode::EcartRemplissages;
+												mSt->doc.MarkHumanEdit(mSt->selected);
+												mSt->host.SyncTo(mSt->doc);
+											}
+										}
+										snprintf(msg, sizeof(msg), "Angle du dégradé : %.0f°", (double)g.angle);
+									} else {
+										const float32 tA = renderdetail::NkParamSurAxeDegrade(axe, mxS, myS);
+										if (tA != g.arrets[(uint32)mDegDrag].position) {
+											g.arrets[(uint32)mDegDrag].position = tA;
+											if (!selDeg.instanceDe.Empty())
+												selDeg.ecarts |= NkUINode::EcartRemplissages;
+											mSt->doc.MarkHumanEdit(mSt->selected);
+											mSt->host.SyncTo(mSt->doc);
+										}
+										snprintf(msg, sizeof(msg), "Arrêt %d : %.0f %%", mDegDrag + 1, (double)(tA * 100.f));
+									}
 									mSt->status = NkString(msg);
 								} else
 									mDegDrag = -1;
@@ -10103,7 +10156,7 @@ namespace nkuidesign {
 				const float32 hTypes = 26.f; // ① une seule rangee de vignettes dessinees
 				const float32 hPicker = 160.f + 8.f;
 				const float32 hHex = 26.f; // la rangee modele + valeurs (Hex ˅ / RGB / HSB)
-				const float32 hRampe = g.Actif() ? 26.f + 26.f * (float32)(g.arrets.Size() < 12u ? g.arrets.Size() : 12u) : 0.f;
+				const float32 hRampe = g.Actif() ? 26.f + 26.f + 26.f * (float32)(g.arrets.Size() < 12u ? g.arrets.Size() : 12u) : 0.f; // barre, angle, liste
 				const float32 ph = f.EstImage() ? 8.f + hTypes + 116.f + 26.f + 26.f + 26.f + 8.f
 												   : 8.f + hTypes + hPicker + hHex + hRampe + 8.f;
 				const NkRect sw = d.ancre;
@@ -10533,6 +10586,20 @@ namespace nkuidesign {
 						}
 					}
 					y += 26.f;
+					// L'ANGLE : la rangee d'orientation -- ce que le glisser d'une extremite sur la
+					// toile ecrit, ce que le champ edite (0 = haut -> bas, 90 = droite -> gauche)
+					{
+						costume::Texte(dl, F.px10, x0, costume::CentrerY(F.px10, y + 3.f, 20.f), "Angle", ctx.theme.textMuted);
+						const NkRect rAng = {x0 + 62.f, y + 3.f, 48.f, costume::HControle};
+						float32 ang = g.angle;
+						if (ChampNombre(ctx, "insp.popover.deg.angle", rAng, ang, 1.f, -360.f, 360.f)) {
+							g.angle = ang;
+							touche();
+						}
+						costume::Texte(dl, F.px9, rAng.x + rAng.w + 4.f, costume::CentrerY(F.px9, rAng.y, 20.f), "°",
+									   ctx.theme.textMuted);
+						y += 26.f;
+					}
 					// LA LISTE : position · pastille · hexa · opacité · poubelle ; la ligne courante s'allume
 					int32 aSupprimer = -1;
 					for (uint32 ai = 0; ai < (uint32)g.arrets.Size() && ai < (uint32)kMaxArretsUI; ++ai) {

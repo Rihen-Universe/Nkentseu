@@ -5201,6 +5201,108 @@ namespace nkuidesign {
 						  "dans le carre SV change la couleur PEINTE du noeud",
 						  pastilleVue && demande && avant >= 1u && apresAncien < avant && apresNouveau >= 1u, det);
 				}
+				// 60k. ⑥ LES POIGNEES SUR LA TOILE, popover de remplissage OUVERT (c'est ainsi qu'on
+				// regle un degrade) : glisser l'EXTREMITE oriente le degrade (angle) et ne deplace
+				// pas le noeud ; un arret intermediaire glisse ; hors poignee, la toile deplace
+				// bien le noeud (controle). Rodolf : « ca deplace plutot la geometrie ».
+				{
+					static PreviewPanel toile(&stI);
+					stI.SelectSingle(rc);
+					stI.picker = DesignState::DemandePicker();
+					stI.picker.ouvert = true;
+					stI.picker.id = ctxI.GetId("##sonde.popover.toile");
+					stI.picker.genre = 1u;
+					stI.picker.noeud = rc;
+					stI.picker.index = 1;
+					stI.picker.ancre = {590.f, 20.f, 16.f, 16.f}; // le popover se pose a droite, loin de la toile
+					auto scene = [&](float32 mx, float32 my, bool bas) {
+						ctxI.input.mousePos = {mx, my};
+						ctxI.input.mouseDown[0] = bas;
+						ctxI.BeginFrame(0.016f);
+						ctxI.BeginLayout({0.f, 0.f, 340.f, 900.f});
+						toile.OnUI(ec);
+						ctxI.BeginLayout({340.f, 0.f, 260.f, 900.f});
+						insp.OnUI(ec);
+						NkDessinerPickerDemande(ctxI, stI);
+						ctxI.EndFrame();
+					};
+					scene(-1.f, -1.f, false);
+					scene(-1.f, -1.f, false);
+					NkLayoutResult scr;
+					stI.ProjectToScreen(scr);
+					NkUINode &nd = stI.doc.nodes[(uint32)rc];
+					NkDegrade &gd = nd.fills[1].degrade;
+					gd.angle = 0.f;
+					const NkPaintRect rs = scr.At(rc);
+					const renderdetail::NkAxeDegrade axe = renderdetail::NkAxeDegradeDe(rs, gd);
+					const float32 posX0 = nd.posX, posY0 = nd.posY;
+					const int32 prof = ctxI.popupDepth;
+					// 1. l'extremite (t = 1) : on la tire a GAUCHE du centre -> angle 90
+					float32 hx = 0.f, hy = 0.f;
+					renderdetail::NkPoigneeDegrade(axe, 1.f, hx, hy);
+					const float32 cx = rs.x + rs.w * 0.5f, cy = rs.y + rs.h * 0.5f;
+					scene(hx, hy, false);
+					scene(hx, hy, true);
+					scene(hx - 10.f, hy - 10.f, true);
+					scene(cx - 60.f, cy, true);
+					scene(cx - 60.f, cy, false);
+					scene(-1.f, -1.f, false);
+					const float32 angle1 = gd.angle;
+					const bool noeudFixe1 = nd.posX == posX0 && nd.posY == posY0;
+					// 2. l'arret du milieu (t = 0.5) glisse vers 0.75 le long du nouvel axe
+					const renderdetail::NkAxeDegrade axe2 = renderdetail::NkAxeDegradeDe(rs, gd);
+					float32 mx0 = 0.f, my0 = 0.f, mx1 = 0.f, my1 = 0.f;
+					renderdetail::NkPoigneeDegrade(axe2, 0.5f, mx0, my0);
+					renderdetail::NkPoigneeDegrade(axe2, 0.75f, mx1, my1);
+					scene(mx0, my0, false);
+					scene(mx0, my0, true);
+					scene((mx0 + mx1) * 0.5f, (my0 + my1) * 0.5f, true);
+					scene(mx1, my1, true);
+					scene(mx1, my1, false);
+					scene(-1.f, -1.f, false);
+					const float32 pos1 = gd.arrets[1].position;
+					const bool noeudFixe2 = nd.posX == posX0 && nd.posY == posY0;
+					// 3. CONTROLE : hors des poignees et du segment, la toile deplace le noeud
+					// un point du CORPS : a plus de 8 px des bords (sinon c'est une poignee de
+					// taille) et a plus de 8 px de l'axe horizontal (angle 90) et de ses arrets
+					float32 ox = cx - 30.f, oy = cy - 7.f;
+					// plusieurs noeuds des sondes precedentes se superposent a l'origine du cadre :
+					// c'est celui du DESSUS que la toile deplace -- on juge « un noeud a bouge »
+					NkVector<float32> avantX, avantY;
+					for (uint32 i = 0; i < (uint32)stI.doc.nodes.Size(); ++i) {
+						avantX.PushBack(stI.doc.nodes[i].posX);
+						avantY.PushBack(stI.doc.nodes[i].posY);
+					}
+					scene(ox, oy, false);
+					scene(ox, oy, true);
+					scene(ox + 15.f, oy + 9.f, true);
+					scene(ox + 30.f, oy + 18.f, true);
+					scene(ox + 30.f, oy + 18.f, false);
+					scene(-1.f, -1.f, false);
+					bool noeudBouge = false;
+					for (uint32 i = 0; i < (uint32)stI.doc.nodes.Size(); ++i) {
+						if (stI.doc.nodes[i].posX != avantX[i] || stI.doc.nodes[i].posY != avantY[i])
+							noeudBouge = true;
+						stI.doc.nodes[i].posX = avantX[i];
+						stI.doc.nodes[i].posY = avantY[i];
+					}
+					stI.Recompute(NkPaintRect{0.f, 0.f, 600.f, 900.f});
+					stI.picker = DesignState::DemandePicker();
+					scene(-1.f, -1.f, false);
+					snprintf(det, sizeof(det),
+							 "popover ouvert (profondeur %d) ; extremite tiree a gauche du centre : angle 0 -> %.1f, noeud fixe=%d ; "
+							 "arret du milieu : 0.50 -> %.2f, noeud fixe=%d ; hors poignee : le noeud bouge=%d",
+							 prof, (double)angle1, noeudFixe1 ? 1 : 0, (double)pos1, noeudFixe2 ? 1 : 0, noeudBouge ? 1 : 0);
+					if (!noeudBouge) {
+						const size_t l = strlen(det);
+						snprintf(det + l, sizeof(det) - l, " ; statut : %s", stI.status.Data() ? stI.status.Data() : "");
+					}
+					check("60k. ⑥ SUR LA TOILE, POPOVER OUVERT : glisser l'extremite ORIENTE le degrade (angle) sans "
+						  "deplacer le noeud, un arret intermediaire glisse le long de l'axe, et hors poignee la toile "
+						  "deplace bien le noeud",
+						  prof >= 1 && angle1 > 80.f && angle1 < 100.f && noeudFixe1 && pos1 > 0.65f && pos1 < 0.85f && noeudFixe2 && noeudBouge,
+						  det);
+				}
 				stI.picker = DesignState::DemandePicker();
 			}
 		}
