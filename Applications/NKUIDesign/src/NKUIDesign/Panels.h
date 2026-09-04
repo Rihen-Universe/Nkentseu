@@ -3665,8 +3665,7 @@ namespace nkuidesign {
 						} else if (qui == -2) {
 							// LE SEGMENT, hors de toute poignee : un arret nait ICI, par la
 							// meme fonction que la barre du popover
-							const renderdetail::NkAxeDegrade axe = renderdetail::NkAxeDegradeGenre(genreD, rsD, g);
-							const float32 tA = renderdetail::NkParamSurAxeDegrade(axe, mxD, myD);
+							const float32 tA = renderdetail::NkParamDegradeGenre(genreD, rsD, g, mxD, myD);
 							const int32 ajoute = renderdetail::NkAjouterArretDegrade(g, tA, 12u);
 							if (ajoute >= 0) {
 								mDegDrag = ajoute;
@@ -5073,7 +5072,20 @@ namespace nkuidesign {
 												}
 											}
 											snprintf(msg, sizeof(msg), "Angle du dégradé : %.0f°%s", (double)g.angle, mDegAimante ? " (aimanté)" : "");
-										} else if (genreT != 0 && g.arrets[(uint32)mDegDrag].position >= 0.97f) {
+										} else if (genreT == 2 && (g.arrets[(uint32)mDegDrag].position >= 0.97f || g.arrets[(uint32)mDegDrag].position <= 0.03f)) {
+											// ⑤ L'ANGULAIRE : l'extremite (0 % / 100 %, la couture) glissee le long du
+											//    cercle TOURNE l'axe -- l'origine angulaire suit le segment
+											const float32 vx = mxS - pvx, vy = myS - pvy;
+											if (vx * vx + vy * vy > 9.f) {
+												float32 a = renderdetail::NkAngleAxeVers(genreT, 1.f, vx, vy);
+												a = renderdetail::NkAimantAngle(a, mDegAimante);
+												if (a != g.angle) {
+													g.angle = a;
+													ecrire();
+												}
+											}
+											snprintf(msg, sizeof(msg), "Origine angulaire : %.0f°%s", (double)g.angle, mDegAimante ? " (aimanté)" : "");
+										} else if (genreT != 0 && genreT != 2 && g.arrets[(uint32)mDegDrag].position >= 0.97f) {
 											// LE DISQUE de l'extremite d'un genre a origine : le rayon (le long de l'axe)
 											const float32 vx = mxS - pvx, vy = myS - pvy;
 											const float32 dist = nkentseu::math::NkSqrt(vx * vx + vy * vy);
@@ -5085,8 +5097,8 @@ namespace nkuidesign {
 											}
 											snprintf(msg, sizeof(msg), "Rayon : %.0f %%", (double)(ry * 100.f));
 										} else {
-											// LE DISQUE : l'arret glisse le long de l'axe
-											const float32 tA = renderdetail::NkParamSurAxeDegrade(axe, mxS, myS);
+											// LE DISQUE : l'arret glisse le long de l'axe (ou du cercle, angulaire)
+											const float32 tA = renderdetail::NkParamDegradeGenre(genreT, rs, g, mxS, myS);
 											if (tA != g.arrets[(uint32)mDegDrag].position) {
 												g.arrets[(uint32)mDegDrag].position = tA;
 												ecrire();
@@ -5103,6 +5115,16 @@ namespace nkuidesign {
 											ecrire();
 										}
 										snprintf(msg, sizeof(msg), "Origine : %.0f %% · %.0f %%", (double)(ox * 100.f), (double)(oy * 100.f));
+									} else if (genreT == 2 && (mDegDrag == -4 || mDegDrag == -5) && rs.h > 0.f) {
+										// ⑤ les carres de l'angulaire : le rayon du cercle (distance a l'origine)
+										const float32 vx = mxS - pvx, vy = myS - pvy;
+										float32 ry = nkentseu::math::NkSqrt(vx * vx + vy * vy) / rs.h;
+										ry = ry < 0.02f ? 0.02f : (ry > 4.f ? 4.f : ry);
+										if (ry != g.rayonY) {
+											g.rayonY = ry;
+											ecrire();
+										}
+										snprintf(msg, sizeof(msg), "Rayon : %.0f %%", (double)(ry * 100.f));
 									} else if (mDegDrag == -4 && rs.w > 0.f) {
 										float32 rx = (mxS - gm.ox) / rs.w;
 										rx = rx < 0.02f ? 0.02f : (rx > 4.f ? 4.f : rx);
@@ -5188,13 +5210,15 @@ namespace nkuidesign {
 									ly = y;
 								}
 							};
-							// LA GEOMETRIE DU GENRE : l'ellipse de portee, les carres (genres a origine)
+							// LA GEOMETRIE DU GENRE : l'ellipse de portee et ses carres (radial, losange) ;
+							// ⑤ pour l'angulaire, un CERCLE et deux carres SUR le cercle qui tournent avec l'axe
 							if (genreT != 0) {
+								const float32 rxG = genreT == 2 ? gm.ry : gm.rx;
 								float32 ex0 = 0.f, ey0 = 0.f;
 								for (uint32 k = 0; k <= 48u; ++k) {
 									float32 s = 0.f, c = 1.f;
 									NkSinCosDeg(360.f * (float32)(k % 48u) / 48.f, s, c);
-									const float32 ex = gm.ox + c * gm.rx, ey = gm.oy + s * gm.ry;
+									const float32 ex = gm.ox + c * rxG, ey = gm.oy + s * gm.ry;
 									if (k > 0u)
 										paint.Line(ex0, ey0, ex, ey, accent, 1.f);
 									ex0 = ex;
@@ -5206,8 +5230,16 @@ namespace nkuidesign {
 									const float32 qi[8] = {hx - 2.5f, hy - 2.5f, hx + 2.5f, hy - 2.5f, hx + 2.5f, hy + 2.5f, hx - 2.5f, hy + 2.5f};
 									paint.PolygonHex(qi, 4, 0xFFFFFFFFu);
 								};
-								carre(gm.ox + gm.rx, gm.oy); // rayon X
-								carre(gm.ox, gm.oy - gm.ry); // rayon Y
+								if (genreT == 2) {
+									for (int32 k = 0; k < 2; ++k) {
+										float32 qx = 0.f, qy = 0.f;
+										renderdetail::NkCarreAngulaire(rs, g, k, qx, qy);
+										carre(qx, qy);
+									}
+								} else {
+									carre(gm.ox + gm.rx, gm.oy); // rayon X
+									carre(gm.ox, gm.oy - gm.ry); // rayon Y
+								}
 							}
 							// L'AXE, puis le GUIDE ROUGE pendant une rotation (captures : ligne rouge, badge)
 							const bool enRotation = mDegDrag >= 0 && mDegFill == fi && mDegZone == 1;
@@ -5216,10 +5248,21 @@ namespace nkuidesign {
 								const float32 dx = axe.bx - axe.ax, dy = axe.by - axe.ay;
 								ligneHex(pvx - dx * 3.f, pvy - dy * 3.f, pvx + dx * 3.f, pvy + dy * 3.f, 0xE03030FFu, 1.f);
 							}
-							// UNE PASTILLE PAR ARRET sur l'axe (la courante plus grosse), l'anneau de survol
+							// UNE PASTILLE PAR ARRET sur l'axe -- ou sur le cercle pour l'angulaire (⑤) -- la
+							// courante plus grosse, un HALO au survol (captures : `arret_survole_halo`), l'anneau
 							for (uint32 ai = 0; ai < (uint32)g.arrets.Size(); ++ai) {
 								float32 hx = 0.f, hy = 0.f;
-								renderdetail::NkPoigneeDegrade(axe, g.arrets[ai].position, hx, hy);
+								renderdetail::NkPoigneeDegradeGenre(genreT, rs, g, g.arrets[ai].position, hx, hy);
+								if (survol == (int32)ai && zoneS == 0) {
+									float32 halo[32];
+									for (uint32 k = 0; k < 16u; ++k) {
+										float32 s = 0.f, c = 1.f;
+										NkSinCosDeg(22.5f * (float32)k, s, c);
+										halo[k * 2] = hx + c * 11.f;
+										halo[k * 2 + 1] = hy + s * 11.f;
+									}
+									paint.PolygonHex(halo, 16, (rgbaAccent & 0xFFFFFF00u) | 0x60u);
+								}
 								pastille(hx, hy, (int32)ai == courant ? 7.f : 5.5f, (int32)ai == courant ? rgbaAccent : 0xFFFFFFFFu,
 										 renderdetail::NkGHexRGBA(g.arrets[ai].couleur.Data()));
 								if ((survol == (int32)ai && zoneS == 1) || (enRotation && mDegDrag == (int32)ai))

@@ -5260,22 +5260,27 @@ namespace nkuidesign {
 						stI.ProjectToScreen(scr);
 						const NkPaintRect rs = scr.At(rc);
 						const int32 genre = renderdetail::NkGenreDegrade(gd);
-						// a. le DISQUE de l'arret du milieu, glisse a t = 0,8 le long de l'axe
-						renderdetail::NkAxeDegrade axe = renderdetail::NkAxeDegradeGenre(genre, rs, gd);
-						float32 mx0 = 0.f, my0 = 0.f, mx1 = 0.f, my1 = 0.f;
-						renderdetail::NkPoigneeDegrade(axe, 0.5f, mx0, my0);
-						renderdetail::NkPoigneeDegrade(axe, 0.8f, mx1, my1);
+						// a. le DISQUE de l'arret du milieu, glisse a t = 0,8 -- le long de l'axe, ou du
+						//    cercle pour l'angulaire (⑤) : le « ou » par genre, le meme geste
+						float32 mx0 = 0.f, my0 = 0.f, mx1 = 0.f, my1 = 0.f, mxm = 0.f, mym = 0.f;
+						renderdetail::NkPoigneeDegradeGenre(genre, rs, gd, 0.5f, mx0, my0);
+						renderdetail::NkPoigneeDegradeGenre(genre, rs, gd, 0.65f, mxm, mym);
+						renderdetail::NkPoigneeDegradeGenre(genre, rs, gd, 0.8f, mx1, my1);
 						scene(mx0, my0, false);
 						const int32 curseurDisque = stI.curseurDegrade;
-						tirer(mx0, my0, mx1, my1);
+						scene(mx0, my0, false);
+						scene(mx0, my0, true);
+						scene(mxm, mym, true);
+						scene(mx1, my1, true);
+						scene(mx1, my1, false);
+						scene(-1.f, -1.f, false);
 						const float32 posMilieu = gd.arrets[1].position, angleApresGlisse = gd.angle;
 						// b. l'ANNEAU de l'extremite (t = 1) : a 13 px de la pastille, perpendiculaire a
 						//    l'axe ; tire vers la GAUCHE du pivot -> l'axe pointe a gauche : angle 90
-						axe = renderdetail::NkAxeDegradeGenre(genre, rs, gd);
 						float32 ex = 0.f, ey = 0.f, pvx = 0.f, pvy = 0.f;
-						renderdetail::NkPoigneeDegrade(axe, 1.f, ex, ey);
+						renderdetail::NkPoigneeDegradeGenre(genre, rs, gd, 1.f, ex, ey);
 						renderdetail::NkPivotDegrade(genre, rs, gd, pvx, pvy);
-						float32 dx = axe.bx - axe.ax, dy = axe.by - axe.ay;
+						float32 dx = ex - pvx, dy = ey - pvy; // la direction pivot -> extremite (l'axe)
 						const float32 l = nkentseu::math::NkSqrt(dx * dx + dy * dy);
 						dx /= l > 0.001f ? l : 1.f;
 						dy /= l > 0.001f ? l : 1.f;
@@ -5290,10 +5295,9 @@ namespace nkuidesign {
 						const float32 angleApresTour = gd.angle;
 						const bool positionsIntactes = gd.arrets[0].position == pos0 && gd.arrets[1].position == pos1 && gd.arrets[2].position == pos2;
 						// c. L'AIMANT : depuis l'anneau, tirer vers 3 degres -> colle a 0
-						axe = renderdetail::NkAxeDegradeGenre(genre, rs, gd);
-						renderdetail::NkPoigneeDegrade(axe, 1.f, ex, ey);
-						dx = axe.bx - axe.ax;
-						dy = axe.by - axe.ay;
+						renderdetail::NkPoigneeDegradeGenre(genre, rs, gd, 1.f, ex, ey);
+						dx = ex - pvx;
+						dy = ey - pvy;
 						const float32 l2 = nkentseu::math::NkSqrt(dx * dx + dy * dy);
 						dx /= l2 > 0.001f ? l2 : 1.f;
 						dy /= l2 > 0.001f ? l2 : 1.f;
@@ -6104,6 +6108,123 @@ namespace nkuidesign {
 						  avant.Empty() && NkComponentDecl::StrEq(anneau.Data(), "Tourner l'axe") && NkComponentDecl::StrEq(disque.Data(), "Glisser l'arrêt")
 							  && NkComponentDecl::StrEq(tourner.Data(), "Tourner") && NkComponentDecl::StrEq(bord.Data(), "Redimensionner (Maj : proportionnel)")
 							  && parti.Empty(),
+						  det);
+				}
+				// 60w. ⑤ L'ANGULAIRE TEL QUE LUNACY LE FAIT : les arrets vivent SUR le cercle (fraction de
+				// tour depuis l'axe) ; l'extremite glissee le long du cercle TOURNE l'axe ; les deux
+				// carres sont sur le cercle, tournent avec l'axe et reglent le rayon ; un arret
+				// ajoute sur le cercle prend sa fraction de tour.
+				{
+					static PreviewPanel toileW(&stI);
+					auto sceneW = [&](float32 mx, float32 my, bool bas) {
+						ctxI.input.mousePos = {mx, my};
+						ctxI.input.mouseDown[0] = bas;
+						ctxI.BeginFrame(0.016f);
+						ctxI.BeginLayout({0.f, 0.f, 340.f, 900.f});
+						toileW.OnUI(ec);
+						ctxI.BeginLayout({340.f, 0.f, 260.f, 900.f});
+						insp.OnUI(ec);
+						NkDessinerPickerDemande(ctxI, stI);
+						ctxI.EndFrame();
+					};
+					auto tirerW = [&](float32 x0, float32 y0, float32 xm, float32 ym, float32 x1, float32 y1) {
+						for (int32 k = 0; k < 32; ++k)
+							sceneW(-1.f, -1.f, false);
+						sceneW(x0, y0, false);
+						sceneW(x0, y0, true);
+						sceneW(xm, ym, true);
+						sceneW(x1, y1, true);
+						sceneW(x1, y1, false);
+						sceneW(-1.f, -1.f, false);
+					};
+					NkUINode &nd = stI.doc.nodes[(uint32)rc];
+					NkDegrade &gd = nd.fills[1].degrade;
+					gd.type = NkString("angulaire");
+					gd.angle = 0.f;
+					gd.origineX = gd.origineY = 0.5f;
+					gd.rayonX = gd.rayonY = 0.5f;
+					gd.arrets.Clear();
+					for (uint32 k = 0; k < 3u; ++k) {
+						NkArretDegrade ar;
+						ar.position = (float32)k * 0.5f;
+						ar.couleur = NkString(k == 0 ? "#fafcff" : (k == 1 ? "#d11313" : "#1976d1"));
+						gd.arrets.PushBack(ar);
+					}
+					stI.SelectSingle(rc);
+					stI.picker = DesignState::DemandePicker();
+					stI.picker.ouvert = true;
+					stI.picker.id = ctxI.GetId("##sonde.popover.angulaire");
+					stI.picker.genre = 1u;
+					stI.picker.noeud = rc;
+					stI.picker.index = 1;
+					stI.picker.ancre = {590.f, 20.f, 16.f, 16.f};
+					sceneW(-1.f, -1.f, false);
+					sceneW(-1.f, -1.f, false);
+					NkLayoutResult scr;
+					stI.ProjectToScreen(scr);
+					const NkPaintRect rs = scr.At(rc);
+					const float32 posX0 = nd.posX, posY0 = nd.posY;
+					float32 pvx = 0.f, pvy = 0.f;
+					renderdetail::NkPivotDegrade(2, rs, gd, pvx, pvy);
+					// a. les arrets sont SUR le cercle : la pastille de t = 0,25 est a la distance du rayon
+					float32 qx = 0.f, qy = 0.f;
+					renderdetail::NkPoigneeDegradeGenre(2, rs, gd, 0.25f, qx, qy);
+					const float32 R = rs.h * 0.5f;
+					const float32 dR = nkentseu::math::NkSqrt((qx - pvx) * (qx - pvx) + (qy - pvy) * (qy - pvy));
+					const bool surCercle = dR > R - 0.6f && dR < R + 0.6f && qx < pvx - R * 0.9f; // un quart de tour horaire depuis le bas : a gauche
+					// b. l'extremite (100 %) glissee le long du cercle jusqu'au quart de tour -> l'axe tourne a 90
+					float32 ex = 0.f, ey = 0.f, mx = 0.f, my = 0.f, fx = 0.f, fy = 0.f;
+					renderdetail::NkPoigneeDegradeGenre(2, rs, gd, 1.f, ex, ey);
+					renderdetail::NkPoigneeDegradeGenre(2, rs, gd, 0.125f, mx, my);
+					renderdetail::NkPoigneeDegradeGenre(2, rs, gd, 0.25f, fx, fy);
+					tirerW(ex, ey, mx, my, fx, fy);
+					const float32 angleApres = gd.angle;
+					// c. les carres suivent l'axe : le premier carre est a +90 degres de l'axe, sur le cercle
+					float32 cx0 = 0.f, cy0 = 0.f;
+					renderdetail::NkCarreAngulaire(rs, gd, 0, cx0, cy0);
+					float32 sC = 0.f, cC = 1.f;
+					NkSinCosDeg(gd.angle + 90.f, sC, cC);
+					const bool carreSuit = (cx0 - (pvx - sC * R)) * (cx0 - (pvx - sC * R)) + (cy0 - (pvy + cC * R)) * (cy0 - (pvy + cC * R)) < 1.f;
+					// d. le carre glisse vers l'exterieur : le rayon grandit
+					const float32 ry0 = gd.rayonY;
+					const float32 ux = (cx0 - pvx) / R, uy = (cy0 - pvy) / R;
+					tirerW(cx0, cy0, cx0 + ux * 4.f, cy0 + uy * 4.f, cx0 + ux * 8.f, cy0 + uy * 8.f);
+					const float32 ryApres = gd.rayonY;
+					const bool rayonGrandit = ryApres > ry0 + 0.05f;
+					// e. un arret ajoute par un clic SUR le cercle a mi-chemin (t = 0,75) prend sa fraction de tour
+					const uint32 nAv = (uint32)gd.arrets.Size();
+					float32 ax = 0.f, ay = 0.f;
+					renderdetail::NkPoigneeDegradeGenre(2, rs, gd, 0.75f, ax, ay);
+					for (int32 k = 0; k < 32; ++k)
+						sceneW(-1.f, -1.f, false);
+					sceneW(ax, ay, false);
+					sceneW(ax, ay, true);
+					sceneW(ax, ay, false);
+					sceneW(-1.f, -1.f, false);
+					bool ajoute = gd.arrets.Size() == nAv + 1u;
+					float32 tAjoute = -1.f;
+					if (ajoute)
+						for (uint32 i = 0; i < (uint32)gd.arrets.Size(); ++i)
+							if (gd.arrets[i].position > 0.7f && gd.arrets[i].position < 0.8f)
+								tAjoute = gd.arrets[i].position;
+					// retour
+					gd.type = NkString("lineaire");
+					gd.angle = 0.f;
+					gd.rayonY = 0.5f;
+					while (gd.arrets.Size() > 3u)
+						gd.arrets.RemoveAt(gd.arrets.Size() - 1u);
+					gd.arrets[1].position = 0.5f;
+					stI.picker = DesignState::DemandePicker();
+					sceneW(-1.f, -1.f, false);
+					snprintf(det, sizeof(det), "arret a 25 %% sur le cercle=%d (rayon %.1f, distance %.1f) ; extremite glissee d'un quart de tour -> angle %.0f ; "
+											   "carre a +90 de l'axe=%d ; carre tire -> rayon %.2f -> %.2f ; arret ajoute sur le cercle=%d (t=%.2f) ; noeud fixe=%d",
+							 surCercle ? 1 : 0, (double)R, (double)dR, (double)angleApres, carreSuit ? 1 : 0, (double)ry0, (double)ryApres, ajoute ? 1 : 0,
+							 (double)tAjoute, (nd.posX == posX0 && nd.posY == posY0) ? 1 : 0);
+					check("60w. ⑤ L'ANGULAIRE TEL QUE LUNACY : les arrets SUR le cercle (fraction de tour), l'extremite glissee le "
+						  "long du cercle tourne l'axe, les carres sur le cercle suivent l'axe et reglent le rayon, un clic sur le "
+						  "cercle ajoute un arret a sa fraction de tour",
+						  surCercle && angleApres > 80.f && angleApres < 100.f && carreSuit && rayonGrandit && ajoute && tAjoute > 0.7f
+							  && nd.posX == posX0 && nd.posY == posY0,
 						  det);
 				}
 				stI.picker = DesignState::DemandePicker();

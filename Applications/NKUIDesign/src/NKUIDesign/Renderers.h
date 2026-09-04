@@ -740,6 +740,46 @@ namespace nkuidesign {
 			a.by = m.oy + c * m.ry;
 			return a;
 		}
+		/// ⑤ LE « OU » D'UNE PASTILLE D'ARRET, par genre : sur l'axe (lineaire, radial, losange)
+		///    ou SUR LE CERCLE de portee pour l'angulaire (fraction de tour depuis l'axe,
+		///    horaire -- captures de Rodolf). C'est la seule chose que le genre change.
+		inline void NkPoigneeDegradeGenre(nkentseu::int32 genre, const NkPaintRect &r, const NkDegrade &g,
+										  nkentseu::float32 t, nkentseu::float32 &x, nkentseu::float32 &y) {
+			if (genre == 2) {
+				const NkGeomDegrade m = NkGeomDegradeDe(r, g);
+				nkentseu::float32 s = 0.f, c = 1.f;
+				NkSinCosDeg(g.angle + 360.f * t, s, c);
+				x = m.ox - s * m.ry;
+				y = m.oy + c * m.ry;
+				return;
+			}
+			NkPoigneeDegrade(NkAxeDegradeGenre(genre, r, g), t, x, y);
+		}
+		/// Le parametre (0..1) qu'un glisser ecrit : le long de l'axe, ou, pour l'angulaire, la
+		/// fraction de tour du pointeur depuis l'axe (jamais au-dela d'un tour).
+		inline nkentseu::float32 NkParamDegradeGenre(nkentseu::int32 genre, const NkPaintRect &r, const NkDegrade &g,
+													 nkentseu::float32 px, nkentseu::float32 py) {
+			if (genre == 2) {
+				const NkGeomDegrade m = NkGeomDegradeDe(r, g);
+				nkentseu::float32 a = nkentseu::math::NkAtan2(-(px - m.ox), py - m.oy) * 57.2957795f - g.angle;
+				while (a < 0.f)
+					a += 360.f;
+				while (a >= 360.f)
+					a -= 360.f;
+				return a / 360.f;
+			}
+			return NkParamSurAxeDegrade(NkAxeDegradeGenre(genre, r, g), px, py);
+		}
+		/// Les deux carres de l'angulaire, SUR le cercle, a +90 et +135 degres de l'axe : ils
+		/// reglent le rayon et tournent avec l'axe (`axe_tourne_carres_suivent`).
+		inline void NkCarreAngulaire(const NkPaintRect &r, const NkDegrade &g, nkentseu::int32 k, nkentseu::float32 &x,
+									 nkentseu::float32 &y) {
+			const NkGeomDegrade m = NkGeomDegradeDe(r, g);
+			nkentseu::float32 s = 0.f, c = 1.f;
+			NkSinCosDeg(g.angle + (k == 0 ? 90.f : 135.f), s, c);
+			x = m.ox - s * m.ry;
+			y = m.oy + c * m.ry;
+		}
 		/// Le point autour duquel l'axe TOURNE : le centre du rectangle (lineaire) ou l'origine.
 		inline void NkPivotDegrade(nkentseu::int32 genre, const NkPaintRect &r, const NkDegrade &g, nkentseu::float32 &x,
 								   nkentseu::float32 &y) {
@@ -806,7 +846,7 @@ namespace nkuidesign {
 			nkentseu::float32 d2min = d2Disque;
 			for (nkentseu::uint32 i = 0; i < (nkentseu::uint32)g.arrets.Size(); ++i) {
 				nkentseu::float32 hx = 0.f, hy = 0.f;
-				NkPoigneeDegrade(a, g.arrets[i].position, hx, hy);
+				NkPoigneeDegradeGenre(genre, r, g, g.arrets[i].position, hx, hy);
 				const nkentseu::float32 q = d2(hx, hy);
 				if (q <= d2min) {
 					d2min = q;
@@ -824,7 +864,15 @@ namespace nkuidesign {
 			}
 			if (meilleur >= 0)
 				return rendre(meilleur, d2min);
-			if (genre != 0) {
+			if (genre == 2) {
+				// ⑤ les deux carres SUR le cercle (rayon) -- ils tournent avec l'axe
+				for (nkentseu::int32 k = 0; k < 2; ++k) {
+					nkentseu::float32 qx = 0.f, qy = 0.f;
+					NkCarreAngulaire(r, g, k, qx, qy);
+					if (d2(qx, qy) <= d2Disque)
+						return rendre(k == 0 ? -4 : -5, d2(qx, qy));
+				}
+			} else if (genre != 0) {
 				const NkGeomDegrade m = NkGeomDegradeDe(r, g);
 				if (d2(m.ox + m.rx, m.oy) <= d2Disque)
 					return rendre(-4, d2(m.ox + m.rx, m.oy));
@@ -837,7 +885,7 @@ namespace nkuidesign {
 				d2min = rAnneau * rAnneau;
 				for (nkentseu::uint32 i = 0; i < (nkentseu::uint32)g.arrets.Size(); ++i) {
 					nkentseu::float32 hx = 0.f, hy = 0.f;
-					NkPoigneeDegrade(a, g.arrets[i].position, hx, hy);
+					NkPoigneeDegradeGenre(genre, r, g, g.arrets[i].position, hx, hy);
 					const nkentseu::float32 q = d2(hx, hy);
 					if (q <= d2min) {
 						d2min = q;
@@ -849,9 +897,10 @@ namespace nkuidesign {
 					return rendre(meilleur, d2min);
 				}
 			}
-			const nkentseu::float32 tt = NkParamSurAxeDegrade(a, px, py);
+			// le segment (ou, pour l'angulaire, le cercle) : un arret nait ici
+			const nkentseu::float32 tt = NkParamDegradeGenre(genre, r, g, px, py);
 			nkentseu::float32 sx = 0.f, sy = 0.f;
-			NkPoigneeDegrade(a, tt, sx, sy);
+			NkPoigneeDegradeGenre(genre, r, g, tt, sx, sy);
 			const nkentseu::float32 qs = d2(sx, sy);
 			return qs <= kNkTolSegment * kNkTolSegment ? rendre(-2, qs) : -1;
 		}
