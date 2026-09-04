@@ -1465,6 +1465,7 @@ Liste, un module par commit, mise à jour à chaque ajout :
 - `NKAnima` — **pas de suite** (`with test()` absent, pas de `tests/`) : rien à rouvrir, à écrire un jour.
 
 - `NKFileSystem_Tests` — 3 réussis, 3 au total, 11 réussies, 11 au total (build+run 27 s)
+- `NKStream_Tests` — 3 réussis, 3 au total, 10 réussies, 10 au total (build+run 32 s)
 **Défaut nommé, pas corrigé ici** : les exécutables de test (et les applis) sont liés **dynamiquement** à
 `libstdc++-6.dll`/`libgcc_s_seh-1.dll`/`libwinpthread-1.dll` malgré `config/toolchain.jenga:92-94`
 (`-static-libgcc -static-libstdc++ -static`), et le runner de `jenga test` ne pose pas le `PATH` de la
