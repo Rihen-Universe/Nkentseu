@@ -44,8 +44,11 @@ NKFileSystem (sauvegarde .nkanim).
 Consommateurs : NKRenderer (façade + debug-draw), Noge, NkAnimaEditor, Sandbox,
 NK3DModeler, NkAnimPhysTest, NkLocomotionDemo.
 
-Module FRÈRE de NKAnimPhysics, jamais son parent : les deux espaces de noms
-(`anim` et `animphys`) sont disjoints, aucun des deux modules n'inclut l'autre.
+Depuis le 2026-09-04, le module CONTIENT l'ex-NKAnimPhysics (src/NKAnima/Physics/ :
+masse/COM, équilibre, appuis, auto-pose, passe d'équilibre de clip), même espace
+de noms `anim`. Décision de Rodolf, motivée par un CYCLE : animphys doit consommer
+`NkSkeletonDef`, qui vit ici, et NKAnima dépendait d'animphys. Toujours CINÉMATIQUE,
+zéro GPU ; le pont vers la physique du monde reste `NKPhysics/NkRagdoll`.
 """
 
 from Jenga import *

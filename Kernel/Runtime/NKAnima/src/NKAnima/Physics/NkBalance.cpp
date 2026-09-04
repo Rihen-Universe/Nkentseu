@@ -2,10 +2,10 @@
 // NKAnimPhysics/NkBalance.cpp — implémentation (voir NkBalance.h)
 // AUTEUR : Rihen — LICENCE : usage régi par le fichier LICENSE à la racine du dépôt
 // =============================================================================
-#include "NKAnimPhysics/NkBalance.h"
+#include "NKAnima/Physics/NkBalance.h"
 
 namespace nkentseu {
-	namespace animphys {
+	namespace anim {
 
 		using math::NkVec2f;
 		using math::NkVec3f;
@@ -246,5 +246,5 @@ namespace nkentseu {
 			return true;
 		}
 
-	} // namespace animphys
+	} // namespace anim
 } // namespace nkentseu

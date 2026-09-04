@@ -2,12 +2,12 @@
 // NKAnimPhysics/NkContactDetector.cpp — impl (voir NkContactDetector.h)
 // AUTEUR : Rihen — LICENCE : usage régi par le fichier LICENSE à la racine du dépôt
 // =============================================================================
-#include "NKAnimPhysics/NkContactDetector.h"
-#include "NKAnimPhysics/NkPoseMass.h"
-#include "NKAnimPhysics/NkBalance.h"
+#include "NKAnima/Physics/NkContactDetector.h"
+#include "NKAnima/Physics/NkPoseMass.h"
+#include "NKAnima/Physics/NkBalance.h"
 
 namespace nkentseu {
-	namespace animphys {
+	namespace anim {
 
 		using math::NkVec3f;
 
@@ -145,5 +145,5 @@ namespace nkentseu {
 			return true;
 		}
 
-	} // namespace animphys
+	} // namespace anim
 } // namespace nkentseu

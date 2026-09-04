@@ -21,7 +21,7 @@
 #include "NKMath/NKMath.h"
 
 namespace nkentseu {
-	namespace animphys {
+	namespace anim {
 
 		// Contact d'une extrémité avec le sol.
 		struct NkGroundContact {
@@ -51,5 +51,5 @@ namespace nkentseu {
 				static bool SelfTest();
 		};
 
-	} // namespace animphys
+	} // namespace anim
 } // namespace nkentseu

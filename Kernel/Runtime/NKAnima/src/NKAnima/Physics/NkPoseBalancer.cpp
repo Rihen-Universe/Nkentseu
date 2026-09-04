@@ -1,11 +1,11 @@
 // =============================================================================
 // NKAnimPhysics/NkPoseBalancer.cpp  —  M3.4 : optimiseur de pose.
 // =============================================================================
-#include "NKAnimPhysics/NkPoseBalancer.h"
-#include "NKAnimPhysics/NkBalance.h"
+#include "NKAnima/Physics/NkPoseBalancer.h"
+#include "NKAnima/Physics/NkBalance.h"
 
 namespace nkentseu {
-	namespace animphys {
+	namespace anim {
 
 		using math::NkVec3f;
 
@@ -368,5 +368,5 @@ namespace nkentseu {
 			return ok;
 		}
 
-	} // namespace animphys
+	} // namespace anim
 } // namespace nkentseu

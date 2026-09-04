@@ -3,14 +3,14 @@
 // AUCUN device GPU : pur CPU, sûr à lancer même pendant un entraînement GPU.
 // Sortie via printf (sortie directe console, comme NKMeshAITest).
 // =============================================================================
-#include "NKAnimPhysics/NkPoseMass.h"
-#include "NKAnimPhysics/NkBalance.h"
-#include "NKAnimPhysics/NkContactDetector.h"
-#include "NKAnimPhysics/NkPoseBalancer.h"
-#include "NKAnimPhysics/NkAutoPose.h"
-#include "NKAnima/NkMotionPath.h"
-#include "NKAnimPhysics/NkClipBalancePass.h"
-#include "NKAnima/NkAnimRetarget.h"
+#include "NKAnima/Physics/NkPoseMass.h"
+#include "NKAnima/Physics/NkBalance.h"
+#include "NKAnima/Physics/NkContactDetector.h"
+#include "NKAnima/Physics/NkPoseBalancer.h"
+#include "NKAnima/Physics/NkAutoPose.h"
+#include "NKAnima/Motion/NkMotionPath.h"
+#include "NKAnima/Physics/NkClipBalancePass.h"
+#include "NKAnima/Retarget/NkAnimRetarget.h"
 #include "NKRenderer/Mesh/NkGLTFLoader.h"
 #include "NKRenderer/Mesh/NkGLTFAnimBake.h"
 #include "NKRenderer/Tools/Director/NkRoleContext.h"
@@ -55,7 +55,7 @@ namespace {
 		const math::NkVec3f attendu{10.5f, 13.75f, 16.0f};
 		const float32 eps = 1e-4f;
 
-		animphys::NkPoseMass mass;
+		anim::NkPoseMass mass;
 		mass.SetUniform(n);
 		const math::NkVec3f com = mass.ComputeCOMFromPositions(pos, n);
 		printf("         COM mesure  = %.6f %.6f %.6f\n", (double)com.x, (double)com.y, (double)com.z);
@@ -140,7 +140,7 @@ namespace {
 		}
 
 		// Le régime anthropométrique a PRIS : masses non toutes égales.
-		animphys::NkPoseMass mass;
+		anim::NkPoseMass mass;
 		mass.SetAnthropometric(clip.jointNames);
 		if ((uint32)mass.jointMass.Size() != jc || mass.TotalMass() <= 0.f) {
 			printf("         ECHEC : SetAnthropometric n a pas produit %u masses\n", jc);
@@ -241,7 +241,7 @@ namespace {
 			return false;
 
 		// 2) Le régime anthropométrique a PRIS (masses non uniformes).
-		animphys::NkPoseMass mass;
+		anim::NkPoseMass mass;
 		mass.SetAnthropometric(clip.jointNames);
 		float32 mn = mass.jointMass[0], mx = mass.jointMass[0];
 		for (uint32 j = 1; j < jc; ++j) {
@@ -311,11 +311,11 @@ namespace {
 		// (Kernel/Runtime/NKAnima/ROADMAP_PRODUIT.md). On rapporte, on ne gate pas dessus.
 		const math::NkVec3f up{0.f, 1.f, 0.f};
 		NkVector<math::NkVec3f> supA;
-		const int32 ncA = animphys::NkContactDetector::DetectSupportPoints(
+		const int32 ncA = anim::NkContactDetector::DetectSupportPoints(
 			piedsPos.Data(), (int32)piedsPos.Size(), math::NkVec3f{centre.x, minPiedY, centre.z}, up, seuil, supA);
 		bool vertA = false;
 		if (ncA > 0)
-			vertA = animphys::NkBalance::EvaluateStatic(com, supA.Data(), (int32)supA.Size(), up).balanced;
+			vertA = anim::NkBalance::EvaluateStatic(com, supA.Data(), (int32)supA.Size(), up).balanced;
 		printf("         (a) sol physique y=%.3f : %d appuis -> verdict %s (fait mesure : talon sans joint)\n",
 			   (double)minPiedY, ncA,
 			   ncA > 0 ? (vertA ? "EQUILIBRE (vert)" : "DESEQUILIBRE (rouge)") : "INDETERMINE (aucun appui)");
@@ -326,11 +326,11 @@ namespace {
 		// l'écran — c'est elle que ce témoin fige.
 		const float32 floorY = centre.y - rayon * 0.5f;
 		NkVector<math::NkVec3f> supB;
-		const int32 ncB = animphys::NkContactDetector::DetectSupportPoints(
+		const int32 ncB = anim::NkContactDetector::DetectSupportPoints(
 			piedsPos.Data(), (int32)piedsPos.Size(), math::NkVec3f{centre.x, floorY, centre.z}, up, seuil, supB);
 		bool vertB = false;
 		if (ncB > 0)
-			vertB = animphys::NkBalance::EvaluateStatic(com, supB.Data(), (int32)supB.Size(), up).balanced;
+			vertB = anim::NkBalance::EvaluateStatic(com, supB.Data(), (int32)supB.Size(), up).balanced;
 		printf("         (b) sol editeur y=%.3f (pieds %s le plan) : %d appuis -> verdict %s\n", (double)floorY,
 			   minPiedY < floorY ? "SOUS" : "sur/au-dessus de", ncB,
 			   ncB > 0 ? (vertB ? "EQUILIBRE (vert)" : "DESEQUILIBRE (rouge)") : "INDETERMINE (aucun appui)");
@@ -347,23 +347,23 @@ int main() {
 
 	// M3.1 — distribution de masse + centre de masse (COM).
 	Report("M3.1 NkPoseMass", "barycentre, pondere, monotonie, anthropometrie, gardes",
-		   animphys::NkPoseMass::SelfTest(), nbOk, nbTotal);
+		   anim::NkPoseMass::SelfTest(), nbOk, nbTotal);
 
 	// M3.2 — solveur d'équilibre (polygone de support + COM dedans ? + marge).
 	Report("M3.2 NkBalance", "dedans/dehors/bord, 2 pieds segment, direction de bascule",
-		   animphys::NkBalance::SelfTest(), nbOk, nbTotal);
+		   anim::NkBalance::SelfTest(), nbOk, nbTotal);
 
 	// M3.3 — solveur de contacts (+ intégration M3.1+M3.2+M3.3 : debout=équilibré, penché=non).
 	Report("M3.3 NkContactDetector", "contact sol, points de support, INTEGRATION debout/penche",
-		   animphys::NkContactDetector::SelfTest(), nbOk, nbTotal);
+		   anim::NkContactDetector::SelfTest(), nbOk, nbTotal);
 
 	// M3.4 — optimiseur de pose sous contrainte (ajuste une pose pour respecter l'équilibre).
 	Report("M3.4 NkPoseBalancer", "deseq->equilibre, strength 0/0.5/1, pose deja equilibree",
-		   animphys::NkPoseBalancer::SelfTest(), nbOk, nbTotal);
+		   anim::NkPoseBalancer::SelfTest(), nbOk, nbTotal);
 
 	// M3.5 — auto-posing (poses intermediaires equilibrees entre deux cles).
 	Report("M3.5 NkAutoPose", "lerp brut deseq -> BlendBalanced equilibre, pieds plantes, bornes t=0/1",
-		   animphys::NkAutoPose::SelfTest(), nbOk, nbTotal);
+		   anim::NkAutoPose::SelfTest(), nbOk, nbTotal);
 
 	// Animation par courbe : spline Catmull-Rom + path-follow (os/effecteur IK suit la courbe).
 	Report("NkMotionPath", "spline passe par les points, longueur/tangente droite, path-follow loop/once",
@@ -371,7 +371,7 @@ int main() {
 
 	// M3.6 — pont vers l'anim existante : correction physique non destructive d'un clip + lissage.
 	Report("M3.6 NkClipBalancePass", "clip qui bascule -> corrige frame par frame (equilibre), pieds fixes, lissage borne",
-		   animphys::NkClipBalancePass::SelfTest(), nbOk, nbTotal);
+		   anim::NkClipBalancePass::SelfTest(), nbOk, nbTotal);
 
 	// M4bis.1 — contexte de role (personnage/personnalite/emotion/objectif/historique),
 	// round-trip Archive+JSON, schema strict rejette les variantes malformees (anti texte-libre).

@@ -19,10 +19,10 @@
 
 #include "NKCore/NkTypes.h"
 #include "NKMath/NKMath.h"
-#include "NKAnimPhysics/NkPoseMass.h"
+#include "NKAnima/Physics/NkPoseMass.h"
 
 namespace nkentseu {
-	namespace animphys {
+	namespace anim {
 
 		// Résultat d'une correction d'équilibre.
 		struct NkBalanceCorrection {
@@ -78,5 +78,5 @@ namespace nkentseu {
 				bool mHas = false;
 		};
 
-	} // namespace animphys
+	} // namespace anim
 } // namespace nkentseu

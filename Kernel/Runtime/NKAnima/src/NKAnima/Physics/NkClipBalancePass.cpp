@@ -1,12 +1,12 @@
 // =============================================================================
 // NKAnimPhysics/NkClipBalancePass.cpp — M3.6 : pont anim (voir .h).
 // =============================================================================
-#include "NKAnimPhysics/NkClipBalancePass.h"
-#include "NKAnimPhysics/NkPoseBalancer.h"
-#include "NKAnimPhysics/NkBalance.h"
+#include "NKAnima/Physics/NkClipBalancePass.h"
+#include "NKAnima/Physics/NkPoseBalancer.h"
+#include "NKAnima/Physics/NkBalance.h"
 
 namespace nkentseu {
-	namespace animphys {
+	namespace anim {
 
 		using math::NkVec3f;
 
@@ -158,5 +158,5 @@ namespace nkentseu {
 			return ok;
 		}
 
-	} // namespace animphys
+	} // namespace anim
 } // namespace nkentseu
