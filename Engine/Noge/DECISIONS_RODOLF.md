@@ -1896,6 +1896,9 @@ fantômes : frottement de paroi), `NK_SPH_H` (résolution). Métrique d'agglutin
 | α = 0,1 | 14 % / 34 % → OK | 32 % / **15 % → OK** | 0 | le front tardif devient trop LENT (T ≥ 1,9 : 23-34 %) et le front dense décroche de l'éclat |
 | α = 0,2 | 480 % | 842 % | 0 | 🔴 explose dès t = 0,05 s : viscosité explicite hors de sa stabilité |
 | α = 0,05 à **h = 0,05** (32 768) | 393 % | 700 % | 0 | 🔴 explose aussi : l'α artificiel dépend de la résolution, cause de l'explosion non établie |
+| **Morris ν = 0,02 m²/s** (physique, CFL visqueuse mesurée : 2 sous-pas) — 04/09 23h, binaire reconstruit | **10 % / 18 % → OK ±15 %** | 65 % / **28 %** | 0 | ✅ **et le repos reste vert sur 10 s** (1,001, sol 1,001, vmax 0,015) ; ν = 0,01 → 27 %, ν = 0,03 → 10 % (repos vert aussi) ; Re ≈ 160 |
+| Morris ν = 0,02 à **h = 0,05, MÊME colonne 0,8 m** (32 768) | **12 % / 26 %** | 53 % / 24 % | 0 | ✅ **indépendant de la résolution** (2 points) — 5 sous-pas visqueux (3,9 ms), mesurés ; ce que α n'avait pas |
+| Morris ν = 0,02, **canal n² = 2** (géométrie de la table, 8 192 ; 65 536 à h/2) | — (figure carrée) | **9 % brut / 18 %** ; h/2 : **11 % / 17 %** | 0 | ✅ la comparaison à l'EXPÉRIENCE est légitime là seulement ; le filet 8 m/s y mord (dit) |
 
 🔑 **Lecture** : (1) la borne dure ρ* ≥ ρ₀ n'est pas le levier — sans elle le solveur ne converge plus ; (2) le
 frottement de paroi via XSPH ne pèse rien ; (3) **la cause est l'absence de viscosité** : α = 0,075 met le
@@ -1907,6 +1910,58 @@ n'agit pas au repos et ne dépend pas de la résolution ; puis, si M&M reste hor
 géométrie de M&M (n² = 2). Le SPH GPU attend un front juste **et** un repos calme ensemble.
 
 Toujours non fait de ce lot : démarrage à chaud + tolérance relative ; vmax sans filet ; plan B b-c.
+
+### ✅ 04/09 (23h, après la coupure d'électricité) — MORRIS : le front tient ET le repos reste calme ; démarrage à chaud amorti ; canal n² = 2 — `0d2d6e08`
+
+**Reprise** : machine redémarrée vers 22h45 pendant le lot ; le diff non commité (terme de Morris, CFL
+visqueuse, `NK_SPH_NU`) était un **état cohérent** dont les chiffres venaient d'un binaire d'avant la coupure
+(`build_rel_10`, 22:38) — `build_rel_11` tué (un `.obj.tmp` orphelin en témoin). Gardé, **remesuré** sur un
+binaire reconstruit (objets des cibles supprimés, puis 31/31 ; un `jenga rebuild --target NKUIDesign` d'un
+autre agent a nettoyé toute la sortie Release à 23:00 pendant mon premier build — attendu qu'il finisse, rien
+touché). Ilyana (PID 29432) lue avant/après chaque course : jamais interrompue. Aucune capture de l'écran ;
+ma fenêtre seule (`NK_CAPTURE`).
+
+**Viscosité physique laminaire** (Morris, Fox & Zhu, *J. Comput. Phys.* 136, 214-226, 1997) : terme
+`Σ m (μ_i+μ_j)/(ρ_i ρ_j) · (x_ij·∇W)/(|x_ij|²+0,01h²) · (v_i−v_j)`, fantômes à v = 0, ρ₀, lu sur tampon ;
+**condition de pas** `dt ≤ 0,125 hs²/ν` avec **hs = h/2** (longueur de lissage du noyau cubique — écrite avec h
+elle ne mordait pas et le repos s'agitait dès ν ≥ 0,02), **comptée dans les sous-pas et dite**
+(`subStepsViscous`) : 2 sous-pas à h = 0,1 (15,6 ms), 5 à h = 0,05 (3,9 ms), **mesurés**. **ν = 0,02 m²/s
+retenu** : le plus petit du balayage (0 / 0,01 / 0,02 / 0,03 → Cébron 41 / 27 / 10 / 10 %) qui tient la
+cible ; **Reynolds du banc** `√(2ga)·a/ν ≈ 3,96 × 0,8 / 0,02 ≈ 160` ; l'eau (10⁻⁶, Re ≈ 3·10⁶) est hors de
+portée d'un maillage à 16 particules par largeur, dit dans l'en-tête.
+
+| témoin (même course, défauts, Release, binaire 23:33) | mesure | verdict |
+|---|---|---|
+| repos 10 s (2 048 + 8 800 fantômes) | ρ/ρ₀ **1,001** (0,996-1,004), **sol 1,001**, vmax **0,015 m/s** à la fin, 2048/2048 et 256,01 kg, 9,98 s, 0 NaN | ✅ les cinq |
+| mutation « projection coupée » | 5,90 | ✅ rouge, discrimine |
+| dam break, Cébron & Sigrist 2D (fig. 4, lue ± 0,05) | **10 %** (max 18 %) | ✅ ≤ 15 % |
+| idem à **h/2, même colonne 0,8 m** (32 768) | **12 %** (max 26 %) | ✅ écart de 2 points (≤ 5) |
+| Martin & Moyce, colonne carrée (table n² = 2 sous l'adimensionnement de M&M) | 65 % brut / 28 % avec retard de vanne | ⚠️ hors 30 % brut — géométrie différente de la table |
+| Martin & Moyce, **canal n² = 2** (`NK_SPH_N2=2`, 8 192, fantômes des six faces) | **9 % brut** (max 20 %) / 18 % avec retard ; h/2 même colonne (65 536) : 11 % / 17 % | ✅ légitime là seulement |
+| filet 8 m/s | 4 096 : ne mord plus (vmax réel 3,67) ; 50 653 : mordait, **vmax réel 8,83 m/s** sans filet, front inchangé ; canal n² = 2 : mord (8,00), dit | ⚠️ dit |
+
+⚠️ **Piège d'instrument payé deux fois** : `NK_SPH_H=0.05` avec `NK_SPH_N=16` change la **scène** (colonne 0,4 m,
+Re ≈ 56), pas la résolution — la résolution double se mesure avec `N=32` (même colonne). Mes deux premières
+courses h/2 étaient fausses (18 %, 32 %) ; corrigées, elles donnent 12 % et 11 %.
+
+**Démarrage à chaud des κ** (`warmStart`, défaut vrai, `warmStartScale = 0,5`) : le κ **total** du pas
+précédent (somme des κ de Jacobi, gardé **tel quel** par emplacement du stockage — c'est une pression,
+invariant au pas), appliqué une fois avant d'itérer. **Mesuré en chemin, deux fois rouge** : (1) mémorisé en
+κ·dt² et rendu en /dt² → ×4 à chaque doublement des sous-pas (repos à 0,41 ρ₀, 8 m/s) — corrigé ; (2) rejoué
+à 1,0, invariant : **explose encore** (trace image par image : résidu 0 % et 2 itérations dès la 3ᵉ image
+pendant que min ρ*/ρ₀ tombe 0,85 → 0,05 et vmax 0,25 → 4,5 m/s). 🔑 **Le solveur ne sait pas tirer** (κ ≥ 0
+par la borne de surface, et le solveur de divergence ignore la détente) : tout excès rejoué est
+**irréversible et s'accumule**, et le résidu borné ne le voit pas. Amorti à s = 0,5, un excès décroît en sⁿ
+et les itérations fournissent le reste. Résultat, images 30/60 : itérations **6/4 → 4/3** (1 000),
+**21/12 → 13/8** (10 648), **25/15 → 15/8** (50 653) ; au repos 13 → 8,5 ; s = 0,25 fait moins bien
+(17/10, 20/12). En régime établi (image 60) les deux grands domaines sont à **8** : la croissance avec N
+s'arrête là, **pas pendant l'effondrement** (15 à l'image 30). Repos et front **inchangés**. La tolérance
+est déjà relative (0,1 % de ρ₀) : rien d'autre à faire là. 🔴 **50 653 : 497-780 ms/image contre la cible
+100 ms** (3 sous-pas × 8-15 traversées × 0,35 µs/particule, plancher de bruit ≈ 20 % entre deux courses
+identiques) : le CPU n'y arrivera pas, dit — c'est le SPH GPU qui répond, après le plan B b-c.
+
+**Nommé, non fait** : plan B étapes b-c (stockage GPU + noyau NkSL des particules ordinaires) ; SPH GPU ;
+les coefficients de Cébron & Sigrist restent lus à l'œil sur la figure (± 0,05).
 
 ### 🔩 04/09 (nuit) — JENGA 2.6 : ce qui est appliqué, ce qui est mesuré en retour
 
