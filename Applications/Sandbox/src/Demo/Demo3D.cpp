@@ -2213,8 +2213,7 @@ static NkTexHandle CreateLanternCubeCookie(NkTextureLibrary *texLib, NkIDevice *
 					if (const char *n = std::getenv("NK_SPH_N"); n && n[0]) cote = (uint32)std::atoi(n);
 					if (cote < 2) cote = 2;
 					sSph.params.h = 0.1f;
-					sSph.params.maxSpeed = 8.f;
-					sSph.params.maxSubSteps = 24;
+					sSph.params.maxSpeed = 8.f; // filet de securite, dit s'il mord
 					if (const char *np = std::getenv("NK_SPH_NOPRESSURE"); np && np[0] == '1') sSph.pressureEnabled = false;
 					if (const char *kk = std::getenv("NK_SPH_K"); kk && kk[0]) sSph.params.stiffness = (float32)std::atof(kk); // raideur de l'equation d'etat (c = sqrt(k))
 					if (const char *mu = std::getenv("NK_SPH_MU"); mu && mu[0]) sSph.params.viscosity = (float32)std::atof(mu);
@@ -4141,9 +4140,9 @@ static NkTexHandle CreateLanternCubeCookie(NkTextureLibrary *texLib, NkIDevice *
 						if (st->sphTime > 2.f) { st->sphRhoSum += ss.densityMean; ++st->sphRhoN; }
 						const float32 rho0 = st->sphSolver->params.restDensity;
 						if ((ctx.frame % 30u) == 0u)
-							std::fprintf(stderr, "[SPH PROBE] frame %u t=%.2fs : vivantes %u  rho/rho0 moy %.3f (min %.3f max %.3f)  vmax %.2f m/s  bornees %u  sous-pas %u  front x=%.3f  y[%.3f..%.3f]  sol rho/rho0 %.3f  fantomes %u  %.2f ms\n",
+							std::fprintf(stderr, "[SPH PROBE] frame %u t=%.2fs : vivantes %u  rho/rho0 moy %.3f (min %.3f max %.3f)  vmax %.2f m/s  bornees %u  sous-pas %u  front x=%.3f  y[%.3f..%.3f]  sol rho/rho0 %.3f  fantomes %u  iter dens %.1f / div %.1f  resid dens %.3f %% / div %.3f %%  bornes-iter %u  %.2f ms\n",
 										 (unsigned)ctx.frame, st->sphTime, ss.alive, ss.densityMean / rho0, ss.densityMin / rho0, ss.densityMax / rho0, ss.maxSpeed,
-										 ss.speedClamped, ss.subSteps, ss.maxX, ss.minY, ss.maxY, ss.densityFloorMean / rho0, ss.boundary, ss.ms);
+										 ss.speedClamped, ss.subSteps, ss.maxX, ss.minY, ss.maxY, ss.densityFloorMean / rho0, ss.boundary, ss.iterDensity, ss.iterDivergence, ss.residualDensity * 100.f, ss.residualDivergence * 100.f, ss.iterCapHits, ss.ms);
 						// rupture de barrage : front a t ~ 0,25 s compare a x0 + 2 sqrt(g h0) t (eau peu profonde)
 						if (st->sphScene == 0 && st->sphTime >= 0.25f && st->sphTime < 0.25f + fdt) {
 							const float32 attendu = st->sphX0 + 2.f * sqrtf(9.8f * st->sphH0) * st->sphTime;
@@ -4159,9 +4158,13 @@ static NkTexHandle CreateLanternCubeCookie(NkTextureLibrary *texLib, NkIDevice *
 							const bool okStab = !st->sphNaN && st->sphVmaxAll < st->sphSolver->params.maxSpeed;
 							std::fprintf(stderr, "[SPH TEMOIN] conservation : vivantes %u / %u, masse %.4f kg -> %s\n", ss.alive, st->sphCount,
 										 ss.alive * st->sphSolver->params.Mass(), okN ? "OK" : "ECHEC");
-							if (st->sphScene == 1)
+							if (st->sphScene == 1) {
 								std::fprintf(stderr, "[SPH TEMOIN] repos : rho/rho0 moyen apres 2 s = %.3f (surface y=%.3f) -> %s\n", rhoMoy / rho0, ss.maxY,
 											 okRho ? "OK (+-5 %)" : "ECHEC (hors +-5 %)");
+								const bool okSol = fabsf(ss.densityFloorMean / rho0 - 1.f) <= 0.05f;
+								std::fprintf(stderr, "[SPH TEMOIN] repos, couche du sol : rho/rho0 = %.3f -> %s\n", ss.densityFloorMean / rho0, okSol ? "OK (+-5 %)" : "ECHEC (hors +-5 %)");
+								std::fprintf(stderr, "[SPH TEMOIN] repos calme : vmax a la fin = %.3f m/s -> %s\n", ss.maxSpeed, ss.maxSpeed < 0.1f ? "OK (< 0,1)" : "ECHEC (>= 0,1)");
+							}
 							std::fprintf(stderr, "[SPH TEMOIN] stabilite : %.2f s simulees, vmax global %.2f m/s, NaN=%d -> %s\n", st->sphTime, st->sphVmaxAll,
 										 (int)st->sphNaN, okStab ? "OK" : "ECHEC");
 						}

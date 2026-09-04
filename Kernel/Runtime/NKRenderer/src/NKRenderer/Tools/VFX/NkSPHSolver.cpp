@@ -1,15 +1,13 @@
 // AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // =============================================================================
-// NkSPHSolver.cpp — voir NkSPHSolver.h. WCSPH : grille uniforme O(N), poly6 /
-// spiky / viscosité (Müller 2003), équation d'état linéaire, PAROIS PAR
-// PARTICULES FANTÔMES (deux couches fixes, pression miroir), terme de pression
-// de Monaghan (p_i/rho_i² + p_j/rho_j²), qui conserve le moment.
+// NkSPHSolver.cpp — DFSPH (Bender & Koschier 2015), voir NkSPHSolver.h.
+// Grille uniforme O(N), noyau cubique, fantômes de paroi (Akinci), deux
+// projections par sous-pas (divergence nulle, densité constante), XSPH.
 // Aucune allocation par pas en régime établi : les tampons se réutilisent.
 //
-// Historique mesuré (04/09) : sans fantômes et avec (p_i+p_j)/(2 rho_j), le bloc
-// au repos donnait rho/rho0 0,79-0,94 et vmax montait 3,7 -> 7,9 m/s en 3 s
-// depuis le repos -- ni le pas (CFL 0,15), ni l'impact, ni la pression négative,
-// ni la masse : la formulation. C'est ce que corrige cette version.
+// Historique mesuré (04/09) : le WCSPH explicite (poly6/spiky, p = k (rho-rho0),
+// puis fantômes + Monaghan) s'éjectait au lieu de se comprimer, pire à chaque
+// cran de raideur (k 200 -> 3000), immobile sans gravité -- la formulation.
 // =============================================================================
 #include "NkSPHSolver.h"
 #include "NkVFXSystem.h"
@@ -21,28 +19,43 @@ namespace nkentseu {
 
 		static const float32 kPI = 3.14159265358979f;
 
+		// Noyau cubique de support H (SPlisHSPlasH CubicKernel) : q = r / H.
+		static inline float32 NkCubicW(float32 r, float32 H) {
+			const float32 q = r / H;
+			if (q >= 1.f)
+				return 0.f;
+			const float32 k = 8.f / (kPI * H * H * H);
+			if (q <= 0.5f)
+				return k * (6.f * (q * q * q - q * q) + 1.f);
+			const float32 t = 1.f - q;
+			return k * 2.f * t * t * t;
+		}
+		// dW/dr (scalaire) ; gradW = (dW/dr) * (x_i - x_j) / r
+		static inline float32 NkCubicDW(float32 r, float32 H) {
+			const float32 q = r / H;
+			if (q >= 1.f || r < 1e-9f)
+				return 0.f;
+			const float32 l = 48.f / (kPI * H * H * H * H);
+			if (q <= 0.5f)
+				return l * q * (3.f * q - 2.f);
+			const float32 t = 1.f - q;
+			return -l * t * t;
+		}
+
 		float32 NkSPHParams::SoundSpeed() const {
 			return sqrtf(stiffness > 0.f ? stiffness : 1.f);
 		}
 
-		// Masse telle que la densité SPH d'un réseau cubique d'espacement h/2 vaille rho0 :
-		// m = rho0 / somme_j W_poly6(|r_j|, h) sur les voisins du réseau (soi compris).
+		// Masse telle que la densité SPH d'un réseau cubique d'espacement h/2 vaille rho0.
 		float32 NkSPHParams::Mass() const {
 			if (particleMass > 0.f)
 				return particleMass;
 			const float32 d = h * 0.5f;
-			const float32 h2 = h * h;
-			const float32 kPoly6 = 315.f / (64.f * kPI * powf(h, 9.f));
 			float32 sum = 0.f;
 			for (int32 z = -3; z <= 3; ++z)
 				for (int32 y = -3; y <= 3; ++y)
-					for (int32 x = -3; x <= 3; ++x) {
-						const float32 r2 = (float32)(x * x + y * y + z * z) * d * d;
-						if (r2 < h2) {
-							const float32 t = h2 - r2;
-							sum += kPoly6 * t * t * t;
-						}
-					}
+					for (int32 x = -3; x <= 3; ++x)
+						sum += NkCubicW(sqrtf((float32)(x * x + y * y + z * z)) * d, h);
 			return sum > 0.f ? restDensity / sum : restDensity * d * d * d;
 		}
 
@@ -65,8 +78,7 @@ namespace nkentseu {
 		}
 
 		// Deux couches de particules fixes sur les six faces de la boîte, à l'EXTÉRIEUR,
-		// espacement d = h/2 : les fluides près d'une paroi voient autant de voisines
-		// qu'à l'intérieur. Reconstruites seulement si la boîte ou h change.
+		// espacement d = h/2. Reconstruites seulement si la boîte ou h change.
 		void NkSPHSolver::BuildBoundary() {
 			const NkVec3f bmin = params.boundsMin, bmax = params.boundsMax;
 			if (mBoundH == params.h && mBoundMin.x == bmin.x && mBoundMin.y == bmin.y && mBoundMin.z == bmin.z &&
@@ -75,9 +87,8 @@ namespace nkentseu {
 			mBound.Clear();
 			const float32 d = params.h * 0.5f;
 			const int32 layers = 2;
-			const float32 ex = (float32)layers * d; // débord pour couvrir arêtes et coins
+			const float32 ex = (float32)layers * d;
 			auto push = [&](float32 x, float32 y, float32 z) { mBound.PushBack({x, y, z}); };
-			// sol et plafond
 			for (int32 l = 0; l < layers; ++l) {
 				const float32 yb = bmin.y - d * (0.5f + (float32)l);
 				const float32 yt = bmax.y + d * (0.5f + (float32)l);
@@ -87,7 +98,6 @@ namespace nkentseu {
 						push(x, yt, z);
 					}
 			}
-			// murs x et z (hauteur de la boîte seulement : sol/plafond couvrent les coins)
 			for (int32 l = 0; l < layers; ++l) {
 				const float32 xl = bmin.x - d * (0.5f + (float32)l), xr = bmax.x + d * (0.5f + (float32)l);
 				const float32 zf = bmin.z - d * (0.5f + (float32)l), zb = bmax.z + d * (0.5f + (float32)l);
@@ -107,65 +117,10 @@ namespace nkentseu {
 			mBoundMax = bmax;
 		}
 
-		void NkSPHSolver::Apply(NkParticleStoreCPU &store, const NkEmitterDesc &desc, float32 dt) {
-			(void)desc;
-			const int64 t0 = ::nkentseu::NkChrono::Now().nanoseconds;
-			mStats = NkSPHStats{};
-			BuildBoundary();
-			// Sous-pas CFL : dt_s <= cfl h / max(vmax, c). Le nombre est dit au profil.
-			const float32 h = params.h > 1e-5f ? params.h : 1e-5f;
-			float32 vref = params.maxSpeed > 1e-3f ? params.maxSpeed : 1e-3f;
-			const float32 c = params.SoundSpeed();
-			if (c > vref)
-				vref = c; // la vitesse du son borne le pas autant que les particules
-			const float32 dtMax = params.cfl * h / vref;
-			uint32 sub = (uint32)ceilf(dt / dtMax);
-			if (sub < 1u)
-				sub = 1u;
-			if (sub > params.maxSubSteps)
-				sub = params.maxSubSteps; // plafond : on dit, on n'explose pas le CPU
-			const float32 dts = dt / (float32)sub;
-			for (uint32 s = 0; s < sub; ++s)
-				StepOnce(store, dts);
-			mStats.subSteps = sub;
-			mStats.boundary = (uint32)mBound.Size();
-			mStats.ms = (float32)((::nkentseu::NkChrono::Now().nanoseconds - t0) / 1.0e6);
-		}
-
-		void NkSPHSolver::StepOnce(NkParticleStoreCPU &store, float32 dt) {
-			const float32 h = params.h;
-			const float32 h2 = h * h;
-			const float32 m = params.Mass();
-			const float32 rho0 = params.restDensity;
-			const float32 kPoly6 = 315.f / (64.f * kPI * powf(h, 9.f));
-			const float32 kSpiky = -45.f / (kPI * powf(h, 6.f));
-			const float32 kVisc = 45.f / (kPI * powf(h, 6.f));
-			// Pointeurs bruts (Debug : operator[] non inline, cf. NkParticleStore.cpp).
-			NkVec3f *P = store.pos.Data(), *V = store.vel.Data();
-			const uint8 *A = store.alive.Data();
-
-			// 1) vivantes, puis positions de tout le monde (vivantes puis fantômes)
-			mAlive.Clear();
-			for (uint32 i = 0; i < store.capacity; ++i)
-				if (A[i])
-					mAlive.PushBack(i);
-			const uint32 n = (uint32)mAlive.Size();
-			mStats.alive = n;
-			if (n == 0)
-				return;
-			const uint32 nb = (uint32)mBound.Size();
-			const uint32 M = n + nb;
-			const uint32 *AL = mAlive.Data();
-			mPosAll.Resize(M);
-			NkVec3f *X = mPosAll.Data();
-			for (uint32 k = 0; k < n; ++k)
-				X[k] = P[AL[k]];
-			const NkVec3f *B = mBound.Data();
-			for (uint32 k = 0; k < nb; ++k)
-				X[n + k] = B[k];
-
-			// 2) grille uniforme de cellule h, étendue de trois espacements autour de la
-			//    boîte (les fantômes sont dehors). Hors grille = cellule de bord.
+		// Grille + listes de voisines (r < h, j != i) pour les n vivantes, sur les M
+		// positions (vivantes puis fantômes). gradW et W sont précalculés une fois.
+		void NkSPHSolver::BuildNeighbors(const NkVec3f *X, uint32 n, uint32 M) {
+			const float32 h = params.h, h2 = h * h;
 			const float32 d = h * 0.5f;
 			const NkVec3f bmin = params.boundsMin, bmax = params.boundsMax;
 			const NkVec3f gmin = {bmin.x - 3.f * d, bmin.y - 3.f * d, bmin.z - 3.f * d};
@@ -200,22 +155,25 @@ namespace nkentseu {
 			for (uint32 c = 0; c < nc; ++c)
 				CS[c + 1] = CS[c] + CC[c];
 			for (uint32 c = 0; c < nc; ++c)
-				CC[c] = 0; // réutilisé comme curseur d'insertion
+				CC[c] = 0;
 			for (uint32 k = 0; k < M; ++k) {
 				const uint32 c = CO[k];
 				SO[CS[c] + CC[c]] = k;
 				++CC[c];
 			}
-
-			// 3) densité et pression des vivantes (les fantômes comptent dans la densité)
-			mDensity.Resize(n);
-			mPressure.Resize(n);
-			float32 *D = mDensity.Data(), *PR = mPressure.Data();
+			// listes
+			mNbStart.Resize(n + 1);
+			mNbIdx.Clear();
+			mNbGrad.Clear();
+			mNbW.Clear();
+			mNbCount.Resize(n);
+			uint32 *NS = mNbStart.Data(), *NC = mNbCount.Data();
+			NS[0] = 0;
 			for (uint32 k = 0; k < n; ++k) {
 				const NkVec3f pi = X[k];
 				int32 cx, cy, cz;
 				cellCoord(pi, cx, cy, cz);
-				float32 rho = 0.f;
+				uint32 fluidCount = 0;
 				for (int32 dz = -1; dz <= 1; ++dz)
 					for (int32 dy = -1; dy <= 1; ++dy)
 						for (int32 dx = -1; dx <= 1; ++dx) {
@@ -224,80 +182,263 @@ namespace nkentseu {
 								continue;
 							const uint32 c = (uint32)x + nx * ((uint32)y + ny * (uint32)z);
 							for (uint32 q = CS[c]; q < CS[c + 1]; ++q) {
-								const NkVec3f dd = pi - X[SO[q]];
-								const float32 r2 = dd.x * dd.x + dd.y * dd.y + dd.z * dd.z;
-								if (r2 < h2) {
-									const float32 t = h2 - r2;
-									rho += m * kPoly6 * t * t * t;
-								}
-							}
-						}
-				D[k] = rho > 1e-6f ? rho : 1e-6f;
-				// p >= 0 : une pression négative (surface) attire puis fait exploser --
-				// instabilité de traction, mesurée le 04/09.
-				const float32 pk = params.stiffness * (D[k] - rho0);
-				PR[k] = (pressureEnabled && pk > 0.f) ? pk : 0.f;
-			}
-
-			// 4) accélérations : pression (Monaghan, conserve le moment) + viscosité + gravité
-			mAccel.Resize(n);
-			NkVec3f *AC = mAccel.Data();
-			for (uint32 k = 0; k < n; ++k) {
-				const uint32 i = AL[k];
-				const NkVec3f pi = X[k];
-				const NkVec3f vi = V[i];
-				const float32 rhoi = D[k], pri = PR[k];
-				const float32 termI = pri / (rhoi * rhoi);
-				int32 cx, cy, cz;
-				cellCoord(pi, cx, cy, cz);
-				NkVec3f ap = {0.f, 0.f, 0.f}, av = {0.f, 0.f, 0.f};
-				for (int32 dz = -1; dz <= 1; ++dz)
-					for (int32 dy = -1; dy <= 1; ++dy)
-						for (int32 dx = -1; dx <= 1; ++dx) {
-							const int32 x = cx + dx, y = cy + dy, z = cz + dz;
-							if (x < 0 || y < 0 || z < 0 || x >= (int32)nx || y >= (int32)ny || z >= (int32)nz)
-								continue;
-							const uint32 c = (uint32)x + nx * ((uint32)y + ny * (uint32)z);
-							for (uint32 q = CS[c]; q < CS[c + 1]; ++q) {
-								const uint32 jk = SO[q];
-								if (jk == k)
+								const uint32 j = SO[q];
+								if (j == k)
 									continue;
-								const NkVec3f dd = pi - X[jk];
+								const NkVec3f dd = pi - X[j];
 								const float32 r2 = dd.x * dd.x + dd.y * dd.y + dd.z * dd.z;
-								if (r2 >= h2 || r2 < 1e-12f)
+								if (r2 >= h2)
 									continue;
 								const float32 r = sqrtf(r2);
-								const float32 hr = h - r;
-								const float32 gw = kSpiky * hr * hr / r; // gradW = gw * dd
-								float32 termJ, rhoj;
-								NkVec3f vj;
-								if (jk < n) {
-									rhoj = D[jk];
-									termJ = PR[jk] / (rhoj * rhoj);
-									vj = V[AL[jk]];
-								} else {
-									// fantôme : pression miroir, densité de repos, vitesse nulle (non glissement)
-									rhoj = rho0;
-									termJ = pri / (rho0 * rho0);
-									vj = {0.f, 0.f, 0.f};
-								}
-								// a_i += -m (p_i/rho_i^2 + p_j/rho_j^2) gradW
-								const float32 pc = -m * (termI + termJ) * gw;
-								ap.x += pc * dd.x;
-								ap.y += pc * dd.y;
-								ap.z += pc * dd.z;
-								// viscosité : mu m (v_j - v_i)/(rho_i rho_j) lapW
-								const float32 vc = params.viscosity * m / (rhoi * rhoj) * kVisc * hr;
-								av.x += vc * (vj.x - vi.x);
-								av.y += vc * (vj.y - vi.y);
-								av.z += vc * (vj.z - vi.z);
+								const float32 dw = NkCubicDW(r, h);
+								const float32 s = (r > 1e-9f) ? dw / r : 0.f;
+								mNbIdx.PushBack(j);
+								mNbGrad.PushBack({dd.x * s, dd.y * s, dd.z * s});
+								mNbW.PushBack(NkCubicW(r, h));
+								if (j < n)
+									++fluidCount;
 							}
 						}
-				AC[k] = {ap.x + av.x + params.gravity.x, ap.y + av.y + params.gravity.y, ap.z + av.z + params.gravity.z};
+				NS[k + 1] = (uint32)mNbIdx.Size();
+				NC[k] = fluidCount;
+			}
+		}
+
+		// rho_i = m W(0) + sum_j m W_ij (fantômes compris) ;
+		// alpha_i = rho_i / (|sum_j m gradW_ij|^2 + sum_{j fluide} |m gradW_ij|^2), 0 si le
+		// dénominateur est trop petit (particule isolée).
+		void NkSPHSolver::ComputeDensityAndAlpha(uint32 n) {
+			const float32 h = params.h;
+			const float32 m = params.Mass();
+			const float32 w0 = NkCubicW(0.f, h);
+			mDensity.Resize(n);
+			mAlpha.Resize(n);
+			float32 *D = mDensity.Data(), *AF = mAlpha.Data();
+			const uint32 *NS = mNbStart.Data(), *NI = mNbIdx.Data();
+			const NkVec3f *NG = mNbGrad.Data();
+			const float32 *NW = mNbW.Data();
+			for (uint32 k = 0; k < n; ++k) {
+				float32 rho = m * w0;
+				NkVec3f sg = {0.f, 0.f, 0.f};
+				float32 sg2 = 0.f;
+				for (uint32 q = NS[k]; q < NS[k + 1]; ++q) {
+					rho += m * NW[q];
+					const NkVec3f g = {m * NG[q].x, m * NG[q].y, m * NG[q].z};
+					sg.x += g.x;
+					sg.y += g.y;
+					sg.z += g.z;
+					if (NI[q] < n)
+						sg2 += g.x * g.x + g.y * g.y + g.z * g.z;
+				}
+				D[k] = rho;
+				const float32 den = sg.x * sg.x + sg.y * sg.y + sg.z * sg.z + sg2;
+				AF[k] = (den > 1e-6f) ? rho / den : 0.f;
+			}
+		}
+
+		void NkSPHSolver::Apply(NkParticleStoreCPU &store, const NkEmitterDesc &desc, float32 dt) {
+			(void)desc;
+			const int64 t0 = ::nkentseu::NkChrono::Now().nanoseconds;
+			mStats = NkSPHStats{};
+			BuildBoundary();
+			// Sous-pas CFL sur la vitesse MESURÉE au pas précédent (plancher 1 m/s pour le
+			// premier pas et le repos) : dt_s <= cfl h / vmax.
+			const float32 h = params.h > 1e-5f ? params.h : 1e-5f;
+			const float32 vref = mLastVmax > 1.f ? mLastVmax : 1.f;
+			const float32 dtMax = params.cfl * h / vref;
+			uint32 sub = (uint32)ceilf(dt / dtMax);
+			if (sub < 1u)
+				sub = 1u;
+			if (sub > params.maxSubSteps)
+				sub = params.maxSubSteps;
+			const float32 dts = dt / (float32)sub;
+			float32 itD = 0.f, itV = 0.f, rD = 0.f, rV = 0.f;
+			uint32 caps = 0, clamped = 0;
+			for (uint32 s = 0; s < sub; ++s) {
+				StepOnce(store, dts);
+				itD += mStats.iterDensity;
+				itV += mStats.iterDivergence;
+				rD += mStats.residualDensity;
+				rV += mStats.residualDivergence;
+				caps += mStats.iterCapHits;
+				clamped += mStats.speedClamped;
+			}
+			mStats.iterDensity = itD / (float32)sub;
+			mStats.iterDivergence = itV / (float32)sub;
+			mStats.residualDensity = rD / (float32)sub;
+			mStats.residualDivergence = rV / (float32)sub;
+			mStats.iterCapHits = caps;
+			mStats.speedClamped = clamped;
+			mStats.subSteps = sub;
+			mStats.boundary = (uint32)mBound.Size();
+			mStats.ms = (float32)((::nkentseu::NkChrono::Now().nanoseconds - t0) / 1.0e6);
+		}
+
+		void NkSPHSolver::StepOnce(NkParticleStoreCPU &store, float32 dt) {
+			const float32 h = params.h;
+			const float32 m = params.Mass();
+			const float32 rho0 = params.restDensity;
+			NkVec3f *P = store.pos.Data(), *V = store.vel.Data();
+			const uint8 *A = store.alive.Data();
+			mStats.iterCapHits = 0;
+			mStats.speedClamped = 0;
+
+			// 1) vivantes ; positions et vitesses de travail
+			mAlive.Clear();
+			for (uint32 i = 0; i < store.capacity; ++i)
+				if (A[i])
+					mAlive.PushBack(i);
+			const uint32 n = (uint32)mAlive.Size();
+			mStats.alive = n;
+			if (n == 0)
+				return;
+			const uint32 nb = (uint32)mBound.Size();
+			const uint32 M = n + nb;
+			const uint32 *AL = mAlive.Data();
+			mPosAll.Resize(M);
+			mVel.Resize(n);
+			NkVec3f *X = mPosAll.Data(), *W = mVel.Data();
+			for (uint32 k = 0; k < n; ++k) {
+				X[k] = P[AL[k]];
+				W[k] = V[AL[k]];
+			}
+			const NkVec3f *B = mBound.Data();
+			for (uint32 k = 0; k < nb; ++k)
+				X[n + k] = B[k];
+
+			// 2) voisinage, densité, alpha
+			BuildNeighbors(X, n, M);
+			ComputeDensityAndAlpha(n);
+			const uint32 *NS = mNbStart.Data(), *NI = mNbIdx.Data(), *NC = mNbCount.Data();
+			const NkVec3f *NG = mNbGrad.Data();
+			const float32 *NW = mNbW.Data();
+			const float32 *D = mDensity.Data(), *AF = mAlpha.Data();
+			mKappa.Resize(n);
+			mDensityAdv.Resize(n);
+			float32 *K = mKappa.Data(), *DA = mDensityAdv.Data();
+			const float32 invDt = 1.f / dt;
+
+			// Drho/Dt_i = sum_j m (v_i - v_j).gradW_ij (fantômes : v_j = 0)
+			auto divergence = [&](uint32 k) -> float32 {
+				const NkVec3f vi = W[k];
+				float32 s = 0.f;
+				for (uint32 q = NS[k]; q < NS[k + 1]; ++q) {
+					const uint32 j = NI[q];
+					NkVec3f dv = vi;
+					if (j < n) {
+						dv.x -= W[j].x;
+						dv.y -= W[j].y;
+						dv.z -= W[j].z;
+					}
+					s += m * (dv.x * NG[q].x + dv.y * NG[q].y + dv.z * NG[q].z);
+				}
+				return s;
+			};
+			// v_i -= dt sum_j m (k_i/rho_i + k_j/rho_j) gradW_ij (fantômes : k_i/rho_i seul)
+			auto correct = [&]() {
+				for (uint32 k = 0; k < n; ++k) {
+					const float32 ki = K[k] / D[k];
+					NkVec3f acc = {0.f, 0.f, 0.f};
+					for (uint32 q = NS[k]; q < NS[k + 1]; ++q) {
+						const uint32 j = NI[q];
+						const float32 kj = (j < n) ? K[j] / D[j] : 0.f;
+						const float32 c = m * (ki + kj);
+						acc.x += c * NG[q].x;
+						acc.y += c * NG[q].y;
+						acc.z += c * NG[q].z;
+					}
+					W[k].x -= dt * acc.x;
+					W[k].y -= dt * acc.y;
+					W[k].z -= dt * acc.z;
+				}
+			};
+
+			// 3) DIVERGENCE NULLE (seulement les particules bien entourées : >= 20 voisines fluides)
+			mStats.iterDivergence = 0.f;
+			mStats.residualDivergence = 0.f;
+			if (pressureEnabled) {
+				uint32 it = 0;
+				float32 err = 0.f;
+				for (;;) {
+					err = 0.f;
+					for (uint32 k = 0; k < n; ++k) {
+						float32 dd = 0.f;
+						if (NC[k] >= 20) {
+							dd = divergence(k);
+							if (dd < 0.f)
+								dd = 0.f;
+						}
+						K[k] = dd * AF[k] * invDt; // kappa^v
+						err += dd * dt / rho0;
+					}
+					err /= (float32)n;
+					if ((it >= 1 && err < params.tolDivergence) || it >= params.maxIterDivergence)
+						break;
+					correct();
+					++it;
+				}
+				if (it >= params.maxIterDivergence)
+					++mStats.iterCapHits;
+				mStats.iterDivergence = (float32)it;
+				mStats.residualDivergence = err;
 			}
 
-			// 5) intégration (semi-implicite), borne de vitesse, parois (dernier filet :
-			//    les fantômes portent, le clamp ne fait qu'empêcher de traverser)
+			// 4) forces non-pression : XSPH puis gravité
+			if (params.viscosity > 0.f) {
+				for (uint32 k = 0; k < n; ++k) {
+					const NkVec3f vi = W[k];
+					NkVec3f acc = {0.f, 0.f, 0.f};
+					for (uint32 q = NS[k]; q < NS[k + 1]; ++q) {
+						const uint32 j = NI[q];
+						const float32 c = (j < n) ? (m / D[j]) * NW[q] : (m / rho0) * NW[q];
+						const NkVec3f vj = (j < n) ? W[j] : NkVec3f{0.f, 0.f, 0.f};
+						acc.x += c * (vj.x - vi.x);
+						acc.y += c * (vj.y - vi.y);
+						acc.z += c * (vj.z - vi.z);
+					}
+					// Application directe (Gauss-Seidel : les voisines deja lissees sont lues
+					// lissees) -- acceptable pour un lissage XSPH, dit ici.
+					W[k].x += params.viscosity * acc.x;
+					W[k].y += params.viscosity * acc.y;
+					W[k].z += params.viscosity * acc.z;
+				}
+			}
+			for (uint32 k = 0; k < n; ++k) {
+				W[k].x += params.gravity.x * dt;
+				W[k].y += params.gravity.y * dt;
+				W[k].z += params.gravity.z * dt;
+			}
+
+			// 5) DENSITÉ CONSTANTE : rho* = rho + dt Drho/Dt ; kappa = (rho* - rho0) alpha / dt^2
+			mStats.iterDensity = 0.f;
+			mStats.residualDensity = 0.f;
+			if (pressureEnabled) {
+				uint32 it = 0;
+				float32 err = 0.f;
+				for (;;) {
+					err = 0.f;
+					for (uint32 k = 0; k < n; ++k) {
+						float32 ra = D[k] + dt * divergence(k);
+						if (ra < rho0)
+							ra = rho0; // surface libre : pas de traction
+						DA[k] = ra;
+						K[k] = (ra - rho0) * AF[k] * invDt * invDt;
+						err += (ra - rho0) / rho0;
+					}
+					err /= (float32)n;
+					if ((it >= 2 && err < params.tolDensity) || it >= params.maxIterDensity)
+						break;
+					correct();
+					++it;
+				}
+				if (it >= params.maxIterDensity)
+					++mStats.iterCapHits;
+				mStats.iterDensity = (float32)it;
+				mStats.residualDensity = err;
+			}
+
+			// 6) intégration des positions, filets (vitesse, boîte), statistiques
+			const NkVec3f bmin = params.boundsMin, bmax = params.boundsMax;
 			float32 rhoMin = 1e30f, rhoMax = 0.f, rhoSum = 0.f, vmax = 0.f;
 			float32 xmax = -1e30f, ymax = -1e30f, ymin = 1e30f;
 			float32 floorSum = 0.f;
@@ -305,11 +446,8 @@ namespace nkentseu {
 			const float32 vcap2 = params.maxSpeed * params.maxSpeed;
 			for (uint32 k = 0; k < n; ++k) {
 				const uint32 i = AL[k];
-				NkVec3f v = V[i];
-				v.x += AC[k].x * dt;
-				v.y += AC[k].y * dt;
-				v.z += AC[k].z * dt;
-				float32 v2 = v.x * v.x + v.y * v.y + v.z * v.z;
+				NkVec3f v = W[k];
+				const float32 v2 = v.x * v.x + v.y * v.y + v.z * v.z;
 				if (v2 > vcap2) {
 					const float32 sc = params.maxSpeed / sqrtf(v2);
 					v.x *= sc;
@@ -345,6 +483,7 @@ namespace nkentseu {
 					++floorN;
 				}
 			}
+			mLastVmax = vmax;
 			mStats.densityMean = rhoSum / (float32)n;
 			mStats.densityMin = rhoMin;
 			mStats.densityMax = rhoMax;
