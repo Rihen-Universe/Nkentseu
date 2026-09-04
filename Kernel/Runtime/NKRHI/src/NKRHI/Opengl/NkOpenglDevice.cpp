@@ -1,3 +1,4 @@
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // =============================================================================
 // NkRHI_Device_GL.cpp — Implémentation OpenGL 4.3+ du NkIDevice
 // Utilise Direct State Access (GL 4.5+) avec fallback OpenGL ES sur Android
@@ -10,6 +11,7 @@
 #include "NKContainers/Associative/NkUnorderedMap.h"
 #include <cmath>
 #include <cstring>
+#include <cstdarg>
 
 // ── Contexte GLX (Linux/X11) ────────────────────────────────────────────────
 // glad (via NkOpenglDevice.h) définit __gl_h_ AVANT -> <GL/glx.h> n'inclut pas
@@ -72,21 +74,58 @@ extern "C" int gladLoadGLES2(GLADloadfunc load);
 extern "C" void gladSetGLES2PostCallback(GLADpostcallback cb);
 // NKTEMP-DIAG : a retirer (fonction libre : une lambda variadique n'est pas
 // convertible en pointeur de fonction variadique sous clang/wasm).
-static void NkWebGladPostCallback(void *, const char *name, GLADapiproc, int, ...) {
+// 2026-09-04 : (1) pour glEnable/glDisable/glIsEnabled l'argument est LU
+// (va_arg) et imprime -- « GLERR in glDisable » ne disait pas QUELLE capacite,
+// et c'est la capacite qu'il faut garder ; (2) une erreur REPETEE se dit UNE
+// fois puis se tait : le triplet (erreur, fonction, argument) est memorise. Le
+// budget global de 40 d'avant laissait passer 40 fois la MEME ligne (une par
+// image), puis taisait les suivantes, differentes -- un instrument qui parle
+// a chaque image est un instrument qu'on finit par ne plus lire.
+static void NkWebGladPostCallback(void *, const char *name, GLADapiproc, int len_args, ...) {
 	if (!glad_glGetError)
 		return;
 	GLenum err = glad_glGetError();
 	if (err == GL_NO_ERROR)
 		return;
+	if (!name)
+		name = "?";
+	// Argument « capacite » des interrupteurs d'etat -- seul cas ou le premier
+	// argument variadique est un GLenum a coup sur.
+	unsigned cap = 0u;
+	bool hasCap = false;
+	if (len_args >= 1 &&
+		(strcmp(name, "glEnable") == 0 || strcmp(name, "glDisable") == 0 || strcmp(name, "glIsEnabled") == 0)) {
+		va_list ap;
+		va_start(ap, len_args);
+		cap = va_arg(ap, unsigned);
+		va_end(ap);
+		hasCap = true;
+	}
+	// Memoire des erreurs deja dites : table fixe, sans allocation (chemin
+	// appele a chaque commande GL). `name` est un litteral de glad : stable.
+	struct NkVue {
+		GLenum err;
+		const char *name;
+		unsigned cap;
+	};
+	static NkVue sVues[32];
+	static int sNb = 0;
+	for (int i = 0; i < sNb; ++i)
+		if (sVues[i].err == err && sVues[i].cap == cap && strcmp(sVues[i].name, name) == 0)
+			return; // deja dite : silence
+	if (sNb >= 32)
+		return; // table pleine : borne, comme l'ancien budget
+	sVues[sNb++] = {err, name, cap};
 	GLint prog = 0, vao = 0, fbo = 0;
 	glad_glGetIntegerv(GL_CURRENT_PROGRAM, &prog);
 	glad_glGetIntegerv(GL_VERTEX_ARRAY_BINDING, &vao);
 	glad_glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING, &fbo);
-	static int sBudget = 40; // borne le spam
-	if (sBudget > 0) {
-		--sBudget;
-		fprintf(stderr, "[WebDiag] GLERR 0x%X in %s prog=%d vao=%d fbo=%d\n", err, name, prog, vao, fbo);
-	}
+	if (hasCap)
+		fprintf(stderr, "[WebDiag] GLERR 0x%X in %s(cap=0x%X) prog=%d vao=%d fbo=%d (dite une fois, tue ensuite)\n", err,
+				name, cap, prog, vao, fbo);
+	else
+		fprintf(stderr, "[WebDiag] GLERR 0x%X in %s prog=%d vao=%d fbo=%d (dite une fois, tue ensuite)\n", err, name, prog,
+				vao, fbo);
 }
 #endif
 
@@ -1073,8 +1112,45 @@ namespace nkentseu {
 #endif
 	}
 
+	// L'interrupteur GL_FRAMEBUFFER_SRGB est une capacite de BUREAU (GL 3.0 /
+	// ARB_framebuffer_sRGB). En OpenGL ES et WebGL2, l'encodage sRGB est decide par
+	// le FORMAT du framebuffer, pas par un interrupteur : glEnable/glDisable(0x8DB9)
+	// leve GL_INVALID_ENUM. Mesure le 2026-09-04 sur le journal de Rodolf puis en
+	// headless : « WebGL: INVALID_ENUM: disable: invalid capability » x33, puis
+	// `[WebDiag] GLERR 0x500 in glDisable(cap=0x8DB9)` -- BeginFrame le posait a
+	// CHAQUE image. Seule l'extension EXT_sRGB_write_control rend l'interrupteur a
+	// ES ; on la demande, et sans elle on NE POSE PAS la question (meme famille
+	// que la garde EGL et que NkGLHasComputeAndSSBO : ne pas demander a une cible
+	// ce qu'elle n'a pas). Sur ES sans l'extension, le format du swapchain fait
+	// foi : c'est deja ce que la cible fait toute seule.
+	static bool NkGLHasFramebufferSrgbControl() {
+#if defined(NKENTSEU_PLATFORM_EMSCRIPTEN)
+		static int cached = -1;
+		if (cached < 0) {
+			cached = 0;
+			EMSCRIPTEN_WEBGL_CONTEXT_HANDLE ctx = emscripten_webgl_get_current_context();
+			if (ctx != 0 && emscripten_webgl_enable_extension(ctx, "EXT_sRGB_write_control"))
+				cached = 1;
+		}
+		return cached == 1;
+#elif defined(NK_OPENGL_ES)
+		static int cached = -1;
+		if (cached < 0) {
+			const char *ext = (const char *)glGetString(GL_EXTENSIONS);
+			cached = (ext && strstr(ext, "GL_EXT_sRGB_write_control") != nullptr) ? 1 : 0;
+		}
+		return cached == 1;
+#else
+		return true; // GL 3.3+ core, exige par ce device
+#endif
+	}
+
 	void NkOpenGLDevice::QueryCaps() {
 		GLint v = 0;
+		mHasFramebufferSrgbControl = NkGLHasFramebufferSrgbControl();
+		if (!mHasFramebufferSrgbControl)
+			NK_GL_LOG("GL_FRAMEBUFFER_SRGB : pas d'interrupteur sur ce contexte (ES/WebGL2 sans "
+					  "EXT_sRGB_write_control) -- le format du swapchain fait foi, BeginFrame ne le pose pas\n");
 
 		// -- capacites universelles (present sur toutes les cibles GL/ES) -----
 		if (NkGLQueryCap(GL_MAX_TEXTURE_SIZE, v))
@@ -3229,10 +3305,14 @@ namespace nkentseu {
 		// GL_FRAMEBUFFER_SRGB encode gamma à l'écriture du framebuffer par défaut. On le
 		// pose chaque frame (idempotent, contexte courant garanti) pour rester cohérent
 		// avec VK/DX : false = UNORM (affichage direct), true = sRGB (encode auto).
-		if (NkSwapchainFormatIsSrgb(mInit.context.swapchainFormat))
-			glEnable(GL_FRAMEBUFFER_SRGB);
-		else
-			glDisable(GL_FRAMEBUFFER_SRGB);
+		// Garde de CAPACITE (2026-09-04) : sans interrupteur (ES/WebGL2), ne pas poser
+		// la question -- glDisable(0x8DB9) levait GL_INVALID_ENUM a chaque image sur Web.
+		if (mHasFramebufferSrgbControl) {
+			if (NkSwapchainFormatIsSrgb(mInit.context.swapchainFormat))
+				glEnable(GL_FRAMEBUFFER_SRGB);
+			else
+				glDisable(GL_FRAMEBUFFER_SRGB);
+		}
 		return true;
 	}
 

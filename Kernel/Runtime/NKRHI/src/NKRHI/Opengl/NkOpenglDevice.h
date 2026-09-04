@@ -342,6 +342,9 @@ namespace nkentseu {
 			NkDeviceInitInfo mInit{};
 			NkDeviceCaps mCaps{};
 			bool mIsValid = false;
+			// GL_FRAMEBUFFER_SRGB a un interrupteur (bureau, ou ES avec EXT_sRGB_write_control) ;
+			// sinon BeginFrame ne le touche pas (WebGL2 : GL_INVALID_ENUM a chaque image, 2026-09-04).
+			bool mHasFramebufferSrgbControl = true;
 			uint32 mWidth = 0, mHeight = 0;
 			uint32 mFrameIndex = 0;
 			uint64 mFrameNumber = 0;
