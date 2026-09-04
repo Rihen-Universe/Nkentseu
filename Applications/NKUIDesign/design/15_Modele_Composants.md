@@ -690,12 +690,38 @@ du bouton dans le popover) — listé, pas déclaré livré. **Nommé, pas fait*
 le glisser depuis le rail) ; la **bascule de mode** dans l'interface ; le nom
 d'une variable dans le popover de **bordure** ; les **styles** (§15.15).
 
-## 15.15 🏗️ STYLES DE CALQUE ET DE TEXTE — le plan, écrit avant le code (05/09)
+## 15.15 ✅ STYLES DE CALQUE ET DE TEXTE — le plan, écrit avant le code (05/09), puis CODÉ la même nuit
 
-**Pas fait, et pas bricolé.** Le temps de la nuit a été mis sur la variable dans
-l'interface (§15.14, éprouvée) ; le style est un objet de plus, avec sa propre
-propagation, et il mérite d'être posé d'un bloc. Voici le plan, pour qu'il se code
-sans re-décider.
+> **État codé (05/09, nuit — commits « modèle + format + propagation », « rail Styles »,
+> « rangée de section » ; sondes 69a-g, 246/246 ; mutation : `PropagerStyle` qui ignore
+> le style → six cas rouges).** Le plan ci-dessous a été exécuté tel quel, avec trois
+> écarts assumés, dits ici plutôt que découverts :
+>
+> 1. **`NkStyle.apparence` est un nœud sans géométrie** (pas des listes à plat) : c'est
+>    ce qui donne « les mêmes lecteurs » sans second parseur — `style = …` ouvre un
+>    troisième porteur (`dansStyle`, comme `dansDecl`) et `fond_i` / `bord_i` / `effet_i`
+>    / `police_px` / `graisse` / `couleur_texte` vont à l'apparence. Les écrivains
+>    `EcrireFonds` / `EcrireBords` / `EcrireEffets` sont **extraits** d'`EcrireNoeud`
+>    (déplacés, pas recopiés) et servent aussi à l'**empreinte** d'un ensemble — ce que
+>    le fichier écrirait — qui est l'unique comparateur.
+> 2. **La propagation est une copie à la modification** (`PropagerStyle`, le patron de
+>    `PropagerVersInstances`), pas une résolution au dessin : c'est *le* mécanisme des
+>    instances, sous *leurs* bits. Le peintre, le pointage et l'export n'ont rien eu à
+>    apprendre. L'écart se **détecte** à l'édition humaine (`MarkHumanEdit` →
+>    `DetecterEcartsStyle` : le nœud lie un style et l'ensemble diffère → la main vient
+>    d'écrire) — une porte, pas seize sites.
+> 3. **La police (famille) n'est pas dans le style de texte** : le nœud ne la porte pas
+>    (`police_px`, `graisse`, `couleur_texte` seulement). Un paramètre déclaré non
+>    honoré serait pire qu'absent.
+>
+> Fait aussi, non prévu : `NewDocument` et `Load` ne vidaient pas `variables` (un
+> chargement gardait celles du document d'avant) — vidées maintenant. Nommé : la
+> capture Lunacy du rail Styles manque (la place de « Créer » vient de l'icône de FILLS) ;
+> les bordures et les effets se lient par la rangée de REMPLISSAGES (un style de calque
+> est l'ensemble des trois) ; **lier une variable existante** depuis le sélecteur.
+
+**Le plan tel qu'il a été écrit avant le code** (gardé : il dit pourquoi les choix sont ce
+qu'ils sont).
 
 ### Ce que c'est (rappel du périmètre tranché)
 
