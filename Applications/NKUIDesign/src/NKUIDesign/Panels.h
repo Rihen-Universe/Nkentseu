@@ -10198,7 +10198,9 @@ namespace nkuidesign {
 				const float32 hTypes = 26.f; // ① une seule rangee de vignettes dessinees
 				const float32 hPicker = 160.f + 8.f;
 				const float32 hHex = 26.f; // la rangee modele + valeurs (Hex ˅ / RGB / HSB)
-				const float32 hRampe = g.Actif() ? 26.f + 26.f + 26.f * (float32)(g.arrets.Size() < 12u ? g.arrets.Size() : 12u) : 0.f; // barre, angle, liste
+				// ④ la rangee de la barre fait 34 px : ses pastilles (centre a +24, rayon 6)
+				//    descendent a +30 -- a 26 px la rangee suivante les recouvrait (Rodolf)
+				const float32 hRampe = g.Actif() ? 34.f + 26.f + 26.f * (float32)(g.arrets.Size() < 12u ? g.arrets.Size() : 12u) : 0.f; // barre, angle, liste
 				const float32 ph = f.EstImage() ? 8.f + hTypes + 116.f + 26.f + 26.f + 26.f + 8.f
 												   : 8.f + hTypes + hPicker + hHex + hRampe + 8.f;
 				const NkRect sw = d.ancre;
@@ -10630,7 +10632,7 @@ namespace nkuidesign {
 							touche();
 						}
 					}
-					y += 26.f;
+					y += 34.f; // ④ les pastilles de la barre ont leur place : rien ne se peint dessus
 					// L'ANGLE : la rangee d'orientation -- ce que le glisser d'une extremite sur la
 					// toile ecrit, ce que le champ edite (0 = haut -> bas, 90 = droite -> gauche)
 					{

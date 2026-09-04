@@ -5543,6 +5543,66 @@ namespace nkuidesign {
 						  "sur « Normal » par-dessus le carre SV ferme le menu sans changer la couleur",
 						  peintApres && ferme && couleurIntacte, det);
 				}
+				// 60m. ④ LES PASTILLES DE LA BARRE NE SONT PLUS RECOUVERTES : l'etendue en y des
+				// pastilles (sommets a la couleur d'accent sous la barre) s'arrete AVANT le haut
+				// de la boite du champ Angle (la rangee suivante) -- deux rangees ne se recouvrent
+				// jamais, mesure sur la couche overlay.
+				{
+					stI.SelectSingle(rc);
+					stI.picker = DesignState::DemandePicker();
+					stI.picker.ouvert = true;
+					stI.picker.id = ctxI.GetId("##sonde.popover.barre");
+					stI.picker.genre = 1u;
+					stI.picker.noeud = rc;
+					stI.picker.index = 1; // le degrade a trois arrets
+					stI.picker.arretSel = 0;
+					stI.picker.ancre = {360.f, 200.f, 16.f, 16.f};
+					auto image4 = [&]() {
+						ctxI.input.mousePos = {-1.f, -1.f};
+						ctxI.input.mouseDown[0] = false;
+						ctxI.BeginFrame(0.016f);
+						ctxI.BeginLayout({340.f, 0.f, 260.f, 900.f});
+						insp.OnUI(ec);
+						NkDessinerPickerDemande(ctxI, stI);
+						ctxI.EndFrame();
+					};
+					image4();
+					image4();
+					float32 px = 1e9f, py = 1e9f;
+					for (uint32 i = 0; i < (uint32)ctxI.dlOverlay.vtx.Size(); ++i) {
+						if (ctxI.dlOverlay.vtx[i].pos.x < px) px = ctxI.dlOverlay.vtx[i].pos.x;
+						if (ctxI.dlOverlay.vtx[i].pos.y < py) py = ctxI.dlOverlay.vtx[i].pos.y;
+					}
+					const float32 x0 = px + 0.5f + 8.f;
+					const float32 yBarre = py + 0.5f + 8.f + 26.f + 168.f + 26.f; // apres types, selecteur, rangee modele
+					const nkentseu::uint32 accent = nkgui::NkGuiPackColor(ctxI.theme.accent);
+					const nkentseu::uint32 encre = nkgui::NkGuiPackColor(ctxI.theme.text); // l'anneau de la pastille courante (rayon 6)
+					const nkentseu::uint32 boite = nkgui::NkGuiPackColor(
+						nkentseu::editorkit::NkThemeUnpack(stI.theme.Get(nkentseu::editorkit::NkRole::InputBg)));
+					float32 basPastilles = -1e9f, hautAngle = 1e9f;
+					uint32 nA = 0u, nB = 0u;
+					for (uint32 i = 0; i < (uint32)ctxI.dlOverlay.vtx.Size(); ++i) {
+						const auto &vt = ctxI.dlOverlay.vtx[i];
+						// les pastilles : accent, sous la barre (y entre yBarre+14 et yBarre+40), a gauche
+						if ((vt.col == accent || vt.col == encre) && vt.pos.y > yBarre + 14.f && vt.pos.y < yBarre + 40.f && vt.pos.x < x0 + 120.f) {
+							if (vt.pos.y > basPastilles) basPastilles = vt.pos.y;
+							++nA;
+						}
+						// la boite du champ Angle : couleur de champ, x entre x0+62 et x0+110, sous la barre
+						if (vt.col == boite && vt.pos.x >= x0 + 61.f && vt.pos.x <= x0 + 111.f && vt.pos.y > yBarre + 14.f && vt.pos.y < yBarre + 60.f) {
+							if (vt.pos.y < hautAngle) hautAngle = vt.pos.y;
+							++nB;
+						}
+					}
+					const bool disjoints = nA > 0u && nB > 0u && basPastilles <= hautAngle + 0.01f;
+					stI.picker = DesignState::DemandePicker();
+					image4();
+					snprintf(det, sizeof(det), "barre a y=%.0f : bas des pastilles %.1f (%u sommets), haut de la boite Angle %.1f (%u sommets)",
+							 yBarre, basPastilles, nA, hautAngle, nB);
+					check("60m. ④ LES PASTILLES DE LA BARRE ET LA RANGEE SUIVANTE NE SE RECOUVRENT PAS : le bas des pastilles "
+						  "est au-dessus du haut de la boite du champ Angle, mesure sur la couche overlay",
+						  disjoints, det);
+				}
 				stI.picker = DesignState::DemandePicker();
 			}
 		}
