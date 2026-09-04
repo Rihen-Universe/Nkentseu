@@ -10276,6 +10276,151 @@ namespace nkuidesign {
 			st.picker.ouvert = false; // clic dehors / Echap : le shell a ferme
 	}
 
+	/// LE RAIL « VARIABLES » (Lunacy : `Variables` au rail de gauche ; §15.14, lot du
+	/// 05/09) : la liste des variables du document -- pastille (la valeur du mode
+	/// courant), NOM (se renomme sur place : clic, frappe), cle « @… », une ligne par
+	/// mode declare, le nombre d'usages, la poubelle GARDEE (« utilisee par N
+	/// remplissages »). Le mode courant est DIT, pas bascule : la bascule d'interface
+	/// est nommee, pas faite (§15.14). La variable se CREE dans le selecteur, comme
+	/// chez Lunacy -- ici on la retrouve, on la renomme, on la supprime.
+	class VariablesPanel : public NkEditorPanel {
+		public:
+			explicit VariablesPanel(DesignState *st)
+				: NkEditorPanel("Variables", NkEditorDockSide::NK_LEFT), mSt(st) {}
+
+			/// La variable en cours de renommage (indice), -1 sinon -- lu par la sonde.
+			int32 EnRenommage() const {
+				return mRenomme;
+			}
+			/// Les rectangles de la derniere image (nom, poubelle), par variable -- le
+			/// temoin sans fenetre clique dedans au lieu de deviner une geometrie.
+			NkRect RectNom(uint32 i) const {
+				return i < (uint32)mRectNom.Size() ? mRectNom[i] : NkRect{0.f, 0.f, 0.f, 0.f};
+			}
+			NkRect RectPoubelle(uint32 i) const {
+				return i < (uint32)mRectPoubelle.Size() ? mRectPoubelle[i] : NkRect{0.f, 0.f, 0.f, 0.f};
+			}
+
+			void OnUI(NkEditorFrameContext &ec) override {
+				auto &ctx = ec.Ui();
+				designkit::releve::Zone(ctx, "variables");
+				auto &F = costume::Fontes();
+				auto &dl = ctx.DL();
+				NkUIDocument &doc = mSt->doc;
+				const bool clic = ctx.popupDepth == 0 && ctx.input.mouseClicked[0];
+				bool clicPris = false;
+				mRectNom.Clear();
+				mRectPoubelle.Clear();
+				// ── le mode courant, DIT (pas de bascule ici, §15.14) ─────────────
+				{
+					const NkRect r = ctx.NextItemRect(-1.f, 24.f);
+					char m[96];
+					snprintf(m, sizeof(m), "Mode : %s", doc.modeCourant.Empty() ? "(défaut)" : doc.modeCourant.Data());
+					costume::TexteGras(dl, F.px9, r.x + 12.f, r.y + 10.f, "VARIABLES", ctx.theme.textMuted, 0.4f);
+					costume::Texte(dl, F.px9, r.x + r.w - 12.f - costume::Largeur(F.px9, m), r.y + 10.f, m, ctx.theme.textMuted);
+				}
+				if (doc.variables.Empty()) {
+					const NkRect r = ctx.NextItemRect(-1.f, 44.f);
+					costume::Texte(dl, F.px10, r.x + 12.f, r.y + 6.f, "(aucune variable)", ctx.theme.textMuted);
+					costume::Texte(dl, F.px9, r.x + 12.f, r.y + 24.f,
+								   "Le sélecteur de couleur en crée : « Créer une variable de couleur ».", ctx.theme.textMuted);
+					mRenomme = -1;
+					return;
+				}
+				int32 aSupprimer = -1;
+				for (uint32 i = 0; i < (uint32)doc.variables.Size(); ++i) {
+					NkVariable &v = doc.variables[i];
+					const uint32 nModes = (uint32)v.parMode.Size();
+					const NkRect r = ctx.NextItemRect(-1.f, 28.f + 14.f * (float32)nModes);
+					const uint32 usages = doc.CompterUsagesVariable(v.cle.Data());
+					const char *nom = v.nom.Empty() ? v.cle.Data() : v.nom.Data();
+					// la pastille : la valeur du mode courant (celle que le document peint)
+					const char *res = v.ValeurPour(doc.modeCourant.Data());
+					const NkRect sw = {r.x + 12.f, r.y + 6.f, 16.f, 16.f};
+					if (NkHexLisible(res))
+						dl.AddRectFilled(sw, NkCouleurDepuisHex(res), 3.f);
+					else
+						dl.AddLine({sw.x + 3.f, sw.y + 13.f}, {sw.x + 13.f, sw.y + 3.f}, ctx.theme.textMuted, 1.f);
+					dl.AddRect(sw, ctx.theme.border, 1.f, 3.f);
+					// la poubelle, GARDEE ; le badge d'usages a sa gauche
+					const NkRect rp = {r.x + r.w - 26.f, r.y + 6.f, 16.f, 16.f};
+					const bool svP = NkGuiRectContains(rp, ctx.input.mousePos);
+					costume::IcPoubelle(dl, rp.x + 2.f, rp.y + 2.f, svP ? ctx.theme.text : ctx.theme.textMuted);
+					char b[16];
+					snprintf(b, sizeof(b), "\xC3\x97%u", (unsigned)usages);
+					costume::BadgePilule(dl, F.px9, rp.x - 30.f, r.y + 7.f, 14.f, b, usages ? ctx.theme.accent : ctx.theme.textMuted);
+					// le nom : un champ quand on le renomme, du texte sinon ; la cle apres
+					const NkRect rn = {sw.x + sw.w + 8.f, r.y + 4.f, rp.x - 34.f - (sw.x + sw.w + 8.f), 20.f};
+					if (mRenomme == (int32)i) {
+						nkentseu::editorkit::NkOverlayTextField(ctx, dl, ctx.font, rn, mNom, (int32)sizeof(mNom), true);
+						if (!NkComponentDecl::StrEq(mNom, v.nom.Data() ? v.nom.Data() : ""))
+							v.nom = NkString(mNom); // le renommage est VIVANT : la ligne FILLS le montre dans la meme image
+					} else {
+						costume::Texte(dl, F.px11, rn.x, costume::CentrerY(F.px11, rn.y, rn.h), nom, ctx.theme.text);
+						char cle[64];
+						snprintf(cle, sizeof(cle), "@%s", v.cle.Data() ? v.cle.Data() : "");
+						costume::Texte(dl, F.px9, rn.x + costume::Largeur(F.px11, nom) + 6.f, costume::CentrerY(F.px9, rn.y, rn.h), cle,
+									   ctx.theme.textMuted);
+					}
+					mRectNom.PushBack(rn);
+					mRectPoubelle.PushBack(rp);
+					// les modes : une ligne par mode declare (pastille + « mode : valeur »)
+					for (uint32 m = 0; m < nModes; ++m) {
+						const float32 my = r.y + 28.f + 14.f * (float32)m;
+						const NkRect sm = {r.x + 16.f, my + 1.f, 10.f, 10.f};
+						if (NkHexLisible(v.parMode[m].valeur.Data()))
+							dl.AddRectFilled(sm, NkCouleurDepuisHex(v.parMode[m].valeur.Data()), 2.f);
+						dl.AddRect(sm, ctx.theme.border, 1.f, 2.f);
+						char t[96];
+						snprintf(t, sizeof(t), "%s : %s", v.parMode[m].mode.Data() ? v.parMode[m].mode.Data() : "",
+								 v.parMode[m].valeur.Data() ? v.parMode[m].valeur.Data() : "");
+						costume::Texte(dl, F.px9, sm.x + 14.f, my, t, ctx.theme.textMuted);
+					}
+					// les clics, UNE decision ordonnee : la poubelle, le nom
+					if (clic && !clicPris) {
+						if (svP) {
+							clicPris = true;
+							if (usages > 0u) {
+								char msg[200];
+								snprintf(msg, sizeof(msg),
+										 "« %s » est utilisée par %u remplissages — détachez-les d'abord (sélecteur : « Détacher »).", nom,
+										 (unsigned)usages);
+								mSt->DireAuPied(msg);
+							} else
+								aSupprimer = (int32)i;
+						} else if (NkGuiRectContains(rn, ctx.input.mousePos)) {
+							clicPris = true;
+							if (mRenomme != (int32)i) {
+								mRenomme = (int32)i;
+								snprintf(mNom, sizeof(mNom), "%s", v.nom.Data() ? v.nom.Data() : "");
+							}
+						}
+					}
+				}
+				if (clic && !clicPris)
+					mRenomme = -1; // un clic ailleurs termine le renommage
+				if (aSupprimer >= 0) {
+					const NkString nomS = doc.variables[(uint32)aSupprimer].nom;
+					const NkString cleS = doc.variables[(uint32)aSupprimer].cle;
+					uint32 u = 0u;
+					if (doc.SupprimerVariable(cleS.Data(), &u)) {
+						char msg[160];
+						snprintf(msg, sizeof(msg), "Variable « %s » (@%s) supprimée — elle n'était référencée nulle part.",
+								 nomS.Data() ? nomS.Data() : "", cleS.Data() ? cleS.Data() : "");
+						mSt->DireAuPied(msg);
+						mSt->Consigner(msg);
+					}
+					mRenomme = -1;
+				}
+			}
+
+		private:
+			DesignState *mSt;
+			int32 mRenomme = -1;
+			char mNom[64] = {0};
+			NkVector<NkRect> mRectNom, mRectPoubelle;
+	};
+
 	class InspectorPanel : public NkEditorPanel {
 			/// L'acces de banc au corps des sections de proprietes
 			/// (`--recette-proprietes`). MEME DISCIPLINE que

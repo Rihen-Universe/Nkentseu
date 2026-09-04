@@ -6850,6 +6850,7 @@ namespace nkuidesign {
 				stV.Recompute(NkPaintRect{0.f, 0.f, 600.f, 900.f});
 				stV.SelectSingle(rc);
 				static InspectorPanel inspV(&stV);
+				static VariablesPanel railV(&stV);
 				NkEditorFrameContext ec;
 				ec.ui = &ctxV;
 				ec.dt = 0.016f;
@@ -7105,6 +7106,58 @@ namespace nkuidesign {
 						  "PoserValeur ecrit dans le mode declare, dans le defaut sinon",
 						  pSombre == 0x000000FFu && modeRelu && pRelu == 0x000000FFu && pClair == 0xFFFFFFFFu && pDefaut == 0x777777FFu && pose,
 						  det);
+				}
+				// ── 68f. LE RAIL « VARIABLES » : la liste, la poubelle GARDEE, le renommage sur place ──
+				{
+					auto rail = [&](float32 mx, float32 my, bool bas, uint32 cp) {
+						ctxV.input.mousePos = {mx, my};
+						ctxV.input.mouseDown[0] = bas;
+						ctxV.BeginFrame(0.016f);
+						if (cp)
+							ctxV.input.PushChar(cp); // APRES BeginFrame : l'effacement est dans EndFrame
+						ctxV.BeginLayout({0.f, 0.f, 260.f, 900.f});
+						railV.OnUI(ec);
+						ctxV.EndFrame();
+					};
+					auto clicRail = [&](const nkgui::NkRect &r) {
+						const float32 x = r.x + r.w * 0.5f, y = r.y + r.h * 0.5f;
+						rail(x, y, false, 0u);
+						rail(x, y, true, 0u);
+						rail(x, y, false, 0u);
+						rail(-1.f, -1.f, false, 0u);
+					};
+					rail(-1.f, -1.f, false, 0u);
+					const nkgui::NkRect rNom = railV.RectNom(0), rPou = railV.RectPoubelle(0);
+					const bool rects = rNom.w > 0.f && rPou.w > 0.f && rPou.x > rNom.x;
+					// la poubelle, gardee : « Couleur 1 » est encore referencee par rc2
+					stV.status = NkString();
+					const int32 profondeurAvant = ctxV.popupDepth;
+					clicRail(rPou);
+					const NkString statusGarde = stV.status;
+					const bool garde = stV.doc.variables.Size() == 1u && statusGarde.Data()
+									   && strstr(statusGarde.Data(), "utilisée par 1 remplissages") != nullptr;
+					// le renommage : clic sur le nom, une frappe, la variable porte le caractere
+					clicRail(rNom);
+					const bool enRenommage = railV.EnRenommage() == 0;
+					rail(-1.f, -1.f, false, (uint32)'!');
+					rail(-1.f, -1.f, false, 0u);
+					const NkString nomR = stV.doc.variables.Empty() ? NkString("(aucune)") : stV.doc.variables[0].nom;
+					const bool renomme = nomR.Data() && strstr(nomR.Data(), "!") != nullptr && strstr(nomR.Data(), "Couleur") != nullptr;
+					clicRail(nkgui::NkRect{100.f, 850.f, 4.f, 4.f}); // un clic ailleurs termine le renommage
+					const bool fini = railV.EnRenommage() == -1;
+					// detachee (plus aucun usage), la poubelle supprime -- et le dit
+					const uint32 detaches = stV.doc.DetacherVariable("couleur_1");
+					stV.status = NkString();
+					rail(-1.f, -1.f, false, 0u);
+					clicRail(railV.RectPoubelle(0));
+					const bool supprimee = stV.doc.variables.Empty() && stV.status.Data() && strstr(stV.status.Data(), "supprimée") != nullptr;
+					snprintf(det, sizeof(det), "rects=%d ; popups ouverts avant %d ; poubelle gardee=%d (« %s ») ; renommage : ouvert=%d, nom -> « %s », fini=%d ; detaches %u, supprimee=%d",
+							 rects ? 1 : 0, profondeurAvant, garde ? 1 : 0, statusGarde.Data() ? statusGarde.Data() : "", enRenommage ? 1 : 0,
+							 nomR.Data() ? nomR.Data() : "?", fini ? 1 : 0, detaches, supprimee ? 1 : 0);
+					check("68f. LE RAIL « VARIABLES » : la ligne (nom, poubelle) se dessine ; la poubelle REFUSE tant que la variable "
+						  "est utilisee (« utilisee par N remplissages ») ; un clic sur le nom ouvre le renommage, une frappe l'ecrit, "
+						  "un clic ailleurs le termine ; detachee, la poubelle supprime et le dit",
+						  rects && garde && enRenommage && renomme && fini && detaches == 1u && supprimee, det);
 				}
 			}
 		}

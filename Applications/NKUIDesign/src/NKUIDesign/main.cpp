@@ -8818,6 +8818,10 @@ int nkmain(const NkEntryState &state) {
 	static nkuidesign::AIPanel ai(&gDesign);
 	static nkuidesign::HierarchyPanel hierarchie(&gDesign);
 	static nkuidesign::InspectorPanel inspecteur(&gDesign);
+	// LE RAIL « VARIABLES » (§15.14) : a gauche, onglet a cote de la Hierarchie --
+	// c'est la place de Lunacy (`Variables` au rail de gauche). Il se ferme avec
+	// les panneaux fixes en mode toile seule.
+	static nkuidesign::VariablesPanel variables(&gDesign);
 	// ⚠️ LA PALETTE REVIENT, MAIS PAR LE RAIL — ET CE N EST PAS UN RETOUR EN
 	//    ARRIERE. Le §13.1 la place explicitement sur le rail GAUCHE, comme
 	//    panneau SECONDAIRE : c est sa place, pas le dock. Elle est enregistree
@@ -8837,12 +8841,14 @@ int nkmain(const NkEntryState &state) {
 		// enregistres — Affichage les rouvre), les rails ne seront pas poses.
 		hierarchie.SetOpen(false);
 		inspecteur.SetOpen(false);
+		variables.SetOpen(false);
 		ai.SetOpen(false);
 	}
 	// ⚠️ L ORDRE D AJOUT DECIDE DE L ORDRE DES ONGLETS dans une meme feuille de
 	//    dock : Hierarchie d abord (elle est seule a gauche), puis le centre,
 	//    puis l Inspecteur, puis le bas.
 	shell->AddPanel(&hierarchie);
+	shell->AddPanel(&variables); // second onglet de la feuille gauche, apres la Hierarchie
 	shell->AddPanel(&preview);
 	shell->AddPanel(&inspecteur);
 	shell->AddPanel(&ai);
