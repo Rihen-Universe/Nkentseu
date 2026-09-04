@@ -568,6 +568,34 @@ namespace nkuidesign {
 			}
 			return out | ((nkentseu::uint32)(al * 255.f + 0.5f) & 0xFFu);
 		}
+		/// AJOUTER UN ARRET EN `t` : sa couleur et son opacite sont celles que le
+		/// degrade a DEJA a cet endroit -- l'arret nait invisible, et c'est le
+		/// geste suivant qui le colore. Rend son indice, ou -1 si la liste est
+		/// pleine.
+		///
+		/// 🔑 UNE SEULE FONCTION POUR DEUX GESTES : le clic sur la barre du
+		///    popover et (quand la toile viendra) le clic sur le SEGMENT du
+		///    degrade, que Rodolf a etabli le 04/09. Deux copies auraient
+		///    diverge au premier ajustement.
+		inline nkentseu::int32 NkAjouterArretDegrade(NkDegrade &g, nkentseu::float32 t,
+													 nkentseu::uint32 maxArrets = 32u) {
+			if ((nkentseu::uint32)g.arrets.Size() >= maxArrets)
+				return -1;
+			if (t < 0.f)
+				t = 0.f;
+			if (t > 1.f)
+				t = 1.f;
+			const nkentseu::uint32 c = NkCouleurDegradeEn(g, t);
+			char hx[12];
+			snprintf(hx, sizeof(hx), "#%02x%02x%02x", (nkentseu::uint32)((c >> 24) & 0xFFu),
+					 (nkentseu::uint32)((c >> 16) & 0xFFu), (nkentseu::uint32)((c >> 8) & 0xFFu));
+			NkArretDegrade ar;
+			ar.position = t;
+			ar.couleur = NkString(hx);
+			ar.opacite = g.Actif() ? (nkentseu::float32)(c & 0xFFu) * 100.f / 255.f : 100.f;
+			g.arrets.PushBack(ar);
+			return (nkentseu::int32)g.arrets.Size() - 1;
+		}
 		/// LE NOMBRE DE BANDES SUIT LA TAILLE DESSINEE : 24 bandes suffisent pour
 		/// une pastille, pas pour un fond de 800 px. Une bande par 2 px, bornee.
 		inline nkentseu::int32 NkBandesDegrade(nkentseu::float32 etendue) {

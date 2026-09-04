@@ -4627,6 +4627,34 @@ namespace nkuidesign {
 					  ecartRelu, det);
 			}
 		}
+		// ── 59. AJOUTER UN ARRET : UNE FONCTION, ET RIEN NE SAUTE ────────────
+		{
+			NkDegrade g;
+			NkArretDegrade a0, a1;
+			a0.position = 0.f;
+			a0.couleur = NkString("#000000");
+			a1.position = 1.f;
+			a1.couleur = NkString("#ffffff");
+			g.arrets.PushBack(a0);
+			g.arrets.PushBack(a1);
+			const uint32 avant = renderdetail::NkCouleurDegradeEn(g, 0.25f);
+			const int32 idx = renderdetail::NkAjouterArretDegrade(g, 0.25f, 12u);
+			const uint32 apres = renderdetail::NkCouleurDegradeEn(g, 0.25f);
+			// et ailleurs non plus, rien ne bouge
+			const uint32 ailleurs = renderdetail::NkCouleurDegradeEn(g, 0.75f);
+			// le plafond est respecte
+			for (uint32 k = 0; k < 20u; ++k)
+				renderdetail::NkAjouterArretDegrade(g, 0.5f, 12u);
+			const uint32 nb = (uint32)g.arrets.Size();
+			char det[240];
+			snprintf(det, sizeof(det), "arret ajoute en %d ; couleur en 0.25 : %08X -> %08X ; en 0.75 : %08X ; "
+									   "plafond 12 -> %u arrets",
+					 idx, avant, apres, ailleurs, nb);
+			check("59. AJOUTER UN ARRET (la fonction que la barre ET, demain, le segment de la toile "
+				  "appellent) : il nait a la couleur qu'avait le degrade ICI -- l'image ne saute pas -- et "
+				  "le plafond tient",
+				  idx == 2 && avant == apres && ailleurs == 0xBFBFBFFFu && nb == 12u, det);
+		}
 		snprintf(tail, sizeof(tail), "\n=== RESULTAT : %d / %d ===\n", pass, total);
 		rep.Append(tail);
 

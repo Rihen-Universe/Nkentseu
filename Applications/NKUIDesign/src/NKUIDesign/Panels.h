@@ -12531,18 +12531,13 @@ namespace nkuidesign {
 									pos = 0.f;
 								if (pos > 1.f)
 									pos = 1.f;
-								if ((uint32)g.arrets.Size() < (uint32)kMaxArretsUI) {
-									const uint32 c = renderdetail::NkCouleurDegradeEn(g, pos);
-									char hx[12];
-									snprintf(hx, sizeof(hx), "#%02x%02x%02x", (uint32)((c >> 24) & 0xFFu),
-											 (uint32)((c >> 16) & 0xFFu), (uint32)((c >> 8) & 0xFFu));
-									NkArretDegrade ar;
-									ar.position = pos;
-									ar.couleur = NkString(hx);
-									ar.opacite = (float32)(c & 0xFFu) * 100.f / 255.f;
-									g.arrets.PushBack(ar);
+								// LA fonction partagee : le clic sur la barre et (a venir) le
+								// clic sur le segment de la toile appellent la MEME.
+								const int32 ajoute =
+									renderdetail::NkAjouterArretDegrade(g, pos, (uint32)kMaxArretsUI);
+								if (ajoute >= 0) {
 									mArretFill = (int32)i;
-									mArretSel = (int32)g.arrets.Size() - 1;
+									mArretSel = ajoute;
 									mSt->doc.MarkHumanEdit(mSt->selected);
 									mSt->host.SyncTo(mSt->doc);
 								} else
@@ -12584,16 +12579,8 @@ namespace nkuidesign {
 									if (b2 == 0u)
 										for (uint32 ai = 0; ai < (uint32)g.arrets.Size(); ++ai)
 											g.arrets[ai].position = 1.f - g.arrets[ai].position;
-									else if ((uint32)g.arrets.Size() < (uint32)kMaxArretsUI) {
-										NkArretDegrade ar;
-										ar.position = 0.5f;
-										const uint32 c = renderdetail::NkCouleurDegradeEn(g, 0.5f);
-										char hx[12];
-										snprintf(hx, sizeof(hx), "#%02x%02x%02x", (uint32)((c >> 24) & 0xFFu),
-												 (uint32)((c >> 16) & 0xFFu), (uint32)((c >> 8) & 0xFFu));
-										ar.couleur = NkString(hx);
-										g.arrets.PushBack(ar);
-									}
+									else
+										renderdetail::NkAjouterArretDegrade(g, 0.5f, (uint32)kMaxArretsUI);
 									mSt->doc.MarkHumanEdit(mSt->selected);
 									mSt->host.SyncTo(mSt->doc);
 								} else if (sv2)
