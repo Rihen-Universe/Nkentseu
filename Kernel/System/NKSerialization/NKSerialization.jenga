@@ -90,6 +90,10 @@ with project("NKSerialization"):
         with test("ReflectPhase5"):
             testfiles(["tests/test_reflect_phase5.cpp"])
             testownmain()
+            # NkMathReflect.h (NKReflection) inclut NKMath/NkVec.h que NKSerialization ne depend pas : le
+            # test le dit, la sous-suite l ajoute (2026-09-04).
+            includedirs(["../../Foundation/NKMath/src"])  # relatif au projet : %{X.location} ne se resout pas dans une sous-suite (mesure)
+            links(["NKMath"])
         with test("ReflectObjContainer"):
             testfiles(["tests/test_reflect_objcontainer.cpp"])
             testownmain()
