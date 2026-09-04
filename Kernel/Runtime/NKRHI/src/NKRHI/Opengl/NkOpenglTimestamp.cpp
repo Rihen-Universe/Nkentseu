@@ -7,11 +7,15 @@
 // n'ecrivait NkRendererStats::gpuTimeMs -- le HUD affichait « GPU: 0.00ms »
 // depuis toujours : un instrument qui n'existe pas rend un faux.
 //
-// ICI : glQueryCounter(GL_TIMESTAMP) au debut et a la fin de la frame, dans un
-// anneau de kTsRing frames ; la lecture rend la frame la plus ancienne dont les
-// deux resultats sont DISPONIBLES (GL_QUERY_RESULT_AVAILABLE), sans jamais
-// bloquer le CPU. Sans glQueryCounter (WebGL2, GLES 3.0), on le dit une fois et
-// on rend faux -> le HUD affiche « -- ».
+// ICI : glQueryCounter(GL_TIMESTAMP) au debut et a la fin, dans un anneau de
+// kTsRing frames, pour DEUX chronos : index 0 = la frame entiere, index 1 = la
+// seule passe VFX. La lecture rend la frame la plus ancienne dont les deux
+// resultats sont DISPONIBLES (GL_QUERY_RESULT_AVAILABLE), sans jamais bloquer.
+// ATTENTION, lecture honnete : un horodatage GPU mesure le temps ENTRE deux
+// marqueurs sur la file GPU -- si le CPU met 600 ms a emettre les commandes
+// entre les deux, le GPU attend, et l'attente est comptee. Le chrono 1, pose
+// juste autour des appels de dessin des particules, isole le dessin.
+// Sans glQueryCounter (WebGL2, GLES 3.0) : dit une fois, rend faux -> « -- ».
 // =============================================================================
 #include "NkOpenglDevice.h" // inclut <glad/gl.h>
 #include <cstdio>
@@ -19,7 +23,8 @@
 namespace nkentseu {
 
 	void NkOpenGLDevice::BeginTimestampQuery(uint32 index) {
-		(void)index; // un seul chrono : la frame entiere
+		if (index >= kTsIdx)
+			return;
 		if (!glad_glQueryCounter || !glad_glGetQueryObjectui64v || !glad_glGenQueries) {
 			if (!mTsAbsentDit) {
 				mTsAbsentDit = true;
@@ -27,42 +32,52 @@ namespace nkentseu {
 			}
 			return;
 		}
-		if (mTsQuery[mTsSlot][0] == 0)
-			glGenQueries(2, mTsQuery[mTsSlot]);
-		glQueryCounter(mTsQuery[mTsSlot][0], GL_TIMESTAMP);
+		const uint32 s = mTsSlot[index];
+		if (mTsQuery[index][s][0] == 0)
+			glGenQueries(2, mTsQuery[index][s]);
+		glQueryCounter(mTsQuery[index][s][0], GL_TIMESTAMP);
 	}
 
 	void NkOpenGLDevice::EndTimestampQuery(uint32 index) {
-		(void)index;
-		if (!glad_glQueryCounter || mTsQuery[mTsSlot][0] == 0)
+		if (index >= kTsIdx || !glad_glQueryCounter)
 			return;
-		glQueryCounter(mTsQuery[mTsSlot][1], GL_TIMESTAMP);
-		mTsIssued[mTsSlot] = true;
-		mTsSlot = (mTsSlot + 1) % kTsRing;
+		const uint32 s = mTsSlot[index];
+		if (mTsQuery[index][s][0] == 0)
+			return;
+		glQueryCounter(mTsQuery[index][s][1], GL_TIMESTAMP);
+		mTsIssued[index][s] = true;
+		mTsSlot[index] = (s + 1) % kTsRing;
 	}
 
+	// outNs : [debut0, fin0] pour count >= 2, puis [debut1, fin1] pour count >= 4
+	// (zeros si le chrono 1 n'a rien de disponible). Rend vrai si le chrono 0 a repondu.
 	bool NkOpenGLDevice::GetTimestampResults(uint64 *outNs, uint32 count) {
 		if (!outNs || count < 2 || !glad_glGetQueryObjectui64v)
 			return false;
-		// La plus ancienne frame emise : celle qui suit le slot courant dans l'anneau.
-		for (uint32 k = 1; k <= kTsRing; ++k) {
-			const uint32 s = (mTsSlot + k) % kTsRing;
-			if (!mTsIssued[s])
-				continue;
-			GLuint64 avail0 = 0, avail1 = 0;
-			glGetQueryObjectui64v(mTsQuery[s][0], GL_QUERY_RESULT_AVAILABLE, &avail0);
-			glGetQueryObjectui64v(mTsQuery[s][1], GL_QUERY_RESULT_AVAILABLE, &avail1);
-			if (!avail0 || !avail1)
-				continue; // pas encore : on ne bloque pas, on reessaiera a la frame suivante
-			GLuint64 t0 = 0, t1 = 0;
-			glGetQueryObjectui64v(mTsQuery[s][0], GL_QUERY_RESULT, &t0);
-			glGetQueryObjectui64v(mTsQuery[s][1], GL_QUERY_RESULT, &t1);
-			mTsIssued[s] = false;
-			outNs[0] = (uint64)t0;
-			outNs[1] = (uint64)t1;
-			return true;
+		bool ok0 = false;
+		for (uint32 idx = 0; idx < kTsIdx && (idx == 0 || count >= 4); ++idx) {
+			outNs[idx * 2] = outNs[idx * 2 + 1] = 0;
+			for (uint32 k = 1; k <= kTsRing; ++k) {
+				const uint32 s = (mTsSlot[idx] + k) % kTsRing;
+				if (!mTsIssued[idx][s])
+					continue;
+				GLuint64 avail0 = 0, avail1 = 0;
+				glGetQueryObjectui64v(mTsQuery[idx][s][0], GL_QUERY_RESULT_AVAILABLE, &avail0);
+				glGetQueryObjectui64v(mTsQuery[idx][s][1], GL_QUERY_RESULT_AVAILABLE, &avail1);
+				if (!avail0 || !avail1)
+					continue; // pas encore : on ne bloque pas
+				GLuint64 t0 = 0, t1 = 0;
+				glGetQueryObjectui64v(mTsQuery[idx][s][0], GL_QUERY_RESULT, &t0);
+				glGetQueryObjectui64v(mTsQuery[idx][s][1], GL_QUERY_RESULT, &t1);
+				mTsIssued[idx][s] = false;
+				outNs[idx * 2] = (uint64)t0;
+				outNs[idx * 2 + 1] = (uint64)t1;
+				if (idx == 0)
+					ok0 = true;
+				break;
+			}
 		}
-		return false;
+		return ok0;
 	}
 
 } // namespace nkentseu

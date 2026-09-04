@@ -669,6 +669,8 @@ namespace nkentseu {
 				uint32 shadowCasters = 0;
 				float32 gpuTimeMs = 0.f;
 				bool gpuTimeValid = false; // faux tant qu'aucune requete GPU n'a repondu : le HUD dit « -- », pas 0.00 (2026-09-04)
+				float32 gpuVfxMs = 0.f; // la seule passe VFX, entre ses deux marqueurs (chrono 1)
+				bool gpuVfxValid = false;
 				float32 cpuTimeMs = 0.f;
 				float32 cullTimeMs = 0.f;
 				float32 shadowTimeMs = 0.f;

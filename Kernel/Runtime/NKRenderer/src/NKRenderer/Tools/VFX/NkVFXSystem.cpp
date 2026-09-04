@@ -13,6 +13,7 @@
 #include <cmath>
 #include <cstdlib>
 #include <cstring>
+#include "NKTime/NkChrono.h" // les chronos de la mesure (2026-09-04) -- en DERNIER : son namespace `time` masquerait time(nullptr) de NkRandom.h
 
 namespace nkentseu {
 	namespace renderer {
@@ -170,6 +171,9 @@ namespace nkentseu {
 			e->id = {mNextId++};
 			e->desc = desc;
 			e->particles.Resize(desc.maxParticles);
+			e->freeSlots.Reserve(desc.maxParticles);
+			for (uint32 i = desc.maxParticles; i > 0; --i)
+				e->freeSlots.PushBack(i - 1); // l'emplacement 0 sort en premier
 			e->enabled = true;
 			e->spawnAccum = 0.f;
 
@@ -243,9 +247,14 @@ namespace nkentseu {
 		}
 
 		void NkVFXSystem::SpawnParticle(Emitter *e) {
-			// Trouver un slot libre
-			for (auto &p : e->particles) {
-				if (!p.alive) {
+			// L'emplacement libre vient de la pile, en O(1) -- plus de balayage.
+			if (e->freeSlots.Empty())
+				return;
+			const uint32 slot = e->freeSlots.Back();
+			e->freeSlots.PopBack();
+			{
+				Particle &p = e->particles[slot];
+				{
 					p.alive = true;
 					p.maxLife = NkRandRange(e->desc.lifeMin, e->desc.lifeMax);
 					p.life = p.maxLife;
@@ -288,7 +297,6 @@ namespace nkentseu {
 					}
 					p.vel = {d.x * spd, d.y * spd, d.z * spd};
 					e->aliveCount++;
-					return;
 				}
 			}
 		}
@@ -296,6 +304,9 @@ namespace nkentseu {
 		// ── Update ────────────────────────────────────────────────────────────────
 		void NkVFXSystem::Update(float32 dt, const NkCamera3DData &cam) {
 			mTotalParticles = 0;
+			mProfile = NkVFXProfile{}; // la mesure repart a chaque image
+			mProfile = NkVFXProfile{}; // la mesure repart a chaque image
+			mProfile = NkVFXProfile{}; // la mesure repart a chaque image
 			for (auto *e : mEmitters) {
 				UpdateEmitter(e, dt, cam);
 				mTotalParticles += e->aliveCount;
@@ -315,14 +326,17 @@ namespace nkentseu {
 
 		void NkVFXSystem::UpdateEmitter(Emitter *e, float32 dt, const NkCamera3DData &cam) {
 			// Spawn
+			const int64 t0 = ::nkentseu::NkChrono::Now().nanoseconds;
 			if (e->enabled && e->desc.ratePerSec > 0.f) {
 				e->spawnAccum += e->desc.ratePerSec * dt;
 				while (e->spawnAccum >= 1.f) {
 					SpawnParticle(e);
+					++mProfile.spawned;
 					e->spawnAccum -= 1.f;
 				}
 			}
-
+			const int64 t1 = ::nkentseu::NkChrono::Now().nanoseconds;
+			mProfile.spawnMs += (float32)((t1 - t0) / 1.0e6);
 			e->aliveCount = 0;
 			// Simuler particules actives
 			for (auto &p : e->particles) {
@@ -331,6 +345,7 @@ namespace nkentseu {
 				p.life -= dt;
 				if (p.life <= 0.f) {
 					p.alive = false;
+					e->freeSlots.PushBack((uint32)(&p - e->particles.Data())); // l'emplacement redevient libre
 					continue;
 				}
 
@@ -354,11 +369,15 @@ namespace nkentseu {
 				e->aliveCount++;
 			}
 
+			const int64 t2 = ::nkentseu::NkChrono::Now().nanoseconds;
+			mProfile.simMs += (float32)((t2 - t1) / 1.0e6);
+			mProfile.alive += e->aliveCount;
 			// Upload billboard VBO
 			if (e->aliveCount == 0 || !e->vbo.IsValid())
 				return;
 
-			NkVector<NkVertexParticle> verts;
+			NkVector<NkVertexParticle> &verts = mScratchVerts; // reutilise : plus de 9,6 Mo par image
+			verts.Clear();
 			verts.Reserve(e->aliveCount * 6);
 			for (auto &p : e->particles) {
 				if (!p.alive)
@@ -381,7 +400,12 @@ namespace nkentseu {
 					verts.PushBack(v);
 				}
 			}
+			const int64 t3 = ::nkentseu::NkChrono::Now().nanoseconds;
+			mProfile.buildMs += (float32)((t3 - t2) / 1.0e6);
 			mDevice->WriteBuffer(e->vbo, verts.Data(), (uint32)verts.Size() * sizeof(NkVertexParticle));
+			const int64 t4 = ::nkentseu::NkChrono::Now().nanoseconds;
+			mProfile.uploadMs += (float32)((t4 - t3) / 1.0e6);
+			mProfile.uploadBytes += (uint32)verts.Size() * (uint32)sizeof(NkVertexParticle);
 		}
 
 		// ── Trails ────────────────────────────────────────────────────────────────
@@ -529,11 +553,13 @@ namespace nkentseu {
 
 		void NkVFXSystem::RenderEmitter(NkICommandBuffer *cmd, Emitter *e, const NkCamera3DData &cam) {
 			(void)cam;
+			const int64 t0 = ::nkentseu::NkChrono::Now().nanoseconds;
 			cmd->BindGraphicsPipeline(PipelineFor(e->desc.blend)); // le melange DECLARE est celui qui rend
 			if (e->texSet.IsValid())
 				cmd->BindDescriptorSet(e->texSet, 0); // la texture DECLAREE (ou le repli dit)
 			cmd->BindVertexBuffer(0, e->vbo, 0);
 			cmd->Draw(e->aliveCount * 6, 1, 0, 0); // six sommets = deux triangles
+			mProfile.drawMs += (float32)((::nkentseu::NkChrono::Now().nanoseconds - t0) / 1.0e6);
 		}
 
 		void NkVFXSystem::RenderTrail(NkICommandBuffer *cmd, Trail *t, const NkCamera3DData &cam) {
