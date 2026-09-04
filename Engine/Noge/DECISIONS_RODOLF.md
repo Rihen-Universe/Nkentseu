@@ -1523,6 +1523,7 @@ Liste, un module par commit, mise à jour à chaque ajout :
 - `NKSerialization_ReflectPhase3_Tests` — All tests passed for NKSerialization_ReflectPhase3_Tests. (`testownmain()`, Jenga 2.6.1 ; build+run 33 s)
 - `NKSerialization_ReflectObjContainer_Tests` — All tests passed for NKSerialization_ReflectObjContainer_Tests. (`testownmain()`, Jenga 2.6.1 ; build+run 32 s)
 - `NKSerialization_Bench_Tests` — All tests passed for NKSerialization_Bench_Tests. (`testownmain()`, Jenga 2.6.1 ; build+run 34 s)
+- `NKECS_ReflectBridge_Tests` — All tests passed for NKECS_ReflectBridge_Tests. (`testownmain()`, Jenga 2.6.1 ; build+run 38 s)
 **Défaut nommé, pas corrigé ici** : les exécutables de test (et les applis) sont liés **dynamiquement** à
 `libstdc++-6.dll`/`libgcc_s_seh-1.dll`/`libwinpthread-1.dll` malgré `config/toolchain.jenga:92-94`
 (`-static-libgcc -static-libstdc++ -static`), et le runner de `jenga test` ne pose pas le `PATH` de la
