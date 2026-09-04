@@ -2262,6 +2262,10 @@ static NkTexHandle CreateLanternCubeCookie(NkTextureLibrary *texLib, NkIDevice *
 						const uint32 n = (uint32)std::atoi(cnt);
 						d.maxParticles = n;
 						d.ratePerSec = (float32)n; // n vivantes en ~1 s, vie 1-2 s : regime etabli ~ n
+						if (const char *sz = std::getenv("NK_VFX_SIZE"); sz && sz[0]) { // taille bornee : mesurer sans surdessin
+							d.sizeStart = (float32)std::atof(sz);
+							d.sizeEnd = d.sizeStart;
+						}
 						d.lifeMin = 1.f;
 						d.lifeMax = 2.f;
 					}
@@ -4061,6 +4065,14 @@ static NkTexHandle CreateLanternCubeCookie(NkTextureLibrary *texLib, NkIDevice *
 							std::fprintf(stderr, "[VFX PROBE] frame %u : GPU %s ms  CPU %.3f ms  (chrono GPU %s)\n", (unsigned)ctx.frame,
 										ctx.renderer->GetStats().gpuTimeValid ? NkFormatMs(ctx.renderer->GetStats().gpuTimeMs) : "--", ctx.renderer->GetStats().cpuTimeMs,
 										ctx.renderer->GetStats().gpuTimeValid ? "mesure" : "ABSENT");
+						if ((ctx.frame % 30u) == 0u) {
+							const NkVFXSystem::NkVFXProfile &pr = vfx->Profile();
+							const NkRendererStats &st = ctx.renderer->GetStats();
+							std::fprintf(stderr,
+										 "[VFX PROFILE] frame %u : CPU naissance %.3f  integration %.3f  sommets %.3f  envoi %.3f (%u Ko)  commandes %.3f ms | GPU passe VFX %s ms | vivantes %u, nees %u\n",
+										 (unsigned)ctx.frame, pr.spawnMs, pr.simMs, pr.buildMs, pr.uploadMs, pr.uploadBytes / 1024u, pr.drawMs,
+										 st.gpuVfxValid ? NkFormatMs(st.gpuVfxMs) : "--", pr.alive, pr.spawned);
+						}
 					}
 			}
 

@@ -1,3 +1,4 @@
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // =============================================================================
 // NkOpenGLCommandBuffer.cpp
 // =============================================================================
@@ -21,6 +22,17 @@ namespace nkentseu {
 	extern void NkOpenglApplyDescSet(NkOpenGLDevice *dev, uint64 setId, const NkVector<uint32> &dynOff);
 
 	// =============================================================================
+	// Marqueur d'horodatage rejoue avec les commandes (2026-09-04) : pair = debut du
+	// chrono idx/2, impair = fin. C'est ici que le GPU dessine, donc ici qu'on mesure.
+	void NkOpenGLCommandBuffer::GL_WriteTimestamp(uint32 idx) {
+		if (!mDev)
+			return;
+		if (idx & 1u)
+			mDev->EndTimestampQuery(idx >> 1);
+		else
+			mDev->BeginTimestampQuery(idx >> 1);
+	}
+
 	void NkOpenGLCommandBuffer::Execute(NkOpenGLDevice *dev) {
 		mDev = dev;
 		for (auto &cmd : mCmds)

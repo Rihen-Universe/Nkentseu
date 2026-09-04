@@ -142,6 +142,17 @@ namespace nkentseu {
 				void Render(NkICommandBuffer *cmd, const NkCamera3DData &cam);
 
 				// ── Stats ──────────────────────────────────────────────────────────────
+				// LA MESURE (2026-09-04) : ou passent les millisecondes CPU d une image de
+				// particules -- naissance (recherche d un emplacement libre), integration
+				// (vie, vitesse, position, couleur), construction des sommets, envoi au GPU,
+				// emission des commandes. Quatre chiffres, pas une impression.
+				struct NkVFXProfile {
+						float32 spawnMs = 0.f, simMs = 0.f, buildMs = 0.f, uploadMs = 0.f, drawMs = 0.f;
+						uint32 alive = 0, spawned = 0, uploadBytes = 0;
+				};
+				const NkVFXProfile &Profile() const {
+					return mProfile;
+				}
 				uint32 GetActiveParticleCount() const {
 					return mTotalParticles;
 				}
@@ -168,6 +179,10 @@ namespace nkentseu {
 						NkBufferHandle vbo; // GPU billboard VBO
 						uint32 aliveCount = 0;
 						NkDescSetHandle texSet; // la texture de l'emetteur (ou le repli), binding 1 (2026-09-04)
+						// Pile des emplacements LIBRES (2026-09-04) : la naissance etait un balayage
+						// lineaire de `particles` a chaque particule nee -- mesure : 6 a 793 ms par
+						// image a 50 000, tout le reste (integration, sommets, envoi) sous 6 ms.
+						NkVector<uint32> freeSlots;
 				};
 
 				struct TrailPoint {
@@ -207,6 +222,8 @@ namespace nkentseu {
 				// Un layout {binding 1 : image+sampler} partage par les trois pipelines, un
 				// descripteur par emetteur, et un repli (disque doux blanc 32x32) DIT une fois.
 				NkDescSetHandle mTexLayout;
+				NkVFXProfile mProfile;
+				NkVector<NkVertexParticle> mScratchVerts; // tampon de sommets reutilise (9,6 Mo realloues par image a 50 000, avant)
 				NkTexHandle mFallbackTex;
 				NkPipelineHandle PipelineFor(NkBlendMode mode);
 				bool mBlendFallbackDit[8] = {};

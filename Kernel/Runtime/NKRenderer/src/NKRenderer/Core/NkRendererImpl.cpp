@@ -897,8 +897,11 @@ namespace nkentseu {
 						// le vertex shader lit uCam (CameraUBO, set=0) et en tire
 						// right/up. On passe donc une donnee neutre plutot que de
 						// stocker une camera que personne ne lirait.
-						if (mVFX)
+						if (mVFX) {
+							cmd->WriteTimestamp(2); // chrono 1 (passe VFX) : marqueurs ENREGISTRES, rejoues avec les dessins
 							mVFX->Render(cmd, NkCamera3DData{});
+							cmd->WriteTimestamp(3);
+						}
 					});
 			}
 
@@ -1505,16 +1508,20 @@ namespace nkentseu {
 		}
 
 		void NkRendererImpl::EndFrame() {
-			mDevice->EndTimestampQuery(0); // horodatage de fin, avant la cloture de la frame
-			mDevice->EndFrame(mFrameCtx);
+			mDevice->EndFrame(mFrameCtx); // relit le tampon de commandes : c'est LA que le GPU dessine
+			mDevice->EndTimestampQuery(0); // horodatage de fin APRES la relecture -- avant, il tombait avant les dessins et mesurait l'attente de la frame precedente
 			// Chrono GPU (2026-09-04) : le device rend les deux horodatages d'une frame
 			// DEJA terminee (une frame de latence, pas d'attente). Tant qu'aucun backend ne
 			// repond, gpuTimeValid reste faux et le HUD dit « -- ».
 			{
-				uint64 ns[2] = {0, 0};
-				if (mDevice->GetTimestampResults(ns, 2) && ns[1] >= ns[0]) {
+				uint64 ns[4] = {0, 0, 0, 0};
+				if (mDevice->GetTimestampResults(ns, 4) && ns[1] >= ns[0]) {
 					mStats.gpuTimeMs = (float32)((float64)(ns[1] - ns[0]) * (float64)mDevice->GetTimestampPeriodNs() / 1.0e6);
 					mStats.gpuTimeValid = true;
+					if (ns[3] >= ns[2] && ns[2] != 0) {
+						mStats.gpuVfxMs = (float32)((float64)(ns[3] - ns[2]) * (float64)mDevice->GetTimestampPeriodNs() / 1.0e6);
+						mStats.gpuVfxValid = true;
+					}
 				}
 			}
 			// ── LA FRAME EST COMPLETE : on fige ses statistiques ────────────

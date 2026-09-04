@@ -1591,6 +1591,47 @@ chaîne racine libérée 4,987 m** (rien d'autre ne retenait), coupée = trois r
 personne ne tombe. Une première contre-épreuve « coupée tombe » était fausse *par construction* :
 une racine dérivée est ancrée — le témoin devait libérer la racine, pas couper la chaîne.
 
+### 📏 04/09 (nuit) — PARTICULES : LA RÉPARTITION MESURÉE, puis la correction qu'elle désignait
+
+**Quatre chronos CPU** (`NkVFXSystem::Profile()`, par image) sur 50 000 particules, AVANT :
+naissance **6 → 793 ms** · intégration 0,9 · sommets 3,7 · envoi 0,9 (8,3 Mo) · commandes 0,0.
+**Tout était dans la naissance** : `SpawnParticle` balayait le tableau depuis le début pour trouver un
+emplacement libre — O(N) par particule née, O(N²) par image. Correction : une **pile d'emplacements
+libres** (O(1)), et le tableau de sommets réalloué chaque image (9,6 Mo) devenu tampon réutilisé.
+APRÈS, même courbe (640×480, images 150/180, GPU partagé avec Ilyana 48–94 %) :
+
+| particules | CPU frame | naissance | intégration | sommets | envoi | GPU frame | GPU passe VFX |
+|---|---|---|---|---|---|---|---|
+| 0 | 6,8 ms | — | — | — | — | 6,9–8,2 | — |
+| 500 | 6,8 | 0,004 | 0,012 | 0,03 | 0,01 (92 Ko) | 3,6–7,0 | **0,008** |
+| 5 000 | 6,8 | 0,009 | 0,13–0,20 | 0,64–0,72 | 0,10–0,18 (0,9 Mo) | 6,9–7,1 | **0,015** |
+| 50 000 (0,02 m) | **10,4–12,4** | 0,12–0,28 | 0,85–1,27 | **3,8–4,2** | 1,2–1,8 (9,3 Mo) | 10,5–12,3 | **0,085–0,090** |
+| 50 000 (0,25 m) | 9,3–10,0 | 0,16–0,20 | 1,0–1,1 | 3,5–4,5 | 1,0–1,5 | 9,1–10,3 | **0,36–0,37** |
+
+Lecture : **50 000 tiennent 10–12 ms** (contre 20–940 ms avant) ; le dessin GPU des particules vaut
+**moins de 0,4 ms** même à 0,25 m (surdessin ×4, pas ×100) ; la frame GPU suit le CPU parce que le GPU
+attend le CPU. Le prochain poste est **sommets 4 ms + envoi 1,5 ms** : l'expansion du quad sur le GPU
+(un enregistrement de 32 o par particule, instancié, le coin tiré de `gl_VertexID`) les divise par six.
+
+**Deux instruments corrigés en mesurant** : (1) le chrono de frame posait sa fin *avant* la relecture
+du tampon de commandes — il mesurait l'attente de la frame précédente, pas les dessins ; fin déplacée
+après `EndFrame`. (2) `NkOpenGLCommandBuffer::WriteTimestamp(idx)` appelait `glQueryCounter(idx, …)`
+avec `idx` comme **nom d'objet GL jamais alloué** — déclaré, pas livré ; il enregistre maintenant un
+marqueur rejoué avec les commandes (pair = début, impair = fin ; 2/3 = la passe VFX). Les « 364 ms »
+d'hier étaient une attente CPU comptée par un chrono mal placé — *un instrument mal posé rend un faux*.
+
+**C. La simulation sur GPU (compute) — nommée, pas faite sans Rodolf.** C'est l'étape Niagara : l'état
+des particules quitte le CPU (plus d'intégration, de sommets ni d'envoi par image — 0 Ko au lieu de
+9,3 Mo), le CPU ne pousse que les naissances. Chiffre visé : **1 000 000 de particules sous 16 ms**,
+là où le chemin CPU actuel plafonne vers 70–80 000 (10–12 ms pour 50 000, linéaire). Décision de
+conception : elle change **qui possède l'état** (le GPU), donc la lecture côté jeu (collisions, tri,
+requêtes) — à trancher avec lui.
+
+**Divergence à noter (pas à résoudre ici)** : `Applications/NKCode/NKCode.jenga` est au 14/08 dans cet
+arbre (`Nkentseu-noge`) et au 04/09 11:05 dans `Nkentseu` (master), où la l.345 porte un `-static` de
+projet ; ici c'est un commentaire Android. Règle gravée : une référence `fichier:ligne` porte l'arbre et
+le commit.
+
 ### ✨ 04/09 (soir) — PARTICULES, borne 2 : la TEXTURE rend, et le chrono GPU MESURE
 
 **A. La texture.** `NkEmitterDesc::texture` était déclarée et jamais lue. Un layout de descripteurs

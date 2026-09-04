@@ -200,9 +200,10 @@ namespace nkentseu {
 
 		private:
 			static constexpr uint32 kTsRing = 4;
-			uint32 mTsQuery[kTsRing][2] = {};
-			bool mTsIssued[kTsRing] = {};
-			uint32 mTsSlot = 0;
+			static constexpr uint32 kTsIdx = 2; // 0 = la frame, 1 = la passe VFX (2026-09-04)
+			uint32 mTsQuery[kTsIdx][kTsRing][2] = {};
+			bool mTsIssued[kTsIdx][kTsRing] = {};
+			uint32 mTsSlot[kTsIdx] = {};
 			bool mTsAbsentDit = false;
 			friend GLuint NkOpenglGetBufferID(NkOpenGLDevice *dev, uint64 id);
 			friend GLuint NkOpenglGetTextureID(NkOpenGLDevice *dev, uint64 id);
