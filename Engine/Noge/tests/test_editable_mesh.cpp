@@ -1,3 +1,4 @@
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // =============================================================================
 // Engine/Noge/tests/test_editable_mesh.cpp
 // =============================================================================
@@ -31,11 +32,13 @@ TEST_CASE(NogeEditableMesh, SingleTriangle) {
 	ASSERT_EQUAL(3, static_cast<int>(mesh.EdgeCount())); // triangle isolé : 3 demi-arêtes, aucun twin
 	ASSERT_EQUAL(3, static_cast<int>(mesh.Edit().FaceSize(f0)));
 
-	// Normale CCW autour de +Z pour un triangle dans le plan XY.
+	// Convention du moteur (NkEditMesh::NkEmFaceCross, cf. CONVENTION D'ORIENTATION
+	// dans NkEditableMesh.h) : ce triangle, trigonométrique vu de +Z, a une normale -Z —
+	// les sommets s'énumèrent dans l'ordre HORAIRE vus du côté de la normale.
 	const auto &face = mesh.Faces()[f0];
 	ASSERT_NEAR(0.0f, face.normal.x, 0.0001f);
 	ASSERT_NEAR(0.0f, face.normal.y, 0.0001f);
-	ASSERT_NEAR(1.0f, face.normal.z, 0.0001f);
+	ASSERT_NEAR(-1.0f, face.normal.z, 0.0001f);
 
 	// Bounds = boîte englobant les 3 sommets.
 	const auto &bounds = mesh.GetBounds();
@@ -133,12 +136,13 @@ TEST_CASE(NogeEditableMesh, RecalcNormalsSmooth) {
 	mesh.RecalcNormals(true);
 
 	// Les deux faces sont coplanaires (plan XY) : la normale moyenne au
-	// vertex partagé v0/v2 reste (0,0,1).
+	// vertex partagé v0/v2 reste (0,0,-1) — même signe que la face (convention
+	// horaire du moteur, cf. SingleTriangle).
 	const auto &verts = mesh.Vertices();
 	ASSERT_NEAR(0.0f, verts[v0].normal.x, 0.0001f);
 	ASSERT_NEAR(0.0f, verts[v0].normal.y, 0.0001f);
-	ASSERT_NEAR(1.0f, verts[v0].normal.z, 0.0001f);
-	ASSERT_NEAR(1.0f, verts[v2].normal.z, 0.0001f);
+	ASSERT_NEAR(-1.0f, verts[v0].normal.z, 0.0001f);
+	ASSERT_NEAR(-1.0f, verts[v2].normal.z, 0.0001f);
 }
 
 // -----------------------------------------------------------------------------
@@ -151,11 +155,11 @@ TEST_CASE(NogeEditableMesh, FlipNormals) {
 	const uint32 v2 = mesh.AddVertex({0.f, 1.f, 0.f});
 	mesh.AddTri(v0, v1, v2);
 
-	ASSERT_NEAR(1.0f, mesh.Faces()[0].normal.z, 0.0001f);
+	ASSERT_NEAR(-1.0f, mesh.Faces()[0].normal.z, 0.0001f); // convention horaire : -Z avant retournement
 
 	mesh.FlipNormals();
 
-	ASSERT_NEAR(-1.0f, mesh.Faces()[0].normal.z, 0.0001f);
+	ASSERT_NEAR(1.0f, mesh.Faces()[0].normal.z, 0.0001f); // +Z après
 	// Le premier sommet de la boucle de face reste inchangé (v0).
 	NkVector<uint32> fv;
 	mesh.Edit().GetFaceVerts(0, fv);
