@@ -9730,6 +9730,23 @@ namespace nkuidesign {
 	/// LES SIX TYPES DE REMPLISSAGE de Lunacy (capture du 04/09), dans son ordre.
 	/// Le format les porte tous (texte libre, inconnu preserve) ; le peintre ne
 	/// rend que le lineaire, et l'interface le dit.
+	/// ②-1 Les 18 modes de fusion de Lunacy : la cle CSS (`mix-blend-mode`) et le libelle.
+	static const char *const kNkFusionCle[18] = {"", "darken", "multiply", "plus-darker", "color-burn", "lighten",
+													"screen", "plus-lighter", "color-dodge", "overlay", "soft-light",
+													"hard-light", "difference", "exclusion", "hue", "saturation", "color",
+													"luminosity"};
+	static const char *const kNkFusionLib[18] = {"Normal", "Darken", "Multiply", "Plus Darker", "Color Burn", "Lighten",
+													"Screen", "Plus Lighter", "Color Dodge", "Overlay", "Soft Light",
+													"Hard Light", "Difference", "Exclusion", "Hue", "Saturation", "Color",
+													"Luminosity"};
+	inline nkentseu::int32 NkIndiceFusion(const char *cle) {
+		if (!cle || !*cle)
+			return 0;
+		for (nkentseu::int32 k = 1; k < 18; ++k)
+			if (NkComponentDecl::StrEq(cle, kNkFusionCle[k]))
+				return k;
+		return -1; // un mode nomme que cette liste ne connait pas : preserve, montre tel quel
+	}
 	static const char *const kNkTypesRemplissageCle[6] = {"", "lineaire", "radial", "angulaire",
 															  "losange", "image"};
 	static const char *const kNkTypesRemplissageLib[6] = {"Uni", "Linéaire", "Radial", "Angulaire",
@@ -10348,10 +10365,7 @@ namespace nkuidesign {
 				// reste du popover se peignait par-dessus. Son rectangle est connu d'ici :
 				// un clic qui y tombe est tranche AVANT tout widget (le selecteur, dessous,
 				// ne le prend pas) ; le dessin vient a la fin, sur la meme couche.
-				static const char *const kFusion[18] = {"Normal", "Darken", "Multiply", "Plus Darker", "Color Burn", "Lighten",
-															 "Screen", "Plus Lighter", "Color Dodge", "Overlay", "Soft Light",
-															 "Hard Light", "Difference", "Exclusion", "Hue", "Saturation", "Color",
-															 "Luminosity"};
+				const char *const *kFusion = kNkFusionLib;
 				const NkRect rMenuFusion = {x0, y + 26.f, x1 - x0, 9.f * 18.f + 4.f};
 				const NkRect rGoutte = {x0 + 156.f, y + 2.f, 18.f, 18.f};
 				int32 fusionChoix = -1;
@@ -10369,11 +10383,20 @@ namespace nkuidesign {
 					} else if (!NkGuiRectContains(rGoutte, ctx.input.mousePos))
 						mFusionMenuOuvert = false; // clic dehors : il se ferme, le clic agit ensuite
 				}
-				if (fusionChoix == 0)
-					mFusionMenuOuvert = false; // Normal, le seul operant
-				else if (fusionChoix > 0)
-					mSt->status = NkString("Ce mode de fusion est nommé (Lunacy en a 18), pas peint : le peintre ne "
-										   "sait rendre que Normal.");
+				if (fusionChoix >= 0) {
+					// ②-1 LE MODE SE CHOISIT : une propriete du document (exportee en CSS), meme
+					//    quand le peintre ne le rend pas encore -- et alors le pied le dit
+					f.fusion = fusionChoix == 0 ? NkString() : NkString(kNkFusionCle[fusionChoix]);
+					touche();
+					mFusionMenuOuvert = false;
+					if (fusionChoix > 0) {
+						char msgF[160];
+						snprintf(msgF, sizeof(msgF), "Mode de fusion « %s » enregistré (fichier, export) — pas encore peint : le peintre rend Normal.",
+								 kNkFusionLib[fusionChoix]);
+						mSt->status = NkString(msgF);
+					} else
+						mSt->status = NkString("Mode de fusion : Normal.");
+				}
 				// ── 1. LES SIX VIGNETTES (dessinées, sur UNE rangée), la goutte, la croix ──
 				// Rodolf : « des images de preset sur Uni, Linéaire, Radial, Angulaire,
 				// Losange, Image -- sans oublier la goutte ». Pas de texte, pas de glyphe :
@@ -10452,8 +10475,13 @@ namespace nkuidesign {
 						const nkgui::NkColor cg = (svG || mFusionMenuOuvert) ? ctx.theme.text : ctx.theme.textMuted;
 						dl.AddTriangleFilled({rg.x + 9.f, rg.y + 2.f}, {rg.x + 14.f, rg.y + 10.f}, {rg.x + 4.f, rg.y + 10.f}, cg);
 						dl.AddCircleFilled({rg.x + 9.f, rg.y + 11.f}, 5.f, cg);
-						if (svG)
-							mSt->status = NkString("Mode de fusion du remplissage : Normal — les 17 autres sont nommés, pas peints.");
+						if (svG) {
+							const int32 kf = NkIndiceFusion(f.fusion.Data());
+							char msgG[160];
+							snprintf(msgG, sizeof(msgG), "Mode de fusion : %s — les 18 se choisissent et s'enregistrent ; seul Normal est peint.",
+									 kf >= 0 ? kNkFusionLib[kf] : f.fusion.Data());
+							mSt->status = NkString(msgG);
+						}
 						if (svG && ctx.input.mouseClicked[0]) {
 							mFusionMenuOuvert = !mFusionMenuOuvert;
 							ctx.input.mouseClicked[0] = false;
@@ -10550,7 +10578,7 @@ namespace nkuidesign {
 						costume::Texte(dl, F.px9, rr.x + rr.w + 4.f, costume::CentrerY(F.px9, rr.y, 20.f), "°",
 									   ctx.theme.textMuted);
 					}
-					DessinerMenuFusion(ctx, rMenuFusion, kFusion);
+					DessinerMenuFusion(ctx, rMenuFusion, kFusion, NkIndiceFusion(f.fusion.Data()));
 					nkgui::EndPopup(ctx);
 					if (fermerPopover) {
 						d.ouvert = false;
@@ -10920,7 +10948,7 @@ namespace nkuidesign {
 						touche();
 					}
 				}
-				DessinerMenuFusion(ctx, rMenuFusion, kFusion); // ③ l'incrustation se peint en dernier
+				DessinerMenuFusion(ctx, rMenuFusion, kFusion, NkIndiceFusion(f.fusion.Data())); // ③ l'incrustation se peint en dernier
 				nkgui::EndPopup(ctx);
 				if (fermerPopover) { // la croix
 					d.ouvert = false;
@@ -10929,24 +10957,24 @@ namespace nkuidesign {
 			}
 			/// ③ Le menu des 18 modes de fusion, PEINT EN DERNIER dans la boite (sur deux
 			/// colonnes) ; ses clics sont tranches au debut du popover, pas ici.
-			void DessinerMenuFusion(NkGuiContext &ctx, const NkRect &rl, const char *const *kFusion) {
+			void DessinerMenuFusion(NkGuiContext &ctx, const NkRect &rl, const char *const *kFusion, int32 courant) {
 				if (!mFusionMenuOuvert)
 					return;
 				auto &dl = ctx.DL();
 				auto &F = costume::Fontes();
 				dl.AddRectFilled(rl, ctx.theme.panel, 4.f);
 				dl.AddRect(rl, ctx.theme.border, 1.f, 4.f);
+				// ②-1 LES 18 SE CHOISISSENT (aucun grise) : le courant en accent ; ceux que le
+				//     peintre ne rend pas se disent au pied quand on les choisit
 				for (uint32 k = 0; k < 18u; ++k) {
 					const NkRect rr = {rl.x + 2.f + (float32)(k / 9u) * (rl.w * 0.5f), rl.y + 2.f + (float32)(k % 9u) * 18.f,
 									   rl.w * 0.5f - 4.f, 18.f};
-					const bool operant = (k == 0u);
 					const bool svR = NkGuiRectContains(rr, ctx.input.mousePos);
-					if (svR && operant)
+					if (svR)
 						dl.AddRectFilled(rr, ctx.theme.rowHover, 3.f);
 					costume::Texte(dl, F.px9, rr.x + 5.f, costume::CentrerY(F.px9, rr.y, 18.f), kFusion[k],
-								   operant ? ctx.theme.accent : ctx.theme.textDisabled);
+								   (int32)k == courant ? ctx.theme.accent : ctx.theme.text);
 				}
-				costume::Texte(dl, F.px9, rl.x + 6.f, rl.y + rl.h - 14.f, "", ctx.theme.textMuted);
 			}
 
 			void OnUI(NkEditorFrameContext &ec) override {
@@ -13974,7 +14002,15 @@ namespace nkuidesign {
 						const nkgui::NkColor cr = res ? NkCouleurDepuisHex(res) : nkgui::NkColor{255, 0, 255, 255};
 						dl.AddRectFilled({sw.x + 1.f, sw.y + 1.f, sw.w - 2.f, sw.h - 2.f}, cr, 2.f);
 					}
-					const bool hexaEditable = !ligneImage && !(gApercu && gApercu->Actif()) && !NkEstReference(mFillsBuf[i]);
+					// ②-1 le mode de fusion se montre sur la ligne, apres le nom (« Linéaire · Multiply »)
+					char nomFusion[96];
+					if (!simple && i < (uint32)n->fills.Size() && !n->fills[i].fusion.Empty()) {
+						const int32 kf = NkIndiceFusion(n->fills[i].fusion.Data());
+						snprintf(nomFusion, sizeof(nomFusion), "%s \xC2\xB7 %s", nomLigne, kf >= 0 ? kNkFusionLib[kf] : n->fills[i].fusion.Data());
+						nomLigne = nomFusion;
+					}
+					const bool hexaEditable = !ligneImage && !(gApercu && gApercu->Actif()) && !NkEstReference(mFillsBuf[i])
+											  && (simple || i >= (uint32)n->fills.Size() || n->fills[i].fusion.Empty());
 					if (hexaEditable) {
 						// ② Lunacy : le code se tape sur la ligne aussi -- par la porte
 						char idHex[32];

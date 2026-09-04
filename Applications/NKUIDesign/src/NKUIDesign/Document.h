@@ -395,6 +395,11 @@ namespace nkuidesign {
 			NkString image;
 			NkString cadrage;
 			float32 rotationImage = 0.f;
+			/// ②-1 LE MODE DE FUSION (la goutte, 18 modes) : la cle CSS `mix-blend-mode`
+			///    (« multiply », « screen »...) telle que Lunacy l'exporte ; vide = normal.
+			///    Une propriete du document, ecrite et relue, montree sur la ligne --
+			///    peinte quand le peintre le sait, dite sinon. Texte libre, inconnu preserve.
+			NkString fusion;
 			NkString inconnus; ///< jetons non compris de la ligne `fond_`, reemis tels quels
 			bool EstImage() const {
 				return NkComponentDecl::StrEq(genre.Data(), "image");
@@ -737,10 +742,13 @@ namespace nkuidesign {
 				|| !NkComponentDecl::StrEq(x.genre.Data(), y.genre.Data())
 				|| !NkComponentDecl::StrEq(x.image.Data(), y.image.Data())
 				|| !NkComponentDecl::StrEq(x.cadrage.Data(), y.cadrage.Data())
-				|| x.rotationImage != y.rotationImage)
+				|| x.rotationImage != y.rotationImage
+				|| !NkComponentDecl::StrEq(x.fusion.Data(), y.fusion.Data()))
 				return false;
 			if (!NkComponentDecl::StrEq(x.degrade.type.Data(), y.degrade.type.Data())
 				|| x.degrade.angle != y.degrade.angle
+				|| x.degrade.origineX != y.degrade.origineX || x.degrade.origineY != y.degrade.origineY
+				|| x.degrade.rayonX != y.degrade.rayonX || x.degrade.rayonY != y.degrade.rayonY
 				|| x.degrade.arrets.Size() != y.degrade.arrets.Size())
 				return false;
 			for (uint32 k = 0; k < (uint32)x.degrade.arrets.Size(); ++k) {
@@ -2293,6 +2301,10 @@ namespace nkuidesign {
 							out.Append(" rotation_image=");
 							WriteNum(out, f.rotationImage);
 						}
+						if (!f.fusion.Empty()) {
+							out.Append(" fusion=");
+							out.Append(f.fusion);
+						}
 						if (!f.inconnus.Empty()) {
 							out.Append(' ');
 							out.Append(f.inconnus);
@@ -2983,6 +2995,8 @@ namespace nkuidesign {
 										f.image = NkString(mot + 6);
 									else if (StrStartsWith(mot, "rotation_image="))
 										f.rotationImage = ParseNum(mot + 15);
+									else if (StrStartsWith(mot, "fusion="))
+										f.fusion = NkString(mot + 7);
 									else {
 										if (!f.inconnus.Empty())
 											f.inconnus.Append(' ');

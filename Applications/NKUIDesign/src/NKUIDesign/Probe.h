@@ -5976,6 +5976,68 @@ namespace nkuidesign {
 						  "l'origine, la pastille de contour l'origine angulaire, un arret glisse sur le segment -- le noeud ne bouge jamais",
 						  rayonX && origine && contour && arret, det);
 				}
+				// 60q. ②-1 LES 18 MODES DE FUSION SE CHOISISSENT (Rodolf : « les elements de la goutte
+				// ne sont pas selectionnables ») : par le menu, « Multiply » s'ecrit dans le modele
+				// (`multiply`, la cle CSS), part au fichier (`fusion=multiply`), revient a la lecture,
+				// et « Normal » l'efface (rien au fichier). Le pied dit qu'il n'est pas peint.
+				{
+					stI.SelectSingle(rc);
+					stI.picker = DesignState::DemandePicker();
+					stI.picker.ouvert = true;
+					stI.picker.id = ctxI.GetId("##sonde.popover.fusion");
+					stI.picker.genre = 1u;
+					stI.picker.noeud = rc;
+					stI.picker.index = 0;
+					stI.picker.ancre = {360.f, 200.f, 16.f, 16.f};
+					auto image6 = [&](float32 mx, float32 my, bool bas) {
+						ctxI.input.mousePos = {mx, my};
+						ctxI.input.mouseDown[0] = bas;
+						ctxI.BeginFrame(0.016f);
+						ctxI.BeginLayout({340.f, 0.f, 260.f, 900.f});
+						insp.OnUI(ec);
+						NkDessinerPickerDemande(ctxI, stI);
+						ctxI.EndFrame();
+					};
+					image6(-1.f, -1.f, false);
+					image6(-1.f, -1.f, false);
+					float32 px = 1e9f, py = 1e9f;
+					for (uint32 i = 0; i < (uint32)ctxI.dlOverlay.vtx.Size(); ++i) {
+						if (ctxI.dlOverlay.vtx[i].pos.x < px) px = ctxI.dlOverlay.vtx[i].pos.x;
+						if (ctxI.dlOverlay.vtx[i].pos.y < py) py = ctxI.dlOverlay.vtx[i].pos.y;
+					}
+					const float32 x0 = px + 0.5f + 8.f, y0 = py + 0.5f + 8.f;
+					auto clic = [&](float32 x, float32 y) {
+						image6(x, y, false);
+						image6(x, y, true);
+						image6(x, y, false);
+						image6(-1.f, -1.f, false);
+					};
+					const float32 gx = x0 + 165.f, gy = y0 + 11.f, yMenu = y0 + 26.f;
+					clic(gx, gy);								// la goutte : le menu s'ouvre
+					clic(x0 + 20.f, yMenu + 2.f + 2.f * 18.f + 9.f); // colonne 0, ligne 2 : Multiply
+					const NkString m1 = stI.doc.nodes[(uint32)rc].fills[0].fusion;
+					const bool choisi = NkComponentDecl::StrEq(m1.Data(), "multiply");
+					const bool dit = stI.status.Data() && strstr(stI.status.Data(), "pas encore peint") != nullptr;
+					NkString s;
+					stI.doc.Save(s);
+					const bool ecrit = strstr(s.Data(), "fusion=multiply") != nullptr;
+					NkUIDocument relu;
+					const bool relus = relu.Load(s.Data()) && relu.IsValidIndex(rc) && !relu.nodes[(uint32)rc].fills.Empty()
+									   && NkComponentDecl::StrEq(relu.nodes[(uint32)rc].fills[0].fusion.Data(), "multiply");
+					clic(gx, gy);
+					clic(x0 + 20.f, yMenu + 2.f + 9.f); // Normal : efface
+					const bool efface = stI.doc.nodes[(uint32)rc].fills[0].fusion.Empty();
+					NkString s2;
+					stI.doc.Save(s2);
+					const bool rienNormal = strstr(s2.Data(), "fusion=") == nullptr;
+					stI.picker = DesignState::DemandePicker();
+					image6(-1.f, -1.f, false);
+					snprintf(det, sizeof(det), "Multiply choisi -> `%s` (dit au pied=%d) ; fichier `fusion=multiply`=%d ; relu=%d ; Normal -> efface=%d, rien au fichier=%d",
+							 m1.Data() ? m1.Data() : "", dit ? 1 : 0, ecrit ? 1 : 0, relus ? 1 : 0, efface ? 1 : 0, rienNormal ? 1 : 0);
+					check("60q. ②-1 LES 18 MODES DE FUSION SE CHOISISSENT : « Multiply » par le menu s'ecrit dans le modele (cle CSS), "
+						  "part au fichier et en revient, le pied dit qu'il n'est pas peint ; « Normal » l'efface, rien au fichier",
+						  choisi && dit && ecrit && relus && efface && rienNormal, det);
+				}
 				stI.picker = DesignState::DemandePicker();
 			}
 		}
