@@ -1445,6 +1445,12 @@ et `ApplyFKSkinning` la lisent). Ce n'est pas une seconde *structure*, c'est un 
 et un exemplaire peut diverger. La retirer, c'est faire passer le squelette à chaque consommateur
 du clip (NKRenderer, Noge, éditeur) — un lot à part, à trancher, pas à glisser dans celui-ci.
 
+### 🧪 04/09 (soir) — LES SUITES FOUNDATION LANCÉES À LA MAIN
+
+NKCore 9/9 · NKMath 8/8 · NKContainers 32/32 · NKMemory Tests : 28 réussis, 28 au total (un test faux suivi sur le contrat
+documenté de `NkPointerHashMap::Insert`) · NKPhysics 61/61. Mutation `NkRectT::Contains` → NKMath 7/8 :
+les suites mordent. Recette et table dans `echanges/noge.questions.md`. Toujours rien de branché.
+
 ### 🚦 04/09 (soir) — RÉOUVERTURE DES TESTS : Jenga n'a pas de forme par module
 
 Rodolf : « on suit ta recommandation », module par module. **Mesuré dans Jenga** : `dutc`/`dute` sont
