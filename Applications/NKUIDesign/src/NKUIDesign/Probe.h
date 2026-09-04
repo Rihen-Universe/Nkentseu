@@ -4763,6 +4763,27 @@ namespace nkuidesign {
 				check("60b. LE POPOVER D'UN DEGRADE (types, selecteur, hexa, barre, liste de trois arrets) dessine "
 					  "dans l'overlay, a GAUCHE de sa pastille, et reste dans l'ecran",
 					  stI.picker.ouvert && op > 300u && oxMin >= 0.f && oxMax <= 600.5f && oxMax <= 360.f, det);
+				// 60d. LE POPOVER TIENT DANS LA FENETRE : la pastille sur la DERNIERE ligne
+				// visible (Rodolf l'a vu coupe par le bas) -- il est remonte, et tous ses
+				// sommets restent dans la fenetre (600 x 900)
+				stI.picker = DesignState::DemandePicker();
+				stI.picker.ouvert = true;
+				stI.picker.id = ctxI.GetId("##sonde.popover.bas");
+				stI.picker.genre = 1u;
+				stI.picker.noeud = rc;
+				stI.picker.index = 1;
+				stI.picker.ancre = {360.f, 870.f, 16.f, 16.f};
+				image(260.f, true, xp, np, op);
+				image(260.f, true, xp, np, op);
+				float32 oyMin = 1e9f, oyMax = -1e9f;
+				for (uint32 i = 0; i < (uint32)ctxI.dlOverlay.vtx.Size(); ++i) {
+					if (ctxI.dlOverlay.vtx[i].pos.y < oyMin) oyMin = ctxI.dlOverlay.vtx[i].pos.y;
+					if (ctxI.dlOverlay.vtx[i].pos.y > oyMax) oyMax = ctxI.dlOverlay.vtx[i].pos.y;
+				}
+				snprintf(det, sizeof(det), "pastille a y=870 (fenetre 900) : popover y %.0f..%.0f, %u sommets", oyMin, oyMax, op);
+				check("60d. LE POPOVER TIENT DANS LA FENETRE : pastille sur la derniere ligne visible, le popover est "
+					  "REMONTE et tous ses sommets restent dans la fenetre -- la liste d'arrets et le + sont atteignables",
+					  op > 300u && oyMin >= 0.f && oyMax <= 900.5f, det);
 				// 60c. le popover de BORDURE (genre 2) : hexa, epaisseur, position, cotes,
 				// jointure, extremites -- dans l'overlay, a gauche, dans l'ecran
 				stI.picker = DesignState::DemandePicker();

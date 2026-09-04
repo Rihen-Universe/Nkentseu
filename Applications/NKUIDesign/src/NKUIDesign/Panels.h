@@ -9576,6 +9576,64 @@ namespace nkuidesign {
 		return g.type.Empty() ? kNkTypesRemplissageLib[1] : g.type.Data(); // inconnu : son mot
 	}
 	/// « #rrggbb » -> couleur ; illisible -> gris moyen (et NkHexLisible le dit).
+	/// RGB (0..255) <-> HSB (teinte 0..360, saturation et brillance 0..100) --
+	/// les deux modeles OPERANTS a cote de Hex ; les six autres (HSL, HWB, LCH,
+	/// LAB, OKLCH, OKLAB) sont nommes dans le menu, pas convertis.
+	inline void NkRgbVersHsb(nkentseu::float32 r, nkentseu::float32 g, nkentseu::float32 b,
+							 nkentseu::float32 &h, nkentseu::float32 &s, nkentseu::float32 &v) {
+		const nkentseu::float32 mx = r > g ? (r > b ? r : b) : (g > b ? g : b);
+		const nkentseu::float32 mn = r < g ? (r < b ? r : b) : (g < b ? g : b);
+		const nkentseu::float32 d = mx - mn;
+		v = mx / 255.f * 100.f;
+		s = mx > 0.f ? d / mx * 100.f : 0.f;
+		if (d <= 0.f)
+			h = 0.f;
+		else if (mx == r)
+			h = 60.f * ((g - b) / d);
+		else if (mx == g)
+			h = 60.f * (2.f + (b - r) / d);
+		else
+			h = 60.f * (4.f + (r - g) / d);
+		if (h < 0.f)
+			h += 360.f;
+	}
+	inline void NkHsbVersRgb(nkentseu::float32 h, nkentseu::float32 s, nkentseu::float32 v,
+							 nkentseu::float32 &r, nkentseu::float32 &g, nkentseu::float32 &b) {
+		while (h >= 360.f)
+			h -= 360.f;
+		while (h < 0.f)
+			h += 360.f;
+		const nkentseu::float32 S = s * 0.01f, V = v * 0.01f;
+		const nkentseu::float32 c = V * S;
+		const nkentseu::float32 hp = h / 60.f;
+		nkentseu::float32 hm = hp;
+		while (hm >= 2.f)
+			hm -= 2.f;
+		const nkentseu::float32 x = c * (1.f - (hm - 1.f < 0.f ? 1.f - hm : hm - 1.f));
+		nkentseu::float32 r1 = 0.f, g1 = 0.f, b1 = 0.f;
+		if (hp < 1.f) { r1 = c; g1 = x; }
+		else if (hp < 2.f) { r1 = x; g1 = c; }
+		else if (hp < 3.f) { g1 = c; b1 = x; }
+		else if (hp < 4.f) { g1 = x; b1 = c; }
+		else if (hp < 5.f) { r1 = x; b1 = c; }
+		else { r1 = c; b1 = x; }
+		const nkentseu::float32 m = V - c;
+		r = (r1 + m) * 255.f;
+		g = (g1 + m) * 255.f;
+		b = (b1 + m) * 255.f;
+	}
+	inline void NkRgbVersHex(nkentseu::float32 r, nkentseu::float32 g, nkentseu::float32 b, char *hex) {
+		static const char *const kHex = "0123456789abcdef";
+		const nkentseu::float32 v[3] = {r, g, b};
+		hex[0] = '#';
+		for (nkentseu::int32 k = 0; k < 3; ++k) {
+			nkentseu::float32 x = v[k] < 0.f ? 0.f : (v[k] > 255.f ? 255.f : v[k]);
+			const nkentseu::int32 o = (nkentseu::int32)(x + 0.5f);
+			hex[1 + k * 2] = kHex[(o >> 4) & 0xF];
+			hex[2 + k * 2] = kHex[o & 0xF];
+		}
+		hex[7] = '\0';
+	}
 	inline bool NkHexLisible(const char *hex) {
 		if (!hex || hex[0] != '#')
 			return false;
@@ -9765,8 +9823,8 @@ namespace nkuidesign {
 					snprintf(d.hex, sizeof(d.hex), "%s", b.couleur.Data() ? b.couleur.Data() : "");
 				}
 				const float32 pw = 236.f;
-				const float32 hPicker = 160.f + 16.f + 6.f * (ctx.ItemHeight() + ctx.layout.itemSpacingY);
-				const float32 ph = 8.f + hPicker + 26.f + 26.f + 26.f + 24.f + 24.f + 8.f;
+				const float32 hPicker = 160.f + 8.f; // ③ sans les six rangees
+				const float32 ph = 8.f + hPicker + 26.f + 26.f + 26.f + 48.f + 24.f + 24.f + 8.f;
 				const NkRect sw = d.ancre;
 				NkRect pr = {sw.x - pw - 8.f, sw.y - 8.f, pw, ph};
 				if (pr.x < 2.f)
@@ -9793,7 +9851,9 @@ namespace nkuidesign {
 					col[2] = (float32)c0.b / 255.f;
 					ctx.layout.cursor = {x0, y};
 					ctx.layout.lineStartX = x0;
-					if (nkgui::ColorPicker4(ctx, "##nkuidesign.popover.bord.pick", col, nkgui::NkGuiColorFlags::NoAlpha)) {
+					if (nkgui::ColorPicker4(ctx, "##nkuidesign.popover.bord.pick", col,
+											 (nkgui::NkGuiColorFlags)((nkentseu::uint32)nkgui::NkGuiColorFlags::NoAlpha
+																   | (nkentseu::uint32)nkgui::NkGuiColorFlags::NoInputs))) {
 						static const char *const kHex = "0123456789abcdef";
 						d.hex[0] = '#';
 						for (int32 k = 0; k < 3; ++k) {
@@ -9942,8 +10002,25 @@ namespace nkuidesign {
 				}
 				// ── LA BOÎTE ──────────────────────────────────────────────────────
 				const float32 pw = 236.f;
-				const float32 hTypes = 26.f, hPicker = 160.f + 16.f + 6.f * (ctx.ItemHeight() + ctx.layout.itemSpacingY);
-				const float32 hHex = 26.f;
+				// ② LA HAUTEUR SE CALCULE, elle ne s'estime pas : les rangees de types
+				//    mesurees comme au dessin, le selecteur sans ses six rangees (③), la
+				//    rangee modele, la barre, la liste. C'est ce qui permet de remonter
+				//    le popover quand il depasserait le bas -- une seule regle pour tous.
+				const float32 pwCalc = 236.f;
+				float32 hTypes = 26.f;
+				{
+					float32 xt = 8.f;
+					for (uint32 k = 0; k < 6u; ++k) {
+						const float32 lw = costume::Largeur(F.px9, kNkTypesRemplissageLib[k]) + 10.f;
+						if (xt + lw > pwCalc - 8.f && xt > 8.f) {
+							hTypes += 24.f;
+							xt = 8.f;
+						}
+						xt += lw + 3.f;
+					}
+				}
+				const float32 hPicker = 160.f + 8.f;
+				const float32 hHex = 26.f; // la rangee modele + valeurs (Hex ˅ / RGB / HSB)
 				const float32 hRampe = g.Actif() ? 26.f + 26.f * (float32)(g.arrets.Size() < 12u ? g.arrets.Size() : 12u) : 0.f;
 				const float32 ph = f.EstImage() ? 8.f + hTypes + 116.f + 26.f + 48.f + 26.f + 8.f
 												   : 8.f + hTypes + hPicker + hHex + hRampe + 8.f;
@@ -10078,7 +10155,9 @@ namespace nkuidesign {
 					col[2] = (float32)c0.b / 255.f;
 					ctx.layout.cursor = {x0, y};
 					ctx.layout.lineStartX = x0;
-					if (nkgui::ColorPicker4(ctx, "##nkuidesign.popover.pick", col, nkgui::NkGuiColorFlags::NoAlpha)) {
+					if (nkgui::ColorPicker4(ctx, "##nkuidesign.popover.pick", col,
+											 (nkgui::NkGuiColorFlags)((nkentseu::uint32)nkgui::NkGuiColorFlags::NoAlpha
+																   | (nkentseu::uint32)nkgui::NkGuiColorFlags::NoInputs))) {
 						static const char *const kHex = "0123456789abcdef";
 						d.hex[0] = '#';
 						for (int32 k = 0; k < 3; ++k) {
@@ -10097,13 +10176,56 @@ namespace nkuidesign {
 					}
 					y += hPicker;
 				}
-				// ── 3. HEXA + OPACITÉ (du remplissage, ou de l'arrêt courant) ─────
+				// ── 3. LE MODELE (Hex ˅) + UNE rangée de valeurs + l'opacité ──────
+				// Comme Lunacy : un menu du modèle, une seule rangée pour le modèle
+				// choisi. Hex par défaut ; RGB et HSB opérants ; six autres nommés.
 				{
-					const NkRect rh = {x0, y + 3.f, 80.f, costume::HControle};
-					ctx.SetNextItemRect(rh);
-					if (nkgui::InputText(ctx, "##nkuidesign.popover.hex", d.hex, 10) && NkHexLisible(d.hex)) {
-						couleurCourante = NkString(d.hex);
-						touche();
+					static const char *const kModeles[9] = {"Hex", "RGB", "HSB", "HSL", "HWB", "LCH", "LAB", "OKLCH", "OKLAB"};
+					const NkRect rm = {x0, y + 3.f, 46.f, costume::HControle};
+					const bool svM = NkGuiRectContains(rm, ctx.input.mousePos);
+					dl.AddRectFilled(rm, CouleurInput(), 4.f);
+					dl.AddRect(rm, (svM || mModeleMenuOuvert) ? ctx.theme.accent : ctx.theme.border, 1.f, 4.f);
+					costume::Texte(dl, F.px10, rm.x + 5.f, costume::CentrerY(F.px10, rm.y, 20.f), kModeles[mModeleCouleur],
+								   ctx.theme.text);
+					costume::ChevronCombo7(dl, rm.x + rm.w - 11.f, rm.y + 7.5f, ctx.theme.textMuted);
+					if (svM && ctx.input.mouseClicked[0]) {
+						mModeleMenuOuvert = !mModeleMenuOuvert;
+						ctx.input.mouseClicked[0] = false;
+					}
+					const nkgui::NkColor c0 = NkCouleurDepuisHex(d.hex);
+					float32 cr = (float32)c0.r, cg = (float32)c0.g, cb = (float32)c0.b;
+					bool change = false;
+					if (mModeleCouleur == 0) {
+						const NkRect rh = {rm.x + rm.w + 4.f, y + 3.f, 76.f, costume::HControle};
+						ctx.SetNextItemRect(rh);
+						if (nkgui::InputText(ctx, "##nkuidesign.popover.hex", d.hex, 10) && NkHexLisible(d.hex)) {
+							couleurCourante = NkString(d.hex);
+							touche();
+						}
+					} else {
+						float32 v3[3] = {cr, cg, cb};
+						if (mModeleCouleur == 2)
+							NkRgbVersHsb(cr, cg, cb, v3[0], v3[1], v3[2]);
+						static const char *const kIds[2][3] = {{"insp.pop.r", "insp.pop.g", "insp.pop.b"},
+																   {"insp.pop.h", "insp.pop.s", "insp.pop.v"}};
+						for (uint32 k = 0; k < 3u; ++k) {
+							const NkRect rv = {rm.x + rm.w + 4.f + (float32)k * 28.f, y + 3.f, 26.f, costume::HControle};
+							const float32 vmax = mModeleCouleur == 1 ? 255.f : (k == 0 ? 360.f : 100.f);
+							if (ChampNombre(ctx, kIds[mModeleCouleur - 1][k], rv, v3[k], 1.f, 0.f, vmax, true))
+								change = true;
+						}
+						if (change) {
+							if (mModeleCouleur == 2)
+								NkHsbVersRgb(v3[0], v3[1], v3[2], cr, cg, cb);
+							else {
+								cr = v3[0];
+								cg = v3[1];
+								cb = v3[2];
+							}
+							NkRgbVersHex(cr, cg, cb, d.hex);
+							couleurCourante = NkString(d.hex);
+							touche();
+						}
 					}
 					float32 &opRef = g.Actif() ? g.arrets[(uint32)d.arretSel].opacite : f.opacite;
 					const NkRect ro = {x1 - 40.f - 12.f, y + 3.f, 40.f, costume::HControle};
@@ -10114,6 +10236,33 @@ namespace nkuidesign {
 					}
 					costume::Texte(dl, F.px9, ro.x + ro.w + 3.f, costume::CentrerY(F.px9, ro.y, 20.f), "%",
 								   ctx.theme.textMuted);
+					// LE MENU DES MODELES, dessine DANS la boite (un clic dedans ne ferme pas le
+					// popover) ; les six derniers sont nommes, grises, avec la raison
+					if (mModeleMenuOuvert) {
+						const NkRect rl = {rm.x, rm.y - 9.f * 20.f - 4.f, 96.f, 9.f * 20.f + 4.f};
+						dl.AddRectFilled(rl, ctx.theme.panel, 4.f);
+						dl.AddRect(rl, ctx.theme.border, 1.f, 4.f);
+						for (uint32 k = 0; k < 9u; ++k) {
+							const NkRect rr = {rl.x + 2.f, rl.y + 2.f + (float32)k * 20.f, rl.w - 4.f, 20.f};
+							const bool operant = k < 3u;
+							const bool svR = NkGuiRectContains(rr, ctx.input.mousePos);
+							if (svR && operant)
+								dl.AddRectFilled(rr, ctx.theme.rowHover, 3.f);
+							costume::Texte(dl, F.px10, rr.x + 6.f, costume::CentrerY(F.px10, rr.y, 20.f), kModeles[k],
+										   operant ? ((int32)k == mModeleCouleur ? ctx.theme.accent : ctx.theme.text)
+												   : ctx.theme.textDisabled);
+							if (svR && ctx.input.mouseClicked[0]) {
+								ctx.input.mouseClicked[0] = false;
+								if (operant) {
+									mModeleCouleur = (int32)k;
+									mModeleMenuOuvert = false;
+								} else
+									mSt->status = NkString("Ce modèle de couleur est nommé (Lunacy en a neuf), pas encore converti : Hex, RGB et HSB le sont.");
+							}
+						}
+						if (ctx.input.mouseClicked[0] && !NkGuiRectContains(rl, ctx.input.mousePos) && !svM)
+							mModeleMenuOuvert = false;
+					}
 					y += hHex;
 				}
 				// ── 4. LA BARRE D'ARRÊTS et 5. LA LISTE ──────────────────────────
@@ -13904,6 +14053,8 @@ namespace nkuidesign {
 			char mArretsBuf[kMaxFillsUI][kMaxArretsUI][12] = {};
 			// L'ARRET COURANT et son glisser (la barre de la capture Lunacy)
 			int32 mArretFill = -1; ///< quel remplissage porte la selection
+			int32 mModeleCouleur = 0;   ///< 0 Hex, 1 RGB, 2 HSB (les autres : nommes)
+			bool mModeleMenuOuvert = false;
 			int32 mArretSel = 0;
 			int32 mArretDrag = -1;
 			int32 mEtatsNode = -1;
