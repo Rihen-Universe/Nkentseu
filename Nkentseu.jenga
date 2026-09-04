@@ -394,7 +394,7 @@ IDE auto-config (jenga ide-setup)
 
 
 
-Auteur : Rihen
+Auteur : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 
 Date   : 2026
 
@@ -448,9 +448,9 @@ with workspace("Nkentseu", location="."):
 
 
 
-    dutc(enable=True)
+    dutc(enable=True, allow=["NKCore_Tests"])  # reouverture module par module (2026-09-04, Rodolf : « on suit ta recommandation »)
 
-    dute(enable=True)
+    dute(enable=True, allow=["NKCore_Tests"])
 
 
 
