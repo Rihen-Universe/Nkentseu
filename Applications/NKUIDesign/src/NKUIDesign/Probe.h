@@ -5435,7 +5435,8 @@ namespace nkuidesign {
 						if (ctxI.dlOverlay.vtx[i].pos.y < py) py = ctxI.dlOverlay.vtx[i].pos.y;
 					}
 					const float32 x0 = px + 0.5f + 8.f;
-					const float32 yBarre = py + 0.5f + 8.f + 26.f + 168.f + 26.f; // apres types, selecteur, rangee modele
+					// apres types, selecteur, rangee modele, ET la rangee de la variable (§15.14, 05/09)
+					const float32 yBarre = py + 0.5f + 8.f + 26.f + 168.f + 26.f + 26.f;
 					const nkentseu::uint32 accent = nkgui::NkGuiPackColor(ctxI.theme.accent);
 					const nkentseu::uint32 encre = nkgui::NkGuiPackColor(ctxI.theme.text); // l'anneau de la pastille courante (rayon 6)
 					const nkentseu::uint32 boite = nkgui::NkGuiPackColor(
@@ -6807,6 +6808,305 @@ namespace nkuidesign {
 				  "l'enregistreur (le bon mode, un remplissage dessous), `overlay` et normal sans aucun -- et un remplissage "
 				  "invisible ne laisse pas de mode derriere lui",
 				  ok, det);
+		}
+		// ── 68. LA VARIABLE DANS L'INTERFACE (§15.14, lot du 05/09) : le bouton du selecteur
+		//    cree la variable et la couleur la reference ; le selecteur EDITE la variable
+		//    (tout ce qui la reference suit, la reference tient) ; « Detacher » rend le
+		//    litteral ; le modele compte / refuse / detache / supprime par UN visiteur ; deux
+		//    modes font l'aller-retour fichier et rendent differemment ; le rail Variables
+		//    renomme et garde la poubelle. Sans fenetre, comme la main : survol, appui, relache.
+		{
+			static nkgui::NkGuiContext ctxV;
+			char det[480];
+			if (!ctxV.Init(600, 900)) {
+				check("68. la variable dans l'interface", false, "Init a refuse");
+			} else {
+				static DesignState stV;
+				stV.doc.NewDocument("Toile", NkAuthor::Humain);
+				const int32 pg = stV.doc.AddChild(0, "", NkAuthor::Humain);
+				stV.doc.nodes[(uint32)pg].shape = NkString("frame");
+				stV.doc.nodes[(uint32)pg].layout.kind = NkLayoutKind::Free;
+				stV.doc.nodes[(uint32)pg].width.mode = NkSizeMode::Fixed;
+				stV.doc.nodes[(uint32)pg].width.value = 400.f;
+				stV.doc.nodes[(uint32)pg].height.mode = NkSizeMode::Fixed;
+				stV.doc.nodes[(uint32)pg].height.value = 300.f;
+				auto rectBleu = [&](float32 y) {
+					const int32 r = stV.doc.AddChild(pg, "", NkAuthor::Humain);
+					NkUINode &n = stV.doc.nodes[(uint32)r];
+					n.shape = NkString("rect");
+					n.posX = 10.f;
+					n.posY = y;
+					n.width.mode = NkSizeMode::Fixed;
+					n.width.value = 120.f;
+					n.height.mode = NkSizeMode::Fixed;
+					n.height.value = 40.f;
+					NkRemplissage f1;
+					f1.couleur = NkString("#1976d2");
+					n.fills.PushBack(f1);
+					return r;
+				};
+				const int32 rc = rectBleu(10.f);
+				const int32 rc2 = rectBleu(70.f);
+				stV.Recompute(NkPaintRect{0.f, 0.f, 600.f, 900.f});
+				stV.SelectSingle(rc);
+				static InspectorPanel inspV(&stV);
+				NkEditorFrameContext ec;
+				ec.ui = &ctxV;
+				ec.dt = 0.016f;
+				auto souris = [&](float32 mx, float32 my, bool bas) {
+					ctxV.input.mousePos = {mx, my};
+					ctxV.input.mouseDown[0] = bas;
+					ctxV.BeginFrame(0.016f);
+					ctxV.BeginLayout({340.f, 0.f, 260.f, 900.f});
+					inspV.OnUI(ec);
+					NkDessinerPickerDemande(ctxV, stV);
+					ctxV.EndFrame();
+				};
+				auto cliquer = [&](float32 x, float32 y) {
+					souris(x, y, false); // le survol precede l'appui (le kit resout le survol a l'image d'avant)
+					souris(x, y, true);
+					souris(x, y, false);
+					souris(-1.f, -1.f, false);
+				};
+				auto boite = [&](float32 &px, float32 &py) {
+					px = 1e9f;
+					py = 1e9f;
+					for (uint32 i = 0; i < (uint32)ctxV.dlOverlay.vtx.Size(); ++i) {
+						if (ctxV.dlOverlay.vtx[i].pos.x < px) px = ctxV.dlOverlay.vtx[i].pos.x;
+						if (ctxV.dlOverlay.vtx[i].pos.y < py) py = ctxV.dlOverlay.vtx[i].pos.y;
+					}
+				};
+				auto ouvrir = [&](int32 noeud) {
+					stV.picker = DesignState::DemandePicker();
+					stV.picker.ouvert = true;
+					stV.picker.id = ctxV.GetId("##sonde.popover.variable");
+					stV.picker.genre = 1u;
+					stV.picker.noeud = noeud;
+					stV.picker.index = 0;
+					stV.picker.arretSel = 0;
+					stV.picker.ancre = {360.f, 200.f, 16.f, 16.f};
+					souris(-1.f, -1.f, false);
+					souris(-1.f, -1.f, false);
+				};
+				auto fermer = [&]() {
+					// comme la main : le popup du kit se ferme AVANT que la demande s'efface --
+					// sinon `DessinerPopoverRemplissage` ne le ferme pas (il ne le fait que si
+					// `d.ouvert` est encore vrai), `popupDepth` reste a 1 et le kit consomme le
+					// prochain clic pour fermer le popup (c'est ce qui a mange le premier clic
+					// du rail a la premiere course)
+					if (ctxV.popupDepth > 0)
+						ctxV.ClosePopup();
+					stV.picker = DesignState::DemandePicker();
+					souris(-1.f, -1.f, false);
+					souris(-1.f, -1.f, false);
+				};
+				auto couleurPeinte = [&](NkUIDocument &d, int32 noeud) -> uint32 {
+					NkPaintRect sfc;
+					sfc.x = 0.f;
+					sfc.y = 0.f;
+					sfc.w = 600.f;
+					sfc.h = 900.f;
+					NkLayoutResult lay;
+					NkComputeLayout(d, sfc, lay);
+					const NkPaintRect r = lay.At(noeud);
+					NkVector<uint8> masques;
+					for (uint32 i = 0; i < (uint32)d.nodes.Size(); ++i) {
+						masques.PushBack(d.nodes[i].masque ? 1u : 0u);
+						if (i != 0u && (int32)i != noeud && (int32)i != pg)
+							d.nodes[i].masque = true;
+					}
+					NkRecordingPaint rec;
+					RenderDocument(rec, d, sfc);
+					for (uint32 i = 0; i < (uint32)d.nodes.Size(); ++i)
+						d.nodes[i].masque = masques[i] != 0u;
+					uint32 dernier = 0u;
+					for (uint32 i = 0; i < (uint32)rec.cmds.Size(); ++i) {
+						const NkPaintCmd &c = rec.cmds[i];
+						if (c.op == NkPaintOp::FillColor && c.x == r.x && c.y == r.y && c.w == r.w && c.h == r.h)
+							dernier = c.rgba;
+					}
+					return dernier;
+				};
+				// la geometrie du popover (DessinerPopoverRemplissage) : 8 de marge, la rangee des
+				// types (26), le selecteur (168), la rangee modele (26), puis LA RANGEE DE LA
+				// VARIABLE a +3 (20 px de haut) ; largeur 250, x0 = +8, x1 = +250-8
+				const float32 kYRangeeVar = 0.5f + 8.f + 26.f + 168.f + 26.f + 3.f + 10.f;
+				// ── 68a. le bouton « Creer une variable de couleur » ──
+				const uint32 avantA = couleurPeinte(stV.doc, rc);
+				ouvrir(rc);
+				float32 px = 0.f, py = 0.f;
+				boite(px, py);
+				cliquer(px + 0.5f + 8.f + 100.f, py + kYRangeeVar);
+				const uint32 nVar = (uint32)stV.doc.variables.Size();
+				const NkString refA = stV.doc.nodes[(uint32)rc].fills[0].couleur;
+				const bool refOk = nVar == 1u && NkComponentDecl::StrEq(refA.Data(), "@couleur_1")
+								   && NkComponentDecl::StrEq(stV.doc.variables[0].valeur.Data(), "#1976d2")
+								   && NkComponentDecl::StrEq(stV.doc.variables[0].nom.Data(), "Couleur 1");
+				const uint32 apresA = couleurPeinte(stV.doc, rc);
+				const bool piedA = stV.status.Data() && strstr(stV.status.Data(), "Couleur 1") != nullptr;
+				snprintf(det, sizeof(det), "variables %u, remplissage -> %s, valeur %s, nom « %s », peint %08X -> %08X (inchange), pied=%d",
+						 nVar, refA.Data() ? refA.Data() : "?", nVar ? stV.doc.variables[0].valeur.Data() : "-",
+						 nVar ? stV.doc.variables[0].nom.Data() : "-", avantA, apresA, piedA ? 1 : 0);
+				check("68a. « CREER UNE VARIABLE DE COULEUR » sous la rangee modele (la place de Lunacy) : un clic cree "
+					  "« Couleur 1 » = la couleur courante, le remplissage la REFERENCE (« @couleur_1 »), rien ne change a l'ecran, "
+					  "le pied le dit",
+					  refOk && apresA == avantA && piedA, det);
+				// ── 68b. le selecteur EDITE la variable : tout ce qui la reference suit, la reference tient ──
+				stV.doc.nodes[(uint32)rc2].fills[0].couleur = NkString("@couleur_1");
+				souris(-1.f, -1.f, false);
+				boite(px, py);
+				cliquer(px + 0.5f + 8.f + 80.f, py + 0.5f + 8.f + 26.f + 80.f); // le carre SV, comme 60h
+				const NkString valB = stV.doc.variables.Empty() ? NkString("(aucune)") : stV.doc.variables[0].valeur;
+				const bool varChangee = NkHexLisible(valB.Data()) && !NkComponentDecl::StrEq(valB.Data(), "#1976d2");
+				const bool refTient = NkComponentDecl::StrEq(stV.doc.nodes[(uint32)rc].fills[0].couleur.Data(), "@couleur_1")
+									  && NkComponentDecl::StrEq(stV.doc.nodes[(uint32)rc2].fills[0].couleur.Data(), "@couleur_1");
+				const uint32 pB1 = couleurPeinte(stV.doc, rc), pB2 = couleurPeinte(stV.doc, rc2);
+				const uint32 attenduB = varChangee ? renderdetail::NkGCouleur(valB.Data()) : 0u;
+				snprintf(det, sizeof(det), "variable #1976d2 -> %s, references « %s » / « %s », peints %08X et %08X (attendu %08X)",
+						 valB.Data(), stV.doc.nodes[(uint32)rc].fills[0].couleur.Data(), stV.doc.nodes[(uint32)rc2].fills[0].couleur.Data(),
+						 pB1, pB2, attenduB);
+				check("68b. LE SELECTEUR EDITE LA VARIABLE quand la couleur la reference : un clic dans le carre SV change "
+					  "la VALEUR de « Couleur 1 » (pas la reference), et les DEUX rectangles qui la referencent suivent",
+					  varChangee && refTient && pB1 == attenduB && pB2 == attenduB, det);
+				// ── 68c. « Detacher » : le litteral que l'oeil voyait, l'autre reference tient ──
+				boite(px, py);
+				cliquer(px + 0.5f + 250.f - 8.f - 31.f, py + kYRangeeVar);
+				const NkString cC = stV.doc.nodes[(uint32)rc].fills[0].couleur;
+				const bool detacheOk = NkComponentDecl::StrEq(cC.Data(), valB.Data())
+									   && NkComponentDecl::StrEq(stV.doc.nodes[(uint32)rc2].fills[0].couleur.Data(), "@couleur_1")
+									   && stV.doc.variables.Size() == 1u && stV.doc.CompterUsagesVariable("couleur_1") == 1u;
+				fermer();
+				snprintf(det, sizeof(det), "remplissage -> %s (variable %s), l'autre -> %s, usages %u, variables %u", cC.Data(), valB.Data(),
+						 stV.doc.nodes[(uint32)rc2].fills[0].couleur.Data(), stV.doc.CompterUsagesVariable("couleur_1"),
+						 (uint32)stV.doc.variables.Size());
+				check("68c. « DETACHER » rend au remplissage le LITTERAL que l'oeil voyait ; la variable reste, l'autre "
+					  "reference tient, le compte d'usages passe a 1",
+					  detacheOk, det);
+				// ── 68d. le modele : UN visiteur pour compter, refuser, detacher, supprimer ──
+				{
+					NkUIDocument dM;
+					dM.NewDocument("Toile", NkAuthor::Humain);
+					NkVariable acc;
+					acc.cle = NkString("accent");
+					acc.valeur = NkString("#123456");
+					dM.variables.PushBack(acc);
+					const int32 n1 = dM.AddChild(0, "", NkAuthor::Humain);
+					NkUINode &n = dM.nodes[(uint32)n1];
+					n.shape = NkString("rect");
+					n.fill = NkString("@accent");
+					n.textColor = NkString("@accent");
+					NkRemplissage f;
+					f.couleur = NkString("@accent");
+					f.degrade.type = NkString("lineaire");
+					NkArretDegrade a0, a1;
+					a0.position = 0.f;
+					a0.couleur = NkString("@accent");
+					a1.position = 1.f;
+					a1.couleur = NkString("#ffffff");
+					f.degrade.arrets.PushBack(a0);
+					f.degrade.arrets.PushBack(a1);
+					n.fills.PushBack(f);
+					NkBordure b;
+					b.couleur = NkString("@accent");
+					n.borders.PushBack(b);
+					NkEffet e;
+					e.couleur = NkString("@accent");
+					n.effets.PushBack(e);
+					NkBlocEtat(n, "Hover").fond = NkString("@accent");
+					NkDeclarationComposant dc; // un composant dont la racine reference la variable EST un usage
+					NkUINode racine;
+					racine.fill = NkString("@accent");
+					dc.arbre.PushBack(racine);
+					dM.declarations.PushBack(dc);
+					const uint32 usages = dM.CompterUsagesVariable("accent");
+					uint32 uRefus = 0u;
+					const bool refuse = !dM.SupprimerVariable("@accent", &uRefus) && dM.variables.Size() == 1u;
+					const uint32 detaches = dM.DetacherVariable("accent");
+					const uint32 apres = dM.CompterUsagesVariable("accent");
+					const NkUINode &m = dM.nodes[(uint32)n1];
+					const bool litteraux = NkComponentDecl::StrEq(m.fill.Data(), "#123456") && NkComponentDecl::StrEq(m.textColor.Data(), "#123456")
+										   && NkComponentDecl::StrEq(m.fills[0].couleur.Data(), "#123456")
+										   && NkComponentDecl::StrEq(m.fills[0].degrade.arrets[0].couleur.Data(), "#123456")
+										   && NkComponentDecl::StrEq(m.fills[0].degrade.arrets[1].couleur.Data(), "#ffffff")
+										   && NkComponentDecl::StrEq(m.borders[0].couleur.Data(), "#123456")
+										   && NkComponentDecl::StrEq(m.effets[0].couleur.Data(), "#123456")
+										   && NkComponentDecl::StrEq(m.apparences[0].fond.Data(), "#123456")
+										   && NkComponentDecl::StrEq(dM.declarations[0].arbre[0].fill.Data(), "#123456");
+					const bool supprime = dM.SupprimerVariable("accent") && dM.variables.Empty();
+					snprintf(det, sizeof(det), "usages %u (attendu 8 : fond, texte, remplissage, arret, bordure, effet, etat, composant) ; "
+											   "suppression refusee=%d (dit %u) ; detaches %u, usages apres %u, litteraux=%d ; supprimee ensuite=%d",
+							 usages, refuse ? 1 : 0, uRefus, detaches, apres, litteraux ? 1 : 0, supprime ? 1 : 0);
+					check("68d. LE MODELE, PAR UN SEUL VISITEUR : huit usages comptes (cle simple, texte, remplissage, arret, bordure, "
+						  "effet, etat, composant), la suppression REFUSEE tant qu'elle est utilisee (le nombre dit), le detachement "
+						  "rend huit litteraux et zero usage, puis la suppression passe",
+						  usages == 8u && refuse && uRefus == 8u && detaches == 8u && apres == 0u && litteraux && supprime, det);
+				}
+				// ── 68e. DEUX MODES : aller-retour fichier, rendu different selon le mode courant, PoserValeur ──
+				{
+					NkUIDocument dMo;
+					dMo.NewDocument("Toile", NkAuthor::Humain);
+					NkVariable fond;
+					fond.cle = NkString("fond");
+					fond.nom = NkString("Fond");
+					fond.valeur = NkString("#777777");
+					NkValeurMode clair, sombre;
+					clair.mode = NkString("clair");
+					clair.valeur = NkString("#ffffff");
+					sombre.mode = NkString("sombre");
+					sombre.valeur = NkString("#000000");
+					fond.parMode.PushBack(clair);
+					fond.parMode.PushBack(sombre);
+					dMo.variables.PushBack(fond);
+					dMo.modeCourant = NkString("sombre");
+					const int32 r = dMo.AddChild(0, "", NkAuthor::Humain);
+					dMo.nodes[(uint32)r].shape = NkString("rect");
+					dMo.nodes[(uint32)r].width.mode = NkSizeMode::Fixed;
+					dMo.nodes[(uint32)r].width.value = 40.f;
+					dMo.nodes[(uint32)r].height.mode = NkSizeMode::Fixed;
+					dMo.nodes[(uint32)r].height.value = 40.f;
+					NkRemplissage f;
+					f.couleur = NkString("@fond");
+					dMo.nodes[(uint32)r].fills.PushBack(f);
+					auto peint = [&](NkUIDocument &d) -> uint32 {
+						NkRecordingPaint rec;
+						RenderDocument(rec, d, NkPaintRect{0.f, 0.f, 600.f, 400.f});
+						uint32 dernier = 0u;
+						for (uint32 i = 0; i < (uint32)rec.cmds.Size(); ++i)
+							if (rec.cmds[i].op == NkPaintOp::FillColor && rec.cmds[i].w == 40.f && rec.cmds[i].h == 40.f)
+								dernier = rec.cmds[i].rgba;
+						return dernier;
+					};
+					const uint32 pSombre = peint(dMo);
+					NkString texte;
+					dMo.Save(texte);
+					NkUIDocument relu;
+					const bool ok = relu.Load(texte.Data());
+					const bool modeRelu = ok && NkComponentDecl::StrEq(relu.modeCourant.Data(), "sombre")
+										  && strstr(texte.Data(), "@clair=#ffffff @sombre=#000000") != nullptr;
+					const uint32 pRelu = ok ? peint(relu) : 0u;
+					const NkString modeLu = ok ? relu.modeCourant : NkString("?");
+					if (ok)
+						relu.modeCourant = NkString("clair");
+					const uint32 pClair = ok ? peint(relu) : 0u;
+					if (ok)
+						relu.modeCourant = NkString();
+					const uint32 pDefaut = ok ? peint(relu) : 0u;
+					// PoserValeur ecrit DANS le mode declare, et dans le defaut sinon
+					dMo.variables[0].PoserValeur("sombre", "#111111");
+					dMo.variables[0].PoserValeur("inconnu", "#222222");
+					const bool pose = NkComponentDecl::StrEq(dMo.variables[0].ValeurPour("sombre"), "#111111")
+									  && NkComponentDecl::StrEq(dMo.variables[0].ValeurPour("clair"), "#ffffff")
+									  && NkComponentDecl::StrEq(dMo.variables[0].valeur.Data(), "#222222");
+					snprintf(det, sizeof(det), "mode sombre -> %08X ; relu (mode %s) -> %08X ; clair -> %08X ; defaut -> %08X ; PoserValeur : sombre %s, clair %s, defaut %s",
+							 pSombre, modeLu.Data() ? modeLu.Data() : "?", pRelu, pClair, pDefaut, dMo.variables[0].ValeurPour("sombre"),
+							 dMo.variables[0].ValeurPour("clair"), dMo.variables[0].valeur.Data());
+					check("68e. DEUX MODES (clair / sombre) : le document se reenregistre avec ses deux valeurs et son mode courant, "
+						  "se relit, et RENDS DIFFEREMMENT selon le mode (noir en sombre, blanc en clair, le defaut sans mode) ; "
+						  "PoserValeur ecrit dans le mode declare, dans le defaut sinon",
+						  pSombre == 0x000000FFu && modeRelu && pRelu == 0x000000FFu && pClair == 0xFFFFFFFFu && pDefaut == 0x777777FFu && pose,
+						  det);
+				}
+			}
 		}
 		snprintf(tail, sizeof(tail), "\n=== RESULTAT : %d / %d ===\n", pass, total);
 		rep.Append(tail);

@@ -10534,8 +10534,31 @@ namespace nkuidesign {
 				const uint32 cleSync = ((uint32)d.noeud << 20) ^ ((uint32)d.index << 12) ^ (uint32)(g.Actif() ? d.arretSel + 1 : 0);
 				if (d.synchro != cleSync) {
 					d.synchro = cleSync;
-					snprintf(d.hex, sizeof(d.hex), "%s", couleurCourante.Data() ? couleurCourante.Data() : "");
+					// une REFERENCE (« @cle ») montre la valeur RESOLUE (le mode courant) :
+					// le selecteur edite ce que l'oeil voit ; absente, il montre la cle
+					const char *cc = couleurCourante.Data() ? couleurCourante.Data() : "";
+					const char *res = mSt->doc.ResoudreCouleur(cc);
+					snprintf(d.hex, sizeof(d.hex), "%s", res ? res : cc);
 				}
+				// ── L'ECRITURE D'UNE COULEUR PASSE PAR UNE PORTE ────────────────────
+				// Si la couleur courante REFERENCE une variable, le selecteur edite LA
+				// VARIABLE (dans le mode courant) et tout ce qui la reference suit --
+				// c'est la raison d'etre d'une variable ; la reference tient, aucun
+				// ecart d'instance n'est pose (le remplissage de l'instance n'a pas
+				// change). Sinon, le litteral s'ecrit comme avant.
+				auto ecrireCouleur = [&](const char *hex) {
+					if (NkEstReference(couleurCourante.Data())) {
+						NkVariable *var = mSt->doc.TrouverVariableMut(couleurCourante.Data());
+						if (var) {
+							var->PoserValeur(mSt->doc.modeCourant.Data(), hex);
+							mSt->host.SyncTo(mSt->doc);
+							mFillsGen = -1;
+							return;
+						}
+					}
+					couleurCourante = NkString(hex);
+					touche();
+				};
 				// ── LA BOÎTE ──────────────────────────────────────────────────────
 				const float32 pw = 250.f; // ③ trois champs qui tiennent « -54,00 » (sonde 60f)
 				// ② LA HAUTEUR SE CALCULE, elle ne s'estime pas : les rangees de types
@@ -10544,7 +10567,10 @@ namespace nkuidesign {
 				//    le popover quand il depasserait le bas -- une seule regle pour tous.
 				const float32 hTypes = 26.f; // ① une seule rangee de vignettes dessinees
 				const float32 hPicker = 160.f + 8.f;
-				const float32 hHex = 26.f; // la rangee modele + valeurs (Hex ˅ / RGB / HSB)
+				// la rangee modele + valeurs (Hex ˅ / RGB / HSB), puis LA RANGEE DE LA
+				// VARIABLE (Lunacy, capture `..._creer_variable.png` : le bouton « Create
+				// Color Variable » sous la rangee du modele ; ou le nom + « Detacher »)
+				const float32 hHex = 26.f + 26.f;
 				// ④ la rangee de la barre fait 34 px : ses pastilles (centre a +24, rayon 6)
 				//    descendent a +30 -- a 26 px la rangee suivante les recouvrait (Rodolf)
 				const int32 genreP = renderdetail::NkGenreDegrade(g);
@@ -10827,8 +10853,7 @@ namespace nkuidesign {
 							d.hex[2 + k * 2] = kHex[o & 0xF];
 						}
 						d.hex[7] = '\0';
-						couleurCourante = NkString(d.hex);
-						touche();
+						ecrireCouleur(d.hex);
 					}
 					y += hPicker;
 				}
@@ -10854,10 +10879,8 @@ namespace nkuidesign {
 					if (mModeleCouleur == 0) {
 						const NkRect rh = {rv3[0].x, y + 3.f, rv3[2].x + rv3[2].w - rv3[0].x, costume::HControle};
 						ctx.SetNextItemRect(rh);
-						if (nkgui::InputText(ctx, "##nkuidesign.popover.hex", d.hex, 10) && NkPorteHex(d.hex, (uint32)sizeof(d.hex))) {
-							couleurCourante = NkString(d.hex);
-							touche();
-						}
+						if (nkgui::InputText(ctx, "##nkuidesign.popover.hex", d.hex, 10) && NkPorteHex(d.hex, (uint32)sizeof(d.hex)))
+							ecrireCouleur(d.hex);
 					} else {
 						// L'AFFICHAGE NE REECRIT JAMAIS L'HEXA : les valeurs montrees sont arrondies
 						// (entiers, deux decimales), et les reconvertir a chaque image derive d'une
@@ -10874,8 +10897,7 @@ namespace nkuidesign {
 						}
 						if (change && NkModeleVersRgb(mModeleCouleur, v3, cr, cg, cb)) {
 							NkRgbVersHex(cr, cg, cb, d.hex);
-							couleurCourante = NkString(d.hex);
-							touche();
+							ecrireCouleur(d.hex);
 						}
 					}
 					float32 &opRef = g.Actif() ? g.arrets[(uint32)d.arretSel].opacite : f.opacite;
@@ -10913,6 +10935,61 @@ namespace nkuidesign {
 						}
 						if (ctx.input.mouseClicked[0] && !NkGuiRectContains(rl, ctx.input.mousePos) && !svM)
 							mModeleMenuOuvert = false;
+					}
+					// ── 3bis. LA VARIABLE (§15.14) : « Créer une variable de couleur » sous la
+					//    rangée modèle -- c'est LA place de Lunacy ; ou, quand la couleur
+					//    courante référence déjà une variable : pastille · NOM · « Détacher »
+					{
+						const NkRect rv = {x0, y + 26.f + 3.f, x1 - x0, 20.f};
+						if (NkEstReference(couleurCourante.Data())) {
+							const NkVariable *var = mSt->doc.TrouverVariable(couleurCourante.Data());
+							const char *res = mSt->doc.ResoudreCouleur(couleurCourante.Data());
+							const NkRect rPast = {rv.x, rv.y + 3.f, 14.f, 14.f};
+							dl.AddRectFilled(rPast, res ? NkCouleurDepuisHex(res) : nkgui::NkColor{255, 0, 255, 255}, 3.f);
+							dl.AddRect(rPast, ctx.theme.border, 1.f, 3.f);
+							char absente[64];
+							snprintf(absente, sizeof(absente), "%s : variable absente", couleurCourante.Data());
+							const char *nomVar = var ? (var->nom.Empty() ? var->cle.Data() : var->nom.Data()) : absente;
+							costume::Texte(dl, F.px10, rPast.x + rPast.w + 6.f, costume::CentrerY(F.px10, rv.y, 20.f), nomVar,
+										   var ? ctx.theme.text : nkgui::NkColor{220, 60, 60, 255});
+							const NkRect rDet = {x1 - 62.f, rv.y, 62.f, 20.f};
+							const bool svD = NkGuiRectContains(rDet, ctx.input.mousePos);
+							dl.AddRectFilled(rDet, svD ? ctx.theme.rowHover : CouleurInput(), 4.f);
+							dl.AddRect(rDet, svD ? ctx.theme.accent : ctx.theme.border, 1.f, 4.f);
+							costume::Texte(dl, F.px10, rDet.x + 8.f, costume::CentrerY(F.px10, rDet.y, 20.f), "Détacher", ctx.theme.text);
+							if (svD && ctx.input.mouseClicked[0]) {
+								ctx.input.mouseClicked[0] = false;
+								// le litteral que l'oeil voyait ; absente : magenta, et c'est dit
+								couleurCourante = NkString(res ? res : "#ff00ff");
+								d.synchro = 0xFFFFFFFFu;
+								touche();
+								mSt->DireAuPied(res ? "Couleur détachée de sa variable : elle ne la suivra plus."
+													: "Variable absente : couleur détachée en magenta (la valeur d'origine est perdue).");
+							}
+						} else {
+							const bool svC = NkGuiRectContains(rv, ctx.input.mousePos);
+							dl.AddRectFilled(rv, svC ? ctx.theme.rowHover : CouleurInput(), 4.f);
+							dl.AddRect(rv, svC ? ctx.theme.accent : ctx.theme.border, 1.f, 4.f);
+							const char *lib = "Créer une variable de couleur";
+							const float32 lw = costume::Largeur(F.px10, lib);
+							costume::Texte(dl, F.px10, rv.x + (rv.w - lw) * 0.5f, costume::CentrerY(F.px10, rv.y, 20.f), lib, ctx.theme.text);
+							if (svC && ctx.input.mouseClicked[0]) {
+								ctx.input.mouseClicked[0] = false;
+								const char *val = NkHexLisible(d.hex) ? d.hex : couleurCourante.Data();
+								const int32 vi = mSt->doc.CreerVariableCouleur(val, nullptr);
+								const NkVariable &nv = mSt->doc.variables[(uint32)vi];
+								NkString ref("@");
+								ref.Append(nv.cle);
+								couleurCourante = ref; // ce remplissage (ou cet arret) la REFERENCE desormais
+								d.synchro = 0xFFFFFFFFu;
+								touche();
+								char msg[200];
+								snprintf(msg, sizeof(msg), "Variable « %s » créée depuis %s ; cette couleur la référence. Le rail Variables la renomme.",
+										 nv.nom.Data(), val ? val : "");
+								mSt->DireAuPied(msg);
+								mSt->Consigner(msg);
+							}
+						}
 					}
 					y += hHex;
 				}

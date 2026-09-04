@@ -334,6 +334,18 @@ namespace nkuidesign {
 							return parMode[i].valeur.Data();
 				return valeur.Data();
 			}
+			/// POSER une valeur : dans le mode s'il est declare, sinon la valeur par
+			/// defaut -- c'est celle que l'oeil voit dans ce mode (`ValeurPour`), donc
+			/// c'est celle que le selecteur edite. Ecrire et lire par la meme regle.
+			void PoserValeur(const char *mode, const char *v) {
+				if (mode && *mode)
+					for (uint32 i = 0; i < (uint32)parMode.Size(); ++i)
+						if (NkComponentDecl::StrEq(parMode[i].mode.Data(), mode)) {
+							parMode[i].valeur = NkString(v ? v : "");
+							return;
+						}
+				valeur = NkString(v ? v : "");
+			}
 	};
 	/// Une couleur est-elle une REFERENCE (« @cle ») plutot qu'une valeur ?
 	inline bool NkEstReference(const char *c) {
@@ -1408,6 +1420,134 @@ namespace nkuidesign {
 					return c;
 				const NkVariable *v = TrouverVariable(c);
 				return v ? v->ValeurPour(modeCourant.Data()) : nullptr;
+			}
+			NkVariable *TrouverVariableMut(const char *cle) {
+				return const_cast<NkVariable *>(TrouverVariable(cle));
+			}
+			// ── LA VARIABLE DANS L'INTERFACE (§15.14, lot du 05/09) ─────────────
+			/// UN SEUL VISITEUR de toutes les couleurs d'un noeud : cle simple,
+			/// texte, bord, listes de remplissages et leurs arrets, bordures, effets,
+			/// etats. Trois lecteurs (compter, detacher, supprimer) et UNE table : un
+			/// champ de couleur ajoute ici est compte, detache et garde partout ;
+			/// ajoute ailleurs, il serait un usage INVISIBLE -- et une variable dite
+			/// « inutilisee » se supprimerait sous lui (reference orpheline, magenta).
+			template <class N, class F>
+			static void VisiterCouleursNoeud(N &n, F &&f) {
+				f(n.fill);
+				f(n.textColor);
+				f(n.borderColor);
+				for (uint32 i = 0; i < (uint32)n.fills.Size(); ++i) {
+					f(n.fills[i].couleur);
+					for (uint32 a = 0; a < (uint32)n.fills[i].degrade.arrets.Size(); ++a)
+						f(n.fills[i].degrade.arrets[a].couleur);
+				}
+				for (uint32 i = 0; i < (uint32)n.borders.Size(); ++i)
+					f(n.borders[i].couleur);
+				for (uint32 i = 0; i < (uint32)n.effets.Size(); ++i)
+					f(n.effets[i].couleur);
+				for (uint32 i = 0; i < (uint32)n.apparences.Size(); ++i)
+					f(n.apparences[i].fond);
+			}
+			/// ... et de tout le document : les noeuds ET les arbres des declarations
+			/// (un composant dont le fond reference une variable EST un usage).
+			template <class F>
+			void VisiterCouleurs(F &&f) {
+				for (uint32 i = 0; i < (uint32)nodes.Size(); ++i)
+					VisiterCouleursNoeud(nodes[i], f);
+				for (uint32 d = 0; d < (uint32)declarations.Size(); ++d)
+					for (uint32 j = 0; j < (uint32)declarations[d].arbre.Size(); ++j)
+						VisiterCouleursNoeud(declarations[d].arbre[j], f);
+			}
+			template <class F>
+			void VisiterCouleurs(F &&f) const {
+				for (uint32 i = 0; i < (uint32)nodes.Size(); ++i)
+					VisiterCouleursNoeud(nodes[i], f);
+				for (uint32 d = 0; d < (uint32)declarations.Size(); ++d)
+					for (uint32 j = 0; j < (uint32)declarations[d].arbre.Size(); ++j)
+						VisiterCouleursNoeud(declarations[d].arbre[j], f);
+			}
+			/// Combien de couleurs du document referencent cette variable.
+			uint32 CompterUsagesVariable(const char *cle) const {
+				if (cle && *cle == '@')
+					++cle;
+				if (!cle || !*cle)
+					return 0u;
+				uint32 n = 0u;
+				VisiterCouleurs([&](const NkString &c) {
+					if (NkEstReference(c.Data()) && NkComponentDecl::StrEq(c.Data() + 1, cle))
+						++n;
+				});
+				return n;
+			}
+			/// CREER une variable de couleur depuis une valeur -- le geste du
+			/// selecteur (Lunacy : « Create Color Variable » sous la rangee du
+			/// modele). Cle unique « couleur_N », nom « Couleur N » (le rail le
+			/// renomme). Rend l'indice de la variable.
+			int32 CreerVariableCouleur(const char *valeur, const char *nom) {
+				NkString cle, nomDef;
+				for (uint32 k = 1u; k < 100000u; ++k) {
+					char num[16];
+					uint32 l = 0u, t = k;
+					char tmp[16];
+					do {
+						tmp[l++] = (char)('0' + t % 10u);
+						t /= 10u;
+					} while (t && l < 15u);
+					uint32 z = 0u;
+					while (l)
+						num[z++] = tmp[--l];
+					num[z] = '\0';
+					cle = NkString("couleur_");
+					cle.Append(num);
+					nomDef = NkString("Couleur ");
+					nomDef.Append(num);
+					if (!TrouverVariable(cle.Data()))
+						break;
+				}
+				NkVariable v;
+				v.cle = cle;
+				v.nom = nom && *nom ? NkString(nom) : nomDef;
+				v.valeur = NkString(valeur ? valeur : "");
+				variables.PushBack(v);
+				return (int32)variables.Size() - 1;
+			}
+			/// DETACHER : chaque reference vers `cle` devient le LITTERAL que l'oeil
+			/// voyait (la valeur du mode courant). Rend le nombre de couleurs
+			/// detachees. Une variable ABSENTE se detache en magenta -- la couleur
+			/// qu'elle montrait deja ; l'appelant le dit.
+			uint32 DetacherVariable(const char *cle) {
+				if (cle && *cle == '@')
+					++cle;
+				if (!cle || !*cle)
+					return 0u;
+				const NkVariable *v = TrouverVariable(cle);
+				const NkString litteral(v ? v->ValeurPour(modeCourant.Data()) : "#ff00ff");
+				uint32 n = 0u;
+				VisiterCouleurs([&](NkString &c) {
+					if (NkEstReference(c.Data()) && NkComponentDecl::StrEq(c.Data() + 1, cle)) {
+						c = litteral;
+						++n;
+					}
+				});
+				return n;
+			}
+			/// SUPPRIMER une variable : REFUSE tant qu'elle est utilisee (le nombre
+			/// est rendu dans `usages`). Une reference orpheline serait dite en
+			/// magenta, mais on ne la fabrique pas soi-meme : detacher d'abord.
+			bool SupprimerVariable(const char *cle, uint32 *usages = nullptr) {
+				if (cle && *cle == '@')
+					++cle;
+				const uint32 u = CompterUsagesVariable(cle);
+				if (usages)
+					*usages = u;
+				if (u > 0u || !cle)
+					return false;
+				for (uint32 i = 0; i < (uint32)variables.Size(); ++i)
+					if (NkComponentDecl::StrEq(variables[i].cle.Data(), cle)) {
+						variables.RemoveAt(i);
+						return true;
+					}
+				return false;
 			}
 
 			// ── LE PROPRIETAIRE DES NOMS PORTES PAR LES TYPES DU KIT ───────────
