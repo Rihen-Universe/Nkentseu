@@ -1,4 +1,5 @@
 #pragma once
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // =============================================================================
 // NkVFXSystem.h  — NKRenderer v4.0  (Tools/VFX/)
 // Particules CPU/GPU, trails, decals projetés, lens flares.
@@ -197,7 +198,12 @@ namespace nkentseu {
 				uint64 mNextId = 1;
 				uint32 mTotalParticles = 0;
 
-				NkPipelineHandle mPipeParticle;
+				// Un pipeline par famille de melange (2026-09-04) : NkEmitterDesc::blend
+				// etait declare et jamais lu -- tout partait en Additive. Trois familles
+				// que NkBlendDesc sait fabriquer : [0] Additive, [1] Alpha, [2] Opaque.
+				NkPipelineHandle mPipeParticle[3];
+				NkPipelineHandle PipelineFor(NkBlendMode mode);
+				bool mBlendFallbackDit[8] = {};
 				NkPipelineHandle mPipeTrail;
 				NkPipelineHandle mPipeDecal;
 

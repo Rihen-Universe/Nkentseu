@@ -54,6 +54,7 @@ Trois conditions, dans cet ordre :
 | `noge_vehicule_2026-09-04.png` | 297 091 | **La voiture roule** — 04/09, `renderdemo` OpenGL : châssis + 4 roues sur `NkVehicle`, ombre portée, `Draw:1243` contre 1093 sans elle. Citée par `echanges_noge.md` et `CONCEPTION_VEHICULE.md` |
 
 | `noge_particules_2026-09-04.png` | 354 667 | **Les particules rendent** — 04/09, `renderdemo` OpenGL : 502 vivantes, `Draw:1094` et `Tris:490542` contre 1093/489588 sans elles. Citée par `DECISIONS_RODOLF.md` bloc 13 |
+| `noge_particules_melange_2026-09-04.png` | 307 828 | **Le mélange déclaré est celui qui rend** — 04/09, `renderdemo --demo=2`, OpenGL, frame 170, même émetteur (400/s) : à gauche `NK_ADDITIVE` (cœur blanc saturé : 2 426 px quasi blancs), à droite `NK_ALPHA` (disques orange opaques : 1 027 px, soit le fond seul ≈ 1 026). Avant, les deux rendaient pareil. Cité par `DECISIONS_RODOLF.md` bloc 13 |
 
 ### Les deux témoins INVALIDÉS — versionnés exprès
 

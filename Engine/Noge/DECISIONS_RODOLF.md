@@ -1445,6 +1445,26 @@ et `ApplyFKSkinning` la lisent). Ce n'est pas une seconde *structure*, c'est un 
 et un exemplaire peut diverger. La retirer, c'est faire passer le squelette à chaque consommateur
 du clip (NKRenderer, Noge, éditeur) — un lot à part, à trancher, pas à glisser dans celui-ci.
 
+### ✨ 04/09 — PARTICULES, borne 1 : le MÉLANGE déclaré est celui qui rend (la texture, pas encore)
+
+`NkEmitterDesc::blend` était **déclaré et jamais lu** : un seul pipeline, Additive, pour tous — le
+même défaut que les huit fois précédentes. Désormais **trois pipelines**, un par famille que
+`NkBlendDesc` sait fabriquer (Additive, Alpha, Opaque), choisis à l'appel par le mélange de
+l'émetteur. Les trois autres modes (`MULTIPLY`, `PREMULT`, `SCREEN`) n'ont **pas de fabrique** :
+repli Alpha **dit une fois** sur stderr (`[NkVFX] NkBlendMode 3 non honore…`), jamais en silence.
+
+**Témoin, en pixels** (`renderdemo --demo=2`, OpenGL, frame 170, capture headless `NK_CAPTURE`) :
+même émetteur, `NK_VFX_BLEND=additive` → **2 426** pixels quasi blancs (le cœur s'empile jusqu'à
+saturer) ; `alpha` → **1 027** ; `alpha` une seconde fois → 1 026 ; `multiply` (repli) → 1 021 —
+c'est le fond seul. Le bruit run à run (émetteur stochastique) vaut 33 732 pixels différents ;
+le sujet en fait 69 282. Image : `Captures/noge_particules_melange_2026-09-04.png` (additive |
+alpha, côte à côte).
+
+**Pas fait, dit clairement** : `NkEmitterDesc::texture` reste non lu — l'honorer demande le
+chemin des descripteurs (jeu global Vulkan pour les pipelines VFX) et un sampler dans
+`particles.frag.nksl` ; c'est la borne 2, un lot à part avec son propre témoin (une texture
+asymétrique, pour que l'image dise si elle est lue et dans quel sens).
+
 ### ✅ 04/09 — UNE SEULE CONVERSION POSE → MONDE, dans `Skeleton/`
 
 **Sept** boucles `world[j] = world[parent] × local[j]` vivaient dans sept endroits : le clip

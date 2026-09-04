@@ -1,6 +1,8 @@
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // =============================================================================
 // NkVFXSystem.cpp  — NKRenderer v4.0
 // =============================================================================
+#include <cstdio> // repli de melange dit une fois (2026-09-04)
 #include "NkVFXSystem.h"
 #include "NKRenderer/Shader/NkShaderLibrary.h" // shader des particules (2026-09-04)
 #include "NKLogger/NkLog.h"
@@ -56,28 +58,32 @@ namespace nkentseu {
 					particleShader = mShaderLib->GetRHIHandle(prog);
 			}
 
-			{
-				NkGraphicsPipelineDesc pd;
-				pd.rasterizer = NkRasterizerDesc::Default();
-				pd.rasterizer.cullMode = nkentseu::NkCullMode::NK_NONE;
-				pd.depthStencil = NkDepthStencilDesc::Default();
-				pd.depthStencil.depthWriteEnable = false;
-				pd.blend = NkBlendDesc::Additive();
-				pd.debugName = "ParticlesBillboard";
-				pd.shader = particleShader;
-				// Layout de NkVertexParticle (stride 32) : le CPU ecrit six
-				// sommets par particule, le VS expanse les coins depuis aUV+aSize.
-				pd.vertexLayout.AddBinding(0, sizeof(NkVertexParticle), false)
-					.AddAttribute(0, 0, NkGPUFormat::NK_RGB32_FLOAT, 0, "POSITION", 0)
-					.AddAttribute(1, 0, NkGPUFormat::NK_RG32_FLOAT, 12, "TEXCOORD", 0)
-					.AddAttribute(2, 0, NkGPUFormat::NK_RGBA8_UNORM, 20, "COLOR", 0)
-					.AddAttribute(3, 0, NkGPUFormat::NK_R32_FLOAT, 24, "TEXCOORD", 1)
-					.AddAttribute(4, 0, NkGPUFormat::NK_R32_FLOAT, 28, "TEXCOORD", 2);
-				mPipeParticle = mDevice->CreateGraphicsPipeline(pd);
-				if (!mPipeParticle.IsValid())
-					logger.Errorf("[NkVFXSystem] pipeline particules INVALIDE (shader_valid=%d) -- "
-								  "rien ne se dessinera\n",
-								  particleShader.IsValid() ? 1 : 0);
+			// Trois pipelines de particules, un par famille de melange que NkBlendDesc
+			// sait fabriquer -- NkEmitterDesc::blend choisit a l'appel (2026-09-04).
+			const NkBlendDesc familles[3] = {NkBlendDesc::Additive(), NkBlendDesc::Alpha(), NkBlendDesc::Opaque()};
+			const char *noms[3] = {"ParticlesBillboard.Additive", "ParticlesBillboard.Alpha", "ParticlesBillboard.Opaque"};
+			for (uint32 f = 0; f < 3; ++f) {
+					NkGraphicsPipelineDesc pd;
+					pd.rasterizer = NkRasterizerDesc::Default();
+					pd.rasterizer.cullMode = nkentseu::NkCullMode::NK_NONE;
+					pd.depthStencil = NkDepthStencilDesc::Default();
+					pd.depthStencil.depthWriteEnable = false;
+					pd.blend = familles[f];
+					pd.debugName = noms[f];
+					pd.shader = particleShader;
+					// Layout de NkVertexParticle (stride 32) : le CPU ecrit six
+					// sommets par particule, le VS expanse les coins depuis aUV+aSize.
+					pd.vertexLayout.AddBinding(0, sizeof(NkVertexParticle), false)
+						.AddAttribute(0, 0, NkGPUFormat::NK_RGB32_FLOAT, 0, "POSITION", 0)
+						.AddAttribute(1, 0, NkGPUFormat::NK_RG32_FLOAT, 12, "TEXCOORD", 0)
+						.AddAttribute(2, 0, NkGPUFormat::NK_RGBA8_UNORM, 20, "COLOR", 0)
+						.AddAttribute(3, 0, NkGPUFormat::NK_R32_FLOAT, 24, "TEXCOORD", 1)
+						.AddAttribute(4, 0, NkGPUFormat::NK_R32_FLOAT, 28, "TEXCOORD", 2);
+					mPipeParticle[f] = mDevice->CreateGraphicsPipeline(pd);
+					if (!mPipeParticle[f].IsValid())
+						logger.Errorf("[NkVFXSystem] pipeline particules INVALIDE (shader_valid=%d) -- "
+									  "rien ne se dessinera\n",
+									  particleShader.IsValid() ? 1 : 0);
 			}
 			{
 				NkGraphicsPipelineDesc pd;
@@ -451,9 +457,28 @@ namespace nkentseu {
 				RenderDecals(cmd);
 		}
 
+		NkPipelineHandle NkVFXSystem::PipelineFor(NkBlendMode mode) {
+			switch (mode) {
+			case NkBlendMode::NK_ADDITIVE: return mPipeParticle[0];
+			case NkBlendMode::NK_ALPHA: return mPipeParticle[1];
+			case NkBlendMode::NK_OPAQUE: return mPipeParticle[2];
+			default: break;
+			}
+			// MULTIPLY / PREMULT / SCREEN : NkBlendDesc n'a pas de fabrique pour eux.
+			// Repli Alpha, dit UNE fois par mode -- une degradation qui se tait est
+			// exactement le defaut qu'on vient de corriger.
+			const uint32 k = (uint32)mode < 8u ? (uint32)mode : 7u;
+			if (!mBlendFallbackDit[k]) {
+				mBlendFallbackDit[k] = true;
+				std::fprintf(stderr, "[NkVFX] NkBlendMode %u non honore (pas de fabrique NkBlendDesc) : rendu en Alpha\n",
+							 (unsigned)mode);
+			}
+			return mPipeParticle[1];
+		}
+
 		void NkVFXSystem::RenderEmitter(NkICommandBuffer *cmd, Emitter *e, const NkCamera3DData &cam) {
 			(void)cam;
-			cmd->BindGraphicsPipeline(mPipeParticle);
+			cmd->BindGraphicsPipeline(PipelineFor(e->desc.blend)); // le melange DECLARE est celui qui rend
 			cmd->BindVertexBuffer(0, e->vbo, 0);
 			cmd->Draw(e->aliveCount * 6, 1, 0, 0); // six sommets = deux triangles
 		}
