@@ -1471,6 +1471,14 @@ Liste, un module par commit, mise à jour à chaque ajout :
 - `NKCamera_Tests` — 3 réussis, 3 au total, 7 réussies, 7 au total (build+run 70 s)
 - `NKCollision_Tests` — All tests passed for NKCollision_Tests. (main nu, fichier vide en testmaintemplate ; build+run 28 s)
 - `NKImage_Tests` — All tests passed for NKImage_Tests. (main nu, fichier vide en testmaintemplate ; build+run 37 s)
+- `NKThreading_Tests` — **NON rouvert, test qui a raison** : l'édition de liens échoue sur
+  `NkLatch::Wait/NkLatch`, `NkEvent::Set/Reset/IsSignaled/Pulse/Wait`, `NkBarrier::Wait` — les trois
+  classes sont *déclarées* (`Synchronization/*.h`, `NKENTSEU_THREADING_CLASS_EXPORT`), leurs `.cpp` sont
+  compilés mais **ne contiennent aucune définition** (`nm NKThreading.lib` : 0 symbole). *Déclaré, pas
+  livré*, au cœur du module ; les 12 cas de la suite ne peuvent pas se lier tant que ces trois
+  primitives n'existent pas. Défaut de module nommé, **pas corrigé dans ce lot** (ce n'est pas trivial :
+  c'est écrire un latch, un event et une barrière).
+
 **Défaut nommé, pas corrigé ici** : les exécutables de test (et les applis) sont liés **dynamiquement** à
 `libstdc++-6.dll`/`libgcc_s_seh-1.dll`/`libwinpthread-1.dll` malgré `config/toolchain.jenga:92-94`
 (`-static-libgcc -static-libstdc++ -static`), et le runner de `jenga test` ne pose pas le `PATH` de la
