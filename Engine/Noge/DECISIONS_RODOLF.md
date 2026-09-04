@@ -1445,6 +1445,25 @@ et `ApplyFKSkinning` la lisent). Ce n'est pas une seconde *structure*, c'est un 
 et un exemplaire peut diverger. La retirer, c'est faire passer le squelette à chaque consommateur
 du clip (NKRenderer, Noge, éditeur) — un lot à part, à trancher, pas à glisser dans celui-ci.
 
+### 📏 04/09 — LA COPIE `jointParent/jointTopo` DU CLIP : mesurée, pas tranchée
+
+Lecteurs : `Clip/NkAnimation.cpp` (18 : **sérialisation** du clip — parents et topo font partie du
+format de fichier —, FK, échantillonnage), `AnimBridge.cpp` (13), `NkGLTFAnimBake.cpp` (6, l'écrit
+à l'import), `NkAnimRetarget.cpp` (2, l'écrit au reciblage), `NkRagdollBridge.h` (2). Retirer la
+copie = changer le **format d'actif** et cinq consommateurs ; un clip qui *référence* son squelette
+suppose que le squelette existe à côté du clip partout où il est chargé (le renderer charge des
+clips sans NkSkeletonDef aujourd'hui). Avis inchangé — un clip référence, il ne recopie pas — mais
+c'est un lot de format, à trancher avec Rodolf, pas à glisser en fin de journée.
+
+### 🔎 04/09 — LES TESTS « FANTÔMES » : correction, et le tableau
+
+Mon aveu du midi était mal formulé : `jenga test` **trouve** les 60 projets `*_Tests` — j'avais passé
+le nom du module au lieu de `NKPhysics_Tests`. La cause réelle : **`Nkentseu.jenga:451-453`,
+`dutc(enable=True)` / `dute(enable=True)`** (compilation *et* exécution des tests désactivées), depuis
+`5d90c862` du 2026-03-12. Mesure : 77 fichiers, **64 compilent** en isolation, 13 cassés (9 modules),
+17 modules déclarent `with test()` sans dossier ; `test_physics.cpp` lié à la main → **61/61**.
+Tableau complet dans `echanges/noge.questions.md`. **Rien n'est branché** avant que Rodolf tranche.
+
 ### ✅ 04/09 — UN SEUL CONSTRUCTEUR DE RAGDOLL
 
 **Mesuré avant de bouger.** Trois noms, pas trois constructeurs : (1) `physics::NkRagdoll::Build`
