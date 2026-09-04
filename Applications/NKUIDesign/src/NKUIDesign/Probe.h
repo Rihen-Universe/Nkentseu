@@ -7390,6 +7390,57 @@ namespace nkuidesign {
 				check("69e. LA SUPPRESSION REFUSE tant qu'un calque lie le style (le nombre dit) ; tout detacher rend les valeurs "
 					  "locales ; puis la suppression passe et le calque garde ce qu'il montrait",
 					  refuse && detaches == 1u && supprime, det);
+				// ── 69f. LE RAIL « STYLES » (le gabarit du rail Variables) ──
+				{
+					static StylesPanel railS(&stS);
+					NkEditorFrameContext ec;
+					ec.ui = &ctxS;
+					ec.dt = 0.016f;
+					auto rail = [&](float32 mx, float32 my, bool bas, uint32 cp) {
+						ctxS.input.mousePos = {mx, my};
+						ctxS.input.mouseDown[0] = bas;
+						ctxS.BeginFrame(0.016f);
+						if (cp)
+							ctxS.input.PushChar(cp);
+						ctxS.BeginLayout({0.f, 0.f, 260.f, 900.f});
+						railS.OnUI(ec);
+						ctxS.EndFrame();
+					};
+					auto clicRail = [&](const nkgui::NkRect &r) {
+						const float32 x = r.x + r.w * 0.5f, y = r.y + r.h * 0.5f;
+						rail(x, y, false, 0u);
+						rail(x, y, true, 0u);
+						rail(x, y, false, 0u);
+						rail(-1.f, -1.f, false, 0u);
+					};
+					rail(-1.f, -1.f, false, 0u);
+					const nkgui::NkRect rNom = railS.RectNom(0), rPou = railS.RectPoubelle(0);
+					const bool rects = rNom.w > 0.f && rPou.w > 0.f && rPou.x > rNom.x;
+					stS.status = NkString();
+					clicRail(rPou); // texte_1 est lie par t1 et t2
+					const NkString statusGarde = stS.status;
+					const bool garde = dS.styles.Size() == 1u && statusGarde.Data() && strstr(statusGarde.Data(), "utilisé par 2 calques") != nullptr;
+					clicRail(rNom);
+					const bool enRenommage = railS.EnRenommage() == 0;
+					rail(-1.f, -1.f, false, (uint32)'!');
+					rail(-1.f, -1.f, false, 0u);
+					const NkString nomR = dS.styles.Empty() ? NkString("(aucun)") : dS.styles[0].nom;
+					const bool renomme = nomR.Data() && strstr(nomR.Data(), "!") != nullptr && strstr(nomR.Data(), "Titre") != nullptr;
+					clicRail(nkgui::NkRect{100.f, 850.f, 4.f, 4.f});
+					const bool fini = railS.EnRenommage() == -1;
+					const uint32 detachesT = dS.DetacherTousStyle("texte_1");
+					stS.status = NkString();
+					rail(-1.f, -1.f, false, 0u);
+					clicRail(railS.RectPoubelle(0));
+					const bool supprimeT = dS.styles.Empty() && stS.status.Data() && strstr(stS.status.Data(), "supprimé") != nullptr;
+					snprintf(det, sizeof(det), "rects=%d ; poubelle gardee=%d (« %s ») ; renommage : ouvert=%d, nom -> « %s », fini=%d ; detaches %u, supprime=%d",
+							 rects ? 1 : 0, garde ? 1 : 0, statusGarde.Data() ? statusGarde.Data() : "", enRenommage ? 1 : 0,
+							 nomR.Data() ? nomR.Data() : "?", fini ? 1 : 0, detachesT, supprimeT ? 1 : 0);
+					check("69f. LE RAIL « STYLES » : la ligne (apercu, nom, poubelle) se dessine ; la poubelle REFUSE tant qu'un "
+						  "calque lie le style (« utilise par N calques ») ; un clic sur le nom ouvre le renommage, une frappe "
+						  "l'ecrit, un clic ailleurs le termine ; tous detaches, la poubelle supprime et le dit",
+						  rects && garde && enRenommage && renomme && fini && detachesT == 2u && supprimeT, det);
+				}
 			}
 		}
 		snprintf(tail, sizeof(tail), "\n=== RESULTAT : %d / %d ===\n", pass, total);

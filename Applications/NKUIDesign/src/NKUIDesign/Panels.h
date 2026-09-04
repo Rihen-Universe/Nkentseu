@@ -10283,6 +10283,138 @@ namespace nkuidesign {
 	/// remplissages »). Le mode courant est DIT, pas bascule : la bascule d'interface
 	/// est nommee, pas faite (§15.14). La variable se CREE dans le selecteur, comme
 	/// chez Lunacy -- ici on la retrouve, on la renomme, on la supprime.
+	/// L'APERCU d'un style : la couleur du premier remplissage visible (calque) ou la
+	/// couleur du texte (texte), resolue (« @variable » comprise). Vide = rien a montrer.
+	inline const char *NkCouleurApercuStyle(const NkUIDocument &doc, const NkStyle &st) {
+		const NkUINode &a = st.apparence;
+		if (st.EstTexte())
+			return a.textColor.Empty() ? nullptr : doc.ResoudreCouleur(a.textColor.Data());
+		for (nkentseu::uint32 i = (nkentseu::uint32)a.fills.Size(); i > 0u; --i)
+			if (a.fills[i - 1u].visible && !a.fills[i - 1u].couleur.Empty())
+				return doc.ResoudreCouleur(a.fills[i - 1u].couleur.Data());
+		return a.fill.Empty() ? nullptr : doc.ResoudreCouleur(a.fill.Data());
+	}
+
+	/// LE RAIL « STYLES » (§15.15, 05/09) : la liste des styles du document, sur le
+	/// gabarit du rail Variables -- apercu, NOM renommable sur place, cle et genre, le
+	/// nombre de calques qui le lient, la poubelle GARDEE (« utilise par N calques »).
+	/// Un style se CREE depuis une section de l'inspecteur (« Style : Créer ») ; ici on
+	/// le retrouve, on le renomme, on le supprime.
+	class StylesPanel : public NkEditorPanel {
+		public:
+			explicit StylesPanel(DesignState *st)
+				: NkEditorPanel("Styles", NkEditorDockSide::NK_LEFT), mSt(st) {}
+			int32 EnRenommage() const {
+				return mRenomme;
+			}
+			NkRect RectNom(uint32 i) const {
+				return i < (uint32)mRectNom.Size() ? mRectNom[i] : NkRect{0.f, 0.f, 0.f, 0.f};
+			}
+			NkRect RectPoubelle(uint32 i) const {
+				return i < (uint32)mRectPoubelle.Size() ? mRectPoubelle[i] : NkRect{0.f, 0.f, 0.f, 0.f};
+			}
+
+			void OnUI(NkEditorFrameContext &ec) override {
+				auto &ctx = ec.Ui();
+				designkit::releve::Zone(ctx, "styles");
+				auto &F = costume::Fontes();
+				auto &dl = ctx.DL();
+				NkUIDocument &doc = mSt->doc;
+				const bool clic = ctx.popupDepth == 0 && ctx.input.mouseClicked[0];
+				bool clicPris = false;
+				mRectNom.Clear();
+				mRectPoubelle.Clear();
+				{
+					const NkRect r = ctx.NextItemRect(-1.f, 24.f);
+					costume::TexteGras(dl, F.px9, r.x + 12.f, r.y + 10.f, "STYLES", ctx.theme.textMuted, 0.4f);
+				}
+				if (doc.styles.Empty()) {
+					const NkRect r = ctx.NextItemRect(-1.f, 44.f);
+					costume::Texte(dl, F.px10, r.x + 12.f, r.y + 6.f, "(aucun style)", ctx.theme.textMuted);
+					costume::Texte(dl, F.px9, r.x + 12.f, r.y + 24.f,
+								   "Une section de l'inspecteur en crée : « Style : Créer » (remplissages, typographie).",
+								   ctx.theme.textMuted);
+					mRenomme = -1;
+					return;
+				}
+				int32 aSupprimer = -1;
+				for (uint32 i = 0; i < (uint32)doc.styles.Size(); ++i) {
+					NkStyle &st = doc.styles[i];
+					const NkRect r = ctx.NextItemRect(-1.f, 28.f);
+					const uint32 usages = doc.CompterUsagesStyle(st.cle.Data());
+					const char *nom = st.nom.Empty() ? st.cle.Data() : st.nom.Data();
+					const char *res = NkCouleurApercuStyle(doc, st);
+					const NkRect sw = {r.x + 12.f, r.y + 6.f, 16.f, 16.f};
+					if (res && NkHexLisible(res))
+						dl.AddRectFilled(sw, NkCouleurDepuisHex(res), 3.f);
+					else
+						dl.AddLine({sw.x + 3.f, sw.y + 13.f}, {sw.x + 13.f, sw.y + 3.f}, ctx.theme.textMuted, 1.f);
+					dl.AddRect(sw, ctx.theme.border, 1.f, 3.f);
+					if (st.EstTexte())
+						costume::Texte(dl, F.px9, sw.x + 3.f, sw.y + 3.f, "Aa", res && NkHexLisible(res) ? nkgui::NkColor{255, 255, 255, 255} : ctx.theme.text);
+					const NkRect rp = {r.x + r.w - 26.f, r.y + 6.f, 16.f, 16.f};
+					const bool svP = NkGuiRectContains(rp, ctx.input.mousePos);
+					costume::IcPoubelle(dl, rp.x + 2.f, rp.y + 2.f, svP ? ctx.theme.text : ctx.theme.textMuted);
+					char b[16];
+					snprintf(b, sizeof(b), "\xC3\x97%u", (unsigned)usages);
+					costume::BadgePilule(dl, F.px9, rp.x - 30.f, r.y + 7.f, 14.f, b, usages ? ctx.theme.accent : ctx.theme.textMuted);
+					const NkRect rn = {sw.x + sw.w + 8.f, r.y + 4.f, rp.x - 34.f - (sw.x + sw.w + 8.f), 20.f};
+					if (mRenomme == (int32)i) {
+						nkentseu::editorkit::NkOverlayTextField(ctx, dl, ctx.font, rn, mNom, (int32)sizeof(mNom), true);
+						if (!NkComponentDecl::StrEq(mNom, st.nom.Data() ? st.nom.Data() : ""))
+							st.nom = NkString(mNom);
+					} else {
+						costume::Texte(dl, F.px11, rn.x, costume::CentrerY(F.px11, rn.y, rn.h), nom, ctx.theme.text);
+						char cle[80];
+						snprintf(cle, sizeof(cle), "@%s \xC2\xB7 %s", st.cle.Data() ? st.cle.Data() : "", st.EstTexte() ? "texte" : "calque");
+						costume::Texte(dl, F.px9, rn.x + costume::Largeur(F.px11, nom) + 6.f, costume::CentrerY(F.px9, rn.y, rn.h), cle,
+									   ctx.theme.textMuted);
+					}
+					mRectNom.PushBack(rn);
+					mRectPoubelle.PushBack(rp);
+					if (clic && !clicPris) {
+						if (svP) {
+							clicPris = true;
+							if (usages > 0u) {
+								char msg[200];
+								snprintf(msg, sizeof(msg), "« %s » est utilisé par %u calques — détachez-les d'abord (section : « Détacher »).", nom,
+										 (unsigned)usages);
+								mSt->DireAuPied(msg);
+							} else
+								aSupprimer = (int32)i;
+						} else if (NkGuiRectContains(rn, ctx.input.mousePos)) {
+							clicPris = true;
+							if (mRenomme != (int32)i) {
+								mRenomme = (int32)i;
+								snprintf(mNom, sizeof(mNom), "%s", st.nom.Data() ? st.nom.Data() : "");
+							}
+						}
+					}
+				}
+				if (clic && !clicPris)
+					mRenomme = -1;
+				if (aSupprimer >= 0) {
+					const NkString nomS = doc.styles[(uint32)aSupprimer].nom;
+					const NkString cleS = doc.styles[(uint32)aSupprimer].cle;
+					uint32 u = 0u;
+					if (doc.SupprimerStyle(cleS.Data(), &u)) {
+						char msg[160];
+						snprintf(msg, sizeof(msg), "Style « %s » (@%s) supprimé — aucun calque ne le liait.", nomS.Data() ? nomS.Data() : "",
+								 cleS.Data() ? cleS.Data() : "");
+						mSt->DireAuPied(msg);
+						mSt->Consigner(msg);
+					}
+					mRenomme = -1;
+				}
+			}
+
+		private:
+			DesignState *mSt;
+			int32 mRenomme = -1;
+			char mNom[64] = {0};
+			NkVector<NkRect> mRectNom, mRectPoubelle;
+	};
+
 	class VariablesPanel : public NkEditorPanel {
 		public:
 			explicit VariablesPanel(DesignState *st)

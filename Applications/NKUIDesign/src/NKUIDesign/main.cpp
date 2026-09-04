@@ -8822,6 +8822,7 @@ int nkmain(const NkEntryState &state) {
 	// c'est la place de Lunacy (`Variables` au rail de gauche). Il se ferme avec
 	// les panneaux fixes en mode toile seule.
 	static nkuidesign::VariablesPanel variables(&gDesign);
+	static nkuidesign::StylesPanel stylesRail(&gDesign); // §15.15 : le rail « Styles », meme feuille
 	// ⚠️ LA PALETTE REVIENT, MAIS PAR LE RAIL — ET CE N EST PAS UN RETOUR EN
 	//    ARRIERE. Le §13.1 la place explicitement sur le rail GAUCHE, comme
 	//    panneau SECONDAIRE : c est sa place, pas le dock. Elle est enregistree
@@ -8842,6 +8843,7 @@ int nkmain(const NkEntryState &state) {
 		hierarchie.SetOpen(false);
 		inspecteur.SetOpen(false);
 		variables.SetOpen(false);
+		stylesRail.SetOpen(false);
 		ai.SetOpen(false);
 	}
 	// ⚠️ L ORDRE D AJOUT DECIDE DE L ORDRE DES ONGLETS dans une meme feuille de
@@ -8849,6 +8851,7 @@ int nkmain(const NkEntryState &state) {
 	//    puis l Inspecteur, puis le bas.
 	shell->AddPanel(&hierarchie);
 	shell->AddPanel(&variables); // second onglet de la feuille gauche, apres la Hierarchie
+	shell->AddPanel(&stylesRail); // troisieme : Styles (Lunacy : Styles puis Variables ; l'ordre d'ajout decide)
 	shell->AddPanel(&preview);
 	shell->AddPanel(&inspecteur);
 	shell->AddPanel(&ai);
