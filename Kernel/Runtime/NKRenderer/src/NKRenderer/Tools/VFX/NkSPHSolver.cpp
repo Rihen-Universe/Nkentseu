@@ -282,6 +282,7 @@ namespace nkentseu {
 			const uint8 *A = store.alive.Data();
 			mStats.iterCapHits = 0;
 			mStats.speedClamped = 0;
+			mStats.clumped = 0;
 
 			// 1) vivantes ; positions et vitesses de travail
 			mAlive.Clear();
@@ -390,7 +391,7 @@ namespace nkentseu {
 					NkVec3f acc = {0.f, 0.f, 0.f};
 					for (uint32 q = NS[k]; q < NS[k + 1]; ++q) {
 						const uint32 j = NI[q];
-						const float32 c = (j < n) ? (m / D[j]) * NW[q] : (m / rho0) * NW[q];
+						const float32 c = (j < n) ? (m / D[j]) * NW[q] : params.wallFriction * (m / rho0) * NW[q];
 						const NkVec3f vj = (j < n) ? W[j] : NkVec3f{0.f, 0.f, 0.f};
 						acc.x += c * (vj.x - vi.x);
 						acc.y += c * (vj.y - vi.y);
@@ -401,6 +402,34 @@ namespace nkentseu {
 					W[k].x += params.viscosity * acc.x;
 					W[k].y += params.viscosity * acc.y;
 					W[k].z += params.viscosity * acc.z;
+				}
+			}
+			// Viscosité artificielle de Monaghan (bouton d'expérience) :
+			// a_i -= sum_j m Pi_ij gradW_ij, Pi_ij = -alpha c h (v_ij . x_ij) / (|x_ij|^2 + 0,01 h^2) / rho_moy,
+			// seulement quand v_ij . x_ij < 0 (rapprochement). Fantômes : v_j = 0, rho_j = rho0.
+			if (params.artViscosity > 0.f) {
+				const float32 eps = 0.01f * h * h;
+				for (uint32 k = 0; k < n; ++k) {
+					const NkVec3f vi = W[k], xi = X[k];
+					NkVec3f acc = {0.f, 0.f, 0.f};
+					for (uint32 q = NS[k]; q < NS[k + 1]; ++q) {
+						const uint32 j = NI[q];
+						const NkVec3f vj = (j < n) ? W[j] : NkVec3f{0.f, 0.f, 0.f};
+						const float32 rhoj = (j < n) ? D[j] : rho0;
+						const NkVec3f dv = {vi.x - vj.x, vi.y - vj.y, vi.z - vj.z};
+						const NkVec3f dx = {xi.x - X[j].x, xi.y - X[j].y, xi.z - X[j].z};
+						const float32 vx = dv.x * dx.x + dv.y * dx.y + dv.z * dx.z;
+						if (vx >= 0.f)
+							continue;
+						const float32 r2 = dx.x * dx.x + dx.y * dx.y + dx.z * dx.z;
+						const float32 pi = -params.artViscosity * params.artSoundSpeed * h * vx / (r2 + eps) / (0.5f * (D[k] + rhoj));
+						acc.x -= m * pi * NG[q].x;
+						acc.y -= m * pi * NG[q].y;
+						acc.z -= m * pi * NG[q].z;
+					}
+					W[k].x += acc.x * dt;
+					W[k].y += acc.y * dt;
+					W[k].z += acc.z * dt;
 				}
 			}
 			for (uint32 k = 0; k < n; ++k) {
@@ -419,11 +448,15 @@ namespace nkentseu {
 					err = 0.f;
 					for (uint32 k = 0; k < n; ++k) {
 						float32 ra = D[k] + dt * divergence(k);
-						if (ra < rho0)
-							ra = rho0; // surface libre : pas de traction
+						if (ra < rho0) { // surface libre : la borne est un BOUTON d'expérience (04/09)
+							if (params.surfaceMode == 1)
+								ra = rho0; // dure : pas de traction
+							else if (params.surfaceMode == 2)
+								ra = rho0 + 0.5f * (ra - rho0); // douce : la moitié
+						}
 						DA[k] = ra;
 						K[k] = (ra - rho0) * AF[k] * invDt * invDt;
-						err += (ra - rho0) / rho0;
+						err += fabsf(ra - rho0) / rho0;
 					}
 					err /= (float32)n;
 					if ((it >= 2 && err < params.tolDensity) || it >= params.maxIterDensity)
@@ -476,6 +509,8 @@ namespace nkentseu {
 				if (sp > vmax)
 					vmax = sp;
 				const float32 rho = D[k];
+				if (rho > 1.1f * rho0)
+					++mStats.clumped;
 				rhoSum += rho;
 				if (rho < rhoMin) rhoMin = rho;
 				if (rho > rhoMax) rhoMax = rho;

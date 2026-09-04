@@ -44,6 +44,23 @@ namespace nkentseu {
 				uint32 maxIterDivergence = 100;
 				float32 tolDensity = 0.001f;  // 0,1 % : |rho* - rho0| / rho0 moyen
 				float32 tolDivergence = 0.001f;
+				// ── Boutons d'EXPÉRIENCE (04/09 nuit, chasse au front trop rapide) ──
+				// surfaceMode : 1 = borne dure rho* >= rho0 (défaut DFSPH), 0 = aucune borne
+				// (kappa négatif autorisé : traction), 2 = borne douce (la moitié de la traction).
+				uint32 surfaceMode = 1;
+				// Viscosité artificielle de Monaghan (alpha), fluide-fluide et fluide-paroi ;
+				// c nominal = artSoundSpeed. 0 = désactivée.
+				// MESURE (04/09 nuit) : sans viscosite le front de rupture de barrage est 1,5-2x trop
+				// rapide ; alpha = 0,075 (c = 50, h = 0,1) le met a 13 % de la reference SPH 2D (Cebron &
+				// Sigrist) et a 26 % de Martin & Moyce -- MAIS le repos n'est plus calme (vmax 1,2 m/s au
+				// lieu de 0,04) : la viscosite artificielle explicite injecte du mouvement au repos. Les
+				// deux temoins se paient l'un l'autre : le DEFAUT reste 0 (repos vert, front rouge, dits),
+				// et la suite nommee est une viscosite physique (laminaire) avec sa CFL visqueuse.
+				float32 artViscosity = 0.f;
+				float32 artSoundSpeed = 50.f;
+				// Frottement de paroi : poids du terme XSPH des fantômes (0 = glissement libre,
+				// 1 = même poids qu'une voisine fluide à vitesse nulle = non-glissement partiel).
+				float32 wallFriction = 1.f;
 				NkVec3f gravity = {0.f, -9.8f, 0.f};
 				NkVec3f boundsMin = {-1.f, 0.f, -1.f};
 				NkVec3f boundsMax = {1.f, 2.f, 1.f};
@@ -70,6 +87,7 @@ namespace nkentseu {
 				float32 residualDensity = 0.f;					 // résidu final moyen |rho*-rho0|/rho0 (fraction)
 				float32 residualDivergence = 0.f;				 // résidu final moyen Drho/Dt dt / rho0
 				uint32 iterCapHits = 0;							 // fois où une borne d'itérations a été atteinte
+				uint32 clumped = 0;								 // particules à rho > 1,1 rho0 (agglutination = instabilité de traction)
 		};
 
 		class NkSPHSolver final : public NkIParticleSolver {
