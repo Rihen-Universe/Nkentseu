@@ -685,10 +685,13 @@ saturation / valeur).
   (`RectNom`, `RectPoubelle`), pas dans une géométrie devinée.
 
 **Le geste attend l'œil de Rodolf** (l'onglet, le renommage à la souris, le rendu
-du bouton dans le popover) — listé, pas déclaré livré. **Nommé, pas fait** :
-**lier une variable existante** depuis le sélecteur (une liste sous le bouton, ou
-le glisser depuis le rail) ; la **bascule de mode** dans l'interface ; le nom
-d'une variable dans le popover de **bordure** ; les **styles** (§15.15).
+du bouton dans le popover) — listé, pas déclaré livré. **Fait ensuite (05/09,
+sonde 68g)** : **lier une variable existante** depuis le sélecteur — « Lier ˅ » à
+droite de « Créer une variable », la liste dépliée dans le popover (six au plus,
+le pied renvoie au rail au-delà), un clic fait de la couleur une référence.
+**Nommé, pas fait** : la **bascule de mode** dans l'interface ; le nom d'une
+variable dans le popover de **bordure** ; le glisser d'une variable depuis le
+rail vers une pastille. Les **styles** : §15.15.
 
 ## 15.15 ✅ STYLES DE CALQUE ET DE TEXTE — le plan, écrit avant le code (05/09), puis CODÉ la même nuit
 
@@ -718,7 +721,8 @@ d'une variable dans le popover de **bordure** ; les **styles** (§15.15).
 > chargement gardait celles du document d'avant) — vidées maintenant. Nommé : la
 > capture Lunacy du rail Styles manque (la place de « Créer » vient de l'icône de FILLS) ;
 > les bordures et les effets se lient par la rangée de REMPLISSAGES (un style de calque
-> est l'ensemble des trois) ; **lier une variable existante** depuis le sélecteur.
+> est l'ensemble des trois). Lier une variable existante depuis le sélecteur : fait
+> ensuite (68g).
 
 **Le plan tel qu'il a été écrit avant le code** (gardé : il dit pourquoi les choix sont ce
 qu'ils sont).
