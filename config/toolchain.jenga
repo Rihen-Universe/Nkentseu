@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
+# AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 
 from Jenga import *
 from jengaconfig import *                                         # noqa: F401, F403
@@ -52,7 +53,10 @@ def nkentseutoolchain():
             # libgcc_s_seh-1.dll / libstdc++-6.dll / libwinpthread-1.dll sur
             # la machine cible. Sans ca les testeurs ont une erreur
             # "libgccXXX.dll manquant" au premier lancement.
-            ldflags(["--target=x86_64-w64-windows-gnu"])
+            # 2026-09-04 : le lien statique etait PROMIS par le commentaire ci-dessus et jamais
+            # passe (ldflags == [--target] seul, mesure par Jenga) -- un lien statique en
+            # commentaire est le souvenir d un lien statique. Temoin : jenga test --no-runtime-path.
+            ldflags(["--target=x86_64-w64-windows-gnu", "-static-libstdc++", "-static-libgcc", "-static", "-Wl,-Bstatic", "-lpthread"])
 
     else:
         # Cross-compilation Windows depuis Linux/WSL2:
