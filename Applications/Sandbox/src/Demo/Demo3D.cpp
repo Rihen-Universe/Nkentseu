@@ -1,3 +1,4 @@
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // =============================================================================
 // Demo3D.cpp  — Demo 2
 //
@@ -2202,6 +2203,18 @@ namespace nkentseu {
 					d.velocityDir = {0.f, 1.f, 0.f};
 					d.velocityRand = 0.6f;
 					d.maxParticles = 1000;
+					// NK_VFX_BLEND=additive|alpha|opaque : le melange declare (2026-09-04).
+					if (const char *bm = std::getenv("NK_VFX_BLEND"); bm && bm[0]) {
+						if (bm[0] == 'a' && bm[1] == 'l')
+							d.blend = NkBlendMode::NK_ALPHA;
+						else if (bm[0] == 'o')
+							d.blend = NkBlendMode::NK_OPAQUE;
+						else if (bm[0] == 'm')
+							d.blend = NkBlendMode::NK_MULTIPLY; // pas de fabrique : le repli doit se DIRE
+						else
+							d.blend = NkBlendMode::NK_ADDITIVE;
+						std::fprintf(stderr, "[VFX PROBE] blend demande : %s -> mode %u\n", bm, (unsigned)d.blend);
+					}
 					NkEmitterId eid = vfx->CreateEmitter(d);
 					std::fprintf(stderr, "[VFX PROBE] emetteur cree id=%llu (vfx=%p)\n", (unsigned long long)eid.id, (void *)vfx);
 				} else {
