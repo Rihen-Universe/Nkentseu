@@ -8,6 +8,7 @@
 #include "NKThreading/Synchronization/NkBarrier.h"
 #include "NKThreading/Synchronization/NkEvent.h"
 #include "NKThreading/Synchronization/NkLatch.h"
+#include "NKThreading/NkConditionVariable.h" // GetMonotonicTimeMs (2026-09-04)
 #include "NKThreading/Synchronization/NkReaderWriterLock.h"
 
 using namespace nkentseu::threading;
@@ -141,6 +142,42 @@ TEST_CASE(NKThreadingSync, EventAutoResetWakesOne) {
 
 	ASSERT_EQUAL(1u, success);
 	ASSERT_EQUAL(1u, timeout);
+}
+
+// Le REVEIL PERDU (2026-09-04) : un Set() pose AVANT que quiconque attende doit
+// etre vu par le Wait() qui suit -- l'etat persiste, il n'est pas un signal
+// fugace. Automatique : le premier Wait() le consomme, le second attend.
+TEST_CASE(NKThreadingSync, EventSetBeforeWaitIsNotLost) {
+	NkEvent autoEvent(false, false);
+	autoEvent.Set();
+	ASSERT_TRUE(autoEvent.Wait(50));
+	ASSERT_FALSE(autoEvent.IsSignaled()); // consomme
+	ASSERT_FALSE(autoEvent.Wait(20));     // plus rien a consommer
+
+	NkEvent manualEvent(true, false);
+	manualEvent.Set();
+	ASSERT_TRUE(manualEvent.Wait(50));
+	ASSERT_TRUE(manualEvent.Wait(50)); // manuel : reste signale
+	ASSERT_TRUE(manualEvent.IsSignaled());
+}
+
+// Un Wait() CHRONOMETRE doit REVENIR : pas de signal -> faux, apres au moins
+// l'echeance demandee et bien avant une seconde (borne haute : jamais un test
+// qui pend).
+TEST_CASE(NKThreadingSync, EventTimedWaitReturns) {
+	NkEvent event(true, false);
+	const nkentseu::nk_uint64 t0 = NkConditionVariable::GetMonotonicTimeMs();
+	ASSERT_FALSE(event.Wait(40));
+	const nkentseu::nk_uint64 elapsed = NkConditionVariable::GetMonotonicTimeMs() - t0;
+	ASSERT_TRUE(elapsed >= 35u);
+	ASSERT_TRUE(elapsed < 1000u);
+
+	NkLatch latch(1u);
+	const nkentseu::nk_uint64 t1 = NkConditionVariable::GetMonotonicTimeMs();
+	ASSERT_FALSE(latch.Wait(40));
+	const nkentseu::nk_uint64 elapsed2 = NkConditionVariable::GetMonotonicTimeMs() - t1;
+	ASSERT_TRUE(elapsed2 >= 35u);
+	ASSERT_TRUE(elapsed2 < 1000u);
 }
 
 TEST_CASE(NKThreadingSync, EventPulseWithoutWaitersIsTransient) {
