@@ -262,14 +262,12 @@ namespace nkentseu {
 			}
 			// Position MONDE d'un joint pour une pose LOCALE donnee.
 			NkVec3f WorldOf(const NkSkeletonDef &sk, const NkVector<NkMat4f> &local, uint32 j) {
-				NkMat4f acc = local[j];
-				int32 p = sk.Parent(j);
-				uint32 guard = 0;
-				while (p >= 0 && guard++ < 4096u) {
-					acc = local[(uint32)p] * acc;
-					p = sk.Parent((uint32)p);
-				}
-				return acc * NkVec3f{0.f, 0.f, 0.f};
+				// Par LA conversion du squelette (2026-09-04) -- plus de remontee de
+				// chaine ici : si LocalToWorld se trompait, le test 3 le verrait.
+				NkVector<NkMat4f> world;
+				world.Resize(local.Size());
+				sk.LocalToWorld(local.Data(), world.Data());
+				return world[j] * NkVec3f{0.f, 0.f, 0.f};
 			}
 			// Pose de repos locale de tous les joints (ce que l'ancien `bindLocal` stockait).
 			NkVector<NkMat4f> RestLocal(const NkSkeletonDef &sk) {
@@ -301,6 +299,10 @@ namespace nkentseu {
 				}
 				// Et le monde n'est PAS le local : sinon la conversion n'aurait rien fait.
 				ok = ok && !NearM(s.BindWorld(2), local[2]);
+				// ET ELLE EST JUSTE, contre la geometrie faite A LA MAIN (pas contre
+				// elle-meme) : joint 2 = (0,1,0) + RotZ(30°)·(0,1,0) = (-sin30, 1+cos30, 0).
+				ok = ok && NearV(WorldOf(s, local, 2), NkVec3f{-0.5f, 1.8660254f, 0.f});
+				ok = ok && NearV(s.BindWorldPos(2), NkVec3f{-0.5f, 1.8660254f, 0.f});
 				// COURT-CIRCUIT : un squelette dont la conversion est fausse ne doit pas
 				// nourrir les tests suivants -- ils la supposent juste et finiraient en
 				// assertion d'indice (mesure sous mutation, 2026-09-04) au lieu d'un

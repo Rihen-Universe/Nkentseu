@@ -7,6 +7,7 @@
 // ici ne tire le renderer, NKRHI ni un chargeur de format.
 // =============================================================================
 #include "NKAnima/Clip/NkAnimation.h"
+#include "NKAnima/Skeleton/NkSkeletonDef.h" // LA conversion locale -> monde (2026-09-04)
 #include "NKMemory/NkAllocator.h"
 #include "NKFileSystem/NkFile.h"
 #include "NKLogger/NkLog.h"
@@ -344,12 +345,13 @@ namespace nkentseu {
 			NkVector<NkMat4f> global;
 			global.Resize(n > (uint32)boneMats.Size() ? n : (uint32)boneMats.Size());
 			// FK : global[j] = global[parent] × local[j]  (boneMats = locaux en entrée)
-			for (uint32 oi = 0; oi < (uint32)jointTopo.Size(); ++oi) {
-				uint32 j = jointTopo[oi];
-				int32 p = (j < (uint32)jointParent.Size()) ? jointParent[j] : -1;
-				NkMat4f local = (j < (uint32)boneMats.Size()) ? boneMats[j] : NkMat4f::Identity();
-				global[j] = (p >= 0) ? (global[(uint32)p] * local) : local;
-			}
+			// -- UNE seule conversion, dans Skeleton/ (2026-09-04). Les joints au-dela
+			// de boneMats valent l'identite, comme avant.
+			for (uint32 j = (uint32)boneMats.Size(); j < (uint32)global.Size(); ++j)
+				global[j] = NkMat4f::Identity();
+			for (uint32 j = 0; j < (uint32)boneMats.Size() && j < (uint32)global.Size(); ++j)
+				global[j] = boneMats[j];
+			::nkentseu::anim::NkForwardKinematics(jointParent.Data(), jointTopo.Data(), n, global.Data(), global.Data());
 			// skinning[j] = global[j] × inverseBind[j]  (écrit en place)
 			for (uint32 j = 0; j < (uint32)boneMats.Size(); ++j) {
 				NkMat4f ib = (j < (uint32)jointInverseBind.Size()) ? jointInverseBind[j] : NkMat4f::Identity();
