@@ -109,19 +109,31 @@ namespace nkentseu {
 					pd.shader = particleShader;
 					if (mTexLayout.IsValid())
 						pd.descriptorSetLayouts.PushBack(mTexLayout); // borne 2 : la texture
-					// Layout de NkVertexParticle (stride 32) : le CPU ecrit six
-					// sommets par particule, le VS expanse les coins depuis aUV+aSize.
-					pd.vertexLayout.AddBinding(0, sizeof(NkVertexParticle), false)
-						.AddAttribute(0, 0, NkGPUFormat::NK_RGB32_FLOAT, 0, "POSITION", 0)
-						.AddAttribute(1, 0, NkGPUFormat::NK_RG32_FLOAT, 12, "TEXCOORD", 0)
-						.AddAttribute(2, 0, NkGPUFormat::NK_RGBA8_UNORM, 20, "COLOR", 0)
-						.AddAttribute(3, 0, NkGPUFormat::NK_R32_FLOAT, 24, "TEXCOORD", 1)
-						.AddAttribute(4, 0, NkGPUFormat::NK_R32_FLOAT, 28, "TEXCOORD", 2);
+					// INSTANCIATION (2026-09-04, soir) : binding 0 = le coin, PAR SOMMET, six
+					// vec2 statiques partages par tous les emetteurs ; binding 1 = la
+					// particule, PAR INSTANCE (NkParticleInstance, 24 o). Le CPU n'ecrit plus
+					// six sommets de 32 o par particule ; le VS expanse le coin depuis
+					// aCorner + aSize. Draw(6, vivantes).
+					pd.vertexLayout.AddBinding(0, sizeof(NkVec2f), false)
+						.AddBinding(1, sizeof(NkParticleInstance), true)
+						.AddAttribute(0, 0, NkGPUFormat::NK_RG32_FLOAT, 0, "TEXCOORD", 0)
+						.AddAttribute(1, 1, NkGPUFormat::NK_RGB32_FLOAT, 0, "POSITION", 0)
+						.AddAttribute(2, 1, NkGPUFormat::NK_RGBA8_UNORM, 16, "COLOR", 0)
+						.AddAttribute(3, 1, NkGPUFormat::NK_R32_FLOAT, 12, "TEXCOORD", 1)
+						.AddAttribute(4, 1, NkGPUFormat::NK_R32_FLOAT, 20, "TEXCOORD", 2);
 					mPipeParticle[f] = mDevice->CreateGraphicsPipeline(pd);
 					if (!mPipeParticle[f].IsValid())
 						logger.Errorf("[NkVFXSystem] pipeline particules INVALIDE (shader_valid=%d) -- "
 									  "rien ne se dessinera\n",
 									  particleShader.IsValid() ? 1 : 0);
+			}
+			// Les six coins du quad (deux triangles, TRIANGLE_LIST), STATIQUES : un
+			// seul tampon de 48 octets pour tous les emetteurs, cree une fois.
+			{
+				static const NkVec2f kCorners[6] = {{0, 0}, {1, 0}, {1, 1}, {0, 0}, {1, 1}, {0, 1}};
+				mQuadVB = mDevice->CreateBuffer(NkBufferDesc::Vertex(sizeof(kCorners), kCorners));
+				if (!mQuadVB.IsValid())
+					logger.Errorf("[NkVFXSystem] tampon des coins du quad INVALIDE -- aucune particule ne se dessinera\n");
 			}
 			{
 				NkGraphicsPipelineDesc pd;
@@ -160,6 +172,10 @@ namespace nkentseu {
 			}
 			for (auto *d : mDecals)
 				memory::NkGetDefaultAllocator().Delete(d);
+			if (mQuadVB.IsValid()) {
+				mDevice->DestroyBuffer(mQuadVB);
+				mQuadVB = {};
+			}
 			mEmitters.Clear();
 			mTrails.Clear();
 			mDecals.Clear();
@@ -177,9 +193,9 @@ namespace nkentseu {
 			e->enabled = true;
 			e->spawnAccum = 0.f;
 
-			// GPU billboard VBO (NkVertexParticle)
-			e->vbo =
-				mDevice->CreateBuffer(NkBufferDesc::VertexDynamic(desc.maxParticles * sizeof(NkVertexParticle) * 6));
+			// Tampon PAR INSTANCE : un NkParticleInstance (24 o) par emplacement -- huit fois
+			// moins que les six NkVertexParticle de 32 o d'avant (2026-09-04).
+			e->vbo = mDevice->CreateBuffer(NkBufferDesc::VertexDynamic(desc.maxParticles * sizeof(NkParticleInstance)));
 
 			// Borne 2 : la texture DECLAREE est celle qui rend ; sans texture, le repli, DIT.
 			if (mTexLayout.IsValid() && mTexLib) {
@@ -376,36 +392,30 @@ namespace nkentseu {
 			if (e->aliveCount == 0 || !e->vbo.IsValid())
 				return;
 
-			NkVector<NkVertexParticle> &verts = mScratchVerts; // reutilise : plus de 9,6 Mo par image
-			verts.Clear();
-			verts.Reserve(e->aliveCount * 6);
+			// UN enregistrement de 24 o par particule vivante (2026-09-04, soir) : le
+			// quad s'expanse sur le GPU par instanciation, le coin vient du tampon
+			// statique mQuadVB. Avant : six NkVertexParticle de 32 o par particule --
+			// 3,8-4,5 ms de sommets + 9,3 Mo d'envoi par image a 50 000.
+			NkVector<NkParticleInstance> &inst = mScratchInst; // reutilise : pas de reallocation par image
+			inst.Clear();
+			inst.Reserve(e->aliveCount);
 			for (auto &p : e->particles) {
 				if (!p.alive)
 					continue;
-				uint32 col = ((uint32)(p.color.w * 255) << 24) | ((uint32)(p.color.z * 255) << 16) |
-							 ((uint32)(p.color.y * 255) << 8) | (uint32)(p.color.x * 255);
-				// SIX sommets — deux triangles. La topologie du pipeline est
-				// NK_TRIANGLE_LIST : quatre sommets faisaient UN triangle et un
-				// orphelin. Les coins sont expanses dans le VERTEX shader, a
-				// partir de aUV et aSize (cf. particles.vert.nksl) : ici les six
-				// sommets partagent le centre, seul aUV les distingue.
-				NkVertexParticle v;
-				v.pos = p.pos;
-				v.size = p.size;
-				v.rotation = p.rotation;
-				v.color = col;
-				const NkVec2f kCorners[6] = {{0, 0}, {1, 0}, {1, 1}, {0, 0}, {1, 1}, {0, 1}};
-				for (uint32 k = 0; k < 6; ++k) {
-					v.uv = kCorners[k];
-					verts.PushBack(v);
-				}
+				NkParticleInstance r;
+				r.pos = p.pos;
+				r.size = p.size;
+				r.color = ((uint32)(p.color.w * 255) << 24) | ((uint32)(p.color.z * 255) << 16) |
+						  ((uint32)(p.color.y * 255) << 8) | (uint32)(p.color.x * 255);
+				r.rotation = p.rotation;
+				inst.PushBack(r);
 			}
 			const int64 t3 = ::nkentseu::NkChrono::Now().nanoseconds;
 			mProfile.buildMs += (float32)((t3 - t2) / 1.0e6);
-			mDevice->WriteBuffer(e->vbo, verts.Data(), (uint32)verts.Size() * sizeof(NkVertexParticle));
+			mDevice->WriteBuffer(e->vbo, inst.Data(), (uint32)inst.Size() * sizeof(NkParticleInstance));
 			const int64 t4 = ::nkentseu::NkChrono::Now().nanoseconds;
 			mProfile.uploadMs += (float32)((t4 - t3) / 1.0e6);
-			mProfile.uploadBytes += (uint32)verts.Size() * (uint32)sizeof(NkVertexParticle);
+			mProfile.uploadBytes += (uint32)inst.Size() * (uint32)sizeof(NkParticleInstance);
 		}
 
 		// ── Trails ────────────────────────────────────────────────────────────────
@@ -557,8 +567,9 @@ namespace nkentseu {
 			cmd->BindGraphicsPipeline(PipelineFor(e->desc.blend)); // le melange DECLARE est celui qui rend
 			if (e->texSet.IsValid())
 				cmd->BindDescriptorSet(e->texSet, 0); // la texture DECLAREE (ou le repli dit)
-			cmd->BindVertexBuffer(0, e->vbo, 0);
-			cmd->Draw(e->aliveCount * 6, 1, 0, 0); // six sommets = deux triangles
+			cmd->BindVertexBuffer(0, mQuadVB, 0); // les six coins, statiques, partages
+			cmd->BindVertexBuffer(1, e->vbo, 0);  // un enregistrement de 24 o par particule, PAR INSTANCE
+			cmd->Draw(6, e->aliveCount, 0, 0);    // six sommets x N instances : le quad s'expanse sur le GPU
 			mProfile.drawMs += (float32)((::nkentseu::NkChrono::Now().nanoseconds - t0) / 1.0e6);
 		}
 

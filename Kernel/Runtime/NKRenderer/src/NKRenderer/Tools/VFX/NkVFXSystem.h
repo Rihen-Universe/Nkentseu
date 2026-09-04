@@ -176,7 +176,7 @@ namespace nkentseu {
 						NkVector<Particle> particles;
 						float32 spawnAccum = 0.f;
 						bool enabled = true;
-						NkBufferHandle vbo; // GPU billboard VBO
+						NkBufferHandle vbo; // tampon PAR INSTANCE : NkParticleInstance x maxParticles (binding 1)
 						uint32 aliveCount = 0;
 						NkDescSetHandle texSet; // la texture de l'emetteur (ou le repli), binding 1 (2026-09-04)
 						// Pile des emplacements LIBRES (2026-09-04) : la naissance etait un balayage
@@ -223,7 +223,8 @@ namespace nkentseu {
 				// descripteur par emetteur, et un repli (disque doux blanc 32x32) DIT une fois.
 				NkDescSetHandle mTexLayout;
 				NkVFXProfile mProfile;
-				NkVector<NkVertexParticle> mScratchVerts; // tampon de sommets reutilise (9,6 Mo realloues par image a 50 000, avant)
+				NkVector<NkParticleInstance> mScratchInst; // un enregistrement de 24 o par particule vivante, tampon reutilise
+				NkBufferHandle mQuadVB; // les six coins du quad, statiques, binding 0 -- partages par tous les emetteurs (2026-09-04)
 				NkTexHandle mFallbackTex;
 				NkPipelineHandle PipelineFor(NkBlendMode mode);
 				bool mBlendFallbackDit[8] = {};

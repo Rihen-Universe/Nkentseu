@@ -4,15 +4,25 @@
 // Draw partait sans programme. Et le CPU ecrivait quatre sommets a la MEME
 // position : meme avec un programme, l'aire etait nulle.
 //
-// Ici les coins sont expanses DANS LE VERTEX SHADER, a partir de aSize et du
+// 2026-09-04 (soir), INSTANCIATION : le CPU n'ecrit plus six sommets de 32 o par
+// particule (sommets 3,8-4,5 ms + envoi 9,3 Mo/image a 50 000) mais UN
+// enregistrement de 24 o par particule ; le coin vient d'un tampon STATIQUE de
+// six sommets (binding 0, par sommet), la particule d'un tampon par INSTANCE
+// (binding 1). Draw(6, N). Mesure avant : NKRHI honore le taux par instance sur
+// les quatre dorsaux (glVertexAttribDivisor / VK_VERTEX_INPUT_RATE_INSTANCE /
+// D3D11_INPUT_PER_INSTANCE_DATA / D3D12_..._PER_INSTANCE_DATA) et WebGL2 aussi
+// (divisor par attribut, ES 3.0) -- la voie gl_VertexID + SSBO n'existe pas sur
+// WebGL2 (pas de SSBO), l'instanciation est la seule qui porte partout.
+//
+// Les coins sont expanses DANS LE VERTEX SHADER, a partir de aSize et du
 // repere camera lu dans uCam.view (ligne 0 = right monde, ligne 1 = up monde).
 // Pas de geometry shader : WebGL2 n'en a pas, et le Web est le chemin Apple.
 
-@location(0) in vec3  aPos;      // centre monde de la particule
-@location(1) in vec2  aUV;       // coin : (0,0) (1,0) (1,1) (0,1)
-@location(2) in vec4  aColor;    // RGBA8_UNORM -> vec4 normalise
-@location(3) in float aSize;     // cote du billboard, en metres
-@location(4) in float aRotation; // rotation dans le plan de l'ecran, radians
+@location(0) in vec2  aCorner;   // PAR SOMMET : (0,0) (1,0) (1,1) (0,0) (1,1) (0,1) -- quad statique partage
+@location(1) in vec3  aPos;      // PAR INSTANCE : centre monde de la particule
+@location(2) in vec4  aColor;    // PAR INSTANCE : RGBA8_UNORM -> vec4 normalise
+@location(3) in float aSize;     // PAR INSTANCE : cote du billboard, en metres
+@location(4) in float aRotation; // PAR INSTANCE : rotation dans le plan de l'ecran, radians
 
 @binding(set=0, binding=0)
 uniform CameraUBO {
@@ -34,7 +44,7 @@ uniform CameraUBO {
 @stage(vertex)
 @entry
 void main() {
-    vUV    = aUV;
+    vUV    = aCorner;
     vColor = aColor;
 
     // Repere camera en MONDE : les colonnes de la matrice de vue transposee.
@@ -42,7 +52,7 @@ void main() {
     vec3 up    = vec3(uCam.view[0][1], uCam.view[1][1], uCam.view[2][1]);
 
     // Coin centre : (0,0)->(-1,-1) ... (1,1)->(+1,+1)
-    vec2 c = aUV * 2.0 - 1.0;
+    vec2 c = aCorner * 2.0 - 1.0;
     float cs = cos(aRotation);
     float sn = sin(aRotation);
     vec2 r = vec2(c.x * cs - c.y * sn, c.x * sn + c.y * cs);
