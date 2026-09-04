@@ -1,3 +1,4 @@
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // NkOverlayRenderer.cpp — NKRenderer v4.0
 #include "NkOverlayRenderer.h"
 #include "NKRenderer/Tools/Text/NkTextRenderer.h"
@@ -46,8 +47,14 @@ namespace nkentseu {
 			if (!mTxt || !mFont.IsValid())
 				return;
 			char buf[256];
-			snprintf(buf, sizeof(buf), "Draw:%u  Tris:%u  GPU:%.2fms  CPU:%.2fms  Batches:%u", s.drawCalls, s.triangles,
-					 s.gpuTimeMs, s.cpuTimeMs, s.batchCount);
+			// Un instrument absent se dit (« -- »), il ne rend pas un faux zero (2026-09-04).
+			char gpu[24];
+			if (s.gpuTimeValid)
+				snprintf(gpu, sizeof(gpu), "%.2fms", s.gpuTimeMs);
+			else
+				snprintf(gpu, sizeof(gpu), "--");
+			snprintf(buf, sizeof(buf), "Draw:%u  Tris:%u  GPU:%s  CPU:%.2fms  Batches:%u", s.drawCalls, s.triangles, gpu,
+					 s.cpuTimeMs, s.batchCount);
 			mTxt->DrawText(pos, buf, mFont, 14.f, 0xFFFFFFFF);
 
 			// Background semi-transparent

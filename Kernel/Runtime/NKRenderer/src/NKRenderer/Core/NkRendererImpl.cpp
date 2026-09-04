@@ -1,3 +1,4 @@
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // =============================================================================
 // NkRendererImpl.cpp  — NKRenderer v5.0
 // =============================================================================
@@ -1457,6 +1458,7 @@ namespace nkentseu {
 
 			if (!mDevice->BeginFrame(mFrameCtx))
 				return false;
+			mDevice->BeginTimestampQuery(0); // chrono GPU : horodatage de debut de frame (2026-09-04)
 
 			// Sélection « outline silhouette » : (dés)activer l'option ajoute/retire les
 			// passes SelectionMask + SelectionOutline du graph -> rebuild à l'aplomb de
@@ -1503,7 +1505,18 @@ namespace nkentseu {
 		}
 
 		void NkRendererImpl::EndFrame() {
+			mDevice->EndTimestampQuery(0); // horodatage de fin, avant la cloture de la frame
 			mDevice->EndFrame(mFrameCtx);
+			// Chrono GPU (2026-09-04) : le device rend les deux horodatages d'une frame
+			// DEJA terminee (une frame de latence, pas d'attente). Tant qu'aucun backend ne
+			// repond, gpuTimeValid reste faux et le HUD dit « -- ».
+			{
+				uint64 ns[2] = {0, 0};
+				if (mDevice->GetTimestampResults(ns, 2) && ns[1] >= ns[0]) {
+					mStats.gpuTimeMs = (float32)((float64)(ns[1] - ns[0]) * (float64)mDevice->GetTimestampPeriodNs() / 1.0e6);
+					mStats.gpuTimeValid = true;
+				}
+			}
 			// ── LA FRAME EST COMPLETE : on fige ses statistiques ────────────
 			// Ces compteurs etaient AFFICHES depuis toujours (overlay
 			// « Draw/Tris/Batches ») mais jamais alimentes -- le cadran

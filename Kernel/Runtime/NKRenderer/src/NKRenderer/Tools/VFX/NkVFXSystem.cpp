@@ -2,7 +2,8 @@
 // =============================================================================
 // NkVFXSystem.cpp  — NKRenderer v4.0
 // =============================================================================
-#include <cstdio> // repli de melange dit une fois (2026-09-04)
+#include <cstdio>
+#include <cmath> // sqrt du repli (2026-09-04) // repli de melange dit une fois (2026-09-04)
 #include "NkVFXSystem.h"
 #include "NKRenderer/Shader/NkShaderLibrary.h" // shader des particules (2026-09-04)
 #include "NKLogger/NkLog.h"
@@ -60,6 +61,40 @@ namespace nkentseu {
 
 			// Trois pipelines de particules, un par famille de melange que NkBlendDesc
 			// sait fabriquer -- NkEmitterDesc::blend choisit a l'appel (2026-09-04).
+			// Borne 2 : le layout de la texture de particule (binding 1 ; le binding 0 est
+			// uCam, lie par nom sur le chemin aplati GL -- le jeu global Vulkan est la borne 3).
+			{
+				NkDescriptorSetLayoutDesc tl;
+				tl.Add(1, NkDescriptorType::NK_COMBINED_IMAGE_SAMPLER, ::nkentseu::NkShaderStage::NK_ALL_GRAPHICS);
+				tl.debugName = "ParticlesTexture";
+				mTexLayout = mDevice->CreateDescriptorSetLayout(tl);
+			}
+			// Le repli : le disque doux qui etait code en dur dans le fragment, devenu une
+			// texture blanche 32x32 a alpha radial. Un emetteur sans texture le recoit, et
+			// on le dit (une fois par emetteur) -- jamais un blanc silencieux.
+			if (mTexLib && !mFallbackTex.IsValid()) {
+				const uint32 S = 32;
+				NkVector<uint8> px;
+				px.Resize(S * S * 4);
+				for (uint32 y = 0; y < S; ++y)
+					for (uint32 x = 0; x < S; ++x) {
+						const float32 dx = ((float32)x + 0.5f) / (float32)S * 2.f - 1.f;
+						const float32 dy = ((float32)y + 0.5f) / (float32)S * 2.f - 1.f;
+						const float32 r = (float32)std::sqrt((double)(dx * dx + dy * dy));
+						float32 a = (r - 0.55f) / 0.45f;
+						a = a < 0.f ? 0.f : (a > 1.f ? 1.f : a);
+						a = 1.f - a; // = 1 - smoothstep lineaire, comme le fragment d'avant
+						uint8 *p = &px[(y * S + x) * 4];
+						p[0] = p[1] = p[2] = 255;
+						p[3] = (uint8)(a * 255.f + 0.5f);
+					}
+				NkTextureCreateDesc td;
+				td.pixels = px.Data();
+				td.width = S;
+				td.height = S;
+				td.debugName = "ParticlesFallbackDisc";
+				mFallbackTex = mTexLib->Create(td);
+			}
 			const NkBlendDesc familles[3] = {NkBlendDesc::Additive(), NkBlendDesc::Alpha(), NkBlendDesc::Opaque()};
 			const char *noms[3] = {"ParticlesBillboard.Additive", "ParticlesBillboard.Alpha", "ParticlesBillboard.Opaque"};
 			for (uint32 f = 0; f < 3; ++f) {
@@ -71,6 +106,8 @@ namespace nkentseu {
 					pd.blend = familles[f];
 					pd.debugName = noms[f];
 					pd.shader = particleShader;
+					if (mTexLayout.IsValid())
+						pd.descriptorSetLayouts.PushBack(mTexLayout); // borne 2 : la texture
 					// Layout de NkVertexParticle (stride 32) : le CPU ecrit six
 					// sommets par particule, le VS expanse les coins depuis aUV+aSize.
 					pd.vertexLayout.AddBinding(0, sizeof(NkVertexParticle), false)
@@ -140,6 +177,18 @@ namespace nkentseu {
 			e->vbo =
 				mDevice->CreateBuffer(NkBufferDesc::VertexDynamic(desc.maxParticles * sizeof(NkVertexParticle) * 6));
 
+			// Borne 2 : la texture DECLAREE est celle qui rend ; sans texture, le repli, DIT.
+			if (mTexLayout.IsValid() && mTexLib) {
+				e->texSet = mDevice->AllocateDescriptorSet(mTexLayout);
+				NkTexHandle tex = desc.texture;
+				if (!tex.IsValid()) {
+					tex = mFallbackTex;
+					std::fprintf(stderr, "[NkVFX] emetteur %llu sans texture : repli disque doux blanc 32x32\n",
+								 (unsigned long long)e->id.id);
+				}
+				if (e->texSet.IsValid() && tex.IsValid())
+					mDevice->BindTextureSampler(e->texSet, 1, mTexLib->GetRHIHandle(tex), mTexLib->GetRHISampler(tex));
+			}
 			mEmitters.PushBack(e);
 			return e->id;
 		}
@@ -149,6 +198,8 @@ namespace nkentseu {
 				if (mEmitters[i]->id.id == id.id) {
 					if (mEmitters[i]->vbo.IsValid())
 						mDevice->DestroyBuffer(mEmitters[i]->vbo);
+					if (mEmitters[i]->texSet.IsValid())
+						mDevice->FreeDescriptorSet(mEmitters[i]->texSet);
 					memory::NkGetDefaultAllocator().Delete(mEmitters[i]);
 					mEmitters.RemoveAt(i);
 					break;
@@ -479,6 +530,8 @@ namespace nkentseu {
 		void NkVFXSystem::RenderEmitter(NkICommandBuffer *cmd, Emitter *e, const NkCamera3DData &cam) {
 			(void)cam;
 			cmd->BindGraphicsPipeline(PipelineFor(e->desc.blend)); // le melange DECLARE est celui qui rend
+			if (e->texSet.IsValid())
+				cmd->BindDescriptorSet(e->texSet, 0); // la texture DECLAREE (ou le repli dit)
 			cmd->BindVertexBuffer(0, e->vbo, 0);
 			cmd->Draw(e->aliveCount * 6, 1, 0, 0); // six sommets = deux triangles
 		}

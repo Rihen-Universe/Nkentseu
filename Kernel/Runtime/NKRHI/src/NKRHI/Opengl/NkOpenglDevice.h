@@ -1,4 +1,5 @@
 #pragma once
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // =============================================================================
 // NkRHI_Device_GL.h — Implémentation OpenGL du NkIDevice
 // Supporte OpenGL 4.3+ (compute, SSBO, DSA)
@@ -162,6 +163,16 @@ namespace nkentseu {
 			bool BeginFrame(NkFrameContext &frame) override;
 			void EndFrame(NkFrameContext &frame) override;
 
+			// ── Chrono GPU (2026-09-04) : glQueryCounter(GL_TIMESTAMP), anneau de 4 frames ──
+			// GetTimestampResults rend la frame la plus ancienne DISPONIBLE sans bloquer ;
+			// sans glQueryCounter (WebGL2 / GLES), il rend faux et le dit une fois.
+			void BeginTimestampQuery(uint32 index) override;
+			void EndTimestampQuery(uint32 index) override;
+			bool GetTimestampResults(uint64 *outNs, uint32 count) override;
+			float32 GetTimestampPeriodNs() override {
+				return 1.f; // GL_TIMESTAMP est deja en nanosecondes
+			}
+
 			uint32 GetFrameIndex() const override {
 				return mFrameIndex;
 			}
@@ -188,6 +199,11 @@ namespace nkentseu {
 			}
 
 		private:
+			static constexpr uint32 kTsRing = 4;
+			uint32 mTsQuery[kTsRing][2] = {};
+			bool mTsIssued[kTsRing] = {};
+			uint32 mTsSlot = 0;
+			bool mTsAbsentDit = false;
 			friend GLuint NkOpenglGetBufferID(NkOpenGLDevice *dev, uint64 id);
 			friend GLuint NkOpenglGetTextureID(NkOpenGLDevice *dev, uint64 id);
 			friend GLuint NkOpenglGetFBOID(NkOpenGLDevice *dev, uint64 id);

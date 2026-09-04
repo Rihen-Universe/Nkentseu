@@ -167,6 +167,7 @@ namespace nkentseu {
 						bool enabled = true;
 						NkBufferHandle vbo; // GPU billboard VBO
 						uint32 aliveCount = 0;
+						NkDescSetHandle texSet; // la texture de l'emetteur (ou le repli), binding 1 (2026-09-04)
 				};
 
 				struct TrailPoint {
@@ -202,6 +203,11 @@ namespace nkentseu {
 				// etait declare et jamais lu -- tout partait en Additive. Trois familles
 				// que NkBlendDesc sait fabriquer : [0] Additive, [1] Alpha, [2] Opaque.
 				NkPipelineHandle mPipeParticle[3];
+				// Borne 2 (2026-09-04) : NkEmitterDesc::texture etait declaree et jamais lue.
+				// Un layout {binding 1 : image+sampler} partage par les trois pipelines, un
+				// descripteur par emetteur, et un repli (disque doux blanc 32x32) DIT une fois.
+				NkDescSetHandle mTexLayout;
+				NkTexHandle mFallbackTex;
 				NkPipelineHandle PipelineFor(NkBlendMode mode);
 				bool mBlendFallbackDit[8] = {};
 				NkPipelineHandle mPipeTrail;
