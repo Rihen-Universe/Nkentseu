@@ -1963,6 +1963,43 @@ identiques) : le CPU n'y arrivera pas, dit — c'est le SPH GPU qui répond, apr
 **Nommé, non fait** : plan B étapes b-c (stockage GPU + noyau NkSL des particules ordinaires) ; SPH GPU ;
 les coefficients de Cébron & Sigrist restent lus à l'œil sur la figure (± 0,05).
 
+### ✅ 05/09 (00h) — PLAN (B), étapes b-c LIVRÉES : le stockage GPU des particules ordinaires, sans atomique — commit ci-dessous
+
+`NkParticleStoreGPU` derrière `NkIParticleStore` : trois tampons (état 3 × vec4 par emplacement, naissances,
+**instances créées `STORAGE | VERTEX`** — le noyau écrit ce que le dessin lit, aucune copie, `DrawCount()` =
+capacité, les mortes à taille 0) et un noyau NkSL `particles_sim` à **deux modes** (naissances vers leurs
+emplacements, puis intégration de tous les emplacements), chaîne de compilation copiée de `NkIBLCompute`.
+
+🔑 **Ce qui change par rapport au plan** : le plan prévoyait un `atomicAdd` pour attribuer les emplacements et
+un `AliveCount()` « une image plus tard » par relecture. Or **c'est le CPU qui a choisi la vie de chaque
+particule** : il tient donc lui-même l'horloge des morts (`life -= dt`, morte si ≤ 0, les mêmes opérations
+float32 que le noyau) → emplacements libres, `AliveCount` et emplacement de chaque naissance **exacts sans
+relecture ni atomique**, résultat déterministe. Les instances sont écrites par **deux vues du même tampon**
+(`float[]` et `uint[]`) : NkSL n'a pas `floatBitsToUint`, et une structure `{vec3, float, uint, float}`
+s'alignerait sur 32 o en std430 quand le dessin en lit 24.
+
+`NkVFXSystem` : **AUTO = GPU dès que le device a le compute** (décision du 04/09) ; sans compute → CPU dit ;
+refus du stockage GPU → CPU dit **avec la raison** ; un solveur (SPH) force le CPU et le dit. Piège payé :
+`renderer::NkShaderHandle` ≠ `nkentseu::NkShaderHandle` (CLAUDE.md), et le patch par heredoc Bash qui
+transforme `\n` (mémoire) — une course entière mesurée sur l'ancien binaire, jetée.
+
+| témoin (Release, OpenGL, Ilyana sur le GPU à 32-97 %) | mesure | verdict |
+|---|---|---|
+| même image CPU/GPU — fontaine déterministe (`NK_VFX_DETERMINISTE=1`, 3 000, **pas fixe** `NK_FIXED_DT=1`, image 120, région hors HUD) | 3 024 px > 8, écart moyen 1,05 ; **plancher CPU/CPU : 3 035 px, 0,96** (la rotation des disques reste tirée) ; 635 / 637 px particule, boîte à 1 px | ✅ dans le plancher |
+| même image — particule seule (image 60, région du disque) | boîte identique x[228..317] y[152..273], 5 894 / 5 888 px | ✅ |
+| tirage aléatoire 5 000 | **non comparable** : 87 000 px entre deux courses CPU (graine du hasard) | ⚠️ dit |
+| AUTO sans compute → CPU dit (`--backend=sw`) | « stockage GPU refuse (API sans compute) -> CPU » — par le **refus** : le device software annonce `computeShaders = true` sans API de calcul | ✅ dit / 🚩 capacité mensongère relevée |
+| courbe GPU 50 000 | CPU 0,12 (horloge) + 0,04 ms (envoi) contre 0,72 + 0,83 + 0,12 en CPU ; image GPU 5,6-7,4 ms (CPU : 6,5-6,9) | ✅ |
+| 500 000 | CPU 0,9 (naissances) + 1,0 + 0,04 ; image GPU 6,7-7,9 ms, passe VFX 0,82 ms | ✅ |
+| **1 000 000** | CPU naissances 2,4-4,6 (16 000 tirages/image, sur CPU par décision) + horloge 1,7-1,8 ms ; **image GPU 5,9-9,4 ms**, passe VFX 1,7-1,8 ms, dt réel 7-16 ms | ✅ « sous 16 ms » sur un GPU **partagé**, dit |
+
+Référence CPU à 1 000 000 (stockage CPU) : 14 + 12 + 4 ms. Le chrono GPU est celui de l'image entière (scène
+comprise) : le coût du dispatch seul n'est pas isolé (≲ 3 ms à 1 M par différence, pas mesuré à part).
+
+**Nommé, non fait** : DX11 / Vulkan / Metal non mesurés pour ce noyau (compilent par la même chaîne) ;
+graine du hasard fixable pour un plancher à zéro ; le **SPH GPU** (le repos est calme et le front juste :
+ses deux conditions sont réunies).
+
 ### 🔩 04/09 (nuit) — JENGA 2.6 : ce qui est appliqué, ce qui est mesuré en retour
 
 - **`-static` — le défaut était chez nous** : `config/toolchain.jenga:55` (bloc Windows natif) promettait
