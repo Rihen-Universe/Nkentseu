@@ -715,67 +715,133 @@ namespace nkuidesign {
 			m.ry = r.h * (g.rayonY < 0.02f ? 0.02f : g.rayonY);
 			return m;
 		}
-		/// Les poignees (captures de Rodolf) : l'arret `t` sur le segment origine -> bas
-		/// (origine + t * rayon Y) ; le cote (rayon X) ; le haut (rayon Y) ; la pastille de
-		/// contour de l'angulaire, sur l'ellipse, dans la direction de l'angle.
-		inline void NkPoigneeDegradeGeom(const NkGeomDegrade &m, nkentseu::float32 t, nkentseu::float32 &x, nkentseu::float32 &y) {
-			x = m.ox;
-			y = m.oy + m.ry * t;
-		}
-		inline void NkPoigneeContourAngulaire(const NkGeomDegrade &m, nkentseu::float32 angle, nkentseu::float32 &x,
-											  nkentseu::float32 &y) {
+		// ════════════════════════════════════════════════════════════════════
+		//  UN GESTE POUR LES QUATRE GENRES (Rodolf, 04/09 soir, huit captures radial)
+		//  Le genre ne dit que OU sont les pastilles : l'AXE. Lineaire : du point 0 %
+		//  au point 100 % a travers le centre (NkAxeDegradeDe). Radial, losange,
+		//  angulaire : de l'ORIGINE vers le bord, dans la direction de l'angle, sur la
+		//  longueur du rayon Y. Les verbes sont les memes partout : DANS le disque
+		//  d'une pastille on GLISSE le long de l'axe ; dans l'ANNEAU autour on TOURNE
+		//  l'axe autour du centre / de l'origine ; le centre deplace l'origine.
+		// ════════════════════════════════════════════════════════════════════
+		static constexpr nkentseu::float32 kNkDisquePoignee = 8.f;  ///< le rayon du disque saisissable (couvre ce qui est dessine : 7 + 1)
+		static constexpr nkentseu::float32 kNkAnneauPoignee = 10.f; ///< l'anneau de rotation, juste autour du disque
+		static constexpr nkentseu::float32 kNkTolSegment = 5.f;	 ///< la distance au segment qui ajoute un arret
+		inline NkAxeDegrade NkAxeDegradeGenre(nkentseu::int32 genre, const NkPaintRect &r, const NkDegrade &g) {
+			if (genre == 0)
+				return NkAxeDegradeDe(r, g);
+			const NkGeomDegrade m = NkGeomDegradeDe(r, g);
 			nkentseu::float32 s = 0.f, c = 1.f;
-			NkSinCosDeg(angle, s, c);
-			x = m.ox - s * m.rx;
-			y = m.oy + c * m.ry;
+			NkSinCosDeg(g.angle, s, c);
+			NkAxeDegrade a;
+			a.ax = m.ox;
+			a.ay = m.oy;
+			a.bx = m.ox - s * m.ry;
+			a.by = m.oy + c * m.ry;
+			return a;
 		}
-		/// Codes du pointage : >= 0 l'arret ; -2 le segment (ajouter ici) ; -3 le centre ;
-		/// -4 le cote (rayon X) ; -5 le haut (rayon Y) ; -6 la pastille de contour (angulaire) ;
-		/// -1 rien (la toile). UNE decision ordonnee : arrets, centre, cote, haut, contour, segment.
-		inline nkentseu::int32 NkQuiPrendLeClicDegradeGeom(const NkGeomDegrade &m, const NkDegrade &g, bool angulaire,
-														   nkentseu::float32 px, nkentseu::float32 py,
-														   nkentseu::float32 tolPoignee, nkentseu::float32 tolSegment) {
-			const nkentseu::float32 t2 = tolPoignee * tolPoignee;
-			auto pres = [&](nkentseu::float32 x, nkentseu::float32 y) {
-				return (px - x) * (px - x) + (py - y) * (py - y) <= t2;
-			};
-			// L'ORIGINE PRIME sur un arret pose dessus (le 0 % est au centre, captures de
-			// Rodolf) : un arret a t = 0 tire depuis le centre ne pourrait qu'y rester ; et
-			// la pastille de CONTOUR de l'angulaire prime sur l'arret a t = 1 qui la recouvre
-			// (angle 0 : le bas du segment), pour la meme raison.
-			if (pres(m.ox, m.oy))
-				return -3;
-			if (angulaire) {
-				nkentseu::float32 cx = 0.f, cy = 0.f;
-				NkPoigneeContourAngulaire(m, g.angle, cx, cy);
-				if (pres(cx, cy))
-					return -6;
+		/// Le point autour duquel l'axe TOURNE : le centre du rectangle (lineaire) ou l'origine.
+		inline void NkPivotDegrade(nkentseu::int32 genre, const NkPaintRect &r, const NkDegrade &g, nkentseu::float32 &x,
+								   nkentseu::float32 &y) {
+			if (genre == 0) {
+				x = r.x + r.w * 0.5f;
+				y = r.y + r.h * 0.5f;
+			} else {
+				const NkGeomDegrade m = NkGeomDegradeDe(r, g);
+				x = m.ox;
+				y = m.oy;
 			}
+		}
+		/// L'angle de l'axe qui pointe du pivot vers (px, py) -- pour une pastille a t < 0,5
+		/// du lineaire, l'axe pointe a l'oppose (c'est le bout 0 % qu'on tient).
+		inline nkentseu::float32 NkAngleAxeVers(nkentseu::int32 genre, nkentseu::float32 t, nkentseu::float32 vx,
+												 nkentseu::float32 vy) {
+			if (genre == 0 && t < 0.5f) {
+				vx = -vx;
+				vy = -vy;
+			}
+			nkentseu::float32 a = nkentseu::math::NkAtan2(-vx, vy) * 57.2957795f;
+			while (a < 0.f)
+				a += 360.f;
+			while (a >= 360.f)
+				a -= 360.f;
+			return a;
+		}
+		/// L'AIMANT de rotation (captures `aimant_0_guide_rouge`) : a moins de 4 degres d'un
+		/// multiple de 45, l'angle s'y colle -- 0 et 90 d'abord, comme Lunacy.
+		inline nkentseu::float32 NkAimantAngle(nkentseu::float32 a, bool &aimante) {
+			aimante = false;
+			for (nkentseu::int32 k = 0; k <= 8; ++k) {
+				const nkentseu::float32 c = 45.f * (nkentseu::float32)k;
+				const nkentseu::float32 d = a - c;
+				if ((d < 0.f ? -d : d) <= 4.f) {
+					aimante = true;
+					return k == 8 ? 0.f : c;
+				}
+			}
+			return a;
+		}
+		/// 🔑 QUI PREND LE CLIC, ET DANS QUELLE ZONE -- UNE decision ordonnee, pour les
+		///    quatre genres : le DISQUE d'une pastille d'arret (>= 0, zone 0 : glisser), le
+		///    disque du centre (-3, zone 0 : deplacer l'origine), le carre du cote (-4) /
+		///    du haut (-5) (zone 0 : les rayons), puis l'ANNEAU d'une pastille d'arret
+		///    (>= 0, zone 1 : tourner), puis le segment (-2 : ajouter un arret), sinon la
+		///    toile (-1). Le centre prime sur un arret pose dessus (le 0 % y est).
+		inline nkentseu::int32 NkPointageDegrade(nkentseu::int32 genre, const NkPaintRect &r, const NkDegrade &g,
+												 nkentseu::float32 px, nkentseu::float32 py, nkentseu::int32 &zone) {
+			zone = 0;
+			const NkAxeDegrade a = NkAxeDegradeGenre(genre, r, g);
+			const nkentseu::float32 d2Disque = kNkDisquePoignee * kNkDisquePoignee;
+			const nkentseu::float32 rAnneau = kNkDisquePoignee + kNkAnneauPoignee;
+			auto d2 = [&](nkentseu::float32 x, nkentseu::float32 y) { return (px - x) * (px - x) + (py - y) * (py - y); };
 			nkentseu::int32 meilleur = -1;
-			nkentseu::float32 d2min = t2;
+			nkentseu::float32 d2min = d2Disque;
 			for (nkentseu::uint32 i = 0; i < (nkentseu::uint32)g.arrets.Size(); ++i) {
 				nkentseu::float32 hx = 0.f, hy = 0.f;
-				NkPoigneeDegradeGeom(m, g.arrets[i].position, hx, hy);
-				const nkentseu::float32 d2 = (px - hx) * (px - hx) + (py - hy) * (py - hy);
-				if (d2 <= d2min) {
-					d2min = d2;
+				NkPoigneeDegrade(a, g.arrets[i].position, hx, hy);
+				const nkentseu::float32 q = d2(hx, hy);
+				if (q <= d2min) {
+					d2min = q;
 					meilleur = (nkentseu::int32)i;
 				}
 			}
+			if (genre != 0) {
+				// LE CENTRE : il prime sur l'arret POSE DESSUS (le 0 %), jamais sur un arret
+				// voisin plus proche du pointeur (a petit zoom l'axe fait douze pixels, et le
+				// milieu tombait dans le disque du centre -- mesure, sonde 60k)
+				const NkGeomDegrade m = NkGeomDegradeDe(r, g);
+				const nkentseu::float32 dc = d2(m.ox, m.oy);
+				if (dc <= d2Disque && (meilleur < 0 || g.arrets[(nkentseu::uint32)meilleur].position <= 0.03f || dc < d2min))
+					return -3;
+			}
 			if (meilleur >= 0)
 				return meilleur;
-			if (pres(m.ox + m.rx, m.oy))
-				return -4;
-			if (pres(m.ox, m.oy - m.ry))
-				return -5;
-			// le segment origine -> bas
-			if (px >= m.ox - tolSegment && px <= m.ox + tolSegment && py >= m.oy && py <= m.oy + m.ry)
-				return -2;
-			return -1;
-		}
-		inline nkentseu::float32 NkParamSurSegmentGeom(const NkGeomDegrade &m, nkentseu::float32 py) {
-			nkentseu::float32 tt = m.ry > 0.001f ? (py - m.oy) / m.ry : 0.f;
-			return tt < 0.f ? 0.f : (tt > 1.f ? 1.f : tt);
+			if (genre != 0) {
+				const NkGeomDegrade m = NkGeomDegradeDe(r, g);
+				if (d2(m.ox + m.rx, m.oy) <= d2Disque)
+					return -4;
+				if (d2(m.ox, m.oy - m.ry) <= d2Disque)
+					return -5;
+			}
+			// l'anneau : la pastille la plus proche, si le pointeur est dans sa couronne
+			d2min = rAnneau * rAnneau;
+			for (nkentseu::uint32 i = 0; i < (nkentseu::uint32)g.arrets.Size(); ++i) {
+				nkentseu::float32 hx = 0.f, hy = 0.f;
+				NkPoigneeDegrade(a, g.arrets[i].position, hx, hy);
+				const nkentseu::float32 q = d2(hx, hy);
+				if (q <= d2min) {
+					d2min = q;
+					meilleur = (nkentseu::int32)i;
+				}
+			}
+			if (meilleur >= 0) {
+				zone = 1;
+				return meilleur;
+			}
+			const nkentseu::float32 tt = NkParamSurAxeDegrade(a, px, py);
+			nkentseu::float32 sx = 0.f, sy = 0.f;
+			NkPoigneeDegrade(a, tt, sx, sy);
+			return d2(sx, sy) <= kNkTolSegment * kNkTolSegment ? -2 : -1;
 		}
 		inline nkentseu::int32 NkRemplissageDegradeToile(const NkUINode &n) {
 			for (nkentseu::uint32 i = (nkentseu::uint32)n.fills.Size(); i > 0; --i) {

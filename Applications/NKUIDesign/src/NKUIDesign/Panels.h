@@ -1341,6 +1341,10 @@ namespace nkuidesign {
 					nkentseu::uint32 synchro = 0xFFFFFFFFu; ///< cle du dernier tampon hexa resynchronise
 			};
 			DemandePicker picker;
+			/// Le geste que le curseur ANNONCE sur une poignee de degrade, avant le clic :
+			/// 0 rien, 1 glisser le long de l'axe, 2 tourner -- ecrit par la toile a chaque
+			/// image, lu par la sonde (« le curseur annonce correspond au geste »).
+			nkentseu::int32 curseurDegrade = 0;
 			/// Le popover d'un remplissage est dessine par l'INSPECTEUR (ses aides),
 			/// mais appele par le crochet d'overlay : ce pont le rend joignable.
 			void (*popoverRemplissage)(nkgui::NkGuiContext &, void *) = nullptr;
@@ -3615,15 +3619,14 @@ namespace nkuidesign {
 					}
 				}
 				// ── LES POIGNEES DE DEGRADE RECLAMENT AVANT TOUT ──────────────────
-				// Une poignee par arret sur le segment (captures de Rodolf du 04/09) :
-				// la poignee prend le clic avant le segment, le segment avant la toile
-				// -- une seule decision ordonnee (NkQuiPrendLeClicDegrade). Le point
-				// souris est ramene dans le repere de l'objet, comme pour la rotation.
-				// ⚠️ MESURE DU 04/09 (Rodolf : « ca deplace plutot la geometrie ») : la garde
-				//    etait `ctx.popupDepth == 0` -- or le popover de remplissage est OUVERT
-				//    pendant qu'on regle le degrade. La poignee ne reclamait plus, et la
-				//    toile deplacait le noeud. Ce qu'il faut refuser, c'est le pointeur SUR
-				//    un popup, rien d'autre.
+				// UN GESTE POUR LES QUATRE GENRES (Rodolf, 04/09 soir : « corrige donc ca
+				// sur tous les degrades ») : DANS le disque d'une pastille -> glisser le
+				// long de l'axe ; dans l'ANNEAU autour -> tourner l'axe ; le centre ->
+				// deplacer l'origine ; les carres -> les rayons ; le segment -> un arret.
+				// UNE decision ordonnee (NkPointageDegrade), avant la poignee de forme, le
+				// noeud et la toile. Le point souris est ramene dans le repere de l'objet.
+				// La garde refuse le pointeur SUR un popup, rien d'autre (le popover de
+				// remplissage est ouvert pendant qu'on regle un degrade).
 				if (!modeGraphe && !mMenuCtx.open && in.mousePressed && !NkSourisSurPopup(ctx)
 					&& mSt->doc.IsValidIndex(mSt->selected) && mSt->selected != 0
 					&& screen.Has(mSt->selected)) {
@@ -3634,16 +3637,15 @@ namespace nkuidesign {
 						const NkPaintRect rsD = screen.At(mSt->selected);
 						float32 mxD = ctx.input.mousePos.x, myD = ctx.input.mousePos.y;
 						NkMatPoint(NkMatInverse(NkMatEffective(mSt->doc, screen, mSt->selected)), mxD, myD);
-						const renderdetail::NkAxeDegrade axe = renderdetail::NkAxeDegradeDe(rsD, g);
 						const int32 genreD = renderdetail::NkGenreDegrade(g);
-						const renderdetail::NkGeomDegrade gmD = renderdetail::NkGeomDegradeDe(rsD, g);
-						// ① UNE decision ordonnee par genre : arrets, centre, cote, haut, contour, segment
-						const int32 qui = genreD == 0 ? renderdetail::NkQuiPrendLeClicDegrade(axe, g, mxD, myD, 8.f, 5.f)
-													  : renderdetail::NkQuiPrendLeClicDegradeGeom(gmD, g, genreD == 2, mxD, myD, 8.f, 5.f);
+						int32 zone = 0;
+						const int32 qui = renderdetail::NkPointageDegrade(genreD, rsD, g, mxD, myD, zone);
 						if (qui >= 0 || qui <= -3) {
 							mDegDrag = qui;
 							mDegFill = fi;
-							if (mSt->picker.ouvert && mSt->picker.genre == 1u && mSt->picker.noeud == mSt->selected
+							mDegZone = zone;
+							mDegAimante = false;
+							if (qui >= 0 && mSt->picker.ouvert && mSt->picker.genre == 1u && mSt->picker.noeud == mSt->selected
 								&& mSt->picker.index == fi)
 								mSt->picker.arretSel = qui; // le selecteur passe sur cet arret
 							in.mousePressed = false;
@@ -3651,12 +3653,13 @@ namespace nkuidesign {
 						} else if (qui == -2) {
 							// LE SEGMENT, hors de toute poignee : un arret nait ICI, par la
 							// meme fonction que la barre du popover
-							const float32 tA = genreD == 0 ? renderdetail::NkParamSurAxeDegrade(axe, mxD, myD)
-														   : renderdetail::NkParamSurSegmentGeom(gmD, myD);
+							const renderdetail::NkAxeDegrade axe = renderdetail::NkAxeDegradeGenre(genreD, rsD, g);
+							const float32 tA = renderdetail::NkParamSurAxeDegrade(axe, mxD, myD);
 							const int32 ajoute = renderdetail::NkAjouterArretDegrade(g, tA, 12u);
 							if (ajoute >= 0) {
 								mDegDrag = ajoute;
 								mDegFill = fi;
+								mDegZone = 0;
 								if (!selDeg.instanceDe.Empty())
 									selDeg.ecarts |= NkUINode::EcartRemplissages;
 								mSt->doc.MarkHumanEdit(mSt->selected);
@@ -5008,29 +5011,62 @@ namespace nkuidesign {
 					// LE BADGE DE ROLE (Banani RoleBadge) : pilule 9 px au-dessus a
 					// gauche de la selection, en FRANCAIS sur la toile (la maquette
 					// ecrit « Bouton » sur la toile et « Button » dans l'arbre).
-					// ── LES POIGNEES DE DEGRADE : une par arret, sur le segment ───────
+					// ── LES POIGNEES DE DEGRADE : un axe par genre, un geste commun ───────
 					{
 						NkUINode &selDeg = mSt->doc.nodes[(uint32)mSt->selected];
 						const int32 fi = renderdetail::NkRemplissageDegradeToile(selDeg);
+						mSt->curseurDegrade = 0;
 						if (fi >= 0) {
 							NkDegrade &g = selDeg.fills[(uint32)fi].degrade;
-							const renderdetail::NkAxeDegrade axe = renderdetail::NkAxeDegradeDe(rs, g);
-							// le glisser d'une poignee : l'arret suit la souris le long de l'axe
 							const int32 genreT = renderdetail::NkGenreDegrade(g);
+							const renderdetail::NkAxeDegrade axe = renderdetail::NkAxeDegradeGenre(genreT, rs, g);
 							const renderdetail::NkGeomDegrade gm = renderdetail::NkGeomDegradeDe(rs, g);
-							if (genreT != 0 && mDegDrag != -1 && mDegFill == fi) {
-								// ① radial / angulaire / losange : ce que chaque poignee ecrit
+							float32 pvx = 0.f, pvy = 0.f;
+							renderdetail::NkPivotDegrade(genreT, rs, g, pvx, pvy);
+							auto ecrire = [&]() {
+								if (!selDeg.instanceDe.Empty())
+									selDeg.ecarts |= NkUINode::EcartRemplissages;
+								mSt->doc.MarkHumanEdit(mSt->selected);
+								mSt->host.SyncTo(mSt->doc);
+							};
+							// ── LE GLISSER : ce que chaque poignee ecrit, meme verbe partout ──
+							if (mDegDrag != -1 && mDegFill == fi) {
 								if (ctx.input.mouseDown[0]) {
-									bool ecrit = false;
-									char msg[64];
+									char msg[80];
 									msg[0] = '\0';
 									if (mDegDrag >= 0 && (uint32)mDegDrag < (uint32)g.arrets.Size()) {
-										const float32 tA = renderdetail::NkParamSurSegmentGeom(gm, myS);
-										if (tA != g.arrets[(uint32)mDegDrag].position) {
-											g.arrets[(uint32)mDegDrag].position = tA;
-											ecrit = true;
+										if (mDegZone == 1) {
+											// L'ANNEAU : tourner l'axe autour du pivot, avec l'aimant
+											const float32 vx = mxS - pvx, vy = myS - pvy;
+											if (vx * vx + vy * vy > 9.f) {
+												float32 a = renderdetail::NkAngleAxeVers(genreT, g.arrets[(uint32)mDegDrag].position, vx, vy);
+												a = renderdetail::NkAimantAngle(a, mDegAimante);
+												if (a != g.angle) {
+													g.angle = a;
+													ecrire();
+												}
+											}
+											snprintf(msg, sizeof(msg), "Angle du dégradé : %.0f°%s", (double)g.angle, mDegAimante ? " (aimanté)" : "");
+										} else if (genreT != 0 && g.arrets[(uint32)mDegDrag].position >= 0.97f) {
+											// LE DISQUE de l'extremite d'un genre a origine : le rayon (le long de l'axe)
+											const float32 vx = mxS - pvx, vy = myS - pvy;
+											const float32 dist = nkentseu::math::NkSqrt(vx * vx + vy * vy);
+											float32 ry = rs.h > 0.f ? dist / rs.h : g.rayonY;
+											ry = ry < 0.02f ? 0.02f : (ry > 4.f ? 4.f : ry);
+											if (ry != g.rayonY) {
+												g.rayonY = ry;
+												ecrire();
+											}
+											snprintf(msg, sizeof(msg), "Rayon : %.0f %%", (double)(ry * 100.f));
+										} else {
+											// LE DISQUE : l'arret glisse le long de l'axe
+											const float32 tA = renderdetail::NkParamSurAxeDegrade(axe, mxS, myS);
+											if (tA != g.arrets[(uint32)mDegDrag].position) {
+												g.arrets[(uint32)mDegDrag].position = tA;
+												ecrire();
+											}
+											snprintf(msg, sizeof(msg), "Arrêt %d : %.0f %%", mDegDrag + 1, (double)(tA * 100.f));
 										}
-										snprintf(msg, sizeof(msg), "Arrêt %d : %.0f %%", mDegDrag + 1, (double)(tA * 100.f));
 									} else if (mDegDrag == -3 && rs.w > 0.f && rs.h > 0.f) {
 										float32 ox = (mxS - rs.x) / rs.w, oy = (myS - rs.y) / rs.h;
 										ox = ox < 0.f ? 0.f : (ox > 1.f ? 1.f : ox);
@@ -5038,7 +5074,7 @@ namespace nkuidesign {
 										if (ox != g.origineX || oy != g.origineY) {
 											g.origineX = ox;
 											g.origineY = oy;
-											ecrit = true;
+											ecrire();
 										}
 										snprintf(msg, sizeof(msg), "Origine : %.0f %% · %.0f %%", (double)(ox * 100.f), (double)(oy * 100.f));
 									} else if (mDegDrag == -4 && rs.w > 0.f) {
@@ -5046,7 +5082,7 @@ namespace nkuidesign {
 										rx = rx < 0.02f ? 0.02f : (rx > 4.f ? 4.f : rx);
 										if (rx != g.rayonX) {
 											g.rayonX = rx;
-											ecrit = true;
+											ecrire();
 										}
 										snprintf(msg, sizeof(msg), "Rayon X : %.0f %%", (double)(rx * 100.f));
 									} else if (mDegDrag == -5 && rs.h > 0.f) {
@@ -5054,75 +5090,27 @@ namespace nkuidesign {
 										ry = ry < 0.02f ? 0.02f : (ry > 4.f ? 4.f : ry);
 										if (ry != g.rayonY) {
 											g.rayonY = ry;
-											ecrit = true;
+											ecrire();
 										}
 										snprintf(msg, sizeof(msg), "Rayon Y : %.0f %%", (double)(ry * 100.f));
-									} else if (mDegDrag == -6) {
-										const float32 vx = mxS - gm.ox, vy = myS - gm.oy;
-										if (vx * vx + vy * vy > 9.f) {
-											const float32 a = NkAngleDegradeVers(vx, vy);
-											if (a != g.angle) {
-												g.angle = a;
-												ecrit = true;
-											}
-										}
-										snprintf(msg, sizeof(msg), "Origine angulaire : %.0f°", (double)g.angle);
-									}
-									if (ecrit) {
-										if (!selDeg.instanceDe.Empty())
-											selDeg.ecarts |= NkUINode::EcartRemplissages;
-										mSt->doc.MarkHumanEdit(mSt->selected);
-										mSt->host.SyncTo(mSt->doc);
 									}
 									if (msg[0])
 										mSt->status = NkString(msg);
-								} else
+								} else {
 									mDegDrag = -1;
-							} else if (genreT == 0 && mDegDrag >= 0 && mDegFill == fi) {
-								if (ctx.input.mouseDown[0] && (uint32)mDegDrag < (uint32)g.arrets.Size()) {
-									// LES EXTREMITES ORIENTENT (Lunacy : les deux bouts de l'axe se
-									// deplacent), les arrets intermediaires GLISSENT le long de l'axe.
-									uint32 iMin = 0u, iMax = 0u;
-									for (uint32 ai = 1; ai < (uint32)g.arrets.Size(); ++ai) {
-										if (g.arrets[ai].position < g.arrets[iMin].position)
-											iMin = ai;
-										if (g.arrets[ai].position > g.arrets[iMax].position)
-											iMax = ai;
-									}
-									const bool extremite = ((uint32)mDegDrag == iMin || (uint32)mDegDrag == iMax) && iMin != iMax;
-									char msg[64];
-									if (extremite) {
-										float32 vx = mxS - (rs.x + rs.w * 0.5f), vy = myS - (rs.y + rs.h * 0.5f);
-										if ((uint32)mDegDrag == iMin) {
-											vx = -vx;
-											vy = -vy;
-										}
-										if (vx * vx + vy * vy > 9.f) {
-											const float32 a = NkAngleDegradeVers(vx, vy);
-											if (a != g.angle) {
-												g.angle = a;
-												if (!selDeg.instanceDe.Empty())
-													selDeg.ecarts |= NkUINode::EcartRemplissages;
-												mSt->doc.MarkHumanEdit(mSt->selected);
-												mSt->host.SyncTo(mSt->doc);
-											}
-										}
-										snprintf(msg, sizeof(msg), "Angle du dégradé : %.0f°", (double)g.angle);
-									} else {
-										const float32 tA = renderdetail::NkParamSurAxeDegrade(axe, mxS, myS);
-										if (tA != g.arrets[(uint32)mDegDrag].position) {
-											g.arrets[(uint32)mDegDrag].position = tA;
-											if (!selDeg.instanceDe.Empty())
-												selDeg.ecarts |= NkUINode::EcartRemplissages;
-											mSt->doc.MarkHumanEdit(mSt->selected);
-											mSt->host.SyncTo(mSt->doc);
-										}
-										snprintf(msg, sizeof(msg), "Arrêt %d : %.0f %%", mDegDrag + 1, (double)(tA * 100.f));
-									}
-									mSt->status = NkString(msg);
-								} else
-									mDegDrag = -1;
+									mDegAimante = false;
+								}
 							}
+							// ── LE SURVOL : le curseur annonce le geste AVANT le clic ──
+							int32 zoneS = 0;
+							const int32 survol = (mDegDrag == -1 && !NkSourisSurPopup(ctx))
+													 ? renderdetail::NkPointageDegrade(genreT, rs, g, mxS, myS, zoneS)
+													 : -1;
+							const bool tourneS = (mDegDrag != -1 && mDegFill == fi && mDegDrag >= 0 && mDegZone == 1)
+												 || (survol >= 0 && zoneS == 1);
+							const bool glisseS = (mDegDrag != -1 && mDegFill == fi && !tourneS)
+												 || (survol >= 0 && zoneS == 0) || survol <= -3;
+							mSt->curseurDegrade = tourneS ? 2 : (glisseS ? 1 : 0);
 							const uint32 rgbaAccent = paint.ColorOf(accent);
 							const int32 courant = (mSt->picker.ouvert && mSt->picker.genre == 1u
 												   && mSt->picker.noeud == mSt->selected && mSt->picker.index == fi)
@@ -5141,10 +5129,31 @@ namespace nkuidesign {
 								paint.PolygonHex(anneau, 12, rgbaAnneau);
 								paint.PolygonHex(disque, 12, rgbaDisque);
 							};
+							// une ligne de COULEUR (le peintre n'a que la ligne par role) : un quadrilatere
+							auto ligneHex = [&](float32 x0, float32 y0, float32 x1, float32 y1, uint32 rgba, float32 ep) {
+								float32 dx = x1 - x0, dy = y1 - y0;
+								const float32 l = nkentseu::math::NkSqrt(dx * dx + dy * dy);
+								if (l < 0.001f)
+									return;
+								dx = -dy / l * ep * 0.5f;
+								dy = (x1 - x0) / l * ep * 0.5f;
+								const float32 q[8] = {x0 + dx, y0 + dy, x1 + dx, y1 + dy, x1 - dx, y1 - dy, x0 - dx, y0 - dy};
+								paint.PolygonHex(q, 4, rgba);
+							};
+							auto cercle = [&](float32 hx, float32 hy, float32 ray, uint32 rgba, float32 ep) {
+								float32 lx = 0.f, ly = 0.f;
+								for (uint32 k = 0; k <= 24u; ++k) {
+									float32 s = 0.f, c = 1.f;
+									NkSinCosDeg(15.f * (float32)(k % 24u), s, c);
+									const float32 x = hx + c * ray, y = hy + s * ray;
+									if (k > 0u)
+										ligneHex(lx, ly, x, y, rgba, ep);
+									lx = x;
+									ly = y;
+								}
+							};
+							// LA GEOMETRIE DU GENRE : l'ellipse de portee, les carres (genres a origine)
 							if (genreT != 0) {
-								// ① L'ELLIPSE DE PORTEE (captures de Rodolf), le segment origine -> bas, le
-								//    centre, le carre du cote (rayon X), le carre du haut (rayon Y), une
-								//    pastille par arret sur le segment, la pastille de contour de l'angulaire
 								float32 ex0 = 0.f, ey0 = 0.f;
 								for (uint32 k = 0; k <= 48u; ++k) {
 									float32 s = 0.f, c = 1.f;
@@ -5155,7 +5164,6 @@ namespace nkuidesign {
 									ex0 = ex;
 									ey0 = ey;
 								}
-								paint.Line(gm.ox, gm.oy, gm.ox, gm.oy + gm.ry, accent, 1.5f);
 								auto carre = [&](float32 hx, float32 hy) {
 									const float32 q[8] = {hx - 4.f, hy - 4.f, hx + 4.f, hy - 4.f, hx + 4.f, hy + 4.f, hx - 4.f, hy + 4.f};
 									paint.PolygonHex(q, 4, rgbaAccent);
@@ -5164,37 +5172,62 @@ namespace nkuidesign {
 								};
 								carre(gm.ox + gm.rx, gm.oy); // rayon X
 								carre(gm.ox, gm.oy - gm.ry); // rayon Y
-								for (uint32 ai = 0; ai < (uint32)g.arrets.Size(); ++ai) {
-									float32 hx = 0.f, hy = 0.f;
-									renderdetail::NkPoigneeDegradeGeom(gm, g.arrets[ai].position, hx, hy);
-									pastille(hx, hy, (int32)ai == courant ? 7.f : 5.5f, (int32)ai == courant ? rgbaAccent : 0xFFFFFFFFu,
-											 renderdetail::NkGHexRGBA(g.arrets[ai].couleur.Data()));
-								}
-								pastille(gm.ox, gm.oy, 5.f, rgbaAccent, 0xFFFFFFFFu); // l'origine
-								if (genreT == 2) {
-									float32 cx2 = 0.f, cy2 = 0.f;
-									renderdetail::NkPoigneeContourAngulaire(gm, g.angle, cx2, cy2);
-									pastille(cx2, cy2, 6.f, rgbaAccent, 0xFFFFFFFFu); // l'origine angulaire, sur le contour
-								}
-							} else {
-							// le segment, puis une poignee par arret (la courante plus grosse)
+							}
+							// L'AXE, puis le GUIDE ROUGE pendant une rotation (captures : ligne rouge, badge)
+							const bool enRotation = mDegDrag >= 0 && mDegFill == fi && mDegZone == 1;
 							paint.Line(axe.ax, axe.ay, axe.bx, axe.by, accent, 1.5f);
+							if (enRotation) {
+								const float32 dx = axe.bx - axe.ax, dy = axe.by - axe.ay;
+								ligneHex(pvx - dx * 3.f, pvy - dy * 3.f, pvx + dx * 3.f, pvy + dy * 3.f, 0xE03030FFu, 1.f);
+							}
+							// UNE PASTILLE PAR ARRET sur l'axe (la courante plus grosse), l'anneau de survol
 							for (uint32 ai = 0; ai < (uint32)g.arrets.Size(); ++ai) {
 								float32 hx = 0.f, hy = 0.f;
 								renderdetail::NkPoigneeDegrade(axe, g.arrets[ai].position, hx, hy);
-								const float32 ray = (int32)ai == courant ? 7.f : 5.5f;
-								float32 anneau[24], disque[24];
-								for (uint32 k = 0; k < 12u; ++k) {
-									float32 s = 0.f, c = 1.f;
-									NkSinCosDeg(30.f * (float32)k, s, c);
-									anneau[k * 2] = hx + c * ray;
-									anneau[k * 2 + 1] = hy + s * ray;
-									disque[k * 2] = hx + c * (ray - 2.f);
-									disque[k * 2 + 1] = hy + s * (ray - 2.f);
-								}
-								paint.PolygonHex(anneau, 12, (int32)ai == courant ? rgbaAccent : 0xFFFFFFFFu);
-								paint.PolygonHex(disque, 12, renderdetail::NkGHexRGBA(g.arrets[ai].couleur.Data()));
+								pastille(hx, hy, (int32)ai == courant ? 7.f : 5.5f, (int32)ai == courant ? rgbaAccent : 0xFFFFFFFFu,
+										 renderdetail::NkGHexRGBA(g.arrets[ai].couleur.Data()));
+								if ((survol == (int32)ai && zoneS == 1) || (enRotation && mDegDrag == (int32)ai))
+									cercle(hx, hy, renderdetail::kNkDisquePoignee + renderdetail::kNkAnneauPoignee, rgbaAccent, 1.f);
 							}
+							if (genreT != 0) {
+								pastille(gm.ox, gm.oy, 5.f, rgbaAccent, 0xFFFFFFFFu); // l'origine
+								if (survol == -3 || (mDegDrag == -3 && mDegFill == fi))
+									cercle(gm.ox, gm.oy, renderdetail::kNkDisquePoignee + 4.f, rgbaAccent, 1.f); // survol_centre_anneau
+							}
+							// LE BADGE D'ANGLE pendant la rotation, pres du curseur (le meme que la rotation du noeud)
+							if (enRotation)
+								PuceAngle(paint, ctx.input.mousePos.x + 16.f, ctx.input.mousePos.y + 16.f, g.angle);
+							// LE CURSEUR DESSINE, avant le clic : fleches courbes (tourner) ou fleche le long de l'axe (glisser)
+							if (mSt->curseurDegrade != 0) {
+								const float32 cx0 = ctx.input.mousePos.x + 14.f, cy0 = ctx.input.mousePos.y + 14.f;
+								if (mSt->curseurDegrade == 2) {
+									float32 lx = 0.f, ly = 0.f;
+									for (uint32 k = 0; k <= 9u; ++k) {
+										float32 s = 0.f, c = 1.f;
+										NkSinCosDeg(-60.f + 30.f * (float32)k, s, c);
+										const float32 x = cx0 + c * 6.f, y = cy0 + s * 6.f;
+										if (k > 0u)
+											ligneHex(lx, ly, x, y, 0xFFFFFFFFu, 1.5f);
+										lx = x;
+										ly = y;
+									}
+									const float32 fl[6] = {lx - 4.f, ly - 1.f, lx + 3.f, ly - 4.f, lx + 1.f, ly + 4.f};
+									paint.PolygonHex(fl, 3, 0xFFFFFFFFu);
+								} else {
+									float32 dx = axe.bx - axe.ax, dy = axe.by - axe.ay;
+									const float32 l = nkentseu::math::NkSqrt(dx * dx + dy * dy);
+									if (l > 0.001f) {
+										dx /= l;
+										dy /= l;
+										ligneHex(cx0 - dx * 7.f, cy0 - dy * 7.f, cx0 + dx * 7.f, cy0 + dy * 7.f, 0xFFFFFFFFu, 1.5f);
+										const float32 f1[6] = {cx0 + dx * 9.f, cy0 + dy * 9.f, cx0 + dx * 4.f - dy * 3.f, cy0 + dy * 4.f + dx * 3.f,
+															   cx0 + dx * 4.f + dy * 3.f, cy0 + dy * 4.f - dx * 3.f};
+										const float32 f2[6] = {cx0 - dx * 9.f, cy0 - dy * 9.f, cx0 - dx * 4.f - dy * 3.f, cy0 - dy * 4.f + dx * 3.f,
+															   cx0 - dx * 4.f + dy * 3.f, cy0 - dy * 4.f - dx * 3.f};
+										paint.PolygonHex(f1, 3, 0xFFFFFFFFu);
+										paint.PolygonHex(f2, 3, 0xFFFFFFFFu);
+									}
+								}
 							}
 						}
 					}
@@ -6375,6 +6408,8 @@ namespace nkuidesign {
 			int32 mRotDrag = -1;
 			int32 mDegDrag = -1; ///< l'arret de degrade qu'on glisse sur la toile (-1 : aucun)
 			int32 mDegFill = -1; ///< et son remplissage
+			int32 mDegZone = 0;	  ///< 0 : le disque (glisser) ; 1 : l'anneau (tourner)
+			bool mDegAimante = false; ///< la rotation vient de se coller a 0 / 45 / 90
 			float32 mGesteSX0 = 1.f; ///< echelle du noeud au depart du geste de poignee
 			float32 mGesteSY0 = 1.f;
 			float32 mRotBase = 0.f;

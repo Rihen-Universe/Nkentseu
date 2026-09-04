@@ -5201,20 +5201,15 @@ namespace nkuidesign {
 						  "dans le carre SV change la couleur PEINTE du noeud",
 						  pastilleVue && demande && avant >= 1u && apresAncien < avant && apresNouveau >= 1u, det);
 				}
-				// 60k. ⑥ LES POIGNEES SUR LA TOILE, popover de remplissage OUVERT (c'est ainsi qu'on
-				// regle un degrade) : glisser l'EXTREMITE oriente le degrade (angle) et ne deplace
-				// pas le noeud ; un arret intermediaire glisse ; hors poignee, la toile deplace
-				// bien le noeud (controle). Rodolf : « ca deplace plutot la geometrie ».
+				// 60k. UN GESTE POUR LES QUATRE GENRES (Rodolf, 04/09 soir : « je peux changer
+				// l'orientation des lineaires mais plus deplacer les pastilles ; dans les
+				// circulaires c'est l'inverse -- corrige ca sur tous les degrades ») : une BOUCLE
+				// sur les genres, popover ouvert. Disque de l'arret du milieu + glisser -> sa
+				// position change, l'angle non ; anneau de l'extremite + glisser -> l'angle
+				// change, les positions non ; l'aimant colle a 0 pres de 0 ; le curseur annonce
+				// le geste avant le clic ; le noeud ne bouge jamais.
 				{
 					static PreviewPanel toile(&stI);
-					stI.SelectSingle(rc);
-					stI.picker = DesignState::DemandePicker();
-					stI.picker.ouvert = true;
-					stI.picker.id = ctxI.GetId("##sonde.popover.toile");
-					stI.picker.genre = 1u;
-					stI.picker.noeud = rc;
-					stI.picker.index = 1;
-					stI.picker.ancre = {590.f, 20.f, 16.f, 16.f}; // le popover se pose a droite, loin de la toile
 					auto scene = [&](float32 mx, float32 my, bool bas) {
 						ctxI.input.mousePos = {mx, my};
 						ctxI.input.mouseDown[0] = bas;
@@ -5226,244 +5221,100 @@ namespace nkuidesign {
 						NkDessinerPickerDemande(ctxI, stI);
 						ctxI.EndFrame();
 					};
-					scene(-1.f, -1.f, false);
-					scene(-1.f, -1.f, false);
-					NkLayoutResult scr;
-					stI.ProjectToScreen(scr);
+					auto tirer = [&](float32 x0, float32 y0, float32 x1, float32 y1) {
+						scene(x0, y0, false);
+						scene(x0, y0, true);
+						scene((x0 + x1) * 0.5f, (y0 + y1) * 0.5f, true);
+						scene(x1, y1, true);
+						scene(x1, y1, false);
+						scene(-1.f, -1.f, false);
+					};
+					static const char *const kGenres[4] = {"lineaire", "radial", "angulaire", "losange"};
 					NkUINode &nd = stI.doc.nodes[(uint32)rc];
 					NkDegrade &gd = nd.fills[1].degrade;
-					gd.angle = 0.f;
-					const NkPaintRect rs = scr.At(rc);
-					const renderdetail::NkAxeDegrade axe = renderdetail::NkAxeDegradeDe(rs, gd);
 					const float32 posX0 = nd.posX, posY0 = nd.posY;
-					const int32 prof = ctxI.popupDepth;
-					// 1. l'extremite (t = 1) : on la tire a GAUCHE du centre -> angle 90
-					float32 hx = 0.f, hy = 0.f;
-					renderdetail::NkPoigneeDegrade(axe, 1.f, hx, hy);
-					const float32 cx = rs.x + rs.w * 0.5f, cy = rs.y + rs.h * 0.5f;
-					scene(hx, hy, false);
-					scene(hx, hy, true);
-					scene(hx - 10.f, hy - 10.f, true);
-					scene(cx - 60.f, cy, true);
-					scene(cx - 60.f, cy, false);
-					scene(-1.f, -1.f, false);
-					const float32 angle1 = gd.angle;
-					const bool noeudFixe1 = nd.posX == posX0 && nd.posY == posY0;
-					// 2. l'arret du milieu (t = 0.5) glisse vers 0.75 le long du nouvel axe
-					const renderdetail::NkAxeDegrade axe2 = renderdetail::NkAxeDegradeDe(rs, gd);
-					float32 mx0 = 0.f, my0 = 0.f, mx1 = 0.f, my1 = 0.f;
-					renderdetail::NkPoigneeDegrade(axe2, 0.5f, mx0, my0);
-					renderdetail::NkPoigneeDegrade(axe2, 0.75f, mx1, my1);
-					scene(mx0, my0, false);
-					scene(mx0, my0, true);
-					scene((mx0 + mx1) * 0.5f, (my0 + my1) * 0.5f, true);
-					scene(mx1, my1, true);
-					scene(mx1, my1, false);
-					scene(-1.f, -1.f, false);
-					const float32 pos1 = gd.arrets[1].position;
-					const bool noeudFixe2 = nd.posX == posX0 && nd.posY == posY0;
-					// 3. CONTROLE : hors des poignees et du segment, la toile deplace le noeud
-					// un point du CORPS : a plus de 8 px des bords (sinon c'est une poignee de
-					// taille) et a plus de 8 px de l'axe horizontal (angle 90) et de ses arrets
-					float32 ox = cx - 30.f, oy = cy - 7.f;
-					// plusieurs noeuds des sondes precedentes se superposent a l'origine du cadre :
-					// c'est celui du DESSUS que la toile deplace -- on juge « un noeud a bouge »
-					NkVector<float32> avantX, avantY;
-					for (uint32 i = 0; i < (uint32)stI.doc.nodes.Size(); ++i) {
-						avantX.PushBack(stI.doc.nodes[i].posX);
-						avantY.PushBack(stI.doc.nodes[i].posY);
+					char resume[900] = "";
+					bool tout = true;
+					for (uint32 gi = 0; gi < 4u; ++gi) {
+						gd.type = NkString(kGenres[gi]);
+						gd.angle = 0.f;
+						gd.origineX = gd.origineY = 0.5f;
+						gd.rayonX = gd.rayonY = 0.5f;
+						gd.arrets[0].position = 0.f;
+						gd.arrets[1].position = 0.5f;
+						gd.arrets[2].position = 1.f;
+						stI.SelectSingle(rc);
+						stI.picker = DesignState::DemandePicker();
+						stI.picker.ouvert = true;
+						stI.picker.id = ctxI.GetId("##sonde.popover.geste");
+						stI.picker.genre = 1u;
+						stI.picker.noeud = rc;
+						stI.picker.index = 1;
+						stI.picker.ancre = {590.f, 20.f, 16.f, 16.f};
+						scene(-1.f, -1.f, false);
+						scene(-1.f, -1.f, false);
+						NkLayoutResult scr;
+						stI.ProjectToScreen(scr);
+						const NkPaintRect rs = scr.At(rc);
+						const int32 genre = renderdetail::NkGenreDegrade(gd);
+						// a. le DISQUE de l'arret du milieu, glisse a t = 0,8 le long de l'axe
+						renderdetail::NkAxeDegrade axe = renderdetail::NkAxeDegradeGenre(genre, rs, gd);
+						float32 mx0 = 0.f, my0 = 0.f, mx1 = 0.f, my1 = 0.f;
+						renderdetail::NkPoigneeDegrade(axe, 0.5f, mx0, my0);
+						renderdetail::NkPoigneeDegrade(axe, 0.8f, mx1, my1);
+						scene(mx0, my0, false);
+						const int32 curseurDisque = stI.curseurDegrade;
+						tirer(mx0, my0, mx1, my1);
+						const float32 posMilieu = gd.arrets[1].position, angleApresGlisse = gd.angle;
+						// b. l'ANNEAU de l'extremite (t = 1) : a 13 px de la pastille, perpendiculaire a
+						//    l'axe ; tire vers la GAUCHE du pivot -> l'axe pointe a gauche : angle 90
+						axe = renderdetail::NkAxeDegradeGenre(genre, rs, gd);
+						float32 ex = 0.f, ey = 0.f, pvx = 0.f, pvy = 0.f;
+						renderdetail::NkPoigneeDegrade(axe, 1.f, ex, ey);
+						renderdetail::NkPivotDegrade(genre, rs, gd, pvx, pvy);
+						float32 dx = axe.bx - axe.ax, dy = axe.by - axe.ay;
+						const float32 l = nkentseu::math::NkSqrt(dx * dx + dy * dy);
+						dx /= l > 0.001f ? l : 1.f;
+						dy /= l > 0.001f ? l : 1.f;
+						const float32 ax0 = ex - dy * 13.f, ay0 = ey + dx * 13.f; // dans l'anneau, hors du disque
+						scene(ax0, ay0, false);
+						const int32 curseurAnneau = stI.curseurDegrade;
+						const float32 pos0 = gd.arrets[0].position, pos1 = gd.arrets[1].position, pos2 = gd.arrets[2].position;
+						tirer(ax0, ay0, pvx - 60.f, pvy); // a gauche du pivot : 90 degres (loin de tout aimant)
+						const float32 angleApresTour = gd.angle;
+						const bool positionsIntactes = gd.arrets[0].position == pos0 && gd.arrets[1].position == pos1 && gd.arrets[2].position == pos2;
+						// c. L'AIMANT : depuis l'anneau, tirer vers 3 degres -> colle a 0
+						axe = renderdetail::NkAxeDegradeGenre(genre, rs, gd);
+						renderdetail::NkPoigneeDegrade(axe, 1.f, ex, ey);
+						dx = axe.bx - axe.ax;
+						dy = axe.by - axe.ay;
+						const float32 l2 = nkentseu::math::NkSqrt(dx * dx + dy * dy);
+						dx /= l2 > 0.001f ? l2 : 1.f;
+						dy /= l2 > 0.001f ? l2 : 1.f;
+						float32 s3 = 0.f, c3 = 1.f;
+						NkSinCosDeg(3.f, s3, c3); // la direction de l'angle 3 : (-sin 3, cos 3)
+						tirer(ex - dy * 13.f, ey + dx * 13.f, pvx - s3 * 60.f, pvy + c3 * 60.f);
+						const float32 angleAimante = gd.angle;
+						const bool ok = posMilieu > 0.7f && posMilieu < 0.9f && angleApresGlisse == 0.f && curseurDisque == 1
+										&& curseurAnneau == 2 && angleApresTour > 80.f && angleApresTour < 100.f && positionsIntactes
+										&& angleAimante == 0.f && nd.posX == posX0 && nd.posY == posY0;
+						if (!ok)
+							tout = false;
+						const size_t rl = strlen(resume);
+						snprintf(resume + rl, sizeof(resume) - rl, "%s%s : glisse 0,50->%.2f (angle %.0f, curseur %d) ; anneau (curseur %d) -> angle %.0f (arrets intacts=%d) ; aimant 3 -> %.0f",
+								 gi ? " | " : "", kGenres[gi], (double)posMilieu, (double)angleApresGlisse, curseurDisque, curseurAnneau,
+								 (double)angleApresTour, positionsIntactes ? 1 : 0, (double)angleAimante);
 					}
-					scene(ox, oy, false);
-					scene(ox, oy, true);
-					scene(ox + 15.f, oy + 9.f, true);
-					scene(ox + 30.f, oy + 18.f, true);
-					scene(ox + 30.f, oy + 18.f, false);
-					scene(-1.f, -1.f, false);
-					bool noeudBouge = false;
-					for (uint32 i = 0; i < (uint32)stI.doc.nodes.Size(); ++i) {
-						if (stI.doc.nodes[i].posX != avantX[i] || stI.doc.nodes[i].posY != avantY[i])
-							noeudBouge = true;
-						stI.doc.nodes[i].posX = avantX[i];
-						stI.doc.nodes[i].posY = avantY[i];
-					}
-					stI.Recompute(NkPaintRect{0.f, 0.f, 600.f, 900.f});
+					gd.type = NkString("lineaire");
+					gd.angle = 0.f;
+					gd.arrets[1].position = 0.5f;
 					stI.picker = DesignState::DemandePicker();
 					scene(-1.f, -1.f, false);
-					snprintf(det, sizeof(det),
-							 "popover ouvert (profondeur %d) ; extremite tiree a gauche du centre : angle 0 -> %.1f, noeud fixe=%d ; "
-							 "arret du milieu : 0.50 -> %.2f, noeud fixe=%d ; hors poignee : le noeud bouge=%d",
-							 prof, (double)angle1, noeudFixe1 ? 1 : 0, (double)pos1, noeudFixe2 ? 1 : 0, noeudBouge ? 1 : 0);
-					if (!noeudBouge) {
-						const size_t l = strlen(det);
-						snprintf(det + l, sizeof(det) - l, " ; statut : %s", stI.status.Data() ? stI.status.Data() : "");
-					}
-					check("60k. ⑥ SUR LA TOILE, POPOVER OUVERT : glisser l'extremite ORIENTE le degrade (angle) sans "
-						  "deplacer le noeud, un arret intermediaire glisse le long de l'axe, et hors poignee la toile "
-						  "deplace bien le noeud",
-						  prof >= 1 && angle1 > 80.f && angle1 < 100.f && noeudFixe1 && pos1 > 0.65f && pos1 < 0.85f && noeudFixe2 && noeudBouge,
-						  det);
-				}
-				// 60j. ② LA SAISIE DIRECTE DU CODE COULEUR, par UNE porte (NkPorteHex / NkPorteNombre) :
-				// l'hexa du popover (`ff0000` sans #), un champ de valeur (clic net -> frappe, `0`
-				// dans R), l'hexa sur la LIGNE (`00ff00`), et `zz` refuse sans rien perdre.
-				{
-					// ⚠️ SANS POLICE (pas de fenetre), le champ du kit ne « consomme » pas le clic
-					//    (il lui faut une face pour poser le caret) et EndFrame defocalise. La sonde
-					//    le dit et consomme elle-meme le clic d'appui sur un champ texte.
-					auto frappe = [&](float32 mx, float32 my, bool bas, const char *texte, bool entree, bool toutSel, bool appuiChamp = false) {
-						ctxI.input.mousePos = {mx, my};
-						ctxI.input.mouseDown[0] = bas;
-						if (entree)
-							ctxI.input.SetKey(nkgui::NkGuiKey::Enter, true);
-						ctxI.BeginFrame(0.016f);
-						if (toutSel)
-							ctxI.input.wantSelectAll = true;
-						for (const char *q = texte; q && *q; ++q)
-							ctxI.input.PushChar((uint32)(unsigned char)*q);
-						ctxI.BeginLayout({340.f, 0.f, 260.f, 900.f});
-						insp.OnUI(ec);
-						NkDessinerPickerDemande(ctxI, stI);
-						if (appuiChamp && ctxI.inputId != 0u)
-							ctxI.inputClickConsumed = true;
-						ctxI.EndFrame();
-						if (entree)
-							ctxI.input.SetKey(nkgui::NkGuiKey::Enter, false);
-					};
-					// vider le champ comme a la main : Fin, puis neuf Retour arriere (le
-					// caret d'un clic sans police est au debut ; « tout selectionner » est
-					// une commande de la coquille, pas une touche)
-					auto touche = [&](nkgui::NkGuiKey k, float32 mx, float32 my) {
-						ctxI.input.SetKey(k, true);
-						frappe(mx, my, false, "", false, false);
-						ctxI.input.SetKey(k, false);
-						frappe(mx, my, false, "", false, false);
-					};
-					auto vider = [&](float32 mx, float32 my) {
-						touche(nkgui::NkGuiKey::End, mx, my);
-						for (int32 k = 0; k < 9; ++k)
-							touche(nkgui::NkGuiKey::Backspace, mx, my);
-					};
-					auto peint = [&](const char *hex) {
-						NkRecordingPaint rec;
-						RenderDocument(rec, stI.doc, NkPaintRect{0.f, 0.f, 600.f, 900.f});
-						const nkentseu::uint32 rgba = renderdetail::NkGCouleur(hex);
-						uint32 n = 0u;
-						for (uint32 i = 0; i < (uint32)rec.cmds.Size(); ++i)
-							if ((rec.cmds[i].op == NkPaintOp::Fill || rec.cmds[i].op == NkPaintOp::FillColor) && rec.cmds[i].rgba == rgba)
-								++n;
-						return n;
-					};
-					// 1. l'hexa du popover, sur rc fills[0]
-					stI.SelectSingle(rc);
-					stI.picker = DesignState::DemandePicker();
-					stI.picker.ouvert = true;
-					stI.picker.id = ctxI.GetId("##sonde.popover.saisie");
-					stI.picker.genre = 1u;
-					stI.picker.noeud = rc;
-					stI.picker.index = 0;
-					stI.picker.ancre = {360.f, 200.f, 16.f, 16.f};
-					frappe(-1.f, -1.f, false, "", false, false);
-					frappe(-1.f, -1.f, false, "", false, false);
-					float32 px = 1e9f, py = 1e9f, pxM = -1e9f;
-					for (uint32 i = 0; i < (uint32)ctxI.dlOverlay.vtx.Size(); ++i) {
-						if (ctxI.dlOverlay.vtx[i].pos.x < px) px = ctxI.dlOverlay.vtx[i].pos.x;
-						if (ctxI.dlOverlay.vtx[i].pos.y < py) py = ctxI.dlOverlay.vtx[i].pos.y;
-						if (ctxI.dlOverlay.vtx[i].pos.x > pxM) pxM = ctxI.dlOverlay.vtx[i].pos.x;
-					}
-					const float32 x0 = px + 0.5f + 8.f, x1 = pxM - 0.5f - 8.f;
-					const float32 yR = py + 0.5f + 8.f + 26.f + 168.f + 3.f;
-					nkgui::NkRect rmM, chM[3], opM;
-					NkRangeeModele(x0, x1, yR, rmM, chM, opM);
-					const float32 hx = chM[0].x + 20.f, hy = yR + 10.f;
-					// le modele est peut-etre reste sur HSB (sonde 60g) : on remet Hex par le menu
-					frappe(rmM.x + 20.f, hy, false, "", false, false);
-					frappe(rmM.x + 20.f, hy, true, "", false, false);
-					frappe(rmM.x + 20.f, hy, false, "", false, false);
-					const float32 hexY = rmM.y - 9.f * 20.f - 4.f + 2.f + 10.f; // la rangee Hex (k=0)
-					frappe(rmM.x + 20.f, hexY, false, "", false, false);
-					frappe(rmM.x + 20.f, hexY, true, "", false, false);
-					frappe(rmM.x + 20.f, hexY, false, "", false, false);
-					frappe(-1.f, -1.f, false, "", false, false);
-					frappe(hx, hy, false, "", false, false);
-					frappe(hx, hy, true, "", false, false, true);
-					frappe(hx, hy, false, "", false, false);
-					const bool focus1 = ctxI.inputId != 0u && ctxI.popupDepth == 1;
-					vider(hx, hy);
-					frappe(hx, hy, false, "ff0000", false, false);
-					frappe(hx, hy, false, "", true, false);
-					frappe(-1.f, -1.f, false, "", false, false);
-					const NkString c1 = stI.doc.nodes[(uint32)rc].fills[0].couleur;
-					const bool hexaPopover = NkComponentDecl::StrEq(c1.Data(), "#ff0000") && peint("#ff0000") >= 1u;
-					// 2. le refus : `zz` ne change rien et ne perd rien
-					frappe(hx, hy, false, "", false, false);
-					frappe(hx, hy, true, "", false, false, true);
-					frappe(hx, hy, false, "", false, false);
-					vider(hx, hy);
-					frappe(hx, hy, false, "zz", false, false);
-					frappe(hx, hy, false, "", true, false);
-					frappe(-1.f, -1.f, false, "", false, false);
-					const bool refus = NkComponentDecl::StrEq(stI.doc.nodes[(uint32)rc].fills[0].couleur.Data(), "#ff0000");
-					// 3. le champ R : menu du modele -> RGB, clic net sur le champ 0, `0`, Entree
-					frappe(rmM.x + 20.f, hy, false, "", false, false);
-					frappe(rmM.x + 20.f, hy, true, "", false, false);
-					frappe(rmM.x + 20.f, hy, false, "", false, false);
-					const float32 ry = rmM.y - 9.f * 20.f - 4.f + 2.f + 1.f * 20.f + 10.f; // la rangee RGB (k=1)
-					frappe(rmM.x + 20.f, ry, false, "", false, false);
-					frappe(rmM.x + 20.f, ry, true, "", false, false);
-					frappe(rmM.x + 20.f, ry, false, "", false, false);
-					frappe(-1.f, -1.f, false, "", false, false);
-					frappe(hx, hy, false, "", false, false);
-					frappe(hx, hy, true, "", false, false, true);
-					frappe(hx, hy, false, "", false, false); // le clic net : la saisie s'ouvre
-					frappe(hx, hy, false, "0", false, true);
-					frappe(hx, hy, false, "", true, false);
-					frappe(-1.f, -1.f, false, "", false, false);
-					const NkString c3 = stI.doc.nodes[(uint32)rc].fills[0].couleur;
-					const bool champR = NkComponentDecl::StrEq(c3.Data(), "#000000");
-					stI.picker = DesignState::DemandePicker();
-					frappe(-1.f, -1.f, false, "", false, false);
-					// 4. l'hexa sur la LIGNE du noeud a cle simple (rs) : `00ff00`
-					int32 rs2 = -1;
-					for (uint32 i = 0; i < (uint32)stI.doc.nodes.Size(); ++i)
-						if (NkComponentDecl::StrEq(stI.doc.nodes[i].label.Data(), "Bouton_Connexion"))
-							rs2 = (int32)i;
-					bool ligne = false;
-					NkString c4;
-					if (rs2 >= 0) {
-						stI.SelectSingle(rs2);
-						frappe(-1.f, -1.f, false, "", false, false);
-						frappe(-1.f, -1.f, false, "", false, false);
-						const NkString cAv = stI.doc.nodes[(uint32)rs2].fills.Empty() ? stI.doc.nodes[(uint32)rs2].fill
-																				  : stI.doc.nodes[(uint32)rs2].fills[0].couleur;
-						const nkentseu::uint32 rgbaAv = renderdetail::NkGCouleur(cAv.Data());
-						float32 sx0 = 1e9f, sy0 = 1e9f, sx1 = -1e9f, sy1 = -1e9f;
-						for (uint32 i = 0; i < (uint32)ctxI.dl.vtx.Size(); ++i) {
-							const auto &vt = ctxI.dl.vtx[i];
-							if (vt.col == rgbaAv || vt.col == ((rgbaAv >> 24) | ((rgbaAv >> 8) & 0xFF00u) | ((rgbaAv << 8) & 0xFF0000u) | (rgbaAv << 24))) {
-								if (vt.pos.x < sx0) sx0 = vt.pos.x;
-								if (vt.pos.y < sy0) sy0 = vt.pos.y;
-								if (vt.pos.x > sx1) sx1 = vt.pos.x;
-								if (vt.pos.y > sy1) sy1 = vt.pos.y;
-							}
-						}
-						const float32 lx = sx1 + 30.f, ly = (sy0 + sy1) * 0.5f;
-						frappe(lx, ly, false, "", false, false);
-						frappe(lx, ly, true, "", false, false, true);
-						frappe(lx, ly, false, "", false, false);
-						vider(lx, ly);
-						frappe(lx, ly, false, "00ff00", false, false);
-						frappe(lx, ly, false, "", true, false);
-						frappe(-1.f, -1.f, false, "", false, false);
-						c4 = stI.doc.nodes[(uint32)rs2].fills.Empty() ? NkString("(aucune)") : stI.doc.nodes[(uint32)rs2].fills[0].couleur;
-						ligne = NkComponentDecl::StrEq(c4.Data(), "#00ff00") && peint("#00ff00") >= 1u;
-					}
-					stI.SelectSingle(rc);
-					snprintf(det, sizeof(det),
-							 "champ focalise dans le popover=%d ; popover : `ff0000` -> %s ; `zz` refuse=%d ; champ R `0` -> %s ; ligne : `00ff00` -> %s",
-							 focus1 ? 1 : 0, c1.Data(), refus ? 1 : 0, c3.Data(), c4.Data() ? c4.Data() : "?");
-					check("60j. ② LA SAISIE DIRECTE DU CODE COULEUR par UNE porte : l'hexa du popover (sans #), un champ "
-						  "de valeur au clic net, l'hexa sur la LIGNE -- la couleur peinte suit, `zz` est refuse sans rien perdre",
-						  focus1 && hexaPopover && refus && champR && ligne, det);
+					snprintf(det, sizeof(det), "%s ; noeud fixe=%d", resume, (nd.posX == posX0 && nd.posY == posY0) ? 1 : 0);
+					check("60k. UN GESTE POUR LES QUATRE GENRES (boucle) : le disque d'un arret GLISSE le long de l'axe (l'angle ne "
+						  "bouge pas), l'anneau d'une extremite TOURNE l'axe (les arrets ne bougent pas), l'aimant colle a 0, le "
+						  "curseur annonce le geste avant le clic, le noeud ne bouge jamais",
+						  tout && nd.posX == posX0 && nd.posY == posY0, det);
 				}
 				// 60l. ③ LE MENU DE LA GOUTTE : peint APRES le selecteur (il etait recouvert : « visible
 				// en partie ») et reclame AVANT lui (un clic sur « Normal », qui tombe au-dessus du
@@ -5879,102 +5730,6 @@ namespace nkuidesign {
 					check("60p. LE DEGRADE SURVIT A LA GEOMETRIE : pose par le popover sur un noeud a cle simple, il reste apres un "
 						  "deplacement, une poignee de forme, un changement de largeur -- dans le document, au dessin, au fichier",
 						  poseParPopover && apresDeplacer && apresPoignee && apresLargeur && polyApres >= 24u && fichier, det);
-				}
-				// 60o. ① LES POIGNEES DES TROIS AUTRES GENRES SUR LA TOILE (Rodolf : « dans le degrade
-				// autre que lineaire il n'y a pas de pastilles sur la forme graphique ») : radial --
-				// le carre du cote ecrit le rayon X, le centre deplace l'origine, le noeud ne bouge
-				// pas ; angulaire -- la pastille de contour ecrit l'origine angulaire ; losange -- un
-				// arret glisse sur le segment. Et le peintre honore l'origine (la couleur au centre
-				// de la boite change quand l'origine part en haut).
-				{
-					static PreviewPanel toile2(&stI);
-					auto scene2 = [&](float32 mx, float32 my, bool bas) {
-						ctxI.input.mousePos = {mx, my};
-						ctxI.input.mouseDown[0] = bas;
-						ctxI.BeginFrame(0.016f);
-						ctxI.BeginLayout({0.f, 0.f, 340.f, 900.f});
-						toile2.OnUI(ec);
-						ctxI.BeginLayout({340.f, 0.f, 260.f, 900.f});
-						insp.OnUI(ec);
-						NkDessinerPickerDemande(ctxI, stI);
-						ctxI.EndFrame();
-					};
-					auto tirer = [&](float32 x0, float32 y0, float32 x1, float32 y1) {
-						scene2(x0, y0, false);
-						scene2(x0, y0, true);
-						scene2((x0 + x1) * 0.5f, (y0 + y1) * 0.5f, true);
-						scene2(x1, y1, true);
-						scene2(x1, y1, false);
-						scene2(-1.f, -1.f, false);
-					};
-					NkUINode &nd = stI.doc.nodes[(uint32)rc];
-					NkDegrade &gd = nd.fills[1].degrade;
-					gd.type = NkString("radial");
-					gd.angle = 0.f;
-					gd.origineX = gd.origineY = 0.5f;
-					gd.rayonX = gd.rayonY = 0.5f;
-					stI.SelectSingle(rc);
-					stI.picker = DesignState::DemandePicker();
-					scene2(-1.f, -1.f, false);
-					scene2(-1.f, -1.f, false);
-					NkLayoutResult scr;
-					stI.ProjectToScreen(scr);
-					const NkPaintRect rs = scr.At(rc);
-					const float32 posX0 = nd.posX, posY0 = nd.posY;
-					// a. le carre du cote : de (ox+rx, oy) vers la droite de 20 px -> rayon X grandit
-					renderdetail::NkGeomDegrade gm = renderdetail::NkGeomDegradeDe(rs, gd);
-					tirer(gm.ox + gm.rx, gm.oy, gm.ox + gm.rx + 20.f, gm.oy);
-					const float32 rxApres = gd.rayonX;
-					const bool rayonX = rxApres > 0.5f + 0.1f && nd.posX == posX0 && nd.posY == posY0;
-					// b. le centre : vers le haut de la boite -> l'origine Y tombe a ~0
-					gm = renderdetail::NkGeomDegradeDe(rs, gd);
-					const nkentseu::uint32 centreAvant = [&]() {
-						NkRecordingPaint rec;
-						RenderDocument(rec, stI.doc, NkPaintRect{0.f, 0.f, 600.f, 900.f});
-						return (uint32)rec.cmds.Size();
-					}();
-					(void)centreAvant;
-					tirer(gm.ox, gm.oy, gm.ox, rs.y + 1.f);
-					const float32 oxApres = gd.origineX, oyApres = gd.origineY;
-					const bool origine = oyApres < 0.1f && oxApres > 0.4f && oxApres < 0.6f && nd.posX == posX0 && nd.posY == posY0;
-					// c. l'angulaire : la pastille de contour (a l'angle 0 : sous l'origine) tiree a gauche -> ~90
-					gd.type = NkString("angulaire");
-					gd.origineX = gd.origineY = 0.5f;
-					gd.rayonX = gd.rayonY = 0.5f;
-					gd.angle = 0.f;
-					scene2(-1.f, -1.f, false);
-					gm = renderdetail::NkGeomDegradeDe(rs, gd);
-					float32 cx = 0.f, cy = 0.f;
-					renderdetail::NkPoigneeContourAngulaire(gm, 0.f, cx, cy);
-					tirer(cx, cy, gm.ox - gm.rx, gm.oy);
-					const float32 angleApres = gd.angle;
-					const bool contour = angleApres > 75.f && angleApres < 105.f && nd.posX == posX0 && nd.posY == posY0;
-					// d. le losange : l'arret du milieu (t = 0,5) glisse a 0,8 sur le segment
-					gd.type = NkString("losange");
-					gd.angle = 0.f;
-					scene2(-1.f, -1.f, false);
-					gm = renderdetail::NkGeomDegradeDe(rs, gd);
-					float32 mx0 = 0.f, my0 = 0.f, mx1 = 0.f, my1 = 0.f;
-					renderdetail::NkPoigneeDegradeGeom(gm, 0.5f, mx0, my0);
-					renderdetail::NkPoigneeDegradeGeom(gm, 0.8f, mx1, my1);
-					tirer(mx0, my0, mx1, my1);
-					const float32 posMilieu = gd.arrets[1].position;
-					const bool arret = posMilieu > 0.7f && posMilieu < 0.9f && nd.posX == posX0 && nd.posY == posY0;
-					gd.arrets[1].position = 0.5f;
-					gd.type = NkString("lineaire");
-					gd.origineX = gd.origineY = 0.5f;
-					gd.rayonX = gd.rayonY = 0.5f;
-					gd.angle = 0.f;
-					stI.picker = DesignState::DemandePicker();
-					scene2(-1.f, -1.f, false);
-					snprintf(det, sizeof(det),
-							 "radial : cote tire de 20 px -> rayon X 0,50 -> %.2f ; centre tire en haut -> origine (%.2f, %.2f) ; angulaire : "
-							 "contour tire a gauche -> angle %.0f ; losange : arret du milieu 0,50 -> %.2f ; noeud fixe=%d",
-							 (double)rxApres, (double)oxApres, (double)oyApres, (double)angleApres, (double)posMilieu,
-							 (nd.posX == posX0 && nd.posY == posY0) ? 1 : 0);
-					check("60o. ① LES POIGNEES DES TROIS GENRES SUR LA TOILE : le carre du cote ecrit le rayon X, le centre "
-						  "l'origine, la pastille de contour l'origine angulaire, un arret glisse sur le segment -- le noeud ne bouge jamais",
-						  rayonX && origine && contour && arret, det);
 				}
 				// 60q. ②-1 LES 18 MODES DE FUSION SE CHOISISSENT (Rodolf : « les elements de la goutte
 				// ne sont pas selectionnables ») : par le menu, « Multiply » s'ecrit dans le modele
