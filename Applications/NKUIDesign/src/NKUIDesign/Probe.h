@@ -4853,6 +4853,93 @@ namespace nkuidesign {
 				  "pas serait un dessin faux",
 				  iL == 0 && iR == -1, det);
 		}
+		// ── 62. LE REMPLISSAGE IMAGE : un type, cinq cadrages, un damier dit ───
+		{
+			NkUIDocument dIm;
+			dIm.NewDocument("Toile", NkAuthor::Humain);
+			const int32 f = dIm.AddChild(0, "", NkAuthor::Humain);
+			{
+				NkUINode &n = dIm.nodes[(uint32)f];
+				n.shape = NkString("rect");
+				n.posX = 100.f;
+				n.posY = 100.f;
+				n.width.mode = NkSizeMode::Fixed;
+				n.width.value = 64.f;
+				n.height.mode = NkSizeMode::Fixed;
+				n.height.value = 32.f;
+				NkRemplissage r;
+				r.genre = NkString("image");
+				r.cadrage = NkString("tile");
+				r.image = NkString("photos/stand.png");
+				r.rotationImage = 90.f;
+				n.fills.PushBack(r);
+			}
+			char det[300];
+			// 62a. le format : jetons additifs, aller-retour, inconnu preserve, Fill = rien
+			NkString s1;
+			dIm.Save(s1);
+			const bool cles = strstr(s1.Data(), "genre=image") && strstr(s1.Data(), "cadrage=tile")
+							  && strstr(s1.Data(), "image=photos/stand.png") && strstr(s1.Data(), "rotation_image=90");
+			NkString s2;
+			const char *pos = strstr(s1.Data(), "rotation_image=90");
+			const uint32 coupe = (uint32)(pos - s1.Data()) + 17u;
+			for (uint32 i = 0; i < coupe; ++i)
+				s2.Append(s1.Data()[i]);
+			s2.Append(" futur=oui");
+			s2.Append(s1.Data() + coupe);
+			NkUIDocument relu;
+			const bool ok = relu.Load(s2.Data());
+			const NkRemplissage *rf = (ok && relu.IsValidIndex(f) && !relu.nodes[(uint32)f].fills.Empty())
+										  ? &relu.nodes[(uint32)f].fills[0] : nullptr;
+			const bool relus = rf && rf->EstImage() && NkComponentDecl::StrEq(rf->cadrage.Data(), "tile")
+							   && NkComponentDecl::StrEq(rf->image.Data(), "photos/stand.png") && rf->rotationImage == 90.f
+							   && NkComponentDecl::StrEq(rf->inconnus.Data(), "futur=oui");
+			NkString s3;
+			if (ok)
+				relu.Save(s3);
+			const bool reemis = ok && strstr(s3.Data(), "futur=oui") != nullptr;
+			// un remplissage uni d'avant ne gagne aucun jeton
+			NkUIDocument dUni;
+			dUni.NewDocument("Toile", NkAuthor::Humain);
+			const int32 u = dUni.AddChild(0, "", NkAuthor::Humain);
+			NkRemplissage ru;
+			ru.couleur = NkString("#123456");
+			dUni.nodes[(uint32)u].fills.PushBack(ru);
+			NkString sU;
+			dUni.Save(sU);
+			const bool additif = strstr(sU.Data(), "genre=") == nullptr && strstr(sU.Data(), "cadrage=") == nullptr;
+			snprintf(det, sizeof(det), "cles=%d relus=%d reemis=%d ; un uni d'avant sans jeton=%d", cles ? 1 : 0,
+					 relus ? 1 : 0, reemis ? 1 : 0, additif ? 1 : 0);
+			check("62a. L'IMAGE EST UN TYPE DE REMPLISSAGE (tranche par sa capture) : `genre=image cadrage=... "
+				  "image=... rotation_image=...`, additifs, relus, l'inconnu preserve, Fill = rien au fichier",
+				  cles && relus && reemis && additif, det);
+			// 62b. le peintre : le DAMIER, dans la boite, dit -- pas une image inventee
+			NkPaintRect surfIm;
+			surfIm.x = 0.f;
+			surfIm.y = 0.f;
+			surfIm.w = 800.f;
+			surfIm.h = 600.f;
+			NkRecordingPaint rec;
+			RenderDocument(rec, dIm, surfIm);
+			uint32 clairs = 0u, hors = 0u;
+			bool fond = false;
+			for (uint32 i = 0; i < (uint32)rec.cmds.Size(); ++i) {
+				const NkPaintCmd &c = rec.cmds[i];
+				if (c.op != NkPaintOp::FillColor)
+					continue;
+				if ((c.rgba >> 8) == 0xD4D4D4u) {
+					++clairs;
+					if (c.x < 99.9f || c.y < 99.9f || c.x + c.w > 164.1f || c.y + c.h > 132.1f)
+						++hors;
+				} else if ((c.rgba >> 8) == 0x9A9A9Au)
+					fond = true;
+			}
+			snprintf(det, sizeof(det), "fond gris=%d, %u carreaux clairs (64x32 / 8 px : 16 attendus), %u hors de la boite", fond ? 1 : 0,
+					 clairs, hors);
+			check("62b. le peintre montre le DAMIER d'une image absente (fond gris + carreaux clairs de 8 px, tous "
+				  "dans la boite) -- la source n'est pas chargee, et c'est dit, pas simule",
+				  fond && clairs == 16u && hors == 0u, det);
+		}
 		snprintf(tail, sizeof(tail), "\n=== RESULTAT : %d / %d ===\n", pass, total);
 		rep.Append(tail);
 

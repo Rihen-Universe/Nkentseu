@@ -810,6 +810,27 @@ namespace nkuidesign {
 		/// rayon interieur = exterieur - epaisseur du coin. Jointure aux coins DROITS :
 		/// « rond » = coin exterieur arrondi de l'epaisseur ; « biseau » = coin coupe
 		/// (polygone ; sans polygone, repli sur l'onglet) ; sinon l'onglet.
+		/// LE DAMIER d'une image absente : deux gris, carreaux de 8 px, dans la
+		/// boite (le fond arrondi d'abord, puis les carreaux clairs qui restent dans
+		/// le rectangle -- un carreau ne suit pas l'arc : c'est un apercu, dit tel).
+		inline void NkGDamier(NkComponentPaint &p, const NkPaintRect &r, const nkentseu::float32 R[4],
+							  nkentseu::float32 opacite) {
+			const nkentseu::float32 k = (opacite < 0.f ? 0.f : (opacite > 100.f ? 100.f : opacite)) * 0.01f;
+			const nkentseu::uint32 a = (nkentseu::uint32)(255.f * k + 0.5f) & 0xFFu;
+			NkGRectCoins(p, r, 0x9A9A9A00u | a, R);
+			const nkentseu::float32 c = 8.f;
+			nkentseu::int32 ny = 0;
+			for (nkentseu::float32 y = r.y; y < r.y + r.h; y += c, ++ny) {
+				nkentseu::int32 nx = 0;
+				for (nkentseu::float32 x = r.x; x < r.x + r.w; x += c, ++nx) {
+					if (((nx + ny) & 1) == 0)
+						continue;
+					const nkentseu::float32 w = (x + c > r.x + r.w) ? r.x + r.w - x : c;
+					const nkentseu::float32 h = (y + c > r.y + r.h) ? r.y + r.h - y : c;
+					p.FillColor({x, y, w, h}, 0xD4D4D400u | a, 0.f);
+				}
+			}
+		}
 		inline void NkGCadreCotes(NkComponentPaint &p, const NkPaintRect &r, nkentseu::uint32 rgba,
 								  const nkentseu::float32 eC[4], NkBordurePos position,
 								  const nkentseu::float32 R[4], nkentseu::uint32 interieur,
@@ -1300,6 +1321,15 @@ namespace nkuidesign {
 						// remplissage : c'est ce que l'utilisateur a pose en
 						// dernier, et les deux ne peuvent pas coexister a
 						// l'ecran.
+						// UN REMPLISSAGE IMAGE : la source n'est pas chargee (le peintre n'a
+						// pas de primitive d'image, le document pas de source) -- on peint
+						// le DAMIER, comme le popover de Lunacy pour une image absente, et
+						// c'est dit dans l'inspecteur. Le cadrage sera lu par le vrai peintre.
+						if (f.EstImage()) {
+							NkGDamier(p, r, Rc, f.opacite);
+							peint = true;
+							continue;
+						}
 						if (peindreDegrade(f.degrade)) {
 							peint = true;
 							continue;

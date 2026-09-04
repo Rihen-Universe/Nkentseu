@@ -9564,7 +9564,10 @@ namespace nkuidesign {
 															  "losange", "image"};
 	static const char *const kNkTypesRemplissageLib[6] = {"Uni", "Linéaire", "Radial", "Angulaire",
 															  "Losange", "Image"};
-	inline const char *NkNomTypeRemplissage(const NkDegrade &g) {
+	inline const char *NkNomTypeRemplissage(const NkRemplissage &f) {
+		const NkDegrade &g = f.degrade;
+		if (f.EstImage())
+			return kNkTypesRemplissageLib[5];
 		if (!g.Actif())
 			return kNkTypesRemplissageLib[0];
 		for (nkentseu::uint32 k = 1; k < 6u; ++k)
@@ -9941,7 +9944,8 @@ namespace nkuidesign {
 				const float32 hTypes = 26.f, hPicker = 160.f + 16.f + 6.f * (ctx.ItemHeight() + ctx.layout.itemSpacingY);
 				const float32 hHex = 26.f;
 				const float32 hRampe = g.Actif() ? 26.f + 26.f * (float32)(g.arrets.Size() < 12u ? g.arrets.Size() : 12u) : 0.f;
-				const float32 ph = 8.f + hTypes + hPicker + hHex + hRampe + 8.f;
+				const float32 ph = f.EstImage() ? 8.f + hTypes + 116.f + 26.f + 48.f + 26.f + 8.f
+												   : 8.f + hTypes + hPicker + hHex + hRampe + 8.f;
 				const NkRect sw = d.ancre;
 				NkRect pr = {sw.x - pw - 8.f, sw.y - 8.f, pw, ph};
 				if (pr.x < 2.f)
@@ -9964,9 +9968,12 @@ namespace nkuidesign {
 					float32 xt = x0, yt = y;
 					for (uint32 k = 0; k < 6u; ++k) {
 						const bool estUni = (k == 0u);
-						const bool actif = estUni ? !g.Actif()
-												  : (g.Actif() && (NkComponentDecl::StrEq(g.type.Data(), kNkTypesRemplissageCle[k])
-																   || (k == 1u && g.type.Empty())));
+						const bool estImage = (k == 5u);
+						const bool actif = estImage ? f.EstImage()
+											: (estUni ? (!g.Actif() && !f.EstImage())
+													  : (!f.EstImage() && g.Actif()
+														 && (NkComponentDecl::StrEq(g.type.Data(), kNkTypesRemplissageCle[k])
+															 || (k == 1u && g.type.Empty()))));
 						const float32 lw = costume::Largeur(F.px9, kNkTypesRemplissageLib[k]) + 10.f;
 						if (xt + lw > x1 && xt > x0) {
 							yt += 24.f;
@@ -9980,9 +9987,14 @@ namespace nkuidesign {
 						costume::Texte(dl, F.px9, rb.x + 5.f, costume::CentrerY(F.px9, rb.y, 20.f),
 									   kNkTypesRemplissageLib[k], actif ? ctx.theme.panel : ctx.theme.text);
 						if (sv && ctx.input.mouseClicked[0]) {
-							if (estUni)
+							if (estImage) {
+								f.genre = NkString("image"); // un TYPE de remplissage, pas un groupe
 								g.arrets.Clear();
-							else {
+							} else if (estUni) {
+								f.genre = NkString();
+								g.arrets.Clear();
+							} else {
+								f.genre = NkString();
 								g.type = NkString(kNkTypesRemplissageCle[k]);
 								if (!g.Actif()) {
 									NkArretDegrade a0, a1;
@@ -9996,12 +10008,65 @@ namespace nkuidesign {
 								}
 							}
 							touche();
-							if (k >= 2u)
+							if (k == 5u)
+								mSt->status = NkString("Image : la source n'est pas encore chargée -- le fond montre le damier, "
+													   "le cadrage est gardé au fichier.");
+							else if (k >= 2u)
 								mSt->status = NkString("Ce type est NOMMÉ, pas encore peint : le fond prend la couleur du "
 													   "premier arrêt. Le format le garde intact.");
 						}
 					}
 					y = yt + 26.f;
+				}
+				if (f.EstImage()) {
+					// ── LE POPOVER IMAGE, comme sa capture : damier · « Remove background » ·
+					//    menu de cadrage (Fill · Fit · Stretch · Tile · Crop) · rotation ──
+					const NkRect rd = {x0, y, x1 - x0, 110.f};
+					for (int32 dy = 0; dy < 11; ++dy)
+						for (int32 dx = 0; dx * 10.f < rd.w; ++dx)
+							dl.AddRectFilled({rd.x + 10.f * (float32)dx, rd.y + 10.f * (float32)dy,
+											  (10.f * (float32)dx + 10.f > rd.w) ? rd.w - 10.f * (float32)dx : 10.f, 10.f},
+											 ((dx + dy) & 1) ? nkgui::NkColor{70, 70, 70, 255} : nkgui::NkColor{52, 52, 52, 255});
+					costume::Texte(dl, F.px9, rd.x + 6.f, rd.y + rd.h - 16.f,
+								   f.image.Empty() ? "source : aucune -- le peintre montre le damier" : f.image.Data(),
+								   ctx.theme.textMuted);
+					y += 116.f;
+					{
+						const NkRect rb = {x0, y, x1 - x0, 22.f};
+						ctx.BeginDisabled();
+						dl.AddRectFilled(rb, CouleurInput(), 4.f);
+						dl.AddRect(rb, ctx.theme.border, 1.f, 4.f);
+						costume::Texte(dl, F.px10, rb.x + 8.f, costume::CentrerY(F.px10, rb.y, 22.f),
+									   "Retirer le fond (IA) -- nommé, pas fait", ctx.theme.textMuted);
+						ctx.EndDisabled();
+						y += 26.f;
+					}
+					{
+						static const char *const kCadrage[5] = {"fill", "fit", "stretch", "tile", "crop"};
+						static const char *const kCadrageLib[5] = {"Fill", "Fit", "Stretch", "Tile", "Crop"};
+						int32 ac = 0;
+						for (int32 c = 1; c < 5; ++c)
+							if (NkComponentDecl::StrEq(f.cadrage.Data(), kCadrage[c]))
+								ac = c;
+						const int32 cc = RangeeChoix(ctx, x0, x1, y, "Cadrage", kCadrageLib, 5u, ac, false);
+						if (cc >= 0) {
+							f.cadrage = cc == 0 ? NkString() : NkString(kCadrage[cc]); // Fill = le défaut, rien au fichier
+							touche();
+						}
+						y += 48.f; // la rangée se replie sur deux lignes dans 220 px
+						costume::Texte(dl, F.px10, x0, costume::CentrerY(F.px10, y + 3.f, 20.f), "Rotation",
+									   ctx.theme.textMuted);
+						const NkRect rr = {x0 + 62.f, y + 3.f, 48.f, costume::HControle};
+						float32 rot = f.rotationImage;
+						if (ChampNombre(ctx, "insp.popover.image.rot", rr, rot, 1.f, -360.f, 360.f)) {
+							f.rotationImage = rot;
+							touche();
+						}
+						costume::Texte(dl, F.px9, rr.x + rr.w + 4.f, costume::CentrerY(F.px9, rr.y, 20.f), "°",
+									   ctx.theme.textMuted);
+					}
+					nkgui::EndPopup(ctx);
+					return;
 				}
 				// ── 2. LE SÉLECTEUR — il édite l'arrêt courant (ou le remplissage uni) ──
 				{
@@ -13029,7 +13094,13 @@ namespace nkuidesign {
 					}
 					(void)pickerFill;
 					const NkDegrade *gApercu = (!simple && i < (uint32)n->fills.Size()) ? &n->fills[i].degrade : nullptr;
-					if (gApercu && gApercu->Actif()) {
+					const bool ligneImage = !simple && i < (uint32)n->fills.Size() && n->fills[i].EstImage();
+					if (ligneImage) {
+						for (int32 dy = 0; dy < 4; ++dy)
+							for (int32 dx = 0; dx < 4; ++dx)
+								dl.AddRectFilled({sw.x + 1.f + 3.5f * (float32)dx, sw.y + 1.f + 3.5f * (float32)dy, 3.5f, 3.5f},
+												 ((dx + dy) & 1) ? nkgui::NkColor{212, 212, 212, 255} : nkgui::NkColor{154, 154, 154, 255});
+					} else if (gApercu && gApercu->Actif()) {
 						// l'APERÇU RÉEL du dégradé dans la pastille, par le calcul du document
 						for (int32 s = 0; s < 8; ++s) {
 							const uint32 c = renderdetail::NkCouleurDegradeEn(*gApercu, ((float32)s + 0.5f) / 8.f);
@@ -13039,8 +13110,9 @@ namespace nkuidesign {
 											  (uint8)((c >> 8) & 0xFFu), 255});
 						}
 					}
-					const char *nomLigne = gApercu && gApercu->Actif() ? NkNomTypeRemplissage(*gApercu)
-										   : (mFillsBuf[i][0] ? mFillsBuf[i] : "\xE2\x80\x94");
+					const char *nomLigne = ligneImage ? NkNomTypeRemplissage(n->fills[i])
+										   : (gApercu && gApercu->Actif() ? NkNomTypeRemplissage(n->fills[i])
+																	: (mFillsBuf[i][0] ? mFillsBuf[i] : "\xE2\x80\x94"));
 					costume::Texte(dl, F.px10, col.hexX, costume::CentrerBande(F.px10, r.y), nomLigne, encre);
 					char idOp[32];
 					snprintf(idOp, sizeof(idOp), "insp.fill.op%u", i);

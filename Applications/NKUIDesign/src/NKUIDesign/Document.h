@@ -307,6 +307,7 @@ namespace nkuidesign {
 	/// 🔑 C'EST L'UNITE DU GESTE, pas un detail de format : un degrade se regle
 	///    en DEPLACANT des arrets, jamais en tapant une chaine. Le modele porte
 	///    donc la position comme une VALEUR MANIPULABLE, pas comme un rang.
+	inline bool StrStartsWith(const char *s, const char *prefixe);
 	struct NkArretDegrade {
 			float32 position = 0.f; ///< 0..1 le long de l'axe
 			NkString couleur;		///< hexa « #rrggbb »
@@ -346,6 +347,20 @@ namespace nkuidesign {
 			/// fichier ne gagne AUCUNE cle : un document d'avant se reenregistre
 			/// octet pour octet.
 			NkDegrade degrade;
+			// ── LE REMPLISSAGE IMAGE (capture Lunacy du 04/09) ─────────────────
+			/// `genre` : vide = uni ou degrade selon les arrets ; « image ». Texte
+			/// libre, inconnu preserve. `cadrage` : Fill (vide) · Fit · Stretch ·
+			/// Tile · Crop -- les cinq mots de son menu, tels quels. `image` : la
+			/// source (chemin), que le peintre ne charge pas encore -- il peint le
+			/// damier et le dit. Tous additifs : rien au fichier tant que vides.
+			NkString genre;
+			NkString image;
+			NkString cadrage;
+			float32 rotationImage = 0.f;
+			NkString inconnus; ///< jetons non compris de la ligne `fond_`, reemis tels quels
+			bool EstImage() const {
+				return NkComponentDecl::StrEq(genre.Data(), "image");
+			}
 	};
 
 	// ════════════════════════════════════════════════════════════════════════════
@@ -680,7 +695,11 @@ namespace nkuidesign {
 		for (uint32 i = 0; i < (uint32)a.Size(); ++i) {
 			const NkRemplissage &x = a[i], &y = b[i];
 			if (!NkComponentDecl::StrEq(x.couleur.Data(), y.couleur.Data())
-				|| x.opacite != y.opacite || x.visible != y.visible)
+				|| x.opacite != y.opacite || x.visible != y.visible
+				|| !NkComponentDecl::StrEq(x.genre.Data(), y.genre.Data())
+				|| !NkComponentDecl::StrEq(x.image.Data(), y.image.Data())
+				|| !NkComponentDecl::StrEq(x.cadrage.Data(), y.cadrage.Data())
+				|| x.rotationImage != y.rotationImage)
 				return false;
 			if (!NkComponentDecl::StrEq(x.degrade.type.Data(), y.degrade.type.Data())
 				|| x.degrade.angle != y.degrade.angle
@@ -2197,6 +2216,27 @@ namespace nkuidesign {
 						WriteNum(out, f.opacite);
 						out.Append(' ');
 						out.Append(f.visible ? "1" : "0");
+						// additifs : rien tant que tout vaut son defaut
+						if (!f.genre.Empty()) {
+							out.Append(" genre=");
+							out.Append(f.genre);
+						}
+						if (!f.cadrage.Empty()) {
+							out.Append(" cadrage=");
+							out.Append(f.cadrage);
+						}
+						if (!f.image.Empty()) {
+							out.Append(" image=");
+							out.Append(f.image);
+						}
+						if (f.rotationImage != 0.f) {
+							out.Append(" rotation_image=");
+							WriteNum(out, f.rotationImage);
+						}
+						if (!f.inconnus.Empty()) {
+							out.Append(' ');
+							out.Append(f.inconnus);
+						}
 						out.Append('\n');
 						// `degrade_<i> = <type> <angle> <pos>:<coul> ...`
 						// ⚠️ ADDITIVE : pas d'arrets, pas de cle. Un remplissage
@@ -2763,6 +2803,33 @@ namespace nkuidesign {
 									++q;
 								if (*q)
 									f.visible = (*q == '1');
+								while (*q && *q != ' ')
+									++q;
+								// les jetons additifs, dans n'importe quel ordre ; l'inconnu est garde
+								char mot[256];
+								for (;;) {
+									while (*q == ' ')
+										++q;
+									if (!*q)
+										break;
+									uint32 z = 0;
+									while (*q && *q != ' ' && z + 1 < (uint32)sizeof(mot))
+										mot[z++] = *q++;
+									mot[z] = '\0';
+									if (StrStartsWith(mot, "genre="))
+										f.genre = NkString(mot + 6);
+									else if (StrStartsWith(mot, "cadrage="))
+										f.cadrage = NkString(mot + 8);
+									else if (StrStartsWith(mot, "image="))
+										f.image = NkString(mot + 6);
+									else if (StrStartsWith(mot, "rotation_image="))
+										f.rotationImage = ParseNum(mot + 15);
+									else {
+										if (!f.inconnus.Empty())
+											f.inconnus.Append(' ');
+										f.inconnus.Append(mot);
+									}
+								}
 							}
 							n.fills.PushBack(f);
 						}
