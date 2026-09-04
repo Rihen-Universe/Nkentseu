@@ -90,7 +90,7 @@ namespace nkuidesign {
 			NkVise v;
 			v.docX = docX;
 			v.docY = docY;
-			v.parent = NkPickFreeContainer(doc, screenLay, sx, sy);
+			v.parent = NkConteneurPourCreation(doc, screenLay, sx, sy); // hors page : la racine
 			if (!doc.IsValidIndex(v.parent)) {
 				// sous le point, une feuille ? alors c'est ELLE qui refuse, et on le dit
 				const int32 sous = NkPickSelectable(doc, screenLay, sx, sy);

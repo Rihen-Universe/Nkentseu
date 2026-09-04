@@ -2131,6 +2131,9 @@ namespace nkuidesign {
 		const int32 souslOeil = NkPickFreeContainer(st.doc, st.layout, cx, cy);
 		if (st.doc.IsValidIndex(souslOeil) && souslOeil != 0)
 			return souslOeil;
+		// pas de page sous l'oeil : la RACINE, si elle accepte (hors page)
+		if (NkConteneurPourCreation(st.doc, st.layout, cx, cy) == 0)
+			return 0;
 		// ⚠️ REPLI : la page qui PORTE la selection, pas la selection
 		//    elle-meme. Si la main travaille sur un objet hors champ, poser
 		//    dans SA page est plus proche de son intention que la premiere
@@ -2279,6 +2282,21 @@ namespace nkuidesign {
 	//    ecrite en dur afficherait aujourd'hui les bons noms sans qu'aucune
 	//    declaration soit lue — elle « marcherait » en ne prouvant rien, et le
 	//    jour ou un second composant arrive elle ne l'afficherait pas.
+	/// UN ROLE DE THEME EN « #rrggbb » : ce que le peintre aurait pris, ecrit
+	/// dans le modele pour que l'inspecteur le montre. Une seule source.
+	inline NkString NkHexDuRole(const nkentseu::editorkit::NkTheme &theme, const char *role) {
+		const nkentseu::uint32 rgba = theme.Get(NkDesignResolveRole(role));
+		static const char *const kHex = "0123456789abcdef";
+		char h[8];
+		h[0] = '#';
+		for (nkentseu::int32 k = 0; k < 3; ++k) {
+			const nkentseu::uint32 o = (rgba >> (24 - 8 * k)) & 0xFFu;
+			h[1 + k * 2] = kHex[(o >> 4) & 0xF];
+			h[2 + k * 2] = kHex[o & 0xF];
+		}
+		h[7] = '\0';
+		return NkString(h);
+	}
 	class PalettePanel : public NkEditorPanel {
 		public:
 			explicit PalettePanel(DesignState *st)
@@ -5253,7 +5271,9 @@ namespace nkuidesign {
 				const bool outilTrace = (mOutil == 1 || mOutil == 2 || mOutil == 3 || mOutil == 7);
 				const bool outilTexte = (mOutil == 5);
 				if (appui && (outilTrace || outilTexte)) {
-					const int32 parent = NkPickFreeContainer(mSt->doc, screen, in.mouseX, in.mouseY);
+					// hors d'une page, LA RACINE accepte (Lunacy fait pareil : dans la
+					// capture de Rodolf, deux Rectangle vivent au-dessus des planches)
+					const int32 parent = NkConteneurPourCreation(mSt->doc, screen, in.mouseX, in.mouseY);
 					if (parent < 0) {
 						// LA MEME PHRASE QUE LE DEPOT DE LA PALETTE — une source,
 						// deux appelants. Deux copies auraient diverge, et
@@ -5934,6 +5954,24 @@ namespace nkuidesign {
 				n.width.value = w;
 				n.height.mode = NkSizeMode::Fixed;
 				n.height.value = h;
+				// ── ELLE NAIT AVEC SON APPARENCE, ET L'INSPECTEUR LA MONTRE ──────
+				// Le peintre repliait sur une couleur de theme quand le modele
+				// n'avait rien : la valeur DESSINEE et la valeur MONTREE venaient de
+				// deux endroits, et l'inspecteur (qui lit le modele) restait vide.
+				// La creation POSE ce que le peintre aurait pris.
+				if (!StrEq(shape, "frame") && !StrEq(shape, "text")) {
+					if (NkFormeOuverte(n)) { // une ligne : un TRAIT, pas un fond
+						NkBordure b;
+						b.couleur = NkHexDuRole(mSt->theme, "doc_text");
+						b.epaisseur = 2.f;
+						b.position = NkBordurePos::Centre;
+						n.borders.PushBack(b);
+					} else {
+						NkRemplissage f;
+						f.couleur = NkHexDuRole(mSt->theme, "doc_field_bg");
+						n.fills.PushBack(f);
+					}
+				}
 				mSt->doc.MarkHumanEdit(idx);
 				mSt->SelectSingle(idx);
 				mSt->host.SyncTo(mSt->doc);

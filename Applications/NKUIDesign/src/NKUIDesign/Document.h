@@ -1427,7 +1427,11 @@ namespace nkuidesign {
 				root.label = NkString("Racine");
 				root.parent = -1;
 				InitNode(root, by);
-				root.layout.kind = NkLayoutKind::Column;
+				// UNE TOILE DE DESIGN EST UNE TOILE, PAS UNE COLONNE : la racine pose
+				// ses enfants librement, sinon une forme creee hors page serait
+				// empilee par un agencement. (Le document de Rodolf dit deja
+				// `agencement = free` : c'est le defaut de `NewDocument` qui divergeait.)
+				root.layout.kind = NkLayoutKind::Free;
 				nodes.PushBack(root);
 			}
 

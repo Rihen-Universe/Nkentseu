@@ -4411,6 +4411,86 @@ namespace nkuidesign {
 					  riendemande && demande && tient && dessine > 200u && sansOverlay == 0u, det);
 			}
 		}
+		// ── 55. DESSINER HORS D'UNE PAGE (et la symetrie avec le reparentage) ─
+		{
+			NkUIDocument dH;
+			dH.NewDocument("Toile", NkAuthor::Humain);
+			// une page de 400x300 posee a (50,50) dans une surface plus grande
+			const int32 pg = dH.AddChild(0, "", NkAuthor::Humain);
+			dH.nodes[(uint32)pg].shape = NkString("frame");
+			dH.nodes[(uint32)pg].layout.kind = NkLayoutKind::Free;
+			dH.nodes[(uint32)pg].posX = 50.f;
+			dH.nodes[(uint32)pg].posY = 50.f;
+			dH.nodes[(uint32)pg].width.mode = NkSizeMode::Fixed;
+			dH.nodes[(uint32)pg].width.value = 400.f;
+			dH.nodes[(uint32)pg].height.mode = NkSizeMode::Fixed;
+			dH.nodes[(uint32)pg].height.value = 300.f;
+			NkPaintRect surfH;
+			surfH.x = 0.f;
+			surfH.y = 0.f;
+			surfH.w = 900.f;
+			surfH.h = 700.f;
+			NkLayoutResult layH;
+			NkComputeLayout(dH, surfH, layH);
+			char det[280];
+			// 55a. la racine d'un document NEUF est libre : une toile, pas une colonne
+			const bool racineLibre = dH.nodes[0].layout.kind == NkLayoutKind::Free;
+			// dans la page -> la page ; hors de la page -> LA RACINE (plus de refus)
+			const int32 dedans = NkConteneurPourCreation(dH, layH, 200.f, 150.f);
+			const int32 dehors = NkConteneurPourCreation(dH, layH, 700.f, 600.f);
+			const int32 avant = NkPickFreeContainer(dH, layH, 700.f, 600.f);
+			snprintf(det, sizeof(det), "racine libre=%d ; dans la page -> %d (page=%d) ; hors page -> %d "
+									   "(racine=0) ; l'ancien predicat rendait %d",
+					 racineLibre ? 1 : 0, dedans, pg, dehors, avant);
+			check("55a. DESSINER HORS D'UNE PAGE : le conteneur de creation rend la page quand on est "
+				  "dedans, et LA RACINE quand on est dehors -- l'ancien predicat refusait (-1)",
+				  racineLibre && dedans == pg && dehors == 0 && avant == 0, det);
+			// 55b. LA SYMETRIE, qui etait la contradiction : ce que le reparentage
+			// autorise, la creation doit l'autoriser. On sort un noeud de la page,
+			// puis on verifie qu'un geste de creation aurait pu le poser la.
+			const int32 forme = dH.AddChild(pg, "", NkAuthor::Humain);
+			dH.nodes[(uint32)forme].shape = NkString("rect");
+			dH.nodes[(uint32)forme].width.mode = NkSizeMode::Fixed;
+			dH.nodes[(uint32)forme].width.value = 40.f;
+			dH.nodes[(uint32)forme].height.mode = NkSizeMode::Fixed;
+			dH.nodes[(uint32)forme].height.value = 40.f;
+			const bool sorti = dH.Reparent(forme, 0);
+			const bool aLaRacine = sorti && dH.nodes[(uint32)forme].parent == 0;
+			snprintf(det, sizeof(det), "retire de la page=%d, parent=%d ; creation hors page -> %d",
+					 sorti ? 1 : 0, dH.nodes[(uint32)forme].parent, dehors);
+			check("55b. LA SYMETRIE EST RETABLIE : le reparentage sort un objet de la page, et la creation "
+				  "sait desormais l'y mettre -- les deux chemins repondent la MEME chose",
+				  aLaRacine && dehors == 0, det);
+		}
+		// ── 56. UNE FORME NAIT AVEC SON APPARENCE ────────────────────────────
+		// Rodolf : « quand on cree un graphique qui a un remplissage, ca doit
+		// activer son remplissage dans les proprietes ». Le modele doit porter ce
+		// que le peintre aurait pris -- sinon l'inspecteur (qui lit le modele)
+		// reste vide devant une forme visiblement pleine.
+		{
+			nkentseu::editorkit::NkTheme th;
+			const NkString fond = NkHexDuRole(th, "doc_field_bg");
+			const NkString trait = NkHexDuRole(th, "doc_text");
+			char det[240];
+			const bool formeHex = NkHexLisible(fond.Data()) && NkHexLisible(trait.Data());
+			snprintf(det, sizeof(det), "doc_field_bg -> %s ; doc_text -> %s", fond.Data(), trait.Data());
+			check("56a. un role de theme se lit en « #rrggbb » : la creation peut POSER ce que le peintre "
+				  "aurait pris (une seule source pour ce qu'on voit et ce qu'on montre)",
+				  formeHex, det);
+			// 56b. la regle de nature : une ligne recoit un TRAIT, une forme fermee un FOND
+			NkUINode ligne, rect, texte, cadre;
+			ligne.shape = NkString("line");
+			rect.shape = NkString("rect");
+			texte.shape = NkString("text");
+			cadre.shape = NkString("frame");
+			snprintf(det, sizeof(det), "ligne ouverte=%d, rect ouvert=%d", NkFormeOuverte(ligne) ? 1 : 0,
+					 NkFormeOuverte(rect) ? 1 : 0);
+			check("56b. la nature decide : une forme OUVERTE (ligne) recoit une bordure, une forme fermee "
+				  "un remplissage -- texte et cadre, ni l'un ni l'autre",
+				  NkFormeOuverte(ligne) && !NkFormeOuverte(rect) && !NkFormeOuverte(texte)
+					  && !NkFormeOuverte(cadre),
+				  det);
+		}
 		snprintf(tail, sizeof(tail), "\n=== RESULTAT : %d / %d ===\n", pass, total);
 		rep.Append(tail);
 

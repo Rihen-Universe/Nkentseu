@@ -258,6 +258,29 @@ namespace nkuidesign {
 
 	/// Deux points quelconques rendent un rectangle normalise. Tracer de la
 	/// droite vers la gauche doit selectionner autant que l'inverse.
+	/// LE CONTENEUR D'UN GESTE DE CREATION : celui sous le point, ou LA RACINE.
+	///
+	/// 🔑 Rodolf, 04/09 : *« je n'arrive pas a dessiner hors d'une page, or une
+	///    fois dessine je peux le retirer de la page »*. Deux chemins qui
+	///    repondaient differemment a la MEME question -- la creation
+	///    interdisait ce que le reparentage autorisait. Et sa capture Lunacy
+	///    du 04/09 tranche : deux `Rectangle` y vivent AU-DESSUS des planches
+	///    `A4`, donc a la racine. **La page est un conteneur parmi d'autres.**
+	///
+	/// La racine n'est proposee que si elle est un GROUPE (§15.13) et qu'elle
+	/// pose ses enfants librement -- sinon un objet cree dehors serait empile
+	/// par un agencement, ce qui serait un deuxieme defaut.
+	inline nkentseu::int32 NkConteneurPourCreation(const NkUIDocument &doc,
+												   const NkLayoutResult &lay, nkentseu::float32 x,
+												   nkentseu::float32 y) {
+		const nkentseu::int32 sous = NkPickFreeContainer(doc, lay, x, y);
+		if (doc.IsValidIndex(sous))
+			return sous;
+		if (!doc.nodes.Empty() && NkEstGroupe(doc.nodes[0])
+			&& doc.nodes[0].layout.kind == nkentseu::editorkit::NkLayoutKind::Free)
+			return 0; // la racine : hors page, mais dans le document
+		return -1;
+	}
 	inline NkPaintRect NkRectFromPoints(nkentseu::float32 ax, nkentseu::float32 ay,
 										nkentseu::float32 bx, nkentseu::float32 by) {
 		NkPaintRect r;
