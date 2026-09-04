@@ -245,7 +245,19 @@ namespace nkentseu {
 			// premier pas et le repos) : dt_s <= cfl h / vmax.
 			const float32 h = params.h > 1e-5f ? params.h : 1e-5f;
 			const float32 vref = mLastVmax > 1.f ? mLastVmax : 1.f;
-			const float32 dtMax = params.cfl * h / vref;
+			float32 dtMax = params.cfl * h / vref;
+			uint32 subVisc = 0;
+			if (params.kinematicViscosity > 0.f) {
+				// CFL visqueuse dt <= 0,125 hs^2 / nu avec hs = longueur de LISSAGE = h/2 pour le noyau
+				// cubique (h = rayon de support). Mesure du 04/09 : ecrite avec h, elle ne mordait jamais
+				// et le repos s'agitait a nu >= 0,02 (borne vraie 15,6 ms = notre pas).
+				const float32 hs = 0.5f * h;
+				const float32 dtVisc = 0.125f * hs * hs / params.kinematicViscosity; // MESURÉE
+				if (dtVisc < dtMax) {
+					dtMax = dtVisc;
+					subVisc = (uint32)ceilf(dt / dtVisc);
+				}
+			}
 			uint32 sub = (uint32)ceilf(dt / dtMax);
 			if (sub < 1u)
 				sub = 1u;
@@ -253,7 +265,7 @@ namespace nkentseu {
 				sub = params.maxSubSteps;
 			const float32 dts = dt / (float32)sub;
 			float32 itD = 0.f, itV = 0.f, rD = 0.f, rV = 0.f;
-			uint32 caps = 0, clamped = 0;
+			uint32 caps = 0, clamped = 0, warm = 0;
 			for (uint32 s = 0; s < sub; ++s) {
 				StepOnce(store, dts);
 				itD += mStats.iterDensity;
@@ -262,6 +274,7 @@ namespace nkentseu {
 				rV += mStats.residualDivergence;
 				caps += mStats.iterCapHits;
 				clamped += mStats.speedClamped;
+				warm += mStats.warmStarts;
 			}
 			mStats.iterDensity = itD / (float32)sub;
 			mStats.iterDivergence = itV / (float32)sub;
@@ -269,7 +282,9 @@ namespace nkentseu {
 			mStats.residualDivergence = rV / (float32)sub;
 			mStats.iterCapHits = caps;
 			mStats.speedClamped = clamped;
+			mStats.warmStarts = warm;
 			mStats.subSteps = sub;
+			mStats.subStepsViscous = subVisc;
 			mStats.boundary = (uint32)mBound.Size();
 			mStats.ms = (float32)((::nkentseu::NkChrono::Now().nanoseconds - t0) / 1.0e6);
 		}
@@ -283,6 +298,7 @@ namespace nkentseu {
 			mStats.iterCapHits = 0;
 			mStats.speedClamped = 0;
 			mStats.clumped = 0;
+			mStats.warmStarts = 0;
 
 			// 1) vivantes ; positions et vitesses de travail
 			mAlive.Clear();
@@ -432,6 +448,40 @@ namespace nkentseu {
 					W[k].z += acc.z * dt;
 				}
 			}
+			// Viscosité PHYSIQUE de Morris (1997) :
+			// a_i = sum_j m (mu_i + mu_j) / (rho_i rho_j) * (x_ij . gradW_ij) / (|x_ij|^2 + 0,01 h^2) * (v_i - v_j),
+			// mu = rho nu ; x_ij . gradW_ij < 0 -> amortit la différence de vitesse ; nulle au repos.
+			// Fantômes : v_j = 0, rho_j = rho0 (non-glissement). Lue AVANT correction (tampon), pas Gauss-Seidel.
+			if (params.kinematicViscosity > 0.f) {
+				const float32 eps = 0.01f * h * h;
+				const float32 nu = params.kinematicViscosity;
+				if (mVisc.Size() < n)
+					mVisc.Resize(n);
+				NkVec3f *AV = mVisc.Data();
+				for (uint32 k = 0; k < n; ++k) {
+					const NkVec3f vi = W[k], xi = X[k];
+					const float32 mui = D[k] * nu;
+					NkVec3f acc = {0.f, 0.f, 0.f};
+					for (uint32 q = NS[k]; q < NS[k + 1]; ++q) {
+						const uint32 j = NI[q];
+						const NkVec3f vj = (j < n) ? W[j] : NkVec3f{0.f, 0.f, 0.f};
+						const float32 rhoj = (j < n) ? D[j] : rho0;
+						const NkVec3f dx = {xi.x - X[j].x, xi.y - X[j].y, xi.z - X[j].z};
+						const float32 r2 = dx.x * dx.x + dx.y * dx.y + dx.z * dx.z;
+						const float32 xg = dx.x * NG[q].x + dx.y * NG[q].y + dx.z * NG[q].z;
+						const float32 cij = m * (mui + rhoj * nu) / (D[k] * rhoj) * xg / (r2 + eps);
+						acc.x += cij * (vi.x - vj.x);
+						acc.y += cij * (vi.y - vj.y);
+						acc.z += cij * (vi.z - vj.z);
+					}
+					AV[k] = acc;
+				}
+				for (uint32 k = 0; k < n; ++k) {
+					W[k].x += AV[k].x * dt;
+					W[k].y += AV[k].y * dt;
+					W[k].z += AV[k].z * dt;
+				}
+			}
 			for (uint32 k = 0; k < n; ++k) {
 				W[k].x += params.gravity.x * dt;
 				W[k].y += params.gravity.y * dt;
@@ -441,6 +491,51 @@ namespace nkentseu {
 			// 5) DENSITÉ CONSTANTE : rho* = rho + dt Drho/Dt ; kappa = (rho* - rho0) alpha / dt^2
 			mStats.iterDensity = 0.f;
 			mStats.residualDensity = 0.f;
+			// Démarrage à chaud (bouton) : le kappa total du pas précédent, gardé TEL QUEL par emplacement du
+			// stockage (kappa est une pression : rho* - rho0 est en dt², alpha/dt² le divise -- invariant au
+			// pas ; MESURÉ le 04/09 : mémorisé en kappa·dt² et rendu en /dt², il est multiplié par 4 à chaque
+			// doublement des sous-pas, qu'il provoque -- repos à 0,41 rho0, 8 m/s). Les emplacements morts sont
+			// remis à zéro (une naissance repart froide) ; appliqué une fois AVANT la première évaluation ;
+			// les itérations qui suivent sont comptées comme avant.
+			float32 *KS = nullptr;
+			if (pressureEnabled && params.warmStart) {
+				const uint32 cap = store.capacity;
+				if (mKappaSlot.Size() != cap) {
+					mKappaSlot.Resize(cap);
+					for (uint32 i = 0; i < cap; ++i)
+						mKappaSlot[i] = 0.f;
+				}
+				float32 *KP = mKappaSlot.Data();
+				for (uint32 i = 0; i < cap; ++i)
+					if (!A[i])
+						KP[i] = 0.f;
+				mKappaSum.Resize(n);
+				KS = mKappaSum.Data();
+				bool any = false;
+				for (uint32 k = 0; k < n; ++k) {
+					K[k] = params.warmStartScale * KP[AL[k]];
+					KS[k] = K[k];
+					any = any || (K[k] != 0.f);
+				}
+				if (any) {
+					auto rawResidual = [&](float32 &minRatio) -> float32 {
+						float32 e = 0.f;
+						minRatio = 1e30f;
+						for (uint32 k = 0; k < n; ++k) {
+							const float32 ra = D[k] + dt * divergence(k);
+							e += fabsf(ra - rho0) / rho0;
+							if (ra / rho0 < minRatio)
+								minRatio = ra / rho0;
+						}
+						return e / (float32)n;
+					};
+					float32 mr = 0.f;
+					mStats.warmResidualBefore = rawResidual(mr);
+					correct();
+					mStats.warmResidualAfter = rawResidual(mStats.warmMinRatio);
+					++mStats.warmStarts;
+				}
+			}
 			if (pressureEnabled) {
 				uint32 it = 0;
 				float32 err = 0.f;
@@ -462,7 +557,15 @@ namespace nkentseu {
 					if ((it >= 2 && err < params.tolDensity) || it >= params.maxIterDensity)
 						break;
 					correct();
+					if (KS)
+						for (uint32 k = 0; k < n; ++k)
+							KS[k] += K[k];
 					++it;
+				}
+				if (KS) {
+					float32 *KP = mKappaSlot.Data();
+					for (uint32 k = 0; k < n; ++k)
+						KP[AL[k]] = KS[k];
 				}
 				if (it >= params.maxIterDensity)
 					++mStats.iterCapHits;
