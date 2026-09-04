@@ -2,7 +2,7 @@
 // -----------------------------------------------------------------------------
 // @File    Probe.h
 // @Brief   LE TEMOIN DE LA TRANCHE, sans fenetre et sans GPU.
-// @Author  Rihen
+// @Author  TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // @License Proprietary - All Rights Reserved (see LICENSE)
 //
 // =============================================================================
@@ -4808,6 +4808,176 @@ namespace nkuidesign {
 					  "extremites) dessine dans l'overlay, a gauche de sa pastille, dans l'ecran -- et le panneau "
 					  "a perdu ses trois rangees",
 					  stI.picker.ouvert && op > 300u && oxMin >= 0.f && oxMax <= 360.f && np < 3777u, det);
+				// 60e. LE POPOVER IMAGE : le cadrage est un MENU `Fill ˅` (sa capture ⑤), pas cinq
+				// puces qui se repliaient sur deux lignes. La sonde porte la souris : un clic sur le
+				// bouton ouvre le menu DANS la boite, un clic sur « Tile » le pose au modele.
+				{
+					NkRemplissage fi;
+					fi.genre = NkString("image");
+					stI.doc.nodes[(uint32)rc].fills.PushBack(fi);
+					const int32 iImg = (int32)stI.doc.nodes[(uint32)rc].fills.Size() - 1;
+					stI.picker = DesignState::DemandePicker();
+					stI.picker.ouvert = true;
+					stI.picker.id = ctxI.GetId("##sonde.popover.image");
+					stI.picker.genre = 1u;
+					stI.picker.noeud = rc;
+					stI.picker.index = iImg;
+					stI.picker.ancre = {360.f, 300.f, 16.f, 16.f};
+					auto souris = [&](float32 mx, float32 my, bool bas) {
+						ctxI.input.mousePos = {mx, my};
+						ctxI.input.mouseDown[0] = bas;
+						ctxI.BeginFrame(0.016f);
+						ctxI.BeginLayout({340.f, 0.f, 260.f, 900.f});
+						insp.OnUI(ec);
+						NkDessinerPickerDemande(ctxI, stI);
+						const uint32 n = (uint32)ctxI.dlOverlay.vtx.Size();
+						oxMin = 1e9f; oxMax = -1e9f; oyMin = 1e9f; oyMax = -1e9f;
+						for (uint32 i = 0; i < n; ++i) {
+							const nkgui::NkVec2 q = ctxI.dlOverlay.vtx[i].pos;
+							if (q.x < oxMin) oxMin = q.x;
+							if (q.x > oxMax) oxMax = q.x;
+							if (q.y < oyMin) oyMin = q.y;
+							if (q.y > oyMax) oyMax = q.y;
+						}
+						ctxI.EndFrame();
+						return n;
+					};
+					souris(-1.f, -1.f, false);
+					const uint32 oFerme = souris(-1.f, -1.f, false);
+					const float32 bas = oyMax, gauche = oxMin;
+					// la rangee Cadrage est l'avant-derniere (rotation 26, marge 8) ; le bouton
+					// commence 62 px apres la marge gauche
+					const float32 bx = gauche + 8.f + 62.f + 20.f, by = bas - 47.f;
+					souris(bx, by, true);
+					souris(bx, by, false);
+					const uint32 oOuvert = souris(bx, by, false);
+					const bool dansFenetre = oxMin >= 0.f && oyMin >= 0.f && oxMax <= 600.5f && oyMax <= 900.5f;
+					// le menu s'ouvre vers le haut : « Tile » est la 4e rangee (k=3)
+					const float32 ty = by - 3.f - 104.f + 2.f + 3.f * 20.f + 10.f - 10.f;
+					souris(bx, ty, true);
+					souris(bx, ty, false);
+					const uint32 oPose = souris(-1.f, -1.f, false);
+					const NkRemplissage &fr = stI.doc.nodes[(uint32)rc].fills[(uint32)iImg];
+					snprintf(det, sizeof(det),
+							 "popover image : %u sommets ferme, %u menu ouvert (clic a %.0f,%.0f), %u apres « Tile » ; "
+							 "cadrage=`%s` ; dans la fenetre=%d",
+							 oFerme, oOuvert, bx, by, oPose, fr.cadrage.Data(), dansFenetre ? 1 : 0);
+					check("60e. LE POPOVER IMAGE : le cadrage est un MENU `Fill ˅` (Lunacy), pas cinq puces -- le "
+						  "bouton l'ouvre dans la boite, « Tile » le pose au modele et le referme, tout reste dans la fenetre",
+						  oFerme > 100u && oOuvert > oFerme + 20u && oPose < oOuvert && fr.EstImage()
+							  && NkComponentDecl::StrEq(fr.cadrage.Data(), "tile") && dansFenetre,
+						  det);
+				}
+				// 60f. LA RANGEE MODELE (ses neuf captures) : `[Modele ˅] v1 v2 v3 [op %]` sur UNE
+				// ligne ; chaque champ tient `-54,00` (six caracteres, LAB) sans troncature --
+				// mesure a la police du panneau ; rien ne se chevauche, tout tient entre x0 et x1.
+				{
+					stI.picker = DesignState::DemandePicker();
+					stI.picker.ouvert = true;
+					stI.picker.id = ctxI.GetId("##sonde.popover.modele");
+					stI.picker.genre = 1u;
+					stI.picker.noeud = rc;
+					stI.picker.index = 0;
+					stI.picker.ancre = {360.f, 200.f, 16.f, 16.f};
+					float32 xq = 0.f;
+					uint32 nq = 0u, oq = 0u;
+					image(260.f, true, xq, nq, oq);
+					image(260.f, true, xq, nq, oq);
+					float32 pxMin = 1e9f, pxMax = -1e9f, pyMin = 1e9f;
+					for (uint32 i = 0; i < (uint32)ctxI.dlOverlay.vtx.Size(); ++i) {
+						const nkgui::NkVec2 q = ctxI.dlOverlay.vtx[i].pos;
+						if (q.x < pxMin) pxMin = q.x;
+						if (q.x > pxMax) pxMax = q.x;
+						if (q.y < pyMin) pyMin = q.y;
+					}
+					const float32 x0 = pxMin + 0.5f + 8.f, x1 = pxMax - 0.5f - 8.f;
+					nkgui::NkRect menu, ch[3], op;
+					NkRangeeModele(x0, x1, 0.f, menu, ch, op);
+					auto &F = costume::Fontes();
+					// sans fenetre la police n'est pas chargee et `Largeur` rend 0 : la sonde ne
+					// se laisse pas passer a vide -- budget de 6 px par caractere a px10, dit
+					float32 lTexte = costume::Largeur(F.px10, "-54,00");
+					float32 lHex = costume::Largeur(F.px10, "#1976d2");
+					const bool policeAbsente = lTexte <= 0.f || lHex <= 0.f;
+					if (policeAbsente) {
+						lTexte = 6.f * 6.f;
+						lHex = 7.f * 6.f;
+					}
+					bool tient = ch[0].w >= lTexte + 6.f && ch[1].w >= lTexte + 6.f && ch[2].w >= lTexte + 6.f
+								 && (ch[2].x + ch[2].w - ch[0].x) >= lHex + 6.f;
+					bool ordre = menu.x >= x0 && menu.x + menu.w + 4.f <= ch[0].x && ch[0].x + ch[0].w <= ch[1].x
+								 && ch[1].x + ch[1].w <= ch[2].x && ch[2].x + ch[2].w + 4.f <= op.x
+								 && op.x + op.w + 12.f <= x1 + 0.5f;
+					snprintf(det, sizeof(det),
+							 "popover %.0f px : menu %.0f, trois champs de %.1f px (« -54,00 » = %.1f px%s), opacite %.0f ; "
+							 "hexa sur %.0f px (« #1976d2 » = %.1f px)",
+							 pxMax - pxMin, menu.w, ch[0].w, lTexte, policeAbsente ? " -- police absente sans fenetre, budget 6 px/car." : "",
+							 op.w, ch[2].x + ch[2].w - ch[0].x, lHex);
+					check("60f. LA RANGEE MODELE SUR UNE LIGNE (ses neuf captures) : menu, trois champs qui tiennent "
+						  "« -54,00 » sans troncature, opacite -- mesure a la police, rien ne se chevauche",
+						  tient && ordre && oq > 300u, det);
+					// 60g. L'ALLER-RETOUR IDENTIQUE, la ou Lunacy derive (1976D2 -> 1A76D1) : sur
+					// les 16 777 216 couleurs, Hex -> RGB -> Hex et Hex -> HSB -> Hex rendent le
+					// meme hexa. La derive des ENTIERS AFFICHES est comptee (c'est pourquoi
+					// l'affichage n'ecrit jamais) ; puis, au popover, HSB affiche trois images de
+					// suite sans toucher l'hexa ; enfin la lecture francaise (virgule, signe).
+					uint32 ratesRgb = 0u, ratesHsb = 0u, deriveEntiers = 0u;
+					for (uint32 c = 0u; c < 0x1000000u; ++c) {
+						const float32 r = (float32)((c >> 16) & 255u), g = (float32)((c >> 8) & 255u), b = (float32)(c & 255u);
+						char h0[12], h1[12];
+						NkRgbVersHex(r, g, b, h0);
+						float32 v[3], r2, g2, b2;
+						NkRgbVersModele(1, r, g, b, v);
+						NkModeleVersRgb(1, v, r2, g2, b2);
+						NkRgbVersHex(r2, g2, b2, h1);
+						if (!NkComponentDecl::StrEq(h0, h1)) ++ratesRgb;
+						NkRgbVersModele(2, r, g, b, v);
+						NkModeleVersRgb(2, v, r2, g2, b2);
+						NkRgbVersHex(r2, g2, b2, h1);
+						if (!NkComponentDecl::StrEq(h0, h1)) ++ratesHsb;
+						const float32 ve[3] = {(float32)(int32)(v[0] + 0.5f), (float32)(int32)(v[1] + 0.5f), (float32)(int32)(v[2] + 0.5f)};
+						NkModeleVersRgb(2, ve, r2, g2, b2);
+						NkRgbVersHex(r2, g2, b2, h1);
+						if (!NkComponentDecl::StrEq(h0, h1)) ++deriveEntiers;
+					}
+					// au popover : choisir HSB par le menu, trois images, l'hexa du modele n'a pas bouge
+					auto souris = [&](float32 mx, float32 my, bool bas) {
+						ctxI.input.mousePos = {mx, my};
+						ctxI.input.mouseDown[0] = bas;
+						ctxI.BeginFrame(0.016f);
+						ctxI.BeginLayout({340.f, 0.f, 260.f, 900.f});
+						insp.OnUI(ec);
+						NkDessinerPickerDemande(ctxI, stI);
+						ctxI.EndFrame();
+					};
+					const float32 yRangee = pyMin + 0.5f + 8.f + 26.f + 168.f + 3.f;
+					const float32 mx = x0 + 25.f, my = yRangee + 10.f;
+					souris(mx, my, true);
+					souris(mx, my, false);
+					const float32 hy = yRangee - 9.f * 20.f - 4.f + 2.f + 2.f * 20.f + 10.f; // la rangee HSB (k=2)
+					souris(x0 + 20.f, hy, true);
+					souris(x0 + 20.f, hy, false);
+					souris(-1.f, -1.f, false);
+					souris(-1.f, -1.f, false);
+					souris(-1.f, -1.f, false);
+					const bool hexaIntact = NkComponentDecl::StrEq(stI.doc.nodes[(uint32)rc].fills[0].couleur.Data(), "#1976d2")
+											&& NkComponentDecl::StrEq(stI.picker.hex, "#1976d2");
+					float32 l1 = 0.f, l2 = 0.f, l3 = 0.f, l4 = 1.f;
+					const bool lecture = NkLireNombreFr("49,21", l1) && NkLireNombreFr("-54,0", l2) && NkLireNombreFr("0.564", l3)
+										 && !NkLireNombreFr("abc", l4)
+										 && l1 > 49.2f && l1 < 49.22f && l2 == -54.f && l3 > 0.563f && l3 < 0.565f;
+					char fr[16];
+					NkEcrireNombreFr(fr, (uint32)sizeof(fr), -54.0f, 2);
+					const bool ecriture = NkComponentDecl::StrEq(fr, "-54,00");
+					snprintf(det, sizeof(det),
+							 "16 777 216 couleurs : rates RGB=%u, rates HSB=%u ; derive des ENTIERS affiches=%u (la raison "
+							 "de ne pas ecrire) ; hexa intact apres HSB affiche=%d ; lecture fr=%d, ecriture « %s »",
+							 ratesRgb, ratesHsb, deriveEntiers, hexaIntact ? 1 : 0, lecture ? 1 : 0, fr);
+					check("60g. L'ALLER-RETOUR Hex -> modele -> Hex est IDENTIQUE sur les 16,7 M de couleurs (RGB et "
+						  "HSB), l'affichage n'ecrit jamais l'hexa (la derive de Lunacy), la lecture accepte la "
+						  "virgule, le point et le signe",
+						  ratesRgb == 0u && ratesHsb == 0u && hexaIntact && lecture && ecriture, det);
+				}
 				stI.picker = DesignState::DemandePicker();
 			}
 		}

@@ -2,7 +2,7 @@
 // -----------------------------------------------------------------------------
 // @File    Panels.h
 // @Brief   Les panneaux de NkUIDesign : palette, composition, apercu, proprietes, IA.
-// @Author  Rihen
+// @Author  TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // @License Proprietary - All Rights Reserved (see LICENSE)
 //
 // =============================================================================
@@ -9634,6 +9634,100 @@ namespace nkuidesign {
 		}
 		hex[7] = '\0';
 	}
+	/// ③ LES NEUF MODELES DE COULEUR DE LUNACY, derriere UNE frontiere de conversion :
+	/// `NkRgbVersModele` / `NkModeleVersRgb`. Un modele s'ajoute ICI, et nulle part ailleurs.
+	/// Plages et formats lus sur ses captures (`design/captures/2026-09-04_lunacy_modele_*`) :
+	/// entiers pour RGB / HSB / HSL / HWB ; LCH et LAB a deux decimales (a, b signes) ; OKLCH
+	/// L dans 0..1 a trois decimales ; OKLAB a deux decimales signees. La virgule est le
+	/// separateur affiche (locale francaise) ; la lecture accepte la virgule ET le point.
+	struct NkModeleCouleurDesc {
+		const char *nom;
+		nkentseu::int32 champs;    ///< 1 (Hex) ou 3
+		nkentseu::int32 decimales; ///< 0 : entiers
+		nkentseu::float32 mn[3];
+		nkentseu::float32 mx[3];
+		bool operant;              ///< la conversion est ecrite (Hex, RGB, HSB)
+	};
+	inline const NkModeleCouleurDesc &NkModeleCouleur(nkentseu::int32 i) {
+		static const NkModeleCouleurDesc k[9] = {
+			{"Hex", 1, 0, {0.f, 0.f, 0.f}, {0.f, 0.f, 0.f}, true},
+			{"RGB", 3, 0, {0.f, 0.f, 0.f}, {255.f, 255.f, 255.f}, true},
+			{"HSB", 3, 0, {0.f, 0.f, 0.f}, {360.f, 100.f, 100.f}, true},
+			{"HSL", 3, 0, {0.f, 0.f, 0.f}, {360.f, 100.f, 100.f}, false},
+			{"HWB", 3, 0, {0.f, 0.f, 0.f}, {360.f, 100.f, 100.f}, false},
+			{"LCH", 3, 2, {0.f, 0.f, 0.f}, {100.f, 150.f, 360.f}, false},
+			{"LAB", 3, 2, {0.f, -128.f, -128.f}, {100.f, 127.f, 127.f}, false},
+			{"OKLCH", 3, 3, {0.f, 0.f, 0.f}, {1.f, 0.5f, 360.f}, false},
+			{"OKLAB", 3, 2, {0.f, -100.f, -100.f}, {100.f, 100.f, 100.f}, false},
+		};
+		return k[i < 0 ? 0 : (i > 8 ? 8 : i)];
+	}
+	inline bool NkRgbVersModele(nkentseu::int32 modele, nkentseu::float32 r, nkentseu::float32 g,
+								nkentseu::float32 b, nkentseu::float32 v[3]) {
+		if (modele == 1) { v[0] = r; v[1] = g; v[2] = b; return true; }
+		if (modele == 2) { NkRgbVersHsb(r, g, b, v[0], v[1], v[2]); return true; }
+		return false; // HSL, HWB, LCH, LAB, OKLCH, OKLAB : conversion non ecrite
+	}
+	inline bool NkModeleVersRgb(nkentseu::int32 modele, const nkentseu::float32 v[3], nkentseu::float32 &r,
+								nkentseu::float32 &g, nkentseu::float32 &b) {
+		if (modele == 1) { r = v[0]; g = v[1]; b = v[2]; return true; }
+		if (modele == 2) { NkHsbVersRgb(v[0], v[1], v[2], r, g, b); return true; }
+		return false;
+	}
+	/// Un nombre a la francaise : `49,21` comme `49.21`, le signe accepte (LAB / OKLAB).
+	inline bool NkLireNombreFr(const char *s, nkentseu::float32 &v) {
+		if (!s)
+			return false;
+		while (*s == ' ')
+			++s;
+		bool neg = false;
+		if (*s == '-' || *s == '+') {
+			neg = *s == '-';
+			++s;
+		}
+		double e = 0.0, f = 0.0, d = 1.0;
+		bool chiffre = false, frac = false;
+		for (; *s; ++s) {
+			if (*s >= '0' && *s <= '9') {
+				chiffre = true;
+				if (frac) {
+					d *= 0.1;
+					f += (double)(*s - '0') * d;
+				} else
+					e = e * 10.0 + (double)(*s - '0');
+			} else if ((*s == ',' || *s == '.') && !frac)
+				frac = true;
+			else if (*s == ' ')
+				break;
+			else
+				return false;
+		}
+		if (!chiffre)
+			return false;
+		v = (nkentseu::float32)(neg ? -(e + f) : (e + f));
+		return true;
+	}
+	inline void NkEcrireNombreFr(char *b, nkentseu::uint32 n, nkentseu::float32 v, nkentseu::int32 decimales) {
+		if (decimales <= 0) {
+			snprintf(b, (size_t)n, "%d", (nkentseu::int32)(v < 0.f ? v - 0.5f : v + 0.5f));
+			return;
+		}
+		snprintf(b, (size_t)n, "%.*f", (int)decimales, (double)v);
+		for (char *q = b; *q; ++q)
+			if (*q == '.')
+				*q = ',';
+	}
+	/// La rangee modele de Lunacy : `[Modele ˅]  v1  v2  v3  [opacite %]` -- UNE geometrie,
+	/// lue par le popover et par la sonde (qui mesure que `-54,00` tient dans un champ).
+	inline void NkRangeeModele(nkentseu::float32 x0, nkentseu::float32 x1, nkentseu::float32 y, nkgui::NkRect &menu,
+							   nkgui::NkRect champs[3], nkgui::NkRect &opacite) {
+		menu = {x0, y, 46.f, 20.f};
+		opacite = {x1 - 12.f - 34.f, y, 34.f, 20.f};
+		const nkentseu::float32 libre = opacite.x - 4.f - (menu.x + menu.w + 4.f);
+		const nkentseu::float32 w = (libre - 2.f * 3.f) / 3.f;
+		for (nkentseu::int32 k = 0; k < 3; ++k)
+			champs[k] = {menu.x + menu.w + 4.f + (nkentseu::float32)k * (w + 3.f), y, w, 20.f};
+	}
 	inline bool NkHexLisible(const char *hex) {
 		if (!hex || hex[0] != '#')
 			return false;
@@ -10001,7 +10095,7 @@ namespace nkuidesign {
 					snprintf(d.hex, sizeof(d.hex), "%s", couleurCourante.Data() ? couleurCourante.Data() : "");
 				}
 				// ── LA BOÎTE ──────────────────────────────────────────────────────
-				const float32 pw = 236.f;
+				const float32 pw = 250.f; // ③ trois champs qui tiennent « -54,00 » (sonde 60f)
 				// ② LA HAUTEUR SE CALCULE, elle ne s'estime pas : les rangees de types
 				//    mesurees comme au dessin, le selecteur sans ses six rangees (③), la
 				//    rangee modele, la barre, la liste. C'est ce qui permet de remonter
@@ -10010,7 +10104,7 @@ namespace nkuidesign {
 				const float32 hPicker = 160.f + 8.f;
 				const float32 hHex = 26.f; // la rangee modele + valeurs (Hex ˅ / RGB / HSB)
 				const float32 hRampe = g.Actif() ? 26.f + 26.f * (float32)(g.arrets.Size() < 12u ? g.arrets.Size() : 12u) : 0.f;
-				const float32 ph = f.EstImage() ? 8.f + hTypes + 116.f + 26.f + 48.f + 26.f + 8.f
+				const float32 ph = f.EstImage() ? 8.f + hTypes + 116.f + 26.f + 26.f + 26.f + 8.f
 												   : 8.f + hTypes + hPicker + hHex + hRampe + 8.f;
 				const NkRect sw = d.ancre;
 				NkRect pr = {sw.x - pw - 8.f, sw.y - 8.f, pw, ph};
@@ -10187,12 +10281,43 @@ namespace nkuidesign {
 						for (int32 c = 1; c < 5; ++c)
 							if (NkComponentDecl::StrEq(f.cadrage.Data(), kCadrage[c]))
 								ac = c;
-						const int32 cc = RangeeChoix(ctx, x0, x1, y, "Cadrage", kCadrageLib, 5u, ac, false);
-						if (cc >= 0) {
-							f.cadrage = cc == 0 ? NkString() : NkString(kCadrage[cc]); // Fill = le défaut, rien au fichier
-							touche();
+						// Lunacy : un menu `Fill ˅` (sa capture), pas cinq puces qui se replient
+						costume::Texte(dl, F.px10, x0, costume::CentrerY(F.px10, y + 3.f, 20.f), "Cadrage",
+									   ctx.theme.textMuted);
+						const NkRect rm = {x0 + 62.f, y + 3.f, 72.f, costume::HControle};
+						const bool svM = NkGuiRectContains(rm, ctx.input.mousePos);
+						dl.AddRectFilled(rm, CouleurInput(), 4.f);
+						dl.AddRect(rm, (svM || mCadrageMenuOuvert) ? ctx.theme.accent : ctx.theme.border, 1.f, 4.f);
+						costume::Texte(dl, F.px10, rm.x + 6.f, costume::CentrerY(F.px10, rm.y, 20.f), kCadrageLib[ac],
+									   ctx.theme.text);
+						costume::ChevronCombo7(dl, rm.x + rm.w - 11.f, rm.y + 7.5f, ctx.theme.textMuted);
+						if (svM && ctx.input.mouseClicked[0]) {
+							mCadrageMenuOuvert = !mCadrageMenuOuvert;
+							ctx.input.mouseClicked[0] = false;
 						}
-						y += 48.f; // la rangée se replie sur deux lignes dans 220 px
+						if (mCadrageMenuOuvert) {
+							// le menu s'ouvre vers le HAUT (sous lui il n'y a que la rotation), DANS la boite
+							const NkRect rl = {rm.x, rm.y - 5.f * 20.f - 4.f, 96.f, 5.f * 20.f + 4.f};
+							dl.AddRectFilled(rl, ctx.theme.panel, 4.f);
+							dl.AddRect(rl, ctx.theme.border, 1.f, 4.f);
+							for (uint32 k = 0; k < 5u; ++k) {
+								const NkRect rr = {rl.x + 2.f, rl.y + 2.f + (float32)k * 20.f, rl.w - 4.f, 20.f};
+								const bool svR = NkGuiRectContains(rr, ctx.input.mousePos);
+								if (svR)
+									dl.AddRectFilled(rr, ctx.theme.rowHover, 3.f);
+								costume::Texte(dl, F.px10, rr.x + 6.f, costume::CentrerY(F.px10, rr.y, 20.f), kCadrageLib[k],
+											   (int32)k == ac ? ctx.theme.accent : ctx.theme.text);
+								if (svR && ctx.input.mouseClicked[0]) {
+									ctx.input.mouseClicked[0] = false;
+									f.cadrage = k == 0u ? NkString() : NkString(kCadrage[k]); // Fill = le défaut, rien au fichier
+									touche();
+									mCadrageMenuOuvert = false;
+								}
+							}
+							if (ctx.input.mouseClicked[0] && !NkGuiRectContains(rl, ctx.input.mousePos) && !svM)
+								mCadrageMenuOuvert = false;
+						}
+						y += 26.f;
 						costume::Texte(dl, F.px10, x0, costume::CentrerY(F.px10, y + 3.f, 20.f), "Rotation",
 									   ctx.theme.textMuted);
 						const NkRect rr = {x0 + 62.f, y + 3.f, 48.f, costume::HControle};
@@ -10245,13 +10370,13 @@ namespace nkuidesign {
 				// Comme Lunacy : un menu du modèle, une seule rangée pour le modèle
 				// choisi. Hex par défaut ; RGB et HSB opérants ; six autres nommés.
 				{
-					static const char *const kModeles[9] = {"Hex", "RGB", "HSB", "HSL", "HWB", "LCH", "LAB", "OKLCH", "OKLAB"};
-					const NkRect rm = {x0, y + 3.f, 46.f, costume::HControle};
+					NkRect rm, rv3[3], ro;
+					NkRangeeModele(x0, x1, y + 3.f, rm, rv3, ro);
+					const NkModeleCouleurDesc &md = NkModeleCouleur(mModeleCouleur);
 					const bool svM = NkGuiRectContains(rm, ctx.input.mousePos);
 					dl.AddRectFilled(rm, CouleurInput(), 4.f);
 					dl.AddRect(rm, (svM || mModeleMenuOuvert) ? ctx.theme.accent : ctx.theme.border, 1.f, 4.f);
-					costume::Texte(dl, F.px10, rm.x + 5.f, costume::CentrerY(F.px10, rm.y, 20.f), kModeles[mModeleCouleur],
-								   ctx.theme.text);
+					costume::Texte(dl, F.px10, rm.x + 5.f, costume::CentrerY(F.px10, rm.y, 20.f), md.nom, ctx.theme.text);
 					costume::ChevronCombo7(dl, rm.x + rm.w - 11.f, rm.y + 7.5f, ctx.theme.textMuted);
 					if (svM && ctx.input.mouseClicked[0]) {
 						mModeleMenuOuvert = !mModeleMenuOuvert;
@@ -10261,59 +10386,54 @@ namespace nkuidesign {
 					float32 cr = (float32)c0.r, cg = (float32)c0.g, cb = (float32)c0.b;
 					bool change = false;
 					if (mModeleCouleur == 0) {
-						const NkRect rh = {rm.x + rm.w + 4.f, y + 3.f, 76.f, costume::HControle};
+						const NkRect rh = {rv3[0].x, y + 3.f, rv3[2].x + rv3[2].w - rv3[0].x, costume::HControle};
 						ctx.SetNextItemRect(rh);
 						if (nkgui::InputText(ctx, "##nkuidesign.popover.hex", d.hex, 10) && NkHexLisible(d.hex)) {
 							couleurCourante = NkString(d.hex);
 							touche();
 						}
 					} else {
+						// L'AFFICHAGE NE REECRIT JAMAIS L'HEXA : les valeurs montrees sont arrondies
+						// (entiers, deux decimales), et les reconvertir a chaque image derive d'une
+						// unite -- c'est ce que Lunacy montre (1976D2 -> 1A76D1 apres OKLAB). Ici
+						// l'hexa n'est recalcule que d'un champ que l'on a CHANGE, et la sonde 60g
+						// prouve l'aller-retour identique sur les 16,7 millions de couleurs.
 						float32 v3[3] = {cr, cg, cb};
-						if (mModeleCouleur == 2)
-							NkRgbVersHsb(cr, cg, cb, v3[0], v3[1], v3[2]);
-						static const char *const kIds[2][3] = {{"insp.pop.r", "insp.pop.g", "insp.pop.b"},
-																   {"insp.pop.h", "insp.pop.s", "insp.pop.v"}};
+						NkRgbVersModele(mModeleCouleur, cr, cg, cb, v3);
+						static const char *const kIds[3] = {"insp.pop.m0", "insp.pop.m1", "insp.pop.m2"};
 						for (uint32 k = 0; k < 3u; ++k) {
-							const NkRect rv = {rm.x + rm.w + 4.f + (float32)k * 28.f, y + 3.f, 26.f, costume::HControle};
-							const float32 vmax = mModeleCouleur == 1 ? 255.f : (k == 0 ? 360.f : 100.f);
-							if (ChampNombre(ctx, kIds[mModeleCouleur - 1][k], rv, v3[k], 1.f, 0.f, vmax, true))
+							const float32 pas = md.decimales > 0 ? (md.mx[k] - md.mn[k]) / 200.f : 1.f;
+							if (ChampNombre(ctx, kIds[k], rv3[k], v3[k], pas, md.mn[k], md.mx[k], true, false, md.decimales))
 								change = true;
 						}
-						if (change) {
-							if (mModeleCouleur == 2)
-								NkHsbVersRgb(v3[0], v3[1], v3[2], cr, cg, cb);
-							else {
-								cr = v3[0];
-								cg = v3[1];
-								cb = v3[2];
-							}
+						if (change && NkModeleVersRgb(mModeleCouleur, v3, cr, cg, cb)) {
 							NkRgbVersHex(cr, cg, cb, d.hex);
 							couleurCourante = NkString(d.hex);
 							touche();
 						}
 					}
 					float32 &opRef = g.Actif() ? g.arrets[(uint32)d.arretSel].opacite : f.opacite;
-					const NkRect ro = {x1 - 40.f - 12.f, y + 3.f, 40.f, costume::HControle};
 					float32 op = opRef;
-					if (ChampNombre(ctx, "insp.popover.op", ro, op, 1.f, 0.f, 100.f)) {
+					if (ChampNombre(ctx, "insp.popover.op", ro, op, 1.f, 0.f, 100.f, true)) {
 						opRef = op;
 						touche();
 					}
 					costume::Texte(dl, F.px9, ro.x + ro.w + 3.f, costume::CentrerY(F.px9, ro.y, 20.f), "%",
 								   ctx.theme.textMuted);
 					// LE MENU DES MODELES, dessine DANS la boite (un clic dedans ne ferme pas le
-					// popover) ; les six derniers sont nommes, grises, avec la raison
+					// popover) ; les six sans conversion sont nommes, grises, avec la raison
 					if (mModeleMenuOuvert) {
 						const NkRect rl = {rm.x, rm.y - 9.f * 20.f - 4.f, 96.f, 9.f * 20.f + 4.f};
 						dl.AddRectFilled(rl, ctx.theme.panel, 4.f);
 						dl.AddRect(rl, ctx.theme.border, 1.f, 4.f);
 						for (uint32 k = 0; k < 9u; ++k) {
 							const NkRect rr = {rl.x + 2.f, rl.y + 2.f + (float32)k * 20.f, rl.w - 4.f, 20.f};
-							const bool operant = k < 3u;
+							const bool operant = NkModeleCouleur((int32)k).operant;
 							const bool svR = NkGuiRectContains(rr, ctx.input.mousePos);
 							if (svR && operant)
 								dl.AddRectFilled(rr, ctx.theme.rowHover, 3.f);
-							costume::Texte(dl, F.px10, rr.x + 6.f, costume::CentrerY(F.px10, rr.y, 20.f), kModeles[k],
+							costume::Texte(dl, F.px10, rr.x + 6.f, costume::CentrerY(F.px10, rr.y, 20.f),
+										   NkModeleCouleur((int32)k).nom,
 										   operant ? ((int32)k == mModeleCouleur ? ctx.theme.accent : ctx.theme.text)
 												   : ctx.theme.textDisabled);
 							if (svR && ctx.input.mouseClicked[0]) {
@@ -10322,7 +10442,7 @@ namespace nkuidesign {
 									mModeleCouleur = (int32)k;
 									mModeleMenuOuvert = false;
 								} else
-									mSt->status = NkString("Ce modèle de couleur est nommé (Lunacy en a neuf), pas encore converti : Hex, RGB et HSB le sont.");
+									mSt->status = NkString("Ce modèle est nommé (Lunacy en a neuf) : conversion non écrite. Hex, RGB et HSB sont convertis.");
 							}
 						}
 						if (ctx.input.mouseClicked[0] && !NkGuiRectContains(rl, ctx.input.mousePos) && !svM)
@@ -11066,10 +11186,12 @@ namespace nkuidesign {
 
 			bool ChampNombre(NkGuiContext &ctx, const char *id, const NkRect &r, float32 &v,
 							 float32 vitesse, float32 vmin, float32 vmax, bool petit = false,
-							 bool tiretSiZero = false) {
+							 bool tiretSiZero = false, int32 decimales = -1) {
 				char b[32];
 				if (tiretSiZero && v == 0.f)
 					snprintf(b, sizeof(b), "\xE2\x80\x94"); // « — »
+				else if (decimales >= 0)
+					NkEcrireNombreFr(b, (uint32)sizeof(b), v, decimales); // ③ la virgule, les signes
 				else if (v == (float32)(int32)v)
 					snprintf(b, sizeof(b), "%d", (int32)v);
 				else
@@ -14132,6 +14254,7 @@ namespace nkuidesign {
 			int32 mModeleCouleur = 0;   ///< 0 Hex, 1 RGB, 2 HSB (les autres : nommes)
 			bool mModeleMenuOuvert = false;
 			bool mFusionMenuOuvert = false; ///< la goutte : les 18 modes, Normal operant
+			bool mCadrageMenuOuvert = false; ///< image : Fill / Fit / Stretch / Tile / Crop
 			int32 mArretSel = 0;
 			int32 mArretDrag = -1;
 			int32 mEtatsNode = -1;

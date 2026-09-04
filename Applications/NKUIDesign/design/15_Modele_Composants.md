@@ -1,3 +1,4 @@
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 # 15. Le modèle des composants de document — écrit AVANT le code
 
 > **Le but de NkUIDesign, dans les mots de Rodolf** : *« nkuidesign qui me
@@ -628,4 +629,25 @@ thème se recopie à la main partout.
    maintenant** (clé additive, valeur libre, inconnu préservé : la règle du
    type de dégradé et du genre de groupe).
 
-⚠️ Rien de tout cela n'est codé au moment d'écrire ces lignes.
+**Validé par délégation** (Rodolf, 04/09 : *« ce que tu juges mieux en vue de ce qui
+existe dans Lunacy et de nos conversations »*) — ce paragraphe est la décision.
+
+**État codé au 04/09** (commit `a428bb2b`, sonde 63) : la **variable de couleur** —
+`NkVariable { clé, nom, valeur, valeurs par mode }`, déclarée dans le document
+(`variable = primaire #1976d2 nom="Dark Primary" @sombre=#0d47a1`), le mode courant
+(`mode = sombre`), la **référence** « @clé » partout où une couleur se pose ; une
+référence vers une variable absente est **dite** (magenta, nom en rouge), jamais
+silencieusement noire ; la propagation Q51 vient avec la référence, et une
+surcharge locale (un littéral posé sur une instance) tient — même mécanisme que
+les composants. **Pas encore codé** : le rail `Styles` / `Variables` (créer, lier,
+renommer depuis l'interface), les styles de calque et de texte, la bascule de mode
+dans l'interface.
+
+**Le geste d'entrée, vu chez Lunacy (04/09, capture
+`2026-09-04_lunacy_modele_oklab_rangee_creer_variable.png`)** : la variable de couleur
+se crée **dans le sélecteur**, par un bouton « Create Color Variable » sous la rangée
+du modèle — pas depuis un rail. Le rail `Variables` sert ensuite à la retrouver,
+la renommer, la lier. C'est par ce bouton que le lot « rail Styles / Variables »
+commence ; il attend l'œil de Rodolf. Nommé aussi, pas fait : **le plan du
+sélecteur suit le modèle** (LCH, LAB, OKLAB montrent une autre nappe que le carré
+saturation / valeur).
