@@ -5861,20 +5861,12 @@ namespace nkuidesign {
 						const float32 cx = rs.x + rs.w * 0.5f, cy = rs.y + rs.h * 0.5f;
 						const float32 posX0 = nd.posX, posY0 = nd.posY;
 						// tirer l'arc d'un quart de tour horaire autour du centre
-						stI.diagClic[0] = '\0';
-						const int32 selAv = stI.selected;
 						sceneR(ax, ay, false);
-						const int32 sel0 = stI.selected;
 						sceneR(ax, ay, true);
-						const int32 sel1 = stI.selected;
-						printf("DIAG60s cas%u : prof=%d selection avant=%d survol=%d appui=%d (rc=%d) rs(%.0f,%.0f,%.0f,%.0f) arc(%.0f,%.0f) clic=%s\n", cas, prof, selAv, sel0, sel1, rc,
-							   (double)rs.x, (double)rs.y, (double)rs.w, (double)rs.h, (double)ax, (double)ay, stI.diagClic);
 						sceneR(cx + (ay - cy) * -1.f, cy + (ax - cx), true);
-						const int32 sel2 = stI.selected;
 						sceneR(cx - (ay - cy), cy + (ax - cx), true);
 						sceneR(cx - (ay - cy), cy + (ax - cx), false);
 						sceneR(-1.f, -1.f, false);
-						printf("DIAG60s cas%u : selection pendant=%d fin=%d rotation rc=%.0f clic=%s\n", cas, sel2, stI.selected, (double)nd.rotation, stI.diagClic);
 						rotApres[cas] = nd.rotation;
 						fixe[cas] = nd.posX == posX0 && nd.posY == posY0 && (cas == 0u ? prof == 0 : prof >= 1);
 						nd.rotation = 0.f;
