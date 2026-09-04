@@ -6,6 +6,7 @@
 // =============================================================================
 #include "NKRenderer/Core/NkRendererTypes.h"
 #include "NKRenderer/Core/NkTextureLibrary.h"
+#include "NkParticleStore.h"
 #include "NKRHI/Commands/NkICommandBuffer.h"
 #include "NKContainers/Associative/NkHashMap.h"
 
@@ -26,7 +27,12 @@ namespace nkentseu {
 			DISK,
 			EDGE,
 		};
-		enum class NkSimMode : uint8 { CPU, GPU };
+		// Cible de simulation PAR EMETTEUR (Rodolf, 04/09) : AUTO = GPU si le device a le
+		// compute, sinon CPU dit au journal. Remplace NkSimMode/simMode, declare le
+		// 10/05 et jamais lu ni ecrit par personne (grep : deux lignes, les siennes).
+		// Le stockage GPU n'est PAS livre (plan (B), DECISIONS) : GPU/AUTO-avec-compute
+		// retombent sur le CPU et le DISENT, une fois par emetteur.
+		enum class NkSimTarget : uint8 { AUTO, CPU, GPU };
 
 		struct NkEmitterDesc {
 				NkEmitterShape shape = NkEmitterShape::POINT;
@@ -49,7 +55,8 @@ namespace nkentseu {
 				float32 velocityRand = 1.f;		 // 0=précis, 1=aléatoire
 				NkTexHandle texture;
 				NkBlendMode blend = NkBlendMode::NK_ADDITIVE;
-				NkSimMode simMode = NkSimMode::CPU;
+				NkSimTarget simTarget = NkSimTarget::AUTO;
+				NkIParticleSolver *solver = nullptr; // nul = gravite ; sinon ses forces (SPH) sur le stockage CPU
 				uint32 maxParticles = 1000;
 				bool worldSpace = true;
 				bool loop = true;
@@ -125,6 +132,9 @@ namespace nkentseu {
 				void SetEmitterPos(NkEmitterId id, NkVec3f pos);
 				void SetEmitterEnabled(NkEmitterId id, bool on);
 				void Burst(NkEmitterId id, uint32 count = 0);
+				// Naissances decidees par l'appelant (reseau d'un bloc de fluide, temoins) :
+				// poussees tout de suite au stockage. Additif (2026-09-04).
+				void SpawnBirths(NkEmitterId id, const NkParticleBirth *births, uint32 n);
 				NkEmitterDesc *GetEmitterDesc(NkEmitterId id);
 
 				// ── Trails ────────────────────────────────────────────────────────────
@@ -163,26 +173,17 @@ namespace nkentseu {
 
 			private:
 				// ── Particule (CPU) ───────────────────────────────────────────────────
-				struct Particle {
-						NkVec3f pos, vel;
-						NkVec4f color;
-						float32 size, life, maxLife, rotation, rotSpeed;
-						bool alive = false;
-				};
-
 				struct Emitter {
 						NkEmitterId id;
 						NkEmitterDesc desc;
-						NkVector<Particle> particles;
 						float32 spawnAccum = 0.f;
 						bool enabled = true;
-						NkBufferHandle vbo; // tampon PAR INSTANCE : NkParticleInstance x maxParticles (binding 1)
-						uint32 aliveCount = 0;
 						NkDescSetHandle texSet; // la texture de l'emetteur (ou le repli), binding 1 (2026-09-04)
-						// Pile des emplacements LIBRES (2026-09-04) : la naissance etait un balayage
-						// lineaire de `particles` a chaque particule nee -- mesure : 6 a 793 ms par
-						// image a 50 000, tout le reste (integration, sommets, envoi) sous 6 ms.
-						NkVector<uint32> freeSlots;
+						// L'ETAT vit derriere l'interface (2026-09-04, plan (B)) : CPU SoA aujourd'hui,
+						// GPU SSBO quand il sera livre. Le dessin ne lit que InstanceBuffer()/DrawCount().
+						NkIParticleStore *store = nullptr;
+						NkSimTarget resolved = NkSimTarget::CPU; // ce que AUTO a donne, dit une fois
+						NkVector<NkParticleBirth> births; // les naissances de l'image, poussees d'un coup
 				};
 
 				struct TrailPoint {
@@ -223,7 +224,6 @@ namespace nkentseu {
 				// descripteur par emetteur, et un repli (disque doux blanc 32x32) DIT une fois.
 				NkDescSetHandle mTexLayout;
 				NkVFXProfile mProfile;
-				NkVector<NkParticleInstance> mScratchInst; // un enregistrement de 24 o par particule vivante, tampon reutilise
 				NkBufferHandle mQuadVB; // les six coins du quad, statiques, binding 0 -- partages par tous les emetteurs (2026-09-04)
 				NkTexHandle mFallbackTex;
 				NkPipelineHandle PipelineFor(NkBlendMode mode);
