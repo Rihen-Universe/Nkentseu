@@ -1,6 +1,7 @@
 #pragma once
 // =============================================================================
 // NkUi.h — Tokens de design + helpers de dessin NKGui (reecriture propre de l'UI).
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // Source : design system Banani « NKCode IDE ». Palette GitHub-dark + accents.
 // Tout est dessine en primitives NKGui -> identique sur toutes les plateformes.
 // =============================================================================
@@ -23,7 +24,7 @@ namespace nkentseu {
 		// « 0.1.0-beta » ici et un tag « v0.1.0-beta.1 » publie, l'IDE se croyait
 		// perime en permanence. Bumper ICI avant de taguer une release.
 		inline const char *NkCodeVersion() {
-			return "0.1.0-beta.7";
+			return "0.1.0-beta.8";
 		}
 
 		// ── Horodatage de BUILD (« JJ/MM ») ──────────────────────────────────────
