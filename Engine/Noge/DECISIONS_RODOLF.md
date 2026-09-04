@@ -1839,6 +1839,41 @@ critère reste tel quel : **à trancher avec la table sous les yeux**, pas de m�
 `Captures/noge_fluide_dam_break_dfsph_2026-09-04.png` (Release, image 40) : une nappe cohérente, pas une
 éclaboussure de billes.
 
+### 🔴 04/09 (nuit, 5) — DAM BREAK : le vrai critère (Martin & Moyce, table citée) — toujours ROUGE, et dans l'autre sens
+
+**Le critère écrit était faux** (Ritter, 2√(g h₀)·t : vitesse asymptotique d'un lit sec non visqueux ; à
+t = 0,25 s le front accélère encore). **La vraie table**, telle que reproduite dans une source ouverte
+(Lethe, `chaos-polymtl/lethe`, `examples/multiphysics/dam-break/dam-break-2d.py`, colonne 3,5 × 7 = n² = 2,
+T = t√(2g/a), Z = x/a) : T = [0, 0,41, 0,84, 1,19, 1,43, 1,63, 1,82, 1,97, 2,20, 2,32, 2,50, 2,64, 2,82,
+2,96], Z = [1, 1,11, 1,23, 1,44, 1,67, 1,89, 2,11, 2,33, 2,56, 2,78, 3,00, 3,22, 3,44, 3,67] — écrite dans
+la sonde avec sa source. Martin & Moyce adimensionnent par T = t√(n²g/a) ; notre colonne est **carrée**
+(n² = 1) → T = t√(g/a). ⚠️ **La table n² = 1 n'a pas été trouvée en source ouverte** (Cébron & Sigrist,
+arXiv:1002.3213, fig. 4 : une courbe, pas une table) ; on applique la table n² = 2 sous l'adimensionnement
+de M&M et on le dit. Contrôle d'échelle : Ritter donne Z − 1 = 2T pour n² = 1 comme pour n² = 2.
+**Instrument corrigé** : le front est le front **dense** (ρ ≥ 0,5 ρ₀), pas l'éclat isolé ; mesuré, les deux
+coïncident (front compact) — l'instrument n'était pas en cause.
+
+**Verdict, scène inchangée (Release, 4 096, h = 0,1)** : le front est **1,5-2× trop RAPIDE** à tous les
+temps — Z − 1 = 0,92 à T = 1,05 contre 0,36 (table), 1,70 à T = 1,58 contre 0,83 ; écart moyen **140 %**
+(81 % avec le retard de vanne +0,175 que Lethe applique) → **ROUGE contre la vraie table**, dans l'autre sens
+que Ritter (qui donnerait 2,1 à T = 1,05). Lu de la fig. 4 de Cébron & Sigrist (colonne carrée, T = t√(g/H)) :
+≈ 1,45 à T = 1,0 et ≈ 2,1 à T = 1,5 contre nos 1,92 et 2,7 — **35-45 % trop rapide** même contre la courbe
+n² = 1, lue à l'œil (pas tabulée).
+
+**Expérience discriminante (instrument `NK_SPH_H`, pas la scène)** : résolution doublée (h = 0,05, d = 0,025,
+32 768 particules, même colonne 0,8 m) → **encore plus rapide** : Z − 1 = 1,25 à T = 1,05, écart moyen 234 %.
+🔑 **Lecture** : plus la résolution monte, plus le front tend vers l'idéal non visqueux (Ritter 2T), pas vers
+l'expérience — ce n'est pas un défaut de résolution, c'est un manque de **résistance à l'effondrement** :
+candidats, dans l'ordre — la borne ρ* ≥ ρ₀ en surface libre (les particules de surface, sans pression, courent
+devant comme un sable sec), les parois à glissement libre + XSPH 0,05 (aucun frottement au sol, alors qu'une
+simulation non visqueuse — NPM, fig. 10 — reproduit pourtant M&M avec des parois glissantes), la
+géométrie 3D (largeur z = a, murs latéraux à 0,4 m : l'expérience est un canal étroit aussi). **Défaut
+réel, nommé, non corrigé.** Le repos, lui, tient toujours (1,001, sol compris).
+
+**Non fait de ce lot, dit** : démarrage à chaud des κ + tolérance relative (itérations 7 → 13 avec N) ;
+mesure de vmax sans le filet 8 m/s ; plan B étapes b-c (stockage GPU + noyau NkSL). Ils attendent la
+prochaine session, dans cet ordre.
+
 ### 🔩 04/09 (nuit) — JENGA 2.6 : ce qui est appliqué, ce qui est mesuré en retour
 
 - **`-static` — le défaut était chez nous** : `config/toolchain.jenga:55` (bloc Windows natif) promettait
