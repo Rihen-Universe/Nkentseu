@@ -1702,6 +1702,31 @@ revient pas à ρ₀ : tout s'empile).
 (a)) ; les 10 includers de `NkVFXSystem.h` recompilent pour le champ, aucune signature publique ne change.
 **GPU** : viendra par la cible de simulation (plan (B)), pas maintenant.
 
+### 🔴 04/09 (nuit) — SPH LIVRÉ, TÉMOINS ROUGES DITS : le noyau injecte de l'énergie depuis le repos
+
+`NkSPHSolver` (`Kernel/Runtime/NKRenderer/src/NKRenderer/Tools/VFX/`) + sonde `NK_SPH_PROBE` dans
+`Demo3D` (scènes `repos|dam|conserve`, mutation `NK_SPH_NOPRESSURE=1`, verdicts `[SPH TEMOIN]` imprimés
+à la dernière image). **Ce qui est vert** : conservation (2048/2048, 253,52 kg constant), pas de NaN,
+l'image (`Captures/noge_fluide_dam_break_2026-09-04.png`, une éclaboussure bleue par le stockage + quad
+instancié + mélange alpha : le chemin de dessin ne change pas). **Ce qui est rouge** : repos
+ρ/ρ₀ = 0,79-0,94 (attendu 1 ± 5 %), la colonne de 0,4 m gonfle jusqu'à +1,2 m, vmax croît 3,7 → 7,9 m/s
+en 3 s **depuis le repos** ; dam break front 0,35-0,39 m contre 1,40 ; stabilité 10 s : vmax collé à la
+borne. La mutation « pression coupée » donne ρ/ρ₀ = 4,69 (tout s'empile) : le témoin discrimine.
+
+**Éliminé, mesuré (une expérience par hypothèse)** : le pas de temps (CFL 0,4 → 0,15, 6 → 16 sous-pas :
+identique) ; l'impact (bloc posé au lieu de lâché : identique) ; la pression négative (bornée à 0 :
+identique) ; la masse (calibrée sur le réseau : ρ₀ exact à t = 0). **Reste à examiner, dans l'ordre** :
+(1) les parois par clamp de position — sans particules fantômes, la colonne n'a pas d'appui
+hydrostatique (la couche du sol a p = 0 et ne porte rien) ; (2) le terme de pression symétrique
+(p_i + p_j)/(2ρ_j) avec la densité min 0,19 ρ₀ des particules isolées ; (3) passer à un schéma à
+correction de densité (PCISPH / DFSPH) si (1)-(2) ne suffisent pas — c'est ce que font les moteurs qui
+tiennent à 60 Hz. *Une pression qui monte depuis le repos est un défaut de formulation, pas de réglage :
+le dire tel quel vaut mieux qu'un réglage qui cache.*
+
+**Coût (Debug, chiffre honnête)** : 2 048 particules 51-69 ms/image à 6 sous-pas (114-160 à 16) ; 4 096 :
+110-130 ms à 6 sous-pas. La grille est bien O(N) (2× particules → 2× temps) ; la courbe 1 000 / 10 000 /
+50 000 attend un noyau qui tient au repos — la mesurer sur un fluide qui bout mesurerait le bouillonnement.
+
 ### 🔩 04/09 (nuit) — JENGA 2.6 : ce qui est appliqué, ce qui est mesuré en retour
 
 - **`-static` — le défaut était chez nous** : `config/toolchain.jenga:55` (bloc Windows natif) promettait
