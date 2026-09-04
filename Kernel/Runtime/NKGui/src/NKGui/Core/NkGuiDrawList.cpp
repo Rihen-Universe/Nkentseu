@@ -1,3 +1,4 @@
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // =============================================================================
 // NkGuiDrawList.cpp — primitives de dessin NKGui (Phase 2).
 // =============================================================================
@@ -14,6 +15,7 @@ namespace nkentseu {
 			idx.Clear();
 			cmds.Clear();
 			clipDepth = 0;
+			blendDepth = 0; // 2026-09-04
 		}
 
 		void NkGuiDrawList::Append(const NkGuiDrawList &o) noexcept {
@@ -57,16 +59,18 @@ namespace nkentseu {
 
 		NkGuiDrawCmd &NkGuiDrawList::CurCmd(uint32 texId) noexcept {
 			const NkRect clip = CurrentClip();
+			const NkGuiBlend blend = CurrentBlend(); // 2026-09-04 : un mode de melange par commande
 			bool need = (cmds.Size() == 0);
 			if (!need) {
 				const NkGuiDrawCmd &b = cmds.Back();
 				need = (b.texId != texId) || b.clipRect.x != clip.x || b.clipRect.y != clip.y ||
-					   b.clipRect.w != clip.w || b.clipRect.h != clip.h;
+					   b.clipRect.w != clip.w || b.clipRect.h != clip.h || b.blend != blend;
 			}
 			if (need) {
 				NkGuiDrawCmd c;
 				c.texId = texId;
 				c.clipRect = clip;
+				c.blend = blend;
 				c.idxOffset = static_cast<uint32>(idx.Size());
 				c.idxCount = 0;
 				c.type = texId ? NkGuiDrawCmdType::TexturedTriangles : NkGuiDrawCmdType::Triangles;

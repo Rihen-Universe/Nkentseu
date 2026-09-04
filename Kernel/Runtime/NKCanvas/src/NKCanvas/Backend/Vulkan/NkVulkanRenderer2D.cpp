@@ -1,3 +1,4 @@
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // =============================================================================
 // NkVulkanRenderer2D.cpp — Vulkan 2D renderer
 //
@@ -863,8 +864,24 @@ namespace nkentseu {
 			blendNone.blendEnable = VK_FALSE;
 			blendNone.colorWriteMask = kColorMask;
 
+			// 2026-09-04 : les quatre modes exacts de plus
+			VkPipelineColorBlendAttachmentState blendScreen = blendAlpha;
+			blendScreen.srcColorBlendFactor = VK_BLEND_FACTOR_ONE;
+			blendScreen.dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_COLOR;
+			VkPipelineColorBlendAttachmentState blendDarken = blendAlpha;
+			blendDarken.srcColorBlendFactor = VK_BLEND_FACTOR_ONE;
+			blendDarken.dstColorBlendFactor = VK_BLEND_FACTOR_ONE;
+			blendDarken.colorBlendOp = VK_BLEND_OP_MIN;
+			VkPipelineColorBlendAttachmentState blendLighten = blendDarken;
+			blendLighten.colorBlendOp = VK_BLEND_OP_MAX;
+			VkPipelineColorBlendAttachmentState blendPlus = blendAlpha;
+			blendPlus.srcColorBlendFactor = VK_BLEND_FACTOR_ONE;
+			blendPlus.dstColorBlendFactor = VK_BLEND_FACTOR_ONE;
+
 			bool ok = MakePipeline(blendAlpha, mPipeAlpha, "Alpha") && MakePipeline(blendAdd, mPipeAdd, "Add") &&
-					  MakePipeline(blendMul, mPipeMul, "Mul") && MakePipeline(blendNone, mPipeNone, "None");
+					  MakePipeline(blendMul, mPipeMul, "Mul") && MakePipeline(blendNone, mPipeNone, "None") &&
+					  MakePipeline(blendScreen, mPipeScreen, "Screen") && MakePipeline(blendDarken, mPipeDarken, "Darken") &&
+					  MakePipeline(blendLighten, mPipeLighten, "Lighten") && MakePipeline(blendPlus, mPipePlus, "Plus");
 
 			vkDestroyShaderModule(mVkData->device, vs, nullptr);
 			vkDestroyShaderModule(mVkData->device, fs, nullptr);
@@ -1059,7 +1076,7 @@ namespace nkentseu {
 			if (mWhiteMem)
 				vkFreeMemory(mVkData->device, mWhiteMem, nullptr);
 
-			for (VkPipeline p : {mPipeAlpha, mPipeAdd, mPipeMul, mPipeNone})
+			for (VkPipeline p : {mPipeAlpha, mPipeAdd, mPipeMul, mPipeNone, mPipeScreen, mPipeDarken, mPipeLighten, mPipePlus})
 				if (p)
 					vkDestroyPipeline(mVkData->device, p, nullptr);
 
@@ -1123,6 +1140,14 @@ namespace nkentseu {
 					return mPipeMul;
 				case NkBlendMode::NK_NONE:
 					return mPipeNone;
+				case NkBlendMode::NK_SCREEN:
+					return mPipeScreen;
+				case NkBlendMode::NK_DARKEN:
+					return mPipeDarken;
+				case NkBlendMode::NK_LIGHTEN:
+					return mPipeLighten;
+				case NkBlendMode::NK_PLUS_LIGHTER:
+					return mPipePlus;
 				default:
 					return mPipeAlpha;
 			}

@@ -1,4 +1,5 @@
 #pragma once
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // =============================================================================
 // NkDX11Renderer2D.h — DirectX 11 2D renderer backend
 // =============================================================================
@@ -92,6 +93,11 @@ namespace nkentseu {
 				ComPtr<ID3D11BlendState> mBlendAdd;
 				ComPtr<ID3D11BlendState> mBlendMul;
 				ComPtr<ID3D11BlendState> mBlendNone;
+				// 2026-09-04 : Screen, Darken (MIN), Lighten (MAX), Plus Lighter -- exacts
+				ComPtr<ID3D11BlendState> mBlendScreen;
+				ComPtr<ID3D11BlendState> mBlendDarken;
+				ComPtr<ID3D11BlendState> mBlendLighten;
+				ComPtr<ID3D11BlendState> mBlendPlus;
 				ComPtr<ID3D11RasterizerState> mRasterState;
 				ComPtr<ID3D11DepthStencilState> mDSSState;
 				ComPtr<ID3D11SamplerState> mSamplerLinear;
