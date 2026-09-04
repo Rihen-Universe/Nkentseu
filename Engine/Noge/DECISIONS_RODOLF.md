@@ -1457,6 +1457,13 @@ Liste, un module par commit, mise à jour à chaque ajout :
 
 - `NKContainers_Tests` — 32 réussis, 32 au total, 141 réussies, 141 au total (build+run 20 s)
 - `NKMemory_Tests` — 28 réussis, 28 au total, 3403 réussies, 3403 au total (build+run 21 s)
+- `NKPhysics_Tests` — 61 passes, 0 échec (main nu de `test_physics.cpp`, build+run 30 s). **Forme
+  trouvée pour une suite qui fournit son `main()`** : Jenga n'injecte son `Unitest/Entry` que si
+  `testmaintemplate()` est vide → `NKPhysics.jenga` pointe un fichier **vide à dessein**
+  (`tests/nk_main_fourni_par_le_test.cpp`). C'est un contournement explicite, dit dans le fichier ;
+  la forme propre (« la suite fournit son main ») est à demander à Jenga.
+- `NKAnima` — **pas de suite** (`with test()` absent, pas de `tests/`) : rien à rouvrir, à écrire un jour.
+
 **Défaut nommé, pas corrigé ici** : les exécutables de test (et les applis) sont liés **dynamiquement** à
 `libstdc++-6.dll`/`libgcc_s_seh-1.dll`/`libwinpthread-1.dll` malgré `config/toolchain.jenga:92-94`
 (`-static-libgcc -static-libstdc++ -static`), et le runner de `jenga test` ne pose pas le `PATH` de la
