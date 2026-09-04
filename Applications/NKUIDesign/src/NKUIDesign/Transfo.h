@@ -4,7 +4,7 @@
 // @Brief   ROTATION ET MIROIRS — la transformation autour du centre, en MÉCANISME :
 //          ce qu'elle fait au dessin, ce qu'elle fait au pointage, et ce qu'elle
 //          propage aux enfants.
-// @Author  Rihen
+// @Author  TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // @License Proprietary - All Rights Reserved (see LICENSE)
 //
 // =============================================================================
@@ -499,6 +499,20 @@ namespace nkuidesign {
 	/// zone cliquable se serait decollee du dessin sans que rien ne le dise.
 	inline float32 NkTaillePoigneeRotation() {
 		return 9.f;
+	}
+	/// ② LA TOLERANCE DES POIGNEES, en pixels ECRAN (independante du zoom) : la zone
+	///    saisissable couvre ce qui est dessine, ETENDUE de ce rayon -- arcs de rotation
+	///    (distance au centre de l'arc) et poignees de forme (bandes des bords). Rodolf,
+	///    04/09 soir : « ce n'est pas mieux de donner une zone de detection un peu grande ? ».
+	inline float32 NkTolerancePoignee() {
+		return 12.f;
+	}
+	/// La bande d'un bord pour un noeud de taille `cote` : la tolerance, bornee au tiers du
+	/// noeud pour qu'un petit noeud garde un corps a saisir (deplacer).
+	inline float32 NkBandeBord(float32 cote) {
+		const float32 t = NkTolerancePoignee();
+		const float32 tiers = cote / 3.f;
+		return tiers < t ? (tiers < 2.f ? 2.f : tiers) : t;
 	}
 	inline uint32 NkNbPoigneesRotation() {
 		return 4u;

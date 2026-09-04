@@ -3699,7 +3699,10 @@ namespace nkuidesign {
 						NkMatPoint(mRotS, ccxR, ccyR); // le centre, tel qu'il se voit
 						for (uint32 k = 0; k < NkNbPoigneesRotation(); ++k) {
 							const NkPaintRect pr = NkPoigneeRotation(rsRot, k, trRot);
-							if (!NkGuiRectContains({pr.x, pr.y, pr.w, pr.h}, {mxR, myR}))
+							// ② la zone : la boite de l'arc, ETENDUE de la tolerance (distance au centre)
+							const float32 dxA = mxR - (pr.x + pr.w * 0.5f), dyA = myR - (pr.y + pr.h * 0.5f);
+							const float32 tolA = pr.w * 0.5f + NkTolerancePoignee();
+							if (dxA * dxA + dyA * dyA > tolA * tolA)
 								continue;
 							mRotDrag = (int32)k;
 							mRotBase = selRot.rotation;
@@ -3745,19 +3748,20 @@ namespace nkuidesign {
 					if (poseS && hs.width.mode == NkSizeMode::Fixed
 						&& hs.height.mode == NkSizeMode::Fixed) {
 						const NkPaintRect rs2 = screen.At(mSt->selected);
-						const float32 kB = kPoignee;
+						// ② la bande d'un bord : la tolerance nommee, bornee au tiers du noeud
+						const float32 kBX = NkBandeBord(rs2.w), kBY = NkBandeBord(rs2.h);
 						auto pres = [](float32 v, float32 cible, float32 tol) {
 							const float32 d = v - cible;
 							return (d < 0.f ? -d : d) <= tol;
 						};
 						float32 mxC = in.mouseX, myC = in.mouseY; // dans le repere droit du noeud
 						NkMatPoint(NkMatInverse(NkMatEffective(mSt->doc, screen, mSt->selected)), mxC, myC);
-						const bool dansX = mxC >= rs2.x - kB && mxC <= rs2.x + rs2.w + kB;
-						const bool dansY = myC >= rs2.y - kB && myC <= rs2.y + rs2.h + kB;
-						const bool nL = dansY && pres(mxC, rs2.x, kB);
-						const bool nR = dansY && pres(mxC, rs2.x + rs2.w, kB);
-						const bool nT = dansX && pres(myC, rs2.y, kB);
-						const bool nB = dansX && pres(myC, rs2.y + rs2.h, kB);
+						const bool dansX = mxC >= rs2.x - kBX && mxC <= rs2.x + rs2.w + kBX;
+						const bool dansY = myC >= rs2.y - kBY && myC <= rs2.y + rs2.h + kBY;
+						const bool nL = dansY && pres(mxC, rs2.x, kBX);
+						const bool nR = dansY && pres(mxC, rs2.x + rs2.w, kBX);
+						const bool nT = dansX && pres(myC, rs2.y, kBY);
+						const bool nB = dansX && pres(myC, rs2.y + rs2.h, kBY);
 						if (nL || nR || nT || nB) {
 							ArmerPoignees(mSt->selected, hs, in, nL, nR, nT, nB);
 							// LES DEUX REPRESENTATIONS DE L'ENTREE SE TAISENT.
@@ -4890,7 +4894,9 @@ namespace nkuidesign {
 							const float32 tr = NkTaillePoigneeRotation();
 							for (uint32 k = 0; k < NkNbPoigneesRotation(); ++k) {
 								const NkPaintRect pr = NkPoigneeRotation(rs, k, tr);
-								const bool sv = ctx.popupDepth == 0 && NkGuiRectContains({pr.x, pr.y, pr.w, pr.h}, {mxS, myS});
+								const float32 dxA = mxS - (pr.x + pr.w * 0.5f), dyA = myS - (pr.y + pr.h * 0.5f);
+								const float32 tolA = pr.w * 0.5f + NkTolerancePoignee(); // ② la meme zone qu'a la reclamation
+								const bool sv = !NkSourisSurPopup(ctx) && dxA * dxA + dyA * dyA <= tolA * tolA;
 								// 🔴 ELLES NE SE PEIGNENT PLUS AU REPOS, ET C'EST LE
 								//    RETOUR DE RODOLF DU 01/09 AU SOIR : « ça
 								//    n'épouse pas, regarde bien ». Agrandie ×5, sa
@@ -6325,13 +6331,13 @@ namespace nkuidesign {
 				float32 dAutre2 = 1e30f;
 				if (NkPeutTourner(n)) {
 					const float32 tr = NkTaillePoigneeRotation();
+					const float32 tolA = tr * 0.5f + NkTolerancePoignee();
 					for (uint32 k = 0; k < NkNbPoigneesRotation(); ++k) {
 						const NkPaintRect pr = NkPoigneeRotation(rs, k, tr);
-						if (mx >= pr.x && mx <= pr.x + pr.w && my >= pr.y && my <= pr.y + pr.h) {
-							const float32 dx = mx - (pr.x + pr.w * 0.5f), dy = my - (pr.y + pr.h * 0.5f);
-							if (dx * dx + dy * dy < dAutre2)
-								dAutre2 = dx * dx + dy * dy;
-						}
+						const float32 dx = mx - (pr.x + pr.w * 0.5f), dy = my - (pr.y + pr.h * 0.5f);
+						const float32 q = dx * dx + dy * dy;
+						if (q <= tolA * tolA && q < dAutre2)
+							dAutre2 = q;
 					}
 				}
 				const bool pose = n.parent >= 0 && mSt->doc.IsValidIndex(n.parent)
@@ -6339,7 +6345,7 @@ namespace nkuidesign {
 				if (pose && n.width.mode == NkSizeMode::Fixed && n.height.mode == NkSizeMode::Fixed) {
 					// LES HUIT POIGNEES DE FORME (coins et milieux de bords), des POINTS comme les
 					// pastilles : un bord entier battrait toujours une pastille posee dessus
-					const float32 kB = kPoignee;
+					const float32 kB = NkTolerancePoignee();
 					const float32 xs[3] = {rs.x, rs.x + rs.w * 0.5f, rs.x + rs.w}, ys[3] = {rs.y, rs.y + rs.h * 0.5f, rs.y + rs.h};
 					for (uint32 i = 0; i < 3u; ++i)
 						for (uint32 j = 0; j < 3u; ++j) {

@@ -5881,6 +5881,81 @@ namespace nkuidesign {
 						  "meme quand une extremite de degrade tombe au coin -- la zone la plus proche du pointeur gagne",
 						  rotApres[0] > 60.f && rotApres[0] < 120.f && rotApres[1] > 60.f && rotApres[1] < 120.f && fixe[0] && fixe[1], det);
 				}
+				// 60t. ② LES ZONES DE DETECTION, une tolerance nommee (12 px ecran) : a petit zoom, un
+				// appui a 11 px hors de la boite de l'arc tourne encore le noeud ; un appui 10 px
+				// au-dela du milieu du bord droit redimensionne ; le centre du corps deplace (la
+				// bande est bornee au tiers du noeud : un petit noeud garde son corps).
+				{
+					static PreviewPanel toileT(&stI);
+					auto sceneT = [&](float32 mx, float32 my, bool bas) {
+						ctxI.input.mousePos = {mx, my};
+						ctxI.input.mouseDown[0] = bas;
+						ctxI.BeginFrame(0.016f);
+						ctxI.BeginLayout({0.f, 0.f, 340.f, 900.f});
+						toileT.OnUI(ec);
+						ctxI.BeginLayout({340.f, 0.f, 260.f, 900.f});
+						insp.OnUI(ec);
+						NkDessinerPickerDemande(ctxI, stI);
+						ctxI.EndFrame();
+					};
+					auto tirerT = [&](float32 x0, float32 y0, float32 x1, float32 y1) {
+						for (int32 k = 0; k < 32; ++k)
+							sceneT(-1.f, -1.f, false); // le delai du double-clic
+						sceneT(x0, y0, false);
+						sceneT(x0, y0, true);
+						sceneT((x0 + x1) * 0.5f, (y0 + y1) * 0.5f, true);
+						sceneT(x1, y1, true);
+						sceneT(x1, y1, false);
+						sceneT(-1.f, -1.f, false);
+					};
+					NkUINode &nd = stI.doc.nodes[(uint32)rc];
+					nd.fills[1].degrade.arrets.Clear(); // sans degrade : les poignees de forme seules
+					nd.rotation = 0.f;
+					stI.picker = DesignState::DemandePicker();
+					ctxI.popupDepth = 0;
+					stI.SelectSingle(rc);
+					sceneT(-1.f, -1.f, false);
+					NkLayoutResult scr;
+					stI.ProjectToScreen(scr);
+					const NkPaintRect rs = scr.At(rc);
+					const float32 cx = rs.x + rs.w * 0.5f, cy = rs.y + rs.h * 0.5f;
+					// a. la rotation, a 11 px HORS de la boite de l'arc (dans la tolerance de 12)
+					const NkPaintRect arc = NkPoigneeRotation(rs, 1u, NkTaillePoigneeRotation());
+					const float32 ax = arc.x + arc.w + 11.f - arc.w * 0.5f + arc.w * 0.5f, ay = arc.y + arc.h * 0.5f; // 11 px a droite du bord droit de la boite
+					tirerT(ax, ay, cx - (ay - cy), cy + (ax - cx));
+					const float32 rot = nd.rotation;
+					nd.rotation = 0.f;
+					// b. le redimensionnement, 10 px au-dela du milieu du bord droit
+					const float32 w0 = nd.width.value;
+					tirerT(rs.x + rs.w + 10.f, cy, rs.x + rs.w + 40.f, cy);
+					const float32 w1 = nd.width.value;
+					nd.width.value = w0;
+					// c. le corps : le centre deplace (la bande d'un noeud de 5 px de haut fait 2 px, pas 12)
+					// plusieurs noeuds des sondes se superposent a l'origine du cadre : c'est celui du
+					// DESSUS que la toile deplace -- on juge « un noeud a bouge »
+					NkVector<float32> avX, avY;
+					for (uint32 i = 0; i < (uint32)stI.doc.nodes.Size(); ++i) {
+						avX.PushBack(stI.doc.nodes[i].posX);
+						avY.PushBack(stI.doc.nodes[i].posY);
+					}
+					tirerT(cx, cy, cx + 20.f, cy + 8.f);
+					bool deplace = false;
+					for (uint32 i = 0; i < (uint32)stI.doc.nodes.Size(); ++i) {
+						if (stI.doc.nodes[i].posX != avX[i] || stI.doc.nodes[i].posY != avY[i])
+							deplace = true;
+						stI.doc.nodes[i].posX = avX[i];
+						stI.doc.nodes[i].posY = avY[i];
+					}
+					const float32 h1 = nd.height.value;
+					stI.Recompute(NkPaintRect{0.f, 0.f, 600.f, 900.f});
+					sceneT(-1.f, -1.f, false);
+					snprintf(det, sizeof(det), "noeud a l'ecran %.0f x %.0f px ; arc a 11 px hors boite : rotation 0 -> %.0f ; bord droit +10 px : largeur %.0f -> %.0f ; "
+											   "centre du corps : deplace=%d (hauteur intacte=%d)",
+							 (double)rs.w, (double)rs.h, (double)rot, (double)w0, (double)w1, deplace ? 1 : 0, h1 == nd.height.value ? 1 : 0);
+					check("60t. ② LES ZONES DE DETECTION (tolerance nommee, 12 px ecran) : l'arc se prend 11 px hors de sa boite, "
+						  "le bord droit 10 px au-dela, et le centre d'un petit noeud le deplace encore (bande bornee au tiers)",
+						  rot > 30.f && w1 > w0 + 5.f && deplace, det);
+				}
 				stI.picker = DesignState::DemandePicker();
 			}
 		}
