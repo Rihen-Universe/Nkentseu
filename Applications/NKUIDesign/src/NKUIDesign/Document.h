@@ -2,7 +2,7 @@
 // -----------------------------------------------------------------------------
 // @File    Document.h
 // @Brief   LE DOCUMENT : un arbre de composants, et AUCUNE coordonnee dedans.
-// @Author  Rihen
+// @Author  TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // @License Proprietary - All Rights Reserved (see LICENSE)
 //
 // =============================================================================
@@ -364,6 +364,12 @@ namespace nkuidesign {
 	struct NkDegrade {
 			NkString type;	   ///< « lineaire », « radial »... texte libre, PRESERVE
 			float32 angle = 0.f; ///< degres, pour les types qui en ont un
+			/// ① RADIAL / ANGULAIRE / LOSANGE (captures de Rodolf, 04/09) : l'ORIGINE et les
+			///    RAYONS, en fractions de la boite. 0,5 / 0,5 = le centre ; rayons 0,5 = t vaut
+			///    1 sur le bord. Fichier : `o=<x>,<y>` et `r=<x>,<y>`, ecrits hors defaut seulement.
+			float32 origineX = 0.5f, origineY = 0.5f;
+			float32 rayonX = 0.5f, rayonY = 0.5f;
+			NkString inconnus; ///< jetons `cle=valeur` non compris de la ligne `degrade_`, reemis tels quels
 			NkVector<NkArretDegrade> arrets;
 
 			bool Actif() const {
@@ -2304,6 +2310,23 @@ namespace nkuidesign {
 															  : f.degrade.type.Data());
 							out.Append(' ');
 							WriteNum(out, f.degrade.angle);
+							// ① origine et rayons : ADDITIFS, hors defaut seulement
+							if (f.degrade.origineX != 0.5f || f.degrade.origineY != 0.5f) {
+								out.Append(" o=");
+								WriteNum(out, f.degrade.origineX);
+								out.Append(',');
+								WriteNum(out, f.degrade.origineY);
+							}
+							if (f.degrade.rayonX != 0.5f || f.degrade.rayonY != 0.5f) {
+								out.Append(" r=");
+								WriteNum(out, f.degrade.rayonX);
+								out.Append(',');
+								WriteNum(out, f.degrade.rayonY);
+							}
+							if (!f.degrade.inconnus.Empty()) {
+								out.Append(' ');
+								out.Append(f.degrade.inconnus);
+							}
 							for (uint32 ai = 0; ai < (uint32)f.degrade.arrets.Size(); ++ai) {
 								out.Append(' ');
 								WriteNum(out, f.degrade.arrets[ai].position);
@@ -3153,6 +3176,34 @@ namespace nkuidesign {
 									++q;
 								if (!*q)
 									break;
+								if ((*q >= 'a' && *q <= 'z') || (*q >= 'A' && *q <= 'Z')) {
+									// ① `cle=valeur` : o= (origine), r= (rayons), sinon PRESERVE tel quel
+									k = 0;
+									while (*q && *q != ' ' && k + 1 < (uint32)sizeof(mot))
+										mot[k++] = *q++;
+									mot[k] = '\0';
+									if ((mot[0] == 'o' || mot[0] == 'r') && mot[1] == '=') {
+										float32 a = 0.5f, b = 0.5f;
+										a = ParseNum(mot + 2);
+										for (uint32 z = 2; z < k; ++z)
+											if (mot[z] == ',') {
+												b = ParseNum(mot + z + 1);
+												break;
+											}
+										if (mot[0] == 'o') {
+											g.origineX = a;
+											g.origineY = b;
+										} else {
+											g.rayonX = a;
+											g.rayonY = b;
+										}
+									} else {
+										if (!g.inconnus.Empty())
+											g.inconnus.Append(' ');
+										g.inconnus.Append(mot);
+									}
+									continue;
+								}
 								NkArretDegrade ar;
 								ar.position = ParseNum(q);
 								while (*q && *q != ':' && *q != ' ')

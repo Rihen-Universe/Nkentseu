@@ -5880,6 +5880,102 @@ namespace nkuidesign {
 						  "deplacement, une poignee de forme, un changement de largeur -- dans le document, au dessin, au fichier",
 						  poseParPopover && apresDeplacer && apresPoignee && apresLargeur && polyApres >= 24u && fichier, det);
 				}
+				// 60o. ① LES POIGNEES DES TROIS AUTRES GENRES SUR LA TOILE (Rodolf : « dans le degrade
+				// autre que lineaire il n'y a pas de pastilles sur la forme graphique ») : radial --
+				// le carre du cote ecrit le rayon X, le centre deplace l'origine, le noeud ne bouge
+				// pas ; angulaire -- la pastille de contour ecrit l'origine angulaire ; losange -- un
+				// arret glisse sur le segment. Et le peintre honore l'origine (la couleur au centre
+				// de la boite change quand l'origine part en haut).
+				{
+					static PreviewPanel toile2(&stI);
+					auto scene2 = [&](float32 mx, float32 my, bool bas) {
+						ctxI.input.mousePos = {mx, my};
+						ctxI.input.mouseDown[0] = bas;
+						ctxI.BeginFrame(0.016f);
+						ctxI.BeginLayout({0.f, 0.f, 340.f, 900.f});
+						toile2.OnUI(ec);
+						ctxI.BeginLayout({340.f, 0.f, 260.f, 900.f});
+						insp.OnUI(ec);
+						NkDessinerPickerDemande(ctxI, stI);
+						ctxI.EndFrame();
+					};
+					auto tirer = [&](float32 x0, float32 y0, float32 x1, float32 y1) {
+						scene2(x0, y0, false);
+						scene2(x0, y0, true);
+						scene2((x0 + x1) * 0.5f, (y0 + y1) * 0.5f, true);
+						scene2(x1, y1, true);
+						scene2(x1, y1, false);
+						scene2(-1.f, -1.f, false);
+					};
+					NkUINode &nd = stI.doc.nodes[(uint32)rc];
+					NkDegrade &gd = nd.fills[1].degrade;
+					gd.type = NkString("radial");
+					gd.angle = 0.f;
+					gd.origineX = gd.origineY = 0.5f;
+					gd.rayonX = gd.rayonY = 0.5f;
+					stI.SelectSingle(rc);
+					stI.picker = DesignState::DemandePicker();
+					scene2(-1.f, -1.f, false);
+					scene2(-1.f, -1.f, false);
+					NkLayoutResult scr;
+					stI.ProjectToScreen(scr);
+					const NkPaintRect rs = scr.At(rc);
+					const float32 posX0 = nd.posX, posY0 = nd.posY;
+					// a. le carre du cote : de (ox+rx, oy) vers la droite de 20 px -> rayon X grandit
+					renderdetail::NkGeomDegrade gm = renderdetail::NkGeomDegradeDe(rs, gd);
+					tirer(gm.ox + gm.rx, gm.oy, gm.ox + gm.rx + 20.f, gm.oy);
+					const float32 rxApres = gd.rayonX;
+					const bool rayonX = rxApres > 0.5f + 0.1f && nd.posX == posX0 && nd.posY == posY0;
+					// b. le centre : vers le haut de la boite -> l'origine Y tombe a ~0
+					gm = renderdetail::NkGeomDegradeDe(rs, gd);
+					const nkentseu::uint32 centreAvant = [&]() {
+						NkRecordingPaint rec;
+						RenderDocument(rec, stI.doc, NkPaintRect{0.f, 0.f, 600.f, 900.f});
+						return (uint32)rec.cmds.Size();
+					}();
+					(void)centreAvant;
+					tirer(gm.ox, gm.oy, gm.ox, rs.y + 1.f);
+					const float32 oxApres = gd.origineX, oyApres = gd.origineY;
+					const bool origine = oyApres < 0.1f && oxApres > 0.4f && oxApres < 0.6f && nd.posX == posX0 && nd.posY == posY0;
+					// c. l'angulaire : la pastille de contour (a l'angle 0 : sous l'origine) tiree a gauche -> ~90
+					gd.type = NkString("angulaire");
+					gd.origineX = gd.origineY = 0.5f;
+					gd.rayonX = gd.rayonY = 0.5f;
+					gd.angle = 0.f;
+					scene2(-1.f, -1.f, false);
+					gm = renderdetail::NkGeomDegradeDe(rs, gd);
+					float32 cx = 0.f, cy = 0.f;
+					renderdetail::NkPoigneeContourAngulaire(gm, 0.f, cx, cy);
+					tirer(cx, cy, gm.ox - gm.rx, gm.oy);
+					const float32 angleApres = gd.angle;
+					const bool contour = angleApres > 75.f && angleApres < 105.f && nd.posX == posX0 && nd.posY == posY0;
+					// d. le losange : l'arret du milieu (t = 0,5) glisse a 0,8 sur le segment
+					gd.type = NkString("losange");
+					gd.angle = 0.f;
+					scene2(-1.f, -1.f, false);
+					gm = renderdetail::NkGeomDegradeDe(rs, gd);
+					float32 mx0 = 0.f, my0 = 0.f, mx1 = 0.f, my1 = 0.f;
+					renderdetail::NkPoigneeDegradeGeom(gm, 0.5f, mx0, my0);
+					renderdetail::NkPoigneeDegradeGeom(gm, 0.8f, mx1, my1);
+					tirer(mx0, my0, mx1, my1);
+					const float32 posMilieu = gd.arrets[1].position;
+					const bool arret = posMilieu > 0.7f && posMilieu < 0.9f && nd.posX == posX0 && nd.posY == posY0;
+					gd.arrets[1].position = 0.5f;
+					gd.type = NkString("lineaire");
+					gd.origineX = gd.origineY = 0.5f;
+					gd.rayonX = gd.rayonY = 0.5f;
+					gd.angle = 0.f;
+					stI.picker = DesignState::DemandePicker();
+					scene2(-1.f, -1.f, false);
+					snprintf(det, sizeof(det),
+							 "radial : cote tire de 20 px -> rayon X 0,50 -> %.2f ; centre tire en haut -> origine (%.2f, %.2f) ; angulaire : "
+							 "contour tire a gauche -> angle %.0f ; losange : arret du milieu 0,50 -> %.2f ; noeud fixe=%d",
+							 (double)rxApres, (double)oxApres, (double)oyApres, (double)angleApres, (double)posMilieu,
+							 (nd.posX == posX0 && nd.posY == posY0) ? 1 : 0);
+					check("60o. ① LES POIGNEES DES TROIS GENRES SUR LA TOILE : le carre du cote ecrit le rayon X, le centre "
+						  "l'origine, la pastille de contour l'origine angulaire, un arret glisse sur le segment -- le noeud ne bouge jamais",
+						  rayonX && origine && contour && arret, det);
+				}
 				stI.picker = DesignState::DemandePicker();
 			}
 		}
@@ -5931,7 +6027,8 @@ namespace nkuidesign {
 			check("61b. QUI PREND LE CLIC : la poignee AVANT le segment, le segment AVANT la toile -- un clic au "
 				  "bord d'une pastille ne cree jamais un arret parasite",
 				  surPoignee == 1 && surSegment == -2 && surRien == -1 && auBord == 1, det);
-			// 61c. seul le LINEAIRE a ses poignees : un type nomme, pas peint, n'en montre pas
+			// 61c. les QUATRE genres ont leurs poignees depuis qu'ils sont PEINTS (04/09, ① de
+			//      Rodolf) : la porte de la toile rend le remplissage pour le radial aussi
 			NkUINode nL, nR;
 			NkRemplissage fL;
 			fL.degrade = g;
@@ -5941,10 +6038,10 @@ namespace nkuidesign {
 			fR.degrade.type = NkString("radial");
 			nR.fills.PushBack(fR);
 			const int32 iL = renderdetail::NkRemplissageDegradeToile(nL), iR = renderdetail::NkRemplissageDegradeToile(nR);
-			snprintf(det, sizeof(det), "lineaire -> remplissage %d ; radial (nomme, pas peint) -> %d", iL, iR);
-			check("61c. seules les poignees du LINEAIRE se montrent : une poignee sur un degrade que le peintre ne rend "
-				  "pas serait un dessin faux",
-				  iL == 0 && iR == -1, det);
+			snprintf(det, sizeof(det), "lineaire -> remplissage %d ; radial (peint, ses poignees) -> %d", iL, iR);
+			check("61c. LES QUATRE GENRES ONT LEURS POIGNEES : la porte de la toile rend le remplissage pour le "
+				  "lineaire ET le radial (peints tous deux) -- une poignee ne se montre que sur ce que le peintre rend",
+				  iL == 0 && iR == 0, det);
 		}
 		// ── 62. LE REMPLISSAGE IMAGE : un type, cinq cadrages, un damier dit ───
 		{
@@ -6349,6 +6446,48 @@ namespace nkuidesign {
 				check("64d. LE NOMBRE DE BANDES SUIT LA TAILLE, comme le lineaire : un radial de 400 px a plus de bandes qu'un de 60",
 					  nb[1] > nb[0] && nb[0] >= 24u, det);
 			}
+		}
+		// ── 65. ① ORIGINE ET RAYONS DANS LE FICHIER : additifs, aller-retour, inconnu preserve ──
+		{
+			char det[400];
+			NkUIDocument dF;
+			dF.NewDocument("Toile", NkAuthor::Humain);
+			const int32 f = dF.AddChild(0, "", NkAuthor::Humain);
+			NkUINode &nf = dF.nodes[(uint32)f];
+			nf.shape = NkString("rect");
+			NkRemplissage rf;
+			rf.couleur = NkString("#ff0000");
+			rf.degrade.type = NkString("radial");
+			NkArretDegrade s0, s1;
+			s0.position = 0.f;
+			s0.couleur = NkString("#ff0000");
+			s1.position = 1.f;
+			s1.couleur = NkString("#0000ff");
+			rf.degrade.arrets.PushBack(s0);
+			rf.degrade.arrets.PushBack(s1);
+			nf.fills.PushBack(rf);
+			NkString s;
+			dF.Save(s);
+			const bool rienParDefaut = strstr(s.Data(), " o=") == nullptr && strstr(s.Data(), " r=") == nullptr;
+			nf.fills[0].degrade.origineX = 0.5f;
+			nf.fills[0].degrade.origineY = 0.f;
+			nf.fills[0].degrade.rayonX = 0.5f;
+			nf.fills[0].degrade.rayonY = 1.f;
+			nf.fills[0].degrade.inconnus = NkString("zz=42");
+			NkString s2;
+			dF.Save(s2);
+			NkUIDocument relu;
+			const bool ok = relu.Load(s2.Data());
+			const NkDegrade *g = (ok && relu.IsValidIndex(f) && !relu.nodes[(uint32)f].fills.Empty()) ? &relu.nodes[(uint32)f].fills[0].degrade : nullptr;
+			const bool relus = g && g->origineX == 0.5f && g->origineY == 0.f && g->rayonX == 0.5f && g->rayonY == 1.f
+							   && g->arrets.Size() == 2u && NkComponentDecl::StrEq(g->inconnus.Data(), "zz=42");
+			NkString s3;
+			relu.Save(s3);
+			const bool identique = NkComponentDecl::StrEq(s2.Data(), s3.Data());
+			snprintf(det, sizeof(det), "par defaut : aucun jeton=%d ; ecrit `o=0.5,0` `r=0.5,1` `zz=42` -> relus=%d ; reecrit identique=%d",
+					 rienParDefaut ? 1 : 0, relus ? 1 : 0, identique ? 1 : 0);
+			check("65a. ① L'ORIGINE ET LES RAYONS font l'aller-retour, additifs (rien au fichier par defaut), un jeton inconnu `zz=42` preserve",
+				  rienParDefaut && relus && identique, det);
 		}
 		snprintf(tail, sizeof(tail), "\n=== RESULTAT : %d / %d ===\n", pass, total);
 		rep.Append(tail);

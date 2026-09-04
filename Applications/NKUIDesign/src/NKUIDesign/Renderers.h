@@ -701,14 +701,88 @@ namespace nkuidesign {
 		/// Le remplissage dont les poignees se montrent : le PLUS HAUT visible qui
 		/// porte un degrade LINEAIRE (le seul peint -- une poignee sur un degrade
 		/// invisible serait un dessin faux). -1 sinon.
+		/// ① LA GEOMETRIE d'un degrade radial / angulaire / losange dans le repere du
+		///    rectangle : l'origine et les rayons en PIXELS. UNE geometrie, lue par le
+		///    peintre et par le pointage -- ce que la poignee montre est ce que la bande peint.
+		struct NkGeomDegrade {
+				nkentseu::float32 ox = 0.f, oy = 0.f, rx = 1.f, ry = 1.f;
+		};
+		inline NkGeomDegrade NkGeomDegradeDe(const NkPaintRect &r, const NkDegrade &g) {
+			NkGeomDegrade m;
+			m.ox = r.x + r.w * g.origineX;
+			m.oy = r.y + r.h * g.origineY;
+			m.rx = r.w * (g.rayonX < 0.02f ? 0.02f : g.rayonX);
+			m.ry = r.h * (g.rayonY < 0.02f ? 0.02f : g.rayonY);
+			return m;
+		}
+		/// Les poignees (captures de Rodolf) : l'arret `t` sur le segment origine -> bas
+		/// (origine + t * rayon Y) ; le cote (rayon X) ; le haut (rayon Y) ; la pastille de
+		/// contour de l'angulaire, sur l'ellipse, dans la direction de l'angle.
+		inline void NkPoigneeDegradeGeom(const NkGeomDegrade &m, nkentseu::float32 t, nkentseu::float32 &x, nkentseu::float32 &y) {
+			x = m.ox;
+			y = m.oy + m.ry * t;
+		}
+		inline void NkPoigneeContourAngulaire(const NkGeomDegrade &m, nkentseu::float32 angle, nkentseu::float32 &x,
+											  nkentseu::float32 &y) {
+			nkentseu::float32 s = 0.f, c = 1.f;
+			NkSinCosDeg(angle, s, c);
+			x = m.ox - s * m.rx;
+			y = m.oy + c * m.ry;
+		}
+		/// Codes du pointage : >= 0 l'arret ; -2 le segment (ajouter ici) ; -3 le centre ;
+		/// -4 le cote (rayon X) ; -5 le haut (rayon Y) ; -6 la pastille de contour (angulaire) ;
+		/// -1 rien (la toile). UNE decision ordonnee : arrets, centre, cote, haut, contour, segment.
+		inline nkentseu::int32 NkQuiPrendLeClicDegradeGeom(const NkGeomDegrade &m, const NkDegrade &g, bool angulaire,
+														   nkentseu::float32 px, nkentseu::float32 py,
+														   nkentseu::float32 tolPoignee, nkentseu::float32 tolSegment) {
+			const nkentseu::float32 t2 = tolPoignee * tolPoignee;
+			auto pres = [&](nkentseu::float32 x, nkentseu::float32 y) {
+				return (px - x) * (px - x) + (py - y) * (py - y) <= t2;
+			};
+			// L'ORIGINE PRIME sur un arret pose dessus (le 0 % est au centre, captures de
+			// Rodolf) : un arret a t = 0 tire depuis le centre ne pourrait qu'y rester ; et
+			// la pastille de CONTOUR de l'angulaire prime sur l'arret a t = 1 qui la recouvre
+			// (angle 0 : le bas du segment), pour la meme raison.
+			if (pres(m.ox, m.oy))
+				return -3;
+			if (angulaire) {
+				nkentseu::float32 cx = 0.f, cy = 0.f;
+				NkPoigneeContourAngulaire(m, g.angle, cx, cy);
+				if (pres(cx, cy))
+					return -6;
+			}
+			nkentseu::int32 meilleur = -1;
+			nkentseu::float32 d2min = t2;
+			for (nkentseu::uint32 i = 0; i < (nkentseu::uint32)g.arrets.Size(); ++i) {
+				nkentseu::float32 hx = 0.f, hy = 0.f;
+				NkPoigneeDegradeGeom(m, g.arrets[i].position, hx, hy);
+				const nkentseu::float32 d2 = (px - hx) * (px - hx) + (py - hy) * (py - hy);
+				if (d2 <= d2min) {
+					d2min = d2;
+					meilleur = (nkentseu::int32)i;
+				}
+			}
+			if (meilleur >= 0)
+				return meilleur;
+			if (pres(m.ox + m.rx, m.oy))
+				return -4;
+			if (pres(m.ox, m.oy - m.ry))
+				return -5;
+			// le segment origine -> bas
+			if (px >= m.ox - tolSegment && px <= m.ox + tolSegment && py >= m.oy && py <= m.oy + m.ry)
+				return -2;
+			return -1;
+		}
+		inline nkentseu::float32 NkParamSurSegmentGeom(const NkGeomDegrade &m, nkentseu::float32 py) {
+			nkentseu::float32 tt = m.ry > 0.001f ? (py - m.oy) / m.ry : 0.f;
+			return tt < 0.f ? 0.f : (tt > 1.f ? 1.f : tt);
+		}
 		inline nkentseu::int32 NkRemplissageDegradeToile(const NkUINode &n) {
 			for (nkentseu::uint32 i = (nkentseu::uint32)n.fills.Size(); i > 0; --i) {
 				const NkRemplissage &f = n.fills[i - 1];
 				if (!f.visible || !f.degrade.Actif())
 					continue;
-				if (f.degrade.type.Empty() || StrEq(f.degrade.type.Data(), "lineaire"))
-					return (nkentseu::int32)(i - 1);
-				return -1; // radial, angulaire, losange : PEINTS, mais leurs poignees (rayons X/Y, origine) restent a faire
+				return (nkentseu::int32)(i - 1); // ① les quatre genres ont leurs poignees
 			}
 			return -1;
 		}
@@ -1351,14 +1425,16 @@ namespace nkuidesign {
 					//    bande est decoupee par le contour arrondi : elle suit l'arc exactement.
 					const int32 genre = renderdetail::NkGenreDegrade(g);
 					if (genre != 0) {
-						const float32 cx0 = r.x + r.w * 0.5f, cy0 = r.y + r.h * 0.5f;
-						const float32 rx = r.w * 0.5f, ry = r.h * 0.5f;
+						// ① l'origine et les rayons : la MEME geometrie que les poignees de la toile
+						const renderdetail::NkGeomDegrade gm = renderdetail::NkGeomDegradeDe(r, g);
+						const float32 cx0 = gm.ox, cy0 = gm.oy;
+						const float32 rx = gm.rx, ry = gm.ry;
 						float32 forme[96], coupe[128];
 						bool su = true;
 						if (genre == 1 || genre == 3) {
 							// le fond : la couleur du dernier arret sur tout le contour (les coins)
 							su = p.PolygonHex(contour, (int32)nc, renderdetail::NkCouleurDegradeEn(g, 1.f));
-							const int32 kB = renderdetail::NkBandesDegrade(r.w > r.h ? r.w : r.h);
+							const int32 kB = renderdetail::NkBandesDegrade(2.f * (rx > ry ? rx : ry));
 							for (int32 b = kB - 1; b >= 0 && su; --b) {
 								const float32 t1 = (float32)(b + 1) / (float32)kB;
 								const float32 tm = ((float32)b + 0.5f) / (float32)kB;
@@ -1385,7 +1461,7 @@ namespace nkuidesign {
 						} else {
 							// angulaire : des secteurs de 360/kB degres, l'origine dans la direction de l'axe
 							const int32 kB = renderdetail::NkBandesDegrade(2.f * (r.w + r.h));
-							const float32 R = r.w + r.h; // au-dela de la boite : le contour decoupe
+							const float32 R = 2.f * (r.w + r.h); // au-dela de la boite quelle que soit l'origine : le contour decoupe
 							for (int32 b = 0; b < kB && su; ++b) {
 								const float32 a0 = g.angle + 360.f * (float32)b / (float32)kB;
 								const float32 a1 = g.angle + 360.f * (float32)(b + 1) / (float32)kB;

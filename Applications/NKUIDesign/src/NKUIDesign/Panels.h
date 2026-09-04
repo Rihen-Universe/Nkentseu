@@ -3635,8 +3635,12 @@ namespace nkuidesign {
 						float32 mxD = ctx.input.mousePos.x, myD = ctx.input.mousePos.y;
 						NkMatPoint(NkMatInverse(NkMatEffective(mSt->doc, screen, mSt->selected)), mxD, myD);
 						const renderdetail::NkAxeDegrade axe = renderdetail::NkAxeDegradeDe(rsD, g);
-						const int32 qui = renderdetail::NkQuiPrendLeClicDegrade(axe, g, mxD, myD, 8.f, 5.f);
-						if (qui >= 0) {
+						const int32 genreD = renderdetail::NkGenreDegrade(g);
+						const renderdetail::NkGeomDegrade gmD = renderdetail::NkGeomDegradeDe(rsD, g);
+						// ① UNE decision ordonnee par genre : arrets, centre, cote, haut, contour, segment
+						const int32 qui = genreD == 0 ? renderdetail::NkQuiPrendLeClicDegrade(axe, g, mxD, myD, 8.f, 5.f)
+													  : renderdetail::NkQuiPrendLeClicDegradeGeom(gmD, g, genreD == 2, mxD, myD, 8.f, 5.f);
+						if (qui >= 0 || qui <= -3) {
 							mDegDrag = qui;
 							mDegFill = fi;
 							if (mSt->picker.ouvert && mSt->picker.genre == 1u && mSt->picker.noeud == mSt->selected
@@ -3647,7 +3651,8 @@ namespace nkuidesign {
 						} else if (qui == -2) {
 							// LE SEGMENT, hors de toute poignee : un arret nait ICI, par la
 							// meme fonction que la barre du popover
-							const float32 tA = renderdetail::NkParamSurAxeDegrade(axe, mxD, myD);
+							const float32 tA = genreD == 0 ? renderdetail::NkParamSurAxeDegrade(axe, mxD, myD)
+														   : renderdetail::NkParamSurSegmentGeom(gmD, myD);
 							const int32 ajoute = renderdetail::NkAjouterArretDegrade(g, tA, 12u);
 							if (ajoute >= 0) {
 								mDegDrag = ajoute;
@@ -5011,7 +5016,69 @@ namespace nkuidesign {
 							NkDegrade &g = selDeg.fills[(uint32)fi].degrade;
 							const renderdetail::NkAxeDegrade axe = renderdetail::NkAxeDegradeDe(rs, g);
 							// le glisser d'une poignee : l'arret suit la souris le long de l'axe
-							if (mDegDrag >= 0 && mDegFill == fi) {
+							const int32 genreT = renderdetail::NkGenreDegrade(g);
+							const renderdetail::NkGeomDegrade gm = renderdetail::NkGeomDegradeDe(rs, g);
+							if (genreT != 0 && mDegDrag != -1 && mDegFill == fi) {
+								// ① radial / angulaire / losange : ce que chaque poignee ecrit
+								if (ctx.input.mouseDown[0]) {
+									bool ecrit = false;
+									char msg[64];
+									msg[0] = '\0';
+									if (mDegDrag >= 0 && (uint32)mDegDrag < (uint32)g.arrets.Size()) {
+										const float32 tA = renderdetail::NkParamSurSegmentGeom(gm, myS);
+										if (tA != g.arrets[(uint32)mDegDrag].position) {
+											g.arrets[(uint32)mDegDrag].position = tA;
+											ecrit = true;
+										}
+										snprintf(msg, sizeof(msg), "Arrêt %d : %.0f %%", mDegDrag + 1, (double)(tA * 100.f));
+									} else if (mDegDrag == -3 && rs.w > 0.f && rs.h > 0.f) {
+										float32 ox = (mxS - rs.x) / rs.w, oy = (myS - rs.y) / rs.h;
+										ox = ox < 0.f ? 0.f : (ox > 1.f ? 1.f : ox);
+										oy = oy < 0.f ? 0.f : (oy > 1.f ? 1.f : oy);
+										if (ox != g.origineX || oy != g.origineY) {
+											g.origineX = ox;
+											g.origineY = oy;
+											ecrit = true;
+										}
+										snprintf(msg, sizeof(msg), "Origine : %.0f %% · %.0f %%", (double)(ox * 100.f), (double)(oy * 100.f));
+									} else if (mDegDrag == -4 && rs.w > 0.f) {
+										float32 rx = (mxS - gm.ox) / rs.w;
+										rx = rx < 0.02f ? 0.02f : (rx > 4.f ? 4.f : rx);
+										if (rx != g.rayonX) {
+											g.rayonX = rx;
+											ecrit = true;
+										}
+										snprintf(msg, sizeof(msg), "Rayon X : %.0f %%", (double)(rx * 100.f));
+									} else if (mDegDrag == -5 && rs.h > 0.f) {
+										float32 ry = (gm.oy - myS) / rs.h;
+										ry = ry < 0.02f ? 0.02f : (ry > 4.f ? 4.f : ry);
+										if (ry != g.rayonY) {
+											g.rayonY = ry;
+											ecrit = true;
+										}
+										snprintf(msg, sizeof(msg), "Rayon Y : %.0f %%", (double)(ry * 100.f));
+									} else if (mDegDrag == -6) {
+										const float32 vx = mxS - gm.ox, vy = myS - gm.oy;
+										if (vx * vx + vy * vy > 9.f) {
+											const float32 a = NkAngleDegradeVers(vx, vy);
+											if (a != g.angle) {
+												g.angle = a;
+												ecrit = true;
+											}
+										}
+										snprintf(msg, sizeof(msg), "Origine angulaire : %.0f°", (double)g.angle);
+									}
+									if (ecrit) {
+										if (!selDeg.instanceDe.Empty())
+											selDeg.ecarts |= NkUINode::EcartRemplissages;
+										mSt->doc.MarkHumanEdit(mSt->selected);
+										mSt->host.SyncTo(mSt->doc);
+									}
+									if (msg[0])
+										mSt->status = NkString(msg);
+								} else
+									mDegDrag = -1;
+							} else if (genreT == 0 && mDegDrag >= 0 && mDegFill == fi) {
 								if (ctx.input.mouseDown[0] && (uint32)mDegDrag < (uint32)g.arrets.Size()) {
 									// LES EXTREMITES ORIENTENT (Lunacy : les deux bouts de l'axe se
 									// deplacent), les arrets intermediaires GLISSENT le long de l'axe.
@@ -5056,13 +5123,62 @@ namespace nkuidesign {
 								} else
 									mDegDrag = -1;
 							}
-							// le segment, puis une poignee par arret (la courante plus grosse)
-							paint.Line(axe.ax, axe.ay, axe.bx, axe.by, accent, 1.5f);
 							const uint32 rgbaAccent = paint.ColorOf(accent);
 							const int32 courant = (mSt->picker.ouvert && mSt->picker.genre == 1u
 												   && mSt->picker.noeud == mSt->selected && mSt->picker.index == fi)
 													  ? mSt->picker.arretSel
 													  : (mDegDrag >= 0 && mDegFill == fi ? mDegDrag : -1);
+							auto pastille = [&](float32 hx, float32 hy, float32 ray, uint32 rgbaAnneau, uint32 rgbaDisque) {
+								float32 anneau[24], disque[24];
+								for (uint32 k = 0; k < 12u; ++k) {
+									float32 s = 0.f, c = 1.f;
+									NkSinCosDeg(30.f * (float32)k, s, c);
+									anneau[k * 2] = hx + c * ray;
+									anneau[k * 2 + 1] = hy + s * ray;
+									disque[k * 2] = hx + c * (ray - 2.f);
+									disque[k * 2 + 1] = hy + s * (ray - 2.f);
+								}
+								paint.PolygonHex(anneau, 12, rgbaAnneau);
+								paint.PolygonHex(disque, 12, rgbaDisque);
+							};
+							if (genreT != 0) {
+								// ① L'ELLIPSE DE PORTEE (captures de Rodolf), le segment origine -> bas, le
+								//    centre, le carre du cote (rayon X), le carre du haut (rayon Y), une
+								//    pastille par arret sur le segment, la pastille de contour de l'angulaire
+								float32 ex0 = 0.f, ey0 = 0.f;
+								for (uint32 k = 0; k <= 48u; ++k) {
+									float32 s = 0.f, c = 1.f;
+									NkSinCosDeg(360.f * (float32)(k % 48u) / 48.f, s, c);
+									const float32 ex = gm.ox + c * gm.rx, ey = gm.oy + s * gm.ry;
+									if (k > 0u)
+										paint.Line(ex0, ey0, ex, ey, accent, 1.f);
+									ex0 = ex;
+									ey0 = ey;
+								}
+								paint.Line(gm.ox, gm.oy, gm.ox, gm.oy + gm.ry, accent, 1.5f);
+								auto carre = [&](float32 hx, float32 hy) {
+									const float32 q[8] = {hx - 4.f, hy - 4.f, hx + 4.f, hy - 4.f, hx + 4.f, hy + 4.f, hx - 4.f, hy + 4.f};
+									paint.PolygonHex(q, 4, rgbaAccent);
+									const float32 qi[8] = {hx - 2.5f, hy - 2.5f, hx + 2.5f, hy - 2.5f, hx + 2.5f, hy + 2.5f, hx - 2.5f, hy + 2.5f};
+									paint.PolygonHex(qi, 4, 0xFFFFFFFFu);
+								};
+								carre(gm.ox + gm.rx, gm.oy); // rayon X
+								carre(gm.ox, gm.oy - gm.ry); // rayon Y
+								for (uint32 ai = 0; ai < (uint32)g.arrets.Size(); ++ai) {
+									float32 hx = 0.f, hy = 0.f;
+									renderdetail::NkPoigneeDegradeGeom(gm, g.arrets[ai].position, hx, hy);
+									pastille(hx, hy, (int32)ai == courant ? 7.f : 5.5f, (int32)ai == courant ? rgbaAccent : 0xFFFFFFFFu,
+											 renderdetail::NkGHexRGBA(g.arrets[ai].couleur.Data()));
+								}
+								pastille(gm.ox, gm.oy, 5.f, rgbaAccent, 0xFFFFFFFFu); // l'origine
+								if (genreT == 2) {
+									float32 cx2 = 0.f, cy2 = 0.f;
+									renderdetail::NkPoigneeContourAngulaire(gm, g.angle, cx2, cy2);
+									pastille(cx2, cy2, 6.f, rgbaAccent, 0xFFFFFFFFu); // l'origine angulaire, sur le contour
+								}
+							} else {
+							// le segment, puis une poignee par arret (la courante plus grosse)
+							paint.Line(axe.ax, axe.ay, axe.bx, axe.by, accent, 1.5f);
 							for (uint32 ai = 0; ai < (uint32)g.arrets.Size(); ++ai) {
 								float32 hx = 0.f, hy = 0.f;
 								renderdetail::NkPoigneeDegrade(axe, g.arrets[ai].position, hx, hy);
@@ -5078,6 +5194,7 @@ namespace nkuidesign {
 								}
 								paint.PolygonHex(anneau, 12, (int32)ai == courant ? rgbaAccent : 0xFFFFFFFFu);
 								paint.PolygonHex(disque, 12, renderdetail::NkGHexRGBA(g.arrets[ai].couleur.Data()));
+							}
 							}
 						}
 					}
@@ -10200,7 +10317,8 @@ namespace nkuidesign {
 				const float32 hHex = 26.f; // la rangee modele + valeurs (Hex ˅ / RGB / HSB)
 				// ④ la rangee de la barre fait 34 px : ses pastilles (centre a +24, rayon 6)
 				//    descendent a +30 -- a 26 px la rangee suivante les recouvrait (Rodolf)
-				const float32 hRampe = g.Actif() ? 34.f + 26.f + 26.f * (float32)(g.arrets.Size() < 12u ? g.arrets.Size() : 12u) : 0.f; // barre, angle, liste
+				const int32 genreP = renderdetail::NkGenreDegrade(g);
+				const float32 hRampe = g.Actif() ? 34.f + 26.f + (genreP != 0 ? 52.f : 0.f) + 26.f * (float32)(g.arrets.Size() < 12u ? g.arrets.Size() : 12u) : 0.f; // barre, angle, (rayons, origine), liste
 				const float32 ph = f.EstImage() ? 8.f + hTypes + 116.f + 26.f + 26.f + 26.f + 8.f
 												   : 8.f + hTypes + hPicker + hHex + hRampe + 8.f;
 				const NkRect sw = d.ancre;
@@ -10556,7 +10674,8 @@ namespace nkuidesign {
 				}
 				// ── 4. LA BARRE D'ARRÊTS et 5. LA LISTE ──────────────────────────
 				if (g.Actif()) {
-					const NkRect barre = {x0, y + 5.f, x1 - x0 - 2.f * 22.f - 6.f, 14.f};
+					const uint32 nBoutons = renderdetail::NkGenreDegrade(g) == 2 ? 3u : 2u; // ① ⇄, (↻ angulaire), +
+					const NkRect barre = {x0, y + 5.f, x1 - x0 - (float32)nBoutons * 22.f - 6.f, 14.f};
 					for (int32 s = 0; s < 48; ++s) {
 						const float32 t0 = (float32)s / 48.f, t1 = (float32)(s + 1) / 48.f;
 						const uint32 c = renderdetail::NkCouleurDegradeEn(g, (t0 + t1) * 0.5f);
@@ -10613,8 +10732,10 @@ namespace nkuidesign {
 							d.arretDrag = -1;
 					}
 					// inverser, ajouter au milieu
-					for (uint32 b2 = 0; b2 < 2u; ++b2) {
+					for (uint32 b2 = 0; b2 < nBoutons; ++b2) {
 						const NkRect rb2 = {barre.x + barre.w + 6.f + (float32)b2 * 22.f, y + 2.f, 20.f, 20.f};
+						const bool boutonRot = nBoutons == 3u && b2 == 1u; // ① l'icone de rotation de l'angulaire
+						const bool boutonPlus = b2 == nBoutons - 1u;
 						const bool sv2 = NkGuiRectContains(rb2, ctx.input.mousePos);
 						dl.AddRectFilled(rb2, CouleurInput(), 4.f);
 						dl.AddRect(rb2, sv2 ? ctx.theme.accent : ctx.theme.border, 1.f, 4.f);
@@ -10624,6 +10745,19 @@ namespace nkuidesign {
 							dl.AddTriangleFilled({rb2.x + 16.f, cy1}, {rb2.x + 12.f, cy1 - 3.f}, {rb2.x + 12.f, cy1 + 3.f}, ctx.theme.text);
 							dl.AddLine({rb2.x + 5.f, cy2}, {rb2.x + 16.f, cy2}, ctx.theme.text, 1.2f);
 							dl.AddTriangleFilled({rb2.x + 4.f, cy2}, {rb2.x + 8.f, cy2 - 3.f}, {rb2.x + 8.f, cy2 + 3.f}, ctx.theme.text);
+						} else if (boutonRot) { // ↻ DESSINE : trois quarts d'arc et une fleche -- jamais un glyphe
+							const float32 ccx = rb2.x + 10.f, ccy = rb2.y + 10.f;
+							float32 lx = 0.f, ly = 0.f;
+							for (uint32 k = 0; k <= 9u; ++k) {
+								float32 s = 0.f, c = 1.f;
+								NkSinCosDeg(-90.f + 30.f * (float32)k, s, c);
+								const float32 ax = ccx + c * 5.5f, ay = ccy + s * 5.5f;
+								if (k > 0u)
+									dl.AddLine({lx, ly}, {ax, ay}, ctx.theme.text, 1.2f);
+								lx = ax;
+								ly = ay;
+							}
+							dl.AddTriangleFilled({ccx - 5.5f - 3.f, ccy}, {ccx - 5.5f + 3.f, ccy}, {ccx - 5.5f, ccy + 4.f}, ctx.theme.text);
 						} else
 							costume::Texte(dl, F.px10, rb2.x + 6.f, costume::CentrerY(F.px10, rb2.y, 20.f), "+",
 										   ctx.theme.text);
@@ -10631,7 +10765,11 @@ namespace nkuidesign {
 							if (b2 == 0u)
 								for (uint32 ai = 0; ai < (uint32)g.arrets.Size(); ++ai)
 									g.arrets[ai].position = 1.f - g.arrets[ai].position;
-							else
+							else if (boutonRot) {
+								g.angle += 90.f; // l'origine angulaire tourne d'un quart
+								while (g.angle >= 360.f)
+									g.angle -= 360.f;
+							} else if (boutonPlus)
 								renderdetail::NkAjouterArretDegrade(g, 0.5f, (uint32)kMaxArretsUI);
 							touche();
 						}
@@ -10650,6 +10788,35 @@ namespace nkuidesign {
 						costume::Texte(dl, F.px9, rAng.x + rAng.w + 4.f, costume::CentrerY(F.px9, rAng.y, 20.f), "°",
 									   ctx.theme.textMuted);
 						y += 26.f;
+					}
+					if (genreP != 0) {
+						// ① RAYON X / Y et ORIGINE X / Y (en % de la boite) : ce que les poignees ecrivent
+						static const char *const kLib[2] = {"Rayon", "Origine"};
+						for (uint32 rg = 0; rg < 2u; ++rg) {
+							costume::Texte(dl, F.px10, x0, costume::CentrerY(F.px10, y + 3.f, 20.f), kLib[rg], ctx.theme.textMuted);
+							float32 *vx = rg == 0u ? &g.rayonX : &g.origineX;
+							float32 *vy = rg == 0u ? &g.rayonY : &g.origineY;
+							const float32 mn = rg == 0u ? 2.f : 0.f, mx = rg == 0u ? 400.f : 100.f;
+							char idX[40], idY[40];
+							snprintf(idX, sizeof(idX), "insp.popover.deg.%ux", rg);
+							snprintf(idY, sizeof(idY), "insp.popover.deg.%uy", rg);
+							costume::Texte(dl, F.px9, x0 + 52.f, costume::CentrerY(F.px9, y + 3.f, 20.f), "X", ctx.theme.textMuted);
+							const NkRect rX = {x0 + 62.f, y + 3.f, 44.f, costume::HControle};
+							float32 pX = *vx * 100.f;
+							if (ChampNombre(ctx, idX, rX, pX, 1.f, mn, mx, true)) {
+								*vx = pX * 0.01f;
+								touche();
+							}
+							costume::Texte(dl, F.px9, rX.x + rX.w + 8.f, costume::CentrerY(F.px9, y + 3.f, 20.f), "Y", ctx.theme.textMuted);
+							const NkRect rY = {rX.x + rX.w + 18.f, y + 3.f, 44.f, costume::HControle};
+							float32 pY = *vy * 100.f;
+							if (ChampNombre(ctx, idY, rY, pY, 1.f, mn, mx, true)) {
+								*vy = pY * 0.01f;
+								touche();
+							}
+							costume::Texte(dl, F.px9, rY.x + rY.w + 4.f, costume::CentrerY(F.px9, y + 3.f, 20.f), "%", ctx.theme.textMuted);
+							y += 26.f;
+						}
 					}
 					// LA LISTE : position · pastille · hexa · opacité · poubelle ; la ligne courante s'allume
 					// ⑤ ELLE DEFILE quand elle deborde : la zone visible va d'ici au bas du popover ;
