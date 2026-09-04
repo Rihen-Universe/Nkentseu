@@ -734,6 +734,7 @@ Source : `/styling`, `/text`, `/layers`.
 | Ajouter un remplissage / une bordure / un effet | `+` à droite du titre de section | ✅ **livré** | les trois listes existent (Q42) |
 | En **empiler plusieurs** du même type | `+` à nouveau | ✅ **livré** | ce sont des listes, pas des champs uniques |
 | Réordonner (l'ordre change le rendu) | glisser la poignée de gauche | ❌ **absent** | les listes existent, le glisser non |
+| **Une ligne = pastille (aperçu réel) · nom · œil · poubelle ; le détail dans le popover** | ligne de FILLS / BORDERS | 🟡 **partiel** (04/09) | **remplissages et bordures** : livré (popover complet : types, sélecteur sur l'arrêt courant, hexa, rampe, liste ; épaisseur, position, côtés, jointure, extrémités). **Effets** : la ligne garde ses champs (bornés). Sections : `CALQUE` (opacité + fusion, nommées) avant REMPLISSAGES, EFFETS après BORDURES. ⚠️ **Rotation + arrondi** restent dans APPARENCE par une décision écrite — question posée à Rodolf (Q86). Témoin : l'inspecteur sans fenêtre à 260 et 170 px, aucun sommet hors du cadre (sonde 60) |
 | Masquer un réglage sans le supprimer | icône œil | ✅ **livré** | notre œil par ligne |
 | Supprimer | corbeille | ✅ **livré** |  |
 | Appliquer à une multi-sélection ; « **contenu mixte** » signalé | `+` écrase | 🟡 **partiel** | nos champs numériques disent déjà « — » en mixte (recette sélection 6) ; les **listes** ne le disent pas encore |
