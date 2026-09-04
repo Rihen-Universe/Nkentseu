@@ -1445,6 +1445,24 @@ et `ApplyFKSkinning` la lisent). Ce n'est pas une seconde *structure*, c'est un 
 et un exemplaire peut diverger. La retirer, c'est faire passer le squelette à chaque consommateur
 du clip (NKRenderer, Noge, éditeur) — un lot à part, à trancher, pas à glisser dans celui-ci.
 
+### ✅ 04/09 — UN SEUL CONSTRUCTEUR DE RAGDOLL
+
+**Mesuré avant de bouger.** Trois noms, pas trois constructeurs : (1) `physics::NkRagdoll::Build`
+(vue + attributs explicites) ; (2) `NkRagdollBridge` (éditeur) — fabriquait **ses** corps depuis
+`bindGlobal[]` et savait deux choses que `Build` ignorait : *dériver* les formes (capsule
+joint→parent) et *ancrer* la racine (KINEMATIC) ; (3) `NkRagdoll` de Noge — un **composant ECS**
+(liens os→entité + machine d'état), pas un constructeur : personne dans Noge ne remplit ces liens
+(seul le banc, à la main, 1 os). Le survivant : `Build`. La dérivation (`NkRagdollAttrsFromSkeleton`)
+vit à côté de lui dans NKPhysics ; le pont de l'éditeur n'est plus qu'un pont (vue depuis
+`bindGlobal`, attributs dérivés, `ReadPose` pour le retour) ; le composant de Noge s'appelle
+`NkRagdollComponent` — l'homonyme est à **0** au grep.
+
+**Témoin, depuis les deux appelants** (NkSystemsRevivalTest, **55/55**) : attributs explicites →
+chaîne pendue 0,000 m / coupée 4,987 m ; attributs dérivés → chaîne racine ancrée 0,000 m, **même
+chaîne racine libérée 4,987 m** (rien d'autre ne retenait), coupée = trois racines ancrées, 0 joint,
+personne ne tombe. Une première contre-épreuve « coupée tombe » était fausse *par construction* :
+une racine dérivée est ancrée — le témoin devait libérer la racine, pas couper la chaîne.
+
 ### ✨ 04/09 — PARTICULES, borne 1 : le MÉLANGE déclaré est celui qui rend (la texture, pas encore)
 
 `NkEmitterDesc::blend` était **déclaré et jamais lu** : un seul pipeline, Additive, pour tous — le

@@ -1,7 +1,8 @@
 #pragma once
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // =============================================================================
 // NkRagdollBridge.h — Pont RAGDOLL <-> SQUELETTE skinné (NkAnima). [couplage M*]
-// Construit un NkRagdoll (NKPhysics) depuis la hiérarchie de joints d'un perso
+// Construit LE NkRagdoll de NKPhysics (un seul constructeur, 2026-09-04) depuis
 // glTF (bindGlobal[] + jointParent[]) et synchronise la pose PHYSIQUE vers les
 // matrices monde par joint (worldEdit[]) -> le mesh skinné suit le ragdoll.
 //
@@ -26,87 +27,73 @@ namespace nkanima {
 
 	class NkRagdollBridge {
 		public:
-			// Construit le ragdoll : 1 corps par joint (capsule joint->parent), joints
-			// ball au pivot de chaque joint ; la racine (parent<0) est KINEMATIC (ancre).
+			// Construit le ragdoll par LE constructeur de NKPhysics (2026-09-04) :
+			// la vue (parents + repos monde) se lit dans bindGlobal[], la table
+			// d'attributs par defaut vient de NkRagdollAttrsFromSkeleton (capsule
+			// joint->parent, racine KINEMATIC). Ce pont ne cree plus aucun corps.
 			void Build(physics::NkPhysicsWorld &world, const nkentseu::NkVector<NkMat4f> &bindGlobal,
 					   const nkentseu::NkVector<int32> &jointParent, float32 boneRadius = 0.04f) {
 				mWorld = &world;
-				mBodies.Clear();
-				mJoints.Clear();
 				const uint32 n = (uint32)bindGlobal.Size();
+				mParents.Resize(n);
+				mRestPos.Resize(n);
+				mRestRot.Resize(n);
 				for (uint32 j = 0; j < n; ++j) {
 					const NkMat4f &M = bindGlobal[j];
-					const NkVec3f pos{M.m30, M.m31, M.m32};
-					physics::NkBodyDef def;
-					def.position = pos;
-					def.orientation = NkQuatf(M);
-					def.layer = 0x2u;
-					def.mask = ~0x2u; // pas de self-collision
-					const int32 p = (j < (uint32)jointParent.Size()) ? jointParent[j] : -1;
-					collision::NkShape shape;
-					if (p >= 0 && (uint32)p < n) {
-						const NkMat4f &MP = bindGlobal[(uint32)p];
-						shape = collision::NkShape::Capsule3D(pos, NkVec3f{MP.m30, MP.m31, MP.m32}, boneRadius);
-					} else {
-						def.type = physics::NkBodyType::KINEMATIC; // racine ancrée
-						shape = collision::NkShape::Sphere(pos, boneRadius * 1.5f);
-					}
-					mBodies.PushBack(world.CreateBody(def, shape));
+					mRestPos[j] = NkVec3f{M.m30, M.m31, M.m32};
+					mRestRot[j] = NkQuatf(M);
+					mParents[j] = (j < (uint32)jointParent.Size()) ? jointParent[j] : -1;
 				}
-				mJoints.Resize(n);
-				for (uint32 j = 0; j < n; ++j)
-					mJoints[j] = physics::NK_INVALID_JOINT;
-				for (uint32 j = 0; j < n; ++j) {
-					const int32 p = (j < (uint32)jointParent.Size()) ? jointParent[j] : -1;
-					if (p < 0 || (uint32)p >= n)
-						continue;
-					const NkMat4f &M = bindGlobal[j];
-					mJoints[j] = world.CreateBallJoint(mBodies[(uint32)p], mBodies[j], NkVec3f{M.m30, M.m31, M.m32});
-				}
+				physics::NkSkeletonView vue;
+				vue.parent = mParents.Data();
+				vue.restPos = mRestPos.Data();
+				vue.restRot = mRestRot.Data();
+				vue.count = n;
+				nkentseu::NkVector<physics::NkRagdollBoneAttr> attrs;
+				attrs.Resize(n);
+				physics::NkRagdollAttrsFromSkeleton(vue, boneRadius, attrs.Data());
+				mRag.Build(world, vue, attrs.Data());
 			}
-
 			// Physique -> squelette : worldEdit[j] = pose du corps j (le skin suivra).
 			void SyncToSkeleton(nkentseu::NkVector<NkMat4f> &worldEdit) const {
 				if (!mWorld)
 					return;
-				const uint32 n = (uint32)mBodies.Size();
+				nkentseu::NkVector<NkVec3f> pos;
+				nkentseu::NkVector<NkQuatf> rot;
+				mRag.ReadPose(*mWorld, pos, rot);
+				const uint32 n = (uint32)pos.Size();
 				for (uint32 j = 0; j < n && j < (uint32)worldEdit.Size(); ++j) {
-					const physics::NkRigidBody *b = mWorld->GetBody(mBodies[j]);
-					if (!b)
-						continue;
-					NkMat4f m = (NkMat4f)b->orientation;
-					m.m30 = b->position.x;
-					m.m31 = b->position.y;
-					m.m32 = b->position.z;
+					NkMat4f m = (NkMat4f)rot[j];
+					m.m30 = pos[j].x;
+					m.m31 = pos[j].y;
+					m.m32 = pos[j].z;
 					worldEdit[j] = m;
 				}
 			}
-
-			// Pilote la racine (KINEMATIC) -> permet de déplacer le ragdoll à la main / à l'anim.
+			// Pilote la racine (KINEMATIC) -> permet de deplacer le ragdoll a la main / a l'anim.
 			void SetRootTarget(const NkVec3f &pos) {
-				if (mWorld && mBodies.Size() > 0)
-					if (auto *b = mWorld->GetBody(mBodies[0]))
+				if (mWorld && mRag.Count() > 0)
+					if (auto *b = mWorld->GetBody(mRag.Body(0)))
 						b->position = pos;
 			}
-
 			bool Built() const noexcept {
-				return mWorld != nullptr && mBodies.Size() > 0;
+				return mWorld != nullptr && mRag.Count() > 0;
 			}
-
 			uint32 Count() const noexcept {
-				return (uint32)mBodies.Size();
+				return mRag.Count();
 			}
-
 			void Clear() {
-				mBodies.Clear();
-				mJoints.Clear();
+				mRag = physics::NkRagdoll{};
+				mParents.Clear();
+				mRestPos.Clear();
+				mRestRot.Clear();
 				mWorld = nullptr;
 			}
-
 		private:
 			physics::NkPhysicsWorld *mWorld = nullptr;
-			nkentseu::NkVector<physics::NkBodyId> mBodies;
-			nkentseu::NkVector<physics::NkJointId> mJoints;
+			physics::NkRagdoll mRag; // LE ragdoll de NKPhysics -- plus de corps fabriques ici
+			nkentseu::NkVector<int32> mParents; // la vue pointe dedans : ils vivent avec le pont
+			nkentseu::NkVector<NkVec3f> mRestPos;
+			nkentseu::NkVector<NkQuatf> mRestRot;
 	};
-
 } // namespace nkanima

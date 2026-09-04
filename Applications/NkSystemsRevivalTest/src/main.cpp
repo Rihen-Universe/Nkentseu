@@ -66,8 +66,8 @@ namespace {
 
 int main() {
 	std::printf("=== NkSystemsRevivalTest : Noge/Systems tourne-t-il vraiment ? ===\n");
-	std::printf("     poids des composants : NkSkeleton=%zu o, NkRagdoll=%zu o, NkMotionCapture=%zu o\n",
-				sizeof(ecs::NkSkeleton), sizeof(NkRagdoll), sizeof(NkMotionCapture));
+	std::printf("     poids des composants : NkSkeleton=%zu o, NkRagdollComponent=%zu o, NkMotionCapture=%zu o\n",
+				sizeof(ecs::NkSkeleton), sizeof(NkRagdollComponent), sizeof(NkMotionCapture));
 
 	// -------------------------------------------------------------------------
 	// NkJiggleBoneSystem
@@ -315,17 +315,17 @@ int main() {
 		sk3.skinMatrices[0] = math::NkMat4f::Identity(); // le banc mesure des translations depuis 0
 		w3.Add<ecs::NkSkeleton>(perso, sk3);
 
-		NkRagdoll rd; // 5 152 o : tient sur la pile
+		NkRagdollComponent rd; // 5 152 o : tient sur la pile
 		rd.boneCount = 1;
 		rd.bones[0].skeletonBoneIdx = 0;
 		rd.bones[0].rigidbodyEntity = corps;
 		rd.bones[0].boneToBody = math::NkMat4f::Identity();
-		rd.state = NkRagdoll::State::Animated;
+		rd.state = NkRagdollComponent::State::Animated;
 		rd.blendWeight = 0.f;
 		rd.blendSpeed = 2.f; // 0,5 s pour basculer entierement
-		w3.Add<NkRagdoll>(perso, rd);
+		w3.Add<NkRagdollComponent>(perso, rd);
 
-		Check(w3.Get<NkRagdoll>(perso) != nullptr, "temoin : le ragdoll existe dans le monde");
+		Check(w3.Get<NkRagdollComponent>(perso) != nullptr, "temoin : le ragdoll existe dans le monde");
 		Check(w3.Get<ecs::NkSkeleton>(perso)->skinMatrices[0][3][0] == 0.f, "temoin : l'os part a x=0");
 
 		// ETAT ANIMATED : la physique ne doit RIEN ecrire.
@@ -335,7 +335,7 @@ int main() {
 			  "etat Animated : l'animation garde la main, la physique n'ecrit rien");
 
 		// BASCULE : on demande la transition.
-		w3.Get<NkRagdoll>(perso)->state = NkRagdoll::State::Blending;
+		w3.Get<NkRagdollComponent>(perso)->state = NkRagdollComponent::State::Blending;
 
 		// Un quart de seconde a blendSpeed=2 -> poids ~0,5 : l'os doit etre a
 		// MI-CHEMIN entre sa pose d'animation (0) et le corps (7), donc ~3,5.
@@ -356,7 +356,7 @@ int main() {
 			w3.Get<ecs::NkSkeleton>(perso)->skinMatrices[0] = math::NkMat4f::Identity();
 			s3.Run(w3, 1.f / 60.f);
 		}
-		const float wMid = w3.Get<NkRagdoll>(perso)->blendWeight;
+		const float wMid = w3.Get<NkRagdollComponent>(perso)->blendWeight;
 		const float xMid = w3.Get<ecs::NkSkeleton>(perso)->skinMatrices[0][3][0];
 		std::printf("     en transition : poids=%.3f  x de l'os=%.4f\n", wMid, xMid);
 		Check(wMid > 0.3f && wMid < 0.8f, "le poids de melange progresse (ni 0 ni 1)");
@@ -371,11 +371,11 @@ int main() {
 		// Fin de transition : l'etat bascule tout seul et l'os rejoint le corps.
 		for (int i = 0; i < 60; ++i)
 			s3.Run(w3, 1.f / 60.f);
-		const NkRagdoll *fin3 = w3.Get<NkRagdoll>(perso);
+		const NkRagdollComponent *fin3 = w3.Get<NkRagdollComponent>(perso);
 		const float xFin = w3.Get<ecs::NkSkeleton>(perso)->skinMatrices[0][3][0];
 		std::printf("     apres transition : etat=%d poids=%.3f  x de l'os=%.4f (corps a 7)\n", (int)fin3->state,
 					fin3->blendWeight, xFin);
-		Check(fin3->state == NkRagdoll::State::FullRagdoll, "la transition se termine SEULE en FullRagdoll");
+		Check(fin3->state == NkRagdollComponent::State::FullRagdoll, "la transition se termine SEULE en FullRagdoll");
 		Check(fin3->blendWeight >= 0.999f, "le poids atteint 1 et s'y arrete");
 		Check(xFin > 6.9f && xFin < 7.1f, "en ragdoll plein, l'os suit exactement le corps rigide");
 
@@ -384,13 +384,13 @@ int main() {
 		ecs::NkSkeleton sk4 = MakeSkeleton(1);
 		sk4.skinMatrices[0] = math::NkMat4f::Identity();
 		w3.Add<ecs::NkSkeleton>(perso2, sk4);
-		NkRagdoll rd2;
+		NkRagdollComponent rd2;
 		rd2.boneCount = 1;
 		rd2.bones[0].skeletonBoneIdx = 0;
 		rd2.bones[0].rigidbodyEntity = ecs::NkEntityId::Invalid(); // aucun corps
-		rd2.state = NkRagdoll::State::FullRagdoll;
+		rd2.state = NkRagdollComponent::State::FullRagdoll;
 		rd2.blendWeight = 1.f;
-		w3.Add<NkRagdoll>(perso2, rd2);
+		w3.Add<NkRagdollComponent>(perso2, rd2);
 		for (int i = 0; i < 10; ++i)
 			s3.Run(w3, 1.f / 60.f);
 		Check(w3.Get<ecs::NkSkeleton>(perso2)->skinMatrices[0][3][0] == 0.f,
@@ -566,7 +566,7 @@ int main() {
 	// RAGDOLL DEPUIS UNE VUE DU SQUELETTE (2026-09-04). La troisieme structure
 	// de squelette (`physics::NkBoneDef`, qui REDISAIT `parent`) a disparu : la
 	// topologie et le repos viennent d'une NkSkeletonView, la physique d'une
-	// table NkRagdollBoneAttr. Ce banc est le SEUL a exercer NkRagdoll::Build :
+	// table NkRagdollBoneAttr. Ce banc est le SEUL a exercer NkRagdollComponent::Build :
 	// `jenga test` ne trouve aucun projet de test dans cet espace de travail
 	// (mesure : « No test projects found », meme avec --force), donc
 	// NKPhysics/tests/test_physics.cpp n'est compile par personne aujourd'hui.
@@ -631,6 +631,47 @@ int main() {
 		Check(chuteChaine < 0.5f, "RAGDOLL : en chaine, le dernier corps reste pendu a la racine epinglee (chute < 0,5 m)");
 		Check(chuteCoupee > 3.5f, "CONTRE-EPREUVE RAGDOLL : topologie coupee -> le meme corps tombe librement (> 3,5 m)");
 		std::printf("  [ragdoll] chute 1 s : chaine %.3f m, coupee %.3f m\n", chuteChaine, chuteCoupee);
+		// 4) LE SECOND APPELANT : l'editeur ne donne pas d'attributs, il les DERIVE de
+		//    la vue (NkRagdollAttrsFromSkeleton : capsules joint->parent, racine
+		//    ANCREE en KINEMATIC) puis appelle le meme Build. Une racine derivee
+		//    n'est donc pas libre : la contre-epreuve, c'est la LIBERER.
+		auto lanceDerive = [&](const int32 *parents, bool racineLibre, uint32 &outJoints, uint32 &outKinematiques) -> float32 {
+			NkPhysicsWorld world;
+			world.SetGravity({0.f, -9.81f, 0.f});
+			NkSkeletonView skel;
+			skel.parent = parents;
+			skel.restPos = rest;
+			skel.count = 3;
+			NkRagdollBoneAttr derives[3];
+			NkRagdollAttrsFromSkeleton(skel, 0.1f, derives);
+			if (racineLibre)
+				derives[0].type = NkBodyType::DYNAMIC;
+			outKinematiques = 0;
+			for (int k = 0; k < 3; ++k)
+				if (derives[k].type == NkBodyType::KINEMATIC)
+					++outKinematiques;
+			nkentseu::physics::NkRagdoll rag;
+			rag.Build(world, skel, derives);
+			outJoints = 0;
+			for (uint32 i = 0; i < rag.Count(); ++i)
+				if (rag.Joint(i) != NK_INVALID_JOINT)
+					++outJoints;
+			const float32 y0 = world.GetBody(rag.Body(2))->position.y;
+			for (int i = 0; i < 60; ++i)
+				world.Step(h);
+			return y0 - world.GetBody(rag.Body(2))->position.y;
+		};
+		uint32 jA = 0, kA = 0, jL = 0, kL = 0, jC = 0, kC = 0;
+		const float32 dAncree = lanceDerive(chaine, false, jA, kA);
+		const float32 dLibre = lanceDerive(chaine, true, jL, kL);
+		const float32 dCoupee = lanceDerive(coupee, false, jC, kC);
+		Check(jA == 2 && kA == 1 && dAncree < 0.5f,
+			  "RAGDOLL (attributs derives, chemin editeur) : chaine, racine ancree -> 2 joints, 1 cinematique, pendu (chute < 0,5 m)");
+		Check(jL == 2 && kL == 0 && dLibre > 3.5f,
+			  "CONTRE-EPREUVE (attributs derives) : meme chaine, racine LIBEREE -> tout tombe (> 3,5 m) : rien d'autre ne retenait");
+		Check(jC == 0 && kC == 3 && dCoupee < 1e-3f,
+			  "RAGDOLL (attributs derives) : coupee = trois racines ancrees -> 0 joint, 3 cinematiques, personne ne tombe");
+		std::printf("  [ragdoll] attributs derives : ancree %.3f m, liberee %.3f m, coupee %.3f m\n", dAncree, dLibre, dCoupee);
 	}
 
 	std::printf("=== Resultat : %d OK / %d FAIL ===\n", gPass, gFail);

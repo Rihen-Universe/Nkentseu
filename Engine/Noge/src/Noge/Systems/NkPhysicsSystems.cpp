@@ -1,3 +1,4 @@
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // =============================================================================
 // Noge/Systems/NkPhysicsSystems.cpp
 // =============================================================================
@@ -236,26 +237,26 @@ namespace nkentseu {
 	// a NKPhysics : tout passe par le monde ECS.
 	// -------------------------------------------------------------------------
 
-	void NkRagdollSystem::TransitionToRagdoll(NkRagdoll &rd, NkSkeleton &sk, NkWorld &world, float32 dt) noexcept {
+	void NkRagdollSystem::TransitionToRagdoll(NkRagdollComponent &rd, NkSkeleton &sk, NkWorld &world, float32 dt) noexcept {
 		(void)sk;
 		(void)world;
 		// Machine a etats du poids de melange. C'est la SEULE chose qui avance
 		// le temps ici : le reste ne fait que lire l'etat.
 		switch (rd.state) {
-			case NkRagdoll::State::Animated:
+			case NkRagdollComponent::State::Animated:
 				rd.blendWeight = 0.f;
 				break;
-			case NkRagdoll::State::Blending:
+			case NkRagdollComponent::State::Blending:
 				rd.blendWeight += rd.blendSpeed * dt;
 				if (rd.blendWeight >= 1.f) {
 					rd.blendWeight = 1.f;
-					rd.state = NkRagdoll::State::FullRagdoll; // la transition se termine seule
+					rd.state = NkRagdollComponent::State::FullRagdoll; // la transition se termine seule
 				}
 				break;
-			case NkRagdoll::State::FullRagdoll:
+			case NkRagdollComponent::State::FullRagdoll:
 				rd.blendWeight = 1.f;
 				break;
-			case NkRagdoll::State::Kinematic:
+			case NkRagdollComponent::State::Kinematic:
 				// Ragdoll actif : le squelette PILOTE les corps, il ne les subit
 				// pas. Le poids reste a 0 cote lecture.
 				rd.blendWeight = 0.f;
@@ -265,9 +266,9 @@ namespace nkentseu {
 			rd.blendWeight = 0.f;
 	}
 
-	void NkRagdollSystem::ApplyRagdollToSkeleton(NkRagdoll &rd, NkSkeleton &sk, NkWorld &world) noexcept {
+	void NkRagdollSystem::ApplyRagdollToSkeleton(NkRagdollComponent &rd, NkSkeleton &sk, NkWorld &world) noexcept {
 		// Pose PLEINE : la physique gagne entierement.
-		const uint32 n = (rd.boneCount < NkRagdoll::kMaxBones) ? rd.boneCount : NkRagdoll::kMaxBones;
+		const uint32 n = (rd.boneCount < NkRagdollComponent::kMaxBones) ? rd.boneCount : NkRagdollComponent::kMaxBones;
 		for (uint32 i = 0; i < n; ++i) {
 			const NkRagdollBoneLink &lien = rd.bones[i];
 			if (lien.skeletonBoneIdx >= sk.BoneCount())
@@ -279,9 +280,9 @@ namespace nkentseu {
 		}
 	}
 
-	void NkRagdollSystem::BlendAnimRagdoll(NkRagdoll &rd, NkSkeleton &sk, NkWorld &world, float32 dt) noexcept {
+	void NkRagdollSystem::BlendAnimRagdoll(NkRagdollComponent &rd, NkSkeleton &sk, NkWorld &world, float32 dt) noexcept {
 		(void)dt;
-		const uint32 n = (rd.boneCount < NkRagdoll::kMaxBones) ? rd.boneCount : NkRagdoll::kMaxBones;
+		const uint32 n = (rd.boneCount < NkRagdollComponent::kMaxBones) ? rd.boneCount : NkRagdollComponent::kMaxBones;
 		const float32 w = rd.blendWeight;
 		for (uint32 i = 0; i < n; ++i) {
 			const NkRagdollBoneLink &lien = rd.bones[i];
@@ -299,9 +300,9 @@ namespace nkentseu {
 	}
 
 	void NkRagdollSystem::Execute(NkWorld &world, float32 dt) noexcept {
-		world.Query<NkRagdoll, NkSkeleton>().ForEach([&](NkEntityId, NkRagdoll &rd, NkSkeleton &sk) {
+		world.Query<NkRagdollComponent, NkSkeleton>().ForEach([&](NkEntityId, NkRagdollComponent &rd, NkSkeleton &sk) {
 			TransitionToRagdoll(rd, sk, world, dt);
-			if (rd.state == NkRagdoll::State::FullRagdoll) {
+			if (rd.state == NkRagdollComponent::State::FullRagdoll) {
 				ApplyRagdollToSkeleton(rd, sk, world);
 			} else if (rd.blendWeight > 0.001f) {
 				BlendAnimRagdoll(rd, sk, world, dt);
