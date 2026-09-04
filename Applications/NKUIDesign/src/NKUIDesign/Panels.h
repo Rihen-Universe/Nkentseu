@@ -13721,6 +13721,7 @@ namespace nkuidesign {
 				// Contenu (clé `texte`).
 				auto &F = costume::Fontes();
 				auto &dl = ctx.DL();
+				RangeeStyle(ctx, true); // §15.15 : le style de texte
 				const float32 wLib = 60.f;
 				// ── Police ──
 				{
@@ -14459,6 +14460,159 @@ namespace nkuidesign {
 			//    bascule dans la forme liste, et le fichier gagne ses clés
 			//    `fond_i`. Tant qu'on ne touche qu'à la couleur, RIEN NE BOUGE
 			//    dans le format — c'est ce qui tient la promesse d'additivité.
+		public:
+			/// Les rectangles de la rangee « Style » de la derniere image, par genre
+			/// (0 calque, 1 texte) : 0 Créer, 1 Détacher, 2 Lier, 3 Appliquer, 4 Réinit. --
+			/// le temoin clique dedans. `RectStyleListe` : les styles deplies sous « Lier ».
+			NkRect RectStyle(uint32 g, uint32 k) const {
+				return (g < 2u && k < 6u) ? mRectStyle[g][k] : NkRect{0.f, 0.f, 0.f, 0.f};
+			}
+			NkRect RectStyleListe(uint32 g, uint32 i) const {
+				return (g < 2u && i < (uint32)mRectStyleListe[g].Size()) ? mRectStyleListe[g][i] : NkRect{0.f, 0.f, 0.f, 0.f};
+			}
+		private:
+			/// LA RANGEE « STYLE » d'une section (§15.15) : « Style : (aucun) » avec « Créer »
+			/// (et « Lier ˅ » quand le document a des styles du genre, DEPLIE EN PLACE -- pas
+			/// un popup : un popup dessine depuis un panneau ne recoit pas la souris) ; ou le
+			/// NOM du style lie (absent : dit en rouge) avec « Détacher », et quand une
+			/// propriete est surchargee : « (surcharge locale) », « Réinit. », « Appliquer »
+			/// (l'ensemble du calque devient le style -- la branche « appliquer a
+			/// l'original » de Q51). Un style absent ne rend jamais vide : le calque garde
+			/// ses valeurs copiees, la rangee le DIT.
+			void RangeeStyle(NkGuiContext &ctx, bool texte) {
+				NkUINode *n = NoeudMutable();
+				if (!n)
+					return;
+				auto &F = costume::Fontes();
+				auto &dl = ctx.DL();
+				NkUIDocument &doc = mSt->doc;
+				const uint32 g = texte ? 1u : 0u;
+				for (uint32 k = 0; k < 6u; ++k)
+					mRectStyle[g][k] = {0.f, 0.f, 0.f, 0.f};
+				mRectStyleListe[g].Clear();
+				const bool clic = ctx.popupDepth == 0 && ctx.input.mouseClicked[0];
+				const NkRect r = ctx.NextItemRect(-1.f, 24.f);
+				const float32 x0 = r.x + 12.f, x1 = r.x + r.w - 12.f;
+				costume::Texte(dl, F.px9, x0, costume::CentrerY(F.px9, r.y, 24.f), "Style", ctx.theme.textMuted);
+				const float32 xn = x0 + 34.f;
+				auto bouton = [&](const NkRect &b, const char *lib) {
+					const bool sv = NkGuiRectContains(b, ctx.input.mousePos);
+					dl.AddRectFilled(b, sv ? ctx.theme.rowHover : CouleurInput(), 4.f);
+					dl.AddRect(b, sv ? ctx.theme.accent : ctx.theme.border, 1.f, 4.f);
+					costume::Texte(dl, F.px9, b.x + (b.w - costume::Largeur(F.px9, lib)) * 0.5f, costume::CentrerY(F.px9, b.y, b.h), lib,
+								   ctx.theme.text);
+				};
+				auto apres = [&]() {
+					mSt->doc.MarkHumanEdit(mSt->selected);
+					mSt->host.SyncTo(mSt->doc);
+					mFillsGen = -1;
+					mBordsGen = 0xFFFFFFFFu;
+					mEffetsGen = 0xFFFFFFFFu;
+					ctx.input.mouseClicked[0] = false;
+				};
+				const NkString &ref = texte ? n->styleTexte : n->styleCalque;
+				if (!ref.Empty()) {
+					const NkStyle *st = doc.TrouverStyle(ref.Data());
+					char absent[96];
+					snprintf(absent, sizeof(absent), "%s : style absent (valeurs gardées)", ref.Data());
+					const bool surcharge = (n->ecarts & NkUIDocument::BitsDuGenre(texte)) != 0u;
+					char lib[160];
+					snprintf(lib, sizeof(lib), "%s%s", st ? (st->nom.Empty() ? st->cle.Data() : st->nom.Data()) : absent,
+							 surcharge && st ? " (surcharge locale)" : "");
+					costume::Texte(dl, F.px10, xn, costume::CentrerY(F.px10, r.y, 24.f), lib,
+								   st ? (surcharge ? ctx.theme.accent : ctx.theme.text) : nkgui::NkColor{220, 60, 60, 255});
+					const NkRect bDet = {x1 - 58.f, r.y + 2.f, 58.f, 20.f};
+					bouton(bDet, "Détacher");
+					mRectStyle[g][1] = bDet;
+					NkRect bApp = {0.f, 0.f, 0.f, 0.f}, bRe = {0.f, 0.f, 0.f, 0.f};
+					if (surcharge && st) {
+						bApp = {bDet.x - 4.f - 62.f, r.y + 2.f, 62.f, 20.f};
+						bouton(bApp, "Appliquer");
+						mRectStyle[g][3] = bApp;
+						bRe = {bApp.x - 4.f - 50.f, r.y + 2.f, 50.f, 20.f};
+						bouton(bRe, "Réinit.");
+						mRectStyle[g][4] = bRe;
+					}
+					if (clic) {
+						if (NkGuiRectContains(bDet, ctx.input.mousePos)) {
+							doc.DetacherStyle(mSt->selected, texte);
+							mSt->DireAuPied("Style détaché : ce calque garde ses valeurs, il ne suivra plus le style.");
+							apres();
+						} else if (bApp.w > 0.f && NkGuiRectContains(bApp, ctx.input.mousePos)) {
+							const int32 suivis = doc.AppliquerAuStyle(mSt->selected, texte);
+							char msg[160];
+							snprintf(msg, sizeof(msg), "Style « %s » mis à jour depuis ce calque : %d autre(s) calque(s) suivent.",
+									 st->nom.Data() ? st->nom.Data() : "", suivis > 0 ? suivis : 0);
+							mSt->DireAuPied(msg);
+							mSt->Consigner(msg);
+							apres();
+						} else if (bRe.w > 0.f && NkGuiRectContains(bRe, ctx.input.mousePos)) {
+							for (uint32 bit = 1u; bit <= NkUINode::EcartTexte; bit <<= 1u)
+								if (NkUIDocument::BitsDuGenre(texte) & bit)
+									doc.ReinitialiserEcartStyle(mSt->selected, bit);
+							mSt->DireAuPied("Surcharge réinitialisée : le style reprend la main sur ce calque.");
+							apres();
+						}
+					}
+				} else {
+					costume::Texte(dl, F.px10, xn, costume::CentrerY(F.px10, r.y, 24.f), "(aucun)", ctx.theme.textMuted);
+					const NkRect bCr = {x1 - 52.f, r.y + 2.f, 52.f, 20.f};
+					bouton(bCr, "Créer");
+					mRectStyle[g][0] = bCr;
+					uint32 nStyles = 0u;
+					for (uint32 i = 0; i < (uint32)doc.styles.Size(); ++i)
+						if (doc.styles[i].EstTexte() == texte)
+							++nStyles;
+					NkRect bLi = {0.f, 0.f, 0.f, 0.f};
+					if (nStyles) {
+						bLi = {bCr.x - 4.f - 56.f, r.y + 2.f, 56.f, 20.f};
+						bouton(bLi, mStyleDeplie[g] ? "Lier \xCB\x84" : "Lier \xCB\x85");
+						mRectStyle[g][2] = bLi;
+					}
+					if (clic) {
+						if (NkGuiRectContains(bCr, ctx.input.mousePos)) {
+							const int32 si = doc.CreerStyleDepuis(mSt->selected, texte, nullptr);
+							char msg[160];
+							snprintf(msg, sizeof(msg), "Style « %s » créé depuis ce calque ; il le lie. Le rail Styles le renomme.",
+									 si >= 0 ? doc.styles[(uint32)si].nom.Data() : "?");
+							mSt->DireAuPied(msg);
+							mSt->Consigner(msg);
+							apres();
+						} else if (bLi.w > 0.f && NkGuiRectContains(bLi, ctx.input.mousePos)) {
+							mStyleDeplie[g] = !mStyleDeplie[g];
+							ctx.input.mouseClicked[0] = false;
+						}
+					}
+					if (mStyleDeplie[g] && nStyles) {
+						for (uint32 i = 0; i < (uint32)doc.styles.Size(); ++i) {
+							const NkStyle &st = doc.styles[i];
+							if (st.EstTexte() != texte)
+								continue;
+							const NkRect rl = ctx.NextItemRect(-1.f, 22.f);
+							const NkRect sw = {rl.x + 40.f, rl.y + 3.f, 14.f, 14.f};
+							const char *res = NkCouleurApercuStyle(doc, st);
+							if (res && NkHexLisible(res))
+								dl.AddRectFilled(sw, NkCouleurDepuisHex(res), 3.f);
+							dl.AddRect(sw, ctx.theme.border, 1.f, 3.f);
+							const bool sv = NkGuiRectContains(rl, ctx.input.mousePos);
+							if (sv)
+								dl.AddRectFilled({rl.x + 34.f, rl.y, rl.w - 46.f, rl.h}, ctx.theme.rowHover, 3.f);
+							costume::Texte(dl, F.px10, sw.x + sw.w + 6.f, costume::CentrerY(F.px10, rl.y, 22.f),
+										   st.nom.Empty() ? st.cle.Data() : st.nom.Data(), ctx.theme.text);
+							mRectStyleListe[g].PushBack(rl);
+							if (clic && sv) {
+								doc.LierStyle(mSt->selected, st.cle.Data());
+								mStyleDeplie[g] = false;
+								char msg[160];
+								snprintf(msg, sizeof(msg), "Style « %s » lié : ce calque le suit.", st.nom.Data() ? st.nom.Data() : "");
+								mSt->DireAuPied(msg);
+								apres();
+							}
+						}
+					}
+				}
+			}
+
 			void CorpsRemplissages(NkGuiContext &ctx) {
 				if (!SectionOuverte("REMPLISSAGES"))
 					return;
@@ -14470,6 +14624,7 @@ namespace nkuidesign {
 				}
 				auto &F = costume::Fontes();
 				auto &dl = ctx.DL();
+				RangeeStyle(ctx, false); // §15.15 : « Style : ... » en tete de la section
 				// Les tampons de saisie, resynchronisés comme ceux d'APPARENCE :
 				// la sélection ET l'historique les rechargent (une annulation doit
 				// se voir dans le champ, pas seulement dans le document).
@@ -15303,6 +15458,9 @@ namespace nkuidesign {
 			int32 mEffetsNode = -1;
 			uint32 mEffetsGen = 0;
 			char mTexteColBuf[12] = {};
+			NkRect mRectStyle[2][6] = {};
+			NkVector<NkRect> mRectStyleListe[2];
+			bool mStyleDeplie[2] = {false, false};
 			char mBordColBuf[12] = {};
 			/// Les generations d'historique vues par les tampons (une
 			/// annulation recharge sans changer la selection).

@@ -7441,6 +7441,88 @@ namespace nkuidesign {
 						  "l'ecrit, un clic ailleurs le termine ; tous detaches, la poubelle supprime et le dit",
 						  rects && garde && enRenommage && renomme && fini && detachesT == 2u && supprimeT, det);
 				}
+				// ── 69g. LA RANGEE « STYLE » DE LA SECTION REMPLISSAGES : Creer, Lier, Appliquer, Detacher ──
+				{
+					static InspectorPanel inspS(&stS);
+					NkEditorFrameContext ec;
+					ec.ui = &ctxS;
+					ec.dt = 0.016f;
+					stS.Recompute(NkPaintRect{0.f, 0.f, 600.f, 900.f});
+					auto souris = [&](float32 mx, float32 my, bool bas) {
+						ctxS.input.mousePos = {mx, my};
+						ctxS.input.mouseDown[0] = bas;
+						ctxS.BeginFrame(0.016f);
+						ctxS.BeginLayout({340.f, 0.f, 260.f, 900.f});
+						inspS.OnUI(ec);
+						NkDessinerPickerDemande(ctxS, stS);
+						ctxS.EndFrame();
+					};
+					auto cliquer = [&](float32 x, float32 y) {
+						souris(x, y, false);
+						souris(x, y, true);
+						souris(x, y, false);
+						souris(-1.f, -1.f, false);
+					};
+					auto clicRect = [&](const nkgui::NkRect &r) { cliquer(r.x + r.w * 0.5f, r.y + r.h * 0.5f); };
+					// r1 (sans style desormais) : « Creer »
+					stS.SelectSingle(r1);
+					souris(-1.f, -1.f, false);
+					souris(-1.f, -1.f, false);
+					const nkgui::NkRect bCr = inspS.RectStyle(0u, 0u);
+					clicRect(bCr);
+					const bool cree = bCr.w > 0.f && dS.styles.Size() == 1u && NkComponentDecl::StrEq(dS.nodes[(uint32)r1].styleCalque.Data(), dS.styles[0].cle.Data())
+									  && stS.status.Data() && strstr(stS.status.Data(), "créé depuis ce calque") != nullptr;
+					// r2 : « Lier ˅ » deplie la liste, un clic sur le style le lie
+					stS.SelectSingle(r2);
+					souris(-1.f, -1.f, false);
+					souris(-1.f, -1.f, false);
+					const nkgui::NkRect bLi = inspS.RectStyle(0u, 2u);
+					clicRect(bLi);
+					const nkgui::NkRect rl0 = inspS.RectStyleListe(0u, 0u);
+					clicRect(rl0);
+					const bool lie = bLi.w > 0.f && rl0.w > 0.f && NkComponentDecl::StrEq(dS.nodes[(uint32)r2].styleCalque.Data(), dS.styles[0].cle.Data())
+									 && couleurPeinte(r2) == couleurPeinte(r1);
+					// r2 : le selecteur ecrit une couleur -> surcharge locale ; « Appliquer » -> le style prend, r1 suit
+					stS.picker = DesignState::DemandePicker();
+					stS.picker.ouvert = true;
+					stS.picker.id = ctxS.GetId("##sonde.popover.style");
+					stS.picker.genre = 1u;
+					stS.picker.noeud = r2;
+					stS.picker.index = 0;
+					stS.picker.ancre = {360.f, 200.f, 16.f, 16.f};
+					souris(-1.f, -1.f, false);
+					souris(-1.f, -1.f, false);
+					float32 px = 1e9f, py = 1e9f;
+					for (uint32 i = 0; i < (uint32)ctxS.dlOverlay.vtx.Size(); ++i) {
+						if (ctxS.dlOverlay.vtx[i].pos.x < px) px = ctxS.dlOverlay.vtx[i].pos.x;
+						if (ctxS.dlOverlay.vtx[i].pos.y < py) py = ctxS.dlOverlay.vtx[i].pos.y;
+					}
+					cliquer(px + 0.5f + 8.f + 80.f, py + 0.5f + 8.f + 26.f + 80.f);
+					if (ctxS.popupDepth > 0)
+						ctxS.ClosePopup();
+					stS.picker = DesignState::DemandePicker();
+					souris(-1.f, -1.f, false);
+					souris(-1.f, -1.f, false);
+					const bool surcharge = dS.nodes[(uint32)r2].Surcharge(NkUINode::EcartRemplissages) && couleurPeinte(r2) != couleurPeinte(r1);
+					const uint32 c2 = couleurPeinte(r2);
+					const nkgui::NkRect bApp = inspS.RectStyle(0u, 3u);
+					clicRect(bApp);
+					const bool applique = bApp.w > 0.f && couleurPeinte(r1) == c2 && !dS.nodes[(uint32)r2].Surcharge(NkUINode::EcartRemplissages)
+										  && NkUIDocument::MemeEmpreinte(dS.styles[0].apparence, dS.nodes[(uint32)r2], NkUINode::EcartRemplissages);
+					souris(-1.f, -1.f, false);
+					const nkgui::NkRect bDet = inspS.RectStyle(0u, 1u);
+					clicRect(bDet);
+					const bool detacheUI = bDet.w > 0.f && dS.nodes[(uint32)r2].styleCalque.Empty() && couleurPeinte(r2) == c2;
+					snprintf(det, sizeof(det), "Creer=%d (« %s » lie a r1) ; Lier=%d (liste depliee, r2 peint comme r1) ; le carre SV sur r2 -> surcharge=%d (%08X) ; "
+											   "Appliquer=%d (r1 suit, ecart tombe) ; Detacher=%d",
+							 cree ? 1 : 0, dS.styles.Empty() ? "?" : dS.styles[0].nom.Data(), lie ? 1 : 0, surcharge ? 1 : 0, c2, applique ? 1 : 0,
+							 detacheUI ? 1 : 0);
+					check("69g. LA RANGEE « STYLE » EN TETE DE REMPLISSAGES : « Creer » fait un style du calque et le lie ; « Lier ˅ » "
+						  "deplie les styles en place (pas un popup) et un clic lie ; une couleur posee par le selecteur est une "
+						  "surcharge locale (le bit, la rangee le dit) ; « Appliquer » fait du calque le style et l'autre suit ; "
+						  "« Detacher » rend les valeurs locales",
+						  cree && lie && surcharge && applique && detacheUI, det);
+				}
 			}
 		}
 		snprintf(tail, sizeof(tail), "\n=== RESULTAT : %d / %d ===\n", pass, total);
