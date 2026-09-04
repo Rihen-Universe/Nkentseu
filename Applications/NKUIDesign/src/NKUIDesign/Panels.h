@@ -10265,12 +10265,13 @@ namespace nkuidesign {
 							{"ANCRAGE", &CorpsAncrageC, false},
 							{"ALIGNEMENT", &CorpsAlignementC, false},
 							{"ESPACEMENT", &CorpsEspacementC, false},
+							{"CALQUE", &CorpsCalqueC, false}, // Lunacy : LAYER (opacite + fusion)
 							{"REMPLISSAGES", &CorpsRemplissagesC, false},
 							{"BORDURES", &CorpsBorduresC, false},
+							{"EFFETS", &CorpsEffetsC, false}, // Lunacy : juste apres BORDERS
 							{"ÉTATS", &CorpsEtatsC, false},
 							{"APPARENCE", &CorpsApparenceC, false},
 							{"TYPOGRAPHIE", &CorpsTypographieC, false},
-							{"EFFETS", &CorpsEffetsC, false},
 							{"POINTS DE RUPTURE", &CorpsRuptureC, false},
 						};
 						count = (int32)(sizeof(kAvecCible) / sizeof(kAvecCible[0]));
@@ -10282,12 +10283,13 @@ namespace nkuidesign {
 					{"ANCRAGE", &CorpsAncrageC, false},
 					{"ALIGNEMENT", &CorpsAlignementC, false},
 					{"ESPACEMENT", &CorpsEspacementC, false},
+					{"CALQUE", &CorpsCalqueC, false}, // Lunacy : LAYER (opacite + fusion)
 					{"REMPLISSAGES", &CorpsRemplissagesC, false},
 					{"BORDURES", &CorpsBorduresC, false},
+					{"EFFETS", &CorpsEffetsC, false}, // Lunacy : juste apres BORDERS
 					{"ÉTATS", &CorpsEtatsC, false},
 					{"APPARENCE", &CorpsApparenceC, false},
 					{"TYPOGRAPHIE", &CorpsTypographieC, false},
-					{"EFFETS", &CorpsEffetsC, false},
 					{"POINTS DE RUPTURE", &CorpsRuptureC, false},
 				};
 				count = (int32)(sizeof(kSections) / sizeof(kSections[0]));
@@ -10484,7 +10486,7 @@ namespace nkuidesign {
 					const char *titre;
 					bool ouvert;
 			};
-			static constexpr uint32 kNbSections = 13;
+			static constexpr uint32 kNbSections = 14;
 			/// Un champ de sommet a change et la boite attend son recadrage.
 			/// ⚠️ UN DRAPEAU, ET IL EST JUSTIFIE : on ne peut pas recadrer dans la
 			///    branche qui ecrit (le champ est un GLISSER, il ecrit a chaque
@@ -10500,7 +10502,8 @@ namespace nkuidesign {
 				//    que personne ne voit.
 				{"ÉDITION DE FORME", true},
 				{"CIBLE", true},		{"DISPOSITION", true},	{"ANCRAGE", true},
-				{"ALIGNEMENT", true},	{"ESPACEMENT", false},	{"REMPLISSAGES", true},
+				{"ALIGNEMENT", true},	{"ESPACEMENT", false},	{"CALQUE", true},
+				{"REMPLISSAGES", true},
 				{"BORDURES", true},	{"APPARENCE", true},	{"TYPOGRAPHIE", true},
 				{"ÉTATS", false},	{"EFFETS", true},	{"POINTS DE RUPTURE", false},
 			};
@@ -10730,6 +10733,9 @@ namespace nkuidesign {
 			}
 			static void CorpsAlignementC(void *u, NkGuiContext &ctx) {
 				static_cast<InspectorPanel *>(u)->CorpsAlignement(ctx);
+			}
+			static void CorpsCalqueC(void *u, NkGuiContext &ctx) {
+				static_cast<InspectorPanel *>(u)->CorpsCalque(ctx);
 			}
 			static void CorpsApparenceC(void *u, NkGuiContext &ctx) {
 				static_cast<InspectorPanel *>(u)->CorpsApparence(ctx);
@@ -13235,6 +13241,66 @@ namespace nkuidesign {
 			// ⚠️ « Fond » A QUITTÉ CETTE SECTION pour REMPLISSAGES : le laisser
 			//    ici en plus aurait donné deux endroits pour écrire la même clé,
 			//    et le second aurait ignoré la liste.
+			/// LA SECTION CALQUE -- « LAYER » chez Lunacy : opacité + mode de fusion.
+			/// Les deux sont NOMMÉS et grisés : le modèle ne porte ni l'opacité du
+			/// calque ni la fusion (18 modes relevés sur la capture du 04/09). Une
+			/// section qui dit ce qu'elle ne sait pas faire vaut mieux qu'une absence.
+			void CorpsCalque(NkGuiContext &ctx) {
+				if (!SectionOuverte("CALQUE"))
+					return;
+				NkUINode *n = NoeudMutable();
+				if (!n) {
+					designkit::KeyValue(ctx, "Calque", "-");
+					return;
+				}
+				auto &F = costume::Fontes();
+				auto &dl = ctx.DL();
+				{
+					// Opacité : LE MODÈLE NE LA PORTE PAS — grisée, avec la raison.
+					{
+						const NkRect r = ctx.NextItemRect(-1.f, 26.f);
+						const float32 x0 = r.x + 12.f;
+						ctx.BeginDisabled();
+						costume::Texte(dl, F.px10, x0,
+									   costume::CentrerBande(F.px10, r.y), "Opacité",
+									   ctx.theme.textMuted);
+						const NkRect ro = {x0 + ColChampsCalc(r.w - 24.f), costume::BandeY(r.y), 48.f, costume::HControle};
+						dl.AddRectFilled(ro, CouleurInput(), 4.f);
+						dl.AddRect(ro, ctx.theme.border, 1.f, 4.f);
+						costume::Texte(dl, F.px11, ro.x + costume::PadChamp,
+									   costume::CentrerY(F.px11, ro.y, 20.f), "100",
+									   ctx.theme.textMuted);
+						costume::Texte(dl, F.px9, ro.x + ro.w + 4.f,
+									   costume::CentrerBande(F.px9, r.y), "%",
+									   ctx.theme.textMuted);
+						ctx.EndDisabled();
+						if (ctx.popupDepth == 0 && ctx.input.mouseClicked[0]
+							&& NkGuiRectContains(ro, ctx.input.mousePos))
+							mSt->status = NkString("Opacité : le modèle ne la porte pas encore "
+												   "(vocabulaire d'apparence, chantier nommé).");
+					}
+				}
+				// Fusion : Normal -- 18 modes nommés (Darken, Multiply, Plus Darker, Color
+				// Burn, Lighten, Screen, Plus Lighter, Color Dodge, Overlay, Soft Light,
+				// Hard Light, Difference, Exclusion, Hue, Saturation, Color, Luminosity),
+				// aucun rendu : un chantier à soi, dit ici.
+				{
+					const NkRect r = ctx.NextItemRect(-1.f, 26.f);
+					const float32 x0 = r.x + 12.f;
+					ctx.BeginDisabled();
+					costume::Texte(dl, F.px10, x0, costume::CentrerBande(F.px10, r.y), "Fusion",
+								   ctx.theme.textMuted);
+					const NkRect rf = {x0 + ColChampsCalc(r.w - 24.f), costume::BandeY(r.y), 70.f, costume::HControle};
+					dl.AddRectFilled(rf, CouleurInput(), 4.f);
+					dl.AddRect(rf, ctx.theme.border, 1.f, 4.f);
+					costume::Texte(dl, F.px10, rf.x + costume::PadChamp, costume::CentrerY(F.px10, rf.y, 20.f),
+								   "Normal", ctx.theme.textMuted);
+					ctx.EndDisabled();
+					if (ctx.popupDepth == 0 && NkGuiRectContains(r, ctx.input.mousePos))
+						mSt->status = NkString("Mode de fusion : Normal seulement -- les 18 modes de Lunacy sont "
+											   "nommés (doc 13), aucun n'est rendu.");
+				}
+			}
 			void CorpsApparence(NkGuiContext &ctx) {
 				if (!SectionOuverte("APPARENCE"))
 					return;
@@ -13522,29 +13588,7 @@ namespace nkuidesign {
 							}
 						}
 					}
-					// Opacité : LE MODÈLE NE LA PORTE PAS — grisée, avec la raison.
-					{
-						const NkRect r = ctx.NextItemRect(-1.f, 26.f);
-						const float32 x0 = r.x + 12.f;
-						ctx.BeginDisabled();
-						costume::Texte(dl, F.px10, x0,
-									   costume::CentrerBande(F.px10, r.y), "Opacité",
-									   ctx.theme.textMuted);
-						const NkRect ro = {x0 + ColChampsCalc(r.w - 24.f), costume::BandeY(r.y), 48.f, costume::HControle};
-						dl.AddRectFilled(ro, CouleurInput(), 4.f);
-						dl.AddRect(ro, ctx.theme.border, 1.f, 4.f);
-						costume::Texte(dl, F.px11, ro.x + costume::PadChamp,
-									   costume::CentrerY(F.px11, ro.y, 20.f), "100",
-									   ctx.theme.textMuted);
-						costume::Texte(dl, F.px9, ro.x + ro.w + 4.f,
-									   costume::CentrerBande(F.px9, r.y), "%",
-									   ctx.theme.textMuted);
-						ctx.EndDisabled();
-						if (ctx.popupDepth == 0 && ctx.input.mouseClicked[0]
-							&& NkGuiRectContains(ro, ctx.input.mousePos))
-							mSt->status = NkString("Opacité : le modèle ne la porte pas encore "
-												   "(vocabulaire d'apparence, chantier nommé).");
-					}
+					// (l'opacité du calque est dans la section CALQUE, comme chez Lunacy)
 					// Une forme s'arrete la ; un composant CONTINUE vers ses jetons.
 					if (!estComposant)
 						return;
