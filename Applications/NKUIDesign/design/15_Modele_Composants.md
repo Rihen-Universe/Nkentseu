@@ -592,3 +592,40 @@ nature sans lui aurait été inventer le format.
   (sonde 48b/48e : `Bouton_Connexion`, `Panel_Nav`, `Carte_Actifs`,
   `Carte_Revenu`, `Carte_Attrition`, `Graphique` ; 62 commandes, identiques).
   La **capture d'écran avant/après** reste due dès que la machine est libre.
+
+## 15.14 🔴 VARIABLES ET STYLES — un nom pour une valeur, un nom pour un ensemble (04/09)
+
+Rodolf, en voyant le sélecteur : *« pourquoi pour le choix des couleurs on n'a
+pas de color picker et des **styles comme Lunacy** ? »* Sa capture le montre :
+la ligne de remplissage ne porte pas un code hexadécimal mais un **nom**,
+`Dark Primary`, et le rail de gauche a `Styles` et `Variables` en entrées de
+premier rang.
+
+### Le périmètre, tranché
+
+| | ce que c'est | exemple |
+|---|---|---|
+| **Variable** | un nom pour **UNE valeur** — l'atome | `Dark Primary` = `#1976D2` ; `Rayon M` = `8` |
+| **Style** | un nom pour **UN ENSEMBLE de propriétés** | style de calque (remplissages + bordures + effets) ; style de texte (police, taille, graisse, couleur) |
+
+Un style peut **référencer** des variables. La propagation est celle de §15.1 /
+Q51, **mot pour mot** : la modification chez soi se propage, les surcharges
+locales tiennent — **un seul mécanisme dans le code**, pas deux. C'est déjà
+mesuré pour les instances de composants (sonde 58), et la sonde y a d'ailleurs
+trouvé que la propagation ne comparait que le **nombre** de remplissages : elle
+compare désormais le contenu.
+
+### Ce qui décide l'ordre
+
+Le mandat de longue date — *« Dark Pro / Light Pro dans TOUTES les
+applications »* — **est** l'usage des **variables à modes** : une variable porte
+plusieurs valeurs selon un mode, et le document entier bascule. Sans elles, le
+thème se recopie à la main partout.
+
+1. **variable de couleur** (débloque les thèmes) ;
+2. **styles de calque et de texte** ;
+3. **modes** en dernier — mais **la place réservée dans le format dès
+   maintenant** (clé additive, valeur libre, inconnu préservé : la règle du
+   type de dégradé et du genre de groupe).
+
+⚠️ Rien de tout cela n'est codé au moment d'écrire ces lignes.
