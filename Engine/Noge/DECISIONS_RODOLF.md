@@ -1452,6 +1452,16 @@ Jenga 2.5.0 (`dutc/dute(enable=True, allow=[...])`, source `D:\Projets\MacShared
 un `jenga test` y compile et lance ces suites, les autres restent bloquées comme avant.
 Liste, un module par commit, mise à jour à chaque ajout :
 - `NKCore_Tests` — 9/9, 45 assertions, 126 ms (build+run 19 s)
+- `NKMath_Tests` — 8/8, 499 assertions ; **témoin de l'interrupteur** : mutation `NkRectT::Contains` → 7/8 rouge
+  *par `jenga test`* (`NKmathmoke_VectorAndRectTypes`), restauré → 8/8.
+
+**Défaut nommé, pas corrigé ici** : les exécutables de test (et les applis) sont liés **dynamiquement** à
+`libstdc++-6.dll`/`libgcc_s_seh-1.dll`/`libwinpthread-1.dll` malgré `config/toolchain.jenga:92-94`
+(`-static-libgcc -static-libstdc++ -static`), et le runner de `jenga test` ne pose pas le `PATH` de la
+chaîne : `NKMath_Tests.exe` sort en **127 muet** (« Tests failed », zéro ligne) alors que la suite est
+verte. Contournement mesuré : `PATH=/c/msys64/ucrt64/bin:$PATH jenga test …`. À Jenga : le runner
+doit prépendre le `bin` de la chaîne choisie ; à Nkentseu : vérifier pourquoi `-static` n'atteint pas
+l'éditeur de liens.
 
 ### 🧪 04/09 (soir) — LES SUITES FOUNDATION LANCÉES À LA MAIN
 
