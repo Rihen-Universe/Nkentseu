@@ -1,4 +1,5 @@
 #pragma once
+// Skeleton/ — LA structure de squelette du moteur (topologie + repos, monde) ; tout le reste la reference par index.
 // -----------------------------------------------------------------------------
 // FICHIER: NKAnima/NkSkeletonDef.h
 // DESCRIPTION: L'ACTIF SQUELETTE PARTAGE — LA structure de squelette du moteur.

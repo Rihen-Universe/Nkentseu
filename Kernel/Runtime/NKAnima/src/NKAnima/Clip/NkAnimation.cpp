@@ -5,7 +5,7 @@
 // le 2026-08-14. Seuls l'espace de noms et les inclusions ont change : plus rien
 // ici ne tire le renderer, NKRHI ni un chargeur de format.
 // =============================================================================
-#include "NKAnima/NkAnimation.h"
+#include "NKAnima/Clip/NkAnimation.h"
 #include "NKMemory/NkAllocator.h"
 #include "NKFileSystem/NkFile.h"
 #include "NKLogger/NkLog.h"

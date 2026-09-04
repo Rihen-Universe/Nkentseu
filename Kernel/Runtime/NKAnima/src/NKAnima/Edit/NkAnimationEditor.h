@@ -1,3 +1,4 @@
+// Edit/ — le MODELE d'edition (poses-cles, curseur, selection, undo) ; aucune interface ici, elle vit dans NkAnimaEditor.
 // =============================================================================
 // NkAnimationEditor.h — NkAnima M1.c : logique d'édition de timeline (SANS UI)
 // -----------------------------------------------------------------------------
@@ -12,7 +13,7 @@
 // =============================================================================
 #pragma once
 
-#include "NKAnima/NkAnimation.h"
+#include "NKAnima/Clip/NkAnimation.h"
 #include "NKContainers/NKContainers.h"
 #include "NKMath/NKMath.h"
 
