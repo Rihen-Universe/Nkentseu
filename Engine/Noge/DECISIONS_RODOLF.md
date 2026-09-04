@@ -1436,6 +1436,15 @@ existantes recensées — reciblage (`WorldOf` de test), `NkIKSolver`, `NkLocomo
 jiggle) référencent par index et **aucune ne redit `parent`** (mesuré : 0 sur 4) · bancs
 d'animphys à l'identique depuis leur nouvelle maison · consommateurs recompilés, la liste.
 
+### 📍 04/09 — OÙ EN EST LE COMPTE, au grep, en fin de journée
+
+`grep "int32 parent ="` dans NKAnima/NKPhysics/Noge/éditeur : **une** définition de type
+(`NkSkeletonDef`). Reste une **copie de données** : `NkAnimationClip::jointParent/jointTopo` — le
+clip embarque la topologie du squelette qu'il anime (le clip glTF la reçoit à l'import ; l'éditeur
+et `ApplyFKSkinning` la lisent). Ce n'est pas une seconde *structure*, c'est un second *exemplaire*,
+et un exemplaire peut diverger. La retirer, c'est faire passer le squelette à chaque consommateur
+du clip (NKRenderer, Noge, éditeur) — un lot à part, à trancher, pas à glisser dans celui-ci.
+
 ### ✅ 04/09 — UNE SEULE CONVERSION POSE → MONDE, dans `Skeleton/`
 
 **Sept** boucles `world[j] = world[parent] × local[j]` vivaient dans sept endroits : le clip
