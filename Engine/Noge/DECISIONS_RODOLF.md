@@ -1469,6 +1469,7 @@ Liste, un module par commit, mise à jour à chaque ajout :
 - `NKReflection_Tests` — 7 réussis, 7 au total, 42 réussies, 42 au total (build+run 29 s)
 - `NKWindow_Tests` — 2 réussis, 2 au total, 5 réussies, 5 au total (build+run 40 s)
 - `NKCamera_Tests` — 3 réussis, 3 au total, 7 réussies, 7 au total (build+run 70 s)
+- `NKCollision_Tests` — All tests passed for NKCollision_Tests. (main nu, fichier vide en testmaintemplate ; build+run 28 s)
 **Défaut nommé, pas corrigé ici** : les exécutables de test (et les applis) sont liés **dynamiquement** à
 `libstdc++-6.dll`/`libgcc_s_seh-1.dll`/`libwinpthread-1.dll` malgré `config/toolchain.jenga:92-94`
 (`-static-libgcc -static-libstdc++ -static`), et le runner de `jenga test` ne pose pas le `PATH` de la
