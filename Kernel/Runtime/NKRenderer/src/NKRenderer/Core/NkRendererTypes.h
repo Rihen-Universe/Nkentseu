@@ -168,6 +168,19 @@ namespace nkentseu {
 				float32 rotation;
 		};
 
+		// Enregistrement PAR PARTICULE (2026-09-04) : le quad est expanse sur le GPU
+		// par instanciation (le coin vient d'un tampon statique de six sommets), le
+		// CPU n'ecrit plus six NkVertexParticle de 32 o mais UN enregistrement de 24 o.
+		// Ordre des champs = ordre des attributs du binding par instance de
+		// NkVFXSystem (POSITION 0, TEXCOORD1 12, COLOR 16, TEXCOORD2 20).
+		struct NkParticleInstance {
+				NkVec3f pos;	  // 0  : centre monde
+				float32 size;	  // 12 : cote du billboard (m)
+				uint32 color;	  // 16 : RGBA8
+				float32 rotation; // 20 : radians
+		};
+		static_assert(sizeof(NkParticleInstance) == 24, "NkParticleInstance : 24 octets, le layout du VFX en depend");
+
 		// =====================================================================
 		// SECTION D — Geometrie (AABB, sphere, plan, frustum)
 		// =====================================================================
