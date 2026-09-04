@@ -76,5 +76,13 @@ with project("NKSerialization"):
 
     # Tests unitaires/stress (desktop uniquement)
     with filter("(system:Linux || system:macOS || (system:Windows && !options:windows-runtime=uwp && !system:XboxSeries && !system:XboxOne)) && !system:Android && !system:iOS || system:Web"):
-        with test():
-            testfiles(["tests/**.cpp"])
+        # Six fichiers, six main() : une sous-suite par fichier (Jenga 2.6, 2026-09-04).
+        with test("Smoke"):
+            testfiles(["tests/test_smoke.cpp"])
+            testownmain()
+        # JENGA 2.6, DEFAUT MESURE (2026-09-04) : le contexte test() remet _currentProject a None a sa
+        # sortie (Api.py:999) au lieu de rendre le projet parent -> un SECOND with test() dans le meme
+        # projet echoue (« test context must be placed directly inside a project block »). Une seule
+        # sous-suite par projet tant que Jenga ne le corrige pas ; les autres sont nommees ici :
+        #   ReflectSerializer (test_reflect_serializer.cpp), ReflectPhase3, ReflectPhase5,
+        #   ReflectObjContainer, Bench (benchmark_smoke.cpp) -- chacune a son main(), testownmain().
