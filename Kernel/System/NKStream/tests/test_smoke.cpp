@@ -1,3 +1,4 @@
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 #include <Unitest/Unitest.h>
 #include <Unitest/TestMacro.h>
 
@@ -25,13 +26,13 @@ TEST_CASE(NKStreamSmoke, FileStreamReadWrite) {
 	const char *path = "nk_stream_test.tmp";
 
 	NkFileStream w;
-	ASSERT_TRUE(w.Open(path, NkStream::WriteMode | NkStream::BinaryMode));
+	ASSERT_TRUE(w.Open(path, NkStream::NK_WRITE_MODE | NkStream::NK_BINARY_MODE));
 	const char payload[] = "hello-stream";
 	ASSERT_EQUAL(static_cast<int>(sizeof(payload) - 1), static_cast<int>(w.WriteRaw(payload, sizeof(payload) - 1)));
 	w.Close();
 
 	NkFileStream r;
-	ASSERT_TRUE(r.Open(path, NkStream::ReadMode | NkStream::BinaryMode));
+	ASSERT_TRUE(r.Open(path, NkStream::NK_READ_MODE | NkStream::NK_BINARY_MODE));
 	char out[32] = {};
 	ASSERT_EQUAL(static_cast<int>(sizeof(payload) - 1), static_cast<int>(r.ReadRaw(out, sizeof(payload) - 1)));
 	ASSERT_EQUAL(0, ::strcmp(payload, out));
