@@ -1445,6 +1445,18 @@ et `ApplyFKSkinning` la lisent). Ce n'est pas une seconde *structure*, c'est un 
 et un exemplaire peut diverger. La retirer, c'est faire passer le squelette à chaque consommateur
 du clip (NKRenderer, Noge, éditeur) — un lot à part, à trancher, pas à glisser dans celui-ci.
 
+### 🔧 04/09 (soir) — LES 13 TESTS CASSÉS RÉPARÉS, sans rien brancher
+
+Deux catégories tenues séparées. **Renommée, le test suit** : `NkRect→NkRectI`, `NkCompare→NkMemCompare`,
+`NkFormatter→NkLoggerFormatter`, `NkStream::WriteMode→NK_WRITE_MODE`, `NkScopedLock` devenu template,
+`NkGraphicsApi` parti dans `nkentseu::graphics`. **Disparue, le cas est supprimé** : `NkAlignUp/Down` sur
+entiers (deux asserts), `NkFormatIndexed` (fichier entier, trois cas — aucune définition dans l'arbre, deux
+commentaires de `NkLogger.h` mentent encore), la sentinelle `*_RENDERER_API_MAX`. Deux includes manquants
+(`<cmath>` dans un test, `<utility>` dans **le module** `NkAssetMetadata.h`). NKXR n'était pas cassé (include
+externe absent de ma recette). Témoin : `clang++ -fsyntax-only` **76/76**. Les 20 modules « `with test()`
+sans dossier » sont nommés et datés dans `echanges/noge.questions.md`, avec la recette de liaison manuelle.
+La politique `dutc/dute` de `Nkentseu.jenga` n'a pas bougé.
+
 ### 📏 04/09 — LA COPIE `jointParent/jointTopo` DU CLIP : mesurée, pas tranchée
 
 Lecteurs : `Clip/NkAnimation.cpp` (18 : **sérialisation** du clip — parents et topo font partie du

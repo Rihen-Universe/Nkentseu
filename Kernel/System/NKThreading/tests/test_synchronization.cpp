@@ -1,7 +1,9 @@
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 #include <Unitest/TestMacro.h>
 #include <Unitest/Unitest.h>
 
 #include "NKThreading/NkMutex.h"
+#include "NKThreading/NkScopedLock.h" // NkScopedLock -> NkScopedLockMutex, la garde que NkConditionVariable::Wait attend (2026-09-04)
 #include "NKThreading/NkThread.h"
 #include "NKThreading/Synchronization/NkBarrier.h"
 #include "NKThreading/Synchronization/NkEvent.h"
@@ -21,20 +23,20 @@ TEST_CASE(NKThreadingSync, BarrierPhasesAndLeader) {
 	nkentseu::nk_uint32 afterCount = 0u;
 	nkentseu::nk_uint32 leaderCount = 0u;
 
-	auto Worker = [&]() {
+	auto Worker = [&](void *) { // NkThread::ThreadFunc = NkFunction<void(void *)> (2026-09-04)
 		for (nkentseu::nk_uint32 phase = 0u; phase < kPhases; ++phase) {
 			{
-				NkScopedLock lock(statsMutex);
+				NkScopedLockMutex lock(statsMutex);
 				++beforeCount;
 			}
 
 			if (barrier.Wait()) {
-				NkScopedLock lock(statsMutex);
+				NkScopedLockMutex lock(statsMutex);
 				++leaderCount;
 			}
 
 			{
-				NkScopedLock lock(statsMutex);
+				NkScopedLockMutex lock(statsMutex);
 				++afterCount;
 			}
 		}
@@ -57,8 +59,8 @@ TEST_CASE(NKThreadingSync, BarrierPhasesAndLeader) {
 TEST_CASE(NKThreadingSync, LatchCountDownAndTimeout) {
 	NkLatch latch(2u);
 
-	NkThread t1([&]() { latch.CountDown(); });
-	NkThread t2([&]() { latch.CountDown(); });
+	NkThread t1([&](void *) { latch.CountDown(); });
+	NkThread t2([&](void *) { latch.CountDown(); });
 
 	ASSERT_TRUE(latch.Wait(300));
 	ASSERT_TRUE(latch.IsReady());
@@ -81,10 +83,10 @@ TEST_CASE(NKThreadingSync, EventManualResetWakesAll) {
 	nkentseu::nk_uint32 success = 0u;
 	nkentseu::nk_uint32 timeout = 0u;
 
-	auto Waiter = [&]() {
+	auto Waiter = [&](void *) {
 		ready.CountDown();
 		const nkentseu::nk_bool ok = event.Wait(300);
-		NkScopedLock lock(countMutex);
+		NkScopedLockMutex lock(countMutex);
 		if (ok) {
 			++success;
 		} else {
@@ -117,10 +119,10 @@ TEST_CASE(NKThreadingSync, EventAutoResetWakesOne) {
 	nkentseu::nk_uint32 success = 0u;
 	nkentseu::nk_uint32 timeout = 0u;
 
-	auto Waiter = [&]() {
+	auto Waiter = [&](void *) {
 		ready.CountDown();
 		const nkentseu::nk_bool ok = event.Wait(200);
-		NkScopedLock lock(countMutex);
+		NkScopedLockMutex lock(countMutex);
 		if (ok) {
 			++success;
 		} else {
@@ -173,7 +175,7 @@ TEST_CASE(NKThreadingSync, ReaderWriterLockBasicAndWriters) {
 	NkBarrier startBarrier(kWorkers + 1u);
 	nkentseu::nk_uint32 counter = 0u;
 
-	auto Writer = [&]() {
+	auto Writer = [&](void *) {
 		startBarrier.Wait();
 		for (nkentseu::nk_uint32 i = 0u; i < kIncrementsPerWorker; ++i) {
 			NkWriteLock lock(rwLock);

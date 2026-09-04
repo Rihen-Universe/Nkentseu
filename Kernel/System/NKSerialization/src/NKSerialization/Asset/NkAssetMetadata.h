@@ -1,3 +1,4 @@
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // =============================================================================
 // NKSerialization/Asset/NkAssetMetadata.h
 // =============================================================================
@@ -26,6 +27,7 @@
 #include "NKContainers/String/NkString.h"
 #include "NKFileSystem/NkFile.h"
 #include <cstdio>
+#include <utility> // std::move : l'include manquait, visible des que l'en-tete est inclus seul (2026-09-04)
 #include <cstring>
 #include <cstdlib>
 

@@ -1,3 +1,4 @@
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // -----------------------------------------------------------------------------
 // FICHIER: NKAudio/tests/NkAudioTests.cpp
 // DESCRIPTION: Tests unitaires et exemples d'utilisation du module NKAudio
@@ -11,6 +12,7 @@
 #include "NKAudio/NkAudioEffects.h"
 #include "NKAudio/NkAudioBackends.h"
 
+#include <cmath> // fabsf / sqrtf : include manquant (2026-09-04)
 #include <cstdio>
 #include <cstring>
 

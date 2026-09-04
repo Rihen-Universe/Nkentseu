@@ -1,8 +1,10 @@
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 #include <Unitest/Unitest.h>
 #include <Unitest/TestMacro.h>
 
 #include "NKWindow/Core/NkTypes.h"
 #include "NKLogger/NkLog.h"
+#include "NKEvent/NkGraphicsEvent.h" // NkGraphicsApiToString vit ici (2026-09-04)
 
 #include <ctime>
 
@@ -14,8 +16,11 @@ TEST_CASE(NKWindowBenchmark, RendererApiToStringLoop) {
 	volatile std::size_t sink = 0;
 	const clock_t t0 = std::clock();
 	for (int i = 0; i < kIters; ++i) {
-		sink += std::char_traits<char>::length(NkGraphicsApiToString(
-			static_cast<NkGraphicsApi>(i % static_cast<int>(NkGraphicsApi::NK_GFX_API_RENDERER_API_MAX))));
+		// NkGraphicsApi vit dans nkentseu::graphics ; la sentinelle *_RENDERER_API_MAX a
+		// DISPARU : on borne sur le dernier enumerateur (NK_GFX_API_NVN), 2026-09-04.
+		using nkentseu::graphics::NkGraphicsApi;
+		constexpr int kApiCount = static_cast<int>(NkGraphicsApi::NK_GFX_API_NVN) + 1;
+		sink += std::char_traits<char>::length(NkGraphicsApiToString(static_cast<NkGraphicsApi>(i % kApiCount)));
 	}
 	const clock_t t1 = std::clock();
 	const double ns = (static_cast<double>(t1 - t0) * 1000000000.0) / static_cast<double>(CLOCKS_PER_SEC);
