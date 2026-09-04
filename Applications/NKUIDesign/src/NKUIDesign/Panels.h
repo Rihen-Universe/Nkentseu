@@ -11348,6 +11348,110 @@ namespace nkuidesign {
 			/// texte atténué à droite quand elles existent (la référence les
 			/// montre ainsi, pas en champs — l'édition des bornes passe par le
 			/// document, écart nommé au rapport).
+			/// LA ROTATION, dans le bloc géométrie (Lunacy ; Q86, 04/09). Le corps est
+			/// celui qui vivait dans APPARENCE, déplacé tel quel.
+			void LigneRotation(NkGuiContext &ctx) {
+				NkUINode *n = NoeudMutable();
+				if (!n)
+					return;
+				auto &F = costume::Fontes();
+				auto &dl = ctx.DL();
+				(void)F;
+				(void)dl;
+					{
+						const bool peut = NkPeutTourner(*n);
+						const NkRect r = ctx.NextItemRect(-1.f, 26.f);
+						const float32 x0 = r.x + 12.f;
+						if (!peut)
+							ctx.BeginDisabled();
+						costume::Texte(dl, F.px10, x0,
+									   costume::CentrerBande(F.px10, r.y), "Rotation",
+									   ctx.theme.textMuted);
+						const NkRect rr = {x0 + ColChampsCalc(r.w - 24.f), costume::BandeY(r.y), 48.f, costume::HControle};
+						if (peut) {
+							ChampNombreMulti(
+								ctx, "insp.app.rotation", rr, 1.f, -360.f, 360.f,
+								[](const NkUINode &q) { return q.rotation; },
+								[](NkUINode &q, float32 v) { q.rotation = NkAngleNormalise(v); });
+						} else {
+							dl.AddRectFilled(rr, CouleurInput(), 4.f);
+							dl.AddRect(rr, ctx.theme.border, 1.f, 4.f);
+							costume::Texte(dl, F.px11, rr.x + costume::PadChamp,
+										   costume::CentrerY(F.px11, rr.y, 20.f), "—",
+										   ctx.theme.textMuted);
+						}
+						costume::Texte(dl, F.px9, rr.x + rr.w + 4.f,
+									   costume::CentrerBande(F.px9, r.y), "°",
+									   ctx.theme.textMuted);
+						if (!peut) {
+							ctx.EndDisabled();
+							// ⚠️ UN CHAMP GRISÉ MUET EST PIRE QU'UN CHAMP ABSENT :
+							//    il montre une capacité sans dire ce qui manque.
+							if (ctx.popupDepth == 0 && NkGuiRectContains(r, ctx.input.mousePos))
+								mSt->status = NkString(NkRaisonPasDeRotation());
+						} else if (!NkPeintureSaitTourner(*n) && n->rotation != 0.f
+								   && ctx.popupDepth == 0
+								   && NkGuiRectContains(r, ctx.input.mousePos)) {
+							// La rotation est ENREGISTRÉE sur un texte, et le peintre
+							// ne la rendra pas. On le dit plutôt que de laisser
+							// croire à un bug.
+							mSt->status = NkString(NkRaisonRotationTexte());
+						}
+					}
+			}
+			/// L'ARRONDI, dans le bloc géométrie (Lunacy ; Q86, 04/09), avec ses quatre
+			/// coins déliables. Déplacé tel quel.
+			void LigneArrondi(NkGuiContext &ctx) {
+				NkUINode *n = NoeudMutable();
+				if (!n)
+					return;
+				auto &F = costume::Fontes();
+				auto &dl = ctx.DL();
+				(void)F;
+				(void)dl;
+					{
+						const NkRect r = ctx.NextItemRect(-1.f, 26.f);
+						const float32 x0 = r.x + 12.f;
+						costume::Texte(dl, F.px10, x0,
+									   costume::CentrerBande(F.px10, r.y), "Arrondi",
+									   ctx.theme.textMuted);
+						NkUINode *na = NoeudMutable();
+						const bool delies = na && na->rayonsDelies;
+						const float32 colA = ColChampsCalc(r.w - 24.f);
+						// Le bouton d'icone vit EN BOUT DE RANGEE (Lunacy).
+						const NkRect rbtn = {r.x + r.w - 12.f - 20.f, costume::BandeY(r.y), 20.f,
+											 costume::HControle};
+						const NkRect zone = {x0 + colA, costume::BandeY(r.y), 48.f,
+											 costume::HControle};
+						if (!delies) {
+							// MULTI-SÉLECTION COMPRISE : « — » si les rayons diffèrent.
+							ChampNombreMulti(
+								ctx, "insp.app.rayon", zone, 0.5f, 0.f, 128.f,
+								[](const NkUINode &q) { return q.radius; },
+								[](NkUINode &q, float32 v) { q.radius = v; });
+							if (zone.x + zone.w + 4.f + 14.f < rbtn.x - 6.f)
+								costume::Texte(dl, F.px9, zone.x + zone.w + 4.f,
+											   costume::CentrerBande(F.px9, r.y), "px",
+											   ctx.theme.textMuted);
+						}
+						if (na && BoutonQuatreValeurs(ctx, rbtn, delies)) {
+							if (delies) {
+								na->radius = na->rayonsCoins[0];
+								na->rayonsDelies = false;
+								mSt->DireAuPied("Arrondi relié — les quatre coins suivent "
+												"le premier.");
+							} else {
+								for (uint32 ci = 0; ci < 4u; ++ci)
+									na->rayonsCoins[ci] = na->radius;
+								na->rayonsDelies = true;
+								mSt->DireAuPied("Arrondi délié — chaque coin se règle "
+												"séparément.");
+							}
+							mSt->doc.MarkHumanEdit(mSt->selected);
+							mSt->host.SyncTo(mSt->doc);
+						}
+					}
+			}
 			void CorpsDisposition(NkGuiContext &ctx) {
 				if (!SectionOuverte("DISPOSITION"))
 					return;
@@ -11524,6 +11628,10 @@ namespace nkuidesign {
 					return;
 				LigneDimension(ctx, "Largeur", n->width);
 				LigneDimension(ctx, "Hauteur", n->height);
+				// comme Lunacy : rotation et arrondi dans le bloc géométrie (Q86) --
+				// deux rangées ici, une chez Lunacy : la fusion attend son œil
+				LigneRotation(ctx);
+				LigneArrondi(ctx);
 			}
 
 			/// La boîte à BARRE D'AXE : champ du costume + barre 3 px de la
@@ -13525,48 +13633,7 @@ namespace nkuidesign {
 					//    eprouvee : delier ne change RIEN a l'ecran (les quatre
 					//    partent de la valeur actuelle), relier reprend le
 					//    PREMIER coin -- jamais une moyenne.
-					{
-						const NkRect r = ctx.NextItemRect(-1.f, 26.f);
-						const float32 x0 = r.x + 12.f;
-						costume::Texte(dl, F.px10, x0,
-									   costume::CentrerBande(F.px10, r.y), "Arrondi",
-									   ctx.theme.textMuted);
-						NkUINode *na = NoeudMutable();
-						const bool delies = na && na->rayonsDelies;
-						const float32 colA = ColChampsCalc(r.w - 24.f);
-						// Le bouton d'icone vit EN BOUT DE RANGEE (Lunacy).
-						const NkRect rbtn = {r.x + r.w - 12.f - 20.f, costume::BandeY(r.y), 20.f,
-											 costume::HControle};
-						const NkRect zone = {x0 + colA, costume::BandeY(r.y), 48.f,
-											 costume::HControle};
-						if (!delies) {
-							// MULTI-SÉLECTION COMPRISE : « — » si les rayons diffèrent.
-							ChampNombreMulti(
-								ctx, "insp.app.rayon", zone, 0.5f, 0.f, 128.f,
-								[](const NkUINode &q) { return q.radius; },
-								[](NkUINode &q, float32 v) { q.radius = v; });
-							if (zone.x + zone.w + 4.f + 14.f < rbtn.x - 6.f)
-								costume::Texte(dl, F.px9, zone.x + zone.w + 4.f,
-											   costume::CentrerBande(F.px9, r.y), "px",
-											   ctx.theme.textMuted);
-						}
-						if (na && BoutonQuatreValeurs(ctx, rbtn, delies)) {
-							if (delies) {
-								na->radius = na->rayonsCoins[0];
-								na->rayonsDelies = false;
-								mSt->DireAuPied("Arrondi relié — les quatre coins suivent "
-												"le premier.");
-							} else {
-								for (uint32 ci = 0; ci < 4u; ++ci)
-									na->rayonsCoins[ci] = na->radius;
-								na->rayonsDelies = true;
-								mSt->DireAuPied("Arrondi délié — chaque coin se règle "
-												"séparément.");
-							}
-							mSt->doc.MarkHumanEdit(mSt->selected);
-							mSt->host.SyncTo(mSt->doc);
-						}
-					}
+					// (l'arrondi est dans DISPOSITION -- voir la rétractation ci-dessous)
 					// LA RANGÉE DÉPLIÉE : l'icône d'arc, puis les quatre champs.
 					if (NkUINode *nc = NoeudMutable()) {
 						if (nc->rayonsDelies) {
@@ -13587,6 +13654,16 @@ namespace nkuidesign {
 							}
 						}
 					}
+					// ── RÉTRACTATION (04/09) : ROTATION ET ARRONDI SONT DANS DISPOSITION ──
+					// L'ancienne décision, gardée telle quelle ci-dessous, les rangeait ici
+					// (« la disposition calcule des boîtes ; ranger la rotation dans
+					// DISPOSITION aurait laissé croire qu'un objet tourné pousse ses
+					// voisins »). Le mandat de Rodolf est postérieur et plus fort : « on doit
+					// exactement faire comme Lunacy », et sur ce panneau précis « pourquoi ne
+					// pas avoir un design exactement comme celui de Lunacy ? » (Q86). Lunacy
+					// les met dans le bloc géométrie : ils y sont (LigneRotation,
+					// LigneArrondi, appelées à la fin de CorpsDisposition). Une rétractation
+					// est une affirmation : la trace reste.
 					// ── ROTATION ET MIROIRS (Lunacy, bandeau du haut) ────────
 					// Retour de Rodolf, 01/09 : « dans propriétés il n'y a pas
 					// miroir, rotation etc. » Trois des neuf manques de Q42.
@@ -13596,46 +13673,6 @@ namespace nkuidesign {
 					//    rotation ne la touche pas — elle agit sur le dessin et sur
 					//    le clic. Les ranger dans DISPOSITION aurait laissé croire
 					//    qu'un objet tourné pousse ses voisins. Il ne les pousse pas.
-					{
-						const bool peut = NkPeutTourner(*n);
-						const NkRect r = ctx.NextItemRect(-1.f, 26.f);
-						const float32 x0 = r.x + 12.f;
-						if (!peut)
-							ctx.BeginDisabled();
-						costume::Texte(dl, F.px10, x0,
-									   costume::CentrerBande(F.px10, r.y), "Rotation",
-									   ctx.theme.textMuted);
-						const NkRect rr = {x0 + ColChampsCalc(r.w - 24.f), costume::BandeY(r.y), 48.f, costume::HControle};
-						if (peut) {
-							ChampNombreMulti(
-								ctx, "insp.app.rotation", rr, 1.f, -360.f, 360.f,
-								[](const NkUINode &q) { return q.rotation; },
-								[](NkUINode &q, float32 v) { q.rotation = NkAngleNormalise(v); });
-						} else {
-							dl.AddRectFilled(rr, CouleurInput(), 4.f);
-							dl.AddRect(rr, ctx.theme.border, 1.f, 4.f);
-							costume::Texte(dl, F.px11, rr.x + costume::PadChamp,
-										   costume::CentrerY(F.px11, rr.y, 20.f), "—",
-										   ctx.theme.textMuted);
-						}
-						costume::Texte(dl, F.px9, rr.x + rr.w + 4.f,
-									   costume::CentrerBande(F.px9, r.y), "°",
-									   ctx.theme.textMuted);
-						if (!peut) {
-							ctx.EndDisabled();
-							// ⚠️ UN CHAMP GRISÉ MUET EST PIRE QU'UN CHAMP ABSENT :
-							//    il montre une capacité sans dire ce qui manque.
-							if (ctx.popupDepth == 0 && NkGuiRectContains(r, ctx.input.mousePos))
-								mSt->status = NkString(NkRaisonPasDeRotation());
-						} else if (!NkPeintureSaitTourner(*n) && n->rotation != 0.f
-								   && ctx.popupDepth == 0
-								   && NkGuiRectContains(r, ctx.input.mousePos)) {
-							// La rotation est ENREGISTRÉE sur un texte, et le peintre
-							// ne la rendra pas. On le dit plutôt que de laisser
-							// croire à un bug.
-							mSt->status = NkString(NkRaisonRotationTexte());
-						}
-					}
 					// LES DEUX MIROIRS — deux bascules, pas un champ.
 					// ⚠️ ELLES SONT ÉCRITES ENSEMBLE, EN UNE BOUCLE DE DEUX, parce
 					//    que ce sont des chemins frères au sens strict : même
