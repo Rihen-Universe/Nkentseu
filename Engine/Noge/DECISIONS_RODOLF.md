@@ -1482,6 +1482,15 @@ Liste, un module par commit, mise à jour à chaque ajout :
 - `NKPlatform_Tests` — 0 réussis, 0 au total, 0 réussies, 0 au total (build+run 18 s)
 - `NKLogger_Tests` — 2 réussis, 2 au total, 5 réussies, 5 au total (build+run 28 s)
 - `NKTime_Tests` — 5 réussis, 5 au total, 24 réussies, 24 au total (build+run 27 s)
+- `Noge_Tests` — 8 réussis, 5 échoués, 11 au total, 47 réussies, 5 échouées, 52 au total (build+run 130 s) — **rouvert AVEC ses rouges, informatifs** : les trois cas
+  rouges (`SingleTriangle`, `RecalcNormalsSmooth`, `FlipNormals`) attendent une normale **+Z** pour un
+  triangle donné **CCW** dans le plan XY — c'est le contrat écrit de `NkEditableMesh.h:117-129`
+  (« dans l'ordre CCW »). Or `NkEditMesh.cpp:315` calcule `(p2 − p0) × (p1 − p0)`, soit **−Z** pour ce
+  même triangle : l'implémentation (refonte NK3DModeler, 31/07 et 16/08) est *horaire-positive*, le
+  contrat et le test (26/07) sont *trigonométriques*. **Le test a raison contre le contrat ; défaut de
+  module nommé, pas corrigé** — inverser le produit vectoriel retourne toutes les normales du
+  modeleur (faces arrière, éclairage), c'est un arbitrage de convention pour Rodolf, pas un geste de nuit.
+
 **Défaut nommé, pas corrigé ici** : les exécutables de test (et les applis) sont liés **dynamiquement** à
 `libstdc++-6.dll`/`libgcc_s_seh-1.dll`/`libwinpthread-1.dll` malgré `config/toolchain.jenga:92-94`
 (`-static-libgcc -static-libstdc++ -static`), et le runner de `jenga test` ne pose pas le `PATH` de la
