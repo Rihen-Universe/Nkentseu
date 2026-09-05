@@ -2183,6 +2183,27 @@ fusion κ + correction (impossible sans barrière : deux gathers dépendants) ; 
 (trou préexistant, même pour `imageAtomic*` — pour l'agent NkSL quand il y en aura un) ; retri partiel ; device
 software qui ment (`computeShaders = true`, agent NKRHI).
 
+### 📏 05/09 (04h) — DERNIER LEVIER DE LA NUIT : moins d'octets par voisine — `0d53d6b3` — −9 % de GPU à 50 653, physique inchangée
+
+**Mesuré avant** : κ lisait `X[j]` + `V[j]` (16 + 16 o, deux tableaux), la correction `X[j]` + κ_j et ρ_j dans la ligne de
+32 o de `FL` (48 o, une division), la non-pression 64 o sur trois lignes. **Après** : un paquet par particule,
+`PK[2j] = (pos, κ/ρ)`, `PK[2j+1] = (vel, m/ρ)`, écrit par les noyaux qui changent pos / vel / κ / ρ ; fantômes écrits une
+fois. 16 blocs de stockage : la limite NVIDIA, atteinte.
+
+| 50 653, image 60 (Ilyana 59-66 %) | avant | **après** |
+|---|---|---|
+| κ (ms / dispatchs) | 9,5 / 32 (0,30 par passe) | **9,44 / 33 (0,29)** |
+| correction | 10,2 / 28 (0,36) | **9,18 / 30 (0,31)** |
+| GPU total | 27,2 (37,2 à l'image 30) | **24,7 (36,0)** |
+| image 0d53d6b3U | 39,6 (57,1) | **35,6 (53,4)** |
+| 195 112 : GPU total / image | 141 / 184 | **138 / 155** |
+
+Physique inchangée : repos 10 s **1,001 / 1,001 / 0,015** ; Cébron **10 %** ; M&M **9 %** sur n² = 2 ; même image à pas fixe
+contre la référence 0d53d6b3U (6 651 / 6 609 px, boîte à 1 px). **Lecture honnête** : −9 % de GPU, −10 % d'image — les octets
+par voisine ne sont pas tout le coût d'une passe (liste de 64 indices = 256 o par particule, noyau W/∇W, GPU partagé).
+**Cible** : 50 653 = **35,6 ms** (image 60) / 53 (image 30) sur GPU partagé, ×2,2-3,3 la cible 16. **Extrapolation, dite
+comme telle** : GPU seul → 12-16 ms de GPU hors bulles. Non fait : indices de voisines en `uint16` relatifs à la cellule.
+
 ### 🔩 04/09 (nuit) — JENGA 2.6 : ce qui est appliqué, ce qui est mesuré en retour
 
 - **`-static` — le défaut était chez nous** : `config/toolchain.jenga:55` (bloc Windows natif) promettait
