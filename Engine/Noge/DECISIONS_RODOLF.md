@@ -2043,6 +2043,33 @@ recalculé), résidu relu une itération sur deux, tri des seules particules qui
 — **rien n'existe** dans le code (un seul `windStrength` de matériau, un shader) ; la capacité mensongère du
 device software (`computeShaders = true` sans API) — à corriger dans NKRHI par l'agent qui y touchera.
 
+### 📏 05/09 (01h10) — SPH GPU, le premier levier de coût : listes de voisines en cache + résidu relu une itération sur deux — `23f36944`
+
+Un noyau `sph_neigh` construit **une fois par sous-pas** la liste des voisines de chaque particule (64 indices ;
+fluide < cap, fantôme ≥ cap ; compte brut relevé, dépassement dit) ; densité, κ, correction et non-pression
+lisent la liste (le noyau W/∇W est recalculé : moins cher que la traversée des 27 cellules). Le résidu est relu
+aux itérations impaires (divergence) et paires (densité) : au plus une itération de plus qu'en CPU — mesuré
+**9,0 au repos contre 8,5**.
+
+| ms/image (Release, OpenGL, Ilyana 56-97 %) | CPU | GPU avant | **GPU après** | cible |
+|---|---|---|---|---|
+| repos 2 048 (+ 8 800 fantômes) | 15-17 | 16-28 (pointes 372) | **8-11** | — |
+| dam 4 096 | 47-54 | 26-29 | **10-11** | — |
+| canal n² = 2, 8 192 | 75-190 | 54-79 | **15-16** | — |
+| dam 50 653 | 497-780 | 128-136 | **39-64** | 16 🔴 |
+| dam 195 112 | — | 680-864 | **164-254** | 33 🔴 |
+| dam 1 000 000 | — | 4 880-5 268 | **1 242-1 643** | honnête |
+
+Synchronisations par image : 12 au repos (23-24 avant), 16-25 à 50 653 (33-54), 44-65 à 1 M (91-117). **Témoins
+inchangés** (repos 1,001 / 1,001 / 0,016 ; Cébron 10 % ; M&M 9 % sur n² = 2).
+
+🔴 **Toujours hors cible** : 50 653 à 39-64 ms (×2,4-4 la cible), 195 112 à 164-254 (×5-8). Ce qui reste, dans
+l'ordre du coût : le **tri bitonique complet à chaque sous-pas** (136 passes à 65 536, 210 à 1 M — un tri par
+comptage demande un atomique sur tampon que NkSL n'a pas), les 16-65 synchronisations restantes, 3-4 sous-pas
+par image sur le dam (CFL sur vmax), et un GPU partagé. Leviers nommés, non faits : atomiques sur tampon dans
+NkSL puis tri par comptage ; retri des seules particules qui changent de cellule ; nombre d'itérations fixe
+mesuré (zéro relecture) ; un profil GPU par passe (le chrono est celui du CPU, relectures comprises).
+
 ### 🔩 04/09 (nuit) — JENGA 2.6 : ce qui est appliqué, ce qui est mesuré en retour
 
 - **`-static` — le défaut était chez nous** : `config/toolchain.jenga:55` (bloc Windows natif) promettait
