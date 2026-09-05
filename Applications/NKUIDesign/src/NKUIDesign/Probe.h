@@ -13963,6 +13963,284 @@ namespace nkuidesign {
 				  chevronsJustes && toutesLesSections && placeReservee && coutBorne && cacheResservi, det);
 			NkDirectory::Delete("sonde_chevrons", true);
 		}
+		// -- 125. (4) UNE SECTION SE REPLIE POUR DE VRAI (05/09, v5). Rodolf : « les
+		//    sections ne se replient pas -- leur chevron est dessine mais inerte ». Le
+		//    temoin mesure les DEUX moities de la chaine, parce que le geste en traverse
+		//    deux : le composant (le clic plie-t-il un noeud VERROUILLE ?) et l'hote (l'etat
+		//    survit-il a la RECONSTRUCTION du rail que ce meme clic declenche ?).
+		{
+			char det[900];
+			const float32 rowH125 = NkTreeViewDecl().Metric("row_h");
+			const float32 pad125 = NkTreeViewDecl().Metric("row_pad");
+			const float32 chev125 = NkTreeViewDecl().Metric("chevron_w");
+			// ---- A. LE COMPOSANT : un titre VERROUILLE et ses deux entrees -------------
+			NkTreeViewModel m125;
+			{
+				NkTreeNode t;
+				t.id = 1u;
+				t.parent = -1;
+				t.label = NkString("TITRE");
+				t.locked = true; // c'est ce que sont les sections du rail
+				t.bandeau = true;
+				m125.nodes.PushBack(t);
+				for (uint32 k = 0; k < 2u; ++k) {
+					NkTreeNode e;
+					e.id = 2u + k;
+					e.parent = 0;
+					e.label = NkString(k == 0u ? "un" : "deux");
+					e.path = NkString(k == 0u ? "/un" : "/deux");
+					m125.nodes.PushBack(e);
+				}
+			}
+			NkTreeViewStyle st125;
+			NkTreeViewHooks h125;
+			const NkPaintRect z125{0.f, 0.f, 260.f, 300.f};
+			// L'ORDONNEE DE LA RANGEE SE LIT DU DESSIN, elle ne se devine pas : l'arbre a
+			// un en-tete, et poser la souris a `rect.y + rowH/2` la met DEDANS -- le clic
+			// tombe alors a cote et « le chevron est inerte » devient une conclusion fausse
+			// tiree d'une mesure fausse. C'est le piege qui a failli me faire corriger le
+			// composant alors qu'il n'avait rien.
+			float32 yTitre125 = -1.f;
+			{
+				NkRecordingPaint r;
+				NkComponentInput in;
+				in.surfaceScale = 1.f;
+				in.mouseX = -1000.f;
+				in.mouseY = -1000.f;
+				NkDrawTreeView(r, in, z125, m125, st125, h125);
+				for (uint32 i = 0; i < (uint32)r.cmds.Size(); ++i)
+					if (r.cmds[i].op == NkPaintOp::Text && r.cmds[i].text.Data()
+						&& NkComponentDecl::StrEq(r.cmds[i].text.Data(), "TITRE"))
+						yTitre125 = r.cmds[i].y;
+			}
+			auto dessiner = [&](bool clic, bool ailleurs) -> int32 {
+				NkRecordingPaint r;
+				NkComponentInput in;
+				in.surfaceScale = 1.f;
+				// LE CHEVRON DU TITRE : premiere case apres la marge, sur SA rangee.
+				in.mouseX = ailleurs ? z125.x + 200.f : z125.x + pad125 + chev125 * 0.5f;
+				in.mouseY = yTitre125 + rowH125 * 0.5f;
+				in.mousePressed = clic;
+				in.mouseDown = clic;
+				return NkDrawTreeView(r, in, z125, m125, st125, h125).visibleCount;
+			};
+			const int32 avant125 = dessiner(false, false); // 3 : le titre et ses deux entrees
+			dessiner(true, false);						   // le clic sur le chevron
+			const int32 apres125 = dessiner(false, false); // 1 : le titre seul
+			const bool composantPlie = avant125 == 3 && apres125 == 1;
+			// (4) ET TOUTE LA BANDE PLIE, PAS SEULEMENT LE CHEVRON. C'est LE defaut de
+			//     Rodolf : le chevron pliait deja, mais il fallait viser seize pixels, et un
+			//     clic sur le libelle d'un titre ne faisait rien du tout (il est `locked`,
+			//     donc il ne se selectionne pas non plus). Un titre n'a aucune autre action.
+			dessiner(true, true);						   // on rouvre : clic AILLEURS sur la bande
+			const int32 rouvertParLaBande = dessiner(false, false);
+			dessiner(true, true);						   // et on replie, toujours par la bande
+			const int32 replieParLaBande = dessiner(false, false);
+			const bool bandePlie = rouvertParLaBande == 3 && replieParLaBande == 1;
+			// CONTROLE NEGATIF : une entree ORDINAIRE, elle, ne plie PAS sur son libelle --
+			// `chevron_only_fold` reste vrai pour tout le monde sauf les titres. Sans ce
+			// controle, « ca plie » ne prouverait rien : n'importe quel clic plierait.
+			int32 ordinaireAvant = 0, ordinaireApres = 0;
+			{
+				NkTreeViewModel mo;
+				NkTreeNode p1;
+				p1.id = 10u;
+				p1.parent = -1;
+				p1.label = NkString("PARENT");
+				p1.path = NkString("/p");
+				mo.nodes.PushBack(p1);
+				NkTreeNode c1;
+				c1.id = 11u;
+				c1.parent = 0;
+				c1.label = NkString("ENFANT");
+				c1.path = NkString("/p/c");
+				mo.nodes.PushBack(c1);
+				float32 yp = -1.f;
+				{
+					NkRecordingPaint r;
+					NkComponentInput in;
+					in.surfaceScale = 1.f;
+					in.mouseX = -1000.f;
+					in.mouseY = -1000.f;
+					ordinaireAvant = NkDrawTreeView(r, in, z125, mo, st125, h125).visibleCount;
+					for (uint32 i = 0; i < (uint32)r.cmds.Size(); ++i)
+						if (r.cmds[i].op == NkPaintOp::Text && r.cmds[i].text.Data()
+							&& NkComponentDecl::StrEq(r.cmds[i].text.Data(), "PARENT"))
+							yp = r.cmds[i].y;
+				}
+				{
+					NkRecordingPaint r;
+					NkComponentInput in;
+					in.surfaceScale = 1.f;
+					in.mouseX = z125.x + 200.f; // sur le libelle, loin du chevron
+					in.mouseY = yp + rowH125 * 0.5f;
+					in.mousePressed = true;
+					in.mouseDown = true;
+					NkDrawTreeView(r, in, z125, mo, st125, h125);
+				}
+				{
+					NkRecordingPaint r;
+					NkComponentInput in;
+					in.surfaceScale = 1.f;
+					in.mouseX = -1000.f;
+					in.mouseY = -1000.f;
+					ordinaireApres = NkDrawTreeView(r, in, z125, mo, st125, h125).visibleCount;
+				}
+			}
+			const bool ordinaireInchange = ordinaireAvant == 2 && ordinaireApres == 2;
+			// ---- B. L'HOTE : l'etat survit-il a la reconstruction du rail ? ------------
+			// Le clic change l'ensemble des noeuds deplies ; le selecteur le CONSTATE par
+			// une empreinte et rebatit le rail. Si le pliage ne survivait pas a ce
+			// rebatissage, le chevron paraitrait inerte a l'ecran alors que le composant,
+			// lui, a bien fait son travail. C'est la moitie que le temoin du kit ne voit pas.
+			NkDirectory::Delete("sonde_replier", true);
+			NkDirectory::CreateRecursive("sonde_replier/a");
+			const NkString rac125 =
+				(NkPath(NkDirectory::GetCurrentDirectory()) / "sonde_replier").ToString();
+			editorkit::NkFilePickerNavState nav125;
+			char b125[512] = {};
+			nav125.OpenPickerBase(editorkit::NkSelecteurOuvrirDossier, rac125.Data(), b125,
+								  (int32)sizeof(b125), nullptr, nullptr);
+			nav125.relire = true;
+			nav125.RelireDossier();
+			nk_uint64 idSection = 0u;
+			for (uint32 k = 0; k < (uint32)nav125.vue.folders.nodes.Size(); ++k) {
+				const char *l = nav125.vue.folders.nodes[k].label.Data();
+				if (l && NkComponentDecl::StrEq(l, "Acc\u00e8s rapide"))
+					idSection = nav125.vue.folders.nodes[k].id;
+			}
+			const bool ouverteAuDepart = idSection != 0u && nav125.vue.folders.IsOpen(idSection, true);
+			// on plie, comme le ferait le clic
+			nav125.vue.folders.SetOpen(idSection, false, true);
+			// puis LES DEUX LIGNES QUE FAIT LE SELECTEUR a l'image suivante
+			const nk_uint64 emp125 = nav125.EmpreinteDeplie();
+			const bool empreinteBouge = emp125 != nav125.empreinteDeplie;
+			nav125.empreinteDeplie = emp125;
+			nav125.ConstruireRail();
+			const bool survit = !nav125.vue.folders.IsOpen(idSection, true);
+			// et les entrees de la section ne sont plus EMISES
+			NkComponentInstance inst125(NkContentBrowserDecl());
+			inst125.SetParam("show_header", 0.f);
+			inst125.SetParam("show_actions", 0.f);
+			NkContentBrowserStyle sty125 = DemoStyle(nullptr);
+			sty125.values = &inst125;
+			NkContentBrowserHooks hb125;
+			auto lignesRail = [&]() -> uint32 {
+				NkRecordingPaint r;
+				NkComponentInput in;
+				in.surfaceScale = 1.f;
+				in.mouseX = -1000.f;
+				in.mouseY = -1000.f;
+				NkDrawContentBrowser(r, in, {0.f, 0.f, 900.f, 500.f}, nav125.vue, sty125, hb125);
+				uint32 n = 0u;
+				for (uint32 i = 0; i < (uint32)nav125.vue.folders.nodes.Size(); ++i) {
+					// une entree EST VISIBLE si tous ses ancetres sont deplies
+					bool vue = true;
+					for (int32 a = nav125.vue.folders.nodes[i].parent; a >= 0;
+						 a = nav125.vue.folders.nodes[(uint32)a].parent)
+						if (!nav125.vue.folders.IsOpen(nav125.vue.folders.nodes[(uint32)a].id, true))
+							vue = false;
+					if (vue)
+						++n;
+				}
+				return n;
+			};
+			const uint32 replie = lignesRail();
+			nav125.vue.folders.SetOpen(idSection, true, true);
+			nav125.ConstruireRail();
+			const uint32 deplie = lignesRail();
+			const bool lignesSuivent = replie < deplie;
+			// ---- C. LE CYCLE COMPLET : DEUX IMAGES, UN VRAI CLIC -----------------------
+			// Les deux moities separement ne suffisent pas : le defaut pouvait vivre dans
+			// leur ENCHAINEMENT (l'image qui suit le clic reconstruit le rail avant de
+			// dessiner). On refait donc ici, a l'identique, ce que fait `NkDrawFilePickerNav`
+			// image par image -- l'empreinte AVANT le dessin, le dessin ensuite.
+			const NkPaintRect zC{0.f, 0.f, 900.f, 500.f};
+			float32 ySection = -1.f;
+			{
+				NkRecordingPaint r;
+				NkComponentInput in;
+				in.surfaceScale = 1.f;
+				in.mouseX = -1000.f;
+				in.mouseY = -1000.f;
+				NkDrawContentBrowser(r, in, zC, nav125.vue, sty125, hb125);
+				for (uint32 i = 0; i < (uint32)r.cmds.Size(); ++i)
+					if (r.cmds[i].op == NkPaintOp::Text && r.cmds[i].text.Data()
+						&& NkComponentDecl::StrEq(r.cmds[i].text.Data(), "Accès rapide"))
+						ySection = r.cmds[i].y;
+			}
+			// IMAGE 1 : le clic sur le chevron de la section.
+			{
+				NkRecordingPaint r;
+				NkComponentInput in;
+				in.surfaceScale = 1.f;
+				in.mouseX = zC.x + pad125 + chev125 * 0.5f;
+				in.mouseY = ySection + rowH125 * 0.5f;
+				in.mousePressed = true;
+				in.mouseDown = true;
+				NkDrawContentBrowser(r, in, zC, nav125.vue, sty125, hb125);
+			}
+			const bool plieAuClic = !nav125.vue.folders.IsOpen(idSection, true);
+			// IMAGE 2 : ce que le selecteur fait AVANT de dessiner -- il constate le
+			// changement de depliage et rebatit le rail.
+			{
+				const nk_uint64 e2 = nav125.EmpreinteDeplie();
+				if (e2 != nav125.empreinteDeplie) {
+					nav125.empreinteDeplie = e2;
+					nav125.ConstruireRail();
+				}
+			}
+			uint32 apresCycle = 0u;
+			{
+				NkRecordingPaint r;
+				NkComponentInput in;
+				in.surfaceScale = 1.f;
+				in.mouseX = -1000.f;
+				in.mouseY = -1000.f;
+				NkDrawContentBrowser(r, in, zC, nav125.vue, sty125, hb125);
+				// on compte les LIBELLES d'entrees encore emis sous la section repliee
+				for (uint32 q = 0; q < (uint32)nav125.vue.folders.nodes.Size(); ++q) {
+					if (nav125.vue.folders.nodes[q].path.Empty()) continue;
+					bool sousLaSection = false;
+					for (int32 aa = nav125.vue.folders.nodes[q].parent; aa >= 0;
+						 aa = nav125.vue.folders.nodes[(uint32)aa].parent)
+						if (nav125.vue.folders.nodes[(uint32)aa].id == idSection)
+							sousLaSection = true;
+					if (!sousLaSection) continue;
+					for (uint32 i = 0; i < (uint32)r.cmds.Size(); ++i)
+						if (r.cmds[i].op == NkPaintOp::Text && r.cmds[i].text.Data()
+							&& NkComponentDecl::StrEq(r.cmds[i].text.Data(),
+													  nav125.vue.folders.nodes[q].label.Data()))
+							++apresCycle;
+				}
+			}
+			const bool cycleOk = plieAuClic && apresCycle == 0u;
+			snprintf(det, sizeof(det),
+					 "COMPOSANT : %d rangee(s) avant, %d apres le clic sur le chevron d'un titre VERROUILLE "
+					 "-> %d ; TOUTE LA BANDE plie : %d rangee(s) rouvertes puis %d repliees par un clic sur "
+					 "le libelle -> %d ; controle negatif (une entree ORDINAIRE ne plie pas sur son "
+					 "libelle) : %d -> %d rangee(s), inchange=%d ; "
+					 "HOTE : section ouverte au depart=%d, l'empreinte bouge=%d, le pliage SURVIT a la "
+					 "reconstruction du rail=%d ; rail : %u ligne(s) replie contre %u deplie -> %d ; "
+					 "CYCLE COMPLET (clic image 1, reconstruction image 2) : plie au clic=%d, %u libelle(s) "
+					 "de la section encore peints (0 attendu) -> %d",
+					 avant125, apres125, composantPlie ? 1 : 0, rouvertParLaBande, replieParLaBande,
+					 bandePlie ? 1 : 0, ordinaireAvant, ordinaireApres, ordinaireInchange ? 1 : 0,
+					 ouverteAuDepart ? 1 : 0, empreinteBouge ? 1 : 0,
+					 survit ? 1 : 0, replie, deplie, lignesSuivent ? 1 : 0, plieAuClic ? 1 : 0,
+					 apresCycle, cycleOk ? 1 : 0);
+			check("125. (4) UNE SECTION PLIE SUR TOUTE SA BANDE, ET LE PLIAGE SURVIT A LA RECONSTRUCTION DU RAIL : "
+				  "la MESURE a corrige le diagnostic -- le chevron n'etait PAS inerte, il pliait deja, et l'etat "
+				  "survivait meme au rebatissage du rail. Ce qui etait inerte, c'etait TOUT LE RESTE de la bande : "
+				  "`chevron_only_fold` vaut 1 par defaut et un titre est `locked`, donc un clic sur son libelle ne "
+				  "pliait pas ET ne selectionnait pas -- il fallait viser seize pixels. Un titre n'ayant aucune "
+				  "autre action, toute sa bande devient la cible du pliage ; une entree ORDINAIRE, elle, garde la "
+				  "regle du chevron seul",
+				  composantPlie && bandePlie && ordinaireInchange && ouverteAuDepart && empreinteBouge
+					  && survit && lignesSuivent && cycleOk,
+				  det);
+			NkDirectory::Delete("sonde_replier", true);
+		}
 		snprintf(tail, sizeof(tail), "\n=== RESULTAT : %d / %d ===\n", pass, total);
 		rep.Append(tail);
 

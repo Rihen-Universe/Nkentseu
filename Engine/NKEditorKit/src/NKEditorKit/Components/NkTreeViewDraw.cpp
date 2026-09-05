@@ -649,8 +649,20 @@ namespace nkentseu {
 				//    `chevron_only_fold` est vrai. Lecon de NK3DModeler : le clic de
 				//    ligne pliait aussi, « trop sensible et genant pour renommer »
 				//    (Rihen). Le clic qui plie ne selectionne pas.
+				// ④ (05/09, v5) UN EN-TETE DE SECTION PLIE SUR TOUTE SA BANDE.
+				// Rodolf : « les sections ne se replient pas -- leur chevron est dessine mais
+				// inerte ». MESURE (sonde 125) : le chevron n'etait PAS inerte -- le clic sur
+				// lui pliait deja, et le pliage survivait meme a la reconstruction du rail.
+				// Ce qui etait inerte, c'est TOUT LE RESTE DE LA BANDE : `chevron_only_fold`
+				// vaut 1 par defaut, et un titre est `locked`, donc un clic sur son libelle ne
+				// pliait pas ET ne selectionnait pas. Il fallait viser seize pixels.
+				// Un titre n'a AUCUNE autre action : il ne se selectionne pas, ne se renomme
+				// pas, ne porte pas de drapeau. Toute sa bande devient donc la cible du
+				// pliage -- ce qui est aussi ce que fait l'explorateur du systeme.
 				const bool foldClick =
-					in.mousePressed && (hitChevron || (!chevronOnly && !hitLabel && hitFlag < 0));
+					in.mousePressed
+					&& (hitChevron || (n.bandeau && !flat)
+						|| (!chevronOnly && !hitLabel && hitFlag < 0));
 				if (foldClick) {
 					const bool nowOpen = !m.IsOpen(n.id, defaultOpen);
 					m.SetOpen(n.id, nowOpen, defaultOpen);
