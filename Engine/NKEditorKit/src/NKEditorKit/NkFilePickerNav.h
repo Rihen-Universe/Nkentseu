@@ -497,29 +497,36 @@ namespace nkentseu {
 						if (poses == 0u)
 							ajouter("/", "/", sec); // les systemes qui n'enumerent pas leurs montages
 					}
-					// ── LE DOSSIER COURANT : sa chaine, puis ses sous-dossiers ─────────────
-					// Il reste dans le rail parce que c'est LE moyen de remonter d'un cran sans
-					// perdre le contexte -- mais il est desormais une SECTION, pas un melange.
-					{
+					// ── LE DOSSIER COURANT : LUI, puis ses sous-dossiers ─────────────────
+					// ⚠️ LA CHAINE D'ANCETRES A ETE RETIREE (05/09, nuit), et c'est une MESURE qui
+					//    l'a decidee, pas un gout : elle ajoutait CINQ rangees et CINQ niveaux
+					//    d'indentation pour `D: > Projets > 2026 > Nkentseu > Nkentseu-noge`. Deux
+					//    consequences visibles sur la capture de Rodolf :
+					//      - les sous-dossiers tombaient a la profondeur 6, ou il reste DIX PIXELS
+					//        pour un nom -> ils s'affichaient tous « ... » ;
+					//      - les trois sections, pourtant PEINTES (sonde 105), etaient repoussees
+					//        au-dela des onze rangees visibles -- Rodolf ne voyait qu'une
+					//        arborescence nue et concluait qu'elles n'existaient pas.
+					//    Le FIL D'ARIANE, juste au-dessus, porte deja ces ancetres ET il est
+					//    cliquable : les repeter ici coutait cinq rangees pour rien.
+					//    Profondeur maximale desormais : 2 (le dossier, ses enfants).
+					if (pickerPath[0]) {
 						const int32 sec = section("Dossier courant");
-						int32 parent = sec;
-						for (uint32 k = 0; k < (uint32)cheminsCrumb.Size(); ++k) {
-							const int32 j = ajouter(cheminsCrumb[k].CStr(), vue.breadcrumb[k].CStr(), parent);
-							if (j >= 0) {
-								parent = j;
-								vue.folders.SetOpen(vue.folders.nodes[(uint32)j].id, true, true);
-							}
-						}
-						if (parent != sec && pickerPath[0]) {
+						NkString nom = NkPath(pickerPath).GetFileName();
+						if (nom.Empty())
+							nom = NkString(pickerPath);
+						const int32 ici = ajouter(pickerPath, nom.CStr(), sec);
+						if (ici >= 0) {
+							vue.folders.SetOpen(vue.folders.nodes[(uint32)ici].id, true, true);
 							NkVector<NkDirectoryEntry> e = NkDirectory::GetEntries(
 								NkPath(pickerPath), "*", NkSearchOption::NK_TOP_DIRECTORY_ONLY);
 							for (usize i = 0; i < e.Size(); ++i) {
 								const char *nm = e[i].Name.CStr();
 								if (!e[i].IsDirectory || !nm || !nm[0] || nm[0] == '.' || e[i].IsHidden)
 									continue;
-								ajouter((NkPath(pickerPath) / e[i].Name.CStr()).ToString().CStr(), nm, parent);
+								ajouter((NkPath(pickerPath) / e[i].Name.CStr()).ToString().CStr(), nm, ici);
 							}
-							vue.folders.active = vue.folders.nodes[(uint32)parent].id;
+							vue.folders.active = vue.folders.nodes[(uint32)ici].id;
 						}
 					}
 				}

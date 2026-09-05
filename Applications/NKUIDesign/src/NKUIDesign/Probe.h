@@ -11852,6 +11852,125 @@ namespace nkuidesign {
 				porteA && porteB && nomTenu && deuxPleines && neufNonPrepare, det);
 			st104.choixExport = DesignState::NkChoixExport();
 		}
+		// ── 105. ① CE QUE LE RAIL PEINT VRAIMENT, EN MODE ENREGISTREMENT (05/09, nuit).
+		//    Rodolf : « le rail n'a aucune de tes trois sections » -- et la sonde 99, qui
+		//    mesurait LE MODELE, etait verte. Une sonde sur le modele ne dit rien du dessin :
+		//    c'est la lecon de la famille « declarer n'est pas livrer », appliquee a moi-meme.
+		//    Celle-ci DESSINE, a la largeur REELLE du dialogue (860 de large, `tree_width`
+		//    fraction de la declaration), avec l'instance que le selecteur utilise, et lit les
+		//    textes emis dans la COLONNE DE GAUCHE.
+		{
+			char det[900];
+			editorkit::NkFilePickerNavState nav105;
+			char buf105[512] = {};
+			nav105.OpenPickerBase(editorkit::NkSelecteurEnregistrer,
+					NkDirectory::GetCurrentDirectory().ToString().Data(), buf105,
+					(int32)sizeof(buf105), nullptr, nullptr);
+			nav105.RelireDossier();
+			// LE MODELE : ce que la sonde 99 mesure deja
+			uint32 sectionsModele = 0u;
+			for (uint32 i = 0; i < (uint32)nav105.vue.folders.nodes.Size(); ++i)
+				if (nav105.vue.folders.nodes[i].parent == -1 && nav105.vue.folders.nodes[i].locked)
+					++sectionsModele;
+			// LA PROFONDEUR DU RAIL, lue dans le modele. C'est ELLE la cause des deux
+			// symptomes de la capture -- les libelles reduits a « ... » et les sections
+			// repoussees hors du champ -- et, contrairement au nombre de rangees peintes,
+			// elle ne depend pas du rognage : `NkRecordingPaint` enregistre TOUT, y compris
+			// ce qui tombe hors de la zone visible. Une premiere version de cette sonde
+			// comptait les rangees peintes et restait VERTE sous la mutation.
+			uint32 profondeurRail = 0u;
+			for (uint32 i = 0; i < (uint32)nav105.vue.folders.nodes.Size(); ++i) {
+				uint32 d = 0u;
+				for (int32 a = nav105.vue.folders.nodes[i].parent; a >= 0;
+					 a = nav105.vue.folders.nodes[(uint32)a].parent)
+					++d;
+				if (d > profondeurRail)
+					profondeurRail = d;
+			}
+			// LE NOMBRE DE RANGEES AVANT la premiere entree du dossier courant : ce sont
+			// celles qu'il faut avoir depassees pour voir quoi que ce soit d'utile.
+			uint32 rangeesAvantCourant = 0u;
+			for (uint32 i = 0; i < (uint32)nav105.vue.folders.nodes.Size(); ++i) {
+				if (NkComponentDecl::StrEq(nav105.vue.folders.nodes[i].label.Data(), "Dossier courant"))
+					break;
+				++rangeesAvantCourant;
+			}
+			// LE DESSIN : la meme zone que le dialogue reel
+			const NkPaintRect zone105{0.f, 0.f, 860.f, 470.f};
+			NkContentBrowserStyle sty105 = DemoStyle(nullptr);
+			sty105.values = &editorkit::NkInstanceVoletSelecteur(false);
+			NkContentBrowserHooks h105;
+			NkComponentInput in105;
+			NkRecordingPaint r105;
+			NkDrawContentBrowser(r105, in105, zone105, nav105.vue, sty105, h105);
+			// la colonne de gauche : `tree_width` de la declaration, en fraction
+			const float32 largeurRail = zone105.w * NkContentBrowserDecl().Param("tree_width");
+			// le haut du CORPS : sous la bande de tete (tue), la barre d'outils, les puces
+			// et la rangee d'information -- tous des nombres de la DECLARATION.
+			const float32 hautCorps = NkContentBrowserDecl().Metric("toolbar_h")
+						 + NkContentBrowserDecl().Metric("filter_h")
+						 + NkContentBrowserDecl().Metric("info_h");
+			uint32 sectionsPeintes = 0u, textesRail = 0u, videsRail = 0u;
+			char premiers[220];
+			premiers[0] = '\0';
+			for (uint32 i = 0; i < (uint32)r105.cmds.Size(); ++i) {
+				const NkPaintCmd &c = r105.cmds[i];
+				// ⚠️ BORNER EN Y AUSSI. Depuis (4) les boutons d'action se taisent, et le FIL
+			//    D'ARIANE commence donc tout a gauche -- dans la fenetre en x de la colonne.
+			//    Une premiere version de cette sonde comptait ses miettes comme des lignes
+			//    de rail : elle mesurait deux choses sous un seul nom.
+			if (c.op != NkPaintOp::Text || c.x >= largeurRail || c.y < hautCorps)
+					continue;
+				const char *t = c.text.Data();
+				++textesRail;
+				if (!t || !t[0])
+					++videsRail;
+				else if (NkComponentDecl::StrEq(t, "R\u00e9cents") || NkComponentDecl::StrEq(t, "Acc\u00e8s rapide")
+					 || NkComponentDecl::StrEq(t, "Ce PC") || NkComponentDecl::StrEq(t, "Dossier courant"))
+					++sectionsPeintes;
+				if (textesRail <= 5u && t && t[0]) {
+					const usize n = NkString(premiers).Length();
+					snprintf(premiers + n, sizeof(premiers) - n, "%s%s", n ? " | " : "", t);
+				}
+			}
+			// LA LARGEUR UTILE AU PLUS PROFOND : c'est elle qui produit les « ... »
+			uint32 profMax = 0u;
+			{
+				// profondeur = position x du texte, en pas d'indentation
+				float32 xMax = 0.f;
+				for (uint32 i = 0; i < (uint32)r105.cmds.Size(); ++i) {
+					const NkPaintCmd &c = r105.cmds[i];
+					if (c.op == NkPaintOp::Text && c.x < largeurRail && c.x > xMax)
+						xMax = c.x;
+				}
+				profMax = (uint32)(largeurRail - xMax > 0.f ? largeurRail - xMax : 0.f);
+			}
+			const bool sectionsAuDessin = sectionsPeintes >= 3u
+					&& NkString(premiers).StartsWith("Acc\u00e8s rapide");
+			// ≤ 2 : la section, le dossier, ses enfants. Au-dela, l'indentation mange le nom.
+			const bool profondeurTenue = profondeurRail <= 2u;
+			const bool aucunVide = videsRail == 0u;
+			// ⚠️ LA LARGEUR N'EST PAS JUGEE ICI : elle est le sujet de (2) et de la sonde
+			//    106. Cette sonde la MESURE et l'imprime -- une sonde qui exigerait deux
+			//    corrections a la fois ne pourrait pas etre verte entre les deux commits.
+			const uint32 largeurUtile = profMax;
+			snprintf(det, sizeof(det),
+				"MODELE : %u section(s) racine `locked` ; DESSIN a la largeur reelle (rail %.0f px sur %.0f) : "
+				"%u texte(s) dans la colonne, dont %u section(s) et %u VIDE(s) ; cinq premiers : %s ; largeur "
+				"utile au plus profond : %u px (jugee par (2), sonde 106) ; PROFONDEUR du rail : %u (≤ 2 exige), "
+				"%u rangee(s) avant le dossier courant -> sections dessinees et en tete=%d, aucun libelle vide=%d, "
+				"profondeur tenue=%d",
+				sectionsModele, (double)largeurRail, (double)zone105.w, textesRail, sectionsPeintes, videsRail,
+				premiers[0] ? premiers : "(aucun)", largeurUtile, profondeurRail, rangeesAvantCourant,
+				sectionsAuDessin ? 1 : 0, aucunVide ? 1 : 0, profondeurTenue ? 1 : 0);
+			check("105. ① LE RAIL PEINT SES SECTIONS, ET AUCUN LIBELLE VIDE : la sonde 99 mesurait LE MODELE et etait verte "
+				"pendant que Rodolf ne voyait aucune section -- une mesure du modele ne dit rien du dessin. Celle-ci DESSINE "
+				"a la largeur reelle du dialogue, avec l'instance que le selecteur utilise, et exige : les trois sections "
+				"PEINTES dans la colonne de gauche ET EN TETE (la chaine d'ancetres les repoussait au-dela des onze "
+				"rangees visibles), AUCUN libelle vide, et une PROFONDEUR d'au plus 2 -- les « ... » de la capture "
+				"etaient des noms a la profondeur 6, ou l'indentation ne laisse que dix pixels",
+				sectionsAuDessin && aucunVide && profondeurTenue, det);
+		}
 		snprintf(tail, sizeof(tail), "\n=== RESULTAT : %d / %d ===\n", pass, total);
 		rep.Append(tail);
 
