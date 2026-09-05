@@ -11754,9 +11754,10 @@ namespace nkuidesign {
 				// la rangee modele + valeurs (Hex ˅ / RGB / HSB), puis LA RANGEE DE LA
 				// VARIABLE (Lunacy, capture `..._creer_variable.png` : le bouton « Create
 				// Color Variable » sous la rangee du modele ; ou le nom + « Detacher »)
-				// une rangée de plus quand la couleur est LIÉE : « Modifier la variable » (③)
+				// une rangée de plus quand la couleur est LIÉE : « Modifier la variable » (③) ;
+				// et TOUJOURS la rangée d'opacité (① du 05/09, après-midi)
 				const bool couleurLiee = NkEstReference(couleurCourante.Data());
-				const float32 hHex = 26.f + 26.f + (couleurLiee ? 26.f : 0.f);
+				const float32 hHex = 26.f + 26.f + 26.f + (couleurLiee ? 26.f : 0.f);
 				// LIER UNE VARIABLE EXISTANTE : la liste se deplie DANS le popover (une rangee
 				// de 20 px par variable, six au plus -- au-dela, le rail Variables), et la
 				// boite grandit d'autant ; rien tant que la liste est repliee ou que la
@@ -12240,8 +12241,72 @@ namespace nkuidesign {
 					// ── 3bis. LA VARIABLE (§15.14) : « Créer une variable de couleur » sous la
 					//    rangée modèle -- c'est LA place de Lunacy ; ou, quand la couleur
 					//    courante référence déjà une variable : pastille · NOM · « Détacher »
+					// ③ L'OPACITE SUR SA PROPRE LIGNE (2026-09-05, après-midi). Rodolf : « est-ce
+					//    possible que le pourcentage ait sa propre ligne avec une barre et un
+					//    glisseur pour changer la transparence sans retirer celle de la valeur qu'on
+					//    a déjà entrée, et que cette barre ait un dégradé de la transparence à la
+					//    couleur pleine ? »
+					// ⚠️ LE CHAMP RESTE, ET C'EST LE POINT : deux commandes, UN SEUL modèle
+					//    (`opRef`). La barre écrit ce que le champ lit, et l'inverse — il n'y a pas
+					//    de valeur « de la barre ». Un curseur qui aurait sa propre mémoire aurait
+					//    divergé dès la première frappe.
+					// ⚠️ LE DAMIER EST SOUS LA BARRE, pas derrière la fenêtre : c'est lui qui rend la
+					//    transparence LISIBLE — sans lui, une barre qui va du fond du popover à la
+					//    couleur ne dit pas si le début est transparent ou sombre.
 					{
-						const NkRect rv = {x0, y + 26.f + 3.f, x1 - x0, 20.f};
+						const NkRect ra = {x0, y + 26.f + 3.f, x1 - x0, 20.f};
+						costume::Texte(dl, F.px9, ra.x, costume::CentrerY(F.px9, ra.y, 20.f), "Opacité", ctx.theme.textMuted);
+						const float32 xb = ra.x + 44.f;
+						const NkRect barre = {xb, ra.y + 3.f, ra.x + ra.w - 40.f - xb, 14.f};
+						mRectAlphaBarre = barre;
+						if (barre.w > 8.f) {
+							for (int32 dy = 0; dy < 2; ++dy) // le damier, 7 px
+								for (float32 dx = 0.f; dx < barre.w; dx += 7.f) {
+									const float32 wq = (dx + 7.f > barre.w) ? barre.w - dx : 7.f;
+									dl.AddRectFilled({barre.x + dx, barre.y + 7.f * (float32)dy, wq, 7.f},
+													 (((int32)(dx / 7.f) + dy) & 1) ? nkgui::NkColor{212, 212, 212, 255}
+																				   : nkgui::NkColor{154, 154, 154, 255});
+								}
+							// le dégradé : la MÊME couleur, de alpha 0 à alpha 1, en bandes
+							const nkgui::NkColor pleine = NkCouleurDepuisHex(NkHexLisible(d.hex) ? d.hex : "#ffffff");
+							enum { kBandes = 32 };
+							for (int32 b = 0; b < kBandes; ++b) {
+								const float32 t0 = (float32)b / (float32)kBandes;
+								const nkgui::NkColor c = {pleine.r, pleine.g, pleine.b,
+														  (uint8)(255.f * (t0 + 0.5f / (float32)kBandes) + 0.5f)};
+								dl.AddRectFilled({barre.x + barre.w * t0, barre.y, barre.w / (float32)kBandes + 0.5f, barre.h}, c);
+							}
+							dl.AddRect(barre, ctx.theme.border, 1.f, 2.f);
+							// le curseur, à la valeur DU MODÈLE
+							const float32 tOp = (opRef < 0.f ? 0.f : (opRef > 100.f ? 100.f : opRef)) * 0.01f;
+							const NkRect cur = {barre.x + barre.w * tOp - 3.f, barre.y - 2.f, 6.f, barre.h + 4.f};
+							mRectAlphaCurseur = cur;
+							dl.AddRectFilled(cur, nkgui::NkColor{255, 255, 255, 255}, 2.f);
+							dl.AddRect(cur, ctx.theme.accent, 1.f, 2.f);
+							// le geste : appui DANS la barre, puis glisser (même quand le pointeur sort)
+							if (ctx.input.mouseClicked[0] && NkGuiRectContains({barre.x - 4.f, barre.y - 4.f, barre.w + 8.f, barre.h + 8.f},
+																			   ctx.input.mousePos)) {
+								mAlphaDrag = true;
+								ctx.input.mouseClicked[0] = false;
+							}
+							if (mAlphaDrag && !ctx.input.mouseDown[0])
+								mAlphaDrag = false;
+							if (mAlphaDrag) {
+								float32 t = (ctx.input.mousePos.x - barre.x) / barre.w;
+								if (t < 0.f)
+									t = 0.f;
+								if (t > 1.f)
+									t = 1.f;
+								const float32 nv = t * 100.f;
+								if (nv != opRef) {
+									opRef = nv;
+									touche();
+								}
+							}
+						}
+					}
+					{
+						const NkRect rv = {x0, y + 52.f + 3.f, x1 - x0, 20.f};
 						if (NkEstReference(couleurCourante.Data())) {
 							const NkVariable *var = mSt->doc.TrouverVariable(couleurCourante.Data());
 							const char *res = mSt->doc.ResoudreCouleur(couleurCourante.Data());
@@ -12667,6 +12732,13 @@ namespace nkuidesign {
 
 			/// ⑩ Ce que la rangée « Arrondi » a peint à la dernière image (aide, bouton) —
 			///    lu par la sonde 92 : elle mesure le peint, pas une géométrie devinée.
+			/// ③ la barre d'opacité du sélecteur et son curseur, à la dernière image
+			NkRect RectAlphaBarre() const {
+				return mRectAlphaBarre;
+			}
+			NkRect RectAlphaCurseur() const {
+				return mRectAlphaCurseur;
+			}
 			/// ⑥ ce que la section « ALIGNER LA SÉLECTION » a peint (huit boutons, la bascule)
 			NkRect RectAligner(nkentseu::uint32 i) const {
 				return i < 8u ? mRectAligner[i] : NkRect{0.f, 0.f, 0.f, 0.f};
@@ -16759,6 +16831,10 @@ namespace nkuidesign {
 			/// ③ Le sélecteur écrit-il DANS la variable ? Faux par défaut : il détache.
 			///    Armé par « Modifier la variable », désarmé dès qu'on change de remplissage.
 			bool mEditerVariable = false;
+			/// ③ la barre d'opacité : le geste en cours, et ce qu'elle a peint (pour la sonde)
+			bool mAlphaDrag = false;
+			NkRect mRectAlphaBarre = {0.f, 0.f, 0.f, 0.f};
+			NkRect mRectAlphaCurseur = {0.f, 0.f, 0.f, 0.f};
 			/// ⑩ Les deux rectangles de la rangée « Arrondi » à la dernière image : l'aide
 			///    réellement peinte et le bouton qu'elle ne doit pas atteindre.
 			NkRect mRectAideArrondi = {0.f, 0.f, 0.f, 0.f};

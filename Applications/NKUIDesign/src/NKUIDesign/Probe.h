@@ -5469,7 +5469,8 @@ namespace nkuidesign {
 					}
 					const float32 x0 = px + 0.5f + 8.f;
 					// apres types, selecteur, rangee modele, ET la rangee de la variable (§15.14, 05/09)
-					const float32 yBarre = py + 0.5f + 8.f + 26.f + 168.f + 26.f + 26.f;
+					// + 26 : la RANGEE D'OPACITE (③ du 05/09, apres-midi) s'intercale avant la rampe
+					const float32 yBarre = py + 0.5f + 8.f + 26.f + 168.f + 26.f + 26.f + 26.f;
 					const nkentseu::uint32 accent = nkgui::NkGuiPackColor(ctxI.theme.accent);
 					const nkentseu::uint32 encre = nkgui::NkGuiPackColor(ctxI.theme.text); // l'anneau de la pastille courante (rayon 6)
 					const nkentseu::uint32 boite = nkgui::NkGuiPackColor(
@@ -5545,7 +5546,8 @@ namespace nkuidesign {
 						}
 						const bool dansFenetre = py >= 0.f && pyMax <= 420.5f;
 						const float32 x0 = px + 0.5f + 8.f;
-						const float32 yListe = py + 0.5f + 8.f + 26.f + 168.f + 26.f + 34.f + 26.f; // apres la rangee Angle
+						// apres la rangee Angle ; + 26 : la rangee d'opacite (③ du 05/09, apres-midi)
+						const float32 yListe = py + 0.5f + 8.f + 26.f + 168.f + 26.f + 26.f + 34.f + 26.f;
 						const nkentseu::uint32 boite = nkgui::NkGuiPackColor(
 							nkentseu::editorkit::NkThemeUnpack(stI.theme.Get(nkentseu::editorkit::NkRole::InputBg)));
 						// les boites du champ « position » des rangees visibles : x0+2 .. x0+42
@@ -6964,7 +6966,9 @@ namespace nkuidesign {
 				// la geometrie du popover (DessinerPopoverRemplissage) : 8 de marge, la rangee des
 				// types (26), le selecteur (168), la rangee modele (26), puis LA RANGEE DE LA
 				// VARIABLE a +3 (20 px de haut) ; largeur 250, x0 = +8, x1 = +250-8
-				const float32 kYRangeeVar = 0.5f + 8.f + 26.f + 168.f + 26.f + 3.f + 10.f;
+				// ③ (05/09, apres-midi) : la RANGEE D'OPACITE s'est glissee entre la rangee des
+				//    valeurs et celle de la variable -- 26 px de plus avant la variable.
+				const float32 kYRangeeVar = 0.5f + 8.f + 26.f + 168.f + 26.f + 26.f + 3.f + 10.f;
 				// ── 68a. le bouton « Creer une variable de couleur » ──
 				const uint32 avantA = couleurPeinte(stV.doc, rc);
 				ouvrir(rc);
@@ -9798,7 +9802,8 @@ namespace nkuidesign {
 					image(-1.f, -1.f, false, 0u);
 				const float32 prx3 = 580.f - 250.f - 8.f, pry3 = 200.f - 8.f;
 				const float32 x0P3 = prx3 + 8.f, x1P3 = prx3 + 250.f - 8.f;
-				const float32 yVar = pry3 + 8.f + 26.f + 168.f + 26.f + 3.f + 10.f; // la rangee de la variable
+				// la rangee de la variable, DERRIERE la rangee d'opacite (③ du 05/09 apres-midi)
+				const float32 yVar = pry3 + 8.f + 26.f + 168.f + 26.f + 26.f + 3.f + 10.f;
 				const bool popoverOuvert = ctxRet.popupDepth > 0;
 				// ── 85. RENOMMER DANS LE RAIL, LE POPOVER OUVERT ET L'OBJET SELECTIONNE ────
 				const nkgui::NkRect rNom = railRet.RectNom(0);
@@ -10731,6 +10736,167 @@ namespace nkuidesign {
 				  "l'apercu ; le peintre emet la geometrie du genre (une ellipse pour l'ellipse, un trait pour la ligne, le RAYON de "
 				  "8 px pour la variante arrondie), et le costume est celui que la creation posera",
 				  tableOk == (uint32)(sizeof(kCas) / sizeof(kCas[0])) && formesDistinctes && arrondiVisible && costumeOk, det);
+		}
+		// ── 95. ③ L'OPACITE SUR SA PROPRE LIGNE (05/09, apres-midi). Rodolf : « est-ce possible
+		//    que le pourcentage ait sa propre ligne avec une barre et un glisseur... et que cette
+		//    barre ait un degrade de la transparence a la couleur pleine ? » Trois mesures : le
+		//    curseur suit le MODELE, un glisser dans la barre ecrit le modele (et le champ le lit,
+		//    puisqu'il n'y a qu'une valeur), et la barre porte bien un degrade d'alpha.
+		{
+			static nkgui::NkGuiContext ctxOp;
+			char det[800];
+			static nkgui::NkGuiFont policeOp;
+			const bool policeOpOk = policeOp.LoadEmbedded(nkentseu::NkEmbeddedFontId::Inter, 14.f, false);
+			if (!ctxOp.Init(600, 900) || !policeOpOk) {
+				check("95. l'opacite sur sa propre ligne", false, "Init ou police a refuse");
+			} else {
+				ctxOp.font = &policeOp;
+				static DesignState stOp;
+				stOp.doc.NewDocument("Toile", NkAuthor::Humain);
+				const int32 pgO = stOp.doc.AddChild(0, "", NkAuthor::Humain);
+				stOp.doc.nodes[(uint32)pgO].shape = NkString("frame");
+				stOp.doc.nodes[(uint32)pgO].layout.kind = NkLayoutKind::Free;
+				stOp.doc.nodes[(uint32)pgO].width.mode = NkSizeMode::Fixed;
+				stOp.doc.nodes[(uint32)pgO].width.value = 300.f;
+				stOp.doc.nodes[(uint32)pgO].height.mode = NkSizeMode::Fixed;
+				stOp.doc.nodes[(uint32)pgO].height.value = 300.f;
+				const int32 rcO = stOp.doc.AddChild(pgO, "", NkAuthor::Humain);
+				{
+					NkUINode &n = stOp.doc.nodes[(uint32)rcO];
+					n.shape = NkString("rect");
+					n.posX = 100.f;
+					n.posY = 100.f;
+					n.width.mode = NkSizeMode::Fixed;
+					n.width.value = 80.f;
+					n.height.mode = NkSizeMode::Fixed;
+					n.height.value = 80.f;
+					NkRemplissage f;
+					f.couleur = NkString("#1976d2");
+					f.opacite = 100.f;
+					n.fills.PushBack(f);
+				}
+				stOp.Recompute(NkPaintRect{0.f, 0.f, 340.f, 900.f});
+				stOp.SelectSingle(rcO);
+				static InspectorPanel inspOp(&stOp);
+				NkEditorFrameContext ec;
+				ec.ui = &ctxOp;
+				ec.dt = 0.016f;
+				auto image = [&](float32 mx, float32 my, bool bas) {
+					ctxOp.input.mousePos = {mx, my};
+					ctxOp.input.mouseDown[0] = bas;
+					ctxOp.BeginFrame(0.016f);
+					ctxOp.BeginLayout({340.f, 0.f, 260.f, 900.f});
+					inspOp.OnUI(ec);
+					NkDessinerPickerDemande(ctxOp, stOp);
+					ctxOp.EndFrame();
+				};
+				stOp.picker = DesignState::DemandePicker();
+				stOp.picker.ouvert = true;
+				stOp.picker.id = ctxOp.GetId("##sonde.popover.alpha");
+				stOp.picker.genre = 1u;
+				stOp.picker.noeud = rcO;
+				stOp.picker.index = 0;
+				stOp.picker.ancre = {580.f, 200.f, 16.f, 16.f};
+				for (int32 k = 0; k < 3; ++k)
+					image(-1.f, -1.f, false);
+				// 1. LE CURSEUR SUIT LE MODELE : a 100 %, il est au bout droit de la barre
+				const nkgui::NkRect barre = inspOp.RectAlphaBarre();
+				const nkgui::NkRect cur100 = inspOp.RectAlphaCurseur();
+				const bool barreDessinee = barre.w > 40.f && barre.h > 8.f;
+				const bool curseurADroite = barreDessinee && (cur100.x + cur100.w * 0.5f) > barre.x + barre.w - 1.f;
+				// 2. LE MODELE CHANGE -> LE CURSEUR SUIT (aucune memoire propre au curseur)
+				stOp.doc.nodes[(uint32)rcO].fills[0].opacite = 25.f;
+				stOp.picker.synchro = 0xFFFFFFFFu;
+				image(-1.f, -1.f, false);
+				image(-1.f, -1.f, false);
+				const nkgui::NkRect cur25 = inspOp.RectAlphaCurseur();
+				const float32 t25 = barre.w > 0.f ? ((cur25.x + cur25.w * 0.5f) - barre.x) / barre.w : -1.f;
+				const bool curseurSuit = t25 > 0.22f && t25 < 0.28f;
+				// 3. UN GLISSER DANS LA BARRE ECRIT LE MODELE (a 75 %)
+				const float32 xCible = barre.x + barre.w * 0.75f, yBarre = barre.y + barre.h * 0.5f;
+				image(xCible, yBarre, false);
+				image(xCible, yBarre, true);
+				image(xCible, yBarre, true);
+				image(xCible, yBarre, false);
+				image(-1.f, -1.f, false);
+				const float32 opApres = stOp.doc.nodes[(uint32)rcO].fills[0].opacite;
+				const bool glisserEcrit = opApres > 73.f && opApres < 77.f;
+				const nkgui::NkRect cur75 = inspOp.RectAlphaCurseur();
+				const float32 t75 = barre.w > 0.f ? ((cur75.x + cur75.w * 0.5f) - barre.x) / barre.w : -1.f;
+				const bool curseurApres = t75 > 0.72f && t75 < 0.78f;
+				// 4. LA BARRE PORTE UN DEGRADE D'ALPHA : dans sa bande, des sommets de la couleur
+				//    a des alphas differents (le damier est dessous, la couleur pleine au bout)
+				uint32 alphaMin = 300u, alphaMax = 0u, nSommets = 0u, teinte = 0xFFFFFFFFu, teintesAutres = 0u;
+				uint32 nBandeDl = 0u, nBandeOv = 0u;
+				for (uint32 i = 0; i < (uint32)ctxOp.dl.vtx.Size(); ++i) {
+					const nkgui::NkGuiVertex &vt = ctxOp.dl.vtx[i];
+					if (vt.pos.y > barre.y && vt.pos.y < barre.y + barre.h && vt.pos.x >= barre.x && vt.pos.x <= barre.x + barre.w)
+						++nBandeDl;
+				}
+				for (uint32 i = 0; i < (uint32)ctxOp.dlOverlay.vtx.Size(); ++i) {
+					const nkgui::NkGuiVertex &vt = ctxOp.dlOverlay.vtx[i];
+					if (vt.pos.y > barre.y && vt.pos.y < barre.y + barre.h && vt.pos.x >= barre.x && vt.pos.x <= barre.x + barre.w)
+						++nBandeOv;
+				}
+				{
+					const nkgui::NkGuiDrawList &dlO = nBandeOv >= nBandeDl ? ctxOp.dlOverlay : ctxOp.dl;
+					for (uint32 i = 0; i < (uint32)dlO.vtx.Size(); ++i) {
+						const nkgui::NkGuiVertex &vt = dlO.vtx[i];
+						// ⚠️ LA FENETRE INCLUT LES BORDS : les rectangles des bandes ont leurs sommets
+						//    EXACTEMENT sur `barre.y` et `barre.y + h` -- une fenetre strictement
+						//    interieure ne voyait que le damier (mesure : 24 sommets d'une seule teinte
+						//    opaque, zero degrade, alors que le degrade etait bien peint).
+						if (vt.pos.y < barre.y - 0.5f || vt.pos.y > barre.y + barre.h + 0.5f)
+							continue;
+						if (vt.pos.x < barre.x || vt.pos.x > barre.x + barre.w)
+							continue;
+						const uint32 r8 = vt.col & 0xFFu, g8 = (vt.col >> 8) & 0xFFu, b8 = (vt.col >> 16) & 0xFFu;
+						// ON EXCLUT LE DAMIER (deux gris exacts) ET LE CURSEUR (blanc opaque) : ce qui
+						// reste est la bande de couleur. On ne vise PAS un hexa precis -- le popover
+						// peint la couleur de son tampon, et une sonde qui exigerait #1976d2 mesurerait
+						// le tampon plutot que le degrade (mesure : zero sommet a cette teinte).
+						const bool damier = (r8 == 212u && g8 == 212u && b8 == 212u) || (r8 == 154u && g8 == 154u && b8 == 154u);
+						const uint32 aTest = (vt.col >> 24) & 0xFFu;
+						const bool curseur = r8 == 255u && g8 == 255u && b8 == 255u && aTest == 255u;
+						if (damier || curseur)
+							continue;
+						// LA TEINTE DE LA BANDE : la premiere vue TRANSPARENTE (le degrade commence a
+						// alpha ~0). Le bord de la barre et le contour du curseur passent aussi dans
+						// cette fenetre : on les compte a part plutot que d'exiger une teinte unique.
+						const uint32 rgb = (r8 << 16) | (g8 << 8) | b8;
+						if (teinte == 0xFFFFFFFFu && aTest < 250u)
+							teinte = rgb;
+						if (teinte != 0xFFFFFFFFu && rgb != teinte) {
+							++teintesAutres;
+							continue;
+						}
+						const uint32 a8 = (vt.col >> 24) & 0xFFu;
+						++nSommets;
+						if (a8 < alphaMin)
+							alphaMin = a8;
+						if (a8 > alphaMax)
+							alphaMax = a8;
+					}
+				}
+				// la bande porte UNE teinte dont l'alpha va de ~0 a plein ; le bord de la barre et
+				// le contour du curseur sont d'autres teintes, comptees et ignorees (dit)
+				const bool degradeAlpha = nSommets > 20u && alphaMin < 40u && alphaMax > 240u;
+				snprintf(det, sizeof(det),
+						 "barre %.0f x %.0f (dessinee=%d) ; a 100 %% le curseur est au bout droit=%d ; modele pose a 25 %% -> curseur a "
+						 "%.0f %% (suit=%d) ; glisser a 75 %% de la barre -> opacite %.1f (ecrit=%d), curseur a %.0f %% (=%d) ; degrade "
+						 "d'alpha : %u sommets de la teinte %06X (%u sommets d'autres teintes : bord et curseur), alpha %u..%u -> %d [bande : %u en dl, %u en overlay]",
+						 (double)barre.w, (double)barre.h, barreDessinee ? 1 : 0, curseurADroite ? 1 : 0, (double)(t25 * 100.f),
+						 curseurSuit ? 1 : 0, (double)opApres, glisserEcrit ? 1 : 0, (double)(t75 * 100.f), curseurApres ? 1 : 0,
+						 nSommets, teinte & 0xFFFFFFu, teintesAutres, alphaMin, alphaMax, degradeAlpha ? 1 : 0, nBandeDl, nBandeOv);
+				check("95. ③ L'OPACITE A SA PROPRE LIGNE : une barre sur damier qui va de la couleur TRANSPARENTE a la couleur PLEINE, un "
+					  "curseur qui suit LE MODELE (aucune memoire propre : le champ numerique et lui lisent la meme valeur), et un "
+					  "glisser dans la barre ecrit l'opacite du remplissage",
+					  barreDessinee && curseurADroite && curseurSuit && glisserEcrit && curseurApres && degradeAlpha, det);
+				if (ctxOp.popupDepth > 0)
+					ctxOp.ClosePopup();
+				stOp.picker = DesignState::DemandePicker();
+				image(-1.f, -1.f, false);
+			}
 		}
 		snprintf(tail, sizeof(tail), "\n=== RESULTAT : %d / %d ===\n", pass, total);
 		rep.Append(tail);
