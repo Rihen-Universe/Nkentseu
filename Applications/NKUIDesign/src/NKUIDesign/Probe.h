@@ -11238,6 +11238,14 @@ namespace nkuidesign {
 			const bool filOk = nCr > 1u && nCr == (uint32)nav.cheminsCrumb.Size()
 							   && NkComponentDecl::StrEq(nav.vue.breadcrumb[nCr - 1u].Data(), "sonde_selecteur")
 							   && NkDirectory::Exists(nav.cheminsCrumb[nCr - 1u].Data());
+			// ⑤ (05/09, v5) LE RAIL NE MONTRE PLUS LE DOSSIER OU L'ON NAVIGUE : depuis que
+			// le repli `courant = pickerPath` est retire, la section « Dossier courant » ne
+			// porte QUE le dossier d'une operation REUSSIE (definition de Rodolf). Le temoin
+			// fait donc ce que fait l'application apres une reussite -- il appelle la MEME
+			// porte -- au lieu de compter sur un repli qui mentait.
+			editorkit::NkFilePickerNavState::PoserRecent(nav.recents, nav.Dossier());
+			nav.relire = true;
+			nav.RelireDossier();
 			// le rail porte le dossier courant, et il est ACTIF
 			bool railOk = false;
 			for (uint32 i = 0; i < (uint32)nav.vue.folders.nodes.Size() && !railOk; ++i)
@@ -11354,6 +11362,13 @@ namespace nkuidesign {
 			nav99.OpenPickerBase(editorkit::NkFilePickerState::PK_PickFolder,
 					NkDirectory::GetCurrentDirectory().ToString().Data(), buf99,
 					(int32)sizeof(buf99), nullptr, nullptr);
+			// ⑤ (05/09, v5) LE RAIL NE MONTRE PLUS LE DOSSIER OU L'ON NAVIGUE : depuis que
+			// le repli `courant = pickerPath` est retire, la section « Dossier courant » ne
+			// porte QUE le dossier d'une operation REUSSIE (definition de Rodolf). Le temoin
+			// fait donc ce que fait l'application apres une reussite -- il appelle la MEME
+			// porte -- au lieu de compter sur un repli qui mentait.
+			editorkit::NkFilePickerNavState::PoserRecent(nav99.recents, nav99.Dossier());
+			nav99.relire = true;
 			nav99.RelireDossier();
 			const NkVector<editorkit::NkTreeNode> &rail = nav99.vue.folders.nodes;
 			// 1. LES TROIS SECTIONS, titrees, racines, SANS chemin et `locked`
@@ -12812,6 +12827,13 @@ namespace nkuidesign {
 			char b115[512] = {};
 			nav115.OpenPickerBase(editorkit::NkSelecteurOuvrirDossier, avecBarre.Data(), b115,
 					  (int32)sizeof(b115), nullptr, nullptr);
+			// ⑤ (05/09, v5) LE RAIL NE MONTRE PLUS LE DOSSIER OU L'ON NAVIGUE : depuis que
+			// le repli `courant = pickerPath` est retire, la section « Dossier courant » ne
+			// porte QUE le dossier d'une operation REUSSIE (definition de Rodolf). Le temoin
+			// fait donc ce que fait l'application apres une reussite -- il appelle la MEME
+			// porte -- au lieu de compter sur un repli qui mentait.
+			editorkit::NkFilePickerNavState::PoserRecent(nav115.recents, nav115.Dossier());
+			nav115.relire = true;
 			nav115.RelireDossier();
 			bool trouve = false, libelleCourt = false, bulleComplete = false;
 			for (uint32 i = 0; i < (uint32)nav115.vue.folders.nodes.Size() && !trouve; ++i) {
@@ -13017,6 +13039,10 @@ namespace nkuidesign {
 			char b117[512] = {};
 			nav117.OpenPickerBase(editorkit::NkSelecteurOuvrirDossier, base117.Data(), b117,
 					  (int32)sizeof(b117), nullptr, nullptr);
+			// ⑤ (05/09, v5) le rail ne deplie que le dossier d'une operation REUSSIE : le
+			// temoin passe donc par la MEME porte que l'application avant de comparer.
+			editorkit::NkFilePickerNavState::PoserRecent(nav117.recents, nav117.Dossier());
+			nav117.relire = true;
 			nav117.RelireDossier();
 			// 1. LA MEME ENTREE, LA MEME ICONE dans les deux volets
 			const NkString cheminSous = (NkPath(base117.Data()) / "un_dossier").ToString();
@@ -13045,10 +13071,15 @@ namespace nkuidesign {
 			}
 			const bool volumesOk = volumes > 0u && volumes == volumesBienIconises;
 			// 3. LES TITRES ONT L'ICONE DE SECTION
+			// ⑤ (05/09, v5) LE CRITERE EST LE DRAPEAU `bandeau`, PAS « sans chemin ». Les
+			//    deux coincidaient ; ils ont diverge le jour ou la section « Dossier courant »
+			//    a recu une PHRASE (« aucun -- apres un enregistrement... »), qui n'a pas de
+			//    chemin sans etre un titre. C'est exactement ce que `NkTreeNode::bandeau`
+			//    annonce dans son commentaire : deux notions qui coincident divergeront.
 			uint32 titres = 0u, titresOk = 0u;
 			for (uint32 i = 0; i < (uint32)nav117.vue.folders.nodes.Size(); ++i) {
 				const editorkit::NkTreeNode &n = nav117.vue.folders.nodes[i];
-				if (!n.path.Empty())
+				if (!n.bandeau)
 					continue;
 				++titres;
 				if (n.silhouette == (uint8)editorkit::NkAssetIcone::Section)
@@ -13541,6 +13572,122 @@ namespace nkuidesign {
 				  "bord : les cinq libelles restent lisibles pendant qu'une bulle est affichee",
 				  !bullePeinte && rapportee && libellesVus == 5u && libellesRecouverts == 0u && poseOk,
 				  det);
+		}
+		// -- 122. (5) LE REPLI QUI INVENTAIT UN TROISIEME ETAT (05/09, v5). Rodolf :
+		//    « la notion de dossier courant n'est pas encore valide » -- et sur sa capture
+		//    la section montrait le dossier OU IL NAVIGUAIT, avec toute son arborescence.
+		//    La cause tenait en deux lignes : `if (pas de courant) courant = pickerPath;`.
+		//    Ce repli faisait exister un etat que sa definition ne prevoit pas -- ni « le
+		//    dossier d'une reussite », ni « aucun », mais « celui qu'on regarde ». Un repli
+		//    qui invente une valeur ment plus surement qu'une absence.
+		{
+			char det[900];
+			NkDirectory::Delete("sonde_courant2", true);
+			NkDirectory::CreateRecursive("sonde_courant2/vu/dedans");
+			NkDirectory::CreateRecursive("sonde_courant2/reussi/dedans");
+			const NkString rac122 =
+				(NkPath(NkDirectory::GetCurrentDirectory()) / "sonde_courant2").ToString();
+			const NkString dVu = (NkPath(rac122.Data()) / "vu").ToString();
+			const NkString dOk = (NkPath(rac122.Data()) / "reussi").ToString();
+			editorkit::NkFilePickerNavState nav;
+			char bb[512] = {};
+			nav.OpenPickerBase(editorkit::NkSelecteurEnregistrer, rac122.Data(), bb,
+							   (int32)sizeof(bb), nullptr, nullptr);
+			// Ce que la section « Dossier courant » porte, a un instant donne.
+			struct Sec {
+					uint32 enfants;
+					uint32 descendants;
+					bool notePresente;
+					bool porteLeChemin;
+			};
+			auto lire = [&](const char *chemin) -> Sec {
+				Sec r{0u, 0u, false, false};
+				int32 sec = -1;
+				for (uint32 k = 0; k < (uint32)nav.vue.folders.nodes.Size(); ++k) {
+					const char *l = nav.vue.folders.nodes[k].label.Data();
+					if (l && NkComponentDecl::StrEq(l, "Dossier courant"))
+						sec = (int32)k;
+				}
+				if (sec < 0)
+					return r;
+				// enfants directs, puis TOUTE la descendance (l'arborescence depliee)
+				for (uint32 k = 0; k < (uint32)nav.vue.folders.nodes.Size(); ++k) {
+					const editorkit::NkTreeNode &n = nav.vue.folders.nodes[k];
+					int32 a = n.parent;
+					bool sous = false;
+					for (int32 g = 0; a >= 0 && g < 16; ++g) {
+						if (a == sec) {
+							sous = true;
+							break;
+						}
+						a = nav.vue.folders.nodes[(uint32)a].parent;
+					}
+					if (!sous)
+						continue;
+					++r.descendants;
+					if (n.parent == sec)
+						++r.enfants;
+					if (n.path.Empty() && n.locked)
+						r.notePresente = true;
+					if (chemin && !n.path.Empty()
+						&& editorkit::NkFilePickerState::PathSame(n.path.Data(), chemin))
+						r.porteLeChemin = true;
+				}
+				return r;
+			};
+			// 1. ON NAVIGUE, SANS RIEN REUSSIR : la section ne montre PAS le dossier vu,
+			//    elle ne montre PAS son arborescence, elle DIT qu'il n'y en a pas encore.
+			nav.AllerA(dVu.Data());
+			nav.relire = true;
+			nav.RelireDossier();
+			const Sec s1 = lire(dVu.Data());
+			const bool pasDeTroisiemeEtat =
+				!s1.porteLeChemin && s1.notePresente && s1.enfants == 1u && s1.descendants == 1u;
+			// 2. UNE OPERATION REUSSIE AILLEURS : la section change, ELLE, et porte le
+			//    dossier de la reussite avec ses sous-dossiers.
+			editorkit::NkFilePickerNavState::PoserRecent(nav.recents, dOk.Data());
+			nav.relire = true;
+			nav.RelireDossier();
+			const Sec s2 = lire(dOk.Data());
+			const bool laReussiteLePose = s2.porteLeChemin && !s2.notePresente && s2.enfants == 1u
+										  && s2.descendants >= 2u;
+			// 3. ANNULER = NAVIGUER PUIS PARTIR : la section ne bouge pas.
+			nav.AllerA(dVu.Data());
+			nav.relire = true;
+			nav.RelireDossier();
+			const Sec s3 = lire(dOk.Data());
+			const bool annulerNeChangeRien =
+				s3.porteLeChemin && !s3.notePresente
+				&& editorkit::NkFilePickerState::PathSame(nav.DossierCourant(), dOk.Data());
+			// 4. LE DIALOGUE ROUVERT DEMARRE SUR LUI -- c'est la porte de l'application
+			//    (`NkOuvrirSelecteurExport`) qui le lit ; on refait ici son geste exact.
+			editorkit::NkFilePickerNavState nav2;
+			char bb2[512] = {};
+			nav2.recents = nav.recents;
+			const char *depart = nav2.DossierCourant();
+			nav2.OpenPickerBase(editorkit::NkSelecteurEnregistrer,
+								depart[0] ? depart : rac122.Data(), bb2, (int32)sizeof(bb2), nullptr,
+								nullptr);
+			const bool rouvreLaOuOnEtait =
+				editorkit::NkFilePickerState::PathSame(nav2.pickerPath, dOk.Data());
+			snprintf(det, sizeof(det),
+					 "apres NAVIGATION seule : la section porte le dossier navigue=%d (0 attendu), la note "
+					 "« aucun »=%d, %u enfant(s) et %u descendant(s) -> %d ; apres une REUSSITE ailleurs : "
+					 "elle le porte=%d avec %u enfant(s) / %u descendant(s), note=%d -> %d ; naviguer puis "
+					 "partir (annuler) ne la change pas=%d ; le dialogue rouvert demarre dessus=%d",
+					 s1.porteLeChemin ? 1 : 0, s1.notePresente ? 1 : 0, s1.enfants, s1.descendants,
+					 pasDeTroisiemeEtat ? 1 : 0, s2.porteLeChemin ? 1 : 0, s2.enfants, s2.descendants,
+					 s2.notePresente ? 1 : 0, laReussiteLePose ? 1 : 0, annulerNeChangeRien ? 1 : 0,
+					 rouvreLaOuOnEtait ? 1 : 0);
+			check("122. (5) PAS DE REUSSITE, PAS DE DOSSIER COURANT : le repli `courant = pickerPath` faisait exister "
+				  "un TROISIEME etat -- ni le dossier d'une reussite, ni aucun, mais celui qu'on regarde -- et c'est "
+				  "celui que Rodolf voyait, avec toute son arborescence. Il est retire. Tant qu'aucune ouverture ni "
+				  "aucun enregistrement n'a reussi, la section porte UNE phrase verrouillee qui dit la regle (la "
+				  "supprimer laisserait croire a une panne) ; une reussite la remplace par le dossier et ses "
+				  "sous-dossiers ; naviguer puis annuler ne la touche pas ; et le dialogue rouvert y demarre",
+				  pasDeTroisiemeEtat && laReussiteLePose && annulerNeChangeRien && rouvreLaOuOnEtait,
+				  det);
+			NkDirectory::Delete("sonde_courant2", true);
 		}
 		snprintf(tail, sizeof(tail), "\n=== RESULTAT : %d / %d ===\n", pass, total);
 		rep.Append(tail);

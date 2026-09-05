@@ -972,31 +972,57 @@ namespace nkentseu {
 					//    Le FIL D'ARIANE, juste au-dessus, porte deja ces ancetres ET il est
 					//    cliquable : les repeter ici coutait cinq rangees pour rien.
 					//    Profondeur maximale desormais : 2 (le dossier, ses enfants).
-					if (pickerPath[0]) {
-						// ⑥ CE QU'ON MONTRE ICI EST LE DOSSIER COURANT au sens de Rodolf -- le dernier
-						//    dossier d'une operation REUSSIE, c'est-a-dire la tete des recents. Tant
-						//    qu'aucune n'a reussi, on montre le dossier ouvert : c'est le repli, pas la
-						//    definition.
+					{
+						// ⑤ (05/09, v5) LE DOSSIER COURANT EST CELUI DE RODOLF, OU IL N'Y EN A PAS.
+						// Sa definition : « un dossier est appele dossier courant si on a REUSSI a
+						// sauvegarder ou a charger un fichier de ce dossier-la. »
+						//
+						// LE REPLI `courant = pickerPath` ETAIT LE DEFAUT. Il faisait exister un
+						// TROISIEME etat -- ni « le dossier d'une reussite », ni « aucun », mais « le
+						// dossier ou l'on navigue » -- et c'est celui que Rodolf voyait : la section
+						// suivait ses pas, avec toute son arborescence depliee. Un repli qui invente
+						// une valeur ment plus surement qu'une absence.
+						//
+						// Donc : pas de reussite, pas de dossier courant. La section reste, avec UNE
+						// entree grise qui DIT la regle -- la supprimer laisserait croire a une panne,
+						// et l'ecrire ailleurs ferait une deuxieme source. Cette entree n'a PAS de
+						// chemin : elle ne navigue nulle part, et le tronqueur de libelles la laisse
+						// intacte (il ne touche qu'aux noeuds qui portent un chemin).
 						const int32 sec = section("Dossier courant");
 						const char *courant = DossierCourant();
-						if (!courant || !*courant || !NkDirectory::Exists(courant))
-							courant = pickerPath;
-						const NkString nom = NomDeDossier(courant);
-						const int32 ici = ajouter(courant, nom.CStr(), sec);
+						const bool aucun = !courant || !*courant || !NkDirectory::Exists(courant);
+						if (aucun) {
+							// PAS par `AjouterNoeud` : celui-la refuse un chemin qui n'existe pas,
+							// et c'est bien ainsi -- une entree du rail SANS chemin n'est pas un
+							// dossier, c'est une phrase. Verrouillee : elle ne se selectionne pas.
+							NkTreeNode note;
+							note.id = IdDe("::aucun-dossier-courant");
+							note.parent = sec;
+							note.label = NkString("(aucun — après un enregistrement ou une "
+												  "ouverture réussie)");
+							note.locked = true;
+							vue.folders.nodes.PushBack(note);
+						}
+						const NkString nom = aucun ? NkString("") : NomDeDossier(courant);
+						const int32 ici = aucun ? -1 : ajouter(courant, nom.CStr(), sec);
 						if (ici >= 0) {
 							vue.folders.SetOpen(vue.folders.nodes[(uint32)ici].id, true, true);
 							// ④ UN SEUL SITE POSE LES SOUS-DOSSIERS, et il descend dans ceux qui sont
 							//    DEJA deplies : le rail retrouve son etat apres une navigation.
 							PoserSousDossiers(courant, ici, 1);
-							// LE NOEUD ACTIF reste celui ou l'on NAVIGUE, s'il est dans l'arbre : le rail
-							// doit dire ou l'on est, meme quand sa section s'appelle autrement.
 							vue.folders.active = vue.folders.nodes[(uint32)ici].id;
-							for (uint32 k = 0; k < (uint32)vue.folders.nodes.Size(); ++k)
-								if (!vue.folders.nodes[k].path.Empty()
-									&& PathSame(vue.folders.nodes[k].path.CStr(), pickerPath))
-									vue.folders.active = vue.folders.nodes[k].id;
 						}
 					}
+					// ⑤ OU L'ON EST : le rail le marque, MEME QUAND IL N'Y A PAS DE DOSSIER
+					// COURANT. Cette boucle vivait DANS le bloc precedent, donc elle ne tournait
+					// que si la section « Dossier courant » avait pose une entree -- le repli la
+					// posait toujours, et l'avoir retire aurait eteint le marquage. Elle est
+					// remontee d'un cran : elle cherche `pickerPath` dans TOUT le rail (recents,
+					// acces rapide, volumes, sous-dossiers) et n'appartient a aucune section.
+					for (uint32 k = 0; k < (uint32)vue.folders.nodes.Size(); ++k)
+						if (!vue.folders.nodes[k].path.Empty()
+							&& PathSame(vue.folders.nodes[k].path.CStr(), pickerPath))
+							vue.folders.active = vue.folders.nodes[k].id;
 				}
 
 			private:
