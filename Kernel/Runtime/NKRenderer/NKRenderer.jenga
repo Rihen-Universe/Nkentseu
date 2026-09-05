@@ -159,11 +159,24 @@ with project("NKRenderer"):
         symbols(False)
 
     with filter("(system:Linux || system:macOS || (system:Windows && !options:windows-runtime=uwp && !system:XboxSeries && !system:XboxOne)) && !system:Android && !system:iOS && !system:Web"):
-        with test():
-            testfiles(["tests/**.cpp"])
-            _TEST_LINKS = ["NKRenderer", "NKCanvas", "NKWindow", "NKTime"]
+        # Une sous-suite NOMMEE, un fichier a `main()` chacune (Jenga 2.6.1) : le
+        # glob "tests/**.cpp" d'une suite unique lierait deux `main()` des qu'un
+        # second banc arrive. Le dossier `tests/` etait vide jusqu'au 2026-09-05 :
+        # `NKRenderer_Tests` ne construisait rien.
+        with test("TextureAsset"):
+            testfiles(["tests/test_texture_asset.cpp"])
+            testownmain()
+            # La suite se lie comme une APPLICATION : `links` seul laissait
+            # `glslang::InitializeProcess` non resolu (NKSL le tire, personne ne
+            # le fournissait) et NKCanvas absent du disque. Mesure du 2026-09-05.
+            _TEST_LINKS = ["NKRenderer", "NKSL", "NKRHI", "NKCanvas", "NKWindow", "NKEvent",
+                           "NKSerialization", "NKReflection", "NKImage", "NKFont", "NKStream",
+                           "NKFileSystem", "NKMath", "NKTime", "NKLogger", "NKThreading",
+                           "NKContainers", "NKMemory", "NKCore", "NKPlatform"]
             if USE_NKGLAD:
                 _TEST_LINKS.append("NKGlad")
+            _TEST_LINKS += ["NKGLSlang", "NKSPIRVCross"]
+            dependson(_TEST_LINKS)
             links(_TEST_LINKS)
             with filter("system:Linux && options:linux-backend=wayland"):
                 defines(WAYLAND_DEFINES)

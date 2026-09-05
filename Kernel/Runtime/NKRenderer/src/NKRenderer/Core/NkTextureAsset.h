@@ -1,4 +1,5 @@
 #pragma once
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // =============================================================================
 // NkTextureAsset.h  — NKRenderer Phase H
 //
@@ -20,6 +21,7 @@
 #include "NKRenderer/Core/NkTextureLibrary.h"
 #include "NKSerialization/NkISerializable.h"
 #include "NKSerialization/Asset/NkAssetMetadata.h"
+#include "NKSerialization/Asset/NkTextureAssetFormat.h"
 #include "NKRHI/Core/NkTypes.h" // NkGPUFormat
 
 #ifdef GetObject
@@ -107,6 +109,27 @@ namespace nkentseu {
 
 				// Variante : load par AssetId via NkAssetRegistry.
 				static NkTexHandle LoadById(const NkAssetId &id, NkTextureLibrary *texLib) noexcept;
+
+				// ── ACTIF CUIT ───────────────────────────────────────────────
+				// Ecrit un `.nktex` dont le payload est une texture DEJA CUITE
+				// (pixels au format du GPU, mipmaps precalculees) — le produit du
+				// four. `sourceFilePath` n'est garde que pour proposer une
+				// recuisson si l'original change ; le chargement ne le lit pas.
+				static bool SaveBaked(const nk_uint8 *payload, nk_size payloadSize, const NkString &outDiskPath,
+									  const NkString &logicalPath, const NkString &sourceFilePath = NkString(),
+									  NkAssetId *outId = nullptr) noexcept;
+
+				// Charge un actif CUIT et le televerse SANS AUCUN DECODAGE.
+				// Rend un handle nul si le fichier n'existe pas ou si son payload
+				// n'est pas une texture cuite — c'est a l'appelant de retomber sur
+				// le codec (`Load` le fait, et le DIT une fois).
+				static NkTexHandle LoadBaked(const NkString &diskPath, NkTextureLibrary *texLib) noexcept;
+
+				// Combien de fois le message de repli a ete EMIS depuis le debut du
+				// processus. Il doit valoir 1 quel que soit le nombre de textures
+				// non cuites : « dit une fois » n'est verifiable que si le compte
+				// est lisible — un message dans un journal ne prouve rien a un banc.
+				[[nodiscard]] static nk_uint32 CompteRepliDit() noexcept;
 		};
 
 	} // namespace renderer

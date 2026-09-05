@@ -1,4 +1,5 @@
 #pragma once
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // =============================================================================
 // NkTextureLibrary.h  — NKRenderer v5.0  (Core/)
 //
@@ -17,6 +18,7 @@
 #include "NKRHI/Core/NkIDevice.h"
 #include "NKContainers/Associative/NkHashMap.h"
 #include "NKContainers/String/NkString.h"
+#include "NKSerialization/Asset/NkTextureAssetFormat.h"
 
 namespace nkentseu {
 	namespace renderer {
@@ -94,6 +96,26 @@ namespace nkentseu {
 
 				// ── Creation manuelle ─────────────────────────────────────────
 				NkTexHandle Create(const NkTextureCreateDesc &desc);
+
+				// ── Actif DEJA CUIT : televersement SANS AUCUN DECODAGE ───────
+				// `vue` decrit un payload `.nktex` deja en memoire : les pixels y
+				// sont dans la disposition que le GPU accepte et les mipmaps sont
+				// deja calculees. Chaque niveau est ecrit tel quel — ni codec, ni
+				// `GenerateMipmaps`.
+				//
+				// ⚠️ On ne passe PAS les pixels par `NkTextureDesc::initialData` :
+				// quand `mipLevels > 1`, `CreateTexture` genere lui-meme la chaine
+				// sur le GPU (`vkCmdBlitImage` cote Vulkan) — ce serait refaire le
+				// travail que l'actif porte deja, puis l'ecraser. La texture est
+				// donc creee VIDE et chaque niveau televerse par
+				// `WriteTextureRegion`, l'entree du RHI prevue pour ça et que
+				// personne n'utilisait encore pour un mip.
+				NkTexHandle CreateFromBaked(const NkTexVue &vue, const NkLoadOptions &opts = {});
+
+				// Traduction du code de format STABLE du fichier vers le format
+				// GPU. Rend NK_UNDEFINED si le format n'est pas televersable — ce
+				// qui est le cas de TOUS les formats par blocs aujourd'hui.
+				static NkGPUFormat FormatGpuDepuisCode(uint32 code);
 
 				// ── Render targets ────────────────────────────────────────────
 				NkTexHandle CreateRenderTarget(uint32 w, uint32 h, NkGPUFormat format, bool depth = false,

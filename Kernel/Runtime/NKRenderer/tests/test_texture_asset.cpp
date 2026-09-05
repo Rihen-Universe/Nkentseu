@@ -1,0 +1,220 @@
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
+// =============================================================================
+// test_texture_asset.cpp — LE TELEVERSEMENT SANS DECODAGE, EXECUTE
+//
+// Le banc de NKImage prouve le FORMAT (aller-retour, mipmaps, additivite, refus).
+// Celui-ci prouve le CHARGEMENT : qu'un `.nktex` cuit arrive dans une texture du
+// RHI, niveau par niveau, sans qu'aucun codec ne tourne et sans que le RHI
+// regenere la chaine.
+//
+// ── POURQUOI LE DORSAL LOGICIEL, ET PAS LE GPU ───────────────────────────────
+// `NkSoftwareDevice` est un vrai dorsal du RHI : il implemente `CreateTexture`
+// et `WriteTextureRegion` comme les autres, et il garde ses niveaux en memoire
+// (`NkSWTexture::mips`). On peut donc RELIRE ce qui a ete televerse et le
+// comparer octet par octet au fichier — ce qu'aucun dorsal GPU ne permet sans
+// une lecture arriere. Et ça n'occupe pas la carte.
+//
+// ⚠️ Ce que ce banc NE prouve PAS, et il faut le dire : que Vulkan, DX11, DX12,
+// OpenGL et Metal acceptent le meme chemin. Ils partagent l'interface
+// `WriteTextureRegion(..., mipLevel, ...)`, mais « ça compile » ne prouve rien
+// dans ce depot. Le verdict sur un vrai GPU reste a prendre.
+// =============================================================================
+#include "NKImage/Core/NkTextureOven.h"
+#include "NKRHI/Software/NkSoftwareDevice.h"
+#include "NKRenderer/Core/NkTextureAsset.h"
+#include "NKRenderer/Core/NkTextureLibrary.h"
+#include "NKSerialization/Asset/NkTextureAssetFormat.h"
+
+#include <cstdio>
+#include <cstring>
+
+using namespace nkentseu;
+using namespace nkentseu::renderer;
+
+namespace {
+
+	int g_echecs = 0;
+
+	void Verdict(const char *nom, bool ok, const char *detail) {
+		std::printf("[%s] %-52s %s\n", ok ? "VERT " : "ROUGE", nom, detail);
+		if (!ok)
+			++g_echecs;
+	}
+
+	NkImage ImageReference(int32 w, int32 h) {
+		NkImage img = NkImage::Alloc(w, h, NkImagePixelFormat::NK_RGBA32);
+		if (!img.IsValid())
+			return img;
+		for (int32 y = 0; y < h; ++y) {
+			uint8 *r = img.RowPtr(y);
+			for (int32 x = 0; x < w; ++x) {
+				uint8 *p = r + usize(x) * 4;
+				p[0] = uint8((x * 255) / (w - 1));
+				p[1] = uint8((y * 255) / (h - 1));
+				p[2] = uint8(((x ^ y) & 0x0F) * 17);
+				p[3] = uint8(255 - ((x + y) & 0x3F));
+			}
+		}
+		return img;
+	}
+
+} // namespace
+
+int main() {
+	std::printf("=============================================================\n");
+	std::printf(" Actif cuit -> RHI : televersement SANS decodage\n");
+	std::printf("=============================================================\n\n");
+
+	char d[300];
+	const char *cheminActif = "Build/nktex_temoin.nktex";
+	const NkString logique("/Textures/TemoinCuit");
+
+	// ── 1. Cuire, puis ECRIRE un vrai fichier d'actif (conteneur compris) ──
+	NkImage ref = ImageReference(64, 48);
+	NkVector<nk_uint8> payload;
+	NkString err;
+	NkTexOvenReglages reglages;
+	reglages.sRGB = true;
+	reglages.genererMips = true;
+	if (!ref.IsValid() || !NkTextureOven::Cuire(ref, reglages, payload, &err)) {
+		Verdict("preparation / cuisson", false, err.CStr());
+		return 1;
+	}
+	if (!NkTextureAssetIO::SaveBaked(payload.Data(), payload.Size(), NkString(cheminActif), logique,
+									 NkString("(procedural)"))) {
+		Verdict("preparation / ecriture de l'actif", false, "SaveBaked a refuse");
+		return 1;
+	}
+	std::snprintf(d, sizeof(d), "%s ecrit, payload %llu o", cheminActif, (unsigned long long)payload.Size());
+	Verdict("preparation / actif .nktex ecrit sur disque", true, d);
+
+	// La verite de reference : ce que le fichier contient.
+	NkTexVue attendu;
+	if (!NkTexturePayload::Decode(payload.Data(), payload.Size(), attendu, &err)) {
+		Verdict("preparation / relecture du payload", false, err.CStr());
+		return 1;
+	}
+
+	// ── 2. Un dorsal logiciel, et la bibliotheque de textures dessus ──
+	NkSoftwareDevice dev;
+	NkDeviceInitInfo init{};
+	if (!dev.Initialize(init)) {
+		Verdict("dorsal logiciel / initialisation", false, "NkSoftwareDevice::Initialize a echoue");
+		return 1;
+	}
+	NkTextureLibrary lib;
+	if (lib.Init(&dev, nullptr) != NkRResult::NK_OK) {
+		Verdict("bibliotheque de textures / initialisation", false, "NkTextureLibrary::Init a echoue");
+		return 1;
+	}
+	Verdict("dorsal logiciel / pret", true, "NkSoftwareDevice + NkTextureLibrary");
+
+	// ── 3. Charger l'actif cuit ──
+	NkTexHandle h = NkTextureAssetIO::LoadBaked(NkString(cheminActif), &lib);
+	Verdict("chargement / LoadBaked rend une texture", h.IsValid(), h.IsValid() ? "handle valide" : "handle NUL");
+	if (!h.IsValid()) {
+		lib.Shutdown();
+		dev.Shutdown();
+		return 1;
+	}
+
+	// ── 4. Relire ce qui a ete televerse, niveau par niveau ──
+	NkTextureHandle rhi = lib.GetRHIHandle(h);
+	NkSWTexture *tex = dev.GetTex(rhi.id);
+	if (!tex) {
+		Verdict("televersement / texture presente dans le dorsal", false, "GetTex a rendu nullptr");
+		lib.Shutdown();
+		dev.Shutdown();
+		return 1;
+	}
+
+	std::snprintf(d, sizeof(d), "%u niveaux dans le dorsal, %u dans le fichier", (unsigned)tex->mips.Size(),
+				  attendu.mipCount);
+	Verdict("televersement / la texture porte TOUS les niveaux", nk_size(tex->mips.Size()) == nk_size(attendu.mipCount),
+			d);
+
+	// Chaque niveau, octet par octet, contre le fichier. C'est ici que se juge
+	// « televerse sans decodage » : si le RHI avait regenere la chaine lui-meme,
+	// ou si un niveau n'avait pas ete ecrit, les octets differeraient.
+	nk_uint64 differents = 0;
+	nk_uint64 total = 0;
+	nk_size niveauxCompares = 0;
+	for (nk_size m = 0; m < attendu.levels.Size() && m < nk_size(tex->mips.Size()); ++m) {
+		const NkTexNiveauVue &n = attendu.levels[m];
+		const NkVector<uint8> &gpu = tex->mips[m];
+		if (gpu.Size() < nk_size(n.size)) {
+			differents += n.size;
+			total += n.size;
+			continue;
+		}
+		for (nk_uint32 k = 0; k < n.size; ++k) {
+			if (gpu[k] != n.data[k])
+				++differents;
+			++total;
+		}
+		++niveauxCompares;
+	}
+	std::snprintf(d, sizeof(d), "%llu octet(s) different(s) sur %llu, %llu niveau(x) compare(s)",
+				  (unsigned long long)differents, (unsigned long long)total, (unsigned long long)niveauxCompares);
+	Verdict("televersement / chaque niveau est celui du fichier, au bit", differents == 0 && total > 0 &&
+																			 niveauxCompares == attendu.levels.Size(),
+			d);
+
+	// ── 5. CONTRE-EPREUVE du repli : un actif qui ne porte PAS de pixels ──
+	// Sans elle, un `LoadBaked` qui accepterait n'importe quoi passerait le
+	// temoin 3 sans rien prouver.
+	{
+		NkTextureAsset reglagesSeuls;
+		reglagesSeuls.sourceFilePath = NkString("Resources/NKRenderer/Textures/Defaults/test_pattern.png");
+		reglagesSeuls.sRGB = true;
+		const char *cheminReglages = "Build/nktex_temoin_reglages.nktex";
+		NkAssetId id;
+		const bool ecrit = NkTextureAssetIO::Save(reglagesSeuls, NkString(cheminReglages),
+												  NkString("/Textures/TemoinReglages"), &id);
+		if (!ecrit) {
+			Verdict("repli / preparation", false, "impossible d'ecrire l'actif de reglages");
+		} else {
+			NkTexHandle rien = NkTextureAssetIO::LoadBaked(NkString(cheminReglages), &lib);
+			std::snprintf(d, sizeof(d), "LoadBaked rend %s sur un actif de reglages",
+						  rien.IsValid() ? "UNE TEXTURE (faux)" : "un handle nul (juste)");
+			Verdict("repli / un actif sans pixels n'est PAS pris pour cuit", !rien.IsValid(), d);
+
+			// Et `Load` doit alors retomber sur le codec, en le disant une fois.
+			const nk_uint32 avant = NkTextureAssetIO::CompteRepliDit();
+			NkTexHandle parCodec = NkTextureAssetIO::Load(NkString(cheminReglages), &lib);
+			NkTexHandle parCodec2 = NkTextureAssetIO::Load(NkString(cheminReglages), &lib);
+			std::snprintf(d, sizeof(d), "%s / %s", parCodec.IsValid() ? "1er chargement ok" : "1er chargement ECHOUE",
+						  parCodec2.IsValid() ? "2e ok" : "2e ECHOUE");
+			Verdict("repli / le codec prend le relais", parCodec.IsValid() && parCodec2.IsValid(), d);
+
+			// « Dit une fois » : deux replis, UN seul message. Un journal ne prouve
+			// rien a un banc — c'est le compteur qui le prouve.
+			const nk_uint32 apres = NkTextureAssetIO::CompteRepliDit();
+			std::snprintf(d, sizeof(d), "2 replis -> %u message(s) emis (attendu 1)", apres - avant);
+			Verdict("repli / le message est dit UNE seule fois", (apres - avant) == 1u, d);
+		}
+	}
+
+	// ── 6. Ce qui est REFUSE, et qui doit l'etre ──
+	{
+		// Un format par blocs : reserve dans le format, pas televersable par le
+		// RHI aujourd'hui. Le refus doit venir d'ici, pas d'un pas de ligne nul
+		// calcule trois couches plus bas.
+		const NkGPUFormat f = NkTextureLibrary::FormatGpuDepuisCode(NKTEXFMT_BC7_UNORM);
+		std::snprintf(d, sizeof(d), "BC7 -> %s", f == NkGPUFormat::NK_UNDEFINED ? "NK_UNDEFINED (refuse)" : "un format");
+		Verdict("refus / un format par blocs est refuse a l'entree", f == NkGPUFormat::NK_UNDEFINED, d);
+
+		const NkGPUFormat g = NkTextureLibrary::FormatGpuDepuisCode(NKTEXFMT_RGBA8_SRGB);
+		std::snprintf(d, sizeof(d), "RGBA8_SRGB -> %s",
+					  g == NkGPUFormat::NK_RGBA8_SRGB ? "NK_RGBA8_SRGB (accepte)" : "REFUSE (faux)");
+		Verdict("refus / contre-epreuve : un format livre est accepte", g == NkGPUFormat::NK_RGBA8_SRGB, d);
+	}
+
+	lib.Shutdown();
+	dev.Shutdown();
+
+	std::printf("\n=============================================================\n");
+	std::printf(" %s\n", g_echecs == 0 ? "TOUT VERT." : "ROUGE — voir les lignes ci-dessus.");
+	std::printf("=============================================================\n");
+	return g_echecs == 0 ? 0 : 1;
+}
