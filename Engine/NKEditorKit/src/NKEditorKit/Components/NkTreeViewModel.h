@@ -154,6 +154,15 @@ namespace nkentseu {
 				//    connait pas la semantique d'heritage de l'application.
 				bool hidden = false; ///< invisible dans la vue (l'oeil)
 				bool locked = false; ///< inselectionnable (le cadenas)
+
+				// ⑥ (2026-09-05, nuit) L'INFOBULLE DE CE NOEUD. Vide = aucune, et c'est le
+				// defaut : les quatre consommateurs existants n'en posent pas et ne changent
+				// pas d'une ligne.
+				// ⚠️ AJOUTEE PARCE QU'UN LIBELLE PEUT ETRE TRONQUE et que le composant est le
+				//    SEUL a savoir ou il l'a coupe. J'avais d'abord ecrit que c'etait
+				//    impossible sans toucher les quatre consommateurs : c'etait faux -- un
+				//    champ additif au defaut vide ne touche personne.
+				NkString infobulle;
 				/// Le drapeau vient-il d'un ancetre plutot que du noeud ? Sert a le
 				/// peindre attenue. L'application le calcule ; sans lui, l'icone
 				/// mentirait sur l'endroit ou l'on peut agir.

@@ -650,6 +650,29 @@ namespace nkentseu {
 					snprintf(out, cap, "%s", kSuite);
 				}
 
+				/// ⑥ LE NOM D'UN DOSSIER, sans jamais rendre son chemin.
+				/// ⚠️ `NkPath::GetFileName()` rend VIDE quand le chemin se termine par un
+				///    separateur (`D:/Projets/Nkentseu-noge/`), et le repli prenait alors le
+				///    CHEMIN ENTIER : c'est ce que Rodolf a vu, `D:/Projets/…entseu-no…` a la
+				///    place d'un nom. Un repli qui remplace un nom par un chemin n'est pas un
+				///    repli. On enleve les separateurs de fin AVANT de decouper.
+				static NkString NomDeDossier(const char *chemin) {
+					if (!chemin || !*chemin)
+						return NkString();
+					NkString c(chemin);
+					while (c.Length() > 1u) {
+						const char d = c.CStr()[c.Length() - 1];
+						if (d != '/' && d != '\\')
+							break;
+						c = NkString(c.CStr(), c.Length() - 1);
+					}
+					const NkString nom = NkPath(c).GetFileName();
+					if (!nom.Empty())
+						return nom;
+					// une RACINE (`D:/`, `/`) : son nom EST sa lettre, pas son chemin
+					return c;
+				}
+				
 				static nk_uint64 IdDe(const char *s) { // FNV-1a : l'identite d'un noeud du rail
 					nk_uint64 h = 1469598103934665603ull;
 					for (const char *p = s; p && *p; ++p) {
@@ -688,6 +711,12 @@ namespace nkentseu {
 				//    faisait la version precedente -- ne donne ni l'etiquette ni l'etat monte.
 				void ConstruireRail() {
 					vue.folders.nodes.Clear();
+					// ⑥ ET IL REVIENT EN HAUT. Le defilement du rail survivait a sa
+					//    reconstruction : apres une navigation il pointait sur des rangees qui
+					//    n'existaient plus -- et les sections du haut disparaissaient du champ
+					//    sans que rien ne l'explique. C'est l'hypothese la plus probable pour
+					//    la capture ou Rodolf ne voyait aucune section.
+					vue.folders.scroll = 0.f;
 					auto ajouter = [&](const char *chemin, const char *libelle, int32 parent) -> int32 {
 						if (!chemin || !*chemin || !NkDirectory::Exists(chemin))
 							return -1;
@@ -697,6 +726,9 @@ namespace nkentseu {
 						n.label = NkString(libelle && *libelle ? libelle : chemin);
 						n.path = NkString(chemin);
 						n.kindRole = roleDossier;
+						// ⑥ L'INFOBULLE PORTE LE CHEMIN COMPLET : le libelle est tronque au
+						//    milieu, et c'est le seul moyen de lire ce qu'on survole.
+						n.infobulle = NkString(chemin);
 						vue.folders.nodes.PushBack(n);
 						return (int32)vue.folders.nodes.Size() - 1;
 					};
@@ -728,7 +760,7 @@ namespace nkentseu {
 						const int32 sec = section("R\u00e9cents");
 						uint32 poses = 0u;
 						for (uint32 i = 0; i < (uint32)recents.Size(); ++i) {
-							const NkString nm = NkPath(recents[i]).GetFileName();
+							const NkString nm = NomDeDossier(recents[i].CStr());
 							if (ajouter(recents[i].CStr(), nm.Empty() ? recents[i].CStr() : nm.CStr(), sec) >= 0)
 								++poses;
 						}
@@ -753,7 +785,7 @@ namespace nkentseu {
 							ajouter(p.CStr(), nm.Empty() ? p.CStr() : nm.CStr(), sec);
 						}
 						for (uint32 i = 0; i < (uint32)favoris.Size(); ++i) {
-							const NkString nm = NkPath(favoris[i]).GetFileName();
+							const NkString nm = NomDeDossier(favoris[i].CStr());
 							ajouter(favoris[i].CStr(), nm.Empty() ? favoris[i].CStr() : nm.CStr(), sec);
 						}
 					}
@@ -799,9 +831,7 @@ namespace nkentseu {
 					//    Profondeur maximale desormais : 2 (le dossier, ses enfants).
 					if (pickerPath[0]) {
 						const int32 sec = section("Dossier courant");
-						NkString nom = NkPath(pickerPath).GetFileName();
-						if (nom.Empty())
-							nom = NkString(pickerPath);
+						const NkString nom = NomDeDossier(pickerPath);
 						const int32 ici = ajouter(pickerPath, nom.CStr(), sec);
 						if (ici >= 0) {
 							vue.folders.SetOpen(vue.folders.nodes[(uint32)ici].id, true, true);

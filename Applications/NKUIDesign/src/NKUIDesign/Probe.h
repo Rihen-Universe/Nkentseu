@@ -12766,6 +12766,82 @@ namespace nkuidesign {
 				dossierEnTete && nomOk && tailleOk && typeOk && dateOk && taillesLues, det);
 			NkDirectory::Delete("sonde_tri", true);
 		}
+		// ── 115. ⑥ LE NOM, L'INFOBULLE ET LA POIGNEE (05/09, nuit). Rodolf : « le panneau de
+		//    gauche doit pouvoir etre agrandi, ou alors une infobulle doit donner le chemin
+		//    complet » -- et sur sa capture, l'entree du dossier courant affiche
+		//    `D:/Projets/…entseu-no…`, c'est-a-dire LE CHEMIN, pas le nom.
+		//    ⚠️ J'avais ecrit que l'infobulle etait impossible sans toucher les quatre
+		//       consommateurs du `tree_view`. C'ETAIT FAUX : un champ additif au defaut vide
+		//       ne touche personne. La sonde le verifie aussi.
+		{
+			char det[880];
+			NkDirectory::Delete("sonde_nom", true);
+			NkDirectory::CreateRecursive("sonde_nom/un_sous_dossier");
+			const NkString base115 = (NkPath(NkDirectory::GetCurrentDirectory()) / "sonde_nom").ToString();
+			// 1. LE NOM NE REND JAMAIS LE CHEMIN, meme avec un separateur final
+			NkString avecBarre = base115;
+			avecBarre.Append('/');
+			const NkString n1 = editorkit::NkFilePickerNavState::NomDeDossier(base115.Data());
+			const NkString n2 = editorkit::NkFilePickerNavState::NomDeDossier(avecBarre.Data());
+			const NkString n3 = editorkit::NkFilePickerNavState::NomDeDossier("D:/");
+			const bool nomOk115 = NkComponentDecl::StrEq(n1.Data(), "sonde_nom")
+					&& NkComponentDecl::StrEq(n2.Data(), "sonde_nom")
+					&& !NkString(n2).Contains("/") && !n3.Empty() && n3.Length() <= 3u;
+			// 2. L'ENTREE DU RAIL PORTE LE NOM, ET SON INFOBULLE PORTE LE CHEMIN
+			editorkit::NkFilePickerNavState nav115;
+			char b115[512] = {};
+			nav115.OpenPickerBase(editorkit::NkSelecteurOuvrirDossier, avecBarre.Data(), b115,
+					  (int32)sizeof(b115), nullptr, nullptr);
+			nav115.RelireDossier();
+			bool trouve = false, libelleCourt = false, bulleComplete = false;
+			for (uint32 i = 0; i < (uint32)nav115.vue.folders.nodes.Size() && !trouve; ++i) {
+				const editorkit::NkTreeNode &n = nav115.vue.folders.nodes[i];
+				if (n.path.Empty()
+					|| !editorkit::NkFilePickerState::PathSame(n.path.Data(), nav115.Dossier()))
+					continue;
+				trouve = true;
+				libelleCourt = !NkString(n.label).Contains("/") && !NkString(n.label).Contains("\\");
+				bulleComplete = !n.infobulle.Empty()
+					&& editorkit::NkFilePickerState::PathSame(n.infobulle.Data(), nav115.Dossier());
+			}
+			// 3. TOUTES LES ENTREES DE CHEMIN ONT LEUR INFOBULLE, et les TITRES n'en ont pas
+			uint32 avecBulle = 0u, titresAvecBulle = 0u;
+			for (uint32 i = 0; i < (uint32)nav115.vue.folders.nodes.Size(); ++i) {
+				const editorkit::NkTreeNode &n = nav115.vue.folders.nodes[i];
+				if (n.path.Empty()) {
+					if (!n.infobulle.Empty())
+						++titresAvecBulle;
+				} else if (!n.infobulle.Empty())
+					++avecBulle;
+			}
+			const bool bullesPartout = avecBulle > 3u && titresAvecBulle == 0u;
+			// 4. LE DEFAUT DU CHAMP EST VIDE : un noeud neuf n'a pas d'infobulle, donc les
+			//    quatre consommateurs du `tree_view` ne changent pas de rendu.
+			const editorkit::NkTreeNode neuf115;
+			const bool defautVide = neuf115.infobulle.Empty();
+			// 5. LA POIGNEE : la largeur est RETENUE d'une image a l'autre, et bornee
+			nav115.largeurRail = 320.f;
+			const float32 gardee = nav115.largeurRail;
+			if (nav115.largeurRail < editorkit::NkFilePickerNavState::kRailMin)
+				nav115.largeurRail = editorkit::NkFilePickerNavState::kRailMin;
+			const bool retenue = gardee == 320.f && nav115.largeurRail == 320.f;
+			snprintf(det, sizeof(det),
+				"nom : « %s » / « %s » (avec barre finale) / racine « %s » -> %d ; entree du dossier courant "
+				"trouvee=%d, libelle sans separateur=%d, infobulle = le chemin complet=%d ; %u entree(s) avec "
+				"infobulle, %u titre(s) qui en portent une (0 attendu) -> %d ; defaut du champ vide=%d ; "
+				"largeur %.0f retenue et non bornee=%d",
+				n1.Data(), n2.Data(), n3.Data(), nomOk115 ? 1 : 0, trouve ? 1 : 0, libelleCourt ? 1 : 0,
+				bulleComplete ? 1 : 0, avecBulle, titresAvecBulle, bullesPartout ? 1 : 0,
+				defautVide ? 1 : 0, (double)nav115.largeurRail, retenue ? 1 : 0);
+			check("115. ⑥ LE RAIL MONTRE UN NOM, ET SON INFOBULLE LE CHEMIN : `GetFileName` rend VIDE quand le chemin finit "
+				"par un separateur, et le repli prenait alors le CHEMIN ENTIER -- Rodolf lisait `D:/Projets/…entseu-no…` a "
+				"la place d'un nom ; un repli qui remplace un nom par un chemin n'est pas un repli. Chaque entree de chemin "
+				"porte desormais son chemin complet en infobulle (champ ADDITIF du `tree_view`, defaut vide : les quatre "
+				"consommateurs ne changent pas), les TITRES de section n'en ont pas, et la largeur du rail est retenue",
+				nomOk115 && trouve && libelleCourt && bulleComplete && bullesPartout && defautVide && retenue,
+				det);
+			NkDirectory::Delete("sonde_nom", true);
+		}
 		snprintf(tail, sizeof(tail), "\n=== RESULTAT : %d / %d ===\n", pass, total);
 		rep.Append(tail);
 

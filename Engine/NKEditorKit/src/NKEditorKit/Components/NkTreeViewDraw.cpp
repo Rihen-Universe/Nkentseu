@@ -354,6 +354,7 @@ namespace nkentseu {
 
 			// Ce que la boucle RELEVE ; ce qu'elle DECIDE vient apres elle.
 			int32 hitIndex = -1;	  ///< ligne sous la souris
+			const char *bulleTexte = nullptr; ///< ⑥ l'infobulle du noeud survole
 			bool hitChevron = false;  ///< ... sur le chevron
 			int32 hitFlag = -1;		  ///< 0 = oeil, 1 = cadenas
 			bool hitLabel = false;	  ///< ... sur le libelle (declenche le renommage)
@@ -582,6 +583,9 @@ namespace nkentseu {
 
 			if (hitIndex >= 0 && inArea) {
 				NkTreeNode &n = m.nodes[(uint32)hitIndex];
+				// ⑥ L'infobulle du noeud survole -- dessinee tout en bas, hors du clip.
+				if (!n.infobulle.Empty())
+					bulleTexte = n.infobulle.CStr();
 				const char *path = Path(n);
 
 				// 1. LE CHEVRON — la seule commande de pliage quand
@@ -763,6 +767,27 @@ namespace nkentseu {
 			}
 
 			p.PopClip(); // area
+			// ── ⑥ L'INFOBULLE (2026-09-05, nuit) ─────────────────────────────
+			// APRES le `PopClip` : une infobulle qui reste dans la zone de l'arbre serait
+			// coupee par le bord meme qu'elle sert a compenser.
+			// Elle ne s'affiche QUE si le noeud en porte une -- le defaut est vide.
+			if (bulleTexte && bulleTexte[0]) {
+				const float32 pad2 = 6.f * in.surfaceScale;
+				const float32 w2 = p.TextWidth(bulleTexte) + pad2 * 2.f;
+				const float32 h2 = p.LineHeight() + pad2;
+				float32 bx2 = in.mouseX + 12.f * in.surfaceScale;
+				float32 by2 = in.mouseY + 16.f * in.surfaceScale;
+				// elle ne sort pas de la zone : sinon elle serait illisible au bord droit
+				if (bx2 + w2 > rect.x + rect.w)
+					bx2 = rect.x + rect.w - w2;
+				if (by2 + h2 > rect.y + rect.h)
+					by2 = in.mouseY - h2 - 4.f * in.surfaceScale;
+				const NkPaintRect rb2{bx2, by2, w2, h2};
+				p.Fill(rb2, s.headerBg, 4.f);
+				p.OutlineSharp(rb2, s.border);
+				p.Text({rb2.x + pad2, rb2.y, rb2.w - pad2, rb2.h}, bulleTexte, s.text);
+			}
+
 
 			// ── PIED ────────────────────────────────────────────────────────────
 			// « 7 acteurs · 1 selectionne » sur la planche du 18/08. Le compte est
