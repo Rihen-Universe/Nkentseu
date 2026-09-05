@@ -138,11 +138,26 @@ with project("NKImage"):
 
     # Tests unitaires (desktop uniquement)
     with filter("(system:Linux || system:macOS || (system:Windows && !options:windows-runtime=uwp && !system:XboxSeries && !system:XboxOne)) && !system:Android && !system:iOS && !system:Web"):
+        # Une sous-suite PAR FICHIER a main() (Jenga 2.6.1) : le glob "tests/**.cpp"
+        # d'une suite unique lierait deux main() des qu'un second banc arrive.
         with test():
-            testfiles(["tests/**.cpp"])
+            testfiles(["tests/TestEXR.cpp"])
             testownmain()  # la suite fournit son main() -- le mot propre de Jenga 2.6 (2026-09-04)
             links([
                 "NKImage",
                 "NKMemory",
                 "NKCore",
+            ])
+        with test("TextureBake"):
+            testfiles(["tests/test_texture_bake.cpp"])
+            testownmain()
+            # NKTime n'est pas une dependance de NKImage : le banc a besoin du
+            # chronometre, la sous-suite l'ajoute pour elle seule.
+            includedirs(["%{NKTime.location}/src"])
+            dependson(["NKTime"])  # sinon la lib n existe pas au lien (NKImage ne l a pas en dep)
+            links([
+                "NKImage",
+                "NKMemory",
+                "NKCore",
+                "NKTime",
             ])
