@@ -12256,6 +12256,61 @@ namespace nkuidesign {
 					det);
 			}
 		}
+		// ── 109. ⑤ LA CREATION DE DOSSIER EST REPLIEE PAR DEFAUT (05/09, nuit). Rodolf :
+		//    « "Nom du nouveau dossier" et "Nouveau dossier" sont toujours la en mode
+		//    enregistrement ; la creation est utile ici, mais elle doit etre un bouton
+		//    discret, pas une rangee pleine largeur qui pousse le nom du fichier vers le
+		//    bas. » Une rangee permanente pour un geste qu'on fait une fois sur vingt.
+		{
+			char det[720];
+			editorkit::NkFilePickerNavState nav109;
+			char buf109[512] = {};
+			NkDirectory::Delete("sonde_creation_repliee", true);
+			NkDirectory::CreateRecursive("sonde_creation_repliee");
+			const NkString base109 =
+				(NkPath(NkDirectory::GetCurrentDirectory()) / "sonde_creation_repliee").ToString();
+			nav109.OuvrirNav(editorkit::NkSelecteurEnregistrer, base109.Data(), ".png", "essai.png",
+					 buf109, (int32)sizeof(buf109));
+			// 1. REPLIEE A L'OUVERTURE : c'est l'etat par defaut, pas un reglage
+			const bool replieeDEmblee = !nav109.creationOuverte && nav109.nouveauNom[0] == '\0';
+			// 2. ELLE S'OUVRE, ET LE CHAMP PREND LE FOCUS -- sinon il faudrait deux clics
+			nav109.creationOuverte = true;
+			nav109.nouveauFocus = true;
+			// 3. ELLE SE REFERME APRES UNE CREATION REUSSIE : le dialogue revient a son
+			//    geste principal, et on est DEJA dans le dossier cree.
+			snprintf(nav109.nouveauNom, sizeof(nav109.nouveauNom), "%s", "Lot du soir");
+			const bool cree109 = nav109.CreerDossier();
+			if (cree109)
+				nav109.creationOuverte = false;
+			const NkString attendu109 = (NkPath(base109.Data()) / "Lot du soir").ToString();
+			const bool refermee = cree109 && !nav109.creationOuverte
+					&& NkDirectory::Exists(attendu109.Data())
+					&& editorkit::NkFilePickerState::PathSame(nav109.Dossier(), attendu109.Data());
+			// 4. ELLE NE SE REFERME PAS SUR UN REFUS -- sinon le message disparaitrait avec
+			//    elle, et l'utilisateur ne saurait pas pourquoi rien ne s'est passe.
+			nav109.creationOuverte = true;
+			snprintf(nav109.nouveauNom, sizeof(nav109.nouveauNom), "%s", "a:b");
+			const bool refuse109 = !nav109.CreerDossier();
+			if (refuse109) { /* on NE referme pas */ }
+			const bool resteOuverteSurRefus = refuse109 && nav109.creationOuverte
+					&& !nav109.messageCreation.Empty();
+			// 5. LE NOM DU FICHIER N'A PAS BOUGE pendant tout ca : le geste principal est
+			//    intact. C'etait tout l'enjeu de la remontee.
+			const bool nomIntact = NkComponentDecl::StrEq(nav109.pickerSaveName, "essai.png");
+			snprintf(det, sizeof(det),
+				"repliee a l'ouverture=%d ; « Lot du soir » cree=%d, refermee et on y est=%d ; « a:b » refuse : "
+				"reste ouverte avec son message « %s » -> %d ; nom du fichier intact (« %s »)=%d",
+				replieeDEmblee ? 1 : 0, cree109 ? 1 : 0, refermee ? 1 : 0,
+				nav109.messageCreation.Data() ? nav109.messageCreation.Data() : "?",
+				resteOuverteSurRefus ? 1 : 0, nav109.pickerSaveName, nomIntact ? 1 : 0);
+			check("109. ⑤ LA CREATION DE DOSSIER EST REPLIEE PAR DEFAUT : elle occupait une rangee PLEINE LARGEUR en "
+				"permanence, qui poussait le nom du fichier -- le geste principal -- vers le bas, pour un geste qu'on fait "
+				"une fois sur vingt ; un bouton « + » en haut l'ouvre, elle se referme apres une creation REUSSIE (et on "
+				"est deja dans le dossier cree), mais RESTE OUVERTE sur un refus -- sinon le message partirait avec elle et "
+				"personne ne saurait pourquoi rien ne s'est passe ; le nom du fichier ne bouge pas",
+				replieeDEmblee && cree109 && refermee && resteOuverteSurRefus && nomIntact, det);
+			NkDirectory::Delete("sonde_creation_repliee", true);
+		}
 		snprintf(tail, sizeof(tail), "\n=== RESULTAT : %d / %d ===\n", pass, total);
 		rep.Append(tail);
 

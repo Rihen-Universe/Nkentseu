@@ -205,6 +205,10 @@ namespace nkentseu {
 				// Le troisieme manquait : on pouvait choisir un dossier, pas en faire un.
 				char nouveauNom[128] = {};
 				bool nouveauFocus = false;
+				/// ⑤ (05/09, nuit) LA CREATION EST REPLIEE PAR DEFAUT. Elle occupait une rangee
+				/// PLEINE LARGEUR en permanence, qui poussait le nom du fichier vers le bas --
+				/// alors qu'on cree un dossier une fois sur vingt. Un bouton discret l'ouvre.
+				bool creationOuverte = false;
 				NkString messageCreation; ///< ce qui s'est passe, dit SOUS le champ
 
 				/// Cree `nouveauNom` DANS le dossier courant, y descend, et vide le champ.
@@ -715,6 +719,8 @@ namespace nkentseu {
 			}
 
 			const float32 cx = px + 20.f * S, cwid = pw - 40.f * S;
+			// ⑤ declare ICI : la ligne du haut en a besoin pour son bouton « + ».
+			const bool peutCreer = (saveMode || dossierMode);
 			float32 y = py + 50.f * S;
 			bool fieldClicked = false;
 			// ── LA LIGNE DE CHEMIN : « Remonter », le chemin editable, « Aller » ──
@@ -722,7 +728,9 @@ namespace nkentseu {
 				const float32 hb = 30.f * S;
 				if (sbtn({cx, y, 40.f * S, hb}, "▲"))
 					fp.AllerA(NkPath(fp.pickerPath).GetParent().ToString().CStr());
-				const NkRect r = {cx + 48.f * S, y, cwid - 48.f * S - 84.f * S - 8.f * S, hb};
+				const NkRect r = {cx + 48.f * S, y, cwid - 48.f * S - 84.f * S - 8.f * S
+												   - (peutCreer ? hb + 8.f * S : 0.f),
+								   hb};
 				if (hit(r) && click) {
 					fp.pickerEditing = true;
 					fp.pickerSaveFocus = false;
@@ -734,13 +742,50 @@ namespace nkentseu {
 					fp.pickerEditing = false;
 					fp.AllerA(fp.pickerPath);
 				}
+				// ⑤ LE BOUTON DISCRET : un carre avec un « + », a cote d'« Aller ». Il
+				//    n'apparait que la ou creer a un sens ; en ouverture de fichier, creer un
+				//    dossier vide ne menerait a rien.
+				if (peutCreer && sbtn({cx + cwid - 84.f * S - 8.f * S - hb, y, hb, hb}, "+")) {
+					fp.creationOuverte = !fp.creationOuverte;
+					fp.nouveauFocus = fp.creationOuverte;
+					fp.messageCreation = NkString();
+				}
+			}
+			// ⑤ LA CREATION DE DOSSIER, EN HAUT ET DISCRETE (05/09, nuit). Elle prend la
+			//    place de la ligne de chemin le temps qu'on la remplisse, puis disparait.
+			//    Une rangee permanente pleine largeur pour un geste qu'on fait une fois sur
+			//    vingt poussait le nom du fichier -- le geste PRINCIPAL -- vers le bas.
+			if (peutCreer && fp.creationOuverte) {
+				const float32 hb = 30.f * S;
+				const NkRect rc = {cx, y, cwid - 200.f * S, hb};
+				if (hit(rc) && click) {
+					fp.nouveauFocus = true;
+					fp.pickerEditing = false;
+					fp.pickerSaveFocus = false;
+					fieldClicked = true;
+				}
+				NkOverlayTextField(ctx, dl, f, rc, fp.nouveauNom, (int32)sizeof(fp.nouveauNom),
+								   fp.nouveauFocus);
+				if (!fp.nouveauNom[0] && !fp.nouveauFocus)
+					text(rc.x + 8.f * S, rc.y + (hb - lh) * 0.5f, "Nom du nouveau dossier", sty.cadre.sub);
+				if (sbtn({cx + cwid - 196.f * S, y, 96.f * S, hb}, "Cr\u00e9er")) {
+					if (fp.CreerDossier())
+						fp.creationOuverte = false;
+				}
+				if (sbtn({cx + cwid - 96.f * S, y, 96.f * S, hb}, "Annuler")) {
+					fp.creationOuverte = false;
+					fp.nouveauNom[0] = '\0';
+					fp.messageCreation = NkString();
+				}
+				if (!fp.messageCreation.Empty())
+					text(cx, y + 32.f * S, fp.messageCreation.Data(), sty.cadre.sub);
 			}
 			y += 40.f * S;
 
 			// ── LE VOLET : le navigateur de contenu du kit, tel quel ────────────
-			// ⑥ La rangee « Nouveau dossier » prend sa place quand le mode la demande.
-			const bool peutCreer = (saveMode || dossierMode);
-			const float32 basH = ((saveMode ? 92.f : 52.f) + (peutCreer ? 40.f : 0.f)) * S;
+			// ⑤ LE BAS NE PORTE PLUS LA CREATION (05/09, nuit) : elle est passee en haut,
+			//    derriere un bouton. Le nom du fichier remonte d'autant.
+			const float32 basH = (saveMode ? 92.f : 52.f) * S;
 			const NkRect zone = {cx, y, cwid, ph - (y - py) - basH - 16.f * S};
 			int32 aOuvrir = -1;	  // un dossier a suivre APRES le dessin
 			NkString cible;		  // le chemin a suivre
@@ -845,27 +890,6 @@ namespace nkentseu {
 
 			// ── LE BAS : le nom (mode enregistrer), puis Annuler / Confirmer ────
 			float32 by = py + ph - basH;
-			// ⑥ NOUVEAU DOSSIER : un champ et un bouton, la ou creer a un sens (enregistrer
-			//    quelque part, ou choisir un dossier). En OUVERTURE DE FICHIER, creer un
-			//    dossier vide ne menerait a rien -- la rangee ne s'affiche pas.
-			if (peutCreer) {
-				const NkRect rc = {cx, by + 4.f * S, cwid - 150.f * S - 8.f * S, 28.f * S};
-				if (hit(rc) && click) {
-					fp.nouveauFocus = true;
-					fp.pickerEditing = false;
-					fp.pickerSaveFocus = false;
-					fieldClicked = true;
-				}
-				NkOverlayTextField(ctx, dl, f, rc, fp.nouveauNom, (int32)sizeof(fp.nouveauNom),
-								   fp.nouveauFocus);
-				if (!fp.nouveauNom[0] && !fp.nouveauFocus)
-					text(rc.x + 8.f * S, rc.y + (rc.h - lh) * 0.5f, "Nom du nouveau dossier", sty.cadre.sub);
-				if (sbtn({cx + cwid - 150.f * S, by + 4.f * S, 150.f * S, 28.f * S}, "Nouveau dossier"))
-					fp.CreerDossier();
-				if (!fp.messageCreation.Empty())
-					text(cx, by + 34.f * S, fp.messageCreation.Data(), sty.cadre.sub);
-				by += 40.f * S;
-			}
 
 			if (saveMode) {
 				text(cx, by + 6.f * S, "Nom du fichier", sty.cadre.sub);
