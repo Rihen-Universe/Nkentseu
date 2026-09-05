@@ -89,6 +89,7 @@ namespace nkentseu {
 				NkBufferHandle mFieldUbo; // le vent (3 x vec4), écrit à chaque image
 				float32 mTime = 0.f;
 				NkBufferHandle mCC, mCF; // comptes par cellule et curseurs (tri par comptage)
+				NkBufferHandle mPK;		 // le paquet lu par les voisines : (pos, kappa/rho), (vel, m/rho) -- moins d'octets par voisine (05/09)
 				NkVector<uint32> mScratchU, mScratchSE; // relecture des comptes, (debut, fin) a envoyer
 				NkBufferHandle mNB; // listes de voisines : cap x 64 indices, refaites a chaque sous-pas (05/09, levier de cout)
 				float32 mNeighMax = 0.f;
