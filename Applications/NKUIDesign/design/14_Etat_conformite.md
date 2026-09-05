@@ -39,7 +39,7 @@ main** — la prochaine régénération l'effacerait.*
 
 | lignes de comportement | livré | partiel | absent | écarté |
 |---|---|---|---|---|
-| **185** | **80** | **32** | **72** | **1** |
+| **191** | **86** | **32** | **72** | **1** |
 
 ### Par chapitre — où l'on est fort, où l'on est faible
 
@@ -47,13 +47,13 @@ main** — la prochaine régénération l'effacerait.*
 |---|---|---|---|---|
 | 1. Édition vectorielle | 7 | 4 | 1 | 0 |
 | 🔑 « MIROIR » DÉSIGNE **TROIS CHOSES DIFFÉRENTES** | 14 | 1 | 6 | 0 |
-| 2. Outils de tracé et leurs modificateurs | 6 | 7 | 7 | 0 |
+| 2. Outils de tracé et leurs modificateurs | 7 | 7 | 7 | 0 |
 | 3. Opérations booléennes et de forme | 0 | 0 | 8 | 0 |
 | 4. Sélection et navigation | 8 | 0 | 5 | 0 |
-| 5. Toile et vue | 5 | 5 | 12 | 0 |
+| 5. Toile et vue | 9 | 5 | 12 | 0 |
 | 6. Transformations | 16 | 1 | 5 | 0 |
 | 7. Calques et groupes | 9 | 1 | 6 | 1 |
-| 8. Propriétés | 10 | 12 | 18 | 0 |
+| 8. Propriétés | 11 | 12 | 18 | 0 |
 | 9. Composants et instances | 5 | 1 | 4 | 0 |
 
 ### La liste nommée — PARTIELS
@@ -277,6 +277,33 @@ recette : « livré » se mesure, il ne se déclare pas.*
   texte rastérisé à la taille exacte ; en **SVG** par un lecteur du document ;
   la destination par le sélecteur de fichier du kit, le pied dit le chemin écrit
   ou l'échec. Sondes 81-82 (pixels ; SVG re-rastérisé par `NkSVGCodec`).
+- **L'aperçu pendant le tracé** (05/09) — la **forme réelle** se peint pendant le
+  glisser de création (ellipse, triangle, étoile, ligne, flèche, arrondi…), avec le
+  costume qu'elle aura ; la boîte en pointillé et la pastille de taille restent
+  par-dessus. **Une seule table de genre** est lue par l'aperçu et par le relâchement
+  — sans quoi la forme créée pourrait différer de celle montrée. Sonde 94.
+- **L'opacité a sa propre ligne** (05/09) — dans le sélecteur de couleur, une barre
+  sur damier qui va de la couleur **transparente** à la couleur **pleine**, un
+  curseur, et le champ numérique qui reste : deux commandes, **un seul modèle**
+  (le curseur n'a aucune mémoire propre). Sonde 95.
+- **Un seul dialogue d'export** (05/09) — le menu, **Ctrl+E** et le **clic droit**
+  ouvrent la **même** porte, qui demande le format (PNG / SVG ; PDF et Code
+  **nommés et grisés**), l'échelle, l'étendue (page / sélection), la sortie (une
+  image / **un fichier par objet**) et le nom. Le nom proposé est celui de
+  **l'objet** — page, groupe, graphique — assaini pour le système de fichiers
+  (les accents restent), avec `@2x` quand l'échelle change. **Tout s'exporte** :
+  un nœud, un groupe **avec ses enfants**, plusieurs objets en une image ou un
+  fichier chacun (un doublon devient ` (2)`, jamais un écrasement silencieux).
+  ⚠️ **Ctrl+E n'est déclaré qu'une fois** — la leçon de Ctrl+D. Sonde 96.
+- **Le sélecteur de fichiers à deux volets** (05/09) — rail de dossiers à gauche
+  (disques, Accueil, Bureau, Documents, Téléchargements, Images, favoris, puis la
+  chaîne du dossier courant), **vignettes** à droite, fil d'Ariane, recherche, tri,
+  filtre d'extension, champ de nom. Il **ne contient aucun navigateur** : le volet
+  droit **est** `NkDrawContentBrowser` du kit. L'ancien sélecteur — une colonne
+  unique — **reste** et sert encore à « Choisir une image… » ; le nouvel état
+  dérive du même `NkFilePickerState`, donc le même contrat de confirmation.
+  ⚠️ **Mesure qui contredit la prémisse** : NKCode n'avait pas de sélecteur à lui,
+  il héritait déjà de celui du kit. Sonde 97.
 - **Ce que Lunacy n'a pas et que nous avons** (§11.3 du document 13) :
   l'**agencement** calculé, l'**ancrage**, les **cibles** et **points de
   rupture**, les **rôles de thème** et les **langues**. *Aucun n'est sacrifié
