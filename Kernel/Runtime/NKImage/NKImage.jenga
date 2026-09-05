@@ -140,6 +140,12 @@ with project("NKImage"):
     with filter("(system:Linux || system:macOS || (system:Windows && !options:windows-runtime=uwp && !system:XboxSeries && !system:XboxOne)) && !system:Android && !system:iOS && !system:Web"):
         with test():
             testfiles(["tests/**.cpp"])
+            # TestEXR.cpp est un OUTIL autonome, pas un test unitaire : il definit
+            # son propre main(), qui entrait en conflit avec celui que Jenga genere
+            # pour Unitest. La suite NKImage_Tests ne se construisait donc plus du
+            # tout, en silence. Exclu le 2026-09-05 ; le fichier reste dans le depot
+            # comme code de validation du codec EXR.
+            excludefiles(["tests/TestEXR.cpp"])
             links([
                 "NKImage",
                 "NKMemory",
