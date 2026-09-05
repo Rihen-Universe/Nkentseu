@@ -31,6 +31,8 @@
 #include "NKRenderer/Mesh/NkOBJLoader.h"
 #include "NKRenderer/Mesh/NkGLTFLoader.h"
 #include "NKRenderer/Mesh/NkFBXLoader.h"
+
+#include <cstdarg> // va_list : NkImportNote
 #include "NKRenderer/Mesh/NkDAELoader.h"
 #include "NKRenderer/Mesh/NkPLYLoader.h"
 #include "NKRenderer/Mesh/NkSTLLoader.h"
@@ -63,6 +65,30 @@ namespace nkentseu {
 					return false;
 			}
 			return true;
+		}
+
+		/// Pose la note du panneau Hierarchie ET l'ecrit au JOURNAL.
+		///
+		/// 🔴 Pourquoi les deux. Le 2026-09-05, Rodolf a rapporte « l'import de
+		/// XBot echoue ». Mesure : `LoadFBX` lit le fichier parfaitement
+		/// (99 796 sommets, 65 articulations, 2 modeles) — c'est
+		/// `NkImportCreate` qui refusait, faute de projet ouvert, en ecrivant
+		/// dans `st.hierNote` et **nulle part ailleurs**. Une note dans un
+		/// panneau qu'on ne regarde pas se confond avec un plantage.
+		///
+		/// `refus` distingue le ton : un refus part en avertissement (il demande
+		/// un geste), un compte-rendu part en information.
+		inline void NkImportNote(NkModelerState &st, bool refus, const char *fmt, ...) {
+			char buf[256];
+			va_list ap;
+			va_start(ap, fmt);
+			vsnprintf(buf, sizeof(buf), fmt, ap);
+			va_end(ap);
+			snprintf(st.hierNote, sizeof(st.hierNote), "%s", buf);
+			if (refus)
+				NkLog::Instance().Warnf("[import] %s", buf);
+			else
+				NkLog::Instance().Infof("[import] %s", buf);
 		}
 
 		/// Charge `path` par LE chargeur que son extension designe. Rend faux si
@@ -211,21 +237,28 @@ namespace nkentseu {
 			// Un import cree des MODELS : dans un editeur de model, il n'a pas
 			// de sens (un model ne contient pas de models). Refus NOMME.
 			if (demo::Demo3DHostDocIsModel()) {
-				snprintf(st.hierNote, sizeof(st.hierNote),
-						 "Importer : ouvrez une SCENE (l'import cree des models)");
+				NkImportNote(st, true, "Importer REFUSE : ouvrez une SCENE (l'import cree des models, et un model "
+									   "n'en contient pas)");
 				return false;
 			}
 			// Un import ECRIT dans le projet : sans projet ouvert, il n'a nulle
 			// part ou ecrire, et le dire vaut mieux qu'ecrire dans le vide.
 			if (st.projectRoot.Empty()) {
-				snprintf(st.hierNote, sizeof(st.hierNote),
-						 "Importer : ouvrez un PROJET (l'import ecrit des .nkmesh dedans)");
+				NkImportNote(st, true, "Importer REFUSE : aucun PROJET ouvert. L'import ecrit des .nkmesh dans le "
+									   "projet — Fichier > Nouveau ou Fichier > Ouvrir d'abord.");
 				return false;
 			}
 			const uint32 vTotal = (uint32)data.vertices.Size();
 			const uint32 iTotal = (uint32)data.indices.Size();
-			if (vTotal == 0 || iTotal == 0)
+			if (vTotal == 0 || iTotal == 0) {
+				// Refusait en SILENCE : ni note, ni journal. Un fichier lu mais
+				// vide est le cas le plus deroutant de tous — tout a « marche »
+				// et rien n'apparait.
+				NkImportNote(st, true, "Importer REFUSE : le fichier a ete lu mais ne contient aucune geometrie "
+									   "(%u sommets, %u indices)",
+							 (unsigned)vTotal, (unsigned)iTotal);
 				return false;
+			}
 			// Table globale -> local d'UNE tranche. Remise a -1 par liste des
 			// entrees touchees (jamais un balayage de tout le buffer par
 			// tranche).
@@ -407,21 +440,19 @@ namespace nkentseu {
 			if (modelsNes > 0)
 				NkMarkDirty(st);
 			if (plein)
-				snprintf(st.hierNote, sizeof(st.hierNote),
-						 "Import INCOMPLET (%d model(s), %d maillage(s)) : plus d'emplacement",
-						 modelsNes, noeudsNes);
+				NkImportNote(st, true, "Import INCOMPLET (%d model(s), %d maillage(s)) : plus d'emplacement",
+							 modelsNes, noeudsNes);
 			else if (navPlein)
-				snprintf(st.hierNote, sizeof(st.hierNote),
-						 "Import : %d model(s), %d maillage(s) - navigateur PLEIN, cartes partielles",
-						 modelsNes, noeudsNes);
+				NkImportNote(st, true, "Import : %d model(s), %d maillage(s) - navigateur PLEIN, cartes partielles",
+							 modelsNes, noeudsNes);
 			else if (fichiers < cartes)
-				snprintf(st.hierNote, sizeof(st.hierNote),
-						 "Import : %d carte(s), %d fichier(s) ECRIT(S) sur %d - %s",
-						 cartes, fichiers, cartes, errEcr.Empty() ? "?" : errEcr.CStr());
+				NkImportNote(st, true, "Import : %d carte(s), %d fichier(s) ECRIT(S) sur %d - %s", cartes, fichiers,
+							 cartes, errEcr.Empty() ? "?" : errEcr.CStr());
 			else
-				snprintf(st.hierNote, sizeof(st.hierNote),
-						 "Import : %d model(s), %d maillage(s), %d .nkmesh ecrit(s) - glissez la carte vers la scene",
-						 modelsNes, noeudsNes, fichiers);
+				NkImportNote(st, false,
+							 "Import : %d model(s), %d maillage(s), %d .nkmesh ecrit(s) - glissez la carte vers la "
+							 "scene",
+							 modelsNes, noeudsNes, fichiers);
 			return modelsNes > 0;
 		}
 
@@ -433,8 +464,9 @@ namespace nkentseu {
 			renderer::NkGLTFMeshData data;
 			const char *why = nullptr;
 			if (!NkImportLoad(absPath, data, &why)) {
-				snprintf(st.hierNote, sizeof(st.hierNote), "%s", why);
-				NkLog::Instance().Warnf("[import] '%s' : %s", absPath, why);
+				// `NkImportNote` ecrit DEJA au journal : le second appel faisait
+				// deux lignes pour un seul refus.
+				NkImportNote(st, true, "Importer '%s' : %s", absPath ? absPath : "(null)", why ? why : "?");
 				return false;
 			}
 			NkVector<NkImportModel> models;
