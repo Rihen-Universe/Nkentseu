@@ -11517,6 +11517,89 @@ namespace nkuidesign {
 				det);
 			NkDirectory::Delete("sonde_recents", true);
 		}
+		// ── 101. ④ LE DIALOGUE NE MONTRE QUE CE QUE SON MODE EXIGE (05/09, soir). Sur la
+		//    capture de Rodolf, le selecteur « choisir le dossier » affichait la bande
+		//    « Contenu » et les boutons « Creer / Importer / Tout enregistrer » -- ceux du
+		//    NAVIGATEUR D'ASSETS, herites parce qu'on reutilise son dessin. Il proposait donc
+		//    des actions qu'il ne ferait pas.
+		//
+		//    LA SONDE MESURE LES TEXTES REELLEMENT EMIS, avec l'instance QUE LE DESSIN UTILISE
+		//    (`NkInstanceVoletSelecteur` -- un seul site, nomme exprès pour que le temoin
+		//    puisse l'appeler). ⚠️ CE QU'ELLE NE COUVRE PAS, et il faut le dire : que le dessin
+		//    l'appelle vraiment. Il n'y a qu'un site et il porte ce nom ; c'est une garantie de
+		//    lecture, pas de mesure.
+		{
+			char det[820];
+			auto textesDe = [](const NkRecordingPaint &r, const char *quoi) -> uint32 {
+				uint32 n = 0u;
+				for (uint32 i = 0; i < (uint32)r.cmds.Size(); ++i)
+					if (r.cmds[i].op == NkPaintOp::Text && r.cmds[i].text.Data()
+						&& NkComponentDecl::StrEq(r.cmds[i].text.Data(), quoi))
+						++n;
+				return n;
+			};
+			NkContentBrowserModel m101;
+			for (int32 k = 0; k < 3; ++k) {
+				NkAssetEntry a;
+				a.name = NkString(k == 0 ? "un.png" : (k == 1 ? "deux.png" : "trois.png"));
+				a.kindLabel = "PNG";
+				m101.entries.PushBack(a);
+			}
+			NkContentBrowserHooks h101;
+			NkComponentInput in101;
+			// A. LE NAVIGATEUR D'ASSETS (aucune instance) : il garde TOUT, c'est le controle
+			//    positif -- sans lui, « rien n'est affiche » passerait pour un succes.
+			NkContentBrowserStyle sAsset = DemoStyle(nullptr);
+			NkRecordingPaint rAsset;
+			NkDrawContentBrowser(rAsset, in101, {0.f, 0.f, 900.f, 560.f}, m101, sAsset, h101);
+			const uint32 aContenu = textesDe(rAsset, "Contenu");
+			const uint32 aCreer = textesDe(rAsset, "Cr\u00e9er");
+			const uint32 aImporter = textesDe(rAsset, "Importer");
+			const uint32 aTout = textesDe(rAsset, "Tout enregistrer");
+			const uint32 aSelAll = textesDe(rAsset, "Tout s\u00e9lectionner");
+			const bool assetGardeTout = aContenu == 1u && aCreer == 1u && aImporter == 1u
+					&& aTout == 1u && aSelAll == 1u;
+			// B. LE DIALOGUE D'ENREGISTREMENT / DE CHOIX DE DOSSIER : plus rien de tout ca
+			NkContentBrowserStyle sSave = DemoStyle(nullptr);
+			sSave.values = &editorkit::NkInstanceVoletSelecteur(false);
+			NkRecordingPaint rSave;
+			NkDrawContentBrowser(rSave, in101, {0.f, 0.f, 900.f, 560.f}, m101, sSave, h101);
+			const uint32 sContenu = textesDe(rSave, "Contenu");
+			const uint32 sCreer = textesDe(rSave, "Cr\u00e9er");
+			const uint32 sImporter = textesDe(rSave, "Importer");
+			const uint32 sTout = textesDe(rSave, "Tout enregistrer");
+			const uint32 sSelAll = textesDe(rSave, "Tout s\u00e9lectionner");
+			const bool dialogueMuet = sContenu == 0u && sCreer == 0u && sImporter == 0u
+					&& sTout == 0u && sSelAll == 0u;
+			// C. ...MAIS IL MONTRE ENCORE CE QU'IL DOIT : les fichiers et le tri.
+			//    « Tout se tait » serait un succes a vide.
+			const bool montreEncore = textesDe(rSave, "un.png") == 1u
+					&& textesDe(rSave, "Trier par : Nom (a-z)") == 1u;
+			// D. EN OUVERTURE DE FICHIER, « Tout selectionner » REVIENT : le parametre suit le
+			//    mode, il n'est pas eteint une fois pour toutes.
+			NkContentBrowserStyle sOuvrir = DemoStyle(nullptr);
+			sOuvrir.values = &editorkit::NkInstanceVoletSelecteur(true);
+			NkRecordingPaint rOuvrir;
+			NkDrawContentBrowser(rOuvrir, in101, {0.f, 0.f, 900.f, 560.f}, m101, sOuvrir, h101);
+			const uint32 oSelAll = textesDe(rOuvrir, "Tout s\u00e9lectionner");
+			const uint32 oCreer = textesDe(rOuvrir, "Cr\u00e9er");
+			const bool suitLeMode = oSelAll == 1u && oCreer == 0u;
+			snprintf(det, sizeof(det),
+				"CONTROLE POSITIF (navigateur d'assets, sans instance) : « Contenu » %u, « Cr\u00e9er » %u, "
+				"« Importer » %u, « Tout enregistrer » %u, « Tout s\u00e9lectionner » %u -> %d ; DIALOGUE "
+				"(enregistrer / choisir un dossier) : %u / %u / %u / %u / %u -> %d ; il montre encore "
+				"les fichiers et le tri=%d ; OUVERTURE DE FICHIER : « Tout s\u00e9lectionner » %u, « Cr\u00e9er » "
+				"%u -> %d",
+				aContenu, aCreer, aImporter, aTout, aSelAll, assetGardeTout ? 1 : 0, sContenu, sCreer,
+				sImporter, sTout, sSelAll, dialogueMuet ? 1 : 0, montreEncore ? 1 : 0, oSelAll, oCreer,
+				suitLeMode ? 1 : 0);
+			check("101. ④ LE DIALOGUE NE MONTRE QUE CE QUE SON MODE EXIGE : ni bande « Contenu », ni « Cr\u00e9er / Importer / "
+				"Tout enregistrer », ni « Tout s\u00e9lectionner » dans un dialogue d'enregistrement ou de choix de dossier -- "
+				"il proposait des actions qu'il ne ferait pas ; le NAVIGATEUR D'ASSETS les garde tous (controle positif, "
+				"sans quoi « rien n'est affiche » passerait pour un succes), le dialogue montre TOUJOURS ses fichiers et "
+				"son tri, et « Tout s\u00e9lectionner » REVIENT en ouverture de fichier -- le parametre suit le mode",
+				assetGardeTout && dialogueMuet && montreEncore && suitLeMode, det);
+		}
 		snprintf(tail, sizeof(tail), "\n=== RESULTAT : %d / %d ===\n", pass, total);
 		rep.Append(tail);
 

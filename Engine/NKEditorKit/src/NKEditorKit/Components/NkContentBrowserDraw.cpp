@@ -570,15 +570,20 @@ namespace nkentseu {
 				p.Text(sortBtn, sortLbl, s.textMuted, NkTextAlign::Center);
 				if (in.mousePressed && sortBtn.Contains(in.mouseX, in.mouseY))
 					m.sortAsc = !m.sortAsc;
-				const char *selLbl = "Tout sélectionner";
-				const float32 selW = p.TextWidth(selLbl) + 2.f * pad;
-				NkPaintRect selBtn{sortBtn.x - pad - selW, ir.y, selW, ir.h};
-				p.Text(selBtn, selLbl, s.textMuted, NkTextAlign::Center);
-				if (in.mousePressed && selBtn.Contains(in.mouseX, in.mouseY)) {
-					m.chosen.Clear();
-					for (uint32 i = 0; i < (uint32)vis.Size(); ++i)
-						m.chosen.PushBack(vis[i]);
-					res.selectionChanged = true;
+				// ④ (05/09) « Tout selectionner » SEULEMENT si la selection multiple a un
+				//    sens ici. Un dialogue « choisir UN dossier » qui propose de tout
+				//    selectionner promet une chose qu'il refusera ensuite.
+				if (P("show_select_all") > 0.5f) {
+					const char *selLbl = "Tout sélectionner";
+					const float32 selW = p.TextWidth(selLbl) + 2.f * pad;
+					NkPaintRect selBtn{sortBtn.x - pad - selW, ir.y, selW, ir.h};
+					p.Text(selBtn, selLbl, s.textMuted, NkTextAlign::Center);
+					if (in.mousePressed && selBtn.Contains(in.mouseX, in.mouseY)) {
+						m.chosen.Clear();
+						for (uint32 i = 0; i < (uint32)vis.Size(); ++i)
+							m.chosen.PushBack(vis[i]);
+						res.selectionChanged = true;
+					}
 				}
 				contentTop += infoH;
 				p.HLine(rect.x, contentTop, rect.w, s.border);

@@ -422,6 +422,11 @@ namespace nkentseu {
 				 nullptr, 0},
 				{"show_actions", "Boutons Créer / Importer / Tout enregistrer", NkParamKind::Bool, 1.f,
 				 0.f, 0.f, nullptr, 0},
+				// ④ (05/09, soir) « Tout selectionner » n'a aucun sens quand un SEUL objet
+				// peut etre choisi -- un dialogue « choisir un dossier », par exemple. Defaut 1 :
+				// le navigateur d'assets ne bouge pas.
+				{"show_select_all", "Bouton « Tout sélectionner »", NkParamKind::Bool, 1.f, 0.f, 0.f,
+				 nullptr, 0},
 			};
 			static const NkTokenDecl kTokens[] = {
 				{"panel_bg", "PanelBg", "fond du panneau"},

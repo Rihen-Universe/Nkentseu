@@ -486,6 +486,34 @@ namespace nkentseu {
 				NkVector<NkString> mExts; ///< proprietaire des `kindLabel` du volet droit
 		};
 
+		// ── ④ CE QUE LE VOLET DOIT TAIRE DANS UN DIALOGUE (05/09, soir) ───────────
+		// Sur la capture de Rodolf, le selecteur « choisir le dossier » affichait la bande
+		// « Contenu » et les boutons « Creer / Importer / Tout enregistrer » : ce sont ceux
+		// du NAVIGATEUR D'ASSETS, herites parce qu'on reutilise son dessin. Un dialogue
+		// d'enregistrement n'importe rien et n'enregistre pas « tout » -- il proposait une
+		// action qu'il ne ferait pas.
+		//
+		// ⚠️ ON UTILISE LE MOYEN DEJA POSE plutot que d'en ajouter un : les parametres du
+		//    composant, portes par UNE INSTANCE. Aucun dessin n'est duplique, et le
+		//    navigateur d'assets garde ses boutons (leurs defauts valent 1).
+		//
+		// UN SEUL SITE, ET IL PORTE UN NOM : le dessin appelle ceci, la sonde appelle ceci.
+		// Une instance construite en ligne dans le dessin aurait ete inaccessible au temoin.
+		inline const NkComponentInstance &NkInstanceVoletSelecteur(bool selectionMultiple) {
+			// STATIQUE : la reconstruire a chaque image allouerait un tableau de parametres
+			// soixante fois par seconde pour trois valeurs.
+			static NkComponentInstance inst(NkContentBrowserDecl());
+			static bool posee = false;
+			if (!posee) {
+				inst.SetParam("show_header", 0.f);	// la bande « Contenu » : le titre est celui de la fenetre
+				inst.SetParam("show_actions", 0.f); // Creer / Importer / Tout enregistrer
+				posee = true;
+			}
+			// « Tout selectionner » n'a de sens que la ou plusieurs objets peuvent l'etre.
+			inst.SetParam("show_select_all", selectionMultiple ? 1.f : 0.f);
+			return inst;
+		}
+
 		// ── LE RENDU ────────────────────────────────────────────────────────────
 		/// Rend VRAI tant que le selecteur est ouvert. La confirmation depose son
 		/// resultat dans `fp` (les MEMES champs que l'ancien selecteur).
@@ -593,6 +621,9 @@ namespace nkentseu {
 			int32 aOuvrir = -1;	  // un dossier a suivre APRES le dessin
 			NkString cible;		  // le chemin a suivre
 			{
+				// ④ Le volet se tait sur ce que ce mode n'exige pas -- un seul site, nomme.
+				NkContentBrowserStyle volet = sty.volet;
+				volet.values = &NkInstanceVoletSelecteur(!saveMode && !dossierMode);
 				nkgui::PushOverlay(ctx); // le composant doit peindre dans la couche modale
 				NkGuiComponentPaint peintre(ctx, theme);
 				NkComponentInput in;
@@ -627,7 +658,7 @@ namespace nkentseu {
 				};
 				const NkContentBrowserResult res =
 					NkDrawContentBrowser(peintre, in, {zone.x, zone.y, zone.w, zone.h}, fp.vue,
-										 sty.volet, h);
+										 volet, h);
 				nkgui::PopOverlay(ctx);
 				if (res.navigatedCrumb >= 0
 					&& res.navigatedCrumb < (int32)fp.cheminsCrumb.Size())
