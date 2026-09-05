@@ -13184,13 +13184,28 @@ namespace nkuidesign {
 					snprintf(b, sizeof(b), "%d", (int32)v);
 				else
 					snprintf(b, sizeof(b), "%.2f", (double)v);
-				const nkgui::NkGuiId gid = ctx.GetId(id);
+				// ⑨ L'IDENTIFIANT NE SE PEINT PAS (2026-09-05, capture de Rodolf
+				//    `2026-09-05_app_popover_etiquette_fuit_dans_champ.png` : la rangée RGB montrait
+				//    « 179 | 184p.pop.m2 | 100 »). `InputText` peint la partie du libellé située AVANT
+				//    `##` — la convention de NKGui (`LabelEnd`). Les identifiants passés ici n'en
+				//    portaient pas : le champ en cours de frappe écrivait donc SON PROPRE NOM à côté
+				//    de lui, par-dessus le champ voisin, et se rétrécissait d'autant.
+				// ⚠️ LA CORRECTION EST ICI, PAS SUR LES SITES D'APPEL : ils sont une vingtaine
+				//    (`insp.pop.m0`, `insp.popover.op`, `insp.app.rayon`, `insp.popover.bord.cote.N`…)
+				//    et le vingt-et-unième réintroduirait le défaut. Le préfixe sert à l'identité ET
+				//    au dessin, donc `gid` et l'id interne d'`InputText` restent le même.
+				char idMasque[80];
+				if (id && id[0] == '#' && id[1] == '#')
+					snprintf(idMasque, sizeof(idMasque), "%s", id);
+				else
+					snprintf(idMasque, sizeof(idMasque), "##%s", id ? id : "");
+				const nkgui::NkGuiId gid = ctx.GetId(idMasque);
 				bool change = false;
 				// ② LA FRAPPE : un clic SANS glisser ouvre la saisie (Entree valide par la
 				//    porte NkPorteNombre, Echap ou un clic ailleurs abandonne)
 				if (mSaisieChamp == gid) {
 					ctx.SetNextItemRect(r);
-					const bool entree = nkgui::InputText(ctx, id, mSaisieBuf, (int32)sizeof(mSaisieBuf));
+					const bool entree = nkgui::InputText(ctx, idMasque, mSaisieBuf, (int32)sizeof(mSaisieBuf));
 					if (entree) {
 						float32 nv = v;
 						if (NkPorteNombre(mSaisieBuf, vmin, vmax, nv) && nv != v) {

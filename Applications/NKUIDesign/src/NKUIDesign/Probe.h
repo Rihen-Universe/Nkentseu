@@ -10042,6 +10042,122 @@ namespace nkuidesign {
 					  png43 && estCrop && couvrant && cadrePlusGrand && cropChange && noeudIntact && noeudRepondEncore, det);
 			}
 		}
+		// ── 89. ⑨ AUCUN IDENTIFIANT NE SE PEINT DANS UN CHAMP (05/09). La capture de Rodolf
+		//    (`2026-09-05_app_popover_etiquette_fuit_dans_champ.png`) montrait la rangee RGB
+		//    « 179 | 184p.pop.m2 | 100 » : `InputText` peint la partie du libelle situee AVANT
+		//    `##`, et les identifiants des champs de nombre n'en portaient pas. Le temoin lit
+		//    l'INTROSPECTION : tout champ pose pendant la frappe doit avoir une partie visible
+		//    VIDE ou humaine -- jamais quelque chose qui ressemble a un identifiant (un point,
+		//    aucune espace).
+		{
+			static nkgui::NkGuiContext ctxId;
+			char det[700];
+			static nkgui::NkGuiFont policeId;
+			const bool policeOkId = policeId.LoadEmbedded(nkentseu::NkEmbeddedFontId::Inter, 14.f, false);
+			if (!ctxId.Init(600, 900) || !policeOkId) {
+				check("89. aucun identifiant peint dans un champ", false, "Init ou police a refuse");
+			} else {
+				ctxId.font = &policeId;
+				nkgui::NkGuiIntrospectActiver(ctxId, true);
+				static DesignState stId;
+				stId.doc.NewDocument("Toile", NkAuthor::Humain);
+				stId.cheminActif = NkString();
+				const int32 pgI = stId.doc.AddChild(0, "", NkAuthor::Humain);
+				stId.doc.nodes[(uint32)pgI].shape = NkString("frame");
+				stId.doc.nodes[(uint32)pgI].layout.kind = NkLayoutKind::Free;
+				stId.doc.nodes[(uint32)pgI].width.mode = NkSizeMode::Fixed;
+				stId.doc.nodes[(uint32)pgI].width.value = 300.f;
+				stId.doc.nodes[(uint32)pgI].height.mode = NkSizeMode::Fixed;
+				stId.doc.nodes[(uint32)pgI].height.value = 300.f;
+				const int32 rcI = stId.doc.AddChild(pgI, "", NkAuthor::Humain);
+				{
+					NkUINode &n = stId.doc.nodes[(uint32)rcI];
+					n.shape = NkString("rect");
+					n.posX = 100.f;
+					n.posY = 100.f;
+					n.width.mode = NkSizeMode::Fixed;
+					n.width.value = 80.f;
+					n.height.mode = NkSizeMode::Fixed;
+					n.height.value = 80.f;
+					NkRemplissage f;
+					f.couleur = NkString("#1976d2");
+					n.fills.PushBack(f);
+				}
+				stId.Recompute(NkPaintRect{0.f, 0.f, 340.f, 900.f});
+				stId.SelectSingle(rcI);
+				static InspectorPanel inspId(&stId);
+				NkEditorFrameContext ec;
+				ec.ui = &ctxId;
+				ec.dt = 0.016f;
+				auto image = [&](float32 mx, float32 my, bool bas) {
+					ctxId.input.mousePos = {mx, my};
+					ctxId.input.mouseDown[0] = bas;
+					ctxId.BeginFrame(0.016f);
+					ctxId.BeginLayout({340.f, 0.f, 260.f, 900.f});
+					inspId.OnUI(ec);
+					NkDessinerPickerDemande(ctxId, stId);
+					ctxId.EndFrame();
+				};
+				stId.picker = DesignState::DemandePicker();
+				stId.picker.ouvert = true;
+				stId.picker.id = ctxId.GetId("##sonde.popover.id9");
+				stId.picker.genre = 1u;
+				stId.picker.noeud = rcI;
+				stId.picker.index = 0;
+				stId.picker.ancre = {580.f, 200.f, 16.f, 16.f};
+				for (int32 k = 0; k < 3; ++k)
+					image(-1.f, -1.f, false);
+				// le champ d'OPACITE de la rangee du modele : 8 (marge) + 26 (vignettes) + 168
+				// (selecteur) ; `NkRangeeModele` pose l'opacite a x1 - 12 - 34, 34 x 20
+				const float32 prxI = 580.f - 250.f - 8.f, pryI = 200.f - 8.f;
+				const float32 x1I = prxI + 250.f - 8.f;
+				const float32 xOp = x1I - 12.f - 17.f, yOp = pryI + 8.f + 26.f + 168.f + 3.f + 10.f;
+				image(xOp, yOp, false);
+				image(xOp, yOp, true);
+				image(xOp, yOp, false); // un clic SANS glisser ouvre la saisie
+				image(xOp, yOp, false);
+				// les notes de CETTE image : tout champ pose, avec son libelle
+				int32 nbNotes = 0;
+				const nkgui::NkGuiNote *notes = nkgui::NkGuiIntrospectNotes(ctxId, nbNotes);
+				int32 champs = 0, fuites = 0;
+				char premiere[80];
+				premiere[0] = 0;
+				for (int32 i = 0; i < nbNotes; ++i) {
+					if (notes[i].nature != nkgui::NkGuiNature::Champ)
+						continue;
+					++champs;
+					const char *lib = notes[i].libelle;
+					// la partie VISIBLE : ce qui precede « ## »
+					int32 fin = 0;
+					while (lib[fin] && !(lib[fin] == '#' && lib[fin + 1] == '#'))
+						++fin;
+					bool point = false, espace = false;
+					for (int32 k = 0; k < fin; ++k) {
+						if (lib[k] == '.')
+							point = true;
+						if (lib[k] == ' ')
+							espace = true;
+					}
+					if (fin > 0 && point && !espace) { // ça ressemble a un identifiant, pas a un libelle
+						++fuites;
+						if (!premiere[0])
+							snprintf(premiere, sizeof(premiere), "%s", lib);
+					}
+				}
+				snprintf(det, sizeof(det),
+						 "%d note(s) cette image, dont %d champ(s) ; libelles qui ressemblent a un identifiant (un point, aucune "
+						 "espace) : %d%s%s",
+						 nbNotes, champs, fuites, premiere[0] ? " -- le premier : " : "", premiere[0] ? premiere : "");
+				check("89. ⑨ AUCUN IDENTIFIANT NE SE PEINT DANS UN CHAMP : le champ d'opacite du selecteur mis en frappe, l'introspection "
+					  "ne montre AUCUN champ dont la partie visible du libelle ressemble a un identifiant (avant : « insp.pop.m2 » etait "
+					  "peint a cote du champ, par-dessus son voisin)",
+					  champs > 0 && fuites == 0, det);
+				if (ctxId.popupDepth > 0)
+					ctxId.ClosePopup();
+				stId.picker = DesignState::DemandePicker();
+				image(-1.f, -1.f, false);
+			}
+		}
 		snprintf(tail, sizeof(tail), "\n=== RESULTAT : %d / %d ===\n", pass, total);
 		rep.Append(tail);
 
