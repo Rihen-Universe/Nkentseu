@@ -721,6 +721,21 @@ namespace nkentseu {
 				const int32 kind = NkScInt(nd, "nature", 0);
 				const int32 sub = NkScInt(nd, "sousType", 0);
 				if (kind < 1 || kind > 10) {
+					// 🔴 CE NOEUD DISPARAIT, ET IL FAUT LE DIRE PAR SON NOM.
+					// `nature == 0` est la marque d'un objet IMPORTE :
+					// `Demo3DHostCreateMeshNode` pose `nkvpUserKind = 0`, et le
+					// fichier ne stocke que la nature et les parametres de
+					// creation — pas les sommets (dette datee du 17/08, en tete de
+					// ce fichier). Un objet importe ne survit donc pas a un
+					// aller-retour par le fichier. Jusqu'ici il partait en silence,
+					// dans un COMPTE agrege dont l'affichage depend de l'appelant :
+					// l'utilisateur voyait son modele s'evaporer sans un mot.
+					NkLog::Instance().Warnf(
+						"[scene] objet « %s » NON RECREE : nature=%d %s. Sa geometrie n'est pas dans le "
+						"fichier — reimportez-le.",
+						NkScStr(nd, "nom").CStr(), (int)kind,
+						kind == 0 ? "(objet IMPORTE : le format ne stocke pas encore ses sommets)"
+								  : "(hors des natures connues 1..10)");
 					nodeOf.PushBack(-1);
 					++nodeMiss;
 					continue;
@@ -751,7 +766,11 @@ namespace nkentseu {
 				const int32 n = demo::Demo3DHostAddNode(kind, sub);
 				nodeOf.PushBack(n);
 				if (n < 0) {
-					++nodeMiss; // plus d'emplacement libre
+					// Meme regle : nomme, pas compte en silence.
+					NkLog::Instance().Warnf("[scene] objet « %s » NON RECREE : plus d'emplacement libre dans la "
+											"scene",
+											NkScStr(nd, "nom").CStr());
+					++nodeMiss;
 					continue;
 				}
 				const NkString nm = NkScStr(nd, "nom");
@@ -1070,6 +1089,9 @@ namespace nkentseu {
 							 "sans model rendu(s) visible(s)",
 							 (int)texMiss, (int)nodeMiss, (int)rescued, (int)orphanMesh);
 					*err = msg;
+					// Le compte part aussi au JOURNAL : `err` remonte a un appelant
+					// qui peut l'ignorer, le journal reste.
+					NkLog::Instance().Warnf("[scene] %s", msg);
 				}
 			}
 			return true;

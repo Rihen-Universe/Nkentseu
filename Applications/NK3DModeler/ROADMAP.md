@@ -3313,3 +3313,29 @@ elargie, deja ecrites, a reprendre dans NKGui. **NKUI est en cours de suppressio
 canal pour l'agent qui mene l'extinction : *verifier ce que NKGui n'a pas repris
 avant de retirer `NkUILayout.cpp`*. `DrawSplitter` est un cas prouve ; je n'ai pas
 balaye le reste, **je n'affirme donc rien au-dela de celui-la**.
+
+---
+
+## 🗂️ DÉCISION DE RODOLF (2026-09-05) — LE SÉLECTEUR DE FICHIERS DE NkUIDesign DEVIENT L'OUTIL PAR DÉFAUT, PARTOUT
+
+**Ordre de Rodolf, relayé par le coordinateur** : le sélecteur de fichiers écrit
+pour NkUIDesign devient **l'outil par défaut de toutes les applications** —
+NK3DModeler compris — pour **créer un dossier, choisir un dossier, ouvrir,
+enregistrer**.
+
+**Où il vit** : `NKEditorKit`, commit `bc623a358` de l'agent NkUIDesign, arbre
+`Nkentseu-noge`. Il n'est pas encore dans cette branche.
+
+**Ce qu'il faut faire, le jour où il sera fusionné** : brancher NK3DModeler
+dessus et **retirer** `Shell/NkModelerFileDialog.h`. ⚠️ **Ne rien dupliquer** —
+c'est précisément la faute que le dépôt a déjà payée : *« un troisième sélecteur
+de dossier écrit dans NK3DModeler un mois plus tard, non pas contre la règle,
+mais sans pouvoir la voir »*. Celui-ci serait le quatrième.
+
+**Pourquoi c'est noté ici et pas fait** : le composant n'existe pas dans cet
+arbre. Écrire un adaptateur contre une interface qu'on n'a pas lue produirait
+exactement le doublon que la décision veut supprimer — *écrire contre une
+signature supposée compile, et c'est le problème*.
+
+**Le déclencheur** : la fusion de `bc623a358` dans la branche de travail de
+NK3DModeler. Propriétaire : celui qui reprend le modeleur après cette fusion.
