@@ -36,6 +36,7 @@ namespace nkentseu {
 @binding(set=0, binding=9) buffer InstF { float f[]; } IF;
 @binding(set=0, binding=10) buffer InstU { uint u[]; } IU;
 @binding(set=0, binding=11) buffer BirthBuf { vec4 b[]; } B;
+@binding(set=0, binding=14) buffer NeighBuf { uint n[]; } NB;   // cap x 64 : indices des voisines (fluide < cap, fantome >= cap)
 @binding(set=0, binding=12) uniform Params {
     vec4 hm;    // h, m, rho0, dt
     vec4 grav;  // gravite xyz, invDt
@@ -251,22 +252,20 @@ void main() {
 }
 )NKSL";
 
-		// densite, alpha, voisines fluides (compte = cap)
-		static const char *kDensBody = R"NKSL(
+		// listes de voisines (une fois par sous-pas, 64 max, compte brut releve) -- les quatre passes de
+		// voisinage lisent la liste au lieu de retraverser 27 cellules (mesure du 05/09 : c'etait le cout)
+		static const char *kNeighBody = R"NKSL(
 @stage(compute)
 @entry
 void main() {
     uint i = gl_GlobalInvocationID.x;
     if (i < p.cap) {
         vec4 pi4 = X.p[i];
+        uint nn = 0u;
         if (pi4.w > 0.5 && pi4.w < 1.5) {
             vec3 xi = vec3(pi4.x, pi4.y, pi4.z);
-            float h = p.hm.x;
-            float m = p.hm.y;
-            float rho = m * kW(0.0);
-            vec3 sg = vec3(0.0, 0.0, 0.0);
-            float sg2 = 0.0;
-            uint cnt = 0u;
+            float h2 = p.hm.x * p.hm.x;
+            uint base = i * 64u;
             for (int dz = -1; dz <= 1; dz = dz + 1) {
                 for (int dy = -1; dy <= 1; dy = dy + 1) {
                     for (int dx = -1; dx <= 1; dx = dx + 1) {
@@ -277,16 +276,9 @@ void main() {
                                 if (j != i) {
                                     vec4 pj = X.p[j];
                                     vec3 dd = xi - vec3(pj.x, pj.y, pj.z);
-                                    float r2 = dot(dd, dd);
-                                    if (r2 < h * h) {
-                                        float r = sqrt(r2);
-                                        rho = rho + m * kW(r);
-                                        float s = 0.0;
-                                        if (r > 0.000000001) { s = kDW(r) / r; }
-                                        vec3 g = dd * (s * m);
-                                        sg = sg + g;
-                                        sg2 = sg2 + dot(g, g);
-                                        cnt = cnt + 1u;
+                                    if (dot(dd, dd) < h2) {
+                                        if (nn < 64u) { NB.n[base + nn] = j; }
+                                        nn = nn + 1u;
                                     }
                                 }
                             }
@@ -294,17 +286,52 @@ void main() {
                                 uint j = GKV.a[2u * (qg) + 1u];
                                 vec4 pj = X.p[j];
                                 vec3 dd = xi - vec3(pj.x, pj.y, pj.z);
-                                float r2 = dot(dd, dd);
-                                if (r2 < h * h) {
-                                    float r = sqrt(r2);
-                                    rho = rho + m * kW(r);
-                                    float s = 0.0;
-                                    if (r > 0.000000001) { s = kDW(r) / r; }
-                                    sg = sg + dd * (s * m);
+                                if (dot(dd, dd) < h2) {
+                                    if (nn < 64u) { NB.n[base + nn] = j; }
+                                    nn = nn + 1u;
                                 }
                             }
                         }
                     }
+                }
+            }
+        }
+        FL.f[8u * (i) + 7u] = float(nn);
+    }
+}
+)NKSL";
+
+		// densite, alpha, voisines fluides (compte = cap)
+		static const char *kDensBody = R"NKSL(
+@stage(compute)
+@entry
+void main() {
+    uint i = gl_GlobalInvocationID.x;
+    if (i < p.cap) {
+        vec4 pi4 = X.p[i];
+        if (pi4.w > 0.5 && pi4.w < 1.5) {
+            vec3 xi = vec3(pi4.x, pi4.y, pi4.z);
+            float m = p.hm.y;
+            float rho = m * kW(0.0);
+            vec3 sg = vec3(0.0, 0.0, 0.0);
+            float sg2 = 0.0;
+            uint cnt = 0u;
+            uint nn = uint(FL.f[8u * (i) + 7u]);
+            if (nn > 64u) { nn = 64u; }
+            uint base = i * 64u;
+            for (uint qn = 0u; qn < nn; qn = qn + 1u) {
+                uint j = NB.n[base + qn];
+                vec4 pj = X.p[j];
+                vec3 dd = xi - vec3(pj.x, pj.y, pj.z);
+                float r = sqrt(dot(dd, dd));
+                rho = rho + m * kW(r);
+                float s = 0.0;
+                if (r > 0.000000001) { s = kDW(r) / r; }
+                vec3 g = dd * (s * m);
+                sg = sg + g;
+                if (j < p.cap) {
+                    sg2 = sg2 + dot(g, g);
+                    cnt = cnt + 1u;
                 }
             }
             FL.f[8u * (i)] = rho;
@@ -336,47 +363,26 @@ void main() {
             vec3 xi = vec3(pi4.x, pi4.y, pi4.z);
             vec4 vi4 = V.v[i];
             vec3 vi = vec3(vi4.x, vi4.y, vi4.z);
-            float h = p.hm.x;
             float m = p.hm.y;
             float rho0 = p.hm.z;
             float dt = p.hm.w;
             float div = 0.0;
-            for (int dz = -1; dz <= 1; dz = dz + 1) {
-                for (int dy = -1; dy <= 1; dy = dy + 1) {
-                    for (int dx = -1; dx <= 1; dx = dx + 1) {
-                        uint c = cellAt(xi, dx, dy, dz);
-                        if (c < p.numCells) {
-                            for (uint qq = FSE.a[2u * (c)]; qq < FSE.a[2u * (c) + 1u]; qq = qq + 1u) {
-                                uint j = KV.a[2u * (qq) + 1u];
-                                if (j != i) {
-                                    vec4 pj = X.p[j];
-                                    vec3 dd = xi - vec3(pj.x, pj.y, pj.z);
-                                    float r2 = dot(dd, dd);
-                                    if (r2 < h * h) {
-                                        float r = sqrt(r2);
-                                        float s = 0.0;
-                                        if (r > 0.000000001) { s = kDW(r) / r; }
-                                        vec4 vj4 = V.v[j];
-                                        vec3 dv = vi - vec3(vj4.x, vj4.y, vj4.z);
-                                        div = div + m * dot(dv, dd * s);
-                                    }
-                                }
-                            }
-                            for (uint qg = GSE.a[2u * (c)]; qg < GSE.a[2u * (c) + 1u]; qg = qg + 1u) {
-                                uint j = GKV.a[2u * (qg) + 1u];
-                                vec4 pj = X.p[j];
-                                vec3 dd = xi - vec3(pj.x, pj.y, pj.z);
-                                float r2 = dot(dd, dd);
-                                if (r2 < h * h) {
-                                    float r = sqrt(r2);
-                                    float s = 0.0;
-                                    if (r > 0.000000001) { s = kDW(r) / r; }
-                                    div = div + m * dot(vi, dd * s);
-                                }
-                            }
-                        }
-                    }
+            uint nn = uint(FL.f[8u * (i) + 7u]);
+            if (nn > 64u) { nn = 64u; }
+            uint base = i * 64u;
+            for (uint qn = 0u; qn < nn; qn = qn + 1u) {
+                uint j = NB.n[base + qn];
+                vec4 pj = X.p[j];
+                vec3 dd = xi - vec3(pj.x, pj.y, pj.z);
+                float r = sqrt(dot(dd, dd));
+                float s = 0.0;
+                if (r > 0.000000001) { s = kDW(r) / r; }
+                vec3 dv = vi;
+                if (j < p.cap) {
+                    vec4 vj4 = V.v[j];
+                    dv = vi - vec3(vj4.x, vj4.y, vj4.z);
                 }
+                div = div + m * dot(dv, dd * s);
             }
             float al = FL.f[8u * (i) + 1u];
             if (p.mode == 0u) {
@@ -413,46 +419,23 @@ void main() {
         vec4 pi4 = X.p[i];
         if (pi4.w > 0.5 && pi4.w < 1.5) {
             vec3 xi = vec3(pi4.x, pi4.y, pi4.z);
-            float h = p.hm.x;
             float m = p.hm.y;
             float dt = p.hm.w;
             float ki = FL.f[8u * (i) + 2u] / FL.f[8u * (i)];
             vec3 acc = vec3(0.0, 0.0, 0.0);
-            for (int dz = -1; dz <= 1; dz = dz + 1) {
-                for (int dy = -1; dy <= 1; dy = dy + 1) {
-                    for (int dx = -1; dx <= 1; dx = dx + 1) {
-                        uint c = cellAt(xi, dx, dy, dz);
-                        if (c < p.numCells) {
-                            for (uint qq = FSE.a[2u * (c)]; qq < FSE.a[2u * (c) + 1u]; qq = qq + 1u) {
-                                uint j = KV.a[2u * (qq) + 1u];
-                                if (j != i) {
-                                    vec4 pj = X.p[j];
-                                    vec3 dd = xi - vec3(pj.x, pj.y, pj.z);
-                                    float r2 = dot(dd, dd);
-                                    if (r2 < h * h) {
-                                        float r = sqrt(r2);
-                                        float s = 0.0;
-                                        if (r > 0.000000001) { s = kDW(r) / r; }
-                                        float kj = FL.f[8u * (j) + 2u] / FL.f[8u * (j)];
-                                        acc = acc + dd * (s * m * (ki + kj));
-                                    }
-                                }
-                            }
-                            for (uint qg = GSE.a[2u * (c)]; qg < GSE.a[2u * (c) + 1u]; qg = qg + 1u) {
-                                uint j = GKV.a[2u * (qg) + 1u];
-                                vec4 pj = X.p[j];
-                                vec3 dd = xi - vec3(pj.x, pj.y, pj.z);
-                                float r2 = dot(dd, dd);
-                                if (r2 < h * h) {
-                                    float r = sqrt(r2);
-                                    float s = 0.0;
-                                    if (r > 0.000000001) { s = kDW(r) / r; }
-                                    acc = acc + dd * (s * m * ki);
-                                }
-                            }
-                        }
-                    }
-                }
+            uint nn = uint(FL.f[8u * (i) + 7u]);
+            if (nn > 64u) { nn = 64u; }
+            uint base = i * 64u;
+            for (uint qn = 0u; qn < nn; qn = qn + 1u) {
+                uint j = NB.n[base + qn];
+                vec4 pj = X.p[j];
+                vec3 dd = xi - vec3(pj.x, pj.y, pj.z);
+                float r = sqrt(dot(dd, dd));
+                float s = 0.0;
+                if (r > 0.000000001) { s = kDW(r) / r; }
+                float kj = 0.0;
+                if (j < p.cap) { kj = FL.f[8u * (j) + 2u] / FL.f[8u * (j)]; }
+                acc = acc + dd * (s * m * (ki + kj));
             }
             vec4 vi4 = V.v[i];
             V.v[i] = vec4(vi4.x - dt * acc.x, vi4.y - dt * acc.y, vi4.z - dt * acc.z, 0.0);
@@ -517,53 +500,32 @@ void main() {
             float mui = rhoi * nu;
             vec3 accX = vec3(0.0, 0.0, 0.0);
             vec3 accM = vec3(0.0, 0.0, 0.0);
-            for (int dz = -1; dz <= 1; dz = dz + 1) {
-                for (int dy = -1; dy <= 1; dy = dy + 1) {
-                    for (int dx = -1; dx <= 1; dx = dx + 1) {
-                        uint c = cellAt(xi, dx, dy, dz);
-                        if (c < p.numCells) {
-                            for (uint qq = FSE.a[2u * (c)]; qq < FSE.a[2u * (c) + 1u]; qq = qq + 1u) {
-                                uint j = KV.a[2u * (qq) + 1u];
-                                if (j != i) {
-                                    vec4 pj = X.p[j];
-                                    vec3 dd = xi - vec3(pj.x, pj.y, pj.z);
-                                    float r2 = dot(dd, dd);
-                                    if (r2 < h * h) {
-                                        float r = sqrt(r2);
-                                        float s = 0.0;
-                                        if (r > 0.000000001) { s = kDW(r) / r; }
-                                        vec4 vj4 = V.v[j];
-                                        vec3 vj = vec3(vj4.x, vj4.y, vj4.z);
-                                        float rhoj = FL.f[8u * (j)];
-                                        float cx = (m / rhoj) * kW(r);
-                                        accX = accX + (vj - vi) * cx;
-                                        if (nu > 0.0) {
-                                            float xg = dot(dd, dd * s);
-                                            float cij = m * (mui + rhoj * nu) / (rhoi * rhoj) * xg / (r2 + eps);
-                                            accM = accM + (vi - vj) * cij;
-                                        }
-                                    }
-                                }
-                            }
-                            for (uint qg = GSE.a[2u * (c)]; qg < GSE.a[2u * (c) + 1u]; qg = qg + 1u) {
-                                uint j = GKV.a[2u * (qg) + 1u];
-                                vec4 pj = X.p[j];
-                                vec3 dd = xi - vec3(pj.x, pj.y, pj.z);
-                                float r2 = dot(dd, dd);
-                                if (r2 < h * h) {
-                                    float r = sqrt(r2);
-                                    float s = 0.0;
-                                    if (r > 0.000000001) { s = kDW(r) / r; }
-                                    float cx = wf * (m / rho0) * kW(r);
-                                    accX = accX - vi * cx;
-                                    if (nu > 0.0) {
-                                        float xg = dot(dd, dd * s);
-                                        float cij = m * (mui + rho0 * nu) / (rhoi * rho0) * xg / (r2 + eps);
-                                        accM = accM + vi * cij;
-                                    }
-                                }
-                            }
-                        }
+            uint nn = uint(FL.f[8u * (i) + 7u]);
+            if (nn > 64u) { nn = 64u; }
+            uint base = i * 64u;
+            for (uint qn = 0u; qn < nn; qn = qn + 1u) {
+                uint j = NB.n[base + qn];
+                vec4 pj = X.p[j];
+                vec3 dd = xi - vec3(pj.x, pj.y, pj.z);
+                float r2 = dot(dd, dd);
+                float r = sqrt(r2);
+                float s = 0.0;
+                if (r > 0.000000001) { s = kDW(r) / r; }
+                float xg = dot(dd, dd * s);
+                if (j < p.cap) {
+                    vec4 vj4 = V.v[j];
+                    vec3 vj = vec3(vj4.x, vj4.y, vj4.z);
+                    float rhoj = FL.f[8u * (j)];
+                    accX = accX + (vj - vi) * ((m / rhoj) * kW(r));
+                    if (nu > 0.0) {
+                        float cij = m * (mui + rhoj * nu) / (rhoi * rhoj) * xg / (r2 + eps);
+                        accM = accM + (vi - vj) * cij;
+                    }
+                } else {
+                    accX = accX - vi * (wf * (m / rho0) * kW(r));
+                    if (nu > 0.0) {
+                        float cij = m * (mui + rho0 * nu) / (rhoi * rho0) * xg / (r2 + eps);
+                        accM = accM + vi * cij;
                     }
                 }
             }
@@ -678,10 +640,12 @@ void main() {
         float clumped = 0.0;
         float clamped = 0.0;
         float n = 0.0;
+        float nmax = 0.0;
         for (uint i = t; i < p.cap; i = i + 256u) {
             vec4 pi4 = X.p[i];
             if (pi4.w > 0.5 && pi4.w < 1.5) {
                 float rho = FL.f[8u * (i)];
+                if (FL.f[8u * (i) + 7u] > nmax) { nmax = FL.f[8u * (i) + 7u]; }
                 vec4 vi4 = V.v[i];
                 float sp = sqrt(vi4.x * vi4.x + vi4.y * vi4.y + vi4.z * vi4.z);
                 sumRho = sumRho + rho;
@@ -712,6 +676,7 @@ void main() {
         R.r[o + 10u] = clumped;
         R.r[o + 11u] = clamped;
         R.r[o + 12u] = n;
+        R.r[o + 13u] = nmax;
     }
 }
 )NKSL";
@@ -895,6 +860,7 @@ void main() {
 				mk(mGSE, (uint64)mNumCells * 8u, "sph_gcells");
 				mk(mFL, (uint64)M * 32u, "sph_fields");
 				mk(mT, (uint64)mCapacity * 16u, "sph_tmp");
+				mk(mNB, (uint64)mCapacity * 64u * 4u, "sph_neigh");
 				mk(mRed, (uint64)(256u + 256u * 16u) * 4u, "sph_red");
 				NkBufferDesc id = NkBufferDesc::Storage((uint64)mCapacity * (uint64)sizeof(NkParticleInstance));
 				id.bindFlags = id.bindFlags | NkBindFlags::NK_VERTEX_BUFFER;
@@ -908,7 +874,7 @@ void main() {
 				mUbo = device->CreateBuffer(NkBufferDesc::Uniform(sizeof(Params)));
 				mSortUbo = device->CreateBuffer(NkBufferDesc::Uniform(sizeof(SortParams)));
 			}
-			NkBufferHandle *all[] = {&mX, &mV, &mKV, &mGKV, &mFSE, &mGSE, &mFL, &mT, &mRed, &mInstances, &mBirths, &mUbo, &mSortUbo};
+			NkBufferHandle *all[] = {&mX, &mV, &mKV, &mGKV, &mFSE, &mGSE, &mFL, &mT, &mRed, &mInstances, &mBirths, &mUbo, &mSortUbo, &mNB};
 			for (NkBufferHandle *b : all)
 				if (!b->IsValid()) {
 					mFail = "un tampon de stockage n'a pas pu etre cree";
@@ -921,13 +887,14 @@ void main() {
 				ld.Add(b, NkDescriptorType::NK_STORAGE_BUFFER, NkShaderStage::NK_COMPUTE);
 			ld.Add(12, NkDescriptorType::NK_UNIFORM_BUFFER, NkShaderStage::NK_COMPUTE);
 			ld.Add(13, NkDescriptorType::NK_UNIFORM_BUFFER, NkShaderStage::NK_COMPUTE);
+			ld.Add(14, NkDescriptorType::NK_STORAGE_BUFFER, NkShaderStage::NK_COMPUTE);
 			mLayout = mDevice->CreateDescriptorSetLayout(ld);
-			static const char *names[K_COUNT] = {"sph_birth", "sph_key",	  "sph_sort",	   "sph_clear", "sph_cell",
-												 "sph_dens",  "sph_kappa", "sph_correct", "sph_warm",  "sph_storewarm",
-												 "sph_nonp",  "sph_apply", "sph_reduce",  "sph_integ", "sph_stats"};
-			static const char *bodies[K_COUNT] = {kBirthBody, kKeyBody,	  kSortBody,	kClearBody, kCellBody,
-												  kDensBody,  kKappaBody, kCorrectBody, kWarmBody,	kStoreWarmBody,
-												  kNonPBody,  kApplyBody, kReduceBody,	kIntegBody, kStatsBody};
+			static const char *names[K_COUNT] = {"sph_birth", "sph_key", "sph_sort", "sph_clear", "sph_cell", "sph_dens", "sph_kappa",
+												 "sph_correct", "sph_warm", "sph_storewarm", "sph_nonp", "sph_apply", "sph_reduce",
+												 "sph_integ", "sph_stats", "sph_neigh"};
+			static const char *bodies[K_COUNT] = {kBirthBody, kKeyBody, kSortBody, kClearBody, kCellBody, kDensBody, kKappaBody,
+												  kCorrectBody, kWarmBody, kStoreWarmBody, kNonPBody, kApplyBody, kReduceBody,
+												  kIntegBody, kStatsBody, kNeighBody};
 			for (int k = 0; k < K_COUNT; ++k)
 				if (!CompileKernel(k, names[k], bodies[k]))
 					return false;
@@ -947,6 +914,14 @@ void main() {
 			}
 			mDevice->BindUniformBuffer(mSet, 12, mUbo);
 			mDevice->BindUniformBuffer(mSet, 13, mSortUbo);
+			{
+				NkDescriptorWrite w{};
+				w.set = mSet;
+				w.binding = 14;
+				w.type = NkDescriptorType::NK_STORAGE_BUFFER;
+				w.buffer = mNB;
+				mDevice->UpdateDescriptorSets(&w, 1);
+			}
 			mCmd = mDevice->CreateCommandBuffer(NkCommandBufferType::NK_COMPUTE);
 			if (!mCmd) {
 				mFail = "CreateCommandBuffer(compute) refuse";
@@ -975,7 +950,7 @@ void main() {
 					device->DestroyCommandBuffer(mCmd);
 				if (mSet.IsValid())
 					device->FreeDescriptorSet(mSet);
-				NkBufferHandle *all[] = {&mX, &mV, &mKV, &mGKV, &mFSE, &mGSE, &mFL, &mT, &mRed, &mInstances, &mBirths, &mUbo, &mSortUbo};
+				NkBufferHandle *all[] = {&mX, &mV, &mKV, &mGKV, &mFSE, &mGSE, &mFL, &mT, &mRed, &mInstances, &mBirths, &mUbo, &mSortUbo, &mNB};
 				for (NkBufferHandle *b : all)
 					if (b->IsValid()) {
 						device->DestroyBuffer(*b);
@@ -1063,17 +1038,24 @@ void main() {
 			mCmd->UpdateBuffer(mUbo, 0, sizeof(Params), &mParams);
 			// 1) grille du fluide
 			SortGrid(0u, mFpad);
-			// 2) densite, alpha
+			// 2) listes de voisines (une fois par sous-pas), densite, alpha
+			Dispatch(K_NEIGH, mCapacity);
 			Dispatch(K_DENS, mCapacity);
 			// 3) divergence nulle
 			uint32 it = 0;
 			float32 err = 0.f;
 			if (mOwner->pressureEnabled) {
+				// Le residu est RELU une iteration sur deux (une synchronisation chacune) : aux iterations
+				// impaires ici, paires pour la densite -- au plus une iteration de plus qu'en CPU, dit.
 				for (;;) {
 					Dispatch(K_KAPPA, mCapacity);
-					err = ReadResidual(n);
-					if ((it >= 1 && err < pr.tolDivergence) || it >= pr.maxIterDivergence)
+					if (it >= pr.maxIterDivergence)
 						break;
+					if (it >= 1 && (it & 1u) == 1u) {
+						err = ReadResidual(n);
+						if (err < pr.tolDivergence)
+							break;
+					}
 					Dispatch(K_CORRECT, mCapacity);
 					++it;
 				}
@@ -1103,9 +1085,13 @@ void main() {
 				}
 				for (;;) {
 					Dispatch(K_KAPPA, mCapacity);
-					err = ReadResidual(n);
-					if ((it >= 2 && err < pr.tolDensity) || it >= pr.maxIterDensity)
+					if (it >= pr.maxIterDensity)
 						break;
+					if (it >= 2 && (it & 1u) == 0u) {
+						err = ReadResidual(n);
+						if (err < pr.tolDensity)
+							break;
+					}
 					Dispatch(K_CORRECT, mCapacity);
 					++it;
 				}
@@ -1129,7 +1115,7 @@ void main() {
 			mScratch.Resize(256u * 16u);
 			mDevice->ReadBuffer(mRed, mScratch.Data(), 256u * 16u * 4u, 256u * 4u);
 			float32 sumRho = 0.f, minRho = 1e30f, maxRho = 0.f, vmax = 0.f, xmax = -1e30f, ymax = -1e30f, ymin = 1e30f,
-					xdense = -1e30f, floorSum = 0.f, floorN = 0.f, clumped = 0.f, clamped = 0.f, cnt = 0.f;
+					xdense = -1e30f, floorSum = 0.f, floorN = 0.f, clumped = 0.f, clamped = 0.f, cnt = 0.f, nmax = 0.f;
 			for (uint32 t = 0; t < 256u; ++t) {
 				const float32 *r = &mScratch[t * 16u];
 				if (r[12] <= 0.f)
@@ -1147,7 +1133,13 @@ void main() {
 				clumped += r[10];
 				clamped += r[11];
 				cnt += r[12];
+				if (r[13] > nmax) nmax = r[13];
 			}
+			if (nmax > 64.f && !mNeighOverflowSaid) {
+				mNeighOverflowSaid = true;
+				std::fprintf(stderr, "[NkSPHStoreGPU] ATTENTION : %g voisines pour une particule, la liste en garde 64 -- densite fausse la\n", nmax);
+			}
+			mNeighMax = nmax;
 			NkSPHStats &s = mOwner->mStats;
 			s = NkSPHStats{};
 			s.alive = (uint32)cnt;
