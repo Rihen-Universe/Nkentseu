@@ -12842,6 +12842,143 @@ namespace nkuidesign {
 				det);
 			NkDirectory::Delete("sonde_nom", true);
 		}
+		/// ① UN PEINTRE QUI REND UN VRAI AMBRE. `NkRecordingPaint::ColorOf` rend une
+		/// couleur synthetique par role : le masque fautif y gardait par hasard la meme
+		/// dominante, et la sonde restait verte sous la mutation. Un temoin qui teste une
+		/// TRANSFORMATION DE COULEUR doit lui donner une vraie couleur.
+		class NkPeintreAmbre : public NkRecordingPaint {
+			public:
+				uint32 ColorOf(uint16 role) const override {
+					(void)role;
+					return 0xF7A02CFFu; // l'ambre du costume, en 0xRRGGBBAA
+				}
+		};
+		
+		// ── 116. ① LE DOSSIER : UNE SEULE TEINTE, TROIS NUANCES (05/09, nuit). Rodolf :
+		//    « le design de dossier ne me plait pas » -- un corps ambre surmonte d'un petit
+		//    onglet VERT decale.
+		//    CAUSE MESUREE : `pale = (teinte & 0x00FFFFFF) | 0x66000000` supposait un
+		//    empaquetage `0xAARRGGBB`. Il est `0xRRGGBBAA` (`Unpack` lit le ROUGE dans les
+		//    bits 24-31) : je mettais donc le ROUGE A ZERO et l'alpha dans la case du rouge.
+		//    D'un ambre, il restait du vert. Une teinte ne se bricole pas au masque.
+		{
+			char det[880];
+			// L'AMBRE du costume, pose sur un role connu de la sonde
+			auto rendre = [](editorkit::NkAssetIcone g, float32 taille, uint32 *couleurs, uint32 &n,
+					  uint32 &formes) -> uint64 {
+				NkPeintreAmbre r;
+				NkContentBrowserModel m;
+				NkAssetEntry a;
+				a.name = NkString("x");
+				a.icone = (uint8)g;
+				a.isFolder = (g >= editorkit::NkAssetIcone::Dossier
+					  && g <= editorkit::NkAssetIcone::DossierBureau);
+				a.kindLabel = "";
+				m.entries.PushBack(a);
+				m.thumbSize = taille;
+				NkContentBrowserHooks h;
+				NkComponentInput in;
+				NkDrawContentBrowser(r, in, {0.f, 0.f, taille * 4.f + 200.f, taille * 3.f + 200.f}, m,
+					 DemoStyle(nullptr), h);
+				uint64 e = 0u;
+				n = 0u;
+				formes = 0u;
+				for (uint32 i = 0; i < (uint32)r.cmds.Size(); ++i) {
+					const NkPaintCmd &c = r.cmds[i];
+					if (c.op != NkPaintOp::FillColor || c.w > taille * 1.2f)
+						continue; // on ne garde que les formes DE L'ICONE
+					++formes;
+					bool vue = false;
+					for (uint32 k = 0; k < n; ++k)
+						if (couleurs[k] == c.rgba)
+							vue = true;
+					if (!vue && n < 12u)
+						couleurs[n++] = c.rgba;
+					e = e * 1099511628211ull
+						+ (uint64)((uint32)(c.x * 4.f) * 31u + (uint32)(c.y * 4.f) * 17u
+								   + (uint32)(c.w * 4.f) * 13u + (uint32)(c.h * 4.f));
+				}
+				return e;
+			};
+			// 1. UNE SEULE TEINTE : toutes les nuances du dossier ont la MEME dominante.
+			//    On compare les composantes : celle qui domine dans le corps doit dominer
+			//    dans la patte. Un vert sur un ambre se verrait immediatement.
+			uint32 coul[12];
+			uint32 nCoul = 0u, nFormes = 0u;
+			rendre(editorkit::NkAssetIcone::Dossier, 96.f, coul, nCoul, nFormes);
+			bool memeFamille = nCoul >= 2u;
+			uint32 dominanteRef = 9u;
+			for (uint32 k = 0; k < nCoul && memeFamille; ++k) {
+				const uint32 rr = (coul[k] >> 24) & 0xFFu, gg = (coul[k] >> 16) & 0xFFu;
+				const uint32 bb = (coul[k] >> 8) & 0xFFu;
+				const uint32 dom = (rr >= gg && rr >= bb) ? 0u : ((gg >= bb) ? 1u : 2u);
+				if (dominanteRef == 9u)
+					dominanteRef = dom;
+				else if (dom != dominanteRef)
+					memeFamille = false; // une nuance a change de dominante : c'est le defaut
+			}
+			// 2. TROIS NUANCES AU MOINS (arriere, avant, liseré) : c'est ce qui donne la
+			//    profondeur. Deux seulement, et le dossier redevient plat.
+			const bool troisNuances = nCoul >= 3u;
+			// 3. IL SE LIT A 32, 64 ET 128 : a chaque taille, son empreinte DIFFERE de celle
+			//    du fichier generique -- et il garde au moins quatre formes.
+			uint32 tailles[3] = {32u, 64u, 128u};
+			bool distinctPartout = true, assezDeFormes = true;
+			uint32 formesMin = 999u;
+			for (int32 k = 0; k < 3; ++k) {
+				uint32 c1[12], c2[12], n1 = 0u, n2 = 0u, f1 = 0u, f2 = 0u;
+				const uint64 eDoss = rendre(editorkit::NkAssetIcone::Dossier, (float32)tailles[k], c1, n1, f1);
+				const uint64 eFich = rendre(editorkit::NkAssetIcone::Inconnu, (float32)tailles[k], c2, n2, f2);
+				if (eDoss == eFich)
+					distinctPartout = false;
+				if (f1 < formesMin)
+					formesMin = f1;
+				if (f1 < 4u)
+					assezDeFormes = false;
+			}
+			// 4. LA PATTE FAIT ~40 % DE LA LARGEUR et ne monte pas plus de 2 unites sur 16 :
+			//    une patte trop haute fait un drapeau, pas un dossier. Mesure directe sur
+			//    la geometrie emise a 160 px, ou l'unite vaut 10.
+			float32 largePatte = 0.f, largeCorps = 0.f, hautPatte = 0.f;
+			{
+				NkPeintreAmbre r;
+				NkContentBrowserModel m;
+				NkAssetEntry a;
+				a.name = NkString("x");
+				a.icone = (uint8)editorkit::NkAssetIcone::Dossier;
+				a.isFolder = true;
+				a.kindLabel = "";
+				m.entries.PushBack(a);
+				m.thumbSize = 160.f;
+				NkContentBrowserHooks h;
+				NkComponentInput in;
+				NkDrawContentBrowser(r, in, {0.f, 0.f, 900.f, 700.f}, m, DemoStyle(nullptr), h);
+				float32 yMin = 1e9f, yCorps = 1e9f;
+				for (uint32 i = 0; i < (uint32)r.cmds.Size(); ++i) {
+					const NkPaintCmd &c = r.cmds[i];
+					if (c.op != NkPaintOp::FillColor || c.w > 200.f || c.w < 10.f)
+						continue;
+					if (c.y < yMin) { yMin = c.y; largePatte = c.w; }
+					if (c.w > largeCorps) { largeCorps = c.w; yCorps = c.y; }
+				}
+				hautPatte = yCorps - yMin;
+			}
+			const float32 ratio = largeCorps > 0.f ? largePatte / largeCorps : 0.f;
+			const bool patteJuste = ratio > 0.3f && ratio < 0.5f && hautPatte > 4.f && hautPatte < 20.f;
+			snprintf(det, sizeof(det),
+				"dossier a 96 px : %u nuance(s), %u forme(s) ; toutes de la meme dominante (%u=R,G,B)=%d ; "
+				"trois nuances=%d ; a 32/64/128 px : distinct du fichier generique=%d, %u forme(s) minimum "
+				"-> %d ; patte %.0f sur un corps de %.0f (%.0f %%) montant de %.0f px -> %d",
+				nCoul, nFormes, dominanteRef, memeFamille ? 1 : 0, troisNuances ? 1 : 0,
+				distinctPartout ? 1 : 0, formesMin, assezDeFormes ? 1 : 0, (double)largePatte,
+				(double)largeCorps, (double)(ratio * 100.f), (double)hautPatte, patteJuste ? 1 : 0);
+			check("116. ① LE DOSSIER A UNE SEULE TEINTE ET TROIS NUANCES : l'onglet etait VERT sur un corps ambre parce que "
+				"la nuance se calculait au masque en supposant `0xAARRGGBB` alors que l'empaquetage est `0xRRGGBBAA` -- le "
+				"rouge partait a zero. Toutes les nuances ont desormais la MEME dominante, il y en a au moins trois "
+				"(rabat arriere, rabat avant, liseré : c'est ce qui donne la profondeur), la patte fait ~40 %% du corps et "
+				"ne monte que de quelques pixels, et la silhouette reste distincte du fichier generique a 32, 64 et 128 px",
+				memeFamille && troisNuances && distinctPartout && assezDeFormes && patteJuste, det);
+		}
 		snprintf(tail, sizeof(tail), "\n=== RESULTAT : %d / %d ===\n", pass, total);
 		rep.Append(tail);
 

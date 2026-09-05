@@ -243,16 +243,48 @@ namespace nkentseu {
 			//
 			// ⚠️ AUCUNE COULEUR EN DUR : la teinte est le role passe par l'appelant, et les
 			//    nuances sont ce role a une opacite differente.
+			/// ① (2026-09-05, nuit) UNE NUANCE DE LA MEME TEINTE, calculee sur les
+			/// composantes. `k > 0` eclaircit vers le blanc, `k < 0` assombrit vers le noir.
+			/// ⚠️ L'EMPAQUETAGE EST `0xRRGGBBAA` -- `NkGuiComponentPaint::Unpack` lit le
+			///    ROUGE dans les bits 24-31. Le code precedent faisait
+			///    `(teinte & 0x00FFFFFF) | 0x66000000` en croyant a `0xAARRGGBB` : il mettait
+			///    le rouge a ZERO et l'alpha dans la case du rouge. D'un ambre, il restait
+			///    du VERT -- c'est l'onglet vert de la capture de Rodolf. Une teinte ne se
+			///    bricole pas au masque.
+			uint32 Teinter(uint32 rgba, float32 k) {
+				const int32 r0 = (int32)((rgba >> 24) & 0xFFu), g0 = (int32)((rgba >> 16) & 0xFFu);
+				const int32 b0 = (int32)((rgba >> 8) & 0xFFu), a0 = (int32)(rgba & 0xFFu);
+				auto mix = [&](int32 c) -> uint32 {
+					const float32 cible = k >= 0.f ? 255.f : 0.f;
+					const float32 t = k >= 0.f ? k : -k;
+					float32 v = (float32)c + (cible - (float32)c) * t;
+					if (v < 0.f) v = 0.f;
+					if (v > 255.f) v = 255.f;
+					return (uint32)(v + 0.5f);
+				};
+				return (mix(r0) << 24) | (mix(g0) << 16) | (mix(b0) << 8) | (uint32)a0;
+			}
+
+			// ── ①②③ LES SILHOUETTES, DESSINEES (2026-09-05) ──────────────────────
+			// ⚠️ DESSINEES AVEC LES PRIMITIVES DU CONTRAT, JAMAIS UN GLYPHE DE POLICE
+			//    (porte du 04/09). `NkComponentPaint::Icon` peint un CARRE PLEIN -- son
+			//    en-tete le dit : il n'existe aucun atlas d'icones.
+			//
+			// LE DOSSIER SUIT L'EXPLORATEUR DE WINDOWS 11, et c'est un choix nomme : un
+			// rabat ARRIERE (plus sombre) qui porte la patte, un rabat AVANT (plus clair)
+			// qui couvre les trois quarts bas, et un liseré d'un ton en haut de l'avant.
+			// Une SEULE teinte, trois nuances -- l'onglet n'est plus une couleur a lui.
 			void Silhouette(NkComponentPaint &p, const NkPaintRect &r, NkAssetIcone genre, uint16 role) {
 				if (r.w <= 4.f || r.h <= 4.f)
 					return;
 				// un carre centre : une icone etiree ne ressemble plus a ce qu'elle designe
 				const float32 c = r.w < r.h ? r.w : r.h;
 				const NkPaintRect b{r.x + (r.w - c) * 0.5f, r.y + (r.h - c) * 0.5f, c, c};
-				const uint32 teinte = p.ColorOf(role);
-				const uint32 pale = (teinte & 0x00FFFFFFu) | 0x66000000u; // meme teinte, plus discrete
-				const uint32 vif = teinte;
-				const float32 u = c / 16.f; // l'unite de la grille de dessin, comme un SVG 16x16
+				const uint32 vif = p.ColorOf(role);
+				const uint32 sombre = Teinter(vif, -0.22f); // le rabat ARRIERE et la patte
+				const uint32 clair = Teinter(vif, 0.14f);	// le liseré du rabat avant
+				const uint32 pale = Teinter(vif, -0.35f);	// les signes poses DANS la forme
+				const float32 u = c / 16.f; // une grille de 16, comme un SVG 16x16
 				auto R = [&](float32 x, float32 y, float32 w, float32 h, uint32 col, float32 rd) {
 					p.FillColor({b.x + x * u, b.y + y * u, w * u, h * u}, col, rd * u);
 				};
@@ -260,44 +292,61 @@ namespace nkentseu {
 						|| genre == NkAssetIcone::DossierDocuments
 						|| genre == NkAssetIcone::DossierTelechargements
 						|| genre == NkAssetIcone::DossierBureau;
+				if (genre == NkAssetIcone::Volume) {
+					// UN VOLUME : un boitier avec sa diode. Rien a voir avec un dossier -- un
+					// disque n'est pas un dossier, et le rail les melangeait a l'oeil.
+					R(1.5f, 4.f, 13.f, 8.f, sombre, 1.5f);
+					R(1.5f, 4.f, 13.f, 4.f, vif, 1.5f);
+					R(11.5f, 9.f, 1.6f, 1.6f, clair, 0.8f); // la diode
+					return;
+				}
+				if (genre == NkAssetIcone::Section) {
+					// UN TITRE DE SECTION : trois traits, discrets. Ce n'est pas un objet du
+					// systeme de fichiers, et il ne doit pas en avoir l'air.
+					R(3.f, 5.f, 10.f, 1.4f, pale, 0.6f);
+					R(3.f, 7.5f, 10.f, 1.4f, pale, 0.6f);
+					R(3.f, 10.f, 7.f, 1.4f, pale, 0.6f);
+					return;
+				}
 				if (dossier) {
-					// LA SILHOUETTE DE DOSSIER : une languette, puis le corps. Deux rectangles
-					// arrondis -- c'est ce que Windows et Blender dessinent, et ca se lit a
-					// 16 px comme a 96.
-					R(1.f, 3.f, 6.f, 2.5f, pale, 1.f);	// la languette
-					R(1.f, 4.5f, 14.f, 9.f, vif, 1.5f); // le corps
-					// LE SIGNE DU DOSSIER CONNU, pose dans le corps. Rien pour un dossier
-					// ordinaire : un dossier sans marque EST le cas general.
+					// LA PATTE : ~40 % de la largeur du corps (5,2 sur 13), et elle ne monte
+					// que de 1,3 unite -- une patte trop haute fait un drapeau, pas un dossier.
+					R(1.5f, 2.4f, 5.2f, 3.4f, sombre, 1.f);
+					// LE RABAT ARRIERE : il porte la patte, et son bord haut reste visible
+					R(1.5f, 3.7f, 13.f, 9.8f, sombre, 1.4f);
+					// LE RABAT AVANT : plus clair, il couvre les trois quarts bas. C'est CE
+					// decalage de tons qui donne la profondeur, pas un contour.
+					R(1.5f, 5.4f, 13.f, 8.1f, vif, 1.4f);
+					// le liseré d'un ton sur son bord haut
+					R(1.5f, 5.4f, 13.f, 0.7f, clair, 0.7f);
+					// LE SIGNE DU DOSSIER CONNU, pose DANS le rabat avant. Rien pour un dossier
+					// ordinaire : le cas general n'a pas besoin d'etre annonce.
 					if (genre == NkAssetIcone::DossierImages) {
-						R(5.f, 9.5f, 6.f, 2.f, pale, 0.5f); // l'horizon
-						R(6.f, 7.f, 2.f, 2.f, pale, 1.f);	// le soleil
+						R(5.f, 10.f, 6.f, 1.6f, pale, 0.5f); // l'horizon
+						R(6.f, 7.6f, 1.9f, 1.9f, pale, 1.f); // le soleil
 					} else if (genre == NkAssetIcone::DossierDocuments) {
-						R(5.f, 7.f, 6.f, 1.2f, pale, 0.5f);
-						R(5.f, 9.f, 6.f, 1.2f, pale, 0.5f);
-						R(5.f, 11.f, 4.f, 1.2f, pale, 0.5f);
+						R(5.f, 7.6f, 6.f, 1.1f, pale, 0.5f);
+						R(5.f, 9.4f, 6.f, 1.1f, pale, 0.5f);
+						R(5.f, 11.2f, 4.f, 1.1f, pale, 0.5f);
 					} else if (genre == NkAssetIcone::DossierTelechargements) {
-						R(7.f, 6.5f, 2.f, 4.f, pale, 0.5f); // la fleche vers le bas
-						const float32 xy[6] = {b.x + 5.f * u, b.y + 10.f * u, b.x + 11.f * u,
-												   b.y + 10.f * u, b.x + 8.f * u,	 b.y + 12.5f * u};
+						R(7.2f, 7.4f, 1.8f, 3.4f, pale, 0.5f);
+						const float32 xy[6] = {b.x + 5.4f * u, b.y + 10.2f * u, b.x + 10.6f * u,
+												   b.y + 10.2f * u, b.x + 8.f * u,	 b.y + 12.4f * u};
 						if (!p.PolygonHex(xy, 3, pale))
-							R(6.f, 10.f, 4.f, 1.5f, pale, 0.f); // repli si le peintre ne sait pas
+							R(6.2f, 10.2f, 3.6f, 1.4f, pale, 0.f);
 					} else if (genre == NkAssetIcone::DossierBureau) {
-						R(5.f, 7.f, 6.f, 4.f, pale, 0.5f); // un ecran
-						R(7.f, 11.f, 2.f, 1.f, pale, 0.f);
+						R(5.f, 7.6f, 6.f, 3.8f, pale, 0.5f); // un ecran
+						R(7.2f, 11.4f, 1.6f, 0.9f, pale, 0.f);
 					}
 					return;
 				}
-				// LES FICHIERS : une feuille avec un coin plie, puis le signe du type.
-				R(3.f, 1.5f, 10.f, 13.f, pale, 1.f);
+				// LES FICHIERS : une feuille au coin plie, puis le signe du type.
+				R(3.f, 1.5f, 10.f, 13.f, sombre, 1.f);
 				{
-					const float32 xy[6] = {b.x + 9.5f * u, b.y + 1.5f * u, b.x + 13.f * u,
-											   b.y + 5.f * u,	 b.y + 0.f,		 b.y + 0.f};
-					// le coin plie : un triangle plein de la teinte vive
 					const float32 tri[6] = {b.x + 9.5f * u, b.y + 1.5f * u, b.x + 13.f * u, b.y + 5.f * u,
 												b.x + 9.5f * u, b.y + 5.f * u};
-					(void)xy;
-					if (!p.PolygonHex(tri, 3, vif))
-						R(9.5f, 1.5f, 3.5f, 3.5f, vif, 0.f);
+					if (!p.PolygonHex(tri, 3, clair))
+						R(9.5f, 1.5f, 3.5f, 3.5f, clair, 0.f);
 				}
 				switch (genre) {
 					case NkAssetIcone::Image: {
@@ -318,21 +367,22 @@ namespace nkentseu {
 						p.Line(b.x + 11.2f * u, b.y + 9.5f * u, b.x + 9.5f * u, b.y + 12.f * u, role, 1.2f);
 						break;
 					case NkAssetIcone::Archive:
-						R(7.f, 5.5f, 2.f, 1.5f, vif, 0.f); // la fermeture eclair
+						R(7.f, 5.5f, 2.f, 1.5f, vif, 0.f);
 						R(7.f, 7.5f, 2.f, 1.5f, vif, 0.f);
 						R(7.f, 9.5f, 2.f, 2.5f, vif, 0.5f);
 						break;
 					case NkAssetIcone::Executable: {
-						const float32 tri[6] = {b.x + 6.f * u,	b.y + 6.5f * u, b.x + 11.f * u,
-													b.y + 9.5f * u, b.x + 6.f * u,	 b.y + 12.5f * u};
-						if (!p.PolygonHex(tri, 3, vif))
+						const float32 tri2[6] = {b.x + 6.f * u,	 b.y + 6.5f * u, b.x + 11.f * u,
+													 b.y + 9.5f * u, b.x + 6.f * u,	 b.y + 12.5f * u};
+						if (!p.PolygonHex(tri2, 3, vif))
 							R(6.f, 7.f, 4.f, 5.f, vif, 0.f);
 						break;
 					}
 					default:
-						break; // Inconnu : la feuille seule, et c'est deja distinct d'un dossier
+						break; // Inconnu : la feuille seule, deja distincte d'un dossier
 				}
 			}
+
 
 			/// La silhouette EFFECTIVE : `Auto` se resout depuis `isFolder`.
 			NkAssetIcone IconeDe(const NkAssetEntry &e) {
@@ -357,6 +407,15 @@ namespace nkentseu {
 			}
 
 		} // namespace
+
+		// ② LA SILHOUETTE, EXPOSEE. Le RAIL du selecteur (un `tree_view`) appelle CETTE
+		//    fonction-la, exactement comme la grille : une seule fonction, deux volets.
+		//    Deux tables auraient diverge des le premier ajout de nature.
+		void NkDessinerSilhouette(NkComponentPaint &p, const NkPaintRect &r, NkAssetIcone genre,
+								  uint16 role) {
+			Silhouette(p, r, genre, role);
+		}
+		
 
 		NkContentBrowserResult NkDrawContentBrowser(NkComponentPaint &p, const NkComponentInput &in,
 													const NkPaintRect &rect, NkContentBrowserModel &m,
