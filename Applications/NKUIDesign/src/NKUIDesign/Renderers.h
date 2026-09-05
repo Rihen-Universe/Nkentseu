@@ -1265,6 +1265,172 @@ namespace nkuidesign {
 			}
 		}
 
+		// ── L'ANNEAU D'UN TRACE EDITE (05/09) ────────────────────────────────────
+		/// La bordure d'un polygone quelconque (convexe ou non) : le contour DECALE le
+		/// long des normales de ses aretes, en position interieure / centree /
+		/// exterieure, avec les JOINTURES que le modele porte (onglet / rond / biseau)
+		/// -- la famille des bordures du rect (`NkGCadreCotes`), generalisee.
+		/// Par arete : un quadrilatere entre les points de decalage ; au sommet, le cote
+		/// qui se RECOUVRE est ramene a l'intersection des deux droites decalees et le
+		/// cote qui S'OUVRE recoit un COIN (le point d'onglet, l'arc, ou la coupe du
+		/// biseau) en eventail depuis le point de l'autre cote. Les pieces se partagent
+		/// leurs aretes -- ni recouvrement ni trou -- et chacune est CONVEXE ; un
+		/// contour concave a ses coins qui s'ouvrent vers l'interieur : la meme regle,
+		/// les cotes echanges. L'onglet trop aigu devient un biseau (limite ~4
+		/// epaisseurs, comme partout). Un cote a decalage nul (position interieure ou
+		/// exterieure) ne fait ni coin ni recouvrement. Rend faux si le peintre ne
+		/// sait pas le polygone -- l'appelant montre alors le contour de la boite.
+		inline bool NkGAnneauTrace(NkComponentPaint &p, const nkentseu::float32 *xy, nkentseu::uint32 nb, nkentseu::uint32 rgba,
+								   nkentseu::float32 epaisseur, NkBordurePos position, const char *jointure) {
+			using namespace nkentseu;
+			if (!xy || nb < 3u || nb > 128u)
+				return false;
+			const float32 e = epaisseur > 0.f ? epaisseur : 1.f;
+			const float32 dOut = position == NkBordurePos::Centre ? e * 0.5f : (position == NkBordurePos::Exterieur ? e : 0.f);
+			const float32 dIn = position == NkBordurePos::Centre ? e * 0.5f : (position == NkBordurePos::Interieur ? e : 0.f);
+			const bool rond = jointure && StrEq(jointure, "rond");
+			const bool biseau = jointure && StrEq(jointure, "biseau");
+			// l'orientation : aire signee > 0 -> l'interieur est a gauche des aretes
+			float64 aire = 0.0;
+			for (uint32 i = 0; i < nb; ++i) {
+				const uint32 j = (i + 1u) % nb;
+				aire += (float64)xy[i * 2] * xy[j * 2 + 1] - (float64)xy[j * 2] * xy[i * 2 + 1];
+			}
+			const float32 sgn = aire >= 0.0 ? 1.f : -1.f;
+			// les aretes : direction unitaire et normale SORTANTE
+			float32 ex[128], ey[128], nx[128], ny[128];
+			for (uint32 i = 0; i < nb; ++i) {
+				const uint32 j = (i + 1u) % nb;
+				float32 dx = xy[j * 2] - xy[i * 2], dy = xy[j * 2 + 1] - xy[i * 2 + 1];
+				const float32 L = NkLongueur2D(dx, dy);
+				if (L < 1e-5f) { // arete degeneree : la normale de la precedente
+					const uint32 ip = (i + nb - 1u) % nb;
+					ex[i] = i ? ex[ip] : 1.f;
+					ey[i] = i ? ey[ip] : 0.f;
+				} else {
+					ex[i] = dx / L;
+					ey[i] = dy / L;
+				}
+				nx[i] = sgn * ey[i];
+				ny[i] = -sgn * ex[i];
+			}
+			// par sommet et par cote : le premier et le dernier point du cote, et si le cote s'ouvre
+			float32 fPx[128], fPy[128], lPx[128], lPy[128], fMx[128], fMy[128], lMx[128], lMy[128];
+			bool ouvertP[128], ouvertM[128];
+			for (uint32 j = 0; j < nb; ++j) {
+				const uint32 jp = (j + nb - 1u) % nb;
+				const float32 vx = xy[j * 2], vy = xy[j * 2 + 1];
+				const float32 cross = ex[jp] * ey[j] - ey[jp] * ex[j];
+				const bool convexe = cross * sgn > 1e-6f; // le contour tourne vers l'interieur : le cote exterieur s'ouvre
+				const bool droit = cross * sgn > -1e-6f && cross * sgn < 1e-6f;
+				const float32 dot = nx[jp] * nx[j] + ny[jp] * ny[j];
+				const float32 un = 1.f + dot;
+				for (int32 cote = 0; cote < 2; ++cote) {
+					const float32 sens = cote == 0 ? 1.f : -1.f;
+					const float32 d = cote == 0 ? dOut : dIn;
+					float32 *fx = cote == 0 ? fPx : fMx, *fy = cote == 0 ? fPy : fMy, *lx = cote == 0 ? lPx : lMx, *ly = cote == 0 ? lPy : lMy;
+					bool *ouv = cote == 0 ? ouvertP : ouvertM;
+					const bool sOuvre = !droit && (cote == 0 ? convexe : !convexe);
+					if (d <= 0.f) { // pas de decalage de ce cote : le sommet lui-meme
+						fx[j] = lx[j] = vx;
+						fy[j] = ly[j] = vy;
+						ouv[j] = false;
+					} else if (sOuvre) {
+						fx[j] = vx + sens * nx[jp] * d;
+						fy[j] = vy + sens * ny[jp] * d;
+						lx[j] = vx + sens * nx[j] * d;
+						ly[j] = vy + sens * ny[j] * d;
+						ouv[j] = true;
+					} else if (un > 0.05f) { // le cote qui se recouvre : l'intersection des deux droites decalees
+						fx[j] = lx[j] = vx + sens * (nx[jp] + nx[j]) * d / un;
+						fy[j] = ly[j] = vy + sens * (ny[jp] + ny[j]) * d / un;
+						ouv[j] = false;
+					} else { // rebroussement : le point brut, le recouvrement est accepte et dit
+						fx[j] = vx + sens * nx[jp] * d;
+						fy[j] = vy + sens * ny[jp] * d;
+						lx[j] = vx + sens * nx[j] * d;
+						ly[j] = vy + sens * ny[j] * d;
+						ouv[j] = false;
+					}
+				}
+			}
+			bool su = true;
+			// les aretes : [dernier-(i), premier-(i+1), premier+(i+1), dernier+(i)]
+			for (uint32 i = 0; i < nb && su; ++i) {
+				const uint32 j = (i + 1u) % nb;
+				float32 q[8] = {lMx[i], lMy[i], fMx[j], fMy[j], fPx[j], fPy[j], lPx[i], lPy[i]};
+				// les points confondus (decalage nul) ne font pas un polygone degenere
+				float32 u[8];
+				uint32 nu = 0u;
+				for (uint32 k = 0; k < 4u; ++k) {
+					const uint32 kp = (k + 3u) % 4u;
+					if (nu && q[k * 2] == q[kp * 2] && q[k * 2 + 1] == q[kp * 2 + 1])
+						continue;
+					u[nu * 2] = q[k * 2];
+					u[nu * 2 + 1] = q[k * 2 + 1];
+					++nu;
+				}
+				if (nu >= 3u && !p.PolygonHex(u, (int32)nu, rgba))
+					su = false;
+			}
+			// les coins : sur le cote qui s'ouvre, en eventail depuis le point de l'autre cote
+			for (uint32 j = 0; j < nb && su; ++j) {
+				const uint32 jp = (j + nb - 1u) % nb;
+				for (int32 cote = 0; cote < 2 && su; ++cote) {
+					const bool *ouv = cote == 0 ? ouvertP : ouvertM;
+					if (!ouv[j])
+						continue;
+					const float32 sens = cote == 0 ? 1.f : -1.f;
+					const float32 d = cote == 0 ? dOut : dIn;
+					const float32 vx = xy[j * 2], vy = xy[j * 2 + 1];
+					const float32 ax = cote == 0 ? lMx[j] : lPx[j], ay = cote == 0 ? lMy[j] : lPy[j]; // l'autre cote (un seul point)
+					const float32 f0x = cote == 0 ? fPx[j] : fMx[j], f0y = cote == 0 ? fPy[j] : fMy[j];
+					const float32 l0x = cote == 0 ? lPx[j] : lMx[j], l0y = cote == 0 ? lPy[j] : lMy[j];
+					float32 poly[2 * 40];
+					uint32 np = 0u;
+					auto pousser = [&](float32 px, float32 py) {
+						if (np < 40u) {
+							poly[np * 2] = px;
+							poly[np * 2 + 1] = py;
+							++np;
+						}
+					};
+					pousser(ax, ay);
+					pousser(f0x, f0y);
+					const float32 dot = nx[jp] * nx[j] + ny[jp] * ny[j];
+					const float32 un = 1.f + dot;
+					if (rond) {
+						// l'arc de n1 a n2 autour du sommet, un point tous les ~15 degres
+						const float32 cross = nx[jp] * ny[j] - ny[jp] * nx[j];
+						float32 ang = 0.f;
+						{ // l'angle entre les deux normales, par atan2 des composantes
+							const float32 c = dot < -1.f ? -1.f : (dot > 1.f ? 1.f : dot);
+							const float32 sn = cross < 0.f ? -cross : cross;
+							ang = (float32)nkentseu::math::NkAtan2((float64)sn, (float64)c);
+						}
+						const uint32 seg = ang > 0.f ? (uint32)(ang / 0.2618f) + 1u : 1u;
+						const float32 pas = ang / (float32)seg;
+						for (uint32 k = 1; k < seg; ++k) {
+							const float32 a = (cross >= 0.f ? 1.f : -1.f) * pas * (float32)k;
+							float32 sa = 0.f, ca = 1.f;
+							{ // rotation de n1 de l'angle a
+								sa = (float32)nkentseu::math::NkSin((float64)a);
+								ca = (float32)nkentseu::math::NkCos((float64)a);
+							}
+							const float32 rx = nx[jp] * ca - ny[jp] * sa, ry = nx[jp] * sa + ny[jp] * ca;
+							pousser(vx + sens * rx * d, vy + sens * ry * d);
+						}
+					} else if (!biseau && un > 0.125f) { // l'onglet, sauf trop aigu (limite ~4 epaisseurs)
+						pousser(vx + sens * (nx[jp] + nx[j]) * d / un, vy + sens * (ny[jp] + ny[j]) * d / un);
+					}
+					pousser(l0x, l0y);
+					if (np >= 3u && !p.PolygonHex(poly, (int32)np, rgba))
+						su = false;
+				}
+			}
+			return su;
+		}
+
 		/// LES CINQ CADRAGES PEINTS, LA ROTATION, LE CONTOUR QUI ROGNE (05/09).
 		/// La source vient du fournisseur ; l'image est POSEE dans un repere tourne
 		/// autour du centre de la boite (la rotation de l'image, meme convention que
@@ -2039,11 +2205,33 @@ namespace nkuidesign {
 					peindreUni(rgbaFond);
 					fondPeint = true; // le fond de rôle EST un fond
 				}
-				// ⚠️ LES BORDURES D'UN TRACE EDITE NE SONT PAS PEINTES -- elles ne l'etaient pas
-				//    non plus avant (le trace sortait avant tout) : la bordure d'un contour
-				//    quelconque demande un anneau de polygone que ce peintre n'a pas. Nomme.
-				if (traceNb >= 3u)
+				// ── LES BORDURES D'UN TRACE EDITE : L'ANNEAU (05/09) ──────────────
+				// Une epaisseur UNIFORME (« par cote » n'a plus de sens sans quatre cotes --
+				// l'inspecteur grise la rangee et le dit), la position et la jointure du
+				// modele ; sans polygone au peintre, le contour de la boite dit qu'il y a
+				// une bordure.
+				if (traceNb >= 3u) {
+					bool unTrait = false;
+					auto anneau = [&](const NkBordure &b) {
+						if (!b.visible || b.couleur.Empty() || b.epaisseur <= 0.f)
+							return;
+						unTrait = true;
+						if (!NkGAnneauTrace(p, traceXY, traceNb, NkGBordureRGBA(b), b.epaisseur, b.position, b.jointure.Data()))
+							p.OutlineSharp(r, host.Role("border"));
+					};
+					for (uint32 bi = 0; bi < (uint32)n.borders.Size(); ++bi)
+						anneau(n.borders[bi]);
+					if (n.borders.Empty() && !n.borderColor.Empty()) {
+						NkBordure b;
+						b.couleur = n.borderColor;
+						b.epaisseur = n.borderW > 0.f ? n.borderW : 1.f;
+						b.position = NkBordurePos::Interieur; // le geste historique
+						anneau(b);
+					}
+					if (!unTrait && !fondPeint)
+						p.OutlineSharp(r, host.Role("border"));
 					return;
+				}
 				// ── LES BORDURES : LA LISTE D'ABORD, LA CLÉ SIMPLE SINON ─────
 				// ⚠️ ET LA POSITION EST HONORÉE, sinon c'était un champ que le
 				//    fichier porte et que l'écran ignore. `NkGCadre` déplace les

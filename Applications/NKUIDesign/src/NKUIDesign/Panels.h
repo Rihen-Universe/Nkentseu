@@ -11094,8 +11094,17 @@ namespace nkuidesign {
 					}
 					y += 26.f;
 				}
-				// 4. côtés : haut, droite, bas, gauche -- deux rangées de deux
-				{
+				// 4. côtés : haut, droite, bas, gauche -- deux rangées de deux ; sur un TRACE
+				//    (sommets édités) « par côté » n'a plus de sens : épaisseur uniforme, dit
+				if (!n.sommets.Empty()) {
+					costume::Texte(dl, F.px10, x0, costume::CentrerY(F.px10, y + 1.f, 22.f), "Côtés",
+								   ctx.theme.textMuted);
+					ctx.BeginDisabled();
+					costume::Texte(dl, F.px9, x0 + 62.f, costume::CentrerY(F.px9, y + 1.f, 22.f), "épaisseur uniforme", ctx.theme.textMuted);
+					costume::Texte(dl, F.px9, x0, y + 26.f, "Ce tracé a été édité : il n'a plus quatre côtés.", ctx.theme.textMuted);
+					ctx.EndDisabled();
+					y += 48.f;
+				} else {
 					costume::Texte(dl, F.px10, x0, costume::CentrerY(F.px10, y + 1.f, 22.f), "Côtés",
 								   ctx.theme.textMuted);
 					const float32 xc = x0 + 62.f;
@@ -13273,7 +13282,15 @@ namespace nkuidesign {
 											 costume::HControle};
 						const NkRect zone = {x0 + colA, costume::BandeY(r.y), 48.f,
 											 costume::HControle};
-						if (!delies) {
+						// SUR UN TRACE (sommets édités) le peintre lit le rayon de chaque sommet,
+						// plus `radius` : la rangée le dit au lieu d'offrir un champ qui n'agirait pas
+						const bool traceA = na && !na->sommets.Empty();
+						if (traceA) {
+							ctx.BeginDisabled();
+							costume::Texte(dl, F.px9, zone.x, costume::CentrerBande(F.px9, r.y), "par sommet : mode édition, champ R",
+										   ctx.theme.textMuted);
+							ctx.EndDisabled();
+						} else if (!delies) {
 							// MULTI-SÉLECTION COMPRISE : « — » si les rayons diffèrent.
 							ChampNombreMulti(
 								ctx, "insp.app.rayon", zone, 0.5f, 0.f, 128.f,

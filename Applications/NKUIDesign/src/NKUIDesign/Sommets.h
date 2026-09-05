@@ -310,8 +310,14 @@ namespace nkuidesign {
 			return;
 		const float32 *unit = nullptr;
 		const uint32 nb = NkSommetsUnitaires(n.shape.Data(), unit);
+		// ⚠️ L'ARRONDI DU RECTANGLE VOYAGE AVEC SES SOMMETS (05/09). Une fois les sommets
+		//    materialises, le peintre lit `sommets[i].rayon` et plus `RayonCoin(i)` : sans
+		//    ceci, le premier geste d'edition effacait l'arrondi d'un rectangle arrondi
+		//    (mesure en cherchant Q94). L'ordre des coins de `kBoite` est celui de
+		//    `RayonCoin` : haut-gauche, haut-droite, bas-droite, bas-gauche.
+		const bool rect = NkComponentDecl::StrEq(n.shape.Data(), "rect");
 		for (uint32 i = 0; i < nb; ++i)
-			n.sommets.PushBack(NkPoint2{unit[i * 2], unit[i * 2 + 1], 0.f});
+			n.sommets.PushBack(NkPoint2{unit[i * 2], unit[i * 2 + 1], (rect && nb == 4u) ? n.RayonCoin(i) : 0.f});
 	}
 
 	// ═══════════════════════════════════════════════════════════════════════════

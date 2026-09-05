@@ -8090,6 +8090,238 @@ namespace nkuidesign {
 				  "le trace se peint ; un contour concave se rogne par ses triangles ; l'uni est le contour, l'image se pose dessus",
 				  identiques && materialise && degradeTient && rechoisiPeint && concaveOk && uniOk && nImg >= 1u, det);
 		}
+		// ── 73. L'ANNEAU D'UN TRACE EDITE : rect deforme + bordure 4 px centree, jointure ronde
+		//    -> un anneau ferme de 4 px mesure aux normales (quatre quadrilateres), des ARCS aux
+		//    sommets ; onglet -> quatre points par coin, biseau -> trois ; concave -> chaque piece
+		//    convexe, toutes a moins d'une demi-epaisseur du contour (pas d'auto-croisement) ;
+		//    interieure -> tout dedans, exterieure -> tout dehors ; l'arrondi d'un rect survit a
+		//    la materialisation (le rayon voyage avec les sommets) ; l'uni reste dessous.
+		{
+			struct PeintrePoly73 : public NkRecordingPaint {
+					NkVector<float32> pts;
+					NkVector<int32> tailles;
+					NkVector<uint32> couleurs;
+					bool PolygonHex(const float32 *xy, int32 count, uint32 rgba) override {
+						for (int32 i = 0; i < count * 2; ++i)
+							pts.PushBack(xy[i]);
+						tailles.PushBack(count);
+						couleurs.PushBack(rgba);
+						return true;
+					}
+					void Vider() {
+						Reset();
+						pts.Clear();
+						tailles.Clear();
+						couleurs.Clear();
+					}
+			};
+			char det[640];
+			NkUIDocument dA;
+			dA.NewDocument("Toile", NkAuthor::Humain);
+			dA.nodes[0].layout.kind = NkLayoutKind::Free;
+			dA.SetMetric("espacement", 0.f);
+			dA.SetMetric("marge", 0.f);
+			const int32 ra = dA.AddChild(0, "", NkAuthor::Humain);
+			{
+				NkUINode &n = dA.nodes[(uint32)ra];
+				n.shape = NkString("rect");
+				n.posX = 100.f;
+				n.posY = 100.f;
+				n.width.mode = NkSizeMode::Fixed;
+				n.width.value = 160.f;
+				n.height.mode = NkSizeMode::Fixed;
+				n.height.value = 80.f;
+				NkRemplissage f;
+				f.couleur = NkString("#334455");
+				n.fills.PushBack(f);
+				NkBordure b;
+				b.couleur = NkString("#ff8800");
+				b.epaisseur = 4.f;
+				b.position = NkBordurePos::Centre;
+				b.jointure = NkString("rond");
+				n.borders.PushBack(b);
+			}
+			const uint32 orange = 0xFF8800FFu;
+			// le contour du trace tel que le peintre le voit (document : le layout pose le rect en 100,100)
+			auto contourDe = [&](float32 *xy, uint32 &nb) {
+				NkPaintRect sfc;
+				sfc.x = 0.f;
+				sfc.y = 0.f;
+				sfc.w = 600.f;
+				sfc.h = 400.f;
+				NkLayoutResult lay;
+				NkComputeLayout(dA, sfc, lay);
+				nb = NkContourDe(dA.nodes[(uint32)ra], lay.At(ra), xy, 128u);
+			};
+			auto peindre = [&](PeintrePoly73 &pp) {
+				pp.Vider();
+				RenderDocument(pp, dA, NkPaintRect{0.f, 0.f, 600.f, 400.f});
+			};
+			auto distSeg = [](float32 px, float32 py, float32 ax, float32 ay, float32 bx, float32 by) {
+				const float32 dx = bx - ax, dy = by - ay;
+				const float32 l2 = dx * dx + dy * dy;
+				float32 t = l2 > 0.f ? ((px - ax) * dx + (py - ay) * dy) / l2 : 0.f;
+				t = t < 0.f ? 0.f : (t > 1.f ? 1.f : t);
+				const float32 qx = ax + dx * t - px, qy = ay + dy * t - py;
+				return NkLongueur2D(qx, qy);
+			};
+			auto distContour = [&](float32 px, float32 py, const float32 *xy, uint32 nb) {
+				float32 m = 1e9f;
+				for (uint32 i = 0; i < nb; ++i) {
+					const uint32 j = (i + 1u) % nb;
+					const float32 d = distSeg(px, py, xy[i * 2], xy[i * 2 + 1], xy[j * 2], xy[j * 2 + 1]);
+					if (d < m)
+						m = d;
+				}
+				return m;
+			};
+			auto dedans = [](float32 px, float32 py, const float32 *xy, uint32 nb) {
+				bool in = false;
+				for (uint32 i = 0, j = nb - 1u; i < nb; j = i++) {
+					const float32 xi = xy[i * 2], yi = xy[i * 2 + 1], xj = xy[j * 2], yj = xy[j * 2 + 1];
+					if (((yi > py) != (yj > py)) && (px < (xj - xi) * (py - yi) / (yj - yi) + xi))
+						in = !in;
+				}
+				return in;
+			};
+			auto convexe = [](const float32 *q, int32 n) {
+				int32 signe = 0;
+				for (int32 k = 0; k < n; ++k) {
+					const int32 j = (k + 1) % n, l = (k + 2) % n;
+					const float32 c = (q[j * 2] - q[k * 2]) * (q[l * 2 + 1] - q[j * 2 + 1]) - (q[j * 2 + 1] - q[k * 2 + 1]) * (q[l * 2] - q[j * 2]);
+					if (c > -1e-3f && c < 1e-3f)
+						continue;
+					const int32 s = c > 0.f ? 1 : -1;
+					if (signe == 0)
+						signe = s;
+					else if (s != signe)
+						return false;
+				}
+				return true;
+			};
+			// l'inventaire des pieces orange d'une course
+			struct Bilan { uint32 quads, coins, autres; float32 epMin, epMax, distMax; bool convexes, dedansTout, dehorsTout; uint32 minPtsCoin, maxPtsCoin; };
+			auto bilan = [&](PeintrePoly73 &pp, const float32 *xy, uint32 nb, float32 dMax) {
+				Bilan b{0u, 0u, 0u, 1e9f, -1e9f, 0.f, true, true, true, 999u, 0u};
+				uint32 off = 0u;
+				for (uint32 i = 0; i < (uint32)pp.tailles.Size(); ++i) {
+					const int32 n = pp.tailles[i];
+					const float32 *q = pp.pts.Data() + off;
+					off += (uint32)n * 2u;
+					if (pp.couleurs[i] != orange)
+						continue;
+					if (!convexe(q, n))
+						b.convexes = false;
+					for (int32 k = 0; k < n; ++k) {
+						const float32 d = distContour(q[k * 2], q[k * 2 + 1], xy, nb);
+						if (d > b.distMax)
+							b.distMax = d;
+						const bool in = dedans(q[k * 2], q[k * 2 + 1], xy, nb);
+						if (d > 0.05f && !in)
+							b.dedansTout = false;
+						if (d > 0.05f && in)
+							b.dehorsTout = false;
+					}
+					if (n == 4) {
+						// un quadrilatere d'arete : la distance du 3e point a la droite des deux premiers = l'epaisseur
+						const float32 ax = q[0], ay = q[1], bx = q[2], by = q[3], cx = q[4], cy = q[5];
+						const float32 dx = bx - ax, dy = by - ay, L = NkLongueur2D(dx, dy);
+						const float32 ep = L > 0.f ? ((cx - ax) * dy - (cy - ay) * dx) / L : 0.f;
+						const float32 e = ep < 0.f ? -ep : ep;
+						// un coin d'onglet a aussi quatre points : on le distingue par sa taille (< 2 epaisseurs)
+						float32 diag = NkLongueur2D(q[4] - q[0], q[5] - q[1]);
+						if (diag < 2.f * dMax + 1.f) {
+							++b.coins;
+							if ((uint32)n < b.minPtsCoin) b.minPtsCoin = (uint32)n;
+							if ((uint32)n > b.maxPtsCoin) b.maxPtsCoin = (uint32)n;
+						} else {
+							++b.quads;
+							if (e < b.epMin) b.epMin = e;
+							if (e > b.epMax) b.epMax = e;
+						}
+					} else if (n >= 3) {
+						++b.coins;
+						if ((uint32)n < b.minPtsCoin) b.minPtsCoin = (uint32)n;
+						if ((uint32)n > b.maxPtsCoin) b.maxPtsCoin = (uint32)n;
+					} else
+						++b.autres;
+				}
+				return b;
+			};
+			// 73a. rect deforme (le coin bas-droit tire), centree, ronde
+			NkMaterialiserSommets(dA.nodes[(uint32)ra]);
+			dA.nodes[(uint32)ra].sommets[2].x = 1.6f;
+			float32 cxy[256];
+			uint32 cnb = 0u;
+			contourDe(cxy, cnb);
+			PeintrePoly73 pp;
+			peindre(pp);
+			const Bilan bR = bilan(pp, cxy, cnb, 4.f);
+			const bool rondOk = cnb == 4u && bR.quads == 4u && bR.coins == 4u && bR.autres == 0u && bR.epMin > 3.95f && bR.epMax < 4.05f
+								&& bR.minPtsCoin >= 5u && bR.convexes && bR.distMax < 2.05f;
+			// 73b. onglet : quatre points par coin ; biseau : trois
+			dA.nodes[(uint32)ra].borders[0].jointure = NkString("onglet");
+			peindre(pp);
+			const Bilan bO = bilan(pp, cxy, cnb, 4.f);
+			dA.nodes[(uint32)ra].borders[0].jointure = NkString("biseau");
+			peindre(pp);
+			const Bilan bB = bilan(pp, cxy, cnb, 4.f);
+			const bool jointuresOk = bO.coins == 4u && bO.minPtsCoin == 4u && bO.maxPtsCoin == 4u && bO.quads == 4u && bB.coins == 4u
+									 && bB.minPtsCoin == 3u && bB.maxPtsCoin == 3u && bB.quads == 4u;
+			// 73c. concave (le coin haut-droit rentre) : chaque piece convexe, toutes a moins d'une demi-epaisseur du contour
+			dA.nodes[(uint32)ra].borders[0].jointure = NkString("rond");
+			dA.nodes[(uint32)ra].sommets[1].x = 0.2f;
+			dA.nodes[(uint32)ra].sommets[1].y = -0.2f;
+			contourDe(cxy, cnb);
+			peindre(pp);
+			const Bilan bC = bilan(pp, cxy, cnb, 4.f);
+			const bool concaveOk = bC.quads == 4u && bC.coins == 4u && bC.convexes && bC.distMax < 2.05f && bC.epMin > 3.95f && bC.epMax < 4.05f;
+			// 73d. interieure : tout dedans (a 4 px au plus) ; exterieure : tout dehors
+			dA.nodes[(uint32)ra].borders[0].position = NkBordurePos::Interieur;
+			peindre(pp);
+			const Bilan bI = bilan(pp, cxy, cnb, 4.f);
+			dA.nodes[(uint32)ra].borders[0].position = NkBordurePos::Exterieur;
+			peindre(pp);
+			const Bilan bE = bilan(pp, cxy, cnb, 4.f);
+			const bool positionsOk = bI.dedansTout && bI.distMax < 4.05f && bI.quads == 4u && bE.dehorsTout && bE.distMax < 4.05f && bE.quads == 4u;
+			// 73e. l'arrondi voyage : un rect de rayon 12 materialise garde 12 a chaque sommet, son contour a des arcs
+			const int32 rb = dA.AddChild(0, "", NkAuthor::Humain);
+			dA.nodes[(uint32)rb].shape = NkString("rect");
+			dA.nodes[(uint32)rb].radius = 12.f;
+			dA.nodes[(uint32)rb].width.mode = NkSizeMode::Fixed;
+			dA.nodes[(uint32)rb].width.value = 100.f;
+			dA.nodes[(uint32)rb].height.mode = NkSizeMode::Fixed;
+			dA.nodes[(uint32)rb].height.value = 60.f;
+			NkMaterialiserSommets(dA.nodes[(uint32)rb]);
+			bool rayons = dA.nodes[(uint32)rb].sommets.Size() == 4u;
+			for (uint32 i = 0; rayons && i < 4u; ++i)
+				rayons = dA.nodes[(uint32)rb].sommets[i].rayon == 12.f;
+			float32 bxy[256];
+			uint32 bnb = 0u;
+			{
+				NkPaintRect sfc;
+				sfc.x = 0.f;
+				sfc.y = 0.f;
+				sfc.w = 600.f;
+				sfc.h = 400.f;
+				NkLayoutResult lay;
+				NkComputeLayout(dA, sfc, lay);
+				bnb = NkContourDe(dA.nodes[(uint32)rb], lay.At(rb), bxy, 128u);
+			}
+			const bool arrondiOk = rayons && bnb > 8u;
+			snprintf(det, sizeof(det),
+					 "ronde : %u quads (ep %.2f..%.2f), %u coins (%u..%u pts), convexes=%d, dist max %.2f ; onglet : %u coins de %u pts ; biseau : %u coins de %u pts ; "
+					 "concave : %u quads, %u coins, convexes=%d, dist max %.2f, ep %.2f..%.2f ; interieure : dedans=%d (dist %.2f) ; exterieure : dehors=%d (dist %.2f) ; "
+					 "arrondi 12 -> sommets 12=%d, contour %u pts",
+					 bR.quads, bR.epMin, bR.epMax, bR.coins, bR.minPtsCoin, bR.maxPtsCoin, bR.convexes ? 1 : 0, bR.distMax, bO.coins, bO.maxPtsCoin, bB.coins,
+					 bB.maxPtsCoin, bC.quads, bC.coins, bC.convexes ? 1 : 0, bC.distMax, bC.epMin, bC.epMax, bI.dedansTout ? 1 : 0, bI.distMax,
+					 bE.dehorsTout ? 1 : 0, bE.distMax, rayons ? 1 : 0, bnb);
+			check("73. L'ANNEAU D'UN TRACE EDITE : un rect deforme + bordure 4 px centree = quatre quadrilateres de 4 px mesures aux "
+				  "normales et quatre coins (arcs en « rond », quatre points en « onglet », trois en « biseau ») ; un contour concave "
+				  "-> chaque piece convexe et a moins d'une demi-epaisseur du contour (pas d'auto-croisement) ; interieure tout "
+				  "dedans, exterieure tout dehors ; l'arrondi d'un rect voyage avec ses sommets a la materialisation",
+				  rondOk && jointuresOk && concaveOk && positionsOk && arrondiOk, det);
+		}
 		snprintf(tail, sizeof(tail), "\n=== RESULTAT : %d / %d ===\n", pass, total);
 		rep.Append(tail);
 
