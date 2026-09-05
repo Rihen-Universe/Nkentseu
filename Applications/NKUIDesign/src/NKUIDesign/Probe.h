@@ -11797,6 +11797,61 @@ namespace nkuidesign {
 				styleOk && modesOk && creeOk && refuse && ditDeja && contratOk, det);
 			NkDirectory::Delete("sonde_creer", true);
 		}
+		// ── 104. UNE SEULE PORTE OUVRE LE SELECTEUR D'EXPORT, ET ELLE LE PREPARE (05/09,
+		//    soir). ⚠️ DEFAUT DE LA MEME FAMILLE QUE ①, trouve en relisant le chemin REEL
+		//    apres l'avoir corrige : le dialogue d'export appelait `OpenPickerBase`
+		//    directement. Depuis ① il heritait bien du CONTENU du dossier -- mais pas du
+		//    filtre d'extension, ni des vignettes, ni des roles de theme, ni des recents,
+		//    tous poses par l'AUTRE porte. Et c'est la porte du dialogue que Rodolf emprunte.
+		//    La sonde mesure LES DEUX portes, et exige qu'elles preparent PAREIL.
+		{
+			char det[760];
+			static DesignState st104;
+			st104.doc.NewDocument("Portes", NkAuthor::Humain);
+			st104.cheminActif = NkString();
+			st104.dossiersRecentsSession.Clear();
+			st104.doc.dossiersRecents.Clear();
+			st104.RetenirDossierRecent(NkDirectory::GetCurrentDirectory().ToString().Data());
+			auto prepare = [](const DesignState::NkChoixExport &c, const char *ext) {
+				return c.picker.vignette != nullptr && c.picker.vignetteUser != nullptr
+					&& c.picker.roleDossier != NK_ROLE_INVALID && c.picker.roleDossier != 0u
+					&& c.picker.roleFichier != NK_ROLE_INVALID && c.picker.roleFichier != 0u
+					&& !c.picker.recents.Empty()
+					&& NkComponentDecl::StrEq(c.picker.pickerFileExt.Data(), ext);
+			};
+			// PORTE A : l'ancien menu (`NkOuvrirChoixExport`)
+			st104.choixExport = DesignState::NkChoixExport();
+			NkOuvrirChoixExport(st104, NkExportFormat::SVG, 1.f, false, false);
+			const bool porteA = st104.choixExport.picker.pickerOpen && prepare(st104.choixExport, ".svg");
+			char nomA[220];
+			snprintf(nomA, sizeof(nomA), "%s", st104.choixExport.picker.pickerSaveName);
+			// PORTE B : le dialogue (`NkOuvrirSelecteurExport`), celle de Ctrl+E
+			st104.choixExport = DesignState::NkChoixExport();
+			st104.choixExport.format = (int32)NkExportFormat::PNG;
+			NkOuvrirSelecteurExport(st104, "mon dessin.png");
+			const bool porteB = st104.choixExport.picker.pickerOpen && prepare(st104.choixExport, ".png");
+			const bool nomTenu =
+				NkComponentDecl::StrEq(st104.choixExport.picker.pickerSaveName, "mon dessin.png");
+			// ET LES DEUX SONT PLEINES DES LA PREMIERE IMAGE (le contrat de ① tient pour les deux)
+			const bool deuxPleines = st104.choixExport.picker.DoitRelire();
+			// CONTROLE NEGATIF : un selecteur NEUF n'est prepare par personne -- sans ce
+			// terme, « prepare » serait vrai par defaut et la sonde ne mesurerait rien.
+			editorkit::NkFilePickerNavState neuf104;
+			const bool neufNonPrepare = neuf104.vignette == nullptr && neuf104.recents.Empty()
+					&& neuf104.pickerFileExt.Empty();
+			snprintf(det, sizeof(det),
+				"PORTE A (menu) : ouverte et preparee=%d, nom propose « %s » ; PORTE B (dialogue, Ctrl+E) : "
+				"ouverte et preparee=%d, nom tenu « %s » -> %d ; pleine des la premiere image=%d ; "
+				"CONTROLE NEGATIF : un selecteur neuf n'est prepare par personne=%d",
+				porteA ? 1 : 0, nomA, porteB ? 1 : 0, st104.choixExport.picker.pickerSaveName,
+				nomTenu ? 1 : 0, deuxPleines ? 1 : 0, neufNonPrepare ? 1 : 0);
+			check("104. UNE SEULE PORTE OUVRE LE SELECTEUR D'EXPORT, ET ELLE LE PREPARE : les DEUX chemins -- l'ancien menu "
+				"et le dialogue de Ctrl+E -- posent le filtre d'extension conforme au format, la fonction de vignette, les "
+				"roles de theme et les recents ; le dialogue garde LE NOM que l'utilisateur a saisi ; et un selecteur neuf "
+				"n'est prepare par personne (sans ce controle negatif, « prepare » serait vrai par defaut)",
+				porteA && porteB && nomTenu && deuxPleines && neufNonPrepare, det);
+			st104.choixExport = DesignState::NkChoixExport();
+		}
 		snprintf(tail, sizeof(tail), "\n=== RESULTAT : %d / %d ===\n", pass, total);
 		rep.Append(tail);
 

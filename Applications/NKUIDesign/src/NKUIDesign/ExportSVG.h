@@ -1152,14 +1152,41 @@ namespace nkuidesign {
 	}
 
 	// ── LE MENU « EXPORTER... » : le selecteur de fichier du kit, puis l'export ──
-	inline void NkOuvrirChoixExport(DesignState &st, NkExportFormat format, nkentseu::float32 echelle, bool selection,
-									bool embarquer) {
+	// ── LA SEULE PORTE QUI OUVRE LE SELECTEUR D'EXPORT ───────────────────────
+	// ⚠️ DEFAUT DE LA MEME FAMILLE QUE ①, TROUVE EN RELISANT LE CHEMIN REEL : le
+	//    dialogue d'export appelait `OpenPickerBase` directement. Depuis ① il
+	//    heritait bien du CONTENU du dossier -- mais pas du filtre d'extension, ni
+	//    des vignettes, ni des roles de theme, ni des recents : tout cela etait pose
+	//    par `NkOuvrirChoixExport`, que seul l'ANCIEN menu appelait. Deux portes,
+	//    une seule preparee ; et c'est la porte du dialogue que Rodolf emprunte.
+	//
+	//    Le remede est le meme qu'a ① : UNE seule fonction ouvre, et les deux
+	//    appelants passent par elle.
+	inline void NkOuvrirSelecteurExport(DesignState &st, const char *nomPropose) {
+		DesignState::NkChoixExport &c = st.choixExport;
+		c.picker.vignette = &NkVignetteFichierExport;
+		c.picker.vignetteUser = &st;
+		c.picker.roleDossier = NkDesignResolveRole("type_folder");
+		c.picker.roleFichier = NkDesignResolveRole("type_tex");
+		// ③ les recents, session d'abord puis document : le rail les met EN TETE.
+		c.picker.recents = st.RecentsPourLeRail();
+		c.buf[0] = '\0';
+		const NkString dep = st.DossierImages();
+		// Le filtre suit le format choisi : chercher son SVG parmi trois cents PNG
+		// etait le vrai cout de la colonne unique.
+		c.picker.OuvrirNav(nkentseu::editorkit::NkSelecteurEnregistrer, dep.Data(),
+				   c.format == (nkentseu::int32)NkExportFormat::PNG ? ".png" : ".svg",
+				   nomPropose, c.buf, (nkentseu::int32)sizeof(c.buf));
+	}
+
+	// ── L'ANCIEN MENU « EXPORTER... » : il choisit, puis passe par LA porte ───────
+	inline void NkOuvrirChoixExport(DesignState &st, NkExportFormat format, nkentseu::float32 echelle,
+									 bool selection, bool embarquer) {
 		DesignState::NkChoixExport &c = st.choixExport;
 		c.format = (nkentseu::int32)format;
 		c.echelle = echelle;
 		c.selection = selection;
 		c.embarquer = embarquer;
-		c.buf[0] = 0;
 		NkExportOptions o;
 		o.format = format;
 		o.echelle = echelle;
@@ -1167,19 +1194,7 @@ namespace nkuidesign {
 		o.embarquer = embarquer;
 		char nomPropose[220];
 		NkNomExportPropose(st, o, nomPropose, sizeof(nomPropose));
-		const NkString dep = st.DossierImages();
-		// ② LE SELECTEUR A DEUX VOLETS (05/09). Le filtre d'extension suit le format
-		//    choisi : dans un dossier d'images, chercher son SVG parmi trois cents PNG
-		//    etait le vrai cout de la colonne unique.
-		// ③ LES RECENTS, session d'abord puis document : le rail les met en TETE.
-		c.picker.recents = st.RecentsPourLeRail();
-		c.picker.vignette = &NkVignetteFichierExport;
-		c.picker.vignetteUser = &st;
-		c.picker.roleDossier = NkDesignResolveRole("type_folder");
-		c.picker.roleFichier = NkDesignResolveRole("type_tex");
-		c.picker.OuvrirNav(nkentseu::editorkit::NkFilePickerState::PK_SaveFile, dep.Data(),
-						   format == NkExportFormat::PNG ? ".png" : ".svg", nomPropose, c.buf,
-						   (nkentseu::int32)sizeof(c.buf));
+		NkOuvrirSelecteurExport(st, nomPropose);
 	}
 
 	/// Le selecteur (modal, entree reelle), puis l'export au choix confirme : le pied

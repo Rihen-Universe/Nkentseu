@@ -225,11 +225,12 @@ namespace nkuidesign {
 			snprintf(nomFichier, sizeof(nomFichier), "%s%s", c.nom[0] ? c.nom : "objet", ext); // le dossier compte, pas ce nom
 		else
 			snprintf(nomFichier, sizeof(nomFichier), "%s%s", c.nom[0] ? c.nom : "export", ext);
-		snprintf(c.picker.pickerSaveName, sizeof(c.picker.pickerSaveName), "%s", nomFichier);
-		c.buf[0] = '\0';
-		const NkString dep = st.DossierImages();
-		c.picker.OpenPickerBase(nkentseu::editorkit::NkFilePickerState::PK_SaveFile, dep.Data(), c.buf,
-								(int32)sizeof(c.buf), nullptr, nullptr);
+		// ⚠️ LA MEME PORTE QUE LE MENU (`NkOuvrirSelecteurExport`). Ouvrir ici par
+		//    `OpenPickerBase` marchait -- et laissait le selecteur sans filtre
+		//    d'extension, sans vignette, sans role et sans recents, parce que ces
+		//    quatre-la etaient poses par l'AUTRE porte. Meme defaut que ①, un cran
+		//    plus loin : ce n'est pas la lecture qui manquait, c'est la preparation.
+		NkOuvrirSelecteurExport(st, nomFichier);
 		return true;
 	}
 
