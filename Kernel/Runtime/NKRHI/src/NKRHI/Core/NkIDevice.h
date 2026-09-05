@@ -517,6 +517,18 @@ namespace nkentseu {
 				(void)cmd;
 				(void)heap;
 			}
+
+			// ── AJOUTS EN FIN DE CLASSE (2026-09-05) : une virtuelle inseree au milieu decale toutes les
+			// entrees de vtable suivantes, et un objet compile contre l'ancien en-tete (build concurrent
+			// d'un autre agent dans le meme Build/) appelle alors un pointeur nul -- mesure : SIGSEGV en #0 0x0.
+			// Un chrono PAR INDEX (profil du SPH par passe) : rend le plus ancien resultat disponible de ce
+			// chrono et le consomme ; faux s'il n'y en a pas (ne bloque jamais).
+			virtual bool GetTimestampResult(uint32 index, uint64 &t0, uint64 &t1) {
+				(void)index;
+				(void)t0;
+				(void)t1;
+				return false;
+			}
 	};
 
 } // namespace nkentseu

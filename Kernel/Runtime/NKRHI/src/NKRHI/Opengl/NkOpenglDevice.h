@@ -169,6 +169,7 @@ namespace nkentseu {
 			void BeginTimestampQuery(uint32 index) override;
 			void EndTimestampQuery(uint32 index) override;
 			bool GetTimestampResults(uint64 *outNs, uint32 count) override;
+			bool GetTimestampResult(uint32 index, uint64 &t0, uint64 &t1) override;
 			float32 GetTimestampPeriodNs() override {
 				return 1.f; // GL_TIMESTAMP est deja en nanosecondes
 			}
@@ -199,8 +200,8 @@ namespace nkentseu {
 			}
 
 		private:
-			static constexpr uint32 kTsRing = 4;
-			static constexpr uint32 kTsIdx = 2; // 0 = la frame, 1 = la passe VFX (2026-09-04)
+			static constexpr uint32 kTsRing = 8;  // 8 : jusqu'a 8 paires d'un meme chrono entre deux lectures (profil SPH)
+			static constexpr uint32 kTsIdx = 32; // 0 = la frame, 1 = la passe VFX (2026-09-04) ; 4.. = le profil du SPH par passe (2026-09-05)
 			uint32 mTsQuery[kTsIdx][kTsRing][2] = {};
 			bool mTsIssued[kTsIdx][kTsRing] = {};
 			uint32 mTsSlot[kTsIdx] = {};
