@@ -956,6 +956,39 @@ namespace nkuidesign {
 		/// L'IMAGE ENTIERE AUTOUR DE LA FENETRE : le rect `r` montre la portion
 		/// [cropX, cropX + cropW] x [cropY, cropY + cropH] de l'image ; l'image entiere
 		/// est donc le cadre `out`, plus grand, dont `r` est la fenetre.
+		/// LA FENETRE QUE « COUVRIR » MONTRE, en coordonnees d'image (0..1) -- le crop
+		/// INITIAL quand on passe en cadrage `crop`.
+		///
+		/// 🔴 POURQUOI ELLE EXISTE (retour de Rodolf, 05/09) : « ce n'est pas modifiable et je
+		///    ne sais meme pas si c'est visible ». Passer en Crop posait `crop = 0 0 1 1`,
+		///    c'est-a-dire *toute l'image etiree a la boite du noeud* : le cadre de l'image
+		///    entiere avait alors EXACTEMENT la geometrie du noeud, ses huit poignees tombaient
+		///    SUR celles de la forme, et c'est la forme qui gagnait. Invisible, et le geste
+		///    deplacait le noeud.
+		/// La relation de Lunacy : l'image garde son echelle, le NOEUD est une FENETRE dessus.
+		/// On entre donc en crop sur la fenetre que `fill` (couvrir) montrait deja -- l'ecran ne
+		/// change pas d'un pixel a la bascule, et le cadre est plus grand que le noeud des que
+		/// l'image et la boite n'ont pas le meme rapport.
+		/// ⚠️ MEME RAPPORT = MEME BOITE, et c'est dit : une image 4:3 dans une boite 4:3 rend
+		///    `0 0 1 1`, donc un cadre confondu avec le noeud. Rien a inventer la : le crop ne
+		///    cache rien, il n'y a rien a tirer.
+		inline void NkCropCouvrant(const NkPaintRect &r, nkentseu::float32 iw, nkentseu::float32 ih,
+								   nkentseu::float32 out[4]) {
+			out[0] = 0.f;
+			out[1] = 0.f;
+			out[2] = 1.f;
+			out[3] = 1.f;
+			if (iw <= 0.f || ih <= 0.f || r.w <= 0.f || r.h <= 0.f)
+				return;
+			const nkentseu::float32 k = (r.w / iw > r.h / ih) ? r.w / iw : r.h / ih; // couvrir
+			const nkentseu::float32 dw = iw * k, dh = ih * k;
+			const nkentseu::float32 cw = dw > 0.f ? r.w / dw : 1.f, ch = dh > 0.f ? r.h / dh : 1.f;
+			out[2] = cw > 1.f ? 1.f : cw;
+			out[3] = ch > 1.f ? 1.f : ch;
+			out[0] = (1.f - out[2]) * 0.5f;
+			out[1] = (1.f - out[3]) * 0.5f;
+		}
+
 		inline void NkGCadreImageEntiere(const NkPaintRect &r, const NkRemplissage &f, NkPaintRect &out) {
 			const nkentseu::float32 w = f.cropW > 0.001f ? f.cropW : 1.f, h = f.cropH > 0.001f ? f.cropH : 1.f;
 			out.w = r.w / w;

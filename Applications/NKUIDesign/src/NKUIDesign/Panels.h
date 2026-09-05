@@ -3922,7 +3922,15 @@ namespace nkuidesign {
 							renderdetail::NkGCadreImageEntiere(rsC, selDeg.fills[(uint32)fc], entier);
 							float32 d2 = 1e30f;
 							const int32 k = renderdetail::NkPointageCrop(entier, mxC, myC, NkTolerancePoignee(), &d2);
-							if (k >= 0 && !PoigneeDeFormePlusProche(selDeg, rsC, mxC, myC, d2)) {
+							// ⑧ LE POPOVER OUVERT, LA POIGNEE DE CROP PASSE AVANT CELLE DE LA FORME (05/09).
+							//    Avant : la plus proche gagnait, et quand les deux cadres coïncident (crop
+							//    = image entière) elles sont À LA MÊME PLACE — la forme l'emportait
+							//    toujours, donc « le crop n'est pas modifiable ». C'est la règle des
+							//    dégradés : *celui dont on a ouvert le popover possède ses poignées.*
+							//    ⚠️ Ce que ça coûte, et c'est dit : popover d'image ouvert, on ne
+							//       redimensionne plus le nœud par ses coins — on ferme le popover, ou on
+							//       le déplace par son intérieur.
+							if (k >= 0) {
 								mCropEdges = renderdetail::NkPoigneeCropBits(k);
 								mCropFill = fc;
 								mCropOrigX = mxC;
@@ -5417,9 +5425,25 @@ namespace nkuidesign {
 							renderdetail::NkGCadreImageEntiere(rs, f, entier);
 							if (mCropEdges == 0 && !NkSourisSurPopup(ctx)) {
 								float32 d2 = 1e30f;
-								if (renderdetail::NkPointageCrop(entier, mxC, myC, NkTolerancePoignee(), &d2) >= 0
-									&& !PoigneeDeFormePlusProche(selC, rs, mxC, myC, d2))
-									AnnoncerBulle(ctx, 8);
+								if (renderdetail::NkPointageCrop(entier, mxC, myC, NkTolerancePoignee(), &d2) >= 0)
+									AnnoncerBulle(ctx, 8); // meme priorite qu'a l'appui : le popover possede ses poignees
+							}
+							// ⑧ L'IMAGE ENTIERE, ATTENUEE, AUTOUR DE LA FENETRE (05/09) : sans elle, le
+							//    cadre est quatre traits autour du vide et Rodolf ne peut pas savoir CE
+							//    qu'il recadre. On repeint la même texture sur le cadre entier à 25 %,
+							//    SOUS les traits : la partie visible reste celle du nœud (peinte pleine
+							//    par le document), le reste se devine. Sans texture (image absente), il
+							//    n'y a rien à atténuer et le damier du peintre parle déjà.
+							{
+								// le fournisseur COURANT (celui que le peintre lit), pas une seconde porte
+								renderdetail::NkImageSource srcC;
+								const renderdetail::NkFournisseurImages &fourn = renderdetail::NkFournisseurCourant();
+								if (!f.image.Empty() && fourn.obtenir && fourn.obtenir(fourn.user, f.image.Data(), srcC) && srcC.handle != 0u) {
+									const float32 xyE[8] = {entier.x, entier.y, entier.x + entier.w, entier.y,
+															entier.x + entier.w, entier.y + entier.h, entier.x, entier.y + entier.h};
+									static const float32 kUv[8] = {0.f, 0.f, 1.f, 0.f, 1.f, 1.f, 0.f, 1.f};
+									paint.ImagePolygone(xyE, kUv, 4, srcC.handle, 25.f);
+								}
 							}
 							paint.Line(entier.x, entier.y, entier.x + entier.w, entier.y, accent, 1.f);
 							paint.Line(entier.x + entier.w, entier.y, entier.x + entier.w, entier.y + entier.h, accent, 1.f);
@@ -5427,11 +5451,17 @@ namespace nkuidesign {
 							paint.Line(entier.x, entier.y + entier.h, entier.x, entier.y, accent, 1.f);
 							float32 pc[16];
 							renderdetail::NkPoigneesCrop(entier, pc);
+							// ⑧ DES POIGNEES CREUSES, pour qu'elles ne se lisent pas comme celles de la
+							//    forme (pleines) meme quand les deux cadres se ressemblent : 11 px, bord
+							//    accent, coeur blanc, centre accent.
 							for (uint32 k = 0; k < 8u; ++k) {
-								paint.Fill({pc[k * 2] - 4.f, pc[k * 2 + 1] - 4.f, 8.f, 8.f}, accent, 1.f);
-								const float32 q[8] = {pc[k * 2] - 2.5f, pc[k * 2 + 1] - 2.5f, pc[k * 2] + 2.5f, pc[k * 2 + 1] - 2.5f,
-													  pc[k * 2] + 2.5f, pc[k * 2 + 1] + 2.5f, pc[k * 2] - 2.5f, pc[k * 2 + 1] + 2.5f};
+								paint.Fill({pc[k * 2] - 5.5f, pc[k * 2 + 1] - 5.5f, 11.f, 11.f}, accent, 2.f);
+								const float32 q[8] = {pc[k * 2] - 4.f, pc[k * 2 + 1] - 4.f, pc[k * 2] + 4.f, pc[k * 2 + 1] - 4.f,
+													  pc[k * 2] + 4.f, pc[k * 2 + 1] + 4.f, pc[k * 2] - 4.f, pc[k * 2 + 1] + 4.f};
 								paint.PolygonHex(q, 4, 0xFFFFFFFFu);
+								const float32 c[8] = {pc[k * 2] - 1.5f, pc[k * 2 + 1] - 1.5f, pc[k * 2] + 1.5f, pc[k * 2 + 1] - 1.5f,
+													  pc[k * 2] + 1.5f, pc[k * 2 + 1] + 1.5f, pc[k * 2] - 1.5f, pc[k * 2 + 1] + 1.5f};
+								paint.PolygonHex(c, 4, accent);
 							}
 						} else if (mCropEdges != 0)
 							mCropEdges = 0;
@@ -11832,6 +11862,27 @@ namespace nkuidesign {
 								if (svR && ctx.input.mouseClicked[0]) {
 									ctx.input.mouseClicked[0] = false;
 									f.cadrage = k == 0u ? NkString() : NkString(kCadrage[k]); // Fill = le défaut, rien au fichier
+									// ⑧ ENTRER EN CROP POSE LA FENETRE QUE « COUVRIR » MONTRAIT (05/09).
+									//    Sans ça, `crop = 0 0 1 1` étirait l'image à la boîte : le cadre de
+									//    l'image entière coïncidait avec le nœud, donc invisible, et ses
+									//    poignées tombaient sur celles de la forme. L'écran ne bouge pas à
+									//    la bascule : c'est la MÊME portion visible, désormais réglable.
+									//    ⚠️ On ne l'écrase JAMAIS : un crop déjà réglé (≠ image entière) est
+									//       une donnée de Rodolf. Et sans image chargée, on ne devine pas.
+									if (k == 4u && f.CropEntier() && entree && !entree->absente && entree->w > 0 && entree->h > 0
+										&& mSt->layout.Has(d.noeud)) {
+										float32 c4[4];
+										renderdetail::NkCropCouvrant(mSt->layout.At(d.noeud), (float32)entree->w, (float32)entree->h, c4);
+										f.cropX = c4[0];
+										f.cropY = c4[1];
+										f.cropW = c4[2];
+										f.cropH = c4[3];
+										char msgC[200];
+										snprintf(msgC, sizeof(msgC),
+												 "Recadrage : la fenêtre visible (%.0f %% x %.0f %% de l'image) — tire les poignées du cadre de l'image.",
+												 (double)(c4[2] * 100.f), (double)(c4[3] * 100.f));
+										mSt->DireAuPied(msgC);
+									}
 									touche();
 									mCadrageMenuOuvert = false;
 								}

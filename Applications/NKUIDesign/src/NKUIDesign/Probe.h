@@ -9615,6 +9615,178 @@ namespace nkuidesign {
 					  apresD == avantD + 1u && apresD2 == avantD + 2u, det);
 			}
 		}
+		// ── 86. ⑧ LE CADRE DE CROP EST PLUS GRAND QUE LE NOEUD, ET SES POIGNEES GAGNENT (05/09).
+		//    Le retour de Rodolf : « ce n'est pas modifiable et je ne sais meme pas si c'est
+		//    visible ». Une image 4:3 dans un noeud 5:3 : passer en Crop par le popover pose la
+		//    fenetre COUVRANTE (100 % x 80 %), le cadre de l'image entiere est STRICTEMENT plus
+		//    haut que le noeud, tirer sa poignee du haut change `crop` (le noeud ne bouge pas),
+		//    et le popover ferme, la poignee du NOEUD redimensionne de nouveau le noeud.
+		{
+			static nkgui::NkGuiContext ctxCr;
+			char det[900];
+			if (!ctxCr.Init(600, 900)) {
+				check("86. le cadre de crop", false, "Init a refuse");
+			} else {
+				// l'image 4 x 3 de la sonde (quatre bandes, pour la voir a l'oeil dans le fichier)
+				bool png43 = false;
+				{
+					NkImage img;
+					if (img.Create(4u, 3u, math::NkColor(), 4) && img.Pixels()) {
+						uint8 *px = img.Pixels();
+						for (int32 y = 0; y < 3; ++y)
+							for (int32 x = 0; x < 4; ++x) {
+								const uint8 v = (uint8)(40 + 60 * y);
+								px[(y * 4 + x) * 4 + 0] = (uint8)(v + 20 * x);
+								px[(y * 4 + x) * 4 + 1] = v;
+								px[(y * 4 + x) * 4 + 2] = (uint8)(255 - v);
+								px[(y * 4 + x) * 4 + 3] = 255;
+							}
+						png43 = img.SavePNG("sonde_crop_4x3.png");
+					}
+				}
+				static DesignState stCr;
+				stCr.doc.NewDocument("Toile", NkAuthor::Humain);
+				stCr.cheminActif = NkString();
+				stCr.images.Vider();
+				renderdetail::NkPoserFournisseurImages(&NkObtenirImageDuDocument, &stCr);
+				const int32 pgC = stCr.doc.AddChild(0, "", NkAuthor::Humain);
+				stCr.doc.nodes[(uint32)pgC].shape = NkString("frame");
+				stCr.doc.nodes[(uint32)pgC].layout.kind = NkLayoutKind::Free;
+				stCr.doc.nodes[(uint32)pgC].width.mode = NkSizeMode::Fixed;
+				stCr.doc.nodes[(uint32)pgC].width.value = 300.f;
+				stCr.doc.nodes[(uint32)pgC].height.mode = NkSizeMode::Fixed;
+				stCr.doc.nodes[(uint32)pgC].height.value = 300.f;
+				const int32 rcC = stCr.doc.AddChild(pgC, "", NkAuthor::Humain);
+				{
+					NkUINode &n = stCr.doc.nodes[(uint32)rcC];
+					n.shape = NkString("rect");
+					n.posX = 100.f;
+					n.posY = 100.f;
+					n.width.mode = NkSizeMode::Fixed;
+					n.width.value = 100.f; // 5:3 -- l'image est 4:3 : « couvrir » coupe en HAUTEUR
+					n.height.mode = NkSizeMode::Fixed;
+					n.height.value = 60.f;
+					NkRemplissage f;
+					f.genre = NkString("image");
+					f.image = NkString("sonde_crop_4x3.png");
+					n.fills.PushBack(f); // cadrage vide = « fill » (couvrir), le defaut
+				}
+				stCr.Recompute(NkPaintRect{0.f, 0.f, 340.f, 900.f});
+				stCr.SelectSingle(rcC);
+				static PreviewPanel toileCr(&stCr);
+				static InspectorPanel inspCr(&stCr);
+				NkEditorFrameContext ec;
+				ec.ui = &ctxCr;
+				ec.dt = 0.016f;
+				auto image = [&](float32 mx, float32 my, bool bas) {
+					ctxCr.input.mousePos = {mx, my};
+					ctxCr.input.mouseDown[0] = bas;
+					ctxCr.BeginFrame(0.016f);
+					ctxCr.BeginLayout({0.f, 0.f, 340.f, 900.f});
+					toileCr.OnUI(ec);
+					ctxCr.BeginLayout({340.f, 0.f, 260.f, 900.f});
+					inspCr.OnUI(ec);
+					NkDessinerPickerDemande(ctxCr, stCr);
+					ctxCr.EndFrame();
+				};
+				auto cliquer = [&](float32 x, float32 y) {
+					image(x, y, false); // le survol precede l'appui
+					image(x, y, true);
+					image(x, y, false);
+					image(-1.f, -1.f, false);
+				};
+				auto boite = [&](float32 &px, float32 &py) {
+					px = 1e9f;
+					py = 1e9f;
+					for (uint32 i = 0; i < (uint32)ctxCr.dlOverlay.vtx.Size(); ++i) {
+						if (ctxCr.dlOverlay.vtx[i].pos.x < px) px = ctxCr.dlOverlay.vtx[i].pos.x;
+						if (ctxCr.dlOverlay.vtx[i].pos.y < py) py = ctxCr.dlOverlay.vtx[i].pos.y;
+					}
+				};
+				// le popover d'image, ancre en bas a droite (il ne recouvre pas la toile)
+				stCr.picker = DesignState::DemandePicker();
+				stCr.picker.ouvert = true;
+				stCr.picker.id = ctxCr.GetId("##sonde.popover.crop8");
+				stCr.picker.genre = 1u;
+				stCr.picker.noeud = rcC;
+				stCr.picker.index = 0;
+				stCr.picker.ancre = {580.f, 200.f, 16.f, 16.f}; // le popover tient sans etre repousse par le bas
+				for (int32 k = 0; k < 3; ++k)
+					image(-1.f, -1.f, false);
+				float32 px = 0.f, py = 0.f;
+				boite(px, py); // pour le rapport : ce que l'overlay montre
+				// LE RECTANGLE DU POPOVER, calcule comme le code le calcule (l'ancre, la largeur 250,
+				// la hauteur d'un remplissage image hors crop : 8 + 26 + 116 + 5 x 26 + 8 = 288)
+				const float32 prx = 580.f - 250.f - 8.f, pry = 200.f - 8.f;
+				const float32 x0P = prx + 8.f;
+				// la rangee « Cadrage » : 8 (marge) + 26 (vignettes) + 116 (apercu) + 26 (retirer le fond)
+				const float32 yCad = pry + 8.f + 26.f + 116.f + 26.f + 3.f + 10.f;
+				const float32 xCombo = x0P + 62.f + 36.f;
+				cliquer(xCombo, yCad);					   // ouvre le menu des cadrages
+				// la liste s'ouvre AU-DESSUS : rl.y = rm.y - 5 x 20 - 4, l'entree k=4 (« Crop ») occupe
+				// [rl.y + 2 + 80, +20[ -- son CENTRE est a yCad - 22 (yCad est le centre du combo)
+				cliquer(x0P + 62.f + 20.f, yCad - 22.f);
+				image(-1.f, -1.f, false);
+				const NkRemplissage &fc = stCr.doc.nodes[(uint32)rcC].fills[0];
+				// ⚠️ ON FIGE LES VALEURS : `fc` et `fa` designent LE MEME remplissage (des references),
+				//    donc « avant » et « apres » liraient la meme chose -- le glisser passerait pour
+				//    sans effet. Le detail imprimait deja les valeurs d'apres pour les deux.
+				const float32 cX0 = fc.cropX, cY0 = fc.cropY, cW0 = fc.cropW, cH0 = fc.cropH;
+				const bool estCrop = NkComponentDecl::StrEq(fc.cadrage.Data(), "crop");
+				// couvrir : k = max(100/4, 60/3) = 25 -> 100 x 75 ; la fenetre = 100 % x 80 %, centree
+				const bool couvrant = cW0 > 0.995f && cH0 > 0.795f && cH0 < 0.805f && cY0 > 0.095f && cY0 < 0.105f;
+				NkLayoutResult scrC;
+				stCr.ProjectToScreen(scrC);
+				const NkPaintRect rsC = scrC.At(rcC);
+				NkPaintRect entier;
+				renderdetail::NkGCadreImageEntiere(rsC, fc, entier);
+				const bool cadrePlusGrand = entier.h > rsC.h + 8.f && entier.y < rsC.y - 4.f && entier.w > rsC.w - 0.5f;
+				// la poignee HAUT-MILIEU du cadre, tiree vers le bas de 12 px : le crop change, le noeud non
+				const float32 hx = entier.x + entier.w * 0.5f, hy = entier.y;
+				const NkUINode avant = stCr.doc.nodes[(uint32)rcC];
+				image(hx, hy, false);
+				image(hx, hy, true);
+				for (int32 k = 1; k <= 3; ++k)
+					image(hx, hy + 4.f * (float32)k, true);
+				image(hx, hy + 12.f, false);
+				image(-1.f, -1.f, false);
+				const NkRemplissage &fa = stCr.doc.nodes[(uint32)rcC].fills[0];
+				const NkUINode &apres = stCr.doc.nodes[(uint32)rcC];
+				const bool cropChange = fa.cropH < cH0 - 0.01f || fa.cropH > cH0 + 0.01f || fa.cropY < cY0 - 0.005f || fa.cropY > cY0 + 0.005f;
+				const bool noeudIntact = apres.posX == avant.posX && apres.posY == avant.posY && apres.width.value == avant.width.value
+										 && apres.height.value == avant.height.value;
+				// le popover FERME : la poignee du NOEUD (haut-milieu) redimensionne de nouveau
+				if (ctxCr.popupDepth > 0)
+					ctxCr.ClosePopup();
+				stCr.picker = DesignState::DemandePicker();
+				for (int32 k = 0; k < 3; ++k)
+					image(-1.f, -1.f, false);
+				stCr.ProjectToScreen(scrC);
+				const NkPaintRect rs2 = scrC.At(rcC);
+				const float32 nx = rs2.x + rs2.w * 0.5f, ny = rs2.y;
+				const float32 hAvant = stCr.doc.nodes[(uint32)rcC].height.value;
+				image(nx, ny, false);
+				image(nx, ny, true);
+				for (int32 k = 1; k <= 3; ++k)
+					image(nx, ny + 4.f * (float32)k, true);
+				image(nx, ny + 12.f, false);
+				image(-1.f, -1.f, false);
+				const float32 hApres = stCr.doc.nodes[(uint32)rcC].height.value;
+				const bool noeudRepondEncore = hApres < hAvant - 1.f;
+				snprintf(det, sizeof(det),
+						 "png 4x3=%d ; popover attendu a (%.0f, %.0f), overlay vu a (%.0f, %.0f) ; cadrage « %s » (crop=%d) ; crop pose X %.3f Y %.3f L %.3f H %.3f (attendu Y 0,100 H 0,800) -> couvrant=%d ; "
+						 "noeud ecran %.0fx%.0f, cadre %.0fx%.0f a y %.0f (noeud y %.0f) -> plus grand=%d ; poignee du cadre tiree : crop H %.3f Y %.3f "
+						 "(change=%d), noeud intact=%d ; popover ferme, poignee du noeud : hauteur %.0f -> %.0f (repond=%d)",
+						 png43 ? 1 : 0, (double)prx, (double)pry, (double)px, (double)py, fc.cadrage.Data() ? fc.cadrage.Data() : "(fill)", estCrop ? 1 : 0, (double)cX0, (double)cY0,
+						 (double)cW0, (double)cH0, couvrant ? 1 : 0, (double)rsC.w, (double)rsC.h, (double)entier.w, (double)entier.h,
+						 (double)entier.y, (double)rsC.y, cadrePlusGrand ? 1 : 0, (double)fa.cropH, (double)fa.cropY, cropChange ? 1 : 0,
+						 noeudIntact ? 1 : 0, (double)hAvant, (double)hApres, noeudRepondEncore ? 1 : 0);
+				check("86. ⑧ LE CROP EST VISIBLE ET MODIFIABLE : passer en Crop par le popover pose la fenetre COUVRANTE (image 4:3 dans un "
+					  "noeud 5:3 -> 100 % x 80 %, centree), le cadre de l'image entiere est STRICTEMENT plus grand que le noeud, tirer sa "
+					  "poignee change `crop` sans bouger le noeud, et le popover ferme la poignee du noeud le redimensionne de nouveau",
+					  png43 && estCrop && couvrant && cadrePlusGrand && cropChange && noeudIntact && noeudRepondEncore, det);
+			}
+		}
 		snprintf(tail, sizeof(tail), "\n=== RESULTAT : %d / %d ===\n", pass, total);
 		rep.Append(tail);
 
