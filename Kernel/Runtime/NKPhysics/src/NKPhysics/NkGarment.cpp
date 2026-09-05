@@ -103,6 +103,32 @@ namespace nkentseu {
 		}
 
 		// ── Noms ─────────────────────────────────────────────────────────────
+		const char *NkGarmentCollisionName(NkGarmentCollision c) noexcept {
+			switch (c) {
+				case NkGarmentCollision::NK_FIELD: return "champ fin";
+				case NkGarmentCollision::NK_EXACT: return "distance exacte";
+				default: return "auto";
+			}
+		}
+
+		NkGarmentCollision NkGarmentDefaultCollision(NkGarmentKind k) noexcept {
+			switch (k) {
+				// serrés, toujours en contact : le champ lisse ce que la normale exacte fait sauter
+				case NK_GARMENT_FOULARD: return NkGarmentCollision::NK_FIELD;
+				// lâches, ils pendent et battent : la distance exacte ne « respire » pas
+				case NK_GARMENT_CAPE:
+				case NK_GARMENT_JUPE:
+				case NK_GARMENT_ROBE: return NkGarmentCollision::NK_EXACT;
+				// t-shirt, chemise, pantalon : entre les deux -- laissés en AUTO, c'est le serrage
+				// mesuré qui tranche, et le chiffre est dit dans le journal de la sonde
+				default: return NkGarmentCollision::NK_AUTO;
+			}
+		}
+
+		NkGarmentCollision NkGarmentAutoCollision(float32 meanClearance, float32 threshold) noexcept {
+			return meanClearance < threshold ? NkGarmentCollision::NK_FIELD : NkGarmentCollision::NK_EXACT;
+		}
+
 		const char *NkGarmentName(NkGarmentKind k) noexcept {
 			static const char *kNames[NK_GARMENT_COUNT] = {"cape", "foulard", "jupe", "tshirt", "chemise", "robe", "pantalon"};
 			return k < NK_GARMENT_COUNT ? kNames[k] : "?";
@@ -338,6 +364,7 @@ namespace nkentseu {
 							  const NkSkeletonBind &skel, const NkGarmentParams &p, const NkMannequin *mannequin,
 							  const NkMeshInsideTester *bodyMesh) {
 			kind = k;
+			collision = NkGarmentDefaultCollision(k);
 			cloth.Clear();
 			pins.Clear();
 			seams = 0;
@@ -366,6 +393,13 @@ namespace nkentseu {
 			cloth.params.substeps = p.substeps;
 			cloth.params.iterations = p.iterations;
 			cloth.params.selfCollision = p.selfCollision;
+			// Le rythme des colliders SUIT la methode, mesure le 05/09 sur la meme course :
+			//  - distance exacte (piece lache) : une fois par sous-pas suffit -- la cape passe de
+			//    28,5 a 8,52 ms avec la meme physique (etirement moyen 1,58 -> 1,35 %) ;
+			//  - champ fin (piece serree) : il faut CHAQUE iteration -- le foulard passe de 0,18 a
+			//    13,91 % d etirement et de 0 a 3 particules sous la peau si on l espace. Il touche
+			//    en permanence : entre deux resolutions, les contraintes le retirent dans le corps.
+			cloth.params.collidersEveryIteration = (collision != NkGarmentCollision::NK_EXACT);
 			const int32 *J = map.joint;
 			const NkVec3f down = b.up * -1.f;
 			const float32 sp = p.spacing;

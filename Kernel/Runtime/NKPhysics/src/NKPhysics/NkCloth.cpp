@@ -529,10 +529,14 @@ namespace nkentseu {
 						SolveSelf();
 						lap(mProfile.selfSolve);
 					}
-					if (params.collisions) {
+					if (params.collisions && params.collidersEveryIteration) {
 						SolveColliders(CS, nk, CV0, CV1, h, alpha); // en dernier : l'état final ne pénètre pas
 						lap(mProfile.colliders);
 					}
+				}
+				if (params.collisions && !params.collidersEveryIteration) {
+					SolveColliders(CS, nk, CV0, CV1, h, alpha); // une fois par sous-pas, après les itérations
+					lap(mProfile.colliders);
 				}
 				if (params.selfCollision && !params.selfEveryIteration) {
 					// une résolution par sous-pas, après les itérations ; puis les colliders, en dernier

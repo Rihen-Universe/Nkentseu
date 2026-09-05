@@ -153,6 +153,12 @@ namespace nkentseu {
 				// Résolution des paires à CHAQUE itération (vrai) ou une fois par sous-pas, après les
 				// itérations (faux) : mesuré dans le lot budget, dit dans DECISIONS.
 				bool selfEveryIteration = true;
+				// Colliders (capsules, champ, distance exacte) résolus à CHAQUE itération (vrai) ou une
+				// seule fois par sous-pas, après les itérations (faux). À 32 sous-pas x 4 itérations,
+				// vrai = 128 résolutions par image : c'est ce qui faisait monter le pas de la cape à
+				// 34 ms avec la distance exacte. Faux = 32. La projection reste la DERNIÈRE chose faite
+				// du sous-pas, donc l'état final ne pénètre toujours pas.
+				bool collidersEveryIteration = true;
 				// HORLOGE fournie par l'appelant (secondes, monotone) : quand elle est là, chaque pas
 				// remplit NkClothProfile. NKPhysics n'a pas d'horloge (pas de NKTime) : l'appelant
 				// (la sonde de la démo) prête NkChrono. Nul = pas de profil, zéro coût.
