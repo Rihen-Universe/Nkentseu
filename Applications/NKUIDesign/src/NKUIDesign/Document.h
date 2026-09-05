@@ -407,6 +407,13 @@ namespace nkuidesign {
 			NkString image;
 			NkString cadrage;
 			float32 rotationImage = 0.f;
+			/// LA FENETRE DU CADRAGE `crop` (fractions de l'image, 0..1) : `crop=x,y,w,h`,
+			/// additif (rien tant que la fenetre est l'image entiere). Les autres
+			/// cadrages l'ignorent -- un champ qui n'agit pas ne s'ecrit pas.
+			float32 cropX = 0.f, cropY = 0.f, cropW = 1.f, cropH = 1.f;
+			bool CropEntier() const {
+				return cropX == 0.f && cropY == 0.f && cropW == 1.f && cropH == 1.f;
+			}
 			/// ②-1 LE MODE DE FUSION (la goutte, 18 modes) : la cle CSS `mix-blend-mode`
 			///    (« multiply », « screen »...) telle que Lunacy l'exporte ; vide = normal.
 			///    Une propriete du document, ecrite et relue, montree sur la ligne --
@@ -2670,6 +2677,16 @@ namespace nkuidesign {
 						out.Append(" rotation_image=");
 						WriteNum(out, f.rotationImage);
 					}
+					if (!f.CropEntier()) {
+						out.Append(" crop=");
+						WriteNum(out, f.cropX);
+						out.Append(',');
+						WriteNum(out, f.cropY);
+						out.Append(',');
+						WriteNum(out, f.cropW);
+						out.Append(',');
+						WriteNum(out, f.cropH);
+					}
 					if (!f.fusion.Empty()) {
 						out.Append(" fusion=");
 						out.Append(f.fusion);
@@ -3554,6 +3571,23 @@ namespace nkuidesign {
 										f.image = NkString(mot + 6);
 									else if (StrStartsWith(mot, "rotation_image="))
 										f.rotationImage = ParseNum(mot + 15);
+									else if (StrStartsWith(mot, "crop=")) {
+										// quatre nombres separes par des virgules ; un jeton tronque
+										// garde ce qu'il a lu, le reste vaut son defaut
+										float32 v[4] = {0.f, 0.f, 1.f, 1.f};
+										const char *w = mot + 5;
+										for (uint32 k = 0; k < 4u && *w; ++k) {
+											v[k] = ParseNum(w);
+											while (*w && *w != ',')
+												++w;
+											if (*w == ',')
+												++w;
+										}
+										f.cropX = v[0];
+										f.cropY = v[1];
+										f.cropW = v[2];
+										f.cropH = v[3];
+									}
 									else if (StrStartsWith(mot, "fusion="))
 										f.fusion = NkString(mot + 7);
 									else {

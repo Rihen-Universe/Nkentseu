@@ -8901,6 +8901,13 @@ int nkmain(const NkEntryState &state) {
 	//    marcher. Le point unique est `NkEditorShell::ApplyTheme`.
 	gThemes.AddBuiltins(); // Sombre, Clair, GitHub Dark Pro, GitHub Light Pro
 	gShell = shell.Get(); // ⚠️ AVANT `AppliquerTheme`, qui s'en sert.
+	// LA CHAINE DE L'IMAGE (05/09) : le cache du document televerse par le shell, le
+	// peintre demande au cache -- pose ici, une fois, explicite.
+	gDesign.images.televerser = [](void *u, const uint8 *px, int32 w, int32 h) -> uint32 {
+		return static_cast<NkEditorShell *>(u)->UploadRGBA(px, w, h);
+	};
+	gDesign.images.televerserUser = gShell;
+	nkuidesign::renderdetail::NkPoserFournisseurImages(&nkuidesign::NkObtenirImageDuDocument, &gDesign);
 	if (!gThemeDemande.Empty()) {
 		// ⚠️ UN NOM INCONNU SE DIT, IL NE SE REMPLACE PAS EN SILENCE. Même
 		//    famille que le backend refusé : un repli muet ferait mesurer sur un

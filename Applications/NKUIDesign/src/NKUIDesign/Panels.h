@@ -70,6 +70,7 @@
 #include "DesignAI.h"
 #include "NkGuiValidate.h" // guifmt::NkGEtats — LA table fermee des six etats
 #include "Renderers.h"
+#include "NKImage/NKImage.h" // le cache d'images du document (12 codecs)
 
 #include <cstdio>
 
@@ -383,6 +384,114 @@ namespace nkuidesign {
 	//    chaque image et se jettent. C'est ce qui garantit que ce que l'apercu
 	//    dessine est EXACTEMENT ce que la sauvegarde ecrit — deux copies auraient
 	//    diverge des la premiere seance.
+	/// LE CACHE D'IMAGES DU DOCUMENT (05/09, chaine de l'image) : un chemin RELATIF AU
+	/// DOCUMENT (jamais absolu dans le fichier : un document doit voyager ; le fichier
+	/// est REFERENCE, pas copie -- Lunacy fait pareil, l'export l'embarquera) -> les
+	/// pixels (NKImage, 12 codecs) et le handle du dorsal (televerse par le crochet du
+	/// shell ; 0 sans fenetre -- la sonde). Une image absente est NOTEE (une entree
+	/// « absente », pas une lecture du disque a chaque image ; « Recharger » l'oublie)
+	/// et DITE par le peintre (damier) et l'inspecteur.
+	struct NkCacheImages {
+			struct Entree {
+					NkString cle;	 ///< le chemin tel qu'ecrit dans le document
+					NkString absolu; ///< le chemin resolu
+					bool absente = false;
+					uint32 handle = 0;
+					int32 w = 0, h = 0;
+					NkVector<uint8> pixels; ///< RGBA8, gardes pour la sonde et les apercus
+			};
+			NkVector<Entree> entrees;
+			NkString base; ///< le dossier du document actif, avec son separateur final ("" = le repertoire courant)
+			uint32 (*televerser)(void *, const uint8 *, int32, int32) = nullptr;
+			void *televerserUser = nullptr;
+
+			static bool EstAbsolu(const char *c) {
+				return c && (c[0] == '/' || c[0] == '\\' || (c[0] && c[1] == ':'));
+			}
+			/// Le dossier d'un chemin de fichier, separateur final compris ("" sans dossier).
+			static NkString Dossier(const char *chemin) {
+				NkString d;
+				if (!chemin)
+					return d;
+				int32 fin = -1;
+				for (int32 i = 0; chemin[i]; ++i)
+					if (chemin[i] == '/' || chemin[i] == '\\')
+						fin = i;
+				for (int32 i = 0; i <= fin; ++i)
+					d.Append(chemin[i]);
+				return d;
+			}
+			/// Un chemin RELATIF au dossier `base` quand `absolu` y vit, sinon tel quel.
+			static NkString Relatif(const char *base, const char *absolu) {
+				if (!absolu)
+					return NkString();
+				if (!base || !*base)
+					return NkString(absolu);
+				uint32 i = 0;
+				for (; base[i] && absolu[i]; ++i) {
+					char a = base[i], b = absolu[i];
+					if (a == '\\') a = '/';
+					if (b == '\\') b = '/';
+					if (a >= 'A' && a <= 'Z') a = (char)(a - 'A' + 'a');
+					if (b >= 'A' && b <= 'Z') b = (char)(b - 'A' + 'a');
+					if (a != b)
+						break;
+				}
+				if (base[i])
+					return NkString(absolu); // pas dans le dossier du document : tel quel, et l'inspecteur le dit
+				NkString r;
+				for (const char *q = absolu + i; *q; ++q)
+					r.Append(*q == '\\' ? '/' : *q);
+				return r;
+			}
+			NkString Resoudre(const char *chemin) const {
+				if (EstAbsolu(chemin) || base.Empty())
+					return NkString(chemin ? chemin : "");
+				NkString s = base;
+				s.Append(chemin ? chemin : "");
+				return s;
+			}
+			Entree *Trouver(const char *chemin) {
+				for (uint32 i = 0; i < (uint32)entrees.Size(); ++i)
+					if (NkComponentDecl::StrEq(entrees[i].cle.Data(), chemin))
+						return &entrees[i];
+				return nullptr;
+			}
+			void Oublier(const char *chemin) {
+				for (uint32 i = 0; i < (uint32)entrees.Size(); ++i)
+					if (NkComponentDecl::StrEq(entrees[i].cle.Data(), chemin)) {
+						entrees.RemoveAt(i);
+						return;
+					}
+			}
+			void Vider() {
+				entrees.Clear();
+			}
+			/// L'entree d'un chemin, chargee au premier appel (NKImage, RGBA8) ; absente
+			/// si le fichier manque ou ne se decode pas -- et ca reste note.
+			Entree &Charger(const char *chemin) {
+				if (Entree *e = Trouver(chemin))
+					return *e;
+				Entree n;
+				n.cle = NkString(chemin ? chemin : "");
+				n.absolu = Resoudre(chemin);
+				NkImage img;
+				if (chemin && *chemin && img.Load(n.absolu.Data(), 4) && img.Width() > 0 && img.Height() > 0 && img.Pixels()) {
+					n.w = img.Width();
+					n.h = img.Height();
+					const uint8 *px = img.Pixels();
+					const uint32 total = (uint32)n.w * (uint32)n.h * 4u;
+					for (uint32 i = 0; i < total; ++i)
+						n.pixels.PushBack(px[i]);
+					if (televerser)
+						n.handle = televerser(televerserUser, n.pixels.Data(), n.w, n.h);
+				} else
+					n.absente = true;
+				entrees.PushBack(n);
+				return entrees[(uint32)entrees.Size() - 1];
+			}
+	};
+
 	struct DesignState {
 			NkUIDocument doc;
 			NkLayoutResult layout;
@@ -1341,6 +1450,10 @@ namespace nkuidesign {
 					nkentseu::uint32 synchro = 0xFFFFFFFFu; ///< cle du dernier tampon hexa resynchronise
 			};
 			DemandePicker picker;
+			/// LES IMAGES du document (chaine de l'image, 05/09) -- le fournisseur du
+			/// peintre lit ici, par `NkObtenirImageDuDocument` (le dossier du document
+			/// actif est relu a chaque demande : les onglets changent de dossier).
+			NkCacheImages images;
 			/// Le geste que le curseur ANNONCE sur une poignee de degrade, avant le clic :
 			/// 0 rien, 1 glisser le long de l'axe, 2 tourner -- ecrit par la toile a chaque
 			/// image, lu par la sonde (« le curseur annonce correspond au geste »).
@@ -10218,6 +10331,21 @@ namespace nkuidesign {
 	/// LE SELECTEUR LUI-MEME, dessine par le CROCHET D'OVERLAY (apres les
 	/// panneaux) : c'est le seul endroit ou l'entree est REELLE. Le `ColorPicker4`
 	/// est celui de `NKGui` -- on n'en construit toujours aucun.
+	/// LE FOURNISSEUR D'IMAGES DE L'APPLICATION (`NkObtenirImageFn`) : `user` est le
+	/// DesignState ; le dossier du document actif est relu a chaque demande.
+	inline bool NkObtenirImageDuDocument(void *user, const char *chemin, renderdetail::NkImageSource &out) {
+		DesignState &st = *static_cast<DesignState *>(user);
+		st.images.base = NkCacheImages::Dossier(st.cheminActif.Data());
+		NkCacheImages::Entree &e = st.images.Charger(chemin);
+		if (e.absente)
+			return false;
+		out.handle = e.handle;
+		out.w = e.w;
+		out.h = e.h;
+		out.pixels = e.pixels.Data();
+		return true;
+	}
+
 	inline void NkDessinerPickerDemande(nkgui::NkGuiContext &ctx, DesignState &st) {
 		using namespace nkentseu;
 		if (!st.picker.ouvert)
