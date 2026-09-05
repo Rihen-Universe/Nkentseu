@@ -2869,6 +2869,15 @@ namespace nkuidesign {
 			bool EnRedimensionnement() const {
 				return mDragging && mResizeEdges != 0;
 			}
+			/// Un recadrage par poignee de crop est-il en cours -- lu par la sonde (80).
+			bool EnRecadrage() const {
+				return mCropEdges != 0;
+			}
+			void DiagCrop(int32 &n, float32 &dx, float32 &w) const {
+				n = mCropDiagN;
+				dx = mCropDiagDx;
+				w = mCropDiagW;
+			}
 			/// La recette du contrat universel d'edition (--recette-edition)
 			/// exerce FermerEditionTexte et HandleMouse sans fenetre — l'acces
 			/// de banc, pas une seconde interface.
@@ -3882,7 +3891,37 @@ namespace nkuidesign {
 					&& mSt->doc.IsValidIndex(mSt->selected) && mSt->selected != 0
 					&& screen.Has(mSt->selected)) {
 					NkUINode &selDeg = mSt->doc.nodes[(uint32)mSt->selected];
-					const int32 fi = renderdetail::NkRemplissageDegradeToile(selDeg);
+					// ── LE CROP SUR LA TOILE (05/09, Lunacy : la fenetre de crop a ses poignees
+					//    sur la geometrie) : le rect du noeud montre [cropX, cropX + cropW] de
+					//    l'image ; l'IMAGE ENTIERE est donc un cadre plus grand autour de lui,
+					//    et ce sont SES huit poignees qu'on tire -- le noeud ne bouge pas,
+					//    `crop=` change, l'image suit. Meme famille que les poignees de
+					//    degrade : elles n'existent que le popover image ouvert sur ce
+					//    remplissage, decision ordonnee (la poignee de forme plus proche
+					//    gagne), 12 px, bulle « Recadrer ».
+					{
+						const int32 fc = renderdetail::NkRemplissageImageCropToile(selDeg);
+						if (fc >= 0 && PopoverSurRemplissage(fc)) {
+							const NkPaintRect rsC = screen.At(mSt->selected);
+							float32 mxC = ctx.input.mousePos.x, myC = ctx.input.mousePos.y;
+							NkMatPoint(NkMatInverse(NkMatEffective(mSt->doc, screen, mSt->selected)), mxC, myC);
+							NkPaintRect entier;
+							renderdetail::NkGCadreImageEntiere(rsC, selDeg.fills[(uint32)fc], entier);
+							float32 d2 = 1e30f;
+							const int32 k = renderdetail::NkPointageCrop(entier, mxC, myC, NkTolerancePoignee(), &d2);
+							if (k >= 0 && !PoigneeDeFormePlusProche(selDeg, rsC, mxC, myC, d2)) {
+								mCropEdges = renderdetail::NkPoigneeCropBits(k);
+								mCropFill = fc;
+								mCropOrigX = mxC;
+								mCropOrigY = myC;
+								mCropEntier0 = entier;
+								in.mousePressed = false;
+								in.doubleClick = false; // un second appui sur la poignee n'est pas un double-clic dans le vide
+								ctx.input.mouseClicked[0] = false;
+							}
+						}
+					}
+					const int32 fi = mCropEdges != 0 ? -1 : renderdetail::NkRemplissageDegradeToile(selDeg);
 					if (fi >= 0) {
 						NkDegrade &g = selDeg.fills[(uint32)fi].degrade;
 						const NkPaintRect rsD = screen.At(mSt->selected);
@@ -5308,6 +5347,82 @@ namespace nkuidesign {
 					// gauche de la selection, en FRANCAIS sur la toile (la maquette
 					// ecrit « Bouton » sur la toile et « Button » dans l'arbre).
 					// ── LES POIGNEES DE DEGRADE : un axe par genre, un geste commun ───────
+					{ // ── LE CROP SUR LA TOILE : le geste, la bulle, le cadre de l'image entiere et ses poignees
+						NkUINode &selC = mSt->doc.nodes[(uint32)mSt->selected];
+						const int32 fc = renderdetail::NkRemplissageImageCropToile(selC);
+						if (fc >= 0 && PopoverSurRemplissage(fc)) {
+							NkRemplissage &f = selC.fills[(uint32)fc];
+							float32 mxC = ctx.input.mousePos.x, myC = ctx.input.mousePos.y;
+							NkMatPoint(NkMatInverse(NkMatEffective(mSt->doc, screen, mSt->selected)), mxC, myC);
+							if (mCropEdges != 0 && mCropFill == fc) {
+								if (ctx.input.mouseDown[0]) {
+									const float32 dx = mxC - mCropOrigX, dy = myC - mCropOrigY;
+									float32 L = mCropEntier0.x, T = mCropEntier0.y;
+									float32 Rd = mCropEntier0.x + mCropEntier0.w, B = mCropEntier0.y + mCropEntier0.h;
+									if (mCropEdges & 1u)
+										L += dx;
+									if (mCropEdges & 2u)
+										Rd += dx;
+									if (mCropEdges & 4u)
+										T += dy;
+									if (mCropEdges & 8u)
+										B += dy;
+									// l'image couvre toujours la fenetre : un bord ne rentre pas dedans
+									if (L > rs.x)
+										L = rs.x;
+									if (Rd < rs.x + rs.w)
+										Rd = rs.x + rs.w;
+									if (T > rs.y)
+										T = rs.y;
+									if (B < rs.y + rs.h)
+										B = rs.y + rs.h;
+									++mCropDiagN;
+									mCropDiagDx = dx;
+									if (Rd - L > 0.5f && B - T > 0.5f) {
+										const bool axeX = (mCropEdges & 3u) != 0u, axeY = (mCropEdges & 12u) != 0u;
+										const float32 nW = axeX ? rs.w / (Rd - L) : f.cropW, nH = axeY ? rs.h / (B - T) : f.cropH;
+										const float32 nX = axeX ? (rs.x - L) / (Rd - L) : f.cropX, nY = axeY ? (rs.y - T) / (B - T) : f.cropY;
+										mCropDiagW = nW;
+										if (nX != f.cropX || nY != f.cropY || nW != f.cropW || nH != f.cropH) {
+											f.cropX = nX;
+											f.cropY = nY;
+											f.cropW = nW;
+											f.cropH = nH;
+											if (!selC.instanceDe.Empty())
+												selC.ecarts |= NkUINode::EcartRemplissages;
+											mSt->doc.MarkHumanEdit(mSt->selected);
+											char msg[128];
+											snprintf(msg, sizeof(msg), "Recadrage : X %.0f %%, Y %.0f %%, L %.0f %%, H %.0f %% de l'image.",
+													 (double)(nX * 100.f), (double)(nY * 100.f), (double)(nW * 100.f), (double)(nH * 100.f));
+											mSt->status = NkString(msg);
+										}
+									}
+								} else
+									mCropEdges = 0;
+							}
+							NkPaintRect entier;
+							renderdetail::NkGCadreImageEntiere(rs, f, entier);
+							if (mCropEdges == 0 && !NkSourisSurPopup(ctx)) {
+								float32 d2 = 1e30f;
+								if (renderdetail::NkPointageCrop(entier, mxC, myC, NkTolerancePoignee(), &d2) >= 0
+									&& !PoigneeDeFormePlusProche(selC, rs, mxC, myC, d2))
+									AnnoncerBulle(ctx, 8);
+							}
+							paint.Line(entier.x, entier.y, entier.x + entier.w, entier.y, accent, 1.f);
+							paint.Line(entier.x + entier.w, entier.y, entier.x + entier.w, entier.y + entier.h, accent, 1.f);
+							paint.Line(entier.x + entier.w, entier.y + entier.h, entier.x, entier.y + entier.h, accent, 1.f);
+							paint.Line(entier.x, entier.y + entier.h, entier.x, entier.y, accent, 1.f);
+							float32 pc[16];
+							renderdetail::NkPoigneesCrop(entier, pc);
+							for (uint32 k = 0; k < 8u; ++k) {
+								paint.Fill({pc[k * 2] - 4.f, pc[k * 2 + 1] - 4.f, 8.f, 8.f}, accent, 1.f);
+								const float32 q[8] = {pc[k * 2] - 2.5f, pc[k * 2 + 1] - 2.5f, pc[k * 2] + 2.5f, pc[k * 2 + 1] - 2.5f,
+													  pc[k * 2] + 2.5f, pc[k * 2 + 1] + 2.5f, pc[k * 2] - 2.5f, pc[k * 2 + 1] + 2.5f};
+								paint.PolygonHex(q, 4, 0xFFFFFFFFu);
+							}
+						} else if (mCropEdges != 0)
+							mCropEdges = 0;
+					}
 					{
 						NkUINode &selDeg = mSt->doc.nodes[(uint32)mSt->selected];
 						const int32 fi = renderdetail::NkRemplissageDegradeToile(selDeg);
@@ -6698,9 +6813,10 @@ namespace nkuidesign {
 			///    Gestes : 1 tourner l'axe, 2 glisser l'arret, 3 deplacer l'origine, 4 rayon X,
 			///    5 rayon Y, 6 tourner (le noeud), 7 redimensionner.
 			void AnnoncerBulle(NkGuiContext &ctx, int32 geste) {
-				static const char *const kTextes[8] = {"", "Tourner l'axe", "Glisser l'arrêt", "Déplacer l'origine", "Rayon X",
-														"Rayon Y", "Tourner", "Redimensionner (Maj : proportionnel, Alt : depuis le centre)"};
-				if (geste <= 0 || geste > 7)
+				static const char *const kTextes[9] = {"", "Tourner l'axe", "Glisser l'arrêt", "Déplacer l'origine", "Rayon X",
+														"Rayon Y", "Tourner", "Redimensionner (Maj : proportionnel, Alt : depuis le centre)",
+														"Recadrer"};
+				if (geste <= 0 || geste > 8)
 					return;
 				if (mSt->bulleGeste != geste) {
 					mSt->bulleGeste = geste;
@@ -6852,6 +6968,14 @@ namespace nkuidesign {
 			DesignState *mSt;
 			bool mDragging = false;
 			bool mBadgeTouche = false; ///< ③ le badge de la touche pendant un redimensionnement
+			// ── LE CROP SUR LA TOILE (05/09) : la poignee de la fenetre de l'image entiere qu'on tire
+			uint8 mCropEdges = 0;	 ///< bits 1=G 2=D 4=H 8=B de l'image entiere ; 0 = aucun geste
+			int32 mCropFill = -1;	 ///< le remplissage image recadre
+			float32 mCropOrigX = 0.f, mCropOrigY = 0.f; ///< la souris a l'appui, dans le repere du noeud
+			NkPaintRect mCropEntier0 = {0.f, 0.f, 0.f, 0.f}; ///< l'image entiere a l'appui
+			int32 mCropDiagN = 0;		///< le nombre d'images ou le geste a ete calcule -- lu par la sonde
+			float32 mCropDiagDx = 0.f;	///< le dernier deplacement calcule
+			float32 mCropDiagW = 0.f;	///< la derniere largeur de crop calculee
 			bool mDragHorizontal = true;
 			int32 mDragNode = -1;
 			uint8 mResizeEdges = 0; ///< bits 1=G 2=D 4=H 8=B (noeud pose, huit poignees)

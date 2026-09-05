@@ -9050,6 +9050,150 @@ namespace nkuidesign {
 					  det);
 			}
 		}
+		// ── 80. LE CROP SUR LA TOILE : le popover image ouvert sur un remplissage recadre, la poignee
+		//    droite de l'IMAGE ENTIERE tiree de +40 px -> `crop=` change (L plus petit, X suit), le
+		//    noeud ne bouge pas, et le peintre emet l'image avec les uv du nouveau crop.
+		{
+			static nkgui::NkGuiContext ctxC;
+			char det[520];
+			if (!ctxC.Init(600, 900)) {
+				check("80. le crop sur la toile", false, "Init a refuse");
+			} else {
+				static DesignState stC;
+				stC.doc.NewDocument("Toile", NkAuthor::Humain);
+				stC.cheminActif = NkString();
+				stC.images.Vider();
+				renderdetail::NkPoserFournisseurImages(&NkObtenirImageDuDocument, &stC);
+				const int32 pg = stC.doc.AddChild(0, "", NkAuthor::Humain);
+				stC.doc.nodes[(uint32)pg].shape = NkString("frame");
+				stC.doc.nodes[(uint32)pg].layout.kind = NkLayoutKind::Free;
+				stC.doc.nodes[(uint32)pg].width.mode = NkSizeMode::Fixed;
+				stC.doc.nodes[(uint32)pg].width.value = 400.f;
+				stC.doc.nodes[(uint32)pg].height.mode = NkSizeMode::Fixed;
+				stC.doc.nodes[(uint32)pg].height.value = 300.f;
+				const int32 rc = stC.doc.AddChild(pg, "", NkAuthor::Humain);
+				{
+					NkUINode &n = stC.doc.nodes[(uint32)rc];
+					n.shape = NkString("rect");
+					n.posX = 100.f;
+					n.posY = 100.f;
+					n.width.mode = NkSizeMode::Fixed;
+					n.width.value = 200.f;
+					n.height.mode = NkSizeMode::Fixed;
+					n.height.value = 100.f;
+					NkRemplissage f;
+					f.genre = NkString("image");
+					f.image = NkString("sonde_image_2x2.png");
+					f.cadrage = NkString("crop");
+					f.cropX = 0.25f;
+					f.cropY = 0.25f;
+					f.cropW = 0.5f;
+					f.cropH = 0.5f;
+					n.fills.PushBack(f);
+				}
+				stC.Recompute(NkPaintRect{0.f, 0.f, 600.f, 900.f});
+				stC.SelectSingle(rc);
+				static PreviewPanel toileC(&stC);
+				static InspectorPanel inspC(&stC);
+				NkEditorFrameContext ec;
+				ec.ui = &ctxC;
+				ec.dt = 0.016f;
+				auto image = [&](float32 mx, float32 my, bool bas) {
+					ctxC.input.mousePos = {mx, my};
+					ctxC.input.mouseDown[0] = bas;
+					ctxC.BeginFrame(0.016f);
+					ctxC.BeginLayout({0.f, 0.f, 340.f, 900.f});
+					toileC.OnUI(ec);
+					ctxC.BeginLayout({340.f, 0.f, 260.f, 900.f});
+					inspC.OnUI(ec);
+					NkDessinerPickerDemande(ctxC, stC);
+					ctxC.EndFrame();
+				};
+				for (int32 k = 0; k < 3; ++k)
+					image(-1.f, -1.f, false);
+				// sans popover : la poignee n'existe pas (le clic tombe sur la toile, rien ne se recadre)
+				NkLayoutResult scr;
+				stC.ProjectToScreen(scr);
+				const NkPaintRect rs = scr.At(rc);
+				const float32 entierW = rs.w / 0.5f, entierX = rs.x - 0.25f * entierW;
+				const float32 hx = entierX + entierW, hy = rs.y + rs.h * 0.5f; // la poignee droite (milieu) de l'image entiere
+				image(hx, hy, false);
+				image(hx, hy, true);
+				image(hx + 20.f, hy, true);
+				const bool sansPopover = !toileC.EnRecadrage() && stC.doc.nodes[(uint32)rc].fills[0].cropW == 0.5f;
+				image(hx + 20.f, hy, false);
+				for (int32 k = 0; k < 40; ++k) // le delai du double-clic expire (le second appui vient au meme endroit)
+					image(-1.f, -1.f, false);
+				// le popover image ouvert sur ce remplissage : la poignee existe (le clic « sans
+				// popover » a deselectionne le noeud : on le re-selectionne, comme un clic dessus)
+				stC.SelectSingle(rc);
+				stC.picker = DesignState::DemandePicker();
+				stC.picker.ouvert = true;
+				stC.picker.id = ctxC.GetId("##sonde.popover.crop");
+				stC.picker.genre = 1u;
+				stC.picker.noeud = rc;
+				stC.picker.index = 0;
+				stC.picker.ancre = {580.f, 880.f, 16.f, 16.f}; // en bas a droite : le popover ne recouvre pas la toile
+				image(-1.f, -1.f, false);
+				image(-1.f, -1.f, false);
+				bool surPopup = false;
+				for (int32 i = 0; i < ctxC.popupDepth; ++i)
+					if (nkgui::NkGuiRectContains(ctxC.popupRects[i], {hx, hy}))
+						surPopup = true;
+				const int32 profondeur = ctxC.popupDepth;
+				image(hx, hy, false);
+				image(hx, hy, true);
+				int32 imagesEnCrop = 0;
+				char etat[160];
+				etat[0] = 0;
+				for (int32 k = 1; k <= 4; ++k) {
+					image(hx + 10.f * (float32)k, hy, true);
+					if (toileC.EnRecadrage())
+						++imagesEnCrop;
+					if (k == 2)
+						snprintf(etat, sizeof(etat), "[image 2 : selected=%d sel=%u popupDepth=%d picker.ouvert=%d modeForme=%d]", stC.selected, stC.sel.Count(),
+								 ctxC.popupDepth, stC.picker.ouvert ? 1 : 0, stC.modeForme.noeud);
+				}
+				image(hx + 40.f, hy, false);
+				image(-1.f, -1.f, false);
+				const NkRemplissage &fa = stC.doc.nodes[(uint32)rc].fills[0];
+				int32 diagN = 0;
+				float32 diagDx = 0.f, diagW = 0.f;
+				toileC.DiagCrop(diagN, diagDx, diagW);
+				const float32 attW = rs.w / (entierW + 40.f), attX = (rs.x - entierX) / (entierW + 40.f);
+				const bool cropChange = fa.cropW > attW - 0.003f && fa.cropW < attW + 0.003f && fa.cropX > attX - 0.003f && fa.cropX < attX + 0.003f
+										&& fa.cropY == 0.25f && fa.cropH == 0.5f; // l'axe qui ne bouge pas garde ses valeurs EXACTES
+				const NkUINode &na = stC.doc.nodes[(uint32)rc];
+				const bool noeudIntact = na.posX == 100.f && na.posY == 100.f && na.width.value == 200.f && na.height.value == 100.f;
+				// le peintre : l'image emise avec les uv du nouveau crop
+				float32 u0 = 9.f, u1 = -9.f;
+				{
+					NkPaintRect sfc{0.f, 0.f, 600.f, 900.f};
+					NkRecordingPaint rec;
+					RenderDocument(rec, stC.doc, sfc);
+					for (uint32 i = 0; i < (uint32)rec.cmds.Size(); ++i) {
+						const NkPaintCmd &c = rec.cmds[i];
+						if (c.op != NkPaintOp::Image)
+							continue;
+						for (uint32 k = 0; k + 1 < (uint32)c.uv.Size(); k += 2u) {
+							if (c.uv[k] < u0) u0 = c.uv[k];
+							if (c.uv[k] > u1) u1 = c.uv[k];
+						}
+					}
+				}
+				const bool peintreSuit = u0 > fa.cropX - 0.003f && u0 < fa.cropX + 0.003f && (u1 - u0) > fa.cropW - 0.003f && (u1 - u0) < fa.cropW + 0.003f;
+				if (ctxC.popupDepth > 0)
+					ctxC.ClosePopup();
+				stC.picker = DesignState::DemandePicker();
+				image(-1.f, -1.f, false);
+				snprintf(det, sizeof(det), "sans popover : rien=%d ; popover ouvert (profondeur %d, la poignee sous le popup=%d), poignee droite de l'image entiere (%.0f,%.0f) tiree de +40 : %d images en recadrage %s (geste calcule %d fois, dernier dx %.1f, L calcule %.3f), crop X %.3f (attendu %.3f) L %.3f (attendu %.3f), Y %.2f H %.2f ; noeud intact=%d ; peintre u0 %.3f u1-u0 %.3f",
+						 sansPopover ? 1 : 0, profondeur, surPopup ? 1 : 0, hx, hy, imagesEnCrop, etat, diagN, diagDx, diagW, fa.cropX, attX, fa.cropW, attW, fa.cropY, fa.cropH, noeudIntact ? 1 : 0, u0, u1 - u0);
+				check("80. LE CROP SUR LA TOILE : sans popover la poignee n'existe pas ; le popover image ouvert, la poignee droite de "
+					  "l'image entiere tiree de +40 px change `crop=` (L plus petit, X suit), le noeud ne bouge pas, et le peintre emet "
+					  "l'image avec les uv du nouveau crop",
+					  sansPopover && imagesEnCrop >= 3 && cropChange && noeudIntact && peintreSuit, det);
+			}
+		}
 		snprintf(tail, sizeof(tail), "\n=== RESULTAT : %d / %d ===\n", pass, total);
 		rep.Append(tail);
 

@@ -940,6 +940,65 @@ namespace nkuidesign {
 			}
 			return -1;
 		}
+		/// LE REMPLISSAGE IMAGE RECADRE (cadrage « crop ») qui porte les poignees de
+		/// crop sur la toile (05/09) : le dernier visible, -1 sinon.
+		inline nkentseu::int32 NkRemplissageImageCropToile(const NkUINode &n) {
+			for (nkentseu::uint32 i = (nkentseu::uint32)n.fills.Size(); i > 0; --i) {
+				const NkRemplissage &f = n.fills[i - 1];
+				if (!f.visible || !f.genre.Data() || !NkComponentDecl::StrEq(f.genre.Data(), "image"))
+					continue;
+				if (!f.cadrage.Data() || !NkComponentDecl::StrEq(f.cadrage.Data(), "crop"))
+					continue;
+				return (nkentseu::int32)(i - 1);
+			}
+			return -1;
+		}
+		/// L'IMAGE ENTIERE AUTOUR DE LA FENETRE : le rect `r` montre la portion
+		/// [cropX, cropX + cropW] x [cropY, cropY + cropH] de l'image ; l'image entiere
+		/// est donc le cadre `out`, plus grand, dont `r` est la fenetre.
+		inline void NkGCadreImageEntiere(const NkPaintRect &r, const NkRemplissage &f, NkPaintRect &out) {
+			const nkentseu::float32 w = f.cropW > 0.001f ? f.cropW : 1.f, h = f.cropH > 0.001f ? f.cropH : 1.f;
+			out.w = r.w / w;
+			out.h = r.h / h;
+			out.x = r.x - f.cropX * out.w;
+			out.y = r.y - f.cropY * out.h;
+		}
+		/// Les huit poignees du cadre : 0..3 les coins (HG, HD, BD, BG), 4..7 les milieux
+		/// (H, D, B, G) -- `xy` recoit seize flottants.
+		inline void NkPoigneesCrop(const NkPaintRect &e, nkentseu::float32 *xy) {
+			const nkentseu::float32 x0 = e.x, x1 = e.x + e.w, y0 = e.y, y1 = e.y + e.h;
+			const nkentseu::float32 xm = e.x + e.w * 0.5f, ym = e.y + e.h * 0.5f;
+			const nkentseu::float32 p[16] = {x0, y0, x1, y0, x1, y1, x0, y1, xm, y0, x1, ym, xm, y1, x0, ym};
+			for (nkentseu::uint32 i = 0; i < 16u; ++i)
+				xy[i] = p[i];
+		}
+		/// Les bits d'aretes d'une poignee de crop, comme ceux des poignees de forme :
+		/// 1 = gauche, 2 = droite, 4 = haut, 8 = bas.
+		inline nkentseu::uint8 NkPoigneeCropBits(nkentseu::int32 k) {
+			static const nkentseu::uint8 b[8] = {1u | 4u, 2u | 4u, 2u | 8u, 1u | 8u, 4u, 2u, 8u, 1u};
+			return (k >= 0 && k < 8) ? b[k] : 0u;
+		}
+		/// LA DECISION : la poignee de crop la plus proche du pointeur a moins de `tol`,
+		/// -1 sinon ; `d2` recoit le carre de sa distance (pour l'arbitrage avec les
+		/// poignees de forme : la plus proche gagne).
+		inline nkentseu::int32 NkPointageCrop(const NkPaintRect &e, nkentseu::float32 mx, nkentseu::float32 my,
+											  nkentseu::float32 tol, nkentseu::float32 *d2) {
+			nkentseu::float32 p[16];
+			NkPoigneesCrop(e, p);
+			nkentseu::int32 best = -1;
+			nkentseu::float32 bd = tol * tol;
+			for (nkentseu::int32 k = 0; k < 8; ++k) {
+				const nkentseu::float32 dx = mx - p[k * 2], dy = my - p[k * 2 + 1];
+				const nkentseu::float32 q = dx * dx + dy * dy;
+				if (q <= bd) {
+					bd = q;
+					best = k;
+				}
+			}
+			if (d2)
+				*d2 = best >= 0 ? bd : 1e30f;
+			return best;
+		}
 		/// LE NOMBRE DE BANDES SUIT LA TAILLE DESSINEE : 24 bandes suffisent pour
 		/// une pastille, pas pour un fond de 800 px. Une bande par 2 px, bornee.
 		inline nkentseu::int32 NkBandesDegrade(nkentseu::float32 etendue) {
