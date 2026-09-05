@@ -9,6 +9,7 @@
 #include "NkSPHStoreGPU.h"
 #include "NkSPHSolver.h"
 #include "NkVFXSystem.h"
+#include "NkForceField.h"
 #include "NKRHI/Core/NkGraphicsApi.h"
 #include "NKSL/Compiler/NkSLCompiler.h"
 #include "NKSL/ShaderConvert/NkShaderConvert.h"
@@ -50,6 +51,7 @@ namespace nkentseu {
     float size; uint color; uint pad0; uint pad1;
 } p;
 @binding(set=0, binding=13) uniform Sort { uint j; uint k; uint which; uint n; } q;
+@binding(set=0, binding=15) uniform Field { vec4 f0; vec4 f1; vec4 f2; } wf;
 layout(local_size_x = 256) in;
 
 float kW(float r) {
@@ -546,7 +548,8 @@ void main() {
         if (pi4.w > 0.5 && pi4.w < 1.5) {
             vec4 t4 = T.t[i];
             float dt = p.hm.w;
-            V.v[i] = vec4(t4.x + p.grav.x * dt, t4.y + p.grav.y * dt, t4.z + p.grav.z * dt, 0.0);
+            vec3 a = vec3(p.grav.x, p.grav.y, p.grav.z) + nkForceField(vec3(pi4.x, pi4.y, pi4.z));
+            V.v[i] = vec4(t4.x + a.x * dt, t4.y + a.y * dt, t4.z + a.z * dt, 0.0);
         }
     }
 }
@@ -690,6 +693,7 @@ void main() {
 
 		bool NkSPHStoreGPU::CompileKernel(int which, const char *name, const char *body) {
 			NkString src(kSPHCommon);
+			src.Append(NkForceFieldNkSL());
 			src.Append(body);
 			NkSLCompiler slc;
 			NkSLCompileResult gl = slc.Compile(src, NkSLStage::NK_COMPUTE, NkSLTarget::NK_GLSL_VULKAN);
@@ -873,8 +877,13 @@ void main() {
 				mBirths = device->CreateBuffer(bb);
 				mUbo = device->CreateBuffer(NkBufferDesc::Uniform(sizeof(Params)));
 				mSortUbo = device->CreateBuffer(NkBufferDesc::Uniform(sizeof(SortParams)));
+				mFieldUbo = device->CreateBuffer(NkBufferDesc::Uniform(48));
+				{
+					NkVec4f fw[3] = {{0.f, 0.f, 0.f, 0.f}, {0.f, 0.f, 0.f, 0.f}, {0.f, 0.f, 0.f, 0.f}};
+					device->WriteBuffer(mFieldUbo, fw, 48);
+				}
 			}
-			NkBufferHandle *all[] = {&mX, &mV, &mKV, &mGKV, &mFSE, &mGSE, &mFL, &mT, &mRed, &mInstances, &mBirths, &mUbo, &mSortUbo, &mNB};
+			NkBufferHandle *all[] = {&mX, &mV, &mKV, &mGKV, &mFSE, &mGSE, &mFL, &mT, &mRed, &mInstances, &mBirths, &mUbo, &mSortUbo, &mNB, &mFieldUbo};
 			for (NkBufferHandle *b : all)
 				if (!b->IsValid()) {
 					mFail = "un tampon de stockage n'a pas pu etre cree";
@@ -888,6 +897,7 @@ void main() {
 			ld.Add(12, NkDescriptorType::NK_UNIFORM_BUFFER, NkShaderStage::NK_COMPUTE);
 			ld.Add(13, NkDescriptorType::NK_UNIFORM_BUFFER, NkShaderStage::NK_COMPUTE);
 			ld.Add(14, NkDescriptorType::NK_STORAGE_BUFFER, NkShaderStage::NK_COMPUTE);
+			ld.Add(15, NkDescriptorType::NK_UNIFORM_BUFFER, NkShaderStage::NK_COMPUTE);
 			mLayout = mDevice->CreateDescriptorSetLayout(ld);
 			static const char *names[K_COUNT] = {"sph_birth", "sph_key", "sph_sort", "sph_clear", "sph_cell", "sph_dens", "sph_kappa",
 												 "sph_correct", "sph_warm", "sph_storewarm", "sph_nonp", "sph_apply", "sph_reduce",
@@ -914,6 +924,7 @@ void main() {
 			}
 			mDevice->BindUniformBuffer(mSet, 12, mUbo);
 			mDevice->BindUniformBuffer(mSet, 13, mSortUbo);
+			mDevice->BindUniformBuffer(mSet, 15, mFieldUbo);
 			{
 				NkDescriptorWrite w{};
 				w.set = mSet;
@@ -950,7 +961,7 @@ void main() {
 					device->DestroyCommandBuffer(mCmd);
 				if (mSet.IsValid())
 					device->FreeDescriptorSet(mSet);
-				NkBufferHandle *all[] = {&mX, &mV, &mKV, &mGKV, &mFSE, &mGSE, &mFL, &mT, &mRed, &mInstances, &mBirths, &mUbo, &mSortUbo, &mNB};
+				NkBufferHandle *all[] = {&mX, &mV, &mKV, &mGKV, &mFSE, &mGSE, &mFL, &mT, &mRed, &mInstances, &mBirths, &mUbo, &mSortUbo, &mNB, &mFieldUbo};
 				for (NkBufferHandle *b : all)
 					if (b->IsValid()) {
 						device->DestroyBuffer(*b);
@@ -1171,9 +1182,14 @@ void main() {
 		void NkSPHStoreGPU::Step(NkICommandBuffer *cmd, const NkEmitterDesc &desc, float32 dt,
 								 NkParticleStepStats &stats) {
 			(void)cmd;
-			(void)desc;
 			const int64 t0 = ::nkentseu::NkChrono::Now().nanoseconds;
 			const NkSPHParams &pr = mOwner->params;
+			mTime += dt;
+			{
+				NkVec4f fw[3];
+				NkPackForceField(desc.field, mTime, fw[0], fw[1], fw[2]);
+				mDevice->WriteBuffer(mFieldUbo, fw, 48);
+			}
 			// horloge des vies : les mortes rendent leur emplacement et sont dites au GPU
 			for (uint32 i = 0; i < mCapacity; ++i) {
 				if (!mAlive[i])

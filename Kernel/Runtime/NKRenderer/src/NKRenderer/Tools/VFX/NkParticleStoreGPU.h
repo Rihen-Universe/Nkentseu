@@ -74,6 +74,8 @@ namespace nkentseu {
 				NkBufferHandle mBirths;		// GpuBirth x capacité
 				NkBufferHandle mInstances;	// NkParticleInstance x capacité, STORAGE | VERTEX : le dessin le lit tel quel
 				NkBufferHandle mParamsBirth, mParamsSim;
+				NkBufferHandle mFieldUbo; // le vent (3 x vec4), écrit à chaque image
+				float32 mTime = 0.f;
 				::nkentseu::NkShaderHandle mShader; // celui du RHI -- renderer::NkShaderHandle est un AUTRE type (piege dit dans CLAUDE.md)
 				NkPipelineHandle mPipe;
 				NkDescSetHandle mLayout, mSetBirth, mSetSim;

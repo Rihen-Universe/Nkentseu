@@ -26,6 +26,7 @@
 // le clamp de boîte n'est plus qu'un filet.
 // =============================================================================
 #include "NkParticleStore.h"
+#include "NkForceField.h"
 
 namespace nkentseu {
 	namespace renderer {
@@ -177,6 +178,8 @@ namespace nkentseu {
 				NkVec3f mBoundMin = {0, 0, 0}, mBoundMax = {0, 0, 0};
 				float32 mBoundH = 0.f;
 				float32 mLastVmax = 0.f; // pour la CFL du pas suivant
+				NkForceField mField;	 // le vent de l'émetteur (copié dans Apply), ajouté à la gravité
+				float32 mTime = 0.f;
 				NkSPHStats mStats;
 		};
 
