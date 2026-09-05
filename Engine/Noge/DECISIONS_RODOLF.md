@@ -2043,6 +2043,132 @@ recalculé), résidu relu une itération sur deux, tri des seules particules qui
 — **rien n'existe** dans le code (un seul `windStrength` de matériau, un shader) ; la capacité mensongère du
 device software (`computeShaders = true` sans API) — à corriger dans NKRHI par l'agent qui y touchera.
 
+### 🧵 05/09 (03h30) — LE TISSU : XPBD dans NKPhysics (`NkCloth`), sept témoins verts, mutation rouge, courbe (rouge dit), image — `8f577adc` + commit ci-dessous
+
+*Rodolf (05/09, 01h) : « est-ce que les tissus, la fumée, le feu, les océans sont déjà traités ? » — non. Le tissu est la
+famille 3 de `ROADMAP_PRODUITS.md` §6 ; ceci est le lot du 05/09, dans l'arbre `Nkentseu-tissu` (branche `feat/noge-tissu`
+depuis `feat/noge-inventaire`).*
+
+**Mesuré avant d'écrire, rien supposé.** `NkClothSim`, `NkClothSystem`, `NkHairSim`, `NkSoftBody` existent dans Noge
+(`Engine/Noge/src/Noge/Physics/NkPhysicsMesh.h`, `Systems/NkPhysicsSystems.h`) : ce sont des **déclarations sans un seul
+corps** — `grep -c "NkClothSystem::" NkPhysicsSystems.cpp` = 0, zéro appelant, des poignées GPU `nk_uint64` jamais
+remplies (le `ROADMAP.md` de Noge les classe « spec seule, compute shaders, Phase C »). Aucun `NkPBD*`/`NkXPBD*` ; la
+« contrainte de distance » de NKPhysics est un **joint entre corps rigides** (`CreateDistanceJoint`), pas une contrainte de
+particules ; la grille du SPH est une méthode **privée** de `NkSPHSolver` soudée à `NkSPHParams` (boîte fixe, cellule = h)
+et à ses tampons de noyau, dans NKRenderer ; `NkIParticleStore` est l'état d'un **émetteur** (naissances/morts, pile
+d'emplacements, tampon d'instances du quad, `NkIDevice`, `NkEmitterDesc`) ; `physics::NkRagdoll` fournit des corps
+(sphère/capsule) dans un monde ; `NkTransformShape` (forme monde depuis la forme de repos) était `static` dans
+`NkPhysicsWorld.cpp`, invisible du dehors.
+
+**Où il vit, et pourquoi** : **NKPhysics** (`Kernel/Runtime/NKPhysics/src/NKPhysics/NkCloth.h/.cpp`, `NkSpatialHash.h`),
+namespace `physics`. Bibliothèque de simulation pure, zéro STL, formes de NKCollision pour les collisions, les corps du
+ragdoll dans le même module (`AddCollidersFromWorld(monde, masque de couche)` prend les formes MONDE des corps par la
+**même** `NkTransformShape` que la synchronisation du monde — remontée dans `NkRigidBody.h` pour ça), suite
+`NKPhysics_Tests` déjà rouverte. Pas dans NKRenderer à côté du SPH : un tissu est un **maillage** à topologie fixe qui se
+dessine comme un maillage, pas un émetteur. Le composant ECS `NkClothSim` de Noge est l'endroit où ce solveur se branchera
+(nommé, non fait : c'est de l'intégration Noge, pas de la physique).
+
+**Modèle (cité dans le code)** : PBD (Müller, Heidelberger, Hennix, Ratcliff 2007) avec la raideur XPBD (Macklin, Müller,
+Chentanez 2016, éq. 17-18 : `alpha~ = alpha / h²`, `dlambda = (-C - alpha~ lambda) / (w_a + w_b + alpha~)`), sous-pas de
+Macklin et al. 2019. Particules (pos, prev, vel, masse inverse — 0 = épinglée) + contraintes de distance **structurelles**,
+**cisaillement** (deux diagonales par quad), **flexion** ; collisions sphère / capsule / plan / boîte alignée par projection
+à l'épaisseur ; auto-collision par hachage spatial ; vitesses `(x - x_prev)/h`, amortissement `1 - damping h`.
+
+**Choix, dits** :
+- **Flexion = distance entre sommets opposés** (deux arêtes d'écart, Provot 1995), pas l'angle dièdre de Müller 2007 §4.3 :
+  même projection que les autres contraintes (un seul code, une seule formule XPBD), pas de singularité à plat (le gradient
+  du dièdre s'annule quand les deux triangles sont coplanaires — la position de repos d'une nappe), coût d'une arête. Perdu :
+  la flexion vraie sur un maillage triangulé quelconque — nommé.
+- **Stockage = colonnes SoA propres**, pas `NkIParticleStore` : celui-ci est l'état d'un émetteur dans NKRenderer, que
+  NKPhysics ne voit pas ; le réutiliser aurait tiré le tissu dans le système d'effets ou le renderer dans la physique. Même
+  forme (une colonne par attribut, pointeurs bruts pris une fois par pas).
+- **Grille = `NkSpatialHash` propre** (Teschner et al. 2003 : cellule hachée par les trois grands premiers, table 2N, tri par
+  comptage — le MÊME schéma que `BuildNeighbors` du SPH, seule l'adresse est hachée). Pourquoi pas celle du SPH : privée,
+  dans NKRenderer, boîte fixe ; une nappe n'a pas de boîte fixe et 1 m³ à cellules de 3 mm = 32 M de cellules denses. Le
+  jour où le SPH veut une boîte mobile, c'est celle-ci qu'il prend.
+- **Vent = `math::NkIForceField`** (`Kernel/Foundation/NKMath/src/NKMath/NkIForceField.h`, **cherry-pick `ebf6c348`** du
+  chantier Noge → `b36df7f3` ici : la seule couche que NKRenderer et NKPhysics voient tous les deux), `Force(position,
+  temps)` en **newtons** par particule, champ uniforme de test, projection sur la normale optionnelle (`forceOnNormal`, une
+  voile). ⚠️ **Écart d'unité** avec le `NkForceField` du VFX (`96f227ad`), qui s'ajoute à la gravité comme une
+  **accélération** sur des particules sans masse : à trancher à la fusion (adaptateur d'un côté, masse unitaire de l'autre).
+- **Frottement EN POSITION** (Macklin et al. 2014, §6.1 éq. 23 : le glissement tangentiel du sous-pas est annulé s'il est
+  < mu d, sinon réduit de mu d), sur les contacts ET les auto-contacts (glissement relatif). Mesuré avant, en vitesse
+  (`v_t *= 1 - mu`) : la nappe posée sur la sphère glissait de 3 cm/s et tombait à t = 4 s — un frottement en vitesse ne
+  produit pas d'adhérence.
+- **lambda remis à zéro à chaque sous-pas** (XPBD 2016 §3.3). Le démarrage à chaud (lambda du sous-pas précédent appliqué
+  une fois avant d'itérer, comme le kappa du DFSPH) a été essayé et **retiré** : échelle 1,0 et 0,9 → NaN, 0,7 → explosion
+  (vmax 52 m/s), 0,5 → stable sans converger. La correction de position du sous-pas précédent est déjà dans la vitesse :
+  elle compte deux fois.
+- **32 sous-pas x 4 itérations** par défaut, mesuré (table dans `NkCloth.h`) : à 4 x 4, n_it passes de Gauss-Seidel ne
+  propagent pas la charge le long d'une colonne de 31 maillons (diffusif, O(k²)) — (a) à 21,8 % d'étirement, (d) à 55 %
+  d'écart **sur un solveur juste mais non convergé** ; ce sont les sous-pas qui convergent (16 x 4 : 1,45 % / 1,1 % ;
+  32 x 4 : 0,43 % / 0,26 % ; 4 x 64 : 1,5 % / 0,02 %).
+- **Liste des paires d'auto-collision** relue à chaque itération, reconstruite quand la dérive cumulée `2 vmax h` atteint la
+  marge (rayon de recherche 4r = contact 2r + marge 2r) : au repos une traversée par pas, en chute une tous les quelques
+  sous-pas. Mesuré : la traversée des 27 cellules à chaque itération coûtait 50 ms sur 61 à 32 x 32 ; une liste par pas
+  avec marge `2 vmax dt` coûtait 0,9-3,4 s à 128 x 128 (rayon 84 mm pour 7,9 mm d'espacement : 350 voisines).
+
+**Témoins (§6.4), scènes fixées AVANT l'image — `tests/test_cloth.cpp`, appelé par le `main` de `test_physics.cpp`,
+`jenga test --config Release --project NKPhysics_Tests` : 61 + 22 = 83 passes, 0 échec.** Nappe 1 m x 1 m, 32 x 32,
+0,2 kg, dt = 1/60, 32 x 4 :
+
+| témoin | mesure | critère | verdict |
+|---|---|---|---|
+| (a) drapé au repos, deux coins hauts épinglés, 5 s | étirement max **0,43 %**, moyen 0,018 % ; vmax 0,0003 m/s ; E = 0,9798 J constante à 1e-4 près | < 1 % ; < 0,01 m/s ; non croissante | ✅ |
+| (f) conservation | 1024 particules, 0,2000 kg, à chaque scène | constants | ✅ |
+| (b) nappe lâchée sur une sphère R = 0,3 | pénétration max des centres **0,000 mm** ; 14,9 % des particules à la surface ; centre y = 0,3044 pour 0,3050 | < 1 mm ; ≥ 10 % ; ± 5 mm | ✅ |
+| (c) nappe pliée en deux sur un plan (2r = 25,8 mm) | écart des pans **63,3 mm** ; dmin non voisines 25,8 mm ; **auto-collision coupée : −1,2 mm** | ≥ 20,6 mm ; ≥ 23,2 mm ; contre-épreuve rouge | ✅ |
+| (d) **raideur indépendante du pas** (rangée haute épinglée, alpha 0,05 m/N) | élongation moyenne **0,1284 % à dt, 0,1280 % à dt/2 — écart 0,26 %** ; PBD pur (`xpbd = false`) : 0,0040 / 0,0010 %, écart 75 % | ≤ 5 % ; contre-épreuve rouge | ✅ |
+| (e) vent uniforme F = m g tan 30° par particule, rangée haute épinglée, 8 s | angle **30,07°** ; vmax 0,013 m/s | 30° ± 3° | ✅ |
+| (g) une capsule cinématique du monde porte la nappe (`AddCollidersFromWorld`) | pénétration 0,000 mm, filtre de couche (1 puis 3 formes), 0 forme ignorée | | ✅ |
+
+**Mutation SOURCE** (`dl = -C / wsum` dans `SolveDistances`, `grep -c` = 1, binaire reconstruit) : **(d) rougit** (0,0040 /
+0,0010 %, et l'élongation n'est plus mesurable) — et (c) aussi. Restaurée **depuis une copie** (`cmp` identique, `grep -c`
+= 0), suite verte.
+
+**Trois rouges payés par les scènes, dits dans les sources** : le vent soufflait **dans le plan** de la nappe (1,17° au
+lieu de 30 : une nappe XY ne se cisaille pas, elle bascule autour de sa rangée si le vent est selon z) ; compliance 0,002
+m/N **négligeable** devant 1/m = 5 120 kg⁻¹ (`alpha~/w` = 1 % : XPBD et PBD donnaient les mêmes chiffres, 0,45 / 0,15 %) ;
+charnière du pli **comprimée** (2r + 2 mm < espacement : elle poussait le pan du dessus hors du pan du dessous).
+
+**Courbe (Release, OpenGL, `renderdemo --demo=2 NK_CLOTH_PROBE=1 NK_CLOTH_N=…`, pas fixe 1/60, moyenne des 60 premières
+images = la chute comprise, 32 x 4, `NkChrono` autour de `Step`, Ilyana sur le GPU — le tissu est CPU) :**
+
+| nappe | ms / image avec auto-collision | sans | rapport à 32² (avec) | listes de paires / image |
+|---|---|---|---|---|
+| 32 x 32 (1 024) | **13,3-14,8** | 11,4-16,2 | 1 | 1 |
+| 128 x 128 (16 384) | **338-358** | 162-166 | 23-27x pour 16x de particules | 3-8 |
+| 256 x 256 (65 536) | **1 093-1 317** | 665 | **74-99x pour 64x** | 11 |
+
+🔴 **Le critère « 256² ≤ 64 x le coût de 32² » est ROUGE : 74-99x.** Le solveur seul est sous-linéaire (665 / 11,4-16,2 =
+41-58x pour 64x) ; c'est l'auto-collision qui dépasse, et la cause est mesurée dans la colonne de droite : le nombre de
+reconstructions de la liste par image n'est pas indépendant de l'échelle — la marge vaut 2r, et r = 0,4 x espacement
+divise par 8 de 32² à 256², donc à vitesse égale la liste se reconstruit 8x plus souvent (11 par image contre 1). Chaque
+construction est O(N) (~0,7 µs par particule), mais leur nombre est O(v / r). Leviers nommés : marge découplée de r (par
+exemple 4 espacements, la liste grossit peu sur une nappe plate), mise à jour incrémentale des seules particules qui ont
+changé de cellule, et surtout le GPU. Et le coût absolu — **1,1-1,3 s par image à 256²** — dit la même chose que le
+DFSPH : 128 passes de contraintes par image sur le CPU, c'est le prix des témoins ; les leviers de convergence (Jacobi +
+Chebyshev, coloriage de graphe, attaches à longue portée pour les épingles — Kim, Chentanez, Müller 2012) sont ceux qui
+rendraient 8 x 4 suffisant.
+
+**Image** : `Captures/noge_tissu_drape_2026-09-05.png` (494 688 o, allowlist du `.gitignore`, ligne dans
+`Captures/LISEZMOI.md`) — `NK_CLOTH_N=64 NK_CAPTURE=150`, nappe 64 x 64 de 2,4 m (orange Rihen, maillage dynamique par
+`NkMeshSystem::UpdateVertices`, 7 938 triangles) drapée sur une sphère R = 0,8 m (pétrole Rihen) **en l'air**, vent 0,4 m g
+projeté sur la normale (le pan de droite se soulève), auto-collision active ; 42-60 ms par pas. Ma fenêtre seule
+(`NK_CAPTURE` = relecture de la cible finale, aucune capture d'écran), premier plan lu avant (le VS Code de Rodolf),
+`NKIlyana.exe` (PID 29432) présente avant et après chaque course, jamais touchée. Deux rouges payés pour l'image : au sol,
+la scène était **cachée dans le cube central** de la démo (deux captures vides, « dessin soumis » imprimé) ; à 1 m / 0,35 m
+elle tenait dans un vingtième du cadre.
+
+**Nommé, non fait** : brancher `NkClothSim` (Noge, ECS) sur `NkCloth` — et décider ce que deviennent ses poignées GPU
+déclarées ; **cheveux = tissu 1D** (chaîne de particules, mêmes contraintes de distance + flexion, `NkHairSim` déclaré sans
+corps) + rendu de brins + attache au crâne par `NkSkeletonDef` ; **herbe** = instanciation + vent + shader (rien à
+simuler) ; **GPU** (noyaux NkSL, Jacobi par coloriage, comme `NkSPHStoreGPU`) ; flexion dièdre ; boîte orientée et formes
+concaves comme colliders (comptées `collidersIgnored`) ; frottement dont la limite mu d dépend du sous-pas (à 16 x 4 le
+pli glissait, à 32 x 4 non) ; **normale du plan non tournée** dans `NkTransformShape` (passe par `default`, mesuré en la
+déplaçant — un corps-plan tourné garde sa normale de repos) ; unité du vent (N contre accélération) à trancher ; le puits
+console de NKLogger muet à travers un tuyau en Release (les témoins impriment sur stderr, dit dans le fichier).
+
 ### 🔩 04/09 (nuit) — JENGA 2.6 : ce qui est appliqué, ce qui est mesuré en retour
 
 - **`-static` — le défaut était chez nous** : `config/toolchain.jenga:55` (bloc Windows natif) promettait
