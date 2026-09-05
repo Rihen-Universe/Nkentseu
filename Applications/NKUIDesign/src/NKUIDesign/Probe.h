@@ -8842,6 +8842,214 @@ namespace nkuidesign {
 					  decl >= 0 && inst >= 0 && ligneInst >= 0 && marqueeInstance && enfants == 3u && surcharge && vu && lignes == 4u, det);
 			}
 		}
+		// ── 79. LA POIGNEE D'UN GROUPE, SUR LE DOCUMENT DE RODOLF : ses six groupes (enveloppes
+		//    le 03/09) -> la poignee s'arme, l'echelle change, un enfant texte grandit a l'ecran ;
+		//    et un groupe fait a la main SANS taille fixe s'arme aussi (sa boite englobante).
+		{
+			static nkgui::NkGuiContext ctxG;
+			char det[900];
+			if (!ctxG.Init(600, 900)) {
+				check("79. la poignee d'un groupe", false, "Init a refuse");
+			} else {
+				static DesignState stG;
+				NkString contenu;
+				FILE *fp = fopen("nkuidesign_document.nkuidoc", "rb");
+				if (fp) {
+					fseek(fp, 0, SEEK_END);
+					const long taille = ftell(fp);
+					fseek(fp, 0, SEEK_SET);
+					if (taille > 0) {
+						char *buf = new char[(size_t)taille + 1];
+						const size_t lu = fread(buf, 1, (size_t)taille, fp);
+						buf[lu] = 0;
+						contenu = NkString(buf);
+						delete[] buf;
+					}
+					fclose(fp);
+				}
+				stG.doc.NewDocument("Toile", NkAuthor::Humain);
+				const bool charge = !contenu.Empty() && stG.doc.Load(contenu.Data());
+				if (charge)
+					(void)NkEnvelopperGraphiques(stG.doc, nullptr);
+				stG.Recompute(NkPaintRect{0.f, 0.f, 600.f, 900.f});
+				static PreviewPanel toileG(&stG);
+				NkEditorFrameContext ec;
+				ec.ui = &ctxG;
+				ec.dt = 0.016f;
+				auto image = [&](float32 mx, float32 my, bool bas, bool maj) {
+					ctxG.input.mousePos = {mx, my};
+					ctxG.input.mouseDown[0] = bas;
+					ctxG.input.shiftDown = maj;
+					ctxG.BeginFrame(0.016f);
+					ctxG.BeginLayout({0.f, 0.f, 600.f, 900.f});
+					toileG.OnUI(ec);
+					ctxG.EndFrame();
+				};
+				auto largeurEcran = [&](int32 noeud) -> float32 {
+					NkLayoutResult scr;
+					stG.ProjectToScreen(scr);
+					if (!scr.Has(noeud))
+						return 0.f;
+					const NkPaintRect r = scr.At(noeud);
+					float32 c[8] = {r.x, r.y, r.x + r.w, r.y, r.x + r.w, r.y + r.h, r.x, r.y + r.h};
+					NkMatContour(NkMatEffective(stG.doc, scr, noeud), c, 4u);
+					float32 x0 = c[0], x1 = c[0];
+					for (uint32 i = 1; i < 4u; ++i) {
+						if (c[i * 2] < x0) x0 = c[i * 2];
+						if (c[i * 2] > x1) x1 = c[i * 2];
+					}
+					return x1 - x0;
+				};
+				auto tirer = [&](int32 noeud, float32 dx, float32 dy, int32 &imagesArmees) {
+					imagesArmees = 0;
+					for (int32 k = 0; k < 3; ++k)
+						image(-1.f, -1.f, false, false);
+					NkLayoutResult scr;
+					stG.ProjectToScreen(scr);
+					if (!scr.Has(noeud))
+						return;
+					const NkPaintRect rs = scr.At(noeud);
+					float32 c[2] = {rs.x + rs.w, rs.y + rs.h};
+					NkMatContour(NkMatEffective(stG.doc, scr, noeud), c, 1u); // le coin bas-droit, a l'ecran
+					image(c[0], c[1], false, false);
+					image(c[0], c[1], true, false);
+					for (int32 k = 1; k <= 4; ++k) {
+						image(c[0] + dx * (float32)k / 4.f, c[1] + dy * (float32)k / 4.f, true, true);
+						if (toileG.EnRedimensionnement())
+							++imagesArmees;
+					}
+					image(c[0] + dx, c[1] + dy, false, true);
+					image(-1.f, -1.f, false, false);
+				};
+				auto texteSous = [&](int32 g) -> int32 {
+					// le premier texte descendant (profondeur 2 au plus)
+					const NkVector<int32> &ch = stG.doc.nodes[(uint32)g].children;
+					for (uint32 i = 0; i < (uint32)ch.Size(); ++i) {
+						if (NkComponentDecl::StrEq(stG.doc.nodes[(uint32)ch[i]].shape.Data(), "text"))
+							return ch[i];
+						const NkVector<int32> &pch = stG.doc.nodes[(uint32)ch[i]].children;
+						for (uint32 j = 0; j < (uint32)pch.Size(); ++j)
+							if (NkComponentDecl::StrEq(stG.doc.nodes[(uint32)pch[j]].shape.Data(), "text"))
+								return pch[j];
+					}
+					return -1;
+				};
+				static const char *const kLibs[6] = {"Bouton_Connexion", "Panel_Nav", "Carte_Actifs", "Carte_Revenu", "Carte_Attrition", "Graphique"};
+				uint32 trouves = 0u, fixes = 0u, armes = 0u, agrandis = 0u, textesGrandis = 0u, textesVus = 0u;
+				char resume[520];
+				resume[0] = 0;
+				size_t pos = 0;
+				for (uint32 l = 0; l < 6u && charge; ++l) {
+					int32 g = -1;
+					for (uint32 i = 1; i < (uint32)stG.doc.nodes.Size() && g < 0; ++i)
+						if (!stG.doc.nodes[i].children.Empty() && NkComponentDecl::StrEq(stG.doc.nodes[i].label.Data(), kLibs[l]))
+							g = (int32)i;
+					if (g < 0) {
+						pos += (size_t)snprintf(resume + pos, sizeof(resume) - pos, "%s absent ; ", kLibs[l]);
+						continue;
+					}
+					++trouves;
+					const NkUINode &gn = stG.doc.nodes[(uint32)g];
+					const bool fixe = gn.width.mode == NkSizeMode::Fixed && gn.height.mode == NkSizeMode::Fixed;
+					if (fixe)
+						++fixes;
+					const int32 t = texteSous(g);
+					const float32 wT0 = t >= 0 ? largeurEcran(t) : 0.f;
+					stG.SelectSingle(g);
+					int32 armees = 0;
+					tirer(g, 30.f, 30.f, armees);
+					const float32 ech = stG.doc.nodes[(uint32)g].echelleX;
+					const float32 wT1 = t >= 0 ? largeurEcran(t) : 0.f;
+					if (armees > 0)
+						++armes;
+					if (ech > 1.02f)
+						++agrandis;
+					if (t >= 0) {
+						++textesVus;
+						if (wT1 > wT0 * 1.02f)
+							++textesGrandis;
+					}
+					pos += (size_t)snprintf(resume + pos, sizeof(resume) - pos, "%s fixe=%d arme=%d ech=%.2f texte %.0f->%.0f ; ", kLibs[l], fixe ? 1 : 0,
+											armees > 0 ? 1 : 0, ech, wT0, wT1);
+					if (pos >= sizeof(resume) - 1)
+						break;
+				}
+				// un groupe fait a la main, SANS taille fixe : la poignee s'arme sur sa boite
+				int32 pg = stG.doc.AddChild(0, "", NkAuthor::Humain);
+				stG.doc.nodes[(uint32)pg].shape = NkString("frame");
+				stG.doc.nodes[(uint32)pg].layout.kind = NkLayoutKind::Free;
+				stG.doc.nodes[(uint32)pg].width.mode = NkSizeMode::Fixed;
+				stG.doc.nodes[(uint32)pg].width.value = 400.f;
+				stG.doc.nodes[(uint32)pg].height.mode = NkSizeMode::Fixed;
+				stG.doc.nodes[(uint32)pg].height.value = 300.f;
+				bool autoArme = false;
+				float32 autoEch = 1.f;
+				bool autoBoite = false, mainFixe = false, mainArme = false;
+				float32 autoW = 0.f, autoH = 0.f, mainEch = 1.f;
+				if (pg >= 0) {
+					// a. un groupe ecrit SANS taille (n'existe que par le fichier) : sa boite est mesuree
+					const int32 ga = stG.doc.AddChild(pg, "", NkAuthor::Humain);
+					stG.doc.nodes[(uint32)ga].genre = NkString("simple");
+					stG.doc.nodes[(uint32)ga].posX = 20.f;
+					stG.doc.nodes[(uint32)ga].posY = 20.f;
+					for (uint32 k = 0; k < 2u; ++k) {
+						const int32 r = stG.doc.AddChild(ga, "", NkAuthor::Humain);
+						NkUINode &n = stG.doc.nodes[(uint32)r];
+						n.shape = NkString("rect");
+						n.posX = 0.f;
+						n.posY = 50.f * (float32)k;
+						n.width.mode = NkSizeMode::Fixed;
+						n.width.value = 80.f;
+						n.height.mode = NkSizeMode::Fixed;
+						n.height.value = 40.f;
+					}
+					stG.Recompute(NkPaintRect{0.f, 0.f, 600.f, 900.f});
+					stG.SelectSingle(ga);
+					autoBoite = stG.layout.Has(ga);
+					if (autoBoite) {
+						autoW = stG.layout.At(ga).w;
+						autoH = stG.layout.At(ga).h;
+					}
+					int32 armees = 0;
+					tirer(ga, 30.f, 30.f, armees);
+					autoArme = armees > 0;
+					autoEch = stG.doc.nodes[(uint32)ga].echelleX;
+					// b. un groupe FAIT A LA MAIN (deux rectangles, Grouper) : ce que Rodolf fait
+					int32 r2[2];
+					for (uint32 k = 0; k < 2u; ++k) {
+						r2[k] = stG.doc.AddChild(pg, "", NkAuthor::Humain);
+						NkUINode &n = stG.doc.nodes[(uint32)r2[k]];
+						n.shape = NkString("rect");
+						n.posX = 200.f;
+						n.posY = 150.f + 50.f * (float32)k;
+						n.width.mode = NkSizeMode::Fixed;
+						n.width.value = 80.f;
+						n.height.mode = NkSizeMode::Fixed;
+						n.height.value = 40.f;
+					}
+					stG.Recompute(NkPaintRect{0.f, 0.f, 600.f, 900.f});
+					stG.SelectSingle(r2[0]);
+					stG.SelectToggle(r2[1]);
+					if (stG.GrouperSelection()) {
+						const int32 gm = stG.selected;
+						stG.Recompute(NkPaintRect{0.f, 0.f, 600.f, 900.f});
+						mainFixe = stG.doc.nodes[(uint32)gm].width.mode == NkSizeMode::Fixed && stG.doc.nodes[(uint32)gm].height.mode == NkSizeMode::Fixed;
+						int32 armees2 = 0;
+						tirer(gm, 30.f, 30.f, armees2);
+						mainArme = armees2 > 0;
+						mainEch = stG.doc.nodes[(uint32)gm].echelleX;
+					}
+				}
+				snprintf(det, sizeof(det), "document charge=%d ; %u groupes trouves, %u Fixed x Fixed, %u poignees armees, %u agrandis, textes grandis %u / %u -- %s| groupe ecrit sans taille (fichier seulement) : boite=%d %.0f x %.0f, arme=%d, echelle %.2f (mesure : pas de boite, rien a armer) | groupe fait a la main (Grouper) : Fixed x Fixed=%d, arme=%d, echelle %.2f",
+						 charge ? 1 : 0, trouves, fixes, armes, agrandis, textesGrandis, textesVus, resume, autoBoite ? 1 : 0, autoW, autoH, autoArme ? 1 : 0, autoEch, mainFixe ? 1 : 0, mainArme ? 1 : 0, mainEch);
+				check("79. LA POIGNEE D'UN GROUPE SUR LE DOCUMENT DE RODOLF : ses six groupes s'arment par la poignee, l'echelle "
+					  "change, un enfant texte grandit a l'ecran ; un groupe fait a la main (Grouper) est Fixed x Fixed = sa boite et "
+					  "s'arme de meme ; un groupe ecrit sans taille n'a pas de boite (0 x 0, mesure) -- rien a armer, dit",
+					  charge && trouves == 6u && armes == 6u && agrandis == 6u && textesVus > 0u && textesGrandis == textesVus && mainFixe && mainArme && mainEch > 1.02f
+						  && !autoArme && autoW == 0.f,
+					  det);
+			}
+		}
 		snprintf(tail, sizeof(tail), "\n=== RESULTAT : %d / %d ===\n", pass, total);
 		rep.Append(tail);
 

@@ -6346,6 +6346,14 @@ namespace nkuidesign {
 						//    oppose ne bouge pas, comme dans tout outil de dessin.
 						//    Un noeud AGENCE garde l'ancien geste (droite/bas via
 						//    NkResizeByDrag) : sa position est un resultat.
+						// ── LA POIGNEE D'UN GROUPE (mesure du 05/09, sonde 79) : la taille d'un
+						//    groupe EST sa boite, ecrite Fixed x Fixed a la creation -- par
+						//    « Grouper » (`GrouperSelection`) comme par l'enveloppement du 03/09.
+						//    Les six groupes de Rodolf s'arment donc ici, et l'echelle par
+						//    nature (§15.13) descend aux enfants, texte compris. Un groupe
+						//    ecrit SANS taille (par le fichier seulement) n'a pas de boite
+						//    (le layout lui donne 0 x 0) : rien a armer, et aucun geste n'en
+						//    fabrique. La condition reste ce qu'elle est, pour cette raison.
 						if (pose && (nearRight || nearBottom || nearLeft || nearTop)
 							&& hn.width.mode == NkSizeMode::Fixed
 							&& hn.height.mode == NkSizeMode::Fixed) {
