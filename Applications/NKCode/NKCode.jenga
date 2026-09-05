@@ -14,21 +14,6 @@ import shutil
 import subprocess
 
 
-def _norm(p):
-    return p.replace("\\", "/") if p else p
-
-
-def _pkg_exists(pkg_name):
-    if not shutil.which("pkg-config"):
-        return False
-    try:
-        return subprocess.call(["pkg-config", "--exists", pkg_name],
-                               stdout=subprocess.DEVNULL,
-                               stderr=subprocess.DEVNULL) == 0
-    except Exception:
-        return False
-
-
 # Embarquement Jenga in-process (Phase 12 ROADMAP.md) : CPython embeddable
 # vendorise dans Externals/Libs/PythonEmbed (voir NOTICE_NKENTSEU.md la-bas).
 # sdk/ = fichiers de DEV (Python.h, python312.lib), jamais distribues avec
@@ -39,8 +24,8 @@ def _pkg_exists(pkg_name):
 ## __file__ est RELATIF et le loader Jenga a deja fait chdir() dans le
 ## dossier de ce fichier au moment de l'exec (verifie empiriquement) ->
 ## os.path.abspath(__file__) double le chemin. On part du cwd directement.
-_HERE           = _norm(os.getcwd())
-_REPO_ROOT      = _norm(os.path.abspath(os.path.join(_HERE, "..", "..")))
+_HERE           = NormPath(os.getcwd())
+_REPO_ROOT      = NormPath(os.path.abspath(os.path.join(_HERE, "..", "..")))
 _PYEMBED_DIR    = _REPO_ROOT + "/Externals/Libs/PythonEmbed"
 _PYEMBED_INCLUDE = _PYEMBED_DIR + "/sdk/include"
 _PYEMBED_LIBDIR  = _PYEMBED_DIR + "/sdk/libs"
@@ -120,10 +105,10 @@ def _version_jenga_installee():
 
 def _jenga_depuis_wheel():
     import glob, zipfile, shutil
-    racines = [_norm(os.getenv("NKCODE_JENGA_SRC", ""))] + [
-        _norm(os.path.abspath(os.path.join(_REPO_ROOT, *([".."] * n) + ["MacShared", "Projets", "Jenga"])))
+    racines = [NormPath(os.getenv("NKCODE_JENGA_SRC", ""))] + [
+        NormPath(os.path.abspath(os.path.join(_REPO_ROOT, *([".."] * n) + ["MacShared", "Projets", "Jenga"])))
         for n in (2, 3, 4)
-    ] + [_norm(os.path.abspath(os.path.join(_REPO_ROOT, "..", "Jenga")))]
+    ] + [NormPath(os.path.abspath(os.path.join(_REPO_ROOT, "..", "Jenga")))]
     for r in racines:
         if not r or not os.path.isdir(r):
             continue
@@ -134,7 +119,7 @@ def _jenga_depuis_wheel():
                       key=_version_du_wheel, reverse=True)
         if not whls:
             continue
-        stage = _norm(os.path.join(_REPO_ROOT, "Build", "_jenga-embed"))
+        stage = NormPath(os.path.join(_REPO_ROOT, "Build", "_jenga-embed"))
         cible = os.path.join(stage, "Jenga")
         # Re-extrait a chaque evaluation : un wheel plus recent doit gagner,
         # sinon on embarquerait silencieusement une version perimee.
@@ -205,17 +190,6 @@ else:
 # l'avait pas, et l'exe repartait avec libstdc++-6.dll en import direct.
 _IS_MINGW = "mingw" in TC_WINDOWS.lower()
 
-_VULKAN_SDK     = _norm(os.getenv("VULKAN_SDK", ""))
-_VULKAN_INCLUDE = _norm(os.path.join(_VULKAN_SDK, "Include")) if _VULKAN_SDK else ""
-_VULKAN_LIB     = _norm(os.path.join(_VULKAN_SDK, "Lib")) if _VULKAN_SDK else ""
-_VULKAN_OPT     = os.getenv("NK_ENABLE_VULKAN", "auto").strip().lower()
-if _VULKAN_OPT in ("0", "false", "off", "no"):
-    _WANT_VULKAN = False
-elif _VULKAN_OPT in ("1", "true", "on", "yes"):
-    _WANT_VULKAN = True
-else:
-    _WANT_VULKAN = bool(_VULKAN_INCLUDE) or _pkg_exists("vulkan")
-
 
 with project("NKCode"):
     windowedapp()
@@ -277,7 +251,7 @@ with project("NKCode"):
         # cassait toute compilation Linux. Il est pose dans le filtre
         # « platforms:windows » plus bas, avec le define NKCODE_EMBED_PYTHON.
         extra_includes=["src", "src/NKCode", "%{NKGlad.location}/include", "%{pybind11.location}/include"]
-                       + ([_VULKAN_INCLUDE] if _VULKAN_INCLUDE else []),
+                       + ([VULKAN_INCLUDE] if VULKAN_INCLUDE else []),
     )
 
     objdir("%{wks.location}/Build/Obj/%{cfg.buildcfg}-%{cfg.system}/%{prj.name}")
@@ -299,8 +273,8 @@ with project("NKCode"):
         # toujours present.
         defines(["WIN32_LEAN_AND_MEAN", "_UNICODE", "UNICODE", "NKCODE_EMBED_PYTHON=1"])
         includedirs([_PYEMBED_INCLUDE])
-        if _VULKAN_LIB:
-            libdirs([_VULKAN_LIB])
+        if VULKAN_LIB:
+            libdirs([VULKAN_LIB])
         libdirs([_PYEMBED_LIBDIR])
         _WIN_LINKS = [
             "user32", "gdi32", "opengl32", "dwmapi", "shell32", "comdlg32",
@@ -310,7 +284,7 @@ with project("NKCode"):
             "winmm", "avrt",  # NKAudio : backend WASAPI (lecteur audio)
             _PYEMBED_LIBNAME,  # Jenga in-process (Phase 12) : voir NkEmbeddedJenga.h
         ]
-        if _WANT_VULKAN:
+        if WANT_VULKAN:
             _WIN_LINKS.append("vulkan-1")
         links(_WIN_LINKS)
 
@@ -355,7 +329,7 @@ with project("NKCode"):
         _LINUX_LINKS = ["pthread", "X11", "Xext", "Xrandr", "GL", "asound", "m", "util"]  # asound/m : NKAudio (ALSA)
         if _HAS_PYEMBED_LINUX:
             _LINUX_LINKS.append(_PYEMBED_LINUX_NAME)
-        if _WANT_VULKAN:
+        if WANT_VULKAN:
             _LINUX_LINKS.append("vulkan")
         links(_LINUX_LINKS)
 
@@ -391,7 +365,7 @@ with project("NKCode"):
                             "asound", "m", "util"]
         if _HAS_PYEMBED_LINUX:
             _LINUX_XCB_LINKS.append(_PYEMBED_LINUX_NAME)
-        if _WANT_VULKAN:
+        if WANT_VULKAN:
             _LINUX_XCB_LINKS.append("vulkan")
         links(_LINUX_XCB_LINKS)
         ldflags(["-fuse-ld=lld"])
@@ -432,7 +406,7 @@ with project("NKCode"):
         _LINUX_WL_LINKS = list(WAYLAND_LINKS) + ["asound", "m", "util"]  # asound/m : NKAudio (ALSA)
         if _HAS_PYEMBED_LINUX:
             _LINUX_WL_LINKS.append(_PYEMBED_LINUX_NAME)
-        if _WANT_VULKAN:
+        if WANT_VULKAN:
             _LINUX_WL_LINKS.append("vulkan")
         links(_LINUX_WL_LINKS)
 
@@ -498,7 +472,7 @@ with project("NKCode"):
         windowedapp()
         usetoolchain("android-ndk")
         _NKCODE_ANDROID_LINKS = ["android", "log", "EGL", "GLESv3", "dl"]
-        if _WANT_VULKAN:
+        if WANT_VULKAN:
             _NKCODE_ANDROID_LINKS.append("vulkan")
         links(_NKCODE_ANDROID_LINKS)
         androidapplicationid("com.rihen.nkentseu.nkcode")

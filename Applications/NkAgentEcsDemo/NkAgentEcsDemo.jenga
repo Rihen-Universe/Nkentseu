@@ -16,14 +16,6 @@ from jengaconfig import *
 import os
 
 
-def _norm(p):
-    return p.replace("\\", "/") if p else p
-
-
-_VULKAN_SDK = _norm(os.getenv("VULKAN_SDK", ""))
-_VULKAN_INCLUDE = _norm(os.path.join(_VULKAN_SDK, "Include")) if _VULKAN_SDK else ""
-_VULKAN_LIB = _norm(os.path.join(_VULKAN_SDK, "Lib")) if _VULKAN_SDK else ""
-
 with project("NkAgentEcsDemo"):
     consoleapp()
     language("C++")
@@ -37,7 +29,7 @@ with project("NkAgentEcsDemo"):
          "NKECS", "NKEvent", "NKWindow", "NKMath", "NKTime", "NKLogger",
          "NKContainers", "NKMemory", "NKCore", "NKPlatform", "NKThreading"],
         extra_includes=["src", "%{Noge.location}/src"]
-                       + ([_VULKAN_INCLUDE] if _VULKAN_INCLUDE else []),
+                       + ([VULKAN_INCLUDE] if VULKAN_INCLUDE else []),
     )
 
     objdir("%{wks.location}/Build/Obj/%{cfg.buildcfg}-%{cfg.system}/%{prj.name}")
@@ -46,7 +38,7 @@ with project("NkAgentEcsDemo"):
     with filter("system:Windows && !options:windows-runtime=uwp && !system:XboxSeries && !system:XboxOne"):
         usetoolchain(TC_WINDOWS)
         defines(["WIN32_LEAN_AND_MEAN", "_UNICODE", "UNICODE"])
-        if _VULKAN_LIB:
-            libdirs([_VULKAN_LIB])
+        if VULKAN_LIB:
+            libdirs([VULKAN_LIB])
         links(["user32", "gdi32", "opengl32", "dwmapi", "shell32",
                "d3d11", "d3d12", "dxgi", "dxguid", "d3dcompiler", "uuid", "ole32"])

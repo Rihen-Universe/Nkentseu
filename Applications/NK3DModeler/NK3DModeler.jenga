@@ -18,22 +18,6 @@ from jengaconfig import *
 import os
 
 
-def _norm(p):
-    return p.replace("\\", "/") if p else p
-
-
-_VULKAN_SDK     = _norm(os.getenv("VULKAN_SDK", ""))
-_VULKAN_INCLUDE = _norm(os.path.join(_VULKAN_SDK, "Include")) if _VULKAN_SDK else ""
-_VULKAN_LIB     = _norm(os.path.join(_VULKAN_SDK, "Lib")) if _VULKAN_SDK else ""
-_VULKAN_OPT     = os.getenv("NK_ENABLE_VULKAN", "auto").strip().lower()
-if _VULKAN_OPT in ("0", "false", "off", "no"):
-    _WANT_VULKAN = False
-elif _VULKAN_OPT in ("1", "true", "on", "yes"):
-    _WANT_VULKAN = True
-else:
-    _WANT_VULKAN = bool(_VULKAN_INCLUDE)
-
-
 with project("NK3DModeler"):
     windowedapp()
     language("C++")
@@ -56,8 +40,8 @@ with project("NK3DModeler"):
         extra_includes=["src", "src/NK3DModeler", "%{wks.location}/Integrations",
                         "%{NKGlad.location}/include",
                         "%{wks.location}/Kernel/Runtime/NKGraph/src"]
-                       + ([_VULKAN_INCLUDE] if _VULKAN_INCLUDE else []),
-        extra_defines=[f"NKENTSEU_ENABLE_VULKAN_BACKEND={1 if _WANT_VULKAN else 0}"],
+                       + ([VULKAN_INCLUDE] if VULKAN_INCLUDE else []),
+        extra_defines=[f"NKENTSEU_ENABLE_VULKAN_BACKEND={1 if WANT_VULKAN else 0}"],
     )
 
     # Backend UI NKGui -> NKRHI. La vue 3D impose la regle « une fenetre = une
@@ -78,15 +62,15 @@ with project("NK3DModeler"):
         windowedapp()
         usetoolchain(TC_WINDOWS)
         defines(["WIN32_LEAN_AND_MEAN", "_UNICODE", "UNICODE"])
-        if _VULKAN_LIB:
-            libdirs([_VULKAN_LIB])
+        if VULKAN_LIB:
+            libdirs([VULKAN_LIB])
         _WIN_LINKS = [
             "user32", "gdi32", "opengl32", "dwmapi", "shell32", "comdlg32",
             "uuid", "ole32", "dinput8", "dxguid",
             "d3d11", "d3d12", "dxgi", "d3dcompiler",
             "winmm",
         ]
-        if _WANT_VULKAN:
+        if WANT_VULKAN:
             _WIN_LINKS.append("vulkan-1")
         links(_WIN_LINKS)
 

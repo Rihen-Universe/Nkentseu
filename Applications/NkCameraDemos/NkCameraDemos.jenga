@@ -18,12 +18,7 @@ from jengaconfig import *
 import os
 
 
-def _norm(path: str) -> str:
-    return path.replace("\\", "/") if path else path
-
-_VULKAN_SDK = _norm(os.getenv("VULKAN_SDK", ""))
-_VULKAN_LIB = _norm(os.path.join(_VULKAN_SDK, "Lib")) if _VULKAN_SDK else ""
-_WANT_VULKAN = bool(_VULKAN_LIB)
+WANT_VULKAN = bool(VULKAN_LIB)
 
 with project("NkCameraDemos"):
     # camera = NKCamera ; les autres = pipeline graphique standard (cf Pong.jenga).
@@ -57,8 +52,8 @@ with project("NkCameraDemos"):
             "WIN32_LEAN_AND_MEAN",
             "_UNICODE", "UNICODE",
         ])
-        if _VULKAN_LIB:
-            libdirs([_VULKAN_LIB])
+        if VULKAN_LIB:
+            libdirs([VULKAN_LIB])
         libdirs(["%{NKFont.location}/lib"])
         # NOTE: aucune lib XInput au link. NKWindow charge la DLL
         # dynamiquement (LoadLibrary fallback XInput1_4 -> XInput1_3
@@ -75,7 +70,7 @@ with project("NkCameraDemos"):
             "uuid", "ole32", "dinput8", "dxguid",
             "d3d11", "d3d12", "dxgi", "d3dcompiler",
         ]
-        if _WANT_VULKAN:
+        if WANT_VULKAN:
             _WIN_LINKS.append("vulkan-1")
         links(_WIN_LINKS)
 
