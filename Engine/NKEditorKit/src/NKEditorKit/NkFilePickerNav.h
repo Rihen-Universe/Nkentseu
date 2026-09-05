@@ -1,0 +1,605 @@
+#pragma once
+// -----------------------------------------------------------------------------
+// @File    NkFilePickerNav.h
+// @Brief   LE SELECTEUR DE FICHIERS A DEUX VOLETS — la VARIANTE « navigateur »
+//          du selecteur du kit : rail de gauche (disques, dossiers usuels,
+//          favoris, chemin courant), volet de droite en VIGNETTES, fil
+//          d'Ariane, recherche, tri, filtre d'extension, champ de nom.
+// @Author  TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
+// @License Proprietary - All Rights Reserved (see LICENSE)
+//
+// =============================================================================
+//  CE QUI A ETE MESURE AVANT D'ECRIRE UNE LIGNE (2026-09-05)
+// =============================================================================
+//  Rodolf : « Est-ce qu'on peut avoir un vrai sélecteur de fichiers, comme sur
+//  Blender ou Windows ? NKCode en a un je crois : regarde-le d'abord, et s'il
+//  est dans l'application, remonte-le dans NKEditorKit. L'ancien reste. »
+//
+//  MESURE 1 — NKCode N'A PAS DE SELECTEUR A LUI. `NKCode/Shell/Dialogs.h`
+//  declare `struct NkCodeDialogs : public NkFilePickerState` : il HERITE du
+//  selecteur du kit et n'ajoute que des usages (PK_NewFolder, PK_ExportZip,
+//  PK_ExampleCopy) et un panneau supplementaire par les crochets virtuels.
+//  Il n'y a donc RIEN a remonter : c'etait deja monte. Le dire est plus utile
+//  que de deplacer du code pour faire croire au geste demande.
+//
+//  MESURE 2 — CE QUE L'ANCIEN NE SAIT PAS FAIRE. `NkDrawFilePicker` est une
+//  COLONNE UNIQUE : l'arbre des dossiers, et les fichiers ajoutes A LA SUITE
+//  dans la meme liste defilante (`totalRows = pickerTree + pickerFiles + 1`).
+//  Pas de second volet, pas de vignette, pas de fil d'Ariane, pas de tri.
+//  C'est exactement l'ecart que Rodolf decrit.
+//
+//  MESURE 3 — LE VOLET DROIT EXISTE DEJA, ET IL EST DEJA DANS LE KIT.
+//  `NkDrawContentBrowser` (821 l.) porte le fil d'Ariane, la recherche, les
+//  puces de filtre, la bascule grille/liste, le tri, la barre d'etat, et un
+//  ARBRE de dossiers a gauche (le `tree_view` du kit, pas une copie). Ecrire
+//  ici un second navigateur aurait ete la quatrieme copie que ce composant
+//  existe justement pour supprimer. CE FICHIER N'EN ECRIT AUCUN : il pose le
+//  cadre modal, remplit le modele depuis NKFileSystem, et laisse le composant
+//  dessiner. C'est la porte « la couche du dessous d'abord ».
+//
+//  ⚠️ CE QUE LA REUTILISATION A COUTE, ET QUI EST PAYE DANS LE MEME LOT :
+//    - `NkAssetEntry::thumbnail` etait DECLAREE ET LUE NULLE PART — une entree
+//      avec vignette ne montrait NI image NI icone. Corrige dans
+//      `NkContentBrowserDraw.cpp` (`DrawThumb`), au contrat de `ImagePolygone`.
+//    - le fil d'Ariane ne portait que le LIBELLE d'une miette : deux segments
+//      homonymes (`src/nkgui/src`) la rendaient indechiffrable. Le resultat
+//      porte desormais `navigatedCrumb` (son index).
+//    - la bande « Contenu » et les boutons « Creer / Importer / Tout
+//      enregistrer » n'ont aucun sens dans un dialogue d'ouverture : deux
+//      parametres (`show_header`, `show_actions`) et un champ (`headerTitle`)
+//      les rendent silencieux. Tous les trois valent leur ancien comportement
+//      par defaut — les consommateurs existants ne bougent pas.
+//
+//  L'ANCIEN RESTE. `NkDrawFilePicker` n'est pas touche, et ses huit
+//  consommateurs non plus : ce fichier n'ajoute qu'un chemin de plus.
+//  `NkFilePickerNavState` DERIVE de `NkFilePickerState` — les modes, le
+//  confinement, le filtre d'extension, le nom d'enregistrement et surtout LE
+//  RESULTAT (`pickerConfirmed` / `pickerResultPath` / `pickerResultName`) sont
+//  les memes : une application passe de l'un a l'autre sans toucher son code de
+//  confirmation.
+//
+//  ⚠️ LE CLAVIER. Le champ de nom et le champ de chemin sont des
+//     `NkOverlayTextField` de NKGui — c'est-a-dire du VRAI clavier, pas le
+//     contournement `searchFocused` du navigateur (dont le modele n'a pas
+//     d'entree clavier). C'est aussi la raison pour laquelle ce fichier vit au
+//     niveau NKGui et non au niveau `NkComponentPaint`.
+// -----------------------------------------------------------------------------
+
+#include "NKEditorKit/NkFilePicker.h"
+#include "NKEditorKit/NkTheme.h"
+#include "NKEditorKit/Components/NkContentBrowserModel.h"
+#include "NKEditorKit/Components/NkGuiComponentPaint.h"
+
+namespace nkentseu {
+	namespace editorkit {
+
+		// ── LE STYLE ────────────────────────────────────────────────────────────
+		// Deux moities, et la separation n'est pas cosmetique : le VOLET DROIT est
+		// un composant declare, il ne connait que des ROLES de theme ; le CADRE du
+		// dialogue n'en est pas un, et reprend les couleurs de l'ancien selecteur
+		// pour que les deux se ressemblent a l'ecran.
+		struct NkFilePickerNavStyle {
+				NkFilePickerStyle cadre;	 ///< la fenetre : fond, liseres, boutons
+				NkContentBrowserStyle volet; ///< le navigateur : des roles, resolus par l'hote
+		};
+
+		// ── L'ETAT ──────────────────────────────────────────────────────────────
+		struct NkFilePickerNavState : public NkFilePickerState {
+				NkContentBrowserModel vue;	 ///< le volet droit ET son rail de gauche
+				NkString dossier;			 ///< LE dossier affiche — la source de verite
+				NkVector<NkString> cheminsCrumb; ///< le chemin COMPLET de chaque miette
+				NkVector<NkString> favoris;		 ///< poses par l'hote (chemins absolus)
+				bool relire = true;				 ///< le dossier a change : relire au prochain dessin
+
+				/// LA VIGNETTE. Le kit ne sait pas charger une image ni fabriquer une
+				/// texture : c'est l'hote qui le sait (NkUIDesign a son cache d'images).
+				/// Rend 0 quand il n'y a pas de vignette — l'icone de nature prend alors
+				/// le relais, et c'est le comportement historique.
+				nk_uint64 (*vignette)(void *user, const char *chemin) = nullptr;
+				void *vignetteUser = nullptr;
+
+				/// Le role de theme des dossiers / des fichiers, pose par l'hote (le kit
+				/// ne connait l'enumeration d'aucune application — meme regle que
+				/// `NkAssetEntry::kindRole`).
+				uint16 roleDossier = 0, roleFichier = 0;
+
+				// ── L'OUVERTURE ─────────────────────────────────────────────────
+				/// `purpose` : les memes PK_* que l'ancien selecteur. `ext` = filtre
+				/// d'extension (« .png »), vide = tout. `nomPropose` = le nom pre-rempli
+				/// en mode enregistrer.
+				void OuvrirNav(int32 purpose, const char *depart, const char *ext, const char *nomPropose,
+							   char *buf, int32 cap) {
+					OpenPickerBase(purpose, depart, buf, cap, nullptr, nullptr);
+					pickerFileExt = NkString(ext ? ext : "");
+					if (nomPropose)
+						CopyTo(pickerSaveName, nomPropose, (int32)sizeof(pickerSaveName));
+					dossier = NkString(pickerPath);
+					vue.headerTitle = NkString(PickerTitle());
+					vue.viewMode = 0; // la GRILLE par defaut : c'est ce que Rodolf a demande
+					relire = true;
+				}
+
+				/// Change de dossier. Ne descend PAS dans un chemin interdit par le
+				/// confinement : la garde est celle de l'ancien selecteur, mot pour mot.
+				void AllerA(const char *chemin) {
+					if (!chemin || !*chemin || !NkDirectory::Exists(chemin))
+						return;
+					if (!PickerAllowed(chemin))
+						return;
+					dossier = NkString(chemin);
+					CopyTo(pickerPath, chemin, (int32)sizeof(pickerPath));
+					relire = true;
+				}
+
+				// ── LE CONTENU DU DOSSIER ───────────────────────────────────────
+				static bool AvantParNom(const NkString &a, const NkString &b) {
+					const char *x = a.CStr(), *y = b.CStr();
+					for (; *x && *y; ++x, ++y) {
+						char p = *x, q = *y;
+						if (p >= 'A' && p <= 'Z')
+							p = (char)(p + 32);
+						if (q >= 'A' && q <= 'Z')
+							q = (char)(q + 32);
+						if (p != q)
+							return p < q;
+					}
+					return *y != '\0';
+				}
+
+				/// L'extension EN MAJUSCULES, sans le point (« PNG ») — le libelle de
+				/// nature du navigateur. Un dossier n'en a pas : il EST sa couleur.
+				static void ExtDe(const char *nom, char *out, usize cap) {
+					out[0] = '\0';
+					const char *pt = nullptr;
+					for (const char *p = nom; p && *p; ++p)
+						if (*p == '.')
+							pt = p;
+					if (!pt || !pt[1])
+						return;
+					usize k = 0;
+					for (const char *p = pt + 1; *p && k + 1 < cap; ++p, ++k)
+						out[k] = (*p >= 'a' && *p <= 'z') ? (char)(*p - 32) : *p;
+					out[k] = '\0';
+				}
+
+				void RelireDossier() {
+					relire = false;
+					vue.entries.Clear();
+					vue.ClearSelection();
+					vue.scroll = 0.f;
+					if (dossier.Empty() || !NkDirectory::Exists(dossier.CStr()))
+						return;
+					NkVector<NkDirectoryEntry> e = NkDirectory::GetEntries(
+						NkPath(dossier.CStr()), "*", NkSearchOption::NK_TOP_DIRECTORY_ONLY);
+					NkVector<NkString> dirs, files;
+					for (usize i = 0; i < e.Size(); ++i) {
+						const char *nm = e[i].Name.CStr();
+						if (!nm || !nm[0] || nm[0] == '.' || e[i].IsHidden)
+							continue;
+						if (e[i].IsDirectory)
+							dirs.PushBack(e[i].Name);
+						else if (pickerFileExt.Empty() || EndsWithI(nm, pickerFileExt.CStr()))
+							files.PushBack(e[i].Name);
+					}
+					// Tri par insertion : les listes d'un dossier sont courtes, et une
+					// dependance de tri de plus ne se justifierait pas ici.
+					auto trier = [&](NkVector<NkString> &v) {
+						for (uint32 i = 1; i < (uint32)v.Size(); ++i) {
+							NkString cle = v[i];
+							int32 j = (int32)i - 1;
+							while (j >= 0 && (vue.sortAsc ? AvantParNom(cle, v[(uint32)j])
+														  : AvantParNom(v[(uint32)j], cle))) {
+								v[(uint32)j + 1] = v[(uint32)j];
+								--j;
+							}
+							v[(uint32)j + 1] = cle;
+						}
+					};
+					trier(dirs);
+					trier(files);
+					// ⚠️ LES DOSSIERS D'ABORD, TOUJOURS — et meme en tri decroissant.
+					//    C'est la regle du navigateur historique, et la seule qui rende
+					//    un dossier atteignable sans defiler toute une liste d'images.
+					for (uint32 i = 0; i < (uint32)dirs.Size(); ++i) {
+						NkAssetEntry a;
+						a.name = dirs[i];
+						a.path = (NkPath(dossier.CStr()) / dirs[i].CStr()).ToString();
+						a.isFolder = true;
+						a.kindRole = roleDossier;
+						a.kindLabel = "";
+						vue.entries.PushBack(a);
+					}
+					mExts.Clear();
+					for (uint32 i = 0; i < (uint32)files.Size(); ++i) {
+						NkAssetEntry a;
+						a.name = files[i];
+						a.path = (NkPath(dossier.CStr()) / files[i].CStr()).ToString();
+						a.isFolder = false;
+						a.kindRole = roleFichier;
+						char ext[16];
+						ExtDe(files[i].CStr(), ext, sizeof(ext));
+						mExts.PushBack(NkString(ext));
+						if (vignette)
+							a.thumbnail = vignette(vignetteUser, a.path.CStr());
+						vue.entries.PushBack(a);
+					}
+					// `kindLabel` est un `const char*` : il doit pointer sur une chaine
+					// qui SURVIT a la fonction. `mExts` est ce proprietaire, et il est
+					// rempli AVANT d'etre adresse — un `PushBack` peut realloger.
+					for (uint32 i = 0; i < (uint32)mExts.Size(); ++i)
+						vue.entries[(uint32)dirs.Size() + i].kindLabel = mExts[i].CStr();
+					ConstruireFil();
+					ConstruireRail();
+				}
+
+				/// LE FIL D'ARIANE et le chemin complet de chaque miette. Les deux
+				/// listes ont la MEME longueur, et c'est ce qui rend `navigatedCrumb`
+				/// exploitable.
+				void ConstruireFil() {
+					vue.breadcrumb.Clear();
+					cheminsCrumb.Clear();
+					const char *p = dossier.CStr();
+					NkString cour;
+					NkString seg;
+					for (const char *q = p;; ++q) {
+						if (*q == '/' || *q == '\\' || *q == '\0') {
+							if (!seg.Empty()) {
+								if (cour.Empty())
+									cour = seg;
+								else {
+									cour.Append('/');
+									cour.Append(seg.CStr());
+								}
+								vue.breadcrumb.PushBack(seg);
+								cheminsCrumb.PushBack(cour);
+								seg = NkString();
+							}
+							if (*q == '\0')
+								break;
+						} else
+							seg.Append(*q);
+					}
+				}
+
+				static nk_uint64 IdDe(const char *s) { // FNV-1a : l'identite d'un noeud du rail
+					nk_uint64 h = 1469598103934665603ull;
+					for (const char *p = s; p && *p; ++p) {
+						h ^= (nk_uint64)(unsigned char)*p;
+						h *= 1099511628211ull;
+					}
+					return h ? h : 1ull;
+				}
+
+				/// LE RAIL DE GAUCHE : les disques, les dossiers usuels, les favoris,
+				/// puis LA CHAINE du dossier courant (ses ancetres) et ses sous-dossiers.
+				/// ⚠️ Il est RECONSTRUIT a chaque navigation plutot que deplie a la
+				///    demande : un rail qui ne montre pas ou l'on est ne sert a rien, et
+				///    une expansion paresseuse aurait demande un cache d'etat de plus
+				///    pour le meme resultat visible.
+				void ConstruireRail() {
+					vue.folders.nodes.Clear();
+					auto ajouter = [&](const char *chemin, const char *libelle, int32 parent) -> int32 {
+						if (!chemin || !*chemin || !NkDirectory::Exists(chemin))
+							return -1;
+						NkTreeNode n;
+						n.id = IdDe(chemin);
+						n.parent = parent;
+						n.label = NkString(libelle && *libelle ? libelle : chemin);
+						n.path = NkString(chemin);
+						n.kindRole = roleDossier;
+						vue.folders.nodes.PushBack(n);
+						return (int32)vue.folders.nodes.Size() - 1;
+					};
+					if (!pickerConfine.Empty()) {
+						NkString nm = NkPath(pickerConfine).GetFileName();
+						ajouter(pickerConfine.CStr(), nm.Empty() ? pickerConfine.CStr() : nm.CStr(), -1);
+					} else {
+						const char *home = env::GetEnvVar("USERPROFILE");
+						if (!home || !*home)
+							home = env::GetEnvVar("HOME");
+						auto usuel = [&](const char *sub) -> NkString {
+							const char *od = env::GetEnvVar("OneDrive");
+							if (od && *od) {
+								NkString p = (NkPath(od) / sub).ToString();
+								if (NkDirectory::Exists(p.CStr()))
+									return p;
+							}
+							return home ? (NkPath(home) / sub).ToString() : NkString();
+						};
+						if (home && *home)
+							ajouter(home, "Accueil", -1);
+						ajouter(usuel("Desktop").CStr(), "Bureau", -1);
+						ajouter(usuel("Documents").CStr(), "Documents", -1);
+						ajouter(usuel("Downloads").CStr(), "Téléchargements", -1);
+						ajouter(usuel("Pictures").CStr(), "Images", -1);
+						for (uint32 i = 0; i < (uint32)favoris.Size(); ++i) {
+							NkString nm = NkPath(favoris[i]).GetFileName();
+							ajouter(favoris[i].CStr(), nm.Empty() ? favoris[i].CStr() : nm.CStr(), -1);
+						}
+						// Les DISQUES (Windows). Sur les autres systemes, la racine.
+						bool unDisque = false;
+						for (char d = 'A'; d <= 'Z'; ++d) {
+							char r[8] = {d, ':', '/', 0};
+							if (NkDirectory::Exists(r)) {
+								char lib[16];
+								snprintf(lib, sizeof(lib), "%c:", d);
+								if (ajouter(r, lib, -1) >= 0)
+									unDisque = true;
+							}
+						}
+						if (!unDisque)
+							ajouter("/", "/", -1);
+					}
+					// LA CHAINE du dossier courant, sous la racine qui le contient.
+					int32 parent = -1;
+					for (uint32 i = 0; i < (uint32)vue.folders.nodes.Size(); ++i)
+						if (PathIsAncestor(vue.folders.nodes[i].path.CStr(), dossier.CStr())) {
+							parent = (int32)i;
+							break;
+						}
+					if (parent >= 0) {
+						const NkString racine = vue.folders.nodes[(uint32)parent].path;
+						for (uint32 k = 0; k < (uint32)cheminsCrumb.Size(); ++k) {
+							if (!PathIsAncestor(racine.CStr(), cheminsCrumb[k].CStr())
+								|| PathSame(racine.CStr(), cheminsCrumb[k].CStr()))
+								continue;
+							const int32 j =
+								ajouter(cheminsCrumb[k].CStr(), vue.breadcrumb[k].CStr(), parent);
+							if (j >= 0) {
+								parent = j;
+								vue.folders.SetOpen(vue.folders.nodes[(uint32)j].id, true, true);
+							}
+						}
+					}
+					// Les sous-dossiers du dossier courant, replies par defaut.
+					if (parent >= 0 && !dossier.Empty()) {
+						NkVector<NkDirectoryEntry> e = NkDirectory::GetEntries(
+							NkPath(dossier.CStr()), "*", NkSearchOption::NK_TOP_DIRECTORY_ONLY);
+						for (usize i = 0; i < e.Size(); ++i) {
+							const char *nm = e[i].Name.CStr();
+							if (!e[i].IsDirectory || !nm || !nm[0] || nm[0] == '.' || e[i].IsHidden)
+								continue;
+							ajouter((NkPath(dossier.CStr()) / e[i].Name.CStr()).ToString().CStr(), nm, parent);
+						}
+						vue.folders.active = vue.folders.nodes[(uint32)parent].id;
+					}
+				}
+
+			private:
+				NkVector<NkString> mExts; ///< proprietaire des `kindLabel` du volet droit
+		};
+
+		// ── LE RENDU ────────────────────────────────────────────────────────────
+		/// Rend VRAI tant que le selecteur est ouvert. La confirmation depose son
+		/// resultat dans `fp` (les MEMES champs que l'ancien selecteur).
+		inline bool NkDrawFilePickerNav(nkgui::NkGuiContext &ctx, NkFilePickerNavState &fp,
+										const NkFilePickerNavStyle &sty, const NkTheme &theme) {
+			using namespace nkentseu::nkgui;
+			if (!fp.pickerOpen)
+				return false;
+			const NkGuiFont *f = ctx.font;
+			if (!f || !f->Valid())
+				return true;
+			if (fp.relire)
+				fp.RelireDossier();
+
+			auto &dl = ctx.dlOverlay;
+			const float32 W = (float32)ctx.viewW, H = (float32)ctx.viewH, S = ctx.S(1.f);
+			const float32 asc = f->Ascent(), lh = f->LineHeight();
+			const NkVec2 mp = ctx.input.mousePos;
+			const bool click = ctx.input.mouseClicked[0];
+			auto hit = [&](const NkRect &r) { return NkGuiRectContains(r, mp); };
+			auto text = [&](float32 x, float32 y, const char *s, const NkColor &c) {
+				dl.AddText(f->Face(), f->TexId(), {x, y + asc}, s, c);
+			};
+			auto sbtn = [&](const NkRect &r, const char *s) -> bool {
+				const bool hov = hit(r);
+				dl.AddRectFilled(r, hov ? sty.cadre.btnHover : sty.cadre.btn, 6.f * S);
+				dl.AddRect(r, sty.cadre.border, 1.f);
+				text(r.x + (r.w - f->MeasureWidth(s)) * 0.5f, r.y + (r.h - lh) * 0.5f, s, sty.cadre.text);
+				return hov && click;
+			};
+			auto pbtn = [&](const NkRect &r, const char *s, bool en) -> bool {
+				const bool hov = en && hit(r);
+				dl.AddRectFilled(r, !en ? sty.cadre.btn : hov ? sty.cadre.confirmHover : sty.cadre.accent,
+								 6.f * S);
+				text(r.x + (r.w - f->MeasureWidth(s)) * 0.5f, r.y + (r.h - lh) * 0.5f, s,
+					 en ? sty.cadre.textStrong : sty.cadre.sub);
+				return en && hov && click;
+			};
+
+			const bool saveMode = (fp.pickerFor == NkFilePickerState::PK_SaveFile);
+			const bool dossierMode = (fp.pickerFor == NkFilePickerState::PK_PickFolder
+									  || fp.pickerFor == NkFilePickerState::PK_Open);
+			const float32 pw = 900.f * S, ph = 620.f * S;
+			const float32 px = (W - pw) * 0.5f + fp.pickerWinOffX, py = (H - ph) * 0.5f + fp.pickerWinOffY;
+
+			// ② CE DIALOGUE POSSEDE L'ENTREE — l'occlusion protege les widgets du kit,
+			//    la reserve protege le code propre de l'application (une toile qui lit
+			//    `ctx.input` sans passer par un widget). A re-armer a chaque image :
+			//    c'est ce qui la rend caduque toute seule a la fermeture.
+			ctx.PushOcclusion({0.f, 0.f, W, H}, 100);
+			NkGuiContext::NkInputLayerScope _couche(ctx, 100);
+			ctx.input.ReserverSaisie();
+			const bool premiereDeLaPile = (ctx.modalDepth == 0);
+			++ctx.modalDepth;
+			if (premiereDeLaPile)
+				dl.AddRectFilled({0.f, 0.f, W, H}, sty.cadre.backdrop);
+			dl.AddRectFilled({px, py, pw, ph}, sty.cadre.card, 10.f * S);
+			dl.AddRect({px, py, pw, ph}, sty.cadre.border, 1.5f);
+			dl.AddRectFilled({px, py, pw, 3.f * S}, sty.cadre.accent, 10.f * S);
+			text(px + 20.f * S, py + 16.f * S, fp.PickerTitle(), sty.cadre.text);
+			{ // la barre de titre deplace la fenetre
+				const NkRect titleBar = {px, py, pw - 44.f * S, 40.f * S};
+				if (click && hit(titleBar)) {
+					fp.pickerWinDrag = true;
+					fp.pickerWinDragX = mp.x - px;
+					fp.pickerWinDragY = mp.y - py;
+				}
+				if (fp.pickerWinDrag && ctx.input.mouseDown[0]) {
+					fp.pickerWinOffX = (mp.x - fp.pickerWinDragX) - (W - pw) * 0.5f;
+					fp.pickerWinOffY = (mp.y - fp.pickerWinDragY) - (H - ph) * 0.5f;
+				}
+				if (!ctx.input.mouseDown[0])
+					fp.pickerWinDrag = false;
+			}
+
+			const float32 cx = px + 20.f * S, cwid = pw - 40.f * S;
+			float32 y = py + 50.f * S;
+			bool fieldClicked = false;
+			// ── LA LIGNE DE CHEMIN : « Remonter », le chemin editable, « Aller » ──
+			{
+				const float32 hb = 30.f * S;
+				if (sbtn({cx, y, 40.f * S, hb}, "▲"))
+					fp.AllerA(NkPath(fp.dossier.CStr()).GetParent().ToString().CStr());
+				const NkRect r = {cx + 48.f * S, y, cwid - 48.f * S - 84.f * S - 8.f * S, hb};
+				if (hit(r) && click) {
+					fp.pickerEditing = true;
+					fp.pickerSaveFocus = false;
+					fieldClicked = true;
+				}
+				NkOverlayTextField(ctx, dl, f, r, fp.pickerPath, (int32)sizeof(fp.pickerPath),
+								   fp.pickerEditing);
+				if (sbtn({cx + cwid - 84.f * S, y, 84.f * S, hb}, "Aller")) {
+					fp.pickerEditing = false;
+					fp.AllerA(fp.pickerPath);
+				}
+			}
+			y += 40.f * S;
+
+			// ── LE VOLET : le navigateur de contenu du kit, tel quel ────────────
+			const float32 basH = (saveMode ? 92.f : 52.f) * S;
+			const NkRect zone = {cx, y, cwid, ph - (y - py) - basH - 16.f * S};
+			int32 aOuvrir = -1;	  // un dossier a suivre APRES le dessin
+			NkString cible;		  // le chemin a suivre
+			{
+				nkgui::PushOverlay(ctx); // le composant doit peindre dans la couche modale
+				NkGuiComponentPaint peintre(ctx, theme);
+				NkComponentInput in;
+				in.surfaceScale = S;
+				in.mouseX = mp.x;
+				in.mouseY = mp.y;
+				in.wheel = hit({zone.x, zone.y, zone.w, zone.h}) ? ctx.input.wheel : 0.f;
+				in.mouseDown = ctx.input.mouseDown[0];
+				in.mousePressed = click && !fieldClicked;
+				in.mouseReleased = ctx.input.mouseReleased[0];
+				in.doubleClick = ctx.input.mouseDoubleClicked[0];
+				in.rightPressed = ctx.input.mouseClicked[1];
+				in.ctrl = ctx.input.ctrlDown;
+				in.shift = ctx.input.shiftDown;
+				in.alt = ctx.input.altDown;
+				if (in.wheel != 0.f)
+					ctx.input.wheel = 0.f;
+				// Les greffes : deux evenements suffisent — suivre un dossier, choisir
+				// un fichier. Le composant SIGNALE, ce fichier decide.
+				struct Pont {
+						NkFilePickerNavState *fp;
+						NkString *cible;
+				} pont{&fp, &cible};
+				NkContentBrowserHooks h;
+				h.user = &pont;
+				h.onNavigate = [](void *u, const char *chemin) {
+					Pont *p = (Pont *)u;
+					// L'ARBRE porte un chemin complet ; LE FIL D'ARIANE porte un
+					// libelle — on le traduit par son index, jamais par son texte.
+					if (chemin && NkDirectory::Exists(chemin))
+						*p->cible = NkString(chemin);
+				};
+				const NkContentBrowserResult res =
+					NkDrawContentBrowser(peintre, in, {zone.x, zone.y, zone.w, zone.h}, fp.vue,
+										 sty.volet, h);
+				nkgui::PopOverlay(ctx);
+				if (res.navigatedCrumb >= 0
+					&& res.navigatedCrumb < (int32)fp.cheminsCrumb.Size())
+					cible = fp.cheminsCrumb[(uint32)res.navigatedCrumb];
+				if (res.activatedIndex >= 0 && res.activatedIndex < (int32)fp.vue.entries.Size())
+					aOuvrir = res.activatedIndex;
+				else if (res.selectionChanged && fp.vue.active >= 0
+						 && fp.vue.active < (int32)fp.vue.entries.Size()) {
+					const NkAssetEntry &e = fp.vue.entries[(uint32)fp.vue.active];
+					if (!e.isFolder && saveMode)
+						NkFilePickerState::CopyTo(fp.pickerSaveName, e.name.CStr(),
+												  (int32)sizeof(fp.pickerSaveName));
+				}
+			}
+			dl.AddRect(zone, sty.cadre.border, 1.f);
+
+			// ── LE BAS : le nom (mode enregistrer), puis Annuler / Confirmer ────
+			float32 by = py + ph - basH;
+			if (saveMode) {
+				text(cx, by + 6.f * S, "Nom du fichier", sty.cadre.sub);
+				const NkRect r = {cx, by + 24.f * S, cwid, 30.f * S};
+				if (hit(r) && click) {
+					fp.pickerSaveFocus = true;
+					fp.pickerEditing = false;
+					fieldClicked = true;
+				}
+				NkOverlayTextField(ctx, dl, f, r, fp.pickerSaveName, (int32)sizeof(fp.pickerSaveName),
+								   fp.pickerSaveFocus);
+				by += 62.f * S;
+			}
+			{
+				const float32 bw = 120.f * S, bh = 34.f * S;
+				const bool pret = saveMode ? (fp.pickerSaveName[0] != '\0')
+										   : (dossierMode ? !fp.dossier.Empty()
+														  : (fp.vue.active >= 0
+															 && fp.vue.active < (int32)fp.vue.entries.Size()
+															 && !fp.vue.entries[(uint32)fp.vue.active].isFolder));
+				if (sbtn({px + pw - 20.f * S - bw * 2.f - 10.f * S, by, bw, bh}, "Annuler")) {
+					fp.PickerCancel();
+					--ctx.modalDepth;
+					return false;
+				}
+				if (pbtn({px + pw - 20.f * S - bw, by, bw, bh}, fp.PickerConfirmLabel(), pret)) {
+					fp.pickerConfirmed = true;
+					fp.pickerResultFor = fp.pickerFor;
+					NkFilePickerState::CopyTo(fp.pickerResultPath, fp.dossier.CStr(),
+											  (int32)sizeof(fp.pickerResultPath));
+					if (saveMode)
+						NkFilePickerState::CopyTo(fp.pickerResultName, fp.pickerSaveName,
+												  (int32)sizeof(fp.pickerResultName));
+					else if (!dossierMode && fp.vue.active >= 0
+							 && fp.vue.active < (int32)fp.vue.entries.Size()) {
+						const NkAssetEntry &e = fp.vue.entries[(uint32)fp.vue.active];
+						NkFilePickerState::CopyTo(fp.pickerResultPath, e.path.CStr(),
+												  (int32)sizeof(fp.pickerResultPath));
+						NkFilePickerState::CopyTo(fp.pickerResultName, e.name.CStr(),
+												  (int32)sizeof(fp.pickerResultName));
+					}
+					fp.pickerOpen = false;
+					fp.pickerFor = NkFilePickerState::PK_None;
+					--ctx.modalDepth;
+					return false;
+				}
+			}
+
+			// ── LES SUITES, APRES LE DESSIN ─────────────────────────────────────
+			// ⚠️ JAMAIS PENDANT : changer `vue.entries` au milieu du dessin invaliderait
+			//    la reference que le composant tient encore.
+			if (aOuvrir >= 0) {
+				const NkAssetEntry &e = fp.vue.entries[(uint32)aOuvrir];
+				if (e.isFolder)
+					fp.AllerA(e.path.CStr());
+				else if (!saveMode) { // double-clic sur un fichier = confirmer
+					fp.pickerConfirmed = true;
+					fp.pickerResultFor = fp.pickerFor;
+					NkFilePickerState::CopyTo(fp.pickerResultPath, e.path.CStr(),
+											  (int32)sizeof(fp.pickerResultPath));
+					NkFilePickerState::CopyTo(fp.pickerResultName, e.name.CStr(),
+											  (int32)sizeof(fp.pickerResultName));
+					fp.pickerOpen = false;
+					fp.pickerFor = NkFilePickerState::PK_None;
+					--ctx.modalDepth;
+					return false;
+				} else
+					NkFilePickerState::CopyTo(fp.pickerSaveName, e.name.CStr(),
+											  (int32)sizeof(fp.pickerSaveName));
+			}
+			if (!cible.Empty())
+				fp.AllerA(cible.CStr());
+			--ctx.modalDepth;
+			return true;
+		}
+
+	} // namespace editorkit
+} // namespace nkentseu

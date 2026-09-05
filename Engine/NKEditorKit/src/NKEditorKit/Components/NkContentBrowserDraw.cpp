@@ -2,7 +2,7 @@
 // @File    NkContentBrowserDraw.cpp
 // @Brief   Le dessin du navigateur de contenu — LE MIXTE Unreal + Aetherion
 //          (Rodolf, 2026-08-30), et la preuve que la declaration est LUE.
-// @Author  Rihen
+// @Author  TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // @License Proprietary - All Rights Reserved (see LICENSE)
 //
 // =============================================================================
@@ -189,6 +189,23 @@ namespace nkentseu {
 				return inst;
 			}
 
+			// ── LA VIGNETTE EST PEINTE (2026-09-05) ────────────────────────
+			// ⚠️ MESURE AVANT CORRECTION : `NkAssetEntry::thumbnail` etait declaree,
+			//    documentee (« identifiant OPAQUE »), portee par le modele... et lue
+			//    NULLE PART. Le dessin ne peignait l'icone que si elle valait ZERO :
+			//    une entree AVEC vignette ne montrait donc RIEN -- ni image, ni icone.
+			//    C'est la neuvieme fois de ce chantier qu'un parametre declare n'est
+			//    pas honore, et le seul remede qui tienne est de le mesurer.
+			// Le contrat de `ImagePolygone` est respecte : un peintre qui ne sait pas
+			// texturer rend FAUX, et l'appelant retombe sur l'icone -- rien n'est simule.
+			bool DrawThumb(NkComponentPaint &p, const NkPaintRect &r, nk_uint64 handle) {
+				if (handle == 0 || r.w <= 0.f || r.h <= 0.f)
+					return false;
+				const float32 xy[8] = {r.x, r.y, r.x + r.w, r.y, r.x + r.w, r.y + r.h, r.x, r.y + r.h};
+				const float32 uv[8] = {0.f, 0.f, 1.f, 0.f, 1.f, 1.f, 0.f, 1.f};
+				return p.ImagePolygone(xy, uv, 4, (uint32)handle, 100.f);
+			}
+
 			/// Le pont des evenements de l'arbre embarque vers ceux du navigateur :
 			/// une selection de dossier EST une navigation.
 			struct TreeBridge {
@@ -241,6 +258,11 @@ namespace nkentseu {
 			const bool showFooter = P("show_footer") > 0.5f;
 			const bool showFilters = !minimal && P("show_filters") > 0.5f;
 			const bool showStatus = !minimal && P("show_status") > 0.5f;
+			// ② (05/09) La bande de tete et les trois boutons d'action se taisent sur
+			//    demande : un selecteur de fichiers reutilise ce dessin comme volet
+			//    droit, et n'y « cree » ni n'y « importe » rien. Defaut = 1 partout.
+			const bool showHeader = P("show_header") > 0.5f;
+			const bool showActions = P("show_actions") > 0.5f;
 			const float32 thumb = (m.thumbSize > 0.f ? m.thumbSize : P("thumb_size")) * in.surfaceScale;
 
 			const float32 pad = M("card_pad");
@@ -250,14 +272,17 @@ namespace nkentseu {
 			p.Fill(rect, s.panelBg);
 
 			// ── BANDE D'ONGLETS ─────────────────────────────────────────────────
-			const float32 headerH = M("header_h");
+			const float32 headerH = showHeader ? M("header_h") : 0.f;
 			NkPaintRect header{rect.x, rect.y, rect.w, headerH};
-			p.Fill(header, s.headerBg);
-			// ⚠️ `header.w - 2 * card_pad`, PAS `header.w` — le texte est pose a
-			//    `header.x + card_pad` ; la largeur pleine lui ferait calculer son
-			//    point de troncature sur 2 pads qu'il n'a pas (mesure 34b).
-			p.Text({header.x + pad, header.y, header.w - 2.f * pad, header.h}, "Contenu", s.text);
-			p.HLine(rect.x, rect.y + headerH, rect.w, s.border);
+			if (showHeader) {
+				p.Fill(header, s.headerBg);
+				// ⚠️ `header.w - 2 * card_pad`, PAS `header.w` — le texte est pose a
+				//    `header.x + card_pad` ; la largeur pleine lui ferait calculer son
+				//    point de troncature sur 2 pads qu'il n'a pas (mesure 34b).
+				p.Text({header.x + pad, header.y, header.w - 2.f * pad, header.h},
+					   m.headerTitle.Empty() ? "Contenu" : m.headerTitle.Data(), s.text);
+				p.HLine(rect.x, rect.y + headerH, rect.w, s.border);
+			}
 
 			// ── BARRE D'OUTILS ──────────────────────────────────────────────────
 			// Mixte : Creer / Importer / Tout enregistrer + fil d'Ariane + boite de
@@ -274,7 +299,7 @@ namespace nkentseu {
 				const float32 btnY = toolbar.y + (toolbar.h - btnH) * 0.5f;
 				float32 bx = toolbar.x + pad;
 				// Creer — le « Add » d'Unreal, au nom de l'historique.
-				{
+				if (showActions) {
 					const float32 bw = p.TextWidth("Créer") + 2.f * pad;
 					NkPaintRect r{bx, btnY, bw, btnH};
 					if (TextButton(p, in, r, "Créer", s.cardBg, s.text, s.border, 0.f) &&
@@ -283,7 +308,7 @@ namespace nkentseu {
 					bx += bw + pad * 0.5f;
 				}
 				// Importer — en ACCENT, comme le bouton d'Aetherion.
-				{
+				if (showActions) {
 					const float32 bw = p.TextWidth("Importer") + 2.f * pad;
 					NkPaintRect r{bx, btnY, bw, btnH};
 					if (TextButton(p, in, r, "Importer", s.activeMark, s.badgeText, 0, 0.f) &&
@@ -292,7 +317,7 @@ namespace nkentseu {
 					bx += bw + pad * 0.5f;
 				}
 				// Tout enregistrer — le « Save All » d'Unreal.
-				{
+				if (showActions) {
 					const float32 bw = p.TextWidth("Tout enregistrer") + 2.f * pad;
 					NkPaintRect r{bx, btnY, bw, btnH};
 					if (TextButton(p, in, r, "Tout enregistrer", s.cardBg, s.text, s.border, 0.f) &&
@@ -330,6 +355,11 @@ namespace nkentseu {
 						p.Text(cell, t, i + 1 == (uint32)m.breadcrumb.Size() ? s.text : s.textMuted);
 						if (in.mousePressed && cell.Contains(in.mouseX, in.mouseY)) {
 							res.navigated = true;
+							// ⚠️ L'INDEX, pas seulement le libelle : deux dossiers du meme
+							//    nom dans un chemin (`src/nkgui/src`) rendaient la charge
+							//    AMBIGUE -- un selecteur de fichiers ne peut pas deviner
+							//    lequel. Le libelle reste, pour ne rien casser.
+							res.navigatedCrumb = (int32)i;
 							if (hooks.onNavigate)
 								hooks.onNavigate(hooks.user, t);
 						}
@@ -656,10 +686,10 @@ namespace nkentseu {
 				if (asGrid) {
 					p.Fill(cell, s.cardBg, pad * 0.5f);
 					const float32 thumbZoneH = cell.h - footerH;
-					if (e.thumbnail == 0)
-						p.Icon({cell.x + pad, cell.y + pad, cell.w - pad * 2.f,
-								thumbZoneH - pad * 2.f},
-							   e.isFolder ? 1 : 2, e.isFolder ? s.folderTint : e.kindRole);
+					const NkPaintRect zoneVign{cell.x + pad, cell.y + pad, cell.w - pad * 2.f,
+											   thumbZoneH - pad * 2.f};
+					if (!DrawThumb(p, zoneVign, e.thumbnail))
+						p.Icon(zoneVign, e.isFolder ? 1 : 2, e.isFolder ? s.folderTint : e.kindRole);
 					// LE BADGE DE TYPE (Aetherion) : la couleur de la nature en
 					// fond, pose au bas de la zone de vignette. Pas en minimal, et
 					// pas sur un dossier — le dossier EST sa couleur.
@@ -683,8 +713,9 @@ namespace nkentseu {
 					}
 				} else {
 					p.Fill(cell, s.cardBg);
-					p.Icon({cell.x + pad, cell.y, rowH, rowH}, e.isFolder ? 1 : 2,
-						   e.isFolder ? s.folderTint : e.kindRole);
+					const NkPaintRect zoneVign{cell.x + pad, cell.y, rowH, rowH};
+					if (!DrawThumb(p, zoneVign, e.thumbnail))
+						p.Icon(zoneVign, e.isFolder ? 1 : 2, e.isFolder ? s.folderTint : e.kindRole);
 					p.Text({cell.x + pad + rowH, cell.y, cell.w * 0.6f, cell.h}, Label(e), s.text);
 					p.Text({cell.x + cell.w * 0.6f, cell.y, cell.w * 0.4f, cell.h},
 						   e.kindLabel ? e.kindLabel : "", s.textMuted);

@@ -11053,6 +11053,225 @@ namespace nkuidesign {
 				  "silence ; la selection est rendue telle quelle",
 				  assainiOk && nomsOk && enfantSuit && parObjetOk && selRendue, det);
 		}
+		// ── 97. ② LE SELECTEUR DE FICHIERS A DEUX VOLETS (05/09, apres-midi). Rodolf :
+		//    « un vrai selecteur de fichiers, comme sur Blender ou Windows ; NKCode en a un,
+		//    regarde-le d'abord, et s'il est dans l'application, remonte-le dans NKEditorKit.
+		//    L'ancien reste. »
+		//
+		//    MESURE ECRITE DANS LE DETAIL, parce qu'elle contredit la premisse : NKCode n'a
+		//    PAS de selecteur a lui (`NkCodeDialogs : public NkFilePickerState`) -- il herite
+		//    de celui du kit. Rien a remonter : c'etait deja monte. Ce qui manquait etait le
+		//    SECOND VOLET, et le kit portait deja de quoi le faire (`NkDrawContentBrowser`).
+		//    Cette sonde mesure donc les QUATRE choses que la reutilisation a exigees.
+		{
+			char det[900];
+			// 1. LA VIGNETTE EST PEINTE. Avant ce lot, `NkAssetEntry::thumbnail` etait
+			//    declaree et lue NULLE PART : le dessin ne peignait l'icone QUE si elle
+			//    valait zero -- une entree AVEC vignette ne montrait donc RIEN.
+			uint32 nImage = 0u, nIcone = 0u, imgHandle = 0u;
+			uint32 nImageSans = 0u, nIconeSans = 0u;
+			{
+				auto compter = [](const NkRecordingPaint &r, uint32 &img, uint32 &ico, uint32 &h) {
+					img = ico = 0u;
+					h = 0u;
+					for (uint32 i = 0; i < (uint32)r.cmds.Size(); ++i) {
+						if (r.cmds[i].op == NkPaintOp::Image) {
+							++img;
+							if (h == 0u)
+								h = r.cmds[i].image;
+						} else if (r.cmds[i].op == NkPaintOp::Icon)
+							++ico;
+					}
+				};
+				NkContentBrowserModel m;
+				NkAssetEntry a;
+				a.name = NkString("photo.png");
+				a.path = NkString("/photo.png");
+				a.kindLabel = "PNG";
+				a.thumbnail = 4242u; // LA poignee : on la retrouvera dans la commande
+				m.entries.PushBack(a);
+				const NkContentBrowserStyle sty = DemoStyle(nullptr);
+				NkContentBrowserHooks h0;
+				NkComponentInput in0;
+				NkRecordingPaint avec;
+				NkDrawContentBrowser(avec, in0, {0.f, 0.f, 640.f, 420.f}, m, sty, h0);
+				compter(avec, nImage, nIcone, imgHandle);
+				// LE CONTROLE NEGATIF, dans la meme course : sans vignette, l'icone revient
+				m.entries[0].thumbnail = 0u;
+				NkRecordingPaint sans;
+				uint32 bidon = 0u;
+				NkDrawContentBrowser(sans, in0, {0.f, 0.f, 640.f, 420.f}, m, sty, h0);
+				compter(sans, nImageSans, nIconeSans, bidon);
+			}
+			fflush(stdout);
+			fflush(stdout);
+			fflush(stdout);
+			const bool vignetteOk = nImage == 1u && imgHandle == 4242u && nImageSans == 0u
+									&& nIconeSans > nIcone;
+			// 2. LE VOLET SE TAIT : `show_header` / `show_actions` a 0 retirent la bande
+			//    « Contenu » et les trois boutons, et `headerTitle` renomme la bande.
+			uint32 nTexteMuet = 0u, nTexteBavard = 0u;
+			bool titreVu = false, contenuVu = false;
+			{
+				NkContentBrowserModel m;
+				m.headerTitle = NkString("Documents");
+				NkAssetEntry a;
+				a.name = NkString("x.png");
+				a.kindLabel = "PNG";
+				m.entries.PushBack(a);
+				NkContentBrowserStyle sty = DemoStyle(nullptr);
+				NkContentBrowserHooks h0;
+				NkComponentInput in0;
+				NkRecordingPaint bavard;
+				NkDrawContentBrowser(bavard, in0, {0.f, 0.f, 640.f, 420.f}, m, sty, h0);
+				for (uint32 i = 0; i < (uint32)bavard.cmds.Size(); ++i)
+					if (bavard.cmds[i].op == NkPaintOp::Text) {
+						++nTexteBavard;
+						const char *t = bavard.cmds[i].text.Data();
+						if (t && NkComponentDecl::StrEq(t, "Documents"))
+							titreVu = true;
+						if (t && NkComponentDecl::StrEq(t, "Contenu"))
+							contenuVu = true;
+					}
+				NkComponentInstance inst(NkContentBrowserDecl());
+				inst.SetParam("show_header", 0.f);
+				inst.SetParam("show_actions", 0.f);
+				sty.values = &inst;
+				NkRecordingPaint muet;
+				NkDrawContentBrowser(muet, in0, {0.f, 0.f, 640.f, 420.f}, m, sty, h0);
+				for (uint32 i = 0; i < (uint32)muet.cmds.Size(); ++i)
+					if (muet.cmds[i].op == NkPaintOp::Text)
+						++nTexteMuet;
+			}
+			fflush(stdout);
+			fflush(stdout);
+			fflush(stdout);
+			const bool muetOk = titreVu && !contenuVu && nTexteMuet + 4u <= nTexteBavard;
+			// 3. LE FIL D'ARIANE PORTE SON INDEX. Avant, `onNavigate` ne donnait que le
+			//    LIBELLE : deux segments homonymes (`src/nkgui/src`) le rendaient ambigu.
+			int32 crumbVu = -2;
+			{
+				NkContentBrowserModel m;
+				m.breadcrumb.PushBack(NkString("src"));
+				m.breadcrumb.PushBack(NkString("nkgui"));
+				m.breadcrumb.PushBack(NkString("src"));
+				const NkContentBrowserStyle sty = DemoStyle(nullptr);
+				NkContentBrowserHooks h0;
+				NkComponentInput in0;
+				NkRecordingPaint reperage;
+				NkDrawContentBrowser(reperage, in0, {0.f, 0.f, 640.f, 420.f}, m, sty, h0);
+				// la position de la TROISIEME miette se lit dans les commandes de texte
+				float32 mx = -1.f, my = -1.f;
+				uint32 vus = 0u;
+				for (uint32 i = 0; i < (uint32)reperage.cmds.Size(); ++i) {
+					const char *t = reperage.cmds[i].text.Data();
+					if (reperage.cmds[i].op == NkPaintOp::Text && t && NkComponentDecl::StrEq(t, "src")) {
+						++vus;
+						if (vus == 2u) { // la seconde « src » = la miette d'index 2
+							mx = reperage.cmds[i].x + 2.f;
+							my = reperage.cmds[i].y + reperage.cmds[i].h * 0.5f;
+						}
+					}
+				}
+				if (mx > 0.f) {
+					NkComponentInput clic;
+					clic.mouseX = mx;
+					clic.mouseY = my;
+					clic.mousePressed = true;
+					NkRecordingPaint r2;
+					const NkContentBrowserResult res =
+						NkDrawContentBrowser(r2, clic, {0.f, 0.f, 640.f, 420.f}, m, sty, h0);
+					crumbVu = res.navigatedCrumb;
+				}
+			}
+			fflush(stdout);
+			fflush(stdout);
+			fflush(stdout);
+			const bool crumbOk = crumbVu == 2;
+			// 4. LE SELECTEUR LUI-MEME, sur un VRAI dossier du disque.
+			NkDirectory::Delete("sonde_selecteur", true);
+			NkDirectory::CreateRecursive("sonde_selecteur/sous_dossier");
+			NkFile::WriteAllText("sonde_selecteur/zeta.png", "x");
+			NkFile::WriteAllText("sonde_selecteur/alpha.png", "x");
+			NkFile::WriteAllText("sonde_selecteur/note.txt", "x");
+			editorkit::NkFilePickerNavState nav;
+			char bufNav[512] = {};
+			const NkString abs = (NkPath(NkDirectory::GetCurrentDirectory()) / "sonde_selecteur").ToString();
+			nav.OuvrirNav(editorkit::NkFilePickerState::PK_SaveFile, abs.Data(), ".png", "essai.png", bufNav,
+						  (int32)sizeof(bufNav));
+			nav.RelireDossier();
+			// le dossier d'abord, puis les .png TRIES -- le .txt est filtre
+			fflush(stdout);
+			fflush(stdout);
+			fflush(stdout);
+			const uint32 nEnt = (uint32)nav.vue.entries.Size();
+			// ⚠️ LES NOMS SE COPIENT ICI, pas dans le `snprintf` du bas : la sonde descend
+			//    ensuite dans le sous-dossier, ce qui VIDE `entries`. Lire l'ancien index
+			//    apres coup faisait sauter l'assertion de `NkVector` -- le defaut etait dans
+			//    la MESURE, pas dans le code mesure, et c'est la sonde qui l'a montre.
+			char nom0[64] = "-", nom1[64] = "-", nom2[64] = "-";
+			if (nEnt > 0u)
+				snprintf(nom0, sizeof(nom0), "%s", nav.vue.entries[0].name.Data());
+			if (nEnt > 1u)
+				snprintf(nom1, sizeof(nom1), "%s", nav.vue.entries[1].name.Data());
+			if (nEnt > 2u)
+				snprintf(nom2, sizeof(nom2), "%s", nav.vue.entries[2].name.Data());
+			const bool listeOk =
+				nEnt == 3u && nav.vue.entries[0].isFolder
+				&& NkComponentDecl::StrEq(nav.vue.entries[0].name.Data(), "sous_dossier")
+				&& NkComponentDecl::StrEq(nav.vue.entries[1].name.Data(), "alpha.png")
+				&& NkComponentDecl::StrEq(nav.vue.entries[2].name.Data(), "zeta.png")
+				&& NkComponentDecl::StrEq(nav.vue.entries[2].kindLabel, "PNG");
+			// le fil d'Ariane et les chemins complets ont la MEME longueur, et la derniere
+			// miette est le dossier courant : c'est ce qui rend `navigatedCrumb` exploitable
+			const uint32 nCr = (uint32)nav.vue.breadcrumb.Size();
+			const bool filOk = nCr > 1u && nCr == (uint32)nav.cheminsCrumb.Size()
+							   && NkComponentDecl::StrEq(nav.vue.breadcrumb[nCr - 1u].Data(), "sonde_selecteur")
+							   && NkDirectory::Exists(nav.cheminsCrumb[nCr - 1u].Data());
+			// le rail porte le dossier courant, et il est ACTIF
+			bool railOk = false;
+			for (uint32 i = 0; i < (uint32)nav.vue.folders.nodes.Size() && !railOk; ++i)
+				railOk = editorkit::NkFilePickerState::PathSame(nav.vue.folders.nodes[i].path.Data(),
+																nav.dossier.Data())
+						 && nav.vue.folders.active == nav.vue.folders.nodes[i].id;
+			// ET LE CONTRAT DE CONFIRMATION EST LE MEME QUE L'ANCIEN : la preuve est que
+			// le nouvel etat SE LIT comme un `NkFilePickerState` (pas un cousin qui lui
+			// ressemble). Sans ca, chaque appelant aurait un second chemin a ecrire.
+			editorkit::NkFilePickerState &commeAvant = nav;
+			commeAvant.pickerConfirmed = true;
+			const bool memeContrat = nav.pickerConfirmed
+									 && NkComponentDecl::StrEq(nav.pickerSaveName, "essai.png")
+									 && nav.pickerFor == editorkit::NkFilePickerState::PK_SaveFile;
+			nav.pickerConfirmed = false;
+			// on descend dans le sous-dossier, puis on remonte : la relecture suit
+			const NkString sous = (NkPath(abs.Data()) / "sous_dossier").ToString();
+			nav.AllerA(sous.Data());
+			nav.RelireDossier();
+			fflush(stdout);
+			fflush(stdout);
+			fflush(stdout);
+			const bool descendu = nav.vue.entries.Empty()
+								  && (uint32)nav.vue.breadcrumb.Size() == nCr + 1u;
+			snprintf(det, sizeof(det),
+					 "MESURE : NKCode n'a pas de selecteur a lui (NkCodeDialogs herite de NkFilePickerState) ; "
+					 "vignette peinte : %u commande(s) Image (poignee %u) et %u icone(s) AVEC, %u / %u SANS -> %d ; "
+					 "volet muet : titre « Documents »=%d, « Contenu »=%d, %u textes -> %u -> %d ; miette cliquee -> "
+					 "index %d (attendu 2) -> %d ; dossier reel : %u entree(s) [%s, %s, %s] -> %d ; fil %u miettes = %u "
+					 "chemins -> %d ; rail actif=%d ; meme contrat que l'ancien=%d ; descendu=%d",
+					 nImage, imgHandle, nIcone, nImageSans, nIconeSans, vignetteOk ? 1 : 0, titreVu ? 1 : 0,
+					 contenuVu ? 1 : 0, nTexteBavard, nTexteMuet, muetOk ? 1 : 0, crumbVu, crumbOk ? 1 : 0, nEnt,
+					 nom0, nom1, nom2, listeOk ? 1 : 0, nCr,
+					 (uint32)nav.cheminsCrumb.Size(), filOk ? 1 : 0, railOk ? 1 : 0, memeContrat ? 1 : 0,
+					 descendu ? 1 : 0);
+			check("97. ② LE SELECTEUR DE FICHIERS A DEUX VOLETS : le volet droit est LE navigateur de contenu du kit (aucun "
+				  "quatrieme navigateur ecrit), et la reutilisation a paye trois dettes mesurees ici -- la VIGNETTE declaree "
+				  "n'etait peinte par personne (une entree avec vignette ne montrait ni image ni icone), le FIL D'ARIANE ne "
+				  "portait qu'un libelle ambigu, et la bande « Contenu » + les boutons Creer / Importer n'avaient aucun sens "
+				  "dans un dialogue d'ouverture ; le nouvel etat SE LIT comme l'ancien `NkFilePickerState` (meme contrat de "
+				  "confirmation), liste les dossiers d'abord, filtre par extension et suit la navigation",
+				  vignetteOk && muetOk && crumbOk && listeOk && filOk && railOk && memeContrat && descendu, det);
+			NkDirectory::Delete("sonde_selecteur", true);
+		}
 		snprintf(tail, sizeof(tail), "\n=== RESULTAT : %d / %d ===\n", pass, total);
 		rep.Append(tail);
 

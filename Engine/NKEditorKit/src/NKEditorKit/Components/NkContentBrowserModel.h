@@ -3,7 +3,7 @@
 // @File    NkContentBrowserModel.h
 // @Brief   LA DEMONSTRATION du devis : le navigateur de contenu, ecrit sous la
 //          forme proposee — modele neutre + jetons + variantes + greffes.
-// @Author  Rihen
+// @Author  TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // @License Proprietary - All Rights Reserved (see LICENSE)
 //
 // ⚠️ ETAT (2026-08-30) : DEUX CONSOMMATEURS REELS — NkUIDesign (document de
@@ -168,6 +168,15 @@ namespace nkentseu {
 				/// Texte de droite de la barre d'etat (« Sauvegarde », etc.) —
 				/// fourni par l'application, vide = rien.
 				NkString statusRight;
+
+				/// ② (2026-09-05) LE TITRE DE LA BANDE DE TETE. Vide = « Contenu », le
+				/// libelle historique — aucun consommateur existant ne bouge. Ajoute
+				/// parce que le meme composant sert desormais de VOLET DROIT a un
+				/// selecteur de fichiers (`NkFilePickerNav.h`), ou « Contenu » serait
+				/// faux : ce qu'on y voit est un DOSSIER, pas la bibliotheque d'assets.
+				/// ⚠️ Un titre est une DONNEE de l'application, pas une variante : deux
+				///    rendus identiques a un mot pres ne justifient pas deux dessins.
+				NkString headerTitle;
 
 				bool IsChosen(int32 i) const {
 					for (uint32 k = 0; k < (uint32)chosen.Size(); ++k)
@@ -339,6 +348,12 @@ namespace nkentseu {
 				bool selectionChanged = false;
 				bool navigated = false;	 ///< le fil d'Ariane ou un dossier a ete suivi
 				int32 activatedIndex = -1;
+				/// ② (2026-09-05) L'INDEX de la miette du fil d'Ariane qui a ete cliquee,
+				/// -1 si la navigation vient de l'arbre (dont la charge est un chemin
+				/// complet, donc non ambigu). Ajoute A LA FIN : `onNavigate` ne portait
+				/// que le LIBELLE de la miette, et deux segments homonymes le rendaient
+				/// indechiffrable.
+				int32 navigatedCrumb = -1;
 		};
 
 		// ── LA SIGNATURE TYPE ───────────────────────────────────────────────────
@@ -399,6 +414,14 @@ namespace nkentseu {
 				{"show_filters", "Rangée des puces de filtre", NkParamKind::Bool, 1.f, 0.f, 0.f, nullptr,
 				 0},
 				{"show_status", "Barre d'état basse", NkParamKind::Bool, 1.f, 0.f, 0.f, nullptr, 0},
+				// ② (2026-09-05) DEUX INTERRUPTEURS DE PLUS, ajoutes A LA FIN. Ils
+				// valent 1 par defaut : le rendu d'aujourd'hui ne bouge pas d'un pixel
+				// pour les consommateurs existants (NkUIDesign, NK3DModeler), et la
+				// sonde le verifie plutot que de l'affirmer.
+				{"show_header", "Bande de tête (titre du panneau)", NkParamKind::Bool, 1.f, 0.f, 0.f,
+				 nullptr, 0},
+				{"show_actions", "Boutons Créer / Importer / Tout enregistrer", NkParamKind::Bool, 1.f,
+				 0.f, 0.f, nullptr, 0},
 			};
 			static const NkTokenDecl kTokens[] = {
 				{"panel_bg", "PanelBg", "fond du panneau"},

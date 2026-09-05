@@ -49,6 +49,7 @@
 #include "NKImage/Codecs/PNG/NkPNGCodec.h"
 
 #include "Export.h"
+#include "Selecteur.h" // ② le style du selecteur a deux volets
 
 namespace nkuidesign {
 
@@ -1136,6 +1137,20 @@ namespace nkuidesign {
 		return faits;
 	}
 
+	/// ② LA VIGNETTE D'UN FICHIER pour le volet droit du selecteur. Elle passe par
+	/// LE CACHE d'images de l'application (celui des remplissages) : un dossier
+	/// reouvert ne recharge rien, et le televerseur GPU est deja branche dessus.
+	/// Rend 0 pour tout ce qui n'est pas une image -- le navigateur peint alors son
+	/// icone de nature, comportement historique, rien n'est simule.
+	inline nkentseu::nk_uint64 NkVignetteFichierExport(void *user, const char *chemin) {
+		if (!user || !NkEstUneImage(chemin))
+			return 0u;
+		DesignState &st = *static_cast<DesignState *>(user);
+		st.images.base = NkString(); // le chemin donne est ABSOLU : aucun dossier de base
+		NkCacheImages::Entree &e = st.images.Charger(chemin);
+		return e.absente ? 0u : (nkentseu::nk_uint64)e.handle;
+	}
+
 	// ── LE MENU « EXPORTER... » : le selecteur de fichier du kit, puis l'export ──
 	inline void NkOuvrirChoixExport(DesignState &st, NkExportFormat format, nkentseu::float32 echelle, bool selection,
 									bool embarquer) {
@@ -1150,10 +1165,19 @@ namespace nkuidesign {
 		o.echelle = echelle;
 		o.selection = selection;
 		o.embarquer = embarquer;
-		NkNomExportPropose(st, o, c.picker.pickerSaveName, sizeof(c.picker.pickerSaveName));
+		char nomPropose[220];
+		NkNomExportPropose(st, o, nomPropose, sizeof(nomPropose));
 		const NkString dep = st.DossierImages();
-		c.picker.OpenPickerBase(nkentseu::editorkit::NkFilePickerState::PK_SaveFile, dep.Data(), c.buf,
-								(nkentseu::int32)sizeof(c.buf), nullptr, nullptr);
+		// ② LE SELECTEUR A DEUX VOLETS (05/09). Le filtre d'extension suit le format
+		//    choisi : dans un dossier d'images, chercher son SVG parmi trois cents PNG
+		//    etait le vrai cout de la colonne unique.
+		c.picker.vignette = &NkVignetteFichierExport;
+		c.picker.vignetteUser = &st;
+		c.picker.roleDossier = NkDesignResolveRole("type_folder");
+		c.picker.roleFichier = NkDesignResolveRole("type_tex");
+		c.picker.OuvrirNav(nkentseu::editorkit::NkFilePickerState::PK_SaveFile, dep.Data(),
+						   format == NkExportFormat::PNG ? ".png" : ".svg", nomPropose, c.buf,
+						   (nkentseu::int32)sizeof(c.buf));
 	}
 
 	/// Le selecteur (modal, entree reelle), puis l'export au choix confirme : le pied
@@ -1162,8 +1186,10 @@ namespace nkuidesign {
 		using namespace nkentseu;
 		DesignState::NkChoixExport &c = st.choixExport;
 		if (c.picker.pickerOpen) {
-			static const editorkit::NkFilePickerStyle sty;
-			editorkit::NkDrawFilePicker(ctx, c.picker, sty);
+			// ② LE NOUVEAU SELECTEUR. `NkDrawFilePicker` (l'ancien) n'a pas bouge et
+			//    reste celui de « Choisir une image... » : deux chemins, aucun retire.
+			const editorkit::NkFilePickerNavStyle sty = NkStyleSelecteurNav();
+			editorkit::NkDrawFilePickerNav(ctx, c.picker, sty, st.theme);
 		}
 		if (c.picker.pickerCancelled)
 			c.picker.pickerCancelled = false;

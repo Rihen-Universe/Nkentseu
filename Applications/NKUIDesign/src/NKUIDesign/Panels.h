@@ -39,6 +39,7 @@
 // -----------------------------------------------------------------------------
 
 #include "NKEditorKit/Components/NkGuiComponentPaint.h"
+#include "NKEditorKit/NkFilePickerNav.h" // ② le selecteur a deux volets (vignettes)
 #include "NKEditorKit/NkEditorKit.h"
 #include "NKEditorKit/NkEditorCombo.h"   // la LISTE DEROULANTE du kit (pas une neuvieme)
 #include "NKEditorKit/NkEditorContextMenu.h"	// NkCtxMenu — le menu contextuel du kit (3e consommateur)
@@ -1472,7 +1473,12 @@ namespace nkuidesign {
 			/// selection, images embarquees). L'export lui-meme vit dans Export.h /
 			/// ExportSVG.h ; `NkDessinerPickerExport` dessine et conclut.
 			struct NkChoixExport {
-					nkentseu::editorkit::NkFilePickerState picker;
+					/// ② (05/09) LE SELECTEUR A DEUX VOLETS. Il DERIVE de
+					/// `NkFilePickerState` : `pickerConfirmed`, `pickerResultPath` et
+					/// `pickerResultName` sont les memes champs qu'avant -- le code de
+					/// confirmation ci-dessous n'a pas change d'une ligne. L'ancien
+					/// selecteur reste, et sert encore a « Choisir une image... ».
+					nkentseu::editorkit::NkFilePickerNavState picker;
 					int32 format = 0; ///< 0 = PNG, 1 = SVG
 					float32 echelle = 1.f;
 					bool selection = false;
