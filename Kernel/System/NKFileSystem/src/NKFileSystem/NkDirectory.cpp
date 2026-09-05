@@ -200,6 +200,100 @@ namespace nkentseu {
 		return entries.Empty();
 	}
 
+	// =============================================================================
+	//  « En contient-il au moins un ? » -- arret au premier
+	// =============================================================================
+	// Meme idiome que `GetEntries` (API LARGE sur Windows, `opendir` ailleurs), mais
+	// SANS vecteur, SANS conversion de nom et SANS metadonnees : on veut un fait, pas
+	// une liste. Sur Windows l'API large est conservee bien qu'on ne lise pas les noms
+	// en UTF-8 -- l'API ANSI peut PERDRE des entrees dont le nom sort de la page de
+	// code, et un dossier declare vide a tort est precisement le defaut a eviter.
+	NkDirectory::NkDirProbe NkDirectory::Probe(const char *path, bool directoriesOnly, bool skipHidden) {
+		if (!path || !*path) {
+			return NkDirProbe::Illisible;
+		}
+
+#ifdef _WIN32
+		const NkString searchPathU8 = NkString(path) + "\\*";
+		wchar_t wsearch[2048];
+		if (MultiByteToWideChar(CP_UTF8, 0, searchPathU8.CStr(), -1, wsearch, 2048) <= 0) {
+			return NkDirProbe::Illisible;
+		}
+		WIN32_FIND_DATAW findData;
+		HANDLE hFind = FindFirstFileW(wsearch, &findData);
+		if (hFind == INVALID_HANDLE_VALUE) {
+			// ⚠️ ACCES REFUSE N'EST PAS VIDE. C'est tout l'objet du troisieme etat.
+			return NkDirProbe::Illisible;
+		}
+
+		NkDirProbe verdict = NkDirProbe::Vide;
+		do {
+			if (findData.cFileName[0] == L'.' &&
+				(findData.cFileName[1] == L'\0' || (findData.cFileName[1] == L'.' && findData.cFileName[2] == L'\0'))) {
+				continue;
+			}
+			if (skipHidden) {
+				if (findData.cFileName[0] == L'.') {
+					continue;
+				}
+				if ((findData.dwFileAttributes & (FILE_ATTRIBUTE_HIDDEN | FILE_ATTRIBUTE_SYSTEM)) != 0) {
+					continue;
+				}
+			}
+			if (directoriesOnly && (findData.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) == 0) {
+				continue;
+			}
+			// LE PREMIER SUFFIT : on ferme et on rend. C'est la raison d'etre de cette
+			// fonction -- ne pas payer l'enumeration complete pour une reponse binaire.
+			verdict = NkDirProbe::Plein;
+			break;
+		} while (FindNextFileW(hFind, &findData));
+
+		FindClose(hFind);
+		return verdict;
+#else
+		DIR *dir = opendir(path);
+		if (!dir) {
+			return NkDirProbe::Illisible;
+		}
+
+		NkDirProbe verdict = NkDirProbe::Vide;
+		struct dirent *entry = nullptr;
+		while ((entry = readdir(dir)) != nullptr) {
+			if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0) {
+				continue;
+			}
+			if (skipHidden && entry->d_name[0] == '.') {
+				continue;
+			}
+			if (directoriesOnly) {
+				// `d_type` evite un `stat` quand le systeme de fichiers le renseigne ;
+				// sinon on paie le `stat`, mais pour UNE entree a la fois, et on s'arrete
+				// des la premiere qui compte.
+				bool isDir = false;
+#ifdef DT_DIR
+				if (entry->d_type != DT_UNKNOWN) {
+					isDir = entry->d_type == DT_DIR;
+				} else
+#endif
+				{
+					NkString full = NkString(path) + "/" + entry->d_name;
+					struct stat st;
+					isDir = stat(full.CStr(), &st) == 0 && S_ISDIR(st.st_mode);
+				}
+				if (!isDir) {
+					continue;
+				}
+			}
+			verdict = NkDirProbe::Plein;
+			break;
+		}
+
+		closedir(dir);
+		return verdict;
+#endif
+	}
+
 	bool NkDirectory::Empty(const NkPath &path) {
 		// Délégation à la version C-string
 		return Empty(path.CStr());
