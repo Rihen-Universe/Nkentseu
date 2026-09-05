@@ -36,7 +36,23 @@
 //                  4 x 64      |      1,5 %        |    0,02 %
 //                 16 x 4       |      1,45 %       |     1,1 %
 //                 16 x 8       |      0,82 %       |     0,06 %
-//                 32 x 4       |      0,43 %       |     0,26 %   <- défaut
+//                 32 x 4       |      0,43 %       |     0,26 %
+//      LOT BUDGET (05/09, 04h — Rodolf : « est-ce que ça va supporter du temps réel ? ») :
+//      la table ci-dessus a été mesurée avec bendCompliance = 0,01 m/N, soit alpha~ = 576
+//      contre 2w = 10 240 -- une flexion quasi RIGIDE (une plaque, pas un tissu), et
+//      c'est elle qui exigeait 32 sous-pas. À bendCompliance = 1 m/N (alpha~ = 57 600,
+//      la flexion cède) la même mesure donne, écart (d) dt / dt/2 :
+//        sous-pas x it | bend 0,01 | bend 1,0 || (a) max, bend 1,0
+//             8 x 1    |   52 %    |   19 %   ||   21 %
+//            16 x 1    |   27 %    |   7,0 %  ||   6,4 %
+//            32 x 1    |   11 %    |   2,9 %  ||   1,7 %
+//             8 x 2    |   40 %    |   7,4 %  ||   12 %
+//            16 x 2    |   9,6 %   |   0,64 % ||   3,4 %     <- DÉFAUT (32 passes)
+//            32 x 2    |   1,3 %   |   0,27 % ||   0,88 %
+//      Défaut 16 x 2 : (b) (c) (d) (e) (g) verts. La scène (a) (deux coins épinglés à
+//      exactement la largeur : la rangée haute est une corde tendue à sa longueur,
+//      tension infinie sans sag) reste la scène singulière et garde 32 x 2 dans son
+//      témoin, dit là-bas.
 //      Le DÉMARRAGE À CHAUD de lambda (appliqué une fois avant d'itérer, comme le kappa
 //      du DFSPH) a été essayé et RETIRÉ : échelle 1,0 et 0,9 -> NaN en moins d'une
 //      seconde, 0,7 -> explosion (vmax 52 m/s), 0,5 -> stable mais pas plus convergé
@@ -105,16 +121,22 @@ namespace nkentseu {
 				// Compliances XPBD, en m/N (0 = rigide). alpha~ = alpha / h².
 				float32 compliance = 0.f;		// arêtes structurelles
 				float32 shearCompliance = 0.f;	// diagonales (cisaillement)
-				float32 bendCompliance = 0.01f; // sommets opposés (flexion, Provot)
+				float32 bendCompliance = 1.f;	// sommets opposés (flexion, Provot) ; 1 m/N : la flexion CÈDE (table ci-dessus)
 				float32 damping = 1.f;			// 1/s : v *= max(0, 1 - damping h)
 				float32 friction = 0.2f;		// coefficient mu (statique = cinétique) des contacts, en position
 				float32 thickness = 0.005f;		// rayon d'une particule (m) : collision et auto-collision
-				// 32 x 4 : le réglage qui tient les témoins (a) et (d) (table de l'en-tête) ; 128 passes
-				// de contraintes par image. Les leviers pour moins cher sont nommés dans DECISIONS.
-				uint32 substeps = 32;
-				uint32 iterations = 4;
+				// 16 x 2 : le budget mesuré avec la flexion à 1 m/N (table de l'en-tête) ; 32 passes par image.
+				uint32 substeps = 16;
+				uint32 iterations = 2;
 				NkVec3f gravity = {0.f, -9.81f, 0.f};
 				bool selfCollision = false; // hachage spatial, paires à moins de 2 x thickness
+				// Résolution des paires à CHAQUE itération (vrai) ou une fois par sous-pas, après les
+				// itérations (faux) : mesuré dans le lot budget, dit dans DECISIONS.
+				bool selfEveryIteration = true;
+				// HORLOGE fournie par l'appelant (secondes, monotone) : quand elle est là, chaque pas
+				// remplit NkClothProfile. NKPhysics n'a pas d'horloge (pas de NKTime) : l'appelant
+				// (la sonde de la démo) prête NkChrono. Nul = pas de profil, zéro coût.
+				float64 (*clock)() = nullptr;
 				// Marge de la liste de paires = max(2 x thickness, selfMarginK x vmax x dt) (en-tête).
 				// Mesuré le 05/09 à 256 x 256 (table dans DECISIONS) ; 0 = marge 2r seule.
 				float32 selfMarginK = 0.15f;
@@ -128,6 +150,12 @@ namespace nkentseu {
 				bool xpbd = true;
 		};
 
+		// Profil du dernier pas, par phase (ms), si params.clock est fourni.
+		struct NkClothProfile {
+				float64 predict = 0, structural = 0, shear = 0, bend = 0, colliders = 0;
+				float64 selfBuild = 0, selfSolve = 0, velocities = 0, measure = 0, total = 0;
+		};
+
 		// Ce que le dernier pas a mesuré — les témoins lisent ici.
 		struct NkClothStats {
 				uint32 particles = 0, pinned = 0;
@@ -139,7 +167,7 @@ namespace nkentseu {
 				float32 kineticEnergy = 0.f;		// J
 				float32 potentialEnergy = 0.f;		// J, m g·(-x) (référence : origine)
 				float32 maxPenetration = 0.f;		// m : max(0, -(distance signée au collider)) des CENTRES
-				float32 minSelfDistance = 0.f;		// m : plus petite distance entre particules non voisines (si auto-collision)
+				float32 minSelfDistance = 0.f;		// m : plus petite distance entre particules non voisines de la liste de paires (plancher = rayon de recherche)
 				uint32 contacts = 0, selfContacts = 0; // projections faites au dernier sous-pas
 				uint32 selfPairs = 0, selfBuilds = 0;  // paires candidates ; constructions de la liste dans le pas
 				uint32 collidersIgnored = 0;		// formes d'un type non traité (dites, pas simulées)
@@ -178,6 +206,9 @@ namespace nkentseu {
 				const NkClothStats &Stats() const noexcept {
 					return mStats;
 				}
+				const NkClothProfile &Profile() const noexcept {
+					return mProfile;
+				}
 
 				// ── Lecture ──────────────────────────────────────────────────
 				uint32 ParticleCount() const noexcept {
@@ -208,7 +239,7 @@ namespace nkentseu {
 
 			private:
 				void Predict(float32 h, float32 time);
-				void SolveDistances(float32 h);
+				void SolveDistances(float32 h, uint32 c0, uint32 c1); // contraintes [c0, c1)
 				void SolveColliders();
 				void SolveSelf();
 				void UpdateVelocities(float32 h);
@@ -237,6 +268,9 @@ namespace nkentseu {
 				bool SelfPairsStale() const; // 2 max |d_i - d_moyen| >= marge
 				uint32 mGridW = 0, mGridH = 0;
 				NkClothStats mStats;
+				NkClothProfile mProfile;
+				uint32 mKindStart[4] = {0, 0, 0, 0}; // bornes des contraintes par type (groupées : BuildGrid), pour le profil
+				bool mKindsGrouped = false;
 		};
 
 	} // namespace physics
