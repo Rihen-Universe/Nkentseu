@@ -4424,6 +4424,16 @@ namespace nkuidesign {
 					&& screen.Has(mSt->modeForme.noeud)) {
 					const NkUINode &pn = mSt->doc.nodes[(uint32)mSt->modeForme.noeud];
 					const NkPaintRect rp = screen.At(mSt->modeForme.noeud);
+					// ① LE MODE ÉDITION VIT SOUS LA MATRICE DU NŒUD (Rodolf, 05/09 : « le dégradé
+					//    déborde du tracé édité » -- le remplissage est peint sous la matrice
+					//    depuis le 03/09, le contour d'édition et ses poignées ne l'étaient pas :
+					//    sur un nœud tourné de 30°, deux dessins dans deux repères). Les sommets
+					//    se calculent dans le repère DROIT du nœud (`rp`), se DESSINENT
+					//    transformés, et la souris est RAMENÉE par l'inverse -- la règle des
+					//    poignées de forme et des poignées de dégradé (`NkMatInverse`).
+					const NkMat2D mEdit = NkMatEffective(mSt->doc, screen, mSt->modeForme.noeud);
+					const NkMat2D mEditInv = NkMatInverse(mEdit);
+					auto versEcran = [&](float32 &x, float32 &y) { NkMatPoint(mEdit, x, y); };
 					float32 xy[64];
 					const uint32 nbS = NkSommetsDe(pn, rp, xy, 32);
 					const uint16 accentP = NkDesignResolveRole("accent_ui");
@@ -4442,6 +4452,7 @@ namespace nkuidesign {
 					{
 						float32 ct[256];
 						const uint32 nbC = NkContourDe(pn, rp, ct, 128);
+						NkMatContour(mEdit, ct, nbC); // le contour surligné, sous la matrice
 						for (uint32 i = 0; i + 1 <= nbC; ++i) {
 							const uint32 j = (i + 1) % nbC;
 							if (nbC < 2)
@@ -4452,8 +4463,9 @@ namespace nkuidesign {
 					}
 					const float32 hs = 9.f;
 					for (uint32 i = 0; i < nbS; ++i) {
-						const NkPaintRect ph{xy[i * 2] - hs * 0.5f, xy[i * 2 + 1] - hs * 0.5f,
-											 hs, hs};
+						float32 hxE = xy[i * 2], hyE = xy[i * 2 + 1];
+						versEcran(hxE, hyE); // la poignée, sous la matrice
+						const NkPaintRect ph{hxE - hs * 0.5f, hyE - hs * 0.5f, hs, hs};
 						// ⚠️ RONDES, ET C'EST LA MOITIÉ DU RETOUR 2 : les poignées
 						//    de redimensionnement sont des CARRÉS de 6 px. Deux
 						//    jeux de poignées carrées, au même endroit sur un
@@ -4528,9 +4540,12 @@ namespace nkuidesign {
 								if (tx == 0.f && ty == 0.f)
 									continue;
 								const float32 px = ax + tx * hxT, py = ay + ty * hyT;
-								paint.Line(ax, ay, px, py, accentP, 1.f);
+								float32 axE = ax, ayE = ay, pxE = px, pyE = py;
+								versEcran(axE, ayE);
+								versEcran(pxE, pyE); // la tangente et sa poignée, sous la matrice
+								paint.Line(axE, ayE, pxE, pyE, accentP, 1.f);
 								const float32 hp = 7.f;
-								const NkPaintRect ph{px - hp * 0.5f, py - hp * 0.5f, hp, hp};
+								const NkPaintRect ph{pxE - hp * 0.5f, pyE - hp * 0.5f, hp, hp};
 								// creuse, pour ne pas se confondre avec l'ancre
 								// pleine du sommet sélectionné qui la commande
 								paint.OutlineColor(ph, mSt->theme.Get(accentP), 0xFFFFFFFFu,
@@ -4539,8 +4554,13 @@ namespace nkuidesign {
 						}
 					}
 					// LE GESTE : prendre un sommet, le traîner, le lâcher.
-					const NkVec2 ms = ctx.input.mousePos;
-					const bool dansToile = ctx.popupDepth == 0 && NkGuiRectContains(area, ms);
+					// la souris, RAMENÉE dans le repère droit du nœud : tout ce qui suit (pointage
+					// des sommets, des tangentes, des côtés, glisser) compare à `xy`, qui y vit ;
+					// « dans la toile » se juge sur la souris réelle
+					const NkVec2 msEcran = ctx.input.mousePos;
+					NkVec2 ms = msEcran;
+					NkMatPoint(mEditInv, ms.x, ms.y);
+					const bool dansToile = ctx.popupDepth == 0 && NkGuiRectContains(area, msEcran);
 					// ── LE DOUBLE-CLIC SUR UN SOMMET L'ARRONDIT ──────────────
 					// Retour de Rodolf, 01/09 : *« si on double-clique sur une
 					// poignée sombre on peut l'arrondir. »*

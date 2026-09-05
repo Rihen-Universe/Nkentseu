@@ -8322,6 +8322,124 @@ namespace nkuidesign {
 				  "dedans, exterieure tout dehors ; l'arrondi d'un rect voyage avec ses sommets a la materialisation",
 				  rondOk && jointuresOk && concaveOk && positionsOk && arrondiOk, det);
 		}
+		// ── 74. LE MODE EDITION SOUS LA MATRICE (Rodolf, 05/09 : « le degrade deborde du trace
+		//    edite » sur un rect tourne de 30,9°) : sur la VRAIE toile (NkGuiComponentPaint),
+		//    le contour d'edition et les poignees se dessinent dans le meme repere que le
+		//    remplissage -- leurs etendues coincident ; et un clic sur la position ECRAN d'un
+		//    sommet du rect tourne le prend (la souris est ramenee par l'inverse).
+		{
+			static nkgui::NkGuiContext ctxE;
+			char det[520];
+			if (!ctxE.Init(600, 900)) {
+				check("74. le mode edition sous la matrice", false, "Init a refuse");
+			} else {
+				static DesignState stE;
+				stE.doc.NewDocument("Toile", NkAuthor::Humain);
+				const int32 pg = stE.doc.AddChild(0, "", NkAuthor::Humain);
+				stE.doc.nodes[(uint32)pg].shape = NkString("frame");
+				stE.doc.nodes[(uint32)pg].layout.kind = NkLayoutKind::Free;
+				stE.doc.nodes[(uint32)pg].width.mode = NkSizeMode::Fixed;
+				stE.doc.nodes[(uint32)pg].width.value = 400.f;
+				stE.doc.nodes[(uint32)pg].height.mode = NkSizeMode::Fixed;
+				stE.doc.nodes[(uint32)pg].height.value = 300.f;
+				const int32 rc = stE.doc.AddChild(pg, "", NkAuthor::Humain);
+				{
+					NkUINode &n = stE.doc.nodes[(uint32)rc];
+					n.shape = NkString("rect");
+					n.posX = 100.f;
+					n.posY = 80.f;
+					n.width.mode = NkSizeMode::Fixed;
+					n.width.value = 160.f;
+					n.height.mode = NkSizeMode::Fixed;
+					n.height.value = 80.f;
+					n.rotation = 30.f;
+					NkRemplissage f;
+					f.couleur = NkString("#123456");
+					n.fills.PushBack(f);
+					NkMaterialiserSommets(n);
+					n.sommets[1].x = 0.4f; // le coin haut-droit coupe : un trace a coin coupe, tourne
+				}
+				stE.Recompute(NkPaintRect{0.f, 0.f, 600.f, 900.f});
+				stE.SelectSingle(rc);
+				stE.modeForme.noeud = rc; // le mode edition de forme
+				static PreviewPanel toileE(&stE);
+				NkEditorFrameContext ec;
+				ec.ui = &ctxE;
+				ec.dt = 0.016f;
+				auto image = [&](float32 mx, float32 my, bool bas) {
+					ctxE.input.mousePos = {mx, my};
+					ctxE.input.mouseDown[0] = bas;
+					ctxE.BeginFrame(0.016f);
+					ctxE.BeginLayout({0.f, 0.f, 600.f, 900.f});
+					toileE.OnUI(ec);
+					ctxE.EndFrame();
+				};
+				for (int32 k = 0; k < 4; ++k)
+					image(-1.f, -1.f, false);
+				// les POIGNEES d'edition (accent) sont a la position ECRAN TRANSFORMEE de chaque
+				// sommet -- et pas a sa position non tournee (l'ancien dessin) ; l'accent peint
+				// aussi d'autre chose (le cadre de selection, la page) : on mesure PRES des
+				// sommets, pas une etendue
+				const uint32 accent = nkgui::NkGuiPackColor(nkentseu::editorkit::NkThemeUnpack(stE.theme.Get(NkDesignResolveRole("accent_ui"))));
+				NkLayoutResult scr0;
+				stE.ProjectToScreen(scr0);
+				const NkPaintRect rs0 = scr0.At(rc);
+				float32 sx0[64];
+				const uint32 nbS0 = NkSommetsDe(stE.doc.nodes[(uint32)rc], rs0, sx0, 32);
+				const NkMat2D mE = NkMatEffective(stE.doc, scr0, rc);
+				auto accentPres = [&](float32 x, float32 y) {
+					uint32 n = 0u;
+					for (uint32 i = 0; i < (uint32)ctxE.dl.vtx.Size(); ++i)
+						if (ctxE.dl.vtx[i].col == accent && NkLongueur2D(ctxE.dl.vtx[i].pos.x - x, ctxE.dl.vtx[i].pos.y - y) <= 6.f)
+							++n;
+					return n;
+				};
+				uint32 presTournes = 0u, presDroits = 0u;
+				for (uint32 i = 0; i < nbS0 && i < 4u; ++i) {
+					float32 tx = sx0[i * 2], ty = sx0[i * 2 + 1];
+					NkMatPoint(mE, tx, ty);
+					if (accentPres(tx, ty) > 0u)
+						++presTournes;
+					// la position NON tournee : loin du sommet tourne (> 12 px) et sans poignee
+					if (NkLongueur2D(tx - sx0[i * 2], ty - sx0[i * 2 + 1]) > 12.f && accentPres(sx0[i * 2], sx0[i * 2 + 1]) > 0u)
+						++presDroits;
+				}
+				const bool memeRepere = nbS0 == 4u && presTournes == 4u && presDroits == 0u;
+				const uint32 nF = presTournes, nA = presDroits;
+				const float32 fx0 = 0.f, fx1 = 0.f, fy0 = 0.f, fy1 = 0.f, ax0 = 0.f, ax1 = 0.f, ay0 = 0.f, ay1 = 0.f;
+				// un sommet tourne se prend a sa position ECRAN : le sommet 0 (haut-gauche local)
+				NkLayoutResult scr;
+				stE.ProjectToScreen(scr);
+				const NkPaintRect rs = scr.At(rc);
+				float32 sx[64];
+				const uint32 nbS = NkSommetsDe(stE.doc.nodes[(uint32)rc], rs, sx, 32);
+				float32 px = nbS ? sx[0] : 0.f, py = nbS ? sx[1] : 0.f;
+				NkMatPoint(NkMatEffective(stE.doc, scr, rc), px, py);
+				image(px, py, false);
+				image(px, py, true);
+				const int32 tire = stE.modeForme.tire;
+				image(px, py, false);
+				image(-1.f, -1.f, false);
+				// le meme clic a la position NON tournee du sommet (l'ancien dessin) ne prend rien
+				stE.modeForme.tire = -1;
+				stE.modeForme.sommet = -1;
+				const float32 qx = nbS ? sx[0] : 0.f, qy = nbS ? sx[1] : 0.f;
+				const float32 ecart = NkLongueur2D(qx - px, qy - py);
+				image(qx, qy, false);
+				image(qx, qy, true);
+				const int32 tireDroit = stE.modeForme.tire;
+				image(qx, qy, false);
+				image(-1.f, -1.f, false);
+				stE.modeForme.Quitter();
+				snprintf(det, sizeof(det), "poignees pres des 4 sommets TOURNES : %u/4 ; pres des positions non tournees : %u (attendu 0) [%.0f%.0f%.0f%.0f%.0f%.0f%.0f%.0f] ; "
+										   "clic sur la position ecran du sommet 0 (%.0f,%.0f) -> tire=%d ; a sa position non tournee (%.0f,%.0f, a %.0f px) -> tire=%d",
+						 nF, fx0, fx1, fy0, fy1, nA, ax0, ax1, ay0, ay1, px, py, tire, qx, qy, ecart, tireDroit);
+				check("74. LE MODE EDITION SOUS LA MATRICE, sur la vraie toile : un rect tourne de 30° au coin coupe -- le "
+					  "poignees d'edition sont aux positions ECRAN tournees des sommets, aucune aux positions droites ; un clic "
+					  "sur la position ECRAN d'un sommet le prend, un clic a sa position non tournee ne prend rien",
+					  memeRepere && tire == 0 && tireDroit < 0 && ecart > 20.f, det);
+			}
+		}
 		snprintf(tail, sizeof(tail), "\n=== RESULTAT : %d / %d ===\n", pass, total);
 		rep.Append(tail);
 
