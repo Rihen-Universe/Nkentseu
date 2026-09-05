@@ -205,37 +205,68 @@ namespace nkuidesign {
 		/// ⚠️ COUPE EN OCTETS, ET LA RÉSERVE EST ÉCRITE : un caractère accentué occupe deux
 		///    octets en UTF-8 ; on recule tant que l'octet est une continuation (10xxxxxx) pour
 		///    ne jamais couper au milieu d'un caractère. Rend la largeur réellement peinte.
-		inline float32 TexteTronque(NkGuiDrawList &dl, const NkGuiFont &f, float32 x, float32 yHaut,
-									const char *t, float32 largeurMax, const NkColor &c) {
+		/// ⑥ (05/09, nuit) LA TRONCATURE REND SA CHAINE, et c'est ce qui la rend
+		/// mesurable. Elle etait enfouie dans `TexteTronque`, qui ne rend qu'une
+		/// LARGEUR : la sonde 92 mesurait donc une largeur pendant que le texte peint
+		/// etait `Gaà?`. Un temoin ne peut pas juger ce qu'il ne peut pas lire.
+		/// Rend la longueur ecrite (hors terminateur), toujours ≤ `cap - 1`.
+		inline int32 TronquerUTF8(char *out, int32 cap, const NkGuiFont &f, const char *t,
+					  float32 largeurMax) {
+			// ⚠️ L'ELLIPSIS EN OCTETS EXPLICITES : le literal precedent avait ete ECRIT
+			//    EN MOJIBAKE (quatre octets `C3 A2 C2 A6` -- le `…` relu en latin-1 -- au
+			//    lieu des trois de `…`), et le code en copiait trois : il coupait donc
+			//    l'ellipsis EN PLEIN MILIEU. En octets explicites, aucun encodage de
+			//    fichier ne peut plus le casser.
+			static const char kSuite[] = "\xE2\x80\xA6"; // … U+2026
+			static const int32 kNSuite = 3;
+			if (!out || cap <= 0)
+				return 0;
+			out[0] = '\0';
 			if (!f.Valid() || !t || !*t || largeurMax <= 0.f)
-				return 0.f;
-			const float32 pleine = f.MeasureWidth(t);
-			if (pleine <= largeurMax) {
-				dl.AddText(f.Face(), f.TexId(), {x, yHaut + f.Ascent()}, t, c);
-				return pleine;
+				return 0;
+			if (f.MeasureWidth(t) <= largeurMax) {
+				int32 k = 0;
+				while (t[k] && k < cap - 1) {
+					out[k] = t[k];
+					++k;
+				}
+				out[k] = '\0';
+				return k;
 			}
-			static const char *const kSuite = "â¦"; // « … »
 			const float32 wSuite = f.MeasureWidth(kSuite);
-			char buf[192];
 			int32 n = 0;
-			while (t[n] && n < (int32)sizeof(buf) - 4)
+			while (t[n] && n < cap - (kNSuite + 1))
 				++n;
 			while (n > 0) {
 				--n;
+				// jamais au milieu d'un caractere UTF-8 : on recule sur les octets de suite
 				while (n > 0 && ((unsigned char)t[n] & 0xC0u) == 0x80u)
-					--n; // jamais au milieu d'un caractère UTF-8
+					--n;
 				for (int32 k = 0; k < n; ++k)
-					buf[k] = t[k];
-				buf[n] = ' ';
-				if (f.MeasureWidth(buf) + wSuite <= largeurMax)
+					out[k] = t[k];
+				// ⚠️ UN ZERO, PAS UN ESPACE. Les deux terminateurs de l'ancienne version
+				//    etaient des ESPACES : le dessin lisait au-dela, dans la memoire non
+				//    initialisee du tampon, jusqu'au premier zero venu.
+				out[n] = '\0';
+				if (f.MeasureWidth(out) + wSuite <= largeurMax)
 					break;
 			}
-			for (int32 k = 0; kSuite[k]; ++k)
-				buf[n + k] = kSuite[k];
-			buf[n + 3] = ' ';
+			for (int32 k = 0; k < kNSuite; ++k)
+				out[n + k] = kSuite[k];
+			out[n + kNSuite] = '\0';
+			return n + kNSuite;
+		}
+
+		/// Dessine `t` en le tronquant a `largeurMax`. Rend la largeur peinte.
+		inline float32 TexteTronque(NkGuiDrawList &dl, const NkGuiFont &f, float32 x, float32 yHaut,
+									const char *t, float32 largeurMax, const NkColor &c) {
+			char buf[192];
+			if (TronquerUTF8(buf, (int32)sizeof(buf), f, t, largeurMax) <= 0)
+				return 0.f;
 			dl.AddText(f.Face(), f.TexId(), {x, yHaut + f.Ascent()}, buf, c);
 			return f.MeasureWidth(buf);
 		}
+
 		inline float32 Largeur(const NkGuiFont &f, const char *t) {
 			return f.Valid() ? f.MeasureWidth(t) : 0.f;
 		}

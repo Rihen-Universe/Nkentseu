@@ -12066,6 +12066,108 @@ namespace nkuidesign {
 				"marquage rendrait la selection invisible tout en passant au vert",
 				libelleEmis && pasRecouvert && anneauPeint && voisinsIntacts, det);
 		}
+		// ── 107. ⑥ LA TRONCATURE NE CASSE PLUS L'UTF-8 (05/09, nuit). Sur la capture :
+		//    `Gaà?`, `Ceâ?`, `Réâ?` -- du texte coupe au milieu d'un caractere multi-octets.
+		//    DEUX fautes, et les deux sont de moi :
+		//      - l'ellipsis etait un literal MOJIBAKE (quatre octets `C3 A2 C2 A6`, le `…`
+		//        relu en latin-1) dont le code ne copiait que TROIS : coupee en son milieu ;
+		//      - les deux terminateurs de la fonction etaient des ESPACES au lieu de zeros :
+		//        le dessin lisait au-dela, dans la memoire NON INITIALISEE du tampon.
+		//    ⚠️ LA SONDE 92 EST RESTEE VERTE TOUT DU LONG parce qu'elle ne mesurait qu'une
+		//       LARGEUR. La troncature rend desormais SA CHAINE (`TronquerUTF8`) -- un temoin
+		//       ne peut pas juger ce qu'il ne peut pas lire.
+		{
+			char det[860];
+			auto &F107 = costume::Fontes();
+			if (!F107.px11.Valid()) {
+				check("107. ⑥ la troncature et les sections", false, "costume non charge");
+			} else {
+				// UTF-8 VALIDE : tout octet de tete annonce le bon nombre d'octets de suite
+				auto utf8Valide = [](const char *p) -> bool {
+					for (const unsigned char *q = (const unsigned char *)p; *q;) {
+						int32 n = 0;
+						if (*q < 0x80u) n = 0;
+						else if ((*q & 0xE0u) == 0xC0u) n = 1;
+						else if ((*q & 0xF0u) == 0xE0u) n = 2;
+						else if ((*q & 0xF8u) == 0xF0u) n = 3;
+						else return false; // octet de suite isole, ou tete invalide
+						++q;
+						for (int32 k = 0; k < n; ++k, ++q)
+							if ((*q & 0xC0u) != 0x80u)
+								return false;
+					}
+					return true;
+				};
+				static const char *kMots[] = {"Gauche", "Centre", "R\u00e9partir", "\u00c9toile filante",
+												  "Nkentseu-noge"};
+				uint32 essais = 0u, invalides = 0u, sansSuite = 0u, malTermines = 0u;
+				char pire[80];
+				pire[0] = '\0';
+				for (usize m = 0; m < sizeof(kMots) / sizeof(kMots[0]); ++m) {
+					const float32 pleine = costume::Largeur(F107.px11, kMots[m]);
+					// BALAYAGE de toutes les largeurs : c'est la seule facon d'attraper LA
+					// coupure qui tombe pile au milieu d'un caractere.
+					for (int32 w = 2; w <= (int32)pleine + 4; ++w) {
+						char buf[64];
+						const int32 n = costume::TronquerUTF8(buf, (int32)sizeof(buf), F107.px11, kMots[m], (float32)w);
+						++essais;
+						if (n < 0 || n >= (int32)sizeof(buf) || buf[n] != '\0')
+							++malTermines;
+						if (!utf8Valide(buf)) {
+							++invalides;
+							if (!pire[0])
+								snprintf(pire, sizeof(pire), "%s @%d -> %s", kMots[m], w, buf);
+						}
+						// tronquee ? alors elle DOIT finir par l'ellipsis COMPLETE
+						if ((float32)w < pleine && n >= 3) {
+							const unsigned char *q = (const unsigned char *)buf + (n - 3);
+							if (!(q[0] == 0xE2u && q[1] == 0x80u && q[2] == 0xA6u))
+								++sansSuite;
+						}
+					}
+				}
+				const bool tousValides = invalides == 0u && malTermines == 0u && essais > 100u;
+				const bool suiteEntiere = sansSuite == 0u;
+				// LES SECTIONS DE L'INSPECTEUR : aucune deux fois, et « ALIGNER LA SELECTION »
+				// presente dans LES DEUX tables (avec cible et sans cible) -- aligner ne depend
+				// pas d'une cible de cadre.
+				int32 nAvec = 0, nSans = 0;
+				const editorkit::NkInspectorSection *avec = InspectorPanel::SectionsAvecCible(nAvec);
+				const editorkit::NkInspectorSection *sans = InspectorPanel::SectionsSansCible(nSans);
+				auto doublons = [](const editorkit::NkInspectorSection *t, int32 n) -> uint32 {
+					uint32 d = 0u;
+					for (int32 i = 0; i < n; ++i)
+						for (int32 j = i + 1; j < n; ++j)
+							if (NkComponentDecl::StrEq(t[i].titre, t[j].titre))
+								++d;
+					return d;
+				};
+				auto contient = [](const editorkit::NkInspectorSection *t, int32 n, const char *q) {
+					for (int32 i = 0; i < n; ++i)
+						if (NkComponentDecl::StrEq(t[i].titre, q))
+							return true;
+					return false;
+				};
+				const uint32 dAvec = doublons(avec, nAvec), dSans = doublons(sans, nSans);
+				const bool aucunDoublon = dAvec == 0u && dSans == 0u;
+				const bool alignerPartout = contient(avec, nAvec, "ALIGNER LA S\u00c9LECTION")
+					&& contient(sans, nSans, "ALIGNER LA S\u00c9LECTION");
+				snprintf(det, sizeof(det),
+					"troncature : %u essais sur 5 mots, toutes largeurs ; UTF-8 invalide %u (pire : %s), mal "
+					"termines %u, ellipsis incomplete %u -> valides=%d, ellipsis entiere=%d ; sections : %d avec "
+					"cible (%u doublon(s)), %d sans cible (%u doublon(s)) -> aucun doublon=%d ; « ALIGNER LA "
+					"S\u00c9LECTION » dans les deux tables=%d",
+					essais, invalides, pire[0] ? pire : "(aucun)", malTermines, sansSuite, tousValides ? 1 : 0,
+					suiteEntiere ? 1 : 0, nAvec, dAvec, nSans, dSans, aucunDoublon ? 1 : 0,
+					alignerPartout ? 1 : 0);
+				check("107. ⑥ LA TRONCATURE NE CASSE PLUS L'UTF-8, ET AUCUNE SECTION N'EST LISTEE DEUX FOIS : sur TOUTES les "
+					"largeurs de cinq mots accentues, le resultat est un UTF-8 valide, termine par un ZERO (les terminateurs "
+					"etaient des ESPACES) et fini par l'ellipsis COMPLETE (elle etait un literal mojibake de quatre octets "
+					"dont on n'en copiait que trois) ; et les deux tables de sections de l'inspecteur n'ont aucun doublon -- "
+					"« ALIGNER LA S\u00c9LECTION » y figurait DEUX fois, et manquait a l'autre",
+					tousValides && suiteEntiere && aucunDoublon && alignerPartout, det);
+			}
+		}
 		snprintf(tail, sizeof(tail), "\n=== RESULTAT : %d / %d ===\n", pass, total);
 		rep.Append(tail);
 

@@ -13027,6 +13027,60 @@ namespace nkuidesign {
 				}
 			}
 
+			// ── ⑥ LES TABLES DE SECTIONS SONT LISIBLES PAR LE TEMOIN (05/09, nuit) ─────
+			// Elles etaient des `static const` LOCALES a `SectionsDe` : personne d'autre ne
+			// pouvait les voir, donc personne ne pouvait constater qu'une entree y figurait
+			// DEUX FOIS -- ce que Rodolf a fini par voir a l'ecran, deux sections
+			// « ALIGNER LA SELECTION » identiques l'une sous l'autre.
+			// Un seul site chacune ; `SectionsDe` les appelle.
+			static const editorkit::NkInspectorSection *SectionsAvecCible(int32 &count) noexcept {
+				static const editorkit::NkInspectorSection kAvecCible[] = {
+					{"CIBLE", &CorpsCibleC, false},
+					{"DISPOSITION", &CorpsDispositionC, false},
+					{"ANCRAGE", &CorpsAncrageC, false},
+					{"ALIGNEMENT", &CorpsAlignementC, false},
+					// ⑥ UNE SEULE FOIS. Elle etait listee DEUX fois (05/09) : l'inspecteur
+					//    dessinait deux sections identiques l'une sous l'autre. L'indentation
+					//    de la premiere ligne le criait deja -- une table alignee se relit,
+					//    et c'est a ca que sert l'alignement.
+					{"ALIGNER LA SÉLECTION", &CorpsAlignerSelectionC, false},
+					{"ESPACEMENT", &CorpsEspacementC, false},
+					{"CALQUE", &CorpsCalqueC, false}, // Lunacy : LAYER (opacite + fusion)
+					{"REMPLISSAGES", &CorpsRemplissagesC, false},
+					{"BORDURES", &CorpsBorduresC, false},
+					{"EFFETS", &CorpsEffetsC, false}, // Lunacy : juste apres BORDERS
+					{"ÉTATS", &CorpsEtatsC, false},
+					{"APPARENCE", &CorpsApparenceC, false},
+					{"TYPOGRAPHIE", &CorpsTypographieC, false},
+					{"POINTS DE RUPTURE", &CorpsRuptureC, false},
+				};
+				count = (int32)(sizeof(kAvecCible) / sizeof(kAvecCible[0]));
+				return kAvecCible;
+			}
+			static const editorkit::NkInspectorSection *SectionsSansCible(int32 &count) noexcept {
+				static const editorkit::NkInspectorSection kSections[] = {
+					{"DISPOSITION", &CorpsDispositionC, false},
+					{"ANCRAGE", &CorpsAncrageC, false},
+					{"ALIGNEMENT", &CorpsAlignementC, false},
+					// ⑥ ELLE MANQUAIT ICI (05/09) : aligner une selection ne depend pas d'une
+					//    cible de cadre. Sans cible posee, les huit boutons disparaissaient
+					//    sans raison -- et l'inspecteur montrait deux fois la MEME section
+					//    dans l'autre table. Les deux moities du meme etourdissement.
+					{"ALIGNER LA SÉLECTION", &CorpsAlignerSelectionC, false},
+					{"ESPACEMENT", &CorpsEspacementC, false},
+					{"CALQUE", &CorpsCalqueC, false}, // Lunacy : LAYER (opacite + fusion)
+					{"REMPLISSAGES", &CorpsRemplissagesC, false},
+					{"BORDURES", &CorpsBorduresC, false},
+					{"EFFETS", &CorpsEffetsC, false}, // Lunacy : juste apres BORDERS
+					{"ÉTATS", &CorpsEtatsC, false},
+					{"APPARENCE", &CorpsApparenceC, false},
+					{"TYPOGRAPHIE", &CorpsTypographieC, false},
+					{"POINTS DE RUPTURE", &CorpsRuptureC, false},
+				};
+				count = (int32)(sizeof(kSections) / sizeof(kSections[0]));
+				return kSections;
+			}
+
 		private:
 			// ── CE QUE LA CHARPENTE VIENT CHERCHER ICI ──────────────────────
 			static const char *const *Onglets() noexcept {
@@ -13137,43 +13191,10 @@ namespace nkuidesign {
 				{
 					auto *self = static_cast<InspectorPanel *>(user);
 					if (self->CadreCible()) {
-						static const editorkit::NkInspectorSection kAvecCible[] = {
-							{"CIBLE", &CorpsCibleC, false},
-							{"DISPOSITION", &CorpsDispositionC, false},
-							{"ANCRAGE", &CorpsAncrageC, false},
-							{"ALIGNEMENT", &CorpsAlignementC, false},
-					{"ALIGNER LA SÉLECTION", &CorpsAlignerSelectionC, false},
-							{"ALIGNER LA SÉLECTION", &CorpsAlignerSelectionC, false},
-							{"ESPACEMENT", &CorpsEspacementC, false},
-							{"CALQUE", &CorpsCalqueC, false}, // Lunacy : LAYER (opacite + fusion)
-							{"REMPLISSAGES", &CorpsRemplissagesC, false},
-							{"BORDURES", &CorpsBorduresC, false},
-							{"EFFETS", &CorpsEffetsC, false}, // Lunacy : juste apres BORDERS
-							{"ÉTATS", &CorpsEtatsC, false},
-							{"APPARENCE", &CorpsApparenceC, false},
-							{"TYPOGRAPHIE", &CorpsTypographieC, false},
-							{"POINTS DE RUPTURE", &CorpsRuptureC, false},
-						};
-						count = (int32)(sizeof(kAvecCible) / sizeof(kAvecCible[0]));
-						return kAvecCible;
+						return SectionsAvecCible(count);
 					}
 				}
-				static const editorkit::NkInspectorSection kSections[] = {
-					{"DISPOSITION", &CorpsDispositionC, false},
-					{"ANCRAGE", &CorpsAncrageC, false},
-					{"ALIGNEMENT", &CorpsAlignementC, false},
-					{"ESPACEMENT", &CorpsEspacementC, false},
-					{"CALQUE", &CorpsCalqueC, false}, // Lunacy : LAYER (opacite + fusion)
-					{"REMPLISSAGES", &CorpsRemplissagesC, false},
-					{"BORDURES", &CorpsBorduresC, false},
-					{"EFFETS", &CorpsEffetsC, false}, // Lunacy : juste apres BORDERS
-					{"ÉTATS", &CorpsEtatsC, false},
-					{"APPARENCE", &CorpsApparenceC, false},
-					{"TYPOGRAPHIE", &CorpsTypographieC, false},
-					{"POINTS DE RUPTURE", &CorpsRuptureC, false},
-				};
-				count = (int32)(sizeof(kSections) / sizeof(kSections[0]));
-				return kSections;
+				return SectionsSansCible(count);
 			}
 
 			/// L'INDEX du cadre-page qui contient la selection (ou la selection
