@@ -130,9 +130,17 @@ namespace nkentseu {
 				// (mesuré : arêtes de repos 0 mm à l'aisselle et à l'entrejambe, 3 000 % d'étirement).
 				// Une manche ne s'ajuste que contre son bras, une jambe contre sa jambe. Les capsules
 				// au repos sont aussi copiées dans cloth.colliders.
+				// `bodyMesh` (facultatif, la peau au REPOS) : le patron est aussi poussé hors du
+				// MAILLAGE, pas seulement hors des capsules. Mesuré le 05/09 sur XBot (28 374
+				// sommets) : avec les capsules seules, une jupe garde 136-142 particules sur 1 302
+				// À L'INTÉRIEUR du corps en permanence -- la capsule du bassin (quantile 0,9 : 144 mm,
+				// quantile 1,0 : 164 mm) est plus mince que le ventre et les fesses, et passer le
+				// quantile de 0,9 à 1,0 ne fait tomber le compte que de 142 à 136. Le rayon d'une
+				// capsule ne peut pas décrire une section qui n'est pas un disque : c'est le maillage
+				// qui tranche.
 				bool Build(NkGarmentKind k, const NkBodyMeasures &body, const NkHumanoidMap &map,
 						   const NkSkeletonBind &skel, const NkGarmentParams &params,
-						   const NkMannequin *mannequin = nullptr);
+						   const NkMannequin *mannequin = nullptr, const NkMeshInsideTester *bodyMesh = nullptr);
 				// Chaque image, AVANT cloth.Step : les cibles des épingles depuis la pose courante.
 				void UpdatePins(const math::NkMat4f *jointWorld, uint32 jointCount);
 				// Une fois, au repos : pose les épingles exactement (sans trajet).
@@ -156,6 +164,7 @@ namespace nkentseu {
 				// d'épaules marchait jusqu'à la main), repli : projection vers la surface la plus proche
 				void FitOutside(NkVec3f *pts, const NkVec3f *dirs, uint32 count) const;
 				bool InsideAny(const NkVec3f &p, NkVec3f *outNearest = nullptr) const;
+				const NkMeshInsideTester *mFitMesh = nullptr;
 				// anneaux d'un tube : positions et directions radiales
 				void RingRows(const NkVec3f &top, const NkVec3f &axisDown, const NkVec3f &e1, const NkVec3f &e2,
 							  float32 rTop, float32 rBot, float32 length, float32 spacing, uint32 &nAround, uint32 &nDown,

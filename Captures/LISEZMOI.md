@@ -98,3 +98,5 @@ rm Captures/essai.png Captures/model_loaders/essai.png
 *Le second est le seul qui prouve quelque chose : une allowlist qui laisse tout
 passer a exactement la même apparence qu'une allowlist juste, tant qu'on ne lui
 présente pas un cas qu'elle doit refuser.*
+
+- `noge_vetements_marche_2026-09-05.png` (535 494 o) — VETEMENTS SUR MANNEQUIN EN MARCHE : CesiumMan skinne (3 273 sommets, 19 os, son clip de marche de 2 s), avance 1,2 m/s poussee par le code (clip in place), cape (orange Rihen) + foulard + chapeau rigide, corps en petrole Rihen. `renderdemo --demo=2 NK_MANNEQUIN_PROBE=1 NK_CAPTURE=150`. Ma fenetre seule (relecture de la cible finale), premier plan lu avant, NKIlyana.exe (PID 29432) presente avant et apres, jamais touchee. DIT : le mannequin est petit et partiellement masque par le decor de la demo (le cube central) — trois cadrages payes ; la scene de demonstration n a pas ete concue pour cadrer un personnage.

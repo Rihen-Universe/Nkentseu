@@ -263,14 +263,16 @@ namespace nkentseu {
 		}
 
 		void NkGarment::FitOutside(NkVec3f *pts, const NkVec3f *dirs, uint32 count) const {
-			if (mFitShapes.Empty())
+			if (mFitShapes.Empty() && !mFitMesh)
 				return;
 			const float32 step = 0.002f; // 2 mm par pas de marche, 15 cm au plus
+			// hors des capsules ET hors du maillage (en-tête de Build)
+			auto inside = [&](const NkVec3f &q) { return InsideAny(q) || (mFitMesh && mFitMesh->Inside(q)); };
 			for (uint32 i = 0; i < count; ++i) {
 				const NkVec3f start = pts[i];
 				bool out = false;
 				for (uint32 m = 0; m < 75; ++m) {
-					if (!InsideAny(pts[i])) {
+					if (!inside(pts[i])) {
 						out = true;
 						break;
 					}
@@ -333,7 +335,8 @@ namespace nkentseu {
 
 		// ── Vêtements ────────────────────────────────────────────────────────
 		bool NkGarment::Build(NkGarmentKind k, const NkBodyMeasures &b, const NkHumanoidMap &map,
-							  const NkSkeletonBind &skel, const NkGarmentParams &p, const NkMannequin *mannequin) {
+							  const NkSkeletonBind &skel, const NkGarmentParams &p, const NkMannequin *mannequin,
+							  const NkMeshInsideTester *bodyMesh) {
 			kind = k;
 			cloth.Clear();
 			pins.Clear();
@@ -346,6 +349,7 @@ namespace nkentseu {
 			if (!b.valid)
 				return false;
 			mFitMargin = p.thickness + 0.5f * p.ease;
+			mFitMesh = bodyMesh;
 			if (mannequin) {
 				mannequin->Pose(skel.world, skel.count, mFitShapes);
 				for (uint32 c = 0; c < mannequin->CapsuleCount() && c < (uint32)mFitShapes.Size(); ++c)
