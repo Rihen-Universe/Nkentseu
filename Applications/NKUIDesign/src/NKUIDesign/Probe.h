@@ -12311,6 +12311,79 @@ namespace nkuidesign {
 				replieeDEmblee && cree109 && refermee && resteOuverteSurRefus && nomIntact, det);
 			NkDirectory::Delete("sonde_creation_repliee", true);
 		}
+		// ── 110. ④ TOUT LE DIALOGUE TIENT DANS SON CADRE (05/09, nuit). Rodolf : « les
+		//    boutons Annuler et Enregistrer ici debordent du dialogue. » MESURE sur le code
+		//    d'alors : reserve du bas 92, puis un decalage de 62, puis des boutons de 34 --
+		//    somme 96. Les boutons etaient peints QUATRE PIXELS SOUS le cadre, sans marge.
+		//    Trois nombres poses a la main qui ne s'additionnaient pas, et qui vivaient DANS
+		//    le dessin : le temoin ne pouvait pas les lire. Ils sont maintenant une fonction.
+		{
+			char det[860];
+			auto dedans110 = [](const nkgui::NkRect &c, const nkgui::NkRect &r, float32 marge) {
+				if (r.w <= 0.f && r.h <= 0.f)
+					return true; // absent de ce mode : rien a contenir
+				return r.x >= c.x + marge && r.y >= c.y && r.x + r.w <= c.x + c.w - marge
+					&& r.y + r.h <= c.y + c.h - marge;
+			};
+			struct Taille { float32 w, h, s; };
+			static const Taille kT[3] = {{1456.f, 939.f, 1.f}, {1024.f, 700.f, 1.f}, {1920.f, 1080.f, 1.25f}};
+			uint32 debords = 0u, chevauche = 0u;
+			char pire110[200];
+			pire110[0] = '\0';
+			float32 restantMin = 1e9f;
+			for (int32 t = 0; t < 3; ++t)
+				for (int32 m = 0; m < 2; ++m) { // enregistrer, puis ouvrir
+					const bool save = (m == 0);
+					const editorkit::NkGeomSelecteur g =
+						editorkit::NkGeometrieSelecteur(kT[t].w, kT[t].h, kT[t].s, save, false, 0.f, 0.f);
+					const float32 marge = 8.f * kT[t].s;
+					const nkgui::NkRect *parts[6] = {&g.ligneChemin, &g.zone, &g.labelNom, &g.champNom,
+														 &g.annuler, &g.confirmer};
+					static const char *kNoms110[6] = {"chemin", "volet", "label", "champ", "annuler",
+														  "confirmer"};
+					for (int32 k = 0; k < 6; ++k)
+						if (!dedans110(g.cadre, *parts[k], marge)) {
+							++debords;
+							if (!pire110[0])
+								snprintf(pire110, sizeof(pire110),
+									 "%s en mode %s a %.0fx%.0f : bas %.1f pour un cadre a %.1f",
+									 kNoms110[k], save ? "enregistrer" : "ouvrir", (double)kT[t].w,
+									 (double)kT[t].h, (double)(parts[k]->y + parts[k]->h),
+									 (double)(g.cadre.y + g.cadre.h));
+						}
+					// LE VOLET NE CHEVAUCHE PAS LE BAS : c'etait l'autre moitie du defaut
+					if (save && g.zone.y + g.zone.h > g.labelNom.y)
+						++chevauche;
+					if (!save && g.zone.y + g.zone.h > g.annuler.y)
+						++chevauche;
+					const float32 restant = (g.cadre.y + g.cadre.h) - (g.confirmer.y + g.confirmer.h);
+					if (restant < restantMin)
+						restantMin = restant;
+				}
+			// CONTROLE NEGATIF : la fonction n'est pas complaisante -- un cadre reduit de moitie
+			// DOIT faire deborder, sinon `dedans110` accepterait n'importe quoi.
+			bool detecteUnVraiDebord = false;
+			{
+				editorkit::NkGeomSelecteur g =
+					editorkit::NkGeometrieSelecteur(1456.f, 939.f, 1.f, true, false, 0.f, 0.f);
+				g.cadre.h *= 0.5f;
+				detecteUnVraiDebord = !dedans110(g.cadre, g.confirmer, 8.f);
+			}
+			const bool tientPartout = debords == 0u && chevauche == 0u;
+			const bool margeReelle = restantMin >= 10.f;
+			snprintf(det, sizeof(det),
+				"trois tailles x deux modes : %u debordement(s) [%s], %u chevauchement(s) volet/bas ; marge "
+				"minimale sous le bouton de confirmation : %.1f px -> tient partout=%d, marge reelle=%d ; "
+				"CONTROLE NEGATIF (cadre reduit de moitie) : debordement detecte=%d",
+				debords, pire110[0] ? pire110 : "(aucun)", chevauche, (double)restantMin,
+				tientPartout ? 1 : 0, margeReelle ? 1 : 0, detecteUnVraiDebord ? 1 : 0);
+			check("110. ④ TOUT LE DIALOGUE TIENT DANS SON CADRE : la ligne de chemin, le volet, le label, le champ de nom et "
+				"les DEUX boutons sont dans le rectangle du dialogue, avec leur marge, a trois tailles de fenetre et dans "
+				"les deux modes ; le volet ne chevauche pas le bas ; et le controle negatif montre que le test attrape un "
+				"vrai debordement -- les hauteurs etaient trois nombres poses a la main dont la somme depassait de quatre "
+				"pixels, et elles vivaient dans le dessin, hors de portee du temoin",
+				tientPartout && margeReelle && detecteUnVraiDebord, det);
+		}
 		snprintf(tail, sizeof(tail), "\n=== RESULTAT : %d / %d ===\n", pass, total);
 		rep.Append(tail);
 

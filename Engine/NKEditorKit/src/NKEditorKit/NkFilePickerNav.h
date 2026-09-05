@@ -612,6 +612,47 @@ namespace nkentseu {
 		inline const float32 NkFilePickerNavState::kRailMin = 180.f;
 		inline const float32 NkFilePickerNavState::kRailMax = 0.45f;
 		
+		// ── ④ LA GEOMETRIE DU DIALOGUE, EN UN SEUL ENDROIT (05/09, nuit) ──────────
+		// Rodolf : « les boutons Annuler et Enregistrer ici debordent du dialogue. »
+		// MESURE sur le code d'alors : `basH = 92`, puis `by += 62`, puis des boutons de
+		// 34 -- somme 96 pour une reserve de 92. Les boutons etaient peints QUATRE
+		// PIXELS SOUS le cadre, sans marge. Trois nombres poses a la main qui ne
+		// s'additionnaient pas.
+		//
+		// ⚠️ ET ILS VIVAIENT DANS LE DESSIN : le temoin ne pouvait pas les lire, donc il
+		//    ne pouvait pas constater qu'ils depassaient. C'est la troisieme fois de ce
+		//    chantier qu'une valeur non lisible echappe a sa sonde.
+		struct NkGeomSelecteur {
+			NkRect cadre, ligneChemin, zone, labelNom, champNom, annuler, confirmer;
+		};
+
+		/// La geometrie complete, calculee UNE FOIS. Le dessin l'appelle, la sonde aussi.
+		inline NkGeomSelecteur NkGeometrieSelecteur(float32 W, float32 H, float32 S, bool saveMode,
+												 bool decalX, float32 offX, float32 offY) {
+			NkGeomSelecteur g;
+			const float32 pw = 900.f * S, ph = 620.f * S;
+			const float32 px = (W - pw) * 0.5f + (decalX ? offX : 0.f);
+			const float32 py = (H - ph) * 0.5f + (decalX ? offY : 0.f);
+			g.cadre = {px, py, pw, ph};
+			const float32 cx = px + 20.f * S, cwid = pw - 40.f * S;
+			g.ligneChemin = {cx, py + 50.f * S, cwid, 30.f * S};
+			// Les hauteurs du bas, UNE constante par element -- et `basH` est leur SOMME.
+			const float32 hMarge = 14.f * S, hLabel = 18.f * S, hChamp = 30.f * S;
+			const float32 hBouton = 34.f * S, hEcart = 10.f * S;
+			const float32 basH = hMarge + (saveMode ? hLabel + hChamp + hEcart : 0.f) + hBouton + hMarge;
+			const float32 yVolet = py + 90.f * S;
+			g.zone = {cx, yVolet, cwid, ph - (yVolet - py) - basH};
+			float32 by = py + ph - basH + hMarge;
+			g.labelNom = saveMode ? NkRect{cx, by, cwid, hLabel} : NkRect{0.f, 0.f, 0.f, 0.f};
+			g.champNom = saveMode ? NkRect{cx, by + hLabel, cwid, hChamp} : NkRect{0.f, 0.f, 0.f, 0.f};
+			if (saveMode)
+				by += hLabel + hChamp + hEcart;
+			const float32 bw = 120.f * S;
+			g.annuler = {px + pw - 20.f * S - bw * 2.f - 10.f * S, by, bw, hBouton};
+			g.confirmer = {px + pw - 20.f * S - bw, by, bw, hBouton};
+			return g;
+		}
+
 		// ── ④ CE QUE LE VOLET DOIT TAIRE DANS UN DIALOGUE (05/09, soir) ───────────
 		// Sur la capture de Rodolf, le selecteur « choisir le dossier » affichait la bande
 		// « Contenu » et les boutons « Creer / Importer / Tout enregistrer » : ce sont ceux
@@ -685,8 +726,11 @@ namespace nkentseu {
 			const bool saveMode = (fp.pickerFor == NkFilePickerState::PK_SaveFile);
 			const bool dossierMode = (fp.pickerFor == NkFilePickerState::PK_PickFolder
 									  || fp.pickerFor == NkFilePickerState::PK_Open);
-			const float32 pw = 900.f * S, ph = 620.f * S;
-			const float32 px = (W - pw) * 0.5f + fp.pickerWinOffX, py = (H - ph) * 0.5f + fp.pickerWinOffY;
+			// ④ LA GEOMETRIE VIENT D'UNE SEULE FONCTION, celle que la sonde appelle aussi.
+			const NkGeomSelecteur G =
+				NkGeometrieSelecteur(W, H, S, saveMode, true, fp.pickerWinOffX, fp.pickerWinOffY);
+			const float32 pw = G.cadre.w, ph = G.cadre.h;
+			const float32 px = G.cadre.x, py = G.cadre.y;
 
 			// ② CE DIALOGUE POSSEDE L'ENTREE — l'occlusion protege les widgets du kit,
 			//    la reserve protege le code propre de l'application (une toile qui lit
@@ -721,7 +765,7 @@ namespace nkentseu {
 			const float32 cx = px + 20.f * S, cwid = pw - 40.f * S;
 			// ⑤ declare ICI : la ligne du haut en a besoin pour son bouton « + ».
 			const bool peutCreer = (saveMode || dossierMode);
-			float32 y = py + 50.f * S;
+			float32 y = G.ligneChemin.y;
 			bool fieldClicked = false;
 			// ── LA LIGNE DE CHEMIN : « Remonter », le chemin editable, « Aller » ──
 			{
@@ -785,8 +829,13 @@ namespace nkentseu {
 			// ── LE VOLET : le navigateur de contenu du kit, tel quel ────────────
 			// ⑤ LE BAS NE PORTE PLUS LA CREATION (05/09, nuit) : elle est passee en haut,
 			//    derriere un bouton. Le nom du fichier remonte d'autant.
-			const float32 basH = (saveMode ? 92.f : 52.f) * S;
-			const NkRect zone = {cx, y, cwid, ph - (y - py) - basH - 16.f * S};
+			// ④ LES HAUTEURS DU BAS S'ADDITIONNENT (05/09, nuit). Elles etaient trois
+			//    nombres poses a la main (92, +62, 34) dont la somme depassait le cadre de
+			//    QUATRE PIXELS -- les boutons etaient peints SOUS le dialogue. Ici, une
+			//    constante par element, et `basH` est LEUR SOMME : le dessin plus bas relit
+			//    exactement les memes. Deux endroits pour une meme hauteur, c'est deux
+			//    endroits pour se tromper.
+			const NkRect zone = G.zone;
 			int32 aOuvrir = -1;	  // un dossier a suivre APRES le dessin
 			NkString cible;		  // le chemin a suivre
 			{
@@ -891,11 +940,10 @@ namespace nkentseu {
 			}
 
 			// ── LE BAS : le nom (mode enregistrer), puis Annuler / Confirmer ────
-			float32 by = py + ph - basH;
 
 			if (saveMode) {
-				text(cx, by + 6.f * S, "Nom du fichier", sty.cadre.sub);
-				const NkRect r = {cx, by + 24.f * S, cwid, 30.f * S};
+				text(G.labelNom.x, G.labelNom.y, "Nom du fichier", sty.cadre.sub);
+				const NkRect r = G.champNom;
 				if (hit(r) && click) {
 					fp.pickerSaveFocus = true;
 					fp.pickerEditing = false;
@@ -903,21 +951,19 @@ namespace nkentseu {
 				}
 				NkOverlayTextField(ctx, dl, f, r, fp.pickerSaveName, (int32)sizeof(fp.pickerSaveName),
 								   fp.pickerSaveFocus);
-				by += 62.f * S;
 			}
 			{
-				const float32 bw = 120.f * S, bh = 34.f * S;
 				const bool pret = saveMode ? (fp.pickerSaveName[0] != '\0')
 										   : (dossierMode ? fp.pickerPath[0] != '\0'
 														  : (fp.vue.active >= 0
 															 && fp.vue.active < (int32)fp.vue.entries.Size()
 															 && !fp.vue.entries[(uint32)fp.vue.active].isFolder));
-				if (sbtn({px + pw - 20.f * S - bw * 2.f - 10.f * S, by, bw, bh}, "Annuler")) {
+				if (sbtn(G.annuler, "Annuler")) {
 					fp.PickerCancel();
 					--ctx.modalDepth;
 					return false;
 				}
-				if (pbtn({px + pw - 20.f * S - bw, by, bw, bh}, fp.PickerConfirmLabel(), pret)) {
+				if (pbtn(G.confirmer, fp.PickerConfirmLabel(), pret)) {
 					fp.pickerConfirmed = true;
 					fp.pickerResultFor = fp.pickerFor;
 					NkFilePickerState::CopyTo(fp.pickerResultPath, fp.pickerPath,
