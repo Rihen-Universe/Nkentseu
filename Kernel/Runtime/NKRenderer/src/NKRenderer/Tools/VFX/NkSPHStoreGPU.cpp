@@ -38,6 +38,8 @@ namespace nkentseu {
 @binding(set=0, binding=10) buffer InstU { uint u[]; } IU;
 @binding(set=0, binding=11) buffer BirthBuf { vec4 b[]; } B;
 @binding(set=0, binding=14) buffer NeighBuf { uint n[]; } NB;   // cap x 64 : indices des voisines (fluide < cap, fantome >= cap)
+@binding(set=0, binding=16) buffer CellCountBuf { uint c[]; } CC; // numCells : particules par cellule (atomicAdd), remis a zero par fill
+@binding(set=0, binding=17) buffer CellFillBuf { uint f[]; } CF;  // numCells : curseur de remplissage (debut de cellule, puis atomicAdd)
 @binding(set=0, binding=12) uniform Params {
     vec4 hm;    // h, m, rho0, dt
     vec4 grav;  // gravite xyz, invDt
@@ -133,126 +135,77 @@ void main() {
 }
 )NKSL";
 
-		// cles de cellule (which 0 : fluide sur fpad ; 1 : fantomes sur gpad)
-		static const char *kKeyBody = R"NKSL(
+		// TRI PAR COMPTAGE (Green 2010, § counting sort ; 05/09, des que NkSL a eu des atomiques sur tampon) :
+		// compte par cellule (atomicAdd), prefixe sur CPU (une relecture par sous-pas, dite), fill (curseur =
+		// debut de cellule, compte remis a zero), scatter (atomicAdd sur le curseur). Trois noyaux au lieu de
+		// 136-210 passes bitoniques. which 0 : fluide (cap) ; 1 : fantomes (nb, une fois).
+		static const char *kCountBody = R"NKSL(
 @stage(compute)
 @entry
 void main() {
     uint i = gl_GlobalInvocationID.x;
     if (q.which == 0u) {
-        if (i < p.fpad) {
-            uint key = (0u - 1u);
-            if (i < p.cap) {
-                vec4 pp = X.p[i];
-                if (pp.w > 0.5 && pp.w < 1.5) {
-                    key = cellKey(vec3(pp.x, pp.y, pp.z));
-                }
+        if (i < p.cap) {
+            vec4 pp = X.p[i];
+            if (pp.w > 0.5 && pp.w < 1.5) {
+                uint key = cellKey(vec3(pp.x, pp.y, pp.z));
+                atomicAdd(CC.c[key], 1u);
             }
-            KV.a[2u * (i)] = key;
-            KV.a[2u * (i) + 1u] = i;
         }
     } else {
-        if (i < p.gpad) {
-            uint key = (0u - 1u);
-            if (i < p.nb) {
-                vec4 pp = X.p[p.cap + i];
-                key = cellKey(vec3(pp.x, pp.y, pp.z));
-            }
-            GKV.a[2u * (i)] = key;
-            GKV.a[2u * (i) + 1u] = p.cap + i;
+        if (i < p.nb) {
+            vec4 pp = X.p[p.cap + i];
+            uint key = cellKey(vec3(pp.x, pp.y, pp.z));
+            atomicAdd(CC.c[key], 1u);
         }
     }
 }
 )NKSL";
 
-		// un pas du tri bitonique (q.j, q.k) sur (cle, indice)
-		static const char *kSortBody = R"NKSL(
-@stage(compute)
-@entry
-void main() {
-    uint i = gl_GlobalInvocationID.x;
-    if (i < q.n) {
-        uint ixj = i ^ q.j;
-        if (ixj > i) {
-            uint asc = 0u;
-            if ((i & q.k) == 0u) { asc = 1u; }
-            if (q.which == 0u) {
-                uint a = KV.a[2u * (i)];
-                uint b = KV.a[2u * (ixj)];
-                uint gt = 0u;
-                if (a > b) { gt = 1u; }
-                if (gt == asc) {
-                    KV.a[2u * (i)] = b;
-                    KV.a[2u * (ixj)] = a;
-                    uint va = KV.a[2u * (i) + 1u];
-                    KV.a[2u * (i) + 1u] = KV.a[2u * (ixj) + 1u];
-                    KV.a[2u * (ixj) + 1u] = va;
-                }
-            } else {
-                uint a = GKV.a[2u * (i)];
-                uint b = GKV.a[2u * (ixj)];
-                uint gt = 0u;
-                if (a > b) { gt = 1u; }
-                if (gt == asc) {
-                    GKV.a[2u * (i)] = b;
-                    GKV.a[2u * (ixj)] = a;
-                    uint va = GKV.a[2u * (i) + 1u];
-                    GKV.a[2u * (i) + 1u] = GKV.a[2u * (ixj) + 1u];
-                    GKV.a[2u * (ixj) + 1u] = va;
-                }
-            }
-        }
-    }
-}
-)NKSL";
-
-		static const char *kClearBody = R"NKSL(
+		// fill : curseur de remplissage et remise a zero des comptes
+		static const char *kFillBody = R"NKSL(
 @stage(compute)
 @entry
 void main() {
     uint i = gl_GlobalInvocationID.x;
     if (i < p.numCells) {
         if (q.which == 0u) {
-            FSE.a[2u * (i)] = 0u;
-            FSE.a[2u * (i) + 1u] = 0u;
+            CF.f[i] = FSE.a[2u * (i)];
         } else {
-            GSE.a[2u * (i)] = 0u;
-            GSE.a[2u * (i) + 1u] = 0u;
+            CF.f[i] = GSE.a[2u * (i)];
+        }
+        CC.c[i] = 0u;
+    }
+}
+)NKSL";
+
+		static const char *kScatterBody = R"NKSL(
+@stage(compute)
+@entry
+void main() {
+    uint i = gl_GlobalInvocationID.x;
+    if (q.which == 0u) {
+        if (i < p.cap) {
+            vec4 pp = X.p[i];
+            if (pp.w > 0.5 && pp.w < 1.5) {
+                uint key = cellKey(vec3(pp.x, pp.y, pp.z));
+                uint pos = atomicAdd(CF.f[key], 1u);
+                KV.a[2u * (pos)] = key;
+                KV.a[2u * (pos) + 1u] = i;
+            }
+        }
+    } else {
+        if (i < p.nb) {
+            vec4 pp = X.p[p.cap + i];
+            uint key = cellKey(vec3(pp.x, pp.y, pp.z));
+            uint pos = atomicAdd(CF.f[key], 1u);
+            GKV.a[2u * (pos)] = key;
+            GKV.a[2u * (pos) + 1u] = p.cap + i;
         }
     }
 }
 )NKSL";
 
-		// debut / fin de cellule la ou la cle triee change
-		static const char *kCellBody = R"NKSL(
-@stage(compute)
-@entry
-void main() {
-    uint i = gl_GlobalInvocationID.x;
-    if (i < q.n) {
-        uint key = (0u - 1u);
-        uint prev = (0u - 1u);
-        uint next = (0u - 1u);
-        if (q.which == 0u) {
-            key = KV.a[2u * (i)];
-            if (i > 0u) { prev = KV.a[2u * (i - 1u)]; }
-            if (i + 1u < q.n) { next = KV.a[2u * (i + 1u)]; }
-            if (key != (0u - 1u)) {
-                if (prev != key) { FSE.a[2u * (key)] = i; }
-                if (next != key) { FSE.a[2u * (key) + 1u] = i + 1u; }
-            }
-        } else {
-            key = GKV.a[2u * (i)];
-            if (i > 0u) { prev = GKV.a[2u * (i - 1u)]; }
-            if (i + 1u < q.n) { next = GKV.a[2u * (i + 1u)]; }
-            if (key != (0u - 1u)) {
-                if (prev != key) { GSE.a[2u * (key)] = i; }
-                if (next != key) { GSE.a[2u * (key) + 1u] = i + 1u; }
-            }
-        }
-    }
-}
-)NKSL";
 
 		// listes de voisines (une fois par sous-pas, 64 max, compte brut releve) -- les quatre passes de
 		// voisinage lisent la liste au lieu de retraverser 27 cellules (mesure du 05/09 : c'etait le cout)
@@ -865,6 +818,8 @@ void main() {
 				mk(mFL, (uint64)M * 32u, "sph_fields");
 				mk(mT, (uint64)mCapacity * 16u, "sph_tmp");
 				mk(mNB, (uint64)mCapacity * 64u * 4u, "sph_neigh");
+				mk(mCC, (uint64)mNumCells * 4u, "sph_cellcount");
+				mk(mCF, (uint64)mNumCells * 4u, "sph_cellfill");
 				mk(mRed, (uint64)(256u + 256u * 16u) * 4u, "sph_red");
 				NkBufferDesc id = NkBufferDesc::Storage((uint64)mCapacity * (uint64)sizeof(NkParticleInstance));
 				id.bindFlags = id.bindFlags | NkBindFlags::NK_VERTEX_BUFFER;
@@ -883,7 +838,7 @@ void main() {
 					device->WriteBuffer(mFieldUbo, fw, 48);
 				}
 			}
-			NkBufferHandle *all[] = {&mX, &mV, &mKV, &mGKV, &mFSE, &mGSE, &mFL, &mT, &mRed, &mInstances, &mBirths, &mUbo, &mSortUbo, &mNB, &mFieldUbo};
+			NkBufferHandle *all[] = {&mX, &mV, &mKV, &mGKV, &mFSE, &mGSE, &mFL, &mT, &mRed, &mInstances, &mBirths, &mUbo, &mSortUbo, &mNB, &mFieldUbo, &mCC, &mCF};
 			for (NkBufferHandle *b : all)
 				if (!b->IsValid()) {
 					mFail = "un tampon de stockage n'a pas pu etre cree";
@@ -898,11 +853,13 @@ void main() {
 			ld.Add(13, NkDescriptorType::NK_UNIFORM_BUFFER, NkShaderStage::NK_COMPUTE);
 			ld.Add(14, NkDescriptorType::NK_STORAGE_BUFFER, NkShaderStage::NK_COMPUTE);
 			ld.Add(15, NkDescriptorType::NK_UNIFORM_BUFFER, NkShaderStage::NK_COMPUTE);
+			ld.Add(16, NkDescriptorType::NK_STORAGE_BUFFER, NkShaderStage::NK_COMPUTE);
+			ld.Add(17, NkDescriptorType::NK_STORAGE_BUFFER, NkShaderStage::NK_COMPUTE);
 			mLayout = mDevice->CreateDescriptorSetLayout(ld);
-			static const char *names[K_COUNT] = {"sph_birth", "sph_key", "sph_sort", "sph_clear", "sph_cell", "sph_dens", "sph_kappa",
+			static const char *names[K_COUNT] = {"sph_birth", "sph_count", "sph_fill", "sph_scatter", "sph_dens", "sph_kappa",
 												 "sph_correct", "sph_warm", "sph_storewarm", "sph_nonp", "sph_apply", "sph_reduce",
 												 "sph_integ", "sph_stats", "sph_neigh"};
-			static const char *bodies[K_COUNT] = {kBirthBody, kKeyBody, kSortBody, kClearBody, kCellBody, kDensBody, kKappaBody,
+			static const char *bodies[K_COUNT] = {kBirthBody, kCountBody, kFillBody, kScatterBody, kDensBody, kKappaBody,
 												  kCorrectBody, kWarmBody, kStoreWarmBody, kNonPBody, kApplyBody, kReduceBody,
 												  kIntegBody, kStatsBody, kNeighBody};
 			for (int k = 0; k < K_COUNT; ++k)
@@ -931,6 +888,12 @@ void main() {
 				w.binding = 14;
 				w.type = NkDescriptorType::NK_STORAGE_BUFFER;
 				w.buffer = mNB;
+				mDevice->UpdateDescriptorSets(&w, 1);
+				w.binding = 16;
+				w.buffer = mCC;
+				mDevice->UpdateDescriptorSets(&w, 1);
+				w.binding = 17;
+				w.buffer = mCF;
 				mDevice->UpdateDescriptorSets(&w, 1);
 			}
 			mCmd = mDevice->CreateCommandBuffer(NkCommandBufferType::NK_COMPUTE);
@@ -961,7 +924,7 @@ void main() {
 					device->DestroyCommandBuffer(mCmd);
 				if (mSet.IsValid())
 					device->FreeDescriptorSet(mSet);
-				NkBufferHandle *all[] = {&mX, &mV, &mKV, &mGKV, &mFSE, &mGSE, &mFL, &mT, &mRed, &mInstances, &mBirths, &mUbo, &mSortUbo, &mNB, &mFieldUbo};
+				NkBufferHandle *all[] = {&mX, &mV, &mKV, &mGKV, &mFSE, &mGSE, &mFL, &mT, &mRed, &mInstances, &mBirths, &mUbo, &mSortUbo, &mNB, &mFieldUbo, &mCC, &mCF};
 				for (NkBufferHandle *b : all)
 					if (b->IsValid()) {
 						device->DestroyBuffer(*b);
@@ -998,23 +961,29 @@ void main() {
 			mCmd->UAVBarrier(mX); // sur GL : glMemoryBarrier(SHADER_STORAGE | UNIFORM), global
 		}
 
-		// Tri bitonique de n = 2^k cles (which 0 : fluide, 1 : fantomes), puis debut/fin de cellule.
+		// Tri par comptage (which 0 : fluide, 1 : fantomes) : count (atomicAdd) -> relecture des comptes ->
+		// prefixe sur CPU -> (debut, fin) par cellule envoyes -> fill -> scatter. Une synchronisation par appel.
 		void NkSPHStoreGPU::SortGrid(uint32 which, uint32 n) {
+			(void)n;
 			SortParams sp;
 			sp.which = which;
-			sp.n = n;
+			sp.n = which == 0u ? mCapacity : mBoundary;
 			mCmd->UpdateBuffer(mSortUbo, 0, sizeof(SortParams), &sp);
-			Dispatch(K_KEY, n);
-			for (uint32 k = 2; k <= n; k <<= 1) {
-				for (uint32 j = k >> 1; j > 0; j >>= 1) {
-					sp.j = j;
-					sp.k = k;
-					mCmd->UpdateBuffer(mSortUbo, 0, sizeof(SortParams), &sp);
-					Dispatch(K_SORT, n);
-				}
+			Dispatch(K_CELLCOUNT, sp.n);
+			Flush();
+			mScratchU.Resize(mNumCells);
+			mDevice->ReadBuffer(mCC, mScratchU.Data(), (uint64)mNumCells * 4u, 0);
+			mScratchSE.Resize(mNumCells * 2u);
+			uint32 start = 0;
+			uint32 *cnt = mScratchU.Data(), *se = mScratchSE.Data();
+			for (uint32 cidx = 0; cidx < mNumCells; ++cidx) {
+				se[2u * cidx] = start;
+				start += cnt[cidx];
+				se[2u * cidx + 1u] = start;
 			}
-			Dispatch(K_CLEAR, mNumCells);
-			Dispatch(K_CELL, n);
+			mDevice->WriteBuffer(which == 0u ? mFSE : mGSE, se, (uint64)mNumCells * 8u);
+			Dispatch(K_FILL, mNumCells);
+			Dispatch(K_SCATTER, sp.n);
 		}
 
 		bool NkSPHStoreGPU::Flush() {
