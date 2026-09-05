@@ -207,6 +207,18 @@ namespace nkentseu {
 			// Génération automatique des mip-maps (synchrone)
 			virtual bool GenerateMipmaps(NkTextureHandle tex, NkFilter filter = NkFilter::NK_LINEAR) = 0;
 
+			// Combien de televersements de texture COMPRESSEE le pilote a refuses
+			// depuis le debut. Zero par defaut : un dorsal qui ne compte pas rend
+			// zero, et c'est honnete tant qu'il ne pretend pas le contraire.
+			//
+			// 🔴 Existe parce que le 2026-09-05, vingt-cinq refus consecutifs sont
+			// passes inaperçus : le chiffre de chargement s'ameliorait, l'image
+			// etait noire, et rien ne comptait. Un appel qui echoue sans compteur
+			// est un appel qui reussit, du point de vue de celui qui mesure.
+			[[nodiscard]] virtual uint32 GetCompressedUploadErrors() const {
+				return 0u;
+			}
+
 			// =========================================================================
 			// Samplers
 			// =========================================================================

@@ -195,11 +195,20 @@ namespace nkentseu {
 				return nullptr;
 			}
 
+			// Combien de televersements COMPRESSES le pilote a refuses depuis le
+			// debut. Existe pour qu'un banc puisse EXIGER zero : le 2026-09-05, 25
+			// refus sont passes inaperçus parce que rien ne les comptait.
+			// Compte les erreurs vues par le post-callback de GLAD sur un appel
+			// dont le nom contient « Compressed ». Defini dans le .cpp : le
+			// compteur est global (le callback de GLAD n'a pas de contexte).
+			[[nodiscard]] uint32 GetCompressedUploadErrors() const override;
+
 			void *GetNativeCommandQueue() const override {
 				return nullptr;
 			}
 
 		private:
+
 			static constexpr uint32 kTsRing = 8;  // 8 : jusqu'a 8 paires d'un meme chrono entre deux lectures (profil SPH)
 			static constexpr uint32 kTsIdx = 32; // 0 = la frame, 1 = la passe VFX (2026-09-04) ; 4.. = le profil du SPH par passe (2026-09-05)
 			uint32 mTsQuery[kTsIdx][kTsRing][2] = {};
