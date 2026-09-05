@@ -46,6 +46,7 @@
 #ifndef NKENTSEU_SERIALIZATION_ASSET_NKTEXTUREASSETFORMAT_H
 #define NKENTSEU_SERIALIZATION_ASSET_NKTEXTUREASSETFORMAT_H
 
+#include "NKSerialization/Asset/NkAssetMetadata.h"
 #include "NKContainers/Sequential/NkVector.h"
 #include "NKContainers/String/NkString.h"
 #include "NKCore/NkTypes.h"
@@ -510,6 +511,62 @@ namespace nkentseu {
 				return false;
 			}
 	};
+
+	// =========================================================================
+	// Ecrire un actif texture CUIT — conteneur compris
+	//
+	// Vit ICI et pas dans NKRenderer parce que rien de ce geste n'a besoin d'un
+	// GPU : c'est un payload d'octets et un `NkAssetFileHeader`. Le four (un
+	// outil de ligne de commande) et le moteur appellent donc la MEME fonction,
+	// et `NkTextureAssetIO::SaveBaked` n'est plus qu'un renvoi.
+	// =========================================================================
+	[[nodiscard]] inline nk_bool NkEcrireActifTexture(const nk_uint8 *payload, nk_size payloadSize,
+													  const char *cheminDisque, NkStringView cheminLogique,
+													  NkStringView cheminSource = NkStringView(),
+													  NkAssetId *outId = nullptr, NkString *err = nullptr) noexcept {
+		if (!payload || payloadSize == 0u) {
+			if (err)
+				*err = NkString("payload vide");
+			return false;
+		}
+		if (!cheminDisque) {
+			if (err)
+				*err = NkString("chemin de sortie nul");
+			return false;
+		}
+
+		// Relire son propre payload AVANT d'ecrire : refuser ici vaut mieux que
+		// produire un fichier que le chargeur refusera loin d'ici.
+		NkTexVue controle;
+		if (!NkTexturePayload::Decode(payload, payloadSize, controle, err))
+			return false;
+
+		NkAssetMetadata meta;
+		meta.id = NkAssetId::FromName(cheminLogique);
+		meta.type = controle.EstCubemap() ? NkAssetType::TextureCube : NkAssetType::Texture2D;
+		meta.typeName = NkString(NkAssetTypeName(meta.type));
+		meta.assetPath = NkAssetPath(cheminLogique);
+		meta.assetVersion = 1u;
+		meta.AddTag(NkAssetTypeName(meta.type));
+		meta.AddTag("cuit");
+		// L'original n'est garde que pour proposer une RECUISSON s'il change.
+		// Le chargement ne l'ouvre jamais.
+		meta.sourceFilePath = NkString(cheminSource);
+
+		if (!NkAssetIO::Write(cheminDisque, meta, payload, payloadSize, err))
+			return false;
+
+		NkAssetRecord rec;
+		rec.id = meta.id;
+		rec.assetPath = meta.assetPath;
+		rec.type = meta.type;
+		rec.typeName = meta.typeName;
+		rec.diskPath = NkString(cheminDisque);
+		NkAssetRegistry::Global().Register(rec);
+		if (outId)
+			*outId = meta.id;
+		return true;
+	}
 
 } // namespace nkentseu
 
