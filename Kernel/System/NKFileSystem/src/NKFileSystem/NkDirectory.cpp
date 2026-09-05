@@ -1,5 +1,6 @@
 // =============================================================================
 // NKFileSystem/NkDirectory.cpp
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // Implémentation des opérations sur les répertoires.
 //
 // Design :
@@ -197,6 +198,100 @@ namespace nkentseu {
 		// Obtention de toutes les entrées pour vérifier si aucune n'est présente
 		NkVector<NkDirectoryEntry> entries = GetEntries(path);
 		return entries.Empty();
+	}
+
+	// =============================================================================
+	//  « En contient-il au moins un ? » -- arret au premier
+	// =============================================================================
+	// Meme idiome que `GetEntries` (API LARGE sur Windows, `opendir` ailleurs), mais
+	// SANS vecteur, SANS conversion de nom et SANS metadonnees : on veut un fait, pas
+	// une liste. Sur Windows l'API large est conservee bien qu'on ne lise pas les noms
+	// en UTF-8 -- l'API ANSI peut PERDRE des entrees dont le nom sort de la page de
+	// code, et un dossier declare vide a tort est precisement le defaut a eviter.
+	NkDirectory::NkDirProbe NkDirectory::Probe(const char *path, bool directoriesOnly, bool skipHidden) {
+		if (!path || !*path) {
+			return NkDirProbe::Illisible;
+		}
+
+#ifdef _WIN32
+		const NkString searchPathU8 = NkString(path) + "\\*";
+		wchar_t wsearch[2048];
+		if (MultiByteToWideChar(CP_UTF8, 0, searchPathU8.CStr(), -1, wsearch, 2048) <= 0) {
+			return NkDirProbe::Illisible;
+		}
+		WIN32_FIND_DATAW findData;
+		HANDLE hFind = FindFirstFileW(wsearch, &findData);
+		if (hFind == INVALID_HANDLE_VALUE) {
+			// ⚠️ ACCES REFUSE N'EST PAS VIDE. C'est tout l'objet du troisieme etat.
+			return NkDirProbe::Illisible;
+		}
+
+		NkDirProbe verdict = NkDirProbe::Vide;
+		do {
+			if (findData.cFileName[0] == L'.' &&
+				(findData.cFileName[1] == L'\0' || (findData.cFileName[1] == L'.' && findData.cFileName[2] == L'\0'))) {
+				continue;
+			}
+			if (skipHidden) {
+				if (findData.cFileName[0] == L'.') {
+					continue;
+				}
+				if ((findData.dwFileAttributes & (FILE_ATTRIBUTE_HIDDEN | FILE_ATTRIBUTE_SYSTEM)) != 0) {
+					continue;
+				}
+			}
+			if (directoriesOnly && (findData.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) == 0) {
+				continue;
+			}
+			// LE PREMIER SUFFIT : on ferme et on rend. C'est la raison d'etre de cette
+			// fonction -- ne pas payer l'enumeration complete pour une reponse binaire.
+			verdict = NkDirProbe::Plein;
+			break;
+		} while (FindNextFileW(hFind, &findData));
+
+		FindClose(hFind);
+		return verdict;
+#else
+		DIR *dir = opendir(path);
+		if (!dir) {
+			return NkDirProbe::Illisible;
+		}
+
+		NkDirProbe verdict = NkDirProbe::Vide;
+		struct dirent *entry = nullptr;
+		while ((entry = readdir(dir)) != nullptr) {
+			if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0) {
+				continue;
+			}
+			if (skipHidden && entry->d_name[0] == '.') {
+				continue;
+			}
+			if (directoriesOnly) {
+				// `d_type` evite un `stat` quand le systeme de fichiers le renseigne ;
+				// sinon on paie le `stat`, mais pour UNE entree a la fois, et on s'arrete
+				// des la premiere qui compte.
+				bool isDir = false;
+#ifdef DT_DIR
+				if (entry->d_type != DT_UNKNOWN) {
+					isDir = entry->d_type == DT_DIR;
+				} else
+#endif
+				{
+					NkString full = NkString(path) + "/" + entry->d_name;
+					struct stat st;
+					isDir = stat(full.CStr(), &st) == 0 && S_ISDIR(st.st_mode);
+				}
+				if (!isDir) {
+					continue;
+				}
+			}
+			verdict = NkDirProbe::Plein;
+			break;
+		}
+
+		closedir(dir);
+		return verdict;
+#endif
 	}
 
 	bool NkDirectory::Empty(const NkPath &path) {
@@ -807,7 +902,73 @@ namespace nkentseu {
 		return NkPath();
 	}
 
-	NkPath NkDirectory::GetAppDataDirectory() {
+	// ── LES DOSSIERS DE L'UTILISATEUR, LUS DU SYSTEME (2026-09-05) ──────────────
+// Un chemin VIDE quand le systeme ne le connait pas : inventer un nom anglais
+// sous le profil marcherait sur une machine anglaise et mentirait sur les autres.
+NkPath NkDirectory::GetUserFolder(NkUserFolder which) {
+#ifdef _WIN32
+	int csidl = -1;
+	switch (which) {
+		case NkUserFolder::Desktop: csidl = CSIDL_DESKTOPDIRECTORY; break;
+		case NkUserFolder::Documents: csidl = CSIDL_PERSONAL; break;
+		case NkUserFolder::Pictures: csidl = CSIDL_MYPICTURES; break;
+		case NkUserFolder::Music: csidl = CSIDL_MYMUSIC; break;
+		case NkUserFolder::Videos: csidl = CSIDL_MYVIDEO; break;
+		default: break; // Downloads : pas de CSIDL, voir plus bas
+	}
+	char path[MAX_PATH];
+	if (csidl >= 0 && SHGetFolderPathA(NULL, csidl, NULL, 0, path) == S_OK && Exists(path))
+		return NkPath(path);
+	if (which == NkUserFolder::Downloads) {
+		// ⚠️ Windows n'a pas de CSIDL pour « Telechargements » (il n'existe que sous
+		//    la forme d'un KNOWNFOLDERID, qui demanderait ole32 pour liberer le
+		//    resultat). On le cherche sous le profil : un dossier DEPLACE ne sera
+		//    donc pas trouve, et on rend vide plutot qu'un chemin faux.
+		if (SHGetFolderPathA(NULL, CSIDL_PROFILE, NULL, 0, path) == S_OK) {
+			const NkPath p = NkPath(path) / "Downloads";
+			if (Exists(p))
+				return p;
+		}
+	}
+	return NkPath();
+#else
+	static const char *kXdg[] = {"XDG_DESKTOP_DIR", "XDG_DOCUMENTS_DIR", "XDG_DOWNLOAD_DIR",
+				"XDG_PICTURES_DIR", "XDG_MUSIC_DIR", "XDG_VIDEOS_DIR"};
+	static const char *kNoms[] = {"Desktop", "Documents", "Downloads", "Pictures", "Music", "Videos"};
+	const int i = (int)which;
+	if (i < 0 || i >= (int)NkUserFolder::Count)
+		return NkPath();
+	const NkPath home = GetHomeDirectory();
+	// La specification XDG : `~/.config/user-dirs.dirs`, lignes
+	// `XDG_DESKTOP_DIR="$HOME/Bureau"`. C'est LA source sur un Linux localise.
+	const NkPath conf = home / ".config" / "user-dirs.dirs";
+	if (NkFile::Exists(conf)) {
+		const NkString txt = NkFile::ReadAllText(conf);
+		const char *d = txt.CStr();
+		const char *cle = kXdg[i];
+		for (const char *p = d; p && *p;) {
+			const char *fin = strchr(p, '\n');
+			const size_t n = fin ? (size_t)(fin - p) : strlen(p);
+			if (n > strlen(cle) && strncmp(p, cle, strlen(cle)) == 0) {
+				const char *g = (const char *)memchr(p, '"', n);
+				const char *dr = g ? (const char *)memchr(g + 1, '"', n - (size_t)(g + 1 - p)) : nullptr;
+				if (g && dr) {
+					NkString v(g + 1, (nkentseu::usize)(dr - g - 1));
+					if (v.StartsWith("$HOME"))
+						v = home.ToString() + v.SubString(5);
+					if (Exists(v.CStr()))
+						return NkPath(v);
+				}
+			}
+			p = fin ? fin + 1 : nullptr;
+		}
+	}
+	const NkPath p = home / kNoms[i];
+	return Exists(p) ? p : NkPath();
+#endif
+}
+
+NkPath NkDirectory::GetAppDataDirectory() {
 #ifdef _WIN32
 		// Windows : CSIDL_APPDATA pointe vers %APPDATA% (Roaming)
 		char path[MAX_PATH];
