@@ -117,9 +117,33 @@ namespace nkentseu {
 
 			/// Comparaison de tri : dossiers d'abord, puis nom (ASCII, sans casse).
 			/// Rend vrai si `a` passe AVANT `b` en ordre croissant.
-			bool SortBefore(const NkAssetEntry &a, const NkAssetEntry &b) {
+			// ⑤ (05/09, nuit) LE TRI SUIT SA CLE : nom, date, taille, type.
+			// ⚠️ LES DOSSIERS D'ABORD, QUELLE QUE SOIT LA CLE. Trier par taille en
+			//    melangeant dossiers et fichiers mettrait tous les dossiers (taille 0) au
+			//    debut ou a la fin selon le sens -- ce qui ressemble a un tri correct et
+			//    n'en est pas un. La regle du navigateur historique tient.
+			// ⚠️ UN EGAL SE DEPARTAGE PAR LE NOM : sans ca, deux fichiers de meme taille
+			//    changeraient d'ordre a chaque relecture du dossier.
+			bool AvantParNom(const NkAssetEntry &a, const NkAssetEntry &b);
+			bool SortBefore(const NkAssetEntry &a, const NkAssetEntry &b, NkBrowserTri cle) {
 				if (a.isFolder != b.isFolder)
 					return a.isFolder;
+				if (cle == NkBrowserTri::Date && a.dateModif != b.dateModif)
+					return a.dateModif > b.dateModif; // le plus RECENT d'abord en « croissant »
+				if (cle == NkBrowserTri::Taille && a.taille != b.taille)
+					return a.taille > b.taille; // le plus GROS d'abord
+				if (cle == NkBrowserTri::Type) {
+					const char *ta = a.kindLabel ? a.kindLabel : "";
+					const char *tb = b.kindLabel ? b.kindLabel : "";
+					int32 c = 0;
+					for (; ta[c] && tb[c] && ta[c] == tb[c]; ++c) {}
+					if (ta[c] != tb[c])
+						return (unsigned char)ta[c] < (unsigned char)tb[c];
+				}
+				return AvantParNom(a, b);
+			}
+			
+			bool AvantParNom(const NkAssetEntry &a, const NkAssetEntry &b) {
 				const char *pa = Label(a), *pb = Label(b);
 				while (*pa && *pb) {
 					char ca = *pa, cb = *pb;
@@ -536,7 +560,8 @@ namespace nkentseu {
 					uint32 j = i;
 					while (j > 0) {
 						const bool before = SortBefore(m.entries[(uint32)v],
-													   m.entries[(uint32)vis[j - 1]]);
+													   m.entries[(uint32)vis[j - 1]],
+													   (NkBrowserTri)m.sortCle);
 						if (m.sortAsc ? !before : before)
 							break;
 						vis[j] = vis[j - 1];
@@ -676,12 +701,17 @@ namespace nkentseu {
 				p.Text({ix, ir.y, ir.w * 0.5f, ir.h}, cnt, s.textMuted);
 
 				// A droite : « Trier par : Nom » puis « Tout selectionner ».
+				// ⑤ debrayable : l'hote qui offre son propre combo eteint celui-ci.
+				const bool montrerTri = P("show_sort") > 0.5f;
 				const char *sortLbl = m.sortAsc ? "Trier par : Nom (a-z)" : "Trier par : Nom (z-a)";
 				const float32 sortW = p.TextWidth(sortLbl) + 2.f * pad;
-				NkPaintRect sortBtn{ir.x + ir.w - pad - sortW, ir.y, sortW, ir.h};
-				p.Text(sortBtn, sortLbl, s.textMuted, NkTextAlign::Center);
-				if (in.mousePressed && sortBtn.Contains(in.mouseX, in.mouseY))
-					m.sortAsc = !m.sortAsc;
+				NkPaintRect sortBtn{ir.x + ir.w - pad - (montrerTri ? sortW : 0.f), ir.y,
+									montrerTri ? sortW : 0.f, ir.h};
+				if (montrerTri) {
+					p.Text(sortBtn, sortLbl, s.textMuted, NkTextAlign::Center);
+					if (in.mousePressed && sortBtn.Contains(in.mouseX, in.mouseY))
+						m.sortAsc = !m.sortAsc;
+				}
 				// ④ (05/09) « Tout selectionner » SEULEMENT si la selection multiple a un
 				//    sens ici. Un dialogue « choisir UN dossier » qui propose de tout
 				//    selectionner promet une chose qu'il refusera ensuite.

@@ -96,6 +96,13 @@ namespace nkentseu {
 				// ⚠️ AJOUTE A LA FIN, et `Auto` vaut 0 : les consommateurs existants gardent
 				//    exactement le rendu d'avant (dossier ou fichier, selon `isFolder`).
 				uint8 icone = 0; ///< voir NkAssetIcone
+
+				// ⑤ (2026-09-05, nuit) DE QUOI TRIER PAR DATE ET PAR TAILLE. Le systeme de
+				// fichiers les donne deja (`NkDirectoryEntry::Size` / `ModificationTime`) :
+				// c'est l'entree qui ne les portait pas. Zero = inconnu, et un inconnu se
+				// range apres -- pas devant, ou il ferait croire au plus petit ou au plus vieux.
+				nk_int64 taille = 0;  ///< octets ; 0 pour un dossier
+				nk_int64 dateModif = 0; ///< epoch
 		};
 
 		// ── ②③ LES SILHOUETTES DESSINEES (2026-09-05, nuit) ────────────────────
@@ -195,6 +202,12 @@ namespace nkentseu {
 				/// passent toujours d'abord — la regle du navigateur historique.
 				bool sortAsc = true;
 
+				/// ⑤ (2026-09-05) LA CLE DE TRI. Ajoutee A LA FIN, et `Nom` vaut 0 : les
+				/// consommateurs existants trient exactement comme avant.
+				/// Les DOSSIERS passent toujours d'abord, quelle que soit la cle -- c'est la
+				/// regle du navigateur historique, et elle ne se discute pas par cle.
+				uint8 sortCle = 0; ///< voir NkBrowserTri
+
 				/// Texte de droite de la barre d'etat (« Sauvegarde », etc.) —
 				/// fourni par l'application, vide = rien.
 				NkString statusRight;
@@ -219,6 +232,10 @@ namespace nkentseu {
 					chosen.Clear();
 				}
 		};
+
+		// ── ⑤ LES CLES DE TRI (2026-09-05, nuit) ───────────────────────────
+		// Regle append-only : ces valeurs finissent dans des fichiers.
+		enum class NkBrowserTri : uint8 { Nom = 0, Date, Taille, Type, Count };
 
 		// ── LES VARIANTES ───────────────────────────────────────────────────────
 		// Directive de Rodolf du 2026-08-18. UN modele, N rendus. L'index
@@ -457,6 +474,10 @@ namespace nkentseu {
 				// le navigateur d'assets ne bouge pas.
 				{"show_select_all", "Bouton « Tout sélectionner »", NkParamKind::Bool, 1.f, 0.f, 0.f,
 				 nullptr, 0},
+				// ⑤ (05/09, nuit) L'hote qui offre SON combo de tri (le selecteur de
+				// fichiers) eteint celui-ci : deux commandes pour un reglage, c'est une
+				// de trop. Defaut 1 : le navigateur d'assets garde la sienne.
+				{"show_sort", "Bouton « Trier par »", NkParamKind::Bool, 1.f, 0.f, 0.f, nullptr, 0},
 			};
 			static const NkTokenDecl kTokens[] = {
 				{"panel_bg", "PanelBg", "fond du panneau"},

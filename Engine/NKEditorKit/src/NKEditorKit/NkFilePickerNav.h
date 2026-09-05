@@ -422,6 +422,36 @@ namespace nkentseu {
 					return NkAssetIcone::Inconnu;
 				}
 
+				/// ⑤ La comparaison par CLE de tri, avec le sens. Le nom departage toujours :
+				/// sans ca, deux fichiers de meme taille changeraient d'ordre a chaque lecture.
+				bool AvantApres(const NkString &na, nk_int64 ta, nk_int64 da, const NkString &nb,
+								nk_int64 tb, nk_int64 db) const {
+					bool avant;
+					switch ((NkBrowserTri)vue.sortCle) {
+						case NkBrowserTri::Taille:
+							if (ta != tb) { avant = ta > tb; break; }
+							avant = AvantParNom(na, nb);
+							break;
+						case NkBrowserTri::Date:
+							if (da != db) { avant = da > db; break; }
+							avant = AvantParNom(na, nb);
+							break;
+						case NkBrowserTri::Type: {
+							char ea[16], eb[16];
+							ExtDe(na.CStr(), ea, sizeof(ea));
+							ExtDe(nb.CStr(), eb, sizeof(eb));
+							const int32 c = NkComponentDecl::StrEq(ea, eb) ? 0 : 1;
+							if (c != 0) { avant = AvantParNom(NkString(ea), NkString(eb)); break; }
+							avant = AvantParNom(na, nb);
+							break;
+						}
+						default:
+							avant = AvantParNom(na, nb);
+							break;
+					}
+					return vue.sortAsc ? avant : !avant;
+				}
+				
 				void RelireDossier() {
 					relire = false;
 					// ⚠️ RETENU AVANT DE POUVOIR ECHOUER : un chemin illisible ne doit pas faire
@@ -436,6 +466,9 @@ namespace nkentseu {
 					NkVector<NkDirectoryEntry> e = NkDirectory::GetEntries(
 						NkPath(pickerPath), "*", NkSearchOption::NK_TOP_DIRECTORY_ONLY);
 					NkVector<NkString> dirs, files;
+					// ⑤ LA TAILLE ET LA DATE viennent du systeme (`NkDirectoryEntry`), et on les
+					//    retient PAR NOM : la liste est ensuite triee, donc l'index change.
+					NkVector<nk_int64> tailles, dates;
 					for (usize i = 0; i < e.Size(); ++i) {
 						const char *nm = e[i].Name.CStr();
 						if (!nm || !nm[0] || nm[0] == '.' || e[i].IsHidden)
@@ -448,17 +481,41 @@ namespace nkentseu {
 						// ⚠️ EN MODE DOSSIER, ON LISTE TOUT : voir ce qu'il y a aide a choisir ou
 						//    l'on va. Ces fichiers sont peints en teinte ATTENUEE (`roleFichier` que
 						//    l'hote pose plus sourd) et la confirmation continue de les refuser.
-						else if (pickerFor == PK_PickFolder || pickerFor == PK_Open || PasseLeFiltre(nm))
+						else if (pickerFor == PK_PickFolder || pickerFor == PK_Open || PasseLeFiltre(nm)) {
 							files.PushBack(e[i].Name);
+							tailles.PushBack(e[i].Size);
+							dates.PushBack(e[i].ModificationTime);
+						}
 					}
 					// Tri par insertion : les listes d'un dossier sont courtes, et une
 					// dependance de tri de plus ne se justifierait pas ici.
+					// ⚠️ LE TRI DEPLACE TROIS TABLEAUX EN MEME TEMPS (nom, taille, date) : les
+					//    trier separement les desynchroniserait, et un fichier porterait la taille
+					//    d'un autre. C'est le genre de defaut qu'on ne voit qu'a l'usage.
+					auto trierFichiers = [&]() {
+						for (uint32 i = 1; i < (uint32)files.Size(); ++i) {
+							NkString nomI = files[i];
+							const nk_int64 tI = i < (uint32)tailles.Size() ? tailles[i] : 0;
+							const nk_int64 dI = i < (uint32)dates.Size() ? dates[i] : 0;
+							int32 j = (int32)i - 1;
+							while (j >= 0 && AvantApres(nomI, tI, dI, files[(uint32)j],
+														   tailles[(uint32)j], dates[(uint32)j])) {
+								files[(uint32)j + 1] = files[(uint32)j];
+								tailles[(uint32)j + 1] = tailles[(uint32)j];
+								dates[(uint32)j + 1] = dates[(uint32)j];
+								--j;
+							}
+							files[(uint32)j + 1] = nomI;
+							tailles[(uint32)j + 1] = tI;
+							dates[(uint32)j + 1] = dI;
+						}
+					};
 					auto trier = [&](NkVector<NkString> &v) {
 						for (uint32 i = 1; i < (uint32)v.Size(); ++i) {
 							NkString cle = v[i];
 							int32 j = (int32)i - 1;
 							while (j >= 0 && (vue.sortAsc ? AvantParNom(cle, v[(uint32)j])
-														  : AvantParNom(v[(uint32)j], cle))) {
+															  : AvantParNom(v[(uint32)j], cle))) {
 								v[(uint32)j + 1] = v[(uint32)j];
 								--j;
 							}
@@ -466,7 +523,7 @@ namespace nkentseu {
 						}
 					};
 					trier(dirs);
-					trier(files);
+					trierFichiers();
 					// ⚠️ LES DOSSIERS D'ABORD, TOUJOURS — et meme en tri decroissant.
 					//    C'est la regle du navigateur historique, et la seule qui rende
 					//    un dossier atteignable sans defiler toute une liste d'images.
@@ -488,6 +545,12 @@ namespace nkentseu {
 						a.isFolder = false;
 						a.kindRole = roleFichier;
 						a.icone = (uint8)IconeFichier(files[i].CStr());
+						// ⑤ LA TAILLE ET LA DATE, POSEES SUR L'ENTREE. Elles etaient lues du systeme
+						//    et rangees a cote, mais jamais recopiees ici : le tri par taille tombait
+						//    en repli sur le nom et PASSAIT PAR HASARD. La sonde l'a vu parce qu'elle
+						//    imprime les octets au lieu de croire l'ordre.
+						a.taille = i < (uint32)tailles.Size() ? tailles[i] : 0;
+						a.dateModif = i < (uint32)dates.Size() ? dates[i] : 0;
 						char ext[16];
 						ExtDe(files[i].CStr(), ext, sizeof(ext));
 						mExts.PushBack(NkString(ext));
@@ -832,6 +895,11 @@ namespace nkentseu {
 			}
 			// « Tout selectionner » n'a de sens que la ou plusieurs objets peuvent l'etre.
 			inst.SetParam("show_select_all", selectionMultiple ? 1.f : 0.f);
+			// ⑤ (05/09, nuit) LE DIALOGUE OFFRE SON PROPRE COMBO DE TRI (nom, date,
+			//    taille, type, avec le sens) : celui du navigateur -- un simple texte qui
+			//    bascule a-z / z-a sur le seul nom -- se tait. Deux commandes pour un
+			//    reglage, c'est une de trop, et la moins capable gagnerait au clic.
+			inst.SetParam("show_sort", 0.f);
 			return inst;
 		}
 
@@ -1162,6 +1230,35 @@ namespace nkentseu {
 				}
 				NkOverlayTextField(ctx, dl, f, r, fp.pickerSaveName, (int32)sizeof(fp.pickerSaveName),
 								   fp.pickerSaveFocus);
+			}
+			// ⑤ LE COMBO DE TRI : la cle a gauche, le SENS a droite. Deux commandes, parce
+			//    que « Date (recent) » et « Date (ancien) » dans une meme liste ferait huit
+			//    entrees pour quatre choix -- et obligerait a relire le libelle pour savoir
+			//    dans quel sens on est.
+			{
+				static const char *const kCles[4] = {"Nom", "Date", "Taille", "Type"};
+				const NkRect rt = {cx, G.annuler.y, 190.f * S, G.annuler.h};
+				const int32 ct = deroulant(rt, "Trier par : ", kCles, 4, (int32)fp.vue.sortCle, 2,
+											  fp.menuOuvert);
+				if (ct >= 0 && (uint8)ct != fp.vue.sortCle) {
+					fp.vue.sortCle = (uint8)ct;
+					fp.relire = true;
+				}
+				// LE SENS : une fleche dessinee, jamais un caractere de police.
+				const NkRect rs = {cx + 196.f * S, G.annuler.y, G.annuler.h, G.annuler.h};
+				if (sbtn(rs, "")) {
+					fp.vue.sortAsc = !fp.vue.sortAsc;
+					fp.relire = true;
+				}
+				{
+					const float32 mx3 = rs.x + rs.w * 0.5f, my3 = rs.y + rs.h * 0.5f;
+					const float32 d = fp.vue.sortAsc ? 1.f : -1.f;
+					dl.AddLine({mx3, my3 - 5.f * S * d}, {mx3, my3 + 5.f * S * d}, sty.cadre.text, 1.4f);
+					dl.AddLine({mx3 - 4.f * S, my3 + 1.f * S * d}, {mx3, my3 + 5.f * S * d},
+							   sty.cadre.text, 1.4f);
+					dl.AddLine({mx3 + 4.f * S, my3 + 1.f * S * d}, {mx3, my3 + 5.f * S * d},
+							   sty.cadre.text, 1.4f);
+				}
 			}
 			// ⑥ LE COMBO DE FILTRE, a gauche de la barre d'action -- la ou Windows le met.
 			//    Affiche des qu'il y a DEUX groupes : un seul choix n'est pas un choix.

@@ -11583,8 +11583,16 @@ namespace nkuidesign {
 					&& sTout == 0u && sSelAll == 0u;
 			// C. ...MAIS IL MONTRE ENCORE CE QU'IL DOIT : les fichiers et le tri.
 			//    « Tout se tait » serait un succes a vide.
+			// ⚠️ MIS A JOUR (05/09, nuit) : ce terme exigeait aussi « Trier par : Nom (a-z) ».
+			//    Depuis (5), ce bouton se TAIT dans un dialogue -- le selecteur offre son
+			//    propre combo (nom, date, taille, type, avec le sens), et deux commandes
+			//    pour un reglage en font une de trop. L'anti-vacuite tient toujours : le
+			//    dialogue montre SES FICHIERS, ce qui suffit a prouver qu'il n'a pas tout tu.
 			const bool montreEncore = textesDe(rSave, "un.png") == 1u
-					&& textesDe(rSave, "Trier par : Nom (a-z)") == 1u;
+					&& textesDe(rSave, "deux.png") == 1u;
+			// ET LE TRI DU NAVIGATEUR EST BIEN ETEINT dans le dialogue, allume ailleurs.
+			const bool triEteint = textesDe(rSave, "Trier par : Nom (a-z)") == 0u
+					&& textesDe(rAsset, "Trier par : Nom (a-z)") == 1u;
 			// D. EN OUVERTURE DE FICHIER, « Tout selectionner » REVIENT : le parametre suit le
 			//    mode, il n'est pas eteint une fois pour toutes.
 			NkContentBrowserStyle sOuvrir = DemoStyle(nullptr);
@@ -11599,16 +11607,16 @@ namespace nkuidesign {
 				"« Importer » %u, « Tout enregistrer » %u, « Tout s\u00e9lectionner » %u -> %d ; DIALOGUE "
 				"(enregistrer / choisir un dossier) : %u / %u / %u / %u / %u -> %d ; il montre encore "
 				"les fichiers et le tri=%d ; OUVERTURE DE FICHIER : « Tout s\u00e9lectionner » %u, « Cr\u00e9er » "
-				"%u -> %d",
+				"%u -> %d ; tri du navigateur eteint dans le dialogue, allume ailleurs=%d",
 				aContenu, aCreer, aImporter, aTout, aSelAll, assetGardeTout ? 1 : 0, sContenu, sCreer,
 				sImporter, sTout, sSelAll, dialogueMuet ? 1 : 0, montreEncore ? 1 : 0, oSelAll, oCreer,
-				suitLeMode ? 1 : 0);
+				suitLeMode ? 1 : 0, triEteint ? 1 : 0);
 			check("101. ④ LE DIALOGUE NE MONTRE QUE CE QUE SON MODE EXIGE : ni bande « Contenu », ni « Cr\u00e9er / Importer / "
 				"Tout enregistrer », ni « Tout s\u00e9lectionner » dans un dialogue d'enregistrement ou de choix de dossier -- "
 				"il proposait des actions qu'il ne ferait pas ; le NAVIGATEUR D'ASSETS les garde tous (controle positif, "
 				"sans quoi « rien n'est affiche » passerait pour un succes), le dialogue montre TOUJOURS ses fichiers et "
 				"son tri, et « Tout s\u00e9lectionner » REVIENT en ouverture de fichier -- le parametre suit le mode",
-				assetGardeTout && dialogueMuet && montreEncore && suitLeMode, det);
+				assetGardeTout && dialogueMuet && montreEncore && suitLeMode && triEteint, det);
 		}
 		// ── 102. ⑤ LE RESULTAT EXPORTE SE VOIT (05/09, soir). Rodolf : « je pourrais vraiment
 		//    avoir le resultat exporte une fois le dialogue traite. » Le pied de fenetre disait
@@ -12668,6 +12676,95 @@ namespace nkuidesign {
 				"extension unique continue de fonctionner pour les appelants existants",
 				troisListages && dossiersPartout && dossierVoitTout && legacyOk, det);
 			NkDirectory::Delete("sonde_filtres", true);
+		}
+		// ── 114. ⑤ LE TRI : NOM, DATE, TAILLE, TYPE, DANS LES DEUX SENS (05/09, nuit).
+		//    Rodolf : « pour trier je prefere que ce soit un combobox ». Le tri par date et
+		//    par taille etaient « nommes, non faits » depuis deux lots : ils le deviennent,
+		//    parce que le systeme de fichiers donne deja `Size` et `ModificationTime` --
+		//    c'est l'entree du navigateur qui ne les portait pas.
+		{
+			char det[880];
+			NkDirectory::Delete("sonde_tri", true);
+			NkDirectory::CreateRecursive("sonde_tri/zz_dossier");
+			// des tailles VOLONTAIREMENT dans l'ordre inverse des noms : un tri par nom qui
+			// se ferait passer pour un tri par taille se verrait immediatement.
+			NkFile::WriteAllText("sonde_tri/aaa.txt", "1");
+			NkFile::WriteAllText("sonde_tri/bbb.png", "1234567890");
+			NkFile::WriteAllText("sonde_tri/ccc.svg", "123456789012345678901234567890");
+			const NkString base114 = (NkPath(NkDirectory::GetCurrentDirectory()) / "sonde_tri").ToString();
+			auto lister = [&](uint8 cle, bool asc, char *out, usize cap) {
+				editorkit::NkFilePickerNavState n;
+				char b[512] = {};
+				n.OpenPickerBase(editorkit::NkSelecteurOuvrirFichier, base114.Data(), b,
+					 (int32)sizeof(b), nullptr, nullptr);
+				n.vue.sortCle = cle;
+				n.vue.sortAsc = asc;
+				n.relire = true;
+				n.RelireDossier();
+				out[0] = '\0';
+				for (uint32 i = 0; i < (uint32)n.vue.entries.Size(); ++i) {
+					const usize k = NkString(out).Length();
+					snprintf(out + k, cap - k, "%s%s", k ? " " : "", n.vue.entries[i].name.Data());
+				}
+			};
+			char parNom[160], parNomD[160], parTaille[160], parDate[160], parType[160];
+			lister((uint8)editorkit::NkBrowserTri::Nom, true, parNom, sizeof(parNom));
+			lister((uint8)editorkit::NkBrowserTri::Nom, false, parNomD, sizeof(parNomD));
+			lister((uint8)editorkit::NkBrowserTri::Taille, true, parTaille, sizeof(parTaille));
+			lister((uint8)editorkit::NkBrowserTri::Date, true, parDate, sizeof(parDate));
+			lister((uint8)editorkit::NkBrowserTri::Type, true, parType, sizeof(parType));
+			// 1. LE DOSSIER EST TOUJOURS EN TETE, quelle que soit la cle et le sens.
+			//    ⚠️ Il s'appelle `zz_dossier` : en tri par nom decroissant comme en tri par
+			//       taille, un dossier mal traite se retrouverait ailleurs.
+			const bool dossierEnTete = NkString(parNom).StartsWith("zz_dossier")
+					&& NkString(parNomD).StartsWith("zz_dossier")
+					&& NkString(parTaille).StartsWith("zz_dossier")
+					&& NkString(parDate).StartsWith("zz_dossier")
+					&& NkString(parType).StartsWith("zz_dossier");
+			// 2. LE NOM : croissant puis decroissant, et les deux DIFFERENT
+			const bool nomOk = NkComponentDecl::StrEq(parNom, "zz_dossier aaa.txt bbb.png ccc.svg")
+					&& NkComponentDecl::StrEq(parNomD, "zz_dossier ccc.svg bbb.png aaa.txt");
+			// 3. LA TAILLE : le plus gros d'abord -- et c'est l'INVERSE de l'ordre des noms,
+			//    donc un tri par nom deguise se verrait.
+			const bool tailleOk = NkComponentDecl::StrEq(parTaille, "zz_dossier ccc.svg bbb.png aaa.txt")
+					&& !NkComponentDecl::StrEq(parTaille, parNom);
+			// 4. LE TYPE : par extension (png, svg, txt)
+			const bool typeOk = NkComponentDecl::StrEq(parType, "zz_dossier bbb.png ccc.svg aaa.txt");
+			// 5. LA DATE existe et ne plante pas ; les trois fichiers viennent d'etre ecrits,
+			//    donc l'ordre peut etre quelconque -- on verifie seulement qu'ils y sont tous.
+			const bool dateOk = NkString(parDate).Contains("aaa.txt") && NkString(parDate).Contains("bbb.png")
+					&& NkString(parDate).Contains("ccc.svg");
+			// 6. LES TAILLES SONT VRAIMENT LUES (30, 10, 1 octets) -- sans ca, un tri par
+			//    taille sur des zeros donnerait l'ordre des noms et passerait par hasard.
+			int64 t1 = 0, t2 = 0, t3 = 0;
+			{
+				editorkit::NkFilePickerNavState n;
+				char b[512] = {};
+				n.OpenPickerBase(editorkit::NkSelecteurOuvrirFichier, base114.Data(), b,
+					 (int32)sizeof(b), nullptr, nullptr);
+				n.vue.sortCle = (uint8)editorkit::NkBrowserTri::Taille;
+				n.relire = true;
+				n.RelireDossier();
+				if ((uint32)n.vue.entries.Size() >= 4u) {
+					t1 = n.vue.entries[1].taille;
+					t2 = n.vue.entries[2].taille;
+					t3 = n.vue.entries[3].taille;
+				}
+			}
+			const bool taillesLues = t1 > t2 && t2 > t3 && t3 > 0;
+			snprintf(det, sizeof(det),
+				"nom ↗ : %s ; nom ↘ : %s ; taille : %s ; type : %s ; dossier toujours en tete=%d ; nom=%d ; "
+				"taille=%d (octets lus %lld > %lld > %lld -> %d) ; type=%d ; date complete=%d",
+				parNom, parNomD, parTaille, parType, dossierEnTete ? 1 : 0, nomOk ? 1 : 0, tailleOk ? 1 : 0,
+				(long long)t1, (long long)t2, (long long)t3, taillesLues ? 1 : 0, typeOk ? 1 : 0,
+				dateOk ? 1 : 0);
+			check("114. ⑤ LE TRI PAR NOM, DATE, TAILLE ET TYPE, DANS LES DEUX SENS : le tri par date et par taille etaient "
+				"« nommes, non faits » -- le systeme de fichiers donnait deja `Size` et `ModificationTime`, c'est l'entree "
+				"du navigateur qui ne les portait pas ; les tailles sont REELLEMENT lues (30 > 10 > 1 octets, l'inverse de "
+				"l'ordre des noms, si bien qu'un tri par nom deguise se verrait) ; et LE DOSSIER reste en tete quelle que "
+				"soit la cle et le sens",
+				dossierEnTete && nomOk && tailleOk && typeOk && dateOk && taillesLues, det);
+			NkDirectory::Delete("sonde_tri", true);
 		}
 		snprintf(tail, sizeof(tail), "\n=== RESULTAT : %d / %d ===\n", pass, total);
 		rep.Append(tail);
