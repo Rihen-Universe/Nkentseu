@@ -1085,6 +1085,17 @@ namespace nkentseu {
 		if (name == "imageAtomicAdd" && call->args.Size() >= 3)
 			return "InterlockedAdd(" + GenExpr(call->args[0]) + "[" + GenExpr(call->args[1]) + "], " +
 				   GenExpr(call->args[2]) + ")";
+		// Atomiques sur tampon (2026-09-05) : forme Interlocked* a deux arguments -- SANS valeur de retour
+		// (la forme a trois arguments est une instruction, pas une expression) : un `uint old = atomicAdd(...)`
+		// n'est pas honore par CE generateur natif, dit ; le chemin GLSL -> SPIR-V -> SPIRV-Cross l'honore.
+		if ((name == "atomicAdd" || name == "atomicMin" || name == "atomicMax" || name == "atomicAnd" ||
+			 name == "atomicOr" || name == "atomicXor" || name == "atomicExchange") && call->args.Size() >= 2) {
+			NkString op = NkString("Interlocked") + NkString(name.CStr() + 6);
+			return op + "(" + GenExpr(call->args[0]) + ", " + GenExpr(call->args[1]) + ")";
+		}
+		if (name == "atomicCompSwap" && call->args.Size() >= 3)
+			return "InterlockedCompareStore(" + GenExpr(call->args[0]) + ", " + GenExpr(call->args[1]) + ", " +
+				   GenExpr(call->args[2]) + ")";
 
 		// CONVENTION MATRICE constructeur (cf. NkSLCodeGenHLSLDX12) : GLSL `matN(c0,c1,…)`
 		// prend les COLONNES, HLSL `floatNxN(r0,r1,…)` prend les LIGNES. Un constructeur

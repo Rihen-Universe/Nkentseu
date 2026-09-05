@@ -16,6 +16,7 @@
 #include "NKPhysics/NkVehicle.h"          // sonde VEHICULE (NK_VEHICLE_PROBE=1)
 #include <cstdlib>
 #include <cstring>
+#include "NKRenderer/Tools/VFX/NkGpuAtomicWitness.h" // temoin des atomiques NkSL (2026-09-05)
 #include <cstdio>
 #include "DemoCommon.h"
 #include "NKWindow/Core/NkWESystem.h" // NkEvents()
@@ -2213,6 +2214,21 @@ static NkTexHandle CreateLanternCubeCookie(NkTextureLibrary *texLib, NkIDevice *
 				f.axis = {0.f, 1.f, 0.f};
 				f.radius = 0.5f;
 			};
+			// NK_ATOMIC_TEST=1 : les atomiques sur tampon de NkSL, comptes sur le device courant (2026-09-05)
+			if (const char *at = std::getenv("NK_ATOMIC_TEST"); at && at[0] == '1') {
+				const uint32 N = 1048576u;
+				for (int mut = 0; mut < 2; ++mut) {
+					const NkGpuAtomicResult r = NkGpuAtomicWitness(ctx.renderer->GetDevice(), N, mut == 1);
+					if (!r.ran)
+						std::fprintf(stderr, "[ATOMIQUE TEMOIN] %s : n'a pas tourne (%s)\n", mut ? "mutation (+=)" : "atomicAdd", r.why);
+					else if (mut == 0)
+						std::fprintf(stderr, "[ATOMIQUE TEMOIN] atomicAdd depuis %u invocations : %u ; atomicMax : %u -> %s\n", N, r.add, r.max,
+									 (r.add == N && r.max == N - 1) ? "OK (compte exact)" : "ECHEC");
+					else
+						std::fprintf(stderr, "[ATOMIQUE TEMOIN] mutation (+= ordinaire) depuis %u invocations : %u ; max %u -> %s\n", N, r.add, r.max,
+									 (r.add != N) ? "ROUGE comme attendu (le banc discrimine)" : "ECHEC DU BANC : le compte est juste sans atomique");
+				}
+			}
 			// NK_WIND_TEST=1 : la divergence discrete du bruit de curl contre celle de la turbulence (controle negatif)
 			if (const char *wt = std::getenv("NK_WIND_TEST"); wt && wt[0] == '1') {
 				for (int kind = 0; kind < 2; ++kind) {
