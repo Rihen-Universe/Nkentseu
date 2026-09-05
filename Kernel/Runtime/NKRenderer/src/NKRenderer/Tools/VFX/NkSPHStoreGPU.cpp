@@ -54,7 +54,7 @@ namespace nkentseu {
     float size; uint color; uint pad0; uint pad1;
 } p;
 @binding(set=0, binding=13) uniform Sort { uint j; uint k; uint which; uint n; } q;
-@binding(set=0, binding=15) uniform Field { vec4 f0; vec4 f1; vec4 f2; } wf;
+@binding(set=0, binding=15) uniform Field { vec4 f0; vec4 f1; vec4 f2; vec4 f3; } wf;
 layout(local_size_x = 256) in;
 
 float kW(float r) {
@@ -868,10 +868,10 @@ void main() {
 				mBirths = device->CreateBuffer(bb);
 				mUbo = device->CreateBuffer(NkBufferDesc::Uniform(sizeof(Params)));
 				mSortUbo = device->CreateBuffer(NkBufferDesc::Uniform(sizeof(SortParams)));
-				mFieldUbo = device->CreateBuffer(NkBufferDesc::Uniform(48));
+				mFieldUbo = device->CreateBuffer(NkBufferDesc::Uniform(64));
 				{
-					NkVec4f fw[3] = {{0.f, 0.f, 0.f, 0.f}, {0.f, 0.f, 0.f, 0.f}, {0.f, 0.f, 0.f, 0.f}};
-					device->WriteBuffer(mFieldUbo, fw, 48);
+					NkVec4f fw[4] = {{0.f, 0.f, 0.f, 0.f}, {0.f, 0.f, 0.f, 0.f}, {0.f, 0.f, 0.f, 0.f}, {0.f, 0.f, 0.f, 0.f}};
+					device->WriteBuffer(mFieldUbo, fw, 64);
 				}
 			}
 			NkBufferHandle *all[] = {&mX, &mV, &mKV, &mGKV, &mFSE, &mGSE, &mFL, &mT, &mRed, &mInstances, &mBirths, &mUbo, &mSortUbo, &mNB, &mFieldUbo, &mCC, &mCF, &mPK};
@@ -1233,9 +1233,9 @@ void main() {
 			const NkSPHParams &pr = mOwner->params;
 			mTime += dt;
 			{
-				NkVec4f fw[3];
-				NkPackForceField(desc.field, mTime, fw[0], fw[1], fw[2]);
-				mDevice->WriteBuffer(mFieldUbo, fw, 48);
+				NkVec4f fw[4];
+				NkPackForceField(desc.field, mTime, pr.Mass(), fw[0], fw[1], fw[2], fw[3]); // le SPH divise par SA masse calibree
+				mDevice->WriteBuffer(mFieldUbo, fw, 64);
 			}
 			// horloge des vies : les mortes rendent leur emplacement et sont dites au GPU
 			for (uint32 i = 0; i < mCapacity; ++i) {

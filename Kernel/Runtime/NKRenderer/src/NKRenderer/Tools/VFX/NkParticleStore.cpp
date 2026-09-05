@@ -85,7 +85,8 @@ namespace nkentseu {
 				// rotation, couleur, taille -- les memes formules qu'avant.
 				const NkVec3f g = desc.gravity;
 				mTime += dt;
-				const bool wind = desc.field.type != NkForceFieldType::NONE; // le vent s'ajoute à la gravité (2026-09-05)
+				const bool wind = desc.field.type != NkForceFieldType::NONE; // le vent (newtons) / masse s'ajoute à la gravité (2026-09-05)
+				const float32 invMass = desc.particleMass > 1e-12f ? 1.f / desc.particleMass : 0.f;
 				for (uint32 i = 0; i < capacity; ++i) {
 					if (!A[i])
 						continue;
@@ -98,9 +99,9 @@ namespace nkentseu {
 					NkVec3f a = g;
 					if (wind) {
 						const NkVec3f w = NkEvalForceField(desc.field, P[i], mTime);
-						a.x += w.x;
-						a.y += w.y;
-						a.z += w.z;
+						a.x += w.x * invMass;
+						a.y += w.y * invMass;
+						a.z += w.z * invMass;
 					}
 					V[i].x += a.x * dt;
 					V[i].y += a.y * dt;

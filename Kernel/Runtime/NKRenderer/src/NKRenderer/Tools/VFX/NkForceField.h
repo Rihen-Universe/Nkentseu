@@ -7,7 +7,10 @@
 // cheveux, herbe. Il vit sur l'émetteur (NkEmitterDesc::field) et s'ajoute à la gravité
 // comme une ACCÉLÉRATION (force par unité de masse), là où la gravité est ajoutée.
 //
-// Quatre formes : UNIFORM (a = dir · strength), VORTEX (tangentiel autour d'un axe,
+// CONTRAT (05/09, tranché par délégation) : le champ rend des NEWTONS sur une particule ponctuelle ;
+// CHAQUE CONSOMMATEUR DIVISE PAR LA MASSE DE SA PARTICULE (NkEmitterDesc::particleMass, explicite ;
+// le SPH : sa masse calibrée Mass()). `strength` est donc une force (N), pas une accélération.
+// Quatre formes : UNIFORM (F = dir · strength), VORTEX (tangentiel autour d'un axe,
 // plein jusqu'au rayon puis décroissant en 1/r), TURBULENCE (bruit de valeur 3D, trois
 // canaux), CURL (rotationnel d'un potentiel de bruit — à divergence nulle par
 // construction : Bridson, Hourihan, Nordenstam, « Curl-Noise for Procedural Fluid Flow »,
@@ -28,24 +31,20 @@ namespace nkentseu {
 		struct NkForceField;
 		inline NkVec3f NkEvalForceField(const NkForceField &f, NkVec3f pos, float32 t);
 
-		// Le champ EST un math::NkIForceField (2026-09-05) : le tissu, les cheveux et l'herbe le lisent par ce
-		// contrat (Force en newtons sur une particule ponctuelle), les particules et le SPH par NkEvalForceField
-		// (une accélération). Le pont : Force = accélération x forceScale, forceScale = 1 kg par défaut -- une
-		// convention, dite ici : le vent de ce champ est une accélération, le contrat demande des newtons.
+		// Le champ EST un math::NkIForceField (2026-09-05) : tissu, cheveux, herbe, particules et SPH lisent la
+		// MÊME chose -- une force en newtons -- et chacun divise par la masse de sa particule.
 		struct NkForceField : public math::NkIForceField {
 				NkForceFieldType type = NkForceFieldType::NONE;
-				float32 strength = 0.f;			   // accélération (m/s²) pour UNIFORM/VORTEX ; amplitude pour les bruits
+				float32 strength = 0.f;			   // force (N) pour UNIFORM/VORTEX ; amplitude (N) pour les bruits
 				NkVec3f direction = {1.f, 0.f, 0.f}; // UNIFORM : direction ; VORTEX : centre
 				NkVec3f axis = {0.f, 1.f, 0.f};		   // VORTEX : axe
 				float32 radius = 1.f;				   // VORTEX : rayon du noyau plein
 				float32 frequency = 1.f;			   // bruits : fréquence spatiale (1/m)
 				float32 seed = 0.f;					   // bruits : graine
 				float32 speed = 0.f;				   // bruits : dérive temporelle (le bruit avance de speed · t)
-				float32 forceScale = 1.f;			   // newtons par (m/s²) pour le contrat NkIForceField (1 kg)
 
 				NkVec3f Force(const NkVec3f &position, float32 time) const override {
-					const NkVec3f a = NkEvalForceField(*this, position, time);
-					return {a.x * forceScale, a.y * forceScale, a.z * forceScale};
+					return NkEvalForceField(*this, position, time); // newtons
 				}
 		};
 
@@ -91,7 +90,7 @@ namespace nkentseu {
 			}
 		} // namespace forcefield
 
-		// L'accélération du champ en `pos` à l'instant `t`.
+		// La FORCE (N) du champ en `pos` à l'instant `t` ; le consommateur divise par sa masse.
 		inline NkVec3f NkEvalForceField(const NkForceField &f, NkVec3f pos, float32 t) {
 			switch (f.type) {
 				case NkForceFieldType::UNIFORM:
@@ -124,16 +123,19 @@ namespace nkentseu {
 			}
 		}
 
-		// Les trois vec4 que les noyaux lisent (même encodage pour les deux stockages GPU) :
-		// f0 = (type, strength, frequency, speed·t) ; f1 = (direction/centre xyz, radius) ; f2 = (axis xyz, seed)
-		inline void NkPackForceField(const NkForceField &f, float32 t, NkVec4f &f0, NkVec4f &f1, NkVec4f &f2) {
+		// Les quatre vec4 que les noyaux lisent (même encodage pour les deux stockages GPU) :
+		// f0 = (type, strength, frequency, speed·t) ; f1 = (direction/centre xyz, radius) ; f2 = (axis xyz, seed) ;
+		// f3 = (1/masse de la particule du consommateur, 0, 0, 0) -- le noyau multiplie la force par f3.x.
+		inline void NkPackForceField(const NkForceField &f, float32 t, float32 particleMass, NkVec4f &f0, NkVec4f &f1,
+									 NkVec4f &f2, NkVec4f &f3) {
 			f0 = {(float32)(uint8)f.type, f.strength, f.frequency, f.speed * t};
 			f1 = {f.direction.x, f.direction.y, f.direction.z, f.radius};
 			f2 = {f.axis.x, f.axis.y, f.axis.z, f.seed};
+			f3 = {particleMass > 1e-12f ? 1.f / particleMass : 0.f, 0.f, 0.f, 0.f};
 		}
 
 		// La même évaluation en NkSL : à concaténer au préambule d'un noyau qui déclare un
-		// bloc uniforme `Field { vec4 f0; vec4 f1; vec4 f2; } wf;`.
+		// bloc uniforme `Field { vec4 f0; vec4 f1; vec4 f2; vec4 f3; } wf;` ; nkForceField rend l'ACCELERATION (force x f3.x).
 		inline const char *NkForceFieldNkSL() {
 			return R"NKSL(
 float ffHash(vec3 v, float seed) {
@@ -199,7 +201,7 @@ vec3 nkForceField(vec3 pos) {
         vec3 p = vec3(pos.x * wf.f0.z + wf.f0.w, pos.y * wf.f0.z, pos.z * wf.f0.z);
         a = ffCurl(p, wf.f2.w, 0.01) * st;
     }
-    return a;
+    return a * wf.f3.x;
 }
 )NKSL";
 		}

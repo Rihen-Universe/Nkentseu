@@ -58,7 +58,8 @@ namespace nkentseu {
 				NkBlendMode blend = NkBlendMode::NK_ADDITIVE;
 				NkSimTarget simTarget = NkSimTarget::AUTO;
 				NkIParticleSolver *solver = nullptr; // nul = gravite ; sinon ses forces (SPH) sur le stockage CPU
-				NkForceField field;					 // le VENT : accélération ajoutée à la gravité, lue par les quatre chemins (2026-09-05)
+				NkForceField field;					 // le VENT (newtons), lu par les quatre chemins (2026-09-05)
+				float32 particleMass = 1.f;			 // kg, EXPLICITE : la force du vent est divisée par elle (le SPH ignore ce champ : Mass() calibrée)
 				uint32 maxParticles = 1000;
 				bool worldSpace = true;
 				bool loop = true;

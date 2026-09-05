@@ -34,7 +34,7 @@ namespace nkentseu {
     vec4 gravityDt; vec4 colorStart; vec4 colorEnd;
     float sizeStart; float sizeEnd; uint count; uint mode;
 } p;
-@binding(set=0, binding=5) uniform Field { vec4 f0; vec4 f1; vec4 f2; } wf;
+@binding(set=0, binding=5) uniform Field { vec4 f0; vec4 f1; vec4 f2; vec4 f3; } wf;
 layout(local_size_x = 256) in;
 )NKSL";
 		// la suite du noyau, après la source commune du vent (NkForceFieldNkSL)
@@ -221,7 +221,7 @@ void main() {
 				mInstances = device->CreateBuffer(id);
 				mParamsBirth = device->CreateBuffer(NkBufferDesc::Uniform(sizeof(Params)));
 				mParamsSim = device->CreateBuffer(NkBufferDesc::Uniform(sizeof(Params)));
-				mFieldUbo = device->CreateBuffer(NkBufferDesc::Uniform(48));
+				mFieldUbo = device->CreateBuffer(NkBufferDesc::Uniform(64));
 			}
 			if (!mState.IsValid() || !mBirths.IsValid() || !mInstances.IsValid() || !mParamsBirth.IsValid() ||
 				!mParamsSim.IsValid()) {
@@ -344,9 +344,9 @@ void main() {
 			}
 			mTime += dt;
 			{
-				NkVec4f fw[3];
-				NkPackForceField(desc.field, mTime, fw[0], fw[1], fw[2]);
-				mDevice->WriteBuffer(mFieldUbo, fw, 48);
+				NkVec4f fw[4];
+				NkPackForceField(desc.field, mTime, desc.particleMass, fw[0], fw[1], fw[2], fw[3]);
+				mDevice->WriteBuffer(mFieldUbo, fw, 64);
 			}
 			mDevice->WriteBuffer(mParamsBirth, &pb, sizeof(Params));
 			mDevice->WriteBuffer(mParamsSim, &ps, sizeof(Params));
