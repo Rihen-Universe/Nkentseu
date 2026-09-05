@@ -2204,6 +2204,16 @@ par voisine ne sont pas tout le coût d'une passe (liste de 64 indices = 256 o p
 **Cible** : 50 653 = **35,6 ms** (image 60) / 53 (image 30) sur GPU partagé, ×2,2-3,3 la cible 16. **Extrapolation, dite
 comme telle** : GPU seul → 12-16 ms de GPU hors bulles. Non fait : indices de voisines en `uint16` relatifs à la cellule.
 
+### ✅ 05/09 (04h20) — LE VENT EN NEWTONS, tranché par délégation — `97e9c28f` (contrat, un fichier), `9468fe2f`
+
+`NkIForceField::Force` rend des **newtons** ; **chaque consommateur divise par la masse de SA particule** :
+`NkEmitterDesc::particleMass` (**explicite**, 1 kg par défaut, `NK_VFX_MASS` dans la sonde) pour les particules CPU/GPU,
+`Mass()` calibrée pour le SPH CPU/GPU (0,125 kg dans les scènes : 0,0625 N par particule = l'ancien 0,5 m/s²).
+`forceScale` a disparu ; le bloc uniforme `Field` porte 1/masse. Même convention chez l'agent tissu ; le contrat en une
+ligne dans l'en-tête NKMath est cherry-pickable. **Témoin** : F = 1 N, t = 1 s → Δx(m = 1) / Δx(m = 2) = **2,12 (CPU),
+2,11 (GPU)**, attendu 2 ; SPH GPU sous 0,0625 N : surface −0,609 (−0,612 avant, même inclinaison), vmax 0,023 ;
+divergence du curl 0,0005. La décision `forceScale` n'attend plus Rodolf.
+
 ### 🔩 04/09 (nuit) — JENGA 2.6 : ce qui est appliqué, ce qui est mesuré en retour
 
 - **`-static` — le défaut était chez nous** : `config/toolchain.jenga:55` (bloc Windows natif) promettait
