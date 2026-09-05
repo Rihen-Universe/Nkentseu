@@ -2136,6 +2136,53 @@ l'aveugle. Puis : itérations fixes mesurées (zéro relecture), scan GPU du pr�
 **Nommé, non fait** : ce profil ; DX12/MSL natifs pour les atomiques ; retri partiel ; device software qui ment
 (`computeShaders = true`) — agent NKRHI.
 
+### 📏 05/09 (03h40) — L'INSTRUMENT : le profil GPU par passe du SPH — `b037bf32` — et le levier qu'il désigne, essayé et rejeté
+
+**L'instrument** (couche du dessous d'abord) : `NkIDevice::GetTimestampResult(index, t0, t1)` (un chrono par index, le
+plus ancien résultat disponible, jamais bloquant — **ajouté en fin de classe**), anneau GL 32 × 8 ; dans le stockage
+SPH, `WriteTimestamp` autour de chaque `Dispatch` sur le chrono « 4 + sorte de noyau », drainé après chaque relecture,
+et l'attente CPU de chaque `ReadBuffer` chronométrée à part. `NK_SPH_PROFILE=1` → ligne `[SPH PROFIL]`. Vulkan n'a pas
+de chrono : refusé et dit. 🔴 **Rouge payé** : en portant l'anneau à 32, `GetTimestampResults` écrivait 32 paires dans
+le `uint64 ns[4]` du renderer — débordement de pile, SIGSEGV en `#0 0x0` après la première image, **même sans sonde** ;
+trouvé par l'épreuve de contrôle (HEAD tourne, mon diff plante), pas par la théorie de la vtable que j'avais d'abord
+suivie (objets périmés : mesuré faux). Borné par `count`.
+
+**Le tableau** (Release, OpenGL, Ilyana 43-75 % du GPU ; image 60, image 30 entre parenthèses) :
+
+| passe (ms GPU, nombre) | repos 2 048 | 50 653 | 195 112 |
+|---|---|---|---|
+| κ (divergence + densité) | 0,84 (22) | **9,5** (32) — (15,2 / 51) | **55** (48) — (91 / 85) |
+| correction | 0,84 (20) | **10,2** (28) — (16,6 / 48) | **58** (44) — (101 / 82) |
+| voisinage (cache) | 0,31 (2) | 3,0 (4) | 11,7 (4) |
+| non-pression (XSPH + Morris) | 0,10 | 1,8 | 6,8 |
+| densité-α | 0,06 | 1,3 | 3,5 |
+| réduction du résidu | 0,10 (10) | 0,76 (14) | 4,1 (22) |
+| **tri (count + fill + scatter)** | 0,06 | **0,15** | 0,3 |
+| **GPU total** | **2,4** | **27,2** (37,2) | **141** (216) |
+| attente CPU des relectures | 4,5 | **38,1** (55,0) | 181 (236) |
+| image CPU | 5,2 | **39,6** (57,1) | 184 (240) |
+
+🔑 **Lecture** : (1) κ + correction = **73 %** du GPU, ~0,30-0,36 ms par passe à 50 k = 64 voisines × 50 k = 3,2 M
+lectures de voisine par passe : **la bande passante**, pas le calcul ; (2) le tri que j'avais nommé « premier coût »
+vaut **0,5 %** ; (3) l'attente CPU des relectures = 96 % de l'image et dépasse le GPU total de ~11 ms à 50 k (bulles
+des 19-28 synchronisations) ; (4) 3-4 sous-pas par image (CFL sur vmax 7 m/s) multiplient tout.
+
+**Levier (a), essayé et rejeté** — itérations prédites (celles du sous-pas précédent, sondées à une de moins), relues
+une fois, prolongées si besoin : 50 653 → 35,7 ms à l'image 60 (au lieu de 39,6 ; GPU 26,3 inchangé) **mais 81 ms à
+l'image 30** (la prédiction traîne quand le besoin change vite) ; 195 112 → 299-304 (au lieu de 172-238) ; repos
+inchangé. Première version à `pred = it` : cliquet à 38-92 itérations (sur-convergence, 124-141 ms). **Non commité**,
+diff gardé dans le scratchpad. Le CPU n'attend pas des bulles évitables : il attend un GPU qui travaille.
+
+**Cible honnête** : 50 653 = **36-40 ms** avec le GPU partagé (cible 16 : ×2,3-2,5). **Extrapolation, dite comme
+telle** : GPU seul, passes ~1,5-2× plus rapides → GPU total 14-18 ms hors bulles ; la cible exigerait ET un GPU seul,
+ET zéro relecture intra-pas, ET moins d'octets par voisine (κ/ρ précalculé, positions et vitesses lues une fois par
+paire) — trois leviers, chacun à mesurer au tableau, un à la fois.
+
+**Nommé, non fait** : réduction de la bande passante par voisine ; scan GPU du préfixe (0,15 ms de tri : sans objet) ;
+fusion κ + correction (impossible sans barrière : deux gathers dépendants) ; **DX12/MSL natifs pour les atomiques**
+(trou préexistant, même pour `imageAtomic*` — pour l'agent NkSL quand il y en aura un) ; retri partiel ; device
+software qui ment (`computeShaders = true`, agent NKRHI).
+
 ### 🔩 04/09 (nuit) — JENGA 2.6 : ce qui est appliqué, ce qui est mesuré en retour
 
 - **`-static` — le défaut était chez nous** : `config/toolchain.jenga:55` (bloc Windows natif) promettait
