@@ -86,10 +86,35 @@ namespace nkentseu {
 		// ── L'ETAT ──────────────────────────────────────────────────────────────
 		struct NkFilePickerNavState : public NkFilePickerState {
 				NkContentBrowserModel vue;	 ///< le volet droit ET son rail de gauche
-				NkString dossier;			 ///< LE dossier affiche — la source de verite
-				NkVector<NkString> cheminsCrumb; ///< le chemin COMPLET de chaque miette
+								NkVector<NkString> cheminsCrumb; ///< le chemin COMPLET de chaque miette
 				NkVector<NkString> favoris;		 ///< poses par l'hote (chemins absolus)
-				bool relire = true;				 ///< le dossier a change : relire au prochain dessin
+				// ── ① (05/09, soir) LE CHEMIN N'A QU'UN SEUL ENDROIT ──────────────────
+				// ⚠️ DEFAUT MESURE SUR LA CAPTURE DE RODOLF : le selecteur s'ouvrait sur
+				//    « 0 element(s) », rail vide, fil d'Ariane absent -- et se remplissait au
+				//    PREMIER GESTE. Cause : ce fichier portait un champ `dossier` EN PLUS de
+				//    `pickerPath`, et la lecture etait ARMEE par `OuvrirNav`. Or le dialogue
+				//    d'export appelle `OpenPickerBase` -- la porte de la classe de base, celle
+				//    des huit consommateurs existants : le chemin etait pose, l'armement non.
+				//    Meme famille que « la valeur dessinee et la valeur montree viennent de
+				//    deux endroits ».
+				//
+				//    LE REMEDE N'EST PAS D'ARMER AUSSI LE SECOND APPELANT -- c'est de
+				//    SUPPRIMER L'ARMEMENT. `pickerPath` est la seule verite ; `listePour`
+				//    retient le chemin pour lequel la liste courante a ete batie, et le dessin
+				//    relit des que les deux different. N'importe qui peut ecrire `pickerPath`
+				//    (le bouton « Aller », `OpenPickerBase`, un appelant qui n'existe pas
+				//    encore) : il n'y a plus rien a oublier.
+				char listePour[512] = {};
+				bool relire = true; ///< forcer une relecture (creation de dossier, F5...)
+
+				/// LE dossier affiche. Ce n'est PAS un champ : c'est `pickerPath` lui-meme,
+				/// pour qu'il soit IMPOSSIBLE que les deux divergent.
+				const char *Dossier() const {
+					return pickerPath;
+				}
+				bool DoitRelire() const {
+					return relire || !PathSame(listePour, pickerPath);
+				}
 
 				/// LA VIGNETTE. Le kit ne sait pas charger une image ni fabriquer une
 				/// texture : c'est l'hote qui le sait (NkUIDesign a son cache d'images).
@@ -113,10 +138,10 @@ namespace nkentseu {
 					pickerFileExt = NkString(ext ? ext : "");
 					if (nomPropose)
 						CopyTo(pickerSaveName, nomPropose, (int32)sizeof(pickerSaveName));
-					dossier = NkString(pickerPath);
-					vue.headerTitle = NkString(PickerTitle());
 					vue.viewMode = 0; // la GRILLE par defaut : c'est ce que Rodolf a demande
-					relire = true;
+					// ⚠️ AUCUN ARMEMENT ICI. Cette fonction est un CONFORT (l'extension et le nom
+					//    propose), pas un passage oblige : `OpenPickerBase` seul suffit a remplir
+					//    la vue, et la sonde le mesure PAR CETTE PORTE-LA.
 				}
 
 				/// Change de dossier. Ne descend PAS dans un chemin interdit par le
@@ -126,9 +151,8 @@ namespace nkentseu {
 						return;
 					if (!PickerAllowed(chemin))
 						return;
-					dossier = NkString(chemin);
+					// UN SEUL ECRIT : le dessin verra que `listePour` ne correspond plus.
 					CopyTo(pickerPath, chemin, (int32)sizeof(pickerPath));
-					relire = true;
 				}
 
 				// ── LE CONTENU DU DOSSIER ───────────────────────────────────────
@@ -164,13 +188,17 @@ namespace nkentseu {
 
 				void RelireDossier() {
 					relire = false;
+					// ⚠️ RETENU AVANT DE POUVOIR ECHOUER : un chemin illisible ne doit pas faire
+					//    relire a CHAQUE image (un listage en boucle sur un lecteur absent gele la
+					//    fenetre, et le defaut parait alors venir du dessin).
+					CopyTo(listePour, pickerPath, (int32)sizeof(listePour));
 					vue.entries.Clear();
 					vue.ClearSelection();
 					vue.scroll = 0.f;
-					if (dossier.Empty() || !NkDirectory::Exists(dossier.CStr()))
+					if (!pickerPath[0] || !NkDirectory::Exists(pickerPath))
 						return;
 					NkVector<NkDirectoryEntry> e = NkDirectory::GetEntries(
-						NkPath(dossier.CStr()), "*", NkSearchOption::NK_TOP_DIRECTORY_ONLY);
+						NkPath(pickerPath), "*", NkSearchOption::NK_TOP_DIRECTORY_ONLY);
 					NkVector<NkString> dirs, files;
 					for (usize i = 0; i < e.Size(); ++i) {
 						const char *nm = e[i].Name.CStr();
@@ -203,7 +231,7 @@ namespace nkentseu {
 					for (uint32 i = 0; i < (uint32)dirs.Size(); ++i) {
 						NkAssetEntry a;
 						a.name = dirs[i];
-						a.path = (NkPath(dossier.CStr()) / dirs[i].CStr()).ToString();
+						a.path = (NkPath(pickerPath) / dirs[i].CStr()).ToString();
 						a.isFolder = true;
 						a.kindRole = roleDossier;
 						a.kindLabel = "";
@@ -213,7 +241,7 @@ namespace nkentseu {
 					for (uint32 i = 0; i < (uint32)files.Size(); ++i) {
 						NkAssetEntry a;
 						a.name = files[i];
-						a.path = (NkPath(dossier.CStr()) / files[i].CStr()).ToString();
+						a.path = (NkPath(pickerPath) / files[i].CStr()).ToString();
 						a.isFolder = false;
 						a.kindRole = roleFichier;
 						char ext[16];
@@ -238,7 +266,7 @@ namespace nkentseu {
 				void ConstruireFil() {
 					vue.breadcrumb.Clear();
 					cheminsCrumb.Clear();
-					const char *p = dossier.CStr();
+					const char *p = pickerPath;
 					NkString cour;
 					NkString seg;
 					for (const char *q = p;; ++q) {
@@ -333,7 +361,7 @@ namespace nkentseu {
 					// LA CHAINE du dossier courant, sous la racine qui le contient.
 					int32 parent = -1;
 					for (uint32 i = 0; i < (uint32)vue.folders.nodes.Size(); ++i)
-						if (PathIsAncestor(vue.folders.nodes[i].path.CStr(), dossier.CStr())) {
+						if (PathIsAncestor(vue.folders.nodes[i].path.CStr(), pickerPath)) {
 							parent = (int32)i;
 							break;
 						}
@@ -352,14 +380,14 @@ namespace nkentseu {
 						}
 					}
 					// Les sous-dossiers du dossier courant, replies par defaut.
-					if (parent >= 0 && !dossier.Empty()) {
+					if (parent >= 0 && pickerPath[0]) {
 						NkVector<NkDirectoryEntry> e = NkDirectory::GetEntries(
-							NkPath(dossier.CStr()), "*", NkSearchOption::NK_TOP_DIRECTORY_ONLY);
+							NkPath(pickerPath), "*", NkSearchOption::NK_TOP_DIRECTORY_ONLY);
 						for (usize i = 0; i < e.Size(); ++i) {
 							const char *nm = e[i].Name.CStr();
 							if (!e[i].IsDirectory || !nm || !nm[0] || nm[0] == '.' || e[i].IsHidden)
 								continue;
-							ajouter((NkPath(dossier.CStr()) / e[i].Name.CStr()).ToString().CStr(), nm, parent);
+							ajouter((NkPath(pickerPath) / e[i].Name.CStr()).ToString().CStr(), nm, parent);
 						}
 						vue.folders.active = vue.folders.nodes[(uint32)parent].id;
 					}
@@ -380,7 +408,10 @@ namespace nkentseu {
 			const NkGuiFont *f = ctx.font;
 			if (!f || !f->Valid())
 				return true;
-			if (fp.relire)
+			// ① LA LISTE SUIT LE CHEMIN. Aucun appelant n'a a « armer » quoi que ce soit : si
+			//    `pickerPath` n'est pas celui pour lequel la liste a ete batie, on relit.
+			//    C'est ce qui rend le defaut de la capture (ouvert = vide) IMPOSSIBLE.
+			if (fp.DoitRelire())
 				fp.RelireDossier();
 
 			auto &dl = ctx.dlOverlay;
@@ -451,7 +482,7 @@ namespace nkentseu {
 			{
 				const float32 hb = 30.f * S;
 				if (sbtn({cx, y, 40.f * S, hb}, "▲"))
-					fp.AllerA(NkPath(fp.dossier.CStr()).GetParent().ToString().CStr());
+					fp.AllerA(NkPath(fp.pickerPath).GetParent().ToString().CStr());
 				const NkRect r = {cx + 48.f * S, y, cwid - 48.f * S - 84.f * S - 8.f * S, hb};
 				if (hit(r) && click) {
 					fp.pickerEditing = true;
@@ -541,7 +572,7 @@ namespace nkentseu {
 			{
 				const float32 bw = 120.f * S, bh = 34.f * S;
 				const bool pret = saveMode ? (fp.pickerSaveName[0] != '\0')
-										   : (dossierMode ? !fp.dossier.Empty()
+										   : (dossierMode ? fp.pickerPath[0] != '\0'
 														  : (fp.vue.active >= 0
 															 && fp.vue.active < (int32)fp.vue.entries.Size()
 															 && !fp.vue.entries[(uint32)fp.vue.active].isFolder));
@@ -553,7 +584,7 @@ namespace nkentseu {
 				if (pbtn({px + pw - 20.f * S - bw, by, bw, bh}, fp.PickerConfirmLabel(), pret)) {
 					fp.pickerConfirmed = true;
 					fp.pickerResultFor = fp.pickerFor;
-					NkFilePickerState::CopyTo(fp.pickerResultPath, fp.dossier.CStr(),
+					NkFilePickerState::CopyTo(fp.pickerResultPath, fp.pickerPath,
 											  (int32)sizeof(fp.pickerResultPath));
 					if (saveMode)
 						NkFilePickerState::CopyTo(fp.pickerResultName, fp.pickerSaveName,

@@ -11232,7 +11232,7 @@ namespace nkuidesign {
 			bool railOk = false;
 			for (uint32 i = 0; i < (uint32)nav.vue.folders.nodes.Size() && !railOk; ++i)
 				railOk = editorkit::NkFilePickerState::PathSame(nav.vue.folders.nodes[i].path.Data(),
-																nav.dossier.Data())
+																nav.Dossier())
 						 && nav.vue.folders.active == nav.vue.folders.nodes[i].id;
 			// ET LE CONTRAT DE CONFIRMATION EST LE MEME QUE L'ANCIEN : la preuve est que
 			// le nouvel etat SE LIT comme un `NkFilePickerState` (pas un cousin qui lui
@@ -11271,6 +11271,65 @@ namespace nkuidesign {
 				  "confirmation), liste les dossiers d'abord, filtre par extension et suit la navigation",
 				  vignetteOk && muetOk && crumbOk && listeOk && filOk && railOk && memeContrat && descendu, det);
 			NkDirectory::Delete("sonde_selecteur", true);
+		}
+		// ── 98. ① LE SELECTEUR EST PLEIN DES LA PREMIERE IMAGE (05/09, soir). Sur la capture de
+		//    Rodolf : chemin correct, mais « 0 element(s) », rail vide, fil d'Ariane absent --
+		//    et tout apparaissait AU PREMIER GESTE. Cause mesuree : le dialogue d'export ouvre
+		//    le selecteur par `OpenPickerBase` (la porte de la classe de BASE, celle des huit
+		//    consommateurs), pas par `OuvrirNav` -- et c'etait `OuvrirNav` qui armait la
+		//    lecture. Cette sonde ouvre DONC PAR LA PORTE DE BASE : c'est le seul chemin qui
+		//    aurait vu le defaut.
+		{
+			char det[700];
+			NkDirectory::Delete("sonde_premier_affichage", true);
+			NkDirectory::CreateRecursive("sonde_premier_affichage/enfant");
+			NkFile::WriteAllText("sonde_premier_affichage/a.png", "x");
+			NkFile::WriteAllText("sonde_premier_affichage/b.png", "x");
+			const NkString racine =
+				(NkPath(NkDirectory::GetCurrentDirectory()) / "sonde_premier_affichage").ToString();
+			editorkit::NkFilePickerNavState nav98;
+			char buf98[512] = {};
+			// LA PORTE DE BASE, exactement comme le dialogue d'export l'appelle
+			nav98.OpenPickerBase(editorkit::NkFilePickerState::PK_SaveFile, racine.Data(), buf98,
+						(int32)sizeof(buf98), nullptr, nullptr);
+			// 1. AVANT tout dessin : l'etat DIT qu'il doit relire. Personne ne l'a arme.
+			const bool ditRelire = nav98.DoitRelire();
+			// 2. Ce que la premiere image ferait
+			nav98.RelireDossier();
+			const uint32 n98 = (uint32)nav98.vue.entries.Size();
+			const uint32 crumb98 = (uint32)nav98.vue.breadcrumb.Size();
+			const uint32 rail98 = (uint32)nav98.vue.folders.nodes.Size();
+			const bool pleinDEmblee = n98 == 3u && crumb98 > 0u && rail98 > 0u;
+			// 3. ET IL NE RELIT PAS EN BOUCLE : une fois la liste batie pour ce chemin,
+			//    `DoitRelire` retombe a faux (sinon la fenetre listerait le disque a 60 Hz).
+			const bool calme = !nav98.DoitRelire();
+			// 4. N'IMPORTE QUEL APPELANT suffit : on ecrit `pickerPath` A LA MAIN, sans
+			//    toucher a `relire` -- c'est ce qu'un futur appelant fera sans le savoir.
+			const NkString enfant = (NkPath(racine.Data()) / "enfant").ToString();
+			editorkit::NkFilePickerState::CopyTo(nav98.pickerPath, enfant.Data(),
+						(int32)sizeof(nav98.pickerPath));
+			const bool suitLeChemin = nav98.DoitRelire();
+			nav98.RelireDossier();
+			const bool vide = nav98.vue.entries.Empty() && !nav98.DoitRelire();
+			// 5. CONTROLE NEGATIF : un chemin qui n'existe pas ne fait pas relire en boucle
+			editorkit::NkFilePickerState::CopyTo(nav98.pickerPath, "Z:/nulle_part_du_tout",
+						(int32)sizeof(nav98.pickerPath));
+			nav98.RelireDossier();
+			const bool pasDeBoucle = !nav98.DoitRelire() && nav98.vue.entries.Empty();
+			snprintf(det, sizeof(det),
+				"ouvert par la PORTE DE BASE (OpenPickerBase, sans OuvrirNav) : doit relire=%d ; premiere "
+				"lecture -> %u entree(s), %u miette(s), %u ligne(s) de rail -> %d ; puis calme=%d ; "
+				"`pickerPath` ecrit A LA MAIN -> doit relire=%d, relu vide=%d ; chemin inexistant : pas "
+				"de relecture en boucle=%d",
+				ditRelire ? 1 : 0, n98, crumb98, rail98, pleinDEmblee ? 1 : 0, calme ? 1 : 0,
+				suitLeChemin ? 1 : 0, vide ? 1 : 0, pasDeBoucle ? 1 : 0);
+			check("98. ① LE SELECTEUR EST PLEIN DES LA PREMIERE IMAGE, ET PERSONNE N'A RIEN A ARMER : ouvert par la porte de "
+				"la classe de BASE (`OpenPickerBase`, celle qu'appelle le dialogue d'export et les huit consommateurs), il "
+				"liste le dossier, le fil d'Ariane et le rail SANS le moindre geste ; la liste suit `pickerPath`, qui est "
+				"desormais LE seul endroit ou vit le chemin -- ecrire ce champ a la main suffit a declencher la relecture, "
+				"et une fois batie elle NE se refait pas a chaque image, meme sur un chemin inexistant",
+				ditRelire && pleinDEmblee && calme && suitLeChemin && vide && pasDeBoucle, det);
+			NkDirectory::Delete("sonde_premier_affichage", true);
 		}
 		snprintf(tail, sizeof(tail), "\n=== RESULTAT : %d / %d ===\n", pass, total);
 		rep.Append(tail);
