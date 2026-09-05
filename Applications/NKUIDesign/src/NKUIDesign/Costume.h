@@ -195,6 +195,47 @@ namespace nkuidesign {
 			Texte(dl, f, x, yHaut, t, c);
 			Texte(dl, f, x + e, yHaut, t, c);
 		}
+		/// ⑩ LE TEXTE QUI NE DEBORDE PAS SUR SON VOISIN (2026-09-05).
+		/// 🔴 Rodolf, capture `2026-09-05_app_popover_etiquette_fuit_dans_champ.png` : la
+		///    rangée « Arrondi » écrivait « par sommet : mode édition, champ R » PAR-DESSUS
+		///    l'icône d'expansion. `AddText` ne coupe pas, et `costume::Texte` ne prend aucune
+		///    largeur — un texte d'aide plus long que sa colonne se peint donc sur le bouton
+		///    d'à côté, qui reste cliquable mais devient illisible.
+		/// Coupe au caractère et pose « … » (une seule cellule de police, pas trois points).
+		/// ⚠️ COUPE EN OCTETS, ET LA RÉSERVE EST ÉCRITE : un caractère accentué occupe deux
+		///    octets en UTF-8 ; on recule tant que l'octet est une continuation (10xxxxxx) pour
+		///    ne jamais couper au milieu d'un caractère. Rend la largeur réellement peinte.
+		inline float32 TexteTronque(NkGuiDrawList &dl, const NkGuiFont &f, float32 x, float32 yHaut,
+									const char *t, float32 largeurMax, const NkColor &c) {
+			if (!f.Valid() || !t || !*t || largeurMax <= 0.f)
+				return 0.f;
+			const float32 pleine = f.MeasureWidth(t);
+			if (pleine <= largeurMax) {
+				dl.AddText(f.Face(), f.TexId(), {x, yHaut + f.Ascent()}, t, c);
+				return pleine;
+			}
+			static const char *const kSuite = "â¦"; // « … »
+			const float32 wSuite = f.MeasureWidth(kSuite);
+			char buf[192];
+			int32 n = 0;
+			while (t[n] && n < (int32)sizeof(buf) - 4)
+				++n;
+			while (n > 0) {
+				--n;
+				while (n > 0 && ((unsigned char)t[n] & 0xC0u) == 0x80u)
+					--n; // jamais au milieu d'un caractère UTF-8
+				for (int32 k = 0; k < n; ++k)
+					buf[k] = t[k];
+				buf[n] = ' ';
+				if (f.MeasureWidth(buf) + wSuite <= largeurMax)
+					break;
+			}
+			for (int32 k = 0; kSuite[k]; ++k)
+				buf[n + k] = kSuite[k];
+			buf[n + 3] = ' ';
+			dl.AddText(f.Face(), f.TexId(), {x, yHaut + f.Ascent()}, buf, c);
+			return f.MeasureWidth(buf);
+		}
 		inline float32 Largeur(const NkGuiFont &f, const char *t) {
 			return f.Valid() ? f.MeasureWidth(t) : 0.f;
 		}

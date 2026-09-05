@@ -10346,6 +10346,130 @@ namespace nkuidesign {
 				  "noeud qui n'est ni l'un ni l'autre garde l'entree grisee, avec la raison qui dit les deux cas",
 				  extrait && nDecl == 1u && vuInstance == 0 && vuNom == 0 && vuAutre == -1 && raison && menuOk, det);
 		}
+		// ── 92. ⑩ L'AIDE DE LA RANGEE « ARRONDI » NE DEBORDE PLUS SUR LE BOUTON (05/09, capture
+		//    de Rodolf). Deux mesures : la porte de troncature elle-meme (elle coupe, pose « … »
+		//    et ne depasse jamais la largeur demandee, accents compris), et la rangee dans
+		//    l'inspecteur reel -- aucun sommet de TEXTE a droite de la colonne du bouton.
+		{
+			char det[800];
+			static nkgui::NkGuiFont police92;
+			const bool police92Ok = police92.LoadEmbedded(nkentseu::NkEmbeddedFontId::Inter, 9.f, false);
+			bool porteOk = false;
+			float32 wPleine = 0.f, wCoupee = 0.f;
+			if (police92Ok) {
+				static nkgui::NkGuiDrawList dlT;
+				dlT.Reset();
+				const char *aide = "par sommet : mode édition, champ R";
+				wPleine = costume::Largeur(police92, aide);
+				// une largeur volontairement trop courte : la porte doit couper
+				wCoupee = costume::TexteTronque(dlT, police92, 0.f, 0.f, aide, wPleine * 0.5f, nkgui::NkColor{255, 255, 255, 255});
+				// et une largeur suffisante : elle rend le texte entier, sans « … »
+				const float32 wEntier = costume::TexteTronque(dlT, police92, 0.f, 40.f, aide, wPleine + 10.f,
+															 nkgui::NkColor{255, 255, 255, 255});
+				porteOk = wCoupee > 0.f && wCoupee <= wPleine * 0.5f + 0.01f && wEntier > wCoupee
+						  && wEntier > wPleine - 0.01f && wEntier < wPleine + 0.01f;
+			}
+			// la rangee dans l'inspecteur REEL : un noeud a sommets (le cas de la capture)
+			static nkgui::NkGuiContext ctx92;
+			bool geomOk = false;
+			float32 maxTexte = 0.f, bordBouton = 0.f, aideX0 = 0.f, aideX1 = 0.f;
+			if (police92Ok && ctx92.Init(600, 900)) {
+				ctx92.font = &police92;
+				// ⚠️ L'INSPECTEUR PEINT AVEC LE COSTUME (`costume::Fontes()`), pas avec la police du
+				//    contexte : sans lui, `F.px9` est invalide et la rangee ne peint RIEN -- la
+				//    sonde mesurerait alors un debordement nul sur un texte absent. On le charge
+				//    avec un televerseur factice (l'atlas se construit, seul l'envoi au GPU est
+				//    simule) ; c'est la DERNIERE sonde du fichier, aucune autre n'en depend.
+				struct FauxShell {
+						bool UploadAppFont(nkgui::NkGuiFont &, uint32) {
+							return true;
+						}
+				};
+				FauxShell faux;
+				costume::Fontes().Charger(faux, 1.f);
+				static DesignState st92;
+				st92.doc.NewDocument("Toile", NkAuthor::Humain);
+				const int32 pg92 = st92.doc.AddChild(0, "", NkAuthor::Humain);
+				st92.doc.nodes[(uint32)pg92].shape = NkString("frame");
+				st92.doc.nodes[(uint32)pg92].layout.kind = NkLayoutKind::Free;
+				st92.doc.nodes[(uint32)pg92].width.mode = NkSizeMode::Fixed;
+				st92.doc.nodes[(uint32)pg92].width.value = 300.f;
+				st92.doc.nodes[(uint32)pg92].height.mode = NkSizeMode::Fixed;
+				st92.doc.nodes[(uint32)pg92].height.value = 300.f;
+				const int32 rc92 = st92.doc.AddChild(pg92, "", NkAuthor::Humain);
+				{
+					NkUINode &n = st92.doc.nodes[(uint32)rc92];
+					n.shape = NkString("rect");
+					n.posX = 20.f;
+					n.posY = 20.f;
+					n.width.mode = NkSizeMode::Fixed;
+					n.width.value = 120.f;
+					n.height.mode = NkSizeMode::Fixed;
+					n.height.value = 60.f;
+					// des sommets materialises : c'est ce qui declenche l'aide « par sommet »
+					for (uint32 k = 0; k < 4u; ++k) {
+						NkPoint2 p;
+						p.x = (k == 0u || k == 3u) ? -1.f : 1.f;
+						p.y = (k < 2u) ? -1.f : 1.f;
+						n.sommets.PushBack(p);
+					}
+				}
+				st92.Recompute(NkPaintRect{0.f, 0.f, 340.f, 900.f});
+				st92.SelectSingle(rc92);
+				static InspectorPanel insp92(&st92);
+				NkEditorFrameContext ec;
+				ec.ui = &ctx92;
+				ec.dt = 0.016f;
+				const float32 panneauX = 340.f, panneauW = 260.f;
+				for (int32 k = 0; k < 2; ++k) {
+					ctx92.input.mousePos = {-1.f, -1.f};
+					ctx92.BeginFrame(0.016f);
+					ctx92.BeginLayout({panneauX, 0.f, panneauW, 900.f});
+					insp92.OnUI(ec);
+					ctx92.EndFrame();
+				}
+				// LE PEINT, PAS UNE GEOMETRIE DEVINEE : le panneau expose les deux rectangles de
+				// la rangee « Arrondi » a sa derniere image (patron `RectNom`)
+				const nkgui::NkRect rAide = insp92.RectAideArrondi();
+				const nkgui::NkRect rBtn = insp92.RectBoutonArrondi();
+				bordBouton = rBtn.w > 0.f ? rBtn.x : (panneauX + panneauW - 12.f - 20.f);
+				(void)panneauX;
+				// les sommets de TEXTE (commandes texturees) DANS LA BANDE DE LA RANGEE
+				const nkgui::NkGuiDrawList &dl92 = ctx92.dl;
+				for (uint32 c = 0; c < (uint32)dl92.cmds.Size(); ++c) {
+					const nkgui::NkGuiDrawCmd &cm = dl92.cmds[c];
+					if (cm.type != nkgui::NkGuiDrawCmdType::TexturedTriangles)
+						continue;
+					for (uint32 k = 0; k < cm.idxCount; ++k) {
+						const uint32 ii = cm.idxOffset + k;
+						if (ii >= (uint32)dl92.idx.Size())
+							break;
+						const uint32 vi = dl92.idx[ii];
+						if (vi >= (uint32)dl92.vtx.Size())
+							continue;
+						const float32 x = dl92.vtx[vi].pos.x, y = dl92.vtx[vi].pos.y;
+						if (rAide.h > 0.f && (y < rAide.y || y > rAide.y + rAide.h))
+							continue; // une autre rangee : elle a ses propres colonnes
+						if (x > maxTexte)
+							maxTexte = x;
+					}
+				}
+				// l'aide peinte s'arrete AVANT le bouton, et aucun glyphe de sa bande ne le touche
+				aideX0 = rAide.x;
+				aideX1 = rAide.x + rAide.w;
+				geomOk = rAide.w > 0.f && aideX1 <= rBtn.x - 6.f + 0.01f && maxTexte > 0.f && maxTexte <= bordBouton;
+			}
+			snprintf(det, sizeof(det),
+					 "la porte : texte plein %.1f px, tronque a %.1f px demande -> %.1f px (avec « … »), texte entier rendu quand la "
+					 "place suffit -> %d ; l'inspecteur : le sommet de texte le plus a droite est a %.1f, la colonne du bouton commence "
+					 "a %.1f (aide peinte %.1f -> %.1f) -> %d",
+					 (double)wPleine, (double)(wPleine * 0.5f), (double)wCoupee, porteOk ? 1 : 0, (double)maxTexte,
+					 (double)bordBouton, (double)aideX0, (double)aideX1, geomOk ? 1 : 0);
+			check("92. ⑩ L'AIDE DE LA RANGEE « ARRONDI » NE DEBORDE PLUS : la porte de troncature coupe au caractere (jamais au milieu "
+				  "d'un caractere UTF-8), pose « … » et tient la largeur demandee ; dans l'inspecteur reel, sur un trace a sommets, "
+				  "AUCUN sommet de texte n'atteint la colonne du bouton d'expansion",
+				  porteOk && geomOk, det);
+		}
 		snprintf(tail, sizeof(tail), "\n=== RESULTAT : %d / %d ===\n", pass, total);
 		rep.Append(tail);
 

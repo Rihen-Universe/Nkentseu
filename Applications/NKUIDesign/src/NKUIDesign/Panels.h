@@ -12596,6 +12596,14 @@ namespace nkuidesign {
 				}
 			}
 
+			/// ⑩ Ce que la rangée « Arrondi » a peint à la dernière image (aide, bouton) —
+			///    lu par la sonde 92 : elle mesure le peint, pas une géométrie devinée.
+			NkRect RectAideArrondi() const {
+				return mRectAideArrondi;
+			}
+			NkRect RectBoutonArrondi() const {
+				return mRectBoutonArrondi;
+			}
 			void OnUI(NkEditorFrameContext &ec) override {
 				auto &ctx = ec.Ui();
 				designkit::releve::Zone(ctx, "inspecteur");
@@ -13829,10 +13837,21 @@ namespace nkuidesign {
 						// plus `radius` : la rangée le dit au lieu d'offrir un champ qui n'agirait pas
 						const bool traceA = na && !na->sommets.Empty();
 						if (traceA) {
+							// ⑩ TRONQUÉ, JAMAIS PAR-DESSUS LE BOUTON (05/09, capture de Rodolf) : l'aide
+							//    s'arrête six pixels avant l'icône d'expansion, et le texte complet
+							//    reste lisible au pied quand le pointeur passe sur la rangée.
 							ctx.BeginDisabled();
-							costume::Texte(dl, F.px9, zone.x, costume::CentrerBande(F.px9, r.y), "par sommet : mode édition, champ R",
-										   ctx.theme.textMuted);
+							const float32 wAide = costume::TexteTronque(dl, F.px9, zone.x, costume::CentrerBande(F.px9, r.y),
+																			   "par sommet : mode édition, champ R", rbtn.x - 6.f - zone.x,
+																			   ctx.theme.textMuted);
+							// le rectangle REELLEMENT peint, expose pour la sonde (patron `RectNom`) :
+							// un banc mesure ce qui a ete peint, pas une geometrie devinee
+							mRectAideArrondi = {zone.x, r.y, wAide, r.h};
+							mRectBoutonArrondi = rbtn;
 							ctx.EndDisabled();
+							if (ctx.popupDepth == 0 && NkGuiRectContains({zone.x, r.y, rbtn.x - zone.x, r.h}, ctx.input.mousePos))
+								mSt->status = NkString("Arrondi : ce tracé porte un rayon PAR SOMMET — entre en mode édition "
+													   "(double-clic) et règle le champ « R ».");
 						} else if (!delies) {
 							// MULTI-SÉLECTION COMPRISE : « — » si les rayons diffèrent.
 							ChampNombreMulti(
@@ -16573,6 +16592,10 @@ namespace nkuidesign {
 			/// ③ Le sélecteur écrit-il DANS la variable ? Faux par défaut : il détache.
 			///    Armé par « Modifier la variable », désarmé dès qu'on change de remplissage.
 			bool mEditerVariable = false;
+			/// ⑩ Les deux rectangles de la rangée « Arrondi » à la dernière image : l'aide
+			///    réellement peinte et le bouton qu'elle ne doit pas atteindre.
+			NkRect mRectAideArrondi = {0.f, 0.f, 0.f, 0.f};
+			NkRect mRectBoutonArrondi = {0.f, 0.f, 0.f, 0.f};
 			char mFiltreVars[48] = {0}; ///< ③ la recherche de la liste « Lier ˅ »
 			bool mVarsDeplie = false; ///< la liste des variables depliee sous « Lier ˅ » (popover)
 			NkRect mRectImageChoisir = {}, mRectImageRecharger = {}; ///< les boutons du popover image (derniere image), pour la sonde
