@@ -413,7 +413,19 @@ namespace nkentseu {
 					//    comme sombre.
 					if (n.bandeau)
 						p.FillColor(row, NkTeinter(p.ColorOf(s.panelBg), -0.28f));
-					else if (over)
+					else if (over && !isActive)
+						// ⚠️ `&& !isActive` — ET C'EST UN DEFAUT MESURE, PAS UN GOUT (06/09).
+						//    Rodolf : « lorsque je selectionne un dossier a gauche et que je le
+						//    survole, son texte s'efface, mais des que je le quitte il
+						//    reapparait. » Le fond du survol etait peint PAR-DESSUS le fond de
+						//    la ligne active, alors que la couleur du LIBELLE, elle, restait
+						//    celle de l'etat actif (`activeText`, pensee pour le fond actif).
+						//    Le couple (fond, texte) etait donc decide par DEUX conditions
+						//    differentes : survole -> fond clair, actif -> texte clair. Texte
+						//    clair sur fond clair = un nom invisible, qui revient des qu'on
+						//    quitte la ligne (le fond redevient celui de l'actif).
+						//    Regle : QUI CHOISIT LE TEXTE CHOISIT LE FOND. La ligne active
+						//    garde son fond ; le survol se lit deja sur toutes les autres.
 						p.Fill(row, s.rowHover);
 
 					// LA BARRE D'ACCENT A GAUCHE : la planche du 18/08 la montre sur

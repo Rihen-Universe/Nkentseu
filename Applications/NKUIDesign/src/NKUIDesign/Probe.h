@@ -14241,6 +14241,157 @@ namespace nkuidesign {
 				  det);
 			NkDirectory::Delete("sonde_replier", true);
 		}
+		// -- 126. LE LIBELLE D'UNE ENTREE SURVOLEE EST TOUJOURS PEINT (06/09). Rodolf :
+		//    « lorsque je selectionne un dossier a gauche et que je le survole, son texte
+		//    s'efface, mais des que je le quitte son texte reapparait. »
+		//    ⚠️ MES SONDES PRECEDENTES NE POUVAIENT PAS LE VOIR : elles mesuraient le rail
+		//       NON SURVOLE, ou survole sur UNE seule rangee. Une sonde verte pendant que
+		//       Rodolf voit le defaut ne mesure pas le meme objet. Celle-ci survole CHAQUE
+		//       entree l'une apres l'autre et verifie le texte de CELLE QU'ELLE SURVOLE.
+		{
+			char det[900];
+			NkDirectory::Delete("sonde_survol", true);
+			NkDirectory::CreateRecursive("sonde_survol/alpha/dedans");
+			NkDirectory::CreateRecursive("sonde_survol/beta");
+			NkDirectory::CreateRecursive("sonde_survol/gamma");
+			const NkString rac126 =
+				(NkPath(NkDirectory::GetCurrentDirectory()) / "sonde_survol").ToString();
+			editorkit::NkFilePickerNavState nav126;
+			char b126[512] = {};
+			nav126.OpenPickerBase(editorkit::NkSelecteurEnregistrer, rac126.Data(), b126,
+								  (int32)sizeof(b126), nullptr, nullptr);
+			editorkit::NkFilePickerNavState::PoserRecent(nav126.recents, rac126.Data());
+			nav126.relire = true;
+			nav126.RelireDossier();
+			NkComponentInstance inst126(NkContentBrowserDecl());
+			inst126.SetParam("show_header", 0.f);
+			inst126.SetParam("show_actions", 0.f);
+			NkContentBrowserStyle sty126 = DemoStyle(nullptr);
+			sty126.values = &inst126;
+			NkContentBrowserHooks h126;
+			const NkPaintRect z126{0.f, 0.f, 900.f, 600.f};
+			const float32 rowH126 = NkTreeViewDecl().Metric("row_h");
+			// 1. LE RELEVE A FROID : ou est peint le libelle de chaque entree.
+			struct Ligne126 {
+					char texte[96];
+					float32 x, y;
+			};
+			Ligne126 lignes[64];
+			uint32 nLignes = 0u;
+			{
+				NkRecordingPaint r;
+				NkComponentInput in;
+				in.surfaceScale = 1.f;
+				in.mouseX = -1000.f;
+				in.mouseY = -1000.f;
+				NkDrawContentBrowser(r, in, z126, nav126.vue, sty126, h126);
+				for (uint32 q = 0; q < (uint32)nav126.vue.folders.nodes.Size() && nLignes < 64u; ++q) {
+					const char *lib = nav126.vue.folders.nodes[q].label.Data();
+					if (!lib || !lib[0])
+						continue;
+					for (uint32 k = 0; k < (uint32)r.cmds.Size(); ++k)
+						if (r.cmds[k].op == NkPaintOp::Text && r.cmds[k].text.Data()
+							&& NkComponentDecl::StrEq(r.cmds[k].text.Data(), lib)) {
+							snprintf(lignes[nLignes].texte, sizeof(lignes[nLignes].texte), "%s", lib);
+							lignes[nLignes].x = r.cmds[k].x;
+							lignes[nLignes].y = r.cmds[k].y;
+							++nLignes;
+							break;
+						}
+				}
+			}
+			// 2. ON SURVOLE CHAQUE ENTREE, L'UNE APRES L'AUTRE, et on exige SON texte.
+			uint32 survoleesEffacees = 0u;
+			char premiereEffacee[96];
+			premiereEffacee[0] = 0;
+			for (uint32 q = 0; q < nLignes; ++q) {
+				NkRecordingPaint r;
+				NkComponentInput in;
+				in.surfaceScale = 1.f;
+				in.mouseX = lignes[q].x + 4.f;
+				in.mouseY = lignes[q].y + rowH126 * 0.5f;
+				NkDrawContentBrowser(r, in, z126, nav126.vue, sty126, h126);
+				bool vu = false;
+				for (uint32 k = 0; k < (uint32)r.cmds.Size(); ++k)
+					if (r.cmds[k].op == NkPaintOp::Text && r.cmds[k].text.Data()
+						&& NkComponentDecl::StrEq(r.cmds[k].text.Data(), lignes[q].texte))
+						vu = true;
+				if (!vu) {
+					++survoleesEffacees;
+					if (!premiereEffacee[0])
+						snprintf(premiereEffacee, sizeof(premiereEffacee), "%s", lignes[q].texte);
+				}
+			}
+			// 3. LE COUPLE (FOND, TEXTE) EST DECIDE PAR UNE SEULE CONDITION.
+			//    C'est ICI qu'etait le defaut, et aucune sonde ne pouvait le voir en
+			//    comptant des textes : le texte ETAIT emis. Ce qui manquait, c'est que sa
+			//    COULEUR et celle de son FOND venaient de deux conditions differentes --
+			//    « survole » pour le fond, « actif » pour le texte. Sur la ligne a la fois
+			//    ACTIVE et SURVOLEE, cela donnait le texte clair de l'etat actif sur le
+			//    fond clair du survol : un nom invisible, qui revenait des qu'on quittait
+			//    la ligne. C'est mot pour mot ce que Rodolf decrit.
+			//    Le temoin verifie donc l'INVARIANT, pas la teinte : le dernier aplat qui
+			//    couvre le libelle et la teinte du libelle doivent venir du MEME etat.
+			uint32 couplesRompus = 0u;
+			char premierRompu[96];
+			premierRompu[0] = 0;
+			for (uint32 q = 0; q < nLignes; ++q) {
+				// on rend la ligne ACTIVE dans le modele, puis on la survole
+				for (uint32 k = 0; k < (uint32)nav126.vue.folders.nodes.Size(); ++k)
+					if (NkComponentDecl::StrEq(nav126.vue.folders.nodes[k].label.Data(),
+											   lignes[q].texte))
+						nav126.vue.folders.active = nav126.vue.folders.nodes[k].id;
+				NkRecordingPaint r;
+				NkComponentInput in;
+				in.surfaceScale = 1.f;
+				in.mouseX = lignes[q].x + 4.f;
+				in.mouseY = lignes[q].y + rowH126 * 0.5f;
+				NkDrawContentBrowser(r, in, z126, nav126.vue, sty126, h126);
+				// le libelle, et le DERNIER aplat emis avant lui qui le couvre
+				int32 iTexte = -1;
+				for (uint32 k = 0; k < (uint32)r.cmds.Size(); ++k)
+					if (r.cmds[k].op == NkPaintOp::Text && r.cmds[k].text.Data()
+						&& NkComponentDecl::StrEq(r.cmds[k].text.Data(), lignes[q].texte))
+						iTexte = (int32)k;
+				if (iTexte < 0)
+					continue; // deja compte par la mesure 2
+				uint16 roleFond = 0u;
+				const NkPaintCmd &t = r.cmds[(uint32)iTexte];
+				for (int32 k = 0; k < iTexte; ++k) {
+					const NkPaintCmd &c = r.cmds[(uint32)k];
+					if (c.op != NkPaintOp::Fill && c.op != NkPaintOp::FillColor)
+						continue;
+					if (c.x <= t.x + 1.f && c.x + c.w >= t.x + 1.f && c.y <= t.y + 1.f
+						&& c.y + c.h >= t.y + 1.f)
+						roleFond = c.role;
+				}
+				// L'INVARIANT : un libelle peint avec la teinte de l'ETAT ACTIF doit se
+				// poser sur le FOND de l'etat actif -- jamais sur celui du survol.
+				const bool texteActif = t.role == sty126.activeMark ? false : t.role == sty126.badgeText;
+				const bool fondSurvol = roleFond == sty126.chipBg;
+				if (texteActif && fondSurvol) {
+					++couplesRompus;
+					if (!premierRompu[0])
+						snprintf(premierRompu, sizeof(premierRompu), "%s", lignes[q].texte);
+				}
+			}
+			nav126.vue.folders.active = 0;
+			snprintf(det, sizeof(det),
+					 "%u entree(s) de rail relevees ; SURVOL une a une : %u dont le texte disparait%s%s ; "
+					 "ACTIVE **ET** SURVOLE (le geste de Rodolf) : %u couple(s) (fond, texte) rompus%s%s "
+					 "-- texte de l'etat actif sur le fond du survol",
+					 nLignes, survoleesEffacees, premiereEffacee[0] ? " (1re : " : "",
+					 premiereEffacee[0] ? premiereEffacee : "", couplesRompus,
+					 premierRompu[0] ? " (1re : " : "", premierRompu[0] ? premierRompu : "");
+			check("126. QUI CHOISIT LE TEXTE CHOISIT LE FOND : le libelle d'une entree SELECTIONNEE devenait invisible "
+				  "au survol et revenait quand on la quittait. Le texte ETAIT emis -- compter des textes ne pouvait "
+				  "donc pas voir le defaut. Ce qui clochait, c'est que le couple (fond, texte) venait de DEUX "
+				  "conditions : le fond du SURVOL etait peint par-dessus celui de l'ACTIF, pendant que la teinte du "
+				  "libelle restait celle de l'actif -- clair sur clair. La ligne active garde desormais son fond. Le "
+				  "temoin survole CHAQUE entree, puis chaque entree ACTIVE ET survolee, et verifie l'invariant",
+				  survoleesEffacees == 0u && couplesRompus == 0u && nLignes >= 4u, det);
+			NkDirectory::Delete("sonde_survol", true);
+		}
 		snprintf(tail, sizeof(tail), "\n=== RESULTAT : %d / %d ===\n", pass, total);
 		rep.Append(tail);
 
