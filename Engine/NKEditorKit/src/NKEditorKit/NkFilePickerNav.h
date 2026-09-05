@@ -66,6 +66,7 @@
 // -----------------------------------------------------------------------------
 
 #include "NKEditorKit/NkFilePicker.h"
+#include "NKFileSystem/NkFileSystem.h" // ② NkFileSystem::GetDrives : les volumes MONTES
 #include "NKEditorKit/NkTheme.h"
 #include "NKEditorKit/Components/NkContentBrowserModel.h"
 #include "NKEditorKit/Components/NkGuiComponentPaint.h"
@@ -304,6 +305,27 @@ namespace nkentseu {
 				///    demande : un rail qui ne montre pas ou l'on est ne sert a rien, et
 				///    une expansion paresseuse aurait demande un cache d'etat de plus
 				///    pour le meme resultat visible.
+				// ── ② LE RAIL A LA FORME DE L'EXPLORATEUR (05/09, soir) ──────────────────
+				// Rodolf, sur sa capture : « le rail ne montre ni les disques ni les dossiers
+				// principaux de l'explorateur » -- ils y etaient, mais MELANGES a l'arborescence
+				// du dossier courant, sans titre ni separation. Une liste plate de quatorze
+				// entrees heterogenes n'est pas un rail : c'est un tas.
+				//
+				// TROIS SECTIONS TITREES, dans l'ordre d'utilite decroissante. Ce sont des
+				// noeuds `locked` du `tree_view` : le composant les rend inselectionnables sans
+				// une ligne de code dediee (`NkTreeViewDraw.cpp` : `if (mousePressed && !locked)`),
+				// et leur chevron les replie comme n'importe quel noeud. AUCUNE notion de
+				// « section » n'est ajoutee au kit : la donnee suffit.
+				//
+				// ⚠️ LES DOSSIERS USUELS SE LISENT DU SYSTEME (`NkDirectory::GetUserFolder`,
+				//    ajoute a NKFileSystem dans le meme lot). Ecrire `home + "/Desktop"` est faux
+				//    sur un Windows francais (« Bureau »), faux sur un dossier redirige vers
+				//    OneDrive, et faux sur un Linux qui suit XDG. Le LIBELLE affiche est le nom
+				//    reel du dossier, pas une traduction de notre cru.
+				//
+				// ⚠️ LES VOLUMES SE LISENT A L'EXECUTION (`NkFileSystem::GetDrives`), avec leur
+				//    etiquette (« D: Projets »). Boucler de A a Z en testant `Exists` -- ce que
+				//    faisait la version precedente -- ne donne ni l'etiquette ni l'etat monte.
 				void ConstruireRail() {
 					vue.folders.nodes.Clear();
 					auto ajouter = [&](const char *chemin, const char *libelle, int32 parent) -> int32 {
@@ -318,78 +340,98 @@ namespace nkentseu {
 						vue.folders.nodes.PushBack(n);
 						return (int32)vue.folders.nodes.Size() - 1;
 					};
+					// Un TITRE de section : pas de chemin, donc rien a suivre ; `locked`, donc rien
+					// a selectionner. Deux barrieres pour un seul role -- la seconde tient meme si
+					// un jour le rail apprend a naviguer sur un chemin vide.
+					auto section = [&](const char *titre) -> int32 {
+						NkTreeNode n;
+						n.id = IdDe(titre);
+						n.parent = -1;
+						n.label = NkString(titre);
+						n.locked = true;
+						vue.folders.nodes.PushBack(n);
+						return (int32)vue.folders.nodes.Size() - 1;
+					};
 					if (!pickerConfine.Empty()) {
+						// Parcours LIMITE : une seule racine, aucune section -- montrer « Ce PC »
+						// dans un dialogue confine proposerait ce que le confinement interdit.
 						NkString nm = NkPath(pickerConfine).GetFileName();
 						ajouter(pickerConfine.CStr(), nm.Empty() ? pickerConfine.CStr() : nm.CStr(), -1);
-					} else {
-						const char *home = env::GetEnvVar("USERPROFILE");
-						if (!home || !*home)
-							home = env::GetEnvVar("HOME");
-						auto usuel = [&](const char *sub) -> NkString {
-							const char *od = env::GetEnvVar("OneDrive");
-							if (od && *od) {
-								NkString p = (NkPath(od) / sub).ToString();
-								if (NkDirectory::Exists(p.CStr()))
-									return p;
-							}
-							return home ? (NkPath(home) / sub).ToString() : NkString();
-						};
-						if (home && *home)
-							ajouter(home, "Accueil", -1);
-						ajouter(usuel("Desktop").CStr(), "Bureau", -1);
-						ajouter(usuel("Documents").CStr(), "Documents", -1);
-						ajouter(usuel("Downloads").CStr(), "Téléchargements", -1);
-						ajouter(usuel("Pictures").CStr(), "Images", -1);
-						for (uint32 i = 0; i < (uint32)favoris.Size(); ++i) {
-							NkString nm = NkPath(favoris[i]).GetFileName();
-							ajouter(favoris[i].CStr(), nm.Empty() ? favoris[i].CStr() : nm.CStr(), -1);
-						}
-						// Les DISQUES (Windows). Sur les autres systemes, la racine.
-						bool unDisque = false;
-						for (char d = 'A'; d <= 'Z'; ++d) {
-							char r[8] = {d, ':', '/', 0};
-							if (NkDirectory::Exists(r)) {
-								char lib[16];
-								snprintf(lib, sizeof(lib), "%c:", d);
-								if (ajouter(r, lib, -1) >= 0)
-									unDisque = true;
-							}
-						}
-						if (!unDisque)
-							ajouter("/", "/", -1);
+						return;
 					}
-					// LA CHAINE du dossier courant, sous la racine qui le contient.
-					int32 parent = -1;
-					for (uint32 i = 0; i < (uint32)vue.folders.nodes.Size(); ++i)
-						if (PathIsAncestor(vue.folders.nodes[i].path.CStr(), pickerPath)) {
-							parent = (int32)i;
-							break;
+					// ── ACCES RAPIDE ───────────────────────────────────────
+					{
+						const int32 sec = section("Acc\u00e8s rapide");
+						const NkString home = NkDirectory::GetHomeDirectory().ToString();
+						ajouter(home.CStr(), "Accueil", sec);
+						static const NkDirectory::NkUserFolder kUsuels[] = {
+							NkDirectory::NkUserFolder::Desktop, NkDirectory::NkUserFolder::Documents,
+							NkDirectory::NkUserFolder::Downloads,
+							NkDirectory::NkUserFolder::Pictures, NkDirectory::NkUserFolder::Music,
+							NkDirectory::NkUserFolder::Videos};
+						for (usize k = 0; k < sizeof(kUsuels) / sizeof(kUsuels[0]); ++k) {
+							const NkString p = NkDirectory::GetUserFolder(kUsuels[k]).ToString();
+							if (p.Empty())
+								continue; // le systeme ne le connait pas : on n'invente pas
+							const NkString nm = NkPath(p).GetFileName();
+							ajouter(p.CStr(), nm.Empty() ? p.CStr() : nm.CStr(), sec);
 						}
-					if (parent >= 0) {
-						const NkString racine = vue.folders.nodes[(uint32)parent].path;
+						for (uint32 i = 0; i < (uint32)favoris.Size(); ++i) {
+							const NkString nm = NkPath(favoris[i]).GetFileName();
+							ajouter(favoris[i].CStr(), nm.Empty() ? favoris[i].CStr() : nm.CStr(), sec);
+						}
+					}
+					// ── CE PC : les volumes MONTES, avec leur etiquette ──────────────────
+					{
+						const int32 sec = section("Ce PC");
+						NkVector<NkDriveInfo> volumes = NkFileSystem::GetDrives();
+						uint32 poses = 0u;
+						for (usize k = 0; k < volumes.Size(); ++k) {
+							if (!volumes[k].IsReady)
+								continue; // un lecteur vide fige le listage : on ne le propose pas
+							// « D: Projets » -- la lettre SEULE ne dit pas ou l'on va.
+							NkString lettre = volumes[k].Name;
+							while (!lettre.Empty()) {
+								const char d = lettre.CStr()[lettre.Length() - 1];
+								if (d != '/' && d != '\\')
+									break;
+								lettre = NkString(lettre.CStr(), lettre.Length() - 1);
+							}
+							NkString lib = lettre;
+							if (!volumes[k].Label.Empty()) {
+								lib.Append(' ');
+								lib.Append(volumes[k].Label.CStr());
+							}
+							if (ajouter(volumes[k].Name.CStr(), lib.CStr(), sec) >= 0)
+								++poses;
+						}
+						if (poses == 0u)
+							ajouter("/", "/", sec); // les systemes qui n'enumerent pas leurs montages
+					}
+					// ── LE DOSSIER COURANT : sa chaine, puis ses sous-dossiers ─────────────
+					// Il reste dans le rail parce que c'est LE moyen de remonter d'un cran sans
+					// perdre le contexte -- mais il est desormais une SECTION, pas un melange.
+					{
+						const int32 sec = section("Dossier courant");
+						int32 parent = sec;
 						for (uint32 k = 0; k < (uint32)cheminsCrumb.Size(); ++k) {
-							if (!PathIsAncestor(racine.CStr(), cheminsCrumb[k].CStr())
-								|| PathSame(racine.CStr(), cheminsCrumb[k].CStr()))
-								continue;
-							const int32 j =
-								ajouter(cheminsCrumb[k].CStr(), vue.breadcrumb[k].CStr(), parent);
+							const int32 j = ajouter(cheminsCrumb[k].CStr(), vue.breadcrumb[k].CStr(), parent);
 							if (j >= 0) {
 								parent = j;
 								vue.folders.SetOpen(vue.folders.nodes[(uint32)j].id, true, true);
 							}
 						}
-					}
-					// Les sous-dossiers du dossier courant, replies par defaut.
-					if (parent >= 0 && pickerPath[0]) {
-						NkVector<NkDirectoryEntry> e = NkDirectory::GetEntries(
-							NkPath(pickerPath), "*", NkSearchOption::NK_TOP_DIRECTORY_ONLY);
-						for (usize i = 0; i < e.Size(); ++i) {
-							const char *nm = e[i].Name.CStr();
-							if (!e[i].IsDirectory || !nm || !nm[0] || nm[0] == '.' || e[i].IsHidden)
-								continue;
-							ajouter((NkPath(pickerPath) / e[i].Name.CStr()).ToString().CStr(), nm, parent);
+						if (parent != sec && pickerPath[0]) {
+							NkVector<NkDirectoryEntry> e = NkDirectory::GetEntries(
+								NkPath(pickerPath), "*", NkSearchOption::NK_TOP_DIRECTORY_ONLY);
+							for (usize i = 0; i < e.Size(); ++i) {
+								const char *nm = e[i].Name.CStr();
+								if (!e[i].IsDirectory || !nm || !nm[0] || nm[0] == '.' || e[i].IsHidden)
+									continue;
+								ajouter((NkPath(pickerPath) / e[i].Name.CStr()).ToString().CStr(), nm, parent);
+							}
+							vue.folders.active = vue.folders.nodes[(uint32)parent].id;
 						}
-						vue.folders.active = vue.folders.nodes[(uint32)parent].id;
 					}
 				}
 

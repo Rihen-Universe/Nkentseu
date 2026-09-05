@@ -11331,6 +11331,96 @@ namespace nkuidesign {
 				ditRelire && pleinDEmblee && calme && suitLeChemin && vide && pasDeBoucle, det);
 			NkDirectory::Delete("sonde_premier_affichage", true);
 		}
+		// ── 99. ② LE RAIL A LA FORME DE L'EXPLORATEUR (05/09, soir). Rodolf, sur sa capture :
+		//    « le rail ne montre ni les disques ni les dossiers principaux » -- ils y etaient,
+		//    mais MELANGES a l'arborescence courante, sans titre ni separation. Quatre mesures :
+		//    les sections existent et sont INSELECTIONNABLES, les dossiers usuels viennent DU
+		//    SYSTEME (pas de `home + "/Desktop"`), les volumes portent leur etiquette, et le
+		//    dossier courant est une section A LUI.
+		{
+			char det[800];
+			editorkit::NkFilePickerNavState nav99;
+			char buf99[512] = {};
+			nav99.OpenPickerBase(editorkit::NkFilePickerState::PK_PickFolder,
+					NkDirectory::GetCurrentDirectory().ToString().Data(), buf99,
+					(int32)sizeof(buf99), nullptr, nullptr);
+			nav99.RelireDossier();
+			const NkVector<editorkit::NkTreeNode> &rail = nav99.vue.folders.nodes;
+			// 1. LES TROIS SECTIONS, titrees, racines, SANS chemin et `locked`
+			int32 iRapide = -1, iPC = -1, iCourant = -1;
+			for (uint32 i = 0; i < (uint32)rail.Size(); ++i) {
+				const char *l = rail[i].label.Data();
+				if (!l) continue;
+				if (NkComponentDecl::StrEq(l, "Acc\u00e8s rapide")) iRapide = (int32)i;
+				else if (NkComponentDecl::StrEq(l, "Ce PC")) iPC = (int32)i;
+				else if (NkComponentDecl::StrEq(l, "Dossier courant")) iCourant = (int32)i;
+			}
+			const bool sectionsOk =
+				iRapide >= 0 && iPC >= 0 && iCourant >= 0 && iRapide < iPC && iPC < iCourant
+				&& rail[(uint32)iRapide].parent == -1 && rail[(uint32)iPC].parent == -1
+				&& rail[(uint32)iCourant].parent == -1 && rail[(uint32)iRapide].locked
+				&& rail[(uint32)iPC].locked && rail[(uint32)iCourant].locked
+				&& rail[(uint32)iRapide].path.Empty() && rail[(uint32)iPC].path.Empty();
+			// 2. LES DOSSIERS USUELS VIENNENT DU SYSTEME. Le temoin ne compare pas a une
+			//    chaine ecrite ici (elle serait la MEME erreur des deux cotes) : il compare
+			//    au chemin que `NkDirectory::GetUserFolder` rend, et verifie que le LIBELLE
+			//    est le nom REEL du dossier -- « Bureau » sur un Windows francais.
+			const NkString bureau = NkDirectory::GetUserFolder(NkDirectory::NkUserFolder::Desktop).ToString();
+			const NkString docs = NkDirectory::GetUserFolder(NkDirectory::NkUserFolder::Documents).ToString();
+			uint32 sousRapide = 0u;
+			bool bureauVu = false, libelleReel = false;
+			for (uint32 i = 0; i < (uint32)rail.Size(); ++i) {
+				if (rail[i].parent != iRapide) continue;
+				++sousRapide;
+				if (!bureau.Empty() && editorkit::NkFilePickerState::PathSame(rail[i].path.Data(), bureau.Data())) {
+					bureauVu = true;
+					const NkString nm = NkPath(bureau.Data()).GetFileName();
+					libelleReel = NkComponentDecl::StrEq(rail[i].label.Data(), nm.Data());
+				}
+			}
+			const bool usuelsOk = sousRapide >= 2u && (bureau.Empty() || (bureauVu && libelleReel));
+			// 3. LES VOLUMES : lus a l'execution, avec leur etiquette quand elle existe
+			NkVector<NkDriveInfo> vols = NkFileSystem::GetDrives();
+			uint32 prets = 0u;
+			for (usize k = 0; k < vols.Size(); ++k)
+				if (vols[k].IsReady) ++prets;
+			uint32 sousPC = 0u;
+			bool etiquetteVue = false;
+			char premierVol[64] = "-";
+			for (uint32 i = 0; i < (uint32)rail.Size(); ++i) {
+				if (rail[i].parent != iPC) continue;
+				if (sousPC == 0u) snprintf(premierVol, sizeof(premierVol), "%s", rail[i].label.Data());
+				++sousPC;
+				// une etiquette = un libelle plus long que la seule lettre (« D: Projets »)
+				if (rail[i].label.Length() > 2u) etiquetteVue = true;
+			}
+			const bool volumesOk = sousPC > 0u && sousPC == (prets > 0u ? prets : 1u);
+			// 4. LE DOSSIER COURANT EST UNE SECTION A LUI, et il y est ACTIF
+			bool courantOk = false;
+			for (uint32 i = 0; i < (uint32)rail.Size() && !courantOk; ++i)
+				courantOk = editorkit::NkFilePickerState::PathSame(rail[i].path.Data(), nav99.Dossier())
+					&& nav99.vue.folders.active == rail[i].id && rail[i].parent != -1;
+			// 5. CONTROLE NEGATIF : un TITRE ne mene nulle part -- il n'a pas de chemin, donc
+			//    la navigation du selecteur (qui exige `NkDirectory::Exists`) l'ignore.
+			const bool titreInerte = iPC >= 0 && rail[(uint32)iPC].path.Empty()
+					&& !NkDirectory::Exists(rail[(uint32)iPC].path.Data());
+			snprintf(det, sizeof(det),
+				"rail de %u ligne(s) ; sections « Acc\u00e8s rapide »=%d, « Ce PC »=%d, « Dossier courant »=%d, "
+				"racines+locked+sans chemin -> %d ; acces rapide : %u entree(s), Bureau du systeme « %s » vu=%d, "
+				"libelle = nom reel=%d -> %d ; Ce PC : %u volume(s) pose(s) pour %u pret(s) [premier : %s], "
+				"etiquette vue=%d -> %d ; dossier courant en section et actif=%d ; titre inerte=%d",
+				(uint32)rail.Size(), iRapide >= 0 ? 1 : 0, iPC >= 0 ? 1 : 0, iCourant >= 0 ? 1 : 0,
+				sectionsOk ? 1 : 0, sousRapide, bureau.Empty() ? "(inconnu du systeme)" : bureau.Data(),
+				bureauVu ? 1 : 0, libelleReel ? 1 : 0, usuelsOk ? 1 : 0, sousPC, prets, premierVol,
+				etiquetteVue ? 1 : 0, volumesOk ? 1 : 0, courantOk ? 1 : 0, titreInerte ? 1 : 0);
+			(void)docs;
+			check("99. ② LE RAIL A LA FORME DE L'EXPLORATEUR : trois SECTIONS titrees et repliables -- « Acc\u00e8s rapide », "
+				"« Ce PC », « Dossier courant » -- au lieu d'une liste plate ou disques et arborescence se melaient ; les "
+				"titres sont des noeuds `locked` SANS chemin (le tree_view les rend inselectionnables sans une ligne dediee) ; "
+				"les dossiers usuels viennent DU SYSTEME (`NkDirectory::GetUserFolder`) et portent leur nom REEL, pas une "
+				"traduction de notre cru ; les volumes sont ceux que le systeme dit MONTES, avec leur etiquette",
+				sectionsOk && usuelsOk && volumesOk && courantOk && titreInerte, det);
+		}
 		snprintf(tail, sizeof(tail), "\n=== RESULTAT : %d / %d ===\n", pass, total);
 		rep.Append(tail);
 

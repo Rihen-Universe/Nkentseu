@@ -1,5 +1,6 @@
 // =============================================================================
 // NKFileSystem/NkDirectory.cpp
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // Implémentation des opérations sur les répertoires.
 //
 // Design :
@@ -807,7 +808,73 @@ namespace nkentseu {
 		return NkPath();
 	}
 
-	NkPath NkDirectory::GetAppDataDirectory() {
+	// ── LES DOSSIERS DE L'UTILISATEUR, LUS DU SYSTEME (2026-09-05) ──────────────
+// Un chemin VIDE quand le systeme ne le connait pas : inventer un nom anglais
+// sous le profil marcherait sur une machine anglaise et mentirait sur les autres.
+NkPath NkDirectory::GetUserFolder(NkUserFolder which) {
+#ifdef _WIN32
+	int csidl = -1;
+	switch (which) {
+		case NkUserFolder::Desktop: csidl = CSIDL_DESKTOPDIRECTORY; break;
+		case NkUserFolder::Documents: csidl = CSIDL_PERSONAL; break;
+		case NkUserFolder::Pictures: csidl = CSIDL_MYPICTURES; break;
+		case NkUserFolder::Music: csidl = CSIDL_MYMUSIC; break;
+		case NkUserFolder::Videos: csidl = CSIDL_MYVIDEO; break;
+		default: break; // Downloads : pas de CSIDL, voir plus bas
+	}
+	char path[MAX_PATH];
+	if (csidl >= 0 && SHGetFolderPathA(NULL, csidl, NULL, 0, path) == S_OK && Exists(path))
+		return NkPath(path);
+	if (which == NkUserFolder::Downloads) {
+		// ⚠️ Windows n'a pas de CSIDL pour « Telechargements » (il n'existe que sous
+		//    la forme d'un KNOWNFOLDERID, qui demanderait ole32 pour liberer le
+		//    resultat). On le cherche sous le profil : un dossier DEPLACE ne sera
+		//    donc pas trouve, et on rend vide plutot qu'un chemin faux.
+		if (SHGetFolderPathA(NULL, CSIDL_PROFILE, NULL, 0, path) == S_OK) {
+			const NkPath p = NkPath(path) / "Downloads";
+			if (Exists(p))
+				return p;
+		}
+	}
+	return NkPath();
+#else
+	static const char *kXdg[] = {"XDG_DESKTOP_DIR", "XDG_DOCUMENTS_DIR", "XDG_DOWNLOAD_DIR",
+				"XDG_PICTURES_DIR", "XDG_MUSIC_DIR", "XDG_VIDEOS_DIR"};
+	static const char *kNoms[] = {"Desktop", "Documents", "Downloads", "Pictures", "Music", "Videos"};
+	const int i = (int)which;
+	if (i < 0 || i >= (int)NkUserFolder::Count)
+		return NkPath();
+	const NkPath home = GetHomeDirectory();
+	// La specification XDG : `~/.config/user-dirs.dirs`, lignes
+	// `XDG_DESKTOP_DIR="$HOME/Bureau"`. C'est LA source sur un Linux localise.
+	const NkPath conf = home / ".config" / "user-dirs.dirs";
+	if (NkFile::Exists(conf)) {
+		const NkString txt = NkFile::ReadAllText(conf);
+		const char *d = txt.CStr();
+		const char *cle = kXdg[i];
+		for (const char *p = d; p && *p;) {
+			const char *fin = strchr(p, '\n');
+			const size_t n = fin ? (size_t)(fin - p) : strlen(p);
+			if (n > strlen(cle) && strncmp(p, cle, strlen(cle)) == 0) {
+				const char *g = (const char *)memchr(p, '"', n);
+				const char *dr = g ? (const char *)memchr(g + 1, '"', n - (size_t)(g + 1 - p)) : nullptr;
+				if (g && dr) {
+					NkString v(g + 1, (nkentseu::usize)(dr - g - 1));
+					if (v.StartsWith("$HOME"))
+						v = home.ToString() + v.SubString(5);
+					if (Exists(v.CStr()))
+						return NkPath(v);
+				}
+			}
+			p = fin ? fin + 1 : nullptr;
+		}
+	}
+	const NkPath p = home / kNoms[i];
+	return Exists(p) ? p : NkPath();
+#endif
+}
+
+NkPath NkDirectory::GetAppDataDirectory() {
 #ifdef _WIN32
 		// Windows : CSIDL_APPDATA pointe vers %APPDATA% (Roaming)
 		char path[MAX_PATH];
