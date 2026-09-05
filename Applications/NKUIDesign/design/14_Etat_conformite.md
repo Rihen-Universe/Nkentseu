@@ -328,6 +328,33 @@ recette : « livré » se mesure, il ne se déclare pas.*
   appel de dessin. Deux lignes pour NK3DModeler (`main.cpp:1781` et le type de
   son état) ; NKCode demande d'abord de décider ce que devient son panneau
   supplémentaire.
+- **Le sélecteur, après la deuxième passe de Rodolf** (05/09, nuit — « c'est mal
+  conçu, pourtant le design est joli »). Sept corrections, et **cinq défauts sur
+  sept étaient les miens, pas ceux du kit** :
+  ① les trois sections **étaient bien peintes** (mesuré — sonde 105) ; c'est la
+  **chaîne d'ancêtres** de la section « Dossier courant » qui les repoussait hors
+  du champ et jetait les sous-dossiers à la profondeur 6, où il reste **dix
+  pixels** pour un nom : d'où les « … ». Elle quitte le rail — le fil d'Ariane la
+  porte déjà, et il est cliquable (profondeur max : 2).
+  ② la largeur du rail est **en pixels** (minimum 180, poignée de
+  redimensionnement) au lieu d'une **fraction** du volet, et la troncature garde
+  **le début ET la fin** (`Nkentseu-…-noge`) — deux dossiers frères se
+  distinguent par leur fin (sonde 108).
+  ④ la carte **sélectionnée s'effaçait elle-même** : son marquage appelait
+  `Outline`, dont le contrat est « plein **puis** creusement » (sonde 106).
+  ⑥ la section « ALIGNER LA SÉLECTION » était listée **deux fois** dans une table
+  et **absente** de l'autre ; et `TexteTronque` cassait l'UTF-8 — ellipsis
+  **mojibake** de quatre octets dont on n'en copiait que trois, et **terminateurs
+  écrits en espaces** (sonde 107).
+  ⑤ « Nouveau dossier » devient un **bouton discret** en haut (sonde 109).
+  ⑦ **un seul lanceur système** : `NkLauncher` (NKWindow) existait déjà et couvre
+  **sept plateformes** ; `NKPlatform/NkShell`, écrit la veille, est **supprimé**,
+  sa seule vraie valeur (sélectionner le fichier dans l'explorateur) portée dans
+  `NkLauncher::RevealFile`.
+  ⚠️ **Trois de mes sondes étaient vertes pendant que Rodolf voyait le défaut** :
+  la 92 ne mesurait qu'une **largeur** (pas la chaîne tronquée), la 99 ne
+  mesurait que **le modèle** (pas le dessin), et la première version de la 105
+  comptait des rangées que `NkRecordingPaint` enregistre **même hors champ**.
 - **Ce que Lunacy n'a pas et que nous avons** (§11.3 du document 13) :
   l'**agencement** calculé, l'**ancrage**, les **cibles** et **points de
   rupture**, les **rôles de thème** et les **langues**. *Aucun n'est sacrifié
