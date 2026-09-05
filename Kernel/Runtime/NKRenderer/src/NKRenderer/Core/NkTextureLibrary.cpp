@@ -1,3 +1,4 @@
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // =============================================================================
 // NkTextureLibrary.cpp  — NKRenderer v5.0
 // =============================================================================
@@ -470,6 +471,95 @@ namespace nkentseu {
 				mResources && mResources->IsReady() ? mResources->GetSamplerLinearRepeat() : NkSamplerHandle{};
 			return WrapRHI(rhi, samp, desc.width, desc.height, d.mipLevels, desc.debugName ? desc.debugName : "Manual",
 						   false);
+		}
+
+		// =====================================================================
+		// Actif deja cuit — televersement sans decodage
+		// =====================================================================
+		NkGPUFormat NkTextureLibrary::FormatGpuDepuisCode(uint32 code) {
+			switch (code) {
+				case NKTEXFMT_R8_UNORM:
+					return NkGPUFormat::NK_R8_UNORM;
+				case NKTEXFMT_RG8_UNORM:
+					return NkGPUFormat::NK_RG8_UNORM;
+				case NKTEXFMT_RGBA8_UNORM:
+					return NkGPUFormat::NK_RGBA8_UNORM;
+				case NKTEXFMT_RGBA8_SRGB:
+					return NkGPUFormat::NK_RGBA8_SRGB;
+				case NKTEXFMT_RGB32_FLOAT:
+					return NkGPUFormat::NK_RGB32_FLOAT;
+				case NKTEXFMT_RGBA32_FLOAT:
+					return NkGPUFormat::NK_RGBA32_FLOAT;
+				default:
+					// Y compris NKTEXFMT_RGB8_* (aucun format GPU a 3 octets) et
+					// TOUS les codes par blocs : `NkFormatBytesPerPixel` rend 0
+					// pour eux, donc le pas de ligne et la taille de televersement
+					// seraient nuls. Le refus est ici, pas plus loin.
+					return NkGPUFormat::NK_UNDEFINED;
+			}
+		}
+
+		NkTexHandle NkTextureLibrary::CreateFromBaked(const NkTexVue &vue, const NkLoadOptions &opts) {
+			if (!mDevice)
+				return NkTexHandle::Null();
+			if (vue.levels.Size() == 0 || vue.width == 0 || vue.height == 0) {
+				logger.Error("[NkTextureLibrary] actif cuit vide\n");
+				return NkTexHandle::Null();
+			}
+
+			const NkGPUFormat fmt = FormatGpuDepuisCode(vue.formatCode);
+			if (fmt == NkGPUFormat::NK_UNDEFINED) {
+				logger.Error("[NkTextureLibrary] actif cuit : format {0} non televersable par ce RHI\n",
+							 NkTexFormatNom(vue.formatCode));
+				return NkTexHandle::Null();
+			}
+
+			const uint32 mips = vue.mipCount > 0 ? vue.mipCount : 1u;
+			const bool cube = vue.EstCubemap();
+
+			NkTextureDesc d;
+			d.type = cube ? NkTextureType::NK_CUBE : NkTextureType::NK_TEX2D;
+			d.format = fmt;
+			d.width = vue.width;
+			d.height = vue.height;
+			d.depth = 1;
+			d.arrayLayers = cube ? 6u : vue.arrayLayers;
+			d.mipLevels = mips;
+			d.bindFlags = NkBindFlags::NK_SHADER_RESOURCE;
+			d.usage = NkResourceUsage::NK_DEFAULT;
+			d.initialData = nullptr; // VOIR l'en-tete : surtout pas les pixels ici
+			d.rowPitch = vue.levels[0].rowPitch;
+			d.debugName = opts.debugName ? opts.debugName : "BakedTexture";
+
+			NkTextureHandle rhi = mDevice->CreateTexture(d);
+			if (!rhi.IsValid())
+				return NkTexHandle::Null();
+
+			// Chaque niveau, tel quel. L'ordre du fichier est mip 0..N-1 pour la
+			// couche 0, puis la couche 1, etc.
+			uint64 octets = 0;
+			for (nk_size i = 0; i < vue.levels.Size(); ++i) {
+				const NkTexNiveauVue &n = vue.levels[i];
+				const uint32 mip = uint32(i % nk_size(mips));
+				const uint32 couche = uint32(i / nk_size(mips));
+				if (!mDevice->WriteTextureRegion(rhi, n.data, 0, 0, 0, n.width, n.height, 1, mip, couche,
+												 n.rowPitch)) {
+					logger.Error("[NkTextureLibrary] actif cuit : televersement du niveau {0} refuse\n", mip);
+					mDevice->DestroyTexture(rhi);
+					return NkTexHandle::Null();
+				}
+				octets += n.size;
+			}
+
+			NkLoadOptions o = opts;
+			o.useClampEdge = (vue.addressMode == NKTEXADDR_CLAMP);
+			NkSamplerHandle samp = PickSampler(o);
+			NkTexHandle out = WrapRHI(rhi, samp, vue.width, vue.height, mips, d.debugName, false);
+			if (out.IsValid()) {
+				logger.Info("[NkTextureLibrary] actif cuit televerse SANS decodage : {0}x{1}, {2} niveaux, {3} o\n",
+							vue.width, vue.height, mips, (unsigned long long)octets);
+			}
+			return out;
 		}
 
 		NkTexHandle NkTextureLibrary::CreateRenderTarget(uint32 w, uint32 h, NkGPUFormat format, bool depth,

@@ -17,6 +17,7 @@
 // connue (sommeil) ET contre une duree nulle, avant toute mesure de decodage.
 // =============================================================================
 #include "NKImage/NKImage.h"
+#include "NKImage/Core/NkTextureOven.h"
 #include "NKSerialization/Asset/NkTextureAssetFormat.h"
 #include "NKTime/NkChrono.h"
 
@@ -166,99 +167,17 @@ namespace {
 	}
 
 	// =========================================================================
-	// ETAPE 1 — le four, en une fonction : image decodee -> payload .nktex
+	// ETAPE 1 — le four : `NkTextureOven`, la SEULE implementation.
+	//
+	// Le banc n'a pas sa copie du four : il appelle celui que l'outil de
+	// production appelle. Un four ecrit deux fois diverge au premier correctif,
+	// et c'est alors le banc qui ment.
 	// =========================================================================
-	nk_uint32 CodeFormatDepuis(NkImagePixelFormat f, bool srgb) {
-		switch (f) {
-			case NkImagePixelFormat::NK_GRAY8:
-				return NKTEXFMT_R8_UNORM;
-			case NkImagePixelFormat::NK_GRAY_A16:
-				return NKTEXFMT_RG8_UNORM;
-			case NkImagePixelFormat::NK_RGB24:
-				return srgb ? NKTEXFMT_RGB8_SRGB : NKTEXFMT_RGB8_UNORM;
-			case NkImagePixelFormat::NK_RGBA32:
-				return srgb ? NKTEXFMT_RGBA8_SRGB : NKTEXFMT_RGBA8_UNORM;
-			case NkImagePixelFormat::NK_RGB96F:
-				return NKTEXFMT_RGB32_FLOAT;
-			case NkImagePixelFormat::NK_RGBA128F:
-				return NKTEXFMT_RGBA32_FLOAT;
-			default:
-				return NKTEXFMT_INCONNU;
-		}
-	}
-
-	// Recopie les lignes de `img` SERREES : l'image aligne son stride sur 4
-	// octets, le fichier porte un pas de ligne explicite et sans trou.
-	void SerrerLignes(const NkImage &img, NkVector<nk_uint8> &out) {
-		const nk_size pas = nk_size(img.Width()) * nk_size(BytesPerPixelOf(img.Format()));
-		out.Clear();
-		out.Resize(pas * nk_size(img.Height()));
-		for (int32 y = 0; y < img.Height(); ++y)
-			memcpy(out.Data() + nk_size(y) * pas, img.RowPtr(y), pas);
-	}
-
-	// Le four : une image decodee -> le payload d'un `.nktex`, mipmaps comprises.
 	bool Cuire(const NkImage &source, bool srgb, bool avecMips, NkVector<nk_uint8> &payload, NkString *err) {
-		const nk_uint32 code = CodeFormatDepuis(source.Format(), srgb);
-		if (code == NKTEXFMT_INCONNU) {
-			if (err)
-				*err = NkString("format de pixel non cuisinable");
-			return false;
-		}
-
-		// La chaine de niveaux, chacun serre. On ne garde que les octets : les
-		// descripteurs pointent dedans, il faut donc que le tampon ne bouge plus
-		// (d'ou le Resize prealable, jamais un PushBack apres coup).
-		const nk_uint32 nMax = avecMips ? NkTexturePayload::CompteMipsComplet(nk_uint32(source.Width()),
-																			 nk_uint32(source.Height()))
-										: 1u;
-		NkVector<NkVector<nk_uint8>> octets;
-		octets.Resize(nk_size(nMax));
-		NkVector<nk_uint32> largeurs, hauteurs;
-
-		{
-			NkImage courant = source.Copy();
-			if (!courant.IsValid()) {
-				if (err)
-					*err = NkString("copie de l'image source impossible");
-				return false;
-			}
-			for (nk_uint32 i = 0; i < nMax; ++i) {
-				SerrerLignes(courant, octets[i]);
-				largeurs.PushBack(nk_uint32(courant.Width()));
-				hauteurs.PushBack(nk_uint32(courant.Height()));
-				if (i + 1u == nMax)
-					break;
-				NkImage suivant = courant.ReduceHalf();
-				if (!suivant.IsValid())
-					break;
-				courant = std::move(suivant);
-			}
-		}
-
-		const nk_size nNiveaux = largeurs.Size();
-		const nk_uint32 bpp = nk_uint32(BytesPerPixelOf(source.Format()));
-
-		NkTexCuisson cuisson;
-		cuisson.formatCode = code;
-		cuisson.width = nk_uint32(source.Width());
-		cuisson.height = nk_uint32(source.Height());
-		cuisson.depth = 1u;
-		cuisson.arrayLayers = 1u;
-		cuisson.flags = (srgb ? nk_uint32(NKTEXFLAG_SRGB) : 0u) |
-						(nNiveaux > 1u ? nk_uint32(NKTEXFLAG_MIPS_PRECALCULES) : 0u);
-		cuisson.rowAlignment = 1u;
-		for (nk_size i = 0; i < nNiveaux; ++i) {
-			NkTexNiveauSource n;
-			n.width = largeurs[i];
-			n.height = hauteurs[i];
-			n.depth = 1u;
-			n.rowPitch = largeurs[i] * bpp;
-			n.data = octets[i].Data();
-			n.size = nk_uint32(octets[i].Size());
-			cuisson.levels.PushBack(n);
-		}
-		return NkTexturePayload::Encode(cuisson, payload, err);
+		NkTexOvenReglages r;
+		r.sRGB = srgb;
+		r.genererMips = avecMips;
+		return NkTextureOven::Cuire(source, r, payload, err);
 	}
 
 	// -------------------------------------------------------------------------
