@@ -319,6 +319,41 @@ namespace nkentseu {
 			/// @note macOS : les noms fixes sous le profil (ce sont ceux du systeme).
 			static NkPath GetUserFolder(NkUserFolder which);
 
+			// =====================================================================
+			//  « EN CONTIENT-IL AU MOINS UN ? » (2026-09-05)
+			// =====================================================================
+			// Rodolf : « il faut aussi distinguer dossier vide de dossier plein ». Un
+			// selecteur de fichiers pose cette question a CHAQUE dossier qu'il affiche --
+			// et deux fois : « a-t-il des sous-dossiers ? » pour le chevron du rail,
+			// « contient-il quelque chose ? » pour l'icone.
+			//
+			// ⚠️ CE N'EST PAS `Empty()`, ET LA DIFFERENCE EST LE COUT. `Empty()` appelle
+			//    `GetEntries()`, qui ENUMERE TOUT et alloue un vecteur d'entrees completes
+			//    (nom, chemin, taille, date) : sur un dossier de dix mille fichiers on paie
+			//    dix mille entrees pour repondre « oui ». Ici on s'arrete au PREMIER
+			//    element qui compte, et on n'alloue rien.
+			//
+			// ⚠️ ET CE N'EST PAS UN `bool`. Un dossier dont la lecture est REFUSEE (droits,
+			//    volume demonte) n'est ni vide ni plein. `Empty()` rend `true` dans ce cas
+			//    -- il annonce « vide » ce qu'il n'a pas pu lire. L'appelant doit pouvoir
+			//    dire « je ne sais pas », sinon l'interface ment.
+			enum class NkDirProbe : nkentseu::uint8 {
+				Illisible = 0, ///< le dossier n'existe pas, ou son ouverture est refusee
+				Vide,		   ///< ouvert, parcouru, rien qui compte
+				Plein		   ///< au moins un element qui compte -- on s'est arrete la
+			};
+
+			/// Le dossier contient-il AU MOINS UN element ? Arret au premier trouve.
+			/// @param path Chemin du dossier
+			/// @param directoriesOnly `true` = ne comptent que les SOUS-DOSSIERS (la
+			///        question du chevron) ; `false` = tout compte (la question de l'icone).
+			///        UN SEUL corps pour les deux questions : deux fonctions voisines
+			///        divergeraient au premier changement de regle.
+			/// @param skipHidden Ignorer les entrees cachees / systeme et celles dont le nom
+			///        commence par un point -- c'est ce que le selecteur affiche.
+			/// @return `Illisible`, `Vide` ou `Plein`.
+			static NkDirProbe Probe(const char *path, bool directoriesOnly, bool skipHidden = true);
+
 		private:
 			// -------------------------------------------------------------
 			// SOUS-SECTION 2.3.5 : Méthodes privées utilitaires

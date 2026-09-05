@@ -80,12 +80,35 @@ namespace nkentseu {
 			return (mix(r0) << 24) | (mix(g0) << 16) | (mix(b0) << 8) | (uint32)a0;
 		}
 
+		// ── CE QU'UN DOSSIER CONTIENT (2026-09-05, v5) ────────────────────
+		// Rodolf : « il faut aussi distinguer dossier vide de dossier plein ».
+		//
+		// ⚠️ UN ETAT A COTE DE LA NATURE, PAS DANS L'ENUMERATION. On aurait pu ajouter
+		//    `DossierVide` et `DossierPlein` a `NkAssetIcone` : il aurait alors fallu
+		//    `ImagesVide`, `ImagesPlein`, `BureauVide`... soit onze natures fois trois
+		//    etats. Un attribut ORTHOGONAL se combine avec les onze silhouettes sans en
+		//    ajouter une seule.
+		//
+		// ⚠️ ET IL Y A UN QUATRIEME ETAT, `Illisible`. Un dossier dont la lecture est
+		//    refusee (droits, volume demonte) n'est NI vide NI plein. Le dessiner vide
+		//    serait un mensonge : c'est la meme faute que `NkDirectory::Empty`, qui rend
+		//    « vide » ce qu'il n'a pas pu ouvrir.
+		enum class NkContenuDossier : uint8 {
+			Inconnu = 0, ///< pas encore demande au disque -- le dossier garde son dessin nu
+			Vide,		 ///< ouvert, parcouru, rien dedans
+			Plein,		 ///< au moins un element : des feuilles depassent derriere le rabat
+			Illisible	 ///< lecture refusee : ni l'un ni l'autre, et l'infobulle le dit
+		};
+
 		/// Peint la silhouette de `genre` dans `r`, teintée par `role`.
 		/// Définie dans `NkContentBrowserDraw.cpp` ; appelée par la GRILLE et par le
 		/// RAIL — une seule fonction, deux volets. Deux tables auraient divergé dès
 		/// le premier ajout de nature.
+		/// @param contenu État de remplissage (`NkContenuDossier`), n'a de sens que pour
+		///        un dossier. `Inconnu` par défaut : les consommateurs qui ne le
+		///        renseignent pas gardent EXACTEMENT le dessin d'avant.
 		void NkDessinerSilhouette(NkComponentPaint &p, const NkPaintRect &r, NkAssetIcone genre,
-								  uint16 role);
+								  uint16 role, uint8 contenu = 0);
 
 	} // namespace editorkit
 } // namespace nkentseu

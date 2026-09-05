@@ -264,7 +264,8 @@ namespace nkentseu {
 			// rabat ARRIERE (plus sombre) qui porte la patte, un rabat AVANT (plus clair)
 			// qui couvre les trois quarts bas, et un liseré d'un ton en haut de l'avant.
 			// Une SEULE teinte, trois nuances -- l'onglet n'est plus une couleur a lui.
-			void Silhouette(NkComponentPaint &p, const NkPaintRect &r, NkAssetIcone genre, uint16 role) {
+			void Silhouette(NkComponentPaint &p, const NkPaintRect &r, NkAssetIcone genre, uint16 role,
+							uint8 contenu = 0) {
 				if (r.w <= 4.f || r.h <= 4.f)
 					return;
 				// un carre centre : une icone etiree ne ressemble plus a ce qu'elle designe
@@ -304,6 +305,21 @@ namespace nkentseu {
 					R(1.5f, 2.4f, 5.2f, 3.4f, sombre, 1.f);
 					// LE RABAT ARRIERE : il porte la patte, et son bord haut reste visible
 					R(1.5f, 3.7f, 13.f, 9.8f, sombre, 1.4f);
+					// ── CE QUI DEPASSE ── (05/09, v5). C'est la forme de l'explorateur :
+					// un dossier PLEIN laisse voir des feuilles entre le rabat arriere et le
+					// rabat avant ; un dossier VIDE ne montre que le creux. Deux feuilles
+					// decalees, PAS une seule -- une seule se lit comme un liseré de plus.
+					// ⚠️ TEINTES DE LA MEME FAMILLE (`Teinter` melange vers le blanc et garde
+					//    la dominante) : une feuille blanche casserait l'unite de teinte
+					//    mesuree par la sonde 116.
+					if ((NkContenuDossier)contenu == NkContenuDossier::Plein) {
+						R(4.4f, 3.9f, 7.4f, 2.4f, Teinter(vif, 0.72f), 0.4f);
+						R(3.2f, 4.5f, 9.6f, 1.8f, Teinter(vif, 0.52f), 0.4f);
+					} else if ((NkContenuDossier)contenu == NkContenuDossier::Illisible) {
+						// NI VIDE NI PLEIN : une barre en travers du creux. On ne dessine pas
+						// l'ignorance comme le vide -- c'etait toute la demande.
+						R(5.f, 4.3f, 6.f, 1.4f, Teinter(vif, -0.45f), 0.6f);
+					}
 					// LE RABAT AVANT : plus clair, il couvre les trois quarts bas. C'est CE
 					// decalage de tons qui donne la profondeur, pas un contour.
 					R(1.5f, 5.4f, 13.f, 8.1f, vif, 1.4f);
@@ -402,8 +418,8 @@ namespace nkentseu {
 		//    fonction-la, exactement comme la grille : une seule fonction, deux volets.
 		//    Deux tables auraient diverge des le premier ajout de nature.
 		void NkDessinerSilhouette(NkComponentPaint &p, const NkPaintRect &r, NkAssetIcone genre,
-								  uint16 role) {
-			Silhouette(p, r, genre, role);
+								  uint16 role, uint8 contenu) {
+			Silhouette(p, r, genre, role, contenu);
 		}
 		
 
@@ -900,6 +916,14 @@ namespace nkentseu {
 				// aurait rendu le defilement dependant de ce qui est visible.
 				if (cell.y + cell.h < area.y || cell.y > area.y + area.h)
 					continue;
+				// ── LA PLAGE VISIBLE (05/09, v5) ─────────────────────────
+				// Le composant est le SEUL a savoir quelles entrees sont a l'ecran (il
+				// connait le defilement, la taille des cellules et le nombre de colonnes).
+				// L'hote en a besoin pour ne payer un acces disque que sur ce qui se voit.
+				if (res.premierVisible < 0 || idx < res.premierVisible)
+					res.premierVisible = idx;
+				if (idx > res.dernierVisible)
+					res.dernierVisible = idx;
 
 				const bool isActive = (m.active == idx);
 				const bool isChosen = m.IsChosen(idx);
@@ -910,7 +934,8 @@ namespace nkentseu {
 					const NkPaintRect zoneVign{cell.x + pad, cell.y + pad, cell.w - pad * 2.f,
 											   thumbZoneH - pad * 2.f};
 					if (!DrawThumb(p, zoneVign, e.thumbnail))
-						Silhouette(p, zoneVign, IconeDe(e), e.isFolder ? s.folderTint : e.kindRole);
+						Silhouette(p, zoneVign, IconeDe(e), e.isFolder ? s.folderTint : e.kindRole,
+								   e.contenu);
 					// LE BADGE DE TYPE (Aetherion) : la couleur de la nature en
 					// fond, pose au bas de la zone de vignette. Pas en minimal, et
 					// pas sur un dossier — le dossier EST sa couleur.
@@ -946,7 +971,8 @@ namespace nkentseu {
 					p.Fill(cell, s.cardBg);
 					const NkPaintRect zoneVign{cell.x + pad, cell.y, rowH, rowH};
 					if (!DrawThumb(p, zoneVign, e.thumbnail))
-						Silhouette(p, zoneVign, IconeDe(e), e.isFolder ? s.folderTint : e.kindRole);
+						Silhouette(p, zoneVign, IconeDe(e), e.isFolder ? s.folderTint : e.kindRole,
+								   e.contenu);
 					p.Text({cell.x + pad + rowH, cell.y, cell.w * 0.6f, cell.h}, Label(e), s.text);
 					p.Text({cell.x + cell.w * 0.6f, cell.y, cell.w * 0.4f, cell.h},
 						   e.kindLabel ? e.kindLabel : "", s.textMuted);

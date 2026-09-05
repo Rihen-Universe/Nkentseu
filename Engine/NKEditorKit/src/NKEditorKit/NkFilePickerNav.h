@@ -103,9 +103,102 @@ namespace nkentseu {
 			}
 		};
 
+		// « VIDE OU PLEIN ? », ET CE QUE CA COUTE (2026-09-05, v5)
+		// Rodolf : « il faut aussi distinguer dossier vide de dossier plein ».
+		//
+		// LA RESERVE ETAIT : un acces disque par entree affichee. Elle est payee en
+		// quatre fois, et chaque moitie compte :
+		//   1. ON NE DEMANDE PAS « COMBIEN », ON DEMANDE « AU MOINS UN »
+		//      (`NkDirectory::Probe`, arret au premier element, aucune allocation) ;
+		//   2. UNE SEULE FOIS PAR DOSSIER, retenu ICI, avec l'horodatage du dossier :
+		//      si l'horodatage change, la reponse est reprise ; sinon elle est rendue
+		//      sans toucher au disque. `accesDisque` COMPTE les mesures reelles --
+		//      c'est ce compteur que la sonde interroge, et sans lui « c'est en cache »
+		//      serait une affirmation, pas une mesure ;
+		//   3. SEULEMENT CE QUI SE VOIT : l'hote ne sonde que la plage rendue par
+		//      `NkContentBrowserResult::premierVisible/dernierVisible` et les noeuds du
+		//      rail qui sont deplies ;
+		//   4. LE CACHE MEURT AVEC LE DIALOGUE : rouvrir, c'est relire.
+		//
+		// ⚠️ DEUX QUESTIONS VOISINES, UN SEUL CORPS. Le chevron du rail demande « a-t-il
+		//    des SOUS-DOSSIERS ? » ; l'icone demande « contient-il QUELQUE CHOSE ? ». Un
+		//    dossier plein de fichiers sans aucun sous-dossier repond NON au premier et OUI
+		//    au second -- les deux reponses sont donc retenues separement, mais elles
+		//    sortent de la MEME fonction parametree. Deux fonctions auraient diverge.
+		struct NkCacheDossiers {
+				struct Ligne {
+						NkString chemin;
+						nk_int64 horodatage = 0;
+						uint8 tout = 0; ///< 0 = pas encore demande
+						uint8 sous = 0;
+				};
+				NkVector<Ligne> lignes;
+				uint32 accesDisque = 0; ///< mesures REELLES, pour la sonde
+
+				void Vider() {
+					lignes.Clear();
+					accesDisque = 0;
+				}
+
+				/// L'etat de `chemin` (`NkContenuDossier`). `horodatage` est celui du dossier,
+				/// tel que l'enumeration du parent l'a donne -- il est donc GRATUIT : on ne
+				/// paie pas un acces disque pour savoir s'il faut en payer un.
+				uint8 Etat(const char *chemin, nk_int64 horodatage, bool sousDossiersSeulement) {
+					if (!chemin || !*chemin)
+						return (uint8)NkContenuDossier::Inconnu;
+					for (uint32 i = 0; i < (uint32)lignes.Size(); ++i) {
+						Ligne &l = lignes[i];
+						if (!NkFilePickerState::PathSame(l.chemin.CStr(), chemin))
+							continue;
+						if (l.horodatage != horodatage) { // le dossier a bouge : on reprend
+							l.horodatage = horodatage;
+							l.tout = 0;
+							l.sous = 0;
+						}
+						uint8 &v = sousDossiersSeulement ? l.sous : l.tout;
+						if (v == 0u)
+							v = Mesurer(chemin, sousDossiersSeulement);
+						return v;
+					}
+					Ligne l;
+					l.chemin = NkString(chemin);
+					l.horodatage = horodatage;
+					const uint8 v = Mesurer(chemin, sousDossiersSeulement);
+					if (sousDossiersSeulement)
+						l.sous = v;
+					else
+						l.tout = v;
+					lignes.PushBack(l);
+					return v;
+				}
+
+			private:
+				uint8 Mesurer(const char *chemin, bool sousDossiersSeulement) {
+					++accesDisque;
+					switch (NkDirectory::Probe(chemin, sousDossiersSeulement)) {
+						case NkDirectory::NkDirProbe::Vide:
+							return (uint8)NkContenuDossier::Vide;
+						case NkDirectory::NkDirProbe::Plein:
+							return (uint8)NkContenuDossier::Plein;
+						default:
+							// NI VIDE NI PLEIN : un dossier qu'on ne peut pas lire n'est pas
+							// vide, et le compter comme tel serait le mensonge le plus facile.
+							return (uint8)NkContenuDossier::Illisible;
+					}
+				}
+		};
+
 		// ── L'ETAT ──────────────────────────────────────────────────────────────
 		struct NkFilePickerNavState : public NkFilePickerState {
 				NkContentBrowserModel vue;	 ///< le volet droit ET son rail de gauche
+				/// « vide ou plein ? », retenu par chemin et par horodatage. Vide a l'ouverture.
+				NkCacheDossiers cacheDossiers;
+				/// La plage d'entrees VISIBLES rendue par le volet a l'image precedente : c'est
+				/// elle, et elle seule, que l'on sonde. -1 tant que rien n'a ete dessine.
+				int32 premierVu = -1, dernierVu = -1;
+				/// Le dialogue etait-il ouvert a l'image precedente ? Sert a vider le cache a
+				/// l'ouverture -- un seul site, celui du dessin.
+				bool etaitOuvert = false;
 								NkVector<NkString> cheminsCrumb; ///< le chemin COMPLET de chaque miette
 				NkVector<NkString> favoris;		 ///< poses par l'hote (chemins absolus)
 
@@ -847,10 +940,24 @@ namespace nkentseu {
 						if (j < 0)
 							continue;
 						++n;
-						// il ANNONCE ses enfants sans les charger : c'est ce qui lui donne son
-						// chevron avant qu'on l'ouvre.
+						// LES DEUX QUESTIONS, LE MEME CORPS (05/09, v5) : le chevron demande
+						// « a-t-il des SOUS-DOSSIERS ? », l'icone « contient-il QUELQUE CHOSE ? ».
+						// L'horodatage vient de l'enumeration qu'on tient deja : il est gratuit.
+						// `DirHasSubdirs` (un `GetEntries` complet, un vecteur alloue) n'est plus
+						// appele ici -- `Probe` s'arrete au premier element.
+						const nk_int64 ts = (nk_int64)e[i].ModificationTime;
 						vue.folders.nodes[(uint32)j].enfantsPossibles =
-							profondeur < kProfondeurRail && DirHasSubdirs(sous.CStr());
+							profondeur < kProfondeurRail
+							&& cacheDossiers.Etat(sous.CStr(), ts, true)
+								   == (uint8)NkContenuDossier::Plein;
+						const uint8 etat = cacheDossiers.Etat(sous.CStr(), ts, false);
+						vue.folders.nodes[(uint32)j].contenu = etat;
+						// ⚠️ UN DOSSIER ILLISIBLE LE DIT. Sans ca, il se lirait « vide » --
+						//    et l'utilisateur chercherait un contenu qu'on ne lui a pas refuse
+						//    mais cache.
+						if (etat == (uint8)NkContenuDossier::Illisible)
+							vue.folders.nodes[(uint32)j].infobulle.Append(
+								" — lecture refusée");
 						// et s'il est DEJA deplie, on descend
 						if (vue.folders.IsOpen(vue.folders.nodes[(uint32)j].id, false))
 							n += PoserSousDossiers(sous.CStr(), j, profondeur + 1);
@@ -1149,8 +1256,18 @@ namespace nkentseu {
 		inline bool NkDrawFilePickerNav(nkgui::NkGuiContext &ctx, NkFilePickerNavState &fp,
 										const NkFilePickerNavStyle &sty, const NkTheme &theme) {
 			using namespace nkentseu::nkgui;
-			if (!fp.pickerOpen)
+			if (!fp.pickerOpen) {
+				// LE CACHE MEURT AVEC LE DIALOGUE. Rouvrir, c'est relire : entre deux
+				// ouvertures, le disque a pu changer sans que personne nous previenne.
+				fp.etaitOuvert = false;
 				return false;
+			}
+			if (!fp.etaitOuvert) {
+				fp.etaitOuvert = true;
+				fp.cacheDossiers.Vider();
+				fp.premierVu = -1;
+				fp.dernierVu = -1;
+			}
 			const NkGuiFont *f = ctx.font;
 			if (!f || !f->Valid())
 				return true;
@@ -1443,6 +1560,26 @@ namespace nkentseu {
 					NkDrawContentBrowser(peintre, in, {zone.x, zone.y, zone.w, zone.h}, fp.vue,
 										 volet, h);
 				nkgui::PopOverlay(ctx);
+				// ── VIDE OU PLEIN : SEULEMENT CE QUI EST A L'ECRAN (05/09, v5) ─────
+				// Le volet vient de dire quelles entrees il a REELLEMENT dessinees. On ne
+				// sonde que celles-la : sur un dossier de 124 entrees, c'est la quinzaine
+				// visible, pas les 124. Le cache fait le reste -- une entree deja sondee ne
+				// retourne pas au disque tant que son horodatage n'a pas bouge.
+				// ⚠️ APRES LE DESSIN, PAS PENDANT : on ecrit dans `vue.entries`, que le
+				//    composant tenait encore par reference une ligne plus haut.
+				fp.premierVu = res.premierVisible;
+				fp.dernierVu = res.dernierVisible;
+				if (res.premierVisible >= 0) {
+					const uint32 fin = (uint32)res.dernierVisible < (uint32)fp.vue.entries.Size()
+										   ? (uint32)res.dernierVisible
+										   : (uint32)fp.vue.entries.Size() - 1u;
+					for (uint32 i = (uint32)res.premierVisible; i <= fin; ++i) {
+						NkAssetEntry &e = fp.vue.entries[i];
+						if (!e.isFolder || e.contenu != (uint8)NkContenuDossier::Inconnu)
+							continue;
+						e.contenu = fp.cacheDossiers.Etat(e.path.CStr(), e.dateModif, false);
+					}
+				}
 				if (!res.infobulle.Empty()) {
 					bulle = res.infobulle;
 					bulleX = res.infobulleX;

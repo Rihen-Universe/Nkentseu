@@ -104,6 +104,11 @@ namespace nkentseu {
 				// range apres -- pas devant, ou il ferait croire au plus petit ou au plus vieux.
 				nk_int64 taille = 0;  ///< octets ; 0 pour un dossier
 				nk_int64 dateModif = 0; ///< epoch
+
+				/// ÉTAT DE REMPLISSAGE d'un dossier (`NkContenuDossier`), 0 = pas encore
+				/// demandé au disque. Additif, neutre par défaut : un hôte qui ne le
+				/// renseigne pas garde exactement le dessin d'avant.
+				uint8 contenu = 0;
 		};
 
 		// ⚠️ `NkAssetIcone` ET `NkDessinerSilhouette` ONT DEMENAGE (05/09, nuit) dans
@@ -398,6 +403,14 @@ namespace nkentseu {
 				float32 infobulleX = 0.f;
 				float32 infobulleY = 0.f;
 				float32 infobulleH = 0.f;
+
+				/// LA PLAGE D'ENTREES REELLEMENT A L'ECRAN (bornes incluses), -1 si aucune.
+				/// Le composant est le seul a la connaitre -- il tient le defilement, la
+				/// taille des cellules et le nombre de colonnes. L'hote s'en sert pour ne
+				/// payer un acces disque (« ce dossier est-il vide ? ») QUE sur ce qui se
+				/// voit : sur un dossier de 124 entrees, c'est une quinzaine au lieu de 124.
+				int32 premierVisible = -1;
+				int32 dernierVisible = -1;
 		};
 
 		// ── LA SIGNATURE TYPE ───────────────────────────────────────────────────

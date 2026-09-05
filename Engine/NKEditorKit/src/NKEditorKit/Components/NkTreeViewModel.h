@@ -191,6 +191,16 @@ namespace nkentseu {
 				//    tant qu'on ne l'aurait pas ouvert -- c'est-a-dire jamais.
 				// Faux par defaut : les quatre consommateurs gardent leur rendu.
 				bool enfantsPossibles = false;
+
+				// (2026-09-05, v5) ÉTAT DE REMPLISSAGE de ce nœud, quand c'est un dossier
+				// (`NkContenuDossier`). 0 = pas encore demandé au disque, et c'est le défaut :
+				// les consommateurs existants gardent leur rendu.
+				// ⚠️ VOISIN DE `enfantsPossibles`, PAS IDENTIQUE : le chevron demande « a-t-il
+				//    des SOUS-DOSSIERS ? », l'icône demande « contient-il QUELQUE CHOSE ? ».
+				//    Un dossier plein de fichiers et sans sous-dossier répond non au premier
+				//    et oui au second. Deux questions voisines, une seule fonction paramétrée
+				//    pour y répondre (`NkDirectory::Probe`).
+				uint8 contenu = 0;
 				/// Le drapeau vient-il d'un ancetre plutot que du noeud ? Sert a le
 				/// peindre attenue. L'application le calcule ; sans lui, l'icone
 				/// mentirait sur l'endroit ou l'on peut agir.

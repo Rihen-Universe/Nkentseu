@@ -53,6 +53,7 @@
 #include "NKEditorKit/Components/NkRecordingPaint.h"
 #include "NKEditorKit/Components/NkTreeViewModel.h"
 #include "NKFileSystem/NkFile.h"
+#include "NKTime/NkChrono.h"
 
 #include "Selection.h"
 #include "Canvas.h"
@@ -13688,6 +13689,146 @@ namespace nkuidesign {
 				  pasDeTroisiemeEtat && laReussiteLePose && annulerNeChangeRien && rouvreLaOuOnEtait,
 				  det);
 			NkDirectory::Delete("sonde_courant2", true);
+		}
+		// -- 123. VIDE, PLEIN, OU ILLISIBLE -- ET CE QUE CA COUTE (05/09, v5).
+		//    Rodolf : « il faut aussi distinguer dossier vide de dossier plein ». J'avais
+		//    nomme la reserve (un acces disque par entree affichee) sans la mesurer ; la
+		//    voici mesuree, et payee : on demande « au moins un » et non « combien », on
+		//    retient la reponse par chemin ET par horodatage, et on ne sonde que ce qui
+		//    est a l'ecran.
+		{
+			char det[900];
+			NkDirectory::Delete("sonde_remplissage", true);
+			NkDirectory::CreateRecursive("sonde_remplissage/vide");
+			NkDirectory::CreateRecursive("sonde_remplissage/fichiers_seuls");
+			NkDirectory::CreateRecursive("sonde_remplissage/avec_sous_dossier/enfant");
+			NkFile::WriteAllText("sonde_remplissage/fichiers_seuls/a.txt", "x");
+			const NkString rac = (NkPath(NkDirectory::GetCurrentDirectory()) / "sonde_remplissage").ToString();
+			const NkString dVide = (NkPath(rac.Data()) / "vide").ToString();
+			const NkString dFich = (NkPath(rac.Data()) / "fichiers_seuls").ToString();
+			const NkString dSous = (NkPath(rac.Data()) / "avec_sous_dossier").ToString();
+			// 1. TROIS DOSSIERS, TROIS REPONSES -- et LES DEUX QUESTIONS ne se confondent
+			//    pas : « contient-il quelque chose ? » n'est pas « a-t-il des sous-dossiers ? ».
+			//    Le dossier de fichiers seuls est PLEIN pour l'icone et SANS ENFANT pour le
+			//    chevron : c'est precisement le couple que deux fonctions auraient melange.
+			typedef NkDirectory::NkDirProbe Pr;
+			const Pr tVide = NkDirectory::Probe(dVide.Data(), false);
+			const Pr tFich = NkDirectory::Probe(dFich.Data(), false);
+			const Pr tSous = NkDirectory::Probe(dSous.Data(), false);
+			const Pr cVide = NkDirectory::Probe(dVide.Data(), true);
+			const Pr cFich = NkDirectory::Probe(dFich.Data(), true);
+			const Pr cSous = NkDirectory::Probe(dSous.Data(), true);
+			const bool troisEtats = tVide == Pr::Vide && tFich == Pr::Plein && tSous == Pr::Plein
+									&& cVide == Pr::Vide && cFich == Pr::Vide && cSous == Pr::Plein;
+			// 2. ILLISIBLE N'EST PAS VIDE. `NkDirectory::Empty` rend `true` sur un dossier
+			//    qu'il n'a pas pu ouvrir -- il annonce vide ce qu'il ne sait pas. `Probe`
+			//    rend un TROISIEME etat. (Un refus de droits ne se fabrique pas de facon
+			//    portable dans un temoin : on exerce ici la MEME branche, celle du dossier
+			//    qui ne s'ouvre pas.)
+			const NkString absent = (NkPath(rac.Data()) / "ceci_n_existe_pas").ToString();
+			const bool illisiblePasVide = NkDirectory::Probe(absent.Data(), false) == Pr::Illisible
+										  && NkDirectory::Empty(absent.Data());
+			// 3. LE CACHE : deux interrogations, UN SEUL acces disque. Le compteur est dans
+			//    le cache -- sans lui, « c'est en cache » serait une affirmation.
+			editorkit::NkCacheDossiers cache;
+			const uint8 e1 = cache.Etat(dFich.Data(), 1000, false);
+			const uint32 apres1 = cache.accesDisque;
+			const uint8 e2 = cache.Etat(dFich.Data(), 1000, false);
+			const uint32 apres2 = cache.accesDisque;
+			// l'horodatage CHANGE -> on reprend la mesure
+			const uint8 e3 = cache.Etat(dFich.Data(), 2000, false);
+			const uint32 apres3 = cache.accesDisque;
+			// et la SECONDE question sur le meme dossier est une mesure de plus, pas une
+			// reponse recyclee : ce sont deux faits differents.
+			cache.Etat(dFich.Data(), 2000, true);
+			const uint32 apres4 = cache.accesDisque;
+			const bool cacheOk = e1 == e2 && e2 == e3 && apres1 == 1u && apres2 == 1u
+								 && apres3 == 2u && apres4 == 3u;
+			// 4. LE COUT, MESURE. 124 dossiers, l'ancienne question contre la nouvelle.
+			NkDirectory::CreateRecursive("sonde_remplissage/beaucoup");
+			const NkString dBcp = (NkPath(rac.Data()) / "beaucoup").ToString();
+			for (int32 k = 0; k < 124; ++k) {
+				char nom[256];
+				snprintf(nom, sizeof(nom), "%s/d%03d/dedans", dBcp.Data(), k);
+				NkDirectory::CreateRecursive(nom);
+			}
+			NkVector<NkDirectoryEntry> lot =
+				NkDirectory::GetEntries(NkPath(dBcp.Data()), "*", NkSearchOption::NK_TOP_DIRECTORY_ONLY);
+			float64 msAvant = 0.0, msApres = 0.0, msCache = 0.0;
+			{
+				NkChrono c;
+				for (usize k = 0; k < lot.Size(); ++k)
+					(void)NkDirectory::Empty(lot[k].FullPath.CStr()); // l'ancienne question
+				msAvant = c.Elapsed().milliseconds;
+			}
+			{
+				NkChrono c;
+				for (usize k = 0; k < lot.Size(); ++k)
+					(void)NkDirectory::Probe(lot[k].FullPath.CStr(), false);
+				msApres = c.Elapsed().milliseconds;
+			}
+			{
+				editorkit::NkCacheDossiers c2;
+				for (usize k = 0; k < lot.Size(); ++k)
+					(void)c2.Etat(lot[k].FullPath.CStr(), (nk_int64)lot[k].ModificationTime, false);
+				NkChrono c;
+				for (usize k = 0; k < lot.Size(); ++k)
+					(void)c2.Etat(lot[k].FullPath.CStr(), (nk_int64)lot[k].ModificationTime, false);
+				msCache = c.Elapsed().milliseconds;
+			}
+			// LE SEUIL EST DIT, PAS DEVINE : au-dela de 8 ms pour un dossier de 124 entrees,
+			// le dialogue se sentirait -- il faudrait alors sonder en arriere-plan. En
+			// dessous, le faire tout de suite est plus simple ET plus honnete (aucune icone
+			// qui se corrige sous l'oeil).
+			const bool coutTenable = msApres < 8.0 && msCache < msApres;
+			// 5. LE DESSIN : trois empreintes DISTINCTES, a 32, 64 et 128 px.
+			auto empreinte = [](uint8 contenu, float32 taille) -> uint32 {
+				NkRecordingPaint r;
+				NkDessinerSilhouette(r, {0.f, 0.f, taille, taille}, editorkit::NkAssetIcone::Dossier, 7,
+									 contenu);
+				uint32 h = 2166136261u;
+				for (uint32 i = 0; i < (uint32)r.cmds.Size(); ++i) {
+					const NkPaintCmd &c = r.cmds[i];
+					const uint32 v[5] = {(uint32)(c.x * 4.f), (uint32)(c.y * 4.f), (uint32)(c.w * 4.f),
+										 (uint32)(c.h * 4.f), c.rgba};
+					for (uint32 q = 0; q < 5u; ++q) {
+						h ^= v[q];
+						h *= 16777619u;
+					}
+				}
+				return h;
+			};
+			bool troisDessins = true;
+			static const float32 kTailles[3] = {32.f, 64.f, 128.f};
+			for (uint32 t = 0; t < 3u; ++t) {
+				const uint32 hv = empreinte((uint8)editorkit::NkContenuDossier::Vide, kTailles[t]);
+				const uint32 hp = empreinte((uint8)editorkit::NkContenuDossier::Plein, kTailles[t]);
+				const uint32 hi = empreinte((uint8)editorkit::NkContenuDossier::Illisible, kTailles[t]);
+				const uint32 hn = empreinte((uint8)editorkit::NkContenuDossier::Inconnu, kTailles[t]);
+				// vide == inconnu (le dessin nu), mais plein et illisible s'en distinguent
+				if (hv != hn || hp == hv || hi == hv || hp == hi)
+					troisDessins = false;
+			}
+			snprintf(det, sizeof(det),
+					 "trois dossiers : contenu(vide,fichiers,sous)=%u/%u/%u et sous-dossiers=%u/%u/%u -> %d "
+					 "(un dossier de fichiers SEULS est plein pour l'icone et sans enfant pour le chevron) ; "
+					 "illisible != vide (Empty dit vide, Probe dit illisible)=%d ; cache : %u/%u/%u/%u acces "
+					 "pour 4 questions -> %d ; COUT sur 124 dossiers : Empty %.2f ms, Probe %.2f ms, "
+					 "cache relu %.3f ms -> tenable sans arriere-plan=%d ; trois empreintes distinctes a "
+					 "32/64/128 px=%d",
+					 (uint32)tVide, (uint32)tFich, (uint32)tSous, (uint32)cVide, (uint32)cFich,
+					 (uint32)cSous, troisEtats ? 1 : 0, illisiblePasVide ? 1 : 0, apres1, apres2, apres3,
+					 apres4, cacheOk ? 1 : 0, msAvant, msApres, msCache, coutTenable ? 1 : 0,
+					 troisDessins ? 1 : 0);
+			check("123. UN DOSSIER VIDE, UN DOSSIER PLEIN ET UN DOSSIER QU'ON NE PEUT PAS LIRE NE SE DESSINENT PAS "
+				  "PAREIL, ET LE COUT EST MESURE : on ne demande pas « combien d'entrees » mais « au moins une » "
+				  "(arret au premier, aucune allocation), la reponse est retenue par chemin ET par horodatage (deux "
+				  "interrogations, un seul acces), et seules les entrees A L'ECRAN sont sondees. Le chevron et "
+				  "l'icone posent deux questions VOISINES -- « a-t-il des sous-dossiers ? » et « contient-il quelque "
+				  "chose ? » -- auxquelles repond UNE SEULE fonction parametree ; un dossier illisible n'est ni vide "
+				  "ni plein, et son infobulle le dit",
+				  troisEtats && illisiblePasVide && cacheOk && coutTenable && troisDessins, det);
+			NkDirectory::Delete("sonde_remplissage", true);
 		}
 		snprintf(tail, sizeof(tail), "\n=== RESULTAT : %d / %d ===\n", pass, total);
 		rep.Append(tail);

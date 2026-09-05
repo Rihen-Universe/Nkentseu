@@ -509,7 +509,8 @@ namespace nkentseu {
 						const NkPaintRect ri{x, row.y, iconW, rowH};
 						const NkAssetIcone sil = (NkAssetIcone)n.silhouette;
 						if (sil != NkAssetIcone::Auto && sil < NkAssetIcone::Count)
-							NkDessinerSilhouette(p, ri, sil, n.kindRole ? n.kindRole : s.iconTint);
+							NkDessinerSilhouette(p, ri, sil, n.kindRole ? n.kindRole : s.iconTint,
+												 n.contenu);
 						else
 							p.Icon(ri, n.icon, n.kindRole ? n.kindRole : s.iconTint);
 					}
