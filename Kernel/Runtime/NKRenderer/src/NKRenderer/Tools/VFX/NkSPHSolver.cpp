@@ -10,7 +10,9 @@
 // cran de raideur (k 200 -> 3000), immobile sans gravité -- la formulation.
 // =============================================================================
 #include "NkSPHSolver.h"
+#include "NkSPHStoreGPU.h"
 #include "NkVFXSystem.h"
+#include "NKMemory/NkAllocator.h"
 #include <cmath>
 #include "NKTime/NkChrono.h" // en dernier (cf. NkVFXSystem.cpp : namespace `time`)
 
@@ -79,16 +81,13 @@ namespace nkentseu {
 
 		// Deux couches de particules fixes sur les six faces de la boîte, à l'EXTÉRIEUR,
 		// espacement d = h/2. Reconstruites seulement si la boîte ou h change.
-		void NkSPHSolver::BuildBoundary() {
+		void NkSPHSolver::BuildBoundaryPositions(const NkSPHParams &params, NkVector<NkVec3f> &out) {
 			const NkVec3f bmin = params.boundsMin, bmax = params.boundsMax;
-			if (mBoundH == params.h && mBoundMin.x == bmin.x && mBoundMin.y == bmin.y && mBoundMin.z == bmin.z &&
-				mBoundMax.x == bmax.x && mBoundMax.y == bmax.y && mBoundMax.z == bmax.z && !mBound.Empty())
-				return;
-			mBound.Clear();
+			out.Clear();
 			const float32 d = params.h * 0.5f;
 			const int32 layers = 2;
 			const float32 ex = (float32)layers * d;
-			auto push = [&](float32 x, float32 y, float32 z) { mBound.PushBack({x, y, z}); };
+			auto push = [&](float32 x, float32 y, float32 z) { out.PushBack({x, y, z}); };
 			for (int32 l = 0; l < layers; ++l) {
 				const float32 yb = bmin.y - d * (0.5f + (float32)l);
 				const float32 yt = bmax.y + d * (0.5f + (float32)l);
@@ -112,9 +111,23 @@ namespace nkentseu {
 					}
 				}
 			}
+		}
+
+		void NkSPHSolver::BuildBoundary() {
+			const NkVec3f bmin = params.boundsMin, bmax = params.boundsMax;
+			if (mBoundH == params.h && mBoundMin.x == bmin.x && mBoundMin.y == bmin.y && mBoundMin.z == bmin.z &&
+				mBoundMax.x == bmax.x && mBoundMax.y == bmax.y && mBoundMax.z == bmax.z && !mBound.Empty())
+				return;
+			BuildBoundaryPositions(params, mBound);
 			mBoundH = params.h;
 			mBoundMin = bmin;
 			mBoundMax = bmax;
+		}
+
+		NkIParticleStore *NkSPHSolver::CreateGPUStore(NkIDevice *device, const NkEmitterDesc &desc) {
+			(void)device;
+			(void)desc;
+			return memory::NkGetDefaultAllocator().New<NkSPHStoreGPU>(this);
 		}
 
 		// Grille + listes de voisines (r < h, j != i) pour les n vivantes, sur les M
