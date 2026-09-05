@@ -29,6 +29,7 @@ namespace nkentseu {
 				uint32 insideMax = 0, insideSum = 0, degenerate = 0;
 				uint32 insideNearestMax = 0, insideNearestSum = 0;
 				float32 insideDepthMax = 0.f;
+				NkVector<NkVec3f> freePos; // positions des particules LIBRES (les epinglees sont hors mesure)
 				float32 sdfPenMax = 0.f;
 				uint32 sdfContactsMax = 0, capsContactsMax = 0;
 				float64 msSum = 0.0;
@@ -98,7 +99,7 @@ namespace nkentseu {
 			NkVector<NkVec3f> bodyPos;
 			NkMeshHandle bodyMesh;
 			NkMeshInsideTester inside, restInside;
-			NkBodySDF sdf;			  // le corps vu comme un champ de distance, reconstruit par image
+			NkBodySDF sdf, sdfPrev;	  // le corps vu comme un champ de distance : pose de fin, pose de début
 			bool useSdf = true;
 			uint32 sdfEvery = 1;	  // reconstruction toutes les N images (mesure du compromis)
 			float64 msSdfSum = 0.0;
@@ -354,6 +355,11 @@ namespace nkentseu {
 		// ── LE CHAMP DE DISTANCE, construit puis CALIBRÉ avant de servir à juger ────────────
 		if (const char *e = std::getenv("NK_MANNEQUIN_SDF"); e && e[0] == '0')
 			p->useSdf = false;
+		// NK_MANNEQUIN_SDF_SIGN=w : signe par NOMBRE D ENROULEMENT (corps non etanches, Jacobson 2013)
+		if (const char *e = std::getenv("NK_MANNEQUIN_SDF_SIGN"); e && (e[0] == 'w' || e[0] == 'W'))
+			p->sdf.params.sign = NkSDFSign::NK_WINDING;
+		if (const char *e = std::getenv("NK_MANNEQUIN_SDF_SIGNRES"); e && e[0])
+			p->sdf.params.signResolution = (uint32)std::atoi(e);
 		if (const char *e = std::getenv("NK_MANNEQUIN_SDF_RES"); e && e[0])
 			p->sdf.params.resolution = (uint32)std::atoi(e);
 		if (const char *e = std::getenv("NK_MANNEQUIN_SDF_EVERY"); e && e[0])
@@ -651,6 +657,9 @@ namespace nkentseu {
 		// le CHAMP DE DISTANCE de cette pose (toutes les sdfEvery images)
 		if (p->useSdf && (frame % p->sdfEvery) == 0u) {
 			NkChrono sc;
+			// le champ de l'image précédente devient celui du DÉBUT de pas (les deux sont interpolés
+			// par sous-pas, comme les capsules) -- copie par échange de contenu, une seule construction
+			p->sdfPrev = p->sdf;
 			p->sdf.Build(p->bodyPos.Data(), nv, M.indices.Data(), (uint32)M.indices.Size() / 3u);
 			const float32 ms = (float32)sc.Elapsed().milliseconds;
 			p->msSdfSum += ms;
@@ -670,6 +679,7 @@ namespace nkentseu {
 			for (uint32 k = 0; k < (uint32)p->shapes.Size(); ++k)
 				c.colliders.PushBack(p->shapes[k]);
 			c.bodySDF = (p->useSdf && p->sdf.Valid()) ? &p->sdf : nullptr;
+			c.bodySDFPrev = (p->useSdf && p->sdfPrev.Valid()) ? &p->sdfPrev : nullptr;
 			s->garment.UpdatePins(p->world.Data(), nj);
 			NkChrono simClock;
 			c.Step(dt, p->time);
@@ -678,9 +688,16 @@ namespace nkentseu {
 			int32 first = -1;
 			// la PARITÉ filtre (rapide) ; le TRIANGLE LE PLUS PROCHE tranche (la parité ment sur une
 			// coque non fermée : contrôle à l'init). C'est le second chiffre qui répond à Rodolf.
-			const uint32 in = p->testInside ? p->inside.CountInside(c.Positions(), c.ParticleCount(), &first) : 0u;
+			// On ne compte QUE les particules LIBRES : une epinglee suit son os, elle est sous la peau
+			// par construction (mesure : les « 9 a 13 du foulard en permanence » etaient ses 29 epingles).
+			s->freePos.Resize(c.ParticleCount());
+			uint32 nFree = 0;
+			for (uint32 q = 0; q < c.ParticleCount(); ++q)
+				if (c.InvMasses()[q] > 0.f)
+					s->freePos[nFree++] = c.Positions()[q];
+			const uint32 in = p->testInside ? p->inside.CountInside(s->freePos.Data(), nFree, &first) : 0u;
 			float32 depth = 0.f;
-			const uint32 inN = p->testInside ? p->inside.CountInsideNearest(c.Positions(), c.ParticleCount(), &depth) : 0u;
+			const uint32 inN = p->testInside ? p->inside.CountInsideNearest(s->freePos.Data(), nFree, &depth) : 0u;
 			if (count && inN > s->insideNearestMax) {
 				s->insideNearestMax = inN;
 				s->insideDepthMax = depth;

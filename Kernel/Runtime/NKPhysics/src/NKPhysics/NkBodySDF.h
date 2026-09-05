@@ -45,7 +45,34 @@
 namespace nkentseu {
 	namespace physics {
 
+		// D'OÙ VIENT LE SIGNE. La pseudonormale suppose une surface fermée et orientée ; mesuré le
+		// 2026-09-05, elle rend 100 % sur CesiumMan mais **24,5 %** sur XBot et le centre du corps
+		// « dehors » -- ces corps Mixamo sont deux coques ouvertes imbriquées. Le NOMBRE
+		// D'ENROULEMENT GÉNÉRALISÉ (Jacobson, Kavan, Sorkine-Hornung, « Robust Inside-Outside
+		// Segmentation using Generalized Winding Numbers », SIGGRAPH 2013) ne suppose RIEN : il somme
+		// l'angle solide signé de chaque triangle vu du point (Van Oosterom & Strackee 1983), et un
+		// point à l'intérieur de la coque externe rend ~1 même si une coque interne traverse.
+		// Son prix : O(triangles) PAR POINT. D'où la grille de signe SÉPARÉE et grossière
+		// (`signResolution`) -- le signe est une propriété topologique, il varie lentement ; la
+		// distance, elle, garde la finesse de la grille principale.
+		enum class NkSDFSign : uint8 {
+			NK_PSEUDONORMAL = 0, // rapide, exige une surface fermée
+			// ⚠️ 🔴 MESURÉ LE 2026-09-05 : CETTE IMPLÉMENTATION NE MARCHE PAS ENCORE — ne pas l'activer
+			// sans refaire la mesure. Sur CesiumMan (corps fermé, où la pseudonormale rend 100 %),
+			// le contrôle positif tombe à 60,6 % (grille de signe 12), 49,6 % (16) et 31,5 % (24) :
+			// il EMPIRE quand la résolution monte, ce qui désigne une erreur systématique et non une
+			// limite d'échantillonnage. L'orientation a été écartée (le même critère sur |w| ne change
+			// rien : 49,6 %). Sur XBot, 18,6 % et le centre du corps toujours « dehors ». Coût mesuré :
+			// 0,4 s (CesiumMan, 4 672 triangles) à 4,1 s (XBot, 49 112) par construction, à 16³ de
+			// grille de signe -- O(résolution³ x triangles), sans la hiérarchie de Barnes-Hut que
+			// Jacobson décrit (approximation dipolaire par grappes), qui est le vrai lot.
+			NK_WINDING = 1,		 // Jacobson 2013 — ÉCRIT, MESURÉ, ROUGE : voir ci-dessus
+		};
+
 		struct NkBodySDFParams {
+				NkSDFSign sign = NkSDFSign::NK_PSEUDONORMAL;
+				uint32 signResolution = 16; // cellules sur le plus grand côté, pour la grille de SIGNE
+				float32 windingThreshold = 0.5f; // w > seuil = dedans (Jacobson : 0,5 sépare les deux)
 				uint32 resolution = 64; // cellules sur le PLUS GRAND côté de la boîte
 				float32 margin = 0.08f; // m ajoutés autour du corps (le tissu vit dehors)
 				uint32 band = 2;		// cellules de part et d'autre de chaque triangle (bande exacte)
@@ -105,6 +132,14 @@ namespace nkentseu {
 
 				// MUTATION (témoin) : inverse le signe du champ. Tout ce qui juge doit rougir.
 				void MutateFlipSign();
+				// Nombre d'enroulement généralisé en p (Jacobson 2013) : ~1 dedans, ~0 dehors.
+				// O(triangleCount) -- instrument, pas fonction par image.
+				static float32 WindingNumber(const NkVec3f &p, const NkVec3f *verts, const uint32 *indices,
+											 uint32 triCount) noexcept;
+				// Coût de la dernière grille de signe (ms), 0 si mode pseudonormale.
+				float32 SignGridMs() const noexcept {
+					return mSignMs;
+				}
 
 			private:
 				NkVector<float32> mD;	  // distance signée par cellule
@@ -113,6 +148,7 @@ namespace nkentseu {
 				float32 mCell = 0.f, mInvCell = 0.f;
 				uint32 mNX = 0, mNY = 0, mNZ = 0;
 				NkBodySDFStats mStats;
+				float32 mSignMs = 0.f;
 				uint32 Index(uint32 i, uint32 j, uint32 k) const noexcept {
 					return (k * mNY + j) * mNX + i;
 				}
