@@ -15,8 +15,8 @@ namespace nkentseu {
 
 			// Point le plus proche d'un triangle (Ericson §5.1.5) + la région touchée :
 			// 0 = face, 1 = arête ab, 2 = arête bc, 3 = arête ca, 4 = sommet a, 5 = b, 6 = c.
-			NkVec3f ClosestOnTriangle(const NkVec3f &p, const NkVec3f &a, const NkVec3f &b, const NkVec3f &c,
-									  uint32 &region) {
+			NkVec3f ClosestOnTriangleLocal(const NkVec3f &p, const NkVec3f &a, const NkVec3f &b, const NkVec3f &c,
+										   uint32 &region) {
 				const NkVec3f ab = b - a, ac = c - a, ap = p - a;
 				const float32 d1 = ab.Dot(ap), d2 = ac.Dot(ap);
 				if (d1 <= 0.f && d2 <= 0.f) {
@@ -60,7 +60,7 @@ namespace nkentseu {
 			// n'a pas la topologie voisine : on pondère la normale de face par l'angle du coin
 			// concerné, ce qui suffit dès que plusieurs triangles se disputent la même cellule
 			// (leurs contributions s'additionnent dans l'ordre de la bande, le plus proche gagne).
-			float32 CornerWeight(const NkVec3f &a, const NkVec3f &b, const NkVec3f &c, uint32 region) {
+			float32 CornerWeightLocal(const NkVec3f &a, const NkVec3f &b, const NkVec3f &c, uint32 region) {
 				auto angle = [](const NkVec3f &u, const NkVec3f &v) {
 					const float32 lu = u.Len(), lv = v.Len();
 					if (lu < 1e-12f || lv < 1e-12f)
@@ -79,6 +79,160 @@ namespace nkentseu {
 			}
 
 		} // namespace
+
+		// ── Primitives partagées (déclarées dans l'en-tête) ──────────────────────────────────
+		NkVec3f NkClosestOnTriangle(const NkVec3f &p, const NkVec3f &a, const NkVec3f &b, const NkVec3f &c,
+									uint32 &outRegion) noexcept {
+			return ClosestOnTriangleLocal(p, a, b, c, outRegion);
+		}
+
+		float32 NkTriangleCornerWeight(const NkVec3f &a, const NkVec3f &b, const NkVec3f &c, uint32 region) noexcept {
+			return CornerWeightLocal(a, b, c, region);
+		}
+
+		// ── NkBodyProximity : la distance exacte, par particule (en-tête) ────────────────────
+		bool NkBodyProximity::Build(const NkVec3f *verts, uint32 vertCount, const uint32 *indices, uint32 triCount,
+									float32 cellSize) {
+			mVerts = verts;
+			mIdx = indices;
+			mTriCount = 0;
+			mCellStart.Clear();
+			mCellTri.Clear();
+			if (!verts || vertCount == 0 || !indices || triCount == 0)
+				return false;
+			mMin = verts[0];
+			mMax = verts[0];
+			for (uint32 v = 1; v < vertCount; ++v) {
+				const NkVec3f &q = verts[v];
+				mMin.x = NkMin(mMin.x, q.x); mMin.y = NkMin(mMin.y, q.y); mMin.z = NkMin(mMin.z, q.z);
+				mMax.x = NkMax(mMax.x, q.x); mMax.y = NkMax(mMax.y, q.y); mMax.z = NkMax(mMax.z, q.z);
+			}
+			// cellule = la taille moyenne d'une arête de triangle (le bon compromis : chaque triangle
+			// tombe dans une poignée de cellules, chaque cellule garde une poignée de triangles)
+			if (cellSize <= 0.f) {
+				float64 sum = 0.0;
+				const uint32 step = triCount > 512u ? triCount / 512u : 1u;
+				uint32 cnt = 0;
+				for (uint32 t = 0; t < triCount; t += step) {
+					const NkVec3f &a = verts[indices[t * 3]], &b = verts[indices[t * 3 + 1]];
+					sum += (float64)(b - a).Len();
+					++cnt;
+				}
+				// la cellule est accordée au RAYON des requêtes (l'épaisseur d'un tissu, pas la taille
+				// d'un triangle) : une cellule trop grande fait visiter 5³ cellules par requête au lieu
+				// de 3³ -- mesuré, c'était 12 M de tests de triangle par image et 600 ms par pas
+				cellSize = cnt ? (float32)(sum / (float64)cnt) : 0.02f;
+				if (cellSize < 0.015f)
+					cellSize = 0.015f;
+			}
+			mCell = cellSize > 1e-5f ? cellSize : 0.05f;
+			mInvCell = 1.f / mCell;
+			const NkVec3f ext = mMax - mMin;
+			mNX = (uint32)(ext.x * mInvCell) + 2u;
+			mNY = (uint32)(ext.y * mInvCell) + 2u;
+			mNZ = (uint32)(ext.z * mInvCell) + 2u;
+			const uint32 ncell = mNX * mNY * mNZ;
+			mCellStart.Resize(ncell + 1, 0u);
+			for (uint32 c = 0; c <= ncell; ++c)
+				mCellStart[c] = 0u;
+			auto range = [&](uint32 t, uint32 &i0, uint32 &i1, uint32 &j0, uint32 &j1, uint32 &k0, uint32 &k1) {
+				const NkVec3f &a = mVerts[mIdx[t * 3]], &b = mVerts[mIdx[t * 3 + 1]], &c = mVerts[mIdx[t * 3 + 2]];
+				const NkVec3f tmn{NkMin(a.x, NkMin(b.x, c.x)), NkMin(a.y, NkMin(b.y, c.y)), NkMin(a.z, NkMin(b.z, c.z))};
+				const NkVec3f tmx{NkMax(a.x, NkMax(b.x, c.x)), NkMax(a.y, NkMax(b.y, c.y)), NkMax(a.z, NkMax(b.z, c.z))};
+				auto cl = [&](float32 v, float32 lo, uint32 n) {
+					int32 k = (int32)((v - lo) * mInvCell);
+					return (uint32)(k < 0 ? 0 : (k >= (int32)n ? (int32)n - 1 : k));
+				};
+				i0 = cl(tmn.x, mMin.x, mNX); i1 = cl(tmx.x, mMin.x, mNX);
+				j0 = cl(tmn.y, mMin.y, mNY); j1 = cl(tmx.y, mMin.y, mNY);
+				k0 = cl(tmn.z, mMin.z, mNZ); k1 = cl(tmx.z, mMin.z, mNZ);
+			};
+			for (uint32 t = 0; t < triCount; ++t) {
+				uint32 i0, i1, j0, j1, k0, k1;
+				range(t, i0, i1, j0, j1, k0, k1);
+				for (uint32 k = k0; k <= k1; ++k)
+					for (uint32 j = j0; j <= j1; ++j)
+						for (uint32 i = i0; i <= i1; ++i)
+							++mCellStart[(k * mNY + j) * mNX + i + 1u];
+			}
+			for (uint32 c = 0; c < ncell; ++c)
+				mCellStart[c + 1] += mCellStart[c];
+			mCellTri.Resize(mCellStart[ncell], 0u);
+			NkVector<uint32> fill;
+			fill.Resize(ncell, 0u);
+			for (uint32 t = 0; t < triCount; ++t) {
+				uint32 i0, i1, j0, j1, k0, k1;
+				range(t, i0, i1, j0, j1, k0, k1);
+				for (uint32 k = k0; k <= k1; ++k)
+					for (uint32 j = j0; j <= j1; ++j)
+						for (uint32 i = i0; i <= i1; ++i) {
+							const uint32 c = (k * mNY + j) * mNX + i;
+							mCellTri[mCellStart[c] + fill[c]++] = t;
+						}
+			}
+			mTriCount = triCount;
+			mQueries = 0;
+			mTriTests = 0;
+			return true;
+		}
+
+		bool NkBodyProximity::Query(const NkVec3f &p, float32 maxDist, float32 &outDist,
+									NkVec3f &outNormal) const noexcept {
+			if (mTriCount == 0)
+				return false;
+			// rejet par la boîte du corps : une particule loin ne peut toucher aucun triangle
+			if (p.x < mMin.x - maxDist || p.x > mMax.x + maxDist || p.y < mMin.y - maxDist ||
+				p.y > mMax.y + maxDist || p.z < mMin.z - maxDist || p.z > mMax.z + maxDist)
+				return false;
+			++mQueries;
+			const int32 r = (int32)(maxDist * mInvCell) + 1;
+			int32 ci = (int32)((p.x - mMin.x) * mInvCell), cj = (int32)((p.y - mMin.y) * mInvCell),
+				  ck = (int32)((p.z - mMin.z) * mInvCell);
+			float32 best2 = maxDist * maxDist;
+			NkVec3f bestPoint{}, bestNormal{0.f, 1.f, 0.f};
+			bool found = false;
+			for (int32 k = ck - r; k <= ck + r; ++k) {
+				if (k < 0 || k >= (int32)mNZ)
+					continue;
+				for (int32 j = cj - r; j <= cj + r; ++j) {
+					if (j < 0 || j >= (int32)mNY)
+						continue;
+					for (int32 i = ci - r; i <= ci + r; ++i) {
+						if (i < 0 || i >= (int32)mNX)
+							continue;
+						const uint32 c = ((uint32)k * mNY + (uint32)j) * mNX + (uint32)i;
+						for (uint32 q = mCellStart[c]; q < mCellStart[c + 1]; ++q) {
+							const uint32 t = mCellTri[q];
+							++mTriTests;
+							const NkVec3f &a = mVerts[mIdx[t * 3]], &b = mVerts[mIdx[t * 3 + 1]],
+										  &cc = mVerts[mIdx[t * 3 + 2]];
+							uint32 region = 0;
+							const NkVec3f cp = NkClosestOnTriangle(p, a, b, cc, region);
+							const NkVec3f d = p - cp;
+							const float32 l2 = d.Dot(d);
+							if (l2 < best2) {
+								best2 = l2;
+								bestPoint = cp;
+								NkVec3f nrm = (b - a).Cross(cc - a);
+								const float32 ln = nrm.Len();
+								if (ln > 1e-14f)
+									nrm = nrm * (NkTriangleCornerWeight(a, b, cc, region) / ln);
+								bestNormal = nrm;
+								found = true;
+							}
+						}
+					}
+				}
+			}
+			if (!found)
+				return false;
+			const NkVec3f d = p - bestPoint;
+			const float32 l = d.Len();
+			const float32 sgn = d.Dot(bestNormal) < 0.f ? -1.f : 1.f;
+			outDist = sgn * l;
+			outNormal = l > 1e-9f ? d * (sgn / l) : bestNormal.Normalized();
+			return true;
+		}
 
 		float32 NkBodySDF::WindingNumber(const NkVec3f &p, const NkVec3f *verts, const uint32 *indices,
 										 uint32 triCount) noexcept {
@@ -185,14 +339,14 @@ namespace nkentseu {
 						for (int32 i = i0 < 0 ? 0 : i0; i <= i1 && i < (int32)mNX; ++i) {
 							const NkVec3f p = mMin + NkVec3f{(float32)i * mCell, (float32)j * mCell, (float32)k * mCell};
 							uint32 region = 0;
-							const NkVec3f q = ClosestOnTriangle(p, a, b, c, region);
+							const NkVec3f q = NkClosestOnTriangle(p, a, b, c, region);
 							const NkVec3f d = p - q;
 							const float32 dist = d.Len();
 							const uint32 idx = Index((uint32)i, (uint32)j, (uint32)k);
 							if (dist < bestDist[idx]) {
 								bestDist[idx] = dist;
 								// le signe vient de la pseudonormale du coin touché (en-tête)
-								const float32 w = CornerWeight(a, b, c, region);
+								const float32 w = NkTriangleCornerWeight(a, b, c, region);
 								const float32 s = d.Dot(n * w);
 								D[idx] = s < 0.f ? -dist : dist;
 								K[idx] = 1;

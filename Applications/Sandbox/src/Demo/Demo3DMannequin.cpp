@@ -31,6 +31,7 @@ namespace nkentseu {
 				float32 insideDepthMax = 0.f;
 				NkVector<NkVec3f> freePos; // positions des particules LIBRES (les epinglees sont hors mesure)
 				NkBodySDF sdf, sdfPrev;	  // champ PROPRE au vêtement (boîte de ses particules)
+			NkBodyProximity prox, proxPrev; // ou la distance EXACTE (aucune grille de champ)
 				float64 msSdfSum = 0.0;
 				float32 msSdfMax = 0.f, cellSize = 0.f;
 				uint32 sdfCells = 0, sdfSkipped = 0;
@@ -108,6 +109,10 @@ namespace nkentseu {
 			NkBodySDF sdf, sdfPrev;	  // le corps vu comme un champ de distance : pose de fin, pose de début
 			bool useSdf = true;
 			bool sdfPerGarment = false; // NK_MANNEQUIN_SDF_BOX=1 : un champ par vêtement, sur SA boîte
+			bool useProx = false;		// NK_MANNEQUIN_PROX=1 : la distance exacte, par particule
+			NkBodyProximity prox, proxPrev;
+			float64 msProxSum = 0.0;
+			float32 msProxMax = 0.f;
 			uint32 sdfEvery = 1;	  // reconstruction toutes les N images (mesure du compromis)
 			float64 msSdfSum = 0.0;
 			float32 msSdfMax = 0.f;
@@ -367,6 +372,8 @@ namespace nkentseu {
 			p->sdf.params.sign = NkSDFSign::NK_WINDING;
 		if (const char *e = std::getenv("NK_MANNEQUIN_SDF_SIGNRES"); e && e[0])
 			p->sdf.params.signResolution = (uint32)std::atoi(e);
+		if (const char *e = std::getenv("NK_MANNEQUIN_PROX"); e && e[0] == '1')
+			p->useProx = true;
 		if (const char *e = std::getenv("NK_MANNEQUIN_SDF_BOX"); e && e[0] == '1')
 			p->sdfPerGarment = true;
 		if (const char *e = std::getenv("NK_MANNEQUIN_SDF_CELL"); e && e[0])
@@ -669,8 +676,18 @@ namespace nkentseu {
 		}
 		// 3. capsules posées, épingles, pas
 		p->mannequin.Pose(p->world.Data(), nj, p->shapes);
+		// la DISTANCE EXACTE de cette pose : une grille de triangles, rangée une fois par image
+		if (p->useProx) {
+			NkChrono pc;
+			p->proxPrev = p->prox;
+			p->prox.Build(p->bodyPos.Data(), nv, M.indices.Data(), (uint32)M.indices.Size() / 3u);
+			const float32 ms = (float32)pc.Elapsed().milliseconds;
+			p->msProxSum += ms;
+			if (ms > p->msProxMax)
+				p->msProxMax = ms;
+		}
 		// le CHAMP DE DISTANCE de cette pose (toutes les sdfEvery images)
-		if (p->useSdf && !p->sdfPerGarment && (frame % p->sdfEvery) == 0u) {
+		if (p->useSdf && !p->useProx && !p->sdfPerGarment && (frame % p->sdfEvery) == 0u) {
 			NkChrono sc;
 			// le champ de l'image précédente devient celui du DÉBUT de pas (les deux sont interpolés
 			// par sous-pas, comme les capsules) -- copie par échange de contenu, une seule construction
@@ -693,7 +710,9 @@ namespace nkentseu {
 			c.colliders.Clear();
 			for (uint32 k = 0; k < (uint32)p->shapes.Size(); ++k)
 				c.colliders.PushBack(p->shapes[k]);
-			if (p->useSdf && p->sdfPerGarment) {
+			c.bodyProx = p->useProx && p->prox.Valid() ? &p->prox : nullptr;
+			c.bodyProxPrev = p->useProx && p->proxPrev.Valid() ? &p->proxPrev : nullptr;
+			if (p->useSdf && !p->useProx && p->sdfPerGarment) {
 				// LA BOÎTE DU VÊTEMENT : ses particules, dilatées de l'épaisseur, de la marge de
 				// déplacement d'un pas (vitesse du corps x dt) et d'une cellule -- à nombre de
 				// cellules égal, un volume plus petit donne une cellule bien plus fine.
@@ -854,6 +873,10 @@ namespace nkentseu {
 	void Demo3DMannequinReport(Demo3DMannequinProbe *p) {
 		if (!p)
 			return;
+		if (p->useProx)
+			std::fprintf(stderr, "[PROXIMITE BILAN] grille de triangles : cellule %.1f mm, %u cellules, %u insertions pour %u triangles | construite en %.2f ms par image (max %.2f)\n",
+						 1000.f * p->prox.CellSize(), p->prox.CellCount(), p->prox.InsertionCount(), p->prox.TriangleCount(),
+						 p->frames ? (float32)(p->msProxSum / (float64)p->frames) : 0.f, p->msProxMax);
 		std::fprintf(stderr, "[SDF BILAN] reconstruction toutes les %u images : %.2f ms en moyenne, %.2f ms au pire (resolution %u, calibration %.1f %%)\n",
 					 p->sdfEvery, p->frames ? (float32)(p->msSdfSum / (float64)(p->frames / p->sdfEvery + 1u)) : 0.f, p->msSdfMax,
 					 p->sdf.params.resolution, 100.f * p->sdfCalib);

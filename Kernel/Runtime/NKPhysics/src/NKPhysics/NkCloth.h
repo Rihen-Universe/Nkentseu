@@ -246,6 +246,11 @@ namespace nkentseu {
 				// sous-pas pendant que le corps avance, il restait 1,7 mm (cape), 6,7 mm (foulard) et
 				// 26,7 mm (jupe) de pénétration résiduelle -- ce n'était pas une affaire de résolution.
 				const NkBodySDF *bodySDFPrev = nullptr;
+				// LA DISTANCE EXACTE, par particule (NkBodyProximity) : quand elle est là, elle passe
+				// AVANT les champs -- aucune cellule, aucune isosurface qui « respire ». Poses de fin
+				// et de début, interpolées comme tout le reste.
+				const NkBodyProximity *bodyProx = nullptr;
+				const NkBodyProximity *bodyProxPrev = nullptr;
 
 				// ── Construction ─────────────────────────────────────────────
 				void Clear();
