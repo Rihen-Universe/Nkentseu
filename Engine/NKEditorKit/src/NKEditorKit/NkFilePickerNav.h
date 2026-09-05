@@ -187,6 +187,20 @@ namespace nkentseu {
 				// semantique a NK3DModeler et NKCode, qui n'ont pas la meme notion.
 				NkVector<NkString> recents;
 
+				/// ⑥ (05/09, nuit) LE DOSSIER COURANT -- LA TETE DES RECENTS, et rien d'autre.
+				/// Rodolf : « un dossier est appele dossier courant si on a reussi a sauvegarder
+				/// ou a charger un fichier de ce dossier-la. »
+				/// ⚠️ CE N'EST PAS LE DOSSIER OU L'ON NAVIGUE. Une visite, un apercu, un refus,
+				///    un « Annuler » ne le changent pas : seule une ecriture ou une lecture
+				///    REUSSIE le fait, et c'est deja la regle de `RetenirDossierRecent`.
+				/// ⚠️ UNE SEULE SOURCE. Tenir un `dossierCourant` a cote de la liste des recents
+				///    aurait fait deux etats qui disent deux choses -- exactement le defaut ① du
+				///    matin, ou `dossier` doublait `pickerPath`.
+				/// Rend un chemin VIDE tant qu'aucune operation n'a reussi.
+				const char *DossierCourant() const {
+					return recents.Empty() ? "" : recents[0].CStr();
+				}
+				
 				/// Pose un dossier en tete des recents, sans doublon, borne a `kMaxRecents`.
 				/// ⚠️ LE PLUS RECENT EN TETE, et la deduplication est un DEPLACEMENT, pas un
 				///    rejet : reouvrir un dossier deja liste doit le faire remonter, sinon la
@@ -883,10 +897,12 @@ namespace nkentseu {
 					// vide -- une section vide occupe une ligne et n'apprend rien.
 					// ⚠️ UN DOSSIER DISPARU NE S'AFFICHE PAS (`ajouter` teste `Exists`) mais RESTE
 					//    dans la liste : une cle USB debranchee ne doit pas effacer l'historique.
-					if (!recents.Empty()) {
+					if ((uint32)recents.Size() > 1u) {
 						const int32 sec = section("R\u00e9cents");
 						uint32 poses = 0u;
-						for (uint32 i = 0; i < (uint32)recents.Size(); ++i) {
+						// ⑥ LA TETE EST LE DOSSIER COURANT : elle a sa propre section, plus bas.
+						//    L'afficher deux fois dirait deux fois la meme chose.
+						for (uint32 i = 1u; i < (uint32)recents.Size(); ++i) {
 							const NkString nm = NomDeDossier(recents[i].CStr());
 							if (ajouter(recents[i].CStr(), nm.Empty() ? recents[i].CStr() : nm.CStr(), sec) >= 0)
 								++poses;
@@ -957,15 +973,28 @@ namespace nkentseu {
 					//    cliquable : les repeter ici coutait cinq rangees pour rien.
 					//    Profondeur maximale desormais : 2 (le dossier, ses enfants).
 					if (pickerPath[0]) {
+						// ⑥ CE QU'ON MONTRE ICI EST LE DOSSIER COURANT au sens de Rodolf -- le dernier
+						//    dossier d'une operation REUSSIE, c'est-a-dire la tete des recents. Tant
+						//    qu'aucune n'a reussi, on montre le dossier ouvert : c'est le repli, pas la
+						//    definition.
 						const int32 sec = section("Dossier courant");
-						const NkString nom = NomDeDossier(pickerPath);
-						const int32 ici = ajouter(pickerPath, nom.CStr(), sec);
+						const char *courant = DossierCourant();
+						if (!courant || !*courant || !NkDirectory::Exists(courant))
+							courant = pickerPath;
+						const NkString nom = NomDeDossier(courant);
+						const int32 ici = ajouter(courant, nom.CStr(), sec);
 						if (ici >= 0) {
 							vue.folders.SetOpen(vue.folders.nodes[(uint32)ici].id, true, true);
 							// ④ UN SEUL SITE POSE LES SOUS-DOSSIERS, et il descend dans ceux qui sont
 							//    DEJA deplies : le rail retrouve son etat apres une navigation.
-							PoserSousDossiers(pickerPath, ici, 1);
+							PoserSousDossiers(courant, ici, 1);
+							// LE NOEUD ACTIF reste celui ou l'on NAVIGUE, s'il est dans l'arbre : le rail
+							// doit dire ou l'on est, meme quand sa section s'appelle autrement.
 							vue.folders.active = vue.folders.nodes[(uint32)ici].id;
+							for (uint32 k = 0; k < (uint32)vue.folders.nodes.Size(); ++k)
+								if (!vue.folders.nodes[k].path.Empty()
+									&& PathSame(vue.folders.nodes[k].path.CStr(), pickerPath))
+									vue.folders.active = vue.folders.nodes[k].id;
 						}
 					}
 				}

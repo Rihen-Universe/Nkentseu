@@ -11497,7 +11497,24 @@ namespace nkuidesign {
 			}
 			for (uint32 i = 0; i < (uint32)nav100.vue.folders.nodes.Size(); ++i)
 				if (nav100.vue.folders.nodes[i].parent == iRec) ++sousRec;
-			const bool sectionOk = iRec == 0 && iRapide2 > iRec && sousRec == 2u;
+			// ⚠️ MIS A JOUR (05/09, nuit) : « Recents » portait les DEUX. Depuis (6), LA
+			//    TETE des recents EST le dossier courant au sens de Rodolf (« le dernier ou
+			//    on a REUSSI a enregistrer ou charger ») et elle a SA section : « Recents »
+			//    ne garde que la queue. L'afficher deux fois dirait deux fois la meme chose.
+			const bool sectionOk = iRec == 0 && iRapide2 > iRec && sousRec == 1u;
+			// ET LA TETE EST SOUS « Dossier courant » -- le fait nouveau que remplace l'ancien.
+			bool teteSousCourant = false;
+			{
+				int32 iCourant2 = -1;
+				for (uint32 i = 0; i < (uint32)nav100.vue.folders.nodes.Size(); ++i)
+					if (NkComponentDecl::StrEq(nav100.vue.folders.nodes[i].label.Data(), "Dossier courant"))
+						iCourant2 = (int32)i;
+				for (uint32 i = 0; i < (uint32)nav100.vue.folders.nodes.Size(); ++i)
+					if (nav100.vue.folders.nodes[i].parent == iCourant2
+						&& editorkit::NkFilePickerState::PathSame(nav100.vue.folders.nodes[i].path.Data(),
+																				  rail100[0].Data()))
+						teteSousCourant = true;
+			}
 			// 6. CONTROLE NEGATIF : sans recent, AUCUNE section « Recents » -- un titre vide
 			//    occupe une ligne et n'apprend rien.
 			editorkit::NkFilePickerNavState nav101;
@@ -11513,17 +11530,20 @@ namespace nkuidesign {
 				"ordre (le plus recent en tete, un doublon REMONTE)=%d ; session %u / document %u, memes tetes -> %d ; "
 				"`dossier_recent =` dans le texte=%d ; ALLER-RETOUR du .nkuidoc : %u relu(s) dans l'ordre -> %d ; "
 				"rail : %u entree(s), session en tete=%d ; section « R\u00e9cents » a l'index %d (avant « Acc\u00e8s rapide » "
-				"a %d) avec %u enfant(s) -> %d ; sans recent, aucun titre orphelin=%d",
+				"a %d) avec %u enfant(s) -> %d ; la TETE est sous « Dossier courant »=%d ; sans recent, "
+			"aucun titre orphelin=%d",
 				ordreOk ? 1 : 0, (uint32)st100.dossiersRecentsSession.Size(),
 				(uint32)st100.doc.dossiersRecents.Size(), deuxCotes ? 1 : 0, ecritDansLeTexte ? 1 : 0,
 				(uint32)relu100.dossiersRecents.Size(), allerRetour ? 1 : 0, (uint32)rail100.Size(),
-				sessionEnTete ? 1 : 0, iRec, iRapide2, sousRec, sectionOk ? 1 : 0, aucunTitreVide ? 1 : 0);
+				sessionEnTete ? 1 : 0, iRec, iRapide2, sousRec, sectionOk ? 1 : 0,
+			teteSousCourant ? 1 : 0, aucunTitreVide ? 1 : 0);
 			check("100. ③ LES DOSSIERS RECEMMENT OUVERTS, SESSION **ET** DOCUMENT : le plus recent en tete et un doublon "
 				"REMONTE (une deduplication qui rejette ferait vieillir la liste a l'envers de son nom) ; les recents du "
 				"DOCUMENT sont ecrits dans le `.nkuidoc` et relus dans l'ordre -- l'aller-retour est le seul temoin qu'ils "
 				"voyagent avec le fichier ; ceux de la SESSION vivent en memoire et passent en tete du rail ; la section "
 				"« R\u00e9cents » est la PREMIERE du rail, et n'existe pas du tout quand il n'y a rien a montrer",
-				ordreOk && deuxCotes && ecritDansLeTexte && allerRetour && sessionEnTete && sectionOk && aucunTitreVide,
+				ordreOk && deuxCotes && ecritDansLeTexte && allerRetour && sessionEnTete && sectionOk
+				&& teteSousCourant && aucunTitreVide,
 				det);
 			NkDirectory::Delete("sonde_recents", true);
 		}
@@ -13311,6 +13331,87 @@ namespace nkuidesign {
 				"famille, et l'ignorance n'en est pas une",
 				famillesDistinctes && inconnuOk && toutNeQualifiePas && badgeOk, det);
 			NkDirectory::Delete("sonde_familles", true);
+		}
+		// ── 120. ⑥ LE DOSSIER COURANT NE BOUGE QUE SUR SUCCES (05/09, nuit). Rodolf donne
+		//    sa definition, et ce n'etait pas celle que j'avais implementee : « un dossier
+		//    est appele dossier courant si on a REUSSI a sauvegarder ou a charger un fichier
+		//    de ce dossier-la. » Ce n'est donc pas le dossier ou l'on navigue.
+		//    ⚠️ UNE SEULE SOURCE : c'est LA TETE DES RECENTS, deja tenue, et deja mise a
+		//       jour uniquement apres une ecriture reussie. Deux etats auraient dit deux
+		//       choses -- exactement le defaut ① du matin.
+		{
+			char det[880];
+			NkDirectory::Delete("sonde_courant", true);
+			NkDirectory::CreateRecursive("sonde_courant/ici");
+			NkDirectory::CreateRecursive("sonde_courant/ailleurs");
+			const NkString racine120 =
+				(NkPath(NkDirectory::GetCurrentDirectory()) / "sonde_courant").ToString();
+			const NkString dIci = (NkPath(racine120.Data()) / "ici").ToString();
+			const NkString dAilleurs = (NkPath(racine120.Data()) / "ailleurs").ToString();
+			editorkit::NkFilePickerNavState nav120b;
+			char b120b[512] = {};
+			nav120b.OpenPickerBase(editorkit::NkSelecteurEnregistrer, racine120.Data(), b120b,
+					   (int32)sizeof(b120b), nullptr, nullptr);
+			// 1. TANT QU'AUCUNE OPERATION N'A REUSSI, il n'y a pas de dossier courant.
+			const bool videAuDepart = nav120b.DossierCourant()[0] == '\0';
+			// 2. UNE NAVIGATION NE LE CHANGE PAS -- c'est tout l'objet de la definition.
+			nav120b.AllerA(dIci.Data());
+			nav120b.RelireDossier();
+			const bool navigationNeChangeRien = nav120b.DossierCourant()[0] == '\0';
+			// 3. UNE OPERATION REUSSIE le pose. On passe par la MEME porte que
+			//    l'application (`PoserRecent`), celle qui n'est appelee qu'apres un succes.
+			editorkit::NkFilePickerNavState::PoserRecent(nav120b.recents, dIci.Data());
+			const bool poseParLeSucces =
+				editorkit::NkFilePickerState::PathSame(nav120b.DossierCourant(), dIci.Data());
+			// 4. NAVIGUER AILLEURS SANS ENREGISTRER NE LE CHANGE PAS
+			nav120b.AllerA(dAilleurs.Data());
+			nav120b.RelireDossier();
+			const bool toujoursIci =
+				editorkit::NkFilePickerState::PathSame(nav120b.DossierCourant(), dIci.Data());
+			// 5. UNE SECONDE REUSSITE AILLEURS le deplace, et l'ancien passe aux recents.
+			editorkit::NkFilePickerNavState::PoserRecent(nav120b.recents, dAilleurs.Data());
+			const bool deplace =
+				editorkit::NkFilePickerState::PathSame(nav120b.DossierCourant(), dAilleurs.Data())
+				&& (uint32)nav120b.recents.Size() == 2u
+				&& editorkit::NkFilePickerState::PathSame(nav120b.recents[1].Data(), dIci.Data());
+			// 6. LA SECTION « Dossier courant » NE MONTRE QUE LUI (une entree racine), et
+			//    l'ancien est descendu dans « Recents ».
+			nav120b.relire = true;
+			nav120b.RelireDossier();
+			int32 iCourant120 = -1, iRecents120 = -1;
+			for (uint32 i = 0; i < (uint32)nav120b.vue.folders.nodes.Size(); ++i) {
+				const char *l = nav120b.vue.folders.nodes[i].label.Data();
+				if (l && NkComponentDecl::StrEq(l, "Dossier courant")) iCourant120 = (int32)i;
+				else if (l && NkComponentDecl::StrEq(l, "R\u00e9cents")) iRecents120 = (int32)i;
+			}
+			uint32 sousCourant = 0u, sousRecents = 0u;
+			bool bonCourant = false;
+			for (uint32 i = 0; i < (uint32)nav120b.vue.folders.nodes.Size(); ++i) {
+				const editorkit::NkTreeNode &n = nav120b.vue.folders.nodes[i];
+				if (n.parent == iCourant120) {
+					++sousCourant;
+					if (editorkit::NkFilePickerState::PathSame(n.path.Data(), dAilleurs.Data()))
+						bonCourant = true;
+				} else if (n.parent == iRecents120)
+					++sousRecents;
+			}
+			const bool sectionsOk120 = sousCourant == 1u && bonCourant && sousRecents == 1u;
+			snprintf(det, sizeof(det),
+				"vide au depart=%d ; une NAVIGATION ne le change pas=%d ; une operation REUSSIE le pose=%d ; "
+				"naviguer ailleurs sans enregistrer ne le change pas=%d ; une seconde reussite le deplace et "
+				"l'ancien passe aux recents=%d ; « Dossier courant » porte %u entree (la bonne=%d) et "
+				"« R\u00e9cents » %u -> %d",
+				videAuDepart ? 1 : 0, navigationNeChangeRien ? 1 : 0, poseParLeSucces ? 1 : 0,
+				toujoursIci ? 1 : 0, deplace ? 1 : 0, sousCourant, bonCourant ? 1 : 0, sousRecents,
+				sectionsOk120 ? 1 : 0);
+			check("120. ⑥ LE DOSSIER COURANT NE BOUGE QUE SUR SUCCES : c'est LA TETE DES RECENTS -- une seule source, deja "
+				"mise a jour apres une ecriture reussie seulement. Naviguer, regarder, annuler ne le changent PAS ; une "
+				"operation reussie le pose, une seconde ailleurs le deplace et l'ancien descend dans « R\u00e9cents » ; et sa "
+				"section ne porte QU'UNE entree -- l'afficher aussi dans « R\u00e9cents » dirait deux fois la meme chose",
+				videAuDepart && navigationNeChangeRien && poseParLeSucces && toujoursIci && deplace
+					&& sectionsOk120,
+				det);
+			NkDirectory::Delete("sonde_courant", true);
 		}
 		snprintf(tail, sizeof(tail), "\n=== RESULTAT : %d / %d ===\n", pass, total);
 		rep.Append(tail);

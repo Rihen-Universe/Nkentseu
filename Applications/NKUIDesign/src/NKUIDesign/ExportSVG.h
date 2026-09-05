@@ -1192,7 +1192,17 @@ namespace nkuidesign {
 		c.picker.AjouterFiltre(png ? "Images SVG" : "Images PNG", png ? "svg" : "png");
 		c.picker.AjouterFiltre("Tous les fichiers", "*");
 		c.buf[0] = '\0';
-		const NkString dep = st.DossierImages();
+		// ⑥ ON REPART DU DOSSIER COURANT -- le dernier ou un export a REUSSI (Rodolf :
+		//    « un dossier est appele dossier courant si on a reussi a sauvegarder ou a
+		//    charger un fichier de ce dossier-la »). C'est la que la notion sert : au
+		//    prochain export on ne repart pas de la racine du projet.
+		//    Le dossier du DOCUMENT reste le repli tant qu'aucun export n'a reussi.
+		NkString dep = st.DossierImages();
+		{
+			const char *courant = c.picker.DossierCourant();
+			if (courant && *courant && nkentseu::NkDirectory::Exists(courant))
+				dep = NkString(courant);
+		}
 		// Le filtre suit le format choisi : chercher son SVG parmi trois cents PNG
 		// etait le vrai cout de la colonne unique.
 		c.picker.OuvrirNav(nkentseu::editorkit::NkSelecteurEnregistrer, dep.Data(),
