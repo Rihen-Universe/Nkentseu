@@ -1,3 +1,4 @@
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // =============================================================================
 // NkPhysicsWorld.cpp — Monde de simulation du corps rigide. [M0]
 // M0 : intégration semi-implicite (gravité) + délégation détection à NKCollision +
@@ -73,34 +74,9 @@ namespace nkentseu {
 						 : NkVec3f{I.x > 0 ? 1.f / I.x : 0.f, I.y > 0 ? 1.f / I.y : 0.f, I.z > 0 ? 1.f / I.z : 0.f};
 		}
 
-		// Forme MONDE = forme de REPOS (locale) transformée par la pose (position+orientation).
-		// Générale : box, capsule, cylindre, cône, sphère… tournent CORRECTEMENT.
-		static collision::NkShape NkTransformShape(const collision::NkShape &rest, const NkVec3f &pos,
-												   const NkQuatf &q) noexcept {
-			using T = NkShapeType;
-			collision::NkShape s = rest;
-			switch (rest.type) {
-				case T::NK_BOX3D:
-					s.p0 = pos + q * rest.p0;
-					s.orientation = q * rest.orientation;
-					break;
-				case T::NK_CAPSULE3D:
-				case T::NK_SEGMENT2D:
-				case T::NK_CAPSULE2D:
-					s.p0 = pos + q * rest.p0;
-					s.p1 = pos + q * rest.p1;
-					break; // 2 extrémités
-				case T::NK_CYLINDER3D:
-				case T::NK_CONE3D:
-					s.p0 = pos + q * rest.p0;
-					s.p1 = q * rest.p1;
-					break; // p1 = axe (direction)
-				default:
-					s.p0 = pos + q * rest.p0;
-					break; // sphère/cercle/point…
-			}
-			return s;
-		}
+		// NkTransformShape (forme MONDE depuis la forme de repos) vit dans NkRigidBody.h depuis le
+		// 2026-09-05 : le tissu (NkCloth::AddCollidersFromWorld) en a besoin, et une fonction
+		// `static` de ce fichier était invisible du dehors -- même geste que NkInvInertiaApply.
 
 		// Forme de REPOS (locale) depuis la forme monde initiale + pose initiale (inverse).
 		static collision::NkShape NkComputeRestShape(const collision::NkShape &world, const NkVec3f &pos,

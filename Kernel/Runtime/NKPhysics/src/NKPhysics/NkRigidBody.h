@@ -1,4 +1,5 @@
 #pragma once
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // =============================================================================
 // NkRigidBody.h — Corps rigide : état dynamique (données). [SCAFFOLD]
 // La détection (forme/AABB) est déléguée à un body NKCollision référencé par id.
@@ -113,6 +114,43 @@ namespace nkentseu {
 		NK_FORCE_INLINE void NkApplyImpulseAtPoint(NkRigidBody &b, const NkVec3f &J, const NkVec3f &pWorld) noexcept {
 			b.linearVelocity = b.linearVelocity + J * b.invMass;
 			b.angularVelocity = b.angularVelocity + NkInvInertiaApply(b, (pWorld - b.position).Cross(J));
+		}
+
+		// ── Forme MONDE = forme de REPOS (locale) transformée par la pose ─────
+		// Remontée ici le 2026-09-05 depuis NkPhysicsWorld.cpp, où elle était
+		// `static` -- le tissu (NkCloth::AddCollidersFromWorld) doit produire
+		// EXACTEMENT la forme que la synchronisation du monde produit, donc la
+		// même fonction, pas une copie. Corps inchangé. Générale : box, capsule,
+		// cylindre, cône, sphère… tournent correctement.
+		// ⚠️ Mesuré en la déplaçant : le PLAN (NK_PLANE3D) passe par `default`,
+		// qui transforme le point mais PAS la normale (p1) ; un corps-plan tourné
+		// garde sa normale de repos. Nommé, non corrigé ici (ce déplacement est un
+		// refactor et se juge sur ce qu'il ne change pas).
+		NK_FORCE_INLINE collision::NkShape NkTransformShape(const collision::NkShape &rest, const NkVec3f &pos,
+															const NkQuatf &q) noexcept {
+			using T = collision::NkShapeType;
+			collision::NkShape s = rest;
+			switch (rest.type) {
+				case T::NK_BOX3D:
+					s.p0 = pos + q * rest.p0;
+					s.orientation = q * rest.orientation;
+					break;
+				case T::NK_CAPSULE3D:
+				case T::NK_SEGMENT2D:
+				case T::NK_CAPSULE2D:
+					s.p0 = pos + q * rest.p0;
+					s.p1 = pos + q * rest.p1;
+					break; // 2 extrémités
+				case T::NK_CYLINDER3D:
+				case T::NK_CONE3D:
+					s.p0 = pos + q * rest.p0;
+					s.p1 = q * rest.p1;
+					break; // p1 = axe (direction)
+				default:
+					s.p0 = pos + q * rest.p0;
+					break; // sphère/cercle/point…
+			}
+			return s;
 		}
 
 	} // namespace physics

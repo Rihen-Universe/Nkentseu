@@ -1,4 +1,5 @@
 #pragma once
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // =============================================================================
 // NKPhysics.h — Include unique du module de dynamique du corps rigide. [SCAFFOLD]
 //
@@ -18,3 +19,4 @@
 #include "NKPhysics/NkJoint.h"
 #include "NKPhysics/NkPhysicsWorld.h"
 #include "NKPhysics/NkRagdoll.h"
+#include "NKPhysics/NkCloth.h" // tissu XPBD (2026-09-05)
