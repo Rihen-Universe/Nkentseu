@@ -68,6 +68,7 @@ namespace nkentseu {
 				nk_uint64 octetsLus = 0;
 				bool cacheActif = true;
 				bool bc1 = false;
+				NkString resume;
 				uint64 vramEstimee = 0;
 		};
 
@@ -96,7 +97,8 @@ namespace nkentseu {
 			}
 
 			logger.Info("[TexturesPBR] cache d'actifs : {0}\n", st->cacheActif ? "ACTIF" : "COUPE (NK_TEX_CACHE=0)");
-			logger.Info("[TexturesPBR] compression : {0}\n", st->bc1 ? "BC1 (NK_TEX_BC1=1)" : "aucune (pixels bruts)");
+			logger.Info("[TexturesPBR] compression demandee : {0}\n",
+						st->bc1 ? "BC1 FORCE (NK_TEX_BC1=1)" : "AUTO — le four regarde chaque image et decide");
 
 			// Le chronometre entoure EXACTEMENT ce qu'on veut mesurer : les dix
 			// appels a `Load`. Ni la creation du device, ni la fenetre, ni les
@@ -125,6 +127,7 @@ namespace nkentseu {
 			st->msDecodage = NkTextureCache::MsDecodage();
 			st->msTelev = NkTextureCache::MsTeleversement();
 			st->octetsLus = NkTextureCache::OctetsLus();
+			st->resume = NkTextureCache::Resume();
 			st->vramEstimee = texLib->GetEstimatedVRAMBytes();
 
 			logger.Info("[TexturesPBR] CHARGEMENT : {0} ms pour {1}/{2} cartes\n", st->msChargement, st->chargees,
@@ -135,6 +138,7 @@ namespace nkentseu {
 			// Le PARTAGE, sans lequel le total ne designe personne.
 			logger.Info("[TexturesPBR] POSTES : lecture {0} ms | decodage {1} ms | televersement {2} ms | {3} o lus\n",
 						st->msLecture, st->msDecodage, st->msTelev, (unsigned long long)st->octetsLus);
+			logger.Info("[TexturesPBR] {0}\n", st->resume.CStr());
 
 			return st->chargees > 0;
 		}
@@ -175,10 +179,13 @@ namespace nkentseu {
 				overlay->DrawStats(ctx.renderer->GetStats());
 				overlay->DrawText({20.f, 35.f}, "DemoTexturesPBR — 10 cartes reelles  |  API : %s",
 								  NkGraphicsApiName(ctx.api));
-				overlay->DrawText({20.f, 55.f}, "cache : %s   compression : %s",
-								  st->cacheActif ? "ACTIF" : "COUPE (NK_TEX_CACHE=0)", st->bc1 ? "BC1" : "aucune");
+				overlay->DrawText({20.f, 55.f}, "cache : %s   demande : %s",
+								  st->cacheActif ? "ACTIF" : "COUPE (NK_TEX_CACHE=0)",
+								  st->bc1 ? "BC1 force" : "AUTO");
 				overlay->DrawText({20.f, 75.f}, "CHARGEMENT : %.1f ms  (%d/%d cartes)", st->msChargement, st->chargees,
 								  kNbCartes);
+				// LE RESUME, a l'ecran : c'est lui qui dit si le cache a servi.
+				overlay->DrawText({20.f, 175.f}, "%s", st->resume.CStr());
 				overlay->DrawText({20.f, 95.f}, "cache : %u touche(s), %u manque(s), %u refus", st->touches,
 								  st->manques, st->refus);
 				overlay->DrawText({20.f, 115.f}, "VRAM estimee : %.1f Mo", double(st->vramEstimee) / 1048576.0);
@@ -200,10 +207,13 @@ namespace nkentseu {
 			// (`NK_MAXFRAMES`), la ligne d'init peut etre noyee dans le journal du
 			// demarrage, et c'est elle qu'on vient lire.
 			logger.Info("[TexturesPBR] === RECAPITULATIF ===\n");
-			logger.Info("[TexturesPBR] cache {0} | compression {1} | chargement {2} ms | {3} touche(s) {4} "
+			// ⚠️ On imprime la DECISION du four, pas la demande : « aucune »
+			// s'affichait meme quand `AUTO` compressait tout, et c'est ce genre de
+			// libelle qui fait croire qu'il ne se passe rien.
+			logger.Info("[TexturesPBR] cache {0} | demande {1} | chargement {2} ms | {3} touche(s) {4} "
 						"manque(s) {5} refus | VRAM {6} o\n",
-						st->cacheActif ? "ACTIF" : "COUPE", st->bc1 ? "BC1" : "aucune", st->msChargement, st->touches,
-						st->manques, st->refus, (unsigned long long)st->vramEstimee);
+						st->cacheActif ? "ACTIF" : "COUPE", st->bc1 ? "BC1 force" : "AUTO", st->msChargement,
+						st->touches, st->manques, st->refus, (unsigned long long)st->vramEstimee);
 			logger.Info("[TexturesPBR] POSTES : lecture {0} ms | decodage {1} ms | televersement {2} ms | {3} o lus\n",
 						st->msLecture, st->msDecodage, st->msTelev, (unsigned long long)st->octetsLus);
 			delete st;

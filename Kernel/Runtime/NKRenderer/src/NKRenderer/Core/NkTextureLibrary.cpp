@@ -8,6 +8,8 @@
 #include "NkTextureCache.h"
 #include "NKFileSystem/NkFile.h"
 #include "NKTime/NkChrono.h"
+
+#include <cstdlib> // getenv : NK_TEX_FORMAT
 #include "NKImage/NKImage.h"
 #include "NKLogger/NkLog.h"
 #include "NKMemory/NkAllocator.h"
@@ -403,7 +405,36 @@ namespace nkentseu {
 			// de cuisson. Source modifiee ou option changee -> autre nom -> autre
 			// fichier -> recuisson. Il n'existe donc pas d'etat « actif perime » :
 			// un actif perime n'est pas invalide, il est introuvable.
-			const NkTexOvenReglages reglagesCuisson = ReglagesDepuisOptions(opts);
+			NkTexOvenReglages reglagesCuisson = ReglagesDepuisOptions(opts);
+			// NK_TEX_FORMAT=raw : forcer le BRUT partout. Le defaut est AUTO (le
+			// four regarde l'image et decide) ; cet interrupteur existe pour
+			// comparer, et pour le jour ou une compression abimerait quelque chose
+			// qu'on n'a pas su detecter.
+			{
+				static const bool s_brutForce = [] {
+					const char *v = std::getenv("NK_TEX_FORMAT");
+					return v && v[0] == 'r' && v[1] == 'a' && v[2] == 'w';
+				}();
+				if (s_brutForce)
+					reglagesCuisson.compression = NKTEXFMT_INCONNU;
+			}
+
+			// 🔴 CE QUE LE DORSAL ACCEPTE, DEMANDE AU DORSAL.
+			// `NkDeviceCaps::textureCompressionBC` existe depuis toujours et
+			// personne ne le lisait — c'etait l'une des trois capacites annoncees
+			// que ce lot reprochait au depot. Sans cette lecture, le moteur cuit
+			// en BC1 pour un dorsal qui refuse les blocs (le logiciel), obtient un
+			// handle nul, retombe sur le codec, et RECOMMENCE au lancement
+			// suivant : un cache qui ne sert jamais et qui coute a chaque fois.
+			if (reglagesCuisson.compression == NKTEXFMT_AUTO && mDevice && !mDevice->GetCaps().textureCompressionBC) {
+				static bool s_dit = false;
+				if (!s_dit) {
+					s_dit = true;
+					logger.Info("[NkTextureCache] ce dorsal n'annonce pas la compression BC : les actifs seront "
+								"cuits en BRUT. Ce message ne sera pas repete.\n");
+				}
+				reglagesCuisson.compression = NKTEXFMT_INCONNU;
+			}
 
 			nk_uint64 empreinte = 0u;
 			NkString cheminCuit;
@@ -596,10 +627,17 @@ namespace nkentseu {
 				NkTextureCache::CompterRefus();
 				return;
 			}
-			if (NkTextureCache::Ecrire(cheminCuit, payload.Data(), payload.Size(), source))
+			NkTextureCache::NoterDecision(NkTextureOven::DerniereDecision());
+			if (NkTextureCache::Ecrire(cheminCuit, payload.Data(), payload.Size(), source)) {
 				NkTextureCache::CompterManque();
-			else
+				// UNE LIGNE PAR CUISSON : c'est ce qui manquait. Sans elle, la
+				// premiere course est lente et personne ne sait pourquoi.
+				logger.Info("[NkTextureCache] cuit : {0} -> {1} ({2}, {3} Mo)\n", source.CStr(),
+							NkTextureOven::DerniereDecision().CStr(), cheminCuit.CStr(),
+							double(payload.Size()) / 1048576.0);
+			} else {
 				NkTextureCache::CompterRefus();
+			}
 		}
 
 		// =====================================================================

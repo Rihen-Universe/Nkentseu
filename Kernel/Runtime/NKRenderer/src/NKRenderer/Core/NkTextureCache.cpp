@@ -23,6 +23,7 @@ namespace nkentseu {
 			float64 g_msDecodage = 0.0;
 			float64 g_msTeleversement = 0.0;
 			nk_uint64 g_octetsLus = 0u;
+			NkString g_decision;
 
 			constexpr nk_uint64 kFnvBase = 14695981039346656037ULL;
 			constexpr nk_uint64 kFnvPrime = 1099511628211ULL;
@@ -140,6 +141,7 @@ namespace nkentseu {
 			g_msDecodage = 0.0;
 			g_msTeleversement = 0.0;
 			g_octetsLus = 0u;
+			g_decision = NkString();
 		}
 
 		float64 NkTextureCache::MsLecture() noexcept {
@@ -169,6 +171,34 @@ namespace nkentseu {
 
 		void NkTextureCache::AjouterMsTeleversement(float64 ms) noexcept {
 			g_msTeleversement += ms;
+		}
+
+		NkString NkTextureCache::Resume() noexcept {
+			const nk_uint32 total = g_touches + g_manques + g_refus;
+			if (total == 0u)
+				return NkString("aucune texture chargee par le cache");
+			NkString s = NkString::Fmtf("%u texture(s) : %u depuis le cache", total, g_touches);
+			if (g_octetsLus > 0u)
+				s.Append(NkString::Fmtf(" (%.1f Mo lus)", double(g_octetsLus) / 1048576.0).View());
+			s.Append(NkString::Fmtf(", %u cuite(s)", g_manques).View());
+			if (g_refus > 0u)
+				s.Append(NkString::Fmtf(", %u non cuisinable(s)", g_refus).View());
+			if (!g_decision.Empty()) {
+				s.Append(" — ");
+				s.Append(g_decision.View());
+			}
+			if (!Actif())
+				s.Append("  [CACHE COUPE : NK_TEX_CACHE=0]");
+			return s;
+		}
+
+		NkString NkTextureCache::DerniereDecision() noexcept {
+			return g_decision;
+		}
+
+		void NkTextureCache::NoterDecision(const NkString &d) noexcept {
+			if (!d.Empty())
+				g_decision = d;
 		}
 
 		void NkTextureCache::CompterTouche() noexcept {

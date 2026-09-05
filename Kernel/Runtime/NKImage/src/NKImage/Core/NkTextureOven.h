@@ -68,12 +68,24 @@ namespace nkentseu {
 			// Sinon, le code du format vise — seul `NKTEXFMT_BC1_RGB_UNORM` /
 			// `_SRGB` est livre aujourd'hui.
 			//
-			// ⚠️ CE CHAMP N'ENTRE PAS DANS LES DEFAUTS PARTAGES AVEC
-			// `NkLoadOptions` : le moteur ne compresse jamais tout seul. BC1 est
-			// AVEC PERTE et SANS ALPHA — l'appliquer d'office abimerait les cartes
-			// de normales (les artefacts de bloc s'y voient comme des facettes) et
-			// mangerait l'alpha des textures qui en ont un. Ça se demande.
-			nk_uint32 compression = NKTEXFMT_INCONNU;
+			// ── COMPRESSION : `AUTO` PAR DEFAUT (2026-09-05) ─────────────────
+			// 🔴 Le defaut etait « aucune », et Rodolf a teste : il n'a rien vu.
+			// Normal — c'est exactement la condition ou j'avais moi-meme mesure un
+			// gain NUL (1 682 ms contre 1 691). **Le defaut doit etre le mode qui
+			// gagne.**
+			//
+			// `AUTO` ne compresse pas aveuglement : il REGARDE l'image et decide.
+			// Ce que la mesure du jour a tranche (`NkTexBake --perte` sur les onze
+			// cartes du depot) :
+			//   - alpha UTILE          -> BRUT (BC1 n'a pas d'alpha ; il la mangerait
+			//                            en silence — `awesomeface.png` est dans ce cas)
+			//   - carte de NORMALES    -> BRUT (ecart max 155 et 79 niveaux mesures ;
+			//                            BC5 est fait pour elles, il n'est pas livre)
+			//   - tout le reste        -> BC1 (ecart 8 a 93, PSNR 26,8 a 46,7 dB)
+			//
+			// `NKTEXFMT_INCONNU` reste disponible et veut dire « brut, je l'ai
+			// choisi » — c'est ce que pose `NK_TEX_FORMAT=raw`.
+			nk_uint32 compression = NKTEXFMT_AUTO;
 	};
 
 	// =========================================================================
@@ -81,6 +93,15 @@ namespace nkentseu {
 	// =========================================================================
 	class NkTextureOven {
 		public:
+			// Ce que le dernier `Cuire` a decide, en clair. Existe pour que le
+			// moteur puisse l'IMPRIMER : une decision automatique qu'on ne voit pas
+			// est une decision qu'on ne peut pas contredire — et c'est exactement ce
+			// qui a fait que Rodolf n'a rien vu le 2026-09-05.
+			static NkString &DerniereDecision() noexcept {
+				static NkString s;
+				return s;
+			}
+
 			// Le format de pixel que le GPU acceptera, pour une image donnee.
 			// Rend NKTEXFMT_INCONNU si l'image doit d'abord etre convertie.
 			[[nodiscard]] static nk_uint32 CodeFormat(NkImagePixelFormat f, bool srgb) noexcept {
@@ -123,6 +144,102 @@ namespace nkentseu {
 				out.Resize(pas * nk_size(img.Height()));
 				for (int32 y = 0; y < img.Height(); ++y)
 					memcpy(out.Data() + nk_size(y) * pas, img.RowPtr(y), pas);
+			}
+
+			// ── RECONNAITRE UNE CARTE DE NORMALES PAR SON CONTENU ────────────
+			// 🔴 Pas par son NOM : « nrm », « _n », « Normal », « bump » sont des
+			// conventions d'artiste, et rien n'oblige personne a les suivre. Le
+			// contenu ne ment pas : une normale tangentielle encode (x, y, z) avec
+			// z > 0, donc **B proche de 255 partout** et **R, G autour de 128**. Une
+			// texture de couleur n'a aucune raison d'avoir cette forme.
+			//
+			// Pourquoi ça compte : mesure du 2026-09-05 sur les cartes du depot,
+			// `NkTexBake --perte` —
+			//   backpack/normal.png : PSNR 28,99 dB, **ecart max 155 sur 255**
+			//   rusted_iron/normal  : PSNR 31,10 dB, ecart max 79
+			// contre 37,9 dB / 93 pour un albedo et 40,3 dB / 41 pour une occlusion.
+			// BC1 interpole sur UN axe de couleur ; les normales varient sur trois
+			// axes independants, et un ecart de 155 niveaux est une direction
+			// franchement fausse — ça se voit sur l'eclairage, pas sur les pixels.
+			// BC5 est fait pour elles ; il n'est pas livre. Donc : brut.
+			//
+			// Echantillonne au plus 4096 pixels repartis : lire une 4K entiere pour
+			// une statistique ne changerait pas la reponse et couterait 67 Mo de
+			// parcours.
+			[[nodiscard]] static bool RessembleAUneNormale(const NkImage &img) noexcept {
+				if (!img.IsValid())
+					return false;
+				const int32 ch = ChannelsOf(img.Format());
+				if (ch < 3)
+					return false; // une carte a 1 ou 2 canaux n'est pas une normale
+				if (img.Format() != NkImagePixelFormat::NK_RGB24 && img.Format() != NkImagePixelFormat::NK_RGBA32)
+					return false;
+
+				const int32 pas = (img.Width() * img.Height() > 4096) ? int32(img.Width() / 64 + 1) : 1;
+				nk_uint64 n = 0, bleuHaut = 0, rgCentre = 0;
+				for (int32 y = 0; y < img.Height(); y += pas) {
+					const uint8 *r = img.RowPtr(y);
+					for (int32 x = 0; x < img.Width(); x += pas) {
+						const uint8 *p = r + usize(x) * usize(ch);
+						if (p[2] >= 200u)
+							++bleuHaut;
+						if (p[0] >= 78u && p[0] <= 178u && p[1] >= 78u && p[1] <= 178u)
+							++rgCentre;
+						++n;
+					}
+				}
+				if (n == 0)
+					return false;
+				// Les deux conditions ENSEMBLE : un ciel bleu a du bleu haut mais pas
+				// de R,G centres ; une photo grise a des R,G centres mais pas de bleu
+				// haut. Il faut les deux pour etre une normale.
+				return (bleuHaut * 100u / n) >= 70u && (rgCentre * 100u / n) >= 70u;
+			}
+
+			// Que faire de cette image ? Rend le code de compression a appliquer, et
+			// remplit `raison` avec ce qui a decide — un choix silencieux est un choix
+			// qu'on ne peut pas contredire.
+			[[nodiscard]] static nk_uint32 ChoisirCompression(const NkImage &img, bool srgb,
+															 const char **raison) noexcept {
+				const char *r = nullptr;
+				nk_uint32 code = NKTEXFMT_INCONNU;
+
+				if (AAlphaUtile(img)) {
+					r = "alpha utile : BC1 n'en a pas, il la mangerait en silence";
+				} else if (RessembleAUneNormale(img)) {
+					r = "carte de normales : BC1 y laisse jusqu'a 155 niveaux d'ecart (mesure) — BC5 est fait pour "
+						"elles, il n'est pas livre";
+				} else if (img.Format() != NkImagePixelFormat::NK_RGB24 &&
+						   img.Format() != NkImagePixelFormat::NK_RGBA32 &&
+						   img.Format() != NkImagePixelFormat::NK_GRAY8 &&
+						   img.Format() != NkImagePixelFormat::NK_GRAY_A16) {
+					r = "format non 8 bits par canal (HDR) : BC1 ne s'y applique pas";
+				} else {
+					code = srgb ? nk_uint32(NKTEXFMT_BC1_RGB_SRGB) : nk_uint32(NKTEXFMT_BC1_RGB_UNORM);
+					r = "BC1";
+				}
+				if (raison)
+					*raison = r;
+				return code;
+			}
+
+			// L'alpha porte-t-il une information ? Un alpha entierement opaque n'en
+			// porte pas — le jeter ne perd rien. Un seul pixel translucide suffit a
+			// dire le contraire.
+			[[nodiscard]] static bool AAlphaUtile(const NkImage &img) noexcept {
+				if (!img.IsValid())
+					return false;
+				const int32 ch = ChannelsOf(img.Format());
+				if (ch != 4 && ch != 2)
+					return false;
+				const int32 iA = ch - 1;
+				for (int32 y = 0; y < img.Height(); ++y) {
+					const uint8 *r = img.RowPtr(y);
+					for (int32 x = 0; x < img.Width(); ++x)
+						if (r[usize(x) * usize(ch) + usize(iA)] != 255u)
+							return true;
+				}
+				return false;
 			}
 
 			// Le format demande est-il livre ? Rend une raison si non — un refus
@@ -189,8 +306,18 @@ namespace nkentseu {
 				nk_uint32 codeFinal = code;
 				nk_uint32 bppFinal = bpp;
 				bool compresse = false;
-				if (reglages.compression != NKTEXFMT_INCONNU) {
-					const char *refus = RaisonRefusCompression(reglages.compression, cible);
+				// `AUTO` se resout ICI, sur l'image reelle. La decision est rendue
+				// par `derniereDecision` : le moteur l'imprime, l'outil aussi.
+				nk_uint32 demande = reglages.compression;
+				if (demande == NKTEXFMT_AUTO) {
+					const char *raison = nullptr;
+					demande = ChoisirCompression(source, reglages.sRGB, &raison);
+					DerniereDecision() = raison ? raison : "";
+				} else {
+					DerniereDecision() = (demande == NKTEXFMT_INCONNU) ? "brut demande" : "compression demandee";
+				}
+				if (demande != NKTEXFMT_INCONNU) {
+					const char *refus = RaisonRefusCompression(demande, cible);
 					if (refus)
 						return Refus(err, refus);
 					// L'encodeur BC1 veut du RGBA8 serre ; `cible` garantit deja
@@ -200,7 +327,7 @@ namespace nkentseu {
 						NkBlockCompress::EncoderBC1(octets[i].Data(), largeurs[i], hauteurs[i], blocs);
 						octets[i] = std::move(blocs);
 					}
-					codeFinal = reglages.compression;
+					codeFinal = demande;
 					bppFinal = 0u; // un format par blocs n'a pas d'octet-par-pixel
 					compresse = true;
 				}

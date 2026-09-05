@@ -58,7 +58,11 @@ namespace nkentseu {
 				// mangerait l'alpha. C'est a l'appelant de le demander, carte par
 				// carte. Le code voyage jusqu'a l'empreinte du cache : deux
 				// compressions differentes sont deux actifs differents.
-				uint32 compression = 0u; // NKTEXFMT_INCONNU
+				// `NKTEXFMT_AUTO` : le four regarde l'image et decide (BC1 sauf
+				// alpha utile, normales et HDR). C'est le DEFAUT depuis le
+				// 2026-09-05 — avec « aucune » le format d'actif ne gagnait rien,
+				// mesure a l'appui. `NKTEXFMT_INCONNU` = brut, explicitement.
+				uint32 compression = 0xFFFFFFFFu; // NKTEXFMT_AUTO
 		};
 
 		// =====================================================================

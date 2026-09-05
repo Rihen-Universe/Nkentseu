@@ -66,6 +66,9 @@ namespace nkentseu {
 	enum NkTexFormatCode : nk_uint32 {
 		NKTEXFMT_INCONNU = 0u,
 
+		// Valeur de DEMANDE, jamais ecrite dans un fichier : « choisis pour moi ».
+		NKTEXFMT_AUTO = 0xFFFFFFFFu,
+
 		// ── 1..99 : non compresses, un octet par canal ──
 		NKTEXFMT_R8_UNORM = 1u,
 		NKTEXFMT_RG8_UNORM = 2u,
