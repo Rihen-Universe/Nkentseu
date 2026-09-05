@@ -1627,6 +1627,13 @@ namespace nkuidesign {
 				choixImageIndex = index;
 				choixImageBuf[0] = '\0';
 				const NkString dep = DossierImages();
+				// ⑥ LES FILTRES DU CHOIX D'IMAGE : les formats que `NkImage` sait relire,
+				//    puis TOUT. Poses ici parce que c'est ici qu'on sait ce qu'on cherche.
+				choixImage.filtres.Clear();
+				choixImage.filtreActif = 0;
+				choixImage.AjouterFiltre("Images", "png;jpg;jpeg;bmp;tga;gif;webp;psd;hdr");
+				choixImage.AjouterFiltre("PNG seulement", "png");
+				choixImage.AjouterFiltre("Tous les fichiers", "*");
 				choixImage.OpenPickerBase(nkentseu::editorkit::NkFilePickerState::PK_File, dep.Data(), choixImageBuf,
 										  (int32)sizeof(choixImageBuf), nullptr, nullptr);
 			}

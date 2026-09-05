@@ -1170,6 +1170,15 @@ namespace nkuidesign {
 		c.picker.roleFichier = NkDesignResolveRole("type_tex");
 		// ③ les recents, session d'abord puis document : le rail les met EN TETE.
 		c.picker.recents = st.RecentsPourLeRail();
+		// ⑥ LES FILTRES : le format choisi d'abord, l'autre ensuite, puis TOUT.
+		//    « Tous les fichiers » est toujours propose -- voir ce qu'il y a dans le
+		//    dossier aide a choisir ou l'on ecrit, meme quand on enregistre.
+		c.picker.filtres.Clear();
+		c.picker.filtreActif = 0;
+		const bool png = c.format == (nkentseu::int32)NkExportFormat::PNG;
+		c.picker.AjouterFiltre(png ? "Images PNG" : "Images SVG", png ? "png" : "svg");
+		c.picker.AjouterFiltre(png ? "Images SVG" : "Images PNG", png ? "svg" : "png");
+		c.picker.AjouterFiltre("Tous les fichiers", "*");
 		c.buf[0] = '\0';
 		const NkString dep = st.DossierImages();
 		// Le filtre suit le format choisi : chercher son SVG parmi trois cents PNG

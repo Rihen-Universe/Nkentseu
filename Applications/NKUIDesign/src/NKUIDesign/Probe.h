@@ -12569,6 +12569,106 @@ namespace nkuidesign {
 				"une commande de texte -- pas un glyphe de police en guise d'icone (porte du 04/09)",
 				toutesDistinctes && dossierDessine && imageNestPasDossier && aucunGlyphe && minCmd >= 2u, det);
 		}
+		// ── 113. ⑥ LES FILTRES DE FICHIERS, NOMMES ET COMBINABLES (05/09, nuit). Rodolf :
+		//    « est-ce que programmatiquement on peut specifier les formats de fichiers a
+		//    charger, donc uniquement eux et les dossiers seront visibles, et aussi tout pour
+		//    tout voir ? et la meme chose pour charger un fichier et pour ouvrir ou
+		//    selectionner des dossiers ? » L'ancien `pickerFileExt` portait UNE extension, en
+		//    mode fichier seulement.
+		{
+			char det[880];
+			NkDirectory::Delete("sonde_filtres", true);
+			NkDirectory::CreateRecursive("sonde_filtres/un_dossier");
+			NkDirectory::CreateRecursive("sonde_filtres/autre_dossier");
+			NkFile::WriteAllText("sonde_filtres/a.png", "x");
+			NkFile::WriteAllText("sonde_filtres/b.jpg", "x");
+			NkFile::WriteAllText("sonde_filtres/c.svg", "x");
+			NkFile::WriteAllText("sonde_filtres/d.txt", "x");
+			NkFile::WriteAllText("sonde_filtres/e.zip", "x");
+			const NkString base113 =
+				(NkPath(NkDirectory::GetCurrentDirectory()) / "sonde_filtres").ToString();
+			auto compte = [](const editorkit::NkFilePickerNavState &n, uint32 &dossiers, uint32 &fichiers) {
+				dossiers = fichiers = 0u;
+				for (uint32 i = 0; i < (uint32)n.vue.entries.Size(); ++i)
+					(n.vue.entries[i].isFolder ? dossiers : fichiers) += 1u;
+			};
+			// LES QUATRE MODES prennent la MEME liste : c'est la demande, mot pour mot.
+			static const int32 kModes113[4] = {editorkit::NkSelecteurOuvrirFichier,
+												   editorkit::NkSelecteurOuvrirDossier,
+												   editorkit::NkSelecteurCreerDossier,
+												   editorkit::NkSelecteurEnregistrer};
+			uint32 dImg = 0u, fImg = 0u, dSvg = 0u, fSvg = 0u, dTout = 0u, fTout = 0u;
+			uint32 modesAvecDossiers = 0u;
+			for (int32 m = 0; m < 4; ++m) {
+				editorkit::NkFilePickerNavState n;
+				char b[512] = {};
+				n.OpenPickerBase(kModes113[m], base113.Data(), b, (int32)sizeof(b), nullptr, nullptr);
+				n.AjouterFiltre("Images", "png;jpg;jpeg");
+				n.AjouterFiltre("Vectoriel", "svg");
+				n.AjouterFiltre("Tous les fichiers", "*");
+				uint32 d = 0u, f = 0u;
+				n.filtreActif = 0;
+				n.relire = true;
+				n.RelireDossier();
+				compte(n, d, f);
+				if (m == 0) { dImg = d; fImg = f; }
+				if (d == 2u)
+					++modesAvecDossiers; // LES DOSSIERS PASSENT TOUJOURS, dans les quatre modes
+				if (m == 0) {
+					n.filtreActif = 1;
+					n.relire = true;
+					n.RelireDossier();
+					compte(n, dSvg, fSvg);
+					n.filtreActif = 2;
+					n.relire = true;
+					n.RelireDossier();
+					compte(n, dTout, fTout);
+				}
+			}
+			// TROIS FILTRES, TROIS LISTAGES DIFFERENTS
+			const bool troisListages = fImg == 2u && fSvg == 1u && fTout == 5u;
+			const bool dossiersPartout = dImg == 2u && dSvg == 2u && dTout == 2u
+					&& modesAvecDossiers == 4u;
+			// LE MODE DOSSIER MONTRE TOUT : voir ce qu'il y a aide a choisir ou l'on va
+			uint32 dDoss = 0u, fDoss = 0u;
+			{
+				editorkit::NkFilePickerNavState n;
+				char b[512] = {};
+				n.OpenPickerBase(editorkit::NkSelecteurOuvrirDossier, base113.Data(), b,
+					 (int32)sizeof(b), nullptr, nullptr);
+				n.AjouterFiltre("Images", "png");
+				n.AjouterFiltre("Tous les fichiers", "*");
+				n.relire = true;
+				n.RelireDossier();
+				compte(n, dDoss, fDoss);
+			}
+			const bool dossierVoitTout = dDoss == 2u && fDoss == 5u;
+			// L'ANCIENNE EXTENSION UNIQUE MARCHE ENCORE (les appelants existants)
+			uint32 dLeg = 0u, fLeg = 0u;
+			{
+				editorkit::NkFilePickerNavState n;
+				char b[512] = {};
+				n.OuvrirNav(editorkit::NkSelecteurEnregistrer, base113.Data(), ".png", "x.png", b,
+						(int32)sizeof(b));
+				n.RelireDossier();
+				compte(n, dLeg, fLeg);
+			}
+			const bool legacyOk = dLeg == 2u && fLeg == 1u;
+			snprintf(det, sizeof(det),
+				"cinq fichiers (png, jpg, svg, txt, zip) et deux dossiers ; filtre « Images » -> %u fichier(s), "
+				"« Vectoriel » -> %u, « Tous » -> %u : trois listages differents=%d ; dossiers vus : %u/%u/%u "
+				"et %u/4 modes en montrent deux -> toujours visibles=%d ; mode DOSSIER montre tout "
+				"(%u dossier(s), %u fichier(s))=%d ; l'extension unique d'avant marche encore (%u fichier)=%d",
+				fImg, fSvg, fTout, troisListages ? 1 : 0, dImg, dSvg, dTout, modesAvecDossiers,
+				dossiersPartout ? 1 : 0, dDoss, fDoss, dossierVoitTout ? 1 : 0, fLeg, legacyOk ? 1 : 0);
+			check("113. ⑥ LES FILTRES DE FICHIERS SONT DES GROUPES NOMMES, ET LES DOSSIERS PASSENT TOUJOURS : trois filtres "
+				"donnent trois listages differents (2 images, 1 vectoriel, 5 tout) ; les deux dossiers sont visibles dans "
+				"les trois ET dans les QUATRE modes -- un filtre sert a trouver un fichier, pas a s'interdire de naviguer ; "
+				"le mode DOSSIER montre tous les fichiers (voir ce qu'il y a aide a choisir ou l'on va) ; et l'ancienne "
+				"extension unique continue de fonctionner pour les appelants existants",
+				troisListages && dossiersPartout && dossierVoitTout && legacyOk, det);
+			NkDirectory::Delete("sonde_filtres", true);
+		}
 		snprintf(tail, sizeof(tail), "\n=== RESULTAT : %d / %d ===\n", pass, total);
 		rep.Append(tail);
 

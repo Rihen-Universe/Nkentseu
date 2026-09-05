@@ -84,11 +84,97 @@ namespace nkentseu {
 				NkContentBrowserStyle volet; ///< le navigateur : des roles, resolus par l'hote
 		};
 
+		// ── ⑥ UN FILTRE DE FICHIERS (2026-09-05, nuit) ───────────────────────
+		// Rodolf : « est-ce que programmatiquement on peut specifier les formats de
+		// fichiers a charger, donc uniquement eux et les dossiers seront visibles, et
+		// aussi tout pour tout voir ? »
+		//
+		// L'ancien `pickerFileExt` portait UNE extension, en mode fichier seulement.
+		// Ce n'est pas assez : un selecteur d'images doit accepter cinq extensions, et
+		// proposer « Tous les fichiers » a cote.
+		struct NkFiltreFichiers {
+			NkString nom;				   ///< « Images », « Documents », « Tous les fichiers »
+			NkVector<NkString> extensions; ///< « .png »... ; UNE seule valant « * » = tout
+
+			bool Tout() const {
+				return extensions.Empty()
+					   || (extensions.Size() == 1u && extensions[0].Length() == 1u
+						   && extensions[0].CStr()[0] == '*');
+			}
+		};
+
 		// ── L'ETAT ──────────────────────────────────────────────────────────────
 		struct NkFilePickerNavState : public NkFilePickerState {
 				NkContentBrowserModel vue;	 ///< le volet droit ET son rail de gauche
 								NkVector<NkString> cheminsCrumb; ///< le chemin COMPLET de chaque miette
 				NkVector<NkString> favoris;		 ///< poses par l'hote (chemins absolus)
+
+				// ── ⑥ LES FILTRES ───────────────────────────────────────────
+				// Vide = tout passe. Le dialogue affiche un combo des `nom` quand il y en a
+				// au moins deux.
+				// ⚠️ LES DOSSIERS PASSENT TOUJOURS, quel que soit le filtre : un filtre sert a
+				//    trouver un FICHIER, pas a s'interdire de naviguer.
+				NkVector<NkFiltreFichiers> filtres;
+				int32 filtreActif = 0;
+
+				/// Pose un groupe. `exts` : « png;jpg;jpeg » (avec ou sans le point), ou « * ».
+				/// ⚠️ « Tous les fichiers » n'est PAS ajoute d'office : c'est l'hote qui decide
+				///    s'il veut l'offrir. Mais `NkFiltresUsuels` le met, et c'est ce que les
+				///    quatre modes utilisent par defaut -- l'utilisateur doit toujours pouvoir
+				///    voir ce qu'il y a.
+				void AjouterFiltre(const char *nom, const char *exts) {
+					NkFiltreFichiers f;
+					f.nom = NkString(nom ? nom : "");
+					NkString cour;
+					for (const char *p = exts ? exts : "";; ++p) {
+						if (*p == ';' || *p == ',' || *p == '\0') {
+							if (!cour.Empty()) {
+								if (cour.CStr()[0] != '.' && cour.CStr()[0] != '*') {
+									NkString avecPoint(".");
+									avecPoint.Append(cour.CStr());
+									cour = avecPoint;
+								}
+								f.extensions.PushBack(cour);
+								cour = NkString();
+							}
+							if (*p == '\0')
+								break;
+						} else
+							cour.Append(*p);
+					}
+					filtres.PushBack(f);
+					relire = true;
+				}
+
+				/// Ce nom de FICHIER passe-t-il le filtre actif ?
+				/// ⚠️ Compatibilite : sans filtre pose, on retombe sur `pickerFileExt`, que les
+				///    appelants existants remplissent encore (et que `OuvrirNav` remplit).
+				bool PasseLeFiltre(const char *nom) const {
+					if (!nom || !*nom)
+						return false;
+					if (filtres.Empty())
+						return pickerFileExt.Empty() || EndsWithI(nom, pickerFileExt.CStr());
+					const uint32 i = (filtreActif >= 0 && filtreActif < (int32)filtres.Size())
+							  ? (uint32)filtreActif
+							  : 0u;
+					const NkFiltreFichiers &f = filtres[i];
+					if (f.Tout())
+						return true;
+					for (uint32 k = 0; k < (uint32)f.extensions.Size(); ++k)
+						if (EndsWithI(nom, f.extensions[k].CStr()))
+							return true;
+					return false;
+				}
+
+				/// Le libelle du filtre actif, pour le combo.
+				const char *NomFiltreActif() const {
+					if (filtres.Empty())
+						return "Tous les fichiers";
+					const uint32 i = (filtreActif >= 0 && filtreActif < (int32)filtres.Size())
+							  ? (uint32)filtreActif
+							  : 0u;
+					return filtres[i].nom.CStr();
+				}
 
 				// ── ③ LES DOSSIERS RECEMMENT OUVERTS (05/09, soir) ─────────────────
 				// Rodolf : « on doit aussi voir les dossiers recemment ouverts dans cette
@@ -179,6 +265,9 @@ namespace nkentseu {
 				void OuvrirNav(int32 purpose, const char *depart, const char *ext, const char *nomPropose,
 							   char *buf, int32 cap) {
 					OpenPickerBase(purpose, depart, buf, cap, nullptr, nullptr);
+					// ⑥ `ext` reste accepte -- une extension unique est le cas simple, et les
+					//    appelants existants l'utilisent. Les FILTRES nommes se posent a cote,
+					//    par `AjouterFiltre`, et prennent le pas quand il y en a.
 					pickerFileExt = NkString(ext ? ext : "");
 					if (nomPropose)
 						CopyTo(pickerSaveName, nomPropose, (int32)sizeof(pickerSaveName));
@@ -209,6 +298,9 @@ namespace nkentseu {
 				/// PLEINE LARGEUR en permanence, qui poussait le nom du fichier vers le bas --
 				/// alors qu'on cree un dossier une fois sur vingt. Un bouton discret l'ouvre.
 				bool creationOuverte = false;
+				/// ⑥⑤ Quel menu deroulant est ouvert : 0 aucun, 1 les filtres, 2 le tri.
+				/// UN SEUL a la fois -- deux listes ouvertes se recouvriraient.
+				int32 menuOuvert = 0;
 				NkString messageCreation; ///< ce qui s'est passe, dit SOUS le champ
 
 				/// Cree `nouveauNom` DANS le dossier courant, y descend, et vide le champ.
@@ -350,7 +442,13 @@ namespace nkentseu {
 							continue;
 						if (e[i].IsDirectory)
 							dirs.PushBack(e[i].Name);
-						else if (pickerFileExt.Empty() || EndsWithI(nm, pickerFileExt.CStr()))
+						// ⑥ LE FILTRE NE PORTE QUE SUR LES FICHIERS -- les dossiers sont passes
+						//    au-dessus, sans condition : un filtre sert a trouver un fichier, pas a
+						//    s'interdire de naviguer.
+						// ⚠️ EN MODE DOSSIER, ON LISTE TOUT : voir ce qu'il y a aide a choisir ou
+						//    l'on va. Ces fichiers sont peints en teinte ATTENUEE (`roleFichier` que
+						//    l'hote pose plus sourd) et la confirmation continue de les refuser.
+						else if (pickerFor == PK_PickFolder || pickerFor == PK_Open || PasseLeFiltre(nm))
 							files.PushBack(e[i].Name);
 					}
 					// Tri par insertion : les listes d'un dossier sont courtes, et une
@@ -770,6 +868,63 @@ namespace nkentseu {
 				text(r.x + (r.w - f->MeasureWidth(s)) * 0.5f, r.y + (r.h - lh) * 0.5f, s, sty.cadre.text);
 				return hov && click;
 			};
+			// ── ⑥⑤ UN PETIT MENU DEROULANT, SUR PLACE ─────────────────────────
+			// ⚠️ POURQUOI PAS `NkComboButton` : il delegue sa liste au systeme de popups de
+			//    la coquille (`openId`, `anchorOut`), qui dessine DANS une couche au-dessus
+			//    de l'application -- or nous SOMMES deja cette couche, et nous avons
+			//    reserve l'entree. Sa liste s'ouvrirait sous le dialogue. Ici, la liste est
+			//    peinte au meme endroit que le reste, juste apres : quinze lignes, et
+			//    aucune dependance a l'ordre des couches.
+			// Rend l'indice choisi, ou -1. `ouvert` porte l'identite du menu ouvert.
+			auto deroulant = [&](const NkRect &r, const char *libelle, const char *const *items,
+								 int32 n, int32 courant, int32 id, int32 &ouvert) -> int32 {
+				const bool hov = hit(r);
+				dl.AddRectFilled(r, hov ? sty.cadre.btnHover : sty.cadre.btn, 5.f * S);
+				dl.AddRect(r, sty.cadre.border, 1.f, 5.f * S);
+				char t[160];
+				snprintf(t, sizeof(t), "%s%s", libelle ? libelle : "",
+					 (courant >= 0 && courant < n) ? items[courant] : "");
+				text(r.x + 10.f * S, r.y + (r.h - lh) * 0.5f, t, sty.cadre.text);
+				// le chevron : deux traits, jamais un caractere de police
+				{
+					const float32 mx2 = r.x + r.w - 16.f * S, my2 = r.y + r.h * 0.5f;
+					dl.AddLine({mx2 - 4.f * S, my2 - 2.f * S}, {mx2, my2 + 2.f * S}, sty.cadre.sub, 1.4f);
+					dl.AddLine({mx2, my2 + 2.f * S}, {mx2 + 4.f * S, my2 - 2.f * S}, sty.cadre.sub, 1.4f);
+				}
+				if (hov && click)
+					ouvert = (ouvert == id) ? 0 : id;
+				int32 choisi = -1;
+				if (ouvert == id) {
+					const float32 hl = 26.f * S;
+					// LA LISTE MONTE quand elle deborderait du dialogue vers le bas.
+					const float32 total = hl * (float32)n;
+					// Le bas du dialogue : on le relit de la geometrie, qui est calculee
+					// plus bas -- d'ou la hauteur du cadre passee en dur ici, la MEME
+					// constante que `NkGeometrieSelecteur`.
+					const float32 basDuCadre = (H - 620.f * S) * 0.5f + fp.pickerWinOffY + 620.f * S;
+					const bool versLeHaut = r.y + r.h + total > basDuCadre - 8.f * S;
+					const float32 y0 = versLeHaut ? r.y - total - 2.f * S : r.y + r.h + 2.f * S;
+					const NkRect boite = {r.x, y0, r.w, total};
+					dl.AddRectFilled(boite, sty.cadre.menuBg, 5.f * S);
+					dl.AddRect(boite, sty.cadre.border, 1.f, 5.f * S);
+					for (int32 k = 0; k < n; ++k) {
+						const NkRect li = {boite.x, y0 + hl * (float32)k, boite.w, hl};
+						const bool hl2 = hit(li);
+						if (hl2)
+							dl.AddRectFilled(li, sty.cadre.rowHover, 3.f * S);
+						text(li.x + 10.f * S, li.y + (hl - lh) * 0.5f, items[k],
+							 k == courant ? sty.cadre.textStrong : sty.cadre.text);
+						if (hl2 && click) {
+							choisi = k;
+							ouvert = 0;
+						}
+					}
+					// un clic AILLEURS referme, et ne traverse pas
+					if (click && !hit(boite) && !hov)
+						ouvert = 0;
+				}
+				return choisi;
+			};
 			auto pbtn = [&](const NkRect &r, const char *s, bool en) -> bool {
 				const bool hov = en && hit(r);
 				dl.AddRectFilled(r, !en ? sty.cadre.btn : hov ? sty.cadre.confirmHover : sty.cadre.accent,
@@ -1007,6 +1162,20 @@ namespace nkentseu {
 				}
 				NkOverlayTextField(ctx, dl, f, r, fp.pickerSaveName, (int32)sizeof(fp.pickerSaveName),
 								   fp.pickerSaveFocus);
+			}
+			// ⑥ LE COMBO DE FILTRE, a gauche de la barre d'action -- la ou Windows le met.
+			//    Affiche des qu'il y a DEUX groupes : un seul choix n'est pas un choix.
+			if ((int32)fp.filtres.Size() >= 2) {
+				const NkRect rf = {G.annuler.x - 280.f * S, G.annuler.y, 270.f * S, G.annuler.h};
+				const char *noms[16];
+				const int32 nf = (int32)fp.filtres.Size() < 16 ? (int32)fp.filtres.Size() : 16;
+				for (int32 k = 0; k < nf; ++k)
+					noms[k] = fp.filtres[(uint32)k].nom.CStr();
+				const int32 ch = deroulant(rf, "Filtre : ", noms, nf, fp.filtreActif, 1, fp.menuOuvert);
+				if (ch >= 0 && ch != fp.filtreActif) {
+					fp.filtreActif = ch;
+					fp.relire = true; // le listage suit immediatement
+				}
 			}
 			{
 				const bool pret = saveMode ? (fp.pickerSaveName[0] != '\0')
