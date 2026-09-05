@@ -54,6 +54,7 @@
 
 #include "ComposantsBase.h" // les composants de base : declares ET dessines
 #include "Sommets.h" // la table UNIQUE des sommets (peintre + mode points)
+#include "NKMath/NkEarcut.h" // les morceaux convexes d'un trace edite (Q94) : la porte sans allocation
 #include "Transfo.h" // rotation et miroirs : LE MEME calcul pour le dessin et le clic
 #include "NKEditorKit/Components/NkContentBrowserModel.h"
 #include "NKEditorKit/Components/NkRecordingPaint.h"
@@ -1173,6 +1174,97 @@ namespace nkuidesign {
 		/// LE DAMIER d'une image absente : deux gris, carreaux de 8 px, dans la
 		/// boite (le fond arrondi d'abord, puis les carreaux clairs qui restent dans
 		/// le rectangle -- un carreau ne suit pas l'arc : c'est un apercu, dit tel).
+		// ── LE CONTOUR D'UN TRACE EDITE, ET SES MORCEAUX CONVEXES (Q94, 05/09) ─────────
+		/// Rodolf : « lorsqu'on edite un graphique qui etait en degrade, son degrade
+		/// disparait et refuse de s'appliquer par la suite ». LA CAUSE : un noeud a
+		/// sommets (la premiere modification en mode edition les materialise) prenait le
+		/// chemin `NkGTraceEdite` -- UNE couleur, puis retour -- et la boucle des
+		/// remplissages (degrade, image) n'etait jamais atteinte. La donnee etait intacte
+		/// (le fichier gardait ses arrets) : c'est le peintre qui la taisait, et
+		/// re-choisir « Lineaire » ecrivait dans une liste que ce chemin ne lisait pas.
+		/// DESORMAIS un trace est une forme comme une autre pour le remplissage : il donne
+		/// un CONTOUR, et tout ce qui se peint par bandes ou par cellules se rogne par ses
+		/// MORCEAUX CONVEXES -- le contour lui-meme s'il est convexe, ses triangles sinon
+		/// (`NkEarcutVers`, la porte sans allocation, la meme que le peintre du kit).
+		inline nkentseu::uint32 NkGContourTrace(const NkPaintRect &r, const NkUINode &n, const NkMat2D &mEff,
+												nkentseu::float32 *xy, nkentseu::uint32 cap) {
+			if (n.sommets.Empty() && mEff.Identite())
+				return 0u;
+			const nkentseu::uint32 nb = NkContourDe(n, r, xy, cap);
+			if (nb < 3u)
+				return 0u;
+			NkMatContour(mEff, xy, nb);
+			return nb;
+		}
+		struct NkGMorceaux {
+				nkentseu::float32 pts[128u * 6u]; ///< au plus 126 triangles x 3 points x (x, y)
+				nkentseu::uint32 debut[128u], nb[128u];
+				nkentseu::uint32 n = 0u;
+		};
+		inline bool NkGEstConvexe(const nkentseu::float32 *xy, nkentseu::uint32 nb) {
+			nkentseu::int32 signe = 0;
+			for (nkentseu::uint32 k = 0; k < nb; ++k) {
+				const nkentseu::uint32 j = (k + 1u) % nb, l = (k + 2u) % nb;
+				const nkentseu::float32 ax = xy[j * 2] - xy[k * 2], ay = xy[j * 2 + 1] - xy[k * 2 + 1];
+				const nkentseu::float32 bx = xy[l * 2] - xy[j * 2], by = xy[l * 2 + 1] - xy[j * 2 + 1];
+				const nkentseu::float32 c = ax * by - ay * bx;
+				if (c > -1e-4f && c < 1e-4f)
+					continue;
+				const nkentseu::int32 sg = c > 0.f ? 1 : -1;
+				if (signe == 0)
+					signe = sg;
+				else if (sg != signe)
+					return false;
+			}
+			return true;
+		}
+		inline void NkGMorceauxDe(const nkentseu::float32 *xy, nkentseu::uint32 nb, NkGMorceaux &m) {
+			using namespace nkentseu;
+			m.n = 0u;
+			if (!xy || nb < 3u || nb > 128u)
+				return;
+			auto entier = [&]() {
+				for (uint32 k = 0; k < nb * 2u; ++k)
+					m.pts[k] = xy[k];
+				m.debut[0] = 0u;
+				m.nb[0] = nb;
+				m.n = 1u;
+			};
+			if (NkGEstConvexe(xy, nb)) {
+				entier();
+				return;
+			}
+			math::NkVec2f pts[128];
+			::nkentseu::detail::NkEarcutNode<float32> noeuds[128];
+			uint32 idx[126u * 3u];
+			for (uint32 i = 0; i < nb; ++i)
+				pts[i] = math::NkVec2f(xy[i * 2], xy[i * 2 + 1]);
+			const uint32 nbTri = ::nkentseu::NkEarcutVers<float32>(pts, nb, noeuds, 128u, idx, 126u * 3u);
+			if (nbTri == 0u) { // contour degenere ou qui se croise : le contour entier, dit -- une forme qui montre quelque chose
+				entier();
+				return;
+			}
+			for (uint32 t = 0; t < nbTri; ++t) {
+				m.debut[t] = t * 6u;
+				m.nb[t] = 3u;
+				for (uint32 k = 0; k < 3u; ++k) {
+					m.pts[t * 6u + k * 2u] = pts[idx[t * 3u + k]].x;
+					m.pts[t * 6u + k * 2u + 1u] = pts[idx[t * 3u + k]].y;
+				}
+			}
+			m.n = nbTri;
+		}
+		/// Un polygone CONVEXE rogne par chaque morceau ; chaque coupe non vide est remise a `emettre`.
+		template <class F>
+		inline void NkGRognerParMorceaux(const nkentseu::float32 *forme, nkentseu::uint32 nf, const NkGMorceaux &m, F &&emettre) {
+			for (nkentseu::uint32 k = 0; k < m.n; ++k) {
+				nkentseu::float32 coupe[128];
+				const nkentseu::uint32 ncp = NkGDecouperParConvexe(forme, nf, m.pts + m.debut[k], m.nb[k], coupe, 64u);
+				if (ncp >= 3u)
+					emettre(coupe, ncp);
+			}
+		}
+
 		/// LES CINQ CADRAGES PEINTS, LA ROTATION, LE CONTOUR QUI ROGNE (05/09).
 		/// La source vient du fournisseur ; l'image est POSEE dans un repere tourne
 		/// autour du centre de la boite (la rotation de l'image, meme convention que
@@ -1192,7 +1284,8 @@ namespace nkuidesign {
 		/// Rend faux si la source manque (le chemin est note) ou si le peintre ne sait
 		/// pas peindre une image : l'appelant peint le damier.
 		inline bool NkGPeindreImage(NkComponentPaint &p, const NkPaintRect &r, const nkentseu::float32 R[4],
-									const NkRemplissage &f) {
+									const NkRemplissage &f, const nkentseu::float32 *trace = nullptr,
+									nkentseu::uint32 traceNb = 0u) {
 			using namespace nkentseu;
 			NkFournisseurImages &fi = NkFournisseurCourant();
 			NkImageSource src;
@@ -1206,6 +1299,12 @@ namespace nkuidesign {
 			NkGBornerRayons(r.w, r.h, R, cb);
 			float32 contour[80];
 			const uint32 nc = NkGContourArrondi(r, cb, contour, 8u);
+			// Q94 : un trace edite se rogne par ses morceaux convexes, pas par l'arrondi de la boite
+			NkGMorceaux morceaux;
+			if (trace && traceNb >= 3u)
+				NkGMorceauxDe(trace, traceNb, morceaux);
+			else
+				NkGMorceauxDe(contour, nc, morceaux);
 			const float32 cx = r.x + r.w * 0.5f, cy = r.y + r.h * 0.5f;
 			float32 s = 0.f, c = 1.f;
 			NkSinCosDeg(f.rotationImage, s, c);
@@ -1224,19 +1323,18 @@ namespace nkuidesign {
 					forme[i * 2] = cx + lx[i] * c - ly[i] * s;
 					forme[i * 2 + 1] = cy + lx[i] * s + ly[i] * c;
 				}
-				float32 coupe[128];
-				const uint32 ncp = NkGDecouperParConvexe(forme, 4u, contour, nc, coupe, 64u);
-				if (ncp < 3u)
-					return; // la cellule est hors du contour : rien a peindre, pas un echec
-				float32 uv[128];
-				for (uint32 i = 0; i < ncp; ++i) {
-					const float32 px = coupe[i * 2] - cx, py = coupe[i * 2 + 1] - cy;
-					const float32 x = px * c + py * s, y = -px * s + py * c; // l'inverse de la pose
-					uv[i * 2] = u0 + (x - x0) / w * (u1 - u0);
-					uv[i * 2 + 1] = v0 + (y - y0) / h * (v1 - v0);
-				}
-				if (!p.ImagePolygone(coupe, uv, (int32)ncp, src.handle, f.opacite))
-					su = false;
+				// rognee par chaque morceau du contour (une cellule hors du contour ne donne rien : pas un echec)
+				NkGRognerParMorceaux(forme, 4u, morceaux, [&](const float32 *coupe, uint32 ncp) {
+					float32 uv[128];
+					for (uint32 i = 0; i < ncp; ++i) {
+						const float32 px = coupe[i * 2] - cx, py = coupe[i * 2 + 1] - cy;
+						const float32 x = px * c + py * s, y = -px * s + py * c; // l'inverse de la pose
+						uv[i * 2] = u0 + (x - x0) / w * (u1 - u0);
+						uv[i * 2 + 1] = v0 + (y - y0) / h * (v1 - v0);
+					}
+					if (!p.ImagePolygone(coupe, uv, (int32)ncp, src.handle, f.opacite))
+						su = false;
+				});
 			};
 			if (tile) {
 				// le disque englobant, majore par (w + h) / 2 >= demi-diagonale : pas de racine ici
@@ -1637,8 +1735,9 @@ namespace nkuidesign {
 				//    Sortir avant `NkGOmbres` aurait fait DISPARAÎTRE l'ombre au
 				//    moment précis où l'on déplace un coin — une propriété perdue
 				//    par un geste qui n'a rien à voir avec elle.
-				if (NkGTraceEdite(p, r, n, host, mEff))
-					return;
+				// (Q94, 05/09) `NkGTraceEdite` ne sort plus ici : le trace edite est un contour
+				// (`traceXY`, calcule plus haut) que les remplissages ci-dessous honorent --
+				// uni, degrade, image -- au lieu d'une seule couleur.
 				// ⚠️ LE RECTANGLE EMPILE SES REMPLISSAGES, DANS L'ORDRE DE LA
 				//    LISTE — le DERNIER par-dessus, comme chez Lunacy. C'est le
 				//    seul peintre de forme qui le fasse, parce que c'est le seul
@@ -1679,6 +1778,10 @@ namespace nkuidesign {
 				//    angle de 90° fait quelque chose -- un champ que le fichier
 				//    porte et que l'ecran ignore est exactement le defaut que ce
 				//    chantier repare ailleurs.
+				// ── LE TRACE EDITE DONNE UN CONTOUR (Q94, 05/09) -- lu par l'uni, le degrade et
+				//    l'image ci-dessous, au lieu du chemin a une couleur qui sortait avant eux ──
+				float32 traceXY[256];
+				const uint32 traceNb = NkGContourTrace(r, n, mEff, traceXY, 128u);
 				// Le repli, pour un peintre sans polygone : des bandes droites, MEME
 				// calcul de couleur (une seule verite).
 				auto peindreDegradeBandes = [&](const NkDegrade &g) {
@@ -1710,6 +1813,14 @@ namespace nkuidesign {
 					NkGBornerRayons(r.w, r.h, Rg, cg);
 					float32 contour[80];
 					const uint32 nc = NkGContourArrondi(r, cg, contour, 8u);
+					// Q94 : un trace edite se rogne par ses morceaux convexes (le contour, ou ses triangles)
+					renderdetail::NkGMorceaux morceaux;
+					if (traceNb >= 3u)
+						renderdetail::NkGMorceauxDe(traceXY, traceNb, morceaux);
+					else
+						renderdetail::NkGMorceauxDe(contour, nc, morceaux);
+					const float32 *contourPlein = traceNb >= 3u ? traceXY : contour;
+					const uint32 ncPlein = traceNb >= 3u ? traceNb : nc;
 					float32 s = 0.f, c = 1.f;
 					NkSinCosDeg(g.angle, s, c);
 					const float32 dx = -s, dy = c; // l'axe : (0,1) tourne de `angle`
@@ -1726,11 +1837,11 @@ namespace nkuidesign {
 						const renderdetail::NkGeomDegrade gm = renderdetail::NkGeomDegradeDe(r, g);
 						const float32 cx0 = gm.ox, cy0 = gm.oy;
 						const float32 rx = gm.rx, ry = gm.ry;
-						float32 forme[96], coupe[128];
+						float32 forme[96];
 						bool su = true;
 						if (genre == 1 || genre == 3) {
 							// le fond : la couleur du dernier arret sur tout le contour (les coins)
-							su = p.PolygonHex(contour, (int32)nc, renderdetail::NkCouleurDegradeEn(g, 1.f));
+							su = p.PolygonHex(contourPlein, (int32)ncPlein, renderdetail::NkCouleurDegradeEn(g, 1.f));
 							const int32 kB = renderdetail::NkBandesDegrade(2.f * (rx > ry ? rx : ry));
 							for (int32 b = kB - 1; b >= 0 && su; --b) {
 								const float32 t1 = (float32)(b + 1) / (float32)kB;
@@ -1751,9 +1862,10 @@ namespace nkuidesign {
 									forme[6] = cx0; forme[7] = cy0 - ry * t1;
 									nf = 4u;
 								}
-								const uint32 ncp = renderdetail::NkGDecouperParConvexe(forme, nf, contour, nc, coupe, 64u);
-								if (ncp >= 3u)
-									su = p.PolygonHex(coupe, (int32)ncp, renderdetail::NkCouleurDegradeEn(g, tm));
+								renderdetail::NkGRognerParMorceaux(forme, nf, morceaux, [&](const float32 *cp, uint32 ncp) {
+									if (!p.PolygonHex(cp, (int32)ncp, renderdetail::NkCouleurDegradeEn(g, tm)))
+										su = false;
+								});
 							}
 						} else {
 							// angulaire : des secteurs de 360/kB degres, l'origine dans la direction de l'axe
@@ -1773,9 +1885,10 @@ namespace nkuidesign {
 									forme[nf * 2 + 1] = cy0 + ck * R;
 									++nf;
 								}
-								const uint32 ncp = renderdetail::NkGDecouperParConvexe(forme, nf, contour, nc, coupe, 64u);
-								if (ncp >= 3u)
-									su = p.PolygonHex(coupe, (int32)ncp, renderdetail::NkCouleurDegradeEn(g, tm));
+								renderdetail::NkGRognerParMorceaux(forme, nf, morceaux, [&](const float32 *cp, uint32 ncp) {
+									if (!p.PolygonHex(cp, (int32)ncp, renderdetail::NkCouleurDegradeEn(g, tm)))
+										su = false;
+								});
 							}
 						}
 						if (su)
@@ -1792,10 +1905,11 @@ namespace nkuidesign {
 						const float32 t0 = (float32)b / (float32)kBandes;
 						const float32 t1 = (float32)(b + 1) / (float32)kBandes;
 						// la bande : t0 <= t < t1, avec t = ((P - C).d) / etendue + 0.5
+						for (uint32 mk = 0; mk < morceaux.n && polygoneSu; ++mk) { // chaque morceau convexe
 						float32 poly[96], tmp[96];
-						uint32 np = nc;
-						for (uint32 k = 0; k < nc * 2u; ++k)
-							poly[k] = contour[k];
+						uint32 np = morceaux.nb[mk];
+						for (uint32 k = 0; k < np * 2u; ++k)
+							poly[k] = morceaux.pts[morceaux.debut[mk] + k];
 						for (int32 cote = 0; cote < 2 && np >= 3u; ++cote) {
 							// demi-plan garde : cote 0 -> t >= t0 ; cote 1 -> t <= t1
 							const float32 seuil = (cote == 0 ? t0 : t1) - 0.5f;
@@ -1828,13 +1942,14 @@ namespace nkuidesign {
 								poly[k] = tmp[k];
 						}
 						if (np < 3u)
-							continue; // la bande ne touche pas la forme (coins tres arrondis)
+							continue; // la bande ne touche pas ce morceau (coins tres arrondis, ou triangle hors bande)
 						// la couleur au MILIEU de la bande : une bande represente son
 						// intervalle, pas son bord (sinon la derniere n'atteint jamais
 						// la couleur du dernier arret)
 						const uint32 colB = renderdetail::NkCouleurDegradeEn(g, (t0 + t1) * 0.5f);
 						if (!p.PolygonHex(poly, (int32)np, colB))
 							polygoneSu = false; // ce peintre n'a pas de polygone : repli
+						} // les morceaux
 					}
 					if (!polygoneSu)
 						return peindreDegradeBandes(g);
@@ -1843,6 +1958,12 @@ namespace nkuidesign {
 				// LES QUATRE RAYONS EFFECTIFS, lus par la porte du modèle.
 				float32 Rc[4];
 				NkGRayons(n, Rc);
+				// L'UNI : le contour du trace edite s'il y en a un (et si le peintre sait le
+				// polygone), la boite arrondie sinon -- une seule porte pour les trois sites
+				auto peindreUni = [&](uint32 rgba) {
+					if (traceNb < 3u || !p.PolygonHex(traceXY, (int32)traceNb, rgba))
+						NkGRectCoins(p, r, rgba, Rc);
+				};
 				// La couleur du fond réellement peint — l'anneau de bordure la
 				// remet au milieu (voir NkGCadre). 0 = aucun fond.
 				uint32 rgbaFond = 0u;
@@ -1867,7 +1988,7 @@ namespace nkuidesign {
 						if (f.EstImage()) {
 							// LA SOURCE, si le fournisseur la donne et si le peintre sait
 							// peindre une image ; sinon le damier, et l'absence est notee
-							if (!NkGPeindreImage(p, r, Rc, f))
+							if (!NkGPeindreImage(p, r, Rc, f, traceNb >= 3u ? traceXY : nullptr, traceNb))
 								NkGDamier(p, r, Rc, f.opacite);
 							peint = true;
 							continue;
@@ -1885,7 +2006,7 @@ namespace nkuidesign {
 										  * 0.01f;
 						const uint32 a = (uint32)((base & 0xFFu) * k + 0.5f);
 						const uint32 rgbaF = (base & 0xFFFFFF00u) | (a & 0xFFu);
-						NkGRectCoins(p, r, rgbaF, Rc);
+						peindreUni(rgbaF);
 						// ⚠️ ON RETIENT LE DERNIER FOND PEINT : c'est lui que
 						//    l'anneau de bordure devra remettre au milieu. Sans
 						//    ça, la bordure arrondie masquerait le remplissage.
@@ -1911,13 +2032,18 @@ namespace nkuidesign {
 					fondPeint = peint;
 				} else if (!n.fill.Empty()) {
 					rgbaFond = NkGCouleur(n.fill.Data());
-					NkGRectCoins(p, r, rgbaFond, Rc);
+					peindreUni(rgbaFond);
 					fondPeint = true;
 				} else {
 					rgbaFond = p.ColorOf(host.Role("doc_field_bg"));
-					NkGRectCoins(p, r, rgbaFond, Rc);
+					peindreUni(rgbaFond);
 					fondPeint = true; // le fond de rôle EST un fond
 				}
+				// ⚠️ LES BORDURES D'UN TRACE EDITE NE SONT PAS PEINTES -- elles ne l'etaient pas
+				//    non plus avant (le trace sortait avant tout) : la bordure d'un contour
+				//    quelconque demande un anneau de polygone que ce peintre n'a pas. Nomme.
+				if (traceNb >= 3u)
+					return;
 				// ── LES BORDURES : LA LISTE D'ABORD, LA CLÉ SIMPLE SINON ─────
 				// ⚠️ ET LA POSITION EST HONORÉE, sinon c'était un champ que le
 				//    fichier porte et que l'écran ignore. `NkGCadre` déplace les

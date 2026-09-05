@@ -7943,6 +7943,153 @@ namespace nkuidesign {
 				  "OKLCH et OKLAB -- et le blanc, le noir et le rouge sRGB donnent les valeurs PUBLIEES (Ottosson, D65)",
 				  tous, det);
 		}
+		// ── 72. Q94 (Rodolf : « lorsqu'on edite un graphique qui etait en degrade, son degrade
+		//    disparait et refuse de s'appliquer par la suite ») : un rectangle a degrade lineaire,
+		//    l'entree / la sortie du mode edition sans modification (commandes identiques), un
+		//    sommet deplace (les sommets se materialisent : le noeud est un TRACE) -> TOUJOURS un
+		//    degrade, des bandes qui suivent le NOUVEAU contour ; « Lineaire » re-choisi sur le trace
+		//    -> peint ; un contour CONCAVE -> ses morceaux (triangles) ; l'uni et l'image sur un
+		//    trace. Avant : une seule couleur, et rien ne se reappliquait.
+		{
+			struct PeintrePoly72 : public NkRecordingPaint {
+					NkVector<float32> pts;
+					NkVector<int32> tailles;
+					NkVector<uint32> couleurs;
+					bool PolygonHex(const float32 *xy, int32 count, uint32 rgba) override {
+						for (int32 i = 0; i < count * 2; ++i)
+							pts.PushBack(xy[i]);
+						tailles.PushBack(count);
+						couleurs.PushBack(rgba);
+						return true;
+					}
+					void Vider() {
+						Reset();
+						pts.Clear();
+						tailles.Clear();
+						couleurs.Clear();
+					}
+			};
+			char det[600];
+			NkUIDocument dQ;
+			dQ.NewDocument("Toile", NkAuthor::Humain);
+			dQ.nodes[0].layout.kind = NkLayoutKind::Free;
+			dQ.SetMetric("espacement", 0.f);
+			dQ.SetMetric("marge", 0.f);
+			const int32 rq = dQ.AddChild(0, "", NkAuthor::Humain);
+			{
+				NkUINode &n = dQ.nodes[(uint32)rq];
+				n.shape = NkString("rect");
+				n.posX = 100.f;
+				n.posY = 100.f;
+				n.width.mode = NkSizeMode::Fixed;
+				n.width.value = 160.f;
+				n.height.mode = NkSizeMode::Fixed;
+				n.height.value = 80.f;
+				NkRemplissage f;
+				f.couleur = NkString("#ffffff");
+				f.degrade.type = NkString("lineaire");
+				NkArretDegrade a0, a1;
+				a0.position = 0.f;
+				a0.couleur = NkString("#ff0000");
+				a1.position = 1.f;
+				a1.couleur = NkString("#0000ff");
+				f.degrade.arrets.PushBack(a0);
+				f.degrade.arrets.PushBack(a1);
+				n.fills.PushBack(f);
+			}
+			auto peindre = [&](PeintrePoly72 &pp) {
+				pp.Vider();
+				RenderDocument(pp, dQ, NkPaintRect{0.f, 0.f, 600.f, 400.f});
+			};
+			auto couleursDistinctes = [](const PeintrePoly72 &pp) {
+				uint32 n = 0u;
+				for (uint32 i = 0; i < (uint32)pp.couleurs.Size(); ++i) {
+					bool vu = false;
+					for (uint32 j = 0; j < i && !vu; ++j)
+						vu = pp.couleurs[j] == pp.couleurs[i];
+					if (!vu)
+						++n;
+				}
+				return n;
+			};
+			auto etendue = [](const PeintrePoly72 &pp, float32 &x0, float32 &y0, float32 &x1, float32 &y1) {
+				x0 = y0 = 1e9f;
+				x1 = y1 = -1e9f;
+				for (uint32 i = 0; i + 1 < (uint32)pp.pts.Size(); i += 2) {
+					if (pp.pts[i] < x0) x0 = pp.pts[i];
+					if (pp.pts[i] > x1) x1 = pp.pts[i];
+					if (pp.pts[i + 1] < y0) y0 = pp.pts[i + 1];
+					if (pp.pts[i + 1] > y1) y1 = pp.pts[i + 1];
+				}
+			};
+			PeintrePoly72 avant, apres, deplace, rechoisi, concave, uni, image;
+			peindre(avant);
+			// 72a. entrer / sortir du mode edition sans rien modifier : les sommets ne se
+			// materialisent pas (c'est la premiere MODIFICATION qui le fait) -> memes commandes
+			peindre(apres);
+			bool identiques = avant.cmds.Size() == apres.cmds.Size() && avant.tailles.Size() == apres.tailles.Size();
+			for (uint32 i = 0; identiques && i < (uint32)avant.cmds.Size(); ++i)
+				identiques = avant.cmds[i].SameAs(apres.cmds[i]);
+			// 72b. un sommet deplace : le noeud est un trace, le degrade reste, ses bandes suivent le contour
+			NkMaterialiserSommets(dQ.nodes[(uint32)rq]);
+			const bool materialise = dQ.nodes[(uint32)rq].sommets.Size() == 4u;
+			dQ.nodes[(uint32)rq].sommets[2].x = 1.6f; // le coin bas-droit tire vers la droite : le contour deborde la boite
+			peindre(deplace);
+			float32 x0, y0, x1, y1;
+			etendue(deplace, x0, y0, x1, y1);
+			const bool degradeTient = deplace.tailles.Size() >= 8u && couleursDistinctes(deplace) >= 4u && x1 > 100.f + 160.f + 20.f;
+			// 72c. « Lineaire » re-choisi (un degrade neuf pose sur le trace) : peint
+			{
+				NkRemplissage &f = dQ.nodes[(uint32)rq].fills[0];
+				f.degrade.arrets[0].couleur = NkString("#00ff00");
+				f.degrade.angle = 90.f;
+			}
+			peindre(rechoisi);
+			bool vert = false;
+			for (uint32 i = 0; i < (uint32)rechoisi.couleurs.Size(); ++i)
+				if ((rechoisi.couleurs[i] & 0x00FF0000u) >= 0x00800000u && (rechoisi.couleurs[i] & 0xFF000000u) < 0x40000000u)
+					vert = true;
+			const bool rechoisiPeint = rechoisi.tailles.Size() >= 8u && couleursDistinctes(rechoisi) >= 4u && vert;
+			// 72d. un contour CONCAVE (le coin haut-droit rentre) : les bandes se rognent par les triangles
+			dQ.nodes[(uint32)rq].sommets[1].x = 0.2f;
+			dQ.nodes[(uint32)rq].sommets[1].y = -0.2f;
+			peindre(concave);
+			const bool concaveOk = concave.tailles.Size() >= 8u && couleursDistinctes(concave) >= 4u;
+			// 72e. l'uni sur le trace : UN polygone du contour ; l'image sur le trace : des polygones textures
+			{
+				NkRemplissage &f = dQ.nodes[(uint32)rq].fills[0];
+				f.degrade.arrets.Clear();
+				f.couleur = NkString("#123456");
+			}
+			peindre(uni);
+			const bool uniOk = uni.tailles.Size() == 1u && uni.tailles[0] >= 4 && uni.couleurs[0] == 0x123456FFu;
+			uint32 nImg = 0u;
+			{
+				static DesignState stQ;
+				stQ.images.Vider();
+				renderdetail::NkPoserFournisseurImages(&NkObtenirImageDuDocument, &stQ);
+				NkRemplissage &f = dQ.nodes[(uint32)rq].fills[0];
+				f.genre = NkString("image");
+				f.image = NkString("sonde_image_2x2.png");
+				f.cadrage = NkString("stretch");
+				peindre(image);
+				for (uint32 i = 0; i < (uint32)image.cmds.Size(); ++i)
+					if (image.cmds[i].op == NkPaintOp::Image)
+						++nImg;
+				renderdetail::NkPoserFournisseurImages(nullptr, nullptr);
+			}
+			snprintf(det, sizeof(det),
+					 "sans modification : %u commandes identiques=%d ; sommets materialises=%d ; sommet deplace : %u polygones, %u couleurs, "
+					 "etendue x jusqu'a %.0f (boite 100..260) ; « Lineaire » re-choisi : %u polygones, %u couleurs, vert present=%d ; "
+					 "concave : %u polygones, %u couleurs ; uni : %u polygone(s) de %d sommets ; image sur le trace : %u polygone(s) texture(s)",
+					 (uint32)avant.cmds.Size(), identiques ? 1 : 0, materialise ? 1 : 0, (uint32)deplace.tailles.Size(), couleursDistinctes(deplace), x1,
+					 (uint32)rechoisi.tailles.Size(), couleursDistinctes(rechoisi), vert ? 1 : 0, (uint32)concave.tailles.Size(), couleursDistinctes(concave),
+					 (uint32)uni.tailles.Size(), uni.tailles.Empty() ? 0 : uni.tailles[0], nImg);
+			check("72. Q94 -- LE DEGRADE SURVIT A L'EDITION DU GRAPHIQUE : entrer / sortir sans modifier ne change rien ; un sommet "
+				  "deplace fait un TRACE et le degrade reste (des bandes qui suivent le nouveau contour) ; « Lineaire » re-choisi sur "
+				  "le trace se peint ; un contour concave se rogne par ses triangles ; l'uni est le contour, l'image se pose dessus",
+				  identiques && materialise && degradeTient && rechoisiPeint && concaveOk && uniOk && nImg >= 1u, det);
+		}
 		snprintf(tail, sizeof(tail), "\n=== RESULTAT : %d / %d ===\n", pass, total);
 		rep.Append(tail);
 
