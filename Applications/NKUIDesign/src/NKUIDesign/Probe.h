@@ -9518,6 +9518,103 @@ namespace nkuidesign {
 				  "points, le degrade monotone et a 24 de gris du PNG, le carre tourne dans son losange, le fond de page a la meme valeur (alpha compris) ; le fichier .svg ecrit et dit",
 				  rasOk && rougeR && memeDegrade && tourneR && memeFond && fichierV, det);
 		}
+		// ── 83. LE PREMIER RETOUR DE RODOLF DU 05/09 (matin) :
+		//    ① Ctrl+D (une pression = une copie, sur la toile), ② une modale (le selecteur de
+		//    fichier) laisse-t-elle traverser clic / molette / clavier ?, ③ renommer une variable
+		//    dans le rail QUAND UN OBJET EST SELECTIONNE.
+		{
+			static nkgui::NkGuiContext ctxRet;
+			char det[900];
+			static nkgui::NkGuiFont policeRet;
+			const bool policeOk = policeRet.LoadEmbedded(nkentseu::NkEmbeddedFontId::Inter, 14.f, false);
+			if (!ctxRet.Init(860, 900) || !policeOk) {
+				check("83. Ctrl+D, une pression = une copie", false, "Init ou police a refuse");
+			} else {
+				ctxRet.font = &policeRet; // le selecteur de fichier du kit exige une police pour se dessiner
+				static DesignState stRet;
+				int32 pg = -1, rc = -1;
+				// le document, RECONSTRUIT avant chaque sonde : une fuite (un noeud supprime a travers la
+				// modale) ne doit pas faire tomber la sonde suivante sur un indice invalide
+				auto construire = [&]() {
+					stRet.doc.NewDocument("Toile", NkAuthor::Humain);
+					stRet.cheminActif = NkString();
+					stRet.images.Vider();
+					stRet.sel.Clear();
+					stRet.selected = -1;
+					renderdetail::NkPoserFournisseurImages(&NkObtenirImageDuDocument, &stRet);
+					pg = stRet.doc.AddChild(0, "", NkAuthor::Humain);
+					stRet.doc.nodes[(uint32)pg].shape = NkString("frame");
+					stRet.doc.nodes[(uint32)pg].layout.kind = NkLayoutKind::Free;
+					stRet.doc.nodes[(uint32)pg].width.mode = NkSizeMode::Fixed;
+					stRet.doc.nodes[(uint32)pg].width.value = 300.f;
+					stRet.doc.nodes[(uint32)pg].height.mode = NkSizeMode::Fixed;
+					stRet.doc.nodes[(uint32)pg].height.value = 300.f;
+					rc = stRet.doc.AddChild(pg, "", NkAuthor::Humain);
+					NkUINode &n = stRet.doc.nodes[(uint32)rc];
+					n.shape = NkString("rect");
+					n.label = NkString("Carre");
+					n.posX = 100.f;
+					n.posY = 100.f;
+					n.width.mode = NkSizeMode::Fixed;
+					n.width.value = 80.f;
+					n.height.mode = NkSizeMode::Fixed;
+					n.height.value = 80.f;
+					NkRemplissage f;
+					f.couleur = NkString("#1976d2");
+					n.fills.PushBack(f);
+					stRet.Recompute(NkPaintRect{0.f, 0.f, 340.f, 900.f});
+					stRet.SelectSingle(rc);
+				};
+				construire();
+				static PreviewPanel toileRet(&stRet);
+				static InspectorPanel inspRet(&stRet);
+				static VariablesPanel railRet(&stRet);
+				NkEditorFrameContext ec;
+				ec.ui = &ctxRet;
+				ec.dt = 0.016f;
+				auto image = [&](float32 mx, float32 my, bool bas, uint32 cp) {
+					ctxRet.input.mousePos = {mx, my};
+					ctxRet.input.mouseDown[0] = bas;
+					ctxRet.BeginFrame(0.016f);
+					if (cp)
+						ctxRet.input.PushChar(cp);
+					ctxRet.BeginLayout({0.f, 0.f, 340.f, 900.f});
+					toileRet.OnUI(ec);
+					ctxRet.BeginLayout({340.f, 0.f, 260.f, 900.f});
+					inspRet.OnUI(ec);
+					ctxRet.BeginLayout({600.f, 0.f, 260.f, 900.f});
+					railRet.OnUI(ec);
+					NkDessinerPickerDemande(ctxRet, stRet);
+					ctxRet.EndFrame();
+				};
+				for (int32 k = 0; k < 3; ++k)
+					image(-1.f, -1.f, false, 0u);
+				// ── 83. Ctrl+D : la touche TENUE trois images = UNE copie (le front, pas l'etat) ──
+				const uint32 avantD = (uint32)stRet.doc.nodes.Size();
+				ctxRet.input.ctrlDown = true;
+				ctxRet.input.SetKey(nkgui::NkGuiKey::D, true);
+				for (int32 k = 0; k < 3; ++k)
+					image(-1.f, -1.f, false, 0u);
+				ctxRet.input.SetKey(nkgui::NkGuiKey::D, false);
+				ctxRet.input.ctrlDown = false;
+				image(-1.f, -1.f, false, 0u);
+				const uint32 apresD = (uint32)stRet.doc.nodes.Size();
+				// une seconde pression : une seconde copie
+				ctxRet.input.ctrlDown = true;
+				ctxRet.input.SetKey(nkgui::NkGuiKey::D, true);
+				image(-1.f, -1.f, false, 0u);
+				ctxRet.input.SetKey(nkgui::NkGuiKey::D, false);
+				ctxRet.input.ctrlDown = false;
+				image(-1.f, -1.f, false, 0u);
+				const uint32 apresD2 = (uint32)stRet.doc.nodes.Size();
+				snprintf(det, sizeof(det), "noeuds %u -> %u (Ctrl+D tenu 3 images) -> %u (seconde pression) ; la coquille ne porte plus le raccourci « Ctrl+D » (« Édition: Dupliquer (Ctrl+D sur la toile) », sans raccourci : la toile est la seule porte) ; la repetition de l'OS n'y est pour rien (le dorsal Win32 l'envoie en NkKeyRepeatEvent, que la coquille n'ecoute pas)",
+						 avantD, apresD, apresD2);
+				check("83. CTRL+D, UNE PRESSION = UNE COPIE : la touche tenue trois images ne duplique qu'une fois (le front `KeyPressed`), "
+					  "une seconde pression duplique une seconde fois ; le SECOND CHEMIN (le meme raccourci declare dans la table de commandes "
+					  "de la coquille) est retire -- c'est lui qui doublait chaque pression",
+					  apresD == avantD + 1u && apresD2 == avantD + 2u, det);
+			}
+		}
 		snprintf(tail, sizeof(tail), "\n=== RESULTAT : %d / %d ===\n", pass, total);
 		rep.Append(tail);
 

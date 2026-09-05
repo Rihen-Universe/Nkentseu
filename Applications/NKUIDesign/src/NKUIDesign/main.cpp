@@ -9162,9 +9162,24 @@ int nkmain(const NkEntryState &state) {
 	shell->RegisterCommand("Document: Nouveau", &CmdNew, nullptr, "Ctrl+N");
 	// Les gestes d'édition Lunacy qui n'ont PAS de drapeau `want*` dans NKGui
 	// (Ctrl+C/X/V/A en ont un, eux — cf. le commentaire de CmdDupliquer).
-	shell->RegisterCommand("Édition: Dupliquer", &CmdDupliquer, nullptr, "Ctrl+D");
-	shell->RegisterCommand("Objet: Grouper", &CmdGrouper, nullptr, "Ctrl+G");
-	shell->RegisterCommand("Objet: Dégrouper", &CmdDegrouper, nullptr, "Ctrl+Shift+G");
+	// 🔴 SANS RACCOURCI ICI, ET C'EST LA SECONDE MOITIE DU DEFAUT ① (2026-09-05).
+	//    Ctrl+D, Ctrl+G et Ctrl+Maj+G etaient declares DEUX FOIS : ici (la coquille les
+	//    rejoue a chaque evenement clavier) ET dans la table de la toile (`MenuContexte.h`,
+	//    lue au FRONT par `KeyPressed`). Une pression donnait donc au moins deux copies,
+	//    et une touche tenue en donnait une par evenement de repetition.
+	//    ⚠️ LES COMMANDES RESTENT (la palette Ctrl+P les liste et les execute) : seul le
+	//       RACCOURCI part. Un geste de toile a UNE porte -- celle qui connait le mode
+	//       d'edition, le popup ouvert et le renommage en cours, c'est-a-dire la toile.
+	//    Ctrl+S / Ctrl+Z / Ctrl+Y / Ctrl+N restent ici : la toile ne les lit pas.
+	// ⚠️ ET CE N'EST PAS LA REPETITION DE L'OS -- hypothese ECRITE PUIS INFIRMEE le
+	//    05/09 : j'ai d'abord accuse la coquille de rejouer le raccourci a chaque
+	//    evenement clavier. Mesure : le dorsal Win32 TRIE deja (`NkWin32EventSystem.cpp`,
+	//    `isPress && isRep` -> `NkKeyRepeatEvent`, sinon `NkKeyPressEvent`) et la coquille
+	//    n'ecoute pas la repetition. Une touche tenue n'envoie donc qu'UN `NkKeyPressEvent`.
+	//    Le compte etait exactement DEUX copies par pression, et il n'en reste qu'une.
+	shell->RegisterCommand("Édition: Dupliquer (Ctrl+D sur la toile)", &CmdDupliquer, nullptr, nullptr);
+	shell->RegisterCommand("Objet: Grouper (Ctrl+G sur la toile)", &CmdGrouper, nullptr, nullptr);
+	shell->RegisterCommand("Objet: Dégrouper (Ctrl+Maj+G sur la toile)", &CmdDegrouper, nullptr, nullptr);
 	shell->RegisterCommand("Application: Quitter", &CmdQuit, shell.Get(), "Ctrl+Q");
 	gShell = shell.Get();
 	// Le mode --capture branche son tick par frame — cf. le bloc CaptureTick en
