@@ -1109,6 +1109,22 @@ namespace nkentseu {
 
 				// Menus ouverts. -1 = aucun. L'indice designe l'entree de la barre.
 				int32 openMenu = -1;
+				/// LA GEOMETRIE DES ENTREES DE LA BARRE PRINCIPALE, posee par
+				/// `PaintMenuBarI` a chaque image et relue par `PaintOpenMenu` dans la
+				/// couche des surcouches.
+				///
+				/// 🔴 POURQUOI ELLE VIT ICI plutot que d'etre recalculee la-bas.
+				/// Quand un menu est deroule, l'entree des panneaux est VIDEE a la
+				/// source (cf. `saisieReservee`, main.cpp) -- la barre, peinte avec les
+				/// panneaux, ne recoit donc plus ses propres clics, et on ne pourrait
+				/// plus passer d'un menu a l'autre. Ses zones sont donc REDECLAREES dans
+				/// la couche 50, ou l'entree reelle est rendue. Les redecrire de tete
+				/// serait une SECONDE geometrie : elle se decalerait a la premiere
+				/// traduction ou au premier changement d'echelle -- ce depot a deja paye
+				/// ce prix (« une largeur decidee sans mesurer le contenu se paie trois
+				/// fois »). Une geometrie, deux consommateurs.
+				static const int32 kMenuBarCount = 7;
+				NkRect menuBarRects[kMenuBarCount] = {};
 				int32 hoverMenuItem = -1;
 				int32 openSubMenu = -1; ///< sous-menu deploye dans le menu courant
 

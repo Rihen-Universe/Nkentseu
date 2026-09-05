@@ -20,7 +20,7 @@
 //   dialogue parallele redemanderait l'emplacement, le nom, la confirmation, la
 //   modalite -- tout ce que le selecteur fait deja, et qu'il faudrait corriger
 //   deux fois. « Porte au lieu de reecrire » (Rihen, 12 aout).
-// @Author  Rihen
+// @Author  TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // @License Proprietary - All Rights Reserved (see LICENSE)
 // -----------------------------------------------------------------------------
 #include "NKEditorKit/NkFilePickerNav.h" // LE selecteur de la maison (rail, vignettes, filtres)

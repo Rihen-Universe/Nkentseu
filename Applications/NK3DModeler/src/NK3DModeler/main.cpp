@@ -1036,6 +1036,37 @@ int nkmain(const NkEntryState &entry) {
 		// j'avais fait -- un SetBlock a part -- et qui l'empechait de repondre).
 		const bool modalOpen = (st.colorOpen[0] != 0) || st.welcome ||
 							   st.picker.pickerOpen || st.matAddOpen;
+		// ── UN MENU DE LA BARRE PRINCIPALE RESERVE LA SAISIE ────────────────
+		// 🔴 Rodolf, 2026-09-05 : « les menus du menu principal laissent traverser
+		// les evenements ». Meme famille que deux defauts deja clos ailleurs -- la
+		// molette sous un menu contextuel, et les modales qui laissaient passer
+		// souris ET clavier. Ici les trois passaient :
+		//   * la MOLETTE et les TOUCHES, parce que le code qui les lit ne passe pas
+		//     toujours par le registre (`WheelIn`, la vue 3D lisent `ui.input`) ;
+		//   * les CLICS des panneaux, parce que le menu deroule ne declarait PAS
+		//     son emprise -- les six menus contextuels de la hierarchie le font
+		//     depuis le 14 aout, celui de la barre principale n'avait jamais ete
+		//     rattache. Une lecon ecrite a cote d'un chemin ne couvre pas le
+		//     chemin voisin.
+		// Un menu deroule EST une surcouche modale au sens de ce mecanisme : on
+		// rejoint donc celui qui existe, on n'en ajoute pas un troisieme. L'entree
+		// reelle est RENDUE avant de peindre les surcouches, plus bas -- le menu,
+		// lui, doit repondre, et `NkMenuBarClics` redeclare la barre a ce
+		// moment-la pour qu'on puisse passer d'un menu a l'autre.
+		// NK_MENU_OPEN=<i> : deroule le menu i AU DEMARRAGE, en posant `st.openMenu`
+		// -- le MEME champ que le clic sur la barre pose. Aucune injection d'entree
+		// souris ni clavier : on arme l'etat, on ne conduit pas la machine.
+		{
+			static int32 sMenuIdx = -2;
+			if (sMenuIdx == -2) {
+				const char *v = std::getenv("NK_MENU_OPEN");
+				sMenuIdx = v ? (int32)std::atoi(v) : -1;
+			}
+			if (sMenuIdx >= 0 && agentFrame >= 12)
+				st.openMenu = sMenuIdx; // maintenu : un menu qu'on rouvre chaque
+										// image se comporte comme un menu ouvert
+		}
+		const bool menuDeroule = st.openMenu >= 0;
 		// ── LE JOURNAL SUSPEND CE QU'IL RECOUVRE, AU MEME ENDROIT ───────────
 		// Il n'est pas modal -- le reste de l'application doit rester utilisable
 		// -- mais SOUS LUI plus rien ne doit repondre. J'avais vide l'input plus
@@ -1051,7 +1082,13 @@ int nkmain(const NkEntryState &entry) {
 			nk3d::NkJournalRect({0.f, 0.f, (float32)lastW, (float32)lastH - S(26.f)});
 		const bool sourisSurJournal =
 			st.journalOpen && nkgui::NkGuiRectContains(jRectSuspend, ui.input.mousePos);
-		if (modalOpen || sourisSurJournal) {
+		// CE QUE LA SONDE ③ LIT, et c'est le point : ce drapeau est pose DANS la
+		// branche qui vide reellement l'entree, jamais recalcule a cote. Une sonde
+		// qui relirait `menuDeroule` mesurerait l'INTENTION ; celle-ci mesure le
+		// CHEMIN -- retirez `menuDeroule` de la condition et elle rougit.
+		bool saisieVidee = false;
+		if (modalOpen || menuDeroule || sourisSurJournal) {
+			saisieVidee = true;
 			for (int32 b = 0; b < 3; ++b) {
 				ui.input.mouseDown[b] = false;
 				ui.input.mouseClicked[b] = false;
@@ -1078,6 +1115,46 @@ int nkmain(const NkEntryState &entry) {
 		// celle-ci : les panneaux sont peints avant les menus, ils ne peuvent
 		// pas connaitre leur emprise autrement.
 		st.UiBlockFlip();
+		// ── SONDE ③ : CE QU'UN MENU DEROULE RESERVE VRAIMENT ────────────────
+		// Elle lit les valeurs de LA BOUCLE, apres le basculement de l'emprise --
+		// pas des valeurs qu'elle poserait elle-meme (un banc qui pose l'etat
+		// qu'il mesure prouve la regle, pas le chemin).
+		// PERIMETRE, DIT ICI : elle prouve que la saisie est RESERVEE et que
+		// l'emprise COUVRE les panneaux. Elle ne fabrique ni molette ni touche
+		// (aucune injection d'entree n'est permise) : qu'un vrai coup de molette
+		// soit avale reste a verifier d'un geste humain.
+		{
+			static int32 sProbeFrame = -2;
+			if (sProbeFrame == -2) {
+				const char *v = std::getenv("NK_MENU_PROBE");
+				sProbeFrame = v ? (int32)std::atoi(v) : -1;
+			}
+			if (sProbeFrame > 0 && agentFrame == sProbeFrame) {
+				const NkRect &e = st.uiBlockCur;
+				auto couvre = [&](const NkRect &r) {
+					if (!st.uiBlockCurOn || r.w <= 0.f || r.h <= 0.f)
+						return 0;
+					return (e.x < r.x + r.w && e.x + e.w > r.x && e.y < r.y + r.h &&
+							e.y + e.h > r.y)
+							   ? 1
+							   : 0;
+				};
+				std::printf("[sonde3] menu=%d reserve=%d emprise=%d (%.0f, %.0f, %.0f, %.0f) "
+							"couvre_vue=%d couvre_hier=%d couvre_navig=%d\n",
+							st.openMenu, saisieVidee ? 1 : 0, st.uiBlockCurOn ? 1 : 0, e.x, e.y,
+							e.w, e.h, couvre(st.viewRect), couvre(st.hierRect),
+							couvre(st.browserRect));
+				std::printf("[sonde3] entree vue par les panneaux : molette=%.2f touches=%d "
+							"clics=%d caracteres=%d\n",
+							(double)ui.input.wheel,
+							ui.input.keyDown[0] || ui.input.keyInit[0] ? 1 : 0,
+							(ui.input.mouseClicked[0] || ui.input.mouseClicked[1] ||
+							 ui.input.mouseClicked[2])
+								? 1
+								: 0,
+							(int)ui.input.charCount);
+			}
+		}
 		// L'ANCIENNE GARDE (SetBlock) EST RETIREE : le routeur d'occlusion la
 		// remplace entierement, et faire cohabiter deux mecanismes etait
 		// precisement le defaut -- la garde bloquait les menus qu'elle etait
@@ -1722,7 +1799,7 @@ int nkmain(const NkEntryState &entry) {
 		// LES SURCOUCHES, ELLES, REPONDENT : on leur rend l'input reel qu'on
 		// avait retire aux panneaux. Le registre est re-arme sans etre vide --
 		// les zones deja declarees restent, seuls les evenements reviennent.
-	if (modalOpen || sourisSurJournal) {
+		if (modalOpen || menuDeroule || sourisSurJournal) {
 			ui.input = inputReel;
 			hit.Rearm(ui.input);
 		}

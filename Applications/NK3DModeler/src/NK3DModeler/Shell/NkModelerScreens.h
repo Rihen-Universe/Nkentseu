@@ -76,6 +76,9 @@ namespace nkentseu {
 			for (int32 i = 0; i < 7; ++i) {
 				const float32 w = p.TextW(kMenus[i]) + S(18.f);
 				const NkRect mr{x - S(9.f), r.y + S(6.f), w, r.h - S(12.f)};
+				// La geometrie part dans l'etat : la couche des surcouches la
+				// relit pour redeclarer ces memes zones avec l'entree REELLE.
+				st.menuBarRects[i] = mr;
 				const bool over = hit.Add(kMenuKeys[i], mr);
 				// Un menu OUVERT reste marque meme si la souris est partie : sinon on ne
 				// saurait plus quel menu a produit la liste affichee.
@@ -84,8 +87,13 @@ namespace nkentseu {
 				else
 					HoverFill(p, mr, over);
 				p.TextV(x, r.y, r.h, kMenus[i], st.openMenu == i ? NkRole::TextOnAccent : NkRole::Text);
-				if (hit.Clicked(kMenuKeys[i]))
-					st.openMenu = (st.openMenu == i) ? -1 : i; // deuxieme clic = referme
+				// ⚠️ LE CLIC N'EST PLUS TRAITE ICI QUAND UN MENU EST DEROULE : a
+				// cet instant l'entree des panneaux est vide (main.cpp), donc
+				// `hit.Clicked` serait toujours faux et le silence passerait pour
+				// « le bouton ne marche pas ». `NkMenuBarClics`, appelee dans la
+				// couche 50 avec l'entree reelle, s'en charge.
+				if (st.openMenu < 0 && hit.Clicked(kMenuKeys[i]))
+					st.openMenu = i;
 				x += w;
 			}
 
