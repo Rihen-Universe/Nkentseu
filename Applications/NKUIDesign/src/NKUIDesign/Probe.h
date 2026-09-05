@@ -9484,7 +9484,7 @@ namespace nkuidesign {
 			const bool structure = okV && contient(s, "<svg ") && contient(s, "width=\"200\"") && contient(s, "height=\"120\"") && contient(s, "<rect")
 								   && contient(s, "fill=\"#ff0000\"") && contient(s, "<linearGradient") && contient(s, "stop-color=\"#000000\"")
 								   && contient(s, "stop-color=\"#ffffff\"") && contient(s, "fill=\"url(#deg") && contient(s, "<text") && contient(s, "font-family=\"Inter")
-								   && contient(s, "font-size=\"14\"") && contient(s, ">Ab</text>") && contient(s, "<image") && contient(s, "href=\"sonde_export_2x2.png\"")
+								   && contient(s, ">Ab</text>") && contient(s, "<image") && contient(s, "href=\"sonde_export_2x2.png\"")
 								   && contient(s, "preserveAspectRatio=\"none\"") && contient(s, "transform=\"matrix(") && contient(s, "<feDropShadow")
 								   && contient(s, "filter=\"url(#ombre") && contient(s, "data-nom=\"Tourne\"") && contient(s, "</g>");
 			NkExportOptions oE = oV;
@@ -9492,12 +9492,25 @@ namespace nkuidesign {
 			NkString svgE;
 			NkExportResultat rE2;
 			const bool okE = NkExporterSVG(stEx, oE, "", svgE, rE2) && contient(svgE.Data(), "href=\"data:image/png;base64,iVBORw0KGgo");
-			snprintf(det, sizeof(det), "export=%d (%s) ; %u octets ; structure attendue=%d ; images embarquees (data:image/png;base64,iVBOR...)=%d",
-					 okV ? 1 : 0, rV.message, (uint32)svg.Length(), structure ? 1 : 0, okE ? 1 : 0);
+			// Ⓛ LE CORPS SVG EST LE CADRATIN, PAS NOTRE CORPS EN PIXELS (temoin croise de
+			//    l'agent codec SVG, 05/09) : un lecteur echelonne par `font-size / unitsPerEm`,
+			//    `NkFontAtlas` par `px / (ascender - descender)`. Pour Inter (upm 2816,
+			//    asc - desc 3408), un texte de 14 px s'ecrit donc « font-size 11,57 ».
+			float32 ascT = 0.f, ligT = 0.f, corpsT = 0.f;
+			const bool metT = svgdetail::MetriquesEx(14.f, ascT, ligT, corpsT);
+			const float32 attenduT = 14.f * 2816.f / 3408.f;
+			const bool corpsJuste = metT && corpsT > attenduT - 0.05f && corpsT < attenduT + 0.05f
+									&& !contient(s, "font-size=\"14\"");
+			snprintf(det, sizeof(det),
+					 "export=%d (%s) ; %u octets ; structure attendue=%d ; images embarquees=%d ; corps SVG d'un texte de 14 px : %.3f "
+					 "(attendu %.3f = 14 x 2816 / 3408, lu dans la face) -> %d",
+					 okV ? 1 : 0, rV.message, (uint32)svg.Length(), structure ? 1 : 0, okE ? 1 : 0, (double)corpsT, (double)attenduT,
+					 corpsJuste ? 1 : 0);
 			check("82a. EXPORT SVG D'UNE PAGE : un lecteur du document -- <rect> et son fill, <linearGradient> et ses <stop>, <text> en Inter 14 "
 				  "« Ab », <image href> relatif en preserveAspectRatio=none (stretch), <g transform=matrix> pour le carre tourne, <feDropShadow> "
-				  "pour l'ombre ; l'option « embarquer » ecrit le PNG en base64",
-				  structure && okE, det);
+				  "pour l'ombre ; l'option « embarquer » ecrit le PNG en base64 ; le CORPS est le cadratin (px x upm / (asc - desc)), "
+				  "pas notre corps en pixels",
+				  structure && okE && corpsJuste, det);
 			// 82b. le SVG RE-RASTERISE par le parseur maison, compare aux memes points (formes, degrade)
 			NkImage ras = NkSVGCodec::Decode((const uint8 *)svg.Data(), (usize)svg.Length(), 0, 0);
 			const bool rasOk = ras.IsValid() && ras.Width() == 200 && ras.Height() == 120 && ras.Pixels();

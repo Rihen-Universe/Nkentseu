@@ -45,6 +45,7 @@
 // -----------------------------------------------------------------------------
 
 #include "NKContainers/String/Encoding/NkBase64.h"
+#include "NKFont/Core/NkFontParser.h" // Ⓛ le cadratin de la police : `unitsPerEm` vit ici
 #include "NKImage/Codecs/PNG/NkPNGCodec.h"
 
 #include "Export.h"
@@ -174,10 +175,25 @@ namespace nkuidesign {
 
 		// ── LES METRIQUES D'INTER, lues dans la police embarquee ─────────────
 		// La ligne de base du peintre : y = r.y + (r.h - lineHeight) / 2 + ascent.
+		/// Ⓛ LE CORPS SVG N'EST PAS NOTRE CORPS EN PIXELS (2026-09-05, temoin croise de
+		///    l'agent codec SVG : rapport ~1,25 mesure entre son rendu et le notre).
+		///    En SVG, `font-size` est le CADRATIN (l'em) : un lecteur echelonne les contours
+		///    par `font-size / unitsPerEm`. `NkFontAtlas`, lui, echelonne par
+		///    `px / (ascender - descender)` (`NkScaleForPixelHeight`). Pour un meme nombre,
+		///    le lecteur SVG dessine donc plus grand dans le rapport
+		///    `(ascender - descender) / unitsPerEm` -- 3408 / 2816 = 1,21 pour Inter.
+		///    Le corps ECRIT dans le SVG est donc `px * unitsPerEm / (ascender - descender)`.
+		/// ⚠️ CALCULE DEPUIS LA POLICE CHARGEE, jamais en dur : une autre police a un autre
+		///    rapport (et l'ecart passerait inapercu, comme celui-ci l'a fait).
+		inline bool MetriquesEx(float32 px, float32 &ascent, float32 &ligne, float32 &corpsSvg);
 		inline bool Metriques(float32 px, float32 &ascent, float32 &ligne) {
+			float32 c = 0.f;
+			return MetriquesEx(px, ascent, ligne, c);
+		}
+		inline bool MetriquesEx(float32 px, float32 &ascent, float32 &ligne, float32 &corpsSvg) {
 			struct Entree {
 					float32 px = 0.f;
-					float32 ascent = 0.f, ligne = 0.f;
+					float32 ascent = 0.f, ligne = 0.f, corpsSvg = 0.f;
 					bool ok = false;
 			};
 			static Entree cache[12];
@@ -186,6 +202,9 @@ namespace nkuidesign {
 				if (cache[i].px == px) {
 					ascent = cache[i].ascent;
 					ligne = cache[i].ligne;
+					corpsSvg = cache[i].corpsSvg; // ⚠️ la sortie par le CACHE renseigne les TROIS
+													   //    valeurs : elle en oubliait une, et la sonde
+													   //    l'a vue avant l'oeil (corps 0 au lieu de 11,57)
 					return cache[i].ok;
 				}
 			Entree en;
@@ -195,6 +214,13 @@ namespace nkuidesign {
 				if (f->LoadEmbedded(nkentseu::NkEmbeddedFontId::Inter, px, false)) {
 					en.ascent = f->Ascent();
 					en.ligne = f->LineHeight();
+					// Ⓛ le corps SVG : `px * unitsPerEm / (ascender - descender)`, lu dans la face
+					const nkentseu::NkFont *face = f->Face();
+					const nkentseu::nkfont::NkFontFaceInfo *info = face ? face->m_FaceInfo : nullptr;
+					if (info && info->unitsPerEm > 0 && (info->ascent - info->descent) != 0)
+						en.corpsSvg = px * (float32)info->unitsPerEm / (float32)(info->ascent - info->descent);
+					else
+						en.corpsSvg = px; // metriques de face absentes : le corps nu, et la note le dira
 					en.ok = true;
 				}
 				nkentseu::memory::NkGetDefaultAllocator().Delete(f);
@@ -202,11 +228,13 @@ namespace nkuidesign {
 			if (!en.ok) { // sans police : les rapports d'Inter (hhea 2728 / 3408 em), dits
 				en.ascent = px * 0.8005f;
 				en.ligne = px;
+				en.corpsSvg = px * 2816.f / 3408.f; // Inter : upm / (asc - desc)
 			}
 			if (nb < 12)
 				cache[nb++] = en;
 			ascent = en.ascent;
 			ligne = en.ligne;
+			corpsSvg = en.corpsSvg;
 			return en.ok;
 		}
 
@@ -597,9 +625,9 @@ namespace nkuidesign {
 			const bool vide = !t || !*t;
 			const char *contenu = vide ? (n.label.Empty() ? "Texte" : n.label.Data()) : t;
 			const float32 px = n.fontPx > 0.f ? n.fontPx : 12.f;
-			float32 ascent = 0.f, ligne = 0.f;
-			if (!Metriques(px, ascent, ligne))
-				Note(e, "police embarquée indisponible : ligne de base approchée par les rapports d'Inter");
+			float32 ascent = 0.f, ligne = 0.f, corpsSvg = px;
+			if (!MetriquesEx(px, ascent, ligne, corpsSvg))
+				Note(e, "police embarquée indisponible : ligne de base et corps approchés par les rapports d'Inter");
 			const float32 yBase = r.y + (r.h - ligne) * 0.5f + ascent;
 			const char *al = n.alignText.Data();
 			float32 x = r.x;
@@ -629,7 +657,7 @@ namespace nkuidesign {
 			Ajouter(e.corps, "x", x);
 			Ajouter(e.corps, "y", yBase);
 			Ajouter(e.corps, "font-family", "Inter, sans-serif");
-			Ajouter(e.corps, "font-size", px);
+			Ajouter(e.corps, "font-size", corpsSvg); // Ⓛ le CADRATIN, pas notre corps en pixels
 			if (n.fontWeight > 0.f)
 				Ajouter(e.corps, "font-weight", n.fontWeight);
 			Ajouter(e.corps, "fill", hex);
