@@ -10889,6 +10889,27 @@ namespace nkuidesign {
 				(nkentseu::uint8)(nyb(hex[3]) * 16 + nyb(hex[4])),
 				(nkentseu::uint8)(nyb(hex[5]) * 16 + nyb(hex[6])), 255};
 	}
+	/// ③ LE FILTRE DE LA LISTE « Lier » (2026-09-05) : `motif` est-il dans `texte` ?
+	/// Sans casse, sans accents — non : sans casse SEULEMENT, et c'est dit. Comparer des
+	/// accents demanderait de décomposer l'UTF-8 ; les noms de variables de Rodolf en
+	/// portent (« Pétrole »), donc taper « petrole » ne trouvera pas « Pétrole » tant que
+	/// ce pli n'est pas écrit. Un filtre vide accepte tout.
+	inline bool NkFiltreContient(const char *texte, const char *motif) {
+		if (!motif || !*motif)
+			return true;
+		if (!texte)
+			return false;
+		auto bas = [](char c) { return (c >= 'A' && c <= 'Z') ? (char)(c - 'A' + 'a') : c; };
+		for (const char *p = texte; *p; ++p) {
+			const char *a = p, *b = motif;
+			while (*a && *b && bas(*a) == bas(*b))
+				++a, ++b;
+			if (!*b)
+				return true;
+		}
+		return false;
+	}
+
 	inline bool NkPastilleCouleur(nkgui::NkGuiContext &ctx, DesignState &st, const char *idStr,
 								  const nkgui::NkRect &sw, char *hexBuf, nkentseu::uint32 cap) {
 		using namespace nkentseu;
@@ -11060,7 +11081,17 @@ namespace nkuidesign {
 				auto &F = costume::Fontes();
 				auto &dl = ctx.DL();
 				NkUIDocument &doc = mSt->doc;
-				const bool clic = ctx.popupDepth == 0 && ctx.input.mouseClicked[0];
+				// ③ UN CLIC HORS DU POPUP ATTEINT LE RAIL (2026-09-05).
+				// 🔴 Le retour de Rodolf : « je ne peux pas modifier le nom d'une variable
+				//    créée… la modification du nom est possible uniquement si l'objet n'est plus
+				//    sélectionné, c'est curieux ». La sélection n'y était pour rien : ce qui
+				//    bloquait était `ctx.popupDepth == 0`. Après « Créer une variable », le
+				//    SÉLECTEUR DE COULEUR reste ouvert — le rail refusait donc tout clic ; en
+				//    désélectionnant, le popover se fermait et le rail « remarchait ». *Une
+				//    condition trop large se lit comme une panne ailleurs.*
+				// La bonne condition est celle de la toile : le clic est à moi s'il n'est pas SUR
+				// le popup (le kit le fermera de son côté, comme un clic dehors).
+				const bool clic = ctx.input.mouseClicked[0] && !NkSourisSurPopup(ctx);
 				bool clicPris = false;
 				mRectNom.Clear();
 				mRectPoubelle.Clear();
@@ -11131,8 +11162,8 @@ namespace nkuidesign {
 						}
 					}
 				}
-				if (clic && !clicPris)
-					mRenomme = -1;
+				if (ctx.input.mouseClicked[0] && !clicPris)
+					mRenomme = -1; // ③ meme regle que le rail Variables : un clic ailleurs termine
 				if (aSupprimer >= 0) {
 					const NkString nomS = doc.styles[(uint32)aSupprimer].nom;
 					const NkString cleS = doc.styles[(uint32)aSupprimer].cle;
@@ -11179,7 +11210,17 @@ namespace nkuidesign {
 				auto &F = costume::Fontes();
 				auto &dl = ctx.DL();
 				NkUIDocument &doc = mSt->doc;
-				const bool clic = ctx.popupDepth == 0 && ctx.input.mouseClicked[0];
+				// ③ UN CLIC HORS DU POPUP ATTEINT LE RAIL (2026-09-05).
+				// 🔴 Le retour de Rodolf : « je ne peux pas modifier le nom d'une variable
+				//    créée… la modification du nom est possible uniquement si l'objet n'est plus
+				//    sélectionné, c'est curieux ». La sélection n'y était pour rien : ce qui
+				//    bloquait était `ctx.popupDepth == 0`. Après « Créer une variable », le
+				//    SÉLECTEUR DE COULEUR reste ouvert — le rail refusait donc tout clic ; en
+				//    désélectionnant, le popover se fermait et le rail « remarchait ». *Une
+				//    condition trop large se lit comme une panne ailleurs.*
+				// La bonne condition est celle de la toile : le clic est à moi s'il n'est pas SUR
+				// le popup (le kit le fermera de son côté, comme un clic dehors).
+				const bool clic = ctx.input.mouseClicked[0] && !NkSourisSurPopup(ctx);
 				bool clicPris = false;
 				mRectNom.Clear();
 				mRectPoubelle.Clear();
@@ -11269,8 +11310,14 @@ namespace nkuidesign {
 						}
 					}
 				}
-				if (clic && !clicPris)
-					mRenomme = -1; // un clic ailleurs termine le renommage
+				// ③ UN CLIC QUI N'EST PAS POUR MOI TERMINE QUAND MEME LE RENOMMAGE (2026-09-05).
+				//    Mesure : le rail gardait son champ ouvert quand le clic tombait SUR un popup
+				//    (il ne le voit pas) -- deux champs de saisie restaient focalises en meme
+				//    temps, et une frappe allait DANS LES DEUX (« Couleur 1ZOra » pendant qu'on
+				//    tapait « Ora » dans la recherche du selecteur). *Un champ qui garde le focus
+				//    apres un clic ailleurs vole la frappe de son voisin.*
+				if (ctx.input.mouseClicked[0] && !clicPris)
+					mRenomme = -1;
 				if (aSupprimer >= 0) {
 					const NkString nomS = doc.variables[(uint32)aSupprimer].nom;
 					const NkString cleS = doc.variables[(uint32)aSupprimer].cle;
@@ -11560,6 +11607,7 @@ namespace nkuidesign {
 				const uint32 cleSync = ((uint32)d.noeud << 20) ^ ((uint32)d.index << 12) ^ (uint32)(g.Actif() ? d.arretSel + 1 : 0);
 				if (d.synchro != cleSync) {
 					d.synchro = cleSync;
+					mEditerVariable = false; // ③ changer de remplissage désarme « Modifier la variable »
 					// une REFERENCE (« @cle ») montre la valeur RESOLUE (le mode courant) :
 					// le selecteur edite ce que l'oeil voit ; absente, il montre la cle
 					const char *cc = couleurCourante.Data() ? couleurCourante.Data() : "";
@@ -11573,14 +11621,36 @@ namespace nkuidesign {
 				// c'est la raison d'etre d'une variable ; la reference tient, aucun
 				// ecart d'instance n'est pose (le remplissage de l'instance n'a pas
 				// change). Sinon, le litteral s'ecrit comme avant.
+				// ③ SUR UN REMPLISSAGE LIE, CHANGER LA COULEUR DETACHE (2026-09-05, tranche par
+				//    Rodolf) : « dès que j'ai créé la variable, si je définis une nouvelle couleur
+				//    ça la modifie — ça ne devrait pas… elle pourra modifier la même variable sur
+				//    d'autres graphiques liés ». C'est la règle de Figma, et elle tient à une
+				//    asymétrie de coût : détacher n'abîme QUE l'objet qu'on regarde, éditer la
+				//    variable change tout ce qui la référence — parfois hors de l'écran.
+				//    *Le geste par défaut est celui dont on voit la portée.*
+				// ⚠️ MODIFIER LA VARIABLE RESTE POSSIBLE, mais ARMÉ : le bouton « Modifier la
+				//    variable (×N) » de la rangée dit combien de remplissages suivront ; il
+				//    s'éteint dès qu'on change de remplissage.
 				auto ecrireCouleur = [&](const char *hex) {
 					if (NkEstReference(couleurCourante.Data())) {
 						NkVariable *var = mSt->doc.TrouverVariableMut(couleurCourante.Data());
-						if (var) {
+						if (var && mEditerVariable) {
+							const uint32 usagesV = mSt->doc.CompterUsagesVariable(var->cle.Data());
 							var->PoserValeur(mSt->doc.modeCourant.Data(), hex);
 							mSt->host.SyncTo(mSt->doc);
 							mFillsGen = -1;
+							char msgV[220];
+							snprintf(msgV, sizeof(msgV), "Variable « %s » = %s — %u remplissage(s) suivent.",
+									 var->nom.Empty() ? var->cle.Data() : var->nom.Data(), hex, usagesV);
+							mSt->DireAuPied(msgV);
 							return;
+						}
+						if (var) { // le défaut : ce remplissage-ci se détache, la variable ne bouge pas
+							char msgD[240];
+							snprintf(msgD, sizeof(msgD),
+									 "Détaché de « %s » : couleur locale %s. Pour la changer partout : « Modifier la variable ».",
+									 var->nom.Empty() ? var->cle.Data() : var->nom.Data(), hex);
+							mSt->DireAuPied(msgD);
 						}
 					}
 					couleurCourante = NkString(hex);
@@ -11597,15 +11667,26 @@ namespace nkuidesign {
 				// la rangee modele + valeurs (Hex ˅ / RGB / HSB), puis LA RANGEE DE LA
 				// VARIABLE (Lunacy, capture `..._creer_variable.png` : le bouton « Create
 				// Color Variable » sous la rangee du modele ; ou le nom + « Detacher »)
-				const float32 hHex = 26.f + 26.f;
+				// une rangée de plus quand la couleur est LIÉE : « Modifier la variable » (③)
+				const bool couleurLiee = NkEstReference(couleurCourante.Data());
+				const float32 hHex = 26.f + 26.f + (couleurLiee ? 26.f : 0.f);
 				// LIER UNE VARIABLE EXISTANTE : la liste se deplie DANS le popover (une rangee
 				// de 20 px par variable, six au plus -- au-dela, le rail Variables), et la
 				// boite grandit d'autant ; rien tant que la liste est repliee ou que la
 				// couleur courante reference deja une variable
 				const uint32 nVarsDoc = (uint32)mSt->doc.variables.Size();
 				const uint32 nVarsListe = nVarsDoc < 6u ? nVarsDoc : 6u;
+				(void)nVarsListe; // le compte AFFICHE est desormais celui du filtre (③)
 				const bool listeVars = mVarsDeplie && nVarsDoc > 0u && !NkEstReference(couleurCourante.Data()) && !f.EstImage();
-				const float32 hVars = listeVars ? 4.f + 20.f * (float32)nVarsListe : 0.f;
+				// ③ les lignes RETENUES par le filtre (six au plus), plus le champ de recherche
+				uint32 varsFiltrees = 0u;
+				uint32 idxVars[6] = {0u, 0u, 0u, 0u, 0u, 0u};
+				for (uint32 vi = 0; vi < nVarsDoc && varsFiltrees < 6u; ++vi) {
+					const NkVariable &vv = mSt->doc.variables[vi];
+					if (NkFiltreContient(vv.nom.Data(), mFiltreVars) || NkFiltreContient(vv.cle.Data(), mFiltreVars))
+						idxVars[varsFiltrees++] = vi;
+				}
+				const float32 hVars = listeVars ? 4.f + 20.f * (float32)(varsFiltrees + 1u) : 0.f;
 				// ④ la rangee de la barre fait 34 px : ses pastilles (centre a +24, rayon 6)
 				//    descendent a +30 -- a 26 px la rangee suivante les recouvrait (Rodolf)
 				const int32 genreP = renderdetail::NkGenreDegrade(g);
@@ -12090,6 +12171,33 @@ namespace nkuidesign {
 							dl.AddRectFilled(rDet, svD ? ctx.theme.rowHover : CouleurInput(), 4.f);
 							dl.AddRect(rDet, svD ? ctx.theme.accent : ctx.theme.border, 1.f, 4.f);
 							costume::Texte(dl, F.px10, rDet.x + 8.f, costume::CentrerY(F.px10, rDet.y, 20.f), "Détacher", ctx.theme.text);
+							// ③ LE GESTE EXPLICITE : une rangée sous celle de la variable. Armé, le
+							//    sélecteur écrit DANS la variable (et le pied dit combien de remplissages
+							//    suivent) ; éteint — le défaut — il détache ce remplissage-ci.
+							{
+								const uint32 usagesM = var ? mSt->doc.CompterUsagesVariable(var->cle.Data()) : 0u;
+								const NkRect rMod = {rv.x, rv.y + 24.f, rv.w, 20.f};
+								const bool svM2 = NkGuiRectContains(rMod, ctx.input.mousePos);
+								nkgui::NkColor fondM = mEditerVariable ? ctx.theme.accent : CouleurInput();
+								if (mEditerVariable)
+									fondM.a = 120;
+								dl.AddRectFilled(rMod, svM2 ? ctx.theme.rowHover : fondM, 4.f);
+								dl.AddRect(rMod, (svM2 || mEditerVariable) ? ctx.theme.accent : ctx.theme.border, 1.f, 4.f);
+								char libM[96];
+								snprintf(libM, sizeof(libM), "%s la variable (×%u)", mEditerVariable ? "✓ Modifie" : "Modifier", usagesM);
+								costume::Texte(dl, F.px10, rMod.x + (rMod.w - costume::Largeur(F.px10, libM)) * 0.5f,
+											   costume::CentrerY(F.px10, rMod.y, 20.f), libM, ctx.theme.text);
+								if (svM2 && ctx.input.mouseClicked[0]) {
+									ctx.input.mouseClicked[0] = false;
+									mEditerVariable = !mEditerVariable;
+									char msgM[220];
+									if (mEditerVariable)
+										snprintf(msgM, sizeof(msgM), "Le sélecteur modifie la VARIABLE : %u remplissage(s) suivront.", usagesM);
+									else
+										snprintf(msgM, sizeof(msgM), "Le sélecteur détachera ce remplissage — la variable ne bougera pas.");
+									mSt->DireAuPied(msgM);
+								}
+							}
 							if (svD && ctx.input.mouseClicked[0]) {
 								ctx.input.mouseClicked[0] = false;
 								// le litteral que l'oeil voyait ; absente : magenta, et c'est dit
@@ -12120,11 +12228,30 @@ namespace nkuidesign {
 								if (svL && ctx.input.mouseClicked[0]) {
 									ctx.input.mouseClicked[0] = false;
 									mVarsDeplie = !mVarsDeplie;
+									mFiltreVars[0] = 0; // ③ chaque ouverture repart vierge
 								}
 								if (listeVars) {
-									for (uint32 vi = 0; vi < nVarsListe; ++vi) {
+									// ③ LA RECHERCHE, en tête de la liste (Rodolf : « vu qu'il pourrait y avoir
+									//    des centaines de variables… une barre de recherche par nom »). Elle
+									//    filtre au fil de la frappe, sur le NOM et sur la CLÉ ; six lignes au
+									//    plus, comme avant — mais six PARMI CELLES QUI RÉPONDENT.
+									{
+										const NkRect rf = {rv.x, rv.y + 24.f, rv.w, 20.f};
+										dl.AddRectFilled(rf, CouleurInput(), 4.f);
+										dl.AddRect(rf, ctx.theme.border, 1.f, 4.f);
+										if (mFiltreVars[0] == 0)
+											costume::Texte(dl, F.px10, rf.x + 8.f, costume::CentrerY(F.px10, rf.y, 20.f),
+													   "Rechercher une variable…", ctx.theme.textMuted);
+										nkentseu::editorkit::NkOverlayTextField(ctx, dl, ctx.font, rf, mFiltreVars,
+																		(int32)sizeof(mFiltreVars), true);
+									}
+									if (varsFiltrees == 0u)
+										costume::Texte(dl, F.px9, rv.x + 8.f, costume::CentrerY(F.px9, rv.y + 44.f, 20.f),
+												   "aucune variable ne répond", ctx.theme.textMuted);
+									for (uint32 k = 0; k < varsFiltrees; ++k) {
+										const uint32 vi = idxVars[k];
 										const NkVariable &vv = mSt->doc.variables[vi];
-										const NkRect rr = {rv.x, rv.y + 24.f + 20.f * (float32)vi, rv.w, 20.f};
+										const NkRect rr = {rv.x, rv.y + 44.f + 20.f * (float32)k, rv.w, 20.f};
 										const bool svR = NkGuiRectContains(rr, ctx.input.mousePos);
 										if (svR)
 											dl.AddRectFilled(rr, ctx.theme.rowHover, 3.f);
@@ -12142,6 +12269,7 @@ namespace nkuidesign {
 											couleurCourante = ref; // cette couleur suit desormais la variable
 											d.synchro = 0xFFFFFFFFu;
 											mVarsDeplie = false;
+											mFiltreVars[0] = 0; // ③ la recherche repart vierge
 											touche();
 											char msg[160];
 											snprintf(msg, sizeof(msg), "Couleur liée à la variable « %s » : elle la suit désormais.",
@@ -12149,8 +12277,8 @@ namespace nkuidesign {
 											mSt->DireAuPied(msg);
 										}
 									}
-									if (nVarsDoc > nVarsListe)
-										mSt->DireAuPied("Six variables affichées ; les autres sont dans le rail Variables.");
+									if (nVarsDoc > varsFiltrees && varsFiltrees == 6u)
+										mSt->DireAuPied("Six variables affichées — affine la recherche, ou passe par le rail Variables.");
 								}
 							}
 							if (svC && ctx.input.mouseClicked[0]) {
@@ -15404,7 +15532,17 @@ namespace nkuidesign {
 				for (uint32 k = 0; k < 6u; ++k)
 					mRectStyle[g][k] = {0.f, 0.f, 0.f, 0.f};
 				mRectStyleListe[g].Clear();
-				const bool clic = ctx.popupDepth == 0 && ctx.input.mouseClicked[0];
+				// ③ UN CLIC HORS DU POPUP ATTEINT LE RAIL (2026-09-05).
+				// 🔴 Le retour de Rodolf : « je ne peux pas modifier le nom d'une variable
+				//    créée… la modification du nom est possible uniquement si l'objet n'est plus
+				//    sélectionné, c'est curieux ». La sélection n'y était pour rien : ce qui
+				//    bloquait était `ctx.popupDepth == 0`. Après « Créer une variable », le
+				//    SÉLECTEUR DE COULEUR reste ouvert — le rail refusait donc tout clic ; en
+				//    désélectionnant, le popover se fermait et le rail « remarchait ». *Une
+				//    condition trop large se lit comme une panne ailleurs.*
+				// La bonne condition est celle de la toile : le clic est à moi s'il n'est pas SUR
+				// le popup (le kit le fermera de son côté, comme un clic dehors).
+				const bool clic = ctx.input.mouseClicked[0] && !NkSourisSurPopup(ctx);
 				const NkRect r = ctx.NextItemRect(-1.f, 24.f);
 				const float32 x0 = r.x + 12.f, x1 = r.x + r.w - 12.f;
 				costume::Texte(dl, F.px9, x0, costume::CentrerY(F.px9, r.y, 24.f), "Style", ctx.theme.textMuted);
@@ -16375,6 +16513,10 @@ namespace nkuidesign {
 			NkRect mRectStyle[2][6] = {};
 			NkVector<NkRect> mRectStyleListe[2];
 			bool mStyleDeplie[2] = {false, false};
+			/// ③ Le sélecteur écrit-il DANS la variable ? Faux par défaut : il détache.
+			///    Armé par « Modifier la variable », désarmé dès qu'on change de remplissage.
+			bool mEditerVariable = false;
+			char mFiltreVars[48] = {0}; ///< ③ la recherche de la liste « Lier ˅ »
 			bool mVarsDeplie = false; ///< la liste des variables depliee sous « Lier ˅ » (popover)
 			NkRect mRectImageChoisir = {}, mRectImageRecharger = {}; ///< les boutons du popover image (derniere image), pour la sonde
 			char mBordColBuf[12] = {};

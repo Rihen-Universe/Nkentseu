@@ -6959,6 +6959,12 @@ namespace nkuidesign {
 				stV.doc.nodes[(uint32)rc2].fills[0].couleur = NkString("@couleur_1");
 				souris(-1.f, -1.f, false);
 				boite(px, py);
+				// ③ DEPUIS LE 05/09, LE SELECTEUR DETACHE PAR DEFAUT (decision de Rodolf : lier ne doit
+				//    pas dire modifier). Pour editer LA VARIABLE, on arme « Modifier la variable (xN) »,
+				//    la rangee juste sous celle de la variable. Le detachement par defaut a sa propre
+				//    sonde (87).
+				cliquer(px + 0.5f + 8.f + 117.f, py + kYRangeeVar + 24.f);
+				boite(px, py);
 				cliquer(px + 0.5f + 8.f + 80.f, py + 0.5f + 8.f + 26.f + 80.f); // le carre SV, comme 60h
 				const NkString valB = stV.doc.variables.Empty() ? NkString("(aucune)") : stV.doc.variables[0].valeur;
 				const bool varChangee = NkHexLisible(valB.Data()) && !NkComponentDecl::StrEq(valB.Data(), "#1976d2");
@@ -6969,7 +6975,7 @@ namespace nkuidesign {
 				snprintf(det, sizeof(det), "variable #1976d2 -> %s, references « %s » / « %s », peints %08X et %08X (attendu %08X)",
 						 valB.Data(), stV.doc.nodes[(uint32)rc].fills[0].couleur.Data(), stV.doc.nodes[(uint32)rc2].fills[0].couleur.Data(),
 						 pB1, pB2, attenduB);
-				check("68b. LE SELECTEUR EDITE LA VARIABLE quand la couleur la reference : un clic dans le carre SV change "
+				check("68b. LE SELECTEUR EDITE LA VARIABLE UNE FOIS « Modifier la variable » ARME (③, 05/09) : un clic dans le carre SV change "
 					  "la VALEUR de « Couleur 1 » (pas la reference), et les DEUX rectangles qui la referencent suivent",
 					  varChangee && refTient && pB1 == attenduB && pB2 == attenduB, det);
 				// ── 68c. « Detacher » : le litteral que l'oeil voyait, l'autre reference tient ──
@@ -7175,7 +7181,9 @@ namespace nkuidesign {
 					boite(px, py);
 					const float32 hAvant = -1e9f;
 					(void)hAvant;
-					cliquer(px + 0.5f + 8.f + 100.f, py + kYRangeeVar + 24.f); // la premiere variable de la liste
+					// ③ la liste porte maintenant un champ de RECHERCHE en tete (05/09) : la premiere
+					//    variable est une rangee plus bas (+20)
+					cliquer(px + 0.5f + 8.f + 100.f, py + kYRangeeVar + 44.f);
 					const NkString refG = stV.doc.nodes[(uint32)rc].fills[0].couleur;
 					NkString attendu("@");
 					attendu.Append(stV.doc.variables[(uint32)vp].cle);
@@ -9518,7 +9526,7 @@ namespace nkuidesign {
 				  "points, le degrade monotone et a 24 de gris du PNG, le carre tourne dans son losange, le fond de page a la meme valeur (alpha compris) ; le fichier .svg ecrit et dit",
 				  rasOk && rougeR && memeDegrade && tourneR && memeFond && fichierV, det);
 		}
-		// ── 83-84. LES DEUX PREMIERS RETOURS DE RODOLF DU 05/09 (matin) :
+		// ── 83-85. LES RETOURS DE RODOLF DU 05/09 (matin), MESURES AVANT D'ETRE CORRIGES :
 		//    ① Ctrl+D (une pression = une copie, sur la toile), ② une modale (le selecteur de
 		//    fichier) laisse-t-elle traverser clic / molette / clavier ?, ③ renommer une variable
 		//    dans le rail QUAND UN OBJET EST SELECTIONNE.
@@ -9528,7 +9536,7 @@ namespace nkuidesign {
 			static nkgui::NkGuiFont policeRet;
 			const bool policeOk = policeRet.LoadEmbedded(nkentseu::NkEmbeddedFontId::Inter, 14.f, false);
 			if (!ctxRet.Init(860, 900) || !policeOk) {
-				check("83. Ctrl+D, une pression = une copie", false, "Init ou police a refuse");
+				check("83. les retours du 05/09 (matin)", false, "Init ou police a refuse");
 			} else {
 				ctxRet.font = &policeRet; // le selecteur de fichier du kit exige une police pour se dessiner
 				static DesignState stRet;
@@ -9639,6 +9647,8 @@ namespace nkuidesign {
 					  "une seconde pression duplique une seconde fois ; le SECOND CHEMIN (le meme raccourci declare dans la table de commandes "
 					  "de la coquille) est retire -- c'est lui qui doublait chaque pression",
 					  apresD == avantD + 1u && apresD2 == avantD + 2u, det);
+				construire();
+				image(-1.f, -1.f, false, 0u);
 				// ── 84. ② UNE MODALE RESERVE LA SAISIE : le selecteur de fichier du kit ouvert, ni le clic
 				//    dans le vide de la toile, ni la molette, ni `Suppr` n'atteignent le document ;
 				//    a la fermeture, la reserve tombe et la toile repond de nouveau.
@@ -9707,6 +9717,156 @@ namespace nkuidesign {
 				stRet.choixImageNoeud = -1;
 				stRet.choixImageIndex = -1;
 				construire();
+				image(-1.f, -1.f, false, 0u);
+				// ── 85 / 87 / 88. ③ LES VARIABLES : renommer AVEC le popover ouvert (le cas exact de
+				//    Rodolf), le detachement par defaut contre la modification ARMEE de la variable,
+				//    et la recherche de la liste « Lier ».
+				const int32 rc2 = stRet.doc.AddChild(pg, "", NkAuthor::Humain);
+				{
+					NkUINode &n2 = stRet.doc.nodes[(uint32)rc2];
+					n2.shape = NkString("rect");
+					n2.label = NkString("Second");
+					n2.posX = 200.f;
+					n2.posY = 100.f;
+					n2.width.mode = NkSizeMode::Fixed;
+					n2.width.value = 60.f;
+					n2.height.mode = NkSizeMode::Fixed;
+					n2.height.value = 60.f;
+					NkRemplissage f2;
+					f2.couleur = NkString("#1976d2");
+					n2.fills.PushBack(f2);
+				}
+				const int32 viC = stRet.doc.CreerVariableCouleur("#1976d2", "Couleur 1");
+				stRet.doc.CreerVariableCouleur("#0a555f", "P\xC3\xA9trole");
+				stRet.doc.CreerVariableCouleur("#f79a28", "Orange");
+				stRet.doc.nodes[(uint32)rc].fills[0].couleur = NkString("@couleur_1");
+				stRet.doc.nodes[(uint32)rc2].fills[0].couleur = NkString("@couleur_1");
+				stRet.Recompute(NkPaintRect{0.f, 0.f, 340.f, 900.f});
+				stRet.SelectSingle(rc);
+				// le popover de CE remplissage, ouvert -- comme apres « Créer une variable »
+				stRet.picker = DesignState::DemandePicker();
+				stRet.picker.ouvert = true;
+				stRet.picker.id = ctxRet.GetId("##sonde.popover.var3");
+				stRet.picker.genre = 1u;
+				stRet.picker.noeud = rc;
+				stRet.picker.index = 0;
+				stRet.picker.ancre = {580.f, 200.f, 16.f, 16.f};
+				for (int32 k = 0; k < 3; ++k)
+					image(-1.f, -1.f, false, 0u);
+				const float32 prx3 = 580.f - 250.f - 8.f, pry3 = 200.f - 8.f;
+				const float32 x0P3 = prx3 + 8.f, x1P3 = prx3 + 250.f - 8.f;
+				const float32 yVar = pry3 + 8.f + 26.f + 168.f + 26.f + 3.f + 10.f; // la rangee de la variable
+				const bool popoverOuvert = ctxRet.popupDepth > 0;
+				// ── 85. RENOMMER DANS LE RAIL, LE POPOVER OUVERT ET L'OBJET SELECTIONNE ────
+				const nkgui::NkRect rNom = railRet.RectNom(0);
+				const float32 nx = rNom.x + 10.f, ny = rNom.y + rNom.h * 0.5f;
+				image(nx, ny, false, 0u);
+				image(nx, ny, true, 0u);
+				image(nx, ny, false, 0u);
+				image(-1.f, -1.f, false, 0u);
+				const bool enRenommage = railRet.EnRenommage() == 0;
+				image(-1.f, -1.f, false, (uint32)'Z');
+				image(-1.f, -1.f, false, 0u);
+				const NkString nomZ = stRet.doc.variables.Empty() ? NkString("(aucune)") : stRet.doc.variables[(uint32)viC].nom;
+				const bool renomme = nomZ.Data() && strstr(nomZ.Data(), "Z") != nullptr;
+				snprintf(det, sizeof(det),
+						 "popover ouvert=%d, objet selectionne=%d ; rect du nom %.0f,%.0f %.0fx%.0f ; renommage ouvert=%d ; apres la frappe "
+						 "« Z » : nom « %s » -> renomme=%d",
+						 popoverOuvert ? 1 : 0, stRet.selected, (double)rNom.x, (double)rNom.y, (double)rNom.w, (double)rNom.h,
+						 enRenommage ? 1 : 0, nomZ.Data() ? nomZ.Data() : "?", renomme ? 1 : 0);
+				check("85. ③ RENOMMER UNE VARIABLE DANS LE RAIL, LE SELECTEUR DE COULEUR OUVERT ET L'OBJET SELECTIONNE (le cas exact de "
+					  "Rodolf) : le clic sur le nom ouvre le renommage, une frappe l'ecrit -- avant, le rail refusait TOUT clic tant qu'un "
+					  "popup etait ouvert, et deselectionner « reparait » le rail en fermant le popover",
+					  popoverOuvert && enRenommage && renomme, det);
+				// ── 87. LE SELECTEUR DETACHE PAR DEFAUT, ET MODIFIE LA VARIABLE UNE FOIS ARME ──
+				{
+					const NkString valAvant = stRet.doc.variables[(uint32)viC].valeur;
+					// un clic dans le carre saturation / valeur, comme la main (sonde 60h)
+					const float32 xSV = x0P3 + 80.f, ySV = pry3 + 8.f + 26.f + 80.f;
+					image(xSV, ySV, false, 0u);
+					image(xSV, ySV, true, 0u);
+					image(xSV, ySV, false, 0u);
+					image(-1.f, -1.f, false, 0u);
+					const NkString cRc = stRet.doc.nodes[(uint32)rc].fills[0].couleur;
+					const NkString cRc2 = stRet.doc.nodes[(uint32)rc2].fills[0].couleur;
+					const NkString valApres = stRet.doc.variables[(uint32)viC].valeur;
+					const bool detache = NkHexLisible(cRc.Data()) && !NkEstReference(cRc.Data())
+										 && NkComponentDecl::StrEq(cRc2.Data(), "@couleur_1")
+										 && NkComponentDecl::StrEq(valApres.Data(), valAvant.Data());
+					const bool piedD = stRet.status.Data() && strstr(stRet.status.Data(), "tach") != nullptr;
+					// on relie, on ARME « Modifier la variable », et on refait le meme geste
+					stRet.doc.nodes[(uint32)rc].fills[0].couleur = NkString("@couleur_1");
+					stRet.picker.synchro = 0xFFFFFFFFu;
+					image(-1.f, -1.f, false, 0u);
+					image(-1.f, -1.f, false, 0u);
+					const float32 xMod = x0P3 + (x1P3 - x0P3) * 0.5f, yMod = yVar + 24.f;
+					image(xMod, yMod, false, 0u);
+					image(xMod, yMod, true, 0u);
+					image(xMod, yMod, false, 0u);
+					image(-1.f, -1.f, false, 0u);
+					const float32 xSV2 = x0P3 + 120.f, ySV2 = pry3 + 8.f + 26.f + 40.f;
+					image(xSV2, ySV2, false, 0u);
+					image(xSV2, ySV2, true, 0u);
+					image(xSV2, ySV2, false, 0u);
+					image(-1.f, -1.f, false, 0u);
+					const NkString valArmee = stRet.doc.variables[(uint32)viC].valeur;
+					const NkString cRcArme = stRet.doc.nodes[(uint32)rc].fills[0].couleur;
+					const bool variableModifiee = !NkComponentDecl::StrEq(valArmee.Data(), valAvant.Data())
+												  && NkComponentDecl::StrEq(cRcArme.Data(), "@couleur_1")
+												  && NkComponentDecl::StrEq(stRet.doc.nodes[(uint32)rc2].fills[0].couleur.Data(), "@couleur_1");
+					const bool piedU = stRet.status.Data() && strstr(stRet.status.Data(), "suivent") != nullptr;
+					snprintf(det, sizeof(det),
+							 "par defaut : le remplissage passe de « @couleur_1 » a « %s » (litteral), l'autre reste « %s », la variable garde "
+							 "%s (avant %s) -> detache=%d, pied « %s » ; arme : la variable passe a %s, les DEUX remplissages restent lies -> "
+							 "modifiee=%d, pied dit les usages=%d",
+							 cRc.Data() ? cRc.Data() : "?", cRc2.Data() ? cRc2.Data() : "?", valApres.Data() ? valApres.Data() : "?",
+							 valAvant.Data() ? valAvant.Data() : "?", detache ? 1 : 0, piedD ? "dit" : "muet",
+							 valArmee.Data() ? valArmee.Data() : "?", variableModifiee ? 1 : 0, piedU ? 1 : 0);
+					check("87. ③ LE SELECTEUR DETACHE PAR DEFAUT (le retour de Rodolf : lier ne doit pas dire modifier) : sur un remplissage "
+						  "lie, changer la couleur pose une couleur LOCALE, la variable et les autres remplissages ne bougent pas, et le pied "
+						  "le dit ; « Modifier la variable (xN) » arme le geste explicite : la variable change et tout ce qui la reference suit",
+						  detache && piedD && variableModifiee && piedU, det);
+				}
+				// ── 88. LA RECHERCHE DE LA LISTE « Lier » ──────────────────────────
+				{
+					// un remplissage LITTERAL (la liste « Lier » ne s'offre qu'a lui), le popover ouvert
+					stRet.doc.nodes[(uint32)rc].fills[0].couleur = NkString("#123456");
+					stRet.picker.synchro = 0xFFFFFFFFu;
+					image(-1.f, -1.f, false, 0u);
+					image(-1.f, -1.f, false, 0u);
+					// « Lier ˅ », a droite de la rangee
+					const float32 xLier = x1P3 - 30.f;
+					image(xLier, yVar, false, 0u);
+					image(xLier, yVar, true, 0u);
+					image(xLier, yVar, false, 0u);
+					image(-1.f, -1.f, false, 0u);
+					// trois variables, aucune frappe : trois lignes ; « Ora » : une seule (Orange)
+					const uint32 nVars = (uint32)stRet.doc.variables.Size();
+					image(-1.f, -1.f, false, (uint32)'O');
+					image(-1.f, -1.f, false, (uint32)'r');
+					image(-1.f, -1.f, false, (uint32)'a');
+					image(-1.f, -1.f, false, 0u);
+					// la PREMIERE ligne de la liste filtree est desormais « Orange » : la lier
+					const float32 yLigne1 = yVar + 44.f - 10.f + 10.f; // rv.y + 44 + 10 (centre de la 1re ligne)
+					image(x0P3 + 60.f, yLigne1, false, 0u);
+					image(x0P3 + 60.f, yLigne1, true, 0u);
+					image(x0P3 + 60.f, yLigne1, false, 0u);
+					image(-1.f, -1.f, false, 0u);
+					const NkString refF = stRet.doc.nodes[(uint32)rc].fills[0].couleur;
+					const NkVariable *varO = stRet.doc.TrouverVariable(refF.Data());
+					const bool lieeAOrange = varO && varO->nom.Data() && strstr(varO->nom.Data(), "Orange") != nullptr;
+					snprintf(det, sizeof(det),
+							 "%u variables au document ; apres avoir tape « Ora » dans la recherche, la premiere ligne de la liste lie -> "
+							 "remplissage « %s » = variable « %s » (attendu Orange) -> %d",
+							 nVars, refF.Data() ? refF.Data() : "?", varO ? (varO->nom.Empty() ? varO->cle.Data() : varO->nom.Data()) : "(aucune)",
+							 lieeAOrange ? 1 : 0);
+					check("88. ③ LA RECHERCHE DE LA LISTE « Lier » (Rodolf : « il pourrait y avoir des centaines de variables ») : taper "
+						  "« Ora » ne laisse que « Orange », et la premiere ligne le lie -- le filtre porte sur le nom et sur la cle",
+						  lieeAOrange, det);
+				}
+				if (ctxRet.popupDepth > 0)
+					ctxRet.ClosePopup();
+				stRet.picker = DesignState::DemandePicker();
 				image(-1.f, -1.f, false, 0u);
 			}
 		}
