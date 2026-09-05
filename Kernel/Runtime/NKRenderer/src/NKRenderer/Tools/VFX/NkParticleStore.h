@@ -31,6 +31,7 @@ namespace nkentseu {
 
 		struct NkEmitterDesc;
 		class NkParticleStoreCPU;
+		class NkIParticleStore;
 
 		// Ce que le CPU décide à la naissance d'une particule.
 		struct NkParticleBirth {
@@ -54,6 +55,13 @@ namespace nkentseu {
 			public:
 				virtual ~NkIParticleSolver() = default;
 				virtual void Apply(NkParticleStoreCPU &store, const NkEmitterDesc &desc, float32 dt) = 0;
+				// Un solveur qui sait vivre sur le GPU fournit SON stockage (2026-09-05, le SPH) : l'appelant
+				// l'initialise, et retombe sur le CPU en le disant si Init refuse. Nul = CPU seulement.
+				virtual NkIParticleStore *CreateGPUStore(NkIDevice *device, const NkEmitterDesc &desc) {
+					(void)device;
+					(void)desc;
+					return nullptr;
+				}
 		};
 
 		class NkIParticleStore {

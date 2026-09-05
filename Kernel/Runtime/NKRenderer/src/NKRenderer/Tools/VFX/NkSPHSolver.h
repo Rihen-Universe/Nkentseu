@@ -128,6 +128,7 @@ namespace nkentseu {
 				float32 warmResidualBefore = 0.f, warmResidualAfter = 0.f, warmMinRatio = 0.f;
 				uint32 subStepsViscous = 0;						 // sous-pas imposés par la CFL visqueuse (0 = la CFL de vitesse a décidé)
 				uint32 clumped = 0;								 // particules à rho > 1,1 rho0 (agglutination = instabilité de traction)
+				uint32 syncs = 0;								 // GPU : relectures (synchronisations) de l'image -- une par itération, dites
 		};
 
 		class NkSPHSolver final : public NkIParticleSolver {
@@ -136,6 +137,10 @@ namespace nkentseu {
 				bool pressureEnabled = true; // faux = mutation « projection coupée » (le témoin repos doit rougir)
 
 				void Apply(NkParticleStoreCPU &store, const NkEmitterDesc &desc, float32 dt) override;
+				// Le MÊME fluide sur GPU (NkSPHStoreGPU, 2026-09-05) : mêmes paramètres, mêmes statistiques.
+				NkIParticleStore *CreateGPUStore(NkIDevice *device, const NkEmitterDesc &desc) override;
+				// Les fantômes de paroi : une seule recette pour le CPU et le GPU.
+				static void BuildBoundaryPositions(const NkSPHParams &p, NkVector<NkVec3f> &out);
 				const NkSPHStats &Stats() const {
 					return mStats;
 				}
@@ -146,6 +151,7 @@ namespace nkentseu {
 										float32 life = 1.0e9f);
 
 			private:
+				friend class NkSPHStoreGPU; // écrit mStats et mLastVmax à la place d'Apply
 				void StepOnce(NkParticleStoreCPU &store, float32 dt);
 				void BuildBoundary();
 				void BuildNeighbors(const NkVec3f *X, uint32 n, uint32 M);

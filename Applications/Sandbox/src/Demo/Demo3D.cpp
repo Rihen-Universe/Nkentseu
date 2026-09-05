@@ -2268,6 +2268,9 @@ static NkTexHandle CreateLanternCubeCookie(NkTextureLibrary *texLib, NkIDevice *
 					fd.blend = NkBlendMode::NK_ALPHA;
 					fd.gravity = {0.f, 0.f, 0.f}; // la gravite est celle du solveur
 					fd.solver = &sSph;
+					// NK_SPH_TARGET=cpu|gpu : la cible du fluide (defaut AUTO = GPU si compute, 2026-09-05)
+					if (const char *tg = std::getenv("NK_SPH_TARGET"); tg && tg[0])
+						fd.simTarget = (tg[0] == 'g') ? NkSimTarget::GPU : (tg[0] == 'c') ? NkSimTarget::CPU : NkSimTarget::AUTO;
 					NkEmitterId fid = vfx->CreateEmitter(fd);
 					vfx->SpawnBirths(fid, births.Data(), (uint32)births.Size());
 					std::fprintf(stderr, "[SPH PROBE] scene=%s particules=%u h=%g d=%g masse=%g rho0=%g k=%g mu=%g nu=%g chaud=%d (s=%g) n2=%g vmaxfilet=%g pression=%d boite=[%g,%g,%g]-[%g,%g,%g]\n",
@@ -4168,9 +4171,9 @@ static NkTexHandle CreateLanternCubeCookie(NkTextureLibrary *texLib, NkIDevice *
 						if (st->sphTime > 2.f) { st->sphRhoSum += ss.densityMean; ++st->sphRhoN; }
 						const float32 rho0 = st->sphSolver->params.restDensity;
 						if ((ctx.frame % 30u) == 0u || ctx.frame < 8u) // les premieres images une a une : c'est la qu'un demarrage a chaud se juge
-							std::fprintf(stderr, "[SPH PROBE] frame %u t=%.2fs : vivantes %u  rho/rho0 moy %.3f (min %.3f max %.3f)  vmax %.2f m/s  bornees %u  sous-pas %u (visq %u)  front x=%.3f  y[%.3f..%.3f]  sol rho/rho0 %.3f  fantomes %u  agglutinees %u  iter dens %.1f / div %.1f  resid dens %.3f %% / div %.3f %%  bornes-iter %u  chaud %u (resid brut avant %.2f %% apres %.2f %%, min %.3f)  %.2f ms\n",
+							std::fprintf(stderr, "[SPH PROBE] frame %u t=%.2fs : vivantes %u  rho/rho0 moy %.3f (min %.3f max %.3f)  vmax %.2f m/s  bornees %u  sous-pas %u (visq %u)  front x=%.3f  y[%.3f..%.3f]  sol rho/rho0 %.3f  fantomes %u  agglutinees %u  iter dens %.1f / div %.1f  resid dens %.3f %% / div %.3f %%  bornes-iter %u  chaud %u (resid brut avant %.2f %% apres %.2f %%, min %.3f)  sync %u  %.2f ms\n",
 										 (unsigned)ctx.frame, st->sphTime, ss.alive, ss.densityMean / rho0, ss.densityMin / rho0, ss.densityMax / rho0, ss.maxSpeed,
-										 ss.speedClamped, ss.subSteps, ss.subStepsViscous, ss.maxX, ss.minY, ss.maxY, ss.densityFloorMean / rho0, ss.boundary, ss.clumped, ss.iterDensity, ss.iterDivergence, ss.residualDensity * 100.f, ss.residualDivergence * 100.f, ss.iterCapHits, ss.warmStarts, ss.warmResidualBefore * 100.f, ss.warmResidualAfter * 100.f, ss.warmMinRatio, ss.ms);
+										 ss.speedClamped, ss.subSteps, ss.subStepsViscous, ss.maxX, ss.minY, ss.maxY, ss.densityFloorMean / rho0, ss.boundary, ss.clumped, ss.iterDensity, ss.iterDivergence, ss.residualDensity * 100.f, ss.residualDivergence * 100.f, ss.iterCapHits, ss.warmStarts, ss.warmResidualBefore * 100.f, ss.warmResidualAfter * 100.f, ss.warmMinRatio, ss.syncs, ss.ms);
 						// RUPTURE DE BARRAGE -- critere adimensionnel de Martin & Moyce (1952), Part IV,
 						// Phil. Trans. R. Soc. A 244(882) 312-324. Table telle que reproduite dans Lethe
 						// (chaos-polymtl/lethe, examples/multiphysics/dam-break/dam-break-2d.py, colonne

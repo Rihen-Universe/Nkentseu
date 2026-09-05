@@ -216,11 +216,23 @@ namespace nkentseu {
 			// Le stockage : GPU (trois tampons + noyau NkSL) si la cible resolue est GPU et qu'aucun
 			// solveur n'est branche ; sinon CPU SoA -- chaque repli est DIT.
 			if (e->resolved == NkSimTarget::GPU && desc.solver) {
-				std::fprintf(stderr, "[NkVFX] emetteur %llu : un solveur (SPH) est branche -> stockage CPU (le SPH GPU vient apres)\n",
-							 (unsigned long long)e->id.id);
-				e->resolved = NkSimTarget::CPU;
+				// Le solveur fournit SON stockage GPU (le SPH, 05/09) ; refus -> CPU dit, sans stockage -> CPU dit.
+				NkIParticleStore *gs = desc.solver->CreateGPUStore(mDevice, desc);
+				if (gs && gs->Init(mDevice, desc)) {
+					e->store = gs;
+					std::fprintf(stderr, "[NkVFX] emetteur %llu : simTarget=%s -> GPU (solveur sur GPU, %u emplacements)\n",
+								 (unsigned long long)e->id.id, desc.simTarget == NkSimTarget::AUTO ? "AUTO" : "GPU", desc.maxParticles);
+				} else {
+					std::fprintf(stderr, "[NkVFX] emetteur %llu : %s -> stockage CPU\n", (unsigned long long)e->id.id,
+								 gs ? "le stockage GPU du solveur a refuse (raison au journal)" : "le solveur n'a pas de stockage GPU");
+					if (gs) {
+						gs->Shutdown(mDevice);
+						memory::NkGetDefaultAllocator().Delete(gs);
+					}
+					e->resolved = NkSimTarget::CPU;
+				}
 			}
-			if (e->resolved == NkSimTarget::GPU) {
+			if (e->resolved == NkSimTarget::GPU && !e->store) { // le solveur a pu fournir le sien (05/09)
 				auto *gpu = memory::NkGetDefaultAllocator().New<NkParticleStoreGPU>();
 				if (gpu->Init(mDevice, desc)) {
 					e->store = gpu;
