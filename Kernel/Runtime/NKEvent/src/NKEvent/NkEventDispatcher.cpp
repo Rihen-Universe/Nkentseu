@@ -153,6 +153,11 @@ namespace nkentseu {
 	// NkActionManager — portage d'ActionManager
 	// =========================================================================
 
+	void NkActionManager::Clear() noexcept {
+		mActions.Clear();
+		mCommands.Clear();
+	}
+
 	void NkActionManager::CreateAction(const NkString &name, NkActionSubscriber handler) {
 		if (mActions.Contains(name))
 			return;
@@ -228,6 +233,11 @@ namespace nkentseu {
 	// NkAxisManager — portage d'AxisManager
 	// =========================================================================
 
+	void NkAxisManager::Clear() noexcept {
+		mAxes.Clear();
+		mCommands.Clear();
+	}
+
 	void NkAxisManager::CreateAxis(const NkString &name, NkAxisSubscriber handler) {
 		if (mAxes.Contains(name))
 			return;
@@ -261,14 +271,46 @@ namespace nkentseu {
 		}
 	}
 
+	// UN AXE A UNE SEULE VALEUR, ET LE RAPPEL PART UNE SEULE FOIS.
+	//
+	// La premiere version appelait le rappel POUR CHAQUE COMMANDE de l'axe. Un
+	// axe « Horizontal » a deux commandes, la fleche droite a +1 et la gauche a
+	// -1 : tenir la droite envoyait +1 puis 0, et le zero de la gauche relachee
+	// ecrasait le +1. Il fallait donc ecrire `valeur += v` dans le rappel et
+	// remettre a zero avant, ce qui n'a de sens pour personne : un axe, comme
+	// une manette, a UNE valeur.
+	//
+	// Depuis que le rafraichissement est automatique (dans PollEvent), cette
+	// remise a zero devait en plus se faire loin de l'appel, a un endroit que
+	// rien ne signale. On somme donc ici, et le rappel recoit le total, une
+	// fois. Le code de l'application devient `valeur = v`, et il n'y a plus
+	// rien a remettre a zero.
+	//
+	// Le code transmis est celui de la commande qui pese le plus fort en valeur
+	// absolue : c'est celle qui explique le mieux d'ou vient le mouvement, et
+	// c'est ce qu'un ecran de configuration veut afficher.
 	void NkAxisManager::UpdateAxes(const NkAxisResolver &resolver) {
 		mCommands.ForEach([&](const NkString &name, NkVector<NkAxisCommand> &cmds) {
+			if (cmds.IsEmpty())
+				return;
+
+			float total = 0.f;
+			float meilleure = -1.f;
+			const NkAxisCommand *dominante = &cmds[0];
+
 			for (const auto &cmd : cmds) {
-				float raw = resolver(cmd.GetCode().device, cmd.GetCode().code);
-				float value = raw * cmd.GetScale();
-				if (math::NkFabs(value) >= cmd.GetMinInterval())
-					FireAxis(name, cmd, value);
+				const float brut = resolver(cmd.GetCode().device, cmd.GetCode().code);
+				const float valeur = brut * cmd.GetScale();
+				total += valeur;
+				const float force = math::NkFabs(valeur);
+				if (force > meilleure) {
+					meilleure = force;
+					dominante = &cmd;
+				}
 			}
+
+			if (math::NkFabs(total) >= dominante->GetMinInterval())
+				FireAxis(name, *dominante, total);
 		});
 	}
 

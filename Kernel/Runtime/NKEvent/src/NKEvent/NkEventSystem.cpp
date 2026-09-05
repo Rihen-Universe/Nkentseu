@@ -382,6 +382,7 @@ namespace nkentseu {
 		DrainForeignEvents();
 
 		PumpOS();
+		RefreshAxes(); // un axe se relit une fois par tour, il ne s'attend pas
 
 #if defined(NKENTSEU_PLATFORM_EMSCRIPTEN) && defined(__EMSCRIPTEN__)
 		// Web cooperative yielding is done by the application frame loop.
@@ -434,6 +435,7 @@ namespace nkentseu {
 		}
 
 		PumpOS();
+		RefreshAxes(); // un axe se relit une fois par tour, il ne s'attend pas
 
 		// Retenter aprÃ¨s le pump
 		{
@@ -496,6 +498,46 @@ namespace nkentseu {
 	nk_size NkEventSystem::GetPendingEventCount() const noexcept {
 		NkScopedSpinLock lock(mQueueMutex);
 		return mEventQueue.Size();
+	}
+
+	// =============================================================================
+	// RefreshAxes — relit tous les axes depuis l'etat courant
+	// =============================================================================
+	//
+	// Un axe n'est pas un evenement : il decrit ce qui est enfonce MAINTENANT.
+	// Il faut donc l'interroger, pas l'attendre. Cet appel est place juste apres
+	// PumpOS(), qui tourne une fois par tour de boucle : l'application n'a plus
+	// rien a appeler, et c'est le point du 2026-09-05.
+	//
+	// L'operation est idempotente : la relancer deux fois dans le meme tour
+	// redonne le meme resultat, puisqu'elle ne fait que lire l'etat.
+	void NkEventSystem::RefreshAxes() {
+		if (mAxisManager.GetCommandCount() == 0)
+			return; // aucun axe declare : on ne paie rien
+
+		const NkKeyboardInputState &clavier = mInputState.GetKeyboard();
+		const NkMouseInputState &souris = mInputState.GetMouse();
+		NkGamepadSystem *manettes = mGamepadSystem;
+
+		mAxisManager.UpdateAxes([&](NkInputDevice appareil, uint32 code) -> float {
+			switch (appareil) {
+				case NkInputDevice::NK_KEYBOARD:
+					return clavier.IsKeyPressed(static_cast<NkKey>(code)) ? 1.f : 0.f;
+				case NkInputDevice::NK_MOUSE:
+					return souris.IsButtonPressed(static_cast<NkMouseButton>(code)) ? 1.f : 0.f;
+				case NkInputDevice::NK_GAMEPAD_AXIS:
+					return (manettes != nullptr)
+							   ? manettes->GetAxis(0, static_cast<NkGamepadAxis>(code))
+							   : 0.f;
+				case NkInputDevice::NK_GAMEPAD:
+					return (manettes != nullptr &&
+							manettes->IsButtonDown(0, static_cast<NkGamepadButton>(code)))
+							   ? 1.f
+							   : 0.f;
+				default:
+					return 0.f;
+			}
+		});
 	}
 
 } // namespace nkentseu

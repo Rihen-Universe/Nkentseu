@@ -16,6 +16,7 @@
 #include "NKEvent/NkWindowId.h"
 #include "NKEvent/NkEventSystem.h"
 #include "NKEvent/NkGamepadSystem.h"
+#include "NKEvent/NkEventDispatcher.h" // NkActionManager, NkAxisManager, NkInputCode
 #include "NkSurface.h"
 
 namespace nkentseu {
@@ -109,6 +110,39 @@ namespace nkentseu {
                 return Instance().GetGamepadSystem();
             }
 
+            // --- Actions et axes nommes ------------------------------------
+            //
+            // Ils etaient jusqu'ici des objets isoles : personne dans le depot
+            // n'en creait, personne ne les alimentait, et rien ne le disait.
+            // Une application devait ecrire elle-meme TriggerAction depuis sa
+            // boucle, ce qui est exactement le travail que le systeme fait deja
+            // pour NkEvents, NkGamepads et NkInput.
+            //
+            // Ils sont donc possedes ici, et alimentes par le systeme
+            // d'evenements : une touche pressee declenche les actions qui lui
+            // sont associees, sans une ligne de l'application.
+            //
+            // UN SEUL JEU PARTAGE, et c'est voulu. Deux joueurs sur la meme
+            // machine ne partagent pas leurs donnees de toute facon, et en
+            // reseau chacun est sur son poste. Ce que l'on gagne, c'est de
+            // pouvoir reconfigurer les commandes par scene ou par niveau en un
+            // endroit : on vide, on recharge depuis le fichier de la scene.
+            NkActionManager &GetActionManager() {
+                return mEventSystem.GetActionManager();
+            }
+
+            NkAxisManager &GetAxisManager() {
+                return mEventSystem.GetAxisManager();
+            }
+
+            static NkActionManager &Actions() {
+                return Instance().GetActionManager();
+            }
+
+            static NkAxisManager &Axes() {
+                return Instance().GetAxisManager();
+            }
+
             // --- Registre des fenêtres ---
             NkWindowId RegisterWindow(NkWindow *win);
             void UnregisterWindow(NkWindowId id);
@@ -129,6 +163,7 @@ namespace nkentseu {
 
             // NkGamepadSystem possédé par NkWESystem (CORRECTION 1 — plus de singleton)
             NkGamepadSystem mGamepadSystem;
+
 
             // Registre des fenêtres
             NkUnorderedMap<NkWindowId, NkWindow *> mWindows;
@@ -160,6 +195,17 @@ namespace nkentseu {
     // CORRECTION 1 : NkGamepads() délègue à NkWESystem::Gamepads() (plus de singleton)
     inline NkGamepadSystem &NkGamepads() {
         return NkWESystem::Gamepads();
+    }
+
+    /// @brief Les actions nommees de l'application, alimentees par le systeme.
+    inline NkActionManager &NkActions() {
+        return NkWESystem::Actions();
+    }
+
+    /// @brief Les axes nommes de l'application.
+    /// @note Rafraichis automatiquement une fois par tour, dans PollEvent(s).
+    inline NkAxisManager &NkAxes() {
+        return NkWESystem::Axes();
     }
 
 } // namespace nkentseu

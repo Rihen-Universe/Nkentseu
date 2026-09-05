@@ -103,6 +103,23 @@ namespace nkentseu {
 		}
 	}
 
+	/// @brief Convertit un nom en bouton de souris. L'inverse de NkMouseButtonToString.
+	/// @param nom "LEFT", "left", "NK_MB_LEFT" : les trois conviennent.
+	/// @return Le bouton, ou NkMouseButton::NK_MB_UNKNOWN si le nom est inconnu.
+	/// @note Parcourt la table de NkMouseButtonToString : aucune divergence possible.
+	inline NkMouseButton NkMouseButtonFromString(const char *nom) noexcept {
+		if (nom == nullptr || *nom == '\0')
+			return NkMouseButton::NK_MB_UNKNOWN;
+		for (uint32 v = 0; v < static_cast<uint32>(NkMouseButton::NK_MOUSE_BUTTON_MAX); ++v) {
+			const NkMouseButton bouton = static_cast<NkMouseButton>(v);
+			if (bouton == NkMouseButton::NK_MB_UNKNOWN)
+				continue;
+			if (NkInputNameEquals(NkMouseButtonToString(bouton), nom))
+				return bouton;
+		}
+		return NkMouseButton::NK_MB_UNKNOWN;
+	}
+
 	// =====================================================================
 	// NkButtonState — Énumération de l'état binaire d'un bouton
 	// =====================================================================

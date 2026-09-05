@@ -268,6 +268,93 @@ namespace nkentseu {
 	// Utilisation :
 	//   - Debug logging, profiling, affichage des bindings dans les options.
 	// -------------------------------------------------------------------------
+	// =====================================================================
+	// Noms CANONIQUES des entrees de manette, pour les fichiers de config
+	// =====================================================================
+	//
+	// NkGamepadButtonToString rend un nom D'AFFICHAGE : "South(A/Cross)",
+	// "LB/L1". Ces noms sont faits pour un journal ou une interface, pas pour
+	// un fichier : ils portent des parentheses et des barres obliques, et ils
+	// changeront le jour ou l'on voudra les traduire. Les relire serait batir
+	// une configuration sur un texte qui n'est pas un identifiant.
+	//
+	// On tient donc ici une seconde table, volontairement, avec un nom stable
+	// par valeur. C'est le contraire de ce qu'on fait pour le clavier, ou
+	// NkKeyFromString parcourt la table de NkKeyToString parce que celle-ci
+	// donne bien des identifiants. La regle n'est pas « une table ou deux »,
+	// elle est : ne relire que ce qui a ete ecrit pour etre relu.
+
+	/// @brief Nom stable d'un bouton de manette, destine aux fichiers.
+	inline const char *NkGamepadButtonCanonicalName(NkGamepadButton b) noexcept {
+		switch (b) {
+			case NkGamepadButton::NK_GP_SOUTH: return "SOUTH";
+			case NkGamepadButton::NK_GP_EAST: return "EAST";
+			case NkGamepadButton::NK_GP_WEST: return "WEST";
+			case NkGamepadButton::NK_GP_NORTH: return "NORTH";
+			case NkGamepadButton::NK_GP_LB: return "LB";
+			case NkGamepadButton::NK_GP_RB: return "RB";
+			case NkGamepadButton::NK_GP_LT_DIGITAL: return "LT";
+			case NkGamepadButton::NK_GP_RT_DIGITAL: return "RT";
+			case NkGamepadButton::NK_GP_LSTICK: return "LSTICK";
+			case NkGamepadButton::NK_GP_RSTICK: return "RSTICK";
+			case NkGamepadButton::NK_GP_DPAD_UP: return "DPAD_UP";
+			case NkGamepadButton::NK_GP_DPAD_DOWN: return "DPAD_DOWN";
+			case NkGamepadButton::NK_GP_DPAD_LEFT: return "DPAD_LEFT";
+			case NkGamepadButton::NK_GP_DPAD_RIGHT: return "DPAD_RIGHT";
+			case NkGamepadButton::NK_GP_START: return "START";
+			case NkGamepadButton::NK_GP_BACK: return "BACK";
+			case NkGamepadButton::NK_GP_GUIDE: return "GUIDE";
+			case NkGamepadButton::NK_GP_TOUCHPAD: return "TOUCHPAD";
+			case NkGamepadButton::NK_GP_CAPTURE: return "CAPTURE";
+			case NkGamepadButton::NK_GP_MIC: return "MIC";
+			case NkGamepadButton::NK_GP_PADDLE_1: return "PADDLE_1";
+			case NkGamepadButton::NK_GP_PADDLE_2: return "PADDLE_2";
+			case NkGamepadButton::NK_GP_PADDLE_3: return "PADDLE_3";
+			case NkGamepadButton::NK_GP_PADDLE_4: return "PADDLE_4";
+			default: return "UNKNOWN";
+		}
+	}
+
+	/// @brief Convertit un nom canonique en bouton de manette.
+	/// @return Le bouton, ou NK_GP_UNKNOWN si le nom est inconnu.
+	inline NkGamepadButton NkGamepadButtonFromString(const char *nom) noexcept {
+		if (nom == nullptr || *nom == '\0')
+			return NkGamepadButton::NK_GP_UNKNOWN;
+		for (uint32 v = 1; v <= static_cast<uint32>(NkGamepadButton::NK_GP_PADDLE_4); ++v) {
+			const NkGamepadButton bouton = static_cast<NkGamepadButton>(v);
+			if (NkInputNameEquals(NkGamepadButtonCanonicalName(bouton), nom))
+				return bouton;
+		}
+		return NkGamepadButton::NK_GP_UNKNOWN;
+	}
+
+	/// @brief Nom stable d'un axe de manette, destine aux fichiers.
+	inline const char *NkGamepadAxisCanonicalName(NkGamepadAxis a) noexcept {
+		switch (a) {
+			case NkGamepadAxis::NK_GP_AXIS_LX: return "LEFT_X";
+			case NkGamepadAxis::NK_GP_AXIS_LY: return "LEFT_Y";
+			case NkGamepadAxis::NK_GP_AXIS_RX: return "RIGHT_X";
+			case NkGamepadAxis::NK_GP_AXIS_RY: return "RIGHT_Y";
+			case NkGamepadAxis::NK_GP_AXIS_LT: return "TRIGGER_LEFT";
+			case NkGamepadAxis::NK_GP_AXIS_RT: return "TRIGGER_RIGHT";
+			case NkGamepadAxis::NK_GP_AXIS_DPAD_X: return "DPAD_X";
+			case NkGamepadAxis::NK_GP_AXIS_DPAD_Y: return "DPAD_Y";
+			default: return "UNKNOWN";
+		}
+	}
+
+	/// @brief Convertit un nom canonique en axe de manette.
+	inline NkGamepadAxis NkGamepadAxisFromString(const char *nom) noexcept {
+		if (nom == nullptr || *nom == '\0')
+			return NkGamepadAxis::NK_GP_AXIS_DPAD_Y;
+		for (uint32 v = 0; v <= static_cast<uint32>(NkGamepadAxis::NK_GP_AXIS_DPAD_Y); ++v) {
+			const NkGamepadAxis axe = static_cast<NkGamepadAxis>(v);
+			if (NkInputNameEquals(NkGamepadAxisCanonicalName(axe), nom))
+				return axe;
+		}
+		return NkGamepadAxis::NK_GP_AXIS_DPAD_Y;
+	}
+
 	inline const char *NkGamepadAxisToString(NkGamepadAxis a) noexcept {
 		switch (a) {
 			case NkGamepadAxis::NK_GP_AXIS_LX:
