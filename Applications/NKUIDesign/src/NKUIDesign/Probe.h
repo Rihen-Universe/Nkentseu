@@ -60,7 +60,8 @@
 #include "DesignAI.h"
 #include "Icons.h"
 #include "Renderers.h"
-#include "Export.h" // sonde 81 : l'export PNG, en pixels
+#include "ExportSVG.h" // sondes 81-82 : l'export PNG (pixels) et SVG (re-rasterise)
+#include "NKImage/Codecs/SVG/NkSVGCodec.h"
 
 #include <cstdio>
 
@@ -9195,7 +9196,7 @@ namespace nkuidesign {
 					  sansPopover && imagesEnCrop >= 3 && cropChange && noeudIntact && peintreSuit, det);
 			}
 		}
-		// ── 81. L'EXPORT (05/09) : PNG en PIXELS (rect uni, degrade, texte, image 2x2, rect
+		// ── 81-82. L'EXPORT (05/09) : PNG en PIXELS (rect uni, degrade, texte, image 2x2, rect
 		//    tourne ; 1x / 2x / 3x ; la selection ; l'echec dit), puis SVG (un lecteur du document)
 		//    RE-RASTERISE par le parseur SVG maison et compare aux memes points ; texte et image
 		//    en STRUCTURE (le parseur maison ne les sait pas : mesure, dit).
@@ -9453,6 +9454,69 @@ namespace nkuidesign {
 				  "un export sans rien de selectionne est REFUSE et DIT, aucun fichier n'est ecrit",
 				  ok3 && luS && transparentHors && refus, det);
 
+			// ── 82. LE SVG ──────────────────────────────────────────────────────
+			auto contient = [](const char *h, const char *n) -> bool {
+				if (!h || !n)
+					return false;
+				for (const char *p = h; *p; ++p) {
+					const char *a = p, *b = n;
+					while (*a && *b && *a == *b)
+						++a, ++b;
+					if (!*b)
+						return true;
+				}
+				return false;
+			};
+			NkExportOptions oV;
+			oV.format = NkExportFormat::SVG;
+			NkString svg;
+			NkExportResultat rV;
+			const bool okV = NkExporterSVG(stEx, oV, "", svg, rV);
+			const char *s = svg.Data();
+			const bool structure = okV && contient(s, "<svg ") && contient(s, "width=\"200\"") && contient(s, "height=\"120\"") && contient(s, "<rect")
+								   && contient(s, "fill=\"#ff0000\"") && contient(s, "<linearGradient") && contient(s, "stop-color=\"#000000\"")
+								   && contient(s, "stop-color=\"#ffffff\"") && contient(s, "fill=\"url(#deg") && contient(s, "<text") && contient(s, "font-family=\"Inter")
+								   && contient(s, "font-size=\"14\"") && contient(s, ">Ab</text>") && contient(s, "<image") && contient(s, "href=\"sonde_export_2x2.png\"")
+								   && contient(s, "preserveAspectRatio=\"none\"") && contient(s, "transform=\"matrix(") && contient(s, "<feDropShadow")
+								   && contient(s, "filter=\"url(#ombre") && contient(s, "data-nom=\"Tourne\"") && contient(s, "</g>");
+			NkExportOptions oE = oV;
+			oE.embarquer = true;
+			NkString svgE;
+			NkExportResultat rE2;
+			const bool okE = NkExporterSVG(stEx, oE, "", svgE, rE2) && contient(svgE.Data(), "href=\"data:image/png;base64,iVBORw0KGgo");
+			snprintf(det, sizeof(det), "export=%d (%s) ; %u octets ; structure attendue=%d ; images embarquees (data:image/png;base64,iVBOR...)=%d",
+					 okV ? 1 : 0, rV.message, (uint32)svg.Length(), structure ? 1 : 0, okE ? 1 : 0);
+			check("82a. EXPORT SVG D'UNE PAGE : un lecteur du document -- <rect> et son fill, <linearGradient> et ses <stop>, <text> en Inter 14 "
+				  "« Ab », <image href> relatif en preserveAspectRatio=none (stretch), <g transform=matrix> pour le carre tourne, <feDropShadow> "
+				  "pour l'ombre ; l'option « embarquer » ecrit le PNG en base64",
+				  structure && okE, det);
+			// 82b. le SVG RE-RASTERISE par le parseur maison, compare aux memes points (formes, degrade)
+			NkImage ras = NkSVGCodec::Decode((const uint8 *)svg.Data(), (usize)svg.Length(), 0, 0);
+			const bool rasOk = ras.IsValid() && ras.Width() == 200 && ras.Height() == 120 && ras.Pixels();
+			const bool rougeR = rasOk && proche(ras, 15, 15, 255, 0, 0, 3) && proche(ras, 64, 15, 255, 0, 0, 3) && proche(ras, 15, 44, 255, 0, 0, 3)
+								&& proche(ras, 64, 44, 255, 0, 0, 3);
+			const int32 q15 = gris(ras, 110, 15), q25 = gris(ras, 110, 25), q35 = gris(ras, 110, 35), q45 = gris(ras, 110, 45);
+			const bool degradeR = rasOk && q15 < q25 && q25 < q35 && q35 < q45 && q15 < 96 && q45 > 160;
+			// le parseur maison rend un degrade CONTINU la ou le peintre peint 24 bandes : au plus 24 de gris d'ecart par point
+			auto d24 = [](int32 a, int32 b) { return (a > b ? a - b : b - a) <= 24; };
+			const bool memeDegrade = degradeR && d24(q15, g15) && d24(q25, g25) && d24(q35, g35) && d24(q45, g45);
+			const bool tourneR = rasOk && proche(ras, 155, 80, 0, 0, 255, 3) && proche(ras, 155, 63, 0, 0, 255, 3) && !proche(ras, 141, 66, 0, 0, 255, 40);
+			uint8 fondPng[4], fondSvg[4];
+			pixel(im1, 5, 115, fondPng);
+			pixel(ras, 5, 115, fondSvg);
+			bool memeFond = rasOk && lu1;
+			for (int32 k = 0; k < 4; ++k)
+				if ((fondPng[k] > fondSvg[k] ? fondPng[k] - fondSvg[k] : fondSvg[k] - fondPng[k]) > 3)
+					memeFond = false;
+			NkExportResultat rF;
+			const bool fichierV = NkExporterSVGFichier(stEx, oV, "sonde_export_page.svg", rF) && NkFile::Exists("sonde_export_page.svg");
+			snprintf(det, sizeof(det), "NkSVGCodec::Decode -> valide=%d (%d x %d) ; rouge aux quatre points=%d ; degrade y=%d/%d/%d/%d contre le PNG %d/%d/%d/%d (ecart <= 24)=%d ; tourne=%d ; fond de page PNG (%u,%u,%u,%u) = SVG (%u,%u,%u,%u), alpha compris -> %d ; fichier=%d (%s) | texte et image : STRUCTURE seulement (le parseur maison ne sait ni <text> ni <image>, son en-tete le dit)",
+					 rasOk ? 1 : 0, ras.Width(), ras.Height(), rougeR ? 1 : 0, q15, q25, q35, q45, g15, g25, g35, g45, memeDegrade ? 1 : 0, tourneR ? 1 : 0,
+					 fondPng[0], fondPng[1], fondPng[2], fondPng[3], fondSvg[0], fondSvg[1], fondSvg[2], fondSvg[3], memeFond ? 1 : 0,
+					 fichierV ? 1 : 0, rF.message);
+			check("82b. LE SVG EXPORTE, RE-RASTERISE PAR LE PARSEUR SVG MAISON (NkSVGCodec, NKImage) : 200 x 120, le rect rouge aux quatre "
+				  "points, le degrade monotone et a 24 de gris du PNG, le carre tourne dans son losange, le fond de page a la meme valeur (alpha compris) ; le fichier .svg ecrit et dit",
+				  rasOk && rougeR && memeDegrade && tourneR && memeFond && fichierV, det);
 		}
 		snprintf(tail, sizeof(tail), "\n=== RESULTAT : %d / %d ===\n", pass, total);
 		rep.Append(tail);
