@@ -28,6 +28,8 @@
 #include "NKRenderer/Tools/Render2D/NkRender2D.h"
 #include "NKTime/NkChrono.h"
 
+#include <cstdlib> // getenv : NK_TEX_BC1
+
 namespace nkentseu {
 	namespace demo {
 
@@ -65,6 +67,7 @@ namespace nkentseu {
 				float64 msLecture = 0.0, msDecodage = 0.0, msTelev = 0.0;
 				nk_uint64 octetsLus = 0;
 				bool cacheActif = true;
+				bool bc1 = false;
 				uint64 vramEstimee = 0;
 		};
 
@@ -83,7 +86,17 @@ namespace nkentseu {
 			st->cacheActif = NkTextureCache::Actif();
 			NkTextureCache::RemettreCompteursAZero();
 
+			// NK_TEX_BC1=1 : cuire en BC1. Ce n'est PAS le defaut, et ça ne peut
+			// pas l'etre — BC1 est avec perte et sans alpha. Sur une carte de
+			// normales il laisse des facettes visibles ; on le demande carte par
+			// carte, ou ici pour la mesure.
+			{
+				const char *v = std::getenv("NK_TEX_BC1");
+				st->bc1 = (v && v[0] == '1');
+			}
+
 			logger.Info("[TexturesPBR] cache d'actifs : {0}\n", st->cacheActif ? "ACTIF" : "COUPE (NK_TEX_CACHE=0)");
+			logger.Info("[TexturesPBR] compression : {0}\n", st->bc1 ? "BC1 (NK_TEX_BC1=1)" : "aucune (pixels bruts)");
 
 			// Le chronometre entoure EXACTEMENT ce qu'on veut mesurer : les dix
 			// appels a `Load`. Ni la creation du device, ni la fenetre, ni les
@@ -94,6 +107,9 @@ namespace nkentseu {
 				NkLoadOptions opts;
 				opts.srgb = kCartes[i].couleur;
 				opts.genMipmaps = true;
+				if (st->bc1)
+					opts.compression = kCartes[i].couleur ? uint32(NKTEXFMT_BC1_RGB_SRGB)
+														  : uint32(NKTEXFMT_BC1_RGB_UNORM);
 				st->textures[i] = texLib->Load(NkString(kCartes[i].chemin), opts);
 				if (st->textures[i].IsValid())
 					++st->chargees;
@@ -159,7 +175,8 @@ namespace nkentseu {
 				overlay->DrawStats(ctx.renderer->GetStats());
 				overlay->DrawText({20.f, 35.f}, "DemoTexturesPBR — 10 cartes reelles  |  API : %s",
 								  NkGraphicsApiName(ctx.api));
-				overlay->DrawText({20.f, 55.f}, "cache d'actifs : %s", st->cacheActif ? "ACTIF" : "COUPE (NK_TEX_CACHE=0)");
+				overlay->DrawText({20.f, 55.f}, "cache : %s   compression : %s",
+								  st->cacheActif ? "ACTIF" : "COUPE (NK_TEX_CACHE=0)", st->bc1 ? "BC1" : "aucune");
 				overlay->DrawText({20.f, 75.f}, "CHARGEMENT : %.1f ms  (%d/%d cartes)", st->msChargement, st->chargees,
 								  kNbCartes);
 				overlay->DrawText({20.f, 95.f}, "cache : %u touche(s), %u manque(s), %u refus", st->touches,
@@ -183,10 +200,10 @@ namespace nkentseu {
 			// (`NK_MAXFRAMES`), la ligne d'init peut etre noyee dans le journal du
 			// demarrage, et c'est elle qu'on vient lire.
 			logger.Info("[TexturesPBR] === RECAPITULATIF ===\n");
-			logger.Info("[TexturesPBR] cache {0} | chargement {1} ms | {2} touche(s) {3} manque(s) {4} refus | VRAM "
-						"{5} o\n",
-						st->cacheActif ? "ACTIF" : "COUPE", st->msChargement, st->touches, st->manques, st->refus,
-						(unsigned long long)st->vramEstimee);
+			logger.Info("[TexturesPBR] cache {0} | compression {1} | chargement {2} ms | {3} touche(s) {4} "
+						"manque(s) {5} refus | VRAM {6} o\n",
+						st->cacheActif ? "ACTIF" : "COUPE", st->bc1 ? "BC1" : "aucune", st->msChargement, st->touches,
+						st->manques, st->refus, (unsigned long long)st->vramEstimee);
 			logger.Info("[TexturesPBR] POSTES : lecture {0} ms | decodage {1} ms | televersement {2} ms | {3} o lus\n",
 						st->msLecture, st->msDecodage, st->msTelev, (unsigned long long)st->octetsLus);
 			delete st;

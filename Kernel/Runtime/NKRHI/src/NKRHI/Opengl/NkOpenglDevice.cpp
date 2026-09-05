@@ -1580,9 +1580,27 @@ namespace nkentseu {
 				break;
 		}
 
-		if (desc.initialData) {
+		if (desc.initialData && NkFormatIsBlockCompressed(desc.format)) {
+			// ⚠️ UN FORMAT PAR BLOCS NE PASSE PAS PAR `glTexSubImage`. Le pilote
+			// y lirait les octets compresses comme des pixels bruts : aucune
+			// erreur, une image fausse. C'est `glCompressedTexSubImage`, et il
+			// veut la TAILLE EN OCTETS du niveau, pas un pas de ligne.
+			const GLsizei taille = (GLsizei)NkFormatImageSize(desc.format, desc.width, desc.height);
+#if defined(NK_OPENGL_ES)
+			glBindTexture(target, id);
+			glCompressedTexSubImage2D(target, 0, 0, 0, desc.width, desc.height, internal, taille, desc.initialData);
+#else
+			glCompressedTextureSubImage2D(id, 0, 0, 0, desc.width, desc.height, internal, taille, desc.initialData);
+#endif
+			// Pas de `glGenerateMipmap` ici : le materiel ne sait pas filtrer des
+			// blocs compresses. Un actif compresse PORTE ses mips ; s'il n'en a
+			// pas, il n'en aura pas.
+			if (mips > 1)
+				NK_GL_ERR("mips demandes sur un format par blocs : ils doivent etre CUITS, le GPU ne peut pas les "
+						  "generer\n");
+		} else if (desc.initialData) {
 			GLenum base = ToGLBaseFormat(desc.format), type2 = ToGLType(desc.format);
-			uint32 rp = desc.rowPitch > 0 ? desc.rowPitch : desc.width * NkFormatBytesPerPixel(desc.format);
+			uint32 rp = desc.rowPitch > 0 ? desc.rowPitch : NkFormatRowPitch(desc.format, desc.width);
 			const uint32 bpp = NkFormatBytesPerPixel(desc.format);
 			glPixelStorei(GL_UNPACK_ROW_LENGTH, rp / (bpp > 0 ? bpp : 1u));
 #if defined(NK_OPENGL_ES)
@@ -1643,6 +1661,33 @@ namespace nkentseu {
 		if (!texture || !pixels)
 			return false;
 		const NkTextureDesc &desc = texture->desc;
+		// ── Formats par blocs : chemin COMPRESSE, et il sort d'ici ──────────
+		// `glTexSubImage` prendrait les octets compresses pour des pixels : pas
+		// d'erreur, une image fausse. Et l'offset/la taille se comptent en
+		// BLOCS, d'ou `NkFormatImageSize` plutot qu'un pas de ligne.
+		if (NkFormatIsBlockCompressed(desc.format)) {
+			const GLenum interne = ToGLInternalFormat(desc.format);
+			const GLsizei taille = (GLsizei)NkFormatImageSize(desc.format, w, h);
+#if defined(NK_OPENGL_ES)
+			glBindTexture(texture->target, texture->id);
+			if (desc.type == NkTextureType::NK_CUBE)
+				glCompressedTexSubImage2D(GLenum(GL_TEXTURE_CUBE_MAP_POSITIVE_X + layer), (GLint)mip, (GLint)x,
+										  (GLint)y, (GLsizei)w, (GLsizei)h, interne, taille, pixels);
+			else
+				glCompressedTexSubImage2D(texture->target, (GLint)mip, (GLint)x, (GLint)y, (GLsizei)w, (GLsizei)h,
+										  interne, taille, pixels);
+			glBindTexture(texture->target, 0);
+#else
+			if (desc.type == NkTextureType::NK_CUBE || desc.arrayLayers > 1)
+				glCompressedTextureSubImage3D(texture->id, (GLint)mip, (GLint)x, (GLint)y, (GLint)layer, (GLsizei)w,
+											  (GLsizei)h, 1, interne, taille, pixels);
+			else
+				glCompressedTextureSubImage2D(texture->id, (GLint)mip, (GLint)x, (GLint)y, (GLsizei)w, (GLsizei)h,
+											  interne, taille, pixels);
+#endif
+			return true;
+		}
+
 		GLenum base = ToGLBaseFormat(desc.format), type2 = ToGLType(desc.format);
 		uint32 bpp = NkFormatBytesPerPixel(desc.format);
 		uint32 rp2 = rowPitch > 0 ? rowPitch : w * bpp;
