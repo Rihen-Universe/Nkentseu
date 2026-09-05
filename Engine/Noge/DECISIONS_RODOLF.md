@@ -2578,6 +2578,59 @@ un évasé calculé sur l'amplitude du clip, pas une constante.
 chargeur **FBX** charge `XBot.fbx` skinné (99 796 sommets, 65 os) mais rend **0 animation** sur
 `Walking.fbx` → **agent NKRenderer**, et en attendant les marches de Rodolf **en glTF**.
 
+### 🧊 05/09 (14h30) — DEUX CHAMPS INTERPOLÉS, UNE MESURE FAUSSE CORRIGÉE, ET UN WINDING NUMBER QUI NE MARCHE PAS (dit avec ses chiffres)
+
+*Suite du bloc précédent, dans l'ordre de mes propres causes.*
+
+**1. Deux champs interpolés — la cause que j'avais nommée.** Le champ était construit à la pose de fin
+et servait **figé** aux 32 sous-pas, pendant que les capsules, elles, étaient interpolées. `NkCloth` prend
+maintenant `bodySDF` **et** `bodySDFPrev` ; chaque sous-pas lit distance et gradient **interpolés à sa
+fraction**. Mesuré (CesiumMan, 5,5 s, sa vraie marche) : pénétration résiduelle de la **cape 1,68 → 0,58 mm**
+(cible < 1 mm atteinte), du **foulard 6,65 → 1,20 mm**. La projection est **bornée à une cellule** : sans
+borne, deux champs interpolés téléportent une particule là où le corps a beaucoup bougé — l'étirement de la
+cape est passé de 8,7 % à **269 %** le jour où les deux champs sont arrivés, c'est ce qui l'a fait voir.
+
+**2. 🔑 LA MESURE ÉTAIT FAUSSE, et c'est elle qui donnait le pire chiffre du lot précédent.** Une particule
+**épinglée suit un os** : elle est sous la peau **par construction** — une épaule, une taille, un cou. Je les
+comptais. **Les « 9 à 13 particules de foulard en permanence sous la peau » étaient ses 29 épingles.**
+Corrigé dans les deux mesures (`NkClothStats::maxSdfPenetration` et le compteur de la sonde, qui ne lit plus
+que les particules **libres**). Ce qui reste, honnêtement :
+
+| vêtement | sous la peau (particules libres) | résidu dans le champ |
+|---|---|---|
+| cape | **max 4, moyenne 0,11** | 0,58 mm |
+| foulard | **max 2, moyenne 0,15** | 1,20 mm |
+| jupe | max 26, moyenne 3,57 | 18,9 mm |
+
+*Deux fois dans la même journée, le chiffre le plus alarmant venait de l'instrument et non du code : la
+parité sur des coques ouvertes, puis les épingles comptées comme des pénétrations. La règle qui en sort :
+**avant de rapporter un mauvais chiffre, se demander ce que l'instrument compte exactement** — et pour un
+compteur de pénétration, la première question est « qu'est-ce qui a le droit d'être dedans ? ».*
+
+**3. 🔴 Le nombre d'enroulement généralisé : écrit, mesuré, ROUGE.** `NkBodySDF::WindingNumber` (angle
+solide de Van Oosterom & Strackee 1983, grille de signe séparée, valeur **continue** interpolée) devait
+rendre utilisables les corps non étanches de Rodolf. **Il ne marche pas**, et je le dis plutôt que de le
+laisser croire :
+
+| corps | pseudonormale | winding 12 | winding 16 | winding 24 |
+|---|---|---|---|---|
+| CesiumMan (fermé) | **100 %** | 60,6 % | 49,6 % | 31,5 % |
+| XBot (non étanche) | 24,5 % | 13,4 % | 18,6 % | — |
+
+**Il EMPIRE quand la résolution monte** : ce n'est donc pas un échantillonnage trop grossier mais une erreur
+systématique. L'orientation est écartée (le même critère sur `|w|` rend 49,6 %, à l'identique). Coût :
+**0,4 s** (CesiumMan, 4 672 triangles) à **4,1 s** (XBot, 49 112) par construction à 16³ — O(résolution³ ×
+triangles), sans la hiérarchie de Barnes-Hut que Jacobson décrit (approximation dipolaire par grappes), qui
+est **le vrai lot**. Le mode reste optionnel, jamais par défaut, l'avertissement est en tête de l'enum.
+
+**Donc, pour Rodolf, sans détour : le champ ne sert toujours pas sur ses mannequins.** XBot et YBot ne sont
+pas étanches et les **deux** signes essayés s'y trompent. Sur un corps fermé, il fonctionne.
+
+**Restent rouges, nommés** : la cape s'étire (143 % avec la borne, contre 8,7 % sans champ) — **conflit
+épingle/champ** : ses épingles suivent l'os pendant que le champ pousse leurs voisines, et l'arête entre les
+deux paie ; la jupe (406 %) demande un patron évasé sur l'amplitude du clip ; six témoins de patron (43
+verts, 6 rouges) ; le coût du champ (24 ms) et du pas (cape 21 ms, jupe 45 ms) restent au-dessus de 16.
+
 ### 🔩 04/09 (nuit) — JENGA 2.6 : ce qui est appliqué, ce qui est mesuré en retour
 
 - **`-static` — le défaut était chez nous** : `config/toolchain.jenga:55` (bloc Windows natif) promettait
