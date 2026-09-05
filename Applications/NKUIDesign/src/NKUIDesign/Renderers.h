@@ -394,6 +394,32 @@ namespace nkuidesign {
 			NkResolveurCourant().doc = doc;
 			NkResolveurCourant().derniereAbsente = nullptr;
 		}
+		// ── LE FOURNISSEUR D'IMAGES : pose par l'application (son cache), explicite ──
+		/// Le peintre ne charge rien : il DEMANDE une source (handle du dorsal, taille,
+		/// pixels) a celui qui la possede. Absente -> faux : le peintre peint le damier
+		/// et NOTE le chemin, l'inspecteur le dit. Sans fournisseur (une sonde nue) :
+		/// tout est absent, et c'est dit de la meme facon.
+		struct NkImageSource {
+				nkentseu::uint32 handle = 0;
+				nkentseu::int32 w = 0, h = 0;
+				const nkentseu::uint8 *pixels = nullptr;
+		};
+		typedef bool (*NkObtenirImageFn)(void *user, const char *chemin, NkImageSource &out);
+		struct NkFournisseurImages {
+				NkObtenirImageFn obtenir = nullptr;
+				void *user = nullptr;
+				const char *derniereAbsente = nullptr; ///< le chemin de la derniere image non trouvee
+		};
+		inline NkFournisseurImages &NkFournisseurCourant() {
+			static NkFournisseurImages f;
+			return f;
+		}
+		inline void NkPoserFournisseurImages(NkObtenirImageFn fn, void *user) {
+			NkFournisseurCourant().obtenir = fn;
+			NkFournisseurCourant().user = user;
+			NkFournisseurCourant().derniereAbsente = nullptr;
+		}
+
 		/// La couleur d'un texte de couleur du document : litteral ou reference.
 		inline nkentseu::uint32 NkGCouleur(const char *c) {
 			if (!NkEstReference(c))
@@ -1147,6 +1173,113 @@ namespace nkuidesign {
 		/// LE DAMIER d'une image absente : deux gris, carreaux de 8 px, dans la
 		/// boite (le fond arrondi d'abord, puis les carreaux clairs qui restent dans
 		/// le rectangle -- un carreau ne suit pas l'arc : c'est un apercu, dit tel).
+		/// LES CINQ CADRAGES PEINTS, LA ROTATION, LE CONTOUR QUI ROGNE (05/09).
+		/// La source vient du fournisseur ; l'image est POSEE dans un repere tourne
+		/// autour du centre de la boite (la rotation de l'image, meme convention que
+		/// celle du noeud : horaire, y vers le bas) sous la forme d'une CELLULE
+		/// (rectangle de destination + fenetre uv) ; la cellule, ramenee au document,
+		/// est ROGNEE par le contour arrondi (`NkGDecouperParConvexe`, comme les
+		/// bandes du degrade) et emise en UN polygone texture, l'uv de chaque sommet
+		/// obtenu par l'inverse de la pose -- exact, pas echantillonne.
+		///   Fill    : couvre la boite (le plus grand des deux rapports), rogne ;
+		///   Fit     : contient (le plus petit), des bandes restent nues ;
+		///   Stretch : la boite ;
+		///   Tile    : des cellules a la taille NATURELLE de l'image, depuis le coin
+		///             haut-gauche, assez pour couvrir le disque englobant (la boite
+		///             peut etre tournee) ; plafond de 4096 cellules -- au-dela, la
+		///             tuile est agrandie d'autant, et c'est dit ici ;
+		///   Crop    : la boite, fenetre `crop` de l'image.
+		/// Rend faux si la source manque (le chemin est note) ou si le peintre ne sait
+		/// pas peindre une image : l'appelant peint le damier.
+		inline bool NkGPeindreImage(NkComponentPaint &p, const NkPaintRect &r, const nkentseu::float32 R[4],
+									const NkRemplissage &f) {
+			using namespace nkentseu;
+			NkFournisseurImages &fi = NkFournisseurCourant();
+			NkImageSource src;
+			if (f.image.Empty() || !fi.obtenir || !fi.obtenir(fi.user, f.image.Data(), src) || src.w <= 0 || src.h <= 0) {
+				fi.derniereAbsente = f.image.Empty() ? nullptr : f.image.Data();
+				return false;
+			}
+			if (r.w <= 0.f || r.h <= 0.f)
+				return true;
+			float32 cb[4];
+			NkGBornerRayons(r.w, r.h, R, cb);
+			float32 contour[80];
+			const uint32 nc = NkGContourArrondi(r, cb, contour, 8u);
+			const float32 cx = r.x + r.w * 0.5f, cy = r.y + r.h * 0.5f;
+			float32 s = 0.f, c = 1.f;
+			NkSinCosDeg(f.rotationImage, s, c);
+			const float32 iw = (float32)src.w, ih = (float32)src.h;
+			const char *cad = f.cadrage.Data() ? f.cadrage.Data() : "";
+			const bool fit = NkComponentDecl::StrEq(cad, "fit"), stretch = NkComponentDecl::StrEq(cad, "stretch"),
+					   tile = NkComponentDecl::StrEq(cad, "tile"), crop = NkComponentDecl::StrEq(cad, "crop");
+			bool su = true;
+			auto emettre = [&](float32 x0, float32 y0, float32 w, float32 h, float32 u0, float32 v0, float32 u1, float32 v1) {
+				if (w <= 0.f || h <= 0.f)
+					return;
+				// la cellule (repere tourne, centre) -> le document
+				const float32 lx[4] = {x0, x0 + w, x0 + w, x0}, ly[4] = {y0, y0, y0 + h, y0 + h};
+				float32 forme[8];
+				for (uint32 i = 0; i < 4u; ++i) {
+					forme[i * 2] = cx + lx[i] * c - ly[i] * s;
+					forme[i * 2 + 1] = cy + lx[i] * s + ly[i] * c;
+				}
+				float32 coupe[128];
+				const uint32 ncp = NkGDecouperParConvexe(forme, 4u, contour, nc, coupe, 64u);
+				if (ncp < 3u)
+					return; // la cellule est hors du contour : rien a peindre, pas un echec
+				float32 uv[128];
+				for (uint32 i = 0; i < ncp; ++i) {
+					const float32 px = coupe[i * 2] - cx, py = coupe[i * 2 + 1] - cy;
+					const float32 x = px * c + py * s, y = -px * s + py * c; // l'inverse de la pose
+					uv[i * 2] = u0 + (x - x0) / w * (u1 - u0);
+					uv[i * 2 + 1] = v0 + (y - y0) / h * (v1 - v0);
+				}
+				if (!p.ImagePolygone(coupe, uv, (int32)ncp, src.handle, f.opacite))
+					su = false;
+			};
+			if (tile) {
+				// le disque englobant, majore par (w + h) / 2 >= demi-diagonale : pas de racine ici
+				const float32 Rd = (r.w + r.h) * 0.5f;
+				float32 tw = iw, th = ih;
+				auto compte = [&](float32 t, float32 &n) { n = (float32)(int32)(2.f * Rd / t) + 3.f; };
+				float32 nx = 0.f, ny = 0.f;
+				compte(tw, nx);
+				compte(th, ny);
+				while (nx * ny > 4096.f) { // le plafond : la tuile double jusqu'a tenir
+					tw *= 2.f;
+					th *= 2.f;
+					compte(tw, nx);
+					compte(th, ny);
+				}
+				const float32 ox = -r.w * 0.5f, oy = -r.h * 0.5f; // la premiere tuile au coin haut-gauche
+				auto plancher = [](float32 v) { const int32 i = (int32)v; return (float32)i > v ? i - 1 : i; };
+				const int32 i0 = plancher((-Rd - ox) / tw) - 1, j0 = plancher((-Rd - oy) / th) - 1;
+				for (int32 j = j0; (float32)(j - j0) < ny + 2.f; ++j)
+					for (int32 i = i0; (float32)(i - i0) < nx + 2.f; ++i)
+						emettre(ox + (float32)i * tw, oy + (float32)j * th, tw, th, 0.f, 0.f, 1.f, 1.f);
+				return su;
+			}
+			float32 dw = r.w, dh = r.h, u0 = 0.f, v0 = 0.f, u1 = 1.f, v1 = 1.f;
+			if (stretch) {
+			} else if (fit) {
+				const float32 k = (r.w / iw < r.h / ih) ? r.w / iw : r.h / ih;
+				dw = iw * k;
+				dh = ih * k;
+			} else if (crop) {
+				u0 = f.cropX;
+				v0 = f.cropY;
+				u1 = f.cropX + f.cropW;
+				v1 = f.cropY + f.cropH;
+			} else { // fill, le defaut
+				const float32 k = (r.w / iw > r.h / ih) ? r.w / iw : r.h / ih;
+				dw = iw * k;
+				dh = ih * k;
+			}
+			emettre(-dw * 0.5f, -dh * 0.5f, dw, dh, u0, v0, u1, v1);
+			return su;
+		}
+
 		inline void NkGDamier(NkComponentPaint &p, const NkPaintRect &r, const nkentseu::float32 R[4],
 							  nkentseu::float32 opacite) {
 			const nkentseu::float32 k = (opacite < 0.f ? 0.f : (opacite > 100.f ? 100.f : opacite)) * 0.01f;
@@ -1732,7 +1865,10 @@ namespace nkuidesign {
 						// le DAMIER, comme le popover de Lunacy pour une image absente, et
 						// c'est dit dans l'inspecteur. Le cadrage sera lu par le vrai peintre.
 						if (f.EstImage()) {
-							NkGDamier(p, r, Rc, f.opacite);
+							// LA SOURCE, si le fournisseur la donne et si le peintre sait
+							// peindre une image ; sinon le damier, et l'absence est notee
+							if (!NkGPeindreImage(p, r, Rc, f))
+								NkGDamier(p, r, Rc, f.opacite);
 							peint = true;
 							continue;
 						}

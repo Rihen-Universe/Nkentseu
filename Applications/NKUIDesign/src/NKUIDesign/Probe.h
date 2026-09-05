@@ -7551,6 +7551,247 @@ namespace nkuidesign {
 				}
 			}
 		}
+		// ── 70. LA CHAINE DE L'IMAGE (05/09) : un PNG 2x2 ECRIT PAR LA SONDE (pas un fichier de
+		//    Rodolf), relu par le codec PNG ; le peintre emet un polygone texture par cellule
+		//    (uv par sommet, exact) ; TEMOIN EN TEXELS : a quatre points par cadrage, le texel
+		//    que l'uv du polygone designe est celui que la definition du cadrage annonce ; la
+		//    rotation ; le contour arrondi qui rogne ; l'image absente dite ; le kit transmet.
+		{
+			char det[600];
+			static const uint8 kM[4] = {255, 0, 255, 255}, kG[4] = {0, 255, 0, 255};
+			// 70a. le PNG 2x2 damier magenta / vert, ecrit puis relu (aller-retour exact)
+			bool pngOk = false;
+			{
+				NkImage img;
+				if (img.Create(2u, 2u, math::NkColor(), 4) && img.Pixels()) {
+					uint8 *px = img.Pixels();
+					for (int32 y = 0; y < 2; ++y)
+						for (int32 x = 0; x < 2; ++x) {
+							const uint8 *c = ((x + y) & 1) ? kG : kM;
+							for (int32 k = 0; k < 4; ++k)
+								px[(y * 2 + x) * 4 + k] = c[k];
+						}
+					pngOk = img.SavePNG("sonde_image_2x2.png");
+				}
+				NkImage relu;
+				bool exact = false;
+				if (pngOk && relu.Load("sonde_image_2x2.png", 4) && relu.Width() == 2 && relu.Height() == 2 && relu.Pixels()) {
+					exact = true;
+					for (int32 i = 0; i < 16; ++i)
+						if (relu.Pixels()[i] != (((((i / 4) % 2) + (i / 8)) & 1) ? kG : kM)[i % 4])
+							exact = false;
+				}
+				snprintf(det, sizeof(det), "ecrit=%d, relu 2x2 exact=%d (%d x %d)", pngOk ? 1 : 0, exact ? 1 : 0, relu.Width(), relu.Height());
+				check("70a. LE PNG 2x2 (magenta / vert) ecrit par la sonde avec NKImage et RELU par son codec PNG : les seize octets "
+					  "reviennent identiques -- la source du temoin, pas un fichier de Rodolf",
+					  pngOk && exact, det);
+			}
+			static DesignState stImg;
+			stImg.doc.NewDocument("Toile", NkAuthor::Humain);
+			stImg.cheminActif = NkString(); // le repertoire courant : c'est la que le PNG est
+			stImg.images.Vider();
+			renderdetail::NkPoserFournisseurImages(&NkObtenirImageDuDocument, &stImg);
+			const int32 pg = stImg.doc.AddChild(0, "", NkAuthor::Humain);
+			stImg.doc.nodes[(uint32)pg].shape = NkString("frame");
+			stImg.doc.nodes[(uint32)pg].layout.kind = NkLayoutKind::Free;
+			stImg.doc.nodes[(uint32)pg].width.mode = NkSizeMode::Fixed;
+			stImg.doc.nodes[(uint32)pg].width.value = 400.f;
+			stImg.doc.nodes[(uint32)pg].height.mode = NkSizeMode::Fixed;
+			stImg.doc.nodes[(uint32)pg].height.value = 300.f;
+			auto rectImage = [&](float32 w, float32 h, const char *cadrage, float32 rot, float32 rayon, const char *source) {
+				const int32 r = stImg.doc.AddChild(pg, "", NkAuthor::Humain);
+				NkUINode &n = stImg.doc.nodes[(uint32)r];
+				n.shape = NkString("rect");
+				n.posX = 10.f;
+				n.posY = 10.f;
+				n.width.mode = NkSizeMode::Fixed;
+				n.width.value = w;
+				n.height.mode = NkSizeMode::Fixed;
+				n.height.value = h;
+				n.radius = rayon;
+				NkRemplissage f;
+				f.genre = NkString("image");
+				f.image = NkString(source);
+				f.cadrage = NkString(cadrage);
+				f.rotationImage = rot;
+				n.fills.PushBack(f);
+				return r;
+			};
+			// le texel qu'un point du document recoit, par les polygones textures ENREGISTRES
+			// (le dernier qui le contient ; l'uv est affine sur l'eventail -> barycentrique)
+			auto texel = [&](NkRecordingPaint &rec, float32 X, float32 Y, uint32 &rgba) -> bool {
+				bool trouve = false;
+				for (uint32 ci = 0; ci < (uint32)rec.cmds.Size(); ++ci) {
+					const NkPaintCmd &c = rec.cmds[ci];
+					if (c.op != NkPaintOp::Image || c.xy.Size() < 6u)
+						continue;
+					const uint32 n = (uint32)c.xy.Size() / 2u;
+					for (uint32 i = 1; i + 1 < n; ++i) {
+						const float32 ax = c.xy[0], ay = c.xy[1], bx = c.xy[i * 2], by = c.xy[i * 2 + 1], qx = c.xy[(i + 1) * 2], qy = c.xy[(i + 1) * 2 + 1];
+						const float32 d = (bx - ax) * (qy - ay) - (qx - ax) * (by - ay);
+						if (d > -1e-6f && d < 1e-6f)
+							continue;
+						const float32 l1 = ((bx - X) * (qy - Y) - (qx - X) * (by - Y)) / d;
+						const float32 l2 = ((qx - X) * (ay - Y) - (ax - X) * (qy - Y)) / d;
+						const float32 l0 = l1, la = 1.f - l1 - l2;
+						(void)l0;
+						if (l1 < -1e-4f || l2 < -1e-4f || la < -1e-4f)
+							continue;
+						const float32 u = l1 * c.uv[0] + l2 * c.uv[i * 2] + la * c.uv[(i + 1) * 2];
+						const float32 v = l1 * c.uv[1] + l2 * c.uv[i * 2 + 1] + la * c.uv[(i + 1) * 2 + 1];
+						int32 tx = (int32)(u * 2.f), ty = (int32)(v * 2.f);
+						if (tx < 0) tx = 0;
+						if (tx > 1) tx = 1;
+						if (ty < 0) ty = 0;
+						if (ty > 1) ty = 1;
+						rgba = ((tx + ty) & 1) ? 0x00FF00FFu : 0xFF00FFFFu;
+						trouve = true;
+					}
+				}
+				return trouve;
+			};
+			auto peindre = [&](int32 noeud, NkRecordingPaint &rec, NkPaintRect &r) {
+				NkPaintRect sfc;
+				sfc.x = 0.f;
+				sfc.y = 0.f;
+				sfc.w = 600.f;
+				sfc.h = 900.f;
+				NkLayoutResult lay;
+				NkComputeLayout(stImg.doc, sfc, lay);
+				r = lay.At(noeud);
+				for (uint32 i = 0; i < (uint32)stImg.doc.nodes.Size(); ++i)
+					if (i != 0u && (int32)i != noeud && (int32)i != pg)
+						stImg.doc.nodes[i].masque = true;
+				rec.Reset();
+				RenderDocument(rec, stImg.doc, sfc);
+				for (uint32 i = 0; i < (uint32)stImg.doc.nodes.Size(); ++i)
+					stImg.doc.nodes[i].masque = false;
+			};
+			struct Attente { float32 fx, fy; uint32 rgba; bool present; };
+			const uint32 M = 0xFF00FFFFu, G = 0x00FF00FFu;
+			auto verifier = [&](const char *nom, int32 noeud, const Attente *att, uint32 na, char *out, size_t cap, bool &ok) {
+				NkRecordingPaint rec;
+				NkPaintRect r;
+				peindre(noeud, rec, r);
+				uint32 nImg = 0u;
+				for (uint32 i = 0; i < (uint32)rec.cmds.Size(); ++i)
+					if (rec.cmds[i].op == NkPaintOp::Image)
+						++nImg;
+				size_t l = strlen(out);
+				snprintf(out + l, cap - l, "%s%s (%u polygone(s)) : ", l ? " ; " : "", nom, nImg);
+				for (uint32 a = 0; a < na; ++a) {
+					uint32 got = 0u;
+					const bool pres = texel(rec, r.x + att[a].fx * r.w, r.y + att[a].fy * r.h, got);
+					const bool bon = pres == att[a].present && (!pres || got == att[a].rgba);
+					if (!bon)
+						ok = false;
+					l = strlen(out);
+					snprintf(out + l, cap - l, "%s%s", a ? "," : "", !pres ? (att[a].present ? "VIDE!" : "vide") : (got == M ? (bon ? "M" : "M!") : (bon ? "G" : "G!")));
+				}
+				if (nImg == 0u && na && att[0].present)
+					ok = false;
+			};
+			// 70b. les cinq cadrages, en texels
+			{
+				bool ok = true;
+				det[0] = '\0';
+				const Attente quatre[4] = {{0.25f, 0.25f, M, true}, {0.75f, 0.25f, G, true}, {0.25f, 0.75f, G, true}, {0.75f, 0.75f, M, true}};
+				verifier("stretch 100x50", rectImage(100.f, 50.f, "stretch", 0.f, 0.f, "sonde_image_2x2.png"), quatre, 4u, det, sizeof(det), ok);
+				verifier("fill 100x50 (couvre, v visible 0,25..0,75)", rectImage(100.f, 50.f, "", 0.f, 0.f, "sonde_image_2x2.png"), quatre, 4u, det, sizeof(det), ok);
+				const Attente fit[4] = {{0.125f, 0.5f, 0u, false}, {0.375f, 0.25f, M, true}, {0.625f, 0.25f, G, true}, {0.375f, 0.75f, G, true}};
+				verifier("fit 100x50 (contient : 50x50 au centre, bandes nues)", rectImage(100.f, 50.f, "fit", 0.f, 0.f, "sonde_image_2x2.png"), fit, 4u, det, sizeof(det), ok);
+				const Attente tuiles[4] = {{0.0625f, 0.125f, M, true}, {0.1875f, 0.125f, G, true}, {0.3125f, 0.125f, M, true}, {0.1875f, 0.375f, M, true}};
+				verifier("tile 8x4 (tuiles 2x2 naturelles)", rectImage(8.f, 4.f, "tile", 0.f, 0.f, "sonde_image_2x2.png"), tuiles, 4u, det, sizeof(det), ok);
+				const int32 rc = rectImage(100.f, 50.f, "crop", 0.f, 0.f, "sonde_image_2x2.png");
+				stImg.doc.nodes[(uint32)rc].fills[0].cropX = 0.5f;
+				stImg.doc.nodes[(uint32)rc].fills[0].cropW = 0.5f;
+				const Attente cropA[4] = {{0.25f, 0.25f, G, true}, {0.75f, 0.25f, G, true}, {0.25f, 0.75f, M, true}, {0.75f, 0.75f, M, true}};
+				verifier("crop (fenetre x 0,5..1 : la colonne droite etiree)", rc, cropA, 4u, det, sizeof(det), ok);
+				check("70b. LES CINQ CADRAGES PEINTS, temoin en TEXELS (quatre points par cadrage, le texel designe par l'uv du "
+					  "polygone enregistre) : Stretch, Fill (couvre, rogne), Fit (contient, bandes nues : un point hors de "
+					  "l'image ne recoit rien), Tile (tuiles a la taille naturelle), Crop (la fenetre)",
+					  ok, det);
+			}
+			// 70c. la rotation, le contour arrondi qui rogne, l'image absente DITE
+			{
+				bool ok = true;
+				det[0] = '\0';
+				// tourne d'un quart de tour horaire : le coin haut-gauche montre l'ancien bas-gauche (vert)
+				const Attente rot[4] = {{0.25f, 0.25f, G, true}, {0.75f, 0.25f, M, true}, {0.75f, 0.75f, G, true}, {0.25f, 0.75f, M, true}};
+				verifier("rotation 90 sur 40x40", rectImage(40.f, 40.f, "stretch", 90.f, 0.f, "sonde_image_2x2.png"), rot, 4u, det, sizeof(det), ok);
+				// un disque (rayon 20 sur 40x40) : le coin est hors du contour, le centre dedans
+				const Attente rond[2] = {{0.03f, 0.03f, 0u, false}, {0.5f, 0.5f, M, true}};
+				verifier("disque 40x40 r=20 (le coin est rogne)", rectImage(40.f, 40.f, "stretch", 0.f, 20.f, "sonde_image_2x2.png"), rond, 2u, det, sizeof(det), ok);
+				// absente : aucun polygone texture, le damier (FillColor), le chemin note
+				renderdetail::NkFournisseurCourant().derniereAbsente = nullptr;
+				NkRecordingPaint rec;
+				NkPaintRect r;
+				peindre(rectImage(40.f, 40.f, "", 0.f, 0.f, "absente.png"), rec, r);
+				uint32 nImg = 0u, nFill = 0u;
+				for (uint32 i = 0; i < (uint32)rec.cmds.Size(); ++i) {
+					if (rec.cmds[i].op == NkPaintOp::Image) ++nImg;
+					if (rec.cmds[i].op == NkPaintOp::FillColor) ++nFill;
+				}
+				const char *dite = renderdetail::NkFournisseurCourant().derniereAbsente;
+				const bool absenteDite = nImg == 0u && nFill >= 4u && dite && NkComponentDecl::StrEq(dite, "absente.png")
+										 && stImg.images.Trouver("absente.png") && stImg.images.Trouver("absente.png")->absente;
+				if (!absenteDite)
+					ok = false;
+				size_t l = strlen(det);
+				snprintf(det + l, sizeof(det) - l, " ; absente.png : %u polygone(s), %u FillColor (damier), notee « %s », entree absente=%d",
+						 nImg, nFill, dite ? dite : "(rien)", stImg.images.Trouver("absente.png") ? (stImg.images.Trouver("absente.png")->absente ? 1 : 0) : -1);
+				check("70c. LA ROTATION (un quart de tour : le haut-gauche montre l'ancien bas-gauche), LE CONTOUR QUI ROGNE (un "
+					  "disque : le coin ne recoit rien, le centre si), et L'IMAGE ABSENTE : aucun polygone, le damier, le chemin "
+					  "NOTE et l'entree marquee absente -- jamais silencieuse",
+					  ok, det);
+			}
+			// 70d. le kit transmet : un contexte reel, un televerseur factice (un handle, pas de GPU) --
+			// la toile emet une commande TEXTUREE portant ce handle ; sans handle (0) : rien de texture
+			{
+				static nkgui::NkGuiContext ctxT;
+				if (!ctxT.Init(600, 900)) {
+					check("70d. la transmission au kit", false, "Init a refuse");
+				} else {
+					stImg.images.Vider();
+					stImg.images.televerser = [](void *, const uint8 *, int32, int32) -> uint32 { return 0x4E4B0200u; };
+					const int32 rt = rectImage(100.f, 50.f, "stretch", 0.f, 0.f, "sonde_image_2x2.png");
+					stImg.Recompute(NkPaintRect{0.f, 0.f, 600.f, 900.f});
+					stImg.SelectSingle(rt);
+					static PreviewPanel toileT(&stImg);
+					NkEditorFrameContext ec;
+					ec.ui = &ctxT;
+					ec.dt = 0.016f;
+					auto image = [&]() {
+						ctxT.input.mousePos = {-1.f, -1.f};
+						ctxT.input.mouseDown[0] = false;
+						ctxT.BeginFrame(0.016f);
+						ctxT.BeginLayout({0.f, 0.f, 340.f, 900.f});
+						toileT.OnUI(ec);
+						ctxT.EndFrame();
+					};
+					image();
+					image();
+					uint32 avecHandle = 0u;
+					for (uint32 i = 0; i < (uint32)ctxT.dl.cmds.Size(); ++i)
+						if (ctxT.dl.cmds[i].texId == 0x4E4B0200u)
+							++avecHandle;
+					// sans televerseur : le handle est 0, le peintre NKGui repond faux, le damier se peint
+					stImg.images.Vider();
+					stImg.images.televerser = nullptr;
+					image();
+					image();
+					uint32 sansHandle = 0u;
+					for (uint32 i = 0; i < (uint32)ctxT.dl.cmds.Size(); ++i)
+						if (ctxT.dl.cmds[i].texId == 0x4E4B0200u)
+							++sansHandle;
+					snprintf(det, sizeof(det), "commandes texturees au handle 0x4E4B0200 : %u avec televerseur, %u sans (damier)", avecHandle, sansHandle);
+					check("70d. LE KIT TRANSMET : la toile (NkGuiComponentPaint) emet une commande texturee au handle que le "
+						  "televerseur a rendu ; sans televerseur (handle 0) le peintre repond faux et le damier prend la place",
+						  avecHandle >= 1u && sansHandle == 0u, det);
+				}
+			}
+			renderdetail::NkPoserFournisseurImages(nullptr, nullptr);
+		}
 		snprintf(tail, sizeof(tail), "\n=== RESULTAT : %d / %d ===\n", pass, total);
 		rep.Append(tail);
 
