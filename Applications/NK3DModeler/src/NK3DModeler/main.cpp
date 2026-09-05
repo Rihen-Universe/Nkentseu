@@ -1786,7 +1786,26 @@ int nkmain(const NkEntryState &entry) {
 			// de la vue 3D de repondre a travers lui (Rihen, 12 aout).
 			NkHitRegistry::LayerScope modalLayer(hit, 100);
 			(void)hit.Add("picker.modal", {0.f, 0.f, (float32)W, (float32)H});
-			editorkit::NkDrawFilePicker(ui, st.picker, editorkit::NkFilePickerStyle{});
+			// LE SELECTEUR DE LA MAISON par defaut (celui de NkUIDesign, dans
+			// NKEditorKit) : rail a sections, vignettes, fil d'Ariane, filtres
+			// NOMMES, tri. Demande de Rodolf, 2026-09-05.
+			//
+			// ⚠️ UNE EXCEPTION, MESUREE ET NOMMEE, pas une hesitation :
+			// `NkDrawSelecteur` n'appelle que `PickerTitle()` et
+			// `PickerConfirmLabel()`. Il n'appelle NI `PickerExtraHeight`, NI
+			// `PickerBottomReserve`, NI `PickerConfirmEnabled`, NI
+			// `PickerClearExtraFocus` -- les quatre points par lesquels
+			// `NkModelerPicker` greffe l'assistant « Nouveau materiau » (le champ
+			// de nom et le combo de type). Y basculer ce mode-la ferait DISPARAITRE
+			// l'assistant en silence : un refactor se juge sur ce qu'il ne change
+			// pas. Le mode materiau garde donc l'ANCIEN dessin jusqu'a ce que le
+			// selecteur du kit porte une region supplementaire. Ce n'est PAS un
+			// quatrieme selecteur : ce sont les deux qui existent deja, et le neuf
+			// devient le defaut. Note dans la ROADMAP.
+			if (st.picker.matNewMode)
+				editorkit::NkDrawFilePicker(ui, st.picker, editorkit::NkFilePickerStyle{});
+			else
+				(void)editorkit::NkDrawSelecteur(ui, st.picker, theme);
 		}
 		if (st.picker.pickerConfirmed) {
 			st.picker.pickerConfirmed = false;
@@ -2277,6 +2296,24 @@ int nkmain(const NkEntryState &entry) {
 		// charge -> decoupe -> creation -> archivage ; ne couvre NI le bouton
 		// Importer NI le picker -- une relecture a la main reste necessaire
 		// pour eux.
+		// NK_PICKER_IMPORT=<n> : a la frame n, OUVRE le selecteur d'import par le
+		// MEME point de passage que le bouton « Importer » du navigateur
+		// (`nk3d::NkPickerOuvrirImport`) -- filtres nommes compris. Aucune
+		// injection d'entree : on arme l'etat que le clic arme, rien de plus.
+		// PERIMETRE, dit ici : il prouve que le selecteur S'OUVRE et CE QU'IL
+		// dessine ; il ne prouve pas que le BOUTON y mene -- ça reste un clic
+		// humain a faire.
+		{
+			static int32 sPickFrame = -2;
+			if (sPickFrame == -2) {
+				const char *v = std::getenv("NK_PICKER_IMPORT");
+				sPickFrame = v ? (int32)std::atoi(v) : -1;
+			}
+			if (sPickFrame > 0 && agentFrame == sPickFrame) {
+				nk3d::NkPickerOuvrirImport(st);
+				st.pickerAction = 2;
+			}
+		}
 		{
 			static bool sAgentImportDone = false;
 			if (!sAgentImportDone && agentFrame >= 10 && demo::Demo3DHostReady()) {

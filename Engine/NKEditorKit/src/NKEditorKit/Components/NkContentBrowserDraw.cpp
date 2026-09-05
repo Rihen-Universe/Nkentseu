@@ -2,7 +2,7 @@
 // @File    NkContentBrowserDraw.cpp
 // @Brief   Le dessin du navigateur de contenu — LE MIXTE Unreal + Aetherion
 //          (Rodolf, 2026-08-30), et la preuve que la declaration est LUE.
-// @Author  Rihen
+// @Author  TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // @License Proprietary - All Rights Reserved (see LICENSE)
 //
 // =============================================================================
@@ -117,9 +117,33 @@ namespace nkentseu {
 
 			/// Comparaison de tri : dossiers d'abord, puis nom (ASCII, sans casse).
 			/// Rend vrai si `a` passe AVANT `b` en ordre croissant.
-			bool SortBefore(const NkAssetEntry &a, const NkAssetEntry &b) {
+			// ⑤ (05/09, nuit) LE TRI SUIT SA CLE : nom, date, taille, type.
+			// ⚠️ LES DOSSIERS D'ABORD, QUELLE QUE SOIT LA CLE. Trier par taille en
+			//    melangeant dossiers et fichiers mettrait tous les dossiers (taille 0) au
+			//    debut ou a la fin selon le sens -- ce qui ressemble a un tri correct et
+			//    n'en est pas un. La regle du navigateur historique tient.
+			// ⚠️ UN EGAL SE DEPARTAGE PAR LE NOM : sans ca, deux fichiers de meme taille
+			//    changeraient d'ordre a chaque relecture du dossier.
+			bool AvantParNom(const NkAssetEntry &a, const NkAssetEntry &b);
+			bool SortBefore(const NkAssetEntry &a, const NkAssetEntry &b, NkBrowserTri cle) {
 				if (a.isFolder != b.isFolder)
 					return a.isFolder;
+				if (cle == NkBrowserTri::Date && a.dateModif != b.dateModif)
+					return a.dateModif > b.dateModif; // le plus RECENT d'abord en « croissant »
+				if (cle == NkBrowserTri::Taille && a.taille != b.taille)
+					return a.taille > b.taille; // le plus GROS d'abord
+				if (cle == NkBrowserTri::Type) {
+					const char *ta = a.kindLabel ? a.kindLabel : "";
+					const char *tb = b.kindLabel ? b.kindLabel : "";
+					int32 c = 0;
+					for (; ta[c] && tb[c] && ta[c] == tb[c]; ++c) {}
+					if (ta[c] != tb[c])
+						return (unsigned char)ta[c] < (unsigned char)tb[c];
+				}
+				return AvantParNom(a, b);
+			}
+			
+			bool AvantParNom(const NkAssetEntry &a, const NkAssetEntry &b) {
 				const char *pa = Label(a), *pb = Label(b);
 				while (*pa && *pb) {
 					char ca = *pa, cb = *pb;
@@ -189,6 +213,191 @@ namespace nkentseu {
 				return inst;
 			}
 
+			// ── LA VIGNETTE EST PEINTE (2026-09-05) ────────────────────────
+			// ⚠️ MESURE AVANT CORRECTION : `NkAssetEntry::thumbnail` etait declaree,
+			//    documentee (« identifiant OPAQUE »), portee par le modele... et lue
+			//    NULLE PART. Le dessin ne peignait l'icone que si elle valait ZERO :
+			//    une entree AVEC vignette ne montrait donc RIEN -- ni image, ni icone.
+			//    C'est la neuvieme fois de ce chantier qu'un parametre declare n'est
+			//    pas honore, et le seul remede qui tienne est de le mesurer.
+			// Le contrat de `ImagePolygone` est respecte : un peintre qui ne sait pas
+			// texturer rend FAUX, et l'appelant retombe sur l'icone -- rien n'est simule.
+			bool DrawThumb(NkComponentPaint &p, const NkPaintRect &r, nk_uint64 handle) {
+				if (handle == 0 || r.w <= 0.f || r.h <= 0.f)
+					return false;
+				const float32 xy[8] = {r.x, r.y, r.x + r.w, r.y, r.x + r.w, r.y + r.h, r.x, r.y + r.h};
+				const float32 uv[8] = {0.f, 0.f, 1.f, 0.f, 1.f, 1.f, 0.f, 1.f};
+				return p.ImagePolygone(xy, uv, 4, (uint32)handle, 100.f);
+			}
+
+			// ── ②③ LES SILHOUETTES, DESSINEES (2026-09-05, nuit) ───────────────────
+			// Rodolf : « les dossiers ne sont pas bien designes » (des rectangles pleins) et
+			// « il doit y avoir des icones pour specifier chaque type comme c'est le cas
+			// partout ». Un `.png` SANS vignette affichait le meme aplat qu'un dossier : on
+			// ne distinguait pas un fichier d'un dossier.
+			//
+			// ⚠️ DESSINEES AVEC LES PRIMITIVES DU CONTRAT, JAMAIS UN GLYPHE DE POLICE
+			//    (porte du 04/09). `NkComponentPaint::Icon` peint un CARRE PLEIN -- son
+			//    en-tete le dit : il n'existe aucun atlas d'icones. Les tracer ici les rend
+			//    identiques chez les trois peintres ET mesurables par `NkRecordingPaint`.
+			//
+			// ⚠️ AUCUNE COULEUR EN DUR : la teinte est le role passe par l'appelant, et les
+			//    nuances sont ce role a une opacite differente.
+			/// ① (2026-09-05, nuit) UNE NUANCE DE LA MEME TEINTE, calculee sur les
+			/// composantes. `k > 0` eclaircit vers le blanc, `k < 0` assombrit vers le noir.
+			/// ⚠️ L'EMPAQUETAGE EST `0xRRGGBBAA` -- `NkGuiComponentPaint::Unpack` lit le
+			///    ROUGE dans les bits 24-31. Le code precedent faisait
+			///    `(teinte & 0x00FFFFFF) | 0x66000000` en croyant a `0xAARRGGBB` : il mettait
+			///    le rouge a ZERO et l'alpha dans la case du rouge. D'un ambre, il restait
+			///    du VERT -- c'est l'onglet vert de la capture de Rodolf. Une teinte ne se
+			///    bricole pas au masque.
+			// `Teinter` a monte dans `NkSilhouettes.h` (05/09, nuit) : le dessin de l'ARBRE
+			// en a besoin pour la bande de ses sections, et une copie aurait diverge.
+			inline uint32 Teinter(uint32 rgba, float32 k) { return NkTeinter(rgba, k); }
+
+			// ── ①②③ LES SILHOUETTES, DESSINEES (2026-09-05) ──────────────────────
+			// ⚠️ DESSINEES AVEC LES PRIMITIVES DU CONTRAT, JAMAIS UN GLYPHE DE POLICE
+			//    (porte du 04/09). `NkComponentPaint::Icon` peint un CARRE PLEIN -- son
+			//    en-tete le dit : il n'existe aucun atlas d'icones.
+			//
+			// LE DOSSIER SUIT L'EXPLORATEUR DE WINDOWS 11, et c'est un choix nomme : un
+			// rabat ARRIERE (plus sombre) qui porte la patte, un rabat AVANT (plus clair)
+			// qui couvre les trois quarts bas, et un liseré d'un ton en haut de l'avant.
+			// Une SEULE teinte, trois nuances -- l'onglet n'est plus une couleur a lui.
+			void Silhouette(NkComponentPaint &p, const NkPaintRect &r, NkAssetIcone genre, uint16 role,
+							uint8 contenu = 0) {
+				if (r.w <= 4.f || r.h <= 4.f)
+					return;
+				// un carre centre : une icone etiree ne ressemble plus a ce qu'elle designe
+				const float32 c = r.w < r.h ? r.w : r.h;
+				const NkPaintRect b{r.x + (r.w - c) * 0.5f, r.y + (r.h - c) * 0.5f, c, c};
+				const uint32 vif = p.ColorOf(role);
+				const uint32 sombre = Teinter(vif, -0.22f); // le rabat ARRIERE et la patte
+				const uint32 clair = Teinter(vif, 0.14f);	// le liseré du rabat avant
+				const uint32 pale = Teinter(vif, -0.35f);	// les signes poses DANS la forme
+				const float32 u = c / 16.f; // une grille de 16, comme un SVG 16x16
+				auto R = [&](float32 x, float32 y, float32 w, float32 h, uint32 col, float32 rd) {
+					p.FillColor({b.x + x * u, b.y + y * u, w * u, h * u}, col, rd * u);
+				};
+				const bool dossier = genre == NkAssetIcone::Dossier || genre == NkAssetIcone::DossierImages
+						|| genre == NkAssetIcone::DossierDocuments
+						|| genre == NkAssetIcone::DossierTelechargements
+						|| genre == NkAssetIcone::DossierBureau;
+				if (genre == NkAssetIcone::Volume) {
+					// UN VOLUME : un boitier avec sa diode. Rien a voir avec un dossier -- un
+					// disque n'est pas un dossier, et le rail les melangeait a l'oeil.
+					R(1.5f, 4.f, 13.f, 8.f, sombre, 1.5f);
+					R(1.5f, 4.f, 13.f, 4.f, vif, 1.5f);
+					R(11.5f, 9.f, 1.6f, 1.6f, clair, 0.8f); // la diode
+					return;
+				}
+				if (genre == NkAssetIcone::Section) {
+					// UN TITRE DE SECTION : trois traits, discrets. Ce n'est pas un objet du
+					// systeme de fichiers, et il ne doit pas en avoir l'air.
+					R(3.f, 5.f, 10.f, 1.4f, pale, 0.6f);
+					R(3.f, 7.5f, 10.f, 1.4f, pale, 0.6f);
+					R(3.f, 10.f, 7.f, 1.4f, pale, 0.6f);
+					return;
+				}
+				if (dossier) {
+					// LA PATTE : ~40 % de la largeur du corps (5,2 sur 13), et elle ne monte
+					// que de 1,3 unite -- une patte trop haute fait un drapeau, pas un dossier.
+					R(1.5f, 2.4f, 5.2f, 3.4f, sombre, 1.f);
+					// LE RABAT ARRIERE : il porte la patte, et son bord haut reste visible
+					R(1.5f, 3.7f, 13.f, 9.8f, sombre, 1.4f);
+					// ── CE QUI DEPASSE ── (05/09, v5). C'est la forme de l'explorateur :
+					// un dossier PLEIN laisse voir des feuilles entre le rabat arriere et le
+					// rabat avant ; un dossier VIDE ne montre que le creux. Deux feuilles
+					// decalees, PAS une seule -- une seule se lit comme un liseré de plus.
+					// ⚠️ TEINTES DE LA MEME FAMILLE (`Teinter` melange vers le blanc et garde
+					//    la dominante) : une feuille blanche casserait l'unite de teinte
+					//    mesuree par la sonde 116.
+					if ((NkContenuDossier)contenu == NkContenuDossier::Plein) {
+						R(4.4f, 3.9f, 7.4f, 2.4f, Teinter(vif, 0.72f), 0.4f);
+						R(3.2f, 4.5f, 9.6f, 1.8f, Teinter(vif, 0.52f), 0.4f);
+					} else if ((NkContenuDossier)contenu == NkContenuDossier::Illisible) {
+						// NI VIDE NI PLEIN : une barre en travers du creux. On ne dessine pas
+						// l'ignorance comme le vide -- c'etait toute la demande.
+						R(5.f, 4.3f, 6.f, 1.4f, Teinter(vif, -0.45f), 0.6f);
+					}
+					// LE RABAT AVANT : plus clair, il couvre les trois quarts bas. C'est CE
+					// decalage de tons qui donne la profondeur, pas un contour.
+					R(1.5f, 5.4f, 13.f, 8.1f, vif, 1.4f);
+					// le liseré d'un ton sur son bord haut
+					R(1.5f, 5.4f, 13.f, 0.7f, clair, 0.7f);
+					// LE SIGNE DU DOSSIER CONNU, pose DANS le rabat avant. Rien pour un dossier
+					// ordinaire : le cas general n'a pas besoin d'etre annonce.
+					if (genre == NkAssetIcone::DossierImages) {
+						R(5.f, 10.f, 6.f, 1.6f, pale, 0.5f); // l'horizon
+						R(6.f, 7.6f, 1.9f, 1.9f, pale, 1.f); // le soleil
+					} else if (genre == NkAssetIcone::DossierDocuments) {
+						R(5.f, 7.6f, 6.f, 1.1f, pale, 0.5f);
+						R(5.f, 9.4f, 6.f, 1.1f, pale, 0.5f);
+						R(5.f, 11.2f, 4.f, 1.1f, pale, 0.5f);
+					} else if (genre == NkAssetIcone::DossierTelechargements) {
+						R(7.2f, 7.4f, 1.8f, 3.4f, pale, 0.5f);
+						const float32 xy[6] = {b.x + 5.4f * u, b.y + 10.2f * u, b.x + 10.6f * u,
+												   b.y + 10.2f * u, b.x + 8.f * u,	 b.y + 12.4f * u};
+						if (!p.PolygonHex(xy, 3, pale))
+							R(6.2f, 10.2f, 3.6f, 1.4f, pale, 0.f);
+					} else if (genre == NkAssetIcone::DossierBureau) {
+						R(5.f, 7.6f, 6.f, 3.8f, pale, 0.5f); // un ecran
+						R(7.2f, 11.4f, 1.6f, 0.9f, pale, 0.f);
+					}
+					return;
+				}
+				// LES FICHIERS : une feuille au coin plie, puis le signe du type.
+				R(3.f, 1.5f, 10.f, 13.f, sombre, 1.f);
+				{
+					const float32 tri[6] = {b.x + 9.5f * u, b.y + 1.5f * u, b.x + 13.f * u, b.y + 5.f * u,
+												b.x + 9.5f * u, b.y + 5.f * u};
+					if (!p.PolygonHex(tri, 3, clair))
+						R(9.5f, 1.5f, 3.5f, 3.5f, clair, 0.f);
+				}
+				switch (genre) {
+					case NkAssetIcone::Image: {
+						R(4.5f, 8.5f, 7.f, 1.6f, vif, 0.4f); // l'horizon
+						R(5.5f, 6.f, 2.f, 2.f, vif, 1.f);	 // le soleil
+						break;
+					}
+					case NkAssetIcone::Texte:
+						R(5.f, 6.5f, 6.f, 1.f, vif, 0.4f);
+						R(5.f, 8.5f, 6.f, 1.f, vif, 0.4f);
+						R(5.f, 10.5f, 4.f, 1.f, vif, 0.4f);
+						break;
+					case NkAssetIcone::Code:
+						// deux chevrons : des traits, pas les caracteres « < » et « > »
+						p.Line(b.x + 6.5f * u, b.y + 7.f * u, b.x + 4.8f * u, b.y + 9.5f * u, role, 1.2f);
+						p.Line(b.x + 4.8f * u, b.y + 9.5f * u, b.x + 6.5f * u, b.y + 12.f * u, role, 1.2f);
+						p.Line(b.x + 9.5f * u, b.y + 7.f * u, b.x + 11.2f * u, b.y + 9.5f * u, role, 1.2f);
+						p.Line(b.x + 11.2f * u, b.y + 9.5f * u, b.x + 9.5f * u, b.y + 12.f * u, role, 1.2f);
+						break;
+					case NkAssetIcone::Archive:
+						R(7.f, 5.5f, 2.f, 1.5f, vif, 0.f);
+						R(7.f, 7.5f, 2.f, 1.5f, vif, 0.f);
+						R(7.f, 9.5f, 2.f, 2.5f, vif, 0.5f);
+						break;
+					case NkAssetIcone::Executable: {
+						const float32 tri2[6] = {b.x + 6.f * u,	 b.y + 6.5f * u, b.x + 11.f * u,
+													 b.y + 9.5f * u, b.x + 6.f * u,	 b.y + 12.5f * u};
+						if (!p.PolygonHex(tri2, 3, vif))
+							R(6.f, 7.f, 4.f, 5.f, vif, 0.f);
+						break;
+					}
+					default:
+						break; // Inconnu : la feuille seule, deja distincte d'un dossier
+				}
+			}
+
+
+			/// La silhouette EFFECTIVE : `Auto` se resout depuis `isFolder`.
+			NkAssetIcone IconeDe(const NkAssetEntry &e) {
+				const NkAssetIcone g = (NkAssetIcone)e.icone;
+				if (g != NkAssetIcone::Auto && g < NkAssetIcone::Count)
+					return g;
+				return e.isFolder ? NkAssetIcone::Dossier : NkAssetIcone::Inconnu;
+			}
+
 			/// Le pont des evenements de l'arbre embarque vers ceux du navigateur :
 			/// une selection de dossier EST une navigation.
 			struct TreeBridge {
@@ -204,6 +413,15 @@ namespace nkentseu {
 			}
 
 		} // namespace
+
+		// ② LA SILHOUETTE, EXPOSEE. Le RAIL du selecteur (un `tree_view`) appelle CETTE
+		//    fonction-la, exactement comme la grille : une seule fonction, deux volets.
+		//    Deux tables auraient diverge des le premier ajout de nature.
+		void NkDessinerSilhouette(NkComponentPaint &p, const NkPaintRect &r, NkAssetIcone genre,
+								  uint16 role, uint8 contenu) {
+			Silhouette(p, r, genre, role, contenu);
+		}
+		
 
 		NkContentBrowserResult NkDrawContentBrowser(NkComponentPaint &p, const NkComponentInput &in,
 													const NkPaintRect &rect, NkContentBrowserModel &m,
@@ -241,6 +459,11 @@ namespace nkentseu {
 			const bool showFooter = P("show_footer") > 0.5f;
 			const bool showFilters = !minimal && P("show_filters") > 0.5f;
 			const bool showStatus = !minimal && P("show_status") > 0.5f;
+			// ② (05/09) La bande de tete et les trois boutons d'action se taisent sur
+			//    demande : un selecteur de fichiers reutilise ce dessin comme volet
+			//    droit, et n'y « cree » ni n'y « importe » rien. Defaut = 1 partout.
+			const bool showHeader = P("show_header") > 0.5f;
+			const bool showActions = P("show_actions") > 0.5f;
 			const float32 thumb = (m.thumbSize > 0.f ? m.thumbSize : P("thumb_size")) * in.surfaceScale;
 
 			const float32 pad = M("card_pad");
@@ -250,14 +473,17 @@ namespace nkentseu {
 			p.Fill(rect, s.panelBg);
 
 			// ── BANDE D'ONGLETS ─────────────────────────────────────────────────
-			const float32 headerH = M("header_h");
+			const float32 headerH = showHeader ? M("header_h") : 0.f;
 			NkPaintRect header{rect.x, rect.y, rect.w, headerH};
-			p.Fill(header, s.headerBg);
-			// ⚠️ `header.w - 2 * card_pad`, PAS `header.w` — le texte est pose a
-			//    `header.x + card_pad` ; la largeur pleine lui ferait calculer son
-			//    point de troncature sur 2 pads qu'il n'a pas (mesure 34b).
-			p.Text({header.x + pad, header.y, header.w - 2.f * pad, header.h}, "Contenu", s.text);
-			p.HLine(rect.x, rect.y + headerH, rect.w, s.border);
+			if (showHeader) {
+				p.Fill(header, s.headerBg);
+				// ⚠️ `header.w - 2 * card_pad`, PAS `header.w` — le texte est pose a
+				//    `header.x + card_pad` ; la largeur pleine lui ferait calculer son
+				//    point de troncature sur 2 pads qu'il n'a pas (mesure 34b).
+				p.Text({header.x + pad, header.y, header.w - 2.f * pad, header.h},
+					   m.headerTitle.Empty() ? "Contenu" : m.headerTitle.Data(), s.text);
+				p.HLine(rect.x, rect.y + headerH, rect.w, s.border);
+			}
 
 			// ── BARRE D'OUTILS ──────────────────────────────────────────────────
 			// Mixte : Creer / Importer / Tout enregistrer + fil d'Ariane + boite de
@@ -274,7 +500,7 @@ namespace nkentseu {
 				const float32 btnY = toolbar.y + (toolbar.h - btnH) * 0.5f;
 				float32 bx = toolbar.x + pad;
 				// Creer — le « Add » d'Unreal, au nom de l'historique.
-				{
+				if (showActions) {
 					const float32 bw = p.TextWidth("Créer") + 2.f * pad;
 					NkPaintRect r{bx, btnY, bw, btnH};
 					if (TextButton(p, in, r, "Créer", s.cardBg, s.text, s.border, 0.f) &&
@@ -283,7 +509,7 @@ namespace nkentseu {
 					bx += bw + pad * 0.5f;
 				}
 				// Importer — en ACCENT, comme le bouton d'Aetherion.
-				{
+				if (showActions) {
 					const float32 bw = p.TextWidth("Importer") + 2.f * pad;
 					NkPaintRect r{bx, btnY, bw, btnH};
 					if (TextButton(p, in, r, "Importer", s.activeMark, s.badgeText, 0, 0.f) &&
@@ -292,7 +518,7 @@ namespace nkentseu {
 					bx += bw + pad * 0.5f;
 				}
 				// Tout enregistrer — le « Save All » d'Unreal.
-				{
+				if (showActions) {
 					const float32 bw = p.TextWidth("Tout enregistrer") + 2.f * pad;
 					NkPaintRect r{bx, btnY, bw, btnH};
 					if (TextButton(p, in, r, "Tout enregistrer", s.cardBg, s.text, s.border, 0.f) &&
@@ -330,6 +556,11 @@ namespace nkentseu {
 						p.Text(cell, t, i + 1 == (uint32)m.breadcrumb.Size() ? s.text : s.textMuted);
 						if (in.mousePressed && cell.Contains(in.mouseX, in.mouseY)) {
 							res.navigated = true;
+							// ⚠️ L'INDEX, pas seulement le libelle : deux dossiers du meme
+							//    nom dans un chemin (`src/nkgui/src`) rendaient la charge
+							//    AMBIGUE -- un selecteur de fichiers ne peut pas deviner
+							//    lequel. Le libelle reste, pour ne rien casser.
+							res.navigatedCrumb = (int32)i;
 							if (hooks.onNavigate)
 								hooks.onNavigate(hooks.user, t);
 						}
@@ -394,7 +625,8 @@ namespace nkentseu {
 					uint32 j = i;
 					while (j > 0) {
 						const bool before = SortBefore(m.entries[(uint32)v],
-													   m.entries[(uint32)vis[j - 1]]);
+													   m.entries[(uint32)vis[j - 1]],
+													   (NkBrowserTri)m.sortCle);
 						if (m.sortAsc ? !before : before)
 							break;
 						vis[j] = vis[j - 1];
@@ -534,21 +766,31 @@ namespace nkentseu {
 				p.Text({ix, ir.y, ir.w * 0.5f, ir.h}, cnt, s.textMuted);
 
 				// A droite : « Trier par : Nom » puis « Tout selectionner ».
+				// ⑤ debrayable : l'hote qui offre son propre combo eteint celui-ci.
+				const bool montrerTri = P("show_sort") > 0.5f;
 				const char *sortLbl = m.sortAsc ? "Trier par : Nom (a-z)" : "Trier par : Nom (z-a)";
 				const float32 sortW = p.TextWidth(sortLbl) + 2.f * pad;
-				NkPaintRect sortBtn{ir.x + ir.w - pad - sortW, ir.y, sortW, ir.h};
-				p.Text(sortBtn, sortLbl, s.textMuted, NkTextAlign::Center);
-				if (in.mousePressed && sortBtn.Contains(in.mouseX, in.mouseY))
-					m.sortAsc = !m.sortAsc;
-				const char *selLbl = "Tout sélectionner";
-				const float32 selW = p.TextWidth(selLbl) + 2.f * pad;
-				NkPaintRect selBtn{sortBtn.x - pad - selW, ir.y, selW, ir.h};
-				p.Text(selBtn, selLbl, s.textMuted, NkTextAlign::Center);
-				if (in.mousePressed && selBtn.Contains(in.mouseX, in.mouseY)) {
-					m.chosen.Clear();
-					for (uint32 i = 0; i < (uint32)vis.Size(); ++i)
-						m.chosen.PushBack(vis[i]);
-					res.selectionChanged = true;
+				NkPaintRect sortBtn{ir.x + ir.w - pad - (montrerTri ? sortW : 0.f), ir.y,
+									montrerTri ? sortW : 0.f, ir.h};
+				if (montrerTri) {
+					p.Text(sortBtn, sortLbl, s.textMuted, NkTextAlign::Center);
+					if (in.mousePressed && sortBtn.Contains(in.mouseX, in.mouseY))
+						m.sortAsc = !m.sortAsc;
+				}
+				// ④ (05/09) « Tout selectionner » SEULEMENT si la selection multiple a un
+				//    sens ici. Un dialogue « choisir UN dossier » qui propose de tout
+				//    selectionner promet une chose qu'il refusera ensuite.
+				if (P("show_select_all") > 0.5f) {
+					const char *selLbl = "Tout sélectionner";
+					const float32 selW = p.TextWidth(selLbl) + 2.f * pad;
+					NkPaintRect selBtn{sortBtn.x - pad - selW, ir.y, selW, ir.h};
+					p.Text(selBtn, selLbl, s.textMuted, NkTextAlign::Center);
+					if (in.mousePressed && selBtn.Contains(in.mouseX, in.mouseY)) {
+						m.chosen.Clear();
+						for (uint32 i = 0; i < (uint32)vis.Size(); ++i)
+							m.chosen.PushBack(vis[i]);
+						res.selectionChanged = true;
+					}
 				}
 				contentTop += infoH;
 				p.HLine(rect.x, contentTop, rect.w, s.border);
@@ -601,7 +843,14 @@ namespace nkentseu {
 					NkTreeViewHooks th;
 					th.user = &bridge;
 					th.onSelect = &TreeOnSelect;
-					NkDrawTreeView(p, in, tree, m.folders, ts, th);
+					const NkTreeViewResult tr = NkDrawTreeView(p, in, tree, m.folders, ts, th);
+					// ① On RELAIE, on ne peint pas : voir `NkContentBrowserResult::infobulle`.
+					if (!tr.infobulle.Empty()) {
+						res.infobulle = tr.infobulle;
+						res.infobulleX = tree.x + tree.w;
+						res.infobulleY = tr.infobulleY;
+						res.infobulleH = tr.infobulleH;
+					}
 				}
 				p.VLine(tree.x + tree.w, tree.y, tree.h, s.border);
 				gridX = tree.x + tree.w + M("stroke_w");
@@ -627,11 +876,28 @@ namespace nkentseu {
 				if (thumbFit > place)
 					thumbFit = place > 16.f ? place : 16.f;
 			}
-			const float32 cellW = asGrid ? (thumbFit + gap) : area.w;
+			// ① LA GRILLE REMPLIT SA LARGEUR (05/09, nuit). Le pas d'une colonne etait
+			//    `vignette + gouttiere`, et le nombre de colonnes le PLANCHER du quotient :
+			//    le reste -- jusqu'a une cellule entiere moins un pixel -- n'etait donne a
+			//    personne. Sur la capture de Rodolf, une bande morte a droite et des trous
+			//    entre les colonnes.
+			//    On calcule donc le nombre de colonnes avec le pas MINIMAL, puis on
+			//    repartit le reste : le pas devient `largeur / colonnes`.
+			const float32 pasMin = asGrid ? (thumbFit + gap) : area.w;
 			const float32 cellH = asGrid ? (thumbFit + footerH + gap) : rowH;
-			int32 perRow = asGrid ? (int32)(area.w / (cellW > 0.f ? cellW : 1.f)) : 1;
+			int32 perRow = asGrid ? (int32)(area.w / (pasMin > 0.f ? pasMin : 1.f)) : 1;
 			if (perRow < 1)
 				perRow = 1;
+			const float32 cellW = asGrid ? area.w / (float32)perRow : area.w;
+			// ⚠️ LA CARTE GRANDIT AVEC SA CELLULE, mais pas au-dela d'un carre : une
+			//    vignette etiree en largeur montrerait moins, pas plus. Le surplus devient
+			//    de l'air entre les colonnes, ce qui est exactement ce qui manquait.
+			float32 carteW = cellW - gap;
+			if (carteW > thumbFit * 1.35f)
+				carteW = thumbFit * 1.35f;
+			if (carteW < 16.f)
+				carteW = 16.f;
+			const float32 marge = asGrid ? (cellW - carteW) * 0.5f : 0.f;
 
 			int32 visible = 0;
 			int32 hitIndex = -1;
@@ -641,14 +907,23 @@ namespace nkentseu {
 
 				const int32 col = asGrid ? (visible % perRow) : 0;
 				const int32 row = asGrid ? (visible / perRow) : visible;
-				NkPaintRect cell{area.x + (float32)col * cellW, area.y + (float32)row * cellH - m.scroll,
-								 asGrid ? thumbFit : area.w, asGrid ? (thumbFit + footerH) : rowH};
+				NkPaintRect cell{area.x + (float32)col * cellW + marge,
+								 area.y + (float32)row * cellH - m.scroll,
+								 asGrid ? carteW : area.w, asGrid ? (thumbFit + footerH) : rowH};
 				++visible;
 
 				// Hors champ : on saute le DESSIN, pas le comptage. Compter apres
 				// aurait rendu le defilement dependant de ce qui est visible.
 				if (cell.y + cell.h < area.y || cell.y > area.y + area.h)
 					continue;
+				// ── LA PLAGE VISIBLE (05/09, v5) ─────────────────────────
+				// Le composant est le SEUL a savoir quelles entrees sont a l'ecran (il
+				// connait le defilement, la taille des cellules et le nombre de colonnes).
+				// L'hote en a besoin pour ne payer un acces disque que sur ce qui se voit.
+				if (res.premierVisible < 0 || idx < res.premierVisible)
+					res.premierVisible = idx;
+				if (idx > res.dernierVisible)
+					res.dernierVisible = idx;
 
 				const bool isActive = (m.active == idx);
 				const bool isChosen = m.IsChosen(idx);
@@ -656,21 +931,32 @@ namespace nkentseu {
 				if (asGrid) {
 					p.Fill(cell, s.cardBg, pad * 0.5f);
 					const float32 thumbZoneH = cell.h - footerH;
-					if (e.thumbnail == 0)
-						p.Icon({cell.x + pad, cell.y + pad, cell.w - pad * 2.f,
-								thumbZoneH - pad * 2.f},
-							   e.isFolder ? 1 : 2, e.isFolder ? s.folderTint : e.kindRole);
+					const NkPaintRect zoneVign{cell.x + pad, cell.y + pad, cell.w - pad * 2.f,
+											   thumbZoneH - pad * 2.f};
+					if (!DrawThumb(p, zoneVign, e.thumbnail))
+						Silhouette(p, zoneVign, IconeDe(e), e.isFolder ? s.folderTint : e.kindRole,
+								   e.contenu);
 					// LE BADGE DE TYPE (Aetherion) : la couleur de la nature en
 					// fond, pose au bas de la zone de vignette. Pas en minimal, et
 					// pas sur un dossier — le dossier EST sa couleur.
+					// ⑤ (05/09, nuit) LE BADGE COLORE N'EST QUE POUR UN FORMAT RECONNU.
+					//    Rodolf : « meme le design des fichiers au format reconnu ou non doivent
+					//    avoir un design specifique. » Un INCONNU garde son extension, mais en
+					//    TEXTE ATTENUE, sans pastille : la pastille coloree annonce une FAMILLE,
+					//    et l'ignorance n'en est pas une.
 					if (!minimal && !e.isFolder && e.kindLabel && e.kindLabel[0]) {
+						const bool connu = (NkAssetIcone)e.icone != NkAssetIcone::Inconnu
+										   && (NkAssetIcone)e.icone != NkAssetIcone::Auto;
 						const float32 bh = M("badge_h");
 						const float32 bw = p.TextWidth(e.kindLabel) + pad;
 						NkPaintRect badge{cell.x + cell.w - bw - pad * 0.5f,
 										  cell.y + thumbZoneH - bh - pad * 0.5f, bw, bh};
 						if (badge.x >= cell.x && badge.y >= cell.y) {
-							p.Fill(badge, e.kindRole, bh * 0.2f);
-							p.Text(badge, e.kindLabel, s.badgeText, NkTextAlign::Center);
+							if (connu) {
+								p.Fill(badge, e.kindRole, bh * 0.2f);
+								p.Text(badge, e.kindLabel, s.badgeText, NkTextAlign::Center);
+							} else
+								p.Text(badge, e.kindLabel, s.textMuted, NkTextAlign::Center);
 						}
 					}
 					if (showFooter) {
@@ -683,8 +969,10 @@ namespace nkentseu {
 					}
 				} else {
 					p.Fill(cell, s.cardBg);
-					p.Icon({cell.x + pad, cell.y, rowH, rowH}, e.isFolder ? 1 : 2,
-						   e.isFolder ? s.folderTint : e.kindRole);
+					const NkPaintRect zoneVign{cell.x + pad, cell.y, rowH, rowH};
+					if (!DrawThumb(p, zoneVign, e.thumbnail))
+						Silhouette(p, zoneVign, IconeDe(e), e.isFolder ? s.folderTint : e.kindRole,
+								   e.contenu);
 					p.Text({cell.x + pad + rowH, cell.y, cell.w * 0.6f, cell.h}, Label(e), s.text);
 					p.Text({cell.x + cell.w * 0.6f, cell.y, cell.w * 0.4f, cell.h},
 						   e.kindLabel ? e.kindLabel : "", s.textMuted);
@@ -709,8 +997,24 @@ namespace nkentseu {
 					p.OutlineSharp({cell.x - stroke, cell.y - stroke, cell.w + stroke * 2.f,
 									cell.h + stroke * 2.f},
 								   s.chosenMark);
+				// ④ (05/09, nuit) UN ANNEAU CREUX, PAS UN APLAT. `Outline` repeint tout le
+				//    rectangle avec `inner` avant de creuser (c'est son contrat : « plein
+				//    puis creusement d'un pixel ») -- appele ICI, apres le contenu, il
+				//    EFFACAIT l'icone et le pied de la carte selectionnee. Rodolf a vu
+				//    une vignette vide avec son nom ecrit dans la barre d'etat.
+				//    ⚠️ `OutlineColor` NE CONVIENT PAS NON PLUS, et la sonde l'a montre :
+				//       son implementation de base peint le rectangle ENTIER en couleur
+				//       de bord, puis « creuse » avec un `inner` d'alpha nul -- qui
+				//       n'efface rien. La carte devenait un aplat bleu. La phrase
+				//       « un `inner` a alpha nul laisse voir le fond » de
+				//       `NkComponentPaint.h` ne vaut donc que pour un peintre qui
+				//       surcharge, pas pour le contrat par defaut.
+				//    La primitive qui NE repeint PAS le fond est nommee ainsi dans le
+				//    meme fichier : `OutlineSharp`. C'est celle du marquage « choisi »,
+				//    et les deux restent distincts par leur ROLE et par leur rectangle
+				//    (« choisi » deborde d'un trait, « actif » epouse la carte).
 				if (isActive)
-					p.Outline(cell, s.activeMark, s.cardBg, pad * 0.5f);
+					p.OutlineSharp(cell, s.activeMark);
 
 				if (hooks.cardOverlay)
 					hooks.cardOverlay(hooks.user, p, idx, cell.x, cell.y, cell.w, cell.h);

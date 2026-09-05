@@ -123,8 +123,7 @@ namespace nkentseu {
 				// aurait rendu l'import impossible sans le dire. Le depart reste
 				// la racine du projet : un point de depart connu, pas une prison.
 				if (hit.Clicked("brw.imp")) {
-					st.picker.OpenPickerBase(editorkit::NkFilePickerState::PK_File,
-											 st.projectRoot.CStr(), nullptr, 0, nullptr);
+					NkPickerOuvrirImport(st);
 					st.pickerAction = 2; // 2 = importer un fichier 3D
 				}
 				x += bw2 + 8.f;

@@ -3,7 +3,7 @@
 // @File    NkContentBrowserModel.h
 // @Brief   LA DEMONSTRATION du devis : le navigateur de contenu, ecrit sous la
 //          forme proposee — modele neutre + jetons + variantes + greffes.
-// @Author  Rihen
+// @Author  TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // @License Proprietary - All Rights Reserved (see LICENSE)
 //
 // ⚠️ ETAT (2026-08-30) : DEUX CONSOMMATEURS REELS — NkUIDesign (document de
@@ -42,6 +42,7 @@
 //    rejouer aurait laisse l'affirmation « ce fichier compile sans NKGui »
 //    debout sans que rien ne la soutienne plus.
 #include "NKEditorKit/Components/NkComponentPaint.h"
+#include "NKEditorKit/Components/NkSilhouettes.h" // ② les icones partagees grille/rail
 // ⚠️ LA COLONNE DE DOSSIERS EST LE COMPOSANT `tree_view`, PAS UNE COPIE. La
 //    declaration le disait deja (`folder_tree` porte `component = "tree_view"`) ;
 //    depuis le mixte du 2026-08-30 (directive de Rodolf : « un mixte entre
@@ -88,7 +89,34 @@ namespace nkentseu {
 				uint16 kindRole = 0;
 				const char *kindLabel = ""; ///< libelle affiche dans le pied de carte
 				uint32 userTag = 0;			///< libre a l'application (index, drapeaux)
+
+				// ②③ (2026-09-05, nuit) LA NATURE VISUELLE DE L'ENTREE -- ce qu'on DESSINE
+				// quand il n'y a pas de vignette. C'est une notion du DESSIN, pas du domaine :
+				// elle ne remplace pas `kindRole`/`kindLabel`, qui restent la nature METIER de
+				// l'application (« procedural », « dataset », « font »...).
+				// ⚠️ AJOUTE A LA FIN, et `Auto` vaut 0 : les consommateurs existants gardent
+				//    exactement le rendu d'avant (dossier ou fichier, selon `isFolder`).
+				uint8 icone = 0; ///< voir NkAssetIcone
+
+				// ⑤ (2026-09-05, nuit) DE QUOI TRIER PAR DATE ET PAR TAILLE. Le systeme de
+				// fichiers les donne deja (`NkDirectoryEntry::Size` / `ModificationTime`) :
+				// c'est l'entree qui ne les portait pas. Zero = inconnu, et un inconnu se
+				// range apres -- pas devant, ou il ferait croire au plus petit ou au plus vieux.
+				nk_int64 taille = 0;  ///< octets ; 0 pour un dossier
+				nk_int64 dateModif = 0; ///< epoch
+
+				/// ÉTAT DE REMPLISSAGE d'un dossier (`NkContenuDossier`), 0 = pas encore
+				/// demandé au disque. Additif, neutre par défaut : un hôte qui ne le
+				/// renseigne pas garde exactement le dessin d'avant.
+				uint8 contenu = 0;
 		};
+
+		// ⚠️ `NkAssetIcone` ET `NkDessinerSilhouette` ONT DEMENAGE (05/09, nuit) dans
+		//    `NkSilhouettes.h` : le RAIL d'un selecteur (un `tree_view`) doit les
+		//    appeler, et l'y laisser aurait fait dependre le dessin d'un composant du
+		//    MODELE d'un autre composant de meme rang. L'include ci-dessus les
+		//    ramene ici : rien ne change pour les consommateurs de ce fichier.
+
 
 		// ── UNE NATURE D'ASSET, DECLAREE PAR L'APPLICATION ──────────────────────
 		// Les puces de filtre du mixte (Aetherion : « Mesh / Material / Texture /
@@ -105,6 +133,7 @@ namespace nkentseu {
 				/// dossiers passent toujours : les puces filtrent des fichiers.
 				bool active = false;
 		};
+
 
 		// ── LE MODELE ───────────────────────────────────────────────────────────
 		// L'application le remplit ; le composant le lit et y ecrit la selection et
@@ -165,9 +194,24 @@ namespace nkentseu {
 				/// passent toujours d'abord — la regle du navigateur historique.
 				bool sortAsc = true;
 
+				/// ⑤ (2026-09-05) LA CLE DE TRI. Ajoutee A LA FIN, et `Nom` vaut 0 : les
+				/// consommateurs existants trient exactement comme avant.
+				/// Les DOSSIERS passent toujours d'abord, quelle que soit la cle -- c'est la
+				/// regle du navigateur historique, et elle ne se discute pas par cle.
+				uint8 sortCle = 0; ///< voir NkBrowserTri
+
 				/// Texte de droite de la barre d'etat (« Sauvegarde », etc.) —
 				/// fourni par l'application, vide = rien.
 				NkString statusRight;
+
+				/// ② (2026-09-05) LE TITRE DE LA BANDE DE TETE. Vide = « Contenu », le
+				/// libelle historique — aucun consommateur existant ne bouge. Ajoute
+				/// parce que le meme composant sert desormais de VOLET DROIT a un
+				/// selecteur de fichiers (`NkFilePickerNav.h`), ou « Contenu » serait
+				/// faux : ce qu'on y voit est un DOSSIER, pas la bibliotheque d'assets.
+				/// ⚠️ Un titre est une DONNEE de l'application, pas une variante : deux
+				///    rendus identiques a un mot pres ne justifient pas deux dessins.
+				NkString headerTitle;
 
 				bool IsChosen(int32 i) const {
 					for (uint32 k = 0; k < (uint32)chosen.Size(); ++k)
@@ -180,6 +224,10 @@ namespace nkentseu {
 					chosen.Clear();
 				}
 		};
+
+		// ── ⑤ LES CLES DE TRI (2026-09-05, nuit) ───────────────────────────
+		// Regle append-only : ces valeurs finissent dans des fichiers.
+		enum class NkBrowserTri : uint8 { Nom = 0, Date, Taille, Type, Count };
 
 		// ── LES VARIANTES ───────────────────────────────────────────────────────
 		// Directive de Rodolf du 2026-08-18. UN modele, N rendus. L'index
@@ -339,6 +387,30 @@ namespace nkentseu {
 				bool selectionChanged = false;
 				bool navigated = false;	 ///< le fil d'Ariane ou un dossier a ete suivi
 				int32 activatedIndex = -1;
+				/// ② (2026-09-05) L'INDEX de la miette du fil d'Ariane qui a ete cliquee,
+				/// -1 si la navigation vient de l'arbre (dont la charge est un chemin
+				/// complet, donc non ambigu). Ajoute A LA FIN : `onNavigate` ne portait
+				/// que le LIBELLE de la miette, et deux segments homonymes le rendaient
+				/// indechiffrable.
+				int32 navigatedCrumb = -1;
+
+				/// ① (2026-09-05, v5) L'INFOBULLE DU RAIL, RELAYEE TELLE QUELLE.
+				/// Le navigateur ne la peint pas davantage que l'arbre : il la fait
+				/// passer a l'hote, qui seul sait ou est le bord de la fenetre et
+				/// quelle couche est au-dessus. `infobulleX` est le bord DROIT du rail
+				/// — l'hote y adosse le cartouche pour qu'il ne recouvre AUCUNE entree.
+				NkString infobulle;
+				float32 infobulleX = 0.f;
+				float32 infobulleY = 0.f;
+				float32 infobulleH = 0.f;
+
+				/// LA PLAGE D'ENTREES REELLEMENT A L'ECRAN (bornes incluses), -1 si aucune.
+				/// Le composant est le seul a la connaitre -- il tient le defilement, la
+				/// taille des cellules et le nombre de colonnes. L'hote s'en sert pour ne
+				/// payer un acces disque (« ce dossier est-il vide ? ») QUE sur ce qui se
+				/// voit : sur un dossier de 124 entrees, c'est une quinzaine au lieu de 124.
+				int32 premierVisible = -1;
+				int32 dernierVisible = -1;
 		};
 
 		// ── LA SIGNATURE TYPE ───────────────────────────────────────────────────
@@ -399,6 +471,23 @@ namespace nkentseu {
 				{"show_filters", "Rangée des puces de filtre", NkParamKind::Bool, 1.f, 0.f, 0.f, nullptr,
 				 0},
 				{"show_status", "Barre d'état basse", NkParamKind::Bool, 1.f, 0.f, 0.f, nullptr, 0},
+				// ② (2026-09-05) DEUX INTERRUPTEURS DE PLUS, ajoutes A LA FIN. Ils
+				// valent 1 par defaut : le rendu d'aujourd'hui ne bouge pas d'un pixel
+				// pour les consommateurs existants (NkUIDesign, NK3DModeler), et la
+				// sonde le verifie plutot que de l'affirmer.
+				{"show_header", "Bande de tête (titre du panneau)", NkParamKind::Bool, 1.f, 0.f, 0.f,
+				 nullptr, 0},
+				{"show_actions", "Boutons Créer / Importer / Tout enregistrer", NkParamKind::Bool, 1.f,
+				 0.f, 0.f, nullptr, 0},
+				// ④ (05/09, soir) « Tout selectionner » n'a aucun sens quand un SEUL objet
+				// peut etre choisi -- un dialogue « choisir un dossier », par exemple. Defaut 1 :
+				// le navigateur d'assets ne bouge pas.
+				{"show_select_all", "Bouton « Tout sélectionner »", NkParamKind::Bool, 1.f, 0.f, 0.f,
+				 nullptr, 0},
+				// ⑤ (05/09, nuit) L'hote qui offre SON combo de tri (le selecteur de
+				// fichiers) eteint celui-ci : deux commandes pour un reglage, c'est une
+				// de trop. Defaut 1 : le navigateur d'assets garde la sienne.
+				{"show_sort", "Bouton « Trier par »", NkParamKind::Bool, 1.f, 0.f, 0.f, nullptr, 0},
 			};
 			static const NkTokenDecl kTokens[] = {
 				{"panel_bg", "PanelBg", "fond du panneau"},

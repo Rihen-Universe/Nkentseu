@@ -3339,3 +3339,58 @@ signature supposée compile, et c'est le problème*.
 
 **Le déclencheur** : la fusion de `bc623a358` dans la branche de travail de
 NK3DModeler. Propriétaire : celui qui reprend le modeleur après cette fusion.
+
+---
+
+## ✅ FAIT LE 2026-09-05 (nuit) — LE SÉLECTEUR EST BRANCHÉ, ET CE QU'IL RESTE À FAIRE
+
+L'entrée ci-dessus est **close, sauf un point**. Mesure : les huit fichiers dont
+le sélecteur dépend (`NkFilePickerNav.h`, `Components/NkSilhouettes.h`,
+`NkContentBrowserDraw.cpp`, `NkContentBrowserModel.h`, `NkTreeViewDraw.cpp`,
+`NkTreeViewModel.h`, `NKFileSystem/NkDirectory.{h,cpp}`) sont **inchangés dans
+cette branche depuis la base de fusion** — la reprise est donc une avance pure,
+pas une divergence.
+
+**Pris tels quels à `feat/noge-inventaire@14f83fbbb`**, sans un caractère de
+modification. ⚠️ **La duplication est nommée pour être résolue mécaniquement** :
+le jour de la fusion, ces huit chemins se résolvent par `git checkout --theirs`
+— l'arbre `Nkentseu-noge` est l'amont, celui-ci n'en est qu'un instantané.
+
+**Branchement** : `NkModelerPicker` descend désormais de `NkFilePickerNavState`
+(qui dérive de `NkFilePickerState` : toutes ses surcharges restent valides).
+`main.cpp` appelle `editorkit::NkDrawSelecteur(ui, st.picker, theme)`.
+`NkPickerOuvrirImport` (dans `NkModelerCommon.h`) pose les **filtres nommés** de
+l'import — Modèles 3D · glTF · FBX · Wavefront · USD ASCII · Nuages et
+impression · Textures · Tous les fichiers — et sert **les deux portes** du même
+geste (bouton « Importer » et menu contextuel), pour qu'elles ne divergent pas.
+
+### ⛔ CE QUI N'EST PAS FAIT, ET POURQUOI — l'assistant « Nouveau matériau »
+
+`NkDrawSelecteur` n'appelle que `PickerTitle()` et `PickerConfirmLabel()`. Il
+n'appelle **ni** `PickerExtraHeight`, **ni** `PickerBottomReserve`, **ni**
+`PickerConfirmEnabled`, **ni** `PickerClearExtraFocus` — les quatre points par
+lesquels `NkModelerPicker` greffe l'assistant de création de matériau (le champ
+de nom et le combo de type). Y basculer ce mode-là aurait fait **disparaître
+l'assistant en silence** : *un refactor se juge sur ce qu'il ne change pas*.
+
+Le mode `matNewMode` garde donc l'**ancien** dessin. Ce ne sont pas deux
+sélecteurs de plus : ce sont les deux qui existaient déjà, et le neuf est
+devenu le défaut.
+
+**Le déclencheur** : `NkDrawFilePickerNav` apprend une **région supplémentaire**
+(hauteur demandée par l'état, dessinée par un rappel de l'hôte, réserve du bas
+qui la couvre). Le jour où le kit la porte, ce `if` disparaît et
+`Shell/NkModelerFileDialog.h` part avec lui. **Propriétaire** : l'agent qui tient
+NKEditorKit. **À demander dans `echanges/`, pas à écrire ici.**
+
+### 🍞 AUTRE DETTE NOMMÉE — les messages à l'écran vivent dans l'application
+
+`Shell/NkModelerToast.h` (le résultat d'une action, peint dans la couche
+overlay) **devrait vivre dans NKEditorKit**, avec les modales et les infobulles :
+toute application de la maison a le même besoin. Mesure faite ce soir : **ni
+NKEditorKit ni NKGui ne portent la moindre notion de notification** (aucun
+`toast`, `notification`, `bandeau`) — il n'y avait donc rien à réutiliser. Et la
+surface de dessin du kit (`NkEditorContext`) n'est pas celle que NK3DModeler
+emploie pour son overlay (`NkModelerPainter` sur `ui.dlOverlay`).
+**Déclencheur** : la fusion, puis un portage dans le kit avec les deux surfaces
+en tête. **Propriétaire** : l'agent NKEditorKit.

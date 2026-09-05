@@ -3,7 +3,7 @@
 // @File    NkTreeViewModel.h
 // @Brief   L'ARBRE de la bibliotheque — le SECOND composant declare, et par la
 //          meme occasion le premier test independant de la forme.
-// @Author  Rihen
+// @Author  TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // @License Proprietary - All Rights Reserved (see LICENSE)
 //
 // =============================================================================
@@ -154,6 +154,53 @@ namespace nkentseu {
 				//    connait pas la semantique d'heritage de l'application.
 				bool hidden = false; ///< invisible dans la vue (l'oeil)
 				bool locked = false; ///< inselectionnable (le cadenas)
+
+				// ⑥ (2026-09-05, nuit) L'INFOBULLE DE CE NOEUD. Vide = aucune, et c'est le
+				// defaut : les quatre consommateurs existants n'en posent pas et ne changent
+				// pas d'une ligne.
+				// ⚠️ AJOUTEE PARCE QU'UN LIBELLE PEUT ETRE TRONQUE et que le composant est le
+				//    SEUL a savoir ou il l'a coupe. J'avais d'abord ecrit que c'etait
+				//    impossible sans toucher les quatre consommateurs : c'etait faux -- un
+				//    champ additif au defaut vide ne touche personne.
+				NkString infobulle;
+
+				// ② (2026-09-05, nuit) LA SILHOUETTE DESSINEE de ce noeud (voir
+				// `NkSilhouettes.h`). 0 = `Auto` = aucune, et c'est le defaut : les quatre
+				// consommateurs existants n'en posent pas et gardent leur rendu.
+				// ⚠️ ELLE NE REMPLACE PAS `icon`, qui reste la poignee d'atlas de l'hote. Un
+				//    rail de fichiers n'a pas d'atlas -- il a besoin d'une forme TRACEE.
+				uint8 silhouette = 0;
+
+				// ③ (2026-09-05, nuit) CE NOEUD EST UN EN-TETE DE SECTION : il se peint sur
+				// une BANDE plus sombre, sur toute la largeur. Rodolf : « pour distinguer
+				// "Dossier courant" des autres, on doit avoir une barre differente pour ce
+				// titre, donc plus sombre » -- c'est ce qui separe visuellement les blocs.
+				// ⚠️ EXPLICITE, PAS DEDUIT. On aurait pu le deviner (« verrouille ET sans
+				//    chemin »), mais deux notions qui coincident aujourd'hui divergeront : un
+				//    noeud verrouille qui n'est pas un titre existera un jour.
+				// Faux par defaut : les quatre consommateurs gardent leur rendu.
+				bool bandeau = false;
+
+				// ④ (2026-09-05, nuit) CE NOEUD A DES ENFANTS QUI NE SONT PAS ENCORE DANS
+				// LE MODELE. Le chevron s'affiche quand meme, et le deplier appelle
+				// `onExpand` : c'est a l'hote de charger, puis de reconstruire.
+				// ⚠️ POURQUOI CE DRAPEAU EXISTE : le rail d'un selecteur ne peut pas lister
+				//    les sous-dossiers de TOUS les dossiers -- ce serait un acces disque par
+				//    entree a chaque image. Il le fait pour ceux qu'on deplie, et il ANNONCE
+				//    les autres. Sans ce drapeau, un dossier plein n'aurait pas de chevron
+				//    tant qu'on ne l'aurait pas ouvert -- c'est-a-dire jamais.
+				// Faux par defaut : les quatre consommateurs gardent leur rendu.
+				bool enfantsPossibles = false;
+
+				// (2026-09-05, v5) ÉTAT DE REMPLISSAGE de ce nœud, quand c'est un dossier
+				// (`NkContenuDossier`). 0 = pas encore demandé au disque, et c'est le défaut :
+				// les consommateurs existants gardent leur rendu.
+				// ⚠️ VOISIN DE `enfantsPossibles`, PAS IDENTIQUE : le chevron demande « a-t-il
+				//    des SOUS-DOSSIERS ? », l'icône demande « contient-il QUELQUE CHOSE ? ».
+				//    Un dossier plein de fichiers et sans sous-dossier répond non au premier
+				//    et oui au second. Deux questions voisines, une seule fonction paramétrée
+				//    pour y répondre (`NkDirectory::Probe`).
+				uint8 contenu = 0;
 				/// Le drapeau vient-il d'un ancetre plutot que du noeud ? Sert a le
 				/// peindre attenue. L'application le calcule ; sans lui, l'icone
 				/// mentirait sur l'endroit ou l'on peut agir.
@@ -578,6 +625,25 @@ namespace nkentseu {
 				bool dropRefusedCycle = false;
 
 				int32 visibleCount = 0; ///< lignes REELLEMENT emises, pour le pied et la molette
+
+				/// ① (2026-09-05, v5) L'INFOBULLE DU NŒUD SURVOLE — **RAPPORTEE, PAS PEINTE**.
+				///
+				/// L'arbre la dessinait lui-meme, juste apres son `PopClip`, a
+				/// `souris + 12/+16` et DANS SA PROPRE LISTE DE DESSIN. Consequence
+				/// visible sur les captures de Rodolf : le cartouche opaque tombait sur
+				/// la rangee du dessous et en MASQUAIT le libelle — une entree du rail
+				/// paraissait sans nom. Un composant qui peint hors de son rectangle
+				/// prend une decision de mise en page qui ne lui appartient pas : seul
+				/// l'hote sait ou est le bord de la fenetre, quelle couche est au-dessus,
+				/// et quelle place est libre a cote du rail.
+				///
+				/// Donc l'arbre RELEVE et l'hote PEINT. `infobulle` est vide quand rien
+				/// n'est survole ou quand le nœud n'en porte pas ; `infobulleY/H`
+				/// donnent la rangee survolee en coordonnees ecran, pour que l'hote
+				/// pose le cartouche EN FACE d'elle sans la recouvrir.
+				NkString infobulle;
+				float32 infobulleY = 0.f;
+				float32 infobulleH = 0.f;
 		};
 
 		// ── LA SIGNATURE TYPE ───────────────────────────────────────────────────

@@ -266,5 +266,41 @@ namespace nkentseu {
 			snprintf(st.hierNote, sizeof(st.hierNote), "%s", why);
 		}
 
+		// ── OUVRIR LE SELECTEUR POUR UN IMPORT 3D ─────────────────────
+		//
+		// UNE seule fonction pour les DEUX portes du meme geste (le bouton
+		// « Importer » du navigateur et l'entree de son menu contextuel) : deux
+		// listes de filtres finiraient par diverger, et c'est deja la raison
+		// pour laquelle le menu contextuel recopiait l'ouverture du bouton.
+		//
+		// LES FILTRES SONT NOMMES (API ⑥ du selecteur du kit). Avant, le picker
+		// n'avait qu'un filtre MONO-extension (`pickerFileExt`) : il ne savait
+		// pas dire « les sept formats 3D ». On ouvrait donc SANS filtre, et
+		// l'utilisateur choisissait dans la liste complete du disque -- puis se
+		// faisait refuser a la confirmation. Un filtre qui ne sait pas exprimer
+		// le besoin ne se contourne pas, il se remplace.
+		//
+		// PAS DE CONFINEMENT AU PROJET : un fichier 3D a importer vient de
+		// l'exterieur (Telechargements, un autre disque). Le depart reste la
+		// racine du projet -- un point de depart connu, pas une prison.
+		inline void NkPickerOuvrirImport(NkModelerState &st) {
+			st.picker.OpenPickerBase(editorkit::NkFilePickerState::PK_File,
+									 st.projectRoot.CStr(), nullptr, 0, nullptr);
+			st.picker.filtres.Clear(); // jamais deux fois la meme liste
+			st.picker.filtreActif = 0;
+			// Le premier groupe est l'ACTIF : c'est celui qu'on vient chercher.
+			// La liste des sept est celle que `NkImportLoad` sait REELLEMENT
+			// lire -- pas une liste d'intentions ; si un chargeur part, ce
+			// filtre doit partir avec lui.
+			st.picker.AjouterFiltre("Modeles 3D", "glb;gltf;fbx;obj;usda;dae;ply;stl");
+			st.picker.AjouterFiltre("glTF (.glb .gltf)", "glb;gltf");
+			st.picker.AjouterFiltre("FBX (.fbx)", "fbx");
+			st.picker.AjouterFiltre("Wavefront (.obj)", "obj");
+			st.picker.AjouterFiltre("USD ASCII (.usda)", "usda");
+			st.picker.AjouterFiltre("Nuages et impression (.ply .stl)", "ply;stl");
+			st.picker.AjouterFiltre("Textures", "png;jpg;jpeg;tga;bmp;hdr;exr;dds;ktx");
+			st.picker.AjouterFiltre("Tous les fichiers", "*");
+		}
+
 	} // namespace nk3d
 } // namespace nkentseu

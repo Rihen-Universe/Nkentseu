@@ -23,7 +23,7 @@
 // @Author  Rihen
 // @License Proprietary - All Rights Reserved (see LICENSE)
 // -----------------------------------------------------------------------------
-#include "NKEditorKit/NkFilePicker.h"
+#include "NKEditorKit/NkFilePickerNav.h" // LE selecteur de la maison (rail, vignettes, filtres)
 
 namespace nkentseu {
 	namespace nk3d {
@@ -74,7 +74,13 @@ namespace nkentseu {
 		// EXACTEMENT comme le selecteur generique : toutes les surcharges se
 		// replient sur la base des que `matNewMode` est faux. C'est ce qui permet
 		// de la substituer partout sans relire chaque appel.
-		class NkModelerPicker : public editorkit::NkFilePickerState {
+		// ⚠️ IL DESCEND DESORMAIS DE `NkFilePickerNavState`, l'etat du selecteur a
+		// deux volets (rail a sections, vignettes, fil d'Ariane, filtres NOMMES,
+		// tri). `NkFilePickerNavState` derive lui-meme de `NkFilePickerState` :
+		// toutes les surcharges ci-dessous restent valides, et le mode
+		// « nouveau materiau » continue de passer par l'ANCIEN dessin, seul a
+		// honorer sa region supplementaire (voir main.cpp).
+		class NkModelerPicker : public editorkit::NkFilePickerNavState {
 			public:
 				/// Le selecteur est-il ouvert pour CREER un materiau ? Ce drapeau
 				/// vit ici plutot que dans l'etat de l'application parce que ce
@@ -101,7 +107,7 @@ namespace nkentseu {
 				void PickerCancel() override {
 					matNewMode = false;
 					matExtraFocus = 0;
-					editorkit::NkFilePickerState::PickerCancel();
+					editorkit::NkFilePickerNavState::PickerCancel();
 				}
 				/// Valeur MOTEUR du type choisi, prete pour Demo3DHostProjMatSetType.
 				int32 MatNewTypeValue() const {

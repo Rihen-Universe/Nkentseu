@@ -823,8 +823,7 @@ namespace nkentseu {
 						// meme depart, meme `pickerAction` -- pour que les deux portes
 						// ne puissent pas diverger : c'est le meme geste, il ne doit pas
 						// exister en deux versions.
-						st.picker.OpenPickerBase(editorkit::NkFilePickerState::PK_File,
-												 st.projectRoot.CStr(), nullptr, 0, nullptr);
+						NkPickerOuvrirImport(st);
 						st.pickerAction = 2; // 2 = importer un fichier 3D
 					}
 					st.browMenuIdx = -1;

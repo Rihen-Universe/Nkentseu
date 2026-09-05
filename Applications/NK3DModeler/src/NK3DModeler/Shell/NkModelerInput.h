@@ -29,7 +29,7 @@
 // Le selecteur de fichiers/dossiers n'est PAS reecrit ici : NKEditorKit en
 // porte deja un, modal, deplacable, confine a une racine, avec creation de
 // dossier — celui de NKCode. « Porte au lieu de reecrire » (Rihen, 12 aout).
-#include "NKEditorKit/NkFilePicker.h"
+#include "NKEditorKit/NkFilePickerNav.h" // LE selecteur de la maison
 // ... et il est SPECIALISE pour la creation de materiau (choix du type avant
 // creation) : la classe derivee et le catalogue des types vivent a part.
 #include "NK3DModeler/Shell/NkModelerMatTypes.h"
