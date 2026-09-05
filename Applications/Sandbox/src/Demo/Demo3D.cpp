@@ -2352,6 +2352,7 @@ static NkTexHandle CreateLanternCubeCookie(NkTextureLibrary *texLib, NkIDevice *
 					d.velocityRand = 0.6f;
 					d.maxParticles = 1000;
 					parseWind(std::getenv("NK_VFX_WIND"), d.field);
+					if (const char *pm = std::getenv("NK_VFX_MASS"); pm && pm[0]) d.particleMass = (float32)std::atof(pm); // kg : le vent (newtons) / masse
 					// NK_VFX_TARGET=cpu|gpu : la cible de simulation demandee (defaut AUTO = GPU si compute) (2026-09-05).
 					if (const char *tg = std::getenv("NK_VFX_TARGET"); tg && tg[0])
 						d.simTarget = (tg[0] == 'g') ? NkSimTarget::GPU : (tg[0] == 'c') ? NkSimTarget::CPU : NkSimTarget::AUTO;

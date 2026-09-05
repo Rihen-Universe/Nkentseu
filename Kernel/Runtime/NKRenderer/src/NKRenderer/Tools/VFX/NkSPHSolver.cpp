@@ -496,14 +496,15 @@ namespace nkentseu {
 				}
 			}
 			mTime += dt;
-			const bool wind = mField.type != NkForceFieldType::NONE; // le vent s'ajoute à la gravité (2026-09-05)
+			const bool wind = mField.type != NkForceFieldType::NONE; // le vent (newtons) / Mass() s'ajoute à la gravité (2026-09-05)
+			const float32 invMass = m > 1e-12f ? 1.f / m : 0.f;
 			for (uint32 k = 0; k < n; ++k) {
 				NkVec3f a = params.gravity;
 				if (wind) {
 					const NkVec3f w = NkEvalForceField(mField, X[k], mTime);
-					a.x += w.x;
-					a.y += w.y;
-					a.z += w.z;
+					a.x += w.x * invMass;
+					a.y += w.y * invMass;
+					a.z += w.z * invMass;
 				}
 				W[k].x += a.x * dt;
 				W[k].y += a.y * dt;
