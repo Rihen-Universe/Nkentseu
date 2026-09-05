@@ -2797,6 +2797,36 @@ bande étroite, point suivant. Puis l'étanchéité à l'import (les corps de Ro
 matières (avec sa condition : les raideurs par unité de longueur d'abord, témoin « même matière, 32² et 64²,
 même drapé à 5 % » — le test XPBD étendu au maillage).
 
+### 📉 05/09 (20h30) — LE TAUX DE CONTACT MESURÉ À L'EXÉCUTION : écrit, instrumenté, et ÉTEINT — les témoins l'ont refusé trois fois
+
+*Le principe était juste : « le taux de contact, la construction ne le connaît pas, mais l'exécution si ».
+Le solveur compte donc, à chaque pas, la fraction des particules **libres** en contact — les épinglées sont
+hors population, elles sont dans le corps par construction — lissée entre les images, et le rythme des
+colliders peut la suivre. **La mesure a refusé le mécanisme.***
+
+| configuration | suite | cape (pas / étirement moyen) | foulard (étirement / sous la peau) |
+|---|---|---|---|
+| **sans adaptatif — retenu** | **43 / 6** | 8,15 ms / 1,35 % | 0,18 % / 0 |
+| adaptatif, taux parti de 0 | 44 / 5 | 13,33 ms / 1,35 % | 🔴 **24,91 %** / 2 |
+| adaptatif, taux parti de 1 | 🔴 **41 / 8** | 8,86 ms / 1,28 % | 0,19 % / 0 |
+
+**Aucune n'est nettement meilleure**, et les deux dernières déplacent le problème au lieu de le résoudre.
+**La cause est dans la mesure, pas dans l'idée** : `mContact` n'est relevé qu'au **dernier sous-pas**, donc
+le taux rendu (0,5 à 0,7 % ici) sous-estime le contact réel et ne discrimine plus rien ; et le seuil de 6 %
+n'est étalonné sur rien — *le même défaut que le seuil de serrage, que j'avais déjà signalé deux heures
+plus tôt et que j'ai reproduit*. Le mécanisme reste en place, **éteint**, avec ses trois mesures et sa cause
+écrites dans l'en-tête. Avant de le rallumer : compter les contacts sur **tous** les sous-pas, et étalonner
+le seuil sur **plusieurs** pièces.
+
+📌 **Un enseignement payé au passage, qui vaut au-delà d'ici** : *un mécanisme adaptatif doit démarrer du
+côté SÛR.* Parti de zéro, le premier pas espaçait les colliders, le col du foulard se posait de travers et
+gardait **24,9 %** d'étirement pour toute la course — une seule image mal jouée, et la pièce ne s'en remet
+jamais.
+
+**État retenu ce soir** : suite **43 / 6** ; cape 8,15 ms (sous les 16) et 1,35 % ; foulard 0,18 % et
+**0 particule sous la peau sur 301 images**. Ordre qui reste : bande étroite pour la cape, **étanchéité à
+l'import (ce que Rodolf attend sur ses corps — devant les patrons)**, les six patrons, les matières.
+
 ### 🔩 04/09 (nuit) — JENGA 2.6 : ce qui est appliqué, ce qui est mesuré en retour
 
 - **`-static` — le défaut était chez nous** : `config/toolchain.jenga:55` (bloc Windows natif) promettait
