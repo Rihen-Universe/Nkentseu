@@ -2762,6 +2762,41 @@ qu'il ne se perde pas) :
 4. **Une image** : six drapés côte à côte, même instant.
 5. Chaque `NkGarment` porte sa matière (défaut coton) ; le format la lira quand il existera.
 
+### 🧭 05/09 (19h30) — LE VÊTEMENT PORTE SA MÉTHODE ET SON RYTHME — et les témoins ont réfuté ma première règle en une course
+
+**Ce qui est décidé** : la façon dont un vêtement voit le corps n'est plus un réglage global, c'est une
+**propriété de la pièce** — `NkGarment::collision` vaut `NK_FIELD` (champ fin sur sa boîte), `NK_EXACT`
+(distance exacte au maillage) ou `NK_AUTO`. Défauts : foulard → champ ; cape, jupe, robe → exact ; t-shirt,
+chemise, pantalon → **AUTO**, tranché sur le **serrage** (distance moyenne des particules libres au corps,
+mesurée au repos, seuil 20 mm), et le chiffre est **imprimé pour chaque pièce** : « cape : serrage 105,4 mm
+→ distance exacte ; foulard : 47,5 mm → champ fin ». ⚠️ Dit : avec **deux** pièces seulement, ce seuil n'est
+pas étalonné — *un seuil posé sur deux points est une droite qui passe par deux points*. Ce sont les défauts
+de pièce qui décident aujourd'hui ; l'AUTO attend les vêtements du milieu.
+
+**Résultat, une seule course, chaque pièce avec son réglage :**
+
+| vêtement | méthode | rythme | pas | étirement moyen | images > 5 % | sous la peau |
+|---|---|---|---|---|---|---|
+| cape | distance exacte | 1 × par sous-pas | **8,15 ms** | 1,35 % | 9 / 301 | 9 / 1,25 |
+| foulard | champ fin 12 mm | chaque itération | 4,30 ms | **0,18 %** | **0 / 301** | **0 / 0,00** |
+
+✅ Le pas de la cape est **sous 16 ms** (8,15 contre 28,5) et le foulard garde ses zéros : chaque pièce a son
+meilleur chiffre **dans la même course**.
+
+**🔴 Et ma première règle était fausse — les témoins l'ont dit en une course.** J'avais lié le rythme des
+colliders à la méthode (« distance exacte → une fois par sous-pas »). `NKPhysics_Tests` est passé de **43/6 à
+42/7**, et le rouge neuf était **(h4) jupe** : une pièce en distance exacte, mais qui touche les cuisses en
+permanence, exactement comme le foulard touche le cou. **Ce qui décide n'est pas « lâche ou serré » mais LE
+TAUX DE CONTACT**, que la construction ne connaît pas. Le défaut redevient « chaque itération » pour toutes
+les pièces ; l'appelant qui a mesuré espace (la sonde le fait pour la seule cape). *Un défaut posé sur une
+règle qui « se tient » doit passer les témoins avant d'être un défaut : celui-là a tenu deux heures et une
+course.*
+
+🔴 **Reste** : la cape ne tient pas son critère double (1,35 % pour 1 %, 9 sous la peau pour 4) — c'est la
+bande étroite, point suivant. Puis l'étanchéité à l'import (les corps de Rodolf), les six patrons, et les
+matières (avec sa condition : les raideurs par unité de longueur d'abord, témoin « même matière, 32² et 64²,
+même drapé à 5 % » — le test XPBD étendu au maillage).
+
 ### 🔩 04/09 (nuit) — JENGA 2.6 : ce qui est appliqué, ce qui est mesuré en retour
 
 - **`-static` — le défaut était chez nous** : `config/toolchain.jenga:55` (bloc Windows natif) promettait
