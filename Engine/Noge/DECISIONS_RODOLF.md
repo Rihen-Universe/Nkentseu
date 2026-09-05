@@ -2000,6 +2000,49 @@ comprise) : le coût du dispatch seul n'est pas isolé (≲ 3 ms à 1 M par diff
 graine du hasard fixable pour un plancher à zéro ; le **SPH GPU** (le repos est calme et le front juste :
 ses deux conditions sont réunies).
 
+### 📏 05/09 (00h40) — LE DFSPH SUR GPU : la même physique, pas encore le même coût — `540d6c3a`
+
+`NkSPHStoreGPU` derrière `NkIParticleStore`, fourni par le solveur lui-même (`NkIParticleSolver::CreateGPUStore`,
+que `NkSPHSolver` implémente) : `NkVFXSystem` l'initialise quand la cible résolue est GPU et retombe sur le CPU en
+le disant. **Grille par tri** (Green, *Particle Simulation using CUDA*, NVIDIA 2010, § « Building the Grid using
+Sorting ») : clé de cellule, **tri bitonique** — NkSL n'a **aucun atomique sur tampon** (seulement `imageAtomic*`),
+donc pas de tri par comptage —, début/fin de cellule là où la clé change ; les fantômes triés **une fois** dans
+leur grille, le fluide retrié à chaque sous-pas. **Une passe = un noyau** (15 noyaux NkSL, préfixe commun) :
+densité + α + voisines, κ (divergence / densité, borne de surface), correction, chaud amorti, XSPH + Morris sur
+tampon, gravité, réduction du résidu en 256 partiels **relu une fois par itération**, intégration + filets +
+instances, statistiques en 256 × 16. Fantômes : une seule recette CPU/GPU (`BuildBoundaryPositions`). Les
+paramètres et les statistiques restent ceux du `NkSPHSolver` : la sonde lit `Stats()` sans savoir où le fluide
+est calculé.
+
+**Trois rouges payés en chemin, dits** : (1) `C5058 no buffers available for bindable storage buffer` — NVIDIA
+expose **16 blocs de stockage par étage**, j'en déclarais 22 → regroupés en 12 (paires clé/indice, début/fin,
+champs par particule à foulée 8) ; (2) le stockage ordinaire **remplaçait** celui du solveur (deux lignes
+« -> GPU », vivantes 0 : `resolved == GPU` sans `!e->store`) ; (3) le piège `\n` de l'outil Bash, deux fois
+(une course entière mesurée sur l'ancien binaire, jetée ; une chaîne C cassée).
+
+| témoin (Release, OpenGL, Ilyana à **66-100 %** du GPU) | CPU | GPU | verdict |
+|---|---|---|---|
+| voisinage : réseau parfait sans gravité, 1 014 particules | ρ 0,976 (0,850..1,000), sol 1,000, vmax 0,00 | **identique à trois décimales** | ✅ même ensemble de voisines |
+| repos 10 s (2 048 + 8 800 fantômes) | 1,001 / sol 1,001 / vmax 0,015 | **1,001 (0,997..1,003) / 1,001 / 0,020**, 2048 et 256,01 kg, 0 NaN | ✅ les cinq |
+| mutation projection coupée | 5,90 | 5,90 | ✅ rouge des deux côtés |
+| dam carré, Cébron 2D / M&M | 10 % (18) / 65 – 28 % | **10 % (19) / 65 – 29 %** | ✅ |
+| canal n² = 2, M&M | 9 % (20) / 18 % | **9 % (20) / 18 %** | ✅ |
+| itérations (repos / dam) | 8,5 / 8 – 5 | 8,5 / 8 – 5 | ✅ |
+| même image à pas fixe (dam, image 40) | — | boîte identique x[148..382] y[200..362], 6 609 / 6 614 px, 6 886 px > 8 (XSPH Jacobi contre Gauss-Seidel, ordre des flottants) | ✅ à epsilon, dit |
+| `--backend=sw` / AUTO sur GL | — | « refuse : API sans compute -> stockage CPU » / « AUTO -> GPU (solveur sur GPU) » | ✅ dits |
+
+🔴 **Le coût** (ms/image, images 30/60, GPU partagé) : **4 096 : 26-29** (CPU 47-54, ÷2 seulement) ; **50 653 :
+128-136** (CPU 497-780 : ÷4-5 ; **cible 16**) ; **195 112 : 680-864** (cible 33) ; **1 000 000 : 4 880-5 268** ;
+repos 2 048 : 16-28 avec des pointes à 101-372. Deux causes mesurées : **23-117 synchronisations par image** (une
+relecture de résidu par itération et par sous-pas — `sync` dans la trace) et les passes de voisinage qui
+**recalculent la traversée des 27 cellules, les distances et le noyau à chaque itération** (le CPU les met en
+cache une fois par sous-pas). Leviers, dans l'ordre : listes de voisines en cache sur GPU (indices, noyau
+recalculé), résidu relu une itération sur deux, tri des seules particules qui ont changé de cellule.
+
+**Nommé, non fait** : ces leviers (suite immédiate) ; DX11/Vulkan/Metal pour ces noyaux ; le vent (`NkForceField`)
+— **rien n'existe** dans le code (un seul `windStrength` de matériau, un shader) ; la capacité mensongère du
+device software (`computeShaders = true` sans API) — à corriger dans NKRHI par l'agent qui y touchera.
+
 ### 🔩 04/09 (nuit) — JENGA 2.6 : ce qui est appliqué, ce qui est mesuré en retour
 
 - **`-static` — le défaut était chez nous** : `config/toolchain.jenga:55` (bloc Windows natif) promettait
