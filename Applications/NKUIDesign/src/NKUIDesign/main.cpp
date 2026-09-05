@@ -6906,6 +6906,9 @@ static void EcrireReleveUI(NkEditorFrameContext &ec, void *) {
 	// endroit ou l'entree de la souris est REELLE (le shell la masque pendant
 	// les panneaux des qu'un popup est survole).
 	nkuidesign::NkDessinerPickerDemande(ec.Ui(), gDesign);
+	// « EXPORTER... » (05/09) : le selecteur de fichier du kit en mode enregistrer,
+	// meme endroit, meme raison (l'entree reelle) ; l'export se fait a la confirmation.
+	nkuidesign::NkDessinerPickerExport(ec.Ui(), gDesign);
 	// LE MENU DES ROLES (ecrans 5-6-7) : dessine en OVERLAY, par-dessus les
 	// panneaux ; choisir ECRIT la cle `role` du noeud (le geste
 	// « promouvoir » du §4.3). Le code 0x01 = retirer le role.
@@ -7408,9 +7411,34 @@ static void DrawMenuBar(NkEditorFrameContext &ec, void *) {
 			EndMenu(ctx);
 		}
 		if (BeginMenu(ctx, "Exporter")) {
+			// L'EXPORT (05/09) : format, echelle, page ou selection sont le choix du
+			// menu ; la destination est celle du selecteur de fichier du kit (mode
+			// enregistrer), ouvert par NkOuvrirChoixExport et conclu dans l'overlay
+			// (NkDessinerPickerExport) : le pied dit le chemin ecrit, ou l'echec.
+			using nkuidesign::NkExportFormat;
+			const bool aSel = !gDesign.sel.Empty() || (gDesign.doc.IsValidIndex(gDesign.selected) && gDesign.selected > 0);
+			const bool aPage = nkuidesign::NkPageParDefaut(gDesign) > 0;
+			if (MenuItem(ctx, "Page en PNG ×1…", nullptr, aPage))
+				nkuidesign::NkOuvrirChoixExport(gDesign, NkExportFormat::PNG, 1.f, false, false);
+			if (MenuItem(ctx, "Page en PNG ×2…", nullptr, aPage))
+				nkuidesign::NkOuvrirChoixExport(gDesign, NkExportFormat::PNG, 2.f, false, false);
+			if (MenuItem(ctx, "Page en PNG ×3…", nullptr, aPage))
+				nkuidesign::NkOuvrirChoixExport(gDesign, NkExportFormat::PNG, 3.f, false, false);
+			if (MenuItem(ctx, "Sélection en PNG ×1…", nullptr, aSel))
+				nkuidesign::NkOuvrirChoixExport(gDesign, NkExportFormat::PNG, 1.f, true, false);
+			if (MenuItem(ctx, "Sélection en PNG ×2…", nullptr, aSel))
+				nkuidesign::NkOuvrirChoixExport(gDesign, NkExportFormat::PNG, 2.f, true, false);
+			Separator(ctx);
+			if (MenuItem(ctx, "Page en SVG…", nullptr, aPage))
+				nkuidesign::NkOuvrirChoixExport(gDesign, NkExportFormat::SVG, 1.f, false, false);
+			if (MenuItem(ctx, "Page en SVG, images embarquées…", nullptr, aPage))
+				nkuidesign::NkOuvrirChoixExport(gDesign, NkExportFormat::SVG, 1.f, false, true);
+			if (MenuItem(ctx, "Sélection en SVG…", nullptr, aSel))
+				nkuidesign::NkOuvrirChoixExport(gDesign, NkExportFormat::SVG, 1.f, true, false);
+			Separator(ctx);
+			MenuItem(ctx, "PDF (à construire : le même arbre que le SVG)", nullptr, false);
+			MenuItem(ctx, "HTML / CSS / React / Next (à construire)", nullptr, false);
 			MenuItem(ctx, "Document .nkgui", "Ctrl+E", false);
-			MenuItem(ctx, "Ressources", nullptr, false);
-			MenuItem(ctx, "Code", nullptr, false);
 			EndMenu(ctx);
 		}
 		MenuItem(ctx, "Valider le document", "Ctrl+Maj+V", false);
