@@ -1,3 +1,4 @@
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // =============================================================================
 // NkGuiWidgets.cpp — widgets immédiats NKGui (Phase 2-3 : Button, Panel, Text).
 // =============================================================================
@@ -4955,6 +4956,15 @@ namespace nkentseu {
 			ctx.DL().PopClipRect();
 			ctx.DL().PushClipRect(rect, false); // contenu
 			ctx.BeginLayout(rect);
+			// LA MOLETTE APPARTIENT AU POPUP OUVERT (2026-09-05) : il la reserve pour la
+			// prochaine image, et lit celle mise de cote pour lui -- son contenu (une
+			// liste qui defile) la voit, ce qui est dessous ne la voit pas ; EndPopup
+			// la remet a zero pour ce qui suit.
+			ctx.input.ReserverMolette();
+			if (ctx.input.wheelReserve != 0.f || ctx.input.wheelHReserve != 0.f) {
+				ctx.input.wheel = ctx.input.wheelReserve;
+				ctx.input.wheelH = ctx.input.wheelHReserve;
+			}
 			return true;
 		}
 
@@ -4962,6 +4972,8 @@ namespace nkentseu {
 			const int32 level = ctx.curPopupLevel;
 			if (level < 0)
 				return;
+			ctx.input.wheel = 0.f; // la molette du popup ne traverse pas vers ce qui suit
+			ctx.input.wheelH = 0.f;
 			ctx.DL().PopClipRect();
 			ctx.layout = ctx.popupSaved[level]; // restaure le layout du parent
 			ctx.curPopupLevel = level - 1;		// revient au parent / principale
