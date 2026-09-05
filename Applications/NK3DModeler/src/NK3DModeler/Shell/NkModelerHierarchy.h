@@ -8,7 +8,7 @@
 //
 //          Extrait de NkModelerScreens.h pendant la refonte d'interface --
 //          « subdiviser les gros fichiers » (Rihen, 13 aout 2026).
-// @Author  Rihen
+// @Author  TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // @License Proprietary - All Rights Reserved (see LICENSE)
 // -----------------------------------------------------------------------------
 #include "NK3DModeler/Shell/NkModelerUI.h"
@@ -52,10 +52,10 @@ namespace nkentseu {
 			auto BrCopyRec = [&](int32 src, int32 par) { NkBrowCopyRecU(st, src, par); };
 			auto BrDelRec = [&](int32 root2) { NkBrowDelRec(st, root2); };
 			auto BrPaste = [&](int32 dest5) {
-				if (st.browClip < 0 || st.browserKind[st.browClip] == 255)
+				if (st.browClip < 0 || st.Card(st.browClip).kind == 255)
 					return;
 				if (st.browClipCut)
-					for (int32 c4 = dest5; c4 >= 0; c4 = st.browserParent[c4])
+					for (int32 c4 = dest5; c4 >= 0; c4 = st.Card(c4).parent)
 						if (c4 == st.browClip)
 							return; // pas dans sa propre descendance
 				NkBrowRequestTransfer(st, st.browClip, dest5, !st.browClipCut,
@@ -132,7 +132,7 @@ namespace nkentseu {
 					if (delK && st.selectedAsset >= 0)
 						BrDelRec(st.selectedAsset);
 					else if (dupK && st.selectedAsset >= 0)
-						BrCopyRec(st.selectedAsset, st.browserParent[st.selectedAsset]);
+						BrCopyRec(st.selectedAsset, st.Card(st.selectedAsset).parent);
 					if ((sk & 2) != 0 && st.selectedAsset >= 0) {
 						st.browClip = st.selectedAsset;
 						st.browClipCut = false;
@@ -597,7 +597,7 @@ namespace nkentseu {
 				// (le clic droit garde Importer + sous-menu Creer).
 				const bool creatOnly = (st.browMenuIdx == -4);
 				const bool canPaste =
-					st.browClip >= 0 && st.browserKind[st.browClip] != 255;
+					st.browClip >= 0 && st.Card(st.browClip).kind != 255;
 				const char *bmIt[12];
 				int32 bmAct[12];
 				int32 nIt = 0;
@@ -737,37 +737,35 @@ namespace nkentseu {
 					const int32 tgt = st.browMenuIdx;
 					// le dossier VISE (carte-dossier cliquee) sinon le courant
 					const int32 destF =
-						(onCard && st.browserKind[tgt] == 1) ? tgt : st.browserFolder;
-					if (act2 >= 30 && act2 <= 33 &&
-						st.browserCount < NkModelerState::kMaxBrowser) {
+						(onCard && st.Card(tgt).kind == 1) ? tgt : st.browserFolder;
+					if (act2 >= 30 && act2 <= 33) {
 						// GRAPHE : un asset nodal, avec sa NATURE en sous-type.
 						static const char *const kGrN[4] = {"Graphe_Modelisation",
 															"Graphe_Texturing",
 															"Graphe_Materiau",
 															"Graphe_Motion"};
-						const int32 kg = st.browserCount++;
-						st.browserKind[kg] = 0;
-						st.browserSub[kg] = (uint8)(act2 - 30);
-						st.browserParent[kg] = destF;
+						const int32 kg = st.CardAdd();
+						st.Card(kg).kind = 0;
+						st.Card(kg).sub = (uint8)(act2 - 30);
+						st.Card(kg).parent = destF;
 						NkBrowUniqueName(st, 0, destF, kGrN[act2 - 30],
-										 st.browserNames[kg], 32);
-					} else if (act2 >= 10 && act2 <= 16 &&
-							   st.browserCount < NkModelerState::kMaxBrowser) {
+										 st.Card(kg).name, 32);
+					} else if (act2 >= 10 && act2 <= 16) {
 						// dossier, scene, mesh, materiau, texture, blueprint, dataset
 						static const uint8 kNewK[7] = {1, 5, 6, 2, 3, 0, 4};
 						static const char *const kNewN[7] = {"Dossier", "Scene", "Model",
 															 "Materiau", "Texture", "BP",
 															 "Dataset"};
-						const int32 k5 = st.browserCount++;
+						const int32 k5 = st.CardAdd();
 						const uint8 nk5 = kNewK[act2 - 10];
-						st.browserKind[k5] = nk5;
-						st.browserParent[k5] = destF;
-						st.browserMat[k5] = 0;
-						st.browserDoc[k5] = 0;
-						st.browserSrcNode[k5] = 0;
-						st.browserFile[k5][0] = 0;
+						st.Card(k5).kind = nk5;
+						st.Card(k5).parent = destF;
+						st.Card(k5).mat = 0;
+						st.Card(k5).doc = 0;
+						st.Card(k5).srcNode = 0;
+						st.Card(k5).file[0] = 0;
 						NkBrowUniqueName(st, nk5, destF, kNewN[act2 - 10],
-										 st.browserNames[k5], 32);
+										 st.Card(k5).name, 32);
 						// « TOUT CE QUI EST FICHIER EST UN ASSET REEL » (Rihen).
 						// Une carte creee ici recoit SA MATIERE tout de suite : sans
 						// cela, « + Materiau » ne posait qu'un nom, et les materiaux
@@ -775,19 +773,19 @@ namespace nkentseu {
 						if (nk5 == 2) {
 							const int32 sl = demo::Demo3DHostProjMatCreate();
 							if (sl >= 0) {
-								st.browserMat[k5] = sl + 1;
-								demo::Demo3DHostProjMatSetName(sl, st.browserNames[k5]);
+								st.Card(k5).mat = sl + 1;
+								demo::Demo3DHostProjMatSetName(sl, st.Card(k5).name);
 							}
 						} else if (nk5 == 5) {
 							// Une SCENE creee ici est un vrai document, sinon son
 							// double-clic fabriquerait une scene vide sans lien.
 							const int32 dN = st.DocAlloc();
 							if (dN >= 0) {
-								NkWidgetState::Copy(st.docName[dN], st.browserNames[k5], 31u);
+								NkWidgetState::Copy(st.docName[dN], st.Card(k5).name, 31u);
 								st.docScene[dN] = (uint8)st.sceneIdNext++;
 								st.docBlank[dN] = true;
 								st.docCard[dN] = k5 + 1;
-								st.browserDoc[k5] = dN + 1;
+								st.Card(k5).doc = dN + 1;
 							}
 						}
 					} else if (act2 == 0) {
@@ -800,7 +798,7 @@ namespace nkentseu {
 						// dans le dossier CLIQUE, pas la racine (Rihen)
 						BrPaste(destF);
 					} else if (act2 == 3) {
-						BrCopyRec(tgt, st.browserParent[tgt]);
+						BrCopyRec(tgt, st.Card(tgt).parent);
 					} else if (act2 == 4) {
 						BrDelRec(tgt);
 					} else if (act2 == 20) {
@@ -957,7 +955,7 @@ namespace nkentseu {
 				p.Outline(cr3, NkRole::AccentUi, NkRole::PanelHeader, 3.f);
 				char t7[64];
 				snprintf(t7, sizeof(t7), "\"%s\" existe deja ici",
-						 st.browserNames[st.browConfSrc]);
+						 st.Card(st.browConfSrc).name);
 				p.TextV(cr3.x + S(8.f), cr3.y + S(3.f), kRowH, t7);
 				static const char *const kCf[3] = {"Renommer", "Remplacer", "Arreter"};
 				int32 cAct = -1;
@@ -979,13 +977,13 @@ namespace nkentseu {
 							NkBrowCopyRecU(st, cs, cd); // les noms y sont uniques
 						} else {
 							char nn7[32];
-							NkBrowUniqueName(st, st.browserKind[cs], cd,
-											st.browserNames[cs], nn7, 32);
-							snprintf(st.browserNames[cs], 32, "%s", nn7);
-							st.browserParent[cs] = cd;
+							NkBrowUniqueName(st, st.Card(cs).kind, cd,
+											st.Card(cs).name, nn7, 32);
+							snprintf(st.Card(cs).name, 32, "%s", nn7);
+							st.Card(cs).parent = cd;
 						}
 					} else if (cAct == 1) {
-						if (st.browserKind[cs] == 1) {
+						if (st.Card(cs).kind == 1) {
 							// dossier : FUSION (les fichiers homonymes rejoignent
 							// la file et repassent ici un par un)
 							if (st.browConfCopy)
@@ -1087,8 +1085,8 @@ namespace nkentseu {
 					// doit propager comme les deux autres, sinon le navigateur garde
 					// l'ancien nom.
 					const int32 e8 = st.docCard[dAct] - 1;
-					if (e8 >= 0 && e8 < st.browserCount && st.browserKind[e8] == 5)
-						NkWidgetState::Copy(st.browserNames[e8], st.docName[dAct], 31u);
+					if (e8 >= 0 && e8 < st.BrowserCount() && st.Card(e8).kind == 5)
+						NkWidgetState::Copy(st.Card(e8).name, st.docName[dAct], 31u);
 				}
 				p.TextV(colType, yy, kRowH, "Scene", NkRole::TextMuted);
 				yy += kRowH;
@@ -1485,18 +1483,16 @@ namespace nkentseu {
 				if (pendingParent == -2) {
 					// DEPOSER dans le NAVIGATEUR : l'objet devient un asset
 					// MESH reutilisable, souvenir de sa source (Rihen).
-					if (st.browserCount < NkModelerState::kMaxBrowser) {
-						const int32 k6 = st.browserCount++;
-						st.browserKind[k6] = 6;
-						st.browserParent[k6] = st.browserFolder;
-						// ARCHIVE hote : l'asset survit a la suppression
-						// de l'original dans la scene (retour de Rihen).
-						const int32 arc6 = demo::Demo3DHostArchiveNode(pendingChild);
-						st.browserSrcNode[k6] = (arc6 >= 0 ? arc6 : pendingChild) + 1;
-						char bnm[32];
-						NkHierNodeName(st, pendingChild, bnm, sizeof(bnm));
-						NkBrowUniqueName(st, 6, st.browserFolder, bnm, st.browserNames[k6], 32);
-					}
+					const int32 k6 = st.CardAdd();
+					st.Card(k6).kind = 6;
+					st.Card(k6).parent = st.browserFolder;
+					// ARCHIVE hote : l'asset survit a la suppression
+					// de l'original dans la scene (retour de Rihen).
+					const int32 arc6 = demo::Demo3DHostArchiveNode(pendingChild);
+					st.Card(k6).srcNode = (arc6 >= 0 ? arc6 : pendingChild) + 1;
+					char bnm[32];
+					NkHierNodeName(st, pendingChild, bnm, sizeof(bnm));
+					NkBrowUniqueName(st, 6, st.browserFolder, bnm, st.Card(k6).name, 32);
 				} else if (pendingParent >= 0) {
 					// Mesh -> Mesh refuse : dans un Model, la seule cible
 					// est la racine (les maillages sont FRERES).

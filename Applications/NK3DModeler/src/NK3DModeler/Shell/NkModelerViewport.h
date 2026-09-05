@@ -6,7 +6,7 @@
 //
 //          Extrait de NkModelerScreens.h pendant la refonte d'interface --
 //          « subdiviser les gros fichiers » (Rihen, 13 aout 2026).
-// @Author  Rihen
+// @Author  TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // @License Proprietary - All Rights Reserved (see LICENSE)
 // -----------------------------------------------------------------------------
 #include "NK3DModeler/Shell/NkModelerUI.h"
@@ -736,9 +736,9 @@ namespace nkentseu {
 				p.TextV(cxE - p.TextW(en) * 0.5f, cyE - S(36.f), kRowH, en,
 						NkRole::Text);
 				const int32 aiE = st.sceneTabAsset[st.activeTab] - 1;
-				if (aiE >= 0 && aiE < st.browserCount)
-					p.TextV(cxE - p.TextW(st.browserNames[aiE]) * 0.5f,
-							cyE - S(12.f), kRowH, st.browserNames[aiE],
+				if (aiE >= 0 && aiE < st.BrowserCount())
+					p.TextV(cxE - p.TextW(st.Card(aiE).name) * 0.5f,
+							cyE - S(12.f), kRowH, st.Card(aiE).name,
 							NkRole::TextMuted);
 				p.TextV(cxE - p.TextW("Interface a definir -- NKGraphe, peinture, "
 									  "procedural a venir") *

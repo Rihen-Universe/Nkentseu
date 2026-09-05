@@ -1,4 +1,9 @@
 #pragma once
+// -----------------------------------------------------------------------------
+// @File    NkModelerUI.h
+// @Author  TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
+// @License Proprietary - All Rights Reserved (see LICENSE)
+// -----------------------------------------------------------------------------
 // =============================================================================
 // NkModelerUI.h — PEINTURE de l'interface, calquee sur la maquette Banani.
 //
@@ -416,8 +421,21 @@ namespace nkentseu {
 				// seul sur sa ligne et clippe, plutot que de deborder ou de
 				// disparaitre. Renvoie la hauteur consommee, pour que l'appelant
 				// avance son curseur vertical sans avoir a compter les lignes.
+				/// LA HAUTEUR QUE PRENDRAIT `TextWrap`, sans rien peindre. Un appelant
+				/// qui doit dessiner un CADRE autour d'un texte replie a besoin de la
+				/// hauteur AVANT le texte -- et la mesurer avec une seconde boucle
+				/// « qui fait pareil » repliquerait une strategie au lieu de la
+				/// mesurer : deux ruptures de ligne finiraient par diverger. C'est donc
+				/// LE MEME code, avec la peinture eteinte.
+				float32 TextWrapMeasure(float32 w, const char *s, float32 lineGap = 0.f) {
+					return TextWrapImpl(0.f, 0.f, w, s, NkRole::Text, lineGap, false);
+				}
 				float32 TextWrap(float32 x, float32 y, float32 w, const char *s,
 								 NkRole role = NkRole::Text, float32 lineGap = 0.f) {
+					return TextWrapImpl(x, y, w, s, role, lineGap, true);
+				}
+				float32 TextWrapImpl(float32 x, float32 y, float32 w, const char *s,
+									 NkRole role, float32 lineGap, bool peindre) {
 					if (!s || !*s || w <= 1.f)
 						return 0.f;
 					const float32 lh = mFont.LineHeight() + lineGap;
@@ -448,7 +466,8 @@ namespace nkentseu {
 							// Ca ne rentre pas : on ferme la ligne et on repart
 							// avec ce mot, sans son espace de tete.
 							line[len] = 0;
-							Text(x, cy, line, role);
+							if (peindre)
+								Text(x, cy, line, role);
 							cy += lh;
 							len = 0;
 							for (uint32 k = b; k < i; ++k)
@@ -461,7 +480,8 @@ namespace nkentseu {
 					}
 					if (len > 0) {
 						line[len] = 0;
-						Text(x, cy, line, role);
+						if (peindre)
+							Text(x, cy, line, role);
 						cy += lh;
 					}
 					return cy - y;

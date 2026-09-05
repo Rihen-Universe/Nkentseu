@@ -9,7 +9,7 @@
 //          revele comme communs -- la vue 3D, la hierarchie et les proprietes
 //          les appellent toutes. Un utilitaire partage a besoin d'un endroit a
 //          lui, sinon il retient le fichier dont on veut le sortir.
-// @Author  Rihen
+// @Author  TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // @License Proprietary - All Rights Reserved (see LICENSE)
 // -----------------------------------------------------------------------------
 #include "NK3DModeler/Shell/NkModelerUI.h"
@@ -230,9 +230,9 @@ namespace nkentseu {
 				// l'origine stockee est la reference du pipeline d'export).
 				// AUCUNE ecriture disque ici : le depot ne touche jamais au disque.
 				if (demo::Demo3DHostRecenterModel(st.dropSrcNode - 1)) {
-					for (int32 b9 = 0; b9 < st.browserCount; ++b9)
-						if (st.browserSrcNode[b9] == st.dropSrcNode) {
-							st.browserOriginDirty[b9] = true;
+					for (int32 b9 = 0; b9 < st.BrowserCount(); ++b9)
+						if (st.Card(b9).srcNode == st.dropSrcNode) {
+							st.Card(b9).originDirty = true;
 							break;
 						}
 				}

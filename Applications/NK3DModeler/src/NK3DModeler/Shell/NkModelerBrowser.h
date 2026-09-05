@@ -13,7 +13,7 @@
 //
 //          Extrait de NkModelerScreens.h pendant la refonte d'interface --
 //          « subdiviser les gros fichiers » (Rihen, 13 aout 2026).
-// @Author  Rihen
+// @Author  TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // @License Proprietary - All Rights Reserved (see LICENSE)
 // -----------------------------------------------------------------------------
 #include "NK3DModeler/Shell/NkModelerUI.h"
@@ -156,7 +156,7 @@ namespace nkentseu {
 				st.browHistPos--;
 				st.browHistNav = true;
 				int32 tg9 = st.browHist[st.browHistPos];
-				if (tg9 >= 0 && st.browserKind[tg9] == 255)
+				if (tg9 >= 0 && st.Card(tg9).kind == 255)
 					tg9 = -1; // dossier disparu entre-temps
 				st.browserFolder = tg9;
 			}
@@ -167,7 +167,7 @@ namespace nkentseu {
 				st.browHistPos++;
 				st.browHistNav = true;
 				int32 tg9 = st.browHist[st.browHistPos];
-				if (tg9 >= 0 && st.browserKind[tg9] == 255)
+				if (tg9 >= 0 && st.Card(tg9).kind == 255)
 					tg9 = -1; // dossier disparu entre-temps
 				st.browserFolder = tg9;
 			}
@@ -176,7 +176,7 @@ namespace nkentseu {
 				int32 chain[16];
 				int32 nCh = 0;
 				for (int32 c9 = st.browserFolder; c9 >= 0 && nCh < 16;
-					 c9 = st.browserParent[c9])
+					 c9 = st.Card(c9).parent)
 					chain[nCh++] = c9;
 				float32 bx = x + 50.f;
 				hit.Add("brw.crumb.root",
@@ -192,9 +192,9 @@ namespace nkentseu {
 					const int32 fi = chain[c9];
 					char ck[24];
 					snprintf(ck, sizeof(ck), "brw.crumb.%d", fi);
-					const float32 wN = p.TextW(st.browserNames[fi]);
+					const float32 wN = p.TextW(st.Card(fi).name);
 					hit.Add(ck, {bx, r.y + 3.f, wN + 6.f, topH - 6.f});
-					p.TextV(bx, r.y, topH, st.browserNames[fi],
+					p.TextV(bx, r.y, topH, st.Card(fi).name,
 							fi == st.browserFolder ? NkRole::Text : NkRole::TextMuted);
 					if (hit.Clicked(ck))
 						st.browserFolder = fi;
@@ -311,10 +311,10 @@ namespace nkentseu {
 				int32 tstk[64];
 				int32 tdep[64];
 				int32 tsp = 0;
-				for (int32 i = st.browserCount - 1; i >= 0; --i)
-					if (st.browserKind[i] == 1 &&
-						(st.browserParent[i] < 0 ||
-						 st.browserKind[st.browserParent[i]] != 1)) {
+				for (int32 i = st.BrowserCount() - 1; i >= 0; --i)
+					if (st.Card(i).kind == 1 &&
+						(st.Card(i).parent < 0 ||
+						 st.Card(st.Card(i).parent).kind != 1)) {
 						tstk[tsp] = i;
 						tdep[tsp] = 0;
 						++tsp;
@@ -336,10 +336,10 @@ namespace nkentseu {
 					// CHEVRON si le dossier a des SOUS-DOSSIERS ; icone COLOREE si
 					// plein, eteinte si vide (regles de Rihen).
 					bool hasSub = false, hasAny = false;
-					for (int32 c7 = 0; c7 < st.browserCount; ++c7)
-						if (st.browserParent[c7] == i && st.browserKind[c7] != 255) {
+					for (int32 c7 = 0; c7 < st.BrowserCount(); ++c7)
+						if (st.Card(c7).parent == i && st.Card(c7).kind != 255) {
 							hasAny = true;
-							if (st.browserKind[c7] == 1)
+							if (st.Card(c7).kind == 1)
 								hasSub = true;
 						}
 					const bool foldB = ((st.browFold[i >> 5] >> (i & 31)) & 1u) != 0u;
@@ -363,8 +363,8 @@ namespace nkentseu {
 					snprintf(fkey, sizeof(fkey), "brow.dirname.%d", i);
 					EditableText(p, hit, ws, in, fkey,
 								 {r.x + S(36.f) + ind, dy, treeW - S(42.f) - ind, kRowH},
-								 st.browserNames[i],
-								 on ? NkRole::TextOnAccent : NkRole::Text, st.browserNames[i], 32u);
+								 st.Card(i).name,
+								 on ? NkRole::TextOnAccent : NkRole::Text, st.Card(i).name, 32u);
 					snprintf(fkey, sizeof(fkey), "brow.dir.%d", i);
 					if (!uiModal && hit.Clicked(fkey) && chevB2 != i)
 						st.browserFolder = i;
@@ -379,7 +379,7 @@ namespace nkentseu {
 					// selection reste au registre ci-dessus (mesure : hierarchie).
 					if (st.browTraceCards)
 						printf("[nk3d-brow] dir=%d name=\"%s\" x=%.0f y=%.0f w=%.0f h=%.0f\n",
-							   i, st.browserNames[i], rowR.x, rowR.y, rowR.w, rowR.h);
+							   i, st.Card(i).name, rowR.x, rowR.y, rowR.w, rowR.h);
 					if (guiCtx && !uiModal) {
 						nkgui::NkGuiContext &gc = *guiCtx;
 						snprintf(fkey, sizeof(fkey), "brow.drag.dir.%d", i);
@@ -387,7 +387,7 @@ namespace nkentseu {
 						if (nkgui::BeginDragSource(gc)) {
 							const int32 pl[2] = {i, 1};
 							nkgui::SetDragPayload(gc, "brow.item", pl, (int32)sizeof(pl),
-												  st.browserNames[i]);
+												  st.Card(i).name);
 							nkgui::EndDragSource(gc);
 						}
 						if (browDragging && nkgui::BeginDropTarget(gc)) {
@@ -408,8 +408,8 @@ namespace nkentseu {
 					}
 					dy += kRowH;
 					if (!foldB)
-					for (int32 c6 = st.browserCount - 1; c6 >= 0; --c6)
-						if (st.browserKind[c6] == 1 && st.browserParent[c6] == i && tsp < 62) {
+					for (int32 c6 = st.BrowserCount() - 1; c6 >= 0; --c6)
+						if (st.Card(c6).kind == 1 && st.Card(c6).parent == i && tsp < 62) {
 							tstk[tsp] = c6;
 							tdep[tsp] = dep + 1;
 							++tsp;
@@ -440,8 +440,12 @@ namespace nkentseu {
 			// espace comme l'explorateur de fichiers »). Le filtrage et la recherche
 			// vivent avec lui, dans NkBrowVisible : deux endroits qui decident ce qui
 			// est visible finiraient par ne plus etre d'accord.
-			int32 vis[NkModelerState::kMaxBrowser];
-			const int32 visN = NkBrowVisible(st, vis, NkModelerState::kMaxBrowser);
+			// Dimensionne sur le COMPTE REEL des cartes, plus sur un plafond :
+			// `NkBrowVisible` s'arretait a `cap` et les cartes au-dela n'etaient
+			// simplement pas peintes.
+			NkVector<int32> vis;
+			vis.Resize((usize)(st.BrowserCount() > 0 ? st.BrowserCount() : 1), 0);
+			const int32 visN = NkBrowVisible(st, vis.Data(), st.BrowserCount());
 			for (int32 vi = 0; vi < visN; ++vi) {
 				const int32 i = vis[vi];
 				++shown;
@@ -449,11 +453,11 @@ namespace nkentseu {
 					tx = ax;
 					tyy += cardH + S(14.f);
 				}
-				const uint8 kind = st.browserKind[i];
+				const uint8 kind = st.Card(i).kind;
 				// COULEUR ET NOM viennent du point de passage unique (NkModelerUI.h) :
 				// la pastille de filtre et le liseret d'onglet lisent la MEME table.
-				const NkColor role = NkAssetColor(p, kind, st.browserSub[i]);
-				const char *kindName = NkAssetKindName(kind, st.browserSub[i]);
+				const NkColor role = NkAssetColor(p, kind, st.Card(i).sub);
+				const char *kindName = NkAssetKindName(kind, st.Card(i).sub);
 
 				// Ombre portee legere, comme Unreal.
 				p.Fill({tx + 2.f, tyy + 3.f, tw, cardH}, NkColor{0, 0, 0, 90}, 3.f);
@@ -464,7 +468,7 @@ namespace nkentseu {
 				// et n'en inspecter qu'une -- il faut donc deux marques distinctes,
 				// sinon l'utilisateur ne sait pas ce qu'il s'apprete a deplacer.
 				const bool selCard = (st.selectedAsset == i);
-				const bool prise = st.browserPicked[i];
+				const bool prise = st.Card(i).picked;
 				hit.Add(akey, {tx, tyy, tw, cardH});
 				if (selCard)
 									p.Fill({tx - 2.f, tyy - 2.f, tw + 4.f, cardH + 4.f}, NkRole::AccentUi, 3.f);
@@ -508,8 +512,8 @@ namespace nkentseu {
 					// DOSSIER : chemise avec rabat ; PLEINE ou VIDE selon son
 					// contenu (previsualisation par contenu, regle de Rihen).
 					bool fullF = false;
-					for (int32 j3 = 0; j3 < st.browserCount; ++j3)
-						if (st.browserKind[j3] != 255 && st.browserParent[j3] == i) {
+					for (int32 j3 = 0; j3 < st.BrowserCount(); ++j3)
+						if (st.Card(j3).kind != 255 && st.Card(j3).parent == i) {
 							fullF = true;
 							break;
 						}
@@ -553,7 +557,7 @@ namespace nkentseu {
 					// l'hote et televersee quand elle perime) — la carte doit
 					// refleter le materiau (Rihen, 11 aout). Repli : l'ancien
 					// disque si l'emplacement est invalide.
-					const int32 mTh = st.browserMat[i] - 1;
+					const int32 mTh = st.Card(i).mat - 1;
 					if (mTh >= 0 && mTh < 64) {
 						const float32 side2 = (tw < pvH ? tw : pvH) - S(8.f);
 						p.Image(4400u + (uint32)mTh,
@@ -614,7 +618,7 @@ namespace nkentseu {
 														"Couleur albedo brute de « %s » : %d, %d, %d\n"
 														"Ce que le materiau EST, sans eclairage -- la boule au-dessus "
 														"montre ce qu'il PARAIT sous la lumiere de l'apercu.",
-														nomMat[0] ? nomMat : st.browserNames[i], (int)oct(alb[0]),
+														nomMat[0] ? nomMat : st.Card(i).name, (int)oct(alb[0]),
 														(int)oct(alb[1]), (int)oct(alb[2]));
 							NkHelp(surPast, aide);
 					} else {
@@ -625,7 +629,7 @@ namespace nkentseu {
 					// SCENE : la MINIATURE REELLE si elle existe (elle vient de
 					// LA VUE, cf. la regle ci-dessus) ; sinon le globe raye --
 					// un monde a ouvrir.
-					const int32 dTh = st.browserDoc[i] - 1;
+					const int32 dTh = st.Card(i).doc - 1;
 					if (dTh >= 0 && dTh < NkModelerState::kMaxDocs &&
 						st.docThumb[dTh] == 1 && st.docThumbW[dTh] > 0 &&
 						st.docThumbH[dTh] > 0) {
@@ -682,17 +686,17 @@ namespace nkentseu {
 					// voisine des qu'il etait long (constate par Rihen).
 					p.Clip({tx + pad, fyy, tw - pad * 2.f, lh + 2.f});
 					if (EditableText(p, hit, ws, in, akey, {tx + pad, fyy, tw - pad * 2.f, lh + 2.f},
-									 st.browserNames[i], NkRole::Text, st.browserNames[i], 32u)) {
+									 st.Card(i).name, NkRole::Text, st.Card(i).name, 32u)) {
 						// RENOMMER LA CARTE D'UNE SCENE RENOMME SON DOCUMENT (Rihen :
 						// « renommer dans le navigateur ne l'a pas fait dans
 						// l'onglet »). Uniquement AU MOMENT de la validation : une
 						// copie a chaque frame ecraserait, elle, le renommage fait
 						// depuis l'onglet -- les deux sens doivent coexister. Le nom
 						// va au DOCUMENT, donc l'onglet qui le montre suit tout seul.
-						if (st.browserKind[i] == 5) {
-							const int32 d9 = st.browserDoc[i] - 1;
+						if (st.Card(i).kind == 5) {
+							const int32 d9 = st.Card(i).doc - 1;
 							if (d9 >= 0 && d9 < NkModelerState::kMaxDocs && st.docUsed[d9])
-								NkWidgetState::Copy(st.docName[d9], st.browserNames[i], 31u);
+								NkWidgetState::Copy(st.docName[d9], st.Card(i).name, 31u);
 						}
 					}
 					p.Unclip();
@@ -732,7 +736,7 @@ namespace nkentseu {
 					// contenu, et c'est ce lien qui manquait -- le double-clic
 					// fabriquait un document neuf, donc une scene VIDE a la place de
 					// celle qu'on croyait rouvrir.
-					const int32 dCard = (kind == 5) ? (st.browserDoc[i] - 1) : -1;
+					const int32 dCard = (kind == 5) ? (st.Card(i).doc - 1) : -1;
 					for (int32 t9 = 0; t9 < st.sceneCount; ++t9) {
 						if (kind == 5) {
 							if (st.sceneTabKind[t9] == 0 && st.TabDoc(t9) == dCard && dCard >= 0)
@@ -750,11 +754,11 @@ namespace nkentseu {
 							if (d9 < 0 || d9 >= NkModelerState::kMaxDocs || !st.docUsed[d9]) {
 								d9 = st.DocAlloc();
 								if (d9 >= 0) {
-									NkWidgetState::Copy(st.docName[d9], st.browserNames[i], 31u);
+									NkWidgetState::Copy(st.docName[d9], st.Card(i).name, 31u);
 									st.docScene[d9] = (uint8)st.sceneIdNext++;
 									st.docBlank[d9] = true;
 									st.docCard[d9] = i + 1;
-									st.browserDoc[i] = d9 + 1;
+									st.Card(i).doc = d9 + 1;
 								}
 							}
 						} else {
@@ -763,7 +767,7 @@ namespace nkentseu {
 							d9 = st.DocAlloc();
 							if (d9 >= 0) {
 								st.docTransient[d9] = true;
-								NkWidgetState::Copy(st.docName[d9], st.browserNames[i], 31u);
+								NkWidgetState::Copy(st.docName[d9], st.Card(i).name, 31u);
 								st.docScene[d9] = (uint8)st.sceneIdNext++;
 								st.docBlank[d9] = true;
 							}
@@ -793,7 +797,7 @@ namespace nkentseu {
 					const NkRect cardR{tx, tyy, tw, cardH};
 					if (st.browTraceCards)
 						printf("[nk3d-brow] card=%d kind=%d name=\"%s\" x=%.0f y=%.0f w=%.0f h=%.0f\n",
-							   i, kind, st.browserNames[i], cardR.x, cardR.y, cardR.w, cardR.h);
+							   i, kind, st.Card(i).name, cardR.x, cardR.y, cardR.w, cardR.h);
 					if (guiCtx && !uiModal) {
 						nkgui::NkGuiContext &gc = *guiCtx;
 						char dkey[40];
@@ -802,7 +806,7 @@ namespace nkentseu {
 						if (nkgui::BeginDragSource(gc)) {
 							const int32 pl[2] = {i, 0};
 							nkgui::SetDragPayload(gc, "brow.item", pl, (int32)sizeof(pl),
-												  st.browserNames[i]);
+												  st.Card(i).name);
 							nkgui::EndDragSource(gc);
 						}
 						if (kind == 1 && browDragging && nkgui::BeginDropTarget(gc)) {
@@ -845,10 +849,10 @@ namespace nkentseu {
 					nkentseu::NkLog::Instance().Info(
 										"[nk3d] MESURE clic carte : i={0} ctrl={1} maj={2} depuis={3} count={4}\n",
 										i, hit.CtrlDown() ? 1 : 0, hit.ShiftDown() ? 1 : 0, depuis,
-										st.browserCount);
+										st.BrowserCount());
 					if (hit.CtrlDown()) {
-						st.browserPicked[i] = !st.browserPicked[i];
-					} else if (hit.ShiftDown() && depuis >= 0 && depuis < st.browserCount) {
+						st.Card(i).picked = !st.Card(i).picked;
+					} else if (hit.ShiftDown() && depuis >= 0 && depuis < st.BrowserCount()) {
 						// LA PLAGE SE COMPTE DANS L'ORDRE AFFICHE, PAS DANS LES INDEX.
 						//
 						// `i` est l'index de la carte dans l'etat ; `vi` est sa position a
@@ -874,17 +878,17 @@ namespace nkentseu {
 							// La carte active n'est plus visible (filtre, recherche, dossier
 							// change) : il n'y a pas de plage a tracer. On se rabat sur la
 							// carte cliquee seule plutot que d'inventer un intervalle.
-							st.browserPicked[i] = true;
+							st.Card(i).picked = true;
 						} else {
 							const int32 a = viDepuis < vi ? viDepuis : vi;
 							const int32 b = viDepuis < vi ? vi : viDepuis;
 							for (int32 k = a; k <= b && k < visN; ++k)
-								st.browserPicked[vis[k]] = true;
+								st.Card(vis[k]).picked = true;
 						}
 					} else {
-						for (int32 k = 0; k < st.browserCount; ++k)
-							st.browserPicked[k] = false;
-						st.browserPicked[i] = true;
+						for (int32 k = 0; k < st.BrowserCount(); ++k)
+							st.Card(k).picked = false;
+						st.Card(i).picked = true;
 					}
 					st.selectedAsset = i;
 				}
@@ -1037,7 +1041,7 @@ namespace nkentseu {
 			}
 			// APPLICATION de la livraison, hors du parcours (le transfert
 			// reordonne les cartes qu'on vient de lire).
-			if (pendingSrc >= 0 && pendingSrc < st.browserCount) {
+			if (pendingSrc >= 0 && pendingSrc < st.BrowserCount()) {
 				if (pendingDest == -1000) {
 					// ── LACHER SUR LA VUE 3D : ON FIGE UN JETON, ON NE FAIT RIEN ──
 					// Avant, seul un MODEL etait traite, et il atterrissait a
@@ -1051,11 +1055,11 @@ namespace nkentseu {
 					// la frame suivante. On fige donc TOUT ce dont le geste aura
 					// besoin, et main.cpp applique quand la reponse arrive.
 					st.dropIdx = pendingSrc;
-					st.dropKind = st.browserKind[pendingSrc];
-					st.dropSrcNode = st.browserSrcNode[pendingSrc];
-					st.dropMat = st.browserMat[pendingSrc];
+					st.dropKind = st.Card(pendingSrc).kind;
+					st.dropSrcNode = st.Card(pendingSrc).srcNode;
+					st.dropMat = st.Card(pendingSrc).mat;
 					snprintf(st.dropName, sizeof(st.dropName), "%s",
-							 st.browserNames[pendingSrc]);
+							 st.Card(pendingSrc).name);
 					st.dropMenuTarget = -1; // un jeton neuf n'herite d'aucun menu
 					// ---- LES CARTES QUI PARTENT AVEC ELLE ----
 					//
@@ -1071,11 +1075,11 @@ namespace nkentseu {
 					st.dropQueueCount = 0;
 					st.dropQueueX = bm.x;
 					st.dropQueueY = bm.y;
-					if (st.browserPicked[pendingSrc]) {
-						for (int32 k = 0; k < st.browserCount &&
-							 st.dropQueueCount < NkModelerState::kMaxBrowser;
+					if (st.Card(pendingSrc).picked) {
+						for (int32 k = 0; k < st.BrowserCount() &&
+							 st.dropQueueCount < NkModelerState::kMaxDropQueue;
 							 ++k) {
-							if (k == pendingSrc || !st.browserPicked[k])
+							if (k == pendingSrc || !st.Card(k).picked)
 								continue;
 							st.dropQueue[st.dropQueueCount++] = k;
 						}
@@ -1089,7 +1093,7 @@ namespace nkentseu {
 					// garde anti-cycle qu'avant la migration.
 					const int32 dest = (pendingDest == -100) ? st.browserFolder : pendingDest;
 					bool ok5 = (dest != pendingSrc);
-					for (int32 c5 = dest; c5 >= 0 && ok5; c5 = st.browserParent[c5])
+					for (int32 c5 = dest; c5 >= 0 && ok5; c5 = st.Card(c5).parent)
 						if (c5 == pendingSrc)
 							ok5 = false;
 					if (ok5) {

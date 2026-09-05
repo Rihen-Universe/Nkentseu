@@ -1,4 +1,9 @@
 #pragma once
+// -----------------------------------------------------------------------------
+// @File    NkModelerInput.h
+// @Author  TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
+// @License Proprietary - All Rights Reserved (see LICENSE)
+// -----------------------------------------------------------------------------
 // =============================================================================
 // NkModelerInput.h — l'etat de l'application et le survol/clic sur les zones.
 //
@@ -135,14 +140,122 @@ namespace nkentseu {
 		};
 
 		// ── ETAT DE SESSION ─────────────────────────────────────────────────────
+		// ── UNE CARTE DU NAVIGATEUR ──────────────────────────────────
+		//
+		// Elle etait dix tableaux paralleles de 32 (`browserKind[32]`,
+		// `browserNames[32][32]`, `browserParent[32]`…). Deux couts, tous deux
+		// PAYES le 2026-09-05 :
+		//   1. un PLAFOND — le projet de Rodolf en avait exactement 32, donc tout
+		//      import creait ses noeuds et n'ecrivait AUCUNE carte, AUCUN `.nkmesh` ;
+		//   2. dix bornes a garder d'accord — un seul tableau oublie lors d'un
+		//      agrandissement, et l'ecriture deborde sur son voisin en silence
+		//      (le depot a deja paye ce prix exact avec `hierFold`, v16).
+		//
+		// Une carte est desormais UN objet. Le nombre de cartes est la TAILLE du
+		// vecteur : il n'y a plus de compteur a tenir a jour a cote.
+		struct NkBrowserCard {
+				/// LEGENDE REELLE, celle que le code CONSOMME (NkModelerUI.h) :
+				/// 0 graphe · 1 dossier · 2 materiau · 3 texture · 4 dataset IA ·
+				/// 5 scene · 6 model · 255 carte supprimee. Ce commentaire a annonce
+				/// « 0 dossier, 1 materiau, 2 texture » pendant des mois : faux des
+				/// trois cotes, et lu comme la source de verite parce qu'il est a la
+				/// declaration. Le point de verite d'un encodage est son CONSOMMATEUR,
+				/// jamais sa declaration.
+				uint8 kind = 0;
+				char name[32] = {};
+				int32 parent = -1; ///< -1 = racine
+				uint8 sub = 0;	   ///< sous-type des graphes (kind 0)
+				/// Carte de SCENE (kind 5) -> document + 1 (0 = aucun). C'est ce lien
+				/// qui fait qu'une scene fermee se ROUVRE sur son contenu : sans lui,
+				/// le double-clic fabriquait un document neuf et vide.
+				int32 doc = 0;
+				/// Carte de MATERIAU (kind 2) -> emplacement de materiau + 1. Sans lui,
+				/// « + Materiau » ne creait qu'un NOM : les materiaux du projet et les
+				/// cartes du navigateur etaient deux mondes disjoints.
+				int32 mat = 0;
+				/// CHEMIN RELATIF du fichier de la carte, tel qu'il a ete ECRIT la
+				/// derniere fois. Memorise et non recalcule : c'est lui qui permet de
+				/// retirer l'ancien fichier quand la carte est renommee ou deplacee --
+				/// sinon le dossier du projet accumulerait des orphelins que plus rien
+				/// ne designe.
+				char file[128] = {};
+				/// Date du dernier enregistrement CONNU, relevee a l'ecriture et au
+				/// balayage. MEMORISEE et non interrogee a la peinture : un appel au
+				/// systeme de fichiers par carte et par image couterait plus cher que
+				/// tout le navigateur.
+				nk_int64 time = 0;
+				/// Noeud SOURCE d'un asset reutilisable (0 = aucun, sinon noeud+1).
+				int32 srcNode = 0;
+				/// ORIGINE CORRIGEE EN MEMOIRE, PAS ENCORE ECRITE. Armee quand le
+				/// recentrage au depot a REELLEMENT change l'origine de l'archive
+				/// (Demo3DHostRecenterModel renvoie vrai). La prochaine sauvegarde ecrit
+				/// alors le `.nkmesh` de cette carte MEME si elle n'est pas la carte
+				/// active -- l'exemption qui existe deja pour les materiaux -- puis
+				/// desarme. Decision de Rihen (17/08) : l'origine stockee est la
+				/// reference du pipeline d'export (FBX repositionne l'objet pour que son
+				/// origine soit a (0,0,0)) ; l'ecriture se fait A LA SAUVEGARDE, jamais
+				/// en douce au depot. TRANSIENT : jamais serialise -- quitter sans
+				/// sauver perd la correction, et c'est voulu (temoin negatif).
+				bool originDirty = false;
+				/// CARTE CHOISIE, pour les gestes qui portent PLUSIEURS assets.
+				/// `selectedAsset` reste la carte ACTIVE -- celle dont les panneaux
+				/// montrent les proprietes ; `picked` dit lesquelles PARTENT avec elle
+				/// quand on tire. Les deux notions se ressemblent et ne se confondent
+				/// pas : on peut avoir cinq cartes choisies et n'en inspecter qu'une.
+				bool picked = false;
+		};
+
 		struct NkModelerState {
-				// LA BORNE DU NAVIGATEUR, en tete parce qu'elle dimensionne des
-				// tableaux declares plus haut que son ancienne place. Une borne qui
-				// arrive apres ce qu'elle borne oblige a recopier 32 en dur juste
-				// au-dessus -- et ce depot a deja paye un tableau dimensionne a la
-				// main au lieu de sa borne reelle (hierFold, v16), qui debordait sur
-				// son voisin et corrompait la selection en silence.
-				static const int32 kMaxBrowser = 32;
+				// PLUS DE BORNE SUR LES CARTES. Mesure du 2026-09-05 : le projet
+				// AgentTest de Rodolf porte EXACTEMENT 32 cartes -- le plafond, plein.
+				// Tout import y creait ses noeuds puis rendait « carte=-1 fichier=(non
+				// ecrit) » : reussi cote geometrie, INVISIBLE cote navigateur, et aucun
+				// `.nkmesh` sur le disque. C'est ce que Rodolf appelait « l'import
+				// refuse ». Les dix tableaux paralleles `browserXxx[32]` sont remplaces
+				// par UNE structure par carte (`NkBrowserCard`) dans un `NkVector`
+				// dimensionne a l'execution : une carte est desormais UN objet, pas dix
+				// champs eparpilles que dix bornes doivent s'accorder a garder egales.
+				//
+				// Ce qui reste de l'ancienne borne : la file d'attente du DEPOT,
+				// un tampon de travail vide a chaque image. Elle ne borne plus
+				// aucune carte, et porte donc son vrai nom.
+				static const int32 kMaxDropQueue = 32;
+				/// Capacites des deux champs texte d'une carte. NOMMEES, parce que
+				/// `sizeof(st.cards[0].name)` sur un vecteur VIDE serait un acces hors
+				/// borne -- l'ancienne forme `NkModelerState::kCardNameCap` etait sure sur
+				/// un tableau fixe et ne l'est plus.
+				static const uint32 kCardNameCap = 32;
+				static const uint32 kCardFileCap = 128;
+				/// LES CARTES DU NAVIGATEUR, dimensionnees a l'execution.
+				NkVector<NkBrowserCard> cards;
+				/// Nombre de cartes. C'est la TAILLE du vecteur : il n'existe plus de
+				/// compteur separe a garder d'accord avec elle.
+				int32 BrowserCount() const noexcept { return (int32)cards.Size(); }
+				/// Acces borne a une carte. Un indice hors bornes rend une carte
+				/// POUBELLE plutot que de deborder : les appelants historiques testaient
+				/// `< browserCount` de facon inegale, et un tableau fixe leur pardonnait
+				/// silencieusement -- un vecteur, non.
+				NkBrowserCard &Card(int32 i) noexcept {
+					static NkBrowserCard poubelle;
+					if (i < 0 || i >= BrowserCount()) {
+						poubelle = NkBrowserCard();
+						return poubelle;
+					}
+					return cards[(usize)i];
+				}
+				const NkBrowserCard &Card(int32 i) const noexcept {
+					static const NkBrowserCard poubelle;
+					if (i < 0 || i >= BrowserCount())
+						return poubelle;
+					return cards[(usize)i];
+				}
+				/// Ajoute une carte VIERGE et rend son indice. Remplace
+				/// `st.CardAdd()`, qui ne pouvait plus dire non depuis qu'il n'y a
+				/// plus de plafond : il rend donc toujours un indice valide.
+				int32 CardAdd() {
+					cards.PushBack(NkBrowserCard());
+					return BrowserCount() - 1;
+				}
 
 				NkMode mode = NkMode::Object;
 				NkSubMode subMode = NkSubMode::Face;
@@ -606,7 +719,7 @@ namespace nkentseu {
 				// entre la premiere carte et la derniere, la camera peut avoir bouge,
 				// et les dix objets doivent atterrir la ou l'utilisateur a lache --
 				// pas la ou son curseur se trouve trois frames plus tard.
-				int32 dropQueue[kMaxBrowser] = {}; ///< cartes en attente de leur tour
+				int32 dropQueue[kMaxDropQueue] = {}; ///< cartes en attente de leur tour
 				int32 dropQueueCount = 0;          ///< 0 = file vide
 				float32 dropQueueX = 0.f, dropQueueY = 0.f; ///< le lacher, fige
 				// CONFLIT d'homonyme en attente (Renommer/Remplacer/Arreter).
@@ -772,7 +885,6 @@ namespace nkentseu {
 				}
 				int32 propClipNode = 0; // noeud+1 source de 'Copier proprietes'
 				int32 propCopyTarget = 0; // 0 = toutes les scenes, sinon 1+onglet
-				uint8 browserSub[32] = {}; // sous-type des graphes (kind 0)
 				bool browMenuGraph = false; // sous-menu Graphe ouvert
 				// VUE CAMERA : noeud+1 regarde, et pose libre a restituer.
 				int32 camViewNode = 0;
@@ -794,7 +906,7 @@ namespace nkentseu {
 				// par « + Dossier / + Materiau / + Texture ». Tableaux plats a
 				// indices stables, comme partout ailleurs dans cet etat.
 				/// Selecteur de fichiers PARTAGE (NKEditorKit) : il navigue le DISQUE
-				/// reel, la ou les cartes du navigateur plafonnent a kMaxBrowser.
+				/// reel, la ou les cartes du navigateur decrivent le projet.
 				/// SPECIALISE (NkModelerPicker) : hors mode « nouveau materiau » il
 				/// se comporte exactement comme le selecteur generique.
 				NkModelerPicker picker;
@@ -810,63 +922,6 @@ namespace nkentseu {
 				/// et depose ici, comme `projectRoot` : un panneau ne voit que l'etat.
 				/// Vide si le dossier n'existe pas encore sur le disque.
 				NkString browserFolderAbs;
-				// Noeud SOURCE d'un asset reutilisable (0 = aucun, sinon noeud+1).
-				int32 browserSrcNode[kMaxBrowser] = {};
-				/// ORIGINE CORRIGEE EN MEMOIRE, PAS ENCORE ECRITE. Arme quand le
-				/// recentrage au depot a REELLEMENT change l'origine de l'archive
-				/// (Demo3DHostRecenterModel renvoie vrai). La prochaine sauvegarde
-				/// ecrit alors le `.nkmesh` de cette carte MEME si elle n'est pas
-				/// la carte active -- l'exemption qui existe deja pour les
-				/// materiaux -- puis desarme. Decision de Rihen (17/08) : l'origine
-				/// stockee est la reference du pipeline d'export (FBX repositionne
-				/// l'objet pour que son origine soit a (0,0,0)) ; l'ecriture se
-				/// fait A LA SAUVEGARDE, jamais en douce au depot. TRANSIENT :
-				/// jamais serialise -- quitter sans sauver perd la correction, et
-				/// c'est voulu (le temoin negatif du protocole).
-				bool browserOriginDirty[kMaxBrowser] = {};
-				int32 browserCount = 0;
-				/// CARTES CHOISIES, pour les gestes qui portent PLUSIEURS assets.
-				///
-				/// `selectedAsset` reste la carte ACTIVE -- celle dont les panneaux
-				/// montrent les proprietes. `browserPicked` dit lesquelles PARTENT
-				/// avec elle quand on tire. Les deux notions se ressemblent et ne se
-				/// confondent pas : on peut avoir cinq cartes choisies et n'en
-				/// inspecter qu'une.
-				///
-				/// Taille : kMaxBrowser, comme tout ce qui indexe une carte. Le depot
-				/// a deja paye un tableau dimensionne sur le nombre d'objets d'une
-				/// demo au lieu de la borne reelle (hierFold, v16) -- l'ecriture
-				/// debordait sur le voisin et corrompait la selection en silence.
-				bool browserPicked[kMaxBrowser] = {};
-				/// LEGENDE REELLE, celle que le code CONSOMME (NkModelerUI.h) :
-				/// 0 graphe · 1 dossier · 2 materiau · 3 texture · 4 dataset IA ·
-				/// 5 scene · 6 model · 255 carte supprimee. Ce commentaire a
-				/// annonce « 0 dossier, 1 materiau, 2 texture » pendant des mois :
-				/// faux des trois cotes, et lu comme la source de verite parce
-				/// qu'il est a la declaration. Le point de verite d'un encodage
-				/// est son CONSOMMATEUR, jamais sa declaration.
-				uint8 browserKind[32] = {};
-				char browserNames[32][32] = {};
-				int32 browserParent[32] = {};  ///< -1 = racine
-				// Carte de SCENE (kind 5) -> document + 1 (0 = aucun). C'est ce
-				// lien qui fait qu'une scene fermee se ROUVRE sur son contenu :
-				// sans lui, le double-clic fabriquait un document neuf et vide.
-				int32 browserDoc[32] = {};
-				// Carte de MATERIAU (kind 2) -> emplacement de materiau + 1. Sans
-				// lui, « + Materiau » ne creait qu'un NOM : les materiaux du projet
-				// et les cartes du navigateur etaient deux mondes disjoints.
-				int32 browserMat[32] = {};
-				// CHEMIN RELATIF du fichier de la carte, tel qu'il a ete ECRIT la
-				// derniere fois. Il est memorise et non recalcule : c'est lui qui
-				// permet de retirer l'ancien fichier quand la carte est renommee ou
-				// deplacee -- sinon le dossier du projet accumulerait des orphelins
-				// que plus rien ne designe.
-				char browserFile[32][128] = {};
-				// Date du dernier enregistrement CONNU de la carte, relevee a
-				// l'ecriture et au balayage. Elle est MEMORISEE et non interrogee a
-				// la peinture : trente-deux appels au systeme de fichiers par image
-				// couteraient plus cher que tout le navigateur.
-				nk_int64 browserTime[32] = {};
 				// ── CLASSEMENT DU NAVIGATEUR (comme l'explorateur) ──────────
 				// 0 nom · 1 type · 2 date. Les DOSSIERS restent toujours en tete,
 				// quel que soit le critere et le sens : ce sont des contenants, pas

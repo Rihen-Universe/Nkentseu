@@ -1,4 +1,9 @@
 #pragma once
+// -----------------------------------------------------------------------------
+// @File    NkModelerScreens.h
+// @Author  TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
+// @License Proprietary - All Rights Reserved (see LICENSE)
+// -----------------------------------------------------------------------------
 // =============================================================================
 // NkModelerScreens.h â€” les zones de l'ecran A, peintes une par une.
 //
@@ -212,13 +217,13 @@ namespace nkentseu {
 				return -1;
 			if (st.sceneTabKind[st.activeTab] != 0) {
 				const int32 a = st.sceneTabAsset[st.activeTab] - 1;
-				return (a >= 0 && a < st.browserCount) ? a : -1;
+				return (a >= 0 && a < st.BrowserCount()) ? a : -1;
 			}
 			const int32 d = st.TabDoc(st.activeTab);
 			if (d < 0)
 				return -1;
 			const int32 c = st.docCard[d] - 1;
-			return (c >= 0 && c < st.browserCount) ? c : -1;
+			return (c >= 0 && c < st.BrowserCount()) ? c : -1;
 		}
 
 		inline void NkStoreSceneView(NkModelerState &st, int32 tab) {
@@ -314,22 +319,20 @@ namespace nkentseu {
 				if (!st.docUsed[d] || st.docTransient[d])
 					continue;
 				int32 e = st.docCard[d] - 1;
-				if (e < 0 || e >= st.browserCount || st.browserKind[e] != 5 ||
-					st.browserDoc[e] != d + 1) {
-					if (st.browserCount >= NkModelerState::kMaxBrowser)
-						continue; // navigateur plein : la scene reste sans carte
-					e = st.browserCount++;
-					st.browserKind[e] = 5;
+				if (e < 0 || e >= st.BrowserCount() || st.Card(e).kind != 5 ||
+					st.Card(e).doc != d + 1) {
+					e = st.CardAdd();
+					st.Card(e).kind = 5;
 					// A la RACINE : previsible tant que le selecteur de dossier
 					// personnalise n'existe pas (chantier suivant) ; la carte se
 					// range ensuite par glisser-deposer comme les autres.
-					st.browserParent[e] = -1;
-					st.browserSrcNode[e] = 0;
-					st.browserSub[e] = 0;
-					st.browserDoc[e] = d + 1;
+					st.Card(e).parent = -1;
+					st.Card(e).srcNode = 0;
+					st.Card(e).sub = 0;
+					st.Card(e).doc = d + 1;
 					st.docCard[d] = e + 1;
 				}
-				NkWidgetState::Copy(st.browserNames[e], st.docName[d], 31u);
+				NkWidgetState::Copy(st.Card(e).name, st.docName[d], 31u);
 			}
 		}
 		// ── ACTIVER UN ONGLET ───────────────────────────────────────────────────
@@ -426,15 +429,15 @@ namespace nkentseu {
 			// la fermeture : tout ce qu'on y faisait etait perdu, position comprise
 			// (constate par Rihen). Un editeur qui n'edite rien est pire que pas
 			// d'editeur du tout.
-			if (st.docIsoNode[d] == 0 && ek == 6 && ai >= 0 && ai < st.browserCount) {
-				int32 src = st.browserSrcNode[ai] - 1;
+			if (st.docIsoNode[d] == 0 && ek == 6 && ai >= 0 && ai < st.BrowserCount()) {
+				int32 src = st.Card(ai).srcNode - 1;
 				if (src < 0) {
 					// Carte creee par « + Model » : elle n'a pas encore de corps.
 					// Il nait ICI et devient LE corps de la carte -- sinon chaque
 					// ouverture repartait d'un cube neuf.
 					src = demo::Demo3DHostAddNode(2, 0);
 					if (src >= 0)
-						st.browserSrcNode[ai] = src + 1;
+						st.Card(ai).srcNode = src + 1;
 				}
 				if (src >= 0) {
 					demo::Demo3DHostArchiveTree(src, false);
@@ -487,7 +490,7 @@ namespace nkentseu {
 					// endroits, elle ne doit pas pouvoir en avoir deux couleurs.
 					const uint8 k2 = (uint8)(st.sceneTabKind[i] - 1);
 					const int32 aT = st.sceneTabAsset[i] - 1;
-					const uint8 sT = (aT >= 0 && aT < st.browserCount) ? st.browserSub[aT] : 0;
+					const uint8 sT = (aT >= 0 && aT < st.BrowserCount()) ? st.Card(aT).sub : 0;
 					p.Fill({tr.x, tr.y, tr.w, 2.f}, NkAssetColor(p, k2, sT)); // en HAUT (Rihen)
 				}
 				snprintf(key, sizeof(key), "tab.name.%d", i);
@@ -501,9 +504,9 @@ namespace nkentseu {
 					// chaque sens agit A LA VALIDATION, jamais en continu -- une
 					// recopie a chaque frame ferait qu'un cote ecraserait l'autre.
 					const int32 e9 = st.docCard[di] - 1;
-					if (st.sceneTabKind[i] == 0 && e9 >= 0 && e9 < st.browserCount &&
-						st.browserKind[e9] == 5)
-						NkWidgetState::Copy(st.browserNames[e9], st.docName[di], 31u);
+					if (st.sceneTabKind[i] == 0 && e9 >= 0 && e9 < st.BrowserCount() &&
+						st.Card(e9).kind == 5)
+						NkWidgetState::Copy(st.Card(e9).name, st.docName[di], 31u);
 				}
 				// PASTILLE ET CROIX PARTAGENT LE MEME EMPLACEMENT, mais leurs
 				// conditions different -- et c'est important : la pastille « non
@@ -1082,11 +1085,11 @@ namespace nkentseu {
 				else
 					snprintf(out, cap, "%s_%02d", base, n7);
 				bool taken = false;
-				for (int32 j7 = 0; j7 < st.browserCount; ++j7) {
-					if (st.browserNames[j7] == out)
+				for (int32 j7 = 0; j7 < st.BrowserCount(); ++j7) {
+					if (st.Card(j7).name == out)
 						continue; // soi-meme (nom en cours d'ecriture)
-					if (st.browserKind[j7] == kind && st.browserParent[j7] == parent &&
-						strcmp(st.browserNames[j7], out) == 0) {
+					if (st.Card(j7).kind == kind && st.Card(j7).parent == parent &&
+						strcmp(st.Card(j7).name, out) == 0) {
 						taken = true;
 						break;
 					}
@@ -1098,10 +1101,10 @@ namespace nkentseu {
 		// Homonyme de MEME NATURE dans un dossier (hors src et supprimes).
 		inline int32 NkBrowFindSame(NkModelerState &st, int32 dest, uint8 kind,
 									const char *name, int32 excl) {
-			for (int32 j8 = 0; j8 < st.browserCount; ++j8)
-				if (j8 != excl && st.browserKind[j8] == kind &&
-					st.browserParent[j8] == dest &&
-					strcmp(st.browserNames[j8], name) == 0)
+			for (int32 j8 = 0; j8 < st.BrowserCount(); ++j8)
+				if (j8 != excl && st.Card(j8).kind == kind &&
+					st.Card(j8).parent == dest &&
+					strcmp(st.Card(j8).name, name) == 0)
 					return j8;
 			return -1;
 		}
@@ -1110,11 +1113,11 @@ namespace nkentseu {
 		inline NkString NkBrowFolderRel(const NkModelerState &st, int32 card) {
 			NkString parts[8];
 			int32 n = 0, cur = card;
-			for (int32 g = 0; g < 8 && cur >= 0 && cur < st.browserCount; ++g) {
-				if (st.browserKind[cur] != 1)
+			for (int32 g = 0; g < 8 && cur >= 0 && cur < st.BrowserCount(); ++g) {
+				if (st.Card(cur).kind != 1)
 					break;
-				parts[n++] = st.browserNames[cur];
-				cur = st.browserParent[cur];
+				parts[n++] = st.Card(cur).name;
+				cur = st.Card(cur).parent;
 			}
 			NkString out;
 			for (int32 i = n - 1; i >= 0; --i) {
@@ -1146,21 +1149,21 @@ namespace nkentseu {
 			// LES DOSSIERS D'ABORD, toujours -- meme en ordre decroissant. Un
 			// dossier n'est pas un element de la liste, c'est le chemin vers la
 			// suite ; le renvoyer en bas oblige a le chercher.
-			const bool fa = st.browserKind[a] == 1, fb = st.browserKind[b] == 1;
+			const bool fa = st.Card(a).kind == 1, fb = st.Card(b).kind == 1;
 			if (fa != fb)
 				return fa;
 			int32 c = 0;
 			if (st.browSort == 1) { // TYPE, puis nom a type egal
-				c = (int32)st.browserKind[a] - (int32)st.browserKind[b];
+				c = (int32)st.Card(a).kind - (int32)st.Card(b).kind;
 				if (c == 0)
-					c = NkBrowNameCmp(st.browserNames[a], st.browserNames[b]);
+					c = NkBrowNameCmp(st.Card(a).name, st.Card(b).name);
 			} else if (st.browSort == 2) { // DATE, puis nom a date egale
-				const nk_int64 ta = st.browserTime[a], tb = st.browserTime[b];
+				const nk_int64 ta = st.Card(a).time, tb = st.Card(b).time;
 				c = (ta < tb) ? -1 : ((ta > tb) ? 1 : 0);
 				if (c == 0)
-					c = NkBrowNameCmp(st.browserNames[a], st.browserNames[b]);
+					c = NkBrowNameCmp(st.Card(a).name, st.Card(b).name);
 			} else {
-				c = NkBrowNameCmp(st.browserNames[a], st.browserNames[b]);
+				c = NkBrowNameCmp(st.Card(a).name, st.Card(b).name);
 			}
 			// Le SENS ne s'applique qu'au critere, jamais a la regle des dossiers.
 			return st.browSortDesc ? (c > 0) : (c < 0);
@@ -1171,15 +1174,15 @@ namespace nkentseu {
 		/// couterait plus en lecture qu'il ne rapporterait en cycles.
 		inline int32 NkBrowVisible(const NkModelerState &st, int32 *out, int32 cap) {
 			int32 n = 0;
-			for (int32 i = 0; i < st.browserCount && n < cap; ++i) {
-				if (st.browserKind[i] == 255 || st.browserParent[i] != st.browserFolder)
+			for (int32 i = 0; i < st.BrowserCount() && n < cap; ++i) {
+				if (st.Card(i).kind == 255 || st.Card(i).parent != st.browserFolder)
 					continue;
 				// Filtre par TYPE. Les DOSSIERS restent toujours visibles : ils sont
 				// le chemin vers le reste, pas un resultat de recherche.
-				if (st.browFilter != 0u && st.browserKind[i] != 1 &&
-					(st.browFilter & (1u << st.browserKind[i])) == 0u)
+				if (st.browFilter != 0u && st.Card(i).kind != 1 &&
+					(st.browFilter & (1u << st.Card(i).kind)) == 0u)
 					continue;
-				if (!NkNameMatches(st.browserNames[i], st.searchBrowser))
+				if (!NkNameMatches(st.Card(i).name, st.searchBrowser))
 					continue;
 				int32 k = n++;
 				while (k > 0 && NkBrowBefore(st, i, out[k - 1])) {
@@ -1202,16 +1205,16 @@ namespace nkentseu {
 				// LE FICHIER SUIT LA CARTE (Rihen). Il part en CORBEILLE, pas au
 				// neant : une suppression de trop doit pouvoir se rattraper -- meme
 				// exigence que « fermer un onglet ne supprime rien ».
-				if (st.browserFile[s2][0]) {
-					st.DelPendPush(st.browserFile[s2]);
-					st.browserFile[s2][0] = 0;
-				} else if (st.browserKind[s2] == 1) {
+				if (st.Card(s2).file[0]) {
+					st.DelPendPush(st.Card(s2).file);
+					st.Card(s2).file[0] = 0;
+				} else if (st.Card(s2).kind == 1) {
 					// Un DOSSIER n'a pas de fichier : c'est son repertoire qui part.
 					st.DelPendPush(NkBrowFolderRel(st, s2).CStr());
 				}
-				st.browserKind[s2] = 255;
-				for (int32 j4 = 0; j4 < st.browserCount; ++j4)
-					if (st.browserParent[j4] == s2 && st.browserKind[j4] != 255 && sp2 < 63)
+				st.Card(s2).kind = 255;
+				for (int32 j4 = 0; j4 < st.BrowserCount(); ++j4)
+					if (st.Card(j4).parent == s2 && st.Card(j4).kind != 255 && sp2 < 63)
 						stk[sp2++] = j4;
 			}
 			if (st.browserFolder == root2)
@@ -1230,17 +1233,15 @@ namespace nkentseu {
 				--sp2;
 				const int32 s2 = stk[sp2][0];
 				const int32 p2 = stk[sp2][1];
-				if (st.browserCount >= NkModelerState::kMaxBrowser)
-					break;
-				const int32 k4 = st.browserCount++;
-				st.browserKind[k4] = st.browserKind[s2];
-				st.browserParent[k4] = p2;
-				st.browserSrcNode[k4] = st.browserSrcNode[s2];
-				NkBrowUniqueName(st, st.browserKind[s2], p2, st.browserNames[s2],
-								 st.browserNames[k4], 32);
-				if (st.browserKind[s2] == 1)
+				const int32 k4 = st.CardAdd();
+				st.Card(k4).kind = st.Card(s2).kind;
+				st.Card(k4).parent = p2;
+				st.Card(k4).srcNode = st.Card(s2).srcNode;
+				NkBrowUniqueName(st, st.Card(s2).kind, p2, st.Card(s2).name,
+								 st.Card(k4).name, 32);
+				if (st.Card(s2).kind == 1)
 					for (int32 j4 = 0; j4 < k4; ++j4)
-						if (st.browserParent[j4] == s2 && st.browserKind[j4] != 255 &&
+						if (st.Card(j4).parent == s2 && st.Card(j4).kind != 255 &&
 							sp2 < 63) {
 							stk[sp2][0] = j4;
 							stk[sp2][1] = k4;
@@ -1251,17 +1252,17 @@ namespace nkentseu {
 		// DEPLACER en REMPLACANT : dossier homonyme = FUSION recursive (le
 		// contenu migre et l'identite se reverifie a chaque niveau -- Windows).
 		inline void NkBrowMoveReplace(NkModelerState &st, int32 src, int32 dest) {
-			const int32 dup = NkBrowFindSame(st, dest, st.browserKind[src],
-											 st.browserNames[src], src);
+			const int32 dup = NkBrowFindSame(st, dest, st.Card(src).kind,
+											 st.Card(src).name, src);
 			if (dup < 0) {
-				st.browserParent[src] = dest;
+				st.Card(src).parent = dest;
 				return;
 			}
-			if (st.browserKind[src] == 1) {
-				for (int32 c8 = 0; c8 < st.browserCount; ++c8)
-					if (st.browserKind[c8] != 255 && st.browserParent[c8] == src)
+			if (st.Card(src).kind == 1) {
+				for (int32 c8 = 0; c8 < st.BrowserCount(); ++c8)
+					if (st.Card(c8).kind != 255 && st.Card(c8).parent == src)
 						NkBrowMoveReplace(st, c8, dup);
-				st.browserKind[src] = 255; // la coquille vide disparait
+				st.Card(src).kind = 255; // la coquille vide disparait
 				if (st.browserFolder == src)
 					st.browserFolder = dup;
 			} else {
@@ -1278,31 +1279,29 @@ namespace nkentseu {
 		// Remplacement EXPLICITE d'un seul element (choix du dialogue).
 		inline void NkBrowReplaceOne(NkModelerState &st, int32 src, int32 dest,
 									 bool isCopy) {
-			const int32 dup = NkBrowFindSame(st, dest, st.browserKind[src],
-											 st.browserNames[src], src);
+			const int32 dup = NkBrowFindSame(st, dest, st.Card(src).kind,
+											 st.Card(src).name, src);
 			if (dup >= 0)
 				NkBrowDelRec(st, dup);
 			if (isCopy)
 				NkBrowCopyRecU(st, src, dest);
 			else
-				st.browserParent[src] = dest;
+				st.Card(src).parent = dest;
 		}
 		inline int32 NkBrowCopyOne(NkModelerState &st, int32 src, int32 par) {
-			if (st.browserCount >= NkModelerState::kMaxBrowser)
-				return -1;
-			const int32 k4 = st.browserCount++;
-			st.browserKind[k4] = st.browserKind[src];
-			st.browserParent[k4] = par;
-			st.browserSrcNode[k4] = st.browserSrcNode[src];
-			snprintf(st.browserNames[k4], 32, "%s", st.browserNames[src]);
+			const int32 k4 = st.CardAdd();
+			st.Card(k4).kind = st.Card(src).kind;
+			st.Card(k4).parent = par;
+			st.Card(k4).srcNode = st.Card(src).srcNode;
+			snprintf(st.Card(k4).name, 32, "%s", st.Card(src).name);
 			return k4;
 		}
 		inline void NkBrowCopyReplace(NkModelerState &st, int32 src, int32 dest) {
-			const int32 dup = NkBrowFindSame(st, dest, st.browserKind[src],
-											 st.browserNames[src], src);
-			if (dup >= 0 && st.browserKind[src] == 1) {
-				for (int32 c8 = 0; c8 < st.browserCount; ++c8)
-					if (st.browserKind[c8] != 255 && st.browserParent[c8] == src)
+			const int32 dup = NkBrowFindSame(st, dest, st.Card(src).kind,
+											 st.Card(src).name, src);
+			if (dup >= 0 && st.Card(src).kind == 1) {
+				for (int32 c8 = 0; c8 < st.BrowserCount(); ++c8)
+					if (st.Card(c8).kind != 255 && st.Card(c8).parent == src)
 						NkBrowCopyReplace(st, c8, dup);
 				return;
 			}
@@ -1317,27 +1316,27 @@ namespace nkentseu {
 				return;
 			}
 			const int32 nk8 = NkBrowCopyOne(st, src, dest);
-			if (nk8 >= 0 && st.browserKind[src] == 1)
-				for (int32 c8 = 0; c8 < st.browserCount; ++c8)
-					if (c8 != nk8 && st.browserKind[c8] != 255 &&
-						st.browserParent[c8] == src)
+			if (nk8 >= 0 && st.Card(src).kind == 1)
+				for (int32 c8 = 0; c8 < st.BrowserCount(); ++c8)
+					if (c8 != nk8 && st.Card(c8).kind != 255 &&
+						st.Card(c8).parent == src)
 						NkBrowCopyReplace(st, c8, nk8);
 		}
 		// DEMANDE de transfert : sans homonyme on agit ; sinon le DIALOGUE
 		// Renommer / Remplacer / Arreter tranche (regle de Rihen).
 		inline void NkBrowRequestTransfer(NkModelerState &st, int32 src, int32 dest,
 										  bool isCopy, float32 mx, float32 my) {
-			if (src < 0 || st.browserKind[src] == 255)
+			if (src < 0 || st.Card(src).kind == 255)
 				return;
-			if (!isCopy && st.browserParent[src] == dest)
+			if (!isCopy && st.Card(src).parent == dest)
 				return; // deja la
-			const int32 dup = NkBrowFindSame(st, dest, st.browserKind[src],
-											 st.browserNames[src], src);
+			const int32 dup = NkBrowFindSame(st, dest, st.Card(src).kind,
+											 st.Card(src).name, src);
 			if (dup < 0) {
 				if (isCopy)
 					NkBrowCopyRecU(st, src, dest);
 				else
-					st.browserParent[src] = dest;
+					st.Card(src).parent = dest;
 				return;
 			}
 			st.browConfSrc = src;

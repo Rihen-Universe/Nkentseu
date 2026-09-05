@@ -1,3 +1,8 @@
+// -----------------------------------------------------------------------------
+// @File    main.cpp
+// @Author  TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
+// @License Proprietary - All Rights Reserved (see LICENSE)
+// -----------------------------------------------------------------------------
 // =============================================================================
 // main.cpp — Point d'entree de NK3DModeler.
 //
@@ -37,6 +42,7 @@
 #include "NK3DModeler/Shell/NkModelerScreens.h"
 #include "NK3DModeler/Shell/NkModelerChrome.h" // separateurs, dialogues, barre d etat
 #include "NK3DModeler/Shell/NkModelerJournal.h"
+#include "NK3DModeler/Shell/NkModelerToast.h" // le resultat d'une action, DIT A L'ECRAN
 #include "NKContainers/String/Encoding/NkBase64.h" // les messages du moteur, lisibles dans l'app
 #include "NK3DModeler/Shell/NkModelerHierarchy.h" // hierarchie + menus de scene
 #include "NK3DModeler/Shell/NkModelerViewport.h"  // vue 3D et ses surcouches
@@ -911,6 +917,8 @@ int nkmain(const NkEntryState &entry) {
 		float32 dt = clock.Tick().delta;
 		if (dt <= 0.f || dt > 0.1f)
 			dt = 1.f / 60.f;
+		// Les messages a l'ecran vieillissent en SECONDES, pas en images.
+		nk3d::NkToastTick(dt);
 
 		// LA TAILLE DE VUE SUIT LA FENETRE. `NkGuiContext::Init` la pose une fois
 		// et ne la revoit jamais : apres un redimensionnement, tout composant qui
@@ -988,10 +996,10 @@ int nkmain(const NkEntryState &entry) {
 							   n >= 90 ? (demo::Demo3DHostEmptyNodeSelected(n) ? 1 : 0)
 									   : (demo::Demo3DHostObjectSelected(n) ? 1 : 0));
 					}
-					printf("[nk3d-drag] browserCount=%d\n", st.browserCount);
-					for (int32 b = 0; b < st.browserCount; ++b)
+					printf("[nk3d-drag] browserCount=%d\n", st.BrowserCount());
+					for (int32 b = 0; b < st.BrowserCount(); ++b)
 						printf("[nk3d-drag] brow=%d kind=%d parent=%d name=\"%s\"\n", b,
-							   st.browserKind[b], st.browserParent[b], st.browserNames[b]);
+							   st.Card(b).kind, st.Card(b).parent, st.Card(b).name);
 					printf("[nk3d-drag] browAskIdx=%d browAskDest=%d folder=%d\n",
 						   st.browAskIdx, st.browAskDest, st.browserFolder);
 					fflush(stdout);
@@ -1832,13 +1840,13 @@ int nkmain(const NkEntryState &entry) {
 					// `NkBrowserSyncMats` cree les cartes manquantes A LA RACINE :
 					// il repare un lien, il ne peut pas deviner ou l'utilisateur
 					// voulait ranger. Le dossier retenu dans le selecteur est donc
-					// pose ICI, avant l'ecriture -- c'est `browserParent` qui
+					// pose ICI, avant l'ecriture -- c'est `Card(i).parent` qui
 					// decide du chemin du `.nkmat` (NkAsRelFor).
 					const int32 dossier = nk3d::NkAsFolderFromAbs(
 						st, st.projectRoot, st.picker.pickerResultPath);
-					for (int32 b3 = 0; b3 < st.browserCount; ++b3)
-						if (st.browserKind[b3] == 2 && st.browserMat[b3] == ni + 1) {
-							st.browserParent[b3] = dossier;
+					for (int32 b3 = 0; b3 < st.BrowserCount(); ++b3)
+						if (st.Card(b3).kind == 2 && st.Card(b3).mat == ni + 1) {
+							st.Card(b3).parent = dossier;
 							break;
 						}
 					NkString errNew;
@@ -1882,6 +1890,17 @@ int nkmain(const NkEntryState &entry) {
 			st.matNewPending = false;
 		}
 
+		// ── LE RESULTAT DES ACTIONS, EN DERNIER ─────────────────────────────
+		// APRES les panneaux, APRES les modales, APRES le selecteur : une
+		// incrustation se peint en dernier, sinon elle existe sans se voir --
+		// et c'est precisement le defaut que ces messages reparent. Couche 200 :
+		// au-dessus meme des modales (100), pour que la croix reste cliquable
+		// quand un dialogue est ouvert.
+		{
+			NkHitRegistry::LayerScope toastLayer(hit, 200);
+			(void)nk3d::NkToastPaint(hit, (float32)W, (float32)H, lay.status.h);
+		}
+
 		ui.EndFrame();
 
 		// ── ACTIONS PROJET ──────────────────────────────────────────────────
@@ -1921,15 +1940,15 @@ int nkmain(const NkEntryState &entry) {
 					// reouverture (constate par Rihen, 13 aout). On aligne les cartes,
 					// puis on marque le projet modifie pour que l'enregistrement porte.
 					nk3d::NkBrowserSyncMats(st);
-					for (int32 b = 0; b < st.browserCount; ++b) {
-						if (st.browserKind[b] != 2 || st.browserMat[b] <= 0)
+					for (int32 b = 0; b < st.BrowserCount(); ++b) {
+						if (st.Card(b).kind != 2 || st.Card(b).mat <= 0)
 							continue;
 						char nm[64];
 						float32 alb[3];
 						float32 rg = 0.f, mt = 0.f;
-						if (demo::Demo3DHostProjMatInfo(st.browserMat[b] - 1, nm,
+						if (demo::Demo3DHostProjMatInfo(st.Card(b).mat - 1, nm,
 														(uint32)sizeof(nm), alb, &rg, &mt))
-							NkWidgetState::Copy(st.browserNames[b], nm, 31u);
+							NkWidgetState::Copy(st.Card(b).name, nm, 31u);
 					}
 					nk3d::NkMarkDirty(st);
 					// ON REECRIT LE DISQUE TOUT DE SUITE (Rihen, 13 aout). Renommer
@@ -1937,7 +1956,7 @@ int nkmain(const NkEntryState &entry) {
 					// « Materiau.nkmat » dans leurs dossiers respectifs, et le doublon
 					// revenait a la reouverture. `NkProjectWriteAssets` ecrit le
 					// fichier sous son NOUVEAU nom puis efface l'ancien -- il connait
-					// le chemin precedent par `browserFile`, justement pour ne pas
+					// le chemin precedent par `Card(i).file`, justement pour ne pas
 					// laisser d'orphelins qu'on prendrait plus tard pour du travail
 					// perdu.
 					NkString errRen;
@@ -2352,13 +2371,13 @@ int nkmain(const NkEntryState &entry) {
 					if (dtFrame >= (int32)dv[3]) {
 						dtDone[dc] = true;
 						const int32 ci = (int32)dv[0];
-						if (ci >= 0 && ci < st.browserCount) {
+						if (ci >= 0 && ci < st.BrowserCount()) {
 							st.dropIdx = ci;
-							st.dropKind = st.browserKind[ci];
-							st.dropSrcNode = st.browserSrcNode[ci];
-							st.dropMat = st.browserMat[ci];
+							st.dropKind = st.Card(ci).kind;
+							st.dropSrcNode = st.Card(ci).srcNode;
+							st.dropMat = st.Card(ci).mat;
 							snprintf(st.dropName, sizeof(st.dropName), "%s",
-									 st.browserNames[ci]);
+									 st.Card(ci).name);
 							st.dropMenuTarget = -1;
 							demo::Demo3DHostPickRequest(dv[1], dv[2]);
 							nkentseu::NkLog::Instance().Info(
@@ -2372,14 +2391,14 @@ int nkmain(const NkEntryState &entry) {
 							// faut une execution par indice pour savoir quelle carte
 							// porte quel numero, et le numero change avec le tri.
 							nkentseu::NkLog::Instance().Info(
-								"[nk3d] MESURE jeton : {0} cartes\n", st.browserCount);
-							for (int32 bi = 0; bi < st.browserCount; ++bi)
+								"[nk3d] MESURE jeton : {0} cartes\n", st.BrowserCount());
+							for (int32 bi = 0; bi < st.BrowserCount(); ++bi)
 								nkentseu::NkLog::Instance().Info(
 									"[nk3d]   carte {0} « {1} » nature={2} srcNode={3} "
 									"mat={4} parent={5}\n",
-									bi, st.browserNames[bi], (int32)st.browserKind[bi],
-									st.browserSrcNode[bi], st.browserMat[bi],
-									st.browserParent[bi]);
+									bi, st.Card(bi).name, (int32)st.Card(bi).kind,
+									st.Card(bi).srcNode, st.Card(bi).mat,
+									st.Card(bi).parent);
 						}
 					}
 				}
@@ -2618,12 +2637,12 @@ int nkmain(const NkEntryState &entry) {
 					for (int32 k = 1; k < st.dropQueueCount; ++k)
 						st.dropQueue[k - 1] = st.dropQueue[k];
 					--st.dropQueueCount;
-					if (carte >= 0 && carte < st.browserCount) {
+					if (carte >= 0 && carte < st.BrowserCount()) {
 						st.dropIdx = carte;
-						st.dropKind = st.browserKind[carte];
-						st.dropSrcNode = st.browserSrcNode[carte];
-						st.dropMat = st.browserMat[carte];
-						snprintf(st.dropName, sizeof(st.dropName), "%s", st.browserNames[carte]);
+						st.dropKind = st.Card(carte).kind;
+						st.dropSrcNode = st.Card(carte).srcNode;
+						st.dropMat = st.Card(carte).mat;
+						snprintf(st.dropName, sizeof(st.dropName), "%s", st.Card(carte).name);
 						demo::Demo3DHostPickRequest(st.dropQueueX, st.dropQueueY);
 					}
 		}
@@ -2698,8 +2717,8 @@ int nkmain(const NkEntryState &entry) {
 		if (proj.open && !proj.root.Empty()) {
 			const int32 mDirty = demo::Demo3DHostMatThumbTakeDirty();
 			if (mDirty >= 0) {
-				for (int32 b = 0; b < st.browserCount; ++b)
-					if (st.browserKind[b] == 2 && st.browserMat[b] == mDirty + 1) {
+				for (int32 b = 0; b < st.BrowserCount(); ++b)
+					if (st.Card(b).kind == 2 && st.Card(b).mat == mDirty + 1) {
 						NkString errV;
 						// SUSPENDU pendant l'ecriture : c'est une vignette qui l'a
 						// declenchee ; en redemander une relancerait la meme chaine

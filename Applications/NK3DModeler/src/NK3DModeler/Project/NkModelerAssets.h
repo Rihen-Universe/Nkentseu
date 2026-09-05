@@ -1,4 +1,9 @@
 #pragma once
+// -----------------------------------------------------------------------------
+// @File    NkModelerAssets.h
+// @Author  TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
+// @License Proprietary - All Rights Reserved (see LICENSE)
+// -----------------------------------------------------------------------------
 // =============================================================================
 // NkModelerAssets.h — UN FICHIER PAR ASSET, sur le disque.
 //
@@ -123,11 +128,11 @@ namespace nkentseu {
 			NkString parts[8];
 			int32 n = 0;
 			int32 cur = folder;
-			for (int32 g = 0; g < 8 && cur >= 0 && cur < st.browserCount; ++g) {
-				if (st.browserKind[cur] != 1)
+			for (int32 g = 0; g < 8 && cur >= 0 && cur < st.BrowserCount(); ++g) {
+				if (st.Card(cur).kind != 1)
 					break; // seul un DOSSIER fait un niveau de chemin
-				parts[n++] = st.browserNames[cur];
-				cur = st.browserParent[cur];
+				parts[n++] = st.Card(cur).name;
+				cur = st.Card(cur).parent;
 			}
 			NkString out;
 			for (int32 i = n - 1; i >= 0; --i) {
@@ -155,11 +160,11 @@ namespace nkentseu {
 		}
 
 		inline NkString NkAsRelFor(const NkModelerState &st, int32 card) {
-			const char *ext = NkAsExtFor(st.browserKind[card]);
+			const char *ext = NkAsExtFor(st.Card(card).kind);
 			if (!ext)
 				return NkString();
-			NkString rel = NkAsFolderPath(st, st.browserParent[card]);
-			rel += NkAsSafeName(st.browserNames[card]);
+			NkString rel = NkAsFolderPath(st, st.Card(card).parent);
+			rel += NkAsSafeName(st.Card(card).name);
 			rel += '.';
 			rel += ext;
 			return rel;
@@ -216,29 +221,29 @@ namespace nkentseu {
 				if (!demo::Demo3DHostProjMatInfo(m, nm, (uint32)sizeof(nm), alb, &rough, &metal))
 					continue;
 				bool has = false;
-				for (int32 b = 0; b < st.browserCount && !has; ++b)
-					has = (st.browserKind[b] == 2 && st.browserMat[b] == m + 1);
-				if (has || st.browserCount >= NkModelerState::kMaxBrowser)
+				for (int32 b = 0; b < st.BrowserCount() && !has; ++b)
+					has = (st.Card(b).kind == 2 && st.Card(b).mat == m + 1);
+				if (has)
 					continue;
-				const int32 c = st.browserCount++;
-				st.browserKind[c] = 2;
-				st.browserParent[c] = -1;
-				st.browserSub[c] = 0;
-				st.browserDoc[c] = 0;
-				st.browserSrcNode[c] = 0;
-				st.browserMat[c] = m + 1;
-				st.browserFile[c][0] = 0;
-				NkScPut(st.browserNames[c], (uint32)sizeof(st.browserNames[0]), nm);
+				const int32 c = st.CardAdd();
+				st.Card(c).kind = 2;
+				st.Card(c).parent = -1;
+				st.Card(c).sub = 0;
+				st.Card(c).doc = 0;
+				st.Card(c).srcNode = 0;
+				st.Card(c).mat = m + 1;
+				st.Card(c).file[0] = 0;
+				NkScPut(st.Card(c).name, (uint32)NkModelerState::kCardNameCap, nm);
 			}
 			// 2. chaque carte a son emplacement
-			for (int32 b = 0; b < st.browserCount; ++b) {
-				if (st.browserKind[b] != 2 || st.browserMat[b] > 0)
+			for (int32 b = 0; b < st.BrowserCount(); ++b) {
+				if (st.Card(b).kind != 2 || st.Card(b).mat > 0)
 					continue;
 				const int32 slot = demo::Demo3DHostProjMatCreate();
 				if (slot < 0)
 					continue; // plus d'emplacement : la carte reste sans matiere
-				st.browserMat[b] = slot + 1;
-				demo::Demo3DHostProjMatSetName(slot, st.browserNames[b]);
+				st.Card(b).mat = slot + 1;
+				demo::Demo3DHostProjMatSetName(slot, st.Card(b).name);
 			}
 		}
 
@@ -248,19 +253,19 @@ namespace nkentseu {
 		inline NkString NkAsMatPath(const NkModelerState &st, int32 slot) {
 			if (slot < 0)
 				return NkString();
-			for (int32 b = 0; b < st.browserCount; ++b)
-				if (st.browserKind[b] == 2 && st.browserMat[b] == slot + 1)
+			for (int32 b = 0; b < st.BrowserCount(); ++b)
+				if (st.Card(b).kind == 2 && st.Card(b).mat == slot + 1)
 					return NkAsRelFor(st, b);
 			return NkString();
 		}
 		inline int32 NkAsMatSlot(const NkModelerState &st, const NkString &rel) {
 			if (rel.Empty())
 				return -1;
-			for (int32 b = 0; b < st.browserCount; ++b) {
-				if (st.browserKind[b] != 2 || st.browserMat[b] <= 0)
+			for (int32 b = 0; b < st.BrowserCount(); ++b) {
+				if (st.Card(b).kind != 2 || st.Card(b).mat <= 0)
 					continue;
-				if (NkString(st.browserFile[b]) == rel || NkAsRelFor(st, b) == rel)
-					return st.browserMat[b] - 1;
+				if (NkString(st.Card(b).file) == rel || NkAsRelFor(st, b) == rel)
+					return st.Card(b).mat - 1;
 			}
 			return -1;
 		}
@@ -1273,8 +1278,8 @@ namespace nkentseu {
 		inline void NkAsModelCapture(NkArchive &o, const NkString &root, NkModelerState &st,
 									 int32 card) {
 			NkAsHeader(o, "model");
-			o.SetString("nom", st.browserNames[card]);
-			const int32 srcN = st.browserSrcNode[card] - 1;
+			o.SetString("nom", st.Card(card).name);
+			const int32 srcN = st.Card(card).srcNode - 1;
 			if (srcN < 0)
 				return; // carte sans corps : le fichier dit son nom, pas plus
 			// LA RACINE ET SES MAILLAGES. Le parcours d'appartenance vit dans
@@ -1301,7 +1306,7 @@ namespace nkentseu {
 			demo::Demo3DHostSetActiveScene(0);
 			NkVector<int32> made;
 			NkAsNodesRestore(in, root, st, true, nodeMiss, &made);
-			st.browserSrcNode[card] = made.Empty() || made[0] < 0 ? 0 : made[0] + 1;
+			st.Card(card).srcNode = made.Empty() || made[0] < 0 ? 0 : made[0] + 1;
 		}
 
 		// ─────────────────────────────────────────────────────────────────────────
@@ -1318,33 +1323,33 @@ namespace nkentseu {
 			// Les liens internes (dossier parent) restent des RANGS DANS LE FICHIER,
 			// jamais des indices de session : les emplacements se recyclent.
 			NkVector<int32> rank;
-			for (int32 b = 0; b < st.browserCount; ++b)
+			for (int32 b = 0; b < st.BrowserCount(); ++b)
 				rank.PushBack(-1);
 			{
 				int32 next = 0;
-				for (int32 b = 0; b < st.browserCount; ++b)
-					if (st.browserKind[b] != 255)
+				for (int32 b = 0; b < st.BrowserCount(); ++b)
+					if (st.Card(b).kind != 255)
 						rank[(usize)b] = next++;
 			}
 			NkVector<NkArchive> cards;
 			NkVector<int32> docRank; // document -> rang de SA carte
 			for (int32 d = 0; d < NkModelerState::kMaxDocs; ++d)
 				docRank.PushBack(-1);
-			for (int32 b = 0; b < st.browserCount; ++b) {
-				if (st.browserKind[b] == 255)
+			for (int32 b = 0; b < st.BrowserCount(); ++b) {
+				if (st.Card(b).kind == 255)
 					continue; // carte supprimee : un trou, pas une carte
 				NkArchive c;
-				c.SetInt32("nature", (int32)st.browserKind[b]);
-				c.SetString("nom", st.browserNames[b]);
-				const int32 pp = st.browserParent[b];
-				c.SetInt32("parent", (pp >= 0 && pp < st.browserCount) ? rank[(usize)pp] : -1);
-				c.SetInt32("sousType", (int32)st.browserSub[b]);
+				c.SetInt32("nature", (int32)st.Card(b).kind);
+				c.SetString("nom", st.Card(b).name);
+				const int32 pp = st.Card(b).parent;
+				c.SetInt32("parent", (pp >= 0 && pp < st.BrowserCount()) ? rank[(usize)pp] : -1);
+				c.SetInt32("sousType", (int32)st.Card(b).sub);
 				// LE LIEN VERS SON FICHIER. Une carte sans fichier (texture, graphe,
 				// dataset) ecrit une chaine vide : elle existe, elle n'a pas encore
 				// de contenu, et le fichier le DIT plutot que de le taire.
-				c.SetString("fichier", st.browserFile[b]);
+				c.SetString("fichier", st.Card(b).file);
 				cards.PushBack(c);
-				const int32 dd = st.browserDoc[b] - 1;
+				const int32 dd = st.Card(b).doc - 1;
 				if (dd >= 0 && dd < NkModelerState::kMaxDocs)
 					docRank[(usize)dd] = rank[(usize)b];
 			}
@@ -1384,7 +1389,7 @@ namespace nkentseu {
 		/// n'est pas un echec. Rend faux, avec `err`, si l'ecriture echoue.
 		inline bool NkProjectWriteCard(const NkString &root, NkModelerState &st, int32 b,
 									   NkString *err) {
-			const uint8 k = st.browserKind[b];
+			const uint8 k = st.Card(b).kind;
 			if (k == 255 || !NkAsExtFor(k))
 				return true;
 			const NkString rel = NkAsRelFor(st, b);
@@ -1392,14 +1397,14 @@ namespace nkentseu {
 				return true;
 			NkArchive a;
 			if (k == 5) {
-				const int32 d = st.browserDoc[b] - 1;
+				const int32 d = st.Card(b).doc - 1;
 				if (d < 0 || d >= NkModelerState::kMaxDocs || !st.docUsed[d])
 					return true;
 				NkAsSceneCapture(a, root, st, d);
 			} else if (k == 6) {
 				NkAsModelCapture(a, root, st, b);
 			} else {
-				const int32 m = st.browserMat[b] - 1;
+				const int32 m = st.Card(b).mat - 1;
 				if (m < 0)
 					return true;
 				NkAsMatCapture(a, root, m);
@@ -1410,7 +1415,7 @@ namespace nkentseu {
 			// APRES l'ecriture reussie, jamais avant -- un desarmement sur une
 			// ecriture echouee perdrait la correction sans un message.
 			if (k == 6)
-				st.browserOriginDirty[b] = false;
+				st.Card(b).originDirty = false;
 			// ── LA VIGNETTE D'UN MATERIAU SE PREND ICI ──────────────────
 			// « Les cartes recoivent le resultat correct, sous forme de
 			// capture a la sauvegarde » (Rihen, 13 aout) : le fichier et son
@@ -1418,22 +1423,22 @@ namespace nkentseu {
 			// une DEMANDE, pas un rendu -- la capture a besoin d'une frame,
 			// et nous ne sommes pas dans le rendu ici.
 			if (k == 2) {
-				const int32 m = st.browserMat[b] - 1;
+				const int32 m = st.Card(b).mat - 1;
 				if (m >= 0)
 					demo::Demo3DHostMatThumbRequest(m, nullptr);
 			}
 			// RENOMMEE OU DEPLACEE : l'ancien fichier est retire. Sans cela le
 			// dossier du projet accumulerait des orphelins que plus rien ne
 			// designe -- et qu'on prendrait, plus tard, pour du travail perdu.
-			const NkString old(st.browserFile[b]);
+			const NkString old(st.Card(b).file);
 			if (!old.Empty() && !(old == rel))
 				(void)NkFile::Delete(NkScToAbs(root, old.CStr()).CStr());
-			NkScPut(st.browserFile[b], (uint32)sizeof(st.browserFile[0]), rel.CStr());
+			NkScPut(st.Card(b).file, (uint32)NkModelerState::kCardFileCap, rel.CStr());
 			// La DATE sert au classement du navigateur. Relevee ICI, a
 			// l'ecriture, plutot qu'interrogee a la peinture : trente-deux
 			// appels au systeme de fichiers par image couteraient plus cher que
 			// tout le navigateur.
-			st.browserTime[b] =
+			st.Card(b).time =
 				NkFileSystem::GetLastWriteTime(NkScToAbs(root, rel.CStr()).CStr());
 			return true;
 		}
@@ -1471,24 +1476,24 @@ namespace nkentseu {
 					st.docUnitScale[dA] = st.unitScale;
 				}
 			}
-			for (int32 b = 0; b < st.browserCount; ++b) {
-				const uint8 k = st.browserKind[b];
+			for (int32 b = 0; b < st.BrowserCount(); ++b) {
+				const uint8 k = st.Card(b).kind;
 				if (k == 255 || !NkAsExtFor(k))
 					continue;
 				// « Enregistrer » ecrit CE QU'ON REGARDE (regle de Rihen), plus deux
 				// exemptions : les MATERIAUX (deja la), et les MODELS DONT L'ORIGINE
-				// A ETE CORRIGEE EN MEMOIRE au depot (browserOriginDirty -- decision
+				// A ETE CORRIGEE EN MEMOIRE au depot (Card(i).originDirty -- decision
 				// de Rihen, 17/08 : l'origine stockee dans le `.nkmesh` est la
 				// reference du pipeline d'export ; FBX repositionnera l'objet pour
 				// que son origine soit a (0,0,0), donc une origine fausse dans le
 				// fichier produirait un export decale). L'utilisateur ne peut pas
 				// « regarder » cette correction : elle est faite par le systeme, et
 				// c'est precisement pour ca qu'elle suit l'exemption, pas la regle.
-				// La garde `browserSrcNode > 0` protege d'un drapeau devenu orphelin
+				// La garde `Card(i).srcNode > 0` protege d'un drapeau devenu orphelin
 				// sur un emplacement recycle : huit sites remettent srcNode a zero,
 				// et le drapeau ne se justifie que tant que l'archive existe.
 				if (onlyCard >= 0 && b != onlyCard && k != 2 &&
-					!(k == 6 && st.browserOriginDirty[b] && st.browserSrcNode[b] > 0))
+					!(k == 6 && st.Card(b).originDirty && st.Card(b).srcNode > 0))
 					continue; // « Enregistrer » : ce fichier-ci, et les exemptions
 				// LE CORPS EST NkProjectWriteCard : le meme pour « Enregistrer » et
 				// pour l'import -- un seul ecrivain de carte dans tout le modeleur.
@@ -1524,21 +1529,10 @@ namespace nkentseu {
 			for (int32 n = 96; n < nodeMax && n < 176; ++n)
 				st.customNames[n][0] = 0;
 			demo::Demo3DHostProjMatClear();
-			st.browserCount = 0;
+			st.cards.Clear();
 			st.browserFolder = -1;
 			st.browClip = -1;
 			st.browMenuIdx = -1;
-			for (int32 b = 0; b < NkModelerState::kMaxBrowser; ++b) {
-				st.browserKind[b] = 255;
-				st.browserNames[b][0] = 0;
-				st.browserParent[b] = -1;
-				st.browserSub[b] = 0;
-				st.browserSrcNode[b] = 0;
-				st.browserDoc[b] = 0;
-				st.browserMat[b] = 0;
-				st.browserFile[b][0] = 0;
-				st.browserOriginDirty[b] = false; // transient : jamais serialise
-			}
 			for (int32 d = 0; d < NkModelerState::kMaxDocs; ++d)
 				st.DocFree(d);
 			st.sceneIdNext = 1;
@@ -1550,17 +1544,13 @@ namespace nkentseu {
 			(void)in.GetObjectArray("navigateur", cards);
 			NkVector<int32> cardOf;
 			for (usize i = 0; i < cards.Size(); ++i) {
-				if (st.browserCount >= NkModelerState::kMaxBrowser) {
-					cardOf.PushBack(-1);
-					continue;
-				}
-				const int32 c = st.browserCount++;
+				const int32 c = st.CardAdd();
 				cardOf.PushBack(c);
-				st.browserKind[c] = (uint8)(NkScInt(cards[i], "nature", 1) & 0xFF);
-				NkScPut(st.browserNames[c], (uint32)sizeof(st.browserNames[0]),
+				st.Card(c).kind = (uint8)(NkScInt(cards[i], "nature", 1) & 0xFF);
+				NkScPut(st.Card(c).name, (uint32)NkModelerState::kCardNameCap,
 						NkScStr(cards[i], "nom").CStr());
-				st.browserSub[c] = (uint8)(NkScInt(cards[i], "sousType", 0) & 0xFF);
-				NkScPut(st.browserFile[c], (uint32)sizeof(st.browserFile[0]),
+				st.Card(c).sub = (uint8)(NkScInt(cards[i], "sousType", 0) & 0xFF);
+				NkScPut(st.Card(c).file, (uint32)NkModelerState::kCardFileCap,
 						NkScStr(cards[i], "fichier").CStr());
 			}
 			// Parent en SECONDE PASSE : un dossier peut etre ecrit apres son contenu.
@@ -1569,23 +1559,23 @@ namespace nkentseu {
 					continue;
 				const int32 pr = NkScInt(cards[i], "parent", -1);
 				if (pr >= 0 && (usize)pr < cardOf.Size() && cardOf[(usize)pr] >= 0)
-					st.browserParent[cardOf[i]] = cardOf[(usize)pr];
+					st.Card(cardOf[i]).parent = cardOf[(usize)pr];
 			}
 
 			int32 texMiss = 0, nodeMiss = 0, fileMiss = 0, orphanFix = 0;
 
 			// ── LES MATERIAUX D'ABORD : les noeuds s'y assignent par chemin ──
-			for (int32 b = 0; b < st.browserCount; ++b) {
-				if (st.browserKind[b] != 2)
+			for (int32 b = 0; b < st.BrowserCount(); ++b) {
+				if (st.Card(b).kind != 2)
 					continue;
 				const int32 slot = demo::Demo3DHostProjMatCreate();
 				if (slot < 0)
 					continue;
-				st.browserMat[b] = slot + 1;
-				demo::Demo3DHostProjMatSetName(slot, st.browserNames[b]);
+				st.Card(b).mat = slot + 1;
+				demo::Demo3DHostProjMatSetName(slot, st.Card(b).name);
 				NkArchive a;
-				if (!st.browserFile[b][0] || !NkAsRead(root, st.browserFile[b], a)) {
-					if (st.browserFile[b][0])
+				if (!st.Card(b).file[0] || !NkAsRead(root, st.Card(b).file, a)) {
+					if (st.Card(b).file[0])
 						++fileMiss;
 					continue;
 				}
@@ -1597,12 +1587,12 @@ namespace nkentseu {
 			}
 
 			// ── LES MODELS : archives, dans aucune scene ──
-			for (int32 b = 0; b < st.browserCount; ++b) {
-				if (st.browserKind[b] != 6)
+			for (int32 b = 0; b < st.BrowserCount(); ++b) {
+				if (st.Card(b).kind != 6)
 					continue;
 				NkArchive a;
-				if (!st.browserFile[b][0] || !NkAsRead(root, st.browserFile[b], a)) {
-					if (st.browserFile[b][0])
+				if (!st.Card(b).file[0] || !NkAsRead(root, st.Card(b).file, a)) {
+					if (st.Card(b).file[0])
 						++fileMiss;
 					continue;
 				}
@@ -1614,22 +1604,22 @@ namespace nkentseu {
 			}
 
 			// ── LES SCENES : chacune son document, chacune ses noeuds ──
-			for (int32 b = 0; b < st.browserCount; ++b) {
-				if (st.browserKind[b] != 5)
+			for (int32 b = 0; b < st.BrowserCount(); ++b) {
+				if (st.Card(b).kind != 5)
 					continue;
 				const int32 d = st.DocAlloc();
 				if (d < 0)
 					continue;
-				st.browserDoc[b] = d + 1;
+				st.Card(b).doc = d + 1;
 				st.docCard[d] = b + 1;
 				// LE NUMERO DE SCENE HOTE EST ATTRIBUE ICI, il n'est plus dans le
 				// fichier : rien ne peut donc plus le rendre faux. C'etait le champ
 				// par lequel les donnees fuyaient d'un type a l'autre.
 				st.docScene[d] = (uint8)(st.sceneIdNext++ & 0xFF);
-				NkScPut(st.docName[d], (uint32)sizeof(st.docName[0]), st.browserNames[b]);
+				NkScPut(st.docName[d], (uint32)sizeof(st.docName[0]), st.Card(b).name);
 				NkArchive a;
-				if (!st.browserFile[b][0] || !NkAsRead(root, st.browserFile[b], a)) {
-					if (st.browserFile[b][0])
+				if (!st.Card(b).file[0] || !NkAsRead(root, st.Card(b).file, a)) {
+					if (st.Card(b).file[0])
 						++fileMiss;
 					continue;
 				}
@@ -1662,7 +1652,7 @@ namespace nkentseu {
 				const int32 cr = NkScInt(views[v], "carte", -1);
 				if (cr < 0 || (usize)cr >= cardOf.Size() || cardOf[(usize)cr] < 0)
 					continue;
-				const int32 d = st.browserDoc[cardOf[(usize)cr]] - 1;
+				const int32 d = st.Card(cardOf[(usize)cr]).doc - 1;
 				if (d < 0 || d >= NkModelerState::kMaxDocs || !st.docUsed[d])
 					continue;
 				st.sceneTabDoc[cnt] = d;
@@ -1739,8 +1729,8 @@ namespace nkentseu {
 
 		/// Carte portant ce chemin relatif, ou -1.
 		inline int32 NkAsCardForFile(const NkModelerState &st, const NkString &rel) {
-			for (int32 b = 0; b < st.browserCount; ++b)
-				if (st.browserKind[b] != 255 && NkString(st.browserFile[b]) == rel)
+			for (int32 b = 0; b < st.BrowserCount(); ++b)
+				if (st.Card(b).kind != 255 && NkString(st.Card(b).file) == rel)
 					return b;
 			return -1;
 		}
@@ -1760,22 +1750,20 @@ namespace nkentseu {
 				if (part.Empty())
 					continue;
 				int32 found = -1;
-				for (int32 b = 0; b < st.browserCount && found < 0; ++b)
-					if (st.browserKind[b] == 1 && st.browserParent[b] == parent &&
-						NkString(st.browserNames[b]) == part)
+				for (int32 b = 0; b < st.BrowserCount() && found < 0; ++b)
+					if (st.Card(b).kind == 1 && st.Card(b).parent == parent &&
+						NkString(st.Card(b).name) == part)
 						found = b;
 				if (found < 0) {
-					if (st.browserCount >= NkModelerState::kMaxBrowser)
-						return parent;
-					found = st.browserCount++;
-					st.browserKind[found] = 1;
-					st.browserParent[found] = parent;
-					st.browserSub[found] = 0;
-					st.browserDoc[found] = 0;
-					st.browserMat[found] = 0;
-					st.browserSrcNode[found] = 0;
-					st.browserFile[found][0] = 0;
-					NkScPut(st.browserNames[found], (uint32)sizeof(st.browserNames[0]),
+					found = st.CardAdd();
+					st.Card(found).kind = 1;
+					st.Card(found).parent = parent;
+					st.Card(found).sub = 0;
+					st.Card(found).doc = 0;
+					st.Card(found).mat = 0;
+					st.Card(found).srcNode = 0;
+					st.Card(found).file[0] = 0;
+					NkScPut(st.Card(found).name, (uint32)NkModelerState::kCardNameCap,
 							part.CStr());
 				}
 				parent = found;
@@ -1838,9 +1826,9 @@ namespace nkentseu {
 		/// n'a plus rien a montrer, et la laisser ouverte ferait reecrire le fichier
 		/// au prochain enregistrement, donc annulerait la suppression.
 		inline void NkAsDropCard(NkModelerState &st, int32 b) {
-			const uint8 k = st.browserKind[b];
+			const uint8 k = st.Card(b).kind;
 			if (k == 5) {
-				const int32 d = st.browserDoc[b] - 1;
+				const int32 d = st.Card(b).doc - 1;
 				if (d >= 0 && d < NkModelerState::kMaxDocs && st.docUsed[d]) {
 					for (int32 t = st.sceneCount - 1; t >= 0; --t)
 						if (st.TabDoc(t) == d)
@@ -1855,7 +1843,7 @@ namespace nkentseu {
 					st.DocFree(d);
 				}
 			} else if (k == 6) {
-				const int32 n = st.browserSrcNode[b] - 1;
+				const int32 n = st.Card(b).srcNode - 1;
 				if (n >= 0) {
 					for (int32 t = st.sceneCount - 1; t >= 0; --t) {
 						const int32 dt = st.TabDoc(t);
@@ -1865,8 +1853,8 @@ namespace nkentseu {
 					demo::Demo3DHostDeleteNode(n, true);
 				}
 			}
-			st.browserKind[b] = 255;
-			st.browserFile[b][0] = 0;
+			st.Card(b).kind = 255;
+			st.Card(b).file[0] = 0;
 			if (st.browserFolder == b)
 				st.browserFolder = -1;
 			if (st.selectedAsset == b)
@@ -1892,23 +1880,21 @@ namespace nkentseu {
 				kind = 2;
 			else
 				return false;
-			if (st.browserCount >= NkModelerState::kMaxBrowser)
-				return false;
 			// Le dossier de l'arbre suit le dossier du disque.
 			NkString dirRel;
 			const NkString::SizeType s = rel.RFind('/');
 			if (s != NkString::npos)
 				dirRel = NkString(rel.CStr(), s + 1u);
 			const int32 parent = NkAsEnsureFolder(st, dirRel);
-			const int32 b = st.browserCount++;
-			st.browserKind[b] = kind;
-			st.browserParent[b] = parent;
-			st.browserSub[b] = 0;
-			st.browserDoc[b] = 0;
-			st.browserMat[b] = 0;
-			st.browserSrcNode[b] = 0;
-			NkScPut(st.browserFile[b], (uint32)sizeof(st.browserFile[0]), rel.CStr());
-			st.browserTime[b] =
+			const int32 b = st.CardAdd();
+			st.Card(b).kind = kind;
+			st.Card(b).parent = parent;
+			st.Card(b).sub = 0;
+			st.Card(b).doc = 0;
+			st.Card(b).mat = 0;
+			st.Card(b).srcNode = 0;
+			NkScPut(st.Card(b).file, (uint32)NkModelerState::kCardFileCap, rel.CStr());
+			st.Card(b).time =
 				NkFileSystem::GetLastWriteTime(NkScToAbs(root, rel.CStr()).CStr());
 			// Le nom vient du FICHIER : c'est lui qui fait foi maintenant.
 			{
@@ -1920,7 +1906,7 @@ namespace nkentseu {
 				if (d != NkString::npos)
 					base = NkString(base.CStr(), d);
 				NkString nm = NkScStr(a, "nom");
-				NkScPut(st.browserNames[b], (uint32)sizeof(st.browserNames[0]),
+				NkScPut(st.Card(b).name, (uint32)NkModelerState::kCardNameCap,
 						nm.Empty() ? base.CStr() : nm.CStr());
 			}
 			int32 miss = 0, orph = 0, texMiss = 0;
@@ -1928,7 +1914,7 @@ namespace nkentseu {
 				const int32 slot = demo::Demo3DHostProjMatCreate();
 				if (slot < 0)
 					return false;
-				st.browserMat[b] = slot + 1;
+				st.Card(b).mat = slot + 1;
 				NkAsMatRestore(a, root, slot, &texMiss);
 			} else if (kind == 6) {
 				NkAsModelRestore(a, root, st, b, &miss);
@@ -1936,10 +1922,10 @@ namespace nkentseu {
 				const int32 d = st.DocAlloc();
 				if (d < 0)
 					return false;
-				st.browserDoc[b] = d + 1;
+				st.Card(b).doc = d + 1;
 				st.docCard[d] = b + 1;
 				st.docScene[d] = (uint8)(st.sceneIdNext++ & 0xFF);
-				NkScPut(st.docName[d], (uint32)sizeof(st.docName[0]), st.browserNames[b]);
+				NkScPut(st.docName[d], (uint32)sizeof(st.docName[0]), st.Card(b).name);
 				NkAsSceneRestore(a, root, st, d, &miss, &orph);
 			}
 			return true;
@@ -1988,9 +1974,9 @@ namespace nkentseu {
 					// qu'il ait cree la carte ou simplement retrouve l'existante :
 					// compter son succes ferait croire a un changement A CHAQUE
 					// balayage, et le projet se declarerait modifie en permanence.
-					const int32 avant = st.browserCount;
+					const int32 avant = st.BrowserCount();
 					(void)NkAsEnsureFolder(st, rel);
-					if (st.browserCount != avant)
+					if (st.BrowserCount() != avant)
 						++changes;
 				}
 			}
@@ -2005,11 +1991,11 @@ namespace nkentseu {
 			// Seules les cartes qui ONT DEJA ete ecrites sont concernees : une
 			// carte creee a l'instant et pas encore enregistree n'a pas de fichier,
 			// et la faire disparaitre serait effacer un travail tout neuf.
-			for (int32 b = 0; b < st.browserCount; ++b) {
-				if (st.browserKind[b] == 255 || !st.browserFile[b][0])
+			for (int32 b = 0; b < st.BrowserCount(); ++b) {
+				if (st.Card(b).kind == 255 || !st.Card(b).file[0])
 					continue;
 				bool alive = false;
-				const NkString rel(st.browserFile[b]);
+				const NkString rel(st.Card(b).file);
 				for (usize i = 0; i < found.Size() && !alive; ++i)
 					alive = (found[i] == rel);
 				if (alive)

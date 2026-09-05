@@ -1,4 +1,9 @@
 #pragma once
+// -----------------------------------------------------------------------------
+// @File    NkModelerScene.h
+// @Author  TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
+// @License Proprietary - All Rights Reserved (see LICENSE)
+// -----------------------------------------------------------------------------
 // =============================================================================
 // NkModelerScene.h — SERIALISATION DE LA SCENE dans le .nk3dm.
 //
@@ -563,29 +568,29 @@ namespace nkentseu {
 			// pas encore avec ce qu'elle porte -- c'est le chantier « persister
 			// tous les types de fichiers », par type et dans les deux modes.
 			NkVector<int32> browRank; // indice de carte -> rang dans le fichier
-			for (int32 b = 0; b < st.browserCount; ++b)
+			for (int32 b = 0; b < st.BrowserCount(); ++b)
 				browRank.PushBack(-1);
 			{
 				int32 next = 0;
-				for (int32 b = 0; b < st.browserCount; ++b)
-					if (st.browserKind[b] != 255)
+				for (int32 b = 0; b < st.BrowserCount(); ++b)
+					if (st.Card(b).kind != 255)
 						browRank[(usize)b] = next++;
 			}
 			NkVector<NkArchive> brow;
-			for (int32 b = 0; b < st.browserCount; ++b) {
-				if (st.browserKind[b] == 255)
+			for (int32 b = 0; b < st.BrowserCount(); ++b) {
+				if (st.Card(b).kind == 255)
 					continue; // carte supprimee : un trou, pas une carte
 				NkArchive c;
-				c.SetInt32("nature", (int32)st.browserKind[b]);
-				c.SetString("nom", st.browserNames[b]);
-				const int32 pp = st.browserParent[b];
+				c.SetInt32("nature", (int32)st.Card(b).kind);
+				c.SetString("nom", st.Card(b).name);
+				const int32 pp = st.Card(b).parent;
 				c.SetInt32("parent",
-						   (pp >= 0 && pp < st.browserCount) ? browRank[(usize)pp] : -1);
-				c.SetInt32("sousType", (int32)st.browserSub[b]);
-				const int32 dc = st.browserDoc[b] - 1;
+						   (pp >= 0 && pp < st.BrowserCount()) ? browRank[(usize)pp] : -1);
+				c.SetInt32("sousType", (int32)st.Card(b).sub);
+				const int32 dc = st.Card(b).doc - 1;
 				c.SetInt32("document",
 						   (dc >= 0 && dc < NkModelerState::kMaxDocs) ? docRank[(usize)dc] : -1);
-				const int32 sn = st.browserSrcNode[b] - 1;
+				const int32 sn = st.Card(b).srcNode - 1;
 				c.SetInt32("noeudSource",
 						   (sn >= 0 && sn < nodeMax) ? rankOf[(usize)sn] : -1);
 				brow.PushBack(c);
@@ -609,7 +614,7 @@ namespace nkentseu {
 				v.SetInt32("nature", (int32)st.sceneTabKind[t]);
 				const int32 ai = st.sceneTabAsset[t] - 1;
 				v.SetInt32("asset",
-						   (ai >= 0 && ai < st.browserCount) ? browRank[(usize)ai] : -1);
+						   (ai >= 0 && ai < st.BrowserCount()) ? browRank[(usize)ai] : -1);
 				views.PushBack(v);
 			}
 			out.SetObjectArray("vues", views);
@@ -685,19 +690,10 @@ namespace nkentseu {
 			// LE NAVIGATEUR ET LES DOCUMENTS SONT VIDES AUSSI : ouvrir un projet
 			// par-dessus un autre laissait sinon les cartes du precedent, qui
 			// pointaient sur des scenes qui n'existaient plus.
-			st.browserCount = 0;
+			st.cards.Clear();
 			st.browserFolder = -1;
 			st.browClip = -1;
 			st.browMenuIdx = -1;
-			for (int32 b = 0; b < NkModelerState::kMaxBrowser; ++b) {
-				st.browserKind[b] = 255;
-				st.browserNames[b][0] = 0;
-				st.browserParent[b] = -1;
-				st.browserSub[b] = 0;
-				st.browserSrcNode[b] = 0;
-				st.browserDoc[b] = 0;
-				st.browserOriginDirty[b] = false; // transient : jamais serialise
-			}
 			for (int32 d = 0; d < NkModelerState::kMaxDocs; ++d)
 				st.DocFree(d);
 
@@ -980,20 +976,16 @@ namespace nkentseu {
 			(void)in.GetObjectArray("navigateur", brow);
 			NkVector<int32> browOf; // rang fichier -> indice de carte
 			for (usize b = 0; b < brow.Size(); ++b) {
-				if (st.browserCount >= NkModelerState::kMaxBrowser) {
-					browOf.PushBack(-1);
-					continue;
-				}
-				const int32 c = st.browserCount++;
+				const int32 c = st.CardAdd();
 				browOf.PushBack(c);
 				const NkArchive &e = brow[b];
-				st.browserKind[c] = (uint8)(NkScInt(e, "nature", 1) & 0xFF);
-				NkScPut(st.browserNames[c], (uint32)sizeof(st.browserNames[0]),
+				st.Card(c).kind = (uint8)(NkScInt(e, "nature", 1) & 0xFF);
+				NkScPut(st.Card(c).name, (uint32)NkModelerState::kCardNameCap,
 						NkScStr(e, "nom").CStr());
-				st.browserSub[c] = (uint8)(NkScInt(e, "sousType", 0) & 0xFF);
-				st.browserParent[c] = -1; // resolu en seconde passe
-				st.browserDoc[c] = 0;
-				st.browserSrcNode[c] = 0;
+				st.Card(c).sub = (uint8)(NkScInt(e, "sousType", 0) & 0xFF);
+				st.Card(c).parent = -1; // resolu en seconde passe
+				st.Card(c).doc = 0;
+				st.Card(c).srcNode = 0;
 			}
 			// SECONDE PASSE : parent, document et noeud source. Un parent peut
 			// etre ecrit APRES son enfant -- le resoudre au vol echouerait une
@@ -1005,16 +997,16 @@ namespace nkentseu {
 				const NkArchive &e = brow[b];
 				const int32 pr = NkScInt(e, "parent", -1);
 				if (pr >= 0 && (usize)pr < browOf.Size() && browOf[(usize)pr] >= 0)
-					st.browserParent[c] = browOf[(usize)pr];
+					st.Card(c).parent = browOf[(usize)pr];
 				const int32 dr = NkScInt(e, "document", -1);
 				if (dr >= 0 && (usize)dr < docOf.Size() && docOf[(usize)dr] >= 0) {
 					const int32 d = docOf[(usize)dr];
-					st.browserDoc[c] = d + 1;
+					st.Card(c).doc = d + 1;
 					st.docCard[d] = c + 1;
 				}
 				const int32 sr = NkScInt(e, "noeudSource", -1);
 				if (sr >= 0 && (usize)sr < nodeOf.Size() && nodeOf[(usize)sr] >= 0)
-					st.browserSrcNode[c] = nodeOf[(usize)sr] + 1;
+					st.Card(c).srcNode = nodeOf[(usize)sr] + 1;
 			}
 			// Toute scene sans carte en recoit une : c'est la seule facon de la
 			// rouvrir apres avoir ferme son onglet.
