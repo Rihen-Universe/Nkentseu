@@ -6108,7 +6108,7 @@ namespace nkuidesign {
 					check("60v. ③ LES INFO-BULLES des poignees : rien avant 0,4 s, puis « Tourner l'axe » sur l'anneau, « Glisser "
 						  "l'arret » sur le disque, « Tourner » sur l'arc, « Redimensionner » sur le bord, rien en partant",
 						  avant.Empty() && NkComponentDecl::StrEq(anneau.Data(), "Tourner l'axe") && NkComponentDecl::StrEq(disque.Data(), "Glisser l'arrêt")
-							  && NkComponentDecl::StrEq(tourner.Data(), "Tourner") && NkComponentDecl::StrEq(bord.Data(), "Redimensionner (Maj : proportionnel)")
+							  && NkComponentDecl::StrEq(tourner.Data(), "Tourner") && NkComponentDecl::StrEq(bord.Data(), "Redimensionner (Maj : proportionnel, Alt : depuis le centre)")
 							  && parti.Empty(),
 						  det);
 				}
@@ -8644,6 +8644,117 @@ namespace nkuidesign {
 				check("76. ④ LA MOLETTE N'ATTEINT PAS LA TOILE SOUS UN MENU OU UN POPUP : sans menu elle zoome ; le menu contextuel "
 					  "ouvert, la molette hors du menu ne zoome pas (NKGui la reserve au menu) ; le popover du selecteur ouvert, pareil",
 					  z1 != z0 && menuOuvert && z3 == z2 && menuFerme && z5 == z4, det);
+			}
+		}
+		// ── 77. ③ MAJ GARDE LES PROPORTIONS, LU PENDANT LE GLISSER (Lunacy : « Preserve Ratio:
+		//    Shift + resize » -- lunacy.docs.icons8.com/shortcuts, lu le 05/09) : un coin tire avec
+		//    Maj garde le rapport a 0,5 % pres, sans Maj il est libre ; le badge le dit ; la meme
+		//    touche vaut pour la poignee d'un groupe (echelle X = echelle Y).
+		{
+			static nkgui::NkGuiContext ctxR;
+			char det[420];
+			if (!ctxR.Init(600, 900)) {
+				check("77. le proportionnel", false, "Init a refuse");
+			} else {
+				static DesignState stR;
+				stR.doc.NewDocument("Toile", NkAuthor::Humain);
+				const int32 pg = stR.doc.AddChild(0, "", NkAuthor::Humain);
+				stR.doc.nodes[(uint32)pg].shape = NkString("frame");
+				stR.doc.nodes[(uint32)pg].layout.kind = NkLayoutKind::Free;
+				stR.doc.nodes[(uint32)pg].width.mode = NkSizeMode::Fixed;
+				stR.doc.nodes[(uint32)pg].width.value = 500.f;
+				stR.doc.nodes[(uint32)pg].height.mode = NkSizeMode::Fixed;
+				stR.doc.nodes[(uint32)pg].height.value = 400.f;
+				auto rect = [&](int32 parent, float32 x, float32 y, float32 w, float32 h) {
+					const int32 r = stR.doc.AddChild(parent, "", NkAuthor::Humain);
+					NkUINode &n = stR.doc.nodes[(uint32)r];
+					n.shape = NkString("rect");
+					n.posX = x;
+					n.posY = y;
+					n.width.mode = NkSizeMode::Fixed;
+					n.width.value = w;
+					n.height.mode = NkSizeMode::Fixed;
+					n.height.value = h;
+					NkRemplissage f;
+					f.couleur = NkString("#123456");
+					n.fills.PushBack(f);
+					return r;
+				};
+				const int32 rc = rect(pg, 40.f, 40.f, 160.f, 80.f);
+				stR.Recompute(NkPaintRect{0.f, 0.f, 600.f, 900.f});
+				stR.SelectSingle(rc);
+				static PreviewPanel toileR(&stR);
+				NkEditorFrameContext ec;
+				ec.ui = &ctxR;
+				ec.dt = 0.016f;
+				auto image = [&](float32 mx, float32 my, bool bas, bool maj) {
+					ctxR.input.mousePos = {mx, my};
+					ctxR.input.mouseDown[0] = bas;
+					ctxR.input.shiftDown = maj;
+					ctxR.BeginFrame(0.016f);
+					ctxR.BeginLayout({0.f, 0.f, 600.f, 900.f});
+					toileR.OnUI(ec);
+					ctxR.EndFrame();
+				};
+				bool badgeVu = false;
+				int32 imagesEnRedim = 0;
+				auto tirerCoin = [&](int32 noeud, float32 dx, float32 dy, bool maj) {
+					imagesEnRedim = 0;
+					for (int32 k = 0; k < 3; ++k)
+						image(-1.f, -1.f, false, false);
+					NkLayoutResult scr;
+					stR.ProjectToScreen(scr);
+					const NkPaintRect rs = scr.At(noeud);
+					const float32 cx = rs.x + rs.w, cy = rs.y + rs.h; // le coin bas-droit
+					image(cx, cy, false, false);
+					image(cx, cy, true, false);
+					for (int32 k = 1; k <= 4; ++k) {
+						image(cx + dx * (float32)k / 4.f, cy + dy * (float32)k / 4.f, true, maj);
+						if (toileR.EnRedimensionnement())
+							++imagesEnRedim;
+						if (toileR.BadgeToucheVu())
+							badgeVu = true;
+					}
+					image(cx + dx, cy + dy, false, maj);
+					image(-1.f, -1.f, false, false);
+				};
+				// a. sans Maj : libre (+40, +5 -> 200 x 85, rapport 2,35)
+				tirerCoin(rc, 40.f, 5.f, false);
+				const float32 wL = stR.doc.nodes[(uint32)rc].width.value, hL = stR.doc.nodes[(uint32)rc].height.value;
+				const bool libre = wL > 190.f && wL < 210.f && hL > 80.f && hL < 90.f;
+				const bool sansBadge = !badgeVu;
+				const int32 redimL = imagesEnRedim;
+				// b. avec Maj : le rapport 200/85 de depart tient a 0,5 %
+				const float32 r0 = wL / hL;
+				badgeVu = false;
+				tirerCoin(rc, 40.f, 5.f, true);
+				const float32 wP = stR.doc.nodes[(uint32)rc].width.value, hP = stR.doc.nodes[(uint32)rc].height.value;
+				const float32 rP = wP / hP;
+				const bool proportionnel = wP > wL + 5.f && rP > r0 * 0.995f && rP < r0 * 1.005f && badgeVu;
+				const int32 redimP = imagesEnRedim;
+				// c. un GROUPE (deux rectangles) : la poignee du groupe avec Maj -> echelle X = echelle Y
+				const int32 g = stR.doc.AddChild(pg, "", NkAuthor::Humain);
+				stR.doc.nodes[(uint32)g].genre = NkString("simple");
+				stR.doc.nodes[(uint32)g].posX = 240.f;
+				stR.doc.nodes[(uint32)g].posY = 200.f;
+				stR.doc.nodes[(uint32)g].width.mode = NkSizeMode::Fixed;
+				stR.doc.nodes[(uint32)g].width.value = 100.f;
+				stR.doc.nodes[(uint32)g].height.mode = NkSizeMode::Fixed;
+				stR.doc.nodes[(uint32)g].height.value = 100.f;
+				rect(g, 0.f, 0.f, 100.f, 40.f);
+				rect(g, 0.f, 60.f, 60.f, 40.f);
+				stR.Recompute(NkPaintRect{0.f, 0.f, 600.f, 900.f});
+				stR.SelectSingle(g);
+				badgeVu = false;
+				tirerCoin(g, 30.f, 6.f, true);
+				const float32 ex = stR.doc.nodes[(uint32)g].echelleX, ey = stR.doc.nodes[(uint32)g].echelleY;
+				const bool groupe = ex > 1.02f && ey > 0.995f * ex && ey < 1.005f * ex;
+				snprintf(det, sizeof(det), "sans Maj : 160x80 -> %.1f x %.1f (libre=%d, badge=%d, %d images en redim.) ; avec Maj : -> %.1f x %.1f, rapport %.3f vs %.3f (badge vu=%d, %d images en redim.) ; groupe avec Maj : echelle %.3f x %.3f (%d images en redim.)",
+						 wL, hL, libre ? 1 : 0, sansBadge ? 0 : 1, redimL, wP, hP, rP, r0, badgeVu ? 1 : 0, redimP, ex, ey, imagesEnRedim);
+				check("77. ③ MAJ GARDE LES PROPORTIONS, lue PENDANT le glisser (Lunacy, cite) : sans Maj le coin est libre et "
+					  "aucun badge ; avec Maj le rapport tient a 0,5 % et le badge « proportionnel » se voit ; la poignee d'un "
+					  "GROUPE avec Maj donne echelle X = echelle Y",
+					  libre && sansBadge && proportionnel && groupe, det);
 			}
 		}
 		// ── 78. ⑤ LA HIERARCHIE D'UN COMPOSANT (Rodolf : « pourquoi je ne peux pas voir la hierarchie

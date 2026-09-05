@@ -2861,6 +2861,14 @@ namespace nkuidesign {
 			bool MenuContextuelOuvert() const {
 				return mMenuCtx.open;
 			}
+			/// Le badge « proportionnel / depuis le centre » est-il affiche (③) -- lu par la sonde.
+			bool BadgeToucheVu() const {
+				return mBadgeTouche;
+			}
+			/// Un redimensionnement par poignee est-il en cours -- lu par la sonde (③).
+			bool EnRedimensionnement() const {
+				return mDragging && mResizeEdges != 0;
+			}
 			/// La recette du contrat universel d'edition (--recette-edition)
 			/// exerce FermerEditionTexte et HandleMouse sans fenetre — l'acces
 			/// de banc, pas une seconde interface.
@@ -5629,7 +5637,23 @@ namespace nkuidesign {
 					if ((mDragging || mResizeEdges != 0) && mSt->layout.Has(mSt->selected)) {
 						const NkPaintRect rd = mSt->layout.At(mSt->selected);
 						PuceTaille(paint, rs, rd.w, rd.h);
-					}
+						// ③ LA TOUCHE, LUE PENDANT LE GLISSER, SE DIT : Maj = proportionnel, Alt =
+						//    depuis le centre -- Lunacy : « Preserve Ratio: Shift + resize »,
+						//    « Resize from center: Alt + resize » (lunacy.docs.icons8.com/shortcuts,
+						//    lu le 05/09). La meme touche vaut pour la poignee d'un groupe (l'echelle
+						//    par nature, §15.13) : `NkRedimModifie` la lit a chaque image.
+						if (mDragging && mResizeEdges != 0 && (ctx.input.shiftDown || ctx.input.altDown)) {
+							const char *t = (ctx.input.shiftDown && ctx.input.altDown) ? "proportionnel, depuis le centre"
+											: (ctx.input.shiftDown ? "proportionnel" : "depuis le centre");
+							const float32 w = costume::Largeur(costume::Fontes().px9, t) + 8.f;
+							const float32 bx = ctx.input.mousePos.x + 14.f, by = ctx.input.mousePos.y + 14.f;
+							paint.Fill({bx, by, w, 15.f}, NkDesignResolveRole("snap_line"), 3.f);
+							costume::Texte(ctx.dl, costume::Fontes().px9, bx + 4.f, by + 4.f, t, ctx.theme.panel);
+							mBadgeTouche = true;
+						} else
+							mBadgeTouche = false;
+					} else
+						mBadgeTouche = false;
 					// ── LA BARRE D'APPAREIL FLOTTANTE (Banani « Generate
 					//    Mobile », 31/08) : au-dessus d'une PAGE sélectionnée —
 					//    le geste exact des captures banani_mobile_1..3 : pilule
@@ -6667,7 +6691,7 @@ namespace nkuidesign {
 			///    5 rayon Y, 6 tourner (le noeud), 7 redimensionner.
 			void AnnoncerBulle(NkGuiContext &ctx, int32 geste) {
 				static const char *const kTextes[8] = {"", "Tourner l'axe", "Glisser l'arrêt", "Déplacer l'origine", "Rayon X",
-														"Rayon Y", "Tourner", "Redimensionner (Maj : proportionnel)"};
+														"Rayon Y", "Tourner", "Redimensionner (Maj : proportionnel, Alt : depuis le centre)"};
 				if (geste <= 0 || geste > 7)
 					return;
 				if (mSt->bulleGeste != geste) {
@@ -6819,6 +6843,7 @@ namespace nkuidesign {
 
 			DesignState *mSt;
 			bool mDragging = false;
+			bool mBadgeTouche = false; ///< ③ le badge de la touche pendant un redimensionnement
 			bool mDragHorizontal = true;
 			int32 mDragNode = -1;
 			uint8 mResizeEdges = 0; ///< bits 1=G 2=D 4=H 8=B (noeud pose, huit poignees)
