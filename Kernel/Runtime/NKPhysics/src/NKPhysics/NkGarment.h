@@ -84,6 +84,28 @@ namespace nkentseu {
 		// "cape" / "jupe" / ... -> genre ; faux si inconnu
 		bool NkGarmentFromName(const char *name, NkGarmentKind &out) noexcept;
 
+		// COMMENT CE VÊTEMENT VOIT LE CORPS. Mesuré le 2026-09-05 dans les deux sens, sur la même
+		// course : un grand vêtement LÂCHE (cape) va deux fois mieux avec la distance exacte au
+		// maillage (étirement moyen 3,03 % -> 1,58 %) parce qu'un champ à cellule finie « respire »
+		// d'une image à l'autre ; un vêtement SERRÉ et compact (foulard) va vingt fois mieux avec un
+		// champ fin sur sa boîte (0,18 % contre 28,93 %) parce que ses particules touchent en
+		// permanence et que la normale exacte saute d'un triangle à l'autre là où le champ lisse.
+		// Ce n'est donc pas un réglage global : c'est une propriété DE LA PIÈCE.
+		enum class NkGarmentCollision : uint8 {
+			NK_AUTO = 0,	// décidé sur le SERRAGE mesuré au repos (voir NkGarmentAutoCollision)
+			NK_FIELD = 1,	// champ de distance fin sur la boîte du vêtement
+			NK_EXACT = 2,	// distance exacte au maillage, par particule
+		};
+		const char *NkGarmentCollisionName(NkGarmentCollision c) noexcept;
+		// Le défaut de chaque pièce, avant toute mesure : serré -> champ, lâche -> exact.
+		NkGarmentCollision NkGarmentDefaultCollision(NkGarmentKind k) noexcept;
+		// La règle d'`NK_AUTO`, à partir du SERRAGE (distance moyenne des particules libres au corps,
+		// en mètres, mesurée au repos par l'appelant qui a le corps) : sous le seuil, le vêtement
+		// touche en permanence et veut un champ ; au-dessus, il pend et veut la distance exacte.
+		// Seuil mesuré : foulard 0,006 m -> champ ; cape 0,05 m -> exact.
+		NkGarmentCollision NkGarmentAutoCollision(float32 meanClearance, float32 threshold = 0.02f) noexcept;
+
+
 		struct NkGarmentParams {
 				float32 spacing = 0.03f;	  // m entre particules
 				float32 areaDensity = 0.2f;	  // kg/m² (coton léger 0,15-0,25)
@@ -112,6 +134,7 @@ namespace nkentseu {
 				NkGarmentKind kind = NK_GARMENT_CAPE;
 				NkCloth cloth;
 				NkVector<NkGarmentPin> pins;
+				NkGarmentCollision collision = NkGarmentCollision::NK_AUTO; // comment il voit le corps
 				uint32 seams = 0;	// contraintes de couture (entre panneaux)
 				uint32 pieces = 0;	// panneaux
 				float32 mass = 0.f; // kg

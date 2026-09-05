@@ -37,6 +37,7 @@ namespace nkentseu {
 				uint32 sdfCells = 0, sdfSkipped = 0;
 				float64 stretchSum = 0.0;
 				uint32 stretchOver5 = 0;
+				float32 clearance = 0.f; // serrage moyen au repos (m)
 				float32 sdfPenMax = 0.f;
 				uint32 sdfContactsMax = 0, capsContactsMax = 0;
 				float64 msSum = 0.0;
@@ -498,7 +499,37 @@ namespace nkentseu {
 				const bool ok = g->garment.Build(kind, m, p->map, p->skel, gp, &p->mannequin, &p->restInside);
 				const float64 msB = bc.Elapsed().milliseconds;
 				g->garment.SnapPins(p->bind.Data(), njm);
+				// SERRAGE : distance moyenne des particules LIBRES au corps, au repos. C'est lui qui
+				// tranche NK_AUTO -- et le chiffre est dit, jamais un choix implicite.
+				{
+					NkBodyProximity restProx;
+					restProx.Build(p->bodyPosRest.Data(), nv, M.indices.Data(), (uint32)M.indices.Size() / 3u);
+					const NkCloth &cl = g->garment.cloth;
+					float64 sum = 0.0;
+					uint32 cnt = 0;
+					for (uint32 q = 0; q < cl.ParticleCount(); ++q) {
+						if (cl.InvMasses()[q] <= 0.f)
+							continue;
+						float32 d = 0.f;
+						NkVec3f nn{0.f, 1.f, 0.f};
+						if (restProx.Query(cl.Positions()[q], 0.25f, d, nn)) {
+							sum += (float64)(d < 0.f ? -d : d);
+							++cnt;
+						}
+					}
+					g->clearance = cnt ? (float32)(sum / (float64)cnt) : 1.f;
+					if (g->garment.collision == NkGarmentCollision::NK_AUTO)
+						g->garment.collision = NkGarmentAutoCollision(g->clearance);
+					if (const char *e = std::getenv("NK_GARMENT_COLLISION"); e && e[0])
+						g->garment.collision = (e[0] == 'f') ? NkGarmentCollision::NK_FIELD : NkGarmentCollision::NK_EXACT;
+					std::fprintf(stderr, "[MANNEQUIN PROBE] vetement %-8s : serrage moyen au repos %.1f mm -> methode %s%s\n",
+								 NkGarmentName(kind), 1000.f * g->clearance,
+								 NkGarmentCollisionName(g->garment.collision),
+								 NkGarmentDefaultCollision(kind) == NkGarmentCollision::NK_AUTO ? " (decide par le serrage)" : " (defaut de la piece)");
+				}
 				g->garment.cloth.params.clock = [] { return NkChrono::Now().seconds; };
+					if (const char *e = std::getenv("NK_GARMENT_ITER"); e && e[0])
+					g->garment.cloth.params.collidersEveryIteration = e[0] != '0'; // instrument : forcer le rythme
 				if (const char *e = std::getenv("NK_GARMENT_PINBLEND"); e && e[0])
 					g->garment.cloth.params.sdfPinBlendRings = (uint32)std::atoi(e); // balayage de la zone de transition
 				g->tint = Tint(kind);
@@ -677,7 +708,10 @@ namespace nkentseu {
 		// 3. capsules posées, épingles, pas
 		p->mannequin.Pose(p->world.Data(), nj, p->shapes);
 		// la DISTANCE EXACTE de cette pose : une grille de triangles, rangée une fois par image
-		if (p->useProx) {
+		bool anyExact = false, anyField = false;
+		for (uint32 g = 0; g < (uint32)p->garments.Size(); ++g)
+			(p->garments[g]->garment.collision == NkGarmentCollision::NK_EXACT ? anyExact : anyField) = true;
+		if (anyExact) {
 			NkChrono pc;
 			p->proxPrev = p->prox;
 			p->prox.Build(p->bodyPos.Data(), nv, M.indices.Data(), (uint32)M.indices.Size() / 3u);
@@ -687,7 +721,7 @@ namespace nkentseu {
 				p->msProxMax = ms;
 		}
 		// le CHAMP DE DISTANCE de cette pose (toutes les sdfEvery images)
-		if (p->useSdf && !p->useProx && !p->sdfPerGarment && (frame % p->sdfEvery) == 0u) {
+		if (p->useSdf && anyField && !p->sdfPerGarment && (frame % p->sdfEvery) == 0u) {
 			NkChrono sc;
 			// le champ de l'image précédente devient celui du DÉBUT de pas (les deux sont interpolés
 			// par sous-pas, comme les capsules) -- copie par échange de contenu, une seule construction
@@ -710,14 +744,15 @@ namespace nkentseu {
 			c.colliders.Clear();
 			for (uint32 k = 0; k < (uint32)p->shapes.Size(); ++k)
 				c.colliders.PushBack(p->shapes[k]);
-			c.bodyProx = p->useProx && p->prox.Valid() ? &p->prox : nullptr;
-			c.bodyProxPrev = p->useProx && p->proxPrev.Valid() ? &p->proxPrev : nullptr;
-			if (p->useSdf && !p->useProx && p->sdfPerGarment) {
+			const bool wantExact = s->garment.collision == NkGarmentCollision::NK_EXACT;
+			c.bodyProx = (wantExact && p->prox.Valid()) ? &p->prox : nullptr;
+			c.bodyProxPrev = (wantExact && p->proxPrev.Valid()) ? &p->proxPrev : nullptr;
+			if (!wantExact) {
 				// LA BOÎTE DU VÊTEMENT : ses particules, dilatées de l'épaisseur, de la marge de
 				// déplacement d'un pas (vitesse du corps x dt) et d'une cellule -- à nombre de
 				// cellules égal, un volume plus petit donne une cellule bien plus fine.
 				NkVec3f gmn, gmx;
-				if (c.Bounds(gmn, gmx)) {
+				if (anyField && c.Bounds(gmn, gmx)) {
 					const float32 pad = c.params.thickness + 0.06f;
 					s->sdfPrev = s->sdf;
 					s->sdf.params = p->sdf.params;
