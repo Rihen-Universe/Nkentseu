@@ -46,6 +46,15 @@
 //      par projection hors de la surface à `thickness` (Müller 2007 §4.4, contrainte
 //      d'inégalité) ; auto-collision par hachage spatial (NkSpatialHash, Teschner
 //      2003), paires non voisines à moins de 2 x thickness, projetées à parts de masse.
+//      La LISTE DES PAIRES candidates (rayon de recherche 4 x thickness, soit une
+//      MARGE de 2 x thickness au-delà du contact) est relue à chaque itération de
+//      chaque sous-pas et RECONSTRUITE seulement quand la dérive cumulée 2 vmax h
+//      depuis la dernière construction atteint la marge -- même schéma que les listes
+//      de voisines du SPH, mais adaptatif : au repos une traversée par pas, en chute
+//      une tous les quelques sous-pas. Mesuré le 05/09 (Release, 32 x 4) : la traversée
+//      des 27 cellules à CHAQUE itération coûtait 50 ms sur 61 à 32 x 32 (solveur seul :
+//      11-16 ms) ; une liste par PAS avec marge 2 vmax dt coûtait 0,9-3,4 s à 128 x 128
+//      (rayon 84 mm pour un espacement de 7,9 mm : 350 voisines par particule).
 //      Frottement EN POSITION sur chaque contact (Macklin et al., « Unified Particle
 //      Physics for Real-Time Applications », SIGGRAPH 2014, §6.1 éq. 23) : le
 //      glissement tangentiel du sous-pas est annulé s'il est < mu d (statique), sinon
@@ -123,6 +132,7 @@ namespace nkentseu {
 				float32 maxPenetration = 0.f;		// m : max(0, -(distance signée au collider)) des CENTRES
 				float32 minSelfDistance = 0.f;		// m : plus petite distance entre particules non voisines (si auto-collision)
 				uint32 contacts = 0, selfContacts = 0; // projections faites au dernier sous-pas
+				uint32 selfPairs = 0, selfBuilds = 0;  // paires candidates ; constructions de la liste dans le pas
 				uint32 collidersIgnored = 0;		// formes d'un type non traité (dites, pas simulées)
 				uint32 substeps = 0, iterations = 0;
 				float32 dt = 0.f;
@@ -210,6 +220,12 @@ namespace nkentseu {
 				bool mAdjDirty = true;
 				void BuildAdjacency();
 				NkSpatialHash mHash;
+				// paires candidates à l'auto-collision, reconstruites quand la dérive dépasse la marge (en-tête)
+				NkVector<uint32> mPairA, mPairB;
+				float32 mPairRadius = 0.f;
+				float32 mPairDrift = 0.f; // 2 vmax h cumulé depuis la dernière construction
+				float32 mSubVmax = 0.f;	  // vmax du dernier sous-pas (UpdateVelocities)
+				void BuildSelfPairs();
 				uint32 mGridW = 0, mGridH = 0;
 				NkClothStats mStats;
 		};

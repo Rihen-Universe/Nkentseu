@@ -28,6 +28,8 @@ namespace nkentseu {
 			mKind.Clear();
 			mAdjStart.Clear();
 			mAdjIdx.Clear();
+			mPairA.Clear();
+			mPairB.Clear();
 			mAdjDirty = true;
 			mGridW = mGridH = 0;
 			mStats = NkClothStats{};
@@ -207,7 +209,18 @@ namespace nkentseu {
 			const float32 h = dt / (float32)sub;
 			mStats.contacts = 0;
 			mStats.selfContacts = 0;
+			mStats.selfBuilds = 0;
+			const float32 margin = 2.f * params.thickness; // rayon de recherche 4r : marge 2r au-delà du contact
+			mPairDrift = margin; // force une construction au premier sous-pas du pas
 			for (uint32 s = 0; s < sub; ++s) {
+				if (params.selfCollision) {
+					// dérive maximale de deux particules l'une vers l'autre depuis la dernière liste
+					mPairDrift += 2.f * mSubVmax * h;
+					if (mPairDrift >= margin) {
+						BuildSelfPairs();
+						mPairDrift = 0.f;
+					}
+				}
 				Predict(h, time + (float32)s * h);
 				float32 *L = mLambda.Data();
 				for (uint32 c = 0; c < (uint32)mLambda.Size(); ++c)
@@ -215,8 +228,6 @@ namespace nkentseu {
 				uint8 *CT = mContact.Data();
 				for (uint32 i = 0; i < n; ++i)
 					CT[i] = 0;
-				if (params.selfCollision)
-					mHash.Build(mPos.Data(), n, 2.f * params.thickness);
 				for (uint32 it = 0; it < iters; ++it) {
 					SolveDistances(h);
 					if (params.selfCollision)
@@ -431,41 +442,66 @@ namespace nkentseu {
 			mStats.contacts = contacts;
 		}
 
-		void NkCloth::SolveSelf() {
+		void NkCloth::BuildSelfPairs() {
 			const uint32 n = (uint32)mPos.Size();
+			const NkVec3f *X = mPos.Data();
+			const float32 *W = mInvMass.Data();
+			// rayon de recherche = contact (2r) + marge (2r) : la liste reste valable tant que la
+			// dérive cumulée 2 vmax h n'atteint pas la marge (Step)
+			const float32 radius = 4.f * params.thickness;
+			const float32 r2 = radius * radius;
+			mPairRadius = radius;
+			++mStats.selfBuilds;
+			mHash.Build(X, n, radius);
+			mPairA.Clear();
+			mPairB.Clear();
+			for (uint32 i = 0; i < n; ++i) {
+				const NkVec3f pi = X[i];
+				mHash.Query(pi, [&](uint32 j) {
+					if (j <= i)
+						return; // chaque paire une fois
+					if (W[i] + W[j] <= 0.f)
+						return;
+					const NkVec3f d = pi - X[j];
+					if (d.Dot(d) >= r2)
+						return;
+					if (Adjacent(i, j))
+						return; // voisines de maillage : ce sont les contraintes qui les tiennent
+					mPairA.PushBack(i);
+					mPairB.PushBack(j);
+				});
+			}
+			mStats.selfPairs = (uint32)mPairA.Size();
+		}
+
+		void NkCloth::SolveSelf() {
 			NkVec3f *X = mPos.Data();
 			const NkVec3f *P = mPrev.Data();
 			const float32 *W = mInvMass.Data();
 			const float32 mu = params.friction < 0.f ? 0.f : params.friction;
 			const float32 dmin = 2.f * params.thickness;
 			const float32 dmin2 = dmin * dmin;
+			const uint32 np = (uint32)mPairA.Size();
+			const uint32 *PA = mPairA.Data(), *PB = mPairB.Data();
 			uint32 contacts = 0;
-			for (uint32 i = 0; i < n; ++i) {
-				const NkVec3f pi = X[i];
-				mHash.Query(pi, [&](uint32 j) {
-					if (j <= i)
-						return; // chaque paire une fois
-					const float32 wsum = W[i] + W[j];
-					if (wsum <= 0.f)
-						return;
-					NkVec3f d = X[i] - X[j];
-					const float32 l2 = d.Dot(d);
-					if (l2 >= dmin2 || l2 < 1e-18f)
-						return;
-					if (Adjacent(i, j))
-						return; // voisines de maillage : ce sont les contraintes qui les tiennent
-					const float32 l = NkSqrt(l2);
-					// contrainte d'inégalité C = l - dmin < 0, rigide (Müller 2007 §4.4)
-					const float32 dl = (dmin - l) / wsum;
-					const NkVec3f nrm = d * (1.f / l);
-					X[i] += nrm * (W[i] * dl);
-					X[j] -= nrm * (W[j] * dl);
-					// frottement en position sur le glissement RELATIF des deux pans (même règle)
-					const NkVec3f f = NkClothFriction((X[i] - P[i]) - (X[j] - P[j]), nrm, dmin - l, mu);
-					X[i] += f * (W[i] / wsum);
-					X[j] -= f * (W[j] / wsum);
-					++contacts;
-				});
+			for (uint32 q = 0; q < np; ++q) {
+				const uint32 i = PA[q], j = PB[q];
+				const float32 wsum = W[i] + W[j];
+				NkVec3f d = X[i] - X[j];
+				const float32 l2 = d.Dot(d);
+				if (l2 >= dmin2 || l2 < 1e-18f)
+					continue;
+				const float32 l = NkSqrt(l2);
+				// contrainte d'inégalité C = l - dmin < 0, rigide (Müller 2007 §4.4)
+				const float32 dl = (dmin - l) / wsum;
+				const NkVec3f nrm = d * (1.f / l);
+				X[i] += nrm * (W[i] * dl);
+				X[j] -= nrm * (W[j] * dl);
+				// frottement en position sur le glissement RELATIF des deux pans (même règle)
+				const NkVec3f f = NkClothFriction((X[i] - P[i]) - (X[j] - P[j]), nrm, dmin - l, mu);
+				X[i] += f * (W[i] / wsum);
+				X[j] -= f * (W[j] / wsum);
+				++contacts;
 			}
 			mStats.selfContacts = contacts;
 		}
@@ -480,13 +516,18 @@ namespace nkentseu {
 			if (damp < 0.f)
 				damp = 0.f;
 			// le frottement est déjà dans les positions (NkClothFriction) : la vitesse le reflète
+			float32 vmax2 = 0.f;
 			for (uint32 i = 0; i < n; ++i) {
 				if (W[i] <= 0.f) {
 					V[i] = {0.f, 0.f, 0.f};
 					continue;
 				}
 				V[i] = (X[i] - P[i]) * (invH * damp);
+				const float32 v2 = V[i].Dot(V[i]);
+				if (v2 > vmax2)
+					vmax2 = v2;
 			}
+			mSubVmax = NkSqrt(vmax2);
 		}
 
 		// ── Mesure ───────────────────────────────────────────────────────────

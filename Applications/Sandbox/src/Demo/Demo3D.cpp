@@ -14,6 +14,7 @@
 #include "NKRenderer/Tools/VFX/NkVFXSystem.h" // sonde VFX
 #include "NKRenderer/Tools/VFX/NkSPHSolver.h" // sonde fluide SPH (2026-09-04)
 #include "NKPhysics/NkVehicle.h"          // sonde VEHICULE (NK_VEHICLE_PROBE=1)
+#include "NKPhysics/NkCloth.h"            // sonde TISSU XPBD (NK_CLOTH_PROBE=1, 2026-09-05)
 #include <cstdlib>
 #include <cstdio>
 #include "DemoCommon.h"
@@ -52,6 +53,18 @@ namespace nkentseu {
 				nkentseu::physics::NkPhysicsWorld *vehWorld = nullptr;
 				nkentseu::physics::NkVehicle *veh = nullptr;
 				float32 vehClock = 0.f;
+				// sonde TISSU (NK_CLOTH_PROBE=1, 2026-09-05) : une nappe XPBD lachee sur une sphere, dans le vent
+				nkentseu::physics::NkCloth *cloth = nullptr;
+				nkentseu::math::NkUniformForceField clothWind;
+				NkMeshHandle clothMesh;
+				NkVector<renderer::NkVertex3D> clothVerts;
+				NkVector<uint32> clothIdx;
+				NkVector<NkVec3f> clothNormals;
+				float32 clothTime = 0.f;
+				float64 clothMsSum = 0.0;
+				uint32 clothMsN = 0;
+				NkVec3f clothSphereC = {0.f, 0.f, 0.f};
+				float32 clothSphereR = 0.f;
 				// ── NK_GI_TEST : mur mobile pour éprouver le GI à un rebond ──────
 				// Bornes de base du mur ; `giWallOffset` s'y ajoute et le GI est
 				// recalculé à chaque déplacement — c'est la démonstration que
@@ -2284,6 +2297,61 @@ static NkTexHandle CreateLanternCubeCookie(NkTextureLibrary *texLib, NkIDevice *
 					st->sphScene = repos ? 1 : (conserve ? 2 : 0);
 				}
 			}
+			// ── SONDE TISSU XPBD (2026-09-05), sous NK_CLOTH_PROBE=1 seulement ─────────────
+			// Une nappe NK_CLOTH_N x NK_CLOTH_N (defaut 32) de 1 m, lachee sur une sphere posee au
+			// sol, dans un vent uniforme (NK_CLOTH_WIND = force en N par particule, projetee sur la
+			// normale ; defaut 0,4 m g). Auto-collision active (NK_CLOTH_SELF=0 pour la couper).
+			// Pas FIXE 1/60 ; le cout du pas est mesure (NkChrono) et dit toutes les 60 images :
+			// c'est la courbe 32 / 128 / 256. Le tissu est dessine comme un MAILLAGE dynamique
+			// (NkMeshSystem::UpdateVertices), pas comme des particules : c'est un maillage.
+			if (const char *cp = std::getenv("NK_CLOTH_PROBE"); cp && cp[0] == '1') {
+				using namespace nkentseu::physics;
+				uint32 n = 32;
+				if (const char *e = std::getenv("NK_CLOTH_N"); e && e[0]) n = (uint32)std::atoi(e);
+				if (n < 2) n = 2;
+				auto *cl = new NkCloth();
+				// nappe de 2,4 m sur une sphere R = 0,8 m : a 1 m / 0,35 m la scene tenait dans un
+				// vingtieme du cadre (mesure sur la premiere capture). La physique ne change pas
+				// d'echelle (memes temoins dans NKPhysics_Tests, a 1 m).
+				const float32 side = 2.4f, sp = side / (float32)(n - 1);
+				st->clothSphereR = 0.8f;
+				st->clothSphereC = {0.f, 1.9f, 0.f}; // EN L AIR : au sol, la scene est cachee DANS le cube central de la demo (mesure : capture vide)
+				cl->BuildGrid(n, n, {-0.5f * side, st->clothSphereC.y + st->clothSphereR + 0.2f, -0.5f * side}, {sp, 0.f, 0.f},
+							  {0.f, 0.f, sp}, 0.2f * side * side);
+				cl->params.thickness = 0.4f * sp;
+				cl->params.friction = 0.3f;
+				cl->params.damping = 1.f;
+				cl->params.selfCollision = true;
+				if (const char *sc = std::getenv("NK_CLOTH_SELF"); sc && sc[0] == '0') cl->params.selfCollision = false;
+				cl->params.forceOnNormal = true; // une voile : le vent ne pousse que de face
+				const float32 mP = 0.2f * side * side / (float32)(n * n);
+				float32 wind = 0.4f * mP * 9.81f;
+				if (const char *w = std::getenv("NK_CLOTH_WIND"); w && w[0]) wind = (float32)std::atof(w);
+				st->clothWind.force = {wind, 0.f, 0.f};
+				cl->forceField = &st->clothWind;
+				cl->colliders.PushBack(collision::NkShape::Sphere(st->clothSphereC, st->clothSphereR));
+				cl->colliders.PushBack(collision::NkShape::Plane3D({0.f, 0.f, 0.f}, {0.f, 1.f, 0.f}));
+				cl->Triangles(st->clothIdx);
+				st->clothVerts.Resize(n * n);
+				for (uint32 i = 0; i < n * n; ++i) {
+					renderer::NkVertex3D &v = st->clothVerts[i];
+					v.pos = cl->Positions()[i];
+					v.normal = {0.f, 1.f, 0.f};
+					v.tangent = {1.f, 0.f, 0.f};
+					v.uv = {(float32)(i % n) / (float32)(n - 1), (float32)(i / n) / (float32)(n - 1)};
+					v.uv2 = v.uv;
+					v.color = 0xFFFFFFFFu;
+				}
+				renderer::NkMeshDesc md = renderer::NkMeshDesc::Simple(renderer::NkVertexLayout::Default3D(), st->clothVerts.Data(),
+																	  n * n, st->clothIdx.Data(), (uint32)st->clothIdx.Size());
+				md.dynamic = true;
+				md.debugName = "Demo3D_Tissu";
+				st->clothMesh = meshSys->Create(md);
+				st->cloth = cl;
+				std::fprintf(stderr, "[TISSU PROBE] nappe %ux%u (%u particules, %u triangles) epaisseur %.1f mm, vent %.4g N/particule (m g = %.4g), sphere R=%.2f, auto-collision=%d, sous-pas %u x %u, mesh valide=%d\n",
+							 n, n, n * n, (uint32)st->clothIdx.Size() / 3u, 1000.f * cl->params.thickness, wind, mP * 9.81f, st->clothSphereR,
+							 (int)cl->params.selfCollision, cl->params.substeps, cl->params.iterations, (int)st->clothMesh.IsValid());
+			}
 			if (const char *probe = std::getenv("NK_VFX_PROBE"); probe && probe[0] == '1') {
 				if (NkVFXSystem *vfx = ctx.renderer->GetVFX()) {
 					NkEmitterDesc d;
@@ -4158,6 +4226,36 @@ static NkTexHandle CreateLanternCubeCookie(NkTextureLibrary *texLib, NkIDevice *
 									 (int)st->veh->Wheel(2).grounded, (int)st->veh->Wheel(3).grounded);
 					}
 				}
+				// sonde TISSU : pas FIXE 1/60, cout du pas mesure, sommets renvoyes au maillage
+				if (st->cloth && st->clothMesh.IsValid()) {
+					const float32 fdt = 1.f / 60.f;
+					NkChrono chrono;
+					st->cloth->Step(fdt, st->clothTime);
+					const float64 ms = chrono.Elapsed().milliseconds;
+					st->clothTime += fdt;
+					st->clothMsSum += ms;
+					++st->clothMsN;
+					st->cloth->ComputeNormals(st->clothNormals);
+					const NkVec3f *X = st->cloth->Positions();
+					const NkVec3f *N = st->clothNormals.Data();
+					const uint32 cn = st->cloth->ParticleCount();
+					renderer::NkVertex3D *V = st->clothVerts.Data();
+					for (uint32 i = 0; i < cn; ++i) {
+						V[i].pos = X[i];
+						V[i].normal = N[i];
+					}
+					if (auto *ms3 = ctx.renderer->GetMeshSystem())
+						ms3->UpdateVertices(st->clothMesh, V, cn);
+					if ((ctx.frame % 60u) == 0u) {
+						const auto &cs = st->cloth->Stats();
+						std::fprintf(stderr, "[TISSU PROBE] image %u t=%.2f s : %u particules, pas %.2f ms (moyenne %.2f ms sur %u images), etirement max %.2f %%, penetration %.3f mm, contacts %u, auto-contacts %u (paires %u, listes %u), dmin %.1f mm, vmax %.2f m/s, sous-pas %u x %u\n",
+									 (unsigned)ctx.frame, st->clothTime, cs.particles, (float32)ms, (float32)(st->clothMsSum / (float64)st->clothMsN),
+									 st->clothMsN, 100.f * cs.maxStretch, 1000.f * cs.maxPenetration, cs.contacts, cs.selfContacts, cs.selfPairs,
+									 cs.selfBuilds, 1000.f * cs.minSelfDistance, cs.maxSpeed, cs.substeps, cs.iterations);
+						st->clothMsSum = 0.0;
+						st->clothMsN = 0;
+					}
+				}
 				// sonde SPH : pas FIXE 1/60 (reproductible), verdicts chiffres a la derniere image
 				if (st->sphSolver)
 					if (NkVFXSystem *vfx = ctx.renderer->GetVFX()) {
@@ -4668,6 +4766,38 @@ static NkTexHandle CreateLanternCubeCookie(NkTextureLibrary *texLib, NkIDevice *
 						wc.roughness = 0.9f;
 						r3d->Submit(wc);
 					}
+				}
+			}
+
+			// sonde TISSU : la nappe (maillage dynamique, orange Rihen) et la sphere (petrole Rihen)
+			if (st->cloth && st->clothMesh.IsValid()) {
+				const NkVec3f *X = st->cloth->Positions();
+				NkVec3f amin{1e30f, 1e30f, 1e30f}, amax{-1e30f, -1e30f, -1e30f};
+				for (uint32 i = 0; i < st->cloth->ParticleCount(); ++i) {
+					amin.x = NkMin(amin.x, X[i].x); amin.y = NkMin(amin.y, X[i].y); amin.z = NkMin(amin.z, X[i].z);
+					amax.x = NkMax(amax.x, X[i].x); amax.y = NkMax(amax.y, X[i].y); amax.z = NkMax(amax.z, X[i].z);
+				}
+				NkDrawCall3D tc;
+				tc.mesh = st->clothMesh;
+				tc.aabb = {amin - NkVec3f{0.05f, 0.05f, 0.05f}, amax + NkVec3f{0.05f, 0.05f, 0.05f}};
+				tc.tint = {0.97f, 0.60f, 0.16f}; // orange Rihen #F79A28
+				tc.metallic = 0.f;
+				tc.roughness = 0.9f;
+				r3d->Submit(tc);
+				NkDrawCall3D sc;
+				sc.mesh = st->meshSphere;
+				const float32 R = st->clothSphereR;
+				sc.transform = NkMat4f::TRS(st->clothSphereC, NkQuatf::Identity(), {2.f * R, 2.f * R, 2.f * R});
+				sc.aabb = {st->clothSphereC - NkVec3f{R, R, R}, st->clothSphereC + NkVec3f{R, R, R}};
+				sc.tint = {0.04f, 0.33f, 0.37f}; // petrole Rihen #0A555F
+				sc.metallic = 0.f;
+				sc.roughness = 0.6f;
+				r3d->Submit(sc);
+				static bool sDit = false;
+				if (!sDit) {
+					sDit = true;
+					std::fprintf(stderr, "[TISSU PROBE] dessin soumis : nappe aabb [%.2f %.2f %.2f]-[%.2f %.2f %.2f], sphere en (%.2f %.2f %.2f)\n",
+								 amin.x, amin.y, amin.z, amax.x, amax.y, amax.z, st->clothSphereC.x, st->clothSphereC.y, st->clothSphereC.z);
 				}
 			}
 
