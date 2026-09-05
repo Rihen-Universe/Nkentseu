@@ -17,6 +17,7 @@
 // une formule ; ils diffèrent à epsilon (sin des deux côtés), dit.
 // =============================================================================
 #include "NKRenderer/Core/NkRendererTypes.h"
+#include "NKMath/NkIForceField.h" // le CONTRAT partage avec le tissu (NKPhysics) : Force(position, temps) en newtons
 #include <cmath>
 
 namespace nkentseu {
@@ -24,7 +25,14 @@ namespace nkentseu {
 
 		enum class NkForceFieldType : uint8 { NONE, UNIFORM, VORTEX, TURBULENCE, CURL };
 
-		struct NkForceField {
+		struct NkForceField;
+		inline NkVec3f NkEvalForceField(const NkForceField &f, NkVec3f pos, float32 t);
+
+		// Le champ EST un math::NkIForceField (2026-09-05) : le tissu, les cheveux et l'herbe le lisent par ce
+		// contrat (Force en newtons sur une particule ponctuelle), les particules et le SPH par NkEvalForceField
+		// (une accélération). Le pont : Force = accélération x forceScale, forceScale = 1 kg par défaut -- une
+		// convention, dite ici : le vent de ce champ est une accélération, le contrat demande des newtons.
+		struct NkForceField : public math::NkIForceField {
 				NkForceFieldType type = NkForceFieldType::NONE;
 				float32 strength = 0.f;			   // accélération (m/s²) pour UNIFORM/VORTEX ; amplitude pour les bruits
 				NkVec3f direction = {1.f, 0.f, 0.f}; // UNIFORM : direction ; VORTEX : centre
@@ -33,6 +41,12 @@ namespace nkentseu {
 				float32 frequency = 1.f;			   // bruits : fréquence spatiale (1/m)
 				float32 seed = 0.f;					   // bruits : graine
 				float32 speed = 0.f;				   // bruits : dérive temporelle (le bruit avance de speed · t)
+				float32 forceScale = 1.f;			   // newtons par (m/s²) pour le contrat NkIForceField (1 kg)
+
+				NkVec3f Force(const NkVec3f &position, float32 time) const override {
+					const NkVec3f a = NkEvalForceField(*this, position, time);
+					return {a.x * forceScale, a.y * forceScale, a.z * forceScale};
+				}
 		};
 
 		// ── Évaluation CPU ────────────────────────────────────────────────────────
