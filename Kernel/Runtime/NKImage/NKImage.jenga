@@ -153,11 +153,20 @@ with project("NKImage"):
             testownmain()
             # NKTime n'est pas une dependance de NKImage : le banc a besoin du
             # chronometre, la sous-suite l'ajoute pour elle seule.
-            includedirs(["%{NKTime.location}/src"])
-            dependson(["NKTime"])  # sinon la lib n existe pas au lien (NKImage ne l a pas en dep)
+            includedirs(["%{NKTime.location}/src", "%{NKSerialization.location}/src"])
+            # Ni NKTime ni NKSerialization ne sont des dependances de NKImage :
+            # le banc en a besoin, la sous-suite les ajoute pour elle seule.
+            dependson(["NKTime", "NKSerialization"])
             links([
                 "NKImage",
+                "NKSerialization",
+                "NKReflection",
+                "NKFileSystem",
+                "NKLogger",
+                "NKThreading",
+                "NKContainers",
+                "NKPlatform",
+                "NKTime",
                 "NKMemory",
                 "NKCore",
-                "NKTime",
             ])
