@@ -2514,6 +2514,70 @@ ne le signalait. Et **`NkMat4f::TransformVector` ne compile pas** (déclarée re
 rend un `NkVec4` ; `NkGLTFLoader.cpp:179` note le même défaut et le contourne aussi) — contournée ici,
 **nommée pour l'agent NKMath**.
 
+### 🧊 05/09 (13h) — LE CHAMP DE DISTANCE SIGNÉ DU CORPS : ce que le tissu voit désormais, ce qu'il coûte, et le corps sur lequel il est FAUX
+
+*Suite directe du bloc précédent. Il disait : capsules = 0,000 mm de pénétration, mais 9 à 37 particules
+sous la peau. Voici l'étage (b), et son verdict — mesuré, pas promis.*
+
+**Ce qui est construit** : `physics::NkBodySDF` (NKPhysics), reconstruit à chaque image depuis le maillage
+skinné. Bande exacte (distance point-triangle, Ericson §5.1.5), **signe par pseudonormale pondérée par les
+angles** (Bærentzen & Aanæs 2005 — la seule normale juste quand le point le plus proche tombe sur une arête
+ou un sommet), propagation par balayage rapide 8 passes (Zhao 2005). Le tissu le lit par `Sample` /
+`Gradient` / `Project` ; les capsules restent en **secours** (hors grille, et pour la **vitesse du corps**
+dans le frottement — un champ ne porte pas de vitesse, dit), et `NkClothStats` sépare `sdfContacts` de
+`contacts` : on sait qui a résolu quoi.
+
+**🔑 CALIBRÉ AVANT DE JUGER — c'est la porte du lot précédent, appliquée à l'instrument suivant.**
+
+| corps | positif (centres de triangles rentrés de 1 cm) | négatif (points lointains) | centre du corps | mutation (signe inversé) |
+|---|---|---|---|---|
+| **CesiumMan** (4 672 tri) | **127 / 127 = 100 %** | 0 / 256 | **dedans** | positif → **0 %** ✅ mord |
+| **XBot** (49 112 tri) | 🔴 **306 / 1 250 = 24,5 %** | 0 / 256 | 🔴 **dit DEHORS** | positif → 75,5 % |
+
+**Le champ est FAUX sur XBot / YBot**, exactement comme la parité l'était : leurs coques ouvertes qui se
+recouvrent trompent aussi la pseudonormale. **Le remède est nommé, non fait** : le nombre d'enroulement
+généralisé (Jacobson, Kavan, Sorkine-Hornung, SIGGRAPH 2013), qui somme sur *tous* les triangles par
+cellule. *Deux instruments différents, réfutés par le même actif : ce n'est plus l'instrument qu'il faut
+soupçonner, c'est le maillage — et un corps de production n'est pas étanche.*
+
+**Ce que le champ change, sur le corps où il est calibré** (CesiumMan, 5,5 s, sa vraie marche, 1,2 m/s) :
+
+| vêtement | sous la peau, capsules seules | sous la peau, **avec le champ** | pénétration résiduelle dans le champ |
+|---|---|---|---|
+| foulard | 9 à 13 **en permanence** | **max 2, moyenne 0,12** | 6,7 mm |
+| cape | max 9, moyenne 1,66 | **max 6, moyenne 0,18** | 1,7 mm |
+| jupe | max 37, moyenne 8,80 | max 24, moyenne 4,31 | 26,7 mm |
+
+**🔴 « 0 particule sous la peau » n'est toujours pas atteint, et la cause est identifiée** : le champ est
+construit à la pose de **fin** de pas et sert tel quel aux 32 sous-pas, alors que les capsules, elles, sont
+**interpolées** — le corps bouge sous un champ figé. Le prochain geste est donc l'**interpolation de deux
+champs** (début et fin de pas), ou un champ par sous-pas si le coût le permet ; ce n'est pas une question de
+résolution.
+
+**🔴 COÛT : 26 ms/image à 64³ (cible : < 3 ms), et le coût ne suit PAS la résolution :**
+
+| résolution | coût | calibration |
+|---|---|---|
+| 32 | 21 ms | 🔴 64,6 % |
+| 48 | 17 ms | 🔴 87,4 % |
+| **64** | **26 ms** | ✅ **100 %** |
+
+*Le goulot est la **bande** (rasteriser 4 672 triangles), pas le balayage : baisser la résolution ne gagne
+rien et perd le signe.* Leviers nommés : construire le champ dans la seule **boîte des vêtements** (une jupe
+occupe le cinquième du corps), paralléliser la bande, ou le GPU. La cible « 3 vêtements sous 4 ms » reste
+celle du **GPU par coloriage** déjà écrite par l'agent tissu.
+
+**Les patrons, non corrigés, nommés** : six témoins rouges (chemise 1,26 %, robe 3,97 %, jupe 3,47 %,
+t-shirt 2,02 %, pantalon 9,64 % — inchangé de 32×4 à 32×8, donc géométrie et non convergence). La règle à
+appliquer : *un panneau dont la longueur au repos ne correspond pas à la distance entre ses épingles est
+étiré par construction* — coudre à la longueur lue sur le squelette. Et la jupe de CesiumMan (406 %) demande
+un évasé calculé sur l'amplitude du clip, pas une constante.
+
+**Deux dettes à porter ailleurs** : `NkMat4f::TransformVector` **ne compile pas** (déclarée rendant un
+`NkVec3`, son corps rend un `NkVec4` ; `NkGLTFLoader.cpp:179` note le même défaut) → **agent NKMath**. Le
+chargeur **FBX** charge `XBot.fbx` skinné (99 796 sommets, 65 os) mais rend **0 animation** sur
+`Walking.fbx` → **agent NKRenderer**, et en attendant les marches de Rodolf **en glTF**.
+
 ### 🔩 04/09 (nuit) — JENGA 2.6 : ce qui est appliqué, ce qui est mesuré en retour
 
 - **`-static` — le défaut était chez nous** : `config/toolchain.jenga:55` (bloc Windows natif) promettait
