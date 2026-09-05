@@ -11670,8 +11670,8 @@ namespace nkuidesign {
 			//    la garantie qui permet au bandeau de dire « le chemin est en Console »
 			//    plutot que de ne rien faire. ⚠️ On ne les appelle PAS sur un vrai chemin :
 			//    une sonde qui ouvre l'explorateur de Rodolf serait une sonde qui nuit.
-			const bool refusVide = !nkentseu::shell::Ouvrir("") && !nkentseu::shell::Reveler("")
-					&& !nkentseu::shell::Ouvrir(nullptr);
+			const bool refusVide = !nkentseu::NkLauncher::OpenFile("") && !nkentseu::NkLauncher::RevealFile("")
+					&& !nkentseu::NkLauncher::OpenFile(nullptr);
 			// 6. LE CHEMIN RESTE LISIBLE quoi qu'il arrive : c'est le repli exige.
 			st102.avisExport.echec = NkString("Le syst\u00e8me n'a pas pu ouvrir le dossier.");
 			const bool cheminGarde = !st102.avisExport.chemin.Empty()

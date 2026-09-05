@@ -26,6 +26,7 @@
 // Linux/macOS qui passent par system()).
 //
 // Auteur : Rihen / Nkentseu 2026
+// AUTEUR (ajout RevealFile, 2026-09-05) : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // =============================================================================
 
 namespace nkentseu {
@@ -44,6 +45,18 @@ namespace nkentseu {
 			/// Ouvre un dossier dans l'explorateur du systeme (Explorer / Finder /
 			/// Nautilus / etc.). Retourne true si OK.
 			static bool OpenFolder(const char *folderPath) noexcept;
+
+			/// Ouvre le dossier CONTENANT `filePath` en y SELECTIONNANT le fichier, quand
+			/// le systeme sait le faire. Sinon, ouvre simplement le dossier.
+			/// Ajoutee le 2026-09-05 : c'est la SEULE chose que `NKPlatform/NkShell`
+			/// (ecrit le meme jour, supprime depuis) savait faire de plus que ce lanceur.
+			/// Deux lanceurs pour le meme service, c'etait un doublon de plus.
+			/// @return true si quelque chose a ete ouvert.
+			/// @note Windows : `explorer /select,"..."` ; macOS : `open -R`.
+			/// @note ⚠️ LINUX : AUCUN STANDARD FREEDESKTOP ne permet de selectionner un
+			///       fichier -- chaque gestionnaire a son option. On ouvre le DOSSIER, et
+			///       c'est dit ici plutot que decouvert.
+			static bool RevealFile(const char *filePath) noexcept;
 	};
 
 } // namespace nkentseu

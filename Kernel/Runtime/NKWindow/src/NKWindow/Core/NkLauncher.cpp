@@ -1,5 +1,6 @@
 // =============================================================================
 // NkLauncher.cpp
+// AUTEUR (ajout RevealFile, 2026-09-05) : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // -----------------------------------------------------------------------------
 // Implementation multi-plateforme. Chaque section est gatee par les macros
 // NKENTSEU_PLATFORM_* (definies dans NKPlatform/NkPlatformDetect.h).
@@ -32,6 +33,7 @@ namespace nkentseu {
 	// Variable globale exposee par NkAndroidWindow.cpp : pointe sur
 	// l'android_app* courant (necessaire pour JNI : VM + activity).
 	extern struct android_app *nk_android_global_app;
+
 } // namespace nkentseu
 #endif
 
@@ -236,6 +238,44 @@ namespace nkentseu {
 		(void)folderPath;
 		return false;
 #endif
+	}
+
+	// ──────────────────────────────────────────────────────────────────────
+	// RevealFile — le dossier, AVEC le fichier en evidence (2026-09-05)
+	// ──────────────────────────────────────────────────────────────────────
+	bool NkLauncher::RevealFile(const char *filePath) noexcept {
+		if (!filePath || !*filePath)
+			return false;
+	#if defined(NKENTSEU_PLATFORM_WINDOWS)
+		// ⚠️ Explorer rend souvent un code d'echec MEME quand il a ouvert la fenetre.
+		//    On ne peut donc pas se fier a sa valeur de retour comme a un succes
+		//    d'affichage ; l'appelant garde de toute facon le chemin lisible.
+		char arg[2176];
+		std::snprintf(arg, sizeof(arg), "/select,\"%s\"", filePath);
+		const HINSTANCE r = ::ShellExecuteA(nullptr, "open", "explorer.exe", arg, nullptr, SW_SHOWNORMAL);
+		const bool ok = (reinterpret_cast<INT_PTR>(r) > 32);
+		if (!ok)
+			logger.Warn("[NkLauncher] explorer /select a echoue pour {0}", filePath);
+		return ok;
+	#elif defined(NKENTSEU_PLATFORM_MACOS)
+		char cmd[2048];
+		std::snprintf(cmd, sizeof(cmd), "open -R '%s' >/dev/null 2>&1 &", filePath);
+		return std::system(cmd) == 0;
+	#else
+		// Linux et le reste : pas de selection possible, on ouvre LE DOSSIER.
+		const char *fin = nullptr;
+		for (const char *p = filePath; *p; ++p)
+			if (*p == '/' || *p == '\\')
+				fin = p;
+		if (!fin)
+			return OpenFolder(".");
+		char dossier[2048];
+		const std::size_t n = static_cast<std::size_t>(fin - filePath);
+		const std::size_t m = n < sizeof(dossier) - 1 ? n : sizeof(dossier) - 1;
+		std::memcpy(dossier, filePath, m);
+		dossier[m] = '\0';
+		return OpenFolder(dossier);
+	#endif
 	}
 
 } // namespace nkentseu

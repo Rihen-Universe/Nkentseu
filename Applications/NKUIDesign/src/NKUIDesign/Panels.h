@@ -40,7 +40,7 @@
 
 #include "NKEditorKit/Components/NkGuiComponentPaint.h"
 #include "NKEditorKit/NkFilePickerNav.h"
-#include "NKPlatform/NkShell.h" // ⑤ ouvrir le dossier / le fichier AVEC le systeme // ② le selecteur a deux volets (vignettes)
+#include "NKWindow/Core/NkLauncher.h" // ⑤ LE lanceur systeme de la maison (un seul) // ② le selecteur a deux volets (vignettes)
 #include "NKEditorKit/NkEditorKit.h"
 #include "NKEditorKit/NkEditorCombo.h"   // la LISTE DEROULANTE du kit (pas une neuvieme)
 #include "NKEditorKit/NkEditorContextMenu.h"	// NkCtxMenu — le menu contextuel du kit (3e consommateur)
@@ -4140,11 +4140,11 @@ namespace nkuidesign {
 						return false;
 					};
 					if (clicReel && NkGuiRectContains(g.dossier, mp)) {
-						if (!nkentseu::shell::Reveler(mSt->avisExport.chemin.Data()))
+						if (!nkentseu::NkLauncher::RevealFile(mSt->avisExport.chemin.Data()))
 							mSt->avisExport.echec =
 								NkString("Le syst\u00e8me n'a pas pu ouvrir le dossier \u2014 le chemin est en Console.");
 					} else if (clicReel && NkGuiRectContains(g.fichier, mp)) {
-						if (!nkentseu::shell::Ouvrir(mSt->avisExport.chemin.Data()))
+						if (!nkentseu::NkLauncher::OpenFile(mSt->avisExport.chemin.Data()))
 							mSt->avisExport.echec =
 								NkString("Le syst\u00e8me n'a pas pu ouvrir le fichier \u2014 le chemin est en Console.");
 					} else if (clicReel && NkGuiRectContains(g.fermer, mp)) {
