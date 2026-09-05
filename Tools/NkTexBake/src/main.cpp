@@ -1,0 +1,280 @@
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
+// =============================================================================
+// NkTexBake — LE FOUR
+//
+// Prend une image (PNG, JPEG, BMP, TGA, HDR, QOI, WebP…) et produit un actif
+// `.nktex` : pixels DEJA dans la disposition que le GPU accepte, mipmaps
+// precalculees, en-tete decrivant format, dimensions, espace colorimetrique et
+// mode d'adressage. Le moteur le televerse alors sans decoder quoi que ce soit.
+//
+//   NkTexBake <entree> [-o sortie.nktex] [--nom /Textures/Bois]
+//             [--usage couleur|donnee] [--cible <plateforme>]
+//             [--sans-mips] [--adressage repeat|clamp|mirror]
+//
+// `--usage` est le reglage qui compte, et il n'a rien d'esthetique : une carte
+// de COULEUR (albedo, emission) s'echantillonne en sRGB, une DONNEE (normale,
+// rugosite, metallique, occlusion) doit rester lineaire — la deliner l'abime.
+// Par defaut on devine depuis le nom du fichier, et on DIT ce qu'on a devine.
+//
+// ⚠️ `--cible` : ce que chaque plateforme accepterait, et ce que ce four sait
+// faire aujourd'hui, ne sont pas la meme chose. Voir `--cible aide`.
+// =============================================================================
+#include "NKImage/Core/NkTextureOven.h"
+#include "NKSerialization/Asset/NkTextureAssetFormat.h"
+
+#include <cstdio>
+#include <cstring>
+
+using namespace nkentseu;
+
+namespace {
+
+	// -------------------------------------------------------------------------
+	// Ce que les cibles accepteraient, et ce que ce four livre.
+	//
+	// La colonne « accepte » est MESUREE dans le depot, pas devinee :
+	//   - `NkDeviceCaps::textureCompressionBC` est mis a `true` en dur par
+	//     NkDirectX11Device.cpp:1747 et NkDirectX12Device.cpp:3011, interroge
+	//     par NkOpenglDevice.cpp:1230-1232 et par NkVulkanDevice.cpp:2470 ;
+	//   - `textureCompressionETC2` et `textureCompressionASTC` ne sont
+	//     renseignes QUE par le dorsal Vulkan (NkVulkanDevice.cpp:2471-2472).
+	//     Aucun autre dorsal ne les annonce.
+	//
+	// La colonne « livre » est la meme partout, et c'est le point du lot : le
+	// palier 1 donne le gain de DECODAGE (brut + mipmaps) ; la compression par
+	// blocs donnera le gain de VRAM et n'est pas faite — `NkFormatBytesPerPixel`
+	// rend 0 pour tous les formats par blocs, donc le RHI ne sait pas encore
+	// televerser un seul d'entre eux.
+	// -------------------------------------------------------------------------
+	struct Cible {
+			const char *nom;
+			const char *accepterait;
+			const char *pourquoi;
+	};
+
+	const Cible kCibles[] = {
+		{"windows", "BC (BC1/BC3/BC5/BC7)", "DX11 et DX12 annoncent textureCompressionBC = true en dur"},
+		{"linux", "BC si le pilote l'annonce", "OpenGL interroge l'extension, Vulkan interroge la fonctionnalite"},
+		{"macos", "BC si Vulkan/MoltenVK l'annonce", "aucun dorsal du depot n'annonce ASTC hors Vulkan"},
+		{"android", "ASTC / ETC2", "renseignes uniquement par le dorsal Vulkan"},
+		{"ios", "ASTC si Vulkan l'annonce", "le dorsal Metal ne renseigne aucune de ces trois capacites"},
+		{"web", "ETC2 / BC selon l'extension WebGL", "aucun dorsal du depot ne l'annonce"},
+		{"harmonyos", "ASTC / ETC2 si Vulkan l'annonce", "meme dorsal que Android"},
+	};
+
+	void AfficherCibles() {
+		std::printf("Cibles connues (les noms sont ceux de `jenga build --platform`) :\n\n");
+		std::printf("  %-12s %-34s %s\n", "cible", "accepterait (mesure)", "d'ou vient la mesure");
+		for (const Cible &c : kCibles)
+			std::printf("  %-12s %-34s %s\n", c.nom, c.accepterait, c.pourquoi);
+		std::printf("\n  CE QUE CE FOUR LIVRE, pour TOUTES les cibles : pixels bruts au format du\n"
+					"  GPU + mipmaps precalculees. C'est le gain de DECODAGE, entier.\n"
+					"  CE QU'IL NE FAIT PAS : la compression par blocs. Elle donnerait le gain de\n"
+					"  VRAM, et elle n'est pas un travail de format mais un travail de RHI :\n"
+					"  `NkFormatBytesPerPixel` rend 0 pour BC, ETC2 et ASTC, donc le pas de ligne\n"
+					"  et la taille de televersement seraient nuls dans les quatre dorsaux.\n"
+					"  Les codes sont deja reserves dans le format : le jour ou le RHI saura les\n"
+					"  televerser, un actif ecrit aujourd'hui n'aura pas a changer de version.\n");
+	}
+
+	bool Contient(const char *s, const char *motif) {
+		return s && motif && std::strstr(s, motif) != nullptr;
+	}
+
+	// Devine l'usage depuis le nom du fichier — et le DIT, parce qu'une
+	// supposition silencieuse sur l'espace colorimetrique produit des normales
+	// delinees que personne ne relie a leur cause.
+	bool DevinerCouleur(const char *chemin, const char **raison) {
+		static const char *kDonnees[] = {"normal", "_nrm", "rough", "metal", "_orm", "occlusion",
+										 "_ao",	   "ao.",  "gloss", "spec",	 "height",	 "displac",
+										 "bump",   "mask", "data"};
+		for (const char *m : kDonnees) {
+			if (Contient(chemin, m)) {
+				*raison = m;
+				return false;
+			}
+		}
+		*raison = nullptr;
+		return true;
+	}
+
+	void Usage() {
+		std::printf("NkTexBake — le four a textures de Nkentseu\n\n"
+					"  NkTexBake <entree> [options]\n\n"
+					"  -o, --sortie <f>        fichier de sortie (defaut : entree + .nktex)\n"
+					"      --nom <chemin>      chemin logique de l'actif (defaut : /Textures/<nom>)\n"
+					"      --usage <u>         couleur | donnee   (defaut : devine depuis le nom)\n"
+					"      --adressage <a>     repeat | clamp | mirror   (defaut : repeat)\n"
+					"      --sans-mips         n'ecrit que le niveau 0\n"
+					"      --cible <c>         plateforme visee ; `--cible aide` explique ce que\n"
+					"                          chacune accepte et ce que ce four livre\n"
+					"  -h, --help\n");
+	}
+
+} // namespace
+
+int main(int argc, char **argv) {
+	const char *entree = nullptr;
+	const char *sortie = nullptr;
+	const char *nomLogique = nullptr;
+	const char *cible = nullptr;
+	int usageCouleur = -1; // -1 = deviner
+	bool sansMips = false;
+	nk_uint32 adressage = NKTEXADDR_REPEAT;
+
+	for (int i = 1; i < argc; ++i) {
+		const char *a = argv[i];
+		auto suivant = [&](void) -> const char * { return (i + 1 < argc) ? argv[++i] : nullptr; };
+
+		if (std::strcmp(a, "-h") == 0 || std::strcmp(a, "--help") == 0) {
+			Usage();
+			return 0;
+		} else if (std::strcmp(a, "-o") == 0 || std::strcmp(a, "--sortie") == 0) {
+			sortie = suivant();
+		} else if (std::strcmp(a, "--nom") == 0) {
+			nomLogique = suivant();
+		} else if (std::strcmp(a, "--usage") == 0) {
+			const char *u = suivant();
+			if (u && std::strcmp(u, "couleur") == 0)
+				usageCouleur = 1;
+			else if (u && std::strcmp(u, "donnee") == 0)
+				usageCouleur = 0;
+			else {
+				std::printf("[NkTexBake] --usage attend « couleur » ou « donnee ».\n");
+				return 2;
+			}
+		} else if (std::strcmp(a, "--adressage") == 0) {
+			const char *m = suivant();
+			if (m && std::strcmp(m, "repeat") == 0)
+				adressage = NKTEXADDR_REPEAT;
+			else if (m && std::strcmp(m, "clamp") == 0)
+				adressage = NKTEXADDR_CLAMP;
+			else if (m && std::strcmp(m, "mirror") == 0)
+				adressage = NKTEXADDR_MIRROR;
+			else {
+				std::printf("[NkTexBake] --adressage attend « repeat », « clamp » ou « mirror ».\n");
+				return 2;
+			}
+		} else if (std::strcmp(a, "--sans-mips") == 0) {
+			sansMips = true;
+		} else if (std::strcmp(a, "--cible") == 0) {
+			cible = suivant();
+			if (cible && (std::strcmp(cible, "aide") == 0 || std::strcmp(cible, "?") == 0)) {
+				AfficherCibles();
+				return 0;
+			}
+		} else if (a[0] == '-') {
+			std::printf("[NkTexBake] option inconnue : %s\n", a);
+			Usage();
+			return 2;
+		} else if (!entree) {
+			entree = a;
+		} else {
+			std::printf("[NkTexBake] une seule entree a la fois (recu « %s » puis « %s »).\n", entree, a);
+			return 2;
+		}
+	}
+
+	if (!entree) {
+		Usage();
+		return 2;
+	}
+
+	// ── La cible : on DIT ce qu'elle changerait, et ce qu'elle ne change pas ──
+	if (cible) {
+		bool connue = false;
+		for (const Cible &c : kCibles)
+			if (std::strcmp(c.nom, cible) == 0)
+				connue = true;
+		if (!connue) {
+			std::printf("[NkTexBake] cible inconnue « %s ». `--cible aide` liste celles que je connais.\n", cible);
+			return 2;
+		}
+		std::printf("[NkTexBake] cible « %s » : la sortie est IDENTIQUE pour toutes les cibles "
+					"aujourd'hui (brut + mipmaps). La compression par blocs, qui serait le seul "
+					"ecart entre elles, n'est pas livree — `--cible aide` dit pourquoi.\n",
+					cible);
+	}
+
+	// ── L'usage : couleur ou donnee ──
+	bool couleur;
+	if (usageCouleur >= 0) {
+		couleur = (usageCouleur == 1);
+	} else {
+		const char *raison = nullptr;
+		couleur = DevinerCouleur(entree, &raison);
+		if (!couleur)
+			std::printf("[NkTexBake] « %s » contient « %s » : traite comme une DONNEE (lineaire, pas de sRGB). "
+						"Force avec --usage couleur si c'est faux.\n",
+						entree, raison);
+		else
+			std::printf("[NkTexBake] « %s » traite comme une COULEUR (sRGB). Force avec --usage donnee si c'est "
+						"faux.\n",
+						entree);
+	}
+
+	// ── Cuisson ──
+	NkTexOvenReglages reglages;
+	reglages.sRGB = couleur;
+	reglages.genererMips = !sansMips;
+	reglages.addressMode = adressage;
+
+	NkVector<nk_uint8> payload;
+	NkString err;
+	if (!NkTextureOven::CuireFichier(entree, reglages, payload, &err)) {
+		std::printf("[NkTexBake] REFUS : %s (« %s »)\n", err.CStr(), entree);
+		return 1;
+	}
+
+	NkTexVue vue;
+	if (!NkTexturePayload::Decode(payload.Data(), payload.Size(), vue, &err)) {
+		std::printf("[NkTexBake] REFUS : le payload produit est illisible (%s)\n", err.CStr());
+		return 1;
+	}
+
+	// ── Chemins ──
+	NkString cheminSortie;
+	if (sortie) {
+		cheminSortie = NkString(sortie);
+	} else {
+		cheminSortie = NkString(entree);
+		const nk_size point = cheminSortie.RFind('.');
+		if (point != NkString::npos)
+			cheminSortie = cheminSortie.SubStr(0, point);
+		cheminSortie.Append(".");
+		cheminSortie.Append(NkAssetExtensionFor(NkAssetType::Texture2D));
+	}
+
+	NkString logique;
+	if (nomLogique) {
+		logique = NkString(nomLogique);
+	} else {
+		NkString base(entree);
+		nk_size barre = base.RFind('/');
+		const nk_size antiBarre = base.RFind('\\');
+		if (antiBarre != NkString::npos && (barre == NkString::npos || antiBarre > barre))
+			barre = antiBarre;
+		if (barre != NkString::npos)
+			base = base.SubStr(barre + 1);
+		const nk_size point = base.RFind('.');
+		if (point != NkString::npos)
+			base = base.SubStr(0, point);
+		logique = NkString("/Textures/");
+		logique.Append(base.View());
+	}
+
+	NkAssetId id;
+	if (!NkEcrireActifTexture(payload.Data(), payload.Size(), cheminSortie.CStr(), logique.View(),
+							  NkStringView(entree), &id, &err)) {
+		std::printf("[NkTexBake] REFUS a l'ecriture : %s\n", err.CStr());
+		return 1;
+	}
+
+	const nk_uint64 pixels = NkTexturePayload::OctetsPixels(vue);
+	std::printf("[NkTexBake] %s -> %s\n", entree, cheminSortie.CStr());
+	std::printf("            %ux%u, format %s, %u niveau(x), %s\n", vue.width, vue.height,
+				NkTexFormatNom(vue.formatCode), vue.mipCount, vue.EstSrgb() ? "sRGB" : "lineaire");
+	std::printf("            %.2f Mo de pixels, actif %.2f Mo, id %s\n", double(pixels) / 1048576.0,
+				double(payload.Size()) / 1048576.0, id.ToString().CStr());
+	return 0;
+}

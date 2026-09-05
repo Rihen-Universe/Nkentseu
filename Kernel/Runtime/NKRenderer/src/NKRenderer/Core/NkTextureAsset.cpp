@@ -59,46 +59,15 @@ namespace nkentseu {
 		bool NkTextureAssetIO::SaveBaked(const nk_uint8 *payload, nk_size payloadSize, const NkString &outDiskPath,
 										 const NkString &logicalPath, const NkString &sourceFilePath,
 										 NkAssetId *outId) noexcept {
-			if (!payload || payloadSize == 0u) {
-				logger.Errorf("[NkTextureAssetIO] SaveBaked : payload vide pour '%s'\n", logicalPath.CStr());
-				return false;
-			}
-			// Refuser d'ecrire un payload qui n'est pas une texture cuite : sans
-			// ce controle on produirait un `.nktex` que le chargeur refuserait
-			// plus tard, loin d'ici.
-			NkTexVue controle;
+			// Un renvoi, et c'est voulu : ecrire un actif cuit ne demande AUCUN GPU,
+			// donc le geste vit dans NKSerialization et le four (outil en ligne de
+			// commande) appelle exactement la meme fonction que le moteur.
 			NkString err;
-			if (!NkTexturePayload::Decode(payload, payloadSize, controle, &err)) {
-				logger.Errorf("[NkTextureAssetIO] SaveBaked : payload invalide (%s)\n", err.CStr());
+			if (!NkEcrireActifTexture(payload, payloadSize, outDiskPath.CStr(), logicalPath.View(),
+									  sourceFilePath.View(), outId, &err)) {
+				logger.Errorf("[NkTextureAssetIO] SaveBaked refuse : %s\n", err.CStr());
 				return false;
 			}
-
-			NkAssetMetadata meta;
-			meta.id = NkAssetId::FromName(logicalPath.View());
-			meta.type = NkAssetType::Texture2D;
-			meta.typeName = NkString("Texture2D");
-			meta.assetPath = NkAssetPath(logicalPath.View());
-			meta.assetVersion = 1u;
-			meta.AddTag(NkAssetTypeName(meta.type));
-			meta.AddTag("cuit");
-			// Trace de l'original : elle ne sert qu'a proposer une RECUISSON si
-			// le fichier source change. Le chargement ne l'ouvre jamais.
-			meta.sourceFilePath = sourceFilePath;
-
-			if (!NkAssetIO::Write(outDiskPath.CStr(), meta, payload, payloadSize, &err)) {
-				logger.Errorf("[NkTextureAssetIO] SaveBaked : ecriture refusee (%s)\n", err.CStr());
-				return false;
-			}
-
-			NkAssetRecord rec;
-			rec.id = meta.id;
-			rec.assetPath = meta.assetPath;
-			rec.type = meta.type;
-			rec.typeName = meta.typeName;
-			rec.diskPath = outDiskPath;
-			NkAssetRegistry::Global().Register(rec);
-			if (outId)
-				*outId = meta.id;
 			return true;
 		}
 

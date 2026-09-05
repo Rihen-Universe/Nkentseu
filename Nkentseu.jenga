@@ -866,6 +866,13 @@ with workspace("Nkentseu", location="."):
 
 
 
+    # Le four a textures : outil en ligne de commande, sans GPU ni fenetre.
+    with include("Tools/NkTexBake/NkTexBake.jenga"):
+
+        pass
+
+
+
     with include("Applications/Sandbox/Sandbox.jenga"):
 
         pass
