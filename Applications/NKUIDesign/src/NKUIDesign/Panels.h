@@ -1494,6 +1494,38 @@ namespace nkuidesign {
 			NkChoixExport choixExport;
 			/// ④ La DEMANDE d'export, posée par le menu contextuel et lue par l'overlay :
 			///    le dialogue s'ouvre là où l'entrée est réelle, jamais depuis le dispatcheur.
+			/// ③ (05/09) LES DOSSIERS RECEMMENT OUVERTS DANS CETTE SESSION. Memoire vive :
+			/// remise a zero au lancement suivant PAR CONSTRUCTION (aucune ecriture disque).
+			/// L'AUTRE liste — celle du DOCUMENT — vit dans `doc.dossiersRecents` et voyage
+			/// avec le fichier. Rodolf voulait les deux : « dans cette session ou ce document ».
+			nkentseu::NkVector<nkentseu::NkString> dossiersRecentsSession;
+
+			/// Retient un dossier des DEUX cotes.
+			/// ⚠️ Le cote DOCUMENT rend le document « modifie », et c'est VOULU : ici
+			///    « modifie » n'est pas un drapeau qu'on leve, c'est le resultat d'une
+			///    comparaison du document serialise avec son dernier etat enregistre
+			///    (`DocumentModifie`). Un recent qui ne serait pas enregistre serait perdu au
+			///    prochain chargement -- l'etoile de l'onglet dit donc la verite.
+			void RetenirDossierRecent(const char *chemin) {
+				if (!chemin || !*chemin)
+					return;
+				nkentseu::editorkit::NkFilePickerNavState::PoserRecent(dossiersRecentsSession, chemin);
+				nkentseu::editorkit::NkFilePickerNavState::PoserRecent(doc.dossiersRecents, chemin);
+			}
+
+			/// Les recents A MONTRER dans le rail du selecteur : LA SESSION D'ABORD (ce que
+			/// l'utilisateur vient de faire est ce qu'il cherche), puis ceux du document.
+			/// Sans doublon -- `PoserRecent` deduplique, et l'ordre d'insertion inverse
+			/// remet la session en tete.
+			nkentseu::NkVector<nkentseu::NkString> RecentsPourLeRail() const {
+				nkentseu::NkVector<nkentseu::NkString> r;
+				for (nkentseu::uint32 i = (nkentseu::uint32)doc.dossiersRecents.Size(); i > 0u; --i)
+					nkentseu::editorkit::NkFilePickerNavState::PoserRecent(r, doc.dossiersRecents[i - 1u].Data());
+				for (nkentseu::uint32 i = (nkentseu::uint32)dossiersRecentsSession.Size(); i > 0u; --i)
+					nkentseu::editorkit::NkFilePickerNavState::PoserRecent(r, dossiersRecentsSession[i - 1u].Data());
+				return r;
+			}
+
 			bool exportDemande = false;
 			bool exportSurSelection = false;
 			/// Le dossier de reference des chemins d'image : celui du document, ou le

@@ -11421,6 +11421,102 @@ namespace nkuidesign {
 				"traduction de notre cru ; les volumes sont ceux que le systeme dit MONTES, avec leur etiquette",
 				sectionsOk && usuelsOk && volumesOk && courantOk && titreInerte, det);
 		}
+		// ── 100. ③ LES DOSSIERS RECEMMENT OUVERTS (05/09, soir). Rodolf : « on doit aussi voir
+		//    les dossiers recemment ouverts dans cette session ou ce document. » DEUX listes,
+		//    et elles ne vivent pas au meme endroit : la SESSION est en memoire vive (elle
+		//    meurt au lancement suivant), le DOCUMENT est ecrit dans le `.nkuidoc` et VOYAGE
+		//    avec le fichier. La sonde mesure les deux, l'ordre, la deduplication, la section
+		//    du rail -- et l'ALLER-RETOUR du document, qui est le seul temoin du voyage.
+		{
+			char det[820];
+			NkDirectory::Delete("sonde_recents", true);
+			NkDirectory::CreateRecursive("sonde_recents/un");
+			NkDirectory::CreateRecursive("sonde_recents/deux");
+			const NkString base100 =
+				(NkPath(NkDirectory::GetCurrentDirectory()) / "sonde_recents").ToString();
+			const NkString dUn = (NkPath(base100.Data()) / "un").ToString();
+			const NkString dDeux = (NkPath(base100.Data()) / "deux").ToString();
+			// 1. LE PLUS RECENT EN TETE, et reposer un dossier deja liste le fait REMONTER
+			//    (une deduplication qui REJETTE ferait vieillir la liste a l'envers de son nom)
+			NkVector<NkString> l100;
+			editorkit::NkFilePickerNavState::PoserRecent(l100, dUn.Data());
+			editorkit::NkFilePickerNavState::PoserRecent(l100, dDeux.Data());
+			editorkit::NkFilePickerNavState::PoserRecent(l100, dUn.Data()); // deja la : il REMONTE
+			const bool ordreOk = (uint32)l100.Size() == 2u
+					&& NkComponentDecl::StrEq(l100[0].Data(), dUn.Data())
+					&& NkComponentDecl::StrEq(l100[1].Data(), dDeux.Data());
+			// 2. LES DEUX COTES : session ET document
+			static DesignState st100;
+			st100.doc.NewDocument("Recents", NkAuthor::Humain);
+			st100.dossiersRecentsSession.Clear();
+			st100.doc.dossiersRecents.Clear();
+			st100.RetenirDossierRecent(dDeux.Data());
+			st100.RetenirDossierRecent(dUn.Data());
+			const bool deuxCotes = (uint32)st100.dossiersRecentsSession.Size() == 2u
+					&& (uint32)st100.doc.dossiersRecents.Size() == 2u
+					&& NkComponentDecl::StrEq(st100.dossiersRecentsSession[0].Data(), dUn.Data())
+					&& NkComponentDecl::StrEq(st100.doc.dossiersRecents[0].Data(), dUn.Data());
+			// 3. L'ALLER-RETOUR DU DOCUMENT : c'est le SEUL temoin qu'ils voyagent. Un
+			//    champ rempli en memoire ne prouve rien sur ce que le fichier emporte.
+			NkString texte100;
+			st100.doc.Save(texte100);
+			const bool ecritDansLeTexte = texte100.Contains("dossier_recent = ");
+			NkUIDocument relu100;
+			relu100.Load(texte100.Data());
+			const bool allerRetour = (uint32)relu100.dossiersRecents.Size() == 2u
+					&& NkComponentDecl::StrEq(relu100.dossiersRecents[0].Data(), dUn.Data())
+					&& NkComponentDecl::StrEq(relu100.dossiersRecents[1].Data(), dDeux.Data());
+			// 4. LA SESSION NE VOYAGE PAS : le document relu n'a pas d'idee de la session,
+			//    et c'est la difference meme entre les deux listes.
+			const NkVector<NkString> rail100 = st100.RecentsPourLeRail();
+			const bool sessionEnTete = (uint32)rail100.Size() == 2u
+					&& NkComponentDecl::StrEq(rail100[0].Data(), dUn.Data());
+			// 5. LA SECTION « Recents » EXISTE ET EST EN TETE DU RAIL
+			editorkit::NkFilePickerNavState nav100;
+			char buf100[512] = {};
+			nav100.recents = rail100;
+			nav100.OpenPickerBase(editorkit::NkFilePickerState::PK_PickFolder, base100.Data(), buf100,
+						(int32)sizeof(buf100), nullptr, nullptr);
+			nav100.RelireDossier();
+			int32 iRec = -1, iRapide2 = -1;
+			uint32 sousRec = 0u;
+			for (uint32 i = 0; i < (uint32)nav100.vue.folders.nodes.Size(); ++i) {
+				const char *l = nav100.vue.folders.nodes[i].label.Data();
+				if (l && NkComponentDecl::StrEq(l, "R\u00e9cents")) iRec = (int32)i;
+				else if (l && NkComponentDecl::StrEq(l, "Acc\u00e8s rapide") && iRapide2 < 0) iRapide2 = (int32)i;
+			}
+			for (uint32 i = 0; i < (uint32)nav100.vue.folders.nodes.Size(); ++i)
+				if (nav100.vue.folders.nodes[i].parent == iRec) ++sousRec;
+			const bool sectionOk = iRec == 0 && iRapide2 > iRec && sousRec == 2u;
+			// 6. CONTROLE NEGATIF : sans recent, AUCUNE section « Recents » -- un titre vide
+			//    occupe une ligne et n'apprend rien.
+			editorkit::NkFilePickerNavState nav101;
+			char buf101[512] = {};
+			nav101.OpenPickerBase(editorkit::NkFilePickerState::PK_PickFolder, base100.Data(), buf101,
+						(int32)sizeof(buf101), nullptr, nullptr);
+			nav101.RelireDossier();
+			bool aucunTitreVide = true;
+			for (uint32 i = 0; i < (uint32)nav101.vue.folders.nodes.Size(); ++i)
+				if (NkComponentDecl::StrEq(nav101.vue.folders.nodes[i].label.Data(), "R\u00e9cents"))
+					aucunTitreVide = false;
+			snprintf(det, sizeof(det),
+				"ordre (le plus recent en tete, un doublon REMONTE)=%d ; session %u / document %u, memes tetes -> %d ; "
+				"`dossier_recent =` dans le texte=%d ; ALLER-RETOUR du .nkuidoc : %u relu(s) dans l'ordre -> %d ; "
+				"rail : %u entree(s), session en tete=%d ; section « R\u00e9cents » a l'index %d (avant « Acc\u00e8s rapide » "
+				"a %d) avec %u enfant(s) -> %d ; sans recent, aucun titre orphelin=%d",
+				ordreOk ? 1 : 0, (uint32)st100.dossiersRecentsSession.Size(),
+				(uint32)st100.doc.dossiersRecents.Size(), deuxCotes ? 1 : 0, ecritDansLeTexte ? 1 : 0,
+				(uint32)relu100.dossiersRecents.Size(), allerRetour ? 1 : 0, (uint32)rail100.Size(),
+				sessionEnTete ? 1 : 0, iRec, iRapide2, sousRec, sectionOk ? 1 : 0, aucunTitreVide ? 1 : 0);
+			check("100. ③ LES DOSSIERS RECEMMENT OUVERTS, SESSION **ET** DOCUMENT : le plus recent en tete et un doublon "
+				"REMONTE (une deduplication qui rejette ferait vieillir la liste a l'envers de son nom) ; les recents du "
+				"DOCUMENT sont ecrits dans le `.nkuidoc` et relus dans l'ordre -- l'aller-retour est le seul temoin qu'ils "
+				"voyagent avec le fichier ; ceux de la SESSION vivent en memoire et passent en tete du rail ; la section "
+				"« R\u00e9cents » est la PREMIERE du rail, et n'existe pas du tout quand il n'y a rien a montrer",
+				ordreOk && deuxCotes && ecritDansLeTexte && allerRetour && sessionEnTete && sectionOk && aucunTitreVide,
+				det);
+			NkDirectory::Delete("sonde_recents", true);
+		}
 		snprintf(tail, sizeof(tail), "\n=== RESULTAT : %d / %d ===\n", pass, total);
 		rep.Append(tail);
 

@@ -1171,6 +1171,8 @@ namespace nkuidesign {
 		// ② LE SELECTEUR A DEUX VOLETS (05/09). Le filtre d'extension suit le format
 		//    choisi : dans un dossier d'images, chercher son SVG parmi trois cents PNG
 		//    etait le vrai cout de la colonne unique.
+		// ③ LES RECENTS, session d'abord puis document : le rail les met en TETE.
+		c.picker.recents = st.RecentsPourLeRail();
 		c.picker.vignette = &NkVignetteFichierExport;
 		c.picker.vignetteUser = &st;
 		c.picker.roleDossier = NkDesignResolveRole("type_folder");
@@ -1238,6 +1240,10 @@ namespace nkuidesign {
 			NkExporterPNG(st, o, chemin.Data(), res);
 		else
 			NkExporterSVGFichier(st, o, chemin.Data(), res);
+		// ③ LE DOSSIER CHOISI DEVIENT UN RECENT -- session ET document. On le retient
+		//    APRES l'ecriture : un export qui echoue ne doit pas laisser de trace.
+		if (res.ok)
+			st.RetenirDossierRecent(c.picker.pickerResultPath);
 		st.DireAuPied(res.message);
 		st.Consigner(res.message);
 	}

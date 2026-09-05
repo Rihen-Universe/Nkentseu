@@ -89,6 +89,37 @@ namespace nkentseu {
 				NkContentBrowserModel vue;	 ///< le volet droit ET son rail de gauche
 								NkVector<NkString> cheminsCrumb; ///< le chemin COMPLET de chaque miette
 				NkVector<NkString> favoris;		 ///< poses par l'hote (chemins absolus)
+
+				// ── ③ LES DOSSIERS RECEMMENT OUVERTS (05/09, soir) ─────────────────
+				// Rodolf : « on doit aussi voir les dossiers recemment ouverts dans cette
+				// session ou ce document. » DEUX listes, et la distinction est portee par
+				// L'HOTE, pas par le kit : le kit ne sait pas ce qu'est un document.
+				//   - la SESSION : memoire vive, oubliee au lancement suivant ;
+				//   - le DOCUMENT : range dans le fichier, il voyage avec lui.
+				// Ici, une seule liste ORDONNEE (le plus recent d'abord) que l'hote remplit
+				// dans l'ordre qu'il veut -- deux vecteurs dans le kit auraient impose sa
+				// semantique a NK3DModeler et NKCode, qui n'ont pas la meme notion.
+				NkVector<NkString> recents;
+
+				/// Pose un dossier en tete des recents, sans doublon, borne a `kMaxRecents`.
+				/// ⚠️ LE PLUS RECENT EN TETE, et la deduplication est un DEPLACEMENT, pas un
+				///    rejet : reouvrir un dossier deja liste doit le faire remonter, sinon la
+				///    liste vieillit exactement a l'envers de son nom.
+				static void PoserRecent(NkVector<NkString> &liste, const char *chemin) {
+					if (!chemin || !*chemin)
+						return;
+					for (uint32 i = 0; i < (uint32)liste.Size(); ++i)
+						if (PathSame(liste[i].CStr(), chemin)) {
+							liste.RemoveAt(i);
+							break;
+						}
+					NkVector<NkString> tmp;
+					tmp.PushBack(NkString(chemin));
+					for (uint32 i = 0; i < (uint32)liste.Size() && i + 1 < kMaxRecents; ++i)
+						tmp.PushBack(liste[i]);
+					liste = tmp;
+				}
+				static const uint32 kMaxRecents = 10u;
 				// ── ① (05/09, soir) LE CHEMIN N'A QU'UN SEUL ENDROIT ──────────────────
 				// ⚠️ DEFAUT MESURE SUR LA CAPTURE DE RODOLF : le selecteur s'ouvrait sur
 				//    « 0 element(s) », rail vide, fil d'Ariane absent -- et se remplissait au
@@ -358,6 +389,22 @@ namespace nkentseu {
 						NkString nm = NkPath(pickerConfine).GetFileName();
 						ajouter(pickerConfine.CStr(), nm.Empty() ? pickerConfine.CStr() : nm.CStr(), -1);
 						return;
+					}
+					// ── ③ RECENTS ─────────────────────────────────────────────
+					// EN TETE : la plus utile est la plus haute. Rien du tout quand la liste est
+					// vide -- une section vide occupe une ligne et n'apprend rien.
+					// ⚠️ UN DOSSIER DISPARU NE S'AFFICHE PAS (`ajouter` teste `Exists`) mais RESTE
+					//    dans la liste : une cle USB debranchee ne doit pas effacer l'historique.
+					if (!recents.Empty()) {
+						const int32 sec = section("R\u00e9cents");
+						uint32 poses = 0u;
+						for (uint32 i = 0; i < (uint32)recents.Size(); ++i) {
+							const NkString nm = NkPath(recents[i]).GetFileName();
+							if (ajouter(recents[i].CStr(), nm.Empty() ? recents[i].CStr() : nm.CStr(), sec) >= 0)
+								++poses;
+						}
+						if (poses == 0u)
+							vue.folders.nodes.RemoveAt((uint32)sec); // aucun n'existe encore : pas de titre orphelin
 					}
 					// ── ACCES RAPIDE ───────────────────────────────────────
 					{

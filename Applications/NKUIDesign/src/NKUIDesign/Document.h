@@ -1438,6 +1438,12 @@ namespace nkuidesign {
 			/// LES VARIABLES du document, et son mode courant (vide = le defaut).
 			NkVector<NkVariable> variables;
 			NkString modeCourant;
+
+			/// ③ (05/09) LES DOSSIERS RECEMMENT OUVERTS DEPUIS CE DOCUMENT. Ils sont
+			/// ecrits dans le `.nkuidoc` et voyagent avec lui — contrairement aux recents
+			/// de la SESSION, qui vivent dans l'application et meurent avec elle.
+			/// Le plus recent EN TETE.
+			nkentseu::NkVector<nkentseu::NkString> dossiersRecents;
 			const NkVariable *TrouverVariable(const char *cle) const {
 				if (!cle)
 					return nullptr;
@@ -3105,6 +3111,15 @@ namespace nkuidesign {
 				out.Append("origine = ");
 				out.Append(prov.origin);
 				out.Append('\n');
+				// ③ LES DOSSIERS RECEMMENT OUVERTS DEPUIS CE DOCUMENT (05/09). Additifs :
+				// rien tant qu'il n'y en a pas, et un lecteur qui ignore la cle lit le
+				// document sans perdre un noeud. Ils VOYAGENT avec le fichier -- c'est la
+				// demande de Rodolf : « dans cette session OU ce document ».
+				for (uint32 ri = 0; ri < (uint32)dossiersRecents.Size(); ++ri) {
+					out.Append("dossier_recent = ");
+					out.Append(dossiersRecents[ri]);
+					out.Append('\n');
+				}
 				// LES VARIABLES, additives : rien tant qu'il n'y en a pas
 				if (!modeCourant.Empty()) {
 					out.Append("mode = ");
@@ -3392,6 +3407,14 @@ namespace nkuidesign {
 							prov.origin = NkString(val);
 						else if (StrEq(key, "mode"))
 							modeCourant = NkString(val);
+						else if (StrEq(key, "dossier_recent")) {
+							// ③ sans doublon, et l'ORDRE DU FICHIER est celui de la liste
+							bool vu = false;
+							for (uint32 ri = 0; ri < (uint32)dossiersRecents.Size() && !vu; ++ri)
+								vu = StrEq(dossiersRecents[ri].Data(), val);
+							if (!vu)
+								dossiersRecents.PushBack(NkString(val));
+						}
 						else if (StrEq(key, "variable")) {
 							// `<cle> <valeur> [nom="..."] [@mode=valeur]... [inconnu]`
 							NkVariable v;
