@@ -1452,6 +1452,10 @@ namespace nkuidesign {
 					nkentseu::uint32 synchro = 0xFFFFFFFFu; ///< cle du dernier tampon hexa resynchronise
 			};
 			DemandePicker picker;
+			/// ⑤ LA DECLARATION QUE LA HIERARCHIE MONTRE (« Voir le composant », 05/09) :
+			///    l'indice dans `doc.declarations`, -1 = aucune. Lecture seule : un
+			///    composant se modifie par une instance puis « Appliquer au composant ».
+			int32 composantVu = -1;
 			/// LES IMAGES du document (chaine de l'image, 05/09) -- le fournisseur du
 			/// peintre lit ici, par `NkObtenirImageDuDocument` (le dossier du document
 			/// actif est relu a chaque demande : les onglets changent de dossier).
@@ -2239,6 +2243,24 @@ namespace nkuidesign {
 						"Détaché — le sous-arbre est revenu, tes surcharges comprises.");
 				} else
 					st.status = NkString("Détacher : ce nœud n'est pas une instance.");
+				return true;
+			}
+			case NkActionCtx::VoirComposant: {
+				const int32 cible = st.doc.IsValidIndex(noeud) ? noeud : st.selected;
+				if (!st.doc.IsValidIndex(cible) || st.doc.nodes[(nkentseu::uint32)cible].instanceDe.Empty()) {
+					st.status = NkString("Voir le composant : sélectionne une instance de composant.");
+					return true;
+				}
+				const int32 d = st.doc.TrouverDeclaration(st.doc.nodes[(nkentseu::uint32)cible].instanceDe.Data());
+				if (d < 0) {
+					st.status = NkString("Voir le composant : sa déclaration est absente du document.");
+					return true;
+				}
+				st.composantVu = d;
+				char msg[200];
+				snprintf(msg, sizeof(msg), "Composant « %s » : sa hiérarchie est dans le panneau Hiérarchie (lecture seule — modifiez une instance puis « Appliquer au composant »).",
+						 st.doc.declarations[(nkentseu::uint32)d].identite.nom.Data());
+				st.status = NkString(msg);
 				return true;
 			}
 			case NkActionCtx::AppliquerAuComposant: {
@@ -8675,12 +8697,81 @@ namespace nkuidesign {
 				mInstComposants.SetMetric("icon_w", 15.f);
 			}
 
+			/// Le modele de l'arbre des pages -- lu par la sonde (⑤ : les enfants d'une instance).
+			const NkTreeViewModel &ModelePages() const {
+				return mModelePages;
+			}
+			/// Le nombre de lignes de la declaration montree (0 si aucune) -- lu par la sonde.
+			uint32 LignesComposantVu() const {
+				return mLignesComposantVu;
+			}
+
 			void OnUI(NkEditorFrameContext &ec) override {
 				auto &ctx = ec.Ui();
 				designkit::releve::Zone(ctx, "hierarchie");
 
 				SyncPages();
 				SyncComposants();
+				// ⑤ LA DECLARATION D'UN COMPOSANT SE LIT ICI (Rodolf, 05/09 : « pourquoi je ne
+				//    peux pas voir la hierarchie d'un composant ? »). Une INSTANCE porte deja ses
+				//    enfants dans l'arbre (le sous-arbre est copie a la pose, marque « instance »,
+				//    selectionnable : l'ecriture y est une surcharge, jamais la declaration). La
+				//    DECLARATION, elle, n'est pas un noeud du document : « Voir le composant »
+				//    la montre ici, en lecture seule, avec la porte qui la modifie.
+				mLignesComposantVu = 0u;
+				if (mSt->composantVu >= 0 && mSt->composantVu < (int32)mSt->doc.declarations.Size()) {
+					auto &F = costume::Fontes();
+					auto &dl = ctx.dl;
+					const NkDeclarationComposant &dc = mSt->doc.declarations[(uint32)mSt->composantVu];
+					{
+						const NkRect r = ctx.NextItemRect(-1.f, 24.f);
+						char t[128];
+						snprintf(t, sizeof(t), "COMPOSANT : %s", dc.identite.nom.Data() ? dc.identite.nom.Data() : "?");
+						costume::TexteGras(dl, F.px9, r.x + 12.f, r.y + 10.f, t, ctx.theme.accent, 0.4f);
+						const NkRect rx = {r.x + r.w - 26.f, r.y + 5.f, 14.f, 14.f};
+						costume::Texte(dl, F.px10, rx.x + 3.f, rx.y, "\xC3\x97", ctx.theme.textMuted);
+						if (ctx.popupDepth == 0 && ctx.input.mouseClicked[0] && nkgui::NkGuiRectContains(rx, ctx.input.mousePos)) {
+							mSt->composantVu = -1;
+							ctx.input.mouseClicked[0] = false;
+						}
+					}
+					// l'arbre de la declaration, en ordre prefixe, indente par la profondeur
+					if (!dc.arbre.Empty()) {
+						int32 pile[256];
+						int32 prof[256];
+						int32 sp = 0;
+						pile[sp] = 0;
+						prof[sp] = 0;
+						++sp;
+						uint32 garde = 0u;
+						while (sp > 0 && garde++ < 512u) {
+							--sp;
+							const int32 i = pile[sp];
+							const int32 p = prof[sp];
+							if (i < 0 || i >= (int32)dc.arbre.Size())
+								continue;
+							const NkUINode &d = dc.arbre[(uint32)i];
+							const NkRect r = ctx.NextItemRect(-1.f, 22.f);
+							const char *lib = d.label.Empty() ? (d.shape.Empty() ? (d.component.Empty() ? "(cadre)" : d.component.Data()) : d.shape.Data())
+															   : d.label.Data();
+							costume::Texte(dl, F.px10, r.x + 24.f + 12.f * (float32)p, costume::CentrerY(F.px10, r.y, 22.f), lib, ctx.theme.text);
+							++mLignesComposantVu;
+							for (uint32 c = (uint32)d.children.Size(); c > 0; --c)
+								if (sp < 255) {
+									pile[sp] = d.children[c - 1];
+									prof[sp] = p + 1;
+									++sp;
+								}
+						}
+					}
+					{
+						const NkRect r = ctx.NextItemRect(-1.f, 30.f);
+						ctx.BeginDisabled();
+						costume::Texte(dl, F.px9, r.x + 12.f, r.y + 4.f, "lecture seule — modifiez une instance,", ctx.theme.textMuted);
+						costume::Texte(dl, F.px9, r.x + 12.f, r.y + 16.f, "puis « Appliquer au composant ».", ctx.theme.textMuted);
+						ctx.EndDisabled();
+					}
+				}
 
 				// Pendant un renommage d'arbre, les lettres sont une SAISIE : la
 				// toile lit ce drapeau avant d'armer un outil (meme regle que
@@ -9972,6 +10063,7 @@ namespace nkuidesign {
 
 			DesignState *mSt;
 			NkTreeViewModel mModelePages;
+			uint32 mLignesComposantVu = 0u; ///< ⑤ les lignes de la declaration montree
 			/// ⚠️ LA LIGNE NE PORTE PLUS SON INDICE DE DÉCLARATION, et c'est la
 			///    conséquence directe des deux sources : la 3e ligne peut être le
 			///    3e composant du kit OU la 1re déclaration du document, selon la

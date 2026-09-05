@@ -8646,6 +8646,91 @@ namespace nkuidesign {
 					  z1 != z0 && menuOuvert && z3 == z2 && menuFerme && z5 == z4, det);
 			}
 		}
+		// ── 78. ⑤ LA HIERARCHIE D'UN COMPOSANT (Rodolf : « pourquoi je ne peux pas voir la hierarchie
+		//    d'un composant ? ») : une instance a trois enfants montre trois lignes sous elle,
+		//    marquee « instance » ; un enfant s'ecrit sans toucher la declaration (surcharge) ;
+		//    « Voir le composant » liste la declaration dans le panneau.
+		{
+			static nkgui::NkGuiContext ctxH;
+			char det[400];
+			if (!ctxH.Init(600, 900)) {
+				check("78. la hierarchie d'un composant", false, "Init a refuse");
+			} else {
+				static DesignState stH;
+				stH.doc.NewDocument("Toile", NkAuthor::Humain);
+				const int32 pg = stH.doc.AddChild(0, "", NkAuthor::Humain);
+				stH.doc.nodes[(uint32)pg].shape = NkString("frame");
+				stH.doc.nodes[(uint32)pg].layout.kind = NkLayoutKind::Free;
+				stH.doc.nodes[(uint32)pg].width.mode = NkSizeMode::Fixed;
+				stH.doc.nodes[(uint32)pg].width.value = 400.f;
+				stH.doc.nodes[(uint32)pg].height.mode = NkSizeMode::Fixed;
+				stH.doc.nodes[(uint32)pg].height.value = 300.f;
+				const int32 carte = stH.doc.AddChild(pg, "", NkAuthor::Humain);
+				stH.doc.nodes[(uint32)carte].genre = NkString("simple");
+				stH.doc.nodes[(uint32)carte].label = NkString("Carte");
+				for (int32 k = 0; k < 3; ++k) {
+					const int32 t = stH.doc.AddChild(carte, "", NkAuthor::Humain);
+					stH.doc.nodes[(uint32)t].shape = NkString("text");
+					char lb[16];
+					snprintf(lb, sizeof(lb), "Ligne %d", k + 1);
+					stH.doc.nodes[(uint32)t].label = NkString(lb);
+					stH.doc.nodes[(uint32)t].text = NkString(lb);
+				}
+				const int32 decl = stH.doc.ExtraireComposant(carte, "", "carte");
+				const int32 inst = stH.doc.InstancierComposant(decl, pg);
+				static HierarchyPanel hierH(&stH);
+				NkEditorFrameContext ec;
+				ec.ui = &ctxH;
+				ec.dt = 0.016f;
+				auto image = [&]() {
+					ctxH.input.mousePos = {-1.f, -1.f};
+					ctxH.input.mouseDown[0] = false;
+					ctxH.BeginFrame(0.016f);
+					ctxH.BeginLayout({0.f, 0.f, 260.f, 900.f});
+					hierH.OnUI(ec);
+					ctxH.EndFrame();
+				};
+				image();
+				image();
+				// l'instance dans l'arbre, et ses enfants
+				const NkTreeViewModel &m = hierH.ModelePages();
+				int32 ligneInst = -1;
+				uint32 enfants = 0u;
+				bool marqueeInstance = false;
+				for (uint32 i = 0; i < (uint32)m.nodes.Size(); ++i)
+					if ((int32)m.nodes[i].id - 1 == inst) {
+						ligneInst = (int32)i;
+						marqueeInstance = m.nodes[i].kindLabel && NkComponentDecl::StrEq(m.nodes[i].kindLabel, "instance");
+					}
+				for (uint32 i = 0; i < (uint32)m.nodes.Size(); ++i)
+					if (ligneInst >= 0 && m.nodes[i].parent == ligneInst)
+						++enfants;
+				// un enfant de l'instance s'ecrit : la declaration ne bouge pas (surcharge)
+				bool surcharge = false;
+				if (stH.doc.IsValidIndex(inst) && stH.doc.nodes[(uint32)inst].children.Size() == 3u) {
+					const int32 e0 = stH.doc.nodes[(uint32)inst].children[0];
+					stH.doc.nodes[(uint32)e0].text = NkString("Surcharge");
+					stH.doc.MarkHumanEdit(e0);
+					bool declIntacte = true;
+					for (uint32 k = 0; k < (uint32)stH.doc.declarations[(uint32)decl].arbre.Size(); ++k)
+						if (NkComponentDecl::StrEq(stH.doc.declarations[(uint32)decl].arbre[k].text.Data(), "Surcharge"))
+							declIntacte = false;
+					surcharge = declIntacte;
+				}
+				// « Voir le composant » : la declaration se liste (4 lignes : la carte et ses trois textes)
+				const bool vu = NkAppliquerActionCtx(stH, inst, NkActionCtx::VoirComposant) && stH.composantVu == decl;
+				image();
+				const uint32 lignes = hierH.LignesComposantVu();
+				snprintf(det, sizeof(det), "declaration %d, instance %d a %u enfants dans le document ; l'arbre : ligne de l'instance %d (marquee instance=%d), %u enfants sous elle ; "
+										   "ecriture sur un enfant : declaration intacte=%d ; « Voir le composant » -> %d, %u lignes listees",
+						 decl, inst, stH.doc.IsValidIndex(inst) ? (uint32)stH.doc.nodes[(uint32)inst].children.Size() : 0u, ligneInst, marqueeInstance ? 1 : 0, enfants,
+						 surcharge ? 1 : 0, vu ? 1 : 0, lignes);
+				check("78. ⑤ LA HIERARCHIE D'UN COMPOSANT : une instance a trois enfants les montre sous elle dans l'arbre, marquee "
+					  "« instance » ; ecrire sur un enfant est une SURCHARGE (la declaration ne bouge pas) ; « Voir le composant » "
+					  "liste la declaration (quatre lignes) dans le panneau, en lecture seule",
+					  decl >= 0 && inst >= 0 && ligneInst >= 0 && marqueeInstance && enfants == 3u && surcharge && vu && lignes == 4u, det);
+			}
+		}
 		snprintf(tail, sizeof(tail), "\n=== RESULTAT : %d / %d ===\n", pass, total);
 		rep.Append(tail);
 

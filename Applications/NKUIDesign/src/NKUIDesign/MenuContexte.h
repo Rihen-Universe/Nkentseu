@@ -3,7 +3,7 @@
 // @File    MenuContexte.h
 // @Brief   LE MENU DU CLIC DROIT (Lunacy), en MÉCANISME : ce qu'il propose, ce
 //          qui agit, et la RAISON de ce qui n'agit pas.
-// @Author  Rihen
+// @Author  TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // @License Proprietary - All Rights Reserved (see LICENSE)
 //
 // =============================================================================
@@ -85,6 +85,7 @@ namespace nkuidesign {
 		Couper,
 		Coller,
 		Supprimer,
+		VoirComposant, ///< ⑤ (05/09) : la declaration d'une instance se lit dans la Hierarchie
 		NB ///< le compte, lu par la recette — jamais une liste écrite à la main
 	};
 
@@ -383,6 +384,8 @@ namespace nkuidesign {
 				true, NkActionCtx::DetacherComposant);
 		// ⚠️ LA RAISON DIT « pas une instance », PAS « impossible » : une
 		//    entrée grisée sans motif se lit comme une panne.
+		ajouter("Voir le composant", nullptr, c.estInstance, " (pas une instance)", false, false,
+				NkActionCtx::VoirComposant);
 		ajouter("Appliquer au composant", "Ctrl+Alt+M", c.estInstance, " (pas une instance)",
 				false, false, NkActionCtx::AppliquerAuComposant);
 		ajouter("Miroir horizontal", "Maj+H", c.pasRacine, " (pas la racine)", false, false,
