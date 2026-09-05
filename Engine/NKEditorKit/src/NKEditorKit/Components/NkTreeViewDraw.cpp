@@ -2,7 +2,7 @@
 // @File    NkTreeViewDraw.cpp
 // @Brief   Le dessin de l'arbre — et la preuve que la forme tient sur un second
 //          composant, d'une autre famille que celui pour lequel elle a ete ecrite.
-// @Author  Rihen
+// @Author  TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // @License Proprietary - All Rights Reserved (see LICENSE)
 //
 // =============================================================================
@@ -356,6 +356,7 @@ namespace nkentseu {
 			// Ce que la boucle RELEVE ; ce qu'elle DECIDE vient apres elle.
 			int32 hitIndex = -1;	  ///< ligne sous la souris
 			const char *bulleTexte = nullptr; ///< ⑥ l'infobulle du noeud survole
+			float32 bulleY = 0.f, bulleH = 0.f; ///< ① la rangee qui la porte (ecran)
 			bool hitChevron = false;  ///< ... sur le chevron
 			int32 hitFlag = -1;		  ///< 0 = oeil, 1 = cadenas
 			bool hitLabel = false;	  ///< ... sur le libelle (declenche le renommage)
@@ -601,6 +602,10 @@ namespace nkentseu {
 					if (over) {
 						hitIndex = index;
 						hitOrdinal = myOrdinal;
+						// ① On RELEVE la rangee survolee ; c'est l'hote qui posera le
+						//    cartouche en face d'elle. Voir `NkTreeViewResult::infobulle`.
+						bulleY = row.y;
+						bulleH = row.h;
 					}
 				});
 
@@ -818,25 +823,18 @@ namespace nkentseu {
 			}
 
 			p.PopClip(); // area
-			// ── ⑥ L'INFOBULLE (2026-09-05, nuit) ─────────────────────────────
-			// APRES le `PopClip` : une infobulle qui reste dans la zone de l'arbre serait
-			// coupee par le bord meme qu'elle sert a compenser.
-			// Elle ne s'affiche QUE si le noeud en porte une -- le defaut est vide.
+			// ── ① L'INFOBULLE : RELEVEE, PLUS PEINTE ICI (2026-09-05, v5) ─────
+			// Elle etait dessinee A CET ENDROIT, dans la liste de l'arbre, a
+			// « souris + 12/+16 ». Deux defauts sur les captures de Rodolf, une seule
+			// cause : le cartouche opaque tombait sur la rangee suivante et lui volait
+			// son libelle (une entree du rail SANS NOM), et rien ne pouvait le tenir
+			// hors du flux du rail puisque l'arbre ne connait ni le bord de la fenetre
+			// ni la place libre a sa droite.
+			// L'arbre RELEVE donc, et l'hote PEINT en dernier, sur la couche du dessus.
 			if (bulleTexte && bulleTexte[0]) {
-				const float32 pad2 = 6.f * in.surfaceScale;
-				const float32 w2 = p.TextWidth(bulleTexte) + pad2 * 2.f;
-				const float32 h2 = p.LineHeight() + pad2;
-				float32 bx2 = in.mouseX + 12.f * in.surfaceScale;
-				float32 by2 = in.mouseY + 16.f * in.surfaceScale;
-				// elle ne sort pas de la zone : sinon elle serait illisible au bord droit
-				if (bx2 + w2 > rect.x + rect.w)
-					bx2 = rect.x + rect.w - w2;
-				if (by2 + h2 > rect.y + rect.h)
-					by2 = in.mouseY - h2 - 4.f * in.surfaceScale;
-				const NkPaintRect rb2{bx2, by2, w2, h2};
-				p.Fill(rb2, s.headerBg, 4.f);
-				p.OutlineSharp(rb2, s.border);
-				p.Text({rb2.x + pad2, rb2.y, rb2.w - pad2, rb2.h}, bulleTexte, s.text);
+				res.infobulle = NkString(bulleTexte);
+				res.infobulleY = bulleY;
+				res.infobulleH = bulleH;
 			}
 
 

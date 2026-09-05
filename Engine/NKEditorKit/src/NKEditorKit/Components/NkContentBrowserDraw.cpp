@@ -827,7 +827,14 @@ namespace nkentseu {
 					NkTreeViewHooks th;
 					th.user = &bridge;
 					th.onSelect = &TreeOnSelect;
-					NkDrawTreeView(p, in, tree, m.folders, ts, th);
+					const NkTreeViewResult tr = NkDrawTreeView(p, in, tree, m.folders, ts, th);
+					// ① On RELAIE, on ne peint pas : voir `NkContentBrowserResult::infobulle`.
+					if (!tr.infobulle.Empty()) {
+						res.infobulle = tr.infobulle;
+						res.infobulleX = tree.x + tree.w;
+						res.infobulleY = tr.infobulleY;
+						res.infobulleH = tr.infobulleH;
+					}
 				}
 				p.VLine(tree.x + tree.w, tree.y, tree.h, s.border);
 				gridX = tree.x + tree.w + M("stroke_w");

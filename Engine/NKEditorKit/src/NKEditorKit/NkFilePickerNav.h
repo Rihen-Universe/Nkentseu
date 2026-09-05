@@ -1087,6 +1087,39 @@ namespace nkentseu {
 		// ── LE RENDU ────────────────────────────────────────────────────────────
 		/// Rend VRAI tant que le selecteur est ouvert. La confirmation depose son
 		/// resultat dans `fp` (les MEMES champs que l'ancien selecteur).
+		// ── ① OU SE POSE LE CARTOUCHE D'INFOBULLE (2026-09-05, v5) ───────────────
+		// Une FONCTION PURE, hors du dessin. C'est la quatrieme fois de ce chantier
+		// qu'une valeur enfermee dans le dessin echappe a sa sonde (les hauteurs du
+		// bas, la largeur du rail, la teinte de l'onglet) : ici le temoin peut LIRE le
+		// rectangle et constater qu'il ne mord pas sur le rail.
+		//
+		// Les quatre proprietes, dans l'ordre ou elles sont tenues :
+		//   1. `railDroite` est un MUR : la bulle commence a sa droite et n'y revient
+		//      jamais — donc elle ne recouvre AUCUNE entree du rail, ni celle qu'on
+		//      survole ni sa voisine (c'etait le defaut ②, l'entree sans libelle) ;
+		//   2. elle est EN FACE de la rangee, centree sur elle, pas sous le curseur ;
+		//   3. elle reste DANS LA FENETRE, bornee des quatre cotes ;
+		//   4. si la fenetre est trop etroite pour les deux, le mur gagne : mieux vaut
+		//      une bulle qui deborde a droite qu'une bulle qui mange le rail.
+		inline NkRect NkPlacerInfobulle(float32 railDroite, float32 rangeeY, float32 rangeeH,
+										float32 largeurTexte, float32 hauteurLigne, float32 W,
+										float32 H, float32 S) {
+			const float32 pad = 8.f * S, marge = 4.f * S;
+			const float32 w = largeurTexte + pad * 2.f;
+			const float32 h = hauteurLigne + pad;
+			float32 x = railDroite + 8.f * S;
+			float32 y = rangeeY + (rangeeH - h) * 0.5f;
+			if (x + w > W - marge)
+				x = W - marge - w;
+			if (x < railDroite)
+				x = railDroite; // le mur gagne
+			if (y < marge)
+				y = marge;
+			if (y + h > H - marge)
+				y = H - marge - h;
+			return {x, y, w, h};
+		}
+
 		inline bool NkDrawFilePickerNav(nkgui::NkGuiContext &ctx, NkFilePickerNavState &fp,
 										const NkFilePickerNavStyle &sty, const NkTheme &theme) {
 			using namespace nkentseu::nkgui;
@@ -1309,6 +1342,10 @@ namespace nkentseu {
 			const NkRect zone = G.zone;
 			int32 aOuvrir = -1;	  // un dossier a suivre APRES le dessin
 			NkString cible;		  // le chemin a suivre
+			// ① L'INFOBULLE DU RAIL : relevee ici, PEINTE TOUT EN BAS DE CETTE FONCTION.
+			//    Voir le bloc « L'INCRUSTATION SE PEINT EN DERNIER » a la fin.
+			NkString bulle;
+			float32 bulleX = 0.f, bulleY = 0.f, bulleH = 0.f;
 			{
 				// ④ Le volet se tait sur ce que ce mode n'exige pas -- un seul site, nomme.
 				NkContentBrowserStyle volet = sty.volet;
@@ -1380,6 +1417,12 @@ namespace nkentseu {
 					NkDrawContentBrowser(peintre, in, {zone.x, zone.y, zone.w, zone.h}, fp.vue,
 										 volet, h);
 				nkgui::PopOverlay(ctx);
+				if (!res.infobulle.Empty()) {
+					bulle = res.infobulle;
+					bulleX = res.infobulleX;
+					bulleY = res.infobulleY;
+					bulleH = res.infobulleH;
+				}
 				if (res.navigatedCrumb >= 0
 					&& res.navigatedCrumb < (int32)fp.cheminsCrumb.Size())
 					cible = fp.cheminsCrumb[(uint32)res.navigatedCrumb];
@@ -1521,6 +1564,29 @@ namespace nkentseu {
 				} else
 					NkFilePickerState::CopyTo(fp.pickerSaveName, e.name.CStr(),
 											  (int32)sizeof(fp.pickerSaveName));
+			}
+			// ── ① L'INCRUSTATION SE PEINT EN DERNIER (2026-09-05, v5) ───────────
+			// Rodolf, sur deux captures : « l'infobulle se peint au milieu du rail et
+			// masque les entrees », et « une entree du rail n'a pas de libelle ».
+			// UNE SEULE CAUSE : le cartouche etait peint par l'arbre, dans SA liste de
+			// dessin, a « souris + 12/+16 » — donc dans le flux du rail, sur la rangee
+			// du dessous, dont il volait le libelle.
+			//
+			// Ici, quatre proprietes tenues ensemble, et c'est ce qui fait la reponse :
+			//   1. EN DERNIER — apres le volet, apres le champ, apres les boutons : plus
+			//      rien ne peut passer par-dessus (regle du 03/09 sur les incrustations) ;
+			//   2. HORS DU RAIL — adossee a son bord DROIT (`bulleX`), donc elle ne
+			//      recouvre AUCUNE entree, ni celle qu'on survole ni sa voisine ;
+			//   3. EN FACE de la rangee survolee, pas sous le curseur : on lit le nom et
+			//      le chemin d'un seul regard ;
+			//   4. DANS LA FENETRE — bornee des quatre cotes, fond OPAQUE et liseré.
+			if (!bulle.Empty()) {
+				const float32 padB = 8.f * S;
+				const NkRect rB = NkPlacerInfobulle(bulleX, bulleY, bulleH,
+													f->MeasureWidth(bulle.CStr()), lh, W, H, S);
+				dl.AddRectFilled(rB, sty.cadre.menuBg, 4.f * S);
+				dl.AddRect(rB, sty.cadre.border, 1.f);
+				text(rB.x + padB, rB.y + (rB.h - lh) * 0.5f, bulle.CStr(), sty.cadre.text);
 			}
 			if (!cible.Empty())
 				fp.AllerA(cible.CStr());

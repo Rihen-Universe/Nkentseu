@@ -13413,6 +13413,135 @@ namespace nkuidesign {
 				det);
 			NkDirectory::Delete("sonde_courant", true);
 		}
+		// -- 121. (1) ET (2) L'INFOBULLE DU RAIL : RELEVEE PAR L'ARBRE, PEINTE PAR L'HOTE
+		//    (05/09, v5). Rodolf, sur deux captures : « l'infobulle se peint au milieu du
+		//    rail et masque les entrees » et « une entree du rail n'a pas de libelle ».
+		//    UNE SEULE CAUSE, et elle etait dans MON code : le cartouche etait peint PAR
+		//    L'ARBRE, dans SA liste de dessin, a « souris + 12/+16 ». Il tombait donc sur
+		//    la rangee du dessous et, etant opaque, lui volait son libelle.
+		//    Un composant qui peint hors de son rectangle prend une decision de mise en
+		//    page qui ne lui appartient pas : lui seul ne sait ni ou est le bord de la
+		//    fenetre, ni quelle couche est au-dessus, ni quelle place est libre a cote.
+		{
+			char det[900];
+			NkContentBrowserModel m121;
+			m121.headerTitle = NkString("rail");
+			// Cinq entrees de rail, chacune avec SON libelle et SON infobulle.
+			static const char *kLib121[5] = {"Alpha", "Bravo", "Charlie", "Delta", "Echo"};
+			for (uint32 k = 0; k < 5u; ++k) {
+				editorkit::NkTreeNode n;
+				n.id = (nk_uint64)(k + 1u);
+				n.parent = -1;
+				n.label = NkString(kLib121[k]);
+				n.path = NkString("/rail/");
+				n.path.Append(kLib121[k]);
+				n.infobulle = NkString("BULLE_UNIQUE_DE_SONDE_121");
+				m121.folders.nodes.PushBack(n);
+			}
+			NkComponentInstance inst121(NkContentBrowserDecl());
+			inst121.SetParam("show_header", 0.f);
+			inst121.SetParam("show_actions", 0.f);
+			NkContentBrowserStyle sty121 = DemoStyle(nullptr);
+			sty121.values = &inst121;
+			NkContentBrowserHooks h121;
+			const NkPaintRect zone121{0.f, 0.f, 900.f, 500.f};
+			const float32 railW121 = zone121.w * NkContentBrowserDecl().Param("tree_width");
+			const float32 rowH121 = NkTreeViewDecl().Metric("row_h");
+			// LA SOURIS SUR LA DEUXIEME RANGEE du rail (« Bravo »).
+			NkComponentInput in121;
+			in121.surfaceScale = 1.f;
+			in121.mouseX = railW121 * 0.5f;
+			in121.mouseY = -1000.f;
+			// on cherche d'abord la rangee : un dessin SANS survol donne l'ordonnee des
+			// libelles, puis on survole le deuxieme.
+			{
+				NkComponentInput froid;
+				froid.surfaceScale = 1.f;
+				froid.mouseX = -1000.f;
+				froid.mouseY = -1000.f;
+				NkRecordingPaint r0;
+				NkDrawContentBrowser(r0, froid, zone121, m121, sty121, h121);
+				for (uint32 i = 0; i < (uint32)r0.cmds.Size(); ++i)
+					if (r0.cmds[i].op == NkPaintOp::Text && r0.cmds[i].text.Data()
+						&& NkComponentDecl::StrEq(r0.cmds[i].text.Data(), "Bravo"))
+						in121.mouseY = r0.cmds[i].y + rowH121 * 0.5f;
+			}
+			NkRecordingPaint r121;
+			const NkContentBrowserResult res121 =
+				NkDrawContentBrowser(r121, in121, zone121, m121, sty121, h121);
+			// 1. L'ARBRE NE PEINT PLUS LA BULLE : le texte unique n'est nulle part.
+			bool bullePeinte = false;
+			for (uint32 i = 0; i < (uint32)r121.cmds.Size(); ++i)
+				if (r121.cmds[i].op == NkPaintOp::Text && r121.cmds[i].text.Data()
+					&& NkComponentDecl::StrEq(r121.cmds[i].text.Data(), "BULLE_UNIQUE_DE_SONDE_121"))
+					bullePeinte = true;
+			// 2. IL LA RAPPORTE, avec la rangee et le bord DROIT du rail.
+			const bool rapportee =
+				!res121.infobulle.Empty()
+				&& NkComponentDecl::StrEq(res121.infobulle.Data(), "BULLE_UNIQUE_DE_SONDE_121")
+				&& res121.infobulleX > railW121 - 2.f && res121.infobulleX < railW121 + 2.f
+				&& res121.infobulleH > 1.f && in121.mouseY >= res121.infobulleY
+				&& in121.mouseY <= res121.infobulleY + res121.infobulleH;
+			// 3. LES CINQ LIBELLES SONT PEINTS, ET AUCUN N'EST RECOUVERT. C'est LA mesure
+			//    du defaut (2) : un aplat opaque emis APRES un libelle et qui mord sur lui
+			//    = un nom invisible a l'ecran.
+			uint32 libellesVus = 0u, libellesRecouverts = 0u;
+			char quiRecouvre[64];
+			quiRecouvre[0] = 0;
+			for (uint32 i = 0; i < (uint32)r121.cmds.Size(); ++i) {
+				const NkPaintCmd &c = r121.cmds[i];
+				if (c.op != NkPaintOp::Text || !c.text.Data())
+					continue;
+				bool estLibelle = false;
+				for (uint32 k = 0; k < 5u; ++k)
+					if (NkComponentDecl::StrEq(c.text.Data(), kLib121[k]))
+						estLibelle = true;
+				if (!estLibelle)
+					continue;
+				++libellesVus;
+				for (uint32 j = i + 1u; j < (uint32)r121.cmds.Size(); ++j) {
+					const NkPaintCmd &d = r121.cmds[j];
+					const bool opaque = d.op == NkPaintOp::Fill || d.op == NkPaintOp::FillColor
+										|| d.op == NkPaintOp::Outline;
+					if (!opaque)
+						continue;
+					if (d.x < c.x + c.w && d.x + d.w > c.x && d.y < c.y + c.h && d.y + d.h > c.y) {
+						++libellesRecouverts;
+						snprintf(quiRecouvre, sizeof(quiRecouvre), "%s", c.text.Data());
+						break;
+					}
+				}
+			}
+			// 4. LA POSE DU CARTOUCHE, lue par le temoin parce qu'elle est une FONCTION
+			//    PURE et non trois lignes enfermees dans le dessin.
+			const NkRect b1 =
+				editorkit::NkPlacerInfobulle(railW121, 120.f, 24.f, 200.f, 16.f, 1920.f, 1080.f, 1.f);
+			const bool horsDuRail = b1.x >= railW121;
+			const bool enFace = b1.y + b1.h * 0.5f > 120.f && b1.y + b1.h * 0.5f < 144.f;
+			// fenetre ETROITE : la bulle est repoussee, mais le mur du rail gagne
+			const NkRect b2 = editorkit::NkPlacerInfobulle(railW121, 1000.f, 24.f, 900.f, 16.f,
+														   railW121 + 300.f, 400.f, 1.f);
+			const bool murGagne = b2.x >= railW121;
+			const bool dansLaFenetre = b2.y >= 0.f && b2.y + b2.h <= 400.f;
+			const bool poseOk = horsDuRail && enFace && murGagne && dansLaFenetre;
+			snprintf(det, sizeof(det),
+					 "souris sur « Bravo » (y=%.0f) : l'arbre peint la bulle=%d (0 attendu) ; il la RAPPORTE=%d "
+					 "(x=%.0f pour un rail de %.0f ; rangee y=%.0f h=%.0f) ; %u/5 libelles peints, %u "
+					 "recouvert(s) par un aplat posterieur%s%s ; pose : hors du rail=%d, en face de la "
+					 "rangee=%d, fenetre etroite -> le mur gagne=%d et la bulle reste dans la fenetre=%d",
+					 in121.mouseY, bullePeinte ? 1 : 0, rapportee ? 1 : 0, res121.infobulleX, railW121,
+					 res121.infobulleY, res121.infobulleH, libellesVus, libellesRecouverts,
+					 quiRecouvre[0] ? " : " : "", quiRecouvre, horsDuRail ? 1 : 0, enFace ? 1 : 0,
+					 murGagne ? 1 : 0, dansLaFenetre ? 1 : 0);
+			check("121. (1)(2) L'INFOBULLE DU RAIL EST RELEVEE PAR L'ARBRE ET PEINTE PAR L'HOTE, EN DERNIER ET HORS "
+				  "DU RAIL : l'arbre la dessinait lui-meme a « souris + 12/+16 », dans sa propre liste -- elle "
+				  "tombait donc sur la rangee du dessous et, opaque, lui volait son libelle (les deux defauts de "
+				  "Rodolf n'en font qu'un). Desormais l'arbre RAPPORTE (le texte et la rangee), le navigateur "
+				  "relaie avec le bord DROIT du rail, et le selecteur peint apres tout le reste, adosse a ce "
+				  "bord : les cinq libelles restent lisibles pendant qu'une bulle est affichee",
+				  !bullePeinte && rapportee && libellesVus == 5u && libellesRecouverts == 0u && poseOk,
+				  det);
+		}
 		snprintf(tail, sizeof(tail), "\n=== RESULTAT : %d / %d ===\n", pass, total);
 		rep.Append(tail);
 

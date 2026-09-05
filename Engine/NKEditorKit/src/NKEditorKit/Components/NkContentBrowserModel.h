@@ -388,6 +388,16 @@ namespace nkentseu {
 				/// que le LIBELLE de la miette, et deux segments homonymes le rendaient
 				/// indechiffrable.
 				int32 navigatedCrumb = -1;
+
+				/// ① (2026-09-05, v5) L'INFOBULLE DU RAIL, RELAYEE TELLE QUELLE.
+				/// Le navigateur ne la peint pas davantage que l'arbre : il la fait
+				/// passer a l'hote, qui seul sait ou est le bord de la fenetre et
+				/// quelle couche est au-dessus. `infobulleX` est le bord DROIT du rail
+				/// — l'hote y adosse le cartouche pour qu'il ne recouvre AUCUNE entree.
+				NkString infobulle;
+				float32 infobulleX = 0.f;
+				float32 infobulleY = 0.f;
+				float32 infobulleH = 0.f;
 		};
 
 		// ── LA SIGNATURE TYPE ───────────────────────────────────────────────────

@@ -3,7 +3,7 @@
 // @File    NkTreeViewModel.h
 // @Brief   L'ARBRE de la bibliotheque — le SECOND composant declare, et par la
 //          meme occasion le premier test independant de la forme.
-// @Author  Rihen
+// @Author  TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // @License Proprietary - All Rights Reserved (see LICENSE)
 //
 // =============================================================================
@@ -615,6 +615,25 @@ namespace nkentseu {
 				bool dropRefusedCycle = false;
 
 				int32 visibleCount = 0; ///< lignes REELLEMENT emises, pour le pied et la molette
+
+				/// ① (2026-09-05, v5) L'INFOBULLE DU NŒUD SURVOLE — **RAPPORTEE, PAS PEINTE**.
+				///
+				/// L'arbre la dessinait lui-meme, juste apres son `PopClip`, a
+				/// `souris + 12/+16` et DANS SA PROPRE LISTE DE DESSIN. Consequence
+				/// visible sur les captures de Rodolf : le cartouche opaque tombait sur
+				/// la rangee du dessous et en MASQUAIT le libelle — une entree du rail
+				/// paraissait sans nom. Un composant qui peint hors de son rectangle
+				/// prend une decision de mise en page qui ne lui appartient pas : seul
+				/// l'hote sait ou est le bord de la fenetre, quelle couche est au-dessus,
+				/// et quelle place est libre a cote du rail.
+				///
+				/// Donc l'arbre RELEVE et l'hote PEINT. `infobulle` est vide quand rien
+				/// n'est survole ou quand le nœud n'en porte pas ; `infobulleY/H`
+				/// donnent la rangee survolee en coordonnees ecran, pour que l'hote
+				/// pose le cartouche EN FACE d'elle sans la recouvrir.
+				NkString infobulle;
+				float32 infobulleY = 0.f;
+				float32 infobulleH = 0.f;
 		};
 
 		// ── LA SIGNATURE TYPE ───────────────────────────────────────────────────
