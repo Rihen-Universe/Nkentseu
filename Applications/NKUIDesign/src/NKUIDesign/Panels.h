@@ -2080,6 +2080,8 @@ namespace nkuidesign {
 		c.pressePapiersPlein = st.pressePapiersPlein;
 		c.surfaceListe = surfaceListe;
 		c.estInstance = !n.instanceDe.Empty();
+		c.estDeclaration = (!n.component.Empty() && st.doc.TrouverDeclarationParNom(n.component.Data()) >= 0)
+						   || (!n.label.Empty() && st.doc.TrouverDeclarationParNom(n.label.Data()) >= 0);
 		return c;
 	}
 
@@ -2260,13 +2262,29 @@ namespace nkuidesign {
 			}
 			case NkActionCtx::VoirComposant: {
 				const int32 cible = st.doc.IsValidIndex(noeud) ? noeud : st.selected;
-				if (!st.doc.IsValidIndex(cible) || st.doc.nodes[(nkentseu::uint32)cible].instanceDe.Empty()) {
-					st.status = NkString("Voir le composant : sélectionne une instance de composant.");
+				if (!st.doc.IsValidIndex(cible)) {
+					st.status = NkString("Voir le composant : sélectionne un nœud.");
 					return true;
 				}
-				const int32 d = st.doc.TrouverDeclaration(st.doc.nodes[(nkentseu::uint32)cible].instanceDe.Data());
-				if (d < 0) {
+				// ⑤ UNE DECLARATION SE VOIT AUSSI (2026-09-05). Rodolf a fait le geste sur
+				//    « Bouton_Connexion » et a lu « (pas une instance) » : pour lui c'est un
+				//    composant, et il veut sa hiérarchie. Trois chemins, du plus précis au plus
+				//    large : la clé d'instance, puis le nom du composant porté par le nœud, puis
+				//    son étiquette. Un nœud qui n'est ni l'un ni l'autre garde l'entrée grisée —
+				//    avec sa raison, qui dit maintenant les DEUX cas.
+				const NkUINode &nv = st.doc.nodes[(nkentseu::uint32)cible];
+				int32 d = nv.instanceDe.Empty() ? -1 : st.doc.TrouverDeclaration(nv.instanceDe.Data());
+				if (d < 0 && !nv.component.Empty())
+					d = st.doc.TrouverDeclarationParNom(nv.component.Data());
+				if (d < 0 && !nv.label.Empty())
+					d = st.doc.TrouverDeclarationParNom(nv.label.Data());
+				if (d < 0 && !nv.instanceDe.Empty()) {
 					st.status = NkString("Voir le composant : sa déclaration est absente du document.");
+					return true;
+				}
+				if (d < 0) {
+					st.status = NkString("Voir le composant : ce nœud n'est ni une instance, ni une déclaration "
+										  "(« Extraire en composant » en fait une).");
 					return true;
 				}
 				st.composantVu = d;

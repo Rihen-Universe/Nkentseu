@@ -10277,6 +10277,75 @@ namespace nkuidesign {
 					  taille && nCmd2 == 0u, det);
 			}
 		}
+		// ── 91. ⑤ « VOIR LE COMPOSANT » MARCHE AUSSI SUR UNE DECLARATION (05/09). Rodolf a fait
+		//    le geste sur « Bouton_Connexion » et a lu « (pas une instance) » : pour lui c'est un
+		//    composant, et il veut sa hierarchie. Trois cas mesures : une INSTANCE (comme avant),
+		//    un noeud qui porte le NOM d'une declaration, et un noeud qui n'est ni l'un ni
+		//    l'autre -- celui-la seul garde l'entree grisee, avec sa raison.
+		{
+			char det[700];
+			static DesignState stD;
+			stD.doc.NewDocument("Toile", NkAuthor::Humain);
+			const int32 pgD = stD.doc.AddChild(0, "", NkAuthor::Humain);
+			stD.doc.nodes[(uint32)pgD].shape = NkString("frame");
+			stD.doc.nodes[(uint32)pgD].layout.kind = NkLayoutKind::Free;
+			stD.doc.nodes[(uint32)pgD].width.mode = NkSizeMode::Fixed;
+			stD.doc.nodes[(uint32)pgD].width.value = 300.f;
+			stD.doc.nodes[(uint32)pgD].height.mode = NkSizeMode::Fixed;
+			stD.doc.nodes[(uint32)pgD].height.value = 300.f;
+			// une carte a extraire : elle deviendra la declaration « Bouton_Connexion »
+			const int32 carte = stD.doc.AddChild(pgD, "", NkAuthor::Humain);
+			stD.doc.nodes[(uint32)carte].shape = NkString("rect");
+			stD.doc.nodes[(uint32)carte].label = NkString("Bouton_Connexion");
+			stD.doc.nodes[(uint32)carte].width.mode = NkSizeMode::Fixed;
+			stD.doc.nodes[(uint32)carte].width.value = 120.f;
+			stD.doc.nodes[(uint32)carte].height.mode = NkSizeMode::Fixed;
+			stD.doc.nodes[(uint32)carte].height.value = 40.f;
+			const int32 txtD = stD.doc.AddChild(carte, "", NkAuthor::Humain);
+			stD.doc.nodes[(uint32)txtD].shape = NkString("text");
+			stD.doc.nodes[(uint32)txtD].text = NkString("Se connecter");
+			// un noeud ordinaire, qui ne sera ni instance ni declaration
+			const int32 autre = stD.doc.AddChild(pgD, "", NkAuthor::Humain);
+			stD.doc.nodes[(uint32)autre].shape = NkString("rect");
+			stD.doc.nodes[(uint32)autre].label = NkString("Rectangle nu");
+			stD.SelectSingle(carte);
+			const bool extrait = NkAppliquerActionCtx(stD, carte, NkActionCtx::ExtraireComposant);
+			const uint32 nDecl = (uint32)stD.doc.declarations.Size();
+			// 1. l'instance (le noeud extrait EST une instance) : sa declaration s'ouvre
+			stD.composantVu = -1;
+			NkAppliquerActionCtx(stD, carte, NkActionCtx::VoirComposant);
+			const int32 vuInstance = stD.composantVu;
+			// 2. un noeud qui porte le NOM de la declaration, sans en etre une instance
+			const int32 jumeau = stD.doc.AddChild(pgD, "", NkAuthor::Humain);
+			stD.doc.nodes[(uint32)jumeau].shape = NkString("rect");
+			stD.doc.nodes[(uint32)jumeau].label = stD.doc.declarations.Empty()
+													  ? NkString("Bouton_Connexion")
+													  : stD.doc.declarations[0].identite.nom;
+			stD.composantVu = -1;
+			NkAppliquerActionCtx(stD, jumeau, NkActionCtx::VoirComposant);
+			const int32 vuNom = stD.composantVu;
+			// 3. un noeud ordinaire : rien ne s'ouvre, et la raison le dit
+			stD.composantVu = -1;
+			stD.status = NkString();
+			NkAppliquerActionCtx(stD, autre, NkActionCtx::VoirComposant);
+			const int32 vuAutre = stD.composantVu;
+			const bool raison = stD.status.Data() && strstr(stD.status.Data(), "ni une instance, ni une d") != nullptr;
+			// et l'entree du menu : active sur les deux premiers, grisee sur le troisieme
+			const NkContexteCtx cI = NkContexteDepuisEtat(stD, carte, false);
+			const NkContexteCtx cN = NkContexteDepuisEtat(stD, jumeau, false);
+			const NkContexteCtx cA = NkContexteDepuisEtat(stD, autre, false);
+			const bool menuOk = (cI.estInstance || cI.estDeclaration) && (cN.estInstance || cN.estDeclaration)
+								&& !(cA.estInstance || cA.estDeclaration);
+			snprintf(det, sizeof(det),
+					 "extraction=%d, %u declaration(s) ; « Voir le composant » -> instance : %d, noeud qui porte le NOM : %d, noeud "
+					 "ordinaire : %d (raison dite=%d) ; menu actif instance=%d nom=%d ordinaire=%d",
+					 extrait ? 1 : 0, nDecl, vuInstance, vuNom, vuAutre, raison ? 1 : 0,
+					 (cI.estInstance || cI.estDeclaration) ? 1 : 0, (cN.estInstance || cN.estDeclaration) ? 1 : 0,
+					 (cA.estInstance || cA.estDeclaration) ? 1 : 0);
+			check("91. ⑤ « VOIR LE COMPOSANT » S'OUVRE SUR UNE INSTANCE **ET** SUR UN NOEUD QUI PORTE LE NOM D'UNE DECLARATION ; un "
+				  "noeud qui n'est ni l'un ni l'autre garde l'entree grisee, avec la raison qui dit les deux cas",
+				  extrait && nDecl == 1u && vuInstance == 0 && vuNom == 0 && vuAutre == -1 && raison && menuOk, det);
+		}
 		snprintf(tail, sizeof(tail), "\n=== RESULTAT : %d / %d ===\n", pass, total);
 		rep.Append(tail);
 

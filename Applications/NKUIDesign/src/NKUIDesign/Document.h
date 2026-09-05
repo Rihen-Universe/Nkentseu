@@ -2383,6 +2383,22 @@ namespace nkuidesign {
 			}
 
 			/// L'indice de la declaration portant cette cle, -1 si absente.
+			/// ⑤ LA DECLARATION PAR SON NOM LISIBLE (2026-09-05) -- la cle est
+			/// `auteur/nom@version`, et personne ne la tape ; l'utilisateur, lui, connait le
+			/// NOM (« Bouton_Connexion »). Sert a « Voir le composant » sur un noeud qui n'est
+			/// pas une instance mais porte le nom d'une declaration.
+			/// ⚠️ LE PREMIER QUI REPOND GAGNE : deux declarations peuvent partager un nom (deux
+			///    auteurs, deux versions) -- la cle, elle, est unique. Dit ici plutot que
+			///    decouvert : ce chemin est une commodite d'interface, jamais l'identite.
+			int32 TrouverDeclarationParNom(const char *nom) const {
+				if (!nom || !*nom)
+					return -1;
+				for (uint32 d = 0; d < (uint32)declarations.Size(); ++d)
+					if (NkComponentDecl::StrEq(declarations[d].identite.nom.Data(), nom))
+						return (int32)d;
+				return -1;
+			}
+
 			int32 TrouverDeclaration(const char *cle) const {
 				if (!cle || !*cle)
 					return -1;

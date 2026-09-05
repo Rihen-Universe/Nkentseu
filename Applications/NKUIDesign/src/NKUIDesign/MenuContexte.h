@@ -124,6 +124,10 @@ namespace nkuidesign {
 			///    actives auraient laissé l'une des deux ne rien faire en
 			///    silence.*
 			bool estInstance = false;
+			/// ⑤ Ce nœud porte-t-il le NOM d'une déclaration du document ? (le composant
+			///    lui-même, pas une de ses instances) — c'est ce qui ouvre « Voir le composant »
+			///    sur autre chose qu'une instance.
+			bool estDeclaration = false;
 	};
 
 
@@ -385,8 +389,11 @@ namespace nkuidesign {
 				true, NkActionCtx::DetacherComposant);
 		// ⚠️ LA RAISON DIT « pas une instance », PAS « impossible » : une
 		//    entrée grisée sans motif se lit comme une panne.
-		ajouter("Voir le composant", nullptr, c.estInstance, " (pas une instance)", false, false,
-				NkActionCtx::VoirComposant);
+		// ⑤ ACTIVE SUR UNE INSTANCE **OU** SUR UNE DECLARATION (2026-09-05) : Rodolf a fait le
+		//    geste sur « Bouton_Connexion » et a lu « (pas une instance) » alors que pour lui
+		//    c'est un composant. La raison grisee dit desormais les DEUX cas.
+		ajouter("Voir le composant", nullptr, c.estInstance || c.estDeclaration,
+				" (ni instance, ni déclaration)", false, false, NkActionCtx::VoirComposant);
 		ajouter("Appliquer au composant", "Ctrl+Alt+M", c.estInstance, " (pas une instance)",
 				false, false, NkActionCtx::AppliquerAuComposant);
 		ajouter("Miroir horizontal", "Maj+H", c.pasRacine, " (pas la racine)", false, false,
