@@ -69,7 +69,7 @@ namespace nkentseu {
 						NkPipelineHandle pipe;
 				};
 				enum { K_BIRTH = 0, K_KEY, K_SORT, K_CLEAR, K_CELL, K_DENS, K_KAPPA, K_CORRECT, K_WARM, K_STOREWARM,
-					   K_NONP, K_APPLY, K_REDUCE, K_INTEG, K_STATS, K_COUNT };
+					   K_NONP, K_APPLY, K_REDUCE, K_INTEG, K_STATS, K_NEIGH, K_COUNT };
 
 				bool CompileKernel(int which, const char *name, const char *body);
 				void Dispatch(int which, uint32 count);
@@ -86,6 +86,9 @@ namespace nkentseu {
 				// 12 blocs de stockage (NVIDIA en expose 16 par etage) : paires (cle, indice) et (debut, fin), et un
 				// bloc de champs par particule a foulee 8 (rho, alpha, kappa, kappa chaud, kappa total, erreur, voisines).
 				NkBufferHandle mX, mV, mKV, mGKV, mFSE, mGSE, mFL, mT, mRed, mInstances, mBirths, mUbo, mSortUbo;
+				NkBufferHandle mNB; // listes de voisines : cap x 64 indices, refaites a chaque sous-pas (05/09, levier de cout)
+				float32 mNeighMax = 0.f;
+				bool mNeighOverflowSaid = false;
 				Kernel mKernels[K_COUNT];
 				NkDescSetHandle mLayout, mSet;
 				NkICommandBuffer *mCmd = nullptr;
