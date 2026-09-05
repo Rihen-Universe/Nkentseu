@@ -330,8 +330,9 @@ namespace nkuidesign {
 		//    texte 3D. Le travail n'est donc pas « écrire un triangulateur »,
 		//    c'est **le faire descendre sous le peintre** — un ajout additif au
 		//    socle, à décider comme tel.
-		ajouter("Vectoriser", nullptr, false,
-				" (le peintre ne remplit que des polygones convexes — voir le rapport)", false,
+		// ⑥ (Rodolf, 05/09) : une raison d'UNE ligne, écrite pour lui -- jamais un renvoi
+		//    à un rapport d'agent dans une interface. Vectoriser = les lettres en tracés.
+		ajouter("Vectoriser", nullptr, false, " (à construire : les lettres en tracés)", false,
 				true, NkActionCtx::Vectoriser);
 
 		// ── 3. L'ordre de profondeur — un groupe à lui seul chez Lunacy ──────
