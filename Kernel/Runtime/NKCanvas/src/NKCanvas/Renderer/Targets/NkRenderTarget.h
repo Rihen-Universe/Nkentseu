@@ -64,10 +64,41 @@ namespace nkentseu {
 				virtual NkView2D GetView() const = 0;
 				virtual NkView2D GetDefaultView() const = 0;
 
+				/// Revient a la vue par defaut et reprend le suivi automatique du
+				/// redimensionnement, que SetView avait suspendu.
+				virtual void ResetView() {
+					SetView(GetDefaultView());
+				}
+
+				/// Vrai si une vue a ete posee par SetView depuis le dernier ResetView.
+				virtual bool IsViewCustom() const {
+					return false;
+				}
+
 				// ── Viewport (sous-region pixel ou est rendu le view) ──────────
 
 				virtual void SetViewport(NkRect2i viewport) = 0;
 				virtual NkRect2i GetViewport() const = 0;
+
+				// ── Politique de redimensionnement ─────────────────────────────
+				// Ce que devient l'image quand la cible change de taille : suivre la
+				// fenetre, etirer, ajuster avec bandes, ajuster en rognant, echelle
+				// entiere, ou ne rien faire. Voir NkResizePolicy.
+				//
+				// designSize est la resolution de reference des ajustements ; a zero,
+				// on reprend la taille de la vue courante.
+				virtual void SetResizePolicy(NkResizePolicy policy, NkVec2f designSize = NkVec2f{0.f, 0.f}) {
+					(void)policy;
+					(void)designSize;
+				}
+
+				virtual NkResizePolicy GetResizePolicy() const {
+					return NkResizePolicy::NK_FOLLOW_WINDOW;
+				}
+
+				virtual NkVec2f GetDesignSize() const {
+					return NkVec2f{0.f, 0.f};
+				}
 
 				// ── Dimensions du target en pixels ─────────────────────────────
 

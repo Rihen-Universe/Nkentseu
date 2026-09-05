@@ -46,6 +46,72 @@ namespace nkentseu {
 				void ToProjectionMatrix(float32 out[16]) const;
 		};
 
+		// ── Politique de redimensionnement ───────────────────────────────────────
+		// Que devient l'image quand la fenetre change de taille ? Il y a cinq
+		// reponses possibles, plus le refus de repondre, et le moteur ne doit pas
+		// choisir en silence : le choix change le jeu. Suivre la fenetre donne au
+		// joueur au grand ecran un champ de vision plus large, ce qui est un
+		// avantage deloyal en competitif ; etirer est equitable et laid ; les
+		// bandes noires sont equitables et honnetes.
+		//
+		// Les trois politiques d'ajustement travaillent par rapport a une TAILLE
+		// DE REFERENCE (design size) : la resolution pour laquelle le jeu est
+		// dessine. Sans elle, il n'y a rien a ajuster.
+		enum class NkResizePolicy : uint8 {
+			/// Un pixel reste un pixel : la vue grandit avec la fenetre et l'on
+			/// VOIT PLUS DE MONDE. Aucune deformation, aucune bande.
+			/// C'est le comportement historique de Nkentseu, et le defaut.
+			NK_FOLLOW_WINDOW = 0,
+
+			/// Le meme rectangle de monde remplit toute la fenetre : l'image
+			/// GRANDIT, et se DEFORME si le rapport largeur/hauteur a change.
+			/// C'est le defaut de SFML.
+			NK_STRETCH,
+
+			/// Rapport conserve, tout le monde de reference reste visible, et
+			/// des BANDES apparaissent sur deux cotes. Les bandes prennent la
+			/// couleur du dernier Clear, qui couvre tout le framebuffer.
+			NK_FIT_LETTERBOX,
+
+			/// Rapport conserve, la fenetre est entierement remplie, et l'on
+			/// PERD les bords sur l'axe le plus long.
+			NK_FIT_CROP,
+
+			/// Comme NK_FIT_LETTERBOX, mais l'agrandissement est arrondi a
+			/// l'entier inferieur : chaque pixel de reference occupe un carre
+			/// entier de pixels ecran. Indispensable au pixel art, ou un
+			/// agrandissement fractionnaire fait baver les bords.
+			/// Si la fenetre est plus petite que la reference, l'entier vaudrait
+			/// zero : on retombe alors sur l'ajustement exact, faute de mieux.
+			NK_INTEGER_SCALE,
+
+			/// Le moteur ne touche a rien : ni la vue, ni le viewport. A vous
+			/// d'appeler SetView et SetViewport dans votre reponse au
+			/// redimensionnement.
+			/// ATTENTION : sans viewport a jour, le rendu reste CLIPPE a
+			/// l'ancienne zone. C'est le prix du controle total.
+			NK_MANUAL,
+		};
+
+		/// Nom lisible d'une politique, pour les journaux et les rapports.
+		inline const char *NkResizePolicyName(NkResizePolicy p) noexcept {
+			switch (p) {
+				case NkResizePolicy::NK_FOLLOW_WINDOW:
+					return "FollowWindow";
+				case NkResizePolicy::NK_STRETCH:
+					return "Stretch";
+				case NkResizePolicy::NK_FIT_LETTERBOX:
+					return "FitLetterbox";
+				case NkResizePolicy::NK_FIT_CROP:
+					return "FitCrop";
+				case NkResizePolicy::NK_INTEGER_SCALE:
+					return "IntegerScale";
+				case NkResizePolicy::NK_MANUAL:
+					return "Manual";
+			}
+			return "Inconnu";
+		}
+
 		// ── Blending mode ────────────────────────────────────────────────────────
 		enum class NkBlendMode : uint8 {
 			NK_ALPHA,	 // standard alpha blending (premul src, 1-src_alpha dst)

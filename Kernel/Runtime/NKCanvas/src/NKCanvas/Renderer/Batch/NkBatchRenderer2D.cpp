@@ -151,7 +151,24 @@ namespace nkentseu {
 		}
 
 		// =============================================================================
+		// SetView — pose une vue CUSTOM.
+		//
+		// Le drapeau mViewIsCustom remplace l'ancienne comparaison en egalite
+		// flottante exacte entre mCurrentView et mDefaultView. Cette comparaison
+		// avait deux torts silencieux : SetView(GetDefaultView()) ne comptait pas
+		// comme une vue custom, et une camera valant par hasard la vue par defaut,
+		// ce qui arrive tout le temps au demarrage, se faisait confisquer au
+		// premier redimensionnement. Signale par Rodolf le 2026-09-05.
+		// =============================================================================
 		void NkBatchRenderer2D::SetView(const NkView2D &view) {
+			SetViewInternal(view);
+			mViewIsCustom = true;
+		}
+
+		// =============================================================================
+		// SetViewInternal — pose la vue SANS la marquer custom (machinerie interne).
+		// =============================================================================
+		void NkBatchRenderer2D::SetViewInternal(const NkView2D &view) {
 			Flush(); // commit current batch before changing projection
 			mCurrentView = view;
 			float proj[16];
@@ -160,38 +177,185 @@ namespace nkentseu {
 		}
 
 		// =============================================================================
-		// OnResize — modele multi-vues facon SFML :
-		//   - la VUE PAR DEFAUT (mDefaultView) suit toujours la taille de l'ecran ;
-		//   - une VUE CUSTOM posee par SetView reste INTACTE (on ne recale mCurrentView
-		//     que si l'utilisateur etait justement sur la vue par defaut) ;
-		//   - le viewport passe plein-cadre.
+		void NkBatchRenderer2D::ResetView() {
+			SetViewInternal(mDefaultView);
+			mViewIsCustom = false;
+		}
+
+		// =============================================================================
+		// SetResizePolicy — choisit ce que devient l'image quand la cible change de
+		// taille, et l'applique TOUT DE SUITE a la taille courante.
+		//
+		// L'application immediate compte : sans elle, regler la politique ne se
+		// verrait qu'au premier redimensionnement, et un jeu lance en plein ecran
+		// ne la verrait jamais.
+		// =============================================================================
+		void NkBatchRenderer2D::SetResizePolicy(NkResizePolicy policy, NkVec2f designSize) {
+			mResizePolicy = policy;
+
+			// Taille de reference : celle demandee, sinon la vue courante. Regler la
+			// politique une fois la scene cadree est le geste naturel, et il donne la
+			// bonne reference sans que l'on ait a la repeter.
+			if (designSize.x > 0.f && designSize.y > 0.f) {
+				mDesignSize = designSize;
+			} else if (mDesignSize.x <= 0.f || mDesignSize.y <= 0.f) {
+				mDesignSize = mCurrentView.size;
+			}
+
+			// Applique a la taille courante. Le viewport plein-cadre est la seule
+			// source fiable de la taille du framebuffer a ce niveau.
+			const int32 w = mViewport.width > 0 ? mViewport.width : static_cast<int32>(mCurrentView.size.x);
+			const int32 h = mViewport.height > 0 ? mViewport.height : static_cast<int32>(mCurrentView.size.y);
+			if (w > 0 && h > 0) {
+				// Le viewport doit repartir plein-cadre, sinon une politique posee
+				// apres une autre heriterait des bandes de la precedente.
+				mViewport = {0, 0, w, h};
+				OnResize(static_cast<uint32>(w), static_cast<uint32>(h));
+			}
+		}
+
+		// =============================================================================
+		// CentreDeReference — le centre du rectangle de reference, (0,0)-(design).
+		//
+		// Tant que l'utilisateur n'a pas pose sa propre camera, une politique
+		// d'ajustement doit cadrer le monde de reference, pas le centre de la
+		// fenetre : sinon la scene dessinee en 0..L x 0..H se retrouve decalee d'un
+		// demi-ecran des que la fenetre n'a pas la taille de la reference.
+		NkVec2f NkBatchRenderer2D::CentreDeReference() const noexcept {
+			return NkVec2f{mDesignSize.x * 0.5f, mDesignSize.y * 0.5f};
+		}
+
+		// =============================================================================
+		// OnResize — applique la politique de redimensionnement.
+		//
+		// Deux leviers, et deux seulement :
+		//   - la VUE dit quel rectangle de monde est regarde ;
+		//   - le VIEWPORT dit quelle region de pixels le recoit.
+		// Les six politiques ne sont que six facons de les regler. Le viewport part
+		// toujours plein-cadre, sinon le rendu resterait clippe a l'ancienne zone.
+		//
+		// Une vue CUSTOM (posee par SetView) n'est jamais recalee : c'est la camera
+		// du jeu, elle appartient au jeu. Seule sa fenetre de projection, c'est-a-dire
+		// le viewport et la taille visible, suit la politique.
 		// =============================================================================
 		void NkBatchRenderer2D::OnResize(uint32 width, uint32 height) noexcept {
 			if (width == 0 || height == 0)
 				return;
 
-			// L'utilisateur etait-il sur la vue par defaut ? (comparaison exacte : a
-			// l'init mCurrentView = mDefaultView ; ne different que si SetView custom.)
-			const bool wasDefault =
-				mCurrentView.center.x == mDefaultView.center.x && mCurrentView.center.y == mDefaultView.center.y &&
-				mCurrentView.size.x == mDefaultView.size.x && mCurrentView.size.y == mDefaultView.size.y &&
-				mCurrentView.rotation == mDefaultView.rotation;
-
 			const float32 fw = static_cast<float32>(width);
 			const float32 fh = static_cast<float32>(height);
+			const int32 iw = static_cast<int32>(width);
+			const int32 ih = static_cast<int32>(height);
 
-			// Vue par defaut = ecran plein-cadre (origine haut-gauche, Y-down).
+			// La vue par defaut dit toujours la verite sur l'ecran, quelle que soit la
+			// politique : GetDefaultView() doit rester utilisable pour dessiner une
+			// interface en coordonnees ecran.
 			mDefaultView.center = {fw * 0.5f, fh * 0.5f};
 			mDefaultView.size = {fw, fh};
 			mDefaultView.rotation = 0.f;
 
-			// Viewport physique = toute la fenetre (sinon rendu clippe a l'ancienne zone).
-			mViewport = {0, 0, static_cast<int32>(width), static_cast<int32>(height)};
+			// NK_MANUAL : on ne touche a rien d'autre. Le viewport reste ce qu'il
+			// etait, donc le rendu reste clippe a l'ancienne zone tant que
+			// l'utilisateur n'appelle pas SetViewport. C'est le contrat.
+			if (mResizePolicy == NkResizePolicy::NK_MANUAL) {
+				return;
+			}
 
-			// On ne touche la vue active QUE si elle etait la vue par defaut (sinon la
-			// vue custom de l'utilisateur reste telle quelle). SetView reupload la projection.
-			if (wasDefault) {
-				SetView(mDefaultView);
+			// Reference des politiques d'ajustement. Sans reference utilisable, elles
+			// n'ont aucun sens : on retombe sur le suivi de fenetre.
+			NkResizePolicy politique = mResizePolicy;
+			const bool referenceValide = mDesignSize.x > 0.f && mDesignSize.y > 0.f;
+			if (!referenceValide && politique != NkResizePolicy::NK_FOLLOW_WINDOW) {
+				politique = NkResizePolicy::NK_FOLLOW_WINDOW;
+			}
+
+			// Viewport plein-cadre par defaut ; les ajustements le retreciront.
+			mViewport = {0, 0, iw, ih};
+
+			switch (politique) {
+				case NkResizePolicy::NK_FOLLOW_WINDOW: {
+					// Un pixel reste un pixel : la vue prend la taille de la fenetre.
+					if (!mViewIsCustom) {
+						SetViewInternal(mDefaultView);
+					} else {
+						// Vue custom : on garde son centre et sa rotation, mais sa taille
+						// suit la fenetre, sinon « suivre la fenetre » ne voudrait rien
+						// dire pour une camera qui se deplace.
+						NkView2D v = mCurrentView;
+						v.size = {fw, fh};
+						SetViewInternal(v);
+					}
+					break;
+				}
+
+				case NkResizePolicy::NK_STRETCH: {
+					// Le monde de reference remplit la fenetre. La vue ne change pas de
+					// taille : c'est le viewport plein-cadre qui l'etire, avec la
+					// deformation que cela implique si le rapport a change.
+					NkView2D v = mCurrentView;
+					v.size = mDesignSize;
+					if (!mViewIsCustom)
+						v.center = CentreDeReference();
+					SetViewInternal(v);
+					break;
+				}
+
+				case NkResizePolicy::NK_FIT_LETTERBOX:
+				case NkResizePolicy::NK_INTEGER_SCALE: {
+					// Rapport conserve, tout le monde de reference visible, bandes sur
+					// deux cotes. La vue garde la taille de reference ; c'est le viewport
+					// qui retrecit et se centre.
+					float32 echelle = fw / mDesignSize.x;
+					const float32 echelleY = fh / mDesignSize.y;
+					if (echelleY < echelle)
+						echelle = echelleY;
+
+					if (politique == NkResizePolicy::NK_INTEGER_SCALE && echelle >= 1.f) {
+						// Arrondi a l'entier inferieur : chaque pixel de reference occupe
+						// un carre entier de pixels ecran, sans quoi le pixel art bave.
+						// En dessous de 1, l'entier vaudrait zero : on garde l'ajustement
+						// exact, faute de mieux.
+						echelle = static_cast<float32>(static_cast<int32>(echelle));
+						if (echelle < 1.f)
+							echelle = 1.f;
+					}
+
+					const int32 vw = static_cast<int32>(mDesignSize.x * echelle + 0.5f);
+					const int32 vh = static_cast<int32>(mDesignSize.y * echelle + 0.5f);
+					mViewport = {(iw - vw) / 2, (ih - vh) / 2, vw, vh};
+
+					NkView2D v = mCurrentView;
+					v.size = mDesignSize;
+					if (!mViewIsCustom)
+						v.center = CentreDeReference();
+					SetViewInternal(v);
+					break;
+				}
+
+				case NkResizePolicy::NK_FIT_CROP: {
+					// Rapport conserve, fenetre entierement remplie, bords perdus sur
+					// l'axe le plus long. Ici c'est la VUE qui retrecit, pas le viewport :
+					// on regarde une part plus etroite du monde de reference, et elle
+					// occupe tout l'ecran sans deformation.
+					const float32 rapportFenetre = fw / fh;
+					const float32 rapportReference = mDesignSize.x / mDesignSize.y;
+
+					NkView2D v = mCurrentView;
+					if (rapportFenetre > rapportReference) {
+						// Fenetre plus large : on garde la largeur, on rogne en hauteur.
+						v.size = {mDesignSize.x, mDesignSize.x / rapportFenetre};
+					} else {
+						// Fenetre plus haute : on garde la hauteur, on rogne en largeur.
+						v.size = {mDesignSize.y * rapportFenetre, mDesignSize.y};
+					}
+					if (!mViewIsCustom)
+						v.center = CentreDeReference();
+					SetViewInternal(v);
+					break;
+				}
+
+				case NkResizePolicy::NK_MANUAL:
+					break; // deja traite plus haut
 			}
 		}
 

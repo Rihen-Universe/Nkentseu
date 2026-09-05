@@ -61,6 +61,22 @@ namespace nkentseu {
 					return mDefaultView;
 				}
 
+				/// Revient a la vue par defaut ET rend la main au suivi automatique.
+				void ResetView() override;
+
+				bool IsViewCustom() const override {
+					return mViewIsCustom;
+				}
+
+				/// Centre du rectangle de reference des politiques d'ajustement.
+				NkVec2f CentreDeReference() const noexcept;
+
+				/// Pose la vue SANS la marquer custom. Reserve a la machinerie interne
+				/// (NkRenderTexture installe la vue de sa cible offscreen le temps d'un
+				/// rendu, puis restaure) : marquer custom ici, ce serait confisquer le
+				/// suivi automatique de la fenetre a la premiere texture de rendu.
+				void SetViewInternal(const NkView2D &view);
+
 				void SetViewport(const NkRect2i &vp) override {
 					mViewport = vp;
 				}
@@ -69,7 +85,17 @@ namespace nkentseu {
 					return mViewport;
 				}
 
-				// Resize : vue par defaut suit l'ecran, vue custom intacte (cf. interface).
+				void SetResizePolicy(NkResizePolicy policy, NkVec2f designSize = NkVec2f{0.f, 0.f}) override;
+
+				NkResizePolicy GetResizePolicy() const override {
+					return mResizePolicy;
+				}
+
+				NkVec2f GetDesignSize() const override {
+					return mDesignSize;
+				}
+
+				// Resize : applique la politique courante (cf. NkResizePolicy).
 				void OnResize(uint32 width, uint32 height) noexcept override;
 
 				// ── Clip / Scissor (pile, en pixels, origine haut-gauche) ──────────────
@@ -161,6 +187,13 @@ namespace nkentseu {
 				NkView2D mCurrentView;
 				NkView2D mDefaultView;
 				NkRect2i mViewport;
+				/// Vraie des qu'une vue a ete posee par SetView, fausse apres ResetView.
+				/// Remplace l'ancienne comparaison en egalite flottante exacte.
+				bool mViewIsCustom = false;
+				NkResizePolicy mResizePolicy = NkResizePolicy::NK_FOLLOW_WINDOW;
+				/// Resolution de reference des politiques d'ajustement. A zero tant
+				/// qu'aucune politique d'ajustement n'a ete demandee.
+				NkVec2f mDesignSize{0.f, 0.f};
 				NkBlendMode mBlendMode = NkBlendMode::NK_ALPHA;
 				NkRenderStats2D mStats;
 				bool mInFrame = false;

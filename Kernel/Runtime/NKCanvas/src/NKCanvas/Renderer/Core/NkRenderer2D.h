@@ -117,6 +117,16 @@ namespace nkentseu {
 					return mBackend ? mBackend->GetDefaultView() : NkView2D{};
 				}
 
+				/// Revient a la vue par defaut et reprend le suivi automatique.
+				void ResetView() {
+					if (mBackend)
+						mBackend->ResetView();
+				}
+
+				bool IsViewCustom() const {
+					return mBackend ? mBackend->IsViewCustom() : false;
+				}
+
 				void SetViewport(NkRect2i v) {
 					if (mBackend)
 						mBackend->SetViewport(v);
@@ -124,6 +134,20 @@ namespace nkentseu {
 
 				NkRect2i GetViewport() const {
 					return mBackend ? mBackend->GetViewport() : NkRect2i{};
+				}
+
+				// ── Politique de redimensionnement ─────────────────────────────
+				void SetResizePolicy(NkResizePolicy p, NkVec2f designSize = NkVec2f{0.f, 0.f}) {
+					if (mBackend)
+						mBackend->SetResizePolicy(p, designSize);
+				}
+
+				NkResizePolicy GetResizePolicy() const {
+					return mBackend ? mBackend->GetResizePolicy() : NkResizePolicy::NK_FOLLOW_WINDOW;
+				}
+
+				NkVec2f GetDesignSize() const {
+					return mBackend ? mBackend->GetDesignSize() : NkVec2f{0.f, 0.f};
 				}
 
 				// ── Clip / Scissor (pixels, origine haut-gauche) ───────────────

@@ -80,9 +80,15 @@ namespace nkentseu {
 				void SetView(const NkView2D &view) override;
 				NkView2D GetView() const override;
 				NkView2D GetDefaultView() const override;
+				void ResetView() override;
+				bool IsViewCustom() const override;
 
 				void SetViewport(NkRect2i viewport) override;
 				NkRect2i GetViewport() const override;
+
+				void SetResizePolicy(NkResizePolicy policy, NkVec2f designSize = NkVec2f{0.f, 0.f}) override;
+				NkResizePolicy GetResizePolicy() const override;
+				NkVec2f GetDesignSize() const override;
 
 				math::NkVec2u GetSize() const override;
 

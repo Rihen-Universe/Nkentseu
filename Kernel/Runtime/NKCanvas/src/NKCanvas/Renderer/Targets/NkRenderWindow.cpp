@@ -187,6 +187,15 @@ namespace nkentseu {
 			return mRenderer ? mRenderer->GetDefaultView() : NkView2D{};
 		}
 
+		void NkRenderWindow::ResetView() {
+			if (mRenderer)
+				mRenderer->ResetView();
+		}
+
+		bool NkRenderWindow::IsViewCustom() const {
+			return mRenderer ? mRenderer->IsViewCustom() : false;
+		}
+
 		void NkRenderWindow::SetViewport(NkRect2i viewport) {
 			if (mRenderer)
 				mRenderer->SetViewport(viewport);
@@ -194,6 +203,23 @@ namespace nkentseu {
 
 		NkRect2i NkRenderWindow::GetViewport() const {
 			return mRenderer ? mRenderer->GetViewport() : NkRect2i{};
+		}
+
+		// =========================================================================
+		// Politique de redimensionnement — ce que devient l'image quand la fenetre
+		// change de taille. Toute la logique vit dans NkBatchRenderer2D::OnResize.
+		// =========================================================================
+		void NkRenderWindow::SetResizePolicy(NkResizePolicy policy, NkVec2f designSize) {
+			if (mRenderer)
+				mRenderer->SetResizePolicy(policy, designSize);
+		}
+
+		NkResizePolicy NkRenderWindow::GetResizePolicy() const {
+			return mRenderer ? mRenderer->GetResizePolicy() : NkResizePolicy::NK_FOLLOW_WINDOW;
+		}
+
+		NkVec2f NkRenderWindow::GetDesignSize() const {
+			return mRenderer ? mRenderer->GetDesignSize() : NkVec2f{0.f, 0.f};
 		}
 
 		math::NkVec2u NkRenderWindow::GetSize() const {

@@ -225,7 +225,10 @@ namespace nkentseu {
 			const NkRect2i &src = sprite.GetTextureRect();
 			const NkTexture *tex = sprite.GetTexture();
 
-			const bool isSimple = (fabsf(t.rotation) < 1e-4f);
+			// Le chemin rapide blitte en pixels, donc il court-circuite la camera.
+			// Il n'est exact que si aucune vue ni aucun viewport ne s'interpose ;
+			// sinon on repasse par le batch, qui projette dans SubmitBatches.
+			const bool isSimple = (fabsf(t.rotation) < 1e-4f) && EnEspaceEcran(fb);
 			if (isSimple) {
 				const int32 dstW = (int32)((float32)src.width * t.scale.x + 0.5f);
 				const int32 dstH = (int32)((float32)src.height * t.scale.y + 0.5f);
@@ -333,6 +336,36 @@ namespace nkentseu {
 			if (!fb.IsValid())
 				return;
 
+			// ── Camera et viewport ────────────────────────────────────────────────
+			// Le rasteriseur travaille en pixels. C'est ICI, et seulement ici, que la
+			// vue devient reelle sur le backend logiciel : on projette chaque sommet
+			// vers l'espace normalise, puis on l'etale sur le viewport.
+			//
+			// Avec la vue par defaut et un viewport plein-cadre, la transformation est
+			// l'identite au flottant pres : x = 0 retombe sur la colonne 0, y = H sur
+			// la ligne H. Aucun rendu existant ne bouge donc d'un pixel.
+			const NkVertex2D *sommets = verts;
+			if (mHasProj) {
+				mProjetes.Resize(vCount);
+				const float32 vx = static_cast<float32>(mViewport.left);
+				const float32 vy = static_cast<float32>(mViewport.top);
+				const float32 vw = static_cast<float32>(mViewport.width);
+				const float32 vh = static_cast<float32>(mViewport.height);
+				for (uint32 v = 0; v < vCount; ++v) {
+					const NkVertex2D &s = verts[v];
+					// Colonne-majeure : x' = m0*x + m4*y + m12, y' = m1*x + m5*y + m13.
+					const float32 nx = mProj[0] * s.x + mProj[4] * s.y + mProj[12];
+					const float32 ny = mProj[1] * s.x + mProj[5] * s.y + mProj[13];
+					NkVertex2D d = s;
+					// L'espace normalise a son Y vers le HAUT (convention DX) alors que
+					// le framebuffer a son Y vers le bas : d'ou le 1 - ny.
+					d.x = vx + (nx + 1.f) * 0.5f * vw;
+					d.y = vy + (1.f - ny) * 0.5f * vh;
+					mProjetes[v] = d;
+				}
+				sommets = mProjetes.Data();
+			}
+
 			for (uint32 g = 0; g < groupCount; ++g) {
 				const NkBatchGroup &group = groups[g];
 				const uint32 end = group.indexStart + group.indexCount;
@@ -340,10 +373,32 @@ namespace nkentseu {
 				for (uint32 i = group.indexStart + 2; i < end; i += 3) {
 					if (idx[i - 2] >= vCount || idx[i - 1] >= vCount || idx[i] >= vCount)
 						continue;
-					RasterizeTriangle(fb, verts[idx[i - 2]], verts[idx[i - 1]], verts[idx[i]], group.texture,
+					RasterizeTriangle(fb, sommets[idx[i - 2]], sommets[idx[i - 1]], sommets[idx[i]], group.texture,
 									  group.blendMode);
 				}
 			}
+		}
+
+		// =============================================================================
+		// EnEspaceEcran — la projection et le viewport se ramenent-ils a l'identite ?
+		//
+		// Le chemin rapide des sprites blitte directement en pixels, sans passer par le
+		// batch : il n'est exact que si aucune camera ne s'interpose. Sinon il faut
+		// repasser par le batch, donc par la projection de SubmitBatches.
+		// =============================================================================
+		bool NkSoftwareRenderer2D::EnEspaceEcran(const NkSoftwareFramebuffer &fb) const noexcept {
+			if (!mHasProj)
+				return true;
+			if (mViewport.left != 0 || mViewport.top != 0 || mViewport.width != static_cast<int32>(fb.width) ||
+				mViewport.height != static_cast<int32>(fb.height))
+				return false;
+			if (mCurrentView.rotation != 0.f)
+				return false;
+			const float32 eps = 0.01f;
+			return math::NkFabs(mCurrentView.size.x - static_cast<float32>(fb.width)) < eps &&
+				   math::NkFabs(mCurrentView.size.y - static_cast<float32>(fb.height)) < eps &&
+				   math::NkFabs(mCurrentView.center.x - static_cast<float32>(fb.width) * 0.5f) < eps &&
+				   math::NkFabs(mCurrentView.center.y - static_cast<float32>(fb.height) * 0.5f) < eps;
 		}
 
 		// =============================================================================
@@ -383,7 +438,20 @@ namespace nkentseu {
 				ov = a.v;
 				return;
 			}
-			const float32 t = (targetY - a.y) / dy;
+			// Le pas d'un cote, borne a l'arete.
+			//
+			// SANS LE BORNAGE, LE RASTERISEUR EXTRAPOLE. yMax vaut floor(y du
+			// sommet bas) : la derniere ligne balayee a donc pour centre
+			// floor(y)+0.5, qui peut depasser le sommet de 0.5 pixel. Sur une
+			// arete presque horizontale (dy petit), t depasse alors largement 1
+			// et x part tres loin du triangle. C'est la trainee de pixels que
+			// laissait le contour d'un rectangle : la barre du bas, haute de
+			// 2 px, debordait de 14 px. Signale par Rodolf le 2026-09-05.
+			float32 t = (targetY - a.y) / dy;
+			if (t < 0.f)
+				t = 0.f;
+			else if (t > 1.f)
+				t = 1.f;
 			ox = a.x + (b.x - a.x) * t;
 			or_ = a.r + (b.r - a.r) * t;
 			og = a.g + (b.g - a.g) * t;
@@ -419,19 +487,41 @@ namespace nkentseu {
 			// Bornes Y clampées au framebuffer
 			int32 yMin = nk_clampi((int32)ceilf(sv[0].y), 0, (int32)fb.height - 1);
 			int32 yMax = nk_clampi((int32)floorf(sv[2].y), 0, (int32)fb.height - 1);
-			// Clip / scissor (origine haut-gauche, identique au framebuffer CPU).
+
+			// Zone autorisee = le VIEWPORT, puis le clip s'il y en a un.
+			//
+			// Le viewport etait ignore : il etait pose a l'initialisation et au
+			// redimensionnement, et plus rien ne le lisait. Sans lui, une politique
+			// d'ajustement ne peut pas exister — les bandes noires ne sont rien
+			// d'autre qu'un viewport plus petit que le framebuffer.
 			int32 clipX0 = 0, clipY0 = 0, clipX1 = (int32)fb.width, clipY1 = (int32)fb.height;
-			if (mHasClip) {
-				clipX0 = nk_clampi(mClipRect.x, 0, (int32)fb.width);
-				clipY0 = nk_clampi(mClipRect.y, 0, (int32)fb.height);
-				clipX1 = nk_clampi(mClipRect.x + mClipRect.width, 0, (int32)fb.width);
-				clipY1 = nk_clampi(mClipRect.y + mClipRect.height, 0, (int32)fb.height);
-				if (yMin < clipY0)
-					yMin = clipY0;
-				if (yMax > clipY1 - 1)
-					yMax = clipY1 - 1;
+			if (mHasProj && mViewport.width > 0 && mViewport.height > 0) {
+				clipX0 = nk_clampi(mViewport.left, 0, (int32)fb.width);
+				clipY0 = nk_clampi(mViewport.top, 0, (int32)fb.height);
+				clipX1 = nk_clampi(mViewport.left + mViewport.width, 0, (int32)fb.width);
+				clipY1 = nk_clampi(mViewport.top + mViewport.height, 0, (int32)fb.height);
 			}
-			if (yMin > yMax)
+			// Clip / scissor (origine haut-gauche, identique au framebuffer CPU) :
+			// il s'INTERSECTE avec le viewport, il ne le remplace pas.
+			if (mHasClip) {
+				const int32 cx0 = nk_clampi(mClipRect.x, 0, (int32)fb.width);
+				const int32 cy0 = nk_clampi(mClipRect.y, 0, (int32)fb.height);
+				const int32 cx1 = nk_clampi(mClipRect.x + mClipRect.width, 0, (int32)fb.width);
+				const int32 cy1 = nk_clampi(mClipRect.y + mClipRect.height, 0, (int32)fb.height);
+				if (cx0 > clipX0)
+					clipX0 = cx0;
+				if (cy0 > clipY0)
+					clipY0 = cy0;
+				if (cx1 < clipX1)
+					clipX1 = cx1;
+				if (cy1 < clipY1)
+					clipY1 = cy1;
+			}
+			if (yMin < clipY0)
+				yMin = clipY0;
+			if (yMax > clipY1 - 1)
+				yMax = clipY1 - 1;
+			if (yMin > yMax || clipX0 >= clipX1)
 				return;
 
 			// Texture CPU
@@ -495,10 +585,11 @@ namespace nkentseu {
 					vR = tmp;
 				}
 
-				// Span X (inclure les demi-pixels bord)
+				// Span X (inclure les demi-pixels bord). Les bornes clipX viennent du
+				// viewport intersecte avec le clip : elles s'appliquent toujours.
 				int32 xStart = nk_clampi((int32)ceilf(xL - 0.5f), 0, (int32)fb.width - 1);
 				int32 xEnd = nk_clampi((int32)floorf(xR + 0.5f), 0, (int32)fb.width - 1);
-				if (mHasClip) {
+				{
 					if (xStart < clipX0)
 						xStart = clipX0;
 					if (xEnd > clipX1 - 1)

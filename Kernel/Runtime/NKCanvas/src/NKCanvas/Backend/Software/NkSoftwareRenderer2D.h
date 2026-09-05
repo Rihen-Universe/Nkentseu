@@ -33,7 +33,17 @@ namespace nkentseu {
 				void SubmitBatches(const NkBatchGroup *groups, uint32 groupCount, const NkVertex2D *verts,
 								   uint32 vCount, const uint32 *idx, uint32 iCount) override;
 
-				void UploadProjection(const float32[16]) override {
+				// ── Projection ────────────────────────────────────────────────────────
+				// Cette methode etait VIDE, et le rasteriseur prend les coordonnees des
+				// sommets pour des pixels. Consequence : le backend logiciel ignorait
+				// entierement la camera. SetView, le zoom, le defilement, la rotation de
+				// vue et le viewport ne faisaient RIEN, sans le moindre avertissement.
+				// Sur le seul backend disponible partout, tout un pan de l'API etait
+				// donc mort en silence. Constate le 2026-09-05.
+				void UploadProjection(const float32 proj[16]) override {
+					for (int32 i = 0; i < 16; ++i)
+						mProj[i] = proj[i];
+					mHasProj = true;
 				}
 
 				void Draw(const NkSprite &sprite) override;
@@ -51,6 +61,23 @@ namespace nkentseu {
 				NkIGraphicsContext *mCtx = nullptr;
 				NkSoftwareContext *mSWCtx = nullptr;
 				bool mIsValid = false;
+
+				/// Projection courante, colonne-majeure, telle que NkView2D la produit.
+				/// mHasProj reste faux tant qu'aucune vue n'a ete posee : on se comporte
+				/// alors comme avant, sommets = pixels, ce qui garantit qu'aucun rendu
+				/// existant ne change tant que personne n'appelle SetView.
+				float32 mProj[16] = {1.f, 0.f, 0.f, 0.f, 0.f, 1.f, 0.f, 0.f,
+									 0.f, 0.f, 1.f, 0.f, 0.f, 0.f, 0.f, 1.f};
+				bool mHasProj = false;
+
+				/// Sommets transformes de la trame courante. Membre plutot que local :
+				/// une allocation par trame sur le chemin le plus chaud du moteur
+				/// couterait plus cher que le calcul lui-meme.
+				NkVector<NkVertex2D> mProjetes;
+
+				/// Vrai quand la projection et le viewport se ramenent a l'identite
+				/// pixel : le chemin rapide des sprites est alors exact.
+				bool EnEspaceEcran(const NkSoftwareFramebuffer &fb) const noexcept;
 
 				void BlitTexture(NkSoftwareFramebuffer &fb, const NkTexture *tex, const NkRect2i &srcRect, int32 dstX,
 								 int32 dstY, int32 dstW, int32 dstH, const NkColor2D &tint);
