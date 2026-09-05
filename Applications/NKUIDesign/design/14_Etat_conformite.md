@@ -304,6 +304,30 @@ recette : « livré » se mesure, il ne se déclare pas.*
   dérive du même `NkFilePickerState`, donc le même contrat de confirmation.
   ⚠️ **Mesure qui contredit la prémisse** : NKCode n'avait pas de sélecteur à lui,
   il héritait déjà de celui du kit. Sonde 97.
+- **Le sélecteur de fichiers, après les six retours du soir** (05/09) —
+  ① il est **plein dès la première image** : `pickerPath` est le **seul** endroit
+  où vit le chemin, et la liste le suit ; personne n'a plus rien à « armer »
+  (sonde 98). ② le rail prend **la forme de l'explorateur** : trois sections
+  titrées et repliables — « Récents », « Accès rapide », « Ce PC »,
+  « Dossier courant » — les dossiers usuels **lus du système**
+  (`NkDirectory::GetUserFolder`, nouveau dans NKFileSystem) et les volumes
+  **montés** avec leur étiquette (sonde 99). ③ les **dossiers récents**, deux
+  listes : la **session** (mémoire vive) et le **document** (écrit dans le
+  `.nkuidoc`, il voyage avec lui) — l'aller-retour est mesuré (sonde 100).
+  ④ le dialogue **ne montre que ce que son mode exige** : ni bande « Contenu »,
+  ni « Créer / Importer / Tout enregistrer », ni « Tout sélectionner » quand un
+  seul objet peut être choisi (sonde 101). ⑤ le **résultat exporté se voit** :
+  un bandeau qui **reste**, avec la **vignette du fichier relu du disque**, ses
+  dimensions, et deux portes vers le système (`NKPlatform/NkShell`, nouveau) —
+  qui **rendent faux** plutôt que de mentir, le chemin restant copiable
+  (sonde 102). ⑥ il est **l'outil par défaut du kit** : `NkDrawSelecteur` en
+  **une ligne**, les **quatre modes** (ouvrir un fichier, ouvrir un dossier,
+  **créer un dossier**, enregistrer sous), NkUIDesign a basculé ses deux sites
+  et l'ancien reste appelable (sonde 103).
+  ⚠️ **Aucune autre application ne bascule toute seule** — chacune possède son
+  appel de dessin. Deux lignes pour NK3DModeler (`main.cpp:1781` et le type de
+  son état) ; NKCode demande d'abord de décider ce que devient son panneau
+  supplémentaire.
 - **Ce que Lunacy n'a pas et que nous avons** (§11.3 du document 13) :
   l'**agencement** calculé, l'**ancrage**, les **cibles** et **points de
   rupture**, les **rôles de thème** et les **langues**. *Aucun n'est sacrifié
