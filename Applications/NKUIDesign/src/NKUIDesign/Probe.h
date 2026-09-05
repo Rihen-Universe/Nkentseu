@@ -10616,6 +10616,122 @@ namespace nkuidesign {
 				  "et pose les centres a intervalle egal ; un noeud dont le parent agence ses enfants est LAISSE et la phrase le dit",
 				  gaucheOk && cleOk && pageOk && refuseDeux && repartirOk && refusDit && mesureExistant, det);
 		}
+		// ── 94. ① L'APERCU PENDANT LE TRACE (05/09). Rodolf : « pourquoi quand on dessine un
+		//    graphique on voit juste le rectangle qui s'allonge, et des qu'on relache on voit la
+		//    forme ? » Deux mesures : LA TABLE DE GENRE (une seule, lue par le relachement et par
+		//    l'apercu), et LES COMMANDES du peintre a mi-glisser -- la geometrie du genre choisi,
+		//    pas quatre cotes.
+		{
+			char det[900];
+			// 1. la table : chaque outil / variante rend le genre que la creation posera
+			struct Cas {
+					int32 outil, variante, varLigne, varImage;
+					bool montante;
+					const char *attendu;
+					bool arrondiAttendu;
+			};
+			static const Cas kCas[] = {
+				{1, 0, 0, 0, false, "frame", false},	  {2, 0, 0, 0, false, "rect", false},
+				{2, 1, 0, 0, false, "rect", true},		  {2, 2, 0, 0, false, "ellipse", false},
+				{2, 3, 0, 0, false, "triangle", false},	  {2, 4, 0, 0, false, "pentagone", false},
+				{2, 5, 0, 0, false, "etoile", false},	  {3, 0, 0, 0, false, "line", false},
+				{3, 0, 0, 0, true, "line_up", false},	  {3, 0, 1, 0, false, "fleche", false},
+				{7, 0, 0, 0, false, "image", false},	  {7, 0, 0, 1, false, "avatar", false},
+			};
+			uint32 tableOk = 0u;
+			char premierEcart[120];
+			premierEcart[0] = 0;
+			for (uint32 k = 0; k < sizeof(kCas) / sizeof(kCas[0]); ++k) {
+				bool ar = false;
+				const char *g = NkFormeDeLOutil(kCas[k].outil, kCas[k].variante, kCas[k].varLigne, kCas[k].varImage,
+												kCas[k].montante, &ar);
+				if (NkComponentDecl::StrEq(g, kCas[k].attendu) && ar == kCas[k].arrondiAttendu)
+					++tableOk;
+				else if (!premierEcart[0])
+					snprintf(premierEcart, sizeof(premierEcart), "outil %d/%d -> « %s » (attendu « %s »)", kCas[k].outil,
+							 kCas[k].variante, g, kCas[k].attendu);
+			}
+			// 2. les commandes de l'apercu, par genre, avec le MEME peintre que la toile
+			nkentseu::editorkit::NkTheme th;
+			NkDocumentHost hote;
+			const NkPaintRect r{100.f, 100.f, 120.f, 80.f};
+			auto compter = [&](const char *forme, bool arrondi, uint32 &poly, uint32 &sommetsMax, uint32 &ellipses,
+							   uint32 &traits) {
+				NkRecordingPaint rec;
+				rec.Reset();
+				NkDessinerApercuCreation(rec, r, forme, arrondi, th, hote);
+				poly = 0u;
+				sommetsMax = 0u;
+				ellipses = 0u;
+				traits = 0u;
+				for (uint32 i = 0; i < (uint32)rec.cmds.Size(); ++i) {
+					const NkPaintCmd &c = rec.cmds[i];
+					if (c.op == NkPaintOp::Ellipse)
+						++ellipses;
+					else if (c.op == NkPaintOp::Line)
+						++traits;
+				}
+				return (uint32)rec.cmds.Size();
+			};
+			// le peintre ENREGISTREUR ne sait pas le polygone (PolygonHex rend faux par defaut) :
+			// on mesure ce qu'il SAIT -- l'ellipse, la ligne, le rectangle rempli -- et on compte
+			// les commandes. Un peintre qui sait le polygone (la toile) dessine l'etoile.
+			uint32 pE = 0u, sE = 0u, eE = 0u, tE = 0u;
+			const uint32 nEllipse = compter("ellipse", false, pE, sE, eE, tE);
+			uint32 pR = 0u, sR = 0u, eR = 0u, tR = 0u;
+			const uint32 nRect = compter("rect", false, pR, sR, eR, tR);
+			uint32 pL = 0u, sL = 0u, eL = 0u, tL = 0u;
+			const uint32 nLigne = compter("line", false, pL, sL, eL, tL);
+			uint32 pF = 0u, sF = 0u, eF = 0u, tF = 0u;
+			const uint32 nFrame = compter("frame", false, pF, sF, eF, tF);
+			// une ELLIPSE emet une commande d'ellipse ; un RECT n'en emet aucune ; une LIGNE emet
+			// un trait ; un CADRE peint son fond d'artboard (plusieurs commandes, aucune ellipse)
+			const bool formesDistinctes = eE >= 1u && eR == 0u && tL >= 1u && nRect >= 1u && nFrame >= 1u
+										  && nEllipse >= 1u && nLigne >= 1u;
+			// 3. LE RECT ARRONDI : le rayon voyage DANS la commande, pas dans leur nombre.
+			//    (Mon attente etait fausse -- j'avais exige « plus de commandes » : quatre rayons
+			//    EGAUX donnent UNE commande `FillColor` qui porte son `rounding`. La sonde mesure
+			//    donc le rayon peint, 0 contre 8.)
+			auto rayonPeint = [&](bool arrondi) {
+				NkRecordingPaint rec;
+				rec.Reset();
+				NkDessinerApercuCreation(rec, r, "rect", arrondi, th, hote);
+				float32 ray = -1.f;
+				for (uint32 i = 0; i < (uint32)rec.cmds.Size(); ++i)
+					if (rec.cmds[i].op == NkPaintOp::FillColor)
+						ray = rec.cmds[i].rounding;
+				return ray;
+			};
+			const float32 rayDroit = rayonPeint(false), rayArrondi = rayonPeint(true);
+			const uint32 nArrondi = nRect;
+			const bool arrondiVisible = rayDroit == 0.f && rayArrondi > 7.9f && rayArrondi < 8.1f;
+			// 4. le COSTUME : le fond de l'apercu est celui que la creation posera (doc_field_bg)
+			uint32 rgbaFond = 0u;
+			{
+				NkRecordingPaint rec;
+				rec.Reset();
+				NkDessinerApercuCreation(rec, r, "rect", false, th, hote);
+				for (uint32 i = 0; i < (uint32)rec.cmds.Size(); ++i)
+					if (rec.cmds[i].op == NkPaintOp::FillColor)
+						rgbaFond = rec.cmds[i].rgba;
+			}
+			const NkString hexAttendu = NkHexDuRole(th, "doc_field_bg");
+			const uint32 rgbaAttendu = renderdetail::NkGCouleur(hexAttendu.Data());
+			const bool costumeOk = rgbaFond == rgbaAttendu;
+			snprintf(det, sizeof(det),
+					 "table : %u / %u cas justes%s%s ; commandes de l'apercu : ellipse %u (dont %u ellipse(s)), rect %u (0 ellipse : "
+					 "%d), ligne %u (dont %u trait(s)), cadre %u ; rayon peint : droit %.1f, arrondi %.1f (attendu 8 ; %u commande, le "
+					 "rayon voyage DANS elle) -> %d ; fond de l'apercu %08X = doc_field_bg %08X (%s) -> %d",
+					 tableOk, (uint32)(sizeof(kCas) / sizeof(kCas[0])), premierEcart[0] ? " -- premier ecart : " : "",
+					 premierEcart[0] ? premierEcart : "", nEllipse, eE, nRect, eR == 0u ? 1 : 0, nLigne, tL, nFrame, (double)rayDroit,
+					 (double)rayArrondi, nArrondi, arrondiVisible ? 1 : 0, rgbaFond, rgbaAttendu, hexAttendu.Data(),
+					 costumeOk ? 1 : 0);
+			check("94. ① L'APERCU PENDANT LE TRACE PEINT LA FORME REELLE : une seule table de genre (douze cas : cadre, rect, arrondi, "
+				  "ellipse, triangle, pentagone, etoile, ligne, ligne montante, fleche, image, avatar) lue par le relachement ET par "
+				  "l'apercu ; le peintre emet la geometrie du genre (une ellipse pour l'ellipse, un trait pour la ligne, le RAYON de "
+				  "8 px pour la variante arrondie), et le costume est celui que la creation posera",
+				  tableOk == (uint32)(sizeof(kCas) / sizeof(kCas[0])) && formesDistinctes && arrondiVisible && costumeOk, det);
+		}
 		snprintf(tail, sizeof(tail), "\n=== RESULTAT : %d / %d ===\n", pass, total);
 		rep.Append(tail);
 

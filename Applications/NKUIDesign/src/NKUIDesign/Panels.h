@@ -2887,6 +2887,87 @@ namespace nkuidesign {
 	// C'est le CONSOMMATEUR. Il n'affiche pas une image du document : il calcule
 	// sa mise en page et appelle les fonctions de dessin memes que l'application
 	// finale appellera.
+	// ═══════════════════════════════════════════════════════════════════════
+	//  ① L'APERCU PENDANT LE TRACE (2026-09-05) -- ce que Rodolf voit se dessiner
+	// ═══════════════════════════════════════════════════════════════════════
+	//  Sa phrase : « pourquoi quand on dessine un graphique on voit juste le rectangle qui
+	//  s'allonge, et des qu'on relache on voit la forme ? Lunacy permet de voir la forme
+	//  pendant qu'on la cree. »
+	//
+	//  🔴 LA REGLE QUI REND CET APERCU HONNETE : **une seule table de genre**. La decision
+	//     « quel genre l'outil courant produit-il ? » vivait DANS le relachement, en dur. Un
+	//     apercu qui l'aurait recopiee aurait diverge au premier ajout de forme -- et un
+	//     apercu qui montre autre chose que ce qui sera cree est PIRE que pas d'apercu : il
+	//     ment au moment exact ou l'on decide. La table est donc ici, et les DEUX chemins la
+	//     lisent.
+	//  ⚠️ LE COSTUME EST CELUI DE LA CREATION, pas un costume d'apercu : meme fond
+	//     (`doc_field_bg`), meme trait pour les formes ouvertes (`doc_text`, 2 px), meme
+	//     arrondi de 8 px pour la variante « rectangle arrondi ». Deux tables de costume
+	//     auraient donne un apercu d'une couleur et une forme d'une autre.
+	/// Le genre que l'outil courant produira. `arrondi` : la variante « rectangle arrondi »
+	/// (un `rect` a rayon pose, pas un genre a part).
+	inline const char *NkFormeDeLOutil(nkentseu::int32 outil, nkentseu::int32 variante,
+									   nkentseu::int32 varLigne, nkentseu::int32 varImage, bool montante,
+									   bool *arrondi = nullptr) {
+		if (arrondi)
+			*arrondi = false;
+		if (outil == 2) {
+			switch (variante) {
+				case 1:
+					if (arrondi)
+						*arrondi = true;
+					return "rect";
+				case 2: return "ellipse";
+				case 3: return "triangle";
+				case 4: return "pentagone";
+				case 5: return "etoile";
+				default: return "rect";
+			}
+		}
+		if (outil == 3)
+			return varLigne == 1 ? "fleche" : (montante ? "line_up" : "line");
+		if (outil == 7)
+			return varImage == 1 ? "avatar" : "image";
+		return "frame"; // l'outil Cadre (1), et le repli
+	}
+
+	/// LE NOEUD PROVISOIRE de l'apercu, peint par LE MEME peintre que la toile
+	/// (`DrawShape`, la fonction que `NkDrawDocument` appelle pour une forme posee). Rien
+	/// n'est dessine « a la main » ici : c'est la forme telle qu'elle sera, avec le costume
+	/// qu'elle aura.
+	/// ⚠️ UN NOEUD SANS DOCUMENT ne peut pas passer par `NkDrawDocument` (il exige un arbre et
+	///    une disposition) : on entre par `DrawShape`, une marche plus bas. Le chemin est le
+	///    meme a partir de la -- degrades, arrondis, contours compris.
+	inline void NkDessinerApercuCreation(nkentseu::editorkit::NkComponentPaint &p, const NkPaintRect &r,
+										 const char *forme, bool arrondi, const nkentseu::editorkit::NkTheme &theme,
+										 const NkDocumentHost &host) {
+		if (!forme || !*forme || r.w <= 0.f || r.h <= 0.f)
+			return;
+		NkUINode n;
+		n.shape = NkString(forme);
+		n.width.mode = NkSizeMode::Fixed;
+		n.width.value = r.w;
+		n.height.mode = NkSizeMode::Fixed;
+		n.height.value = r.h;
+		if (arrondi)
+			n.radius = 8.f; // le meme preset que la creation
+		if (!StrEq(forme, "frame")) {
+			if (NkFormeOuverte(n)) { // une ligne : un TRAIT, pas un fond -- la regle de CreerForme
+				NkBordure b;
+				b.couleur = NkHexDuRole(theme, "doc_text");
+				b.epaisseur = 2.f;
+				b.position = NkBordurePos::Centre;
+				n.borders.PushBack(b);
+			} else {
+				NkRemplissage f;
+				f.couleur = NkHexDuRole(theme, "doc_field_bg");
+				n.fills.PushBack(f);
+			}
+		}
+		n.parent = 0; // une forme POSEE : un cadre d'agencement, lui, ne se voit pas (regle du 28/08)
+		renderdetail::DrawShape(p, r, n, host, NkMat2D{});
+	}
+
 	class PreviewPanel : public NkEditorPanel {
 		public:
 			/// Le menu contextuel de la toile est-il ouvert -- lu par la sonde (④ molette).
@@ -4201,6 +4282,16 @@ namespace nkuidesign {
 					//    donc une divergence à découvrir le jour où Ctrl servira à
 					//    autre chose.
 					const NkPaintRect t = RectTrace(in.mouseX, in.mouseY, in.shift, in.alt);
+					// ① LA FORME REELLE D'ABORD (2026-09-05, retour de Rodolf) : le meme peintre, le
+					//    meme genre et le meme costume que ce que le relachement posera ; la boite en
+					//    pointille et la pastille de taille restent PAR-DESSUS, comme guides.
+					{
+						bool arrondiApercu = false;
+						const char *formeApercu = NkFormeDeLOutil(mOutil, mVariante, mVarLigne, mVarImage,
+																	 (mCreateX <= in.mouseX) != (mCreateY <= in.mouseY),
+																	 &arrondiApercu);
+						NkDessinerApercuCreation(paint, t, formeApercu, arrondiApercu, mSt->theme, mSt->host);
+					}
 					paint.OutlineSharp(t, NkDesignResolveRole("accent_ui"));
 					// La même puce que la sélection : le tracé se lit pendant
 					// qu'on dessine (Lunacy).
@@ -6184,34 +6275,10 @@ namespace nkuidesign {
 						h = mOutil == 1 ? 160.f : (mOutil == 7 && mVarImage == 1 ? 64.f : 80.f);
 					if (ligne && w < 8.f && h < 8.f)
 						w = 120.f;
-					const char *forme = "frame";
+					// ① LA TABLE, LUE UNE SEULE FOIS : l'apercu du glisser lit exactement la meme
 					bool arrondi = false;
-					if (mOutil == 2) {
-						if (mVariante == 1) {
-							forme = "rect"; // l'ARRONDI est un rect a rayon pose
-							arrondi = true;
-						} else if (mVariante == 2)
-							forme = "ellipse";
-						else if (mVariante == 3)
-							forme = "triangle"; // vague Lunacy (b), 31/08 :
-						else if (mVariante == 4)
-							forme = "pentagone"; // natures ADDITIVES du §4.2
-						else if (mVariante == 5)
-							forme = "etoile";
-						else
-							forme = "rect";
-					} else if (mOutil == 3) {
-						if (mVarLigne == 1)
-							forme = "fleche";
-						else
-							// La diagonale MONTE si les axes du geste divergent.
-							forme = ((mCreateX <= in.mouseX) != (mCreateY <= in.mouseY))
-										? "line_up"
-										: "line";
-					} else if (mOutil == 7) {
-						// natures ADDITIVES image/avatar (famille Image, 3e retour)
-						forme = (mVarImage == 1) ? "avatar" : "image";
-					}
+					const char *forme = NkFormeDeLOutil(mOutil, mVariante, mVarLigne, mVarImage,
+														(mCreateX <= in.mouseX) != (mCreateY <= in.mouseY), &arrondi);
 					const int32 cree =
 						CreerForme(mCreateParent, screen, t.x, t.y, mSt->view.ToDocLength(w),
 								   mSt->view.ToDocLength(h), forme);
