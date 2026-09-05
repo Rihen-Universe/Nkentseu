@@ -381,6 +381,29 @@ recette : « livré » se mesure, il ne se déclare pas.*
   et non un chemin, et son **infobulle** porte le chemin complet — le champ que
   j'avais déclaré impossible est **additif**, défaut vide (sonde 115). ⑦ un seul
   lanceur système : `NkLauncher`.
+- **Le sélecteur, quatrième passe** (05/09, nuit — « tu as bien refait », puis six
+  retours) :
+  ① le **dossier** avait un onglet **vert** sur un corps ambre : la nuance se
+  calculait **au masque** en supposant `0xAARRGGBB` alors que l'empaquetage est
+  `0xRRGGBBAA` — le rouge partait à zéro. Il suit désormais la forme de
+  l'**explorateur Windows 11** (rabat arrière, patte à 40 %, rabat avant plus
+  clair, liséré), **une seule teinte, trois nuances** (sonde 116).
+  ② le **rail** était du texte nu : il prend les **mêmes icônes** que la grille,
+  par la **même fonction** (`IconePour`) — volumes et titres de section compris ;
+  `tree_view` apprend à peindre une silhouette (champ additif, défaut vide)
+  (sonde 117).
+  ③④ les **en-têtes de section** portent une **bande plus sombre** (une nuance du
+  fond du panneau, aucune teinte inventée), et les **chevrons** sont **tracés** —
+  ils étaient demandés à un atlas absent, donc peints nulle part ; un nœud peut
+  **annoncer** des enfants non chargés (sonde 118).
+  ⑤ un fichier **reconnu** et un **inconnu** ont chacun leur design, et la
+  reconnaissance vient de **la table des filtres** — une seule source (sonde 119).
+  ⑥ **« dossier courant » prend la définition de Rodolf** : le dernier dossier
+  d'une opération **réussie**, c'est-à-dire **la tête des récents** ; naviguer,
+  regarder, annuler ne le changent pas, et le dialogue **s'y ouvre** (sonde 120).
+  ⚠️ **La même cause trois fois** : `NkComponentPaint::Icon` peint un carré plein
+  (il n'existe aucun atlas d'icônes). Les icônes du rail, les chevrons et les
+  silhouettes de type étaient tous **demandés et peints nulle part**.
 - **Ce que Lunacy n'a pas et que nous avons** (§11.3 du document 13) :
   l'**agencement** calculé, l'**ancrage**, les **cibles** et **points de
   rupture**, les **rôles de thème** et les **langues**. *Aucun n'est sacrifié
