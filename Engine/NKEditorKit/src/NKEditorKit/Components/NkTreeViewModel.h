@@ -170,6 +170,27 @@ namespace nkentseu {
 				// ⚠️ ELLE NE REMPLACE PAS `icon`, qui reste la poignee d'atlas de l'hote. Un
 				//    rail de fichiers n'a pas d'atlas -- il a besoin d'une forme TRACEE.
 				uint8 silhouette = 0;
+
+				// ③ (2026-09-05, nuit) CE NOEUD EST UN EN-TETE DE SECTION : il se peint sur
+				// une BANDE plus sombre, sur toute la largeur. Rodolf : « pour distinguer
+				// "Dossier courant" des autres, on doit avoir une barre differente pour ce
+				// titre, donc plus sombre » -- c'est ce qui separe visuellement les blocs.
+				// ⚠️ EXPLICITE, PAS DEDUIT. On aurait pu le deviner (« verrouille ET sans
+				//    chemin »), mais deux notions qui coincident aujourd'hui divergeront : un
+				//    noeud verrouille qui n'est pas un titre existera un jour.
+				// Faux par defaut : les quatre consommateurs gardent leur rendu.
+				bool bandeau = false;
+
+				// ④ (2026-09-05, nuit) CE NOEUD A DES ENFANTS QUI NE SONT PAS ENCORE DANS
+				// LE MODELE. Le chevron s'affiche quand meme, et le deplier appelle
+				// `onExpand` : c'est a l'hote de charger, puis de reconstruire.
+				// ⚠️ POURQUOI CE DRAPEAU EXISTE : le rail d'un selecteur ne peut pas lister
+				//    les sous-dossiers de TOUS les dossiers -- ce serait un acces disque par
+				//    entree a chaque image. Il le fait pour ceux qu'on deplie, et il ANNONCE
+				//    les autres. Sans ce drapeau, un dossier plein n'aurait pas de chevron
+				//    tant qu'on ne l'aurait pas ouvert -- c'est-a-dire jamais.
+				// Faux par defaut : les quatre consommateurs gardent leur rendu.
+				bool enfantsPossibles = false;
 				/// Le drapeau vient-il d'un ancetre plutot que du noeud ? Sert a le
 				/// peindre attenue. L'application le calcule ; sans lui, l'icone
 				/// mentirait sur l'endroit ou l'on peut agir.

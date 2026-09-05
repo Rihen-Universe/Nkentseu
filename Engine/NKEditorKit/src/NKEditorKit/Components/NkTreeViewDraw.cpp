@@ -403,6 +403,15 @@ namespace nkentseu {
 						p.OutlineSharp({row.x + stroke, row.y + stroke, row.w - stroke * 2.f,
 										row.h - stroke * 2.f},
 									   s.chosenMark);
+					// ③ (05/09, nuit) UN EN-TETE DE SECTION SE PEINT SUR UNE BANDE PLUS SOMBRE,
+					//    sur toute la largeur -- c'est ce qui separe visuellement les blocs du
+					//    rail (« Recents », « Acces rapide », « Ce PC », « Dossier courant »).
+					// ⚠️ AUCUNE TEINTE INVENTEE : c'est le fond du panneau, ASSOMBRI d'un quart
+					//    par `NkTeinter`. Un role de plus aurait demande a chaque theme de le
+					//    definir ; une nuance du role existant suit le theme toute seule, clair
+					//    comme sombre.
+					if (n.bandeau)
+						p.FillColor(row, NkTeinter(p.ColorOf(s.panelBg), -0.28f));
 					else if (over)
 						p.Fill(row, s.rowHover);
 
@@ -431,8 +440,38 @@ namespace nkentseu {
 					// n'y a rien a plier, et une zone morte qui reagit au survol se
 					// lit comme une panne. On reserve la place, on ne dessine rien.
 					const NkPaintRect chev{x, row.y, chevW, rowH};
-					if (hasKids && !flat) {
-						p.Icon(chev, isOpen ? s.icons.chevronOpen : s.icons.chevronClosed, s.iconTint);
+					// ④ (05/09, nuit) LE CHEVRON EST DESSINE, PAS DEMANDE A UN ATLAS.
+					//    `s.icons.chevronOpen` vaut ZERO chez un hote sans atlas (le selecteur de
+					//    fichiers, par exemple) : `p.Icon` ne peignait alors RIEN. Le chevron
+					//    etait demande et invisible -- meme cause que les icones du rail.
+					//    On garde l'atlas quand l'hote en a un, et on TRACE sinon.
+					//    ⚠️ `enfantsPossibles` compte autant que `hasKids` : un dossier dont les
+					//       sous-dossiers ne sont pas encore charges DOIT montrer son chevron,
+					//       sinon on ne l'ouvrirait jamais.
+					if ((hasKids || n.enfantsPossibles) && !flat) {
+						const uint16 poignee = isOpen ? s.icons.chevronOpen : s.icons.chevronClosed;
+						if (poignee != 0u)
+							p.Icon(chev, poignee, s.iconTint);
+						else {
+							// un triangle : trois traits, jamais le caractere « > »
+							const float32 cxc = chev.x + chev.w * 0.5f, cyc = chev.y + chev.h * 0.5f;
+							const float32 rr = chev.w * 0.22f;
+							if (isOpen) {
+								const float32 tri[6] = {cxc - rr, cyc - rr * 0.6f, cxc + rr, cyc - rr * 0.6f,
+															cxc,	  cyc + rr * 0.9f};
+								if (!p.PolygonHex(tri, 3, p.ColorOf(s.iconTint))) {
+									p.Line(tri[0], tri[1], tri[4], tri[5], s.iconTint, 1.3f);
+									p.Line(tri[2], tri[3], tri[4], tri[5], s.iconTint, 1.3f);
+								}
+							} else {
+								const float32 tri[6] = {cxc - rr * 0.6f, cyc - rr, cxc - rr * 0.6f, cyc + rr,
+															cxc + rr * 0.9f, cyc};
+								if (!p.PolygonHex(tri, 3, p.ColorOf(s.iconTint))) {
+									p.Line(tri[0], tri[1], tri[4], tri[5], s.iconTint, 1.3f);
+									p.Line(tri[2], tri[3], tri[4], tri[5], s.iconTint, 1.3f);
+								}
+							}
+						}
 						if (over && chev.Contains(in.mouseX, in.mouseY))
 							hitChevron = true;
 					}

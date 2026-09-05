@@ -13074,6 +13074,127 @@ namespace nkuidesign {
 				memeIcone && volumesOk && titresIconises && railPeint, det);
 			NkDirectory::Delete("sonde_rail_icones", true);
 		}
+		// ── 118. ③④ LA BANDE DE SECTION ET LES CHEVRONS (05/09, nuit). Rodolf : « pour
+		//    distinguer "Dossier courant" des autres, on doit avoir une barre differente pour
+		//    ce titre, donc plus sombre », et « on doit aussi avoir les chevrons pour
+		//    ouvrir/fermer, et ce n'est pas encore le cas ».
+		//    CAUSE DU CHEVRON MANQUANT : `p.Icon(chev, s.icons.chevronOpen, ...)` -- et cette
+		//    poignee vaut ZERO chez un hote sans atlas. Le chevron etait DEMANDE et peint
+		//    nulle part. Exactement la meme cause que les icones du rail.
+		{
+			char det[880];
+			auto dessiner = [](bool bandeau, bool enfants, bool ouvert, uint32 &fills, uint32 &traits,
+					   uint32 &polys, float32 &largeurMax) {
+				NkRecordingPaint r;
+				NkTreeViewModel m;
+				NkTreeNode n;
+				n.id = 1u;
+				n.parent = -1;
+				n.label = NkString("Section");
+				n.bandeau = bandeau;
+				n.enfantsPossibles = enfants;
+				m.nodes.PushBack(n);
+				if (ouvert)
+					m.SetOpen(1u, true, false);
+				NkTreeViewStyle st;
+				NkTreeViewHooks h;
+				NkComponentInput in;
+				NkDrawTreeView(r, in, {0.f, 0.f, 260.f, 200.f}, m, st, h);
+				fills = traits = polys = 0u;
+				largeurMax = 0.f;
+				for (uint32 i = 0; i < (uint32)r.cmds.Size(); ++i) {
+					const NkPaintCmd &c = r.cmds[i];
+					if (c.op == NkPaintOp::FillColor) {
+						++fills;
+						if (c.w > largeurMax)
+							largeurMax = c.w;
+					} else if (c.op == NkPaintOp::Line)
+						++traits;
+				}
+			};
+			// 1. LA BANDE : un en-tete emet un remplissage SUR TOUTE LA LARGEUR ; un noeud
+			//    ordinaire n'en emet pas.
+			uint32 fA = 0u, tA = 0u, pA = 0u, fB = 0u, tB = 0u, pB = 0u;
+			float32 lA = 0.f, lB = 0.f;
+			dessiner(true, false, false, fA, tA, pA, lA);
+			dessiner(false, false, false, fB, tB, pB, lB);
+			const bool bandeOk = fA > fB && lA >= 240.f && lB < 240.f;
+			// 2. LE CHEVRON : un noeud qui ANNONCE des enfants emet des traits de plus ;
+			//    un noeud sans enfant n'en emet pas. ⚠️ Le controle negatif est la moitie
+			//    du temoin : un chevron partout serait aussi faux qu'un chevron nulle part.
+			uint32 fC = 0u, tC = 0u, pC = 0u;
+			float32 lC = 0.f;
+			dessiner(false, true, false, fC, tC, pC, lC);
+			const bool chevronPresent = tC > tB;
+			// 3. FERME ET OUVERT NE SE DESSINENT PAS PAREIL
+			uint32 fD = 0u, tD = 0u, pD = 0u;
+			float32 lD = 0.f;
+			dessiner(false, true, true, fD, tD, pD, lD);
+			// meme nombre de traits, mais des positions differentes : on compare les
+			// empreintes plutot que les comptes.
+			auto empreinteChevron = [](bool ouvert) -> uint64 {
+				NkRecordingPaint r;
+				NkTreeViewModel m;
+				NkTreeNode n;
+				n.id = 1u;
+				n.parent = -1;
+				n.label = NkString("S");
+				n.enfantsPossibles = true;
+				m.nodes.PushBack(n);
+				if (ouvert)
+					m.SetOpen(1u, true, false);
+				NkTreeViewStyle st;
+				NkTreeViewHooks h;
+				NkComponentInput in;
+				NkDrawTreeView(r, in, {0.f, 0.f, 260.f, 200.f}, m, st, h);
+				uint64 e = 0u;
+				for (uint32 i = 0; i < (uint32)r.cmds.Size(); ++i)
+					if (r.cmds[i].op == NkPaintOp::Line)
+						e = e * 1099511628211ull + (uint64)((uint32)(r.cmds[i].x * 8.f) * 31u
+																   + (uint32)(r.cmds[i].y * 8.f));
+				return e;
+			};
+			const bool ouvertDifferent = empreinteChevron(false) != empreinteChevron(true);
+			// 4. AUCUN GLYPHE : le chevron n'ajoute pas de commande de texte
+			uint32 texteAvec = 0u, texteSans = 0u;
+			{
+				auto textes = [](bool enfants) -> uint32 {
+					NkRecordingPaint r;
+					NkTreeViewModel m;
+					NkTreeNode n;
+					n.id = 1u;
+					n.parent = -1;
+					n.label = NkString("S");
+					n.enfantsPossibles = enfants;
+					m.nodes.PushBack(n);
+					NkTreeViewStyle st;
+					NkTreeViewHooks h;
+					NkComponentInput in;
+					NkDrawTreeView(r, in, {0.f, 0.f, 260.f, 200.f}, m, st, h);
+					uint32 t2 = 0u;
+					for (uint32 i = 0; i < (uint32)r.cmds.Size(); ++i)
+						if (r.cmds[i].op == NkPaintOp::Text)
+							++t2;
+					return t2;
+				};
+				texteAvec = textes(true);
+				texteSans = textes(false);
+			}
+			const bool aucunGlyphe118 = texteAvec == texteSans;
+			snprintf(det, sizeof(det),
+				"bande : %u remplissage(s) large de %.0f pour un en-tete, %u de %.0f pour un noeud "
+				"ordinaire -> %d ; chevron : %u trait(s) avec enfants contre %u sans -> %d ; ferme et "
+				"ouvert differents=%d ; commandes de texte %u avec / %u sans -> aucun glyphe=%d",
+				fA, (double)lA, fB, (double)lB, bandeOk ? 1 : 0, tC, tB, chevronPresent ? 1 : 0,
+				ouvertDifferent ? 1 : 0, texteAvec, texteSans, aucunGlyphe118 ? 1 : 0);
+			check("118. ③④ LA BANDE DE SECTION ET LE CHEVRON SONT PEINTS : un en-tete se peint sur un remplissage PLEINE "
+				"LARGEUR (une nuance du fond du panneau, assombrie -- aucune teinte inventee, elle suit le theme clair "
+				"comme sombre) et un noeud ordinaire n'en a pas ; un noeud qui ANNONCE des enfants montre un chevron "
+				"TRACE, un noeud sans enfant n'en montre pas (le controle negatif est la moitie du temoin), ferme et "
+				"ouvert ne se dessinent pas pareil, et rien de tout cela n'est un glyphe de police -- la poignee d'atlas "
+				"valait ZERO chez un hote sans atlas, et le chevron etait demande puis peint nulle part",
+				bandeOk && chevronPresent && ouvertDifferent && aucunGlyphe118, det);
+		}
 		snprintf(tail, sizeof(tail), "\n=== RESULTAT : %d / %d ===\n", pass, total);
 		rep.Append(tail);
 

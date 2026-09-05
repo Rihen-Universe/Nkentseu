@@ -223,6 +223,11 @@ namespace nkentseu {
 				//    (le bouton « Aller », `OpenPickerBase`, un appelant qui n'existe pas
 				//    encore) : il n'y a plus rien a oublier.
 				char listePour[512] = {};
+				/// ④ (05/09, nuit) L'EMPREINTE DE CE QUI EST DEPLIE. Le rail SE RECONSTRUIT
+				/// quand elle change -- personne n'a a « armer » une reconstruction apres un
+				/// clic sur un chevron. Meme regle qu'au point ① du 05/09 : on compare, on
+				/// n'arme pas.
+				nk_uint64 empreinteDeplie = 0u;
 
 				// ── ② LA LARGEUR DU RAIL, EN PIXELS (05/09, nuit) ───────────────────
 				// Elle etait une FRACTION de la largeur du volet (`tree_width` = 0,18) : 155 px
@@ -728,6 +733,73 @@ namespace nkentseu {
 				// ⚠️ LES VOLUMES SE LISENT A L'EXECUTION (`NkFileSystem::GetDrives`), avec leur
 				//    etiquette (« D: Projets »). Boucler de A a Z en testant `Exists` -- ce que
 				//    faisait la version precedente -- ne donne ni l'etiquette ni l'etat monte.
+				/// ④ (05/09, nuit) AJOUTE UN NOEUD AU RAIL. C'etait une lambda locale a
+				/// `ConstruireRail` ; `PoserSousDossiers` en a besoin aussi, et une lambda ne se
+				/// partage pas. Un seul site pose une entree du rail -- son icone, son infobulle
+				/// et son chemin viennent donc toujours du meme endroit.
+				int32 AjouterNoeud(const char *chemin, const char *libelle, int32 parent) {
+					if (!chemin || !*chemin || !NkDirectory::Exists(chemin))
+						return -1;
+					NkTreeNode n;
+					n.id = IdDe(chemin);
+					n.parent = parent;
+					n.label = NkString(libelle && *libelle ? libelle : chemin);
+					n.path = NkString(chemin);
+					n.kindRole = roleDossier;
+					// L'INFOBULLE PORTE LE CHEMIN COMPLET : le libelle est tronque au milieu,
+					// et c'est le seul moyen de lire ce qu'on survole.
+					n.infobulle = NkString(chemin);
+					// LA MEME ICONE QUE LA GRILLE, par la MEME fonction.
+					n.silhouette = (uint8)IconePour(chemin, true);
+					vue.folders.nodes.PushBack(n);
+					return (int32)vue.folders.nodes.Size() - 1;
+				}
+				
+				/// L'empreinte de l'ensemble des noeuds deplies.
+				nk_uint64 EmpreinteDeplie() const {
+					nk_uint64 h = 1469598103934665603ull;
+					for (uint32 i = 0; i < (uint32)vue.folders.toggled.Size(); ++i) {
+						h ^= vue.folders.toggled[i];
+						h *= 1099511628211ull;
+					}
+					return h;
+				}
+				
+				/// ④ Les sous-dossiers de `chemin`, ajoutes sous `parent`. Rend le nombre pose.
+				/// ⚠️ LE COUT EST BORNE, ET IL EST DIT : un `GetEntries` par dossier DEPLIE, et
+				///    un test « a-t-il des sous-dossiers » par enfant pose -- soit un acces
+				///    disque par entree visible du rail. Sur un dossier de trente sous-dossiers,
+				///    c'est trente-et-un acces a la RECONSTRUCTION du rail, pas a chaque image :
+				///    le rail ne se rebatit que sur navigation ou sur depliage.
+				///    Au-dela de `kProfondeurRail`, on n'annonce plus rien : un rail deplie sur
+				///    huit niveaux n'est plus un rail.
+				static const int32 kProfondeurRail = 4;
+				uint32 PoserSousDossiers(const char *chemin, int32 parent, int32 profondeur) {
+					if (!chemin || !*chemin || profondeur > kProfondeurRail)
+						return 0u;
+					NkVector<NkDirectoryEntry> e =
+						NkDirectory::GetEntries(NkPath(chemin), "*", NkSearchOption::NK_TOP_DIRECTORY_ONLY);
+					uint32 n = 0u;
+					for (usize i = 0; i < e.Size(); ++i) {
+						const char *nm = e[i].Name.CStr();
+						if (!e[i].IsDirectory || !nm || !nm[0] || nm[0] == '.' || e[i].IsHidden)
+							continue;
+						const NkString sous = (NkPath(chemin) / nm).ToString();
+						const int32 j = AjouterNoeud(sous.CStr(), nm, parent);
+						if (j < 0)
+							continue;
+						++n;
+						// il ANNONCE ses enfants sans les charger : c'est ce qui lui donne son
+						// chevron avant qu'on l'ouvre.
+						vue.folders.nodes[(uint32)j].enfantsPossibles =
+							profondeur < kProfondeurRail && DirHasSubdirs(sous.CStr());
+						// et s'il est DEJA deplie, on descend
+						if (vue.folders.IsOpen(vue.folders.nodes[(uint32)j].id, false))
+							n += PoserSousDossiers(sous.CStr(), j, profondeur + 1);
+					}
+					return n;
+				}
+				
 				void ConstruireRail() {
 					vue.folders.nodes.Clear();
 					// ⑥ ET IL REVIENT EN HAUT. Le defilement du rail survivait a sa
@@ -736,22 +808,8 @@ namespace nkentseu {
 					//    sans que rien ne l'explique. C'est l'hypothese la plus probable pour
 					//    la capture ou Rodolf ne voyait aucune section.
 					vue.folders.scroll = 0.f;
-					auto ajouter = [&](const char *chemin, const char *libelle, int32 parent) -> int32 {
-						if (!chemin || !*chemin || !NkDirectory::Exists(chemin))
-							return -1;
-						NkTreeNode n;
-						n.id = IdDe(chemin);
-						n.parent = parent;
-						n.label = NkString(libelle && *libelle ? libelle : chemin);
-						n.path = NkString(chemin);
-						n.kindRole = roleDossier;
-						// ⑥ L'INFOBULLE PORTE LE CHEMIN COMPLET : le libelle est tronque au
-						//    milieu, et c'est le seul moyen de lire ce qu'on survole.
-						n.infobulle = NkString(chemin);
-						// ② LA MEME ICONE QUE LA GRILLE, par la MEME fonction.
-						n.silhouette = (uint8)IconePour(chemin, true);
-						vue.folders.nodes.PushBack(n);
-						return (int32)vue.folders.nodes.Size() - 1;
+					auto ajouter = [&](const char *chemin, const char *libelle, int32 parent) {
+						return AjouterNoeud(chemin, libelle, parent);
 					};
 					// Un TITRE de section : pas de chemin, donc rien a suivre ; `locked`, donc rien
 					// a selectionner. Deux barrieres pour un seul role -- la seconde tient meme si
@@ -765,6 +823,7 @@ namespace nkentseu {
 						// ② UN TITRE A SA PROPRE FORME : trois traits. Il n'est pas un objet du
 						//    systeme de fichiers et ne doit pas en avoir l'air.
 						n.silhouette = (uint8)NkAssetIcone::Section;
+						n.bandeau = true; // ③ sa bande plus sombre, sur toute la largeur
 						vue.folders.nodes.PushBack(n);
 						return (int32)vue.folders.nodes.Size() - 1;
 					};
@@ -859,14 +918,9 @@ namespace nkentseu {
 						const int32 ici = ajouter(pickerPath, nom.CStr(), sec);
 						if (ici >= 0) {
 							vue.folders.SetOpen(vue.folders.nodes[(uint32)ici].id, true, true);
-							NkVector<NkDirectoryEntry> e = NkDirectory::GetEntries(
-								NkPath(pickerPath), "*", NkSearchOption::NK_TOP_DIRECTORY_ONLY);
-							for (usize i = 0; i < e.Size(); ++i) {
-								const char *nm = e[i].Name.CStr();
-								if (!e[i].IsDirectory || !nm || !nm[0] || nm[0] == '.' || e[i].IsHidden)
-									continue;
-								ajouter((NkPath(pickerPath) / e[i].Name.CStr()).ToString().CStr(), nm, ici);
-							}
+							// ④ UN SEUL SITE POSE LES SOUS-DOSSIERS, et il descend dans ceux qui sont
+							//    DEJA deplies : le rail retrouve son etat apres une navigation.
+							PoserSousDossiers(pickerPath, ici, 1);
 							vue.folders.active = vue.folders.nodes[(uint32)ici].id;
 						}
 					}
@@ -973,6 +1027,17 @@ namespace nkentseu {
 			//    C'est ce qui rend le defaut de la capture (ouvert = vide) IMPOSSIBLE.
 			if (fp.DoitRelire())
 				fp.RelireDossier();
+			// ④ LE RAIL SUIT LE DEPLIAGE. Un clic sur un chevron change l'ensemble des
+			//    noeuds deplies ; on le CONSTATE (une empreinte) au lieu de demander a
+			//    l'arbre de nous prevenir. Meme regle qu'au point ① du 05/09 : ce qui doit
+			//    etre arme finit par ne pas l'etre.
+			{
+				const nk_uint64 emp = fp.EmpreinteDeplie();
+				if (emp != fp.empreinteDeplie) {
+					fp.empreinteDeplie = emp;
+					fp.ConstruireRail();
+				}
+			}
 
 			auto &dl = ctx.dlOverlay;
 			const float32 W = (float32)ctx.viewW, H = (float32)ctx.viewH, S = ctx.S(1.f);

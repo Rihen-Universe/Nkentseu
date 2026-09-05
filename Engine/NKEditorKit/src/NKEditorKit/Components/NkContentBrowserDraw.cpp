@@ -251,19 +251,9 @@ namespace nkentseu {
 			///    le rouge a ZERO et l'alpha dans la case du rouge. D'un ambre, il restait
 			///    du VERT -- c'est l'onglet vert de la capture de Rodolf. Une teinte ne se
 			///    bricole pas au masque.
-			uint32 Teinter(uint32 rgba, float32 k) {
-				const int32 r0 = (int32)((rgba >> 24) & 0xFFu), g0 = (int32)((rgba >> 16) & 0xFFu);
-				const int32 b0 = (int32)((rgba >> 8) & 0xFFu), a0 = (int32)(rgba & 0xFFu);
-				auto mix = [&](int32 c) -> uint32 {
-					const float32 cible = k >= 0.f ? 255.f : 0.f;
-					const float32 t = k >= 0.f ? k : -k;
-					float32 v = (float32)c + (cible - (float32)c) * t;
-					if (v < 0.f) v = 0.f;
-					if (v > 255.f) v = 255.f;
-					return (uint32)(v + 0.5f);
-				};
-				return (mix(r0) << 24) | (mix(g0) << 16) | (mix(b0) << 8) | (uint32)a0;
-			}
+			// `Teinter` a monte dans `NkSilhouettes.h` (05/09, nuit) : le dessin de l'ARBRE
+			// en a besoin pour la bande de ses sections, et une copie aurait diverge.
+			inline uint32 Teinter(uint32 rgba, float32 k) { return NkTeinter(rgba, k); }
 
 			// ── ①②③ LES SILHOUETTES, DESSINEES (2026-09-05) ──────────────────────
 			// ⚠️ DESSINEES AVEC LES PRIMITIVES DU CONTRAT, JAMAIS UN GLYPHE DE POLICE
