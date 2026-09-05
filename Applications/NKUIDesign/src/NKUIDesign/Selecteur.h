@@ -27,44 +27,11 @@
 
 namespace nkuidesign {
 
-	/// LES ROLES DU NAVIGATEUR, resolus depuis SA declaration. Un jeton ajoute au
-	/// kit demain sera resolu sans toucher ce fichier -- une table ecrite a la
-	/// main ici serait le doublon suivant.
-	inline nkentseu::editorkit::NkContentBrowserStyle NkStyleVoletFichiers() {
-		using namespace nkentseu;
-		using namespace nkentseu::editorkit;
-		const NkComponentDecl &d = NkContentBrowserDecl();
-		auto role = [&](const char *jeton) -> uint16 {
-			for (uint16 i = 0; i < d.tokenCount; ++i)
-				if (NkComponentDecl::StrEq(d.tokens[i].name, jeton))
-					return NkDesignResolveRole(d.tokens[i].defaultRole);
-			return NkDesignResolveRole("text_muted");
-		};
-		NkContentBrowserStyle s;
-		s.panelBg = role("panel_bg");
-		s.headerBg = role("header_bg");
-		s.border = role("border");
-		s.text = role("text");
-		s.textMuted = role("text_muted");
-		s.cardBg = role("card_bg");
-		s.cardFooterBg = role("card_footer_bg");
-		s.activeMark = role("active_mark");
-		s.chosenMark = role("chosen_mark");
-		s.folderTint = role("folder_tint");
-		s.chipBg = role("chip_bg");
-		s.badgeText = role("badge_text");
-		s.statusBg = role("status_bg");
-		s.variant = NkBrowserVariant::Grid;
-		return s;
-	}
-
-	/// LE STYLE COMPLET : le cadre (les couleurs de l'ancien selecteur, pour que
-	/// les deux se ressemblent) et le volet (des roles).
-	inline nkentseu::editorkit::NkFilePickerNavStyle NkStyleSelecteurNav() {
-		nkentseu::editorkit::NkFilePickerNavStyle s;
-		s.volet = NkStyleVoletFichiers();
-		return s;
-	}
+	// ⚠️ LE STYLE A MONTE DANS LE KIT (⑥, 05/09 soir) : `NkStyleSelecteurDefaut`
+	//    resout les memes treize roles depuis la declaration du composant, et
+	//    `NkDrawSelecteur` l'appelle pour toute application. Le garder ici en aurait
+	//    fait le second endroit ou vivent les memes valeurs -- exactement ce que ce
+	//    fichier reproche aux navigateurs recopies.
 
 	/// L'extension designe-t-elle une image que `NkImage` sait relire ? La liste
 	/// est celle des codecs du depot, pas une supposition.

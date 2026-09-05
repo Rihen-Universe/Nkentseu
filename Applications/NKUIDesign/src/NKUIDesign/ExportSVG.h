@@ -1190,8 +1190,10 @@ namespace nkuidesign {
 		if (c.picker.pickerOpen) {
 			// ② LE NOUVEAU SELECTEUR. `NkDrawFilePicker` (l'ancien) n'a pas bouge et
 			//    reste celui de « Choisir une image... » : deux chemins, aucun retire.
-			const editorkit::NkFilePickerNavStyle sty = NkStyleSelecteurNav();
-			editorkit::NkDrawFilePickerNav(ctx, c.picker, sty, st.theme);
+			// ⑥ LE MEME POINT D'ENTREE que « Choisir une image... » : le style vient du
+			//    kit, resolu depuis la declaration du composant. Un style construit ici
+			//    aurait ete le second endroit ou vivent les memes treize roles.
+			editorkit::NkDrawSelecteur(ctx, c.picker, st.theme);
 		}
 		if (c.picker.pickerCancelled)
 			c.picker.pickerCancelled = false;

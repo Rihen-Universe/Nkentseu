@@ -9730,10 +9730,14 @@ namespace nkuidesign {
 				image(-1.f, -1.f, false, 0u);
 				const uint32 nApres = (uint32)stRet.doc.nodes.Size();
 				const bool rienNeTraverse = selApresClic == selAvant && zoomApres == zoomAvant && nApres == nAvant;
-				// « Annuler » DANS la modale : sa geometrie (NkDrawFilePicker : 580 x 500 centre en
-				// mode fichier ; « Annuler » a (px + pw - 290, py + ph - 44), 80 x 32)
-				const float32 pw = 580.f, ph = 500.f, pxm = (860.f - pw) * 0.5f, pym = (900.f - ph) * 0.5f;
-				const float32 ax = pxm + pw - 290.f + 40.f, ay = pym + ph - 44.f + 16.f;
+				// « Annuler » DANS la modale. ⚠️ GEOMETRIE MISE A JOUR LE 05/09 AU SOIR : le site
+				// « Choisir une image... » est passe au SELECTEUR PAR DEFAUT du kit
+				// (`NkDrawSelecteur`, deux volets), qui mesure 900 x 620 et non 580 x 500.
+				// La sonde a rougi a la bascule, et c'est exactement ce qu'on lui demande :
+				// un temoin qui aurait continue de passer n'aurait rien mesure du tout.
+				// « Annuler » : {px + pw - 20 - 120*2 - 10, py + ph - 52, 120, 34}.
+				const float32 pw = 900.f, ph = 620.f, pxm = (860.f - pw) * 0.5f, pym = (900.f - ph) * 0.5f;
+				const float32 ax = pxm + pw - 20.f - 240.f - 10.f + 60.f, ay = pym + ph - 52.f + 17.f;
 				image(ax, ay, false, 0u);
 				image(ax, ay, true, 0u);
 				image(ax, ay, false, 0u);
@@ -11688,6 +11692,110 @@ namespace nkuidesign {
 				"restant lisible et copiable",
 				ecrit102 && poseOk && vignetteOk && geomOk && retreci && refusVide && cheminGarde, det);
 			st102.images.televerser = nullptr;
+		}
+		// ── 103. ⑥ LE SELECTEUR EST L'OUTIL PAR DEFAUT, ET IL COUVRE LES QUATRE MODES
+		//    (05/09, soir). Rodolf : « que ce soit pour creer un dossier, selectionner un
+		//    dossier ou un fichier, pour ouvrir ou pour sauvegarder, il doit etre l'outil par
+		//    defaut. Meme dans NK3DModeler. » Quatre mesures : le point d'entree par defaut
+		//    resout SES roles tout seul (une application n'a plus de style a fournir), les
+		//    quatre modes existent et se distinguent, CREER UN DOSSIER cree vraiment, et il
+		//    refuse ce que le systeme refuserait au lieu de le corriger en douce.
+		{
+			char det[820];
+			// 1. LE STYLE PAR DEFAUT : treize roles, tous RESOLUS. Un role non resolu peint
+			//    en magenta -- c'est ce qui a deja coute 68 essais verts sur un ecran faux.
+			const editorkit::NkFilePickerNavStyle sDef = editorkit::NkStyleSelecteurDefaut();
+			const uint16 roles[] = {sDef.volet.panelBg,	 sDef.volet.headerBg,	 sDef.volet.border,
+						sDef.volet.text,		 sDef.volet.textMuted,	 sDef.volet.cardBg,
+						sDef.volet.cardFooterBg, sDef.volet.activeMark, sDef.volet.chosenMark,
+						sDef.volet.folderTint,	 sDef.volet.chipBg,		 sDef.volet.badgeText,
+						sDef.volet.statusBg};
+			uint32 nResolus = 0u, nInvalides = 0u;
+			for (usize k = 0; k < sizeof(roles) / sizeof(roles[0]); ++k) {
+				if (roles[k] == NK_ROLE_INVALID)
+					++nInvalides;
+				else
+					++nResolus;
+			}
+			const bool styleOk = nResolus == 13u && nInvalides == 0u
+					&& sDef.volet.variant == NkBrowserVariant::Grid;
+			// 2. LES QUATRE MODES. ⚠️ « Choisir un dossier » et « creer un dossier » sont LE
+			//    MEME mode, et c'est un choix : creer PUIS choisir est un seul geste. La sonde
+			//    le dit plutot que de compter quatre valeurs distinctes qui n'existent pas.
+			const bool modesOk =
+				editorkit::NkSelecteurOuvrirFichier == editorkit::NkFilePickerState::PK_File
+				&& editorkit::NkSelecteurOuvrirDossier == editorkit::NkFilePickerState::PK_PickFolder
+				&& editorkit::NkSelecteurCreerDossier == editorkit::NkSelecteurOuvrirDossier
+				&& editorkit::NkSelecteurEnregistrer == editorkit::NkFilePickerState::PK_SaveFile
+				&& editorkit::NkSelecteurOuvrirFichier != editorkit::NkSelecteurEnregistrer;
+			// 3. CREER UN DOSSIER cree VRAIMENT, y descend, et vide le champ
+			NkDirectory::Delete("sonde_creer", true);
+			NkDirectory::CreateRecursive("sonde_creer");
+			const NkString base103 = (NkPath(NkDirectory::GetCurrentDirectory()) / "sonde_creer").ToString();
+			editorkit::NkFilePickerNavState nav103;
+			char buf103[512] = {};
+			nav103.OpenPickerBase(editorkit::NkSelecteurCreerDossier, base103.Data(), buf103,
+						(int32)sizeof(buf103), nullptr, nullptr);
+			nav103.RelireDossier();
+			snprintf(nav103.nouveauNom, sizeof(nav103.nouveauNom), "%s", "Nouveau lot");
+			const bool cree = nav103.CreerDossier();
+			const NkString attendu = (NkPath(base103.Data()) / "Nouveau lot").ToString();
+			const bool creeOk = cree && NkDirectory::Exists(attendu.Data())
+					&& editorkit::NkFilePickerState::PathSame(nav103.Dossier(), attendu.Data())
+					&& nav103.nouveauNom[0] == '\0';
+			// 4. UN NOM QUE LE SYSTEME REFUSERAIT EST REFUSE, ET DIT -- pas assaini en douce :
+			//    l'utilisateur doit reconnaitre le nom qu'il a tape (l'inverse du NOM DE
+			//    FICHIER d'export, ou c'est NOUS qui proposons, pas lui qui tape).
+			snprintf(nav103.nouveauNom, sizeof(nav103.nouveauNom), "%s", "a/b");
+			const bool refuse = !nav103.CreerDossier() && !nav103.messageCreation.Empty()
+					&& nav103.nouveauNom[0] != '\0'; // le nom tape RESTE dans le champ
+			// ⚠️ LE MESSAGE SE FIGE ICI. Le lire a la fin du bloc afficherait celui de
+			//    l'etape SUIVANTE sous l'etiquette de celle-ci -- deux faits, une seule
+			//    variable : c'est le defaut de temoin deja paye par la sonde 60c.
+			char msgRefus[160];
+			snprintf(msgRefus, sizeof(msgRefus), "%s",
+				 nav103.messageCreation.Data() ? nav103.messageCreation.Data() : "?");
+			// 5. UN DOSSIER QUI EXISTE DEJA : on y entre, et on le DIT (pas d'ecrasement
+			//    silencieux -- la meme regle que le ` (2)` de l'export).
+			nav103.AllerA(base103.Data());
+			snprintf(nav103.nouveauNom, sizeof(nav103.nouveauNom), "%s", "Nouveau lot");
+			const bool deuxieme = nav103.CreerDossier();
+			const bool ditDeja = deuxieme && nav103.messageCreation.Contains("existe")
+					&& editorkit::NkFilePickerState::PathSame(nav103.Dossier(), attendu.Data());
+			// 6. LE CONTRAT DE CONFIRMATION EST CELUI DE L'ANCIEN, dans les quatre modes :
+			//    c'est ce qui rend la bascule d'une application possible en UNE LIGNE.
+			bool contratOk = true;
+			const int32 kModes[4] = {editorkit::NkSelecteurOuvrirFichier,
+								 editorkit::NkSelecteurOuvrirDossier,
+								 editorkit::NkSelecteurCreerDossier,
+								 editorkit::NkSelecteurEnregistrer};
+			for (int32 k = 0; k < 4 && contratOk; ++k) {
+				editorkit::NkFilePickerNavState n;
+				char b[512] = {};
+				n.OuvrirNav(kModes[k], base103.Data(), ".png", "essai.png", b, (int32)sizeof(b));
+				editorkit::NkFilePickerState &commeAvant = n;
+				contratOk = n.pickerOpen && commeAvant.pickerFor == kModes[k]
+					&& !commeAvant.pickerConfirmed && !commeAvant.pickerCancelled
+					&& n.DoitRelire(); // plein des la premiere image, dans les QUATRE modes
+			}
+			snprintf(det, sizeof(det),
+				"style par defaut : %u role(s) resolu(s), %u invalide(s), variante grille -> %d ; quatre modes "
+				"(fichier %d, dossier %d, creer %d = dossier, enregistrer %d) -> %d ; « Nouveau lot » cree=%d, "
+				"on y descend et le champ se vide -> %d ; « a/b » refuse et dit « %s », nom garde -> %d ; "
+				"deuxieme creation : on y entre et on le dit -> %d ; contrat de confirmation identique dans "
+				"les quatre modes=%d",
+				nResolus, nInvalides, styleOk ? 1 : 0, (int32)editorkit::NkSelecteurOuvrirFichier,
+				(int32)editorkit::NkSelecteurOuvrirDossier, (int32)editorkit::NkSelecteurCreerDossier,
+				(int32)editorkit::NkSelecteurEnregistrer, modesOk ? 1 : 0, cree ? 1 : 0, creeOk ? 1 : 0,
+				msgRefus, refuse ? 1 : 0,
+				ditDeja ? 1 : 0, contratOk ? 1 : 0);
+			check("103. ⑥ LE SELECTEUR EST L'OUTIL PAR DEFAUT DU KIT, ET IL COUVRE LES QUATRE MODES : `NkDrawSelecteur` "
+				"resout SES treize roles depuis la declaration du composant -- une application n'a plus ni style ni role a "
+				"fournir, sa bascule tient en UNE LIGNE par site ; ouvrir un fichier, ouvrir un dossier, CREER un dossier "
+				"(qui cree vraiment, y descend, et REFUSE en le disant un nom que le systeme refuserait plutot que de "
+				"l'assainir en douce) et enregistrer sous ; et le contrat de confirmation reste celui de l'ancien",
+				styleOk && modesOk && creeOk && refuse && ditDeja && contratOk, det);
+			NkDirectory::Delete("sonde_creer", true);
 		}
 		snprintf(tail, sizeof(tail), "\n=== RESULTAT : %d / %d ===\n", pass, total);
 		rep.Append(tail);

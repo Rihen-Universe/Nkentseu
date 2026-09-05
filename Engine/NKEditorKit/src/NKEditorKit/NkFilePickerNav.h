@@ -187,6 +187,48 @@ namespace nkentseu {
 					CopyTo(pickerPath, chemin, (int32)sizeof(pickerPath));
 				}
 
+				// ── ⑥ CREER UN DOSSIER (05/09, soir) ────────────────────────────
+				// Rodolf : « que ce soit pour creer un dossier, selectionner un dossier ou un
+				// fichier, pour ouvrir ou pour sauvegarder » -- quatre modes, un seul outil.
+				// Le troisieme manquait : on pouvait choisir un dossier, pas en faire un.
+				char nouveauNom[128] = {};
+				bool nouveauFocus = false;
+				NkString messageCreation; ///< ce qui s'est passe, dit SOUS le champ
+
+				/// Cree `nouveauNom` DANS le dossier courant, y descend, et vide le champ.
+				/// ⚠️ ON N'ECRASE PAS UN DOSSIER EXISTANT EN SILENCE : s'il est deja la, on y
+				///    descend et on le DIT. C'est la meme regle que le ` (2)` de l'export --
+				///    un geste de creation qui tombe sur un homonyme doit se voir.
+				bool CreerDossier() {
+					messageCreation = NkString();
+					if (!nouveauNom[0]) {
+						messageCreation = NkString("Donnez un nom au dossier.");
+						return false;
+					}
+					// les caracteres que le systeme refuse : on les dit, on ne les remplace pas
+					// en douce (l'utilisateur doit reconnaitre le nom qu'il a tape).
+					for (const char *p = nouveauNom; *p; ++p)
+						if (*p == '/' || *p == '\\' || *p == ':' || *p == '*' || *p == '?' || *p == '"'
+							|| *p == '<' || *p == '>' || *p == '|') {
+							messageCreation = NkString("Un nom de dossier ne peut pas contenir \\ / : * ? \" < > |");
+							return false;
+						}
+					const NkString cible = (NkPath(pickerPath) / nouveauNom).ToString();
+					if (NkDirectory::Exists(cible.CStr())) {
+						messageCreation = NkString("Ce dossier existe d\u00e9j\u00e0 \u2014 on y entre.");
+						AllerA(cible.CStr());
+						nouveauNom[0] = '\0';
+						return true;
+					}
+					if (!NkDirectory::CreateRecursive(cible.CStr())) {
+						messageCreation = NkString("Cr\u00e9ation refus\u00e9e par le syst\u00e8me (droits ? disque plein ?).");
+						return false;
+					}
+					AllerA(cible.CStr());
+					nouveauNom[0] = '\0';
+					return true;
+				}
+
 				// ── LE CONTENU DU DOSSIER ───────────────────────────────────────
 				static bool AvantParNom(const NkString &a, const NkString &b) {
 					const char *x = a.CStr(), *y = b.CStr();
@@ -616,7 +658,9 @@ namespace nkentseu {
 			y += 40.f * S;
 
 			// ── LE VOLET : le navigateur de contenu du kit, tel quel ────────────
-			const float32 basH = (saveMode ? 92.f : 52.f) * S;
+			// ⑥ La rangee « Nouveau dossier » prend sa place quand le mode la demande.
+			const bool peutCreer = (saveMode || dossierMode);
+			const float32 basH = ((saveMode ? 92.f : 52.f) + (peutCreer ? 40.f : 0.f)) * S;
 			const NkRect zone = {cx, y, cwid, ph - (y - py) - basH - 16.f * S};
 			int32 aOuvrir = -1;	  // un dossier a suivre APRES le dessin
 			NkString cible;		  // le chemin a suivre
@@ -677,6 +721,28 @@ namespace nkentseu {
 
 			// ── LE BAS : le nom (mode enregistrer), puis Annuler / Confirmer ────
 			float32 by = py + ph - basH;
+			// ⑥ NOUVEAU DOSSIER : un champ et un bouton, la ou creer a un sens (enregistrer
+			//    quelque part, ou choisir un dossier). En OUVERTURE DE FICHIER, creer un
+			//    dossier vide ne menerait a rien -- la rangee ne s'affiche pas.
+			if (peutCreer) {
+				const NkRect rc = {cx, by + 4.f * S, cwid - 150.f * S - 8.f * S, 28.f * S};
+				if (hit(rc) && click) {
+					fp.nouveauFocus = true;
+					fp.pickerEditing = false;
+					fp.pickerSaveFocus = false;
+					fieldClicked = true;
+				}
+				NkOverlayTextField(ctx, dl, f, rc, fp.nouveauNom, (int32)sizeof(fp.nouveauNom),
+								   fp.nouveauFocus);
+				if (!fp.nouveauNom[0] && !fp.nouveauFocus)
+					text(rc.x + 8.f * S, rc.y + (rc.h - lh) * 0.5f, "Nom du nouveau dossier", sty.cadre.sub);
+				if (sbtn({cx + cwid - 150.f * S, by + 4.f * S, 150.f * S, 28.f * S}, "Nouveau dossier"))
+					fp.CreerDossier();
+				if (!fp.messageCreation.Empty())
+					text(cx, by + 34.f * S, fp.messageCreation.Data(), sty.cadre.sub);
+				by += 40.f * S;
+			}
+
 			if (saveMode) {
 				text(cx, by + 6.f * S, "Nom du fichier", sty.cadre.sub);
 				const NkRect r = {cx, by + 24.f * S, cwid, 30.f * S};
@@ -751,6 +817,83 @@ namespace nkentseu {
 			--ctx.modalDepth;
 			return true;
 		}
+
+		// ════════════════════════════════════════════════════════════════════════
+		//  ⑥ LE POINT D'ENTREE PAR DEFAUT DU KIT (2026-09-05, soir)
+		// ════════════════════════════════════════════════════════════════════════
+		//  Rodolf : « le selecteur de fichier qu'on ecrit dans NkUIDesign -- que ce soit
+		//  pour creer un dossier, selectionner un dossier ou un fichier, pour ouvrir ou
+		//  pour sauvegarder -- doit etre l'outil par defaut. Meme dans NK3DModeler il
+		//  doit l'utiliser, pareil pour les autres applications. »
+		//
+		//  CE QUE CES DEUX FONCTIONS RENDENT POSSIBLE : une application n'a plus a
+		//  connaitre ni le style, ni les roles de theme, ni les parametres du volet.
+		//  Ouvrir = une ligne. Dessiner = une ligne. C'est la condition pour que la
+		//  bascule d'une application tienne en UNE LIGNE et pas en un chantier.
+		//
+		//  ⚠️ L'ANCIEN RESTE APPELABLE. `NkDrawFilePicker` n'est pas touche : une
+		//     application qui veut la colonne unique l'appelle encore, et les huit
+		//     consommateurs recompilent sans une ligne changee. Ce qui change est LE
+		//     DEFAUT -- c'est-a-dire ce que prend celui qui ne choisit pas.
+
+		/// LE STYLE PAR DEFAUT, resolu depuis la DECLARATION du navigateur de contenu.
+		/// Aucune couleur ecrite ici : chaque jeton prend le role que sa declaration
+		/// annonce, et le theme de l'hote lui donne sa valeur. Un jeton ajoute au
+		/// composant demain sera resolu sans toucher cette fonction.
+		inline NkFilePickerNavStyle NkStyleSelecteurDefaut() {
+			const NkComponentDecl &d = NkContentBrowserDecl();
+			auto role = [&](const char *jeton) -> uint16 {
+				for (uint16 i = 0; i < d.tokenCount; ++i)
+					if (NkComponentDecl::StrEq(d.tokens[i].name, jeton))
+						return NkResolveRole(d.tokens[i].defaultRole);
+				return NkResolveRole("TextMuted");
+			};
+			NkFilePickerNavStyle s;
+			s.volet.panelBg = role("panel_bg");
+			s.volet.headerBg = role("header_bg");
+			s.volet.border = role("border");
+			s.volet.text = role("text");
+			s.volet.textMuted = role("text_muted");
+			s.volet.cardBg = role("card_bg");
+			s.volet.cardFooterBg = role("card_footer_bg");
+			s.volet.activeMark = role("active_mark");
+			s.volet.chosenMark = role("chosen_mark");
+			s.volet.folderTint = role("folder_tint");
+			s.volet.chipBg = role("chip_bg");
+			s.volet.badgeText = role("badge_text");
+			s.volet.statusBg = role("status_bg");
+			s.volet.variant = NkBrowserVariant::Grid;
+			return s;
+		}
+
+		/// LE SELECTEUR DE FICHIERS PAR DEFAUT. Une ligne dans la boucle d'une
+		/// application : `editorkit::NkDrawSelecteur(ctx, monEtat, monTheme);`
+		/// Rend VRAI tant qu'il est ouvert. Le resultat se lit dans les MEMES champs
+		/// que l'ancien (`pickerConfirmed`, `pickerResultPath`, `pickerResultName`).
+		inline bool NkDrawSelecteur(nkgui::NkGuiContext &ctx, NkFilePickerNavState &fp,
+							const NkTheme &theme) {
+			// Le style est reconstruit a chaque image et c'est VOULU : le theme peut
+			// changer a chaud (clair / sombre), et un style mis en cache garderait les
+			// couleurs de l'ancien -- c'est le defaut « une valeur figee au demarrage ».
+			// Treize resolutions de role par image : mesure, pas supposition -- une
+			// recherche lineaire dans une table de treize noms.
+			return NkDrawFilePickerNav(ctx, fp, NkStyleSelecteurDefaut(), theme);
+		}
+
+		/// LES QUATRE MODES, nommes. Ce sont les PK_* de la classe de base, rappeles ici
+		/// pour qu'une application n'ait pas a savoir lequel choisir :
+		///   - `NkSelecteurOuvrirFichier`   : choisir un fichier existant ;
+		///   - `NkSelecteurOuvrirDossier`   : choisir un dossier existant ;
+		///   - `NkSelecteurCreerDossier`    : choisir un dossier, avec la rangee de
+		///                                    creation (c'est le meme mode : creer PUIS
+		///                                    choisir est un seul geste, pas deux) ;
+		///   - `NkSelecteurEnregistrer`     : un dossier et un nom de fichier.
+		enum : nkentseu::int32 {
+			NkSelecteurOuvrirFichier = NkFilePickerState::PK_File,
+			NkSelecteurOuvrirDossier = NkFilePickerState::PK_PickFolder,
+			NkSelecteurCreerDossier = NkFilePickerState::PK_PickFolder,
+			NkSelecteurEnregistrer = NkFilePickerState::PK_SaveFile,
+		};
 
 	} // namespace editorkit
 } // namespace nkentseu

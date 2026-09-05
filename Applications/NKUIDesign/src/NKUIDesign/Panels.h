@@ -1545,7 +1545,7 @@ namespace nkuidesign {
 			/// « CHOISIR UNE IMAGE... » : le selecteur de fichier du kit, modal en overlay
 			/// (dessine par NkDessinerPickerDemande, entree reelle) ; le popover se ferme a
 			/// l'ouverture (deux popups ne se disputent pas la souris) ; la cible est retenue.
-			nkentseu::editorkit::NkFilePickerState choixImage;
+			nkentseu::editorkit::NkFilePickerNavState choixImage; // ⑥ le selecteur par defaut du kit
 			int32 choixImageNoeud = -1, choixImageIndex = -1;
 			char choixImageBuf[512] = {};
 			/// « EXPORTER... » (05/09) : le selecteur de fichier du kit en mode
@@ -11258,10 +11258,11 @@ namespace nkuidesign {
 	inline void NkDessinerPickerDemande(nkgui::NkGuiContext &ctx, DesignState &st) {
 		using namespace nkentseu;
 		// « CHOISIR UNE IMAGE... » : le selecteur de fichier du kit, modal, ici (entree reelle)
-		if (st.choixImage.pickerOpen) {
-			static const nkentseu::editorkit::NkFilePickerStyle sty;
-			nkentseu::editorkit::NkDrawFilePicker(ctx, st.choixImage, sty);
-		}
+		// ⑥ LE SELECTEUR PAR DEFAUT DU KIT, en UNE LIGNE. C'etait trois lignes et un
+		//    style a fournir ; le kit resout desormais ses roles depuis la declaration
+		//    du composant. La migration d'une application, c'est exactement ceci.
+		if (st.choixImage.pickerOpen)
+			nkentseu::editorkit::NkDrawSelecteur(ctx, st.choixImage, st.theme);
 		if (st.choixImage.pickerConfirmed) {
 			st.choixImage.pickerConfirmed = false;
 			st.AppliquerChoixImage();
