@@ -210,6 +210,25 @@ namespace nkentseu {
 			Tri(i0, i2, i3, texId);
 		}
 
+		void NkGuiDrawList::AddImagePolygon(uint32 texId, const NkVec2 *pts, const NkVec2 *uvs, int32 n,
+											 const NkColor &tint) noexcept {
+			// Polygone CONVEXE texturé (uv par sommet) — l'image d'un remplissage rognée
+			// par un contour arrondi, ou tournée. Même éventail qu'AddConvexPolyFilled,
+			// même chemin que le texte et AddImage (TexturedTriangles) : le backend
+			// résout déjà `texId`. Un uv (0,0) sur TOUS les sommets serait pris pour
+			// « couleur unie » par le vertex : c'est le contrat des sommets, pas le nôtre.
+			if (!pts || !uvs || n < 3 || texId == 0u)
+				return;
+			const uint32 c = NkGuiPackColor(tint);
+			const uint32 i0 = Vtx(pts[0], uvs[0], c);
+			uint32 prev = Vtx(pts[1], uvs[1], c);
+			for (int32 i = 2; i < n; ++i) {
+				const uint32 cur = Vtx(pts[i], uvs[i], c);
+				Tri(i0, prev, cur, texId);
+				prev = cur;
+			}
+		}
+
 		void NkGuiDrawList::AddRectFilledMultiColor(const NkRect &r, const NkColor &tl, const NkColor &tr,
 													const NkColor &br, const NkColor &bl) noexcept {
 			// Quad à couleurs de coin (dégradé bilinéaire) — base du sélecteur de

@@ -73,6 +73,8 @@ namespace nkentseu {
 			// 2026-09-04 : le mode de melange du peintre. EN FIN, avant Count.
 			PushBlend,
 			PopBlend,
+			// 2026-09-05 : l'image du peintre (polygone texture). EN FIN, avant Count.
+			Image,
 			Count
 		};
 
@@ -110,6 +112,8 @@ namespace nkentseu {
 					return "PushBlend";
 				case NkPaintOp::PopBlend:
 					return "PopBlend";
+				case NkPaintOp::Image:
+					return "Image";
 				default:
 					return "?";
 			}
@@ -126,6 +130,10 @@ namespace nkentseu {
 				uint16 icon = 0;
 				uint8 align = 0;
 				NkString text;
+				/// Pour Image : le handle, et les sommets / uv (count paires) -- x,y,w,h
+				/// portent l'englobant, rgba l'opacite (0..255) dans l'octet bas.
+				uint32 image = 0;
+				NkVector<float32> xy, uv;
 
 				/// Egalite STRUCTURELLE, geometrie comprise. C'est ce qui rend la
 				/// comparaison de deux flux significative : si seule l'operation
@@ -133,7 +141,7 @@ namespace nkentseu {
 				/// « aucun changement ».
 				bool SameAs(const NkPaintCmd &o) const {
 					if (op != o.op || role != o.role || role2 != o.role2 || rgba != o.rgba ||
-						icon != o.icon || align != o.align)
+						icon != o.icon || align != o.align || image != o.image || xy.Size() != o.xy.Size())
 						return false;
 					if (!Near(x, o.x) || !Near(y, o.y) || !Near(w, o.w) || !Near(h, o.h) ||
 						!Near(rounding, o.rounding) || !Near(tf, o.tf))
@@ -233,6 +241,28 @@ namespace nkentseu {
 					Push(NkPaintOp::PushTransform, {t.a, t.b, t.c, t.d}, 0, 0, 0, t.e, 0, 0, nullptr);
 					if (!cmds.Empty())
 						cmds[cmds.Size() - 1].tf = t.f;
+				}
+				bool ImagePolygone(const float32 *xy, const float32 *uv, int32 count, uint32 image,
+								   float32 opacite) override {
+					if (!xy || !uv || count < 3)
+						return false;
+					float32 x0 = xy[0], y0 = xy[1], x1 = xy[0], y1 = xy[1];
+					for (int32 i = 1; i < count; ++i) {
+						if (xy[i * 2] < x0) x0 = xy[i * 2];
+						if (xy[i * 2] > x1) x1 = xy[i * 2];
+						if (xy[i * 2 + 1] < y0) y0 = xy[i * 2 + 1];
+						if (xy[i * 2 + 1] > y1) y1 = xy[i * 2 + 1];
+					}
+					const float32 k = opacite < 0.f ? 0.f : (opacite > 100.f ? 1.f : opacite * 0.01f);
+					Push(NkPaintOp::Image, {x0, y0, x1 - x0, y1 - y0}, 0, 0, (uint32)(255.f * k + 0.5f) & 0xFFu, 0.f, 0, 0,
+						 nullptr);
+					NkPaintCmd &c = cmds[cmds.Size() - 1];
+					c.image = image;
+					for (int32 i = 0; i < count * 2; ++i) {
+						c.xy.PushBack(xy[i]);
+						c.uv.PushBack(uv[i]);
+					}
+					return true;
 				}
 				void PopTransform() override {
 					Push(NkPaintOp::PopTransform, {0.f, 0.f, 0.f, 0.f}, 0, 0, 0, 0.f, 0, 0, nullptr);

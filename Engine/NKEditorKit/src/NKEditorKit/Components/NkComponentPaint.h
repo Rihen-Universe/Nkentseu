@@ -346,6 +346,25 @@ namespace nkentseu {
 				enum class NkPaintBlend : uint8 { Alpha = 0, Multiply, Screen, Darken, Lighten, PlusLighter };
 				virtual void PushBlend(NkPaintBlend b) { (void)b; }
 				virtual void PopBlend() {}
+
+				// ── L'IMAGE (2026-09-05, chaine de l'image de NkUIDesign) ─────────
+				/// Un polygone CONVEXE texture, un uv PAR SOMMET (`xy` et `uv` : count
+				/// paires) : l'image d'un remplissage qui suit un contour arrondi, ou
+				/// tournee. `image` est le handle du dorsal (0 = aucune texture : le
+				/// peintre repond faux et l'appelant peint son damier -- rien n'est
+				/// simule). `opacite` en 0..100. VIRTUELLE A VIDE : un peintre qui ne sait
+				/// pas rend faux et l'appelant le voit -- le contrat de PolygonHex ; les
+				/// consommateurs recompilent sans une ligne changee (PushTransform,
+				/// PushBlend : meme preuve).
+				virtual bool ImagePolygone(const float32 *xy, const float32 *uv, int32 count, uint32 image,
+										   float32 opacite) {
+					(void)xy;
+					(void)uv;
+					(void)count;
+					(void)image;
+					(void)opacite;
+					return false;
+				}
 		};
 
 	} // namespace editorkit

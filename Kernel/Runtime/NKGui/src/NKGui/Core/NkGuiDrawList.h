@@ -112,6 +112,12 @@ namespace nkentseu {
 				// UV, `tint` multiplie l'échantillon (blanc = telle quelle).
 				void AddImage(uint32 texId, const NkRect &r, const NkVec2 &uv0, const NkVec2 &uv1,
 							  const NkColor &tint) noexcept;
+				// Polygone CONVEXE texturé, un uv PAR SOMMET : l'image d'un remplissage qui
+				// suit un contour arrondi, ou tournée (2026-09-05, chaîne de l'image de
+				// NkUIDesign). Éventail depuis pts[0], `texId` résolu par le backend comme
+				// AddImage ; `tint` multiplie l'échantillon (l'alpha porte l'opacité).
+				void AddImagePolygon(uint32 texId, const NkVec2 *pts, const NkVec2 *uvs, int32 n,
+									 const NkColor &tint) noexcept;
 				void AddLine(const NkVec2 &a, const NkVec2 &b, const NkColor &col, float32 thickness = 1.f) noexcept;
 				void AddTriangleFilled(const NkVec2 &a, const NkVec2 &b, const NkVec2 &c, const NkColor &col) noexcept;
 				// Triangle à DÉGRADÉ (3 couleurs de sommet) — roue de teinte + triangle SV.

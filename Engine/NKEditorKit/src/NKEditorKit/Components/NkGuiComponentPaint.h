@@ -297,6 +297,22 @@ namespace nkentseu {
 						--mSpT;
 				}
 				// ── LE MODE DE MELANGE (2026-09-04) : la liste de dessin le porte par commande ──
+				bool ImagePolygone(const float32 *xy, const float32 *uv, int32 count, uint32 image,
+								   float32 opacite) override {
+					// sous la matrice en vigueur, comme PolygonHex ; sans texture (0) : faux,
+					// et l'appelant peint son damier -- rien n'est simule
+					if (!xy || !uv || count < 3 || count > 128 || image == 0u)
+						return false;
+					nkgui::NkVec2 p[128], t[128];
+					const NkPaintTransform *m = TransformeActive();
+					for (int32 i = 0; i < count; ++i) {
+						p[i] = m ? T(*m, xy[i * 2], xy[i * 2 + 1]) : nkgui::NkVec2{xy[i * 2], xy[i * 2 + 1]};
+						t[i] = {uv[i * 2], uv[i * 2 + 1]};
+					}
+					const float32 k = opacite < 0.f ? 0.f : (opacite > 100.f ? 1.f : opacite * 0.01f);
+					mCtx.DL().AddImagePolygon(image, p, t, count, nkgui::NkColor{255, 255, 255, (uint8)(255.f * k + 0.5f)});
+					return true;
+				}
 				void PushBlend(NkPaintBlend b) override {
 					mCtx.DL().PushBlend((nkgui::NkGuiBlend)(uint8)b);
 				}
