@@ -71,6 +71,7 @@
 #include "NkGuiValidate.h" // guifmt::NkGEtats — LA table fermee des six etats
 #include "Renderers.h"
 #include "NKImage/NKImage.h" // le cache d'images du document (12 codecs)
+#include "NKEditorKit/NkFilePicker.h" // « Choisir une image... » : le selecteur de fichier du kit
 
 #include <cstdio>
 
@@ -1440,6 +1441,7 @@ namespace nkuidesign {
 					nkgui::NkGuiId id = 0;
 					nkgui::NkRect ancre = {0.f, 0.f, 0.f, 0.f};
 					char hex[12] = {};
+					char chemin[256] = {}; ///< le chemin de l'image (popover image), resynchronise comme l'hexa
 					bool change = false;
 					// LA CIBLE (genre 1 = un remplissage : le popover EDITE le modele)
 					nkentseu::uint8 genre = 0;
@@ -1454,6 +1456,63 @@ namespace nkuidesign {
 			/// peintre lit ici, par `NkObtenirImageDuDocument` (le dossier du document
 			/// actif est relu a chaque demande : les onglets changent de dossier).
 			NkCacheImages images;
+			/// « CHOISIR UNE IMAGE... » : le selecteur de fichier du kit, modal en overlay
+			/// (dessine par NkDessinerPickerDemande, entree reelle) ; le popover se ferme a
+			/// l'ouverture (deux popups ne se disputent pas la souris) ; la cible est retenue.
+			nkentseu::editorkit::NkFilePickerState choixImage;
+			int32 choixImageNoeud = -1, choixImageIndex = -1;
+			char choixImageBuf[512] = {};
+			/// Le dossier de reference des chemins d'image : celui du document, ou le
+			/// repertoire courant pour un document jamais enregistre (separateur final).
+			NkString DossierImages() const {
+				NkString dep = NkCacheImages::Dossier(cheminActif.Data());
+				if (dep.Empty()) {
+					dep = NkDirectory::GetCurrentDirectory().ToString();
+					if (!dep.Empty()) {
+						const char last = dep.Data()[dep.Length() - 1];
+						if (last != '/' && last != '\\')
+							dep.Append('/');
+					}
+				}
+				return dep;
+			}
+			void OuvrirChoixImage(int32 noeud, int32 index) {
+				choixImageNoeud = noeud;
+				choixImageIndex = index;
+				choixImageBuf[0] = '\0';
+				const NkString dep = DossierImages();
+				choixImage.OpenPickerBase(nkentseu::editorkit::NkFilePickerState::PK_File, dep.Data(), choixImageBuf,
+										  (int32)sizeof(choixImageBuf), nullptr, nullptr);
+			}
+			/// Le fichier choisi devient la source du remplissage cible, RELATIF au document
+			/// (jamais absolu dans le fichier : un document doit voyager) ; hors du dossier,
+			/// il est garde tel quel et c'est dit.
+			void AppliquerChoixImage() {
+				const int32 n = choixImageNoeud, i = choixImageIndex;
+				choixImageNoeud = -1;
+				choixImageIndex = -1;
+				if (!doc.IsValidIndex(n) || i < 0 || i >= (int32)doc.nodes[(uint32)n].fills.Size())
+					return;
+				const char *choisi = choixImage.pickerResultPath[0] ? choixImage.pickerResultPath : choixImageBuf;
+				if (!choisi || !*choisi)
+					return;
+				const NkString dep = DossierImages();
+				const NkString rel = NkCacheImages::Relatif(dep.Data(), choisi);
+				NkRemplissage &f = doc.nodes[(uint32)n].fills[(uint32)i];
+				images.Oublier(f.image.Data());
+				f.image = rel;
+				f.genre = NkString("image");
+				doc.MarkHumanEdit(n);
+				host.SyncTo(doc);
+				picker.synchro = 0xFFFFFFFFu;
+				char msg[640];
+				snprintf(msg, sizeof(msg), NkCacheImages::EstAbsolu(rel.Data())
+											   ? "Image « %s » : hors du dossier du document, chemin gardé tel quel (le document ne voyagera pas avec)."
+											   : "Image « %s », relative au document ; le fichier est référencé, pas copié.",
+						 rel.Data());
+				DireAuPied(msg);
+				Consigner(msg);
+			}
 			/// Le geste que le curseur ANNONCE sur une poignee de degrade, avant le clic :
 			/// 0 rien, 1 glisser le long de l'axe, 2 tourner -- ecrit par la toile a chaque
 			/// image, lu par la sonde (« le curseur annonce correspond au geste »).
@@ -10348,6 +10407,22 @@ namespace nkuidesign {
 
 	inline void NkDessinerPickerDemande(nkgui::NkGuiContext &ctx, DesignState &st) {
 		using namespace nkentseu;
+		// « CHOISIR UNE IMAGE... » : le selecteur de fichier du kit, modal, ici (entree reelle)
+		if (st.choixImage.pickerOpen) {
+			static const nkentseu::editorkit::NkFilePickerStyle sty;
+			nkentseu::editorkit::NkDrawFilePicker(ctx, st.choixImage, sty);
+		}
+		if (st.choixImage.pickerConfirmed) {
+			st.choixImage.pickerConfirmed = false;
+			st.AppliquerChoixImage();
+		}
+		if (st.choixImage.pickerCancelled) {
+			st.choixImage.pickerCancelled = false;
+			st.choixImageNoeud = -1;
+			st.choixImageIndex = -1;
+		}
+		if (st.choixImage.pickerOpen)
+			return;
 		if (!st.picker.ouvert)
 			return;
 		// ④ rien de selectionne : le selecteur generique (etats, effets) se ferme aussi
@@ -10944,6 +11019,7 @@ namespace nkuidesign {
 					const char *cc = couleurCourante.Data() ? couleurCourante.Data() : "";
 					const char *res = mSt->doc.ResoudreCouleur(cc);
 					snprintf(d.hex, sizeof(d.hex), "%s", res ? res : cc);
+					snprintf(d.chemin, sizeof(d.chemin), "%s", f.image.Data() ? f.image.Data() : "");
 				}
 				// ── L'ECRITURE D'UNE COULEUR PASSE PAR UNE PORTE ────────────────────
 				// Si la couleur courante REFERENCE une variable, le selecteur edite LA
@@ -10988,7 +11064,9 @@ namespace nkuidesign {
 				//    descendent a +30 -- a 26 px la rangee suivante les recouvrait (Rodolf)
 				const int32 genreP = renderdetail::NkGenreDegrade(g);
 				const float32 hRampe = g.Actif() ? 34.f + 26.f + (genreP != 0 ? 52.f : 0.f) + 26.f * (float32)(g.arrets.Size() < 12u ? g.arrets.Size() : 12u) : 0.f; // barre, angle, (rayons, origine), liste
-				const float32 ph = f.EstImage() ? 8.f + hTypes + 116.f + 26.f + 26.f + 26.f + 8.f
+				const bool estCrop = f.EstImage() && NkComponentDecl::StrEq(f.cadrage.Data(), "crop");
+				// image : apercu, retirer le fond, cadrage, rotation, source, boutons, (crop)
+				const float32 ph = f.EstImage() ? 8.f + hTypes + 116.f + 26.f * 5.f + (estCrop ? 26.f : 0.f) + 8.f
 												   : 8.f + hTypes + hPicker + hHex + hVars + hRampe + 8.f;
 				const NkRect sw = d.ancre;
 				NkRect pr = {sw.x - pw - 8.f, sw.y - 8.f, pw, ph};
@@ -11164,9 +11242,33 @@ namespace nkuidesign {
 							dl.AddRectFilled({rd.x + 10.f * (float32)dx, rd.y + 10.f * (float32)dy,
 											  (10.f * (float32)dx + 10.f > rd.w) ? rd.w - 10.f * (float32)dx : 10.f, 10.f},
 											 ((dx + dy) & 1) ? nkgui::NkColor{70, 70, 70, 255} : nkgui::NkColor{52, 52, 52, 255});
-					costume::Texte(dl, F.px9, rd.x + 6.f, rd.y + rd.h - 16.f,
-								   f.image.Empty() ? "source : aucune -- le peintre montre le damier" : f.image.Data(),
-								   ctx.theme.textMuted);
+					// L'APERCU : l'image chargee (contenue dans la vignette), sinon le damier et
+					// l'absence DITE en rouge -- jamais un damier muet
+					NkCacheImages::Entree *entree = nullptr;
+					if (!f.image.Empty()) {
+						mSt->images.base = NkCacheImages::Dossier(mSt->cheminActif.Data());
+						entree = &mSt->images.Charger(f.image.Data());
+					}
+					if (entree && !entree->absente && entree->handle != 0u && entree->w > 0 && entree->h > 0) {
+						const float32 k = ((rd.w - 8.f) / (float32)entree->w < (rd.h - 24.f) / (float32)entree->h)
+											  ? (rd.w - 8.f) / (float32)entree->w
+											  : (rd.h - 24.f) / (float32)entree->h;
+						const float32 aw = (float32)entree->w * k, ah = (float32)entree->h * k;
+						dl.AddImage(entree->handle, {rd.x + (rd.w - aw) * 0.5f, rd.y + 4.f + (rd.h - 24.f - ah) * 0.5f, aw, ah}, {0.f, 0.f},
+									{1.f, 1.f}, nkgui::NkColor{255, 255, 255, 255});
+					}
+					char legende[320];
+					if (f.image.Empty())
+						snprintf(legende, sizeof(legende), "source : aucune -- le peintre montre le damier");
+					else if (entree && entree->absente)
+						snprintf(legende, sizeof(legende), "INTROUVABLE : %s", f.image.Data());
+					else if (entree)
+						snprintf(legende, sizeof(legende), "%s -- %d x %d%s", f.image.Data(), entree->w, entree->h,
+								 entree->handle ? "" : " (pas de texture : damier)");
+					else
+						snprintf(legende, sizeof(legende), "%s", f.image.Data());
+					costume::Texte(dl, F.px9, rd.x + 6.f, rd.y + rd.h - 16.f, legende,
+								   (entree && entree->absente) ? nkgui::NkColor{220, 60, 60, 255} : ctx.theme.textMuted);
 					y += 116.f;
 					{
 						const NkRect rb = {x0, y, x1 - x0, 22.f};
@@ -11232,6 +11334,57 @@ namespace nkuidesign {
 						}
 						costume::Texte(dl, F.px9, rr.x + rr.w + 4.f, costume::CentrerY(F.px9, rr.y, 20.f), "°",
 									   ctx.theme.textMuted);
+						y += 26.f;
+						// LA SOURCE : le chemin, relatif au document (tape ici, ou choisi)
+						costume::Texte(dl, F.px10, x0, costume::CentrerY(F.px10, y + 3.f, 20.f), "Source", ctx.theme.textMuted);
+						ctx.SetNextItemRect({x0 + 62.f, y + 3.f, x1 - x0 - 62.f, costume::HControle});
+						if (nkgui::InputText(ctx, "##nkuidesign.popover.image.chemin", d.chemin, (int32)sizeof(d.chemin))) {
+							mSt->images.Oublier(f.image.Data());
+							f.image = NkString(d.chemin);
+							touche();
+						}
+						y += 26.f;
+						// [Choisir une image...] : le selecteur du kit ; le popover se ferme ; [Recharger]
+						{
+							const NkRect bCh = {x0, y + 3.f, 132.f, 20.f};
+							const NkRect bRe = {x1 - 76.f, y + 3.f, 76.f, 20.f};
+							const bool svCh = NkGuiRectContains(bCh, ctx.input.mousePos), svRe = NkGuiRectContains(bRe, ctx.input.mousePos);
+							dl.AddRectFilled(bCh, svCh ? ctx.theme.rowHover : CouleurInput(), 4.f);
+							dl.AddRect(bCh, svCh ? ctx.theme.accent : ctx.theme.border, 1.f, 4.f);
+							costume::Texte(dl, F.px10, bCh.x + 8.f, costume::CentrerY(F.px10, bCh.y, 20.f), "Choisir une image\xE2\x80\xA6", ctx.theme.text);
+							dl.AddRectFilled(bRe, svRe ? ctx.theme.rowHover : CouleurInput(), 4.f);
+							dl.AddRect(bRe, svRe ? ctx.theme.accent : ctx.theme.border, 1.f, 4.f);
+							costume::Texte(dl, F.px10, bRe.x + 8.f, costume::CentrerY(F.px10, bRe.y, 20.f), "Recharger", ctx.theme.text);
+							mRectImageChoisir = bCh;
+							mRectImageRecharger = bRe;
+							if (svCh && ctx.input.mouseClicked[0]) {
+								ctx.input.mouseClicked[0] = false;
+								mSt->OuvrirChoixImage(d.noeud, d.index);
+								fermerPopover = true;
+							} else if (svRe && ctx.input.mouseClicked[0]) {
+								ctx.input.mouseClicked[0] = false;
+								mSt->images.Oublier(f.image.Data());
+								mSt->DireAuPied("Image rechargée depuis le disque.");
+							}
+						}
+						y += 26.f;
+						if (estCrop) {
+							// LA FENETRE du crop : x, y, largeur, hauteur en fractions de l'image
+							static const char *const kIds[4] = {"insp.popover.image.c0", "insp.popover.image.c1", "insp.popover.image.c2", "insp.popover.image.c3"};
+							static const char *const kLib[4] = {"X", "Y", "L", "H"};
+							float32 *champs[4] = {&f.cropX, &f.cropY, &f.cropW, &f.cropH};
+							const float32 wc = (x1 - x0 - 3.f * 4.f) / 4.f;
+							for (uint32 k = 0; k < 4u; ++k) {
+								const NkRect rc = {x0 + (float32)k * (wc + 4.f), y + 3.f, wc, costume::HControle};
+								costume::Texte(dl, F.px9, rc.x + 3.f, costume::CentrerY(F.px9, rc.y, 20.f), kLib[k], ctx.theme.textMuted);
+								float32 v = *champs[k];
+								if (ChampNombre(ctx, kIds[k], {rc.x + 12.f, rc.y, rc.w - 12.f, rc.h}, v, 0.01f, k < 2u ? 0.f : 0.01f, 1.f, true, false, 2)) {
+									*champs[k] = v;
+									touche();
+								}
+							}
+							y += 26.f;
+						}
 					}
 					DessinerMenuFusion(ctx, rMenuFusion, kFusion, NkIndiceFusion(f.fusion.Data()));
 					nkgui::EndPopup(ctx);
@@ -14644,6 +14797,9 @@ namespace nkuidesign {
 			//    `fond_i`. Tant qu'on ne touche qu'à la couleur, RIEN NE BOUGE
 			//    dans le format — c'est ce qui tient la promesse d'additivité.
 		public:
+			NkRect RectImageChoisir() const {
+				return mRectImageChoisir;
+			}
 			/// Les rectangles de la rangee « Style » de la derniere image, par genre
 			/// (0 calque, 1 texte) : 0 Créer, 1 Détacher, 2 Lier, 3 Appliquer, 4 Réinit. --
 			/// le temoin clique dedans. `RectStyleListe` : les styles deplies sous « Lier ».
@@ -15645,6 +15801,7 @@ namespace nkuidesign {
 			NkVector<NkRect> mRectStyleListe[2];
 			bool mStyleDeplie[2] = {false, false};
 			bool mVarsDeplie = false; ///< la liste des variables depliee sous « Lier ˅ » (popover)
+			NkRect mRectImageChoisir = {}, mRectImageRecharger = {}; ///< les boutons du popover image (derniere image), pour la sonde
 			char mBordColBuf[12] = {};
 			/// Les generations d'historique vues par les tampons (une
 			/// annulation recharge sans changer la selection).

@@ -4848,9 +4848,10 @@ namespace nkuidesign {
 					souris(-1.f, -1.f, false);
 					const uint32 oFerme = souris(-1.f, -1.f, false);
 					const float32 bas = oyMax, gauche = oxMin;
-					// la rangee Cadrage est l'avant-derniere (rotation 26, marge 8) ; le bouton
-					// commence 62 px apres la marge gauche
-					const float32 bx = gauche + 8.f + 62.f + 20.f, by = bas - 47.f;
+					// la rangee Cadrage : rotation (26), puis, depuis le 05/09, la source (26) et
+					// les boutons (26) sous elle, marge 8 ; le bouton commence 62 px apres la
+					// marge gauche
+					const float32 bx = gauche + 8.f + 62.f + 20.f, by = bas - 47.f - 52.f;
 					souris(bx, by, true);
 					souris(bx, by, false);
 					const uint32 oOuvert = souris(bx, by, false);
@@ -7788,6 +7789,82 @@ namespace nkuidesign {
 					check("70d. LE KIT TRANSMET : la toile (NkGuiComponentPaint) emet une commande texturee au handle que le "
 						  "televerseur a rendu ; sans televerseur (handle 0) le peintre repond faux et le damier prend la place",
 						  avecHandle >= 1u && sansHandle == 0u, det);
+				}
+			}
+			// 70e. le popover : l'apercu (une commande texturee au handle), « Choisir une image... »
+			// ouvre le selecteur du kit et ferme le popover, un choix confirme devient un chemin
+			// RELATIF au document (ici : au repertoire courant, le document n'est pas enregistre)
+			{
+				static nkgui::NkGuiContext ctxP;
+				if (!ctxP.Init(600, 900)) {
+					check("70e. le popover image", false, "Init a refuse");
+				} else {
+					stImg.images.Vider();
+					stImg.images.televerser = [](void *, const uint8 *, int32, int32) -> uint32 { return 0x4E4B0201u; };
+					const int32 rp = rectImage(100.f, 50.f, "", 0.f, 0.f, "sonde_image_2x2.png");
+					stImg.Recompute(NkPaintRect{0.f, 0.f, 600.f, 900.f});
+					stImg.SelectSingle(rp);
+					static InspectorPanel inspP(&stImg);
+					NkEditorFrameContext ec;
+					ec.ui = &ctxP;
+					ec.dt = 0.016f;
+					auto souris = [&](float32 mx, float32 my, bool bas) {
+						ctxP.input.mousePos = {mx, my};
+						ctxP.input.mouseDown[0] = bas;
+						ctxP.BeginFrame(0.016f);
+						ctxP.BeginLayout({340.f, 0.f, 260.f, 900.f});
+						inspP.OnUI(ec);
+						NkDessinerPickerDemande(ctxP, stImg);
+						ctxP.EndFrame();
+					};
+					stImg.picker = DesignState::DemandePicker();
+					stImg.picker.ouvert = true;
+					stImg.picker.id = ctxP.GetId("##sonde.popover.image");
+					stImg.picker.genre = 1u;
+					stImg.picker.noeud = rp;
+					stImg.picker.index = 0;
+					stImg.picker.ancre = {360.f, 200.f, 16.f, 16.f};
+					souris(-1.f, -1.f, false);
+					souris(-1.f, -1.f, false);
+					uint32 apercu = 0u;
+					for (uint32 i = 0; i < (uint32)ctxP.dlOverlay.cmds.Size(); ++i)
+						if (ctxP.dlOverlay.cmds[i].texId == 0x4E4B0201u)
+							++apercu;
+					const nkgui::NkRect bCh = inspP.RectImageChoisir();
+					souris(bCh.x + bCh.w * 0.5f, bCh.y + bCh.h * 0.5f, false);
+					souris(bCh.x + bCh.w * 0.5f, bCh.y + bCh.h * 0.5f, true);
+					souris(bCh.x + bCh.w * 0.5f, bCh.y + bCh.h * 0.5f, false);
+					const bool ouvert = bCh.w > 0.f && stImg.choixImage.pickerOpen && !stImg.picker.ouvert
+										&& stImg.choixImageNoeud == rp && stImg.choixImageIndex == 0;
+					// le choix, confirme comme le ferait le bouton du selecteur : un chemin ABSOLU du
+					// repertoire courant -> relatif dans le document
+					NkString absolu = NkDirectory::GetCurrentDirectory().ToString();
+					if (!absolu.Empty()) {
+						const char last = absolu.Data()[absolu.Length() - 1];
+						if (last != '/' && last != '\\')
+							absolu.Append('/');
+					}
+					absolu.Append("sonde_image_2x2.png");
+					nkentseu::editorkit::NkFilePickerState::CopyTo(stImg.choixImage.pickerResultPath, absolu.Data(),
+																  (int32)sizeof(stImg.choixImage.pickerResultPath));
+					stImg.doc.nodes[(uint32)rp].fills[0].image = NkString("ancienne.png");
+					stImg.choixImage.pickerConfirmed = true;
+					stImg.choixImage.PickerCancel();
+					souris(-1.f, -1.f, false);
+					const NkString source = stImg.doc.nodes[(uint32)rp].fills[0].image;
+					const bool relatif = NkComponentDecl::StrEq(source.Data(), "sonde_image_2x2.png") && !stImg.choixImage.pickerOpen
+										 && stImg.choixImageNoeud == -1 && stImg.status.Data() && strstr(stImg.status.Data(), "relative au document") != nullptr;
+					stImg.picker = DesignState::DemandePicker();
+					if (ctxP.popupDepth > 0)
+						ctxP.ClosePopup();
+					souris(-1.f, -1.f, false);
+					snprintf(det, sizeof(det), "apercu : %u commande(s) texturee(s) au handle ; « Choisir » -> selecteur ouvert=%d, popover ferme=%d ; confirme « %s » -> source « %s », pied dit relatif=%d",
+							 apercu, stImg.choixImage.pickerOpen || ouvert ? 1 : 0, ouvert ? 1 : 0, absolu.Data(), source.Data() ? source.Data() : "?",
+							 relatif ? 1 : 0);
+					check("70e. LE POPOVER IMAGE : l'apercu est l'image (une commande texturee au handle, plus un damier muet) ; "
+						  "« Choisir une image... » ouvre le selecteur de fichier du kit et ferme le popover ; un choix confirme "
+						  "devient un chemin RELATIF au document (jamais absolu dans le fichier) et le pied le dit",
+						  apercu >= 1u && ouvert && relatif, det);
 				}
 			}
 			renderdetail::NkPoserFournisseurImages(nullptr, nullptr);
