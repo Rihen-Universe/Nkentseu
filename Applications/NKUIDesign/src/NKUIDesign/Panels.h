@@ -15765,10 +15765,34 @@ namespace nkuidesign {
 					const NkDegrade *gApercu = (!simple && i < (uint32)n->fills.Size()) ? &n->fills[i].degrade : nullptr;
 					const bool ligneImage = !simple && i < (uint32)n->fills.Size() && n->fills[i].EstImage();
 					if (ligneImage) {
-						for (int32 dy = 0; dy < 4; ++dy)
-							for (int32 dx = 0; dx < 4; ++dx)
-								dl.AddRectFilled({sw.x + 1.f + 3.5f * (float32)dx, sw.y + 1.f + 3.5f * (float32)dy, 3.5f, 3.5f},
-												 ((dx + dy) & 1) ? nkgui::NkColor{212, 212, 212, 255} : nkgui::NkColor{154, 154, 154, 255});
+						// ④ LA MINIATURE EST L'IMAGE (2026-09-05). Rodolf : « la miniature dans
+						//    Remplissages ne correspond pas à celle de l'image chargée ». Elle peignait
+						//    un damier — le motif qui veut dire « rien ici » — pour TOUTE ligne image,
+						//    chargée ou non. La pastille du dégradé peint son dégradé ; celle de
+						//    l'image peint donc son image, avec le MÊME cache et la MÊME texture que la
+						//    toile (`NkCacheImages`), cadrée « fit » dans les 14 px utiles.
+						// ⚠️ LE DAMIER RESTE POUR CE QU'IL VEUT DIRE : pas de source, source
+						//    introuvable, ou pas de texture (une sonde sans fenêtre) — trois cas où il
+						//    n'y a rien à montrer, et où mentir serait pire que le damier.
+						NkCacheImages::Entree *entreeL = nullptr;
+						if (!n->fills[i].image.Empty()) {
+							mSt->images.base = NkCacheImages::Dossier(mSt->cheminActif.Data());
+							entreeL = &mSt->images.Charger(n->fills[i].image.Data());
+						}
+						if (entreeL && !entreeL->absente && entreeL->handle != 0u && entreeL->w > 0 && entreeL->h > 0) {
+							const float32 dispo = sw.w - 2.f;
+							const float32 kM = (dispo / (float32)entreeL->w < dispo / (float32)entreeL->h)
+												   ? dispo / (float32)entreeL->w
+												   : dispo / (float32)entreeL->h;
+							const float32 aw = (float32)entreeL->w * kM, ah = (float32)entreeL->h * kM;
+							dl.AddImage(entreeL->handle, {sw.x + 1.f + (dispo - aw) * 0.5f, sw.y + 1.f + (dispo - ah) * 0.5f, aw, ah},
+										{0.f, 0.f}, {1.f, 1.f}, nkgui::NkColor{255, 255, 255, 255});
+						} else {
+							for (int32 dy = 0; dy < 4; ++dy)
+								for (int32 dx = 0; dx < 4; ++dx)
+									dl.AddRectFilled({sw.x + 1.f + 3.5f * (float32)dx, sw.y + 1.f + 3.5f * (float32)dy, 3.5f, 3.5f},
+													 ((dx + dy) & 1) ? nkgui::NkColor{212, 212, 212, 255} : nkgui::NkColor{154, 154, 154, 255});
+						}
 					} else if (gApercu && gApercu->Actif()) {
 						// l'APERÇU RÉEL du dégradé dans la pastille, par le calcul du document
 						for (int32 s = 0; s < 8; ++s) {

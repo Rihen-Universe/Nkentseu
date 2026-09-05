@@ -10158,6 +10158,112 @@ namespace nkuidesign {
 				image(-1.f, -1.f, false);
 			}
 		}
+		// ── 90. ④ LA MINIATURE DE LA LIGNE « REMPLISSAGES » EST L'IMAGE (05/09). Rodolf : « la
+		//    miniature dans Remplissages ne correspond pas a celle de l'image chargee » -- elle
+		//    peignait un damier pour TOUTE ligne image. Temoin : la liste de dessin de
+		//    l'inspecteur porte une commande TEXTUREE au handle de l'image, dans la pastille ;
+		//    sans texture (ou source introuvable), le damier revient -- et c'est ce qu'il doit
+		//    dire.
+		{
+			static nkgui::NkGuiContext ctxMin;
+			char det[700];
+			static nkgui::NkGuiFont policeMin;
+			const bool policeOkMin = policeMin.LoadEmbedded(nkentseu::NkEmbeddedFontId::Inter, 14.f, false);
+			if (!ctxMin.Init(600, 900) || !policeOkMin) {
+				check("90. la miniature de la ligne image", false, "Init ou police a refuse");
+			} else {
+				ctxMin.font = &policeMin;
+				static DesignState stMin;
+				stMin.doc.NewDocument("Toile", NkAuthor::Humain);
+				stMin.cheminActif = NkString();
+				stMin.images.Vider();
+				stMin.images.televerser = [](void *, const uint8 *, int32, int32) -> uint32 { return 0x4E4B0400u; };
+				renderdetail::NkPoserFournisseurImages(&NkObtenirImageDuDocument, &stMin);
+				const int32 pgM = stMin.doc.AddChild(0, "", NkAuthor::Humain);
+				stMin.doc.nodes[(uint32)pgM].shape = NkString("frame");
+				stMin.doc.nodes[(uint32)pgM].layout.kind = NkLayoutKind::Free;
+				stMin.doc.nodes[(uint32)pgM].width.mode = NkSizeMode::Fixed;
+				stMin.doc.nodes[(uint32)pgM].width.value = 300.f;
+				stMin.doc.nodes[(uint32)pgM].height.mode = NkSizeMode::Fixed;
+				stMin.doc.nodes[(uint32)pgM].height.value = 300.f;
+				const int32 rcM = stMin.doc.AddChild(pgM, "", NkAuthor::Humain);
+				{
+					NkUINode &n = stMin.doc.nodes[(uint32)rcM];
+					n.shape = NkString("rect");
+					n.posX = 100.f;
+					n.posY = 100.f;
+					n.width.mode = NkSizeMode::Fixed;
+					n.width.value = 80.f;
+					n.height.mode = NkSizeMode::Fixed;
+					n.height.value = 80.f;
+					NkRemplissage f;
+					f.genre = NkString("image");
+					f.image = NkString("sonde_crop_4x3.png"); // ecrite par la sonde 86
+					n.fills.PushBack(f);
+				}
+				stMin.Recompute(NkPaintRect{0.f, 0.f, 340.f, 900.f});
+				stMin.SelectSingle(rcM);
+				static InspectorPanel inspMin(&stMin);
+				NkEditorFrameContext ec;
+				ec.ui = &ctxMin;
+				ec.dt = 0.016f;
+				auto image = [&]() {
+					ctxMin.input.mousePos = {-1.f, -1.f};
+					ctxMin.BeginFrame(0.016f);
+					ctxMin.BeginLayout({340.f, 0.f, 260.f, 900.f});
+					inspMin.OnUI(ec);
+					ctxMin.EndFrame();
+				};
+				image();
+				image();
+				// la commande texturee au handle de l'image, et sa boite : une pastille de 16 px
+				auto boiteTexture = [&](uint32 tex, float32 &x0, float32 &y0, float32 &x1, float32 &y1) -> uint32 {
+					x0 = 1e9f; y0 = 1e9f; x1 = -1e9f; y1 = -1e9f;
+					uint32 n = 0u;
+					const nkgui::NkGuiDrawList &dlM = ctxMin.dl;
+					for (uint32 c = 0; c < (uint32)dlM.cmds.Size(); ++c) {
+						const nkgui::NkGuiDrawCmd &cm = dlM.cmds[c];
+						if (cm.type != nkgui::NkGuiDrawCmdType::TexturedTriangles || cm.texId != tex)
+							continue;
+						++n;
+						for (uint32 k = 0; k < cm.idxCount; ++k) {
+							const uint32 ii = cm.idxOffset + k;
+							if (ii >= (uint32)dlM.idx.Size())
+								break;
+							const uint32 vi = dlM.idx[ii];
+							if (vi >= (uint32)dlM.vtx.Size())
+								continue;
+							const nkgui::NkVec2 &p = dlM.vtx[vi].pos;
+							if (p.x < x0) x0 = p.x;
+							if (p.x > x1) x1 = p.x;
+							if (p.y < y0) y0 = p.y;
+							if (p.y > y1) y1 = p.y;
+						}
+					}
+					return n;
+				};
+				float32 ax0 = 0.f, ay0 = 0.f, ax1 = 0.f, ay1 = 0.f;
+				const uint32 nCmd = boiteTexture(0x4E4B0400u, ax0, ay0, ax1, ay1);
+				// une image 4 x 3 « fit » dans 14 px : 14 x 10,5, centree
+				const bool taille = nCmd > 0u && (ax1 - ax0) > 13.f && (ax1 - ax0) < 15.f && (ay1 - ay0) > 9.f && (ay1 - ay0) < 12.f;
+				// la source retiree : plus de commande a ce handle (le damier revient)
+				stMin.doc.nodes[(uint32)rcM].fills[0].image = NkString("introuvable_90.png");
+				stMin.editionGeneration++;
+				stMin.images.Vider();
+				image();
+				image();
+				float32 bx0 = 0.f, by0 = 0.f, bx1 = 0.f, by1 = 0.f;
+				const uint32 nCmd2 = boiteTexture(0x4E4B0400u, bx0, by0, bx1, by1);
+				snprintf(det, sizeof(det),
+						 "image chargee : %u commande(s) texturee(s) au handle de l'image, boite %.1f x %.1f (une image 4:3 « fit » dans "
+						 "14 px : 14 x 10,5) -> %d ; source introuvable : %u commande(s) (le damier revient)",
+						 nCmd, (double)(ax1 - ax0), (double)(ay1 - ay0), taille ? 1 : 0, nCmd2);
+				check("90. ④ LA MINIATURE DE LA LIGNE IMAGE EST L'IMAGE : la pastille de la rangee « Remplissages » emet une commande "
+					  "TEXTUREE au handle du cache (celui de la toile), cadree « fit » dans les 14 px utiles ; source introuvable, le "
+					  "damier revient -- il ne veut plus dire « une image » mais « rien a montrer »",
+					  taille && nCmd2 == 0u, det);
+			}
+		}
 		snprintf(tail, sizeof(tail), "\n=== RESULTAT : %d / %d ===\n", pass, total);
 		rep.Append(tail);
 
