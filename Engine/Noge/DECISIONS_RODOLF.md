@@ -2070,6 +2070,28 @@ par image sur le dam (CFL sur vmax), et un GPU partagé. Leviers nommés, non fa
 NkSL puis tri par comptage ; retri des seules particules qui changent de cellule ; nombre d'itérations fixe
 mesuré (zéro relecture) ; un profil GPU par passe (le chrono est celui du CPU, relectures comprises).
 
+### ✅ 05/09 (01h40) — LE VENT : `NkForceField`, une source de force externe commune — `96f227ad`
+
+**Mesuré avant d'écrire** : rien n'existait (un seul `windStrength` de matériau — un shader, pas une force).
+`NkForceField` (Tools/VFX) vit sur l'émetteur (`NkEmitterDesc::field`) et s'ajoute à la gravité comme une
+**accélération**, là où elle est ajoutée, dans les **quatre chemins** : stockage CPU, noyau GPU ordinaire, SPH CPU,
+SPH GPU. **Une formule, deux langages** : `NkEvalForceField` (C++) et `NkForceFieldNkSL()` (source NkSL concaténée
+au préambule des noyaux, bloc uniforme `Field` de 3 vec4). Quatre formes : uniforme, vortex (tangentiel autour
+d'un axe, plein jusqu'au rayon puis en 1/r), turbulence (bruit de valeur à trois canaux), **bruit de curl**
+(rotationnel d'un potentiel de bruit par différences centrées — Bridson, Hourihan, Nordenstam, *Curl-Noise for
+Procedural Fluid Flow*, SIGGRAPH 2007 — à divergence nulle par construction).
+
+| témoin (§6.4) | mesure | verdict |
+|---|---|---|
+| force uniforme → accélération = F/m (particule seule, gravité nulle, pas fixe, centroïde du disque) | Δx(1 s)/Δx(0,5 s) = **4,34 / 4,64** CPU, **4,19 / 4,62** GPU (attendu 4 ; 3,94 en Euler explicite ; 3,5 px pour le petit déplacement → ±15 %) ; Δx(a=2)/Δx(a=1) = **2,06 / 2,20** CPU, **1,97 / 2,17** GPU (attendu 2) ; CPU = GPU à 0,3 px | ✅ à la précision du pixel |
+| bruit de curl → divergence nulle | \|div\| / (\|a\| · f) = **0,0005** sur 1 000 points ; **contrôle** turbulence : 1,56 | ✅ (< 5 %), le contrôle rougit |
+| SPH GPU au repos sous vent nul | 1,001 / sol 1,001 / vmax 0,021 — inchangé | ✅ |
+| SPH GPU sous vent latéral 0,5 m/s² | le fluide **s'incline** (surface −0,612 au lieu de −0,633) et reste calme (1,001 / 1,001 / 0,027) | ✅ (non demandé, mesuré) |
+
+Boutons : `NK_VFX_WIND` / `NK_SPH_WIND` = `uniform|vortex|turb|curl:strength[:fréquence]`, `NK_WIND_TEST=1`.
+**Nommé, non fait** : vortex et turbulence mesurés par la divergence seulement (pas d'image) ; tissu, cheveux et
+herbe liront ce même champ (§6.3, après).
+
 ### 🔩 04/09 (nuit) — JENGA 2.6 : ce qui est appliqué, ce qui est mesuré en retour
 
 - **`-static` — le défaut était chez nous** : `config/toolchain.jenga:55` (bloc Windows natif) promettait
