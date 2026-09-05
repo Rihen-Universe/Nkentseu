@@ -210,6 +210,60 @@ int main() {
 		Verdict("refus / contre-epreuve : un format livre est accepte", g == NkGPUFormat::NK_RGBA8_SRGB, d);
 	}
 
+	// -- 7. DE BOUT EN BOUT, sur un vrai PNG du depot, par le chemin EXACT du
+	//    four (`CuireFichier` + `NkEcrireActifTexture`) : c'est ce que fait
+	//    `Tools/NkTexBake`, ligne pour ligne. Sans ce temoin, le banc ne
+	//    prouverait que son propre aller-retour en memoire.
+	{
+		const char *png = "Resources/NKRenderer/Textures/Defaults/test_pattern.png";
+		const char *actifPng = "Build/nktex_test_pattern.nktex";
+		NkVector<nk_uint8> p2;
+		NkString e2;
+		NkTexOvenReglages r2;
+		r2.sRGB = true;
+		r2.genererMips = true;
+		if (!NkTextureOven::CuireFichier(png, r2, p2, &e2)) {
+			Verdict("bout en bout / cuisson d'un PNG du depot", false, e2.CStr());
+		} else if (!NkEcrireActifTexture(p2.Data(), p2.Size(), actifPng, NkStringView("/Textures/TestPattern"),
+										 NkStringView(png), nullptr, &e2)) {
+			Verdict("bout en bout / ecriture de l'actif", false, e2.CStr());
+		} else {
+			NkTexHandle h2 = NkTextureAssetIO::LoadBaked(NkString(actifPng), &lib);
+			NkTextureHandle rhi2 = lib.GetRHIHandle(h2);
+			NkSWTexture *t2 = h2.IsValid() ? dev.GetTex(rhi2.id) : nullptr;
+
+			// La verite : le PNG decode directement.
+			NkImage direct;
+			const bool decode = direct.Load(png, 0);
+			NkImage rgba;
+			const NkImage *att = &direct;
+			if (decode && direct.Format() != NkImagePixelFormat::NK_RGBA32) {
+				rgba = direct.Convert(NkImagePixelFormat::NK_RGBA32);
+				att = &rgba;
+			}
+
+			nk_uint64 diff = 0;
+			nk_uint64 tot = 0;
+			if (t2 && decode && att->IsValid() && t2->mips.Size() > 0) {
+				const nk_size pas = nk_size(att->Width()) * 4u;
+				for (int32 y = 0; y < att->Height(); ++y) {
+					const uint8 *a = att->RowPtr(y);
+					const uint8 *b = t2->mips[0].Data() + nk_size(y) * pas;
+					for (nk_size k = 0; k < pas; ++k) {
+						if (a[k] != b[k])
+							++diff;
+						++tot;
+					}
+				}
+			} else {
+				diff = 1;
+			}
+			std::snprintf(d, sizeof(d), "%s : %llu octet(s) different(s) sur %llu du decodage direct", png,
+						  (unsigned long long)diff, (unsigned long long)tot);
+			Verdict("bout en bout / PNG -> four -> actif -> RHI, au bit", diff == 0 && tot > 0, d);
+		}
+	}
+
 	lib.Shutdown();
 	dev.Shutdown();
 
