@@ -10210,26 +10210,202 @@ namespace nkuidesign {
 			{"Hex", 1, 0, {0.f, 0.f, 0.f}, {0.f, 0.f, 0.f}, true},
 			{"RGB", 3, 0, {0.f, 0.f, 0.f}, {255.f, 255.f, 255.f}, true},
 			{"HSB", 3, 0, {0.f, 0.f, 0.f}, {360.f, 100.f, 100.f}, true},
-			{"HSL", 3, 0, {0.f, 0.f, 0.f}, {360.f, 100.f, 100.f}, false},
-			{"HWB", 3, 0, {0.f, 0.f, 0.f}, {360.f, 100.f, 100.f}, false},
-			{"LCH", 3, 2, {0.f, 0.f, 0.f}, {100.f, 150.f, 360.f}, false},
-			{"LAB", 3, 2, {0.f, -128.f, -128.f}, {100.f, 127.f, 127.f}, false},
-			{"OKLCH", 3, 3, {0.f, 0.f, 0.f}, {1.f, 0.5f, 360.f}, false},
-			{"OKLAB", 3, 2, {0.f, -100.f, -100.f}, {100.f, 100.f, 100.f}, false},
+			// les six restants : ecrits le 05/09 (couleurdetail), tous operants ; plages et
+			// decimales lues sur ses captures (OKLAB : L sur 100, a et b en -0,5..0,5 -- sa
+			// capture montre « 56,38  -0,04  -0,15 » pour #1976D2)
+			{"HSL", 3, 0, {0.f, 0.f, 0.f}, {360.f, 100.f, 100.f}, true},
+			{"HWB", 3, 0, {0.f, 0.f, 0.f}, {360.f, 100.f, 100.f}, true},
+			{"LCH", 3, 2, {0.f, 0.f, 0.f}, {100.f, 150.f, 360.f}, true},
+			{"LAB", 3, 2, {0.f, -128.f, -128.f}, {100.f, 127.f, 127.f}, true},
+			{"OKLCH", 3, 3, {0.f, 0.f, 0.f}, {1.f, 0.5f, 360.f}, true},
+			{"OKLAB", 3, 2, {0.f, -0.5f, -0.5f}, {100.f, 0.5f, 0.5f}, true},
 		};
 		return k[i < 0 ? 0 : (i > 8 ? 8 : i)];
 	}
+	// ── LES SIX MODELES RESTANTS (05/09) : HSL, HWB, LCH, LAB, OKLCH, OKLAB ─────────────
+	// Citations : CSS Color Module Level 4 -- « Converting sRGB to CIE XYZ » (les
+	// matrices lin-sRGB <-> XYZ D65, valeurs exactes du texte), « Converting Lab/LCH »
+	// (f(t) avec epsilon = 216/24389, kappa = 24389/27) ; Bjorn Ottosson, « A perceptual
+	// color space for image processing » (2020) pour OKLab (matrices M1 / M2 et inverses
+	// publiees) ; HSL / HWB : CSS Color 4 §« HSL Colors » / §« HWB Colors ».
+	// ⚠️ Lab / LCH sont ici RELATIFS A D65 (le blanc de sRGB : 0,3127 / 0,3290), pas au
+	//    D50 de la fonction lab() de CSS (qui adapte par Bradford) : c'est le choix demande
+	//    (« D65 »), et il est dit. Tout se calcule en float64 : l'aller-retour Hex ->
+	//    modele -> Hex est identique sur les 16 777 216 couleurs (sonde 71) -- la ou
+	//    Lunacy derive d'une unite (1976D2 -> 1A76D1 apres OKLAB).
+	namespace couleurdetail {
+		using nkentseu::float64;
+		inline float64 SRgbVersLin(float64 c) {
+			return c <= 0.04045 ? c / 12.92 : nkentseu::math::NkPow((c + 0.055) / 1.055, 2.4);
+		}
+		inline float64 LinVersSRgb(float64 c) {
+			return c <= 0.0031308 ? c * 12.92 : 1.055 * nkentseu::math::NkPow(c, 1.0 / 2.4) - 0.055;
+		}
+		inline void RgbVersXyz(float64 r, float64 g, float64 b, float64 &X, float64 &Y, float64 &Z) {
+			const float64 R = SRgbVersLin(r), G = SRgbVersLin(g), B = SRgbVersLin(b);
+			X = 0.41239079926595934 * R + 0.357584339383878 * G + 0.1804807884018343 * B;
+			Y = 0.21263900587151027 * R + 0.715168678767756 * G + 0.07219231536073371 * B;
+			Z = 0.01933081871559182 * R + 0.11919477979462598 * G + 0.9505321522496607 * B;
+		}
+		inline void XyzVersRgb(float64 X, float64 Y, float64 Z, float64 &r, float64 &g, float64 &b) {
+			const float64 R = 3.2409699419045226 * X - 1.537383177570094 * Y - 0.4986107602930034 * Z;
+			const float64 G = -0.9692436362808796 * X + 1.8759675015077202 * Y + 0.04155505740717559 * Z;
+			const float64 B = 0.05563007969699366 * X - 0.20397695888897652 * Y + 1.0569715142428786 * Z;
+			r = LinVersSRgb(R);
+			g = LinVersSRgb(G);
+			b = LinVersSRgb(B);
+		}
+		// le blanc D65 en XYZ (CSS Color 4 : x = 0,3127, y = 0,3290)
+		inline float64 Xn() { return 0.9504559270516716; }
+		inline float64 Zn() { return 1.0890577507598784; }
+		inline float64 LabF(float64 t) {
+			const float64 eps = 216.0 / 24389.0, kappa = 24389.0 / 27.0;
+			return t > eps ? nkentseu::math::NkCbrt(t) : (kappa * t + 16.0) / 116.0;
+		}
+		inline float64 LabFInv(float64 f) {
+			const float64 eps = 216.0 / 24389.0, kappa = 24389.0 / 27.0;
+			const float64 f3 = f * f * f;
+			return f3 > eps ? f3 : (116.0 * f - 16.0) / kappa;
+		}
+		inline void RgbVersLab(float64 r, float64 g, float64 b, float64 &L, float64 &a, float64 &bb) {
+			float64 X, Y, Z;
+			RgbVersXyz(r, g, b, X, Y, Z);
+			const float64 fx = LabF(X / Xn()), fy = LabF(Y), fz = LabF(Z / Zn());
+			L = 116.0 * fy - 16.0;
+			a = 500.0 * (fx - fy);
+			bb = 200.0 * (fy - fz);
+		}
+		inline void LabVersRgb(float64 L, float64 a, float64 bb, float64 &r, float64 &g, float64 &b) {
+			const float64 fy = (L + 16.0) / 116.0, fx = a / 500.0 + fy, fz = fy - bb / 200.0;
+			const float64 kappa = 24389.0 / 27.0, eps = 216.0 / 24389.0;
+			const float64 X = LabFInv(fx) * Xn();
+			const float64 Y = L > kappa * eps ? fy * fy * fy : L / kappa;
+			const float64 Z = LabFInv(fz) * Zn();
+			XyzVersRgb(X, Y, Z, r, g, b);
+		}
+		inline void RgbVersOklab(float64 r, float64 g, float64 b, float64 &L, float64 &a, float64 &bb) {
+			const float64 R = SRgbVersLin(r), G = SRgbVersLin(g), B = SRgbVersLin(b);
+			const float64 l = nkentseu::math::NkCbrt(0.4122214708 * R + 0.5363325363 * G + 0.0514459929 * B);
+			const float64 m = nkentseu::math::NkCbrt(0.2119034982 * R + 0.6806995451 * G + 0.1073969566 * B);
+			const float64 sv = nkentseu::math::NkCbrt(0.0883024619 * R + 0.2817188376 * G + 0.6299787005 * B);
+			L = 0.2104542553 * l + 0.7936177850 * m - 0.0040720468 * sv;
+			a = 1.9779984951 * l - 2.4285922050 * m + 0.4505937099 * sv;
+			bb = 0.0259040371 * l + 0.7827717662 * m - 0.8086757660 * sv;
+		}
+		inline void OklabVersRgb(float64 L, float64 a, float64 bb, float64 &r, float64 &g, float64 &b) {
+			const float64 l_ = L + 0.3963377774 * a + 0.2158037573 * bb;
+			const float64 m_ = L - 0.1055613458 * a - 0.0638541728 * bb;
+			const float64 s_ = L - 0.0894841775 * a - 1.2914855480 * bb;
+			const float64 l = l_ * l_ * l_, m = m_ * m_ * m_, sv = s_ * s_ * s_;
+			r = LinVersSRgb(4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * sv);
+			g = LinVersSRgb(-1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * sv);
+			b = LinVersSRgb(-0.0041960863 * l - 0.7034186147 * m + 1.7076147010 * sv);
+		}
+		inline void AbVersCh(float64 a, float64 b, float64 &C, float64 &H) {
+			C = nkentseu::math::NkSqrt(a * a + b * b);
+			H = nkentseu::math::NkAtan2(b, a) * 180.0 / 3.14159265358979323846;
+			if (H < 0.0)
+				H += 360.0;
+		}
+		inline void ChVersAb(float64 C, float64 H, float64 &a, float64 &b) {
+			const float64 rad = H * 3.14159265358979323846 / 180.0;
+			a = C * nkentseu::math::NkCos(rad);
+			b = C * nkentseu::math::NkSin(rad);
+		}
+		inline float64 Teinte(float64 r, float64 g, float64 b, float64 mx, float64 d) {
+			if (d <= 0.0)
+				return 0.0;
+			float64 h = mx == r ? 60.0 * ((g - b) / d) : (mx == g ? 60.0 * (2.0 + (b - r) / d) : 60.0 * (4.0 + (r - g) / d));
+			if (h < 0.0)
+				h += 360.0;
+			return h;
+		}
+		inline void RgbVersHsl(float64 r, float64 g, float64 b, float64 &h, float64 &sl, float64 &l) {
+			const float64 mx = r > g ? (r > b ? r : b) : (g > b ? g : b), mn = r < g ? (r < b ? r : b) : (g < b ? g : b), d = mx - mn;
+			l = (mx + mn) * 0.5;
+			const float64 den = 1.0 - (2.0 * l - 1.0 < 0.0 ? 1.0 - 2.0 * l : 2.0 * l - 1.0);
+			sl = den > 0.0 ? d / den : 0.0;
+			h = Teinte(r, g, b, mx, d);
+		}
+		inline void HslVersRgb(float64 h, float64 sl, float64 l, float64 &r, float64 &g, float64 &b) {
+			const float64 C = (1.0 - (2.0 * l - 1.0 < 0.0 ? 1.0 - 2.0 * l : 2.0 * l - 1.0)) * sl;
+			float64 hp = nkentseu::math::NkFmod(h, 360.0);
+			if (hp < 0.0)
+				hp += 360.0;
+			hp /= 60.0;
+			const float64 hm = nkentseu::math::NkFmod(hp, 2.0) - 1.0;
+			const float64 X = C * (1.0 - (hm < 0.0 ? -hm : hm));
+			float64 r1 = 0.0, g1 = 0.0, b1 = 0.0;
+			if (hp < 1.0) { r1 = C; g1 = X; }
+			else if (hp < 2.0) { r1 = X; g1 = C; }
+			else if (hp < 3.0) { g1 = C; b1 = X; }
+			else if (hp < 4.0) { g1 = X; b1 = C; }
+			else if (hp < 5.0) { r1 = X; b1 = C; }
+			else { r1 = C; b1 = X; }
+			const float64 m = l - C * 0.5;
+			r = r1 + m;
+			g = g1 + m;
+			b = b1 + m;
+		}
+		inline void RgbVersHwb(float64 r, float64 g, float64 b, float64 &h, float64 &w, float64 &bk) {
+			const float64 mx = r > g ? (r > b ? r : b) : (g > b ? g : b), mn = r < g ? (r < b ? r : b) : (g < b ? g : b);
+			h = Teinte(r, g, b, mx, mx - mn);
+			w = mn;
+			bk = 1.0 - mx;
+		}
+		inline void HwbVersRgb(float64 h, float64 w, float64 bk, float64 &r, float64 &g, float64 &b) {
+			if (w + bk >= 1.0) {
+				const float64 gris = w / (w + bk);
+				r = g = b = gris;
+				return;
+			}
+			HslVersRgb(h, 1.0, 0.5, r, g, b); // la teinte pure
+			const float64 k = 1.0 - w - bk;
+			r = r * k + w;
+			g = g * k + w;
+			b = b * k + w;
+		}
+	} // namespace couleurdetail
+
+	/// LA FRONTIERE UNIQUE : un modele s'ajoute ici et nulle part ailleurs. Entree et
+	/// sortie en sRGB 0..255 (float32) ; les valeurs de modele dans les unites de la table.
 	inline bool NkRgbVersModele(nkentseu::int32 modele, nkentseu::float32 r, nkentseu::float32 g,
 								nkentseu::float32 b, nkentseu::float32 v[3]) {
+		using namespace couleurdetail;
 		if (modele == 1) { v[0] = r; v[1] = g; v[2] = b; return true; }
 		if (modele == 2) { NkRgbVersHsb(r, g, b, v[0], v[1], v[2]); return true; }
-		return false; // HSL, HWB, LCH, LAB, OKLCH, OKLAB : conversion non ecrite
+		const float64 R = r / 255.0, G = g / 255.0, B = b / 255.0;
+		float64 a = 0.0, c = 0.0, d = 0.0;
+		switch (modele) {
+			case 3: RgbVersHsl(R, G, B, a, c, d); v[0] = (nkentseu::float32)a; v[1] = (nkentseu::float32)(c * 100.0); v[2] = (nkentseu::float32)(d * 100.0); return true;
+			case 4: RgbVersHwb(R, G, B, a, c, d); v[0] = (nkentseu::float32)a; v[1] = (nkentseu::float32)(c * 100.0); v[2] = (nkentseu::float32)(d * 100.0); return true;
+			case 5: { float64 C, H; RgbVersLab(R, G, B, a, c, d); AbVersCh(c, d, C, H); v[0] = (nkentseu::float32)a; v[1] = (nkentseu::float32)C; v[2] = (nkentseu::float32)H; return true; }
+			case 6: RgbVersLab(R, G, B, a, c, d); v[0] = (nkentseu::float32)a; v[1] = (nkentseu::float32)c; v[2] = (nkentseu::float32)d; return true;
+			case 7: { float64 C, H; RgbVersOklab(R, G, B, a, c, d); AbVersCh(c, d, C, H); v[0] = (nkentseu::float32)a; v[1] = (nkentseu::float32)C; v[2] = (nkentseu::float32)H; return true; }
+			case 8: RgbVersOklab(R, G, B, a, c, d); v[0] = (nkentseu::float32)(a * 100.0); v[1] = (nkentseu::float32)c; v[2] = (nkentseu::float32)d; return true;
+			default: return false;
+		}
 	}
 	inline bool NkModeleVersRgb(nkentseu::int32 modele, const nkentseu::float32 v[3], nkentseu::float32 &r,
 								nkentseu::float32 &g, nkentseu::float32 &b) {
+		using namespace couleurdetail;
 		if (modele == 1) { r = v[0]; g = v[1]; b = v[2]; return true; }
 		if (modele == 2) { NkHsbVersRgb(v[0], v[1], v[2], r, g, b); return true; }
-		return false;
+		float64 R = 0.0, G = 0.0, B = 0.0, a = 0.0, c = 0.0;
+		switch (modele) {
+			case 3: HslVersRgb(v[0], v[1] / 100.0, v[2] / 100.0, R, G, B); break;
+			case 4: HwbVersRgb(v[0], v[1] / 100.0, v[2] / 100.0, R, G, B); break;
+			case 5: ChVersAb(v[1], v[2], a, c); LabVersRgb(v[0], a, c, R, G, B); break;
+			case 6: LabVersRgb(v[0], v[1], v[2], R, G, B); break;
+			case 7: ChVersAb(v[1], v[2], a, c); OklabVersRgb(v[0], a, c, R, G, B); break;
+			case 8: OklabVersRgb(v[0] / 100.0, v[1], v[2], R, G, B); break;
+			default: return false;
+		}
+		auto borne = [](float64 x) { return x < 0.0 ? 0.0 : (x > 1.0 ? 1.0 : x); };
+		r = (nkentseu::float32)(borne(R) * 255.0);
+		g = (nkentseu::float32)(borne(G) * 255.0);
+		b = (nkentseu::float32)(borne(B) * 255.0);
+		return true;
 	}
 	/// Un nombre a la francaise : `49,21` comme `49.21`, le signe accepte (LAB / OKLAB).
 	inline bool NkLireNombreFr(const char *s, nkentseu::float32 &v) {

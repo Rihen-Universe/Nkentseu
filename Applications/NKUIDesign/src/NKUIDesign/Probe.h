@@ -7869,6 +7869,80 @@ namespace nkuidesign {
 			}
 			renderdetail::NkPoserFournisseurImages(nullptr, nullptr);
 		}
+		// ── 71. LES SIX MODELES DE COULEUR RESTANTS (HSL, HWB, LCH, LAB, OKLCH, OKLAB) : derriere
+		//    la frontiere unique, l'aller-retour Hex -> modele -> Hex est IDENTIQUE sur les
+		//    16 777 216 couleurs, pour chacun -- la ou Lunacy derive d'une unite. Et une valeur
+		//    connue par modele (les references de CSS Color 4 / Ottosson pour #1976D2).
+		{
+			char det[600];
+			static const char *const kNoms[6] = {"HSL", "HWB", "LCH", "LAB", "OKLCH", "OKLAB"};
+			uint32 ecarts[6] = {0u, 0u, 0u, 0u, 0u, 0u};
+			uint32 premier[6] = {0u, 0u, 0u, 0u, 0u, 0u};
+			// LE BALAYAGE COMPLET EST RELEASE (le coordinateur, 05/09) : en Debug il prendrait
+			// des heures sans prouver plus ; la sonde DIT son mode et son pas dans sa sortie.
+#if defined(NDEBUG)
+			const uint32 pas = 1u;
+			const char *mode = "Release : les 16 777 216 couleurs";
+#else
+			const uint32 pas = 257u; // premier : les trois octets tournent, 65 281 couleurs
+			const char *mode = "Debug : 1 couleur sur 257 (65 281) -- le balayage complet est Release";
+#endif
+			for (int32 m = 3; m <= 8; ++m) {
+				for (uint32 c = 0u; c < 16777216u; c += pas) {
+					const float32 r = (float32)((c >> 16) & 0xFFu), g = (float32)((c >> 8) & 0xFFu), b = (float32)(c & 0xFFu);
+					float32 v[3] = {0.f, 0.f, 0.f}, r2 = 0.f, g2 = 0.f, b2 = 0.f;
+					if (!NkRgbVersModele(m, r, g, b, v) || !NkModeleVersRgb(m, v, r2, g2, b2)) {
+						++ecarts[m - 3];
+						continue;
+					}
+					const int32 ir = (int32)(r2 + 0.5f), ig = (int32)(g2 + 0.5f), ib = (int32)(b2 + 0.5f);
+					if (ir != (int32)r || ig != (int32)g || ib != (int32)b) {
+						if (ecarts[m - 3] == 0u)
+							premier[m - 3] = c;
+						++ecarts[m - 3];
+					}
+				}
+			}
+			// DES REFERENCES PUBLIEES, pas des chiffres de memoire : le blanc sRGB vaut par
+			// construction Lab(D65) 100 / 0 / 0 et OKLab 1 / 0 / 0 ; le rouge sRGB vaut OKLab
+			// 0,627955 / 0,224863 / 0,125846 (Ottosson 2020, table de l'article), Lab(D65)
+			// 53,24 / 80,09 / 67,20 (valeurs classiques du rouge sRGB sous D65), HSL 0 / 100 / 50.
+			float32 okB[3] = {0.f, 0.f, 0.f}, labB[3] = {0.f, 0.f, 0.f}, okR[3] = {0.f, 0.f, 0.f}, labR[3] = {0.f, 0.f, 0.f}, hslR[3] = {0.f, 0.f, 0.f};
+			NkRgbVersModele(8, 255.f, 255.f, 255.f, okB);
+			NkRgbVersModele(6, 255.f, 255.f, 255.f, labB);
+			NkRgbVersModele(8, 255.f, 0.f, 0.f, okR);
+			NkRgbVersModele(6, 255.f, 0.f, 0.f, labR);
+			NkRgbVersModele(3, 255.f, 0.f, 0.f, hslR);
+			auto pres = [](float32 v, float32 att, float32 tol) { return v - att <= tol && att - v <= tol; };
+			const bool connus = pres(okB[0], 100.f, 0.05f) && pres(okB[1], 0.f, 0.001f) && pres(okB[2], 0.f, 0.001f)
+								&& pres(labB[0], 100.f, 0.01f) && pres(labB[1], 0.f, 0.01f) && pres(labB[2], 0.f, 0.01f)
+								&& pres(okR[0], 62.7955f, 0.05f) && pres(okR[1], 0.224863f, 0.001f) && pres(okR[2], 0.125846f, 0.001f)
+								&& pres(labR[0], 53.24f, 0.1f) && pres(labR[1], 80.09f, 0.1f) && pres(labR[2], 67.20f, 0.1f)
+								&& pres(hslR[0], 0.f, 0.01f) && pres(hslR[1], 100.f, 0.01f) && pres(hslR[2], 50.f, 0.01f);
+			float32 ok[3] = {0.f, 0.f, 0.f};
+			NkRgbVersModele(8, 25.f, 118.f, 210.f, ok); // ce que la rangee affichera pour #1976D2 (Lunacy : 56,38 / -0,04 / -0,15)
+			bool tous = connus;
+			size_t l = 0;
+			snprintf(det, sizeof(det), "[%s] ", mode);
+			for (int32 k = 0; k < 6; ++k) {
+				if (ecarts[k])
+					tous = false;
+				l = strlen(det);
+				snprintf(det + l, sizeof(det) - l, "%s%s : %u ecart(s)", k ? " ; " : "", kNoms[k], ecarts[k]);
+				if (ecarts[k]) {
+					l = strlen(det);
+					snprintf(det + l, sizeof(det) - l, " (premier %06X)", premier[k]);
+				}
+			}
+			l = strlen(det);
+			snprintf(det + l, sizeof(det) - l, " ; references : blanc OKLAB %.2f %.3f %.3f LAB %.2f %.2f %.2f, rouge OKLAB %.4f %.4f %.4f LAB %.2f %.2f %.2f HSL %.0f %.0f %.0f (connus=%d) ; #1976D2 -> OKLAB %.2f %.3f %.3f (Lunacy 56,38 / -0,04 / -0,15)",
+					 okB[0], okB[1], okB[2], labB[0], labB[1], labB[2], okR[0], okR[1], okR[2], labR[0], labR[1], labR[2], hslR[0], hslR[1], hslR[2],
+					 connus ? 1 : 0, ok[0], ok[1], ok[2]);
+			check("71. LES SIX MODELES RESTANTS derriere la frontiere unique (CSS Color 4, D65 ; OKLab d'Ottosson) : "
+				  "l'aller-retour Hex -> modele -> Hex est IDENTIQUE sur les 16 777 216 couleurs pour HSL, HWB, LCH, LAB, "
+				  "OKLCH et OKLAB -- et le blanc, le noir et le rouge sRGB donnent les valeurs PUBLIEES (Ottosson, D65)",
+				  tous, det);
+		}
 		snprintf(tail, sizeof(tail), "\n=== RESULTAT : %d / %d ===\n", pass, total);
 		rep.Append(tail);
 
