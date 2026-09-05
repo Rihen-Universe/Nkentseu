@@ -2631,6 +2631,45 @@ pas étanches et les **deux** signes essayés s'y trompent. Sur un corps fermé,
 deux paie ; la jupe (406 %) demande un patron évasé sur l'amplitude du clip ; six témoins de patron (43
 verts, 6 rouges) ; le coût du champ (24 ms) et du pas (cape 21 ms, jupe 45 ms) restent au-dessus de 16.
 
+### 🪡 05/09 (16h) — LE CONFLIT ÉPINGLE/CHAMP, UNE TROISIÈME MESURE CORRIGÉE, ET LA VOIE « RENDRE LES CORPS ÉTANCHES »
+
+**Le conflit épingle/champ, réglé pour ce qu'il valait.** Une épingle est une contrainte **dure** — sa
+position vient de l'os ; le champ pousse sa **voisine** à l'épaisseur de la peau, et l'arête entre les deux
+paie tout l'écart. `NkCloth` calcule maintenant, par parcours en largeur sur l'adjacence des contraintes, la
+**distance topologique** de chaque particule à l'épingle la plus proche, et **pondère** la poussée du champ :
+0 sur l'épingle, 1 au-delà de `sdfPinBlendRings` anneaux (défaut **3**).
+
+**⚠️ Et la mesure a encore dû être corrigée avant de conclure — troisième fois de la journée, même motif.**
+Le balayage 3 / 5 / 8 anneaux donnait 51,8 % / 97,7 % / 37,8 % d'étirement : **non monotone**, donc ce
+n'était pas un régime mais un **pic isolé** — et un maximum sur 300 images ne dit rien d'un pic. La sonde
+imprime désormais **max, moyenne par image, et nombre d'images au-dessus de 5 %**.
+
+| anneaux | étirement moyen / image | images > 5 % | pic | sous la peau (max / moyenne) |
+|---|---|---|---|---|
+| 0 (sans zone) | 4,59 % | 44 / 301 | 142,6 % | 11 / 0,76 |
+| **3 (défaut)** | **3,03 %** | **31 / 301** | 51,8 % | **4 / 0,21** |
+| 8 | 3,11 % | 40 / 301 | 37,8 % | 5 / 0,26 |
+
+*La zone de transition améliore **les deux axes à la fois** — c'était la condition posée : jamais l'un contre
+l'autre.* 🔴 Le critère « cape < 1 % **et** ≤ 4 sous la peau » : la seconde moitié est **atteinte**, la
+première **non** (3,03 % de moyenne). **La cause restante n'est plus l'épingle** : le champ est reconstruit
+chaque image sur une grille dont la cellule fait **26 mm**, son isosurface interpolée « respire » d'une image
+à l'autre, et un tissu de 6 mm d'épaisseur y est sensible. Le levier est la **finesse locale** (la boîte des
+vêtements) — qui est aussi le levier de coût : les deux chantiers n'en font qu'un.
+
+**📌 LA VOIE À MESURER AVANT BARNES-HUT : RENDRE LES CORPS ÉTANCHES.** Le champ est juste sur un corps fermé
+(CesiumMan 100 %) et faux sur XBot / YBot (24,5 %, centre « dehors »), parce que ces corps sont **deux coques
+ouvertes qui se recouvrent**. Deux remèdes possibles, et **le second n'a pas été essayé** :
+1. **Barnes-Hut** sur le nombre d'enroulement (Jacobson 2013) — coûteux, et ma somme directe est déjà fausse
+   (elle **empire** quand la résolution monte) : *avant d'accélérer une formule, la calibrer à 100 % sur un
+   corps fermé — sinon l'accélération n'accélère qu'une erreur.*
+2. **Une passe d'étanchéité à l'import** : fermer les coques ouvertes (boucher les bords), ou dériver une
+   **enveloppe** unique (par exemple l'isosurface d'un champ non signé dilaté puis érodé — une fermeture
+   morphologique, dont notre grille est déjà le support). Elle se paierait **une fois par actif**, pas par
+   image, et elle rendrait le corps utilisable par *tous* les tests d'intérieur, pas seulement le nôtre.
+   **À mesurer d'abord** : c'est probablement moins cher que Barnes-Hut, et c'est la vraie réponse à
+   « les corps de production ne sont pas étanches ».
+
 ### 🔩 04/09 (nuit) — JENGA 2.6 : ce qui est appliqué, ce qui est mesuré en retour
 
 - **`-static` — le défaut était chez nous** : `config/toolchain.jenga:55` (bloc Windows natif) promettait
