@@ -19,6 +19,8 @@ static int g_pass = 0, g_fail = 0;
 		}                                                                                                              \
 	} while (0)
 
+int RunClothTests(int &pass, int &fail); // test_cloth.cpp
+
 static bool Near(float32 a, float32 b, float32 eps = 1e-3f) {
 	float32 d = a - b;
 	return (d < 0 ? -d : d) <= eps;
@@ -658,6 +660,9 @@ int main() {
 		CHECK(world.OverlapShape(collision::NkShape::Sphere({0.f, 6.0f, 0.f}, 0.1f), ids2) == 0,
 			  "capsule tournee : ne couvre plus l'ancien sommet vertical (0,6,0)");
 	}
+
+	// Tissu XPBD (2026-09-05) : les temoins vivent dans test_cloth.cpp, memes compteurs.
+	RunClothTests(g_pass, g_fail);
 
 	logger.Info("=== NKPhysics : {0} passes, {1} echecs ===\n", g_pass, g_fail);
 	return g_fail == 0 ? 0 : 1;
