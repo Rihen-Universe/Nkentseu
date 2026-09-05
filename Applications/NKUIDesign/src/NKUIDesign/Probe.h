@@ -10898,6 +10898,161 @@ namespace nkuidesign {
 				image(-1.f, -1.f, false);
 			}
 		}
+		// ── 96. ④ LE NOM DU FICHIER VIENT DE L'OBJET, ET TOUT S'EXPORTE (05/09, apres-midi).
+		//    Rodolf : « le nom du fichier exporte doit etre celui de sa page. On peut tout
+		//    exporter, pas seulement les pages : meme les graphiques, les groupes et leurs
+		//    enfants. » Cinq mesures : le nom assaini, le nom PROPOSE (page / objet / « N
+		//    objets » / suffixe d'echelle), un GROUPE qui emporte ses enfants dans les pixels,
+		//    UN FICHIER PAR OBJET, et le doublon suffixe « (2) » plutot qu'ecrase en silence.
+		{
+			char det[900];
+			// 1. L'ASSAINISSEMENT : les caracteres interdits de Windows deviennent « _ », les
+			//    accents restent (le nom lu dans l'arbre doit rester lisible dans le dossier).
+			char a1[64], a2[64], a3[64], a4[64];
+			NkNomFichierAssaini("Bouton/Connexion", a1, sizeof(a1));
+			NkNomFichierAssaini("  Page: \"Accueil\" ?", a2, sizeof(a2));
+			NkNomFichierAssaini("", a3, sizeof(a3));
+			NkNomFichierAssaini("Étoile 2", a4, sizeof(a4));
+			const bool assainiOk = NkComponentDecl::StrEq(a1, "Bouton_Connexion")
+								   && !NkString(a2).Contains(':') && !NkString(a2).Contains('?') && !NkString(a2).Contains('"')
+								   && a2[0] == 'P' && NkComponentDecl::StrEq(a3, "sans_nom")
+								   && NkString(a4).Contains("toile 2");
+			// 2. LE DOCUMENT : une page nommee « Accueil », un carre, un groupe et son enfant bleu
+			static DesignState st96;
+			st96.doc.NewDocument("Export", NkAuthor::Humain);
+			st96.cheminActif = NkString();
+			st96.images.Vider();
+			st96.sel.Clear();
+			st96.selected = -1;
+			st96.theme.Set(NkDesignResolveRole("artboard_bg"), 0xFFFFFFFFu);
+			st96.theme.Set(NkDesignResolveRole("border"), 0x30363DFFu);
+			const int32 pg96 = st96.doc.AddChild(0, "", NkAuthor::Humain);
+			{
+				NkUINode &p = st96.doc.nodes[(uint32)pg96];
+				p.shape = NkString("frame");
+				p.label = NkString("Accueil");
+				p.layout.kind = NkLayoutKind::Free;
+				p.width.mode = NkSizeMode::Fixed;
+				p.width.value = 300.f;
+				p.height.mode = NkSizeMode::Fixed;
+				p.height.value = 200.f;
+			}
+			auto poser96 = [&](int32 parent, float32 x, float32 y, float32 w, float32 h, const char *nom,
+							   const char *couleur) -> int32 {
+				const int32 i = st96.doc.AddChild(parent, "", NkAuthor::Humain);
+				NkUINode &n = st96.doc.nodes[(uint32)i];
+				n.shape = NkString("rect");
+				n.label = NkString(nom);
+				n.posX = x;
+				n.posY = y;
+				n.width.mode = NkSizeMode::Fixed;
+				n.width.value = w;
+				n.height.mode = NkSizeMode::Fixed;
+				n.height.value = h;
+				n.layout.kind = NkLayoutKind::Free;
+				if (couleur) {
+					NkRemplissage f;
+					f.couleur = NkString(couleur);
+					n.fills.PushBack(f);
+				}
+				return i;
+			};
+			const int32 carre96 = poser96(pg96, 10.f, 10.f, 40.f, 40.f, "Carré rouge", "#ff0000");
+			const int32 groupe96 = poser96(pg96, 100.f, 10.f, 80.f, 60.f, "Carte Actifs", "#00ff00");
+			(void)poser96(groupe96, 10.f, 10.f, 30.f, 20.f, "Titre", "#0000ff");
+			st96.Recompute(NkPaintRect{0.f, 0.f, 1400.f, 900.f});
+			// 3. LE NOM PROPOSE : la page, l'objet, l'echelle en suffixe, la selection multiple
+			char nPage[220], nObjet[220], nEch[220], nMulti[220];
+			{
+				NkExportOptions o;
+				o.selection = false;
+				st96.sel.Set(carre96);
+				st96.selected = carre96;
+				NkNomExportPropose(st96, o, nPage, sizeof(nPage)); // page MALGRE la selection
+				o.selection = true;
+				NkNomExportPropose(st96, o, nObjet, sizeof(nObjet));
+				o.echelle = 2.f;
+				NkNomExportPropose(st96, o, nEch, sizeof(nEch));
+				o.echelle = 1.f;
+				st96.sel.Add(groupe96);
+				NkNomExportPropose(st96, o, nMulti, sizeof(nMulti));
+			}
+			const bool nomsOk = NkComponentDecl::StrEq(nPage, "Accueil.png")
+								&& NkComponentDecl::StrEq(nObjet, "Carré rouge.png")
+								&& NkComponentDecl::StrEq(nEch, "Carré rouge@2x.png")
+								&& NkComponentDecl::StrEq(nMulti, "2 objets.png");
+			// 4. UN GROUPE EMPORTE SES ENFANTS : la zone est celle du groupe (80 x 60) et le bleu
+			//    de l'enfant est dans les pixels -- exporter un groupe n'est pas exporter sa boite.
+			bool enfantSuit = false;
+			int32 lGroupe = 0, hGroupe = 0;
+			uint8 pxEnfant[4] = {0, 0, 0, 0};
+			{
+				st96.sel.Set(groupe96);
+				st96.selected = groupe96;
+				NkExportOptions o;
+				o.selection = true;
+				NkImage img;
+				NkExportResultat r;
+				if (NkExporterImage(st96, o, img, r) && img.Pixels()) {
+					lGroupe = img.Width();
+					hGroupe = img.Height();
+					if (lGroupe > 20 && hGroupe > 20) {
+						const uint8 *p = img.Pixels() + ((usize)20 * (usize)lGroupe + 20u) * 4u;
+						for (int32 k = 0; k < 4; ++k)
+							pxEnfant[k] = p[k];
+						enfantSuit = lGroupe == 80 && hGroupe == 60 && pxEnfant[2] > 200u && pxEnfant[0] < 60u
+									 && pxEnfant[1] < 60u;
+					}
+				}
+			}
+			// 5. UN FICHIER PAR OBJET, et le doublon suffixe : deux noeuds de MEME etiquette
+			st96.doc.nodes[(uint32)carre96].label = NkString("sonde_par_objet");
+			const int32 jumeau96 = poser96(pg96, 200.f, 10.f, 40.f, 40.f, "sonde_par_objet", "#ff00ff");
+			st96.Recompute(NkPaintRect{0.f, 0.f, 1400.f, 900.f});
+			NkFile::Delete("sonde_par_objet.png");
+			NkFile::Delete("sonde_par_objet (2).png");
+			st96.sel.Set(carre96);
+			st96.sel.Add(jumeau96);
+			st96.selected = carre96;
+			NkString msg96;
+			NkExportOptions oPar;
+			oPar.selection = true;
+			oPar.unFichierParObjet = true;
+			const uint32 faits = NkExporterParObjet(st96, oPar, ".", msg96);
+			const bool premier = NkFile::Exists("sonde_par_objet.png");
+			const bool second = NkFile::Exists("sonde_par_objet (2).png");
+			// les DEUX fichiers portent des pixels DIFFERENTS : un fichier par objet, pas deux
+			// copies du meme (le defaut qu'un simple compte de fichiers ne verrait pas)
+			bool deuxContenus = false;
+			{
+				NkImage u1, u2;
+				if (premier && second && u1.Load("sonde_par_objet.png", 4) && u2.Load("sonde_par_objet (2).png", 4)
+					&& u1.Pixels() && u2.Pixels() && u1.Width() > 4 && u2.Width() > 4) {
+					const uint8 *p1 = u1.Pixels() + ((usize)4 * (usize)u1.Width() + 4u) * 4u;
+					const uint8 *p2 = u2.Pixels() + ((usize)4 * (usize)u2.Width() + 4u) * 4u;
+					deuxContenus = p1[0] > 200u && p1[1] < 60u && p1[2] < 60u  // le rouge
+								   && p2[0] > 200u && p2[2] > 200u && p2[1] < 60u; // le magenta
+				}
+			}
+			const bool parObjetOk = faits == 2u && premier && second && deuxContenus;
+			// la selection est RENDUE telle quelle : l'export ne deplace pas le choix de Rodolf
+			const bool selRendue = st96.sel.Count() == 2u && st96.sel.items[0] == carre96 && st96.selected == carre96;
+			snprintf(det, sizeof(det),
+					 "assaini : « %s », « %s », « %s », « %s » -> %d ; noms proposes : page « %s », objet « %s », x2 "
+					 "« %s », multiple « %s » -> %d ; le GROUPE exporte %d x %d, pixel de l'enfant RGBA %u/%u/%u/%u -> %d ; un "
+					 "fichier par objet : %u ecrit(s) [%s], doublon « (2) »=%d, contenus differents=%d -> %d ; selection rendue=%d",
+					 a1, a2, a3, a4, assainiOk ? 1 : 0, nPage, nObjet, nEch, nMulti, nomsOk ? 1 : 0, lGroupe, hGroupe,
+					 (unsigned)pxEnfant[0], (unsigned)pxEnfant[1], (unsigned)pxEnfant[2], (unsigned)pxEnfant[3],
+					 enfantSuit ? 1 : 0, faits,
+					 msg96.Data() ? msg96.Data() : "?", second ? 1 : 0, deuxContenus ? 1 : 0, parObjetOk ? 1 : 0,
+					 selRendue ? 1 : 0);
+			check("96. ④ L'EXPORT PORTE LE NOM DE L'OBJET ET TOUT S'EXPORTE : le nom est assaini (les caracteres interdits de "
+				  "Windows deviennent « _ », les accents restent), il vient de la PAGE, de l'OBJET ou de « N objets », avec "
+				  "« @2x » quand l'echelle change ; un GROUPE emporte ses enfants dans les pixels ; « un fichier par objet » ecrit "
+				  "un fichier PAR racine choisie, aux contenus differents, et suffixe « (2) » un doublon plutot que de l'ecraser en "
+				  "silence ; la selection est rendue telle quelle",
+				  assainiOk && nomsOk && enfantSuit && parObjetOk && selRendue, det);
+		}
 		snprintf(tail, sizeof(tail), "\n=== RESULTAT : %d / %d ===\n", pass, total);
 		rep.Append(tail);
 

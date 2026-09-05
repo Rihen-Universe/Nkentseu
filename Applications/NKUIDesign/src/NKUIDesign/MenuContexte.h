@@ -86,6 +86,7 @@ namespace nkuidesign {
 		Coller,
 		Supprimer,
 		VoirComposant, ///< ⑤ (05/09) : la declaration d'une instance se lit dans la Hierarchie
+		Exporter,	   ///< ④ (05/09) : ouvre LE dialogue d'export (le meme que Ctrl+E)
 		NB ///< le compte, lu par la recette — jamais une liste écrite à la main
 	};
 
@@ -394,6 +395,8 @@ namespace nkuidesign {
 		//    c'est un composant. La raison grisee dit desormais les DEUX cas.
 		ajouter("Voir le composant", nullptr, c.estInstance || c.estDeclaration,
 				" (ni instance, ni déclaration)", false, false, NkActionCtx::VoirComposant);
+		// ④ EXPORTER : toujours actif -- sans selection, c'est la page (le dialogue le dit)
+		ajouter("Exporter…", "Ctrl+E", true, "", false, false, NkActionCtx::Exporter);
 		ajouter("Appliquer au composant", "Ctrl+Alt+M", c.estInstance, " (pas une instance)",
 				false, false, NkActionCtx::AppliquerAuComposant);
 		ajouter("Miroir horizontal", "Maj+H", c.pasRacine, " (pas la racine)", false, false,

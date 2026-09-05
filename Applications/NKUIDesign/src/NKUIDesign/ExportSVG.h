@@ -1038,6 +1038,104 @@ namespace nkuidesign {
 		return true;
 	}
 
+	// ── ④ UN FICHIER PAR OBJET (05/09) ───────────────────────────────
+	//  Rodolf : « on peut tout exporter, pas seulement les pages : meme les graphiques, les
+	//  groupes et leurs enfants qui vont suivre le meme principe. » Plusieurs objets choisis,
+	//  deux sorties ont un sens : UNE image (la boite englobante) ou UN FICHIER CHACUN.
+	//  ⚠️ LE NOM DE CHAQUE FICHIER EST CELUI DE SON OBJET, et deux objets peuvent porter le
+	//     meme nom : le second recoit un suffixe ` (2)`. Ecraser en silence aurait fait
+	//     disparaitre un export sans un mot.
+	/// Rend le nombre de fichiers ecrits ; `message` porte la phrase du pied.
+	inline nkentseu::uint32 NkExporterParObjet(DesignState &st, const NkExportOptions &o, const char *dossier,
+												   NkString &message) {
+		using namespace nkentseu;
+		NkVector<int32> cibles;
+		for (uint32 k = 0; k < st.sel.Count(); ++k) {
+			const int32 i = st.sel.items[k];
+			if (!st.doc.IsValidIndex(i) || i == 0)
+				continue;
+			bool couvert = false; // un descendant d'un autre choisi part avec lui
+			for (int32 p = st.doc.nodes[(uint32)i].parent; p > 0 && !couvert; p = st.doc.nodes[(uint32)p].parent)
+				for (uint32 j = 0; j < st.sel.Count(); ++j)
+					if (st.sel.items[j] == p)
+						couvert = true;
+			if (!couvert)
+				cibles.PushBack(i);
+		}
+		if (cibles.Empty()) {
+			message = NkString("ÉCHEC d'export : rien n'est sélectionné — rien n'a été écrit.");
+			return 0u;
+		}
+		const NkSelection selAvant = st.sel;
+		const int32 selectedAvant = st.selected;
+		NkVector<NkString> ecrits;
+		uint32 faits = 0u, rates = 0u;
+		char dernier[300];
+		dernier[0] = 0;
+		for (uint32 k = 0; k < (uint32)cibles.Size(); ++k) {
+			st.sel.Set(cibles[k]);
+			st.selected = cibles[k];
+			NkExportOptions oi = o;
+			oi.selection = true;
+			oi.unFichierParObjet = false;
+			char nom[220];
+			NkNomExportPropose(st, oi, nom, sizeof(nom));
+			NkString chemin;
+			{ // le meme nom deux fois : ` (2)`, ` (3)`... jamais un ecrasement silencieux
+				uint32 rang = 1u;
+				char essai[240];
+				snprintf(essai, sizeof(essai), "%s", nom);
+				bool prise = true;
+				while (prise) {
+					prise = false;
+					for (uint32 e = 0; e < (uint32)ecrits.Size(); ++e)
+						if (NkComponentDecl::StrEq(ecrits[e].Data(), essai))
+							prise = true;
+					if (prise) {
+						++rang;
+						const char *pt = nullptr;
+						for (const char *q = nom; *q; ++q)
+							if (*q == '.')
+								pt = q;
+						char base[220];
+						const usize n = pt ? (usize)(pt - nom) : 0u;
+						for (usize q = 0; q < n && q + 1 < sizeof(base); ++q)
+							base[q] = nom[q];
+						base[n] = '\0';
+						snprintf(essai, sizeof(essai), "%s (%u)%s", base, rang, pt ? pt : "");
+					}
+				}
+				ecrits.PushBack(NkString(essai));
+				chemin = NkString(dossier ? dossier : "");
+				if (!chemin.Empty()) {
+					const char last = chemin.Data()[chemin.Length() - 1];
+					if (last != '/' && last != '\\')
+						chemin.Append('/');
+				}
+				chemin.Append(essai);
+			}
+			NkExportResultat r;
+			const bool ok = (o.format == NkExportFormat::PNG) ? NkExporterPNG(st, oi, chemin.Data(), r)
+															  : NkExporterSVGFichier(st, oi, chemin.Data(), r);
+			if (ok)
+				++faits;
+			else {
+				++rates;
+				snprintf(dernier, sizeof(dernier), "%s", r.message);
+			}
+		}
+		st.sel = selAvant;
+		st.selected = selectedAvant;
+		st.Recompute(NkPaintRect{0.f, 0.f, 1400.f, 900.f});
+		char m[420];
+		if (rates == 0u)
+			snprintf(m, sizeof(m), "Exporté : %u fichier(s), un par objet, dans %s", faits, dossier ? dossier : "?");
+		else
+			snprintf(m, sizeof(m), "%u fichier(s) écrit(s), %u ÉCHEC(S) — dernier : %s", faits, rates, dernier);
+		message = NkString(m);
+		return faits;
+	}
+
 	// ── LE MENU « EXPORTER... » : le selecteur de fichier du kit, puis l'export ──
 	inline void NkOuvrirChoixExport(DesignState &st, NkExportFormat format, nkentseu::float32 echelle, bool selection,
 									bool embarquer) {
@@ -1100,6 +1198,15 @@ namespace nkuidesign {
 		o.echelle = c.echelle;
 		o.selection = c.selection;
 		o.embarquer = c.embarquer;
+		o.unFichierParObjet = c.parObjet;
+		// ④ UN FICHIER PAR OBJET : c'est le DOSSIER choisi qui compte, pas le nom saisi
+		if (o.unFichierParObjet && o.selection && st.sel.Count() >= 2u) {
+			NkString msg;
+			NkExporterParObjet(st, o, c.picker.pickerResultPath, msg);
+			st.DireAuPied(msg.Data());
+			st.Consigner(msg.Data());
+			return;
+		}
 		NkExportResultat res;
 		if (o.format == NkExportFormat::PNG)
 			NkExporterPNG(st, o, chemin.Data(), res);

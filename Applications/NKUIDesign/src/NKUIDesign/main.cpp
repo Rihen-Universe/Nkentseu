@@ -69,6 +69,7 @@
 #include "NkGuiRoundTrip.h"
 #include "NkDocPoolControls.h"
 #include "Panels.h"
+#include "ExportDialogue.h" // ④ le dialogue d'export : un seul, deux portes
 #include "Probe.h"
 #include "DesignAIRecette.h" // --recette-ia : la preuve de recette du pipeline IA
 #include "RecetteEdition.h"	 // --recette-edition : le contrat universel d'edition, par site
@@ -324,6 +325,13 @@ static void AppliquerTheme(uint32 i) {
 	}
 }
 
+// ④ L'EXPORT : le raccourci et le menu ouvrent LE MEME dialogue. Il vise la selection
+//    quand il y en a une, la page sinon -- et le dialogue le dit avant de rien ecrire.
+static void CmdExporter(void *) {
+	if (gDesign.SaisieOuverte())
+		return; // jamais au milieu d'un renommage (meme garde que Ctrl+D)
+	nkuidesign::NkOuvrirDialogueExport(gDesign, !gDesign.sel.Empty() || gDesign.selected > 0);
+}
 static void CmdSave(void *) {
 	gDesign.SaveDoc();
 }
@@ -6908,6 +6916,9 @@ static void EcrireReleveUI(NkEditorFrameContext &ec, void *) {
 	nkuidesign::NkDessinerPickerDemande(ec.Ui(), gDesign);
 	// « EXPORTER... » (05/09) : le selecteur de fichier du kit en mode enregistrer,
 	// meme endroit, meme raison (l'entree reelle) ; l'export se fait a la confirmation.
+	// ④ LE DIALOGUE D'EXPORT d'abord (il ouvre le selecteur a la confirmation), puis le
+	//    selecteur lui-meme : deux etapes, un seul chemin.
+	nkuidesign::NkDessinerDialogueExport(ec.Ui(), gDesign);
 	nkuidesign::NkDessinerPickerExport(ec.Ui(), gDesign);
 	// LE MENU DES ROLES (ecrans 5-6-7) : dessine en OVERLAY, par-dessus les
 	// panneaux ; choisir ECRIT la cle `role` du noeud (le geste
@@ -7410,37 +7421,16 @@ static void DrawMenuBar(NkEditorFrameContext &ec, void *) {
 			MenuItem(ctx, "Ressources…", nullptr, false);
 			EndMenu(ctx);
 		}
-		if (BeginMenu(ctx, "Exporter")) {
-			// L'EXPORT (05/09) : format, echelle, page ou selection sont le choix du
-			// menu ; la destination est celle du selecteur de fichier du kit (mode
-			// enregistrer), ouvert par NkOuvrirChoixExport et conclu dans l'overlay
-			// (NkDessinerPickerExport) : le pied dit le chemin ecrit, ou l'echec.
-			using nkuidesign::NkExportFormat;
-			const bool aSel = !gDesign.sel.Empty() || (gDesign.doc.IsValidIndex(gDesign.selected) && gDesign.selected > 0);
-			const bool aPage = nkuidesign::NkPageParDefaut(gDesign) > 0;
-			if (MenuItem(ctx, "Page en PNG ×1…", nullptr, aPage))
-				nkuidesign::NkOuvrirChoixExport(gDesign, NkExportFormat::PNG, 1.f, false, false);
-			if (MenuItem(ctx, "Page en PNG ×2…", nullptr, aPage))
-				nkuidesign::NkOuvrirChoixExport(gDesign, NkExportFormat::PNG, 2.f, false, false);
-			if (MenuItem(ctx, "Page en PNG ×3…", nullptr, aPage))
-				nkuidesign::NkOuvrirChoixExport(gDesign, NkExportFormat::PNG, 3.f, false, false);
-			if (MenuItem(ctx, "Sélection en PNG ×1…", nullptr, aSel))
-				nkuidesign::NkOuvrirChoixExport(gDesign, NkExportFormat::PNG, 1.f, true, false);
-			if (MenuItem(ctx, "Sélection en PNG ×2…", nullptr, aSel))
-				nkuidesign::NkOuvrirChoixExport(gDesign, NkExportFormat::PNG, 2.f, true, false);
-			Separator(ctx);
-			if (MenuItem(ctx, "Page en SVG…", nullptr, aPage))
-				nkuidesign::NkOuvrirChoixExport(gDesign, NkExportFormat::SVG, 1.f, false, false);
-			if (MenuItem(ctx, "Page en SVG, images embarquées…", nullptr, aPage))
-				nkuidesign::NkOuvrirChoixExport(gDesign, NkExportFormat::SVG, 1.f, false, true);
-			if (MenuItem(ctx, "Sélection en SVG…", nullptr, aSel))
-				nkuidesign::NkOuvrirChoixExport(gDesign, NkExportFormat::SVG, 1.f, true, false);
-			Separator(ctx);
-			MenuItem(ctx, "PDF (à construire : le même arbre que le SVG)", nullptr, false);
-			MenuItem(ctx, "HTML / CSS / React / Next (à construire)", nullptr, false);
-			MenuItem(ctx, "Document .nkgui", "Ctrl+E", false);
-			EndMenu(ctx);
-		}
+		// ④ UNE SEULE ENTREE, UN SEUL DIALOGUE (2026-09-05). Le sous-menu portait NEUF
+		//    combinaisons (page x1/x2/x3, selection x1/x2, SVG, SVG embarque...) : chacune
+		//    etait un chemin, et le format ne se demandait nulle part. Rodolf : « les deux
+		//    raccourcis, clic droit et Ctrl+E, doivent demander le format, peut-etre
+		//    directement dans le dialogue approprie. » Le menu, le raccourci et le clic droit
+		//    ouvrent DESORMAIS le meme dialogue -- et Ctrl+E n'est declare qu'une fois (la
+		//    table de commandes de la coquille), la lecon de Ctrl+D du matin.
+		if (MenuItem(ctx, "Exporter…", "Ctrl+E"))
+			nkuidesign::NkOuvrirDialogueExport(gDesign, !gDesign.sel.Empty() || gDesign.selected > 0);
+		MenuItem(ctx, "Document .nkgui", nullptr, false);
 		MenuItem(ctx, "Valider le document", "Ctrl+Maj+V", false);
 		Separator(ctx);
 		// ⚠️ LE CHOIX DU BACKEND, ET IL NE DEPEND PLUS D AUCUN PANNEAU.
@@ -9153,6 +9143,9 @@ int nkmain(const NkEntryState &state) {
 	// relais a la premiere mesure — meme regle : jamais un nom en dur).
 	shell->SetTitleInfo(gDesign.doc.title.Data() ? gDesign.doc.title.Data() : "NkUIDesign");
 	shell->RegisterCommand("Document: Enregistrer", &CmdSave, nullptr, "Ctrl+S");
+	// ④ CTRL+E : DECLARE UNE SEULE FOIS, ici. La toile ne le lit pas -- deux declarations
+	//    feraient deux ouvertures, exactement le defaut ① du matin (Ctrl+D).
+	shell->RegisterCommand("Fichier: Exporter…", &CmdExporter, nullptr, "Ctrl+E");
 	// L'annulation unifiée (§7) : Ctrl+Z / Ctrl+Y, et Ctrl+Maj+Z en seconde
 	// orthographe du rétablir (le standard des trois éditeurs de référence).
 	shell->RegisterCommand("Édition: Annuler", &CmdUndo, nullptr, "Ctrl+Z");

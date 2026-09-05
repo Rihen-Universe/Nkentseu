@@ -63,6 +63,11 @@ namespace nkuidesign {
 			nkentseu::int32 page = -1;		 ///< -1 = la page de la selection, sinon la premiere
 			bool embarquer = false;			 ///< SVG : les images en data: base64 au lieu d'un chemin relatif
 			bool policeExacte = true;		 ///< faux = l'atlas du costume etire (la mutation de la sonde)
+			/// ④ (05/09, apres-midi) UN FICHIER PAR OBJET quand plusieurs noeuds sont choisis.
+			/// Faux = une seule image, sur la boite englobante de la selection (le defaut).
+			/// ⚠️ Sans effet a un seul objet : les deux donnent le meme fichier, et le dialogue
+			///    grise donc le choix plutot que de laisser croire a une difference.
+			bool unFichierParObjet = false;
 	};
 
 	struct NkExportResultat {
@@ -469,18 +474,86 @@ namespace nkuidesign {
 		return true;
 	}
 
+	// ── LE NOM DU FICHIER, TIRE DE L'OBJET (④, 05/09) ───────────────────────
+	// Rodolf : « le nom du fichier exporte doit etre celui de sa page » -- et, comme tout
+	// s'exporte desormais, celui de l'objet en general (page, groupe, graphique).
+	/// Un nom de fichier sur : les caracteres interdits de Windows (`\ / : * ? " < > |`), les
+	/// caracteres de controle et les espaces de bord deviennent `_`. Les ACCENTS RESTENT (NTFS
+	/// et ext4 les acceptent ; les retirer demanderait de decomposer l'UTF-8, et le nom que
+	/// Rodolf lit dans l'arbre doit rester reconnaissable dans son dossier). Vide -> `sans_nom`.
+	inline void NkNomFichierAssaini(const char *nom, char *out, nkentseu::usize cap) {
+		if (!out || cap == 0)
+			return;
+		nkentseu::usize k = 0;
+		bool vu = false;
+		for (const char *p = nom ? nom : ""; *p && k + 1 < cap; ++p) {
+			const unsigned char c = (unsigned char)*p;
+			char q = *p;
+			if (c < 32u || c == '\\' || c == '/' || c == ':' || c == '*' || c == '?' || c == '"' || c == '<'
+				|| c == '>' || c == '|')
+				q = '_';
+			if (q == ' ' && !vu)
+				continue; // pas d'espace de tete
+			out[k++] = q;
+			if (q != ' ' && q != '_')
+				vu = true;
+		}
+		while (k > 0 && (out[k - 1] == ' ' || out[k - 1] == '.'))
+			--k; // ni espace ni point final (Windows les refuse)
+		out[k] = '\0';
+		if (!vu || k == 0)
+			snprintf(out, cap, "sans_nom");
+	}
+
+	/// LE NOM DE CE QUI SERA EXPORTE : la page, l'objet, ou « N objets » pour une selection
+	/// multiple exportee en UNE image. Sans etiquette, le genre sert de nom (« rect ») --
+	/// jamais un numero de noeud, qui ne veut rien dire dans un dossier.
+	inline void NkNomObjetExport(const DesignState &st, const NkExportOptions &o, char *out,
+								 nkentseu::usize cap) {
+		using namespace nkentseu;
+		auto nomDe = [&](int32 i) -> const char * {
+			if (!st.doc.IsValidIndex(i))
+				return "document";
+			const NkUINode &n = st.doc.nodes[(uint32)i];
+			if (!n.label.Empty())
+				return n.label.Data();
+			if (!n.shape.Empty())
+				return n.shape.Data();
+			if (!n.component.Empty())
+				return n.component.Data();
+			return "objet";
+		};
+		if (!o.selection) {
+			const int32 page = o.page > 0 && st.doc.IsValidIndex(o.page) ? o.page : NkPageParDefaut(st);
+			NkNomFichierAssaini(page > 0 ? nomDe(page) : "document", out, cap);
+			return;
+		}
+		uint32 n = st.sel.Count();
+		if (n == 0u && st.doc.IsValidIndex(st.selected) && st.selected > 0)
+			n = 1u;
+		if (n <= 1u) {
+			const int32 i = st.sel.Count() > 0u ? st.sel.items[0] : st.selected;
+			NkNomFichierAssaini(nomDe(i), out, cap);
+			return;
+		}
+		char b[64];
+		snprintf(b, sizeof(b), "%u objets", n);
+		NkNomFichierAssaini(b, out, cap);
+	}
+
 	// ── LE NOM PROPOSE ───────────────────────────────────────────────────────
+	/// ④ LE NOM PROPOSE EST CELUI DE L'OBJET (05/09) -- avant, c'etait le nom du DOCUMENT
+	/// suivi de « _page » ou « _selection » : trois pages exportees donnaient trois fois le
+	/// meme nom, et Rodolf devait le retaper a chaque fois.
 	inline void NkNomExportPropose(const DesignState &st, const NkExportOptions &o, char *out, nkentseu::usize cap) {
 		using namespace nkentseu;
-		NkString base = st.cheminActif.Empty() ? NkString("document") : NkPath(st.cheminActif).GetFileNameWithoutExtension();
-		if (base.Empty())
-			base = NkString("document");
+		char base[160];
+		NkNomObjetExport(st, o, base, sizeof(base));
 		char ech[16];
 		ech[0] = 0;
-		if (o.format == NkExportFormat::PNG && o.echelle > 1.001f)
+		if (o.format == NkExportFormat::PNG && (o.echelle > 1.001f || o.echelle < 0.999f))
 			snprintf(ech, sizeof(ech), "@%gx", (double)o.echelle);
-		snprintf(out, cap, "%s_%s%s.%s", base.Data(), o.selection ? "selection" : "page", ech,
-				 o.format == NkExportFormat::PNG ? "png" : "svg");
+		snprintf(out, cap, "%s%s.%s", base, ech, o.format == NkExportFormat::PNG ? "png" : "svg");
 	}
 
 } // namespace nkuidesign

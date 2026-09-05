@@ -1478,8 +1478,18 @@ namespace nkuidesign {
 					bool selection = false;
 					bool embarquer = false;
 					char buf[512] = {};
+					/// ④ (05/09) LE DIALOGUE : un seul, ouvert par Ctrl+E comme par le clic droit,
+					/// il porte le format, l'echelle, l'etendue, la sortie et le nom. La
+					/// destination reste au selecteur du kit -- ce dialogue dit QUOI, lui dit OU.
+					nkentseu::editorkit::NkModal dialogue;
+					char nom[200] = {};
+					bool parObjet = false; ///< plusieurs objets : un fichier chacun
 			};
 			NkChoixExport choixExport;
+			/// ④ La DEMANDE d'export, posée par le menu contextuel et lue par l'overlay :
+			///    le dialogue s'ouvre là où l'entrée est réelle, jamais depuis le dispatcheur.
+			bool exportDemande = false;
+			bool exportSurSelection = false;
 			/// Le dossier de reference des chemins d'image : celui du document, ou le
 			/// repertoire courant pour un document jamais enregistre (separateur final).
 			NkString DossierImages() const {
@@ -2259,6 +2269,16 @@ namespace nkuidesign {
 						"Détaché — le sous-arbre est revenu, tes surcharges comprises.");
 				} else
 					st.status = NkString("Détacher : ce nœud n'est pas une instance.");
+				return true;
+			}
+			// ④ EXPORTER : le dispatcheur ne fait qu'ARMER la demande — le dialogue vit dans
+			//    l'overlay (l'entrée y est réelle), comme le sélecteur de couleur. Une action
+			//    de menu qui dessinerait une modale ici la peindrait SOUS les panneaux.
+			case NkActionCtx::Exporter: {
+				st.exportDemande = true;
+				st.exportSurSelection = st.doc.IsValidIndex(noeud) && noeud > 0;
+				if (st.exportSurSelection && !st.sel.Contains(noeud))
+					st.SelectSingle(noeud); // le clic droit vise CE nœud
 				return true;
 			}
 			case NkActionCtx::VoirComposant: {
