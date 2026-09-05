@@ -137,6 +137,18 @@ namespace nkentseu {
 				//    (le bouton « Aller », `OpenPickerBase`, un appelant qui n'existe pas
 				//    encore) : il n'y a plus rien a oublier.
 				char listePour[512] = {};
+
+				// ── ② LA LARGEUR DU RAIL, EN PIXELS (05/09, nuit) ───────────────────
+				// Elle etait une FRACTION de la largeur du volet (`tree_width` = 0,18) : 155 px
+				// ici, et moins encore sur une fenetre plus petite. Un rail dont la largeur
+				// depend de la fenetre tronque d'autant plus qu'on a peu de place -- exactement
+				// quand on en a le plus besoin.
+				// ⚠️ LE MINIMUM EST REEL : en dessous de `kRailMin`, on ne montre pas un rail
+				//    etroit, on refuse de le retrecir. Un rail illisible ne rend aucun service.
+				float32 largeurRail = 220.f;
+				bool railGlisse = false;
+				static const float32 kRailMin;
+				static const float32 kRailMax;
 				bool relire = true; ///< forcer une relecture (creation de dossier, F5...)
 
 				/// LE dossier affiche. Ce n'est PAS un champ : c'est `pickerPath` lui-meme,
@@ -363,6 +375,60 @@ namespace nkentseu {
 					}
 				}
 
+				/// ② TRONQUER AU MILIEU : `Nkentseu-…-noge` plutot que `Nken…`.
+				/// ⚠️ POURQUOI PAS A DROITE : deux dossiers freres partagent presque toujours
+				///    leur debut (`Nkentseu`, `Nkentseu-noge`, `Nkentseu-actifs`) et se
+				///    distinguent par leur FIN. Couper a droite efface justement ce qui les
+				///    separe -- c'est ce que montrait la capture : `Nken…` et `Nk…`.
+				/// ⚠️ LES FRONTIERES UTF-8 SONT TENUES DES DEUX COTES (on recule sur les octets
+				///    de suite `10xxxxxx`) : la lecon de ⑥, payee le meme soir.
+				static void TronquerMilieu(const char *nom, char *out, usize cap, const NkGuiFont &f,
+										   float32 dispo) {
+					if (!out || cap == 0)
+						return;
+					out[0] = '\0';
+					if (!nom || !*nom)
+						return;
+					usize n = 0;
+					while (nom[n] && n + 1 < cap)
+						++n;
+					for (usize k = 0; k < n; ++k)
+						out[k] = nom[k];
+					out[n] = '\0';
+					if (!f.Valid() || dispo <= 0.f || f.MeasureWidth(out) <= dispo)
+						return;
+					static const char kSuite[] = "\xE2\x80\xA6"; // … U+2026, en octets explicites
+					usize g = n / 2u, d = n / 2u; // g = fin du debut garde, d = debut de la fin gardee
+					while (g > 0u && ((unsigned char)nom[g] & 0xC0u) == 0x80u)
+						--g;
+					while (d < n && ((unsigned char)nom[d] & 0xC0u) == 0x80u)
+						++d;
+					while (g > 0u || d < n) {
+						usize k = 0;
+						for (usize i = 0; i < g && k + 5 < cap; ++i)
+							out[k++] = nom[i];
+						for (usize i = 0; i < 3u && k + 2 < cap; ++i)
+							out[k++] = kSuite[i];
+						for (usize i = d; i < n && k + 1 < cap; ++i)
+							out[k++] = nom[i];
+						out[k] = '\0';
+						if (f.MeasureWidth(out) <= dispo)
+							return;
+						// on rogne alternativement des deux cotes, en sautant les octets de suite
+						if (g > 0u) {
+							--g;
+							while (g > 0u && ((unsigned char)nom[g] & 0xC0u) == 0x80u)
+								--g;
+						}
+						if (d < n) {
+							++d;
+							while (d < n && ((unsigned char)nom[d] & 0xC0u) == 0x80u)
+								++d;
+						}
+					}
+					snprintf(out, cap, "%s", kSuite);
+				}
+
 				static nk_uint64 IdDe(const char *s) { // FNV-1a : l'identite d'un noeud du rail
 					nk_uint64 h = 1469598103934665603ull;
 					for (const char *p = s; p && *p; ++p) {
@@ -535,6 +601,13 @@ namespace nkentseu {
 				NkVector<NkString> mExts; ///< proprietaire des `kindLabel` du volet droit
 		};
 
+		// ② Les bornes du rail. 180 px : la largeur en dessous de laquelle un nom de
+		// dossier usuel (« Telechargements ») ne tient plus, mesuree au costume.
+		// 45 % : au-dela, le volet des vignettes -- la raison d'etre du dialogue --
+		// devient plus etroit que son rail.
+		inline const float32 NkFilePickerNavState::kRailMin = 180.f;
+		inline const float32 NkFilePickerNavState::kRailMax = 0.45f;
+		
 		// ── ④ CE QUE LE VOLET DOIT TAIRE DANS UN DIALOGUE (05/09, soir) ───────────
 		// Sur la capture de Rodolf, le selecteur « choisir le dossier » affichait la bande
 		// « Contenu » et les boutons « Creer / Importer / Tout enregistrer » : ce sont ceux
@@ -674,7 +747,36 @@ namespace nkentseu {
 			{
 				// ④ Le volet se tait sur ce que ce mode n'exige pas -- un seul site, nomme.
 				NkContentBrowserStyle volet = sty.volet;
-				volet.values = &NkInstanceVoletSelecteur(!saveMode && !dossierMode);
+				// ② LA LARGEUR DU RAIL EST IMPOSEE EN PIXELS. Le composant l'exprime en
+				//    FRACTION (`tree_width`) : on lui donne donc la fraction qui correspond a
+				//    la largeur voulue, bornee. Sans ca, le rail retrecit quand la fenetre
+				//    retrecit -- et tronque le plus quand on a le moins de place.
+				if (fp.largeurRail < NkFilePickerNavState::kRailMin)
+					fp.largeurRail = NkFilePickerNavState::kRailMin;
+				if (fp.largeurRail > zone.w * NkFilePickerNavState::kRailMax)
+					fp.largeurRail = zone.w * NkFilePickerNavState::kRailMax;
+				NkComponentInstance &inst = const_cast<NkComponentInstance &>(
+					NkInstanceVoletSelecteur(!saveMode && !dossierMode));
+				inst.SetParam("tree_width", zone.w > 0.f ? fp.largeurRail / zone.w : 0.18f);
+				volet.values = &inst;
+				// ② RE-TRONQUER LES LIBELLES AU MILIEU, ici et pas a la construction : c'est
+				//    ici qu'on connait la police ET la largeur. Le nom complet reste dans
+				//    `path`, d'ou on le relit a chaque image -- le libelle n'est qu'un
+				//    affichage, jamais une donnee.
+				for (uint32 i = 0; i < (uint32)fp.vue.folders.nodes.Size(); ++i) {
+					NkTreeNode &n = fp.vue.folders.nodes[i];
+					if (n.path.Empty())
+						continue; // un TITRE de section : il tient, et il ne se tronque pas
+					uint32 prof = 0u;
+					for (int32 a = n.parent; a >= 0; a = fp.vue.folders.nodes[(uint32)a].parent)
+						++prof;
+					const NkString complet = NkPath(n.path).GetFileName();
+					char court[160];
+					NkFilePickerNavState::TronquerMilieu(complet.Empty() ? n.path.CStr() : complet.CStr(),
+														 court, sizeof(court), *f,
+														 fp.largeurRail - 34.f * S - (float32)prof * 16.f * S);
+					n.label = NkString(court);
+				}
 				nkgui::PushOverlay(ctx); // le composant doit peindre dans la couche modale
 				NkGuiComponentPaint peintre(ctx, theme);
 				NkComponentInput in;
@@ -725,6 +827,21 @@ namespace nkentseu {
 				}
 			}
 			dl.AddRect(zone, sty.cadre.border, 1.f);
+			// ② LA POIGNEE : une bande verticale entre les deux volets. Elle est plus large
+			//    que le trait qu'elle deplace (8 px contre 1) -- une poignee qu'il faut
+			//    viser au pixel n'est pas une poignee.
+			{
+				const NkRect p = {zone.x + fp.largeurRail - 4.f * S, zone.y, 8.f * S, zone.h};
+				const bool surP = hit(p);
+				if (surP || fp.railGlisse)
+					dl.AddRectFilled({p.x + 3.f * S, p.y, 2.f * S, p.h}, sty.cadre.accent);
+				if (surP && click)
+					fp.railGlisse = true;
+				if (fp.railGlisse && ctx.input.mouseDown[0])
+					fp.largeurRail = mp.x - zone.x;
+				if (!ctx.input.mouseDown[0])
+					fp.railGlisse = false;
+			}
 
 			// ── LE BAS : le nom (mode enregistrer), puis Annuler / Confirmer ────
 			float32 by = py + ph - basH;

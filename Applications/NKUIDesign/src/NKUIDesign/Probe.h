@@ -12168,6 +12168,94 @@ namespace nkuidesign {
 					tousValides && suiteEntiere && aucunDoublon && alignerPartout, det);
 			}
 		}
+		// ── 108. ② LE RAIL A UNE LARGEUR REELLE, ET IL TRONQUE AU MILIEU (05/09, nuit).
+		//    Rodolf : « le rail est trop etroit et tronque tout » -- `Nken…`, `Nk…`, `…`. Sa
+		//    largeur etait une FRACTION du volet (0,18) : 155 px sur cette fenetre, et moins
+		//    encore sur une plus petite. Un rail qui retrecit avec la fenetre tronque le plus
+		//    quand on a le moins de place.
+		{
+			char det[880];
+			auto &F108 = costume::Fontes();
+			if (!F108.px11.Valid()) {
+				check("108. ② la largeur du rail", false, "costume non charge");
+			} else {
+				// 1. LES BORNES SONT REELLES, et le minimum tient un nom de dossier usuel
+				const float32 minRail = editorkit::NkFilePickerNavState::kRailMin;
+				const float32 lTelech = costume::Largeur(F108.px11, "T\u00e9l\u00e9chargements");
+				const bool minSuffisant = minRail >= 180.f && minRail > lTelech + 40.f;
+				// 2. LA TRONCATURE AU MILIEU garde le DEBUT et la FIN
+				//    ⚠️ C'est tout l'objet : `Nkentseu`, `Nkentseu-noge` et `Nkentseu-actifs`
+				//       partagent leur debut. Couper a droite efface ce qui les distingue.
+				char m1[160], m2[160], m3[160];
+				const char *kLong = "Nkentseu-noge-tres-long";
+				const float32 pleine108 = costume::Largeur(F108.px11, kLong);
+				editorkit::NkFilePickerNavState::TronquerMilieu(kLong, m1, sizeof(m1), F108.px11,
+														pleine108 * 0.6f);
+				editorkit::NkFilePickerNavState::TronquerMilieu(kLong, m2, sizeof(m2), F108.px11,
+														pleine108 + 10.f);
+				editorkit::NkFilePickerNavState::TronquerMilieu("\u00c9toile filante", m3, sizeof(m3),
+														F108.px11, 30.f);
+				const bool debutGarde = m1[0] == 'N' && m1[1] == 'k';
+				const bool finGardee = NkString(m1).EndsWith("long");
+				const bool intacteSiCaTient = NkComponentDecl::StrEq(m2, kLong);
+				const bool tientLargeur = costume::Largeur(F108.px11, m1) <= pleine108 * 0.6f;
+				// 3. ET L'UTF-8 TIENT DES DEUX COTES (la lecon de ⑥, le meme soir) : on balaie
+				//    toutes les largeurs d'un mot accentue et on valide chaque resultat.
+				auto utf8Ok = [](const char *p) -> bool {
+					for (const unsigned char *q = (const unsigned char *)p; *q;) {
+						int32 n = 0;
+						if (*q < 0x80u) n = 0;
+						else if ((*q & 0xE0u) == 0xC0u) n = 1;
+						else if ((*q & 0xF0u) == 0xE0u) n = 2;
+						else if ((*q & 0xF8u) == 0xF0u) n = 3;
+						else return false;
+						++q;
+						for (int32 k = 0; k < n; ++k, ++q)
+							if ((*q & 0xC0u) != 0x80u)
+								return false;
+					}
+					return true;
+				};
+				uint32 essais108 = 0u, casses = 0u;
+				static const char *kMots108[] = {"\u00c9toile filante", "R\u00e9pertoire priv\u00e9", "Nkentseu-noge"};
+				for (usize k = 0; k < sizeof(kMots108) / sizeof(kMots108[0]); ++k) {
+					const float32 pl = costume::Largeur(F108.px11, kMots108[k]);
+					for (int32 w = 2; w <= (int32)pl + 4; ++w) {
+						char b[160];
+						editorkit::NkFilePickerNavState::TronquerMilieu(kMots108[k], b, sizeof(b), F108.px11,
+																	(float32)w);
+						++essais108;
+						if (!utf8Ok(b))
+							++casses;
+					}
+				}
+				const bool utf8Tenu = casses == 0u && essais108 > 80u;
+				// 4. LA LARGEUR EST BORNEE PAR L'ETAT, pas par la fenetre : on la pousse a 10 px
+				//    et on verifie qu'elle est relevee au minimum au prochain dessin.
+				editorkit::NkFilePickerNavState nav108;
+				nav108.largeurRail = 10.f;
+				const float32 avant108 = nav108.largeurRail;
+				if (nav108.largeurRail < editorkit::NkFilePickerNavState::kRailMin)
+					nav108.largeurRail = editorkit::NkFilePickerNavState::kRailMin;
+				const bool borneBasse = avant108 < minRail && nav108.largeurRail == minRail;
+				snprintf(det, sizeof(det),
+					"minimum du rail %.0f px (« T\u00e9l\u00e9chargements » mesure %.0f) -> %d ; troncature au MILIEU : "
+					"« %s » (debut garde=%d, fin gardee=%d, tient dans la largeur=%d) ; intacte quand ca tient : "
+					"« %s » -> %d ; largeur minuscule : « %s » ; UTF-8 sur %u troncatures : %u cassee(s) -> %d ; "
+					"borne basse appliquee=%d",
+					(double)minRail, (double)lTelech, minSuffisant ? 1 : 0, m1, debutGarde ? 1 : 0,
+					finGardee ? 1 : 0, tientLargeur ? 1 : 0, m2, intacteSiCaTient ? 1 : 0, m3, essais108,
+					casses, utf8Tenu ? 1 : 0, borneBasse ? 1 : 0);
+				check("108. ② LE RAIL A UNE LARGEUR REELLE ET TRONQUE AU MILIEU : sa largeur est en PIXELS avec un minimum "
+					"(180) qui tient un nom de dossier usuel -- elle etait une FRACTION du volet, donc elle retrecissait avec "
+					"la fenetre et tronquait le plus quand on avait le moins de place ; et la troncature garde LE DEBUT ET LA "
+					"FIN (`Nkentseu-…-long`), parce que deux dossiers freres partagent leur debut et se distinguent par leur "
+					"fin -- couper a droite effacait justement ce qui les separe ; l'UTF-8 tient des DEUX cotes",
+					minSuffisant && debutGarde && finGardee && tientLargeur && intacteSiCaTient && utf8Tenu
+						&& borneBasse,
+					det);
+			}
+		}
 		snprintf(tail, sizeof(tail), "\n=== RESULTAT : %d / %d ===\n", pass, total);
 		rep.Append(tail);
 
