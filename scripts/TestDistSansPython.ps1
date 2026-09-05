@@ -1,3 +1,4 @@
+# AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 # Verifie qu'une distribution NKCode est utilisable SANS Python systeme.
 #
 # On ne peut pas desinstaller Python de cette machine : on s'en approche au plus
@@ -29,6 +30,13 @@ $exe = Join-Path $DistDir "NKCode.exe"
 
 Check "NKCode.exe present" (Test-Path $exe) $exe
 Check "python-embed present" (Test-Path $py) $py
+# La bibliotheque standard de l'embeddable est UN zip (python312.zip) a cote du
+# DLL ; `.gitignore` l'ignore (*.zip) comme il ignore python.exe (*.exe). Sans
+# lui, l'interpreteur IN-PROCESS de NKCode ne demarre pas (« No module named
+# 'encodings' ») : c'est l'IDE lui-meme qui est casse, pas seulement le shim.
+$stdlib = Get-ChildItem (Join-Path $DistDir "tools\python-embed") -Filter "python*.zip" -ErrorAction SilentlyContinue
+Check "bibliotheque standard python*.zip presente (interpreteur in-process de l'IDE)" ($null -ne $stdlib) `
+    "tools\python-embed\python3xx.zip absent : NKCode ne peut pas initialiser CPython"
 Check "jenga-src/Jenga present" (Test-Path $jengaSrc) $jengaSrc
 Check "shim tools/jenga.cmd present" (Test-Path $shim) $shim
 

@@ -24,7 +24,7 @@ namespace nkentseu {
 		// « 0.1.0-beta » ici et un tag « v0.1.0-beta.1 » publie, l'IDE se croyait
 		// perime en permanence. Bumper ICI avant de taguer une release.
 		inline const char *NkCodeVersion() {
-			return "0.1.0-beta.8";
+			return "0.1.0-beta.9";
 		}
 
 		// ── Horodatage de BUILD (« JJ/MM ») ──────────────────────────────────────

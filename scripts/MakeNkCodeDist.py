@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
+# AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 """
 MakeNkCodeDist.py — assemble une DISTRIBUTION AUTONOME de NKCode pour testeurs
 externes (Phase 5 ROADMAP / Phase 12 « zéro-dépendance ») :
@@ -9,7 +10,10 @@ externes (Phase 5 ROADMAP / Phase 12 « zéro-dépendance ») :
       python312.dll, python3.dll,     (DLLs exigees AU DEMARRAGE : NKCode.exe
       vcruntime140*.dll                lie python312 -> loader Windows)
       tools/
-        python-embed/                 (runtime CPython 3.12 embeddable complet)
+        python-embed/                 (runtime CPython 3.12 embeddable COMPLET :
+                                       runtime vendorise + python.exe/pythonw.exe/
+                                       python312.zip du paquet officiel python.org,
+                                       telecharge et verifie par SHA-256)
         jenga-src/Jenga/              (sources Jenga, sans Docs/Exemples/tests)
         compilers/llvm-mingw/         (Clang autonome par defaut, telecharge)
 
@@ -26,6 +30,7 @@ PascalCase (convention Rihen). Zero dependance pip (stdlib uniquement).
 """
 
 import argparse
+import hashlib
 import os
 import shutil
 import subprocess
@@ -37,6 +42,181 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parent.parent
 LLVM_MINGW_URL = ("https://github.com/mstorsjo/llvm-mingw/releases/download/"
                   "20240619/llvm-mingw-20240619-ucrt-x86_64.zip")
+
+# ── Python embarque : le paquet « Windows embeddable package (64-bit) » ──────
+# Le runtime vendorise (Externals/Libs/PythonEmbed/runtime) est INCOMPLET par
+# construction : `.gitignore` ignore `*.exe` et `*.zip`, donc `python.exe`,
+# `pythonw.exe` et `python312.zip` (TOUTE la bibliotheque standard) n'entrent
+# jamais dans le depot. Mesure le 2026-09-05 sur les betas 5, 7 et 8 publiees :
+# aucune ne portait ces trois fichiers. Consequences chez un testeur sans
+# Python : l'interpreteur IN-PROCESS de NKCode ne demarre pas (`stdlib dir =
+# ''`, « No module named 'encodings' ») -> la liste des projets reste vide, le
+# bouton Construire ne construit rien ; et le shim `tools/jenga.cmd` du
+# terminal integre appelle un `python.exe` absent.
+#
+# Remede ICI, pas dans git : la recette telecharge le paquet officiel de
+# python.org pour la version EPINGLEE ci-dessous, verifie sa somme SHA-256
+# (celle publiee par python.org dans le SBOM SPDX du fichier,
+# python-<v>-embed-amd64.zip.spdx.json ; recoupee avec le MD5 de la page de
+# release et la signature GPG `.asc` — cle « Steve Dower (Python Release
+# Signing) », empreinte 7ED1 0B65 31D7 C8E1 BC29 6021 FC62 4643 4870 34E5),
+# puis l'extrait EN ENTIER dans tools/python-embed/. Pas de somme connue pour
+# la version demandee = pas de distribution.
+#
+# La version vient de Externals/Libs/PythonEmbed/VERSION (source unique : c'est
+# aussi celle des en-tetes contre lesquels NkEmbeddedJenga est compile — le
+# `python312.dll` livre a cote de l'exe DOIT etre celui de ce paquet).
+PYEMBED_URL = "https://www.python.org/ftp/python/{v}/python-{v}-embed-amd64.zip"
+PYEMBED_SHA256 = {
+    "3.12.7": "0d57bb6cb078b74d23dbfe91f77d6780d45bed328911609f1f7ee2ba1606bf44",
+}
+
+
+def ReadPyEmbedVersion() -> str:
+    f = REPO / "Externals/Libs/PythonEmbed/VERSION"
+    try:
+        return f.read_text(encoding="ascii").strip()
+    except OSError:
+        return ""
+
+
+def Sha256(path: Path) -> str:
+    h = hashlib.sha256()
+    with open(path, "rb") as fp:
+        for chunk in iter(lambda: fp.read(1 << 20), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def DownloadPythonEmbed(cache: Path, version: str) -> Path:
+    """Telecharge (avec cache) le paquet embeddable officiel et VERIFIE sa somme.
+
+    Retourne le chemin du zip verifie. Sort du programme si la version n'a pas
+    de somme epinglee ou si la somme ne correspond pas : un zip qu'on ne sait
+    pas verifier ne part pas chez un testeur.
+    """
+    expected = PYEMBED_SHA256.get(version)
+    if not expected:
+        Log(f"ERREUR : aucune somme SHA-256 epinglee pour Python {version} "
+            f"(Externals/Libs/PythonEmbed/VERSION). Ajouter l'entree dans "
+            f"PYEMBED_SHA256 depuis python-{version}-embed-amd64.zip.spdx.json "
+            f"de python.org — pas de somme, pas de distribution.")
+        sys.exit(1)
+    cache.mkdir(parents=True, exist_ok=True)
+    url = PYEMBED_URL.format(v=version)
+    zip_path = cache / Path(url).name
+    if zip_path.exists() and Sha256(zip_path) != expected:
+        Log(f"cache corrompu ({zip_path.name} : somme differente) -> re-telechargement")
+        zip_path.unlink()
+    if not zip_path.exists():
+        Log(f"telechargement du Python embarque : {url}")
+        tmp = zip_path.with_suffix(".part")
+        urllib.request.urlretrieve(url, tmp)
+        tmp.rename(zip_path)
+    else:
+        Log(f"Python embarque deja en cache : {zip_path.name}")
+    got = Sha256(zip_path)
+    if got != expected:
+        Log(f"ERREUR : somme SHA-256 de {zip_path.name} inattendue :")
+        Log(f"    attendue {expected}")
+        Log(f"    obtenue  {got}")
+        Log("  Le fichier telecharge n'est pas celui que python.org publie : distribution refusee.")
+        sys.exit(1)
+    Log(f"SHA-256 verifiee : {got}")
+    return zip_path
+
+
+def InstallPythonEmbed(zip_path: Path, dest: Path) -> None:
+    """Extrait le paquet officiel dans dest (par-dessus le runtime vendorise).
+
+    Garde-fou : un fichier present des deux cotes doit etre IDENTIQUE octet
+    pour octet — sinon le runtime vendorise (celui dont NKCode.exe prend son
+    python312.dll) et le paquet telecharge ne sont pas la meme version, et
+    l'IDE et le terminal tourneraient sur deux Python differents.
+    """
+    # Fichiers TEXTE : compares apres normalisation des fins de ligne. Mesure le
+    # 2026-09-05 : LICENSE.txt du zip officiel a des fins de ligne MIXTES (639 CR
+    # pour 702 LF) et git (`autocrlf`) a tout mis en CRLF dans le runtime
+    # vendorise — 63 octets d'ecart pour un contenu identique. Les binaires
+    # (.dll, .pyd, .exe, .zip, .cat) restent compares octet pour octet.
+    TEXTE = (".txt", "._pth")
+
+    def _norm(b: bytes) -> bytes:
+        return b.replace(b"\r\n", b"\n").replace(b"\r", b"\n")
+
+    with zipfile.ZipFile(zip_path) as z:
+        differents = []
+        for info in z.infolist():
+            if info.is_dir():
+                continue
+            target = dest / info.filename
+            data = z.read(info)
+            if target.exists():
+                if info.filename.lower().endswith(TEXTE):
+                    same = _norm(data) == _norm(target.read_bytes())
+                else:
+                    same = hashlib.sha256(data).hexdigest() == Sha256(target)
+                if not same:
+                    differents.append(info.filename)
+                continue  # identique : rien a faire
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(data)
+        if differents:
+            Log("ERREUR : le runtime vendorise differe du paquet python.org epingle :")
+            for d in differents:
+                Log(f"    - {d}")
+            Log("  Mettre a jour Externals/Libs/PythonEmbed (runtime + VERSION + somme) ensemble.")
+            sys.exit(1)
+    for needed in ("python.exe", "pythonw.exe"):
+        if not (dest / needed).exists():
+            Log(f"ERREUR : {needed} absent apres extraction de {zip_path.name}")
+            sys.exit(1)
+    if not list(dest.glob("python*.zip")):
+        Log("ERREUR : bibliotheque standard (python*.zip) absente apres extraction")
+        sys.exit(1)
+    Log("runtime Python complet : python.exe, pythonw.exe, bibliotheque standard (python*.zip)")
+
+
+def VerifierRuntimePython(tools: Path) -> None:
+    """Fait tourner le Python EMBARQUE de la distribution, environnement vide
+    (aucune variable Python, PATH = System32 seul), et exige `import Jenga`.
+
+    C'est le chemin exact du shim tools/jenga.cmd chez un testeur sans Python :
+    si ceci echoue, le terminal integre echouera pareil. Refuse la distribution.
+    """
+    py = tools / "python-embed" / "python.exe"
+    sysroot = os.environ.get("SystemRoot", r"C:\Windows")
+    # USERPROFILE : `import Jenga` appelle Path.home() des l'import
+    # (Core/Api.py, cache des outils) ; toute session Windows le definit, le
+    # temoin le garde donc — sans lui, l'import echoue pour une raison qui
+    # n'existe chez aucun testeur (mesure le 2026-09-05).
+    profil = os.environ.get("USERPROFILE", sysroot + "\\Temp")
+    env = {
+        "PATH": f"{sysroot}\\System32;{sysroot}",
+        "SystemRoot": sysroot,
+        "TEMP": os.environ.get("TEMP", sysroot + "\\Temp"),
+        "TMP": os.environ.get("TEMP", sysroot + "\\Temp"),
+        "USERPROFILE": profil,
+        "HOMEDRIVE": profil[:2],
+        "HOMEPATH": profil[2:],
+    }
+    try:
+        res = subprocess.run(
+            [str(py), "-I", "-c",
+             "import sys, Jenga; print(Jenga.__version__); print(sys.prefix)"],
+            capture_output=True, text=True, timeout=120, env=env,
+            cwd=str(tools.parent))
+    except Exception as err:
+        Log(f"ERREUR : le Python embarque ne demarre pas ({err}) : distribution refusee.")
+        sys.exit(1)
+    if res.returncode != 0:
+        Log("ERREUR : `python.exe -I -c \"import Jenga\"` echoue dans la distribution :")
+        for ligne in (res.stderr or res.stdout).splitlines()[-8:]:
+            Log(f"    {ligne}")
+        sys.exit(1)
+    lignes = res.stdout.strip().splitlines()
+    Log(f"Python embarque OK sans Python systeme : Jenga {lignes[0] if lignes else '?'} "
+        f"(prefix {lignes[1] if len(lignes) > 1 else '?'})")
 
 # Exclusions pour l'arbre Jenga embarque (sources utiles uniquement).
 # ⚠️ N'exclure QUE des dossiers que `Jenga/__init__.py` n'importe PAS. `Unitest`
@@ -389,6 +569,14 @@ def Main() -> int:
 
     Log("copie du runtime Python embarque (tools/python-embed)")
     CopyTree(pyembed, tools / "python-embed")
+    # Le runtime vendorise n'a ni python.exe ni la bibliotheque standard
+    # (ignores par git) : on complete avec le paquet OFFICIEL, somme verifiee.
+    pyver = ReadPyEmbedVersion()
+    if not pyver:
+        Log("ERREUR : Externals/Libs/PythonEmbed/VERSION illisible")
+        return 1
+    pyzip = DownloadPythonEmbed(REPO / ".cache", pyver)
+    InstallPythonEmbed(pyzip, tools / "python-embed")
     # DLLs exigees au DEMARRAGE (import table de NKCode.exe) -> a cote de l'exe.
     for dll in ("python312.dll", "python3.dll", "vcruntime140.dll", "vcruntime140_1.dll"):
         shutil.copy2(pyembed / dll, out / dll)
@@ -439,6 +627,8 @@ def Main() -> int:
         sh.chmod(0o755)
     except OSError:
         pass
+    # Temoin : le chemin du shim, execute pour de vrai, sans aucun Python systeme.
+    VerifierRuntimePython(tools)
 
     # ── Shims POSIX `clang++` / `clang` vers Zig ─────────────────────────────
     # NkEmbeddedJenga::Configure prefixe tools/compilers/zig au PATH sous Unix :
