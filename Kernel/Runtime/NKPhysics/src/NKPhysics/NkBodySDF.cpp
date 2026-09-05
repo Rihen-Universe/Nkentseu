@@ -109,11 +109,18 @@ namespace nkentseu {
 			mStats = NkBodySDFStats{};
 			if (!verts || vertCount == 0 || !indices || triCount == 0)
 				return false;
-			NkVec3f mn = verts[0], mx = verts[0];
-			for (uint32 v = 1; v < vertCount; ++v) {
-				const NkVec3f &q = verts[v];
-				mn.x = NkMin(mn.x, q.x); mn.y = NkMin(mn.y, q.y); mn.z = NkMin(mn.z, q.z);
-				mx.x = NkMax(mx.x, q.x); mx.y = NkMax(mx.y, q.y); mx.z = NkMax(mx.z, q.z);
+			NkVec3f mn, mx;
+			if (params.useBounds) {
+				mn = params.boundsMin;
+				mx = params.boundsMax;
+			} else {
+				mn = verts[0];
+				mx = verts[0];
+				for (uint32 v = 1; v < vertCount; ++v) {
+					const NkVec3f &q = verts[v];
+					mn.x = NkMin(mn.x, q.x); mn.y = NkMin(mn.y, q.y); mn.z = NkMin(mn.z, q.z);
+					mx.x = NkMax(mx.x, q.x); mx.y = NkMax(mx.y, q.y); mx.z = NkMax(mx.z, q.z);
+				}
 			}
 			const NkVec3f m{params.margin, params.margin, params.margin};
 			mMin = mn - m;
@@ -121,9 +128,18 @@ namespace nkentseu {
 			const NkVec3f ext = mMax - mMin;
 			const float32 longest = NkMax(ext.x, NkMax(ext.y, ext.z));
 			const uint32 res = params.resolution < 8 ? 8u : params.resolution;
-			mCell = longest / (float32)res;
+			mCell = params.targetCellSize > 1e-6f ? params.targetCellSize : longest / (float32)res;
 			if (mCell < 1e-6f)
 				return false;
+			// plafond de cellules : on agrandit la cellule jusqu'à tenir (le coût est borné, et le
+			// chiffre rendu dit ce qu'on a vraiment obtenu -- jamais ce qu'on a demandé)
+			for (uint32 guard = 0; guard < 32u; ++guard) {
+				const float64 nc = ((float64)(ext.x / mCell) + 2.0) * ((float64)(ext.y / mCell) + 2.0) *
+								   ((float64)(ext.z / mCell) + 2.0);
+				if (nc <= (float64)params.maxCells)
+					break;
+				mCell *= 1.26f; // x2 en volume
+			}
 			mInvCell = 1.f / mCell;
 			mNX = (uint32)(ext.x * mInvCell) + 2u;
 			mNY = (uint32)(ext.y * mInvCell) + 2u;
@@ -144,6 +160,7 @@ namespace nkentseu {
 			for (uint32 c = 0; c < cells; ++c)
 				bestDist[c] = far;
 			const int32 band = (int32)(params.band < 1u ? 1u : params.band);
+			uint32 skipped = 0;
 			for (uint32 t = 0; t < triCount; ++t) {
 				const NkVec3f &a = verts[indices[t * 3]], &b = verts[indices[t * 3 + 1]], &c = verts[indices[t * 3 + 2]];
 				NkVec3f n = (b - a).Cross(c - a);
@@ -153,6 +170,13 @@ namespace nkentseu {
 				n = n * (1.f / ln);
 				NkVec3f tmn{NkMin(a.x, NkMin(b.x, c.x)), NkMin(a.y, NkMin(b.y, c.y)), NkMin(a.z, NkMin(b.z, c.z))};
 				NkVec3f tmx{NkMax(a.x, NkMax(b.x, c.x)), NkMax(a.y, NkMax(b.y, c.y)), NkMax(a.z, NkMax(b.z, c.z))};
+				// hors de la grille (élargie de la bande) : ce triangle ne peut rien changer
+				const float32 skirt = (float32)(params.band + 1u) * mCell;
+				if (tmx.x < mMin.x - skirt || tmn.x > mMax.x + skirt || tmx.y < mMin.y - skirt ||
+					tmn.y > mMax.y + skirt || tmx.z < mMin.z - skirt || tmn.z > mMax.z + skirt) {
+					++skipped;
+					continue;
+				}
 				const int32 i0 = (int32)((tmn.x - mMin.x) * mInvCell) - band, i1 = (int32)((tmx.x - mMin.x) * mInvCell) + band;
 				const int32 j0 = (int32)((tmn.y - mMin.y) * mInvCell) - band, j1 = (int32)((tmx.y - mMin.y) * mInvCell) + band;
 				const int32 k0 = (int32)((tmn.z - mMin.z) * mInvCell) - band, k1 = (int32)((tmx.z - mMin.z) * mInvCell) + band;
@@ -262,6 +286,7 @@ namespace nkentseu {
 			mStats.nz = mNZ;
 			mStats.cells = cells;
 			mStats.cellSize = mCell;
+			mStats.skippedTriangles = skipped;
 			mStats.minValue = mD[0];
 			mStats.maxValue = mD[0];
 			for (uint32 c = 0; c < cells; ++c) {
