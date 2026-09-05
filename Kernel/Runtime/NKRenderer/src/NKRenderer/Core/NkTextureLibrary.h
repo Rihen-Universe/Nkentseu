@@ -19,6 +19,7 @@
 #include "NKContainers/Associative/NkHashMap.h"
 #include "NKContainers/String/NkString.h"
 #include "NKSerialization/Asset/NkTextureAssetFormat.h"
+#include "NKImage/Core/NkTextureOven.h"
 
 namespace nkentseu {
 	namespace renderer {
@@ -117,6 +118,20 @@ namespace nkentseu {
 				// qui est le cas de TOUS les formats par blocs aujourd'hui.
 				static NkGPUFormat FormatGpuDepuisCode(uint32 code);
 
+				// La SEULE traduction des options de chargement vers les reglages de
+				// cuisson. Elle est publique pour qu'un banc puisse la comparer aux
+				// defauts du four : ces quatre champs entrent dans l'empreinte du
+				// cache, et un desaccord rendrait toute pre-cuisson introuvable sans
+				// qu'aucune erreur ne sorte.
+				[[nodiscard]] static NkTexOvenReglages ReglagesDepuisOptions(const NkLoadOptions &opts) noexcept {
+					NkTexOvenReglages r;
+					r.sRGB = opts.srgb;
+					r.genererMips = opts.genMipmaps;
+					r.addressMode = opts.useClampEdge ? nk_uint32(NKTEXADDR_CLAMP) : nk_uint32(NKTEXADDR_REPEAT);
+					r.filterMode = opts.useAnisotropic ? nk_uint32(NKTEXFILTER_ANISO) : nk_uint32(NKTEXFILTER_LINEAR);
+					return r;
+				}
+
 				// ── Render targets ────────────────────────────────────────────
 				NkTexHandle CreateRenderTarget(uint32 w, uint32 h, NkGPUFormat format, bool depth = false,
 											   bool readable = true, const NkString &name = "");
@@ -197,6 +212,11 @@ namespace nkentseu {
 									const NkString &dbgName, bool ownsSampler, bool ownsTexture = true);
 
 				bool LoadWithNKImage(const NkString &path, NkImageData &out);
+
+				// Cuit les pixels DEJA decodes et les ecrit dans le cache d'actifs.
+				// Appelee sur un manque de cache, jamais sur une touche.
+				void CuireDansLeCache(const NkString &source, const NkString &cheminCuit, const NkImageData &img,
+									  const NkTexOvenReglages &reglages);
 				void FreeImageData(NkImageData &data);
 				NkSamplerHandle PickSampler(const NkLoadOptions &opts) const;
 

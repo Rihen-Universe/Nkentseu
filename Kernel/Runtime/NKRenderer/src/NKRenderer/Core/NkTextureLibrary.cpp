@@ -4,6 +4,8 @@
 // =============================================================================
 #include "NkTextureLibrary.h"
 #include "NkResources.h"
+#include "NkTextureAsset.h"
+#include "NkTextureCache.h"
 #include "NKImage/NKImage.h"
 #include "NKLogger/NkLog.h"
 #include "NKMemory/NkAllocator.h"
@@ -368,6 +370,38 @@ namespace nkentseu {
 				}
 			}
 
+			// -- CUISSON PARESSEUSE --------------------------------------
+			// L'actif cuit est un DERIVE : il vit dans `Build/Cache/Assets/`,
+			// nomme par l'empreinte du CONTENU de la source melangee aux options
+			// de cuisson. Source modifiee ou option changee -> autre nom -> autre
+			// fichier -> recuisson. Il n'existe donc pas d'etat « actif perime » :
+			// un actif perime n'est pas invalide, il est introuvable.
+			const NkTexOvenReglages reglagesCuisson = ReglagesDepuisOptions(opts);
+
+			nk_uint64 empreinte = 0u;
+			NkString cheminCuit;
+			if (NkTextureCache::Actif()) {
+				empreinte = NkTextureCache::Empreinte(path.CStr(), reglagesCuisson);
+				if (empreinte != 0u) {
+					cheminCuit = NkTextureCache::Chemin(empreinte);
+					if (NkTextureCache::Existe(cheminCuit)) {
+						NkTexHandle cuit = NkTextureAssetIO::LoadBaked(cheminCuit, this, &opts);
+						if (cuit.IsValid()) {
+							NkTextureCache::CompterTouche();
+							mPathCache.Insert(path, cuit);
+							if (auto *e = mTextures.Find(cuit.id))
+								e->path = path;
+							return cuit;
+						}
+						// L'actif existe mais ne se lit pas : on le DIT et on
+						// decode. Un cache abime qui rendrait la texture d'erreur
+						// serait pire que pas de cache du tout.
+						logger.Warn("[NkTextureLibrary] actif cuit illisible, retour au codec : {0}\n",
+									cheminCuit.CStr());
+					}
+				}
+			}
+
 			NkImageData img{};
 			if (!LoadWithNKImage(path, img)) {
 				// Message de log plus clair (path inclus). Le fallback est le
@@ -387,6 +421,11 @@ namespace nkentseu {
 			} else {
 				out = UploadColorTexture(img.pixels, img.width, img.height, opts.srgb, opts.genMipmaps, samp, dbg);
 			}
+			// Le manque se paie UNE fois : on cuit MAINTENANT, depuis les pixels
+			// deja decodes — jamais un second decodage — puis on libere.
+			if (out.IsValid() && empreinte != 0u && !cheminCuit.Empty())
+				CuireDansLeCache(path, cheminCuit, img, reglagesCuisson);
+
 			FreeImageData(img);
 
 			if (out.IsValid()) {
@@ -471,6 +510,50 @@ namespace nkentseu {
 				mResources && mResources->IsReady() ? mResources->GetSamplerLinearRepeat() : NkSamplerHandle{};
 			return WrapRHI(rhi, samp, desc.width, desc.height, d.mipLevels, desc.debugName ? desc.debugName : "Manual",
 						   false);
+		}
+
+		// =====================================================================
+		// Cuisson d'un manque de cache
+		// =====================================================================
+		void NkTextureLibrary::CuireDansLeCache(const NkString &source, const NkString &cheminCuit,
+												const NkImageData &img, const NkTexOvenReglages &reglages) {
+			// `LoadWithNKImage` rend TOUJOURS du RGBA dense : RGBA8 en LDR, RGBA128F
+			// en HDR. Le four n'a donc pas a redecouvrir le format.
+			const nk_uint8 *pixels =
+				img.isHDR ? reinterpret_cast<const nk_uint8 *>(img.hdrPixels) : static_cast<const nk_uint8 *>(img.pixels);
+			const NkImagePixelFormat fmt =
+				img.isHDR ? NkImagePixelFormat::NK_RGBA128F : NkImagePixelFormat::NK_RGBA32;
+			if (!pixels || img.width == 0 || img.height == 0) {
+				NkTextureCache::CompterRefus();
+				return;
+			}
+
+			// En HDR le chemin de televersement d'aujourd'hui ne pose qu'un seul
+			// niveau (`UploadHDRTexture`, mipLevels = 1) : l'actif doit dire la MEME
+			// chose, sinon le cache changerait le rendu au lieu de l'accelerer.
+			NkTexOvenReglages r = reglages;
+			if (img.isHDR) {
+				r.sRGB = false;
+				r.genererMips = false;
+			}
+
+			NkVector<nk_uint8> payload;
+			NkString err;
+			if (!NkTextureOven::CuireDepuisPixels(pixels, img.width, img.height, fmt, 0u, r, payload, &err)) {
+				static bool s_ditRefus = false;
+				if (!s_ditRefus) {
+					s_ditRefus = true;
+					logger.Warn("[NkTextureCache] « {0} » n'est pas cuisinable ({1}) : cette famille restera decodee a "
+								"chaque chargement. Ce message ne sera pas repete.\n",
+								source.CStr(), err.CStr());
+				}
+				NkTextureCache::CompterRefus();
+				return;
+			}
+			if (NkTextureCache::Ecrire(cheminCuit, payload.Data(), payload.Size(), source))
+				NkTextureCache::CompterManque();
+			else
+				NkTextureCache::CompterRefus();
 		}
 
 		// =====================================================================

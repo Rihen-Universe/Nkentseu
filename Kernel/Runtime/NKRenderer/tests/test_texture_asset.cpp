@@ -22,6 +22,7 @@
 #include "NKImage/Core/NkTextureOven.h"
 #include "NKRHI/Software/NkSoftwareDevice.h"
 #include "NKRenderer/Core/NkTextureAsset.h"
+#include "NKRenderer/Core/NkTextureCache.h"
 #include "NKRenderer/Core/NkTextureLibrary.h"
 #include "NKSerialization/Asset/NkTextureAssetFormat.h"
 
@@ -261,6 +262,187 @@ int main() {
 			std::snprintf(d, sizeof(d), "%s : %llu octet(s) different(s) sur %llu du decodage direct", png,
 						  (unsigned long long)diff, (unsigned long long)tot);
 			Verdict("bout en bout / PNG -> four -> actif -> RHI, au bit", diff == 0 && tot > 0, d);
+		}
+	}
+
+	// -- 7ter. ACCORD FOUR / MOTEUR ------------------------------------------
+	//
+	// 🔴 Le defaut le plus silencieux de tout ce lot serait ici : le four
+	// (`Tools/NkTexBake --dossier`) pre-cuit sous une empreinte, le moteur en
+	// cherche une autre, et **rien ne le signale** — chacun cherche un fichier
+	// que l'autre n'ecrit pas. Le symptome serait « la pre-cuisson ne sert a
+	// rien », jamais une erreur. Ce temoin est le garde-fou : les quatre champs
+	// qui entrent dans l'empreinte doivent etre IDENTIQUES des deux cotes.
+	{
+		const NkTexOvenReglages moteur = NkTextureLibrary::ReglagesDepuisOptions(NkLoadOptions{});
+		const NkTexOvenReglages four; // les defauts du four
+		const bool accord = (moteur.sRGB == four.sRGB) && (moteur.genererMips == four.genererMips) &&
+							(moteur.addressMode == four.addressMode) && (moteur.filterMode == four.filterMode);
+		std::snprintf(d, sizeof(d), "moteur[srgb=%d mips=%d addr=%u filtre=%u] four[srgb=%d mips=%d addr=%u filtre=%u]",
+					  moteur.sRGB ? 1 : 0, moteur.genererMips ? 1 : 0, moteur.addressMode, moteur.filterMode,
+					  four.sRGB ? 1 : 0, four.genererMips ? 1 : 0, four.addressMode, four.filterMode);
+		Verdict("accord four/moteur : memes reglages par defaut", accord, d);
+
+		// Et la consequence, mesuree sur une empreinte reelle : les deux cotes
+		// nomment le MEME fichier. Sans cette ligne, l'egalite des champs
+		// pourrait etre vraie et le nommage quand meme diverger.
+		const char *tmoin = "Resources/NKRenderer/Textures/Defaults/test_pattern.png";
+		const nk_uint64 e1 = NkTexCacheNommage::Empreinte(tmoin, moteur);
+		const nk_uint64 e2 = NkTexCacheNommage::Empreinte(tmoin, four);
+		std::snprintf(d, sizeof(d), "%016llX vs %016llX", (unsigned long long)e1, (unsigned long long)e2);
+		Verdict("accord four/moteur : meme fichier de cache vise", e1 != 0u && e1 == e2, d);
+
+		// Contre-epreuve : un reglage VRAIMENT different doit donner un autre
+		// nom. Sinon les deux lignes ci-dessus passeraient meme si l'empreinte
+		// ignorait les reglages.
+		NkTexOvenReglages autre = four;
+		autre.filterMode = NKTEXFILTER_NEAREST;
+		const nk_uint64 e3 = NkTexCacheNommage::Empreinte(tmoin, autre);
+		std::snprintf(d, sizeof(d), "filtre change -> %016llX (etait %016llX)", (unsigned long long)e3,
+					  (unsigned long long)e1);
+		Verdict("accord four/moteur : contre-epreuve, un reglage different separe", e3 != e1 && e3 != 0u, d);
+	}
+
+	// -- 7bis. L'EMPREINTE PORTE LE CONTENU, pas seulement la taille ----------
+	//
+	// 🔴 Ce temoin existe parce que le precedent ne suffisait pas, et la lecon
+	// vaut d'etre gardee : le temoin « source modifiee » du bloc 8 reste VERT
+	// meme si on retire le contenu de l'empreinte — les deux PNG qu'il ecrit
+	// n'ont pas la meme taille compressee, donc le seul terme de taille suffit
+	// a les distinguer. La sonde n'exerçait pas le regime risque.
+	//
+	// Ici on l'exerce : deux fichiers de MEME longueur, un seul octet different.
+	// C'est le cas qu'un cache par taille — ou par date — sert a tort.
+	{
+		const char *fa = "Build/nktex_empreinte_a.bin";
+		const char *fb = "Build/nktex_empreinte_b.bin";
+		nk_uint8 tampon[4096];
+		for (int i = 0; i < 4096; ++i)
+			tampon[i] = nk_uint8(i * 7);
+
+		auto Ecrire = [](const char *chemin, const nk_uint8 *o, nk_size n) -> bool {
+			std::FILE *f = std::fopen(chemin, "wb");
+			if (!f)
+				return false;
+			const bool ok = (std::fwrite(o, 1, n, f) == n);
+			std::fclose(f);
+			return ok;
+		};
+
+		bool prets = Ecrire(fa, tampon, sizeof(tampon));
+		tampon[2048] = nk_uint8(tampon[2048] ^ 0xFF); // UN octet, meme longueur
+		prets = prets && Ecrire(fb, tampon, sizeof(tampon));
+
+		if (!prets) {
+			Verdict("empreinte / preparation", false, "ecriture des deux fichiers impossible");
+		} else {
+			NkTexOvenReglages r;
+			const nk_uint64 ea = NkTextureCache::Empreinte(fa, r);
+			const nk_uint64 eb = NkTextureCache::Empreinte(fb, r);
+			std::snprintf(d, sizeof(d), "%016llX vs %016llX, meme longueur (4096 o), 1 octet different",
+						  (unsigned long long)ea, (unsigned long long)eb);
+			Verdict("empreinte / un seul octet change l'empreinte", ea != 0u && eb != 0u && ea != eb, d);
+
+			// Contre-epreuve : le MEME fichier doit rendre la MEME empreinte.
+			// Sans elle, une empreinte aleatoire passerait la ligne ci-dessus.
+			const nk_uint64 ea2 = NkTextureCache::Empreinte(fa, r);
+			std::snprintf(d, sizeof(d), "%016llX relu %016llX", (unsigned long long)ea, (unsigned long long)ea2);
+			Verdict("empreinte / contre-epreuve : stable sur le meme contenu", ea == ea2 && ea != 0u, d);
+
+			// Et les OPTIONS comptent : changer l'usage doit produire un autre
+			// actif, pas ecraser le precedent.
+			NkTexOvenReglages r2 = r;
+			r2.sRGB = !r.sRGB;
+			const nk_uint64 eo = NkTextureCache::Empreinte(fa, r2);
+			std::snprintf(d, sizeof(d), "sRGB inverse -> %016llX (etait %016llX)", (unsigned long long)eo,
+						  (unsigned long long)ea);
+			Verdict("empreinte / une option changee change l'empreinte", eo != ea && eo != 0u, d);
+		}
+	}
+
+	// -- 8. LE CACHE : cuisson paresseuse, et AUCUN actif perime --------------
+	//
+	// Trois choses a prouver, et la troisieme est celle qui compte :
+	//   a) premier chargement = manque, l'actif est ecrit dans le cache ;
+	//   b) second chargement (bibliotheque neuve) = touche, servi par le cache ;
+	//   c) source MODIFIEE = nouvelle empreinte = les pixels televerses sont ceux
+	//      du NOUVEAU contenu. C'est la propriete que l'empreinte par contenu
+	//      achete, et qu'un cache par date n'aurait pas : `git checkout` d'une
+	//      ancienne texture lui donne une date NEUVE.
+	{
+		const char *pngCache = "Build/nktex_cache_source.png";
+
+		auto EcrirePng = [&](uint8 teinte) -> bool {
+			NkImage im = NkImage::Alloc(32, 32, NkImagePixelFormat::NK_RGBA32);
+			if (!im.IsValid())
+				return false;
+			for (int32 y = 0; y < 32; ++y) {
+				uint8 *r = im.RowPtr(y);
+				for (int32 x = 0; x < 32; ++x) {
+					uint8 *q = r + usize(x) * 4;
+					q[0] = teinte;
+					q[1] = uint8(x * 8);
+					q[2] = uint8(y * 8);
+					q[3] = 255;
+				}
+			}
+			return im.SavePNG(pngCache);
+		};
+
+		// Le premier pixel televerse, relu dans le dorsal : c'est lui qui dit
+		// quel CONTENU a ete servi.
+		auto TeinteTeleversee = [&](NkTextureLibrary &l, const NkString &chemin) -> int {
+			NkLoadOptions o;
+			o.genMipmaps = false;
+			o.useAnisotropic = false;
+			NkTexHandle t = l.Load(chemin, o);
+			if (!t.IsValid())
+				return -1;
+			NkSWTexture *sw = dev.GetTex(l.GetRHIHandle(t).id);
+			if (!sw || sw->mips.Size() == 0 || sw->mips[0].Size() < 4)
+				return -1;
+			return int(sw->mips[0][0]);
+		};
+
+		if (!NkTextureCache::Actif()) {
+			Verdict("cache / actif", false, "NK_TEX_CACHE=0 : ce temoin ne peut rien prouver");
+		} else if (!EcrirePng(11)) {
+			Verdict("cache / preparation", false, "ecriture du PNG de travail impossible");
+		} else {
+			NkTextureCache::RemettreCompteursAZero();
+
+			// (a) premier chargement : manque, puis cuisson.
+			NkTextureLibrary l1;
+			l1.Init(&dev, nullptr);
+			const int t1 = TeinteTeleversee(l1, NkString(pngCache));
+			const nk_uint32 manques1 = NkTextureCache::Manques();
+			const nk_uint32 touches1 = NkTextureCache::Touches();
+			std::snprintf(d, sizeof(d), "teinte %d, %u manque(s), %u touche(s) (attendu 1 et 0)", t1, manques1,
+						  touches1);
+			Verdict("cache / 1er chargement : manque, puis cuisson", t1 == 11 && manques1 == 1u && touches1 == 0u, d);
+
+			// (b) second chargement, bibliotheque NEUVE : servi par le cache.
+			NkTextureLibrary l2;
+			l2.Init(&dev, nullptr);
+			const int t2 = TeinteTeleversee(l2, NkString(pngCache));
+			const nk_uint32 touches2 = NkTextureCache::Touches();
+			std::snprintf(d, sizeof(d), "teinte %d, %u touche(s) (attendu 1)", t2, touches2);
+			Verdict("cache / 2e chargement : servi par le cache", t2 == 11 && touches2 == 1u, d);
+
+			// (c) LA source change : l'empreinte change, donc le contenu servi
+			//     aussi. Un cache par date servirait ici l'ancien actif.
+			if (!EcrirePng(222)) {
+				Verdict("cache / modification de la source", false, "reecriture du PNG impossible");
+			} else {
+				NkTextureLibrary l3;
+				l3.Init(&dev, nullptr);
+				const int t3 = TeinteTeleversee(l3, NkString(pngCache));
+				std::snprintf(d, sizeof(d), "teinte servie %d (attendu 222, PAS 11)", t3);
+				Verdict("cache / source modifiee : jamais l'actif perime", t3 == 222, d);
+				l3.Shutdown();
+			}
+			l2.Shutdown();
+			l1.Shutdown();
 		}
 	}
 

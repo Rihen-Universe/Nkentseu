@@ -71,7 +71,8 @@ namespace nkentseu {
 			return true;
 		}
 
-		NkTexHandle NkTextureAssetIO::LoadBaked(const NkString &diskPath, NkTextureLibrary *texLib) noexcept {
+		NkTexHandle NkTextureAssetIO::LoadBaked(const NkString &diskPath, NkTextureLibrary *texLib,
+												const NkLoadOptions *optsAppelant) noexcept {
 			if (!texLib)
 				return NkTexHandle::Null();
 
@@ -93,7 +94,9 @@ namespace nkentseu {
 				return NkTexHandle::Null();
 			}
 
-			NkLoadOptions opts;
+			// Les options de l'appelant si elles existent (choix du filtre, nom de
+			// debogage) ; le FICHIER tranche pour tout ce qu'il porte lui-meme.
+			NkLoadOptions opts = optsAppelant ? *optsAppelant : NkLoadOptions{};
 			opts.srgb = vue.EstSrgb();
 			opts.genMipmaps = false; // ils sont DANS le fichier
 			opts.useClampEdge = (vue.addressMode == NKTEXADDR_CLAMP);
