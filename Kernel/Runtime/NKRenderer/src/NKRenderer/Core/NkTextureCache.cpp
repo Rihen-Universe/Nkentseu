@@ -19,6 +19,10 @@ namespace nkentseu {
 			nk_uint32 g_touches = 0u;
 			nk_uint32 g_manques = 0u;
 			nk_uint32 g_refus = 0u;
+			float64 g_msLecture = 0.0;
+			float64 g_msDecodage = 0.0;
+			float64 g_msTeleversement = 0.0;
+			nk_uint64 g_octetsLus = 0u;
 
 			constexpr nk_uint64 kFnvBase = 14695981039346656037ULL;
 			constexpr nk_uint64 kFnvPrime = 1099511628211ULL;
@@ -104,6 +108,39 @@ namespace nkentseu {
 			g_touches = 0u;
 			g_manques = 0u;
 			g_refus = 0u;
+			g_msLecture = 0.0;
+			g_msDecodage = 0.0;
+			g_msTeleversement = 0.0;
+			g_octetsLus = 0u;
+		}
+
+		float64 NkTextureCache::MsLecture() noexcept {
+			return g_msLecture;
+		}
+
+		float64 NkTextureCache::MsDecodage() noexcept {
+			return g_msDecodage;
+		}
+
+		float64 NkTextureCache::MsTeleversement() noexcept {
+			return g_msTeleversement;
+		}
+
+		nk_uint64 NkTextureCache::OctetsLus() noexcept {
+			return g_octetsLus;
+		}
+
+		void NkTextureCache::AjouterMsLecture(float64 ms, nk_uint64 octets) noexcept {
+			g_msLecture += ms;
+			g_octetsLus += octets;
+		}
+
+		void NkTextureCache::AjouterMsDecodage(float64 ms) noexcept {
+			g_msDecodage += ms;
+		}
+
+		void NkTextureCache::AjouterMsTeleversement(float64 ms) noexcept {
+			g_msTeleversement += ms;
 		}
 
 		void NkTextureCache::CompterTouche() noexcept {

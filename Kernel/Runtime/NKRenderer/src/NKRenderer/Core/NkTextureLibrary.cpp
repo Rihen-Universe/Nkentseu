@@ -6,6 +6,8 @@
 #include "NkResources.h"
 #include "NkTextureAsset.h"
 #include "NkTextureCache.h"
+#include "NKFileSystem/NkFile.h"
+#include "NKTime/NkChrono.h"
 #include "NKImage/NKImage.h"
 #include "NKLogger/NkLog.h"
 #include "NKMemory/NkAllocator.h"
@@ -355,6 +357,17 @@ namespace nkentseu {
 		// =====================================================================
 		// Public Load API
 		// =====================================================================
+		// Taille d'un fichier, pour que « combien de Mo lus » soit un chiffre et
+		// pas une estimation.
+		static nk_uint64 TailleFichierOctets(const NkString &chemin) noexcept {
+			NkFile f;
+			if (!f.Open(chemin.CStr(), NkFileMode::NK_READ_BINARY))
+				return 0u;
+			const nk_uint64 n = nk_uint64(f.Size());
+			f.Close();
+			return n;
+		}
+
 		NkTexHandle NkTextureLibrary::Load(const NkString &path, const NkLoadOptions &opts) {
 			if (path.Empty()) {
 				NkRSetLastError(NkRResult::NK_ERR_IO, "NkTextureLibrary::Load empty path");
@@ -385,7 +398,17 @@ namespace nkentseu {
 				if (empreinte != 0u) {
 					cheminCuit = NkTextureCache::Chemin(empreinte);
 					if (NkTextureCache::Existe(cheminCuit)) {
+						// LECTURE = tout ce que fait `LoadBaked` MOINS ce que
+						// `CreateFromBaked` a compte comme televersement pendant
+						// CET appel. Sans la soustraction, les deux postes se
+						// compteraient deux fois et leur somme ne voudrait rien
+						// dire.
+						const float64 televAvant = NkTextureCache::MsTeleversement();
+						NkChrono chronoCuit;
 						NkTexHandle cuit = NkTextureAssetIO::LoadBaked(cheminCuit, this, &opts);
+						const float64 totalCuit = chronoCuit.Elapsed().ToMilliseconds();
+						const float64 televPendant = NkTextureCache::MsTeleversement() - televAvant;
+						NkTextureCache::AjouterMsLecture(totalCuit - televPendant, TailleFichierOctets(cheminCuit));
 						if (cuit.IsValid()) {
 							NkTextureCache::CompterTouche();
 							mPathCache.Insert(path, cuit);
@@ -403,6 +426,7 @@ namespace nkentseu {
 			}
 
 			NkImageData img{};
+			NkChrono chronoDecodage;
 			if (!LoadWithNKImage(path, img)) {
 				// Message de log plus clair (path inclus). Le fallback est le
 				// magenta marker qui rend immediatement visible le probleme.
@@ -411,9 +435,16 @@ namespace nkentseu {
 				return mError;
 			}
 
+			// Le decodage inclut la lecture du fichier source : `NkImage::Load`
+			// fait les deux, et les separer demanderait d'ouvrir le codec. On le
+			// DIT plutot que de laisser croire a un decodage pur.
+			NkTextureCache::AjouterMsDecodage(chronoDecodage.Elapsed().ToMilliseconds());
+			NkTextureCache::AjouterMsLecture(0.0, TailleFichierOctets(path));
+
 			NkSamplerHandle samp = PickSampler(opts);
 			const char *dbg = opts.debugName ? opts.debugName : path.CStr();
 
+			NkChrono chronoUpload;
 			NkTexHandle out;
 			if (img.isHDR) {
 				// HDR : srgb force a false (les float HDR sont deja lineaires).
@@ -421,6 +452,7 @@ namespace nkentseu {
 			} else {
 				out = UploadColorTexture(img.pixels, img.width, img.height, opts.srgb, opts.genMipmaps, samp, dbg);
 			}
+			NkTextureCache::AjouterMsTeleversement(chronoUpload.Elapsed().ToMilliseconds());
 			// Le manque se paie UNE fois : on cuit MAINTENANT, depuis les pixels
 			// deja decodes — jamais un second decodage — puis on libere.
 			if (out.IsValid() && empreinte != 0u && !cheminCuit.Empty())
@@ -620,6 +652,7 @@ namespace nkentseu {
 
 			// Chaque niveau, tel quel. L'ordre du fichier est mip 0..N-1 pour la
 			// couche 0, puis la couche 1, etc.
+			NkChrono chronoEcriture;
 			uint64 octets = 0;
 			for (nk_size i = 0; i < vue.levels.Size(); ++i) {
 				const NkTexNiveauVue &n = vue.levels[i];
@@ -633,6 +666,8 @@ namespace nkentseu {
 				}
 				octets += n.size;
 			}
+
+			NkTextureCache::AjouterMsTeleversement(chronoEcriture.Elapsed().ToMilliseconds());
 
 			NkLoadOptions o = opts;
 			o.useClampEdge = (vue.addressMode == NKTEXADDR_CLAMP);
