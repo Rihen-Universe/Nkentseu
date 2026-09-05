@@ -2705,6 +2705,63 @@ faut paralléliser ou passer au GPU.
 **Ordre qui reste** : l'étanchéité à l'import (bloc précédent, avec sa porte), la finesse locale pour les
 grands vêtements, les six patrons, puis Barnes-Hut si l'étanchéité ne suffit pas.
 
+### 📏 05/09 (18h) — LA DISTANCE EXACTE PAR PARTICULE : chaque vêtement a SA méthode (mesuré dans les deux sens)
+
+**Le geste** : plus de grille de champ du tout. Les **triangles** sont rangés une fois par image dans une
+grille uniforme accordée au rayon des requêtes (`NkBodyProximity`), et chaque particule demande la **distance
+exacte** au plus proche — aucune cellule, aucune interpolation, aucune isosurface qui « respire ». Les
+primitives (point le plus proche d'un triangle, poids de pseudonormale) sont **partagées** avec le champ :
+un seul code pour les deux chemins.
+
+**Le poste dominant a disparu** : construction **0,43 ms/image** (grille de 24 mm, 30 233 insertions pour
+4 672 triangles) contre **22 à 29 ms** pour rastériser la bande du champ.
+
+| vêtement | méthode | étirement moyen | images > 5 % | sous la peau (max / moy) | pas |
+|---|---|---|---|---|---|
+| cape | champ commun 26 mm | 3,03 % | 31 / 301 | 4 / 0,21 | 19 ms |
+| cape | champ propre 15 mm | 4,55 % | 43 / 301 | 16 / 1,19 | 20 ms |
+| **cape** | **distance exacte** | **1,58 %** | **6 / 301** | 9 / 1,06 | 34 ms |
+| **foulard** | **champ propre 12 mm** | **0,18 %** | **0 / 301** | **0 / 0,00** | 4,4 ms |
+| foulard | distance exacte | 28,93 % | 301 / 301 | 2 / 1,41 | 40 ms |
+
+**🔑 Le résultat n'est pas « une méthode gagne » : c'est que CHAQUE VÊTEMENT A SA MÉTHODE.** Un grand
+vêtement lâche (cape) veut la **distance exacte** — elle divise son étirement par deux et ne respire pas ; un
+vêtement **serré et compact** (foulard) veut un **champ fin sur sa boîte** — la distance exacte l'étire de
+29 %, parce que ses particules touchent en permanence et que la normale exacte saute d'un triangle à l'autre
+là où le champ lissait. *Mesuré dans les deux sens, pas supposé — et c'est la troisième fois aujourd'hui que
+la bonne réponse est « ça dépend, et voici de quoi ».*
+
+🔴 **Restent rouges** : la cape ne tient pas son critère double (1,58 % > 1 %, 9 sous la peau > 4) ; le pas
+monte à 34-40 ms parce que la requête est appelée **128 fois par image** (32 sous-pas × 4 itérations) — le
+levier suivant est de résoudre les colliders **une fois par sous-pas**, non mesuré. Premier essai payé : avec
+un rayon de 8 cm et une cellule de 48 mm, la requête visitait 5³ cellules et le pas montait à **600 ms**.
+
+---
+
+### 🧵 05/09 (18h30) — LES MATIÈRES (nylon, coton, cuir…) : ce que Rodolf demande, et l'état exact
+
+*Rodolf : « est-ce que les tissus prennent bien en compte le fait d'avoir le nylon, le coton, le cuir ? »
+**Réponse honnête : il a ce qu'il faut pour, mais ce n'est pas fait.*** `NkClothParams` porte déjà tous les
+paramètres physiques — compliance structurelle, de cisaillement, de flexion, amortissement, frottement,
+épaisseur, masse — mais **aucune matière n'est nommée** : ni préréglage, ni table, ni source. Un vêtement
+sort aujourd'hui avec des chiffres choisis pour que le solveur converge, pas pour ressembler à du coton.
+
+**Ce qui est décidé, à faire APRÈS la bande étroite, l'étanchéité et les patrons** (nommé maintenant pour
+qu'il ne se perde pas) :
+1. **`NkClothMaterial`** : un nom + les paramètres, avec la **masse surfacique (g/m²)** comme entrée — c'est
+   la donnée textile réelle, la masse par particule s'en déduit (`m = densité × aire / N`) — et les
+   compliances **par unité de longueur** : ⚠️ *aujourd'hui une compliance dépend du maillage, donc elle ment
+   dès que la nappe change de densité ; c'est à mesurer et à dire avant de publier des valeurs.*
+2. **Six matières citées, valeurs SOURCÉES dans le code** (jamais de mémoire) : coton ~150 g/m², soie ~60,
+   nylon ~80 (frottement bas), denim ~350 (raide), cuir ~800 (très raide en flexion, épais, frottement
+   haut), laine ~250. L'ordre de grandeur suffit **si l'ordre relatif est juste et écrit**.
+3. **Le témoin, visuel autant que chiffré** : la **même nappe**, même scène, même clip, sous chaque matière →
+   un chiffre par matière (nombre de plis par la courbure, amplitude au bord libre, énergie à 3 s) et
+   l'**ORDRE exigé** : cuir < denim < laine < coton < nylon < soie. Une matière qui casse l'ordre est un
+   réglage faux. **Mutation** : deux matières échangées → l'ordre rougit.
+4. **Une image** : six drapés côte à côte, même instant.
+5. Chaque `NkGarment` porte sa matière (défaut coton) ; le format la lira quand il existera.
+
 ### 🔩 04/09 (nuit) — JENGA 2.6 : ce qui est appliqué, ce qui est mesuré en retour
 
 - **`-static` — le défaut était chez nous** : `config/toolchain.jenga:55` (bloc Windows natif) promettait
