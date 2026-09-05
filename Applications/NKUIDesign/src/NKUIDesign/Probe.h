@@ -13195,6 +13195,123 @@ namespace nkuidesign {
 				"valait ZERO chez un hote sans atlas, et le chevron etait demande puis peint nulle part",
 				bandeOk && chevronPresent && ouvertDifferent && aucunGlyphe118, det);
 		}
+		// ── 119. ⑤ UN FICHIER RECONNU ET UN INCONNU N'ONT PAS LE MEME DESIGN (05/09, nuit).
+		//    Rodolf : « meme le design des fichiers au format reconnu ou non doivent avoir un
+		//    design specifique. »
+		//    ⚠️ LA RECONNAISSANCE VIENT DE LA TABLE DES FILTRES, pas d'une seconde table
+		//       d'extensions : une extension listee dans un groupe NOMME est reconnue. Et le
+		//       groupe « Tous les fichiers » ne reconnait RIEN -- il laisse passer, il ne
+		//       qualifie pas. Sans cette regle, tout serait reconnu des qu'on l'offre.
+		{
+			char det[900];
+			NkDirectory::Delete("sonde_familles", true);
+			NkDirectory::CreateRecursive("sonde_familles");
+			static const char *kFic[7] = {"a.png", "b.txt", "c.cpp", "d.zip",
+												  "e.exe", "f.svg", "g.wat"};
+			for (int32 k = 0; k < 7; ++k) {
+				char ch[128];
+				snprintf(ch, sizeof(ch), "sonde_familles/%s", kFic[k]);
+				NkFile::WriteAllText(ch, "x");
+			}
+			const NkString base119 =
+				(NkPath(NkDirectory::GetCurrentDirectory()) / "sonde_familles").ToString();
+			editorkit::NkFilePickerNavState nav119;
+			char b119[512] = {};
+			nav119.OpenPickerBase(editorkit::NkSelecteurOuvrirFichier, base119.Data(), b119,
+					  (int32)sizeof(b119), nullptr, nullptr);
+			// SIX FAMILLES NOMMEES, plus « Tous » qui ne qualifie rien
+			nav119.AjouterFiltre("Images", "png;svg");
+			nav119.AjouterFiltre("Textes", "txt");
+			nav119.AjouterFiltre("Code", "cpp");
+			nav119.AjouterFiltre("Archives", "zip");
+			nav119.AjouterFiltre("Executables", "exe");
+			nav119.AjouterFiltre("Tous les fichiers", "*");
+			nav119.filtreActif = 5; // « Tous » : on veut VOIR les sept
+			nav119.rolesFamille[(uint32)editorkit::NkAssetIcone::Image] = 20u;
+			nav119.rolesFamille[(uint32)editorkit::NkAssetIcone::Texte] = 21u;
+			nav119.rolesFamille[(uint32)editorkit::NkAssetIcone::Code] = 22u;
+			nav119.rolesFamille[(uint32)editorkit::NkAssetIcone::Archive] = 23u;
+			nav119.rolesFamille[(uint32)editorkit::NkAssetIcone::Executable] = 24u;
+			nav119.roleFichier = 25u;
+			nav119.relire = true;
+			nav119.RelireDossier();
+			// 1. SEPT ENTREES, ET SEPT COUPLES (silhouette, role) DISTINCTS
+			uint32 n119 = (uint32)nav119.vue.entries.Size();
+			uint32 couples[16];
+			uint32 nCouples = 0u;
+			char resume[300];
+			resume[0] = '\0';
+			for (uint32 i = 0; i < n119 && i < 16u; ++i) {
+				const NkAssetEntry &e = nav119.vue.entries[i];
+				const uint32 cle = (uint32)e.icone * 1000u + e.kindRole;
+				bool vu = false;
+				for (uint32 k = 0; k < nCouples; ++k)
+					if (couples[k] == cle)
+						vu = true;
+				if (!vu)
+					couples[nCouples++] = cle;
+				const usize l = NkString(resume).Length();
+				snprintf(resume + l, sizeof(resume) - l, "%s%s:%u/%u", l ? " " : "",
+					 e.name.Data(), (uint32)e.icone, e.kindRole);
+			}
+			// png et svg partagent la famille Image : six couples pour sept fichiers
+			const bool famillesDistinctes = n119 == 7u && nCouples == 6u;
+			// 2. L'INCONNU EST BIEN INCONNU, et il porte le role NEUTRE
+			bool inconnuOk = false;
+			for (uint32 i = 0; i < n119; ++i)
+				if (NkComponentDecl::StrEq(nav119.vue.entries[i].name.Data(), "g.wat"))
+					inconnuOk = nav119.vue.entries[i].icone == (uint8)editorkit::NkAssetIcone::Inconnu
+						&& nav119.vue.entries[i].kindRole == 25u;
+			// 3. « TOUS LES FICHIERS » NE QUALIFIE RIEN : avec LUI SEUL, tout est inconnu.
+			editorkit::NkFilePickerNavState nav120;
+			char b120[512] = {};
+			nav120.OpenPickerBase(editorkit::NkSelecteurOuvrirFichier, base119.Data(), b120,
+					  (int32)sizeof(b120), nullptr, nullptr);
+			nav120.AjouterFiltre("Tous les fichiers", "*");
+			nav120.relire = true;
+			nav120.RelireDossier();
+			uint32 inconnus = 0u;
+			for (uint32 i = 0; i < (uint32)nav120.vue.entries.Size(); ++i)
+				if (nav120.vue.entries[i].icone == (uint8)editorkit::NkAssetIcone::Inconnu)
+					++inconnus;
+			const bool toutNeQualifiePas = inconnus == 7u;
+			// 4. LE BADGE : peint pour un reconnu, PAS de pastille pour un inconnu
+			auto compterBadges = [](uint8 icone, uint16 role) -> uint32 {
+				NkRecordingPaint r;
+				NkContentBrowserModel m;
+				NkAssetEntry a;
+				a.name = NkString("x.png");
+				a.icone = icone;
+				a.kindRole = role;
+				a.kindLabel = "PNG";
+				m.entries.PushBack(a);
+				NkContentBrowserHooks h;
+				NkComponentInput in;
+				NkDrawContentBrowser(r, in, {0.f, 0.f, 500.f, 400.f}, m, DemoStyle(nullptr), h);
+				uint32 n = 0u;
+				for (uint32 i = 0; i < (uint32)r.cmds.Size(); ++i)
+					if (r.cmds[i].op == NkPaintOp::Fill && r.cmds[i].role == role)
+						++n;
+				return n;
+			};
+			const uint32 badgeConnu = compterBadges((uint8)editorkit::NkAssetIcone::Image, 30u);
+			const uint32 badgeInconnu = compterBadges((uint8)editorkit::NkAssetIcone::Inconnu, 30u);
+			const bool badgeOk = badgeConnu > badgeInconnu && badgeInconnu == 0u;
+			snprintf(det, sizeof(det),
+				"%u fichier(s) : %s ; %u couple(s) (silhouette, teinte) distincts pour six familles -> %d ; "
+				"l'inconnu `g.wat` a la silhouette Inconnu et la teinte neutre=%d ; avec « Tous » SEUL, "
+				"%u/7 inconnus -> %d ; pastille : %u pour un reconnu, %u pour un inconnu -> %d",
+				n119, resume, nCouples, famillesDistinctes ? 1 : 0, inconnuOk ? 1 : 0, inconnus,
+				toutNeQualifiePas ? 1 : 0, badgeConnu, badgeInconnu, badgeOk ? 1 : 0);
+			check("119. ⑤ UN FICHIER RECONNU ET UN INCONNU N'ONT PAS LE MEME DESIGN : la reconnaissance vient de LA TABLE "
+				"DES FILTRES -- une extension listee dans un groupe NOMME est reconnue -- et non d'une seconde table "
+				"d'extensions qui aurait fini par annoncer une famille que le filtre ne laisse pas passer ; le groupe "
+				"« Tous les fichiers » ne qualifie RIEN (il laisse passer, il ne nomme pas) ; l'inconnu prend la "
+				"silhouette neutre et la teinte de repli, et il n'a PAS de pastille coloree -- une pastille annonce une "
+				"famille, et l'ignorance n'en est pas une",
+				famillesDistinctes && inconnuOk && toutNeQualifiePas && badgeOk, det);
+			NkDirectory::Delete("sonde_familles", true);
+		}
 		snprintf(tail, sizeof(tail), "\n=== RESULTAT : %d / %d ===\n", pass, total);
 		rep.Append(tail);
 

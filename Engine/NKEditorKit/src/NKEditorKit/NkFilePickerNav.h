@@ -263,6 +263,42 @@ namespace nkentseu {
 				/// `NkAssetEntry::kindRole`).
 				uint16 roleDossier = 0, roleFichier = 0;
 
+				/// ⑤ (05/09, nuit) UNE TEINTE PAR FAMILLE, posee par l'hote (image, texte,
+				/// code, archive, executable...). Indexee par `NkAssetIcone`. A zero, on retombe
+				/// sur `roleFichier` : un hote qui n'a rien pose garde le rendu d'avant.
+				uint16 rolesFamille[(uint32)NkAssetIcone::Count] = {};
+
+				/// Le role d'une famille, avec son repli.
+				uint16 RoleDeFamille(NkAssetIcone g) const {
+					const uint32 i = (uint32)g;
+					if (i < (uint32)NkAssetIcone::Count && rolesFamille[i] != 0u)
+						return rolesFamille[i];
+					return roleFichier;
+				}
+
+				/// ⑤ CE FICHIER EST-IL D'UN FORMAT RECONNU ? La reponse vient de LA TABLE DES
+				/// FILTRES -- une extension listee dans un groupe NOMME est reconnue.
+				/// ⚠️ UNE SEULE SOURCE, PAS UNE SECONDE TABLE D'EXTENSIONS. Deux tables auraient
+				///    diverge, et le badge aurait fini par annoncer une famille que le filtre
+				///    ne laisse pas passer.
+				/// ⚠️ LE GROUPE « TOUT » NE RECONNAIT RIEN : il laisse passer, il ne qualifie
+				///    pas. Sans cette regle, tout serait reconnu des qu'on offre « Tous les
+				///    fichiers » -- c'est-a-dire toujours.
+				bool EstReconnu(const char *nom) const {
+					if (!nom || !*nom)
+						return false;
+					if (filtres.Empty())
+						return !pickerFileExt.Empty() && EndsWithI(nom, pickerFileExt.CStr());
+					for (uint32 i = 0; i < (uint32)filtres.Size(); ++i) {
+						if (filtres[i].Tout())
+							continue;
+						for (uint32 k = 0; k < (uint32)filtres[i].extensions.Size(); ++k)
+							if (EndsWithI(nom, filtres[i].extensions[k].CStr()))
+								return true;
+					}
+					return false;
+				}
+
 				// ── L'OUVERTURE ─────────────────────────────────────────────────
 				/// `purpose` : les memes PK_* que l'ancien selecteur. `ext` = filtre
 				/// d'extension (« .png »), vide = tout. `nomPropose` = le nom pre-rempli
@@ -568,7 +604,12 @@ namespace nkentseu {
 						a.path = (NkPath(pickerPath) / files[i].CStr()).ToString();
 						a.isFolder = false;
 						a.kindRole = roleFichier;
-						a.icone = (uint8)IconePour(files[i].CStr(), false);
+						// ⑤ RECONNU OU NON : deux designs, et la reponse vient des FILTRES.
+						const bool reconnu = EstReconnu(files[i].CStr());
+						const NkAssetIcone fam = reconnu ? IconePour(files[i].CStr(), false)
+													 : NkAssetIcone::Inconnu;
+						a.icone = (uint8)fam;
+						a.kindRole = reconnu ? RoleDeFamille(fam) : roleFichier;
 						// ⑤ LA TAILLE ET LA DATE, POSEES SUR L'ENTREE. Elles etaient lues du systeme
 						//    et rangees a cote, mais jamais recopiees ici : le tri par taille tombait
 						//    en repli sur le nom et PASSAIT PAR HASARD. La sonde l'a vu parce qu'elle
@@ -577,6 +618,9 @@ namespace nkentseu {
 						a.dateModif = i < (uint32)dates.Size() ? dates[i] : 0;
 						char ext[16];
 						ExtDe(files[i].CStr(), ext, sizeof(ext));
+						// ⑤ LE BADGE N'EXISTE QUE POUR UN FORMAT RECONNU. Un inconnu garde son
+						//    extension EN GRIS s'il en a une, et rien s'il n'en a pas -- la pastille
+						//    coloree annonce une famille, elle ne doit pas annoncer l'ignorance.
 						mExts.PushBack(NkString(ext));
 						if (vignette)
 							a.thumbnail = vignette(vignetteUser, a.path.CStr());

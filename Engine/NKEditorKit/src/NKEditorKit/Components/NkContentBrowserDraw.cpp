@@ -907,14 +907,24 @@ namespace nkentseu {
 					// LE BADGE DE TYPE (Aetherion) : la couleur de la nature en
 					// fond, pose au bas de la zone de vignette. Pas en minimal, et
 					// pas sur un dossier — le dossier EST sa couleur.
+					// ⑤ (05/09, nuit) LE BADGE COLORE N'EST QUE POUR UN FORMAT RECONNU.
+					//    Rodolf : « meme le design des fichiers au format reconnu ou non doivent
+					//    avoir un design specifique. » Un INCONNU garde son extension, mais en
+					//    TEXTE ATTENUE, sans pastille : la pastille coloree annonce une FAMILLE,
+					//    et l'ignorance n'en est pas une.
 					if (!minimal && !e.isFolder && e.kindLabel && e.kindLabel[0]) {
+						const bool connu = (NkAssetIcone)e.icone != NkAssetIcone::Inconnu
+										   && (NkAssetIcone)e.icone != NkAssetIcone::Auto;
 						const float32 bh = M("badge_h");
 						const float32 bw = p.TextWidth(e.kindLabel) + pad;
 						NkPaintRect badge{cell.x + cell.w - bw - pad * 0.5f,
 										  cell.y + thumbZoneH - bh - pad * 0.5f, bw, bh};
 						if (badge.x >= cell.x && badge.y >= cell.y) {
-							p.Fill(badge, e.kindRole, bh * 0.2f);
-							p.Text(badge, e.kindLabel, s.badgeText, NkTextAlign::Center);
+							if (connu) {
+								p.Fill(badge, e.kindRole, bh * 0.2f);
+								p.Text(badge, e.kindLabel, s.badgeText, NkTextAlign::Center);
+							} else
+								p.Text(badge, e.kindLabel, s.textMuted, NkTextAlign::Center);
 						}
 					}
 					if (showFooter) {

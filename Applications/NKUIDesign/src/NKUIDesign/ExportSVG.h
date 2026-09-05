@@ -1168,6 +1168,18 @@ namespace nkuidesign {
 		c.picker.vignetteUser = &st;
 		c.picker.roleDossier = NkDesignResolveRole("type_folder");
 		c.picker.roleFichier = NkDesignResolveRole("type_tex");
+		// ⑤ UNE TEINTE PAR FAMILLE. Les cinq roles `type_*` du coeur existent pour ca ;
+		//    les prendre au hasard aurait fait mentir la capture.
+		c.picker.rolesFamille[(uint32)nkentseu::editorkit::NkAssetIcone::Image] =
+			NkDesignResolveRole("type_tex");
+		c.picker.rolesFamille[(uint32)nkentseu::editorkit::NkAssetIcone::Texte] =
+			NkDesignResolveRole("text_muted");
+		c.picker.rolesFamille[(uint32)nkentseu::editorkit::NkAssetIcone::Code] =
+			NkDesignResolveRole("type_mat");
+		c.picker.rolesFamille[(uint32)nkentseu::editorkit::NkAssetIcone::Archive] =
+			NkDesignResolveRole("type_anim");
+		c.picker.rolesFamille[(uint32)nkentseu::editorkit::NkAssetIcone::Executable] =
+			NkDesignResolveRole("accent_ui");
 		// ③ les recents, session d'abord puis document : le rail les met EN TETE.
 		c.picker.recents = st.RecentsPourLeRail();
 		// ⑥ LES FILTRES : le format choisi d'abord, l'autre ensuite, puis TOUT.
