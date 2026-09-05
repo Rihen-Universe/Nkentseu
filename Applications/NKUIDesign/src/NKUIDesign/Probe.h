@@ -60,6 +60,7 @@
 #include "DesignAI.h"
 #include "Icons.h"
 #include "Renderers.h"
+#include "Export.h" // sonde 81 : l'export PNG, en pixels
 
 #include <cstdio>
 
@@ -9193,6 +9194,265 @@ namespace nkuidesign {
 					  "l'image avec les uv du nouveau crop",
 					  sansPopover && imagesEnCrop >= 3 && cropChange && noeudIntact && peintreSuit, det);
 			}
+		}
+		// ── 81. L'EXPORT (05/09) : PNG en PIXELS (rect uni, degrade, texte, image 2x2, rect
+		//    tourne ; 1x / 2x / 3x ; la selection ; l'echec dit), puis SVG (un lecteur du document)
+		//    RE-RASTERISE par le parseur SVG maison et compare aux memes points ; texte et image
+		//    en STRUCTURE (le parseur maison ne les sait pas : mesure, dit).
+		{
+			char det[1200];
+			static const uint8 kM[4] = {255, 0, 255, 255}, kG[4] = {0, 255, 0, 255};
+			bool pngSource = false;
+			{
+				NkImage img;
+				if (img.Create(2u, 2u, math::NkColor(), 4) && img.Pixels()) {
+					uint8 *px = img.Pixels();
+					for (int32 y = 0; y < 2; ++y)
+						for (int32 x = 0; x < 2; ++x) {
+							const uint8 *c = ((x + y) & 1) ? kG : kM;
+							for (int32 k = 0; k < 4; ++k)
+								px[(y * 2 + x) * 4 + k] = c[k];
+						}
+					pngSource = img.SavePNG("sonde_export_2x2.png");
+				}
+			}
+			static DesignState stEx;
+			stEx.doc.NewDocument("Export", NkAuthor::Humain);
+			stEx.cheminActif = NkString();
+			stEx.images.Vider();
+			stEx.sel.Clear();
+			stEx.selected = -1;
+			// le theme de la sonde : une page BLANCHE opaque et un cadre gris, comme un theme reel
+			// (le theme par defaut d'une sonde laisse ces deux roles a une valeur sentinelle)
+			stEx.theme.Set(NkDesignResolveRole("artboard_bg"), 0xFFFFFFFFu);
+			stEx.theme.Set(NkDesignResolveRole("border"), 0x30363DFFu);
+			renderdetail::NkPoserFournisseurImages(&NkObtenirImageDuDocument, &stEx);
+			const int32 pg = stEx.doc.AddChild(0, "", NkAuthor::Humain);
+			{
+				NkUINode &p = stEx.doc.nodes[(uint32)pg];
+				p.shape = NkString("frame");
+				p.label = NkString("Page");
+				p.layout.kind = NkLayoutKind::Free;
+				p.width.mode = NkSizeMode::Fixed;
+				p.width.value = 200.f;
+				p.height.mode = NkSizeMode::Fixed;
+				p.height.value = 120.f;
+			}
+			auto rect = [&](float32 x, float32 y, float32 w, float32 h, const char *label, const char *couleur) -> int32 {
+				const int32 i = stEx.doc.AddChild(pg, "", NkAuthor::Humain);
+				NkUINode &n = stEx.doc.nodes[(uint32)i];
+				n.shape = NkString("rect");
+				n.label = NkString(label);
+				n.posX = x;
+				n.posY = y;
+				n.width.mode = NkSizeMode::Fixed;
+				n.width.value = w;
+				n.height.mode = NkSizeMode::Fixed;
+				n.height.value = h;
+				n.layout.kind = NkLayoutKind::Free;
+				if (couleur) {
+					NkRemplissage f;
+					f.couleur = NkString(couleur);
+					n.fills.PushBack(f);
+				}
+				return i;
+			};
+			// A. un rect uni rouge, avec une ombre portee (le filtre du SVG)
+			const int32 rA = rect(10.f, 10.f, 60.f, 40.f, "Uni", "#ff0000");
+			{
+				NkEffet e;
+				e.couleur = NkString("#000000");
+				e.opacite = 25.f;
+				e.y = 4.f;
+				e.flou = 4.f;
+				stEx.doc.nodes[(uint32)rA].effets.PushBack(e);
+			}
+			// B. un degrade lineaire noir -> blanc, angle 0 : l'axe (0, 1), de haut en bas
+			const int32 rB = rect(80.f, 10.f, 60.f, 40.f, "Degrade", nullptr);
+			{
+				NkRemplissage f;
+				f.degrade.type = NkString("lineaire");
+				f.degrade.angle = 0.f;
+				NkArretDegrade a0, a1;
+				a0.position = 0.f;
+				a0.couleur = NkString("#000000");
+				a1.position = 1.f;
+				a1.couleur = NkString("#ffffff");
+				f.degrade.arrets.PushBack(a0);
+				f.degrade.arrets.PushBack(a1);
+				stEx.doc.nodes[(uint32)rB].fills.PushBack(f);
+			}
+			// C. un fond blanc puis un texte noir « Ab », corps 14
+			(void)rect(10.f, 60.f, 60.f, 30.f, "FondTexte", "#ffffff");
+			const int32 tC = stEx.doc.AddChild(pg, "", NkAuthor::Humain);
+			{
+				NkUINode &t = stEx.doc.nodes[(uint32)tC];
+				t.shape = NkString("text");
+				t.label = NkString("Texte");
+				t.text = NkString("Ab");
+				t.posX = 10.f;
+				t.posY = 60.f;
+				t.width.mode = NkSizeMode::Fixed;
+				t.width.value = 60.f;
+				t.height.mode = NkSizeMode::Fixed;
+				t.height.value = 30.f;
+				t.fontPx = 14.f;
+				t.textColor = NkString("#000000");
+			}
+			// D. l'image 2x2 (magenta / vert) etiree sur 40x40
+			const int32 rD = rect(80.f, 60.f, 40.f, 40.f, "Image", nullptr);
+			{
+				NkRemplissage f;
+				f.genre = NkString("image");
+				f.image = NkString("sonde_export_2x2.png");
+				f.cadrage = NkString("stretch");
+				stEx.doc.nodes[(uint32)rD].fills.PushBack(f);
+			}
+			// E. un carre bleu tourne de 45 degres : la matrice dans les pixels
+			const int32 rE = rect(140.f, 65.f, 30.f, 30.f, "Tourne", "#0000ff");
+			stEx.doc.nodes[(uint32)rE].rotation = 45.f;
+
+			auto pixel = [](const NkImage &im, int32 x, int32 y, uint8 out[4]) {
+				out[0] = out[1] = out[2] = out[3] = 0;
+				if (!im.Pixels() || x < 0 || y < 0 || x >= im.Width() || y >= im.Height())
+					return;
+				const uint8 *p = im.Pixels() + ((usize)y * (usize)im.Width() + (usize)x) * 4u;
+				for (int32 k = 0; k < 4; ++k)
+					out[k] = p[k];
+			};
+			auto proche = [&](const NkImage &im, int32 x, int32 y, int32 r, int32 g, int32 b, int32 tol) {
+				uint8 c[4];
+				pixel(im, x, y, c);
+				auto d = [](int32 a, int32 b2) { return a > b2 ? a - b2 : b2 - a; };
+				return d(c[0], r) <= tol && d(c[1], g) <= tol && d(c[2], b) <= tol && c[3] >= 250;
+			};
+			auto gris = [&](const NkImage &im, int32 x, int32 y) -> int32 {
+				uint8 c[4];
+				pixel(im, x, y, c);
+				return ((int32)c[0] + (int32)c[1] + (int32)c[2]) / 3;
+			};
+			// l'encre d'un texte noir sur fond blanc : combien de pixels sombres, et combien de
+			// pixels INTERMEDIAIRES (le bord anticrenele) parmi ceux qui ne sont pas blancs
+			auto encre = [&](const NkImage &im, int32 x0, int32 y0, int32 x1, int32 y1, int32 &sombres, int32 &bords,
+							 int32 &ymin, int32 &ymax) {
+				sombres = bords = 0;
+				ymin = 1 << 20;
+				ymax = -1;
+				for (int32 y = y0; y < y1; ++y)
+					for (int32 x = x0; x < x1; ++x) {
+						const int32 g = gris(im, x, y);
+						if (g < 96) {
+							++sombres;
+							if (y < ymin) ymin = y;
+							if (y > ymax) ymax = y;
+						} else if (g < 224)
+							++bords;
+					}
+			};
+
+			// 81a. 1x : le fichier, ses dimensions, aucune texture inconnue
+			NkExportOptions o1;
+			o1.echelle = 1.f;
+			NkExportResultat r1;
+			const bool ok1 = NkExporterPNG(stEx, o1, "sonde_export_page.png", r1);
+			NkImage im1;
+			const bool lu1 = ok1 && im1.Load("sonde_export_page.png", 4) && im1.Width() == 200 && im1.Height() == 120 && im1.Pixels();
+			snprintf(det, sizeof(det), "source 2x2 ecrite=%d ; export=%d (%s) ; relu 200x120=%d (%d x %d) ; textures inconnues=%u ; images=%u ; polices=%u (max %.1f px)",
+					 pngSource ? 1 : 0, ok1 ? 1 : 0, r1.message, lu1 ? 1 : 0, im1.Width(), im1.Height(), r1.texturesInconnues, r1.images,
+					 r1.polices, (double)r1.policeMax);
+			snprintf(det + (det[0] ? (int32)NkString(det).Length() : 0), sizeof(det) - NkString(det).Length(), " ; police a 14 px chargee=%d", r1.PoliceChargee(14.f) ? 1 : 0);
+			check("81a. EXPORT PNG D'UNE PAGE A 1x : le fichier est ecrit par le codec PNG maison et relu a 200 x 120, sans texture inconnue, "
+				  "l'image du document declaree, la police chargee a 14 px",
+				  pngSource && ok1 && lu1 && r1.texturesInconnues == 0u && r1.images == 1u && r1.PoliceChargee(14.f), det);
+			// 81b. le rect uni : quatre points rouges
+			const bool rouge1 = lu1 && proche(im1, 15, 15, 255, 0, 0, 2) && proche(im1, 64, 15, 255, 0, 0, 2) && proche(im1, 15, 44, 255, 0, 0, 2)
+								&& proche(im1, 64, 44, 255, 0, 0, 2);
+			// 81c. le degrade : quatre points sur une colonne, du sombre au clair, monotone
+			const int32 g15 = gris(im1, 110, 15), g25 = gris(im1, 110, 25), g35 = gris(im1, 110, 35), g45 = gris(im1, 110, 45);
+			const bool degrade1 = lu1 && g15 < g25 && g25 < g35 && g35 < g45 && g15 < 96 && g45 > 160;
+			// 81d. l'image : les quatre texels aux quatre coins (bilineaire, bord repete : purs)
+			const bool image1 = lu1 && proche(im1, 82, 62, 255, 0, 255, 4) && proche(im1, 117, 62, 0, 255, 0, 4) && proche(im1, 82, 97, 0, 255, 0, 4)
+								&& proche(im1, 117, 97, 255, 0, 255, 4);
+			// 81e. le carre tourne : bleu au centre et a (155, 63) -- hors de sa boite droite, dans le losange -- et pas au coin de la boite
+			const bool tourne1 = lu1 && proche(im1, 155, 80, 0, 0, 255, 2) && proche(im1, 155, 63, 0, 0, 255, 2) && !proche(im1, 141, 66, 0, 0, 255, 40);
+			uint8 coin[4];
+			pixel(im1, 141, 66, coin);
+			snprintf(det, sizeof(det), "rouge aux quatre points=%d ; degrade x=110 : y15=%d y25=%d y35=%d y45=%d ; image M/V/V/M=%d ; tourne : centre et (155,63) bleus, coin (141,66)=(%u,%u,%u) non bleu -> %d",
+					 rouge1 ? 1 : 0, g15, g25, g35, g45, image1 ? 1 : 0, coin[0], coin[1], coin[2], tourne1 ? 1 : 0);
+			check("81b. LES PIXELS A 1x : le rect uni rouge a quatre points, le degrade noir -> blanc monotone sur sa colonne, les quatre texels "
+				  "de l'image 2x2 la ou le cadrage les met, le carre tourne de 45 degres bleu dans son losange et pas au coin de sa boite",
+				  rouge1 && degrade1 && image1 && tourne1, det);
+			// 81f. le texte a 1x : de l'encre dans sa boite
+			int32 s1 = 0, b1 = 0, y1min = 0, y1max = 0;
+			if (lu1)
+				encre(im1, 10, 60, 70, 90, s1, b1, y1min, y1max);
+			// 81g. 2x : memes couleurs, dimensions doublees, texte net
+			NkExportOptions o2;
+			o2.echelle = 2.f;
+			NkExportResultat r2;
+			const bool ok2 = NkExporterPNG(stEx, o2, "sonde_export_page@2x.png", r2);
+			NkImage im2;
+			const bool lu2 = ok2 && im2.Load("sonde_export_page@2x.png", 4) && im2.Width() == 400 && im2.Height() == 240 && im2.Pixels();
+			const bool rouge2 = lu2 && proche(im2, 31, 31, 255, 0, 0, 2) && proche(im2, 128, 31, 255, 0, 0, 2) && proche(im2, 31, 88, 255, 0, 0, 2)
+								&& proche(im2, 128, 88, 255, 0, 0, 2);
+			const int32 h15 = gris(im2, 221, 31), h25 = gris(im2, 221, 51), h35 = gris(im2, 221, 71), h45 = gris(im2, 221, 91);
+			const bool degrade2 = lu2 && h15 < h25 && h25 < h35 && h35 < h45 && h15 < 96 && h45 > 160;
+			const bool image2 = lu2 && proche(im2, 164, 124, 255, 0, 255, 4) && proche(im2, 235, 124, 0, 255, 0, 4) && proche(im2, 164, 195, 0, 255, 0, 4)
+								&& proche(im2, 235, 195, 255, 0, 255, 4);
+			int32 s2 = 0, b2 = 0, y2min = 0, y2max = 0;
+			if (lu2)
+				encre(im2, 20, 120, 140, 180, s2, b2, y2min, y2max);
+			const int32 hauteur1 = y1max - y1min + 1, hauteur2 = y2max - y2min + 1;
+			const bool texteDouble = s1 > 0 && s2 > (s1 * 5) / 2 && s2 < s1 * 6 && hauteur2 >= 2 * hauteur1 - 3 && hauteur2 <= 2 * hauteur1 + 3;
+			// la MUTATION du texte : l'atlas de 1x etire par la matrice (le chemin de la toile) -> plus de bords flous
+			NkExportOptions o2b = o2;
+			o2b.policeExacte = false;
+			NkExportResultat r2b;
+			NkImage im2b;
+			const bool ok2b = NkExporterImage(stEx, o2b, im2b, r2b) && im2b.Pixels();
+			int32 s2b = 0, b2b = 0, ymb0 = 0, ymb1 = 0;
+			if (ok2b)
+				encre(im2b, 20, 120, 140, 180, s2b, b2b, ymb0, ymb1);
+			const float32 flouExact = s2 + b2 > 0 ? (float32)b2 / (float32)(s2 + b2) : 1.f;
+			const float32 flouEtire = s2b + b2b > 0 ? (float32)b2b / (float32)(s2b + b2b) : 0.f;
+			const bool net = ok2b && r2.PoliceChargee(28.f) && flouExact < flouEtire;
+			snprintf(det, sizeof(det), "2x : export=%d relu 400x240=%d ; rouge=%d ; degrade y=%d/%d/%d/%d ; image=%d ; texte 1x : %d sombres (hauteur %d), 2x : %d sombres (hauteur %d) ; police a 28 px chargee=%d (la plus grande %.1f) ; bords flous exact %.3f contre atlas etire %.3f (%s)",
+					 ok2 ? 1 : 0, lu2 ? 1 : 0, rouge2 ? 1 : 0, h15, h25, h35, h45, image2 ? 1 : 0, s1, hauteur1, s2, hauteur2, r2.PoliceChargee(28.f) ? 1 : 0, (double)r2.policeMax,
+					 (double)flouExact, (double)flouEtire, r2b.message);
+			check("81c. EXPORT A 2x : memes couleurs aux memes points (doubles), 400 x 240, le texte a 4 fois l'encre et 2 fois la hauteur, "
+				  "rasterise par une police chargee a 28 px -- moins de bords flous que l'atlas de 1x etire par la matrice (la mutation)",
+				  lu2 && rouge2 && degrade2 && image2 && texteDouble && net, det);
+			// 81h. 3x : les dimensions ; la selection : sa boite seule ; l'echec : dit, aucun fichier
+			NkExportOptions o3;
+			o3.echelle = 3.f;
+			NkExportResultat r3;
+			NkImage im3;
+			const bool ok3 = NkExporterImage(stEx, o3, im3, r3) && im3.Width() == 600 && im3.Height() == 360 && proche(im3, 465, 240, 0, 0, 255, 2);
+			stEx.sel.Set(rA);
+			stEx.selected = rA;
+			NkExportOptions oS;
+			oS.selection = true;
+			NkExportResultat rS;
+			const bool okS = NkExporterPNG(stEx, oS, "sonde_export_selection.png", rS);
+			NkImage imS;
+			// la marge de l'ombre (y 4 + flou 4 = 8 px) entoure la boite 60 x 40 : 76 x 56, le rect rouge de (8, 8) a (68, 48)
+			const bool luS = okS && imS.Load("sonde_export_selection.png", 4) && imS.Width() == 76 && imS.Height() == 56 && proche(imS, 38, 28, 255, 0, 0, 2)
+							 && proche(imS, 9, 9, 255, 0, 0, 2) && proche(imS, 66, 46, 255, 0, 0, 2);
+			uint8 hors[4];
+			pixel(imS, 2, 2, hors);
+			const bool transparentHors = luS && hors[3] < 40; // hors du rect et de son ombre : transparent, pas un fond invente
+			stEx.sel.Clear();
+			stEx.selected = -1;
+			NkExportResultat rR;
+			NkFile::Delete("sonde_export_rien.png");
+			const bool refus = !NkExporterPNG(stEx, oS, "sonde_export_rien.png", rR) && !NkFile::Exists("sonde_export_rien.png")
+							   && rR.message[0] == '\xC3'; // « É » de « ÉCHEC »
+			snprintf(det, sizeof(det), "3x : 600 x 360 et le bleu tourne a (465,240) -> %d ; selection : %s ; relu 76x56 rouge en (38,28) (9,9) (66,46) -> %d ; hors du rect alpha=%u -> transparent=%d ; sans selection : refuse et dit -> %d (%s)",
+					 ok3 ? 1 : 0, rS.message, luS ? 1 : 0, hors[3], transparentHors ? 1 : 0, refus ? 1 : 0, rR.message);
+			check("81d. 3x fait 600 x 360 ; LA SELECTION s'exporte dans sa boite (plus la marge de son ombre), le reste transparent ; "
+				  "un export sans rien de selectionne est REFUSE et DIT, aucun fichier n'est ecrit",
+				  ok3 && luS && transparentHors && refus, det);
+
 		}
 		snprintf(tail, sizeof(tail), "\n=== RESULTAT : %d / %d ===\n", pass, total);
 		rep.Append(tail);

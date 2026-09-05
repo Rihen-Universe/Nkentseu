@@ -1466,6 +1466,19 @@ namespace nkuidesign {
 			nkentseu::editorkit::NkFilePickerState choixImage;
 			int32 choixImageNoeud = -1, choixImageIndex = -1;
 			char choixImageBuf[512] = {};
+			/// « EXPORTER... » (05/09) : le selecteur de fichier du kit en mode
+			/// enregistrer, et ce que le menu a choisi (format, echelle, page ou
+			/// selection, images embarquees). L'export lui-meme vit dans Export.h /
+			/// ExportSVG.h ; `NkDessinerPickerExport` dessine et conclut.
+			struct NkChoixExport {
+					nkentseu::editorkit::NkFilePickerState picker;
+					int32 format = 0; ///< 0 = PNG, 1 = SVG
+					float32 echelle = 1.f;
+					bool selection = false;
+					bool embarquer = false;
+					char buf[512] = {};
+			};
+			NkChoixExport choixExport;
 			/// Le dossier de reference des chemins d'image : celui du document, ou le
 			/// repertoire courant pour un document jamais enregistre (separateur final).
 			NkString DossierImages() const {
