@@ -127,6 +127,7 @@
 // =============================================================================
 #include "NKPhysics/NkPhysicsTypes.h"
 #include "NKPhysics/NkSpatialHash.h"
+#include "NKPhysics/NkBodySDF.h" // le corps vu comme un champ de distance (2026-09-05, lot 2)
 #include "NKCollision/NkColShapes.h"
 #include "NKMath/NkIForceField.h" // le contrat du vent, cherry-pick ebf6c348 (chantier Noge)
 #include "NKContainers/Sequential/NkVector.h"
@@ -167,6 +168,13 @@ namespace nkentseu {
 				// Élagage : un collider dont la boîte (gonflée de rayon + épaisseur) ne croise pas celle
 				// du tissu est sauté pour tout le sous-pas (un foulard ne teste pas les pieds). Compté.
 				bool colliderCulling = true;
+				// CHAMP DE DISTANCE du corps (NkCloth::bodySDF) : quand il est là, chaque particule est
+				// projetée à `thickness` de l'ISOSURFACE, avec la normale = gradient. C'est ce qui fait
+				// entrer les creux qu'une capsule ne décrit pas (mâchoire, aisselle, entrejambe) --
+				// mesuré au lot 1 : capsules seules = 0,000 mm de pénétration MAIS 9 à 37 particules
+				// sous la peau. Les capsules restent en SECOURS (hors grille, et pour la vitesse du
+				// corps dans le frottement) ; Stats dit qui a résolu quoi.
+				bool sdfCollision = true;
 				// Projection du champ de force sur la normale de la nappe (F_eff = n (n·F)) :
 				// une voile ne prend le vent que de face. Faux = force brute par particule
 				// (c'est ce que le témoin (e) mesure : atan(F / m g)).
@@ -200,6 +208,8 @@ namespace nkentseu {
 				uint32 selfPairs = 0, selfBuilds = 0;  // paires candidates ; constructions de la liste dans le pas
 				uint32 collidersIgnored = 0;		// formes d'un type non traité (dites, pas simulées)
 				uint32 collidersCulled = 0;			// formes sautées par l'élagage au dernier sous-pas
+				uint32 sdfContacts = 0;				// projections faites par le champ de distance au dernier sous-pas
+				float32 maxSdfPenetration = 0.f;	// m : max(0, thickness - distance signée) après le pas (0 attendu)
 				float32 maxPinError = 0.f;			// m : max |x - cible| des particules épinglées à cible (0 attendu)
 				uint32 pinTargets = 0;				// particules épinglées qui ont une cible
 				uint32 substeps = 0, iterations = 0;
@@ -214,6 +224,9 @@ namespace nkentseu {
 				// à la fin de chaque Step. Vide ou de taille différente = colliders immobiles sur le pas.
 				NkVector<collision::NkShape> collidersPrev;
 				const math::NkIForceField *forceField = nullptr; // vent : contrat NkIForceField, force en N par particule
+				// Champ de distance du corps pour CE pas (l'appelant le reconstruit à la pose de fin).
+				// Nul = collisions par les capsules seules, comme avant.
+				const NkBodySDF *bodySDF = nullptr;
 
 				// ── Construction ─────────────────────────────────────────────
 				void Clear();

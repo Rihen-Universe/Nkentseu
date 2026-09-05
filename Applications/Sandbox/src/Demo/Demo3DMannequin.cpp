@@ -29,6 +29,8 @@ namespace nkentseu {
 				uint32 insideMax = 0, insideSum = 0, degenerate = 0;
 				uint32 insideNearestMax = 0, insideNearestSum = 0;
 				float32 insideDepthMax = 0.f;
+				float32 sdfPenMax = 0.f;
+				uint32 sdfContactsMax = 0, capsContactsMax = 0;
 				float64 msSum = 0.0;
 				uint32 frames = 0;
 		};
@@ -96,6 +98,12 @@ namespace nkentseu {
 			NkVector<NkVec3f> bodyPos;
 			NkMeshHandle bodyMesh;
 			NkMeshInsideTester inside, restInside;
+			NkBodySDF sdf;			  // le corps vu comme un champ de distance, reconstruit par image
+			bool useSdf = true;
+			uint32 sdfEvery = 1;	  // reconstruction toutes les N images (mesure du compromis)
+			float64 msSdfSum = 0.0;
+			float32 msSdfMax = 0.f;
+			float32 sdfCalib = 0.f;
 			NkVector<NkVec3f> bodyPosRest; // la peau au repos (l'ajustement des patrons la lit)
 			NkVector<GarmentSlot *> garments;
 			NkHat hat;
@@ -342,6 +350,41 @@ namespace nkentseu {
 			md.dynamic = true;
 			md.debugName = "Demo3D_Mannequin";
 			p->bodyMesh = meshSys->Create(md);
+		}
+		// ── LE CHAMP DE DISTANCE, construit puis CALIBRÉ avant de servir à juger ────────────
+		if (const char *e = std::getenv("NK_MANNEQUIN_SDF"); e && e[0] == '0')
+			p->useSdf = false;
+		if (const char *e = std::getenv("NK_MANNEQUIN_SDF_RES"); e && e[0])
+			p->sdf.params.resolution = (uint32)std::atoi(e);
+		if (const char *e = std::getenv("NK_MANNEQUIN_SDF_EVERY"); e && e[0])
+			p->sdfEvery = (uint32)math::NkMax(1, std::atoi(e));
+		if (p->useSdf) {
+			NkChrono sc;
+			p->sdf.Build(p->bodyPosRest.Data(), nv, M.indices.Data(), (uint32)M.indices.Size() / 3u);
+			const float64 msB = sc.Elapsed().milliseconds;
+			uint32 okA = 0, totA = 0, neg = 0, totNeg = 0;
+			bool centerIn = false;
+			p->sdfCalib = p->sdf.Calibrate(p->bodyPosRest.Data(), M.indices.Data(), (uint32)M.indices.Size() / 3u, 0.01f,
+										   &okA, &totA, &neg, &totNeg, &centerIn);
+			const NkBodySDFStats &st = p->sdf.Stats();
+			std::fprintf(stderr, "[SDF] grille %ux%ux%u = %u cellules de %.1f mm (bande %u), construit en %.1f ms | valeurs [%.3f ; %.3f] m, %u cellules dedans (%.1f %%)\n",
+						 st.nx, st.ny, st.nz, st.cells, 1000.f * st.cellSize, st.bandCells, msB, st.minValue, st.maxValue,
+						 st.negativeCells, 100.f * (float32)st.negativeCells / (float32)st.cells);
+			std::fprintf(stderr, "[SDF CALIBRATION] positif : %u / %u centres de triangles rentres de 1 cm dits DEDANS (%.1f %%, 100 attendu) | negatif : %u / %u points lointains dits dedans (0 attendu) | centre du corps dedans : %s\n",
+						 okA, totA, 100.f * p->sdfCalib, neg, totNeg, centerIn ? "OUI" : "NON (ROUGE)");
+			// MUTATION : signe inversé -> la calibration doit rougir (un champ qui ne sait pas
+			// rougir ne prouve rien). Restauré par une reconstruction, pas par une négation.
+			{
+				NkBodySDF mut;
+				mut.params = p->sdf.params;
+				mut.Build(p->bodyPosRest.Data(), nv, M.indices.Data(), (uint32)M.indices.Size() / 3u);
+				mut.MutateFlipSign();
+				uint32 mOk = 0, mTot = 0;
+				const float32 taux = mut.Calibrate(p->bodyPosRest.Data(), M.indices.Data(), (uint32)M.indices.Size() / 3u,
+												   0.01f, &mOk, &mTot, nullptr, nullptr, nullptr);
+				std::fprintf(stderr, "[SDF MUTATION] signe inverse : le positif tombe a %.1f %% (%u / %u) -- le temoin sait rougir\n",
+							 100.f * taux, mOk, mTot);
+			}
 		}
 		// ── CONTRÔLE du test point-dans-maillage, sur CE corps (avant tout verdict) ─────────
 		// Un test qui ment sur le corps rendrait faux tout ce qui suit. Deux épreuves :
@@ -605,6 +648,15 @@ namespace nkentseu {
 		}
 		// 3. capsules posées, épingles, pas
 		p->mannequin.Pose(p->world.Data(), nj, p->shapes);
+		// le CHAMP DE DISTANCE de cette pose (toutes les sdfEvery images)
+		if (p->useSdf && (frame % p->sdfEvery) == 0u) {
+			NkChrono sc;
+			p->sdf.Build(p->bodyPos.Data(), nv, M.indices.Data(), (uint32)M.indices.Size() / 3u);
+			const float32 ms = (float32)sc.Elapsed().milliseconds;
+			p->msSdfSum += ms;
+			if (ms > p->msSdfMax)
+				p->msSdfMax = ms;
+		}
 		NkChrono insideClock;
 		if (p->testInside)
 			p->inside.Build(p->bodyPos.Data(), nv, M.indices.Data(), (uint32)M.indices.Size() / 3u);
@@ -617,6 +669,7 @@ namespace nkentseu {
 			c.colliders.Clear();
 			for (uint32 k = 0; k < (uint32)p->shapes.Size(); ++k)
 				c.colliders.PushBack(p->shapes[k]);
+			c.bodySDF = (p->useSdf && p->sdf.Valid()) ? &p->sdf : nullptr;
 			s->garment.UpdatePins(p->world.Data(), nj);
 			NkChrono simClock;
 			c.Step(dt, p->time);
@@ -637,6 +690,9 @@ namespace nkentseu {
 			msInside += ic.Elapsed().milliseconds;
 			const NkClothStats &st = c.Stats();
 			if (count) {
+				if (st.maxSdfPenetration > s->sdfPenMax) s->sdfPenMax = st.maxSdfPenetration;
+				s->sdfContactsMax = st.sdfContacts > s->sdfContactsMax ? st.sdfContacts : s->sdfContactsMax;
+				s->capsContactsMax = st.contacts > s->capsContactsMax ? st.contacts : s->capsContactsMax;
 				if (st.maxPenetration > s->penMax) s->penMax = st.maxPenetration;
 				if (st.maxPinError > s->pinMax) s->pinMax = st.maxPinError;
 				if (st.maxStretch > s->stretchMax) s->stretchMax = st.maxStretch;
@@ -735,6 +791,9 @@ namespace nkentseu {
 	void Demo3DMannequinReport(Demo3DMannequinProbe *p) {
 		if (!p)
 			return;
+		std::fprintf(stderr, "[SDF BILAN] reconstruction toutes les %u images : %.2f ms en moyenne, %.2f ms au pire (resolution %u, calibration %.1f %%)\n",
+					 p->sdfEvery, p->frames ? (float32)(p->msSdfSum / (float64)(p->frames / p->sdfEvery + 1u)) : 0.f, p->msSdfMax,
+					 p->sdf.params.resolution, 100.f * p->sdfCalib);
 		std::fprintf(stderr, "[MANNEQUIN BILAN] %llu images (mesures a partir de la 30e), peau %.2f ms/image, grille+tests dedans %.2f ms/image, simulation totale %.2f ms/image\n",
 					 (unsigned long long)p->frames, p->frames ? (float32)(p->msSkinSum / (float64)p->frames) : 0.f,
 					 p->frames ? (float32)(p->msInsideSum / (float64)p->frames) : 0.f,
@@ -745,8 +804,9 @@ namespace nkentseu {
 						 NkGarmentName(s->garment.kind), s->garment.cloth.ParticleCount(), s->frames ? (float32)(s->msSum / (float64)s->frames) : 0.f,
 						 s->msMax, 1000.f * s->penMax, s->insideNearestMax, s->frames ? (float32)s->insideNearestSum / (float32)s->frames : 0.f,
 						 1000.f * s->pinMax, 100.f * s->stretchMax, s->degenerate);
-			std::fprintf(stderr, "[MANNEQUIN BILAN]            (parite, indicative sur une coque non fermee : max %u, moyenne %.2f | profondeur max sous la peau %.1f mm)\n",
-						 s->insideMax, s->frames ? (float32)s->insideSum / (float32)s->frames : 0.f, 1000.f * s->insideDepthMax);
+			std::fprintf(stderr, "[MANNEQUIN BILAN]            (parite, indicative sur une coque non fermee : max %u, moyenne %.2f | profondeur max sous la peau %.1f mm) | CHAMP : penetration max %.3f mm, contacts max %u par le champ contre %u par les capsules\n",
+						 s->insideMax, s->frames ? (float32)s->insideSum / (float32)s->frames : 0.f, 1000.f * s->insideDepthMax,
+						 1000.f * s->sdfPenMax, s->sdfContactsMax, s->capsContactsMax);
 		}
 	}
 

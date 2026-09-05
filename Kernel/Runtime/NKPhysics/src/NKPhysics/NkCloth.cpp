@@ -691,7 +691,45 @@ namespace nkentseu {
 			const uint8 *SK = mColSkip.Data();
 			const float32 r = params.thickness;
 			const float32 mu = params.friction < 0.f ? 0.f : params.friction;
-			uint32 ignored = 0, contacts = 0;
+			uint32 ignored = 0, contacts = 0, sdfContacts = 0;
+			// ── LE CHAMP DE DISTANCE D'ABORD : il décrit le corps, les capsules le complètent ──
+			// La vitesse du corps au point de contact est celle de la capsule la plus proche (même
+			// corps, mêmes os) : le champ, lui, ne porte pas de vitesse. Dit.
+			if (params.sdfCollision && bodySDF && bodySDF->Valid()) {
+				for (uint32 i = 0; i < n; ++i) {
+					if (W[i] <= 0.f)
+						continue;
+					NkVec3f nrm{0.f, 1.f, 0.f};
+					if (!bodySDF->Project(X[i], r, &nrm))
+						continue;
+					// vitesse du corps : celle de la capsule la plus proche (secours), sinon zéro
+					NkVec3f dc{0.f, 0.f, 0.f};
+					float32 best = 1e30f;
+					for (uint32 k = 0; k < nk; ++k) {
+						const collision::NkShape &s = S[k];
+						if (s.type != collision::NkShapeType::NK_SPHERE && s.type != collision::NkShapeType::NK_CAPSULE3D)
+							continue;
+						const NkVec3f ab = s.p1 - s.p0;
+						const float32 ab2 = ab.Dot(ab);
+						NkVec3f c = s.p0;
+						float32 t = 0.f;
+						if (s.type == collision::NkShapeType::NK_CAPSULE3D && ab2 > 1e-12f) {
+							t = (X[i] - s.p0).Dot(ab) / ab2;
+							t = t < 0.f ? 0.f : (t > 1.f ? 1.f : t);
+							c = s.p0 + ab * t;
+						}
+						const float32 d2 = (X[i] - c).LenSq();
+						if (d2 < best) {
+							best = d2;
+							dc = (V0[k] + (V1[k] - V0[k]) * t) * h;
+						}
+					}
+					X[i] += NkClothFriction((X[i] - P[i]) - dc, nrm, r, mu);
+					CT[i] = 1;
+					CN[i] = nrm;
+					++sdfContacts;
+				}
+			}
 			for (uint32 k = 0; k < nk; ++k) {
 				if (SK[k])
 					continue;
@@ -798,6 +836,7 @@ namespace nkentseu {
 			}
 			mStats.collidersIgnored = ignored;
 			mStats.contacts = contacts;
+			mStats.sdfContacts = sdfContacts;
 		}
 
 		bool NkCloth::SelfPairsStale() const {
@@ -993,6 +1032,15 @@ namespace nkentseu {
 				}
 			}
 			mStats.maxPenetration = pen;
+			// pénétration dans le CHAMP : l'épaisseur moins la distance signée (0 attendu après le pas)
+			float32 sdfPen = 0.f;
+			if (params.sdfCollision && bodySDF && bodySDF->Valid())
+				for (uint32 i = 0; i < n; ++i) {
+					const float32 d = params.thickness - bodySDF->Sample(X[i]);
+					if (d > sdfPen)
+						sdfPen = d;
+				}
+			mStats.maxSdfPenetration = sdfPen;
 			// épingles à cible : où sont-elles par rapport à leur cible (0 attendu en fin de pas)
 			float32 pinErr = 0.f;
 			uint32 pinT = 0;
