@@ -119,6 +119,8 @@ namespace {
 					"      --dossier <d>       parcourt un dossier et cuit toutes ses images\n"
 					"                          (implique --cache)\n"
 					"      --forcer            recuit meme si l'actif existe deja dans le cache\n"
+					"      --comparer <a> <b>  compare deux images (PSNR, ecart max) : pour juger\n"
+					"                          l'IMAGE RENDUE, pas seulement que l'appel passe\n"
 					"      --perte             ne cuit rien : compresse en BC1 et DIT la perte\n"
 					"                          (PSNR et ecart max) — pour decider par la mesure\n"
 					"                          plutot que par une regle generale\n"
@@ -194,6 +196,8 @@ int main(int argc, char **argv) {
 	int usageCouleur = -1; // -1 = deviner
 	bool sansMips = false;
 	bool perteSeule = false;
+	const char *comparerA = nullptr;
+	const char *comparerB = nullptr;
 	bool versCache = false;
 	bool forcer = false;
 	const char *dossier = nullptr;
@@ -252,6 +256,9 @@ int main(int argc, char **argv) {
 			sansMips = true;
 		} else if (std::strcmp(a, "--cache") == 0) {
 			versCache = true;
+		} else if (std::strcmp(a, "--comparer") == 0) {
+			comparerA = suivant();
+			comparerB = suivant();
 		} else if (std::strcmp(a, "--perte") == 0) {
 			perteSeule = true;
 		} else if (std::strcmp(a, "--forcer") == 0) {
@@ -275,6 +282,44 @@ int main(int argc, char **argv) {
 			std::printf("[NkTexBake] une seule entree a la fois (recu « %s » puis « %s »).\n", entree, a);
 			return 2;
 		}
+	}
+
+	// ── Mode COMPARER ────────────────────────────────────────────────────────
+	if (comparerA && comparerB) {
+		NkImage ia, ib;
+		if (!ia.Load(comparerA, 0) || !ib.Load(comparerB, 0)) {
+			std::printf("[NkTexBake] image illisible\n");
+			return 1;
+		}
+		NkImage ra = (ia.Format() != NkImagePixelFormat::NK_RGBA32) ? ia.Convert(NkImagePixelFormat::NK_RGBA32)
+																	: ia.Copy();
+		NkImage rb = (ib.Format() != NkImagePixelFormat::NK_RGBA32) ? ib.Convert(NkImagePixelFormat::NK_RGBA32)
+																	: ib.Copy();
+		if (!ra.IsValid() || !rb.IsValid() || ra.Width() != rb.Width() || ra.Height() != rb.Height()) {
+			std::printf("[NkTexBake] dimensions differentes ou conversion impossible : %dx%d contre %dx%d\n",
+						ia.Width(), ia.Height(), ib.Width(), ib.Height());
+			return 1;
+		}
+		NkVector<nk_uint8> sa, sb;
+		NkTextureOven::SerrerLignes(ra, sa);
+		NkTextureOven::SerrerLignes(rb, sb);
+		const float64 psnr = NkBlockCompress::PSNR(sa.Data(), sb.Data(), nk_uint32(ra.Width()), nk_uint32(ra.Height()));
+		const nk_uint32 pire =
+			NkBlockCompress::EcartMax(sa.Data(), sb.Data(), nk_uint32(ra.Width()), nk_uint32(ra.Height()));
+		// Combien de pixels NOIRS de chaque cote : une texture refusee par le
+		// pilote laisse du noir, et un PSNR seul ne le dirait pas assez fort.
+		nk_uint64 noirsA = 0, noirsB = 0;
+		for (nk_size i = 0; i < sa.Size(); i += 4) {
+			if (sa[i] == 0 && sa[i + 1] == 0 && sa[i + 2] == 0)
+				++noirsA;
+			if (sb[i] == 0 && sb[i + 1] == 0 && sb[i + 2] == 0)
+				++noirsB;
+		}
+		const float64 n = double(nk_size(ra.Width()) * nk_size(ra.Height()));
+		std::printf("%s\n  contre %s\n  %dx%d  PSNR %6.2f dB  ecart max %3u  noirs %.1f%% contre %.1f%%\n",
+					comparerA, comparerB, ra.Width(), ra.Height(), psnr, pire, 100.0 * double(noirsA) / n,
+					100.0 * double(noirsB) / n);
+		return 0;
 	}
 
 	if (!entree && !dossier) {

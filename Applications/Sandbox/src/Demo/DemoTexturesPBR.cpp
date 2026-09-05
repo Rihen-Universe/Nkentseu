@@ -69,6 +69,7 @@ namespace nkentseu {
 				bool cacheActif = true;
 				bool bc1 = false;
 				NkString resume;
+				uint32 erreursGpu = 0;
 				uint64 vramEstimee = 0;
 		};
 
@@ -128,6 +129,12 @@ namespace nkentseu {
 			st->msTelev = NkTextureCache::MsTeleversement();
 			st->octetsLus = NkTextureCache::OctetsLus();
 			st->resume = NkTextureCache::Resume();
+			// 🔴 LE VERDICT DU PILOTE. Le 2026-09-05, vingt-cinq televersements
+			// compresses ont ete refuses et le chiffre de chargement s'ameliorait
+			// quand meme : les textures restaient noires. Un chargement rapide
+			// avec des textures noires est pire qu'un chargement lent.
+			if (auto *dev = ctx.renderer->GetDevice())
+				st->erreursGpu = dev->GetCompressedUploadErrors();
 			st->vramEstimee = texLib->GetEstimatedVRAMBytes();
 
 			logger.Info("[TexturesPBR] CHARGEMENT : {0} ms pour {1}/{2} cartes\n", st->msChargement, st->chargees,
@@ -139,6 +146,12 @@ namespace nkentseu {
 			logger.Info("[TexturesPBR] POSTES : lecture {0} ms | decodage {1} ms | televersement {2} ms | {3} o lus\n",
 						st->msLecture, st->msDecodage, st->msTelev, (unsigned long long)st->octetsLus);
 			logger.Info("[TexturesPBR] {0}\n", st->resume.CStr());
+			if (st->erreursGpu > 0)
+				logger.Errorf("[TexturesPBR] %u TELEVERSEMENT(S) COMPRESSE(S) REFUSE(S) par le pilote : les textures "
+							  "concernees sont NOIRES\n",
+							  (unsigned)st->erreursGpu);
+			else
+				logger.Info("[TexturesPBR] televersement GPU : 0 erreur\n");
 
 			return st->chargees > 0;
 		}
@@ -186,6 +199,9 @@ namespace nkentseu {
 								  kNbCartes);
 				// LE RESUME, a l'ecran : c'est lui qui dit si le cache a servi.
 				overlay->DrawText({20.f, 175.f}, "%s", st->resume.CStr());
+				overlay->DrawText({20.f, 195.f}, "televersement GPU : %s",
+								  st->erreursGpu == 0 ? "0 erreur"
+													  : "REFUS DU PILOTE — textures NOIRES (voir le journal)");
 				overlay->DrawText({20.f, 95.f}, "cache : %u touche(s), %u manque(s), %u refus", st->touches,
 								  st->manques, st->refus);
 				overlay->DrawText({20.f, 115.f}, "VRAM estimee : %.1f Mo", double(st->vramEstimee) / 1048576.0);
