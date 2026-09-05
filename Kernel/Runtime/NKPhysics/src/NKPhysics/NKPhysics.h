@@ -20,3 +20,5 @@
 #include "NKPhysics/NkPhysicsWorld.h"
 #include "NKPhysics/NkRagdoll.h"
 #include "NKPhysics/NkCloth.h" // tissu XPBD (2026-09-05)
+#include "NKPhysics/NkMannequin.h" // corps skinne : capsules par os, point-dans-maillage (2026-09-05)
+#include "NKPhysics/NkGarment.h"   // vetements proceduraux sur squelette (2026-09-05)

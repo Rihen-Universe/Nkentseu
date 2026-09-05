@@ -104,6 +104,25 @@
 // (une colonne par attribut, pointeurs bruts pris une fois par pas — mesuré
 // le 04/09 sur les particules : operator[] non inliné en Debug).
 //
+// COLLIDERS EN MOUVEMENT (2026-09-05, vêtements sur mannequin) : l'appelant écrit dans
+// `colliders` la pose de FIN de pas (les capsules du squelette animé à t + dt) ; le
+// tissu garde dans `collidersPrev` la pose de début (copiée en fin de pas). Quand les
+// deux listes ont la même taille et `params.colliderMotion`, chaque sous-pas s voit
+// la forme INTERPOLÉE à (s + 1) / sous-pas (p0, p1, rayon), et le frottement lit la
+// VITESSE du collider : le glissement tangentiel du sous-pas est mesuré RELATIVEMENT
+// au point de contact du collider ((x - x_prev) - v_c h), sinon le frottement
+// statique annulerait aussi le mouvement que le corps impose au tissu, et un bras qui
+// bouge laisserait la manche derrière lui (témoin (h5) de test_garment.cpp,
+// contre-épreuve colliderMotion = false). L'anti-tunnel vient de l'interpolation :
+// une capsule qui parcourt 33 mm par image (2 m/s à 60 Hz) n'en parcourt que 2 par
+// sous-pas, sous l'épaisseur + rayon ; sans interpolation elle saute par-dessus une
+// nappe fine. Pas de balayage continu (CCD) : nommé, non fait.
+//
+// ÉPINGLES À CIBLE : une particule épinglée (masse inverse 0) peut recevoir une CIBLE
+// par pas (SetPinTarget) -- la position d'un os animé. Elle y va LINÉAIREMENT sur les
+// sous-pas (pas un saut au premier), et sa vitesse (cible - départ) / dt est vue par
+// l'auto-collision et le frottement. C'est ce qui attache un vêtement à un squelette.
+//
 // Zéro STL. Aucune allocation par pas en régime établi.
 // =============================================================================
 #include "NKPhysics/NkPhysicsTypes.h"
@@ -141,6 +160,13 @@ namespace nkentseu {
 				// Mesuré le 05/09 à 256 x 256 (table dans DECISIONS) ; 0 = marge 2r seule.
 				float32 selfMarginK = 0.15f;
 				bool collisions = true;		// formes du monde (colliders)
+				// Colliders en mouvement (en-tête) : interpolation par sous-pas entre `collidersPrev` et
+				// `colliders`, vitesse du collider dans le frottement. Faux = la forme de fin de pas est
+				// appliquée dès le premier sous-pas et le frottement ignore son mouvement (contre-épreuve).
+				bool colliderMotion = true;
+				// Élagage : un collider dont la boîte (gonflée de rayon + épaisseur) ne croise pas celle
+				// du tissu est sauté pour tout le sous-pas (un foulard ne teste pas les pieds). Compté.
+				bool colliderCulling = true;
 				// Projection du champ de force sur la normale de la nappe (F_eff = n (n·F)) :
 				// une voile ne prend le vent que de face. Faux = force brute par particule
 				// (c'est ce que le témoin (e) mesure : atan(F / m g)).
@@ -162,6 +188,8 @@ namespace nkentseu {
 				uint32 constraints = 0, structural = 0, shear = 0, bend = 0;
 				float32 mass = 0.f;					// somme des masses (épinglées comprises)
 				float32 maxStretch = 0.f;			// max |l - l0| / l0 sur les arêtes STRUCTURELLES
+				uint32 maxStretchEdge = 0;			// indice de cette contrainte (Constraint())
+				uint32 degenerateEdges = 0;			// structurelles de repos < épaisseur : hors statistique, comptées (géométrie effondrée)
 				float32 meanStretch = 0.f;			// moyenne de |l - l0| / l0 (structurelles)
 				float32 maxSpeed = 0.f;				// m/s
 				float32 kineticEnergy = 0.f;		// J
@@ -171,6 +199,9 @@ namespace nkentseu {
 				uint32 contacts = 0, selfContacts = 0; // projections faites au dernier sous-pas
 				uint32 selfPairs = 0, selfBuilds = 0;  // paires candidates ; constructions de la liste dans le pas
 				uint32 collidersIgnored = 0;		// formes d'un type non traité (dites, pas simulées)
+				uint32 collidersCulled = 0;			// formes sautées par l'élagage au dernier sous-pas
+				float32 maxPinError = 0.f;			// m : max |x - cible| des particules épinglées à cible (0 attendu)
+				uint32 pinTargets = 0;				// particules épinglées qui ont une cible
 				uint32 substeps = 0, iterations = 0;
 				float32 dt = 0.f;
 		};
@@ -178,7 +209,10 @@ namespace nkentseu {
 		class NkCloth {
 			public:
 				NkClothParams params;
-				NkVector<collision::NkShape> colliders; // formes MONDE : NK_SPHERE, NK_CAPSULE3D, NK_PLANE3D, NK_BOX3D (alignée)
+				NkVector<collision::NkShape> colliders; // formes MONDE : NK_SPHERE, NK_CAPSULE3D, NK_PLANE3D, NK_BOX3D (alignée) -- pose de FIN de pas
+				// Pose de DÉBUT de pas des mêmes formes (même ordre, même taille), copiée depuis `colliders`
+				// à la fin de chaque Step. Vide ou de taille différente = colliders immobiles sur le pas.
+				NkVector<collision::NkShape> collidersPrev;
 				const math::NkIForceField *forceField = nullptr; // vent : contrat NkIForceField, force en N par particule
 
 				// ── Construction ─────────────────────────────────────────────
@@ -190,6 +224,23 @@ namespace nkentseu {
 				// en j). Longueurs de repos = distances de cette construction.
 				void BuildGrid(uint32 nx, uint32 ny, const NkVec3f &origin, const NkVec3f &du, const NkVec3f &dv,
 							   float32 totalMass);
+				// PANNEAU ajouté à un tissu existant (vêtements : plusieurs pièces dans UN tissu, cousues
+				// par AddDistance entre leurs bords). Même construction que BuildGrid (structurelles,
+				// cisaillement, flexion) mais sans Clear ; `wrapU` referme la grille en i (cylindre : jupe,
+				// manche, tube). Les triangles du panneau sont ajoutés à la liste explicite (SetTriangles),
+				// donc Triangles() / ComputeNormals() les voient. Rend l'indice de la première particule ;
+				// la particule (i, j) du panneau est first + j * nx + i.
+				uint32 AppendGrid(uint32 nx, uint32 ny, const NkVec3f &origin, const NkVec3f &du, const NkVec3f &dv,
+								  float32 totalMass, bool wrapU = false);
+				// Panneau dont chaque particule a SA position (anneau de rayon variable, plis) :
+				// particule (i, j) = rows[j * nx + i]. Contraintes et triangles comme AppendGrid.
+				uint32 AppendPanel(uint32 nx, uint32 ny, const NkVec3f *rows, float32 totalMass, bool wrapU = false);
+				// Panneau À TROUS : mask[j * nx + i] = 0 -> pas de particule (emmanchure, encolure) ;
+				// une contrainte ou un triangle n'existe que si toutes ses particules existent.
+				// `indexOf` (optionnel, nx * ny entrées) reçoit l'indice de chaque case ou -1.
+				// La masse totale est celle des particules PRÉSENTES.
+				uint32 AppendPanelMasked(uint32 nx, uint32 ny, const NkVec3f *rows, const uint8 *mask, float32 totalMass,
+										 bool wrapU, NkVector<int32> *indexOf = nullptr);
 				uint32 AddParticle(const NkVec3f &p, float32 mass);
 				enum Kind : uint8 { STRUCTURAL = 0, SHEAR = 1, BEND = 2 };
 				// Longueur de repos = distance courante entre a et b.
@@ -197,6 +248,14 @@ namespace nkentseu {
 				void Pin(uint32 i, bool pinned = true);
 				// Déplace une particule SANS toucher aux longueurs de repos (pli, pose).
 				void SetPosition(uint32 i, const NkVec3f &p);
+				// CIBLE d'une particule épinglée pour le prochain pas (en-tête : elle y va linéairement
+				// sur les sous-pas, avec la vitesse correspondante). Épingle la particule si besoin.
+				void SetPinTarget(uint32 i, const NkVec3f &target);
+				void ClearPinTarget(uint32 i);
+				// Triangles EXPLICITES (trois indices par triangle) : quand la liste est non vide,
+				// Triangles() et ComputeNormals() l'utilisent à la place de la grille.
+				void SetTriangles(const uint32 *indices, uint32 count);
+				void AddTriangle(uint32 a, uint32 b, uint32 c);
 				// Ajoute les formes MONDE des corps de `world` dont la couche croise `layerMask`
 				// (les os d'un ragdoll : passer son `group`). Types non traités comptés.
 				void AddCollidersFromWorld(const NkPhysicsWorld &world, uint32 layerMask = 0xFFFFFFFFu);
@@ -220,8 +279,25 @@ namespace nkentseu {
 				const NkVec3f *Velocities() const noexcept {
 					return mVel.Data();
 				}
+				const float32 *Masses() const noexcept {
+					return mMass.Data();
+				}
+				// Boîte englobante des particules (positions courantes) ; faux si vide.
+				bool Bounds(NkVec3f &outMin, NkVec3f &outMax) const noexcept;
 				const float32 *InvMasses() const noexcept {
 					return mInvMass.Data();
+				}
+				uint32 ConstraintCount() const noexcept {
+					return (uint32)mCA.Size();
+				}
+				// Lecture d'une contrainte : extrémités et longueur de repos (faux si hors bornes).
+				bool Constraint(uint32 c, uint32 &a, uint32 &b, float32 &rest) const noexcept {
+					if (c >= (uint32)mCA.Size())
+						return false;
+					a = mCA[c];
+					b = mCB[c];
+					rest = mRest[c];
+					return true;
 				}
 				uint32 GridWidth() const noexcept {
 					return mGridW;
@@ -238,9 +314,14 @@ namespace nkentseu {
 				void ComputeNormals(NkVector<NkVec3f> &outNormals) const;
 
 			private:
-				void Predict(float32 h, float32 time);
+				// alpha = fraction du pas atteinte à la fin de ce sous-pas (épingles à cible)
+				void Predict(float32 h, float32 time, float32 alpha, float32 invDt);
 				void SolveDistances(float32 h, uint32 c0, uint32 c1); // contraintes [c0, c1)
-				void SolveColliders();
+				// Formes du sous-pas (interpolées) et vitesse de leurs deux points p0 / p1 (m/s) ; h pour
+				// convertir la vitesse en déplacement du sous-pas dans le frottement.
+				void SolveColliders(const collision::NkShape *S, uint32 nk, const NkVec3f *V0, const NkVec3f *V1,
+									float32 h);
+				void PrepareColliderStep(float32 alpha, float32 invDt); // remplit mColStep / mColV0 / mColV1 / mColSkip
 				void SolveSelf();
 				void UpdateVelocities(float32 h);
 				void Measure(float32 dt);
@@ -251,6 +332,15 @@ namespace nkentseu {
 				NkVector<float32> mInvMass, mMass;
 				NkVector<uint8> mContact;	// 1 si projeté contre un collider ce sous-pas
 				NkVector<NkVec3f> mContactN; // normale du dernier contact
+				// épingles à cible (en-tête) : cible du pas, position de départ du pas, 1 si une cible est posée
+				NkVector<NkVec3f> mPinTarget, mPinStart;
+				NkVector<uint8> mPinHas;
+				// triangles explicites (SetTriangles / AppendGrid)
+				NkVector<uint32> mTri;
+				// colliders du sous-pas : formes interpolées, vitesses de p0 / p1, élagage
+				NkVector<collision::NkShape> mColStep;
+				NkVector<NkVec3f> mColV0, mColV1;
+				NkVector<uint8> mColSkip;
 				// contraintes de distance
 				NkVector<uint32> mCA, mCB;
 				NkVector<float32> mRest, mLambda;

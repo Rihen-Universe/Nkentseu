@@ -10,6 +10,8 @@ namespace nkentseu {
 	namespace physics {
 
 		using nkentseu::math::NkSqrt;
+		using nkentseu::math::NkMin;
+		using nkentseu::math::NkMax;
 
 		// ── Construction ─────────────────────────────────────────────────────
 		void NkCloth::Clear() {
@@ -31,6 +33,11 @@ namespace nkentseu {
 			mPairA.Clear();
 			mPairB.Clear();
 			mPairBase.Clear();
+			mPinTarget.Clear();
+			mPinStart.Clear();
+			mPinHas.Clear();
+			mTri.Clear();
+			collidersPrev.Clear();
 			mAdjDirty = true;
 			mGridW = mGridH = 0;
 			mStats = NkClothStats{};
@@ -45,6 +52,9 @@ namespace nkentseu {
 			mInvMass.PushBack(mass > 0.f ? 1.f / mass : 0.f);
 			mContact.PushBack((uint8)0);
 			mContactN.PushBack(NkVec3f{0.f, 1.f, 0.f});
+			mPinTarget.PushBack(p);
+			mPinStart.PushBack(p);
+			mPinHas.PushBack((uint8)0);
 			return (uint32)mPos.Size() - 1u;
 		}
 
@@ -108,6 +118,180 @@ namespace nkentseu {
 			mPos[i] = p;
 			mPrev[i] = p;
 			mVel[i] = {0.f, 0.f, 0.f};
+			mPinTarget[i] = p;
+			mPinStart[i] = p;
+		}
+
+		void NkCloth::SetPinTarget(uint32 i, const NkVec3f &target) {
+			if (i >= (uint32)mPos.Size())
+				return;
+			if (mInvMass[i] > 0.f)
+				Pin(i, true);
+			mPinTarget[i] = target;
+			mPinHas[i] = 1;
+		}
+
+		void NkCloth::ClearPinTarget(uint32 i) {
+			if (i < (uint32)mPos.Size())
+				mPinHas[i] = 0;
+		}
+
+		void NkCloth::SetTriangles(const uint32 *indices, uint32 count) {
+			mTri.Clear();
+			const uint32 n = (uint32)mPos.Size();
+			for (uint32 k = 0; k + 2 < count; k += 3) {
+				if (indices[k] < n && indices[k + 1] < n && indices[k + 2] < n) {
+					mTri.PushBack(indices[k]);
+					mTri.PushBack(indices[k + 1]);
+					mTri.PushBack(indices[k + 2]);
+				}
+			}
+		}
+
+		void NkCloth::AddTriangle(uint32 a, uint32 b, uint32 c) {
+			const uint32 n = (uint32)mPos.Size();
+			if (a >= n || b >= n || c >= n)
+				return;
+			mTri.PushBack(a);
+			mTri.PushBack(b);
+			mTri.PushBack(c);
+		}
+
+		bool NkCloth::Bounds(NkVec3f &outMin, NkVec3f &outMax) const noexcept {
+			const uint32 n = (uint32)mPos.Size();
+			if (n == 0)
+				return false;
+			const NkVec3f *X = mPos.Data();
+			NkVec3f mn = X[0], mx = X[0];
+			for (uint32 i = 1; i < n; ++i) {
+				const NkVec3f &q = X[i];
+				if (q.x < mn.x) mn.x = q.x;
+				if (q.y < mn.y) mn.y = q.y;
+				if (q.z < mn.z) mn.z = q.z;
+				if (q.x > mx.x) mx.x = q.x;
+				if (q.y > mx.y) mx.y = q.y;
+				if (q.z > mx.z) mx.z = q.z;
+			}
+			outMin = mn;
+			outMax = mx;
+			return true;
+		}
+
+		uint32 NkCloth::AppendGrid(uint32 nx, uint32 ny, const NkVec3f &origin, const NkVec3f &du, const NkVec3f &dv,
+								   float32 totalMass, bool wrapU) {
+			if (nx < 2 || ny < 2)
+				return (uint32)mPos.Size();
+			NkVector<NkVec3f> rows;
+			rows.Resize(nx * ny);
+			for (uint32 j = 0; j < ny; ++j)
+				for (uint32 i = 0; i < nx; ++i)
+					rows[j * nx + i] = origin + du * (float32)i + dv * (float32)j;
+			return AppendPanel(nx, ny, rows.Data(), totalMass, wrapU);
+		}
+
+		uint32 NkCloth::AppendPanelMasked(uint32 nx, uint32 ny, const NkVec3f *rows, const uint8 *mask, float32 totalMass,
+										  bool wrapU, NkVector<int32> *indexOf) {
+			const uint32 first = (uint32)mPos.Size();
+			if (nx < 2 || ny < 2 || !mask)
+				return first;
+			if (mGridW >= 2 && mGridH >= 2 && mTri.Empty())
+				Triangles(mTri);
+			mGridW = mGridH = 0;
+			uint32 present = 0;
+			for (uint32 k = 0; k < nx * ny; ++k)
+				if (mask[k])
+					++present;
+			if (present == 0)
+				return first;
+			const float32 m = totalMass / (float32)present;
+			NkVector<int32> map;
+			map.Resize(nx * ny, -1);
+			for (uint32 j = 0; j < ny; ++j)
+				for (uint32 i = 0; i < nx; ++i)
+					if (mask[j * nx + i])
+						map[j * nx + i] = (int32)AddParticle(rows[j * nx + i], m);
+			auto id = [&](uint32 i, uint32 j) -> int32 { return map[j * nx + (wrapU ? (i % nx) : i)]; };
+			const uint32 lastI = wrapU ? nx : nx - 1;
+			auto dist = [&](int32 a, int32 b, Kind k) {
+				if (a >= 0 && b >= 0)
+					AddDistance((uint32)a, (uint32)b, k);
+			};
+			for (uint32 j = 0; j < ny; ++j)
+				for (uint32 i = 0; i < nx; ++i) {
+					if (i < lastI)
+						dist(id(i, j), id(i + 1, j), STRUCTURAL);
+					if (j + 1 < ny)
+						dist(id(i, j), id(i, j + 1), STRUCTURAL);
+				}
+			for (uint32 j = 0; j + 1 < ny; ++j)
+				for (uint32 i = 0; i < lastI; ++i) {
+					dist(id(i, j), id(i + 1, j + 1), SHEAR);
+					dist(id(i + 1, j), id(i, j + 1), SHEAR);
+				}
+			for (uint32 j = 0; j < ny; ++j)
+				for (uint32 i = 0; i < nx; ++i) {
+					if ((wrapU ? (nx > 2) : (i + 2 < nx)) && id(i + 1, j) >= 0)
+						dist(id(i, j), id(i + 2, j), BEND);
+					if (j + 2 < ny && id(i, j + 1) >= 0)
+						dist(id(i, j), id(i, j + 2), BEND);
+				}
+			for (uint32 j = 0; j + 1 < ny; ++j)
+				for (uint32 i = 0; i < lastI; ++i) {
+					const int32 a = id(i, j), b = id(i + 1, j), c = id(i + 1, j + 1), d = id(i, j + 1);
+					if (a >= 0 && c >= 0 && b >= 0)
+						AddTriangle((uint32)a, (uint32)c, (uint32)b);
+					if (a >= 0 && d >= 0 && c >= 0)
+						AddTriangle((uint32)a, (uint32)d, (uint32)c);
+				}
+			if (indexOf) {
+				indexOf->Resize(nx * ny);
+				for (uint32 k = 0; k < nx * ny; ++k)
+					(*indexOf)[k] = map[k];
+			}
+			return first;
+		}
+
+		uint32 NkCloth::AppendPanel(uint32 nx, uint32 ny, const NkVec3f *rows, float32 totalMass, bool wrapU) {
+			const uint32 first = (uint32)mPos.Size();
+			if (nx < 2 || ny < 2)
+				return first;
+			// une grille explicite (BuildGrid) et des panneaux ne se mélangent pas : les triangles
+			// passent par la liste explicite dès qu'un panneau existe
+			if (mGridW >= 2 && mGridH >= 2 && mTri.Empty())
+				Triangles(mTri);
+			mGridW = mGridH = 0;
+			const float32 m = totalMass / (float32)(nx * ny);
+			for (uint32 j = 0; j < ny; ++j)
+				for (uint32 i = 0; i < nx; ++i)
+					AddParticle(rows[j * nx + i], m);
+			auto id = [&](uint32 i, uint32 j) { return first + j * nx + (wrapU ? (i % nx) : i); };
+			const uint32 lastI = wrapU ? nx : nx - 1; // arêtes en i : nx si fermé (la dernière rejoint la première)
+			for (uint32 j = 0; j < ny; ++j)
+				for (uint32 i = 0; i < nx; ++i) {
+					if (i < lastI)
+						AddDistance(id(i, j), id(i + 1, j), STRUCTURAL);
+					if (j + 1 < ny)
+						AddDistance(id(i, j), id(i, j + 1), STRUCTURAL);
+				}
+			for (uint32 j = 0; j + 1 < ny; ++j)
+				for (uint32 i = 0; i < lastI; ++i) {
+					AddDistance(id(i, j), id(i + 1, j + 1), SHEAR);
+					AddDistance(id(i + 1, j), id(i, j + 1), SHEAR);
+				}
+			for (uint32 j = 0; j < ny; ++j)
+				for (uint32 i = 0; i < nx; ++i) {
+					if (wrapU ? (nx > 2) : (i + 2 < nx))
+						AddDistance(id(i, j), id(i + 2, j), BEND);
+					if (j + 2 < ny)
+						AddDistance(id(i, j), id(i, j + 2), BEND);
+				}
+			for (uint32 j = 0; j + 1 < ny; ++j)
+				for (uint32 i = 0; i < lastI; ++i) {
+					const uint32 a = id(i, j), b = id(i + 1, j), c = id(i + 1, j + 1), d = id(i, j + 1);
+					AddTriangle(a, c, b);
+					AddTriangle(a, d, c);
+				}
+			return first;
 		}
 
 		void NkCloth::AddCollidersFromWorld(const NkPhysicsWorld &world, uint32 layerMask) {
@@ -173,6 +357,12 @@ namespace nkentseu {
 		// ── Topologie de dessin ──────────────────────────────────────────────
 		void NkCloth::Triangles(NkVector<uint32> &out) const {
 			out.Clear();
+			if (!mTri.Empty()) {
+				out.Reserve((uint32)mTri.Size());
+				for (uint32 k = 0; k < (uint32)mTri.Size(); ++k)
+					out.PushBack(mTri[k]);
+				return;
+			}
 			if (mGridW < 2 || mGridH < 2)
 				return;
 			out.Reserve((mGridW - 1) * (mGridH - 1) * 6);
@@ -196,7 +386,16 @@ namespace nkentseu {
 			for (uint32 i = 0; i < n; ++i)
 				N[i] = {0.f, 0.f, 0.f};
 			const NkVec3f *X = mPos.Data();
-			if (mGridW >= 2 && mGridH >= 2) {
+			if (!mTri.Empty()) {
+				const uint32 *T = mTri.Data();
+				for (uint32 k = 0; k + 2 < (uint32)mTri.Size(); k += 3) {
+					const uint32 a = T[k], b = T[k + 1], c = T[k + 2];
+					const NkVec3f nn = (X[b] - X[a]).Cross(X[c] - X[a]);
+					N[a] += nn;
+					N[b] += nn;
+					N[c] += nn;
+				}
+			} else if (mGridW >= 2 && mGridH >= 2) {
 				for (uint32 j = 0; j + 1 < mGridH; ++j)
 					for (uint32 i = 0; i + 1 < mGridW; ++i) {
 						const uint32 a = GridIndex(i, j), b = GridIndex(i + 1, j), c = GridIndex(i + 1, j + 1),
@@ -239,6 +438,17 @@ namespace nkentseu {
 			mStats.contacts = 0;
 			mStats.selfContacts = 0;
 			mStats.selfBuilds = 0;
+			mStats.collidersCulled = 0;
+			// épingles à cible : la position de départ du pas
+			{
+				const NkVec3f *X0 = mPos.Data();
+				NkVec3f *PS = mPinStart.Data();
+				const uint8 *PH = mPinHas.Data();
+				for (uint32 i = 0; i < n; ++i)
+					if (PH[i])
+						PS[i] = X0[i];
+			}
+			const float32 invDt = 1.f / dt;
 			// marge de la liste de paires : au moins 2r, plus une part de ce que la nappe parcourt en un pas
 			float32 margin = 2.f * params.thickness;
 			const float32 mv = params.selfMarginK * mStats.maxSpeed * dt;
@@ -248,7 +458,13 @@ namespace nkentseu {
 				if (params.selfCollision && ((uint32)mPairBase.Size() != n || SelfPairsStale()))
 					BuildSelfPairs(margin);
 				lap(mProfile.selfBuild);
-				Predict(h, time + (float32)s * h);
+				const float32 alpha = (float32)(s + 1) / (float32)sub;
+				Predict(h, time + (float32)s * h, alpha, invDt);
+				if (params.collisions)
+					PrepareColliderStep(alpha, invDt);
+				const collision::NkShape *CS = mColStep.Data();
+				const NkVec3f *CV0 = mColV0.Data(), *CV1 = mColV1.Data();
+				const uint32 nk = (uint32)mColStep.Size();
 				float32 *L = mLambda.Data();
 				for (uint32 c = 0; c < (uint32)mLambda.Size(); ++c)
 					L[c] = 0.f; // XPBD 2016 §3.3 : lambda repart de zéro à chaque sous-pas (le chaud est instable, en-tête)
@@ -273,7 +489,7 @@ namespace nkentseu {
 						lap(mProfile.selfSolve);
 					}
 					if (params.collisions) {
-						SolveColliders(); // en dernier : l'état final ne pénètre pas
+						SolveColliders(CS, nk, CV0, CV1, h); // en dernier : l'état final ne pénètre pas
 						lap(mProfile.colliders);
 					}
 				}
@@ -282,13 +498,17 @@ namespace nkentseu {
 					SolveSelf();
 					lap(mProfile.selfSolve);
 					if (params.collisions) {
-						SolveColliders();
+						SolveColliders(CS, nk, CV0, CV1, h);
 						lap(mProfile.colliders);
 					}
 				}
 				UpdateVelocities(h);
 				lap(mProfile.velocities);
 			}
+			// la pose de fin de ce pas est la pose de début du suivant (colliders en mouvement, en-tête)
+			collidersPrev.Resize((uint32)colliders.Size());
+			for (uint32 k = 0; k < (uint32)colliders.Size(); ++k)
+				collidersPrev[k] = colliders[k];
 			mStats.substeps = sub;
 			mStats.iterations = iters;
 			mStats.dt = dt;
@@ -298,10 +518,12 @@ namespace nkentseu {
 				mProfile.total = (clk() - t0) * 1000.0;
 		}
 
-		void NkCloth::Predict(float32 h, float32 time) {
+		void NkCloth::Predict(float32 h, float32 time, float32 alpha, float32 invDt) {
 			const uint32 n = (uint32)mPos.Size();
 			NkVec3f *X = mPos.Data(), *P = mPrev.Data(), *V = mVel.Data();
 			const float32 *W = mInvMass.Data(), *M = mMass.Data();
+			const NkVec3f *PT = mPinTarget.Data(), *PS = mPinStart.Data();
+			const uint8 *PH = mPinHas.Data();
 			const NkVec3f g = params.gravity;
 			const bool wind = forceField != nullptr;
 			if (wind && params.forceOnNormal)
@@ -310,7 +532,14 @@ namespace nkentseu {
 			for (uint32 i = 0; i < n; ++i) {
 				P[i] = X[i];
 				if (W[i] <= 0.f) {
-					V[i] = {0.f, 0.f, 0.f};
+					if (PH[i]) {
+						// épingle à cible : trajet linéaire sur le pas, vitesse (cible - départ) / dt
+						const NkVec3f d = PT[i] - PS[i];
+						X[i] = PS[i] + d * alpha;
+						V[i] = d * invDt;
+					} else {
+						V[i] = {0.f, 0.f, 0.f};
+					}
 					continue;
 				}
 				NkVec3f a = g;
@@ -383,8 +612,75 @@ namespace nkentseu {
 			return dxT * (-lim / lt);	  // cinétique : réduit de mu d
 		}
 
-		void NkCloth::SolveColliders() {
-			const uint32 n = (uint32)mPos.Size(), nk = (uint32)colliders.Size();
+		void NkCloth::PrepareColliderStep(float32 alpha, float32 invDt) {
+			const uint32 nk = (uint32)colliders.Size();
+			mColStep.Resize(nk);
+			mColV0.Resize(nk);
+			mColV1.Resize(nk);
+			mColSkip.Resize(nk);
+			if (nk == 0)
+				return;
+			const bool motion = params.colliderMotion && (uint32)collidersPrev.Size() == nk;
+			collision::NkShape *S = mColStep.Data();
+			NkVec3f *V0 = mColV0.Data(), *V1 = mColV1.Data();
+			uint8 *SK = mColSkip.Data();
+			for (uint32 k = 0; k < nk; ++k) {
+				const collision::NkShape &c = colliders[k];
+				S[k] = c;
+				V0[k] = {0.f, 0.f, 0.f};
+				V1[k] = {0.f, 0.f, 0.f};
+				SK[k] = 0;
+				if (motion) {
+					const collision::NkShape &p = collidersPrev[k];
+					if (p.type == c.type) {
+						S[k].p0 = p.p0 + (c.p0 - p.p0) * alpha;
+						S[k].p1 = (c.type == collision::NkShapeType::NK_PLANE3D) ? c.p1 : p.p1 + (c.p1 - p.p1) * alpha;
+						S[k].radius = p.radius + (c.radius - p.radius) * alpha;
+						V0[k] = (c.p0 - p.p0) * invDt;
+						V1[k] = (c.type == collision::NkShapeType::NK_PLANE3D) ? V0[k] : (c.p1 - p.p1) * invDt;
+					}
+				}
+			}
+			if (!params.colliderCulling)
+				return;
+			// élagage par boîtes : la boîte du tissu (positions prédites) contre celle du collider
+			NkVec3f mn, mx;
+			if (!Bounds(mn, mx))
+				return;
+			const float32 r = params.thickness;
+			uint32 culled = 0;
+			for (uint32 k = 0; k < nk; ++k) {
+				const collision::NkShape &c = S[k];
+				NkVec3f cmn, cmx;
+				switch (c.type) {
+					case collision::NkShapeType::NK_SPHERE:
+						cmn = c.p0 - NkVec3f{c.radius + r, c.radius + r, c.radius + r};
+						cmx = c.p0 + NkVec3f{c.radius + r, c.radius + r, c.radius + r};
+						break;
+					case collision::NkShapeType::NK_CAPSULE3D: {
+						const float32 R = c.radius + r;
+						cmn = {NkMin(c.p0.x, c.p1.x) - R, NkMin(c.p0.y, c.p1.y) - R, NkMin(c.p0.z, c.p1.z) - R};
+						cmx = {NkMax(c.p0.x, c.p1.x) + R, NkMax(c.p0.y, c.p1.y) + R, NkMax(c.p0.z, c.p1.z) + R};
+						break;
+					}
+					case collision::NkShapeType::NK_BOX3D:
+						cmn = c.p0 - c.p1 - NkVec3f{r, r, r};
+						cmx = c.p0 + c.p1 + NkVec3f{r, r, r};
+						break;
+					default:
+						continue; // plan et types inconnus : jamais élagués
+				}
+				if (cmx.x < mn.x || cmn.x > mx.x || cmx.y < mn.y || cmn.y > mx.y || cmx.z < mn.z || cmn.z > mx.z) {
+					SK[k] = 1;
+					++culled;
+				}
+			}
+			mStats.collidersCulled = culled;
+		}
+
+		void NkCloth::SolveColliders(const collision::NkShape *S, uint32 nk, const NkVec3f *V0, const NkVec3f *V1,
+									 float32 h) {
+			const uint32 n = (uint32)mPos.Size();
 			if (nk == 0)
 				return;
 			NkVec3f *X = mPos.Data();
@@ -392,11 +688,16 @@ namespace nkentseu {
 			const float32 *W = mInvMass.Data();
 			uint8 *CT = mContact.Data();
 			NkVec3f *CN = mContactN.Data();
+			const uint8 *SK = mColSkip.Data();
 			const float32 r = params.thickness;
 			const float32 mu = params.friction < 0.f ? 0.f : params.friction;
 			uint32 ignored = 0, contacts = 0;
 			for (uint32 k = 0; k < nk; ++k) {
-				const collision::NkShape &s = colliders[k];
+				if (SK[k])
+					continue;
+				const collision::NkShape &s = S[k];
+				// déplacement du collider sur le sous-pas, aux deux extrémités (frottement relatif)
+				const NkVec3f d0 = V0[k] * h, d1 = V1[k] * h;
 				switch (s.type) {
 					case collision::NkShapeType::NK_SPHERE:
 					case collision::NkShapeType::NK_CAPSULE3D: {
@@ -408,17 +709,19 @@ namespace nkentseu {
 							if (W[i] <= 0.f)
 								continue;
 							NkVec3f c = s.p0;
+							NkVec3f dc = d0;
 							if (cap && ab2 > 1e-12f) {
 								float32 t = (X[i] - s.p0).Dot(ab) / ab2;
 								t = t < 0.f ? 0.f : (t > 1.f ? 1.f : t);
 								c = s.p0 + ab * t;
+								dc = d0 + (d1 - d0) * t;
 							}
 							NkVec3f d = X[i] - c;
 							const float32 l = d.Len();
 							if (l < R) {
 								const NkVec3f nrm = (l > 1e-9f) ? d * (1.f / l) : NkVec3f{0.f, 1.f, 0.f};
 								X[i] = c + nrm * R;
-								X[i] += NkClothFriction(X[i] - P[i], nrm, R - l, mu);
+								X[i] += NkClothFriction((X[i] - P[i]) - dc, nrm, R - l, mu);
 								CT[i] = 1;
 								CN[i] = nrm;
 								++contacts;
@@ -434,7 +737,7 @@ namespace nkentseu {
 							const float32 d = (X[i] - s.p0).Dot(nrm) - r;
 							if (d < 0.f) {
 								X[i] -= nrm * d;
-								X[i] += NkClothFriction(X[i] - P[i], nrm, -d, mu);
+								X[i] += NkClothFriction((X[i] - P[i]) - d0, nrm, -d, mu);
 								CT[i] = 1;
 								CN[i] = nrm;
 								++contacts;
@@ -481,7 +784,7 @@ namespace nkentseu {
 								nrm = {0.f, 0.f, 1.f};
 							}
 							X[i] += nrm * best;
-							X[i] += NkClothFriction(X[i] - P[i], nrm, best, mu);
+							X[i] += NkClothFriction((X[i] - P[i]) - d0, nrm, best, mu);
 							CT[i] = 1;
 							CN[i] = nrm;
 							++contacts;
@@ -596,7 +899,7 @@ namespace nkentseu {
 			// le frottement est déjà dans les positions (NkClothFriction) : la vitesse le reflète
 			for (uint32 i = 0; i < n; ++i) {
 				if (W[i] <= 0.f) {
-					V[i] = {0.f, 0.f, 0.f};
+					V[i] = (X[i] - P[i]) * invH; // épingle : 0 si immobile, (cible - départ) / dt si à cible
 					continue;
 				}
 				V[i] = (X[i] - P[i]) * (invH * damp);
@@ -625,7 +928,8 @@ namespace nkentseu {
 					vmax2 = v2;
 			}
 			float32 maxS = 0.f, sumS = 0.f;
-			uint32 cnt = 0;
+			uint32 cnt = 0, maxC = 0, degenerate = 0;
+			const float32 restMin = params.thickness;
 			for (uint32 c = 0; c < nc; ++c) {
 				switch (mKind[c]) {
 					case STRUCTURAL: ++ns; break;
@@ -634,12 +938,18 @@ namespace nkentseu {
 				}
 				if (mKind[c] != STRUCTURAL || mRest[c] <= 0.f)
 					continue;
+				if (mRest[c] < restMin) {
+					++degenerate; // un rapport sur 0,3 mm ne mesure rien ; l'effondrement se compte à part
+					continue;
+				}
 				const float32 l = (X[mCA[c]] - X[mCB[c]]).Len();
 				float32 e = (l - mRest[c]) / mRest[c];
 				if (e < 0.f)
 					e = -e;
-				if (e > maxS)
+				if (e > maxS) {
 					maxS = e;
+					maxC = c;
+				}
 				sumS += e;
 				++cnt;
 			}
@@ -652,6 +962,8 @@ namespace nkentseu {
 			mStats.potentialEnergy = pe;
 			mStats.maxSpeed = NkSqrt(vmax2);
 			mStats.maxStretch = maxS;
+			mStats.maxStretchEdge = maxC;
+			mStats.degenerateEdges = degenerate;
 			mStats.meanStretch = cnt ? sumS / (float32)cnt : 0.f;
 			// pénétration des CENTRES sous la surface des colliders (0 attendu après la projection)
 			float32 pen = 0.f;
@@ -681,6 +993,23 @@ namespace nkentseu {
 				}
 			}
 			mStats.maxPenetration = pen;
+			// épingles à cible : où sont-elles par rapport à leur cible (0 attendu en fin de pas)
+			float32 pinErr = 0.f;
+			uint32 pinT = 0;
+			{
+				const NkVec3f *PT = mPinTarget.Data();
+				const uint8 *PH = mPinHas.Data();
+				for (uint32 i = 0; i < n; ++i) {
+					if (!PH[i] || W[i] > 0.f)
+						continue;
+					++pinT;
+					const float32 e = (X[i] - PT[i]).Len();
+					if (e > pinErr)
+						pinErr = e;
+				}
+			}
+			mStats.maxPinError = pinErr;
+			mStats.pinTargets = pinT;
 			// distance minimale entre particules NON voisines (si auto-collision) : lue sur la LISTE DE
 			// PAIRES du pas (mesuré : une seconde traversée ici coûtait 0,47 ms sur 3,7 à 32 x 32) ;
 			// aucune paire dans le rayon de recherche -> on rend ce plancher (le rayon), pas 0
