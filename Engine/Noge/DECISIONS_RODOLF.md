@@ -2419,6 +2419,101 @@ hachage (cellules triées une fois par liste, `Adjacent()` par masque de bits su
 une fois par sous-pas (9 %) ; (4) 12 x 2 non mesuré ; (5) SoA aligné + `-Rpass=loop-vectorize` ne rendra rien tant que le
 solveur est Gauss-Seidel — c'est Jacobi (donc le GPU) qui vectorise.
 
+### 👗 05/09 (matin) — DES VÊTEMENTS SUR UN MANNEQUIN EN MOUVEMENT : ce qui marche, ce qui ne marche pas encore, et le chiffre de chaque phrase
+
+*Rodolf, 05/09 à 07h : « j'aimerais que tu me dises si on pourra simuler des vêtements sur des mannequins
+en mouvement sans que le tissu n'entre dans les mesh du mannequin ». Réponse courte : **oui pour le contact
+avec les proxies (0,000 mm), non encore pour « dans le maillage » (0 n'est pas atteint)** — et ce qui manque
+est nommé plus bas. Lot dans `Nkentseu-noge`, après la fusion de `feat/noge-tissu`.*
+
+**Le modèle, et ce que Rodolf fournit.** Ses mannequins (`D:\Rodolf\manequin`) sont du **FBX Mixamo**.
+Mesuré, pas supposé : `XBot.fbx` **skinné** charge (99 796 sommets, 49 112 triangles, 65 joints) — ce
+chemin fonctionne ; mais `Walking.fbx`, **clip seul**, rend `charge=0, 0 animation, 0 sommet` (65 nodes
+lus) : **notre chargeur FBX ne lit aucune courbe d'animation**. Les `.glb` (XBot, YBot) portent bien un
+squelette mais leur clip embarqué dure **0,03 à 0,07 s** (une T-pose). Un seul actif du dépôt porte une
+vraie marche : **CesiumMan** (2,00 s). ⚠️ **Chantier NKRenderer nommé, non pris ici** : lecture des
+`AnimationCurveNode` FBX, et reciblage d'un clip sans peau sur un squelette par les noms (NkAnima).
+**Ce que je demande à Rodolf** : les mêmes marches **en glTF** (`.glb`, squelette + une animation, T-pose,
+mètres) — Mixamo l'exporte en option ; sinon le chargeur FBX passe devant les vêtements.
+
+**IN PLACE, tranché par Rodolf** (« éviter que les animations envoyées utilisent leur propre déplacement
+monde… ou toi-même tu prends la main ») : le clip **ne déplace jamais** le personnage. La sonde mesure le
+déplacement horizontal de la racine sur le clip (première image contre huit autres) et le **verrouille**
+s'il existe ; l'avance vient du **code** (1,2 m/s, demi-tour optionnel), jamais d'une touche injectée
+(porte). Mesure : XBot.glb **0,000 m**, CesiumMan **0,010 m** — les deux sont déjà in place.
+
+**Ce qui a été construit** (commits `NKPhysics` puis sonde) :
+- `NkCloth` reçoit des **colliders animés** : l'appelant écrit la pose de fin de pas, le tissu garde celle
+  de début, chaque **sous-pas voit la forme interpolée** — une capsule à 3 m/s parcourt 50 mm par image
+  mais 1,6 mm par sous-pas (l'anti-tunnel), et le **frottement lit la vitesse du collider** (sinon un bras
+  qui bouge laisse la manche derrière lui). Témoins : tapis roulant 0,97 m sur 1,0 (contre-épreuve
+  0,000 m) ; capsule à 3 m/s à travers un rideau : **0 particule traversée, 22 sans l'interpolation**.
+- **Épingles à cible** : une particule épinglée suit un os **linéairement sur les sous-pas**, avec sa
+  vitesse — c'est l'attache d'un vêtement à un squelette. Erreur mesurée : **0,000 mm** partout.
+- `NkMannequin` : les **20 rôles** d'un humanoïde résolus par la **structure** du squelette (les noms ne
+  départagent que gauche et droite) — le rig Mixamo et le **même rig privé de tous ses noms** donnent la
+  même carte ; capsules **ajustées sur la peau** (quantile 0,9 des distances des sommets au segment).
+  Sur XBot : 26 capsules, taille 1,82 m, épaules 0,09 m, hanches 0,16 m, rayons 144 / 147 / 97 / 122 mm.
+- `NkGarment` : **sept vêtements procéduraux** (cape, foulard, jupe, t-shirt, chemise, robe, pantalon) +
+  chapeau rigide, chacun **une fonction des mesures du corps**, épinglé aux bons os, panneaux **cousus**
+  (t-shirt : emmanchures à trous, manches cousues au bord). Une seule table de mesures : **la même
+  fonction habille l'homme et la femme**, rien n'est écrit par corps.
+
+**🔴 LE RÉSULTAT, SUR CesiumMan (5,5 s, sa vraie marche, avance 1,2 m/s)** :
+
+| vêtement | particules | pas (ms) | pénétration des CAPSULES | particules **DANS LE MAILLAGE** |
+|---|---|---|---|---|
+| cape | 392 | 8,6 | **0,000 mm** | max 9 / image, moyenne 1,66 |
+| foulard | 112 | 1,8 | **0,000 mm** | 9 à 13 **en permanence** (le col traverse la mâchoire) |
+| jupe | 840 | 20,5 | 43,97 mm 🔴 | max 37, moyenne 8,80 |
+
+**« Aucune particule dans le maillage » n'est donc PAS atteint.** Les proxies capsules tiennent le contact
+(0,000 mm sur cape et foulard, à chaque image, y compris en marche) mais **une capsule ne décrit pas une
+section qui n'est pas un disque** : aux endroits où le corps s'écarte du cylindre (mâchoire, aisselle,
+entrejambe, fesses), le tissu passe sous la peau sans jamais pénétrer la capsule.
+
+**🔬 ET LE TEST LUI-MÊME A DÛ ÊTRE MIS À L'ÉPREUVE — sans ça, ce lot concluait FAUX.** Le premier chiffre
+mesuré était « 132 particules de jupe dans le corps de XBot, en permanence ». Contrôle **positif** (le
+centre de chaque triangle rentré de 1 cm sous sa face, donc dedans par construction) : la parité n'en
+reconnaît que **47,4 %** sur XBot et **48,8 %** sur YBot — ces corps Mixamo sont faits de **plusieurs
+coques ouvertes qui se recouvrent**, un rayon en traverse deux là où il devrait en traverser une. Sur
+CesiumMan, le même contrôle rend **100 %**, et le contrôle négatif (512 points à 3 m) **0**. Les 132
+étaient un **artefact de l'actif**, pas une pénétration. *Un test point-dans-maillage ne vaut que sur une
+surface fermée, et un personnage de production n'en est pas une : le contrôle positif se fait AVANT de
+lire le verdict.* Un second test a été écrit pour les coques ouvertes (triangle le plus proche + signe de
+sa normale, Ericson §5.1.5) : il rend **102 faux positifs sur 512** sur XBot contre 2 sur CesiumMan — lui
+non plus ne sauve pas un maillage à coques imbriquées, dit.
+
+**Le skinning — la question de Rodolf à 12h (« les vertices sont saccadés »).** Témoin en quatre points,
+imprimé à l'ouverture de la sonde : (1) **pose de repos skinnée contre maillage brut = 0,0000 m** sur XBot
+et YBot ; (2) somme des poids **[1,0000 ; 1,0000]**, 0 sommet à poids nul ; (3) **0** indice d'os hors
+bornes ; (4) **0** os déclaré avant son parent. Et en mouvement : **allongement max d'arête ×1,00, 0 arête
+au-delà de ×2 sur 147 336**, avec et sans la marche. **La liaison et la pose sont saines sur ces corps.**
+CesiumMan rend 2,19 m au témoin (1) : ce n'est **pas** un défaut de poids mais un changement de **repère**
+(fichier Z-up, rotation portée par le nœud racine) — le témoin (1) ne vaut que pour un modèle dont le nœud
+est l'identité, dit.
+
+**Ce qui manque pour atteindre zéro** (nommé, non fait, avec son coût) :
+1. **Collision contre le maillage skinné**, pas contre les capsules — c'est l'étage (b) annoncé. Le test
+   point-dans-maillage coûte **112 ms par image** en l'état (parcours de 4 672 triangles par particule) :
+   inutilisable tel quel. La forme praticable est un **champ de distance signé du corps**, recalculé à
+   basse résolution par image (64³ autour du personnage), lu en une interpolation trilinéaire par
+   particule — coût attendu de l'ordre du budget des colliders actuels ; à mesurer, pas à promettre.
+2. **Le col du foulard** traverse la mâchoire : ajustement du patron contre la tête, ou col plus bas.
+3. **La jupe** sur CesiumMan s'étire (416 %) et pénètre : ses jambes s'écartent plus que le patron ne le
+   permet ; il faut une jupe plus évasée ou un patron qui lit l'amplitude du clip.
+4. **Le pantalon** : sa couture ceinture-jambe est tirée par la cuisse qui pivote (9,6 % d'étirement en
+   marche synthétique, **inchangé de 32 × 4 à 32 × 8** — ce n'est donc pas un défaut de convergence mais
+   de patron : il manque un fond d'entrejambe).
+5. **Le GPU par coloriage** (déjà nommé par l'agent tissu) : 20 ms pour une jupe de 840 particules sur CPU
+   dit que trois vêtements simultanés ne tiennent pas dans une image.
+
+**Défauts payés, dits** : dans la sonde, le testeur de repos était construit **avant** que la peau de repos
+soit remplie — il travaillait sur un tableau vide, l'ajustement au maillage n'avait **aucun effet** et rien
+ne le signalait. Et **`NkMat4f::TransformVector` ne compile pas** (déclarée rendant un `NkVec3`, son corps
+rend un `NkVec4` ; `NkGLTFLoader.cpp:179` note le même défaut et le contourne aussi) — contournée ici,
+**nommée pour l'agent NKMath**.
+
 ### 🔩 04/09 (nuit) — JENGA 2.6 : ce qui est appliqué, ce qui est mesuré en retour
 
 - **`-static` — le défaut était chez nous** : `config/toolchain.jenga:55` (bloc Windows natif) promettait
