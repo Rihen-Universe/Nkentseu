@@ -2092,6 +2092,50 @@ Boutons : `NK_VFX_WIND` / `NK_SPH_WIND` = `uniform|vortex|turb|curl:strength[:fr
 **Nommé, non fait** : vortex et turbulence mesurés par la divergence seulement (pas d'image) ; tissu, cheveux et
 herbe liront ce même champ (§6.3, après).
 
+### 📏 05/09 (02h40) — ATOMIQUES DANS NkSL (`75c6955a`), TRI PAR COMPTAGE (`33da1d6b`), INTERFACE DU VENT (`ebf6c348`, `39d10222`) — et une cause d'hier fausse en grandeur
+
+**C. L'interface du vent, d'abord** : `Kernel/Foundation/NKMath/src/NKMath/NkIForceField.h` (`ebf6c348`, un fichier) —
+`math::NkIForceField::Force(const NkVec3f &position, float32 time) const` en **newtons** sur une particule ponctuelle, plus
+`NkUniformForceField` de test. C'est le texte de l'agent tissu **à l'octet près** (sa copie vit dans `NKPhysics/`, non
+commitée) ; en NKMath parce que **NKRenderer ne dépend pas de NKPhysics** (`rendererDeps`). `renderer::NkForceField`
+l'implémente (`39d10222`) : Force = accélération × `forceScale` (1 kg par défaut, convention dite). À la fusion, la
+copie NKPhysics devient un `#include` de celle-ci — écrit dans les échanges pour l'agent tissu.
+
+**A. Les atomiques sur tampon dans NkSL** (`75c6955a`) : `atomicAdd/Min/Max/And/Or/Xor/Exchange/CompSwap` sur un membre de
+bloc de stockage, `uint` et `int`, **le même chemin d'émission que `imageAtomic*`** — noms GLSL passés tels quels
+(GLSL, GLSL-Vulkan → SPIR-V par glslang → HLSL/MSL par SPIRV-Cross : le chemin des noyaux des stockages GPU) ;
+générateurs natifs HLSL (`Interlocked*`, forme à deux arguments sans valeur de retour, dit) et Advanced MSL
+(`atomic_fetch_*_explicit`). **Témoin** (`NkGpuAtomicWitness`, sonde `NK_ATOMIC_TEST=1`) : **1 048 576 invocations →
+1 048 576 exactement, `atomicMax` → 1 048 575, sur OpenGL ET sur Vulkan** ; mutation `C.c[0] = C.c[0] + 1u` → **48**
+(GL) et **33** (Vulkan) : le banc rougit sans atomique. `NkSLComputeCheck [ATOMIQUES]` : GLSL/GLSL-Vulkan portent
+`atomicAdd(`, SPIR-V 375 mots validés par glslang, HLSL-DX11 natif porte `InterlockedAdd` ; **HLSL-DX12 (SM6) et MSL
+natifs ne mappent pas** (trou préexistant : ils ne mappent pas non plus `imageAtomic*`), sans effet sur les devices.
+Pièges : `NkSLSymbolTable.cpp` a des **fins de ligne mixtes** (l. 629 finit par `\r`) — un motif LF n'y matche pas ;
+`K_COUNT` est le terminateur d'énumération des noyaux (collision de nom).
+
+**B. Le tri par comptage** (`33da1d6b`, Green 2010 § counting sort) : `sph_count` (atomicAdd par cellule), relecture des
+comptes + préfixe sur CPU (une synchronisation par sous-pas, dite), `sph_fill`, `sph_scatter` (atomicAdd sur le
+curseur) — trois noyaux au lieu de 136-210 passes bitoniques ; fantômes une fois. **Physique identique** : voisinage
+sur réseau parfait (1 014) à trois décimales, repos 10 s 1,001 / 1,001 / 0,014, Cébron 9 %, M&M 9 % sur n² = 2.
+
+| ms/image (Release, OpenGL, Ilyana 55-64 %) | bitonique + cache | **comptage** | cible |
+|---|---|---|---|
+| repos 2 048 | 8-11 | 9-11 (pointes 45-52) | — |
+| dam 4 096 | 10-11 | **7,5-12** | — |
+| canal n² = 2 (8 192) | 15-16 | 14-99 (pointe) | — |
+| dam 50 653 | 39-64 | **37-56** | 16 🔴 |
+| dam 195 112 | 164-254 | **172-238** | 33 🔴 |
+| dam 1 000 000 | 1 242-1 643 | **1 227-1 704** | honnête |
+
+🔴 **Ma cause d'hier était fausse en grandeur** : « le tri bitonique complet à chaque sous-pas » ne pesait presque
+rien — le remplacer ne bouge pas le coût. Ce qui coûte, à mesurer avant de toucher : les passes κ / correction (64
+voisines × N, 15-29 par image sur 3-4 sous-pas), les 19-55 synchronisations restantes, le GPU partagé. **Prochain
+instrument, nommé** : un profil GPU par passe (chrono GPU autour de chaque dispatch) — pas un nouveau levier à
+l'aveugle. Puis : itérations fixes mesurées (zéro relecture), scan GPU du préfixe.
+
+**Nommé, non fait** : ce profil ; DX12/MSL natifs pour les atomiques ; retri partiel ; device software qui ment
+(`computeShaders = true`) — agent NKRHI.
+
 ### 🔩 04/09 (nuit) — JENGA 2.6 : ce qui est appliqué, ce qui est mesuré en retour
 
 - **`-static` — le défaut était chez nous** : `config/toolchain.jenga:55` (bloc Windows natif) promettait
