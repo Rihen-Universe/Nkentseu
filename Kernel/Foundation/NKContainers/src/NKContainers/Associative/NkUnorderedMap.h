@@ -66,13 +66,55 @@ namespace nkentseu {
 			 * @note Complexité O(sizeof(Key)) : parcours linéaire des octets de la clé
 			 */
 			usize operator()(const Key &key) const {
-				const nk_uint8 *data = reinterpret_cast<const nk_uint8 *>(&key);
+				return HashOf(key, 0);
+			}
+
+		private:
+			/** @brief FNV-1a sur une suite d'octets. */
+			static usize HashBytes(const nk_uint8 *data, usize count) {
 				usize hash = static_cast<usize>(1469598103934665603ull);
-				for (usize i = 0; i < sizeof(Key); ++i) {
+				for (usize i = 0; i < count; ++i) {
 					hash ^= static_cast<usize>(data[i]);
 					hash *= static_cast<usize>(1099511628211ull);
 				}
 				return hash;
+			}
+
+			/**
+			 * @brief Cle qui porte un CONTENU : on hache le contenu, pas l'objet.
+			 *
+			 * CORRECTIF. Hacher les octets de l'objet, ce que faisait la seule
+			 * version d'avant, est faux des que la cle contient un pointeur ou du
+			 * remplissage. NkString porte un NkIAllocator*, une union
+			 * char* / char[], une taille et une capacite : deux chaines de meme
+			 * texte ont des octets differents, tombent dans deux seaux, et
+			 * Contains repond faux juste apres une ecriture. Constate le
+			 * 2026-09-05 : NkActionManager et NkAxisManager, tous deux indexes
+			 * par NkString, n'enregistraient jamais rien, et vingt autres emplois
+			 * de NkUnorderedMap<NkString, ...> etaient dans le meme cas.
+			 *
+			 * On choisit cette surcharge quand la cle expose Data() et Size(), ce
+			 * que font NkString et les conteneurs contigus, et l'on hache alors
+			 * Size() elements de Data().
+			 */
+			template <typename K>
+			static auto HashOf(const K &key, int) -> decltype(key.Data(), key.Size(), usize()) {
+				const auto *elements = key.Data();
+				if (elements == nullptr)
+					return static_cast<usize>(1469598103934665603ull);
+				return HashBytes(reinterpret_cast<const nk_uint8 *>(elements),
+								 static_cast<usize>(key.Size()) * sizeof(*elements));
+			}
+
+			/**
+			 * @brief Cle sans contenu expose : on hache ses octets, comme avant.
+			 *
+			 * Valable pour les types triviaux sans remplissage ni pointeur. Pour
+			 * tout le reste, fournissez un hacheur a vous : deux objets egaux dont
+			 * les octets different ne se retrouveront jamais.
+			 */
+			template <typename K> static usize HashOf(const K &key, long) {
+				return HashBytes(reinterpret_cast<const nk_uint8 *>(&key), sizeof(K));
 			}
 	};
 
