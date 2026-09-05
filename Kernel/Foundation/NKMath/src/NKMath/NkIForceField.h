@@ -27,10 +27,11 @@
 namespace nkentseu {
 	namespace math {
 
+		// CONTRAT (tranché par délégation, 05/09) : NEWTONS ; le consommateur divise par la masse de SA particule.
 		class NkIForceField {
 			public:
 				virtual ~NkIForceField() = default;
-				// Force (N) sur une particule ponctuelle en `position` (m) à `time` (s).
+				// Force (N) sur une particule ponctuelle en `position` (m) à `time` (s) -- newtons ; le consommateur divise par sa masse.
 				virtual NkVec3f Force(const NkVec3f &position, float32 time) const = 0;
 		};
 
