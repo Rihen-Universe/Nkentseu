@@ -465,6 +465,77 @@ int main() {
 		}
 	}
 
+	// -- 8bis. RECUISSON FORCEE : Invalider() et Vider() ----------------------
+	//
+	// L'empreinte par contenu rend la recuisson automatique. Ces deux gestes
+	// couvrent ce qu'elle ne couvre pas : un cache abime, ou l'envie de repartir
+	// propre. C'est ce que declenche « Outils > Recuire les textures » dans
+	// NK3DModeler.
+	//
+	// ⚠️ L'ENTREE DE MENU ELLE-MEME N'EST PAS EPROUVEE ICI : elle demande un vrai
+	// clic, et je ne pilote ni souris ni clavier. Ce banc prouve la MECANIQUE que
+	// le clic appelle — pas que le clic l'appelle. Cette moitie-la attend l'oeil
+	// de Rodolf.
+	{
+		const char *pngInv = "Build/nktex_invalidation.png";
+		NkImage im = ImageReference(32, 32);
+		if (!im.IsValid() || !im.SavePNG(pngInv)) {
+			Verdict("recuisson / preparation", false, "ecriture du PNG impossible");
+		} else {
+			NkTexOvenReglages r;
+			r.genererMips = false;
+			const nk_uint64 emp = NkTexCacheNommage::Empreinte(pngInv, r);
+			NkVector<nk_uint8> payload;
+			NkString e;
+			const NkString chemin = NkTexCacheNommage::Chemin(emp);
+
+			bool ecrit = (emp != 0u) && NkTextureOven::CuireFichier(pngInv, r, payload, &e) &&
+						 NkTextureCache::Ecrire(chemin, payload.Data(), payload.Size(), NkString(pngInv));
+			std::snprintf(d, sizeof(d), "actif %s %s", chemin.CStr(), ecrit ? "ecrit" : "NON ecrit");
+			Verdict("recuisson / preparation : un actif est dans le cache", ecrit && NkTextureCache::Existe(chemin), d);
+
+			if (ecrit) {
+				const bool inv = NkTextureCache::Invalider(pngInv, r);
+				const bool parti = !NkTextureCache::Existe(chemin);
+				std::snprintf(d, sizeof(d), "Invalider rend %d, l'actif est %s", inv ? 1 : 0,
+							  parti ? "parti" : "TOUJOURS LA");
+				Verdict("recuisson / Invalider retire l'actif vise", inv && parti, d);
+
+				// CONTRE-EPREUVE : invalider ce qui n'est pas la doit rendre faux,
+				// pas vrai. Sans elle, un `Invalider` qui rendrait toujours vrai
+				// passerait la ligne ci-dessus.
+				const bool re = NkTextureCache::Invalider(pngInv, r);
+				std::snprintf(d, sizeof(d), "second appel rend %d (attendu 0)", re ? 1 : 0);
+				Verdict("recuisson / contre-epreuve : rien a retirer, rend faux", !re, d);
+			}
+
+			// Vider() : on remet un actif, puis on vide, puis on verifie qu'il
+			// n'en reste aucun.
+			if (NkTextureOven::CuireFichier(pngInv, r, payload, &e) &&
+				NkTextureCache::Ecrire(chemin, payload.Data(), payload.Size(), NkString(pngInv))) {
+				const nk_uint32 n = NkTextureCache::Vider();
+				const bool vide = !NkTextureCache::Existe(chemin);
+				std::snprintf(d, sizeof(d), "%u actif(s) supprime(s), le cache est %s", n,
+							  vide ? "vide" : "PAS vide");
+				Verdict("recuisson / Vider efface le cache", n >= 1u && vide, d);
+
+				// Et le chargement suivant recuit : rien n'est perdu.
+				NkTextureLibrary l4;
+				l4.Init(&dev, nullptr);
+				NkLoadOptions o4;
+				o4.genMipmaps = false;
+				NkTextureCache::RemettreCompteursAZero();
+				NkTexHandle h4 = l4.Load(NkString(pngInv), o4);
+				std::snprintf(d, sizeof(d), "%s, %u manque(s) — l'actif a ete refabrique",
+							  h4.IsValid() ? "texture chargee" : "CHARGEMENT ECHOUE", NkTextureCache::Manques());
+				Verdict("recuisson / apres un vidage, le chargement recuit", h4.IsValid() &&
+																				NkTextureCache::Manques() >= 1u,
+						d);
+				l4.Shutdown();
+			}
+		}
+	}
+
 	// -- 9. ARITHMETIQUE DE BLOCS AU RHI -------------------------------------
 	//
 	// 🔴 Le defaut repare : `NkFormatBytesPerPixel` rendait 0 pour BC/ETC2/ASTC,

@@ -92,6 +92,34 @@ namespace nkentseu {
 			return true;
 		}
 
+		nk_uint32 NkTextureCache::Vider() noexcept {
+			if (!NkDirectory::Exists(Racine()))
+				return 0u;
+			NkVector<NkString> fichiers =
+				NkDirectory::GetFiles(Racine(), "*.nktex", NkSearchOption::NK_TOP_DIRECTORY_ONLY);
+			nk_uint32 n = 0u;
+			for (nk_size i = 0; i < fichiers.Size(); ++i) {
+				if (NkFile::Delete(fichiers[i].CStr()))
+					++n;
+			}
+			// On le DIT : un geste qui efface des fichiers sans laisser de trace
+			// se confond avec un geste qui n'a rien fait.
+			logger.Info("[NkTextureCache] cache vide : {0} actif(s) supprime(s) sur {1} — ils seront recuits au "
+						"prochain chargement\n",
+						n, (unsigned long long)fichiers.Size());
+			return n;
+		}
+
+		bool NkTextureCache::Invalider(const char *cheminSource, const NkTexOvenReglages &reglages) noexcept {
+			const nk_uint64 empreinte = Empreinte(cheminSource, reglages);
+			if (empreinte == 0u)
+				return false;
+			const NkString chemin = Chemin(empreinte);
+			if (!NkFile::Exists(chemin.CStr()))
+				return false;
+			return NkFile::Delete(chemin.CStr());
+		}
+
 		nk_uint32 NkTextureCache::Touches() noexcept {
 			return g_touches;
 		}

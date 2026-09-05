@@ -16,6 +16,7 @@
 #include "NK3DModeler/Shell/NkModelerCommon.h"
 #include "NK3DModeler/Viewport/NkDemo3DHost.h"
 #include "NKEditorKit/NkShortcutTable.h"
+#include "NKRenderer/Core/NkTextureCache.h"
 
 namespace nkentseu {
 	namespace nk3d {
@@ -121,6 +122,21 @@ namespace nkentseu {
 							st.projPending = 4;
 						else if (i == 11)
 							NkRequestClose(st);
+					}
+					// MENU OUTILS (index 3) : les indices sont ceux de kTools.
+					//   0 Rechercher une commande · 2 Retopologier · 3 Decimer...
+					//   5 Recuire les textures · 7 Extensions (sous-menu)
+					else if (st.openMenu == 3) {
+						if (i == 5) {
+							// Vide le cache d'actifs textures. Rien n'est perdu :
+							// un actif cuit est un DERIVE, il se refabrique au
+							// prochain chargement. C'est pour ça qu'il n'y a pas
+							// de confirmation — il n'y a rien a confirmer.
+							// Le message part par le LOGGER, et le journal du
+							// modeleur y est branche (`NkJournalSink`) : pas de
+							// second chemin d'affichage a tenir a jour.
+							(void)renderer::NkTextureCache::Vider();
+						}
 					}
 					st.openMenu = -1;
 				}

@@ -1175,6 +1175,7 @@ namespace nkentseu {
 			static const NkMenuItem kTools[] = {
 				{"Rechercher une commande", "app.palette", false}, {nullptr, "", false},
 				{"Retopologier", "", false},   {"Decimer...", "", false},
+				{nullptr, "", false},		   {"Recuire les textures", "", false},
 				{nullptr, "", false},		   {"Extensions", "", true},
 			};
 			static const NkMenuItem kSelect[] = {

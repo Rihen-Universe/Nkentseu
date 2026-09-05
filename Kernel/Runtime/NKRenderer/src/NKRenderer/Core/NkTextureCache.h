@@ -68,6 +68,17 @@ namespace nkentseu {
 				static bool Ecrire(const NkString &chemin, const nk_uint8 *payload, nk_size taille,
 								   const NkString &cheminSource) noexcept;
 
+				// ── Recuisson forcee ──────────────────────────────────────────
+				// L'empreinte par contenu rend la recuisson AUTOMATIQUE : une
+				// source modifiee porte un autre nom. Ces deux gestes servent aux
+				// cas que l'empreinte ne couvre pas — un cache abime, un disque
+				// plein a moitie rempli, ou l'envie de repartir propre.
+				//
+				// Rien n'est perdu : un actif cuit est un DERIVE. Le prochain
+				// chargement le refabrique.
+				[[nodiscard]] static nk_uint32 Vider() noexcept;	// rend le nombre d'actifs supprimes
+				static bool Invalider(const char *cheminSource, const NkTexOvenReglages &reglages) noexcept;
+
 				// ── Compteurs, pour que la mesure soit possible ───────────────
 				// Un cache sature et un cache qui rate ont le meme taux de service
 				// (porte du 2026-08-19) : sans ces trois compteurs, on ne saurait
