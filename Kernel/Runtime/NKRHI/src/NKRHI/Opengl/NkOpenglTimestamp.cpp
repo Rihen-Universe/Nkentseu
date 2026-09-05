@@ -81,7 +81,7 @@ namespace nkentseu {
 		if (!outNs || count < 2 || !NK_GL_GET_QUERY_UI64)
 			return false;
 		bool ok0 = false;
-		for (uint32 idx = 0; idx < kTsIdx && (idx == 0 || count >= 4); ++idx) {
+		for (uint32 idx = 0; idx < kTsIdx && (idx + 1u) * 2u <= count; ++idx) { // borne par `count` : avec kTsIdx = 32, la borne d'avant ecrivait 32 paires dans le ns[4] de l'appelant (SIGSEGV en 0x0, mesure le 05/09)
 			outNs[idx * 2] = outNs[idx * 2 + 1] = 0;
 			for (uint32 k = 1; k <= kTsRing; ++k) {
 				const uint32 s = (mTsSlot[idx] + k) % kTsRing;
@@ -104,6 +104,31 @@ namespace nkentseu {
 			}
 		}
 		return ok0;
+	}
+
+	// Un chrono par index : le plus ancien resultat disponible, consomme. Utilise par le profil du SPH
+	// (un chrono par sorte de noyau, draine apres chaque relecture -- la relecture a deja attendu le GPU).
+	bool NkOpenGLDevice::GetTimestampResult(uint32 index, uint64 &t0, uint64 &t1) {
+		if (index >= kTsIdx || !NK_GL_GET_QUERY_UI64)
+			return false;
+		for (uint32 k = 1; k <= kTsRing; ++k) {
+			const uint32 s = (mTsSlot[index] + k) % kTsRing;
+			if (!mTsIssued[index][s])
+				continue;
+			GLuint64 avail0 = 0, avail1 = 0;
+			NK_GL_GET_QUERY_UI64(mTsQuery[index][s][0], GL_QUERY_RESULT_AVAILABLE, &avail0);
+			NK_GL_GET_QUERY_UI64(mTsQuery[index][s][1], GL_QUERY_RESULT_AVAILABLE, &avail1);
+			if (!avail0 || !avail1)
+				continue;
+			GLuint64 a = 0, b = 0;
+			NK_GL_GET_QUERY_UI64(mTsQuery[index][s][0], GL_QUERY_RESULT, &a);
+			NK_GL_GET_QUERY_UI64(mTsQuery[index][s][1], GL_QUERY_RESULT, &b);
+			mTsIssued[index][s] = false;
+			t0 = (uint64)a;
+			t1 = (uint64)b;
+			return true;
+		}
+		return false;
 	}
 
 } // namespace nkentseu

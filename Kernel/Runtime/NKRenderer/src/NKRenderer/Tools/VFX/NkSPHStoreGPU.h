@@ -111,6 +111,12 @@ namespace nkentseu {
 				uint32 mIterD = 0, mIterV = 0, mCaps = 0, mWarm = 0;
 				float32 mResD = 0.f, mResV = 0.f;
 				uint32 mSyncs = 0; // relectures (synchronisations) de l'image
+				// profil par passe : un chrono du device par sorte de noyau (index 4 + sorte), draine apres chaque relecture
+				bool mProfile = false;
+				float32 mPassMs[K_COUNT] = {};
+				uint32 mPassN[K_COUNT] = {};
+				float32 mWaitMs = 0.f;
+				void Drain();
 				const char *mFail = "";
 		};
 

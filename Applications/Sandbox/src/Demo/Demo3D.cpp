@@ -4228,6 +4228,18 @@ static NkTexHandle CreateLanternCubeCookie(NkTextureLibrary *texLib, NkIDevice *
 							std::fprintf(stderr, "[SPH PROBE] frame %u t=%.2fs : vivantes %u  rho/rho0 moy %.3f (min %.3f max %.3f)  vmax %.2f m/s  bornees %u  sous-pas %u (visq %u)  front x=%.3f  y[%.3f..%.3f]  sol rho/rho0 %.3f  fantomes %u  agglutinees %u  iter dens %.1f / div %.1f  resid dens %.3f %% / div %.3f %%  bornes-iter %u  chaud %u (resid brut avant %.2f %% apres %.2f %%, min %.3f)  sync %u  %.2f ms\n",
 										 (unsigned)ctx.frame, st->sphTime, ss.alive, ss.densityMean / rho0, ss.densityMin / rho0, ss.densityMax / rho0, ss.maxSpeed,
 										 ss.speedClamped, ss.subSteps, ss.subStepsViscous, ss.maxX, ss.minY, ss.maxY, ss.densityFloorMean / rho0, ss.boundary, ss.clumped, ss.iterDensity, ss.iterDivergence, ss.residualDensity * 100.f, ss.residualDivergence * 100.f, ss.iterCapHits, ss.warmStarts, ss.warmResidualBefore * 100.f, ss.warmResidualAfter * 100.f, ss.warmMinRatio, ss.syncs, ss.ms);
+						// PROFIL GPU PAR PASSE (NK_SPH_PROFILE=1) : ms GPU par sorte de noyau, attente CPU des relectures a part.
+						if (ss.gpuProfile && (ctx.frame % 30u) == 0u) {
+							static const char *kPass[16] = {"naiss", "count", "fill", "scatter", "dens", "kappa", "correct", "chaud", "memo", "nonp", "apply", "reduce", "integ", "stats", "voisin", "?"};
+							float32 tot = 0.f;
+							std::fprintf(stderr, "[SPH PROFIL] frame %u :", (unsigned)ctx.frame);
+							for (uint32 k = 0; k < 15u; ++k) {
+								if (ss.gpuPassN[k] == 0) continue;
+								tot += ss.gpuPassMs[k];
+								std::fprintf(stderr, " %s %.2f (%u)", kPass[k], ss.gpuPassMs[k], ss.gpuPassN[k]);
+							}
+							std::fprintf(stderr, " | GPU total %.2f ms | attente CPU des relectures %.2f ms | image CPU %.2f ms\n", tot, ss.cpuWaitMs, ss.ms);
+						}
 						// RUPTURE DE BARRAGE -- critere adimensionnel de Martin & Moyce (1952), Part IV,
 						// Phil. Trans. R. Soc. A 244(882) 312-324. Table telle que reproduite dans Lethe
 						// (chaos-polymtl/lethe, examples/multiphysics/dam-break/dam-break-2d.py, colonne

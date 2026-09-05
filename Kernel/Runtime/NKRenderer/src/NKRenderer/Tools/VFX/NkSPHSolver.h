@@ -130,6 +130,13 @@ namespace nkentseu {
 				uint32 subStepsViscous = 0;						 // sous-pas imposés par la CFL visqueuse (0 = la CFL de vitesse a décidé)
 				uint32 clumped = 0;								 // particules à rho > 1,1 rho0 (agglutination = instabilité de traction)
 				uint32 syncs = 0;								 // GPU : relectures (synchronisations) de l'image -- une par itération, dites
+				// PROFIL GPU PAR PASSE (2026-09-05, NK_SPH_PROFILE=1, OpenGL seul : Vulkan n'a pas de chrono) : ms GPU
+				// et nombre de dispatchs par sorte de noyau (ordre de l'énumération de NkSPHStoreGPU), et l'attente CPU
+				// des relectures, à part. Sans ce tableau, aucun levier (mesure du 05/09 : le tri n'était pas le coût).
+				bool gpuProfile = false;
+				float32 gpuPassMs[16] = {};
+				uint32 gpuPassN[16] = {};
+				float32 cpuWaitMs = 0.f;
 		};
 
 		class NkSPHSolver final : public NkIParticleSolver {

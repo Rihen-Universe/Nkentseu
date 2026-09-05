@@ -912,6 +912,10 @@ void main() {
 			mRecording = false;
 			mOwner->mStats = NkSPHStats{};
 			mOwner->mStats.boundary = mBoundary;
+			if (const char *pf = std::getenv("NK_SPH_PROFILE"); pf && pf[0] == '1') {
+				mProfile = device->GetCaps().timestampQueries || device->GetApi() == NkGraphicsApi::NK_GFX_API_OPENGL;
+				std::fprintf(stderr, "[NkSPHStoreGPU] profil par passe : %s\n", mProfile ? "chronos GPU armes (un par sorte de noyau)" : "REFUSE : pas de chrono GPU sur ce device (Vulkan n'en a pas) -- dit");
+			}
 			std::fprintf(stderr,
 						 "[NkSPHStoreGPU] pret : %u emplacements, %u fantomes, grille %u x %u x %u (%u cellules), tri sur %u / %u\n",
 						 mCapacity, mBoundary, nx, ny, nz, mNumCells, mFpad, mGpad);
@@ -955,10 +959,29 @@ void main() {
 		void NkSPHStoreGPU::Dispatch(int which, uint32 count) {
 			if (count == 0)
 				return;
+			if (mProfile)
+				mCmd->WriteTimestamp(2u * (4u + (uint32)which)); // debut du chrono de cette sorte (pair)
 			mCmd->BindComputePipeline(mKernels[which].pipe);
 			mCmd->BindDescriptorSet(mSet, 0);
 			mCmd->Dispatch((count + 255u) / 256u, 1, 1);
 			mCmd->UAVBarrier(mX); // sur GL : glMemoryBarrier(SHADER_STORAGE | UNIFORM), global
+			if (mProfile)
+				mCmd->WriteTimestamp(2u * (4u + (uint32)which) + 1u); // fin (impair)
+		}
+
+		// Draine les chronos par sorte : a appeler juste apres une relecture (le GPU a fini ce qui precede).
+		void NkSPHStoreGPU::Drain() {
+			if (!mProfile)
+				return;
+			const float32 period = mDevice->GetTimestampPeriodNs();
+			for (uint32 k = 0; k < (uint32)K_COUNT; ++k) {
+				uint64 t0 = 0, t1 = 0;
+				while (mDevice->GetTimestampResult(4u + k, t0, t1)) {
+					if (t1 >= t0)
+						mPassMs[k] += (float32)((float64)(t1 - t0) * (float64)period / 1.0e6);
+					++mPassN[k];
+				}
+			}
 		}
 
 		// Tri par comptage (which 0 : fluide, 1 : fantomes) : count (atomicAdd) -> relecture des comptes ->
@@ -972,7 +995,12 @@ void main() {
 			Dispatch(K_CELLCOUNT, sp.n);
 			Flush();
 			mScratchU.Resize(mNumCells);
-			mDevice->ReadBuffer(mCC, mScratchU.Data(), (uint64)mNumCells * 4u, 0);
+			{
+				const int64 w0 = ::nkentseu::NkChrono::Now().nanoseconds;
+				mDevice->ReadBuffer(mCC, mScratchU.Data(), (uint64)mNumCells * 4u, 0);
+				mWaitMs += (float32)((::nkentseu::NkChrono::Now().nanoseconds - w0) / 1.0e6);
+				Drain();
+			}
 			mScratchSE.Resize(mNumCells * 2u);
 			uint32 start = 0;
 			uint32 *cnt = mScratchU.Data(), *se = mScratchSE.Data();
@@ -1001,7 +1029,12 @@ void main() {
 			Dispatch(K_REDUCE, 256u);
 			Flush();
 			mScratch.Resize(256);
-			mDevice->ReadBuffer(mRed, mScratch.Data(), 256u * 4u, 0);
+			{
+				const int64 w0 = ::nkentseu::NkChrono::Now().nanoseconds;
+				mDevice->ReadBuffer(mRed, mScratch.Data(), 256u * 4u, 0);
+				mWaitMs += (float32)((::nkentseu::NkChrono::Now().nanoseconds - w0) / 1.0e6);
+				Drain();
+			}
 			float32 s = 0.f;
 			for (uint32 t = 0; t < 256u; ++t)
 				s += mScratch[t];
@@ -1093,7 +1126,12 @@ void main() {
 			Dispatch(K_STATS, 256u);
 			Flush();
 			mScratch.Resize(256u * 16u);
-			mDevice->ReadBuffer(mRed, mScratch.Data(), 256u * 16u * 4u, 256u * 4u);
+			{
+				const int64 w0 = ::nkentseu::NkChrono::Now().nanoseconds;
+				mDevice->ReadBuffer(mRed, mScratch.Data(), 256u * 16u * 4u, 256u * 4u);
+				mWaitMs += (float32)((::nkentseu::NkChrono::Now().nanoseconds - w0) / 1.0e6);
+				Drain();
+			}
 			float32 sumRho = 0.f, minRho = 1e30f, maxRho = 0.f, vmax = 0.f, xmax = -1e30f, ymax = -1e30f, ymin = 1e30f,
 					xdense = -1e30f, floorSum = 0.f, floorN = 0.f, clumped = 0.f, clamped = 0.f, cnt = 0.f, nmax = 0.f;
 			for (uint32 t = 0; t < 256u; ++t) {
@@ -1199,6 +1237,11 @@ void main() {
 			mIterD = mIterV = mCaps = mWarm = 0;
 			mResD = mResV = 0.f;
 			mSyncs = 0;
+			mWaitMs = 0.f;
+			for (uint32 k = 0; k < (uint32)K_COUNT; ++k) {
+				mPassMs[k] = 0.f;
+				mPassN[k] = 0;
+			}
 			// parametres qui peuvent changer par la sonde entre deux images (boutons)
 			mParams.surfaceMode = pr.surfaceMode;
 			mParams.visc = {pr.viscosity, pr.wallFriction, pr.kinematicViscosity, pr.warmStartScale};
@@ -1228,6 +1271,12 @@ void main() {
 			const float32 msAll = (float32)((::nkentseu::NkChrono::Now().nanoseconds - t0) / 1.0e6);
 			mOwner->mStats.ms = msAll; // temps CPU de l'image, relectures (synchronisations GPU) comprises
 			mOwner->mStats.syncs = mSyncs;
+			mOwner->mStats.gpuProfile = mProfile;
+			mOwner->mStats.cpuWaitMs = mWaitMs;
+			for (uint32 k = 0; k < (uint32)K_COUNT && k < 16u; ++k) {
+				mOwner->mStats.gpuPassMs[k] = mPassMs[k];
+				mOwner->mStats.gpuPassN[k] = mPassN[k];
+			}
 			stats.simMs += msAll;
 			stats.alive += mAliveCount;
 		}
