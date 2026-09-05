@@ -204,9 +204,15 @@ c'est déjà écrit dans le menu contextuel pour deux entrées :
 
 - **Crop** et **Rasterize selection** — supposent une image à découper ou à
   aplatir en pixels ;
-- **l'export d'images** (PNG/JPG/WebP, tranches d'export, @2x/@3x) — notre sortie
-  est un **document** que le moteur relit, pas une planche à livrer à un
-  développeur. *L'export de NkUIDesign, c'est le `.nkuidoc` lui-même.*
+- ~~**l'export d'images** (PNG/JPG/WebP, tranches d'export, @2x/@3x)~~ — ⚠️ **cette
+  ligne a été ÉCARTÉE ICI jusqu'au 02/09, et c'était une erreur de périmètre** :
+  le `.nkuidoc` reste la sortie que le moteur relit, mais *montrer une maquette à
+  un client sans lui installer l'atelier* est un besoin d'interface, pas un
+  détour (Rodolf, 02/09, `ROADMAP_PRODUITS.md` §1 : PNG/JPEG, PDF, HTML / CSS /
+  React / Next). Depuis le 05/09 : **PNG livré** (page, sélection, ×1/×2/×3), **SVG
+  partiel**, PDF et code **absents** — les six lignes sont au **chapitre 5**. Ce
+  qui reste écarté ici : **Crop** et **Rasterize** (des pixels *dans* le document),
+  pas l'export (des pixels *hors* du document).
 
 *Ce qui n'a pas de sens chez nous se note, il ne s'ébauche pas.*
 
@@ -657,6 +663,12 @@ Source : `/basics`, `/interface`, `/tips`.
 | Mode présentation | `Ctrl+.` | 🟡 **partiel** | l'entrée existe dans le menu du vide, l'effet non |
 | Couleur de la toile | panneau, sans sélection | ❌ **absent** |  |
 | Cadre précédent / suivant, page précédente / suivante | `Début`/`Fin`, `Pg↑`/`Pg↓` | ❌ **absent** |  |
+| **Exporter une page en PNG**, à l'échelle ×1 / ×2 / ×3 | notre menu **Fichier › Exporter › Page en PNG ×1 / ×2 / ×3…**, puis le sélecteur de fichier du kit (⚠️ la page Export de Lunacy n'a pas été relue pour cette ligne : son geste n'est pas cité) | ✅ **livré le 05/09** | **Sonde 81 en PIXELS** (`e6310f87`) : le même peintre que la toile (`NkDesignPaint` → `NkGuiDrawList`) rendu **sans GPU** par `NkGuiDrawListRaster` (NKGui, en-tête seul), écrit par le codec PNG maison, relu par lui ; rect uni, dégradé, texte, image 2×2, carré tourné — quatre points par élément, à 1× et à 2× (400 × 240), 3× (600 × 360) ; le texte à 2× est **rastérisé à 28 px** (police embarquée à la taille exacte, pas un atlas étiré : 0,317 de bords flous contre 0,605 pour l'atlas de 1× étiré — la mutation). ⚠️ **Le clic dans le sélecteur du kit attend l'œil de Rodolf** (la sonde prouve l'export, pas le geste). Absents, nommés : les **tranches d'export** (*export slices*), JPEG / WebP (un octet de codec, NKImage écrit les deux), les polices de repli (CJK, emoji) |
+| **Exporter la sélection en PNG** | **Fichier › Exporter › Sélection en PNG ×1 / ×2…** | ✅ **livré le 05/09** | sonde 81d : la boîte des nœuds sélectionnés **transformés** plus la marge de leurs ombres et bordures extérieures (60 × 40 + 8 → 76 × 56), le reste **transparent** (alpha 0 mesuré) ; un descendant d'un sélectionné n'est pas redessiné ; sans sélection : **refusé et dit**, aucun fichier |
+| **Exporter en SVG** (page, sélection, images embarquées) | **Fichier › Exporter › Page / Sélection en SVG…**, « images embarquées » | 🟡 **partiel** (05/09) | **Un lecteur de plus du document** (`64e65f71`, jamais les commandes du peintre) : `<g transform=matrix>` par nœud, `<rect rx>` / `<path>` par coin ou par tracé édité, un élément par remplissage, `<linearGradient>` / `<radialGradient>` (angulaire et losange **nommés**, rendus en linéaire, dits en commentaire), bordures en `stroke` (intérieure / extérieure par retrait d'une demi-épaisseur) ou quatre `<line>` par côté, `<feDropShadow>`, `<text>` en Inter avec la ligne de base du peintre, `<image href>` relatif au dossier de sortie ou `data:` base64, `fill-opacity`, `mix-blend-mode`. **Témoin (sonde 82)** : le SVG **re-rastérisé par le parseur SVG maison** (`NkSVGCodec`, NKImage — pas du code mort : Mou, NK3DModeler, NKCode l'appellent) aux mêmes points que le PNG (formes, dégradé à 24 de gris près, transformée, fond de page alpha compris) ; **texte et image en STRUCTURE seulement** (ce parseur ne sait ni `<text>` ni `<image>` ni `rx`, son en-tête le dit). **Non traduits, dits dans le fichier** : ombre interne, étendue d'ombre, Tile / Crop / rotation d'une image, les composants (leur boîte et leur libellé) |
+| **Exporter en PDF** | Lunacy exporte en PDF ; notre entrée est présente et grisée « (à construire) » | ❌ **absent** | le **même arbre que le SVG** : un écrivain PDF (objets, flux de contenu, table xref, polices à embarquer) — document 14 §3(b) |
+| **Exporter en code** (HTML / CSS / JS, React, Next) | Lunacy : panneau Code ; notre entrée est présente et grisée | ❌ **absent** | *futur proche* (Rodolf, 02/09, `ROADMAP_PRODUITS.md` §1) : **un lecteur de plus du format**, jamais un second modèle — les composants et les styles nommés d'aujourd'hui sont ce qu'il lira — document 14 §3(b) |
+| **Tranches d'export** (*export slices*, presets par calque, JPEG / WebP) | Lunacy : presets d'export | ❌ **absent** | des presets par calque dans le modèle (clé additive) ; JPEG et WebP = un octet de codec en plus |
 
 ---
 
