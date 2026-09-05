@@ -65,6 +65,7 @@
 #include "SelectionGeste.h" // le contrat de selection : les DEUX tables, cote a cote
 #include "MenuContexte.h" // le menu du clic droit (Lunacy) : LA table, sans NKGui
 #include "Snap.h" // l'aimantation Lunacy — un MECANISME, pas un dessin
+#include "Alignement.h" // ⑥ aligner / répartir LA SÉLECTION (≠ ALIGNEMENT, qui range les enfants)
 #include "GlisserPalette.h" // le glisser depuis la palette : la DECISION, pas le dessin
 #include "Transfo.h" // rotation et miroirs : le MEME calcul pour le dessin et le clic
 #include "DesignAI.h"
@@ -10439,11 +10440,12 @@ namespace nkuidesign {
 		};
 		static const char *const kAvecCible[] = {
 			"CIBLE",	  "DISPOSITION", "ANCRAGE",	 "ALIGNEMENT",
+			"ALIGNER LA SÉLECTION",
 			"ESPACEMENT", "REMPLISSAGES", "BORDURES", "ÉTATS",
 			"APPARENCE",  "TYPOGRAPHIE", "EFFETS",	 "POINTS DE RUPTURE",
 		};
 		static const char *const kNormal[] = {
-			"DISPOSITION", "ANCRAGE",	 "ALIGNEMENT", "ESPACEMENT",
+			"DISPOSITION", "ANCRAGE",	 "ALIGNEMENT", "ALIGNER LA SÉLECTION", "ESPACEMENT",
 			"REMPLISSAGES", "BORDURES",	 "ÉTATS",	   "APPARENCE",
 			"TYPOGRAPHIE", "EFFETS",	 "POINTS DE RUPTURE",
 		};
@@ -12598,6 +12600,13 @@ namespace nkuidesign {
 
 			/// ⑩ Ce que la rangée « Arrondi » a peint à la dernière image (aide, bouton) —
 			///    lu par la sonde 92 : elle mesure le peint, pas une géométrie devinée.
+			/// ⑥ ce que la section « ALIGNER LA SÉLECTION » a peint (huit boutons, la bascule)
+			NkRect RectAligner(nkentseu::uint32 i) const {
+				return i < 8u ? mRectAligner[i] : NkRect{0.f, 0.f, 0.f, 0.f};
+			}
+			NkRect RectAlignCle() const {
+				return mRectAlignCle;
+			}
 			NkRect RectAideArrondi() const {
 				return mRectAideArrondi;
 			}
@@ -12788,6 +12797,8 @@ namespace nkuidesign {
 							{"DISPOSITION", &CorpsDispositionC, false},
 							{"ANCRAGE", &CorpsAncrageC, false},
 							{"ALIGNEMENT", &CorpsAlignementC, false},
+					{"ALIGNER LA SÉLECTION", &CorpsAlignerSelectionC, false},
+							{"ALIGNER LA SÉLECTION", &CorpsAlignerSelectionC, false},
 							{"ESPACEMENT", &CorpsEspacementC, false},
 							{"CALQUE", &CorpsCalqueC, false}, // Lunacy : LAYER (opacite + fusion)
 							{"REMPLISSAGES", &CorpsRemplissagesC, false},
@@ -13010,7 +13021,7 @@ namespace nkuidesign {
 					const char *titre;
 					bool ouvert;
 			};
-			static constexpr uint32 kNbSections = 14;
+			static constexpr uint32 kNbSections = 15; // ⑥ « ALIGNER LA SÉLECTION » s'ajoute
 			/// Un champ de sommet a change et la boite attend son recadrage.
 			/// ⚠️ UN DRAPEAU, ET IL EST JUSTIFIE : on ne peut pas recadrer dans la
 			///    branche qui ecrit (le champ est un GLISSER, il ecrit a chaque
@@ -13026,7 +13037,7 @@ namespace nkuidesign {
 				//    que personne ne voit.
 				{"ÉDITION DE FORME", true},
 				{"CIBLE", true},		{"DISPOSITION", true},	{"ANCRAGE", true},
-				{"ALIGNEMENT", true},	{"ESPACEMENT", false},	{"CALQUE", true},
+				{"ALIGNEMENT", true},	{"ALIGNER LA SÉLECTION", true},	{"ESPACEMENT", false},	{"CALQUE", true},
 				{"REMPLISSAGES", true},
 				{"BORDURES", true},	{"APPARENCE", true},	{"TYPOGRAPHIE", true},
 				{"ÉTATS", false},	{"EFFETS", true},	{"POINTS DE RUPTURE", false},
@@ -15372,6 +15383,95 @@ namespace nkuidesign {
 			// (Étirer comprise — l'ancienne table de 6 icônes ne savait pas la
 			// montrer). H/V se traduisent en axes principal/transverse selon
 			// l'agencement : Column = V principal, Row = H principal.
+			static void CorpsAlignerSelectionC(void *u, NkGuiContext &ctx) {
+				static_cast<InspectorPanel *>(u)->CorpsAlignerSelection(ctx);
+			}
+			/// ⑥ ALIGNER LA SÉLECTION (2026-09-05) — la question de Rodolf : « est-ce que c'est
+			///    déjà en place ? aligner un graphique par rapport à un ou plusieurs autres,
+			///    plusieurs par rapport à un, par rapport à la page… »
+			/// 🔴 MESURE D'ABORD : la section ALIGNEMENT, juste au-dessus, écrit
+			///    `layout.mainAlign` / `crossAlign` — comment le nœud range SES ENFANTS. Elle ne
+			///    déplace jamais le nœud, et sur une feuille elle affiche « ce nœud n'agence pas
+			///    d'enfants ». Le geste que Rodolf décrit n'existait pas. *Deux idées qui
+			///    partagent un mot finissent par se prendre l'une pour l'autre* : deux sections,
+			///    deux noms, et la règle vit dans `Alignement.h` (une seule écriture, d'autres
+			///    portes possibles ensuite : menu, clavier).
+			void CorpsAlignerSelection(NkGuiContext &ctx) {
+				if (!SectionOuverte("ALIGNER LA SÉLECTION"))
+					return;
+				auto &F = costume::Fontes();
+				auto &dl = ctx.DL();
+				const uint32 nSel = mSt->sel.Count() > 0u
+										? mSt->sel.Count()
+										: ((mSt->doc.IsValidIndex(mSt->selected) && mSt->selected != 0) ? 1u : 0u);
+				{
+					const NkRect r = ctx.NextItemRect(-1.f, 22.f);
+					char quoi[140];
+					if (nSel == 0u)
+						snprintf(quoi, sizeof(quoi), "rien de sélectionné");
+					else if (nSel == 1u)
+						snprintf(quoi, sizeof(quoi), "1 élément — référence : sa PAGE");
+					else if (mAlignSurDernier)
+						snprintf(quoi, sizeof(quoi), "%u éléments — référence : le DERNIER sélectionné", nSel);
+					else
+						snprintf(quoi, sizeof(quoi), "%u éléments — référence : la SÉLECTION", nSel);
+					costume::Texte(dl, F.px9, r.x + 12.f, costume::CentrerY(F.px9, r.y, 22.f), quoi, ctx.theme.textMuted);
+				}
+				static const char *const kNom[8] = {"Gauche", "Centre H", "Droite", "Répartir H",
+													"Haut",   "Milieu",   "Bas",    "Répartir V"};
+				// l'ordre de l'ÉCRAN (deux rangées de quatre) n'est pas celui de l'énumération :
+				// la table dit lequel est lequel, une fois.
+				static const NkAlignGeste kGeste[8] = {NkAlignGeste::Gauche,	NkAlignGeste::CentreH,
+													   NkAlignGeste::Droite,	NkAlignGeste::RepartirH,
+													   NkAlignGeste::Haut,		NkAlignGeste::Milieu,
+													   NkAlignGeste::Bas,		NkAlignGeste::RepartirV};
+				for (int32 rangee = 0; rangee < 2; ++rangee) {
+					const NkRect r = ctx.NextItemRect(-1.f, 26.f);
+					const float32 x0 = r.x + 12.f, x1 = r.x + r.w - 12.f;
+					const float32 bw = (x1 - x0 - 3.f * 4.f) / 4.f;
+					for (int32 k = 0; k < 4; ++k) {
+						const int32 idx = rangee * 4 + k;
+						const NkAlignGeste g = kGeste[idx];
+						const bool actif = NkAlignEstRepartir(g) ? (nSel >= 3u) : (nSel >= 1u);
+						const NkRect cb = {x0 + (bw + 4.f) * (float32)k, costume::BandeY(r.y), bw, costume::HControle};
+						const bool sv = actif && ctx.popupDepth == 0 && NkGuiRectContains(cb, ctx.input.mousePos);
+						dl.AddRectFilled(cb, sv ? ctx.theme.rowHover : CouleurInput(), 4.f);
+						dl.AddRect(cb, sv ? ctx.theme.accent : ctx.theme.border, 1.f, 4.f);
+						const nkgui::NkColor encre = actif ? ctx.theme.text : ctx.theme.textDisabled;
+						costume::TexteTronque(dl, F.px9, cb.x + 4.f, costume::CentrerY(F.px9, cb.y, cb.h), kNom[idx],
+											  cb.w - 8.f, encre);
+						mRectAligner[idx] = cb; // exposé pour la sonde : le peint, pas une géométrie devinée
+						if (sv && ctx.input.mouseClicked[0]) {
+							ctx.input.mouseClicked[0] = false;
+							const NkAlignResultat res = NkAlignerSelection(*mSt, g, mAlignSurDernier);
+							mSt->DireAuPied(res.message);
+							if (res.refuses > 0u)
+								mSt->Consigner(res.message);
+						} else if (sv)
+							mSt->status = NkString(NkAlignGesteNom(g));
+					}
+				}
+				{ // la bascule « sur le dernier sélectionné » (l'objet clé de Lunacy)
+					const NkRect r = ctx.NextItemRect(-1.f, 26.f);
+					const NkRect cb = {r.x + 12.f, costume::BandeY(r.y), r.w - 24.f, costume::HControle};
+					const bool actif = nSel >= 2u;
+					const bool sv = actif && ctx.popupDepth == 0 && NkGuiRectContains(cb, ctx.input.mousePos);
+					nkgui::NkColor fond = mAlignSurDernier ? ctx.theme.accent : CouleurInput();
+					if (mAlignSurDernier)
+						fond.a = 120;
+					dl.AddRectFilled(cb, sv ? ctx.theme.rowHover : fond, 4.f);
+					dl.AddRect(cb, (sv || mAlignSurDernier) ? ctx.theme.accent : ctx.theme.border, 1.f, 4.f);
+					const char *lib = mAlignSurDernier ? "✓ sur le dernier sélectionné" : "sur le dernier sélectionné";
+					costume::Texte(dl, F.px9, cb.x + 8.f, costume::CentrerY(F.px9, cb.y, cb.h), lib,
+								   actif ? ctx.theme.text : ctx.theme.textDisabled);
+					mRectAlignCle = cb;
+					if (sv && ctx.input.mouseClicked[0]) {
+						ctx.input.mouseClicked[0] = false;
+						mAlignSurDernier = !mAlignSurDernier;
+					}
+				}
+			}
+
 			void CorpsAlignement(NkGuiContext &ctx) {
 				if (!SectionOuverte("ALIGNEMENT"))
 					return;
@@ -16595,6 +16695,10 @@ namespace nkuidesign {
 			/// ⑩ Les deux rectangles de la rangée « Arrondi » à la dernière image : l'aide
 			///    réellement peinte et le bouton qu'elle ne doit pas atteindre.
 			NkRect mRectAideArrondi = {0.f, 0.f, 0.f, 0.f};
+			/// ⑥ les huit boutons d'alignement et la bascule « clé », à la dernière image
+			NkRect mRectAligner[8] = {};
+			NkRect mRectAlignCle = {0.f, 0.f, 0.f, 0.f};
+			bool mAlignSurDernier = false;
 			NkRect mRectBoutonArrondi = {0.f, 0.f, 0.f, 0.f};
 			char mFiltreVars[48] = {0}; ///< ③ la recherche de la liste « Lier ˅ »
 			bool mVarsDeplie = false; ///< la liste des variables depliee sous « Lier ˅ » (popover)

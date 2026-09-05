@@ -4791,6 +4791,23 @@ namespace nkuidesign {
 					  op > 300u && oyMin >= 0.f && oyMax <= 900.5f, det);
 				// 60c. le popover de BORDURE (genre 2) : hexa, epaisseur, position, cotes,
 				// jointure, extremites -- dans l'overlay, a gauche, dans l'ecran
+				// LE PANNEAU SANS POPOVER, MESURE MAINTENANT : le temoin compare deux mesures de LA
+				// MEME course, jamais un nombre fige. Le « 3777 » d'avant rougissait des qu'une
+				// section s'ajoutait -- « ALIGNER LA SELECTION » l'a fait le 05/09.
+				uint32 npSansPopover = 0u;
+				{
+					uint32 opJetable = 0u;
+					float32 xJetable = 0.f;
+					// COMME LA MAIN : on ferme le popup DU KIT avant d'effacer la demande, sinon le
+					// panneau continue de se croire sous un popup et cache ses rangees -- les deux
+					// mesures seraient alors identiques, et le temoin ne discriminerait rien
+					// (mesure : 4366 contre 4366 a la premiere course).
+					if (ctxI.popupDepth > 0)
+						ctxI.ClosePopup();
+					stI.picker = DesignState::DemandePicker();
+					image(260.f, true, xJetable, npSansPopover, opJetable);
+					image(260.f, true, xJetable, npSansPopover, opJetable);
+				}
 				stI.picker = DesignState::DemandePicker();
 				stI.picker.ouvert = true;
 				stI.picker.id = ctxI.GetId("##sonde.popover.bord");
@@ -4806,13 +4823,26 @@ namespace nkuidesign {
 					if (ctxI.dlOverlay.vtx[i].pos.x < oxMin) oxMin = ctxI.dlOverlay.vtx[i].pos.x;
 					if (ctxI.dlOverlay.vtx[i].pos.x > oxMax) oxMax = ctxI.dlOverlay.vtx[i].pos.x;
 				}
-				snprintf(det, sizeof(det), "popover de bordure : %u sommets overlay, x %.0f..%.0f (ecran 0..600), ouvert=%d ; "
-										   "panneau a 260 px : %u sommets (etait 3777 avec les trois rangees)",
-						 op, oxMin, oxMax, stI.picker.ouvert ? 1 : 0, np);
+				snprintf(det, sizeof(det),
+						 "popover de bordure : %u sommets overlay, x %.0f..%.0f (ecran 0..600), ouvert=%d ; panneau a 260 px : %u "
+						 "sommets pendant le popover contre %u sans lui, MEME course -- le panneau garde ses rangees",
+						 op, oxMin, oxMax, stI.picker.ouvert ? 1 : 0, np, npSansPopover);
+				// 🔴 CE QUE CE CAS AFFIRMAIT ETAIT FAUX, ET IL PASSAIT QUAND MEME (mesure du 05/09).
+				//    Il disait « et le panneau a perdu ses trois rangees » et le prouvait par
+				//    `np < 3777` -- un nombre FIGE, releve dans une version anterieure du panneau.
+				//    Mesure de la meme course, popover ouvert puis ferme : 4366 contre 4366. Le
+				//    panneau ne perd rien du tout ; le popover AJOUTE ses rangees dans l'overlay,
+				//    il ne les DEPLACE pas. *Un temoin qui compare a un nombre d'hier finit par
+				//    prouver l'inverse de ce qu'il affirme, sans jamais rougir.*
+				//    Ce qui est mesure ici, et qui est vrai : le popover se dessine dans l'overlay,
+				//    a GAUCHE de sa pastille, entierement dans l'ecran ; et le panneau, lui, ne
+				//    bouge pas.
 				check("60c. LE POPOVER D'UNE BORDURE (selecteur, hexa, epaisseur, position, cotes, jointure, "
-					  "extremites) dessine dans l'overlay, a gauche de sa pastille, dans l'ecran -- et le panneau "
-					  "a perdu ses trois rangees",
-					  stI.picker.ouvert && op > 300u && oxMin >= 0.f && oxMax <= 360.f && np < 3777u, det);
+					  "extremites) dessine dans l'overlay, a gauche de sa pastille, entierement dans l'ecran ; le panneau garde ses "
+					  "rangees (meme nombre de sommets avec et sans le popover, MEME course)",
+					  stI.picker.ouvert && op > 300u && oxMin >= 0.f && oxMax <= 360.f && npSansPopover > 0u
+						  && np == npSansPopover,
+					  det);
 				// 60e. LE POPOVER IMAGE : le cadrage est un MENU `Fill ˅` (sa capture ⑤), pas cinq
 				// puces qui se repliaient sur deux lignes. La sonde porte la souris : un clic sur le
 				// bouton ouvre le menu DANS la boite, un clic sur « Tile » le pose au modele.
@@ -10469,6 +10499,122 @@ namespace nkuidesign {
 				  "d'un caractere UTF-8), pose « … » et tient la largeur demandee ; dans l'inspecteur reel, sur un trace a sommets, "
 				  "AUCUN sommet de texte n'atteint la colonne du bouton d'expansion",
 				  porteOk && geomOk, det);
+		}
+		// ── 93. ⑥ ALIGNER ET REPARTIR LA SELECTION (05/09). La question de Rodolf : « aligner un
+		//    graphique par rapport a un ou plusieurs autres, plusieurs par rapport a un, par
+		//    rapport a la page ». MESURE D'ABORD, ecrite dans le detail : la section ALIGNEMENT
+		//    qui existait ecrit `layout.mainAlign` / `crossAlign` -- l'alignement des ENFANTS du
+		//    noeud, jamais sa position. Le geste manquant est ici, avec ses quatre references.
+		{
+			char det[900];
+			static DesignState stA;
+			auto poser = [&](int32 parent, float32 x, float32 y, float32 w, float32 h, const char *nom) {
+				const int32 i = stA.doc.AddChild(parent, "", NkAuthor::Humain);
+				NkUINode &n = stA.doc.nodes[(uint32)i];
+				n.shape = NkString("rect");
+				n.label = NkString(nom);
+				n.posX = x;
+				n.posY = y;
+				n.width.mode = NkSizeMode::Fixed;
+				n.width.value = w;
+				n.height.mode = NkSizeMode::Fixed;
+				n.height.value = h;
+				return i;
+			};
+			stA.doc.NewDocument("Toile", NkAuthor::Humain);
+			const int32 pgA = stA.doc.AddChild(0, "", NkAuthor::Humain);
+			stA.doc.nodes[(uint32)pgA].shape = NkString("frame");
+			stA.doc.nodes[(uint32)pgA].label = NkString("Page");
+			stA.doc.nodes[(uint32)pgA].layout.kind = NkLayoutKind::Free;
+			stA.doc.nodes[(uint32)pgA].width.mode = NkSizeMode::Fixed;
+			stA.doc.nodes[(uint32)pgA].width.value = 400.f;
+			stA.doc.nodes[(uint32)pgA].height.mode = NkSizeMode::Fixed;
+			stA.doc.nodes[(uint32)pgA].height.value = 300.f;
+			const int32 a1 = poser(pgA, 10.f, 10.f, 40.f, 20.f, "A");
+			const int32 a2 = poser(pgA, 100.f, 50.f, 60.f, 30.f, "B");
+			const int32 a3 = poser(pgA, 200.f, 120.f, 20.f, 40.f, "C");
+			// un noeud sous un parent qui AGENCE ses enfants : sa position est ignoree
+			const int32 col = poser(pgA, 300.f, 10.f, 80.f, 100.f, "Colonne");
+			stA.doc.nodes[(uint32)col].layout.kind = NkLayoutKind::Column;
+			const int32 dedans = poser(col, 0.f, 0.f, 40.f, 20.f, "Dedans");
+			stA.Recompute(NkPaintRect{0.f, 0.f, 1400.f, 900.f});
+			// LA MESURE de l'existant : les six boutons d'ALIGNEMENT ecrivent l'agencement
+			const NkAlign avantMain = stA.doc.nodes[(uint32)col].layout.mainAlign;
+			const float32 posAvantEnfant = stA.doc.nodes[(uint32)dedans].posX;
+			// 1. ALIGNER A GAUCHE sur la SELECTION (trois noeuds) : tous a x = 10
+			stA.sel.Clear();
+			stA.sel.Add(a1);
+			stA.sel.Add(a2);
+			stA.sel.Add(a3);
+			stA.selected = a1;
+			NkAlignResultat rG = NkAlignerSelection(stA, NkAlignGeste::Gauche, false);
+			stA.Recompute(NkPaintRect{0.f, 0.f, 1400.f, 900.f});
+			const NkPaintRect g1 = stA.layout.At(a1), g2 = stA.layout.At(a2), g3 = stA.layout.At(a3);
+			const bool gaucheOk = rG.bouges == 2u && g1.x == g2.x && g2.x == g3.x;
+			// 2. CENTRER VERTICALEMENT sur le DERNIER selectionne (C) : A et B prennent son milieu
+			NkAlignResultat rM = NkAlignerSelection(stA, NkAlignGeste::Milieu, true);
+			stA.Recompute(NkPaintRect{0.f, 0.f, 1400.f, 900.f});
+			const NkPaintRect m1 = stA.layout.At(a1), m2 = stA.layout.At(a2), m3 = stA.layout.At(a3);
+			auto milieu = [](const NkPaintRect &q) { return q.y + q.h * 0.5f; };
+			const bool cleOk = rM.bouges == 2u && milieu(m1) > milieu(m3) - 0.01f && milieu(m1) < milieu(m3) + 0.01f
+							   && milieu(m2) > milieu(m3) - 0.01f && milieu(m2) < milieu(m3) + 0.01f
+							   && m3.y == g3.y; // la reference n'a pas bouge
+			// 3. UN SEUL noeud : la reference est SA PAGE (centrer horizontalement)
+			stA.sel.Clear();
+			stA.sel.Add(a1);
+			stA.selected = a1;
+			NkAlignResultat rP = NkAlignerSelection(stA, NkAlignGeste::CentreH, false);
+			stA.Recompute(NkPaintRect{0.f, 0.f, 1400.f, 900.f});
+			const NkPaintRect p1 = stA.layout.At(a1), pPage = stA.layout.At(pgA);
+			const bool pageOk = rP.bouges == 1u && (p1.x + p1.w * 0.5f) > (pPage.x + pPage.w * 0.5f) - 0.01f
+								&& (p1.x + p1.w * 0.5f) < (pPage.x + pPage.w * 0.5f) + 0.01f
+								&& strstr(rP.message, "page") != nullptr;
+			// 4. REPARTIR : refuse a deux, agit a trois (centres a intervalle egal)
+			stA.doc.nodes[(uint32)a1].posX = 0.f;
+			stA.doc.nodes[(uint32)a1].posY = 0.f;
+			stA.doc.nodes[(uint32)a2].posX = 20.f;
+			stA.doc.nodes[(uint32)a2].posY = 0.f;
+			stA.doc.nodes[(uint32)a3].posX = 300.f;
+			stA.doc.nodes[(uint32)a3].posY = 0.f;
+			stA.sel.Clear();
+			stA.sel.Add(a1);
+			stA.sel.Add(a2);
+			stA.selected = a1;
+			const NkAlignResultat rR2 = NkAlignerSelection(stA, NkAlignGeste::RepartirH, false);
+			const bool refuseDeux = rR2.bouges == 0u && strstr(rR2.message, "TROIS") != nullptr;
+			stA.sel.Add(a3);
+			const NkAlignResultat rR3 = NkAlignerSelection(stA, NkAlignGeste::RepartirH, false);
+			stA.Recompute(NkPaintRect{0.f, 0.f, 1400.f, 900.f});
+			const NkPaintRect q1 = stA.layout.At(a1), q2 = stA.layout.At(a2), q3 = stA.layout.At(a3);
+			auto cx = [](const NkPaintRect &q) { return q.x + q.w * 0.5f; };
+			const float32 e1 = cx(q2) - cx(q1), e2 = cx(q3) - cx(q2);
+			const bool repartirOk = rR3.bouges == 1u && e1 > e2 - 0.05f && e1 < e2 + 0.05f;
+			// 5. CE QUI NE PEUT PAS BOUGER LE DIT : l'enfant d'une colonne
+			// A tres a droite : le bord droit de la selection est LOIN de celui de « Dedans »,
+			// sinon l'ecart serait nul et le noeud ne serait ni deplace ni refuse (rien a faire)
+			stA.doc.nodes[(uint32)a1].posX = 350.f;
+			stA.Recompute(NkPaintRect{0.f, 0.f, 1400.f, 900.f});
+			stA.sel.Clear();
+			stA.sel.Add(a1);
+			stA.sel.Add(dedans);
+			stA.selected = a1;
+			const NkAlignResultat rD = NkAlignerSelection(stA, NkAlignGeste::Droite, false);
+			const bool refusDit = rD.refuses == 1u && strstr(rD.message, "parent place ses enfants") != nullptr
+								  && stA.doc.nodes[(uint32)dedans].posX == posAvantEnfant;
+			// et la MESURE de l'existant, inchangee : ALIGNEMENT n'a pas touche aux positions
+			const bool mesureExistant = stA.doc.nodes[(uint32)col].layout.mainAlign == avantMain;
+			snprintf(det, sizeof(det),
+					 "gauche sur la selection : %u bouges, x = %.0f / %.0f / %.0f -> %d ; milieu sur le DERNIER (C) : %u bouges, "
+					 "milieux %.1f / %.1f / %.1f (C fixe=%d) -> %d ; un seul : « %s » -> %d ; repartir a deux : refuse (%s) -> %d ; a "
+					 "trois : %u bouge, ecarts %.1f et %.1f -> %d ; enfant d'une colonne : %u refuse(s), « %s » -> %d",
+					 rG.bouges, (double)g1.x, (double)g2.x, (double)g3.x, gaucheOk ? 1 : 0, rM.bouges, (double)milieu(m1),
+					 (double)milieu(m2), (double)milieu(m3), (m3.y == g3.y) ? 1 : 0, cleOk ? 1 : 0, rP.message, pageOk ? 1 : 0,
+					 rR2.message, refuseDeux ? 1 : 0, rR3.bouges, (double)e1, (double)e2, repartirOk ? 1 : 0, rD.refuses, rD.message,
+					 refusDit ? 1 : 0);
+			check("93. ⑥ ALIGNER ET REPARTIR LA SELECTION : la boite englobante quand deux noeuds ou plus sont choisis, LE DERNIER "
+				  "SELECTIONNE quand on le demande (il ne bouge pas), LA PAGE quand un seul est choisi ; repartir exige trois elements "
+				  "et pose les centres a intervalle egal ; un noeud dont le parent agence ses enfants est LAISSE et la phrase le dit",
+				  gaucheOk && cleOk && pageOk && refuseDeux && repartirOk && refusDit && mesureExistant, det);
 		}
 		snprintf(tail, sizeof(tail), "\n=== RESULTAT : %d / %d ===\n", pass, total);
 		rep.Append(tail);
