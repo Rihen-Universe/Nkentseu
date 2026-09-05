@@ -355,6 +355,32 @@ recette : « livré » se mesure, il ne se déclare pas.*
   la 92 ne mesurait qu'une **largeur** (pas la chaîne tronquée), la 99 ne
   mesurait que **le modèle** (pas le dessin), et la première version de la 105
   comptait des rangées que `NkRecordingPaint` enregistre **même hors champ**.
+- **Où vit le sélecteur de fichiers, et pourquoi** (question de Rodolf, 05/09) —
+  il est dans **NKEditorKit** (`Engine/NKEditorKit/NkFilePickerNav.h`), **pas**
+  dans NKGui, et c'est le bon endroit. NKGui est la bibliothèque d'**interface
+  immédiate** — boutons, fenêtres, listes, dessin ; NKEditorKit est la couche
+  d'**outils d'éditeur** posée au-dessus, que **les neuf** applications
+  consomment déjà. Le descendre dans NKGui y ferait descendre avec lui le
+  **système de fichiers**, les **vignettes** et le **cache d'images** — trois
+  choses qu'une bibliothèque de dessin ne doit rien savoir. Une application
+  non-éditeur qui en voudrait consomme NKEditorKit, exactement comme les neuf.
+
+- **Le sélecteur après la troisième passe de Rodolf** (05/09, nuit — sept
+  retours) : ④ les boutons **débordaient de quatre pixels** (trois hauteurs
+  posées à la main dont la somme dépassait la réserve) ; la géométrie est
+  désormais une **fonction nommée** que le dessin et la sonde appellent
+  (sonde 110). ① la grille laissait une **bande morte à droite** — le reste de
+  la division se répartit sur les colonnes (sonde 111). ②③ les dossiers ont une
+  **silhouette** et chaque type son **icône dessinée** — onze natures, onze
+  empreintes distinctes, **jamais un glyphe de police** ; un `.png` sans vignette
+  ne ressemble plus à un dossier (sonde 112). ⑥ une **API de filtres** nommés,
+  choisis dans un combo, valable dans les quatre modes, **les dossiers toujours
+  visibles** (sonde 113). ⑤ le tri devient un **combo** : nom, date, taille,
+  type, dans les deux sens — date et taille étaient « nommés, non faits », le
+  système de fichiers les donnait déjà (sonde 114). ⑥ le rail montre un **nom**
+  et non un chemin, et son **infobulle** porte le chemin complet — le champ que
+  j'avais déclaré impossible est **additif**, défaut vide (sonde 115). ⑦ un seul
+  lanceur système : `NkLauncher`.
 - **Ce que Lunacy n'a pas et que nous avons** (§11.3 du document 13) :
   l'**agencement** calculé, l'**ancrage**, les **cibles** et **points de
   rupture**, les **rôles de thème** et les **langues**. *Aucun n'est sacrifié
