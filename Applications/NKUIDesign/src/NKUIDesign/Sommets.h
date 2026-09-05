@@ -653,7 +653,7 @@ namespace nkuidesign {
 		if (!xy || nb < 2)
 			return -1;
 		int32 best = -1;
-		float32 bestD2 = 0.f, bestT = 0.f;
+		float32 bestD2 = 0.f, bestT = 0.f, bestQx = 0.f, bestQy = 0.f;
 		for (uint32 i = 0; i < nb; ++i) {
 			const uint32 j = (i + 1) % nb;
 			const float32 ax = xy[i * 2], ay = xy[i * 2 + 1];
@@ -673,6 +673,8 @@ namespace nkuidesign {
 				best = (int32)i;
 				bestD2 = d2;
 				bestT = u;
+				bestQx = qx;
+				bestQy = qy;
 			}
 		}
 		t = bestT;
@@ -681,7 +683,13 @@ namespace nkuidesign {
 		//    à 1 px (1² = 1) et menti partout ailleurs — une tolérance de 10 px
 		//    aurait accepté tout ce qui est à moins de 10 px… au carré, soit
 		//    3,2 px. Le genre de faute qui passe la relecture.
-		dist = NkLongueur2D(bestD2, 0.f);
+		// 🔴 ET C'ETAIT PRECISEMENT LA FAUTE, SOUS LE COMMENTAIRE QUI L'INTERDIT (mesure
+		//    le 05/09 par la sonde 75 : « segment 0 a 100,0 px » pour un point a 10 px) :
+		//    `NkLongueur2D(bestD2, 0.f)` vaut sqrt(bestD2^2) = bestD2, LE CARRE. Une
+		//    tolerance de 6 px acceptait donc 2,4 px -- c'est pourquoi « cliquer un cote
+		//    en ajoute un » ne se faisait presque jamais. *Une justification ecrite se
+		//    croit* : la vraie longueur se prend au point le plus proche, pas au carre.
+		dist = best >= 0 ? NkLongueur2D(px - bestQx, py - bestQy) : 0.f;
 		return best;
 	}
 

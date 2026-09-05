@@ -8423,21 +8423,124 @@ namespace nkuidesign {
 				// le meme clic a la position NON tournee du sommet (l'ancien dessin) ne prend rien
 				stE.modeForme.tire = -1;
 				stE.modeForme.sommet = -1;
-				const float32 qx = nbS ? sx[0] : 0.f, qy = nbS ? sx[1] : 0.f;
-				const float32 ecart = NkLongueur2D(qx - px, qy - py);
+				// 40 px au-dela du coin NON tourne, loin de tout cote du contour tourne (mesure :
+				// un clic a moins de 12 px d'un cote y AJOUTE un sommet, et c'est voulu)
+				const float32 qx = nbS ? sx[0] - 40.f : 0.f, qy = nbS ? sx[1] - 40.f : 0.f;
+				float32 ctT[64];
+				for (uint32 i = 0; i < nbS * 2u; ++i)
+					ctT[i] = sx[i];
+				NkMatContour(NkMatEffective(stE.doc, scr, rc), ctT, nbS);
+				float32 tL = 0.f, dLoin = 0.f;
+				(void)NkSegmentLePlusProche(ctT, nbS, qx, qy, tL, dLoin);
+				const float32 ecart = dLoin;
 				image(qx, qy, false);
 				image(qx, qy, true);
 				const int32 tireDroit = stE.modeForme.tire;
 				image(qx, qy, false);
 				image(-1.f, -1.f, false);
 				stE.modeForme.Quitter();
-				snprintf(det, sizeof(det), "poignees pres des 4 sommets TOURNES : %u/4 ; pres des positions non tournees : %u (attendu 0) [%.0f%.0f%.0f%.0f%.0f%.0f%.0f%.0f] ; "
-										   "clic sur la position ecran du sommet 0 (%.0f,%.0f) -> tire=%d ; a sa position non tournee (%.0f,%.0f, a %.0f px) -> tire=%d",
-						 nF, fx0, fx1, fy0, fy1, nA, ax0, ax1, ay0, ay1, px, py, tire, qx, qy, ecart, tireDroit);
+				(void)fx0; (void)fx1; (void)fy0; (void)fy1; (void)ax0; (void)ax1; (void)ay0; (void)ay1;
+				snprintf(det, sizeof(det), "poignees pres des 4 sommets TOURNES : %u/4 ; pres des positions non tournees : %u (attendu 0) ; "
+										   "clic sur la position ecran du sommet 0 (%.0f,%.0f) -> tire=%d ; loin du contour tourne (%.0f,%.0f, a %.0f px du cote le plus proche) -> tire=%d",
+						 nF, nA, px, py, tire, qx, qy, ecart, tireDroit);
 				check("74. LE MODE EDITION SOUS LA MATRICE, sur la vraie toile : un rect tourne de 30° au coin coupe -- le "
 					  "poignees d'edition sont aux positions ECRAN tournees des sommets, aucune aux positions droites ; un clic "
-					  "sur la position ECRAN d'un sommet le prend, un clic a sa position non tournee ne prend rien",
+					  "sur la position ECRAN d'un sommet le prend, un clic loin du contour tourne ne prend rien",
 					  memeRepere && tire == 0 && tireDroit < 0 && ecart > 20.f, det);
+			}
+		}
+		// ── 75. ② LES POIGNEES D'EDITION SE PRENNENT A 12 PX (la tolerance nommee) : un clic a
+		//    10 px d'un sommet le prend, a 10 px d'un cote en ajoute un ; a 16 px, rien.
+		{
+			static nkgui::NkGuiContext ctxT;
+			char det[400];
+			if (!ctxT.Init(600, 900)) {
+				check("75. la tolerance des poignees d'edition", false, "Init a refuse");
+			} else {
+				static DesignState stT;
+				stT.doc.NewDocument("Toile", NkAuthor::Humain);
+				const int32 pg = stT.doc.AddChild(0, "", NkAuthor::Humain);
+				stT.doc.nodes[(uint32)pg].shape = NkString("frame");
+				stT.doc.nodes[(uint32)pg].layout.kind = NkLayoutKind::Free;
+				stT.doc.nodes[(uint32)pg].width.mode = NkSizeMode::Fixed;
+				stT.doc.nodes[(uint32)pg].width.value = 400.f;
+				stT.doc.nodes[(uint32)pg].height.mode = NkSizeMode::Fixed;
+				stT.doc.nodes[(uint32)pg].height.value = 300.f;
+				const int32 rc = stT.doc.AddChild(pg, "", NkAuthor::Humain);
+				{
+					NkUINode &n = stT.doc.nodes[(uint32)rc];
+					n.shape = NkString("rect");
+					n.posX = 100.f;
+					n.posY = 80.f;
+					n.width.mode = NkSizeMode::Fixed;
+					n.width.value = 160.f;
+					n.height.mode = NkSizeMode::Fixed;
+					n.height.value = 80.f;
+					NkRemplissage f;
+					f.couleur = NkString("#123456");
+					n.fills.PushBack(f);
+				}
+				stT.Recompute(NkPaintRect{0.f, 0.f, 600.f, 900.f});
+				stT.SelectSingle(rc);
+				stT.modeForme.noeud = rc;
+				static PreviewPanel toileT(&stT);
+				NkEditorFrameContext ec;
+				ec.ui = &ctxT;
+				ec.dt = 0.016f;
+				auto image = [&](float32 mx, float32 my, bool bas) {
+					ctxT.input.mousePos = {mx, my};
+					ctxT.input.mouseDown[0] = bas;
+					ctxT.BeginFrame(0.016f);
+					ctxT.BeginLayout({0.f, 0.f, 600.f, 900.f});
+					toileT.OnUI(ec);
+					ctxT.EndFrame();
+				};
+				auto clic = [&](float32 x, float32 y) {
+					image(-1.f, -1.f, false);
+					image(x, y, false);
+					image(x, y, true);
+					const int32 t = stT.modeForme.tire;
+					image(x, y, false);
+					image(-1.f, -1.f, false);
+					return t;
+				};
+				for (int32 k = 0; k < 3; ++k)
+					image(-1.f, -1.f, false);
+				NkLayoutResult scr;
+				stT.ProjectToScreen(scr);
+				const NkPaintRect rs = scr.At(rc);
+				float32 sx[64];
+				const uint32 nbS = NkSommetsDe(stT.doc.nodes[(uint32)rc], rs, sx, 32);
+				// le sommet 0 (haut-gauche) : a 10 px en diagonale hors du coin (7 px sur chaque axe)
+				const int32 aExact = clic(sx[0], sx[1]);
+				const int32 noeudApres0 = stT.modeForme.noeud, selApres0 = stT.selected;
+				stT.modeForme.tire = -1;
+				stT.modeForme.noeud = rc;
+				stT.SelectSingle(rc);
+				image(-1.f, -1.f, false);
+				const int32 a10 = clic(sx[0] - 7.f, sx[1] - 7.f);
+				const int32 noeudApres = stT.modeForme.noeud, selApres = stT.selected;
+				stT.modeForme.tire = -1;
+				stT.modeForme.noeud = rc;
+				stT.SelectSingle(rc);
+				image(-1.f, -1.f, false);
+				// a 28 px sur la diagonale (20 par axe : loin du sommet ET des deux cotes) : rien
+				const int32 a16 = clic(sx[0] - 20.f, sx[1] - 20.f);
+				stT.modeForme.tire = -1;
+				// un cote : le milieu du haut, a 10 px au-dessus -> un sommet est ajoute (5 sommets)
+				const uint32 avant = (uint32)stT.doc.nodes[(uint32)rc].sommets.Size();
+				stT.status = NkString();
+				float32 tC = 0.f, dC = 0.f;
+				const int32 segC = NkSegmentLePlusProche(sx, nbS, rs.x + rs.w * 0.5f, rs.y - 10.f, tC, dC);
+				const int32 aCote = clic(rs.x + rs.w * 0.5f, rs.y - 10.f);
+				const uint32 apres = (uint32)stT.doc.nodes[(uint32)rc].sommets.Size();
+				const NkString statusCote = stT.status;
+				stT.modeForme.Quitter();
+				snprintf(det, sizeof(det), "%u sommets (sommet 0 a %.0f,%.0f) ; exact -> tire=%d (mode %d sel %d) ; a 10 px -> tire=%d (mode %d sel %d) ; a 28 px -> tire=%d ; a 10 px du cote haut (segment %d a %.1f px) -> tire=%d, sommets %u -> %u, pied « %s »",
+						 nbS, sx[0], sx[1], aExact, noeudApres0, selApres0, a10, noeudApres, selApres, a16, segC, dC, aCote, avant, apres, statusCote.Data() ? statusCote.Data() : "");
+				check("75. ② LES POIGNEES D'EDITION SE PRENNENT A 12 PX (la tolerance nommee, la meme que les poignees de forme et de "
+					  "degrade) : a 10 px d'un sommet il est pris, a 16 px rien ; a 10 px d'un cote un sommet s'ajoute",
+					  nbS == 4u && a10 == 0 && a16 < 0 && aCote >= 0 && apres == avant + 1u + (avant == 0u ? 4u : 0u), det);
 			}
 		}
 		snprintf(tail, sizeof(tail), "\n=== RESULTAT : %d / %d ===\n", pass, total);

@@ -3804,6 +3804,45 @@ namespace nkuidesign {
 				// noeud et la toile. Le point souris est ramene dans le repere de l'objet.
 				// La garde refuse le pointeur SUR un popup, rien d'autre (le popover de
 				// remplissage est ouvert pendant qu'on regle un degrade).
+				// ② LE MODE ÉDITION RÉCLAME SON CLIC AVANT LA TOILE (la règle du 03/09) : à
+				//    moins de NkTolerancePoignee() d'un sommet, d'une tangente ou d'un côté du
+				//    nœud édité (souris ramenée par l'inverse), un clic n'est pas « dans le
+				//    vide » -- la sélection ne le voit pas (elle quitterait le mode), le bloc
+				//    d'édition, qui lit `ctx.input.mouseClicked`, le prend. Sans ceci, la
+				//    tolérance de 12 px ne valait que DANS la forme. Et il passe AVANT les arcs de
+				//    rotation et les poignées de forme, qui réclament aussi sur `in.mousePressed` :
+				//    la zone la plus spécifique d'abord.
+				if (in.mousePressed && ctx.popupDepth == 0 && NkModePointsArme(mSt->modeForme.noeud, mSt->selected)
+					&& screen.Has(mSt->modeForme.noeud)) {
+					const NkUINode &pe = mSt->doc.nodes[(uint32)mSt->modeForme.noeud];
+					const NkPaintRect re = screen.At(mSt->modeForme.noeud);
+					float32 xe[64];
+					const uint32 nbE = NkSommetsDe(pe, re, xe, 32);
+					float32 mx = in.mouseX, my = in.mouseY;
+					NkMatPoint(NkMatInverse(NkMatEffective(mSt->doc, screen, mSt->modeForme.noeud)), mx, my);
+					const float32 tol = NkTolerancePoignee();
+					bool reclame = NkAncreLaPlusProche(xe, nbE, mx, my, tol) >= 0;
+					if (!reclame && nbE >= 2u) {
+						float32 t = 0.f, d = 0.f;
+						reclame = NkSegmentLePlusProche(xe, nbE, mx, my, t, d) >= 0 && d <= tol;
+					}
+					if (!reclame) { // les poignées de tangente des sommets marqués
+						const float32 hxT = re.w * 0.5f, hyT = re.h * 0.5f;
+						for (uint32 i = 0; i < nbE && i < (uint32)pe.sommets.Size() && !reclame; ++i) {
+							if (!mSt->modeForme.Marque((int32)i) || pe.sommets[i].liaison == NkPoint2::LiaisonDroit)
+								continue;
+							const NkPoint2 &sp = pe.sommets[i];
+							for (uint32 cote = 0; cote < 2u && !reclame; ++cote) {
+								const float32 tx = cote == 0 ? sp.ex : sp.sx, ty = cote == 0 ? sp.ey : sp.sy;
+								if (tx == 0.f && ty == 0.f)
+									continue;
+								reclame = NkLongueur2D(mx - (xe[i * 2] + tx * hxT), my - (xe[i * 2 + 1] + ty * hyT)) <= tol;
+							}
+						}
+					}
+					if (reclame)
+						in.mousePressed = false;
+				}
 				if (!modeGraphe && !mMenuCtx.open && in.mousePressed && !NkSourisSurPopup(ctx)
 					&& mSt->doc.IsValidIndex(mSt->selected) && mSt->selected != 0
 					&& screen.Has(mSt->selected)) {
@@ -4560,6 +4599,11 @@ namespace nkuidesign {
 					const NkVec2 msEcran = ctx.input.mousePos;
 					NkVec2 ms = msEcran;
 					NkMatPoint(mEditInv, ms.x, ms.y);
+					// ② LA TOLERANCE DES POIGNEES D'EDITION (Rodolf, 05/09 : « pas un rayon assez
+					//    grand pour les deplacer ou les selectionner ») : la meme distance nommee
+					//    que les poignees de forme et de degrade -- 12 px ecran -- pour les
+					//    sommets, les tangentes et les cotes ; la plus proche gagne (NkAQuiLAncre)
+					const float32 tolSommet = NkTolerancePoignee();
 					const bool dansToile = ctx.popupDepth == 0 && NkGuiRectContains(area, msEcran);
 					// ── LE DOUBLE-CLIC SUR UN SOMMET L'ARRONDIT ──────────────
 					// Retour de Rodolf, 01/09 : *« si on double-clique sur une
@@ -4571,7 +4615,7 @@ namespace nkuidesign {
 					//    serait parti sur un sommet qu'on vient de bouger d'un
 					//    pixel. *Le geste le plus spécifique se lit en premier.*
 					if (ctx.input.mouseDoubleClicked[0] && dansToile) {
-						const int32 ia = NkAncreLaPlusProche(xy, nbS, ms.x, ms.y, hs + 3.f);
+						const int32 ia = NkAncreLaPlusProche(xy, nbS, ms.x, ms.y, tolSommet);
 						if (ia >= 0) {
 							NkUINode &pa = mSt->doc.nodes[(uint32)mSt->modeForme.noeud];
 							const float32 rr = NkArrondirSommet(pa, (uint32)ia);
@@ -4608,7 +4652,7 @@ namespace nkuidesign {
 							//    poignées déjà amorcées.
 							float32 t = 0.f, d = 0.f;
 							const int32 seg = NkSegmentLePlusProche(xy, nbS, ms.x, ms.y, t, d);
-							if (seg >= 0 && d <= 6.f) {
+							if (seg >= 0 && d <= tolSommet) {
 								NkUINode &pc = mSt->doc.nodes[(uint32)mSt->modeForme.noeud];
 								const int32 neuf = NkInsererSommet(pc, (uint32)seg, t);
 								if (neuf >= 0) {
@@ -4668,12 +4712,12 @@ namespace nkuidesign {
 								}
 							}
 							const float32 dAncre = [&]() -> float32 {
-								const int32 a = NkAncreLaPlusProche(xy, nbS, ms.x, ms.y, hs + 3.f);
+								const int32 a = NkAncreLaPlusProche(xy, nbS, ms.x, ms.y, tolSommet);
 								if (a < 0)
 									return -1.f;
 								return NkLongueur2D(ms.x - xy[a * 2], ms.y - xy[a * 2 + 1]);
 							}();
-							if (NkAQuiLAncre(meilleure, dAncre, hs + 3.f)
+							if (NkAQuiLAncre(meilleure, dAncre, tolSommet)
 								!= NkProprioAncre::Tangente)
 								mSt->modeForme.tangenteSommet = -1;
 						}
@@ -4681,7 +4725,7 @@ namespace nkuidesign {
 							mSt->modeForme.tire = -1;
 						else
 							mSt->modeForme.tire =
-								NkAncreLaPlusProche(xy, nbS, ms.x, ms.y, hs + 3.f);
+								NkAncreLaPlusProche(xy, nbS, ms.x, ms.y, tolSommet);
 						// ⚠️ LE SOMMET SÉLECTIONNÉ SUIT L'ANCRE SAISIE, ET IL LUI
 						//    SURVIT. C'est lui que la section « ÉDITION DE FORME »
 						//    de l'Inspecteur affiche : le lier à `tire` viderait les
@@ -4718,7 +4762,7 @@ namespace nkuidesign {
 							// sommet neuf est SUR le côté droit du rectangle.
 							float32 t = 0.f, d = 0.f;
 							const int32 seg = NkSegmentLePlusProche(xy, nbS, ms.x, ms.y, t, d);
-							if (seg >= 0 && d <= 6.f) {
+							if (seg >= 0 && d <= tolSommet) {
 								NkUINode &pa = mSt->doc.nodes[(uint32)mSt->modeForme.noeud];
 								const int32 neuf = NkInsererSommet(pa, (uint32)seg, t);
 								if (neuf >= 0) {
