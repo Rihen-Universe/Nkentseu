@@ -721,6 +721,7 @@ GUIDE_GIT_MULTI_AGENTS.md
 /Captures/model_loaders/*
 !/Captures/model_loaders/fbx_FuturisticCar.png
 !/Captures/model_loaders/usda_cube.png
+!/Captures/noge_tissu_drape_2026-09-05.png
 
 Applications/NKCode/important/*.pdf
 Applications/NKCode/data/fonts/NotoEmoji-Regular.ttf
