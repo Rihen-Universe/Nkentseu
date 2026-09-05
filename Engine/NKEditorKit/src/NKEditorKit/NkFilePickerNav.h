@@ -888,7 +888,11 @@ namespace nkentseu {
 				/// `ConstruireRail` ; `PoserSousDossiers` en a besoin aussi, et une lambda ne se
 				/// partage pas. Un seul site pose une entree du rail -- son icone, son infobulle
 				/// et son chemin viennent donc toujours du meme endroit.
-				int32 AjouterNoeud(const char *chemin, const char *libelle, int32 parent) {
+				/// @param horodatage Date de modification du dossier, quand l'appelant la tient
+				///        deja (l'enumeration du parent la donne). Sert de cle de fraicheur au
+				///        cache ; 0 quand on ne la connait pas.
+				int32 AjouterNoeud(const char *chemin, const char *libelle, int32 parent,
+								   nk_int64 horodatage = 0) {
 					if (!chemin || !*chemin || !NkDirectory::Exists(chemin))
 						return -1;
 					NkTreeNode n;
@@ -902,6 +906,30 @@ namespace nkentseu {
 					n.infobulle = NkString(chemin);
 					// LA MEME ICONE QUE LA GRILLE, par la MEME fonction.
 					n.silhouette = (uint8)IconePour(chemin, true);
+					// ③ (05/09, v5) LE CHEVRON POUR TOUT LE MONDE, ET IL EST POSE ICI.
+					// Rodolf : « les chevrons ne sont pas presents sur la plupart des entrees ».
+					// C'etait exact, et la cause etait structurelle : `enfantsPossibles` n'etait
+					// renseigne QUE par `PoserSousDossiers`, qui ne tourne que sous le dossier
+					// courant. « Recents », « Acces rapide » et « Ce PC » passaient par ce
+					// site-ci, qui ne le renseignait pas -- une entree sur cinq avait son
+					// chevron. Une regle appliquee a un seul endroit sur deux n'est pas une
+					// regle. Elle est desormais posee LA OU LE NŒUD NAIT.
+					//
+					// LA PROFONDEUR se remonte par les parents (au plus quatre sauts), et les
+					// TITRES de section ne comptent pas -- ils n'ont pas de chemin, ils ne sont
+					// pas un niveau de l'arborescence.
+					int32 prof = 0;
+					for (int32 a = parent; a >= 0; a = vue.folders.nodes[(uint32)a].parent)
+						if (!vue.folders.nodes[(uint32)a].path.Empty())
+							++prof;
+					n.enfantsPossibles =
+						prof < kProfondeurRail
+						&& cacheDossiers.Etat(chemin, horodatage, true)
+							   == (uint8)NkContenuDossier::Plein;
+					// et son etat de remplissage, par la MEME fonction, l'autre question.
+					n.contenu = cacheDossiers.Etat(chemin, horodatage, false);
+					if (n.contenu == (uint8)NkContenuDossier::Illisible)
+						n.infobulle.Append(" — lecture refusée");
 					vue.folders.nodes.PushBack(n);
 					return (int32)vue.folders.nodes.Size() - 1;
 				}
@@ -936,28 +964,15 @@ namespace nkentseu {
 						if (!e[i].IsDirectory || !nm || !nm[0] || nm[0] == '.' || e[i].IsHidden)
 							continue;
 						const NkString sous = (NkPath(chemin) / nm).ToString();
-						const int32 j = AjouterNoeud(sous.CStr(), nm, parent);
+						// L'HORODATAGE VIENT DE L'ENUMERATION QU'ON TIENT DEJA : il est gratuit,
+						// et il sert de cle de fraicheur au cache. Le chevron et l'icone sont
+						// poses par `AjouterNoeud`, seul site -- ils l'etaient ici, c'est-a-dire
+						// pour les sous-dossiers SEULEMENT (defaut ③ de Rodolf).
+						const int32 j = AjouterNoeud(sous.CStr(), nm, parent,
+													 (nk_int64)e[i].ModificationTime);
 						if (j < 0)
 							continue;
 						++n;
-						// LES DEUX QUESTIONS, LE MEME CORPS (05/09, v5) : le chevron demande
-						// « a-t-il des SOUS-DOSSIERS ? », l'icone « contient-il QUELQUE CHOSE ? ».
-						// L'horodatage vient de l'enumeration qu'on tient deja : il est gratuit.
-						// `DirHasSubdirs` (un `GetEntries` complet, un vecteur alloue) n'est plus
-						// appele ici -- `Probe` s'arrete au premier element.
-						const nk_int64 ts = (nk_int64)e[i].ModificationTime;
-						vue.folders.nodes[(uint32)j].enfantsPossibles =
-							profondeur < kProfondeurRail
-							&& cacheDossiers.Etat(sous.CStr(), ts, true)
-								   == (uint8)NkContenuDossier::Plein;
-						const uint8 etat = cacheDossiers.Etat(sous.CStr(), ts, false);
-						vue.folders.nodes[(uint32)j].contenu = etat;
-						// ⚠️ UN DOSSIER ILLISIBLE LE DIT. Sans ca, il se lirait « vide » --
-						//    et l'utilisateur chercherait un contenu qu'on ne lui a pas refuse
-						//    mais cache.
-						if (etat == (uint8)NkContenuDossier::Illisible)
-							vue.folders.nodes[(uint32)j].infobulle.Append(
-								" — lecture refusée");
 						// et s'il est DEJA deplie, on descend
 						if (vue.folders.IsOpen(vue.folders.nodes[(uint32)j].id, false))
 							n += PoserSousDossiers(sous.CStr(), j, profondeur + 1);

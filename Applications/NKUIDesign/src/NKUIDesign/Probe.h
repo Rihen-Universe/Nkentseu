@@ -13830,6 +13830,139 @@ namespace nkuidesign {
 				  troisEtats && illisiblePasVide && cacheOk && coutTenable && troisDessins, det);
 			NkDirectory::Delete("sonde_remplissage", true);
 		}
+		// -- 124. (3) LE CHEVRON SUIT LA MEME REGLE POUR TOUTES LES ENTREES (05/09, v5).
+		//    Rodolf : « les chevrons ne sont pas presents sur la plupart des entrees ; seule
+		//    la branche du dossier courant en a. » C'etait exact, et la cause etait
+		//    structurelle : `enfantsPossibles` etait renseigne par `PoserSousDossiers`, qui
+		//    ne tourne que sous le dossier courant. Les entrees de « Recents », « Acces
+		//    rapide » et « Ce PC » naissent dans `AjouterNoeud`, qui ne le renseignait pas.
+		//    Une regle appliquee a un seul endroit sur deux n'est pas une regle.
+		{
+			char det[900];
+			NkDirectory::Delete("sonde_chevrons", true);
+			NkDirectory::CreateRecursive("sonde_chevrons/avec/enfant");
+			NkDirectory::CreateRecursive("sonde_chevrons/sans");
+			NkDirectory::CreateRecursive("sonde_chevrons/fichiers");
+			NkFile::WriteAllText("sonde_chevrons/fichiers/a.txt", "x");
+			const NkString rac124 =
+				(NkPath(NkDirectory::GetCurrentDirectory()) / "sonde_chevrons").ToString();
+			const NkString dAvec = (NkPath(rac124.Data()) / "avec").ToString();
+			const NkString dSans = (NkPath(rac124.Data()) / "sans").ToString();
+			const NkString dFich124 = (NkPath(rac124.Data()) / "fichiers").ToString();
+			editorkit::NkFilePickerNavState nav124;
+			char b124[512] = {};
+			nav124.OpenPickerBase(editorkit::NkSelecteurOuvrirDossier, rac124.Data(), b124,
+								  (int32)sizeof(b124), nullptr, nullptr);
+			// TROIS FAVORIS : ils naissent dans `AjouterNoeud`, PAS dans `PoserSousDossiers`
+			// -- c'est exactement le chemin qui ne posait pas de chevron.
+			nav124.favoris.PushBack(dAvec);
+			nav124.favoris.PushBack(dSans);
+			nav124.favoris.PushBack(dFich124);
+			nav124.relire = true;
+			nav124.RelireDossier();
+			auto noeud = [&](const char *chemin) -> const editorkit::NkTreeNode * {
+				for (uint32 k = 0; k < (uint32)nav124.vue.folders.nodes.Size(); ++k)
+					if (!nav124.vue.folders.nodes[k].path.Empty()
+						&& editorkit::NkFilePickerState::PathSame(
+							nav124.vue.folders.nodes[k].path.Data(), chemin))
+						return &nav124.vue.folders.nodes[k];
+				return nullptr;
+			};
+			const editorkit::NkTreeNode *nAvec = noeud(dAvec.Data());
+			const editorkit::NkTreeNode *nSans = noeud(dSans.Data());
+			const editorkit::NkTreeNode *nFich = noeud(dFich124.Data());
+			// 1. LE CHEVRON N'EST PAS UNE DECORATION : il dit « j'ai des SOUS-DOSSIERS ».
+			//    Le dossier qui n'a que des FICHIERS n'en a pas -- et il est plein.
+			const bool chevronsJustes =
+				nAvec && nSans && nFich && nAvec->enfantsPossibles && !nSans->enfantsPossibles
+				&& !nFich->enfantsPossibles
+				&& nFich->contenu == (uint8)editorkit::NkContenuDossier::Plein
+				&& nSans->contenu == (uint8)editorkit::NkContenuDossier::Vide;
+			// 2. TOUTES LES SECTIONS SUIVENT LA MEME REGLE. On compte, par section, les
+			//    entrees qui ANNONCENT des enfants : avant, seule la branche du dossier
+			//    courant en avait -- « Acces rapide » et « Ce PC » n'en avaient AUCUNE.
+			uint32 sectionsAvecChevron = 0u, sectionsAvecEntrees = 0u;
+			for (uint32 k = 0; k < (uint32)nav124.vue.folders.nodes.Size(); ++k) {
+				if (!nav124.vue.folders.nodes[k].bandeau)
+					continue;
+				uint32 enfants = 0u, annoncent = 0u;
+				for (uint32 q = 0; q < (uint32)nav124.vue.folders.nodes.Size(); ++q) {
+					if (nav124.vue.folders.nodes[q].parent != (int32)k)
+						continue;
+					if (nav124.vue.folders.nodes[q].path.Empty())
+						continue; // la phrase « aucun dossier courant » n'est pas une entree
+					++enfants;
+					if (nav124.vue.folders.nodes[q].enfantsPossibles)
+						++annoncent;
+				}
+				if (enfants > 0u)
+					++sectionsAvecEntrees;
+				if (annoncent > 0u)
+					++sectionsAvecChevron;
+			}
+			const bool toutesLesSections =
+				sectionsAvecEntrees >= 2u && sectionsAvecChevron == sectionsAvecEntrees;
+			// 3. LA PLACE EST RESERVEE MEME SANS CHEVRON : deux noeuds identiques, l'un
+			//    annoncant des enfants et l'autre non, posent leur libelle A LA MEME
+			//    ABSCISSE. Un libelle qui se decale selon qu'il y a un chevron ferait
+			//    danser la colonne au moindre depliage.
+			auto xDuLibelle = [](bool annonce) -> float32 {
+				NkRecordingPaint r;
+				NkTreeViewModel m;
+				NkTreeNode n;
+				n.id = 1u;
+				n.parent = -1;
+				n.label = NkString("MEME_LIBELLE");
+				n.path = NkString("/x");
+				n.enfantsPossibles = annonce;
+				m.nodes.PushBack(n);
+				NkTreeViewStyle st;
+				NkTreeViewHooks h;
+				NkComponentInput in;
+				NkDrawTreeView(r, in, {0.f, 0.f, 260.f, 200.f}, m, st, h);
+				for (uint32 i = 0; i < (uint32)r.cmds.Size(); ++i)
+					if (r.cmds[i].op == NkPaintOp::Text && r.cmds[i].text.Data()
+						&& NkComponentDecl::StrEq(r.cmds[i].text.Data(), "MEME_LIBELLE"))
+						return r.cmds[i].x;
+				return -1.f;
+			};
+			const float32 xAvec = xDuLibelle(true), xSans = xDuLibelle(false);
+			const bool placeReservee = xAvec > 0.f && xAvec == xSans;
+			// 4. CE QUE CA COUTE : le rail entier, en acces disque REELS. Deux questions
+			//    par entree, chacune payee UNE fois -- et rien n'est paye deux fois.
+			const uint32 acces = nav124.cacheDossiers.accesDisque;
+			uint32 entreesRail = 0u;
+			for (uint32 k = 0; k < (uint32)nav124.vue.folders.nodes.Size(); ++k)
+				if (!nav124.vue.folders.nodes[k].path.Empty())
+					++entreesRail;
+			const uint32 avantRelecture = nav124.cacheDossiers.accesDisque;
+			nav124.relire = true;
+			nav124.RelireDossier(); // on rebatit le rail : le cache doit tout resservir
+			const bool cacheResservi = nav124.cacheDossiers.accesDisque == avantRelecture;
+			const bool coutBorne = acces <= entreesRail * 2u;
+			snprintf(det, sizeof(det),
+					 "favoris (nes dans AjouterNoeud, pas dans PoserSousDossiers) : « avec » annonce des "
+					 "enfants=%d, « sans » non=%d, « fichiers » non=%d mais il est PLEIN=%d -> %d ; "
+					 "%u section(s) portent des entrees, %u en ont au moins une avec chevron -> %d ; place "
+					 "reservee : libelle a x=%.1f avec chevron et x=%.1f sans -> %d ; cout : %u acces disque "
+					 "pour %u entree(s) de rail (2 questions chacune) -> %d ; rail rebati sans un seul acces "
+					 "de plus=%d",
+					 nAvec && nAvec->enfantsPossibles ? 1 : 0, nSans && !nSans->enfantsPossibles ? 1 : 0,
+					 nFich && !nFich->enfantsPossibles ? 1 : 0,
+					 nFich && nFich->contenu == (uint8)editorkit::NkContenuDossier::Plein ? 1 : 0,
+					 chevronsJustes ? 1 : 0, sectionsAvecEntrees, sectionsAvecChevron,
+					 toutesLesSections ? 1 : 0, (double)xAvec, (double)xSans, placeReservee ? 1 : 0,
+					 acces, entreesRail, coutBorne ? 1 : 0, cacheResservi ? 1 : 0);
+			check("124. (3) LE CHEVRON EST POSE LA OU LE N\u0152UD NAIT, DONC POUR TOUTES LES SECTIONS : il n'etait "
+				  "renseigne que par le site qui deplie le dossier courant, si bien que « Recents », « Acces rapide » "
+				  "et « Ce PC » n'en avaient aucun -- une regle appliquee a un endroit sur deux n'est pas une regle. "
+				  "Il dit « j'ai des SOUS-DOSSIERS » et rien d'autre : un dossier plein de fichiers n'en a pas, et "
+				  "c'est son ICONE qui dit qu'il est plein. La place est reservee quand il n'y a pas de chevron (la "
+				  "colonne des libelles ne danse pas), et le cout est borne a deux acces disque par entree, une seule "
+				  "fois : rebatir le rail n'en coute aucun de plus",
+				  chevronsJustes && toutesLesSections && placeReservee && coutBorne && cacheResservi, det);
+			NkDirectory::Delete("sonde_chevrons", true);
+		}
 		snprintf(tail, sizeof(tail), "\n=== RESULTAT : %d / %d ===\n", pass, total);
 		rep.Append(tail);
 
