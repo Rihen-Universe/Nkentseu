@@ -30,6 +30,8 @@ namespace nkentseu {
 				uint32 insideNearestMax = 0, insideNearestSum = 0;
 				float32 insideDepthMax = 0.f;
 				NkVector<NkVec3f> freePos; // positions des particules LIBRES (les epinglees sont hors mesure)
+				float64 stretchSum = 0.0;
+				uint32 stretchOver5 = 0;
 				float32 sdfPenMax = 0.f;
 				uint32 sdfContactsMax = 0, capsContactsMax = 0;
 				float64 msSum = 0.0;
@@ -479,6 +481,8 @@ namespace nkentseu {
 				const float64 msB = bc.Elapsed().milliseconds;
 				g->garment.SnapPins(p->bind.Data(), njm);
 				g->garment.cloth.params.clock = [] { return NkChrono::Now().seconds; };
+				if (const char *e = std::getenv("NK_GARMENT_PINBLEND"); e && e[0])
+					g->garment.cloth.params.sdfPinBlendRings = (uint32)std::atoi(e); // balayage de la zone de transition
 				g->tint = Tint(kind);
 				g->garment.cloth.Triangles(g->idx);
 				g->idxFlip.Resize((uint32)g->idx.Size());
@@ -713,6 +717,8 @@ namespace nkentseu {
 				if (st.maxPenetration > s->penMax) s->penMax = st.maxPenetration;
 				if (st.maxPinError > s->pinMax) s->pinMax = st.maxPinError;
 				if (st.maxStretch > s->stretchMax) s->stretchMax = st.maxStretch;
+				s->stretchSum += st.maxStretch;
+				if (st.maxStretch > 0.05f) ++s->stretchOver5;
 				if (in > s->insideMax) s->insideMax = in;
 				if (ms > s->msMax) s->msMax = ms;
 				s->insideSum += in;
@@ -821,6 +827,8 @@ namespace nkentseu {
 						 NkGarmentName(s->garment.kind), s->garment.cloth.ParticleCount(), s->frames ? (float32)(s->msSum / (float64)s->frames) : 0.f,
 						 s->msMax, 1000.f * s->penMax, s->insideNearestMax, s->frames ? (float32)s->insideNearestSum / (float32)s->frames : 0.f,
 						 1000.f * s->pinMax, 100.f * s->stretchMax, s->degenerate);
+			std::fprintf(stderr, "[MANNEQUIN BILAN]            etirement : max %.2f %% (un PIC), moyenne par image %.2f %%, %u images sur %u au-dessus de 5 %%\n",
+						 100.f * s->stretchMax, s->frames ? 100.f * (float32)(s->stretchSum / (float64)s->frames) : 0.f, s->stretchOver5, s->frames);
 			std::fprintf(stderr, "[MANNEQUIN BILAN]            (parite, indicative sur une coque non fermee : max %u, moyenne %.2f | profondeur max sous la peau %.1f mm) | CHAMP : penetration max %.3f mm, contacts max %u par le champ contre %u par les capsules\n",
 						 s->insideMax, s->frames ? (float32)s->insideSum / (float32)s->frames : 0.f, 1000.f * s->insideDepthMax,
 						 1000.f * s->sdfPenMax, s->sdfContactsMax, s->capsContactsMax);
