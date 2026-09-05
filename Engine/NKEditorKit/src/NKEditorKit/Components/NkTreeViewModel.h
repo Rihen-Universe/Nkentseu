@@ -163,6 +163,13 @@ namespace nkentseu {
 				//    impossible sans toucher les quatre consommateurs : c'etait faux -- un
 				//    champ additif au defaut vide ne touche personne.
 				NkString infobulle;
+
+				// ② (2026-09-05, nuit) LA SILHOUETTE DESSINEE de ce noeud (voir
+				// `NkSilhouettes.h`). 0 = `Auto` = aucune, et c'est le defaut : les quatre
+				// consommateurs existants n'en posent pas et gardent leur rendu.
+				// ⚠️ ELLE NE REMPLACE PAS `icon`, qui reste la poignee d'atlas de l'hote. Un
+				//    rail de fichiers n'a pas d'atlas -- il a besoin d'une forme TRACEE.
+				uint8 silhouette = 0;
 				/// Le drapeau vient-il d'un ancetre plutot que du noeud ? Sert a le
 				/// peindre attenue. L'application le calcule ; sans lui, l'icone
 				/// mentirait sur l'endroit ou l'on peut agir.

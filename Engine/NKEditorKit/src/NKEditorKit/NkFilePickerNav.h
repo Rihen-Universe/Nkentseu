@@ -391,6 +391,25 @@ namespace nkentseu {
 					return NkAssetIcone::Dossier;
 				}
 
+				/// ② (05/09, nuit) L'ICONE D'UN CHEMIN -- LA SEULE PORTE, appelee par LES DEUX
+				/// volets : la grille de droite et le rail de gauche. Rodolf : « le panneau de
+				/// gauche ne montre pas les icones associees aux differents dossiers ».
+				/// ⚠️ DEUX TABLES AURAIENT DIVERGE des le premier ajout de nature -- et c'est
+				///    exactement ce qui venait d'arriver : la grille avait onze formes, le rail
+				///    n'avait rien.
+				static NkAssetIcone IconePour(const char *chemin, bool estDossier) {
+					if (!chemin || !*chemin)
+						return NkAssetIcone::Inconnu;
+					if (!estDossier)
+						return IconeFichier(chemin);
+					// UN VOLUME n'est pas un dossier : `D:/`, `C:/`, `/`. On le reconnait a sa
+					// forme (deux caracteres et un separateur, ou la racine seule).
+					const NkString nom = NomDeDossier(chemin);
+					if (nom.Length() <= 2u && (nom.Empty() || nom.CStr()[nom.Length() - 1u] == ':'))
+						return NkAssetIcone::Volume;
+					return IconeDossier(chemin);
+				}
+				
 				/// La silhouette d'un FICHIER, d'apres son extension. Une table fermee : ce
 				/// sont les natures que tout systeme de fichiers connait.
 				static NkAssetIcone IconeFichier(const char *nom) {
@@ -533,7 +552,7 @@ namespace nkentseu {
 						a.path = (NkPath(pickerPath) / dirs[i].CStr()).ToString();
 						a.isFolder = true;
 						a.kindRole = roleDossier;
-						a.icone = (uint8)IconeDossier(a.path.CStr());
+						a.icone = (uint8)IconePour(a.path.CStr(), true);
 						a.kindLabel = "";
 						vue.entries.PushBack(a);
 					}
@@ -544,7 +563,7 @@ namespace nkentseu {
 						a.path = (NkPath(pickerPath) / files[i].CStr()).ToString();
 						a.isFolder = false;
 						a.kindRole = roleFichier;
-						a.icone = (uint8)IconeFichier(files[i].CStr());
+						a.icone = (uint8)IconePour(files[i].CStr(), false);
 						// ⑤ LA TAILLE ET LA DATE, POSEES SUR L'ENTREE. Elles etaient lues du systeme
 						//    et rangees a cote, mais jamais recopiees ici : le tri par taille tombait
 						//    en repli sur le nom et PASSAIT PAR HASARD. La sonde l'a vu parce qu'elle
@@ -729,6 +748,8 @@ namespace nkentseu {
 						// ⑥ L'INFOBULLE PORTE LE CHEMIN COMPLET : le libelle est tronque au
 						//    milieu, et c'est le seul moyen de lire ce qu'on survole.
 						n.infobulle = NkString(chemin);
+						// ② LA MEME ICONE QUE LA GRILLE, par la MEME fonction.
+						n.silhouette = (uint8)IconePour(chemin, true);
 						vue.folders.nodes.PushBack(n);
 						return (int32)vue.folders.nodes.Size() - 1;
 					};
@@ -741,6 +762,9 @@ namespace nkentseu {
 						n.parent = -1;
 						n.label = NkString(titre);
 						n.locked = true;
+						// ② UN TITRE A SA PROPRE FORME : trois traits. Il n'est pas un objet du
+						//    systeme de fichiers et ne doit pas en avoir l'air.
+						n.silhouette = (uint8)NkAssetIcone::Section;
 						vue.folders.nodes.PushBack(n);
 						return (int32)vue.folders.nodes.Size() - 1;
 					};

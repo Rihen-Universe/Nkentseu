@@ -59,6 +59,7 @@
 // -----------------------------------------------------------------------------
 
 #include "NKEditorKit/Components/NkTreeViewModel.h"
+#include "NKEditorKit/Components/NkSilhouettes.h" // ② les icones partagees grille/rail
 
 namespace nkentseu {
 	namespace editorkit {
@@ -460,7 +461,18 @@ namespace nkentseu {
 					}
 
 					// ── ICONE DE NATURE ─────────────────────────────────────────
-					p.Icon({x, row.y, iconW, rowH}, n.icon, n.kindRole ? n.kindRole : s.iconTint);
+					// ② (05/09, nuit) UNE SILHOUETTE DESSINEE si le noeud en porte une, l'icone
+					//    d'atlas sinon. Rodolf : « le panneau de gauche ne montre pas les icones »
+					//    -- le rail etait du texte nu pendant que la grille avait ses onze formes.
+					//    C'est LA MEME fonction que la grille appelle : une seule, deux volets.
+					{
+						const NkPaintRect ri{x, row.y, iconW, rowH};
+						const NkAssetIcone sil = (NkAssetIcone)n.silhouette;
+						if (sil != NkAssetIcone::Auto && sil < NkAssetIcone::Count)
+							NkDessinerSilhouette(p, ri, sil, n.kindRole ? n.kindRole : s.iconTint);
+						else
+							p.Icon(ri, n.icon, n.kindRole ? n.kindRole : s.iconTint);
+					}
 					x += iconW;
 
 					// ── COLONNES DE DROITE, RESERVEES AVANT LE LIBELLE ──────────

@@ -12979,6 +12979,101 @@ namespace nkuidesign {
 				"ne monte que de quelques pixels, et la silhouette reste distincte du fichier generique a 32, 64 et 128 px",
 				memeFamille && troisNuances && distinctPartout && assezDeFormes && patteJuste, det);
 		}
+		// ── 117. ② LE RAIL A LES MEMES ICONES QUE LA GRILLE (05/09, nuit). Rodolf : « le
+		//    panneau de gauche ne montre pas les icones associees aux differents dossiers » --
+		//    le rail etait du TEXTE NU pendant que la grille avait ses onze silhouettes.
+		//    ⚠️ LE TEMOIN COMPARE LES DEUX VOLETS SUR LE MEME DOSSIER : c'est la seule
+		//       facon de prouver qu'ils passent par la MEME fonction. Deux tables auraient
+		//       diverge des le premier ajout de nature -- et c'est exactement ce qui venait
+		//       d'arriver.
+		{
+			char det[880];
+			NkDirectory::Delete("sonde_rail_icones", true);
+			NkDirectory::CreateRecursive("sonde_rail_icones/un_dossier");
+			NkFile::WriteAllText("sonde_rail_icones/a.png", "x");
+			const NkString base117 =
+				(NkPath(NkDirectory::GetCurrentDirectory()) / "sonde_rail_icones").ToString();
+			editorkit::NkFilePickerNavState nav117;
+			char b117[512] = {};
+			nav117.OpenPickerBase(editorkit::NkSelecteurOuvrirDossier, base117.Data(), b117,
+					  (int32)sizeof(b117), nullptr, nullptr);
+			nav117.RelireDossier();
+			// 1. LA MEME ENTREE, LA MEME ICONE dans les deux volets
+			const NkString cheminSous = (NkPath(base117.Data()) / "un_dossier").ToString();
+			uint8 icGrille = 255u, icRail = 255u;
+			for (uint32 i = 0; i < (uint32)nav117.vue.entries.Size(); ++i)
+				if (editorkit::NkFilePickerState::PathSame(nav117.vue.entries[i].path.Data(),
+																	   cheminSous.Data()))
+					icGrille = nav117.vue.entries[i].icone;
+			for (uint32 i = 0; i < (uint32)nav117.vue.folders.nodes.Size(); ++i)
+				if (!nav117.vue.folders.nodes[i].path.Empty()
+					&& editorkit::NkFilePickerState::PathSame(nav117.vue.folders.nodes[i].path.Data(),
+																			 cheminSous.Data()))
+					icRail = nav117.vue.folders.nodes[i].silhouette;
+			const bool memeIcone = icGrille != 255u && icGrille == icRail
+					&& icGrille == (uint8)editorkit::NkAssetIcone::Dossier;
+			// 2. LES VOLUMES ONT L'ICONE DE VOLUME, pas celle d'un dossier
+			uint32 volumes = 0u, volumesBienIconises = 0u;
+			for (uint32 i = 0; i < (uint32)nav117.vue.folders.nodes.Size(); ++i) {
+				const editorkit::NkTreeNode &n = nav117.vue.folders.nodes[i];
+				if (n.path.Empty() || n.label.Length() > 2u
+					|| n.label.CStr()[n.label.Length() - 1u] != ':')
+					continue;
+				++volumes;
+				if (n.silhouette == (uint8)editorkit::NkAssetIcone::Volume)
+					++volumesBienIconises;
+			}
+			const bool volumesOk = volumes > 0u && volumes == volumesBienIconises;
+			// 3. LES TITRES ONT L'ICONE DE SECTION
+			uint32 titres = 0u, titresOk = 0u;
+			for (uint32 i = 0; i < (uint32)nav117.vue.folders.nodes.Size(); ++i) {
+				const editorkit::NkTreeNode &n = nav117.vue.folders.nodes[i];
+				if (!n.path.Empty())
+					continue;
+				++titres;
+				if (n.silhouette == (uint8)editorkit::NkAssetIcone::Section)
+					++titresOk;
+			}
+			const bool titresIconises = titres >= 2u && titres == titresOk;
+			// 4. ET LE RAIL LES PEINT VRAIMENT : on dessine un arbre d'un noeud, et on
+			//    compte les formes. Sans silhouette, `p.Icon` n'emet qu'UNE commande.
+			auto formesRail = [](uint8 sil) -> uint32 {
+				NkRecordingPaint r;
+				NkTreeViewModel m;
+				NkTreeNode n;
+				n.id = 1u;
+				n.parent = -1;
+				n.label = NkString("un_dossier");
+				n.path = NkString("/x");
+				n.silhouette = sil;
+				m.nodes.PushBack(n);
+				NkTreeViewStyle st;
+				NkTreeViewHooks h;
+				NkComponentInput in;
+				NkDrawTreeView(r, in, {0.f, 0.f, 260.f, 200.f}, m, st, h);
+				uint32 f = 0u;
+				for (uint32 i = 0; i < (uint32)r.cmds.Size(); ++i)
+					if (r.cmds[i].op == NkPaintOp::FillColor)
+						++f;
+				return f;
+			};
+			const uint32 sans = formesRail((uint8)editorkit::NkAssetIcone::Auto);
+			const uint32 avec = formesRail((uint8)editorkit::NkAssetIcone::Dossier);
+			const bool railPeint = avec >= sans + 3u; // le dossier ajoute ses quatre formes
+			snprintf(det, sizeof(det),
+				"meme sous-dossier : icone grille %u, icone rail %u -> %d ; %u volume(s), %u avec l'icone "
+				"de volume -> %d ; %u titre(s), %u avec l'icone de section -> %d ; formes peintes par le rail : "
+				"%u sans silhouette, %u avec -> %d",
+				icGrille, icRail, memeIcone ? 1 : 0, volumes, volumesBienIconises, volumesOk ? 1 : 0,
+				titres, titresOk, titresIconises ? 1 : 0, sans, avec, railPeint ? 1 : 0);
+			check("117. ② LE RAIL ET LA GRILLE MONTRENT LA MEME ICONE POUR LA MEME ENTREE : une SEULE fonction "
+				"(`IconePour`) les donne aux deux volets -- deux tables auraient diverge des le premier ajout de nature, "
+				"et c'est exactement ce qui venait d'arriver (onze formes a droite, du texte nu a gauche) ; les VOLUMES ont "
+				"leur boitier et non un dossier, les TITRES de section leur propre forme, et le rail les PEINT vraiment "
+				"(le nombre de formes emises augmente quand le noeud porte une silhouette)",
+				memeIcone && volumesOk && titresIconises && railPeint, det);
+			NkDirectory::Delete("sonde_rail_icones", true);
+		}
 		snprintf(tail, sizeof(tail), "\n=== RESULTAT : %d / %d ===\n", pass, total);
 		rep.Append(tail);
 

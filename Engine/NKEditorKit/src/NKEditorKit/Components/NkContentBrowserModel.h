@@ -42,6 +42,7 @@
 //    rejouer aurait laisse l'affirmation « ce fichier compile sans NKGui »
 //    debout sans que rien ne la soutienne plus.
 #include "NKEditorKit/Components/NkComponentPaint.h"
+#include "NKEditorKit/Components/NkSilhouettes.h" // ② les icones partagees grille/rail
 // ⚠️ LA COLONNE DE DOSSIERS EST LE COMPOSANT `tree_view`, PAS UNE COPIE. La
 //    declaration le disait deja (`folder_tree` porte `component = "tree_view"`) ;
 //    depuis le mixte du 2026-08-30 (directive de Rodolf : « un mixte entre
@@ -105,32 +106,12 @@ namespace nkentseu {
 				nk_int64 dateModif = 0; ///< epoch
 		};
 
-		// ── ②③ LES SILHOUETTES DESSINEES (2026-09-05, nuit) ────────────────────
-		// Une petite bibliotheque FERMEE, et c'est deliberé : ce sont les natures que
-		// TOUT systeme de fichiers connait, pas celles d'une application. Une
-		// application qui a ses propres natures les exprime par `kindRole`/`kindLabel`,
-		// qui n'ont pas bouge.
-		// ⚠️ Regle append-only : ces valeurs finissent dans des fichiers.
-		enum class NkAssetIcone : uint8 {
-			Auto = 0,		 ///< deduite de `isFolder` : dossier, ou fichier inconnu
-			Dossier,
-			DossierImages,	 ///< les dossiers CONNUS du systeme se reconnaissent
-			DossierDocuments,
-			DossierTelechargements,
-			DossierBureau,
-			Image,
-			Texte,
-			Code,
-			Archive,
-			Executable,
-			Inconnu,
-			// ② (2026-09-05, nuit) LE RAIL EN A BESOIN : un disque n'est pas un dossier,
-			// et un titre de section n'est pas un objet du systeme de fichiers.
-			// AJOUTEES A LA FIN, regle append-only.
-			Volume,
-			Section,
-			Count
-		};
+		// ⚠️ `NkAssetIcone` ET `NkDessinerSilhouette` ONT DEMENAGE (05/09, nuit) dans
+		//    `NkSilhouettes.h` : le RAIL d'un selecteur (un `tree_view`) doit les
+		//    appeler, et l'y laisser aurait fait dependre le dessin d'un composant du
+		//    MODELE d'un autre composant de meme rang. L'include ci-dessus les
+		//    ramene ici : rien ne change pour les consommateurs de ce fichier.
+
 
 		// ── UNE NATURE D'ASSET, DECLAREE PAR L'APPLICATION ──────────────────────
 		// Les puces de filtre du mixte (Aetherion : « Mesh / Material / Texture /
@@ -148,14 +129,6 @@ namespace nkentseu {
 				bool active = false;
 		};
 
-		/// ② (2026-09-05, nuit) LE DESSIN D'UNE SILHOUETTE, PARTAGE.
-		/// Declaree ici, definie dans `NkContentBrowserDraw.cpp`. Le RAIL du selecteur
-		/// (un `tree_view`) l'appelle pour peindre les MEMES icones que la grille -- une
-		/// seule fonction, deux volets. Deux tables auraient diverge des le premier
-		/// ajout de nature.
-		class NkComponentPaint;
-		void NkDessinerSilhouette(NkComponentPaint &p, const NkPaintRect &r, NkAssetIcone genre,
-								  uint16 role);
 
 		// ── LE MODELE ───────────────────────────────────────────────────────────
 		// L'application le remplit ; le composant le lit et y ecrit la selection et
