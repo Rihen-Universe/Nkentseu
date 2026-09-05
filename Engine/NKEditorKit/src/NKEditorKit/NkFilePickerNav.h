@@ -276,6 +276,60 @@ namespace nkentseu {
 					out[k] = '\0';
 				}
 
+				// ── ③ LA SILHOUETTE D'UNE ENTREE (05/09, nuit) ──────────────────────
+				// ⚠️ LES DOSSIERS CONNUS SE RECONNAISSENT A LEUR CHEMIN, pas a leur nom : sur
+				//    un Windows francais « Images » s'appelle « Images » mais sur un anglais
+				//    « Pictures », et un dossier redirige vers OneDrive n'est ni l'un ni l'autre.
+				//    On compare au chemin que le SYSTEME rend (`GetUserFolder`).
+				static NkAssetIcone IconeDossier(const char *chemin) {
+					struct Paire {
+						NkDirectory::NkUserFolder f;
+						NkAssetIcone i;
+					};
+					static const Paire kP[] = {
+						{NkDirectory::NkUserFolder::Pictures, NkAssetIcone::DossierImages},
+						{NkDirectory::NkUserFolder::Documents, NkAssetIcone::DossierDocuments},
+						{NkDirectory::NkUserFolder::Downloads, NkAssetIcone::DossierTelechargements},
+						{NkDirectory::NkUserFolder::Desktop, NkAssetIcone::DossierBureau}};
+					for (usize k = 0; k < sizeof(kP) / sizeof(kP[0]); ++k) {
+						const NkString p = NkDirectory::GetUserFolder(kP[k].f).ToString();
+						if (!p.Empty() && PathSame(p.CStr(), chemin))
+							return kP[k].i;
+					}
+					return NkAssetIcone::Dossier;
+				}
+
+				/// La silhouette d'un FICHIER, d'apres son extension. Une table fermee : ce
+				/// sont les natures que tout systeme de fichiers connait.
+				static NkAssetIcone IconeFichier(const char *nom) {
+					struct Ext {
+						const char *e;
+						NkAssetIcone i;
+					};
+					static const Ext kE[] = {
+						{".png", NkAssetIcone::Image},	 {".jpg", NkAssetIcone::Image},
+						{".jpeg", NkAssetIcone::Image},	 {".bmp", NkAssetIcone::Image},
+						{".gif", NkAssetIcone::Image},	 {".tga", NkAssetIcone::Image},
+						{".webp", NkAssetIcone::Image},	 {".svg", NkAssetIcone::Image},
+						{".psd", NkAssetIcone::Image},	 {".hdr", NkAssetIcone::Image},
+						{".txt", NkAssetIcone::Texte},	 {".md", NkAssetIcone::Texte},
+						{".log", NkAssetIcone::Texte},	 {".csv", NkAssetIcone::Texte},
+						{".json", NkAssetIcone::Code},	 {".xml", NkAssetIcone::Code},
+						{".h", NkAssetIcone::Code},		 {".hpp", NkAssetIcone::Code},
+						{".c", NkAssetIcone::Code},		 {".cpp", NkAssetIcone::Code},
+						{".py", NkAssetIcone::Code},	 {".js", NkAssetIcone::Code},
+						{".jenga", NkAssetIcone::Code},	 {".nkgui", NkAssetIcone::Code},
+						{".nkuidoc", NkAssetIcone::Code}, {".zip", NkAssetIcone::Archive},
+						{".7z", NkAssetIcone::Archive},	 {".tar", NkAssetIcone::Archive},
+						{".gz", NkAssetIcone::Archive},	 {".rar", NkAssetIcone::Archive},
+						{".exe", NkAssetIcone::Executable}, {".dll", NkAssetIcone::Executable},
+						{".bat", NkAssetIcone::Executable}, {".sh", NkAssetIcone::Executable}};
+					for (usize k = 0; k < sizeof(kE) / sizeof(kE[0]); ++k)
+						if (EndsWithI(nom, kE[k].e))
+							return kE[k].i;
+					return NkAssetIcone::Inconnu;
+				}
+
 				void RelireDossier() {
 					relire = false;
 					// ⚠️ RETENU AVANT DE POUVOIR ECHOUER : un chemin illisible ne doit pas faire
@@ -324,6 +378,7 @@ namespace nkentseu {
 						a.path = (NkPath(pickerPath) / dirs[i].CStr()).ToString();
 						a.isFolder = true;
 						a.kindRole = roleDossier;
+						a.icone = (uint8)IconeDossier(a.path.CStr());
 						a.kindLabel = "";
 						vue.entries.PushBack(a);
 					}
@@ -334,6 +389,7 @@ namespace nkentseu {
 						a.path = (NkPath(pickerPath) / files[i].CStr()).ToString();
 						a.isFolder = false;
 						a.kindRole = roleFichier;
+						a.icone = (uint8)IconeFichier(files[i].CStr());
 						char ext[16];
 						ExtDe(files[i].CStr(), ext, sizeof(ext));
 						mExts.PushBack(NkString(ext));

@@ -88,6 +88,36 @@ namespace nkentseu {
 				uint16 kindRole = 0;
 				const char *kindLabel = ""; ///< libelle affiche dans le pied de carte
 				uint32 userTag = 0;			///< libre a l'application (index, drapeaux)
+
+				// ②③ (2026-09-05, nuit) LA NATURE VISUELLE DE L'ENTREE -- ce qu'on DESSINE
+				// quand il n'y a pas de vignette. C'est une notion du DESSIN, pas du domaine :
+				// elle ne remplace pas `kindRole`/`kindLabel`, qui restent la nature METIER de
+				// l'application (« procedural », « dataset », « font »...).
+				// ⚠️ AJOUTE A LA FIN, et `Auto` vaut 0 : les consommateurs existants gardent
+				//    exactement le rendu d'avant (dossier ou fichier, selon `isFolder`).
+				uint8 icone = 0; ///< voir NkAssetIcone
+		};
+
+		// ── ②③ LES SILHOUETTES DESSINEES (2026-09-05, nuit) ────────────────────
+		// Une petite bibliotheque FERMEE, et c'est deliberé : ce sont les natures que
+		// TOUT systeme de fichiers connait, pas celles d'une application. Une
+		// application qui a ses propres natures les exprime par `kindRole`/`kindLabel`,
+		// qui n'ont pas bouge.
+		// ⚠️ Regle append-only : ces valeurs finissent dans des fichiers.
+		enum class NkAssetIcone : uint8 {
+			Auto = 0,		 ///< deduite de `isFolder` : dossier, ou fichier inconnu
+			Dossier,
+			DossierImages,	 ///< les dossiers CONNUS du systeme se reconnaissent
+			DossierDocuments,
+			DossierTelechargements,
+			DossierBureau,
+			Image,
+			Texte,
+			Code,
+			Archive,
+			Executable,
+			Inconnu,
+			Count
 		};
 
 		// ── UNE NATURE D'ASSET, DECLAREE PAR L'APPLICATION ──────────────────────

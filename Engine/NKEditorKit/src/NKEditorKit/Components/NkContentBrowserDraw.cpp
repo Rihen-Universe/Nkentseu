@@ -206,6 +206,118 @@ namespace nkentseu {
 				return p.ImagePolygone(xy, uv, 4, (uint32)handle, 100.f);
 			}
 
+			// ── ②③ LES SILHOUETTES, DESSINEES (2026-09-05, nuit) ───────────────────
+			// Rodolf : « les dossiers ne sont pas bien designes » (des rectangles pleins) et
+			// « il doit y avoir des icones pour specifier chaque type comme c'est le cas
+			// partout ». Un `.png` SANS vignette affichait le meme aplat qu'un dossier : on
+			// ne distinguait pas un fichier d'un dossier.
+			//
+			// ⚠️ DESSINEES AVEC LES PRIMITIVES DU CONTRAT, JAMAIS UN GLYPHE DE POLICE
+			//    (porte du 04/09). `NkComponentPaint::Icon` peint un CARRE PLEIN -- son
+			//    en-tete le dit : il n'existe aucun atlas d'icones. Les tracer ici les rend
+			//    identiques chez les trois peintres ET mesurables par `NkRecordingPaint`.
+			//
+			// ⚠️ AUCUNE COULEUR EN DUR : la teinte est le role passe par l'appelant, et les
+			//    nuances sont ce role a une opacite differente.
+			void Silhouette(NkComponentPaint &p, const NkPaintRect &r, NkAssetIcone genre, uint16 role) {
+				if (r.w <= 4.f || r.h <= 4.f)
+					return;
+				// un carre centre : une icone etiree ne ressemble plus a ce qu'elle designe
+				const float32 c = r.w < r.h ? r.w : r.h;
+				const NkPaintRect b{r.x + (r.w - c) * 0.5f, r.y + (r.h - c) * 0.5f, c, c};
+				const uint32 teinte = p.ColorOf(role);
+				const uint32 pale = (teinte & 0x00FFFFFFu) | 0x66000000u; // meme teinte, plus discrete
+				const uint32 vif = teinte;
+				const float32 u = c / 16.f; // l'unite de la grille de dessin, comme un SVG 16x16
+				auto R = [&](float32 x, float32 y, float32 w, float32 h, uint32 col, float32 rd) {
+					p.FillColor({b.x + x * u, b.y + y * u, w * u, h * u}, col, rd * u);
+				};
+				const bool dossier = genre == NkAssetIcone::Dossier || genre == NkAssetIcone::DossierImages
+						|| genre == NkAssetIcone::DossierDocuments
+						|| genre == NkAssetIcone::DossierTelechargements
+						|| genre == NkAssetIcone::DossierBureau;
+				if (dossier) {
+					// LA SILHOUETTE DE DOSSIER : une languette, puis le corps. Deux rectangles
+					// arrondis -- c'est ce que Windows et Blender dessinent, et ca se lit a
+					// 16 px comme a 96.
+					R(1.f, 3.f, 6.f, 2.5f, pale, 1.f);	// la languette
+					R(1.f, 4.5f, 14.f, 9.f, vif, 1.5f); // le corps
+					// LE SIGNE DU DOSSIER CONNU, pose dans le corps. Rien pour un dossier
+					// ordinaire : un dossier sans marque EST le cas general.
+					if (genre == NkAssetIcone::DossierImages) {
+						R(5.f, 9.5f, 6.f, 2.f, pale, 0.5f); // l'horizon
+						R(6.f, 7.f, 2.f, 2.f, pale, 1.f);	// le soleil
+					} else if (genre == NkAssetIcone::DossierDocuments) {
+						R(5.f, 7.f, 6.f, 1.2f, pale, 0.5f);
+						R(5.f, 9.f, 6.f, 1.2f, pale, 0.5f);
+						R(5.f, 11.f, 4.f, 1.2f, pale, 0.5f);
+					} else if (genre == NkAssetIcone::DossierTelechargements) {
+						R(7.f, 6.5f, 2.f, 4.f, pale, 0.5f); // la fleche vers le bas
+						const float32 xy[6] = {b.x + 5.f * u, b.y + 10.f * u, b.x + 11.f * u,
+												   b.y + 10.f * u, b.x + 8.f * u,	 b.y + 12.5f * u};
+						if (!p.PolygonHex(xy, 3, pale))
+							R(6.f, 10.f, 4.f, 1.5f, pale, 0.f); // repli si le peintre ne sait pas
+					} else if (genre == NkAssetIcone::DossierBureau) {
+						R(5.f, 7.f, 6.f, 4.f, pale, 0.5f); // un ecran
+						R(7.f, 11.f, 2.f, 1.f, pale, 0.f);
+					}
+					return;
+				}
+				// LES FICHIERS : une feuille avec un coin plie, puis le signe du type.
+				R(3.f, 1.5f, 10.f, 13.f, pale, 1.f);
+				{
+					const float32 xy[6] = {b.x + 9.5f * u, b.y + 1.5f * u, b.x + 13.f * u,
+											   b.y + 5.f * u,	 b.y + 0.f,		 b.y + 0.f};
+					// le coin plie : un triangle plein de la teinte vive
+					const float32 tri[6] = {b.x + 9.5f * u, b.y + 1.5f * u, b.x + 13.f * u, b.y + 5.f * u,
+												b.x + 9.5f * u, b.y + 5.f * u};
+					(void)xy;
+					if (!p.PolygonHex(tri, 3, vif))
+						R(9.5f, 1.5f, 3.5f, 3.5f, vif, 0.f);
+				}
+				switch (genre) {
+					case NkAssetIcone::Image: {
+						R(4.5f, 8.5f, 7.f, 1.6f, vif, 0.4f); // l'horizon
+						R(5.5f, 6.f, 2.f, 2.f, vif, 1.f);	 // le soleil
+						break;
+					}
+					case NkAssetIcone::Texte:
+						R(5.f, 6.5f, 6.f, 1.f, vif, 0.4f);
+						R(5.f, 8.5f, 6.f, 1.f, vif, 0.4f);
+						R(5.f, 10.5f, 4.f, 1.f, vif, 0.4f);
+						break;
+					case NkAssetIcone::Code:
+						// deux chevrons : des traits, pas les caracteres « < » et « > »
+						p.Line(b.x + 6.5f * u, b.y + 7.f * u, b.x + 4.8f * u, b.y + 9.5f * u, role, 1.2f);
+						p.Line(b.x + 4.8f * u, b.y + 9.5f * u, b.x + 6.5f * u, b.y + 12.f * u, role, 1.2f);
+						p.Line(b.x + 9.5f * u, b.y + 7.f * u, b.x + 11.2f * u, b.y + 9.5f * u, role, 1.2f);
+						p.Line(b.x + 11.2f * u, b.y + 9.5f * u, b.x + 9.5f * u, b.y + 12.f * u, role, 1.2f);
+						break;
+					case NkAssetIcone::Archive:
+						R(7.f, 5.5f, 2.f, 1.5f, vif, 0.f); // la fermeture eclair
+						R(7.f, 7.5f, 2.f, 1.5f, vif, 0.f);
+						R(7.f, 9.5f, 2.f, 2.5f, vif, 0.5f);
+						break;
+					case NkAssetIcone::Executable: {
+						const float32 tri[6] = {b.x + 6.f * u,	b.y + 6.5f * u, b.x + 11.f * u,
+													b.y + 9.5f * u, b.x + 6.f * u,	 b.y + 12.5f * u};
+						if (!p.PolygonHex(tri, 3, vif))
+							R(6.f, 7.f, 4.f, 5.f, vif, 0.f);
+						break;
+					}
+					default:
+						break; // Inconnu : la feuille seule, et c'est deja distinct d'un dossier
+				}
+			}
+
+			/// La silhouette EFFECTIVE : `Auto` se resout depuis `isFolder`.
+			NkAssetIcone IconeDe(const NkAssetEntry &e) {
+				const NkAssetIcone g = (NkAssetIcone)e.icone;
+				if (g != NkAssetIcone::Auto && g < NkAssetIcone::Count)
+					return g;
+				return e.isFolder ? NkAssetIcone::Dossier : NkAssetIcone::Inconnu;
+			}
+
 			/// Le pont des evenements de l'arbre embarque vers ceux du navigateur :
 			/// une selection de dossier EST une navigation.
 			struct TreeBridge {
@@ -712,7 +824,7 @@ namespace nkentseu {
 					const NkPaintRect zoneVign{cell.x + pad, cell.y + pad, cell.w - pad * 2.f,
 											   thumbZoneH - pad * 2.f};
 					if (!DrawThumb(p, zoneVign, e.thumbnail))
-						p.Icon(zoneVign, e.isFolder ? 1 : 2, e.isFolder ? s.folderTint : e.kindRole);
+						Silhouette(p, zoneVign, IconeDe(e), e.isFolder ? s.folderTint : e.kindRole);
 					// LE BADGE DE TYPE (Aetherion) : la couleur de la nature en
 					// fond, pose au bas de la zone de vignette. Pas en minimal, et
 					// pas sur un dossier — le dossier EST sa couleur.
@@ -738,7 +850,7 @@ namespace nkentseu {
 					p.Fill(cell, s.cardBg);
 					const NkPaintRect zoneVign{cell.x + pad, cell.y, rowH, rowH};
 					if (!DrawThumb(p, zoneVign, e.thumbnail))
-						p.Icon(zoneVign, e.isFolder ? 1 : 2, e.isFolder ? s.folderTint : e.kindRole);
+						Silhouette(p, zoneVign, IconeDe(e), e.isFolder ? s.folderTint : e.kindRole);
 					p.Text({cell.x + pad + rowH, cell.y, cell.w * 0.6f, cell.h}, Label(e), s.text);
 					p.Text({cell.x + cell.w * 0.6f, cell.y, cell.w * 0.4f, cell.h},
 						   e.kindLabel ? e.kindLabel : "", s.textMuted);

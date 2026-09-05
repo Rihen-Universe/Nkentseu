@@ -11075,6 +11075,11 @@ namespace nkuidesign {
 			uint32 nImage = 0u, nIcone = 0u, imgHandle = 0u;
 			uint32 nImageSans = 0u, nIconeSans = 0u;
 			{
+				// ⚠️ MISE A JOUR (05/09, nuit) : on comptait des commandes `Icon`. Depuis (2)(3)
+				//    il n'y en a PLUS -- les natures sont des SILHOUETTES dessinees avec
+				//    `FillColor`, jamais l'icone-carre du contrat. La sonde a rougi a ce
+				//    changement, et c'est exactement ce qu'on lui demande : elle mesurait bien
+				//    le dessin. On compte donc les FORMES de la silhouette.
 				auto compter = [](const NkRecordingPaint &r, uint32 &img, uint32 &ico, uint32 &h) {
 					img = ico = 0u;
 					h = 0u;
@@ -11083,8 +11088,9 @@ namespace nkuidesign {
 							++img;
 							if (h == 0u)
 								h = r.cmds[i].image;
-						} else if (r.cmds[i].op == NkPaintOp::Icon)
-							++ico;
+						} else if (r.cmds[i].op == NkPaintOp::Icon
+							   || (r.cmds[i].op == NkPaintOp::FillColor && r.cmds[i].w < 120.f))
+							++ico; // une FORME de silhouette (ou l'ancienne icone-carre)
 					}
 				};
 				NkContentBrowserModel m;
@@ -12460,6 +12466,108 @@ namespace nkuidesign {
 				"`vignette + gouttiere` et le nombre de colonnes le PLANCHER du quotient, si bien que le reste (jusqu'a "
 				"une cellule entiere) n'etait donne a personne ; il se repartit desormais sur les colonnes",
 				pasDeBandeMorte && mesureSensible, det);
+		}
+		// ── 112. ②③ CHAQUE NATURE A SA SILHOUETTE, DESSINEE (05/09, nuit). Rodolf : « les
+		//    dossiers ne sont pas bien designes » et « il doit y avoir des icones pour
+		//    specifier chaque type comme c'est le cas partout ». Un `.png` SANS vignette
+		//    affichait le MEME aplat qu'un dossier : on ne distinguait pas un fichier d'un
+		//    dossier.
+		//    ⚠️ LE TEMOIN EXIGE QU'ELLES SOIENT DIFFERENTES ENTRE ELLES, pas seulement
+		//       « presentes » : douze icones identiques passeraient un test de presence.
+		//    ⚠️ ET QU'AUCUNE NE SOIT UN TEXTE : la porte du 04/09 interdit le glyphe de
+		//       police en guise d'icone.
+		{
+			char det[880];
+			// L'EMPREINTE d'une silhouette : combien de commandes, et leur somme geometrique.
+			// Deux natures qui rendraient la meme empreinte seraient indiscernables a l'oeil.
+			auto empreinte = [](editorkit::NkAssetIcone g, uint32 &nCmd, uint32 &nTexte) -> uint64 {
+				NkRecordingPaint r;
+				editorkit::NkComponentPaint &p = r;
+				// la fonction de dessin passe par le navigateur : on l'atteint via une entree
+				NkContentBrowserModel m;
+				NkAssetEntry a;
+				a.name = NkString("x");
+				a.icone = (uint8)g;
+				a.isFolder = (g >= editorkit::NkAssetIcone::Dossier
+					  && g <= editorkit::NkAssetIcone::DossierBureau);
+				a.kindLabel = "";
+				m.entries.PushBack(a);
+				NkContentBrowserHooks h;
+				NkComponentInput in;
+				NkDrawContentBrowser(p, in, {0.f, 0.f, 400.f, 300.f}, m, DemoStyle(nullptr), h);
+				uint64 e = 0u;
+				nCmd = 0u;
+				nTexte = 0u;
+				for (uint32 i = 0; i < (uint32)r.cmds.Size(); ++i) {
+					const NkPaintCmd &c = r.cmds[i];
+					if (c.op == NkPaintOp::Text)
+						++nTexte;
+					// NOTE :  n'est PAS enregistre par NkRecordingPaint (il rend
+					// faux, du contrat de base) -- la silhouette retombe alors sur ses
+					// rectangles de repli, et c'est EUX qu'on mesure. Le temoin voit donc
+					// ce que voit un peintre sans polygone : le cas le plus pauvre.
+					if (c.op != NkPaintOp::FillColor && c.op != NkPaintOp::Line)
+						continue;
+					++nCmd;
+					e = e * 1099511628211ull
+						+ (uint64)((uint32)c.op * 7919u + (uint32)(c.x * 4.f) * 31u
+								   + (uint32)(c.y * 4.f) * 17u + (uint32)(c.w * 4.f) * 13u
+								   + (uint32)(c.h * 4.f));
+				}
+				return e;
+			};
+			static const editorkit::NkAssetIcone kG[] = {
+				editorkit::NkAssetIcone::Dossier,		 editorkit::NkAssetIcone::DossierImages,
+				editorkit::NkAssetIcone::DossierDocuments, editorkit::NkAssetIcone::DossierTelechargements,
+				editorkit::NkAssetIcone::DossierBureau,	 editorkit::NkAssetIcone::Image,
+				editorkit::NkAssetIcone::Texte,			 editorkit::NkAssetIcone::Code,
+				editorkit::NkAssetIcone::Archive,		 editorkit::NkAssetIcone::Executable,
+				editorkit::NkAssetIcone::Inconnu};
+			const uint32 nG = (uint32)(sizeof(kG) / sizeof(kG[0]));
+			uint64 emp[16];
+			uint32 cmds[16], textes[16];
+			uint32 minCmd = 9999u;
+			for (uint32 k = 0; k < nG; ++k)
+				emp[k] = empreinte(kG[k], cmds[k], textes[k]);
+			for (uint32 k = 0; k < nG; ++k)
+				if (cmds[k] < minCmd)
+					minCmd = cmds[k];
+			// 1. TOUTES DIFFERENTES
+			uint32 collisions = 0u;
+			char paire[80];
+			paire[0] = '\0';
+			for (uint32 i = 0; i < nG; ++i)
+				for (uint32 j = i + 1u; j < nG; ++j)
+					if (emp[i] == emp[j]) {
+						++collisions;
+						if (!paire[0])
+							snprintf(paire, sizeof(paire), "%u et %u", i, j);
+					}
+			const bool toutesDistinctes = collisions == 0u;
+			// 2. LE DOSSIER A UNE SILHOUETTE : au moins deux formes (languette + corps),
+			//    ce qui le distingue du rectangle plein d'avant.
+			const bool dossierDessine = cmds[0] >= 2u;
+			// 3. UN FICHIER SANS VIGNETTE N'EST PAS UN DOSSIER -- le defaut exact de Rodolf
+			const bool imageNestPasDossier = emp[5] != emp[0] && emp[10] != emp[0];
+			// 4. AUCUNE N'EST UN TEXTE. On compare au meme rendu SANS silhouette : le
+			//    nombre de commandes de texte ne doit pas augmenter avec la nature.
+			bool aucunGlyphe = true;
+			for (uint32 k = 1; k < nG; ++k)
+				if (textes[k] != textes[0])
+					aucunGlyphe = false;
+			snprintf(det, sizeof(det),
+				"%u natures dessinees ; empreintes geometriques : %u collision(s) [%s] -> toutes distinctes=%d ; "
+				"le dossier emet %u forme(s) (languette + corps) -> %d ; une image et un inconnu different du "
+				"dossier=%d ; commandes de texte identiques pour toutes (%u) -> aucun glyphe en guise d'icone=%d ; "
+				"minimum de formes par nature : %u",
+				nG, collisions, paire[0] ? paire : "(aucune)", toutesDistinctes ? 1 : 0, cmds[0],
+				dossierDessine ? 1 : 0, imageNestPasDossier ? 1 : 0, textes[0], aucunGlyphe ? 1 : 0, minCmd);
+			check("112. ②③ CHAQUE NATURE A SA SILHOUETTE, ET ELLES SONT TOUTES DIFFERENTES : onze natures -- dossier, "
+				"quatre dossiers CONNUS (reconnus a leur chemin, pas a leur nom), image, texte, code, archive, executable, "
+				"inconnu -- rendent onze empreintes geometriques distinctes ; le dossier a une VRAIE silhouette (languette "
+				"+ corps) et non un aplat ; un fichier sans vignette ne ressemble plus a un dossier ; et AUCUNE n'ajoute "
+				"une commande de texte -- pas un glyphe de police en guise d'icone (porte du 04/09)",
+				toutesDistinctes && dossierDessine && imageNestPasDossier && aucunGlyphe && minCmd >= 2u, det);
 		}
 		snprintf(tail, sizeof(tail), "\n=== RESULTAT : %d / %d ===\n", pass, total);
 		rep.Append(tail);
