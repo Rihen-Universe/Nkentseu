@@ -30,6 +30,10 @@ namespace nkentseu {
 				uint32 insideNearestMax = 0, insideNearestSum = 0;
 				float32 insideDepthMax = 0.f;
 				NkVector<NkVec3f> freePos; // positions des particules LIBRES (les epinglees sont hors mesure)
+				NkBodySDF sdf, sdfPrev;	  // champ PROPRE au vêtement (boîte de ses particules)
+				float64 msSdfSum = 0.0;
+				float32 msSdfMax = 0.f, cellSize = 0.f;
+				uint32 sdfCells = 0, sdfSkipped = 0;
 				float64 stretchSum = 0.0;
 				uint32 stretchOver5 = 0;
 				float32 sdfPenMax = 0.f;
@@ -103,6 +107,7 @@ namespace nkentseu {
 			NkMeshInsideTester inside, restInside;
 			NkBodySDF sdf, sdfPrev;	  // le corps vu comme un champ de distance : pose de fin, pose de début
 			bool useSdf = true;
+			bool sdfPerGarment = false; // NK_MANNEQUIN_SDF_BOX=1 : un champ par vêtement, sur SA boîte
 			uint32 sdfEvery = 1;	  // reconstruction toutes les N images (mesure du compromis)
 			float64 msSdfSum = 0.0;
 			float32 msSdfMax = 0.f;
@@ -362,6 +367,12 @@ namespace nkentseu {
 			p->sdf.params.sign = NkSDFSign::NK_WINDING;
 		if (const char *e = std::getenv("NK_MANNEQUIN_SDF_SIGNRES"); e && e[0])
 			p->sdf.params.signResolution = (uint32)std::atoi(e);
+		if (const char *e = std::getenv("NK_MANNEQUIN_SDF_BOX"); e && e[0] == '1')
+			p->sdfPerGarment = true;
+		if (const char *e = std::getenv("NK_MANNEQUIN_SDF_CELL"); e && e[0])
+			p->sdf.params.targetCellSize = (float32)std::atof(e) * 0.001f; // en mm
+		if (const char *e = std::getenv("NK_MANNEQUIN_SDF_MAXCELLS"); e && e[0])
+			p->sdf.params.maxCells = (uint32)std::atoi(e);
 		if (const char *e = std::getenv("NK_MANNEQUIN_SDF_RES"); e && e[0])
 			p->sdf.params.resolution = (uint32)std::atoi(e);
 		if (const char *e = std::getenv("NK_MANNEQUIN_SDF_EVERY"); e && e[0])
@@ -659,7 +670,7 @@ namespace nkentseu {
 		// 3. capsules posées, épingles, pas
 		p->mannequin.Pose(p->world.Data(), nj, p->shapes);
 		// le CHAMP DE DISTANCE de cette pose (toutes les sdfEvery images)
-		if (p->useSdf && (frame % p->sdfEvery) == 0u) {
+		if (p->useSdf && !p->sdfPerGarment && (frame % p->sdfEvery) == 0u) {
 			NkChrono sc;
 			// le champ de l'image précédente devient celui du DÉBUT de pas (les deux sont interpolés
 			// par sous-pas, comme les capsules) -- copie par échange de contenu, une seule construction
@@ -682,8 +693,37 @@ namespace nkentseu {
 			c.colliders.Clear();
 			for (uint32 k = 0; k < (uint32)p->shapes.Size(); ++k)
 				c.colliders.PushBack(p->shapes[k]);
-			c.bodySDF = (p->useSdf && p->sdf.Valid()) ? &p->sdf : nullptr;
-			c.bodySDFPrev = (p->useSdf && p->sdfPrev.Valid()) ? &p->sdfPrev : nullptr;
+			if (p->useSdf && p->sdfPerGarment) {
+				// LA BOÎTE DU VÊTEMENT : ses particules, dilatées de l'épaisseur, de la marge de
+				// déplacement d'un pas (vitesse du corps x dt) et d'une cellule -- à nombre de
+				// cellules égal, un volume plus petit donne une cellule bien plus fine.
+				NkVec3f gmn, gmx;
+				if (c.Bounds(gmn, gmx)) {
+					const float32 pad = c.params.thickness + 0.06f;
+					s->sdfPrev = s->sdf;
+					s->sdf.params = p->sdf.params;
+					s->sdf.params.useBounds = true;
+					s->sdf.params.boundsMin = gmn - NkVec3f{pad, pad, pad};
+					s->sdf.params.boundsMax = gmx + NkVec3f{pad, pad, pad};
+					NkChrono gc;
+					s->sdf.Build(p->bodyPos.Data(), nv, M.indices.Data(), (uint32)M.indices.Size() / 3u);
+					const float32 gms = (float32)gc.Elapsed().milliseconds;
+					if (count) {
+						s->msSdfSum += gms;
+						if (gms > s->msSdfMax)
+							s->msSdfMax = gms;
+					}
+					s->cellSize = s->sdf.Stats().cellSize;
+					s->sdfCells = s->sdf.Stats().cells;
+					s->sdfSkipped = s->sdf.Stats().skippedTriangles;
+				}
+			}
+			c.bodySDF = p->useSdf ? (p->sdfPerGarment ? (s->sdf.Valid() ? &s->sdf : nullptr)
+													  : (p->sdf.Valid() ? &p->sdf : nullptr))
+								  : nullptr;
+			c.bodySDFPrev = p->useSdf ? (p->sdfPerGarment ? (s->sdfPrev.Valid() ? &s->sdfPrev : nullptr)
+														  : (p->sdfPrev.Valid() ? &p->sdfPrev : nullptr))
+									  : nullptr;
 			s->garment.UpdatePins(p->world.Data(), nj);
 			NkChrono simClock;
 			c.Step(dt, p->time);
@@ -827,6 +867,10 @@ namespace nkentseu {
 						 NkGarmentName(s->garment.kind), s->garment.cloth.ParticleCount(), s->frames ? (float32)(s->msSum / (float64)s->frames) : 0.f,
 						 s->msMax, 1000.f * s->penMax, s->insideNearestMax, s->frames ? (float32)s->insideNearestSum / (float32)s->frames : 0.f,
 						 1000.f * s->pinMax, 100.f * s->stretchMax, s->degenerate);
+			if (p->sdfPerGarment)
+				std::fprintf(stderr, "[MANNEQUIN BILAN]            champ PROPRE : cellule %.1f mm, %u cellules, %u triangles sautes, %.2f ms/image (max %.2f)\n",
+							 1000.f * s->cellSize, s->sdfCells, s->sdfSkipped,
+							 s->frames ? (float32)(s->msSdfSum / (float64)s->frames) : 0.f, s->msSdfMax);
 			std::fprintf(stderr, "[MANNEQUIN BILAN]            etirement : max %.2f %% (un PIC), moyenne par image %.2f %%, %u images sur %u au-dessus de 5 %%\n",
 						 100.f * s->stretchMax, s->frames ? 100.f * (float32)(s->stretchSum / (float64)s->frames) : 0.f, s->stretchOver5, s->frames);
 			std::fprintf(stderr, "[MANNEQUIN BILAN]            (parite, indicative sur une coque non fermee : max %u, moyenne %.2f | profondeur max sous la peau %.1f mm) | CHAMP : penetration max %.3f mm, contacts max %u par le champ contre %u par les capsules\n",

@@ -73,10 +73,26 @@ namespace nkentseu {
 				NkSDFSign sign = NkSDFSign::NK_PSEUDONORMAL;
 				uint32 signResolution = 16; // cellules sur le plus grand côté, pour la grille de SIGNE
 				float32 windingThreshold = 0.5f; // w > seuil = dedans (Jacobson : 0,5 sépare les deux)
-				uint32 resolution = 64; // cellules sur le PLUS GRAND côté de la boîte
+				uint32 resolution = 64; // cellules sur le PLUS GRAND côté de la boîte (si targetCellSize = 0)
+				// CE QUI COMPTE POUR LE TISSU, c'est la taille de cellule -- pas le nombre de cellules :
+				// une cellule de 26 mm fait « respirer » l'isosurface d'une image à l'autre et étire un
+				// tissu de 6 mm. Quand `targetCellSize` > 0, c'est ELLE qui fixe la grille, et
+				// `maxCells` borne la dépense (au-delà, la cellule est agrandie jusqu'à tenir).
+				float32 targetCellSize = 0.f;
+				uint32 maxCells = 250000u;
 				float32 margin = 0.08f; // m ajoutés autour du corps (le tissu vit dehors)
 				uint32 band = 2;		// cellules de part et d'autre de chaque triangle (bande exacte)
 				bool sweep = true;		// propager hors de la bande (faux = seule la bande est juste)
+				// BOÎTE IMPOSÉE : quand elle est donnée, la grille couvre CETTE boîte (plus la marge)
+				// au lieu du corps entier, et les triangles qui ne la croisent pas ne sont même pas
+				// rastérisés. C'est le levier des deux problèmes à la fois -- un vêtement n'a besoin
+				// que de sa zone : le foulard du cou, la jupe du bassin et des cuisses. À nombre de
+				// cellules égal, le volume plus petit donne une cellule BIEN plus fine (mesuré au lot
+				// précédent : 26 mm sur le corps entier faisait « respirer » l'isosurface d'une image
+				// à l'autre et étirait le tissu), et la bande coûte moins puisqu'elle voit moins de
+				// triangles.
+				bool useBounds = false;
+				NkVec3f boundsMin{}, boundsMax{};
 		};
 
 		// Ce que la construction a mesuré (les témoins lisent ici).
@@ -86,6 +102,7 @@ namespace nkentseu {
 				float32 cellSize = 0.f;
 				float32 minValue = 0.f, maxValue = 0.f;
 				uint32 negativeCells = 0; // cellules dites dedans
+				uint32 skippedTriangles = 0; // triangles hors de la grille, jamais rastérisés (boîte imposée)
 		};
 
 		class NkBodySDF {
