@@ -209,7 +209,12 @@ namespace nkentseu {
 				uint32 collidersIgnored = 0;		// formes d'un type non traité (dites, pas simulées)
 				uint32 collidersCulled = 0;			// formes sautées par l'élagage au dernier sous-pas
 				uint32 sdfContacts = 0;				// projections faites par le champ de distance au dernier sous-pas
-				float32 maxSdfPenetration = 0.f;	// m : max(0, thickness - distance signée) après le pas (0 attendu)
+				// m : max(0, thickness - distance signée) après le pas, sur les particules LIBRES
+				// seulement. ⚠️ Une particule ÉPINGLÉE suit un os : elle est sous la peau par
+				// construction (une épaule, une taille, un cou), et la compter faisait lire comme un
+				// défaut du solveur ce qui est la définition d'une épingle -- mesuré le 05/09 : les
+				// « 9 à 13 particules de foulard en permanence sous la peau » étaient ses 29 épingles.
+				float32 maxSdfPenetration = 0.f;
 				float32 maxPinError = 0.f;			// m : max |x - cible| des particules épinglées à cible (0 attendu)
 				uint32 pinTargets = 0;				// particules épinglées qui ont une cible
 				uint32 substeps = 0, iterations = 0;
@@ -224,9 +229,15 @@ namespace nkentseu {
 				// à la fin de chaque Step. Vide ou de taille différente = colliders immobiles sur le pas.
 				NkVector<collision::NkShape> collidersPrev;
 				const math::NkIForceField *forceField = nullptr; // vent : contrat NkIForceField, force en N par particule
-				// Champ de distance du corps pour CE pas (l'appelant le reconstruit à la pose de fin).
+				// Champ de distance du corps à la pose de FIN de pas (l'appelant le reconstruit).
 				// Nul = collisions par les capsules seules, comme avant.
 				const NkBodySDF *bodySDF = nullptr;
+				// Champ à la pose de DÉBUT de pas. Quand les deux sont là, chaque sous-pas lit la
+				// distance et le gradient INTERPOLÉS à sa fraction -- exactement ce que les capsules
+				// font depuis le lot 1. Mesuré au lot 2 : avec un seul champ, figé pendant les 32
+				// sous-pas pendant que le corps avance, il restait 1,7 mm (cape), 6,7 mm (foulard) et
+				// 26,7 mm (jupe) de pénétration résiduelle -- ce n'était pas une affaire de résolution.
+				const NkBodySDF *bodySDFPrev = nullptr;
 
 				// ── Construction ─────────────────────────────────────────────
 				void Clear();
@@ -333,7 +344,9 @@ namespace nkentseu {
 				// Formes du sous-pas (interpolées) et vitesse de leurs deux points p0 / p1 (m/s) ; h pour
 				// convertir la vitesse en déplacement du sous-pas dans le frottement.
 				void SolveColliders(const collision::NkShape *S, uint32 nk, const NkVec3f *V0, const NkVec3f *V1,
-									float32 h);
+									float32 h, float32 alpha);
+				// distance et normale du corps à la fraction `alpha` du pas (interpolation des deux champs)
+				bool SampleBody(const NkVec3f &p, float32 alpha, float32 &outDist, NkVec3f &outNormal) const;
 				void PrepareColliderStep(float32 alpha, float32 invDt); // remplit mColStep / mColV0 / mColV1 / mColSkip
 				void SolveSelf();
 				void UpdateVelocities(float32 h);

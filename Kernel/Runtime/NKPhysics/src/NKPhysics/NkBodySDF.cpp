@@ -80,6 +80,24 @@ namespace nkentseu {
 
 		} // namespace
 
+		float32 NkBodySDF::WindingNumber(const NkVec3f &p, const NkVec3f *verts, const uint32 *indices,
+										 uint32 triCount) noexcept {
+			// somme des angles solides signes (Van Oosterom & Strackee 1983, eq. 6) / 4 pi
+			float64 sum = 0.0;
+			for (uint32 t = 0; t < triCount; ++t) {
+				const NkVec3f a = verts[indices[t * 3]] - p, b = verts[indices[t * 3 + 1]] - p,
+							  c = verts[indices[t * 3 + 2]] - p;
+				const float64 la = (float64)a.Len(), lb = (float64)b.Len(), lc = (float64)c.Len();
+				if (la < 1e-12 || lb < 1e-12 || lc < 1e-12)
+					return 1.f; // le point est SUR un sommet : dedans par convention
+				const float64 num = (float64)a.Dot(b.Cross(c));
+				const float64 den = la * lb * lc + (float64)a.Dot(b) * lc + (float64)a.Dot(c) * lb +
+									(float64)b.Dot(c) * la;
+				sum += 2.0 * (float64)math::NkAtan2((float32)num, (float32)den);
+			}
+			return (float32)(sum / (4.0 * 3.14159265358979));
+		}
+
 		float32 NkBodySDF::At(int32 i, int32 j, int32 k) const noexcept {
 			i = i < 0 ? 0 : (i >= (int32)mNX ? (int32)mNX - 1 : i);
 			j = j < 0 ? 0 : (j >= (int32)mNY ? (int32)mNY - 1 : j);
@@ -156,6 +174,53 @@ namespace nkentseu {
 								K[idx] = 1;
 								++mStats.bandCells;
 							}
+						}
+			}
+			// 2bis. SIGNE PAR NOMBRE D'ENROULEMENT (Jacobson 2013), sur une grille grossiere separee :
+			// il remplace partout le signe de la pseudonormale. C'est ce qui rend utilisable un corps
+			// NON ETANCHE (XBot, YBot : deux coques ouvertes imbriquees).
+			if (params.sign == NkSDFSign::NK_WINDING) {
+				const uint32 sres = params.signResolution < 4u ? 4u : params.signResolution;
+				const float32 scell = longest / (float32)sres;
+				const uint32 sx = (uint32)(ext.x / scell) + 2u, sy = (uint32)(ext.y / scell) + 2u,
+							 sz = (uint32)(ext.z / scell) + 2u;
+				// Le nombre d'enroulement est une valeur CONTINUE (0 dehors, 1 dedans, et il varie
+				// doucement) : on l'échantillonne sur la grille grossière puis on l'INTERPOLE, au lieu
+				// de plaquer un booléen de la cellule la plus proche. Mesuré le 05/09 : plaqué à une
+				// grille de 12, il faisait tomber CesiumMan de 100 % à 60,6 % -- une cellule de signe
+				// fait 15 cm, un bras 5 cm de rayon, le « le signe varie lentement » était faux à
+				// l'échelle des membres.
+				NkVector<float32> wf;
+				wf.Resize(sx * sy * sz, 0.f);
+				for (uint32 k = 0; k < sz; ++k)
+					for (uint32 j = 0; j < sy; ++j)
+						for (uint32 i = 0; i < sx; ++i) {
+							const NkVec3f q = mMin + NkVec3f{(float32)i * scell, (float32)j * scell, (float32)k * scell};
+							wf[(k * sy + j) * sx + i] = WindingNumber(q, verts, indices, triCount);
+						}
+				auto wAt = [&](int32 i, int32 j, int32 k) {
+					i = i < 0 ? 0 : (i >= (int32)sx ? (int32)sx - 1 : i);
+					j = j < 0 ? 0 : (j >= (int32)sy ? (int32)sy - 1 : j);
+					k = k < 0 ? 0 : (k >= (int32)sz ? (int32)sz - 1 : k);
+					return wf[((uint32)k * sy + (uint32)j) * sx + (uint32)i];
+				};
+				for (uint32 k = 0; k < mNZ; ++k)
+					for (uint32 j = 0; j < mNY; ++j)
+						for (uint32 i = 0; i < mNX; ++i) {
+							const uint32 idx = Index(i, j, k);
+							const float32 gx = ((float32)i * mCell) / scell, gy = ((float32)j * mCell) / scell,
+										  gz = ((float32)k * mCell) / scell;
+							const int32 bi = (int32)gx, bj = (int32)gy, bk = (int32)gz;
+							const float32 fx = gx - (float32)bi, fy = gy - (float32)bj, fz = gz - (float32)bk;
+							const float32 c00 = wAt(bi, bj, bk) + (wAt(bi + 1, bj, bk) - wAt(bi, bj, bk)) * fx;
+							const float32 c10 = wAt(bi, bj + 1, bk) + (wAt(bi + 1, bj + 1, bk) - wAt(bi, bj + 1, bk)) * fx;
+							const float32 c01 = wAt(bi, bj, bk + 1) + (wAt(bi + 1, bj, bk + 1) - wAt(bi, bj, bk + 1)) * fx;
+							const float32 c11 =
+								wAt(bi, bj + 1, bk + 1) + (wAt(bi + 1, bj + 1, bk + 1) - wAt(bi, bj + 1, bk + 1)) * fx;
+							const float32 c0 = c00 + (c10 - c00) * fy, c1 = c01 + (c11 - c01) * fy;
+							const float32 w = c0 + (c1 - c0) * fz;
+							const float32 av = NkAbs(D[idx]);
+							D[idx] = (w > params.windingThreshold) ? -av : av;
 						}
 			}
 			// 3. balayage rapide : |d| propagée, le signe transporté de la cellule voisine

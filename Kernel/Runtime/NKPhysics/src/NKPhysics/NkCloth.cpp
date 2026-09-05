@@ -489,7 +489,7 @@ namespace nkentseu {
 						lap(mProfile.selfSolve);
 					}
 					if (params.collisions) {
-						SolveColliders(CS, nk, CV0, CV1, h); // en dernier : l'état final ne pénètre pas
+						SolveColliders(CS, nk, CV0, CV1, h, alpha); // en dernier : l'état final ne pénètre pas
 						lap(mProfile.colliders);
 					}
 				}
@@ -498,7 +498,7 @@ namespace nkentseu {
 					SolveSelf();
 					lap(mProfile.selfSolve);
 					if (params.collisions) {
-						SolveColliders(CS, nk, CV0, CV1, h);
+						SolveColliders(CS, nk, CV0, CV1, h, alpha);
 						lap(mProfile.colliders);
 					}
 				}
@@ -678,8 +678,28 @@ namespace nkentseu {
 			mStats.collidersCulled = culled;
 		}
 
+		bool NkCloth::SampleBody(const NkVec3f &p, float32 alpha, float32 &outDist, NkVec3f &outNormal) const {
+			if (!bodySDF || !bodySDF->Valid())
+				return false;
+			const bool two = bodySDFPrev && bodySDFPrev->Valid();
+			if (!two) {
+				outDist = bodySDF->Sample(p);
+				outNormal = bodySDF->Gradient(p);
+				return true;
+			}
+			// interpolation linéaire des deux champs (en-tête) : la distance signée d'un corps qui se
+			// déplace peu entre deux images est bien approchée par le mélange de ses deux champs
+			const float32 d0 = bodySDFPrev->Sample(p), d1 = bodySDF->Sample(p);
+			outDist = d0 + (d1 - d0) * alpha;
+			const NkVec3f g0 = bodySDFPrev->Gradient(p), g1 = bodySDF->Gradient(p);
+			NkVec3f g = g0 + (g1 - g0) * alpha;
+			const float32 l = g.Len();
+			outNormal = l > 1e-9f ? g * (1.f / l) : g1;
+			return true;
+		}
+
 		void NkCloth::SolveColliders(const collision::NkShape *S, uint32 nk, const NkVec3f *V0, const NkVec3f *V1,
-									 float32 h) {
+									 float32 h, float32 alpha) {
 			const uint32 n = (uint32)mPos.Size();
 			if (nk == 0)
 				return;
@@ -700,8 +720,19 @@ namespace nkentseu {
 					if (W[i] <= 0.f)
 						continue;
 					NkVec3f nrm{0.f, 1.f, 0.f};
-					if (!bodySDF->Project(X[i], r, &nrm))
+					float32 d = 0.f;
+					if (!SampleBody(X[i], alpha, d, nrm) || d >= r)
 						continue;
+					// projection à l'isosurface + l'épaisseur, BORNÉE : deux champs interpolés donnent une
+					// distance incohérente là où le corps a beaucoup bougé entre les deux poses, et une
+					// projection non bornée téléporte la particule -- mesuré le 05/09 : la cape passait
+					// de 8,7 % à 269 % d'étirement le jour où les deux champs sont arrivés. La borne est
+					// la taille d'une cellule : au-delà, le champ ne sait plus de quoi il parle.
+					float32 push = r - d;
+					const float32 pushMax = bodySDF->Stats().cellSize;
+					if (push > pushMax)
+						push = pushMax;
+					X[i] += nrm * push;
 					// vitesse du corps : celle de la capsule la plus proche (secours), sinon zéro
 					NkVec3f dc{0.f, 0.f, 0.f};
 					float32 best = 1e30f;
@@ -1013,6 +1044,8 @@ namespace nkentseu {
 					const NkVec3f ab = s.p1 - s.p0;
 					const float32 ab2 = ab.Dot(ab);
 					for (uint32 i = 0; i < n; ++i) {
+						if (W[i] <= 0.f)
+							continue; // épinglée : dans la capsule de son os, par construction
 						NkVec3f c = s.p0;
 						if (cap && ab2 > 1e-12f) {
 							float32 t = (X[i] - s.p0).Dot(ab) / ab2;
@@ -1025,6 +1058,8 @@ namespace nkentseu {
 					}
 				} else if (s.type == collision::NkShapeType::NK_PLANE3D) {
 					for (uint32 i = 0; i < n; ++i) {
+						if (W[i] <= 0.f)
+							continue;
 						const float32 d = -(X[i] - s.p0).Dot(s.p1);
 						if (d > pen)
 							pen = d;
@@ -1036,6 +1071,8 @@ namespace nkentseu {
 			float32 sdfPen = 0.f;
 			if (params.sdfCollision && bodySDF && bodySDF->Valid())
 				for (uint32 i = 0; i < n; ++i) {
+					if (W[i] <= 0.f)
+						continue; // épinglée : elle suit son os, elle EST sous la peau (en-tête)
 					const float32 d = params.thickness - bodySDF->Sample(X[i]);
 					if (d > sdfPen)
 						sdfPen = d;
