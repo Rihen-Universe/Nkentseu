@@ -15,6 +15,7 @@
 #include "NKRenderer/Tools/VFX/NkSPHSolver.h" // sonde fluide SPH (2026-09-04)
 #include "NKPhysics/NkVehicle.h"          // sonde VEHICULE (NK_VEHICLE_PROBE=1)
 #include <cstdlib>
+#include <cstring>
 #include <cstdio>
 #include "DemoCommon.h"
 #include "NKWindow/Core/NkWESystem.h" // NkEvents()
@@ -2199,6 +2200,41 @@ static NkTexHandle CreateLanternCubeCookie(NkTextureLibrary *texLib, NkIDevice *
 				st->veh->AddWheel({0.8f, -0.5f, -1.3f}, NkWheel::kPowered);
 				std::fprintf(stderr, "[VEHICULE PROBE] voiture creee (chassis id=%u)\n", (unsigned)st->veh->Chassis());
 			}
+			// LE VENT (2026-09-05) : NK_VFX_WIND / NK_SPH_WIND = uniform|vortex|turb|curl:strength[:frequence]
+			auto parseWind = [](const char *s, NkForceField &f) {
+				if (!s || !s[0]) return;
+				if (s[0] == 'u') f.type = NkForceFieldType::UNIFORM;
+				else if (s[0] == 'v') f.type = NkForceFieldType::VORTEX;
+				else if (s[0] == 't') f.type = NkForceFieldType::TURBULENCE;
+				else if (s[0] == 'c') f.type = NkForceFieldType::CURL;
+				const char *c1 = std::strchr(s, ':');
+				if (c1) { f.strength = (float32)std::atof(c1 + 1); const char *c2 = std::strchr(c1 + 1, ':'); if (c2) f.frequency = (float32)std::atof(c2 + 1); }
+				f.direction = (f.type == NkForceFieldType::VORTEX) ? NkVec3f{0.f, 1.5f, 0.f} : NkVec3f{1.f, 0.f, 0.f};
+				f.axis = {0.f, 1.f, 0.f};
+				f.radius = 0.5f;
+			};
+			// NK_WIND_TEST=1 : la divergence discrete du bruit de curl contre celle de la turbulence (controle negatif)
+			if (const char *wt = std::getenv("NK_WIND_TEST"); wt && wt[0] == '1') {
+				for (int kind = 0; kind < 2; ++kind) {
+					NkForceField f;
+					f.type = kind == 0 ? NkForceFieldType::CURL : NkForceFieldType::TURBULENCE;
+					f.strength = 1.f; f.frequency = 2.f; f.seed = 3.f;
+					double sumDiv = 0.0, sumA = 0.0; const float32 e = 0.002f; uint32 nsamp = 0;
+					for (int i = 0; i < 10; ++i) for (int j = 0; j < 10; ++j) for (int k = 0; k < 10; ++k) {
+						const NkVec3f p = {-2.f + 0.4f * i + 0.137f, -2.f + 0.4f * j + 0.071f, -2.f + 0.4f * k + 0.211f};
+						const NkVec3f ax1 = NkEvalForceField(f, {p.x + e, p.y, p.z}, 0.f), ax0 = NkEvalForceField(f, {p.x - e, p.y, p.z}, 0.f);
+						const NkVec3f ay1 = NkEvalForceField(f, {p.x, p.y + e, p.z}, 0.f), ay0 = NkEvalForceField(f, {p.x, p.y - e, p.z}, 0.f);
+						const NkVec3f az1 = NkEvalForceField(f, {p.x, p.y, p.z + e}, 0.f), az0 = NkEvalForceField(f, {p.x, p.y, p.z - e}, 0.f);
+						const float32 div = ((ax1.x - ax0.x) + (ay1.y - ay0.y) + (az1.z - az0.z)) / (2.f * e);
+						const NkVec3f a = NkEvalForceField(f, p, 0.f);
+						sumDiv += fabs(div); sumA += sqrt(a.x * a.x + a.y * a.y + a.z * a.z); ++nsamp;
+					}
+					const double divMoy = sumDiv / nsamp, aMoy = sumA / nsamp;
+					std::fprintf(stderr, "[VENT TEMOIN] %s : |div| moyen %.4f / (|a| moyen %.4f x frequence %g) = %.4f -> %s\n",
+								 kind == 0 ? "bruit de curl" : "turbulence (controle)", divMoy, aMoy, f.frequency, divMoy / (aMoy * f.frequency),
+								 kind == 0 ? (divMoy / (aMoy * f.frequency) < 0.05 ? "OK (< 5 %, divergence nulle)" : "ECHEC") : "(attendu : de l'ordre de 1)");
+				}
+			}
 			// ── SONDE FLUIDE SPH (2026-09-04), sous NK_SPH_PROBE=1 seulement ─────────────
 			// NK_SPH_SCENE=repos|dam|conserve (defaut dam). Un emetteur sans debit, un bloc
 			// de naissances sur un reseau (h/2), le solveur SPH comme `desc.solver`.
@@ -2268,6 +2304,7 @@ static NkTexHandle CreateLanternCubeCookie(NkTextureLibrary *texLib, NkIDevice *
 					fd.blend = NkBlendMode::NK_ALPHA;
 					fd.gravity = {0.f, 0.f, 0.f}; // la gravite est celle du solveur
 					fd.solver = &sSph;
+					parseWind(std::getenv("NK_SPH_WIND"), fd.field);
 					// NK_SPH_TARGET=cpu|gpu : la cible du fluide (defaut AUTO = GPU si compute, 2026-09-05)
 					if (const char *tg = std::getenv("NK_SPH_TARGET"); tg && tg[0])
 						fd.simTarget = (tg[0] == 'g') ? NkSimTarget::GPU : (tg[0] == 'c') ? NkSimTarget::CPU : NkSimTarget::AUTO;
@@ -2298,6 +2335,7 @@ static NkTexHandle CreateLanternCubeCookie(NkTextureLibrary *texLib, NkIDevice *
 					d.velocityDir = {0.f, 1.f, 0.f};
 					d.velocityRand = 0.6f;
 					d.maxParticles = 1000;
+					parseWind(std::getenv("NK_VFX_WIND"), d.field);
 					// NK_VFX_TARGET=cpu|gpu : la cible de simulation demandee (defaut AUTO = GPU si compute) (2026-09-05).
 					if (const char *tg = std::getenv("NK_VFX_TARGET"); tg && tg[0])
 						d.simTarget = (tg[0] == 'g') ? NkSimTarget::GPU : (tg[0] == 'c') ? NkSimTarget::CPU : NkSimTarget::AUTO;

@@ -123,6 +123,7 @@ namespace nkentseu {
 				NkBufferHandle mVbo;						 // NkParticleInstance × capacity, binding 1
 				NkVector<NkParticleInstance> mScratch; // réutilisé : pas de réallocation par image
 				uint32 mAliveCount = 0;
+				float32 mTime = 0.f; // horloge du vent (bruits qui dérivent)
 		};
 
 	} // namespace renderer

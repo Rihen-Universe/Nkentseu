@@ -250,7 +250,7 @@ namespace nkentseu {
 		}
 
 		void NkSPHSolver::Apply(NkParticleStoreCPU &store, const NkEmitterDesc &desc, float32 dt) {
-			(void)desc;
+			mField = desc.field;
 			const int64 t0 = ::nkentseu::NkChrono::Now().nanoseconds;
 			mStats = NkSPHStats{};
 			BuildBoundary();
@@ -495,10 +495,19 @@ namespace nkentseu {
 					W[k].z += AV[k].z * dt;
 				}
 			}
+			mTime += dt;
+			const bool wind = mField.type != NkForceFieldType::NONE; // le vent s'ajoute à la gravité (2026-09-05)
 			for (uint32 k = 0; k < n; ++k) {
-				W[k].x += params.gravity.x * dt;
-				W[k].y += params.gravity.y * dt;
-				W[k].z += params.gravity.z * dt;
+				NkVec3f a = params.gravity;
+				if (wind) {
+					const NkVec3f w = NkEvalForceField(mField, X[k], mTime);
+					a.x += w.x;
+					a.y += w.y;
+					a.z += w.z;
+				}
+				W[k].x += a.x * dt;
+				W[k].y += a.y * dt;
+				W[k].z += a.z * dt;
 			}
 
 			// 5) DENSITÉ CONSTANTE : rho* = rho + dt Drho/Dt ; kappa = (rho* - rho0) alpha / dt^2

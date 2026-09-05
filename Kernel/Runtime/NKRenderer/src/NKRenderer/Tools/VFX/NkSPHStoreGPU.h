@@ -86,6 +86,8 @@ namespace nkentseu {
 				// 12 blocs de stockage (NVIDIA en expose 16 par etage) : paires (cle, indice) et (debut, fin), et un
 				// bloc de champs par particule a foulee 8 (rho, alpha, kappa, kappa chaud, kappa total, erreur, voisines).
 				NkBufferHandle mX, mV, mKV, mGKV, mFSE, mGSE, mFL, mT, mRed, mInstances, mBirths, mUbo, mSortUbo;
+				NkBufferHandle mFieldUbo; // le vent (3 x vec4), écrit à chaque image
+				float32 mTime = 0.f;
 				NkBufferHandle mNB; // listes de voisines : cap x 64 indices, refaites a chaque sous-pas (05/09, levier de cout)
 				float32 mNeighMax = 0.f;
 				bool mNeighOverflowSaid = false;

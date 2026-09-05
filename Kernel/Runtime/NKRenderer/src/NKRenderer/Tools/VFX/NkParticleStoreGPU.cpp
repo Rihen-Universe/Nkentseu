@@ -9,6 +9,7 @@
 // =============================================================================
 #include "NkParticleStoreGPU.h"
 #include "NkVFXSystem.h"
+#include "NkForceField.h"
 #include "NKRHI/Core/NkGraphicsApi.h"
 #include "NKSL/Compiler/NkSLCompiler.h"
 #include "NKSL/ShaderConvert/NkShaderConvert.h"
@@ -33,8 +34,11 @@ namespace nkentseu {
     vec4 gravityDt; vec4 colorStart; vec4 colorEnd;
     float sizeStart; float sizeEnd; uint count; uint mode;
 } p;
+@binding(set=0, binding=5) uniform Field { vec4 f0; vec4 f1; vec4 f2; } wf;
 layout(local_size_x = 256) in;
-
+)NKSL";
+		// la suite du noyau, après la source commune du vent (NkForceFieldNkSL)
+		static const char *kParticlesNkSLBody = R"NKSL(
 @stage(compute)
 @entry
 void main() {
@@ -58,7 +62,7 @@ void main() {
             float life = pl.w - dt;
             uint o = i * 6u;
             if (ra.z > 0.5 && life > 0.0) {
-                vec3 v = vec3(vm.x, vm.y, vm.z) + vec3(p.gravityDt.x, p.gravityDt.y, p.gravityDt.z) * dt;
+                vec3 v = vec3(vm.x, vm.y, vm.z) + (vec3(p.gravityDt.x, p.gravityDt.y, p.gravityDt.z) + nkForceField(vec3(pl.x, pl.y, pl.z))) * dt;
                 vec3 x = vec3(pl.x, pl.y, pl.z) + v * dt;
                 float rot = ra.x + ra.y * dt;
                 float t = 1.0 - life / vm.w;
@@ -88,6 +92,8 @@ void main() {
 
 		bool NkParticleStoreGPU::CompileKernel() {
 			NkString src(kParticlesNkSL);
+			src.Append(NkForceFieldNkSL());
+			src.Append(kParticlesNkSLBody);
 			NkSLCompiler slc;
 			NkSLCompileResult gl = slc.Compile(src, NkSLStage::NK_COMPUTE, NkSLTarget::NK_GLSL_VULKAN);
 			if (!gl.success) {
@@ -149,6 +155,7 @@ void main() {
 			ld.Add(2, NkDescriptorType::NK_STORAGE_BUFFER, NkShaderStage::NK_COMPUTE);
 			ld.Add(3, NkDescriptorType::NK_STORAGE_BUFFER, NkShaderStage::NK_COMPUTE);
 			ld.Add(4, NkDescriptorType::NK_UNIFORM_BUFFER, NkShaderStage::NK_COMPUTE);
+			ld.Add(5, NkDescriptorType::NK_UNIFORM_BUFFER, NkShaderStage::NK_COMPUTE);
 			mLayout = mDevice->CreateDescriptorSetLayout(ld);
 			NkComputePipelineDesc cpd;
 			cpd.shader = mShader;
@@ -214,6 +221,7 @@ void main() {
 				mInstances = device->CreateBuffer(id);
 				mParamsBirth = device->CreateBuffer(NkBufferDesc::Uniform(sizeof(Params)));
 				mParamsSim = device->CreateBuffer(NkBufferDesc::Uniform(sizeof(Params)));
+				mFieldUbo = device->CreateBuffer(NkBufferDesc::Uniform(48));
 			}
 			if (!mState.IsValid() || !mBirths.IsValid() || !mInstances.IsValid() || !mParamsBirth.IsValid() ||
 				!mParamsSim.IsValid()) {
@@ -240,6 +248,7 @@ void main() {
 				w.buffer = mInstances;
 				mDevice->UpdateDescriptorSets(&w, 1);
 				mDevice->BindUniformBuffer(set, 4, params);
+				mDevice->BindUniformBuffer(set, 5, mFieldUbo);
 			};
 			mSetBirth = mDevice->AllocateDescriptorSet(mLayout);
 			mSetSim = mDevice->AllocateDescriptorSet(mLayout);
@@ -265,7 +274,7 @@ void main() {
 					device->FreeDescriptorSet(mSetBirth);
 				if (mSetSim.IsValid())
 					device->FreeDescriptorSet(mSetSim);
-				NkBufferHandle *bufs[] = {&mState, &mBirths, &mInstances, &mParamsBirth, &mParamsSim};
+				NkBufferHandle *bufs[] = {&mState, &mBirths, &mInstances, &mParamsBirth, &mParamsSim, &mFieldUbo};
 				for (NkBufferHandle *b : bufs)
 					if (b->IsValid()) {
 						device->DestroyBuffer(*b);
@@ -332,6 +341,12 @@ void main() {
 			if (nb > 0) {
 				mDevice->WriteBuffer(mBirths, mPending.Data(), (uint64)nb * sizeof(GpuBirth));
 				bytes += nb * (uint32)sizeof(GpuBirth);
+			}
+			mTime += dt;
+			{
+				NkVec4f fw[3];
+				NkPackForceField(desc.field, mTime, fw[0], fw[1], fw[2]);
+				mDevice->WriteBuffer(mFieldUbo, fw, 48);
 			}
 			mDevice->WriteBuffer(mParamsBirth, &pb, sizeof(Params));
 			mDevice->WriteBuffer(mParamsSim, &ps, sizeof(Params));

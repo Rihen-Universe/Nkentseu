@@ -9,6 +9,7 @@
 // =============================================================================
 #include "NkParticleStore.h"
 #include "NkVFXSystem.h"
+#include "NkForceField.h"
 #include "NKTime/NkChrono.h"
 
 namespace nkentseu {
@@ -83,6 +84,8 @@ namespace nkentseu {
 				// l'integration, 1,4-1,9 -> 3,6 ms a 50 000) : vie, gravite, position,
 				// rotation, couleur, taille -- les memes formules qu'avant.
 				const NkVec3f g = desc.gravity;
+				mTime += dt;
+				const bool wind = desc.field.type != NkForceFieldType::NONE; // le vent s'ajoute à la gravité (2026-09-05)
 				for (uint32 i = 0; i < capacity; ++i) {
 					if (!A[i])
 						continue;
@@ -92,9 +95,16 @@ namespace nkentseu {
 						freeSlots.PushBack(i);
 						continue;
 					}
-					V[i].x += g.x * dt;
-					V[i].y += g.y * dt;
-					V[i].z += g.z * dt;
+					NkVec3f a = g;
+					if (wind) {
+						const NkVec3f w = NkEvalForceField(desc.field, P[i], mTime);
+						a.x += w.x;
+						a.y += w.y;
+						a.z += w.z;
+					}
+					V[i].x += a.x * dt;
+					V[i].y += a.y * dt;
+					V[i].z += a.z * dt;
 					P[i].x += V[i].x * dt;
 					P[i].y += V[i].y * dt;
 					P[i].z += V[i].z * dt;

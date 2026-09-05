@@ -7,6 +7,7 @@
 #include "NKRenderer/Core/NkRendererTypes.h"
 #include "NKRenderer/Core/NkTextureLibrary.h"
 #include "NkParticleStore.h"
+#include "NkForceField.h"
 #include "NKRHI/Commands/NkICommandBuffer.h"
 #include "NKContainers/Associative/NkHashMap.h"
 
@@ -57,6 +58,7 @@ namespace nkentseu {
 				NkBlendMode blend = NkBlendMode::NK_ADDITIVE;
 				NkSimTarget simTarget = NkSimTarget::AUTO;
 				NkIParticleSolver *solver = nullptr; // nul = gravite ; sinon ses forces (SPH) sur le stockage CPU
+				NkForceField field;					 // le VENT : accélération ajoutée à la gravité, lue par les quatre chemins (2026-09-05)
 				uint32 maxParticles = 1000;
 				bool worldSpace = true;
 				bool loop = true;
