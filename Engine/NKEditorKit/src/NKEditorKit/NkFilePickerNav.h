@@ -625,7 +625,7 @@ namespace nkentseu {
 		//
 		// UN SEUL SITE, ET IL PORTE UN NOM : le dessin appelle ceci, la sonde appelle ceci.
 		// Une instance construite en ligne dans le dessin aurait ete inaccessible au temoin.
-		inline const NkComponentInstance &NkInstanceVoletSelecteur(bool selectionMultiple) {
+		inline NkComponentInstance &NkInstanceVoletSelecteur(bool selectionMultiple) {
 			// STATIQUE : la reconstruire a chaque image allouerait un tableau de parametres
 			// soixante fois par seconde pour trois valeurs.
 			static NkComponentInstance inst(NkContentBrowserDecl());
@@ -800,8 +800,10 @@ namespace nkentseu {
 					fp.largeurRail = NkFilePickerNavState::kRailMin;
 				if (fp.largeurRail > zone.w * NkFilePickerNavState::kRailMax)
 					fp.largeurRail = zone.w * NkFilePickerNavState::kRailMax;
-				NkComponentInstance &inst = const_cast<NkComponentInstance &>(
-					NkInstanceVoletSelecteur(!saveMode && !dossierMode));
+				// L'instance est MODIFIEE a chaque image (le mode, puis la largeur du rail) :
+				// la fonction rend donc une reference NON constante. Un `const_cast` ici
+				// aurait ete l'aveu que la signature ment.
+				NkComponentInstance &inst = NkInstanceVoletSelecteur(!saveMode && !dossierMode);
 				inst.SetParam("tree_width", zone.w > 0.f ? fp.largeurRail / zone.w : 0.18f);
 				volet.values = &inst;
 				// ② RE-TRONQUER LES LIBELLES AU MILIEU, ici et pas a la construction : c'est
