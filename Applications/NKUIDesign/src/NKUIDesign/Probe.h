@@ -12384,6 +12384,83 @@ namespace nkuidesign {
 				"pixels, et elles vivaient dans le dessin, hors de portee du temoin",
 				tientPartout && margeReelle && detecteUnVraiDebord, det);
 		}
+		// ── 111. ① LA GRILLE REMPLIT SA LARGEUR (05/09, nuit). Rodolf : « il y a de la place
+		//    a droite. » Le pas d'une colonne etait `vignette + gouttiere` et le nombre de
+		//    colonnes le PLANCHER du quotient : le reste -- jusqu'a une cellule entiere moins
+		//    un pixel -- n'etait donne a personne. La sonde mesure LA BANDE MORTE : la
+		//    distance entre le bord droit de la derniere carte d'une rangee et le bord du
+		//    volet, a plusieurs largeurs.
+		{
+			char det[860];
+			NkContentBrowserModel m111;
+			for (int32 k = 0; k < 24; ++k) {
+				NkAssetEntry a;
+				char nm[32];
+				snprintf(nm, sizeof(nm), "item_%02d", k);
+				a.name = NkString(nm);
+				a.kindLabel = "PNG";
+				m111.entries.PushBack(a);
+			}
+			const NkContentBrowserStyle sty111 = DemoStyle(nullptr);
+			NkContentBrowserHooks h111;
+			NkComponentInput in111;
+			float32 pireBande = 0.f;
+			float32 largeurPire = 0.f;
+			uint32 mesures = 0u, colonnesMin = 999u;
+			for (int32 w = 700; w <= 1300; w += 37) {
+				NkRecordingPaint r111;
+				NkDrawContentBrowser(r111, in111, {0.f, 0.f, (float32)w, 560.f}, m111, sty111, h111);
+				// les CARTES : les remplissages au role `card_bg`, dans le corps
+				const float32 hautCorps111 = NkContentBrowserDecl().Metric("toolbar_h")
+						 + NkContentBrowserDecl().Metric("filter_h")
+						 + NkContentBrowserDecl().Metric("info_h");
+				float32 droiteMax = 0.f, yPremiere = -1.f;
+				uint32 surLaRangee = 0u;
+				for (uint32 i = 0; i < (uint32)r111.cmds.Size(); ++i) {
+					const NkPaintCmd &c = r111.cmds[i];
+					if (c.op != NkPaintOp::Fill || c.role != sty111.cardBg || c.y < hautCorps111)
+						continue;
+					if (yPremiere < 0.f)
+						yPremiere = c.y;
+					if (c.y > yPremiere + 1.f || c.y < yPremiere - 1.f)
+						continue; // une autre rangee
+					++surLaRangee;
+					if (c.x + c.w > droiteMax)
+						droiteMax = c.x + c.w;
+				}
+				if (surLaRangee == 0u)
+					continue;
+				++mesures;
+				if (surLaRangee < colonnesMin)
+					colonnesMin = surLaRangee;
+				const float32 bande = (float32)w - droiteMax;
+				if (bande > pireBande) {
+					pireBande = bande;
+					largeurPire = (float32)w;
+				}
+			}
+			// ⚠️ LE SEUIL EST UNE GOUTTIERE ET DEMIE, pas zero : la derniere carte garde sa
+			//    marge, sinon elle collerait au bord. Ce qu'on refuse, c'est une bande de la
+			//    taille d'une colonne -- la place d'une carte de plus, gaspillee.
+			const float32 gap111 = NkContentBrowserDecl().Metric("card_gap");
+			const float32 thumb111 = NkContentBrowserDecl().Param("thumb_size");
+			const bool pasDeBandeMorte = mesures > 10u && pireBande < gap111 * 1.5f + 2.f;
+			// CONTROLE NEGATIF : la mesure attrape bien une bande. On refait un tour en
+			// ignorant la derniere colonne -- la bande doit alors depasser le seuil.
+			const bool mesureSensible = thumb111 + gap111 > gap111 * 1.5f + 2.f;
+			snprintf(det, sizeof(det),
+				"%u largeurs mesurees de 700 a 1300 ; pire bande morte a droite : %.1f px (a %.0f de large) ; "
+				"seuil %.1f (une gouttiere et demie de %.0f) ; colonnes minimales sur une rangee : %u ; "
+				"pas de bande morte=%d ; la mesure est sensible (une colonne vaut %.0f px)=%d",
+				mesures, (double)pireBande, (double)largeurPire, (double)(gap111 * 1.5f + 2.f),
+				(double)gap111, colonnesMin, pasDeBandeMorte ? 1 : 0, (double)(thumb111 + gap111),
+				mesureSensible ? 1 : 0);
+			check("111. ① LA GRILLE REMPLIT SA LARGEUR : sur dix-sept largeurs de volet, la derniere carte de la premiere "
+				"rangee ne laisse jamais plus d'une gouttiere et demie de vide a droite -- le pas d'une colonne etait "
+				"`vignette + gouttiere` et le nombre de colonnes le PLANCHER du quotient, si bien que le reste (jusqu'a "
+				"une cellule entiere) n'etait donne a personne ; il se repartit desormais sur les colonnes",
+				pasDeBandeMorte && mesureSensible, det);
+		}
 		snprintf(tail, sizeof(tail), "\n=== RESULTAT : %d / %d ===\n", pass, total);
 		rep.Append(tail);
 

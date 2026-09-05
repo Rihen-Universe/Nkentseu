@@ -662,11 +662,28 @@ namespace nkentseu {
 				if (thumbFit > place)
 					thumbFit = place > 16.f ? place : 16.f;
 			}
-			const float32 cellW = asGrid ? (thumbFit + gap) : area.w;
+			// ① LA GRILLE REMPLIT SA LARGEUR (05/09, nuit). Le pas d'une colonne etait
+			//    `vignette + gouttiere`, et le nombre de colonnes le PLANCHER du quotient :
+			//    le reste -- jusqu'a une cellule entiere moins un pixel -- n'etait donne a
+			//    personne. Sur la capture de Rodolf, une bande morte a droite et des trous
+			//    entre les colonnes.
+			//    On calcule donc le nombre de colonnes avec le pas MINIMAL, puis on
+			//    repartit le reste : le pas devient `largeur / colonnes`.
+			const float32 pasMin = asGrid ? (thumbFit + gap) : area.w;
 			const float32 cellH = asGrid ? (thumbFit + footerH + gap) : rowH;
-			int32 perRow = asGrid ? (int32)(area.w / (cellW > 0.f ? cellW : 1.f)) : 1;
+			int32 perRow = asGrid ? (int32)(area.w / (pasMin > 0.f ? pasMin : 1.f)) : 1;
 			if (perRow < 1)
 				perRow = 1;
+			const float32 cellW = asGrid ? area.w / (float32)perRow : area.w;
+			// ⚠️ LA CARTE GRANDIT AVEC SA CELLULE, mais pas au-dela d'un carre : une
+			//    vignette etiree en largeur montrerait moins, pas plus. Le surplus devient
+			//    de l'air entre les colonnes, ce qui est exactement ce qui manquait.
+			float32 carteW = cellW - gap;
+			if (carteW > thumbFit * 1.35f)
+				carteW = thumbFit * 1.35f;
+			if (carteW < 16.f)
+				carteW = 16.f;
+			const float32 marge = asGrid ? (cellW - carteW) * 0.5f : 0.f;
 
 			int32 visible = 0;
 			int32 hitIndex = -1;
@@ -676,8 +693,9 @@ namespace nkentseu {
 
 				const int32 col = asGrid ? (visible % perRow) : 0;
 				const int32 row = asGrid ? (visible / perRow) : visible;
-				NkPaintRect cell{area.x + (float32)col * cellW, area.y + (float32)row * cellH - m.scroll,
-								 asGrid ? thumbFit : area.w, asGrid ? (thumbFit + footerH) : rowH};
+				NkPaintRect cell{area.x + (float32)col * cellW + marge,
+								 area.y + (float32)row * cellH - m.scroll,
+								 asGrid ? carteW : area.w, asGrid ? (thumbFit + footerH) : rowH};
 				++visible;
 
 				// Hors champ : on saute le DESSIN, pas le comptage. Compter apres
