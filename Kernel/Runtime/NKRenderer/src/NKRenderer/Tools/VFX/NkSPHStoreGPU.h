@@ -68,12 +68,12 @@ namespace nkentseu {
 						::nkentseu::NkShaderHandle shader;
 						NkPipelineHandle pipe;
 				};
-				enum { K_BIRTH = 0, K_KEY, K_SORT, K_CLEAR, K_CELL, K_DENS, K_KAPPA, K_CORRECT, K_WARM, K_STOREWARM,
+				enum { K_BIRTH = 0, K_CELLCOUNT, K_FILL, K_SCATTER, K_DENS, K_KAPPA, K_CORRECT, K_WARM, K_STOREWARM,
 					   K_NONP, K_APPLY, K_REDUCE, K_INTEG, K_STATS, K_NEIGH, K_COUNT };
 
 				bool CompileKernel(int which, const char *name, const char *body);
 				void Dispatch(int which, uint32 count);
-				void SortGrid(uint32 which, uint32 n); // tri bitonique + début/fin de cellule
+				void SortGrid(uint32 which, uint32 n); // tri PAR COMPTAGE (05/09) : count, prefixe CPU, fill, scatter
 				bool Flush();						   // End + Submit, puis Begin (pour une relecture)
 				float32 ReadResidual(uint32 n);
 				void StepOnce(float32 dt);
@@ -88,6 +88,8 @@ namespace nkentseu {
 				NkBufferHandle mX, mV, mKV, mGKV, mFSE, mGSE, mFL, mT, mRed, mInstances, mBirths, mUbo, mSortUbo;
 				NkBufferHandle mFieldUbo; // le vent (3 x vec4), écrit à chaque image
 				float32 mTime = 0.f;
+				NkBufferHandle mCC, mCF; // comptes par cellule et curseurs (tri par comptage)
+				NkVector<uint32> mScratchU, mScratchSE; // relecture des comptes, (debut, fin) a envoyer
 				NkBufferHandle mNB; // listes de voisines : cap x 64 indices, refaites a chaque sous-pas (05/09, levier de cout)
 				float32 mNeighMax = 0.f;
 				bool mNeighOverflowSaid = false;
