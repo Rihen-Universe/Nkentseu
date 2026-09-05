@@ -446,6 +446,30 @@ recette : « livré » se mesure, il ne se déclare pas.*
   témoin posait la souris à `rect.y + rowH/2`, c'est-à-dire **dans l'en-tête**
   de l'arbre. Elle concluait « le chevron est inerte » — une conclusion juste
   tirée d'une **mesure fausse**, qui m'aurait fait corriger un composant sain.
+- **Le nom qui disparaît au survol** (06/09 — capture
+  `2026-09-06_app_rail_libelle_efface_au_survol.png`) : *« lorsque je
+  sélectionne un dossier à gauche et que je le survole, son texte s'efface, mais
+  dès que je le quitte il réapparaît. »*
+  **Deux hypothèses fausses, écartées par la mesure** : ce n'était ni
+  l'infobulle qui recouvrait le nom (survoler les 18 entrées une à une n'en
+  efface aucune), ni un double-clic qui armait un renommage (aucun ne s'arme).
+  **La cause** : le couple *(fond, texte)* d'une rangée venait de **deux
+  conditions différentes** — le fond du **survol** était peint par-dessus celui
+  de l'**actif**, pendant que la teinte du libellé restait celle de l'actif.
+  Clair sur clair : le nom devient invisible, et il revient dès qu'on quitte la
+  ligne. **Règle : qui choisit le texte choisit le fond.**
+  ⚠️ **Aucune sonde qui COMPTE DES TEXTES ne pouvait le voir** — le texte était
+  bien émis. La sonde 126 vérifie l'**invariant** : le dernier aplat qui couvre
+  le libellé et la teinte du libellé doivent venir du **même état**. Avant
+  correction : 11 couples rompus sur 18 ; après : 0.
+- **Un cache plus lent que ce qu'il économise n'est pas un cache** (06/09) : en
+  Debug, relire le cache « vide ou plein » de 124 dossiers coûtait **5,17 ms**
+  pour éviter **4,55 ms** d'accès disque — un parcours linéaire de 124
+  comparaisons de chemins. Chaque ligne porte désormais une **empreinte
+  normalisée** qui écarte 123 lignes sur 124 en une comparaison d'entiers ;
+  `PathSame` reste l'autorité sur celle qui reste. **0,26 ms** en Debug,
+  **0,12 ms** en Release. C'est l'assertion déjà présente dans la sonde 123 qui
+  l'a attrapée — elle n'a pas été affaiblie, c'est le code qui a changé.
 - **Ce que Lunacy n'a pas et que nous avons** (§11.3 du document 13) :
   l'**agencement** calculé, l'**ancrage**, les **cibles** et **points de
   rupture**, les **rôles de thème** et les **langues**. *Aucun n'est sacrifié
