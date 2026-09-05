@@ -1,4 +1,5 @@
 #pragma once
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // -----------------------------------------------------------------------------
 // @File    NkGuiInput.h
 // @Brief   État d'entrée NKGui par frame (alimenté par le backend NKEvent).
@@ -51,6 +52,19 @@ namespace nkentseu {
 				float32 wheel = 0.f;
 				float32 wheelH = 0.f;
 				float32 wheelPending = 0.f; ///< molette differee (AddWheelDeferred), fusionnee au NewFrame
+				// ── LA MOLETTE RESERVEE (2026-09-05) ──────────────────────────────
+				// Un menu contextuel ou un popup OUVERT possede la molette : quand il
+				// s'est declare (`ReserverMolette`, re-arme a chaque image tant qu'il est
+				// ouvert), NewFrame met la molette DE COTE (`wheelReserve`) et tout ce qui
+				// lit `wheel` voit zero -- la toile derriere ne defile plus « a travers »
+				// le menu, meme quand le pointeur est hors du menu (Lunacy fait pareil).
+				// Le menu / popup lit `wheelReserve`. Une image de retard a l'ouverture.
+				bool moletteReservee = false;
+				float32 wheelReserve = 0.f;
+				float32 wheelHReserve = 0.f;
+				void ReserverMolette() noexcept {
+					moletteReservee = true;
+				}
 				float32 dt = 0.f;
 
 				// Modificateurs (état enfoncé) — posés par l'app pour clic Ctrl/Shift/Alt.
@@ -122,6 +136,16 @@ namespace nkentseu {
 				void NewFrame() noexcept {
 					wheel += wheelPending; // injection differee (cf. AddWheelDeferred)
 					wheelPending = 0.f;
+					if (moletteReservee) { // la molette appartient au menu / popup ouvert
+						wheelReserve = wheel;
+						wheelHReserve = wheelH;
+						wheel = 0.f;
+						wheelH = 0.f;
+					} else {
+						wheelReserve = 0.f;
+						wheelHReserve = 0.f;
+					}
+					moletteReservee = false; // a re-armer par celui qui reste ouvert
 					for (int32 i = 0; i < 3; ++i) {
 						mouseClicked[i] = mouseDown[i] && !mousePrev[i];
 						mouseReleased[i] = !mouseDown[i] && mousePrev[i];

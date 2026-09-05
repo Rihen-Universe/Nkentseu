@@ -5,7 +5,7 @@
 //          (V/H), sous-menus (fleche), theme, occlusion d'input ("modal leger" :
 //          consomme le clic quand la souris est dedans). Engine-native (ctx/dl/
 //          font/theme) -> partageable par tous les editeurs Nkentseu.
-// @Author  Rihen
+// @Author  TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // @License Proprietary - All Rights Reserved (see LICENSE)
 // -----------------------------------------------------------------------------
 #include "NKGui/NKGui.h"
@@ -120,6 +120,11 @@ namespace nkentseu {
 			//    peintre de menu a cote de celui du kit.
 			if (!mn.open)
 				return -1;
+			// LA MOLETTE APPARTIENT AU MENU OUVERT (2026-09-05, Rodolf : « le scroll de la
+			// molette affecte le canvas a l'arriere ») : le menu la reserve pour la
+			// prochaine image (NKGui la met de cote, tout le reste voit zero) et lit celle
+			// mise de cote pour lui -- meme hors de sa boite, elle ne traverse pas.
+			ctx.input.ReserverMolette();
 
 			// ── Filtrage : on remplace les tableaux par leur version filtree, et on
 			// retient la correspondance vers les index d'ORIGINE. Le reste de la
@@ -263,16 +268,22 @@ namespace nkentseu {
 			// Molette CONSOMMEE au-dessus du menu (sinon l'editeur en dessous defile aussi).
 			const float32 maxSy = contentH + 8.f - inner.h > 0.f ? contentH + 8.f - inner.h : 0.f;
 			const float32 maxSx = wIdeal - inner.w > 0.f ? wIdeal - inner.w : 0.f;
-			if (inBox && ctx.input.wheel != 0.f) {
+			const float32 molette = ctx.input.wheelReserve != 0.f ? ctx.input.wheelReserve : ctx.input.wheel;
+			const float32 moletteH = ctx.input.wheelHReserve != 0.f ? ctx.input.wheelHReserve : ctx.input.wheelH;
+			if (inBox && molette != 0.f) {
 				if (ctx.input.shiftDown)
-					mn.sx -= ctx.input.wheel * 32.f;
+					mn.sx -= molette * 32.f;
 				else
-					mn.sy -= ctx.input.wheel * rowH * 2.f;
-				ctx.input.wheel = 0.f;
+					mn.sy -= molette * rowH * 2.f;
 			}
-			if (inBox && ctx.input.wheelH != 0.f) {
-				mn.sx -= ctx.input.wheelH * 32.f;
-				ctx.input.wheelH = 0.f;
+			ctx.input.wheel = 0.f; // consommee, dans la boite ou hors d'elle : rien ne traverse
+			ctx.input.wheelReserve = 0.f;
+			if (inBox && moletteH != 0.f) {
+				mn.sx -= moletteH * 32.f;
+			}
+			ctx.input.wheelH = 0.f;
+			ctx.input.wheelHReserve = 0.f;
+			if (false) {
 			}
 			if (mn.sy < 0.f)
 				mn.sy = 0.f;

@@ -8543,6 +8543,109 @@ namespace nkuidesign {
 					  nbS == 4u && a10 == 0 && a16 < 0 && aCote >= 0 && apres == avant + 1u + (avant == 0u ? 4u : 0u), det);
 			}
 		}
+		// ── 76. ④ LA MOLETTE N'ATTEINT PAS LA TOILE SOUS UN MENU OU UN POPUP (Rodolf : « le scroll
+		//    de la molette affecte le canvas infini a l'arriere ») : menu contextuel ouvert, molette
+		//    hors du menu -> le zoom de la toile ne bouge pas (NKGui l'a mise de cote) ; menu
+		//    ferme -> la molette zoome (le temoin n'est pas vide) ; popover NKGui ouvert -> pareil.
+		{
+			static nkgui::NkGuiContext ctxM;
+			char det[420];
+			if (!ctxM.Init(600, 900)) {
+				check("76. la molette sous un menu", false, "Init a refuse");
+			} else {
+				static DesignState stM;
+				stM.doc.NewDocument("Toile", NkAuthor::Humain);
+				const int32 pg = stM.doc.AddChild(0, "", NkAuthor::Humain);
+				stM.doc.nodes[(uint32)pg].shape = NkString("frame");
+				stM.doc.nodes[(uint32)pg].layout.kind = NkLayoutKind::Free;
+				stM.doc.nodes[(uint32)pg].width.mode = NkSizeMode::Fixed;
+				stM.doc.nodes[(uint32)pg].width.value = 400.f;
+				stM.doc.nodes[(uint32)pg].height.mode = NkSizeMode::Fixed;
+				stM.doc.nodes[(uint32)pg].height.value = 300.f;
+				const int32 rc = stM.doc.AddChild(pg, "", NkAuthor::Humain);
+				stM.doc.nodes[(uint32)rc].shape = NkString("rect");
+				stM.doc.nodes[(uint32)rc].posX = 100.f;
+				stM.doc.nodes[(uint32)rc].posY = 80.f;
+				stM.doc.nodes[(uint32)rc].width.mode = NkSizeMode::Fixed;
+				stM.doc.nodes[(uint32)rc].width.value = 160.f;
+				stM.doc.nodes[(uint32)rc].height.mode = NkSizeMode::Fixed;
+				stM.doc.nodes[(uint32)rc].height.value = 80.f;
+				NkRemplissage f;
+				f.couleur = NkString("#123456");
+				stM.doc.nodes[(uint32)rc].fills.PushBack(f);
+				stM.Recompute(NkPaintRect{0.f, 0.f, 600.f, 900.f});
+				stM.SelectSingle(rc);
+				static PreviewPanel toileM(&stM);
+				static InspectorPanel inspM(&stM);
+				NkEditorFrameContext ec;
+				ec.ui = &ctxM;
+				ec.dt = 0.016f;
+				auto image = [&](float32 mx, float32 my, bool gauche, bool droit, float32 molette) {
+					ctxM.input.mousePos = {mx, my};
+					ctxM.input.mouseDown[0] = gauche;
+					ctxM.input.mouseDown[1] = droit;
+					ctxM.input.wheel = molette; // ce que la fenetre injecte AVANT l'image
+					ctxM.BeginFrame(0.016f);
+					ctxM.BeginLayout({0.f, 0.f, 340.f, 900.f});
+					toileM.OnUI(ec);
+					ctxM.BeginLayout({340.f, 0.f, 260.f, 900.f});
+					inspM.OnUI(ec);
+					NkDessinerPickerDemande(ctxM, stM);
+					ctxM.EndFrame();
+				};
+				for (int32 k = 0; k < 3; ++k)
+					image(-1.f, -1.f, false, false, 0.f);
+				// 1. sans menu : la molette zoome (le temoin n'est pas vide)
+				const float32 z0 = stM.view.zoom;
+				image(200.f, 400.f, false, false, 0.f);
+				image(200.f, 400.f, false, false, 1.f);
+				const float32 z1 = stM.view.zoom;
+				// 2. clic droit sur le rectangle : le menu s'ouvre ; molette LOIN du menu -> le zoom tient
+				NkLayoutResult scr;
+				stM.ProjectToScreen(scr);
+				const NkPaintRect rs = scr.At(rc);
+				const float32 cx = rs.x + rs.w * 0.5f, cy = rs.y + rs.h * 0.5f;
+				image(cx, cy, false, false, 0.f);
+				image(cx, cy, false, true, 0.f);
+				image(cx, cy, false, false, 0.f);
+				const bool menuOuvert = toileM.MenuContextuelOuvert();
+				const float32 z2 = stM.view.zoom;
+				image(30.f, 850.f, false, false, 0.f); // le pointeur loin du menu (bas-gauche de la toile)
+				image(30.f, 850.f, false, false, 1.f);
+				image(30.f, 850.f, false, false, 1.f);
+				const float32 z3 = stM.view.zoom;
+				const bool reserveVue = ctxM.input.wheelReserve == 0.f; // consommee par le menu en fin d'image
+				// 3. le menu se ferme (Echap) ; un popover NKGui (le selecteur de remplissage) : pareil
+				ctxM.input.SetKey(nkgui::NkGuiKey::Escape, true);
+				image(30.f, 850.f, false, false, 0.f);
+				ctxM.input.SetKey(nkgui::NkGuiKey::Escape, false);
+				image(30.f, 850.f, false, false, 0.f);
+				const bool menuFerme = !toileM.MenuContextuelOuvert();
+				stM.picker = DesignState::DemandePicker();
+				stM.picker.ouvert = true;
+				stM.picker.id = ctxM.GetId("##sonde.popover.molette");
+				stM.picker.genre = 1u;
+				stM.picker.noeud = rc;
+				stM.picker.index = 0;
+				stM.picker.ancre = {360.f, 200.f, 16.f, 16.f};
+				image(-1.f, -1.f, false, false, 0.f);
+				image(-1.f, -1.f, false, false, 0.f);
+				const float32 z4 = stM.view.zoom;
+				image(30.f, 850.f, false, false, 0.f);
+				image(30.f, 850.f, false, false, 1.f);
+				image(30.f, 850.f, false, false, 1.f);
+				const float32 z5 = stM.view.zoom;
+				if (ctxM.popupDepth > 0)
+					ctxM.ClosePopup();
+				stM.picker = DesignState::DemandePicker();
+				image(-1.f, -1.f, false, false, 0.f);
+				snprintf(det, sizeof(det), "sans menu : zoom %.3f -> %.3f ; menu ouvert=%d, molette loin du menu : zoom %.3f -> %.3f (reserve consommee=%d) ; menu ferme=%d ; popover ouvert, molette loin : zoom %.3f -> %.3f",
+						 z0, z1, menuOuvert ? 1 : 0, z2, z3, reserveVue ? 1 : 0, menuFerme ? 1 : 0, z4, z5);
+				check("76. ④ LA MOLETTE N'ATTEINT PAS LA TOILE SOUS UN MENU OU UN POPUP : sans menu elle zoome ; le menu contextuel "
+					  "ouvert, la molette hors du menu ne zoome pas (NKGui la reserve au menu) ; le popover du selecteur ouvert, pareil",
+					  z1 != z0 && menuOuvert && z3 == z2 && menuFerme && z5 == z4, det);
+			}
+		}
 		snprintf(tail, sizeof(tail), "\n=== RESULTAT : %d / %d ===\n", pass, total);
 		rep.Append(tail);
 

@@ -2834,6 +2834,11 @@ namespace nkuidesign {
 	// sa mise en page et appelle les fonctions de dessin memes que l'application
 	// finale appellera.
 	class PreviewPanel : public NkEditorPanel {
+		public:
+			/// Le menu contextuel de la toile est-il ouvert -- lu par la sonde (④ molette).
+			bool MenuContextuelOuvert() const {
+				return mMenuCtx.open;
+			}
 			/// La recette du contrat universel d'edition (--recette-edition)
 			/// exerce FermerEditionTexte et HandleMouse sans fenetre — l'acces
 			/// de banc, pas une seconde interface.
