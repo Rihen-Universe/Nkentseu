@@ -224,6 +224,11 @@ int main() {
 		NkTexOvenReglages r2;
 		r2.sRGB = true;
 		r2.genererMips = true;
+		// BRUT explicitement : ce temoin juge la fidelite AU BIT de la chaine
+		// non compressee. Depuis que le defaut est `AUTO`, l'actif serait en BC1
+		// et comparer ses octets a des pixels n'aurait aucun sens — la perte de
+		// BC1 se juge au PSNR, temoin 10, pas au bit.
+		r2.compression = NKTEXFMT_INCONNU;
 		if (!NkTextureOven::CuireFichier(png, r2, p2, &e2)) {
 			Verdict("bout en bout / cuisson d'un PNG du depot", false, e2.CStr());
 		} else if (!NkEcrireActifTexture(p2.Data(), p2.Size(), actifPng, NkStringView("/Textures/TestPattern"),
@@ -396,6 +401,7 @@ int main() {
 			NkLoadOptions o;
 			o.genMipmaps = false;
 			o.useAnisotropic = false;
+			o.compression = NKTEXFMT_INCONNU; // le CACHE est le sujet, pas BC1
 			NkTexHandle t = l.Load(chemin, o);
 			if (!t.IsValid())
 				return -1;
@@ -415,7 +421,9 @@ int main() {
 			NkTexOvenReglages r;
 			r.sRGB = srgb;
 			r.genererMips = false;
-			r.filterMode = NKTEXFILTER_LINEAR; // ce que le temoin demandera
+			r.filterMode = NKTEXFILTER_LINEAR;	  // ce que le temoin demandera
+			r.compression = NKTEXFMT_INCONNU;	  // idem : ce banc juge le CACHE,
+												  // pas la compression
 			const nk_uint64 emp = NkTexCacheNommage::Empreinte(source, r);
 			if (emp != 0u)
 				std::remove(NkTexCacheNommage::Chemin(emp).CStr());
@@ -484,6 +492,7 @@ int main() {
 		} else {
 			NkTexOvenReglages r;
 			r.genererMips = false;
+			r.compression = NKTEXFMT_INCONNU; // le sujet est la recuisson
 			const nk_uint64 emp = NkTexCacheNommage::Empreinte(pngInv, r);
 			NkVector<nk_uint8> payload;
 			NkString e;
@@ -524,6 +533,7 @@ int main() {
 				l4.Init(&dev, nullptr);
 				NkLoadOptions o4;
 				o4.genMipmaps = false;
+				o4.compression = NKTEXFMT_INCONNU;
 				NkTextureCache::RemettreCompteursAZero();
 				NkTexHandle h4 = l4.Load(NkString(pngInv), o4);
 				std::snprintf(d, sizeof(d), "%s, %u manque(s) — l'actif a ete refabrique",
@@ -534,6 +544,55 @@ int main() {
 				l4.Shutdown();
 			}
 		}
+	}
+
+	// -- 8ter. LE CHANGEMENT DE DEFAUT DOIT CHANGER L'EMPREINTE --------------
+	//
+	// 🔴 Sans ça, le lot ne servirait a rien pour qui a deja un cache : Rodolf
+	// avait 514 Mo d'actifs BRUTS ; si le passage a `AUTO` avait garde la meme
+	// empreinte, ils lui auraient ete resservis et il n'aurait TOUJOURS rien vu.
+	// C'est exactement ce qui vient de se passer avec l'ancien defaut.
+	{
+		const char *src = "Resources/NKRenderer/Textures/Defaults/test_pattern.png";
+
+		NkTexOvenReglages brut;
+		brut.compression = NKTEXFMT_INCONNU;
+		NkTexOvenReglages various = brut;
+		various.compression = NKTEXFMT_AUTO;
+
+		const nk_uint64 eBrut = NkTexCacheNommage::Empreinte(src, brut);
+		const nk_uint64 eAuto = NkTexCacheNommage::Empreinte(src, various);
+		std::snprintf(d, sizeof(d), "brut %016llX vs auto %016llX", (unsigned long long)eBrut,
+					  (unsigned long long)eAuto);
+		Verdict("defaut / brut et AUTO ne visent PAS le meme fichier", eBrut != 0u && eAuto != 0u && eBrut != eAuto,
+				d);
+
+		// Et concretement : un actif cuit en brut ne peut pas etre servi a une
+		// demande AUTO. On l'ecrit, puis on verifie que le fichier de l'autre
+		// empreinte n'existe pas.
+		NkVector<nk_uint8> p1;
+		NkString e1;
+		if (NkTextureOven::CuireFichier(src, brut, p1, &e1)) {
+			const NkString cBrut = NkTexCacheNommage::Chemin(eBrut);
+			const NkString cAuto = NkTexCacheNommage::Chemin(eAuto);
+			std::remove(cAuto.CStr());
+			NkTextureCache::Ecrire(cBrut, p1.Data(), p1.Size(), NkString(src));
+			const bool brutLa = NkTextureCache::Existe(cBrut);
+			const bool autoPasLa = !NkTextureCache::Existe(cAuto);
+			std::snprintf(d, sizeof(d), "actif brut %s, actif AUTO %s — l'ancien cache est IGNORE, pas reservi",
+						  brutLa ? "present" : "ABSENT", autoPasLa ? "absent" : "PRESENT (faux)");
+			Verdict("defaut / l'ancien cache brut est ignore, jamais reservi", brutLa && autoPasLa, d);
+			std::remove(cBrut.CStr());
+		}
+
+		// LE DORSAL A LE DERNIER MOT. `AUTO` demande BC1 ; un dorsal qui
+		// n'annonce pas `textureCompressionBC` doit faire retomber sur le brut,
+		// sinon on cuirait a chaque lancement un actif que personne ne peut lire.
+		// Le dorsal logiciel est justement dans ce cas — d'ou ce banc.
+		std::snprintf(d, sizeof(d), "textureCompressionBC = %d sur ce dorsal",
+					  dev.GetCaps().textureCompressionBC ? 1 : 0);
+		Verdict("defaut / la capacite du dorsal est LUE (elle ne l'etait pas)",
+				!dev.GetCaps().textureCompressionBC, d);
 	}
 
 	// -- 9. ARITHMETIQUE DE BLOCS AU RHI -------------------------------------

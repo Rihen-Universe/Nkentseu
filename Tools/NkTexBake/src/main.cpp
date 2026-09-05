@@ -20,6 +20,7 @@
 // faire aujourd'hui, ne sont pas la meme chose. Voir `--cible aide`.
 // =============================================================================
 #include "NKImage/Core/NkTextureOven.h"
+#include "NKImage/Core/NkBlockCompress.h"
 #include "NKFileSystem/NkDirectory.h"
 #include "NKFileSystem/NkFile.h"
 #include "NKSerialization/Asset/NkTextureAssetFormat.h"
@@ -118,6 +119,9 @@ namespace {
 					"      --dossier <d>       parcourt un dossier et cuit toutes ses images\n"
 					"                          (implique --cache)\n"
 					"      --forcer            recuit meme si l'actif existe deja dans le cache\n"
+					"      --perte             ne cuit rien : compresse en BC1 et DIT la perte\n"
+					"                          (PSNR et ecart max) — pour decider par la mesure\n"
+					"                          plutot que par une regle generale\n"
 					"  -h, --help\n");
 	}
 
@@ -189,6 +193,7 @@ int main(int argc, char **argv) {
 	const char *cible = nullptr;
 	int usageCouleur = -1; // -1 = deviner
 	bool sansMips = false;
+	bool perteSeule = false;
 	bool versCache = false;
 	bool forcer = false;
 	const char *dossier = nullptr;
@@ -247,6 +252,8 @@ int main(int argc, char **argv) {
 			sansMips = true;
 		} else if (std::strcmp(a, "--cache") == 0) {
 			versCache = true;
+		} else if (std::strcmp(a, "--perte") == 0) {
+			perteSeule = true;
 		} else if (std::strcmp(a, "--forcer") == 0) {
 			forcer = true;
 		} else if (std::strcmp(a, "--dossier") == 0) {
@@ -273,6 +280,57 @@ int main(int argc, char **argv) {
 	if (!entree && !dossier) {
 		Usage();
 		return 2;
+	}
+
+	// ── Mode PERTE : mesurer avant de decider ────────────────────────────────
+	// Une regle generale (« BC1 abime les normales ») est un souvenir de lecture.
+	// Le chiffre sur LA carte qu'on a sous la main est une mesure. Cette option
+	// existe pour que le defaut du moteur soit choisi par la seconde, pas par la
+	// premiere.
+	if (perteSeule) {
+		if (!entree) {
+			std::printf("[NkTexBake] --perte attend une image.\n");
+			return 2;
+		}
+		NkImage img;
+		if (!img.Load(entree, 0)) {
+			std::printf("[NkTexBake] image illisible : %s\n", entree);
+			return 1;
+		}
+		NkImage rgba;
+		const NkImage *src = &img;
+		if (img.Format() != NkImagePixelFormat::NK_RGBA32) {
+			rgba = img.Convert(NkImagePixelFormat::NK_RGBA32);
+			src = &rgba;
+		}
+		if (!src->IsValid()) {
+			std::printf("[NkTexBake] conversion RGBA impossible : %s\n", entree);
+			return 1;
+		}
+		NkVector<nk_uint8> serre;
+		NkTextureOven::SerrerLignes(*src, serre);
+
+		// L'alpha est-il UTILE ? BC1 n'en a pas : le dire est aussi important que
+		// le PSNR, parce qu'une texture a alpha perdrait sa decoupe en silence.
+		bool alphaUtile = false;
+		for (nk_size i = 3; i < serre.Size() && !alphaUtile; i += 4)
+			if (serre[i] != 255u)
+				alphaUtile = true;
+
+		NkVector<nk_uint8> blocs, decode;
+		NkBlockCompress::EncoderBC1(serre.Data(), nk_uint32(src->Width()), nk_uint32(src->Height()), blocs);
+		NkBlockCompress::DecoderBC1(blocs.Data(), nk_uint32(src->Width()), nk_uint32(src->Height()), decode);
+		const float64 psnr =
+			NkBlockCompress::PSNR(serre.Data(), decode.Data(), nk_uint32(src->Width()), nk_uint32(src->Height()));
+		const nk_uint32 pire =
+			NkBlockCompress::EcartMax(serre.Data(), decode.Data(), nk_uint32(src->Width()), nk_uint32(src->Height()));
+
+		const bool normale = NkTextureOven::RessembleAUneNormale(*src);
+		std::printf("%-52s %5dx%-5d %dc alpha=%-5s normale=%-3s PSNR %6.2f dB  ecart %3u  %7.2f -> %6.2f Mo\n",
+					entree, src->Width(), src->Height(), img.Channels(), alphaUtile ? "UTILE" : "plein",
+					normale ? "OUI" : "non", psnr, pire, double(serre.Size()) / 1048576.0,
+					double(blocs.Size()) / 1048576.0);
+		return 0;
 	}
 
 	// ── Mode DOSSIER : pre-cuisson d'une distribution ────────────────────────

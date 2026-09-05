@@ -105,6 +105,17 @@ namespace nkentseu {
 				static void AjouterMsTeleversement(float64 ms) noexcept;
 
 				// Incrementes par NkTextureLibrary.
+				// Un RESUME en une ligne, pret a imprimer :
+				//   « 10 textures : 8 depuis le cache (65,2 Mo lus), 2 cuites — BC1 »
+				// 🔴 Il existe parce que Rodolf a lance la scene, a vu le meme temps, et
+				// n'avait RIEN a l'ecran pour savoir si le cache avait servi. Un cache
+				// silencieux ne se distingue pas d'un cache absent.
+				[[nodiscard]] static NkString Resume() noexcept;
+
+				// Ce que le four a decide pour la derniere texture cuite, en clair.
+				[[nodiscard]] static NkString DerniereDecision() noexcept;
+				static void NoterDecision(const NkString &d) noexcept;
+
 				static void CompterTouche() noexcept;
 				static void CompterManque() noexcept;
 				static void CompterRefus() noexcept;
