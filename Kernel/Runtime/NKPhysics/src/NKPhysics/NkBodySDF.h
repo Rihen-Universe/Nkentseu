@@ -69,6 +69,15 @@ namespace nkentseu {
 			NK_WINDING = 1,		 // Jacobson 2013 — ÉCRIT, MESURÉ, ROUGE : voir ci-dessus
 		};
 
+		// ── Primitives partagées (le champ ET la requête par particule les utilisent) ────────
+		// Point le plus proche d'un triangle et RÉGION touchée (Ericson, « Real-Time Collision
+		// Detection », §5.1.5) : 0 = face, 1..3 = arêtes ab / bc / ca, 4..6 = sommets a / b / c.
+		NkVec3f NkClosestOnTriangle(const NkVec3f &p, const NkVec3f &a, const NkVec3f &b, const NkVec3f &c,
+									uint32 &outRegion) noexcept;
+		// Poids de la pseudonormale selon la région (Bærentzen & Aanæs 2005) : une face décide seule,
+		// une arête se partage entre deux faces, un sommet pèse son angle.
+		float32 NkTriangleCornerWeight(const NkVec3f &a, const NkVec3f &b, const NkVec3f &c, uint32 region) noexcept;
+
 		struct NkBodySDFParams {
 				NkSDFSign sign = NkSDFSign::NK_PSEUDONORMAL;
 				uint32 signResolution = 16; // cellules sur le plus grand côté, pour la grille de SIGNE
@@ -170,6 +179,70 @@ namespace nkentseu {
 					return (k * mNY + j) * mNX + i;
 				}
 				float32 At(int32 i, int32 j, int32 k) const noexcept;
+		};
+
+		// ── LA DISTANCE EXACTE, PAR PARTICULE, SANS GRILLE DE CHAMP ──────────────────────────
+		// Mesuré le 2026-09-05 : le poste dominant du champ est la RASTÉRISATION de sa bande (chaque
+		// triangle visite les cellules de sa boîte élargie), et ni la résolution ni la boîte du
+		// vêtement ne l'ont fait bouger -- 22 à 29 ms par image. Et une grille pleine ne peut pas être
+		// fine autour d'un objet creux : la cape gardait une cellule de 15 mm là où son tissu fait
+		// 6 mm d'épaisseur. Ici il n'y a plus de champ du tout : les TRIANGLES sont rangés une fois
+		// dans une grille uniforme (leur taille, pas celle du tissu), et chaque particule demande la
+		// distance EXACTE au plus proche -- aucune interpolation, aucune cellule, aucune isosurface
+		// qui « respire » d'une image à l'autre.
+		//
+		// Ce qu'on perd par rapport au champ : la distance loin de la surface (la requête a un rayon
+		// maximal) et le gradient lissé. Ce qu'on gagne : l'exactitude là où le tissu est, et le coût
+		// qui suit le nombre de PARTICULES au lieu du nombre de triangles x cellules.
+		class NkBodyProximity {
+			public:
+				// `cellSize` <= 0 : déduite de la taille moyenne d'un triangle (le bon choix par défaut).
+				bool Build(const NkVec3f *verts, uint32 vertCount, const uint32 *indices, uint32 triCount,
+						   float32 cellSize = 0.f);
+				bool Valid() const noexcept {
+					return mTriCount > 0;
+				}
+				// Distance SIGNÉE au corps et normale, si un triangle est à moins de `maxDist`.
+				// Faux si rien n'est assez proche (l'appelant garde alors ses capsules).
+				bool Query(const NkVec3f &p, float32 maxDist, float32 &outDist, NkVec3f &outNormal) const noexcept;
+				uint32 TriangleCount() const noexcept {
+					return mTriCount;
+				}
+				float32 CellSize() const noexcept {
+					return mCell;
+				}
+				uint32 CellCount() const noexcept {
+					return mNX * mNY * mNZ;
+				}
+				// Triangles rangés (somme des insertions) : le coût de la construction se lit dessus.
+				uint32 InsertionCount() const noexcept {
+					return (uint32)mCellTri.Size();
+				}
+				// Boîte du corps : l'appelant rejette d'un test ce qui est loin (une cape pend
+				// derrière : la plupart de ses particules ne sont jamais près du corps).
+				const NkVec3f &Min() const noexcept {
+					return mMin;
+				}
+				const NkVec3f &Max() const noexcept {
+					return mMax;
+				}
+				// Requêtes servies depuis la dernière construction (le coût se lit dessus).
+				uint32 QueryCount() const noexcept {
+					return mQueries;
+				}
+				uint32 TriangleTests() const noexcept {
+					return mTriTests;
+				}
+
+			private:
+				const NkVec3f *mVerts = nullptr;
+				const uint32 *mIdx = nullptr;
+				uint32 mTriCount = 0;
+				NkVec3f mMin{}, mMax{};
+				float32 mCell = 0.f, mInvCell = 0.f;
+				uint32 mNX = 0, mNY = 0, mNZ = 0;
+				NkVector<uint32> mCellStart, mCellTri;
+				mutable uint32 mQueries = 0, mTriTests = 0;
 		};
 
 	} // namespace physics

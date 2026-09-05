@@ -720,6 +720,34 @@ namespace nkentseu {
 		}
 
 		bool NkCloth::SampleBody(const NkVec3f &p, float32 alpha, float32 &outDist, NkVec3f &outNormal) const {
+			// la distance EXACTE d'abord (en-tête) : rayon de recherche = l'épaisseur plus la marge
+			// d'un pas ; au-delà, la particule est loin du corps et rien ne la pousse
+			if (bodyProx && bodyProx->Valid()) {
+				// rayon COURT : on ne veut savoir que si la particule touche (épaisseur + ce qu'elle
+				// parcourt en un sous-pas). Un rayon de 8 cm faisait visiter 5³ cellules par requête,
+				// 12 M de tests de triangle par image, 600 ms par pas -- mesuré.
+				const float32 reach = params.thickness * 2.f + 0.004f;
+				float32 d1 = 0.f;
+				NkVec3f n1{0.f, 1.f, 0.f};
+				const bool ok1 = bodyProx->Query(p, reach, d1, n1);
+				if (bodyProxPrev && bodyProxPrev->Valid()) {
+					float32 d0 = 0.f;
+					NkVec3f n0{0.f, 1.f, 0.f};
+					if (bodyProxPrev->Query(p, reach, d0, n0) && ok1) {
+						outDist = d0 + (d1 - d0) * alpha;
+						NkVec3f g = n0 + (n1 - n0) * alpha;
+						const float32 l = g.Len();
+						outNormal = l > 1e-9f ? g * (1.f / l) : n1;
+						return true;
+					}
+				}
+				if (ok1) {
+					outDist = d1;
+					outNormal = n1;
+					return true;
+				}
+				return false; // rien de proche : les capsules restent en secours
+			}
 			if (!bodySDF || !bodySDF->Valid())
 				return false;
 			const bool two = bodySDFPrev && bodySDFPrev->Valid();
@@ -758,7 +786,12 @@ namespace nkentseu {
 			// ── LE CHAMP DE DISTANCE D'ABORD : il décrit le corps, les capsules le complètent ──
 			// La vitesse du corps au point de contact est celle de la capsule la plus proche (même
 			// corps, mêmes os) : le champ, lui, ne porte pas de vitesse. Dit.
-			if (params.sdfCollision && bodySDF && bodySDF->Valid()) {
+			const bool hasBody = (bodyProx && bodyProx->Valid()) || (bodySDF && bodySDF->Valid());
+			// la borne de projection : une cellule quand c'est un champ, l'épaisseur quand c'est exact
+			const float32 pushMax = (bodyProx && bodyProx->Valid())
+										? params.thickness
+										: ((bodySDF && bodySDF->Valid()) ? bodySDF->Stats().cellSize : 0.f);
+			if (params.sdfCollision && hasBody) {
 				for (uint32 i = 0; i < n; ++i) {
 					if (W[i] <= 0.f)
 						continue;
@@ -772,7 +805,6 @@ namespace nkentseu {
 					// de 8,7 % à 269 % d'étirement le jour où les deux champs sont arrivés. La borne est
 					// la taille d'une cellule : au-delà, le champ ne sait plus de quoi il parle.
 					float32 push = r - d;
-					const float32 pushMax = bodySDF->Stats().cellSize;
 					if (push > pushMax)
 						push = pushMax;
 					// pondération près des épingles (en-tête) : l'arête entre une épingle fixe et sa
@@ -1121,11 +1153,15 @@ namespace nkentseu {
 			mStats.maxPenetration = pen;
 			// pénétration dans le CHAMP : l'épaisseur moins la distance signée (0 attendu après le pas)
 			float32 sdfPen = 0.f;
-			if (params.sdfCollision && bodySDF && bodySDF->Valid())
+			if (params.sdfCollision)
 				for (uint32 i = 0; i < n; ++i) {
 					if (W[i] <= 0.f)
 						continue; // épinglée : elle suit son os, elle EST sous la peau (en-tête)
-					const float32 d = params.thickness - bodySDF->Sample(X[i]);
+					float32 dist = 0.f;
+					NkVec3f nn{0.f, 1.f, 0.f};
+					if (!SampleBody(X[i], 1.f, dist, nn))
+						continue;
+					const float32 d = params.thickness - dist;
 					if (d > sdfPen)
 						sdfPen = d;
 				}
