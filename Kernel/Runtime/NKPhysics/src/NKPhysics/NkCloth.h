@@ -175,6 +175,14 @@ namespace nkentseu {
 				// sous la peau. Les capsules restent en SECOURS (hors grille, et pour la vitesse du
 				// corps dans le frottement) ; Stats dit qui a résolu quoi.
 				bool sdfCollision = true;
+				// ZONE DE TRANSITION autour des ÉPINGLES. Une épingle est une contrainte DURE : sa
+				// position est imposée par l'os, et le champ ne la pousse pas (masse inverse nulle).
+				// Sa VOISINE, elle, est poussée à `thickness` de la peau -- et l'arête entre les deux
+				// paie tout l'écart. Mesuré le 05/09 : la cape passait de 8,7 % d'étirement (capsules
+				// seules) à 143 % dès que le champ poussait, alors qu'aucune particule ne traversait.
+				// Ici le champ est PONDÉRÉ par la distance topologique à l'épingle la plus proche :
+				// 0 sur l'épingle, 1 au-delà de `sdfPinBlendRings` anneaux d'arêtes.
+				uint32 sdfPinBlendRings = 3;
 				// Projection du champ de force sur la normale de la nappe (F_eff = n (n·F)) :
 				// une voile ne prend le vent que de face. Faux = force brute par particule
 				// (c'est ce que le témoin (e) mesure : atan(F / m g)).
@@ -361,6 +369,10 @@ namespace nkentseu {
 				// épingles à cible (en-tête) : cible du pas, position de départ du pas, 1 si une cible est posée
 				NkVector<NkVec3f> mPinTarget, mPinStart;
 				NkVector<uint8> mPinHas;
+				// distance topologique (en anneaux d'arêtes) à l'épingle la plus proche, 255 = loin
+				NkVector<uint8> mPinRing;
+				bool mPinRingDirty = true;
+				void BuildPinRings();
 				// triangles explicites (SetTriangles / AppendGrid)
 				NkVector<uint32> mTri;
 				// colliders du sous-pas : formes interpolées, vitesses de p0 / p1, élagage

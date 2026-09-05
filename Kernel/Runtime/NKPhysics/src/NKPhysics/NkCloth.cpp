@@ -104,10 +104,49 @@ namespace nkentseu {
 				}
 		}
 
+		void NkCloth::BuildPinRings() {
+			const uint32 n = (uint32)mPos.Size();
+			mPinRing.Resize(n);
+			uint8 *R = mPinRing.Data();
+			for (uint32 i = 0; i < n; ++i)
+				R[i] = 255u;
+			if (mAdjDirty)
+				BuildAdjacency();
+			// parcours en largeur depuis toutes les épingles, sur l'adjacence des contraintes
+			NkVector<uint32> front, next;
+			const float32 *W = mInvMass.Data();
+			for (uint32 i = 0; i < n; ++i)
+				if (W[i] <= 0.f) {
+					R[i] = 0u;
+					front.PushBack(i);
+				}
+			const uint32 *S = mAdjStart.Data(), *A = mAdjIdx.Data();
+			uint8 ring = 0;
+			while (!front.Empty() && ring < 254u) {
+				++ring;
+				next.Clear();
+				for (uint32 q = 0; q < (uint32)front.Size(); ++q) {
+					const uint32 a = front[q];
+					for (uint32 e = S[a]; e < S[a + 1]; ++e) {
+						const uint32 b = A[e];
+						if (R[b] == 255u) {
+							R[b] = ring;
+							next.PushBack(b);
+						}
+					}
+				}
+				front.Clear();
+				for (uint32 q = 0; q < (uint32)next.Size(); ++q)
+					front.PushBack(next[q]);
+			}
+			mPinRingDirty = false;
+		}
+
 		void NkCloth::Pin(uint32 i, bool pinned) {
 			if (i >= (uint32)mPos.Size())
 				return;
 			mInvMass[i] = pinned ? 0.f : (mMass[i] > 0.f ? 1.f / mMass[i] : 0.f);
+			mPinRingDirty = true;
 			if (pinned)
 				mVel[i] = {0.f, 0.f, 0.f};
 		}
@@ -421,6 +460,8 @@ namespace nkentseu {
 				return;
 			if (mAdjDirty)
 				BuildAdjacency();
+			if (mPinRingDirty || (uint32)mPinRing.Size() != n)
+				BuildPinRings();
 			const uint32 sub = params.substeps > 0 ? params.substeps : 1;
 			const uint32 iters = params.iterations > 0 ? params.iterations : 1;
 			const float32 h = dt / (float32)sub;
@@ -712,6 +753,8 @@ namespace nkentseu {
 			const float32 r = params.thickness;
 			const float32 mu = params.friction < 0.f ? 0.f : params.friction;
 			uint32 ignored = 0, contacts = 0, sdfContacts = 0;
+			const uint32 rings = params.sdfPinBlendRings;
+			const uint8 *PR = ((uint32)mPinRing.Size() == n) ? mPinRing.Data() : nullptr;
 			// ── LE CHAMP DE DISTANCE D'ABORD : il décrit le corps, les capsules le complètent ──
 			// La vitesse du corps au point de contact est celle de la capsule la plus proche (même
 			// corps, mêmes os) : le champ, lui, ne porte pas de vitesse. Dit.
@@ -732,6 +775,15 @@ namespace nkentseu {
 					const float32 pushMax = bodySDF->Stats().cellSize;
 					if (push > pushMax)
 						push = pushMax;
+					// pondération près des épingles (en-tête) : l'arête entre une épingle fixe et sa
+					// voisine poussée ne peut pas absorber tout l'écart
+					if (rings > 0u && PR) {
+						const uint8 ring = PR[i];
+						if (ring < rings)
+							push *= (float32)ring / (float32)rings;
+					}
+					if (push <= 0.f)
+						continue;
 					X[i] += nrm * push;
 					// vitesse du corps : celle de la capsule la plus proche (secours), sinon zéro
 					NkVec3f dc{0.f, 0.f, 0.f};
