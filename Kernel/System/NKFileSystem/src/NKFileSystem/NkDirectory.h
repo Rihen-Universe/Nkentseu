@@ -1,5 +1,6 @@
 // =============================================================================
 // NKFileSystem/NkDirectory.h
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // Opérations utilitaires sur les répertoires : création, suppression, parcours.
 //
 // Design :
@@ -286,6 +287,37 @@ namespace nkentseu {
 			/// @note Windows : CSIDL_APPDATA (%APPDATA%)
 			/// @note Unix : ~/.config (convention XDG)
 			static NkPath GetAppDataDirectory();
+
+			// =====================================================================
+			//  LES DOSSIERS DE L'UTILISATEUR (2026-09-05)
+			// =====================================================================
+			// ⚠️ ILS SE LISENT DU SYSTEME, ILS NE SE DEVINENT PAS. Ecrire
+			//    `home + "/Desktop"` est faux trois fois : sur un Windows francais le
+			//    dossier s'appelle « Bureau », un dossier redirige vers OneDrive n'est plus
+			//    sous le profil, et un Linux en francais suit `XDG_DESKTOP_DIR`. Le
+			//    selecteur de fichiers du kit en a besoin pour sa section « Acces rapide » ;
+			//    la connaissance appartient au systeme de fichiers, pas a l'editeur.
+			enum class NkUserFolder : nkentseu::uint8 {
+				Desktop = 0,
+				Documents,
+				Downloads,
+				Pictures,
+				Music,
+				Videos,
+				Count
+			};
+
+			/// Le chemin d'un dossier usuel de l'utilisateur, RESOLU PAR LE SYSTEME.
+			/// Rend un chemin VIDE quand le systeme ne le connait pas (le dossier n'existe
+			/// pas, la plateforme n'a pas la notion) : l'appelant doit le tester, et un
+			/// chemin vide vaut mieux qu'un chemin invente.
+			/// @note Windows : `SHGetFolderPathA` (CSIDL) -- redirections OneDrive et noms
+			///       localises compris. ⚠️ `Downloads` n'a PAS de CSIDL : il est cherche
+			///       sous le profil, et ne sera donc pas trouve s'il a ete deplace.
+			/// @note Linux : `~/.config/user-dirs.dirs` (specification XDG), sinon les noms
+			///       anglais sous le profil.
+			/// @note macOS : les noms fixes sous le profil (ce sont ceux du systeme).
+			static NkPath GetUserFolder(NkUserFolder which);
 
 		private:
 			// -------------------------------------------------------------
