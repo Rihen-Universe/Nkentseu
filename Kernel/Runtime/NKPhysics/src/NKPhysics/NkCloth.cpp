@@ -30,6 +30,7 @@ namespace nkentseu {
 			mAdjIdx.Clear();
 			mPairA.Clear();
 			mPairB.Clear();
+			mPairBase.Clear();
 			mAdjDirty = true;
 			mGridW = mGridH = 0;
 			mStats = NkClothStats{};
@@ -210,17 +211,14 @@ namespace nkentseu {
 			mStats.contacts = 0;
 			mStats.selfContacts = 0;
 			mStats.selfBuilds = 0;
-			const float32 margin = 2.f * params.thickness; // rayon de recherche 4r : marge 2r au-delà du contact
-			mPairDrift = margin; // force une construction au premier sous-pas du pas
+			// marge de la liste de paires : au moins 2r, plus une part de ce que la nappe parcourt en un pas
+			float32 margin = 2.f * params.thickness;
+			const float32 mv = params.selfMarginK * mStats.maxSpeed * dt;
+			if (mv > margin)
+				margin = mv;
 			for (uint32 s = 0; s < sub; ++s) {
-				if (params.selfCollision) {
-					// dérive maximale de deux particules l'une vers l'autre depuis la dernière liste
-					mPairDrift += 2.f * mSubVmax * h;
-					if (mPairDrift >= margin) {
-						BuildSelfPairs();
-						mPairDrift = 0.f;
-					}
-				}
+				if (params.selfCollision && ((uint32)mPairBase.Size() != n || SelfPairsStale()))
+					BuildSelfPairs(margin);
 				Predict(h, time + (float32)s * h);
 				float32 *L = mLambda.Data();
 				for (uint32 c = 0; c < (uint32)mLambda.Size(); ++c)
@@ -442,15 +440,38 @@ namespace nkentseu {
 			mStats.contacts = contacts;
 		}
 
-		void NkCloth::BuildSelfPairs() {
+		bool NkCloth::SelfPairsStale() const {
+			// borne EXACTE du rapprochement de deux particules depuis la dernière liste :
+			// 2 x max_i |d_i - d_moyen|, d_i = x_i - x_i(liste)
+			const uint32 n = (uint32)mPos.Size();
+			const NkVec3f *X = mPos.Data(), *B = mPairBase.Data();
+			NkVec3f mean = {0.f, 0.f, 0.f};
+			for (uint32 i = 0; i < n; ++i)
+				mean += X[i] - B[i];
+			mean *= 1.f / (float32)n;
+			const float32 lim2 = 0.25f * mPairMargin * mPairMargin; // (marge / 2)²
+			for (uint32 i = 0; i < n; ++i) {
+				const NkVec3f d = X[i] - B[i] - mean;
+				if (d.Dot(d) >= lim2)
+					return true;
+			}
+			return false;
+		}
+
+		void NkCloth::BuildSelfPairs(float32 margin) {
 			const uint32 n = (uint32)mPos.Size();
 			const NkVec3f *X = mPos.Data();
 			const float32 *W = mInvMass.Data();
-			// rayon de recherche = contact (2r) + marge (2r) : la liste reste valable tant que la
-			// dérive cumulée 2 vmax h n'atteint pas la marge (Step)
-			const float32 radius = 4.f * params.thickness;
+			// rayon de recherche = contact (2r) + marge : la liste reste valable tant que deux
+			// particules n'ont pas pu se rapprocher de plus que la marge (SelfPairsStale)
+			const float32 radius = 2.f * params.thickness + margin;
 			const float32 r2 = radius * radius;
 			mPairRadius = radius;
+			mPairMargin = margin;
+			mPairBase.Resize(n);
+			NkVec3f *PB = mPairBase.Data();
+			for (uint32 i = 0; i < n; ++i)
+				PB[i] = X[i];
 			++mStats.selfBuilds;
 			mHash.Build(X, n, radius);
 			mPairA.Clear();
@@ -516,18 +537,13 @@ namespace nkentseu {
 			if (damp < 0.f)
 				damp = 0.f;
 			// le frottement est déjà dans les positions (NkClothFriction) : la vitesse le reflète
-			float32 vmax2 = 0.f;
 			for (uint32 i = 0; i < n; ++i) {
 				if (W[i] <= 0.f) {
 					V[i] = {0.f, 0.f, 0.f};
 					continue;
 				}
 				V[i] = (X[i] - P[i]) * (invH * damp);
-				const float32 v2 = V[i].Dot(V[i]);
-				if (v2 > vmax2)
-					vmax2 = v2;
 			}
-			mSubVmax = NkSqrt(vmax2);
 		}
 
 		// ── Mesure ───────────────────────────────────────────────────────────

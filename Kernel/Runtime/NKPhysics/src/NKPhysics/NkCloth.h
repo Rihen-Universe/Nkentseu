@@ -46,15 +46,21 @@
 //      par projection hors de la surface à `thickness` (Müller 2007 §4.4, contrainte
 //      d'inégalité) ; auto-collision par hachage spatial (NkSpatialHash, Teschner
 //      2003), paires non voisines à moins de 2 x thickness, projetées à parts de masse.
-//      La LISTE DES PAIRES candidates (rayon de recherche 4 x thickness, soit une
-//      MARGE de 2 x thickness au-delà du contact) est relue à chaque itération de
-//      chaque sous-pas et RECONSTRUITE seulement quand la dérive cumulée 2 vmax h
-//      depuis la dernière construction atteint la marge -- même schéma que les listes
-//      de voisines du SPH, mais adaptatif : au repos une traversée par pas, en chute
-//      une tous les quelques sous-pas. Mesuré le 05/09 (Release, 32 x 4) : la traversée
-//      des 27 cellules à CHAQUE itération coûtait 50 ms sur 61 à 32 x 32 (solveur seul :
+//      La LISTE DES PAIRES candidates (rayon de recherche = contact 2r + MARGE) est
+//      relue à chaque itération de chaque sous-pas et RECONSTRUITE seulement quand
+//      elle peut être devenue fausse -- même schéma que les listes de voisines du SPH.
+//      Le critère est EXACT (une borne, pas une estimation) : à chaque sous-pas, le
+//      déplacement d_i de chaque particule depuis la dernière liste est comparé au
+//      déplacement MOYEN de la nappe ; deux particules ne peuvent s'être rapprochées
+//      de plus de 2 max_i |d_i - d_moyen|, donc la liste est valable tant que cette
+//      quantité reste sous la marge. En chute libre tout bouge ensemble : zéro
+//      reconstruction ; à l'impact, quelques-unes. Marge = max(2r, selfMarginK x vmax x
+//      dt), vmax du pas précédent. Mesuré le 05/09 (Release, 32 x 4) : la traversée des
+//      27 cellules à CHAQUE itération coûtait 50 ms sur 61 à 32 x 32 (solveur seul :
 //      11-16 ms) ; une liste par PAS avec marge 2 vmax dt coûtait 0,9-3,4 s à 128 x 128
-//      (rayon 84 mm pour un espacement de 7,9 mm : 350 voisines par particule).
+//      (rayon 84 mm pour 7,9 mm d'espacement : 350 voisines) ; une marge fixe 2r avec le
+//      critère « dérive 2 vmax h » (estimé, pas mesuré) se reconstruisait 11 fois par
+//      image à 256 x 256 (r = 3,8 mm) contre 1 à 32 x 32 -- O(v / r) en nombre.
 //      Frottement EN POSITION sur chaque contact (Macklin et al., « Unified Particle
 //      Physics for Real-Time Applications », SIGGRAPH 2014, §6.1 éq. 23) : le
 //      glissement tangentiel du sous-pas est annulé s'il est < mu d (statique), sinon
@@ -109,6 +115,9 @@ namespace nkentseu {
 				uint32 iterations = 4;
 				NkVec3f gravity = {0.f, -9.81f, 0.f};
 				bool selfCollision = false; // hachage spatial, paires à moins de 2 x thickness
+				// Marge de la liste de paires = max(2 x thickness, selfMarginK x vmax x dt) (en-tête).
+				// Mesuré le 05/09 à 256 x 256 (table dans DECISIONS) ; 0 = marge 2r seule.
+				float32 selfMarginK = 0.15f;
 				bool collisions = true;		// formes du monde (colliders)
 				// Projection du champ de force sur la normale de la nappe (F_eff = n (n·F)) :
 				// une voile ne prend le vent que de face. Faux = force brute par particule
@@ -222,10 +231,10 @@ namespace nkentseu {
 				NkSpatialHash mHash;
 				// paires candidates à l'auto-collision, reconstruites quand la dérive dépasse la marge (en-tête)
 				NkVector<uint32> mPairA, mPairB;
-				float32 mPairRadius = 0.f;
-				float32 mPairDrift = 0.f; // 2 vmax h cumulé depuis la dernière construction
-				float32 mSubVmax = 0.f;	  // vmax du dernier sous-pas (UpdateVelocities)
-				void BuildSelfPairs();
+				NkVector<NkVec3f> mPairBase; // positions au moment de la dernière liste
+				float32 mPairRadius = 0.f, mPairMargin = 0.f;
+				void BuildSelfPairs(float32 margin);
+				bool SelfPairsStale() const; // 2 max |d_i - d_moyen| >= marge
 				uint32 mGridW = 0, mGridH = 0;
 				NkClothStats mStats;
 		};

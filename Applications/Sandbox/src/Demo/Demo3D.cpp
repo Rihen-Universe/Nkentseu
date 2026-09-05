@@ -63,6 +63,7 @@ namespace nkentseu {
 				float32 clothTime = 0.f;
 				float64 clothMsSum = 0.0;
 				uint32 clothMsN = 0;
+				uint32 clothBuildsSum = 0; // listes de paires reconstruites, cumul sur les images du relevé
 				NkVec3f clothSphereC = {0.f, 0.f, 0.f};
 				float32 clothSphereR = 0.f;
 				// ── NK_GI_TEST : mur mobile pour éprouver le GI à un rebond ──────
@@ -2323,6 +2324,7 @@ static NkTexHandle CreateLanternCubeCookie(NkTextureLibrary *texLib, NkIDevice *
 				cl->params.damping = 1.f;
 				cl->params.selfCollision = true;
 				if (const char *sc = std::getenv("NK_CLOTH_SELF"); sc && sc[0] == '0') cl->params.selfCollision = false;
+				if (const char *mk = std::getenv("NK_CLOTH_MARGINK"); mk && mk[0]) cl->params.selfMarginK = (float32)std::atof(mk); // instrument : marge k vmax dt
 				cl->params.forceOnNormal = true; // une voile : le vent ne pousse que de face
 				const float32 mP = 0.2f * side * side / (float32)(n * n);
 				float32 wind = 0.4f * mP * 9.81f;
@@ -4235,6 +4237,7 @@ static NkTexHandle CreateLanternCubeCookie(NkTextureLibrary *texLib, NkIDevice *
 					st->clothTime += fdt;
 					st->clothMsSum += ms;
 					++st->clothMsN;
+					st->clothBuildsSum += st->cloth->Stats().selfBuilds;
 					st->cloth->ComputeNormals(st->clothNormals);
 					const NkVec3f *X = st->cloth->Positions();
 					const NkVec3f *N = st->clothNormals.Data();
@@ -4248,12 +4251,14 @@ static NkTexHandle CreateLanternCubeCookie(NkTextureLibrary *texLib, NkIDevice *
 						ms3->UpdateVertices(st->clothMesh, V, cn);
 					if ((ctx.frame % 60u) == 0u) {
 						const auto &cs = st->cloth->Stats();
-						std::fprintf(stderr, "[TISSU PROBE] image %u t=%.2f s : %u particules, pas %.2f ms (moyenne %.2f ms sur %u images), etirement max %.2f %%, penetration %.3f mm, contacts %u, auto-contacts %u (paires %u, listes %u), dmin %.1f mm, vmax %.2f m/s, sous-pas %u x %u\n",
+						std::fprintf(stderr, "[TISSU PROBE] image %u t=%.2f s : %u particules, pas %.2f ms (moyenne %.2f ms sur %u images), etirement max %.2f %%, penetration %.3f mm, contacts %u, auto-contacts %u (paires %u, listes %.2f/image en moyenne, k=%.2f), dmin %.1f mm, vmax %.2f m/s, sous-pas %u x %u\n",
 									 (unsigned)ctx.frame, st->clothTime, cs.particles, (float32)ms, (float32)(st->clothMsSum / (float64)st->clothMsN),
 									 st->clothMsN, 100.f * cs.maxStretch, 1000.f * cs.maxPenetration, cs.contacts, cs.selfContacts, cs.selfPairs,
-									 cs.selfBuilds, 1000.f * cs.minSelfDistance, cs.maxSpeed, cs.substeps, cs.iterations);
+									 (float32)st->clothBuildsSum / (float32)st->clothMsN, st->cloth->params.selfMarginK, 1000.f * cs.minSelfDistance,
+									 cs.maxSpeed, cs.substeps, cs.iterations);
 						st->clothMsSum = 0.0;
 						st->clothMsN = 0;
+						st->clothBuildsSum = 0;
 					}
 				}
 				// sonde SPH : pas FIXE 1/60 (reproductible), verdicts chiffres a la derniere image
