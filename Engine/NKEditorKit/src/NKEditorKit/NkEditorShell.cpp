@@ -1,4 +1,5 @@
 // =============================================================================
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // NkEditorShell.cpp — implementation de la coquille d'editeur (sur NKGui).
 //   events -> BeginFrame -> menubar -> DockSpace -> panneaux -> palette -> rendu.
 // =============================================================================
@@ -855,7 +856,11 @@ namespace nkentseu {
 				}
 			if (!mMaskBodyOnPopup)
 				overPopup = false;
-			const bool modal = mShowPrefs || mUI.appModal || overPopup || mCtxOpen;
+			// ② UNE MODALE QUI S'EST DECLAREE (NkGuiInput::ReserverSaisie) COMPTE COMME MODALE.
+			//    C'est ce qui fait entrer ici les dialogues dessines par l'APPLICATION dans le
+			//    crochet d'overlay -- le selecteur de fichier, en particulier : ils arrivent
+			//    apres les panneaux, donc ni `appModal` ni `overPopup` ne les voyaient.
+			const bool modal = mShowPrefs || mUI.appModal || overPopup || mCtxOpen || mUI.input.saisieReserveePrec;
 			nkgui::NkGuiInput savedInput;
 			if (modal) {
 				savedInput = mUI.input;
@@ -870,6 +875,16 @@ namespace nkentseu {
 				mUI.input.wheel = mUI.input.wheelH = 0.f;
 				mUI.input.charCount = 0;
 				mUI.input.wantCopy = mUI.input.wantCut = mUI.input.wantPaste = mUI.input.wantSelectAll = false;
+				// ② ET LES TOUCHES (2026-09-05) : le bloc neutralisait la souris, la molette et
+				//    les caracteres, JAMAIS l'etat des touches. `Suppr` atteignait donc la toile
+				//    sous un dialogue ouvert, et supprimait la selection. On efface l'appui ET le
+				//    front ; `keyPrev` n'est pas touche, et tout est restaure d'un bloc apres les
+				//    panneaux (`mUI.input = savedInput`) : l'overlay voit l'entree reelle.
+				for (int32 ki = 0; ki < nkgui::NkGuiInput::KeyCount; ++ki) {
+					mUI.input.keyDown[ki] = false;
+					mUI.input.keyInit[ki] = false;
+				}
+				mUI.input.ctrlDown = mUI.input.shiftDown = mUI.input.altDown = false;
 			}
 
 			if (fullScreen) {

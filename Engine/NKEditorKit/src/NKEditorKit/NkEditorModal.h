@@ -53,6 +53,7 @@ namespace nkentseu {
 			// les effacer. Seule la modale du BAS le pose ; les suivantes s'y posent.
 			const bool premiereDeLaPile = (ctx.modalDepth == 0);
 			++ctx.modalDepth;
+			ctx.input.ReserverSaisie(); // ② une modale possede souris, molette ET clavier (une image de retard)
 			if (premiereDeLaPile)
 				dl.AddRectFilled({0.f, 0.f, static_cast<float32>(ctx.viewW), static_cast<float32>(ctx.viewH)},
 								  NkColor{0, 0, 0, 120});
@@ -296,6 +297,7 @@ namespace nkentseu {
 			// VOILE : une seule fois pour toute la pile (voir NkModalDraw).
 			const bool premiereDeLaPile = (ctx.modalDepth == 0);
 			++ctx.modalDepth;
+			ctx.input.ReserverSaisie(); // ② une modale possede souris, molette ET clavier (une image de retard)
 			if (premiereDeLaPile)
 				dl.AddRectFilled({0.f, 0.f, static_cast<float32>(ctx.viewW),
 								  static_cast<float32>(ctx.viewH)},

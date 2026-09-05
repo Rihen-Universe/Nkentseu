@@ -65,6 +65,26 @@ namespace nkentseu {
 				void ReserverMolette() noexcept {
 					moletteReservee = true;
 				}
+
+				// ── LA SAISIE RESERVEE PAR UNE MODALE (2026-09-05) ────────────────
+				// 🔴 LE DEFAUT QU'ELLE FERME, dans les mots de Rodolf : « les dialogues laissent
+				//    traverser les evenements ». Un selecteur de fichier dessine par l'APPLICATION
+				//    dans le crochet d'overlay arrive APRES les panneaux : quand il se dessine,
+				//    la toile a deja vu le clic, la molette et la touche de la meme image. Elle
+				//    deselectionnait, zoomait, supprimait -- sous un dialogue ouvert.
+				// C'est le patron de la molette, une famille plus haut : celui qui est ouvert se
+				// DECLARE a chaque image ; `NewFrame` reporte la declaration de l'image
+				// precedente dans `saisieReserveePrec`, que l'HOTE lit AVANT de dessiner ses
+				// panneaux -- il neutralise alors souris, molette, caracteres et TOUCHES pour eux,
+				// et rend l'entree reelle a l'overlay ou vit la modale.
+				// ⚠️ UNE IMAGE DE RETARD A L'OUVERTURE, comme la molette : l'image ou la modale
+				//    s'ouvre a deja ete vue par les panneaux. C'est le clic qui OUVRE, et il
+				//    appartient de toute facon a ce qui l'a declenche.
+				bool saisieReservee = false;	 ///< declaree CETTE image (a re-armer tant qu'on est ouvert)
+				bool saisieReserveePrec = false; ///< ce que l'image precedente a declare -- ce que l'hote lit
+				void ReserverSaisie() noexcept {
+					saisieReservee = true;
+				}
 				float32 dt = 0.f;
 
 				// Modificateurs (état enfoncé) — posés par l'app pour clic Ctrl/Shift/Alt.
@@ -146,6 +166,8 @@ namespace nkentseu {
 						wheelHReserve = 0.f;
 					}
 					moletteReservee = false; // a re-armer par celui qui reste ouvert
+					saisieReserveePrec = saisieReservee; // la modale de l'image d'avant possede celle-ci
+					saisieReservee = false;				 // a re-armer par celle qui reste ouverte
 					for (int32 i = 0; i < 3; ++i) {
 						mouseClicked[i] = mouseDown[i] && !mousePrev[i];
 						mouseReleased[i] = !mouseDown[i] && mousePrev[i];

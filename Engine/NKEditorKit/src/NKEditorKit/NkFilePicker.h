@@ -549,6 +549,13 @@ namespace nkentseu {
 			// suivante (la liste lue est celle de la frame precedente).
 			ctx.PushOcclusion({0.f, 0.f, W, H}, 100);
 			NkGuiContext::NkInputLayerScope _pickerLayer(ctx, 100);
+			// ② CE DIALOGUE POSSEDE L'ENTREE (2026-09-05) : l'occlusion protege les widgets du
+			//    kit, elle ne protege PAS le code propre d'une application (une toile qui lit
+			//    `ctx.input` directement, une touche lue par un panneau). La reserve, elle,
+			//    passe par l'hote : il neutralise souris, molette et clavier pour tout ce qui
+			//    est dessous a l'image suivante. A re-armer a chaque image -- c'est ce qui la
+			//    rend automatiquement caduque a la fermeture.
+			ctx.input.ReserverSaisie();
 			const bool down = ctx.input.mouseDown[0];
 			bool fieldClicked = false; // un champ de saisie a-t-il ete clique cette frame ?
 			// VOILE : une seule fois pour toute la pile de surfaces modales. Ce

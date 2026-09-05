@@ -9518,7 +9518,7 @@ namespace nkuidesign {
 				  "points, le degrade monotone et a 24 de gris du PNG, le carre tourne dans son losange, le fond de page a la meme valeur (alpha compris) ; le fichier .svg ecrit et dit",
 				  rasOk && rougeR && memeDegrade && tourneR && memeFond && fichierV, det);
 		}
-		// ── 83. LE PREMIER RETOUR DE RODOLF DU 05/09 (matin) :
+		// ── 83-84. LES DEUX PREMIERS RETOURS DE RODOLF DU 05/09 (matin) :
 		//    ① Ctrl+D (une pression = une copie, sur la toile), ② une modale (le selecteur de
 		//    fichier) laisse-t-elle traverser clic / molette / clavier ?, ③ renommer une variable
 		//    dans le rail QUAND UN OBJET EST SELECTIONNE.
@@ -9572,18 +9572,44 @@ namespace nkuidesign {
 				NkEditorFrameContext ec;
 				ec.ui = &ctxRet;
 				ec.dt = 0.016f;
+				// ⚠️ CETTE LAMBDA JOUE LE ROLE DE L'HOTE, et c'est dit : `NkEditorShell` exige une
+				//    fenetre, la sonde n'en a pas. Elle applique donc le MEME geste que lui
+				//    (`NkEditorShell.cpp`, bloc `modal`) : quand une modale a reserve la saisie a
+				//    l'image precedente, souris, molette, caracteres et touches sont neutralises
+				//    pour les PANNEAUX, puis rendus tels quels a l'overlay ou vit la modale.
+				//    Ce que la sonde mesure : la RESERVE (posee par le selecteur du kit) et son
+				//    EFFET. Que la coquille l'honore se lit dans son code, une ligne.
 				auto image = [&](float32 mx, float32 my, bool bas, uint32 cp) {
 					ctxRet.input.mousePos = {mx, my};
 					ctxRet.input.mouseDown[0] = bas;
 					ctxRet.BeginFrame(0.016f);
 					if (cp)
 						ctxRet.input.PushChar(cp);
+					const bool modaleOuverte = ctxRet.input.saisieReserveePrec;
+					nkgui::NkGuiInput garde;
+					if (modaleOuverte) {
+						garde = ctxRet.input;
+						ctxRet.input.mousePos = {-100000.f, -100000.f};
+						for (int32 b = 0; b < 3; ++b) {
+							ctxRet.input.mouseClicked[b] = false;
+							ctxRet.input.mouseDown[b] = false;
+							ctxRet.input.mouseDoubleClicked[b] = false;
+						}
+						ctxRet.input.wheel = ctxRet.input.wheelH = 0.f;
+						ctxRet.input.charCount = 0;
+						for (int32 ki = 0; ki < nkgui::NkGuiInput::KeyCount; ++ki) {
+							ctxRet.input.keyDown[ki] = false;
+							ctxRet.input.keyInit[ki] = false;
+						}
+					}
 					ctxRet.BeginLayout({0.f, 0.f, 340.f, 900.f});
 					toileRet.OnUI(ec);
 					ctxRet.BeginLayout({340.f, 0.f, 260.f, 900.f});
 					inspRet.OnUI(ec);
 					ctxRet.BeginLayout({600.f, 0.f, 260.f, 900.f});
 					railRet.OnUI(ec);
+					if (modaleOuverte)
+						ctxRet.input = garde; // l'entree REELLE pour l'overlay, comme la coquille
 					NkDessinerPickerDemande(ctxRet, stRet);
 					ctxRet.EndFrame();
 				};
@@ -9613,6 +9639,75 @@ namespace nkuidesign {
 					  "une seconde pression duplique une seconde fois ; le SECOND CHEMIN (le meme raccourci declare dans la table de commandes "
 					  "de la coquille) est retire -- c'est lui qui doublait chaque pression",
 					  apresD == avantD + 1u && apresD2 == avantD + 2u, det);
+				// ── 84. ② UNE MODALE RESERVE LA SAISIE : le selecteur de fichier du kit ouvert, ni le clic
+				//    dans le vide de la toile, ni la molette, ni `Suppr` n'atteignent le document ;
+				//    a la fermeture, la reserve tombe et la toile repond de nouveau.
+				const bool reserveAvant = ctxRet.input.saisieReserveePrec;
+				stRet.OuvrirChoixImage(rc, 0);
+				image(-1.f, -1.f, false, 0u); // l'image ou elle s'ouvre : elle se declare
+				// L'IMAGE DE RETARD, MESUREE : la modale s'est declaree PENDANT cette image, la
+				// reserve ne se lit qu'a la suivante (`NewFrame` la reporte). C'est le contrat
+				// ecrit dans NkGuiInput, et c'est ce que la sonde attend -- pas l'inverse.
+				const bool retardTenu = !ctxRet.input.saisieReserveePrec;
+				image(-1.f, -1.f, false, 0u);
+				const bool reserveTenue = ctxRet.input.saisieReserveePrec; // re-armee a chaque image
+				const bool ouverte = stRet.choixImage.pickerOpen;
+				const float32 zoomAvant = stRet.view.zoom;
+				const int32 selAvant = stRet.selected;
+				const uint32 nAvant = (uint32)stRet.doc.nodes.Size();
+				// le clic dans le vide de la toile (10, 10) : hors du carre, hors de la modale
+				image(10.f, 10.f, false, 0u);
+				image(10.f, 10.f, true, 0u);
+				image(10.f, 10.f, false, 0u);
+				const int32 selApresClic = stRet.selected;
+				// la molette sur la toile
+				ctxRet.input.wheel = 3.f;
+				image(170.f, 450.f, false, 0u);
+				ctxRet.input.wheel = 3.f;
+				image(170.f, 450.f, false, 0u);
+				const float32 zoomApres = stRet.view.zoom;
+				// la touche Suppr (le carre est toujours selectionne : le clic n'a pas traverse)
+				ctxRet.input.SetKey(nkgui::NkGuiKey::Delete, true);
+				image(-1.f, -1.f, false, 0u);
+				ctxRet.input.SetKey(nkgui::NkGuiKey::Delete, false);
+				image(-1.f, -1.f, false, 0u);
+				const uint32 nApres = (uint32)stRet.doc.nodes.Size();
+				const bool rienNeTraverse = selApresClic == selAvant && zoomApres == zoomAvant && nApres == nAvant;
+				// « Annuler » DANS la modale : sa geometrie (NkDrawFilePicker : 580 x 500 centre en
+				// mode fichier ; « Annuler » a (px + pw - 290, py + ph - 44), 80 x 32)
+				const float32 pw = 580.f, ph = 500.f, pxm = (860.f - pw) * 0.5f, pym = (900.f - ph) * 0.5f;
+				const float32 ax = pxm + pw - 290.f + 40.f, ay = pym + ph - 44.f + 16.f;
+				image(ax, ay, false, 0u);
+				image(ax, ay, true, 0u);
+				image(ax, ay, false, 0u);
+				const bool fermee = !stRet.choixImage.pickerOpen;
+				image(-1.f, -1.f, false, 0u);
+				image(-1.f, -1.f, false, 0u);
+				const bool reserveLevee = !ctxRet.input.saisieReserveePrec;
+				// et la toile repond de nouveau : un clic dans le vide deselectionne
+				image(10.f, 10.f, false, 0u);
+				image(10.f, 10.f, true, 0u);
+				image(10.f, 10.f, false, 0u);
+				const bool toileRepondEncore = stRet.selected != selAvant;
+				snprintf(det, sizeof(det),
+						 "reserve avant=%d, encore fausse a l'image de l'ouverture (le retard annonce)=%d, tenue ensuite=%d, levee apres fermeture=%d ; modale ouverte=%d ; clic dans le vide : "
+						 "selection %d -> %d ; molette : zoom %.3f -> %.3f ; Suppr : noeuds %u -> %u ; « Annuler » ferme=%d ; la toile repond "
+						 "de nouveau (selection -> %d)=%d",
+						 reserveAvant ? 1 : 0, retardTenu ? 1 : 0, reserveTenue ? 1 : 0, reserveLevee ? 1 : 0, ouverte ? 1 : 0, selAvant,
+						 selApresClic, (double)zoomAvant, (double)zoomApres, nAvant, nApres, fermee ? 1 : 0, stRet.selected,
+						 toileRepondEncore ? 1 : 0);
+				check("84. ② UNE MODALE POSSEDE SOURIS, MOLETTE ET CLAVIER : le selecteur de fichier du kit se DECLARE a chaque image "
+					  "(`NkGuiInput::ReserverSaisie`, UNE IMAGE DE RETARD a l'ouverture, mesuree) ; l'hote neutralise alors l'entree des panneaux -- un clic dans le vide ne "
+					  "deselectionne pas, la molette ne zoome pas, `Suppr` ne supprime pas ; « Annuler » dans la modale la ferme, la reserve "
+					  "tombe et la toile repond de nouveau",
+					  !reserveAvant && retardTenu && reserveTenue && ouverte && rienNeTraverse && fermee && reserveLevee
+						  && toileRepondEncore,
+					  det);
+				stRet.choixImage.pickerOpen = false;
+				stRet.choixImageNoeud = -1;
+				stRet.choixImageIndex = -1;
+				construire();
+				image(-1.f, -1.f, false, 0u);
 			}
 		}
 		// ── 86. ⑧ LE CADRE DE CROP EST PLUS GRAND QUE LE NOEUD, ET SES POIGNEES GAGNENT (05/09).
