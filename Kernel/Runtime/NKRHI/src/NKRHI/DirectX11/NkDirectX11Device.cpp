@@ -892,10 +892,11 @@ namespace nkentseu {
 			D3D11_SUBRESOURCE_DATA i3{};
 			D3D11_SUBRESOURCE_DATA *pI3 = nullptr;
 			if (desc.initialData) {
-				uint32 bpp = NkFormatBytesPerPixel(desc.format);
 				i3.pSysMem = desc.initialData;
-				i3.SysMemPitch = desc.rowPitch > 0 ? desc.rowPitch : desc.width * bpp;
-				i3.SysMemSlicePitch = i3.SysMemPitch * desc.height; // pas entre 2 tranches Z
+				// Blocs compris : `width * octets-par-pixel` rendait 0 sur BC/ETC2/ASTC.
+				i3.SysMemPitch = desc.rowPitch > 0 ? desc.rowPitch : NkFormatRowPitch(desc.format, desc.width);
+				i3.SysMemSlicePitch =
+					i3.SysMemPitch * NkFormatRowCount(desc.format, desc.height); // pas entre 2 tranches Z
 				pI3 = &i3;
 			}
 			ID3D11Texture3D *vtex = nullptr;
@@ -986,10 +987,9 @@ namespace nkentseu {
 		D3D11_SUBRESOURCE_DATA *pInit = nullptr;
 		// En mode genMips, NE PAS passer de données au create (upload + GenerateMips après).
 		if (desc.initialData && !genMips) {
-			uint32 bpp = NkFormatBytesPerPixel(desc.format);
 			initData.pSysMem = desc.initialData;
-			initData.SysMemPitch = desc.rowPitch > 0 ? desc.rowPitch : desc.width * bpp;
-			initData.SysMemSlicePitch = initData.SysMemPitch * desc.height;
+			initData.SysMemPitch = desc.rowPitch > 0 ? desc.rowPitch : NkFormatRowPitch(desc.format, desc.width);
+			initData.SysMemSlicePitch = initData.SysMemPitch * NkFormatRowCount(desc.format, desc.height);
 			pInit = &initData;
 		}
 
@@ -1041,10 +1041,18 @@ namespace nkentseu {
 
 		// genMips : uploader le mip 0 puis générer la chaîne de mips sur le GPU.
 		if (genMips && t.srv) {
-			uint32 bpp = NkFormatBytesPerPixel(desc.format);
-			uint32 pitch = desc.rowPitch > 0 ? desc.rowPitch : desc.width * bpp;
-			mContext->UpdateSubresource(tex, 0, nullptr, desc.initialData, pitch, pitch * desc.height);
-			mContext->GenerateMips(t.srv);
+			uint32 pitch = desc.rowPitch > 0 ? desc.rowPitch : NkFormatRowPitch(desc.format, desc.width);
+			mContext->UpdateSubresource(tex, 0, nullptr, desc.initialData, pitch,
+										pitch * NkFormatRowCount(desc.format, desc.height));
+			// ⚠️ `GenerateMips` ne fonctionne PAS sur un format par blocs : le
+			// materiel ne sait pas filtrer des blocs compresses. Un actif cuit
+			// porte ses mips, il ne passe donc jamais par ici — et si un appelant
+			// le demandait quand meme, il faut qu'il le sache.
+			if (NkFormatIsBlockCompressed(desc.format))
+				logger.Warnf("[NkRHI_DX11] GenerateMips sur un format par blocs : ignore (les mips d'un "
+							 "actif compresse se CUISENT, le GPU ne peut pas les generer)\n");
+			else
+				mContext->GenerateMips(t.srv);
 		}
 
 		uint64 hid = NextId();
@@ -1076,7 +1084,7 @@ namespace nkentseu {
 		if (!it)
 			return false;
 		auto &desc = it->desc;
-		uint32 pitch = rp > 0 ? rp : desc.width * NkFormatBytesPerPixel(desc.format);
+		uint32 pitch = rp > 0 ? rp : NkFormatRowPitch(desc.format, desc.width);
 		// Resource() = tex 2D OU tex3d (volume). SlicePitch = pitch*height (plan/tranche Z).
 		mContext->UpdateSubresource(it->Resource(), 0, nullptr, p, pitch, pitch * desc.height);
 		return true;
@@ -1088,7 +1096,7 @@ namespace nkentseu {
 		if (!it)
 			return false;
 		auto &desc = it->desc;
-		uint32 pitch = rp > 0 ? rp : w * NkFormatBytesPerPixel(desc.format);
+		uint32 pitch = rp > 0 ? rp : NkFormatRowPitch(desc.format, w);
 		D3D11_BOX box{x, y, z, x + w, y + h, z + d2};
 		uint32 sub = D3D11CalcSubresource(mip, layer, desc.mipLevels ? desc.mipLevels : 1);
 		mContext->UpdateSubresource(it->Resource(), sub, &box, p, pitch, pitch * h); // Resource() = 2D ou 3D

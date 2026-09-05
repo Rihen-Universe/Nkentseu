@@ -30,6 +30,7 @@
 #ifndef NKENTSEU_IMAGE_CORE_NKTEXTUREOVEN_H
 #define NKENTSEU_IMAGE_CORE_NKTEXTUREOVEN_H
 
+#include "NKImage/Core/NkBlockCompress.h"
 #include "NKImage/Core/NkImage.h"
 #include "NKSerialization/Asset/NkTextureAssetFormat.h"
 
@@ -61,6 +62,18 @@ namespace nkentseu {
 			bool genererMips = true;                     // NkLoadOptions::genMipmaps
 			nk_uint32 addressMode = NKTEXADDR_REPEAT;    // NkLoadOptions::useClampEdge == false
 			nk_uint32 filterMode = NKTEXFILTER_ANISO;    // NkLoadOptions::useAnisotropic == true
+
+			// ── COMPRESSION PAR BLOCS ────────────────────────────────────────
+			// `NKTEXFMT_INCONNU` (le defaut) = pas de compression, pixels bruts.
+			// Sinon, le code du format vise — seul `NKTEXFMT_BC1_RGB_UNORM` /
+			// `_SRGB` est livre aujourd'hui.
+			//
+			// ⚠️ CE CHAMP N'ENTRE PAS DANS LES DEFAUTS PARTAGES AVEC
+			// `NkLoadOptions` : le moteur ne compresse jamais tout seul. BC1 est
+			// AVEC PERTE et SANS ALPHA — l'appliquer d'office abimerait les cartes
+			// de normales (les artefacts de bloc s'y voient comme des facettes) et
+			// mangerait l'alpha des textures qui en ont un. Ça se demande.
+			nk_uint32 compression = NKTEXFMT_INCONNU;
 	};
 
 	// =========================================================================
@@ -112,6 +125,18 @@ namespace nkentseu {
 					memcpy(out.Data() + nk_size(y) * pas, img.RowPtr(y), pas);
 			}
 
+			// Le format demande est-il livre ? Rend une raison si non — un refus
+			// muet ferait croire a une compression appliquee.
+			[[nodiscard]] static const char *RaisonRefusCompression(nk_uint32 code, NkImagePixelFormat fmt) noexcept {
+				if (code == NKTEXFMT_INCONNU)
+					return nullptr; // pas de compression demandee
+				if (code != nk_uint32(NKTEXFMT_BC1_RGB_UNORM) && code != nk_uint32(NKTEXFMT_BC1_RGB_SRGB))
+					return "seul BC1 est livre : BC7, ETC2 et ASTC sont nommes, pas faits";
+				if (fmt != NkImagePixelFormat::NK_RGBA32 && fmt != NkImagePixelFormat::NK_RGB24)
+					return "BC1 ne prend que des images 8 bits par canal (ni HDR, ni gris)";
+				return nullptr;
+			}
+
 			// ── LE FOUR ──────────────────────────────────────────────────────
 			// `source` : une image decodee. `out` : le payload d'un `.nktex`.
 			// L'appelant l'ecrit ensuite dans un actif par `NkAssetIO::Write`.
@@ -158,15 +183,37 @@ namespace nkentseu {
 					}
 				}
 
+				// 2bis. COMPRESSION PAR BLOCS, si elle est demandee.
+				// Chaque niveau est compresse separement : un mip n'est pas un
+				// morceau du precedent, c'est une image a lui.
+				nk_uint32 codeFinal = code;
+				nk_uint32 bppFinal = bpp;
+				bool compresse = false;
+				if (reglages.compression != NKTEXFMT_INCONNU) {
+					const char *refus = RaisonRefusCompression(reglages.compression, cible);
+					if (refus)
+						return Refus(err, refus);
+					// L'encodeur BC1 veut du RGBA8 serre ; `cible` garantit deja
+					// RGBA32 (le RGB24 a ete converti en 1.).
+					for (nk_size i = 0; i < largeurs.Size(); ++i) {
+						NkVector<nk_uint8> blocs;
+						NkBlockCompress::EncoderBC1(octets[i].Data(), largeurs[i], hauteurs[i], blocs);
+						octets[i] = std::move(blocs);
+					}
+					codeFinal = reglages.compression;
+					bppFinal = 0u; // un format par blocs n'a pas d'octet-par-pixel
+					compresse = true;
+				}
+
 				// 3. Assembler et encoder.
 				const nk_size nNiveaux = largeurs.Size();
 				NkTexCuisson cuisson;
-				cuisson.formatCode = code;
+				cuisson.formatCode = codeFinal;
 				cuisson.width = largeurs[0];
 				cuisson.height = hauteurs[0];
 				cuisson.depth = 1u;
 				cuisson.arrayLayers = 1u;
-				cuisson.flags = (reglages.sRGB && NkTexFormatEstSrgb(code) ? nk_uint32(NKTEXFLAG_SRGB) : 0u) |
+				cuisson.flags = (reglages.sRGB && NkTexFormatEstSrgb(codeFinal) ? nk_uint32(NKTEXFLAG_SRGB) : 0u) |
 								(nNiveaux > 1u ? nk_uint32(NKTEXFLAG_MIPS_PRECALCULES) : 0u);
 				cuisson.addressMode = reglages.addressMode;
 				cuisson.filterMode = reglages.filterMode;
@@ -176,7 +223,11 @@ namespace nkentseu {
 					n.width = largeurs[i];
 					n.height = hauteurs[i];
 					n.depth = 1u;
-					n.rowPitch = largeurs[i] * bpp;
+					// Pas de ligne : une rangee de BLOCS quand c'est compresse.
+					// Zero serait accepte par l'encodeur (il recalculerait
+					// largeur x octets-par-pixel = 0) et produirait un actif vide.
+					n.rowPitch = compresse ? nk_uint32(((largeurs[i] + 3u) / 4u) * NkBlockCompress::kOctetsParBlocBC1)
+										   : (largeurs[i] * bppFinal);
 					n.data = octets[i].Data();
 					n.size = nk_uint32(octets[i].Size());
 					cuisson.levels.PushBack(n);
@@ -286,6 +337,10 @@ namespace nkentseu {
 										  nk_uint8(reglages.addressMode & 0xFFu),
 										  nk_uint8(reglages.filterMode & 0xFFu)};
 				h = melanger(h, opts, sizeof(opts));
+				// La compression aussi : un actif BC1 et un actif brut de la meme
+				// source sont deux fichiers, pas un seul qui changerait de sens.
+				const nk_uint32 comp = reglages.compression;
+				h = melanger(h, &comp, sizeof(comp));
 
 				const nk_uint32 v = kNkTexPayloadVersion;
 				h = melanger(h, &v, sizeof(v));

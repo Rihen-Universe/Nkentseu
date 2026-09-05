@@ -19,6 +19,7 @@
 // `WriteTextureRegion(..., mipLevel, ...)`, mais « ça compile » ne prouve rien
 // dans ce depot. Le verdict sur un vrai GPU reste a prendre.
 // =============================================================================
+#include "NKImage/Core/NkBlockCompress.h"
 #include "NKImage/Core/NkTextureOven.h"
 #include "NKRHI/Software/NkSoftwareDevice.h"
 #include "NKRenderer/Core/NkTextureAsset.h"
@@ -404,11 +405,28 @@ int main() {
 			return int(sw->mips[0][0]);
 		};
 
+		// 🔴 UN BANC QUI DEPEND D'UN ETAT QU'IL NE CONTROLE PAS NE PROUVE RIEN.
+		// Premiere version de ce temoin : elle attendait un cache vide, verdissait
+		// au premier lancement et ROUGISSAIT au second — l'actif de la course
+		// precedente etait encore la. Le banc accusait le code pour son propre
+		// montage. Il efface donc maintenant SON actif avant de commencer, quelle
+		// que soit l'histoire du repertoire.
+		auto EffacerActifDe = [&](const char *source, bool srgb) {
+			NkTexOvenReglages r;
+			r.sRGB = srgb;
+			r.genererMips = false;
+			r.filterMode = NKTEXFILTER_LINEAR; // ce que le temoin demandera
+			const nk_uint64 emp = NkTexCacheNommage::Empreinte(source, r);
+			if (emp != 0u)
+				std::remove(NkTexCacheNommage::Chemin(emp).CStr());
+		};
+
 		if (!NkTextureCache::Actif()) {
 			Verdict("cache / actif", false, "NK_TEX_CACHE=0 : ce temoin ne peut rien prouver");
 		} else if (!EcrirePng(11)) {
 			Verdict("cache / preparation", false, "ecriture du PNG de travail impossible");
 		} else {
+			EffacerActifDe(pngCache, true);
 			NkTextureCache::RemettreCompteursAZero();
 
 			// (a) premier chargement : manque, puis cuisson.
@@ -434,6 +452,7 @@ int main() {
 			if (!EcrirePng(222)) {
 				Verdict("cache / modification de la source", false, "reecriture du PNG impossible");
 			} else {
+				EffacerActifDe(pngCache, true);
 				NkTextureLibrary l3;
 				l3.Init(&dev, nullptr);
 				const int t3 = TeinteTeleversee(l3, NkString(pngCache));
@@ -444,6 +463,155 @@ int main() {
 			l2.Shutdown();
 			l1.Shutdown();
 		}
+	}
+
+	// -- 9. ARITHMETIQUE DE BLOCS AU RHI -------------------------------------
+	//
+	// 🔴 Le defaut repare : `NkFormatBytesPerPixel` rendait 0 pour BC/ETC2/ASTC,
+	// et les quatre dorsaux calculaient `rowPitch = width * ça`. Un BC7 donnait
+	// un televersement de ZERO octet, sans erreur. Ces lignes verrouillent
+	// l'arithmetique qui remplace ce calcul.
+	{
+		// BC1 : 4x4 pixels dans 8 octets.
+		const NkGPUFormat bc1 = NkGPUFormat::NK_BC1_RGB_UNORM;
+		std::snprintf(d, sizeof(d), "IsBlockCompressed(BC1)=%d, bytesPerBlock=%u",
+					  NkFormatIsBlockCompressed(bc1) ? 1 : 0, NkFormatBytesPerBlock(bc1));
+		Verdict("blocs / BC1 reconnu comme format par blocs", NkFormatIsBlockCompressed(bc1) &&
+																  NkFormatBytesPerBlock(bc1) == 8u,
+				d);
+
+		// 64 pixels de large = 16 blocs = 128 octets par rangee.
+		const uint32 pitch64 = NkFormatRowPitch(bc1, 64u);
+		std::snprintf(d, sizeof(d), "rowPitch(BC1, 64) = %u (attendu 128 = 16 blocs x 8 o)", pitch64);
+		Verdict("blocs / pas de ligne compte des blocs", pitch64 == 128u, d);
+
+		// 64x64 = 16x16 blocs = 2048 octets. Un RGBA8 en ferait 16384 : x8.
+		const uint64 t64 = NkFormatImageSize(bc1, 64u, 64u);
+		const uint64 tRgba = NkFormatImageSize(NkGPUFormat::NK_RGBA8_UNORM, 64u, 64u);
+		std::snprintf(d, sizeof(d), "BC1 %llu o contre RGBA8 %llu o, rapport %.1f (attendu 8)",
+					  (unsigned long long)t64, (unsigned long long)tRgba, double(tRgba) / double(t64));
+		Verdict("blocs / taille d'image BC1 = 1/8 du RGBA8", t64 == 2048u && tRgba == 16384u, d);
+
+		// ARRONDI AU BLOC SUPERIEUR : 5x5 occupe 2x2 blocs, pas 1,25 x 1,25.
+		const uint64 t5 = NkFormatImageSize(bc1, 5u, 5u);
+		const uint32 r5 = NkFormatRowCount(bc1, 5u);
+		std::snprintf(d, sizeof(d), "5x5 -> %llu o (attendu 32 = 2x2 blocs) et %u rangee(s) (attendu 2)",
+					  (unsigned long long)t5, r5);
+		Verdict("blocs / arrondi au bloc superieur", t5 == 32u && r5 == 2u, d);
+
+		// 1x1 : un bloc entier quand meme.
+		const uint64 t1 = NkFormatImageSize(bc1, 1u, 1u);
+		std::snprintf(d, sizeof(d), "1x1 -> %llu o (attendu 8 : un bloc entier)", (unsigned long long)t1);
+		Verdict("blocs / le plus petit niveau occupe un bloc entier", t1 == 8u, d);
+
+		// CONTRE-EPREUVE : sur un format LINEAIRE, la meme fonction doit rendre
+		// l'arithmetique ordinaire. Sans elle, une fonction qui rendrait toujours
+		// une taille de bloc passerait tout ce qui precede.
+		const uint32 pitchRgba = NkFormatRowPitch(NkGPUFormat::NK_RGBA8_UNORM, 64u);
+		std::snprintf(d, sizeof(d), "rowPitch(RGBA8, 64) = %u (attendu 256)", pitchRgba);
+		Verdict("blocs / contre-epreuve : un format lineaire reste lineaire", pitchRgba == 256u, d);
+
+		// Et `NkFormatBytesPerPixel` REFUSE toujours de repondre sur un bloc —
+		// c'est voulu : un demi-octet par pixel n'est pas representable, et
+		// arrondir a 1 recreerait le defaut en pire (lecture hors des donnees).
+		std::snprintf(d, sizeof(d), "bytesPerPixel(BC1) = %u (attendu 0 : ça ne peut pas exister)",
+					  NkFormatBytesPerPixel(bc1));
+		Verdict("blocs / l'octet-par-pixel refuse de repondre sur un bloc", NkFormatBytesPerPixel(bc1) == 0u, d);
+	}
+
+	// -- 10. BC1 : aller-retour, taille, et PERTE MESUREE ---------------------
+	{
+		const int32 W = 128, H = 96;
+		NkImage src = ImageReference(W, H);
+		NkVector<nk_uint8> serre;
+		NkTextureOven::SerrerLignes(src, serre);
+
+		NkVector<nk_uint8> blocs;
+		NkBlockCompress::EncoderBC1(serre.Data(), uint32(W), uint32(H), blocs);
+
+		const nk_uint64 attendu = NkBlockCompress::TailleBC1(uint32(W), uint32(H));
+		std::snprintf(d, sizeof(d), "%llu o pour %dx%d (attendu %llu), contre %d o en RGBA8 : x%.1f",
+					  (unsigned long long)blocs.Size(), W, H, (unsigned long long)attendu, W * H * 4,
+					  double(W * H * 4) / double(blocs.Size() ? blocs.Size() : 1));
+		Verdict("BC1 / taille : huit fois moins que le RGBA8", nk_uint64(blocs.Size()) == attendu &&
+																   blocs.Size() * 8u == nk_size(W * H * 4),
+				d);
+
+		// La PERTE, mesuree avec la metrique CITEE :
+		//   PSNR = 10 log10(255^2 / EQM), EQM sur R, G, B.
+		// Reference : c'est la metrique standard de l'imagerie. Un BC1 de bonne
+		// facture rend 30 a 40 dB sur une image naturelle ; en dessous de 25 dB,
+		// l'encodeur se trompe d'axe. Le seuil est pose ICI, avant de lire le
+		// chiffre, et il est bas expres — ce banc juge que la CHAINE marche, pas
+		// que l'encodeur est le meilleur du monde (il ne l'est pas, et c'est dit
+		// dans son en-tete).
+		NkVector<nk_uint8> decode;
+		NkBlockCompress::DecoderBC1(blocs.Data(), uint32(W), uint32(H), decode);
+		const float64 psnr = NkBlockCompress::PSNR(serre.Data(), decode.Data(), uint32(W), uint32(H));
+		const nk_uint32 pire = NkBlockCompress::EcartMax(serre.Data(), decode.Data(), uint32(W), uint32(H));
+		std::snprintf(d, sizeof(d), "PSNR %.2f dB (seuil 25), ecart max %u niveaux sur 255", psnr, pire);
+		Verdict("BC1 / perte mesuree : PSNR au-dessus du seuil", psnr >= 25.0, d);
+
+		// CONTRE-EPREUVE DE LA METRIQUE : le PSNR d'une image contre ELLE-MEME
+		// doit saturer. Sans ça, un PSNR bloque sur une grande valeur ferait
+		// verdir la ligne ci-dessus quoi qu'il arrive.
+		const float64 psnrIdentique = NkBlockCompress::PSNR(serre.Data(), serre.Data(), uint32(W), uint32(H));
+		const float64 psnrBruit = NkBlockCompress::PSNR(serre.Data(), decode.Data(), uint32(W), uint32(H));
+		std::snprintf(d, sizeof(d), "identique %.1f dB, compresse %.2f dB — la metrique separe bien",
+					  psnrIdentique, psnrBruit);
+		Verdict("BC1 / contre-epreuve : la metrique n'est pas bloquee", psnrIdentique > psnrBruit + 10.0, d);
+
+		// Le four produit-il un actif BC1 relisable ?
+		NkTexOvenReglages r;
+		r.sRGB = true;
+		r.genererMips = true;
+		r.compression = NKTEXFMT_BC1_RGB_SRGB;
+		NkVector<nk_uint8> payloadBC1;
+		NkString e;
+		if (!NkTextureOven::Cuire(src, r, payloadBC1, &e)) {
+			Verdict("BC1 / le four produit un actif", false, e.CStr());
+		} else {
+			NkTexVue vue;
+			if (!NkTexturePayload::Decode(payloadBC1.Data(), payloadBC1.Size(), vue, &e)) {
+				Verdict("BC1 / l'actif se relit", false, e.CStr());
+			} else {
+				std::snprintf(d, sizeof(d), "%ux%u, format %s, %u niveaux, %llu o de pixels", vue.width, vue.height,
+							  NkTexFormatNom(vue.formatCode), vue.mipCount,
+							  (unsigned long long)NkTexturePayload::OctetsPixels(vue));
+				Verdict("BC1 / le four produit un actif relisable",
+						vue.formatCode == nk_uint32(NKTEXFMT_BC1_RGB_SRGB) && vue.mipCount > 1u, d);
+
+				// Le niveau 0 de l'actif DOIT etre exactement ce que l'encodeur
+				// a produit : sinon le four aurait recompresse autre chose.
+				nk_uint64 diff = 0;
+				if (vue.levels.Size() > 0 && vue.levels[0].size == blocs.Size()) {
+					for (nk_uint32 k = 0; k < vue.levels[0].size; ++k)
+						if (vue.levels[0].data[k] != blocs[k])
+							++diff;
+				} else {
+					diff = 1;
+				}
+				std::snprintf(d, sizeof(d), "%llu octet(s) different(s) du BC1 de reference",
+							  (unsigned long long)diff);
+				Verdict("BC1 / le niveau 0 de l'actif EST le BC1 attendu", diff == 0, d);
+
+				// Et le RHI l'accepte a l'entree, maintenant.
+				const NkGPUFormat g = NkTextureLibrary::FormatGpuDepuisCode(NKTEXFMT_BC1_RGB_SRGB);
+				std::snprintf(d, sizeof(d), "BC1_SRGB -> %s",
+							  g == NkGPUFormat::NK_BC1_RGB_SRGB ? "NK_BC1_RGB_SRGB (accepte)" : "REFUSE");
+				Verdict("BC1 / le RHI accepte le format a l'entree", g == NkGPUFormat::NK_BC1_RGB_SRGB, d);
+			}
+		}
+
+		// Ce que le four REFUSE, et il le dit : BC7, ETC2, ASTC sont nommes, pas
+		// faits. Un refus muet laisserait croire a une compression appliquee.
+		NkTexOvenReglages r7 = r;
+		r7.compression = NKTEXFMT_BC7_UNORM;
+		NkVector<nk_uint8> rien;
+		NkString e7;
+		const bool refuse = !NkTextureOven::Cuire(src, r7, rien, &e7);
+		std::snprintf(d, sizeof(d), "refuse=%d, raison : « %s »", refuse ? 1 : 0, e7.CStr());
+		Verdict("BC1 / BC7 est refuse en le DISANT", refuse && e7.Length() > 0, d);
 	}
 
 	lib.Shutdown();

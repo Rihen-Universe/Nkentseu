@@ -1314,8 +1314,13 @@ namespace nkentseu {
 		// deja pris (NkMutex non recursif : appeler CreateBuffer/DestroyBuffer
 		// publics ici causerait un deadlock).
 		if (desc.initialData) {
-			uint32 rowPitch = desc.rowPitch > 0 ? desc.rowPitch : desc.width * NkFormatBytesPerPixel(desc.format);
-			uint64 imgSz = rowPitch * desc.height;
+			// Arithmetique de BLOCS : `width * octets-par-pixel` rendait 0 sur
+			// tout format compresse (2026-09-05). `NkFormatRowPitch` compte des
+			// rangees de blocs quand il le faut, et `NkFormatRowCount` dit
+			// combien il y en a — une texture 4x4 en BC1 fait UNE rangee, pas
+			// quatre.
+			uint32 rowPitch = desc.rowPitch > 0 ? desc.rowPitch : NkFormatRowPitch(desc.format, desc.width);
+			uint64 imgSz = (uint64)rowPitch * NkFormatRowCount(desc.format, desc.height);
 			NkBufferDesc sd = NkBufferDesc::Staging(imgSz);
 			bool stagingNeedsAsyncUpload = false;
 			auto stageH = CreateBufferUnlocked(sd, &stagingNeedsAsyncUpload);
@@ -1441,9 +1446,10 @@ namespace nkentseu {
 		if (!it)
 			return false;
 		auto &desc = it->desc;
-		uint32 bpp = NkFormatBytesPerPixel(desc.format);
-		uint32 rp = rowPitch > 0 ? rowPitch : w * bpp;
-		uint64 sz = (uint64)rp * h * d2;
+		// Blocs compris : sur un format compresse, `rp` est une rangee de blocs
+		// et `NkFormatRowCount(h)` en donne le nombre.
+		uint32 rp = rowPitch > 0 ? rowPitch : NkFormatRowPitch(desc.format, w);
+		uint64 sz = (uint64)rp * NkFormatRowCount(desc.format, h) * d2;
 		NkBufferDesc sd = NkBufferDesc::Staging(sz);
 		auto stageH = CreateBuffer(sd);
 		auto &stage = mBuffers[stageH.id];

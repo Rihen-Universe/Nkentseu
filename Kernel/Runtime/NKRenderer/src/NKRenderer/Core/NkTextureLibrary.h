@@ -50,6 +50,15 @@ namespace nkentseu {
 				bool useAnisotropic = true; // utilise le sampler Aniso16 (sinon Linear)
 				bool useClampEdge = false;	// sinon REPEAT
 				const char *debugName = nullptr;
+
+				// ── COMPRESSION PAR BLOCS, sur DEMANDE ────────────────────────
+				// `NKTEXFMT_INCONNU` (defaut) = pixels bruts. Le moteur ne
+				// compresse JAMAIS de lui-meme : BC1 est avec perte et sans
+				// alpha, l'appliquer d'office abimerait les cartes de normales et
+				// mangerait l'alpha. C'est a l'appelant de le demander, carte par
+				// carte. Le code voyage jusqu'a l'empreinte du cache : deux
+				// compressions differentes sont deux actifs differents.
+				uint32 compression = 0u; // NKTEXFMT_INCONNU
 		};
 
 		// =====================================================================
@@ -129,6 +138,7 @@ namespace nkentseu {
 					r.genererMips = opts.genMipmaps;
 					r.addressMode = opts.useClampEdge ? nk_uint32(NKTEXADDR_CLAMP) : nk_uint32(NKTEXADDR_REPEAT);
 					r.filterMode = opts.useAnisotropic ? nk_uint32(NKTEXFILTER_ANISO) : nk_uint32(NKTEXFILTER_LINEAR);
+					r.compression = opts.compression;
 					return r;
 				}
 
@@ -208,8 +218,13 @@ namespace nkentseu {
 				NkTexHandle mWhite, mBlack, mNormal, mError, mBRDFLUT;
 
 				NkTexHandle AllocHandle();
+				// `format` sert a compter la VRAM : un format par blocs n'occupe pas
+				// quatre octets par pixel, et l'annoncer fausserait le seul chiffre
+				// qui dit si la compression a servi. NK_UNDEFINED = « suppose du
+				// RGBA8 », pour les appelants qui n'en ont pas (render targets).
 				NkTexHandle WrapRHI(NkTextureHandle rhi, NkSamplerHandle sampler, uint32 w, uint32 h, uint32 mips,
-									const NkString &dbgName, bool ownsSampler, bool ownsTexture = true);
+									const NkString &dbgName, bool ownsSampler, bool ownsTexture = true,
+									NkGPUFormat format = NkGPUFormat::NK_UNDEFINED);
 
 				bool LoadWithNKImage(const NkString &path, NkImageData &out);
 
@@ -229,6 +244,12 @@ namespace nkentseu {
 
 				NkTexHandle CreateBRDFLUT();
 				static uint64 EstimateBytes(uint32 w, uint32 h, uint32 mips, uint32 bytesPerPixel, uint32 layers = 1);
+
+				// Compte la VRAM d'une chaine de mips en tenant compte des BLOCS.
+				// C'est `NkFormatImageSize` qui tranche, la meme fonction que les
+				// dorsaux utilisent pour televerser — un seul calcul, donc pas
+				// d'ecart possible entre ce qu'on envoie et ce qu'on compte.
+				static uint64 OctetsChaine(NkGPUFormat format, uint32 w, uint32 h, uint32 mips, uint32 layers = 1);
 		};
 
 	} // namespace renderer

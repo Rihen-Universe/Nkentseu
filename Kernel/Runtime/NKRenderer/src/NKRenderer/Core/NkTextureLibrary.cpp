@@ -100,7 +100,7 @@ namespace nkentseu {
 
 		NkTexHandle NkTextureLibrary::WrapRHI(NkTextureHandle rhi, NkSamplerHandle sampler, uint32 w, uint32 h,
 											  uint32 mips, const NkString &dbgName, bool ownsSampler,
-											  bool ownsTexture) {
+											  bool ownsTexture, NkGPUFormat dbgFormat) {
 			if (!rhi.IsValid())
 				return NkTexHandle::Null();
 			NkTexHandle out = AllocHandle();
@@ -114,10 +114,24 @@ namespace nkentseu {
 			e.refCount = 1;
 			e.ownsTexture = ownsTexture;
 			e.ownsSampler = ownsSampler;
-			e.bytes = EstimateBytes(w, h, mips, 4);
+			e.bytes = (dbgFormat == NkGPUFormat::NK_UNDEFINED) ? EstimateBytes(w, h, mips, 4)
+															   : OctetsChaine(dbgFormat, w, h, mips);
 			mTotalBytes += e.bytes;
 			mTextures.Insert(out.id, e);
 			return out;
+		}
+
+		uint64 NkTextureLibrary::OctetsChaine(NkGPUFormat format, uint32 w, uint32 h, uint32 mips, uint32 layers) {
+			uint64 total = 0;
+			uint32 cw = w, ch = h;
+			for (uint32 m = 0; m < mips; m++) {
+				total += NkFormatImageSize(format, cw, ch);
+				if (cw > 1)
+					cw >>= 1;
+				if (ch > 1)
+					ch >>= 1;
+			}
+			return total * layers;
 		}
 
 		uint64 NkTextureLibrary::EstimateBytes(uint32 w, uint32 h, uint32 mips, uint32 bpp, uint32 layers) {
@@ -605,6 +619,12 @@ namespace nkentseu {
 					return NkGPUFormat::NK_RGB32_FLOAT;
 				case NKTEXFMT_RGBA32_FLOAT:
 					return NkGPUFormat::NK_RGBA32_FLOAT;
+				// Formats par blocs LIVRES : le RHI sait les televerser depuis le
+				// 2026-09-05 (arithmetique de blocs dans les quatre dorsaux).
+				case NKTEXFMT_BC1_RGB_UNORM:
+					return NkGPUFormat::NK_BC1_RGB_UNORM;
+				case NKTEXFMT_BC1_RGB_SRGB:
+					return NkGPUFormat::NK_BC1_RGB_SRGB;
 				default:
 					// Y compris NKTEXFMT_RGB8_* (aucun format GPU a 3 octets) et
 					// TOUS les codes par blocs : `NkFormatBytesPerPixel` rend 0
@@ -672,7 +692,7 @@ namespace nkentseu {
 			NkLoadOptions o = opts;
 			o.useClampEdge = (vue.addressMode == NKTEXADDR_CLAMP);
 			NkSamplerHandle samp = PickSampler(o);
-			NkTexHandle out = WrapRHI(rhi, samp, vue.width, vue.height, mips, d.debugName, false);
+			NkTexHandle out = WrapRHI(rhi, samp, vue.width, vue.height, mips, d.debugName, false, true, fmt);
 			if (out.IsValid()) {
 				logger.Info("[NkTextureLibrary] actif cuit televerse SANS decodage : {0}x{1}, {2} niveaux, {3} o\n",
 							vue.width, vue.height, mips, (unsigned long long)octets);

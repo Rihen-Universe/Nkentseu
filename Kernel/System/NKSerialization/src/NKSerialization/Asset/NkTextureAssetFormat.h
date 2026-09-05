@@ -150,6 +150,28 @@ namespace nkentseu {
 				return "RGB32_FLOAT";
 			case NKTEXFMT_RGBA32_FLOAT:
 				return "RGBA32_FLOAT";
+			case NKTEXFMT_BC1_RGB_UNORM:
+				return "BC1_UNORM";
+			case NKTEXFMT_BC1_RGB_SRGB:
+				return "BC1_SRGB";
+			case NKTEXFMT_BC3_UNORM:
+				return "BC3_UNORM";
+			case NKTEXFMT_BC3_SRGB:
+				return "BC3_SRGB";
+			case NKTEXFMT_BC5_UNORM:
+				return "BC5_UNORM";
+			case NKTEXFMT_BC7_UNORM:
+				return "BC7_UNORM";
+			case NKTEXFMT_BC7_SRGB:
+				return "BC7_SRGB";
+			case NKTEXFMT_ETC2_RGB_UNORM:
+				return "ETC2_RGB";
+			case NKTEXFMT_ETC2_RGBA_UNORM:
+				return "ETC2_RGBA";
+			case NKTEXFMT_ASTC_4X4_UNORM:
+				return "ASTC_4x4_UNORM";
+			case NKTEXFMT_ASTC_4X4_SRGB:
+				return "ASTC_4x4_SRGB";
 			default:
 				return "inconnu";
 		}
@@ -323,8 +345,14 @@ namespace nkentseu {
 				const nk_uint32 bpp = NkTexFormatOctetsParPixel(src.formatCode);
 				if (bpp == 0u && !NkTexFormatEstCompresse(src.formatCode))
 					return Refus(err, "format non compresse sans taille de pixel connue");
-				if (NkTexFormatEstCompresse(src.formatCode))
-					return Refus(err, "compression par blocs : palier non livre (codes reserves)");
+				// Les formats par blocs sont ACCEPTES depuis le 2026-09-05 : le
+				// RHI sait les televerser (arithmetique de blocs) et le four sait
+				// produire du BC1. Ceux qui ne sont pas encore encodables sont
+				// refuses par le FOUR, qui seul sait ce qu'il sait faire — pas ici,
+				// ou le refus porterait sur un fichier qu'on nous demande d'ecrire
+				// et qui pourrait venir d'ailleurs.
+				if (NkTexFormatEstCompresse(src.formatCode) && bpp != 0u)
+					return Refus(err, "format par blocs annonce avec un octet-par-pixel : incoherent");
 
 				const nk_size nNiveaux = src.levels.Size();
 				if (nNiveaux % nk_size(src.arrayLayers) != 0u)
@@ -347,7 +375,11 @@ namespace nkentseu {
 					if (n.width == 0u || n.height == 0u || !n.data)
 						return Refus(err, "niveau vide ou sans donnees");
 					const nk_uint32 rowPitch = n.rowPitch ? n.rowPitch : (n.width * bpp);
-					const nk_uint32 taille = n.size ? n.size : (rowPitch * n.height * (n.depth ? n.depth : 1u));
+					// Sur un format par blocs, le nombre de RANGEES est celui des
+					// blocs : une texture de 4 pixels de haut fait UNE rangee.
+					const nk_uint32 rangees =
+						NkTexFormatEstCompresse(src.formatCode) ? ((n.height + 3u) / 4u) : n.height;
+					const nk_uint32 taille = n.size ? n.size : (rowPitch * rangees * (n.depth ? n.depth : 1u));
 					if (taille == 0u)
 						return Refus(err, "taille de niveau nulle");
 					pas.PushBack(rowPitch);
