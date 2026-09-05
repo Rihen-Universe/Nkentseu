@@ -2325,6 +2325,10 @@ static NkTexHandle CreateLanternCubeCookie(NkTextureLibrary *texLib, NkIDevice *
 				cl->params.selfCollision = true;
 				if (const char *sc = std::getenv("NK_CLOTH_SELF"); sc && sc[0] == '0') cl->params.selfCollision = false;
 				if (const char *mk = std::getenv("NK_CLOTH_MARGINK"); mk && mk[0]) cl->params.selfMarginK = (float32)std::atof(mk); // instrument : marge k vmax dt
+				if (const char *e = std::getenv("NK_CLOTH_SUB"); e && e[0]) cl->params.substeps = (uint32)std::atoi(e);		// instrument : sous-pas
+				if (const char *e = std::getenv("NK_CLOTH_IT"); e && e[0]) cl->params.iterations = (uint32)std::atoi(e);	// instrument : iterations
+				if (const char *e = std::getenv("NK_CLOTH_SELFIT"); e && e[0] == '0') cl->params.selfEveryIteration = false; // paires : une fois par sous-pas
+				cl->params.clock = [] { return NkChrono::Now().seconds; }; // le profil par phase (NKPhysics n'a pas d'horloge)
 				cl->params.forceOnNormal = true; // une voile : le vent ne pousse que de face
 				const float32 mP = 0.2f * side * side / (float32)(n * n);
 				float32 wind = 0.4f * mP * 9.81f;
@@ -4256,6 +4260,10 @@ static NkTexHandle CreateLanternCubeCookie(NkTextureLibrary *texLib, NkIDevice *
 									 st->clothMsN, 100.f * cs.maxStretch, 1000.f * cs.maxPenetration, cs.contacts, cs.selfContacts, cs.selfPairs,
 									 (float32)st->clothBuildsSum / (float32)st->clothMsN, st->cloth->params.selfMarginK, 1000.f * cs.minSelfDistance,
 									 cs.maxSpeed, cs.substeps, cs.iterations);
+						const auto &pf = st->cloth->Profile();
+						std::fprintf(stderr, "[TISSU PROFIL] total %.2f ms = prediction %.2f | structurelles %.2f | cisaillement %.2f | flexion %.2f | colliders %.2f | auto : listes %.2f + resolution %.2f | vitesses %.2f | mesure %.2f (flexion %.3g m/N, paires par iteration=%d)\n",
+									 pf.total, pf.predict, pf.structural, pf.shear, pf.bend, pf.colliders, pf.selfBuild, pf.selfSolve, pf.velocities,
+									 pf.measure, st->cloth->params.bendCompliance, (int)st->cloth->params.selfEveryIteration);
 						st->clothMsSum = 0.0;
 						st->clothMsN = 0;
 						st->clothBuildsSum = 0;

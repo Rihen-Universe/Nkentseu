@@ -143,6 +143,23 @@ namespace nkentseu {
 				A[S[b] + F[b]++] = a;
 			}
 			mAdjDirty = false;
+			// bornes par type pour le profil : valables seulement si les contraintes sont groupées
+			// (structurelles, puis cisaillement, puis flexion -- ce que BuildGrid produit)
+			mKindsGrouped = true;
+			uint32 last = 0;
+			for (uint32 c = 0; c < nc; ++c) {
+				if (mKind[c] < last)
+					mKindsGrouped = false;
+				last = mKind[c];
+			}
+			mKindStart[0] = 0;
+			mKindStart[3] = nc;
+			uint32 k = 1;
+			for (uint32 c = 0; c < nc && k < 3; ++c)
+				while (k < 3 && mKind[c] >= k)
+					mKindStart[k++] = c;
+			while (k < 3)
+				mKindStart[k++] = nc;
 		}
 
 		bool NkCloth::Adjacent(uint32 a, uint32 b) const noexcept {
@@ -208,6 +225,17 @@ namespace nkentseu {
 			const uint32 sub = params.substeps > 0 ? params.substeps : 1;
 			const uint32 iters = params.iterations > 0 ? params.iterations : 1;
 			const float32 h = dt / (float32)sub;
+			float64 (*clk)() = params.clock;
+			mProfile = NkClothProfile{};
+			const float64 t0 = clk ? clk() : 0.0;
+			float64 tm = t0;
+			auto lap = [&](float64 &slot) {
+				if (!clk)
+					return;
+				const float64 t = clk();
+				slot += (t - tm) * 1000.0;
+				tm = t;
+			};
 			mStats.contacts = 0;
 			mStats.selfContacts = 0;
 			mStats.selfBuilds = 0;
@@ -219,6 +247,7 @@ namespace nkentseu {
 			for (uint32 s = 0; s < sub; ++s) {
 				if (params.selfCollision && ((uint32)mPairBase.Size() != n || SelfPairsStale()))
 					BuildSelfPairs(margin);
+				lap(mProfile.selfBuild);
 				Predict(h, time + (float32)s * h);
 				float32 *L = mLambda.Data();
 				for (uint32 c = 0; c < (uint32)mLambda.Size(); ++c)
@@ -226,19 +255,47 @@ namespace nkentseu {
 				uint8 *CT = mContact.Data();
 				for (uint32 i = 0; i < n; ++i)
 					CT[i] = 0;
+				lap(mProfile.predict);
 				for (uint32 it = 0; it < iters; ++it) {
-					SolveDistances(h);
-					if (params.selfCollision)
+					if (clk && mKindsGrouped) {
+						SolveDistances(h, mKindStart[0], mKindStart[1]);
+						lap(mProfile.structural);
+						SolveDistances(h, mKindStart[1], mKindStart[2]);
+						lap(mProfile.shear);
+						SolveDistances(h, mKindStart[2], mKindStart[3]);
+						lap(mProfile.bend);
+					} else {
+						SolveDistances(h, 0, (uint32)mCA.Size());
+						lap(mProfile.structural);
+					}
+					if (params.selfCollision && params.selfEveryIteration) {
 						SolveSelf();
-					if (params.collisions)
+						lap(mProfile.selfSolve);
+					}
+					if (params.collisions) {
 						SolveColliders(); // en dernier : l'état final ne pénètre pas
+						lap(mProfile.colliders);
+					}
+				}
+				if (params.selfCollision && !params.selfEveryIteration) {
+					// une résolution par sous-pas, après les itérations ; puis les colliders, en dernier
+					SolveSelf();
+					lap(mProfile.selfSolve);
+					if (params.collisions) {
+						SolveColliders();
+						lap(mProfile.colliders);
+					}
 				}
 				UpdateVelocities(h);
+				lap(mProfile.velocities);
 			}
 			mStats.substeps = sub;
 			mStats.iterations = iters;
 			mStats.dt = dt;
 			Measure(dt);
+			lap(mProfile.measure);
+			if (clk)
+				mProfile.total = (clk() - t0) * 1000.0;
 		}
 
 		void NkCloth::Predict(float32 h, float32 time) {
@@ -268,8 +325,8 @@ namespace nkentseu {
 			}
 		}
 
-		void NkCloth::SolveDistances(float32 h) {
-			const uint32 nc = (uint32)mCA.Size();
+		void NkCloth::SolveDistances(float32 h, uint32 c0, uint32 c1) {
+			const uint32 nc = c1 <= (uint32)mCA.Size() ? c1 : (uint32)mCA.Size();
 			NkVec3f *X = mPos.Data();
 			const float32 *W = mInvMass.Data();
 			const uint32 *A = mCA.Data(), *B = mCB.Data();
@@ -280,7 +337,7 @@ namespace nkentseu {
 			const float32 at[3] = {params.compliance * invH2, params.shearCompliance * invH2,
 								   params.bendCompliance * invH2};
 			const bool xpbd = params.xpbd;
-			for (uint32 c = 0; c < nc; ++c) {
+			for (uint32 c = c0; c < nc; ++c) {
 				const uint32 a = A[c], b = B[c];
 				const float32 wa = W[a], wb = W[b];
 				const float32 wsum = wa + wb;
@@ -624,24 +681,21 @@ namespace nkentseu {
 				}
 			}
 			mStats.maxPenetration = pen;
-			// distance minimale entre particules NON voisines (si auto-collision) : lue sur la table du dernier sous-pas
+			// distance minimale entre particules NON voisines (si auto-collision) : lue sur la LISTE DE
+			// PAIRES du pas (mesuré : une seconde traversée ici coûtait 0,47 ms sur 3,7 à 32 x 32) ;
+			// aucune paire dans le rayon de recherche -> on rend ce plancher (le rayon), pas 0
 			float32 dminSelf = 0.f;
 			if (params.selfCollision && n > 0) {
-				// la table date du début du dernier sous-pas ; on la reconstruit sur l'état final (mesure, pas simulation)
-				mHash.Build(X, n, 2.f * params.thickness);
 				float32 best2 = 1e30f;
-				for (uint32 i = 0; i < n; ++i) {
-					mHash.Query(X[i], [&](uint32 j) {
-						if (j <= i || Adjacent(i, j))
-							return;
-						const NkVec3f d = X[i] - X[j];
-						const float32 l2 = d.Dot(d);
-						if (l2 < best2)
-							best2 = l2;
-					});
+				const uint32 np = (uint32)mPairA.Size();
+				const uint32 *PA = mPairA.Data(), *PB = mPairB.Data();
+				for (uint32 q = 0; q < np; ++q) {
+					const NkVec3f d = X[PA[q]] - X[PB[q]];
+					const float32 l2 = d.Dot(d);
+					if (l2 < best2)
+						best2 = l2;
 				}
-				// aucune paire dans le rayon de recherche (3 cellules) : on rend ce plancher, pas 0
-				dminSelf = best2 < 1e30f ? NkSqrt(best2) : 3.f * 2.f * params.thickness;
+				dminSelf = best2 < 1e30f ? NkSqrt(best2) : mPairRadius;
 			}
 			mStats.minSelfDistance = dminSelf;
 		}
