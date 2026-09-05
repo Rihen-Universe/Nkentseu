@@ -10,7 +10,10 @@
 #if defined(NKENTSEU_PLATFORM_MACOS)
 
 #include "NkOpenGLContext.h"
-#include "NKContext/Core/NkSurfaceDesc.h"
+// ⑪ `NKContext` n'existe plus : ce fichier est dans NKCanvas depuis le renommage, et
+//    `NkSurfaceDesc.h` avec lui (mesure du 05/09 : aucun module `NKContext` dans l'arbre,
+//    un seul `NkSurfaceDesc.h`, ici). L'erreur ne se voyait qu'a la compilation macOS.
+#include "NKCanvas/Core/NkSurfaceDesc.h"
 #include "NKContainers/NKContainers.h"
 #import <AppKit/AppKit.h>
 #import <OpenGL/OpenGL.h>

@@ -62,7 +62,30 @@ with project("NKCanvas"):
     # ── Dependances (mode LIB) : kindexport(NKENTSEU_CANVAS) + includedirs +
     # dependson + defines(_STATIC_LIB) resolus depuis le registre. On ne linke PAS
     # les deps NK (juste dependson). Les externals/SDK propres passent inline.
-    _canvasDeps = ["NKWindow", "NKFont", "NKImage", "NKStream", "NKTime", "NKGlad", "NKThreading"]
+    # ⑪ CE QUE NKCANVAS INCLUT REELLEMENT (mesure du 2026-09-05, par les
+    #    `#include "NK.../"` de `src/`, jamais de memoire) :
+    #      NKCanvas 158, NKContainers 27, NKLogger 26, NKMemory 21, NKPlatform 18,
+    #      NKCore 15, NKMath 10, NKWindow 9, NKFileSystem 6, NKImage 3, NKGlad 2,
+    #      NKUI 1, NKGui 1, NKFont 1, NKEvent 1.
+    #    Deux manquaient a la declaration : NKGui (`UI/NkGuiCanvasBackend.h`) et
+    #    NKEvent (`Core/NkGraphicsApi.h`).
+    #    🔴 ET UNE MESURE QUI M'A PRIS EN DEFAUT, dite : j'ai d'abord RETIRE NKStream,
+    #       NKTime et NKThreading, qu'aucun `#include` de `src/` ne nomme. Le build est
+    #       tombe sur `NKStream/NKIResource.h` -- il est inclus par `NKFont/NkFont.h` et
+    #       `NKImage/Core/NkImage.h`, que NKCanvas inclut. *Compter les `#include` d'un
+    #       module ne suffit pas : une dependance peut n'exister que par la chaine
+    #       d'en-tetes de ses voisins.* Les trois restent donc declarees ; ce qui a ete
+    #       verifie est qu'elles sont NECESSAIRES, pas qu'elles sont citees.
+    #    ⚠️ PAS DE CYCLE : NKGui declare NKPlatform, NKCore, NKMemory, NKMath,
+    #       NKThreading, NKLogger, NKContainers, NKEvent, NKFont, NKImage -- jamais
+    #       NKCanvas (verifie le 05/09). NKCanvas -> NKGui est donc un arc simple.
+    #    ⚠️ Les modules de fondation sont declares EXPLICITEMENT, comme chez NKGui :
+    #       ils arrivaient par NKWindow, et une dependance transitive n'est pas une
+    #       dependance dite.
+    _canvasDeps = ["NKWindow", "NKFont", "NKImage", "NKGui", "NKEvent", "NKGlad",
+                   "NKStream", "NKTime", "NKThreading",
+                   "NKFileSystem", "NKLogger", "NKMath", "NKContainers", "NKMemory",
+                   "NKCore", "NKPlatform"]
     # NKENTSEU_ENABLE_VULKAN_BACKEND est defini par plateforme (filtres ci-dessous),
     # pas globalement : Web/macOS/iOS/UWP/Xbox n'ont pas de backend Vulkan.
     #
