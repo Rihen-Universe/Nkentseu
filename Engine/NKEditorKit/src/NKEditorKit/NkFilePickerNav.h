@@ -127,6 +127,7 @@ namespace nkentseu {
 		//    sortent de la MEME fonction parametree. Deux fonctions auraient diverge.
 		struct NkCacheDossiers {
 				struct Ligne {
+						nk_uint64 cle = 0; ///< empreinte NORMALISEE du chemin -- voir `Cle`
 						NkString chemin;
 						nk_int64 horodatage = 0;
 						uint8 tout = 0; ///< 0 = pas encore demande
@@ -134,6 +135,34 @@ namespace nkentseu {
 				};
 				NkVector<Ligne> lignes;
 				uint32 accesDisque = 0; ///< mesures REELLES, pour la sonde
+
+				/// L'EMPREINTE D'UN CHEMIN, pour ne PAS comparer 124 chaines a chaque
+				/// interrogation. MESURE qui l'a rendue necessaire : la sonde 123 en Debug --
+				/// relire le cache de 124 dossiers coutait 5,2 ms, soit PLUS que les 4,6 ms
+				/// des acces disque qu'il evitait. Un cache plus lent que ce qu'il economise
+				/// n'est pas un cache.
+				/// ⚠️ ELLE NE REMPLACE PAS `PathSame`, elle le FILTRE : deux empreintes
+				///    egales font ensuite l'objet d'une vraie comparaison. Au pire, deux
+				///    ecritures differentes du meme chemin donnent deux empreintes et donc
+				///    une ligne de trop -- un acces disque de plus, jamais une reponse fausse.
+				static nk_uint64 Cle(const char *s) {
+					nk_uint64 h = 1469598103934665603ull;
+					usize n = 0u;
+					while (s && s[n])
+						++n;
+					while (n > 1u && (s[n - 1u] == '/' || s[n - 1u] == '\\'))
+						--n; // une barre finale ne change pas le dossier
+					for (usize i = 0; i < n; ++i) {
+						char c = s[i];
+						if (c == '\\')
+							c = '/'; // les deux separateurs designent le meme dossier
+						if (c >= 'A' && c <= 'Z')
+							c = (char)(c - 'A' + 'a');
+						h ^= (nk_uint64)(unsigned char)c;
+						h *= 1099511628211ull;
+					}
+					return h;
+				}
 
 				void Vider() {
 					lignes.Clear();
@@ -146,9 +175,12 @@ namespace nkentseu {
 				uint8 Etat(const char *chemin, nk_int64 horodatage, bool sousDossiersSeulement) {
 					if (!chemin || !*chemin)
 						return (uint8)NkContenuDossier::Inconnu;
+					const nk_uint64 cle = Cle(chemin);
 					for (uint32 i = 0; i < (uint32)lignes.Size(); ++i) {
 						Ligne &l = lignes[i];
-						if (!NkFilePickerState::PathSame(l.chemin.CStr(), chemin))
+						// L'EMPREINTE D'ABORD : elle ecarte 123 lignes sur 124 en une
+						// comparaison d'entiers. `PathSame` reste l'autorite sur celle qui reste.
+						if (l.cle != cle || !NkFilePickerState::PathSame(l.chemin.CStr(), chemin))
 							continue;
 						if (l.horodatage != horodatage) { // le dossier a bouge : on reprend
 							l.horodatage = horodatage;
@@ -161,6 +193,7 @@ namespace nkentseu {
 						return v;
 					}
 					Ligne l;
+					l.cle = cle;
 					l.chemin = NkString(chemin);
 					l.horodatage = horodatage;
 					const uint8 v = Mesurer(chemin, sousDossiersSeulement);
