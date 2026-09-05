@@ -2670,6 +2670,41 @@ ouvertes qui se recouvrent**. Deux remèdes possibles, et **le second n'a pas é
    **À mesurer d'abord** : c'est probablement moins cher que Barnes-Hut, et c'est la vraie réponse à
    « les corps de production ne sont pas étanches ».
 
+### 🎯 05/09 (17h) — LE CHAMP SUIT LES VÊTEMENTS : le foulard tient son critère double, la cape non — et la raison se lit dans le tableau
+
+**Le geste** : la grille du champ couvre une **boîte imposée** (celle des particules du vêtement, dilatée)
+au lieu du corps entier, et les triangles qui ne la croisent pas ne sont **même pas rastérisés**
+(`Stats::skippedTriangles` : 2 200 à 2 900 sur 4 672). Le pilotage passe de la résolution à la **taille de
+cellule** — c'est elle qui compte pour un tissu de 6 mm — avec un **plafond de cellules** qui borne la
+dépense ; et le chiffre rendu dit ce qu'on a **obtenu**, jamais ce qu'on a demandé.
+
+| vêtement | champ | cellule | étirement moyen / image | images > 5 % | sous la peau (max / moy) | coût du champ |
+|---|---|---|---|---|---|---|
+| foulard | commun (corps) | 26 mm | 9,57 % | **301 / 301** | 3 / 0,43 | 23 ms partagés |
+| **foulard** | **propre (cou)** | **12 mm** | **0,18 %** | **0 / 301** | **0 / 0,00** | 22,7 ms |
+| cape | commun | 26 mm | 3,03 % | 31 / 301 | 4 / 0,21 | 23 ms partagés |
+| cape | propre | 15 mm | 4,55 % | 43 / 301 | 16 / 1,19 | 28,7 ms |
+
+✅ **Le foulard tient le critère double** — 0 particule sous la peau **et** 0,18 % d'étirement moyen, dans la
+**même course**. C'est le premier vêtement à le tenir, et il valide toute la chaîne : capsules animées,
+épingles à cible, deux champs interpolés, zone de transition, boîte du vêtement.
+
+🔴 **La cape ne le tient pas, et la boîte ne l'aide pas.** La raison est dans le tableau : **sa boîte est
+aussi grande que le corps** (une cape descend aux genoux et bat derrière), donc le plafond de cellules
+ramène la cellule à 15 mm et on ne gagne rien. **Le gain de la boîte est proportionnel à la COMPACITÉ du
+vêtement** : énorme pour un foulard (le cou), nul pour une cape. *Ce n'est pas « la boîte ne marche pas » :
+c'est « une boîte pleine ne peut pas être fine autour d'un objet creux ».* Pour les grands vêtements, il
+faut la finesse **là où le tissu est** — bande étroite autour des particules, ou grille creuse — pas une
+boîte pleine. Nommé.
+
+🔴 **Coût, hors cible** : foulard 22,7 ms de champ + 4,4 ms de pas ; cape 28,7 + 19,7. La cible était
+« champ + cape + foulard < 16 ms ». **Le champ domine, et c'est la rastérisation de la bande** — le même
+diagnostic qu'à 14h, confirmé une fois de plus : ni la résolution ni la boîte n'y changent grand-chose, il
+faut paralléliser ou passer au GPU.
+
+**Ordre qui reste** : l'étanchéité à l'import (bloc précédent, avec sa porte), la finesse locale pour les
+grands vêtements, les six patrons, puis Barnes-Hut si l'étanchéité ne suffit pas.
+
 ### 🔩 04/09 (nuit) — JENGA 2.6 : ce qui est appliqué, ce qui est mesuré en retour
 
 - **`-static` — le défaut était chez nous** : `config/toolchain.jenga:55` (bloc Windows natif) promettait
