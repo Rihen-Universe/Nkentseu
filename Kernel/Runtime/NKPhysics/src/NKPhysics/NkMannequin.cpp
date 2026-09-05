@@ -613,6 +613,84 @@ namespace nkentseu {
 			return (hits & 1u) != 0u;
 		}
 
+		bool NkMeshInsideTester::InsideNearest(const NkVec3f &p, float32 *outDepth) const noexcept {
+			if (outDepth)
+				*outDepth = 0.f;
+			if (mTriCount == 0)
+				return false;
+			float32 best2 = 1e30f;
+			NkVec3f bestPoint{}, bestNormal{0.f, 1.f, 0.f};
+			for (uint32 t = 0; t < mTriCount; ++t) {
+				const NkVec3f &a = mVerts[mIdx[t * 3]], &b = mVerts[mIdx[t * 3 + 1]], &c = mVerts[mIdx[t * 3 + 2]];
+				// point le plus proche du triangle (Ericson §5.1.5, régions de Voronoï)
+				const NkVec3f ab = b - a, ac = c - a, ap = p - a;
+				const float32 d1 = ab.Dot(ap), d2 = ac.Dot(ap);
+				NkVec3f q;
+				if (d1 <= 0.f && d2 <= 0.f) {
+					q = a;
+				} else {
+					const NkVec3f bp = p - b;
+					const float32 d3 = ab.Dot(bp), d4 = ac.Dot(bp);
+					if (d3 >= 0.f && d4 <= d3) {
+						q = b;
+					} else {
+						const float32 vc = d1 * d4 - d3 * d2;
+						if (vc <= 0.f && d1 >= 0.f && d3 <= 0.f) {
+							q = a + ab * (d1 / (d1 - d3));
+						} else {
+							const NkVec3f cp = p - c;
+							const float32 d5 = ab.Dot(cp), d6 = ac.Dot(cp);
+							if (d6 >= 0.f && d5 <= d6) {
+								q = c;
+							} else {
+								const float32 vb = d5 * d2 - d1 * d6;
+								if (vb <= 0.f && d2 >= 0.f && d6 <= 0.f) {
+									q = a + ac * (d2 / (d2 - d6));
+								} else {
+									const float32 va = d3 * d6 - d5 * d4;
+									if (va <= 0.f && (d4 - d3) >= 0.f && (d5 - d6) >= 0.f) {
+										q = b + (c - b) * ((d4 - d3) / ((d4 - d3) + (d5 - d6)));
+									} else {
+										const float32 den = 1.f / (va + vb + vc);
+										q = a + ab * (vb * den) + ac * (vc * den);
+									}
+								}
+							}
+						}
+					}
+				}
+				const NkVec3f d = p - q;
+				const float32 l2 = d.Dot(d);
+				if (l2 < best2) {
+					best2 = l2;
+					bestPoint = q;
+					NkVec3f n = ab.Cross(ac);
+					const float32 ln = n.Len();
+					bestNormal = ln > 1e-12f ? n * (1.f / ln) : NkVec3f{0.f, 1.f, 0.f};
+				}
+			}
+			const float32 signedDist = (p - bestPoint).Dot(bestNormal);
+			if (outDepth)
+				*outDepth = signedDist < 0.f ? -signedDist : 0.f;
+			return signedDist < 0.f;
+		}
+
+		uint32 NkMeshInsideTester::CountInsideNearest(const NkVec3f *pts, uint32 count, float32 *outMaxDepth) const noexcept {
+			uint32 n = 0;
+			float32 worst = 0.f;
+			for (uint32 i = 0; i < count; ++i) {
+				float32 d = 0.f;
+				if (InsideNearest(pts[i], &d)) {
+					++n;
+					if (d > worst)
+						worst = d;
+				}
+			}
+			if (outMaxDepth)
+				*outMaxDepth = worst;
+			return n;
+		}
+
 		uint32 NkMeshInsideTester::CountInside(const NkVec3f *pts, uint32 count, int32 *firstInside) const noexcept {
 			uint32 n = 0;
 			if (firstInside)

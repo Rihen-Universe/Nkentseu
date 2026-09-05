@@ -15,6 +15,7 @@
 #include "NKRenderer/Tools/VFX/NkSPHSolver.h" // sonde fluide SPH (2026-09-04)
 #include "NKPhysics/NkVehicle.h"          // sonde VEHICULE (NK_VEHICLE_PROBE=1)
 #include "NKPhysics/NkCloth.h"            // sonde TISSU XPBD (NK_CLOTH_PROBE=1, 2026-09-05)
+#include "Demo3DMannequin.h"              // sonde VETEMENTS SUR MANNEQUIN (NK_MANNEQUIN_PROBE=1, 2026-09-05)
 #include <cstdlib>
 #include <cstring>
 #include "NKRenderer/Tools/VFX/NkGpuAtomicWitness.h" // temoin des atomiques NkSL (2026-09-05)
@@ -68,6 +69,9 @@ namespace nkentseu {
 				uint32 clothBuildsSum = 0; // listes de paires reconstruites, cumul sur les images du relevé
 				NkVec3f clothSphereC = {0.f, 0.f, 0.f};
 				float32 clothSphereR = 0.f;
+				// sonde VETEMENTS SUR MANNEQUIN (NK_MANNEQUIN_PROBE=1, 2026-09-05) : Demo3DMannequin.cpp
+				Demo3DMannequinProbe *mannequin = nullptr;
+				NkMeshHandle meshCylinderHat;
 				// ── NK_GI_TEST : mur mobile pour éprouver le GI à un rebond ──────
 				// Bornes de base du mur ; `giWallOffset` s'y ajoute et le GI est
 				// recalculé à chaque déplacement — c'est la démonstration que
@@ -2411,6 +2415,11 @@ static NkTexHandle CreateLanternCubeCookie(NkTextureLibrary *texLib, NkIDevice *
 							 n, n, n * n, (uint32)st->clothIdx.Size() / 3u, 1000.f * cl->params.thickness, wind, mP * 9.81f, st->clothSphereR,
 							 (int)cl->params.selfCollision, cl->params.substeps, cl->params.iterations, (int)st->clothMesh.IsValid());
 			}
+			// ── SONDE VETEMENTS SUR MANNEQUIN (2026-09-05), sous NK_MANNEQUIN_PROBE=1 seulement ─────
+			// Le corps (glTF / FBX skinne), ses capsules, ses vetements : Demo3DMannequin.cpp.
+			st->mannequin = Demo3DMannequinInit(meshSys);
+			if (st->mannequin)
+				st->meshCylinderHat = meshSys->GetCylinder();
 			if (const char *probe = std::getenv("NK_VFX_PROBE"); probe && probe[0] == '1') {
 				if (NkVFXSystem *vfx = ctx.renderer->GetVFX()) {
 					NkEmitterDesc d;
@@ -4324,6 +4333,9 @@ static NkTexHandle CreateLanternCubeCookie(NkTextureLibrary *texLib, NkIDevice *
 						st->clothBuildsSum = 0;
 					}
 				}
+				// sonde MANNEQUIN : pas FIXE 1/60, squelette -> peau -> capsules -> vetements, mesures
+				if (st->mannequin)
+					Demo3DMannequinUpdate(st->mannequin, ctx.renderer->GetMeshSystem(), ctx.frame);
 				// sonde SPH : pas FIXE 1/60 (reproductible), verdicts chiffres a la derniere image
 				if (st->sphSolver)
 					if (NkVFXSystem *vfx = ctx.renderer->GetVFX()) {
@@ -4880,6 +4892,10 @@ static NkTexHandle CreateLanternCubeCookie(NkTextureLibrary *texLib, NkIDevice *
 								 amin.x, amin.y, amin.z, amax.x, amax.y, amax.z, st->clothSphereC.x, st->clothSphereC.y, st->clothSphereC.z);
 				}
 			}
+
+			// sonde MANNEQUIN : corps (petrole), vetements, chapeau
+			if (st->mannequin)
+				Demo3DMannequinDraw(st->mannequin, r3d, st->meshCylinderHat);
 
 			// ── NK_GI_TEST : le mur rouge, RENDU à la position qui sert au GI ────
 			// Même AABB que l'occluder injecté (source unique kGIWallMin/Max +
@@ -7508,6 +7524,9 @@ static NkTexHandle CreateLanternCubeCookie(NkTextureLibrary *texLib, NkIDevice *
 		}
 
 		void Demo3D_Shutdown(DemoCtx &ctx) {
+			// sonde MANNEQUIN : le bilan (maximums sur la course) avant de rendre l etat
+			if (auto *stm = static_cast<Demo3DState *>(ctx.userData))
+				Demo3DMannequinReport(stm->mannequin);
 			auto *st = (Demo3DState *)ctx.userData;
 			if (st && st->maskedMat)
 				NkMaterial::Destroy(st->maskedMat);

@@ -172,6 +172,19 @@ namespace nkentseu {
 				void Build(const NkVec3f *verts, uint32 vertCount, const uint32 *indices, uint32 triCount,
 						   uint32 cellsY = 32, uint32 cellsZ = 32);
 				bool Inside(const NkVec3f &p) const noexcept;
+				// ⚠ LA PARITÉ EXIGE UNE SURFACE FERMÉE, et un personnage de production n'en est pas
+				// une. Mesuré le 2026-09-05 sur XBot et YBot (Mixamo) par un contrôle POSITIF -- le
+				// centre de chaque triangle rentré de 1 cm sous sa face, qui est dedans par
+				// construction : la parité n'en reconnaît que **47,4 %** (XBot) et **48,8 %**
+				// (YBot). Le corps est fait de plusieurs coques ouvertes qui se recouvrent (surface
+				// + articulations), et un rayon en traverse deux là où il devrait en traverser une.
+				// Le contrôle NÉGATIF, lui, est vert (0 / 512 points à 3 m dits dedans).
+				// D'où ce second test : le TRIANGLE LE PLUS PROCHE et le signe de sa normale
+				// (pseudonormale ; Ericson, « Real-Time Collision Detection », §5.1.5). Il ne
+				// suppose rien de fermé, il coûte O(triangles) par requête -- c'est un instrument de
+				// mesure, pas un test par image. `outDepth` (optionnel) rend la profondeur en m.
+				bool InsideNearest(const NkVec3f &p, float32 *outDepth = nullptr) const noexcept;
+				uint32 CountInsideNearest(const NkVec3f *pts, uint32 count, float32 *outMaxDepth = nullptr) const noexcept;
 				// Nombre de points dedans parmi `count` ; `firstInside` (optionnel) = premier indice trouvé.
 				uint32 CountInside(const NkVec3f *pts, uint32 count, int32 *firstInside = nullptr) const noexcept;
 				uint32 TriangleCount() const noexcept {
