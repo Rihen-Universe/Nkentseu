@@ -462,6 +462,11 @@ namespace nkentseu {
 				BuildAdjacency();
 			if (mPinRingDirty || (uint32)mPinRing.Size() != n)
 				BuildPinRings();
+			// le rythme de CE pas : mesuré au pas précédent, jamais deviné (en-tête)
+			bool everyIteration = params.collidersEveryIteration;
+			if (params.adaptiveColliders)
+				everyIteration = mContactRate >= params.contactRateThreshold;
+			mStats.collidersEveryIterationUsed = everyIteration;
 			const uint32 sub = params.substeps > 0 ? params.substeps : 1;
 			const uint32 iters = params.iterations > 0 ? params.iterations : 1;
 			const float32 h = dt / (float32)sub;
@@ -529,12 +534,12 @@ namespace nkentseu {
 						SolveSelf();
 						lap(mProfile.selfSolve);
 					}
-					if (params.collisions && params.collidersEveryIteration) {
+					if (params.collisions && everyIteration) {
 						SolveColliders(CS, nk, CV0, CV1, h, alpha); // en dernier : l'état final ne pénètre pas
 						lap(mProfile.colliders);
 					}
 				}
-				if (params.collisions && !params.collidersEveryIteration) {
+				if (params.collisions && !everyIteration) {
 					SolveColliders(CS, nk, CV0, CV1, h, alpha); // une fois par sous-pas, après les itérations
 					lap(mProfile.colliders);
 				}
@@ -1170,6 +1175,24 @@ namespace nkentseu {
 						sdfPen = d;
 				}
 			mStats.maxSdfPenetration = sdfPen;
+			// TAUX DE CONTACT : la population comptée est celle des particules LIBRES (une épinglée est
+			// dans le corps par construction, elle ne dit rien du frottement).
+			{
+				const uint8 *CT = mContact.Data();
+				uint32 free = 0, touching = 0;
+				for (uint32 i = 0; i < n; ++i) {
+					if (W[i] <= 0.f)
+						continue;
+					++free;
+					if (CT[i])
+						++touching;
+				}
+				const float32 rate = free ? (float32)touching / (float32)free : 0.f;
+				const float32 a = params.contactRateSmoothing;
+				mContactRate = mContactRate * (1.f - a) + rate * a;
+				mStats.contactRate = mContactRate;
+				mStats.freeParticles = free;
+			}
 			// épingles à cible : où sont-elles par rapport à leur cible (0 attendu en fin de pas)
 			float32 pinErr = 0.f;
 			uint32 pinT = 0;

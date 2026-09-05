@@ -159,6 +159,25 @@ namespace nkentseu {
 				// 34 ms avec la distance exacte. Faux = 32. La projection reste la DERNIÈRE chose faite
 				// du sous-pas, donc l'état final ne pénètre toujours pas.
 				bool collidersEveryIteration = true;
+				// RYTHME ADAPTATIF (2026-09-05, soir). La construction d'un vêtement ne sait pas s'il
+				// touchera le corps -- mais L'EXÉCUTION le sait : le solveur compte déjà ses contacts.
+				// Quand `adaptiveColliders` est vrai, le rythme suit le TAUX DE CONTACT mesuré
+				// (fraction des particules libres en contact, lissée sur les images) : au-dessus du
+				// seuil, chaque itération ; en dessous, une fois par sous-pas. Ce qui remplace un seuil
+				// deviné (« lâche ou serré ») par une mesure de ce qui se passe vraiment -- et la jupe,
+				// qui est lâche mais frotte les cuisses en permanence, se règle alors toute seule.
+				// ⚠️ 🔴 FAUX PAR DÉFAUT — MESURÉ, PAS SUPPOSÉ (2026-09-05, soir). Trois configurations,
+				// trois résultats, aucune nettement meilleure : sans adaptatif **43 verts / 6 rouges** ;
+				// adaptatif partant de 0 : 44/5 mais le foulard se pose de travers au premier pas et
+				// garde 24,9 % d étirement ; adaptatif partant de 1 : le foulard revient à 0,19 % mais
+				// la suite tombe à **41/8**. La cause est identifiée et elle est dans la MESURE, pas
+				// dans l idée : `mContact` n est relevé qu au DERNIER sous-pas, donc le taux rendu
+				// (0,5-0,7 % ici) sous-estime le contact réel et ne discrimine plus rien -- et le seuil
+				// de 6 % n est étalonné sur rien. Le mécanisme reste en place, éteint : il faut d abord
+				// compter les contacts sur TOUS les sous-pas et étalonner le seuil sur plusieurs pièces.
+				bool adaptiveColliders = false;
+				float32 contactRateThreshold = 0.06f; // fraction des particules libres en contact
+				float32 contactRateSmoothing = 0.2f;  // poids de l'image courante dans la moyenne lissée
 				// HORLOGE fournie par l'appelant (secondes, monotone) : quand elle est là, chaque pas
 				// remplit NkClothProfile. NKPhysics n'a pas d'horloge (pas de NKTime) : l'appelant
 				// (la sonde de la démo) prête NkChrono. Nul = pas de profil, zéro coût.
@@ -223,6 +242,9 @@ namespace nkentseu {
 				uint32 collidersIgnored = 0;		// formes d'un type non traité (dites, pas simulées)
 				uint32 collidersCulled = 0;			// formes sautées par l'élagage au dernier sous-pas
 				uint32 sdfContacts = 0;				// projections faites par le champ de distance au dernier sous-pas
+				float32 contactRate = 0.f;			// fraction LISSÉE des particules libres en contact (rythme adaptatif)
+				uint32 freeParticles = 0;			// particules non épinglées (la population que les taux mesurent)
+				bool collidersEveryIterationUsed = true; // ce que le pas a VRAIMENT fait
 				// m : max(0, thickness - distance signée) après le pas, sur les particules LIBRES
 				// seulement. ⚠️ Une particule ÉPINGLÉE suit un os : elle est sous la peau par
 				// construction (une épaule, une taille, un cou), et la compter faisait lire comme un
@@ -390,6 +412,11 @@ namespace nkentseu {
 				NkVector<collision::NkShape> mColStep;
 				NkVector<NkVec3f> mColV0, mColV1;
 				NkVector<uint8> mColSkip;
+				// ⚠️ Démarre à 1 (« tout touche »), jamais à 0 : un rythme adaptatif doit partir du
+				// côté SÛR, puis se relâcher sur ce qu il mesure. Mesuré le 05/09 : parti de 0, le
+				// premier pas espaçait les colliders, le col du foulard se posait de travers et gardait
+				// 24,9 % d étirement pour tout le reste de la course -- contre 0,18 % en partant de 1.
+				float32 mContactRate = 1.f;
 				// contraintes de distance
 				NkVector<uint32> mCA, mCB;
 				NkVector<float32> mRest, mLambda;

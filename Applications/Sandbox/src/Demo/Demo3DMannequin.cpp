@@ -37,6 +37,8 @@ namespace nkentseu {
 				uint32 sdfCells = 0, sdfSkipped = 0;
 				float64 stretchSum = 0.0;
 				uint32 stretchOver5 = 0;
+				float64 contactRateSum = 0.0;
+				uint32 framesEveryIteration = 0;
 				float32 clearance = 0.f; // serrage moyen au repos (m)
 				float32 sdfPenMax = 0.f;
 				uint32 sdfContactsMax = 0, capsContactsMax = 0;
@@ -528,10 +530,8 @@ namespace nkentseu {
 								 NkGarmentDefaultCollision(kind) == NkGarmentCollision::NK_AUTO ? " (decide par le serrage)" : " (defaut de la piece)");
 				}
 				g->garment.cloth.params.clock = [] { return NkChrono::Now().seconds; };
-					// la sonde applique le reglage MESURE : une piece en distance exacte dont le taux de
-				// contact est faible (la cape) gagne a espacer ; la jupe et le foulard, non (temoins)
-				if (kind == NK_GARMENT_CAPE)
-					g->garment.cloth.params.collidersEveryIteration = false;
+					// plus aucun reglage devine ici : le rythme est ADAPTATIF (NkClothParams::adaptiveColliders),
+				// il suit le taux de contact que le solveur mesure a chaque image
 				if (const char *e = std::getenv("NK_GARMENT_ITER"); e && e[0])
 					g->garment.cloth.params.collidersEveryIteration = e[0] != '0'; // instrument : forcer le rythme
 				if (const char *e = std::getenv("NK_GARMENT_PINBLEND"); e && e[0])
@@ -809,6 +809,9 @@ namespace nkentseu {
 			msInside += ic.Elapsed().milliseconds;
 			const NkClothStats &st = c.Stats();
 			if (count) {
+				s->contactRateSum += st.contactRate;
+				if (st.collidersEveryIterationUsed)
+					++s->framesEveryIteration;
 				if (st.maxSdfPenetration > s->sdfPenMax) s->sdfPenMax = st.maxSdfPenetration;
 				s->sdfContactsMax = st.sdfContacts > s->sdfContactsMax ? st.sdfContacts : s->sdfContactsMax;
 				s->capsContactsMax = st.contacts > s->capsContactsMax ? st.contacts : s->capsContactsMax;
@@ -933,6 +936,9 @@ namespace nkentseu {
 				std::fprintf(stderr, "[MANNEQUIN BILAN]            champ PROPRE : cellule %.1f mm, %u cellules, %u triangles sautes, %.2f ms/image (max %.2f)\n",
 							 1000.f * s->cellSize, s->sdfCells, s->sdfSkipped,
 							 s->frames ? (float32)(s->msSdfSum / (float64)s->frames) : 0.f, s->msSdfMax);
+			std::fprintf(stderr, "[MANNEQUIN BILAN]            contact : taux moyen %.1f %% des particules libres ; colliders a chaque iteration sur %u images / %u (rythme ADAPTATIF, mesure a l execution)\n",
+						 s->frames ? 100.f * (float32)(s->contactRateSum / (float64)s->frames) : 0.f,
+						 s->framesEveryIteration, s->frames);
 			std::fprintf(stderr, "[MANNEQUIN BILAN]            etirement : max %.2f %% (un PIC), moyenne par image %.2f %%, %u images sur %u au-dessus de 5 %%\n",
 						 100.f * s->stretchMax, s->frames ? 100.f * (float32)(s->stretchSum / (float64)s->frames) : 0.f, s->stretchOver5, s->frames);
 			std::fprintf(stderr, "[MANNEQUIN BILAN]            (parite, indicative sur une coque non fermee : max %u, moyenne %.2f | profondeur max sous la peau %.1f mm) | CHAMP : penetration max %.3f mm, contacts max %u par le champ contre %u par les capsules\n",
