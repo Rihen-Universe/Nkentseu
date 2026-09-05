@@ -745,8 +745,24 @@ namespace nkentseu {
 					p.OutlineSharp({cell.x - stroke, cell.y - stroke, cell.w + stroke * 2.f,
 									cell.h + stroke * 2.f},
 								   s.chosenMark);
+				// ④ (05/09, nuit) UN ANNEAU CREUX, PAS UN APLAT. `Outline` repeint tout le
+				//    rectangle avec `inner` avant de creuser (c'est son contrat : « plein
+				//    puis creusement d'un pixel ») -- appele ICI, apres le contenu, il
+				//    EFFACAIT l'icone et le pied de la carte selectionnee. Rodolf a vu
+				//    une vignette vide avec son nom ecrit dans la barre d'etat.
+				//    ⚠️ `OutlineColor` NE CONVIENT PAS NON PLUS, et la sonde l'a montre :
+				//       son implementation de base peint le rectangle ENTIER en couleur
+				//       de bord, puis « creuse » avec un `inner` d'alpha nul -- qui
+				//       n'efface rien. La carte devenait un aplat bleu. La phrase
+				//       « un `inner` a alpha nul laisse voir le fond » de
+				//       `NkComponentPaint.h` ne vaut donc que pour un peintre qui
+				//       surcharge, pas pour le contrat par defaut.
+				//    La primitive qui NE repeint PAS le fond est nommee ainsi dans le
+				//    meme fichier : `OutlineSharp`. C'est celle du marquage « choisi »,
+				//    et les deux restent distincts par leur ROLE et par leur rectangle
+				//    (« choisi » deborde d'un trait, « actif » epouse la carte).
 				if (isActive)
-					p.Outline(cell, s.activeMark, s.cardBg, pad * 0.5f);
+					p.OutlineSharp(cell, s.activeMark);
 
 				if (hooks.cardOverlay)
 					hooks.cardOverlay(hooks.user, p, idx, cell.x, cell.y, cell.w, cell.h);

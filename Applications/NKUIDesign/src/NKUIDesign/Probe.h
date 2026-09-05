@@ -11971,6 +11971,101 @@ namespace nkuidesign {
 				"etaient des noms a la profondeur 6, ou l'indentation ne laisse que dix pixels",
 				sectionsAuDessin && aucunVide && profondeurTenue, det);
 		}
+		// ── 106. ④ LA CARTE SELECTIONNEE NE S'EFFACE PLUS ELLE-MEME (05/09, nuit). Sur la
+		//    capture de Rodolf : une vignette VIDE au milieu de la grille, cadre bleu, sans
+		//    libelle -- et son nom (« docs ») affiche dans la BARRE D'ETAT, c'est-a-dire
+		//    ailleurs. « L'element selectionne s'affiche a un endroit et son nom a un autre. »
+		//    Cause : le marquage de la carte active appelait `Outline`, dont le CONTRAT dit
+		//    « plein puis creusement d'un pixel » -- il repeint tout le rectangle avant de
+		//    creuser. Appele APRES le contenu, il l'effacait.
+		//
+		//    ⚠️ LE TEMOIN DOIT REGARDER L'ORDRE, pas la presence : la commande de texte
+		//       existait dans le flux, elle etait simplement RECOUVERTE ensuite. Une sonde
+		//       qui compte les textes serait restee verte -- c'est la faute que la sonde 105
+		//       a deja payee dans ce meme lot.
+		{
+			char det[820];
+			NkContentBrowserModel m106;
+			static const char *kNoms106[] = {"alpha", "docs", "omega"};
+			for (int32 k = 0; k < 3; ++k) {
+				NkAssetEntry a;
+				a.name = NkString(kNoms106[k]);
+				a.isFolder = true;
+				a.kindLabel = "";
+				m106.entries.PushBack(a);
+			}
+			m106.active = 1; // « docs », comme sur la capture
+			const NkContentBrowserStyle sty106 = DemoStyle(nullptr);
+			NkContentBrowserHooks h106;
+			NkComponentInput in106;
+			NkRecordingPaint r106;
+			NkDrawContentBrowser(r106, in106, {0.f, 0.f, 900.f, 560.f}, m106, sty106, h106);
+			// 1. le libelle de la carte ACTIVE est emis, et on retient OU et QUAND
+			int32 iTexte = -1;
+			float32 tx = 0.f, ty = 0.f;
+			for (uint32 i = 0; i < (uint32)r106.cmds.Size(); ++i)
+				if (r106.cmds[i].op == NkPaintOp::Text && r106.cmds[i].text.Data()
+					&& NkComponentDecl::StrEq(r106.cmds[i].text.Data(), "docs")) {
+					iTexte = (int32)i;
+					tx = r106.cmds[i].x + r106.cmds[i].w * 0.5f;
+					ty = r106.cmds[i].y + r106.cmds[i].h * 0.5f;
+					break;
+				}
+			const bool libelleEmis = iTexte >= 0;
+			// 2. ET RIEN D'OPAQUE NE PASSE DESSUS APRES. C'est LA mesure : on cherche une
+			//    commande de remplissage POSTERIEURE qui couvre le point du libelle.
+			int32 iRecouvrement = -1;
+			if (libelleEmis)
+				for (uint32 i = (uint32)iTexte + 1u; i < (uint32)r106.cmds.Size(); ++i) {
+					const NkPaintCmd &c = r106.cmds[i];
+					// ⚠️ `Outline` COMPTE COMME UN APLAT, et c'est tout le sujet : son contrat
+					//    est « plein PUIS creusement d'un pixel ». Ne compter que `Fill` laissait
+					//    la sonde aveugle au coupable exact -- une premiere version l'a fait.
+					if (c.op != NkPaintOp::Fill && c.op != NkPaintOp::FillColor
+						&& c.op != NkPaintOp::Outline)
+						continue;
+					if (tx >= c.x && tx <= c.x + c.w && ty >= c.y && ty <= c.y + c.h
+						&& c.w >= 20.f && c.h >= 20.f) { // un APLAT, pas un liseré
+						iRecouvrement = (int32)i;
+						break;
+					}
+				}
+			const bool pasRecouvert = libelleEmis && iRecouvrement < 0;
+			// 3. LE CONTOUR EXISTE QUAND MEME : l'anneau de la carte active est peint. Sans
+			//    ce terme, supprimer purement le marquage rendrait la sonde verte -- et la
+			//    selection deviendrait invisible.
+			// Un contour a ANGLES VIFS au role `active_mark` : c'est la seule primitive du
+			// contrat qui ne repeint pas le fond (`NkComponentPaint.h` le dit ainsi).
+			uint32 anneaux = 0u;
+			for (uint32 i = 0; i < (uint32)r106.cmds.Size(); ++i)
+				if (r106.cmds[i].op == NkPaintOp::OutlineSharp && r106.cmds[i].role == sty106.activeMark)
+					++anneaux;
+			const bool anneauPeint = anneaux >= 1u;
+			// 4. CONTROLE NEGATIF : les cartes NON actives n'ont jamais eu ce probleme
+			bool voisinsIntacts = true;
+			for (int32 k = 0; k < 3 && voisinsIntacts; ++k) {
+				if (k == 1)
+					continue;
+				bool vu = false;
+				for (uint32 i = 0; i < (uint32)r106.cmds.Size() && !vu; ++i)
+					vu = r106.cmds[i].op == NkPaintOp::Text && r106.cmds[i].text.Data()
+						&& NkComponentDecl::StrEq(r106.cmds[i].text.Data(), kNoms106[k]);
+				voisinsIntacts = vu;
+			}
+			snprintf(det, sizeof(det),
+				"libelle « docs » de la carte ACTIVE emis a la commande %d, au point (%.0f, %.0f) -> %d ; "
+				"premiere commande d'APLAT posterieure qui le recouvre : %d (aucune attendue) -> %d ; anneau "
+				"creux peint : %u -> %d ; les deux cartes non actives ont leur libelle=%d",
+				iTexte, (double)tx, (double)ty, libelleEmis ? 1 : 0, iRecouvrement, pasRecouvert ? 1 : 0,
+				anneaux, anneauPeint ? 1 : 0, voisinsIntacts ? 1 : 0);
+			check("106. ④ LA CARTE SELECTIONNEE GARDE SON CONTENU : son marquage appelait `Outline`, dont le contrat est "
+				"« plein PUIS creusement d'un pixel » -- appele apres le contenu, il repeignait la carte et effacait icone "
+				"et libelle ; Rodolf voyait une vignette vide et son nom dans la barre d'etat. Le temoin regarde L'ORDRE "
+				"(aucun aplat posterieur ne couvre le point du libelle), pas la presence -- la commande de texte existait "
+				"deja, elle etait recouverte ; et il exige que l'anneau creux soit toujours peint, sans quoi supprimer le "
+				"marquage rendrait la selection invisible tout en passant au vert",
+				libelleEmis && pasRecouvert && anneauPeint && voisinsIntacts, det);
+		}
 		snprintf(tail, sizeof(tail), "\n=== RESULTAT : %d / %d ===\n", pass, total);
 		rep.Append(tail);
 
