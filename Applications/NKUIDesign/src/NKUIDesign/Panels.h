@@ -39,7 +39,8 @@
 // -----------------------------------------------------------------------------
 
 #include "NKEditorKit/Components/NkGuiComponentPaint.h"
-#include "NKEditorKit/NkFilePickerNav.h" // ② le selecteur a deux volets (vignettes)
+#include "NKEditorKit/NkFilePickerNav.h"
+#include "NKPlatform/NkShell.h" // ⑤ ouvrir le dossier / le fichier AVEC le systeme // ② le selecteur a deux volets (vignettes)
 #include "NKEditorKit/NkEditorKit.h"
 #include "NKEditorKit/NkEditorCombo.h"   // la LISTE DEROULANTE du kit (pas une neuvieme)
 #include "NKEditorKit/NkEditorContextMenu.h"	// NkCtxMenu — le menu contextuel du kit (3e consommateur)
@@ -1431,6 +1432,85 @@ namespace nkuidesign {
 			NkVector<NkString> journal;
 			/// L'AVIS : un bandeau sur la toile qui RESTE jusqu'au clic.
 			NkString avis;
+
+			// ── ⑤ LE RESULTAT D'UN EXPORT (05/09, soir) ───────────────────────
+			// Rodolf : « je pourrais vraiment avoir le resultat exporte une fois le
+			// dialogue traite. » Le pied de fenetre disait deja le chemin -- et disparaissait
+			// au geste suivant. Ce bandeau RESTE jusqu'au clic, montre CE QUI A ETE ECRIT
+			// (la vignette du fichier relu depuis le disque, pas un rendu de plus) et offre
+			// deux portes vers le systeme.
+			struct NkAvisExport {
+				bool actif = false;
+				char titre[240] = {};  ///< « Exporté : Rectangle 22.png »
+				char detail[120] = {}; ///< « 1 240 × 620 · PNG »
+				nkentseu::NkString chemin;
+				/// La vignette du fichier ECRIT, relue du disque par le cache d'images.
+				/// 0 = pas de vignette (un SVG, un codec absent) : le bandeau s'affiche
+				/// quand meme, il perd une image, pas une information.
+				nkentseu::uint32 vignette = 0;
+				nkentseu::int32 vw = 0, vh = 0;
+				/// Ce que le systeme n'a pas su faire. ⚠️ Une machine sans explorateur de
+				/// fichiers existe (un conteneur, une session sans bureau) : on le DIT, et le
+				/// chemin reste lisible et copiable dans le bandeau et dans la Console.
+				nkentseu::NkString echec;
+			};
+			NkAvisExport avisExport;
+
+			/// Les rectangles du bandeau, calcules UNE FOIS et lus par le dessin ET par la
+			/// sonde. Deux calculs separes auraient permis au bouton peint et au bouton
+			/// cliquable de diverger -- le defaut le plus cher de ce chantier.
+			struct NkGeomAvisExport {
+				nkgui::NkRect cadre, vignette, dossier, fichier, fermer;
+			};
+			static NkGeomAvisExport GeomAvisExport(const nkgui::NkRect &region, float32 lTitre,
+						 float32 lDetail, bool avecVignette) {
+				NkGeomAvisExport g;
+				const float32 h = 56.f, pad = 10.f;
+				const float32 lv = avecVignette ? 40.f : 0.f;
+				const float32 lTexte = (lTitre > lDetail ? lTitre : lDetail) + 8.f;
+				const float32 lb = pad + lv + (avecVignette ? pad : 0.f) + lTexte + pad + 120.f + 8.f
+						 + 118.f + 8.f + 20.f + pad;
+				g.cadre = {region.x + 12.f, region.y + 12.f, lb, h};
+				float32 x = g.cadre.x + pad;
+				g.vignette = {x, g.cadre.y + (h - 40.f) * 0.5f, lv, lv};
+				if (avecVignette)
+					x += lv + pad;
+				x += lTexte + pad;
+				g.dossier = {x, g.cadre.y + (h - 24.f) * 0.5f, 120.f, 24.f};
+				x += 120.f + 8.f;
+				g.fichier = {x, g.dossier.y, 118.f, 24.f};
+				x += 118.f + 8.f;
+				g.fermer = {x, g.dossier.y, 20.f, 24.f};
+				return g;
+			}
+
+			/// Pose le bandeau apres une ecriture REUSSIE. La vignette passe par le cache
+			/// d'images de l'application : le fichier vient d'etre ecrit, il est au chaud
+			/// dans le cache disque du systeme -- c'est le moment le moins cher pour le lire.
+			void PoserAvisExport(const char *chemin, nkentseu::int32 l, nkentseu::int32 h,
+						  const char *format) {
+				avisExport = NkAvisExport();
+				if (!chemin || !*chemin)
+					return;
+				avisExport.actif = true;
+				avisExport.chemin = nkentseu::NkString(chemin);
+				const nkentseu::NkString nom = nkentseu::NkPath(chemin).GetFileName();
+				snprintf(avisExport.titre, sizeof(avisExport.titre), "Export\u00e9 : %s",
+						 nom.Empty() ? chemin : nom.Data());
+				if (l > 0 && h > 0)
+					snprintf(avisExport.detail, sizeof(avisExport.detail), "%d \u00d7 %d \u00b7 %s", l, h,
+						 format ? format : "");
+				else
+					snprintf(avisExport.detail, sizeof(avisExport.detail), "%s", format ? format : "");
+				images.base = nkentseu::NkString();
+				NkCacheImages::Entree &e = images.Charger(chemin);
+				if (!e.absente) {
+					avisExport.vignette = e.handle;
+					avisExport.vw = e.w;
+					avisExport.vh = e.h;
+				}
+			}
+
 			// ── LA DEMANDE DE SELECTEUR DE COULEUR ──────────────────────────
 			/// ⚠️ LE SELECTEUR NE SE DESSINE PAS DANS LE PANNEAU, ET C'EST UNE
 			///    NECESSITE, PAS UN GOUT : le shell masque l'entree du corps des
@@ -4010,6 +4090,73 @@ namespace nkuidesign {
 							mSt->status = NkString("Cliquer pour fermer l'avis — le détail reste dans la Console.");
 					}
 				}
+				// ── ⑤ LE BANDEAU DU RESULTAT EXPORTE ───────────────────────────
+				// Il RESTE jusqu'au clic sur ✕ -- le pied de fenetre, lui, disparaissait au
+				// geste suivant. Meme couche que l'avis (overlay), meme regle : ce qui est
+				// dessine par-dessus RECLAME l'entree avant ce qu'il recouvre, sinon la toile
+				// dessous repond aussi (« reclamer avant la toile »).
+				if (mSt->avisExport.actif && ctx.popupDepth == 0) {
+					auto &Fx = costume::Fontes();
+					const nkgui::NkRect reg = ctx.layout.region;
+					const float32 lT = costume::Largeur(Fx.px11, mSt->avisExport.titre);
+					const float32 lD = costume::Largeur(Fx.px11, mSt->avisExport.detail);
+					const bool avecV = mSt->avisExport.vignette != 0u;
+					const DesignState::NkGeomAvisExport g =
+						DesignState::GeomAvisExport(reg, lT, lD, avecV);
+					const nkgui::NkVec2 mp = ctx.input.mousePos;
+					const bool surCadre = NkGuiRectContains(g.cadre, mp);
+					// ⚠️ LIRE LE CLIC AVANT DE L'ETEINDRE. Ce bandeau RECLAME l'entree (sinon un
+					//    clic sur « Ouvrir le dossier » poserait aussi un noeud sur la toile en
+					//    dessous) -- mais s'il l'eteignait d'abord, ses propres boutons ne
+					//    verraient plus rien. L'ordre est la moitie du correctif.
+					const bool clicReel = surCadre && (in.mousePressed || ctx.input.mouseClicked[0]);
+					if (surCadre && (in.mousePressed || in.mouseDown)) {
+						in.mousePressed = false;
+						ctx.input.mouseClicked[0] = false;
+					}
+					ctx.dlOverlay.AddRectFilled(g.cadre, ctx.theme.panel, 6.f);
+					ctx.dlOverlay.AddRect(g.cadre, ctx.theme.accent, 1.f, 6.f);
+					if (avecV)
+						ctx.dlOverlay.AddImage(mSt->avisExport.vignette, g.vignette, {0.f, 0.f}, {1.f, 1.f},
+							 nkgui::NkColor{255, 255, 255, 255});
+					const float32 xt = (avecV ? g.vignette.x + g.vignette.w + 10.f : g.vignette.x);
+					costume::Texte(ctx.dlOverlay, Fx.px11, xt, g.cadre.y + 12.f, mSt->avisExport.titre,
+						   ctx.theme.text);
+					costume::Texte(ctx.dlOverlay, Fx.px11, xt, g.cadre.y + 30.f,
+						   mSt->avisExport.echec.Empty() ? mSt->avisExport.detail
+															 : mSt->avisExport.echec.Data(),
+						   ctx.theme.textMuted);
+					// Les deux portes vers le systeme. Elles peuvent ECHOUER (un conteneur n'a pas
+					// d'explorateur) : on le DIT dans le bandeau au lieu de ne rien faire.
+					auto bouton = [&](const nkgui::NkRect &r, const char *txt) -> bool {
+						const bool hov = NkGuiRectContains(r, mp);
+						ctx.dlOverlay.AddRectFilled(r, hov ? ctx.theme.accent : ctx.theme.card, 4.f);
+						ctx.dlOverlay.AddRect(r, ctx.theme.border, 1.f, 4.f);
+						const float32 lw = costume::Largeur(Fx.px11, txt);
+						costume::Texte(ctx.dlOverlay, Fx.px11, r.x + (r.w - lw) * 0.5f,
+							   costume::CentrerY(Fx.px11, r.y, r.h), txt,
+							   hov ? ctx.theme.panel : ctx.theme.text);
+						// Le clic est lu PLUS HAUT (`clicReel`) : ici, seulement le dessin.
+						return false;
+					};
+					if (clicReel && NkGuiRectContains(g.dossier, mp)) {
+						if (!nkentseu::shell::Reveler(mSt->avisExport.chemin.Data()))
+							mSt->avisExport.echec =
+								NkString("Le syst\u00e8me n'a pas pu ouvrir le dossier \u2014 le chemin est en Console.");
+					} else if (clicReel && NkGuiRectContains(g.fichier, mp)) {
+						if (!nkentseu::shell::Ouvrir(mSt->avisExport.chemin.Data()))
+							mSt->avisExport.echec =
+								NkString("Le syst\u00e8me n'a pas pu ouvrir le fichier \u2014 le chemin est en Console.");
+					} else if (clicReel && NkGuiRectContains(g.fermer, mp)) {
+						mSt->avisExport.actif = false;
+					}
+					(void)bouton(g.dossier, "Ouvrir le dossier");
+					(void)bouton(g.fichier, "Ouvrir le fichier");
+					(void)bouton(g.fermer, "\u2715");
+					if (surCadre)
+						mSt->status = mSt->avisExport.chemin;
+				}
+
 				// ── LES POIGNEES DE DEGRADE RECLAMENT AVANT TOUT ──────────────────
 				// UN GESTE POUR LES QUATRE GENRES (Rodolf, 04/09 soir : « corrige donc ca
 				// sur tous les degrades ») : DANS le disque d'une pastille -> glisser le

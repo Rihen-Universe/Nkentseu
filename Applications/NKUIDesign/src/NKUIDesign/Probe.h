@@ -11600,6 +11600,95 @@ namespace nkuidesign {
 				"son tri, et « Tout s\u00e9lectionner » REVIENT en ouverture de fichier -- le parametre suit le mode",
 				assetGardeTout && dialogueMuet && montreEncore && suitLeMode, det);
 		}
+		// ── 102. ⑤ LE RESULTAT EXPORTE SE VOIT (05/09, soir). Rodolf : « je pourrais vraiment
+		//    avoir le resultat exporte une fois le dialogue traite. » Le pied de fenetre disait
+		//    le chemin et disparaissait au geste suivant. Le bandeau RESTE, montre la VIGNETTE
+		//    DU FICHIER RELU DU DISQUE (pas un rendu de plus : si le codec avait mal ecrit, la
+		//    vignette le montrerait) et porte deux portes vers le systeme.
+		{
+			char det[800];
+			static DesignState st102;
+			st102.doc.NewDocument("Avis", NkAuthor::Humain);
+			st102.images.Vider();
+			// un televerseur factice : la sonde n'a pas de GPU, mais le cache doit rendre
+			// une poignee NON NULLE pour que « il y a une vignette » veuille dire quelque chose
+			static uint32 prochainHandle102 = 700u;
+			st102.images.televerser = [](void *, const uint8 *, int32, int32) -> uint32 {
+				return ++prochainHandle102;
+			};
+			st102.images.televerserUser = nullptr;
+			// un VRAI png de 6 x 4, ecrit par le codec maison
+			NkImage src102;
+			bool ecrit102 = false;
+			if (src102.Create(6u, 4u, math::NkColor(), 4) && src102.Pixels()) {
+				for (usize k = 0; k < 6u * 4u; ++k) {
+					src102.Pixels()[k * 4 + 0] = 200u;
+					src102.Pixels()[k * 4 + 1] = 30u;
+					src102.Pixels()[k * 4 + 2] = 40u;
+					src102.Pixels()[k * 4 + 3] = 255u;
+				}
+				ecrit102 = src102.SavePNG("sonde_avis_export.png");
+			}
+			// 1. LE BANDEAU SE POSE, avec le NOM du fichier et ses DIMENSIONS
+			st102.PoserAvisExport("sonde_avis_export.png", 1240, 620, "PNG");
+			const bool poseOk = st102.avisExport.actif
+					&& NkComponentDecl::StrEq(st102.avisExport.titre, "Export\u00e9 : sonde_avis_export.png")
+					&& NkString(st102.avisExport.detail).Contains("1240")
+					&& NkString(st102.avisExport.detail).Contains("620")
+					&& NkString(st102.avisExport.detail).Contains("PNG")
+					&& !st102.avisExport.chemin.Empty();
+			// 2. LA VIGNETTE VIENT DU FICHIER RELU : 6 x 4, les dimensions du DISQUE et non
+			//    celles qu'on a passees (1240 x 620). C'est ce qui prouve la relecture.
+			const bool vignetteOk = st102.avisExport.vignette != 0u && st102.avisExport.vw == 6
+					&& st102.avisExport.vh == 4;
+			// 3. LA GEOMETRIE EST CALCULEE UNE FOIS, et le bouton peint EST le bouton
+			//    cliquable : deux calculs separes ont deja coute cher sur ce chantier.
+			const nkgui::NkRect reg102 = {0.f, 0.f, 1200.f, 700.f};
+			const DesignState::NkGeomAvisExport g102 =
+				DesignState::GeomAvisExport(reg102, 180.f, 90.f, true);
+			auto dedans = [](const nkgui::NkRect &a, const nkgui::NkRect &b) {
+				return b.x >= a.x && b.y >= a.y && b.x + b.w <= a.x + a.w && b.y + b.h <= a.y + a.h;
+			};
+			auto disjoints = [](const nkgui::NkRect &a, const nkgui::NkRect &b) {
+				return a.x + a.w <= b.x || b.x + b.w <= a.x || a.y + a.h <= b.y || b.y + b.h <= a.y;
+			};
+			const bool geomOk = dedans(g102.cadre, g102.vignette) && dedans(g102.cadre, g102.dossier)
+					&& dedans(g102.cadre, g102.fichier) && dedans(g102.cadre, g102.fermer)
+					&& disjoints(g102.dossier, g102.fichier)
+					&& disjoints(g102.fichier, g102.fermer)
+					&& disjoints(g102.vignette, g102.dossier);
+			// 4. SANS VIGNETTE, LE BANDEAU RETRECIT au lieu de garder un trou de 40 px
+			const DesignState::NkGeomAvisExport gSans =
+				DesignState::GeomAvisExport(reg102, 180.f, 90.f, false);
+			const bool retreci = gSans.cadre.w < g102.cadre.w && gSans.vignette.w == 0.f;
+			// 5. LES DEUX PORTES PEUVENT ECHOUER, ET C'EST UN RESULTAT. On les appelle sur un
+			//    chemin VIDE : elles doivent rendre FAUX sans rien ouvrir ni planter -- c'est
+			//    la garantie qui permet au bandeau de dire « le chemin est en Console »
+			//    plutot que de ne rien faire. ⚠️ On ne les appelle PAS sur un vrai chemin :
+			//    une sonde qui ouvre l'explorateur de Rodolf serait une sonde qui nuit.
+			const bool refusVide = !nkentseu::shell::Ouvrir("") && !nkentseu::shell::Reveler("")
+					&& !nkentseu::shell::Ouvrir(nullptr);
+			// 6. LE CHEMIN RESTE LISIBLE quoi qu'il arrive : c'est le repli exige.
+			st102.avisExport.echec = NkString("Le syst\u00e8me n'a pas pu ouvrir le dossier.");
+			const bool cheminGarde = !st102.avisExport.chemin.Empty()
+					&& NkString(st102.avisExport.chemin).Contains("sonde_avis_export.png");
+			snprintf(det, sizeof(det),
+				"png source ecrit=%d ; bandeau : « %s » / « %s » -> %d ; vignette poignee %u, %d x %d relus du "
+				"DISQUE (et non 1240 x 620) -> %d ; geometrie : cadre %.0f x %.0f, boutons dedans et "
+				"disjoints -> %d ; sans vignette le cadre passe de %.0f a %.0f -> %d ; portes systeme sur "
+				"chemin vide : refus net=%d ; chemin garde=%d",
+				ecrit102 ? 1 : 0, st102.avisExport.titre, st102.avisExport.detail, poseOk ? 1 : 0,
+				st102.avisExport.vignette, st102.avisExport.vw, st102.avisExport.vh, vignetteOk ? 1 : 0,
+				(double)g102.cadre.w, (double)g102.cadre.h, geomOk ? 1 : 0, (double)g102.cadre.w,
+				(double)gSans.cadre.w, retreci ? 1 : 0, refusVide ? 1 : 0, cheminGarde ? 1 : 0);
+			check("102. ⑤ LE RESULTAT EXPORTE SE VOIT : un bandeau qui RESTE (le pied de fenetre, lui, disparaissait au geste "
+				"suivant) portant le NOM du fichier, ses DIMENSIONS, et la VIGNETTE DU FICHIER RELU DU DISQUE -- pas un "
+				"rendu de plus, donc un codec qui aurait mal ecrit se verrait ; une SEULE geometrie pour le bouton peint et "
+				"le bouton cliquable ; et les deux portes vers le systeme rendent FAUX plutot que de mentir, le chemin "
+				"restant lisible et copiable",
+				ecrit102 && poseOk && vignetteOk && geomOk && retreci && refusVide && cheminGarde, det);
+			st102.images.televerser = nullptr;
+		}
 		snprintf(tail, sizeof(tail), "\n=== RESULTAT : %d / %d ===\n", pass, total);
 		rep.Append(tail);
 

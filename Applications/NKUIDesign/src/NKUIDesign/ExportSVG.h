@@ -1230,7 +1230,20 @@ namespace nkuidesign {
 		// ④ UN FICHIER PAR OBJET : c'est le DOSSIER choisi qui compte, pas le nom saisi
 		if (o.unFichierParObjet && o.selection && st.sel.Count() >= 2u) {
 			NkString msg;
-			NkExporterParObjet(st, o, c.picker.pickerResultPath, msg);
+			const uint32 faits = NkExporterParObjet(st, o, c.picker.pickerResultPath, msg);
+			// ⑤ Plusieurs fichiers : le bandeau montre LE DOSSIER (il n'y a pas UN
+			//    resultat a ouvrir), sans vignette -- laquelle des N choisir serait un
+			//    arbitraire, et en montrer une ferait croire qu'il n'y en a qu'une.
+			if (faits > 0u) {
+				st.RetenirDossierRecent(c.picker.pickerResultPath);
+				st.avisExport = DesignState::NkAvisExport();
+				st.avisExport.actif = true;
+				st.avisExport.chemin = NkString(c.picker.pickerResultPath);
+				snprintf(st.avisExport.titre, sizeof(st.avisExport.titre),
+					 "Export\u00e9 : %u fichier(s)", faits);
+				snprintf(st.avisExport.detail, sizeof(st.avisExport.detail), "%s",
+					 c.picker.pickerResultPath);
+			}
 			st.DireAuPied(msg.Data());
 			st.Consigner(msg.Data());
 			return;
@@ -1242,8 +1255,15 @@ namespace nkuidesign {
 			NkExporterSVGFichier(st, o, chemin.Data(), res);
 		// ③ LE DOSSIER CHOISI DEVIENT UN RECENT -- session ET document. On le retient
 		//    APRES l'ecriture : un export qui echoue ne doit pas laisser de trace.
-		if (res.ok)
+		if (res.ok) {
 			st.RetenirDossierRecent(c.picker.pickerResultPath);
+			// ⑤ LE RESULTAT SE VOIT (Rodolf : « je pourrais vraiment avoir le resultat
+			//    exporte une fois le dialogue traite »). Le bandeau porte la VIGNETTE DU
+			//    FICHIER RELU DU DISQUE -- pas un rendu de plus : si le codec avait mal
+			//    ecrit, la vignette le montrerait.
+			st.PoserAvisExport(chemin.Data(), res.largeur, res.hauteur,
+							   o.format == NkExportFormat::PNG ? "PNG" : "SVG");
+		}
 		st.DireAuPied(res.message);
 		st.Consigner(res.message);
 	}
