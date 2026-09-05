@@ -39,7 +39,7 @@ main** — la prochaine régénération l'effacerait.*
 
 | lignes de comportement | livré | partiel | absent | écarté |
 |---|---|---|---|---|
-| **184** | **77** | **32** | **74** | **1** |
+| **185** | **80** | **32** | **72** | **1** |
 
 ### Par chapitre — où l'on est fort, où l'on est faible
 
@@ -51,7 +51,7 @@ main** — la prochaine régénération l'effacerait.*
 | 3. Opérations booléennes et de forme | 0 | 0 | 8 | 0 |
 | 4. Sélection et navigation | 8 | 0 | 5 | 0 |
 | 5. Toile et vue | 5 | 5 | 12 | 0 |
-| 6. Transformations | 13 | 1 | 7 | 0 |
+| 6. Transformations | 16 | 1 | 5 | 0 |
 | 7. Calques et groupes | 9 | 1 | 6 | 1 |
 | 8. Propriétés | 10 | 12 | 18 | 0 |
 | 9. Composants et instances | 5 | 1 | 4 | 0 |
@@ -178,8 +178,6 @@ main** — la prochaine régénération l'effacerait.*
 - Redimensionner de 1 px / 10 px
 - Redimensionner un cadre sans son contenu
 - Outil Échelle (met aussi bordures et effets à l'échelle)
-- S'aligner sur les bords du cadre quand un seul objet est sélectionné
-- Distribuer H / V
 - Ranger en grille (*Tidy up*)
 - Mesurer la distance à un autre calque
 
@@ -268,6 +266,12 @@ recette : « livré » se mesure, il ne se déclare pas.*
   remplissage, épaisseur, ombre portée, police / graisse / taille / couleur.
 - **La toile** — zoom, panoramique, aimantation aux objets et aux guides **avec
   les distances affichées**.
+- **Aligner la sélection** (05/09) — six alignements et deux répartitions, la référence
+  dite avant le clic (la **sélection**, le **dernier sélectionné**, ou **la page** quand un
+  seul objet est choisi) ; ce qui ne peut pas bouger — un nœud dont le parent agence ses
+  enfants — est laissé, compté et **dit**. ⚠️ **À ne pas confondre avec la section
+  ALIGNEMENT**, qui règle l'alignement des **enfants** d'un cadre : c'est elle qui portait,
+  jusqu'au 05/09, un ✅ « Aligner » dans le document 13. Sonde 93.
 - **L'export** (05/09) — une page ou la sélection en **PNG** à ×1 / ×2 / ×3 par le
   **même peintre que la toile** rendu sans GPU (`NkGuiDrawListRaster`, NKGui), le
   texte rastérisé à la taille exacte ; en **SVG** par un lecteur du document ;
@@ -329,6 +333,7 @@ aucun blocage moteur.
 | **Dégradés + remplissage image** | 3 lignes de §8, très visibles en maquette | **moyen** |
 | **Texte : ajustement auto, troncature, décorations** | ~8 lignes de §8 | **moyen**, découpable en petits lots |
 | **Opérations booléennes** (tracé à **contours multiples**) | **les 8 lignes de §3** + la vectorisation du texte | **gros** — le maillon du remplissage est fait, il reste le modèle |
+| **Alignement VERTICAL du texte dans son cadre** (haut / milieu / bas) et **justifié** | les deux lignes de §8.5 que TYPOGRAPHIE ne peut pas cocher | **petit à moyen** — le modèle ne porte pas la clé (`texte_aligne` ne dit que l'horizontal) et le peintre **centre toujours** verticalement : il faut une clé additive, un peintre qui l'honore, et un témoin à l'enregistreur. Le **justifié**, lui, exige le retour à la ligne — il n'est pas de la même famille, et il attend `NkGuiDrawList` côté mesure de mots |
 | **Export PDF** | la forme qu'un client ouvre sans rien installer (`ROADMAP_PRODUITS.md` §1) | **moyen** — **le même arbre que le SVG** (`ExportSVG.h` parcourt déjà le document nœud par nœud) traduit en objets PDF : un flux de contenu par page (`re`, `f`, `S`, `cm` pour la matrice, `sh` pour les dégradés — ou des bandes comme le peintre), les images en `XObject` (le PNG re-encodé en `FlateDecode`, NKImage a le déflate), **les polices à embarquer** (Inter en `FontFile2`, la sous-table des glyphes utilisés — c'est le seul morceau sans base dans le dépôt), la table `xref` ; témoin : le PDF relu par un lecteur tiers **et** un parseur minimal maison qui compte les objets |
 | **Export code — HTML / CSS / JS, React, Next** | *futur proche* (Rodolf, 02/09) : la contrepartie web du même arbre | **moyen à gros** — **un lecteur de plus du format, jamais un second modèle** : les **composants de base** (`ComposantsBase.h`, bouton / champ / case / interrupteur / progression / étiquette / séparateur / carte) deviennent des éléments ou des composants React nommés, les **styles de calque et de texte** (§15.15) des classes CSS **nommées**, les **variables de couleur** des `--custom-properties`, l'agencement (colonne / ligne / grille / libre / ancrage) du `flex` / `grid` / `position:absolute`, les états d'apparence des pseudo-classes ; Next = React + un fichier de page. Ce qu'il exige d'abord : **une table de correspondance écrite** (nœud → balise, rôle de thème → variable CSS) et un témoin qui **relit le HTML produit** (compte des éléments, des classes) — la maison n'a pas de moteur HTML pour un témoin en pixels |
 | **Composants de document** | ✅ **socle POSÉ le 02/09** (étapes 1-3 du `15_…`) : modèle + format additif + identité d'auteur + **porte de fork**, extraire/détacher **ensemble** avec l'aller-retour neutre, et le retour visuel. **Le GESTE existe** (menu + `Ctrl+Alt+K` + dispatcher), donc Rodolf peut créer un composant à la main. Le chapitre 9 passe de **0/10** à **3 livrés + 1 partiel** | **reste moyen** — puis les **états** (⚠️ à réconcilier avec le mécanisme voisin des composants de code **avant** d'en écrire un troisième) |
