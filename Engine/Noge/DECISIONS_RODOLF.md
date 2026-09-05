@@ -2169,6 +2169,85 @@ pli glissait, à 32 x 4 non) ; **normale du plan non tournée** dans `NkTransfor
 déplaçant — un corps-plan tourné garde sa normale de repos) ; unité du vent (N contre accélération) à trancher ; le puits
 console de NKLogger muet à travers un tuyau en Release (les témoins impriment sur stderr, dit dans le fichier).
 
+### 🧵 05/09 (05h) — TISSU, suite : le vent TRANCHÉ, le levier de la liste de paires mesuré, le LOT BUDGET (« est-ce que ça va supporter du temps réel ? »), et le déclaré non livré de Noge — `9733ffa2`, `22329a0d`, commit budget ci-dessous
+
+**Vent — unité tranchée par le coordinateur (05/09, 04h)** : `math::NkIForceField::Force` rend des **newtons** ; chaque
+consommateur **divise par la masse de SA particule** (la nappe : 0,2 kg / 1 024 ; le VFX : sa masse par particule, 1 kg par
+défaut, lue — jamais supposée en silence). Le contrat tient en une ligne dans l'en-tête, commit `97e9c28f` de l'agent Noge,
+**cherry-pick `22329a0d`** ici : les deux branches portent le même fichier à l'octet près, la fusion n'a rien à réconcilier
+sur le vent.
+
+**Déclaré non livré, à porter au branchement ECS** : `NkClothSim`, `NkClothSystem`, `NkHairSim`, `NkSoftBody` de Noge
+(`Physics/NkPhysicsMesh.h`, `Systems/NkPhysicsSystems.h`) sont des déclarations sans corps ni appelant, avec des poignées
+GPU `nk_uint64` que personne ne remplit. Le solveur vivant est `physics::NkCloth` ; le jour du branchement, `NkClothSim`
+devient l'enveloppe ECS de `NkCloth` (paramètres + épingles + entité maillage), et ses poignées GPU déclarées disparaissent
+ou attendent le GPU par coloriage — pas un troisième tissu.
+
+**Levier de la liste de paires (`9733ffa2`), mesuré à 256² (Release, moyenne des 60 premières images, chute comprise)** :
+critère **exact** (positions mémorisées à la liste ; deux particules ne peuvent s'être rapprochées de plus de
+`2 max_i |d_i − d_moyen|`, comparé à la marge — en chute libre tout bouge ensemble, rien ne se rapproche), marge
+`max(2r, k vmax dt)` :
+
+| k | listes / image | paires | ms / image |
+|---|---|---|---|
+| 0 | 13,8 | 190 | 1 215 |
+| **0,15** | 7,8 | 208 | **1 150** ← retenu |
+| 0,25 | 5,1 | 571 | 1 232 |
+| 0,5 | 2,6 | 790 k | 2 037 |
+| 1 | 1,3 | 3,96 M | 5 052 |
+
+🔴 Le témoin « ≤ 2 listes par image à 256² » n'est atteint qu'à k ≥ 0,5, **où le coût double** : ce n'est pas le nombre de
+listes qui coûte, c'est le nombre de paires relues par les passes. La mesure désignait donc le nombre de passes — et c'est
+ce que le lot budget a pris.
+
+**LOT BUDGET (Rodolf, 04h : « la simulation de tissu est très lente »)** — règle prise cette nuit par l'agent Noge :
+**profil avant tout levier**, par une horloge **prêtée par l'appelant** (`params.clock`, NKPhysics n'a pas NKTime ; la
+sonde prête `NkChrono`), une phase = un poste (`NkClothProfile`).
+
+Profil AVANT (32², 32 x 4, image 120) : **11,7 ms** = prédiction 0,61 | structurelles 3,10 | cisaillement 3,18 | flexion
+3,24 | colliders 1,02 | listes 0,10 + résolution 0,02 | vitesses 0,04 | mesure 0,41. **Les contraintes sont 82 % du coût, à
+13 ns par projection** — du Gauss-Seidel séquentiel, non vectorisable ; sur CPU le seul levier est le nombre de passes.
+
+**Pourquoi 32 sous-pas — la cause, mesurée** : `bendCompliance = 0,01 m/N` donnait α̃ = 0,01 / h² = 576 contre 2w = 10 240,
+une flexion quasi **rigide** (une plaque, pas un tissu) — et c'est elle qui exigeait 32 sous-pas à (d). Balayage (écart (d)
+entre dt et dt/2 ; (a) = étirement max de la scène singulière) :
+
+| sous-pas x itérations | (d) flexion 0,01 | (d) flexion 1,0 | (a) flexion 1,0 |
+|---|---|---|---|
+| 8 x 1 | 52 % | 19 % | 21 % |
+| 16 x 1 | 27 % | 7,0 % | 6,4 % |
+| 32 x 1 | 11 % | 2,9 % | 1,7 % |
+| 8 x 2 | 40 % | 7,4 % | 12 % |
+| **16 x 2** | 9,6 % | **0,64 %** | 3,4 % |
+| 32 x 2 | 1,3 % | 0,27 % | 0,88 % |
+
+**Défaut : flexion 1 m/N, 16 x 2 (32 passes au lieu de 128).** (b) (c) (d) (e) (g) verts au défaut ; la scène (a) (deux
+coins épinglés à exactement la largeur : la rangée haute est une corde tendue à sa longueur, tension infinie sans sag)
+reste singulière et garde 32 x 2 dans son témoin, dit là-bas ; (e) sur 10 s, seuil 0,05 m/s (la flexion souple flotte
+encore à 8 s : 0,032 m/s). Suite : **83 passes**. Macklin 2019 donne 4-10 x 1 ; ici 16 x 2 — l'écart restant est la
+flexion par distance (deux arêtes, raide par construction) et les diagonales rigides ; nommé.
+
+**Profil APRÈS (image 120 ; moyenne 60-120 entre parenthèses)** :
+
+| nappe | total | prédiction | struct | cisaillement | flexion | colliders | listes | mesure |
+|---|---|---|---|---|---|---|---|---|
+| 32² (1 024) | **2,56 ms** (3,17) | 0,25 | 0,69 | 0,62 | 0,63 | 0,28 | 0,04 | 0,02 |
+| 64² (4 096) | **12,8 ms** (14,2) | 1,02 | 2,71 | 2,62 | 2,72 | 1,42 | 2,09 | 0,10 |
+| 128² (16 384) | **72,3 ms** (75,9) | 4,58 | 11,65 | 11,53 | 11,81 | 6,42 | **25,6** (3 listes / image, 8 ms chacune) | 0,29 |
+
+🔴 **Cibles du coordinateur, avec le chiffre** : 32² < 2 ms → **2,6-3,8 ms** (÷3,6 obtenu sur 11-16, pas ÷6) ; 64² (un
+vêtement de jeu) < 4 ms → **12,8-15,8 ms** ; 128² < 12 ms → **72-76 ms**, dont 35 % de construction de listes (8 ms par
+liste à 16 384 particules : la traversée hachée des 27 cellules et `Adjacent()` par balayage). `Measure()` ne retraverse
+plus le hachage (dmin lu sur la liste de paires : 0,47 → 0,02 ms). `selfEveryIteration` (résolution des paires une fois par
+sous-pas) mesuré **sans effet** (la résolution coûte 0,0-0,2 ms) — laissé vrai.
+
+**Ce que le profil désigne, dans l'ordre, nommé** : (1) **le GPU par coloriage de graphe** — Jacobi par couleurs (une nappe
+régulière se colorie en 8 couleurs pour structurelles + cisaillement + flexion), noyaux NkSL sur tampons SoA, le même
+chemin que `NkParticleStoreGPU` / `NkSPHStoreGPU` ; cible écrite : **10 vêtements de 4 096 sous 4 ms GPU** ; (2) le
+hachage (cellules triées une fois par liste, `Adjacent()` par masque de bits sur la grille, 35 % à 128²) ; (3) les colliders
+une fois par sous-pas (9 %) ; (4) 12 x 2 non mesuré ; (5) SoA aligné + `-Rpass=loop-vectorize` ne rendra rien tant que le
+solveur est Gauss-Seidel — c'est Jacobi (donc le GPU) qui vectorise.
+
 ### 🔩 04/09 (nuit) — JENGA 2.6 : ce qui est appliqué, ce qui est mesuré en retour
 
 - **`-static` — le défaut était chez nous** : `config/toolchain.jenga:55` (bloc Windows natif) promettait
