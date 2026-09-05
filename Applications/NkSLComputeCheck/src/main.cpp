@@ -213,6 +213,50 @@ void main() {
 // seulement de génération de texte. GLSL/GLSL-Vulkan/HLSL/MSL : validation
 // textuelle honnête (présence des bons tokens, absence de résidu croisé) —
 // aucun compilateur HLSL/MSL n'est embarqué dans ce pipeline offline.
+// Les atomiques sur tampon (2026-09-05) : le texte sur GLSL/GLSL-Vulkan/HLSL/MSL, la compilation REELLE
+// par glslang sur SPIR-V. Le COMPTE se verifie sur un device (NkGpuAtomicWitness, sonde NK_ATOMIC_TEST).
+static const char *kAtomicKernel = R"NKSL(
+@binding(set=0, binding=0) buffer Cnt { uint c[]; } C;
+@binding(set=0, binding=1) uniform Params { uint n; uint pad0; uint pad1; uint pad2; } p;
+layout(local_size_x = 256) in;
+@stage(compute)
+@entry
+void main() {
+    uint i = gl_GlobalInvocationID.x;
+    if (i < p.n) {
+        atomicAdd(C.c[0], 1u);
+        atomicMax(C.c[1], i);
+        uint old = atomicExchange(C.c[2], i);
+        C.c[3] = old;
+    }
+}
+)NKSL";
+static void CheckAtomics(NkSLCompiler &c) {
+	printf("\n[ATOMIQUES] atomicAdd / atomicMax / atomicExchange sur un membre de bloc de stockage\n");
+	const NkSLTarget targets6[] = {NkSLTarget::NK_GLSL, NkSLTarget::NK_GLSL_VULKAN, NkSLTarget::NK_SPIRV,
+								   NkSLTarget::NK_HLSL_DX11, NkSLTarget::NK_HLSL_DX12, NkSLTarget::NK_MSL};
+	for (NkSLTarget t : targets6) {
+		const char *tn = NkSLTargetName(t);
+		printf("  ... %-16s : ", tn);
+		fflush(stdout);
+		NkSLCompileResult r = c.Compile(NkString(kAtomicKernel), NkSLStage::NK_COMPUTE, t);
+		if (!r.success) {
+			printf("FAIL\n");
+			for (uint32 i = 0; i < r.errors.Size() && i < 5; i++)
+				printf("         ligne %u: %s\n", r.errors[i].line, r.errors[i].message.CStr());
+			continue;
+		}
+		if (t == NkSLTarget::NK_SPIRV)
+			printf("OK, %u mots SPIR-V (VALIDE par glslang : atomicAdd/Max/Exchange reellement compilables)\n", (unsigned)(r.bytecode.Size() / 4));
+		else if (t == NkSLTarget::NK_GLSL || t == NkSLTarget::NK_GLSL_VULKAN)
+			printf("OK, %u octets (TEXTE : atomicAdd present=%s)\n", (unsigned)r.source.Size(), r.source.Contains("atomicAdd(") ? "oui" : "NON");
+		else if (t == NkSLTarget::NK_MSL)
+			printf("OK, %u octets (TEXTE SEUL : atomic_fetch_add_explicit present=%s)\n", (unsigned)r.source.Size(), r.source.Contains("atomic_fetch_add_explicit") ? "oui" : "NON");
+		else
+			printf("OK, %u octets (TEXTE SEUL : InterlockedAdd present=%s ; la valeur de retour d'atomicExchange n'est PAS honoree par ce generateur natif, dit)\n", (unsigned)r.source.Size(), r.source.Contains("InterlockedAdd") ? "oui" : "NON");
+	}
+}
+
 static void CheckNativeHalf(NkSLCompiler &c, const char *kernelName, const char *src) {
 	printf("\n[FP16-NATIF] %s\n", kernelName);
 	const NkSLTarget targets3[] = {NkSLTarget::NK_GLSL, NkSLTarget::NK_GLSL_VULKAN, NkSLTarget::NK_SPIRV,
@@ -606,6 +650,7 @@ int main(int argc, char **argv) {
 	const int NT = (int)(sizeof(targets) / sizeof(targets[0]));
 
 	NkSLCompiler c;
+	CheckAtomics(c);
 
 	// Mode dump : argv[1]="dump" -> affiche le MSL généré du VS et du FS (preuve).
 	if (argc > 1 && NkString(argv[1]) == NkString("dump")) {
