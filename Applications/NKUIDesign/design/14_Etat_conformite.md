@@ -404,6 +404,48 @@ recette : « livré » se mesure, il ne se déclare pas.*
   ⚠️ **La même cause trois fois** : `NkComponentPaint::Icon` peint un carré plein
   (il n'existe aucun atlas d'icônes). Les icônes du rail, les chevrons et les
   silhouettes de type étaient tous **demandés et peints nulle part**.
+- **Le sélecteur, cinquième passe** (05/09, nuit — six captures, cinq défauts,
+  dont trois 🔴) :
+  ①② l'**infobulle** se peignait **au milieu du rail** et volait son libellé à
+  l'entrée du dessous — une entrée paraissait **sans nom**. Les deux défauts
+  n'en font qu'un : l'arbre la dessinait **lui-même**, dans **sa** liste, à
+  « souris + 12/+16 ». Un composant qui peint hors de son rectangle prend une
+  décision de mise en page qui ne lui appartient pas. Désormais l'arbre
+  **relève** (texte et rangée), le navigateur **relaie** avec le bord droit du
+  rail, et le sélecteur **peint en dernier**, adossé à ce bord, en face de la
+  rangée, borné dans la fenêtre : les cinq libellés restent lisibles pendant
+  qu'une bulle est affichée (sonde 121).
+  ⑤ le **repli** `courant = pickerPath` faisait exister un **troisième état**
+  — ni le dossier d'une réussite, ni aucun, mais **celui qu'on regarde** — et
+  c'est celui que Rodolf voyait, avec toute son arborescence. Il est retiré :
+  pas de réussite, pas de dossier courant, et la section porte **une phrase
+  verrouillée** qui dit la règle (sonde 122).
+  **vide / plein** (demande de Rodolf, tranchée le même soir) : un dossier
+  **plein** laisse voir deux feuilles derrière son rabat, un **vide** reste nu,
+  un **illisible** porte une barre et le dit dans son infobulle. La réserve que
+  j'avais nommée (un accès disque par entrée) est **mesurée puis payée** :
+  `NkDirectory::Probe` s'arrête **au premier** élément, la réponse est retenue
+  par chemin **et horodatage**, et **seules les entrées à l'écran** sont
+  sondées. Sur 124 dossiers : `Empty()` **6,58 ms**, `Probe()` **2,71 ms**,
+  relu du cache **1,06 ms** — ramené aux ~15 entrées visibles, **~0,33 ms**,
+  donc **synchrone**, sans arrière-plan (sonde 123).
+  ③ le **chevron** n'était posé que par le site qui déplie le dossier courant :
+  « Récents », « Accès rapide » et « Ce PC » n'en avaient **aucun**. *Une
+  règle appliquée à un endroit sur deux n'est pas une règle* — il est posé **là
+  où le nœud naît**. Il dit « j'ai des **sous-dossiers** » et rien d'autre ;
+  c'est l'**icône** qui dit qu'il est plein. Deux questions voisines, **une
+  seule fonction paramétrée** (sonde 124).
+  ④ les **sections** : la mesure a **corrigé le diagnostic**. Le chevron n'était
+  **pas** inerte — il pliait déjà, et le pliage survivait même à la
+  reconstruction du rail. Ce qui était inerte, c'est **tout le reste de la
+  bande** : `chevron_only_fold` vaut 1 par défaut et un titre est `locked`,
+  donc un clic sur son libellé ne pliait **ni** ne sélectionnait. Un titre
+  n'ayant aucune autre action, **toute sa bande** devient la cible ; une entrée
+  ordinaire garde la règle du chevron seul (sonde 125).
+  ⚠️ **Un piège de mesure, dit parce qu'il coûte cher** : la première version du
+  témoin posait la souris à `rect.y + rowH/2`, c'est-à-dire **dans l'en-tête**
+  de l'arbre. Elle concluait « le chevron est inerte » — une conclusion juste
+  tirée d'une **mesure fausse**, qui m'aurait fait corriger un composant sain.
 - **Ce que Lunacy n'a pas et que nous avons** (§11.3 du document 13) :
   l'**agencement** calculé, l'**ancrage**, les **cibles** et **points de
   rupture**, les **rôles de thème** et les **langues**. *Aucun n'est sacrifié
