@@ -123,7 +123,8 @@ namespace nkentseu {
 				// Rend un handle nul si le fichier n'existe pas ou si son payload
 				// n'est pas une texture cuite — c'est a l'appelant de retomber sur
 				// le codec (`Load` le fait, et le DIT une fois).
-				static NkTexHandle LoadBaked(const NkString &diskPath, NkTextureLibrary *texLib) noexcept;
+				static NkTexHandle LoadBaked(const NkString &diskPath, NkTextureLibrary *texLib,
+											 const NkLoadOptions *opts = nullptr) noexcept;
 
 				// Combien de fois le message de repli a ete EMIS depuis le debut du
 				// processus. Il doit valoir 1 quel que soit le nombre de textures

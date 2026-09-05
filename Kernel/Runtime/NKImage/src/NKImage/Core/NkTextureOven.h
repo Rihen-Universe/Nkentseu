@@ -33,6 +33,7 @@
 #include "NKImage/Core/NkImage.h"
 #include "NKSerialization/Asset/NkTextureAssetFormat.h"
 
+#include <cstdio>
 #include <cstring>
 #include <utility>
 
@@ -41,14 +42,25 @@ namespace nkentseu {
 	// =========================================================================
 	// Reglages de cuisson
 	// =========================================================================
+	// 🔴 CES DEFAUTS SONT CEUX DE `NkLoadOptions` (NKRenderer), ET CE N'EST PAS
+	// UNE COINCIDENCE. L'empreinte du cache porte ces quatre champs : si le four
+	// pre-cuit avec `filterMode = LINEAR` pendant que le moteur cherche sous
+	// `ANISO`, la pre-cuisson n'est jamais trouvee — **et rien ne le signale**,
+	// parce que chacun cherche un fichier que l'autre n'ecrit pas. Le symptome
+	// serait « la pre-cuisson ne sert a rien », jamais une erreur.
+	//
+	// Un banc garde cet accord (`NKRenderer_TextureAsset_Tests`, temoin
+	// « accord four/moteur ») : il compare champ par champ ce que
+	// `NkTextureLibrary::ReglagesDepuisOptions(NkLoadOptions{})` produit avec
+	// `NkTexOvenReglages{}`. Toucher a l'un sans l'autre le fait rougir.
 	struct NkTexOvenReglages {
 			// Vrai pour une carte de COULEUR (albedo, emission) — l'echantillonnage
 			// devra deliner. Faux pour une donnee (normale, rugosite, metallique,
 			// occlusion) : la deliner l'abimerait.
-			bool sRGB = true;
-			bool genererMips = true;
-			nk_uint32 addressMode = NKTEXADDR_REPEAT;
-			nk_uint32 filterMode = NKTEXFILTER_LINEAR;
+			bool sRGB = true;                            // NkLoadOptions::srgb
+			bool genererMips = true;                     // NkLoadOptions::genMipmaps
+			nk_uint32 addressMode = NKTEXADDR_REPEAT;    // NkLoadOptions::useClampEdge == false
+			nk_uint32 filterMode = NKTEXFILTER_ANISO;    // NkLoadOptions::useAnisotropic == true
 	};
 
 	// =========================================================================
@@ -172,6 +184,24 @@ namespace nkentseu {
 				return NkTexturePayload::Encode(cuisson, out, err);
 			}
 
+			// Depuis des pixels DEJA decodes — le chemin de la cuisson paresseuse.
+			// Sans lui, un premier chargement decoderait deux fois : une pour
+			// televerser, une pour cuire.
+			//
+			// `pixels` n'est ni copie ni possede : `NkImage::Wrap` en fait une vue.
+			[[nodiscard]] static nk_bool CuireDepuisPixels(const nk_uint8 *pixels, nk_uint32 largeur, nk_uint32 hauteur,
+															   NkImagePixelFormat format, nk_uint32 pasDeLigne,
+															   const NkTexOvenReglages &reglages, NkVector<nk_uint8> &out,
+															   NkString *err = nullptr) noexcept {
+				if (!pixels || largeur == 0u || hauteur == 0u)
+					return Refus(err, "pixels absents ou dimensions nulles");
+				NkImage vue = NkImage::Wrap(const_cast<nk_uint8 *>(pixels), int32(largeur), int32(hauteur), format,
+											int32(pasDeLigne));
+				if (!vue.IsValid())
+					return Refus(err, "vue sur les pixels invalide");
+				return Cuire(vue, reglages, out, err);
+			}
+
 			// Commodite : depuis un fichier image sur disque.
 			[[nodiscard]] static nk_bool CuireFichier(const char *cheminImage, const NkTexOvenReglages &reglages,
 													  NkVector<nk_uint8> &out, NkString *err = nullptr) noexcept {
@@ -186,6 +216,85 @@ namespace nkentseu {
 				if (err)
 					*err = NkString(raison);
 				return false;
+			}
+	};
+
+	// =========================================================================
+	// NkTexCacheNommage — OU vit un actif cuit, et sous quel nom
+	//
+	// 🔴 Ce nommage est partage par le FOUR (outil de ligne de commande, qui
+	// pre-cuit une distribution) et par le MOTEUR (qui cuit paresseusement au
+	// premier chargement). **Deux copies de ce calcul divergeraient au premier
+	// champ ajoute**, et le symptome serait « la pre-cuisson ne sert jamais » —
+	// sans erreur nulle part, parce que chacun chercherait un fichier que
+	// l'autre n'ecrit pas. Une seule definition, donc, et elle est ici.
+	//
+	// L'empreinte porte le CONTENU de la source, pas sa date : le depot a paye
+	// « un cache qui compare les dates ne voit pas un fichier restaure »
+	// (2026-08-22). Elle porte aussi les OPTIONS de cuisson et la VERSION du
+	// payload — changer l'une ou l'autre rend les actifs precedents introuvables
+	// au lieu de les servir a tort.
+	// =========================================================================
+	class NkTexCacheNommage {
+		public:
+			static const char *Racine() noexcept {
+				return "Build/Cache/Assets";
+			}
+
+			// Rend 0 si la source est illisible : l'appelant se passe alors du
+			// cache, il n'invente pas une empreinte.
+			[[nodiscard]] static nk_uint64 Empreinte(const char *cheminSource,
+													 const NkTexOvenReglages &reglages) noexcept {
+				if (!cheminSource)
+					return 0u;
+				std::FILE *f = std::fopen(cheminSource, "rb");
+				if (!f)
+					return 0u;
+
+				constexpr nk_uint64 kBase = 14695981039346656037ULL;
+				constexpr nk_uint64 kPrime = 1099511628211ULL;
+				auto melanger = [](nk_uint64 h, const void *d, nk_size n) noexcept {
+					const nk_uint8 *p = static_cast<const nk_uint8 *>(d);
+					for (nk_size i = 0; i < n; ++i)
+						h = (h ^ p[i]) * kPrime;
+					return h;
+				};
+
+				nk_uint64 h = kBase;
+				nk_uint64 total = 0u;
+				// Par blocs : une texture 8K en RGBA depasse la centaine de Mo,
+				// on ne la met pas entiere en memoire juste pour la hacher.
+				nk_uint8 tampon[64u * 1024u];
+				for (;;) {
+					const nk_size lu = std::fread(tampon, 1, sizeof(tampon), f);
+					if (lu == 0u)
+						break;
+					h = melanger(h, tampon, lu);
+					total += lu;
+				}
+				const bool abime = (std::ferror(f) != 0);
+				std::fclose(f);
+				if (abime || total == 0u)
+					return 0u;
+
+				// La longueur, pour qu'aucune collision de suffixe ne rapproche
+				// deux contenus de tailles differentes.
+				h = melanger(h, &total, sizeof(total));
+
+				const nk_uint8 opts[4] = {nk_uint8(reglages.sRGB ? 1u : 0u),
+										  nk_uint8(reglages.genererMips ? 1u : 0u),
+										  nk_uint8(reglages.addressMode & 0xFFu),
+										  nk_uint8(reglages.filterMode & 0xFFu)};
+				h = melanger(h, opts, sizeof(opts));
+
+				const nk_uint32 v = kNkTexPayloadVersion;
+				h = melanger(h, &v, sizeof(v));
+
+				return h ? h : 1u; // 0 est reserve a « pas d'empreinte »
+			}
+
+			[[nodiscard]] static NkString Chemin(nk_uint64 empreinte) noexcept {
+				return NkString::Fmtf("%s/%016llX.nktex", Racine(), (unsigned long long)empreinte);
 			}
 	};
 
