@@ -110,6 +110,9 @@ namespace nkentseu {
 		void DemoNKGen_Frame(DemoCtx &, float32);
 		void DemoNKGen_Shutdown(DemoCtx &);
 		bool DemoStream_Init(DemoCtx &);
+		bool DemoTexturesPBR_Init(DemoCtx &);
+		void DemoTexturesPBR_Frame(DemoCtx &, float32);
+		void DemoTexturesPBR_Shutdown(DemoCtx &);
 		void DemoStream_Frame(DemoCtx &, float32);
 		void DemoStream_Shutdown(DemoCtx &);
 
@@ -170,6 +173,12 @@ namespace nkentseu {
 			// par distance, worker async, eviction LRU, budget serre + HUD stats).
 			{"Stream", "DemoStream : streaming reel (textures stream-in/out par distance, eviction LRU)",
 			 DemoStream_Init, DemoStream_Frame, DemoStream_Shutdown},
+			// DemoTexturesPBR : la scene qui charge VRAIMENT des textures — dix
+			// cartes reelles (PBR 2048 + modele 4096). Elle existe pour la mesure :
+			// `--demo=2` n'en charge qu'une de 256x256, et un format d'actif mesure
+			// sur elle aurait rendu « gain negligeable » — juste sur le mauvais sujet.
+			{"TexturesPBR", "DemoTexturesPBR : 10 cartes reelles, mesure du chargement (NK_TEX_CACHE=0 pour le avant)",
+			 DemoTexturesPBR_Init, DemoTexturesPBR_Frame, DemoTexturesPBR_Shutdown},
 		};
 		static constexpr uint32 kDemoCount = (uint32)(sizeof(kDemos) / sizeof(kDemos[0]));
 
@@ -544,6 +553,8 @@ int nkmain(const NkEntryState &state) {
 		demoIx = 17; // DemoNKGen      -> kDemos[17]
 	if (demoIx == 19)
 		demoIx = 18; // DemoStream     -> kDemos[18]
+	if (demoIx == 20)
+		demoIx = 19; // DemoTexturesPBR -> kDemos[19]
 	if (demoIx < 0 || (uint32)demoIx >= kDemoCount)
 		demoIx = 0;
 	// ── REFUS QUI PARLE ──────────────────────────────────────────────────

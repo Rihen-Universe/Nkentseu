@@ -77,6 +77,22 @@ namespace nkentseu {
 				[[nodiscard]] static nk_uint32 Refus() noexcept;     // non cuisinables
 				static void RemettreCompteursAZero() noexcept;
 
+				// ── OU PART LE TEMPS, POSTE PAR POSTE ─────────────────────────
+				// 🔴 Ces chronometres existent parce qu'un TOTAL NE DESIGNE PERSONNE.
+				// Mesure du 2026-09-05 sur `renderdemo --demo=20`, vrai GPU : le cache
+				// chaud rendait 1 684 ms contre 1 691 ms sans cache — le gain de
+				// decodage, pourtant reel et mesure sur banc CPU (x7 a x10), AVAIT
+				// DISPARU dans l'application. Sans separer lecture, decodage et
+				// televersement, on ne pouvait qu'en faire des hypotheses.
+				[[nodiscard]] static float64 MsLecture() noexcept;       // E/S disque
+				[[nodiscard]] static float64 MsDecodage() noexcept;      // codec PNG/JPEG
+				[[nodiscard]] static float64 MsTeleversement() noexcept; // vers le GPU
+				[[nodiscard]] static nk_uint64 OctetsLus() noexcept;
+
+				static void AjouterMsLecture(float64 ms, nk_uint64 octets) noexcept;
+				static void AjouterMsDecodage(float64 ms) noexcept;
+				static void AjouterMsTeleversement(float64 ms) noexcept;
+
 				// Incrementes par NkTextureLibrary.
 				static void CompterTouche() noexcept;
 				static void CompterManque() noexcept;
