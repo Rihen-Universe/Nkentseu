@@ -399,7 +399,14 @@ namespace nkentseu {
 			//  - champ fin (piece serree) : il faut CHAQUE iteration -- le foulard passe de 0,18 a
 			//    13,91 % d etirement et de 0 a 3 particules sous la peau si on l espace. Il touche
 			//    en permanence : entre deux resolutions, les contraintes le retirent dans le corps.
-			cloth.params.collidersEveryIteration = (collision != NkGarmentCollision::NK_EXACT);
+			// ⚠️ Le defaut reste CHAQUE ITERATION pour toutes les pieces. Lier le rythme a la seule
+			// methode a ete essaye et REFUTE par les temoins : la jupe, qui est en distance exacte,
+			// est passee ROUGE (h4) des qu on l a espacee -- elle touche les cuisses en permanence,
+			// comme le foulard touche le cou. Ce qui decide n est donc pas « lache ou serre » mais
+			// LE TAUX DE CONTACT, que la construction ne connait pas. L appelant qui l a mesure peut
+			// espacer (`collidersEveryIteration = false`) : la cape y gagne 28,5 -> 8,40 ms sans
+			// changer sa physique. La physique garde son defaut sur ; le reglage se prouve au cas
+			// par cas.
 			const int32 *J = map.joint;
 			const NkVec3f down = b.up * -1.f;
 			const float32 sp = p.spacing;

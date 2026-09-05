@@ -528,7 +528,11 @@ namespace nkentseu {
 								 NkGarmentDefaultCollision(kind) == NkGarmentCollision::NK_AUTO ? " (decide par le serrage)" : " (defaut de la piece)");
 				}
 				g->garment.cloth.params.clock = [] { return NkChrono::Now().seconds; };
-					if (const char *e = std::getenv("NK_GARMENT_ITER"); e && e[0])
+					// la sonde applique le reglage MESURE : une piece en distance exacte dont le taux de
+				// contact est faible (la cape) gagne a espacer ; la jupe et le foulard, non (temoins)
+				if (kind == NK_GARMENT_CAPE)
+					g->garment.cloth.params.collidersEveryIteration = false;
+				if (const char *e = std::getenv("NK_GARMENT_ITER"); e && e[0])
 					g->garment.cloth.params.collidersEveryIteration = e[0] != '0'; // instrument : forcer le rythme
 				if (const char *e = std::getenv("NK_GARMENT_PINBLEND"); e && e[0])
 					g->garment.cloth.params.sdfPinBlendRings = (uint32)std::atoi(e); // balayage de la zone de transition
