@@ -129,6 +129,16 @@ colonne est fine et droite parce qu'il n'y a pas de confinement de vorticité*.
 | `fumee_jet_sans_confinement_2026-09-07.png` | 11 183 | **Le JET** — `epsilon = 0`, l'état du 05/09. Grille 25 × 80 × 25 (h = 2 cm), 255 pas. Mesuré DANS ces pixels : la boîte du panache fait **45 px** de large ; à la ligne y = 84 (tiers supérieur de cette boîte, calée sur la boîte mesurée et non écrite à la main), le rayon de giration pondéré par l'opacité vaut **5,329 px** sur 32 pixels. |
 | `fumee_panache_confinement_2026-09-07.png` | 25 043 | **Le PANACHE** — `epsilon = 8` (Fedkiw, Stam & Jensen, SIGGRAPH 2001, § 4, eq. 9-11). Boîte **72 px** de large ; à la MÊME ligne y = 84, rayon **13,124 px** sur 68 pixels — **× 2,46**. Un second instrument, qui lit le champ de densité et non les pixels, dit **× 1,85** sur le rayon à y = 0,60 m : deux chemins indépendants, le même sens. ⚠️ **Le confinement se PAIE** : sur la même scène la dérive de masse passe de −29,3 % à −42,5 % et la divergence résiduelle de 0,39 % à 6,33 %. ⚠️ **Le rayon SEUL ne départage pas le signe de la force** : avec la force *inversée* le panache est encore plus large (× 3,59). C'est la **concentration** de la vorticité qui sépare les deux (× 1,38 avec, × 0,42 contre). |
 
+⚠️ **CE QUE L'ŒIL VOIT, ET CE QU'IL NE VOIT PAS — regarder une image est une
+mesure, avec ses conditions de validité.** Les deux images ont été REGARDÉES, pas
+seulement mesurées. Ce qui change est net : le jet est une colonne lisse et sans
+détail ; le panache est **plus large et STRUCTURÉ**, avec des bouffées internes
+visibles. ⚠️ Mais **il ne montre pas encore de grosses volutes qui s'enroulent** :
+la boîte fait 0,5 m de côté et la caméra est proche, donc les tourbillons que le
+confinement entretient restent de la taille de quelques cellules. « Plus large et
+structuré » est ce que ces deux images prouvent ; « ça tournoie » serait dire plus
+que ce qu'elles montrent.
+
 ⚠️ **Ce ne sont pas des rendus GPU** : marche de rayon **CPU**
 (`NkFluidGridRaymarch`), aucune fenêtre, aucun device — comme les deux du 05/09.
 
