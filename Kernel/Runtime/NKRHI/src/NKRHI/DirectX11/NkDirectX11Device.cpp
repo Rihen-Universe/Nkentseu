@@ -1,4 +1,5 @@
 // =============================================================================
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // NkRHI_Device_DX11.cpp — Backend DirectX 11.1
 // =============================================================================
 #ifdef NK_RHI_DX11_ENABLED
@@ -14,7 +15,13 @@
 #include <d3d11sdklayers.h>
 
 #define NK_DX11_LOG(...) logger_src.Infof("[NkRHI_DX11] " __VA_ARGS__)
-#define NK_DX11_ERR(...) logger_src.Infof("[NkRHI_DX11][ERR] " __VA_ARGS__)
+// 🔴 UNE ERREUR SE JOURNALISE AU NIVEAU ERREUR. Jusqu'au 2026-09-07 cette
+// macro appelait `Infof` : le `[ERR]` n'etait que du TEXTE dans le message,
+// invisible a tout filtre de niveau. Mesure ce jour-la : les CINQ dorsaux du
+// RHI faisaient pareil, pour 126 sites d'erreur au total, aucun au bon
+// niveau. C'est ainsi qu'un shader refuse par le pilote a pu vivre invisible
+// assez longtemps pour que Rodolf regle un parametre mort.
+#define NK_DX11_ERR(...) logger_src.Errorf("[NkRHI_DX11][ERR] " __VA_ARGS__)
 #define NK_DX11_CHECK(hr, msg)                                                                                         \
 	do {                                                                                                               \
 		if (FAILED(hr)) {                                                                                              \
@@ -1214,8 +1221,39 @@ namespace nkentseu {
 					if (err) {
 						NK_DX11_ERR("Shader error: %s\n", (char *)err->GetBufferPointer());
 						err->Release();
+						err = nullptr;
 					}
-					continue;
+					NK_DX11_ERR("CreateShader ABANDONNE (stage %u, hr=0x%X) : aucun handle ne sera rendu.\n",
+								(unsigned)s.stage, (unsigned)hr);
+					// 🔴 ON ABANDONNE LE SHADER ENTIER. Ici se tenait un `continue`,
+					// et c'est lui qui a coute le plus cher de la semaine : l'etage
+					// refuse etait SAUTE, la boucle continuait, et la fonction rendait
+					// un handle PARFAITEMENT VALIDE pour un shader ampute. Le pipeline
+					// se declarait ensuite `pipeline_valid=1`.
+					//
+					// Ce que ca a produit, mesure le 2026-09-07 : `shadowalpha.frag`
+					// refuse par le pilote (`error X3004: undeclared identifier
+					// 'gl_fragcoord'`), donc l'ombre proportionnelle MORTE sur DX11 —
+					// un objet a 12 % d'opacite y projetait une ombre pleine — et
+					// Rodolf reglait un parametre inerte sans que rien ne l'en avertisse.
+					// Le defaut de generation s'est corrige en cinquante lignes ; ce
+					// `continue` est la raison pour laquelle personne ne l'avait vu.
+					//
+					// ⚠️ DX11 etait le SEUL des quatre dorsaux a faire ca : OpenGL,
+					// Vulkan et DX12 rendent tous `{}` sur echec de compilation. Ce
+					// n'est donc pas un changement de contrat, c'est un alignement sur
+					// le contrat que les trois autres respectaient deja.
+					//
+					// On libere ce que les etages precedents ont deja cree, sinon
+					// l'abandon fuit des objets COM que plus personne ne detient.
+					NK_DX11_SAFE(sh.vs);
+					NK_DX11_SAFE(sh.ps);
+					NK_DX11_SAFE(sh.cs);
+					NK_DX11_SAFE(sh.gs);
+					NK_DX11_SAFE(sh.vsBlob);
+					if (code)
+						code->Release();
+					return {};
 				}
 				// Sauver le DXBC compilé (réutilisé aux prochains runs).
 				NkShaderConvertResult toCache;

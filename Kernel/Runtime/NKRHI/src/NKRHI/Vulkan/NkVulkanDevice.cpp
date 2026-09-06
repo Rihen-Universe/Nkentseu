@@ -1,4 +1,5 @@
 // =============================================================================
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // NkRHI_Device_VK.cpp — Backend Vulkan du NkIDevice
 // =============================================================================
 #ifdef NK_RHI_VK_ENABLED
@@ -28,7 +29,13 @@
 #endif
 
 #define NK_VK_LOG(...) logger_src.Infof("[NkRHI_VK] " __VA_ARGS__)
-#define NK_VK_ERR(...) logger_src.Infof("[NkRHI_VK][ERR] " __VA_ARGS__)
+// 🔴 UNE ERREUR SE JOURNALISE AU NIVEAU ERREUR. Jusqu'au 2026-09-07 cette
+// macro appelait `Infof` : le `[ERR]` n'etait que du TEXTE dans le message,
+// invisible a tout filtre de niveau. Mesure ce jour-la : les CINQ dorsaux du
+// RHI faisaient pareil, pour 126 sites d'erreur au total, aucun au bon
+// niveau. C'est ainsi qu'un shader refuse par le pilote a pu vivre invisible
+// assez longtemps pour que Rodolf regle un parametre mort.
+#define NK_VK_ERR(...) logger_src.Errorf("[NkRHI_VK][ERR] " __VA_ARGS__)
 #define NK_VK_CHECK(r)                                                                                                 \
 	do {                                                                                                               \
 		VkResult _r = (r);                                                                                             \
