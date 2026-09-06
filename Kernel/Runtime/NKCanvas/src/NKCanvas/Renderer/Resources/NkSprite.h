@@ -2,22 +2,30 @@
 // =============================================================================
 // NkSprite.h + NkText.h — High-level 2D drawables (similar to SFML)
 //
-// MIGRATION A.8 (2026-05-30) : NkSprite/NkText heritent maintenant des DEUX
-// interfaces drawable :
-//   - NkIDrawable2D (ancienne) : Draw(NkIRenderer2D&) — pour compat avec les
-//     5 backends existants (NkOpenGLRenderer2D::Draw(NkSprite), …) et le code
-//     legacy qui passe par NkIRenderer2D::Draw(NkSprite).
-//   - NkDrawable (nouvelle, SFML-like) : Draw(NkRenderTarget&, NkRenderStates)
-//     — pour le pattern moderne target.Draw(sprite).
-// Le second Draw construit le quad et appelle target.Draw(vertices, …) qui
-// passera par notre NkRenderTarget::Draw raw + transform CPU + dispatch
-// primitive — compatible cross-API par construction.
+// UNIFICATION (2026-09-05) : NkSprite et NkText heritent de NkTransformable et
+// de NkDrawable, exactement comme NkShape. Trois defauts disparaissent d'un coup.
+//
+//   1. Ils heritaient AUSSI de NkIDrawable2D, et NkRenderTarget exposant une
+//      surcharge pour chacune des deux interfaces, `target.Draw(sprite)` etait
+//      AMBIGU et ne compilait pas. Cinq fichiers sur cinq ecrivaient un
+//      static_cast, et RihenDefi castait vers une interface pour son texte et
+//      vers l'autre pour son sprite, a six lignes d'ecart.
+//   2. Leur rotation etait en DEGRES quand celle de NkShape etait en radians.
+//      Elle prend maintenant un math::NkAngle, le type qui porte son unite, et
+//      qui est deja celui des rotations 3D du moteur.
+//   3. Leur Draw(target, states) JETAIT l'etat recu : le parametre etait
+//      commente. Un sprite ne pouvait donc pas etre l'enfant d'un objet
+//      transforme, alors qu'une forme le pouvait. Il le compose desormais.
+//
+// L'ancienne voie reste ouverte : NkIRenderer2D::Draw(const NkSprite&) prend le
+// sprite par son type concret, donc le code qui l'appelait continue de marcher.
 // =============================================================================
 #include "NkTexture.h"
 #include "NkFont.h"
 #include "NKCanvas/Renderer/Core/NkIRenderer2D.h"
 #include "NKCanvas/Renderer/Core/NkDrawable.h"
 #include "NKCanvas/Renderer/Core/NkRenderStates.h"
+#include "NKCanvas/Renderer/Core/NkTransformable.h"
 #include "NKContainers/Sequential/NkVector.h"
 
 namespace nkentseu {
@@ -29,7 +37,7 @@ namespace nkentseu {
 		// NkSprite — textured, transformable 2D quad
 		// Similar to sf::Sprite
 		// =========================================================================
-		class NkSprite : public NkIDrawable2D, public NkDrawable {
+		class NkSprite : public NkTransformable, public NkDrawable {
 			public:
 				NkSprite() = default;
 				explicit NkSprite(const NkTexture &texture);
@@ -48,67 +56,10 @@ namespace nkentseu {
 				}
 
 				// ── Transform ─────────────────────────────────────────────────────────
-				void SetPosition(NkVec2f pos) {
-					mTransform.position = pos;
-				}
-
-				void SetPosition(float32 x, float32 y) {
-					mTransform.position = {x, y};
-				}
-
-				void SetRotation(float32 degrees) {
-					mTransform.rotation = degrees * 3.14159265f / 180.f;
-				}
-
-				void SetScale(NkVec2f scale) {
-					mTransform.scale = scale;
-				}
-
-				void SetScale(float32 sx, float32 sy) {
-					mTransform.scale = {sx, sy};
-				}
-
-				void SetOrigin(NkVec2f origin) {
-					mTransform.origin = origin;
-				}
-
-				void SetOrigin(float32 ox, float32 oy) {
-					mTransform.origin = {ox, oy};
-				}
-
-				void Move(NkVec2f offset) {
-					mTransform.position.x += offset.x;
-					mTransform.position.y += offset.y;
-				}
-
-				void Rotate(float32 deg) {
-					mTransform.rotation += deg * 3.14159265f / 180.f;
-				}
-
-				void Scale(NkVec2f factor) {
-					mTransform.scale.x *= factor.x;
-					mTransform.scale.y *= factor.y;
-				}
-
-				NkVec2f GetPosition() const {
-					return mTransform.position;
-				}
-
-				float32 GetRotation() const {
-					return mTransform.rotation * 180.f / 3.14159265f;
-				}
-
-				NkVec2f GetScale() const {
-					return mTransform.scale;
-				}
-
-				NkVec2f GetOrigin() const {
-					return mTransform.origin;
-				}
-
-				const NkTransform2D &GetTransform() const {
-					return mTransform;
-				}
+				// SetPosition, SetRotation, SetScale, SetOrigin, Move, Rotate, Scale,
+				// leurs getters et GetTransform() viennent tous de NkTransformable,
+				// exactement comme pour NkShape. Rien n'est redefini ici : c'etait la
+				// duplication qui creait l'ecart d'unite entre les deux familles.
 
 				// ── Color tint ────────────────────────────────────────────────────────
 				void SetColor(const NkColor2D &color) {
@@ -135,19 +86,20 @@ namespace nkentseu {
 				NkRect2f GetLocalBounds() const;
 				NkRect2f GetGlobalBounds() const;
 
-				// ── NkIDrawable2D (legacy) ────────────────────────────────────────────
-				void Draw(NkIRenderer2D &renderer) const override;
+				// ── Voie directe, conservee ───────────────────────────────────────────
+				// Prend le sprite par son type concret, donc sans ambiguite. C'est ce
+				// que les cinq backends implementent, et ce que le code anterieur
+				// appelle par NkIRenderer2D::Draw(sprite).
+				void Draw(NkIRenderer2D &renderer) const;
 
-				// ── NkDrawable (nouveau, SFML-like) ───────────────────────────────────
-				/// Genere un quad TRIANGLE_FAN (4 vertices) avec position/UV/color,
-				/// remplit le RenderStates avec la texture du sprite + ajoute notre
-				/// transform au transform parent, puis submit via target.Draw.
+				// ── NkDrawable ────────────────────────────────────────────────────────
+				/// Compose sa transformation avec celle recue, pose sa texture, puis
+				/// soumet quatre sommets a la cible.
 				void Draw(NkRenderTarget &target, const NkRenderStates &states) const override;
 
 			private:
 				const NkTexture *mTexture = nullptr;
 				NkRect2i mTextureRect;
-				NkTransform2D mTransform;
 				NkColor2D mColor = NkColor2D::White;
 				bool mFlipX = false;
 				bool mFlipY = false;
@@ -157,7 +109,7 @@ namespace nkentseu {
 		// NkText — UTF-8 text drawable with FreeType-rasterized glyphs
 		// Similar to sf::Text
 		// =========================================================================
-		class NkText : public NkIDrawable2D, public NkDrawable {
+		class NkText : public NkTransformable, public NkDrawable {
 			public:
 				NkText() = default;
 				NkText(const NkFont &font, const char *string, uint32 characterSize = 24);
@@ -182,47 +134,12 @@ namespace nkentseu {
 					return mStyle;
 				}
 
-				// ── Transform (same as sprite) ────────────────────────────────────────
-				void SetPosition(NkVec2f pos) {
-					mTransform.position = pos;
-				}
-
-				void SetPosition(float32 x, float32 y) {
-					mTransform.position = {x, y};
-				}
-
-				void SetRotation(float32 degrees) {
-					mTransform.rotation = degrees * 3.14159265f / 180.f;
-				}
-
-				void SetScale(NkVec2f scale) {
-					mTransform.scale = scale;
-				}
-
-				void SetOrigin(NkVec2f origin) {
-					mTransform.origin = origin;
-				}
-
-				void Move(NkVec2f offset) {
-					mTransform.position.x += offset.x;
-					mTransform.position.y += offset.y;
-				}
-
-				NkVec2f GetPosition() const {
-					return mTransform.position;
-				}
-
-				float32 GetRotation() const {
-					return mTransform.rotation * 180.f / 3.14159265f;
-				}
-
-				NkVec2f GetScale() const {
-					return mTransform.scale;
-				}
-
-				const NkTransform2D &GetTransform() const {
-					return mTransform;
-				}
+				// ── Transform ───────────────────────────────────────────────────────────
+				// Tout vient de NkTransformable, comme pour NkSprite et NkShape.
+				// Le texte avait ici sa propre copie du bloc, avec les memes degres et
+				// le meme pi ecrit en dur, mais SANS Rotate, SANS SetScale(x, y),
+				// SANS SetOrigin(x, y) et SANS GetOrigin : l'asymetrie n'etait pas que
+				// sur l'unite d'angle. Unifie le 2026-09-05.
 
 				// ── Color ─────────────────────────────────────────────────────────────
 				void SetFillColor(const NkColor2D &c) {
@@ -256,14 +173,13 @@ namespace nkentseu {
 				// Find the index of the character at a given position
 				uint32 FindCharacterPos(NkVec2f point) const;
 
-				// ── NkIDrawable2D (legacy) ────────────────────────────────────────────
-				void Draw(NkIRenderer2D &renderer) const override;
+				// ── Voie directe, conservee ───────────────────────────────────────────
+				void Draw(NkIRenderer2D &renderer) const;
 
-				// ── NkDrawable (nouveau, SFML-like) ───────────────────────────────────
-				/// Submit chaque glyphe comme un quad textured TRIANGLE_FAN via le
-				/// target. Le transform du parent est compose avec le notre, la
-				/// texture est celle de l'atlas du font (currently TODO : la page
-				/// d'atlas correcte selon characterSize doit etre wrapped en NkTexture).
+				// ── NkDrawable ────────────────────────────────────────────────────────
+				/// Compose sa transformation avec celle recue, puis soumet un quad par
+				/// glyphe. (TODO d'origine : la page d'atlas correspondant a la taille
+				/// de caractere doit encore etre enveloppee dans une NkTexture.)
 				void Draw(NkRenderTarget &target, const NkRenderStates &states) const override;
 
 				// Internal: build vertex array for the current string
@@ -285,7 +201,6 @@ namespace nkentseu {
 				NkColor2D mFillColor = NkColor2D::White;
 				NkColor2D mOutlineColor = NkColor2D::Black;
 				float32 mOutlineThickness = 0.f;
-				NkTransform2D mTransform;
 
 				mutable bool mGeometryDirty = true;
 				mutable NkVector<GlyphVertex> mVertices;

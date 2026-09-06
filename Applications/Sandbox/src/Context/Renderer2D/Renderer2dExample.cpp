@@ -365,7 +365,7 @@ int nkmain(const NkEntryState &state) {
 		// Sprite au centre (si texture valide)
 		if (playerTex.IsValid()) {
 			player.SetPosition({cx, cy - 30.f});
-			player.SetRotation(time * 60.f);
+			player.SetRotation(math::NkAngle(time * 60.f));
 			player.SetColor({(uint8)(128 + 127 * sinf(time * 1.5f)), (uint8)(128 + 127 * cosf(time * 1.3f)), 255, 255});
 			r2d.Draw(player);
 		}

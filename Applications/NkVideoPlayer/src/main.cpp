@@ -664,7 +664,7 @@ int nkmain(const NkEntryState &state) {
 		// ── Rendu ───────────────────────────────────────────────────────────────
 		target.Clear(NkColor2D{0, 0, 0, 255});
 		if (haveFrame)
-			target.Draw(static_cast<const NkDrawable &>(sprite));
+			target.Draw(sprite);
 		target.Display();
 	}
 

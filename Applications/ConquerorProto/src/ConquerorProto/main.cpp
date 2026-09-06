@@ -210,7 +210,7 @@ int nkmain(const NkEntryState& state) {
 					                  y + L.cell * 0.5f - L.cell * 0.20f });
 					// NkText hérite de NkIDrawable2D ET NkDrawable -> on lève
 					// l'ambiguïté de Draw() en ciblant le chemin NkDrawable.
-					target.Draw(static_cast<const NkDrawable&>(hpT));
+					target.Draw(hpT);
 				}
 			}
 		}
@@ -224,7 +224,7 @@ int nkmain(const NkEntryState& state) {
 			NkText t1(font, line1, 26);
 			t1.SetFillColor(NkColor2D::White);
 			t1.SetPosition({ 20.f, 16.f });
-			target.Draw(static_cast<const NkDrawable&>(t1));
+			target.Draw(t1);
 
 			char line2[160];
 			if (game.finished) {
@@ -241,7 +241,7 @@ int nkmain(const NkEntryState& state) {
 			NkText t2(font, line2, 20);
 			t2.SetFillColor(NkColor2D{ 200, 210, 220, 255 });
 			t2.SetPosition({ 20.f, 48.f });
-			target.Draw(static_cast<const NkDrawable&>(t2));
+			target.Draw(t2);
 		}
 
 		target.Display();

@@ -62,9 +62,22 @@ namespace nkentseu {
 					SetPosition({x, y});
 				}
 
-				/// Fixe l'angle de rotation (radians) autour de `origin`.
-				void SetRotation(float32 angleRadians) noexcept {
-					mRotation = angleRadians;
+				/// Fixe l'angle de rotation autour de `origin`.
+				///
+				/// L'angle est un math::NkAngle, PAS un flottant : c'est le type qui
+				/// porte l'unite, et non une convention a retenir. `NkAngle(90.f)`
+				/// vaut quatre-vingt-dix degres, `NkAngle::FromRad(k)` des radians,
+				/// et le compilateur refuse de confondre les deux.
+				///
+				/// C'est deja la convention des rotations 3D du moteur —
+				/// `NkQuatf::RotateZ`, `NkMat4f::Rotation` prennent un NkAngle. La
+				/// couche 2D etait la seule a prendre un flottant nu, et elle en
+				/// prenait DEUX unites : radians pour NkShape, degres pour NkSprite
+				/// et NkText. Quatre auteurs sur quatre annotaient l'unite en
+				/// commentaire de fin de ligne, ce qui etait le symptome. Unifie le
+				/// 2026-09-05.
+				void SetRotation(const math::NkAngle &angle) noexcept {
+					mRotation = angle.Rad();
 					mDirty = true;
 					mInverseDirty = true;
 				}
@@ -99,8 +112,11 @@ namespace nkentseu {
 					return mPosition;
 				}
 
-				float32 GetRotation() const noexcept {
-					return mRotation;
+				/// L'angle courant. Il est RAMENE dans (-180, 180] par NkAngle : un
+				/// objet qui a fait dix tours rend l'angle equivalent, pas le cumul.
+				/// Un jeu qui a besoin du nombre de tours le compte lui-meme.
+				math::NkAngle GetRotation() const noexcept {
+					return math::NkAngle::FromRad(mRotation);
 				}
 
 				NkVec2f GetScale() const noexcept {
@@ -126,8 +142,11 @@ namespace nkentseu {
 				}
 
 				/// Rotation cumulative : rotation += delta.
-				void Rotate(float32 deltaRadians) noexcept {
-					mRotation += deltaRadians;
+				/// Le cumul se fait en interne SANS ramener l'angle dans un
+				/// intervalle : mille petits pas restent exacts. C'est seulement
+				/// GetRotation() qui ramene le resultat.
+				void Rotate(const math::NkAngle &delta) noexcept {
+					mRotation += delta.Rad();
 					mDirty = true;
 					mInverseDirty = true;
 				}

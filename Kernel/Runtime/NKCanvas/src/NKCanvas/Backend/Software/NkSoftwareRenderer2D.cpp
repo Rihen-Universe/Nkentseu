@@ -220,20 +220,26 @@ namespace nkentseu {
 			if (!fb.IsValid())
 				return;
 
-			const NkTransform2D &t = sprite.GetTransform();
 			const NkColor2D &col = sprite.GetColor();
 			const NkRect2i &src = sprite.GetTextureRect();
 			const NkTexture *tex = sprite.GetTexture();
 
+			// Le sprite tient sa transformation de NkTransformable comme toute autre
+			// chose dessinable, et son angle est un NkAngle.
+			const NkVec2f pos = sprite.GetPosition();
+			const NkVec2f sca = sprite.GetScale();
+			const NkVec2f org = sprite.GetOrigin();
+			const float32 rot = sprite.GetRotation().Rad();
+
 			// Le chemin rapide blitte en pixels, donc il court-circuite la camera.
 			// Il n'est exact que si aucune vue ni aucun viewport ne s'interpose ;
 			// sinon on repasse par le batch, qui projette dans SubmitBatches.
-			const bool isSimple = (fabsf(t.rotation) < 1e-4f) && EnEspaceEcran(fb);
+			const bool isSimple = (fabsf(rot) < 1e-4f) && EnEspaceEcran(fb);
 			if (isSimple) {
-				const int32 dstW = (int32)((float32)src.width * t.scale.x + 0.5f);
-				const int32 dstH = (int32)((float32)src.height * t.scale.y + 0.5f);
-				const int32 dstX = (int32)(t.position.x - t.origin.x * t.scale.x);
-				const int32 dstY = (int32)(t.position.y - t.origin.y * t.scale.y);
+				const int32 dstW = (int32)((float32)src.width * sca.x + 0.5f);
+				const int32 dstH = (int32)((float32)src.height * sca.y + 0.5f);
+				const int32 dstX = (int32)(pos.x - org.x * sca.x);
+				const int32 dstY = (int32)(pos.y - org.y * sca.y);
 
 				if (tex && tex->IsValid() && tex->GetCPUPixels()) {
 					BlitTexture(fb, tex, src, dstX, dstY, dstW, dstH, col);
