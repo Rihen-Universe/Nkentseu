@@ -52,6 +52,25 @@ namespace nkentseu {
 
 namespace nkentseu {
 
+	// ── LE SEPARATEUR QUE LE SYSTEME EXIGE (2026-09-06) ─────────────────────
+	// Le detail du defaut et la raison de sa publicite sont dans l'en-tete.
+	bool NkLauncher::ToNativePath(const char *path, char *out, unsigned long long cap) noexcept {
+		if (!path || !out || cap == 0ull)
+			return false;
+		unsigned long long i = 0ull;
+		for (; path[i] && i + 1ull < cap; ++i)
+#if defined(NKENTSEU_PLATFORM_WINDOWS)
+			out[i] = (path[i] == '/') ? '\\' : path[i];
+#else
+			out[i] = path[i];
+#endif
+		if (path[i] != '\0')
+			return false; // tronque : on refuse plutot que d'ouvrir un voisin
+		out[i] = '\0';
+		return true;
+	}
+
+
 	// ─────────────────────────────────────────────────────────────────────────
 	// OpenURL — selon plateforme
 	// ─────────────────────────────────────────────────────────────────────────
@@ -183,7 +202,12 @@ namespace nkentseu {
 		if (!filePath || !*filePath)
 			return false;
 #if defined(NKENTSEU_PLATFORM_WINDOWS)
-		const HINSTANCE r = ::ShellExecuteA(nullptr, "open", filePath, nullptr, nullptr, SW_SHOWNORMAL);
+		char win[2048];
+		if (!NkLauncher::ToNativePath(filePath, win, sizeof(win))) {
+			logger.Warn("[NkLauncher] chemin trop long pour OpenFile : {0}", filePath);
+			return false;
+		}
+		const HINSTANCE r = ::ShellExecuteA(nullptr, "open", win, nullptr, nullptr, SW_SHOWNORMAL);
 		return (reinterpret_cast<INT_PTR>(r) > 32);
 #elif defined(NKENTSEU_PLATFORM_LINUX)
 		char cmd[2048];
@@ -218,7 +242,12 @@ namespace nkentseu {
 		if (!folderPath || !*folderPath)
 			return false;
 #if defined(NKENTSEU_PLATFORM_WINDOWS)
-		const HINSTANCE r = ::ShellExecuteA(nullptr, "explore", folderPath, nullptr, nullptr, SW_SHOWNORMAL);
+		char win[2048];
+		if (!NkLauncher::ToNativePath(folderPath, win, sizeof(win))) {
+			logger.Warn("[NkLauncher] chemin trop long pour OpenFolder : {0}", folderPath);
+			return false;
+		}
+		const HINSTANCE r = ::ShellExecuteA(nullptr, "explore", win, nullptr, nullptr, SW_SHOWNORMAL);
 		return (reinterpret_cast<INT_PTR>(r) > 32);
 #elif defined(NKENTSEU_PLATFORM_LINUX)
 		char cmd[2048];
@@ -250,8 +279,18 @@ namespace nkentseu {
 		// ⚠️ Explorer rend souvent un code d'echec MEME quand il a ouvert la fenetre.
 		//    On ne peut donc pas se fier a sa valeur de retour comme a un succes
 		//    d'affichage ; l'appelant garde de toute facon le chemin lisible.
+		// ⚠️ ICI LA CONVERSION N'EST PAS UNE PRECAUTION, C'EST LA CONDITION :
+		//    `/select,` est un ARGUMENT DE LIGNE DE COMMANDE. Avec des barres
+		//    obliques, l'Explorateur abandonne l'analyse et ouvre « Documents »
+		//    -- en rendant un code de succes. C'est le defaut que Rodolf decrit
+		//    par « ouvrir le dossier ouvre le mauvais dossier ».
+		char win[2048];
+		if (!NkLauncher::ToNativePath(filePath, win, sizeof(win))) {
+			logger.Warn("[NkLauncher] chemin trop long pour RevealFile : {0}", filePath);
+			return false;
+		}
 		char arg[2176];
-		std::snprintf(arg, sizeof(arg), "/select,\"%s\"", filePath);
+		std::snprintf(arg, sizeof(arg), "/select,\"%s\"", win);
 		const HINSTANCE r = ::ShellExecuteA(nullptr, "open", "explorer.exe", arg, nullptr, SW_SHOWNORMAL);
 		const bool ok = (reinterpret_cast<INT_PTR>(r) > 32);
 		if (!ok)
