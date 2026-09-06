@@ -12429,17 +12429,29 @@ namespace nkuidesign {
 			char pire110[200];
 			pire110[0] = '\0';
 			float32 restantMin = 1e9f;
+			// ③⑥ (06/09) DEUX DIMENSIONS DE PLUS, ET ELLES VIENNENT DE DEUX DEFAUTS VUS
+			//     PAR RODOLF : le bandeau de resultat peint DANS le champ de chemin, et le
+			//     libelle « Selectionner ce fichier » qui deborde d'un bouton de 120 px.
+			//     `msg` = y a-t-il un bandeau ; `largeurLibelle` = la largeur mesuree du
+			//     libelle le plus long que le bouton porte reellement.
+			uint32 superpositions = 0u, textesDebordants = 0u;
 			for (int32 t = 0; t < 3; ++t)
-				for (int32 m = 0; m < 2; ++m) { // enregistrer, puis ouvrir
-					const bool save = (m == 0);
+				for (int32 m = 0; m < 2; ++m)		 // enregistrer, puis ouvrir
+					for (int32 msg = 0; msg < 2; ++msg)	 // sans bandeau, puis avec
+						for (int32 lg = 0; lg < 2; ++lg) { // libelle court, puis long
+							const bool save = (m == 0);
+							// « Selectionner ce fichier » a la police de l'application : 152 px
+							// mesures a l'echelle 1 (cas 110b ci-dessous le relit du rendu).
+							const float32 largeurLibelle = (lg == 0 ? 44.f : 152.f) * kT[t].s;
 					const editorkit::NkGeomSelecteur g =
-						editorkit::NkGeometrieSelecteur(kT[t].w, kT[t].h, kT[t].s, save, false, 0.f, 0.f);
+						editorkit::NkGeometrieSelecteur(kT[t].w, kT[t].h, kT[t].s, save, false, 0.f,
+														0.f, msg != 0, largeurLibelle);
 					const float32 marge = 8.f * kT[t].s;
-					const nkgui::NkRect *parts[6] = {&g.ligneChemin, &g.zone, &g.labelNom, &g.champNom,
-														 &g.annuler, &g.confirmer};
-					static const char *kNoms110[6] = {"chemin", "volet", "label", "champ", "annuler",
-														  "confirmer"};
-					for (int32 k = 0; k < 6; ++k)
+					const nkgui::NkRect *parts[7] = {&g.ligneChemin, &g.zone, &g.labelNom, &g.champNom,
+														 &g.annuler, &g.confirmer, &g.message};
+					static const char *kNoms110[7] = {"chemin", "volet", "label", "champ", "annuler",
+														  "confirmer", "message"};
+					for (int32 k = 0; k < 7; ++k)
 						if (!dedans110(g.cadre, *parts[k], marge)) {
 							++debords;
 							if (!pire110[0])
@@ -12454,33 +12466,74 @@ namespace nkuidesign {
 						++chevauche;
 					if (!save && g.zone.y + g.zone.h > g.annuler.y)
 						++chevauche;
+					// ③ AUCUNE SUPERPOSITION DANS LA PILE DU HAUT. C'est le defaut de la
+					//    capture du 06/09 a 22h47 : le bandeau etait peint DANS le champ de
+					//    chemin. On teste la RELATION -- chaque etage sous le precedent --
+					//    jamais une ordonnee en dur.
+					if (msg != 0) {
+						if (g.message.w <= 0.f)
+							++superpositions; // annonce sans place : la meme faute
+						else {
+							if (g.message.y < g.ligneChemin.y + g.ligneChemin.h)
+								++superpositions;
+							if (g.zone.y < g.message.y + g.message.h)
+								++superpositions;
+						}
+					} else if (g.message.w > 0.f)
+						++superpositions; // de la place pour rien : le volet descendrait sans raison
+					// ⑥ LE TEXTE TIENT DANS SON BOUTON, avec ses deux marges.
+					if (g.confirmer.w < largeurLibelle + 8.f * kT[t].s)
+						++textesDebordants;
 					const float32 restant = (g.cadre.y + g.cadre.h) - (g.confirmer.y + g.confirmer.h);
 					if (restant < restantMin)
 						restantMin = restant;
-				}
+						}
 			// CONTROLE NEGATIF : la fonction n'est pas complaisante -- un cadre reduit de moitie
 			// DOIT faire deborder, sinon `dedans110` accepterait n'importe quoi.
 			bool detecteUnVraiDebord = false;
 			{
 				editorkit::NkGeomSelecteur g =
-					editorkit::NkGeometrieSelecteur(1456.f, 939.f, 1.f, true, false, 0.f, 0.f);
+					editorkit::NkGeometrieSelecteur(1456.f, 939.f, 1.f, true, false, 0.f, 0.f,
+													false, 0.f);
 				g.cadre.h *= 0.5f;
 				detecteUnVraiDebord = !dedans110(g.cadre, g.confirmer, 8.f);
 			}
+			// ③ SECOND CONTROLE NEGATIF, pour la pile du haut : sans lui, « 0
+			//    superposition » serait aussi le score d'un test qui ne regarde rien. On
+			//    remet le bandeau la ou il etait -- dans la ligne de chemin -- et le
+			//    compteur doit monter.
+			bool detecteUneVraieSuperposition = false;
+			{
+				editorkit::NkGeomSelecteur g =
+					editorkit::NkGeometrieSelecteur(1456.f, 939.f, 1.f, true, false, 0.f, 0.f,
+													true, 0.f);
+				g.message.y = g.ligneChemin.y + 4.f; // l'ancienne ordonnee, mot pour mot
+				detecteUneVraieSuperposition = g.message.y < g.ligneChemin.y + g.ligneChemin.h;
+			}
 			const bool tientPartout = debords == 0u && chevauche == 0u;
 			const bool margeReelle = restantMin >= 10.f;
+			const bool pileSaine = superpositions == 0u;
+			const bool textesTiennent = textesDebordants == 0u;
 			snprintf(det, sizeof(det),
-				"trois tailles x deux modes : %u debordement(s) [%s], %u chevauchement(s) volet/bas ; marge "
-				"minimale sous le bouton de confirmation : %.1f px -> tient partout=%d, marge reelle=%d ; "
-				"CONTROLE NEGATIF (cadre reduit de moitie) : debordement detecte=%d",
-				debords, pire110[0] ? pire110 : "(aucun)", chevauche, (double)restantMin,
-				tientPartout ? 1 : 0, margeReelle ? 1 : 0, detecteUnVraiDebord ? 1 : 0);
-			check("110. ④ TOUT LE DIALOGUE TIENT DANS SON CADRE : la ligne de chemin, le volet, le label, le champ de nom et "
-				"les DEUX boutons sont dans le rectangle du dialogue, avec leur marge, a trois tailles de fenetre et dans "
-				"les deux modes ; le volet ne chevauche pas le bas ; et le controle negatif montre que le test attrape un "
-				"vrai debordement -- les hauteurs etaient trois nombres poses a la main dont la somme depassait de quatre "
-				"pixels, et elles vivaient dans le dessin, hors de portee du temoin",
-				tientPartout && margeReelle && detecteUnVraiDebord, det);
+				"trois tailles x deux modes x bandeau x libelle : %u debordement(s) [%s], %u chevauchement(s) "
+				"volet/bas, %u superposition(s) dans la pile du haut, %u texte(s) plus large(s) que leur bouton ; "
+				"marge minimale sous le bouton de confirmation : %.1f px -> tient partout=%d, marge reelle=%d, "
+				"pile saine=%d, textes tiennent=%d ; CONTROLES NEGATIFS : debordement detecte=%d, "
+				"superposition detectee=%d",
+				debords, pire110[0] ? pire110 : "(aucun)", chevauche, superpositions, textesDebordants,
+				(double)restantMin, tientPartout ? 1 : 0, margeReelle ? 1 : 0, pileSaine ? 1 : 0,
+				textesTiennent ? 1 : 0, detecteUnVraiDebord ? 1 : 0,
+				detecteUneVraieSuperposition ? 1 : 0);
+			check("110. ④ TOUT LE DIALOGUE TIENT DANS SON CADRE ET RIEN NE SE SUPERPOSE : la ligne de chemin, le volet, le "
+				"label, le champ de nom, le bandeau de resultat et les DEUX boutons sont dans le rectangle du dialogue, "
+				"avec leur marge, a trois tailles x deux modes x avec/sans bandeau x libelle court/long ; le volet ne "
+				"chevauche pas le bas ; ③ chaque etage de la pile du haut est SOUS le precedent (le bandeau etait peint "
+				"DANS le champ de chemin, les deux illisibles) ; ⑥ le libelle du bouton de confirmation tient dans son "
+				"bouton (« Selectionner ce fichier » debordait d'un bouton fixe a 120 px) ; et les deux controles "
+				"negatifs montrent que le test attrape un vrai debordement et une vraie superposition",
+				tientPartout && margeReelle && pileSaine && textesTiennent && detecteUnVraiDebord
+					&& detecteUneVraieSuperposition,
+				det);
 		}
 		// ── 111. ① LA GRILLE REMPLIT SA LARGEUR (05/09, nuit). Rodolf : « il y a de la place
 		//    a droite. » Le pas d'une colonne etait `vignette + gouttiere` et le nombre de

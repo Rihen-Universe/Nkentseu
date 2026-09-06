@@ -1786,11 +1786,30 @@ namespace nkentseu {
 		//    chantier qu'une valeur non lisible echappe a sa sonde.
 		struct NkGeomSelecteur {
 			NkRect cadre, ligneChemin, zone, labelNom, champNom, annuler, confirmer;
+			/// ③ (06/09) LE BANDEAU DE RESULTAT (« 1 traite(s), 0 refuse(s). »). w == 0
+			/// quand il n'y a pas de message : il ne prend alors AUCUNE place, et le
+			/// dialogue est au pixel pres celui d'avant.
+			NkRect message;
 		};
 
 		/// La geometrie complete, calculee UNE FOIS. Le dessin l'appelle, la sonde aussi.
+		///
+		/// ③ (06/09) `messagePresent` ET `largeurTexteConfirmer` N'ONT PAS DE VALEUR PAR
+		/// DEFAUT, ET C'EST LA REGLE, PAS UN OUBLI. Une valeur par defaut qui reproduit le
+		/// defaut qu'on chasse le refabrique a chaque nouvel appelant -- lecon deja payee
+		/// sur `avisPresent` du bandeau d'export. Ici, un appelant qui ne repond pas ne
+		/// compile pas.
+		///   - `messagePresent` : y a-t-il un bandeau de resultat a placer ? Le message
+		///     etait peint a `ligneChemin.y + 4` -- c'est-a-dire DANS le champ de chemin,
+		///     les deux illisibles (capture de Rodolf du 06/09 a 22h47). Un seul endroit
+		///     decide desormais qui est ou, et chaque etage connait la hauteur du dessus.
+		///   - `largeurTexteConfirmer` : la largeur MESUREE du libelle du bouton de
+		///     confirmation. « Selectionner ce fichier » ne tient pas dans 120 px, et le
+		///     bouton ne le savait pas : il centrait un texte plus large que lui, donc
+		///     debordant des DEUX cotes. Passer 0 rend l'ancienne largeur fixe.
 		inline NkGeomSelecteur NkGeometrieSelecteur(float32 W, float32 H, float32 S, bool saveMode,
-												 bool decalX, float32 offX, float32 offY) {
+												 bool decalX, float32 offX, float32 offY,
+												 bool messagePresent, float32 largeurTexteConfirmer) {
 			NkGeomSelecteur g;
 			const float32 pw = 900.f * S, ph = 620.f * S;
 			const float32 px = (W - pw) * 0.5f + (decalX ? offX : 0.f);
@@ -1798,20 +1817,40 @@ namespace nkentseu {
 			g.cadre = {px, py, pw, ph};
 			const float32 cx = px + 20.f * S, cwid = pw - 40.f * S;
 			g.ligneChemin = {cx, py + 50.f * S, cwid, 30.f * S};
+			// ③ LA PILE DU HAUT : ligne de chemin, puis -- s'il existe -- le bandeau de
+			//    resultat, puis le volet. Chaque etage part du BAS du precedent : c'est ce
+			//    qui rend une superposition impossible, et non la discipline de l'appelant.
+			const float32 basChemin = g.ligneChemin.y + g.ligneChemin.h; // py + 80 S
+			const float32 hMsg = messagePresent ? 18.f * S : 0.f;
+			g.message = messagePresent ? NkRect{cx, basChemin + 2.f * S, cwid, hMsg}
+									   : NkRect{0.f, 0.f, 0.f, 0.f};
 			// Les hauteurs du bas, UNE constante par element -- et `basH` est leur SOMME.
 			const float32 hMarge = 14.f * S, hLabel = 18.f * S, hChamp = 30.f * S;
 			const float32 hBouton = 34.f * S, hEcart = 10.f * S;
 			const float32 basH = hMarge + (saveMode ? hLabel + hChamp + hEcart : 0.f) + hBouton + hMarge;
-			const float32 yVolet = py + 90.f * S;
+			// Sans message : py + 90 S, EXACTEMENT comme avant. Avec : le volet descend de
+			// la hauteur du bandeau, il ne passe pas dessous.
+			const float32 yVolet = py + 90.f * S + hMsg;
 			g.zone = {cx, yVolet, cwid, ph - (yVolet - py) - basH};
 			float32 by = py + ph - basH + hMarge;
 			g.labelNom = saveMode ? NkRect{cx, by, cwid, hLabel} : NkRect{0.f, 0.f, 0.f, 0.f};
 			g.champNom = saveMode ? NkRect{cx, by + hLabel, cwid, hChamp} : NkRect{0.f, 0.f, 0.f, 0.f};
 			if (saveMode)
 				by += hLabel + hChamp + hEcart;
-			const float32 bw = 120.f * S;
-			g.annuler = {px + pw - 20.f * S - bw * 2.f - 10.f * S, by, bw, hBouton};
+			// ⑥ LA LARGEUR DU BOUTON SUIT SON TEXTE. Elle etait fixe a 120 px pour un
+			//    libelle qui va de « Ouvrir » a « Selectionner ces 5 fichiers » : le texte
+			//    debordait des deux cotes, puisque `pbtn` le CENTRE. On garde 120 comme
+			//    PLANCHER (deux boutons de tailles trop differentes se lisent mal) et on
+			//    prend le texte mesure plus deux marges des qu'il est plus large.
+			const float32 bwMin = 120.f * S;
+			float32 bw = largeurTexteConfirmer + 32.f * S;
+			if (bw < bwMin)
+				bw = bwMin;
+			// Et il ne mange pas le dialogue : la moitie de la largeur utile, au plus.
+			if (bw > cwid * 0.5f)
+				bw = cwid * 0.5f;
 			g.confirmer = {px + pw - 20.f * S - bw, by, bw, hBouton};
+			g.annuler = {g.confirmer.x - 10.f * S - bwMin, by, bwMin, hBouton};
 			return g;
 		}
 
@@ -2024,8 +2063,13 @@ namespace nkentseu {
 			const bool dossierMode = (fp.pickerFor == NkFilePickerState::PK_PickFolder
 									  || fp.pickerFor == NkFilePickerState::PK_Open);
 			// ④ LA GEOMETRIE VIENT D'UNE SEULE FONCTION, celle que la sonde appelle aussi.
+			// ③⑥ (06/09) ET ELLE A BESOIN DE DEUX FAITS QUE SEUL LE DESSIN CONNAIT : y
+			//    a-t-il un bandeau de resultat a placer, et quelle largeur fait le libelle
+			//    du bouton de confirmation. Les deux sont MESURES ici, pas supposes.
 			const NkGeomSelecteur G =
-				NkGeometrieSelecteur(W, H, S, saveMode, true, fp.pickerWinOffX, fp.pickerWinOffY);
+				NkGeometrieSelecteur(W, H, S, saveMode, true, fp.pickerWinOffX, fp.pickerWinOffY,
+									 !fp.messageCreation.Empty(),
+									 f->MeasureWidth(fp.PickerConfirmLabel()));
 			const float32 pw = G.cadre.w, ph = G.cadre.h;
 			const float32 px = G.cadre.x, py = G.cadre.y;
 
@@ -2158,9 +2202,17 @@ namespace nkentseu {
 			//    l'aurait rendu invisible exactement pour les actions qui n'ont pas de
 			//    champ -- \u00ab un refus range dans un coin de l'interface est un echec
 			//    silencieux \u00bb.
-			if (!fp.messageCreation.Empty())
-				text(cx, y + (fp.creationOuverte ? 32.f * S : 4.f * S), fp.messageCreation.Data(),
-					 sty.cadre.sub);
+			// ③ (06/09) IL A SA PROPRE PLACE, ET ELLE VIENT DE LA GEOMETRIE. Avant, il
+			//    etait peint a `y + 4 S` -- c'est-a-dire DANS la ligne de chemin, par-dessus
+			//    le champ : « 1 traite(s) 0 refuse(s) » et
+			//    `C:/Users/Rihen/Documents/banani-ui-export (3)` au meme endroit, les deux
+			//    illisibles. Le commentaire d'a cote disait pourtant « LE MESSAGE VIT HORS
+			//    DE LA RANGEE » : une justification ecrite se croit, un oubli se voit.
+			//    Desormais la pile du haut (`NkGeometrieSelecteur`) donne au bandeau son
+			//    etage et pousse le volet d'autant -- un seul endroit decide qui est ou.
+			if (!fp.messageCreation.Empty() && G.message.w > 0.f)
+				text(G.message.x, G.message.y + (G.message.h - lh) * 0.5f,
+					 fp.messageCreation.Data(), sty.cadre.sub);
 			y += 40.f * S;
 
 			// ── LE VOLET : le navigateur de contenu du kit, tel quel ────────────
