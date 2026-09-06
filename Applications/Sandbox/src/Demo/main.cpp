@@ -115,6 +115,9 @@ namespace nkentseu {
 		void DemoTexturesPBR_Shutdown(DemoCtx &);
 		void DemoStream_Frame(DemoCtx &, float32);
 		void DemoStream_Shutdown(DemoCtx &);
+		bool DemoBancOmbre_Init(DemoCtx &);
+		void DemoBancOmbre_Frame(DemoCtx &, float32);
+		void DemoBancOmbre_Shutdown(DemoCtx &);
 
 		static const DemoEntry kDemos[] = {
 			{"Subsystems", "Runtime enable/disable des sous-systemes", DemoSubsystems_Init, DemoSubsystems_Frame,
@@ -179,6 +182,14 @@ namespace nkentseu {
 			// sur elle aurait rendu « gain negligeable » — juste sur le mauvais sujet.
 			{"TexturesPBR", "DemoTexturesPBR : 10 cartes reelles, mesure du chargement (NK_TEX_CACHE=0 pour le avant)",
 			 DemoTexturesPBR_Init, DemoTexturesPBR_Frame, DemoTexturesPBR_Shutdown},
+			// DemoBancOmbre : la scene qui existe POUR LA MESURE, pas pour la
+			// demonstration — une dalle plate, un occultant, une source, et tout
+			// pilote par l'environnement. Elle sert a armer et desarmer soi-meme
+			// le tramage d'ombre transparente (NK_BANC_OMBRE_MODE) a opacite
+			// egale, et a mesurer le profil du ciel (NK_BANC_VUE=1). Camera FIXE :
+			// deux captures qui ne cadrent pas la meme chose ne se comparent pas.
+			{"BancOmbre", "DemoBancOmbre : dalle + occultant, ombre transparente et ciel pilotes par NK_BANC_*",
+			 DemoBancOmbre_Init, DemoBancOmbre_Frame, DemoBancOmbre_Shutdown},
 		};
 		static constexpr uint32 kDemoCount = (uint32)(sizeof(kDemos) / sizeof(kDemos[0]));
 
@@ -404,6 +415,27 @@ namespace nkentseu {
 					c.ibl.iblStrength = 0.85f;
 					return c;
 				}
+				case 20: {
+					// DemoBancOmbre : config de MESURE, pas de demonstration. Tout
+					// ce qui ajoute du bruit par pixel pour une AUTRE raison que
+					// l'ombre est eteint — sinon le banc mesurerait la somme de
+					// deux causes et n'en separerait aucune.
+					auto c = NkRendererConfig::ForGame(api, w, h);
+					c.shadow.cascadeCount = 1; // une seule cascade : pas de transition qui scintille
+					c.postProcess.ssao = false; // l'occlusion ambiante a son propre grain
+					c.postProcess.ssr = false;
+					c.postProcess.bloom = false; // un bloom etalerait le sel et le ferait fondre
+					c.postProcess.fxaa = false; // ⚠️ un anticrenelage EFFACERAIT ce qu'on vient mesurer
+					// ⚠️ VRAI, ET C'EST OBLIGATOIRE. Je l'avais mis a FAUX en pensant
+					// que `SetSkyboxEnabled(true)` de la demo suffirait. Mesure :
+					// le ciel sortait en APLAT gris uniforme (214/213/212 sur tout
+					// le champ) — le drapeau de config gouverne la CREATION du
+					// pipeline, l'appel de la demo ne fait que lever un booleen sur
+					// un pipeline qui n'existe pas. Un appel accepte n'est pas un
+					// appel honore, et c'est le banc du ciel qui l'a paye.
+					c.ibl.drawSkybox = true;
+					return c;
+				}
 				default:
 					return NkRendererConfig::ForGame(api, w, h);
 			}
@@ -555,6 +587,8 @@ int nkmain(const NkEntryState &state) {
 		demoIx = 18; // DemoStream     -> kDemos[18]
 	if (demoIx == 20)
 		demoIx = 19; // DemoTexturesPBR -> kDemos[19]
+	if (demoIx == 21)
+		demoIx = 20; // DemoBancOmbre   -> kDemos[20]
 	if (demoIx < 0 || (uint32)demoIx >= kDemoCount)
 		demoIx = 0;
 	// ── REFUS QUI PARLE ──────────────────────────────────────────────────
