@@ -399,6 +399,12 @@ namespace {
 
 } // namespace
 
+// Définie dans test_ubo_mouillage.cpp : la sonde du bloc uniforme partagé
+// (ObjectUBO, sept copies C++ et six langages) et le témoin de la formule de
+// mouillage. Elle rend son nombre d'échecs, et ce nombre entre dans le code de
+// sortie de la suite — une sonde rouge ne doit jamais sortir 0.
+int NkSondeUBOMouillage();
+
 int main() {
 	std::fprintf(stderr, "=== L'EAU : le fluide PUBLIE ses contacts (temoins §6.6 palier 1) ===\n");
 	TemoinGoutte();
@@ -406,6 +412,8 @@ int main() {
 	std::fprintf(stderr, "-- les images (traces dessinees par le banc, PAS des captures du moteur) --\n");
 	ImageEclaboussure();
 	ImageMouillage();
-	std::fprintf(stderr, "=== NKRenderer/eau : %d passes, %d echecs ===\n", gPass, gFail);
-	return gFail == 0 ? 0 : 1;
+	const int echecsUBO = NkSondeUBOMouillage();
+	std::fprintf(stderr, "=== NKRenderer/eau : %d passes, %d echecs (+ %d echecs de la sonde UBO) ===\n", gPass,
+				 gFail, echecsUBO);
+	return (gFail == 0 && echecsUBO == 0) ? 0 : 1;
 }

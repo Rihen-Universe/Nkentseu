@@ -593,6 +593,25 @@ namespace nkentseu {
 				// reglage serait muet — blanc par defaut, l'appelant peut la teinter
 				// (typiquement avec l'albedo).
 				NkVec3f subsurfaceColor = {1.f, 1.f, 1.f};
+				// MOUILLAGE (2026-09-06) — meme motif que clearcoat le 09/08 : la
+				// formule existait deja cote CPU (`math::NkApplyWetness`, dans
+				// NKMath/NkWetnessMap.h) et RIEN ne l'alimentait par drawcall, donc
+				// rien ne la rendait. Reference : Sebastien Lagarde, « Water drop 3b
+				// — Physically based wet surfaces » (2013). L'effet entier tient en :
+				//   albedo   x= 1 - 0.8 * (wetness * wetPorosity)
+				//   rugosite x= 1 - 0.4 * (wetness * wetPorosity)
+				//   F0        -> glisse vers 0.0206 (eau, n = 1.33), selon
+				//                wetness * waterLayer
+				// DEFAUTS : la surface est SECHE, et a sec la formule est l'IDENTITE
+				// EXACTE — un drawcall qui ignore ces champs rend exactement l'image
+				// d'avant. C'est le sens d'erreur choisi.
+				float32 wetness = 0.f;	   // [0,1] saturation de la surface
+				float32 wetPorosity = 1.f; // [0,1] 0 = verre poli, 1 = sable/beton
+				// Hors Lagarde, et il le dit lui-meme : il juge le changement d'indice
+				// de refraction « pas assez visible en jeu » et ne pose pas de F0
+				// d'eau. Ce champ est donc a 0 par defaut (Lagarde pur) ; le monter
+				// ajoute une pellicule d'eau franche (flaque, ruissellement).
+				float32 waterLayer = 0.f; // [0,1]
 				NkAABB aabb; // world-space, pour culling
 				bool castShadow = true;
 				bool receiveShadow = true;
