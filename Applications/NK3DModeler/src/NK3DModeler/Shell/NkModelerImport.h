@@ -199,6 +199,179 @@ namespace nkentseu {
 				snprintf(out, cap, "Import");
 		}
 
+		/// LES MATERIAUX ET LEURS TEXTURES, du fichier vers le projet.
+		///
+		/// 🔴 CE QUE LA MESURE DIT, ET CE QU'ELLE NE DIT PAS (2026-09-06).
+		/// Rodolf : « les import n'importent pas les textures ni les materiaux ».
+		/// C'est vrai, et la question etait de savoir OU ca se perd -- le lecteur
+		/// ne lit pas, ou l'import ne publie pas ? Deux endroits differents.
+		/// Journal de sa session de 08h53 :
+		///
+		///   [NkGLTFLoader] '...042082ea....glb' : 249906 vertices, 1499568
+		///                  indices, 1 submeshes, **0 materials, 0 images**
+		///   [NkFBXLoader]  OK '...cables.fbx' : 1 geometries, 1200 verts,
+		///                  1 sous-meshes, **1 materiaux, 1 textures**, 1 nodes
+		///
+		/// ⚠️ Le mannequin du GLB est gris parce que SON FICHIER NE PORTE AUCUN
+		/// MATERIAU -- verifie dans le JSON du .glb lui-meme : les sections
+		/// `materials`, `images` et `textures` n'existent pas, et la primitive
+		/// n'a que l'attribut POSITION. Sa capture ne prouve donc RIEN sur
+		/// l'import des materiaux, et les cartes `Materiau`, `Materiau.000` a
+		/// `.004` et `Texture` de son navigateur PREEXISTENT a son geste.
+		///
+		/// C'est `cables.fbx` qui tranche : le lecteur LIT bien 1 materiau et
+		/// 1 texture, et l'import n'en publiait AUCUN. Le defaut est donc ici,
+		/// pas dans les chargeurs.
+		///
+		/// CE QUI EST ECRIT : une TEXTURE = un fichier PNG dans le projet (les
+		/// pixels sont deja decodes par le chargeur, embarques comme references)
+		/// -- c'est la regle d'import de CONVENTIONS_FICHIERS.md, « copier en
+		/// gardant l'origine ». Un MATERIAU = un emplacement du projet + sa
+		/// carte + son `.nkmat`, par le meme ecrivain que « Enregistrer ».
+		///
+		/// `slotOf` rend, pour chaque materiau du FICHIER, l'emplacement du
+		/// PROJET (-1 si la creation a echoue : plus d'emplacement libre).
+		inline void NkImportMaterials(NkModelerState &st, const renderer::NkGLTFMeshData &data,
+									  const char *stem, NkVector<int32> &slotOf, int32 *texEcrites,
+									  int32 *matNees) {
+			slotOf.Clear();
+			if (texEcrites)
+				*texEcrites = 0;
+			if (matNees)
+				*matNees = 0;
+			const int32 nMat = (int32)data.materials.Size();
+			if (nMat <= 0)
+				return;
+			// ── 1. LES IMAGES SUR LE DISQUE ─────────────────────────────────
+			// Une par entree de `data.images`, ecrite UNE FOIS meme si trois
+			// canaux la designent. Chemin ABSOLU retenu : c'est ce que l'hote
+			// attend (`Demo3DHostProjMatSetMap`), et la sauvegarde le rend
+			// relatif au projet toute seule (NkScToRel, NkModelerAssets.h:359).
+			NkVector<NkString> imgPath;
+			const int32 nImg = (int32)data.images.Size();
+			const NkString dossier = NkAsFolderPath(st, st.browserFolder);
+			for (int32 i = 0; i < nImg; ++i) {
+				imgPath.PushBack(NkString());
+				if (!data.images[(uint32)i].valid)
+					continue;
+				// Le nom vient du FICHIER quand il en donne un (`uri`, rempli par
+				// le chargeur FBX avec le RelativeFilename), sinon du radical du
+				// modele + le rang -- jamais d'un compteur seul, qui ne dirait
+				// pas de quel import il vient.
+				char base[48];
+				const char *uri = data.images[(uint32)i].uri.CStr();
+				if (uri && uri[0])
+					NkImpStem(uri, base, (uint32)sizeof(base));
+				else
+					snprintf(base, sizeof(base), "%s_tex%d", stem, i);
+				NkString rel = dossier;
+				rel.Append(base);
+				rel.Append(".png");
+				const NkString abs = NkScToAbs(st.projectRoot, rel.CStr());
+				if (data.images[(uint32)i].decoded.SavePNG(abs.CStr())) {
+					imgPath[(uint32)i] = abs;
+					if (texEcrites)
+						++*texEcrites;
+					NkLog::Instance().Infof("[import] MESURE texture : image %d -> '%s' (%ux%u)", i,
+											rel.CStr(),
+											(unsigned)data.images[(uint32)i].decoded.Width(),
+											(unsigned)data.images[(uint32)i].decoded.Height());
+				} else {
+					// ECHEC NOMME, jamais avale : sans cette ligne un materiau
+					// arriverait sans sa texture et on accuserait le materiau.
+					NkLog::Instance().Warnf("[import] texture NON ECRITE : image %d -> '%s'", i,
+											rel.CStr());
+				}
+			}
+			// ── 2. LES MATERIAUX ────────────────────────────────────────────
+			for (int32 m = 0; m < nMat; ++m) {
+				const renderer::NkGLTFMaterial &gm = data.materials[(uint32)m];
+				const int32 slot = demo::Demo3DHostProjMatCreate();
+				slotOf.PushBack(slot);
+				if (slot < 0) {
+					// PLAFOND ATTEINT, et il est NOMME (Rodolf, point ④) : le
+					// projet n'accepte que kNkvpMaxProjMats emplacements.
+					NkImportNote(st, NkToastKind::Partiel,
+								 "Import PARTIEL : le materiau « %s » n'a PAS pu etre cree -- le projet "
+								 "n'a plus d'emplacement de materiau libre. Que faire : supprimez des "
+								 "materiaux inutilises dans le navigateur, puis relancez l'import.",
+								 gm.name.Empty() ? "(sans nom)" : gm.name.CStr());
+					continue;
+				}
+				char nm[32];
+				if (!gm.name.Empty())
+					snprintf(nm, sizeof(nm), "%s", gm.name.CStr());
+				else
+					snprintf(nm, sizeof(nm), "%s_mat%d", stem, m);
+				demo::Demo3DHostProjMatSetName(slot, nm);
+				const float32 alb[3] = {gm.baseColorFactor.x, gm.baseColorFactor.y,
+										gm.baseColorFactor.z};
+				demo::Demo3DHostProjMatSetParams(slot, alb, gm.roughnessFactor, gm.metallicFactor);
+				// L'EMISSION PORTE SA FORCE (KHR_materials_emissive_strength) :
+				// la separer de la teinte est ce que fait le format, et les
+				// melanger ici rendrait 1000 possible sans que rien le dise.
+				{
+					const float32 emi[3] = {gm.emissiveFactor.x * gm.emissiveStrength,
+											gm.emissiveFactor.y * gm.emissiveStrength,
+											gm.emissiveFactor.z * gm.emissiveStrength};
+					demo::Demo3DHostProjMatSetEmissive(slot, emi);
+				}
+				// Opacite : `baseColorFactor.w`, et seulement si le fichier dit
+				// BLEND. En OPAQUE une alpha < 1 ne veut rien dire -- la lire
+				// quand meme rendrait transparents des materiaux qui ne le sont
+				// pas (c'est la famille du champ dont le sens depend d'un autre).
+				{
+					float32 a = 1.f, aniso = 0.f, sheen = 0.f;
+					demo::Demo3DHostProjMatPBRExtra(slot, &a, &aniso, &sheen);
+					demo::Demo3DHostProjMatSetPBRExtra(
+						slot, gm.alphaMode == 2 ? gm.baseColorFactor.w : 1.f, aniso, sheen);
+				}
+				// LES QUATRE CANAUX (cf. NkDemo3DHost.h) : 0 couleur, 1 normale,
+				// 2 ORM, 3 emissif. glTF empaquette deja rugosite/metal en
+				// `metallicRoughnessImage` -- c'est l'ORM du canal 2.
+				const int32 canal[4] = {gm.baseColorImage, gm.normalImage,
+										gm.metallicRoughnessImage, gm.emissiveImage};
+				int32 posees = 0;
+				for (int32 c = 0; c < 4; ++c) {
+					const int32 ii = canal[c];
+					if (ii < 0 || ii >= nImg || imgPath[(uint32)ii].Empty())
+						continue;
+					if (demo::Demo3DHostProjMatSetMap(slot, c, imgPath[(uint32)ii].CStr()))
+						++posees;
+				}
+				if (gm.normalImage >= 0) {
+					float32 nrm = 1.f, emiF = 1.f;
+					demo::Demo3DHostProjMatChanStrength(slot, &nrm, &emiF);
+					demo::Demo3DHostProjMatSetChanStrength(slot, gm.normalScale, emiF);
+				}
+				// LA CARTE, puis le `.nkmat` : la carte porte le chemin, elle
+				// vient donc d'abord (meme ordre que « + Materiau »).
+				const int32 cb = st.CardAdd();
+				st.Card(cb).kind = 2;
+				st.Card(cb).parent = st.browserFolder;
+				st.Card(cb).sub = 0;
+				st.Card(cb).doc = 0;
+				st.Card(cb).srcNode = 0;
+				st.Card(cb).mat = slot + 1;
+				st.Card(cb).file[0] = 0;
+				NkBrowUniqueName(st, 2, st.browserFolder, nm, st.Card(cb).name,
+								 (uint32)NkModelerState::kCardNameCap);
+				// Le nom RETENU est celui de la carte : sans ca, deux imports du
+				// meme fichier donneraient deux cartes distinctes portant le meme
+				// nom cote materiau, et le panneau ne saurait plus les separer.
+				demo::Demo3DHostProjMatSetName(slot, st.Card(cb).name);
+				NkString errM;
+				const bool ecrit = NkProjectWriteCard(st.projectRoot, st, cb, &errM);
+				if (matNees)
+					++*matNees;
+				NkLog::Instance().Infof(
+					"[import] MESURE materiau : « %s » -> emplacement=%d carte=%d albedo=(%f, %f, %f) "
+					"rugosite=%f metal=%f textures posees=%d/4 fichier=%s",
+					st.Card(cb).name, slot, cb, alb[0], alb[1], alb[2], gm.roughnessFactor,
+					gm.metallicFactor, posees, ecrit ? st.Card(cb).file : "(non ecrit)");
+			}
+		}
+
 		/// Nomme un noeud DES DEUX COTES : l'application (customNames, ce que la
 		/// hierarchie affiche et ce que la capture ecrit dans le fichier) et
 		/// l'hote (le label qui nomme les fichiers produits par la sortie). La
@@ -323,6 +496,15 @@ namespace nkentseu {
 			}
 			const int32 scAvant = demo::Demo3DHostActiveScene();
 			demo::Demo3DHostSetActiveScene(scArchive);
+			// ── LES MATERIAUX ET LES TEXTURES, AVANT LES NOEUDS ─────────────
+			// Avant, parce qu'un noeud doit pouvoir recevoir son emplacement au
+			// moment ou il nait : `Demo3DHostCreateMeshNode` lui pose deja le
+			// materiau par DEFAUT, et repasser dessus apres coup demanderait de
+			// retrouver quel sous-mesh a fait quel noeud -- une seconde table a
+			// tenir d'accord avec la premiere.
+			NkVector<int32> matSlot; // materiau du FICHIER -> emplacement du PROJET
+			int32 texEcrites = 0, matNees = 0;
+			NkImportMaterials(st, data, stem, matSlot, &texEcrites, &matNees);
 			// Table globale -> local d'UNE tranche. Remise a -1 par liste des
 			// entrees touchees (jamais un balayage de tout le buffer par
 			// tranche).
@@ -431,6 +613,19 @@ namespace nkentseu {
 						break;
 					}
 					NkImpNodeName(st, n, snm);
+					// ── LE MATERIAU DE LA TRANCHE ────────────────────────────
+					// `subMeshMaterial` est PARALLELE a `subMeshes` : c'est le
+					// fichier qui dit quelle matiere va sur quelle tranche, on ne
+					// le devine pas. -1 = la tranche n'en declare aucun, et le
+					// materiau par defaut pose a la naissance reste le bon.
+					{
+						const int32 si = mo.firstSub + s;
+						const int32 fm = (si < (int32)data.subMeshMaterial.Size())
+											 ? data.subMeshMaterial[(uint32)si]
+											 : -1;
+						if (fm >= 0 && fm < (int32)matSlot.Size() && matSlot[(uint32)fm] >= 0)
+							demo::Demo3DHostProjMatAssign(n, matSlot[(uint32)fm]);
+					}
 					if (direct) {
 						// UN OBJET ORDINAIRE, pas un « maillage interne » : le
 						// drapeau IsMesh veut dire « matiere d'un model » -- la
@@ -524,11 +719,16 @@ namespace nkentseu {
 							 cartes, fichiers, cartes,
 							 errEcr.Empty() ? "non precisee" : errEcr.CStr());
 			else
+				// LE BANDEAU DIT CE QUI EST ENTRE, Y COMPRIS QUAND C'EST ZERO --
+				// et c'est deliberé. « 0 materiau(x) » sur un fichier qui n'en
+				// porte pas est une INFORMATION : c'est exactement ce qui aurait
+				// evite a Rodolf de lire son mannequin gris comme un defaut de
+				// l'import, alors que son .glb ne declare aucun materiau.
 				NkImportNote(st, NkToastKind::Succes,
-							 "Import reussi : %d model(s), %d maillage(s), %d fichier(s) .nkmesh ecrit(s) "
-							 "dans le projet. Ils sont dans le NAVIGATEUR -- glissez une carte vers la "
-							 "scene pour la poser.",
-							 modelsNes, noeudsNes, fichiers);
+							 "Import reussi : %d model(s), %d maillage(s), %d materiau(x), %d texture(s), "
+							 "%d fichier(s) .nkmesh ecrit(s) dans le projet. Ils sont dans le NAVIGATEUR "
+							 "-- glissez une carte vers la scene pour la poser.",
+							 modelsNes, noeudsNes, matNees, texEcrites, fichiers);
 			return modelsNes > 0;
 		}
 
