@@ -198,7 +198,12 @@ namespace nkentseu {
 			/// arbre de DOSSIERS ouvre, il ne renomme pas — la meme mesure que
 			/// NKCode/NkExplorer). Construite UNE fois : c'est un reglage du
 			/// composant, pas un etat.
-			const NkComponentInstance &EmbeddedTreeValues() {
+			/// ① (06/09) `defautOuvert` est le SEUL reglage variable : il vient du
+			/// parametre `tree_default_open` du navigateur, donc de son hote. Sans lui,
+			/// le rail prenait le defaut de la declaration de l'arbre (« tout deplie »)
+			/// pendant qu'un hote a chargement paresseux comptait l'inverse — deux
+			/// reponses opposees a « ce nœud est-il ouvert ? ».
+			const NkComponentInstance &EmbeddedTreeValues(bool defautOuvert) {
 				static NkComponentInstance inst(NkTreeViewDecl());
 				static bool init = false;
 				if (!init) {
@@ -210,6 +215,7 @@ namespace nkentseu {
 					inst.SetParam("activate_on_double_click", 1.f);
 					init = true;
 				}
+				inst.SetParam("default_open", defautOuvert ? 1.f : 0.f);
 				return inst;
 			}
 
@@ -403,6 +409,7 @@ namespace nkentseu {
 			struct TreeBridge {
 					NkContentBrowserResult *res = nullptr;
 					const NkContentBrowserHooks *hooks = nullptr;
+					const NkTreeViewModel *folders = nullptr;
 			};
 			void TreeOnSelect(void *user, int32 index, const char *id) {
 				TreeBridge *b = (TreeBridge *)user;
@@ -410,6 +417,22 @@ namespace nkentseu {
 				if (b->hooks->onNavigate)
 					b->hooks->onNavigate(b->hooks->user, id ? id : "");
 				(void)index;
+			}
+			/// ② (06/09) LE CLIC DROIT DU RAIL, RELAYE. Il ne l'etait pas du tout : le pont
+			/// ne branchait que `onSelect`, donc un clic droit sur un dossier du rail
+			/// n'arrivait nulle part. Rodolf : « dans le panneau de gauche COMME dans celui
+			/// de droite, le clic droit doit ouvrir un menu ».
+			/// ⚠️ IL PORTE LE CHEMIN, pas l'index : l'index est celui de l'ARBRE, que l'hote
+			///    ne reconstruit pas forcement au meme moment. Un chemin reste vrai.
+			void TreeOnMenu(void *user, int32 index, float32 x, float32 y) {
+				TreeBridge *b = (TreeBridge *)user;
+				b->res->menuX = x;
+				b->res->menuY = y;
+				if (b->folders && index >= 0 && index < (int32)b->folders->nodes.Size())
+					b->res->menuCheminRail = b->folders->nodes[(uint32)index].path;
+				// index < 0 : le clic droit est tombe dans le VIDE du rail. On le rapporte
+				// quand meme (chemin vide) -- un menu « creer ici » y a du sens.
+				b->res->menuIndex = -1;
 			}
 
 		} // namespace
@@ -824,6 +847,7 @@ namespace nkentseu {
 					TreeBridge bridge;
 					bridge.res = &res;
 					bridge.hooks = &hooks;
+					bridge.folders = &m.folders;
 					NkTreeViewStyle ts;
 					ts.panelBg = s.headerBg;
 					ts.headerBg = s.headerBg;
@@ -839,10 +863,11 @@ namespace nkentseu {
 					ts.iconTint = s.folderTint;
 					ts.dimTint = s.textMuted;
 					ts.icons = s.treeIcons;
-					ts.values = &EmbeddedTreeValues();
+					ts.values = &EmbeddedTreeValues(P("tree_default_open") > 0.5f);
 					NkTreeViewHooks th;
 					th.user = &bridge;
 					th.onSelect = &TreeOnSelect;
+					th.onContextMenu = &TreeOnMenu;
 					const NkTreeViewResult tr = NkDrawTreeView(p, in, tree, m.folders, ts, th);
 					// ① On RELAIE, on ne peint pas : voir `NkContentBrowserResult::infobulle`.
 					if (!tr.infobulle.Empty()) {
@@ -1031,7 +1056,10 @@ namespace nkentseu {
 				const NkAssetEntry &e = m.entries[(uint32)hitIndex];
 				const char *path = e.path.Data() ? e.path.Data() : "";
 				if (in.mousePressed) {
-					if (in.ctrl) {
+					// ④ (06/09) L'ACCUMULATION EST UNE CAPACITE DECLAREE, pas un acquis du
+					//    geste : un dialogue « choisir UN fichier » doit refuser d'en retenir
+					//    plusieurs A L'INSTANT DU CLIC, et non a la confirmation.
+					if (in.ctrl && P("multi_select") > 0.5f) {
 						if (m.IsChosen(hitIndex)) {
 							for (uint32 k = 0; k < (uint32)m.chosen.Size(); ++k)
 								if (m.chosen[k] == hitIndex) {
@@ -1054,14 +1082,26 @@ namespace nkentseu {
 					if (hooks.onDoubleClick)
 						hooks.onDoubleClick(hooks.user, hitIndex, path);
 				}
-				if (in.rightPressed && hooks.onContextMenu)
-					hooks.onContextMenu(hooks.user, hitIndex, in.mouseX, in.mouseY);
+				if (in.rightPressed) {
+					// ② (06/09) ON LE RAPPORTE **ET** ON LE CRIE. Le crochet part comme
+					//    avant ; le resultat porte en plus l'endroit, pour l'hote qui doit
+					//    poser un menu et n'a pas de crochet a lui.
+					res.menuIndex = hitIndex;
+					res.menuX = in.mouseX;
+					res.menuY = in.mouseY;
+					if (hooks.onContextMenu)
+						hooks.onContextMenu(hooks.user, hitIndex, in.mouseX, in.mouseY);
+				}
 				if (in.dragReleased && e.isFolder && hooks.onDrop)
 					hooks.onDrop(hooks.user, hitIndex, in.dragType ? in.dragType : "");
-			} else if (in.rightPressed && area.Contains(in.mouseX, in.mouseY) && hooks.onContextMenu) {
+			} else if (in.rightPressed && area.Contains(in.mouseX, in.mouseY)) {
 				// Clic droit sur le FOND : `index = -1`, tel que la declaration
 				// l'annonce.
-				hooks.onContextMenu(hooks.user, -1, in.mouseX, in.mouseY);
+				res.menuIndex = -1;
+				res.menuX = in.mouseX;
+				res.menuY = in.mouseY;
+				if (hooks.onContextMenu)
+					hooks.onContextMenu(hooks.user, -1, in.mouseX, in.mouseY);
 			}
 
 			// ── DEFILEMENT ──────────────────────────────────────────────────────

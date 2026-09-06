@@ -411,6 +411,19 @@ namespace nkentseu {
 				/// voit : sur un dossier de 124 entrees, c'est une quinzaine au lieu de 124.
 				int32 premierVisible = -1;
 				int32 dernierVisible = -1;
+
+				// ── ② (2026-09-06) LE CLIC DROIT, RAPPORTE ET SITUE ─────────────────
+				// Le crochet `onContextMenu` existait deja — mais il ne dit RIEN du rail
+				// (l'arbre embarque ne relayait que la selection), et il ne dit pas SUR QUOI
+				// on a clique quand c'est un nœud de dossier plutot qu'une entree de la
+				// grille. Un hote qui doit ouvrir un menu a besoin des trois : quoi, ou, et
+				// dans quel volet.
+				// ⚠️ ADDITIF, ET INERTE POUR QUI L'IGNORE : `menuIndex` vaut -2 tant qu'aucun
+				//    clic droit n'a eu lieu, et les quatre consommateurs existants ne lisent
+				//    pas ce champ. `onContextMenu` continue de partir exactement comme avant.
+				int32 menuIndex = -2;	 ///< -2 = aucun ; -1 = le FOND du volet ; >= 0 = une entree
+				NkString menuCheminRail; ///< non vide : le clic droit visait CE nœud du rail
+				float32 menuX = 0.f, menuY = 0.f;
 		};
 
 		// ── LA SIGNATURE TYPE ───────────────────────────────────────────────────
@@ -488,6 +501,22 @@ namespace nkentseu {
 				// fichiers) eteint celui-ci : deux commandes pour un reglage, c'est une
 				// de trop. Defaut 1 : le navigateur d'assets garde la sienne.
 				{"show_sort", "Bouton « Trier par »", NkParamKind::Bool, 1.f, 0.f, 0.f, nullptr, 0},
+				// ① (06/09) LE DEFAUT D'OUVERTURE DU RAIL, TRANSMIS A L'ARBRE EMBARQUE.
+				// L'arbre porte deja `default_open` ; le navigateur ne le lui passait PAS, donc
+				// le rail prenait le defaut de la DECLARATION de l'arbre (1 = tout deplie). Un
+				// hote qui charge ses sous-dossiers a la demande -- le selecteur de fichiers --
+				// voyait alors TOUS ses chevrons dessines « ouverts » alors que rien ne l'etait,
+				// et le sens du clic etait inverse entre le peintre et lui.
+				// ⚠️ DEFAUT 1 : le navigateur d'assets ne bouge pas d'un pixel. Seul l'hote qui
+				//    le met a 0 change de comportement, et il le fait en le disant.
+				{"tree_default_open", "Rail : nœuds dépliés par défaut", NkParamKind::Bool, 1.f, 0.f,
+				 0.f, nullptr, 0},
+				// ④ (06/09) LE CTRL+CLIC ACCUMULE-T-IL ? Il le faisait SANS CONDITION, y
+				// compris dans un dialogue « choisir UN fichier » : l'utilisateur en
+				// selectionnait cinq, la confirmation en gardait un, et rien ne le disait.
+				// ⚠️ DEFAUT 1 : le navigateur d'assets garde sa selection multiple.
+				{"multi_select", "Ctrl+clic ajoute à la sélection", NkParamKind::Bool, 1.f, 0.f, 0.f,
+				 nullptr, 0},
 			};
 			static const NkTokenDecl kTokens[] = {
 				{"panel_bg", "PanelBg", "fond du panneau"},
