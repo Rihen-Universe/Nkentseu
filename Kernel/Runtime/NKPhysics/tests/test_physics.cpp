@@ -20,6 +20,7 @@ static int g_pass = 0, g_fail = 0;
 	} while (0)
 
 int RunClothTests(int &pass, int &fail); // test_cloth.cpp
+int RunEauTests(int &pass, int &fail);   // test_eau.cpp (2026-09-06, §6.6)
 int RunGarmentTests(int &pass, int &fail); // test_garment.cpp (vetements sur mannequin, 2026-09-05)
 
 static bool Near(float32 a, float32 b, float32 eps = 1e-3f) {
@@ -666,6 +667,9 @@ int main() {
 	RunClothTests(g_pass, g_fail);
 	// Vetements sur mannequin (2026-09-05) : temoins (h1)-(h7) dans test_garment.cpp, memes compteurs.
 	RunGarmentTests(g_pass, g_fail);
+	// L'eau au-dela du fluide (2026-09-06) : eclaboussures (§6.6 palier 1) et
+	// mouillage (paliers 2-3) -- temoins dans test_eau.cpp, memes compteurs.
+	RunEauTests(g_pass, g_fail);
 
 	logger.Info("=== NKPhysics : {0} passes, {1} echecs ===\n", g_pass, g_fail);
 	return g_fail == 0 ? 0 : 1;

@@ -279,8 +279,14 @@ namespace nkentseu {
 			const float32 dts = dt / (float32)sub;
 			float32 itD = 0.f, itV = 0.f, rD = 0.f, rV = 0.f;
 			uint32 caps = 0, clamped = 0, warm = 0;
+			// Les contacts se CUMULENT sur les sous-pas (les autres statistiques se
+			// moyennent) : un impact qui arrive au 3e sous-pas ne doit pas être divisé.
+			uint32 cProp = 0, cPub = 0, cDrop = 0;
 			for (uint32 s = 0; s < sub; ++s) {
 				StepOnce(store, dts);
+				cProp += mStats.contactsProposed;
+				cPub += mStats.contactsPublished;
+				cDrop += mStats.contactsDropped;
 				itD += mStats.iterDensity;
 				itV += mStats.iterDivergence;
 				rD += mStats.residualDensity;
@@ -296,10 +302,78 @@ namespace nkentseu {
 			mStats.iterCapHits = caps;
 			mStats.speedClamped = clamped;
 			mStats.warmStarts = warm;
+			mStats.contactsProposed = cProp;
+			mStats.contactsPublished = cPub;
+			mStats.contactsDropped = cDrop;
 			mStats.subSteps = sub;
 			mStats.subStepsViscous = subVisc;
 			mStats.boundary = (uint32)mBound.Size();
 			mStats.ms = (float32)((::nkentseu::NkChrono::Now().nanoseconds - t0) / 1.0e6);
+		}
+
+		// =====================================================================
+		// PublishContact — le fluide DIT où il touche (2026-09-06, §6.6 palier 1).
+		//
+		// Les parois de ce solveur sont deux couches de particules fantômes (Akinci)
+		// posées autour de la boîte `boundsMin..boundsMax` ; le clamp de boîte n'est
+		// qu'un filet. La SURFACE, elle, est le plan de la boîte : c'est là qu'un
+		// contact a un sens géométrique, et c'est là qu'on projette l'événement.
+		//
+		// FRONT MONTANT + HYSTÉRÉSIS. Une particule dans la bande est marquée ; elle
+		// ne republie pas tant qu'elle n'est pas ressortie au-delà de
+		// contactBand x contactRelease. Sans ce débounce, les 4 000 particules posées
+		// au fond publieraient 4 000 événements par sous-pas -- la file déborderait
+		// en permanence et le compteur de perte, si juste soit-il, ne dirait plus rien.
+		// ⚠️ Conséquence assumée, dite : une particule qui entre dans la bande
+		// LENTEMENT (sous `contactMinSpeed`) est marquée sans publier ; si elle
+		// accélère ensuite contre la paroi sans en être sortie, son impact est manqué.
+		// Le cas n'existe pas pour une chute (on entre à la vitesse d'impact) ; il
+		// existerait pour un corps qui pousse le fluide contre un mur. Nommé.
+		// =====================================================================
+		void NkSPHSolver::PublishContact(uint32 slot, const NkVec3f &p, const NkVec3f &v) {
+			if (!publishContacts || contacts == nullptr || slot >= (uint32)mInContact.Size())
+				return;
+			const float32 band = params.contactBand > 0.f ? params.contactBand : 0.5f * params.h;
+			const NkVec3f bmin = params.boundsMin, bmax = params.boundsMax;
+			const float32 d[6] = {p.x - bmin.x, bmax.x - p.x, p.y - bmin.y,
+								  bmax.y - p.y, p.z - bmin.z, bmax.z - p.z};
+			static const NkVec3f kN[6] = {{1.f, 0.f, 0.f}, {-1.f, 0.f, 0.f}, {0.f, 1.f, 0.f},
+										  {0.f, -1.f, 0.f}, {0.f, 0.f, 1.f}, {0.f, 0.f, -1.f}};
+			uint32 best = 0;
+			float32 dbest = d[0];
+			for (uint32 f = 1; f < 6; ++f)
+				if (d[f] < dbest) {
+					dbest = d[f];
+					best = f;
+				}
+			if (dbest > band * params.contactRelease) {
+				mInContact[(size_t)slot] = 0;
+				return;
+			}
+			if (dbest > band)
+				return; // entre les deux seuils : ni entrée ni sortie (hystérésis)
+			if (mInContact[(size_t)slot])
+				return; // déjà dedans : pas de front montant
+			mInContact[(size_t)slot] = 1;
+			const NkVec3f n = kN[best];
+			const float32 vn = -(v.x * n.x + v.y * n.y + v.z * n.z); // approche > 0
+			if (vn <= params.contactMinSpeed)
+				return;
+			math::NkContactEvent ev;
+			// Le point sur la SURFACE, pas la position de la particule : on retire la
+			// distance signée le long de la normale intérieure.
+			ev.position = p - n * dbest;
+			ev.normal = n;
+			ev.velocity = v;
+			ev.normalSpeed = vn;
+			ev.time = mTime;
+			ev.index = slot;
+			ev.surface = best + 1u; // 1..6 = la face touchée ; 0 reste « non renseigné »
+			++mStats.contactsProposed;
+			if (contacts->Push(ev))
+				++mStats.contactsPublished;
+			else
+				++mStats.contactsDropped;
 		}
 
 		void NkSPHSolver::StepOnce(NkParticleStoreCPU &store, float32 dt) {
@@ -312,6 +386,16 @@ namespace nkentseu {
 			mStats.speedClamped = 0;
 			mStats.clumped = 0;
 			mStats.warmStarts = 0;
+			mStats.contactsProposed = 0;
+			mStats.contactsPublished = 0;
+			mStats.contactsDropped = 0;
+			// L'état « déjà dans la bande » vit par EMPLACEMENT du stockage, comme le
+			// kappa du démarrage à chaud : un emplacement réutilisé par une nouvelle
+			// particule repart à zéro parce que Resize met à zéro les cases neuves --
+			// mais une naissance dans un emplacement RECYCLÉ hériterait du drapeau.
+			// Dit, et sans conséquence ici : le fluide de ce lot ne meurt pas.
+			if (mInContact.Size() != (size_t)store.capacity)
+				mInContact.Resize((size_t)store.capacity, (uint8)0);
 
 			// 1) vivantes ; positions et vitesses de travail
 			mAlive.Clear();
@@ -618,6 +702,10 @@ namespace nkentseu {
 				p.x += v.x * dt;
 				p.y += v.y * dt;
 				p.z += v.z * dt;
+				// LES CONTACTS SONT PUBLIÉS ICI, avec la vitesse d'AVANT le filet de
+				// boîte : c'est la vitesse d'impact, celle dont l'éclaboussure a besoin.
+				// Après les trois lignes qui suivent, elle est déjà réfléchie.
+				PublishContact(i, p, v);
 				const float32 e = -params.restitution;
 				if (p.x < bmin.x) { p.x = bmin.x; v.x *= e; }
 				if (p.x > bmax.x) { p.x = bmax.x; v.x *= e; }
