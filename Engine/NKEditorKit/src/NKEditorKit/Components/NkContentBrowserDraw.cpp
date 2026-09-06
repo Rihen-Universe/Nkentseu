@@ -601,6 +601,15 @@ namespace nkentseu {
 				// qu'il est pose (contournement nomme en tete de fichier).
 				if (in.mousePressed)
 					m.searchFocused = searchBox.Contains(in.mouseX, in.mouseY);
+				// ② (06/09) ET ON RAPPORTE SA GEOMETRIE. Sans elle, « l'hote ecrit
+				//    dans filter » etait une phrase, pas un chemin : aucun hote ne
+				//    savait ou poser son champ de saisie. Le rectangle rapporte est
+				//    EXACTEMENT celui qui vient d'etre peint -- la meme variable, pas
+				//    un second calcul qui pourrait deriver.
+				res.rechercheX = searchBox.x;
+				res.rechercheY = searchBox.y;
+				res.rechercheW = searchBox.w;
+				res.rechercheH = searchBox.h;
 
 				// LE FIL D'ARIANE, entre les boutons et la recherche, cliquable —
 				// clippe a sa zone : un chemin profond ne doit pas traverser la
@@ -883,6 +892,14 @@ namespace nkentseu {
 			// ── LE CORPS : colonne de dossiers + vue d'assets ───────────────────
 			const float32 statusH = showStatus ? M("status_h") : 0.f;
 			const float32 bodyBottom = rect.y + rect.h - statusH;
+			// ① (06/09) LE BORD SUPERIEUR DES DEUX VOLETS, RAPPORTE A L'HOTE.
+			//    `contentTop` a ete descendu par CHAQUE rangee pleine largeur
+			//    REELLEMENT dessinee -- barre d'outils, fil d'Ariane minimal, puces de
+			//    filtre, rangee d'information. C'est donc le seul nombre qui reste juste
+			//    quand une rangee s'ajoute ou disparait, et c'est le MEME que celui du
+			//    trait `VLine` peint plus bas entre les deux volets.
+			res.panneauxY = contentTop;
+			res.panneauxH = bodyBottom - contentTop;
 			float32 gridX = rect.x;
 			float32 gridW = rect.w;
 			if (showTree) {

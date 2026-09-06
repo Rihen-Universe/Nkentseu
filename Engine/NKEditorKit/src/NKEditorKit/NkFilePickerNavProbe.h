@@ -1351,8 +1351,144 @@ namespace nkentseu {
 					Verifier(b, versLeRail, "8f", detail);
 				}
 
+				// ══ Famille 9 — S9 ① le bord des deux volets, ② la recherche ═══════
+				//
+				// ① LE TEMOIN EXIGE PAR RODOLF, MOT POUR MOT : « le rectangle du
+				//    separateur et le rectangle des panneaux ont-ils le meme bord
+				//    superieur ? » -- PAS « le trait mesure 410 px ». Une hauteur en dur
+				//    redeviendrait fausse a la prochaine rangee ajoutee ; une EGALITE
+				//    entre deux rectangles reste vraie quel que soit le nombre de
+				//    rangees pleine largeur.
+				//
+				// ⚠️ CE QUE CETTE FAMILLE NE PROUVE PAS, et il faut le lire avant de
+				//    croire son vert : elle mesure ce que le VOLET rapporte et ce que le
+				//    VOLET peint. La poignee bleue, elle, est peinte par l'HOTE
+				//    (`NkDrawFilePickerNav`), qui reclame un `NkGuiContext` et une police
+				//    -- hors de portee de ce banc. Ce qui est prouve ici, c'est que le
+				//    nombre que l'hote lit est le bon ; que l'hote le lise bien se voit a
+				//    l'ecran, et c'est un geste humain.
+				printf("\nFamille 9 — S9 ① le bord des deux volets, ② la boite de recherche\n");
+				{
+					NkFilePickerNavState f9;
+					f9.OpenPickerBase(NkFilePickerState::PK_SaveFile, terrain.racine.CStr(), nullptr,
+									  0, terrain.racine.CStr(), nullptr);
+					f9.RelireDossier();
+					f9.SuivreLeDepliage();
+					const NkContentBrowserResult r9 = banc.Image(f9, Repos());
+
+					// ── 9a — LE BORD RAPPORTE EST SOUS LE HAUT DE LA ZONE ───────────
+					// Une RELATION, pas un nombre : des rangees pleine largeur existent,
+					// donc le corps commence STRICTEMENT plus bas que la zone. Si un jour
+					// elles disparaissent toutes, l'essai le dira au lieu de mentir.
+					snprintf(detail, sizeof(detail),
+							 "le corps commence sous le haut de la zone (panneauxY = %.1f, "
+							 "zone.y = %.1f, ecart = %.1f px de rangees pleine largeur)",
+							 (double)r9.panneauxY, (double)banc.zone.y,
+							 (double)(r9.panneauxY - banc.zone.y));
+					Verifier(b, r9.panneauxY > banc.zone.y + 0.5f, "9a", detail);
+
+					// ── 9b — LE BORD RAPPORTE = LE BORD DU TRAIT DE SEPARATION ──────
+					// LE temoin de S9. Le trait est le `VLine` que le volet peint entre
+					// ses deux moities ; on le LIT dans le flux, on ne le recalcule pas.
+					float32 sepY = -1.f, sepH = -1.f, sepX = -1.f;
+					for (uint32 i = 0; i < (uint32)banc.rec.cmds.Size(); ++i) {
+						const NkPaintCmd &c = banc.rec.cmds[i];
+						if (c.op != NkPaintOp::VLine)
+							continue;
+						if (!PresqueEgal(c.x, banc.zone.x + banc.railW, 1.5f))
+							continue;
+						sepX = c.x;
+						sepY = c.y;
+						sepH = c.h;
+						break;
+					}
+					snprintf(detail, sizeof(detail),
+							 "le trait de separation existe dans le flux (x = %.1f, attendu %.1f)",
+							 (double)sepX, (double)(banc.zone.x + banc.railW));
+					Verifier(b, sepY >= 0.f, "9b", detail);
+
+					snprintf(detail, sizeof(detail),
+							 "MEME BORD SUPERIEUR : separateur y = %.1f, panneaux y = %.1f "
+							 "(ecart %.2f px) ; hauteurs %.1f et %.1f",
+							 (double)sepY, (double)r9.panneauxY, (double)(sepY - r9.panneauxY),
+							 (double)sepH, (double)r9.panneauxH);
+					Verifier(b, sepY >= 0.f && PresqueEgal(sepY, r9.panneauxY, 0.6f)
+									 && PresqueEgal(sepH, r9.panneauxH, 0.6f),
+							 "9c", detail);
+
+					// ── 9d — ET LE RAIL COMMENCE AU MEME ENDROIT ────────────────────
+					// Deuxieme lecture de la meme grandeur, par un chemin different : le
+					// rognage que l'arbre pousse sur sa zone. Deux mesures qui tombent
+					// sur le meme nombre sont plus fortes qu'une seule repetee.
+					Tranche t9 = TrancheDuRail(banc.rec, banc.zone.x, banc.railW);
+					const float32 railY = t9.trouve ? banc.rec.cmds[t9.debut].y : -1.f;
+					snprintf(detail, sizeof(detail),
+							 "le rail commence au meme bord (rail y = %.1f, panneaux y = %.1f)",
+							 (double)railY, (double)r9.panneauxY);
+					Verifier(b, t9.trouve && PresqueEgal(railY, r9.panneauxY, 0.6f), "9d", detail);
+
+					// ── 9e — LA BOITE DE RECHERCHE EST RAPPORTEE, ET AU BON ENDROIT ──
+					// On ne compare PAS le rapport a lui-meme : on cherche dans le flux le
+					// remplissage qui a REELLEMENT ete peint a ces coordonnees. Un
+					// composant qui rapporterait un rectangle sans le peindre echoue ici.
+					bool boitePeinte = false;
+					for (uint32 i = 0; i < (uint32)banc.rec.cmds.Size(); ++i) {
+						const NkPaintCmd &c = banc.rec.cmds[i];
+						if (c.op != NkPaintOp::Fill)
+							continue;
+						if (PresqueEgal(c.x, r9.rechercheX, 0.6f) && PresqueEgal(c.y, r9.rechercheY, 0.6f)
+							&& PresqueEgal(c.w, r9.rechercheW, 0.6f)
+							&& PresqueEgal(c.h, r9.rechercheH, 0.6f)) {
+							boitePeinte = true;
+							break;
+						}
+					}
+					snprintf(detail, sizeof(detail),
+							 "le rectangle rapporte tombe sur une boite REELLEMENT peinte "
+							 "(%.1f, %.1f, %.1f x %.1f)",
+							 (double)r9.rechercheX, (double)r9.rechercheY, (double)r9.rechercheW,
+							 (double)r9.rechercheH);
+					Verifier(b, r9.rechercheW > 1.f && boitePeinte, "9e", detail);
+
+					// ── 9f/9g — LE FILTRE EST HONORE PAR LE DESSIN ──────────────────
+					// La question de S9 etait « laquelle des trois causes » : le champ ne
+					// recoit pas la frappe, personne ne lit sa valeur, ou le filtre ne
+					// s'applique pas. Ces deux essais eteignent la TROISIEME : ecrite dans
+					// `filter`, la valeur change ce que la grille peint. Ce qui restait
+					// etait donc la premiere, et c'est elle qui a ete corrigee.
+					//
+					// ⚠️ ON REGARDE LA GRILLE, PAS LE RAIL : « beta » est aussi un nœud du
+					//    rail, qu'aucun filtre ne doit toucher (un filtre sert a trouver
+					//    un fichier, pas a mutiler l'arborescence).
+					const float32 xGrille = banc.zone.x + banc.railW + 2.f;
+					auto dansLaGrille = [&](const char *lib) -> bool {
+						for (uint32 i = 0; i < (uint32)banc.rec.cmds.Size(); ++i) {
+							const NkPaintCmd &c = banc.rec.cmds[i];
+							if (c.op == NkPaintOp::Text && c.x > xGrille
+								&& NkComponentDecl::StrEq(c.text.CStr(), lib))
+								return true;
+						}
+						return false;
+					};
+					const bool alphaAvant = dansLaGrille("alpha");
+					const bool betaAvant = dansLaGrille("beta");
+					snprintf(detail, sizeof(detail),
+							 "sans filtre, la grille montre alpha (%s) ET beta (%s)",
+							 alphaAvant ? "oui" : "NON", betaAvant ? "oui" : "NON");
+					Verifier(b, alphaAvant && betaAvant, "9f", detail);
+
+					NkFilePickerState::CopyTo(f9.vue.filter, "alph", (int32)sizeof(f9.vue.filter));
+					banc.Image(f9, Repos());
+					const bool alphaApres = dansLaGrille("alpha");
+					const bool betaApres = dansLaGrille("beta");
+					snprintf(detail, sizeof(detail),
+							 "filter = « alph » : alpha reste (%s) et beta disparait (%s)",
+							 alphaApres ? "oui" : "NON", betaApres ? "NON — il est encore la" : "oui");
+					Verifier(b, alphaApres && !betaApres, "9g", detail);
+				}
+
 				terrain.Retirer();
-				printf("  -- familles 5 a 8 : %d/%d\n", b.ok, b.total);
+				printf("  -- familles 5 a 9 : %d/%d\n", b.ok, b.total);
 				return b;
 			}
 

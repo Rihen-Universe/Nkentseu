@@ -2179,6 +2179,22 @@ namespace nkentseu {
 			//    Voir le bloc « L'INCRUSTATION SE PEINT EN DERNIER » a la fin.
 			NkString bulle;
 			float32 bulleX = 0.f, bulleY = 0.f, bulleH = 0.f;
+			// ① (06/09) OU COMMENCENT LES DEUX VOLETS. Releve du volet, utilise plus bas
+			//    par la POIGNEE de partage. Le repli est la zone entiere : c'est
+			//    exactement le comportement d'avant, donc rien ne casse si le volet
+			//    n'etait pas dessine.
+			float32 panneauxY = zone.y, panneauxH = zone.h;
+			// ② (06/09) LA BOITE DE RECHERCHE, telle que le volet l'a reservee. `w == 0`
+			//    veut dire « pas de boite » — l'hote n'y peint alors rien.
+			NkRect recherche = {0.f, 0.f, 0.f, 0.f};
+			// ② UN SEUL CHAMP EDITE A LA FOIS, ET LE VOLET NE PEUT PAS LE SAVOIR. Quand
+			//    un champ du CADRE vient d'etre clique, `in.mousePressed` est eteint pour
+			//    le volet (`click && !fieldClicked`) : il ne verra donc pas le clic et ne
+			//    reprendra pas le focus de sa boite de recherche tout seul. On le lui
+			//    retire ici. Sans cette ligne, cliquer le champ de chemin laisserait DEUX
+			//    champs focalises et la frappe partirait dans les deux.
+			if (fieldClicked)
+				fp.vue.searchFocused = false;
 			{
 				// ④ Le volet se tait sur ce que ce mode n'exige pas -- un seul site, nomme.
 				NkContentBrowserStyle volet = sty.volet;
@@ -2261,6 +2277,19 @@ namespace nkentseu {
 					NkDrawContentBrowser(peintre, in, {zone.x, zone.y, zone.w, zone.h}, fp.vue,
 										 volet, h);
 				nkgui::PopOverlay(ctx);
+				// ① (06/09) LE HAUT DES DEUX VOLETS, RELEVE. La poignee de partage se
+				//    posait sur `zone`, qui contient AUSSI les rangees pleine largeur du
+				//    volet (fil d'Ariane, filtres, compteur) : le trait bleu traversait
+				//    donc le fil d'Ariane, coupant « Nkentseu » de « Nkentseu-merge » sur
+				//    la capture de Rodolf. Le volet est le seul a savoir ou ses rangees
+				//    s'arretent -- il le dit maintenant, et on le lit.
+				if (res.panneauxH > 0.f) {
+					panneauxY = res.panneauxY;
+					panneauxH = res.panneauxH;
+				}
+				// ② (06/09) LA BOITE DE RECHERCHE, RELEVEE POUR ETRE VRAIMENT SAISIE.
+				if (res.rechercheW > 0.f)
+					recherche = {res.rechercheX, res.rechercheY, res.rechercheW, res.rechercheH};
 				// ── VIDE OU PLEIN : SEULEMENT CE QUI EST A L'ECRAN (05/09, v5) ─────
 				// Le volet vient de dire quelles entrees il a REELLEMENT dessinees. On ne
 				// sonde que celles-la : sur un dossier de 124 entrees, c'est la quinzaine
@@ -2412,8 +2441,13 @@ namespace nkentseu {
 			// ② LA POIGNEE : une bande verticale entre les deux volets. Elle est plus large
 			//    que le trait qu'elle deplace (8 px contre 1) -- une poignee qu'il faut
 			//    viser au pixel n'est pas une poignee.
+			// ① (06/09) ELLE COMMENCE OU LES VOLETS COMMENCENT, PAS OU LA ZONE COMMENCE.
+			//    `panneauxY/H` viennent du volet lui-meme (voir plus haut) : c'est le
+			//    MEME bord que celui de son trait de separation. Une hauteur en dur
+			//    aurait ete juste ce soir et fausse a la prochaine rangee ajoutee --
+			//    c'est precisement comme ca que le defaut est ne.
 			{
-				const NkRect p = {zone.x + fp.largeurRail - 4.f * S, zone.y, 8.f * S, zone.h};
+				const NkRect p = {zone.x + fp.largeurRail - 4.f * S, panneauxY, 8.f * S, panneauxH};
 				const bool surP = hit(p);
 				if (surP || fp.railGlisse)
 					dl.AddRectFilled({p.x + 3.f * S, p.y, 2.f * S, p.h}, sty.cadre.accent);
@@ -2423,6 +2457,47 @@ namespace nkentseu {
 					fp.largeurRail = mp.x - zone.x;
 				if (!ctx.input.mouseDown[0])
 					fp.railGlisse = false;
+			}
+
+			// ── ② LA BARRE DE RECHERCHE, ENFIN SAISISSABLE (06/09) ──────────────
+			// LA CAUSE, MESUREE AVANT D'ECRIRE : des trois possibles, c'est la
+			// PREMIERE. Le champ ne recevait pas la frappe. `NkContentBrowserModel`
+			// porte `filter` ET `searchFocused` ; `NkDrawContentBrowser` POSAIT le
+			// focus au clic et APPLIQUAIT deja `PassesFilter` a la liste visible ;
+			// mais `NkComponentInput` n'a aucune entree clavier, et un `grep` sur tout
+			// le depot ne trouvait AUCUN ecrivain de `fp.vue.filter`. Le filtrage
+			// n'etait donc pas casse : il n'avait jamais rien a filtrer.
+			//
+			// ⚠️ ON NE REECRIT PAS UN CHAMP : c'est `NkOverlayTextField`, le meme que le
+			//    champ de chemin et le champ de nom -- caret, selection, copier/coller.
+			//    Le volet a RESERVE la place et l'a rapportee ; l'hote peint dedans.
+			//    C'est la forme deja etablie pour l'infobulle et les deux gouttieres.
+			//
+			// ⚠️ CE QUE « CHERCHER » VEUT DIRE ICI, ET C'EST UN CHOIX : **le dossier
+			//    courant seulement**. Le filtre porte sur `vue.entries`, deja en
+			//    memoire -- cout : zero acces disque, une comparaison par entree
+			//    affichee. Descendre dans les sous-dossiers couterait un parcours
+			//    recursif A CHAQUE FRAPPE (le dossier de la capture porte 120 entrees
+			//    au premier niveau ; sous `D:/Projets` c'est plusieurs dizaines de
+			//    milliers), donc un cache, un fil d'execution et une annulation. Ce
+			//    n'est pas la meme fonctionnalite, et elle n'est PAS livree ici.
+			// ⚠️ UN SEUL DECIDEUR DU FOCUS, et ce n'est pas ici : c'est le volet qui
+			//    POSE `searchFocused` au clic dans la boite et le REPREND au clic
+			//    ailleurs. Le redecider ici ferait deux reponses pour un meme geste.
+			if (recherche.w > 0.f) {
+				if (fp.vue.searchFocused) {
+					// Le focus est exclusif : les trois autres champs le lachent.
+					fp.pickerEditing = false;
+					fp.pickerSaveFocus = false;
+					fp.nouveauFocus = false;
+				}
+				NkOverlayTextField(ctx, dl, f, recherche, fp.vue.filter,
+								   (int32)sizeof(fp.vue.filter), fp.vue.searchFocused);
+				// L'INVITE : le volet l'a peinte, le champ l'a recouverte. On la
+				// repose ici — meme geste que sous le champ de creation de dossier.
+				if (!fp.vue.filter[0] && !fp.vue.searchFocused)
+					text(recherche.x + 8.f * S, recherche.y + (recherche.h - lh) * 0.5f,
+						 "Rechercher...", sty.cadre.sub);
 			}
 
 			// ── LE BAS : le nom (mode enregistrer), puis Annuler / Confirmer ────

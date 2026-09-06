@@ -511,6 +511,43 @@ namespace nkentseu {
 				///    l'annulation. La meme separation que le renommage et le menu.
 				NkString deposeSource;
 				NkString deposeCible;
+
+				// ── ① (2026-09-06) LE BORD SUPERIEUR DES DEUX VOLETS ────────────────
+				// Rodolf : « le separateur vertical traverse le fil d'Ariane ». La cause
+				// n'est pas le trait : c'est que l'HOTE ne pouvait pas savoir OU les deux
+				// volets commencent. Il posait donc sa poignee sur `rect`, qui inclut les
+				// rangees PLEINE LARGEUR (barre d'outils + fil d'Ariane, puces de filtre,
+				// rangee d'information) -- des rangees que le composant ajoute ou retire
+				// selon ses parametres, et dont l'hote ne connait ni le nombre ni la
+				// hauteur.
+				//
+				// ⚠️ CE N'EST PAS UNE HAUTEUR, C'EST UN BORD. Une constante « 66 px »
+				//    aurait ete juste aujourd'hui et fausse a la prochaine rangee
+				//    ajoutee -- exactement le defaut qu'on repare. Ici, le composant
+				//    RAPPORTE ce qu'il vient de calculer, donc les deux ne peuvent plus
+				//    diverger : c'est le meme nombre que celui du trait `VLine` qu'il
+				//    peint lui-meme entre les deux volets.
+				//
+				// ⚠️ ADDITIF ET INERTE : un consommateur qui l'ignore ne change pas d'un
+				//    pixel -- rien n'est peint differemment, un champ de plus est rempli.
+				float32 panneauxY = 0.f; ///< bord SUPERIEUR de la zone a deux volets (ecran)
+				float32 panneauxH = 0.f; ///< sa hauteur (jusqu'au-dessus de la barre d'etat)
+
+				// ── ② (2026-09-06) LA BOITE DE RECHERCHE, RESERVEE ET RAPPORTEE ─────
+				// Rodolf : « la barre de recherche dans ce dialogue ne fonctionne pas ».
+				// LA CAUSE MESUREE est la premiere des trois : le champ ne recoit JAMAIS
+				// la frappe. `NkComponentInput` n'a pas d'entree clavier (dit en toutes
+				// lettres au champ `searchFocused` du modele), le composant se contente
+				// donc de POSER le focus au clic ; personne n'ecrivait ensuite dans
+				// `filter`. Le filtrage, lui, EXISTE et marche : `PassesFilter` est
+				// applique a la liste visible avant le tri.
+				//
+				// ⚠️ MEME FORME QUE L'INFOBULLE ET LES DEUX GOUTTIERES : le composant
+				//    reserve la place et rapporte le rectangle ; l'hote, qui a le
+				//    clavier (`NkOverlayTextField`, du VRAI clavier), y peint le champ et
+				//    ecrit dans `filter`. Aucun second chemin de saisie n'est ecrit.
+				/// w == 0 : cette variante n'a pas de boite de recherche (minimal).
+				float32 rechercheX = 0.f, rechercheY = 0.f, rechercheW = 0.f, rechercheH = 0.f;
 		};
 
 		// ── LA SIGNATURE TYPE ───────────────────────────────────────────────────
