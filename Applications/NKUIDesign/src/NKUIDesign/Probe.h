@@ -10722,6 +10722,92 @@ namespace nkuidesign {
 				  "et pose les centres a intervalle egal ; un noeud dont le parent agence ses enfants est LAISSE et la phrase le dit",
 				  gaucheOk && cleOk && pageOk && refuseDeux && repartirOk && refusDit && mesureExistant, det);
 		}
+		// ── 93b. ⑥ « BOUGE » VEUT DIRE QUE LA BOITE A BOUGE (inventaire du 07/09,
+		//    mesure 2, famille 2) ────────────────────────────────────────────────
+		//
+		// 🔴 LE DEFAUT : `ParentPlaceLibrement` acceptait `Free` **et** `Anchor`, or
+		//    la branche `Anchor` du solveur ne lit PAS `posX/posY` -- elle calcule la
+		//    place depuis les bords ancres. Le geste ecrivait donc une position que
+		//    rien ne relit, et COMPTAIT un deplacement qui n'avait pas lieu.
+		//    Deux endroits enoncaient des regles contradictoires sur un meme fait :
+		//    la section DISPOSITION traite la position comme CALCULEE sous un parent
+		//    `Anchor` (elle affiche des boites statiques), ALIGNER LA SELECTION la
+		//    traitait comme ECRITE.
+		//
+		// ⚠️ LE TEMOIN EST UNE RELATION, PAS UN COMPTE, et c'est deliberе : « tout
+		//    noeud compte comme bouge a vu SA BOITE bouger ». Un essai qui verifierait
+		//    `refuses == 1` serait a refaire le jour ou le solveur apprendrait a lire
+		//    `posX/posY` sous ancrage ; celui-ci resterait vrai et passerait au vert
+		//    tout seul, avec `bouges == 1`. C'est la regle d'arbitrage ecrite en essai :
+		//    *quand deux endroits se contredisent, celui qui S'EXECUTE a raison.*
+		{
+			char det[520];
+			static DesignState stAn;
+			stAn.doc.NewDocument("Toile", NkAuthor::Humain);
+			const int32 pg = stAn.doc.AddChild(0, "", NkAuthor::Humain);
+			{
+				NkUINode &p = stAn.doc.nodes[(uint32)pg];
+				p.shape = NkString("frame");
+				p.label = NkString("Page ancree");
+				p.layout.kind = NkLayoutKind::Anchor; // LE parent qui place lui-meme
+				p.width.mode = NkSizeMode::Fixed;
+				p.width.value = 400.f;
+				p.height.mode = NkSizeMode::Fixed;
+				p.height.value = 300.f;
+			}
+			auto poserAn = [&](float32 x, float32 y, uint8 bords, const char *nom) {
+				const int32 i = stAn.doc.AddChild(pg, "", NkAuthor::Humain);
+				NkUINode &n = stAn.doc.nodes[(uint32)i];
+				n.shape = NkString("rect");
+				n.label = NkString(nom);
+				n.posX = x;
+				n.posY = y;
+				n.anchorEdges = bords;
+				n.width.mode = NkSizeMode::Fixed;
+				n.width.value = 40.f;
+				n.height.mode = NkSizeMode::Fixed;
+				n.height.value = 20.f;
+				return i;
+			};
+			// ⚠️ DEUX BORDS DIFFERENTS, ET C'EST LE MONTAGE QUI COMPTE. Premiere
+			//    ecriture de cet essai : les deux noeuds ancres au MEME bord. Sous
+			//    ancrage leurs boites sont alors identiques, l'ecart a aligner vaut
+			//    zero, et `deplacer` rend la main avant tout -- ni bouge, ni refus.
+			//    L'essai etait ROUGE pour la mauvaise raison (« rien a deplacer ») et
+			//    n'exercait PAS le regime risque. *Une elimination ne vaut que si la
+			//    sonde a exerce le regime qu'elle elimine.*
+			const int32 u1 = poserAn(10.f, 10.f, nkanchor::Left | nkanchor::Top, "U1");
+			const int32 u2 = poserAn(120.f, 60.f, nkanchor::Right | nkanchor::Top, "U2");
+			stAn.Recompute(NkPaintRect{0.f, 0.f, 1400.f, 900.f});
+			const NkPaintRect avant1 = stAn.layout.At(u1), avant2 = stAn.layout.At(u2);
+			stAn.sel.Clear();
+			stAn.sel.Add(u1);
+			stAn.sel.Add(u2);
+			stAn.selected = u1;
+			const NkAlignResultat rA = NkAlignerSelection(stAn, NkAlignGeste::Droite, false);
+			stAn.Recompute(NkPaintRect{0.f, 0.f, 1400.f, 900.f});
+			const NkPaintRect apres1 = stAn.layout.At(u1), apres2 = stAn.layout.At(u2);
+			const uint32 boitesBougees = (uint32)((apres1.x != avant1.x || apres1.y != avant1.y) ? 1 : 0)
+										 + (uint32)((apres2.x != avant2.x || apres2.y != avant2.y) ? 1 : 0);
+			// LA RELATION : autant de boites deplacees que de noeuds annonces bouges.
+			const bool honnete = rA.bouges == boitesBougees;
+			// ET LE REFUS SE DIT, quand il y en a un -- un geste sans effet qui se tait
+			// est exactement ce qu'on repare.
+			const bool refusDit93b = (rA.bouges > 0u)
+									 || (rA.refuses > 0u
+										 && strstr(rA.message, "parent place ses enfants") != nullptr);
+			snprintf(det, sizeof(det),
+					 "parent en ANCRAGE : %u annonce(s) bouge(s), %u boite(s) reellement "
+					 "deplacee(s) (U1 x %.0f -> %.0f, U2 x %.0f -> %.0f), %u refuse(s) ; "
+					 "message : « %s »",
+					 rA.bouges, boitesBougees, (double)avant1.x, (double)apres1.x,
+					 (double)avant2.x, (double)apres2.x, rA.refuses, rA.message);
+			check("93b. ⑥ « DEPLACE » VEUT DIRE QUE LA BOITE A BOUGE : sous un parent en ANCRAGE, le solveur "
+				  "ne lit pas `posX/posY` -- le geste ne doit donc pas compter un deplacement qui n'a pas "
+				  "lieu. Le temoin est une RELATION (autant de boites deplacees que de noeuds annonces), pas "
+				  "un compte de refus : il resterait juste le jour ou le solveur apprendrait l'ancrage",
+				  honnete && refusDit93b, det);
+		}
 		// ── 94. ① L'APERCU PENDANT LE TRACE (05/09). Rodolf : « pourquoi quand on dessine un
 		//    graphique on voit juste le rectangle qui s'allonge, et des qu'on relache on voit la
 		//    forme ? » Deux mesures : LA TABLE DE GENRE (une seule, lue par le relachement et par

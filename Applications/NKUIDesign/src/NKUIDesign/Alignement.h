@@ -97,15 +97,35 @@ namespace nkuidesign {
 		using nkentseu::int32;
 		using nkentseu::uint32;
 
-		/// Le parent place-t-il ses enfants LIBREMENT (`free` / `anchor`) ?
+		/// Le parent LIT-IL `posX`/`posY` de ses enfants ? **`free` seulement.**
+		///
+		/// 🔴 `anchor` A ETE RETIRE LE 07/09, et c'est un ARBITRAGE, pas un reglage.
+		///    La branche `Anchor` du solveur (`Layout.h`) calcule la place depuis les
+		///    BORDS ancres : elle ne lit jamais `posX`/`posY`. Ecrire une position
+		///    la-bas revenait a poser une valeur que rien ne relit -- et le geste
+		///    COMPTAIT alors un deplacement qui n'avait pas lieu (temoin 93b :
+		///    « 1 annonce bouge, 0 boite reellement deplacee »).
+		///
+		/// ⚠️ DEUX ENDROITS ENONCAIENT DES REGLES CONTRAIRES SUR UN MEME FAIT : la
+		///    section DISPOSITION de l'inspecteur traite deja la position comme
+		///    CALCULEE sous un parent `Anchor` (elle affiche des boites statiques et
+		///    ecrit « calculee — jamais ecrite dans le document ») ; ce fichier la
+		///    traitait comme ECRITE. **Quand deux endroits se contredisent, celui qui
+		///    S'EXECUTE a raison** -- ici le solveur -- et l'autre ment. L'utilisateur
+		///    etait deja trompe : l'aligner sur le solveur ne lui retire rien, ca rend
+		///    visible ce qui etait deja vrai.
+		///
+		/// ⚠️ CE QUE CET ARBITRAGE FERME, ET IL FAUT LE SAVOIR MAINTENANT : si l'on
+		///    veut un jour que l'alignement agisse REELLEMENT sous un parent en
+		///    ancrage, ce sera un chantier de SOLVEUR (apprendre a composer un decalage
+		///    avec des bords ancres), pas un branchement de champ ici.
 		inline bool ParentPlaceLibrement(const NkUIDocument &doc, int32 i) {
 			if (!doc.IsValidIndex(i))
 				return false;
 			const int32 p = doc.nodes[(uint32)i].parent;
 			if (!doc.IsValidIndex(p))
 				return false;
-			const NkLayoutKind k = doc.nodes[(uint32)p].layout.kind;
-			return k == NkLayoutKind::Free || k == NkLayoutKind::Anchor;
+			return doc.nodes[(uint32)p].layout.kind == NkLayoutKind::Free;
 		}
 		/// La page d'un noeud : son ancetre direct sous la racine.
 		inline int32 PageDe(const NkUIDocument &doc, int32 i) {
