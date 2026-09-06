@@ -25,8 +25,7 @@
 // directement d'un user-input non valide, pour eviter command injection sur
 // Linux/macOS qui passent par system()).
 //
-// Auteur : Rihen / Nkentseu 2026
-// AUTEUR (ajout RevealFile, 2026-09-05) : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // =============================================================================
 
 namespace nkentseu {
@@ -57,6 +56,28 @@ namespace nkentseu {
 			///       fichier -- chaque gestionnaire a son option. On ouvre le DOSSIER, et
 			///       c'est dit ici plutot que decouvert.
 			static bool RevealFile(const char *filePath) noexcept;
+
+			/// LE CHEMIN DANS LA FORME QUE LE SYSTEME EXIGE (2026-09-06).
+			///
+			/// ⚠️ POURQUOI ELLE EST PUBLIQUE PLUTOT QUE CACHEE : les trois fonctions
+			///    ci-dessus l'utilisent, mais leur effet -- ce qui part vers
+			///    `ShellExecute` -- n'est observable par aucun banc. Une conversion
+			///    enfouie serait donc du code que rien ne peut faire rougir. Exposee,
+			///    elle se mesure ; et le defaut qu'elle corrige ne se remesure pas a la
+			///    main.
+			///
+			/// **Windows** : les barres OBLIQUES deviennent des CONTRE-OBLIQUES. Le
+			/// depot manipule ses chemins en `/` (`NkPath` normalise ainsi), or
+			/// `explorer.exe /select,"D:/a/b.png"` est une LIGNE DE COMMANDE : Windows
+			/// n'y reconnait pas la barre oblique, abandonne l'analyse et ouvre son
+			/// dossier par defaut **en rendant un succes**. C'est le defaut « ouvrir le
+			/// dossier ouvre le mauvais dossier ».
+			/// **Ailleurs** : copie a l'identique -- `/` EST le separateur.
+			///
+			/// @return false si le chemin ne tient pas dans `cap` (on REFUSE plutot que
+			///         de tronquer : un chemin tronque reste valide et designe autre
+			///         chose), ou si un argument est nul.
+			static bool ToNativePath(const char *path, char *out, unsigned long long cap) noexcept;
 	};
 
 } // namespace nkentseu

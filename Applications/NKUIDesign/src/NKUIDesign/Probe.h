@@ -11699,7 +11699,7 @@ namespace nkuidesign {
 			//    cliquable : deux calculs separes ont deja coute cher sur ce chantier.
 			const nkgui::NkRect reg102 = {0.f, 0.f, 1200.f, 700.f};
 			const DesignState::NkGeomAvisExport g102 =
-				DesignState::GeomAvisExport(reg102, 180.f, 90.f, true);
+				DesignState::GeomAvisExport(reg102, 180.f, 90.f, true, false);
 			auto dedans = [](const nkgui::NkRect &a, const nkgui::NkRect &b) {
 				return b.x >= a.x && b.y >= a.y && b.x + b.w <= a.x + a.w && b.y + b.h <= a.y + a.h;
 			};
@@ -11711,9 +11711,27 @@ namespace nkuidesign {
 					&& disjoints(g102.dossier, g102.fichier)
 					&& disjoints(g102.fichier, g102.fermer)
 					&& disjoints(g102.vignette, g102.dossier);
+			// ── 3bis. ⑤ (06/09) LES DEUX BANDEAUX NE SE RECOUVRENT PAS ──────────────
+			// ⚠️ CE QUE L'ESSAI 3 NE POUVAIT PAS VOIR, ET C'ETAIT LE DEFAUT REEL : il
+			//    verifiait la geometrie du bandeau CONTRE ELLE-MEME. Les deux bandeaux
+			//    etaient ancres au meme point ; l'avis court, peint AVANT, eteignait les
+			//    deux entrees sur ses 28 px de haut, ou vivent les trois boutons du
+			//    second. Les trois symptomes de Rodolf -- « ouvrir le dossier » sans
+			//    effet, « ouvrir le fichier » sans effet, « ca ne se ferme pas » -- sont
+			//    UN seul defaut, et il etait invisible a l'ecran (le second bandeau est
+			//    peint par-dessus le premier).
+			//    *Une geometrie juste chez elle peut etre fausse chez le voisin : un
+			//    controle qui ne compare qu'a soi ne voit jamais une collision.*
+			const nkgui::NkRect avis102 = DesignState::GeomBandeauAvis(reg102, 200.f);
+			const DesignState::NkGeomAvisExport gPile =
+				DesignState::GeomAvisExport(reg102, 180.f, 90.f, true, true);
+			const bool pileOk = disjoints(avis102, gPile.cadre)
+					&& disjoints(avis102, gPile.dossier) && disjoints(avis102, gPile.fichier)
+					&& disjoints(avis102, gPile.fermer)
+					&& gPile.cadre.y > g102.cadre.y; // il DESCEND, il ne se contente pas d'exister
 			// 4. SANS VIGNETTE, LE BANDEAU RETRECIT au lieu de garder un trou de 40 px
 			const DesignState::NkGeomAvisExport gSans =
-				DesignState::GeomAvisExport(reg102, 180.f, 90.f, false);
+				DesignState::GeomAvisExport(reg102, 180.f, 90.f, false, false);
 			const bool retreci = gSans.cadre.w < g102.cadre.w && gSans.vignette.w == 0.f;
 			// 5. LES DEUX PORTES PEUVENT ECHOUER, ET C'EST UN RESULTAT. On les appelle sur un
 			//    chemin VIDE : elles doivent rendre FAUX sans rien ouvrir ni planter -- c'est
@@ -11722,6 +11740,27 @@ namespace nkuidesign {
 			//    une sonde qui ouvre l'explorateur de Rodolf serait une sonde qui nuit.
 			const bool refusVide = !nkentseu::NkLauncher::OpenFile("") && !nkentseu::NkLauncher::RevealFile("")
 					&& !nkentseu::NkLauncher::OpenFile(nullptr);
+			// ── 5bis. ⑤ (06/09) LE CHEMIN QUI PART VERS LE SYSTEME ──────────────────
+			// ⚠️ CE QUI N'ETAIT MESURABLE PAR RIEN, ET C'EST POUR CA QUE LA FONCTION EST
+			//    PUBLIQUE : ce qui part vers `ShellExecute` n'est observable par aucun
+			//    banc. Le depot manipule ses chemins en barres OBLIQUES ; `explorer.exe
+			//    /select,"D:/a/b.png"` est une LIGNE DE COMMANDE que Windows n'analyse
+			//    pas, et il ouvre « Documents » EN RENDANT UN SUCCES. C'est « ouvrir le
+			//    dossier ouvre le mauvais dossier », mot pour mot.
+			// ⚠️ ET LE CONTROLE NEGATIF COMPTE AUTANT : un chemin trop long est REFUSE,
+			//    pas tronque -- un chemin tronque reste un chemin valide, et il designe
+			//    autre chose. Un « succes » y serait pire qu'un echec.
+			char natif[64] = {0};
+			const bool convOk = nkentseu::NkLauncher::ToNativePath("D:/a/b c.png", natif, sizeof(natif))
+#if defined(NKENTSEU_PLATFORM_WINDOWS)
+					&& NkComponentDecl::StrEq(natif, "D:\\a\\b c.png");
+#else
+					&& NkComponentDecl::StrEq(natif, "D:/a/b c.png");
+#endif
+			char court[6] = {0};
+			const bool refusLong = !nkentseu::NkLauncher::ToNativePath("D:/trop/long", court, sizeof(court))
+					&& !nkentseu::NkLauncher::ToNativePath(nullptr, natif, sizeof(natif))
+					&& !nkentseu::NkLauncher::ToNativePath("D:/x", nullptr, 8ull);
 			// 6. LE CHEMIN RESTE LISIBLE quoi qu'il arrive : c'est le repli exige.
 			st102.avisExport.echec = NkString("Le syst\u00e8me n'a pas pu ouvrir le dossier.");
 			const bool cheminGarde = !st102.avisExport.chemin.Empty()
@@ -11729,18 +11768,27 @@ namespace nkuidesign {
 			snprintf(det, sizeof(det),
 				"png source ecrit=%d ; bandeau : « %s » / « %s » -> %d ; vignette poignee %u, %d x %d relus du "
 				"DISQUE (et non 1240 x 620) -> %d ; geometrie : cadre %.0f x %.0f, boutons dedans et "
-				"disjoints -> %d ; sans vignette le cadre passe de %.0f a %.0f -> %d ; portes systeme sur "
-				"chemin vide : refus net=%d ; chemin garde=%d",
+				"disjoints -> %d ; PILE : l'avis court occupe y %.0f..%.0f, le bandeau d'export descend a "
+				"y %.0f (seul, il serait a %.0f) et aucun de ses boutons ne tombe dedans -> %d ; "
+				"sans vignette le cadre passe de %.0f a %.0f -> %d ; portes systeme sur "
+				"chemin vide : refus net=%d ; chemin garde=%d ; « D:/a/b c.png » part vers le systeme "
+				"en « %s » -> %d, et un tampon trop court est REFUSE (pas tronque) -> %d",
 				ecrit102 ? 1 : 0, st102.avisExport.titre, st102.avisExport.detail, poseOk ? 1 : 0,
 				st102.avisExport.vignette, st102.avisExport.vw, st102.avisExport.vh, vignetteOk ? 1 : 0,
-				(double)g102.cadre.w, (double)g102.cadre.h, geomOk ? 1 : 0, (double)g102.cadre.w,
-				(double)gSans.cadre.w, retreci ? 1 : 0, refusVide ? 1 : 0, cheminGarde ? 1 : 0);
+				(double)g102.cadre.w, (double)g102.cadre.h, geomOk ? 1 : 0,
+				(double)avis102.y, (double)(avis102.y + avis102.h), (double)gPile.cadre.y,
+				(double)g102.cadre.y, pileOk ? 1 : 0, (double)g102.cadre.w,
+				(double)gSans.cadre.w, retreci ? 1 : 0, refusVide ? 1 : 0, cheminGarde ? 1 : 0,
+				natif, convOk ? 1 : 0, refusLong ? 1 : 0);
 			check("102. ⑤ LE RESULTAT EXPORTE SE VOIT : un bandeau qui RESTE (le pied de fenetre, lui, disparaissait au geste "
 				"suivant) portant le NOM du fichier, ses DIMENSIONS, et la VIGNETTE DU FICHIER RELU DU DISQUE -- pas un "
 				"rendu de plus, donc un codec qui aurait mal ecrit se verrait ; une SEULE geometrie pour le bouton peint et "
-				"le bouton cliquable ; et les deux portes vers le systeme rendent FAUX plutot que de mentir, le chemin "
-				"restant lisible et copiable",
-				ecrit102 && poseOk && vignetteOk && geomOk && retreci && refusVide && cheminGarde, det);
+				"le bouton cliquable ; LES DEUX BANDEAUX NE SE RECOUVRENT PLUS (l'avis court mangeait le clic des trois "
+				"boutons de celui-ci) ; LE CHEMIN PART DANS LA FORME QUE LE SYSTEME EXIGE (des barres obliques faisaient "
+				"ouvrir le MAUVAIS dossier, avec un code de succes) ; et les deux portes vers le systeme rendent FAUX "
+				"plutot que de mentir, le chemin restant lisible et copiable",
+				ecrit102 && poseOk && vignetteOk && geomOk && pileOk && retreci && refusVide
+					&& cheminGarde && convOk && refusLong, det);
 			st102.images.televerser = nullptr;
 		}
 		// ── 103. ⑥ LE SELECTEUR EST L'OUTIL PAR DEFAUT, ET IL COUVRE LES QUATRE MODES
@@ -12459,7 +12507,17 @@ namespace nkuidesign {
 			uint32 mesures = 0u, colonnesMin = 999u;
 			for (int32 w = 700; w <= 1300; w += 37) {
 				NkRecordingPaint r111;
-				NkDrawContentBrowser(r111, in111, {0.f, 0.f, (float32)w, 560.f}, m111, sty111, h111);
+				const NkContentBrowserResult res111 = NkDrawContentBrowser(
+					r111, in111, {0.f, 0.f, (float32)w, 560.f}, m111, sty111, h111);
+				// ⚠️ LE BORD DE REFERENCE EST CELUI DE LA ZONE DE CONTENU, PAS CELUI DU
+				//    VOLET (corrige le 06/09). Depuis que la grille RESERVE une gouttiere
+				//    de defilement a droite, `w` n'est plus son bord droit : mesurer
+				//    contre `w` comptait la gouttiere comme une bande morte, et cet
+				//    essai est passe au rouge sur un changement voulu. Le composant est
+				//    le seul a connaitre sa geometrie -- on la lui demande
+				//    (`defilX` = la ou commence la gouttiere) au lieu de la deviner.
+				const float32 bordContenu111 =
+					res111.defilW > 0.f ? res111.defilX : (float32)w;
 				// les CARTES : les remplissages au role `card_bg`, dans le corps
 				const float32 hautCorps111 = NkContentBrowserDecl().Metric("toolbar_h")
 						 + NkContentBrowserDecl().Metric("filter_h")
@@ -12483,7 +12541,7 @@ namespace nkuidesign {
 				++mesures;
 				if (surLaRangee < colonnesMin)
 					colonnesMin = surLaRangee;
-				const float32 bande = (float32)w - droiteMax;
+				const float32 bande = bordContenu111 - droiteMax;
 				if (bande > pireBande) {
 					pireBande = bande;
 					largeurPire = (float32)w;

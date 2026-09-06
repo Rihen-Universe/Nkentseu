@@ -1456,21 +1456,60 @@ namespace nkuidesign {
 			};
 			NkAvisExport avisExport;
 
+			// ── LA PILE DES BANDEAUX D'INCRUSTATION (06/09) ─────────────────────
+			// ⚠️ DEFAUT MESURE, ET C'EST LE PLUS COUTEUX DES QUATRE DU DIALOGUE
+			//    D'APRES-EXPORT : les DEUX bandeaux etaient ancres au MEME point
+			//    (`region + 12, region + 12`). Le premier -- l'avis court -- est peint
+			//    avant et ETEINT les deux entrees sur son propre rectangle (28 px de
+			//    haut) ; les trois boutons du second vivent a `+16 .. +40` de son cadre,
+			//    donc DANS cette bande. « Ouvrir le dossier », « Ouvrir le fichier » et
+			//    la croix de fermeture voyaient donc un clic deja consomme -- exactement
+			//    les trois symptomes que Rodolf decrit (« ca ne fait rien », « ca ne se
+			//    ferme pas »).
+			//
+			//    Le second bandeau se voyait quand meme : il est peint APRES, donc
+			//    par-dessus. C'est ce qui rendait le defaut illisible -- rien ne
+			//    recouvrait rien A L'ECRAN, et le mangeur de clic etait invisible.
+			//
+			// ⚠️ LE REMEDE N'EST PAS D'INVERSER L'ORDRE : deux bandeaux au meme endroit
+			//    resteraient deux bandeaux au meme endroit, et le suivant qu'on ajoutera
+			//    repaiera la meme facture. **UN SEUL ENDROIT DECIDE QUI EST OU** -- une
+			//    pile, dont chaque etage connait la hauteur de celui du dessus. Le dessin
+			//    ET la sonde lisent la meme, comme pour les boutons du bandeau.
+			static constexpr float32 kBandeauX = 12.f;	  ///< marge gauche de la pile
+			static constexpr float32 kBandeauY = 12.f;	  ///< haut de la pile
+			static constexpr float32 kBandeauAvisH = 28.f; ///< hauteur de l'avis court
+			static constexpr float32 kBandeauEcart = 8.f;  ///< entre deux etages
+
+			/// L'ETAGE 1 : l'avis court. `lTexte` = la largeur mesuree du libelle.
+			static nkgui::NkRect GeomBandeauAvis(const nkgui::NkRect &region, float32 lTexte) {
+				float32 lb = lTexte + 28.f;
+				if (lb > region.w - 24.f)
+					lb = region.w - 24.f;
+				return {region.x + kBandeauX, region.y + kBandeauY, lb, kBandeauAvisH};
+			}
+
 			/// Les rectangles du bandeau, calcules UNE FOIS et lus par le dessin ET par la
 			/// sonde. Deux calculs separes auraient permis au bouton peint et au bouton
 			/// cliquable de diverger -- le defaut le plus cher de ce chantier.
 			struct NkGeomAvisExport {
 				nkgui::NkRect cadre, vignette, dossier, fichier, fermer;
 			};
+			/// L'ETAGE 2 : le resultat exporte. `avisPresent` DESCEND le bandeau d'un
+			/// etage -- il n'a PAS de valeur par defaut, et c'est delibere : une valeur
+			/// par defaut qui produit le defaut qu'on chasse le refabrique a chaque nouvel
+			/// appelant. L'appelant doit dire s'il y a un avis au-dessus de lui.
 			static NkGeomAvisExport GeomAvisExport(const nkgui::NkRect &region, float32 lTitre,
-						 float32 lDetail, bool avecVignette) {
+						 float32 lDetail, bool avecVignette, bool avisPresent) {
 				NkGeomAvisExport g;
 				const float32 h = 56.f, pad = 10.f;
 				const float32 lv = avecVignette ? 40.f : 0.f;
 				const float32 lTexte = (lTitre > lDetail ? lTitre : lDetail) + 8.f;
 				const float32 lb = pad + lv + (avecVignette ? pad : 0.f) + lTexte + pad + 120.f + 8.f
 						 + 118.f + 8.f + 20.f + pad;
-				g.cadre = {region.x + 12.f, region.y + 12.f, lb, h};
+				const float32 y = region.y + kBandeauY
+						 + (avisPresent ? kBandeauAvisH + kBandeauEcart : 0.f);
+				g.cadre = {region.x + kBandeauX, y, lb, h};
 				float32 x = g.cadre.x + pad;
 				g.vignette = {x, g.cadre.y + (h - 40.f) * 0.5f, lv, lv};
 				if (avecVignette)
@@ -4070,14 +4109,18 @@ namespace nkuidesign {
 				// Un controle dessine par-dessus se reclame AVANT ce qu'il recouvre
 				// (les deux entrees a eteindre), et se dessine dans la couche overlay
 				// pour rester au-dessus du document quel que soit l'ordre de peinture.
-				if (!mSt->avis.Empty() && ctx.popupDepth == 0) {
+				// ⚠️ LU AVANT que le bloc ne l'efface : cliquer l'avis le vide dans la
+				//    MEME image, et le bandeau d'export remonterait alors d'un etage sous
+				//    le curseur qui vient de cliquer. La pile se decide une fois par
+				//    image, jamais au milieu.
+				const bool avisPresent = !mSt->avis.Empty() && ctx.popupDepth == 0;
+				if (avisPresent) {
 					auto &Fa = costume::Fontes();
 					const nkgui::NkRect reg = ctx.layout.region;
 					const float32 lt = costume::Largeur(Fa.px11, mSt->avis.Data());
-					float32 lb = lt + 28.f;
-					if (lb > reg.w - 24.f)
-						lb = reg.w - 24.f;
-					const nkgui::NkRect rb = {reg.x + 12.f, reg.y + 12.f, lb, 28.f};
+					// ⑤ (06/09) LA PILE DECIDE, PAS LE BLOC : `GeomBandeauAvis` est lue
+					//    ici ET par la sonde. Voir « LA PILE DES BANDEAUX D'INCRUSTATION ».
+					const nkgui::NkRect rb = DesignState::GeomBandeauAvis(reg, lt);
 					const bool survol = NkGuiRectContains(rb, ctx.input.mousePos);
 					if (survol && in.mousePressed) {
 						mSt->avis = NkString(); // vu : il s'en va, et seulement comme ca
@@ -4108,8 +4151,11 @@ namespace nkuidesign {
 					const float32 lT = costume::Largeur(Fx.px11, mSt->avisExport.titre);
 					const float32 lD = costume::Largeur(Fx.px11, mSt->avisExport.detail);
 					const bool avecV = mSt->avisExport.vignette != 0u;
+					// ⑤ (06/09) UN ETAGE PLUS BAS QUAND L'AVIS COURT OCCUPE LE PREMIER.
+					//    Sans ce parametre, les deux bandeaux etaient au meme point et
+					//    l'avis mangeait le clic des trois boutons de celui-ci.
 					const DesignState::NkGeomAvisExport g =
-						DesignState::GeomAvisExport(reg, lT, lD, avecV);
+						DesignState::GeomAvisExport(reg, lT, lD, avecV, avisPresent);
 					const nkgui::NkVec2 mp = ctx.input.mousePos;
 					const bool surCadre = NkGuiRectContains(g.cadre, mp);
 					// ⚠️ LIRE LE CLIC AVANT DE L'ETEINDRE. Ce bandeau RECLAME l'entree (sinon un
@@ -4159,7 +4205,27 @@ namespace nkuidesign {
 					}
 					(void)bouton(g.dossier, "Ouvrir le dossier");
 					(void)bouton(g.fichier, "Ouvrir le fichier");
-					(void)bouton(g.fermer, "\u2715");
+					// \u2500\u2500 \u2464 (06/09) LA CROIX SE TRACE, ELLE NE S'ECRIT PAS \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+					// \u26a0\ufe0f RODOLF VOYAIT \u00ab UN BOUTON ? \u00bb : le libelle etait le CARACTERE
+					//    U+2715 (\u2715), absent de la police de l'application -- le
+					//    rasteriseur rend alors le glyphe de remplacement, c'est-a-dire un
+					//    point d'interrogation. Ce n'etait donc ni un bouton nomme \u00ab ? \u00bb
+					//    ni un bouton casse : c'etait une croix qu'aucune police du
+					//    dossier ne sait dessiner.
+					//    Meme famille que le chevron du selecteur, et meme remede, deja
+					//    ecrit dans ce depot : *ce qui doit se voir se TRACE.* Deux
+					//    segments ne dependent d'aucun atlas et suivent le theme.
+					{
+						const bool hovF = NkGuiRectContains(g.fermer, mp);
+						ctx.dlOverlay.AddRectFilled(g.fermer, hovF ? ctx.theme.accent : ctx.theme.card, 4.f);
+						ctx.dlOverlay.AddRect(g.fermer, ctx.theme.border, 1.f, 4.f);
+						const float32 cx = g.fermer.x + g.fermer.w * 0.5f;
+						const float32 cy = g.fermer.y + g.fermer.h * 0.5f;
+						const float32 a = 4.f; // demi-diagonale de la croix
+						const nkgui::NkColor tc = hovF ? ctx.theme.panel : ctx.theme.text;
+						ctx.dlOverlay.AddLine({cx - a, cy - a}, {cx + a, cy + a}, tc, 1.4f);
+						ctx.dlOverlay.AddLine({cx - a, cy + a}, {cx + a, cy - a}, tc, 1.4f);
+					}
 					if (surCadre)
 						mSt->status = mSt->avisExport.chemin;
 				}
@@ -14733,7 +14799,7 @@ namespace nkuidesign {
 					mEtatsNode = mSt->selected;
 					mEtatsGen = mSt->editionGeneration;
 					for (uint32 i = 0; i < kMaxEtatsUI; ++i)
-						mEtatsBuf[i][0] = ' ';
+						mEtatsBuf[i][0] = '\0';
 					for (uint32 e = 0; e < nbEtats && e < kMaxEtatsUI; ++e)
 						if (const NkApparenceEtat *a0 = NkBlocEtatSi(*n, etats[e]))
 							snprintf(mEtatsBuf[e], sizeof(mEtatsBuf[e]), "%s",
