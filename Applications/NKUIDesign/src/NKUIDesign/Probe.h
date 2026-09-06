@@ -10808,6 +10808,107 @@ namespace nkuidesign {
 				  "un compte de refus : il resterait juste le jour ou le solveur apprendrait l'ancrage",
 				  honnete && refusDit93b, det);
 		}
+		// -- 93c. (7) LA PHRASE << ENREGISTRE, PAS APPLIQUE >> DIT LA VERITE DU
+		//    SOLVEUR (inventaire du 07/09, mesure 2, famille 1) ------------------
+		//
+		// LE DEFAUT : la section ALIGNEMENT montrait huit boutons ACTIFS quel que
+		//    soit l'agencement. Or `mainAlign`/`crossAlign` ne sont lus que dans la
+		//    branche LIGNE/COLONNE du solveur : sous `Free`, `Anchor` et `Grid`, le
+		//    reglage s'ecrivait, se persistait, et ne changeait rien. L'inspecteur le
+		//    DIT desormais -- il ne grise pas, pour ne pas fermer la question de
+		//    savoir si une grille devra un jour honorer l'alignement.
+		//
+		// CE CAS NE CROIT PAS LE PREDICAT SUR PAROLE, et c'est tout son objet :
+		//    le comparer a une liste ecrite a la main serait comparer une copie a une
+		//    copie. On CHANGE l'alignement et on regarde si une boite BOUGE. Le jour
+		//    ou quelqu'un enseigne l'alignement a la grille sans toucher au predicat,
+		//    cet essai rougit.
+		{
+			char det[600];
+			struct Cas93c {
+					NkLayoutKind kind;
+					const char *nom;
+			};
+			static const Cas93c kK93[5] = {{NkLayoutKind::Row, "row"},
+										   {NkLayoutKind::Column, "column"},
+										   {NkLayoutKind::Grid, "grid"},
+										   {NkLayoutKind::Anchor, "anchor"},
+										   {NkLayoutKind::Free, "free"}};
+			uint32 desaccords93 = 0u, bougeants93 = 0u;
+			char pire93[420];
+			pire93[0] = '\0';
+			for (uint32 ki = 0; ki < 5u; ++ki) {
+				NkUIDocument d93;
+				d93.NewDocument("Toile", NkAuthor::Humain);
+				d93.SetMetric("espacement", 0.f);
+				d93.SetMetric("marge", 0.f);
+				const int32 pg93 = d93.AddChild(0, "", NkAuthor::Humain);
+				{
+					NkUINode &p = d93.nodes[(uint32)pg93];
+					p.shape = NkString("frame");
+					p.layout.kind = kK93[ki].kind;
+					p.width.mode = NkSizeMode::Fixed;
+					p.width.value = 400.f;
+					p.height.mode = NkSizeMode::Fixed;
+					p.height.value = 300.f;
+				}
+				for (uint32 c = 0; c < 2u; ++c) {
+					const int32 i = d93.AddChild(pg93, "", NkAuthor::Humain);
+					NkUINode &q = d93.nodes[(uint32)i];
+					q.shape = NkString("rect");
+					q.width.mode = NkSizeMode::Fixed;
+					q.width.value = 40.f;
+					q.height.mode = NkSizeMode::Fixed;
+					q.height.value = 20.f;
+				}
+				const NkPaintRect surf93 = {0.f, 0.f, 800.f, 600.f};
+				// LES DEUX AXES A LA FOIS : n'en changer qu'un laisserait passer un
+				// agencement qui ne lirait que l'autre.
+				d93.nodes[(uint32)pg93].layout.mainAlign = NkAlign::Start;
+				d93.nodes[(uint32)pg93].layout.crossAlign = NkAlign::Start;
+				NkLayoutResult avant93;
+				NkComputeLayout(d93, surf93, avant93);
+				d93.nodes[(uint32)pg93].layout.mainAlign = NkAlign::End;
+				d93.nodes[(uint32)pg93].layout.crossAlign = NkAlign::End;
+				NkLayoutResult apres93;
+				NkComputeLayout(d93, surf93, apres93);
+				bool aBouge93 = false;
+				for (uint32 i = 0; i < (uint32)d93.nodes.Size(); ++i) {
+					if (!avant93.Has((int32)i) || !apres93.Has((int32)i))
+						continue;
+					const NkPaintRect a = avant93.At((int32)i), b = apres93.At((int32)i);
+					if (a.x != b.x || a.y != b.y || a.w != b.w || a.h != b.h) {
+						aBouge93 = true;
+						break;
+					}
+				}
+				if (aBouge93)
+					++bougeants93;
+				const bool annonce93 = NkAlignementLuParLeSolveur(kK93[ki].kind);
+				if (aBouge93 != annonce93) {
+					++desaccords93;
+					if (!pire93[0])
+						snprintf(pire93, sizeof(pire93),
+								 "<< %s >> : le predicat annonce %s, le solveur %s",
+								 kK93[ki].nom, annonce93 ? "LU" : "ignore",
+								 aBouge93 ? "a bouge" : "n'a rien bouge");
+				}
+			}
+			// CONTROLE POSITIF DE L'INSTRUMENT : si AUCUN des cinq ne bougeait, un
+			// << 0 desaccord >> serait aussi le score d'un montage inerte -- un
+			// alignement qui ne peut rien deplacer se compare a lui-meme.
+			snprintf(det, sizeof(det),
+					 "cinq agencements confrontes au SOLVEUR (alignement Start -> End sur les "
+					 "deux axes) : %u desaccord(s) [%s] ; controle positif : %u agencement(s) "
+					 "deplacent reellement une boite (attendu 2 : row et column)",
+					 desaccords93, pire93[0] ? pire93 : "(aucun)", bougeants93);
+			check("93c. (7) LA PHRASE << ENREGISTRE, PAS APPLIQUE >> DIT LA VERITE : pour chacun des cinq "
+				  "agencements, `NkAlignementLuParLeSolveur` est confronte au COMPORTEMENT REEL du solveur "
+				  "-- changer l'alignement doit deplacer une boite si et seulement si le predicat l'annonce ; "
+				  "le controle positif exige que DEUX agencements bougent vraiment, sinon le zero desaccord "
+				  "serait celui d'un montage inerte",
+				  desaccords93 == 0u && bougeants93 == 2u, det);
+		}
 		// ── 94. ① L'APERCU PENDANT LE TRACE (05/09). Rodolf : « pourquoi quand on dessine un
 		//    graphique on voit juste le rectangle qui s'allonge, et des qu'on relache on voit la
 		//    forme ? » Deux mesures : LA TABLE DE GENRE (une seule, lue par le relachement et par

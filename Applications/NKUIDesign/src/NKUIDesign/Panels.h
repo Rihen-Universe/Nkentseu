@@ -14627,7 +14627,29 @@ namespace nkuidesign {
 					if (d.mode == NkSizeMode::Fixed && d.value <= 0.f)
 						d.value = 100.f; // un fixed sans valeur serait invisible
 					mSt->doc.MarkHumanEdit(mSt->selected);
-				} else if (porteValeur && !metrique) {
+				} else if (metrique) {
+					// ── ⑦ (07/09) LE REFUS SE DIT (inventaire Q118, mesure 2,
+					//    famille 4) ─────────────────────────────────────────────
+					// 🔴 La boîte a exactement l'aspect des autres, et le glisser n'y
+					//    faisait RIEN : le `else if (porteValeur && !metrique)` sautait
+					//    l'édition sans un mot. L'utilisateur tire, la valeur ne bouge
+					//    pas, et rien ne lui dit pourquoi — c'est le cas où il croit
+					//    avoir agi.
+					// ⚠️ ET C'EST UN REFUS LÉGITIME : la valeur vient de la table de
+					//    métriques du document, pas du nœud. La tirer ici écrirait
+					//    par-dessus un nom, c'est-à-dire perdrait le lien. On le dit,
+					//    et on nomme la porte — la section ESPACEMENT règle la valeur
+					//    de la métrique.
+					if (ctx.popupDepth == 0 && NkGuiRectContains(rb, ctx.input.mousePos)) {
+						char b[200];
+						snprintf(b, sizeof(b),
+								 "« %s » : cette taille suit une MÉTRIQUE du document, "
+								 "elle ne se tire pas ici. Sa valeur se règle dans "
+								 "ESPACEMENT ; le chevron change le mode.",
+								 d.valueMetric);
+						mSt->status = NkString(b);
+					}
+				} else if (porteValeur) {
 					const float32 vitesse = d.mode == NkSizeMode::Fixed ? 1.f
 											: d.mode == NkSizeMode::Fraction ? 0.01f : 0.05f;
 					const float32 vmax = d.mode == NkSizeMode::Fraction ? 1.f : 4096.f;
@@ -15682,7 +15704,48 @@ namespace nkuidesign {
 						mSt->doc.SetMetric(lignes[li].nom->Data(), v);
 						mSt->doc.MarkHumanEdit(mSt->selected);
 					}
+					// ── ⑦ (07/09) LA PORTÉE SE DIT, ET ELLE SE COMPTE ────────────
+					// 🔴 Inventaire Q118, mesure 2, famille 3 : ce champ est dans un
+					//    panneau de NŒUD et la valeur appartient au DOCUMENT. La
+					//    changer ici la change pour tous les nœuds qui nomment la
+					//    même métrique — c'est le principe des métriques nommées, et
+					//    il n'était écrit que dans un commentaire du code.
+					// ⚠️ UN NOMBRE MESURÉ, PAS UN AVERTISSEMENT. « attention, c'est
+					//    global » se lit et s'oublie ; « 14 nœuds » se lit et fait
+					//    hésiter. Et le compte est vrai à chaque image, sans table à
+					//    tenir : on parcourt le document, qui est la seule source.
+					const uint32 combien = NoeudsNommant(lignes[li].nom->Data());
+					if (combien > 1u) {
+						char b[160];
+						snprintf(b, sizeof(b),
+								 "valeur du DOCUMENT : %u nœuds nomment « %s » et "
+								 "suivront ce réglage.",
+								 combien, lignes[li].nom->Data());
+						const NkRect rp = ctx.NextItemRect(-1.f, 18.f);
+						costume::Texte(dl, F.px9, x0 + ColChampsCalc(r.w - 24.f),
+									   costume::CentrerY(F.px9, rp.y, 18.f), b,
+									   ctx.theme.textMuted);
+					}
 				}
+			}
+
+			/// Combien de nœuds du document NOMMENT cette métrique (gouttière ou
+			/// marge) ? Sert à dire la portée d'un réglage d'ESPACEMENT.
+			/// ⚠️ COMPTE À CHAQUE IMAGE PLUTÔT QU'UNE TABLE TENUE À JOUR : le
+			///    document est la seule source, et une table entretenue à côté
+			///    aurait dérivé au premier collage. Le coût est un parcours de la
+			///    liste de nœuds, sur un panneau qui en dessine déjà autant.
+			uint32 NoeudsNommant(const char *metrique) const {
+				if (!metrique || !*metrique)
+					return 0u;
+				uint32 k = 0u;
+				for (uint32 i = 0; i < (uint32)mSt->doc.nodes.Size(); ++i) {
+					const NkUINode &q = mSt->doc.nodes[i];
+					if (StrEq(q.spacingName.Data(), metrique)
+						|| StrEq(q.padName.Data(), metrique))
+						++k;
+				}
+				return k;
 			}
 
 			/// BORDS : « R / Brd » (le modèle porte rayon et bordure depuis le
@@ -15938,6 +16001,39 @@ namespace nkuidesign {
 				if (c >= 0) {
 					alignV = (editorkit::NkAlign)c;
 					mSt->doc.MarkHumanEdit(mSt->selected);
+				}
+				// ── ⑦ (07/09) L'AGENCEMENT QUI NE LIT PAS L'ALIGNEMENT LE DIT ─────
+				// 🔴 Trouvé par l'inventaire (Q118, mesure 2, famille 1), pas par un
+				//    symptôme. `mainAlign`/`crossAlign` ne sont lus que dans la branche
+				//    ROW/COLUMN du solveur ; `Grid`, `Anchor` et `Free` rendent la main
+				//    avant. Les huit boutons restaient actifs, écrivaient, se
+				//    persistaient — et ne changeaient rien. *Un champ qui refuse en
+				//    silence coûte plus cher qu'un champ absent : l'utilisateur croit
+				//    avoir agi.*
+				//
+				// ⚠️ ON DIT, ON NE GRISE PAS, ET C'EST UNE DÉCISION. Griser fermerait la
+				//    question au lieu de la poser : personne n'a tranché si une grille
+				//    doit un jour honorer l'alignement de ses cellules. La valeur reste
+				//    donc écrite et persistée — un solveur futur la trouvera — et la
+				//    phrase dit exactement où elle en est aujourd'hui.
+				//
+				// ⚠️ LA LISTE DES AGENCEMENTS QUI LISENT N'EST PAS ÉCRITE ICI : le
+				//    prédicat vit à côté du SOLVEUR (`Layout.h`,
+				//    `NkAlignementLuParLeSolveur`), parce que le fait lui appartient --
+				//    l'inspecteur ne fait que le rapporter. Une seconde liste ici aurait
+				//    divergé au premier agencement ajouté, et la phrase serait devenue le
+				//    mensonge qu'elle répare.
+				const bool luParLeSolveur = NkAlignementLuParLeSolveur(n->layout.kind);
+				if (!luParLeSolveur) {
+					char b[220];
+					snprintf(b, sizeof(b),
+							 "Enregistré, pas appliqué : un agencement « %s » place ses "
+							 "enfants autrement et ne lit pas l'alignement. La valeur est "
+							 "gardée dans le document.",
+							 editorkit::NkLayoutKindName(n->layout.kind));
+					ctx.BeginDisabled();
+					nkgui::TextWrapped(ctx, b);
+					ctx.EndDisabled();
 				}
 			}
 

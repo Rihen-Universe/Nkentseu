@@ -110,6 +110,28 @@ namespace nkuidesign {
 			}
 	};
 
+	/// CET AGENCEMENT LIT-IL `mainAlign` / `crossAlign` ?
+	///
+	/// 🔴 IL VIT ICI, A COTE DU SOLVEUR, ET PAS DANS L'INSPECTEUR — c'est tout
+	///    l'interet. `PlaceChildren` ne lit l'alignement que dans sa branche
+	///    LIGNE/COLONNE : `Free`, `Anchor` et `Grid` rendent la main avant. Ce fait
+	///    appartient au solveur ; l'inspecteur ne fait que le RAPPORTER a
+	///    l'utilisateur (« enregistre, pas applique »). Une seconde liste ecrite
+	///    la-bas aurait diverge au premier agencement ajoute — et la phrase serait
+	///    devenue le mensonge qu'elle repare.
+	///
+	/// ⚠️ TROUVE PAR L'INVENTAIRE DU 07/09 (Q118, mesure 2, famille 1) : les huit
+	///    boutons de la section ALIGNEMENT restaient actifs sous `Free`, `Anchor` et
+	///    `Grid`, ecrivaient, se persistaient — et ne changeaient rien.
+	///
+	/// ⚠️ LE CAS 93c NE CROIT PAS CE PREDICAT SUR PAROLE : pour chacun des cinq
+	///    agencements, il change l'alignement et regarde si une boite BOUGE. Un
+	///    predicat qui mentirait rougirait.
+	inline bool NkAlignementLuParLeSolveur(nkentseu::editorkit::NkLayoutKind k) {
+		return k == nkentseu::editorkit::NkLayoutKind::Row
+			   || k == nkentseu::editorkit::NkLayoutKind::Column;
+	}
+
 	namespace layoutdetail {
 
 		using namespace nkentseu::editorkit;
