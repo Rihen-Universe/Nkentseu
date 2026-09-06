@@ -100,3 +100,30 @@ passer a exactement la même apparence qu'une allowlist juste, tant qu'on ne lui
 présente pas un cas qu'elle doit refuser.*
 
 - `noge_vetements_marche_2026-09-05.png` (535 494 o) — VETEMENTS SUR MANNEQUIN EN MARCHE : CesiumMan skinne (3 273 sommets, 19 os, son clip de marche de 2 s), avance 1,2 m/s poussee par le code (clip in place), cape (orange Rihen) + foulard + chapeau rigide, corps en petrole Rihen. `renderdemo --demo=2 NK_MANNEQUIN_PROBE=1 NK_MANNEQUIN_SDF_BOX=1 NK_MANNEQUIN_SDF_CELL=12 NK_CAPTURE=150` (refaite le 05/09 a 13h55 : un CHAMP DE DISTANCE PAR VETEMENT, cellule de 12 mm -- le foulard y tient son critere double, 0 particule sous la peau et 0,18 % d etirement moyen). Ma fenetre seule (relecture de la cible finale), premier plan lu avant, NKIlyana.exe (PID 29432) presente avant et apres, jamais touchee. DIT : le mannequin est petit et partiellement masque par le decor de la demo (le cube central) — trois cadrages payes ; la scene de demonstration n a pas ete concue pour cadrer un personnage.
+
+- `noge_eau_eclaboussure_impact_2026-09-06.png` (12195 o) — LES ECLABOUSSURES
+  (ROADMAP_PRODUITS.md §6.6 palier 1). Un contact d'impact a 4,0 m/s, oblique
+  (v = (2, -4, 0)), et les **14 gouttes** que `math::NkSplashEmit` en fait naitre :
+  la vitesse incidente en pointille rouge, le sol, la trajectoire balistique de
+  chaque goutte sur 0,45 s (petrole Rihen) et sa position a 0,15 s (orange Rihen).
+  Produite par `Build/Tests/Release-Windows/NKRenderer_Tests.exe` (temoins de
+  `Kernel/Runtime/NKRenderer/tests/test_eau_sph.cpp`).
+  ⚠️ **CE N'EST PAS UNE CAPTURE DU MOTEUR.** Aucun GPU, aucune fenetre : c'est un
+  trace dessine par le banc a partir des chiffres qu'il vient de mesurer. La
+  difference avec les autres images de ce dossier est reelle et je la dis :
+  celles-la montrent ce que le rendu produit, celle-ci montre ce que la LOI
+  produit. Une capture du rendu demande une scene de demonstration d'eclaboussures,
+  qui n'existe pas encore. NKIlyana.exe (PID 29432) presente avant et apres,
+  jamais touchee -- et pour cause : rien ici ne s'approche de la carte.
+
+- `noge_eau_mouillage_avant_apres_2026-09-06.png` (25416 o) — LE MOUILLAGE
+  (§6.6 paliers 2-3, demande explicite de Rodolf le 05/09 : « n'oublie pas l'effet
+  mouille »). Trois panneaux de la MEME carte `math::NkWetnessMap` 220 x 220, en
+  espace UV, sur un sable clair : **sec** | **mouille** par trois depots de contact
+  (canal moyen 0,1664) | **apres 5 tau de sechage** (0,001121, tau = 5 s). La
+  couleur de chaque texel est `math::NkApplyWetness` -- la formule de Sebastien
+  Lagarde, « Water drop 3b - Physically based wet surfaces », 2013 : albedo x0,2 et
+  rugosite x0,6 a saturation sur une matiere de porosite 1.
+  ⚠️ Meme avertissement : trace du banc, pas capture du rendu. Le nuanceur PBR ne
+  lit PAS encore cette carte (l'entree materiau n'est pas branchee -- nommee dans
+  le rapport) ; ce que l'image montre est la valeur que le nuanceur RECEVRAIT.

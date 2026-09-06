@@ -45,6 +45,8 @@
 #include "NKRenderer/Tools/VFX/NkSplashEmitter.h"
 #include "NKRenderer/Tools/VFX/NkVFXSystem.h"
 #include "NKMath/NkFunctions.h"
+#include "NKMath/NkWetnessMap.h"
+#include "NKImage/Core/NkImage.h"
 #include <cstdio>
 
 using namespace nkentseu;
@@ -284,12 +286,126 @@ namespace {
 		SCHECK(evtsAu <= evts, "(i3) le seuil de la loi filtre : les gouttes ne viennent que des vrais impacts");
 	}
 
+	// =====================================================================
+	// LES IMAGES. CE NE SONT PAS DES CAPTURES DU MOTEUR : ce banc ne touche
+	// aucun GPU et n ouvre aucune fenetre. Ce sont des TRACES dessinees par le
+	// banc a partir des CHIFFRES qu il vient de mesurer -- la meme difference
+	// qu entre une photo d une piece et son plan cote. Une capture du RENDU
+	// demande une scene de demonstration et la carte graphique ; elle est
+	// nommee comme non faite.
+	// =====================================================================
+	void ImageEclaboussure() {
+		const uint32 W = 900u, H = 420u;
+		NkImage img = NkImage::Create(W, H, 4, 0x0E1A20FFu);
+		if (!img.IsValid()) {
+			std::fprintf(stderr, "     [image] creation impossible : aucune image ecrite\n");
+			return;
+		}
+		const float32 echelle = 300.f; // 1 m = 300 px
+		const float32 solY = (float32)H - 80.f;
+		const float32 impactX = 260.f;
+		const math::NkColor sol(0x2E4A52FFu), goutte(0xF79A28FFu), trace(0x0A555FFFu), incident(0xE05A3AFFu);
+		for (uint32 x = 0; x < W; ++x)
+			for (int32 e = 0; e < 3; ++e)
+				img.SetPixel((int32)x, (int32)solY + e, sol);
+
+		math::NkSplashParams loi;
+		math::NkContactEvent ev;
+		ev.position = {0.f, 0.f, 0.f};
+		ev.normal = {0.f, 1.f, 0.f};
+		ev.velocity = {2.f, -4.f, 0.f}; // impact oblique, dans le plan de l image
+		ev.normalSpeed = 4.f;
+		ev.index = 17u;
+		math::NkSplashDrop drops[64];
+		const uint32 k = math::NkSplashEmit(loi, ev, drops, 64u);
+
+		// la vitesse incidente, en pointille
+		for (int32 t = 0; t < 120; ++t) {
+			if ((t / 6) % 2)
+				continue;
+			const float32 f = (float32)t / 120.f;
+			const int32 px = (int32)(impactX - ev.velocity.x * echelle * 0.25f * (1.f - f));
+			const int32 py = (int32)(solY + ev.velocity.y * echelle * 0.25f * (1.f - f));
+			img.SetPixel(px, py, incident);
+			img.SetPixel(px + 1, py, incident);
+		}
+
+		// chaque goutte : balistique, 0,45 s
+		const float32 g = 9.81f;
+		for (uint32 i = 0; i < k; ++i) {
+			for (int32 n = 0; n < 90; ++n) {
+				const float32 t = (float32)n * (0.45f / 90.f);
+				const float32 x = drops[i].velocity.x * t;
+				const float32 y = drops[i].velocity.y * t - 0.5f * g * t * t;
+				if (y < 0.f)
+					break;
+				img.SetPixel((int32)(impactX + x * echelle), (int32)(solY - y * echelle), trace);
+			}
+			const float32 t = 0.15f;
+			const float32 x = drops[i].velocity.x * t;
+			const float32 y = drops[i].velocity.y * t - 0.5f * g * t * t;
+			const int32 cx = (int32)(impactX + x * echelle), cy = (int32)(solY - y * echelle);
+			for (int32 dy = -2; dy <= 2; ++dy)
+				for (int32 dx = -2; dx <= 2; ++dx)
+					if (dx * dx + dy * dy <= 4)
+						img.SetPixel(cx + dx, cy + dy, goutte);
+		}
+		const bool ok = img.Save("Captures/noge_eau_eclaboussure_impact_2026-09-06.png");
+		std::fprintf(stderr, "     [image] %u gouttes d un impact a %.1f m/s -> %s\n", k, (double)ev.normalSpeed,
+					 ok ? "Captures/noge_eau_eclaboussure_impact_2026-09-06.png" : "ECHEC D ECRITURE");
+	}
+
+	void ImageMouillage() {
+		const uint32 N = 220u, marge = 20u;
+		const uint32 W = 3u * N + 4u * marge, H = N + 2u * marge;
+		NkImage img = NkImage::Create(W, H, 4, 0x0E1A20FFu);
+		if (!img.IsValid()) {
+			std::fprintf(stderr, "     [image] creation impossible : aucune image ecrite\n");
+			return;
+		}
+		math::NkWetnessMap carte;
+		carte.Create(N, N);
+		carte.material = math::NkWetSand();
+		carte.material.dryingTime = 5.f;
+		const NkVec3f albedoSec = {0.76f, 0.68f, 0.50f}; // un sable clair
+
+		auto panneau = [&](uint32 col, bool mouille) {
+			for (uint32 y = 0; y < N; ++y)
+				for (uint32 x = 0; x < N; ++x) {
+					const float32 w = mouille ? carte.At(x, y) : 0.f;
+					const math::NkWetShading o = math::NkApplyWetness(albedoSec, 0.85f, 0.04f, w, carte.material);
+					const math::NkColor c((uint8)(math::NkClamp(o.albedo.x, 0.f, 1.f) * 255.f),
+										  (uint8)(math::NkClamp(o.albedo.y, 0.f, 1.f) * 255.f),
+										  (uint8)(math::NkClamp(o.albedo.z, 0.f, 1.f) * 255.f), (uint8)255);
+					img.SetPixel((int32)(marge + col * (N + marge) + x), (int32)(marge + y), c);
+				}
+		};
+
+		panneau(0u, false); // SEC
+		carte.Splat(0.35f, 0.45f, 0.30f, 1.f);
+		carte.Splat(0.62f, 0.60f, 0.22f, 1.f);
+		carte.Splat(0.50f, 0.28f, 0.16f, 0.8f);
+		const float32 moyMouille = carte.Mean();
+		panneau(1u, true); // MOUILLE
+		for (uint32 i = 0; i < 60u * 25u; ++i)
+			carte.Dry(1.f / 60.f); // 25 s = 5 tau
+		const float32 moySec = carte.Mean();
+		panneau(2u, true); // APRES SECHAGE
+		const bool ok = img.Save("Captures/noge_eau_mouillage_avant_apres_2026-09-06.png");
+		std::fprintf(stderr, "     [image] sec | mouille (canal moyen %.4f) | apres 5 tau (%.6f) -> %s\n",
+					 (double)moyMouille, (double)moySec,
+					 ok ? "Captures/noge_eau_mouillage_avant_apres_2026-09-06.png" : "ECHEC D ECRITURE");
+	}
+
 } // namespace
 
 int main() {
 	std::fprintf(stderr, "=== L'EAU : le fluide PUBLIE ses contacts (temoins §6.6 palier 1) ===\n");
 	TemoinGoutte();
 	TemoinBloc();
+	std::fprintf(stderr, "-- les images (traces dessinees par le banc, PAS des captures du moteur) --\n");
+	ImageEclaboussure();
+	ImageMouillage();
 	std::fprintf(stderr, "=== NKRenderer/eau : %d passes, %d echecs ===\n", gPass, gFail);
 	return gFail == 0 ? 0 : 1;
 }
