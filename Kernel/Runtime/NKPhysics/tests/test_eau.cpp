@@ -18,11 +18,18 @@
 //
 // LES TÉMOINS, et ce que chacun prouve :
 //   (a) LA FILE  — bornée, et elle DIT ce qu'elle perd.
-//   (b) LA LOI   — seuil, proportionnalité, direction, déterminisme, plafond.
-//                  (b3) porte son CONTRÔLE POSITIF : l'instrument sait séparer
-//                  une loi linéaire d'une loi en énergie. Sans lui, un rapport
-//                  de 2 ne prouverait rien -- il pourrait sortir d'un compteur
-//                  qui ne compte pas ce qu'on croit.
+//   (b) LA LOI   — seuil, LES DEUX LOIS, direction, déterminisme, plafond.
+//                  ⚠️ CHANGÉ le 06/09 (nuit) après l'arbitrage de Rodolf : les
+//                  deux lois sont LIVRÉES et sélectionnables (`NkSplashLawKind`),
+//                  donc le témoin ne porte plus sur une loi avec l'autre en
+//                  contrôle positif — il porte sur les DEUX, chacune avec son
+//                  attendu analytique 2^q écrit AVANT la mesure : 2,000 pour la
+//                  linéaire, 4,000 pour l'énergie, 8,000 pour Puissance(3).
+//                  (b5c) mesure que le DÉFAUT livré est bien la linéaire, et
+//                  (b11) mesure qu'`exponentLibre` est ignoré sous Lineaire ET
+//                  lu sous Puissance — un paramètre non honoré qu'on mesure au
+//                  lieu de le subir. (b12) refait la mesure par l'ÉMETTEUR, la
+//                  porte que le système d'effets appelle réellement.
 //   (c) LA CARTE — dépôt local, séchage exponentiel, MUTATION (séchage coupé),
 //                  et deux matières dans le bon ORDRE (pas à la bonne valeur).
 //   (d) LA LUMIÈRE — identité à sec (contrôle positif), les constantes de
@@ -120,27 +127,121 @@ namespace {
 		ECHECK(NkSplashEmit(p, Impact(0.4f, 7), buf, 64) == 0u, "(b2) et l'emetteur n'en ecrit aucune non plus");
 		ECHECK(NkSplashDropCountReal(p, 1.5f) > 0.f, "(b3) au-dessus du seuil, la loi en demande");
 
-		// (b4) DOUBLER LA VITESSE. Population dite : 2 000 evenements par point, arrondi
-		// stochastique deterministe -- la moyenne vaut la loi exactement.
+		// (b4-b5) LES DEUX LOIS, LE MEME TEMOIN. Arbitrage de Rodolf du 06/09 :
+		// les deux sont livrees, l'utilisateur choisit. Le temoin ne porte donc plus
+		// sur UNE loi avec l'autre en controle positif -- il porte sur LES DEUX, et
+		// chacune a son attendu ANALYTIQUE, pas une borne large :
+		//        doubler (vn - seuil) multiplie n par 2^q.
+		// Population dite : 2 000 evenements par point, arrondi stochastique
+		// deterministe -- la moyenne vaut la loi exactement.
+		//
+		// ATTENDU ECRIT AVANT LA MESURE (pre-enregistrement) : 2,000 / 4,000 / 8,000.
+		// La bande est +/- 5 %, et elle est justifiee : l'arrondi stochastique tire
+		// une fraction par evenement, donc le total porte un bruit en 1/sqrt(N) --
+		// de l'ordre de 2 % a N = 2 000. Une bande plus etroite serait du bruit
+		// deguise en exigence ; une bande plus large ne separerait plus 2 de 4.
 		const uint32 N = 2000u;
 		const float32 v1 = p.speedThreshold + 1.f, v2 = p.speedThreshold + 2.f;
-		const uint32 t1 = TotalGouttes(p, v1, N), t2 = TotalGouttes(p, v2, N);
-		const float32 ratio = t1 ? (float32)t2 / (float32)t1 : 0.f;
-		std::fprintf(stderr, "     lineaire (exposant 1) : %u -> %u gouttes sur %u impacts, rapport %.3f\n", t1, t2, N,
-					 (double)ratio);
-		ECHECK(ratio > 1.9f && ratio < 2.1f,
-			   "(b4) LOI DITE : n = gain x (vn - seuil)^1 -> doubler la vitesse double les gouttes");
+		struct CasLoi {
+				NkSplashLawKind kind;
+				float32 exposantLibre;
+				float32 attendu; // 2^q
+				const char *quoi;
+		};
+		const CasLoi cas[3] = {
+			{NkSplashLawKind::Lineaire, 1.f, 2.f, "(b4) loi LINEAIRE (le DEFAUT) : n ~ (vn-seuil)^1, rapport 2"},
+			{NkSplashLawKind::Energie, 1.f, 4.f, "(b5) loi ENERGIE (livree aussi) : n ~ (vn-seuil)^2, rapport 4"},
+			{NkSplashLawKind::Puissance, 3.f, 8.f, "(b5b) echappatoire Puissance(3) : rapport 8"},
+		};
+		for (uint32 c = 0; c < 3u; ++c) {
+			NkSplashParams pl = p;
+			pl.law = cas[c].kind;
+			pl.exponentLibre = cas[c].exposantLibre;
+			pl.maxDropsPerEvent = 65536u; // sinon le plafond ecrase l'ecart qu'on cherche
+			const uint32 a1 = TotalGouttes(pl, v1, N), a2 = TotalGouttes(pl, v2, N);
+			const float32 r = a1 ? (float32)a2 / (float32)a1 : 0.f;
+			std::fprintf(stderr,
+						 "     loi %-9s (q=%.1f) : %u -> %u gouttes sur %u impacts, rapport %.3f (attendu %.3f)\n",
+						 NkSplashLawName(pl.law), (double)NkSplashExponent(pl), a1, a2, N, (double)r,
+						 (double)cas[c].attendu);
+			ECHECK(a1 > 0u && NkFabs(r - cas[c].attendu) <= 0.05f * cas[c].attendu, cas[c].quoi);
+		}
 
-		// (b5) CONTRÔLE POSITIF DE L'INSTRUMENT. Si le meme montage rendait 2 avec un
-		// exposant de 2, c'est que le compteur ne mesure pas la loi. Il doit rendre ~4.
-		NkSplashParams pe = p;
-		pe.exponent = 2.f;
-		pe.maxDropsPerEvent = 4096u; // sinon le plafond ecrase la difference qu'on cherche
-		const uint32 e1 = TotalGouttes(pe, v1, N), e2 = TotalGouttes(pe, v2, N);
-		const float32 ratioE = e1 ? (float32)e2 / (float32)e1 : 0.f;
-		std::fprintf(stderr, "     energie (exposant 2)  : %u -> %u gouttes, rapport %.3f\n", e1, e2, (double)ratioE);
-		ECHECK(ratioE > 3.8f && ratioE < 4.2f,
-			   "(b5) CONTROLE POSITIF : en energie le meme instrument rend ~4 -- il sait separer les deux lois");
+		// (b5c) LE DEFAUT EST BIEN CELUI QU'ON ANNONCE. Un defaut nomme dans un
+		// commentaire n'est pas un defaut : c'est une intention. Celui-ci se mesure
+		// sur un objet neuf, la ou l'utilisateur le recevra.
+		{
+			NkSplashParams d;
+			ECHECK(d.law == NkSplashLawKind::Lineaire && NkSplashExponent(d) == 1.f,
+				   "(b5c) le DEFAUT livre est bien la loi lineaire (q = 1), mesure sur un objet neuf");
+		}
+
+		// (b10) POURQUOI q=2 NE PASSE PAS PAR NkPow, avec le chiffre au lieu de
+		// l'affirmation. NkSplashLaw.h dit que les deux ne rendent pas forcement le
+		// meme float32 ; ce banc IMPRIME l'ecart au lieu de le supposer, et il
+		// n'exige rien dessus -- il documente. Un commentaire qui avance un chiffre
+		// non mesure est exactement ce que le corpus interdit.
+		{
+			const float32 t = (v2 - p.speedThreshold) / p.speedRef; // 2,0
+			const float32 parPow = NkPow(t, 2.f);
+			const float32 parMul = t * t;
+			std::fprintf(stderr, "     (b10) NkPow(%.1f, 2) = %.9g   contre  t*t = %.9g   ecart = %.3g\n", (double)t,
+						 (double)parPow, (double)parMul, (double)NkFabs(parPow - parMul));
+			ECHECK(parMul == t * t, "(b10) t*t est la reference exacte (l'ecart a NkPow est imprime ci-dessus)");
+		}
+
+		// (b11) LE PARAMETRE QUI N'EST PAS LU, MESURE AU LIEU D'ETRE SUBI.
+		// `exponentLibre` n'est consulte que sous Puissance. Le corpus interdit un
+		// parametre present et silencieusement ignore ; la parade retenue n'est pas
+		// de le retirer (il porte l'echappatoire) mais de PROUVER les deux moities :
+		//   - sous Lineaire, le bouger de 1 a 7 ne change RIEN, au bit ;
+		//   - sous Puissance, le meme geste change TOUT.
+		// Le second est indispensable : sans lui, un `exponentLibre` mort PARTOUT
+		// passerait la premiere moitie sans rien prouver.
+		{
+			NkSplashParams l1 = p, l7 = p;
+			l1.law = l7.law = NkSplashLawKind::Lineaire;
+			l1.exponentLibre = 1.f;
+			l7.exponentLibre = 7.f;
+			const uint32 n1 = TotalGouttes(l1, v2, N), n7 = TotalGouttes(l7, v2, N);
+			ECHECK(n1 == n7, "(b11a) sous Lineaire, exponentLibre n'est PAS lu -- meme total au bit");
+
+			NkSplashParams q1 = p, q3 = p;
+			q1.law = q3.law = NkSplashLawKind::Puissance;
+			q1.exponentLibre = 1.f;
+			q3.exponentLibre = 3.f;
+			q1.maxDropsPerEvent = q3.maxDropsPerEvent = 65536u;
+			const uint32 m1 = TotalGouttes(q1, v2, N), m3 = TotalGouttes(q3, v2, N);
+			std::fprintf(stderr, "     (b11) Lineaire : %u == %u   |   Puissance : %u -> %u en passant q de 1 a 3\n",
+						 n1, n7, m1, m3);
+			ECHECK(m3 > m1 * 3u, "(b11b) sous Puissance, exponentLibre est LU -- et l'ecart est massif");
+		}
+
+		// (b12) LA PORTE, PAS LA FONCTION. (b4-b5) lisent le compteur ; celui-ci lit
+		// ce que l'EMETTEUR ecrit reellement dans le tampon de l'appelant. Un compteur
+		// juste et un emetteur qui plafonne ailleurs donneraient deux verites, et
+		// c'est l'emetteur que le systeme d'effets appelle.
+		{
+			NkSplashDrop out[256];
+			for (uint32 c = 0; c < 2u; ++c) {
+				NkSplashParams pe2 = p;
+				pe2.law = (c == 0u) ? NkSplashLawKind::Lineaire : NkSplashLawKind::Energie;
+				pe2.maxDropsPerEvent = 65536u;
+				uint32 ecrites1 = 0u, ecrites2 = 0u;
+				for (uint32 i = 0; i < 400u; ++i) {
+					ecrites1 += NkSplashEmit(pe2, Impact(v1, i, (float32)i * 0.001f), out, 256);
+					ecrites2 += NkSplashEmit(pe2, Impact(v2, i, (float32)i * 0.001f), out, 256);
+				}
+				const float32 r = ecrites1 ? (float32)ecrites2 / (float32)ecrites1 : 0.f;
+				const float32 att = (c == 0u) ? 2.f : 4.f;
+				std::fprintf(stderr,
+							 "     (b12) emetteur, loi %-9s : %u -> %u gouttes ECRITES, rapport %.3f (attendu %.3f)\n",
+							 NkSplashLawName(pe2.law), ecrites1, ecrites2, (double)r, (double)att);
+				ECHECK(ecrites1 > 0u && NkFabs(r - att) <= 0.05f * att,
+					   c == 0u ? "(b12a) l'EMETTEUR suit la loi lineaire, pas seulement le compteur"
+							   : "(b12b) l'EMETTEUR suit la loi en energie, pas seulement le compteur");
+			}
+		}
 
 		// (b6) DIRECTION : les gouttes partent DE la surface. Une goutte dont la vitesse
 		// entre dans le solide est un defaut visible immediatement.
