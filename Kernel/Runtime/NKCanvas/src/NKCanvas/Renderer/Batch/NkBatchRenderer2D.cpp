@@ -453,30 +453,39 @@ namespace nkentseu {
 			// Local corners (centered at origin before transform)
 			NkVec2f corners[4] = {{0, 0}, {w, 0}, {w, h}, {0, h}};
 
-			// Apply transform
-			const NkTransform2D &t = sprite.GetTransform();
-			const float32 cos_r = cosf(t.rotation);
-			const float32 sin_r = sinf(t.rotation);
+			// ── La transformation du sprite ────────────────────────────────────
+			// Une seule ligne, parce qu'elle vient de NkTransformable, qui la garde
+			// en cache et ne la recalcule que si un accesseur l'a salie.
+			//
+			// Il y avait ici une TROISIEME implementation du meme calcul « origine,
+			// echelle, rotation, translation », a cote de celle de NkTransformable
+			// et de celle de NkText, chacune avec ses propres cos et sin recalcules
+			// a chaque trame. Supprimee le 2026-09-05.
+			const NkTransform &t = sprite.GetTransform();
+			for (auto &c : corners)
+				c = t.TransformPoint(c);
 
-			for (auto &c : corners) {
-				// Origin offset
-				c.x -= t.origin.x;
-				c.y -= t.origin.y;
-				// Scale
-				c.x *= t.scale.x;
-				c.y *= t.scale.y;
-				// Rotate
-				const float32 rx = c.x * cos_r - c.y * sin_r;
-				const float32 ry = c.x * sin_r + c.y * cos_r;
-				// Translate
-				c.x = rx + t.position.x;
-				c.y = ry + t.position.y;
-			}
-
-			// UV flip
+			// ── Miroirs ────────────────────────────────────────────────────────
+			// Retourner un sprite, c'est echanger ses coordonnees de texture : la
+			// geometrie ne bouge pas, c'est l'image qui se lit a l'envers.
+			//
+			// SetFlipX et SetFlipY existaient, avec leurs getters et leurs membres,
+			// et NE FAISAIENT RIEN. Il ne restait ici qu'une ligne commentee qui,
+			// decommentee, n'aurait rien fait non plus. Les miroirs de NkRef, seule
+			// application a s'en servir, etaient donc inoperants depuis toujours.
+			// Constate le 2026-09-05.
 			NkVec2f uvTL = {uvRect.left, uvRect.top};
 			NkVec2f uvBR = {uvRect.left + uvRect.width, uvRect.top + uvRect.height};
-			// if (sprite.GetFlipX ? false : false) {}  // handled via sprite accessors if needed
+			if (sprite.GetFlipX()) {
+				const float32 t = uvTL.x;
+				uvTL.x = uvBR.x;
+				uvBR.x = t;
+			}
+			if (sprite.GetFlipY()) {
+				const float32 t = uvTL.y;
+				uvTL.y = uvBR.y;
+				uvBR.y = t;
+			}
 
 			if (mVertices.Size() + 4 > kMaxVertices || mIndices.Size() + 6 > kMaxIndices)
 				Flush();
