@@ -47,6 +47,11 @@ void ProbeCheck(bool ok, const char *nom, const char *detail);
 float32 ProbeAbs(float32 v);
 void PalierRendu();
 void PalierFeu();
+void PalierVorticite();
+void EnqueteConfinement();
+void PalierBranchement();
+void ImagesDuConfinement(float32 epsilon);
+float32 EpsilonConfinement();
 
 static void Check(bool ok, const char *nom, const char *detail) {
 	++gChecks;
@@ -364,8 +369,9 @@ static void DiagnosticMasse() {
 // on regarde si le residu descend encore. Sans ce tableau, « il faudrait un
 // meilleur solveur » serait une opinion.
 // =============================================================================
-static void PlancherDuSolveur() {
-	printf("\n=== PLANCHER DU SOLVEUR DE PRESSION (memes 40 pas, grille allegee) ===\n");
+void PlancherDuSolveur(float32 epsilon) {
+	printf("\n=== PLANCHER DU SOLVEUR DE PRESSION (memes 40 pas, grille allegee, epsilon = %.1f) ===\n",
+		   (double)epsilon);
 	printf("    borne   tolerance   balayages/pas   residu final   |div|*h/|u| moyen\n");
 	printf("    (si le rapport ne bouge pas quand le residu chute, ce n'est pas le solveur)\n");
 	const uint32 bornes[3] = {200, 800, 4000};
@@ -377,6 +383,7 @@ static void PlancherDuSolveur() {
 		p.cellSize = 0.04f; // 15 x 30 x 15
 		p.pressureIterations = bornes[c];
 		p.pressureTolerance = tols[c];
+		p.vorticityConfinement = epsilon;
 		NkFluidGrid g;
 		g.Init(p);
 		g.EmitSphere({0.f, 0.15f, 0.f}, 0.08f, 1.f, 150.f, 0.f);
@@ -572,6 +579,14 @@ int main(int argc, char **argv) {
 	printf("2001, eq. (8). Banc CPU, aucun GPU, aucune fenêtre.\n");
 	printf("=============================================================\n");
 
+	// Mode BALAYAGE : seul le tableau qui CHOISIT epsilon tourne. C'est une
+	// enquete de parametre, pas un temoin -- elle ne rend aucun verdict.
+	const char *sweep = ::nkentseu::env::GetEnvVar("NK_FLUID_SWEEP");
+	if (sweep != nullptr && sweep[0] == '1') {
+		EnqueteConfinement();
+		return 0;
+	}
+
 	ControlesPositifs();
 	// Les deux ENQUETES (six regimes de masse, table des schemas) coutent a elles
 	// seules plus que tous les temoins reunis : elles tournent sous NK_FLUID_DIAG=1.
@@ -581,16 +596,20 @@ int main(int argc, char **argv) {
 	if (diag != nullptr && diag[0] == '1') {
 		DiagnosticMasse();
 		OrdreDeLaPerte();
+		EnqueteConfinement();
 	} else {
 		printf("\n(les deux enquetes de masse ne tournent que sous NK_FLUID_DIAG=1)\n");
 	}
 	MasseEtDivergence(false);
-	PlancherDuSolveur();
+	PlancherDuSolveur(0.f);
 	Flottabilite();
 	Transport(false);
 	DixSecondes();
 	PalierRendu();
 	PalierFeu();
+	PalierVorticite();
+	PalierBranchement();
+	ImagesDuConfinement(EpsilonConfinement());
 	MasseEtDivergence(true); // mutation 1
 	Transport(true);		 // mutation 2
 

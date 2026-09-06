@@ -84,7 +84,13 @@ Trois conditions, dans cet ordre :
 ## 🔍 Comment vérifier que l'allowlist n'a pas dérivé
 
 ```sh
-# doit lister exactement les 9 fichiers ci-dessus, et rien d'autre
+# doit lister exactement les fichiers de l allowlist, et rien d autre.
+# ⚠️ LE COMPTE ETAIT ECRIT EN DUR ICI (« les 9 fichiers ») et il a VIEILLI en
+# silence : deux images se sont ajoutees le 07/09. Un compte fige a cote d une
+# liste est le motif que ce depot a deja paye -- la liste et son compte separes.
+# On COMPTE la liste, on ne la recite pas :
+#   grep -c '^!/Captures/' ../.gitignore   # les entrees de l allowlist (dont
+#                                            # LISEZMOI.md et deux prefixes)
 git status --porcelain --untracked-files=all Captures/
 
 # contrôle NÉGATIF — une image de travail doit rester ignorée,
@@ -110,3 +116,22 @@ présente pas un cas qu'elle doit refuser.*
 
 Les deux sont citées par `Engine/Noge/DECISIONS_RODOLF.md`, bloc « 05/09 (nuit) —
 LA FUMÉE ET LE FEU SUR GRILLE ».
+
+### Le CONFINEMENT DE VORTICITÉ (06→07/09 nuit) — `NkFluidGridProbe`
+
+**Ces deux-là se regardent CÔTE À CÔTE, et c'est tout leur intérêt** : même scène,
+même graine, même nombre de pas (255), même caméra, même rendu. **Seul `epsilon`
+change.** Elles répondent à la remarque du 05/09 écrite deux lignes plus haut — *la
+colonne est fine et droite parce qu'il n'y a pas de confinement de vorticité*.
+
+| image | octets | ce qu'elle prouve, et ce qu'elle ne prouve pas |
+|---|---:|---|
+| `fumee_jet_sans_confinement_2026-09-07.png` | 11 183 | **Le JET** — `epsilon = 0`, l'état du 05/09. Grille 25 × 80 × 25 (h = 2 cm), 255 pas. Mesuré DANS ces pixels : la boîte du panache fait **45 px** de large ; à la ligne y = 84 (tiers supérieur de cette boîte, calée sur la boîte mesurée et non écrite à la main), le rayon de giration pondéré par l'opacité vaut **5,329 px** sur 32 pixels. |
+| `fumee_panache_confinement_2026-09-07.png` | 25 043 | **Le PANACHE** — `epsilon = 8` (Fedkiw, Stam & Jensen, SIGGRAPH 2001, § 4, eq. 9-11). Boîte **72 px** de large ; à la MÊME ligne y = 84, rayon **13,124 px** sur 68 pixels — **× 2,46**. Un second instrument, qui lit le champ de densité et non les pixels, dit **× 1,85** sur le rayon à y = 0,60 m : deux chemins indépendants, le même sens. ⚠️ **Le confinement se PAIE** : sur la même scène la dérive de masse passe de −29,3 % à −42,5 % et la divergence résiduelle de 0,39 % à 6,33 %. ⚠️ **Le rayon SEUL ne départage pas le signe de la force** : avec la force *inversée* le panache est encore plus large (× 3,59). C'est la **concentration** de la vorticité qui sépare les deux (× 1,38 avec, × 0,42 contre). |
+
+⚠️ **Ce ne sont pas des rendus GPU** : marche de rayon **CPU**
+(`NkFluidGridRaymarch`), aucune fenêtre, aucun device — comme les deux du 05/09.
+
+Elles sont citées par `Engine/Noge/DECISIONS_RODOLF.md`, bloc « 06→07/09 (nuit) —
+LE CONFINEMENT DE VORTICITÉ, ET LA GRILLE BRANCHÉE ».
+

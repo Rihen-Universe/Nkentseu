@@ -389,6 +389,12 @@ namespace nkentseu {
 			}
 			for (auto *t : mTrails)
 				UpdateTrail(t, dt);
+			// Les VOLUMES DE FLUIDE (fumee/feu, grille eulerienne) -- 2026-09-06.
+			// UN SEUL appelant de StepAll par image : c'est ici. Le pont ECS de Noge
+			// declare et positionne, il n'avance pas (sinon le monde avancerait deux
+			// fois par image). `StepAll` est CPU pur : le banc NkFluidGridProbe
+			// l'eprouve sans device, et c'est exactement cette fonction-la qu'il appelle.
+			mFluids.StepAll(dt);
 			// Age des decals
 			for (uint32 i = 0; i < (uint32)mDecals.Size();) {
 				mDecals[i]->age += dt;

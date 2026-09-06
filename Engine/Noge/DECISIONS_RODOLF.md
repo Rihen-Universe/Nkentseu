@@ -2898,6 +2898,236 @@ chemin GPU des particules : comparer une marche CPU à un dessin GPU comparerait
 machines, pas deux méthodes), une vraie lumière dynamique émise par la flamme (seule une
 couleur émissive est rendue).
 
+### 🌀 06→07/09 (nuit) — LE CONFINEMENT DE VORTICITÉ, ET LA GRILLE BRANCHÉE (ECS · NkVFXSystem · vent)
+
+**L'ordre était fixé par Rodolf** : ① le confinement de vorticité d'abord, *« parce
+que c'est le seul qui change ce qu'il VOIT »* ; ② brancher la grille ; ③ la grille
+décalée MAC *« si la nuit y suffit »*. **③ N'EST PAS COMMENCÉE, et l'arrêt est
+volontaire** : la consigne disait de s'arrêter proprement à la fin de ② et de le
+dire plutôt que de livrer trois moitiés.
+
+**Banc `NkFluidGridProbe` : 57 contrôles, 51 verts, 6 rouges.** Banc neuf
+`NkFluidEcsProbe` : **8 contrôles, 8 verts**. Aucun GPU, aucune fenêtre.
+`NKIlyana.exe` (PID 33468) présente avant et après, jamais touchée.
+
+#### 🔴 CE QUI EST ROUGE — quatre des sept témoins du confinement
+
+Seuils écrits **avant** la mesure, et qui **n'ont pas bougé d'un chiffre**
+(`epsilon = 8`, 360 pas, grille 28 × 56 × 28, 36 504 cellules strictes) :
+
+| témoin | mesure | seuil | |
+|---|---|---|---|
+| **(v1)** enstrophie totale B/A | 11,4899 → **5,0291** = **× 0,44** | ≥ 2,00 | 🔴 |
+| **(v3)** la masse n'empire pas | dérive A **−29,331 %**, B **−42,491 %** | + 5 points max | 🔴 |
+| **(v4)** la divergence n'empire pas | strict A **0,39252 %**, B **6,32962 %** (× 16,1) | × 1,50 max | 🔴 |
+| **(v5)** MUTATION jugée sur l'enstrophie | C/A = **× 1,058** | < 1,00 | 🔴 |
+
+**(v1) et (v5) sont un défaut de MON CRITÈRE, pas du code**, et c'est le résultat
+le plus utile de la nuit :
+
+> Au bout de 3 s, la course A et la course B ne sont plus le **même écoulement** —
+> le panache confiné monte **deux fois moins haut** (barycentre y = 0,634 m contre
+> 1,048 m). Comparer l'enstrophie TOTALE de deux écoulements différents, c'est
+> comparer deux **sujets**, pas deux **réglages**.
+
+Le balayage le montre en une ligne : sur les **60 premiers pas** — avant que les
+écoulements ne divergent — l'enstrophie **monte** avec epsilon (× 1,19 à
+epsilon = 8) ; sur toute la course elle **descend** (× 0,39). Deux colonnes, deux
+verdicts opposés, aucune contradiction.
+
+**(v1) et (v5) n'ont pas été retouchés** : ils restent écrits tels quels et
+rouges. Un critère **(v6)** a été écrit **à côté**, daté, et **pré-enregistré
+avant la course qui l'a jugé** — la **concentration** de la vorticité
+`P = rms(|ω|) / moy(|ω|)`, qui vaut 1 sur un champ uniforme et grandit quand la
+vorticité se rassemble en filaments. *« Confiner » veut dire exactement ça.* Il
+mord **dans les deux sens** :
+
+```
+P, sur les 36 504 cellules STRICTES (V = 0,5704 m^3)
+   A  epsilon =  0   3,875
+   B  epsilon = +8   5,362   × 1,384   le confinement CONCENTRE    (v6)  ✅
+   C  epsilon = -8   1,634   × 0,422   la force inversée ÉTALE     (v6b) ✅
+```
+
+🔴 **ET (v5) A APPRIS MIEUX QUE SON ROUGE : LE RAYON DU PANACHE NE DÉPARTAGE PAS
+LE SIGNE DE LA FORCE.** À `epsilon = -8` — précisément la faute qu'on cherche à
+attraper — le panache est **encore plus large** qu'avec le confinement : **0,137 m
+contre 0,071 m**, soit × 3,59 sur A au lieu de × 1,85. C'est logique une fois vu :
+étaler la vorticité étale aussi la fumée. **Le témoin (v2), seul, serait donc passé
+au VERT sur un signe faux.** Seule la concentration sépare les deux — et c'est
+écrit dans l'en-tête de `vorticite.cpp`, là où quelqu'un lira (v2).
+
+**(v3) et (v4), eux, ne sont pas un défaut de critère : c'est le PRIX.** Le
+confinement ne crée ni la perte de masse ni la divergence résiduelle — **il
+aggrave les deux rouges déjà mesurés le 05/09**, dont les correctifs sont déjà
+nommés : **grille décalée MAC** (Harlow & Welch 1965) pour la divergence,
+**advection conservative en flux** (Lentine, Aanjaneya & Fedkiw 2011) pour la
+masse.
+
+#### 📐 LE BALAYAGE QUI A CHOISI epsilon — et qui chiffre le prix
+
+`NK_FLUID_SWEEP=1`, 240 pas, même scène, seul epsilon change. C'est une enquête de
+**paramètre** : les seuils des témoins sont ailleurs et ne dépendent pas d'elle.
+
+```
+ eps   ens 60 pas   ×A    ens totale   ×A    rayon      ×A    div strict   dérive masse   y barycentre
+0.00      0.41521  1.00      8.01887  1.00   0.04790 m 1.00     0.57034 %      -26.23 %       0.951
+0.25      0.42030  1.01      7.96623  0.99   0.04831 m 1.01     0.59096 %      -27.64 %       0.942
+0.50      0.42536  1.02      7.89160  0.98   0.04865 m 1.02     0.61508 %      -28.96 %       0.930
+1.00      0.43533  1.05      7.61809  0.95   0.04904 m 1.02     0.67169 %      -31.15 %       0.902
+2.00      0.45450  1.09      6.90605  0.86   0.04837 m 1.01     0.82993 %      -33.58 %       0.838
+8.00      0.49530  1.19      3.09351  0.39   0.05944 m 1.24     5.32671 %      -35.99 %       0.514
+16.00     0.34577  0.83      2.89655  0.36   0.06515 m 1.36    16.47617 %      -46.82 %       0.359
+```
+*(la ligne epsilon = 4 est dans le journal du banc : 0,48740 / ×1,17 · 5,12568 /
+×0,64 · 0,05243 m / ×1,09 · 1,41030 % · −35,10 % · 0,704)*
+
+**`epsilon = 8` retenu** — le plus PETIT du balayage qui atteint le seuil de (v2)
+**déjà pré-enregistré** (× 1,15). La règle de choix est écrite dans le code :
+*choisir un paramètre et déplacer un critère sont deux gestes différents.* Le
+défaut du solveur brut **reste 0** — rien de ce qui existe aujourd'hui ne change
+de comportement ; ce sont les réglages `NkFluidVolume::Smoke()`/`Fire()`, dont le
+travail est l'apparence, qui l'arment.
+
+⚠️ **Au-delà de 8, tout se dégrade, y compris l'enstrophie précoce** (× 0,83 à
+epsilon = 16). La borne n'est pas un goût : elle est dans le tableau.
+
+#### 🔬 LA CAUSE DE (v4), MESURÉE — et c'est l'argument pour ③
+
+Le 05/09, on avait prouvé que la divergence résiduelle de 0,39 % ne vient **pas du
+solveur** : forcé 78 fois plus loin, le rapport n'avait pas bougé. **La même
+contre-épreuve, rejouée AVEC le confinement armé**, rend le même verdict :
+
+```
+epsilon = 8, mêmes 40 pas, même grille allégée
+  borne   tolérance   balayages/pas   résidu final   |div|·h/|u| STRICT
+   200      1e-04          35,6        3,556e-06        9,473474 %
+   800      1e-06         131,0        9,091e-08        9,472982 %
+  4000      1e-08        4000,0        4,414e-08        9,472982 %
+```
+
+**Le résidu s'effondre d'un facteur 39 et le rapport ne bouge pas d'un
+dix-millième.** Ce n'est donc pas « le solveur n'arrive plus à suivre » : le
+remède ne sera jamais « plus de balayages ». C'est la **grille colocalisée** — la
+projection résout un Laplacien de pas 1 pendant que la divergence centrée en voit
+un de pas 2 — et le confinement, qui injecte de la haute fréquence dans le champ
+de vitesse, **rend cet écart cher**.
+
+> **Le confinement n'a pas créé le défaut de la grille colocalisée : il l'a rendu
+> visible et coûteux.** ③ est exactement ce qui rendrait ① abordable, et c'est la
+> mesure qui le dit.
+
+#### ✅ CE QUI EST VERT, AVEC SON CHIFFRE
+
+**Deux instruments neufs, calibrés avant qu'on croie leur chiffre** (6 contrôles) :
+l'**enstrophie** contre une rotation solide `u = Ω × r`, dont le rotationnel vaut
+`2Ω` exactement — mesuré **4,000000 1/s pour 4,000000 attendu, écart 0,0000 %**, et
+1,458000 m³/s² pour 1,458000 en valeur absolue ; contrôle négatif : champ uniforme
+→ 0,000e+00. Le **rayon de giration** contre une gaussienne d'écart-type connu
+(`σ√2`) — **0,08483 m pour 0,08485 attendu, écart 0,03 %** ; contrôles négatifs :
+une cellule seule → rayon nul, tranche vide → l'instrument **rend false** au lieu
+de fabriquer un point.
+
+**Le confinement agit, et deux instruments INDÉPENDANTS le disent** — l'un lit le
+champ de densité, l'autre ne connaît que des pixels :
+- **(v2)** rayon du panache à y = 0,60 m : **0,03822 → 0,07073 m, × 1,85** (masses
+  de tranche publiées à côté : × 1,91 — comparer deux rayons sans comparer les
+  masses comparerait deux populations) ;
+- **(i1)** à l'IMAGE, ligne y = 84 : rayon en pixels **5,329 → 13,124, × 2,46** ; la
+  boîte du panache passe de **45 à 72 px** de large.
+
+**Le VENT est branché, et la MASSE est HONORÉE** (`math::NkIForceField`, contrat
+en newtons) :
+- **(w1)** force uniforme 0,50 N sur 1 kg, 1 s : déplacement **0,25160 m** contre
+  **0,25208 m** attendus par la somme discrète — **0,019 cellule** d'écart ;
+- **(w2)** ⭐ **doubler la masse divise l'accélération par deux** : 0,25160 m contre
+  0,12602 m, **rapport 1,9966**. *C'est le seul témoin qui prouve que
+  `fieldParticleMass` est HONORÉ — un paramètre déclaré et non honoré est pire
+  qu'un paramètre absent, et il ne se voit nulle part ailleurs ;*
+- **(w3)** le vrai `renderer::NkForceField` du dépôt passe par le même contrat :
+  **écart 0,0000 %** avec le champ de test ;
+- **(w4)** aucun champ → 0,000000 m ; **(w5)** champ présent, interrupteur coupé →
+  0,000000 m au lieu de 0,25208 : la mutation mord.
+
+**Le REGISTRE (`NkFluidVolumeStore`) — 9 témoins verts.** Créer recale les bornes
+relatives en monde ; `StepAll` fait avancer (`SteppedLastFrame = 1`,
+`StepsTotal = 30`, masse 0 → 0,000664499) et la source sort au centre déclaré ; la
+source est un **DÉBIT** (un pas à 2 dt injecte **1,9991 ×** la masse d'un pas à dt) ;
+déplacer le centre emporte la boîte **et** la fumée (écart **0,00e+00 m**) ;
+détruire invalide la poignée de l'appelant et rend `Grid()` nul ; une grille
+impossible rend une poignée **invalide** au lieu d'une poignée morte.
+
+⭐ **Et une paire de témoins qui ne peut pas être satisfaite par un solveur cassé :**
+- **(r5)** projection coupée, 1,2 N sur +z : la fumée dérive de **+0,1525 m**
+  (3,81 cellules) ;
+- **(r5b)** **projection ACTIVE, même vent, même boîte close : +0,00001 m.** C'est
+  la **physique juste** — dans une boîte fermée, une force de volume uniforme est
+  exactement équilibrée par le gradient de pression, et un ventilateur uniforme
+  ne déplace pas le contenu d'une boîte. *Une projection morte rendrait (r5) plus
+  vert et (r5b) rouge.*
+
+**Le PONT ECS — banc neuf `NkFluidEcsProbe`, 8/8, sans device.** Monde ECS réel +
+le **vrai `NkTransformSystem` de Noge** (le banc n'écrit pas la position monde
+lui-même : ce serait éprouver le banc). Une entité `NkFluidVolume + NkTransform`
+fait naître un volume **à sa position monde** ; le déplacer déplace le volume
+(erreur cumulée **0,00e+00 m**) ; `StepAll` le fait avancer (masse 0 →
+0,001424622 en 20 images) ; éteindre le composant éteint le volume ; **détruire
+l'entité RAMASSE le volume** ; ⭐ **un volume créé par un AUTRE producteur SURVIT
+au ramassage** (le pont ne ramasse que ce qu'il a créé — *une liste d'exclusion ne
+protège que ce qu'on a pensé à y mettre*) ; sans registre, rien n'est créé et rien
+ne plante ; sans `Execute`, aucun volume.
+
+**NON-RÉGRESSION, et elle est exacte.** Les cinq témoins du 05/09 et les paliers ②
+et ③ rendent des chiffres **identiques au dernier chiffre** : masse −45,8798 %,
+divergence stricte 0,417057 %, Boussinesq à 0,0002 %, transport 0,070 cellule,
+rendu 74,02 et 1,34, Wien 0,0079 %, D65 (0,3134 / 0,3237). *Le confinement à
+`epsilon = 0` ne change rien, et ce n'est pas une supposition.*
+
+#### ⛔ CE QUE JE NE PRÉTENDS PAS
+
+- **Aucun code GPU.** Grille CPU, rendu CPU, registre CPU. Le portage NKRHI/NkSL
+  (texture 3D + compute) reste **nommé, pas commencé**.
+- **`NkVFXSystem::Update` n'a pas TOURNÉ** — il exige un device et une fenêtre. Ce
+  qui est éprouvé est `NkFluidVolumeStore::StepAll`, **la fonction même que cet
+  Update appelle** ; le lien entre les deux est une ligne que seule la compilation
+  vérifie. Ce n'est pas la même chose que de l'avoir vu tourner, et c'est dit.
+- **Aucune image de moteur** : les deux images de cette nuit sont des marches de
+  rayon **CPU**, sans fenêtre ni device, comme celles du 05/09.
+- **La grille décalée MAC (③) n'est pas commencée** ; **l'advection conservative
+  non plus** ; le correctif **MacCormack limité reste éteint par défaut** — je ne
+  l'ai pas rallumé.
+- **Le coût du confinement n'est pas isolé.** La seconde passe de vorticité ajoutée
+  par pas n'a pas de chronomètre à elle : ce que je peux dire honnêtement est une
+  **borne** — deux passes de ~30 opérations par cellule contre 35 à 210 balayages
+  SOR du Poisson, soit de l'ordre de **1 à 3 %** du pas. C'est un raisonnement sur
+  des comptes d'opérations, **pas une mesure**, et la mesure qui trancherait est un
+  chronomètre dans `ComputeVorticity`. ⚠️ **Et les ms/pas de cette nuit ne se
+  comparent pas à celles du 05/09** : la machine portait un build complet en
+  parallèle une partie de la nuit. Comparer deux chronos pris sous deux charges
+  comparerait la machine, pas le code.
+- **Rien n'est prouvé sur ce que ça donne DANS UN JEU** : un volume par entité, à
+  130-230 ms le pas sur 43 904 cellules et un seul fil, n'est pas un budget d'image.
+- **Pas de vraie lumière dynamique** émise par la flamme : seule une couleur
+  émissive est rendue dans le volume.
+
+#### 👁️ CE QUE RODOLF DOIT REGARDER AU RÉVEIL
+
+1. **Les deux images, côte à côte** —
+   `Captures/fumee_jet_sans_confinement_2026-09-07.png` et
+   `Captures/fumee_panache_confinement_2026-09-07.png`. Même scène, même graine,
+   même nombre de pas : **seul epsilon change**. C'est la seule chose de cette nuit
+   qui se juge à l'œil, et c'est ce qu'il avait demandé.
+2. **Le prix, et l'arbitrage qui lui revient** : le confinement fait passer la
+   dérive de masse de −29 % à −42 % et la divergence de 0,39 % à 6,33 %. Je l'ai
+   armé **dans les réglages de Noge** (`Smoke()`, `Fire()`) et laissé **éteint dans
+   le solveur brut**. Si ce prix lui paraît trop cher pour l'instant, il n'y a
+   qu'un chiffre à changer — et le tableau du balayage dit ce que chaque valeur
+   coûte.
+3. **③ passe devant le reste** : la contre-épreuve du plancher, rejouée avec le
+   confinement, dit que la divergence n'est pas le solveur mais la grille. La
+   grille décalée MAC n'est plus un raffinement — c'est ce qui rend le confinement
+   payable.
+
 ### 🔩 04/09 (nuit) — JENGA 2.6 : ce qui est appliqué, ce qui est mesuré en retour
 
 - **`-static` — le défaut était chez nous** : `config/toolchain.jenga:55` (bloc Windows natif) promettait
