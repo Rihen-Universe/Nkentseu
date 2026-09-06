@@ -46,6 +46,24 @@
 // 1965, p. 2182-2189 -- ou la divergence et le Laplacien sont adjoints exacts.
 // C'est la grille qu'utilise Fedkiw, Stam & Jensen 2001 ; le code de
 // demonstration de Stam 1999, lui, est colocalise comme ici.
+//
+// 📌 LA BASCULE EST PRE-ENREGISTREE (2026-09-07) : seuils, controles d'instrument
+// a refaire dans le nouveau repere, et liste des temoins qui DOIVENT changer de
+// valeur -- tout est ecrit AVANT la premiere ligne de code, dans
+// PLAN_GRILLE_MAC.md, a cote de ce fichier. Ce qui ne traverse pas un renvoi et
+// doit donc etre lu ICI, ce sont les DEUX choses qui decident :
+//   (1) LE CRITERE DECISIF. Sur une grille decalee, l'operateur de divergence et
+//       le Laplacien de pression sont ADJOINTS EXACTS : la divergence residuelle
+//       cesse d'avoir un plancher de discretisation et devient bornee par la
+//       TOLERANCE. Donc la contre-epreuve du plancher DOIT CHANGER DE VERDICT --
+//       resserrer la tolerance doit faire BOUGER le rapport, ce qu'elle ne fait
+//       pas aujourd'hui. Seuil fixe d'avance : rapport(200,1e-4)/rapport(4000,
+//       1e-8) >= 10, alors qu'il vaut 1,00013 (eps=0) et 1,00005 (eps=8) ici.
+//   (2) CE QU'ELLE NE CORRIGE PAS : la MASSE. L'advection reste
+//       semi-lagrangienne a interpolation trilineaire, et la perte de 45,9 % est
+//       SPATIALE (mesure : diviser le pas de temps par 4 ne la change pas).
+//       Promettre que la grille decalee la repare serait promettre ce qu'on ne
+//       livre pas ; son correctif reste l'advection conservative en flux.
 // (Hypothese ECARTEE en chemin : « c'est la couche collee aux parois ». Faux --
 // mesure sur l'interieur STRICT, qui ne touche aucune paroi : 0,417 % contre
 // 0,389 % sur tout l'interieur. Le defaut est partout, pas au bord.)
