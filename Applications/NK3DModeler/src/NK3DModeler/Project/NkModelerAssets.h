@@ -483,8 +483,19 @@ namespace nkentseu {
 		/// `.nkgeo` frere. Le passer plutot que de le recalculer garde UN seul
 		/// endroit ou le nom d'un asset se decide (NkAsRelFor) -- un second
 		/// calcul finirait par diverger, et la geometrie irait a cote du fichier.
-		inline void NkAsNodesCapture(NkArchive &out, const NkString &root, const NkString &rel,
-									 const NkModelerState &st, const NkVector<int32> &live) {
+		///
+		/// 🔴 REND FAUX QUAND LA GEOMETRIE N'A PAS PU ETRE ECRITE (Rodolf, 06/09).
+		/// Avant, l'echec du `.nkgeo` ne remontait a personne : le `.nkmesh`
+		/// s'ecrivait, `NkProjectWriteCard` rendait VRAI, et le bandeau annoncait
+		/// « Import reussi : 1 fichier(s) .nkmesh ecrit(s) ». C'etait exact du
+		/// `.nkmesh` -- 1,6 Ko de structure -- et faux de ce qui compte : les 9 Mo
+		/// de matiere n'etaient pas sur le disque. Le disque plein est precisement
+		/// le cas ou le petit fichier passe et le gros non.
+		/// `geoErr` recoit la RAISON, pour que l'appelant la nomme au lieu de dire
+		/// « echec ».
+		inline bool NkAsNodesCapture(NkArchive &out, const NkString &root, const NkString &rel,
+									 const NkModelerState &st, const NkVector<int32> &live,
+									 NkString *geoErr = nullptr) {
 			NkGeoBuilder geo;
 			const int32 nodeMax = demo::Demo3DHostNodeCount();
 			NkVector<int32> rankOf;
@@ -668,18 +679,22 @@ namespace nkentseu {
 						"[geom] « %s » NON ECRIT : %s. Les objets importes de cet asset ne "
 						"survivront pas a la reouverture.",
 						grel.CStr(), gerr.CStr());
-					char t[kToastTexte];
-					snprintf(t, sizeof(t),
-							 "Geometrie NON ecrite pour « %s » : %s. Les objets importes de cet "
-							 "asset ne survivront pas a la reouverture.",
-							 grel.CStr(), gerr.CStr());
-					NkToastPush(NkToastKind::Refus, t);
-				} else if (geo.count > 0) {
+					// PAS DE TOAST ICI. L'echec remonte desormais par le retour, et
+					// c'est le GESTE qui le dit -- le bandeau d'import, ou le
+					// message d'« Enregistrer ». Un toast pose ici en ferait DEUX
+					// pour une seule cause, et le second serait celui qu'on lit.
+					if (geoErr) {
+						*geoErr = NkString("« ") + grel + " » : " + gerr;
+					}
+					return false;
+				}
+				if (geo.count > 0) {
 					NkLog::Instance().Warnf("[geom] « %s » : %u maillage(s) ecrit(s), %llu octets.",
 											grel.CStr(), (unsigned)geo.count,
 											(unsigned long long)geo.bytes);
 				}
 			}
+			return true;
 		}
 
 		/// Recree les noeuds d'un fichier DANS LA SCENE HOTE ACTIVE. L'appelant a
@@ -1313,8 +1328,11 @@ namespace nkentseu {
 			}
 		}
 
-		inline void NkAsSceneCapture(NkArchive &o, const NkString &root, const NkString &rel,
-									 NkModelerState &st, int32 d) {
+		/// Rend FAUX si la geometrie de la scene n'a pas pu etre ecrite (cf.
+		/// NkAsNodesCapture) : l'archive `o` reste complete et utilisable, seule
+		/// la matiere manque sur le disque.
+		inline bool NkAsSceneCapture(NkArchive &o, const NkString &root, const NkString &rel,
+									 NkModelerState &st, int32 d, NkString *geoErr = nullptr) {
 			NkAsHeader(o, "scene");
 			o.SetString("nom", st.docName[d]);
 			o.SetBool("vierge", st.docBlank[d]);
@@ -1371,7 +1389,7 @@ namespace nkentseu {
 					continue;
 				live.PushBack(n);
 			}
-			NkAsNodesCapture(o, root, rel, st, live);
+			return NkAsNodesCapture(o, root, rel, st, live, geoErr);
 		}
 
 		inline void NkAsSceneRestore(const NkArchive &in, const NkString &root,
@@ -1451,13 +1469,16 @@ namespace nkentseu {
 		// ─────────────────────────────────────────────────────────────────────────
 		// UN MODEL — .nkmesh
 		// ─────────────────────────────────────────────────────────────────────────
-		inline void NkAsModelCapture(NkArchive &o, const NkString &root, const NkString &rel,
-									 NkModelerState &st, int32 card) {
+		/// Rend FAUX si la geometrie du model n'a pas pu etre ecrite (cf.
+		/// NkAsNodesCapture). C'est le cas qui compte : un model EST de la
+		/// geometrie importee, et son `.nkmesh` seul ne dit que sa structure.
+		inline bool NkAsModelCapture(NkArchive &o, const NkString &root, const NkString &rel,
+									 NkModelerState &st, int32 card, NkString *geoErr = nullptr) {
 			NkAsHeader(o, "model");
 			o.SetString("nom", st.Card(card).name);
 			const int32 srcN = st.Card(card).srcNode - 1;
 			if (srcN < 0)
-				return; // carte sans corps : le fichier dit son nom, pas plus
+				return true; // carte sans corps : le fichier dit son nom, pas plus
 			// LA RACINE ET SES MAILLAGES. Le parcours d'appartenance vit dans
 			// l'hote (HostIsInnerMeshOf, partage avec le deplacement de document) :
 			// le refaire ici finirait par ne plus emporter les memes noeuds.
@@ -1470,7 +1491,7 @@ namespace nkentseu {
 				if (demo::Demo3DHostNodeInnerMeshOf(n, srcN))
 					live.PushBack(n);
 			}
-			NkAsNodesCapture(o, root, rel, st, live);
+			return NkAsNodesCapture(o, root, rel, st, live, geoErr);
 		}
 
 		inline void NkAsModelRestore(const NkArchive &in, const NkString &root,
@@ -1564,6 +1585,16 @@ namespace nkentseu {
 		/// sauvegarde, jamais par un second ecrivain). Rend vrai si la carte n'a
 		/// rien a ecrire (nature sans fichier, document absent) : « rien a faire »
 		/// n'est pas un echec. Rend faux, avec `err`, si l'ecriture echoue.
+		///
+		/// 🔴 ET « L'ECRITURE » COMPTE LES DEUX FICHIERS (Rodolf, 06/09). Une carte
+		/// de model, c'est un `.nkmesh` de structure ET un `.nkgeo` de matiere. Le
+		/// premier fait 1,6 Ko, le second 9 Mo pour un mannequin de 150 000
+		/// sommets : sur un disque plein, le petit passe et le gros non. Tant que
+		/// seul `NkAsWrite` decidait du verdict, cette carte-la rendait VRAI, et le
+		/// bandeau disait « Import reussi » sur un objet dont la matiere n'etait
+		/// nulle part. C'est le defaut des cubes blancs sous un autre nom -- du
+		/// visible qui n'est pas persistant --, et il n'est ferme que si l'echec du
+		/// `.nkgeo` fait rougir le geste.
 		inline bool NkProjectWriteCard(const NkString &root, NkModelerState &st, int32 b,
 									   NkString *err) {
 			const uint8 k = st.Card(b).kind;
@@ -1573,13 +1604,20 @@ namespace nkentseu {
 			if (rel.Empty())
 				return true;
 			NkArchive a;
+			// LA CAPTURE ECRIT DEJA LE `.nkgeo` : son verdict est retenu ici et
+			// rendu a la FIN, apres que le `.nkmesh` soit parti. On ecrit quand
+			// meme la structure -- elle porte `geometriePropre: true`, et c'est ce
+			// drapeau qui fera DIRE a la reouverture quel objet a perdu sa matiere,
+			// au lieu de rendre un cube muet.
+			bool geoOk = true;
+			NkString geoErr;
 			if (k == 5) {
 				const int32 d = st.Card(b).doc - 1;
 				if (d < 0 || d >= NkModelerState::kMaxDocs || !st.docUsed[d])
 					return true;
-				NkAsSceneCapture(a, root, rel, st, d);
+				geoOk = NkAsSceneCapture(a, root, rel, st, d, &geoErr);
 			} else if (k == 6) {
-				NkAsModelCapture(a, root, rel, st, b);
+				geoOk = NkAsModelCapture(a, root, rel, st, b, &geoErr);
 			} else {
 				const int32 m = st.Card(b).mat - 1;
 				if (m < 0)
@@ -1591,7 +1629,10 @@ namespace nkentseu {
 			// L'ORIGINE CORRIGEE EST SUR LE DISQUE : la carte se desarme.
 			// APRES l'ecriture reussie, jamais avant -- un desarmement sur une
 			// ecriture echouee perdrait la correction sans un message.
-			if (k == 6)
+			// ⚠️ ET PAS QUAND LA GEOMETRIE MANQUE : le drapeau est ce qui fera
+			// reprendre cette carte au prochain « Enregistrer ». Le desarmer sur un
+			// fichier a moitie ecrit condamnerait la matiere a ne jamais partir.
+			if (k == 6 && geoOk)
 				st.Card(b).originDirty = false;
 			// ── LA VIGNETTE D'UN MATERIAU SE PREND ICI ──────────────────
 			// « Les cartes recoivent le resultat correct, sous forme de
@@ -1617,6 +1658,18 @@ namespace nkentseu {
 			// tout le navigateur.
 			st.Card(b).time =
 				NkFileSystem::GetLastWriteTime(NkScToAbs(root, rel.CStr()).CStr());
+			// LA COMPTABILITE DE LA CARTE EST FAITE MEME QUAND LA MATIERE MANQUE :
+			// le `.nkmesh` EST sur le disque, a `rel`, et pretendre le contraire
+			// laisserait un orphelin derriere le prochain renommage. Le verdict,
+			// lui, est FAUX -- et il l'est en dernier, une fois l'etat coherent.
+			if (!geoOk) {
+				if (err)
+					*err = NkString("geometrie NON ecrite : ") + geoErr +
+						   ". La structure de « " + rel +
+						   " » est sur le disque, sa matiere NON : ces objets "
+						   "reviendront en primitive, et la reouverture le dira.";
+				return false;
+			}
 			return true;
 		}
 

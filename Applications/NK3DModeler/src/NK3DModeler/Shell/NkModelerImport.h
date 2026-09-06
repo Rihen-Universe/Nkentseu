@@ -711,11 +711,19 @@ namespace nkentseu {
 							 "ete SAUTES -- la scene n'a plus d'emplacement de noeud libre. Que faire : "
 							 "supprimez des objets de la scene, ou importez dans une scene neuve.",
 							 modelsNes, noeudsNes);
+			// ⚠️ « ECRIT » VEUT DIRE LES DEUX FICHIERS -- la structure (`.nkmesh`)
+			// ET la matiere (`.nkgeo`). Une carte dont seule la structure est
+			// partie compte ICI, pas dans le succes : c'est exactement le cas ou
+			// l'objet est a l'ecran et sa geometrie nulle part, et c'est ce que
+			// Rodolf a paye sous le nom de « cubes blancs ». Le bandeau ne dit donc
+			// plus « seulement N .nkmesh » -- il dirait faux dans ce cas-la, le
+			// `.nkmesh` etant bel et bien sur le disque : il dit « complets ».
 			else if (fichiers < cartes)
 				NkImportNote(st, NkToastKind::Partiel,
-							 "Import PARTIEL : %d carte(s) creee(s), mais seulement %d fichier(s) .nkmesh "
-							 "ecrit(s) sur %d. Raison : %s. Que faire : les cartes non ecrites seront "
-							 "reprises au prochain Enregistrer -- verifiez les droits du dossier du projet.",
+							 "Import PARTIEL : %d carte(s) creee(s), mais seulement %d fichier(s) "
+							 "COMPLETS sur %d (structure .nkmesh + geometrie .nkgeo). Raison : %s. "
+							 "Que faire : les cartes incompletes seront reprises au prochain "
+							 "Enregistrer -- verifiez la place libre et les droits du dossier du projet.",
 							 cartes, fichiers, cartes,
 							 errEcr.Empty() ? "non precisee" : errEcr.CStr());
 			else
@@ -726,8 +734,9 @@ namespace nkentseu {
 				// l'import, alors que son .glb ne declare aucun materiau.
 				NkImportNote(st, NkToastKind::Succes,
 							 "Import reussi : %d model(s), %d maillage(s), %d materiau(x), %d texture(s), "
-							 "%d fichier(s) .nkmesh ecrit(s) dans le projet. Ils sont dans le NAVIGATEUR "
-							 "-- glissez une carte vers la scene pour la poser.",
+							 "%d fichier(s) .nkmesh + .nkgeo ecrit(s) dans le projet -- la geometrie est "
+							 "DEJA sur le disque, sans attendre un Enregistrer. Ils sont dans le "
+							 "NAVIGATEUR -- glissez une carte vers la scene pour la poser.",
 							 modelsNes, noeudsNes, matNees, texEcrites, fichiers);
 			return modelsNes > 0;
 		}

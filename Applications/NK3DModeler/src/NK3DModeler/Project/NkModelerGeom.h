@@ -159,11 +159,22 @@ namespace nkentseu {
 			const NkString::SizeType s = abs.RFind('/');
 			if (s != NkString::npos) {
 				const NkString dir(abs.CStr(), s);
-				if (!dir.Empty() && !NkDirectory::Exists(dir.CStr()) &&
-					!NkDirectory::CreateRecursive(dir.CStr())) {
-					if (err)
-						*err = NkString("dossier impossible a creer : ") + dir;
-					return false;
+				if (!dir.Empty() && !NkDirectory::Exists(dir.CStr())) {
+					(void)NkDirectory::CreateRecursive(dir.CStr());
+					// ⚠️ ON RELIT L'EFFET, ON NE CROIT PAS LE RETOUR. Mesure du
+					// 06/09, temoin jetable hors depot : quand un FICHIER occupe le
+					// nom du dossier, `NkDirectory::CreateRecursive` rend VRAI --
+					// `CreateDirectoryA` echoue avec ERROR_ALREADY_EXISTS et
+					// `NkDirectory::Create` lit ce code comme une idempotence
+					// (NkDirectory.cpp:88). Un garde adosse a ce retour ne peut donc
+					// JAMAIS mordre : c'est un garde decoratif. Celui-ci demande au
+					// disque si le dossier est la, et c'est la seule question qui
+					// decide de la suite.
+					if (!NkDirectory::Exists(dir.CStr())) {
+						if (err)
+							*err = NkString("dossier impossible a creer : ") + dir;
+						return false;
+					}
 				}
 			}
 			NkVector<uint8> file;
@@ -307,6 +318,14 @@ namespace nkentseu {
 		// et exigent un REFUS. Retirer le controle correspondant dans NkGeoRead
 		// les fait passer au rouge -- c'est ce qui les rend autre chose qu'un
 		// commentaire.
+		//
+		// ⚠️ ET CE QUE LE (8) NE COUVRE PAS, IL FAUT LE DIRE AVEC LUI : il prouve
+		// que `NkGeoWrite` REFUSE et NOMME sa raison quand l'ecriture est
+		// impossible. Il ne prouve RIEN de la remontee de ce refus jusqu'au
+		// bandeau -- NkAsNodesCapture -> NkProjectWriteCard -> « Import
+		// PARTIEL ». Cette chaine-la traverse l'hote 3D, donc un device, donc une
+		// fenetre : elle reste un test HUMAIN, et il faut un dossier de projet en
+		// lecture seule (ou un disque plein) pour la voir mordre.
 		inline int32 NkGeoSonde(const NkString &dir) {
 			NkString root = dir.Empty() ? NkString(".") : dir;
 			NkString rap;
@@ -443,6 +462,48 @@ namespace nkentseu {
 								NkGeoRelFor("Scene1.nkscene") == NkString("Scene1.nkgeo") &&
 								NkGeoRelFor("Dos.sier/Sans") == NkString("Dos.sier/Sans.nkgeo");
 				dire("(7) nom du .nkgeo frere", ok, "extension remplacee, point du dossier epargne");
+			}
+
+			// (8) UNE ECRITURE IMPOSSIBLE REND FAUX ET DIT POURQUOI.
+			// C'est le controle qui manquait, et c'est celui qui compte le plus
+			// pour Rodolf : tant que `NkGeoWrite` peut echouer sans que personne
+			// ne le sache, un import annonce « reussi » sur une matiere qui n'est
+			// nulle part. Le cas se FABRIQUE, parce que le disque de la machine
+			// n'est ni plein ni en lecture seule : on pose un FICHIER la ou le
+			// dossier devrait etre, et on demande d'ecrire dedans.
+			// ⚠️ CE QUI A ETE MESURE, ET CE QUI NE L'A PAS ETE. Les deux formes de
+			// la garde de dossier ont ete eprouvees sur ce cas exact par un temoin
+			// jetable hors depot (06/09, controle positif inclus) :
+			//     controle positif (ecrire ailleurs) = 1
+			//     garde ANCIENNE  (« !CreateRecursive ») mord = 0   <- DECORATIVE
+			//     garde NOUVELLE  (relit le disque)     mord = 1
+			//     WriteAllBytes sous le barrage              = 0
+			// ET LE CAS (8) A ETE VU ROUGE SOUS SA PROPRE MUTATION : en remettant
+			// la garde de dossier a sa forme decorative (`if (false)` sur la
+			// relecture du disque), l'ecriture echoue quand meme un cran plus bas,
+			// mais le message accuse le FICHIER -- le mot « dossier » disparait, le
+			// cas tombe, et `--sonde-geo` rend 1. C'est pour ca que ce cas exige le
+			// mot et pas seulement l'echec : « ca a rendu faux » ne departageait
+			// pas les deux versions de la garde.
+			{
+				const NkString barrageRel = "sonde_geo_barrage";
+				const NkString barrageAbs = NkScToAbs(root, barrageRel.CStr());
+				NkVector<uint8> unOctet;
+				unOctet.PushBack((uint8)'x');
+				(void)NkFile::WriteAllBytes(barrageAbs.CStr(), unOctet);
+				NkString err8;
+				const NkString cible = barrageRel + "/impossible.nkgeo";
+				const bool ecrit = NkGeoWrite(root, cible, g, &err8);
+				// LE REFUS DOIT NOMMER SA CAUSE, PAS SON SYMPTOME. Exiger seulement
+				// « ca a rendu faux » ne departagerait rien : avec la garde de
+				// dossier decorative, l'ecriture echouait quand meme un cran plus
+				// bas et le message accusait le FICHIER alors que le fautif est le
+				// DOSSIER. Le mot « dossier » est donc ce qui distingue les deux
+				// versions -- et c'est aussi ce qui dit a Rodolf quoi corriger.
+				const bool ok = !ecrit && err8.Find("dossier") != NkString::npos;
+				(void)NkFile::Delete(barrageAbs.CStr());
+				dire("(8) ecriture impossible : refus NOMME", ok,
+					 ok ? err8.CStr() : "a rendu VRAI ou n'a pas dit pourquoi");
 			}
 
 			char tete[512];

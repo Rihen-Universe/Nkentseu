@@ -3630,3 +3630,139 @@ d'appel ; et son résultat ne se vérifie qu'au clic — que je ne fais pas. Une
 conversion à moitié posée dans l'arbre partagé serait pire que pas de conversion.
 Elle est donc **nommée ici, non commencée**, avec les quatre points ci-dessus
 comme point de départ.
+
+---
+
+## 2026-09-06 — « FORCER LA SAUVEGARDE APRÈS IMPORT » : c'était DÉJÀ le cas, prouvé par le journal de Rodolf
+
+Demande de Rodolf (S50) : *« je veux ajouter un truc, forcer sa sauvegarde après
+import si c'est pas le cas. »*
+
+### La réponse est : c'est le cas, et la preuve n'est pas une lecture de code
+
+`logs/app_2026-09-06_134441_12328.log`, session de Rodolf, import d'un `.fbx` de
+150 000 sommets — quatre lignes consécutives, dans cet ordre :
+
+```
+13:45:50.454  [import] MESURE import : '...283e73e448ffcc25a70f4634d74b07c8.fbx'
+                       -> 1 model(s), 1 sous-mesh, 150000 verts, 150000 indices
+13:45:50.454  [import] MESURE materiau : « Material » ... fichier=Material.nkmat
+13:45:50.587  [geom]   « node_0.nkgeo » : 1 maillage(s) ecrit(s), 9000000 octets.
+13:45:50.607  [import] Import reussi : 1 model(s), 1 maillage(s), ...
+```
+
+**Le `.nkgeo` est écrit AVANT le bandeau de succès**, sans qu'aucun
+« Enregistrer » n'ait été demandé. Mécanisme : l'import appelle
+`NkProjectWriteCard` (`NkModelerImport.h:685`) — l'unique écrivain de carte,
+sorti le 17/08 précisément pour que l'import et la sauvegarde empruntent le même
+chemin. Depuis le lot des cubes blancs, ce chemin passe par
+`NkAsModelCapture → NkAsNodesCapture → NkGeoWrite`. **La géométrie a suivi
+l'écrivain sans qu'on ait à la brancher.**
+
+Corollaire de méthode : la question « est-ce déjà fait ? » s'est tranchée dans le
+journal d'une manipulation réelle, pas dans le code. La lecture de code aurait
+donné la même réponse — et elle allait dans le sens qui m'arrangeait, donc elle
+ne suffisait pas.
+
+### Le coût, mesuré (bornes hautes, honnêtes)
+
+| geste | volume | durée |
+|---|---|---|
+| import (chargement FBX exclu) | 9 000 000 o | **≤ 153 ms** (13:45:50.454 → .607) |
+| dont l'écriture du `.nkgeo` seule | 9 000 000 o | **≤ 133 ms** (.454 → .587) |
+| « Enregistrer » du 14:03 | 18 000 000 o | **≤ 309 ms** (14:03:10.953 → :11.262) |
+
+⚠️ Ce sont des **bornes hautes** : l'intervalle contient aussi l'écriture du
+`.nkmat`, la naissance des nœuds et le téléversement du maillage. Le coût réel du
+`.nkgeo` est plus bas. Aucune décision « synchrone ou différé » n'était à
+prendre : c'est **déjà synchrone**, dans un geste que l'utilisateur vient de
+déclencher et qui bloque déjà, et Rodolf ne s'en est jamais plaint.
+
+⚠️ Et le `~20 Mo par copie` que j'avais nommé sans le mesurer est **confirmé
+comme ordre de grandeur** : 56 o/sommet × 150 000 + 4 o × 150 000 = 9,0 Mo
+exactement, et 18 Mo pour deux maillages dans le même asset.
+
+### CE QUI A ÉTÉ ÉCRIT : le bandeau ne pouvait pas dire une mauvaise nouvelle
+
+Rodolf demandait aussi (S50, point 3) : *« que se passe-t-il si l'écriture
+ÉCHOUE ? Un import qui dit "réussi" alors que rien n'est sur le disque serait le
+même défaut sous un autre nom. »* **C'était le cas, et c'est ce lot qui le
+ferme.**
+
+`NkAsNodesCapture` rendait `void` : l'échec du `.nkgeo` n'allait qu'au journal et
+dans un toast. `NkProjectWriteCard` ne jugeait que `NkAsWrite` — donc le
+`.nkmesh`. Sur un disque plein, le **1,6 Ko de structure passe et les 9 Mo de
+matière non** : la carte rendait VRAI, et le bandeau annonçait « Import réussi :
+1 fichier(s) .nkmesh écrit(s) ». Exact du `.nkmesh`, faux de ce qui compte.
+
+Ce qui change :
+
+1. `NkAsNodesCapture` rend `bool` et remplit un `NkString *geoErr` ; le toast
+   `Refus` posé là **disparaît** — deux messages pour une cause, et le second
+   était celui qu'on lit. C'est le **geste** qui parle maintenant.
+2. `NkAsSceneCapture` et `NkAsModelCapture` propagent.
+3. `NkProjectWriteCard` écrit quand même le `.nkmesh` (il porte
+   `geometriePropre: true`, donc la réouverture NOMMERA l'objet privé de sa
+   matière), fait toute sa comptabilité de carte — le fichier EST sur le disque —
+   puis **rend faux en dernier**, avec la raison. `originDirty` **n'est pas
+   désarmé** : la carte est reprise au prochain « Enregistrer ».
+4. Bandeau d'import : « seulement N fichier(s) **COMPLETS** sur M (structure
+   .nkmesh + géométrie .nkgeo) » — parce que « seulement N .nkmesh » aurait menti
+   dans l'autre sens, le `.nkmesh` étant bel et bien écrit. Et le bandeau de
+   succès dit désormais « .nkmesh + .nkgeo écrits — la géométrie est DÉJÀ sur le
+   disque, sans attendre un Enregistrer ».
+
+### 🔴 UNE GARDE QUI NE POUVAIT PAS MORDRE — et le défaut de NKFileSystem derrière
+
+En écrivant le contrôle (8) de la sonde, mesure faite avec un témoin jetable hors
+dépôt (contrôle positif inclus) :
+
+```
+CONTROLE POSITIF (ecrire ailleurs) = 1
+garde ANCIENNE (« !CreateRecursive ») mord = 0   <- DECORATIVE
+garde NOUVELLE (relit le disque)      mord = 1
+WriteAllBytes sous le barrage              = 0
+```
+
+**`NkDirectory::CreateRecursive` rend VRAI quand un FICHIER occupe le nom du
+dossier.** Cause : `NkDirectory::Create` (`NkDirectory.cpp:88`) lit
+`GetLastError() == ERROR_ALREADY_EXISTS` comme une idempotence — or
+`CreateDirectoryA` rend ce code aussi quand ce qui existe déjà est un **fichier**,
+pas un dossier. Toute garde de la forme *« si le dossier n'existe pas et que je
+n'arrive pas à le créer, j'échoue »* est donc **inerte** dans tout le dépôt.
+
+Corrigé **localement** dans `NkGeoWrite` : on tente, puis on **relit le disque**
+(`NkDirectory::Exists`) au lieu de croire le retour. ⚠️ **La cause reste dans
+NKFileSystem, et elle n'est pas à moi** : un `GetFileAttributesA` +
+`FILE_ATTRIBUTE_DIRECTORY` dans `NkDirectory::Create` la fermerait pour tout le
+monde. **Titulaire à désigner** ; déclencheur proposé : un cas de `tests/` de
+NKFileSystem qui pose un fichier-barrage et exige `Create == false`.
+
+### La sonde, et ce qu'elle ne couvre pas
+
+`NK3DModeler.exe --sonde-geo <dossier>` → **8/8 VERT, sortie 0** sur le binaire
+du 06/09 14:08. Nouveau contrôle **(8) « écriture impossible : refus NOMMÉ »** :
+on pose un FICHIER là où le dossier devrait être et on exige un refus qui
+**nomme le dossier**.
+
+**Vu ROUGE sous sa mutation** : la garde remise à sa forme décorative
+(`if (false)` sur la relecture du disque) → l'écriture échoue quand même un cran
+plus bas, mais le message accuse le **fichier**, le mot « dossier » disparaît, le
+cas tombe et la sonde rend **1**. C'est pour ça que ce cas exige le mot et pas
+seulement l'échec : « ça a rendu faux » ne départageait pas les deux versions.
+
+⚠️ **Ce que la sonde ne prouve PAS** : la remontée du refus jusqu'au bandeau
+(`NkAsNodesCapture → NkProjectWriteCard → « Import PARTIEL »`). Cette chaîne
+traverse l'hôte 3D, donc un device, donc une fenêtre. **Elle reste un test
+humain**, et il faut un dossier de projet en lecture seule (ou un disque plein)
+pour la voir mordre.
+
+### Dette NOMMÉE, mesurée dans son journal : la géométrie est écrite DEUX FOIS
+
+À l'import, `node_0.nkgeo` = **1 maillage, 9 000 000 o**. Au « Enregistrer »
+suivant, **2 maillages, 18 000 000 o** — même asset, même géométrie. L'instance
+posée dans la scène est comptée comme maillage interne du model
+(`Demo3DHostNodeInnerMeshOf`), donc recapturée dans le **fichier du model** au
+lieu d'être partagée. C'est la dette « déduplication et partage de maillage perdu
+à l'aller-retour » déjà nommée le 06/09, avec désormais **son chiffre : ×2 sur
+disque pour un seul import**.
