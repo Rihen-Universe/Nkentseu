@@ -421,7 +421,11 @@ namespace nkentseu {
 				const NkString bn = NkScStr(in, "mixAvec");
 				if (!bn.Empty()) {
 					int32 bSlot = -1;
-					for (int32 k = 0; k < 64 && bSlot < 0; ++k) {
+					// LA BORNE VIENT DE L'HOTE, jamais d'un 64 en clair : elle a
+					// ete relevee le 06/09 et un litteral oublie ici aurait
+					// rendu introuvables les materiaux au-dela, en silence.
+					const int32 kMax = demo::Demo3DHostProjMatMax();
+					for (int32 k = 0; k < kMax && bSlot < 0; ++k) {
 						char nm2[64];
 						if (demo::Demo3DHostProjMatInfo(k, nm2, sizeof(nm2), nullptr,
 														nullptr, nullptr) &&
@@ -483,7 +487,7 @@ namespace nkentseu {
 				NkArchive nd;
 				nd.SetInt32("nature", kind);
 				nd.SetInt32("sousType", sub);
-				nd.SetString("nom", (n < 176) ? st.customNames[n] : "");
+				nd.SetString("nom", (n < NkModelerState::kMaxNodeNames) ? st.customNames[n] : "");
 				// PARENTE par RANG DANS CE FICHIER. Un parent hors du fichier (un
 				// objet de la scene de demonstration) garde son numero brut : ceux-la
 				// sont fixes, ils ne se recyclent pas.
@@ -663,7 +667,7 @@ namespace nkentseu {
 					continue;
 				}
 				const NkString nm = NkScStr(nd, "nom");
-				if (n < 176)
+				if (n < NkModelerState::kMaxNodeNames)
 					NkScPut(st.customNames[n], (uint32)sizeof(st.customNames[0]), nm.CStr());
 				// L'hote garde une copie du nom : c'est lui qui nomme les fichiers
 				// produits par la sortie.
@@ -1526,7 +1530,7 @@ namespace nkentseu {
 			for (int32 n = 0; n < nodeMax; ++n)
 				if (demo::Demo3DHostUserKind(n) != 0 && !demo::Demo3DHostNodeDeleted(n))
 					demo::Demo3DHostDeleteNode(n, false);
-			for (int32 n = 96; n < nodeMax && n < 176; ++n)
+			for (int32 n = 96; n < nodeMax && n < NkModelerState::kMaxNodeNames; ++n)
 				st.customNames[n][0] = 0;
 			demo::Demo3DHostProjMatClear();
 			st.cards.Clear();

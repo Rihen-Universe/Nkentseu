@@ -440,7 +440,7 @@ namespace nkentseu {
 				NkArchive nd;
 				nd.SetInt32("nature", kind);
 				nd.SetInt32("sousType", sub);
-				nd.SetString("nom", (n < 176) ? st.customNames[n] : "");
+				nd.SetString("nom", (n < NkModelerState::kMaxNodeNames) ? st.customNames[n] : "");
 				// UNE ARCHIVE N'EST DANS AUCUNE SCENE : c'est un asset du
 				// navigateur, pas un objet pose quelque part. Lui donner un
 				// document la ferait apparaitre dans cette scene a la relecture.
@@ -684,7 +684,7 @@ namespace nkentseu {
 			for (int32 n = 0; n < nodeMax; ++n)
 				if (demo::Demo3DHostUserKind(n) != 0 && !demo::Demo3DHostNodeDeleted(n))
 					demo::Demo3DHostDeleteNode(n, false);
-			for (int32 n = 96; n < nodeMax && n < 176; ++n)
+			for (int32 n = 96; n < nodeMax && n < NkModelerState::kMaxNodeNames; ++n)
 				st.customNames[n][0] = 0;
 			demo::Demo3DHostProjMatClear();
 			// LE NAVIGATEUR ET LES DOCUMENTS SONT VIDES AUSSI : ouvrir un projet
@@ -770,7 +770,7 @@ namespace nkentseu {
 					continue;
 				}
 				const NkString nm = NkScStr(nd, "nom");
-				if (n < 176)
+				if (n < NkModelerState::kMaxNodeNames)
 					NkScPut(st.customNames[n], (uint32)sizeof(st.customNames[0]), nm.CStr());
 				// L'hote garde une copie du nom : c'est lui qui nomme les fichiers
 				// produits par la sortie.

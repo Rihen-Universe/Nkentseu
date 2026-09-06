@@ -106,16 +106,37 @@ namespace nkentseu {
 		// OEIL et CADENAS de la hierarchie : visibilite et verrou PAR OBJET.
 		// La visibilite gate les soumissions de la demo ; le verrou bloque la
 		// selection depuis la hierarchie et l'ecriture de transformation.
-		static bool nkvpObjHidden[160] = {};
-		static bool nkvpObjLocked[160] = {};
+		// ── LES BORNES DE NOEUDS, NOMMEES UNE FOIS ET AU MEME ENDROIT ───────
+		// Elles etaient ecrites EN CLAIR a une trentaine d'endroits (160, 70) et
+		// declarees plus bas, apres leurs premiers utilisateurs. Un plafond ecrit
+		// en clair ne se releve pas : on en oublie un, et le debordement est
+		// silencieux. Rodolf, 2026-09-06 : << pourquoi avoir un plafond d'import,
+		// pourtant on doit pouvoir importer autant qu'on veut ? >>
+		//
+		// ⚠️ CE QUI NE DOIT PAS BOUGER : kNkvpFirstEmpty et kNkvpFirstUser. Les
+		//    fichiers .nk3dm / .nkscene ecrivent des INDICES de noeud ; deplacer
+		//    le debut d'une plage rendrait illisible tout projet deja enregistre.
+		//    Seul kNkvpMaxNodes se releve, et les deux autres bornes le suivent.
+		static constexpr int32 kNkvpMaxNodes = 352; // 256 objets utilisateur
+		static constexpr int32 kNkvpFirstEmpty = 90;
+		static constexpr int32 kNkvpFirstUser = 96;
+		/// Plage EMPTY + UTILISATEUR (transforms propres, gizmo, quaternions).
+		static constexpr int32 kNkvpMaxEmpty = kNkvpMaxNodes - kNkvpFirstEmpty;
+		/// LE PLAFOND D'IMPORT, et c'est bien celui-la. Mesure du 2026-09-06 :
+		/// depuis l'etat reel du projet AgentTest de Rodolf (26 emplacements deja
+		/// pris), le 39e import consecutif est refuse -- << la scene n'a plus
+		/// d'emplacement de noeud libre >>. 26 + 38 = 64.
+		static constexpr int32 kNkvpMaxUser = kNkvpMaxNodes - kNkvpFirstUser;
+		static bool nkvpObjHidden[kNkvpMaxNodes] = {};
+		static bool nkvpObjLocked[kNkvpMaxNodes] = {};
 		// DRAPEAUX DU MODEL, distincts de ceux de la scene (regle de Rihen) :
 		// cacher dans la scene ne doit rien changer dans l'editeur de model,
 		// tandis que cacher DANS le model se voit dans toutes les scenes. Un
 		// seul drapeau par noeud ne peut pas dire les deux -- il en faut un
 		// par contexte, et c'est le document courant qui choisit lequel on
 		// lit et lequel on ecrit.
-		static bool nkvpMeshHidden[160] = {};
-		static bool nkvpMeshLocked[160] = {};
+		static bool nkvpMeshHidden[kNkvpMaxNodes] = {};
+		static bool nkvpMeshLocked[kNkvpMaxNodes] = {};
 		static bool nkvpLightHidden[8] = {};
 		static float32 nkvpFarOverride = 0.f;  // 0 = auto (dist*20+100) ; sinon la
 											   // DISTANCE DE VUE choisie, independante
@@ -144,8 +165,6 @@ namespace nkentseu {
 		// -1 = racine. La transformation d'un parent est REPERCUTEE a son
 		// sous-arbre par le detecteur de frame (HostHierarchyFrame) ; la
 		// selection d'un parent ne selectionne PAS ses enfants.
-		static constexpr int32 kNkvpMaxNodes = 160;
-		static constexpr int32 kNkvpFirstEmpty = 90;
 		static int32 nkvpParentOf[kNkvpMaxNodes];
 		// MASQUE DE TRANSMISSION par parent : bit 1 position, bit 2 rotation,
 		// bit 4 echelle. Une composante eteinte n'est PLUS propagee aux
@@ -172,12 +191,16 @@ namespace nkentseu {
 		// COROLLAIRE, et c'est la regle de fonctionnement du modeleur :
 		// **dans un systeme de transforms absolues, bouger un conteneur exige de
 		// bouger sa matiere.** Voir Demo3DHostSetModelTransform.
-		static float32 nkvpEmptyPos[70][3] = {};
-		static float32 nkvpEmptyRotDeg[70][3] = {};
-		static float32 nkvpEmptyScl[70][3] = {{1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}};
+		static float32 nkvpEmptyPos[kNkvpMaxEmpty][3] = {};
+		static float32 nkvpEmptyRotDeg[kNkvpMaxEmpty][3] = {};
+		// ⚠️ PLUS DE LISTE D'INITIALISATION : elle comptait EXACTEMENT 70
+		//    triplets {1,1,1}. En relevant kNkvpMaxEmpty, les emplacements
+		//    au-dela seraient nes a l'echelle ZERO -- des noeuds invisibles,
+		//    et rien pour le dire. L'echelle est desormais posee dans
+		//    HostParentEnsureInit, qui tourne avant tout usage.
+		static float32 nkvpEmptyScl[kNkvpMaxEmpty][3];
 		// OBJETS UTILISATEUR : nature du slot (0 libre, 1 sphere, 2 cube,
 		// 3 plan, 4 empty).
-		static constexpr int32 kNkvpFirstUser = 96;
 		// ── EDITION PROPORTIONNELLE (Blender : « proportional editing ») ────
 		// Deplacer un sommet ENTRAINE ses voisins, d'autant moins qu'ils sont
 		// loin. Le RAYON dit jusqu'ou porte l'influence ; l'ATTENUATION dit
@@ -195,7 +218,7 @@ namespace nkentseu {
 		// plus proche noeud SELECTIONNE, figee au debut du geste. C'est ce qui
 		// permet de disposer une foret ou d'incurver une rangee de batiments
 		// sans toucher chaque objet un a un.
-		static float32 nkvpPropDistNode[70] = {};
+		static float32 nkvpPropDistNode[kNkvpMaxEmpty] = {};
 		static bool nkvpPropNodeArmed = false;
 		// Pivot du geste, fige lui aussi : rotation et echelle des voisins
 		// tournent autour de LUI, jamais autour de leur propre centre -- c'est
@@ -245,14 +268,14 @@ namespace nkentseu {
 		// il surprend a l'usage. Des qu'on tourne a la souris, les angles sont
 		// relus du quaternion en choisissant l'ecriture la plus proche de la
 		// precedente (HostDecomposeNear).
-		static NkQuatf nkvpEmptyQuat[70];
+		static NkQuatf nkvpEmptyQuat[kNkvpMaxEmpty];
 		static bool nkvpEmptyQuatInit = false;
-		static bool nkvpRotCacheOk[70] = {}; // les angles affiches font-ils foi ?
+		static bool nkvpRotCacheOk[kNkvpMaxEmpty] = {}; // les angles affiches font-ils foi ?
 		static void HostQuatEnsure() {
 			if (nkvpEmptyQuatInit)
 				return;
 			nkvpEmptyQuatInit = true;
-			for (int32 i = 0; i < 70; ++i)
+			for (int32 i = 0; i < kNkvpMaxEmpty; ++i)
 				nkvpEmptyQuat[i] = NkQuatf::Identity();
 		}
 		// ── ECHELLE EXACTE (cisaillement autorise) ──────────────────────────
@@ -265,9 +288,8 @@ namespace nkentseu {
 		// objet tourne. Sans base memorisee (le cas courant), on retombe
 		// exactement sur T * R * S : aucun cout, aucun changement.
 		static bool nkvpShearOpt = false;		   // l'option, pour toute la scene
-		static NkVec3f nkvpEmptySclAx[70][3] = {}; // repere monde de l'echelle
-		static bool nkvpEmptyShear[70] = {};	   // ce noeud en porte-t-il un ?
-		static constexpr int32 kNkvpMaxUser = 64;
+		static NkVec3f nkvpEmptySclAx[kNkvpMaxEmpty][3] = {}; // repere monde de l'echelle
+		static bool nkvpEmptyShear[kNkvpMaxEmpty] = {};	   // ce noeud en porte-t-il un ?
 		static uint8 nkvpUserKind[kNkvpMaxUser] = {};
 		// Sous-type du noeud utilisateur (style d'empty, variante de courbe/
 		// surface/metaball, primitive demandee) -- porte par le menu Ajouter.
@@ -837,7 +859,7 @@ namespace nkentseu {
 		// et la remontee s'arrete de toute facon a l'ancetre reste dans la scene
 		// (etranger au document).
 		static bool HostLockedOwn(int32 n) {
-			if (n < 0 || n >= 160)
+			if (n < 0 || n >= kNkvpMaxNodes)
 				return false;
 			return nkvpDocIsModel ? nkvpMeshLocked[n] : nkvpObjLocked[n];
 		}
@@ -983,7 +1005,14 @@ namespace nkentseu {
 				/// temps reel. L'option se coche quand on veut la source.
 				bool emiEclaire;
 		};
-		static constexpr int32 kNkvpMaxProjMats = 64;
+		// LE SECOND PLAFOND D'IMPORT, et il liait AVANT celui des noeuds.
+		// Mesure du 06/09, projet AgentTest : avec 256 emplacements de
+		// noeud, le 54e import consecutif perdait deja son MATERIAU (le
+		// modele entrait quand meme, gris) tandis que la geometrie tenait
+		// jusqu'au 231e. Un plafond qui tombe avant l'autre, et qui ne le
+		// disait pas : il le dit maintenant, et il est releve avec lui.
+		// ⚠️ Cout : nkvpNodeMatsP1 est un tableau kNkvpMaxNodes x CE nombre.
+		static constexpr int32 kNkvpMaxProjMats = 256;
 		static NkVpProjMat nkvpProjMats[kNkvpMaxProjMats] = {};
 		/// Emplacement RESERVE au materiau magenta « aucun materiau ». Declare ici,
 		/// avec le registre : la creation, la lecture et le rendu doivent tous le
@@ -1049,7 +1078,9 @@ namespace nkentseu {
 		// ou par espace de vertices », Rihen, 12 aout — et il a raison : un
 		// glTF importe en aligne couramment vingt ou trente). La borne suit
 		// donc celle du projet, et le jour ou l'une monte, l'autre suit.
-		// Cout : 160 noeuds x 64 x 4 o = 40 Ko de statique, negligeable.
+		// Cout : kNkvpMaxNodes x kNkvpMaxProjMats x 4 o de statique --
+		// 40 Ko a 160 noeuds. Il CROIT AVEC LE PLAFOND, et c'est le tableau
+		// le plus cher de la plage : a le relever, c'est lui qu'on paie.
 		//
 		// Un materiau PAR FACE (ou par groupe de sommets) viendra plus tard
 		// par-dessus : chaque face portera l'INDICE de son emplacement dans
@@ -9619,9 +9650,9 @@ namespace nkentseu {
 					{
 						st->emptyGizmo.SetCamera(cam.GetPosition(), cam.GetTarget(), 60.f,
 												 (float32)ctx.width, (float32)ctx.height);
-						renderer::NkGizmoTarget etg[70];
+						renderer::NkGizmoTarget etg[kNkvpMaxEmpty];
 						const float32 kD2R = 0.017453292f;
-						for (int32 e = 0; e < 70; ++e) {
+						for (int32 e = 0; e < kNkvpMaxEmpty; ++e) {
 							// BASE (sans les decalages du gizmo : il les porte lui-meme)
 							etg[e].base = HostEmptyXform(e, false);
 							etg[e].localHalf = {0.f, 0.f, 0.f};
@@ -9661,13 +9692,13 @@ namespace nkentseu {
 						// autour du pivot du DEBUT, sinon le centre fuit et les
 						// voisins partent en spirale.
 						nkvpPropPivot = st->emptyGizmo.GetPivot();
-						for (int32 a = 0; a < 70; ++a) {
+						for (int32 a = 0; a < kNkvpMaxEmpty; ++a) {
 							if (st->emptyGizmo.IsSelected(a)) {
 								nkvpPropDistNode[a] = 0.f;
 								continue;
 							}
 							float32 best = 1e30f;
-							for (int32 b = 0; b < 70; ++b) {
+							for (int32 b = 0; b < kNkvpMaxEmpty; ++b) {
 								if (!st->emptyGizmo.IsSelected(b))
 									continue;
 								const float32 dx = nkvpEmptyPos[a][0] - nkvpEmptyPos[b][0];
@@ -9685,7 +9716,7 @@ namespace nkentseu {
 						// dependent du noeud ACTIF, qui change sans que
 						// l'orientation, elle, ne change.
 						HostPushExtFrames(st, st->emptyGizmo.Orientation());
-						st->emptyGizmo.Update(etg, 70, ein);
+						st->emptyGizmo.Update(etg, kNkvpMaxEmpty, ein);
 						if (!ewasDrag && st->emptyGizmo.IsDragging())
 							gin.leftPressed = false; // poignee saisie : le clic est a nous
 						if (st->emptyDragPrev && !st->emptyGizmo.IsDragging()) {
@@ -9713,7 +9744,7 @@ namespace nkentseu {
 								const NkQuatf qg =
 									NkQuatf(st->emptyGizmo.RotationOf(sA)).Normalized();
 								const NkVec3f og = st->emptyGizmo.ScaleOf(sA);
-								for (int32 es = 0; es < 70; ++es) {
+								for (int32 es = 0; es < kNkvpMaxEmpty; ++es) {
 									if (st->emptyGizmo.IsSelected(es))
 										continue;
 									const float32 w =
@@ -9783,12 +9814,12 @@ namespace nkentseu {
 							// partout sauf un ; (c) -> N deltas non nuls, le defaut est plus loin.
 							{
 								int32 nSelDbg = 0;
-								for (int32 es = 0; es < 70; ++es)
+								for (int32 es = 0; es < kNkvpMaxEmpty; ++es)
 									if (st->emptyGizmo.IsSelected(es))
 										++nSelDbg;
 								logger.Info("[Demo3D] MESURE commit gizmo : selectionnes={0} actif={1}\n",
 											nSelDbg, st->emptyGizmo.ActiveIndex());
-								for (int32 es = 0; es < 70; ++es) {
+								for (int32 es = 0; es < kNkvpMaxEmpty; ++es) {
 									if (!st->emptyGizmo.IsSelected(es))
 										continue;
 									const NkVec3f trDbg = st->emptyGizmo.TranslateOf(es);
@@ -9797,7 +9828,7 @@ namespace nkentseu {
 												nkvpEmptyPos[es][0], nkvpEmptyPos[es][1], nkvpEmptyPos[es][2]);
 								}
 							}
-							for (int32 es = 0; es < 70; ++es) {
+							for (int32 es = 0; es < kNkvpMaxEmpty; ++es) {
 								if (!st->emptyGizmo.IsSelected(es))
 									continue;
 								// ON COMMIT LA MATRICE REELLEMENT COMPOSEE, pas les
@@ -9992,7 +10023,7 @@ namespace nkentseu {
 							// innocente ce chemin et renvoie l'enquete en aval.
 							const int32 pickedU0 = bestU;
 							int32 nSelAvPick = 0;
-							for (int32 sc = 0; sc < 70; ++sc)
+							for (int32 sc = 0; sc < kNkvpMaxEmpty; ++sc)
 								if (st->emptyGizmo.IsSelected(sc))
 									++nSelAvPick;
 							const bool pickDejaSel =
@@ -10024,7 +10055,7 @@ namespace nkentseu {
 							}
 							{
 								int32 nSelApPick = 0;
-								for (int32 sc = 0; sc < 70; ++sc)
+								for (int32 sc = 0; sc < kNkvpMaxEmpty; ++sc)
 									if (st->emptyGizmo.IsSelected(sc))
 										++nSelApPick;
 								logger.Info("[Demo3D] MESURE pick vue : xy=({0}, {1}) touche={2} actif={3} deja_selectionne={4} modificateur={5} selectionnes avant={6} apres={7}\n",
@@ -10481,7 +10512,7 @@ namespace nkentseu {
 				// rien : ni croix, ni pyramide, ni poignees
 			} else {
 				const int32 esel = st->emptyGizmo.ActiveIndex();
-				for (int32 e = 0; e < 70; ++e) {
+				for (int32 e = 0; e < kNkvpMaxEmpty; ++e) {
 					// Croix pour les EMPTIES et les MARQUEURS types (texte, courbe,
 					// surface, metaball) ; un maillage a son rendu, une lumiere son
 					// widget, un slot libre n'existe pas.
@@ -13474,7 +13505,7 @@ namespace nkentseu {
 			// representable, et le garder afficherait un etat que plus rien ne
 			// pourrait modifier ni sauvegarder.
 			if (!on)
-				for (int32 e = 0; e < 70; ++e)
+				for (int32 e = 0; e < kNkvpMaxEmpty; ++e)
 					nkvpEmptyShear[e] = false;
 			logger.Info("[NkDemo3D] Echelle exacte (cisaillement) -> {0}\n",
 						on ? "oui" : "non");
@@ -13972,7 +14003,7 @@ namespace nkentseu {
 			// On ecrit le drapeau DU DOCUMENT COURANT : masquer depuis la scene ne
 			// doit rien changer dans l'editeur de model, alors que masquer depuis
 			// le model se voit dans toutes les scenes (regle de Rihen).
-			if (i >= 0 && i < 160) {
+			if (i >= 0 && i < kNkvpMaxNodes) {
 				if (nkvpDocIsModel)
 					nkvpMeshHidden[i] = hidden;
 				else
@@ -13980,7 +14011,7 @@ namespace nkentseu {
 			}
 		}
 		bool Demo3DHostObjectHidden(int32 i) {
-			return (i >= 0 && i < 160) &&
+			return (i >= 0 && i < kNkvpMaxNodes) &&
 				   (nkvpDocIsModel ? nkvpMeshHidden[i] : nkvpObjHidden[i]);
 		}
 		// ETAT EFFECTIF (le sien OU celui d'un ancetre). L'interface DOIT montrer
@@ -13998,7 +14029,7 @@ namespace nkentseu {
 			// Le verrou reste DANS SON CONTEXTE, dans les deux sens : verrouiller
 			// en scene n'entrave pas l'edition du model, et verrouiller dans le
 			// model n'entrave pas la scene -- ca n'y a pas d'importance (Rihen).
-			if (i >= 0 && i < 160) {
+			if (i >= 0 && i < kNkvpMaxNodes) {
 				if (nkvpDocIsModel)
 					nkvpMeshLocked[i] = locked;
 				else
@@ -14006,7 +14037,7 @@ namespace nkentseu {
 			}
 		}
 		bool Demo3DHostObjectLocked(int32 i) {
-			return (i >= 0 && i < 160) && HostLockedOwn(i);
+			return (i >= 0 && i < kNkvpMaxNodes) && HostLockedOwn(i);
 		}
 		void Demo3DHostSetLightHidden(int32 li, bool hidden) {
 			if (li >= 0 && li < 8)
@@ -14017,7 +14048,7 @@ namespace nkentseu {
 		}
 		void Demo3DHostSetAllHidden(bool hidden) {
 			// La SCENE VIERGE d'un nouvel onglet : tout est masque d'un coup.
-			for (int32 i = 0; i < 160; ++i)
+			for (int32 i = 0; i < kNkvpMaxNodes; ++i)
 				nkvpObjHidden[i] = hidden;
 			for (int32 i = 0; i < 8; ++i)
 				nkvpLightHidden[i] = hidden;
@@ -14094,6 +14125,10 @@ namespace nkentseu {
 			if (nkvpParentInit)
 				return;
 			nkvpParentInit = true;
+			// L'ECHELLE NEUTRE de TOUTE la plage empty+utilisateur : elle
+			// venait d'une liste de 70 triplets, qui ne suivait pas la borne.
+			for (int32 e = 0; e < kNkvpMaxEmpty; ++e)
+				nkvpEmptyScl[e][0] = nkvpEmptyScl[e][1] = nkvpEmptyScl[e][2] = 1.f;
 			for (int32 i = 0; i < kNkvpMaxNodes; ++i) {
 				nkvpParentOf[i] = -1;
 				nkvpXmit[i] = 7; // tout se transmet par defaut
@@ -15529,7 +15564,7 @@ namespace nkentseu {
 		//   avec base memorisee : T * (B S Bt) * R -- l'echelle vit dans le
 		//     repere MONDE du geste, ce qui produit le vrai cisaillement.
 		static NkMat4f HostEmptyXform(int32 e, bool withGizmo) {
-			if (e < 0 || e >= 70)
+			if (e < 0 || e >= kNkvpMaxEmpty)
 				return NkMat4f::Identity();
 			auto *st = HostSt();
 			// ── PENDANT UN GESTE, LE GIZMO FAIT FOI ─────────────────────────
@@ -15550,7 +15585,7 @@ namespace nkentseu {
 			// s'incurve, un groupe s'evase.
 			float32 propW = 0.f;
 			if (withGizmo && st && nkvpPropEditOn && nkvpPropNodeArmed &&
-				st->emptyGizmo.IsDragging() && e >= 0 && e < 70 &&
+				st->emptyGizmo.IsDragging() && e >= 0 && e < kNkvpMaxEmpty &&
 				!st->emptyGizmo.IsSelected(e))
 				propW = HostPropFalloff(nkvpPropDistNode[e], nkvpPropEditRadius,
 										nkvpPropEditFalloff);
@@ -15613,11 +15648,11 @@ namespace nkentseu {
 		//     sinon une lecture continue du quaternion).
 		static NkQuatf HostNodeQuat(int32 e) {
 			HostQuatEnsure();
-			return (e >= 0 && e < 70) ? nkvpEmptyQuat[e] : NkQuatf::Identity();
+			return (e >= 0 && e < kNkvpMaxEmpty) ? nkvpEmptyQuat[e] : NkQuatf::Identity();
 		}
 		static void HostSetNodeQuat(int32 e, const NkQuatf &q) {
 			HostQuatEnsure();
-			if (e < 0 || e >= 70)
+			if (e < 0 || e >= kNkvpMaxEmpty)
 				return;
 			nkvpEmptyQuat[e] = q.Normalized();
 			// La rotation vient d'ailleurs que du panneau : les angles saisis ne
@@ -15626,7 +15661,7 @@ namespace nkentseu {
 		}
 		static void HostSetNodeEuler(int32 e, const float32 *deg) {
 			HostQuatEnsure();
-			if (e < 0 || e >= 70)
+			if (e < 0 || e >= kNkvpMaxEmpty)
 				return;
 			const float32 kD2R = 0.017453292f;
 			// MEME ORDRE que la convention du projet (Z*Y*X).
@@ -15640,7 +15675,7 @@ namespace nkentseu {
 		}
 		static void HostNodeEuler(int32 e, float32 *outDeg) {
 			HostQuatEnsure();
-			if (e < 0 || e >= 70) {
+			if (e < 0 || e >= kNkvpMaxEmpty) {
 				outDeg[0] = outDeg[1] = outDeg[2] = 0.f;
 				return;
 			}
@@ -16927,14 +16962,14 @@ namespace nkentseu {
 
 		float32 Demo3DHostCamOrthoScale(int32 node) {
 			const int32 e = node - kNkvpFirstEmpty;
-			if (e < 0 || e >= 70)
+			if (e < 0 || e >= kNkvpMaxEmpty)
 				return 1.f;
 			const float32 s = nkvpEmptyScl[e][1];
 			return s < 0.f ? -s : s;
 		}
 		void Demo3DHostSetCamOrthoScale(int32 node, float32 s) {
 			const int32 e = node - kNkvpFirstEmpty;
-			if (e < 0 || e >= 70)
+			if (e < 0 || e >= kNkvpMaxEmpty)
 				return;
 			if (s < 0.05f)
 				s = 0.05f;

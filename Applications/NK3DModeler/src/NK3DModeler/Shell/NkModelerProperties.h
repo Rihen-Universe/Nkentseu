@@ -4900,7 +4900,7 @@ namespace nkentseu {
 											 (r.x + rr.w - NkPropInset()) - (icoX + S(22.f)),
 											 kRowH - S(4.f)};
 							p.Outline(nmR, NkRole::Border, NkRole::InputBg, 3.f);
-							if (en >= 0 && en < 176)
+							if (en >= 0 && en < NkModelerState::kMaxNodeNames)
 								EditableText(p, hit, ws, in, "props.name",
 											 {nmR.x + S(4.f), yy, nmR.w - S(8.f), kRowH},
 											 buf, NkRole::Text, st.customNames[en], 24u);

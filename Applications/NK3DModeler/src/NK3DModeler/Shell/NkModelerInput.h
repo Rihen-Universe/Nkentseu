@@ -443,7 +443,15 @@ namespace nkentseu {
 				// NOMS PERSONNALISES de la hierarchie : 0..85 objets, 86..89
 				// lumieres, 90..95 parents. Vide = nom genere. Ils vivent ici tant
 				// que la demo n'a pas de champ nom ; le format projet les reprendra.
-				char customNames[176][24] = {};
+				/// LES NOMS DE NOEUDS, un par emplacement de l'hote.
+				/// ⚠️ CETTE BORNE DOIT SUIVRE `kNkvpMaxNodes` (NkDemo3D.cpp). Elle
+				///    valait 176 en clair a onze endroits, dont DEUX boucles de
+				///    SERIALISATION (`n < nodeMax && n < 176`) : un noeud au-dela
+				///    aurait perdu son nom a l'enregistrement, en silence. Le
+				///    desaccord entre les deux bornes est desormais DIT au
+				///    demarrage (main.cpp) au lieu d'etre subi.
+				static const int32 kMaxNodeNames = 352;
+				char customNames[kMaxNodeNames][24] = {};
 				// Cadenas et proportionnel des lignes de transformation.
 				bool lockPos = false, lockRot = false, lockScl = false;
 				// PROPAGER AUX ENFANTS : les proprietes communes editees sur un

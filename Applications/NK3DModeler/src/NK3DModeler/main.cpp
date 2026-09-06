@@ -2208,6 +2208,32 @@ int nkmain(const NkEntryState &entry) {
 		// (cf. leur declaration pres de recents.Load() — ils ne font qu'armer
 		// ce que les boutons arment deja.)
 		++agentFrame;
+		// ── LES DEUX BORNES DE NOEUDS DOIVENT S'ACCORDER, ET LE DIRE ────────
+		// `kNkvpMaxNodes` (hote) et `kMaxNodeNames` (etat) sont declarees dans
+		// deux fichiers que rien ne relie. Tant qu'elles etaient egales par
+		// hasard, personne ne le savait ; le jour ou l'une est relevee sans
+		// l'autre, les noeuds au-dela perdent leur NOM a l'enregistrement --
+		// en silence, dans deux boucles de serialisation. Le desaccord se DIT
+		// donc, une fois, au premier tour ou l'hote est pret.
+		{
+			static bool sBornesDites = false;
+			if (!sBornesDites && demo::Demo3DHostReady()) {
+				sBornesDites = true;
+				const int32 hote = demo::Demo3DHostNodeCount();
+				if (hote > (int32)nk3d::NkModelerState::kMaxNodeNames)
+					nkentseu::NkLog::Instance().Warnf(
+						"[nk3d] BORNES DESACCORDEES : l'hote porte %d noeuds, l'etat ne nomme que "
+						"%d. Les noeuds %d..%d perdront leur nom a l'enregistrement. Corriger "
+						"NkModelerState::kMaxNodeNames (NkModelerInput.h).",
+						hote, (int32)nk3d::NkModelerState::kMaxNodeNames,
+						(int32)nk3d::NkModelerState::kMaxNodeNames, hote - 1);
+				else
+					nkentseu::NkLog::Instance().Infof(
+						"[nk3d] MESURE bornes : noeuds hote=%d, noms=%d, plafond d'import = "
+						"emplacements utilisateur libres.",
+						hote, (int32)nk3d::NkModelerState::kMaxNodeNames);
+			}
+		}
 		if (agentOpenRecent >= 0 && agentFrame >= 3 && demo::Demo3DHostReady()) {
 			st.projRecent = agentOpenRecent;
 			st.projPending = 7;

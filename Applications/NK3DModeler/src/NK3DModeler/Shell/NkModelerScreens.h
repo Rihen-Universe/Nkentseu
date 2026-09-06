@@ -162,7 +162,7 @@ namespace nkentseu {
 		inline void NkHierComposeName(NkModelerState &st, const char *base0, int32 newNode);
 		inline int32 NkModelFirstMesh(NkModelerState &st, int32 root) {
 			const int32 m = demo::Demo3DHostEnsureModelMesh(root);
-			if (m >= 0 && m < 176 && st.customNames[m][0] == 0)
+			if (m >= 0 && m < NkModelerState::kMaxNodeNames && st.customNames[m][0] == 0)
 				NkHierComposeName(st, "Mesh", m);
 			return m;
 		}

@@ -557,7 +557,7 @@ namespace nkentseu {
 					// refleter le materiau (Rihen, 11 aout). Repli : l'ancien
 					// disque si l'emplacement est invalide.
 					const int32 mTh = st.Card(i).mat - 1;
-					if (mTh >= 0 && mTh < 64) {
+					if (mTh >= 0 && mTh < demo::Demo3DHostProjMatMax()) {
 						const float32 side2 = (tw < pvH ? tw : pvH) - S(8.f);
 						p.Image(4400u + (uint32)mTh,
 								{cx - side2 * 0.5f, tyy + (pvH - side2) * 0.5f, side2,

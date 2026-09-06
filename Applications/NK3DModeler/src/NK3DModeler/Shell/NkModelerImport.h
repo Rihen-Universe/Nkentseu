@@ -377,7 +377,7 @@ namespace nkentseu {
 		/// l'hote (le label qui nomme les fichiers produits par la sortie). La
 		/// relecture d'un projet fait exactement ces deux gestes.
 		inline void NkImpNodeName(NkModelerState &st, int32 node, const char *nm) {
-			if (node >= 0 && node < 176)
+			if (node >= 0 && node < NkModelerState::kMaxNodeNames)
 				snprintf(st.customNames[node], sizeof(st.customNames[0]), "%s", nm);
 			demo::Demo3DHostSetNodeLabel(node, nm);
 		}
@@ -834,7 +834,7 @@ namespace nkentseu {
 				}
 				// Le double porte le nom de la carte : sans lui, la hierarchie
 				// afficherait « Cube.NNN » pour une roue.
-				if (nn < 176)
+				if (nn < NkModelerState::kMaxNodeNames)
 					snprintf(st.customNames[nn], sizeof(st.customNames[0]), "%s", st.Card(c).name);
 				float32 gp[3] = {0.f, 0.f, 0.f}, gr[3] = {0.f, 0.f, 0.f}, gs[3] = {0.f, 0.f, 0.f};
 				(void)demo::Demo3DHostEmptyTransform(nn, gp, gr, gs);
