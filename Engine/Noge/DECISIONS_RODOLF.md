@@ -3433,6 +3433,79 @@ d'abord. La mesure change la question — de « faut-il écrire des particules ?
 sans les faire tourner.
 
 
+## 14. 💧 L'EAU AU-DELÀ DU FLUIDE — ce qui est fait, et les trois choses qui t'attendent (06/09)
+
+*Tes deux phrases du 05/09 au soir : « l'océan peut être un plan qui s'anime, mais
+comment gérer le splash, les fonds marins ? » et « n'oublie pas l'effet mouillé ».*
+
+**Fait et prouvé, 59 témoins verts** (`NKPhysics_Tests` : 45 ; `NKRenderer_Tests` : 14) :
+le fluide **publie** ses contacts (une particule lâchée de 1 m publie le sien à
+**0,08 pas de temps** de la chute libre, position exactement sur le plan, vitesse
+d'impact à **0,1 %**) ; une **loi d'éclaboussure** en tire des gouttes ; une **carte
+de mouillage** en espace UV s'écrit, **sèche** (w(τ) = w₀/e à **0,00 %**) et
+assombrit la matière avec la formule de Lagarde ; le **tissu mouillé** pèse
+0,2000 → **0,3200 kg** et pend **2,44 mm** plus bas ; la **houle de Gerstner** tient
+la dispersion d'Airy à **0,06-0,13 %** ; la **profondeur** pilote la couleur, l'écume
+et le ralentissement des vagues au rivage (√(g h) à **0,26-1,44 %**).
+
+### 🟠 Les trois choses qui demandent TA décision
+
+**1. La loi d'éclaboussure : proportionnelle à la VITESSE ou à l'ÉNERGIE ?**
+Ta consigne disait les deux, et elles s'excluent : « nombre ∝ énergie » est en v²
+(deux fois la vitesse = **quatre** fois les gouttes) ; « deux fois la vitesse →
+deux fois plus de gouttes » est en v. J'ai retenu la **linéaire**, parce que
+c'est celle qui avait un témoin écrit, et j'ai laissé l'exposant en paramètre :
+`NkSplashParams::exponent`, 1 par défaut, 2 rejoue l'énergie. Le banc mesure les
+deux (rapport 2,000 contre 4,000). **Dis-moi laquelle tu veux voir** — c'est un
+seul chiffre à changer, et ça se juge à l'œil, pas au calcul.
+
+**2. L'entrée « mouillage » du nuanceur PBR : je ne l'ai PAS branchée, et c'est
+délibéré.** La formule est écrite et prouvée côté CPU (`math::NkApplyWetness`,
+7 témoins), mais la brancher demande d'ajouter deux flottants à `ObjectUBO` —
+qui est **recopié dans 5 endroits de `NkRender3D.cpp` et dans 6 langages de
+nuanceur** (NkSL, GL, VK, DX11, DX12, MSL). Changer une disposition de bloc
+uniforme partagée par tout le rendu, un soir, **sans pouvoir lancer le rendu**
+(NKIlyana entraîne sur la carte), c'est le genre de geste qui casse le PBR de
+tout le monde pendant trois jours. Ça se fait, ça prend une demi-journée avec
+une image avant/après. **Je le fais quand tu me le dis.**
+
+**3. Le maillage de l'océan : grille projetée, décidée mais pas écrite.** J'ai
+tranché pour la **grille projetée devant la caméra** (Johanson, Lund 2004) contre
+les anneaux concentriques : nombre de sommets **constant**, densité uniforme à
+l'écran, coût indépendant de la distance de vue et de la taille de l'océan. Coût
+dit : il faut borner la projection quand la caméra regarde l'horizon. Le modèle
+(hauteur, normale, profondeur, couleur, écume) est prêt et mesuré ; **il n'y a
+aucune ligne de maillage ni de rendu.** Évaluation CPU mesurée : **0,24 µs par
+sommet** avec 8 trains, donc 17 ms pour 256×256 sur un cœur — c'est du GPU qu'il
+faut, et c'est dit.
+
+### Ce que la mesure m'a fait corriger, et que je te raconte parce que c'est instructif
+
+- **La normale de GPU Gems est du premier ordre.** Je l'avais recopiée (elle est
+  citée partout), et mon témoin l'a trouvée à **4,275°** des différences finies.
+  Un second témoin a séparé les deux causes possibles : à **un seul train** elle
+  tombe à 0,034° — donc ce n'était pas une faute de copie, sa formule est exacte
+  pour une vague et approchée pour une somme. Remplacée par le **jacobien
+  complet** (toujours analytique) : **0,13°**. L'ancienne reste disponible.
+- **« La nappe mouillée pend plus bas » a été ROUGE, et j'avais tort sur la
+  scène, pas sur le code.** Avec la compliance par défaut (0 = inextensible),
+  une nappe pend à la longueur de son tissu : la masse ne peut pas l'allonger.
+  Il fallait un tissu qui s'étire. Les trois mesures (α = 0 : −0,19 mm ;
+  α = 1e-4 : +0,09 mm, sous le bruit du solveur ; α = 1e-3 : **+2,44 mm**) sont
+  toutes les trois dans le banc et s'impriment.
+
+### Non fait, nommé
+
+Le GPU du SPH ne publie **aucun** contact (seul le CPU le fait) ; le terrain
+n'est pas lu depuis la forme `Heightfield` de NKCollision (la profondeur prend
+une hauteur, d'où qu'elle vienne) ; l'écume est une **valeur**, pas une texture ;
+une vague ne **déferle** pas (le cambrement change la vitesse et l'amplitude, pas
+la forme) ; le mouillage du tissu est **global**, pas par zone ; aucune image de
+rendu — les deux images livrées sont des **tracés du banc**, et `Captures/LISEZMOI.md`
+le dit à côté de chacune.
+
+---
+
 ## Ce qui est fait et ne t'attend pas
 
 - **Web débloqué** : garde EGL (`NK_OPENGL_ES` ne veut pas dire « EGL disponible »)
