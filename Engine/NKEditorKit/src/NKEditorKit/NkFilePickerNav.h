@@ -1903,6 +1903,10 @@ namespace nkentseu {
 				//    par `PickerCancel` : c'est ici, sur l'etat « ferme », que tout ce qui
 				//    est arme se desarme, quel que soit le chemin de fermeture.
 				fp.menuContextuel.open = false;
+				// ⑦ ET LE GLISSER (06/09), pour la meme raison et au meme endroit : un
+				//    glisser qui survivrait a la fermeture se reveillerait au prochain
+				//    lacher, sur une liste qui n'a plus rien a voir.
+				fp.vue.AnnulerGlisser();
 				return false;
 			}
 			if (!fp.etaitOuvert) {
@@ -2196,6 +2200,12 @@ namespace nkentseu {
 				NkComponentInstance &inst =
 					NkInstanceVoletSelecteur(fp.selectionMultiple && !saveMode && !dossierMode);
 				inst.SetParam("tree_width", zone.w > 0.f ? fp.largeurRail / zone.w : 0.18f);
+				// ⑦ (06/09) LE RAIL NE SE REORDONNE PAS. Un systeme de fichiers range par
+				//    nom : « avant » et « apres » n'y designent aucun geste. Sans ce
+				//    reglage, l'arbre proposerait un trait d'insertion pour un
+				//    deplacement qui n'existe pas -- un controle qui promet ce qu'il ne
+				//    peut pas tenir.
+				inst.SetParam("drop_into_only", 1.f);
 				volet.values = &inst;
 				// ② RE-TRONQUER LES LIBELLES AU MILIEU, ici et pas a la construction : c'est
 				//    ici qu'on connait la police ET la largeur. Le nom complet reste dans
@@ -2337,11 +2347,53 @@ namespace nkentseu {
 									 fp.vue.scroll, res.defilContenu, res.defilVue, kIdGrille,
 									 res.defilPas);
 				}
+				// ── ⑦ (06/09) LE LACHER : C'EST ICI QU'ON DEPLACE ─────────────────
+				// Le volet a dit QUOI et OU ; l'hote est le seul a savoir ce qu'un
+				// deplacement veut dire ici -- un couper/coller sur le disque.
+				//
+				// ⚠️ ON REUTILISE LE COUPER/COLLER DU MENU, sans une ligne de plus.
+				//    Ecrire un second deplacement aurait donne deux facons de deplacer
+				//    un fichier dans le meme dialogue : l'une qui refuse un dossier
+				//    dans son propre sous-dossier, suffixe les homonymes et vide le
+				//    presse-papiers, l'autre qui redecouvrirait les trois cas -- et qui
+				//    en oublierait un. Le glisser est une PORTE de plus vers le meme
+				//    geste, jamais un second geste.
+				if (!res.deposeSource.Empty() && !res.deposeCible.Empty()) {
+					// Le presse-papiers est sauvegarde et rendu : un glisser ne doit pas
+					// effacer ce que l'utilisateur avait copie avant.
+					NkVector<NkString> gardePP = fp.pressePapier;
+					const bool gardeCouper = fp.presseCouper;
+					const NkString gardeDossier = fp.saisieDossier;
+					fp.menuCibles.Clear();
+					fp.menuCibles.PushBack(res.deposeSource);
+					fp.MettreAuPressePapier(true); // couper : un glisser DEPLACE
+					fp.saisieDossier = res.deposeCible;
+					const uint32 deplaces = fp.Coller();
+					fp.saisieDossier = gardeDossier;
+					fp.pressePapier = gardePP;
+					fp.presseCouper = gardeCouper;
+					fp.menuCibles.Clear();
+					if (deplaces == 0u && fp.messageCreation.Empty())
+						fp.messageCreation = NkString("Déplacement refusé.");
+				}
 				if (!res.infobulle.Empty()) {
 					bulle = res.infobulle;
 					bulleX = res.infobulleX;
 					bulleY = res.infobulleY;
 					bulleH = res.infobulleH;
+				}
+				// ⑦ LE FANTOME : ce qu'on traine suit le curseur. Peint APRES le volet,
+				//    dans la couche modale, comme l'infobulle et le menu -- sans lui, un
+				//    glisser est un geste dont rien ne dit qu'il a commence.
+				if (!res.glisserChemin.Empty()) {
+					const char *lib = res.glisserLibelle.Empty() ? res.glisserChemin.CStr()
+																 : res.glisserLibelle.CStr();
+					const float32 lw = f->MeasureWidth(lib);
+					const NkRect fant = {res.glisserX + 14.f * S, res.glisserY + 10.f * S,
+										 lw + 16.f * S, lh + 8.f * S};
+					dl.AddRectFilled(fant, sty.cadre.btn, 4.f * S);
+					dl.AddRect(fant, sty.cadre.accent, 1.f, 4.f * S);
+					text(fant.x + 8.f * S, fant.y + 4.f * S, lib, sty.cadre.text);
 				}
 				if (res.navigatedCrumb >= 0
 					&& res.navigatedCrumb < (int32)fp.cheminsCrumb.Size())

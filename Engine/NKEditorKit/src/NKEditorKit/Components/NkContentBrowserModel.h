@@ -213,6 +213,50 @@ namespace nkentseu {
 				///    rendus identiques a un mot pres ne justifient pas deux dessins.
 				NkString headerTitle;
 
+				// ── ⑦ (2026-09-06) LE GLISSER, ET IL EST NEUF ────────────────────
+				// Rodolf : « le glisser-deposer doit deplacer ». Ce n'etait PAS un
+				// crochet a brancher.
+				//
+				// ⚠️ CE QUI EXISTAIT, MESURE AVANT D'ECRIRE : `NkComponentInput` porte
+				//    `dragType` (une charge POSEE PAR L'HOTE qui survole) et
+				//    `dragReleased` (elle vient d'etre lachee). Les deux disent ce qui
+				//    ARRIVE au composant. **Aucun des deux ne dit qu'un glisser COMMENCE
+				//    ici**, et rien dans le navigateur n'etait une SOURCE : il n'y avait
+				//    donc pas de crochet a cabler, il manquait la notion elle-meme.
+				//    `NkTreeViewModel::dragSource` est le seul debut de reponse du kit,
+				//    et il ne couvre que l'arbre -- pas la grille, pas le passage de
+				//    l'un a l'autre.
+				//
+				// ⚠️ L'ETAT VIT ICI, ET PAS DANS L'UN DES DEUX VOLETS : un glisser
+				//    TRAVERSE les volets (de la grille vers le rail, du rail vers la
+				//    grille). Le mettre dans l'arbre ou dans la grille aurait oblige a
+				//    le recopier dans l'autre, et deux copies d'un meme geste divergent.
+				//
+				// ⚠️ ET IL Y A UN SEUIL, EN PIXELS : sans lui, tout clic de selection
+				//    serait un glisser d'un pixel, et lacher sur un dossier deplacerait
+				//    ce qu'on voulait seulement choisir. Un geste destructeur ne doit
+				//    pas naitre d'un geste ordinaire. D'ou DEUX etats : ARME (l'appui a
+				//    eu lieu, on ne sait pas encore) puis ACTIF (le seuil est franchi).
+				NkString armeChemin;   ///< ce sur quoi l'appui a eu lieu ; vide = rien d'arme
+				NkString armeLibelle;
+				bool armeRail = false; ///< l'appui venait du rail plutot que de la grille
+				float32 armeX = 0.f, armeY = 0.f; ///< le point de l'appui, pour le seuil
+				NkString glisserChemin;  ///< non vide = un glisser est EN COURS
+				NkString glisserLibelle; ///< ce que le fantome affiche
+				bool glisserRail = false;
+
+				/// Tout oublier : appele au lacher, et par l'hote quand le dialogue se
+				/// ferme. Un glisser qui survit a la fermeture se reveillerait au
+				/// prochain lacher, sur une liste qui n'a plus rien a voir.
+				void AnnulerGlisser() {
+					armeChemin = NkString();
+					armeLibelle = NkString();
+					glisserChemin = NkString();
+					glisserLibelle = NkString();
+					armeRail = false;
+					glisserRail = false;
+				}
+
 				bool IsChosen(int32 i) const {
 					for (uint32 k = 0; k < (uint32)chosen.Size(); ++k)
 						if (chosen[k] == i)
@@ -447,6 +491,26 @@ namespace nkentseu {
 				float32 defilContenu = 0.f, defilVue = 0.f, defilPas = 0.f;
 				float32 railDefilX = 0.f, railDefilY = 0.f, railDefilW = 0.f, railDefilH = 0.f;
 				float32 railDefilContenu = 0.f, railDefilVue = 0.f, railDefilPas = 0.f;
+
+				// ── ⑦ (2026-09-06) LE GLISSER : CE QUI EST TRAINE, ET OU IL SE POSE ──
+				// Le composant SIGNALE, l'hote DECIDE et AGIT -- il est le seul a savoir
+				// ce qu'est un deplacement (ici, un couper/coller sur le disque), et le
+				// seul a pouvoir peindre le fantome dans la couche modale.
+				//
+				/// Non vide : un glisser est en cours, et c'est CE chemin qu'on traine.
+				/// L'hote peint le fantome a `glisserX/Y`.
+				NkString glisserChemin;
+				NkString glisserLibelle;
+				float32 glisserX = 0.f, glisserY = 0.f;
+				/// Le dossier SURVOLE pendant le glisser, vide si aucun. C'est ce que
+				/// l'hote surligne, et ce sur quoi le lacher tomberait.
+				NkString glisserCible;
+				/// LE LACHER, et il n'est rendu QU'UNE image : source et cible, toutes
+				/// deux non vides. L'hote deplace.
+				/// ⚠️ Le composant ne bouge RIEN lui-meme : il ne connait ni le disque ni
+				///    l'annulation. La meme separation que le renommage et le menu.
+				NkString deposeSource;
+				NkString deposeCible;
 		};
 
 		// ── LA SIGNATURE TYPE ───────────────────────────────────────────────────
@@ -579,6 +643,13 @@ namespace nkentseu {
 				//    de son cote sous le meme nom et la meme valeur.
 				{"scrollbar_w", 14.f, "gouttiere de défilement réservée à droite de la grille ; "
 									  "l'hôte y peint la barre standard du kit"},
+				// ⑦ Le SEUIL du glisser : en dessous, l'appui reste un clic de
+				//    selection. Sans lui, tout clic serait un glisser d'un pixel et un
+				//    lacher sur un dossier deplacerait ce qu'on voulait seulement
+				//    choisir -- un geste destructeur ne doit pas naitre d'un geste
+				//    ordinaire.
+				{"drag_threshold", 5.f,
+				 "distance à parcourir, appui maintenu, avant qu'un clic devienne un glisser"},
 			};
 			// ⚠️ TROIS ENTREES ONT QUITTE CETTE TABLE le 18/08 (seconde passe) :
 			//    `on_activate`, `on_context_menu`, `on_drop_into` sont des

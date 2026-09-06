@@ -1062,8 +1062,297 @@ namespace nkentseu {
 					}
 				}
 
+				// ══ FAMILLE 8 — ⑦ LE GLISSER-DEPOSER ══════════════════════════════
+				//
+				// Rodolf : « le glisser-deposer doit deplacer ». CE N'ETAIT PAS UN
+				// CROCHET A BRANCHER : `NkComponentInput` ne porte que `dragType` (une
+				// charge posee par l'HOTE qui survole) et `dragReleased` -- deux choses
+				// qui disent ce qui ARRIVE au composant. Aucune ne dit qu'un glisser
+				// COMMENCE ici, et rien dans le navigateur n'etait une SOURCE.
+				//
+				// ⚠️ LES QUATRE QUESTIONS, ET LA PREMIERE EST CELLE QU'ON OUBLIE :
+				//    (a) un CLIC reste-t-il un clic ? Un glisser qui naitrait d'un appui
+				//        d'un pixel deplacerait ce qu'on voulait seulement choisir ;
+				//    (b) un glisser NAIT-IL, et sait-il ce qu'il traine ?
+				//    (c) la CIBLE est-elle designee -- y compris d'un volet a l'autre ?
+				//    (d) le lacher DEPLACE-T-IL SUR LE DISQUE ?
+				//    Sans (a), les trois autres pourraient etre vertes sur un dialogue
+				//    dangereux -- chaque selection deplacerait un fichier.
+				//
+				// ⚠️ CE QUI N'EST PAS MESURE ICI : le FANTOME qui suit le curseur et le
+				//    surlignage de la cible sont peints par l'hote
+				//    (`NkDrawFilePickerNav`), qui reclame un `NkGuiContext` et une
+				//    police. Le banc mesure l'ETAT et l'EFFET SUR LE DISQUE ; que le
+				//    geste se VOIE reste un geste humain.
+				printf("\nFamille 8 — ⑦ le glisser-deposer : le seuil, la source, la cible, le disque\n");
+				{
+					const NkString dossierGlisse = (NkPath(terrain.racine) / "glisser").ToString();
+					NkDirectory::CreateRecursive(
+						(NkPath(dossierGlisse) / "cible_grille").ToString().CStr());
+					const NkString fichier = (NkPath(dossierGlisse) / "a_deplacer.txt").ToString();
+					NkFile::WriteAllText(fichier.CStr(), "x");
+					// ⚠️ UN SECOND FICHIER, ET IL EST NE D'UNE MUTATION SURVIVANTE. Le
+					//    controle negatif de 8d survolait d'abord LA SOURCE ELLE-MEME :
+					//    la mutation « la cible ne verifie plus que c'est un dossier »
+					//    restait alors VERTE, parce qu'une SECONDE garde repondait a sa
+					//    place (« ce n'est pas ce que je traine »). C'est la forme
+					//    « plusieurs gardes en cascade : la premiere qui repond masque
+					//    les suivantes ». Un cas ne doit violer QU'UNE regle a la fois --
+					//    d'ou ce fichier tiers, qui n'est ni un dossier ni la source.
+					const NkString autreFichier = (NkPath(dossierGlisse) / "autre.txt").ToString();
+					NkFile::WriteAllText(autreFichier.CStr(), "y");
+
+					NkFilePickerNavState f8;
+					f8.OpenPickerBase(NkFilePickerState::PK_File, dossierGlisse.CStr(), nullptr, 0,
+									  dossierGlisse.CStr(), nullptr);
+					f8.RelireDossier();
+					f8.SuivreLeDepliage();
+					banc.Image(f8, Repos());
+
+					// La position PEINTE de l'entree a trainer et de la cible, lues dans le
+					// flux -- jamais recalculees depuis la mise en page.
+					auto ChercherDansGrille = [&](const char *libelle, float32 &x, float32 &y) {
+						x = -1.f;
+						y = -1.f;
+						for (uint32 i = 0; i < (uint32)banc.rec.cmds.Size(); ++i) {
+							const NkPaintCmd &c = banc.rec.cmds[i];
+							if (c.op == NkPaintOp::Text && !c.text.Empty()
+								&& c.x > banc.zone.x + banc.railW + 4.f
+								&& NkComponentDecl::StrEq(c.text.CStr(), libelle)) {
+								x = c.x + 2.f;
+								y = c.y + 2.f;
+								return;
+							}
+						}
+					};
+					float32 xSrc = -1.f, ySrc = -1.f, xCible = -1.f, yCible = -1.f;
+					float32 xAutre = -1.f, yAutre = -1.f;
+					ChercherDansGrille("a_deplacer.txt", xSrc, ySrc);
+					ChercherDansGrille("cible_grille", xCible, yCible);
+					ChercherDansGrille("autre.txt", xAutre, yAutre);
+					snprintf(detail, sizeof(detail),
+							 "la source « a_deplacer.txt » est peinte en (%.0f, %.0f) et la cible "
+							 "« cible_grille » en (%.0f, %.0f)",
+							 (double)xSrc, (double)ySrc, (double)xCible, (double)yCible);
+					Verifier(b, xSrc >= 0.f && xCible >= 0.f, "8a", detail);
+
+					// ── 8b — (a) UN CLIC RESTE UN CLIC ──────────────────────────────
+					bool clicPropre = false;
+					if (xSrc >= 0.f) {
+						NkComponentInput in = Repos();
+						in.mouseX = xSrc;
+						in.mouseY = ySrc;
+						in.mousePressed = true;
+						in.mouseDown = true;
+						banc.Image(f8, in);
+						const bool armeApresAppui = !f8.vue.armeChemin.Empty();
+						// ⚠️ LA MAIN TREMBLE DE DEUX PIXELS, ET C'EST TOUT LE SUJET.
+						//    Premiere ecriture de cet essai : appui puis relachement SANS
+						//    BOUGER. La mutation « plus de seuil » y restait VERTE --
+						//    avec un deplacement nul, meme un seuil de zero ne declenche
+						//    rien. Le cas ne pouvait donc pas voir ce qu'il pretendait
+						//    garder. On bouge donc de deux pixels, sous le seuil de cinq :
+						//    c'est le geste reel d'une main qui clique.
+						NkComponentInput t = Repos();
+						t.mouseX = xSrc + 2.f;
+						t.mouseY = ySrc + 1.f;
+						t.mouseDown = true;
+						banc.Image(f8, t);
+						const bool pasDeGlisser1 = f8.vue.glisserChemin.Empty();
+						NkComponentInput r = Repos();
+						r.mouseX = xSrc + 2.f;
+						r.mouseY = ySrc + 1.f;
+						r.mouseReleased = true;
+						banc.Image(f8, r);
+						banc.Image(f8, Repos()); // l'image ou le desarmement se constate
+						clicPropre = armeApresAppui && pasDeGlisser1 && f8.vue.glisserChemin.Empty()
+									 && f8.vue.armeChemin.Empty();
+						snprintf(detail, sizeof(detail),
+								 "appui, DEUX pixels (sous le seuil de cinq), relachement : arme=%d, "
+								 "puis glisser=%d et arme=%d (attendu 1, puis 0 et 0)",
+								 armeApresAppui ? 1 : 0, f8.vue.glisserChemin.Empty() ? 0 : 1,
+								 f8.vue.armeChemin.Empty() ? 0 : 1);
+					} else
+						snprintf(detail, sizeof(detail), "source introuvable dans le dessin");
+					Verifier(b, clicPropre, "8b", detail);
+
+					// ── 8c — (b) LE GLISSER NAIT AU-DELA DU SEUIL, ET IL SAIT QUOI ──
+					bool naissance = false;
+					if (xSrc >= 0.f) {
+						NkComponentInput in = Repos();
+						in.mouseX = xSrc;
+						in.mouseY = ySrc;
+						in.mousePressed = true;
+						in.mouseDown = true;
+						banc.Image(f8, in);
+						NkComponentInput d = Repos();
+						d.mouseX = xSrc + 40.f; // appui maintenu, 40 px
+						d.mouseY = ySrc + 12.f;
+						d.mouseDown = true;
+						const NkContentBrowserResult rg = banc.Image(f8, d);
+						naissance = !f8.vue.glisserChemin.Empty()
+									&& NkString(f8.vue.glisserChemin).Contains("a_deplacer.txt")
+									&& !rg.glisserChemin.Empty();
+						snprintf(detail, sizeof(detail),
+								 "appui puis 40 px : le glisser porte « %s » et le resultat le "
+								 "rapporte (%d)",
+								 f8.vue.glisserChemin.Empty() ? "(rien)" : f8.vue.glisserChemin.CStr(),
+								 rg.glisserChemin.Empty() ? 0 : 1);
+					} else
+						snprintf(detail, sizeof(detail),
+								 "cas NON EXERCE : la source n'est pas peinte dans la grille (8a)");
+					Verifier(b, naissance, "8c", detail);
+
+					// ── 8d — (c) LA CIBLE EST DESIGNEE, ET CE N'EST PAS N'IMPORTE QUOI ─
+					bool cibleOk = false;
+					if (naissance && xCible >= 0.f) {
+						NkComponentInput d = Repos();
+						d.mouseX = xCible;
+						d.mouseY = yCible;
+						d.mouseDown = true;
+						const NkContentBrowserResult rc = banc.Image(f8, d);
+						// ⚠️ CONTROLE NEGATIF, SUR UN FICHIER **TIERS**. Il visait d'abord
+						//    la source elle-meme, et la mutation « la cible ne verifie
+						//    plus que c'est un dossier » y survivait : la garde « ce
+						//    n'est pas ce que je traine » repondait a sa place. Le cas ne
+						//    viole desormais QU'UNE regle -- « ce n'est pas un dossier ».
+						NkComponentInput s = Repos();
+						s.mouseX = xAutre;
+						s.mouseY = yAutre;
+						s.mouseDown = true;
+						const NkContentBrowserResult rs = banc.Image(f8, s);
+						cibleOk = xAutre >= 0.f && !rc.glisserCible.Empty()
+								  && NkString(rc.glisserCible).Contains("cible_grille")
+								  && rs.glisserCible.Empty();
+						snprintf(detail, sizeof(detail),
+								 "au-dessus de « cible_grille » la cible est « %s » ; au-dessus du "
+								 "fichier TIERS « autre.txt » elle est « %s » (attendu vide)",
+								 rc.glisserCible.Empty() ? "(vide)" : rc.glisserCible.CStr(),
+								 rs.glisserCible.Empty() ? "(vide)" : rs.glisserCible.CStr());
+					} else
+						// ⚠️ UN CAS NON EXERCE LE DIT. Sans cette ligne, il reimprimait le
+						//    detail du cas PRECEDENT -- un rouge accompagne du message
+						//    d'un autre essai, c'est-a-dire un chiffre faux qui a l'air
+						//    d'un fait. Vu en lisant la sortie d'une mutation.
+						snprintf(detail, sizeof(detail),
+								 "cas NON EXERCE : aucun glisser n'est ne (8c), il n'y a pas de "
+								 "cible a designer");
+					Verifier(b, cibleOk, "8d", detail);
+
+					// ── 8e — (d) LE LACHER DEPLACE SUR LE DISQUE ────────────────────
+					// ⚠️ ON MESURE LES DEUX BOUTS : l'ancien chemin a disparu ET le
+					//    nouveau existe. Un seul des deux laisserait passer une copie
+					//    (l'original resterait) ou une perte (rien n'arriverait).
+					bool deplace = false;
+					const NkString apres8 =
+						(NkPath(dossierGlisse) / "cible_grille/a_deplacer.txt").ToString();
+					if (cibleOk) {
+						NkComponentInput d = Repos();
+						d.mouseX = xCible;
+						d.mouseY = yCible;
+						d.mouseDown = true;
+						banc.Image(f8, d); // la cible est sous le curseur
+						NkComponentInput l = Repos();
+						l.mouseX = xCible;
+						l.mouseY = yCible;
+						l.mouseReleased = true;
+						const NkContentBrowserResult rl = banc.Image(f8, l);
+						// L'HOTE agit -- le composant ne touche pas au disque. Ici, le
+						// MEME couper/coller que le menu contextuel, comme dans le
+						// dialogue : un second deplacement aurait redecouvert (et oublie)
+						// les trois cas que celui-la traite deja.
+						uint32 n8 = 0u;
+						if (!rl.deposeSource.Empty() && !rl.deposeCible.Empty()) {
+							f8.menuCibles.Clear();
+							f8.menuCibles.PushBack(rl.deposeSource);
+							f8.MettreAuPressePapier(true);
+							f8.saisieDossier = rl.deposeCible;
+							n8 = f8.Coller();
+							f8.saisieDossier = NkString();
+						}
+						deplace = n8 == 1u && !NkFile::Exists(fichier.CStr())
+								  && NkFile::Exists(apres8.CStr()) && f8.vue.glisserChemin.Empty();
+						snprintf(detail, sizeof(detail),
+								 "lacher sur « cible_grille » : depose « %s » -> « %s », %u deplace(s) ; "
+								 "l'ancien chemin a disparu (%d), le nouveau existe (%d), le glisser "
+								 "est termine (%d)",
+								 rl.deposeSource.Empty() ? "(vide)" : rl.deposeSource.CStr(),
+								 rl.deposeCible.Empty() ? "(vide)" : rl.deposeCible.CStr(), n8,
+								 NkFile::Exists(fichier.CStr()) ? 0 : 1,
+								 NkFile::Exists(apres8.CStr()) ? 1 : 0,
+								 f8.vue.glisserChemin.Empty() ? 1 : 0);
+					} else
+						snprintf(detail, sizeof(detail),
+								 "cas NON EXERCE : aucune cible n'a ete designee (8d), il n'y a rien "
+								 "a lacher");
+					Verifier(b, deplace, "8e", detail);
+
+					// ── 8f — (c bis) D'UN VOLET A L'AUTRE : LA GRILLE VERS LE RAIL ──
+					// ⚠️ C'EST CE QUE RODOLF DEMANDE EXPLICITEMENT (« dans les deux volets
+					//    ET ENTRE EUX »), et c'est le cas qui justifie que l'etat du
+					//    glisser vive dans le MODELE PARTAGE plutot que dans l'un des deux
+					//    volets. Un glisser range dans la grille n'aurait jamais pu se
+					//    poser sur le rail.
+					bool versLeRail = false;
+					{
+						f8.relire = true;
+						f8.RelireDossier();
+						f8.SuivreLeDepliage();
+						banc.Image(f8, Repos());
+						float32 xr = -1.f, yr = -1.f;
+						ChercherDansGrille("cible_grille", xr, yr);
+						const Tranche t8 = TrancheDuRail(banc.rec, banc.zone.x, banc.railW);
+						const Rangees rr = t8.trouve ? LireRangees(banc.rec, t8) : Rangees();
+						float32 xRail = -1.f, yRail = -1.f;
+						NkString cheminRail;
+						for (uint32 k = 0; k < rr.n && cheminRail.Empty(); ++k)
+							for (uint32 q = 0; q < (uint32)f8.vue.folders.nodes.Size(); ++q) {
+								const NkTreeNode &nd = f8.vue.folders.nodes[q];
+								if (nd.path.Empty() || nd.locked)
+									continue;
+								if (!NkComponentDecl::StrEq(nd.label.CStr(), rr.texte[k].CStr()))
+									continue;
+								cheminRail = nd.path;
+								xRail = rr.x[k] + 2.f;
+								yRail = rr.y[k] + 2.f;
+								break;
+							}
+						if (xr >= 0.f && xRail >= 0.f) {
+							NkComponentInput in = Repos();
+							in.mouseX = xr;
+							in.mouseY = yr;
+							in.mousePressed = true;
+							in.mouseDown = true;
+							banc.Image(f8, in);
+							NkComponentInput d = Repos();
+							d.mouseX = xRail;
+							d.mouseY = yRail;
+							d.mouseDown = true;
+							const NkContentBrowserResult r2 = banc.Image(f8, d);
+							versLeRail = !r2.glisserCible.Empty()
+										 && NkFilePickerState::PathSame(r2.glisserCible.CStr(),
+																		cheminRail.CStr());
+							snprintf(detail, sizeof(detail),
+									 "un dossier traine depuis la GRILLE et survole dans le RAIL : "
+									 "cible rapportee « %s » (attendu « %s »)",
+									 r2.glisserCible.Empty() ? "(vide)" : r2.glisserCible.CStr(),
+									 cheminRail.Empty() ? "(aucune rangee de rail)" : cheminRail.CStr());
+							// on relache DANS LE VIDE : rien ne doit bouger
+							NkComponentInput l = Repos();
+							l.mouseX = -5000.f;
+							l.mouseY = -5000.f;
+							l.mouseReleased = true;
+							banc.Image(f8, l);
+						} else
+							snprintf(detail, sizeof(detail),
+									 "montage incomplet : grille (%.0f) ou rail (%.0f) introuvable",
+									 (double)xr, (double)xRail);
+					}
+					Verifier(b, versLeRail, "8f", detail);
+				}
+
 				terrain.Retirer();
-				printf("  -- familles 5 a 7 : %d/%d\n", b.ok, b.total);
+				printf("  -- familles 5 a 8 : %d/%d\n", b.ok, b.total);
 				return b;
 			}
 

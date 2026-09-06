@@ -283,6 +283,8 @@ namespace nkentseu {
 			// l'un des deux -- et il evite de declarer un evenement qui ne partirait
 			// jamais, ce qui serait la condition d'echec C5 de ce composant.
 			const bool activateOnDouble = P("activate_on_double_click") > 0.5f;
+			/// ⑦ Voir le bloc « CIBLE DE DEPOT » plus bas.
+			const bool intoOnly = P("drop_into_only") > 0.5f;
 
 			const float32 rowH = M("row_h");
 			const float32 pad = M("row_pad");
@@ -693,10 +695,18 @@ namespace nkentseu {
 					if (over && dragging) {
 						const float32 rel = (in.mouseY - row.y) / (rowH > 0.f ? rowH : 1.f);
 						NkTreeDropPos pos = NkTreeDropPos::Into;
-						if (rel < 0.25f)
-							pos = NkTreeDropPos::Before;
-						else if (rel > 0.75f)
-							pos = NkTreeDropPos::After;
+						// ⑦ (06/09) `drop_into_only` : certains arbres n'ont AUCUN ordre a
+						//    reordonner -- un rail de DOSSIERS, par exemple : « avant » et
+						//    « apres » n'y veulent rien dire, le systeme de fichiers range
+						//    par nom. Leur proposer un trait d'insertion serait promettre
+						//    un geste qui n'existe pas. Un reglage, pas une constante : les
+						//    arbres de scene, eux, reordonnent vraiment.
+						if (!intoOnly) {
+							if (rel < 0.25f)
+								pos = NkTreeDropPos::Before;
+							else if (rel > 0.75f)
+								pos = NkTreeDropPos::After;
+						}
 						hitDropPos = pos;
 						const float32 lineH = M("drop_line_h");
 						if (pos == NkTreeDropPos::Into)
@@ -718,6 +728,9 @@ namespace nkentseu {
 				});
 
 			res.visibleCount = ordinal;
+			// ⑦ La rangee survolee, relevee par la boucle. L'hote s'en sert pour savoir
+			//    sur QUOI un glisser va se poser, sans recalculer la geometrie.
+			res.survoleIndex = hitIndex;
 
 			// ── CONTRAT UNIVERSEL D'EDITION (Rodolf, 31/08) : LE CLIC AILLEURS ──
 			// Un clic HORS de la rangee editee VALIDE la saisie, puis le clic fait

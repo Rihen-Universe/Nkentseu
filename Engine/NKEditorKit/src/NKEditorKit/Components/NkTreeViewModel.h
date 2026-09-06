@@ -720,6 +720,19 @@ namespace nkentseu {
 				float32 defilContenu = 0.f; ///< hauteur TOTALE des rangees emises (px)
 				float32 defilVue = 0.f;		///< hauteur VISIBLE de la zone de contenu (px)
 				float32 defilPas = 0.f;		///< une rangee (px) — le pas des fleches
+
+				/// ⑦ (2026-09-06) LA RANGEE SURVOLEE, par son index dans `nodes` ; -1 si
+				/// la souris n'est sur aucune. Additif et inerte pour qui l'ignore.
+				///
+				/// ⚠️ POURQUOI ELLE MANQUAIT, ET CE QU'ELLE DEBLOQUE : l'arbre savait
+				///    quelle rangee est sous la souris (il en depend pour le survol, le
+				///    clic et le menu) et ne le disait a personne. Un hote qui doit
+				///    savoir SUR QUOI un glisser va se poser devait donc recalculer la
+				///    geometrie des rangees chez lui -- c'est-a-dire tenir un second
+				///    calcul de ce que l'arbre calcule deja, et le voir diverger au
+				///    premier changement de metrique. *Ce que le composant sait, il le
+				///    rapporte ; l'hote ne le redevine pas.*
+				int32 survoleIndex = -1;
 		};
 
 		// ── LA SIGNATURE TYPE ───────────────────────────────────────────────────
@@ -782,6 +795,13 @@ namespace nkentseu {
 				 0},
 				{"range_select", "Selection de plage (Maj)", NkParamKind::Bool, 1.f, 0.f, 0.f, nullptr,
 				 0},
+				// ⑦ (06/09) Un arbre qui n'a AUCUN ordre a reordonner ne doit proposer
+				//    que « dans » : un rail de dossiers ne se range pas a la main, le
+				//    systeme de fichiers trie par nom. Y proposer « avant / apres »
+				//    serait promettre un geste qui n'existe pas. Defaut FAUX : les trois
+				//    arbres de scene mesures reordonnent vraiment, et ils ne bougent pas.
+				{"drop_into_only", "Depot : seulement DANS (jamais avant/apres)", NkParamKind::Bool,
+				 0.f, 0.f, 0.f, nullptr, 0},
 				// ⚠️ EXIGE PAR LE ROLE `tree`, QUI RECLAME `onActivate`. Aucune des
 				//    trois copies d'arbre de SCENE mesurees n'active quoi que ce soit :
 				//    chez elles, le double-clic RENOMME. L'arbre de FICHIERS de NKCode,
