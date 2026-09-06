@@ -3394,3 +3394,43 @@ surface de dessin du kit (`NkEditorContext`) n'est pas celle que NK3DModeler
 emploie pour son overlay (`NkModelerPainter` sur `ui.dlOverlay`).
 **Déclencheur** : la fusion, puis un portage dans le kit avec les deux surfaces
 en tête. **Propriétaire** : l'agent NKEditorKit.
+
+---
+
+## 📥 IMPORT — lot du 2026-09-06 (S48 de Rodolf), ce qui est fait et ce qui reste
+
+**Fait, avec ses chiffres** (commits `f106d95d3`, `711d0c265`, `bac456c0a`) :
+
+- Le **refus « import impossible dans un MODEL » est retiré**. Il protégeait une
+  perte silencieuse jamais écrite : `NkScWriteScene` rend `-1` pour toute scène
+  hôte d'un document TRANSITOIRE, donc l'archive née depuis un onglet de model
+  n'aurait jamais été enregistrée. L'import force désormais une scène **durable**
+  (`NkImpArchiveScene`) puis rend la scène active telle qu'elle était.
+- Le nom vient du **fichier**. `NkGLTFLoader` écrivait `"primitive"` en repli
+  quand `meshes[].name` est absent ; le champ reste vide et l'appelant choisit.
+- **Matériaux et textures importés** : un `.nkmat` + sa carte par matériau du
+  fichier, un PNG par image décodée, les quatre canaux posés, `subMeshMaterial`
+  respecté. Le bandeau annonce les comptes **même à zéro**.
+- **Plafond d'import : 38 → 230** (témoin `NK_IMPORT_REPEAT` sur le projet réel).
+  `kNkvpMaxUser` et `kNkvpMaxProjMats` passent de 64 à 256, et les bornes
+  écrites en clair à une trentaine d'endroits (160, 70, 64, 176) sont nommées.
+- **`NkImportFiles(paths, count)`** : le bouton et le lâcher OS passent par la
+  même porte de liste.
+
+**Dettes NOMMÉES, non faites :**
+
+| dette | mesure | propriétaire |
+|---|---|---|
+| **Matériau orphelin** quand la création du nœud échoue par saturation : le `.nkmat` et sa carte sont déjà écrits | vu dans le témoin : `MESURE materiau : colormap_39 … carte=110` suivi de `Import PARTIEL : 0 model(s)` | NK3DModeler |
+| **Déduplication des matériaux** : 40 pièces Kenney partagent un atlas → 40 matériaux identiques et 40 écritures du même PNG | `colormap`, `colormap_02`, `colormap_03` sur 3 fichiers | arbitrage produit, à remonter |
+| **Carte de texture (`kind == 3`)** : `NkAsExtFor(3)` rend `nullptr` et `NkProjectRescan` ne balaye que `*.nkscene`/`*.nkmesh`/`*.nkmat` — une carte texture portant un `file` serait **supprimée au balayage suivant** | lecture de `NkModelerAssets.h:1943` | NK3DModeler, avant la « séparation en cartes distinctes » |
+| **Le plafond de 256 n'est pas l'infini** : le coût n'est pas la mémoire (~770 o/nœud) mais ~10 balayages `O(kNkvpMaxNodes)` par image et un `NkGizmoTarget etg[kNkvpMaxEmpty]` sur la **pile** à chaque image | 21 Ko à 262 ; 82 Ko et ×15 à 1024 | NK3DModeler |
+| **Sélection multiple dans le sélecteur** : `pickerResultPath` est mono-chemin | `NkFilePicker.h:119`, identique dans les deux arbres | agent NKEditorKit |
+
+**Diagnostic reporté, non corrigé — le GRAIN en mode rendu.** Cause nommée sur
+la géométrie du fichier de Rodolf, pas sur l'image : 499 856 triangles pour
+1,19 m (arête médiane = 0,15 % de la hauteur, donc **sous-pixel**), attribut
+**POSITION seul**, et les normales que le chargeur calcule s'écartent de plus de
+**15° entre sommets voisins dans 10,24 % des cas**. C'est du crénelage de
+normale. Le témoin qui tranche demande un geste humain : poser le mannequin ET
+un modèle low-poly dans la même scène, même mode rendu.
