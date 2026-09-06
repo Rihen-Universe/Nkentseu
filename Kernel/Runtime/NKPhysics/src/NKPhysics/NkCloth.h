@@ -130,6 +130,7 @@
 #include "NKPhysics/NkBodySDF.h" // le corps vu comme un champ de distance (2026-09-05, lot 2)
 #include "NKCollision/NkColShapes.h"
 #include "NKMath/NkIForceField.h" // le contrat du vent, cherry-pick ebf6c348 (chantier Noge)
+#include "NKMath/NkWetnessMap.h"  // la carte de mouillage (2026-09-06, ROADMAP_PRODUITS.md §6.6 palier 3)
 #include "NKContainers/Sequential/NkVector.h"
 
 namespace nkentseu {
@@ -255,6 +256,12 @@ namespace nkentseu {
 				uint32 pinTargets = 0;				// particules épinglées qui ont une cible
 				uint32 substeps = 0, iterations = 0;
 				float32 dt = 0.f;
+				// Mouillage (2026-09-06) : moyenne du canal sur les particules, masse SÈCHE
+				// totale, et facteur appliqué aux compliances. `mass` (au-dessus) reste la
+				// masse RÉELLE du pas -- c'est elle qui monte quand la nappe est mouillée.
+				float32 wetMean = 0.f;
+				float32 dryMass = 0.f;
+				float32 complianceScale = 1.f;
 		};
 
 		class NkCloth {
@@ -265,6 +272,23 @@ namespace nkentseu {
 				// à la fin de chaque Step. Vide ou de taille différente = colliders immobiles sur le pas.
 				NkVector<collision::NkShape> collidersPrev;
 				const math::NkIForceField *forceField = nullptr; // vent : contrat NkIForceField, force en N par particule
+				// ── LE TISSU MOUILLÉ (2026-09-06, §6.6 palier 3) ────────────────────────
+				// Carte de mouillage en espace UV de la GRILLE : la particule (i, j) lit
+				// (u, v) = (i / (nx - 1), j / (ny - 1)). Une nappe construite par
+				// BuildGrid a donc son UV gratuitement -- c'est l'argument qui a fait
+				// choisir l'espace UV plutôt qu'une grille monde (NkWetnessMap.h).
+				// Nul = tissu sec, comportement d'avant, zéro coût.
+				// CE QUE LA CARTE PILOTE, et c'est tout :
+				//   * la MASSE : m_i = m_sec_i x (1 + saturatedMassGain x w_i). L'eau que
+				//     le tissu retient est une masse ajoutée, pas une force.
+				//   * la COMPLIANCE : les trois compliances XPBD sont multipliées par
+				//     (1 + (saturatedComplianceGain - 1) x w_moyen). ⚠️ GLOBAL, pas par
+				//     contrainte : un scalaire par pas, aucune colonne de plus. Le
+				//     mouillage par zone (un ourlet trempé, un col sec) demanderait une
+				//     compliance par contrainte -- NOMMÉ, pas fait.
+				// Ce qui n'est PAS fait et qui se voit à l'œil : le tissu mouillé COLLE
+				// (adhérence au corps) et amortit plus. Nommé, pas fait.
+				const math::NkWetnessMap *wetness = nullptr;
 				// Champ de distance du corps à la pose de FIN de pas (l'appelant le reconstruit).
 				// Nul = collisions par les capsules seules, comme avant.
 				const NkBodySDF *bodySDF = nullptr;
@@ -394,9 +418,18 @@ namespace nkentseu {
 				void Measure(float32 dt);
 				bool Adjacent(uint32 a, uint32 b) const noexcept;
 
+				void ApplyWetness(); // masse et compliances du pas, depuis la carte
+
 				// colonnes (SoA)
 				NkVector<NkVec3f> mPos, mPrev, mVel, mNormal;
 				NkVector<float32> mInvMass, mMass;
+				// La masse SÈCHE, telle que construite. `mMass` est la masse du PAS
+				// (sèche + eau) ; sans cette colonne, deux pas mouillés multiplieraient
+				// la masse deux fois -- c'est exactement le défaut qu'un accumulateur
+				// écrit sur sa propre source produit.
+				NkVector<float32> mMassDry;
+				NkVector<float32> mWet; // canal lu sur la carte, par particule (0 si pas de carte)
+				float32 mComplianceScale = 1.f;
 				NkVector<uint8> mContact;	// 1 si projeté contre un collider ce sous-pas
 				NkVector<NkVec3f> mContactN; // normale du dernier contact
 				// épingles à cible (en-tête) : cible du pas, position de départ du pas, 1 si une cible est posée

@@ -27,6 +27,7 @@
 // =============================================================================
 #include "NkParticleStore.h"
 #include "NkForceField.h"
+#include "NKMath/NkContactEvent.h" // les contacts PUBLIÉS (2026-09-06, §6.6 palier 1)
 
 namespace nkentseu {
 	namespace renderer {
@@ -96,6 +97,21 @@ namespace nkentseu {
 				// solveur de divergence ignore la détente) -> tout excès rejoué est irréversible et s'accumule :
 				// repos à 0,41 rho0 en 30 images. À s < 1 un excès décroît en s^n et les itérations fournissent le reste.
 				float32 warmStartScale = 0.5f;
+				// ── LES CONTACTS PUBLIÉS (2026-09-06, ROADMAP_PRODUITS.md §6.6 palier 1) ──
+				// Jusqu'ici les contacts étaient RÉSOLUS et jamais dits. Une particule est
+				// « en contact » avec une paroi de la boîte quand elle est à moins de
+				// `contactBand` du plan de cette paroi ET qu'elle s'en approche. L'événement
+				// est publié sur le FRONT MONTANT (première entrée dans la bande) : sans ça,
+				// le fluide posé sur le fond publierait à chaque sous-pas et noierait la file.
+				// La sortie se fait avec HYSTÉRÉSIS (contactBand x contactRelease) : un
+				// unique seuil ferait clignoter une particule qui vibre sur la frontière.
+				// 0 = h / 2 (l'espacement des particules), calculé au pas.
+				float32 contactBand = 0.f;
+				float32 contactRelease = 1.5f; // sortie à contactBand x ce facteur
+				// Vitesse d'approche minimale pour PUBLIER (m/s). 0 = tout contact montant
+				// est publié, et c'est au consommateur de seuiller (c'est ce que fait
+				// NkSplashLaw::speedThreshold). Monter ce chiffre économise la file.
+				float32 contactMinSpeed = 0.f;
 				NkVec3f gravity = {0.f, -9.8f, 0.f};
 				NkVec3f boundsMin = {-1.f, 0.f, -1.f};
 				NkVec3f boundsMax = {1.f, 2.f, 1.f};
@@ -130,6 +146,10 @@ namespace nkentseu {
 				uint32 subStepsViscous = 0;						 // sous-pas imposés par la CFL visqueuse (0 = la CFL de vitesse a décidé)
 				uint32 clumped = 0;								 // particules à rho > 1,1 rho0 (agglutination = instabilité de traction)
 				uint32 syncs = 0;								 // GPU : relectures (synchronisations) de l'image -- une par itération, dites
+				// Contacts publiés (2026-09-06) : ce que le pas a PROPOSÉ à la file, ce
+				// qu'elle a PRIS, ce qu'elle a PERDU parce qu'elle était pleine. Les trois,
+				// parce qu'un chiffre de gouttes sans sa population ne veut rien dire.
+				uint32 contactsProposed = 0, contactsPublished = 0, contactsDropped = 0;
 				// PROFIL GPU PAR PASSE (2026-09-05, NK_SPH_PROFILE=1, OpenGL seul : Vulkan n'a pas de chrono) : ms GPU
 				// et nombre de dispatchs par sorte de noyau (ordre de l'énumération de NkSPHStoreGPU), et l'attente CPU
 				// des relectures, à part. Sans ce tableau, aucun levier (mesure du 05/09 : le tri n'était pas le coût).
@@ -143,6 +163,13 @@ namespace nkentseu {
 			public:
 				NkSPHParams params;
 				bool pressureEnabled = true; // faux = mutation « projection coupée » (le témoin repos doit rougir)
+				// La file où le solveur PUBLIE ses contacts (nul = il n'en publie aucun, et
+				// c'est le comportement d'avant le 06/09 : zéro coût). L'appelant la vide
+				// quand il l'a consommée -- le solveur ne la vide JAMAIS, sinon deux images
+				// de simulation par image de rendu en perdraient une.
+				math::NkContactQueue *contacts = nullptr;
+				// MUTATION : faux = les contacts ne sont pas publiés (le témoin (a1) rougit).
+				bool publishContacts = true;
 
 				void Apply(NkParticleStoreCPU &store, const NkEmitterDesc &desc, float32 dt) override;
 				// Le MÊME fluide sur GPU (NkSPHStoreGPU, 2026-09-05) : mêmes paramètres, mêmes statistiques.
@@ -177,6 +204,10 @@ namespace nkentseu {
 				NkVector<float32> mNbW;	   // W_ij
 				NkVector<float32> mDensity, mAlpha, mKappa, mDensityAdv;
 				NkVector<float32> mKappaSlot; // démarrage à chaud : kappa total du pas précédent, par emplacement du stockage
+				// 1 = cette particule est DÉJÀ dans la bande de contact d'une paroi : on ne
+				// republie pas tant qu'elle n'en est pas sortie (front montant, en-tête).
+				NkVector<uint8> mInContact;
+				void PublishContact(uint32 slot, const NkVec3f &p, const NkVec3f &v);
 				NkVector<float32> mKappaSum;  // kappa total du pas courant (vivantes)
 				NkVector<uint32> mNbCount;
 				// PAROIS PAR PARTICULES FANTÔMES : deux couches fixes autour de la boîte,

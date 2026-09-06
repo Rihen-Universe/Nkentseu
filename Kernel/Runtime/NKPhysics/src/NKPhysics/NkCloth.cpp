@@ -21,6 +21,8 @@ namespace nkentseu {
 			mNormal.Clear();
 			mInvMass.Clear();
 			mMass.Clear();
+			mMassDry.Clear();
+			mWet.Clear();
 			mContact.Clear();
 			mContactN.Clear();
 			mCA.Clear();
@@ -49,6 +51,8 @@ namespace nkentseu {
 			mVel.PushBack(NkVec3f{0.f, 0.f, 0.f});
 			mNormal.PushBack(NkVec3f{0.f, 1.f, 0.f});
 			mMass.PushBack(mass);
+			mMassDry.PushBack(mass);
+			mWet.PushBack(0.f);
 			mInvMass.PushBack(mass > 0.f ? 1.f / mass : 0.f);
 			mContact.PushBack((uint8)0);
 			mContactN.PushBack(NkVec3f{0.f, 1.f, 0.f});
@@ -454,10 +458,69 @@ namespace nkentseu {
 		}
 
 		// ── Un pas ───────────────────────────────────────────────────────────
+		// =====================================================================
+		// ApplyWetness — ce que la carte fait au tissu, une fois par pas.
+		//
+		// La masse du pas se recalcule TOUJOURS depuis `mMassDry`, jamais depuis
+		// `mMass` : un accumulateur qui s'écrit sur sa propre source dérive à chaque
+		// pas, et la nappe pèserait une tonne en dix secondes sans qu'aucun témoin
+		// ne s'en aperçoive tant qu'il ne regarde qu'un seul pas.
+		//
+		// Une particule ÉPINGLÉE (masse inverse nulle) le reste : son invMass ne se
+		// recalcule pas. Sa masse, elle, monte quand même -- elle compte dans la
+		// masse totale que le témoin lit.
+		// =====================================================================
+		void NkCloth::ApplyWetness() {
+			const uint32 n = (uint32)mPos.Size();
+			if ((uint32)mMassDry.Size() != n || (uint32)mWet.Size() != n)
+				return;
+			float32 dry = 0.f;
+			for (uint32 i = 0; i < n; ++i)
+				dry += mMassDry[i];
+			mStats.dryMass = dry;
+			if (wetness == nullptr || wetness->Width() == 0) {
+				for (uint32 i = 0; i < n; ++i) {
+					mWet[i] = 0.f;
+					if (mMass[i] != mMassDry[i]) {
+						mMass[i] = mMassDry[i];
+						if (mInvMass[i] > 0.f)
+							mInvMass[i] = mMassDry[i] > 0.f ? 1.f / mMassDry[i] : 0.f;
+					}
+				}
+				mComplianceScale = 1.f;
+				mStats.wetMean = 0.f;
+				mStats.complianceScale = 1.f;
+				return;
+			}
+			const math::NkWetMaterial &mat = wetness->material;
+			const float32 du = mGridW > 1u ? 1.f / (float32)(mGridW - 1u) : 0.f;
+			const float32 dv = mGridH > 1u ? 1.f / (float32)(mGridH - 1u) : 0.f;
+			float32 wsum = 0.f;
+			for (uint32 i = 0; i < n; ++i) {
+				float32 u = 0.5f, v = 0.5f;
+				if (mGridW > 0u && mGridH > 0u && n == mGridW * mGridH) {
+					u = (float32)(i % mGridW) * du;
+					v = (float32)(i / mGridW) * dv;
+				}
+				const float32 w = wetness->Sample(u, v);
+				mWet[i] = w;
+				wsum += w;
+				const float32 m = mMassDry[i] * (1.f + mat.saturatedMassGain * w);
+				mMass[i] = m;
+				if (mInvMass[i] > 0.f) // épinglée = reste épinglée
+					mInvMass[i] = m > 0.f ? 1.f / m : 0.f;
+			}
+			const float32 wmean = n ? wsum / (float32)n : 0.f;
+			mComplianceScale = 1.f + (mat.saturatedComplianceGain - 1.f) * wmean;
+			mStats.wetMean = wmean;
+			mStats.complianceScale = mComplianceScale;
+		}
+
 		void NkCloth::Step(float32 dt, float32 time) {
 			const uint32 n = (uint32)mPos.Size();
 			if (n == 0 || dt <= 0.f)
 				return;
+			ApplyWetness(); // masse et compliances du pas (2026-09-06, §6.6 palier 3)
 			if (mAdjDirty)
 				BuildAdjacency();
 			if (mPinRingDirty || (uint32)mPinRing.Size() != n)
@@ -613,8 +676,11 @@ namespace nkentseu {
 			const uint8 *K = mKind.Data();
 			float32 *L = mLambda.Data();
 			const float32 invH2 = 1.f / (h * h);
-			const float32 at[3] = {params.compliance * invH2, params.shearCompliance * invH2,
-								   params.bendCompliance * invH2};
+			// Mouillage : un tissu gorgé d'eau cède davantage. Le facteur est GLOBAL et
+			// vaut 1 quand aucune carte n'est branchée (NkCloth.h : nommé, pas par contrainte).
+			const float32 cs = mComplianceScale;
+			const float32 at[3] = {params.compliance * cs * invH2, params.shearCompliance * cs * invH2,
+								   params.bendCompliance * cs * invH2};
 			const bool xpbd = params.xpbd;
 			for (uint32 c = c0; c < nc; ++c) {
 				const uint32 a = A[c], b = B[c];
