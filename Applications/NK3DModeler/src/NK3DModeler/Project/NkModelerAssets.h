@@ -719,7 +719,7 @@ namespace nkentseu {
 		inline void NkAsNodesRestore(const NkArchive &in, const NkString &root,
 									 const NkString &rel, NkModelerState &st, bool archive,
 									 int32 *nodeMiss, NkVector<int32> *outNodes,
-									 int32 *orphanFix = nullptr) {
+									 int32 *orphanFix = nullptr, int32 *geoOldOut = nullptr) {
 			NkVector<NkArchive> nodes;
 			(void)in.GetObjectArray("noeuds", nodes);
 			// ── LA GEOMETRIE PROPRE DE CET ASSET (06/09) ────────────────────
@@ -941,16 +941,20 @@ namespace nkentseu {
 						 geoMiss, rel.CStr(), grel.CStr(), geoPremier);
 				NkToastPush(NkToastKind::Refus, t);
 				NkLog::Instance().Warnf("[geom] %s", t);
-			} else if (geoOld > 0) {
-				char t[kToastTexte];
-				snprintf(t, sizeof(t),
-						 "« %s » a ete enregistre AVANT le 06/09, quand le format n'ecrivait pas "
-						 "la geometrie. %d objet(s) y reviennent en primitive : si l'un d'eux "
-						 "etait un modele IMPORTE, son maillage n'est pas dans le fichier -- "
-						 "reimportez-le, puis enregistrez.",
-						 rel.CStr(), geoOld);
-				NkToastPush(NkToastKind::Partiel, t);
-				NkLog::Instance().Warnf("[geom] %s", t);
+			}
+			// ── L'ANCIEN FORMAT SE DIT UNE FOIS POUR LE PROJET, PAS PAR ASSET ─
+			// Le projet de Rodolf porte une dizaine de `.nkmesh`. Un message par
+			// asset en produirait dix, la pile n'en garde que six, et le message
+			// qui compte serait noye dans ses propres copies -- c'est-a-dire le
+			// meme defaut que le silence, par l'autre bout. Le COMPTE remonte,
+			// l'appelant dit la phrase une fois.
+			if (geoOld > 0) {
+				if (geoOldOut)
+					*geoOldOut += geoOld;
+				NkLog::Instance().Warnf(
+					"[geom] « %s » est de format %d : %d objet(s) reviennent en primitive, "
+					"sans geometrie ecrite.",
+					rel.CStr(), (int)asFmt, geoOld);
 			}
 			if (outNodes)
 				*outNodes = nodeOf;
@@ -1372,7 +1376,8 @@ namespace nkentseu {
 
 		inline void NkAsSceneRestore(const NkArchive &in, const NkString &root,
 									 const NkString &rel, NkModelerState &st, int32 d,
-									 int32 *nodeMiss, int32 *orphanFix) {
+									 int32 *nodeMiss, int32 *orphanFix,
+									 int32 *geoOldOut = nullptr) {
 			NkString nm = NkScStr(in, "nom");
 			if (!nm.Empty())
 				NkScPut(st.docName[d], (uint32)sizeof(st.docName[0]), nm.CStr());
@@ -1399,7 +1404,7 @@ namespace nkentseu {
 					snap.SetObject("sortie", t);
 				st.docRendu[d] = snap;
 			}
-			NkAsNodesRestore(in, root, rel, st, false, nodeMiss, nullptr, orphanFix);
+			NkAsNodesRestore(in, root, rel, st, false, nodeMiss, nullptr, orphanFix, geoOldOut);
 		}
 
 		/// MINIATURE REELLE de la scene ACTIVE (regle de Rihen, 8 aout : la
@@ -1470,14 +1475,14 @@ namespace nkentseu {
 
 		inline void NkAsModelRestore(const NkArchive &in, const NkString &root,
 									 const NkString &rel, NkModelerState &st, int32 card,
-									 int32 *nodeMiss) {
+									 int32 *nodeMiss, int32 *geoOldOut = nullptr) {
 			// UN MODEL N'EST DANS AUCUNE SCENE. Il nait dans la scene hote 0 parce
 			// qu'il faut bien un numero, puis il est ARCHIVE : invisible, hors
 			// hierarchie, et donc incapable d'apparaitre dans une scene. C'est ce
 			// qui manquait quand tout vivait dans un seul fichier.
 			demo::Demo3DHostSetActiveScene(0);
 			NkVector<int32> made;
-			NkAsNodesRestore(in, root, rel, st, true, nodeMiss, &made);
+			NkAsNodesRestore(in, root, rel, st, true, nodeMiss, &made, nullptr, geoOldOut);
 			st.Card(card).srcNode = made.Empty() || made[0] < 0 ? 0 : made[0] + 1;
 		}
 
@@ -1735,6 +1740,10 @@ namespace nkentseu {
 			}
 
 			int32 texMiss = 0, nodeMiss = 0, fileMiss = 0, orphanFix = 0;
+			// Objets d'un fichier ANTERIEUR au 06/09 qui reviennent en primitive
+			// faute de geometrie ecrite. Accumule sur TOUT le projet : voir
+			// NkAsNodesRestore pour la raison de ne pas le dire asset par asset.
+			int32 geoOld = 0;
 
 			// ── LES MATERIAUX D'ABORD : les noeuds s'y assignent par chemin ──
 			for (int32 b = 0; b < st.BrowserCount(); ++b) {
@@ -1772,7 +1781,7 @@ namespace nkentseu {
 					++fileMiss;
 					continue;
 				}
-				NkAsModelRestore(a, root, NkString(st.Card(b).file), st, b, &nodeMiss);
+				NkAsModelRestore(a, root, NkString(st.Card(b).file), st, b, &nodeMiss, &geoOld);
 			}
 
 			// ── LES SCENES : chacune son document, chacune ses noeuds ──
@@ -1800,7 +1809,24 @@ namespace nkentseu {
 					continue;
 				}
 				NkAsSceneRestore(a, root, NkString(st.Card(b).file), st, d, &nodeMiss,
-								 &orphanFix);
+								 &orphanFix, &geoOld);
+			}
+
+			// ── LE PROJET EST D'AVANT LE 06/09 : DIT UNE FOIS, ET AU CONDITIONNEL
+			// On ne PEUT PAS savoir lequel de ces objets etait un import : un cube
+			// du menu et un modele importe s'ecrivaient a l'identique dans le
+			// format 1. La verite qu'on n'a pas ne se remplace pas par celle qui
+			// arrange -- le message dit « si l'un d'eux », et rien de plus.
+			if (geoOld > 0) {
+				char t[kToastTexte];
+				snprintf(t, sizeof(t),
+						 "Ce projet a ete enregistre AVANT le 06/09, quand le format n'ecrivait "
+						 "pas la geometrie. %d objet(s) reviennent en primitive : si l'un d'eux "
+						 "etait un modele IMPORTE, son maillage n'est pas dans le fichier -- "
+						 "reimportez-le, puis enregistrez (a partir de la, il est ecrit).",
+						 geoOld);
+				NkToastPush(NkToastKind::Partiel, t);
+				NkLog::Instance().Warnf("[geom] %s", t);
 			}
 
 			// UN PROJET A TOUJOURS AU MOINS UNE SCENE : sans document, l'application
