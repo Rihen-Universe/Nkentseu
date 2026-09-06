@@ -12,20 +12,33 @@
 // tests sont les moins chers à construire, et la rend lisible par le tissu, la
 // mousse ou l'audio le jour où ils la voudront.
 //
-// ⚠️ LA LOI RETENUE, ET LA CONTRADICTION QU'ELLE TRANCHE — à lire avant de
-// changer un chiffre. ROADMAP_PRODUITS.md §6.6 dit « émission de particules à
-// l'impact » et le brief du 05/09 demande deux choses qui ne peuvent pas être
-// vraies ensemble : « nombre proportionnel à l'ÉNERGIE » (donc en v²) et
-// « deux fois la vitesse -> environ deux fois plus de gouttes » (donc en v).
-// J'ai retenu la loi LINÉAIRE, parce que c'est celle qui a un témoin écrit :
+// ⚠️ LES DEUX LOIS, ET C'EST L'UTILISATEUR QUI CHOISIT — arbitrage de Rodolf,
+// 2026-09-06 : *« pourquoi pas laisser les deux et l'utilisateur choisira ce qui
+// lui convient ? »*. Le 06/09 au matin ce fichier ne livrait qu'une loi (la
+// linéaire) et laissait l'autre accessible par un flottant nu ; c'était un choix
+// d'auteur, il est retiré. Les deux sont maintenant NOMMÉES et sélectionnables,
+// et le témoin porte sur les deux, pas sur une.
 //
-//        n(vn) = dropsPerRef * ( (vn - speedThreshold) / speedRef ) ^ exponent
-//        avec exponent = 1 PAR DÉFAUT, et n = 0 tant que vn <= speedThreshold.
+//        n(vn) = dropsPerRef * ( (vn - speedThreshold) / speedRef ) ^ q
+//        avec n = 0 tant que vn <= speedThreshold, et q donné par `law` :
 //
-// `exponent` est un PARAMÈTRE, pas une constante : `exponent = 2` rejoue la loi
-// en énergie, et le témoin (b3) mesure que l'instrument sait distinguer les deux
-// (rapport ~2 contre ~4 en doublant la vitesse). Ce qui reste à trancher par
-// Rodolf est nommé dans le rapport, pas caché dans une valeur par défaut.
+//        NkSplashLawKind::Lineaire  -> q = 1   « deux fois la vitesse, deux
+//                                               fois plus de gouttes »
+//        NkSplashLawKind::Energie   -> q = 2   n proportionnel à l'énergie
+//                                               cinétique de l'impact (v²)
+//        NkSplashLawKind::Puissance -> q = exponentLibre  (échappatoire d'auteur)
+//
+// **LE DÉFAUT EST NOMMÉ : `NkSplashLawKind::Lineaire`.** Il est nommé ici, dans
+// l'initialiseur du champ, et dans le rapport — pas déduit d'un `1.f` posé au
+// milieu d'une liste de flottants.
+//
+// ⚠️ `exponentLibre` N'EST LU QUE SOUS `Puissance`. C'est délibéré et c'est la
+// seule forme honnête d'un choix à trois branches — mais le corpus interdit
+// qu'un paramètre présent soit silencieusement ignoré. Donc : (1) le nom le dit
+// (`…Libre`), (2) `NkSplashExponent()` est la SEULE porte qui décide, et
+// (3) le témoin (b11) mesure explicitement que le bouger sous `Lineaire` ne
+// change RIEN, et que le bouger sous `Puissance` change tout. Le silence est
+// mesuré au lieu d'être subi.
 //
 // ARRIÈRE-PLAN, cité avec sa condition : Ihmsen, Akinci, Akinci, Teschner,
 // « Unified spray, foam and air bubbles for particle-based fluids », The Visual
@@ -42,7 +55,7 @@
 // produirait jamais) et casse la proportionnalité près du seuil. Ici la partie
 // fractionnaire est tirée par un HACHAGE DÉTERMINISTE de l'événement : sur un
 // grand nombre de contacts la moyenne vaut n exactement, et deux exécutions du
-// même banc rendent le même total (témoin (b5)).
+// même banc rendent le même total (témoin (b8)).
 // =============================================================================
 #include "NKMath/NkContactEvent.h"
 #include "NKMath/NkFunctions.h"
@@ -50,13 +63,27 @@
 namespace nkentseu {
 	namespace math {
 
+		// LES DEUX LOIS QUE RODOLF A DEMANDÉ DE LIVRER TOUTES LES DEUX, plus
+		// l'échappatoire. Un `enum class` et pas un flottant : le flottant laissait
+		// « la loi » sans nom, donc invisible dans un journal, dans une sérialisation
+		// et dans une interface. Ici l'auteur écrit ce qu'il veut, pas un 2.
+		enum class NkSplashLawKind : uint32 {
+			Lineaire = 0u,	// q = 1 — DÉFAUT
+			Energie = 1u,	// q = 2
+			Puissance = 2u, // q = exponentLibre
+		};
+
 		struct NkSplashParams {
 				// Sous ce seuil d'impact, AUCUNE goutte (m/s). Le fluide au repos sur le
 				// fond touche en permanence : sans seuil, il pleuvrait des gouttes.
 				float32 speedThreshold = 0.5f;
 				float32 speedRef = 1.f;		 // m/s : la vitesse qui vaut `dropsPerRef` gouttes
 				float32 dropsPerRef = 4.f;	 // gouttes à (vn - seuil) = speedRef
-				float32 exponent = 1.f;		 // 1 = linéaire (le témoin) ; 2 = en énergie
+				// LE DÉFAUT, NOMMÉ. Changer cette ligne change la loi de tout le dépôt :
+				// c'est le seul endroit où le défaut existe.
+				NkSplashLawKind law = NkSplashLawKind::Lineaire;
+				// Lu UNIQUEMENT quand law == Puissance (cf. en-tête, témoin (b11)).
+				float32 exponentLibre = 1.f;
 				uint32 maxDropsPerEvent = 32u; // plafond DIT : un impact ne peut pas noyer la file
 				float32 coneHalfAngle = 0.6f;  // rad (~34°) autour de la réflexion
 				float32 speedScale = 0.35f;	 // vitesse de la goutte = speedScale * |v| du contact
@@ -92,6 +119,36 @@ namespace nkentseu {
 			return (float32)(NkSplashHash(a, b) >> 8) * (1.f / 16777216.f);
 		}
 
+		// LA SEULE PORTE qui traduit un choix de loi en exposant. Toute lecture de
+		// `exponentLibre` ailleurs serait une seconde source de vérité : il n'y en a
+		// pas, et le témoin (b11) le vérifie par l'effet, pas par relecture.
+		NK_FORCE_INLINE float32 NkSplashExponent(const NkSplashParams &p) noexcept {
+			switch (p.law) {
+				case NkSplashLawKind::Lineaire:
+					return 1.f;
+				case NkSplashLawKind::Energie:
+					return 2.f;
+				case NkSplashLawKind::Puissance:
+				default:
+					return p.exponentLibre;
+			}
+		}
+
+		// Le nom de la loi, pour un journal ou une interface. Sans lui, « la loi » ne
+		// se lit nulle part et on la déduit d'un flottant — ce qu'on vient de retirer.
+		NK_FORCE_INLINE const char *NkSplashLawName(NkSplashLawKind k) noexcept {
+			switch (k) {
+				case NkSplashLawKind::Lineaire:
+					return "lineaire";
+				case NkSplashLawKind::Energie:
+					return "energie";
+				case NkSplashLawKind::Puissance:
+					return "puissance";
+				default:
+					return "?";
+			}
+		}
+
 		// Le nombre RÉEL de gouttes que la loi demande (avant arrondi) : c'est CE
 		// chiffre que le témoin de proportionnalité doit lire, pas un compte entier.
 		NK_FORCE_INLINE float32 NkSplashDropCountReal(const NkSplashParams &p, float32 normalSpeed) noexcept {
@@ -99,7 +156,19 @@ namespace nkentseu {
 			if (over <= 0.f || p.speedRef <= 0.f)
 				return 0.f;
 			const float32 t = over / p.speedRef;
-			float32 n = p.dropsPerRef * (p.exponent == 1.f ? t : NkPow(t, p.exponent));
+			const float32 q = NkSplashExponent(p);
+			// q == 1 et q == 2 court-circuitent NkPow. Raison : `NkPow(t, 2)` passe
+			// par une exponentielle et un logarithme, `t*t` non — les deux ne rendent
+			// pas forcément le même float32, et un témoin qui compare des rapports
+			// serré accuserait la loi pour un écart d'ULP. ⚠️ Je n'affirme PAS ici de
+			// combien ils diffèrent : le banc (b10) imprime les deux et le dit.
+			float32 n;
+			if (q == 1.f)
+				n = p.dropsPerRef * t;
+			else if (q == 2.f)
+				n = p.dropsPerRef * (t * t);
+			else
+				n = p.dropsPerRef * NkPow(t, q);
 			const float32 cap = (float32)p.maxDropsPerEvent;
 			return n > cap ? cap : n;
 		}
