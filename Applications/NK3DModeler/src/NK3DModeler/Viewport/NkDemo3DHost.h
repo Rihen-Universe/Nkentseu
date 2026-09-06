@@ -2,6 +2,7 @@
 // -----------------------------------------------------------------------------
 // @File    NkDemo3DHost.h
 // @Brief   Facade OPAQUE de la vue 3D portee de renderdemo --demo=2.
+// @Author  TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // @License Proprietary - All Rights Reserved (see LICENSE)
 //
 // MEME REGLE QUE NkViewport3D.h : aucun type NKRenderer ici, car NKRenderer et
@@ -536,6 +537,33 @@ namespace nkentseu {
 		int32 Demo3DHostCreateMeshNode(int32 root, const void *verts, uint32 vcount,
 									   const uint32 *indices, uint32 icount,
 									   const float32 *pos3, const char *debugName);
+		// ── LA GEOMETRIE PROPRE D'UN NOEUD : LUE, PUIS REPOSEE (06/09) ──────
+		// Ce que le fichier de projet doit ecrire pour qu'un objet IMPORTE
+		// survive a enregistrer / fermer / rouvrir. Sans ces deux portes, le
+		// format n'ecrivait QUE la nature du noeud -- et la nature d'un import
+		// est 2, la famille CUBE : c'est la cause exacte des cubes blancs
+		// rapportes par Rodolf le 06/09.
+		//
+		// `Demo3DHostNodeGeometry` ne rend VRAI que pour un noeud qui porte sa
+		// PROPRE geometrie ET dont la copie CPU existe (keepCPU) : une primitive
+		// partagee (le cube du menu, qui n'a pas de maillage a lui) et un
+		// maillage sans copie CPU rendent FAUX -- et c'est exact, il n'y a rien
+		// a ecrire pour eux. Les pointeurs rendus appartiennent au systeme de
+		// maillages : a lire tout de suite, jamais a garder.
+		//
+		// `Demo3DHostSetNodeGeometry` REFUSE et le DIT si le pas de sommet du
+		// fichier n'est pas celui du layout courant : reinterpreter des octets
+		// sous un autre layout produirait une bouillie silencieuse, ce qui est
+		// pire que le cube.
+		bool Demo3DHostNodeGeometry(int32 node, const void **verts, uint32 *vcount,
+									uint32 *stride, const uint32 **indices,
+									uint32 *icount);
+		bool Demo3DHostSetNodeGeometry(int32 node, const void *verts, uint32 vcount,
+									   uint32 stride, const uint32 *indices,
+									   uint32 icount);
+		// Le pas de sommet du layout COURANT (Default3D), ecrit dans le fichier
+		// de geometrie pour que la relecture puisse refuser un pas etranger.
+		uint32 Demo3DHostVertexStride();
 		// Parametres du mesh cree (segments / anneaux-subdivisions) : le
 		// panneau « Ajuster la creation » les edite AVANT validation.
 		int32 Demo3DHostUserSub(int32 node); // variante demandee au menu Ajouter

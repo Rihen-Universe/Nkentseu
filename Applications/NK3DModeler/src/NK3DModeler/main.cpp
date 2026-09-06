@@ -269,7 +269,19 @@ namespace {
 } // namespace
 
 int nkmain(const NkEntryState &entry) {
-	(void)entry;
+	// ── SONDE DU FORMAT DE GEOMETRIE, AVANT TOUT LE RESTE ───────────────────
+	// `NK3DModeler.exe --sonde-geo [dossier]` eprouve NkModelerGeom.h et SORT :
+	// aucune fenetre, aucun device, aucun GPU pris. C'est ce qui permet de la
+	// lancer pendant qu'une autre application tient la carte -- et de la lancer
+	// sans un seul clic. Le verdict part dans `sonde_geo.txt` du dossier donne
+	// (defaut : le dossier courant), parce qu'une application fenetree n'a pas
+	// de console ou ecrire.
+	for (usize a = 0; a < entry.args.Size(); ++a) {
+		if (!(entry.args[a] == NkString("--sonde-geo")))
+			continue;
+		const NkString dir = (a + 1u < entry.args.Size()) ? entry.args[a + 1u] : NkString(".");
+		return (int)nk3d::NkGeoSonde(dir);
+	}
 
 	// ── THEMES ──────────────────────────────────────────────────────────────
 	NkModelerRoles roles;

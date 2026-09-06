@@ -65,13 +65,13 @@
 //   travail :
 //   * la GEOMETRIE EDITEE (sommets deplaces en mode Edition) : un maillage est
 //     regenere depuis ses parametres de creation, pas relu ;
-//   * la GEOMETRIE IMPORTEE (17/08) : meme dette -- le `.nkmesh` d'un model
-//     importe ecrit ses noeuds, origines et noms, pas encore ses sommets ; a
-//     la reouverture d'un AUTRE jour, les noeuds reviennent en primitives de
-//     leur nature. Dans LA session, l'editeur de model travaille sur
-//     l'archive vivante : la geometrie y est reelle. Trouvee en preparant la
-//     creation des noeuds de l'import (en cherchant qui relit un maillage
-//     arbitraire), pas en relisant ce fichier ;
+//   * la GEOMETRIE IMPORTEE : DETTE LEVEE le 06/09. Elle a coute du travail a
+//     Rodolf -- « les models que j'avais charges precedemment, une fois
+//     rouvert le projet, elles sont devenues des cubes ». Les sommets vivent
+//     desormais dans le `.nkgeo` frere de l'asset (NkModelerGeom.h) ; ce
+//     fichier-ci n'est PLUS le chemin d'ecriture des noeuds (NkAsNodesCapture
+//     l'est), il ne sert qu'a RELIRE les projets de format 1 et 2, qui n'ont
+//     pas de geometrie a relire ;
 //   * les MODIFICATEURS (la pile n'a pas encore de modele de donnees) ;
 //   * les objets de la SCENE DE DEMONSTRATION (noeuds 0..95) : ils
 //     reapparaissent tels qu'a l'ouverture, seul leur masquage par scene
@@ -718,20 +718,26 @@ namespace nkentseu {
 				const int32 sub = NkScInt(nd, "sousType", 0);
 				if (kind < 1 || kind > 10) {
 					// 🔴 CE NOEUD DISPARAIT, ET IL FAUT LE DIRE PAR SON NOM.
-					// `nature == 0` est la marque d'un objet IMPORTE :
-					// `Demo3DHostCreateMeshNode` pose `nkvpUserKind = 0`, et le
-					// fichier ne stocke que la nature et les parametres de
-					// creation — pas les sommets (dette datee du 17/08, en tete de
-					// ce fichier). Un objet importe ne survit donc pas a un
-					// aller-retour par le fichier. Jusqu'ici il partait en silence,
-					// dans un COMPTE agrege dont l'affichage depend de l'appelant :
-					// l'utilisateur voyait son modele s'evaporer sans un mot.
+					//
+					// ⚠️ CORRECTION DU 06/09 — CE COMMENTAIRE DISAIT UN FAUX, ET LE
+					// FAUX A COUTE DU TRAVAIL. Il affirmait que « nature == 0 est la
+					// marque d'un objet IMPORTE ». Verifie a la source :
+					// `Demo3DHostCreateMeshNode` appelle `HostAllocUser(2)` -- un
+					// objet importe porte la nature 2, la famille CUBE. Le fichier de
+					// Rodolf le confirme, ses imports y sont ecrits « nature: 2 ».
+					// Cette garde ne les a donc JAMAIS vus : ils passaient dessous,
+					// `Demo3DHostAddNode(2, 0)` recreait un cube parfaitement valide,
+					// et personne n'etait prevenu. C'est le defaut des cubes blancs.
+					//
+					// La garde reste utile pour ce qu'elle couvre REELLEMENT : une
+					// nature hors 1..10, c'est-a-dire un fichier abime ou ecrit par
+					// une version qu'on ne connait pas. Le cas des imports est
+					// desormais traite la ou il vit -- NkAsNodesRestore, par le
+					// drapeau « geometriePropre » et le `.nkgeo` frere.
 					NkLog::Instance().Warnf(
-						"[scene] objet « %s » NON RECREE : nature=%d %s. Sa geometrie n'est pas dans le "
-						"fichier — reimportez-le.",
-						NkScStr(nd, "nom").CStr(), (int)kind,
-						kind == 0 ? "(objet IMPORTE : le format ne stocke pas encore ses sommets)"
-								  : "(hors des natures connues 1..10)");
+						"[scene] objet « %s » NON RECREE : nature=%d, hors des natures connues 1..10 "
+						"(fichier abime, ou ecrit par une version inconnue).",
+						NkScStr(nd, "nom").CStr(), (int)kind);
 					nodeOf.PushBack(-1);
 					++nodeMiss;
 					continue;

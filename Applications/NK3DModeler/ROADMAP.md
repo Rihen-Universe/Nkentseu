@@ -3434,3 +3434,103 @@ la géométrie du fichier de Rodolf, pas sur l'image : 499 856 triangles pour
 **15° entre sommets voisins dans 10,24 % des cas**. C'est du crénelage de
 normale. Le témoin qui tranche demande un geste humain : poser le mannequin ET
 un modèle low-poly dans la même scène, même mode rendu.
+
+---
+
+## 2026-09-06 — LE DÉFAUT DES CUBES BLANCS : la géométrie importée entre enfin dans le fichier
+
+> Rodolf, ce matin : *« les model que j'avais chargés précédemment, une fois
+> rouvert le projet, elles sont devenues des cubes. »* Captures `Captures/vue_001.png`
+> et `vue_002.png` : le mannequin intact, et à côté de lui un gros cube blanc.
+
+### La cause, LUE dans son fichier — et l'hypothèse de départ était trop optimiste
+
+L'hypothèse transmise était « l'objet importé est enregistré comme *cube + une
+référence vers son maillage*, et la référence ne survit pas au cycle ».
+
+**Il n'y avait aucune référence.** Ouvrir `C:\Users\Rihen\NK3DModeler\AgentTest\`
+le montre en trois lignes :
+
+- `042082ea338126d2103db9677bf212b.nkmesh` fait **833 octets** pour un mannequin
+  de **249 906 sommets**. Il porte `nature: 2`, la transform, les matériaux — et
+  **rien d'autre** : ni sommets, ni chemin vers le `.glb` d'origine.
+- `Scene1.nkscene` : mêmes dix nœuds, même absence. Le seul qui survivait est
+  `Sphere UV.009`, une primitive **nature 1 avec son bloc `creation`** — elle se
+  **régénère**, elle n'est pas relue.
+- Côté code, `Demo3DHostCreateMeshNode` appelle `HostAllocUser(2)` : **un objet
+  importé porte la nature 2, la famille CUBE**. À la relecture,
+  `Demo3DHostAddNode(2, 0)` recrée un cube parfaitement valide. Le dessin était
+  juste ; c'est la matière qui manquait, et elle manquait **entièrement**.
+
+### Ce qui rendait le défaut SILENCIEUX, et c'est un enseignement à part
+
+`NkModelerScene.h` portait bien une garde « objet NON RECRÉÉ », posée le 05/09.
+Son commentaire affirmait : *« `nature == 0` est la marque d'un objet IMPORTÉ :
+`Demo3DHostCreateMeshNode` pose `nkvpUserKind = 0` »*. **C'est faux**, et le
+fichier de Rodolf le dit (`"nature": 2`). La garde ne pouvait donc **jamais** se
+déclencher sur un import : elle protégeait un cas qui n'existe pas, pendant que
+le cas réel passait dessous sans un mot.
+
+> Une garde écrite contre une valeur qu'on n'a pas mesurée protège une hypothèse,
+> pas un défaut. Le commentaire est corrigé **à la source**, pas réécrit.
+
+### Ce qui est livré
+
+- **`Project/NkModelerGeom.h`** (neuf) — le format `.nkgeo`, **frère** de chaque
+  asset (`Model.nkmesh` → `Model.nkgeo`). Binaire, écriture native, une entrée
+  par nœud désignée **par son RANG** dans le tableau `noeuds` (même convention
+  que la parenté et les matériaux : les emplacements de nœud se recyclent).
+- **Deux portes dans la façade** — `Demo3DHostNodeGeometry` (lit la copie CPU
+  `keepCPU` d'un nœud qui porte SA géométrie) et `Demo3DHostSetNodeGeometry`
+  (la repose, et **REFUSE en le disant** si le pas de sommet du fichier n'est
+  pas celui du layout courant).
+- **`NkAsNodesCapture` / `NkAsNodesRestore`** écrivent et relisent le `.nkgeo`,
+  et posent `"geometriePropre": true` sur les nœuds concernés.
+  **Le filtre est `Demo3DHostMeshParams`, pas `Demo3DHostNodeGeometry`** — et
+  cette distinction a été une erreur de ma part avant d'être une ligne juste :
+  une sphère, un cylindre, un cône et un plan portent **eux aussi** leur propre
+  maillage (`HostRegenUserMesh` le leur fabrique) avec sa copie CPU, donc
+  `Demo3DHostNodeGeometry` rend **vrai** pour eux. Seul le cube nu n'a pas de
+  maillage à lui. La bonne question n'est pas *« ce nœud a-t-il un maillage »*
+  mais *« ce maillage se **régénère**-t-il »* — c'est le même test que celui qui
+  écrit le bloc `creation`, deux lignes plus haut, pour qu'il n'y ait pas deux
+  réponses à la même question.
+- **Format d'asset 1 → 2.** C'est ce qui permet de distinguer *« ce fichier n'a
+  pas de géométrie »* de *« ce fichier n'en avait pas la place »*.
+- **CE QUI MANQUE SE DIT À L'ÉCRAN** (`NkToastPush`, pas un journal) :
+  - un nœud qui **annonce** une géométrie que le `.nkgeo` ne porte pas est
+    **MASQUÉ** et préfixé d'un `!` — *un cube blanc qui ment est pire qu'un objet
+    qui se signale* ; le message nomme le premier et donne le compte ;
+  - un fichier de **format 1** déclenche un message PARTIEL qui dit ce qu'on
+    sait et **seulement** ce qu'on sait : *« N objet(s) reviennent en primitive :
+    si l'un d'eux était un modèle IMPORTÉ, son maillage n'est pas dans le
+    fichier »*. On ne peut pas trancher — un cube du menu et un import
+    s'écrivaient à l'identique — et on ne le prétend pas.
+
+### La sonde, et son régime
+
+`NK3DModeler.exe --sonde-geo [dossier]` — **sans fenêtre, sans device, sans GPU**
+(elle sort avant la création de la fenêtre), verdict dans `sonde_geo.txt`.
+Sept contrôles, **tout vert**, dont **quatre mutations** : nombre magique
+corrompu, version future, fichier coupé au milieu d'une entrée, fichier plus
+court que son en-tête.
+
+**Vue ROUGE avant d'être verte** : les trois gardes de `NkGeoRead` retirées à la
+main, reconstruction, relance → `ROUGE (2) (3) (4)`, code de sortie 1. Gardes
+remises → `TOUT VERT (0 rouge(s))`, code 0.
+
+> ⚠️ **Régime déclaré** : la sonde éprouve la **couche fichier**. Elle ne touche
+> ni le système de maillages ni la sauvegarde de projet — ceux-là demandent un
+> device, donc une fenêtre, donc des gestes. **Elle peut être verte pendant que
+> la chaîne complète est cassée.** L'aller-retour réel (importer, enregistrer,
+> fermer, rouvrir) reste un **test humain**.
+
+### Dettes NOMMÉES, non faites
+
+| dette | mesure | pourquoi elle n'est pas faite ici |
+|---|---|---|
+| **Aucune déduplication : une géométrie partagée est écrite deux fois.** Un model instancié dans une scène partage le `NkMeshHandle` de son archive (`HostSpawnLike` copie le handle) ; les deux `.nkgeo` en portent une copie complète | pas de mesure sur un projet réel : ce qui est certain est le mécanisme, pas le facteur | c'est un format de dédup (empreinte de contenu, table partagée au projet), pas une ligne — et le mesurer demande le geste humain qu'on n'a pas |
+| **Le partage se PERD à l'aller-retour.** Décision de Rodolf du 16/08 : dupliquer un model **partage** ses maillages. À la relecture, chaque nœud reçoit son propre maillage : la mémoire double et le partage est silencieusement rompu | lecture de `NkAsNodesRestore` | même correctif que la dédup ci-dessus ; les deux tombent ensemble |
+| **Le coût d'écriture n'est pas mesuré.** `sizeof(NkVertex3D)` = 56 o : le mannequin de Rodolf pèse ~14 Mo de sommets + ~6 Mo d'indices par copie | stride lu dans `NkVertexLayout::Default3D()`, comptes lus dans le `.glb` | mesurer le temps d'enregistrement réel demande d'enregistrer son projet — un geste |
+| **La géométrie ÉDITÉE d'une PRIMITIVE reste perdue.** Une sphère dont on a déplacé des sommets garde `MeshParams` vrai : le filtre la déclare régénérable, son `.nkgeo` n'est pas écrit, et `SetMeshParams` la refabrique neuve à la relecture | lecture de `HostRegenUserMesh` / `Demo3DHostMeshParams` | dette ouverte depuis le 17/08, **non aggravée** (c'était déjà le comportement) ; la traiter demande de trancher qui gagne entre les paramètres et les sommets — un arbitrage produit, pas un correctif |
+| **Un fichier de format 1 ne peut pas dire lequel de ses cubes était un import** | aucune donnée dans le fichier | ce n'est pas réparable : la donnée n'a jamais été écrite. Le message le dit au conditionnel |

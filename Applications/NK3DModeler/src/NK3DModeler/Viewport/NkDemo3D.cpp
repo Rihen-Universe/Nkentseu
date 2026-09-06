@@ -4,6 +4,8 @@
 // traduite fenetre->vue, gardes d'entree, frame rejouee (l'editeur possede
 // le device et le command buffer). L'hote est en fin de fichier.
 // Source : Applications/Sandbox/src/Demo/Demo3D.cpp — Demo 2
+// @Author  TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
+// @License Proprietary - All Rights Reserved (see LICENSE)
 //
 // Demo minimaliste 3D :
 //   - Config ForGame (RENDER3D + RENDER2D + TEXT + SHADOW + POST_PROCESS + OVERLAY)
@@ -18530,6 +18532,95 @@ namespace nkentseu {
 			nkvpNodeMatP1[n] = HostEnsureDefaultMat() + 1;
 			HostHierSnapNode(st, n);
 			return n;
+		}
+		// ── LA GEOMETRIE PROPRE, LUE POUR L'ECRITURE DU PROJET (06/09) ─────
+		// Meme perimetre que HostMakeGeometryOwn, et pour la meme raison : un
+		// noeud qui rend une primitive PARTAGEE n'a pas de maillage a lui, il
+		// n'y a rien a lire. Le distinguer ici est ce qui evite d'ecrire des
+		// megaoctets de cube dans chaque projet.
+		bool Demo3DHostNodeGeometry(int32 node, const void **verts, uint32 *vcount,
+									uint32 *stride, const uint32 **indices,
+									uint32 *icount) {
+			if (verts)
+				*verts = nullptr;
+			if (vcount)
+				*vcount = 0;
+			if (stride)
+				*stride = 0;
+			if (indices)
+				*indices = nullptr;
+			if (icount)
+				*icount = 0;
+			if (node < kNkvpFirstUser || node >= kNkvpMaxNodes)
+				return false;
+			auto *ms = hst.ctx.renderer ? hst.ctx.renderer->GetMeshSystem() : nullptr;
+			if (!ms)
+				return false;
+			const NkMeshHandle h = nkvpUserMesh[node - kNkvpFirstUser];
+			if (!h.IsValid())
+				return false; // primitive partagee : rien a lire, et c'est exact
+			if (!ms->HasCPUData(h)) {
+				// DIT, jamais taise : sans copie CPU la geometrie n'est pas
+				// relisible depuis le GPU, et l'objet ne survivra pas au
+				// fichier. Le silence ici serait le defaut qu'on repare.
+				logger.Warn("[Demo3D] Geometrie du noeud {0} NON LISIBLE (pas de copie CPU) : "
+							"elle ne sera pas ecrite dans le projet.\n",
+							node);
+				return false;
+			}
+			const void *v = ms->GetVertices(h);
+			const uint32 *ii = ms->GetIndices(h);
+			const uint32 vc = ms->GetVertexCount(h);
+			const uint32 ic = ms->GetIndexCount(h);
+			const uint32 sd = ms->GetVertexStride(h);
+			if (!v || !ii || vc == 0 || ic == 0 || sd == 0)
+				return false;
+			if (verts)
+				*verts = v;
+			if (vcount)
+				*vcount = vc;
+			if (stride)
+				*stride = sd;
+			if (indices)
+				*indices = ii;
+			if (icount)
+				*icount = ic;
+			return true;
+		}
+		uint32 Demo3DHostVertexStride() {
+			return renderer::NkVertexLayout::Default3D().stride;
+		}
+		bool Demo3DHostSetNodeGeometry(int32 node, const void *verts, uint32 vcount,
+									   uint32 stride, const uint32 *indices,
+									   uint32 icount) {
+			if (node < kNkvpFirstUser || node >= kNkvpMaxNodes)
+				return false;
+			auto *ms = hst.ctx.renderer ? hst.ctx.renderer->GetMeshSystem() : nullptr;
+			if (!ms || !verts || !indices || vcount == 0 || icount == 0)
+				return false;
+			const uint32 want = renderer::NkVertexLayout::Default3D().stride;
+			if (stride != want) {
+				// REFUS DIT. Reinterpreter des octets sous un autre layout
+				// donnerait une geometrie fausse SANS erreur -- pire que le
+				// cube, parce qu'un cube se voit.
+				logger.Warn("[Demo3D] Geometrie du noeud {0} REFUSEE : pas de sommet {1} octets, "
+							"le layout courant en attend {2}.\n",
+							node, stride, want);
+				return false;
+			}
+			renderer::NkMeshDesc d = renderer::NkMeshDesc::Simple(
+				renderer::NkVertexLayout::Default3D(), verts, vcount, indices, icount);
+			// keepCPU EXPLICITE : sinon le maillage relu ne serait plus
+			// reecrivable, et l'enregistrement SUIVANT reperdrait l'objet.
+			d.keepCPU = true;
+			d.debugName = "Demo3D_GeomRelue";
+			const NkMeshHandle h = ms->Create(d);
+			if (!h.IsValid())
+				return false;
+			nkvpUserMesh[node - kNkvpFirstUser] = h;
+			// Le noeud rend desormais SA geometrie : le rendu donne la priorite
+			// a nkvpUserMesh, la primitive de la nature ne se dessine plus.
+			return true;
 		}
 		int32 Demo3DHostTakeShortcuts() {
 			const int32 b = nkvpShortcutBits;
