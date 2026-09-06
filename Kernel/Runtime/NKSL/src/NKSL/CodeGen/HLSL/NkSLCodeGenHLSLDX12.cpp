@@ -1,5 +1,6 @@
 // =============================================================================
 // NkSLCodeGenHLSL_DX12.cpp  — v4.0
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 //
 // Backend HLSL SM6+ pour DirectX 12.
 //
@@ -394,24 +395,34 @@ namespace nkentseu {
 	// =============================================================================
 	// BuiltinToHLSL
 	// =============================================================================
+	// ⚠️ DEUXIEME EXEMPLAIRE DE LA MEME TABLE. Celui de DX11 vit dans
+	// `NkSLCodeGenHLSL.cpp` et porte l'explication complete du defaut corrige le
+	// 2026-09-07 (le lexer perd la casse, la table camelCase ne matchait plus,
+	// et `gl_fragcoord` sortait nu). Les deux copies doivent bouger ENSEMBLE :
+	// DX12 n'avait pas encore mordu parce qu'aucun shader DX12 n'exerce
+	// `gl_FragCoord` aujourd'hui -- ce qui ne le rend pas juste, seulement pas
+	// encore paye. La fusion des deux tables est une dette NOMMEE, pas faite ici :
+	// on ne refond pas un generateur partage dans le lot qui repare un defaut.
 	NkString NkSLCodeGenHLSL_DX12::BuiltinToHLSL(const NkString &name, NkSLStage stage) {
-		if (name == "gl_Position")
+		NkString n(name);
+		n.ToLower();
+		if (n == "gl_position")
 			return "output._Position";
-		if (name == "gl_FragCoord")
+		if (n == "gl_fragcoord")
 			return "input._Position";
-		if (name == "gl_FragDepth")
+		if (n == "gl_fragdepth")
 			return "output._Depth";
-		if (name == "gl_VertexID")
+		if (n == "gl_vertexid")
 			return "input._VertexID";
-		if (name == "gl_InstanceID")
+		if (n == "gl_instanceid")
 			return "input._InstanceID";
-		if (name == "gl_FrontFacing")
+		if (n == "gl_frontfacing")
 			return "input.IsFrontFace";
-		if (name == "gl_LocalInvocationID")
+		if (n == "gl_localinvocationid")
 			return "GroupThreadID";
-		if (name == "gl_GlobalInvocationID")
+		if (n == "gl_globalinvocationid")
 			return "DispatchThreadID";
-		if (name == "gl_WorkGroupID")
+		if (n == "gl_workgroupid")
 			return "GroupID";
 		return name;
 	}

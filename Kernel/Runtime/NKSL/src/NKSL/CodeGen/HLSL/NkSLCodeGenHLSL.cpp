@@ -1,5 +1,6 @@
 // =============================================================================
 // NkSLCodeGenHLSL.cpp
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // Génération HLSL SM5+ depuis l'AST NkSL.
 //
 // Différences majeures GLSL→HLSL :
@@ -316,23 +317,49 @@ namespace nkentseu {
 	}
 
 	NkString NkSLCodeGenHLSL::BuiltinToHLSL(const NkString &name, NkSLStage stage) {
-		if (name == "gl_Position")
+		// 🔴 COMPARAISON INSENSIBLE A LA CASSE, et ce n'est pas une precaution de
+		// style : le lexer traite `gl_FragCoord` comme un MOT-CLE
+		// (`NK_KW_BUILTIN_FRAGCOORD`, NkSLLexer.cpp:144) et la casse canonique se
+		// perd avant d'arriver ici. Ecrite en camelCase, cette table ne pouvait
+		// pas matcher `gl_fragcoord` : le generateur emettait alors l'identifiant
+		// NU, une variable que HLSL ne connait pas.
+		//
+		// MESURE DU 2026-09-07 -- la chaine complete, du panneau au pilote :
+		//   1. `shadowalpha.frag` sortait `NkBayer4(gl_fragcoord.xy)` ;
+		//   2. D3D le refuse : `error X3004: undeclared identifier 'gl_fragcoord'` ;
+		//   3. la creation de pipeline annoncait quand meme
+		//      `shader_valid=1 pipeline_valid=1`, deux millisecondes plus tard ;
+		//   4. l'ombre proportionnelle etait donc MORTE sur DX11 -- un objet a
+		//      12 % d'opacite y projetait une ombre PLEINE ;
+		//   5. Rodolf reglait « Opacite 0,12 » dans son panneau, et rien ne bougeait.
+		// Portee mesuree avant de toucher au socle : sur les 171 shaders du cache,
+		// UN SEUL emettait une variable integree nue -- celui-la.
+		//
+		// ⚠️ `SemanticFor`, dans ce meme fichier, compare DEJA ses noms en
+		// minuscules par une table `nameLower` : l'insensibilite a la casse est
+		// l'idiome du fichier, pas une invention de passage.
+		//
+		// ⚠️ Et on rend `name` TEL QUEL a la fin, jamais sa version minuscule :
+		// tout ce qui n'est pas une variable integree doit ressortir intact.
+		NkString n(name);
+		n.ToLower();
+		if (n == "gl_position")
 			return "output._Position"; // struct field = _Position
-		if (name == "gl_FragCoord")
+		if (n == "gl_fragcoord")
 			return "input._Position";
-		if (name == "gl_FragDepth")
+		if (n == "gl_fragdepth")
 			return "output._Depth";
-		if (name == "gl_VertexID")
+		if (n == "gl_vertexid")
 			return "input._VertexID";
-		if (name == "gl_InstanceID")
+		if (n == "gl_instanceid")
 			return "input._InstanceID";
-		if (name == "gl_FrontFacing")
+		if (n == "gl_frontfacing")
 			return "input.IsFrontFace";
-		if (name == "gl_LocalInvocationID")
+		if (n == "gl_localinvocationid")
 			return "GroupThreadID";
-		if (name == "gl_GlobalInvocationID")
+		if (n == "gl_globalinvocationid")
 			return "DispatchThreadID";
-		if (name == "gl_WorkGroupID")
+		if (n == "gl_workgroupid")
 			return "GroupID";
 		return name;
 	}
