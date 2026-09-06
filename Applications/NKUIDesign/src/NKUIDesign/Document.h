@@ -1070,14 +1070,16 @@ namespace nkuidesign {
 				return rayonsCoins[i < 4u ? i : 0u];
 			}
 
-			/// Vrai si les quatre coins valent la même chose — donc si la clé
-			/// simple suffit à les écrire.
-			bool RayonsUniformes() const {
-				if (!rayonsDelies)
-					return true;
-				return rayonsCoins[0] == rayonsCoins[1] && rayonsCoins[1] == rayonsCoins[2]
-					   && rayonsCoins[2] == rayonsCoins[3];
-			}
+			// ⚠️ `RayonsUniformes()` A ETE RETIRE LE 07/09, ET SON ABSENCE EST LA
+			//    MOITIE DU CORRECTIF. Son commentaire disait « donc si la clé simple
+			//    suffit à les écrire » : c'était faux, et c'est ce mot — *suffit* —
+			//    qui a coûté l'arrondi par coin (cas 50c). Le prédicat n'avait qu'un
+			//    seul appelant, la condition de sérialisation, et il n'y encodait
+			//    qu'une règle fausse.
+			//    *Un prédicat dont l'unique métier était une règle fausse ne doit pas
+			//    survivre à la règle* : laissé là, il aurait été réutilisé de bonne
+			//    foi par la personne suivante, et le piège se serait reconstruit
+			//    ailleurs. Le mode (`rayonsDelies`) décide seul, désormais.
 			/// ── LA ROTATION ET LES DEUX MIROIRS (Lunacy, bandeau du haut) ────
 			/// Retour de Rodolf, 01/09 : *« dans propriétés il n'y a pas miroir,
 			/// rotation etc., ni autour de l'objet sélectionné. »* Les trois
@@ -2996,10 +2998,28 @@ namespace nkuidesign {
 				}
 				if (!n.transposeDe.Empty())
 					Field(out, "transpose_de", n.transposeDe.Data());
-				// ⚠️ LA CLE SIMPLE TANT QU'ELLE SUFFIT : quatre coins egaux
-				//    s'ecrivent `rayon`, pas `rayons`. Un document a rayon unique
-				//    se reenregistre donc OCTET POUR OCTET apres cet ajout.
-				if (n.rayonsDelies && !n.RayonsUniformes()) {
+				// ⚠️ C'EST LE MODE QUI DECIDE, PLUS LA VALEUR (correctif du 07/09).
+				//    L'ancienne condition etait `rayonsDelies && !RayonsUniformes()`
+				//    -- « la cle simple tant qu'elle suffit ». Elle ne suffisait pas :
+				//    l'inspecteur delie ecrit `rayonsCoins` et JAMAIS `radius`, donc
+				//    delier puis poser 12 aux quatre coins donnait quatre valeurs
+				//    UNIFORMES avec un `radius` reste a 0. La condition retombait sur
+				//    `else if (radius != 0.f)`, faux lui aussi : RIEN n'etait ecrit, et
+				//    l'arrondi valait zero au rechargement.
+				//
+				// 🔴 TROIS SITES CONCORDANTS, CHACUN JUSTE ISOLEMENT -- c'est ce qui l'a
+				//    fait tenir : la rangee de l'inspecteur, le predicat d'uniformite, et
+				//    cette condition. Aucun des trois n'a l'air faux tout seul.
+				//
+				// ⚠️ ET AUCUN ALLER-RETOUR NE POUVAIT LE VOIR : le document ampute se
+				//    reenregistre A L'IDENTIQUE. Un invariant de STABILITE ne detecte pas
+				//    une perte STABLE -- le cas 50c exige donc la CONSERVATION en plus.
+				//
+				// ⚠️ RIEN NE CHANGE POUR LES DOCUMENTS EXISTANTS : `rayonsDelies` ne
+				//    pouvait etre vrai, sur un fichier, que via une ligne `rayons` -- que
+				//    l'ancienne regle n'ecrivait que non uniforme. Tout fichier ecrit
+				//    avant ce jour se reenregistre donc octet pour octet.
+				if (n.rayonsDelies) {
 					out.Append("  rayons = ");
 					for (uint32 ci = 0; ci < 4u; ++ci) {
 						if (ci)

@@ -4043,6 +4043,102 @@ namespace nkuidesign {
 			snprintf(det, sizeof(det), "%u commande(s), %u au rayon 8", n2, r8);
 			check("50b. quatre coins egaux : une seule piece d'ombre, au rayon du noeud", n2 == 1u && r8 == 1u, det);
 		}
+		// ── 50c. L'ARRONDI PAR COIN SURVIT AU FICHIER, MEME QUAND LES QUATRE
+		//    COINS SONT EGAUX (inventaire du 07/09, mesure 1) ─────────────────
+		//
+		// 🔴 LE DEFAUT QUE CE CAS EXISTE POUR ATTRAPER, et il est exemplaire de sa
+		//    famille : TROIS sites concordants, chacun juste isolement.
+		//      1. deliee, la rangee de l'inspecteur ecrit `rayonsCoins` et JAMAIS
+		//         `radius` (`Panels.h`, `ChampsUneOuQuatre`) ;
+		//      2. `RayonsUniformes()` rend VRAI quand les quatre sont egaux ;
+		//      3. le serialiseur n'ecrit `rayons` que si
+		//         `rayonsDelies && !RayonsUniformes()`, sinon `rayon` si `radius`
+		//         est non nul.
+		//    Delier puis poser 12 aux quatre coins : les quatre sont uniformes,
+		//    donc pas de `rayons` ; `radius` n'a pas bouge, donc pas de `rayon`.
+		//    RIEN N'EST ECRIT, et l'arrondi vaut zero au rechargement.
+		//
+		// ⚠️ ET AUCUN ALLER-RETOUR NE PEUT LE VOIR, c'est ce qui le rend cher : le
+		//    document AMPUTE se reenregistre a l'identique. C'est « stable ne veut
+		//    pas dire juste », et c'est pourquoi ce cas exige LES DEUX moities --
+		//    la STABILITE (le second enregistrement egale le premier) ET la
+		//    CONSERVATION (les valeurs sont encore la). Sans la seconde, les
+		//    quatre-vingt-dix-neuf aller-retours du banc restent verts sur une
+		//    amputation reproductible.
+		//
+		// ⚠️ LE CAS 50 VOISIN NE POUVAIT PAS L'ATTRAPER : 50a et 50b mesurent la
+		//    PEINTURE des coins, jamais leur persistance. Le trou etait exactement
+		//    entre les deux cas existants.
+		{
+			char det[420];
+			auto allerRetour = [](bool delies, float32 c0, float32 c1, float32 c2, float32 c3,
+								  float32 rayonSimple, float32 out[4], bool &deliesRelus,
+								  bool &stable) {
+				NkUIDocument d;
+				d.NewDocument("Toile", NkAuthor::Humain);
+				const int32 f = d.AddChild(0, "", NkAuthor::Humain);
+				NkUINode &nf = d.nodes[(uint32)f];
+				nf.shape = NkString("rect");
+				nf.rayonsDelies = delies;
+				nf.rayonsCoins[0] = c0;
+				nf.rayonsCoins[1] = c1;
+				nf.rayonsCoins[2] = c2;
+				nf.rayonsCoins[3] = c3;
+				nf.radius = rayonSimple;
+				NkString s1;
+				d.Save(s1);
+				NkUIDocument relu;
+				const bool ok = relu.Load(s1.Data());
+				NkString s2;
+				relu.Save(s2);
+				stable = ok && NkComponentDecl::StrEq(s1.Data(), s2.Data());
+				if (!ok || !relu.IsValidIndex(f)) {
+					deliesRelus = false;
+					for (uint32 i = 0; i < 4u; ++i)
+						out[i] = -1.f;
+					return;
+				}
+				const NkUINode &r = relu.nodes[(uint32)f];
+				deliesRelus = r.rayonsDelies;
+				for (uint32 i = 0; i < 4u; ++i)
+					out[i] = r.rayonsDelies ? r.rayonsCoins[i] : r.radius;
+			};
+			// (a) LE CAS QUI PERD : delie, quatre coins EGAUX a 12, `radius` reste
+			//     a 0 -- exactement ce que l'inspecteur laisse apres un deliage
+			//     depuis un rayon nul.
+			float32 g[4];
+			bool gd = false, gs = false;
+			allerRetour(true, 12.f, 12.f, 12.f, 12.f, 0.f, g, gd, gs);
+			const bool conserveUniforme = g[0] == 12.f && g[1] == 12.f && g[2] == 12.f
+										  && g[3] == 12.f;
+			// (b) LE CAS QUI PASSAIT DEJA : quatre coins DIFFERENTS. Sans lui, un
+			//     correctif qui casserait le chemin nominal passerait inapercu.
+			float32 h[4];
+			bool hd = false, hs = false;
+			allerRetour(true, 4.f, 8.f, 12.f, 16.f, 0.f, h, hd, hs);
+			const bool conserveVarie = hd && h[0] == 4.f && h[1] == 8.f && h[2] == 12.f
+									   && h[3] == 16.f;
+			// (c) LE CHEMIN SIMPLE, non delie : il ne doit rien perdre non plus, et
+			//     il ne doit PAS se mettre a ecrire quatre nombres.
+			float32 k[4];
+			bool kd = true, ks = false;
+			allerRetour(false, 0.f, 0.f, 0.f, 0.f, 8.f, k, kd, ks);
+			const bool simpleIntact = !kd && k[0] == 8.f;
+			snprintf(det, sizeof(det),
+					 "(a) delie + quatre coins EGAUX a 12 -> relus %.0f %.0f %.0f %.0f, "
+					 "delie=%d, aller-retour stable=%d ; (b) quatre coins DIFFERENTS "
+					 "-> %.0f %.0f %.0f %.0f (delie=%d) ; (c) non delie, rayon 8 -> %.0f "
+					 "(delie=%d)",
+					 (double)g[0], (double)g[1], (double)g[2], (double)g[3], gd ? 1 : 0,
+					 gs ? 1 : 0, (double)h[0], (double)h[1], (double)h[2], (double)h[3],
+					 hd ? 1 : 0, (double)k[0], kd ? 1 : 0);
+			check("50c. L'ARRONDI PAR COIN SURVIT AU FICHIER MEME QUAND LES QUATRE COINS SONT EGAUX : "
+				  "delier puis poser 12 partout doit rendre 12 apres enregistrement et rechargement -- "
+				  "l'aller-retour est STABLE dans les deux cas, et c'est justement pourquoi il ne "
+				  "pouvait pas voir l'amputation ; le cas exige donc la CONSERVATION en plus de la "
+				  "stabilite. Les quatre coins DIFFERENTS et le rayon simple restent intacts",
+				  conserveUniforme && gd && gs && conserveVarie && hs && simpleIntact && ks, det);
+		}
 		// ── 51. BORDURES PAR COTE, JOINTURES, EXTREMITES ─────────────────────
 		{
 			struct PeintrePoly51 : public NkRecordingPaint {
