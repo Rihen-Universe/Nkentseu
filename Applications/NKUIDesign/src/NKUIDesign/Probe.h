@@ -14109,19 +14109,29 @@ namespace nkuidesign {
 				if (l && NkComponentDecl::StrEq(l, "Acc\u00e8s rapide"))
 					idSection = nav125.vue.folders.nodes[k].id;
 			}
-			const bool ouverteAuDepart = idSection != 0u && nav125.vue.folders.IsOpen(idSection, true);
+			// (06/09) LE DEFAUT NE VIT PLUS ICI : il appartient au kit
+			// (`NkFilePickerNavState::kRailDeplieParDefaut`). Le rail s'ouvrait TOUT
+			// DEPLIE parce que `default_open` vaut 1 dans la declaration de l'arbre --
+			// donc le peintre dessinait des chevrons ouverts sur un rail ferme. Cette
+			// sonde ecrivait le `true` a la main : elle affirmait le defaut au lieu de
+			// le lire, et elle serait tombee le jour ou il change -- c'est ce jour-la.
+			static const bool kDefautRail = editorkit::NkFilePickerNavState::kRailDeplieParDefaut;
+			const bool ouverteAuDepart = idSection != 0u && nav125.vue.folders.IsOpen(idSection, kDefautRail);
 			// on plie, comme le ferait le clic
-			nav125.vue.folders.SetOpen(idSection, false, true);
+			nav125.vue.folders.SetOpen(idSection, false, kDefautRail);
 			// puis LES DEUX LIGNES QUE FAIT LE SELECTEUR a l'image suivante
 			const nk_uint64 emp125 = nav125.EmpreinteDeplie();
 			const bool empreinteBouge = emp125 != nav125.empreinteDeplie;
 			nav125.empreinteDeplie = emp125;
 			nav125.ConstruireRail();
-			const bool survit = !nav125.vue.folders.IsOpen(idSection, true);
+			const bool survit = !nav125.vue.folders.IsOpen(idSection, kDefautRail);
 			// et les entrees de la section ne sont plus EMISES
 			NkComponentInstance inst125(NkContentBrowserDecl());
 			inst125.SetParam("show_header", 0.f);
 			inst125.SetParam("show_actions", 0.f);
+			// ET LE DESSIN LIT LE MEME DEFAUT QUE LE MODELE. Sans cette ligne, le clic de
+			// l'image 1 aurait bascule dans le SENS INVERSE de ce que l'hote compte.
+			inst125.SetParam("tree_default_open", kDefautRail ? 1.f : 0.f);
 			NkContentBrowserStyle sty125 = DemoStyle(nullptr);
 			sty125.values = &inst125;
 			NkContentBrowserHooks hb125;
@@ -14138,7 +14148,7 @@ namespace nkuidesign {
 					bool vue = true;
 					for (int32 a = nav125.vue.folders.nodes[i].parent; a >= 0;
 						 a = nav125.vue.folders.nodes[(uint32)a].parent)
-						if (!nav125.vue.folders.IsOpen(nav125.vue.folders.nodes[(uint32)a].id, true))
+						if (!nav125.vue.folders.IsOpen(nav125.vue.folders.nodes[(uint32)a].id, kDefautRail))
 							vue = false;
 					if (vue)
 						++n;
@@ -14146,7 +14156,7 @@ namespace nkuidesign {
 				return n;
 			};
 			const uint32 replie = lignesRail();
-			nav125.vue.folders.SetOpen(idSection, true, true);
+			nav125.vue.folders.SetOpen(idSection, true, kDefautRail);
 			nav125.ConstruireRail();
 			const uint32 deplie = lignesRail();
 			const bool lignesSuivent = replie < deplie;
@@ -14180,7 +14190,7 @@ namespace nkuidesign {
 				in.mouseDown = true;
 				NkDrawContentBrowser(r, in, zC, nav125.vue, sty125, hb125);
 			}
-			const bool plieAuClic = !nav125.vue.folders.IsOpen(idSection, true);
+			const bool plieAuClic = !nav125.vue.folders.IsOpen(idSection, kDefautRail);
 			// IMAGE 2 : ce que le selecteur fait AVANT de dessiner -- il constate le
 			// changement de depliage et rebatit le rail.
 			{
