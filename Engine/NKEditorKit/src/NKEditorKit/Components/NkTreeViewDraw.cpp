@@ -53,6 +53,12 @@
 //  - **Il ne dessine pas de barre de defilement.** La molette defile ; la barre
 //    est un composant a part entiere, et la refaire ici en serait une copie de
 //    plus (`NkEditorScrollbar.h` existe deja dans ce meme kit).
+//    ⚠️ MIS A JOUR LE 2026-09-06, ET LA NUANCE COMPTE : il RESERVE desormais la
+//    gouttiere a droite et RAPPORTE son rectangle (`NkTreeViewResult::defil*`),
+//    pour que l'hote y peigne `NkVScrollbar` — la barre du kit, pas une
+//    seconde. Il ne la peint toujours pas : elle prend un `NkGuiContext`, et ce
+//    fichier compile sans NKGui (condition C3). *Reserver et peindre sont deux
+//    gestes ; seul le premier appartient a un composant qui ignore NKGui.*
 //  - **Aucun temoin visuel.** Seance sans GPU. Rien de ce fichier n'a ete vu a
 //    l'ecran ; ce qui est prouve l'est par `NkTreeViewProbe.h`, et la conformite
 //    aux planches reste NON REVENDIQUEE.
@@ -311,9 +317,98 @@ namespace nkentseu {
 
 			const bool showFooter = P("show_footer") > 0.5f;
 			const float32 footerH = showFooter ? M("footer_h") : 0.f;
-			NkPaintRect area{rect.x, top, rect.w, rect.y + rect.h - top - footerH};
-			if (area.h < 0.f)
-				area.h = 0.f;
+			// ① (06/09) LA ZONE ENTIERE, puis LA ZONE DE CONTENU. La difference est la
+			//    GOUTTIERE de defilement, reservee a droite et peinte par l'hote (voir
+			//    `NkTreeViewResult::defil*`). Les rangees s'arretent avant elle : un clic
+			//    sur la barre ne peut donc atteindre aucune rangee, sans qu'aucune liste
+			//    d'exclusion n'ait a s'en souvenir.
+			NkPaintRect zoneEntiere{rect.x, top, rect.w, rect.y + rect.h - top - footerH};
+			if (zoneEntiere.h < 0.f)
+				zoneEntiere.h = 0.f;
+			float32 gouttiere = M("scrollbar_w");
+			if (gouttiere > zoneEntiere.w * 0.5f)
+				gouttiere = zoneEntiere.w * 0.5f; // un panneau minuscule garde du contenu
+			if (gouttiere < 0.f)
+				gouttiere = 0.f;
+			NkPaintRect area = zoneEntiere;
+			area.w -= gouttiere;
+			if (area.w < 0.f)
+				area.w = 0.f;
+
+			// ── ② (06/09) L'ANCRE DE VUE DECIDE DU DEFILEMENT, ET NON L'INVERSE ──
+			// Une PRE-PASSE, avant toute emission : elle compte les rangees visibles
+			// (donc la hauteur du contenu, donc la borne du defilement) et retrouve le
+			// RANG de l'ancre dans l'arbre TEL QU'IL EST MAINTENANT. C'est ce rang-la
+			// qui change quand des rangees naissent au-dessus ; le decalage a l'ecran,
+			// lui, ne doit pas changer.
+			//
+			// ⚠️ POURQUOI UNE PASSE DE PLUS PLUTOT QUE DE REUTILISER LA BOUCLE DE
+			//    DESSIN : la boucle de dessin a besoin de `scroll` pour poser ses
+			//    ordonnees. Calculer l'ancre pendant elle reviendrait a corriger le
+			//    defilement une image trop tard -- c'est-a-dire a faire clignoter le
+			//    rail a chaque depliage au lieu de le faire sauter. La passe est un
+			//    parcours de tableau plat, sans allocation.
+			// NOMMER LA RANGEE DU HAUT depuis le defilement courant. C'est le seul
+			// endroit ou `scroll` redevient la source, et il est appele exactement
+			// quand l'utilisateur a DESIGNE une position (barre, molette, borne
+			// atteinte) plutot que subi une reconstruction.
+			auto AncrerSurLeHaut = [&]() {
+				if (rowH <= 0.f)
+					return;
+				int32 rangHaut = (int32)(m.scroll / rowH);
+				if (rangHaut < 0)
+					rangHaut = 0;
+				int32 k = 0;
+				nk_uint64 idHaut = 0;
+				ForEachVisibleNode(m, flat, defaultOpen, hooks,
+								   [&](int32 index, int32, bool, bool) {
+									   if (k == rangHaut)
+										   idHaut = m.nodes[(uint32)index].id;
+									   ++k;
+								   });
+				m.ancreVue = idHaut;
+				m.ancreVueDecalage = (float32)rangHaut * rowH - m.scroll;
+			};
+
+			{
+				// ⚠️ QUI A ECRIT `scroll` DEPUIS LA DERNIERE IMAGE ? Si c'est l'hote (sa
+				//    barre de defilement), c'est LUI qui fait foi : recalculer depuis
+				//    l'ancre ramenerait le pouce a sa place a chaque glissement.
+				const bool ecritDehors = (m.scroll != m.scrollDernier);
+				int32 rangs = 0;
+				int32 rangAncre = -1;
+				ForEachVisibleNode(m, flat, defaultOpen, hooks,
+								   [&](int32 index, int32, bool, bool) {
+									   if (m.ancreVue != 0
+										   && m.nodes[(uint32)index].id == m.ancreVue)
+										   rangAncre = rangs;
+									   ++rangs;
+								   });
+				const float32 contenuH = (float32)rangs * rowH;
+				const float32 maxScroll = contenuH > area.h ? contenuH - area.h : 0.f;
+				const bool suitLAncre = (!ecritDehors && rangAncre >= 0);
+				if (suitLAncre)
+					m.scroll = (float32)rangAncre * rowH - m.ancreVueDecalage;
+				// Repli NOMME : l'ancre a disparu (liste reconstruite autrement) ou un
+				// ancetre l'a repliee -> on GARDE la position courante, bornee. Revenir
+				// en haut serait exactement le defaut qu'on corrige.
+				const float32 voulu = m.scroll;
+				if (m.scroll > maxScroll)
+					m.scroll = maxScroll;
+				if (m.scroll < 0.f)
+					m.scroll = 0.f;
+				// L'ancre se renomme des que le defilement n'est PAS celui qu'elle
+				// dictait — ecriture de l'hote, ancre perdue, ou borne atteinte.
+				if (!suitLAncre || m.scroll != voulu)
+					AncrerSurLeHaut();
+				res.defilContenu = contenuH;
+				res.defilVue = area.h;
+				res.defilPas = rowH;
+				res.defilX = area.x + area.w;
+				res.defilY = area.y;
+				res.defilW = gouttiere;
+				res.defilH = area.h;
+			}
 
 			// ── LE RENOMMAGE : LA PART DE L'HOTE, TRAITEE AVANT LE DESSIN ───────
 			// Traite ici et pas dans la boucle : un noeud en cours de renommage peut
@@ -837,7 +932,10 @@ namespace nkentseu {
 			}
 
 			// ── DEFILEMENT ──────────────────────────────────────────────────────
-			if (in.wheel != 0.f && inArea) {
+			// ⚠️ LA MOLETTE PORTE SUR LA ZONE ENTIERE, GOUTTIERE COMPRISE. Rouler la
+			//    molette au-dessus de la barre doit defiler ; `inArea`, lui, exclut la
+			//    gouttiere parce qu'un CLIC qui y tombe appartient a la barre.
+			if (in.wheel != 0.f && zoneEntiere.Contains(in.mouseX, in.mouseY)) {
 				m.scroll -= in.wheel * rowH;
 				const float32 contentH = (float32)res.visibleCount * rowH;
 				const float32 maxScroll = contentH > area.h ? contentH - area.h : 0.f;
@@ -845,7 +943,16 @@ namespace nkentseu {
 					m.scroll = 0.f;
 				if (m.scroll > maxScroll)
 					m.scroll = maxScroll;
+				// LA MOLETTE DESIGNE UNE POSITION : elle renomme donc la rangee du haut.
+				// ⚠️ ET LE DEPLIAGE, LUI, NE LA RENOMME PAS. C'est la difference qui
+				//    corrige le defaut de Rodolf : deplier un ancetre insere des rangees
+				//    AU-DESSUS de ce qu'il regarde ; garder l'ancre fait descendre le
+				//    defilement d'autant, et l'entree reste au meme pixel. Renommer
+				//    l'ancre ici reviendrait a garder le NOMBRE, ce qui ne suffit pas.
+				AncrerSurLeHaut();
 			}
+			// Ce qu'on laisse : le temoin de la prochaine image (voir `scrollDernier`).
+			m.scrollDernier = m.scroll;
 
 			p.PopClip(); // area
 			// ── ① L'INFOBULLE : RELEVEE, PLUS PEINTE ICI (2026-09-05, v5) ─────

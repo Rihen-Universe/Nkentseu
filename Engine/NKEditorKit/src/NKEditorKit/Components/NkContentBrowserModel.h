@@ -424,6 +424,29 @@ namespace nkentseu {
 				int32 menuIndex = -2;	 ///< -2 = aucun ; -1 = le FOND du volet ; >= 0 = une entree
 				NkString menuCheminRail; ///< non vide : le clic droit visait CE nœud du rail
 				float32 menuX = 0.f, menuY = 0.f;
+
+				// ── ① (2026-09-06) LES DEUX GOUTTIERES DE DEFILEMENT ────────────────
+				// Rodolf : « pas de scrollbar vertical ni a gauche ni a droite pour
+				// montrer LA PROFONDEUR ». Deux volets, donc deux gouttieres — et le
+				// navigateur est le seul a connaitre leur geometrie (il tient le partage
+				// rail/grille, le nombre de colonnes et le defilement).
+				//
+				// ⚠️ MEME FORME QUE L'INFOBULLE : le composant RESERVE la place et
+				//    RAPPORTE le rectangle ; l'hote y peint `NkVScrollbar`, la barre
+				//    STANDARD du kit (`NkEditorScrollbar.h`), et ecrit le resultat dans
+				//    `m.scroll` / `m.folders.scroll`. Aucune seconde barre n'est ecrite —
+				//    le composant ne peut d'ailleurs pas appeler celle-la : elle prend un
+				//    `NkGuiContext`, et ce fichier compile sans NKGui.
+				// ⚠️ CELLE DU RAIL EST **RELAYEE TELLE QUELLE** depuis l'arbre embarque,
+				//    en coordonnees ecran : c'est lui qui la reserve, pas nous. Deux
+				//    calculs pour une meme gouttiere, ce serait deux facons de diverger.
+				//
+				// `defilVue >= defilContenu` : rien a defiler. La barre reste peinte
+				// (gouttiere sans pouce) — c'est l'information « tout est visible ».
+				float32 defilX = 0.f, defilY = 0.f, defilW = 0.f, defilH = 0.f;
+				float32 defilContenu = 0.f, defilVue = 0.f, defilPas = 0.f;
+				float32 railDefilX = 0.f, railDefilY = 0.f, railDefilW = 0.f, railDefilH = 0.f;
+				float32 railDefilContenu = 0.f, railDefilVue = 0.f, railDefilPas = 0.f;
 		};
 
 		// ── LA SIGNATURE TYPE ───────────────────────────────────────────────────
@@ -551,6 +574,11 @@ namespace nkentseu {
 				{"search_w", 180.f, "largeur de la boîte de recherche"},
 				{"slider_w", 90.f, "largeur du curseur de taille de vignettes"},
 				{"badge_h", 16.f, "hauteur du badge de type posé sur la vignette"},
+				// ① La gouttiere que la GRILLE reserve a droite et que l'hote peint avec
+				//    `NkVScrollbar`. Celle du rail appartient a l'arbre, qui la declare
+				//    de son cote sous le meme nom et la meme valeur.
+				{"scrollbar_w", 14.f, "gouttiere de défilement réservée à droite de la grille ; "
+									  "l'hôte y peint la barre standard du kit"},
 			};
 			// ⚠️ TROIS ENTREES ONT QUITTE CETTE TABLE le 18/08 (seconde passe) :
 			//    `on_activate`, `on_context_menu`, `on_drop_into` sont des

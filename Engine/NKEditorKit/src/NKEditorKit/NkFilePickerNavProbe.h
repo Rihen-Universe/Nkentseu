@@ -49,13 +49,21 @@
 //     un `NkGuiContext` et une police reelle : il exerce la chaine
 //     ETAT -> `ConstruireRail` -> `NkDrawContentBrowser` -> rail dessine, plus
 //     `SuivreLeDepliage`, qui est le MEME code que le dialogue appelle ;
-//   - il ne dit rien du menu contextuel, du glisser-deposer, ni du dialogue
-//     d'apres-export.
+//   - il ne dit rien du glisser-deposer ni du dialogue d'apres-export ;
+//   - ⚠️ **IL NE VOIT AUCUNE BARRE DE DEFILEMENT PEINTE** (famille 7). La barre
+//     est `NkVScrollbar`, elle prend un `NkGuiContext` et une police, et c'est
+//     l'hote qui l'appelle. Ce banc mesure ce dont elle depend et que le
+//     composant seul possede : la gouttiere est-elle RESERVEE dans le dessin, et
+//     le rectangle rapporte tombe-t-il exactement dessus. **Que le pouce se voie
+//     et se glisse a l'ecran reste un geste humain, et il est demande comme
+//     tel.**
 //
 //  REGIME COUVERT : un seul arbre de dossiers fabrique sur disque (3 dossiers de
-//  premier niveau, 2 sous-dossiers chacun), panneau 900x520, echelle 1.0,
-//  variante grille, filtre vide. NON couvert : rail vide, chemin illisible,
-//  profondeur > 3, defilement du rail.
+//  premier niveau, 2 sous-dossiers chacun, plus 20 favoris pour la famille 7),
+//  panneau 900x520, echelle 1.0, variante grille, filtre vide. Le DEFILEMENT du
+//  rail est desormais couvert (famille 7), a la molette et par reconstruction.
+//  NON couvert : rail vide, chemin illisible, profondeur > 3, glissement du
+//  pouce de la barre.
 // -----------------------------------------------------------------------------
 
 #include "NKEditorKit/NkFilePickerNav.h"
@@ -231,6 +239,41 @@ namespace nkentseu {
 					++n;
 				}
 				return n;
+			}
+
+			/// ① LA LARGEUR DE LA ZONE DE CONTENU DU RAIL, LUE DANS LE DESSIN. L'arbre
+			/// pousse un SECOND rognage, a l'interieur du sien, sur la zone ou il emet ses
+			/// rangees : sa largeur dit donc ou le contenu s'arrete, c'est-a-dire si la
+			/// gouttiere de defilement a REELLEMENT ete reservee. -1 = pas trouve.
+			/// ⚠️ ON LIT LE DESSIN, PAS LE RECTANGLE RAPPORTE. Un composant qui
+			///    rapporterait une gouttiere sans la reserver passerait un essai portant
+			///    sur son rapport ; il ne passe pas celui-ci.
+			/// ⚠️ ET SURTOUT PAS « la plus large bande peinte » : le fond du panneau
+			///    couvre legitimement la gouttiere (elle a besoin d'un fond), donc cette
+			///    mesure-la rendait la largeur ENTIERE et accusait un code juste. Premiere
+			///    ecriture de cet essai, corrigee sur son propre rouge.
+			inline float32 LargeurZoneDeContenu(const NkRecordingPaint &rec, const Tranche &t,
+												float32 railX, float32 railW) {
+				for (uint32 i = t.debut + 1u; i < t.fin; ++i) {
+					const NkPaintCmd &c = rec.cmds[i];
+					if (c.op != NkPaintOp::PushClip || !PresqueEgal(c.x, railX))
+						continue;
+					if (c.w < railW - 0.5f)
+						return c.w;
+				}
+				return -1.f;
+			}
+
+			/// L'ORDONNEE D'UNE RANGEE DESIGNEE PAR SON LIBELLE, TELLE QU'ELLE EST PEINTE.
+			/// C'est exactement la grandeur que la question de S8 ② demande : « a quelle
+			/// position a l'ecran se trouve l'entree depliee avant et apres le depliage ».
+			/// -1 = absente du dessin — ce qui n'est PAS « a la meme place », et c'est
+			/// pourquoi l'essai teste aussi que la valeur est positive.
+			inline float32 OrdonneeDuLibelle(const Rangees &r, const char *libelle) {
+				for (uint32 k = 0; k < r.n; ++k)
+					if (NkComponentDecl::StrEq(r.texte[k].CStr(), libelle))
+						return r.y[k];
+				return -1.f;
 			}
 
 			inline int32 IndexDuLibelle(const Rangees &r, const char *libelle) {
@@ -794,8 +837,233 @@ namespace nkentseu {
 					Verifier(b, nSoi == 0u && NkDirectory::Exists(a.pickerPath), "6l", detail);
 				}
 
+				// ══ FAMILLE 7 — ① LA GOUTTIERE, ② L'ENTREE QUI RESTE A SA PLACE ══════
+				//
+				// LES DEUX DEFAUTS DE S8, ET LES DEUX QUESTIONS QUE RODOLF POSE :
+				//   ① « il n'y a pas de scrollbar vertical ni a gauche ni a droite pour
+				//      montrer la profondeur » ;
+				//   ② « quand je deplie chaque dossier a gauche, ca deplie mais ca me
+				//      ramene en haut du contenu de gauche. »
+				//
+				// ⚠️ LA QUESTION DE ② N'EST PAS « le decalage est-il conserve ». C'est
+				//    « A QUELLE POSITION A L'ECRAN SE TROUVE L'ENTREE DEPLIEE AVANT ET
+				//    APRES LE DEPLIAGE », et les deux valeurs doivent etre EGALES. Un
+				//    essai sur le nombre de pixels aurait ete vert sur un rail dont des
+				//    rangees naissent au-dessus — c'est-a-dire sur le defaut suivant.
+				//
+				// ⚠️ CE QUE CETTE FAMILLE NE PROUVE PAS, ET IL FAUT LE LIRE AVEC SON
+				//    RESULTAT : elle ne voit AUCUNE barre de defilement peinte. La barre
+				//    est `NkVScrollbar`, elle prend un `NkGuiContext` et une police, et
+				//    c'est l'hote (`NkDrawFilePickerNav`) qui l'appelle. Ce banc mesure
+				//    ce dont la barre depend et que le composant seul possede : la
+				//    gouttiere EST-ELLE RESERVEE dans le dessin, et le rectangle rapporte
+				//    tombe-t-il exactement dessus. Que le pouce se voie et se glisse a
+				//    l'ecran reste un geste humain, et il est demande comme tel.
+				printf("\nFamille 7 — ① la gouttiere de defilement, ② l'entree qui reste a sa place\n");
+				{
+					// ── LE TERRAIN : UN RAIL QUI DEBORDE A COUP SUR ─────────────────
+					// ⚠️ PAR DES FAVORIS, PAS PAR LE DOSSIER COURANT. Le nombre de
+					//    volumes, de dossiers usuels et de recents depend de la machine ;
+					//    un banc dont le rail deborde « chez moi » n'est pas un banc. Vingt
+					//    favoris font vingt rangees, partout.
+					NkFilePickerNavState f7;
+					char nomFav[64];
+					for (int32 i = 0; i < 20; ++i) {
+						snprintf(nomFav, sizeof(nomFav), "fav_%02d", i);
+						const NkString d = (NkPath(terrain.racine) / nomFav).ToString();
+						NkDirectory::CreateRecursive((NkPath(d) / "x1").ToString().CStr());
+						NkDirectory::CreateRecursive((NkPath(d) / "x2").ToString().CStr());
+						f7.favoris.PushBack(d);
+					}
+					f7.OpenPickerBase(NkFilePickerState::PK_PickFolder, base.CStr(), nullptr, 0, nullptr,
+									  nullptr);
+					f7.RelireDossier();
+					f7.SuivreLeDepliage();
+					NkContentBrowserResult r7 = banc.Image(f7, Repos());
+
+					// ── 7a — CONTROLE POSITIF DU MONTAGE : le rail DEBORDE ──────────
+					// Sans lui, tout ce qui suit serait mesure sur un rail qui tient
+					// entierement dans son panneau — c'est-a-dire sur le seul cas ou le
+					// defilement ne peut pas se perdre.
+					snprintf(detail, sizeof(detail),
+							 "le rail deborde vraiment : contenu %.0f px pour une vue de %.0f px",
+							 (double)r7.railDefilContenu, (double)r7.railDefilVue);
+					Verifier(b, r7.railDefilContenu > r7.railDefilVue + 1.f, "7a", detail);
+
+					// ── 7b — ① LA GOUTTIERE DU RAIL EST RAPPORTEE, ET COLLEE AU BORD ─
+					const float32 bordRail = banc.zone.x + banc.railW;
+					snprintf(detail, sizeof(detail),
+							 "la gouttiere du rail : x=%.1f w=%.1f -> bord droit %.1f (bord du rail "
+							 "%.1f)",
+							 (double)r7.railDefilX, (double)r7.railDefilW,
+							 (double)(r7.railDefilX + r7.railDefilW), (double)bordRail);
+					Verifier(b,
+							 r7.railDefilW > 0.f && r7.railDefilH > 0.f
+								 && PresqueEgal(r7.railDefilX + r7.railDefilW, bordRail, 1.5f),
+							 "7b", detail);
+
+					// ── 7c — ① ET ELLE EST RESERVEE **DANS LE DESSIN**, pas seulement
+					//         rapportee. La bande de section la plus large s'arrete avant.
+					Tranche t7 = TrancheDuRail(banc.rec, banc.zone.x, banc.railW);
+					const float32 zoneContenu =
+						t7.trouve ? LargeurZoneDeContenu(banc.rec, t7, banc.zone.x, banc.railW) : -1.f;
+					snprintf(detail, sizeof(detail),
+							 "la zone de contenu du rail est rognee a %.1f px, la gouttiere commence "
+							 "donc la (rail %.1f - gouttiere %.1f = %.1f)",
+							 (double)zoneContenu, (double)banc.railW, (double)r7.railDefilW,
+							 (double)(banc.railW - r7.railDefilW));
+					Verifier(b, t7.trouve && PresqueEgal(zoneContenu, banc.railW - r7.railDefilW, 1.5f),
+							 "7c", detail);
+
+					// ── 7d — ① LA GOUTTIERE DE LA GRILLE, meme mesure a droite ───────
+					const float32 bordVolet = banc.zone.x + banc.zone.w;
+					snprintf(detail, sizeof(detail),
+							 "la gouttiere de la grille : x=%.1f w=%.1f -> bord droit %.1f (bord du "
+							 "volet %.1f)",
+							 (double)r7.defilX, (double)r7.defilW, (double)(r7.defilX + r7.defilW),
+							 (double)bordVolet);
+					Verifier(b,
+							 r7.defilW > 0.f && r7.defilH > 0.f
+								 && PresqueEgal(r7.defilX + r7.defilW, bordVolet, 1.5f),
+							 "7d", detail);
+
+					// ── 7e — LE RAIL DEFILE VRAIMENT (controle positif de ②) ─────────
+					// La molette, par le meme chemin que la main : `NkComponentInput`.
+					// Sans cet essai, « l'entree n'a pas bouge » serait vrai sur un rail
+					// qui n'a jamais defile — le cas ou le defaut ne peut pas se produire.
+					{
+						NkComponentInput in = Repos();
+						in.mouseX = banc.zone.x + banc.railW * 0.5f;
+						in.mouseY = banc.zone.y + banc.zone.h * 0.5f;
+						in.wheel = -6.f; // vers le bas
+						banc.Image(f7, in);
+					}
+					r7 = banc.Image(f7, Repos());
+					snprintf(detail, sizeof(detail), "la molette a fait defiler le rail : scroll = %.1f px",
+							 (double)f7.vue.folders.scroll);
+					Verifier(b, f7.vue.folders.scroll > 1.f, "7e", detail);
+
+					// ── 7f / 7g — ② LA QUESTION DE S8, POSEE MOT POUR MOT ───────────
+					t7 = TrancheDuRail(banc.rec, banc.zone.x, banc.railW);
+					Rangees rg7 = t7.trouve ? LireRangees(banc.rec, t7) : Rangees();
+					// On cherche, PARMI LES RANGEES REELLEMENT PEINTES apres defilement,
+					// un favori encore replie : c'est celui que Rodolf deplierait.
+					char cible7[64] = {0};
+					float32 yAvant = -1.f;
+					int32 enfAvant = -1;
+					Chevron ch7;
+					for (uint32 k = 0; k < rg7.n && cible7[0] == 0; ++k) {
+						for (int32 i = 0; i < 20; ++i) {
+							snprintf(nomFav, sizeof(nomFav), "fav_%02d", i);
+							if (!NkComponentDecl::StrEq(rg7.texte[k].CStr(), nomFav))
+								continue;
+							const Chevron c = PremierChevron(banc.rec, t7, rg7.y[k]);
+							if (!c.trouve || c.Deplie())
+								continue;
+							snprintf(cible7, sizeof(cible7), "%s", nomFav);
+							yAvant = rg7.y[k];
+							enfAvant = EnfantsDessinesSous(rg7, k);
+							ch7 = c;
+							break;
+						}
+					}
+					float32 yApres = -2.f;
+					int32 enfApres = -1;
+					if (cible7[0]) {
+						NkComponentInput in = Repos();
+						in.mouseX = ch7.cx;
+						in.mouseY = ch7.cy;
+						in.mousePressed = true;
+						banc.Image(f7, in);		 // l'image qui RECOIT le clic
+						f7.SuivreLeDepliage();	 // le rail est RECONSTRUIT ici
+						banc.Image(f7, Repos()); // l'image d'apres
+						const Tranche t8 = TrancheDuRail(banc.rec, banc.zone.x, banc.railW);
+						const Rangees rg8 = t8.trouve ? LireRangees(banc.rec, t8) : Rangees();
+						yApres = OrdonneeDuLibelle(rg8, cible7);
+						const int32 j = IndexDuLibelle(rg8, cible7);
+						enfApres = j >= 0 ? EnfantsDessinesSous(rg8, (uint32)j) : -1;
+					}
+					snprintf(detail, sizeof(detail),
+							 "« %s » etait peint a y = %.1f avant le depliage, a y = %.1f apres "
+							 "(les deux doivent etre EGAUX)",
+							 cible7[0] ? cible7 : "(aucun favori replie a l'ecran)", (double)yAvant,
+							 (double)yApres);
+					Verifier(b, cible7[0] != 0 && yAvant > 0.f && PresqueEgal(yAvant, yApres, 1.0f),
+							 "7f", detail);
+
+					// ── 7g — CONTROLE NEGATIF : LE DEPLIAGE A BIEN EU LIEU ──────────
+					// Sans lui, 7f serait vert sur un chevron qui ne fait rien : une entree
+					// qui ne bouge pas parce que rien ne s'est passe n'est pas une entree
+					// qui reste a sa place.
+					snprintf(detail, sizeof(detail),
+							 "le clic a bien deplie : %d rangee(s) sous « %s » avant, %d apres "
+							 "(attendu 0 puis 2)",
+							 enfAvant, cible7[0] ? cible7 : "(aucun)", enfApres);
+					Verifier(b, enfAvant == 0 && enfApres == 2, "7g", detail);
+
+					// ── 7h — ② LA SECONDE CAUSE : DES RANGEES NAISSENT AU-DESSUS ────
+					// ⚠️ C'EST L'ESSAI QUI SEPARE « GARDER LE DECALAGE » DE « GARDER
+					//    L'ENTREE », et sans lui la correction serait a moitie faite. Une
+					//    NAVIGATION fait apparaitre la section « Recents » — un titre et
+					//    une entree, DEUX RANGEES, tout en haut du rail — et reconstruit
+					//    tout. Un defilement conserve en pixels ferait alors glisser de
+					//    deux rangees ce que l'utilisateur regardait ; une ancre par
+					//    IDENTITE le laisse au meme pixel.
+					// ⚠️ ET C'EST LA PORTE DES APPLICATIONS, PAS UN CHAMP POUSSE A LA
+					//    MAIN : `PoserRecent` est la fonction que NkUIDesign appelle apres
+					//    un enregistrement ou une ouverture reussie (`Panels.h:1592`). Une
+					//    premiere ecriture de cet essai supposait qu'une NAVIGATION
+					//    remplissait les recents ; mesure faite, elle ne les touche pas —
+					//    le rouge etait dans l'essai, pas dans le kit.
+					{
+						const Tranche t9 = TrancheDuRail(banc.rec, banc.zone.x, banc.railW);
+						const Rangees rg9 = t9.trouve ? LireRangees(banc.rec, t9) : Rangees();
+						// une rangee OBSERVEE : le premier favori peint apres defilement
+						char obs[64] = {0};
+						float32 yAvantNav = -1.f;
+						for (uint32 k = 0; k < rg9.n && obs[0] == 0; ++k)
+							for (int32 i = 0; i < 20; ++i) {
+								snprintf(nomFav, sizeof(nomFav), "fav_%02d", i);
+								if (NkComponentDecl::StrEq(rg9.texte[k].CStr(), nomFav)) {
+									snprintf(obs, sizeof(obs), "%s", nomFav);
+									yAvantNav = rg9.y[k];
+									break;
+								}
+							}
+						const int32 nRecentsAvant = (int32)f7.recents.Size();
+						float32 yApresNav = -2.f;
+						if (obs[0]) {
+							// Deux enregistrements reussis, du point de vue de l'application :
+							// la section « Recents » n'apparait qu'a partir de deux entrees
+							// (la tete est le dossier courant, qui a sa propre section).
+							NkFilePickerNavState::PoserRecent(
+								f7.recents, (NkPath(terrain.racine) / "alpha").ToString().CStr());
+							NkFilePickerNavState::PoserRecent(
+								f7.recents, (NkPath(terrain.racine) / "beta").ToString().CStr());
+							// La relecture est ce que l'hote declenche apres un enregistrement :
+							// elle RECONSTRUIT le rail, donc elle exerce exactement le chemin
+							// ou le defilement se perdait.
+							f7.RelireDossier();
+							banc.Image(f7, Repos());
+							const Tranche tA = TrancheDuRail(banc.rec, banc.zone.x, banc.railW);
+							const Rangees rgA = tA.trouve ? LireRangees(banc.rec, tA) : Rangees();
+							yApresNav = OrdonneeDuLibelle(rgA, obs);
+						}
+						snprintf(detail, sizeof(detail),
+								 "la section « Recents » nait au-dessus (%d recent(s) -> %d) et "
+								 "« %s » reste au meme pixel : y = %.1f puis %.1f",
+								 nRecentsAvant, (int32)f7.recents.Size(), obs[0] ? obs : "(aucun)",
+								 (double)yAvantNav, (double)yApresNav);
+						Verifier(b,
+								 obs[0] != 0 && yAvantNav > 0.f
+									 && (int32)f7.recents.Size() > nRecentsAvant
+									 && PresqueEgal(yAvantNav, yApresNav, 1.0f),
+								 "7h", detail);
+					}
+				}
+
 				terrain.Retirer();
-				printf("  -- familles 5 et 6 : %d/%d\n", b.ok, b.total);
+				printf("  -- familles 5 a 7 : %d/%d\n", b.ok, b.total);
 				return b;
 			}
 

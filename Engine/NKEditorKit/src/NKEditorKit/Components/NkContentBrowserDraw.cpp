@@ -876,13 +876,38 @@ namespace nkentseu {
 						res.infobulleY = tr.infobulleY;
 						res.infobulleH = tr.infobulleH;
 					}
+					// ① LA GOUTTIERE DU RAIL, RELAYEE TELLE QUELLE. C'est l'arbre qui
+					//    l'a reservee, en coordonnees ecran : la recalculer ici serait un
+					//    second calcul pour une meme geometrie.
+					res.railDefilX = tr.defilX;
+					res.railDefilY = tr.defilY;
+					res.railDefilW = tr.defilW;
+					res.railDefilH = tr.defilH;
+					res.railDefilContenu = tr.defilContenu;
+					res.railDefilVue = tr.defilVue;
+					res.railDefilPas = tr.defilPas;
 				}
 				p.VLine(tree.x + tree.w, tree.y, tree.h, s.border);
 				gridX = tree.x + tree.w + M("stroke_w");
 				gridW = rect.w - treeW - M("stroke_w");
 			}
 
-			NkPaintRect area{gridX, contentTop, gridW, bodyBottom - contentTop};
+			// ① (06/09) LA ZONE ENTIERE DE LA GRILLE, puis SA ZONE DE CONTENU. La
+			//    difference est la gouttiere de defilement, reservee a droite et peinte
+			//    par l'hote. Elle est reservee **TOUJOURS**, meme quand rien ne
+			//    deborde : la largeur reservee change le nombre de colonnes, donc la
+			//    hauteur du contenu, donc la reponse a « est-ce que ca deborde ». La
+			//    reserver sous condition ferait osciller la mise en page a la frontiere.
+			NkPaintRect zoneEntiere{gridX, contentTop, gridW, bodyBottom - contentTop};
+			float32 gouttiere = M("scrollbar_w");
+			if (gouttiere > zoneEntiere.w * 0.5f)
+				gouttiere = zoneEntiere.w * 0.5f;
+			if (gouttiere < 0.f)
+				gouttiere = 0.f;
+			NkPaintRect area = zoneEntiere;
+			area.w -= gouttiere;
+			if (area.w < 0.f)
+				area.w = 0.f;
 			p.PushClip(area);
 
 			// ── LES ENTREES ─────────────────────────────────────────────────────
@@ -1105,16 +1130,33 @@ namespace nkentseu {
 			}
 
 			// ── DEFILEMENT ──────────────────────────────────────────────────────
-			if (in.wheel != 0.f && area.Contains(in.mouseX, in.mouseY)) {
+			// La hauteur du contenu est calculee UNE FOIS, ici : la molette s'en sert
+			// pour sa borne, et la gouttiere rapportee pour dire la profondeur. Deux
+			// calculs auraient donne deux verites.
+			const int32 rangsGrille = (visible + perRow - 1) / perRow;
+			const float32 contenuH = (float32)rangsGrille * cellH;
+			const float32 maxScroll = contenuH > area.h ? contenuH - area.h : 0.f;
+			// ⚠️ LA MOLETTE PORTE SUR LA ZONE ENTIERE, GOUTTIERE COMPRISE : rouler
+			//    au-dessus de la barre doit defiler. Le CLIC, lui, reste hors de la
+			//    gouttiere — les cellules s'arretent avant elle.
+			if (in.wheel != 0.f && zoneEntiere.Contains(in.mouseX, in.mouseY)) {
 				m.scroll -= in.wheel * rowH;
-				const int32 rows = (visible + perRow - 1) / perRow;
-				const float32 contentH = (float32)rows * cellH;
-				const float32 maxScroll = contentH > area.h ? contentH - area.h : 0.f;
 				if (m.scroll < 0.f)
 					m.scroll = 0.f;
 				if (m.scroll > maxScroll)
 					m.scroll = maxScroll;
+			} else if (m.scroll > maxScroll) {
+				// Le dossier a change ou la fenetre a grandi : un defilement herite
+				// d'une liste plus longue montrerait du vide sous la derniere rangee.
+				m.scroll = maxScroll;
 			}
+			res.defilX = area.x + area.w;
+			res.defilY = area.y;
+			res.defilW = gouttiere;
+			res.defilH = area.h;
+			res.defilContenu = contenuH;
+			res.defilVue = area.h;
+			res.defilPas = cellH > 0.f ? cellH : rowH;
 
 			p.PopClip(); // area
 

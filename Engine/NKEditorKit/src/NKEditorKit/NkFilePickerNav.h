@@ -1556,12 +1556,23 @@ namespace nkentseu {
 					// qu'a chaque entree posee -- `GetParent` alloue.
 					parentAffiche = pickerPath[0] ? NkPath(pickerPath).GetParent().ToString() : NkString();
 					vue.folders.nodes.Clear();
-					// ⑥ ET IL REVIENT EN HAUT. Le defilement du rail survivait a sa
-					//    reconstruction : apres une navigation il pointait sur des rangees qui
-					//    n'existaient plus -- et les sections du haut disparaissaient du champ
-					//    sans que rien ne l'explique. C'est l'hypothese la plus probable pour
-					//    la capture ou Rodolf ne voyait aucune section.
-					vue.folders.scroll = 0.f;
+					// ── ② (06/09) ON NE REVIENT PLUS EN HAUT. ───────────────────────
+					// ⚠️ IL Y AVAIT ICI `vue.folders.scroll = 0.f`, ET C'ETAIT LA CAUSE
+					//    PREMIERE DU DEFAUT QUE RODOLF DECRIT : « quand je deplie chaque
+					//    dossier a gauche, ca deplie mais ca me ramene en haut ». Le rail est
+					//    RECONSTRUIT a chaque depliage (l'empreinte de `SuivreLeDepliage`
+					//    change), donc cette ligne s'executait a chaque chevron.
+					//
+					//    Elle avait ete posee pour une raison reelle -- apres une navigation,
+					//    un defilement herite pointait sur des rangees disparues -- mais elle
+					//    la traitait en JETANT la position au lieu de la BORNER. Le remede
+					//    vit desormais dans le composant, et il est plus fort que les deux :
+					//    l'arbre garde L'ENTREE du haut (`NkTreeViewModel::ancreVue`), pas le
+					//    nombre de pixels. Une entree survit a la reconstruction (son
+					//    identifiant est celui de son chemin) ET a la naissance de rangees
+					//    au-dessus d'elle ; un nombre de pixels ne survit ni a l'une ni a
+					//    l'autre. Le cas « rangees disparues » y est traite comme un repli
+					//    nomme : ancre introuvable -> on borne, on ne remonte pas.
 					// ① UNE SEULE PORTE : poser une entree, c'est aussi suivre son depliage.
 					auto ajouter = [&](const char *chemin, const char *libelle, int32 parent) {
 						return PoserEtSuivre(chemin, libelle, parent, 1);
@@ -2293,6 +2304,38 @@ namespace nkentseu {
 					fp.menuContextuel.open = true;
 					fp.menuContextuel.pos = {res.menuX, res.menuY};
 					fp.menuContextuel.sx = fp.menuContextuel.sy = 0.f;
+				}
+				// ── ① (06/09) LES DEUX BARRES DE DEFILEMENT ───────────────────────
+				// Rodolf : « il n'y a pas de scrollbar vertical ni a gauche ni a droite
+				// pour montrer LA PROFONDEUR ». Le mot est le sien, et il commande le
+				// choix : une barre qui n'apparaitrait qu'au survol ne dirait rien tant
+				// qu'on ne la cherche pas. Ici la gouttiere est PEINTE EN PERMANENCE, le
+				// pouce n'apparait que s'il y a de quoi defiler — un rail de 70 rangees
+				// cesse donc de ressembler a un rail de 15.
+				//
+				// ⚠️ C'EST LA BARRE DU KIT, PAS UNE SECONDE. `NkVScrollbar`
+				//    (`NkEditorScrollbar.h`) est celle de l'editeur de code, extraite
+				//    pour toute l'interface Nkentseu. Le composant ne peut pas l'appeler
+				//    (elle prend un `NkGuiContext`, et il compile sans NKGui) : il
+				//    RESERVE la gouttiere et RAPPORTE son rectangle, on la peint ici.
+				//    Meme partage que l'infobulle et le menu contextuel.
+				// ⚠️ PEINTE APRES LE COMPOSANT, DANS LA MEME LISTE : elle passe donc
+				//    par-dessus, et le clic qu'elle prend ne peut atteindre aucune
+				//    rangee — les rangees s'arretent avant la gouttiere.
+				{
+					// Deux identifiants distincts : sans eux, glisser l'un des pouces
+					// piloterait les deux (`ctx.activeId` est unique).
+					static const uint32 kIdRail = 0x4E4B5342u;	 // « NKSB »
+					static const uint32 kIdGrille = 0x4E4B5347u; // « NKSG »
+					if (res.railDefilW > 0.f && res.railDefilH > 0.f)
+						NkVScrollbar(ctx, dl,
+									 {res.railDefilX, res.railDefilY, res.railDefilW, res.railDefilH},
+									 fp.vue.folders.scroll, res.railDefilContenu, res.railDefilVue,
+									 kIdRail, res.railDefilPas);
+					if (res.defilW > 0.f && res.defilH > 0.f)
+						NkVScrollbar(ctx, dl, {res.defilX, res.defilY, res.defilW, res.defilH},
+									 fp.vue.scroll, res.defilContenu, res.defilVue, kIdGrille,
+									 res.defilPas);
 				}
 				if (!res.infobulle.Empty()) {
 					bulle = res.infobulle;
