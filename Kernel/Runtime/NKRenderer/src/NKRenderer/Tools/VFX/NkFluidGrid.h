@@ -24,10 +24,31 @@
 // régulière : c'est un AUTRE opérateur. Le partage sera le stockage GPU (SSBO),
 // pas le noyau. Dit plutôt que supposé.
 //
-// GRILLE : collocated (tout au centre de cellule, comme le code de référence de
+// GRILLE : COLOCALISEE (tout au centre de cellule, comme le code de référence de
 // Stam), (nx+2) x (ny+2) x (nz+2) — une COUCHE DE BORD sur chaque face. La
 // POPULATION que les témoins comptent est l'INTÉRIEUR : nx*ny*nz cellules. La
 // résolution est pilotée par `cellSize` (m), jamais par un nombre figé.
+//
+// 🔴 CE QUE LA GRILLE COLOCALISEE COUTE, MESURE LE 05/09 — a lire avant de croire
+// qu'un solveur de pression qui converge rend la divergence nulle.
+// La projection resout lap(p) = -div avec le Laplacien a 6 voisins de PAS 1.
+// Mais quand on retranche le gradient CENTRE, la divergence CENTREE de la
+// vitesse corrigee fait apparaitre p[i+2] - 2p[i] + p[i-2] : un Laplacien de
+// PAS 2. Les deux operateurs ne sont pas le meme -- la grille se decouple en
+// sous-reseaux pair/impair (le mode « damier » classique). CONSEQUENCE MESUREE :
+// on a force le solveur a converger 78 fois plus loin (residu max 3,175e-6 ->
+// 4,075e-8 m/s, 35 -> 180 balayages, puis 4 000 balayages), et le rapport
+// |div|*h / |u| n'a PAS bouge : 5,4084 % -> 5,4070 % -> 5,4070 %. Le temoin (b)
+// est donc ROUGE par la DISCRETISATION, pas par le solveur, et une iteration de
+// plus n'y changera rien. Le correctif est nomme et NON FAIT : la grille
+// DECALEE (MAC) de Harlow & Welch, « Numerical Calculation of Time-Dependent
+// Viscous Incompressible Flow of Fluid with Free Surface », Physics of Fluids 8,
+// 1965, p. 2182-2189 -- ou la divergence et le Laplacien sont adjoints exacts.
+// C'est la grille qu'utilise Fedkiw, Stam & Jensen 2001 ; le code de
+// demonstration de Stam 1999, lui, est colocalise comme ici.
+// (Hypothese ECARTEE en chemin : « c'est la couche collee aux parois ». Faux --
+// mesure sur l'interieur STRICT, qui ne touche aucune paroi : 0,417 % contre
+// 0,389 % sur tout l'interieur. Le defaut est partout, pas au bord.)
 //
 // ORDRE D'UN PAS (Stam 1999, § 2.2, adapté fumée par Fedkiw 2001) :
 //   1. sources (densité, température, carburant)   — Emit*()
@@ -91,6 +112,23 @@ namespace nkentseu {
 				// panache (0,1 % seulement en translation pure) -- l'erreur en dt^2 |grad u|^2
 				// du point de depart, pas les parois : c'est le cas T du banc qui l'a tranche.
 				bool advectRK2 = true;
+				// CORRECTION MacCORMACK des SCALAIRES (Selle, Fedkiw, Kim, Liu & Rossignac,
+				// « An Unconditionally Stable MacCormack Method », Journal of Scientific
+				// Computing 35, 2008, p. 350-371) : on advecte en avant, puis en arriere, et
+				// on retranche la MOITIE de l'erreur d'aller-retour, avec le limiteur aux
+				// bornes du pochoir d'interpolation (sans quoi le schema n'est pas borne).
+				// C'est le correctif que la mesure DESIGNE : la perte de masse ne bouge pas
+				// quand on divise le pas de temps par 4 (-51,6 / -51,4 / -51,2 %), donc elle
+				// n'est pas temporelle -- c'est la diffusion de l'interpolation trilineaire.
+				// DEFAUT : FAUX, et c'est la MESURE qui a tranche, pas le gout. Sur la meme
+				// scene et les memes temoins (05/09) :
+				//   sans MacCormack : masse -45,9 % / transport 0,070 cellule / divergence 0,39 %
+				//   avec MacCormack : masse +25,8 % / transport 1,331 cellule / divergence 0,56 %
+				// Le limiteur ecrete le front, donc le barycentre RETARDE : le seul temoin
+				// qui etait VERT le devient ROUGE, contre une erreur de masse qui change de
+				// signe sans changer d'ordre de grandeur. On garde le schema disponible et
+				// mesure, eteint par defaut, jusqu'a une advection vraiment conservative.
+				bool advectMacCormack = false;
 
 				// Borne de sécurité, dite si elle mord.
 				float32 maxSpeed = 100.f;
@@ -126,12 +164,24 @@ namespace nkentseu {
 				float32 heat = 0.f; // somme(T - T_amb) * cellSize^3, intérieur
 				float32 fuel = 0.f; // somme(carburant) * cellSize^3, intérieur
 
-				// DIVERGENCE, en m/s (div * cellSize), moyenne des |.| sur l'intérieur.
-				// Le rapport que le témoin (b) lit est divAfterMean / velocityMean.
+				// DIVERGENCE, en m/s (div * cellSize), moyenne des |.|.
+				// DEUX POPULATIONS, et il faut les distinguer -- c'est mesure, pas suppose :
+				//  - « intérieur » = les nx*ny*nz cellules interieures. La couche COLLEE aux
+				//    parois y est comprise, or sa divergence apparente vient de la CONVENTION
+				//    de bord (le fantome porte -u_normal), pas d'un residu du solveur : quand
+				//    on force le solveur a converger 78 fois plus loin (residu 3,2e-6 ->
+				//    4,1e-8), ce rapport ne bouge PAS (5,408 % -> 5,407 %). Mesure du 05/09.
+				//  - « strict » = les cellules qui ne touchent AUCUNE paroi, (nx-2)(ny-2)(nz-2).
+				//    C'est la population sur laquelle la projection agit vraiment, et c'est
+				//    celle que le temoin (b) juge. Les deux chiffres sont publies.
 				float32 divBeforeMean = 0.f, divBeforeMax = 0.f;
 				float32 divAfterMean = 0.f, divAfterMax = 0.f;
 				float32 velocityMean = 0.f; // |u| moyen sur l'intérieur (m/s)
 				float32 divRatio = 0.f;		// divAfterMean / velocityMean (sans unité)
+				uint32 cellsStrict = 0;		// (nx-2)(ny-2)(nz-2)
+				float32 divAfterMeanStrict = 0.f, divAfterMaxStrict = 0.f;
+				float32 velocityMeanStrict = 0.f;
+				float32 divRatioStrict = 0.f;
 
 				uint32 pressureIters = 0;		 // balayages SOR RÉELLEMENT faits
 				float32 pressureResidual = 0.f;	 // résidu max final du Poisson (m/s)
@@ -222,12 +272,19 @@ namespace nkentseu {
 				void Backtrace(uint32 i, uint32 j, uint32 k, float32 dt0, const NkVector<float32> &fu,
 							   const NkVector<float32> &fv, const NkVector<float32> &fw, float32 &x, float32 &y,
 							   float32 &z) const;
+				// Un aller SEUL, semi-lagrangien. `sens` vaut +1 (remonter le temps) ou -1.
+				void AdvectSemiLagrangien(NkVector<float32> &dst, const NkVector<float32> &src, float32 dt, int32 bnd,
+										  float32 sens);
+				// Bornes du pochoir trilineaire autour d'une position (limiteur MacCormack).
+				void TrilinearBornes(const NkVector<float32> &f, float32 x, float32 y, float32 z, float32 &mn,
+									 float32 &mx) const;
 				void AdvectScalar(NkVector<float32> &dst, const NkVector<float32> &src, float32 dt, int32 bnd);
 				void AdvectVelocity(float32 dt);
 				void Project(float32 dt);
 				void SetBoundary(int32 b, NkVector<float32> &f);
 				float32 Trilinear(const NkVector<float32> &f, float32 x, float32 y, float32 z) const;
-				void MeasureDivergence(float32 &meanOut, float32 &maxOut) const;
+				// `strict` : ne compte que les cellules qui ne touchent aucune paroi.
+				void MeasureDivergence(float32 &meanOut, float32 &maxOut, bool strict) const;
 				void MeasureVelocity();
 
 				NkFluidGridParams mParams;
@@ -242,6 +299,7 @@ namespace nkentseu {
 				NkVector<float32> mTemperature, mTemperature0;
 				NkVector<float32> mFuel, mFuel0;
 				NkVector<float32> mPressure, mDivergence;
+				NkVector<float32> mScratchA, mScratchB; // aller-retour de MacCormack
 		};
 
 	} // namespace renderer

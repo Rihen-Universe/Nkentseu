@@ -2827,6 +2827,77 @@ jamais.
 **0 particule sous la peau sur 301 images**. Ordre qui reste : bande étroite pour la cape, **étanchéité à
 l'import (ce que Rodolf attend sur ses corps — devant les patrons)**, les six patrons, les matières.
 
+### 🔥 05/09 (nuit) — LA FUMÉE ET LE FEU SUR GRILLE : le socle du § 6, 26 témoins verts et 2 rouges que la mesure explique
+
+**Ce qui existait avant d'écrire une ligne (mesuré, et deux noms piègent).**
+`Advect`, `Combustion`, `Smoke`/`Fumee`, `Fire`/`Flame` : **zéro occurrence** dans
+`Kernel/` et `Engine/`. `NkGrid3D` (NKRHI/Tools/Grid3D) **n'est pas** une grille de
+simulation — c'est la **grille de sol du viewport** (lignes, axes, fondu). `Tools/Voxel`
+(7 fichiers, vraies textures 3D) est un **squelette de sculpture** façon ZBrush, annoncé
+tel quel dans ses en-têtes, dont l'unique appelant est `NkPixolSculptSystem`. Et le
+« noyau de projection du DFSPH » que le roadmap propose de réutiliser **n'existe pas
+comme noyau** : `NkSPHSolver` corrige la vitesse par un facteur alpha sur des listes de
+voisines, en ligne dans `StepOnce`, sans Laplacien ni matrice. Le partage avec la grille
+sera le **stockage GPU**, pas le solveur. Dit plutôt que supposé.
+
+**Ce qui est livré.** `Kernel/Runtime/NKRenderer/src/NKRenderer/Tools/VFX/NkFluidGrid.*`
+(grille eulérienne : densité, température, carburant, vitesse ; advection
+semi-lagrangienne ; projection de pression ; flottabilité de Boussinesq ; combustion) et
+`NkFluidGridRaymarch.*` (marche de rayon **CPU** + couleur du corps noir **calculée**).
+Banc : `Applications/NkFluidGridProbe` — **28 contrôles, 26 verts, 2 rouges**, sans GPU
+ni fenêtre. Sources citées dans le code : Stam *Stable Fluids* SIGGRAPH 1999 ; Fedkiw,
+Stam & Jensen *Visual Simulation of Smoke* SIGGRAPH 2001 eq. (8) ; Kajiya & Von Herzen
+SIGGRAPH 1984 ; Planck 1901 ; Wyman, Sloan & Shirley JCGT 2013 ; sRGB IEC 61966-2-1 ;
+Press & al. *Numerical Recipes* 3e éd. eq. 20.5.19.
+
+**Les deux rouges, et pourquoi ce ne sont pas des bugs à corriger à l'aveugle.**
+
+1. **La masse n'est pas conservée : -45,9 % en 500 pas.** Six régimes ont départagé les
+   causes possibles : vitesse nulle **0,0000 %** ; translation pure loin des parois
+   **-0,11 %** ; panache **-33 à -46 %**. Ce n'est donc ni les parois (le banc vérifie à
+   chaque pas que la couche collée aux parois reste vide, et elle l'est) ni la divergence
+   résiduelle. Diviser le pas de temps par 4 ne change **rien** (-51,6 / -51,4 / -51,2 %) :
+   la perte est **spatiale**, c'est la diffusion de l'interpolation trilinéaire.
+   Le correctif MacCormack (Selle & al. 2008) est **écrit et mesuré** : il transforme
+   -45,9 % en **+25,8 %** — même ordre de grandeur, signe inversé — et **fait rougir le
+   témoin de transport** (0,070 -> 1,331 cellule, le limiteur écrête le front). Il reste
+   donc **éteint par défaut**, disponible, avec son tableau. Ce qu'il faudrait : une
+   advection **conservative en flux** (Lentine, Aanjaneya & Fedkiw 2011). **Non fait.**
+2. **La divergence après projection reste à 0,39 % au lieu de 0,1 %** — et **ce n'est pas
+   le solveur**. On l'a prouvé en le forçant à converger 78 fois plus loin (résidu max
+   3,175e-6 -> 4,075e-8 m/s, 35 -> 180 puis 4 000 balayages) : le rapport n'a **pas
+   bougé** (5,4084 % -> 5,4070 % -> 5,4070 %). La cause est la **grille colocalisée** :
+   la projection résout un Laplacien de pas 1, alors que la divergence centrée de la
+   vitesse corrigée fait apparaître un Laplacien de **pas 2** — le mode « damier ».
+   (Hypothèse écartée en chemin : « c'est la couche des parois ». Faux : sur l'intérieur
+   **strict**, 0,417 % contre 0,389 %.) Le correctif est la **grille décalée MAC**
+   (Harlow & Welch 1965), celle qu'utilise Fedkiw 2001. **Non fait.**
+
+**Les verts qui comptent.** Flottabilité mesurée **à 0,0002 %** de la loi d'Archimède /
+Boussinesq a = g (T - T_amb) / T_amb ; transport à **0,070 cellule** de l'endroit attendu ;
+10 s sans NaN ; **7 contrôles d'instrument** avant le premier chiffre (masse, divergence
+et barycentre confrontés chacun à une réponse analytique **et** à un cas dont la réponse
+doit être zéro) ; **4 mutations** qui mordent (projection coupée -> divergence 72 % ;
+advection coupée -> 25 cellules d'erreur ; table du corps noir remplacée par une rampe
+linéaire -> refusée ; densité nulle -> 0 pixel allumé).
+
+**La couleur du feu n'est copiée d'aucune table** : elle est calculée à chaque appel par
+la loi de Planck intégrée contre les fonctions colorimétriques CIE 1931, puis convertie
+en sRGB. Trois contrôles **indépendants** la valident : un spectre d'énergie égale tombe
+sur le point blanc E (0,3331 / 0,3335 pour 1/3), le maximum de Planck **balayé** tombe sur
+la loi de Wien à **0,008 %**, et un corps noir à 6504 K tombe sur **D65** (0,3134 / 0,3237
+pour 0,3127 / 0,3290). Elle rend 1 000 K -> (255, 47, 0), 2 000 K -> (255, 141, 21),
+3 000 K -> (255, 185, 110).
+
+**Les deux images** — `Captures/fumee_colonne_2026-09-05.png` et
+`Captures/feu_degrade_2026-09-05.png` — sont des **rendus CPU**, sans fenêtre ni device ;
+`Captures/LISEZMOI.md` dit à côté de chacune ce qu'elle prouve et ce qu'elle ne prouve
+pas. **Non fait et nommé** : le portage GPU (NKRHI/NkSL, texture 3D + compute), le
+confinement de vorticité, la comparaison avec des billboards (elle passerait par le
+chemin GPU des particules : comparer une marche CPU à un dessin GPU comparerait deux
+machines, pas deux méthodes), une vraie lumière dynamique émise par la flamme (seule une
+couleur émissive est rendue).
+
 ### 🔩 04/09 (nuit) — JENGA 2.6 : ce qui est appliqué, ce qui est mesuré en retour
 
 - **`-static` — le défaut était chez nous** : `config/toolchain.jenga:55` (bloc Windows natif) promettait

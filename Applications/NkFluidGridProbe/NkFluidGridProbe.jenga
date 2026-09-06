@@ -22,12 +22,14 @@ with project("NkFluidGridProbe"):
     location(".")
     files([
         "src/main.cpp",
+        "src/rendu.cpp",
         "%{wks.location}/Kernel/Runtime/NKRenderer/src/NKRenderer/Tools/VFX/NkFluidGrid.cpp",
+        "%{wks.location}/Kernel/Runtime/NKRenderer/src/NKRenderer/Tools/VFX/NkFluidGridRaymarch.cpp",
     ])
 
     nkentseudependson(
-        ["NKMath", "NKTime", "NKStream", "NKLogger", "NKContainers", "NKMemory",
-         "NKCore", "NKPlatform", "NKThreading"],
+        ["NKImage", "NKFileSystem", "NKMath", "NKTime", "NKStream", "NKLogger",
+         "NKContainers", "NKMemory", "NKCore", "NKPlatform", "NKThreading"],
         extra_includes=["src", "%{wks.location}/Kernel/Runtime/NKRenderer/src"],
     )
 
