@@ -3534,3 +3534,99 @@ remises → `TOUT VERT (0 rouge(s))`, code 0.
 | **Le coût d'écriture n'est pas mesuré.** `sizeof(NkVertex3D)` = 56 o : le mannequin de Rodolf pèse ~14 Mo de sommets + ~6 Mo d'indices par copie | stride lu dans `NkVertexLayout::Default3D()`, comptes lus dans le `.glb` | mesurer le temps d'enregistrement réel demande d'enregistrer son projet — un geste |
 | **La géométrie ÉDITÉE d'une PRIMITIVE reste perdue.** Une sphère dont on a déplacé des sommets garde `MeshParams` vrai : le filtre la déclare régénérable, son `.nkgeo` n'est pas écrit, et `SetMeshParams` la refabrique neuve à la relecture | lecture de `HostRegenUserMesh` / `Demo3DHostMeshParams` | dette ouverte depuis le 17/08, **non aggravée** (c'était déjà le comportement) ; la traiter demande de trancher qui gagne entre les paramètres et les sommets — un arbitrage produit, pas un correctif |
 | **Un fichier de format 1 ne peut pas dire lequel de ses cubes était un import** | aucune donnée dans le fichier | ce n'est pas réparable : la donnée n'a jamais été écrite. Le message le dit au conditionnel |
+
+---
+
+## 2026-09-06 — « Plafond de quoi, et pourquoi avoir un plafond ? » (question de Rodolf)
+
+### La réponse en une phrase
+
+Ce ne sont **ni des cartes, ni des imports** : ce sont les **emplacements de nœud
+de la vue 3D** — `kNkvpMaxNodes = 352`, dont 96 réservés à la scène de
+démonstration, donc **256 objets utilisateur** — un tableau de taille fixe hérité
+du prototype `renderdemo --demo=2`, où la scène était écrite en dur et où la
+question ne se posait pas.
+
+### Pourquoi il en existe un — trois raisons de fait, aucune de fond
+
+1. **39 tableaux statiques** sont indexés par le numéro de nœud (`nkvpObjHidden`,
+   `nkvpParentOf`, `nkvpUserMesh`, `nkvpMatTint`… — déclarations comptées dans
+   `NkDemo3D.cpp`), lus et écrits depuis **976 sites** `nkvpXxx[…]`. Une taille
+   fixe permet `static T tab[N]` : pas d'allocation, pas de durée de vie, pas de
+   pointeur qui se déplace sous ces 976 sites.
+2. **Le numéro de nœud est une valeur de FICHIER.** `parentFixe` écrit un numéro
+   brut, et les plages `0..89` / `90..95` / `96..` sont des conventions gravées
+   dans les projets déjà enregistrés. Faire grandir la **fin** ne casse rien ;
+   déplacer un **début** rend illisible tout `.nkscene` existant.
+3. **Un plafond rend le débordement racontable.** `HostAllocUser` rend `-1` et
+   l'import dit *« la scène n'a plus d'emplacement de nœud libre »*. Sans borne,
+   la même situation serait une écriture hors tableau — silencieuse, puis fatale
+   ailleurs.
+
+### Ce qu'il faudrait pour qu'il n'y en ait plus DU TOUT, et ce que ça coûte
+
+**Étape 1 — une seule table, pas 39.** Un nœud est aujourd'hui éparpillé dans 39
+tableaux parallèles : en ajouter un est un geste, en oublier un est un défaut.
+Regrouper en `struct NkVpNode { … }` + un `NkVector<NkVpNode>` rend la croissance
+gratuite (`PushBack`) et laisse **un seul** endroit à faire grandir.
+*Coût MESURÉ, et il est plus lourd que l'estimation qu'on aurait donnée de tête* :
+**976 sites** `nkvpXxx[…]` deviennent `N(…).xxx`. Mécanique, mais massif — et
+**aucun témoin automatique ne le couvre** : les tests du dépôt sont désactivés
+depuis le 12/03. C'est le vrai prix, pas la frappe.
+
+**Étape 2 — les 29 balayages `for (… < kNkvpMaxNodes; …)`.** Tant qu'ils
+balaient la **capacité**, la retirer les rend infinis. Ils doivent balayer les
+nœuds **vivants** (compteur haut-d'eau, ou liste dense). *Coût* : faible, et
+**indépendant de l'étape 1** — il paie tout de suite, à plafond inchangé.
+
+**Étape 3 — le tableau de PILE.** `renderer::NkGizmoTarget etg[kNkvpMaxEmpty]`
+(NkDemo3D.cpp:9655) : 80 octets × 262 = **~21 Ko de pile à chaque image**. À 1 024
+nœuds il en demanderait 73 Ko ; à 100 000, **~8 Mo** — la pile déborde bien avant
+la mémoire. Il doit devenir un tampon persistant redimensionné.
+
+**Étape 4 — le chemin de montée des fichiers.** Tant qu'on ne déplace que la fin,
+rien à faire. Le jour où l'on veut supprimer les **plages** (0..89 démo,
+90..95 empties), c'est une montée de version du format, pas un `#define`.
+
+**Étape 5 — savoir quel est le plafond SUIVANT.** Retirer celui-ci en laisse un
+autre : `kNkvpMaxProjMats = 256` porte à lui seul **8 tableaux** (dont
+`nkvpMatThumbPix`, des vignettes en RAM). L'utile n'est pas de croire qu'il n'y
+en a plus, c'est de savoir lequel vient après.
+
+### Recommandation
+
+**Ne pas relever le nombre en aveugle une seconde fois.** Faire l'**étape 2**,
+qui est indépendante, mesurable et paie immédiatement ; puis décider de l'étape 1
+comme d'un chantier, avec son témoin, pas comme d'un correctif en passant.
+
+---
+
+## 2026-09-06 — Menu contextuel du navigateur : reconnaissance faite, conversion NON écrite
+
+Rodolf : *« ce menu est hyper mal designé. Écris les menus là comme ceux de
+NkUIDesign. »* — c'est-à-dire `editorkit::NkCtxMenuDraw`.
+
+**Ce que j'ai mesuré, et pourquoi je ne l'ai pas écrit aujourd'hui :**
+
+- Le menu vit dans `PaintSceneMenus` (`Shell/NkModelerHierarchy.h:594`). Il est
+  peint **à la main** : `p.Outline`, `p.TextV`, `HoverFill`, et son entrée passe
+  par `hit.Add` / `hit.Clicked` / `st.UiBlockAdd` — le schéma de l'application.
+- `NkCtxMenuDraw` prend un `nkgui::NkGuiContext &` que `PaintSceneMenus` **ne
+  reçoit pas**. Il est pourtant à portée : `main.cpp:415` tient `nkgui::NkGuiContext ui`
+  et lui passe déjà `ui.input` (`main.cpp:1831`). **Un paramètre de plus suffit** —
+  ce n'est pas le blocage.
+- Le blocage réel est l'**entrée**. Le composant du kit gère lui-même son
+  occlusion (« modal léger » : il consomme le clic quand la souris est dedans),
+  alors que ce menu-ci s'appuie sur `hit` + `UiBlockAdd`. Les brancher tous les
+  deux, c'est **deux chemins pour un même geste** — le défaut exact relevé le
+  05/09 sur NkUIDesign. Il faut choisir, pas superposer.
+- Et le contenu n'est pas une liste plate : trois niveaux (`Créer >`, puis
+  `Graphe >`), ouverts **au survol**, plus un mode `-4` où le même code sert le
+  combo « Créer » de la barre. Le kit porte `hasSub`, mais le **dessin** du
+  sous-menu reste à l'appelant.
+
+**Conclusion honnête** : c'est un chantier de conversion, pas une substitution
+d'appel ; et son résultat ne se vérifie qu'au clic — que je ne fais pas. Une
+conversion à moitié posée dans l'arbre partagé serait pire que pas de conversion.
+Elle est donc **nommée ici, non commencée**, avec les quatre points ci-dessus
+comme point de départ.
