@@ -1109,13 +1109,33 @@ namespace nkentseu {
 				
 				void RelireDossier() {
 					relire = false;
+					// ① (06/09) DEUX GESTES DIFFERENTS PASSAIENT PAR LA MEME PORTE, ET ELLE
+					//    N'EN CONNAISSAIT QU'UN. NAVIGUER (le dossier affiche change) et
+					//    RELIRE (le meme dossier, dont le contenu a bouge : creation,
+					//    collage, suppression, GLISSER-DEPOSER) appellent tous deux cette
+					//    fonction, ecrite pour le premier : elle remettait le defilement a
+					//    zero dans les deux cas. Rodolf : « le cliquer-deposer une fois
+					//    valide fait que le scroll remonte plus haut dans le dossier en
+					//    cours. » Ce n'etait pas un troisieme chemin qui perdait l'ancre :
+					//    c'etait CELUI-CI, qui n'avait jamais eu de raison de la garder.
+					//
+					// ⚠️ LA QUESTION SE POSE AVANT `CopyTo` -- apres, `listePour` vaut deja
+					//    `pickerPath` et la reponse serait toujours « oui ».
+					const bool memeDossier = listePour[0] != '\0'
+											 && PathSame(listePour, pickerPath);
 					// ⚠️ RETENU AVANT DE POUVOIR ECHOUER : un chemin illisible ne doit pas faire
 					//    relire a CHAQUE image (un listage en boucle sur un lecteur absent gele la
 					//    fenetre, et le defaut parait alors venir du dessin).
 					CopyTo(listePour, pickerPath, (int32)sizeof(listePour));
 					vue.entries.Clear();
+					// LA SELECTION PART DANS LES DEUX CAS, et ce n'est pas une inconsequence :
+					// elle est faite d'INDICES dans `entries`, que l'on reconstruit. Les garder
+					// designerait d'autres fichiers -- une selection fausse est pire qu'une
+					// selection perdue. Le defilement, lui, est une position a l'ecran : il
+					// garde son sens tant que c'est le meme dossier.
 					vue.ClearSelection();
-					vue.scroll = 0.f;
+					if (!memeDossier)
+						vue.scroll = 0.f;
 					if (!pickerPath[0] || !NkDirectory::Exists(pickerPath))
 						return;
 					// ③ (06/09) ON NOTE ICI, ET SEULEMENT ICI. C'est le seul endroit du fichier
@@ -2456,6 +2476,18 @@ namespace nkentseu {
 					fp.menuCibles.Clear();
 					if (deplaces == 0u && fp.messageCreation.Empty())
 						fp.messageCreation = NkString("Déplacement refusé.");
+					// ② (06/09) ON RELIT TOUT DE SUITE, PAS AU DEBUT DE L'IMAGE SUIVANTE.
+					//    `Coller` pose `relire`, et la porte qui le consomme est en TETE de
+					//    fonction -- donc deja passee quand le lacher arrive, qui a lieu en
+					//    fin d'image. La liste ne changeait qu'a l'image d'apres, et une
+					//    application qui ne redessine que sur evenement ne redessine pas
+					//    apres un relachement : « ca ne met pas directement a jour ».
+					// ⚠️ ICI ET PAS PLUS HAUT : le composant tenait `vue.entries` par
+					//    reference pendant son dessin ; il a rendu la main depuis.
+					if (fp.DoitRelire()) {
+						fp.RelireDossier();
+						fp.SuivreLeDepliage();
+					}
 				}
 				if (!res.infobulle.Empty()) {
 					bulle = res.infobulle;

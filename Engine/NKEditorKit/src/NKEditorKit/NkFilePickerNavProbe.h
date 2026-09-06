@@ -1487,8 +1487,135 @@ namespace nkentseu {
 					Verifier(b, alphaApres && !betaApres, "9g", detail);
 				}
 
+				// ══ Famille 10 — S10 ① le defilement au lacher, ② la mise a jour ══════
+				//
+				// Rodolf : « le cliquer-deposer une fois valide fait que le scroll remonte
+				// plus haut dans le dossier en cours », et « le glisser deposer a droite ne
+				// met pas directement a jour ».
+				//
+				// ⚠️ LA QUESTION POSEE N'EST PAS « faut-il rappeler l'ancre » mais
+				//    « POURQUOI CE CHEMIN LA PERD ». Reponse mesuree : il n'y a pas de
+				//    troisieme chemin. `RelireDossier` est la porte UNIQUE, et elle
+				//    remettait le defilement a zero dans les deux cas qu'elle sert --
+				//    naviguer (legitime) et relire le meme dossier (faux).
+				printf("\nFamille 10 — S10 ① le defilement au lacher, ② la mise a jour du volet\n");
+				{
+					const NkString d10 = (NkPath(terrain.racine) / "lacher").ToString();
+					NkDirectory::CreateRecursive((NkPath(d10) / "cible10").ToString().CStr());
+					char nom[64];
+					for (int32 i = 0; i < 40; ++i) { // de quoi deborder, donc de quoi defiler
+						snprintf(nom, sizeof(nom), "f_%02d.txt", i);
+						NkFile::WriteAllText((NkPath(d10) / nom).ToString().CStr(), "x");
+					}
+					NkFilePickerNavState f10;
+					f10.OpenPickerBase(NkFilePickerState::PK_File, d10.CStr(), nullptr, 0, d10.CStr(),
+									   nullptr);
+					f10.RelireDossier();
+					f10.SuivreLeDepliage();
+					banc.Image(f10, Repos());
+
+					// ── 10a — LE MEME DOSSIER RELU GARDE SON DEFILEMENT ─────────────
+					f10.vue.scroll = 200.f;
+					f10.RelireDossier(); // meme `pickerPath` : c'est une RELECTURE
+					const float32 apresRelecture = f10.vue.scroll;
+					snprintf(detail, sizeof(detail),
+							 "relire LE MEME dossier garde le defilement : %.1f px avant, %.1f apres",
+							 200.0, (double)apresRelecture);
+					Verifier(b, PresqueEgal(apresRelecture, 200.f, 0.6f), "10a", detail);
+
+					// ── 10b — LE CONTROLE NEGATIF : NAVIGUER LE REMET A ZERO ────────
+					// Sans lui, 10a serait aussi vert sur une fonction qui ne remet JAMAIS
+					// le defilement a zero -- et on aurait remplace un defaut par l'autre.
+					// ⚠️ UN AUTRE DOSSIER **DANS LE CONFINEMENT**. Premiere ecriture de cet
+					//    essai : on partait vers `terrain.racine`, le PARENT -- et le
+					//    selecteur, confine a `lacher`, refusait poliment d'y aller. Le
+					//    defilement restait donc a 200 et l'essai accusait le correctif
+					//    d'un defaut qui etait dans le banc. Le rouge etait juste, la
+					//    conclusion aurait ete fausse.
+					f10.vue.scroll = 200.f;
+					f10.AllerA((NkPath(d10) / "cible10").ToString().CStr());
+					if (f10.DoitRelire())
+						f10.RelireDossier();
+					const float32 apresNavigation = f10.vue.scroll;
+					snprintf(detail, sizeof(detail),
+							 "CONTROLE NEGATIF : changer de dossier remet bien a zero (%.1f px)",
+							 (double)apresNavigation);
+					Verifier(b, PresqueEgal(apresNavigation, 0.f, 0.6f), "10b", detail);
+
+					// ── 10c/10d — ② APRES UN LACHER, LE VOLET MONTRE LE RESULTAT ────
+					// On rejoue le geste complet par la porte de l'hote : `Coller` sur un
+					// couper, exactement ce que le lacher declenche dans le dialogue.
+					f10.AllerA(d10.CStr());
+					if (f10.DoitRelire())
+						f10.RelireDossier();
+					// ⚠️ ON REMONTE EN HAUT **EXPRES** avant de mesurer la mise a jour.
+					//    Sans ca, l'essai heritait des 200 px de 10a -- que le correctif
+					//    conserve desormais -- et « f_00.txt » n'etait tout simplement pas
+					//    a l'ecran. Il aurait alors rendu « absent avant, absent apres » :
+					//    un vert impossible et un rouge trompeur, selon le sens du test.
+					f10.vue.scroll = 0.f;
+					f10.SuivreLeDepliage();
+					banc.Image(f10, Repos());
+					const float32 xGrille10 = banc.zone.x + banc.railW + 2.f;
+					auto peintDansLaGrille = [&](const char *lib) -> bool {
+						for (uint32 i = 0; i < (uint32)banc.rec.cmds.Size(); ++i) {
+							const NkPaintCmd &c = banc.rec.cmds[i];
+							if (c.op == NkPaintOp::Text && c.x > xGrille10
+								&& NkComponentDecl::StrEq(c.text.CStr(), lib))
+								return true;
+						}
+						return false;
+					};
+					const bool avantLacher = peintDansLaGrille("f_00.txt");
+					// LE LACHER, par le meme chemin que le dialogue : couper puis coller.
+					f10.menuCibles.Clear();
+					f10.menuCibles.PushBack((NkPath(d10) / "f_00.txt").ToString());
+					f10.MettreAuPressePapier(true);
+					f10.saisieDossier = (NkPath(d10) / "cible10").ToString();
+					const uint32 deplaces10 = f10.Coller();
+					f10.saisieDossier = NkString();
+					f10.menuCibles.Clear();
+					const bool demandeRelecture = f10.DoitRelire();
+					snprintf(detail, sizeof(detail),
+							 "le lacher deplace (%u) et DEMANDE la relecture (%d) -- sans cette "
+							 "demande, le volet resterait sur la liste d'avant",
+							 deplaces10, demandeRelecture ? 1 : 0);
+					Verifier(b, deplaces10 == 1u && demandeRelecture, "10c", detail);
+
+					f10.RelireDossier();
+					f10.SuivreLeDepliage();
+					banc.Image(f10, Repos());
+					const bool apresLacher = peintDansLaGrille("f_00.txt");
+					snprintf(detail, sizeof(detail),
+							 "« f_00.txt » etait peint dans la grille (%d) et ne l'est plus apres le "
+							 "lacher (%d)",
+							 avantLacher ? 1 : 0, apresLacher ? 1 : 0);
+					Verifier(b, avantLacher && !apresLacher, "10d", detail);
+
+					// ── 10e — ET LE CACHE « VIDE OU PLEIN » NE MENT PAS ─────────────
+					// L'hypothese posee par le coordinateur : une entree de cache datee
+					// d'avant le lacher repondrait encore « vide » pour le dossier qui vient
+					// de recevoir le fichier. On la MESURE au lieu de la croire : le cache
+					// est indexe par (chemin, horodatage du dossier), et l'horodatage vient
+					// de la re-enumeration, donc d'apres le lacher.
+					uint8 etatCible = (uint8)NkContenuDossier::Inconnu;
+					for (uint32 i = 0; i < (uint32)f10.vue.entries.Size(); ++i) {
+						const NkAssetEntry &e = f10.vue.entries[i];
+						if (!e.isFolder || !NkComponentDecl::StrEq(e.name.CStr(), "cible10"))
+							continue;
+						etatCible = f10.cacheDossiers.Etat(e.path.CStr(), e.dateModif, false);
+						break;
+					}
+					snprintf(detail, sizeof(detail),
+							 "le dossier qui vient de RECEVOIR est rendu PLEIN par le cache "
+							 "(etat = %u, Plein = %u)",
+							 (unsigned)etatCible, (unsigned)NkContenuDossier::Plein);
+					Verifier(b, etatCible == (uint8)NkContenuDossier::Plein, "10e", detail);
+					NkDirectory::Delete(d10.CStr(), true);
+				}
+
 				terrain.Retirer();
-				printf("  -- familles 5 a 9 : %d/%d\n", b.ok, b.total);
+				printf("  -- familles 5 a 10 : %d/%d\n", b.ok, b.total);
 				return b;
 			}
 
