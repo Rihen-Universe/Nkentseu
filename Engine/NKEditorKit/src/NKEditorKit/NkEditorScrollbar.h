@@ -6,7 +6,7 @@
 //          fleches, memes tailles) -> une seule barre pour TOUTE l'UI Nkentseu.
 //          NE PAS "ameliorer" le rendu : il doit rester identique a l'editeur.
 //          Engine-native (ctx/dl/theme).
-// @Author  Rihen
+// @Author  TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // @License Proprietary - All Rights Reserved (see LICENSE)
 // -----------------------------------------------------------------------------
 #include "NKGui/NKGui.h"
