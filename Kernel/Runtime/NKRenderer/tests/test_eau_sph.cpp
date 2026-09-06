@@ -404,6 +404,10 @@ namespace {
 // mouillage. Elle rend son nombre d'échecs, et ce nombre entre dans le code de
 // sortie de la suite — une sonde rouge ne doit jamais sortir 0.
 int NkSondeUBOMouillage();
+// Définie dans test_ocean_grille.cpp : les témoins de la grille projetée
+// (Johanson 2004). Même contrat — elle rend ses échecs, ils entrent dans le
+// code de sortie.
+int NkSondeOceanGrille();
 
 int main() {
 	std::fprintf(stderr, "=== L'EAU : le fluide PUBLIE ses contacts (temoins §6.6 palier 1) ===\n");
@@ -413,7 +417,9 @@ int main() {
 	ImageEclaboussure();
 	ImageMouillage();
 	const int echecsUBO = NkSondeUBOMouillage();
-	std::fprintf(stderr, "=== NKRenderer/eau : %d passes, %d echecs (+ %d echecs de la sonde UBO) ===\n", gPass,
-				 gFail, echecsUBO);
-	return (gFail == 0 && echecsUBO == 0) ? 0 : 1;
+	const int echecsGrille = NkSondeOceanGrille();
+	std::fprintf(stderr,
+				 "=== NKRenderer/eau : %d passes, %d echecs (+ %d sonde UBO, + %d grille projetee) ===\n",
+				 gPass, gFail, echecsUBO, echecsGrille);
+	return (gFail == 0 && echecsUBO == 0 && echecsGrille == 0) ? 0 : 1;
 }
