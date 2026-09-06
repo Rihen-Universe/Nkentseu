@@ -1,3 +1,4 @@
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // pbr.vert.nksl — NKRenderer — PBR Vertex (VRAI dialecte NkSL)
 // Traduit de PBR/VK/pbr.vert.vk.glsl. TBN + planar reflection (un-mirror Y en passe miroir).
 
@@ -65,6 +66,17 @@ uniform ObjectUBO {
     vec4  subsurfaceColor;
     vec4  shadowOverrides;
     vec4  triplanarParams;
+    // MOUILLAGE (2026-09-06). Deux scalaires suffisent a toute la formule de
+    // Lagarde « Water drop 3b » : elle ne depend du mouillage et de la porosite
+    // que par leur PRODUIT. Le pincement est fait cote C++ (NkRender3D.cpp), une
+    // seule fois, la ou un temoin peut le lire.
+    //   .x = wetK   = mouillage x porosite
+    //   .y = waterK = mouillage x pellicule d'eau
+    //   .z .w = reserve
+    // ⚠️ Ce membre doit etre declare DANS LES DEUX etages, meme inutilise au
+    // vertex : un bloc uniforme partage dont les deux declarations different
+    // est refuse par le lien GL, ou pire, lu de travers.
+    vec4  wetParams;
 } uObj;
 
 @location(0) out vec3 vWorldPos;
