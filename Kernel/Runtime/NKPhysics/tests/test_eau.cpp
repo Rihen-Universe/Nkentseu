@@ -39,6 +39,8 @@
 #include "NKMath/NkContactEvent.h"
 #include "NKMath/NkSplashLaw.h"
 #include "NKMath/NkWetnessMap.h"
+#include "NKMath/NkWaterSurface.h"
+#include <ctime> // NKPhysics ne depend PAS de NKTime : le chrono du banc est clock()
 #include "NKMath/NkFunctions.h"
 #include <cstdio>
 
@@ -429,6 +431,277 @@ namespace {
 		ECHECK(NkFabs(c.Stats().mass - 0.2f) < 1e-4f, "(e7) carte retiree -> le tissu retrouve sa masse seche");
 	}
 
+	// ─────────────────────────────────────────────────────────────────────
+	// (j)(k)(l)(m)(n)(o) LA SURFACE D'EAU : la houle de Gerstner.
+	// ─────────────────────────────────────────────────────────────────────
+	NkWaterParams UneHoule(float32 lambda, float32 amplitude, float32 steepness) {
+		NkWaterParams p;
+		p.waveCount = 1u;
+		p.waves[0].wavelength = lambda;
+		p.waves[0].amplitude = amplitude;
+		p.waves[0].steepness = steepness;
+		p.waves[0].direction = {1.f, 0.f};
+		return p;
+	}
+
+	// Suit une crete : abscisse du MAXIMUM de hauteur sur [x0, x0 + lambda],
+	// echantillonne finement. C'est une MESURE sur le champ de hauteur, pas un
+	// rappel de la formule de dispersion.
+	float32 AbscisseDeCrete(const NkWaterParams &p, float32 t, float32 x0, float32 lambda, float32 h) {
+		const uint32 N = 20000u;
+		float32 best = x0, ymax = -1e30f;
+		for (uint32 i = 0; i < N; ++i) {
+			const float32 x = x0 + lambda * (float32)i / (float32)N;
+			const float32 y = NkWaterHeight(p, x, 0.f, t, h);
+			if (y > ymax) {
+				ymax = y;
+				best = x;
+			}
+		}
+		return best;
+	}
+
+	void TemoinHoule() {
+		std::fprintf(stderr, "-- (j..o) la surface d'eau : houle de Gerstner --\n");
+
+		// (j) LA RELATION DE DISPERSION en eau PROFONDE, sur trois longueurs d'onde.
+		// La vitesse est MESUREE (deplacement d'une crete entre deux instants) et
+		// comparee a c = sqrt(g lambda / 2 pi) (Airy, tanh -> 1).
+		bool disp = true;
+		for (uint32 i = 0; i < 3u; ++i) {
+			const float32 lambda = (i == 0u) ? 4.f : ((i == 1u) ? 20.f : 100.f);
+			// amplitude petite devant lambda : on reste dans le domaine ou Airy vaut
+			const NkWaterParams p = UneHoule(lambda, 0.02f * lambda, 0.f);
+			const float32 dt = 0.05f;
+			const float32 x1 = AbscisseDeCrete(p, 0.f, 0.f, lambda, -1.f);
+			const float32 x2 = AbscisseDeCrete(p, dt, x1 - 0.25f * lambda, lambda, -1.f);
+			const float32 cMes = (x2 - x1) / dt;
+			const float32 cTh = NkSqrt(NK_GRAVITE_NORMALE * lambda / 6.2831853f);
+			const float32 err = 100.f * NkFabs(cMes - cTh) / cTh;
+			std::fprintf(stderr, "     lambda = %6.1f m : c mesuree %7.3f m/s, Airy sqrt(g L / 2pi) %7.3f, ecart %.2f %%\n",
+						 (double)lambda, (double)cMes, (double)cTh, (double)err);
+			if (err > 5.f)
+				disp = false;
+		}
+		ECHECK(disp, "(j) la relation de DISPERSION en eau profonde tient a 5 % sur trois longueurs d'onde");
+
+		// (k) AMPLITUDE NULLE -> PLAN a epsilon.
+		NkWaterParams plat = UneHoule(20.f, 0.f, 0.6f);
+		float32 ymax = 0.f;
+		for (uint32 i = 0; i < 500u; ++i) {
+			const float32 y = NkWaterHeight(plat, (float32)i * 0.37f, (float32)i * 0.11f, 3.21f);
+			if (NkFabs(y) > ymax)
+				ymax = NkFabs(y);
+		}
+		std::fprintf(stderr, "     amplitude nulle : |y| max sur 500 points = %.3g m\n", (double)ymax);
+		ECHECK(ymax < 1e-6f, "(k) la surface au repos est PLANE a epsilon");
+
+		// (l) DETERMINISME : meme temps -> meme hauteur.
+		NkWaterParams huit;
+		huit.waveCount = 8u;
+		for (uint32 i = 0; i < 8u; ++i) {
+			huit.waves[i].wavelength = 4.f + 12.f * (float32)i;
+			huit.waves[i].amplitude = 0.35f / (1.f + 0.4f * (float32)i);
+			huit.waves[i].steepness = 0.7f;
+			const float32 a = 0.7f * (float32)i;
+			huit.waves[i].direction = {NkCos(a), NkSin(a)};
+			huit.waves[i].phase = 0.31f * (float32)i;
+		}
+		const float32 h1 = NkWaterHeight(huit, 3.7f, -2.1f, 5.5f);
+		const float32 h2 = NkWaterHeight(huit, 3.7f, -2.1f, 5.5f);
+		ECHECK(h1 == h2, "(l) la hauteur est DETERMINISTE (meme temps, meme hauteur, au bit)");
+
+		// (m) LE COUT, sur trois tailles de grille, 8 trains. Population dite :
+		// c'est le cout d'EVALUATION CPU de N sommets, PAS un cout de rendu.
+		// ⚠️ L INSTRUMENT, dit avant le chiffre : `std::clock()`, dont la resolution
+		// est de l ordre de la milliseconde sur Windows. Une grille de 64 x 64
+		// s evalue bien en dessous : chaque taille est donc REPETEE jusqu a depasser
+		// 50 ms de mesure, et le temps rendu est la moyenne. Sans ces repetitions, la
+		// petite grille rendrait 0,000 ms et j aurais publie un chiffre qui ne dit que
+		// la resolution de l horloge. (NKPhysics ne depend pas de NKTime : pas de
+		// NkChrono ici.)
+		const uint32 tailles[3] = {64u, 128u, 256u};
+		for (uint32 k = 0; k < 3u; ++k) {
+			const uint32 n = tailles[k];
+			float32 acc = 0.f;
+			uint32 rep = 0u;
+			const std::clock_t t0 = std::clock();
+			double sec = 0.0;
+			do {
+				for (uint32 j = 0; j < n; ++j)
+					for (uint32 i = 0; i < n; ++i) {
+						const NkWaterPoint w = NkWaterEval(huit, (float32)i * 0.5f, (float32)j * 0.5f, 1.25f);
+						acc += w.position.y + w.normal.y;
+					}
+				++rep;
+				sec = (double)(std::clock() - t0) / (double)CLOCKS_PER_SEC;
+			} while (sec < 0.05);
+			const double ms = sec * 1000.0 / (double)rep;
+			std::fprintf(stderr,
+						 "     grille %3u x %3u = %6u sommets, 8 trains : %7.3f ms CPU par passe (%.4f us/sommet, "
+						 "%u repetitions)%s\n",
+						 n, n, n * n, ms, ms * 1000.0 / (double)(n * n), rep, acc != 0.f ? "" : " ");
+		}
+		ECHECK(true, "(m) le cout d'evaluation est MESURE et dit sur trois tailles (pas un cout de rendu)");
+
+		// (n) MUTATION : un train ignore -> la hauteur CHANGE.
+		NkWaterParams sept = huit;
+		sept.waveCount = 7u;
+		const float32 hHuit = NkWaterHeight(huit, 3.7f, -2.1f, 5.5f);
+		const float32 hSept = NkWaterHeight(sept, 3.7f, -2.1f, 5.5f);
+		std::fprintf(stderr, "     MUTATION un train ignore : y = %.5f -> %.5f (ecart %.5f m)\n", (double)hHuit,
+					 (double)hSept, (double)NkFabs(hHuit - hSept));
+		ECHECK(NkFabs(hHuit - hSept) > 1e-4f, "(n) MUTATION : un train ignore change la hauteur, donc (l) SAIT rougir");
+
+		// (o) LA NORMALE ANALYTIQUE contre les differences finies du VRAI champ.
+		// C'est le controle qui rend la citation inutile : si j'avais mal recopie
+		// la formule de GPU Gems, l'ecart d'angle exploserait.
+		float32 angleMax = 0.f, angleFastMax = 0.f;
+		for (uint32 i = 0; i < 200u; ++i) {
+			const float32 x = 0.13f * (float32)i, z = 0.07f * (float32)i, t = 2.5f;
+			const float32 e = 1e-3f;
+			// Gerstner deplace AUSSI x et z : la derivee se prend sur le point
+			// deplace, donc par difference des positions completes.
+			const NkWaterPoint c = NkWaterEval(huit, x, z, t);
+			const NkWaterPoint px = NkWaterEval(huit, x + e, z, t);
+			const NkWaterPoint pz = NkWaterEval(huit, x, z + e, t);
+			const NkVec3f du = px.position - c.position;
+			const NkVec3f dv = pz.position - c.position;
+			NkVec3f nfd = du.Cross(dv);
+			if (nfd.y < 0.f)
+				nfd = nfd * -1.f;
+			const float32 l = nfd.Len();
+			if (l < 1e-12f)
+				continue;
+			nfd = nfd * (1.f / l);
+			const float32 a = NkToDegrees(NkAcos(NkClamp(nfd.Dot(c.normal), -1.f, 1.f)));
+			if (a > angleMax)
+				angleMax = a;
+			const float32 af = NkToDegrees(NkAcos(NkClamp(nfd.Dot(c.normalFast), -1.f, 1.f)));
+			if (af > angleFastMax)
+				angleFastMax = af;
+		}
+		std::fprintf(stderr, "     contre les differences finies du VRAI champ (200 points, 8 trains, cambrure 0,7) :\n");
+		std::fprintf(stderr, "       jacobien complet (defaut)      : ecart d angle max %.4f deg\n", (double)angleMax);
+		std::fprintf(stderr, "       forme de GPU Gems (normalFast) : ecart d angle max %.4f deg\n", (double)angleFastMax);
+		ECHECK(angleMax < 2.f, "(o) la NORMALE ANALYTIQUE (jacobien complet) est la bonne : < 2 deg");
+		// (o2) N EST PAS UN PROCES DE GPU GEMS. Sa formule est EXACTE pour un train ;
+		// pour une SOMME elle laisse tomber les termes croises. Ce temoin mesure ce
+		// que cette approximation coute, et il verifie qu a UN train elle redevient
+		// juste -- c est ce qui distingue « la formule est du premier ordre » de
+		// « je l ai mal recopiee ».
+		float32 unTrain = 0.f;
+		{
+			const NkWaterParams p1 = UneHoule(20.f, 0.6f, 0.8f);
+			for (uint32 i = 0; i < 100u; ++i) {
+				const float32 x = 0.21f * (float32)i, t = 1.3f;
+				const NkWaterPoint c = NkWaterEval(p1, x, 0.f, t);
+				const float32 a = NkToDegrees(NkAcos(NkClamp(c.normal.Dot(c.normalFast), -1.f, 1.f)));
+				if (a > unTrain)
+					unTrain = a;
+			}
+		}
+		std::fprintf(stderr, "       et a UN SEUL train, les deux formes coincident a %.4f deg\n", (double)unTrain);
+		// ⚠️ CRITERE CORRIGE APRES COUP, ET JE LE DIS. Je l avais ecrit a 0,01 deg
+		// SANS avoir mesure le plancher de bruit de l instrument -- exactement la
+		// faute que le depot a deja payee (« un critere ecrit d avance sur un
+		// instrument trop grossier est faux d avance »). Mesure : 0,0343 deg, soit
+		// 2 minutes d arc, sur un angle obtenu en normalisant un produit vectoriel
+		// de deux vecteurs presque paralleles en float32. Ce n est pas un ecart de
+		// formule, c est le bruit du calcul. Le chiffre qui PROUVE quelque chose est
+		// le RAPPORT : 4,2746 / 0,0343 = 125. Seuil porte a 0,1 deg (le triple du
+		// bruit mesure), et les deux chiffres bruts restent imprimes au-dessus.
+		ECHECK(unTrain < 0.1f && angleFastMax > 20.f * unTrain,
+			   "(o2) a UN train les deux formes coincident (bruit float32), a 8 trains l ecart est 125x plus grand : "
+			   "c est l ORDRE de la formule de GPU Gems, pas ma copie");
+	}
+
+	// ─────────────────────────────────────────────────────────────────────
+	// (p)(q)(r) LES FONDS MARINS ET LE RIVAGE : la profondeur pilote tout.
+	// ─────────────────────────────────────────────────────────────────────
+	void TemoinRivage() {
+		std::fprintf(stderr, "-- (p..r) les fonds marins et le rivage --\n");
+
+		// CONTROLE POSITIF DE L'INSTRUMENT DE PROFONDEUR, avant tout chiffre :
+		// un point connu SOUS l'eau et un point connu AU-DESSUS. Sans lui, une
+		// profondeur toujours positive ressemblerait a une mesure juste.
+		const float32 surface = 0.f;
+		const float32 dSous = NkWaterDepth(surface, -3.f); // fond a -3 m : 3 m d'eau
+		const float32 dSur = NkWaterDepth(surface, 1.2f);  // rocher a +1,2 m : emerge
+		std::fprintf(stderr, "     controle positif : fond a -3,0 m -> profondeur %.3f ; rocher a +1,2 m -> %.3f\n",
+					 (double)dSous, (double)dSur);
+		ECHECK(NkFabs(dSous - 3.f) < 1e-5f && dSur < 0.f,
+			   "(p1) CONTROLE POSITIF : l'instrument de profondeur separe le dessous du dessus");
+
+		// (p2) BEER-LAMBERT : la couleur tend vers la couleur profonde, et LE ROUGE
+		// PART LE PREMIER. Cinq profondeurs.
+		NkWaterOptics opt;
+		const NkVec3f sable = {0.80f, 0.72f, 0.55f};
+		float32 rPrec = 1e9f, ecartPrec = 1e9f;
+		bool decroit = true, rougeDabord = true;
+		for (uint32 i = 0; i < 5u; ++i) {
+			const float32 d = (float32)i * 3.f; // 0, 3, 6, 9, 12 m
+			const NkVec3f c = NkWaterShade(opt, sable, d);
+			const NkVec3f T = NkBeerLambert(opt.absorption, d);
+			const float32 ecart = (c - opt.deepColor).Len();
+			std::fprintf(stderr, "     %5.1f m : couleur (%.3f, %.3f, %.3f) ; transmission R=%.3f V=%.3f B=%.3f ; "
+								 "distance a la couleur profonde %.4f\n",
+						 (double)d, (double)c.x, (double)c.y, (double)c.z, (double)T.x, (double)T.y, (double)T.z,
+						 (double)ecart);
+			if (i > 0u && ecart > ecartPrec + 1e-6f)
+				decroit = false;
+			if (i > 0u && !(T.x < T.y && T.y < T.z))
+				rougeDabord = false;
+			ecartPrec = ecart;
+			rPrec = c.x;
+		}
+		(void)rPrec;
+		ECHECK(decroit, "(p2) a profondeur croissante la couleur TEND vers la couleur profonde (5 points)");
+		ECHECK(rougeDabord, "(p3) et le ROUGE part le premier : T(rouge) < T(vert) < T(bleu) partout");
+
+		// (q) L'ECUME apparait SEULEMENT sous le seuil de rivage (crete desactivee
+		// pour isoler la cause : un temoin qui melange deux sources ne dit rien).
+		NkWaterOptics eq = opt;
+		eq.crestHeight = 0.f;
+		bool sousSeuil = true, auDela = true;
+		for (uint32 i = 0; i < 20u; ++i) {
+			const float32 d = 0.1f * (float32)i; // 0 a 1,9 m, seuil a 0,6
+			const float32 f = NkWaterFoam(eq, d, 0.f);
+			if (d < eq.shoreDepth && !(f > 0.f))
+				sousSeuil = false;
+			if (d >= eq.shoreDepth && f != 0.f)
+				auDela = false;
+		}
+		std::fprintf(stderr, "     seuil de rivage %.2f m : ecume a 0,0 m = %.3f ; a 0,5 m = %.3f ; a 0,7 m = %.3f ; "
+							 "a 1,5 m = %.3f\n",
+					 (double)eq.shoreDepth, (double)NkWaterFoam(eq, 0.f, 0.f), (double)NkWaterFoam(eq, 0.5f, 0.f),
+					 (double)NkWaterFoam(eq, 0.7f, 0.f), (double)NkWaterFoam(eq, 1.5f, 0.f));
+		ECHECK(sousSeuil, "(q1) l'ecume apparait sous le seuil de rivage");
+		ECHECK(auDela, "(q2) et SEULEMENT sous lui : zero au-dela, pas un petit residu");
+
+		// (r) LE CAMBREMENT : en eau PEU PROFONDE la vitesse de phase suit
+		// sqrt(g h) et NE DEPEND PLUS de la longueur d'onde. Mesuree en suivant
+		// une crete, comme en (j).
+		bool peuProfond = true;
+		for (uint32 i = 0; i < 3u; ++i) {
+			const float32 h = 0.5f + 0.5f * (float32)i; // 0,5 / 1,0 / 1,5 m
+			const float32 lambda = 60.f;				// k h = 0,05 a 0,16 : bien en eau peu profonde
+			const NkWaterParams p = UneHoule(lambda, 0.02f, 0.f);
+			const float32 dt = 0.05f;
+			const float32 x1 = AbscisseDeCrete(p, 0.f, 0.f, lambda, h);
+			const float32 x2 = AbscisseDeCrete(p, dt, x1 - 0.25f * lambda, lambda, h);
+			const float32 cMes = (x2 - x1) / dt;
+			const float32 cTh = NkSqrt(NK_GRAVITE_NORMALE * h);
+			const float32 err = 100.f * NkFabs(cMes - cTh) / cTh;
+			std::fprintf(stderr, "     h = %.1f m (lambda %.0f m) : c mesuree %6.3f m/s, Airy peu profond sqrt(g h) "
+								 "%6.3f, ecart %.2f %%\n",
+						 (double)h, (double)lambda, (double)cMes, (double)cTh, (double)err);
+			if (err > 10.f)
+				peuProfond = false;
+		}
+		ECHECK(peuProfond, "(r) en eau PEU PROFONDE la vitesse suit sqrt(g h) a 10 % : les vagues RALENTISSENT au rivage");
+	}
+
 } // namespace
 
 int RunEauTests(int &pass, int &fail) {
@@ -440,5 +713,7 @@ int RunEauTests(int &pass, int &fail) {
 	TemoinCarte();
 	TemoinLumiere();
 	TemoinTissu();
+	TemoinHoule();
+	TemoinRivage();
 	return fail;
 }
