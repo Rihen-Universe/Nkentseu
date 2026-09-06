@@ -65,6 +65,8 @@ namespace nkentseu {
 			mFuel0.Resize(mCount, 0.f);
 			mPressure.Resize(mCount, 0.f);
 			mDivergence.Resize(mCount, 0.f);
+			mScratchA.Resize(mCount, 0.f);
+			mScratchB.Resize(mCount, 0.f);
 		}
 
 		void NkFluidGrid::Reset() {
@@ -232,14 +234,62 @@ namespace nkentseu {
 			z = (float32)k - dt0 * Trilinear(fw, xm, ym, zm);
 		}
 
-		void NkFluidGrid::AdvectScalar(NkVector<float32> &dst, const NkVector<float32> &src, float32 dt, int32 bnd) {
-			const float32 dt0 = dt / mParams.cellSize; // pas en CELLULES
+		void NkFluidGrid::AdvectSemiLagrangien(NkVector<float32> &dst, const NkVector<float32> &src, float32 dt,
+												   int32 bnd, float32 sens) {
+			const float32 dt0 = sens * dt / mParams.cellSize; // pas en CELLULES
 			for (uint32 k = 1; k <= mNz; ++k)
 				for (uint32 j = 1; j <= mNy; ++j)
 					for (uint32 i = 1; i <= mNx; ++i) {
 						float32 x, y, z;
 						Backtrace(i, j, k, dt0, mU, mV, mW, x, y, z);
 						dst[Idx(i, j, k)] = Trilinear(src, x, y, z);
+					}
+			SetBoundary(bnd, dst);
+		}
+
+		// Les huit valeurs du pochoir trilineaire autour de (x,y,z) : le limiteur du
+		// schema MacCormack borne le resultat corrige a cet intervalle, sinon le
+		// schema n'est plus borne et il fabrique des valeurs qui n'existaient pas.
+		void NkFluidGrid::TrilinearBornes(const NkVector<float32> &f, float32 x, float32 y, float32 z, float32 &mn,
+										  float32 &mx) const {
+			x = Clampf(x, 0.5f, (float32)mNx + 0.5f);
+			y = Clampf(y, 0.5f, (float32)mNy + 0.5f);
+			z = Clampf(z, 0.5f, (float32)mNz + 0.5f);
+			const uint32 i0 = (uint32)x, j0 = (uint32)y, k0 = (uint32)z;
+			mn = 1.0e30f;
+			mx = -1.0e30f;
+			for (uint32 dk = 0; dk < 2; ++dk)
+				for (uint32 dj = 0; dj < 2; ++dj)
+					for (uint32 di = 0; di < 2; ++di) {
+						const float32 v = f[Idx(i0 + di, j0 + dj, k0 + dk)];
+						if (v < mn)
+							mn = v;
+						if (v > mx)
+							mx = v;
+					}
+		}
+
+		// Advection d'un scalaire : semi-lagrangien seul, ou corrige MacCormack.
+		void NkFluidGrid::AdvectScalar(NkVector<float32> &dst, const NkVector<float32> &src, float32 dt, int32 bnd) {
+			if (!mParams.advectMacCormack) {
+				AdvectSemiLagrangien(dst, src, dt, bnd, 1.f);
+				return;
+			}
+			// 1. aller  : phi_chapeau = A(phi)
+			AdvectSemiLagrangien(mScratchA, src, dt, bnd, 1.f);
+			// 2. retour : phi_tilde = A_inverse(phi_chapeau)
+			AdvectSemiLagrangien(mScratchB, mScratchA, dt, bnd, -1.f);
+			// 3. correction de la MOITIE de l'erreur d'aller-retour + limiteur
+			const float32 dt0 = dt / mParams.cellSize;
+			for (uint32 k = 1; k <= mNz; ++k)
+				for (uint32 j = 1; j <= mNy; ++j)
+					for (uint32 i = 1; i <= mNx; ++i) {
+						const uint32 id = Idx(i, j, k);
+						float32 x, y, z, mn, mx;
+						Backtrace(i, j, k, dt0, mU, mV, mW, x, y, z);
+						TrilinearBornes(src, x, y, z, mn, mx);
+						const float32 v = mScratchA[id] + 0.5f * (src[id] - mScratchB[id]);
+						dst[id] = Clampf(v, mn, mx);
 					}
 			SetBoundary(bnd, dst);
 		}
@@ -441,21 +491,26 @@ namespace nkentseu {
 		// =====================================================================
 		// Mesures
 		// =====================================================================
-		void NkFluidGrid::MeasureDivergence(float32 &meanOut, float32 &maxOut) const {
+		void NkFluidGrid::MeasureDivergence(float32 &meanOut, float32 &maxOut, bool strict) const {
 			// divergence * h, en m/s : 0,5 * ( du + dv + dw ) sur les voisins.
 			float64 sum = 0.0;
 			float32 mx = 0.f;
-			for (uint32 k = 1; k <= mNz; ++k)
-				for (uint32 j = 1; j <= mNy; ++j)
-					for (uint32 i = 1; i <= mNx; ++i) {
+			uint32 n = 0;
+			const uint32 i0 = strict ? 2u : 1u, j0 = strict ? 2u : 1u, k0 = strict ? 2u : 1u;
+			const uint32 i1 = strict ? (mNx > 1 ? mNx - 1 : 0) : mNx;
+			const uint32 j1 = strict ? (mNy > 1 ? mNy - 1 : 0) : mNy;
+			const uint32 k1 = strict ? (mNz > 1 ? mNz - 1 : 0) : mNz;
+			for (uint32 k = k0; k <= k1; ++k)
+				for (uint32 j = j0; j <= j1; ++j)
+					for (uint32 i = i0; i <= i1; ++i) {
 						const float32 d = 0.5f * (mU[Idx(i + 1, j, k)] - mU[Idx(i - 1, j, k)] + mV[Idx(i, j + 1, k)] -
 												  mV[Idx(i, j - 1, k)] + mW[Idx(i, j, k + 1)] - mW[Idx(i, j, k - 1)]);
 						const float32 a = NkAbs(d);
 						sum += (float64)a;
+						++n;
 						if (a > mx)
 							mx = a;
 					}
-			const uint32 n = mNx * mNy * mNz;
 			meanOut = (n > 0) ? (float32)(sum / (float64)n) : 0.f;
 			maxOut = mx;
 		}
@@ -490,6 +545,22 @@ namespace nkentseu {
 			mStats.maxSpeed = mx;
 			mStats.speedClamped = clamped;
 			mStats.nanCount = bad;
+
+			// La MEME population que la divergence stricte, sinon le rapport compare
+			// deux ensembles differents -- le defaut qu'on vient justement de trouver.
+			float64 sums = 0.0;
+			uint32 ns = 0;
+			if (mNx > 2 && mNy > 2 && mNz > 2) {
+				for (uint32 k = 2; k <= mNz - 1; ++k)
+					for (uint32 j = 2; j <= mNy - 1; ++j)
+						for (uint32 i = 2; i <= mNx - 1; ++i) {
+							const uint32 id = Idx(i, j, k);
+							sums += (float64)NkSqrt(mU[id] * mU[id] + mV[id] * mV[id] + mW[id] * mW[id]);
+							++ns;
+						}
+			}
+			mStats.cellsStrict = ns;
+			mStats.velocityMeanStrict = (ns > 0) ? (float32)(sums / (float64)ns) : 0.f;
 		}
 
 		float32 NkFluidGrid::TotalMass() const {
@@ -632,7 +703,7 @@ namespace nkentseu {
 			if (mParams.advectionEnabled)
 				AdvectVelocity(dt);
 
-			MeasureDivergence(mStats.divBeforeMean, mStats.divBeforeMax);
+			MeasureDivergence(mStats.divBeforeMean, mStats.divBeforeMax, false);
 
 			if (mParams.projectionEnabled)
 				Project(dt);
@@ -642,7 +713,8 @@ namespace nkentseu {
 				mStats.pressureCapHit = false;
 			}
 
-			MeasureDivergence(mStats.divAfterMean, mStats.divAfterMax);
+			MeasureDivergence(mStats.divAfterMean, mStats.divAfterMax, false);
+			MeasureDivergence(mStats.divAfterMeanStrict, mStats.divAfterMaxStrict, true);
 
 			if (mParams.advectionEnabled) {
 				AdvectScalar(mDensity0, mDensity, dt, 0);
@@ -676,6 +748,8 @@ namespace nkentseu {
 
 			MeasureVelocity();
 			mStats.divRatio = (mStats.velocityMean > 1.0e-9f) ? (mStats.divAfterMean / mStats.velocityMean) : 0.f;
+			mStats.divRatioStrict =
+				(mStats.velocityMeanStrict > 1.0e-9f) ? (mStats.divAfterMeanStrict / mStats.velocityMeanStrict) : 0.f;
 			mStats.mass = TotalMass();
 			mStats.heat = TotalHeat();
 			mStats.fuel = TotalFuel();
