@@ -161,10 +161,28 @@ with project("NKRenderer"):
     with filter("(system:Linux || system:macOS || (system:Windows && !options:windows-runtime=uwp && !system:XboxSeries && !system:XboxOne)) && !system:Android && !system:iOS && !system:Web"):
         with test():
             testfiles(["tests/**.cpp"])
-            _TEST_LINKS = ["NKRenderer", "NKCanvas", "NKWindow", "NKTime"]
+            # La suite fournit son main() (test_eau_sph.cpp, temoins §6.6) : pas
+            # d AutoMain Unitest. Mot propre de Jenga 2.6, comme NKPhysics.
+            testownmain()
+            # LA LISTE DE LIENS ETAIT INCOMPLETE, et personne ne l avait vu : cette
+            # suite n a jamais ete construite (elle n etait pas dans la liste `allow`
+            # de dutc/dute, et le dossier tests/ n existait pas). Premiere
+            # construction le 2026-09-06 : NKRenderer seul laisse 200 references non
+            # resolues (NkShaderConvert -> glslang / SPIRV-Cross, NkImage, NkFont...).
+            # La liste ci-dessous est celle de DemoRW (Applications/DemoRW/demorw.jenga),
+            # qui lie le meme renderer et fonctionne : meme ORDRE, parce que le linker
+            # GNU est mono-passe et resout vers l aval.
+            _TEST_LINKS = [
+                "NKRenderer", "NKCanvas", "NKAnima", "NKEvent", "NKWindow", "NKLogger",
+                "NKMath", "NKTime", "NKStream", "NKFileSystem",
+                "NKContainers", "NKMemory", "NKCore", "NKPlatform", "NKThreading",
+                "NKRHI", "NKSL", "NKSerialization", "NKReflection", "NKImage", "NKFont",
+            ]
             if USE_NKGLAD:
                 _TEST_LINKS.append("NKGlad")
+            _TEST_LINKS.extend(["NKGLSlang", "NKSPIRVCross"])
             links(_TEST_LINKS)
+            dependson(_TEST_LINKS)
             with filter("system:Linux && options:linux-backend=wayland"):
                 defines(WAYLAND_DEFINES)
                 links(WAYLAND_TEST_LINKS)
