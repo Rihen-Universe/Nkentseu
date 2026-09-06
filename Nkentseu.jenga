@@ -1038,6 +1038,12 @@ with workspace("Nkentseu", location="."):
 
 
 
+    with include("Applications/NkFluidGridProbe/NkFluidGridProbe.jenga"):
+
+        pass
+
+
+
     with include("Applications/NkComputeNkSL/NkComputeNkSL.jenga"):
 
         pass
