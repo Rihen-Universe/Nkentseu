@@ -9,6 +9,7 @@
 // @License Proprietary - All Rights Reserved (see LICENSE)
 // -----------------------------------------------------------------------------
 #include "NKGui/NKGui.h"
+#include "NKEditorKit/NkEditorSurface.h" // ④ LA porte unique pour peindre au-dessus
 #include "NKEditorKit/NkEditorScrollbar.h" // scrollbar standard
 #include "NKEditorKit/NkEditorTextField.h" // NkOverlayTextField (barre de recherche)
 
@@ -297,8 +298,15 @@ namespace nkentseu {
 			// Routeur d'occlusion unifie : ce menu est une surface de couche 50 — les
 			// hit-tests de couche 0 (panneaux/widgets natifs via ItemHoverable) sous
 			// son rect echouent automatiquement des la frame suivante.
-			ctx.PushOcclusion(box, 50);
-			NkGuiContext::NkInputLayerScope _layer(ctx, 50);
+			// ④ (06/09) UNE SEULE PORTE. Les deux lignes d'avant declaraient la
+			//    surface et fixaient la couche -- mais PAS le clavier ni la molette :
+			//    la toile de l'hote continuait de voir les touches et le defilement de
+			//    la meme image, sous un menu ouvert. C'est exactement le « le menu
+			//    laisse traverser les evenements » de Rodolf. Trois gestes
+			//    independants dont un seul manquait : la porte les rend indivisibles.
+			// ⚠️ CE MENU PREND LE CLAVIER, et c'est une decision : il a une bande de
+			//    recherche, un filtre, la molette et Echap.
+			NkSurfaceFlottante _surface(ctx, box, NkCouche::Menu, NkPriseClavier::Oui);
 			// Couleurs du THÈME (dark ET light) — plus de valeurs en dur qui juraient
 			// en thème clair (fond sombre + texte clair sur UI claire).
 			dl.AddRectFilled(box, ctx.theme.panel, 6.f);

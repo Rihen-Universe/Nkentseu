@@ -66,6 +66,7 @@
 // -----------------------------------------------------------------------------
 
 #include "NKEditorKit/NkFilePicker.h"
+#include "NKEditorKit/NkEditorSurface.h" // ④ LA porte unique pour peindre au-dessus
 #include "NKEditorKit/NkEditorContextMenu.h" // ② NkCtxMenu / NkCtxMenuDraw — le menu du kit
 #include "NKFileSystem/NkFileSystem.h" // ② NkFileSystem::GetDrives : les volumes MONTES
 #include "NKEditorKit/NkTheme.h"
@@ -2097,9 +2098,12 @@ namespace nkentseu {
 			//    la reserve protege le code propre de l'application (une toile qui lit
 			//    `ctx.input` sans passer par un widget). A re-armer a chaque image :
 			//    c'est ce qui la rend caduque toute seule a la fermeture.
-			ctx.PushOcclusion({0.f, 0.f, W, H}, 100);
-			NkGuiContext::NkInputLayerScope _couche(ctx, 100);
-			ctx.input.ReserverSaisie();
+			// ④ (06/09) LES TROIS GESTES PASSENT PAR UNE SEULE PORTE. Ils etaient
+			//    justes ici -- ce dialogue est l'un des quatre qui reclamaient tout --
+			//    mais ecrits a la main, donc recopiables de travers. La porte les rend
+			//    indivisibles, et le banc peut alors LES COMPTER.
+			NkSurfaceFlottante _surface(ctx, {0.f, 0.f, W, H}, NkCouche::Modale,
+									   NkPriseClavier::Oui);
 			const bool premiereDeLaPile = (ctx.modalDepth == 0);
 			++ctx.modalDepth;
 			if (premiereDeLaPile)

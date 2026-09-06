@@ -75,6 +75,24 @@ namespace nkentseu {
 	namespace editorkit {
 		namespace navprobe {
 
+			/// Sous-chaine brute, pour la famille 11 : ce banc LIT LES SOURCES du kit.
+			/// Ce n'est pas une reimplantation du code teste -- c'est de l'outillage
+			/// d'assertion, la meme frontiere que la comparaison de chaines du banc voisin.
+			inline bool ContientSousChaine(const char *foin, const char *aiguille) {
+				if (!foin || !aiguille || !*aiguille)
+					return false;
+				for (const char *d = foin; *d; ++d) {
+					const char *a = d, *c = aiguille;
+					while (*a && *c && *a == *c) {
+						++a;
+						++c;
+					}
+					if (!*c)
+						return true;
+				}
+				return false;
+			}
+
 			// ── LE COMPTEUR ─────────────────────────────────────────────────────
 			struct Bilan {
 					int32 total = 0;
@@ -1614,8 +1632,201 @@ namespace nkentseu {
 					NkDirectory::Delete(d10.CStr(), true);
 				}
 
+				// ══ Famille 11 — S10 ④ RECLAMER L'ENTREE : la porte, et le recensement ══
+				//
+				// Rodolf : « le menu contextuel laisse traverser les evenements. Il faut
+				// corriger ce probleme sur TOUS les composants qui ne doivent pas laisser
+				// traverser les evenements. » -- donc la REGLE, pas la rustine.
+				//
+				// Deux mesures de nature differente, et il faut les distinguer :
+				//   11a-11e  DYNAMIQUES : la porte fait-elle vraiment les trois gestes,
+				//            les defait-elle en sortant, et un point sous la surface
+				//            devient-il inatteignable depuis la couche du dessous ;
+				//   11f-11h  SUR LES SOURCES : personne ne peint au-dessus sans reclamer.
+				//            Meme forme que le banc des liaisons de materiau, qui va lire
+				//            LE SHADER SUR LE DISQUE -- la verite est EXTERNE au code
+				//            teste, sinon un code faux se juge lui-meme.
+				printf("\nFamille 11 — S10 ④ reclamer l'entree : la porte unique, et le recensement\n");
+				{
+					NkGuiContext ctx;
+					ctx.curInputLayer = 0;
+					ctx.occlCountNew = 0;
+					ctx.input.saisieReservee = false;
+					NkSurfacesDeLImage().Reinitialiser();
+					const NkRect surf = {100.f, 100.f, 200.f, 150.f};
+					{
+						NkSurfaceFlottante s(ctx, surf, NkCouche::Menu, NkPriseClavier::Oui);
+						snprintf(detail, sizeof(detail),
+								 "construire la porte fait LES TROIS gestes : occlusion declaree "
+								 "(%d), couche fixee (%d, attendu 50), clavier reserve (%d)",
+								 ctx.occlCountNew, ctx.curInputLayer,
+								 ctx.input.saisieReservee ? 1 : 0);
+						Verifier(b,
+								 ctx.occlCountNew == 1 && ctx.curInputLayer == 50
+										 && ctx.input.saisieReservee,
+								 "11a", detail);
+					}
+					snprintf(detail, sizeof(detail),
+							 "en sortant, la couche revient a celle du dessous (%d, attendu 0) -- "
+							 "sans ca, tout ce qui est peint APRES heriterait de la couche du menu",
+							 ctx.curInputLayer);
+					Verifier(b, ctx.curInputLayer == 0, "11b", detail);
+
+					// ── 11c — LE CLAVIER EST UNE DECISION, ET ELLE EST HONOREE ───────
+					// CONTROLE NEGATIF de 11a : si la porte reservait TOUJOURS le
+					// clavier, 11a serait vert sur une porte qui ignore son parametre --
+					// « un parametre qui n'est pas honore est pire qu'un parametre
+					// absent ».
+					ctx.input.saisieReservee = false;
+					ctx.occlCountNew = 0;
+					{
+						NkSurfaceFlottante s(ctx, surf, NkCouche::Menu, NkPriseClavier::Non);
+						snprintf(detail, sizeof(detail),
+								 "CONTROLE NEGATIF : `NkPriseClavier::Non` ne reserve PAS le "
+								 "clavier (%d, attendu 0) mais declare quand meme la surface (%d)",
+								 ctx.input.saisieReservee ? 1 : 0, ctx.occlCountNew);
+						Verifier(b, !ctx.input.saisieReservee && ctx.occlCountNew == 1, "11c",
+								 detail);
+					}
+
+					// ── 11d — L'OCCLUSION MORD VRAIMENT ─────────────────────────────
+					// On simule ce que `NewFrame` fait : la liste ECRITE cette image
+					// devient la liste LUE a la suivante. Sans cette bascule, on
+					// testerait une declaration que personne ne lit jamais.
+					ctx.occlRects[0] = surf;
+					ctx.occlLayers[0] = 50;
+					ctx.occlCount = 1;
+					ctx.input.mousePos = {surf.x + 10.f, surf.y + 10.f};
+					ctx.curInputLayer = 0;
+					const bool vuDeDessous = ctx.InputHits({surf.x, surf.y, 20.f, 20.f});
+					ctx.curInputLayer = 50;
+					const bool vuDeLaSurface = ctx.InputHits({surf.x, surf.y, 20.f, 20.f});
+					ctx.curInputLayer = 0;
+					snprintf(detail, sizeof(detail),
+							 "un point sous la surface : inatteignable depuis la couche 0 (%d, "
+							 "attendu 0) et atteignable depuis la couche 50 (%d, attendu 1)",
+							 vuDeDessous ? 1 : 0, vuDeLaSurface ? 1 : 0);
+					Verifier(b, !vuDeDessous && vuDeLaSurface, "11d", detail);
+
+					// ── 11e — LE REGISTRE COMPTE CE QUI EST PASSE PAR LA PORTE ───────
+					const NkRegistreSurfaces &reg = NkSurfacesDeLImage();
+					snprintf(detail, sizeof(detail),
+							 "le registre a compte les deux surfaces (%u) dont UNE avec clavier "
+							 "(%u), couche max %d",
+							 reg.ouvertes, reg.avecClavier, reg.coucheMax);
+					Verifier(b, reg.ouvertes == 2u && reg.avecClavier == 1u && reg.coucheMax == 50,
+							 "11e", detail);
+					NkSurfacesDeLImage().Reinitialiser();
+				}
+
+				// ── LE RECENSEMENT, SUR LES SOURCES ─────────────────────────────────
+				{
+					// Le dossier du kit, trouve en REMONTANT depuis le dossier courant.
+					// ⚠️ UN BANC QUI NE TROUVE PAS SON SUJET ECHOUE, il n'applaudit pas :
+					//    sans ce refus, un banc lance d'ailleurs rendrait « 0 fichier
+					//    fautif » et ce zero passerait pour une preuve.
+					NkString kit;
+					{
+						NkString cur = NkDirectory::GetCurrentDirectory().ToString();
+						for (int32 remonte = 0; remonte < 8 && kit.Empty(); ++remonte) {
+							const NkString essai =
+								(NkPath(cur) / "Engine" / "NKEditorKit" / "src" / "NKEditorKit")
+									.ToString();
+							if (NkDirectory::Exists(essai.CStr()))
+								kit = essai;
+							else
+								cur = NkPath(cur).GetParent().ToString();
+						}
+					}
+					snprintf(detail, sizeof(detail), "les sources du kit sont trouvees : « %s »",
+							 kit.Empty() ? "(introuvable en remontant 8 niveaux)" : kit.CStr());
+					Verifier(b, !kit.Empty(), "11f", detail);
+
+					if (!kit.Empty()) {
+						// LES TROIS SEULS FICHIERS AUTORISES A TOUCHER `dlOverlay` SANS
+						// DECLARER DE PORTE, chacun avec sa raison ecrite. ⚠️ C'est un
+						// compte FIGE, et c'est legitime : cette collection ne doit PAS
+						// grandir. Le jour ou elle grandit, c'est la question qu'il faut
+						// se poser, pas le nombre qu'il faut mettre a jour.
+						struct Dispense {
+								const char *fichier;
+								const char *raison;
+						};
+						static const Dispense kDispenses[3] = {
+							{"NkEditorSurface.h", "c'est LA porte elle-meme"},
+							{"NkEditorShell.h", "le mot n'y apparait que dans un commentaire"},
+							{"NkEditorModal.h",
+							 "reclame les TROIS a la main, non converti : sa geometrie n'est "
+							 "connue qu'en fin de fonction et l'un de ses deux traces a un mode "
+							 "« inerte » ou la reclamation doit etre OMISE"}};
+
+						NkVector<NkDirectoryEntry> tout = NkDirectory::GetEntries(
+							NkPath(kit), "*", NkSearchOption::NK_ALL_DIRECTORIES);
+						uint32 fichiersLus = 0u, peignentAuDessus = 0u, sansPorte = 0u;
+						char premierFautif[160];
+						premierFautif[0] = '\0';
+						for (uint32 i = 0; i < (uint32)tout.Size(); ++i) {
+							const NkString chemin = tout[i].FullPath.ToString();
+							const NkString nom = NkPath(chemin).GetFileName();
+							const char *n = nom.CStr();
+							usize l = 0u;
+							while (n[l])
+								++l;
+							const bool source = (l > 2u && n[l - 2u] == '.' && n[l - 1u] == 'h')
+												|| (l > 4u && n[l - 4u] == '.' && n[l - 3u] == 'c'
+													&& n[l - 2u] == 'p' && n[l - 1u] == 'p');
+							if (!source)
+								continue;
+							const NkString contenu = NkFile::ReadAllText(chemin.CStr());
+							if (contenu.Empty())
+								continue;
+							++fichiersLus;
+							if (!ContientSousChaine(contenu.CStr(), "dlOverlay"))
+								continue;
+							++peignentAuDessus;
+							if (ContientSousChaine(contenu.CStr(), "NkSurfaceFlottante"))
+								continue;
+							bool dispense = false;
+							for (int32 k = 0; k < 3; ++k)
+								if (NkComponentDecl::StrEq(n, kDispenses[k].fichier))
+									dispense = true;
+							if (dispense)
+								continue;
+							++sansPorte;
+							if (!premierFautif[0])
+								snprintf(premierFautif, sizeof(premierFautif), "%s", n);
+						}
+						snprintf(detail, sizeof(detail),
+								 "%u fichier(s) du kit lus, %u peignent au-dessus (`dlOverlay`), "
+								 "%u sans porte ni dispense [%s]",
+								 fichiersLus, peignentAuDessus, sansPorte,
+								 premierFautif[0] ? premierFautif : "(aucun)");
+						Verifier(b, fichiersLus > 10u && peignentAuDessus > 0u && sansPorte == 0u,
+								 "11g", detail);
+
+						// ── 11h — UNE DISPENSE QUI CESSE D'ETRE VRAIE DOIT ROUGIR ───
+						// `NkEditorModal.h` est dispense PARCE QU'IL reclame a la main.
+						// Si quelqu'un retire l'un des trois gestes, la dispense
+						// couvrirait un vrai defaut -- c'est exactement la forme
+						// « une tolerance temporaire s'ecrit dans le sens qui laisse
+						// passer sa propre disparition ».
+						const NkString modal = NkFile::ReadAllText(
+							(NkPath(kit) / "NkEditorModal.h").ToString().CStr());
+						const bool lu = !modal.Empty();
+						const bool troisGestes =
+							lu && ContientSousChaine(modal.CStr(), "PushOcclusion")
+							&& ContientSousChaine(modal.CStr(), "NkInputLayerScope")
+							&& ContientSousChaine(modal.CStr(), "ReserverSaisie");
+						snprintf(detail, sizeof(detail),
+								 "la dispense de NkEditorModal.h est encore vraie : il fait "
+								 "TOUJOURS les trois gestes a la main (lu=%d, trois=%d)",
+								 lu ? 1 : 0, troisGestes ? 1 : 0);
+						Verifier(b, troisGestes, "11h", detail);
+					}
+				}
+
 				terrain.Retirer();
-				printf("  -- familles 5 a 10 : %d/%d\n", b.ok, b.total);
+				printf("  -- familles 5 a 11 : %d/%d\n", b.ok, b.total);
 				return b;
 			}
 

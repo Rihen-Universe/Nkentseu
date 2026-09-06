@@ -6,6 +6,7 @@
 #include "NKEditorKit/NkEditorShell.h"
 #include "NKEditorKit/NkThemeToGui.h" // LA conversion NkTheme -> NkGuiTheme (une seule)
 #include "NKEditorKit/NkEditorCanvasRenderer.h" // backend de rendu par defaut (IDE)
+#include "NKEditorKit/NkEditorSurface.h" // ④ LA porte unique pour peindre au-dessus
 #include "NKEditorKit/NkEditorTooltip.h"		// NkTooltip : infobulle des voyants du footer
 #include <cstdio>								// snprintf (indicateur de zoom barre d'etat)
 
@@ -1157,6 +1158,14 @@ namespace nkentseu {
 				//    normale, il finirait derriere le dock et on croirait qu il ne
 				//    s ouvre pas.
 				PushOverlay(mUI);
+				// ④ (06/09) LE TIROIR PEINT UN VOILE ET NE RECLAMAIT RIEN. Le voile
+				//    disait « ce qui est dessous attend » ; l'entree, elle, passait
+				//    quand meme. On declare `corps` -- la zone que le voile couvre --
+				//    et non le seul rectangle du tiroir : c'est TOUT le corps qui
+				//    attend.
+				// ⚠️ PAS DE CLAVIER : le tiroir accueille un PANNEAU de l'hote, qui a
+				//    ses propres champs ; lui prendre le clavier ici les couperait.
+				NkSurfaceFlottante _tiroir(mUI, corps, NkCouche::Menu, NkPriseClavier::Non);
 				// Le voile : il dit « ce qui est dessous attend ». Sans lui, le
 				// tiroir se lit comme un panneau de plus, pas comme un tiroir.
 				mUI.dlOverlay.AddRectFilled(corps, mUI.theme.scrim);
@@ -2476,6 +2485,13 @@ namespace nkentseu {
 			if (y < 2.f)
 				y = 2.f;
 			const NkRect box = {x, y, w, h};
+			// ④ (06/09) CE MENU-CI NE RECLAMAIT RIEN. Il s'en remettait a `mCtxOpen`,
+			//    teste dans la condition `modal` de la boucle d'image, qui neutralise
+			//    l'entree des PANNEAUX -- mais ne declare rien au routeur d'occlusion.
+			//    Un widget natif dessine dans la couche overlay restait donc atteignable
+			//    sous le menu. Et surtout : le kit avait DEUX menus contextuels dont un
+			//    seul reclamait, ce que le recensement du 06/09 a mis au jour.
+			NkSurfaceFlottante _menu(mUI, box, NkCouche::Menu, NkPriseClavier::Oui);
 			dl.AddRectFilled({box.x + 2.f, box.y + 3.f, box.w, box.h}, NkColor{0, 0, 0, 60}, 6.f); // ombre
 			dl.AddRectFilled(box, mUI.theme.panel, 6.f);
 			dl.AddRect(box, mUI.theme.border, 1.f);
@@ -2784,8 +2800,11 @@ void NkEditorShell::MaximizeWindow() noexcept {
 			// Mesure du 2026-08-17 (Nogee, --occlusion-test), temoin a l'appui :
 			// panneau ancre -> ItemHoverable = 1 palette FERMEE **et** 1 palette
 			// OUVERTE, donc le clic traversait.
-			mUI.PushOcclusion({0.f, 0.f, W, H}, 50);
-			NkGuiContext::NkInputLayerScope _paletteLayer(mUI, 50);
+			// ④ (06/09) ET LE TROISIEME GESTE MANQUAIT : le clavier. La palette a un
+			//    champ de recherche et se pilote aux fleches -- sans reserve, la toile
+			//    de l'hote voyait les MEMES touches. Les trois passent par une porte.
+			NkSurfaceFlottante _palette(mUI, {0.f, 0.f, W, H}, NkCouche::Menu,
+									   NkPriseClavier::Oui);
 
 			const float32 pw = 480.f, rowH = mUI.ItemHeight() + 4.f, headH = mUI.ItemHeight() + 12.f;
 			const int32 count = mNumCommands;
@@ -3064,6 +3083,13 @@ void NkEditorShell::MaximizeWindow() noexcept {
 			auto hit = [&](const NkRect &r) { return NkGuiRectContains(r, mp); };
 
 			const float32 pw = 620.f, ph = 505.f, px = (W - pw) * 0.5f, py = (H - ph) * 0.5f;
+			// ④ (06/09) LES PREFERENCES SONT UNE MODALE, et elles ne se declaraient
+			//    pas. Elles tenaient par `mShowPrefs` dans la condition `modal` de la
+			//    boucle -- meme demi-protection que le menu contextuel ci-dessus, meme
+			//    trou : rien au routeur d'occlusion. Le voile plein ecran est declare,
+			//    et non la seule fenetre : rien derriere ne doit repondre.
+			NkSurfaceFlottante _prefs(mUI, {0.f, 0.f, W, H}, NkCouche::Modale,
+									  NkPriseClavier::Oui);
 			dl.AddRectFilled({0.f, 0.f, W, H}, kBackdrop);
 			// Clic hors fenetre -> ferme (sauf la frame d'ouverture : le clic du menu
 			// est lui-meme hors du popup centre, il fermerait aussitot).

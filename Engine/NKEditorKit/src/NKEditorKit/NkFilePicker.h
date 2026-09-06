@@ -10,10 +10,11 @@
 //          Le RENDU et les ACTIONS de confirmation (charger / enregistrer /
 //          scaffolding) sont la SPECIALISATION de l'application (ex. NKCode
 //          derive de NkFilePickerState et dessine son propre DrawFolderPicker).
-// @Author  Rihen
+// @Author  TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // @License Proprietary - All Rights Reserved (see LICENSE)
 // -----------------------------------------------------------------------------
-#include "NKGui/NKGui.h"				  // rendu : NkGuiContext / NkGuiDrawList / NkGuiFont / NkGuiKey
+#include "NKGui/NKGui.h" // rendu : NkGuiContext / NkGuiDrawList / NkGuiFont / NkGuiKey
+#include "NKEditorKit/NkEditorSurface.h" // ④ LA porte unique pour peindre au-dessus
 #include "NKEditorKit/NkEditorTextField.h"  // NkOverlayTextField (champ mono-ligne moteur)
 #include "NKEditorKit/NkEditorScrollbar.h"  // NkVScrollbar/NkHScrollbar (scrollbar general)
 #include "NKFileSystem/NkFile.h"
@@ -547,15 +548,18 @@ namespace nkentseu {
 			// picker LUI-MEME (champs de saisie, barres de defilement, boutons via
 			// ItemHoverable) seraient bloques par sa propre occlusion a la frame
 			// suivante (la liste lue est celle de la frame precedente).
-			ctx.PushOcclusion({0.f, 0.f, W, H}, 100);
-			NkGuiContext::NkInputLayerScope _pickerLayer(ctx, 100);
+			// ④ (06/09) LES TROIS GESTES PAR UNE SEULE PORTE -- ils etaient corrects
+			//    ici, mais ecrits a trois endroits distants les uns des autres, ce qui
+			//    est exactement la forme qui se recopie en oubliant le troisieme.
+			NkSurfaceFlottante _surface(ctx, {0.f, 0.f, W, H}, NkCouche::Modale,
+									   NkPriseClavier::Oui);
 			// ② CE DIALOGUE POSSEDE L'ENTREE (2026-09-05) : l'occlusion protege les widgets du
 			//    kit, elle ne protege PAS le code propre d'une application (une toile qui lit
 			//    `ctx.input` directement, une touche lue par un panneau). La reserve, elle,
 			//    passe par l'hote : il neutralise souris, molette et clavier pour tout ce qui
 			//    est dessous a l'image suivante. A re-armer a chaque image -- c'est ce qui la
 			//    rend automatiquement caduque a la fermeture.
-			ctx.input.ReserverSaisie();
+			//    (la reserve est faite par `_surface`, ci-dessus.)
 			const bool down = ctx.input.mouseDown[0];
 			bool fieldClicked = false; // un champ de saisie a-t-il ete clique cette frame ?
 			// VOILE : une seule fois pour toute la pile de surfaces modales. Ce
