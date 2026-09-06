@@ -1962,8 +1962,17 @@ int nkmain(const NkEntryState &entry) {
 			// + carte navigateur + ECRITURE du `.nkmesh` par model, tout de
 			// suite -- « un import ECRIT » (contrat de Rodolf du 17/08 soir,
 			// NkModelerImport.h). Le bouton = import seul.
-			if (st.pickerAction == 2 && st.picker.pickerResultPath[0])
-				nk3d::NkImportFile(st, st.picker.pickerResultPath);
+			// ⚠️ PAR LA PORTE DE LISTE, meme pour un seul chemin (Rodolf,
+			// 06/09 : « dans le chargeur on doit pouvoir avoir la possibilite
+			// de charger plusieurs fichiers »). Le selecteur du kit ne rend
+			// encore qu'UN `pickerResultPath` -- la selection multiple y est le
+			// chantier d'un autre agent -- mais l'appelant est deja ecrit pour
+			// une liste : le jour ou le kit la livre, c'est CETTE ligne qui
+			// change, et rien en dessous.
+			if (st.pickerAction == 2 && st.picker.pickerResultPath[0]) {
+				const char *un[1] = {st.picker.pickerResultPath};
+				(void)nk3d::NkImportFiles(st, un, 1);
+			}
 			st.pickerAction = 0;
 			st.matNewPending = false;
 			// Le mode « nouveau materiau » du selecteur se desarme TOUT SEUL,
@@ -2395,8 +2404,41 @@ int nkmain(const NkEntryState &entry) {
 			static bool sAgentImportDone = false;
 			if (!sAgentImportDone && agentFrame >= 10 && demo::Demo3DHostReady()) {
 				sAgentImportDone = true;
-				if (const char *v = std::getenv("NK_IMPORT_FILE"))
-					nk3d::NkImportFile(st, v);
+				// NK_IMPORT_FILE : UN chemin, ou PLUSIEURS separes par `;`.
+				// C'est le temoin de la porte de liste (Rodolf, 06/09, point ⑤)
+				// et celui des PLAFONDS (point ④) : `NK_IMPORT_REPEAT=<n>`
+				// rejoue la meme liste n fois, jusqu'a ce que la chaine dise
+				// non -- et le journal dit alors OU elle a dit non.
+				if (const char *v = std::getenv("NK_IMPORT_FILE")) {
+					char buf[NkModelerState::kMaxOsDrop * 512];
+					snprintf(buf, sizeof(buf), "%s", v);
+					const char *ptrs[NkModelerState::kMaxOsDrop];
+					int32 n = 0;
+					char *p = buf;
+					while (*p && n < (int32)NkModelerState::kMaxOsDrop) {
+						ptrs[n++] = p;
+						while (*p && *p != ';')
+							++p;
+						if (*p == ';')
+							*p++ = 0;
+					}
+					int32 tours = 1;
+					if (const char *r = std::getenv("NK_IMPORT_REPEAT")) {
+						tours = (int32)std::atoi(r);
+						if (tours < 1)
+							tours = 1;
+					}
+					for (int32 t = 0; t < tours; ++t) {
+						const int32 avant = st.BrowserCount();
+						const int32 ok = nk3d::NkImportFiles(st, ptrs, n);
+						nkentseu::NkLog::Instance().Infof(
+							"[import] TEMOIN plafond : tour %d/%d -> %d fichier(s) aboutis, "
+							"cartes %d -> %d",
+							t + 1, tours, ok, avant, st.BrowserCount());
+						if (ok == 0)
+							break; // la chaine a dit non : le refus est deja nomme
+					}
+				}
 				// NK_OS_DROP="x,y,<chemin>" : FABRIQUE le lacher OS a ces pixels
 				// de fenetre, exactement comme NkDropFileEvent le range -- seul
 				// le trajet depuis l'explorateur est simule ; le routage par

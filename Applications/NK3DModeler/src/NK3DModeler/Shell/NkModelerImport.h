@@ -209,6 +209,41 @@ namespace nkentseu {
 			demo::Demo3DHostSetNodeLabel(node, nm);
 		}
 
+		/// LA SCENE HOTE OU L'IMPORT DEPOSE SES ARCHIVES -- et pourquoi ce n'est
+		/// PAS toujours le document actif.
+		///
+		/// 🔴 MESURE du 2026-09-06, et c'est la vraie cause du refus que Rodolf
+		/// conteste. Un noeud nait dans `nkvpSceneOf = nkvpCurScene`, donc dans
+		/// le document ACTIF (`HostAllocUser`, NkDemo3D.cpp). Or
+		/// `NkScWriteScene` (NkModelerScene.h) rend **-1** -- « ne pas ecrire »
+		/// -- pour toute scene hote qui appartient a un document TRANSITOIRE :
+		/// editeur d'asset ou isolation. Un import lance depuis un onglet de
+		/// MODEL faisait donc naitre son archive dans une scene que
+		/// l'enregistrement JETTE : la carte partait dans le `.nk3dm`, sa
+		/// geometrie non, et le model rouvert aurait ete vide.
+		///
+		/// Le refus etait donc une PROTECTION, jamais ecrite comme telle. Rodolf
+		/// a raison sur la regle -- « l'import est une operation du projet » --
+		/// et le retirer seul aurait installe une perte silencieuse. On corrige
+		/// la cause : l'import depose dans une scene DURABLE, quel que soit
+		/// l'onglet ouvert.
+		///
+		/// Rend -1 si aucun document durable n'existe : l'appelant refuse et le
+		/// dit, il ne devine pas.
+		inline int32 NkImpArchiveScene(const NkModelerState &st) {
+			// Cas courant, et le moins surprenant : l'onglet actif EST une scene.
+			const int32 dA = st.TabDoc(st.activeTab);
+			if (dA >= 0 && !st.docTransient[dA])
+				return (int32)st.docScene[dA];
+			// Sinon la PREMIERE scene durable du projet. Le choix n'a pas
+			// d'effet visible -- l'archive est invisible dans tous les documents
+			// (`nkvpDeleted`) -- il decide seulement du fichier qui la portera.
+			for (int32 d = 0; d < NkModelerState::kMaxDocs; ++d)
+				if (st.docUsed[d] && !st.docTransient[d])
+					return (int32)st.docScene[d];
+			return -1;
+		}
+
 		/// LA CREATION (point 4 de l'eclatement, contrat du 17/08 soir) : chaque
 		/// model de la decomposition devient des NOEUDS -- puis est ARCHIVE EN
 		/// PLACE (invisible, hors hierarchie : rien n'entre dans la scene) et
@@ -248,15 +283,6 @@ namespace nkentseu {
 		inline bool NkImportCreate(NkModelerState &st, const renderer::NkGLTFMeshData &data,
 								   const NkVector<NkImportModel> &models, const char *stem,
 								   NkVector<int32> *cardsOut = nullptr) {
-			// Un import cree des MODELS : dans un editeur de model, il n'a pas
-			// de sens (un model ne contient pas de models). Refus NOMME.
-			if (demo::Demo3DHostDocIsModel()) {
-				NkImportNote(st, NkToastKind::Refus,
-							 "Import impossible dans un MODEL. Un import cree des models, et un model n'en "
-							 "contient pas. Que faire : ouvrez un onglet de SCENE (double-clic sur une carte "
-							 "de scene dans le navigateur), puis relancez l'import.");
-				return false;
-			}
 			// Un import ECRIT dans le projet : sans projet ouvert, il n'a nulle
 			// part ou ecrire, et le dire vaut mieux qu'ecrire dans le vide.
 			if (st.projectRoot.Empty()) {
@@ -280,6 +306,23 @@ namespace nkentseu {
 							 (unsigned)vTotal, (unsigned)iTotal);
 				return false;
 			}
+			// ── L'IMPORT EST UNE OPERATION DU PROJET, PAS DE L'ONGLET ────────
+			// (Rodolf, 2026-09-06 : « il devrait juste importer et mettre dans
+			// le dossier, il n'y a pas de probleme a importer que ce soit quand
+			// un onglet de model est ouvert ou pas ».)
+			// La scene hote est forcee sur une scene DURABLE le temps de la
+			// creation, puis rendue telle qu'elle etait. Voir NkImpArchiveScene
+			// pour la mesure qui l'exige.
+			const int32 scArchive = NkImpArchiveScene(st);
+			if (scArchive < 0) {
+				NkImportNote(st, NkToastKind::Refus,
+							 "Import impossible : ce projet n'a aucune scene DURABLE ou deposer l'archive "
+							 "(seuls des onglets d'edition sont ouverts). Que faire : Scene > Nouvelle "
+							 "scene, puis relancez l'import.");
+				return false;
+			}
+			const int32 scAvant = demo::Demo3DHostActiveScene();
+			demo::Demo3DHostSetActiveScene(scArchive);
 			// Table globale -> local d'UNE tranche. Remise a -1 par liste des
 			// entrees touchees (jamais un balayage de tout le buffer par
 			// tranche).
@@ -456,6 +499,14 @@ namespace nkentseu {
 					mo.subCount, mVerts, mIdx, topPos[0], topPos[1], topPos[2], k6,
 					ecrit ? st.Card(k6).file : "(non ecrit)");
 			}
+			// LA SCENE ACTIVE REVIENT TELLE QU'ELLE ETAIT. Elle est rendue ICI et
+			// pas plus haut : tout ce qui precede fait naitre des noeuds, et
+			// `HostAllocUser` lit `nkvpCurScene` a chaque naissance.
+			demo::Demo3DHostSetActiveScene(scAvant);
+			NkLog::Instance().Infof("[import] MESURE scene d'archive : depot=%d actif=%d rendu=%d "
+									"docModel=%d",
+									scArchive, scAvant, demo::Demo3DHostActiveScene(),
+									demo::Demo3DHostDocIsModel() ? 1 : 0);
 			// Le projet a change (cartes dans l'arbre du .nk3dm) : il le sait.
 			if (modelsNes > 0)
 				NkMarkDirty(st);
@@ -509,6 +560,36 @@ namespace nkentseu {
 			char stem[32];
 			NkImpStem(absPath, stem, (uint32)sizeof(stem));
 			return NkImportCreate(st, data, models, stem, cardsOut);
+		}
+
+		/// L'IMPORT D'UNE LISTE. C'est la forme que Rodolf demande (2026-09-06 :
+		/// « dans le cas de l'import de NK3DModeler je dois pouvoir charger
+		/// plusieurs modeles »), et elle est ecrite MAINTENANT bien que le
+		/// selecteur du kit ne rende encore qu'UN chemin : la selection multiple
+		/// est le chantier de l'agent du kit, pas le mien, et le jour ou elle
+		/// arrive il n'y aura qu'un appelant a changer -- pas la chaine.
+		///
+		/// ⚠️ UN ECHEC N'ARRETE PAS LES SUIVANTS, et c'est deliberé : sur dix
+		/// fichiers laches ensemble, s'arreter au troisieme perdrait les sept
+		/// bons sans le dire. Chaque refus est deja NOMME par `NkImportFile` ;
+		/// on rend ici le COMPTE, et le total part au journal.
+		/// Rend le nombre de fichiers dont l'import a produit au moins un model.
+		inline int32 NkImportFiles(NkModelerState &st, const char *const *paths, int32 count,
+								   NkVector<int32> *cardsOut = nullptr) {
+			if (!paths || count <= 0)
+				return 0;
+			int32 ok = 0;
+			for (int32 i = 0; i < count; ++i) {
+				if (!paths[i] || !paths[i][0])
+					continue;
+				if (NkImportFile(st, paths[i], cardsOut))
+					++ok;
+			}
+			if (count > 1)
+				NkLog::Instance().Infof("[import] MESURE lot : %d fichier(s) demande(s), %d "
+										"aboutis, %d carte(s) au total",
+										count, ok, cardsOut ? (int32)cardsOut->Size() : -1);
+			return ok;
 		}
 
 		/// INSTANCIER dans la scene active les cartes que l'import vient de
@@ -624,8 +705,15 @@ namespace nkentseu {
 							 "VUE 3D (il se pose sous le curseur), sur la HIERARCHIE (aux coordonnees du "
 							 "fichier) ou sur le NAVIGATEUR (import seul, rien dans la scene).");
 			} else {
-				for (int32 i = 0; i < st.osDropCount; ++i)
-					(void)NkImportFile(st, st.osDropPaths[i], &cards);
+				// LE LACHER PORTE DEJA UNE LISTE : il passe donc par la porte de
+				// liste, comme le bouton. Deux chemins d'import auraient diverge
+				// au premier reglage qu'on ajoute (dialogue d'import, contrat
+				// point 3).
+				const char *ptrs[NkModelerState::kMaxOsDrop];
+				int32 n = 0;
+				for (int32 i = 0; i < st.osDropCount && n < (int32)NkModelerState::kMaxOsDrop; ++i)
+					ptrs[n++] = st.osDropPaths[i];
+				(void)NkImportFiles(st, ptrs, n, &cards);
 			}
 			st.osDropCount = 0;
 			if (cards.Empty())
