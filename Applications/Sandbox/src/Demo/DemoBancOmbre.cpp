@@ -106,7 +106,80 @@ namespace nkentseu {
 			return NkVec3f{0.f, -se, ce};
 		}
 
+		// =====================================================================
+		// SONDE : UN SHADER QUI NE COMPILE PAS DOIT RENDRE UN HANDLE INVALIDE.
+		//
+		// 🔴 CE QU'ELLE GARDE. Le 2026-09-07, un shader refuse par le pilote DX11
+		// (`error X3004`) a produit un handle VALIDE : `CreateShader` journalisait
+		// l'echec puis faisait `continue`, et la creation de pipeline annoncait
+		// `pipeline_valid=1`. Resultat : l'ombre proportionnelle etait morte sur
+		// DX11 et RIEN ne le disait — Rodolf reglait un parametre inerte. Le
+		// defaut de generation s'est corrige en cinquante lignes ; ce mensonge-la
+		// est la raison pour laquelle personne ne l'avait vu, et il protegeait
+		// tous les suivants.
+		//
+		// ⚠️ Elle n'interroge pas un JOURNAL, elle interroge la VALEUR RENDUE a
+		// l'appelant — c'est d'elle que depend tout le reste. Un journal se lit
+		// apres coup ; un handle decide.
+		static bool BancSondeShader(DemoCtx &ctx) {
+			if (!ctx.device)
+				return true;
+			// Un identifiant qui n'existe dans aucun dialecte : c'est exactement la
+			// FORME du defaut reel (`gl_fragcoord` non declare), pas une faute de
+			// syntaxe grossiere qu'un analyseur attraperait bien plus tot.
+			static const char *kHlslCasse = "float4 main() : SV_Target {\n"
+											"    return float4(nk_identifiant_qui_nexiste_pas, 0, 0, 1);\n"
+											"}\n";
+			static const char *kGlslCasse = "#version 430 core\n"
+											"out vec4 oColor;\n"
+											"void main() {\n"
+											"    oColor = vec4(nk_identifiant_qui_nexiste_pas, 0, 0, 1);\n"
+											"}\n";
+			const bool hlsl =
+				(ctx.api == NkGraphicsApi::NK_GFX_API_DX11 || ctx.api == NkGraphicsApi::NK_GFX_API_DX12);
+			// ⚠️ QUALIFICATION COMPLETE : `NkShaderHandle` existe dans DEUX espaces de
+			// noms visibles ici (`nkentseu::` et `nkentseu::renderer::`) et le
+			// compilateur la declare ambigue. Le depot connait deja ce piege sur
+			// `NkShaderStage`, avec la meme parade.
+			::nkentseu::NkShaderDesc d;
+			d.debugName = "BancSondeShaderCasse";
+			if (hlsl)
+				d.AddHLSL(::nkentseu::NkShaderStage::NK_FRAGMENT, kHlslCasse);
+			else
+				d.AddGLSL(::nkentseu::NkShaderStage::NK_FRAGMENT, kGlslCasse);
+
+			::nkentseu::NkShaderHandle h = ctx.device->CreateShader(d);
+			const bool valide = h.IsValid();
+			if (valide)
+				ctx.device->DestroyShader(h);
+
+			if (valide) {
+				logger.Errorf("[BancSondeShader] ROUGE : un shader REFUSE par le pilote a rendu un handle "
+							  "VALIDE. Un echec qui preserve le succes est un mensonge, pas un repli.\n");
+				return false;
+			}
+			logger.Infof("[BancSondeShader] VERTE : un shader refuse rend bien un handle invalide.\n");
+			return true;
+		}
+
 		bool DemoBancOmbre_Init(DemoCtx &ctx) {
+			// La sonde passe AVANT tout le reste : si le dorsal ment sur la
+			// validite d'un shader, rien de ce que ce banc mesure ensuite ne peut
+			// etre cru.
+			//
+			// ⚠️ ET ELLE SE DISTINGUE PAR LE CODE DE SORTIE. Premiere ecriture :
+			// `return BancSondeShader(ctx) ? false : false;` — elle rendait faux
+			// dans LES DEUX cas, donc l'application sortait en erreur qu'elle soit
+			// verte ou rouge. *Une sonde qui echoue toujours ne vaut pas mieux
+			// qu'une sonde qui ne peut pas echouer.* ROUGE -> `false`, code de
+			// sortie non nul ; VERTE -> on poursuit, le banc rend son image et
+			// sort a zero.
+			{
+				const char *v = ::nkentseu::env::GetEnvVar("NK_BANC_SONDE_SHADER");
+				if (v && v[0] && v[0] != '0' && !BancSondeShader(ctx))
+					return false;
+			}
+
 			auto *st = new BancOmbreState();
 			ctx.userData = st;
 

@@ -130,7 +130,13 @@ static void NkWebGladPostCallback(void *, const char *name, GLADapiproc, int len
 #endif
 
 #define NK_GL_LOG(...) logger_src.Infof("[NkRHI_GL] " __VA_ARGS__)
-#define NK_GL_ERR(...) logger_src.Infof("[NkRHI_GL][ERR] " __VA_ARGS__)
+// 🔴 UNE ERREUR SE JOURNALISE AU NIVEAU ERREUR. Jusqu'au 2026-09-07 cette
+// macro appelait `Infof` : le `[ERR]` n'etait que du TEXTE dans le message,
+// invisible a tout filtre de niveau. Mesure ce jour-la : les CINQ dorsaux du
+// RHI faisaient pareil, pour 126 sites d'erreur au total, aucun au bon
+// niveau. C'est ainsi qu'un shader refuse par le pilote a pu vivre invisible
+// assez longtemps pour que Rodolf regle un parametre mort.
+#define NK_GL_ERR(...) logger_src.Errorf("[NkRHI_GL][ERR] " __VA_ARGS__)
 #define NK_GL_CHECK()                                                                                                  \
 	do {                                                                                                               \
 		GLenum e = glGetError();                                                                                       \
