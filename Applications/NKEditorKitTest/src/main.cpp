@@ -2,7 +2,7 @@
 // @File    main.cpp
 // @Brief   BANC DE NKEditorKit — la resolution des roles de theme, et le choix
 //          du backend graphique. Sans fenetre, sans GPU, sans souris.
-// @Author  Rihen
+// @Author  TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // @License Proprietary - All Rights Reserved (see LICENSE)
 //
 // =============================================================================
@@ -77,6 +77,10 @@
 #include "NKEditorKit/Components/NkContentBrowserModel.h"
 #include "NKEditorKit/NkIEditorRenderer.h"
 #include "NKEditorKit/NkTheme.h"
+// Famille 5 — le RAIL du selecteur de fichiers. Le banc vit DANS LE KIT
+// (`NkFilePickerNavProbe.h`) : c'est le kit qu'il mesure, et une fusion doit
+// l'emporter avec le correctif qu'il garde. Ici, une ligne d'appel.
+#include "NKEditorKit/NkFilePickerNavProbe.h"
 
 #include <stdio.h>
 
@@ -391,6 +395,13 @@ int main(int argc, char **argv) {
 	Famille2_JetonsReels();
 	Famille3_RepliFranc();
 	Famille4_BackendGraphique();
+	// Famille 5 — le rail du selecteur. Elle tient son propre compte et rend un
+	// BILAN : on additionne les deux nombres, sinon deux echecs vaudraient un.
+	{
+		const navprobe::Bilan b5 = navprobe::Sonder();
+		gPassed += (uint32)b5.ok;
+		gFailed += (uint32)(b5.total - b5.ok);
+	}
 
 	printf("\n---------------------------------------------\n");
 	printf("RESULTAT : %u/%u\n", gPassed, gPassed + gFailed);
