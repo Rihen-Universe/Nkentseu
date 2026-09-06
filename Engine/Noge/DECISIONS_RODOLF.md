@@ -3117,6 +3117,13 @@ rendu 74,02 et 1,34, Wien 0,0079 %, D65 (0,3134 / 0,3237). *Le confinement à
    `Captures/fumee_panache_confinement_2026-09-07.png`. Même scène, même graine,
    même nombre de pas : **seul epsilon change**. C'est la seule chose de cette nuit
    qui se juge à l'œil, et c'est ce qu'il avait demandé.
+   ⚠️ **Elles ont été REGARDÉES, et voici ce qu'elles montrent exactement** : le jet
+   est une colonne lisse et sans détail ; le panache est **plus large et
+   STRUCTURÉ**, avec des bouffées internes visibles. **Elles ne montrent PAS encore
+   de grosses volutes qui s'enroulent** — la boîte fait 0,5 m de côté et la caméra
+   est proche, donc les tourbillons que le confinement entretient restent de la
+   taille de quelques cellules. *« Plus large et structuré » est ce que ces images
+   prouvent ; « ça tournoie » dirait plus que ce qu'elles montrent.*
 2. **Le prix, et l'arbitrage qui lui revient** : le confinement fait passer la
    dérive de masse de −29 % à −42 % et la divergence de 0,39 % à 6,33 %. Je l'ai
    armé **dans les réglages de Noge** (`Smoke()`, `Fire()`) et laissé **éteint dans
