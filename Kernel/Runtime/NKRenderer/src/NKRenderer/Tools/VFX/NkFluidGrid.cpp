@@ -67,6 +67,10 @@ namespace nkentseu {
 			mDivergence.Resize(mCount, 0.f);
 			mScratchA.Resize(mCount, 0.f);
 			mScratchB.Resize(mCount, 0.f);
+			mOmegaX.Resize(mCount, 0.f);
+			mOmegaY.Resize(mCount, 0.f);
+			mOmegaZ.Resize(mCount, 0.f);
+			mOmegaMag.Resize(mCount, 0.f);
 		}
 
 		void NkFluidGrid::Reset() {
@@ -77,7 +81,9 @@ namespace nkentseu {
 				mTemperature[i] = mTemperature0[i] = mParams.ambientTemperature;
 				mFuel[i] = mFuel0[i] = 0.f;
 				mPressure[i] = mDivergence[i] = 0.f;
+				mOmegaX[i] = mOmegaY[i] = mOmegaZ[i] = mOmegaMag[i] = 0.f;
 			}
+			mFieldTime = 0.f;
 		}
 
 		float32 NkFluidGrid::EffectiveBeta() const {
@@ -467,6 +473,209 @@ namespace nkentseu {
 		}
 
 		// =====================================================================
+		// VORTICITE — omega = rot(u), par differences CENTREES (Fedkiw 2001, eq. 9).
+		//
+		// Sur un champ LINEAIRE en espace, les differences centrees sont EXACTES : c'est
+		// ce qui permet au banc de calibrer l'instrument sur une rotation solide
+		// u = Omega x r, dont le rotationnel vaut 2*Omega exactement, avant de croire le
+		// moindre chiffre d'enstrophie.
+		//
+		// POPULATION : omega est calcule sur les nx*ny*nz cellules interieures (les
+		// voisins lus peuvent etre la couche fantome), puis |omega| est recopie sur les
+		// bords (SetBoundary scalaire) pour que le gradient de |omega| soit defini
+		// jusqu'au bord de l'interieur. Les STATISTIQUES, elles, ne comptent que
+		// l'interieur STRICT (2..N-1) — la meme population que la divergence stricte, et
+		// pour la meme raison : la couche collee aux parois porte une vorticite de
+		// CONVENTION (tangentielle recopiee, normale inversee), pas celle du fluide.
+		// =====================================================================
+		void NkFluidGrid::ComputeVorticity() {
+			const float32 inv2h = 1.f / (2.f * mParams.cellSize);
+			for (uint32 k = 1; k <= mNz; ++k)
+				for (uint32 j = 1; j <= mNy; ++j)
+					for (uint32 i = 1; i <= mNx; ++i) {
+						const uint32 id = Idx(i, j, k);
+						// omega = ( dw/dy - dv/dz , du/dz - dw/dx , dv/dx - du/dy )
+						const float32 ox = (mW[Idx(i, j + 1, k)] - mW[Idx(i, j - 1, k)]) * inv2h -
+										   (mV[Idx(i, j, k + 1)] - mV[Idx(i, j, k - 1)]) * inv2h;
+						const float32 oy = (mU[Idx(i, j, k + 1)] - mU[Idx(i, j, k - 1)]) * inv2h -
+										   (mW[Idx(i + 1, j, k)] - mW[Idx(i - 1, j, k)]) * inv2h;
+						const float32 oz = (mV[Idx(i + 1, j, k)] - mV[Idx(i - 1, j, k)]) * inv2h -
+										   (mU[Idx(i, j + 1, k)] - mU[Idx(i, j - 1, k)]) * inv2h;
+						mOmegaX[id] = ox;
+						mOmegaY[id] = oy;
+						mOmegaZ[id] = oz;
+						mOmegaMag[id] = NkSqrt(ox * ox + oy * oy + oz * oz);
+					}
+			SetBoundary(0, mOmegaMag); // Neumann : le gradient de |omega| reste defini au bord
+
+			// Statistiques sur l'interieur STRICT, population dite dans mStats.cellsStrict.
+			float64 sum = 0.0, sum2 = 0.0;
+			float32 mx = 0.f;
+			uint32 n = 0;
+			if (mNx > 2 && mNy > 2 && mNz > 2) {
+				for (uint32 k = 2; k <= mNz - 1; ++k)
+					for (uint32 j = 2; j <= mNy - 1; ++j)
+						for (uint32 i = 2; i <= mNx - 1; ++i) {
+							const float32 m = mOmegaMag[Idx(i, j, k)];
+							sum += (float64)m;
+							sum2 += (float64)m * (float64)m;
+							if (m > mx)
+								mx = m;
+							++n;
+						}
+			}
+			const float32 h = mParams.cellSize;
+			mStats.vorticityMean = (n > 0) ? (float32)(sum / (float64)n) : 0.f;
+			mStats.vorticityMax = mx;
+			mStats.enstrophy = (float32)(sum2 * (float64)(h * h * h));
+		}
+
+		// =====================================================================
+		// CONFINEMENT DE VORTICITE — Fedkiw, Stam & Jensen 2001, § 4, eq. (11) :
+		//     f_conf = epsilon * h * ( N x omega ),  N = grad|omega| / |grad|omega||
+		// On l'ajoute a la vitesse comme une acceleration (le papier ecrit l'equation
+		// de quantite de mouvement a densite unite).
+		//
+		// Un epsilon NEGATIF inverse la force : c'est la MUTATION du banc, pas un
+		// reglage. Elle doit faire CHUTER l'enstrophie — sans elle, « l'enstrophie
+		// augmente » ne prouverait pas que le SIGNE du produit vectoriel est le bon.
+		// =====================================================================
+		void NkFluidGrid::AddVorticityConfinement(float32 dt) {
+			mStats.confinementAccelMean = 0.f;
+			const float32 eps = mParams.vorticityConfinement;
+			if (eps == 0.f)
+				return;
+			const float32 h = mParams.cellSize;
+			const float32 inv2h = 1.f / (2.f * h);
+			const float32 k1 = eps * h;
+			float64 accSum = 0.0;
+			uint32 n = 0;
+			for (uint32 k = 1; k <= mNz; ++k)
+				for (uint32 j = 1; j <= mNy; ++j)
+					for (uint32 i = 1; i <= mNx; ++i) {
+						const uint32 id = Idx(i, j, k);
+						// eta = grad |omega|
+						const float32 ex = (mOmegaMag[Idx(i + 1, j, k)] - mOmegaMag[Idx(i - 1, j, k)]) * inv2h;
+						const float32 ey = (mOmegaMag[Idx(i, j + 1, k)] - mOmegaMag[Idx(i, j - 1, k)]) * inv2h;
+						const float32 ez = (mOmegaMag[Idx(i, j, k + 1)] - mOmegaMag[Idx(i, j, k - 1)]) * inv2h;
+						const float32 len = NkSqrt(ex * ex + ey * ey + ez * ez);
+						// La ou |grad|omega|| est nul, N n'est pas defini : on n'invente pas
+						// une direction, on n'applique AUCUNE force (Fedkiw, note de bas de
+						// page du § 4). Le seuil est relatif a la vorticite locale.
+						if (len < 1.0e-12f)
+							continue;
+						const float32 inv = 1.f / len;
+						const float32 nx = ex * inv, ny = ey * inv, nz = ez * inv;
+						const float32 ox = mOmegaX[id], oy = mOmegaY[id], oz = mOmegaZ[id];
+						// N x omega
+						const float32 fx = ny * oz - nz * oy;
+						const float32 fy = nz * ox - nx * oz;
+						const float32 fz = nx * oy - ny * ox;
+						const float32 ax = k1 * fx, ay = k1 * fy, az = k1 * fz;
+						mU[id] += dt * ax;
+						mV[id] += dt * ay;
+						mW[id] += dt * az;
+						accSum += (float64)NkSqrt(ax * ax + ay * ay + az * az);
+						++n;
+					}
+			mStats.confinementAccelMean = (n > 0) ? (float32)(accSum / (float64)n) : 0.f;
+			SetBoundary(1, mU);
+			SetBoundary(2, mV);
+			SetBoundary(3, mW);
+		}
+
+		// =====================================================================
+		// VENT — le champ de force externe commun (math::NkIForceField, NKMath).
+		// CONTRAT : Force() rend des NEWTONS ; on divise par la masse DECLAREE de la
+		// cellule (`fieldParticleMass`, kg), exactement comme les particules divisent
+		// par `NkEmitterDesc::particleMass` et le SPH par sa masse calibree. On suit la
+		// convention, on ne la reinvente pas.
+		// =====================================================================
+		void NkFluidGrid::AddWind(float32 dt) {
+			mStats.windAccelMean = 0.f;
+			if (mParams.field == nullptr || !mParams.fieldEnabled)
+				return;
+			const float32 m = mParams.fieldParticleMass;
+			if (m <= 0.f)
+				return; // une masse nulle ou negative n'a pas de sens : on refuse plutot que diviser
+			const float32 invM = 1.f / m;
+			const float32 h = mParams.cellSize;
+			float64 accSum = 0.0;
+			uint32 n = 0;
+			for (uint32 k = 1; k <= mNz; ++k)
+				for (uint32 j = 1; j <= mNy; ++j)
+					for (uint32 i = 1; i <= mNx; ++i) {
+						const uint32 id = Idx(i, j, k);
+						const NkVec3f p = {mParams.boundsMin.x + ((float32)i - 0.5f) * h,
+										   mParams.boundsMin.y + ((float32)j - 0.5f) * h,
+										   mParams.boundsMin.z + ((float32)k - 0.5f) * h};
+						const NkVec3f F = mParams.field->Force(p, mFieldTime); // newtons
+						const float32 ax = F.x * invM, ay = F.y * invM, az = F.z * invM;
+						mU[id] += dt * ax;
+						mV[id] += dt * ay;
+						mW[id] += dt * az;
+						accSum += (float64)NkSqrt(ax * ax + ay * ay + az * az);
+						++n;
+					}
+			mStats.windAccelMean = (n > 0) ? (float32)(accSum / (float64)n) : 0.f;
+			SetBoundary(1, mU);
+			SetBoundary(2, mV);
+			SetBoundary(3, mW);
+		}
+
+		// =====================================================================
+		// RAYON DE GIRATION HORIZONTAL — ce qui separe un JET d'un PANACHE.
+		// Tranche horizontale la plus proche de worldY ; barycentre (x,z) pondere par la
+		// densite, puis racine de la moyenne des carres des distances a ce barycentre.
+		// Pour une gaussienne 2D d'ecart-type sigma, ce rayon vaut sigma * racine(2) :
+		// c'est le controle POSITIF de l'instrument, et le banc le passe avant de s'en
+		// servir. La MASSE de la tranche est publiee avec le rayon : comparer deux
+		// rayons sans comparer les masses comparerait deux populations differentes.
+		// =====================================================================
+		bool NkFluidGrid::PlumeRadius(float32 worldY, float32 &radiusOut, float32 &sliceMassOut,
+									  uint32 &rowOut) const {
+			if (!mReady)
+				return false;
+			const float32 h = mParams.cellSize;
+			float32 fj = (worldY - mParams.boundsMin.y) / h + 0.5f;
+			if (fj < 1.f)
+				fj = 1.f;
+			if (fj > (float32)mNy)
+				fj = (float32)mNy;
+			const uint32 j = (uint32)(fj + 0.5f) < 1u ? 1u : ((uint32)(fj + 0.5f) > mNy ? mNy : (uint32)(fj + 0.5f));
+
+			float64 w = 0.0, sx = 0.0, sz = 0.0;
+			for (uint32 k = 1; k <= mNz; ++k)
+				for (uint32 i = 1; i <= mNx; ++i) {
+					const float32 d = mDensity[Idx(i, j, k)];
+					if (d <= 0.f)
+						continue;
+					const float64 x = (float64)(mParams.boundsMin.x + ((float32)i - 0.5f) * h);
+					const float64 z = (float64)(mParams.boundsMin.z + ((float32)k - 0.5f) * h);
+					w += (float64)d;
+					sx += (float64)d * x;
+					sz += (float64)d * z;
+				}
+			if (w <= 0.0)
+				return false;
+			const float64 cx = sx / w, cz = sz / w;
+			float64 s2 = 0.0;
+			for (uint32 k = 1; k <= mNz; ++k)
+				for (uint32 i = 1; i <= mNx; ++i) {
+					const float32 d = mDensity[Idx(i, j, k)];
+					if (d <= 0.f)
+						continue;
+					const float64 x = (float64)(mParams.boundsMin.x + ((float32)i - 0.5f) * h);
+					const float64 z = (float64)(mParams.boundsMin.z + ((float32)k - 0.5f) * h);
+					s2 += (float64)d * ((x - cx) * (x - cx) + (z - cz) * (z - cz));
+				}
+			radiusOut = (float32)NkSqrt((float32)(s2 / w));
+			sliceMassOut = (float32)(w * (float64)(h * h * h));
+			rowOut = j;
+			return true;
+		}
+
+		// =====================================================================
 		// COMBUSTION (palier ③) — réaction du premier ordre sur le carburant.
 		// burnRate = 0 (défaut) : rien ne se passe, la grille reste de la fumée.
 		// =====================================================================
@@ -699,6 +908,14 @@ namespace nkentseu {
 			AddSources(dt);
 			Combust(dt);
 			AddBuoyancy(dt);
+			// Les FORCES, dans l'ordre de Fedkiw 2001 (§ 4) : flottabilite, puis
+			// confinement de vorticite, puis les forces externes ; ensuite seulement
+			// l'advection, puis la projection. Le confinement lit omega du champ de
+			// vitesse COURANT : la vorticite se calcule donc juste avant.
+			ComputeVorticity();
+			AddVorticityConfinement(dt);
+			AddWind(dt);
+			mFieldTime += dt;
 
 			if (mParams.advectionEnabled)
 				AdvectVelocity(dt);
@@ -747,6 +964,11 @@ namespace nkentseu {
 			}
 
 			MeasureVelocity();
+			// SECONDE passe de vorticite : la premiere servait le confinement et decrivait
+			// le champ AVANT advection et projection. Ce que l'appelant lit dans les stats
+			// doit decrire le champ QU'IL VOIT, pas un etat intermediaire — sinon
+			// `Enstrophy()` repondrait a une autre question que celle qu'on croit poser.
+			ComputeVorticity();
 			mStats.divRatio = (mStats.velocityMean > 1.0e-9f) ? (mStats.divAfterMean / mStats.velocityMean) : 0.f;
 			mStats.divRatioStrict =
 				(mStats.velocityMeanStrict > 1.0e-9f) ? (mStats.divAfterMeanStrict / mStats.velocityMeanStrict) : 0.f;

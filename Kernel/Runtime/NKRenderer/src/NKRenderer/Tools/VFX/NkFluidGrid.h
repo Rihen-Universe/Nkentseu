@@ -62,6 +62,7 @@
 // =============================================================================
 #include "NKContainers/Sequential/NkVector.h"
 #include "NKMath/NKMath.h"
+#include "NKMath/NkIForceField.h" // le CONTRAT du vent, partage avec le tissu et le SPH (newtons)
 
 namespace nkentseu {
 	namespace renderer {
@@ -130,8 +131,43 @@ namespace nkentseu {
 				// mesure, eteint par defaut, jusqu'a une advection vraiment conservative.
 				bool advectMacCormack = false;
 
+				// CONFINEMENT DE VORTICITE — Fedkiw, Stam & Jensen, « Visual Simulation of
+				// Smoke », SIGGRAPH 2001, § 4, eq. (9)-(11). C'est ce qui fait d'un jet un
+				// PANACHE : l'advection semi-lagrangienne DISSIPE la vorticite (c'est le
+				// prix de sa stabilite inconditionnelle), et sans elle la colonne monte
+				// tout droit. Le confinement la REINJECTE la ou elle est deja, sans en
+				// creer ailleurs :
+				//     omega  = rot(u)                          (eq. 9)
+				//     N      = grad|omega| / | grad|omega| |   (eq. 10, normalise)
+				//     f_conf = epsilon * h * (N x omega)       (eq. 11)
+				// Le facteur h rend l'effet independant de la resolution (Fedkiw, § 4 :
+				// « to ensure that as h -> 0 the physically correct solution is obtained »).
+				// UNITE : f_conf est une ACCELERATION (m/s^2) — Fedkiw ecrit l'equation de
+				// quantite de mouvement a densite unite ; epsilon est sans dimension.
+				//
+				// 0 = eteint (defaut). NEGATIF = force INVERSEE : ce n'est pas un reglage,
+				// c'est la MUTATION du banc — elle doit faire CHUTER l'enstrophie et donc
+				// rougir le temoin. Sans elle, le critere « l'enstrophie augmente » ne
+				// prouverait que « du code tourne », pas que le SIGNE du produit vectoriel
+				// est le bon — et c'est l'erreur la plus probable de cette formule.
+				float32 vorticityConfinement = 0.f;
+
 				// Borne de sécurité, dite si elle mord.
 				float32 maxSpeed = 100.f;
+
+				// ── VENT (2026-09-06) : le champ de force EXTERNE, commun a tout le depot.
+				// CONTRAT (math::NkIForceField, NKMath) : Force(position, temps) rend des
+				// NEWTONS sur une particule PONCTUELLE ; CHAQUE CONSOMMATEUR DIVISE PAR LA
+				// MASSE DE SA PARTICULE. On suit la convention, on ne la reinvente pas.
+				// Ici la « particule » est une cellule, et sa masse est DECLAREE, pas
+				// derivee : la densite de cette grille est une concentration de fumee, pas
+				// une masse volumique en kg/m^3 — en tirer des kilogrammes serait inventer
+				// une unite. `fieldParticleMass` joue donc exactement le role de
+				// `NkEmitterDesc::particleMass` (kg, explicite), et le temoin le verifie :
+				// doubler la masse DOIT diviser l'acceleration par deux.
+				const math::NkIForceField *field = nullptr; // EMPRUNTE, jamais possede
+				float32 fieldParticleMass = 1.f;			// kg
+				bool fieldEnabled = true;					// faux -> le temoin du vent DOIT rougir
 
 				// ── INTERRUPTEURS DE MUTATION (les témoins DOIVENT rougir) ──────────
 				bool projectionEnabled = true; // faux -> témoin (b) divergence rouge
@@ -188,6 +224,20 @@ namespace nkentseu {
 				float32 pressureResidual0 = 0.f; // résidu max de départ (p = 0), m/s
 				float32 pressureOmega = 0.f;	 // sur-relaxation réellement appliquée
 				bool pressureCapHit = false;	 // la borne d'itérations a mordu
+
+				// VORTICITE (2026-09-06), mesuree sur l'INTERIEUR STRICT — la meme
+				// population que la divergence stricte, et pour la meme raison : la couche
+				// collee aux parois porte une vorticite de CONVENTION (le fantome tangentiel
+				// est recopie, le normal inverse), pas une vorticite du fluide.
+				//   enstrophy      = somme |omega|^2 * h^3   (unite : m^3/s^2)
+				//   vorticityMean  = |omega| moyen           (1/s)
+				float32 enstrophy = 0.f;
+				float32 vorticityMean = 0.f, vorticityMax = 0.f;
+				// Acceleration moyenne REELLEMENT ajoutee par le confinement au dernier pas
+				// (m/s^2), et par le vent. Un parametre non honore est pire qu'un parametre
+				// absent : ces deux chiffres disent que la force est PARTIE.
+				float32 confinementAccelMean = 0.f;
+				float32 windAccelMean = 0.f;
 
 				float32 maxSpeed = 0.f;
 				float32 maxTemperature = 0.f;
@@ -263,11 +313,37 @@ namespace nkentseu {
 				// Le beta de flottabilité RÉELLEMENT appliqué (Boussinesq si params <= 0).
 				float32 EffectiveBeta() const;
 
+				// ── VORTICITE (2026-09-06) ──────────────────────────────────────
+				// Renseignes par le dernier Step, sur l'INTERIEUR STRICT.
+				float32 Enstrophy() const { return mStats.enstrophy; }
+				float32 VorticityMean() const { return mStats.vorticityMean; }
+
+				// RAYON DE GIRATION HORIZONTAL de la densite dans la tranche horizontale la
+				// plus proche de `worldY` (m). C'est LA quantite qui separe un jet d'un
+				// panache : la racine de la moyenne des carres des distances au barycentre
+				// de la tranche, ponderee par la densite. Un jet mince a un petit rayon,
+				// un panache qui tournoie s'etale.
+				//  - `sliceMassOut` : la masse de la tranche. Il FAUT la publier : comparer
+				//    deux rayons sans comparer les masses comparerait deux populations.
+				//  - `rowOut` : l'indice j reellement lu (la tranche n'est pas exactement a
+				//    worldY, elle est a la rangee la plus proche).
+				// Rend false et ne touche a rien si la tranche est vide.
+				bool PlumeRadius(float32 worldY, float32 &radiusOut, float32 &sliceMassOut, uint32 &rowOut) const;
+
+				// L'instant que le champ de force voit (s). Avance de dt a chaque Step.
+				float32 FieldTime() const { return mFieldTime; }
+
 			private:
 				void Allocate();
 				void AddSources(float32 dt);
 				void AddBuoyancy(float32 dt);
 				void Combust(float32 dt);
+				// omega = rot(u) par differences centrees, + |omega|, bords recopies.
+				// TOUJOURS appelee (le confinement en a besoin, les temoins aussi) : elle
+				// coute une passe contre les dizaines de balayages du Poisson.
+				void ComputeVorticity();
+				void AddVorticityConfinement(float32 dt); // Fedkiw 2001, eq. (11)
+				void AddWind(float32 dt);				  // NkIForceField : newtons / masse declaree
 				// Position de depart (coordonnees de GRILLE) d'ou vient ce qui arrive en (i,j,k).
 				void Backtrace(uint32 i, uint32 j, uint32 k, float32 dt0, const NkVector<float32> &fu,
 							   const NkVector<float32> &fv, const NkVector<float32> &fw, float32 &x, float32 &y,
@@ -299,7 +375,9 @@ namespace nkentseu {
 				NkVector<float32> mTemperature, mTemperature0;
 				NkVector<float32> mFuel, mFuel0;
 				NkVector<float32> mPressure, mDivergence;
-				NkVector<float32> mScratchA, mScratchB; // aller-retour de MacCormack
+				NkVector<float32> mScratchA, mScratchB;			   // aller-retour de MacCormack
+				NkVector<float32> mOmegaX, mOmegaY, mOmegaZ, mOmegaMag; // rot(u) et son module
+				float32 mFieldTime = 0.f;						   // l'instant vu par le champ de force (s)
 		};
 
 	} // namespace renderer

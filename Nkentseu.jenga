@@ -1044,6 +1044,12 @@ with workspace("Nkentseu", location="."):
 
 
 
+    with include("Applications/NkFluidEcsProbe/NkFluidEcsProbe.jenga"):
+
+        pass
+
+
+
     with include("Applications/NkComputeNkSL/NkComputeNkSL.jenga"):
 
         pass

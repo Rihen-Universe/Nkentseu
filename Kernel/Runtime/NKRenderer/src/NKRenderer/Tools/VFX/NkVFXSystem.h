@@ -8,6 +8,7 @@
 #include "NKRenderer/Core/NkTextureLibrary.h"
 #include "NkParticleStore.h"
 #include "NkForceField.h"
+#include "NkFluidVolumeStore.h" // les volumes de fluide eulerien (fumee/feu) -- CPU pur, aucun device
 #include "NKRHI/Commands/NkICommandBuffer.h"
 #include "NKContainers/Associative/NkHashMap.h"
 
@@ -150,6 +151,21 @@ namespace nkentseu {
 				NkDecalId SpawnDecal(const NkDecalDesc &desc);
 				void DestroyDecal(NkDecalId &id);
 
+				// ── Volumes de FLUIDE (fumee/feu, grille eulerienne) ─────────────────
+				// Le systeme VFX POSSEDE le registre et l'avance dans son Update -- un
+				// seul appelant de StepAll par image. Le pont ECS (Noge) ne fait que
+				// DECLARER et POSITIONNER les volumes, comme NkParticleSystem laisse
+				// l'Update au renderer.
+				// ⚠️ Le registre est CPU PUR : il ne touche aucun device. C'est ce qui
+				// permet a un banc sans GPU d'eprouver StepAll, la fonction meme que
+				// l'Update ci-dessous appelle.
+				NkFluidVolumeStore &FluidVolumes() {
+					return mFluids;
+				}
+				const NkFluidVolumeStore &FluidVolumes() const {
+					return mFluids;
+				}
+
 				// ── Update & Render ───────────────────────────────────────────────────
 				void Update(float32 dt, const NkCamera3DData &cam);
 				void Render(NkICommandBuffer *cmd, const NkCamera3DData &cam);
@@ -212,6 +228,7 @@ namespace nkentseu {
 				NkTextureLibrary *mTexLib = nullptr;
 				NkMeshSystem *mMesh = nullptr;
 
+				NkFluidVolumeStore mFluids; // les volumes de fumee/feu (2026-09-06)
 				NkVector<Emitter *> mEmitters;
 				NkVector<Trail *> mTrails;
 				NkVector<Decal *> mDecals;

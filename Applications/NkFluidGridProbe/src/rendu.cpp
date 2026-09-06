@@ -112,7 +112,7 @@ static BoiteImage BoitePanache(const NkVector<uint8> &rgba, uint32 W, uint32 H, 
 }
 
 // ── la scène commune aux paliers ② et ③ : un panache établi ─────────────────
-static void ConstruirePanache(NkFluidGrid &g, bool avecFeu, uint32 pas) {
+static void ConstruirePanache(NkFluidGrid &g, bool avecFeu, uint32 pas, float32 epsilon = 0.f) {
 	NkFluidGridParams p;
 	p.boundsMin = {-0.25f, 0.f, -0.25f};
 	// Boite HAUTE : le panache doit se DILUER en montant, pas s'ecraser sous un
@@ -124,6 +124,7 @@ static void ConstruirePanache(NkFluidGrid &g, bool avecFeu, uint32 pas) {
 	p.temperatureDissipation = 0.5f;
 	p.buoyancyAlpha = 0.25f;
 	p.pressureTolerance = 1.0e-4f;
+	p.vorticityConfinement = epsilon; // Fedkiw 2001, § 4 -- 0 = le jet d'avant
 	if (avecFeu) {
 		// REGLAGE CHIFFRE, pas choisi a l'oeil : avec un debit de carburant r (1/s),
 		// un taux de reaction b et un refroidissement c, l'etat d'equilibre est
@@ -148,6 +149,109 @@ static void ConstruirePanache(NkFluidGrid &g, bool avecFeu, uint32 pas) {
 			g.EmitSphere({0.f, 0.05f, 0.f}, 0.06f, 7.f * dt, 400.f * dt, 0.f);
 		g.Step(dt);
 	}
+}
+
+// =============================================================================
+// =============================================================================
+// L'IMAGE DU CONFINEMENT — deux rendus de la MEME scene, seul epsilon change.
+//
+// C'est le seul livrable que Rodolf peut juger DE SES YEUX ; le reste de ce banc
+// juge des nombres. Mais « ca a l'air mieux » ne vaut rien : la largeur du
+// panache est donc AUSSI mesuree EN PIXELS, sur une ligne d'image donnee, par un
+// instrument INDEPENDANT de celui de la grille (qui, lui, lit le champ de
+// densite). Deux instruments, deux chemins, le meme verdict — ou alors il y a un
+// probleme, et on le saura.
+//
+// L'instrument : sur la ligne y de l'image, la racine de la moyenne des carres
+// des distances a la colonne barycentre, ponderee par l'OPACITE (distance de
+// Manhattan au fond, 0-765). Il ne sait rien de la grille.
+// Son CONTROLE POSITIF est celui du palier (2.0), deja passe : densite nulle ->
+// zero pixel different du fond, donc l'instrument ne fabrique pas de largeur sur
+// une image vide (il rend false).
+//
+// SEUIL : le meme que le temoin (v2) du fichier vorticite.cpp — x 1,15. Il n'est
+// pas choisi apres coup : c'est le seuil deja pre-enregistre pour « le panache
+// s'elargit », applique a un second instrument.
+// =============================================================================
+static bool LargeurEnPixels(const NkVector<uint8> &rgba, uint32 W, uint32 y, const uint8 bg[3], uint32 seuil,
+							float32 &rayonOut, float32 &opaciteOut, uint32 &pixelsOut) {
+	float64 w = 0.0, sx = 0.0;
+	pixelsOut = 0;
+	for (uint32 x = 0; x < W; ++x) {
+		const uint32 o = Opacite(rgba, W, x, y, bg);
+		if (o <= seuil)
+			continue;
+		w += (float64)o;
+		sx += (float64)o * (float64)x;
+		++pixelsOut;
+	}
+	if (w <= 0.0 || pixelsOut == 0)
+		return false;
+	const float64 cx = sx / w;
+	float64 s2 = 0.0;
+	for (uint32 x = 0; x < W; ++x) {
+		const uint32 o = Opacite(rgba, W, x, y, bg);
+		if (o <= seuil)
+			continue;
+		s2 += (float64)o * ((float64)x - cx) * ((float64)x - cx);
+	}
+	rayonOut = (float32)NkSqrt((float32)(s2 / w));
+	opaciteOut = (float32)(w / (float64)pixelsOut);
+	return true;
+}
+
+void ImagesDuConfinement(float32 epsilon) {
+	printf("\n=== L'IMAGE : le JET (epsilon = 0) contre le PANACHE (epsilon = %.2f) ===\n", (double)epsilon);
+	printf("    Meme scene, meme graine, meme nombre de pas : SEUL epsilon change.\n");
+
+	NkFluidRaymarchParams rp;
+	rp.width = 480;
+	rp.height = 360;
+	rp.cameraPos = {0.f, 0.38f, 2.10f};
+	rp.cameraTarget = {0.f, 0.30f, 0.f};
+	rp.fovDegrees = 40.f;
+	rp.shadowMaxDistance = 0.35f;
+	const uint8 bg[3] = {(uint8)(rp.background.x * 255.f + 0.5f), (uint8)(rp.background.y * 255.f + 0.5f),
+						 (uint8)(rp.background.z * 255.f + 0.5f)};
+
+	const uint32 pas = 255;
+	NkFluidGrid gA, gB;
+	ConstruirePanache(gA, false, pas, 0.f);
+	ConstruirePanache(gB, false, pas, epsilon);
+
+	NkVector<uint8> imgA, imgB;
+	NkFluidRaymarchStats stA, stB;
+	NkFluidRaymarchRender(gA, rp, imgA, stA);
+	NkFluidRaymarchRender(gB, rp, imgB, stB);
+	EcrirePng(imgA, rp.width, rp.height, "Captures/fumee_jet_sans_confinement_2026-09-07.png");
+	EcrirePng(imgB, rp.width, rp.height, "Captures/fumee_panache_confinement_2026-09-07.png");
+
+	const BoiteImage bA = BoitePanache(imgA, rp.width, rp.height, bg, 8);
+	const BoiteImage bB = BoitePanache(imgB, rp.width, rp.height, bg, 8);
+	printf("    boite du panache dans l'image : SANS x [%u, %u[ (%u px de large) ; AVEC x [%u, %u[ (%u px)\n",
+		   bA.x0, bA.x1, bA.x1 - bA.x0, bB.x0, bB.x1, bB.x1 - bB.x0);
+
+	// La ligne mesuree : le TIERS SUPERIEUR de la boite du panache SANS
+	// confinement -- c'est la, loin de la source, que le jet et le panache se
+	// separent. Elle est calee sur la boite mesuree, jamais ecrite a la main.
+	const uint32 ligne = bA.valide ? (bA.y0 + (bA.y1 - bA.y0) / 3u) : (rp.height / 3u);
+	float32 rA = 0.f, rB = 0.f, oA = 0.f, oB = 0.f;
+	uint32 nA = 0, nB = 0;
+	const bool okA = LargeurEnPixels(imgA, rp.width, ligne, bg, 8, rA, oA, nA);
+	const bool okB = LargeurEnPixels(imgB, rp.width, ligne, bg, 8, rB, oB, nB);
+	const float32 rapport = (rA > 0.f) ? (rB / rA) : 0.f;
+
+	char buf[420];
+	snprintf(buf, sizeof(buf),
+			 "ligne y = %u (tiers superieur de la boite SANS) : rayon en pixels %.3f (%u px, opacite moyenne %.1f) "
+			 "contre %.3f (%u px, opacite %.1f) -- rapport %.2f (seuil x 1,15, le meme que (v2))",
+			 ligne, (double)rA, nA, (double)oA, (double)rB, nB, (double)oB, (double)rapport);
+	ProbeCheck(okA && okB && rapport >= 1.15f, "(i1) A L'IMAGE, le panache est plus LARGE que le jet", buf);
+
+	printf("    images : Captures/fumee_jet_sans_confinement_2026-09-07.png et\n");
+	printf("             Captures/fumee_panache_confinement_2026-09-07.png (480 x 360, rendu CPU)\n");
+	printf("    cout : %.0f ms et %.0f ms\n", (double)stA.ms, (double)stB.ms);
+	fflush(stdout);
 }
 
 // =============================================================================

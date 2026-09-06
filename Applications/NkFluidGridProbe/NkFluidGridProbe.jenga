@@ -1,3 +1,4 @@
+# AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 """NkFluidGridProbe — les cinq temoins de la GRILLE de fumee (Stam 1999), sans GPU.
 
 Banc CPU pur : masse conservee, divergence nulle apres projection, flottabilite
@@ -23,8 +24,11 @@ with project("NkFluidGridProbe"):
     files([
         "src/main.cpp",
         "src/rendu.cpp",
+        "src/vorticite.cpp",
+        "src/branchement.cpp",
         "%{wks.location}/Kernel/Runtime/NKRenderer/src/NKRenderer/Tools/VFX/NkFluidGrid.cpp",
         "%{wks.location}/Kernel/Runtime/NKRenderer/src/NKRenderer/Tools/VFX/NkFluidGridRaymarch.cpp",
+        "%{wks.location}/Kernel/Runtime/NKRenderer/src/NKRenderer/Tools/VFX/NkFluidVolumeStore.cpp",
     ])
 
     nkentseudependson(
