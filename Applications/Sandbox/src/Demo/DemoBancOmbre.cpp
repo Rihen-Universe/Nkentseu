@@ -568,7 +568,12 @@ namespace nkentseu {
 				cube.transform = NkMat4f::Translate({3.f, 6.f, -12.f});
 				cube.aabb = {{2.5f, 5.5f, -12.5f}, {3.5f, 6.5f, -11.5f}};
 				cube.tint = {1.f, 0.f, 0.f};
-				cube.alpha = 1.f;
+				// NK_BANC_TEMOIN_ALPHA : l'opacite du cube temoin. Il n'a AUCUNE
+				// instance de materiau, contrairement a l'occultant. Sous 0.999 il
+				// entre dans la file transparente (NkRender3D::Submit) : c'est la
+				// variable qui separe << la transparence seule >> de << la
+				// transparence AVEC instance de materiau >>.
+				cube.alpha = BancFloat("NK_BANC_TEMOIN_ALPHA", 1.f);
 				cube.roughness = 1.f;
 				cube.metallic = 0.f;
 				cube.castShadow = false;
