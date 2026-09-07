@@ -235,6 +235,43 @@ namespace nkentseu {
 				Push([this, idxCnt, instCnt, firstIdx, vtxOff, firstInst] {
 					GLenum idxFmt = mIndexFormat == NkIndexFormat::NK_UINT16 ? GL_UNSIGNED_SHORT : GL_UNSIGNED_INT;
 					uint64 byteOff = firstIdx * (mIndexFormat == NkIndexFormat::NK_UINT16 ? 2 : 4) + mIndexOffset;
+					// ── TRACE DU REJEU, OPT-IN ───────────────────────────────────────
+					// ⚠️ ELLE RESTE. Ce dorsal est le seul des quatre a DIFFERER ses
+					// commandes : rien n'est dessine quand une passe « s'execute » dans
+					// le journal, tout part au rejeu de `Execute`. Un plantage y est donc
+					// illisible sans voir l'etat REELLEMENT lie a cet instant-la.
+					// Elle a nomme le defaut du 07/09 en une ligne :
+					//   sain    vao=24 ibo=2 iboOctets=144
+					//   plante  vao=21 ibo=0 iboOctets=0   <- aucun tampon d'indices
+					// stderr + fflush, PAS le journal : le tir suivant peut tuer le
+					// processus, et un journal tamponne perdrait la derniere ligne --
+					// justement celle qui compte.
+					// NK_GL_TRACE=1 pour l'armer ; eteinte, elle coute un booleen statique.
+					static const bool sTrace = (getenv("NK_GL_TRACE") != nullptr);
+					static int sDrawNo = 0;
+					if (sTrace) {
+						GLint vao = 0, ibo = 0, prog = 0, vbo = 0, fbo = 0;
+						glGetIntegerv(GL_VERTEX_ARRAY_BINDING, &vao);
+						glGetIntegerv(GL_ELEMENT_ARRAY_BUFFER_BINDING, &ibo);
+						glGetIntegerv(GL_CURRENT_PROGRAM, &prog);
+						glGetIntegerv(GL_ARRAY_BUFFER_BINDING, &vbo);
+						glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING, &fbo);
+						GLint iboSize = 0;
+						if (ibo)
+							glGetBufferParameteriv(GL_ELEMENT_ARRAY_BUFFER, GL_BUFFER_SIZE, &iboSize);
+						const uint64 besoin = byteOff + (uint64)idxCnt * (idxFmt == GL_UNSIGNED_SHORT ? 2u : 4u);
+						fprintf(stderr,
+								"[GLTRACE] tir=%d idxCnt=%u fmt=%s off=%llu vtxOff=%d | vao=%d ibo=%d "
+								"iboOctets=%d besoin=%llu%s | prog=%d vbo=%d fbo=%d | pipeline.id=%llu "
+								"mVAO=%u mProg=%u\n",
+								++sDrawNo, idxCnt, idxFmt == GL_UNSIGNED_SHORT ? "u16" : "u32",
+								(unsigned long long)byteOff, vtxOff, vao, ibo, iboSize,
+								(unsigned long long)besoin,
+								(iboSize > 0 && besoin > (uint64)iboSize) ? "  <<< DEBORDE" : "",
+								prog, vbo, fbo, (unsigned long long)mBoundPipeline.id, mCurrentVAO, mCurrentProgram);
+						fflush(stderr);
+					}
+
 					if (instCnt > 1) {
 #if defined(NK_OPENGL_ES)
 						glDrawElementsInstanced(mPrimitive, idxCnt, idxFmt, (const void *)byteOff, instCnt);
