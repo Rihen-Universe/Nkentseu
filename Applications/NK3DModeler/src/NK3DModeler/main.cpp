@@ -605,7 +605,28 @@ int nkmain(const NkEntryState &entry) {
 	//   NK_AGENT_EXIT=<n>  : a la frame n, quitte proprement (st.running).
 	// Ces crochets ne font qu'ARMER des etats que l'interface arme deja : si
 	// personne ne les pose, rien ne change.
+	//   NK_AGENT_SCENE=<n> : a la trame n, QUITTE L'ACCUEIL SANS OUVRIR DE
+	//     PROJET -- le viseur paraît alors avec sa scene par defaut (le portage
+	//     de --demo=2), et le ciel passe en Rayleigh+Mie.
+	//
+	//     ⚠️ POURQUOI CE LEVIER EXISTE. Mesurer le chemin du viseur demande un
+	//     viseur, donc un onglet ouvert. Les deux seules facons d'en avoir
+	//     etaient d'ouvrir un projet RECENT (donc un projet de Rodolf, qu'il
+	//     faudrait sauvegarder et restituer) ou de creer un projet neuf (qui
+	//     ECRIT un dossier et un .nk3dm sur le disque). Aucune des deux n'est
+	//     acceptable pour une mesure. Celui-ci n'ecrit RIEN : ni fichier, ni
+	//     recents, ni sauvegarde. Une scene en memoire, et c'est tout.
+	//
+	//     ⚠️ ET IL NE CHANGE RIEN QUAND LA VARIABLE EST ABSENTE. Sans elle,
+	//     `agentSceneFrame` reste a -1 et le bloc ne s'execute jamais : le
+	//     comportement de l'application est celui d'avant, a l'octet pres.
+	//
+	//     Le ciel est mis en Rayleigh+Mie parce que c'est le modele dont le
+	//     degrade est le plus franc (56 % d'amplitude mesuree au banc) : une
+	//     inversion s'y lit sans ambiguite, la ou un ciel a faible contraste
+	//     laisserait le doute.
 	int32 agentShotFrame = -1, agentExitFrame = -1, agentOpenRecent = -1;
+	int32 agentSceneFrame = -1;
 	{
 		if (const char *v = std::getenv("NK_OPEN_RECENT")) {
 			const int32 idx = (int32)std::atoi(v);
@@ -620,6 +641,8 @@ int nkmain(const NkEntryState &entry) {
 					   (int)recents.items.Size());
 			}
 		}
+		if (const char *v = std::getenv("NK_AGENT_SCENE"))
+			agentSceneFrame = (int32)std::atoi(v);
 		if (const char *v = std::getenv("NK_AGENT_SHOT"))
 			agentShotFrame = (int32)std::atoi(v);
 		if (const char *v = std::getenv("NK_AGENT_EXIT"))
@@ -2376,6 +2399,33 @@ int nkmain(const NkEntryState &entry) {
 				}
 				fflush(stdout);
 				sSelFrame = -1; // une seule fois
+			}
+		}
+		// NK_AGENT_SCENE : on quitte l'accueil, rien de plus. Le viseur naît a son
+		// premier PAINT et porte sa scene par defaut ; aucun projet n'est cree.
+		// Le ciel n'est pose QUE lorsque l'hote 3D est pret -- le poser avant
+		// serait un reglage ecrit dans le vide, et le banc a deja paye ce defaut.
+		if (agentSceneFrame > 0 && agentFrame >= agentSceneFrame) {
+			static bool sSceneArmee = false;
+			static bool sCielPose = false;
+			if (!sSceneArmee) {
+				sSceneArmee = true;
+				st.welcome = false;
+				std::printf("[nk3d] NK_AGENT_SCENE : accueil quitte, aucun projet ouvert\n");
+			}
+			if (!sCielPose && demo::Demo3DHostReady()) {
+				sCielPose = true;
+				demo::Demo3DHostSetSkyVisible(true);
+				// NK_AGENT_SKY=<m> : choisit le modele. Defaut 2 (Rayleigh+Mie).
+				// ⚠️ IL SERT A DERIVER LA REGION DU VISEUR, PAS A VARIER POUR VARIER :
+				// deux courses avec deux modeles donnent, PAR DIFFERENCE, l'ensemble
+				// des pixels que le ciel occupe -- l'interface, elle, ne bouge pas.
+				// Sans ca il faudrait poser un rectangle a l'oeil sur la capture.
+				{
+					const char *sm = std::getenv("NK_AGENT_SKY");
+					demo::Demo3DHostSetSkyModel(sm && sm[0] ? (int32)std::atoi(sm) : 2);
+				}
+				std::printf("[nk3d] NK_AGENT_SCENE : ciel Rayleigh+Mie pose (hote pret)\n");
 			}
 		}
 		if (agentShotFrame > 0 && agentFrame == agentShotFrame)
