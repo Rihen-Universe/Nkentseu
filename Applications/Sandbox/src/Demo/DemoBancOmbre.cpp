@@ -87,6 +87,7 @@ namespace nkentseu {
 		struct BancOmbreState {
 				NkMaterial *matOccultant = nullptr;
 				NkMaterial *matMiroir = nullptr; // vue 5 : le sol reflechissant
+				NkMaterial *matSol = nullptr; // vue 3 : le MEME plan, mais par instance de materiau
 				renderer::NkPlanarReflectionHandle reflHandle{};
 				int32 vue = 0;
 				float32 opacite = 0.12f;
@@ -361,6 +362,28 @@ namespace nkentseu {
 			// ⚠️ ON RELIT ICI AUSSI. Si le systeme de reflexion refuse le plan, le
 			// temoin ne mesurerait qu'un sol ordinaire et le dirait VERT sans avoir
 			// rien reflechi. Le banc REFUSE plutot que de mesurer a cote.
+			// ── VUE 3 : LE MEME PLAN, MAIS PAR INSTANCE DE MATERIAU ─────────────
+			// 🔴 LA DERNIERE VARIABLE JAMAIS ISOLEE. Le temoin de lumiere avait deja
+			// refute l'ECHELLE (147,11 contre 147,11) et l'ALBEDO (+29 %, pas x7).
+			// Reste le CHEMIN : le sol du viseur porte une INSTANCE DE MATERIAU,
+			// un maillage ordinaire porte un simple `dc.tint`. On donne donc au plan
+			// un materiau aux reglages IDENTIQUES -- meme albedo, meme rugosite, meme
+			// metallique -- pour que la SEULE difference soit la facon dont la
+			// surface est soumise. Toute divergence est alors imputable au chemin.
+			if (st->vue == 3 && BancInt("NK_BANC_LUM_MAT", 0) != 0) {
+				st->matSol = NkMaterial::Create(matSys, NkMaterialType::NK_PBR_METALLIC);
+				if (!st->matSol || !st->matSol->IsValid()) {
+					logger.Errorf("[BancOmbre] REFUS : materiau du sol invalide\n");
+					NkMaterial::Destroy(st->matOccultant);
+					delete st;
+					ctx.userData = nullptr;
+					return false;
+				}
+				const float32 alb = BancFloat("NK_BANC_LUM_ALBEDO", 0.62f);
+				st->matSol->SetAlbedo({alb, alb, alb})->SetRoughness(0.90f)->SetMetallic(0.f);
+				logger.Infof("[BancLumiere] plan par INSTANCE DE MATERIAU, albedo %.3f\n", alb);
+			}
+
 			if (st->vue == 5) {
 				st->matMiroir = NkMaterial::Create(matSys, NkMaterialType::NK_REFL_FLOOR);
 				if (!st->matMiroir || !st->matMiroir->IsValid()) {
@@ -584,6 +607,10 @@ namespace nkentseu {
 				dc.metallic = 0.f;
 				dc.castShadow = false;
 				dc.receiveShadow = true;
+				// Le chemin MATERIAU, quand il est arme. Les reglages sont les memes :
+				// seule la porte change.
+				if (st->matSol && st->matSol->IsValid())
+					dc.material = st->matSol->GetInstHandle();
 				r3d->Submit(dc);
 				if (!st->journalFait) {
 					st->journalFait = true;
