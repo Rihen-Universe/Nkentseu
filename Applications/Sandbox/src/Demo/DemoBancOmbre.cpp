@@ -543,10 +543,47 @@ namespace nkentseu {
 				return;
 			}
 
+			// ── LE TEMOIN 3D : UN CUBE A POSITION CONNUE ────────────────────────
+			//
+			// 🔴 CE QU'IL TRANCHE. Le ciel s'inverse sur DirectX. Deux causes
+			// possibles, et une seule est vraie :
+			//   A -- TOUTE la passe 3D ecrit a l'envers ;
+			//   B -- seule la reconstruction du RAYON DU CIEL est retournee
+			//        (le ciel est le seul consommateur de `yFlipNDC` avec la
+			//        grille infinie), et la geometrie, elle, sort a l'endroit.
+			//
+			// Un cube pose HAUT et A DROITE est asymetrique dans les DEUX axes,
+			// comme la marque d'ecran -- et il traverse, LUI, la camera et la
+			// projection, ce que la marque ne fait pas. Les deux ensemble donnent
+			// la reference et l'objet dans la meme image.
+			//
+			// (3, 6, -12) avec l'oeil a (0, 1.6, 0) et un champ de 70 degres : le
+			// cube monte a ~52 %% de la demi-hauteur au-dessus du centre et se pose
+			// a ~20 %% de la demi-largeur a droite. Aucun doute de lecture possible.
+			// Sa position dans l'image se DEDUIT par difference avec la meme image
+			// sans lui : aucun jugement d'oeil, aucune couleur a reconnaitre.
+			if (BancInt("NK_BANC_TEMOIN_3D", 0) != 0) {
+				NkDrawCall3D cube;
+				cube.mesh = meshSys->GetCube();
+				cube.transform = NkMat4f::Translate({3.f, 6.f, -12.f});
+				cube.aabb = {{2.5f, 5.5f, -12.5f}, {3.5f, 6.5f, -11.5f}};
+				cube.tint = {1.f, 0.f, 0.f};
+				cube.alpha = 1.f;
+				cube.roughness = 1.f;
+				cube.metallic = 0.f;
+				cube.castShadow = false;
+				cube.receiveShadow = false;
+				r3d->Submit(cube);
+			}
+
 			// ── LA DALLE PLATE ──────────────────────────────────────────────────
 			// Aucune instance de materiau : elle ne PEUT pas armer le tramage.
 			// Elle recoit l'ombre, elle n'en projette pas.
-			{
+			//
+			// NK_BANC_SANS_SOL=1 la retire. En vue CIEL elle est la SEULE geometrie :
+			// tant qu'elle est la, une bande sombre en haut de l'image peut venir du
+			// sol autant que du ciel, et la lecture ne tranche rien.
+			if (BancInt("NK_BANC_SANS_SOL", 0) == 0) {
 				NkDrawCall3D sol;
 				sol.mesh = meshSys->GetPlane();
 				sol.transform = NkMat4f::Scale({40.f, 1.f, 40.f});
