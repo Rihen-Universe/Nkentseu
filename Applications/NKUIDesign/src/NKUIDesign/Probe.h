@@ -11941,6 +11941,144 @@ namespace nkuidesign {
 					  && selectionGardee && toutEstLu && nomSuitEtendue,
 				  det);
 		}
+		// ── 135. ③ LES PROPRIETES DU CANVAS REMPLACENT LE PANNEAU MUET (07/09).
+		//    Capture de Rodolf : sans selection, TREIZE sections avec leur tiret, et
+		//    aucune ne pouvait rien faire. Le cas << rien de selectionne >> n'avait PAS
+		//    DE TABLE : il tombait dans celle << sans cible >> avec une selection vide,
+		//    et le filtre par type ne pouvait rien retirer -- sans nœud, aucune regle
+		//    de type ne disqualifie quoi que ce soit.
+		//
+		// ⚠️ AUCUN TITRE ACCENTUE N'EST RECOPIE ICI. On compare les DEUX TABLES entre
+		//    elles : la section honnete est celle qui figure dans les deux, et le compte
+		//    des communes dit tout. Ecrire << ALIGNER LA SELECTION >> en clair aurait
+		//    remis un octet non-ASCII au cœur d'une assertion -- la faute d'hier.
+		{
+			char det[900];
+			int32 nCanvas = 0, nSans = 0;
+			const editorkit::NkInspectorSection *canvas = InspectorPanel::SectionsCanvas(nCanvas);
+			const editorkit::NkInspectorSection *sans = InspectorPanel::SectionsSansCible(nSans);
+			uint32 communs = 0u, nomCanvas = 0u;
+			for (int32 i = 0; i < nCanvas; ++i) {
+				if (NkComponentDecl::StrEq(canvas[i].titre, "CANVAS"))
+					++nomCanvas;
+				for (int32 j = 0; j < nSans; ++j)
+					if (NkComponentDecl::StrEq(canvas[i].titre, sans[j].titre))
+						++communs;
+			}
+			// (a) deux sections, dont UNE seule vient de l'ancienne table : la section
+			//     honnete (celle qui dit << rien de selectionne >> et qui AGIRA des qu'on
+			//     selectionnera) reste, les autres partent. Retour du coordinateur : ne
+			//     pas la ranger avec les muettes.
+			const bool tableJuste = nCanvas == 2 && nomCanvas == 1u && communs == 1u;
+			const uint32 muettesRetirees = (uint32)nSans - communs;
+
+			// (b) LE FOND : une couleur, ou le theme -- et un REFUS plutot qu'un repli.
+			uint32 rgba = 0u;
+			const bool okSix = NkFondCanvasExplicite("#0d1117", rgba);
+			const uint32 rgbaSix = rgba;
+			uint32 poubelle = 0u;
+			const bool okVide = NkFondCanvasExplicite("", poubelle);
+			const bool okNul = NkFondCanvasExplicite(nullptr, poubelle);
+			const bool okSansDiese = NkFondCanvasExplicite("0d1117", poubelle);
+			const bool okLettres = NkFondCanvasExplicite("#zzzzzz", poubelle);
+			// ⚠️ TROIS ET HUIT CHIFFRES SONT REFUSES, et c'est le PARSEUR qui le dicte :
+			//    `NkGHexRGBA` lit six chiffres et pose l'alpha. Les accepter aurait
+			//    promis une couleur et peint une autre -- le repli plausible.
+			const bool okTrois = NkFondCanvasExplicite("#abc", poubelle);
+			const bool okHuit = NkFondCanvasExplicite("#0d1117ff", poubelle);
+			const bool fondJuste = okSix && rgbaSix == 0x0d1117FFu && !okVide && !okNul
+								   && !okSansDiese && !okLettres && !okTrois && !okHuit;
+
+			// (c) ET LE PANNEAU S'EN SERT-IL ? On lit les sources -- la lecon du 07/09 :
+			//     couper un branchement ne faisait rougir aucun essai.
+			//
+			// ⚠️ CE QUE CETTE LECTURE PROUVE, ET CE QU'ELLE NE PROUVE PAS. Elle voit
+			//    qu'un appel EXISTE et qu'il est au bon endroit ; elle ne voit pas si
+			//    son resultat est UTILISE. Mesure faite : la mutation
+			//    << if (false && NkFondCanvasExplicite(...)) >> reste VERTE ici. Pour
+			//    aller plus loin il faudrait enregistrer les commandes du fond de la
+			//    toile -- or ce fond est peint par `NkDesignPaint` sur un contexte
+			//    VIVANT, dans `OnUI`, la ou aucun banc sans fenetre n'atteint. C'est
+			//    ecrit plutot que compense : la couleur reellement peinte reste un
+			//    coup d'œil humain.
+			bool branche = false, deuxPortes = false;
+			uint32 basculesGrille = 0u, basculesSuivies = 0u;
+			{
+				const NkString src =
+					NkFile::ReadAllText("Applications/NKUIDesign/src/NKUIDesign/Panels.h");
+				if (!src.Empty()) {
+					auto positions = [&](const char *aig, uint32 *out, uint32 max) -> uint32 {
+						uint32 n = 0u;
+						for (const char *d = src.Data(); *d; ++d) {
+							const char *x = d, *y = aig;
+							while (*x && *y && *x == *y) {
+								++x;
+								++y;
+							}
+							if (!*y && n < max)
+								out[n++] = (uint32)(d - src.Data());
+						}
+						return n;
+					};
+					uint32 pos[16];
+					branche = positions("return SectionsCanvas(count);", pos, 16u) == 1u
+							  && positions("NkFondCanvasExplicite(mSt->canvasFond.Data()", pos, 16u)
+									 == 1u;
+					// LA RELATION DES DEUX PORTES : chaque site qui bascule la grille
+					// enregistre le decor dans la foulee. Compter les deux separement
+					// aurait laisse passer << une porte qui bascule deux fois >>.
+					//
+					// ⚠️ ON CHERCHE L'APPEL, PAS LE NOM -- << EnregistrerDecor(); >>
+					//    avec ses parentheses et son point-virgule. Premiere ecriture :
+					//    le nom seul. La mutation << on retire l'appel du menu >> est
+					//    restee VERTE parce qu'un COMMENTAIRE deux lignes plus haut
+					//    nommait la fonction. *Un temoin qui lit du texte peut lire un
+					//    commentaire ; il faut chercher ce qui S'EXECUTE.*
+					// ⚠️ ET LA FENETRE DE 260 CARACTERES EST UNE CONTRAINTE SUR LE
+					//    CODE, pas seulement sur l'essai : elle m'a rougi une seconde
+					//    fois quand le commentaire que je venais d'ecrire a repousse
+					//    l'appel hors de portee. La lecon a sa place -- ici, dans le
+					//    temoin -- et la ou l'appel est fait, une seule ligne.
+					basculesGrille = positions("grilleVisible = !mSt->grilleVisible;", pos, 16u);
+					for (uint32 i = 0; i < basculesGrille && i < 16u; ++i) {
+						const char *suite = src.Data() + pos[i];
+						bool trouve = false;
+						for (uint32 k = 0; k < 260u && suite[k]; ++k) {
+							const char *x = suite + k, *y = "EnregistrerDecor();";
+							while (*x && *y && *x == *y) {
+								++x;
+								++y;
+							}
+							if (!*y) {
+								trouve = true;
+								break;
+							}
+						}
+						if (trouve)
+							++basculesSuivies;
+					}
+					deuxPortes = basculesGrille == 2u && basculesSuivies == 2u;
+				}
+			}
+			snprintf(det, sizeof(det),
+					 "(a) la table de << rien de selectionne >> : %d section(s), dont "
+					 "\"CANVAS\" x%u et %u commune(s) avec l'ancienne table de %d -- %u "
+					 "muette(s) retiree(s), la section honnete gardee -> %d ; (b) le fond : "
+					 "\"#0d1117\" -> 0x%08X, et vide/nul/sans-diese/lettres/3-chiffres/"
+					 "8-chiffres tous REFUSES -> %d ; (c) les sources : branchement lu %d, "
+					 "%u bascule(s) de grille dont %u suivies d'un enregistrement -> %d",
+					 nCanvas, nomCanvas, communs, nSans, muettesRetirees, tableJuste ? 1 : 0,
+					 (unsigned)rgbaSix, fondJuste ? 1 : 0, branche ? 1 : 0, basculesGrille,
+					 basculesSuivies, deuxPortes ? 1 : 0);
+			check("135. (3) LES PROPRIETES DU CANVAS REMPLACENT LE PANNEAU MUET : sans selection, "
+				  "l'inspecteur montrait treize sections a tiret dont aucune ne pouvait agir -- le "
+				  "cas << rien de selectionne >> n'avait pas de table a lui. Il en a une : le FOND "
+				  "(le theme, ou une couleur, et le champ vide veut dire << comme aujourd'hui >>) "
+				  "et la GRILLE, qui bascule LA MEME variable que le clic droit. La section qui "
+				  "disait vrai -- celle qui agira des qu'on selectionnera -- reste : elle est la "
+				  "seule commune aux deux tables, et c'est mesure, pas affirme",
+				  tableJuste && fondJuste && branche && deuxPortes, det);
+		}
 		// ── 94. ① L'APERCU PENDANT LE TRACE (05/09). Rodolf : « pourquoi quand on dessine un
 		//    graphique on voit juste le rectangle qui s'allonge, et des qu'on relache on voit la
 		//    forme ? » Deux mesures : LA TABLE DE GENRE (une seule, lue par le relachement et par

@@ -496,6 +496,53 @@ namespace nkuidesign {
 			}
 	};
 
+	// ── ③ LE FOND DE LA TOILE : UNE COULEUR CHOISIE, OU LE RÔLE DU THÈME ─────
+	//
+	// 🔴 CADRAGE DE RODOLF (07/09) : *« modifier sa couleur ou changer son fond,
+	//    soit avec des grilles soit laisser comme c'est actuellement »*.
+	//    **L'APPARENCE ACTUELLE EST UNE OPTION VALIDE**, pas un défaut à
+	//    remplacer : c'est pour ça que le champ vide ne veut pas dire « noir »,
+	//    il veut dire « le thème décide », et c'est l'état de départ.
+	//
+	// ⚠️ CE QU'ELLE NE FAIT PAS, ET POURQUOI. Elle ne touche PAS aux rôles
+	//    `canvas_bg` / `canvas_dot` du thème. Ces rôles vivent dans les fichiers
+	//    de thème que la coquille charge pour TOUTES les applications de la
+	//    maison (`NkLoadTheme`) : les réécrire d'ici changerait le fond de NKCode
+	//    en réglant celui de NkUIDesign. Un réglage d'application se pose donc
+	//    PAR-DESSUS le thème, il ne le remplace pas.
+	//
+	// ⚠️ ET ELLE REFUSE PLUTÔT QUE DE REPLIER. Un code illisible ne devient ni
+	//    noir ni magenta : elle rend `false`, et l'appelant peint le rôle du
+	//    thème — *un repli qui reste plausible est pire qu'un refus*. Le MAGENTA
+	//    du document (`NkGCouleur`) dit « variable absente » ; ici il n'y a pas de
+	//    variable, il y a un champ qu'on est en train de taper.
+	//
+	// ⚠️ LE PARSEUR EST CELUI DU DOCUMENT (`renderdetail::NkGHexRGBA`), pas un
+	//    neuvième : la toile et les remplissages lisent le même « #rrggbb ».
+	//
+	/// Rend `true` si `hex` désigne une couleur ; `rgba` n'est écrit que dans ce cas.
+	inline bool NkFondCanvasExplicite(const char *hex, nkentseu::uint32 &rgba) noexcept {
+		if (!hex || hex[0] != '#')
+			return false;
+		nkentseu::uint32 n = 0u;
+		for (const char *p = hex + 1; *p; ++p, ++n) {
+			const char c = *p;
+			const bool hexa = (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f')
+							  || (c >= 'A' && c <= 'F');
+			if (!hexa)
+				return false;
+		}
+		// ⚠️ SIX CHIFFRES, PAS TROIS NI HUIT — et c'est le parseur qui le dit, pas
+		//    une préférence. `NkGHexRGBA` lit `hex[1..6]` et pose l'alpha à 255 :
+		//    « #abc » lui ferait lire l'octet nul et rendre du gris, « #rrggbbaa »
+		//    perdrait son alpha en silence. Accepter une forme que le parseur ne
+		//    sait pas lire, c'est promettre une couleur et en peindre une autre.
+		if (n != 6u)
+			return false;
+		rgba = renderdetail::NkGHexRGBA(hex);
+		return true;
+	}
+
 	struct DesignState {
 			NkUIDocument doc;
 			NkLayoutResult layout;
@@ -1057,6 +1104,49 @@ namespace nkuidesign {
 				(void)SetGfxConfig(api);
 			}
 
+			// ── ③ LE DÉCOR DE LA TOILE, LU ET ÉCRIT AU MÊME ENDROIT ─────────
+			//
+			// ⚠️ DEUX PORTES BASCULENT LA GRILLE : le clic droit dans le vide et
+			//    la section CANVAS de l'inspecteur. Elles écrivent la MÊME variable
+			//    et appellent le MÊME enregistrement — c'est la leçon de
+			//    `SetGfxConfig` juste au-dessus, où le menu et le panneau avaient
+			//    commencé par écrire chacun de son côté.
+			//
+			// ⚠️ ET LE RÉGLAGE SURVIT À LA FERMETURE, sinon la section mentirait par
+			//    omission : un champ qu'on remplit et qui se vide au prochain
+			//    lancement, sans qu'une ligne le dise, se découvre trop tard.
+			//    Le fichier est `nkuidesign.cfg`, il porte déjà `gfx` et `hier_bas` ;
+			//    on remplace la ligne de la clé, jamais le fichier.
+			void EnregistrerDecor() {
+				(void)NkGfxConfigSetKey(NkGfxConfigPath(), "canvas_grille",
+										grilleVisible ? "1" : "0");
+				(void)NkGfxConfigSetKey(NkGfxConfigPath(), "canvas_fond",
+										canvasFond.Empty() ? "" : canvasFond.Data());
+			}
+			/// Lecture PARESSEUSE, une seule fois — le geste de `hier_bas`. Elle ne
+			/// touche à rien si le fichier n'existe pas : l'état par défaut EST
+			/// l'apparence d'aujourd'hui.
+			void LireDecorUneFois() {
+				if (decorLu)
+					return;
+				decorLu = true;
+				const NkString cfg = nkentseu::NkFile::ReadAllText(NkPath(NkGfxConfigPath()));
+				if (cfg.Empty())
+					return;
+				char v[64];
+				if (NkGfxConfigValue(cfg.Data(), "canvas_grille", v, sizeof(v)))
+					grilleVisible = (v[0] != '0');
+				if (NkGfxConfigValue(cfg.Data(), "canvas_fond", v, sizeof(v))) {
+					uint32 rgbaLu = 0u;
+					// ⚠️ ON NE CHARGE PAS CE QU'ON NE SAIT PAS PEINDRE. Un fichier
+					//    édité à la main peut porter n'importe quoi ; une valeur
+					//    illisible laisse le thème décider plutôt que d'installer un
+					//    champ que la toile ignorera en silence.
+					if (NkFondCanvasExplicite(v, rgbaLu))
+						canvasFond = NkString(v);
+				}
+			}
+
 			/// PEUPLER LE REGISTRE — la porte, hors de toute interface.
 			///
 			/// 🔴 ELLE ETAIT ENFERMEE DANS `Init()`, ET LE BANC A TROUVE : le
@@ -1281,6 +1371,16 @@ namespace nkuidesign {
 			/// peint, et ce chantier ne change pas ce que Rodolf voit au
 			/// démarrage — il lui donne l'interrupteur qui manquait.
 			bool grilleVisible = true;
+			/// ── ③ LE FOND CHOISI DE LA TOILE ────────────────────────────�
+			/// « #rrggbb », ou VIDE = le rôle `canvas_bg` du thème, c'est-à-dire
+			/// l'apparence d'aujourd'hui. Ce n'est PAS une donnée de document :
+			/// le fichier enregistré n'en sait rien (le décor d'éditeur n'a jamais
+			/// été dans le format), il vit dans `nkuidesign.cfg` comme le backend
+			/// graphique et la hauteur de la section basse.
+			NkString canvasFond;
+			/// Les deux réglages de décor ont-ils déjà été lus dans le fichier ?
+			/// Lecture PARESSEUSE, une fois — le même geste que `hier_bas`.
+			bool decorLu = false;
 			/// Le résultat VIVANT du geste en cours — les guides à peindre.
 			/// Remis à zéro au relâcher : un guide qui survit à son geste est un
 			/// trait qui ment.
@@ -4511,8 +4611,21 @@ namespace nkuidesign {
 					// la vue Behavior) et #f5f7fb en clair (la valeur Banani V2),
 					// pose par les fabriques de themes du kit. Les points
 					// `canvas_dot` suivent pareil.
-					paint.Fill({area.x, area.y, area.w, area.h},
-							   NkDesignResolveRole("canvas_bg"), 0.f);
+					// ── ③ ET LE FOND CHOISI PASSE DEVANT LE RÔLE (07/09) ─────
+					// ⚠️ LE CHAMP PILOTE CE FOND-CI, IL N'EN AJOUTE PAS UN SECOND.
+					//    C'est l'exigence de Rodolf, mot pour mot : *« si un fond
+					//    est déjà peint en dur, le champ doit le piloter, pas le
+					//    doubler »*. Le fond n'était pas en dur — il venait du
+					//    thème — donc le champ se pose PAR-DESSUS, et vide il rend
+					//    la main au thème : l'apparence d'aujourd'hui reste ce
+					//    qu'on obtient sans rien régler.
+					mSt->LireDecorUneFois();
+					uint32 rgbaFond = 0u;
+					if (NkFondCanvasExplicite(mSt->canvasFond.Data(), rgbaFond))
+						paint.FillColor({area.x, area.y, area.w, area.h}, rgbaFond, 0.f);
+					else
+						paint.Fill({area.x, area.y, area.w, area.h},
+								   NkDesignResolveRole("canvas_bg"), 0.f);
 					const float32 pasEcran = kGrillePas * mSt->view.zoom;
 					// ⚠️ `grilleVisible` EST HONORÉE ICI, au seul endroit qui peint
 					//    la grille. Le menu qui la bascule serait sinon une case
@@ -4800,6 +4913,8 @@ namespace nkuidesign {
 					switch (av) {
 						case NkActionVide::GrillePixels:
 							mSt->grilleVisible = !mSt->grilleVisible;
+							// ③ Deux portes, un seul enregistrement (essai 135).
+							mSt->EnregistrerDecor();
 							Dire(mSt->grilleVisible ? "Grille de points affichée."
 													: "Grille de points masquée.",
 								 "", "");
@@ -13264,6 +13379,33 @@ namespace nkuidesign {
 				count = (int32)(sizeof(kSections) / sizeof(kSections[0]));
 				return kSections;
 			}
+			// ── ③ LA TABLE DE « RIEN DE SÉLECTIONNÉ » (07/09) ────────────────
+			//
+			// 🔴 CE QUE LA CAPTURE DE RODOLF MONTRAIT : treize sections, chacune
+			//    avec son tiret, occupant tout le panneau — *aucune ne pouvait
+			//    rien faire*. Ce n'était pas un bogue de section : c'est que le
+			//    cas « rien de sélectionné » n'avait PAS DE TABLE. Il tombait dans
+			//    celle « sans cible » avec une sélection vide, et
+			//    `NkSectionsRetenues` gardait tout — car sans nœud, aucune règle de
+			//    type ne peut disqualifier quoi que ce soit.
+			//    **Le filtre par type ne pouvait pas le corriger : il n'y avait
+			//    rien à filtrer. Il fallait une table.**
+			//
+			// ⚠️ « ALIGNER LA SÉLECTION » RESTE, ET C'EST DÉLIBÉRÉ (retour du
+			//    coordinateur, 07/09) : elle affiche *« rien de sélectionné »* —
+			//    elle est HONNÊTE, elle garde un sens, et elle agira dès qu'on
+			//    sélectionnera. Elle relève de « on explique ce qui n'agit pas
+			//    encore », pas de « on cache ce qui ne peut pas exister ». La
+			//    ranger avec les douze muettes aurait effacé la seule qui disait
+			//    vrai.
+			static const editorkit::NkInspectorSection *SectionsCanvas(int32 &count) noexcept {
+				static const editorkit::NkInspectorSection kCanvas[] = {
+					{"CANVAS", &CorpsCanvasC, false},
+					{"ALIGNER LA SÉLECTION", &CorpsAlignerSelectionC, false},
+				};
+				count = (int32)(sizeof(kCanvas) / sizeof(kCanvas[0]));
+				return kCanvas;
+			}
 
 		private:
 			// ── CE QUE LA CHARPENTE VIENT CHERCHER ICI ──────────────────────
@@ -13371,6 +13513,17 @@ namespace nkuidesign {
 						count = (int32)(sizeof(kForme) / sizeof(kForme[0]));
 						return kForme;
 					}
+				}
+				// ── ③ RIEN DE SÉLECTIONNÉ : LES PROPRIÉTÉS DU CANVAS (07/09) ──
+				// ⚠️ AVANT TOUT LE RESTE, et avant le filtre par type : le filtre
+				//    trie des sections SELON UN NŒUD ; ici il n'y en a pas. Deux
+				//    questions distinctes, deux étapes — mélanger les deux aurait
+				//    donné une règle de type qui parle du vide.
+				{
+					auto *self = static_cast<InspectorPanel *>(user);
+					if (self->mSt && !self->mSt->doc.IsValidIndex(self->mSt->selected)
+						&& self->mSt->sel.Count() == 0u)
+						return SectionsCanvas(count);
 				}
 				{
 					auto *self = static_cast<InspectorPanel *>(user);
@@ -13615,7 +13768,7 @@ namespace nkuidesign {
 					const char *titre;
 					bool ouvert;
 			};
-			static constexpr uint32 kNbSections = 15; // ⑥ « ALIGNER LA SÉLECTION » s'ajoute
+			static constexpr uint32 kNbSections = 16; // ⑥ « ALIGNER LA SÉLECTION », puis ③ « CANVAS »
 			/// Un champ de sommet a change et la boite attend son recadrage.
 			/// ⚠️ UN DRAPEAU, ET IL EST JUSTIFIE : on ne peut pas recadrer dans la
 			///    branche qui ecrit (le champ est un GLISSER, il ecrit a chaque
@@ -13635,6 +13788,9 @@ namespace nkuidesign {
 				{"REMPLISSAGES", true},
 				{"BORDURES", true},	{"APPARENCE", true},	{"TYPOGRAPHIE", true},
 				{"ÉTATS", false},	{"EFFETS", true},	{"POINTS DE RUPTURE", false},
+				// ③ LES PROPRIÉTÉS DU CANVAS -- la seule section du cas « rien de
+				//   sélectionné » ; ouverte, sinon le panneau vide resterait vide.
+				{"CANVAS", true},
 			};
 			EtatSection *TrouverSection(const char *titre) {
 				for (uint32 i = 0; i < kNbSections; ++i)
@@ -13915,6 +14071,9 @@ namespace nkuidesign {
 			}
 			static void CorpsCalqueC(void *u, NkGuiContext &ctx) {
 				static_cast<InspectorPanel *>(u)->CorpsCalque(ctx);
+			}
+			static void CorpsCanvasC(void *u, NkGuiContext &ctx) {
+				static_cast<InspectorPanel *>(u)->CorpsCanvas(ctx);
 			}
 			static void CorpsApparenceC(void *u, NkGuiContext &ctx) {
 				static_cast<InspectorPanel *>(u)->CorpsApparence(ctx);
@@ -17031,6 +17190,129 @@ namespace nkuidesign {
 			// ⚠️ « Fond » A QUITTÉ CETTE SECTION pour REMPLISSAGES : le laisser
 			//    ici en plus aurait donné deux endroits pour écrire la même clé,
 			//    et le second aurait ignoré la liste.
+			// ══════════════════════════════════════════════════════════════════
+			//  ③ LA SECTION CANVAS — ce qu'on règle quand RIEN n'est sélectionné
+			// ══════════════════════════════════════════════════════════════════
+			//
+			// 🔴 MANDAT DE RODOLF (07/09) : *« modifier sa couleur ou changer son
+			//    fond, soit avec des grilles soit laisser comme c'est actuellement »*.
+			//    Trois choix, et le TROISIÈME est une option pleine et entière :
+			//    ne rien poser laisse le thème décider, comme aujourd'hui.
+			//
+			// ⚠️ CE QUE CETTE SECTION RÈGLE, ET CE QU'ELLE NE RÈGLE PAS. C'est le
+			//    DÉCOR DE L'ÉDITEUR, pas le document : `RenderDocument` n'émet
+			//    aucune de ces commandes, le fichier `.nkuidoc` n'en sait rien, et
+			//    l'export n'en peint pas un pixel. Deux personnes qui ouvrent le
+			//    même fichier peuvent donc avoir deux fonds — c'est voulu, c'est ce
+			//    que « décor » veut dire, et la section le DIT plutôt que de le
+			//    laisser découvrir.
+			//
+			// ⚠️ ET ELLE NE DOUBLE RIEN. La grille bascule `grilleVisible`, LA
+			//    MÊME variable que le clic droit dans le vide, honorée au seul
+			//    endroit qui peint la grille. Le fond se pose PAR-DESSUS le rôle
+			//    `canvas_bg` du thème, il ne le réécrit pas : les thèmes sont
+			//    partagés avec les autres applications de la maison.
+			void CorpsCanvas(NkGuiContext &ctx) {
+				if (!SectionOuverte("CANVAS"))
+					return;
+				using namespace nkentseu;
+				auto &F = costume::Fontes();
+				auto &dl = ctx.DL();
+				mSt->LireDecorUneFois();
+
+				// ── 1. LE FOND : le thème, ou une couleur ─────────────────────
+				// ⚠️ LE MODE N'EST PAS UNE SECONDE VARIABLE : il se DÉDUIT du champ
+				//    (vide = thème). Un booléen « mode » à côté aurait pu dire
+				//    « couleur » pendant que le champ est vide -- deux vérités pour
+				//    un seul fait, et c'est toujours la seconde qu'on voit à l'écran.
+				const bool fondPose = !mSt->canvasFond.Empty();
+				{
+					const NkRect r = ctx.NextItemRect(-1.f, 26.f);
+					const float32 x0 = r.x + 12.f;
+					costume::Texte(dl, F.px10, x0, costume::CentrerBande(F.px10, r.y), "Fond",
+								   ctx.theme.textMuted);
+				}
+				static const char *const kModes[2] = {"Thème", "Couleur"};
+				const int32 choix = designkit::Segmented(ctx, kModes, 2, fondPose ? 1 : 0,
+														 "insp.canvas.fond");
+				if (choix == 0 && fondPose) {
+					mSt->canvasFond = NkString("");
+					mSt->EnregistrerDecor();
+					mSt->status = NkString("Fond de la toile : le thème décide à nouveau.");
+				} else if (choix == 1 && !fondPose) {
+					// ⚠️ ON PART DE CE QUI EST À L'ÉCRAN, pas du noir. Passer en
+					//    « Couleur » sur une valeur arbitraire ferait sauter la toile
+					//    à un fond que personne n'a demandé : le premier état du
+					//    champ est la couleur que le thème peint en ce moment.
+					const uint32 c = (uint32)mSt->theme.Get(NkDesignResolveRole("canvas_bg"));
+					snprintf(mCanvasHex, sizeof(mCanvasHex), "#%02x%02x%02x",
+							 (unsigned)((c >> 24) & 0xFFu), (unsigned)((c >> 16) & 0xFFu),
+							 (unsigned)((c >> 8) & 0xFFu));
+					mSt->canvasFond = NkString(mCanvasHex);
+					mSt->EnregistrerDecor();
+				}
+				if (!mSt->canvasFond.Empty()
+					&& !NkComponentDecl::StrEq(mCanvasHex, mSt->canvasFond.Data()))
+					snprintf(mCanvasHex, sizeof(mCanvasHex), "%s", mSt->canvasFond.Data());
+
+				if (!mSt->canvasFond.Empty()) {
+					const NkRect r = ctx.NextItemRect(-1.f, 26.f);
+					const float32 x0 = r.x + 12.f;
+					const float32 x1 = r.x + r.w - 12.f;
+					const NkRect sw = {x0, r.y + (costume::HRangee - 16.f) * 0.5f, 16.f, 16.f};
+					const bool viaPastille =
+						NkPastilleCouleur(ctx, *mSt, "##insp.canvas.pastille", sw, mCanvasHex,
+										  (uint32)sizeof(mCanvasHex));
+					// ⚠️ UN GENRE À SOI (3), ET C'EST UNE MESURE, PAS UN GOÛT.
+					//    `NkDessinerPickerDemande` REFERME le sélecteur générique
+					//    (genre 0) dès que rien n'est sélectionné -- règle juste pour
+					//    les états et les effets, qui décrivent un nœud. Ici il n'y a
+					//    JAMAIS de nœud : sous le genre 0, le sélecteur se serait
+					//    fermé à l'image suivante, et la pastille aurait été un
+					//    bouton qui ne s'ouvre pas.
+					if (mSt->picker.ouvert && mSt->picker.id == ctx.GetId("##insp.canvas.pastille"))
+						mSt->picker.genre = 3u;
+					const float32 xChamp = sw.x + 16.f + (float32)costume::EspSerre;
+					ctx.SetNextItemRect(
+						{xChamp, costume::BandeY(r.y), x1 - xChamp, costume::HControle});
+					const bool tape = nkgui::InputText(ctx, "##insp.canvas.hex", mCanvasHex, 8);
+					if (tape || viaPastille) {
+						uint32 rgbaSaisi = 0u;
+						// ⚠️ ON N'ENREGISTRE QUE CE QUI SE PEINT. Pendant la frappe,
+						//    « #10 » n'est pas une couleur : l'écrire dans le fichier
+						//    poserait un fond que la toile refusera de lire au
+						//    prochain lancement -- un réglage fantôme.
+						if (NkFondCanvasExplicite(mCanvasHex, rgbaSaisi)) {
+							mSt->canvasFond = NkString(mCanvasHex);
+							mSt->EnregistrerDecor();
+						}
+					}
+				}
+
+				// ── 2. LA GRILLE DE POINTS ───────────────────────────────────
+				{
+					const NkRect r = ctx.NextItemRect(-1.f, 26.f);
+					const float32 x0 = r.x + 12.f;
+					costume::Texte(dl, F.px10, x0, costume::CentrerBande(F.px10, r.y),
+								   "Grille de points", ctx.theme.textMuted);
+				}
+				if (designkit::Button(ctx,
+									  mSt->grilleVisible ? "Masquer la grille"
+														 : "Afficher la grille",
+									  "insp.canvas.grille")) {
+					mSt->grilleVisible = !mSt->grilleVisible;
+					mSt->EnregistrerDecor(); // la MÊME écriture que le clic droit
+					mSt->status = NkString(mSt->grilleVisible ? "Grille de points affichée."
+															  : "Grille de points masquée.");
+				}
+
+				// ── 3. CE QUE ÇA NE FAIT PAS, ÉCRIT PLUTÔT QUE DÉCOUVERT ─────
+				nkgui::TextWrapped(ctx,
+								   "Décor de l'éditeur, enregistré dans nkuidesign.cfg : il "
+								   "suit la machine, pas le document. Le fichier .nkuidoc n'en "
+								   "sait rien et l'export n'en peint aucun pixel.");
+			}
+
 			/// LA SECTION CALQUE -- « LAYER » chez Lunacy : opacité + mode de fusion.
 			/// Les deux sont NOMMÉS et grisés : le modèle ne porte ni l'opacité du
 			/// calque ni la fusion (18 modes relevés sur la capture du 04/09). Une
@@ -17434,6 +17716,9 @@ namespace nkuidesign {
 			///    refuse -- il ne se contente pas de ne rien faire.
 			static constexpr uint32 kMaxFillsUI = 8;
 			char mFillsBuf[kMaxFillsUI][12] = {};
+			/// ③ LE TAMPON DE SAISIE DU FOND DE LA TOILE. Il n'a PAS d'état de
+			/// mode à côté : le mode se déduit de `st.canvasFond` (vide = thème).
+			char mCanvasHex[12] = {};
 			int32 mFillsNode = -1;
 			uint32 mFillsGen = 0;
 			/// Les tampons hexa de la section ETATS -- un par etat de la table.
