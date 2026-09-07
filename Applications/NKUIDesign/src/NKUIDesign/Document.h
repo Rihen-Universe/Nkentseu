@@ -1112,6 +1112,16 @@ namespace nkuidesign {
 			/// Additive comme les miroirs : absente du fichier tant qu'elle vaut 1.
 			float32 echelleX = 1.f; ///< cle `echelle_x`
 			float32 echelleY = 1.f; ///< cle `echelle_y`
+			/// ── L'INCLINAISON, EN DEGRES (cles `inclinaison_x`, `inclinaison_y`) ──
+			/// Deux angles : l'inclinaison AUTOUR de l'axe X, et autour de l'axe Y.
+			/// ⚠️ AFFINE, ET LA LIMITE EST ECRITE PLUTOT QUE COMPENSEE : le sommet du
+			///    dessinateur est `pos, uv, col` -- **sans composante de profondeur**.
+			///    L'interpolation reste donc affine : une texture ou un degrade sur un
+			///    quadrilatere fortement incline SE PLIERA le long de la diagonale. Aux
+			///    angles moderes sur un aplat, invisible. La vraie perspective exige un
+			///    `w` au sommet ET dans les cinq dorsaux -- chantier de socle, pas ici.
+			float32 inclinaisonX = 0.f;
+			float32 inclinaisonY = 0.f;
 
 			// ── VERROUILLER / MASQUER (vague 2, source `/layers`) ────────────
 			/// ⚠️ DEUX BOOLÉENS, DEUX EFFETS DIFFÉRENTS, ET LA DIFFÉRENCE EST TOUT
@@ -2296,6 +2306,8 @@ namespace nkuidesign {
 					//    champ » (recette gestes) l'aurait vu — c'est lui qui
 					//    protège cette ligne, pas ma vigilance.
 					d.rotation = s.rotation;
+					d.inclinaisonX = s.inclinaisonX;
+					d.inclinaisonY = s.inclinaisonY;
 					d.echelleX = s.echelleX;
 					d.echelleY = s.echelleY;
 					d.refusPosition = s.refusPosition;
@@ -3075,6 +3087,19 @@ namespace nkuidesign {
 				if (n.rotation != 0.f) {
 					out.Append("  rotation = ");
 					WriteNum(out, n.rotation);
+					out.Append('\n');
+				}
+				// L'INCLINAISON : meme discipline additive -- rien au fichier tant
+				// qu'elle est nulle, donc un document d'avant se reenregistre octet
+				// pour octet.
+				if (n.inclinaisonX != 0.f) {
+					out.Append("  inclinaison_x = ");
+					WriteNum(out, n.inclinaisonX);
+					out.Append('\n');
+				}
+				if (n.inclinaisonY != 0.f) {
+					out.Append("  inclinaison_y = ");
+					WriteNum(out, n.inclinaisonY);
 					out.Append('\n');
 				}
 				// ⑤ L'OPACITÉ DU NŒUD : même discipline additive que la rotation et les
@@ -3992,6 +4017,10 @@ namespace nkuidesign {
 							n.miroirH = (val[0] == '1');
 						else if (StrEq(key, "miroir_v"))
 							n.miroirV = (val[0] == '1');
+						else if (StrEq(key, "inclinaison_x"))
+							n.inclinaisonX = ParseNum(val);
+						else if (StrEq(key, "inclinaison_y"))
+							n.inclinaisonY = ParseNum(val);
 						else if (StrEq(key, "echelle_x"))
 							n.echelleX = NkEchelleSaine(ParseNum(val));
 						else if (StrEq(key, "echelle_y"))
@@ -4119,6 +4148,8 @@ namespace nkuidesign {
 						//    seulement, une flèche retournée serait revenue à
 						//    l'endroit dans la version mobile — sans un mot.
 						d.rotation = s.rotation;
+					d.inclinaisonX = s.inclinaisonX;
+					d.inclinaisonY = s.inclinaisonY;
 					d.echelleX = s.echelleX;
 					d.echelleY = s.echelleY;
 					d.refusPosition = s.refusPosition;

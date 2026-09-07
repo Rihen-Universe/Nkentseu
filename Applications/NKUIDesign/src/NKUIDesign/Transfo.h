@@ -109,6 +109,8 @@ namespace nkuidesign {
 			bool mv = false;
 			float32 sx = 1.f; ///< echelle horizontale (1 = neutre), portee par le noeud
 			float32 sy = 1.f; ///< echelle verticale
+			float32 iX = 0.f; ///< inclinaison autour de X, en degres
+			float32 iY = 0.f; ///< inclinaison autour de Y, en degres
 			/// Vrai quand il n'y a rien à faire — le cas de l'immense majorité des
 			/// nœuds. ⚠️ IL EST INTERROGÉ AVANT TOUT CALCUL : sans ce court-circuit,
 			/// chaque point de chaque forme paierait un sinus, et surtout chaque
@@ -116,7 +118,8 @@ namespace nkuidesign {
 			/// les coordonnées d'un ulp — un document non tourné cesserait de se
 			/// dessiner au pixel près.
 			bool Identite() const {
-				return deg == 0.f && !mh && !mv && sx == 1.f && sy == 1.f;
+				return deg == 0.f && !mh && !mv && sx == 1.f && sy == 1.f && iX == 0.f
+					   && iY == 0.f;
 			}
 	};
 
@@ -127,6 +130,8 @@ namespace nkuidesign {
 		t.mv = n.miroirV;
 		t.sx = n.echelleX;
 		t.sy = n.echelleY;
+		t.iX = n.inclinaisonX;
+		t.iY = n.inclinaisonY;
 		return t;
 	}
 
@@ -330,6 +335,43 @@ namespace nkuidesign {
 		m.b = s * sx;
 		m.c = -s * sy;
 		m.d = c * sy;
+		// ── L'INCLINAISON, DERIVEE ET NON POSTULEE ────────────────────────────
+		//
+		// Un point du plan du nœud est (x, y, 0). On l'incline autour de X puis
+		// autour de Y, et on regarde le resultat SANS perspective (projection
+		// orthographique -- on laisse tomber z) :
+		//
+		//   apres Rx(a) :  (x,           y*cos a,   y*sin a)
+		//   apres Ry(b) :  x' = x*cos b + z*sin b = x*cos b + y*sin a*sin b
+		//                  y' = y*cos a
+		//
+		// Soit exactement une ECHELLE plus un CISAILLEMENT :
+		//
+		//        | cos b   sin a * sin b |
+		//   T =  |   0         cos a     |
+		//
+		// ⚠️ ET LE CISAILLEMENT N'APPARAIT QUE SI LES DEUX ANGLES SONT NON NULS.
+		//    Incliner autour d'un seul axe n'est qu'un ECRASEMENT -- c'est la
+		//    verite geometrique d'un quadrilatere PLAT vu sans perspective, et
+		//    non une approximation paresseuse. Le trapeze que l'œil attend d'une
+		//    vraie perspective n'est PAS affine : il demanderait un `w` au sommet.
+		//    *On applique ce qui est vrai, et on ecrit ce qui manque.*
+		if (t.iX != 0.f || t.iY != 0.f) {
+			float32 sa = 0.f, ca = 1.f, sb = 0.f, cb = 1.f;
+			if (t.iX != 0.f)
+				NkSinCosDeg(t.iX, sa, ca);
+			if (t.iY != 0.f)
+				NkSinCosDeg(t.iY, sb, cb);
+			// M' = M . T -- l'inclinaison agit DANS le repere du nœud, donc avant
+			// le miroir, l'echelle et la rotation, qui la voient comme une forme.
+			const float32 ta = cb, tc = sa * sb, td = ca;
+			const float32 a2 = m.a * ta, b2 = m.b * ta;
+			const float32 c2 = m.a * tc + m.c * td, d2 = m.b * tc + m.d * td;
+			m.a = a2;
+			m.b = b2;
+			m.c = c2;
+			m.d = d2;
+		}
 		// puis on recentre : p' = C + R·S·(p - C)
 		m.e = cx - (m.a * cx + m.c * cy);
 		m.f = cy - (m.b * cx + m.d * cy);

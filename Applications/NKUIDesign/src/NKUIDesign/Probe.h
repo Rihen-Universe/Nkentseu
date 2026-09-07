@@ -12720,6 +12720,184 @@ namespace nkuidesign {
 				  "rearme pas l'attente -- seul un NOUVEL armement la repose",
 				  immobileNeMontreRien && mouvementDeclenche && acquis, det);
 		}
+		// ── 143. L'INCLINAISON AFFINE : LE PEINTRE L'APPLIQUE, ET L'EXPORT LA GARDE.
+		//
+		// ⚠️ LA QUESTION N'EST PAS << l'appel existe-t-il >> MAIS << la matrice emise
+		//    porte-t-elle l'inclinaison >>. On lit donc les COMMANDES du peintre --
+		//    `PushTransform` porte ses six coefficients -- et non la source.
+		//
+		// ⚠️ ET LA RELATION QUI COMPTE : le CISAILLEMENT n'apparait QUE si les deux
+		//    angles sont non nuls. C'est la verite geometrique d'un quadrilatere PLAT
+		//    vu sans perspective (voir la derivation dans `NkMatDe`), et c'est ce qui
+		//    distingue une vraie composition d'un cisaillement pose au hasard.
+		{
+			char det[520];
+			NkUIDocument dI;
+			dI.NewDocument("Toile", NkAuthor::Humain);
+			dI.SetMetric("espacement", 0.f);
+			dI.SetMetric("marge", 0.f);
+			dI.nodes[0].layout.kind = NkLayoutKind::Free;
+			const int32 ni = dI.AddChild(0, "", NkAuthor::Humain);
+			dI.nodes[(uint32)ni].shape = NkString("rect");
+			dI.nodes[(uint32)ni].layout.kind = NkLayoutKind::Free;
+			dI.nodes[(uint32)ni].posX = 100.f;
+			dI.nodes[(uint32)ni].posY = 100.f;
+			dI.nodes[(uint32)ni].width.mode = NkSizeMode::Fixed;
+			dI.nodes[(uint32)ni].width.value = 200.f;
+			dI.nodes[(uint32)ni].height.mode = NkSizeMode::Fixed;
+			dI.nodes[(uint32)ni].height.value = 150.f;
+			NkPaintRect surfI;
+			surfI.x = 0.f;
+			surfI.y = 0.f;
+			surfI.w = 800.f;
+			surfI.h = 600.f;
+
+			// La matrice REELLEMENT emise pour un couple d'angles.
+			auto matriceEmise = [&](float32 ix, float32 iy, float32 &a, float32 &b, float32 &c,
+									float32 &d) -> uint32 {
+				dI.nodes[(uint32)ni].inclinaisonX = ix;
+				dI.nodes[(uint32)ni].inclinaisonY = iy;
+				NkRecordingPaint rec;
+				RenderDocument(rec, dI, surfI);
+				uint32 n = 0u;
+				a = 1.f;
+				b = 0.f;
+				c = 0.f;
+				d = 1.f;
+				for (uint32 i = 0; i < (uint32)rec.cmds.Size(); ++i)
+					if (rec.cmds[i].op == NkPaintOp::PushTransform) {
+						if (n == 0u) {
+							a = rec.cmds[i].x;
+							b = rec.cmds[i].y;
+							c = rec.cmds[i].w;
+							d = rec.cmds[i].h;
+						}
+						++n;
+					}
+				return n;
+			};
+			auto proche = [](float32 v, float32 cible) { return v > cible - 0.005f && v < cible + 0.005f; };
+			const float32 c60 = 0.5f, s60 = 0.8660254f;
+
+			// (a) DROIT : aucune matrice empilee -- le dessin d'avant, a l'octet.
+			float32 a0 = 0.f, b0 = 0.f, c0 = 0.f, d0 = 0.f;
+			const uint32 nDroit = matriceEmise(0.f, 0.f, a0, b0, c0, d0);
+			// (b) AUTOUR DE X SEUL : y est ECRASE de cos(60) = 0.5, x intact, AUCUN
+			//     cisaillement -- incliner autour d'un seul axe n'est qu'un ecrasement.
+			float32 ax = 0.f, bx = 0.f, cx = 0.f, dx = 0.f;
+			const uint32 nX = matriceEmise(60.f, 0.f, ax, bx, cx, dx);
+			const bool axeX = nX == 1u && proche(ax, 1.f) && proche(dx, c60) && proche(cx, 0.f)
+							  && proche(bx, 0.f);
+			// (c) AUTOUR DE Y SEUL : x ecrase, y intact, toujours aucun cisaillement.
+			float32 ay = 0.f, by = 0.f, cy = 0.f, dy = 0.f;
+			const uint32 nY = matriceEmise(0.f, 60.f, ay, by, cy, dy);
+			const bool axeY = nY == 1u && proche(ay, c60) && proche(dy, 1.f) && proche(cy, 0.f);
+			// (d) LES DEUX : les deux ecrasements ET le cisaillement sin*sin = 0.75.
+			float32 a2 = 0.f, b2 = 0.f, c2 = 0.f, d2 = 0.f;
+			const uint32 nXY = matriceEmise(60.f, 60.f, a2, b2, c2, d2);
+			const bool lesDeux = nXY == 1u && proche(a2, c60) && proche(d2, c60)
+								 && proche(c2, s60 * s60);
+			// (e) L'ALLER-RETOUR DU DOCUMENT : les deux angles survivent, et un
+			//     document SANS inclinaison ne gagne AUCUNE cle (discipline additive).
+			NkString txt;
+			dI.Save(txt);
+			NkUIDocument relu;
+			const bool charge = relu.Load(txt.Data(), nullptr);
+			const bool allerRetour = charge && relu.nodes.Size() > 1u
+									 && proche(relu.nodes[1].inclinaisonX, 60.f)
+									 && proche(relu.nodes[1].inclinaisonY, 60.f);
+			dI.nodes[(uint32)ni].inclinaisonX = 0.f;
+			dI.nodes[(uint32)ni].inclinaisonY = 0.f;
+			NkString txtDroit;
+			dI.Save(txtDroit);
+			bool aucuneCle = true;
+			for (const char *p = txtDroit.Data(); *p; ++p) {
+				const char *x = p, *y = "inclinaison";
+				while (*x && *y && *x == *y) {
+					++x;
+					++y;
+				}
+				if (!*y) {
+					aucuneCle = false;
+					break;
+				}
+			}
+			// (f) L'ALLER-RETOUR D'EXPORT, ET IL SE VERIFIE PLUTOT QU'IL NE SE CROIT.
+			//
+			// ⚠️ `n.opacite` et `n.fusion` s'etaient perdus en silence a l'export parce
+			//    que `Style()` lisait par REMPLISSAGE. Ici le chemin est autre --
+			//    l'exportateur ecrit `transform="matrix(...)"` depuis `NkMatEffective`,
+			//    la meme matrice que le peintre -- donc l'inclinaison devrait passer
+			//    ENTIERE. **Mais << devrait >> n'est pas une mesure** : on relit les six
+			//    coefficients dans le SVG produit et on exige les valeurs attendues.
+			//    Le SVG ne connait que l'affine : une inclinaison affine s'y exporte
+			//    donc EXACTEMENT, sans approximation ni perte.
+			bool exportJuste = false;
+			float32 ea = 0.f, ed = 0.f, ec = 0.f;
+			{
+				dI.nodes[(uint32)ni].inclinaisonX = 60.f;
+				dI.nodes[(uint32)ni].inclinaisonY = 60.f;
+				static DesignState stI2;
+				stI2.doc = dI;
+				stI2.Recompute(NkPaintRect{0.f, 0.f, 800.f, 600.f});
+				NkExportOptions oI;
+				oI.format = NkExportFormat::SVG;
+				NkString svgI;
+				NkExportResultat rI;
+				if (NkExporterSVG(stI2, oI, "", svgI, rI)) {
+					// on lit la PREMIERE matrice ecrite, celle du nœud incline
+					const char *p = svgI.Data();
+					const char *cle = "matrix(";
+					const char *trouve = nullptr;
+					for (; *p; ++p) {
+						const char *x = p, *y = cle;
+						while (*x && *y && *x == *y) {
+							++x;
+							++y;
+						}
+						if (!*y) {
+							trouve = x;
+							break;
+						}
+					}
+					if (trouve) {
+						float32 v[6] = {0.f, 0.f, 0.f, 0.f, 0.f, 0.f};
+						const char *q = trouve;
+						for (int32 k = 0; k < 6 && *q; ++k) {
+							while (*q == ' ')
+								++q;
+							v[k] = (float32)atof(q);
+							while (*q && *q != ' ' && *q != ')')
+								++q;
+						}
+						ea = v[0];
+						ed = v[3];
+						ec = v[2];
+						exportJuste = proche(ea, c60) && proche(ed, c60) && proche(ec, s60 * s60);
+					}
+				}
+			}
+			snprintf(det, sizeof(det),
+					 "droit : %u matrice(s) ; autour de X seul : a=%.3f d=%.3f c=%.3f "
+					 "(ecrasement SANS cisaillement) -> %d ; autour de Y seul : a=%.3f d=%.3f "
+					 "c=%.3f -> %d ; LES DEUX : a=%.3f d=%.3f c=%.3f (cisaillement sin*sin = "
+					 "%.3f) -> %d ; aller-retour du document -> %d ; sans inclinaison, aucune "
+					 "cle ecrite -> %d ; l'EXPORT SVG rend a=%.3f d=%.3f c=%.3f -> %d",
+					 nDroit, (double)ax, (double)dx, (double)cx, axeX ? 1 : 0, (double)ay,
+					 (double)dy, (double)cy, axeY ? 1 : 0, (double)a2, (double)d2, (double)c2,
+					 (double)(s60 * s60), lesDeux ? 1 : 0, allerRetour ? 1 : 0,
+					 aucuneCle ? 1 : 0, (double)ea, (double)ed, (double)ec,
+					 exportJuste ? 1 : 0);
+			check("143. L'INCLINAISON AFFINE EST DANS LA MATRICE QUE LE PEINTRE EMET : deux angles, portes "
+				  "par la matrice 2x3 qui existait deja -- donc le pointage et l'export en heritent sans "
+				  "une ligne. La geometrie est DERIVEE, pas postulee : incliner un quadrilatere PLAT sans "
+				  "perspective donne un ECRASEMENT par axe, et le CISAILLEMENT n'apparait QUE si les deux "
+				  "angles sont non nuls (sin a * sin b). Un document droit n'empile toujours AUCUNE "
+				  "matrice et ne gagne AUCUNE cle",
+				  nDroit == 0u && axeX && axeY && lesDeux && allerRetour && aucuneCle
+					  && exportJuste,
+				  det);
+		}
 		// ── 94. ① L'APERCU PENDANT LE TRACE (05/09). Rodolf : « pourquoi quand on dessine un
 		//    graphique on voit juste le rectangle qui s'allonge, et des qu'on relache on voit la
 		//    forme ? » Deux mesures : LA TABLE DE GENRE (une seule, lue par le relachement et par
