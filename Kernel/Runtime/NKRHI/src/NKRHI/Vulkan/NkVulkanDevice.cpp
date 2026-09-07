@@ -2643,10 +2643,19 @@ namespace nkentseu {
 				return VK_FORMAT_BC1_RGB_UNORM_BLOCK;
 			case NkGPUFormat::NK_BC1_RGB_SRGB:
 				return VK_FORMAT_BC1_RGB_SRGB_BLOCK;
+			// ⚠️ Completes le 2026-09-07 : `NK_BC3_SRGB` et `NK_BC5_SNORM` tombaient
+			// au `default:`, donc sur un format NON COMPRESSE. Le meme trou a fait
+			// planter le pilote DX11 (33 Mo lus dans un tampon de 8) et produit 25
+			// erreurs sur OpenGL. Trouve en cherchant le defaut dans TOUS les
+			// dorsaux le jour ou il a ete corrige dans un seul.
 			case NkGPUFormat::NK_BC3_UNORM:
 				return VK_FORMAT_BC3_UNORM_BLOCK;
+			case NkGPUFormat::NK_BC3_SRGB:
+				return VK_FORMAT_BC3_SRGB_BLOCK;
 			case NkGPUFormat::NK_BC5_UNORM:
 				return VK_FORMAT_BC5_UNORM_BLOCK;
+			case NkGPUFormat::NK_BC5_SNORM:
+				return VK_FORMAT_BC5_SNORM_BLOCK;
 			case NkGPUFormat::NK_BC7_UNORM:
 				return VK_FORMAT_BC7_UNORM_BLOCK;
 			case NkGPUFormat::NK_BC7_SRGB:
