@@ -2441,6 +2441,35 @@ int nkmain(const NkEntryState &entry) {
 		}
 		if (agentShotFrame > 0 && agentFrame == agentShotFrame)
 			st.capturePending = 2; // « tutoriel » : toute la fenetre
+		// NK_AGENT_VUE=<n> : a la trame n, sauve LE CONTENU DE LA CIBLE HORS
+		// ECRAN par Demo3DHostCaptureView -- la MEME cible que le GUI
+		// echantillonne pour afficher le viseur, sans interface par-dessus.
+		//
+		// ⚠️ POURQUOI PAS st.capturePending. Le mode 1 preferait
+		// Demo3DHostRenderOutputAs, qui REFAIT un rendu aux reglages de sortie :
+		// on mesurerait un second chemin au lieu de la cible affichee. Ici on
+		// veut FIGER la derniere image rendue, telle qu'elle est stockee.
+		//
+		// ⚠️ ET CE QUE LE FICHIER CONTIENT N'EST PAS LE CONTENU BRUT :
+		// NkOffscreenTarget::ReadbackPixels retourne les lignes POUR OPENGL
+		// SEULEMENT (origine framebuffer en bas-gauche). Qui compare ces PNG
+		// entre dorsaux doit DEFAIRE ce retournement sur OpenGL, sinon il mesure
+		// la convention de relecture au lieu du contenu ecrit.
+		{
+			static int32 sVueFrame = -2;
+			if (sVueFrame == -2) {
+				const char *v = std::getenv("NK_AGENT_VUE");
+				sVueFrame = v ? (int32)std::atoi(v) : -1;
+			}
+			if (sVueFrame > 0 && agentFrame == sVueFrame && demo::Demo3DHostReady()) {
+				char vuePath[256];
+				if (NkNextCapturePath("cible", vuePath, (int32)sizeof(vuePath))) {
+					const bool ok = demo::Demo3DHostCaptureView(vuePath);
+					std::printf("[nk3d] NK_AGENT_VUE : contenu de la cible -> %s : %s\n",
+								vuePath, ok ? "ecrit" : "ECHEC");
+				}
+			}
+		}
 		// NK_AGENT_SAVE=<n> : « Enregistrer tout » (action 8) a la frame n —
 		// le MEME chemin que Ctrl+Maj+S. Pour le test d'aller-retour de la
 		// persistance : enregistrer, relancer, re-enregistrer, comparer.
