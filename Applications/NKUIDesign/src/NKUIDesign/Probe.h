@@ -11637,23 +11637,42 @@ namespace nkuidesign {
 									 && compte("return SectionsSansCible(count)") == 0u;
 				}
 			}
+			// ② (07/09) ET LA PHRASE NE PARLE PAS D'UN ELEMENT QUI N'EXISTE PAS.
+			//    << Rien de selectionne >> est un cas A PART ENTIERE, pas une selection
+			//    vide : la meme phrase servait aux deux, et disait << l'element
+			//    selectionne >> alors qu'il n'y en avait aucun.
+			const char *sansNoeud = NkPhraseSectionVide("TYPOGRAPHIE", nullptr);
+			const char *avecNoeud = NkPhraseSectionVide("TYPOGRAPHIE", &d132.nodes[1]);
+			// LA RELATION, PLUTOT QU'UN MOTIF ACCENTUE : sans nœud, la phrase ne
+			// depend PAS de la section (elle est generique) ; avec un nœud, elle en
+			// depend. C'est ce que << ne parle pas d'un element qui n'existe pas >>
+			// veut dire, dit sans qu'aucun accent n'ait a survivre a un echappement.
+			// ⚠️ Ma premiere ecriture cherchait la sous-chaine « lement » ; l'octet
+			//    accentue est arrive DOUBLEMENT ENCODE dans le fichier et le motif ne
+			//    mordait jamais -- l'essai etait rouge sur son CONTROLE POSITIF, pas
+			//    sur son sujet. Une assertion qui depend d'un octet non-ASCII depend
+			//    de la chaine d'outils qui l'a ecrite.
+			const char *sansAutre = NkPhraseSectionVide("DISPOSITION", nullptr);
+			const bool phraseJuste = NkComponentDecl::StrEq(sansNoeud, sansAutre)
+									 && !NkComponentDecl::StrEq(sansNoeud, avecNoeud);
 			snprintf(det, sizeof(det),
 					 "six types confrontes a la liste attendue : %u ecart(s) [%s] ; "
 					 "selection MIXTE rect+texte : TYPOGRAPHIE %s (attendue absente) ; ce qui "
 					 "n'agit pas ENCORE reste visible : ALIGNEMENT=%d, DISPOSITION=%d ; "
 					 "CONTROLE POSITIF (une liste amputee est vue differente)=%d ; le PANNEAU "
-					 "appelle bien le filtre (lu dans les sources)=%d",
+					 "appelle bien le filtre (lu dans les sources)=%d ; la phrase sans nœud ne "
+					 "parle pas d'un element (\"%s\") et celle avec nœud si (\"%s\") -> %d",
 					 ecarts132, pire132[0] ? pire132 : "(aucun)",
 					 typoMulti ? "presente" : "absente", alignementReste ? 1 : 0,
 					 dispositionReste ? 1 : 0, detecteUneAmputation ? 1 : 0,
-					 panneauBranche ? 1 : 0);
+					 panneauBranche ? 1 : 0, sansNoeud, avecNoeud, phraseJuste ? 1 : 0);
 			check("132. (1) UNE SECTION QUI NE PEUT PAS S'APPLIQUER DISPARAIT : TYPOGRAPHIE n'est offerte "
 				  "qu'a un nœud texte, elle disparait des cinq autres types, et une selection MIXTE ne la "
 				  "montre pas (intersection : une section ne doit pas agir sur une partie de la selection "
 				  "sans qu'on voie laquelle). Ce qui n'agit pas ENCORE -- ALIGNEMENT, DISPOSITION -- reste "
 				  "VISIBLE : le cacher rendrait la fonctionnalite introuvable",
 				  ecarts132 == 0u && !typoMulti && alignementReste && dispositionReste
-					  && detecteUneAmputation && panneauBranche,
+					  && detecteUneAmputation && panneauBranche && phraseJuste,
 				  det);
 		}
 		// -- 133. L'EXPORT SVG DIT LA VERITE DU DOCUMENT ----------------------
@@ -11868,6 +11887,22 @@ namespace nkuidesign {
 			NkOuvrirDialogueExport(st134, true);
 			const bool selectionGardee = st134.choixExport.selection && !st134.choixExport.tout;
 
+			// (e) CE QUI DECRIT L'ETENDUE LA SUIT. Sur << tout le canvas >>, le nom
+			//     propose etait celui de LA PREMIERE PAGE : l'etendue etait devenue
+			//     juste, ce qui la NOMME ne l'etait pas. *Quand on change ce qu'une
+			//     chose fait, tout ce qui la nomme bouge dans le meme lot -- sinon le
+			//     mensonge change simplement de place.*
+			char nomTout[200], nomPage[200];
+			{
+				NkExportOptions oN;
+				oN.tout = true;
+				NkNomObjetExport(st134, oN, nomTout, sizeof(nomTout));
+				NkExportOptions oP; // la page seule : son nom ne doit PAS changer
+				NkNomObjetExport(st134, oP, nomPage, sizeof(nomPage));
+			}
+			const bool nomSuitEtendue = NkComponentDecl::StrEq(nomTout, "canvas")
+										 && !NkComponentDecl::StrEq(nomPage, "canvas");
+
 			// (d) ET LE DRAPEAU EST-IL LU ? Sans cet essai j'aurais pose `tout` et
 			//     personne ne l'aurait consomme -- le defaut meme que ce depot paie
 			//     depuis huit fois. La zone exportee doit etre l'UNION des deux pages,
@@ -11889,11 +11924,13 @@ namespace nkuidesign {
 					 "compte annonce %u = mesure %u -> %d ; (b) canvas VIDE (%u exportable) : "
 					 "panneau refuse=%d, refus dit=%d ; (c) avec selection : la selection est "
 					 "gardee=%d ; (d) le drapeau EST LU : %u nœud(s) vises, zone %.0f de large "
-					 "contre %.0f pour la premiere page seule -> %d",
+					 "contre %.0f pour la premiere page seule -> %d ; (e) le nom propose : "
+					 "\"%s\" pour le canvas, \"%s\" pour la page -> %d",
 					 nExp, ouvert ? 1 : 0, cibleCanvas ? 1 : 0,
 					 compteAnnonce, nExp, compteJuste ? 1 : 0, nVide,
 					 refuse ? 1 : 0, refusDit ? 1 : 0, selectionGardee ? 1 : 0, nTout,
-					 (double)zTout.w, (double)zPage.w, toutEstLu ? 1 : 0);
+					 (double)zTout.w, (double)zPage.w, toutEstLu ? 1 : 0, nomTout, nomPage,
+					 nomSuitEtendue ? 1 : 0);
 			check("134. (2) L'EXPORT NE S'OUVRE PLUS SUR RIEN : sans selection la cible devient TOUT LE "
 				  "CANVAS et le panneau ANNONCE combien d'elements il a trouves ; un canvas sans aucun "
 				  "element exportable REFUSE d'ouvrir et le dit (un panneau qui liste zero element est le "
@@ -11901,7 +11938,7 @@ namespace nkuidesign {
 				  "montage porte une page MASQUEE et une de taille NULLE, sinon << le compte egale le "
 				  "nombre d'enfants >> serait vrai par accident",
 				  nExp == 2u && ouvert && cibleCanvas && compteJuste && refuse && refusDit
-					  && selectionGardee && toutEstLu,
+					  && selectionGardee && toutEstLu && nomSuitEtendue,
 				  det);
 		}
 		// ── 94. ① L'APERCU PENDANT LE TRACE (05/09). Rodolf : « pourquoi quand on dessine un

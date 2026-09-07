@@ -224,6 +224,13 @@ namespace nkuidesign {
 			else if (c.selection)
 				snprintf(phrase, sizeof(phrase), "un fichier : %s de la sélection%s.",
 						 nSel >= 2u ? "la boîte englobante" : "l'objet", png ? "" : " (SVG : vectoriel)");
+			else if (c.tout)
+				// ① (07/09) LA PHRASE SUIT L'ETENDUE, elle aussi. Elle disait « la page »
+				//    sous une etendue « tout le canvas » -- SECOND des deux sites cales sur
+				//    la page (recensement du 07/09 : le nom propose et cette phrase).
+				snprintf(phrase, sizeof(phrase),
+						 "un fichier : les %u éléments du canvas, dans leur boîte englobante%s.",
+						 c.nbExportables, png ? "" : " (SVG : vectoriel)");
 			else
 				snprintf(phrase, sizeof(phrase), "un fichier : la page%s.", png ? "" : " (SVG : vectoriel)");
 			costume::TexteTronque(dl, F.px9, z.x + 12.f, y + 4.f, phrase, z.w - 24.f, ctx.theme.textMuted);

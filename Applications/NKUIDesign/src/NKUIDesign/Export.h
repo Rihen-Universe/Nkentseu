@@ -608,6 +608,18 @@ namespace nkuidesign {
 				return n.component.Data();
 			return "objet";
 		};
+		// ① (07/09) LE NOM SUIT L'ETENDUE. Il ne la suivait pas : sur « tout le
+		//    canvas » il proposait le nom de LA PREMIERE PAGE (« Connexion » sur la
+		//    capture de Rodolf), donc un fichier nomme d'apres une page pour un
+		//    export de trois artboards.
+		// 🔴 C'EST LE DEFAUT D'HIER DEPLACE D'UN CRAN : l'etendue est devenue juste,
+		//    ce qui la DECRIT ne l'etait pas. Quand on change ce qu'une chose fait,
+		//    tout ce qui la nomme doit bouger dans le meme lot -- sinon le mensonge
+		//    change simplement de place.
+		if (o.tout) {
+			NkNomFichierAssaini("canvas", out, cap);
+			return;
+		}
 		if (!o.selection) {
 			const int32 page = o.page > 0 && st.doc.IsValidIndex(o.page) ? o.page : NkPageParDefaut(st);
 			NkNomFichierAssaini(page > 0 ? nomDe(page) : "document", out, cap);

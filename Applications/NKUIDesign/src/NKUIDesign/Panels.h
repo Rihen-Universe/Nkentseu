@@ -10850,6 +10850,31 @@ namespace nkuidesign {
 	//    « est-ce que ca s'applique » divergeraient au premier type ajoute, et le
 	//    panneau cacherait une section dont le corps accepterait -- ou l'inverse.
 	//    Meme forme que `NkAlignementLuParLeSolveur` a cote du solveur.
+	/// ② (07/09) CE QU'UNE SECTION DIT QUAND ELLE N'A RIEN A MONTRER.
+	///
+	/// 🔴 « RIEN DE SELECTIONNE » EST UN CAS A PART ENTIERE, pas une selection
+	///    vide. La section TYPOGRAPHIE rendait la MEME phrase dans les deux cas :
+	///    « L'element selectionne ne porte pas de texte » -- juste dans la forme,
+	///    FAUSSE dans le sujet quand il n'y a aucun element. Rodolf l'a vue.
+	///
+	/// ⚠️ LE RECENSEMENT A DIT **UN**, PAS PLUSIEURS. ESPACEMENT et ALIGNEMENT
+	///    portent des phrases qui supposent un nœud (« ce nœud n'agence pas
+	///    d'enfants ») mais elles sont protegees par un `if (!n)` en amont : elles
+	///    ne s'affichent jamais sans nœud. Huit autres sections rendent un tiret
+	///    muet -- elles ne mentent pas, elles n'expliquent rien, et c'est le
+	///    panneau vide que les proprietes du CANVAS doivent remplacer.
+	///
+	/// ⚠️ ELLE EST LIBRE POUR ETRE SONDABLE : enfouie dans le corps de la section,
+	///    la phrase serait hors de portee du banc -- et le banc en aurait ecrit une
+	///    copie, puis mesure sa copie.
+	inline const char *NkPhraseSectionVide(const char *titre, const NkUINode *n) {
+		if (!n)
+			return "Aucune sélection.";
+		if (NkComponentDecl::StrEq(titre, "TYPOGRAPHIE"))
+			return "L'élément sélectionné ne porte pas de texte.";
+		return "";
+	}
+
 	inline bool NkSectionSApplique(const char *titre, const NkUINode &n) {
 		if (!titre || !*titre)
 			return true;
@@ -15406,7 +15431,9 @@ namespace nkuidesign {
 				//    autrement (aucune selection).
 				if (!n || !NkSectionSApplique("TYPOGRAPHIE", *n)) {
 					ctx.BeginDisabled();
-					nkgui::TextWrapped(ctx, "L'élément sélectionné ne porte pas de texte.");
+					// ② LA PHRASE DISTINGUE LES DEUX CAS : sans nœud, elle ne parle pas
+					//    d'un « element selectionne » qui n'existe pas.
+					nkgui::TextWrapped(ctx, NkPhraseSectionVide("TYPOGRAPHIE", n));
 					ctx.EndDisabled();
 					return;
 				}
