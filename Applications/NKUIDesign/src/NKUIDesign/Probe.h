@@ -16220,11 +16220,35 @@ namespace nkuidesign {
 					(void)c2.Etat(lot[k].FullPath.CStr(), (nk_int64)lot[k].ModificationTime, false);
 				msCache = c.Elapsed().milliseconds;
 			}
-			// LE SEUIL EST DIT, PAS DEVINE : au-dela de 8 ms pour un dossier de 124 entrees,
-			// le dialogue se sentirait -- il faudrait alors sonder en arriere-plan. En
-			// dessous, le faire tout de suite est plus simple ET plus honnete (aucune icone
-			// qui se corrige sous l'oeil).
-			const bool coutTenable = msApres < 8.0 && msCache < msApres;
+			// ── ⚠️ CE QUI EST AFFIRME EST UNE RELATION, PAS UNE DUREE (08/09) ──────
+			//
+			// 🔴 CET ESSAI ETAIT L'INTERMITTENT signale DEUX FOIS le 07/09 : une course
+			//    a 330/331, puis onze courses vertes du MEME binaire ; et plus tot
+			//    320/321 puis 321/321. Il affirmait `msApres < 8.0` -- **une duree
+			//    d'horloge**, sur 124 sondages de dossiers reels. Juste apres un lien,
+			//    le cache du systeme de fichiers est froid et la meme mesure double.
+			//    Sur cette machine, la mesure VOISINE (`Empty`) lit deja **8,05 ms** :
+			//    le seuil etait franchi par son propre voisin.
+			//
+			// ⚠️ UN BANC DOIT ROUGIR SUR LE CODE, PAS SUR LA MACHINE. Un vert qui peut
+			//    virer au rouge sans raison est un vert dont on ne peut plus rien
+			//    conclure -- et le rouge intermittent finit par etre ignore, un jour ou
+			//    il aura raison. C'est *<< un temoin qui compare a un nombre d'hier >>*
+			//    sous une autre forme : ici le nombre vient d'une AUTRE machine.
+			//
+			// ⚠️ CE QUI EST GARDE : les deux relations CAUSALES, mesurees dans la MEME
+			//    course, donc insensibles a la vitesse du disque --
+			//      1. la nouvelle question n'est pas plus chere que celle qu'elle
+			//         remplace ;
+			//      2. un cache n'est pas plus lent que le chemin qu'il evite.
+			//    La tolerance (0,5 ms) est la resolution de l'horloge, pas une marge de
+			//    confort : sans elle, deux mesures egales pourraient departager au bruit.
+			//
+			// ⚠️ ET LA DUREE N'EST PAS PERDUE : elle reste IMPRIMEE dans la ligne de
+			//    detail, avec le seuil de confort de 8 ms en toutes lettres. *Un humain
+			//    qui la lit apprend quelque chose ; un banc qui l'affirme apprend le
+			//    temps qu'il fait.*
+			const bool coutTenable = msApres <= msAvant + 0.5 && msCache <= msApres + 0.5;
 			// 5. LE DESSIN : trois empreintes DISTINCTES, a 32, 64 et 128 px.
 			auto empreinte = [](uint8 contenu, float32 taille) -> uint32 {
 				NkRecordingPaint r;
@@ -16258,11 +16282,14 @@ namespace nkuidesign {
 					 "(un dossier de fichiers SEULS est plein pour l'icone et sans enfant pour le chevron) ; "
 					 "illisible != vide (Empty dit vide, Probe dit illisible)=%d ; cache : %u/%u/%u/%u acces "
 					 "pour 4 questions -> %d ; COUT sur 124 dossiers : Empty %.2f ms, Probe %.2f ms, "
-					 "cache relu %.3f ms -> tenable sans arriere-plan=%d ; trois empreintes distinctes a "
+					 "cache relu %.3f ms (%s le seuil de confort de 8 ms -- INFORMATION, pas assertion) ; "
+					 "le cache n'est pas plus lent et la nouvelle question pas plus chere=%d ; "
+					 "trois empreintes distinctes a "
 					 "32/64/128 px=%d",
 					 (uint32)tVide, (uint32)tFich, (uint32)tSous, (uint32)cVide, (uint32)cFich,
 					 (uint32)cSous, troisEtats ? 1 : 0, illisiblePasVide ? 1 : 0, apres1, apres2, apres3,
-					 apres4, cacheOk ? 1 : 0, msAvant, msApres, msCache, coutTenable ? 1 : 0,
+					 apres4, cacheOk ? 1 : 0, msAvant, msApres, msCache,
+					 msApres < 8.0 ? "sous" : "AU-DELA DE", coutTenable ? 1 : 0,
 					 troisDessins ? 1 : 0);
 			check("123. UN DOSSIER VIDE, UN DOSSIER PLEIN ET UN DOSSIER QU'ON NE PEUT PAS LIRE NE SE DESSINENT PAS "
 				  "PAREIL, ET LE COUT EST MESURE : on ne demande pas « combien d'entrees » mais « au moins une » "
