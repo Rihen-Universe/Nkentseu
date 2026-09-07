@@ -11289,6 +11289,212 @@ namespace nkuidesign {
 				  "jamais approxime. La cle est additive et preserve un mode inconnu",
 				  ok129 && rienParDefaut129 && inconnuGarde && stableK, det);
 		}
+		// -- 130. (7) L'ANCRAGE A DES MARGES : `posX`/`posY` se COMPOSENT avec les
+		//    bords au lieu d'etre ignores (S11, tranche par Rodolf) --------------
+		//
+		// CE QUI MANQUAIT : la branche `Anchor` du solveur calculait la position
+		//    UNIQUEMENT depuis les bords ancres. Il n'y avait aucun endroit ou
+		//    ranger << et en plus, decale de trente pixels >>. Nomme correctement,
+		//    ce decalage est une MARGE -- un concept standard qui manquait.
+		//
+		// CE QU'ON N'A PAS AJOUTE, ET C'EST LA MOITIE DU LOT : aucun champ neuf.
+		//    `posX`/`posY` existent deja sur le nœud, sont deja serialises (cle
+		//    `position`), deja ecrits par le glisser a la souris ET par le geste
+		//    d'alignement, et deja lus par la branche `Free`. Sous `Anchor` ils
+		//    n'etaient LUS par personne. Le logement existait ; il etait ignore
+		//    d'un cote.
+		//
+		// QUATRE EXIGENCES, et la troisieme est celle qui prouve la COMPOSITION :
+		{
+			char det[620];
+			// Le montage : un parent ANCRE, un enfant ancre a GAUCHE+HAUT avec une
+			// marge, et un second ancre a DROITE pour que l'alignement ait un ecart
+			// non nul a resorber (lecon du 06/09 : un montage qui n'exerce pas le
+			// regime risque rend un rouge trompeur).
+			auto scene130 = [](float32 largeurParent, float32 mx, float32 my,
+							   NkUIDocument &d, int32 &pg, int32 &u1, int32 &u2) {
+				d.NewDocument("Toile", NkAuthor::Humain);
+				d.SetMetric("espacement", 0.f);
+				d.SetMetric("marge", 0.f);
+				pg = d.AddChild(0, "", NkAuthor::Humain);
+				NkUINode &p = d.nodes[(uint32)pg];
+				p.shape = NkString("frame");
+				p.layout.kind = NkLayoutKind::Anchor;
+				p.width.mode = NkSizeMode::Fixed;
+				p.width.value = largeurParent;
+				p.height.mode = NkSizeMode::Fixed;
+				p.height.value = 300.f;
+				auto poser = [&](uint8 bords, float32 px, float32 py) {
+					const int32 i = d.AddChild(pg, "", NkAuthor::Humain);
+					NkUINode &q = d.nodes[(uint32)i];
+					q.shape = NkString("rect");
+					q.anchorEdges = bords;
+					q.posX = px;
+					q.posY = py;
+					q.width.mode = NkSizeMode::Fixed;
+					q.width.value = 40.f;
+					q.height.mode = NkSizeMode::Fixed;
+					q.height.value = 20.f;
+					return i;
+				};
+				u1 = poser(nkanchor::Left | nkanchor::Top, mx, my);
+				u2 = poser(nkanchor::Right | nkanchor::Top, 0.f, 0.f);
+			};
+			const NkPaintRect surf130 = {0.f, 0.f, 900.f, 600.f};
+
+			// (a) LA MARGE SE COMPOSE AVEC LE BORD. Ancre a gauche + marge 30 :
+			//     la boite doit etre a `bord + 30`, pas au bord.
+			NkUIDocument dA;
+			int32 pgA = 0, a1 = 0, a2 = 0;
+			scene130(400.f, 30.f, 12.f, dA, pgA, a1, a2);
+			NkLayoutResult layA;
+			NkComputeLayout(dA, surf130, layA);
+			const NkPaintRect bA = layA.At(a1), bParent = layA.At(pgA);
+			const bool margeAppliquee = bA.x == bParent.x + 30.f && bA.y == bParent.y + 12.f;
+
+			// (b) LE DEFAUT EST ZERO -- la garantie de non-regression. Sans marge,
+			//     la boite doit tomber EXACTEMENT sur le bord, comme avant.
+			NkUIDocument dZ;
+			int32 pgZ = 0, z1 = 0, z2 = 0;
+			scene130(400.f, 0.f, 0.f, dZ, pgZ, z1, z2);
+			NkLayoutResult layZ;
+			NkComputeLayout(dZ, surf130, layZ);
+			const bool defautZero = layZ.At(z1).x == layZ.At(pgZ).x
+									&& layZ.At(z1).y == layZ.At(pgZ).y;
+
+			// (c) LE CONTROLE POSITIF : LE PARENT GRANDIT, LE NŒUD SUIT SON BORD ET
+			//     GARDE SA MARGE. C'est CE cas qui prouve que la marge se COMPOSE
+			//     avec l'ancrage au lieu de le remplacer -- une position absolue
+			//     passerait (a) et echouerait ici.
+			NkUIDocument dL;
+			int32 pgL = 0, l1 = 0, l2 = 0;
+			scene130(700.f, 30.f, 12.f, dL, pgL, l1, l2); // parent 400 -> 700
+			NkLayoutResult layL;
+			NkComputeLayout(dL, surf130, layL);
+			// l'ancre GAUCHE ne bouge pas quand le parent s'elargit ; c'est l'ancre
+			// DROITE qui doit suivre le bord, marge comprise.
+			const float32 droiteAvant = layA.At(a2).x, droiteApres = layL.At(l2).x;
+			const bool suitLeBord = droiteApres == droiteAvant + 300.f;
+			const bool gardeSaMarge = layL.At(l1).x == layL.At(pgL).x + 30.f
+									  && layL.At(l1).y == layL.At(pgL).y + 12.f;
+
+			// (d) ALIGNER PUIS ENREGISTRER PUIS RECHARGER : la position revient.
+			//     ⚠️ LES DEUX MOITIES, comme l'arrondi par coin l'a appris : la
+			//        STABILITE (le fichier se reecrit pareil) ET la CONSERVATION
+			//        (la boite est encore la ou l'alignement l'a mise).
+			static DesignState stM;
+			int32 pgM = 0, m1 = 0, m2 = 0;
+			scene130(400.f, 30.f, 12.f, stM.doc, pgM, m1, m2);
+			stM.Recompute(surf130);
+			stM.sel.Clear();
+			stM.sel.Add(m1);
+			stM.sel.Add(m2);
+			stM.selected = m1;
+			const NkAlignResultat rM = NkAlignerSelection(stM, NkAlignGeste::Droite, false);
+			stM.Recompute(surf130);
+			const NkPaintRect apresAlign = stM.layout.At(m1);
+			NkString sM;
+			stM.doc.Save(sM);
+			NkUIDocument reluM;
+			const bool luM = reluM.Load(sM.Data());
+			NkLayoutResult layM;
+			if (luM)
+				NkComputeLayout(reluM, surf130, layM);
+			const bool retrouve = luM && layM.Has(m1) && layM.At(m1).x == apresAlign.x
+								  && layM.At(m1).y == apresAlign.y;
+			NkString sM2;
+			if (luM)
+				reluM.Save(sM2);
+			const bool stableM = luM && NkComponentDecl::StrEq(sM.Data(), sM2.Data());
+			const bool aBougeVraiment = rM.bouges == 1u;
+
+			// (e) L'AXE ETIRE N'A PLUS DE LIBERTE, et c'est une MESURE, pas une
+			//     phrase : un nœud ancre a GAUCHE ET A DROITE est entierement place
+			//     par ses deux bords. Lui ajouter un decalage le ferait deborder de
+			//     celui qu'il touche -- on n'applique donc rien sur cet axe. Sans cet
+			//     essai, la limite serait une affirmation du commentaire.
+			NkUIDocument dE;
+			int32 pgE = 0, e1 = 0, e2 = 0;
+			scene130(400.f, 0.f, 0.f, dE, pgE, e1, e2);
+			{
+				NkUINode &q = dE.nodes[(uint32)e1];
+				q.anchorEdges = nkanchor::Left | nkanchor::Right | nkanchor::Top;
+				q.posX = 30.f; // ignore : l'axe X est etire
+				q.posY = 12.f; // applique : l'axe Y ne l'est pas
+			}
+			NkLayoutResult layE;
+			NkComputeLayout(dE, surf130, layE);
+			const bool etireIgnoreX = layE.At(e1).x == layE.At(pgE).x;
+			const bool libreGardeY = layE.At(e1).y == layE.At(pgE).y + 12.f;
+
+			snprintf(det, sizeof(det),
+					 "(a) marge 30/12 sur un bord gauche+haut : boite a (%.0f, %.0f), bord du "
+					 "parent (%.0f, %.0f) -> %d ; (b) sans marge, la boite tombe sur le bord -> "
+					 "%d ; (c) parent 400 -> 700 : l'ancre DROITE passe de %.0f a %.0f (+300 "
+					 "attendu) -> %d, et l'ancre gauche garde sa marge -> %d ; (d) aligner : %u "
+					 "bouge(s), la boite est a %.0f, relue du fichier a %.0f -> retrouve=%d, "
+					 "aller-retour stable=%d ; (e) axe ETIRE (gauche+droite) : X ignore=%d, "
+					 "Y libre garde sa marge=%d",
+					 (double)bA.x, (double)bA.y, (double)bParent.x, (double)bParent.y,
+					 margeAppliquee ? 1 : 0, defautZero ? 1 : 0, (double)droiteAvant,
+					 (double)droiteApres, suitLeBord ? 1 : 0, gardeSaMarge ? 1 : 0, rM.bouges,
+					 (double)apresAlign.x, luM && layM.Has(m1) ? (double)layM.At(m1).x : -1.0,
+					 retrouve ? 1 : 0, stableM ? 1 : 0, etireIgnoreX ? 1 : 0,
+					 libreGardeY ? 1 : 0);
+			check("130. (7) L'ANCRAGE A DES MARGES : `posX`/`posY` se COMPOSENT avec les bords ancres au lieu "
+				  "d'etre ignores -- la marge s'applique, le DEFAUT EST ZERO (donc rien ne bouge dans les "
+				  "documents existants), le nœud SUIT SON BORD quand le parent grandit TOUT EN gardant sa "
+				  "marge (c'est ce cas qui prouve la composition : une position absolue passerait le "
+				  "premier essai et echouerait celui-ci), et aligner puis enregistrer puis recharger "
+				  "retrouve la position -- stabilite ET conservation",
+				  margeAppliquee && defautZero && suitLeBord && gardeSaMarge && aBougeVraiment
+					  && retrouve && stableM && etireIgnoreX && libreGardeY,
+				  det);
+		}
+		// -- 131. (7) LE DOCUMENT REEL DE RODOLF NE PEUT PAS BOUGER --------------
+		//
+		// Le risque nomme dans S11 : le solveur d'ancrage positionne tout ce qui est
+		//    ancre dans ses documents. Plutot qu'un compte de boites fige -- qui
+		//    tomberait des qu'il edite son document -- l'essai porte la RELATION qui
+		//    rend le risque nul : aucun nœud de ce document n'a un parent en
+		//    ancrage, donc la branche modifiee n'est jamais entree.
+		// ⚠️ LA SOMME DES BOITES EST DANS LE DETAIL, PAS DANS L'ASSERTION : c'est
+		//    une mesure a comparer entre AVANT et APRES le changement, pas un
+		//    nombre a maintenir. Un compte fige sur une collection qui grandit par
+		//    conception est une dette a echeance.
+		{
+			char det[420];
+			NkUIDocument dR;
+			NkString texte = NkFile::ReadAllText("nkuidesign_document.nkuidoc");
+			const bool charge = !texte.Empty() && dR.Load(texte.Data());
+			uint32 sousAncrage = 0u, total = 0u;
+			double somme = 0.0;
+			if (charge) {
+				total = (uint32)dR.nodes.Size();
+				for (uint32 i = 0; i < total; ++i) {
+					const int32 p = dR.nodes[i].parent;
+					if (dR.IsValidIndex(p) && dR.nodes[(uint32)p].layout.kind == NkLayoutKind::Anchor)
+						++sousAncrage;
+				}
+				NkLayoutResult layR;
+				NkComputeLayout(dR, NkPaintRect{0.f, 0.f, 1400.f, 900.f}, layR);
+				for (uint32 i = 0; i < total; ++i)
+					if (layR.Has((int32)i)) {
+						const NkPaintRect b = layR.At((int32)i);
+						somme += (double)b.x + (double)b.y * 3.0 + (double)b.w * 7.0
+								 + (double)b.h * 11.0;
+					}
+			}
+			snprintf(det, sizeof(det),
+					 "document charge=%d, %u nœuds, %u sous un parent en ANCRAGE (0 = la branche "
+					 "modifiee n'est jamais entree) ; empreinte des boites = %.3f (a comparer "
+					 "avant / apres le changement, pas a maintenir)",
+					 charge ? 1 : 0, total, sousAncrage, somme);
+			check("131. (7) LE DOCUMENT REEL NE PEUT PAS BOUGER : aucun de ses nœuds n'a un parent en "
+				  "ancrage, donc la branche modifiee n'est jamais entree -- une RELATION, pas un compte de "
+				  "boites fige qui tomberait des que Rodolf edite son document",
+				  charge && sousAncrage == 0u, det);
+		}
 		// ── 94. ① L'APERCU PENDANT LE TRACE (05/09). Rodolf : « pourquoi quand on dessine un
 		//    graphique on voit juste le rectangle qui s'allonge, et des qu'on relache on voit la
 		//    forme ? » Deux mesures : LA TABLE DE GENRE (une seule, lue par le relachement et par

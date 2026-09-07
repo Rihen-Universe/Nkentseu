@@ -97,35 +97,46 @@ namespace nkuidesign {
 		using nkentseu::int32;
 		using nkentseu::uint32;
 
-		/// Le parent LIT-IL `posX`/`posY` de ses enfants ? **`free` seulement.**
+		/// Le parent LIT-IL `posX`/`posY` de ses enfants ? **`free` et `anchor`.**
 		///
-		/// 🔴 `anchor` A ETE RETIRE LE 07/09, et c'est un ARBITRAGE, pas un reglage.
-		///    La branche `Anchor` du solveur (`Layout.h`) calcule la place depuis les
-		///    BORDS ancres : elle ne lit jamais `posX`/`posY`. Ecrire une position
-		///    la-bas revenait a poser une valeur que rien ne relit -- et le geste
-		///    COMPTAIT alors un deplacement qui n'avait pas lieu (temoin 93b :
-		///    « 1 annonce bouge, 0 boite reellement deplacee »).
+		/// 🔴 `anchor` EST REVENU LE 07/09, ET LA PHRASE D'HIER EST RETIREE AVEC.
+		///    Hier, ce fichier refusait `anchor` parce que le solveur ignorait
+		///    `posX`/`posY` sous ancrage -- le geste comptait alors un deplacement qui
+		///    n'avait pas lieu, et l'arbitrage etait juste : *quand deux endroits se
+		///    contredisent, celui qui S'EXECUTE a raison.* J'avais ecrit ici que
+		///    rouvrir la question serait « un chantier de solveur, pas un branchement
+		///    de champ ». **Rodolf a tranche : ce sera fait maintenant** -- et cette
+		///    phrase serait devenue a son tour le mensonge qu'elle reparait, donc elle
+		///    part dans le meme commit que le correctif du solveur.
 		///
-		/// ⚠️ DEUX ENDROITS ENONCAIENT DES REGLES CONTRAIRES SUR UN MEME FAIT : la
-		///    section DISPOSITION de l'inspecteur traite deja la position comme
-		///    CALCULEE sous un parent `Anchor` (elle affiche des boites statiques et
-		///    ecrit « calculee — jamais ecrite dans le document ») ; ce fichier la
-		///    traitait comme ECRITE. **Quand deux endroits se contredisent, celui qui
-		///    S'EXECUTE a raison** -- ici le solveur -- et l'autre ment. L'utilisateur
-		///    etait deja trompe : l'aligner sur le solveur ne lui retire rien, ca rend
-		///    visible ce qui etait deja vrai.
+		/// ⚠️ CE QUI A CHANGE, ET C'EST LE SOLVEUR, PAS CE FICHIER : la branche
+		///    `Anchor` de `Layout.h` AJOUTE desormais `posX`/`posY` a la position
+		///    calculee depuis les bords. Nomme correctement, ce decalage est une
+		///    MARGE. Le geste d'alignement fonctionne donc sous ancrage exactement
+		///    comme sous toile, sans une ligne de plus ici : il fait `posX += dx` sur
+		///    des boites calculees, et la relation reste a pente 1.
 		///
-		/// ⚠️ CE QUE CET ARBITRAGE FERME, ET IL FAUT LE SAVOIR MAINTENANT : si l'on
-		///    veut un jour que l'alignement agisse REELLEMENT sous un parent en
-		///    ancrage, ce sera un chantier de SOLVEUR (apprendre a composer un decalage
-		///    avec des bords ancres), pas un branchement de champ ici.
+		/// ⚠️ LE TEMOIN 93b N'A PAS BOUGE D'UNE LIGNE, et c'est le point : il porte
+		///    une RELATION -- « autant de boites deplacees que de nœuds annonces
+		///    bouges » -- et non un compte de refus. Il etait vert hier avec 0 et 0 ;
+		///    il est vert aujourd'hui avec 1 et 1. *Un temoin ecrit comme une relation
+		///    survit au renversement de ce qu'il mesure.*
+		///
+		/// ⚠️ RESTE VRAI, ET CE N'EST PAS LA MEME CHOSE : un axe ETIRE entre deux
+		///    bords opposes n'a plus de liberte, donc l'aligner n'a pas de sens. Le
+		///    solveur n'y applique aucun decalage ; le geste, lui, ne le sait pas et
+		///    comptera un « bouge » sans effet sur cet axe-la. **Limite connue, dite
+		///    ici, non corrigee** : la corriger demanderait au geste de lire les bords
+		///    d'ancrage, c'est-a-dire de savoir ce que le solveur sait -- et personne
+		///    n'a encore rencontre le cas.
 		inline bool ParentPlaceLibrement(const NkUIDocument &doc, int32 i) {
 			if (!doc.IsValidIndex(i))
 				return false;
 			const int32 p = doc.nodes[(uint32)i].parent;
 			if (!doc.IsValidIndex(p))
 				return false;
-			return doc.nodes[(uint32)p].layout.kind == NkLayoutKind::Free;
+			const NkLayoutKind k = doc.nodes[(uint32)p].layout.kind;
+			return k == NkLayoutKind::Free || k == NkLayoutKind::Anchor;
 		}
 		/// La page d'un noeud : son ancetre direct sous la racine.
 		inline int32 PageDe(const NkUIDocument &doc, int32 i) {

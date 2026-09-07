@@ -220,6 +220,29 @@ namespace nkuidesign {
 									  : (l ? inner.x : inner.x + (inner.w - w) * 0.5f);
 					cr.y = (!t && b) ? inner.y + inner.h - h
 									 : (t ? inner.y : inner.y + (inner.h - h) * 0.5f);
+					// ⑦ (07/09, S11) LA MARGE : `posX`/`posY` se COMPOSENT avec le bord.
+					// ⚠️ AUCUN CHAMP NEUF, ET C'EST LA MOITIE DU CORRECTIF. `posX`/`posY`
+					//    existent depuis toujours sur le nœud, sont deja serialises (cle
+					//    `position`), deja ecrits par le glisser a la souris ET par le geste
+					//    d'alignement, et deja lus par la branche `Free`. Ici, ils
+					//    n'etaient LUS par personne : le logement du decalage existait, il
+					//    etait ignore d'un seul cote. En inventer un seaurait ete la
+					//    troisieme seconde version de ce depot, apres le soudeur de sommets
+					//    et le cycle de metriques.
+					// ⚠️ LE DEFAUT EST ZERO PAR CONSTRUCTION : `posX`/`posY` valent 0 sur
+					//    un nœud neuf et la cle `position` ne s'ecrit que non nulle. Un
+					//    document existant ne peut donc pas bouger (cas 130b, 131).
+					// ⚠️ UN AXE ETIRE ENTRE DEUX BORDS N'A PLUS DE LIBERTE : sa place est
+					//    entierement dite par les deux bords, et lui ajouter un decalage le
+					//    ferait deborder de celui qu'il touche. On n'applique donc rien sur
+					//    cet axe -- ce n'est pas un oubli, c'est ce que « ancre des deux
+					//    cotes » veut dire. (Des marges par cote, qui RETRECIRAIENT la
+					//    boite au lieu de la deplacer, sont une autre notion : elles
+					//    demanderaient quatre nombres, et personne ne les a demandees.)
+					if (!(l && ri))
+						cr.x += c.posX;
+					if (!(t && b))
+						cr.y += c.posY;
 					PlaceSubtree(doc, m, kids[i], cr, out);
 				}
 				return;
