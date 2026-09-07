@@ -938,6 +938,12 @@ void main() {
 							  // bloomYFlip : 1 sur DX (bloom/SSAO stockés Y-up vs HDR Y-down → V opposé),
 							  // 0 sur VK/GL (bloom/SSAO et HDR partagent la même convention V). Corrige le
 							  // glow "ghost" miroir vertical sur DX.
+							  // ⚠️ INCHANGE, ET C'EST UNE MESURE. Je l'avais classe
+							  // « compensation de la negation » et mis a 0 : le halo sortait
+							  // a 344.1 sur DX au lieu de 322.9. Rendu a sa valeur, il
+							  // revient a 322.9 sur les QUATRE. C'est une CONVENTION VRAIE,
+							  // comme shadowYFlip -- deuxieme classement de mon recensement
+							  // que la mesure corrige.
 							  ((mDevice && (mDevice->GetApi() == NkGraphicsApi::NK_GFX_API_DX11 ||
 											mDevice->GetApi() == NkGraphicsApi::NK_GFX_API_DX12))
 								   ? 1.f

@@ -267,7 +267,10 @@ namespace nkentseu {
 	//                  ⚠️ SANS CE PALIER, LE CORRECTIF EST INVISIBLE : le cache
 	//                  resservait le HLSL d'avant, et j'ai « refute » deux
 	//                  hypotheses justes sur des mesures perimees.
-	inline constexpr uint32 kNkSLGeneratorVersion = 5u;
+	//              6 = la negation Y du generateur HLSL est RETIREE (groupe 1).
+	//                  Les cinq temoins du banc rendent les memes nombres sur
+	//                  les quatre dorsaux ; cf. le message du commit.
+	inline constexpr uint32 kNkSLGeneratorVersion = 6u;
 
 	class NkShaderCache {
 		public:
