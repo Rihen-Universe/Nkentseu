@@ -1297,8 +1297,39 @@ namespace nkentseu {
 		auto it = mTextures.Find(t.id);
 		if (!it)
 			return false;
-		uint32 bpp = NkFormatBytesPerPixel(it->desc.format);
-		uint32 rp = rowPitch > 0 ? rowPitch : w * bpp;
+		// -- LE COMPTE DE RANGEES SE COMPTE EN BLOCS, PAS EN PIXELS ----------------
+		// `NkTypes.h:176` l'ecrit depuis toujours : un octet-par-pixel n'existe pas
+		// pour un format par blocs, et les dorsaux doivent passer par
+		// `NkFormatRowPitch` / `NkFormatImageSize`. OpenGL branche sur
+		// `NkFormatIsBlockCompressed`, DX11 et Vulkan appellent `NkFormatRowPitch` ;
+		// **DX12 etait le seul des quatre a n'avoir jamais recu le traitement par
+		// blocs**. Le pas de ligne, lui, arrivait juste (l'appelant passe son vrai
+		// `rowPitch`) : c'est le NOMBRE DE RANGEES qui etait faux. La boucle tournait
+		// `h` fois -- en PIXELS -- alors qu'une image BC n'a que `(h+3)/4` rangees de
+		// BLOCS. Elle lisait donc QUATRE FOIS la taille du tampon source, hors des
+		// donnees : plantage dans `memmove`, avant la premiere image, et **sans une
+		// seule ligne d'erreur** puisqu'il n'y a rien a journaliser dans une lecture
+		// hors bornes. Mesure du 2026-09-07, pile sur la scene de Rodolf :
+		//     memmove <- WriteTextureRegion <- CreateFromBaked <- LoadBaked
+		// Ne se declenche qu'avec une texture CUITE COMPRESSEE -- ce que le banc ne
+		// charge pas, et ce que son projet charge.
+		//
+		// ⚠️ LES DEUX UNITES NE SE MELANGENT PAS, et c'est le piege de cet endroit :
+		// `rowCount` et les pas comptent en RANGEES DE BLOCS ; le `Footprint`
+		// ci-dessous declare `{w, h}` en TEXELS (c'est ce que D3D12 attend pour un
+		// format BC, avec RowPitch en octets d'une rangee de blocs). Corriger un cote
+		// sans l'autre redonne un plantage ou une image decalee.
+		const bool blocs = NkFormatIsBlockCompressed(it->desc.format);
+		uint32 bh = 1;
+		if (blocs) {
+			uint32 bw = 1;
+			NkFormatBlockDim(it->desc.format, bw, bh);
+			if (bh == 0)
+				bh = 1;
+		}
+		uint32 rp = rowPitch > 0 ? rowPitch : NkFormatRowPitch(it->desc.format, w);
+		// Rangees a recopier : de BLOCS si le format est par blocs, de pixels sinon.
+		const uint32 rowCount = blocs ? ((h + bh - 1) / bh) : h;
 		// RowPitch du placed-footprint aligné sur 256 (D3D12_TEXTURE_DATA_PITCH_ALIGNMENT),
 		// sinon CopyTextureRegion -> faute GPU -> "Removing Device".
 		const uint32 kPitchAlign = 256u;
@@ -1307,14 +1338,14 @@ namespace nkentseu {
 		// footprint, D3D12 deduit le slice pitch de RowPitch x Height — les tranches
 		// doivent donc etre contigues a ce pas, pas au pas source.
 		const uint32 depthCount = d2 > 0 ? d2 : 1;
-		const uint64 alignedSlicePitch = (uint64)alignedRowPitch * h;
-		const uint64 srcSlicePitch = (uint64)rp * h;
+		const uint64 alignedSlicePitch = (uint64)alignedRowPitch * rowCount;
+		const uint64 srcSlicePitch = (uint64)rp * rowCount;
 		uint64 sz = alignedSlicePitch * depthCount;
 		NkBufferDesc sd = NkBufferDesc::Staging(sz);
 		auto stageH = CreateBuffer(sd);
 		auto &stage = mBuffers[stageH.id];
 		for (uint32 slice = 0; slice < depthCount; ++slice) {
-			for (uint32 row = 0; row < h; ++row) {
+			for (uint32 row = 0; row < rowCount; ++row) {
 				memcpy((uint8 *)stage.mapped + slice * alignedSlicePitch + (uint64)row * alignedRowPitch,
 					   (const uint8 *)pixels + slice * srcSlicePitch + (uint64)row * rp, (size_t)rp);
 			}
