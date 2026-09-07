@@ -11501,8 +11501,34 @@ namespace nkuidesign {
 		return false;
 	}
 
+	// ── ② LA GARDE APPARTIENT A CELUI QUI L'OUVRE, PAS AU SELECTEUR ─────────
+	//
+	// 🔴 Le sélecteur de couleur **ne sert qu'à choisir une couleur**. Il n'a
+	//    aucune raison d'exiger un nœud. La règle « rien de sélectionné : je me
+	//    ferme » est juste pour ÉTATS, EFFETS, REMPLISSAGES et BORDURES — ils
+	//    décrivent un nœud — et fausse pour le décor de la toile, qui n'en
+	//    décrit aucun. Elle était posée chez celui qui ne s'en sert pas.
+	//
+	// ⚠️ RECENSEMENT AVANT DE DEPLACER (07/09) : **cinq portes** ouvrent ce
+	//    sélecteur. **Quatre décrivent un nœud**, une non. La garde est donc
+	//    DÉPLACÉE, pas retirée : chaque porte DÉCLARE le nœud qu'elle décrit
+	//    (`-1` = aucun), et le sélecteur honore cette déclaration.
+	//
+	/// Le sélecteur doit-il se refermer ? Oui si celui qui l'a ouvert décrivait un
+	/// nœud et que ce nœud n'est plus là — ou n'est plus celui qu'on regarde.
+	inline bool NkPickerDoitFermer(nkentseu::int32 noeudDecrit, nkentseu::int32 selection,
+								   bool noeudValide) noexcept {
+		if (noeudDecrit < 0)
+			return false; // il ne décrit aucun nœud : la sélection ne le concerne pas
+		return !noeudValide || selection != noeudDecrit;
+	}
+
+	/// `noeudDecrit` : l'index du nœud que cette pastille décrit, ou **-1** si elle
+	/// n'en décrit aucun (le décor de la toile). **Sans valeur par défaut**, exprès :
+	/// une porte de plus doit se poser la question plutôt que d'hériter d'un choix.
 	inline bool NkPastilleCouleur(nkgui::NkGuiContext &ctx, DesignState &st, const char *idStr,
-								  const nkgui::NkRect &sw, char *hexBuf, nkentseu::uint32 cap) {
+								  const nkgui::NkRect &sw, char *hexBuf, nkentseu::uint32 cap,
+								  nkentseu::int32 noeudDecrit) {
 		using namespace nkentseu;
 		const nkgui::NkColor teinte = NkCouleurDepuisHex(hexBuf);
 		const bool lisible = NkHexLisible(hexBuf);
@@ -11523,6 +11549,15 @@ namespace nkuidesign {
 				st.picker.id = id;
 				st.picker.ancre = sw;
 				st.picker.change = false;
+				// ② LA DECLARATION SE FAIT ICI, dans LA porte, pas dans chacune des
+				//   cinq : le nœud décrit (ou -1), et le genre par défaut.
+				st.picker.noeud = noeudDecrit;
+				// ⚠️ LE GENRE SE REMET A ZERO, et ce n'était pas fait : il gardait
+				//    celui du DERNIER ouvreur. Ouvrir la pastille d'un ÉTAT après
+				//    celle d'un remplissage laissait `genre = 1` — le sélecteur
+				//    partait dans le popover de remplissage. Les deux sections qui
+				//    ont besoin d'un autre genre le posent juste après leur appel.
+				st.picker.genre = 0u;
 				snprintf(st.picker.hex, sizeof(st.picker.hex), "%s", hexBuf ? hexBuf : "");
 			}
 		}
@@ -11575,8 +11610,13 @@ namespace nkuidesign {
 			return;
 		if (!st.picker.ouvert)
 			return;
-		// ④ rien de selectionne : le selecteur generique (etats, effets) se ferme aussi
-		if (st.picker.genre == 0u && !st.doc.IsValidIndex(st.selected)) {
+		// ② (07/09) LA GARDE EST CELLE QUE LA PORTE A DECLAREE, pas une regle que le
+		//    selecteur impose a tout le monde. Avant : « genre 0 et rien de
+		//    selectionne -> je me ferme » -- juste pour les etats et les effets, qui
+		//    DECRIVENT un nœud, faux pour le decor de la toile, qui n'en decrit
+		//    aucun. *Le selecteur ne sert qu'a choisir une couleur ; exiger un nœud
+		//    n'a jamais ete son affaire.*
+		if (NkPickerDoitFermer(st.picker.noeud, st.selected, st.doc.IsValidIndex(st.picker.noeud))) {
 			if (ctx.IsPopupOpen(st.picker.id))
 				ctx.ClosePopup();
 			st.picker.ouvert = false;
@@ -11596,15 +11636,15 @@ namespace nkuidesign {
 		col[1] = (float32)c0.g / 255.f;
 		col[2] = (float32)c0.b / 255.f;
 		const nkgui::NkRect sw = st.picker.ancre;
+		// ⚠️ LES DEUX NOMBRES VIENNENT DE `ColorPicker4` LUI-MEME (NKGui) : la
+		//    largeur du carre SV, l'ecart, la barre de teinte, et SIX rangees de
+		//    champs (R G B H S V, l'alpha en moins). C'est la meme formule que le
+		//    selecteur integre de la bibliotheque -- si elle bouge la-bas, elle
+		//    bougera ici, et c'est ecrit pour qu'on le sache.
 		const float32 pw = 160.f + 12.f + 16.f + 24.f;
 		const float32 ph = 160.f + 16.f + 6.f * (ctx.ItemHeight() + ctx.layout.itemSpacingY);
-		nkgui::NkRect pr = {sw.x - pw - 8.f, sw.y + sw.h + 2.f, pw, ph}; // a GAUCHE : le panneau est a droite
-		if (pr.x < 2.f)
-			pr.x = 2.f;
-		if (pr.y + pr.h > (float32)ctx.viewH)
-			pr.y = (float32)ctx.viewH - pr.h - 2.f;
-		if (pr.y < 2.f)
-			pr.y = 2.f;
+		// ① (07/09) LE PLACEMENT VIENT DU KIT, PLUS D'ICI. Voir `NkPlacerPresDeLAncre`.
+		const nkgui::NkRect pr = editorkit::NkPlacerPresDeLAncre(sw, pw, ph, (float32)ctx.viewW, (float32)ctx.viewH, editorkit::NkCoteAncre::Dessous);
 		if (!ctx.IsPopupOpen(st.picker.id))
 			ctx.OpenPopup(st.picker.id);
 		if (nkgui::BeginPopupId(ctx, st.picker.id, pr, sw)) {
@@ -12012,13 +12052,11 @@ namespace nkuidesign {
 				const float32 hPicker = 160.f + 8.f; // ③ sans les six rangees
 				const float32 ph = 8.f + hPicker + 26.f + 26.f + 26.f + 48.f + 24.f + 24.f + 8.f;
 				const NkRect sw = d.ancre;
-				NkRect pr = {sw.x - pw - 8.f, sw.y - 8.f, pw, ph};
-				if (pr.x < 2.f)
-					pr.x = 2.f;
-				if (pr.y + pr.h > (float32)ctx.viewH)
-					pr.y = (float32)ctx.viewH - pr.h - 2.f;
-				if (pr.y < 2.f)
-					pr.y = 2.f;
+				// ① (07/09) LE PLACEMENT VIENT DU KIT, PLUS D'ICI : la MEME regle que le
+				//   selecteur generique et que NKGui -- sous l'ancre, retournee si besoin,
+				//   rentree dans la vue. Trois copies identiques vivaient dans ce fichier ;
+				//   toutes les trois avaient diverge de la BIBLIOTHEQUE.
+				NkRect pr = editorkit::NkPlacerPresDeLAncre(sw, pw, ph, (float32)ctx.viewW, (float32)ctx.viewH, editorkit::NkCoteAncre::AGauche);
 				if (!ctx.IsPopupOpen(d.id))
 					ctx.OpenPopup(d.id);
 				if (!nkgui::BeginPopupId(ctx, d.id, pr, sw)) {
@@ -12289,17 +12327,14 @@ namespace nkuidesign {
 				const float32 ph = f.EstImage() ? 8.f + hTypes + 116.f + 26.f * 5.f + (estCrop ? 26.f : 0.f) + 8.f
 												   : 8.f + hTypes + hPicker + hHex + hVars + hRampe + 8.f;
 				const NkRect sw = d.ancre;
-				NkRect pr = {sw.x - pw - 8.f, sw.y - 8.f, pw, ph};
-				// ⑤ LE POPOVER NE SORT JAMAIS DE LA FENETRE : sa hauteur est BORNEE ; ce qui
-				//    deborde, c'est la liste des arrets, et elle DEFILE (ascenseur plus bas)
-				if (pr.h > (float32)ctx.viewH - 4.f)
-					pr.h = (float32)ctx.viewH - 4.f;
-				if (pr.x < 2.f)
-					pr.x = 2.f;
-				if (pr.y + pr.h > (float32)ctx.viewH)
-					pr.y = (float32)ctx.viewH - pr.h - 2.f;
-				if (pr.y < 2.f)
-					pr.y = 2.f;
+				// ⑤ LA HAUTEUR EST BORNEE AVANT LE PLACEMENT : ce qui deborde, c'est la
+				//    liste des arrets, et elle DEFILE (ascenseur plus bas).
+				const float32 phBorne = ph > (float32)ctx.viewH - 4.f ? (float32)ctx.viewH - 4.f : ph;
+				// ① (07/09) LE PLACEMENT VIENT DU KIT, PLUS D'ICI : la MEME regle que le
+				//   selecteur generique et que NKGui -- sous l'ancre, retournee si besoin,
+				//   rentree dans la vue. Trois copies identiques vivaient dans ce fichier ;
+				//   toutes les trois avaient diverge de la BIBLIOTHEQUE.
+				NkRect pr = editorkit::NkPlacerPresDeLAncre(sw, pw, phBorne, (float32)ctx.viewW, (float32)ctx.viewH, editorkit::NkCoteAncre::AGauche);
 				if (!ctx.IsPopupOpen(d.id))
 					ctx.OpenPopup(d.id);
 				if (!nkgui::BeginPopupId(ctx, d.id, pr, sw)) {
@@ -15169,7 +15204,8 @@ namespace nkuidesign {
 					char idPast[40];
 					snprintf(idPast, sizeof(idPast), "##insp.etat.pastille%u", e);
 					const bool pickerEtat =
-						NkPastilleCouleur(ctx, *mSt, idPast, sw, mEtatsBuf[e], (uint32)sizeof(mEtatsBuf[e]));
+						NkPastilleCouleur(ctx, *mSt, idPast, sw, mEtatsBuf[e], (uint32)sizeof(mEtatsBuf[e]),
+										  mSt->selected); // decrit un nœud
 					// LE CHAMP HEXA DU FOND -- la moitié qui rend le geste VRAI :
 					// une section qui liste sans poser n'est pas utilisable.
 					// ⚠️ VIDER LE CHAMP RETIRE LA SURCHARGE (retour à l'hérité) et
@@ -15327,7 +15363,8 @@ namespace nkuidesign {
 							char idPast[40];
 						snprintf(idPast, sizeof(idPast), "##insp.effet.pastille%u", i);
 						const bool pickerEffe =
-							NkPastilleCouleur(ctx, *mSt, idPast, sw, mEffetsBuf[i], (uint32)sizeof(mEffetsBuf[i]));
+							NkPastilleCouleur(ctx, *mSt, idPast, sw, mEffetsBuf[i], (uint32)sizeof(mEffetsBuf[i]),
+										  mSt->selected); // decrit un nœud
 						char idHex[32];
 						snprintf(idHex, sizeof(idHex), "##insp.effet.hex%u", i);
 						ctx.SetNextItemRect({col.hexX, costume::BandeY(r.y), col.hexW,
@@ -16775,7 +16812,8 @@ namespace nkuidesign {
 					char idPast[40];
 					snprintf(idPast, sizeof(idPast), "##insp.fill.pastille%u", i);
 					const bool pickerFill =
-						NkPastilleCouleur(ctx, *mSt, idPast, sw, mFillsBuf[i], (uint32)sizeof(mFillsBuf[i]));
+						NkPastilleCouleur(ctx, *mSt, idPast, sw, mFillsBuf[i], (uint32)sizeof(mFillsBuf[i]),
+										  mSt->selected); // decrit un nœud
 					// 2. l'HEXA — la seule écriture qui NE matérialise PAS : tant
 					//    qu'on ne change qu'une couleur, un document d'avant garde
 					//    sa clé simple et son octet près.
@@ -17032,7 +17070,8 @@ namespace nkuidesign {
 							char idPast[40];
 						snprintf(idPast, sizeof(idPast), "##insp.bord.pastille%u", i);
 						const bool pickerBord =
-							NkPastilleCouleur(ctx, *mSt, idPast, sw, mBordsBuf[i], (uint32)sizeof(mBordsBuf[i]));
+							NkPastilleCouleur(ctx, *mSt, idPast, sw, mBordsBuf[i], (uint32)sizeof(mBordsBuf[i]),
+										  mSt->selected); // decrit un nœud
 						// ── LA LIGNE, COMME CHEZ LUNACY : pastille · nom · opacité · œil · poubelle
 						// Le détail (hexa, épaisseur, position, côtés, jointure, extrémités) vit
 						// dans le POPOVER de bordure (DessinerPopoverBordure, via l'overlay).
@@ -17260,18 +17299,17 @@ namespace nkuidesign {
 					const float32 x0 = r.x + 12.f;
 					const float32 x1 = r.x + r.w - 12.f;
 					const NkRect sw = {x0, r.y + (costume::HRangee - 16.f) * 0.5f, 16.f, 16.f};
+					// ② LE MEME SÉLECTEUR QUE PARTOUT AILLEURS, et **-1** : cette
+					//    pastille ne décrit AUCUN nœud. C'est toute la déclaration.
+					// 🔴 RODOLF (07/09) : « retire le color picker pour mettre le bon ».
+					//    Ce qu'il y avait ici était un **genre à moi (3)** posé pour
+					//    contourner une garde -- une seconde porte pour un seul geste.
+					//    Elle est partie ; la garde a été déplacée chez les quatre
+					//    sections qui décrivent un nœud, et cette pastille prend le
+					//    chemin commun. *Une porte, pas deux.*
 					const bool viaPastille =
 						NkPastilleCouleur(ctx, *mSt, "##insp.canvas.pastille", sw, mCanvasHex,
-										  (uint32)sizeof(mCanvasHex));
-					// ⚠️ UN GENRE À SOI (3), ET C'EST UNE MESURE, PAS UN GOÛT.
-					//    `NkDessinerPickerDemande` REFERME le sélecteur générique
-					//    (genre 0) dès que rien n'est sélectionné -- règle juste pour
-					//    les états et les effets, qui décrivent un nœud. Ici il n'y a
-					//    JAMAIS de nœud : sous le genre 0, le sélecteur se serait
-					//    fermé à l'image suivante, et la pastille aurait été un
-					//    bouton qui ne s'ouvre pas.
-					if (mSt->picker.ouvert && mSt->picker.id == ctx.GetId("##insp.canvas.pastille"))
-						mSt->picker.genre = 3u;
+										  (uint32)sizeof(mCanvasHex), -1); // aucun nœud décrit
 					const float32 xChamp = sw.x + 16.f + (float32)costume::EspSerre;
 					ctx.SetNextItemRect(
 						{xChamp, costume::BandeY(r.y), x1 - xChamp, costume::HControle});

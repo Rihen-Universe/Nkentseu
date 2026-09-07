@@ -4483,7 +4483,10 @@ namespace nkuidesign {
 					ctxP.input.mouseDown[0] = bas;
 					ctxP.BeginFrame(0.016f);
 					ctxP.BeginLayout({0.f, 0.f, 300.f, 600.f});
-					NkPastilleCouleur(ctxP, stP, "##sonde.pastille", sw, hex, (uint32)sizeof(hex));
+					// ② (07/09) LA PASTILLE DECLARE LE NŒUD QU'ELLE DECRIT ; celle-ci
+					//    en decrit un -- c'est le montage de cet essai depuis le 04/09.
+					NkPastilleCouleur(ctxP, stP, "##sonde.pastille", sw, hex,
+									  (uint32)sizeof(hex), stP.selected);
 					if (overlay)
 						NkDessinerPickerDemande(ctxP, stP);
 					const uint32 n = (uint32)ctxP.dlOverlay.vtx.Size();
@@ -12078,6 +12081,97 @@ namespace nkuidesign {
 				  "disait vrai -- celle qui agira des qu'on selectionnera -- reste : elle est la "
 				  "seule commune aux deux tables, et c'est mesure, pas affirme",
 				  tableJuste && fondJuste && branche && deuxPortes, det);
+		}
+		// ── 136. UN SEUL SELECTEUR, ET LA GARDE CHEZ CELUI QUI EN A BESOIN (07/09).
+		//    Rodolf : << retire le color picker pour mettre le bon >>. Ce qu'il y avait
+		//    etait un GENRE A MOI (3) pose pour contourner une garde -- une seconde
+		//    porte pour un seul geste -- et un PLACEMENT recopie qui ouvrait la fenetre
+		//    212 px a gauche, par-dessus la toile.
+		{
+			char det[900];
+			// (a) LA GARDE, DEPLACEE : elle appartient a celui qui OUVRE.
+			//     Six regimes, dont celui du defaut : une pastille qui ne decrit AUCUN
+			//     nœud ne se ferme pas quand rien n'est selectionne.
+			const bool g1 = !NkPickerDoitFermer(-1, -1, false); // le decor : il RESTE
+			const bool g2 = !NkPickerDoitFermer(-1, 7, true);	// selection ailleurs : il reste
+			const bool g3 = !NkPickerDoitFermer(3, 3, true);	// son nœud est celui qu'on regarde
+			const bool g4 = NkPickerDoitFermer(3, -1, true);	// deselectionne -> il ferme
+			const bool g5 = NkPickerDoitFermer(3, 5, true);		// un AUTRE nœud -> il ferme
+			const bool g6 = NkPickerDoitFermer(3, 3, false);	// le nœud a disparu -> il ferme
+			const bool gardeJuste = g1 && g2 && g3 && g4 && g5 && g6;
+
+			// (b) LE PLACEMENT, ET LA RELATION QUI DIT << ANCRE SOUS LA PASTILLE >>.
+			// ⚠️ PAS UNE COORDONNEE ATTENDUE : la fenetre doit CHEVAUCHER l'ancre en X.
+			//    C'est ca, << ancre sous la pastille >>, et ca survit a un changement de
+			//    largeur. L'ancienne regle (`ancre.x - w - 8`) ne chevauchait JAMAIS.
+			const float32 vW = 1600.f, vH = 900.f;
+			const NkRect ancre = {vW - 24.f, 300.f, 16.f, 16.f}; // au bord droit, comme l'inspecteur
+			const NkRect sous = editorkit::NkPlacerPresDeLAncre(ancre, 212.f, 350.f, vW, vH,
+																editorkit::NkCoteAncre::Dessous);
+			const bool chevauche = sous.x < ancre.x + ancre.w && sous.x + sous.w > ancre.x;
+			const bool dansLaVue = sous.x >= 2.f && sous.x + sous.w <= vW - 2.f && sous.y >= 2.f
+								   && sous.y + sous.h <= vH - 2.f;
+			const bool dessous = sous.y >= ancre.y + ancre.h;
+			// pas la place dessous : elle se retourne AU-DESSUS, elle ne sort pas
+			const NkRect basse = {40.f, vH - 40.f, 16.f, 16.f};
+			const NkRect retournee = editorkit::NkPlacerPresDeLAncre(basse, 212.f, 350.f, vW, vH,
+																	editorkit::NkCoteAncre::Dessous);
+			const bool retourneOk = retournee.y + retournee.h <= basse.y && retournee.y >= 2.f;
+			// et le cote << a gauche >> des popovers larges reste ce qu'il etait
+			const NkRect gauche = editorkit::NkPlacerPresDeLAncre(ancre, 236.f, 500.f, vW, vH,
+																  editorkit::NkCoteAncre::AGauche);
+			const bool gaucheOk = gauche.x + gauche.w <= ancre.x && gauche.x >= 2.f;
+			const bool placementJuste = chevauche && dansLaVue && dessous && retourneOk && gaucheOk;
+
+			// (c) UNE PORTE, PAS DEUX : les sources.
+			bool unSeulChemin = false;
+			uint32 nPastille = 0u, nGenre3 = 0u, nMain = 0u, nKit = 0u;
+			{
+				const NkString src =
+					NkFile::ReadAllText("Applications/NKUIDesign/src/NKUIDesign/Panels.h");
+				if (!src.Empty()) {
+					auto compte = [&](const char *aig) -> uint32 {
+						uint32 n = 0u;
+						for (const char *d = src.Data(); *d; ++d) {
+							const char *x = d, *y = aig;
+							while (*x && *y && *x == *y) {
+								++x;
+								++y;
+							}
+							if (!*y)
+								++n;
+						}
+						return n;
+					};
+					// CINQ portes ouvrent le selecteur (etats, effets, remplissages,
+					// bordures, canvas) et TOUTES passent par la meme fonction.
+					nPastille = compte("NkPastilleCouleur(ctx, *mSt");
+					nGenre3 = compte("picker.genre = 3u");	 // le doublon : il ne doit plus exister
+					nMain = compte("sw.x - pw - 8.f");		 // le placement recopie : idem
+					nKit = compte("NkPlacerPresDeLAncre(sw"); // les trois sites lisent le kit
+					unSeulChemin = nPastille == 5u && nGenre3 == 0u && nMain == 0u && nKit == 3u;
+				}
+			}
+			snprintf(det, sizeof(det),
+					 "(a) la garde declaree : decor sans selection RESTE=%d, son nœud "
+					 "regarde=%d, deselectionne FERME=%d, autre nœud FERME=%d, nœud disparu "
+					 "FERME=%d -> %d ; (b) sous l'ancre : x=%.0f (ancre %.0f..%.0f) chevauche=%d, "
+					 "dans la vue=%d, dessous=%d, retournee=%d, cote gauche conserve=%d -> %d ; "
+					 "(c) une porte : %u appels a la pastille, %u genre a soi, %u placement(s) "
+					 "ecrit(s) a la main, %u site(s) qui lisent le kit -> %d",
+					 g1 ? 1 : 0, g3 ? 1 : 0, g4 ? 1 : 0, g5 ? 1 : 0, g6 ? 1 : 0,
+					 gardeJuste ? 1 : 0, (double)sous.x, (double)ancre.x,
+					 (double)(ancre.x + ancre.w), chevauche ? 1 : 0, dansLaVue ? 1 : 0,
+					 dessous ? 1 : 0, retourneOk ? 1 : 0, gaucheOk ? 1 : 0, placementJuste ? 1 : 0,
+					 nPastille, nGenre3, nMain, nKit, unSeulChemin ? 1 : 0);
+			check("136. UN SEUL SELECTEUR DE COULEUR, ET LA GARDE CHEZ CELUI QUI EN A BESOIN : le "
+				  "selecteur ne sert qu'a CHOISIR UNE COULEUR -- exiger un nœud selectionne n'a "
+				  "jamais ete son affaire. La regle est DEPLACEE (pas retiree) chez les quatre "
+				  "sections qui decrivent un nœud ; la cinquieme porte, le decor de la toile, n'en "
+				  "decrit aucun et le declare. Le genre a soi qui contournait la garde est "
+				  "supprime, et les TROIS placements recopies -- qui avaient tous diverge de "
+				  "NKGui -- passent par une seule fonction du kit, chacun nommant son cote",
+				  gardeJuste && placementJuste && unSeulChemin, det);
 		}
 		// ── 94. ① L'APERCU PENDANT LE TRACE (05/09). Rodolf : « pourquoi quand on dessine un
 		//    graphique on voit juste le rectangle qui s'allonge, et des qu'on relache on voit la
