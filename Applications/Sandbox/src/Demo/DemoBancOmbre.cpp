@@ -534,6 +534,34 @@ namespace nkentseu {
 							 cd.position.y, cd.position.z);
 			}
 
+			// ── LA MARQUE : un motif ASYMETRIQUE en coordonnees ECRAN ───────────
+			//
+			// 🔑 UNE ORIENTATION SE MESURE AVEC UN MOTIF ASYMETRIQUE, PAS AVEC UNE
+			// LECTURE DE CODE. Cinq etages ont ete elimines par comparaison de
+			// configurations (API, sous-systeme hors ecran, descripteur de cible,
+			// projection) sans jamais trouver ou les deux chemins divergent.
+			//
+			// Cette marque ne depend d'AUCUNE scene : un carre opaque pose au coin
+			// HAUT-GAUCHE de l'ecran, en coordonnees d'ecran. S'il ressort en bas a
+			// gauche, la cible est retournee — et le verdict ne peut pas etre
+			// confirme par hasard, contrairement a un critere de bande saturee qui
+			// confondrait un sol clair et un zenith sombre.
+			//
+			// ⚠️ Elle remplace mon critere precedent, dont j'avais signale la
+			// fragilite avant de m'en servir ailleurs.
+			{
+				const char *mv = ::nkentseu::env::GetEnvVar("NK_BANC_MARQUE");
+				if (mv && mv[0] && mv[0] != '0') {
+					if (auto *r2d = ctx.renderer->GetRender2D()) {
+						r2d->Begin(ctx.renderer->GetCmd(), ctx.width, ctx.height);
+						// HAUT-GAUCHE, opaque, et un rectangle NON carre pour que
+						// meme un retournement horizontal se voie.
+						r2d->FillRect(NkRectF{4.f, 4.f, 120.f, 40.f}, NkVec4f{1.f, 0.f, 1.f, 1.f});
+						r2d->End();
+					}
+				}
+			}
+
 			ctx.renderer->Present();
 			ctx.renderer->EndFrame();
 		}
