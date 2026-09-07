@@ -1,3 +1,4 @@
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 #pragma once
 // =============================================================================
 // DemoCommon.h  — Shared utilities for the renderdemo entry point.
@@ -81,29 +82,57 @@ namespace nkentseu {
 		// mot -- l'utilisateur croit demander la 3D et reçoit autre chose.
 		// *Un argument que le programme ne comprend pas doit se dire, jamais se
 		// taire.* `outMalformed` porte ce refus jusqu'a l'appelant, qui sort.
+		// ⚠️ DEPUIS LE 2026-09-07, `--demo=<NOM>` EST ACCEPTE — parce qu'UN INDICE
+		// N'EST PAS UN NOM, et qu'une fusion l'a prouve le jour meme.
+		//
+		// Le banc d'ombre s'etait enregistre a un indice dans un arbre ; le meme
+		// indice etait deja pris par un autre banc du cote de l'integration. La
+		// fusion a garde les DEUX etiquettes dans le meme `switch`. Si l'erreur de
+		// compilation n'avait pas morde, **le banc aurait mesure sous les reglages
+		// de l'autre** — un faux vert que rien, dans ses chiffres, n'aurait
+		// permis de soupconner.
+		//
+		// Un indice est une POSITION dans une table que d'autres modifient ; un nom
+		// appartient a la demo. Une commande de banc ecrite dans un rapport, un
+		// carnet ou un message de commit survit des semaines : elle doit citer ce
+		// qui ne bouge pas. `outName` porte le nom jusqu'au `main`, le seul a
+		// connaitre la table.
 		inline int ParseDemo(const NkVector<NkString> &args, int defaultIdx = 0, bool *outMalformed = nullptr,
-							 NkString *outOffending = nullptr) {
+							 NkString *outOffending = nullptr, NkString *outName = nullptr) {
 			auto Refuser = [&](const NkString &a) {
 				if (outMalformed)
 					*outMalformed = true;
 				if (outOffending)
 					*outOffending = a;
 			};
+			// Un nom n'est PAS un refus : on le remonte tel quel. Sans `outName`,
+			// l'appelant est un ancien consommateur qui ne sait pas le lire — on
+			// retombe alors sur le refus QUI PARLE, jamais sur un defaut muet.
+			auto Nommer = [&](const NkString &v) -> bool {
+				if (!outName)
+					return false;
+				*outName = v;
+				return true;
+			};
 			for (size_t i = 1; i < args.Size(); i++) {
 				const NkString &a = args[i];
-				// Forme 1 : --demo=N
+				// Forme 1 : --demo=N  ou  --demo=<nom>
 				if (a.StartsWith("--demo=")) {
 					const NkString v = a.SubStr(7);
 					if (!NkIsAllDigits(v.CStr())) {
+						if (!v.Empty() && Nommer(v))
+							return defaultIdx; // le main resoudra le nom sur la table
 						Refuser(a);
 						return defaultIdx;
 					}
 					return atoi(v.CStr());
 				}
-				// Forme 2 : --demo N  /  -d N (valeur dans l'argument suivant)
+				// Forme 2 : --demo N  /  -d N  (ou un nom)
 				if (a == "--demo" || a == "-d") {
 					if (i + 1 < args.Size() && NkIsAllDigits(args[i + 1].CStr()))
 						return atoi(args[i + 1].CStr());
+					if (i + 1 < args.Size() && !args[i + 1].Empty() && Nommer(args[i + 1]))
+						return defaultIdx;
 					Refuser(a);
 					return defaultIdx;
 				}
