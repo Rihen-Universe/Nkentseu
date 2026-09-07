@@ -15662,40 +15662,77 @@ namespace nkuidesign {
 			void CorpsEspacement(NkGuiContext &ctx) {
 				if (!SectionOuverte("ESPACEMENT"))
 					return;
-				const NkUINode *n = NoeudCourant();
+				NkUINode *n = NoeudMutable();
 				if (!n)
 					return;
 				auto &F = costume::Fontes();
 				auto &dl = ctx.DL();
+				// ⑥ (07/09) LA SECTION DIT QUAND ELLE N'AGIT PAS. Le solveur ne lit
+				//    `spacingName` / `padName` que sur un nœud QUI A DES ENFANTS et dont
+				//    l'agencement n'est pas `None` (`Layout.h` : la fonction rend la main
+				//    avant de les lire). Nommer une métrique sur une feuille écrirait un
+				//    réglage sans effet -- et offrir la porte serait pire que ne pas
+				//    l'offrir : on le DIT, comme la section ANCRAGE.
+				const bool agence = !n->children.Empty()
+									&& n->layout.kind != editorkit::NkLayoutKind::None;
+				if (!agence) {
+					ctx.BeginDisabled();
+					nkgui::TextWrapped(ctx, "Ce nœud n'agence pas d'enfants : la gouttière et la "
+											"marge ne seraient lues par personne.");
+					ctx.EndDisabled();
+					return;
+				}
 				struct L {
 						const char *libelle;
-						const NkString *nom;
+						NkString *nom;
 				};
 				const L lignes[2] = {{"Gouttière", &n->spacingName}, {"Marge", &n->padName}};
 				for (int32 li = 0; li < 2; ++li) {
 					const NkRect r = ctx.NextItemRect(-1.f, 26.f);
 					const float32 x0 = r.x + 12.f, x1 = r.x + r.w - 12.f;
-					if (lignes[li].nom->Empty()) {
-						ctx.BeginDisabled();
-						costume::Texte(dl, F.px10, x0,
-									   costume::CentrerBande(F.px10, r.y),
-									   lignes[li].libelle, ctx.theme.textMuted);
-						costume::Texte(dl, F.px10, x0 + ColChampsCalc(r.w - 24.f),
-									   costume::CentrerBande(F.px10, r.y),
-									   "\xE2\x80\x94 (ce conteneur ne nomme rien)",
-									   ctx.theme.textMuted);
-						ctx.EndDisabled();
-						continue;
-					}
 					costume::Texte(dl, F.px10, x0, costume::CentrerBande(F.px10, r.y),
 								   lignes[li].libelle, ctx.theme.textMuted);
-					// le NOM de la métrique (la valeur est UNE pour tout le
-					// document — c'est le principe), puis sa valeur, éditable.
-					char nm[64];
-					snprintf(nm, sizeof(nm), "« %s »", lignes[li].nom->Data());
-					costume::Texte(dl, F.px9, x0 + ColChampsCalc(r.w - 24.f),
-								   costume::CentrerBande(F.px9, r.y), nm,
-								   ctx.theme.textMuted);
+					// ⑥ (07/09) LE NOM SE POSE ICI -- il ne se posait NULLE PART. La
+					//    rangée affichait « — (ce conteneur ne nomme rien) » et aucune
+					//    porte n'existait pour en nommer un : un champ du modèle sans
+					//    entrée dans l'interface (inventaire Q118, ∅ n°2).
+					// ⚠️ LA LISTE VIENT DU DOCUMENT, PAS D'UNE TABLE ÉCRITE ICI : on
+					//    cycle sur les métriques que le document porte déjà, plus
+					//    « aucune ». Une liste en dur aurait inventé des noms que la table
+					//    de métriques ne connait pas -- et `Metric()` aurait rendu zéro
+					//    sans le dire.
+					// ⚠️ ON CYCLE, comme le chevron du mode de taille : deux gestes
+					//    différents pour choisir dans une liste, dans le même panneau,
+					//    s'apprendraient deux fois.
+					{
+						const float32 xn = x0 + ColChampsCalc(r.w - 24.f);
+						const NkRect rn = {xn, costume::BandeY(r.y), (x1 - 56.f) - xn,
+										   costume::HControle};
+						char nm[80];
+						if (lignes[li].nom->Empty())
+							snprintf(nm, sizeof(nm), "\xE2\x80\x94 nommer\xE2\x80\xA6");
+						else
+							snprintf(nm, sizeof(nm), "\xC2\xAB %s \xC2\xBB", lignes[li].nom->Data());
+						const bool svn = ctx.popupDepth == 0
+										 && NkGuiRectContains(rn, ctx.input.mousePos);
+						if (svn)
+							dl.AddRectFilled(rn, ctx.theme.rowHover, 4.f);
+						costume::TexteTronque(dl, F.px9, rn.x + 2.f,
+											  costume::CentrerBande(F.px9, r.y), nm, rn.w - 4.f,
+											  lignes[li].nom->Empty() ? ctx.theme.textDisabled
+																	 : ctx.theme.textMuted);
+						if (svn && ctx.input.mouseClicked[0]) {
+							ctx.input.mouseClicked[0] = false;
+							*lignes[li].nom =
+								NkString(NkMetriqueSuivante(mSt->doc, lignes[li].nom->Data()));
+							mSt->doc.MarkHumanEdit(mSt->selected);
+						}
+						if (svn)
+							mSt->status = NkString("Cliquer pour choisir la métrique du document "
+												   "que suit cette rangée (ou aucune).");
+					}
+					if (lignes[li].nom->Empty())
+						continue; // rien de nommé : aucune valeur à régler
 					const NkRect rv = {x1 - 48.f, costume::BandeY(r.y), 48.f, costume::HControle};
 					float32 v = mSt->doc.Metric(lignes[li].nom->Data(), 0.f);
 					char id[48];

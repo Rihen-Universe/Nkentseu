@@ -10909,6 +10909,116 @@ namespace nkuidesign {
 				  "serait celui d'un montage inerte",
 				  desaccords93 == 0u && bougeants93 == 2u, det);
 		}
+		// -- 127. (4) NOMMER UNE METRIQUE : le cycle, l'effet, et l'aller-retour
+		//    (inventaire Q118, le second champ inexistant) ----------------------
+		//
+		// LE DEFAUT : `spacingName` / `padName` avaient une cle au fichier, un
+		//    lecteur, et un CONSOMMATEUR (le solveur) -- mais aucune porte dans
+		//    l'interface. La rangee ESPACEMENT affichait << rien de nomme >> et il
+		//    n'y avait nulle part ou en nommer un.
+		//
+		// TROIS ESSAIS, parce que << brancher un champ >> veut dire trois choses et
+		//    qu'aucune ne prouve les autres : le CYCLE rend-il des noms utiles, le
+		//    SOLVEUR obeit-il au nom pose, et le nom SURVIT-il au fichier.
+		{
+			char det[520];
+			NkUIDocument d118;
+			d118.NewDocument("Toile", NkAuthor::Humain);
+			// `NewDocument` pose deux metriques : << espacement >> et << marge >>.
+			// On ne les recopie pas ici -- on lit la table, comme le cycle.
+			const uint32 nMet = (uint32)d118.metrics.Size();
+			const char *m0 = nMet > 0u ? d118.metrics[0].name.Data() : "";
+			const char *m1 = nMet > 1u ? d118.metrics[1].name.Data() : "";
+
+			// (a) LE CYCLE EST COMPLET ET REVERSIBLE. Sans le retour a << aucune >>,
+			//     poser un nom serait irreversible depuis la rangee -- un geste qui
+			//     ne se defait pas par le meme chemin n'est pas un reglage.
+			// ON APPELLE LA VRAIE FONCTION, `NkMetriqueSuivante` -- celle que le
+			// dessin appelle. Premiere ecriture de cet essai : une copie du cycle
+			// ECRITE ICI, parce que l'originale etait enfouie dans l'inspecteur.
+			// Elle restait VERTE sous la mutation << le cycle ne fait rien >> : elle
+			// mesurait sa propre copie. La fonction est descendue dans `Document.h`,
+			// a cote de la table qu'elle parcourt, pour que les deux la partagent.
+			auto suivante = [&](const char *courant) -> const char * {
+				return NkMetriqueSuivante(d118, courant);
+			};
+			const char *c1 = suivante("");
+			const char *c2 = suivante(c1);
+			const char *c3 = suivante(c2);
+			const char *cInconnu = suivante("metrique_disparue");
+			const bool cycleOk = nMet >= 2u && NkComponentDecl::StrEq(c1, m0)
+								 && NkComponentDecl::StrEq(c2, m1) && (c3 == nullptr || !*c3)
+								 && NkComponentDecl::StrEq(cInconnu, m0);
+
+			// (b) LE SOLVEUR OBEIT AU NOM POSE. Deux enfants dans une LIGNE : sans
+			//     nom la gouttiere vaut zero, avec le nom elle vaut la metrique.
+			d118.SetMetric(m0, 20.f);
+			d118.SetMetric(m1, 0.f); // la marge ne doit pas brouiller la mesure
+			const int32 pg118 = d118.AddChild(0, "", NkAuthor::Humain);
+			{
+				NkUINode &p = d118.nodes[(uint32)pg118];
+				p.shape = NkString("frame");
+				p.layout.kind = NkLayoutKind::Row;
+				// LE << SANS NOM >> SE POSE, IL NE SE SUPPOSE PAS. Premiere ecriture de
+				// cet essai : on croyait un noeud neuf sans nom de metrique. `InitNode`
+				// nomme les DEUX par defaut (<< espacement >>, << marge >>) -- la mesure
+				// rendait donc << 20 sans nom, 20 avec >> et l'essai accusait un correctif
+				// juste. Un banc qui suppose l'etat qu'il mesure accuse le code d'un
+				// defaut qui est chez lui -- deuxieme fois en deux jours.
+				p.spacingName = NkString("");
+				p.padName = NkString(m1);
+				p.width.mode = NkSizeMode::Fixed;
+				p.width.value = 400.f;
+				p.height.mode = NkSizeMode::Fixed;
+				p.height.value = 100.f;
+			}
+			int32 e118[2];
+			for (uint32 c = 0; c < 2u; ++c) {
+				e118[c] = d118.AddChild(pg118, "", NkAuthor::Humain);
+				NkUINode &q = d118.nodes[(uint32)e118[c]];
+				q.shape = NkString("rect");
+				q.width.mode = NkSizeMode::Fixed;
+				q.width.value = 40.f;
+				q.height.mode = NkSizeMode::Fixed;
+				q.height.value = 20.f;
+			}
+			const NkPaintRect surf118 = {0.f, 0.f, 800.f, 600.f};
+			NkLayoutResult sans118;
+			NkComputeLayout(d118, surf118, sans118);
+			const float32 ecartSans = sans118.At(e118[1]).x - (sans118.At(e118[0]).x + 40.f);
+			d118.nodes[(uint32)pg118].spacingName = NkString(m0); // LE NOM, pose
+			NkLayoutResult avec118;
+			NkComputeLayout(d118, surf118, avec118);
+			const float32 ecartAvec = avec118.At(e118[1]).x - (avec118.At(e118[0]).x + 40.f);
+			const bool solveurObeit = ecartSans == 0.f && ecartAvec == 20.f;
+
+			// (c) LE NOM SURVIT AU FICHIER -- sans quoi le geste serait perdu au
+			//     premier enregistrement, comme l'arrondi par coin l'etait.
+			NkString s118;
+			d118.Save(s118);
+			NkUIDocument relu118;
+			const bool lu118 = relu118.Load(s118.Data());
+			const bool nomRelu = lu118 && relu118.IsValidIndex(pg118)
+								 && NkComponentDecl::StrEq(
+										relu118.nodes[(uint32)pg118].spacingName.Data(), m0);
+			NkString s118b;
+			if (lu118)
+				relu118.Save(s118b);
+			const bool stable118 = lu118 && NkComponentDecl::StrEq(s118.Data(), s118b.Data());
+
+			snprintf(det, sizeof(det),
+					 "(a) cycle sur %u metrique(s) : \"\" -> << %s >> -> << %s >> -> \"%s\", "
+					 "un nom inconnu repart sur << %s >> -> %d ; (b) ecart entre deux enfants : "
+					 "%.0f sans nom, %.0f avec (metrique = 20) -> %d ; (c) nom relu du fichier "
+					 "= %d, reenregistrement identique = %d",
+					 nMet, c1, c2, c3, cInconnu, cycleOk ? 1 : 0, (double)ecartSans,
+					 (double)ecartAvec, solveurObeit ? 1 : 0, nomRelu ? 1 : 0, stable118 ? 1 : 0);
+			check("127. (4) NOMMER UNE METRIQUE, LES TROIS MOITIES : le CYCLE est complet et reversible "
+				  "(<< aucune >> en fait partie, sinon poser un nom serait irreversible), le SOLVEUR obeit "
+				  "au nom pose (la gouttiere passe de 0 a 20), et le nom SURVIT au fichier -- brancher un "
+				  "champ veut dire ces trois choses, et aucune ne prouve les deux autres",
+				  cycleOk && solveurObeit && nomRelu && stable118, det);
+		}
 		// ── 94. ① L'APERCU PENDANT LE TRACE (05/09). Rodolf : « pourquoi quand on dessine un
 		//    graphique on voit juste le rectangle qui s'allonge, et des qu'on relache on voit la
 		//    forme ? » Deux mesures : LA TABLE DE GENRE (une seule, lue par le relachement et par

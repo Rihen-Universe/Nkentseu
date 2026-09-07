@@ -4720,4 +4720,35 @@ namespace nkuidesign {
 		}
 		return nb;
 	}
+	// ── ⑥ (07/09) LE CYCLE DES MÉTRIQUES NOMMÉES ────────────────────────
+	/// La métrique SUIVANTE dans le cycle « aucune → m0 → m1 → … → aucune ».
+	///
+	/// 🔴 ELLE VIT ICI, A COTE DE LA TABLE QU'ELLE PARCOURT, et pas dans
+	///    l'inspecteur -- pour la même raison que `NkAlignementLuParLeSolveur` vit a
+	///    coté du solveur : le fait appartient au document. Et pour une raison de
+	///    plus, payee le jour meme : ecrite dans le panneau, elle etait hors de
+	///    portee du banc, qui en avait donc REIMPLANTE une copie -- et mesurait sa
+	///    copie. *Une sonde qui reproduit la strategie du code mesure autre chose
+	///    que ce code.* Un seul site, appele par le dessin ET par la sonde.
+	///
+	/// ⚠️ LA LISTE EST CELLE DU DOCUMENT, jamais une table ecrite ailleurs : une
+	///    liste en dur aurait propose des noms que `metrics` ne connait pas, et
+	///    `Metric()` aurait rendu zero **sans le dire**.
+	/// ⚠️ « AUCUNE » EST DANS LE CYCLE, et ce n'est pas une commodite : sans elle,
+	///    poser un nom serait irreversible depuis la rangee. Un geste qui ne se
+	///    defait pas par le meme chemin n'est pas un reglage.
+	inline const char *NkMetriqueSuivante(const NkUIDocument &doc, const char *courant) {
+		const uint32 n = (uint32)doc.metrics.Size();
+		if (n == 0u)
+			return ""; // aucun nom disponible : le cycle ne peut que rester vide
+		if (!courant || !*courant)
+			return doc.metrics[0].name.Data();
+		for (uint32 i = 0; i < n; ++i)
+			if (NkComponentDecl::StrEq(doc.metrics[i].name.Data(), courant))
+				return (i + 1u < n) ? doc.metrics[i + 1u].name.Data() : "";
+		// Un nom que la table ne porte plus (metrique retiree) : on repart du premier
+		// plutot que de rester coince sur un nom mort.
+		return doc.metrics[0].name.Data();
+	}
+
 } // namespace nkuidesign
