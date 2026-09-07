@@ -103,9 +103,34 @@ namespace nkentseu {
 	}
 
 	// =============================================================================
+	// 🔴 UN PIPELINE INTROUVABLE NE SE LIE PAS — meme geste que du cote Vulkan, et
+	// pour la meme raison. Sans cette garde, `NkOpenglGetProgramID` rend 0 sur un
+	// handle inconnu et l'on executait `glUseProgram(0)` : le programme courant
+	// etait DEBINDE, et tout ce qui suivait dessinait sans programme. C'est
+	// litteralement le « Draw part sans programme » deja grave dans le CLAUDE.md
+	// parent le 2026-09-03.
+	//
+	// Portee mesuree avant de toucher au socle, quatre dorsaux x cinq points
+	// d'entree `Bind*` : DX12 les garde tous les cinq, DX11 trois sur cinq,
+	// **Vulkan et OpenGL aucun**. Alignement sur le contrat que DX12 tient deja.
+	//
+	// ⚠️ LE REFUS SE DIT UNE FOIS. Chemin le plus chaud du moteur : une ligne par
+	// tirage noierait le journal qu'on vient justement de rendre lisible.
 	void NkOpenGLCommandBuffer::GL_BindGraphicsPipeline(NkPipelineHandle p) {
+		const uint32 prog = NkOpenglGetProgramID(mDev, p.id);
+		if (prog == 0) {
+			static bool dit = false;
+			if (!dit) {
+				dit = true;
+				logger.Errorf("[NkRHI_GL][ERR] BindGraphicsPipeline : pipeline id=%llu INTROUVABLE — non lie. "
+							  "Lier 0 debinderait le programme courant, et le tirage suivant dessinerait "
+							  "sans programme. (dit une seule fois)\n",
+							  (unsigned long long)p.id);
+			}
+			return;
+		}
 		mBoundPipeline = p;
-		mCurrentProgram = NkOpenglGetProgramID(mDev, p.id);
+		mCurrentProgram = prog;
 		mCurrentVAO = NkOpenglGetVAOID(mDev, p.id);
 		mPrimitive = NkOpenglGetPrimitive(mDev, p.id);
 		mIsCompute = false;
