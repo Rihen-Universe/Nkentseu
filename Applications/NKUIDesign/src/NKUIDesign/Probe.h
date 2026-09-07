@@ -11495,6 +11495,167 @@ namespace nkuidesign {
 				  "boites fige qui tomberait des que Rodolf edite son document",
 				  charge && sousAncrage == 0u, det);
 		}
+		// -- 132. (1) UNE SECTION QUI NE PEUT PAS S'APPLIQUER DISPARAIT --------
+		//
+		// Rodolf : << un graphique qui n'est pas un texte n'a pas besoin de laisser
+		//    visible sa partie typographie. >>
+		//
+		// LA REGLE MESUREE ICI : on CACHE ce qui ne peut pas exister, on EXPLIQUE
+		//    ce qui n'agit pas encore. TYPOGRAPHIE est la seule section dont une
+		//    condition de TYPE refuse tout le corps (`shape != "text"`) ; les
+		//    autres refusent par ETAT et gardent leur phrase.
+		//
+		// ⚠️ LE CONTROLE POSITIF EST DANS L'ESSAI, et il est la moitie qui compte :
+		//    une liste attendue AMPUTEE d'une section doit etre detectee comme
+		//    differente. Sans lui, << 0 ecart >> serait aussi le score d'une
+		//    comparaison qui ne compare rien -- l'inertie qu'on vient de payer
+		//    ailleurs.
+		{
+			char det[620];
+			struct Attendu132 {
+					const char *forme;   ///< la cle `shape` du nœud
+					bool typographie;    ///< la section doit-elle etre la ?
+			};
+			static const Attendu132 kT132[6] = {
+				{"rect", false},   {"ellipse", false}, {"etoile", false},
+				{"image", false},  {"frame", false},   {"text", true},
+			};
+			uint32 ecarts132 = 0u;
+			char pire132[220];
+			pire132[0] = '\0';
+			NkUIDocument d132;
+			d132.NewDocument("Toile", NkAuthor::Humain);
+			d132.nodes[0].layout.kind = NkLayoutKind::Free;
+			for (uint32 t = 0; t < 6u; ++t) {
+				const int32 i = d132.AddChild(0, "", NkAuthor::Humain);
+				d132.nodes[(uint32)i].shape = NkString(kT132[t].forme);
+				const char *const *titres = nullptr;
+				const uint32 nT = NkSectionsInspecteur(false, false, titres);
+				const char *retenues[32];
+				const int32 sel1[1] = {i};
+				const uint32 nR = NkSectionsRetenues(d132, sel1, 1u, titres, nT, retenues, 32u);
+				bool typoLa = false;
+				for (uint32 k = 0; k < nR; ++k)
+					if (NkComponentDecl::StrEq(retenues[k], "TYPOGRAPHIE"))
+						typoLa = true;
+				if (typoLa != kT132[t].typographie) {
+					++ecarts132;
+					if (!pire132[0])
+						snprintf(pire132, sizeof(pire132),
+								 "<< %s >> : TYPOGRAPHIE %s, attendue %s", kT132[t].forme,
+								 typoLa ? "presente" : "absente",
+								 kT132[t].typographie ? "presente" : "absente");
+				}
+			}
+
+			// L'INTERSECTION : un rect ET un texte selectionnes ensemble -> la
+			// section n'est PAS montree, sinon elle agirait sur une partie de la
+			// selection sans qu'on voie laquelle.
+			bool typoMulti = true;
+			{
+				const int32 iRect = d132.AddChild(0, "", NkAuthor::Humain);
+				d132.nodes[(uint32)iRect].shape = NkString("rect");
+				const int32 iTexte = d132.AddChild(0, "", NkAuthor::Humain);
+				d132.nodes[(uint32)iTexte].shape = NkString("text");
+				const char *const *titres = nullptr;
+				const uint32 nT = NkSectionsInspecteur(false, false, titres);
+				const char *retenues[32];
+				const int32 sel2[2] = {iRect, iTexte};
+				const uint32 nR = NkSectionsRetenues(d132, sel2, 2u, titres, nT, retenues, 32u);
+				typoMulti = false;
+				for (uint32 k = 0; k < nR; ++k)
+					if (NkComponentDecl::StrEq(retenues[k], "TYPOGRAPHIE"))
+						typoMulti = true;
+			}
+
+			// CE QUI NE DOIT PAS DISPARAITRE : une section qui n'agit pas ENCORE
+			// reste visible. ALIGNEMENT en est l'exemple donne -- il suffit de
+			// changer le mode du parent pour qu'il agisse.
+			bool alignementReste = false, dispositionReste = false;
+			{
+				const int32 iR = d132.AddChild(0, "", NkAuthor::Humain);
+				d132.nodes[(uint32)iR].shape = NkString("rect");
+				const char *const *titres = nullptr;
+				const uint32 nT = NkSectionsInspecteur(false, false, titres);
+				const char *retenues[32];
+				const int32 sel1[1] = {iR};
+				const uint32 nR = NkSectionsRetenues(d132, sel1, 1u, titres, nT, retenues, 32u);
+				for (uint32 k = 0; k < nR; ++k) {
+					if (NkComponentDecl::StrEq(retenues[k], "ALIGNEMENT"))
+						alignementReste = true;
+					if (NkComponentDecl::StrEq(retenues[k], "DISPOSITION"))
+						dispositionReste = true;
+				}
+			}
+
+			// LE CONTROLE POSITIF DE L'INSTRUMENT : une liste attendue amputee
+			// DOIT etre vue differente. Sans lui, zero ecart serait aussi le
+			// score d'une comparaison inerte.
+			bool detecteUneAmputation = false;
+			{
+				const char *const gauche[3] = {"DISPOSITION", "ALIGNEMENT", "TYPOGRAPHIE"};
+				const char *const droite[2] = {"DISPOSITION", "ALIGNEMENT"};
+				uint32 manquants = 0u;
+				for (uint32 a = 0; a < 3u; ++a) {
+					bool vu = false;
+					for (uint32 b = 0; b < 2u; ++b)
+						if (NkComponentDecl::StrEq(gauche[a], droite[b]))
+							vu = true;
+					if (!vu)
+						++manquants;
+				}
+				detecteUneAmputation = (manquants == 1u);
+			}
+
+			// ⚠️ ET LE PANNEAU LES APPELLE-T-IL VRAIMENT ? Mesure du 07/09 : couper le
+			//    branchement du panneau (`FiltrerParType`) ne faisait rougir AUCUN essai
+			//    -- le temoin prouvait la regle sur des fonctions que personne n'aurait
+			//    appelees. On LIT DONC LES SOURCES, comme la famille 11 du kit : le
+			//    chooser ne doit plus rendre une table NON filtree.
+			bool panneauBranche = false;
+			{
+				const NkString src = NkFile::ReadAllText(
+					"Applications/NKUIDesign/src/NKUIDesign/Panels.h");
+				if (!src.Empty()) {
+					auto compte = [&](const char *aig) -> uint32 {
+						uint32 n = 0u;
+						for (const char *d = src.Data(); *d; ++d) {
+							const char *x = d, *y = aig;
+							while (*x && *y && *x == *y) {
+								++x;
+								++y;
+							}
+							if (!*y)
+								++n;
+						}
+						return n;
+					};
+					// DEUX branchements (avec cible / sans cible), et AUCUN retour direct
+					// d'une table non filtree.
+					panneauBranche = compte("FiltrerParType(t, nb, count)") == 2u
+									 && compte("return SectionsAvecCible(count)") == 0u
+									 && compte("return SectionsSansCible(count)") == 0u;
+				}
+			}
+			snprintf(det, sizeof(det),
+					 "six types confrontes a la liste attendue : %u ecart(s) [%s] ; "
+					 "selection MIXTE rect+texte : TYPOGRAPHIE %s (attendue absente) ; ce qui "
+					 "n'agit pas ENCORE reste visible : ALIGNEMENT=%d, DISPOSITION=%d ; "
+					 "CONTROLE POSITIF (une liste amputee est vue differente)=%d ; le PANNEAU "
+					 "appelle bien le filtre (lu dans les sources)=%d",
+					 ecarts132, pire132[0] ? pire132 : "(aucun)",
+					 typoMulti ? "presente" : "absente", alignementReste ? 1 : 0,
+					 dispositionReste ? 1 : 0, detecteUneAmputation ? 1 : 0,
+					 panneauBranche ? 1 : 0);
+			check("132. (1) UNE SECTION QUI NE PEUT PAS S'APPLIQUER DISPARAIT : TYPOGRAPHIE n'est offerte "
+				  "qu'a un nœud texte, elle disparait des cinq autres types, et une selection MIXTE ne la "
+				  "montre pas (intersection : une section ne doit pas agir sur une partie de la selection "
+				  "sans qu'on voie laquelle). Ce qui n'agit pas ENCORE -- ALIGNEMENT, DISPOSITION -- reste "
+				  "VISIBLE : le cacher rendrait la fonctionnalite introuvable",
+				  ecarts132 == 0u && !typoMulti && alignementReste && dispositionReste
+					  && detecteUneAmputation && panneauBranche,
+				  det);
+		}
 		// ── 94. ① L'APERCU PENDANT LE TRACE (05/09). Rodolf : « pourquoi quand on dessine un
 		//    graphique on voit juste le rectangle qui s'allonge, et des qu'on relache on voit la
 		//    forme ? » Deux mesures : LA TABLE DE GENRE (une seule, lue par le relachement et par

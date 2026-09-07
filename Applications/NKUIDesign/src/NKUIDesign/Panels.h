@@ -10811,6 +10811,83 @@ namespace nkuidesign {
 		return (uint32)(sizeof(kNormal) / sizeof(kNormal[0]));
 	}
 
+	// ── ① (07/09) UNE SECTION QUI NE PEUT PAS S'APPLIQUER DISPARAIT ──────────
+	//
+	// Rodolf : « tu laisses visibles des titres dont les elements selectionnes ne
+	// possedent pas, au lieu tout simplement de les cacher -- par exemple un
+	// graphique qui n'est pas un texte n'a pas besoin de laisser visible sa
+	// partie typographie. »
+	//
+	// 🔴 LA REGLE QUI DECIDE, ET ELLE TIENT EN UNE LIGNE :
+	//
+	//      ON CACHE CE QUI NE PEUT PAS EXISTER.
+	//      ON EXPLIQUE CE QUI N'AGIT PAS ENCORE.
+	//
+	//    - IMPOSSIBLE PAR NATURE -> cache. La typographie d'un rectangle ne
+	//      deviendra jamais utile : le nœud ne portera jamais de texte.
+	//    - POSSIBLE MAIS INERTE DANS L'ETAT ACTUEL -> visible, et qui dit
+	//      pourquoi. L'ALIGNEMENT sous un parent `free` ou `anchor` en est
+	//      l'exemple : il suffit que Rodolf change le mode du parent pour qu'il
+	//      agisse. Le cacher rendrait la fonctionnalite INTROUVABLE -- il
+	//      conclurait qu'elle n'existe pas.
+	//
+	// ⚠️ CE N'EST DONC PAS UN GRAND MASQUAGE. Les huit controles « branches mais
+	//    bornes » disent leur borne : c'est la BONNE reponse pour eux, elle
+	//    reste. Seules disparaissent les sections dont AUCUNE ligne ne peut
+	//    s'appliquer au type selectionne.
+	//
+	// ⚠️ ET LA REGLE VIT ICI, PAS DANS LE CORPS DE LA SECTION. `CorpsTypographie`
+	//    l'appelle au lieu de reecrire son test : deux endroits qui decident
+	//    « est-ce que ca s'applique » divergeraient au premier type ajoute, et le
+	//    panneau cacherait une section dont le corps accepterait -- ou l'inverse.
+	//    Meme forme que `NkAlignementLuParLeSolveur` a cote du solveur.
+	inline bool NkSectionSApplique(const char *titre, const NkUINode &n) {
+		if (!titre || !*titre)
+			return true;
+		// TYPOGRAPHIE -- la seule section dont une condition de TYPE refuse TOUT le
+		// corps. La condition est celle de `CorpsTypographie`, qui l'appelle
+		// desormais au lieu de la reecrire : un seul site decide, donc le panneau ne
+		// peut plus cacher une section dont le corps accepterait, ni l'inverse.
+		if (NkComponentDecl::StrEq(titre, "TYPOGRAPHIE"))
+			return NkComponentDecl::StrEq(n.shape.Data(), "text");
+		// TOUT LE RESTE PASSE, ET C'EST DELIBERE. Les sections qui n'agissent pas
+		// ENCORE -- ALIGNEMENT sous un parent libre, ESPACEMENT sur une feuille,
+		// POINTS DE RUPTURE -- restent VISIBLES et disent pourquoi. Les cacher
+		// rendrait la fonctionnalite introuvable : Rodolf conclurait qu'elle
+		// n'existe pas, alors qu'il suffit de changer le mode du parent.
+		return true;
+	}
+
+	/// LES SECTIONS RETENUES POUR UNE SELECTION -- l'INTERSECTION.
+	///
+	/// ⚠️ INTERSECTION, ET C'EST UNE CONVENTION POSEE DEVANT RODOLF : sur une
+	///    selection de types differents on ne garde que les sections communes a
+	///    TOUS. Sinon une section agirait sur une PARTIE de la selection sans
+	///    qu'on voie laquelle -- et l'utilisateur croirait avoir change dix
+	///    objets alors qu'il en a change trois.
+	/// ⚠️ UNE SELECTION VIDE NE CACHE RIEN : sans nœud, aucune impossibilite ne
+	///    peut etre etablie, et un panneau qui se vide au premier clic dans le
+	///    fond se lirait comme une panne.
+	inline uint32 NkSectionsRetenues(const NkUIDocument &doc, const int32 *sel, uint32 nSel,
+									 const char *const *titres, uint32 nTitres,
+									 const char **out, uint32 outMax) {
+		uint32 k = 0;
+		for (uint32 i = 0; i < nTitres && k < outMax; ++i) {
+			bool tous = true;
+			uint32 vus = 0;
+			for (uint32 j = 0; j < nSel && tous; ++j) {
+				if (!doc.IsValidIndex(sel[j]))
+					continue;
+				++vus;
+				if (!NkSectionSApplique(titres[i], doc.nodes[(uint32)sel[j]]))
+					tous = false;
+			}
+			if (vus == 0u || tous)
+				out[k++] = titres[i];
+		}
+		return k;
+	}
+
 	/// LA PASTILLE DE COULEUR, UNE FOIS POUR TOUS LES SITES (Rodolf, 04/09 :
 	/// « pourquoi pour le choix des couleurs on n'a pas de color picker ? »).
 	///
@@ -13263,11 +13340,55 @@ namespace nkuidesign {
 				}
 				{
 					auto *self = static_cast<InspectorPanel *>(user);
+					// ① (07/09) LE FILTRE PAR TYPE S'APPLIQUE ICI, sur les DEUX listes.
+					//    Le mode choisit la liste ; le TYPE du (des) nœud(s) selectionne(s)
+					//    retire ce qui ne peut pas exister. Les deux decisions sont
+					//    orthogonales, et c'est pour ca qu'elles restent deux etapes.
 					if (self->CadreCible()) {
-						return SectionsAvecCible(count);
+						int32 nb = 0;
+						const editorkit::NkInspectorSection *t = SectionsAvecCible(nb);
+						return self->FiltrerParType(t, nb, count);
 					}
 				}
-				return SectionsSansCible(count);
+				{
+					auto *self = static_cast<InspectorPanel *>(user);
+					int32 nb = 0;
+					const editorkit::NkInspectorSection *t = SectionsSansCible(nb);
+					return self->FiltrerParType(t, nb, count);
+				}
+			}
+
+			/// ① (07/09) LA TABLE FILTREE PAR LE TYPE DE LA SELECTION.
+			///
+			/// 🔴 ELLE NE DECIDE RIEN : la regle vit dans `NkSectionSApplique`, et
+			///    l'intersection dans `NkSectionsRetenues` -- deux fonctions LIBRES que
+			///    la sonde atteint sans fenetre. Cette methode ne fait que porter le
+			///    resultat dans la structure que la coquille attend. *Une regle ecrite
+			///    dans une methode de panneau serait hors de portee du banc, et le banc
+			///    en aurait ecrit une copie -- puis mesure sa copie.*
+			///
+			/// ⚠️ LA SELECTION LUE EST CELLE DE L'ECRAN : `sel` quand elle porte
+			///    plusieurs nœuds, sinon le nœud courant. Lire seulement `selected`
+			///    aurait montre les sections du PRINCIPAL pendant qu'on en a dix.
+			const editorkit::NkInspectorSection *FiltrerParType(
+				const editorkit::NkInspectorSection *src, int32 nSrc, int32 &count) {
+				static editorkit::NkInspectorSection kFiltre[32];
+				int32 sel[64];
+				uint32 nSel = 0u;
+				if (mSt->sel.Count() > 1u) {
+					for (uint32 i = 0; i < (uint32)mSt->sel.items.Size() && nSel < 64u; ++i)
+						sel[nSel++] = mSt->sel.items[i];
+				} else if (mSt->doc.IsValidIndex(mSt->selected))
+					sel[nSel++] = mSt->selected;
+				int32 k = 0;
+				for (int32 i = 0; i < nSrc && k < 32; ++i) {
+					const char *titres[1] = {src[i].titre};
+					const char *garde[1] = {nullptr};
+					if (NkSectionsRetenues(mSt->doc, sel, nSel, titres, 1u, garde, 1u) == 1u)
+						kFiltre[k++] = src[i];
+				}
+				count = k;
+				return kFiltre;
 			}
 
 			/// L'INDEX du cadre-page qui contient la selection (ou la selection
@@ -15268,7 +15389,13 @@ namespace nkuidesign {
 				if (!SectionOuverte("TYPOGRAPHIE"))
 					return;
 				NkUINode *n = NoeudMutable();
-				if (!n || !StrEq(n->shape.Data(), "text")) {
+				// ① (07/09) LA CONDITION VIENT DE `NkSectionSApplique`, PAS D'ICI. La
+				//    liste des sections et ce corps posaient la MEME question ; ecrite
+				//    deux fois, elle aurait diverge au premier type ajoute -- et le
+				//    panneau aurait cache une section dont le corps acceptait, ou
+				//    l'inverse. La phrase reste pour le cas ou le corps est atteint
+				//    autrement (aucune selection).
+				if (!n || !NkSectionSApplique("TYPOGRAPHIE", *n)) {
 					ctx.BeginDisabled();
 					nkgui::TextWrapped(ctx, "L'élément sélectionné ne porte pas de texte.");
 					ctx.EndDisabled();
