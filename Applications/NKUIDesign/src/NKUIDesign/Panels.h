@@ -15278,6 +15278,68 @@ namespace nkuidesign {
 						}
 					}
 			}
+			// ── ① L'INCLINAISON : DEUX ANGLES, SOUS `Rotation` ──────────────────
+			//
+			// 🔴 PLACEMENT TRANCHE PAR LE COORDINATEUR, et c'est une question de
+			//    cohérence : DISPOSITION porte déjà un angle en degrés avec son
+			//    champ. *Poser ces deux-là ailleurs obligerait à expliquer pourquoi
+			//    trois angles du même objet vivent dans deux endroits.* Même unité,
+			//    même gabarit, même geste.
+			//
+			// ⚠️ BORNES ±80°, ET CE N'EST PAS UNE PRUDENCE DE STYLE : à 90° le cosinus
+			//    s'annule, la matrice devient singulière et l'objet se réduit à un
+			//    TRAIT -- `NkMatInverse` rendrait alors l'identité, donc le pointage
+			//    désignerait la boîte droite d'une forme invisible. *Un réglage qui
+			//    permet de faire disparaître une forme sans le dire est un piège.*
+			//    Aller plus loin se demande ; l'inverse ne se rattrape pas.
+			//
+			// ⚠️ ET LA RANGÉE SE CACHE, ELLE NE REFUSE PAS : un nœud qui refuse la
+			//    rotation refuse la même chose par le même axe -- incliner n'y veut
+			//    RIEN DIRE. *On cache ce qui ne peut pas exister ; on explique ce qui
+			//    n'agit pas encore.* La rangée `Rotation`, elle, garde son champ grisé
+			//    avec sa raison écrite : elle, elle veut dire quelque chose.
+			void LigneInclinaison(NkGuiContext &ctx) {
+				NkUINode *n = NoeudMutable();
+				if (!n || !NkPeutTourner(*n))
+					return; // rien à montrer : la rangée n'existe pas pour ce nœud
+				auto &F = costume::Fontes();
+				auto &dl = ctx.DL();
+				auto rangee = [&](const char *libelle, const char *id,
+								  float32 (*lire)(const NkUINode &),
+								  void (*ecrire)(NkUINode &, float32)) {
+					const NkRect r = ctx.NextItemRect(-1.f, 26.f);
+					const float32 x0 = r.x + 12.f;
+					costume::Texte(dl, F.px10, x0, costume::CentrerBande(F.px10, r.y), libelle,
+								   ctx.theme.textMuted);
+					const NkRect rr = {x0 + ColChampsCalc(r.w - 24.f), costume::BandeY(r.y), 48.f,
+									   costume::HControle};
+					// La borne vient de la GEOMETRIE, pas d'ici : `NkInclinaisonMax`.
+					ChampNombreMulti(ctx, id, rr, 1.f, -NkInclinaisonMax(), NkInclinaisonMax(),
+									 lire, ecrire);
+					costume::Texte(dl, F.px9, rr.x + rr.w + 4.f, costume::CentrerBande(F.px9, r.y),
+								   "°", ctx.theme.textMuted);
+					// ⚠️ CE QUE L'INCLINAISON NE FERA PAS, DIT AU SURVOL plutôt que
+					//    découvert sur un vrai document : le sommet du dessinateur n'a
+					//    pas de profondeur, donc l'image reste AFFINE -- pas de trapèze
+					//    de perspective, et une texture fortement inclinée se plie le
+					//    long de sa diagonale.
+					if (ctx.popupDepth == 0 && NkGuiRectContains(r, ctx.input.mousePos))
+						mSt->status = NkString(
+							"Inclinaison : affine — écrasement par axe, et cisaillement "
+							"seulement si les DEUX angles sont posés. Pas de perspective : "
+							"le sommet n'a pas de profondeur (une texture très inclinée se "
+							"plie le long de sa diagonale).");
+				};
+				rangee(
+					"Inclinaison X", "insp.app.inclinaison.x",
+					[](const NkUINode &q) { return q.inclinaisonX; },
+					[](NkUINode &q, float32 v) { q.inclinaisonX = v; });
+				rangee(
+					"Inclinaison Y", "insp.app.inclinaison.y",
+					[](const NkUINode &q) { return q.inclinaisonY; },
+					[](NkUINode &q, float32 v) { q.inclinaisonY = v; });
+			}
+
 			/// L'ARRONDI, dans le bloc géométrie (Lunacy ; Q86, 04/09), avec ses quatre
 			/// coins déliables. Déplacé tel quel.
 			void LigneArrondi(NkGuiContext &ctx) {
@@ -15529,6 +15591,7 @@ namespace nkuidesign {
 				// comme Lunacy : rotation et arrondi dans le bloc géométrie (Q86) --
 				// deux rangées ici, une chez Lunacy : la fusion attend son œil
 				LigneRotation(ctx);
+				LigneInclinaison(ctx); // ① les deux angles, juste dessous
 				LigneArrondi(ctx);
 			}
 

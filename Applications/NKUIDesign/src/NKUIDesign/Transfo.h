@@ -317,6 +317,21 @@ namespace nkuidesign {
 		return o;
 	}
 
+	// ── LA BORNE DE L'INCLINAISON, ET SA RAISON, AU MEME ENDROIT ─────────
+	//
+	// ⚠️ ELLE VIT ICI, A COTE DE LA MATRICE, ET PAS DANS LE PANNEAU : ce n'est pas
+	//    un gout d'interface, c'est une propriete de la GEOMETRIE. A 90 degres le
+	//    cosinus s'annule, le determinant tombe a zero, la forme se reduit a un
+	//    TRAIT -- et `NkMatInverse` rend alors l'identite, donc le pointage
+	//    designerait la boite droite d'une forme invisible.
+	//    *Un reglage qui permet de faire disparaitre une forme sans le dire est un
+	//    piege.* Ecrite la, elle se mesure AVEC ce qu'elle protege : l'essai 144
+	//    exige que la matrice reste inversible A CETTE borne. La changer pour 90
+	//    fait donc rougir l'essai -- la borne et sa raison ne peuvent plus diverger.
+	inline float32 NkInclinaisonMax() {
+		return 80.f;
+	}
+
 	/// La matrice d'UN nœud : ses trois champs, autour du centre `(cx, cy)`.
 	inline NkMat2D NkMatDe(const NkTransfo &t, float32 cx, float32 cy) {
 		NkMat2D m;

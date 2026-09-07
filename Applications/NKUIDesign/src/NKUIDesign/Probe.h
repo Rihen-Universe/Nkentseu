@@ -5004,6 +5004,67 @@ namespace nkuidesign {
 							  && NkComponentDecl::StrEq(fr.cadrage.Data(), "tile") && dansFenetre,
 						  det);
 				}
+				// ── 144. LA RANGEE D'INCLINAISON : elle se DESSINE, et elle se CACHE quand
+				//    elle n'a pas de sens. On mesure LE PANNEAU QUI TOURNE, pas la source.
+				{
+					if (ctxI.popupDepth > 0)
+						ctxI.ClosePopup();
+					stI.picker = DesignState::DemandePicker();
+					stI.doc.nodes[(uint32)rc].refusRotation = false;
+					float32 xI = 0.f;
+					uint32 nAvec = 0u, oI = 0u;
+					image(260.f, true, xI, nAvec, oI);
+					image(260.f, true, xI, nAvec, oI);
+					// LE MEME PANNEAU, sur un nœud qui REFUSE la rotation : incliner n'y
+					// veut rien dire, donc les deux rangees n'existent pas.
+					stI.doc.nodes[(uint32)rc].refusRotation = true;
+					uint32 nSans = 0u;
+					image(260.f, true, xI, nSans, oI);
+					image(260.f, true, xI, nSans, oI);
+					stI.doc.nodes[(uint32)rc].refusRotation = false;
+					// ⚠️ UNE RELATION, PAS UN NOMBRE D'HIER : le panneau AVEC les rangees
+					//    emet strictement plus que le meme panneau sans elles, dans la MEME
+					//    course. Un nombre fige aurait rougi au premier ajustement de
+					//    police -- c'est le defaut que l'essai 60c a paye.
+					const bool rangeeVisible = nAvec > nSans;
+
+					// LA BORNE +-80, ET SA RAISON MESUREE : a 90 degres le cosinus
+					// s'annule, la matrice devient SINGULIERE et la forme se reduit a un
+					// trait -- `NkMatInverse` rend alors l'identite, donc le pointage
+					// designerait la boite droite d'une forme invisible.
+					auto det = [](float32 ix, float32 iy) -> float32 {
+						NkTransfo t;
+						t.iX = ix;
+						t.iY = iy;
+						const NkMat2D m = NkMatDe(t, 0.f, 0.f);
+						return m.a * m.d - m.b * m.c;
+					};
+					// ⚠️ LA BORNE EST LUE, PAS RECOPIEE : l'essai interroge
+					//    `NkInclinaisonMax`, celle-la meme que la rangee utilise. La porter
+					//    a 90 fait tomber le determinant a zero ICI -- la borne et sa raison
+					//    ne peuvent plus diverger. Recopier << 80 >> aurait laisse passer
+					//    exactement la mutation qu'on veut attraper.
+					const float32 bMax = NkInclinaisonMax();
+					const float32 dBorne = det(bMax, bMax), dHors = det(90.f, 90.f);
+					const bool borneSaine = dBorne > 0.02f && dHors < 0.0001f && dHors > -0.0001f;
+					char det144[420];
+					snprintf(det144, sizeof(det144),
+							 "MEME course : le panneau emet %u sommets avec les rangees, %u sans "
+							 "(nœud qui refuse la rotation) -> %d ; determinant a la borne "
+							 "(80\u00b0, 80\u00b0) = %.4f, et a 90\u00b0 = %.4f -- la forme se "
+							 "reduirait a un TRAIT et le pointage designerait sa boite droite "
+							 "-> %d",
+							 nAvec, nSans, rangeeVisible ? 1 : 0, (double)bMax, (double)bMax, (double)dBorne, (double)dHors,
+							 borneSaine ? 1 : 0);
+					check("144. LA RANGEE D'INCLINAISON SE DESSINE, ET SE CACHE QUAND ELLE N'A PAS DE SENS : "
+						  "deux champs en degres sous `Rotation`, meme unite et meme gabarit -- et RIEN du "
+						  "tout sur un nœud qui refuse la rotation, car incliner n'y veut rien dire. *On "
+						  "cache ce qui ne peut pas exister ; on explique ce qui n'agit pas encore.* La "
+						  "borne +-80 a une raison qui se mesure : a 90 degres la matrice devient "
+						  "SINGULIERE, la forme se reduit a un trait, et le pointage designerait la boite "
+						  "droite d'une forme invisible",
+						  rangeeVisible && borneSaine, det144);
+				}
 				// ── 137. LA PASTILLE DU CANVAS OUVRE LA MEME FENETRE QU'UN REMPLISSAGE.
 				//    C'est l'assertion qui MANQUAIT a l'essai 136, et c'est elle qui nous a
 				//    fait croire le lot fini : 136 comptait le NOYAU (meme fonction, meme
