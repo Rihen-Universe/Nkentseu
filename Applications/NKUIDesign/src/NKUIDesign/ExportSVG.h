@@ -138,16 +138,32 @@ namespace nkuidesign {
 		inline float32 Pourcent(float32 p) {
 			return p < 0.f ? 0.f : (p > 100.f ? 1.f : p * 0.01f);
 		}
+		/// LE MODE DE FUSION, TEL QUE LE FORMAT LE CONNAIT -- pas tel que notre
+		/// peintre le sait faire.
+		///
+		/// 🔴 CORRIGE LE 07/09 : cette table ne rendait que les CINQ modes exacts
+		///    de notre peintre et jetait les treize autres. *L'export s'alignait sur
+		///    la limite de l'ECRAN au lieu de la capacite du FORMAT.* Un document qui
+		///    porte « overlay » perdait le mot en chemin, alors que tout lecteur SVG
+		///    sait le peindre. Ce que NOUS ne savons pas peindre n'est pas une raison
+		///    de ne pas l'ECRIRE.
+		/// ⚠️ MAIS ON N'INVENTE RIEN : `plus-darker` est un nom de Lunacy, PAS une
+		///    valeur de `mix-blend-mode`. Il n'est pas exporte, et l'appelant le note.
 		inline const char *Fusion(const NkString &f) {
 			const char *c = f.Data();
 			if (!c || !*c)
 				return nullptr;
-			if (StrEq(c, "multiply")) return "multiply";
-			if (StrEq(c, "screen")) return "screen";
-			if (StrEq(c, "darken")) return "darken";
-			if (StrEq(c, "lighten")) return "lighten";
-			if (StrEq(c, "plus-lighter")) return "plus-lighter";
-			return nullptr; // un mode que le peintre ne sait pas non plus : alpha
+			// Les valeurs de `mix-blend-mode` (CSS Compositing 1, plus `plus-lighter`
+			// de Compositing 2). Nos cles SONT deja ces noms -- une table de
+			// traduction serait une seconde orthographe a tenir.
+			static const char *const kCss[16] = {
+				"multiply", "screen",      "overlay",   "darken",     "lighten",   "color-dodge",
+				"color-burn", "hard-light", "soft-light", "difference", "exclusion", "hue",
+				"saturation", "color",     "luminosity", "plus-lighter"};
+			for (nkentseu::uint32 i = 0; i < 16u; ++i)
+				if (StrEq(c, kCss[i]))
+					return kCss[i];
+			return nullptr; // hors CSS (`plus-darker`) ou mode inconnu : non exporte, et dit
 		}
 		inline void Style(NkString &s, const NkRemplissage *f) {
 			const char *m = f ? Fusion(f->fusion) : nullptr;
@@ -715,6 +731,34 @@ namespace nkuidesign {
 			}
 			if (!n.label.Empty())
 				Ajouter(e.corps, "data-nom", Echapper(n.label.Data()).Data());
+			// ① (07/09) L'OPACITE ET LA FUSION DU NŒUD, SUR SON GROUPE.
+			// 🔴 Elles etaient PERDUES EN SILENCE : `Style()` prend un
+			//    `NkRemplissage*`, jamais un nœud, donc l'export portait celles des
+			//    REMPLISSAGES et jetait celles du CALQUE. A l'ecran elles agissent, au
+			//    fichier elles disparaissaient -- un SVG coherent avec lui-meme et
+			//    incomplet, la meme famille que l'arrondi par coin.
+			// ⚠️ SUR LE `<g>`, ET C'EST EXACTEMENT LA BONNE PLACE : SVG applique
+			//    `opacity` au GROUPE -- donc au nœud ET a ses enfants, composite UNE
+			//    SEULE FOIS. C'est le vrai calque que notre peintre ne sait pas encore
+			//    faire (il multiplie element par element) : sur ce point l'export est
+			//    PLUS JUSTE que l'ecran. C'est un fait, pas un defaut -- et il faut le
+			//    savoir avant de comparer les deux.
+			// ⚠️ ADDITIVES : rien tant qu'elles valent leur defaut.
+			if (n.opacite != 100.f)
+				Ajouter(e.corps, "opacity", Pourcent(n.opacite));
+			if (!n.fusion.Empty()) {
+				if (const char *mf = Fusion(n.fusion)) {
+					e.corps.Append(" style=\"mix-blend-mode:");
+					e.corps.Append(mf);
+					e.corps.Append("\"");
+				} else {
+					char t[160];
+					snprintf(t, sizeof(t),
+							 "mode de fusion « %s » sans equivalent CSS : non exporte",
+							 n.fusion.Data());
+					Note(e, t);
+				}
+			}
 			if (!propre.Identite()) {
 				char t[200], a[48], b[48], c[48], d[48], f[48], g[48];
 				Nombre(propre.a, a, sizeof(a));

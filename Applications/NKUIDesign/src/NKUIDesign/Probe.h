@@ -11656,6 +11656,120 @@ namespace nkuidesign {
 					  && detecteUneAmputation && panneauBranche,
 				  det);
 		}
+		// -- 133. L'EXPORT SVG DIT LA VERITE DU DOCUMENT ----------------------
+		//
+		// DEUX TROUS, TROUVES EN REPONDANT A UNE DEMANDE DE STATUT, et tous deux
+		//    silencieux -- le fichier exporte etait COHERENT et FAUX :
+		//
+		//  (A) `n.opacite` et `n.fusion` -- les deux champs du NŒUD -- n'etaient
+		//      PAS ecrits. `Style()` prend un `NkRemplissage*`, jamais un nœud :
+		//      l'export portait l'opacite et la fusion PAR REMPLISSAGE et jetait
+		//      celles du calque. A l'ecran elles agissent ; au fichier elles
+		//      disparaissaient.
+		//
+		//  (B) `Fusion()` ne rendait que les CINQ modes que NOTRE PEINTRE sait
+		//      faire, et jetait les treize autres -- alors que SVG les connait
+		//      tous (`mix-blend-mode` CSS). *L'export s'alignait sur la limite de
+		//      l'ECRAN au lieu de la capacite du FORMAT.* Un document qui porte
+		//      << overlay >> perdait le mot en chemin.
+		//
+		// ⚠️ ET L'IRONIE EST UTILE A DIRE : SVG applique `opacity` au GROUPE, donc
+		//    au nœud ET a ses enfants, composite UNE SEULE FOIS -- c'est-a-dire le
+		//    vrai calque que notre peintre ne sait pas encore faire. Sur ce point
+		//    l'export est PLUS JUSTE que l'ecran, et c'est un fait, pas un defaut.
+		{
+			char det[600];
+			auto contient133 = [](const char *h, const char *n) -> bool {
+				if (!h || !n)
+					return false;
+				for (const char *p = h; *p; ++p) {
+					const char *a = p, *b = n;
+					while (*a && *b && *a == *b)
+						++a, ++b;
+					if (!*b)
+						return true;
+				}
+				return false;
+			};
+			auto svgDe = [&](float32 opacite, const char *fusion, NkString &out) -> bool {
+				static DesignState st133;
+				st133.doc.NewDocument("Toile", NkAuthor::Humain);
+				st133.doc.SetMetric("espacement", 0.f);
+				st133.doc.SetMetric("marge", 0.f);
+				st133.doc.nodes[0].layout.kind = NkLayoutKind::Free;
+				const int32 pg = st133.doc.AddChild(0, "", NkAuthor::Humain);
+				{
+					NkUINode &p = st133.doc.nodes[(uint32)pg];
+					p.shape = NkString("frame");
+					p.layout.kind = NkLayoutKind::Free;
+					p.width.mode = NkSizeMode::Fixed;
+					p.width.value = 200.f;
+					p.height.mode = NkSizeMode::Fixed;
+					p.height.value = 120.f;
+				}
+				const int32 f = st133.doc.AddChild(pg, "", NkAuthor::Humain);
+				{
+					NkUINode &q = st133.doc.nodes[(uint32)f];
+					q.shape = NkString("rect");
+					q.fill = NkString("#ff0000");
+					q.opacite = opacite;
+					q.fusion = NkString(fusion);
+					q.width.mode = NkSizeMode::Fixed;
+					q.width.value = 40.f;
+					q.height.mode = NkSizeMode::Fixed;
+					q.height.value = 20.f;
+				}
+				st133.Recompute(NkPaintRect{0.f, 0.f, 800.f, 600.f});
+				NkExportOptions o;
+				o.format = NkExportFormat::SVG;
+				NkExportResultat r;
+				return NkExporterSVG(st133, o, "", out, r);
+			};
+
+			// (a) L'OPACITE DU NŒUD ARRIVE AU FICHIER.
+			NkString sOp;
+			const bool okOp = svgDe(50.f, "", sOp);
+			const bool opaciteEcrite = okOp && contient133(sOp.Data(), "opacity=\"0.5\"");
+
+			// (b) ADDITIVE : a 100 %, RIEN. Sans cet essai, ecrire toujours
+			//     l'attribut passerait pour une reussite.
+			NkString sPlein;
+			const bool okPlein = svgDe(100.f, "", sPlein);
+			const bool rienAPlein = okPlein && !contient133(sPlein.Data(), "opacity=\"1");
+
+			// (c) UN MODE QUE LE PEINTRE NE SAIT PAS MAIS QUE LE FORMAT CONNAIT :
+			//     c'est LUI qui prouve que l'export ne se limite plus a l'ecran.
+			NkString sOv;
+			const bool okOv = svgDe(100.f, "overlay", sOv);
+			const bool overlayEcrit = okOv && contient133(sOv.Data(), "mix-blend-mode:overlay");
+
+			// (d) ET UN MODE QUE LE FORMAT NE CONNAIT PAS reste NON ecrit -- on
+			//     n'invente pas une valeur CSS. `plus-darker` est un nom de
+			//     Lunacy, pas une valeur de `mix-blend-mode`.
+			NkString sPd;
+			const bool okPd = svgDe(100.f, "plus-darker", sPd);
+			const bool pasInvente = okPd && !contient133(sPd.Data(), "mix-blend-mode:plus-darker");
+
+			// (e) CONTROLE POSITIF DU MONTAGE : le SVG produit contient bien le
+			//     rectangle. Sans lui, tous les << absent >> ci-dessus seraient
+			//     aussi le score d'un export vide.
+			const bool montageValide = okOp && contient133(sOp.Data(), "<rect")
+									   && contient133(sOp.Data(), "<svg ");
+
+			snprintf(det, sizeof(det),
+					 "(a) opacite 50%% -> `opacity=\"0.5\"` present=%d ; (b) a 100%%, aucun "
+					 "attribut=%d ; (c) `overlay` (que le peintre ne sait pas) -> "
+					 "`mix-blend-mode:overlay` present=%d ; (d) `plus-darker` (hors CSS) NON "
+					 "invente=%d ; (e) CONTROLE POSITIF : le SVG contient bien <svg> et <rect>=%d",
+					 opaciteEcrite ? 1 : 0, rienAPlein ? 1 : 0, overlayEcrit ? 1 : 0,
+					 pasInvente ? 1 : 0, montageValide ? 1 : 0);
+			check("133. L'EXPORT SVG DIT LA VERITE DU DOCUMENT : l'opacite ET la fusion DU NŒUD arrivent au "
+				  "fichier (elles etaient perdues en silence -- `Style()` ne lit que les remplissages), la "
+				  "cle reste ADDITIVE, et un mode que NOTRE PEINTRE ne sait pas mais que le FORMAT connait "
+				  "est exporte quand meme -- l'export ne doit pas heriter des limites de l'ecran. Un mode "
+				  "hors CSS n'est PAS invente",
+				  opaciteEcrite && rienAPlein && overlayEcrit && pasInvente && montageValide, det);
+		}
 		// ── 94. ① L'APERCU PENDANT LE TRACE (05/09). Rodolf : « pourquoi quand on dessine un
 		//    graphique on voit juste le rectangle qui s'allonge, et des qu'on relache on voit la
 		//    forme ? » Deux mesures : LA TABLE DE GENRE (une seule, lue par le relachement et par
