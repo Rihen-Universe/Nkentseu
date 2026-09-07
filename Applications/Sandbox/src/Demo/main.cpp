@@ -435,6 +435,15 @@ namespace nkentseu {
 					// un pipeline qui n'existe pas. Un appel accepte n'est pas un
 					// appel honore, et c'est le banc du ciel qui l'a paye.
 					c.ibl.drawSkybox = true;
+					// NK_BANC_IBL : la FORCE de l'ambiante IBL. Elle ne vient pas de la
+					// scene mais de la CONFIG, donc de la CREATION du renderer -- c'est
+					// pour cela qu'elle se regle ici et pas dans la demo. Defaut du
+					// moteur : 0.05. Le viseur du modeleur met 1.1, soit 22 fois plus.
+					{
+						const char *iv = getenv("NK_BANC_IBL"); // <cstdlib>, deja inclus l. 19
+						if (iv && iv[0])
+							c.ibl.iblStrength = (float32)atof(iv);
+					}
 					return c;
 				}
 				default:

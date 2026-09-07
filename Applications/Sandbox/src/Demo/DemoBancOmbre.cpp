@@ -42,6 +42,25 @@
 //   NK_BANC_CIEL       modele de ciel : 0 degrade, 1 Preetham, 2 Rayleigh+Mie
 //                      (defaut, celui du projet de Rodolf), 3 Hosek, 4 Prague
 //
+// ── VUE 3 : LE TEMOIN DE LUMIERE ────────────────────────────────────────────
+//   NK_BANC_LUM_PUISSANCE  intensite de l'unique source ponctuelle (defaut 100)
+//   NK_BANC_LUM_HAUTEUR    sa hauteur au-dessus du plan (defaut 3)
+//   NK_BANC_LUM_PORTEE     sa portee (defaut 10)
+//   NK_BANC_LUM_GRAND      0 = plan 4x4 | 1 = MEME plan a l'echelle 1500
+//   NK_BANC_LUM_ALBEDO     clarte de la surface (defaut 0.62, celle du panneau)
+//   NK_BANC_LUM_ENV        1 = l'ambiance vient de l'ENVIRONNEMENT (le ciel
+//                          eclaire), comme la case << Source >> de Rodolf
+//   NK_BANC_AMBIANTE       ce que la SCENE declare comme ambiante. Mis a
+//                          l'epreuve le 07/09 : de 0 a 10, l'image ne bouge PAS
+//                          d'un octet. Le champ est MORT ; l'ambiante reelle
+//                          vient de NK_BANC_IBL.
+//   NK_BANC_IBL            force de l'ambiante IBL -- reglee dans `main.cpp`
+//                          car c'est un parametre de CREATION du renderer.
+//                          Defaut moteur 0.05 ; le viseur du modeleur met 1.1.
+//   NK_BANC_MARQUE         1 = pose un rectangle magenta au coin HAUT-GAUCHE en
+//                          coordonnees d'ECRAN. Reference d'orientation qui ne
+//                          traverse ni camera ni projection ni scene.
+//
 // Se capture avec les crochets deja presents dans `main.cpp` :
 //   NK_MAXFRAMES=40 NK_CAPTURE=30 NK_CAPTURE_PATH=... renderdemo --demo=21
 //
@@ -407,8 +426,29 @@ namespace nkentseu {
 				pt.range = BancFloat("NK_BANC_LUM_PORTEE", 10.f);
 				pt.castShadow = false;
 				sctx.lights.PushBack(pt);
-				sctx.ambientIntensity = 0.f; // AUCUNE ambiante : une seule variable
-				r3d->SetSkyboxEnabled(false);
+				// NK_BANC_AMBIANTE : ce que la SCENE declare comme ambiante.
+				// Defaut 0 -- et c'est justement ce qu'on vient mettre a l'epreuve :
+				// si le rendu ne bouge pas quand cette valeur passe de 0 a 10, alors
+				// le champ est MORT et toutes les applications qui l'ecrivent se
+				// racontent une histoire.
+				sctx.ambientIntensity = BancFloat("NK_BANC_AMBIANTE", 0.f);
+				// NK_BANC_LUM_ENV : reproduit la case << Source : environnement >> de
+				// Rodolf (ambianceParEnv). Le ciel ECLAIRE alors les objets ; c'est un
+				// mecanisme SEPARE de sa visibilite en fond.
+				const bool envAmb = BancInt("NK_BANC_LUM_ENV", 0) != 0;
+				r3d->SetIBLUseEnv(envAmb);
+				if (envAmb) {
+					NkSkyParams sk;
+					sk.model = (NkSkyModel)st->modeleCiel;
+					sk.sunDirection = dirSoleil;
+					sk.turbidity = 2.5f;
+					sk.sunDisc = true;
+					sk.sunIntensity = st->intensiteSoleil;
+					sk.clouds = false;
+					sk.starIntensity = 0.f;
+					r3d->SetSkyParams(sk);
+				}
+				r3d->SetSkyboxEnabled(envAmb);
 				r3d->BeginScene(sctx);
 			} else {
 			NkLightDesc soleil;
@@ -468,7 +508,13 @@ namespace nkentseu {
 				dc.transform = NkMat4f::Scale({ech, 1.f, ech});
 				dc.aabb = {{-ech, -0.01f, -ech}, {ech, 0.01f, ech}};
 				// Les reglages EXACTS du panneau « Sol » de Rodolf.
-				dc.tint = {0.62f, 0.62f, 0.64f};
+				// NK_BANC_LUM_ALBEDO : la clarte de la surface. Le motif du sol de
+				// `NkDemo3D` genere une texture a 208/255 ; le panneau, lui, affiche
+				// 0.62. Un albedo n'est pas un detail : il MULTIPLIE l'ambiante.
+				{
+					const float32 alb = BancFloat("NK_BANC_LUM_ALBEDO", 0.62f);
+					dc.tint = {alb, alb, alb};
+				}
 				dc.alpha = 1.f;
 				dc.roughness = 0.90f;
 				dc.metallic = 0.f;
