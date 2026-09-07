@@ -358,7 +358,15 @@ namespace nkentseu {
 
 			// ── CAMERA FIXE ─────────────────────────────────────────────────────
 			NkCamera3DData cd;
-			if (st->vue == 1) {
+			if (st->vue == 3) {
+				// Regard PLONGEANT sur le point du monde situe juste sous la
+				// lumiere. Meme cadrage dans les deux conditions : c'est ce qui
+				// permet de mesurer le MEME point.
+				cd.position = {0.f, 4.f, 4.f};
+				cd.target = {0.f, 0.f, 0.f};
+				cd.fovY = 50.f;
+				cd.farPlane = 4000.f;
+			} else if (st->vue == 1) {
 				// VUE CIEL : l'oeil a hauteur d'homme, l'horizon au milieu de
 				// l'image. C'est le cadrage qui rend le profil vertical lisible —
 				// la moitie haute est du ciel, du zenith vers l'horizon.
@@ -386,6 +394,23 @@ namespace nkentseu {
 			// qui n'a rien a voir avec ce qu'on mesure.
 			sctx.time = 0.f;
 
+			if (st->vue == 3) {
+				// UNE SEULE source, ponctuelle, exactement au-dessus de l'origine :
+				// tout point du plan a y=0 et x=z=0 est donc a distance `hauteur`,
+				// quelle que soit l'echelle du plan. La distance est CONSTANTE entre
+				// les deux conditions — c'est la condition du temoin.
+				NkLightDesc pt;
+				pt.type = NkLightType::NK_POINT;
+				pt.position = {0.f, BancFloat("NK_BANC_LUM_HAUTEUR", 3.f), 0.f};
+				pt.color = {1.f, 1.f, 1.f};
+				pt.intensity = BancFloat("NK_BANC_LUM_PUISSANCE", 100.f);
+				pt.range = BancFloat("NK_BANC_LUM_PORTEE", 10.f);
+				pt.castShadow = false;
+				sctx.lights.PushBack(pt);
+				sctx.ambientIntensity = 0.f; // AUCUNE ambiante : une seule variable
+				r3d->SetSkyboxEnabled(false);
+				r3d->BeginScene(sctx);
+			} else {
 			NkLightDesc soleil;
 			soleil.type = NkLightType::NK_DIRECTIONAL;
 			soleil.direction = dirSoleil;
@@ -411,6 +436,55 @@ namespace nkentseu {
 			r3d->SetSkyParams(sky);
 
 			r3d->BeginScene(sctx);
+			}
+
+			// ── VUE 3 : LE TEMOIN DE LUMIERE ────────────────────────────────────
+			//
+			// 🔴 LA QUESTION : le sol du viseur et un maillage recoivent-ils la MEME
+			// echelle de lumiere ? Sur la capture de Rodolf, le sol eclaire est a
+			// 242 de luminance (93 % de ses pixels satures) et le plateau du bureau
+			// a 34 — sept fois d'ecart sous la meme lumiere.
+			//
+			// ⚠️ MAIS CES DEUX ZONES N'ONT NI LA MEME DISTANCE A LA LUMIERE NI LE
+			// MEME ALBEDO. Comparer un sol clair juste sous une source a un plateau
+			// sombre plus loin, c'est melanger trois variables. Ce temoin n'en
+			// laisse qu'UNE : meme point du monde, meme couleur, meme rugosite,
+			// meme metallique, meme distance — seule change la FACON dont la
+			// surface est soumise.
+			//
+			//   NK_BANC_LUM_GRAND=0 : un plan de 4x4, comme un maillage ordinaire
+			//   NK_BANC_LUM_GRAND=1 : le MEME plan a l'echelle 1500, exactement
+			//                         comme `NkDemo3D` soumet son sol (l. 7270)
+			// Les deux surfaces passent par le MEME point du monde sous la lumiere.
+			// Le temoin EXIGE la meme luminance a quelques pour cent pres.
+			if (st->vue == 3) {
+				const float32 hauteur = BancFloat("NK_BANC_LUM_HAUTEUR", 3.f);
+				const float32 puissance = BancFloat("NK_BANC_LUM_PUISSANCE", 100.f);
+				const bool grand = BancInt("NK_BANC_LUM_GRAND", 0) != 0;
+				const float32 ech = grand ? 1500.f : 4.f;
+
+				NkDrawCall3D dc;
+				dc.mesh = meshSys->GetPlane();
+				dc.transform = NkMat4f::Scale({ech, 1.f, ech});
+				dc.aabb = {{-ech, -0.01f, -ech}, {ech, 0.01f, ech}};
+				// Les reglages EXACTS du panneau « Sol » de Rodolf.
+				dc.tint = {0.62f, 0.62f, 0.64f};
+				dc.alpha = 1.f;
+				dc.roughness = 0.90f;
+				dc.metallic = 0.f;
+				dc.castShadow = false;
+				dc.receiveShadow = true;
+				r3d->Submit(dc);
+				if (!st->journalFait) {
+					st->journalFait = true;
+					logger.Infof("[BancLumiere] echelle=%.0f hauteur=%.2f puissance=%.1f "
+								 "(tint 0.62 rough 0.90 metal 0.00) — la seule variable est l'ECHELLE\n",
+								 ech, hauteur, puissance);
+				}
+				ctx.renderer->Present();
+				ctx.renderer->EndFrame();
+				return;
+			}
 
 			// ── LA DALLE PLATE ──────────────────────────────────────────────────
 			// Aucune instance de materiau : elle ne PEUT pas armer le tramage.
