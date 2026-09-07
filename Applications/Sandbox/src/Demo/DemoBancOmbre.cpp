@@ -56,6 +56,8 @@
 #include "NKRenderer/Tools/Environment/NkEnvironmentSystem.h"
 #include "NKRenderer/Core/NkTextureLibrary.h"
 #include "NKPlatform/NkEnv.h"
+#include "NKSL/ShaderConvert/NkShaderConvert.h" // sonde du cache : cle + version du generateur
+#include <cstring>
 
 #include <cmath>
 
@@ -162,7 +164,73 @@ namespace nkentseu {
 			return true;
 		}
 
+		// =====================================================================
+		// SONDE : CHANGER DE GENERATEUR DOIT INVALIDER LE CACHE.
+		//
+		// 🔴 CE QU'ELLE GARDE. Le 2026-09-07, un correctif du generateur HLSL a ete
+		// livre, verifie, present dans le binaire — et **invisible chez Rodolf** :
+		// le cache servait le texte de la veille. `ComputeKey` hachait la source,
+		// l'etage et la cible, jamais le GENERATEUR. Consequence : tout correctif
+		// futur de NkSL etait invisible chez quiconque possede un cache, et tout
+		// banc comparant un avant a un apres mesurait deux fois l'avant.
+		//
+		// Elle ecrit une entree sous la version courante, redemande la MEME source
+		// sous une version differente, et exige que la lecture REFUSE. Elle exerce
+		// l'arithmetique de cle DU MOTEUR, pas une copie.
+		static bool BancSondeCacheShader() {
+			auto &cache = ::nkentseu::NkShaderCache::Global();
+			const NkString src("// source temoin de la sonde de cache\nvoid main() {}\n");
+			const NkString cible("temoin_sonde_cache");
+			const ::nkentseu::NkSLStage etage = ::nkentseu::NkSLStage::NK_FRAGMENT;
+
+			const uint64 cleV = ::nkentseu::NkShaderCache::ComputeKey(src, etage, cible);
+			const uint64 cleAutre = ::nkentseu::NkShaderCache::ComputeKeyPourVersion(
+				src, etage, cible, ::nkentseu::kNkSLGeneratorVersion + 1u);
+
+			::nkentseu::NkShaderConvertResult ecrit;
+			ecrit.success = true;
+			const char *charge = "TEMOIN_SONDE_CACHE";
+			const uint32 n = (uint32)strlen(charge);
+			ecrit.binary.Resize(n);
+			memcpy(ecrit.binary.Data(), charge, n);
+			if (!cache.Save(cleV, ecrit)) {
+				logger.Errorf("[BancSondeCache] ROUGE : impossible d'ecrire l'entree temoin — "
+							  "la sonde ne peut rien prouver.\n");
+				return false;
+			}
+
+			// ⚠️ LE CONTROLE POSITIF D'ABORD. Sans lui, un cache qui refuse TOUT
+			// rendrait cette sonde verte pour la pire des raisons : elle
+			// verifierait qu'un cache mort refuse, et appellerait ca une
+			// invalidation.
+			const bool relit = cache.Load(cleV).success;
+			const bool refuse = !cache.Load(cleAutre).success;
+			cache.Invalidate(cleV);
+			cache.Invalidate(cleAutre);
+
+			if (!relit) {
+				logger.Errorf("[BancSondeCache] ROUGE : l'entree que je viens d'ecrire ne se relit pas. "
+							  "Le cache ne fonctionne pas — la sonde ne prouve RIEN.\n");
+				return false;
+			}
+			if (!refuse) {
+				logger.Errorf("[BancSondeCache] ROUGE : une version de generateur DIFFERENTE relit "
+							  "l'entree de la precedente. Tout correctif de NkSL sera invisible chez "
+							  "quiconque possede un cache.\n");
+				return false;
+			}
+			logger.Infof("[BancSondeCache] VERTE : l'entree se relit sous sa version (controle positif) "
+						 "et une AUTRE version la refuse. cle %llx contre %llx\n",
+						 (unsigned long long)cleV, (unsigned long long)cleAutre);
+			return true;
+		}
+
 		bool DemoBancOmbre_Init(DemoCtx &ctx) {
+			{
+				const char *v = ::nkentseu::env::GetEnvVar("NK_BANC_SONDE_CACHE");
+				if (v && v[0] && v[0] != '0' && !BancSondeCacheShader())
+					return false; // ROUGE -> code de sortie non nul
+			}
 			// La sonde passe AVANT tout le reste : si le dorsal ment sur la
 			// validite d'un shader, rien de ce que ce banc mesure ensuite ne peut
 			// etre cru.
