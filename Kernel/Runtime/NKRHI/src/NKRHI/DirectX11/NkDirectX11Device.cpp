@@ -1879,14 +1879,41 @@ namespace nkentseu {
 				return DXGI_FORMAT_D32_FLOAT;
 			case NkGPUFormat::NK_D24_UNORM_S8_UINT:
 				return DXGI_FORMAT_D24_UNORM_S8_UINT;
+			// 🔴 LES HUIT FORMATS PAR BLOCS, PAS QUATRE. Le RHI en declare HUIT
+			// (`NkTypes.h:131-138`) ; ce commutateur n'en mappait que quatre, et
+			// les quatre variantes SRGB/SNORM tombaient au `default:` — c'est-a-dire
+			// sur `DXGI_FORMAT_R8G8B8A8_UNORM`, un format NON COMPRESSE de 4 octets
+			// par pixel.
+			//
+			// CE QUE CA PRODUISAIT, mesure le 2026-09-07 : une carte BC1 sRGB de
+			// 4096 etait creee comme RGBA8, puis `UpdateSubresource` recevait ses
+			// 8 Mo de blocs avec un pas de 8192 — le pilote lisait alors
+			// 8192 x 4096 = 33 Mo dans un tampon de 8 Mo. SIGSEGV dans
+			// `nvwgf2umx.dll`, a chaque relecture d'un actif cuit
+			// (`--demo=TexturesPBR`, tous les lancements apres le premier).
+			//
+			// ⚠️ ET C'EST LE MEME DEFAUT QUE `ToGLInternalFormat` AVAIT, corrige
+			// il y a deux jours : `NK_BC1_RGB_SRGB` y tombait sur `GL_RGBA8` et
+			// produisait 25 erreurs GL. **Le trou existait dans les DEUX dorsaux ;
+			// seul celui d'OpenGL avait ete vu.** Quand un defaut de correspondance
+			// de formats est trouve dans un dorsal, il se cherche dans tous les
+			// autres le jour meme — c'est ce que je n'avais pas fait.
 			case NkGPUFormat::NK_BC1_RGB_UNORM:
 				return DXGI_FORMAT_BC1_UNORM;
+			case NkGPUFormat::NK_BC1_RGB_SRGB:
+				return DXGI_FORMAT_BC1_UNORM_SRGB;
 			case NkGPUFormat::NK_BC3_UNORM:
 				return DXGI_FORMAT_BC3_UNORM;
+			case NkGPUFormat::NK_BC3_SRGB:
+				return DXGI_FORMAT_BC3_UNORM_SRGB;
 			case NkGPUFormat::NK_BC5_UNORM:
 				return DXGI_FORMAT_BC5_UNORM;
+			case NkGPUFormat::NK_BC5_SNORM:
+				return DXGI_FORMAT_BC5_SNORM;
 			case NkGPUFormat::NK_BC7_UNORM:
 				return DXGI_FORMAT_BC7_UNORM;
+			case NkGPUFormat::NK_BC7_SRGB:
+				return DXGI_FORMAT_BC7_UNORM_SRGB;
 			case NkGPUFormat::NK_R11G11B10_FLOAT:
 				return DXGI_FORMAT_R11G11B10_FLOAT;
 			default:
