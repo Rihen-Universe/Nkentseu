@@ -1,4 +1,5 @@
 // =============================================================================
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // main.cpp  — Renderdemo entry point (NkRenderer v5.0)
 //
 // Usage :
@@ -463,7 +464,40 @@ int nkmain(const NkEntryState &state) {
 	NkGraphicsApi api = ParseBackend(state.GetArgs());
 	bool demoArgMalformed = false;
 	NkString demoArgOffending;
-	int demoIx = ParseDemo(state.GetArgs(), NK_DEFAULT_DEMO, &demoArgMalformed, &demoArgOffending);
+	NkString demoArgName;
+	int demoIx = ParseDemo(state.GetArgs(), NK_DEFAULT_DEMO, &demoArgMalformed, &demoArgOffending, &demoArgName);
+	// ── `--demo=<NOM>` : resolu ICI, le seul endroit qui connaisse la table ───
+	// Un indice est une POSITION que les fusions deplacent ; un nom appartient a
+	// la demo. Mesure du 2026-09-07 : le banc d'ombre et un autre banc se sont
+	// retrouves sur le MEME indice apres fusion — si la compilation n'avait pas
+	// morde, le banc aurait mesure sous les reglages de l'autre, et rien dans ses
+	// chiffres n'aurait permis de le soupconner.
+	// Comparaison insensible a la casse : une commande tapee a la main ne doit pas
+	// echouer sur une majuscule.
+	if (!demoArgName.Empty()) {
+		int trouve = -1;
+		NkString cible(demoArgName);
+		cible.ToLower();
+		for (uint32 i = 0; i < kDemoCount; ++i) {
+			NkString n(kDemos[i].name);
+			n.ToLower();
+			if (n == cible) {
+				trouve = (int)i;
+				break;
+			}
+		}
+		if (trouve >= 0) {
+			demoIx = trouve;
+			logger.Infof("[main] demo '%s' resolue a l'indice %d par son NOM (l'indice bouge, le nom non)\n",
+						 kDemos[trouve].name, trouve);
+		} else {
+			// Un nom inconnu se REFUSE en le nommant, comme un indice malforme :
+			// retomber sur la demo par defaut ferait croire a l'utilisateur qu'il a
+			// obtenu ce qu'il demandait. Le bloc de refus plus bas liste les demos.
+			demoArgMalformed = true;
+			demoArgOffending = demoArgName;
+		}
+	}
 #if defined(NKENTSEU_PLATFORM_ANDROID)
 	// Assets APK : les shaders sont packages par jenga (androidassets, cf.
 	// RendererSandbox.jenga) RELATIVEMENT a Resources/NKRenderer/Shaders/ ->
@@ -553,6 +587,15 @@ int nkmain(const NkEntryState &state) {
 #endif
 	// Alias : --demo=N -> index N-1 pour les demos numerotees (Demo4 -> 3, Demo5 -> 4).
 	// Coherence avec le nom de fichier plutot que l'index zero-based.
+	//
+	// 🔴 LA TABLE D'ALIAS NE S'APPLIQUE PAS A UN NOM RESOLU, et ce garde-fou n'est
+	// pas theorique : sans lui, `--demo=TexturesPBR` resolvait a l'indice 19, puis
+	// `if (demoIx == 19)`... non — pire, une demo resolue a l'indice 20 serait
+	// retombee sur 19 par l'alias juste en dessous. Le nom aurait alors lance UNE
+	// AUTRE DEMO que celle demandee, en silence : exactement le faux vert que
+	// `--demo=<nom>` existe pour empecher. Un nom designe une entree de la table ;
+	// il n'a rien a faire dans une correspondance ecrite pour des numeros.
+	if (demoArgName.Empty()) {
 	if (demoIx == 4)
 		demoIx = 3;
 	if (demoIx == 5)
@@ -589,6 +632,7 @@ int nkmain(const NkEntryState &state) {
 		demoIx = 19; // DemoTexturesPBR -> kDemos[19]
 	if (demoIx == 21)
 		demoIx = 20; // DemoBancOmbre   -> kDemos[20]
+	} // fin du bloc d'alias : ignore quand la demo a ete designee par son NOM
 	if (demoIx < 0 || (uint32)demoIx >= kDemoCount)
 		demoIx = 0;
 	// ── REFUS QUI PARLE ──────────────────────────────────────────────────
