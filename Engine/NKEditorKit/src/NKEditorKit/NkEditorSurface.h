@@ -257,6 +257,36 @@ namespace nkentseu {
 		//    ecrite trois fois >> en << une seule regle pour trois besoins >>**, ce
 		//    qui n'est pas la meme chose. Une porte, deux intentions nommees, et un
 		//    SEUL rabattement dans la vue -- c'est ce qui etait recopie.
+		// ── ① LE BORD DE LA FENETRE APPARTIENT-IL ENCORE A LA FENETRE ? ──────
+		//
+		// 🔴 RODOLF (07/09) : << quand j'ouvre le color picker [...] j'ai le symbole
+		//    ↔ >>. Ce n'est PAS le selecteur qui pose ce curseur : c'est le
+		//    REDIMENSIONNEMENT DE FENETRE, qui teste une bande de 7 px le long des
+		//    bords **avec un hit-test brut** -- sans demander si quelque chose est
+		//    pose par-dessus.
+		//
+		// ⚠️ LA GEOMETRIE DIT POURQUOI CA SE VOIT MAINTENANT : le selecteur du
+		//    canvas est rabattu dans la vue a `vueW - largeur - 2`, donc son bord
+		//    droit est a 2 px du bord de la fenetre -- ses derniers pixels tombent
+		//    DANS la bande de prehension. Le curseur ment, et un clic la-dedans
+		//    aurait demarre un redimensionnement au lieu de choisir une couleur.
+		//
+		// ⚠️ C'EST LA FAMILLE QU'ON CONNAIT : un hit-test brut qui ignore le routeur
+		//    d'occlusion. Les separateurs de colonnes de NKGui, eux, passent par
+		//    `ButtonBehavior` et sont donc deja corrects -- verifie avant d'ecrire ;
+		//    cette bande-ci etait la derniere a decider seule.
+		//
+		/// Faux si une surface flottante ouverte est sous le pointeur : un bord ne se
+		/// saisit pas a travers un menu, un popover ou un selecteur.
+		inline bool NkBordSaisissable(const NkRect *popups, int32 nPopups,
+									  const NkVec2 &souris) noexcept {
+			for (int32 i = 0; i < nPopups; ++i)
+				if (NkGuiRectContains(popups[i], souris))
+					return false;
+			return true;
+		}
+
+
 		enum class NkCoteAncre : uint8 {
 			Dessous = 0, ///< la regle de NKGui : sous l'ancre, alignee a gauche sur elle
 			AGauche = 1	 ///< a gauche de l'ancre : pour les surfaces larges (popovers)

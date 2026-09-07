@@ -1896,8 +1896,42 @@ namespace nkentseu {
 					Verifier(b, ctx12.popupDepth >= 1, "12d", detail);
 				}
 
+				// ══ Famille 13 — UN BORD DE FENETRE NE SE SAISIT PAS A TRAVERS UNE FLOTTANTE
+				// 🔴 Rodolf : << quand j'ouvre le color picker j'ai le symbole ↔ >>. La bande
+				//    de prehension des bords testait la souris SANS regarder ce qui est pose
+				//    par-dessus. Le selecteur du canvas, rabattu a 2 px du bord droit, tombait
+				//    dedans : curseur mensonger, et un clic y aurait demarre un
+				//    redimensionnement au lieu de choisir une couleur.
+				printf("\nFamille 13 — un bord ne se saisit pas a travers une flottante\n");
+				{
+					const NkRect popup = {800.f, 100.f, 200.f, 300.f}; // colle au bord droit
+					// 13a — SANS flottante, le bord reste saisissable : on ne casse pas le
+					//       redimensionnement en le corrigeant.
+					const bool libre = NkBordSaisissable(nullptr, 0, NkVec2{999.f, 200.f});
+					snprintf(detail, sizeof(detail),
+							 "aucune flottante ouverte : le bord reste saisissable -> %d",
+							 libre ? 1 : 0);
+					Verifier(b, libre, "13a", detail);
+					// 13b — SOUS la flottante, il ne l'est plus.
+					const bool sous = NkBordSaisissable(&popup, 1, NkVec2{999.f, 200.f});
+					snprintf(detail, sizeof(detail),
+							 "le point (999,200) est DANS la flottante (800..1000) : le bord n'est "
+							 "plus saisissable -> %d",
+							 !sous ? 1 : 0);
+					Verifier(b, !sous, "13b", detail);
+					// 13c — LA RELATION, pas deux valeurs : le MEME point change de reponse selon
+					//       qu'une flottante est ouverte ou non -- et un bord AILLEURS reste
+					//       saisissable, la flottante ouverte. La garde n'eteint que le couvert.
+					const bool ailleurs = NkBordSaisissable(&popup, 1, NkVec2{999.f, 600.f});
+					snprintf(detail, sizeof(detail),
+							 "le MEME point (999,200) : saisissable=%d sans flottante, %d avec ; un "
+							 "bord AILLEURS (999,600), la flottante ouverte, reste saisissable=%d",
+							 libre ? 1 : 0, sous ? 1 : 0, ailleurs ? 1 : 0);
+					Verifier(b, libre && !sous && ailleurs, "13c", detail);
+				}
+
 				terrain.Retirer();
-				printf("  -- familles 5 a 12 : %d/%d\n", b.ok, b.total);
+				printf("  -- familles 5 a 13 : %d/%d\n", b.ok, b.total);
 				return b;
 			}
 

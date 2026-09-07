@@ -1814,6 +1814,12 @@ namespace nkentseu {
 				return;
 			const float32 b = mUI.S(7.f);
 			const NkVec2 m = mUI.input.mousePos; // coords CLIENT (NCHITTEST=HTCLIENT)
+			// ① (07/09) LE BORD NE SE SAISIT PAS A TRAVERS UNE FLOTTANTE. Voir
+			//   `NkBordSaisissable` : le selecteur de couleur, rabattu a 2 px du bord
+			//   droit, tombait dans cette bande -- curseur ↔ mensonger, et un clic y
+			//   aurait demarre un redimensionnement au lieu de choisir une couleur.
+			if (!NkBordSaisissable(mUI.popupRects, mUI.popupDepth, m))
+				return;
 			const bool L = m.x <= b, R = m.x >= W - b, T = m.y <= b, Bm = m.y >= H - b;
 			const int32 edge = (L ? 1 : 0) | (R ? 2 : 0) | (T ? 4 : 0) | (Bm ? 8 : 0);
 			if (!edge)

@@ -11866,6 +11866,32 @@ namespace nkuidesign {
 			st.pipetteImagePrete = false;
 			st.pipetteImage.Init(1, 1); // on rend les pixels : l'image pesait la fenetre
 		}
+		// (a bis) ① CE QUE LE CURSEUR DIT DU PROCHAIN CLIC.
+		//
+		// 🔴 RODOLF : en mode pipette il voyait le curseur ↔. La cause de fond est
+		//    ailleurs (la bande de redimensionnement de la fenetre, corrigee dans le
+		//    kit) -- mais il reste a DIRE ce que fait le prochain clic.
+		//
+		// ⚠️ ET LE KIT N'A PAS DE CURSEUR DE PIPETTE : `NkGuiCursor` en compte
+		//    CINQ -- fleche, texte, main, ↔, ↕ -- et l'enumeration vit dans NKGui,
+		//    hors de ce chantier. **Je le dis plutot que de faire semblant.** Deux
+		//    reponses, et aucune n'est un mensonge : la MAIN (le prochain clic agit)
+		//    et surtout un RETICULE peint au pointeur, qui dit le geste exactement --
+		//    dessiner, ca, c'est chez nous.
+		if (st.picker.pipette) {
+			ctx.wantCursor = nkgui::NkGuiCursor::Hand;
+			const nkgui::NkVec2 m = ctx.input.mousePos;
+			const nkgui::NkColor blanc = {255, 255, 255, 235}, noir = {0, 0, 0, 190};
+			// double trait : le reticule reste lisible sur clair COMME sur sombre
+			for (int32 e = 0; e < 2; ++e) {
+				const nkgui::NkColor c = e == 0 ? noir : blanc;
+				const float32 d = e == 0 ? 1.f : 0.f, ep = e == 0 ? 3.f : 1.f;
+				ctx.DL().AddLine({m.x - 11.f - d, m.y}, {m.x - 3.f + d, m.y}, c, ep);
+				ctx.DL().AddLine({m.x + 3.f - d, m.y}, {m.x + 11.f + d, m.y}, c, ep);
+				ctx.DL().AddLine({m.x, m.y - 11.f - d}, {m.x, m.y - 3.f + d}, c, ep);
+				ctx.DL().AddLine({m.x, m.y + 3.f - d}, {m.x, m.y + 11.f + d}, c, ep);
+			}
+		}
 		// (b) LE SURVOL : la couleur SUIT le pointeur, lue dans l'image figee.
 		if (st.picker.pipette && st.pipetteImagePrete
 			&& NkPipetteSurvol(st.pipetteImage, (nkentseu::int32)ctx.input.mousePos.x,
