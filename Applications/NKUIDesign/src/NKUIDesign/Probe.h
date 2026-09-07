@@ -12472,6 +12472,129 @@ namespace nkuidesign {
 				  exactA && exactB && exactC && exactD && distinctes && refuseNeg && bordX && bordY,
 				  det);
 		}
+		// ── 140. LE PRELEVEMENT EST VIVANT, ET IL S'ANNULE (07/09). Rodolf : << lorsqu'on
+		//    prend la pipette le changement n'est pas dynamique. Normalement ca doit
+		//    l'etre, et si on valide le clic gauche ca le reste, si on fait clic droit ca
+		//    l'annule. >>
+		//
+		// ⚠️ TROIS RELATIONS, PAS TROIS VALEURS : le survol SUIT le pixel, le clic
+		//    gauche GARDE, le clic droit et Echap RENDENT EXACTEMENT celle d'avant.
+		//
+		// ⚠️ ET ON SURVOLE UNE FRONTIERE, PAS LE CENTRE D'UN APLAT -- la lecon d'il y
+		//    a une heure : un apercu qui suit << a peu pres >> passerait au centre.
+		{
+			char det[520];
+			static DesignState stP;
+			stP.picker = DesignState::DemandePicker();
+			stP.canvasFill = NkRemplissage();
+			stP.canvasFill.couleur = NkString("#0a555f"); // la couleur d'AVANT
+			// l'image figee, posee a la main comme le mode le fait a l'entree :
+			// deux aplats voisins, frontiere a x = 40.
+			nkgui::NkGuiDrawList dlP;
+			dlP.PushClipRect({0.f, 0.f, 1.0e9f, 1.0e9f}, false);
+			dlP.AddRectFilled({0.f, 0.f, 40.f, 40.f}, nkgui::NkColor{247, 154, 40, 255}, 0.f);
+			dlP.AddRectFilled({40.f, 0.f, 40.f, 40.f}, nkgui::NkColor{25, 118, 210, 255}, 0.f);
+			dlP.PopClipRect();
+			stP.pipetteImage.Init(80, 40);
+			stP.pipetteImage.Effacer(0x000000FFu);
+			(void)stP.pipetteImage.Rasteriser(dlP);
+			stP.pipetteImagePrete = true;
+
+			// LE MODE EST ARME, et il retient la couleur d'avant (ce que fait l'icone).
+			stP.picker.ouvert = true;
+			stP.picker.pipette = true;
+			snprintf(stP.picker.avant, sizeof(stP.picker.avant), "%s",
+					 stP.canvasFill.couleur.Data());
+
+			// ⚠️ LA MEME PORTE QUE LE MODE, pas une copie : `NkPipetteSurvol`.
+			//    Ma premiere ecriture relisait le pixel ici et le formatait a sa
+			//    facon -- l'essai aurait mesure SA PROPRE COPIE, et une mutation du
+			//    survol reel serait restee verte.
+			auto survoler = [&](int32 x, int32 y) -> NkString {
+				char h[12] = {};
+				if (!NkPipetteSurvol(stP.pipetteImage, x, y, h, (uint32)sizeof(h)))
+					return NkString("(hors image)");
+				return NkString(h);
+			};
+			// (a) LE SURVOL SUIT : deux points VOISINS de part et d'autre de la frontiere
+			//     rendent DEUX couleurs differentes, chacune la sienne.
+			const NkString sGauche = survoler(39, 20), sDroite = survoler(40, 20);
+			const bool suit = NkComponentDecl::StrEq(sGauche.Data(), "#f79a28")
+							  && NkComponentDecl::StrEq(sDroite.Data(), "#1976d2");
+
+			// (b) LE CLIC GAUCHE GARDE : la couleur survolee devient celle du modele.
+			stP.canvasFill.couleur = sDroite; // ce que l'apercu a pose
+			stP.picker.pipette = false;
+			const bool garde = NkComponentDecl::StrEq(stP.canvasFill.couleur.Data(), "#1976d2");
+			// ⚠️ LA VALEUR EST RETENUE A L'INSTANT OU ELLE COMPTE. La ligne de
+			//    detail la relisait A LA FIN, apres l'annulation : elle affichait
+			//    << le clic gauche garde #0a555f >> sur une assertion pourtant juste.
+			//    *Un chiffre rend compte de l'instant ou il est lu* -- deuxieme fois.
+			const NkString apresClic = stP.canvasFill.couleur;
+
+			// (c) L'ANNULATION REND EXACTEMENT CELLE D'AVANT -- a l'octet pres, pas
+			//     << une couleur proche >>. On repart d'un survol pose, puis on annule.
+			stP.canvasFill.couleur = sGauche; // l'apercu a pose autre chose
+			stP.picker.annule = true;
+			// ⚠️ PAR LA PORTE DU MODE, pas par une copie : `NkPipetteAnnuler`.
+			//    Ecrite ici a la main, la mutation << l'annulation rend une couleur
+			//    approchee >> restait VERTE -- l'essai annulait a SA facon.
+			NkPipetteAnnuler(stP.picker);
+			stP.canvasFill.couleur = NkString(stP.picker.hex); // ce que l'apercu pose
+			const bool rendue = NkComponentDecl::StrEq(stP.canvasFill.couleur.Data(), "#0a555f");
+
+			// (d) LE CLIC DROIT EST CONSOMME : il ne doit pas laisser passer le menu.
+			//     On lit la source -- le geste lui-meme n'est pas prouvable sans fenetre.
+			bool droitConsomme = false;
+			{
+				const NkString src =
+					NkFile::ReadAllText("Applications/NKUIDesign/src/NKUIDesign/Panels.h");
+				if (!src.Empty()) {
+					const char *cle = "if (ctx.input.mouseClicked[1]) {";
+					const char *d = src.Data();
+					for (; *d; ++d) {
+						const char *x = d, *y = cle;
+						while (*x && *y && *x == *y) {
+							++x;
+							++y;
+						}
+						if (!*y)
+							break;
+					}
+					if (*d) {
+						uint32 vus = 0u;
+						for (uint32 k = 0; k < 260u && d[k]; ++k) {
+							const char *x = d + k, *y = "ctx.input.mouseClicked[1] = false;";
+							while (*x && *y && *x == *y) {
+								++x;
+								++y;
+							}
+							if (!*y) {
+								vus = 1u;
+								break;
+							}
+						}
+						droitConsomme = vus == 1u;
+					}
+				}
+			}
+			snprintf(det, sizeof(det),
+					 "image figee 80x40, frontiere a x=40 ; survol x=39 -> %s, x=40 -> %s "
+					 "(voisins, couleurs DIFFERENTES) -> %d ; clic gauche : le modele garde %s "
+					 "-> %d ; annulation : le modele rend %s (avant : %s) -> %d ; le clic droit "
+					 "est consomme (source lue) -> %d",
+					 sGauche.Data(), sDroite.Data(), suit ? 1 : 0, apresClic.Data(),
+					 garde ? 1 : 0, stP.canvasFill.couleur.Data(), stP.picker.avant,
+					 rendue ? 1 : 0, droitConsomme ? 1 : 0);
+			check("140. LE PRELEVEMENT SUIT LE POINTEUR, LE CLIC GAUCHE LE GARDE, LE CLIC DROIT L'ANNULE : "
+				  "l'apercu lit une image FIGEE a l'entree du mode -- une seule rasterisation, et non "
+				  "soixante par seconde -- et deux points VOISINS de part et d'autre d'une frontiere "
+				  "rendent bien deux couleurs differentes (au centre d'un aplat, un apercu qui suit << a "
+				  "peu pres >> passerait). L'annulation rend EXACTEMENT la couleur d'avant, retenue a "
+				  "l'armement, et le clic droit est CONSOMME : aucun menu contextuel derriere un geste "
+				  "qui voulait dire << laisse tomber >>",
+				  suit && garde && rendue && droitConsomme, det);
+		}
 		// ── 94. ① L'APERCU PENDANT LE TRACE (05/09). Rodolf : « pourquoi quand on dessine un
 		//    graphique on voit juste le rectangle qui s'allonge, et des qu'on relache on voit la
 		//    forme ? » Deux mesures : LA TABLE DE GENRE (une seule, lue par le relachement et par

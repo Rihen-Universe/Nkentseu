@@ -1387,6 +1387,26 @@ namespace nkuidesign {
 			///    un champ d'ETAT, enregistre dans `nkuidesign.cfg` comme le reste du
 			///    decor. Sa couleur seule est persistee (cle `canvas_fond`).
 			NkRemplissage canvasFill;
+			// ── ② L'IMAGE FIGEE DU PRELEVEMENT (07/09) ──────────────────────
+			//
+			// 🔴 RODOLF : *« lorsqu'on prend la pipette le changement n'est pas
+			//    dynamique. Normalement ça doit l'être. »*
+			//
+			// ⚠️ ET IL N'Y A PAS BESOIN DE RASTERISER A CHAQUE IMAGE -- c'était mon
+			//    objection, et elle tombe : **pendant le prélèvement, rien n'est
+			//    édité**. Une seule rastérisation À L'ENTRÉE du mode, et le survol
+			//    n'est plus qu'une LECTURE dans cette image. Le coût est payé une
+			//    fois, pas soixante fois par seconde.
+			//
+			// ⚠️ PREMISSE VERIFIEE, ET DEUX EXCEPTIONS QUI PLAIDENT *POUR* LE GEL :
+			//    la page ne change pas, sauf (a) le caret d'un champ focalisé, qui
+			//    clignote sur `ctx.time`, et (b) **le survol lui-même** -- déplacer
+			//    le pointeur rallume des rangées sous lui. Sur une image vivante, la
+			//    pipette prélèverait donc SON PROPRE effet de survol. Le gel n'est
+			//    pas seulement bon marché : *il prélève la page telle qu'on l'a vue
+			//    en armant, pas telle que le geste l'a modifiée.*
+			nkgui::NkGuiDrawListRaster pipetteImage;
+			bool pipetteImagePrete = false;
 			/// Le décor a changé et n'est pas encore écrit : posé par le sélecteur
 			/// pendant le glisser, consommé au relâcher par le peintre de la toile.
 			bool decorSale = false;
@@ -1698,6 +1718,13 @@ namespace nkuidesign {
 					/// n'est complete qu'a ce moment-la. On retient donc le point.
 					bool pipettePris = false;
 					float32 pipetteX = 0.f, pipetteY = 0.f;
+					/// L'APERCU SUIT LE POINTEUR : la couleur est posee pour etre VUE,
+					/// sans marquer d'edition. Seule la validation ecrit pour de bon.
+					bool apercu = false;
+					/// LE CLIC DROIT (ou Echap) ANNULE : on rend EXACTEMENT la couleur
+					/// d'avant, retenue a l'entree du mode.
+					bool annule = false;
+					char avant[12] = {};
 			};
 			DemandePicker picker;
 			/// ⑤ LA DECLARATION QUE LA HIERARCHIE MONTRE (« Voir le composant », 05/09) :
@@ -11732,6 +11759,34 @@ namespace nkuidesign {
 	//    geste. On repose donc la demande (`pose = false`), et **uniquement dans ce
 	//    mode** : ce n'est pas la resurrection inconditionnelle qu'on vient de
 	//    retirer, c'est un etat nomme qui dit pourquoi.
+	/// LE SURVOL DANS L'IMAGE FIGEE : rend faux si le point n'y est pas.
+	/// ⚠️ FONCTION LIBRE, ET C'EST DELIBERE : le banc doit lire par LA MEME porte
+	///    que le mode. Ecrite deux fois, l'essai aurait mesure sa propre copie --
+	///    la faute payee le 06/09 sur le cycle des metriques.
+	inline bool NkPipetteSurvol(const nkgui::NkGuiDrawListRaster &img, nkentseu::int32 x,
+								nkentseu::int32 y, char *hexOut, nkentseu::uint32 cap) noexcept {
+		if (!hexOut || cap < 8u)
+			return false;
+		const nkentseu::uint32 p = img.Pixel(x, y);
+		if (p == 0u)
+			return false; // hors image : on ne pose rien
+		snprintf(hexOut, (size_t)cap, "#%02x%02x%02x", (unsigned)((p >> 24) & 0xFFu),
+				 (unsigned)((p >> 16) & 0xFFu), (unsigned)((p >> 8) & 0xFFu));
+		return true;
+	}
+
+	/// L'ANNULATION D'UN PRELEVEMENT : rend **exactement** la couleur retenue a
+	/// l'armement, et repose l'apercu pour qu'elle se voie.
+	/// ⚠️ FONCTION LIBRE, MEME RAISON QUE LE SURVOL : ma premiere version de
+	///    l'essai 140 rejouait l'annulation A SA FACON, et la mutation
+	///    << l'annulation rend une couleur approchee >> restait VERTE. *Deuxieme
+	///    fois dans le meme lot qu'un banc mesure sa propre copie.*
+	inline void NkPipetteAnnuler(DesignState::DemandePicker &d) noexcept {
+		snprintf(d.hex, sizeof(d.hex), "%s", d.avant);
+		d.annule = false;
+		d.apercu = true;
+	}
+
 	inline void NkPipettePrendLeClic(nkgui::NkGuiContext &ctx, DesignState &st) {
 		DesignState::DemandePicker &d = st.picker;
 		if (!d.ouvert || !d.pipette)
@@ -11741,8 +11796,22 @@ namespace nkuidesign {
 			// couleur courante. Le selecteur, lui, reste ouvert -- on annule le
 			// prelevement, pas la fenetre.
 			d.pipette = false;
+			d.annule = true; // ③ comme le clic droit : on REND la couleur d'avant
 			d.pose = false;
-			st.DireAuPied("Prélèvement annulé — rien n'a changé.");
+			st.DireAuPied("Prélèvement annulé — la couleur d'avant est rendue.");
+			return;
+		}
+		// ③ LE CLIC DROIT ANNULE, et il est CONSOMME. Sans ca, le menu contextuel
+		//    s'ouvrirait derriere un geste qui voulait dire << laisse tomber >> --
+		//    la famille de defauts qu'on connait : *une fenetre qui apparait sous un
+		//    geste qui voulait dire autre chose.*
+		if (ctx.input.mouseClicked[1]) {
+			ctx.input.mouseClicked[1] = false;
+			ctx.input.mouseDown[1] = false;
+			d.pipette = false;
+			d.annule = true;
+			d.pose = false;
+			st.DireAuPied("Prélèvement annulé — la couleur d'avant est rendue.");
 			return;
 		}
 		if (!ctx.input.mouseClicked[0])
@@ -11782,6 +11851,31 @@ namespace nkuidesign {
 		// Ici la liste principale de l'image est COMPLETE (tous les panneaux ont
 		// peint) et l'overlay n'y est pas : on preleve la page, pas les fenetres
 		// flottantes -- le selecteur couvre justement l'endroit ou l'on clique.
+		// (a) L'ENTREE DANS LE MODE : on GELE l'image, une fois.
+		if (st.picker.pipette && !st.pipetteImagePrete) {
+			st.pipetteImagePrete = true;
+			const nkentseu::uint32 sol = ((nkentseu::uint32)ctx.theme.bgPrimary.r << 24)
+										 | ((nkentseu::uint32)ctx.theme.bgPrimary.g << 16)
+										 | ((nkentseu::uint32)ctx.theme.bgPrimary.b << 8) | 0xFFu;
+			if (st.pipetteImage.Init(ctx.viewW, ctx.viewH)) {
+				st.pipetteImage.Effacer(sol);
+				(void)st.pipetteImage.Rasteriser(ctx.dl);
+			}
+		}
+		if (!st.picker.pipette && st.pipetteImagePrete) {
+			st.pipetteImagePrete = false;
+			st.pipetteImage.Init(1, 1); // on rend les pixels : l'image pesait la fenetre
+		}
+		// (b) LE SURVOL : la couleur SUIT le pointeur, lue dans l'image figee.
+		if (st.picker.pipette && st.pipetteImagePrete
+			&& NkPipetteSurvol(st.pipetteImage, (nkentseu::int32)ctx.input.mousePos.x,
+							   (nkentseu::int32)ctx.input.mousePos.y, st.picker.hex,
+							   (nkentseu::uint32)sizeof(st.picker.hex)))
+			st.picker.apercu = true; // pose pour etre VU, sans marquer d'edition
+		// (c) L'ANNULATION rend EXACTEMENT la couleur d'avant.
+		if (st.picker.annule)
+			NkPipetteAnnuler(st.picker); // on REPOSE l'ancienne, sans marquer non plus
+		// (d) LA VALIDATION : le clic gauche ECRIT, une fois, par la porte.
 		if (st.picker.pipettePris) {
 			st.picker.pipettePris = false;
 			char pris[12] = {};
@@ -12532,6 +12626,15 @@ namespace nkuidesign {
 				//    d'une variable, ecart d'instance, message du pied -- tout ce que
 				//    `ecrireCouleur` fait, elle le fait aussi. Une seconde ecriture aurait
 				//    pose la couleur en oubliant la moitie des consequences.
+				// ② L'APERCU EST POSE POUR ETRE VU, PAS POUR ETRE ENREGISTRE : il
+				//    ecrit la couleur courante et **n'appelle pas** `touche()`. Sinon
+				//    chaque pixel survole marquerait une edition de document (et une
+				//    ecriture de fichier pour le decor) -- soixante par seconde.
+				if (d.apercu) {
+					d.apercu = false;
+					couleurCourante = NkString(d.hex);
+					d.synchro = 0xFFFFFFFFu; // le champ hexa se resynchronise
+				}
 				if (d.change) {
 					d.change = false;
 					ecrireCouleur(d.hex);
@@ -12770,6 +12873,10 @@ namespace nkuidesign {
 						if (svP && ctx.input.mouseClicked[0]) {
 							ctx.input.mouseClicked[0] = false;
 							d.pipette = !d.pipette;
+							// ③ LA COULEUR D'AVANT, RETENUE A L'ENTREE : c'est elle que le
+							//   clic droit et Echap rendront, a l'octet pres.
+							if (d.pipette)
+								snprintf(d.avant, sizeof(d.avant), "%s", couleurCourante.Data());
 							mSt->DireAuPied(d.pipette
 												? "Pipette : cliquez la couleur à prélever — Échap annule."
 												: "Pipette annulée.");
