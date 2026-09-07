@@ -19,6 +19,21 @@
 namespace nkentseu {
 
 	// Scan récursif pour détecter si gl_FragDepth est écrit dans le corps d'un shader
+	// ⚠️ LA MEME REGLE QUE `BuiltinToHLSL`, ET C'EST TOUT L'ENJEU. La REFERENCE
+	// (`output._Depth`) et la DECLARATION (`float _Depth : SV_Depth;`) sont
+	// decidees a deux endroits ; si les deux ne reconnaissent pas `gl_FragDepth`
+	// DE LA MEME FACON, le generateur emet un identifiant que rien ne definit.
+	// `BuiltinToHLSL` minuscule avant de comparer ; ce scan-ci comparait la casse
+	// exacte. Mesure du 07/09 sur ShadowLinear, meme shader le meme jour :
+	//    DX11 -> struct PS_Output { float _Depth : SV_Depth; };
+	//    DX12 -> struct NkOutput { };            <- vide, et `output._Depth` ecrit
+	// dxc et fxc refusent tous deux, pour la meme raison.
+	static bool NkSL_EstFragDepth(const NkString &n) {
+		NkString c(n);
+		c.ToLower();
+		return c == "gl_fragdepth";
+	}
+
 	static bool ScanWritesDepth(NkSLNode *node) {
 		if (!node)
 			return false;
@@ -26,7 +41,7 @@ namespace nkentseu {
 			auto *a = static_cast<NkSLAssignNode *>(node);
 			if (a->lhs && a->lhs->kind == NkSLNodeKind::NK_EXPR_IDENT) {
 				auto *id = static_cast<NkSLIdentNode *>(a->lhs);
-				if (id->name == "gl_FragDepth")
+				if (NkSL_EstFragDepth(id->name))
 					return true;
 			}
 		}

@@ -258,7 +258,16 @@ namespace nkentseu {
 	// Historique : 1 = etat d'avant le 2026-09-07 (implicite, jamais ecrit).
 	//              2 = correspondance des variables integrees rendue insensible a
 	//                  la casse (`gl_FragCoord` -> `input._Position`, DX11/DX12).
-	inline constexpr uint32 kNkSLGeneratorVersion = 2u;
+	//              3, 4 = paliers d'epreuve du 07/09 (voir 5).
+	//              5 = DX12 : `SV_Depth` est DECLARE des qu'un shader ecrit
+	//                  `gl_FragDepth`. La detection exigeait `fn->isEntry`, que la
+	//                  source NkSL ne flague pas toujours -- le generateur emettait
+	//                  `output._Depth` dans une struct VIDE, et dxc comme fxc
+	//                  refusaient (ShadowLinear, atlas d'ombres omni).
+	//                  ⚠️ SANS CE PALIER, LE CORRECTIF EST INVISIBLE : le cache
+	//                  resservait le HLSL d'avant, et j'ai « refute » deux
+	//                  hypotheses justes sur des mesures perimees.
+	inline constexpr uint32 kNkSLGeneratorVersion = 5u;
 
 	class NkShaderCache {
 		public:
