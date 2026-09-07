@@ -938,8 +938,22 @@ namespace nkentseu {
 				if (railB > 0.f)
 					DrawRail(2, {actWL, bodyTop + bodyH - railW, W - actWL - actWR, railW},
 							 false);
+				// ⚠️ QUI RECOIT LE CLIC ? `activeId` avant / apres : si le DockSpace l'a
+				//    pris, un separateur s'est SAISI du geste -- et ce n'est plus une
+				//    question de curseur. On ne l'imprime que sur un clic.
+				const nkgui::NkGuiId actifAvantDock = mUI.activeId;
 				DockSpace(mUI, "##EditorDock", corps);
 			phase("DockSpace (separateurs)");
+				{
+					static const bool traceDock = []() {
+						const char *v = getenv("NK_TRACE_PIPETTE");
+						return v && v[0] && v[0] != '0';
+					}();
+					if (traceDock && mUI.input.mouseClicked[0] && mUI.activeId != actifAvantDock)
+						printf("[pipette] >>> LE CLIC EST PRIS PAR LE DOCKSPACE (separateur) : "
+							   "actif %u -> %u\n",
+							   (unsigned)actifAvantDock, (unsigned)mUI.activeId);
+				}
 				// Seul le panneau CENTRAL masque la barre d'onglets de sa feuille quand il
 				// est seul (il affiche ses propres onglets de fichiers) ; Terminal/Sortie/
 				// sidebars gardent TOUJOURS leurs onglets, même seuls (façon VSCode).
@@ -1874,10 +1888,53 @@ namespace nkentseu {
 			//   `NkBordSaisissable` : le selecteur de couleur, rabattu a 2 px du bord
 			//   droit, tombait dans cette bande -- curseur ↔ mensonger, et un clic y
 			//   aurait demarre un redimensionnement au lieu de choisir une couleur.
-			if (!NkBordSaisissable(mUI.popupRects, mUI.popupDepth, m))
+			// ⚠️ UN SEUL VERDICT, POUR LE CURSEUR **ET** POUR LE CLIC. La garde d'hier
+			//    ne regardait que les flottantes ; celle-ci commence par la question qui
+			//    manquait -- **le pointeur est-il seulement DANS la fenetre ?** Quand il
+			//    est sur une flottante, la coquille masque l'entree a
+			//    (-100000, -100000) et cette fonction s'execute AVANT la restauration :
+			//    la position masquee etait lue comme le coin haut-gauche.
+			const int32 masqueBords =
+				NkBordsSousLePointeur(m, W, H, b, mUI.popupRects, mUI.popupDepth);
+			const bool saisissable = masqueBords != 0;
+			// ══ TRACE (`NK_TRACE_PIPETTE=1`) — POURQUOI LA GARDE MORD OU NE MORD PAS
+			//
+			// 🔴 La trace de Rodolf montre << phase bords de fenetre : fleche -> REDIM >>
+			//    ALORS QUE CETTE GARDE EXISTE. **Une garde qui existe et ne mord pas est
+			//    plus dangereuse qu'une garde absente : on la croit posee.** On ne la
+			//    reecrit donc pas -- on lui fait DIRE ce qu'elle voit : la souris, la
+			//    bande, le nombre de flottantes ouvertes et le rectangle de la premiere.
+			//    Le trou est soit << aucune flottante enregistree a cet instant >>, soit
+			//    << la souris n'est pas DEDANS >> -- et ces deux-la n'ont pas le meme
+			//    remede.
+			{
+				static const bool traceBord = []() {
+					const char *v = getenv("NK_TRACE_PIPETTE");
+					return v && v[0] && v[0] != '0';
+				}();
+				static int32 dernierEtat = -1;
+				const int32 etat = (saisissable ? 1 : 0) | (mUI.popupDepth > 0 ? 2 : 0);
+				if (traceBord && etat != dernierEtat) {
+					dernierEtat = etat;
+					const NkRect &p0 = mUI.popupRects[0];
+					printf("[pipette] BORDS : souris (%.0f, %.0f), bande %.0f px, "
+						   "flottantes=%d, popup0 = (%.0f, %.0f) %.0fx%.0f -> saisissable=%d\n",
+						   (double)m.x, (double)m.y, (double)b, mUI.popupDepth, (double)p0.x,
+						   (double)p0.y, (double)p0.w, (double)p0.h, saisissable ? 1 : 0);
+				}
+				// ⚠️ ET LE DESTINATAIRE DU CLIC, PAS SEULEMENT L'AFFICHAGE : c'est lui qui
+				//    compte. Un curseur laid se supporte ; un clic detourne fait
+				//    redimensionner la fenetre au lieu de choisir une couleur.
+				if (traceBord && saisissable && mUI.input.mouseClicked[0])
+					printf("[pipette] >>> LE CLIC PART EN REDIMENSIONNEMENT DE FENETRE "
+						   "(souris %.0f, %.0f)\n",
+						   (double)m.x, (double)m.y);
+			}
+			if (!saisissable)
 				return;
-			const bool L = m.x <= b, R = m.x >= W - b, T = m.y <= b, Bm = m.y >= H - b;
-			const int32 edge = (L ? 1 : 0) | (R ? 2 : 0) | (T ? 4 : 0) | (Bm ? 8 : 0);
+			// ⚠️ LES BORDS VIENNENT DE LA PORTE, PLUS D'ICI : c'est elle qui a repondu
+			//    << aucun >> pour une position hors fenetre ou sous une flottante.
+			const int32 edge = masqueBords;
 			if (!edge)
 				return;
 
@@ -1891,7 +1948,11 @@ namespace nkentseu {
 
 			// Clic sur un bord -> HAND-OFF NATIF a l'OS (resize fluide + aero-snap), sans
 			// contournement : chaque backend implemente NkWindow::BeginResize nativement.
-			if (mUI.input.mouseClicked[0]) {
+			// ⚠️ ET LE CLIC PASSE PAR LE MEME VERDICT (`NkBordPrendLeClic`) : un bord
+			//    qui ne s'affiche pas ne doit pas se saisir non plus. *Deux
+			//    consequences, une decision* -- c'est ce qui empeche d'en corriger une
+			//    et de croire l'autre faite.
+			if (NkBordPrendLeClic(masqueBords, mUI.input.mouseClicked[0])) {
 				NkWindow::NkResizeEdge e = NkWindow::NkResizeEdge::Left;
 				switch (edge) {
 					case 1:

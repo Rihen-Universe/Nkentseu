@@ -12059,13 +12059,53 @@ namespace nkuidesign {
 		//    survolant sa propre fenetre n'apprend rien et brouille le geste.
 		const bool surLaFenetre =
 			ctx.popupDepth > 0 && nkgui::NkGuiRectContains(ctx.popupRects[0], ctx.input.mousePos);
-		if (st.picker.pipette && st.pipetteImagePrete && !surLaFenetre
-			&& NkPipetteAPuBouger(ctx.input.mousePos.x, ctx.input.mousePos.y, st.picker.armeX,
-								  st.picker.armeY, st.picker.aBouge)
-			&& NkPipetteSurvol(st.pipetteImage, (nkentseu::int32)ctx.input.mousePos.x,
-							   (nkentseu::int32)ctx.input.mousePos.y, st.picker.hex,
-							   (nkentseu::uint32)sizeof(st.picker.hex)))
-			st.picker.apercu = true; // pose pour etre VU, sans marquer d'edition
+		// ══ TRACE DE L'APERCU (`NK_TRACE_PIPETTE=1`) ───────────────────────
+		//
+		// 🔴 Rodolf : le correctif << ne fait pas ce qui est demande, ca retarde juste
+		//    le prelevement >>. **Ma trace ne disait rien de l'apercu** -- ni le survol,
+		//    ni ce qui le retient : elle ne montrait que l'armement et le prelevement,
+		//    et RIEN ENTRE LES DEUX. On ne peut pas trancher sur un silence.
+		//
+		// ⚠️ ELLE DIT LA RAISON QUAND L'APERCU EST RETENU -- seuil de mouvement non
+		//    franchi, pointeur sur la chrome du selecteur, ou point hors de l'image
+		//    figee. *Un << retenu >> sans raison ne vaut pas mieux qu'un silence.*
+		if (st.picker.pipette) {
+			const bool bouge = NkPipetteAPuBouger(ctx.input.mousePos.x, ctx.input.mousePos.y,
+												  st.picker.armeX, st.picker.armeY,
+												  st.picker.aBouge);
+			char lu[12] = {};
+			const bool dansImage =
+				st.pipetteImagePrete
+				&& NkPipetteSurvol(st.pipetteImage, (nkentseu::int32)ctx.input.mousePos.x,
+								   (nkentseu::int32)ctx.input.mousePos.y, lu,
+								   (nkentseu::uint32)sizeof(lu));
+			const bool pose = !surLaFenetre && bouge && dansImage;
+			if (pose) {
+				snprintf(st.picker.hex, sizeof(st.picker.hex), "%s", lu);
+				st.picker.apercu = true; // pose pour etre VU, sans marquer d'edition
+			}
+			if (NkTracePipetteActive()) {
+				// on n'imprime que les CHANGEMENTS : la couleur lue, ou la raison
+				static char dernier[40] = {};
+				char etat[40];
+				snprintf(etat, sizeof(etat), "%s|%s", pose ? lu : "-",
+						 pose			? "pose"
+						 : surLaFenetre ? "sur la fenetre du selecteur"
+						 : !bouge		? "pas encore bouge"
+						 : !st.pipetteImagePrete ? "image non prete"
+												 : "hors de l'image figee");
+				if (!NkComponentDecl::StrEq(etat, dernier)) {
+					snprintf(dernier, sizeof(dernier), "%s", etat);
+					printf("[pipette] APERCU (%.0f, %.0f) : %s\n", (double)ctx.input.mousePos.x,
+						   (double)ctx.input.mousePos.y,
+						   pose		   ? lu
+						   : surLaFenetre ? "RETENU -- sur la fenetre du selecteur"
+						   : !bouge	   ? "RETENU -- pas encore bouge depuis l'armement"
+						   : !st.pipetteImagePrete ? "RETENU -- image non prete"
+												   : "RETENU -- hors de l'image figee");
+				}
+			}
+		}
 		// (c) L'ANNULATION rend EXACTEMENT la couleur d'avant.
 		if (st.picker.annule)
 			NkPipetteAnnuler(st.picker); // on REPOSE l'ancienne, sans marquer non plus

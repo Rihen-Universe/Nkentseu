@@ -286,6 +286,58 @@ namespace nkentseu {
 			return true;
 		}
 
+		// ── QUELS BORDS SONT SOUS LE POINTEUR — ET LA REPONSE EST SOUVENT << AUCUN >>
+		//
+		// 🔴 LA GARDE D'HIER EXISTAIT ET NE MORDAIT PAS. La trace de Rodolf montrait
+		//    << phase bords de fenetre : fleche -> REDIM <-> >> alors que
+		//    `NkBordSaisissable` etait deja en place. *Une garde qu'on croit posee est
+		//    pire qu'une garde absente.* Mesure, en lisant l'ORDRE DES PHASES de la
+		//    coquille -- pas en relisant la garde :
+		//
+		//      1. quand le pointeur est sur une flottante, la coquille MASQUE l'entree
+		//         des panneaux en posant `mousePos = (-100000, -100000)` ;
+		//      2. `HandleEdgeResize` s'execute AVANT que cette entree soit restauree ;
+		//      3. il testait `m.x <= 7` et `m.y <= 7` -- et **-100000 satisfait les
+		//         deux**. La position masquee etait donc lue comme LE COIN HAUT-GAUCHE.
+		//
+		//    ⚠️ LA GARDE NE POUVAIT PAS VOIR CA : (-100000, -100000) n'est dans aucun
+		//       rectangle de flottante. Elle repondait juste a une autre question.
+		//       *Le defaut n'etait pas dans la garde, il etait dans la coordonnee.*
+		//
+		// ⚠️ LA REGLE MANQUANTE EST PLUS SIMPLE QUE LA GARDE : **une position qui
+		//    n'est pas DANS la fenetre n'est sur aucun bord.** Elle vaut pour la
+		//    position masquee comme pour un pointeur sorti de la fenetre, et elle ne
+		//    depend d'aucune notion de flottante.
+		//
+		/// Le masque des bords sous le pointeur : 1 gauche, 2 droite, 4 haut, 8 bas.
+		/// **0** si le pointeur n'est pas dans la fenetre, ou s'il est sur une surface
+		/// flottante. Le curseur ET le clic en decoulent -- une seule porte.
+		inline int32 NkBordsSousLePointeur(const NkVec2 &souris, float32 largeur, float32 hauteur,
+										   float32 bande, const NkRect *popups,
+										   int32 nPopups) noexcept {
+			if (souris.x < 0.f || souris.y < 0.f || souris.x > largeur || souris.y > hauteur)
+				return 0; // hors fenetre -- ou entree MASQUEE : aucun bord
+			if (!NkBordSaisissable(popups, nPopups, souris))
+				return 0; // une flottante est au-dessus : le bord ne lui appartient plus
+			int32 masque = 0;
+			if (souris.x <= bande)
+				masque |= 1;
+			if (souris.x >= largeur - bande)
+				masque |= 2;
+			if (souris.y <= bande)
+				masque |= 4;
+			if (souris.y >= hauteur - bande)
+				masque |= 8;
+			return masque;
+		}
+
+		/// LE CLIC SUIT LE MEME VERDICT QUE LE CURSEUR, et c'est le point : un bord qui
+		/// ne s'affiche pas ne doit pas se saisir non plus. Deux consequences, **une**
+		/// decision -- c'est ce qui empeche d'en corriger une et de croire l'autre faite.
+		inline bool NkBordPrendLeClic(int32 masqueBords, bool clicGauche) noexcept {
+			return masqueBords != 0 && clicGauche;
+		}
+
 
 		enum class NkCoteAncre : uint8 {
 			Dessous = 0, ///< la regle de NKGui : sous l'ancre, alignee a gauche sur elle

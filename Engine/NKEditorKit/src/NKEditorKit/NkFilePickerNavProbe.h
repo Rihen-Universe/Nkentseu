@@ -1930,8 +1930,75 @@ namespace nkentseu {
 					Verifier(b, libre && !sous && ailleurs, "13c", detail);
 				}
 
+				// ══ Famille 14 — UNE SENTINELLE N'EST PAS UNE COORDONNEE ════════════
+				// 🔴 La trace de Rodolf : << phase bords de fenetre : fleche -> REDIM <-> >>
+				//    ALORS QUE la garde des flottantes etait deja posee. Cause, trouvee en
+				//    lisant l'ORDRE DES PHASES : quand le pointeur est sur une flottante, la
+				//    coquille MASQUE l'entree a (-100000, -100000), et `HandleEdgeResize`
+				//    s'execute AVANT la restauration. Il testait `m.x <= 7` et `m.y <= 7` --
+				//    **et -100000 satisfait les deux**. La position masquee etait lue comme le
+				//    COIN HAUT-GAUCHE.
+				//
+				// ⚠️ LE RECENSEMENT DE LA FAMILLE, SUR LE CRITERE EXACT : tester la PROXIMITE
+				//    d'un bord (`x <= b`) et non la CONTENANCE dans un rectangle. Un seul site
+				//    de tout le depot a cette forme -- celui-ci. Tous les autres tests bruts
+				//    sont des CONTENANCES, et une contenance est immunisee : une coordonnee
+				//    tres negative est en dehors de TOUS les rectangles a l'ecran. *Ce n'est
+				//    pas une promesse, c'est ce qui rend le compte verifiable.*
+				printf("\nFamille 14 — une sentinelle de masquage n'est pas une coordonnee\n");
+				{
+					const float32 W14 = 1600.f, H14 = 900.f, b14 = 7.f;
+					// ⚠️ LA FLOTTANTE TOUCHE LE BORD DROIT, ET C'EST LE MONTAGE QUI COMPTE.
+					//    Premiere ecriture : un rectangle qui s'arretait a 8 px du bord ; le
+					//    point d'essai n'etait donc PAS dans la bande de prehension, et
+					//    l'essai rendait 0 pour une raison qui n'etait pas la garde -- la
+					//    mutation << le bord decide seul malgre la flottante >> restait
+					//    VERTE. Le point doit etre DANS LA BANDE **et** DANS LA FLOTTANTE.
+					const NkRect flottante = {1380.f, 200.f, 218.f, 350.f};
+					// 14a — LE DEFAUT : la position MASQUEE ne designe AUCUN bord.
+					const int32 masquee =
+						NkBordsSousLePointeur(NkVec2{-100000.f, -100000.f}, W14, H14, b14, nullptr, 0);
+					snprintf(detail, sizeof(detail),
+							"la position MASQUEE (-100000, -100000) designe %d bord(s) -- elle etait "
+							"lue comme le coin haut-gauche (1|4 = 5)",
+							masquee);
+					Verifier(b, masquee == 0, "14a", detail);
+					// 14b — LE CONTROLE POSITIF : un vrai bord reste saisissable.
+					const int32 vraiBord = NkBordsSousLePointeur(NkVec2{W14 - 2.f, 400.f}, W14, H14, b14,
+														  nullptr, 0);
+					snprintf(detail, sizeof(detail),
+							"un VRAI bord droit (x = W-2) designe le masque %d (bit 2 attendu) -- on "
+							"ne casse pas le redimensionnement en le corrigeant",
+							vraiBord);
+					Verifier(b, (vraiBord & 2) != 0, "14b", detail);
+					// 14c — ET LA FLOTTANTE GARDE TOUJOURS SON BORD.
+					const int32 sousFlottante =
+						NkBordsSousLePointeur(NkVec2{1595.f, 400.f}, W14, H14, b14, &flottante, 1);
+					snprintf(detail, sizeof(detail),
+							"le point (1595, 400) est DANS la bande de prehension (x >= 1593) ET "
+							"dans la flottante (1380..1598) : %d bord(s)",
+							sousFlottante);
+					Verifier(b, sousFlottante == 0, "14c", detail);
+					// 14d — LE DESTINATAIRE DU CLIC, ET C'EST UN TEMOIN A PART. Le curseur peut
+					//       etre corrige sans que le clic le soit : ici les deux decoulent du
+					//       MEME verdict, et c'est ce qu'on mesure -- sur la position masquee,
+					//       **un clic gauche ne saisit aucun bord**.
+					const bool clicMasque = NkBordPrendLeClic(masquee, true);
+					const bool clicVrai = NkBordPrendLeClic(vraiBord, true);
+					const bool clicSousFlottante = NkBordPrendLeClic(sousFlottante, true);
+					const bool sansClic = NkBordPrendLeClic(vraiBord, false);
+					snprintf(detail, sizeof(detail),
+							"LE CLIC : sur la position masquee=%d, sous la flottante=%d, sur un VRAI "
+							"bord=%d, et sans appui=%d -- le curseur et le clic suivent le MEME "
+							"verdict, on n'en corrige pas un en croyant l'autre fait",
+							clicMasque ? 1 : 0, clicSousFlottante ? 1 : 0, clicVrai ? 1 : 0,
+							sansClic ? 1 : 0);
+					Verifier(b, !clicMasque && !clicSousFlottante && clicVrai && !sansClic, "14d",
+							 detail);
+				}
+
 				terrain.Retirer();
-				printf("  -- familles 5 a 13 : %d/%d\n", b.ok, b.total);
+				printf("  -- familles 5 a 14 : %d/%d\n", b.ok, b.total);
 				return b;
 			}
 
