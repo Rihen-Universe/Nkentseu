@@ -1,3 +1,4 @@
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 #pragma once
 // =============================================================================
 // NkShaderConvert.h  — Conversion et résolution de fichiers shaders.
@@ -223,6 +224,42 @@ namespace nkentseu {
 	//       NkShaderCache::Global().Save(key, res);
 	//   }
 	// =============================================================================
+	// 🔴 VERSION DU GENERATEUR — A INCREMENTER DES QU'UN GENERATEUR CHANGE.
+	//
+	// POURQUOI ELLE EXISTE. Le 2026-09-07, un correctif du generateur HLSL a ete
+	// livre, verifie, et **il n'a rien change chez Rodolf** : la console disait
+	// encore `error X3004: undeclared identifier 'gl_fragcoord'`, le defaut
+	// corrige la veille. Le binaire portait bien le correctif (commit ancetre de
+	// HEAD, verifie) ; c'est le CACHE qui servait l'ancien texte. L'entree fautive
+	// datait de la veille a 18h49, et 95 des 99 entrees etaient plus vieilles que
+	// la construction qui portait le correctif.
+	//
+	// LA CAUSE, en une ligne : `ComputeKey` hachait la SOURCE NkSL, l'etage et la
+	// CIBLE — mais jamais le GENERATEUR. Or c'est lui qui transforme l'une en
+	// l'autre. Deux generateurs differents produisaient donc la MEME cle, et le
+	// second lisait le texte du premier.
+	//
+	// ⚠️ CE QUE CA VALAIT SANS ELLE : **tout correctif futur de NkSL etait
+	// invisible chez quiconque possede un cache — c'est-a-dire tout le monde.**
+	// Et ca se retourne contre les MESURES : un banc qui compare un avant et un
+	// apres sans vider le cache mesure deux fois l'avant.
+	//
+	// 🔑 L'OBLIGATION tient en une ligne : **si tu modifies un fichier de
+	// `NKSL/CodeGen/`, incremente ce nombre dans le MEME commit.** Ce n'est pas
+	// une politesse : sans ca ton correctif ne sortira pas de ta machine, et il ne
+	// sortira meme pas de ta propre mesure.
+	//
+	// ⚠️ RISQUE RESIDUEL, NOMME PLUTOT QUE TU : ce nombre est MANUEL. L'oublier
+	// reproduit exactement le defaut ci-dessus. La parade durable serait que la
+	// construction estampille dans la cle une empreinte des sources de
+	// `NKSL/CodeGen/` ; c'est un chantier de build, pas de moteur, et il est
+	// nomme ici plutot que suppose fait.
+	//
+	// Historique : 1 = etat d'avant le 2026-09-07 (implicite, jamais ecrit).
+	//              2 = correspondance des variables integrees rendue insensible a
+	//                  la casse (`gl_FragCoord` -> `input._Position`, DX11/DX12).
+	inline constexpr uint32 kNkSLGeneratorVersion = 2u;
+
 	class NkShaderCache {
 		public:
 			// Répertoire de stockage (créé automatiquement si absent)
@@ -235,6 +272,16 @@ namespace nkentseu {
 			// Calcul de clé FNV-1a 64-bit
 			static uint64 ComputeKey(const NkString &source, NkSLStage stage,
 									 const NkString &targetFormat = "spirv") noexcept;
+
+			// La MEME clé, avec une version de générateur choisie. Elle existe pour
+			// que la propriété « changer de générateur change la clé » soit
+			// VÉRIFIABLE au lieu d'être supposée : `kNkSLGeneratorVersion` est une
+			// constante de compilation, une sonde ne peut pas la faire varier.
+			// ⚠️ Ce n'est pas une porte dérobée pour choisir sa version : le moteur
+			// appelle `ComputeKey`, qui passe la constante. Ceci ne sert qu'à
+			// prouver que le mécanisme mord.
+			static uint64 ComputeKeyPourVersion(const NkString &source, NkSLStage stage,
+												const NkString &targetFormat, uint32 versionGenerateur) noexcept;
 
 			// Charge depuis le cache. result.success == false si absent.
 			NkShaderConvertResult Load(uint64 key) const noexcept;

@@ -1,4 +1,5 @@
 // =============================================================================
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // NkShaderConvert.cpp
 // Implémentation de NkShaderFileResolver, NkShaderConverter, NkShaderCache.
 // =============================================================================
@@ -772,12 +773,33 @@ namespace nkentseu {
 		EnsureDirExists(dir.CStr()); // pas de std::string temporaire : cf. EnsureDirExists
 	}
 
-	uint64 NkShaderCache::ComputeKey(const NkString &source, NkSLStage stage, const NkString &targetFormat) noexcept {
+	// 🔴 LA VERSION DU GENERATEUR ENTRE DANS LA CLE. Sans elle, la cle decrivait
+	// l'ENTREE (source, etage, cible) mais jamais le TRANSFORMATEUR : deux
+	// generateurs differents rendaient la MEME cle, et le second lisait le texte
+	// produit par le premier. Mesure du 2026-09-07 : un correctif livre, verifie
+	// et bien present dans le binaire restait invisible chez l'utilisateur, parce
+	// que 95 des 99 entrees du cache etaient plus vieilles que lui.
+	// Voir `kNkSLGeneratorVersion` (NkShaderConvert.h) pour l'obligation qui
+	// l'accompagne, et pour ce qu'elle ne couvre pas.
+	//
+	// ⚠️ UNE SEULE ARITHMETIQUE, DEUX APPELANTS. `ComputeKey` n'est que cette
+	// fonction-ci avec la constante. Les ecrire deux fois — ce que j'ai commence
+	// par faire — aurait laisse la sonde prouver une propriete que le moteur
+	// n'aurait plus eue au premier changement de hachage : le juge et le juge
+	// venus du meme endroit, mais divergents.
+	uint64 NkShaderCache::ComputeKeyPourVersion(const NkString &source, NkSLStage stage,
+												const NkString &targetFormat,
+												uint32 versionGenerateur) noexcept {
 		uint64 h = 14695981039346656037ULL;
 		h = Fnv1a64(source.CStr(), strlen(source.CStr()), h);
 		h = Fnv1a64(&stage, sizeof(stage), h);
 		h = Fnv1a64(targetFormat.CStr(), strlen(targetFormat.CStr()), h);
+		h = Fnv1a64(&versionGenerateur, sizeof(versionGenerateur), h);
 		return h;
+	}
+
+	uint64 NkShaderCache::ComputeKey(const NkString &source, NkSLStage stage, const NkString &targetFormat) noexcept {
+		return ComputeKeyPourVersion(source, stage, targetFormat, kNkSLGeneratorVersion);
 	}
 
 	// ⚠ Zéro `std::string` ici — même raison qu'à `EnsureDirExists` ci-dessus, et
