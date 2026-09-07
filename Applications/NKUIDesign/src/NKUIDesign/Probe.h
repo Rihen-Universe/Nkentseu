@@ -12595,6 +12595,88 @@ namespace nkuidesign {
 				  "qui voulait dire << laisse tomber >>",
 				  suit && garde && rendue && droitConsomme, det);
 		}
+		// ── 141. ARMER ET PRELEVER SONT DEUX APPUIS DISTINCTS (07/09). Rodolf : << le
+		//    clic sur la pipette valide directement ce clic comme le point a tirer la
+		//    couleur >>. Un seul appui servait deux fois : il armait, puis etait relu
+		//    comme << preleve ici >>. L'outil se terminait avant d'avoir commence.
+		//
+		// ⚠️ LA REGLE N'EST PAS << on ignore la premiere image >> : un compteur
+		//    d'images marcherait aujourd'hui et casserait au premier changement de
+		//    cadence. Ce qu'on veut dire est **UN AUTRE APPUI** -- une condition sur le
+		//    GESTE. Le mode nait en attente de relachement.
+		{
+			char det[420];
+			// La suite d'etats d'un vrai geste, image par image : on ARME pendant que le
+			// bouton est ENFONCE (c'est le clic sur l'icone), puis on relache, puis on
+			// appuie ailleurs. `attendRelache` est pose par l'armement.
+			bool attend = true; // <- ce que l'armement pose
+			// (1) la MEME image que l'armement : bouton enfonce, appui neuf -> RIEN
+			const bool p1 = NkPipetteAccepteAppui(true, true, attend);
+			// (2) le bouton reste enfonce quelques images : toujours rien
+			const bool p2 = NkPipetteAccepteAppui(true, false, attend);
+			const bool p3 = NkPipetteAccepteAppui(true, false, attend);
+			// (3) il remonte : l'attente tombe, mais ce n'est pas un appui -> rien
+			const bool p4 = NkPipetteAccepteAppui(false, false, attend);
+			const bool attenteTombee = !attend;
+			// (4) LE CONTROLE POSITIF : un SECOND appui, lui, preleve.
+			const bool p5 = NkPipetteAccepteAppui(true, true, attend);
+			// (5) et le survol seul, sans appui, ne preleve jamais
+			const bool p6 = NkPipetteAccepteAppui(false, false, attend);
+
+			// ⚠️ ET LE CABLAGE ? Les etats ci-dessus sont POSES A LA MAIN : ils
+			//    prouvent la regle, pas qu'on s'en serve. Mesure : les mutations
+			//    << l'armement ne pose plus l'attente >> et << le prelevement ne repose
+			//    plus le curseur >> restaient VERTES. On lit donc les sources -- meme
+			//    technique que les essais 132, 135 et 136.
+			uint32 nArme = 0u, nCurseur = 0u, nAccepte = 0u;
+			{
+				const NkString src =
+					NkFile::ReadAllText("Applications/NKUIDesign/src/NKUIDesign/Panels.h");
+				if (!src.Empty()) {
+					auto compte = [&](const char *aig) -> uint32 {
+						uint32 n = 0u;
+						for (const char *d = src.Data(); *d; ++d) {
+							const char *x = d, *y = aig;
+							while (*x && *y && *x == *y) {
+								++x;
+								++y;
+							}
+							if (!*y)
+								++n;
+						}
+						return n;
+					};
+					nArme = compte("d.attendRelache = true;");	  // l'armement pose l'attente
+					nAccepte = compte("NkPipetteAccepteAppui(");  // declaration + un seul appelant
+					// le curseur est repose apres CHACUN des deux popovers. On compte des
+					// APPELS d'une fonction, pas un motif de source : un commentaire peut
+					// faire mordre un motif, il ne peut pas appeler une fonction.
+					nCurseur = compte("NkPipetteCurseur(ctx, st.picker)");
+				}
+			}
+			// un site d'armement ; la regle DECLAREE puis APPELEE (2) ; le curseur repose
+			// apres CHACUN des deux popovers (2)
+			const bool cable = nArme == 1u && nAccepte == 2u && nCurseur == 2u;
+			const bool unSeulAppuiNePrelevePas = !p1 && !p2 && !p3 && !p4;
+			const bool deuxAppuisPrelevent = p5;
+			const bool survolNePrelevePas = !p6;
+			snprintf(det, sizeof(det),
+					 "l'appui QUI ARME : %d ; maintenu : %d %d ; au relachement : %d "
+					 "(attente tombee=%d) ; SECOND appui -- le controle positif -- : %d ; "
+					 "survol seul : %d ; le CABLAGE (sources) : %u armement, %u sites de la "
+					 "regle, %u repose(s) du curseur apres le popover -> %d",
+					 p1 ? 1 : 0, p2 ? 1 : 0, p3 ? 1 : 0, p4 ? 1 : 0, attenteTombee ? 1 : 0,
+					 p5 ? 1 : 0, p6 ? 1 : 0, nArme, nAccepte, nCurseur, cable ? 1 : 0);
+			check("141. ARMER ET PRELEVER SONT DEUX APPUIS DISTINCTS : le mode nait << en attente de "
+				  "relachement >> et n'ecoute les appuis qu'apres avoir VU le bouton remonter -- le "
+				  "meme appui ne peut donc pas etre consomme deux fois. Ce n'est pas un compteur "
+				  "d'images (qui marcherait aujourd'hui et casserait au premier changement de "
+				  "cadence) : c'est une condition sur le GESTE. Le controle positif est dans l'essai "
+				  "-- un second appui, lui, preleve bien",
+				  unSeulAppuiNePrelevePas && attenteTombee && deuxAppuisPrelevent
+					  && survolNePrelevePas && cable,
+				  det);
+		}
 		// ── 94. ① L'APERCU PENDANT LE TRACE (05/09). Rodolf : « pourquoi quand on dessine un
 		//    graphique on voit juste le rectangle qui s'allonge, et des qu'on relache on voit la
 		//    forme ? » Deux mesures : LA TABLE DE GENRE (une seule, lue par le relachement et par

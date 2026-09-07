@@ -1711,6 +1711,10 @@ namespace nkuidesign {
 					/// LE PRELEVEMENT EST ARME : le prochain clic prend la couleur sous
 					/// le pointeur. Echap l'annule sans rien changer.
 					bool pipette = false;
+					/// ① LE MODE NAIT EN ATTENTE DE RELACHEMENT. **Le meme appui ne peut
+					/// pas etre consomme deux fois** : celui qui ARME ne peut pas etre relu
+					/// comme celui qui PRELEVE.
+					bool attendRelache = false;
 					/// UN POINT A ETE PRIS et attend d'etre lu. ⚠️ DEUX MOMENTS, UN SEUL
 					/// MECANISME : le clic doit etre INTERCEPTE **avant** les panneaux
 					/// (sinon la toile le recoit et deplace la selection), mais le pixel
@@ -11775,6 +11779,30 @@ namespace nkuidesign {
 		return true;
 	}
 
+	// ── ① LE MEME APPUI NE SE CONSOMME PAS DEUX FOIS ──────────────────
+	//
+	// 🔴 RODOLF (07/09) : *<< le clic sur la pipette valide directement ce clic
+	//    comme le point a tirer la couleur >>*. Un seul appui servait deux fois :
+	//    il armait le mode, puis etait relu comme << preleve ici >>. **L'outil se
+	//    terminait avant d'avoir commence.**
+	//
+	// ⚠️ ET CE N'EST PAS << on ignore la premiere image >>. Un compteur d'images
+	//    marcherait aujourd'hui et casserait au premier changement de cadence : ce
+	//    qu'on veut dire n'est pas << plus tard >>, c'est **UN AUTRE APPUI**. Le mode
+	//    nait donc en attente de relachement et n'ecoute les appuis qu'apres avoir
+	//    VU le bouton remonter -- une condition sur le GESTE, pas sur le temps.
+	//
+	/// Cet appui doit-il prelever ? Consomme l'attente quand le bouton remonte.
+	inline bool NkPipetteAccepteAppui(bool boutonEnfonce, bool appuiNeuf,
+									  bool &attendRelache) noexcept {
+		if (attendRelache) {
+			if (!boutonEnfonce)
+				attendRelache = false; // le bouton est remonte : l'appui suivant comptera
+			return false;
+		}
+		return appuiNeuf;
+	}
+
 	/// L'ANNULATION D'UN PRELEVEMENT : rend **exactement** la couleur retenue a
 	/// l'armement, et repose l'apercu pour qu'elle se voie.
 	/// ⚠️ FONCTION LIBRE, MEME RAISON QUE LE SURVOL : ma premiere version de
@@ -11785,6 +11813,16 @@ namespace nkuidesign {
 		snprintf(d.hex, sizeof(d.hex), "%s", d.avant);
 		d.annule = false;
 		d.apercu = true;
+	}
+
+	/// ① LE CURSEUR DU PRELEVEMENT, REPOSE APRES TOUT LE MONDE.
+	/// ⚠️ UNE FONCTION, PAS DEUX LIGNES RECOPIEES : l'essai 141 compte ses APPELS.
+	///    Ma premiere version cherchait le motif de l'affectation dans la source --
+	///    et un commentaire suffisait a le faire mordre ou a le faire manquer.
+	inline void NkPipetteCurseur(nkgui::NkGuiContext &ctx,
+								 const DesignState::DemandePicker &d) noexcept {
+		if (d.pipette)
+			ctx.wantCursor = nkgui::NkGuiCursor::Hand;
 	}
 
 	inline void NkPipettePrendLeClic(nkgui::NkGuiContext &ctx, DesignState &st) {
@@ -11814,7 +11852,8 @@ namespace nkuidesign {
 			st.DireAuPied("Prélèvement annulé — la couleur d'avant est rendue.");
 			return;
 		}
-		if (!ctx.input.mouseClicked[0])
+		if (!NkPipetteAccepteAppui(ctx.input.mouseDown[0], ctx.input.mouseClicked[0],
+								   d.attendRelache))
 			return;
 		d.pipettePris = true;
 		d.pipetteX = ctx.input.mousePos.x;
@@ -11866,7 +11905,23 @@ namespace nkuidesign {
 			st.pipetteImagePrete = false;
 			st.pipetteImage.Init(1, 1); // on rend les pixels : l'image pesait la fenetre
 		}
-		// (a bis) ① CE QUE LE CURSEUR DIT DU PROCHAIN CLIC.
+		// (a bis) ① CE QUE LE CURSEUR DIT DU PROCHAIN CLIC -- ET IL LE DIT EN DERNIER.
+		//
+		// 🔴 RODOLF, deuxieme passage : << il y a toujours le symbole ↔ >>. Mon
+		//    correctif precedent (la bande des bords de fenetre) etait juste et
+		//    NE FERMAIT PAS SON CAS.
+		//
+		// ⚠️ RECENSEMENT (23 sites posent un curseur ; j'en avais corrige UN) : celui
+		//    qui gagne ici est la RANGEE DE NOMBRES du popover -- `ChampNombre` pose
+		//    ↔ des qu'on la survole, ce qui est VRAI puisqu'elle se tire. Mais elle
+		//    est dessinee APRES ce bloc : elle ecrasait le curseur du prelevement.
+		//    *Quand deux endroits ecrivent la meme variable, c'est le DERNIER qui
+		//    parle* -- la lecon du fond de toile, transposee au curseur.
+		//
+		// ⚠️ DONC ON PARLE APRES TOUT LE MONDE. Le reticule est peint ici (avant la
+		//    fenetre, pour ne pas la barrer) et le CURSEUR est repose a la toute fin,
+		//    quand plus personne n'ecrira. Pendant un prelevement, aucune autre
+		//    intention n'a de sens : le prochain clic preleve, et rien d'autre.
 		//
 		// 🔴 RODOLF : en mode pipette il voyait le curseur ↔. La cause de fond est
 		//    ailleurs (la bande de redimensionnement de la fenetre, corrigee dans le
@@ -11934,10 +11989,12 @@ namespace nkuidesign {
 		}
 		if (st.picker.genre == 1u && st.popoverRemplissage) {
 			st.popoverRemplissage(ctx, st.popoverUser); // le popover complet (types, rampe, liste)
+			NkPipetteCurseur(ctx, st.picker); // ① on parle EN DERNIER
 			return;
 		}
 		if (st.picker.genre == 2u && st.popoverBordure) {
 			st.popoverBordure(ctx, st.popoverUser); // hexa, epaisseur, position, cotes, jointure, extremites
+			NkPipetteCurseur(ctx, st.picker); // ① idem : apres le dessin de la fenetre
 			return;
 		}
 		float32 col[4] = {0.5f, 0.5f, 0.5f, 1.f};
@@ -12901,8 +12958,11 @@ namespace nkuidesign {
 							d.pipette = !d.pipette;
 							// ③ LA COULEUR D'AVANT, RETENUE A L'ENTREE : c'est elle que le
 							//   clic droit et Echap rendront, a l'octet pres.
-							if (d.pipette)
+							if (d.pipette) {
 								snprintf(d.avant, sizeof(d.avant), "%s", couleurCourante.Data());
+								// ① CET appui-ci a arme : il ne prelevera pas.
+								d.attendRelache = true;
+							}
 							mSt->DireAuPied(d.pipette
 												? "Pipette : cliquez la couleur à prélever — Échap annule."
 												: "Pipette annulée.");
