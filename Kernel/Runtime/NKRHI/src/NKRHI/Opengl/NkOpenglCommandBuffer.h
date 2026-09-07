@@ -551,6 +551,7 @@ namespace nkentseu {
 			void GL_BindDescriptorSet(NkDescSetHandle set, uint32 idx, const NkVector<uint32> &dynOff);
 			void GL_BindVertexBuffer(uint32 binding, NkBufferHandle buf, uint64 off);
 			void GL_BindIndexBuffer(NkBufferHandle buf, NkIndexFormat fmt, uint64 off);
+			void GL_RebindVAOState();
 			void GL_BindForIndirect(NkBufferHandle buf);
 			void GL_CopyBuffer(NkBufferHandle src, NkBufferHandle dst, const NkBufferCopyRegion &r);
 			void GL_CopyBufferToTexture(NkBufferHandle src, NkTextureHandle dst, const NkBufferTextureCopyRegion &r);
@@ -580,6 +581,44 @@ namespace nkentseu {
 			NkIndexFormat mIndexFormat = NkIndexFormat::NK_UINT16;
 			uint64 mIndexOffset = 0;
 			bool mIsCompute = false;
+
+			// -- Ce que le VAO emporte, et qu'il faut lui rendre ---------------------
+			// En OpenGL, le liage du tampon d'indices ET des tampons de sommets est un
+			// etat DU VAO, pas un etat global (NkOpenglDevice.cpp:1343 l'ecrit deja
+			// pour les indices). Or chaque pipeline porte son propre VAO -- le format
+			// des sommets y est grave a la creation -- et GL_BindGraphicsPipeline fait
+			// glBindVertexArray(). Donc tout changement de pipeline APRES un
+			// BindIndexBuffer basculait vers un VAO ou plus rien n'etait lie.
+			// glDrawElements recevait alors ELEMENT_ARRAY_BUFFER = 0 avec une adresse
+			// nulle, la traitait comme un POINTEUR CLIENT -- comportement specifie, pas
+			// un caprice de pilote -- et le pilote deferencait zero : 0xC0000005.
+			//
+			// Mesure du 2026-09-08, trace du rejeu (NK_GL_TRACE=1), le meme tir :
+			//     sain    tir=1 idxCnt=6 vao=24 ibo=2 iboOctets=144
+			//     plante  tir=1 idxCnt=6 vao=21 ibo=0 iboOctets=0
+			//
+			// Seule la transparence le declenchait : partout ailleurs l'ordre est
+			// pipeline-puis-maillage et le defaut dort. FlushTransparent est le seul
+			// chemin qui lie le maillage PUIS PBR_BlendBack PUIS PBR_Blend -- d'ou le
+			// seuil exact dc.alpha < 0.999f de NkRender3D::Submit. Repro minimal : un
+			// cube sans materiau ni ombre, seul dans la scene, sain a 0.9995 et tombe
+			// a 0.998. OpenGL etant le dorsal par defaut de NK3DModeler, tout objet
+			// semi-opaque -- verre, fondu, apercu -- faisait tomber l'outil.
+			//
+			// On memorise donc ce que l'appelant a demande, pour le lui rendre apres
+			// chaque bascule de VAO. Ce n'est PAS une compensation : c'est l'etat qu'il
+			// a explicitement demande, repose a l'endroit ou OpenGL le range.
+			static constexpr uint32 kMaxVertexBindings = 16;
+
+			struct VertexBindingState {
+					NkBufferHandle buf;
+					uint64 off = 0;
+					bool set = false;
+			};
+
+			VertexBindingState mVertexBindings[kMaxVertexBindings];
+			NkBufferHandle mIndexBuffer;
+			bool mIndexBufferSet = false;
 	};
 
 } // namespace nkentseu
