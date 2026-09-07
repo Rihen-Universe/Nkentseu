@@ -16883,28 +16883,38 @@ namespace nkuidesign {
 				auto &F = costume::Fontes();
 				auto &dl = ctx.DL();
 				{
-					// Opacité : LE MODÈLE NE LA PORTE PAS — grisée, avec la raison.
+					// ⑤ (07/09) L'OPACITÉ DU NŒUD -- LE MODÈLE LA PORTE MAINTENANT.
+					//    Elle était affichée EN DUR à « 100 », grisée, avec sa raison :
+					//    *« le modèle ne la porte pas encore »*. Cétait le seul vrai
+					//    chantier de modèle des huit sections (inventaire Q118).
+					// ⚠️ CE QU'ELLE EST, ET CE QU'ELLE N'EST PAS : elle se transmet aux
+					//    descendants, mais le peintre multiplie l'alpha de CHAQUE
+					//    élément -- ce n'est pas un calque composité une seule fois. Deux
+					//    enfants qui se recouvrent se voient donc l'un l'autre à travers.
+					//    La rangée le dit au survol plutôt que de laisser découvrir
+					//    l'écart avec Lunacy sur un vrai document.
 					{
 						const NkRect r = ctx.NextItemRect(-1.f, 26.f);
 						const float32 x0 = r.x + 12.f;
-						ctx.BeginDisabled();
 						costume::Texte(dl, F.px10, x0,
 									   costume::CentrerBande(F.px10, r.y), "Opacité",
 									   ctx.theme.textMuted);
 						const NkRect ro = {x0 + ColChampsCalc(r.w - 24.f), costume::BandeY(r.y), 48.f, costume::HControle};
-						dl.AddRectFilled(ro, CouleurInput(), 4.f);
-						dl.AddRect(ro, ctx.theme.border, 1.f, 4.f);
-						costume::Texte(dl, F.px11, ro.x + costume::PadChamp,
-									   costume::CentrerY(F.px11, ro.y, 20.f), "100",
-									   ctx.theme.textMuted);
+						// MULTI-SÉLECTION COMPRISE, comme la rotation et l'arrondi : « — »
+						// si les opacités diffèrent, et l'édition part sur toutes.
+						ChampNombreMulti(
+							ctx, "insp.calque.opacite", ro, 1.f, 0.f, 100.f,
+							[](const NkUINode &q) { return q.opacite; },
+							[](NkUINode &q, float32 v) { q.opacite = v; });
 						costume::Texte(dl, F.px9, ro.x + ro.w + 4.f,
 									   costume::CentrerBande(F.px9, r.y), "%",
 									   ctx.theme.textMuted);
-						ctx.EndDisabled();
-						if (ctx.popupDepth == 0 && ctx.input.mouseClicked[0]
-							&& NkGuiRectContains(ro, ctx.input.mousePos))
-							mSt->status = NkString("Opacité : le modèle ne la porte pas encore "
-												   "(vocabulaire d'apparence, chantier nommé).");
+						if (ctx.popupDepth == 0 && NkGuiRectContains(r, ctx.input.mousePos))
+							mSt->status = NkString(
+								"Opacité : s'applique au nœud ET à ses enfants, élément par "
+								"élément -- deux enfants qui se recouvrent se voient l'un "
+								"l'autre à travers (un vrai calque se composite une seule "
+								"fois : chantier de rendu).");
 					}
 				}
 				// Fusion : Normal -- 18 modes nommés (Darken, Multiply, Plus Darker, Color

@@ -1222,6 +1222,18 @@ namespace nkuidesign {
 
 			/// Les noms de metrique que ce noeud designe. Ils ne portent aucun nombre :
 			/// ils se resolvent dans la table du DOCUMENT (`NkUIDocument::MetricSource`).
+			/// ⑤ (07/09) L'OPACITÉ DU NŒUD (Lunacy « LAYER »), clé `opacite`, 0..100.
+			/// Le panneau CALQUE l'affichait en dur à « 100 », grisée, avec la raison :
+			/// *« le modèle ne la porte pas encore »*. Il la porte.
+			/// ⚠️ ADDITIVE : rien au fichier tant qu'elle vaut 100, donc un document
+			///    d'avant se réenregistre octet pour octet.
+			/// ⚠️ ELLE SE TRANSMET AUX DESCENDANTS, mais ce n'est PAS un calque
+			///    composité une seule fois : le peintre multiplie l'alpha de chaque
+			///    élément. Deux enfants qui se recouvrent se voient donc l'un l'autre à
+			///    travers, là où Lunacy composite le groupe puis l'atténue. Le vrai
+			///    compositing demande une cible hors écran -- c'est un chantier de
+			///    rendu, nommé ici pour qu'on ne le découvre pas à l'usage.
+			float32 opacite = 100.f;
 			NkString spacingName;
 			NkString padName;
 
@@ -3050,6 +3062,13 @@ namespace nkuidesign {
 					WriteNum(out, n.rotation);
 					out.Append('\n');
 				}
+				// ⑤ L'OPACITÉ DU NŒUD : même discipline additive que la rotation et les
+				//    miroirs -- rien tant qu'elle vaut son défaut.
+				if (n.opacite != 100.f) {
+					out.Append("  opacite = ");
+					WriteNum(out, n.opacite);
+					out.Append('\n');
+				}
 				if (n.miroirH)
 					out.Append("  miroir_h = 1\n");
 				if (n.miroirV)
@@ -3948,6 +3967,8 @@ namespace nkuidesign {
 							n.radius = ParseNum(val);
 						else if (StrEq(key, "rotation"))
 							n.rotation = ParseNum(val);
+						else if (StrEq(key, "opacite"))
+							n.opacite = ParseNum(val);
 						else if (StrEq(key, "miroir_h"))
 							n.miroirH = (val[0] == '1');
 						else if (StrEq(key, "miroir_v"))

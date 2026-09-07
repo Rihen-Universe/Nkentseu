@@ -11019,6 +11019,122 @@ namespace nkuidesign {
 				  "champ veut dire ces trois choses, et aucune ne prouve les deux autres",
 				  cycleOk && solveurObeit && nomRelu && stable118, det);
 		}
+		// -- 128. (5) L'OPACITE DU NŒUD : le champ, la cle, le peintre --------
+		//
+		// LE SEUL VRAI CHANTIER DE MODELE des huit sections (inventaire Q118) : la
+		//    rangee CALQUE affichait << 100 >> EN DUR, grisee, avec sa raison --
+		//    << le modele ne la porte pas encore >>.
+		//
+		// TROIS MOITIES, et aucune ne prouve les autres : le CHAMP existe, la CLE
+		//    fait l'aller-retour, et le PEINTRE l'honore -- y compris SUR UN
+		//    DESCENDANT, ce qui est la seule facon de verifier que le facteur
+		//    descend par la recursion au lieu d'etre lu sur chaque noeud.
+		{
+			char det[560];
+			auto alphaDuFond = [](NkRecordingPaint &rec, uint32 rgbSansAlpha) -> int32 {
+				for (uint32 i = 0; i < (uint32)rec.cmds.Size(); ++i) {
+					const NkPaintCmd &c = rec.cmds[i];
+					if (c.op != NkPaintOp::FillColor)
+						continue;
+					if ((c.rgba >> 8) != rgbSansAlpha)
+						continue;
+					return (int32)(c.rgba & 0xFFu);
+				}
+				return -1;
+			};
+			NkUIDocument d128;
+			d128.NewDocument("Toile", NkAuthor::Humain);
+			d128.SetMetric("espacement", 0.f);
+			d128.SetMetric("marge", 0.f);
+			d128.nodes[0].layout.kind = NkLayoutKind::Free;
+			const int32 grp = d128.AddChild(0, "", NkAuthor::Humain);
+			{
+				NkUINode &g = d128.nodes[(uint32)grp];
+				g.shape = NkString("frame");
+				g.layout.kind = NkLayoutKind::Free;
+				g.width.mode = NkSizeMode::Fixed;
+				g.width.value = 300.f;
+				g.height.mode = NkSizeMode::Fixed;
+				g.height.value = 200.f;
+			}
+			const int32 enf = d128.AddChild(grp, "", NkAuthor::Humain);
+			{
+				NkUINode &q = d128.nodes[(uint32)enf];
+				q.shape = NkString("rect");
+				NkRemplissage f;
+				f.couleur = NkString("#ff0000"); // opacite de remplissage : 100
+				q.fills.PushBack(f);
+				q.width.mode = NkSizeMode::Fixed;
+				q.width.value = 40.f;
+				q.height.mode = NkSizeMode::Fixed;
+				q.height.value = 20.f;
+			}
+			const NkPaintRect surf128 = {0.f, 0.f, 800.f, 600.f};
+
+			// (a) LE DEFAUT NE CHANGE RIEN. Un document a 100 % doit peindre
+			//     exactement ce qu'il peignait -- sinon le champ neuf serait une
+			//     regression deguisee en fonctionnalite.
+			NkRecordingPaint rA128;
+			RenderDocument(rA128, d128, surf128);
+			const int32 aPlein = alphaDuFond(rA128, 0xff0000u);
+
+			// (b) L'OPACITE DU NŒUD LUI-MEME.
+			d128.nodes[(uint32)enf].opacite = 50.f;
+			NkRecordingPaint rB128;
+			RenderDocument(rB128, d128, surf128);
+			const int32 aDemi = alphaDuFond(rB128, 0xff0000u);
+
+			// (c) CELLE DU PARENT DESCEND SUR L'ENFANT. C'est l'essai qui compte :
+			//     il echoue si le facteur est lu sur chaque noeud au lieu de
+			//     descendre par la recursion.
+			d128.nodes[(uint32)enf].opacite = 100.f;
+			d128.nodes[(uint32)grp].opacite = 50.f;
+			NkRecordingPaint rC128;
+			RenderDocument(rC128, d128, surf128);
+			const int32 aHerite = alphaDuFond(rC128, 0xff0000u);
+
+			// (d) LES DEUX SE MULTIPLIENT (50 % dans 50 % = 25 %).
+			d128.nodes[(uint32)enf].opacite = 50.f;
+			NkRecordingPaint rD128;
+			RenderDocument(rD128, d128, surf128);
+			const int32 aQuart = alphaDuFond(rD128, 0xff0000u);
+
+			// (e) LA CLE FAIT L'ALLER-RETOUR, et elle est ADDITIVE : rien au
+			//     fichier tant que l'opacite vaut 100.
+			NkUIDocument d128b;
+			d128b.NewDocument("Toile", NkAuthor::Humain);
+			const int32 s1 = d128b.AddChild(0, "", NkAuthor::Humain);
+			d128b.nodes[(uint32)s1].shape = NkString("rect");
+			NkString avantCle;
+			d128b.Save(avantCle);
+			const bool rienParDefaut128 = strstr(avantCle.Data(), "opacite") == nullptr;
+			d128b.nodes[(uint32)s1].opacite = 40.f;
+			NkString avecCle;
+			d128b.Save(avecCle);
+			NkUIDocument relu128;
+			const bool lu128 = relu128.Load(avecCle.Data());
+			const bool valeurRelue = lu128 && relu128.IsValidIndex(s1)
+									 && relu128.nodes[(uint32)s1].opacite == 40.f;
+			NkString reecrit128;
+			if (lu128)
+				relu128.Save(reecrit128);
+			const bool stable128 = lu128
+								   && NkComponentDecl::StrEq(avecCle.Data(), reecrit128.Data());
+
+			const bool ok128 = aPlein == 255 && aDemi == 128 && aHerite == 128 && aQuart == 64
+							   && rienParDefaut128 && valeurRelue && stable128;
+			snprintf(det, sizeof(det),
+					 "alpha du remplissage rouge : %d a 100%%, %d avec le NŒUD a 50%%, %d avec "
+					 "le PARENT a 50%% (l'enfant a 100), %d avec les deux a 50%% ; cle : rien "
+					 "au fichier par defaut=%d, 40 relu=%d, reenregistrement identique=%d",
+					 aPlein, aDemi, aHerite, aQuart, rienParDefaut128 ? 1 : 0,
+					 valeurRelue ? 1 : 0, stable128 ? 1 : 0);
+			check("128. (5) L'OPACITE DU NŒUD, LES TROIS MOITIES : le CHAMP existe, la CLE fait "
+				  "l'aller-retour et reste ADDITIVE (rien au fichier a 100%), et le PEINTRE l'honore -- "
+				  "y compris quand elle vient d'un ANCETRE, ce qui est la seule facon de verifier que le "
+				  "facteur descend par la recursion ; et les deux se multiplient (50% dans 50% = 25%)",
+				  ok128, det);
+		}
 		// ── 94. ① L'APERCU PENDANT LE TRACE (05/09). Rodolf : « pourquoi quand on dessine un
 		//    graphique on voit juste le rectangle qui s'allonge, et des qu'on relache on voit la
 		//    forme ? » Deux mesures : LA TABLE DE GENRE (une seule, lue par le relachement et par

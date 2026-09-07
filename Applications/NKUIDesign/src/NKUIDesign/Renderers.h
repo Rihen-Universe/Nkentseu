@@ -1543,7 +1543,8 @@ namespace nkuidesign {
 		/// pas peindre une image : l'appelant peint le damier.
 		inline bool NkGPeindreImage(NkComponentPaint &p, const NkPaintRect &r, const nkentseu::float32 R[4],
 									const NkRemplissage &f, const nkentseu::float32 *trace = nullptr,
-									nkentseu::uint32 traceNb = 0u) {
+									nkentseu::uint32 traceNb = 0u,
+									nkentseu::float32 heritee = 1.f) {
 			using namespace nkentseu;
 			NkFournisseurImages &fi = NkFournisseurCourant();
 			NkImageSource src;
@@ -1590,7 +1591,8 @@ namespace nkuidesign {
 						uv[i * 2] = u0 + (x - x0) / w * (u1 - u0);
 						uv[i * 2 + 1] = v0 + (y - y0) / h * (v1 - v0);
 					}
-					if (!p.ImagePolygone(coupe, uv, (int32)ncp, src.handle, f.opacite))
+					if (!p.ImagePolygone(coupe, uv, (int32)ncp, src.handle,
+										 f.opacite * (heritee < 0.f ? 0.f : (heritee > 1.f ? 1.f : heritee))))
 						su = false;
 				});
 			};
@@ -1636,9 +1638,22 @@ namespace nkuidesign {
 			return su;
 		}
 
+		/// ⑤ (07/09) LE FACTEUR D'ALPHA, EN UN SEUL SITE. La même expression de
+		/// bornage était écrite CINQ fois (damier, deux fois pour les bordures, les
+		/// ombres, les remplissages) : y ajouter l'opacité du nœud aurait été cinq
+		/// occasions d'en oublier une. `heritee` est déjà un facteur 0..1 -- le
+		/// produit des opacités du nœud et de tous ses ancêtres.
+		inline nkentseu::float32 NkKOpacite(nkentseu::float32 pourcent,
+											nkentseu::float32 heritee) {
+			const nkentseu::float32 c =
+				(pourcent < 0.f ? 0.f : (pourcent > 100.f ? 100.f : pourcent)) * 0.01f;
+			const nkentseu::float32 h = heritee < 0.f ? 0.f : (heritee > 1.f ? 1.f : heritee);
+			return c * h;
+		}
+
 		inline void NkGDamier(NkComponentPaint &p, const NkPaintRect &r, const nkentseu::float32 R[4],
-							  nkentseu::float32 opacite) {
-			const nkentseu::float32 k = (opacite < 0.f ? 0.f : (opacite > 100.f ? 100.f : opacite)) * 0.01f;
+							  nkentseu::float32 opacite, nkentseu::float32 heritee = 1.f) {
+			const nkentseu::float32 k = NkKOpacite(opacite, heritee);
 			const nkentseu::uint32 a = (nkentseu::uint32)(255.f * k + 0.5f) & 0xFFu;
 			NkGRectCoins(p, r, 0x9A9A9A00u | a, R);
 			const nkentseu::float32 c = 8.f;
@@ -1731,18 +1746,18 @@ namespace nkuidesign {
 
 		/// LA PORTE NOMMEE : une `NkBordure` (couleur en texte, opacite) devient
 		/// une couleur resolue, puis c'est le meme anneau. Comportement inchange.
-		inline nkentseu::uint32 NkGBordureRGBA(const NkBordure &b) {
+		inline nkentseu::uint32 NkGBordureRGBA(const NkBordure &b,
+											   nkentseu::float32 heritee = 1.f) {
 			const nkentseu::uint32 base = NkGCouleur(b.couleur.Data());
-			const nkentseu::float32 k =
-				(b.opacite < 0.f ? 0.f : (b.opacite > 100.f ? 100.f : b.opacite)) * 0.01f;
+			const nkentseu::float32 k = NkKOpacite(b.opacite, heritee);
 			const nkentseu::uint32 a = (nkentseu::uint32)((base & 0xFFu) * k + 0.5f);
 			return (base & 0xFFFFFF00u) | (a & 0xFFu);
 		}
 		inline void NkGCadre(NkComponentPaint &p, const NkPaintRect &r, const NkBordure &b,
-							 const nkentseu::float32 R[4], nkentseu::uint32 interieur) {
+							 const nkentseu::float32 R[4], nkentseu::uint32 interieur,
+							 nkentseu::float32 heritee = 1.f) {
 			const nkentseu::uint32 base = NkGCouleur(b.couleur.Data());
-			const nkentseu::float32 k =
-				(b.opacite < 0.f ? 0.f : (b.opacite > 100.f ? 100.f : b.opacite)) * 0.01f;
+			const nkentseu::float32 k = NkKOpacite(b.opacite, heritee);
 			const nkentseu::uint32 a = (nkentseu::uint32)((base & 0xFFu) * k + 0.5f);
 			const nkentseu::float32 eC[4] = {b.Cote(0), b.Cote(1), b.Cote(2), b.Cote(3)};
 			NkGCadreCotes(p, r, (base & 0xFFFFFF00u) | (a & 0xFFu), eC, b.position, R, interieur,
@@ -1790,7 +1805,8 @@ namespace nkuidesign {
 		/// noeud (un coin droit reste droit, un coin arrondi s'arrondit de R +
 		/// grossi). Le flou est approche par des anneaux de plus en plus
 		/// transparents -- le peintre n'a pas de primitive floue, et ca se dit.
-		inline void NkGOmbres(NkComponentPaint &p, const NkPaintRect &r, const NkUINode &n) {
+		inline void NkGOmbres(NkComponentPaint &p, const NkPaintRect &r, const NkUINode &n,
+							  nkentseu::float32 heritee = 1.f) {
 			nkentseu::float32 R[4], c[4];
 			NkGRayons(n, R);
 			NkGBornerRayons(r.w, r.h, R, c);
@@ -1799,8 +1815,7 @@ namespace nkuidesign {
 				if (!e.visible || e.couleur.Empty() || e.type != NkEffetType::OmbrePortee)
 					continue;
 				const nkentseu::uint32 base = NkGCouleur(e.couleur.Data());
-				const nkentseu::float32 op =
-					(e.opacite < 0.f ? 0.f : (e.opacite > 100.f ? 100.f : e.opacite)) * 0.01f;
+				const nkentseu::float32 op = NkKOpacite(e.opacite, heritee);
 				if (op <= 0.f)
 					continue;
 				const int32 kAnneaux = e.flou > 0.5f ? 4 : 1;
@@ -1919,8 +1934,12 @@ namespace nkuidesign {
 		/// `mEff` : LA COMPOSITION DU NOEUD ET DE SES ANCETRES, calculee une
 		/// fois par `NkDrawDocument` et lue AUSSI par le pointage. Deux calculs
 		/// auraient laisse un objet se voir a un endroit et se cliquer a un autre.
+		/// ⑤ `heritee` : le produit des opacités du nœud et de tous ses ancêtres,
+		/// 0..1. Défaut 1 -- les appelants d'aperçu (la palette, les vignettes) ne
+		/// changent donc pas d'un pixel.
 		inline void DrawShape(NkComponentPaint &p, const NkPaintRect &r, const NkUINode &n,
-							  const NkDocumentHost &host, const NkMat2D &mEff) {
+							  const NkDocumentHost &host, const NkMat2D &mEff,
+							  nkentseu::float32 heritee = 1.f) {
 			// Une forme OUVERTE (ligne) n'a besoin que d'une dimension : une ligne
 			// horizontale a une hauteur NULLE, et elle doit se voir (sonde 52).
 			if (NkFormeOuverte(n) ? (r.w <= 0.f && r.h <= 0.f) : (r.w <= 0.f || r.h <= 0.f))
@@ -1988,7 +2007,7 @@ namespace nkuidesign {
 				//    primitive floue, donc on empile quelques anneaux de plus en
 				//    plus transparents. Ça DIT le flou sans le mentir — et le jour
 				//    où une primitive existera, ce site est le seul à changer.
-				NkGOmbres(p, r, n); // par coin : l'ombre lit les quatre rayons du noeud
+				NkGOmbres(p, r, n, heritee); // par coin : l'ombre lit les quatre rayons du noeud
 				// ⚠️ ET LE TRACÉ ÉDITÉ PASSE APRÈS L'OMBRE, POUR LA MÊME RAISON.
 				//    Sortir avant `NkGOmbres` aurait fait DISPARAÎTRE l'ombre au
 				//    moment précis où l'on déplace un coin — une propriété perdue
@@ -2246,8 +2265,9 @@ namespace nkuidesign {
 						if (f.EstImage()) {
 							// LA SOURCE, si le fournisseur la donne et si le peintre sait
 							// peindre une image ; sinon le damier, et l'absence est notee
-							if (!NkGPeindreImage(p, r, Rc, f, traceNb >= 3u ? traceXY : nullptr, traceNb))
-								NkGDamier(p, r, Rc, f.opacite);
+							if (!NkGPeindreImage(p, r, Rc, f, traceNb >= 3u ? traceXY : nullptr, traceNb,
+												 heritee))
+								NkGDamier(p, r, Rc, f.opacite, heritee);
 							peint = true;
 							continue;
 						}
@@ -2258,10 +2278,7 @@ namespace nkuidesign {
 						if (f.couleur.Empty())
 							continue;
 						const uint32 base = NkGCouleur(f.couleur.Data());
-						const float32 k = (f.opacite < 0.f ? 0.f
-										   : f.opacite > 100.f ? 100.f
-															   : f.opacite)
-										  * 0.01f;
+						const float32 k = NkKOpacite(f.opacite, heritee);
 						const uint32 a = (uint32)((base & 0xFFu) * k + 0.5f);
 						const uint32 rgbaF = (base & 0xFFFFFF00u) | (a & 0xFFu);
 						peindreUni(rgbaF);
@@ -2308,7 +2325,7 @@ namespace nkuidesign {
 						if (!b.visible || b.couleur.Empty() || b.epaisseur <= 0.f)
 							return;
 						unTrait = true;
-						if (!NkGAnneauTrace(p, traceXY, traceNb, NkGBordureRGBA(b), b.epaisseur, b.position, b.jointure.Data()))
+						if (!NkGAnneauTrace(p, traceXY, traceNb, NkGBordureRGBA(b, heritee), b.epaisseur, b.position, b.jointure.Data()))
 							p.OutlineSharp(r, host.Role("border"));
 					};
 					for (uint32 bi = 0; bi < (uint32)n.borders.Size(); ++bi)
@@ -2335,7 +2352,7 @@ namespace nkuidesign {
 						const NkBordure &b = n.borders[bi];
 						if (!b.visible || b.couleur.Empty() || b.epaisseur <= 0.f)
 							continue;
-						NkGCadre(p, r, b, Rc, rgbaFond);
+						NkGCadre(p, r, b, Rc, rgbaFond, heritee);
 						trace = true;
 					}
 					if (!trace && !fondPeint) {
@@ -2356,7 +2373,7 @@ namespace nkuidesign {
 					b.couleur = n.borderColor;
 					b.epaisseur = n.borderW > 0.f ? n.borderW : 1.f;
 					b.position = NkBordurePos::Interieur; // le geste historique
-					NkGCadre(p, r, b, Rc, rgbaFond);
+					NkGCadre(p, r, b, Rc, rgbaFond, heritee);
 				} else if (!fondPeint) {
 					// 🔴 `OutlineSharp` ET NON UN ANNEAU ARRONDI, ET C'EST UNE
 					//    LIMITE, PAS UN CHOIX. Ici AUCUN fond n'a ete peint : il
@@ -2426,7 +2443,8 @@ namespace nkuidesign {
 					bx += ux * ep * 0.5f;
 					by += uy * ep * 0.5f;
 				}
-				const uint32 rgbaL = bd ? NkGBordureRGBA(*bd) : p.ColorOf(host.Role("doc_text"));
+				const uint32 rgbaL = bd ? NkGBordureRGBA(*bd, heritee)
+										: p.ColorOf(host.Role("doc_text"));
 				bool ok = false;
 				if (bd) { // couleur propre : le trait est un quadrilatere (rgba)
 					const float32 nx = -uy * ep * 0.5f, ny = ux * ep * 0.5f;
@@ -2795,8 +2813,13 @@ namespace nkuidesign {
 		return t;
 	}
 
+	/// ⑤ `opaciteHeritee` : le produit des opacités des ancêtres, 0..1. Il
+	/// descend PAR LA RECURSION, comme `masque` se transmet par son `return` --
+	/// aucun drapeau n'est recopié sur les descendants, donc rien ne peut dériver
+	/// quand un nœud change de parent.
 	inline void NkDrawDocument(NkComponentPaint &p, const NkComponentInput &in, const NkUIDocument &doc,
-							   const NkLayoutResult &lay, NkDocumentHost &host, int32 node = 0) {
+							   const NkLayoutResult &lay, NkDocumentHost &host, int32 node = 0,
+							   nkentseu::float32 opaciteHeritee = 1.f) {
 		if (node == 0)
 			renderdetail::NkPoserResolveur(&doc); // les references « @cle » se resolvent ici
 		if (!doc.IsValidIndex(node) || !lay.Has(node))
@@ -2815,6 +2838,14 @@ namespace nkuidesign {
 			return;
 		const NkUINode &n = doc.nodes[(uint32)node];
 		const NkPaintRect r = lay.At(node);
+		// ⑤ L'OPACITÉ EFFECTIVE de ce nœud : la sienne, fois celle de ses ancêtres.
+		// ⚠️ UNE OPACITÉ NULLE NE COUPE PAS LA RÉCURSION, contrairement à `masque` :
+		//    les deux ne disent pas la même chose. Un nœud masqué est RETIRÉ ; un
+		//    nœud à 0 % est toujours là, simplement invisible -- et le pointage doit
+		//    continuer de le trouver. Confondre les deux ferait disparaître un objet
+		//    qu'on ne pourrait plus rattraper qu'en le cherchant dans l'arbre.
+		const nkentseu::float32 opaciteEff =
+			opaciteHeritee * renderdetail::NkKOpacite(n.opacite, 1.f);
 		// ── LA MATRICE DU NOEUD, DANS LE PEINTRE ──────────────────────────
 		// Tout ce que ce noeud dessine (forme, composant, texte) passe par
 		// elle : rotation, miroirs, echelle, ancetres compris. Depilee AVANT
@@ -2850,7 +2881,7 @@ namespace nkuidesign {
 			if (posee && node != host.editionNode)
 				// UNE SEULE COMPOSITION, LUE PAR LES DEUX CHEMINS : celle que le
 				// pointage utilise deja (`NkPointDansNoeud` -> `NkMatEffective`).
-				renderdetail::DrawShape(p, r, n, host, NkMat2D{}); // le peintre transforme
+				renderdetail::DrawShape(p, r, n, host, NkMat2D{}, opaciteEff); // le peintre transforme
 			else if (posee && host.editionEtiquette) {
 				// RENOMMAGE d'etiquette : le CORPS de l'artboard se dessine,
 				// seule l'etiquette se tait (le champ superpose la remplace).
@@ -2922,7 +2953,7 @@ namespace nkuidesign {
 			p.PopTransform(); // avant les enfants : chacun empile la sienne
 
 		for (uint32 i = 0; i < (uint32)n.children.Size(); ++i)
-			NkDrawDocument(p, in, doc, lay, host, n.children[i]);
+			NkDrawDocument(p, in, doc, lay, host, n.children[i], opaciteEff);
 	}
 
 } // namespace nkuidesign
