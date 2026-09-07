@@ -226,5 +226,61 @@ namespace nkentseu {
 				}
 		};
 
+		// ── OU SE POSE UNE SURFACE FLOTTANTE, PAR RAPPORT A CE QUI L'OUVRE ──────
+		//
+		// 🔴 RETOUR DE RODOLF (07/09), sur le selecteur de couleur : il « deborde du
+		//    panneau et recouvre le canvas » au lieu de rester ancre sous la
+		//    pastille. MESURE : NKGui place SON propre selecteur (`ColorEdit4`)
+		//    sous l'ancre -- `{sw.x, sw.y + h + 2}` -- et le retourne vers le haut
+		//    s'il n'y a pas la place dessous. NkUIDesign en portait une AUTRE
+		//    version, `{sw.x - largeur - 8, ...}`, qui pousse la fenetre 212 px A
+		//    GAUCHE, c'est-a-dire par-dessus la toile.
+		//
+		// ⚠️ TROIS COPIES DE LA MEME EXPRESSION, mot pour mot, dans le meme fichier
+		//    (selecteur generique, popover de remplissage, popover de bordure). La
+		//    porte existait deja -- elle n'etait ecrite nulle part. *Une deuxieme
+		//    copie d'une regle diverge de la premiere* : celles-ci n'ont pas diverge
+		//    entre elles, elles ont diverge de la BIBLIOTHEQUE.
+		//
+		// ⚠️ CE QU'ON AJOUTE A LA REGLE DE NKGUI, ET POURQUOI : LE RABATTEMENT EN X.
+		//    NKGui laisse sa fenetre depasser a droite ; ses selecteurs vivent dans
+		//    des panneaux larges. Ici l'ancre est a ~12 px du bord de l'inspecteur,
+		//    lui-meme colle au bord droit de l'ecran : sans rabattement, la moitie
+		//    de la fenetre sortirait de la vue. On la RENTRE, on ne la deporte pas.
+		//
+		// ⚠️ ET LE COTE EST UNE INTENTION DECLAREE, PAS UNE DIVERGENCE. Mesure du
+		//    07/09 : trois essais de ce depot (60b, 60c, 86-88) EXIGENT que les
+		//    popovers de remplissage et de bordure s'ouvrent A GAUCHE de leur
+		//    pastille -- ils sont larges (236 px) et hauts, et ce placement a ete
+		//    choisi puis eprouve. Ma premiere version les a tous alignes sous
+		//    l'ancre et les a fait rougir : **j'avais transforme << une regle
+		//    ecrite trois fois >> en << une seule regle pour trois besoins >>**, ce
+		//    qui n'est pas la meme chose. Une porte, deux intentions nommees, et un
+		//    SEUL rabattement dans la vue -- c'est ce qui etait recopie.
+		enum class NkCoteAncre : uint8 {
+			Dessous = 0, ///< la regle de NKGui : sous l'ancre, alignee a gauche sur elle
+			AGauche = 1	 ///< a gauche de l'ancre : pour les surfaces larges (popovers)
+		};
+
+		/// Place une surface flottante contre son ancre, du cote demande, retournee
+		/// si elle ne tient pas, et RENTREE DANS LA VUE dans les deux axes.
+		inline NkRect NkPlacerPresDeLAncre(const NkRect &ancre, float32 w, float32 h, float32 vueW,
+										   float32 vueH, NkCoteAncre cote) noexcept {
+			NkRect r = (cote == NkCoteAncre::AGauche)
+						   ? NkRect{ancre.x - w - 8.f, ancre.y - 8.f, w, h}
+						   : NkRect{ancre.x, ancre.y + ancre.h + 2.f, w, h};
+			if (cote == NkCoteAncre::Dessous && r.y + r.h > vueH)
+				r.y = ancre.y - r.h - 2.f; // pas la place dessous : on retourne au-dessus
+			if (r.y + r.h > vueH)
+				r.y = vueH - r.h - 2.f; // ni dessous ni dessus : la vue est plus courte
+			if (r.y < 2.f)
+				r.y = 2.f;
+			if (r.x + r.w > vueW - 2.f)
+				r.x = vueW - r.w - 2.f;
+			if (r.x < 2.f)
+				r.x = 2.f;
+			return r;
+		}
+
 	} // namespace editorkit
 } // namespace nkentseu
