@@ -11770,6 +11770,140 @@ namespace nkuidesign {
 				  "hors CSS n'est PAS invente",
 				  opaciteEcrite && rienAPlein && overlayEcrit && pasInvente && montageValide, det);
 		}
+		// -- 134. (2) L'EXPORT NE S'OUVRE PLUS SUR RIEN ------------------------
+		//
+		// Rodolf : « rien n'est selectionne mais quand je clique sur exporter, le
+		//    panneau s'ouvre. Ce n'est pas normal -- sauf si ca liste tous les
+		//    elements exportables du canvas infini. »
+		//
+		// LA MESURE QUI A ORIENTE LE LOT : le panneau ne s'ouvrait pas << sur
+		//    rien >>. Sans selection, l'export retombait sur `NkPageParDefaut`,
+		//    c'est-a-dire LA PREMIERE PAGE -- alors que son document en porte
+		//    TROIS. Le choix etait arbitraire et muet : le message partait au pied
+		//    de fenetre, jamais dans le panneau.
+		//
+		// TROIS EXIGENCES :
+		//    (a) sans selection, la CIBLE devient tout le canvas, et le compte
+		//        annonce EGALE le nombre d'elements reellement exportables ;
+		//    (b) ZERO exportable -> le panneau NE S'OUVRE PAS, et le refus se dit
+		//        -- un panneau qui liste zero element est le meme defaut sous un
+		//        autre nom ;
+		//    (c) une selection existante n'est PAS ecrasee : le geste garde son
+		//        sens quand il en a un.
+		{
+			char det[600];
+			// UN CANVAS A TROIS PAGES, dont une MASQUEE et une de taille nulle :
+			// l'essai doit compter DEUX exportables, pas quatre. Sans ces deux
+			// pieges, << le compte egale le nombre d'enfants >> serait vrai par
+			// accident et ne mesurerait rien.
+			static DesignState st134;
+			st134.doc.NewDocument("Toile", NkAuthor::Humain);
+			st134.doc.SetMetric("espacement", 0.f);
+			st134.doc.SetMetric("marge", 0.f);
+			st134.doc.nodes[0].layout.kind = NkLayoutKind::Free;
+			// ⚠️ LES PAGES SONT POSEES A DES ENDROITS DIFFERENTS, et c'est le montage
+			//    qui compte. Premiere ecriture : `posX` laisse a zero -- les deux pages
+			//    se SUPERPOSAIENT, donc l'union de leurs boites valait la plus large et
+			//    l'essai (d) ne pouvait pas distinguer << tout le canvas >> de << la
+			//    premiere page >>. QUATRIEME fois en trois jours qu'un montage ne pose
+			//    pas l'etat qu'il mesure : *le regime risque se POSE, il ne se suppose
+			//    pas.*
+			float32 xPage134 = 0.f;
+			auto page134 = [&](float32 w, float32 h, bool masquee) {
+				const int32 i = st134.doc.AddChild(0, "", NkAuthor::Humain);
+				NkUINode &p = st134.doc.nodes[(uint32)i];
+				p.posX = xPage134;
+				xPage134 += w + 40.f; // les pages se suivent, elles ne se recouvrent pas
+				p.shape = NkString("frame");
+				p.layout.kind = NkLayoutKind::Free;
+				p.masque = masquee;
+				p.width.mode = NkSizeMode::Fixed;
+				p.width.value = w;
+				p.height.mode = NkSizeMode::Fixed;
+				p.height.value = h;
+				return i;
+			};
+			page134(200.f, 120.f, false); // exportable
+			page134(160.f, 90.f, false);  // exportable
+			page134(200.f, 120.f, true);  // MASQUEE : le peintre s'arrete avant
+			page134(0.f, 0.f, false);	  // BOITE VIDE : un fichier vide serait un faux succes
+			st134.Recompute(NkPaintRect{0.f, 0.f, 900.f, 600.f});
+			NkVector<int32> exportables;
+			const uint32 nExp = NkElementsExportables(st134, st134.layout, &exportables);
+
+			// (a) SANS SELECTION : la cible devient le canvas, le compte est annonce.
+			st134.sel.Clear();
+			st134.selected = 0;
+			st134.choixExport.dialogue.open = false;
+			NkOuvrirDialogueExport(st134, false);
+			const bool ouvert = st134.choixExport.dialogue.open;
+			const bool cibleCanvas = st134.choixExport.tout;
+			// ⚠️ LA VALEUR EST CAPTUREE ICI, PAS RELUE A LA FIN. Premiere ecriture :
+			//    le detail relisait `nbExportables` APRES l'essai (c), qui la remet a
+			//    zero -- la ligne affichait << compte annonce 0 = mesure 2 -> 1 >>, une
+			//    incoherence apparente sur une assertion pourtant juste. *Un chiffre
+			//    rend compte de l'instant ou il est LU, pas de celui ou on l'imprime.*
+			const uint32 compteAnnonce = st134.choixExport.nbExportables;
+			const bool compteJuste = compteAnnonce == nExp;
+
+			// (b) ZERO EXPORTABLE : le panneau NE S'OUVRE PAS, et le refus se dit.
+			static DesignState vide134;
+			vide134.doc.NewDocument("Toile", NkAuthor::Humain);
+			vide134.Recompute(NkPaintRect{0.f, 0.f, 900.f, 600.f});
+			NkVector<int32> rien;
+			const uint32 nVide = NkElementsExportables(vide134, vide134.layout, &rien);
+			vide134.sel.Clear();
+			vide134.selected = 0;
+			vide134.choixExport.dialogue.open = false;
+			vide134.status = NkString();
+			NkOuvrirDialogueExport(vide134, false);
+			const bool refuse = !vide134.choixExport.dialogue.open;
+			const bool refusDit = !vide134.status.Empty();
+
+			// (c) UNE SELECTION EXISTANTE N'EST PAS ECRASEE.
+			st134.sel.Clear();
+			st134.sel.Add(exportables.Empty() ? 1 : exportables[0]);
+			st134.selected = exportables.Empty() ? 1 : exportables[0];
+			st134.choixExport.dialogue.open = false;
+			NkOuvrirDialogueExport(st134, true);
+			const bool selectionGardee = st134.choixExport.selection && !st134.choixExport.tout;
+
+			// (d) ET LE DRAPEAU EST-IL LU ? Sans cet essai j'aurais pose `tout` et
+			//     personne ne l'aurait consomme -- le defaut meme que ce depot paie
+			//     depuis huit fois. La zone exportee doit etre l'UNION des deux pages,
+			//     donc plus large que la premiere seule.
+			NkVector<int32> nds;
+			NkPaintRect zTout = {0.f, 0.f, 0.f, 0.f}, zPage = {0.f, 0.f, 0.f, 0.f};
+			char pq[160];
+			NkExportOptions oTout;
+			oTout.tout = true;
+			const bool zoneTout = NkZoneExport(st134, st134.layout, oTout, nds, zTout, pq, sizeof(pq));
+			const uint32 nTout = (uint32)nds.Size();
+			NkExportOptions oPage; // la premiere page seule, l'ancien comportement
+			const bool zonePage = NkZoneExport(st134, st134.layout, oPage, nds, zPage, pq, sizeof(pq));
+			const bool toutEstLu = zoneTout && zonePage && nTout == nExp && zTout.w > zPage.w;
+
+			snprintf(det, sizeof(det),
+					 "canvas de 4 enfants dont 1 masquee et 1 de taille nulle -> %u exportable(s) "
+					 "(attendu 2) ; (a) sans selection : panneau ouvert=%d, cible=canvas %d, "
+					 "compte annonce %u = mesure %u -> %d ; (b) canvas VIDE (%u exportable) : "
+					 "panneau refuse=%d, refus dit=%d ; (c) avec selection : la selection est "
+					 "gardee=%d ; (d) le drapeau EST LU : %u nœud(s) vises, zone %.0f de large "
+					 "contre %.0f pour la premiere page seule -> %d",
+					 nExp, ouvert ? 1 : 0, cibleCanvas ? 1 : 0,
+					 compteAnnonce, nExp, compteJuste ? 1 : 0, nVide,
+					 refuse ? 1 : 0, refusDit ? 1 : 0, selectionGardee ? 1 : 0, nTout,
+					 (double)zTout.w, (double)zPage.w, toutEstLu ? 1 : 0);
+			check("134. (2) L'EXPORT NE S'OUVRE PLUS SUR RIEN : sans selection la cible devient TOUT LE "
+				  "CANVAS et le panneau ANNONCE combien d'elements il a trouves ; un canvas sans aucun "
+				  "element exportable REFUSE d'ouvrir et le dit (un panneau qui liste zero element est le "
+				  "meme defaut sous un autre nom) ; et une selection existante n'est pas ecrasee. Le "
+				  "montage porte une page MASQUEE et une de taille NULLE, sinon << le compte egale le "
+				  "nombre d'enfants >> serait vrai par accident",
+				  nExp == 2u && ouvert && cibleCanvas && compteJuste && refuse && refusDit
+					  && selectionGardee && toutEstLu,
+				  det);
+		}
 		// ── 94. ① L'APERCU PENDANT LE TRACE (05/09). Rodolf : « pourquoi quand on dessine un
 		//    graphique on voit juste le rectangle qui s'allonge, et des qu'on relache on voit la
 		//    forme ? » Deux mesures : LA TABLE DE GENRE (une seule, lue par le relachement et par

@@ -40,15 +40,47 @@ namespace nkuidesign {
 		DesignState::NkChoixExport &c = st.choixExport;
 		const bool aSel = !st.sel.Empty() || (st.doc.IsValidIndex(st.selected) && st.selected > 0);
 		c.selection = surSelection && aSel;
+		// ② (07/09) SANS SELECTION, LA CIBLE EST TOUT LE CANVAS -- ET S'IL N'Y A
+		//    RIEN, ON N'OUVRE PAS.
+		// 🔴 Rodolf : « rien n'est selectionne mais le panneau s'ouvre. Ce n'est
+		//    pas normal -- sauf si ca liste tous les elements exportables du canvas. »
+		//    Mesure : le panneau ne s'ouvrait pas « sur rien », il retombait sur
+		//    `NkPageParDefaut`, c'est-a-dire LA PREMIERE page -- alors que son
+		//    document en porte TROIS. Le choix etait arbitraire, et le seul mot qui
+		//    le disait partait au pied de fenetre.
+		// ⚠️ LE COMPTE VIENT DE `NkElementsExportables`, jamais d'un comptage refait
+		//    ici : le panneau annoncerait sinon des elements que l'export refuse.
+		// ⚠️ ET ZERO EXPORTABLE REFUSE D'OUVRIR : *un panneau qui liste zero element
+		//    est le meme defaut sous un autre nom.*
+		if (!c.selection) {
+			NkVector<nkentseu::int32> exportables;
+			c.nbExportables = NkElementsExportables(st, st.layout, &exportables);
+			if (c.nbExportables == 0u) {
+				st.DireAuPied("Exporter : rien à exporter — le canvas ne contient aucun "
+							  "élément visible.");
+				return; // on n'ouvre pas : il n'y a rien a montrer
+			}
+			c.tout = true;
+		} else {
+			c.tout = false;
+			c.nbExportables = 0u;
+		}
 		c.dialogue.open = true;
 		c.dialogue.posInit = false; // se recentre a chaque ouverture
 		NkExportOptions o;
 		o.format = (NkExportFormat)c.format;
 		o.echelle = c.echelle;
 		o.selection = c.selection;
+		o.tout = c.tout; // ② la cible << tout le canvas >>, lue par NkZoneExport
 		NkNomObjetExport(st, o, c.nom, sizeof(c.nom));
+		// ② L'ANCIEN MESSAGE DISAIT « c'est la page qui sera exportee » : il est
+		//    devenu FAUX le jour ou la cible est le canvas entier. Il part avec le
+		//    comportement qu'il decrivait -- une phrase juste qu'on garde apres avoir
+		//    change ce qu'elle decrit devient un mensonge, et c'est la troisieme fois
+		//    que ce depot le paie.
 		if (!aSel && surSelection)
-			st.DireAuPied("Exporter : rien n'est sélectionné — c'est la page qui sera exportée.");
+			st.DireAuPied("Exporter : rien n'est sélectionné — c'est tout le canvas qui "
+						  "sera exporté.");
 	}
 
 	/// Le dialogue lui-meme, dessine dans le crochet d'overlay (l'entree y est reelle).
@@ -134,7 +166,15 @@ namespace nkuidesign {
 		{
 			char libSel[64];
 			snprintf(libSel, sizeof(libSel), aSel ? "Sélection (%u)" : "Sélection", nSel);
-			const char *kLib[2] = {"Page", libSel};
+			// ② (07/09) LE PANNEAU DIT COMBIEN. Sans selection, la cible est TOUT LE
+			//    CANVAS, et le libelle porte le nombre d'elements trouves : *un panneau
+			//    qui liste sans dire combien laisse croire qu'il a tout pris.* Le
+			//    nombre vient de `c.nbExportables`, pose a l'ouverture par
+			//    `NkElementsExportables` -- la MEME fonction que `NkZoneExport` lit,
+			//    donc le panneau ne peut pas annoncer ce que l'export refuserait.
+			char libTout[72];
+			snprintf(libTout, sizeof(libTout), "Tout le canvas (%u)", c.nbExportables);
+			const char *kLib[2] = {c.tout ? libTout : "Page", libSel};
 			const bool kActif[2] = {true, aSel};
 			const int32 k = rangee("Étendue", kLib, kActif, 2, c.selection ? 1 : 0);
 			if (k == 0 || (k == 1 && aSel)) {
@@ -161,6 +201,7 @@ namespace nkuidesign {
 			o.format = (NkExportFormat)c.format;
 			o.echelle = c.echelle;
 			o.selection = c.selection;
+			o.tout = c.tout; // ② la cible << tout le canvas >>, lue par NkZoneExport
 			NkNomObjetExport(st, o, c.nom, sizeof(c.nom));
 		}
 		{

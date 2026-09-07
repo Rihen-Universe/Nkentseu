@@ -1609,6 +1609,15 @@ namespace nkuidesign {
 					nkentseu::editorkit::NkModal dialogue;
 					char nom[200] = {};
 					bool parObjet = false; ///< plusieurs objets : un fichier chacun
+					/// ② (07/09) LA CIBLE « TOUT LE CANVAS », et le COMPTE qu'on annonce.
+					/// Sans selection, l'export retombait sur la PREMIERE page -- muet, et
+					/// arbitraire des que le document en porte plusieurs (celui de Rodolf
+					/// en a trois). `tout` vise le canvas entier ; `nbExportables` est ce
+					/// que le panneau AFFICHE, et il vient de `NkElementsExportables` --
+					/// jamais d'un comptage refait ici, qui aurait pu annoncer des
+					/// elements que l'export refuse ensuite.
+					bool tout = false;
+					nkentseu::uint32 nbExportables = 0u;
 			};
 			NkChoixExport choixExport;
 			/// ④ La DEMANDE d'export, posée par le menu contextuel et lue par l'overlay :

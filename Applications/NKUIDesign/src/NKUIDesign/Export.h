@@ -60,6 +60,11 @@ namespace nkuidesign {
 			NkExportFormat format = NkExportFormat::PNG;
 			nkentseu::float32 echelle = 1.f; ///< 1, 2, 3 (bornee a 0,25..8)
 			bool selection = false;			 ///< faux = la page ; vrai = les noeuds selectionnes
+			/// ② (07/09) TOUT LE CANVAS : les elements exportables de la racine, dans
+			/// leur boite englobante. Prime sur `selection` quand elle est fausse ; sans
+			/// lui, un export sans selection retombait sur LA PREMIERE page, ce qui est
+			/// arbitraire des que le document en porte plusieurs.
+			bool tout = false;
 			nkentseu::int32 page = -1;		 ///< -1 = la page de la selection, sinon la premiere
 			bool embarquer = false;			 ///< SVG : les images en data: base64 au lieu d'un chemin relatif
 			bool policeExacte = true;		 ///< faux = l'atlas du costume etire (la mutation de la sonde)
@@ -267,6 +272,54 @@ namespace nkuidesign {
 		return n;
 	}
 	/// La page par defaut : celle de la selection, sinon la premiere sous la racine.
+	// ── ② (07/09) CE QUE LE CANVAS CONTIENT D'EXPORTABLE ────────────────────
+	//
+	// Rodolf : « rien n'est selectionne mais le panneau d'export s'ouvre. Ce n'est
+	// pas normal -- sauf si ca liste tous les elements exportables du canvas
+	// infini. »
+	//
+	// 🔴 CE QUI COMPTE COMME EXPORTABLE, ET LA DEFINITION EST MESURABLE, PAS
+	//    ESTHETIQUE. Un element du canvas est exportable s'il remplit LES TROIS :
+	//      1. c'est un ENFANT DIRECT DE LA RACINE -- une page, ou une forme posee
+	//         sur le canvas. Descendre plus bas listerait les enfants de chaque
+	//         page, c'est-a-dire le document entier : l'utilisateur veut choisir
+	//         entre ses PAGES, pas entre ses deux cents boutons ;
+	//      2. la disposition lui donne une BOITE NON VIDE -- exporter un objet de
+	//         zero pixel produit un fichier vide, et un fichier vide est un echec
+	//         qui a l'air d'une reussite ;
+	//      3. il n'est PAS MASQUE -- le peintre s'arrete avant lui (`NkDrawDocument`
+	//         rend la main sur `masque`), donc son image serait vide elle aussi.
+	//
+	// ⚠️ ELLE EST ICI, PAS DANS LE DIALOGUE. Le dialogue AFFICHE un compte ; c'est
+	//    l'export qui sait ce qu'il sait exporter. Ecrite la-bas, elle aurait
+	//    diverge de ce que `NkZoneExport` accepte reellement -- et le panneau
+	//    aurait annonce des elements que l'export aurait refuses.
+	inline nkentseu::uint32 NkElementsExportables(const DesignState &st, const NkLayoutResult &lay,
+												  NkVector<nkentseu::int32> *out) {
+		using nkentseu::int32;
+		using nkentseu::uint32;
+		if (out)
+			out->Clear();
+		if (st.doc.nodes.Empty())
+			return 0u;
+		const NkVector<int32> &racines = st.doc.nodes[0].children;
+		uint32 n = 0u;
+		for (uint32 i = 0; i < (uint32)racines.Size(); ++i) {
+			const int32 k = racines[i];
+			if (!st.doc.IsValidIndex(k) || k <= 0 || !lay.Has(k))
+				continue;
+			if (st.doc.nodes[(uint32)k].masque)
+				continue;
+			const NkPaintRect b = lay.At(k);
+			if (b.w <= 0.f || b.h <= 0.f)
+				continue;
+			if (out)
+				out->PushBack(k);
+			++n;
+		}
+		return n;
+	}
+
 	inline nkentseu::int32 NkPageParDefaut(const DesignState &st) {
 		const nkentseu::int32 p = NkPageDe(st.doc, st.selected);
 		if (p > 0)
@@ -308,6 +361,38 @@ namespace nkuidesign {
 							 nkentseu::usize cap) {
 		using nkentseu::float32;
 		noeuds.Clear();
+		// ② (07/09) TOUT LE CANVAS -- teste AVANT `selection`, parce qu'il n'est pose
+		//    que lorsqu'il n'y a rien de selectionne. La zone est l'union des boites,
+		//    marge des effets comprise, comme pour une selection multiple.
+		// ⚠️ LA LISTE VIENT DE `NkElementsExportables`, la MEME que le panneau
+		//    compte : deux definitions de « exportable » auraient laisse le panneau
+		//    annoncer des elements que l'export aurait refuses.
+		if (o.tout) {
+			NkElementsExportables(st, lay, &noeuds);
+			if (noeuds.Empty()) {
+				if (pourquoi && cap)
+					snprintf(pourquoi, cap, "le canvas ne contient aucun Ã©lÃ©ment exportable");
+				return false;
+			}
+			bool premier = true;
+			for (nkentseu::uint32 i = 0; i < (nkentseu::uint32)noeuds.Size(); ++i) {
+				const nkentseu::int32 k = noeuds[i];
+				const NkPaintRect b = lay.At(k);
+				const float32 m = NkMargeAutour(st.doc.nodes[(nkentseu::uint32)k]);
+				const float32 x0 = b.x - m, y0 = b.y - m, x1 = b.x + b.w + m, y1 = b.y + b.h + m;
+				if (premier) {
+					zone.x = x0; zone.y = y0; zone.w = x1 - x0; zone.h = y1 - y0;
+					premier = false;
+				} else {
+					const float32 zx1 = zone.x + zone.w, zy1 = zone.y + zone.h;
+					if (x0 < zone.x) zone.x = x0;
+					if (y0 < zone.y) zone.y = y0;
+					zone.w = (x1 > zx1 ? x1 : zx1) - zone.x;
+					zone.h = (y1 > zy1 ? y1 : zy1) - zone.y;
+				}
+			}
+			return true;
+		}
 		if (o.selection) {
 			NkVector<nkentseu::int32> brut;
 			if (!st.sel.Empty()) {
