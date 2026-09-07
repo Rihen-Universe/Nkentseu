@@ -567,7 +567,16 @@ namespace nkentseu {
 				cube.mesh = meshSys->GetCube();
 				cube.transform = NkMat4f::Translate({3.f, 6.f, -12.f});
 				cube.aabb = {{2.5f, 5.5f, -12.5f}, {3.5f, 6.5f, -11.5f}};
-				cube.tint = {1.f, 0.f, 0.f};
+				// NK_BANC_TEMOIN_ECLAT : la clarte du cube. Rouge a 1.0 (il se
+				// distingue du ciel), BLANC et vif au-dela -- c'est ce qui le fait
+				// passer le seuil du halo. La source du halo doit etre le cube et RIEN
+				// d'autre : sinon on mesurerait le halo du soleil, qui ne traverse pas
+				// la geometrie et ne dirait rien de la compensation qu'on vise.
+				{
+					const float32 ec = BancFloat("NK_BANC_TEMOIN_ECLAT", 1.f);
+					cube.tint = (ec > 1.001f) ? NkVec3f{ec, ec, ec} : NkVec3f{1.f, 0.f, 0.f};
+				}
+
 				// NK_BANC_TEMOIN_ALPHA : l'opacite du cube temoin. Il n'a AUCUNE
 				// instance de materiau, contrairement a l'occultant. Sous 0.999 il
 				// entre dans la file transparente (NkRender3D::Submit) : c'est la
