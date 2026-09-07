@@ -2609,8 +2609,10 @@ namespace nkentseu {
 			// comme la 3D → HDR/skybox à l'envers sur DX. yFlipNDC ne touche QUE le
 			// skybox ; les ombres au sol ne dépendent PAS de yFlipNDC.)
 			const auto _yApi = mDevice ? mDevice->GetApi() : ::nkentseu::NkGraphicsApi::NK_GFX_API_OPENGL;
-			const bool vkViewportFlip = (_yApi == ::nkentseu::NkGraphicsApi::NK_GFX_API_VULKAN);
-			cb.yFlipNDC = vkViewportFlip ? +1.f : -1.f;
+			const bool origineEnHaut = (_yApi == ::nkentseu::NkGraphicsApi::NK_GFX_API_VULKAN ||
+										_yApi == ::nkentseu::NkGraphicsApi::NK_GFX_API_DX11 ||
+										_yApi == ::nkentseu::NkGraphicsApi::NK_GFX_API_DX12);
+			cb.yFlipNDC = origineEnHaut ? +1.f : -1.f;
 			// Phase Planar Reflection : applique aussi la correction Vulkan
 			// clip-space à mirrorViewProj (sinon le sampling du RT serait clippé
 			// ou inversé sur Vulkan/DX). Identity en l'absence de reflet planaire.
@@ -2636,7 +2638,9 @@ namespace nkentseu {
 				NkMat4f dxClip = NkMat4f::Identity();
 				dxClip[2][2] = 0.5f;
 				dxClip[3][2] = 0.5f;
-				dxClip[1][1] = -1.f;
+				// Le RT de reflexion n'est plus rendu Y-down (negation retiree) :
+				// plus de re-flip. Mesure : reflet A a 278.5 et asymetrie 0.00 sur les
+				// quatre dorsaux. C'etait une VRAIE compensation, elle part.
 				cb.mirrorViewProj = dxClip * cb.mirrorViewProj;
 			}
 			// Flag isMirrorPass : lu par les shaders (Layered) pour skip le

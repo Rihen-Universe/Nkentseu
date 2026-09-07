@@ -1371,7 +1371,18 @@ namespace nkentseu {
 		rd.CullMode = d.rasterizer.cullMode == NkCullMode::NK_NONE	  ? D3D11_CULL_NONE
 					  : d.rasterizer.cullMode == NkCullMode::NK_FRONT ? D3D11_CULL_FRONT
 																	  : D3D11_CULL_BACK;
-		rd.FrontCounterClockwise = d.rasterizer.frontFace == NkFrontFace::NK_CCW;
+		// ⚠️ RECALIBRAGE D'ENROULEMENT (essai groupe 1), CALQUE SUR CELUI DE VULKAN.
+		// Le sens d'enroulement se determine sur l'AIRE SIGNEE en coordonnees de
+		// framebuffer. Negativer Y en sortie du nuanceur de sommets en inverse le
+		// signe -- exactement comme le viewport a hauteur negative de Vulkan, qui
+		// est deja compense ici (NkVulkanDevice.cpp:1735, meme raison, meme place).
+		// DX portait donc la MEME inversion, mais IMPLICITE, dans la negation du
+		// generateur. La negation retiree, elle doit devenir EXPLICITE, sinon DX
+		// cesse d'enrouler comme GL -- qui, lui, negate toujours.
+		// Ce n'est PAS une compensation neuve : c'est la meme convention que Vulkan
+		// declare deja, rendue visible sur le dorsal qui la portait en cachette.
+
+		rd.FrontCounterClockwise = d.rasterizer.frontFace != NkFrontFace::NK_CCW;
 		rd.DepthClipEnable = d.rasterizer.depthClip;
 		rd.ScissorEnable = d.rasterizer.scissorTest;
 		rd.MultisampleEnable = d.rasterizer.multisampleEnable;

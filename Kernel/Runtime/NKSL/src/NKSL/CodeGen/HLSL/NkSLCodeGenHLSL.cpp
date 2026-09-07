@@ -716,8 +716,18 @@ namespace nkentseu {
 				bool purePC = hasPush && !hasUBO;
 				bool depthOnly = !hasVaryingOut;
 				bool noFlip = mOpts && mOpts->disableAutoYFlip; // pragma @gl-no-flip-y
-				if (hasInputs && !purePC && !depthOnly && !noFlip)
-					EmitLine("output._Position.y = -output._Position.y;");
+				// ⚠️ LA NEGATION EST RETIREE. Mesure du 07/09, temoin cube a position
+				// connue : avec elle, opengl 169.9 juste et dx11 549.1 RETOURNE ;
+				// sans elle, l'inverse, miroir exact a 1 px. Sur DX elle etait donc
+				// appliquee la ou il ne fallait pas. Le flip GLSL (`glFlipYPosition`)
+				// RESTE : l'origine du framebuffer OpenGL est bien en bas.
+				// ⚠️ ELLE INVERSAIT AUSSI L'ENROULEMENT. Voir le recalibrage explicite
+				// dans NkDirectX11Device / NkDirectX12Device : sans lui, l'ombre DX
+				// tombait a 221.48 avec 6 426 px au lieu de 439.57 avec 25 322.
+				(void)hasInputs;
+				(void)purePC;
+				(void)depthOnly;
+				(void)noFlip;
 			}
 			if (hasOutput)
 				EmitLine("return output;");
