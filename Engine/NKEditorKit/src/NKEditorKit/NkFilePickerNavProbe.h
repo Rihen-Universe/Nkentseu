@@ -68,6 +68,7 @@
 
 #include "NKEditorKit/NkFilePickerNav.h"
 #include "NKEditorKit/Components/NkRecordingPaint.h"
+#include "NKEditorKit/NkEditorModal.h" // famille 12 : le modal qui prend le niveau 0
 
 #include <cstdio>
 
@@ -1825,8 +1826,78 @@ namespace nkentseu {
 					}
 				}
 
+				// ══ Famille 12 — UN MODAL QUI PREND LE NIVEAU 0 SANS SE NOMMER ══════
+				//
+				// 🔴 LE DEFAUT, ET IL EST VISIBLE PAR RODOLF : « cliquer sur un bouton
+				//    dans le menu Fichier comme Exporter le laisse toujours visible,
+				//    pourtant il a atteint son action. »
+				//
+				// LA CAUSE, LUE DANS LE CODE PUIS MESUREE ICI. `MenuItem` fait
+				//    correctement `ctx.ClosePopup()` -- la porte existe, et TOUS les
+				//    articles passent par elle : il n'y a PAS N articles a corriger.
+				//    Mais `ClosePopup` remet `popupDepth` a 0 SANS toucher
+				//    `popupStack`. Le dialogue s'ouvre dans la meme image et force
+				//    `popupDepth = 1` pour etre modal -- **sans ecrire QUI il est**.
+				//    A l'image suivante, `BeginMenu` teste
+				//    `popupDepth > 0 && popupStack[0] == monId` : l'identifiant du
+				//    menu est TOUJOURS la, donc le menu se croit encore ouvert.
+				//
+				// ⚠️ *UN ETAT QU'ON PREND SANS SE NOMMER USURPE L'IDENTITE DU
+				//    PRECEDENT.* Le compteur disait « quelqu'un est ouvert » et la
+				//    pile disait encore « c'est le menu Fichier » -- deux moities
+				//    d'une meme verite, dont une seule etait tenue a jour.
+				printf("\nFamille 12 — un modal qui prend le niveau 0 doit DIRE qui il est\n");
+				{
+					NkGuiContext ctx12;
+					const nkgui::NkGuiId idMenu = ctx12.GetId("Fichier");
+
+					// 12a — LE CONTROLE POSITIF DU MONTAGE. Sans lui, « le menu ne se
+					//       croit pas ouvert » serait aussi le score d'un montage ou
+					//       aucun menu n'a jamais ete ouvert.
+					ctx12.OpenPopupLevel(idMenu, 0);
+					const bool ouvertAvant = ctx12.popupDepth > 0 && ctx12.popupStack[0] == idMenu;
+					snprintf(detail, sizeof(detail),
+							 "CONTROLE POSITIF : apres `OpenPopupLevel`, le menu se sait ouvert "
+							 "(profondeur %d, pile[0] == son id : %d)",
+							 ctx12.popupDepth, ouvertAvant ? 1 : 0);
+					Verifier(b, ouvertAvant, "12a", detail);
+
+					// 12b — L'ARTICLE EST CLIQUE : `MenuItem` ferme la chaine.
+					ctx12.ClosePopup();
+					const bool fermeParLArticle = ctx12.popupDepth == 0;
+					snprintf(detail, sizeof(detail),
+							 "l'article clique ferme la chaine (`ClosePopup` -> profondeur %d) -- "
+							 "la porte existe deja, aucun article n'a a la refaire",
+							 ctx12.popupDepth);
+					Verifier(b, fermeParLArticle, "12b", detail);
+
+					// 12c — LE DIALOGUE S'OUVRE DANS LA MEME IMAGE, et le menu ne doit
+					//       PAS se croire ouvert a l'image suivante.
+					NkModal m12;
+					m12.open = true;
+					ctx12.viewW = 800;
+					ctx12.viewH = 600;
+					NkModalFrameDraw(ctx12, m12, "Exporter", 400.f, 300.f);
+					const bool menuSeCroitOuvert =
+						ctx12.popupDepth > 0 && ctx12.popupStack[0] == idMenu;
+					snprintf(detail, sizeof(detail),
+							 "le dialogue a pris le niveau 0 (profondeur %d) ; le menu s'y "
+							 "reconnait-il encore ? %s -- attendu NON",
+							 ctx12.popupDepth, menuSeCroitOuvert ? "OUI" : "non");
+					Verifier(b, !menuSeCroitOuvert, "12c", detail);
+
+					// 12d — ET LE DIALOGUE RESTE MODAL : le corriger ne doit pas lui
+					//       retirer sa modalite. `popupDepth` doit valoir au moins 1,
+					//       sinon on aurait echange un defaut contre un autre.
+					snprintf(detail, sizeof(detail),
+							 "le dialogue reste MODAL apres le correctif (profondeur %d, "
+							 "attendue >= 1) -- on ne troque pas un defaut contre un autre",
+							 ctx12.popupDepth);
+					Verifier(b, ctx12.popupDepth >= 1, "12d", detail);
+				}
+
 				terrain.Retirer();
-				printf("  -- familles 5 a 11 : %d/%d\n", b.ok, b.total);
+				printf("  -- familles 5 a 12 : %d/%d\n", b.ok, b.total);
 				return b;
 			}
 
