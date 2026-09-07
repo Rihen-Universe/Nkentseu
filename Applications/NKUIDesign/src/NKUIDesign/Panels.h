@@ -16922,20 +16922,60 @@ namespace nkuidesign {
 				// Hard Light, Difference, Exclusion, Hue, Saturation, Color, Luminosity),
 				// aucun rendu : un chantier à soi, dit ici.
 				{
+					// ⑥ (07/09) LE MODE DE FUSION DU NŒUD -- version PARTIELLE, chiffrée
+					//    avant d'être écrite (Q121). La rangée affichait « Normal » en dur
+					//    et grisé. Elle cycle désormais sur les 18 modes, et surtout elle
+					//    DIT, mode par mode, s'il est peint ou seulement enregistré.
+					// ⚠️ CINQ SUR DIX-HUIT SONT EXACTS AU GPU ; les treize autres lisent la
+					//    DESTINATION et ne sont PAS approchés. *Un repli qui reste plausible
+					//    est pire qu'un refus* : une image fausse mais crédible ne se
+					//    découvre que sur un document réel, c'est-à-dire trop tard.
+					// ⚠️ LA LISTE DES EXACTS N'EST PAS RECOPIÉE ICI : elle se lit par
+					//    `NkFusionExacte`, la fonction que LE PEINTRE appelle. Une seconde
+					//    liste aurait divergé au premier mode ajouté -- et la phrase serait
+					//    devenue le mensonge qu'elle répare (leçon du 07/09).
 					const NkRect r = ctx.NextItemRect(-1.f, 26.f);
 					const float32 x0 = r.x + 12.f;
-					ctx.BeginDisabled();
 					costume::Texte(dl, F.px10, x0, costume::CentrerBande(F.px10, r.y), "Fusion",
 								   ctx.theme.textMuted);
-					const NkRect rf = {x0 + ColChampsCalc(r.w - 24.f), costume::BandeY(r.y), 70.f, costume::HControle};
-					dl.AddRectFilled(rf, CouleurInput(), 4.f);
-					dl.AddRect(rf, ctx.theme.border, 1.f, 4.f);
-					costume::Texte(dl, F.px10, rf.x + costume::PadChamp, costume::CentrerY(F.px10, rf.y, 20.f),
-								   "Normal", ctx.theme.textMuted);
-					ctx.EndDisabled();
-					if (ctx.popupDepth == 0 && NkGuiRectContains(r, ctx.input.mousePos))
-						mSt->status = NkString("Mode de fusion : Normal seulement -- les 18 modes de Lunacy sont "
-											   "nommés (doc 13), aucun n'est rendu.");
+					const NkRect rf = {x0 + ColChampsCalc(r.w - 24.f), costume::BandeY(r.y), 96.f, costume::HControle};
+					const int32 kf = NkIndiceFusion(n->fusion.Data());
+					const bool exact =
+						renderdetail::NkFusionExacte(n->fusion)
+						!= editorkit::NkComponentPaint::NkPaintBlend::Alpha;
+					const bool svf = ctx.popupDepth == 0 && NkGuiRectContains(rf, ctx.input.mousePos);
+					dl.AddRectFilled(rf, svf ? ctx.theme.rowHover : CouleurInput(), 4.f);
+					dl.AddRect(rf, svf ? ctx.theme.accent : ctx.theme.border, 1.f, 4.f);
+					costume::TexteTronque(dl, F.px10, rf.x + costume::PadChamp,
+										  costume::CentrerY(F.px10, rf.y, 20.f),
+										  kf >= 0 ? kNkFusionLib[kf] : n->fusion.Data(),
+										  rf.w - 2.f * costume::PadChamp,
+										  n->fusion.Empty() ? ctx.theme.textMuted
+															: (exact ? ctx.theme.text : ctx.theme.textDisabled));
+					// LE POINT : peint (accent) ou seulement enregistré (éteint). Un
+					// mode qui n'agit pas doit se voir SANS survoler la rangée.
+					if (!n->fusion.Empty())
+						dl.AddCircleFilled({rf.x + rf.w + 8.f, rf.y + rf.h * 0.5f}, 3.f,
+										   exact ? ctx.theme.accent : ctx.theme.textDisabled);
+					if (svf && ctx.input.mouseClicked[0]) {
+						ctx.input.mouseClicked[0] = false;
+						const int32 suiv = (kf < 0 ? 0 : (kf + 1) % 18);
+						n->fusion = NkString(kNkFusionCle[suiv]);
+						mSt->doc.MarkHumanEdit(mSt->selected);
+						mSt->host.SyncTo(mSt->doc);
+					}
+					if (svf)
+						mSt->status = NkString(
+							n->fusion.Empty()
+								? "Fusion : Normal. Cliquer pour parcourir les 18 modes -- cinq "
+								  "sont peints exactement, les treize autres sont enregistrés et "
+								  "dits, jamais approximés."
+								: (exact ? "Fusion PEINTE exactement (au GPU) : elle s'applique au "
+										   "nœud ET à ses enfants, contre ce qui est déjà sur la "
+										   "toile -- pas « le groupe composité puis fondu »."
+										 : "Fusion ENREGISTRÉE, PAS PEINTE : ce mode lit la "
+										   "destination. Il est gardé dans le document et rendu tel "
+										   "quel à l'export, jamais approximé à l'écran."));
 				}
 			}
 			void CorpsApparence(NkGuiContext &ctx) {

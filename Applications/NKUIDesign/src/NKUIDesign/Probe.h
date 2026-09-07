@@ -11135,6 +11135,160 @@ namespace nkuidesign {
 				  "facteur descend par la recursion ; et les deux se multiplient (50% dans 50% = 25%)",
 				  ok128, det);
 		}
+		// -- 129. (6) LA FUSION DU NŒUD, VERSION PARTIELLE : par COMMANDE ------
+		//
+		// Chiffree AVANT d'etre ecrite (Q121) : zero memoire, zero passe, et elle
+		//    reutilise `NkGardeFusion` -- celle des remplissages, dont le cas 67
+		//    prouve deja les cinq modes exacts. On n'en a pas ecrit une seconde.
+		//
+		// CE QUE CE CAS EXIGE, ET IL FAUT LES QUATRE :
+		//    (a) un mode EXACT encadre le dessin du nœud d'un PushBlend/PopBlend ;
+		//    (b) un mode NON exact n'en pousse AUCUN -- il est enregistre et dit,
+		//        jamais approxime (<< un repli qui reste plausible est pire qu'un
+		//        refus >>) ;
+		//    (c) la garde couvre AUSSI la descendance : le dessin d'un enfant tombe
+		//        ENTRE le push et le pop du parent. C'est ce qui distingue un mode
+		//        de calque d'un mode par remplissage ;
+		//    (d) les push et les pop se COMPTENT : une sortie anticipee qui
+		//        laisserait un mode derriere elle teindrait tout le reste du
+		//        document.
+		{
+			char det[560];
+			auto scene129 = [](const char *modeParent, NkRecordingPaint &rec) {
+				NkUIDocument d;
+				d.NewDocument("Toile", NkAuthor::Humain);
+				d.SetMetric("espacement", 0.f);
+				d.SetMetric("marge", 0.f);
+				d.nodes[0].layout.kind = NkLayoutKind::Free;
+				const int32 grp = d.AddChild(0, "", NkAuthor::Humain);
+				{
+					NkUINode &g = d.nodes[(uint32)grp];
+					g.shape = NkString("rect");
+					g.fusion = NkString(modeParent);
+					NkRemplissage f;
+					f.couleur = NkString("#808080");
+					g.fills.PushBack(f);
+					g.layout.kind = NkLayoutKind::Free;
+					g.width.mode = NkSizeMode::Fixed;
+					g.width.value = 200.f;
+					g.height.mode = NkSizeMode::Fixed;
+					g.height.value = 150.f;
+				}
+				const int32 enf = d.AddChild(grp, "", NkAuthor::Humain);
+				{
+					NkUINode &q = d.nodes[(uint32)enf];
+					q.shape = NkString("rect");
+					NkRemplissage f;
+					f.couleur = NkString("#00ff00"); // LE VERT : le marqueur de l'enfant
+					q.fills.PushBack(f);
+					q.width.mode = NkSizeMode::Fixed;
+					q.width.value = 40.f;
+					q.height.mode = NkSizeMode::Fixed;
+					q.height.value = 20.f;
+				}
+				const NkPaintRect surf = {0.f, 0.f, 800.f, 600.f};
+				RenderDocument(rec, d, surf);
+			};
+			// L'INDEX de la premiere commande qui peint le vert de l'enfant.
+			auto indexDuVert = [](NkRecordingPaint &rec) -> int32 {
+				for (uint32 i = 0; i < (uint32)rec.cmds.Size(); ++i) {
+					const NkPaintCmd &c = rec.cmds[i];
+					if (c.op == NkPaintOp::FillColor && (c.rgba >> 8) == 0x00ff00u)
+						return (int32)i;
+				}
+				return -1;
+			};
+			auto comptePush = [](NkRecordingPaint &rec, uint16 &modePousse) -> int32 {
+				int32 n = 0;
+				modePousse = 0u;
+				for (uint32 i = 0; i < (uint32)rec.cmds.Size(); ++i)
+					if (rec.cmds[i].op == NkPaintOp::PushBlend) {
+						if (n == 0)
+							// LE MODE VIT DANS `icon`, PAS DANS `role` -- c'est la convention de
+							// `NkRecordingPaint::PushBlend`, et c'est celle que le cas 67 lit
+							// deja. Premiere ecriture : `role`, qui rendait 0 pour tous les
+							// modes -- l'essai etait rouge en accusant un peintre juste.
+							modePousse = rec.cmds[i].icon;
+						++n;
+					}
+				return n;
+			};
+			auto comptePop = [](NkRecordingPaint &rec) -> int32 {
+				int32 n = 0;
+				for (uint32 i = 0; i < (uint32)rec.cmds.Size(); ++i)
+					if (rec.cmds[i].op == NkPaintOp::PopBlend)
+						++n;
+				return n;
+			};
+			// (a) un mode EXACT : multiply
+			NkRecordingPaint rMul;
+			scene129("multiply", rMul);
+			uint16 modeMul = 0u;
+			const int32 pushMul = comptePush(rMul, modeMul);
+			const int32 popMul = comptePop(rMul);
+			const bool exactPousse =
+				pushMul == 1 && popMul == 1
+				&& modeMul == (uint16)NkComponentPaint::NkPaintBlend::Multiply;
+			// (c) l'enfant peint ENTRE le push et le pop du parent
+			int32 iPush = -1, iPop = -1;
+			for (uint32 i = 0; i < (uint32)rMul.cmds.Size(); ++i) {
+				if (rMul.cmds[i].op == NkPaintOp::PushBlend && iPush < 0)
+					iPush = (int32)i;
+				if (rMul.cmds[i].op == NkPaintOp::PopBlend)
+					iPop = (int32)i;
+			}
+			const int32 iVert = indexDuVert(rMul);
+			const bool enfantDedans = iPush >= 0 && iPop > iPush && iVert > iPush && iVert < iPop;
+			// (b) un mode NON exact : overlay -- rien ne doit etre pousse
+			NkRecordingPaint rOv;
+			scene129("overlay", rOv);
+			uint16 modeOv = 0u;
+			const int32 pushOv = comptePush(rOv, modeOv);
+			// LE CONTROLE NEGATIF DU MONTAGE : sans mode, rien non plus. Sans lui,
+			// << 0 push >> serait aussi le score d'une scene qui ne peint rien.
+			NkRecordingPaint rNul;
+			scene129("", rNul);
+			uint16 modeNul = 0u;
+			const int32 pushNul = comptePush(rNul, modeNul);
+			const bool vertPeintPartout = indexDuVert(rOv) >= 0 && indexDuVert(rNul) >= 0;
+			const bool ok129 = exactPousse && enfantDedans && pushOv == 0 && pushNul == 0
+							   && vertPeintPartout;
+			// (e) la cle : additive, aller-retour, mode inconnu PRESERVE
+			NkUIDocument dK;
+			dK.NewDocument("Toile", NkAuthor::Humain);
+			const int32 sK = dK.AddChild(0, "", NkAuthor::Humain);
+			dK.nodes[(uint32)sK].shape = NkString("rect");
+			NkString sansCle;
+			dK.Save(sansCle);
+			const bool rienParDefaut129 = strstr(sansCle.Data(), "  fusion =") == nullptr;
+			dK.nodes[(uint32)sK].fusion = NkString("mode-de-demain"); // inconnu : preserve
+			NkString avecCle;
+			dK.Save(avecCle);
+			NkUIDocument reluK;
+			const bool luK = reluK.Load(avecCle.Data());
+			const bool inconnuGarde =
+				luK && reluK.IsValidIndex(sK)
+				&& NkComponentDecl::StrEq(reluK.nodes[(uint32)sK].fusion.Data(), "mode-de-demain");
+			NkString reecritK;
+			if (luK)
+				reluK.Save(reecritK);
+			const bool stableK = luK && NkComponentDecl::StrEq(avecCle.Data(), reecritK.Data());
+			snprintf(det, sizeof(det),
+					 "<< multiply >> : %d push / %d pop, mode=%u (Multiply=%u), l'enfant peint "
+					 "a l'index %d entre %d et %d -> %d ; << overlay >> : %d push (attendu 0) ; "
+					 "sans mode : %d push ; le vert est peint dans les trois=%d ; cle : rien par "
+					 "defaut=%d, mode INCONNU preserve=%d, reenregistrement identique=%d",
+					 pushMul, popMul, (unsigned)modeMul,
+					 (unsigned)NkComponentPaint::NkPaintBlend::Multiply, iVert, iPush, iPop,
+					 enfantDedans ? 1 : 0, pushOv, pushNul, vertPeintPartout ? 1 : 0,
+					 rienParDefaut129 ? 1 : 0, inconnuGarde ? 1 : 0, stableK ? 1 : 0);
+			check("129. (6) LA FUSION DU NŒUD, VERSION PARTIELLE : un mode EXACT encadre le nœud d'un "
+				  "PushBlend/PopBlend appaires, la garde couvre AUSSI la descendance (le dessin de "
+				  "l'enfant tombe ENTRE les deux -- c'est ce qui distingue un mode de calque d'un mode "
+				  "par remplissage), et un mode NON exact ne pousse RIEN : il est enregistre et dit, "
+				  "jamais approxime. La cle est additive et preserve un mode inconnu",
+				  ok129 && rienParDefaut129 && inconnuGarde && stableK, det);
+		}
 		// ── 94. ① L'APERCU PENDANT LE TRACE (05/09). Rodolf : « pourquoi quand on dessine un
 		//    graphique on voit juste le rectangle qui s'allonge, et des qu'on relache on voit la
 		//    forme ? » Deux mesures : LA TABLE DE GENRE (une seule, lue par le relachement et par

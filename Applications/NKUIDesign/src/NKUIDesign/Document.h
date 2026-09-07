@@ -1234,6 +1234,21 @@ namespace nkuidesign {
 			///    compositing demande une cible hors écran -- c'est un chantier de
 			///    rendu, nommé ici pour qu'on ne le découvre pas à l'usage.
 			float32 opacite = 100.f;
+			/// ⑥ (07/09) LE MODE DE FUSION DU NŒUD (Lunacy « LAYER »), clé `fusion`.
+			/// La clé CSS (`multiply`, `screen`…) ; vide = normal. Texte libre, un mode
+			/// inconnu est PRÉSERVÉ et montré tel quel -- même règle que la fusion par
+			/// remplissage, dont ce champ est le jumeau à l'échelle du nœud.
+			/// ⚠️ ADDITIVE : rien au fichier tant qu'elle est vide.
+			/// ⚠️ CINQ MODES SUR DIX-HUIT sont peints exactement (au GPU) ; les treize
+			///    autres lisent la DESTINATION et restent « enregistrés, pas peints ».
+			///    Les approcher donnerait une image plausible et fausse, qui ne se
+			///    découvrirait que sur un document réel -- *un repli qui reste plausible
+			///    est pire qu'un refus.*
+			/// ⚠️ ET CE N'EST PAS UN CALQUE COMPOSITÉ UNE SEULE FOIS, exactement comme
+			///    `opacite` : le nœud se fond avec ce qui est DÉJÀ sur la toile, pas
+			///    « le groupe composité PUIS fondu ». Même écart avec Lunacy, même
+			///    phrase : qui a compris la limite de l'opacité comprend celle-ci.
+			NkString fusion;
 			NkString spacingName;
 			NkString padName;
 
@@ -3069,6 +3084,8 @@ namespace nkuidesign {
 					WriteNum(out, n.opacite);
 					out.Append('\n');
 				}
+				if (!n.fusion.Empty())
+					Field(out, "fusion", n.fusion.Data());
 				if (n.miroirH)
 					out.Append("  miroir_h = 1\n");
 				if (n.miroirV)
@@ -3967,6 +3984,8 @@ namespace nkuidesign {
 							n.radius = ParseNum(val);
 						else if (StrEq(key, "rotation"))
 							n.rotation = ParseNum(val);
+						else if (StrEq(key, "fusion"))
+							n.fusion = NkString(val);
 						else if (StrEq(key, "opacite"))
 							n.opacite = ParseNum(val);
 						else if (StrEq(key, "miroir_h"))

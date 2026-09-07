@@ -2846,6 +2846,19 @@ namespace nkuidesign {
 		//    qu'on ne pourrait plus rattraper qu'en le cherchant dans l'arbre.
 		const nkentseu::float32 opaciteEff =
 			opaciteHeritee * renderdetail::NkKOpacite(n.opacite, 1.f);
+		// ⑥ (07/09) LE MODE DE FUSION DU NŒUD, VERSION PARTIELLE : par COMMANDE.
+		//    La garde couvre le dessin du nœud ET sa descendance (elle vit jusqu'au
+		//    bout de la fonction) -- c'est ce qu'un mode de calque veut dire. La pile
+		//    de mélange de NKGui est une VRAIE pile (profondeur 16) : un enfant qui
+		//    pose le sien reprend la main pour ses propres commandes, puis rend.
+		// ⚠️ ON REUTILISE `NkGardeFusion`, celle des remplissages -- on n'en écrit
+		//    pas une seconde. Cinq modes exacts au GPU, treize « enregistrés, pas
+		//    peints » : la garde ne pousse rien pour ceux-là, donc rien n'est
+		//    approché. *Un repli qui reste plausible est pire qu'un refus.*
+		// ⚠️ CE N'EST PAS UN CALQUE COMPOSITÉ UNE SEULE FOIS : le nœud se fond avec
+		//    ce qui est déjà sur la toile. Le vrai calque demande une cible hors
+		//    écran -- chiffré (Q121), pas commencé.
+		const renderdetail::NkGardeFusion gardeFusionNoeud(p, n.fusion);
 		// ── LA MATRICE DU NOEUD, DANS LE PEINTRE ──────────────────────────
 		// Tout ce que ce noeud dessine (forme, composant, texte) passe par
 		// elle : rotation, miroirs, echelle, ancetres compris. Depilee AVANT
