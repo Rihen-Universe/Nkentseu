@@ -2422,8 +2422,19 @@ int nkmain(const NkEntryState &entry) {
 				// des pixels que le ciel occupe -- l'interface, elle, ne bouge pas.
 				// Sans ca il faudrait poser un rectangle a l'oeil sur la capture.
 				{
+					// NK_AGENT_SKY=-1 ETEINT le ciel. C'est ce qui permet de DERIVER la
+					// region du viseur proprement : la difference entre ciel allume et
+					// ciel eteint couvre TOUT le ciel, la ou la difference entre deux
+					// MODELES ne couvre qu'une bande -- j'ai mesure une bande de 96
+					// lignes en croyant tenir le viseur, et le verdict d'orientation qui
+					// en sortait ne valait rien.
 					const char *sm = std::getenv("NK_AGENT_SKY");
-					demo::Demo3DHostSetSkyModel(sm && sm[0] ? (int32)std::atoi(sm) : 2);
+					const int32 mdl = (sm && sm[0]) ? (int32)std::atoi(sm) : 2;
+					if (mdl < 0) {
+						demo::Demo3DHostSetSkyVisible(false);
+					} else {
+						demo::Demo3DHostSetSkyModel(mdl);
+					}
 				}
 				std::printf("[nk3d] NK_AGENT_SCENE : ciel Rayleigh+Mie pose (hote pret)\n");
 			}
