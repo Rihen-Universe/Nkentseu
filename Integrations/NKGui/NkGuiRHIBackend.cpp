@@ -92,9 +92,27 @@ void main() {
     if (vUV.x >= 0.0 && vUV.y >= 0.0) {
         tc = texture(uTex, vUV);
     }
-    vec4 color = vColor * tc;
-    color.rgb = pow(color.rgb, vec3(2.2));
-    fragColor = color;
+    // ⚠️ LE `pow(color.rgb, 2.2)` QUI ETAIT ICI EST RETIRE (2026-09-08).
+    // Il n'existait QUE sur ce dorsal, dans un nuanceur ecrit a la main, et il
+    // rendait toute l'interface de Vulkan visiblement plus sombre que celle des
+    // trois autres. MESURE avant retrait, capture de la fenetre du modeleur :
+    //     opengl 54,57   dx11 53,72   vulkan 24,00
+    //     opengl^2,2 = 22,63   dx11^2,2 = 22,31   -> ecart a vulkan 0,5 %
+    // La prediction, posee AVANT verification, tombe : ce pow expliquait tout
+    // l'ecart, a un demi pour cent pres.
+    //
+    // ET IL EST ORPHELIN, VERIFIE PLUTOT QUE SUPPOSE. Un tel pre-encodage ne se
+    // justifierait que si la chaine d'echange etait sRGB -- le materiel
+    // encoderait alors a l'ecriture et il faudrait pre-lineariser. Les quatre
+    // presentent dans le MEME format, non sRGB :
+    //     DX11  DXGI_FORMAT_B8G8R8A8_UNORM   (code en dur)
+    //     DX12  DXGI_FORMAT_B8G8R8A8_UNORM   (code en dur)
+    //     GL    GL_FRAMEBUFFER_SRGB DESACTIVE (le format demande n'est pas sRGB)
+    //     VK    VK_FORMAT_B8G8R8A8_UNORM = 44 (MESURE a l'execution, pas deduit
+    //           du format demande : le repli `fmts[0]` aurait pu donner autre chose)
+    // Il ne compensait donc rien. Ce n'est pas une convention vraie qu'on
+    // deplace, c'est une compensation qui part.
+    fragColor = vColor * tc;
 }
 )GLSL";
 
@@ -329,9 +347,37 @@ float4 PSMain(PSIn i) : SV_Target {
                 // SPIR-V PRÉ-COMPILÉ (kVertVk/kFragVk) : la compilation glslang au
                 // runtime corrompt le heap sous clang-mingw (crash Vulkan). (void) sur
                 // CompileVkSpirv pour garder la fonction référencée.
-                (void)&CompileVkSpirv;
-                shaderDesc.AddSPIRV(NkShaderStage::NK_VERTEX,   kNkGuiVkVertSpv, sizeof(kNkGuiVkVertSpv));
-                shaderDesc.AddSPIRV(NkShaderStage::NK_FRAGMENT, kNkGuiVkFragSpv, sizeof(kNkGuiVkFragSpv));
+                // ⚠️ ON COMPILE MAINTENANT LA SOURCE, ET C'EST OBLIGE : le SPIR-V
+                // pre-compile porte encore le `pow` dans ses octets. Editer
+                // `kFragVk` sans recompiler n'aurait RIEN change -- une source
+                // corrigee et un binaire perime auraient donne un correctif
+                // invisible, exactement le piege du cache de nuanceurs.
+                //
+                // Le commentaire d'origine attribuait un plantage a glslang au
+                // runtime. Cette attribution est SUSPECTE (le meme symptome a ete
+                // impute au lanceur et au PATH ailleurs dans ce depot) mais elle
+                // n'etait pas verifiee ici. On la met a l'epreuve, et le repli
+                // sur le binaire pre-compile reste en place si la compilation
+                // echoue -- une regression silencieuse serait pire que le pow.
+                auto vs = CompileVkSpirv(kVertVk, NkShaderStage::NK_VERTEX, "NkGui_VS");
+                auto fs = CompileVkSpirv(kFragVk, NkShaderStage::NK_FRAGMENT, "NkGui_FS");
+                // Le SPIR-V vit dans `binary` (mots uint32 emballes en octets), et on
+                // verifie le NOMBRE MAGIQUE : un binaire tronque ou vide passerait
+                // sinon pour valide et le pilote refuserait le pipeline sans dire
+                // pourquoi.
+                const bool vsOk = vs.success && vs.SpirvWordCount() > 0 &&
+                                  vs.SpirvWords()[0] == 0x07230203u;
+                const bool fsOk = fs.success && fs.SpirvWordCount() > 0 &&
+                                  fs.SpirvWords()[0] == 0x07230203u;
+                if (vsOk && fsOk) {
+                    shaderDesc.AddSPIRV(NkShaderStage::NK_VERTEX, vs.SpirvWords(), vs.binary.Size());
+                    shaderDesc.AddSPIRV(NkShaderStage::NK_FRAGMENT, fs.SpirvWords(), fs.binary.Size());
+                } else {
+                    logger.Errorf("[NkGuiRHIBackend] compilation SPIR-V refusee, repli sur le "
+                                  "binaire pre-compile -- L'INTERFACE RESTERA SOMBRE\n");
+                    shaderDesc.AddSPIRV(NkShaderStage::NK_VERTEX,   kNkGuiVkVertSpv, sizeof(kNkGuiVkVertSpv));
+                    shaderDesc.AddSPIRV(NkShaderStage::NK_FRAGMENT, kNkGuiVkFragSpv, sizeof(kNkGuiVkFragSpv));
+                }
             }
             mShader = mDevice->CreateShader(shaderDesc);
             if (!mShader.IsValid()) return false;
