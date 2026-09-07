@@ -1711,6 +1711,10 @@ namespace nkuidesign {
 					/// LE PRELEVEMENT EST ARME : le prochain clic prend la couleur sous
 					/// le pointeur. Echap l'annule sans rien changer.
 					bool pipette = false;
+					/// ① L'APERCU NE COMMENCE QU'AU PREMIER MOUVEMENT. Le point ou le mode
+					/// a ete arme, et le fait qu'on s'en soit ecarte une fois.
+					float32 armeX = 0.f, armeY = 0.f;
+					bool aBouge = false;
 					/// ① LE MODE NAIT EN ATTENTE DE RELACHEMENT. **Le meme appui ne peut
 					/// pas etre consomme deux fois** : celui qui ARME ne peut pas etre relu
 					/// comme celui qui PRELEVE.
@@ -11819,6 +11823,33 @@ namespace nkuidesign {
 			   arme ? "   (prelevement ARME)" : "");
 	}
 
+	// ── ① L'APERCU NE COMMENCE QU'AU PREMIER MOUVEMENT ────────────────
+	//
+	// 🔴 CE QUE RODOLF VOYAIT, ET IL AVAIT RAISON DE LE DIRE : la trace prouve que
+	//    l'armement ne preleve PAS (deux appuis distincts, un seul prelevement).
+	//    Mais l'apercu, lui, demarrait A L'INSTANT DE L'ARMEMENT, a la position ou
+	//    le pointeur se trouvait deja -- **c'est-a-dire sur l'icone**. La couleur du
+	//    selecteur changeait donc au clic d'armement. *A l'œil, indistinguable d'un
+	//    << ce clic a valide la couleur >>.* Il n'a pas mal observe : il a observe
+	//    un AUTRE defaut.
+	//
+	// ⚠️ MEME FORME DE REGLE QUE `attendRelache` : une condition sur le GESTE, pas
+	//    sur le temps. Tant que le pointeur ne s'est pas ECARTE du point d'armement,
+	//    la couleur affichee reste celle d'avant. Et une fois qu'il a bouge, c'est
+	//    acquis -- revenir sur le point d'armement ne rearme pas l'attente.
+	//
+	/// A-t-on bouge depuis l'armement ? Le seuil est en pixels : deux, soit plus
+	/// qu'un tremblement de main et moins qu'un deplacement voulu.
+	inline bool NkPipetteAPuBouger(nkentseu::float32 x, nkentseu::float32 y, nkentseu::float32 armeX,
+								   nkentseu::float32 armeY, bool &aBouge) noexcept {
+		if (aBouge)
+			return true;
+		const nkentseu::float32 dx = x - armeX, dy = y - armeY;
+		if (dx * dx + dy * dy > 4.f)
+			aBouge = true;
+		return aBouge;
+	}
+
 	/// LE SURVOL DANS L'IMAGE FIGEE : rend faux si le point n'y est pas.
 	/// ⚠️ FONCTION LIBRE, ET C'EST DELIBERE : le banc doit lire par LA MEME porte
 	///    que le mode. Ecrite deux fois, l'essai aurait mesure sa propre copie --
@@ -12021,7 +12052,16 @@ namespace nkuidesign {
 			}
 		}
 		// (b) LE SURVOL : la couleur SUIT le pointeur, lue dans l'image figee.
-		if (st.picker.pipette && st.pipetteImagePrete
+		// ⚠️ ET ON NE PRELEVE PAS SOUS LA FENETRE DU SELECTEUR. La regle << on lit la
+		//    couche principale >> ne suffit PAS a l'exclure : elle ecarte la chrome du
+		//    popover (dessinee dans l'overlay), mais elle rend ce qu'il y a DERRIERE
+		//    lui -- une couleur que l'œil ne voit pas. Voir sauter la couleur en
+		//    survolant sa propre fenetre n'apprend rien et brouille le geste.
+		const bool surLaFenetre =
+			ctx.popupDepth > 0 && nkgui::NkGuiRectContains(ctx.popupRects[0], ctx.input.mousePos);
+		if (st.picker.pipette && st.pipetteImagePrete && !surLaFenetre
+			&& NkPipetteAPuBouger(ctx.input.mousePos.x, ctx.input.mousePos.y, st.picker.armeX,
+								  st.picker.armeY, st.picker.aBouge)
 			&& NkPipetteSurvol(st.pipetteImage, (nkentseu::int32)ctx.input.mousePos.x,
 							   (nkentseu::int32)ctx.input.mousePos.y, st.picker.hex,
 							   (nkentseu::uint32)sizeof(st.picker.hex)))
@@ -13038,6 +13078,10 @@ namespace nkuidesign {
 								snprintf(d.avant, sizeof(d.avant), "%s", couleurCourante.Data());
 								// ① CET appui-ci a arme : il ne prelevera pas.
 								d.attendRelache = true;
+								// ① ... et l'apercu attendra le premier mouvement.
+								d.armeX = ctx.input.mousePos.x;
+								d.armeY = ctx.input.mousePos.y;
+								d.aBouge = false;
 							}
 							if (NkTracePipetteActive())
 								printf("[pipette] ICONE cliquee : mode=%d, attendRelache=%d, "

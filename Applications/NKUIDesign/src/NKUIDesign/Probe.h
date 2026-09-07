@@ -12677,6 +12677,49 @@ namespace nkuidesign {
 					  && survolNePrelevePas && cable,
 				  det);
 		}
+		// ── 142. L'APERCU NE COMMENCE QU'AU PREMIER MOUVEMENT (07/09). La TRACE a
+		//    tranche : l'armement ne preleve pas (deux appuis distincts, un seul
+		//    prelevement) -- mais l'apercu demarrait A L'INSTANT DE L'ARMEMENT, a la
+		//    position ou le pointeur se trouvait deja, c'est-a-dire SUR L'ICONE. La
+		//    couleur changeait donc au clic d'armement, et a l'œil c'est
+		//    indistinguable d'un << ce clic a valide la couleur >>.
+		//
+		// ⚠️ LA REGLE EST UNE CONDITION SUR LE GESTE, comme `attendRelache` : pas un
+		//    compteur d'images, pas un delai. Tant que le pointeur ne s'est pas
+		//    ECARTE, la couleur reste celle d'avant -- et une fois qu'il a bouge,
+		//    c'est ACQUIS : revenir sur le point d'armement ne rearme pas l'attente.
+		{
+			char det[420];
+			bool bouge = false;
+			const float32 ax = 500.f, ay = 300.f; // le point d'armement
+			// (a) l'image de l'armement : le pointeur est ENCORE sur l'icone
+			const bool m0 = NkPipetteAPuBouger(ax, ay, ax, ay, bouge);
+			// (b) un tremblement d'un pixel : toujours rien
+			const bool m1 = NkPipetteAPuBouger(ax + 1.f, ay, ax, ay, bouge);
+			// (c) un deplacement voulu : l'apercu commence
+			const bool m2 = NkPipetteAPuBouger(ax + 3.f, ay, ax, ay, bouge);
+			// (d) ET C'EST ACQUIS : revenir sur le point d'armement ne le desarme pas
+			const bool m3 = NkPipetteAPuBouger(ax, ay, ax, ay, bouge);
+			// (e) un NOUVEL armement repart en attente (l'etat est remis a faux)
+			bool bouge2 = false;
+			const bool m4 = NkPipetteAPuBouger(ax, ay, ax, ay, bouge2);
+
+			const bool immobileNeMontreRien = !m0 && !m1 && !m4;
+			const bool mouvementDeclenche = m2;
+			const bool acquis = m3;
+			snprintf(det, sizeof(det),
+					 "sur le point d'armement : %d ; a 1 px (tremblement) : %d ; a 3 px "
+					 "(deplacement voulu) : %d ; RETOUR sur le point d'armement : %d "
+					 "(acquis, l'attente ne revient pas) ; apres un NOUVEL armement : %d",
+					 m0 ? 1 : 0, m1 ? 1 : 0, m2 ? 1 : 0, m3 ? 1 : 0, m4 ? 1 : 0);
+			check("142. L'APERCU NE COMMENCE QU'AU PREMIER MOUVEMENT APRES L'ARMEMENT : au clic qui arme, "
+				  "le pointeur est SUR L'ICONE -- prelever la se voit comme << ce clic a valide la "
+				  "couleur >>, et c'est ce que Rodolf decrivait. Tant qu'on ne s'est pas ecarte, la "
+				  "couleur reste celle d'avant. Un tremblement d'un pixel ne compte pas ; un "
+				  "deplacement voulu, oui ; et une fois acquis, revenir sur le point d'armement ne "
+				  "rearme pas l'attente -- seul un NOUVEL armement la repose",
+				  immobileNeMontreRien && mouvementDeclenche && acquis, det);
+		}
 		// ── 94. ① L'APERCU PENDANT LE TRACE (05/09). Rodolf : « pourquoi quand on dessine un
 		//    graphique on voit juste le rectangle qui s'allonge, et des qu'on relache on voit la
 		//    forme ? » Deux mesures : LA TABLE DE GENRE (une seule, lue par le relachement et par

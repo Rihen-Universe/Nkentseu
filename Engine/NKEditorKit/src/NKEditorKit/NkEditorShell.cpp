@@ -818,10 +818,39 @@ namespace nkentseu {
 			const float32 railB = mRailCount[2] > 0 ? railW : 0.f;
 
 			// Barre de titre custom UNE ligne : logo + menus | infos | min/max/close.
+			// ══ ② TRACE — QUELLE PHASE POSE LE CURSEUR (`NK_TRACE_PIPETTE=1`) ═════
+			//
+			// 🔴 La trace precedente ne nommait QUE mes ecritures : les 18 autres sites
+			//    (NKGui) ecrivent sans se nommer, et je ne peux pas les instrumenter --
+			//    ils vivent dans le noyau. **On instrumente donc les PHASES de l'image**,
+			//    ici, ou elles se suivent toutes : la phase qui a change la valeur est
+			//    nommee, meme quand l'ecrivain, lui, se tait.
+			//
+			// ⚠️ On n'imprime QUE les changements, et seulement quand la valeur devient
+			//    un curseur de redimensionnement -- le symptome qu'on cherche. Le reste
+			//    serait du bruit qui cacherait la ligne utile.
+			const bool tracePhase = []() {
+				const char *v = getenv("NK_TRACE_PIPETTE");
+				return v && v[0] && v[0] != '0';
+			}();
+			nkgui::NkGuiCursor curseurPrec = mUI.wantCursor;
+			auto phase = [&](const char *nom) {
+				if (!tracePhase || mUI.wantCursor == curseurPrec)
+					return;
+				static const char *const kN[] = {"fleche", "texte", "main", "REDIM <->",
+											 "redim haut-bas"};
+				const int32 a = (int32)curseurPrec, b = (int32)mUI.wantCursor;
+				printf("[pipette] phase %-22s : %s -> %s\n", nom,
+						a >= 0 && a < 5 ? kN[a] : "?", b >= 0 && b < 5 ? kN[b] : "?");
+				curseurPrec = mUI.wantCursor;
+			};
+			phase("depart de l'image");
 			DrawTitleBar(ec, {logoW, 0.f, W - logoW, titleH});
+			phase("barre de titre");
 			// Barre d'outils Visual Studio (config/plateforme cible + Build/Run + emulateur).
 			if (mToolbarFn && !fullScreen)
 				DrawToolbar(ec, {logoW, titleH, W - logoW, toolbarH});
+			phase("barre d'outils");
 			// ⚠️ LE BLOC LOGO EST DESSINE APRES LES DEUX BANDES, et c est la seule
 			//    facon de le faire CHEVAUCHER : il est plus haut que la premiere
 			//    bande, donc il ne peut pas vivre dedans.
@@ -910,6 +939,7 @@ namespace nkentseu {
 					DrawRail(2, {actWL, bodyTop + bodyH - railW, W - actWL - actWR, railW},
 							 false);
 				DockSpace(mUI, "##EditorDock", corps);
+			phase("DockSpace (separateurs)");
 				// Seul le panneau CENTRAL masque la barre d'onglets de sa feuille quand il
 				// est seul (il affiche ses propres onglets de fichiers) ; Terminal/Sortie/
 				// sidebars gardent TOUJOURS leurs onglets, même seuls (façon VSCode).
@@ -923,10 +953,12 @@ namespace nkentseu {
 													|| mPanels[i]->DefaultSide() == NkEditorDockSide::NK_CENTER);
 				BootstrapDocking();
 				DrawPanels(ec);
+			phase("PANNEAUX");
 				// ⚠️ APRES LES PANNEAUX : le tiroir passe PAR-DESSUS le dock. Pose
 				//    avant, il finirait derriere, et on croirait qu il ne s ouvre
 				//    pas.
 				DrawRailDrawers(ec, corps);
+			phase("tiroirs de rail");
 				if (mStatusBarFn) {
 					// Barre d'etat « a sa maniere » (SetStatusBarFn, patron SetMenuBar) :
 					// l'app dessine TOUTE la bande — fond, voyants, textes, zoom compris.
@@ -945,17 +977,22 @@ namespace nkentseu {
 				}
 			}
 			HandleEdgeResize(W, H); // bords de redimensionnement (fenetre sans bordure)
+			phase("bords de fenetre");
 
 			if (modal)
 				mUI.input = savedInput; // restaure pour le popup
 			mPopupMasked = false;
 			DrawContextMenu(); // menu contextuel shell-level (au-dessus des panneaux)
+			phase("menu contextuel");
 			// (DrawFilePicker retiré : add-folder réutilise LE picker de l'app, Dialogs.h.
 			//  Le picker fichier/dossier UNIFIÉ sera extrait dans NKEditorKit — phase 2.)
 			DrawCommandPalette(ec);
+			phase("palette de commandes");
 			DrawPreferences(ec); // fenetre Preferences (menu dedie)
+			phase("preferences");
 			if (mOverlayFn)
 				mOverlayFn(ec, mOverlayUser); // dialogues modaux de l'app (creation/proprietes)
+			phase("OVERLAY (pipette)");
 
 			// Bordure de NOTRE fenetre (l'OS n'en dessine plus) — sauf si maximisee.
 			if (!mWindow.IsMaximized())
