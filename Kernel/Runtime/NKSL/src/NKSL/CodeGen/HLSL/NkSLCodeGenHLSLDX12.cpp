@@ -88,13 +88,37 @@ namespace nkentseu {
 	// =============================================================================
 	// Helpers internes
 	// =============================================================================
+	// ⚠️ LA MEME REGLE QUE `BuiltinToHLSL`, ET C'EST TOUT L'ENJEU. La REFERENCE
+	// (`output._Depth`) et la DECLARATION (`float _Depth : SV_Depth;`) sont
+	// decidees a deux endroits ; si les deux ne reconnaissent pas `gl_FragDepth`
+	// DE LA MEME FACON, le generateur emet un identifiant que rien ne definit.
+	// `BuiltinToHLSL` minuscule avant de comparer ; ce scan-ci comparait la casse
+	// exacte. Mesure du 07/09 sur ShadowLinear, meme shader le meme jour :
+	//    DX11 -> struct PS_Output { float _Depth : SV_Depth; };
+	//    DX12 -> struct NkOutput { };            <- vide, et `output._Depth` ecrit
+	// dxc et fxc refusent tous deux, pour la meme raison.
+	static bool NkSL_EstFragDepth(const NkString &n) {
+		NkString c(n);
+		c.ToLower();
+		// ⚠️ MESURE, ET JE LA DIS PARCE QU'ELLE M'A DETROMPE : l'insensibilite
+		// n'etait PAS la cause du defaut du 07/09. Eprouvee dans les deux sens,
+		// la comparaison sensible a la casse suffisait -- l'arbre garde bien
+		// `gl_FragDepth`. La seule cause etait la condition `isEntry` ci-dessous.
+		// On garde quand meme l'insensibilite, et pour une raison NOMMEE : la
+		// REFERENCE (`BuiltinToHLSL`) est insensible depuis le 06/09. Laisser la
+		// DECLARATION sensible, c'est garder ouvert le meme piege qu'on vient de
+		// fermer -- un `gl_fragdepth` minuscule produirait une reference sans
+		// declaration. Une regle, un seul endroit.
+		return c == "gl_fragdepth";
+	}
+
 	static bool ScanWritesDepthDX12(NkSLNode *node) {
 		if (!node)
 			return false;
 		if (node->kind == NkSLNodeKind::NK_EXPR_ASSIGN) {
 			auto *a = static_cast<NkSLAssignNode *>(node);
 			if (a->lhs && a->lhs->kind == NkSLNodeKind::NK_EXPR_IDENT)
-				if (static_cast<NkSLIdentNode *>(a->lhs)->name == "gl_FragDepth")
+				if (NkSL_EstFragDepth(static_cast<NkSLIdentNode *>(a->lhs)->name))
 					return true;
 		}
 		for (auto *c : node->children)
@@ -528,10 +552,24 @@ namespace nkentseu {
 			} else if (node->kind == NkSLNodeKind::NK_DECL_STORAGE_BLOCK) {
 				mSBuffers.PushBack(static_cast<NkSLBlockDeclNode *>(node));
 			} else if (node->kind == NkSLNodeKind::NK_DECL_FUNCTION) {
-				auto *fn = static_cast<NkSLFunctionDeclNode *>(node);
-				if (fn->body && fn->isEntry) {
-					mWritesDepth = ScanWritesDepthDX12(fn->body);
-				}
+				// ⚠️ LA DECLARATION DE `_Depth` DOIT SUIVRE LA MEME REGLE QUE SA
+				// REFERENCE. `BuiltinToHLSL` rend `output._Depth` des qu'un shader
+				// nomme `gl_FragDepth` ; si la struct de sortie, elle, ne le declare
+				// pas, on emet un identifiant que rien ne definit -- et dxc comme fxc
+				// refusent, pour la meme raison (mesure du 07/09 sur ShadowLinear :
+				// « no member named '_Depth' in 'NkOutput' », puis X3018).
+				//
+				// CE QUI CLOCHAIT : cette detection exigeait `fn->isEntry` et
+				// AFFECTAIT le resultat, la ou DX11 (NkSLCodeGenHLSL.cpp:1226) scanne
+				// TOUTE declaration de fonction et CUMULE. Mesure sur le meme shader,
+				// le meme jour : DX11 sortait `struct PS_Output { float _Depth :
+				// SV_Depth; };` et DX12 `struct NkOutput { };` -- vide. Deux copies
+				// d'un meme predicat qui ont diverge.
+				//
+				// On aligne DX12 sur DX11 : meme condition, meme cumul. Ce n'est pas
+				// une compensation, c'est la suppression d'un ecart.
+				if (mStage == NkSLStage::NK_FRAGMENT && ScanWritesDepthDX12(node))
+					mWritesDepth = true;
 			}
 		}
 	}
