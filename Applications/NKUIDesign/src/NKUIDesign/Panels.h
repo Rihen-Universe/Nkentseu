@@ -38,6 +38,7 @@
 //   faudrait pour s'en passer.
 // -----------------------------------------------------------------------------
 
+#include "NKGui/Core/NkGuiDrawListRaster.h" // LE rasteriseur de la maison (la pipette le PILOTE)
 #include "NKEditorKit/Components/NkGuiComponentPaint.h"
 #include "NKEditorKit/NkFilePickerNav.h"
 #include "NKWindow/Core/NkLauncher.h" // ⑤ LE lanceur systeme de la maison (un seul) // ② le selecteur a deux volets (vignettes)
@@ -1687,6 +1688,16 @@ namespace nkuidesign {
 					/// ressemblent, et le dessinateur ROUVRE ce que l'utilisateur vient
 					/// de fermer. Voir `NkPopupDeLaDemande`.
 					bool pose = false;
+					/// LE PRELEVEMENT EST ARME : le prochain clic prend la couleur sous
+					/// le pointeur. Echap l'annule sans rien changer.
+					bool pipette = false;
+					/// UN POINT A ETE PRIS et attend d'etre lu. ⚠️ DEUX MOMENTS, UN SEUL
+					/// MECANISME : le clic doit etre INTERCEPTE **avant** les panneaux
+					/// (sinon la toile le recoit et deplace la selection), mais le pixel
+					/// ne peut etre lu qu'**apres** eux -- la liste de dessin de l'image
+					/// n'est complete qu'a ce moment-la. On retient donc le point.
+					bool pipettePris = false;
+					float32 pipetteX = 0.f, pipetteY = 0.f;
 			};
 			DemandePicker picker;
 			/// ⑤ LA DECLARATION QUE LA HIERARCHIE MONTRE (« Voir le composant », 05/09) :
@@ -11548,6 +11559,60 @@ namespace nkuidesign {
 	/// `noeudDecrit` : l'index du nœud que cette pastille décrit, ou **-1** si elle
 	/// n'en décrit aucun (le décor de la toile). **Sans valeur par défaut**, exprès :
 	/// une porte de plus doit se poser la question plutôt que d'hériter d'un choix.
+	// ── LA PIPETTE : PRELEVER LA COULEUR D'UN PIXEL DE NOTRE FENETRE ────────
+	//
+	// 🔴 RODOLF (07/09) : *<< par defaut dans les color picker on doit avoir une
+	//    pipette en plus >>* -- dans TOUS les selecteurs. Elle vit donc dans
+	//    l'enveloppe, ecrite UNE fois.
+	//
+	// ⚠️ MESURE AVANT D'ECRIRE (quatrieme fois que ca paie) : **la lecture de
+	//    pixel existait deja**. `NkGuiDrawListRaster` (NKGui) rend une liste de
+	//    dessin en pixels et expose `Pixel(x, y)` en 0xRRGGBBAA -- c'est le
+	//    rasteriseur que l'EXPORT PNG pilote depuis le 06/09. La pipette le
+	//    PILOTE ; elle n'en ecrit pas un second.
+	//
+	// ⚠️ LA PORTEE EST LA FENETRE DE L'APPLICATION, PAS LE BUREAU. Neuf fois sur
+	//    dix on preleve une couleur de ses propres artboards, et l'application a
+	//    deja ces pixels. Une pipette qui lit le bureau lit tout ce qui est
+	//    affiche : **une capture d'ecran, meme d'un pixel, reste une capture
+	//    d'ecran.** Le bureau entier serait un lot a part, avec sa question posee.
+	//
+	// ⚠️ ON PRELEVE DANS LA COUCHE PRINCIPALE, PAS DANS L'OVERLAY : les surfaces
+	//    flottantes (le selecteur lui-meme, les menus) ne sont pas la page. Sans
+	//    ca, prelever sous le pointeur rendrait la couleur du popover qu'on a
+	//    ouvert -- il couvre precisement l'endroit ou l'on clique.
+	//
+	// ⚠️ LA CIBLE VA DE (0,0) AU POINT DEMANDE, et pas plus loin : les
+	//    coordonnees du rasteriseur sont CELLES DE L'ECRAN, donc aucun decalage a
+	//    poser -- et ce qui est a droite ou en dessous du point ne coute rien.
+	//    Une cible pleine fenetre serait 5 Mo peints pour lire quatre octets.
+	//
+	/// Preleve le pixel (x, y) de `dl` tel qu'il est peint, sur un fond `fondRgba`
+	/// (le sol de la fenetre : sans lui, une zone non peinte rendrait du noir
+	/// transparent, c'est-a-dire une couleur que personne ne voit). Ecrit
+	/// « #rrggbb » dans `hexOut`. Faux si le point est hors fenetre.
+	inline bool NkPreleverPixel(const nkgui::NkGuiDrawList &dl, nkentseu::int32 x, nkentseu::int32 y,
+								nkentseu::uint32 fondRgba, char *hexOut, nkentseu::uint32 cap) {
+		using namespace nkentseu;
+		if (!hexOut || cap < 8u || x < 0 || y < 0)
+			return false;
+		nkgui::NkGuiDrawListRaster raster;
+		if (!raster.Init(x + 1, y + 1))
+			return false;
+		raster.Effacer(fondRgba);
+		(void)raster.Rasteriser(dl); // les textures inconnues se peignent en couleur de sommet
+		const uint32 p = raster.Pixel(x, y);
+		// ⚠️ L'ESPACE DE COULEUR, VERIFIE ET NON SUPPOSE : le rasteriseur melange en
+		//    octets et rend 0xRRGGBBAA -- exactement l'empaquetage de `NkGHexRGBA`,
+		//    celui que le selecteur range dans `#rrggbb`. **Aucune conversion**, et
+		//    ce n'est pas une croyance : l'essai 139 preleve un aplat de couleur
+		//    CONNUE et exige EXACTEMENT cette couleur. Si un jour le selecteur passe
+		//    au lineaire, c'est cet essai qui rougira, pas l'utilisateur.
+		snprintf(hexOut, (size_t)cap, "#%02x%02x%02x", (unsigned)((p >> 24) & 0xFFu),
+				 (unsigned)((p >> 16) & 0xFFu), (unsigned)((p >> 8) & 0xFFu));
+		return true;
+	}
+
 	inline bool NkPastilleCouleur(nkgui::NkGuiContext &ctx, DesignState &st, const char *idStr,
 								  const nkgui::NkRect &sw, char *hexBuf, nkentseu::uint32 cap,
 								  nkentseu::int32 noeudDecrit) {
@@ -11653,6 +11718,45 @@ namespace nkuidesign {
 		return true;
 	}
 
+	// ── LA PIPETTE, PREMIER MOMENT : PRENDRE LE CLIC AVANT LES PANNEAUX ─────
+	//
+	// ⚠️ POURQUOI SI TOT. Le crochet d'overlay s'execute APRES les panneaux : un
+	//    clic pour prelever y arriverait **une fois que la toile l'a deja recu** --
+	//    elle aurait deselectionne, ou pose un nœud. Le geste doit donc etre pris
+	//    en amont ; l'application le fait dans son crochet de barre d'outils, qui
+	//    est dessine avant le dock (mesure : `DrawToolbar` precede `DrawPanels`).
+	//
+	// ⚠️ ET LE POPUP EST DEJA FERME QUAND ON ARRIVE ICI : NKGui applique sa regle
+	//    << un clic hors des popups ferme la chaine >> au tout debut de l'image.
+	//    Pendant un prelevement, ce clic n'est PAS un clic dehors -- c'est le
+	//    geste. On repose donc la demande (`pose = false`), et **uniquement dans ce
+	//    mode** : ce n'est pas la resurrection inconditionnelle qu'on vient de
+	//    retirer, c'est un etat nomme qui dit pourquoi.
+	inline void NkPipettePrendLeClic(nkgui::NkGuiContext &ctx, DesignState &st) {
+		DesignState::DemandePicker &d = st.picker;
+		if (!d.ouvert || !d.pipette)
+			return;
+		if (ctx.input.KeyPressed(nkgui::NkGuiKey::Escape)) {
+			// ÉCHAP ANNULE SANS RIEN CHANGER : ni le modele, ni le champ, ni la
+			// couleur courante. Le selecteur, lui, reste ouvert -- on annule le
+			// prelevement, pas la fenetre.
+			d.pipette = false;
+			d.pose = false;
+			st.DireAuPied("Prélèvement annulé — rien n'a changé.");
+			return;
+		}
+		if (!ctx.input.mouseClicked[0])
+			return;
+		d.pipettePris = true;
+		d.pipetteX = ctx.input.mousePos.x;
+		d.pipetteY = ctx.input.mousePos.y;
+		d.pipette = false;
+		d.pose = false;
+		// LE CLIC EST CONSOMME : il appartient au prelevement, a personne d'autre.
+		ctx.input.mouseClicked[0] = false;
+		ctx.input.mouseDown[0] = false;
+	}
+
 	inline void NkDessinerPickerDemande(nkgui::NkGuiContext &ctx, DesignState &st) {
 		using namespace nkentseu;
 		// « CHOISIR UNE IMAGE... » : le selecteur de fichier du kit, modal, ici (entree reelle)
@@ -11674,6 +11778,28 @@ namespace nkuidesign {
 			return;
 		if (!st.picker.ouvert)
 			return;
+		// ── LA PIPETTE, SECOND MOMENT : LIRE LE PIXEL ──────────────────
+		// Ici la liste principale de l'image est COMPLETE (tous les panneaux ont
+		// peint) et l'overlay n'y est pas : on preleve la page, pas les fenetres
+		// flottantes -- le selecteur couvre justement l'endroit ou l'on clique.
+		if (st.picker.pipettePris) {
+			st.picker.pipettePris = false;
+			char pris[12] = {};
+			if (NkPreleverPixel(ctx.dl, (nkentseu::int32)st.picker.pipetteX,
+								(nkentseu::int32)st.picker.pipetteY,
+								// le SOL de la fenetre, empaquete 0xRRGGBBAA comme partout ici
+								((nkentseu::uint32)ctx.theme.bgPrimary.r << 24)
+									| ((nkentseu::uint32)ctx.theme.bgPrimary.g << 16)
+									| ((nkentseu::uint32)ctx.theme.bgPrimary.b << 8) | 0xFFu,
+								pris, (nkentseu::uint32)sizeof(pris))) {
+				snprintf(st.picker.hex, sizeof(st.picker.hex), "%s", pris);
+				st.picker.change = true; // la porte d'ecriture s'en saisit
+				char msgP[120];
+				snprintf(msgP, sizeof(msgP), "Prélevé : %s", pris);
+				st.DireAuPied(msgP);
+			} else
+				st.DireAuPied("Prélèvement hors de la fenêtre : rien n'a changé.");
+		}
 		// ② (07/09) LA GARDE EST CELLE QUE LA PORTE A DECLAREE, pas une regle que le
 		//    selecteur impose a tout le monde. Avant : « genre 0 et rien de
 		//    selectionne -> je me ferme » -- juste pour les etats et les effets, qui
@@ -12402,6 +12528,14 @@ namespace nkuidesign {
 					couleurCourante = NkString(hex);
 					touche();
 				};
+				// ⚠️ LA PIPETTE ECRIT PAR LA MEME PORTE QUE LA FRAPPE : detachement
+				//    d'une variable, ecart d'instance, message du pied -- tout ce que
+				//    `ecrireCouleur` fait, elle le fait aussi. Une seconde ecriture aurait
+				//    pose la couleur en oubliant la moitie des consequences.
+				if (d.change) {
+					d.change = false;
+					ecrireCouleur(d.hex);
+				}
 				// ── LA BOÎTE ──────────────────────────────────────────────────────
 				const float32 pw = 250.f; // ③ trois champs qui tiennent « -54,00 » (sonde 60f)
 				// ② LA HAUTEUR SE CALCULE, elle ne s'estime pas : les rangees de types
@@ -12611,6 +12745,34 @@ namespace nkuidesign {
 						if (svG && ctx.input.mouseClicked[0]) {
 							mFusionMenuOuvert = !mFusionMenuOuvert;
 							ctx.input.mouseClicked[0] = false;
+						}
+					}
+					// ── LA PIPETTE (07/09, Rodolf) : DANS L'ENVELOPPE, donc dans TOUS
+					//    les selecteurs -- une seule ecriture ────────────────────
+					// ⚠️ ELLE EST TRACEE, PAS PIOCHEE DANS UN ATLAS : le kit ne porte
+					//    aucune icone, tout ce qui doit se voir se DESSINE. Un tube
+					//    en biais, sa pointe, et le reservoir.
+					{
+						const NkRect rp = {x1 - 38.f, y + 3.f, 16.f, 16.f};
+						const bool svP = NkGuiRectContains(rp, ctx.input.mousePos);
+						const nkgui::NkColor cp =
+							d.pipette ? ctx.theme.accent : (svP ? ctx.theme.text : ctx.theme.textMuted);
+						dl.AddLine({rp.x + 4.f, rp.y + 12.f}, {rp.x + 11.f, rp.y + 5.f}, cp, 2.f);
+						dl.AddLine({rp.x + 9.f, rp.y + 3.f}, {rp.x + 13.f, rp.y + 7.f}, cp, 2.f);
+						dl.AddTriangleFilled({rp.x + 3.f, rp.y + 13.f}, {rp.x + 6.f, rp.y + 13.f},
+											 {rp.x + 3.f, rp.y + 10.f}, cp);
+						if (svP)
+							mSt->status = NkString(
+								d.pipette ? "Prélèvement armé : cliquez la couleur à prendre "
+											"(Échap annule)."
+										  : "Pipette : prélève une couleur DANS la fenêtre de "
+											"l'application (pas sur le bureau).");
+						if (svP && ctx.input.mouseClicked[0]) {
+							ctx.input.mouseClicked[0] = false;
+							d.pipette = !d.pipette;
+							mSt->DireAuPied(d.pipette
+												? "Pipette : cliquez la couleur à prélever — Échap annule."
+												: "Pipette annulée.");
 						}
 					}
 					{

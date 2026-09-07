@@ -12397,6 +12397,81 @@ namespace nkuidesign {
 				  "NKGui -- passent par une seule fonction du kit, chacun nommant son cote",
 				  gardeJuste && placementJuste && unSeulChemin, det);
 		}
+		// ── 139. LA PIPETTE REND EXACTEMENT LA COULEUR POINTEE (07/09). Rodolf :
+		//    << par defaut dans les color picker on doit avoir une pipette en plus >>.
+		//
+		// ⚠️ LE PIEGE DE CE LOT EST L'ESPACE DE COULEUR : ce qui est a l'ecran est
+		//    encode pour l'affichage ; si le selecteur rangeait ses valeurs en
+		//    lineaire, poser la valeur brute donnerait une couleur FAUSSE -- plus
+		//    claire ou plus sombre que ce qu'on a pointe. Un essai qui preleve
+		//    << une couleur >> ne le verrait pas. **Celui-ci pose un aplat de couleur
+		//    CONNUE et exige EXACTEMENT cette couleur** : c'est la seule forme qui
+		//    attrape une conversion manquante.
+		{
+			char det[420];
+			nkgui::NkGuiDrawList dl;
+			// Trois aplats voisins, et c'est le montage qui compte : avec un seul,
+			// << la pipette rend le pixel voisin >> resterait vrai. Les couleurs sont
+			// choisies DIFFERENTES sur chaque canal, sinon un decalage se cacherait.
+			dl.PushClipRect({0.f, 0.f, 1.0e9f, 1.0e9f}, false);
+			dl.AddRectFilled({0.f, 0.f, 40.f, 40.f}, nkgui::NkColor{247, 154, 40, 255}, 0.f);   // #f79a28
+			dl.AddRectFilled({40.f, 0.f, 40.f, 40.f}, nkgui::NkColor{10, 85, 95, 255}, 0.f);    // #0a555f
+			dl.AddRectFilled({0.f, 40.f, 80.f, 40.f}, nkgui::NkColor{25, 118, 210, 255}, 0.f);  // #1976d2
+			dl.PopClipRect();
+
+			char a[12] = {}, b[12] = {}, c[12] = {}, dehors[12] = {};
+			const bool okA = NkPreleverPixel(dl, 20, 20, 0x000000FFu, a, (uint32)sizeof(a));
+			const bool okB = NkPreleverPixel(dl, 60, 20, 0x000000FFu, b, (uint32)sizeof(b));
+			const bool okC = NkPreleverPixel(dl, 20, 60, 0x000000FFu, c, (uint32)sizeof(c));
+			// hors de tout aplat : c'est le SOL qui repond, et il repond exactement lui
+			const bool okD = NkPreleverPixel(dl, 200, 200, 0x123456FFu, dehors, (uint32)sizeof(dehors));
+			// ⚠️ DEUX POINTS SUR LA FRONTIERE, ET C'EST LE MONTAGE QUI COMPTE.
+			//    Premiere ecriture : trois points au CENTRE d'aplats de 40 px. La
+			//    mutation << la pipette rend le pixel voisin >> est restee VERTE -- a un
+			//    pixel pres, on est encore dans le meme aplat. **CINQUIEME fois qu'un
+			//    montage ne pose pas l'etat qu'il mesure.** Un prelevement au PREMIER
+			//    pixel du second aplat (x = 40) et au premier du troisieme (y = 40) rend
+			//    un voisin d'une AUTRE couleur : le decalage n'a plus ou se cacher, en x
+			//    comme en y.
+			char bx[12] = {}, by[12] = {};
+			const bool okBX = NkPreleverPixel(dl, 40, 20, 0x000000FFu, bx, (uint32)sizeof(bx));
+			const bool okBY = NkPreleverPixel(dl, 20, 40, 0x000000FFu, by, (uint32)sizeof(by));
+			const bool bordX = okBX && NkComponentDecl::StrEq(bx, "#0a555f"); // x-1 serait #f79a28
+			const bool bordY = okBY && NkComponentDecl::StrEq(by, "#1976d2"); // y-1 serait #f79a28
+
+			const bool exactA = okA && NkComponentDecl::StrEq(a, "#f79a28");
+			const bool exactB = okB && NkComponentDecl::StrEq(b, "#0a555f");
+			const bool exactC = okC && NkComponentDecl::StrEq(c, "#1976d2");
+			const bool exactD = okD && NkComponentDecl::StrEq(dehors, "#123456");
+			// ⚠️ ET LES TROIS SONT DIFFERENTES : sans cette ligne, une pipette qui
+			//    rendrait toujours la meme couleur passerait les trois assertions
+			//    au-dessus si le montage etait uni.
+			const bool distinctes = !NkComponentDecl::StrEq(a, b) && !NkComponentDecl::StrEq(b, c)
+									&& !NkComponentDecl::StrEq(a, c);
+			// UN POINT HORS FENETRE (negatif) est REFUSE, il ne rend pas du noir.
+			char neg[12] = {};
+			const bool refuseNeg = !NkPreleverPixel(dl, -3, 10, 0u, neg, (uint32)sizeof(neg));
+
+			snprintf(det, sizeof(det),
+					 "aplat orange -> %s (attendu #f79a28) ; petrole -> %s (#0a555f) ; bleu -> %s "
+					 "(#1976d2) ; hors des aplats, le SOL -> %s (#123456) ; trois valeurs "
+					 "distinctes -> %d ; point negatif REFUSE -> %d ; SUR LA FRONTIERE : "
+					 "x=40 -> %s (#0a555f, le voisin serait #f79a28) et y=40 -> %s (#1976d2) -> %d",
+					 okA ? a : "(refus)", okB ? b : "(refus)", okC ? c : "(refus)",
+					 okD ? dehors : "(refus)", distinctes ? 1 : 0, refuseNeg ? 1 : 0,
+					 okBX ? bx : "(refus)", okBY ? by : "(refus)", (bordX && bordY) ? 1 : 0);
+			check("139. LA PIPETTE REND EXACTEMENT LA COULEUR POINTEE, pas << une couleur >> : trois aplats "
+				  "VOISINS de couleurs connues, preleves chacun en son centre, rendent leur hexa a "
+				  "l'octet pres -- ce qui prouve du meme coup qu'aucune conversion d'espace n'est "
+				  "necessaire (le rasteriseur melange en octets et rend 0xRRGGBBAA, l'empaquetage exact "
+				  "que le selecteur range dans #rrggbb). Le point hors des aplats rend le SOL pose, et "
+				  "un point hors fenetre est REFUSE au lieu de rendre du noir. DEUX des points sont pris "
+				  "SUR LA FRONTIERE de deux aplats -- sans eux, << la pipette rend le pixel voisin >> "
+				  "resterait vrai a un pixel pres, et l'essai ne prouverait que << elle rend une "
+				  "couleur >>",
+				  exactA && exactB && exactC && exactD && distinctes && refuseNeg && bordX && bordY,
+				  det);
+		}
 		// ── 94. ① L'APERCU PENDANT LE TRACE (05/09). Rodolf : « pourquoi quand on dessine un
 		//    graphique on voit juste le rectangle qui s'allonge, et des qu'on relache on voit la
 		//    forme ? » Deux mesures : LA TABLE DE GENRE (une seule, lue par le relachement et par

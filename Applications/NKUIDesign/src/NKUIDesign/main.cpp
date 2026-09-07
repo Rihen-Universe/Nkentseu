@@ -7797,6 +7797,12 @@ static void DrawMenuBar(NkEditorFrameContext &ec, void *) {
 static nkentseu::editorkit::NkModal gLauncherModal;
 
 static void DrawProjectTabs(NkEditorFrameContext &ec, void *) {
+	// ── LA PIPETTE PREND SON CLIC ICI, ET C'EST MESURE ────────────────────
+	// Ce crochet de barre d'outils est dessine AVANT le dock (`DrawToolbar`
+	// precede `DrawPanels` dans la coquille) : c'est le seul endroit de
+	// l'application ou l'on voit le clic avant que la toile ne le recoive.
+	// Sans ca, prelever une couleur deselectionnerait au passage.
+	nkuidesign::NkPipettePrendLeClic(ec.Ui(), gDesign);
 	auto &ctx = ec.Ui();
 	using namespace nkentseu::nkgui;
 	// ⚠️ LES ONGLETS SONT LES DOCUMENTS OUVERTS (5e retour de Rodolf, 01/09) :
