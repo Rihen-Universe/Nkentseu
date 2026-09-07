@@ -1320,13 +1320,33 @@ namespace nkentseu {
 		// format BC, avec RowPitch en octets d'une rangee de blocs). Corriger un cote
 		// sans l'autre redonne un plantage ou une image decalee.
 		const bool blocs = NkFormatIsBlockCompressed(it->desc.format);
-		uint32 bh = 1;
+		uint32 bw = 1, bh = 1;
 		if (blocs) {
-			uint32 bw = 1;
 			NkFormatBlockDim(it->desc.format, bw, bh);
+			if (bw == 0)
+				bw = 1;
 			if (bh == 0)
 				bh = 1;
 		}
+		// -- ET LA REGION SE DECLARE ALIGNEE SUR LE BLOC ---------------------------
+		// Un bloc BC couvre 4x4 texels **meme quand le mip est plus petit** : un mip
+		// 2x2 est physiquement UN bloc. D3D12 l'exige, et sa couche de validation le
+		// dit mot pour mot (NK_DX12_DEBUG=1, mesure du 2026-09-07) :
+		//   « CopyTextureRegion: The coordinates in pSrcBox are not aligned properly.
+		//     When the format is BC1_TYPELESS, left & right must be a multiple of 4
+		//     and top & bottom must be a multiple of 4. left is 0, right is 2, top is
+		//     0, and bottom is 2. »
+		// `CreateFromBaked` televerse TOUS les niveaux : il arrive fatalement aux 2x2
+		// et 1x1. Les suites — command list non fermee, RemoveDevice, Signal — n'en
+		// sont que les consequences.
+		//
+		// ⚠️ CE N'EST PAS LA MEME FAUTE QUE LE COMPTE DE RANGEES ci-dessus, et les
+		// deux se ressemblent assez pour qu'on corrige l'une en croyant fermer
+		// l'autre : la premiere lisait hors du tampon SOURCE (plantage CPU dans
+		// memmove), celle-ci declare au GPU une region que le format interdit
+		// (plantage dans D3D12Core, pendant la copie). Il fallait les deux.
+		const uint32 wAlign = blocs ? (((w + bw - 1) / bw) * bw) : w;
+		const uint32 hAlign = blocs ? (((h + bh - 1) / bh) * bh) : h;
 		uint32 rp = rowPitch > 0 ? rowPitch : NkFormatRowPitch(it->desc.format, w);
 		// Rangees a recopier : de BLOCS si le format est par blocs, de pixels sinon.
 		const uint32 rowCount = blocs ? ((h + bh - 1) / bh) : h;
@@ -1373,10 +1393,12 @@ namespace nkentseu {
 			src.pResource = stage.resource.Get();
 			src.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
 			src.PlacedFootprint.Offset = 0;
-			src.PlacedFootprint.Footprint = {it->format, w, h, depthCount, alignedRowPitch};
+			src.PlacedFootprint.Footprint = {it->format, wAlign, hAlign, depthCount, alignedRowPitch};
 			// Le staging ne contient que la région w×h×d (0-based) ; le décalage
-			// destination (x,y,z) est passé à CopyTextureRegion.
-			D3D12_BOX box{0, 0, 0, w, h, depthCount};
+			// destination (x,y,z) est passé à CopyTextureRegion. Pour un format par
+			// blocs, `wAlign`/`hAlign` arrondissent au bloc supérieur — sans quoi un
+			// mip plus petit qu'un bloc décrit une région que le format interdit.
+			D3D12_BOX box{0, 0, 0, wAlign, hAlign, depthCount};
 			cmd->CopyTextureRegion(&dst, x, y, z, &src, &box);
 			TransitionResource(cmd, it->resource.Get(), D3D12_RESOURCE_STATE_COPY_DEST, prevState);
 		});
