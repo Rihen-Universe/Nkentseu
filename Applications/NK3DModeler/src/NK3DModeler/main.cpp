@@ -320,11 +320,84 @@ int nkmain(const NkEntryState &entry) {
 	// icones -- que se disent les choses qu'on cherche ensuite.
 	nk3d::NkJournalInstall();
 
+	// ── QUEL DORSAL GRAPHIQUE ? ──
+	//
+	// Directive de Rodolf du 18/08 : toute application doit laisser choisir son
+	// dorsal, avec le MEME vocabulaire partout. `NkDemoCommon.h` du modeleur
+	// portait bien un `ParseBackend` avec ses cinq mots-cles -- et pas UN SEUL
+	// appelant dans tout `Applications/NK3DModeler/src`. Declare, jamais honore.
+	//
+	// ⚠️ ON N'UTILISE PAS CE `ParseBackend`-LA. Le vocabulaire canonique vit dans
+	// NKEditorKit (`NkEditorGfxApiFromName` / `...Name` / `...Choices` /
+	// `...Supported`), justement pour qu'il n'y ait pas un dialecte par
+	// application -- ce que la directive interdit nommement. Reutiliser la copie
+	// locale aurait fait un vocabulaire de plus (`-bvk`, `sw`) la ou le kit dit
+	// `vulkan` et `software`.
+	//
+	// Deux entrees, l'option l'emporte sur l'environnement :
+	//   --backend=<nom>   ou   --backend <nom>
+	//   NK_GFX_BACKEND=<nom>
+	// (`NK_GFX_BACKEND` etait promue par un commentaire de `NkCGXDetect.h` et LUE
+	//  PAR PERSONNE ; elle a desormais un lecteur.)
+	//
+	// ⚠️ UN MOT INCONNU EST REFUSE EN LE NOMMANT, et le programme SORT. Il ne
+	// retombe pas en silence sur le defaut : c'est la regle 3 de la directive, et
+	// c'est ce qui a coute une journee -- on croit tester Vulkan et on teste
+	// OpenGL. `NkEditorGfxApiFromName` NE TOUCHE PAS sa sortie quand il refuse,
+	// donc un refus ne peut pas laisser une valeur a moitie ecrite.
+	NkEditorGfxApi gfxApi = NkEditorGfxApi::Auto;
+	{
+		NkString demande;
+		const char *provenance = "defaut";
+		if (const char *e = env::GetEnvVar("NK_GFX_BACKEND")) {
+			if (*e) {
+				demande = NkString(e);
+				provenance = "NK_GFX_BACKEND";
+			}
+		}
+		for (usize ia = 0; ia < entry.args.Size(); ++ia) {
+			const NkString &arg = entry.args[ia];
+			if (arg.StartsWith("--backend=")) {
+				demande = NkString(arg.CStr() + 10);
+				provenance = "--backend=";
+			} else if (arg == NkString("--backend") && ia + 1u < entry.args.Size()) {
+				demande = entry.args[ia + 1u];
+				provenance = "--backend";
+			}
+		}
+		if (!demande.Empty()) {
+			if (!NkEditorGfxApiFromName(demande.CStr(), gfxApi)) {
+				printf("[nk3d] dorsal graphique inconnu : %s (donne par %s)\n",
+					   demande.CStr(), provenance);
+				printf("[nk3d] valeurs acceptees : %s\n", NkEditorGfxApiChoices());
+				printf("[nk3d] REFUS -- on ne retombe pas en silence sur le defaut.\n");
+				return 2;
+			}
+			const char *raison = nullptr;
+			if (!NkEditorGfxApiSupported(gfxApi, &raison)) {
+				printf("[nk3d] dorsal %s indisponible : %s\n", NkEditorGfxApiName(gfxApi),
+					   (raison && *raison) ? raison : "non porte sur cette plateforme");
+				printf("[nk3d] valeurs acceptees : %s\n", NkEditorGfxApiChoices());
+				printf("[nk3d] REFUS -- on ne remplace pas en silence.\n");
+				return 2;
+			}
+		}
+		// LE CHOIX SE JOURNALISE AVANT TOUTE CREATION DE CONTEXTE (regle 2).
+		printf("[nk3d] dorsal graphique : demande %s (%s) -> retenu %s\n",
+			   demande.Empty() ? "auto" : demande.CStr(), provenance,
+			   NkEditorGfxApiName(gfxApi));
+		nk3d::NkDorsalRetenu() = NkEditorGfxApiName(gfxApi);
+	}
+
+
 	// ── FENETRE ─────────────────────────────────────────────────────────────
 	// SANS CADRE OS : la maquette porte ses propres boutons de fenetre dans la
 	// barre de menus. Garder le cadre natif donnerait deux barres de titre.
 	NkWindowConfig wc;
-	wc.title = "NK3DModeler";
+	// LE DORSAL DANS LE TITRE : la barre des taches et les outils systeme le
+	// montrent, meme si la fenetre est sans cadre. Le bandeau de l'application le
+	// porte AUSSI (cf. `PaintStatus`), et c'est LUI que Rodolf voit a l'ecran.
+	wc.title = NkString("NK3DModeler ") + NkString(NkEditorGfxApiName(gfxApi));
 	wc.width = 1600;
 	wc.height = 900;
 	wc.minWidth = 1100;
@@ -383,7 +456,7 @@ int nkmain(const NkEntryState &entry) {
 	};
 
 	nkgui::NkEditorRHIRenderer renderer;
-	if (!renderer.Init(window, NkEditorGfxApi::Auto)) {
+	if (!renderer.Init(window, gfxApi)) {
 		printf("[nk3d] impossible d'initialiser le rendu.\n");
 		return 1;
 	}
