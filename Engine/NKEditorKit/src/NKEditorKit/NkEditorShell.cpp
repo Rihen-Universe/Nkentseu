@@ -963,6 +963,25 @@ namespace nkentseu {
 
 			mUI.EndFrame();
 
+			// ══ TRACE — `NK_TRACE_PIPETTE=1` : LE DERNIER MOT SUR LE CURSEUR ═════
+			// ⚠️ C'est ICI que l'OS apprend quel curseur afficher : tout ce qui a ete
+			//    ecrit avant, par n'importe quel site, aboutit a cette ligne. Une trace
+			//    posee plus haut dirait ce qu'on a VOULU ; celle-ci dit ce qui EST.
+			//    On n'imprime que les CHANGEMENTS -- sinon soixante lignes par seconde.
+			{
+				static const bool traceCurseur = []() {
+					const char *v = getenv("NK_TRACE_PIPETTE");
+					return v && v[0] && v[0] != '0';
+				}();
+				static int32 dernier = -1;
+				if (traceCurseur && (int32)mUI.wantCursor != dernier) {
+					dernier = (int32)mUI.wantCursor;
+					static const char *const kNoms[] = {"fleche", "texte", "main", "REDIM <->",
+													   "redim haut-bas"};
+					printf("[pipette] >>> L'OS RECOIT : %s\n",
+						   dernier >= 0 && dernier < 5 ? kNoms[dernier] : "?");
+				}
+			}
 			mWindow.SetCursor(MapCursor(mUI.wantCursor));
 
 			mRenderer->BeginFrame();

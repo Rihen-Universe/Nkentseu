@@ -11763,6 +11763,62 @@ namespace nkuidesign {
 	//    geste. On repose donc la demande (`pose = false`), et **uniquement dans ce
 	//    mode** : ce n'est pas la resurrection inconditionnelle qu'on vient de
 	//    retirer, c'est un etat nomme qui dit pourquoi.
+	// ══ TRACE DU PRELEVEMENT ET DU CURSEUR — `NK_TRACE_PIPETTE=1` ═════════
+	//
+	// 🔴 TROISIEME ALLER-RETOUR sur les deux memes defauts, et a chaque fois : mes
+	//    essais au vert, son ecran inchange. **Ce n'est plus un defaut de
+	//    correction, c'est un defaut de MESURE.** Une quatrieme correction a
+	//    l'aveugle serait la meme depense pour le meme resultat.
+	//
+	// ⚠️ ET LA CAUSE DU TROU EST NOMMEE : mes temoins LISENT LA SOURCE. *Lire une
+	//    source prouve qu'un appel EXISTE, pas qu'il S'EXECUTE* -- je l'avais ecrit
+	//    moi-meme pour le fond de la toile, et le trou s'est rouvert ici. Cette
+	//    trace execute le chemin et le DIT.
+	//
+	// ⚠️ ELLE NE CHANGE AUCUN COMPORTEMENT : elle est muette tant que la variable
+	//    d'environnement n'est pas posee, et elle n'ecrit que sur les images ou il
+	//    se passe quelque chose (pas soixante lignes par seconde au repos).
+	inline bool NkTracePipetteActive() noexcept {
+		static const bool actif = []() {
+			const char *v = getenv("NK_TRACE_PIPETTE");
+			return v && v[0] && v[0] != '0';
+		}();
+		return actif;
+	}
+
+	/// Le nom lisible d'un curseur -- pour que la trace dise ↔ et non << 3 >>.
+	inline const char *NkNomCurseur(nkgui::NkGuiCursor c) noexcept {
+		switch (c) {
+			case nkgui::NkGuiCursor::Arrow:
+				return "fleche";
+			case nkgui::NkGuiCursor::Text:
+				return "texte";
+			case nkgui::NkGuiCursor::Hand:
+				return "main";
+			case nkgui::NkGuiCursor::ResizeEW:
+				return "REDIM <->";
+			case nkgui::NkGuiCursor::ResizeNS:
+				return "redim haut-bas";
+		}
+		return "?";
+	}
+
+	/// QUI ECRIT LE CURSEUR, ET DANS QUEL ORDRE. Le nom du site, pas la valeur seule :
+	/// c'est le DERNIER de la liste qui gagne, et c'est lui qu'on cherche.
+	/// ⚠️ ELLE NE DIT PAS TOUT, ET C'EST VOULU : une trace qui ecrit soixante
+	///    lignes par seconde ne se lit pas, donc ne se copie pas, donc ne sert a
+	///    rien. Elle parle quand le prelevement est ARME (le cas qu'on cherche) ou
+	///    quand un site pose le curseur de REDIMENSIONNEMENT (le symptome qu'il
+	///    voit). Le reste est du bruit qui cacherait la ligne utile.
+	inline void NkTraceCurseur(const char *site, nkgui::NkGuiCursor c, bool arme) noexcept {
+		if (!NkTracePipetteActive())
+			return;
+		if (!arme && c != nkgui::NkGuiCursor::ResizeEW && c != nkgui::NkGuiCursor::ResizeNS)
+			return;
+		printf("[pipette] curseur <- %-24s : %s%s\n", site, NkNomCurseur(c),
+			   arme ? "   (prelevement ARME)" : "");
+	}
+
 	/// LE SURVOL DANS L'IMAGE FIGEE : rend faux si le point n'y est pas.
 	/// ⚠️ FONCTION LIBRE, ET C'EST DELIBERE : le banc doit lire par LA MEME porte
 	///    que le mode. Ecrite deux fois, l'essai aurait mesure sa propre copie --
@@ -11821,8 +11877,16 @@ namespace nkuidesign {
 	///    et un commentaire suffisait a le faire mordre ou a le faire manquer.
 	inline void NkPipetteCurseur(nkgui::NkGuiContext &ctx,
 								 const DesignState::DemandePicker &d) noexcept {
-		if (d.pipette)
+		// ⚠️ ON DIT CE QU'ON TROUVE EN ARRIVANT : si le curseur en place est deja
+		//    REDIM, c'est qu'un site a parle avant nous -- et la ligne precedente de la
+		//    trace le NOMME. C'est toute la question posee par ce lot.
+		if (NkTracePipetteActive() && d.pipette)
+			printf("[pipette] NkPipetteCurseur : mode ARME, curseur trouve en place = %s\n",
+				   NkNomCurseur(ctx.wantCursor));
+		if (d.pipette) {
 			ctx.wantCursor = nkgui::NkGuiCursor::Hand;
+			NkTraceCurseur("pipette (apres popover)", ctx.wantCursor, true);
+		}
 	}
 
 	inline void NkPipettePrendLeClic(nkgui::NkGuiContext &ctx, DesignState &st) {
@@ -11852,8 +11916,16 @@ namespace nkuidesign {
 			st.DireAuPied("Prélèvement annulé — la couleur d'avant est rendue.");
 			return;
 		}
-		if (!NkPipetteAccepteAppui(ctx.input.mouseDown[0], ctx.input.mouseClicked[0],
-								   d.attendRelache))
+		const bool attendAvant = d.attendRelache;
+		const bool accepte = NkPipetteAccepteAppui(ctx.input.mouseDown[0], ctx.input.mouseClicked[0],
+												   d.attendRelache);
+		if (NkTracePipetteActive()
+			&& (ctx.input.mouseClicked[0] || attendAvant != d.attendRelache || accepte))
+			printf("[pipette] APPUI : enfonce=%d, appui neuf=%d, attendRelache %d->%d, "
+				   "accepte=%d\n",
+				   ctx.input.mouseDown[0] ? 1 : 0, ctx.input.mouseClicked[0] ? 1 : 0,
+				   attendAvant ? 1 : 0, d.attendRelache ? 1 : 0, accepte ? 1 : 0);
+		if (!accepte)
 			return;
 		d.pipettePris = true;
 		d.pipetteX = ctx.input.mousePos.x;
@@ -11935,6 +12007,7 @@ namespace nkuidesign {
 		//    dessiner, ca, c'est chez nous.
 		if (st.picker.pipette) {
 			ctx.wantCursor = nkgui::NkGuiCursor::Hand;
+			NkTraceCurseur("pipette (avant popover)", ctx.wantCursor, true);
 			const nkgui::NkVec2 m = ctx.input.mousePos;
 			const nkgui::NkColor blanc = {255, 255, 255, 235}, noir = {0, 0, 0, 190};
 			// double trait : le reticule reste lisible sur clair COMME sur sombre
@@ -11969,6 +12042,9 @@ namespace nkuidesign {
 								pris, (nkentseu::uint32)sizeof(pris))) {
 				snprintf(st.picker.hex, sizeof(st.picker.hex), "%s", pris);
 				st.picker.change = true; // la porte d'ecriture s'en saisit
+				if (NkTracePipetteActive())
+					printf("[pipette] PRELEVE %s au point (%.0f, %.0f)\n", pris,
+						   (double)st.picker.pipetteX, (double)st.picker.pipetteY);
 				char msgP[120];
 				snprintf(msgP, sizeof(msgP), "Prélevé : %s", pris);
 				st.DireAuPied(msgP);
@@ -12963,6 +13039,11 @@ namespace nkuidesign {
 								// ① CET appui-ci a arme : il ne prelevera pas.
 								d.attendRelache = true;
 							}
+							if (NkTracePipetteActive())
+								printf("[pipette] ICONE cliquee : mode=%d, attendRelache=%d, "
+									   "bouton enfonce=%d, avant=%s\n",
+									   d.pipette ? 1 : 0, d.attendRelache ? 1 : 0,
+									   ctx.input.mouseDown[0] ? 1 : 0, d.avant);
 							mSt->DireAuPied(d.pipette
 												? "Pipette : cliquez la couleur à prélever — Échap annule."
 												: "Pipette annulée.");
@@ -14550,8 +14631,10 @@ namespace nkuidesign {
 				// un champ DANS un popover repond aussi (il etait mort sous `popupDepth == 0`)
 				const bool dans = (ctx.popupDepth == 0 || ctx.curPopupLevel >= 0)
 								  && NkGuiRectContains(r, ctx.input.mousePos);
-				if (dans)
+				if (dans) {
 					ctx.wantCursor = nkgui::NkGuiCursor::ResizeEW;
+				NkTraceCurseur("ChampNombre (popover)", ctx.wantCursor, false);
+				}
 				if (dans && ctx.input.mouseClicked[0]) {
 					mDragChamp = gid;
 					mDragDernierX = ctx.input.mousePos.x;
@@ -16489,8 +16572,10 @@ namespace nkuidesign {
 				bool change = false;
 				const bool dans = ctx.popupDepth == 0
 								  && NkGuiRectContains(r, ctx.input.mousePos);
-				if (dans)
+				if (dans) {
 					ctx.wantCursor = nkgui::NkGuiCursor::ResizeEW;
+				NkTraceCurseur("ChampNombre (panneau)", ctx.wantCursor, false);
+				}
 				if (dans && ctx.input.mouseClicked[0]) {
 					mDragChamp = gid;
 					mDragDernierX = ctx.input.mousePos.x;
