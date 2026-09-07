@@ -5004,6 +5004,130 @@ namespace nkuidesign {
 							  && NkComponentDecl::StrEq(fr.cadrage.Data(), "tile") && dansFenetre,
 						  det);
 				}
+				// ── 137. LA PASTILLE DU CANVAS OUVRE LA MEME FENETRE QU'UN REMPLISSAGE.
+				//    C'est l'assertion qui MANQUAIT a l'essai 136, et c'est elle qui nous a
+				//    fait croire le lot fini : 136 comptait le NOYAU (meme fonction, meme
+				//    placement), pas l'ENVELOPPE. Rodolf a mis les deux captures cote a cote
+				//    -- le remplissage ouvrait une FENETRE (fond opaque, onglets, hexa,
+				//    opacite, croix), le canvas ouvrait le cœur du selecteur POSE NU.
+				//
+				// ⚠️ TROIS MESURES DE LA MEME COURSE, jamais un nombre fige : le noyau nu,
+				//    la fenetre du canvas, celle d'un remplissage. Ce qui est prouve est une
+				//    RELATION entre elles.
+				{
+					float32 hauteurVue = 0.f; // la HAUTEUR de la derniere fenetre ouverte
+					auto ouvrirEtCompter = [&](const char *idp, uint8 genre, int32 noeud,
+											   int32 index) -> uint32 {
+						if (ctxI.popupDepth > 0)
+							ctxI.ClosePopup();
+						stI.picker = DesignState::DemandePicker();
+						stI.picker.ouvert = true;
+						stI.picker.id = ctxI.GetId(idp);
+						stI.picker.genre = genre;
+						stI.picker.noeud = noeud;
+						stI.picker.index = index;
+						stI.picker.ancre = {360.f, 200.f, 16.f, 16.f};
+						float32 xz = 0.f;
+						uint32 nz = 0u, oz = 0u;
+						image(260.f, true, xz, nz, oz); // deux images : le popup s'installe
+						image(260.f, true, xz, nz, oz);
+						// ⚠️ LA HAUTEUR VIENT DU RECTANGLE DU POPUP, pas de l'etendue des
+						//    sommets de l'overlay : celle-ci melait d'autres dessins et
+						//    rendait 11 px la ou la rangee masquee en coute 26. *Mesurer a
+						//    cote de la chose donne un nombre qui varie pour d'autres
+						//    raisons qu'elle.*
+						hauteurVue = ctxI.popupRects[0].h;
+						return oz;
+					};
+					stI.canvasFill = NkRemplissage();
+					stI.canvasFill.couleur = NkString("#0d1117");
+					const uint32 oNoyau = ouvrirEtCompter("##s.137.noyau", 0u, -1, -1);
+					const uint32 oCanvas = ouvrirEtCompter("##s.137.canvas", 1u, -1, -1);
+					const float32 hCanvas = hauteurVue;
+					const uint32 oFill = ouvrirEtCompter("##s.137.fill", 1u, rc, 0);
+					const float32 hFill = hauteurVue;
+					// (a) LE CANVAS N'OUVRE PLUS LE NOYAU NU : sa fenetre porte tout ce que
+					//     le noyau n'a pas -- fond, rangee de type, hexa, opacite, croix.
+					const bool plusLeNoyau = oCanvas > oNoyau + 200u;
+					// (b) ET C'EST LA MEME FENETRE QU'UN REMPLISSAGE : du meme ordre, et plus
+					//     COURTE de ce que la regle du type retire (cinq vignettes, la rangee
+					//     variable). Ni identique -- ce serait le masquage absent -- ni du
+					//     simple au double.
+					// ⚠️ DEUX BORNES, ET C'EST UNE MESURE QUI ME LES A IMPOSEES. Ma premiere
+					//    ecriture disait seulement << plus petite, mais pas du simple au
+					//    double >> : les mutations << plus de masquage par type >> (855 ->
+					//    1175) et << la rangee variable revient >> (855 -> 916) restaient
+					//    VERTES sous cette borne-la. *Un intervalle assez large pour
+					//    accueillir le defaut ne prouve rien.* On borne donc chaque
+					//    masquage par ce qu'il retire vraiment :
+					//  - les cinq vignettes : quelques centaines de sommets ;
+					//  - la rangee variable : 26 px de HAUTEUR, exactement.
+					const bool memeFenetre = oCanvas + 200u < oFill && oCanvas * 2u > oFill;
+					// ⚠️ CE QUE LA HAUTEUR MESURE, ET CE QU'ELLE NE MESURE PAS : elle
+					//    constate que la REGLE est appliquee (la fenetre est plus courte de
+					//    la rangee masquee). Elle ne distinguerait pas une regle a MOITIE
+					//    retiree -- une rangee dessinee mais hors de la hauteur calculee ;
+					//    celle-la se voit au compte de sommets ci-dessus. Deux masquages,
+					//    deux mesures : les vignettes par les sommets, la rangee par la
+					//    hauteur du popup (`popupRects[0]`, exacte).
+					const float32 dH = hFill - hCanvas;
+					const bool variableRetiree = dH > 24.f && dH < 28.f;
+					// (c) ET LA PASTILLE DEMANDE-T-ELLE CETTE FENETRE ? Les deux mesures
+					//     ci-dessus POSENT le genre elles-memes : elles prouvent le
+					//     dessinateur, pas le CHEMIN D'OUVERTURE. Sans cette lecture, ramener
+					//     la pastille du canvas au noyau nu ne rougirait nulle part -- c'est
+					//     exactement le trou par lequel le lot d'hier soir est passe.
+					bool pastilleDemandeLEnveloppe = false;
+					{
+						const NkString src =
+							NkFile::ReadAllText("Applications/NKUIDesign/src/NKUIDesign/Panels.h");
+						if (!src.Empty()) {
+							const char *cle = "id == ctx.GetId(\"##insp.canvas.pastille\")";
+							const char *d = src.Data();
+							for (; *d; ++d) {
+								const char *x = d, *y = cle;
+								while (*x && *y && *x == *y) {
+									++x;
+									++y;
+								}
+								if (!*y)
+									break;
+							}
+							if (*d) {
+								for (uint32 k = 0; k < 400u && d[k]; ++k) {
+									const char *x = d + k, *y = "picker.genre = 1u;";
+									while (*x && *y && *x == *y) {
+										++x;
+										++y;
+									}
+									if (!*y) {
+										pastilleDemandeLEnveloppe = true;
+										break;
+									}
+								}
+							}
+						}
+					}
+					char det137[420];
+					snprintf(det137, sizeof(det137),
+							 "MEME course, trois ouvertures : noyau nu %u sommets, canvas %u, "
+							 "remplissage %u ; le canvas n'est plus le noyau (%u > %u+200) -> %d ; "
+							 "meme fenetre que le remplissage, en plus court du masquage par type "
+							 "(%u+200 < %u et 2x%u > %u) -> %d ; la rangee variable retiree : "
+							 "%.0f px de moins en hauteur -> %d ; (c) la PASTILLE demande cette "
+							 "fenetre-la (source lue) -> %d",
+							 oNoyau, oCanvas, oFill, oCanvas, oNoyau, plusLeNoyau ? 1 : 0, oCanvas,
+							 oFill, oCanvas, oFill, memeFenetre ? 1 : 0, (double)dH,
+							 variableRetiree ? 1 : 0, pastilleDemandeLEnveloppe ? 1 : 0);
+					check("137. LA PASTILLE DU CANVAS OUVRE LA MEME FENETRE QU'UN REMPLISSAGE, pas le cœur du "
+						  "selecteur pose nu : fond opaque, rangee de type, hexa, opacite, croix. L'enveloppe "
+						  "n'exigeait pas un NŒUD (huit sites sur 1046 lignes) mais UN REMPLISSAGE (160) : elle "
+						  "RECOIT desormais ce qu'elle edite. Et elle est plus courte que celle d'un remplissage, "
+						  "de ce que la regle du type retire -- degrade, radial, image et variable ne peuvent pas "
+						  "exister pour un decor de machine",
+						  plusLeNoyau && memeFenetre && variableRetiree && pastilleDemandeLEnveloppe,
+						  det137);
+				}
 				// 60f. LA RANGEE MODELE (ses neuf captures) : `[Modele ˅] v1 v2 v3 [op %]` sur UNE
 				// ligne ; chaque champ tient `-54,00` (six caracteres, LAB) sans troncature --
 				// mesure a la police du panneau ; rien ne se chevauche, tout tient entre x0 et x1.
@@ -12025,7 +12149,7 @@ namespace nkuidesign {
 					};
 					uint32 pos[16];
 					branche = positions("return SectionsCanvas(count);", pos, 16u) == 1u
-							  && positions("NkFondCanvasExplicite(mSt->canvasFond.Data()", pos, 16u)
+							  && positions("NkFondCanvasExplicite(mSt->canvasFill.couleur.Data()", pos, 16u)
 									 == 1u;
 					// LA RELATION DES DEUX PORTES : chaque site qui bascule la grille
 					// enregistre le decor dans la foulee. Compter les deux separement

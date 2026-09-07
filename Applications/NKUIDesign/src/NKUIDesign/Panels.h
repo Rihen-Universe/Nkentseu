@@ -1121,7 +1121,7 @@ namespace nkuidesign {
 				(void)NkGfxConfigSetKey(NkGfxConfigPath(), "canvas_grille",
 										grilleVisible ? "1" : "0");
 				(void)NkGfxConfigSetKey(NkGfxConfigPath(), "canvas_fond",
-										canvasFond.Empty() ? "" : canvasFond.Data());
+										canvasFill.couleur.Empty() ? "" : canvasFill.couleur.Data());
 			}
 			/// Lecture PARESSEUSE, une seule fois — le geste de `hier_bas`. Elle ne
 			/// touche à rien si le fichier n'existe pas : l'état par défaut EST
@@ -1143,7 +1143,7 @@ namespace nkuidesign {
 					//    illisible laisse le thème décider plutôt que d'installer un
 					//    champ que la toile ignorera en silence.
 					if (NkFondCanvasExplicite(v, rgbaLu))
-						canvasFond = NkString(v);
+						canvasFill.couleur = NkString(v);
 				}
 			}
 
@@ -1377,7 +1377,18 @@ namespace nkuidesign {
 			/// le fichier enregistré n'en sait rien (le décor d'éditeur n'a jamais
 			/// été dans le format), il vit dans `nkuidesign.cfg` comme le backend
 			/// graphique et la hauteur de la section basse.
-			NkString canvasFond;
+			/// ③ (07/09) UN VRAI `NkRemplissage`, ET C'EST CE QUI OUVRE L'ENVELOPPE.
+			/// Il ne portait qu'une chaine hexa : le popover complet -- fond opaque,
+			/// onglets, rangee hexa, opacite, croix -- exige un REMPLISSAGE (160
+			/// occurrences sur ses 1046 lignes) et n'exige un NŒUD que huit fois.
+			/// Lui en donner un vrai, c'est lui donner la seule chose qui manquait.
+			/// ⚠️ IL N'EST PAS DANS LE DOCUMENT, et le type ne dit rien de la : c'est
+			///    un champ d'ETAT, enregistre dans `nkuidesign.cfg` comme le reste du
+			///    decor. Sa couleur seule est persistee (cle `canvas_fond`).
+			NkRemplissage canvasFill;
+			/// Le décor a changé et n'est pas encore écrit : posé par le sélecteur
+			/// pendant le glisser, consommé au relâcher par le peintre de la toile.
+			bool decorSale = false;
 			/// Les deux réglages de décor ont-ils déjà été lus dans le fichier ?
 			/// Lecture PARESSEUSE, une fois — le même geste que `hier_bas`.
 			bool decorLu = false;
@@ -4620,8 +4631,14 @@ namespace nkuidesign {
 					//    la main au thème : l'apparence d'aujourd'hui reste ce
 					//    qu'on obtient sans rien régler.
 					mSt->LireDecorUneFois();
+					// ③ L'ECRITURE DU DECOR SE FAIT ICI, AU RELACHER, et une seule fois
+					//   par geste : le selecteur de couleur MARQUE pendant le glisser.
+					if (mSt->decorSale && !ctx.input.mouseDown[0]) {
+						mSt->decorSale = false;
+						mSt->EnregistrerDecor();
+					}
 					uint32 rgbaFond = 0u;
-					if (NkFondCanvasExplicite(mSt->canvasFond.Data(), rgbaFond))
+					if (NkFondCanvasExplicite(mSt->canvasFill.couleur.Data(), rgbaFond))
 						paint.FillColor({area.x, area.y, area.w, area.h}, rgbaFond, 0.f);
 					else
 						paint.Fill({area.x, area.y, area.w, area.h},
@@ -12209,23 +12226,71 @@ namespace nkuidesign {
 				//    selectionne ou si on a clique dans le vide ») : le noeud disparu, deselectionne
 				//    (le vide de la toile deselectionne), ou remplace par un autre -> il se ferme,
 				//    et le popup du kit avec lui.
-				if (!d.ouvert || !mSt->doc.IsValidIndex(d.noeud) || mSt->selected != d.noeud) {
-					if (d.ouvert && ctx.IsPopupOpen(d.id))
+				// ══════════════════════════════════════════════════════════════
+				//  ③ (07/09) CETTE FENETRE REÇOIT CE QU'ELLE EDITE, elle ne va plus
+				//     LE CHERCHER — et c'est tout le lot.
+				// ══════════════════════════════════════════════════════════════
+				// 🔴 RODOLF : la pastille du canvas ouvrait le CŒUR du sélecteur posé
+				//    NU — pas de fond opaque, pas d'onglets, pas de rangée hexa, pas
+				//    de croix ; le texte du panneau se lisait à travers.
+				//
+				// ⚠️ MESURE AVANT D'ECRIRE (Q127) : sur ses 1046 lignes, cette
+				//    fonction touche **160 fois** le remplissage `f`, et le NŒUD
+				//    **huit fois seulement** — toutes groupées ici, plus trois dans la
+				//    seule branche image. Elle n'a jamais eu besoin d'un nœud pour
+				//    dessiner un fond, un onglet et un bouton de fermeture : elle a
+				//    besoin d'UN REMPLISSAGE. *La même forme de condition mal placée
+				//    que la garde d'hier — déplacée, pas retirée.*
+				//
+				// ⚠️ ET AUCUNE LIGNE DE DESSIN N'EST DEPLACEE. Ce sont ces huit accès
+				//    directs qui deviennent une résolution déclarée ; le chemin
+				//    `d.noeud >= 0` est identique, et les essais 60b/86/87/88 le
+				//    prouvent sans avoir été touchés.
+				const bool surNoeud = d.noeud >= 0;
+				if (!d.ouvert) {
+					if (ctx.IsPopupOpen(d.id))
 						ctx.ClosePopup();
 					d.ouvert = false;
 					return;
 				}
-				NkUINode &n = mSt->doc.nodes[(uint32)d.noeud];
-				if (d.index < 0 || (uint32)d.index >= (uint32)n.fills.Size()) {
+				// ④ LE SELECTEUR SUIT LA SELECTION (Rodolf : « fermer le picker lorsque rien n'est
+				//    selectionne ou si on a clique dans le vide ») : le noeud disparu, deselectionne
+				//    (le vide de la toile deselectionne), ou remplace par un autre -> il se ferme,
+				//    et le popup du kit avec lui. **Pour qui DECRIT un nœud, uniquement.**
+				if (surNoeud && (!mSt->doc.IsValidIndex(d.noeud) || mSt->selected != d.noeud)) {
+					if (ctx.IsPopupOpen(d.id))
+						ctx.ClosePopup();
 					d.ouvert = false;
 					return;
 				}
-				NkRemplissage &f = n.fills[(uint32)d.index];
+				NkUINode *const n = surNoeud ? &mSt->doc.nodes[(uint32)d.noeud] : nullptr;
+				if (surNoeud && (d.index < 0 || (uint32)d.index >= (uint32)n->fills.Size())) {
+					d.ouvert = false;
+					return;
+				}
+				// LE REMPLISSAGE EDITE : celui du nœud, ou celui du DECOR de la toile.
+				NkRemplissage &f = surNoeud ? n->fills[(uint32)d.index] : mSt->canvasFill;
 				NkDegrade &g = f.degrade;
+				// ⚠️ L'IMAGE EST UN CHEMIN DE NŒUD, PAR CONSTRUCTION -- pas par l'absence
+				//    de l'onglet. Trois sites de cette branche lisent la BOITE du nœud
+				//    (couverture du recadrage) et son index (choix du fichier) ; les
+				//    laisser protégés par une décision d'INTERFACE, c'est les rouvrir au
+				//    premier changement d'interface. Le décor de la toile ne peut donc
+				//    pas être une image, quoi que porte son remplissage.
+				const bool estImage = surNoeud && f.EstImage();
 				auto &F = costume::Fontes();
 				auto touche = [&]() {
-					if (!n.instanceDe.Empty())
-						n.ecarts |= NkUINode::EcartRemplissages;
+					if (!surNoeud) {
+						// ⚠️ ON MARQUE, ON N'ECRIT PAS. Le selecteur appelle `touche()` a
+						//    CHAQUE image d'un glisser dans le carre de teinte : ecrire le
+						//    fichier ici, c'est un acces disque par image. Le decor est
+						//    marque sale et s'enregistre au relacher, la ou la toile le
+						//    peint deja -- un seul endroit, une seule ecriture par geste.
+						mSt->decorSale = true;
+						return;
+					}
+					if (!n->instanceDe.Empty())
+						n->ecarts |= NkUINode::EcartRemplissages;
 					mSt->doc.MarkHumanEdit(d.noeud);
 					mSt->host.SyncTo(mSt->doc);
 					mFillsGen = -1; // la ligne se resynchronise
@@ -12300,7 +12365,13 @@ namespace nkuidesign {
 				// une rangée de plus quand la couleur est LIÉE : « Modifier la variable » (③) ;
 				// et TOUJOURS la rangée d'opacité (① du 05/09, après-midi)
 				const bool couleurLiee = NkEstReference(couleurCourante.Data());
-				const float32 hHex = 26.f + 26.f + 26.f + (couleurLiee ? 26.f : 0.f);
+				// ③ (07/09) LA HAUTEUR SUIT LE MASQUAGE. Trois rangées -- le modèle,
+				//    l'opacité, la variable -- et la variable N'EXISTE PAS pour le décor
+				//    de la toile. Garder sa hauteur aurait laissé un vide de 26 px au bas
+				//    de la fenêtre : *une hauteur qui ne suit pas son contenu, c'est la
+				//    même faute qu'une largeur décidée sans regarder le texte.*
+				const float32 hVariable = surNoeud ? 26.f + (couleurLiee ? 26.f : 0.f) : 0.f;
+				const float32 hHex = 26.f + 26.f + hVariable;
 				// LIER UNE VARIABLE EXISTANTE : la liste se deplie DANS le popover (une rangee
 				// de 20 px par variable, six au plus -- au-dela, le rail Variables), et la
 				// boite grandit d'autant ; rien tant que la liste est repliee ou que la
@@ -12308,7 +12379,7 @@ namespace nkuidesign {
 				const uint32 nVarsDoc = (uint32)mSt->doc.variables.Size();
 				const uint32 nVarsListe = nVarsDoc < 6u ? nVarsDoc : 6u;
 				(void)nVarsListe; // le compte AFFICHE est desormais celui du filtre (③)
-				const bool listeVars = mVarsDeplie && nVarsDoc > 0u && !NkEstReference(couleurCourante.Data()) && !f.EstImage();
+				const bool listeVars = surNoeud && mVarsDeplie && nVarsDoc > 0u && !NkEstReference(couleurCourante.Data()) && !estImage;
 				// ③ les lignes RETENUES par le filtre (six au plus), plus le champ de recherche
 				uint32 varsFiltrees = 0u;
 				uint32 idxVars[6] = {0u, 0u, 0u, 0u, 0u, 0u};
@@ -12322,9 +12393,9 @@ namespace nkuidesign {
 				//    descendent a +30 -- a 26 px la rangee suivante les recouvrait (Rodolf)
 				const int32 genreP = renderdetail::NkGenreDegrade(g);
 				const float32 hRampe = g.Actif() ? 34.f + 26.f + (genreP != 0 ? 52.f : 0.f) + 26.f * (float32)(g.arrets.Size() < 12u ? g.arrets.Size() : 12u) : 0.f; // barre, angle, (rayons, origine), liste
-				const bool estCrop = f.EstImage() && NkComponentDecl::StrEq(f.cadrage.Data(), "crop");
+				const bool estCrop = estImage && NkComponentDecl::StrEq(f.cadrage.Data(), "crop");
 				// image : apercu, retirer le fond, cadrage, rotation, source, boutons, (crop)
-				const float32 ph = f.EstImage() ? 8.f + hTypes + 116.f + 26.f * 5.f + (estCrop ? 26.f : 0.f) + 8.f
+				const float32 ph = estImage ? 8.f + hTypes + 116.f + 26.f * 5.f + (estCrop ? 26.f : 0.f) + 8.f
 												   : 8.f + hTypes + hPicker + hHex + hVars + hRampe + 8.f;
 				const NkRect sw = d.ancre;
 				// ⑤ LA HAUTEUR EST BORNEE AVANT LE PLACEMENT : ce qui deborde, c'est la
@@ -12392,11 +12463,25 @@ namespace nkuidesign {
 				bool fermerPopover = false;
 				{
 					const nkgui::NkColor sombre = {70, 70, 70, 255}, clair = {215, 215, 215, 255};
-					for (uint32 k = 0; k < 6u; ++k) {
-						const bool estUni = (k == 0u), estImage = (k == 5u);
-						const bool actif = estImage ? f.EstImage()
-											: (estUni ? (!g.Actif() && !f.EstImage())
-													  : (!f.EstImage() && g.Actif()
+					// ── ③ (07/09) POUR LE DECOR DE LA TOILE : LA VIGNETTE UNIE, ET RIEN
+					//    D'AUTRE ─────────────────────────────────────────────────────
+					// 🔴 ARBITRAGE DE RODOLF : couleur unie seulement. Le peintre de la
+					//    toile ne sait peindre qu'un aplat ; proposer « dégradé »,
+					//    « radial » ou « image » écrirait un fond que rien ne peint.
+					// ⚠️ C'EST UN MASQUAGE SOUS LA REGLE DU TYPE, PAS UNE SECTION MUETTE.
+					//    Ces choix NE PEUVENT PAS EXISTER pour un canvas ; ils ne sont pas
+					//    « pas encore branchés ». *On cache ce qui ne peut pas exister ; on
+					//    explique ce qui n'agit pas encore.* Les rouvrir en croyant réparer
+					//    un oubli remettrait un choix mort dans la fenêtre.
+					const uint32 nVignettes = surNoeud ? 6u : 1u;
+					for (uint32 k = 0; k < nVignettes; ++k) {
+						// ⚠️ RENOMMEE : elle s'appelait `estImage` et masquait la variable du
+						//    MEME nom qui dit si le REMPLISSAGE est une image. Deux sens pour
+						//    un mot dans dix lignes : la sixieme vignette, et l'etat du fond.
+						const bool estUni = (k == 0u), vignetteImage = (k == 5u);
+						const bool actif = vignetteImage ? estImage
+											: (estUni ? (!g.Actif() && !estImage)
+													  : (!estImage && g.Actif()
 														 && (NkComponentDecl::StrEq(g.type.Data(), kNkTypesRemplissageCle[k])
 															 || (k == 1u && g.type.Empty()))));
 						const NkRect v = {x0 + (float32)k * 24.f, y + 2.f, 18.f, 18.f};
@@ -12432,7 +12517,7 @@ namespace nkuidesign {
 												   : k == 5u ? "Image — le damier tant que la source n'est pas chargée."
 															 : "Nommé, pas encore peint : le fond prend la couleur du premier arrêt.");
 						if (sv && ctx.input.mouseClicked[0]) {
-							if (estImage) {
+							if (vignetteImage) {
 								f.genre = NkString("image");
 								g.arrets.Clear();
 							} else if (estUni) {
@@ -12488,7 +12573,7 @@ namespace nkuidesign {
 					}
 					y += 26.f;
 				}
-				if (f.EstImage()) {
+				if (estImage) {
 					// ── LE POPOVER IMAGE, comme sa capture : damier · « Remove background » ·
 					//    menu de cadrage (Fill · Fit · Stretch · Tile · Crop) · rotation ──
 					const NkRect rd = {x0, y, x1 - x0, 110.f};
@@ -12635,7 +12720,8 @@ namespace nkuidesign {
 							mRectImageRecharger = bRe;
 							if (svCh && ctx.input.mouseClicked[0]) {
 								ctx.input.mouseClicked[0] = false;
-								mSt->OuvrirChoixImage(d.noeud, d.index);
+								if (surNoeud) // un choix d'image s'ecrit DANS un nœud
+									mSt->OuvrirChoixImage(d.noeud, d.index);
 								fermerPopover = true;
 							} else if (svRe && ctx.input.mouseClicked[0]) {
 								ctx.input.mouseClicked[0] = false;
@@ -12845,7 +12931,16 @@ namespace nkuidesign {
 							}
 						}
 					}
-					{
+					// ③ (07/09) LA RANGEE << VARIABLE >> N'EXISTE PAS POUR LE DECOR.
+					// 🔴 ARBITRAGE DE RODOLF : pas de variable pour le canvas. Une couleur
+					//    liée s'écrirait dans `nkuidesign.cfg` sous forme de CLE (`@fond`) ;
+					//    au prochain lancement, ou dans un autre document, la clé ne
+					//    résoudrait rien et le thème reprendrait la main -- **un réglage qui
+					//    disparaît sans rien dire**. C'est aussi la cohérence de la phrase
+					//    validée ce matin : le décor suit la MACHINE, pas le document.
+					// ⚠️ MASQUAGE SOUS LA REGLE DU TYPE, pas une rangée muette : une variable
+					//    de DOCUMENT ne peut pas exister pour un décor de MACHINE.
+					if (surNoeud) {
 						const NkRect rv = {x0, y + 52.f + 3.f, x1 - x0, 20.f};
 						if (NkEstReference(couleurCourante.Data())) {
 							const NkVariable *var = mSt->doc.TrouverVariable(couleurCourante.Data());
@@ -17264,7 +17359,7 @@ namespace nkuidesign {
 				//    (vide = thème). Un booléen « mode » à côté aurait pu dire
 				//    « couleur » pendant que le champ est vide -- deux vérités pour
 				//    un seul fait, et c'est toujours la seconde qu'on voit à l'écran.
-				const bool fondPose = !mSt->canvasFond.Empty();
+				const bool fondPose = !mSt->canvasFill.couleur.Empty();
 				{
 					const NkRect r = ctx.NextItemRect(-1.f, 26.f);
 					const float32 x0 = r.x + 12.f;
@@ -17275,7 +17370,7 @@ namespace nkuidesign {
 				const int32 choix = designkit::Segmented(ctx, kModes, 2, fondPose ? 1 : 0,
 														 "insp.canvas.fond");
 				if (choix == 0 && fondPose) {
-					mSt->canvasFond = NkString("");
+					mSt->canvasFill = NkRemplissage(); // le theme reprend : rien de pose
 					mSt->EnregistrerDecor();
 					mSt->status = NkString("Fond de la toile : le thème décide à nouveau.");
 				} else if (choix == 1 && !fondPose) {
@@ -17287,14 +17382,14 @@ namespace nkuidesign {
 					snprintf(mCanvasHex, sizeof(mCanvasHex), "#%02x%02x%02x",
 							 (unsigned)((c >> 24) & 0xFFu), (unsigned)((c >> 16) & 0xFFu),
 							 (unsigned)((c >> 8) & 0xFFu));
-					mSt->canvasFond = NkString(mCanvasHex);
+					mSt->canvasFill.couleur = NkString(mCanvasHex);
 					mSt->EnregistrerDecor();
 				}
-				if (!mSt->canvasFond.Empty()
-					&& !NkComponentDecl::StrEq(mCanvasHex, mSt->canvasFond.Data()))
-					snprintf(mCanvasHex, sizeof(mCanvasHex), "%s", mSt->canvasFond.Data());
+				if (!mSt->canvasFill.couleur.Empty()
+					&& !NkComponentDecl::StrEq(mCanvasHex, mSt->canvasFill.couleur.Data()))
+					snprintf(mCanvasHex, sizeof(mCanvasHex), "%s", mSt->canvasFill.couleur.Data());
 
-				if (!mSt->canvasFond.Empty()) {
+				if (!mSt->canvasFill.couleur.Empty()) {
 					const NkRect r = ctx.NextItemRect(-1.f, 26.f);
 					const float32 x0 = r.x + 12.f;
 					const float32 x1 = r.x + r.w - 12.f;
@@ -17310,6 +17405,19 @@ namespace nkuidesign {
 					const bool viaPastille =
 						NkPastilleCouleur(ctx, *mSt, "##insp.canvas.pastille", sw, mCanvasHex,
 										  (uint32)sizeof(mCanvasHex), -1); // aucun nœud décrit
+					// ③ (07/09) ET ELLE OUVRE LA MEME FENETRE QU'UN REMPLISSAGE.
+					// 🔴 Rodolf, sur deux captures cote a cote : le remplissage ouvrait une
+					//    FENETRE (fond opaque, onglets, hexa, opacite, croix), le canvas
+					//    ouvrait le CŒUR DU SELECTEUR POSE NU. Le noyau etait bien commun --
+					//    c'est l'ENVELOPPE qui manquait, et ma mesure d'hier ne la comptait
+					//    pas. *Le meme genre que les remplissages, avec `noeud = -1` : la
+					//    fenetre edite le remplissage du DECOR.*
+					if (mSt->picker.ouvert
+						&& mSt->picker.id == ctx.GetId("##insp.canvas.pastille")) {
+						mSt->picker.genre = 1u; // l'enveloppe complete
+						mSt->picker.noeud = -1; // ... sur aucun nœud
+						mSt->picker.index = -1;
+					}
 					const float32 xChamp = sw.x + 16.f + (float32)costume::EspSerre;
 					ctx.SetNextItemRect(
 						{xChamp, costume::BandeY(r.y), x1 - xChamp, costume::HControle});
@@ -17321,7 +17429,7 @@ namespace nkuidesign {
 						//    poserait un fond que la toile refusera de lire au
 						//    prochain lancement -- un réglage fantôme.
 						if (NkFondCanvasExplicite(mCanvasHex, rgbaSaisi)) {
-							mSt->canvasFond = NkString(mCanvasHex);
+							mSt->canvasFill.couleur = NkString(mCanvasHex);
 							mSt->EnregistrerDecor();
 						}
 					}
@@ -17755,7 +17863,7 @@ namespace nkuidesign {
 			static constexpr uint32 kMaxFillsUI = 8;
 			char mFillsBuf[kMaxFillsUI][12] = {};
 			/// ③ LE TAMPON DE SAISIE DU FOND DE LA TOILE. Il n'a PAS d'état de
-			/// mode à côté : le mode se déduit de `st.canvasFond` (vide = thème).
+			/// mode à côté : il se déduit de `st.canvasFill.couleur` (vide = thème).
 			char mCanvasHex[12] = {};
 			int32 mFillsNode = -1;
 			uint32 mFillsGen = 0;
