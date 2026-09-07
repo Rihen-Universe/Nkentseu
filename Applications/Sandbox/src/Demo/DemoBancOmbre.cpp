@@ -724,7 +724,24 @@ namespace nkentseu {
 				// qui arrive dans `uObj.tint.w`, le seuil du tramage.
 				occ.alpha = st->opacite;
 				occ.roughness = 0.4f;
-				occ.castShadow = true;
+				// NK_BANC_OCC_OMBRE : l'occultant PROJETTE-T-IL une ombre ? (defaut 1)
+				//
+				// ⚠️ POURQUOI CETTE MANETTE EXISTE, ET CE QU'ELLE CORRIGE CHEZ MOI :
+				// `NK_BANC_OMBRE_MODE` N'A AUCUN EFFET SUR UN OCCULTANT OPAQUE. Mesure
+				// du 08/09 : a opacite 1.0, les modes 0 et 2 rendent la MEME image, au
+				// pixel pres, sur les quatre dorsaux. C'est correct -- le mode ne
+				// gouverne que le chemin TRANSPARENT -- mais j'ai perdu une course a
+				// l'attendre. Qui posera le mode 0 sur un occultant opaque en attendra
+				// un effet, comme moi.
+				//
+				// Elle sert a ISOLER LES DEUX CHEMINS D'ECRITURE de l'atlas d'ombres,
+				// que le mode ne sait pas separer :
+				//   opacite 1.00 -> `Shadow`      depth-only, JAMAIS negate
+				//   opacite 0.12 -> `ShadowAlpha` varyings,   negate
+				// Avec l'ombre eteinte pour reference, chaque chemin se soustrait
+				// SEUL -- et l'echantillonnage, lui, ne bouge pas d'une course a
+				// l'autre : un ecart ne peut donc venir que de l'ECRITURE.
+				occ.castShadow = BancInt("NK_BANC_OCC_OMBRE", 1) != 0;
 				occ.receiveShadow = true;
 				r3d->Submit(occ);
 			}
