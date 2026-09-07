@@ -73,6 +73,7 @@
 #include "NKRenderer/Materials/NkMaterialSystem.h"
 #include "NKRenderer/Mesh/NkMeshSystem.h"
 #include "NKRenderer/Tools/Environment/NkEnvironmentSystem.h"
+#include "NKRenderer/Tools/Reflection/NkPlanarReflectionSystem.h"
 #include "NKRenderer/Core/NkTextureLibrary.h"
 #include "NKPlatform/NkEnv.h"
 #include "NKSL/ShaderConvert/NkShaderConvert.h" // sonde du cache : cle + version du generateur
@@ -85,6 +86,8 @@ namespace nkentseu {
 
 		struct BancOmbreState {
 				NkMaterial *matOccultant = nullptr;
+				NkMaterial *matMiroir = nullptr; // vue 5 : le sol reflechissant
+				renderer::NkPlanarReflectionHandle reflHandle{};
 				int32 vue = 0;
 				float32 opacite = 0.12f;
 				uint32 modeOmbre = 1u;
@@ -352,6 +355,47 @@ namespace nkentseu {
 				return false;
 			}
 
+			// ── LE SOL MIROIR DE LA VUE 5 ───────────────────────────────────────
+			// Cree SEULEMENT en vue 5 : un materiau reflechissant fait travailler la
+			// passe miroir a chaque image, et le banc du grain n'en veut pas.
+			// ⚠️ ON RELIT ICI AUSSI. Si le systeme de reflexion refuse le plan, le
+			// temoin ne mesurerait qu'un sol ordinaire et le dirait VERT sans avoir
+			// rien reflechi. Le banc REFUSE plutot que de mesurer a cote.
+			if (st->vue == 5) {
+				st->matMiroir = NkMaterial::Create(matSys, NkMaterialType::NK_REFL_FLOOR);
+				if (!st->matMiroir || !st->matMiroir->IsValid()) {
+					logger.Errorf("[BancOmbre] REFUS : materiau ReflFloor invalide\n");
+					NkMaterial::Destroy(st->matOccultant);
+					delete st;
+					ctx.userData = nullptr;
+					return false;
+				}
+				st->matMiroir->SetAlbedo({0.55f, 0.55f, 0.60f})->SetRoughness(0.05f);
+				auto *refl = ctx.renderer->GetPlanarReflection();
+				if (!refl) {
+					logger.Errorf("[BancOmbre] REFUS : aucun systeme de reflexion plane\n");
+					delete st;
+					ctx.userData = nullptr;
+					return false;
+				}
+				renderer::NkPlanarReflectionDesc rd;
+				rd.normal = {0.f, 1.f, 0.f};
+				rd.point = {0.f, 0.f, 0.f};
+				rd.rtWidth = (ctx.width / 2 > 0) ? ctx.width / 2 : 512;
+				rd.rtHeight = (ctx.height / 2 > 0) ? ctx.height / 2 : 256;
+				rd.hdr = true;
+				rd.debugName = NkString("BancOmbre_Miroir");
+				rd.targetMaterial = st->matMiroir->GetInstHandle();
+				st->reflHandle = refl->Register(rd);
+				if (!st->reflHandle.IsValid()) {
+					logger.Errorf("[BancOmbre] REFUS : le plan miroir n'a pas ete enregistre\n");
+					delete st;
+					ctx.userData = nullptr;
+					return false;
+				}
+				logger.Infof("[BancMiroir] plan y=0 enregistre, RT %ux%u\n", rd.rtWidth, rd.rtHeight);
+			}
+
 			logger.Infof("[BancOmbre] vue=%d opacite=%.3f modeOmbre=%u (relu %u) "
 						 "soleil=%.1f deg ciel=%d\n",
 						 st->vue, st->opacite, st->modeOmbre, relu, st->soleilDeg, st->modeleCiel);
@@ -392,6 +436,15 @@ namespace nkentseu {
 				cd.position = {0.f, 1.6f, 0.f};
 				cd.target = {0.f, 1.6f, -10.f};
 				cd.fovY = 70.f;
+				cd.farPlane = 500.f;
+			} else if (st->vue == 5) {
+				// VUE MIROIR : l'oeil BAS et le regard presque horizontal, pour que le
+				// plan y=0 coupe l'image et qu'on voie le cube ET son reflet. Un
+				// regard plongeant les aurait empiles ; un regard rasant aurait ecrase
+				// le reflet contre l'horizon.
+				cd.position = {0.f, 1.8f, 7.f};
+				cd.target = {0.f, 1.2f, 0.f};
+				cd.fovY = 55.f;
 				cd.farPlane = 500.f;
 			} else {
 				// VUE OMBRE : la dalle occupe la moitie basse, l'ombre de
@@ -537,6 +590,51 @@ namespace nkentseu {
 					logger.Infof("[BancLumiere] echelle=%.0f hauteur=%.2f puissance=%.1f "
 								 "(tint 0.62 rough 0.90 metal 0.00) — la seule variable est l'ECHELLE\n",
 								 ech, hauteur, puissance);
+				}
+				ctx.renderer->Present();
+				ctx.renderer->EndFrame();
+				return;
+			}
+
+			// ── VUE 5 : LE TEMOIN DE REFLET PLAN ────────────────────────────────
+			//
+			// 🔴 CE QU'IL TRANCHE : la compensation #4, le flip Y de `mirrorViewProj`
+			// sur DirectX. Un reflet plan est le seul chemin qui ECHANTILLONNE une
+			// cible rendue par le pipeline 3D ; c'est donc le seul ou une convention
+			// d'orientation se paie deux fois.
+			//
+			// ⚠️ IL SE MESURE RELATIVEMENT AU PLAN, jamais en absolu -- sur DX toute
+			// l'image est retournee, un reflet qui bouge ne prouverait rien. Le cube
+			// est a une hauteur CONNUE au-dessus de y=0 ; son reflet doit tomber a la
+			// MEME distance du plan, de l'autre cote. C'est cette distance qu'on
+			// compare entre dorsaux, pas la position a l'ecran.
+			if (st->vue == 5) {
+				if (st->matMiroir && st->matMiroir->IsValid()) {
+					NkDrawCall3D sol;
+					sol.mesh = meshSys->GetPlane();
+					sol.transform = NkMat4f::Scale({30.f, 1.f, 30.f});
+					sol.aabb = {{-30.f, -0.01f, -30.f}, {30.f, 0.01f, 30.f}};
+					sol.material = st->matMiroir->GetInstHandle();
+					sol.alpha = 1.f;
+					sol.castShadow = false;
+					sol.receiveShadow = false;
+					r3d->Submit(sol);
+				}
+				// Le cube du temoin, pose HAUT et A DROITE au-dessus du miroir. Meme
+				// regle que partout : asymetrique dans les deux axes.
+				if (BancInt("NK_BANC_TEMOIN_3D", 0) != 0) {
+					const float32 h = BancFloat("NK_BANC_MIROIR_HAUTEUR", 2.f);
+					NkDrawCall3D cube;
+					cube.mesh = meshSys->GetCube();
+					cube.transform = NkMat4f::Translate({1.5f, h, 0.f});
+					cube.aabb = {{1.f, h - 0.5f, -0.5f}, {2.f, h + 0.5f, 0.5f}};
+					cube.tint = {1.f, 0.f, 0.f};
+					cube.alpha = 1.f;
+					cube.roughness = 1.f;
+					cube.metallic = 0.f;
+					cube.castShadow = false;
+					cube.receiveShadow = false;
+					r3d->Submit(cube);
 				}
 				ctx.renderer->Present();
 				ctx.renderer->EndFrame();
