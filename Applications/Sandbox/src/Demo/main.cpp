@@ -439,6 +439,19 @@ namespace nkentseu {
 					// scene mais de la CONFIG, donc de la CREATION du renderer -- c'est
 					// pour cela qu'elle se regle ici et pas dans la demo. Defaut du
 					// moteur : 0.05. Le viseur du modeleur met 1.1, soit 22 fois plus.
+					// NK_BANC_BLOOM : arme le HALO. Eteint par defaut -- le banc du grain
+					// l'exige eteint, un halo etalerait le sel qu'on y mesure. Le seuil
+					// descend a 0.5 avec lui : au seuil moteur (1.0) une scene de mesure,
+					// volontairement peu exposee, ne depasse jamais rien et le temoin
+					// serait MUET -- vert sans avoir rien regarde.
+					{
+						const char *bv = getenv("NK_BANC_BLOOM");
+						if (bv && bv[0] && bv[0] != '0') {
+							c.postProcess.bloom = true;
+							c.postProcess.bloomThreshold = 0.5f;
+						}
+					}
+
 					{
 						const char *iv = getenv("NK_BANC_IBL"); // <cstdlib>, deja inclus l. 19
 						if (iv && iv[0])
