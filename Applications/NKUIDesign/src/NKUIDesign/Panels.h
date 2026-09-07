@@ -1682,6 +1682,11 @@ namespace nkuidesign {
 					nkentseu::int32 arretSel = 0; ///< l'ARRET COURANT : c'est lui que le selecteur edite
 					nkentseu::int32 arretDrag = -1;
 					nkentseu::uint32 synchro = 0xFFFFFFFFu; ///< cle du dernier tampon hexa resynchronise
+					/// LE POPUP A-T-IL DEJA ETE POSE pour cette demande ? Sans ce
+					/// drapeau, << pas encore ouvert >> et << ferme a l'instant >> se
+					/// ressemblent, et le dessinateur ROUVRE ce que l'utilisateur vient
+					/// de fermer. Voir `NkPopupDeLaDemande`.
+					bool pose = false;
 			};
 			DemandePicker picker;
 			/// ⑤ LA DECLARATION QUE LA HIERARCHIE MONTRE (« Voir le composant », 05/09) :
@@ -11566,6 +11571,7 @@ namespace nkuidesign {
 				st.picker.id = id;
 				st.picker.ancre = sw;
 				st.picker.change = false;
+				st.picker.pose = false; // une demande neuve : son popup reste a poser
 				// ② LA DECLARATION SE FAIT ICI, dans LA porte, pas dans chacune des
 				//   cinq : le nœud décrit (ou -1), et le genre par défaut.
 				st.picker.noeud = noeudDecrit;
@@ -11603,6 +11609,47 @@ namespace nkuidesign {
 		out.w = e.w;
 		out.h = e.h;
 		out.pixels = e.pixels.Data();
+		return true;
+	}
+
+	// ── LE POPUP D'UNE DEMANDE : POSE UNE FOIS, JAMAIS ROUVERT ─────────────
+	//
+	// 🔴 RODOLF (07/09) : << quand on ouvre le color picker du canvas, si on clique
+	//    dans le vide ca ne se ferme pas >>.
+	//
+	// ⚠️ LE TABLEAU DES SORTIES (essai 138) A DIT PLUS QUE LE RAPPORT. Trois portes
+	//    x deux pastilles, mesurees cote a cote : **ni le clic dans le vide ni
+	//    Echap ne fermaient, pour AUCUNE des deux** -- seule la croix. Ce n'est pas
+	//    un defaut du canvas : c'est un defaut PARTAGE que le remplissage cachait.
+	//
+	// ⚠️ POURQUOI LE REMPLISSAGE SEMBLAIT SE FERMER : cliquer dans le vide de la
+	//    toile DESELECTIONNE, et sa garde << le nœud regarde n'est plus celui-ci >>
+	//    le refermait. **Deux mecanismes de fermeture, et le decor n'en a qu'un** --
+	//    celui, cassé, qu'ils partagent. *Un chemin repare par un effet de bord
+	//    d'ailleurs passe pour sain jusqu'a ce qu'on l'essaie sans cet ailleurs.*
+	//
+	// ⚠️ LA CAUSE, ET ELLE ETAIT ECRITE TROIS FOIS : chaque dessinateur faisait
+	//    `if (!IsPopupOpen(id)) OpenPopup(id);` a CHAQUE image. NKGui ferme bien la
+	//    chaine sur un clic dehors ou Echap ; a l'image suivante, le dessinateur la
+	//    ROUVRAIT. **Le geste de fermeture arrivait, et on le defaisait.**
+	//
+	// ⚠️ ET CE N'EST PAS LA GARDE DEPLACEE HIER QUI REVIENT : celle-la dit quand
+	//    une demande cesse d'avoir un SENS (son nœud a disparu) ; celle-ci dit que
+	//    le popup a ete FERME. Deux questions differentes, et la seconde n'avait de
+	//    reponse nulle part -- << pas encore ouvert >> et << ferme a l'instant >> se
+	//    ressemblaient comme deux gouttes d'eau.
+	//
+	/// Ouvre le popup la premiere fois ; rend **false** s'il a ete ferme depuis --
+	/// l'appelant abandonne alors la demande au lieu de la ressusciter.
+	inline bool NkPopupDeLaDemande(nkgui::NkGuiContext &ctx, DesignState::DemandePicker &d) noexcept {
+		if (ctx.IsPopupOpen(d.id)) {
+			d.pose = true;
+			return true;
+		}
+		if (d.pose)
+			return false; // pose, puis ferme : la demande tombe avec lui
+		ctx.OpenPopup(d.id);
+		d.pose = true;
 		return true;
 	}
 
@@ -11662,8 +11709,10 @@ namespace nkuidesign {
 		const float32 ph = 160.f + 16.f + 6.f * (ctx.ItemHeight() + ctx.layout.itemSpacingY);
 		// ① (07/09) LE PLACEMENT VIENT DU KIT, PLUS D'ICI. Voir `NkPlacerPresDeLAncre`.
 		const nkgui::NkRect pr = editorkit::NkPlacerPresDeLAncre(sw, pw, ph, (float32)ctx.viewW, (float32)ctx.viewH, editorkit::NkCoteAncre::Dessous);
-		if (!ctx.IsPopupOpen(st.picker.id))
-			ctx.OpenPopup(st.picker.id);
+		if (!NkPopupDeLaDemande(ctx, st.picker)) {
+			st.picker.ouvert = false; // clic dehors / Echap : NKGui a ferme, on suit
+			return;
+		}
 		if (nkgui::BeginPopupId(ctx, st.picker.id, pr, sw)) {
 			if (nkgui::ColorPicker4(ctx, "##nkuidesign.picker", col, nkgui::NkGuiColorFlags::NoAlpha)) {
 				static const char *const kHex = "0123456789abcdef";
@@ -12074,8 +12123,10 @@ namespace nkuidesign {
 				//   rentree dans la vue. Trois copies identiques vivaient dans ce fichier ;
 				//   toutes les trois avaient diverge de la BIBLIOTHEQUE.
 				NkRect pr = editorkit::NkPlacerPresDeLAncre(sw, pw, ph, (float32)ctx.viewW, (float32)ctx.viewH, editorkit::NkCoteAncre::AGauche);
-				if (!ctx.IsPopupOpen(d.id))
-					ctx.OpenPopup(d.id);
+				if (!NkPopupDeLaDemande(ctx, d)) {
+					d.ouvert = false; // clic dehors / Echap : NKGui a ferme, on suit
+					return;
+				}
 				if (!nkgui::BeginPopupId(ctx, d.id, pr, sw)) {
 					d.ouvert = false;
 					return;
@@ -12406,8 +12457,10 @@ namespace nkuidesign {
 				//   rentree dans la vue. Trois copies identiques vivaient dans ce fichier ;
 				//   toutes les trois avaient diverge de la BIBLIOTHEQUE.
 				NkRect pr = editorkit::NkPlacerPresDeLAncre(sw, pw, phBorne, (float32)ctx.viewW, (float32)ctx.viewH, editorkit::NkCoteAncre::AGauche);
-				if (!ctx.IsPopupOpen(d.id))
-					ctx.OpenPopup(d.id);
+				if (!NkPopupDeLaDemande(ctx, d)) {
+					d.ouvert = false; // clic dehors / Echap : NKGui a ferme, on suit
+					return;
+				}
 				if (!nkgui::BeginPopupId(ctx, d.id, pr, sw)) {
 					d.ouvert = false; // clic dehors / Échap
 					return;

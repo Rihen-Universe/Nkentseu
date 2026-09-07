@@ -5128,6 +5128,90 @@ namespace nkuidesign {
 						  plusLeNoyau && memeFenetre && variableRetiree && pastilleDemandeLEnveloppe,
 						  det137);
 				}
+				// ── 138. LES DEUX PASTILLES SE FERMENT-ELLES PAR LES MEMES PORTES ?
+				//    Rodolf : << quand on ouvre le color picker du canvas, si on clique dans le
+				//    vide ca ne se ferme pas >>. Celui d'un remplissage se ferme.
+				//
+				// ⚠️ ON NE CHERCHE PAS DANS CELUI QUI EST CASSE : on met les deux chemins
+				//    COTE A COTE et on compte. Trois sorties x deux pastilles = six mesures de
+				//    la meme course ; le tableau dira si c'est un mecanisme MANQUANT ou une
+				//    condition MAL PLACEE, et ca vaut mieux qu'un correctif qui ferme le cas
+				//    qu'on vient de voir.
+				{
+					// Une image complete, entree BRUTE posee avant `BeginFrame` -- c'est la
+					// que NKGui calcule ses fronts (clic, touche) et applique sa regle
+					// << un clic hors de tous les popups ferme la chaine >>.
+					auto image138 = [&](float32 mx, float32 my, bool bas, bool echap) {
+						ctxI.input.mousePos = {mx, my};
+						ctxI.input.mouseDown[0] = bas;
+						ctxI.input.SetKey(nkgui::NkGuiKey::Escape, echap);
+						ctxI.BeginFrame(0.016f);
+						ctxI.BeginLayout({340.f, 0.f, 260.f, 900.f});
+						insp.OnUI(ec);
+						NkDessinerPickerDemande(ctxI, stI);
+						ctxI.EndFrame();
+					};
+					// `sortie` : 0 = clic dans le vide, 1 = Echap, 2 = la croix.
+					auto eprouver = [&](int32 noeud, int32 index, int32 sortie) -> bool {
+						if (ctxI.popupDepth > 0)
+							ctxI.ClosePopup();
+						stI.picker = DesignState::DemandePicker();
+						stI.picker.ouvert = true;
+						stI.picker.id = ctxI.GetId("##s.138.pastille");
+						stI.picker.genre = 1u;
+						stI.picker.noeud = noeud;
+						stI.picker.index = index;
+						stI.picker.ancre = {360.f, 200.f, 16.f, 16.f};
+						image138(360.f, 200.f, false, false); // la fenetre s'installe
+						image138(360.f, 200.f, false, false);
+						const nkgui::NkRect boite = ctxI.popupRects[0];
+						if (sortie == 0) {
+							// LE CLIC DANS LE VIDE : loin de la fenetre ET de son ancre.
+							// ⚠️ Le point est choisi HORS des deux, sinon on mesurerait
+							//    << un clic dedans ne ferme pas >>, ce qui est vrai et sans
+							//    interet. La toile est a gauche du panneau.
+							image138(60.f, 600.f, true, false);
+							image138(60.f, 600.f, false, false);
+						} else if (sortie == 1) {
+							image138(360.f, 200.f, false, true);
+							image138(360.f, 200.f, false, false);
+						} else {
+							// LA CROIX : son rectangle est en haut a droite de la fenetre
+							// (16 px de cote, 3 px de marge) -- pose depuis la boite mesuree.
+							const float32 cx = boite.x + boite.w - 8.f - 8.f;
+							const float32 cy = boite.y + 8.f + 11.f;
+							image138(cx, cy, true, false);
+							image138(cx, cy, false, false);
+						}
+						return !stI.picker.ouvert; // ferme ?
+					};
+					const bool fClic = eprouver(rc, 0, 0), fEchap = eprouver(rc, 0, 1),
+							   fCroix = eprouver(rc, 0, 2);
+					const bool cClic = eprouver(-1, -1, 0), cEchap = eprouver(-1, -1, 1),
+							   cCroix = eprouver(-1, -1, 2);
+					// LA RELATION : les deux pastilles se ferment par LES MEMES PORTES. Ce
+					// n'est pas << le selecteur se ferme >> -- c'est l'egalite des deux
+					// lignes du tableau, et c'est elle qui survit a l'ajout d'une sortie.
+					const bool memesPortes = (fClic == cClic) && (fEchap == cEchap)
+											 && (fCroix == cCroix);
+					// ... et elles doivent etre VRAIES : trois portes qui ne ferment ni l'une
+					// ni l'autre seraient << les memes portes >> et un defaut plus grave.
+					const bool troisPortes = fClic && fEchap && fCroix;
+					char det138[420];
+					snprintf(det138, sizeof(det138),
+							 "remplissage : clic dans le vide=%d, Echap=%d, croix=%d ; canvas : "
+							 "clic dans le vide=%d, Echap=%d, croix=%d ; memes portes -> %d ; "
+							 "les trois ferment -> %d",
+							 fClic ? 1 : 0, fEchap ? 1 : 0, fCroix ? 1 : 0, cClic ? 1 : 0,
+							 cEchap ? 1 : 0, cCroix ? 1 : 0, memesPortes ? 1 : 0,
+							 troisPortes ? 1 : 0);
+					check("138. LES DEUX PASTILLES SE FERMENT PAR LES MEMES PORTES : clic dans le vide, Echap, "
+						  "croix -- pour un remplissage COMME pour le decor de la toile. L'assertion n'est pas "
+						  "<< le selecteur se ferme >> mais l'EGALITE des deux lignes du tableau : c'est elle "
+						  "qui rougit quand une porte manque a l'un des deux, et elle survit a l'ajout d'une "
+						  "quatrieme sortie",
+						  memesPortes && troisPortes, det138);
+				}
 				// 60f. LA RANGEE MODELE (ses neuf captures) : `[Modele ˅] v1 v2 v3 [op %]` sur UNE
 				// ligne ; chaque champ tient `-54,00` (six caracteres, LAB) sans troncature --
 				// mesure a la police du panneau ; rien ne se chevauche, tout tient entre x0 et x1.
@@ -10056,6 +10140,22 @@ namespace nkuidesign {
 					  popoverOuvert && enRenommage && renomme, det);
 				// ── 87. LE SELECTEUR DETACHE PAR DEFAUT, ET MODIFIE LA VARIABLE UNE FOIS ARME ──
 				{
+					// ⚠️ LE MONTAGE ROUVRE LA DEMANDE (07/09), ET C'EST LE COMPORTEMENT QUI
+					//    A CHANGE, PAS L'ASSERTION. Le clic sur le rail de l'essai 85 est un
+					//    clic HORS du popover : depuis ce lot il le FERME -- c'est le geste
+					//    que Rodolf demandait. Ce montage-ci comptait sur un popover qui
+					//    RESSUSCITAIT tout seul a l'image suivante ; il rouvre donc la
+					//    demande, comme la main le ferait en recliquant la pastille.
+					//    *Un essai qui s'appuie sur un defaut le protege.*
+					stRet.picker = DesignState::DemandePicker();
+					stRet.picker.ouvert = true;
+					stRet.picker.id = ctxRet.GetId("##sonde.popover.var3");
+					stRet.picker.genre = 1u;
+					stRet.picker.noeud = rc;
+					stRet.picker.index = 0;
+					stRet.picker.ancre = {580.f, 200.f, 16.f, 16.f};
+					for (int32 kr = 0; kr < 2; ++kr)
+						image(-1.f, -1.f, false, 0u);
 					const NkString valAvant = stRet.doc.variables[(uint32)viC].valeur;
 					// un clic dans le carre saturation / valeur, comme la main (sonde 60h)
 					const float32 xSV = x0P3 + 80.f, ySV = pry3 + 8.f + 26.f + 80.f;
