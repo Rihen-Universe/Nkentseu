@@ -74,6 +74,7 @@
 #include "NKRenderer/Mesh/NkMeshSystem.h"
 #include "NKRenderer/Tools/Environment/NkEnvironmentSystem.h"
 #include "NKRenderer/Tools/Reflection/NkPlanarReflectionSystem.h"
+#include "NKRenderer/Tools/Offscreen/NkOffscreenTarget.h"
 #include "NKRenderer/Core/NkTextureLibrary.h"
 #include "NKPlatform/NkEnv.h"
 #include "NKSL/ShaderConvert/NkShaderConvert.h" // sonde du cache : cle + version du generateur
@@ -89,6 +90,12 @@ namespace nkentseu {
 				NkMaterial *matMiroir = nullptr; // vue 5 : le sol reflechissant
 				NkMaterial *matSol = nullptr; // vue 3 : le MEME plan, mais par instance de materiau
 				renderer::NkPlanarReflectionHandle reflHandle{};
+				// TEMOIN HORS ECRAN : rtA recoit la 3D, rtB recoit rtA ECHANTILLONNEE.
+				renderer::NkOffscreenTarget rtA;
+				renderer::NkOffscreenTarget rtB;
+				bool heInit = false;
+				bool heFait = false;
+
 				int32 vue = 0;
 				float32 opacite = 0.12f;
 				uint32 modeOmbre = 1u;
@@ -438,6 +445,73 @@ namespace nkentseu {
 				ctx.renderer->Present();
 				ctx.renderer->EndFrame();
 				return;
+			}
+
+			// ── TEMOIN HORS ECRAN ───────────────────────────────────────────────
+			//
+			// 🔴 CE QU'IL EXERCE, ET QUE MES SIX AUTRES TEMOINS N'ONT JAMAIS TOUCHE.
+			// Le modeleur rend la 3D HORS ECRAN puis publie cette cible comme une
+			// TEXTURE D'INTERFACE que le GUI dessine. Ma capture, elle, RELIT la
+			// cible vers le CPU. Deux consommateurs differents de la meme cible :
+			// l'un ECHANTILLONNE, l'autre RELIT -- et seule la relecture etait
+			// mesuree. Six temoins verts n'ont donc rien pu dire du chemin que
+			// Rodolf regarde.
+			//
+			// EN DEUX TRAMES, et c'est oblige : on ne peut pas echantillonner une
+			// cible pendant qu'on ecrit dedans.
+			//   trame paire   -> la 3D rend dans rtA
+			//   trame impaire -> rtA est echantillonnee plein ecran dans rtB,
+			//                    puis rtB est relue sur disque
+			const bool heArme = BancInt("NK_BANC_HORSECRAN", 0) != 0;
+			if (heArme && !st->heInit) {
+				st->heInit = true;
+				renderer::NkOffscreenDesc od;
+				od.width = ctx.width;
+				od.height = ctx.height;
+				od.hdr = false;
+				od.colorFmt = NkGPUFormat::NK_RGBA8_UNORM;
+				od.hasDepth = true;
+				od.readable = true;
+				od.readback = true;
+				od.name = "BancHE_A";
+				const bool okA = st->rtA.Init(ctx.renderer->GetDevice(), ctx.renderer->GetTextures(), od);
+				od.name = "BancHE_B";
+				const bool okB = st->rtB.Init(ctx.renderer->GetDevice(), ctx.renderer->GetTextures(), od);
+				// ⚠️ REFUS PLUTOT QU'UNE MESURE A COTE : sans les deux cibles, le
+				// temoin mesurerait le rendu direct en se croyant hors ecran.
+				if (!okA || !okB) {
+					logger.Errorf("[BancHorsEcran] REFUS : cible hors ecran refusee (A=%d B=%d)\n",
+								  okA ? 1 : 0, okB ? 1 : 0);
+					ctx.renderer->Present();
+					ctx.renderer->EndFrame();
+					return;
+				}
+				logger.Infof("[BancHorsEcran] deux cibles %ux%u pretes\n", ctx.width, ctx.height);
+			}
+			if (heArme) {
+				auto *tl = ctx.renderer->GetTextures();
+				if ((ctx.frame & 1u) == 0u) {
+					// trame PAIRE : la 3D part dans rtA.
+					ctx.renderer->SetFinalColorTarget(tl->GetRHIHandle(st->rtA.GetColorResult()));
+				} else {
+					// trame IMPAIRE : rtA ECHANTILLONNEE plein ecran dans rtB.
+					ctx.renderer->SetFinalColorTarget(tl->GetRHIHandle(st->rtB.GetColorResult()));
+					if (auto *r2 = ctx.renderer->GetRender2D()) {
+						r2->Begin(ctx.renderer->GetCmd(), ctx.width, ctx.height);
+						r2->DrawSprite(NkRectF{0.f, 0.f, (float32)ctx.width, (float32)ctx.height},
+									   st->rtA.GetColorResult());
+						r2->End();
+					}
+					ctx.renderer->Present();
+					ctx.renderer->EndFrame();
+					if (!st->heFait && ctx.frame >= 5) {
+						st->heFait = true;
+						const char *sortie = ::nkentseu::env::GetEnvVar("NK_BANC_HE_SORTIE");
+						const bool ok = st->rtB.Capture(sortie && sortie[0] ? sortie : "banc_he.png");
+						logger.Infof("[BancHorsEcran] relecture de rtB : %s\n", ok ? "OK" : "ECHEC");
+					}
+					return;
+				}
 			}
 
 			const NkVec3f dirSoleil = BancDirSoleil(st->soleilDeg);
