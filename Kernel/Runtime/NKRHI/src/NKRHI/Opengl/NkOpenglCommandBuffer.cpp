@@ -137,7 +137,36 @@ namespace nkentseu {
 
 		glUseProgram(mCurrentProgram);
 		glBindVertexArray(mCurrentVAO);
+
+		// Le VAO qu'on vient de lier n'emporte NI le tampon d'indices NI les tampons
+		// de sommets du precedent : on rend a celui-ci ce que l'appelant avait
+		// demande. Sans ca, tout tirage suivant un changement de pipeline dessine sur
+		// un VAO vide -- et avec des indices non lies, il ne dessine pas : il tombe.
+		// Le raisonnement complet et la mesure sont dans NkOpenglCommandBuffer.h,
+		// bloc « Ce que le VAO emporte ».
+		GL_RebindVAOState();
+
 		NkOpenglApplyRenderState(mDev, p.id);
+	}
+
+	// =============================================================================
+	// Repose sur le VAO courant l'etat que l'appelant avait demande et que la
+	// bascule de VAO vient d'emporter. Appele UNIQUEMENT depuis
+	// GL_BindGraphicsPipeline, juste apres glBindVertexArray.
+	//
+	// Idempotent par construction : si l'appelant relie ses tampons juste apres
+	// (l'ordre habituel pipeline-puis-maillage), il ecrase ces valeurs par les
+	// memes ou par les siennes. Rien n'est repose tant que rien n'a ete demande.
+	void NkOpenGLCommandBuffer::GL_RebindVAOState() {
+		for (uint32 b = 0; b < kMaxVertexBindings; ++b) {
+			const VertexBindingState &vb = mVertexBindings[b];
+			if (!vb.set || vb.buf.id == 0)
+				continue;
+			GL_BindVertexBuffer(b, vb.buf, vb.off);
+		}
+
+		if (mIndexBufferSet && mIndexBuffer.id != 0)
+			glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, NkOpenglGetBufferID(mDev, mIndexBuffer.id));
 	}
 
 	// =============================================================================
@@ -166,6 +195,13 @@ namespace nkentseu {
 
 	// =============================================================================
 	void NkOpenGLCommandBuffer::GL_BindVertexBuffer(uint32 binding, NkBufferHandle buf, uint64 off) {
+		// Retenu pour etre repose apres une bascule de VAO (cf. GL_RebindVAOState).
+		if (binding < kMaxVertexBindings) {
+			mVertexBindings[binding].buf = buf;
+			mVertexBindings[binding].off = off;
+			mVertexBindings[binding].set = true;
+		}
+
 		GLuint bufId = NkOpenglGetBufferID(mDev, buf.id);
 		uint32 stride = NkOpenglGetVertexStride(mDev, mBoundPipeline.id, binding);
 		if (stride == 0)
@@ -190,6 +226,13 @@ namespace nkentseu {
 	void NkOpenGLCommandBuffer::GL_BindIndexBuffer(NkBufferHandle buf, NkIndexFormat fmt, uint64 off) {
 		mIndexFormat = fmt;
 		mIndexOffset = off;
+
+		// Retenu pour etre repose apres une bascule de VAO. C'est CE liage-la que la
+		// bascule emportait, et son absence ne donnait pas un dessin faux mais un
+		// plantage (cf. GL_RebindVAOState et le bloc du .h).
+		mIndexBuffer = buf;
+		mIndexBufferSet = true;
+
 		GLuint bufId = NkOpenglGetBufferID(mDev, buf.id);
 #if defined(NKENTSEU_PLATFORM_EMSCRIPTEN)
 		// NKTEMP-DIAG : a retirer (instrumentation classes de buffers WebGL2)
