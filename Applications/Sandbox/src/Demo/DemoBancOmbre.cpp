@@ -432,6 +432,17 @@ namespace nkentseu {
 				// le champ est MORT et toutes les applications qui l'ecrivent se
 				// racontent une histoire.
 				sctx.ambientIntensity = BancFloat("NK_BANC_AMBIANTE", 0.f);
+				// NK_BANC_IBL_VOL : la MEME force d'ambiante, mais posee EN VOL, par
+				// le meme appel que le curseur << Ambiance > Intensite >> du panneau
+				// de Rodolf (Demo3DHostSetAmbient -> NkRender3D::SetIBLStrength).
+				// NK_BANC_IBL, lui, passe par la CONFIG, donc par la creation du
+				// renderer. Si les deux chemins rendent la meme image, alors un appel
+				// en cours de vie est honore -- et le curseur de Rodolf agit.
+				{
+					const char *vv = ::nkentseu::env::GetEnvVar("NK_BANC_IBL_VOL");
+					if (vv && vv[0])
+						r3d->SetIBLStrength(BancFloat("NK_BANC_IBL_VOL", 0.05f));
+				}
 				// NK_BANC_LUM_ENV : reproduit la case << Source : environnement >> de
 				// Rodolf (ambianceParEnv). Le ciel ECLAIRE alors les objets ; c'est un
 				// mecanisme SEPARE de sa visibilite en fond.
