@@ -50,8 +50,13 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Rihen-Universe/Jenga
-          # La branche VIVANTE de Rihen (fix frameworks() inclus) — main public est en retard.
-          ref: feat/evenement-avertissement
+          # ⚠️ Epingle sur le TAG de la release, pas sur une branche. Jusqu'au
+          # 2026-09-08 ce champ pointait `feat/evenement-avertissement`, restee
+          # en 2.4.0 : les paquets macOS/Linux embarquaient donc un Jenga plus
+          # vieux que le paquet Windows, sans que rien ne le dise. La branche
+          # est un ANCETRE de v2.6.3 (verifie par merge-base), rien ne se perd.
+          # Bumper ce tag a chaque release de Jenga.
+          ref: v2.6.3
           path: jenga-src
 
       - name: Dependances systeme (Linux)
