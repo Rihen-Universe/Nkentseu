@@ -2236,6 +2236,56 @@ int nkmain(const NkEntryState &entry) {
 		// CE QUE LE PANNEAU A DEMANDE, transmis au crochet pre-UI juste avant
 		// qu'il ne s'execute : `BeginFrame` appelle preUI3D, qui rendra l'apercu
 		// du materiau dans la meme frame device.
+		// NK_AGENT_MATPREV=<n> : a partir de la trame n, DEMANDE l'apercu du
+		// premier materiau, sans passer par le panneau -- et sauve sa cible en
+		// PNG. C'est le pendant de NK_AGENT_SCENE pour les materiaux.
+		//
+		// ⚠️ POURQUOI IL EXISTE. L'apercu de materiau est une cible hors ecran
+		// comme le viseur, et son AFFICHAGE passe par le meme Image() a UV
+		// {0,0}->{1,1}, celui dont on a MESURE qu'il sortait retourne sur OpenGL.
+		// Mais aucun temoin ne pouvait le juger : l'apercu n'est rendu que si le
+		// panneau a depose un slot, et on ne pilote pas l'interface. Sans ce
+		// levier son orientation restait INCONNUE, et je refusais de la deduire.
+		//
+		// ⚠️ IL NE CHANGE RIEN QUAND LA VARIABLE EST ABSENTE : sans elle, le slot
+		// reste celui du panneau, a l'octet pres.
+		{
+			static int32 sMatPrev = -2;
+			static bool sMatPrevDemande = false;
+			if (sMatPrev == -2) {
+				const char *v = std::getenv("NK_AGENT_MATPREV");
+				sMatPrev = v ? (int32)std::atoi(v) : -1;
+			}
+			if (sMatPrev > 0 && agentFrame >= sMatPrev && demo::Demo3DHostReady()) {
+				// Le premier emplacement OCCUPE : Info rend faux sur un emplacement
+				// libre, et il n'existe pas d'accesseur « combien ».
+				int32 slot = -1;
+				for (int32 i = 0; i < 64 && slot < 0; ++i) {
+					char nom[64];
+					float32 alb[3], rg = 0.f, mt = 0.f;
+					if (demo::Demo3DHostProjMatInfo(i, nom, (uint32)sizeof(nom), alb, &rg, &mt))
+						slot = i;
+				}
+				if (slot < 0)
+					slot = demo::Demo3DHostProjMatCreate();
+				if (slot >= 0) {
+					st.matPrevSlot = slot; // CE QUE LE PANNEAU AURAIT DEPOSE
+					st.matPrevW = 260;
+					st.matPrevH = 150;
+					// La prise se fait sur DEUX trames -- rendu puis relecture -- donc
+					// on demande une trame APRES avoir pose le slot.
+					if (!sMatPrevDemande && agentFrame >= sMatPrev + 3) {
+						sMatPrevDemande = true;
+						char mp[256];
+						if (NkNextCapturePath("matprev", mp, (int32)sizeof(mp))) {
+							demo::Demo3DHostMatThumbRequest(slot, mp);
+							std::printf("[nk3d] NK_AGENT_MATPREV : materiau %d, apercu -> %s\n",
+										slot, mp);
+						}
+					}
+				}
+			}
+		}
 		gPrevSlot = st.matPrevSlot;
 		gPrevW = st.matPrevW > 0 ? st.matPrevW : 260;
 		gPrevH = st.matPrevH > 0 ? st.matPrevH : 150;
@@ -3131,6 +3181,24 @@ int nkmain(const NkEntryState &entry) {
 				if (demo::Demo3DHostMatThumbTakePixels(i, &frais, &cote) && frais &&
 					cote > 0) {
 					renderer.UploadImageRGBA(4400u + (uint32)i, frais, cote, cote);
+					// NK_AGENT_MATPREV : on ECRIT ces pixels, faute de quoi
+					// l'orientation de la cible d'apercu reste inconnue.
+					// ⚠️ Demo3DHostMatThumbRequest prend un `cheminPng` et le JETTE
+					// -- « (void)cheminPng; la vignette ne va plus dans un fichier
+					// voisin » -- alors que sa documentation annonce l'inverse.
+					// C'est le SEUL endroit ou ces pixels existent cote application.
+					if (std::getenv("NK_AGENT_MATPREV")) {
+						char mpp[256];
+						if (NkNextCapturePath("matprev", mpp, (int32)sizeof(mpp))) {
+							NkImage vig;
+							if (vig.Create((uint32)cote, (uint32)cote, math::NkColor(0, 0, 0, 255), 4)) {
+								memcpy(vig.Pixels(), frais, (size_t)cote * (size_t)cote * 4u);
+								const bool okv = vig.Save(mpp);
+								std::printf("[nk3d] NK_AGENT_MATPREV : vignette %d, %dx%d -> %s : %s\n",
+											i, cote, cote, mpp, okv ? "ecrite" : "ECHEC");
+							}
+						}
+					}
 					// LE TEMOIN PREND LE BASE64 COURANT, il ne se vide PAS. Le vider
 					// -- ce que je faisais -- redemandait le decodage a la frame
 					// suivante, et l'ancienne image enregistree ecrasait aussitot

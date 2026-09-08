@@ -13022,6 +13022,11 @@ namespace nkentseu {
 				return;
 			if (slot < 0 || slot >= kNkvpMaxProjMats)
 				return;
+			// ⚠️ LE CHEMIN EST JETE, ET LA DOCUMENTATION DE CETTE FONCTION DIT
+			// L'INVERSE (« demande la CAPTURE de la vignette vers cheminPng »).
+			// Un temoin bati sur cette promesse n'ecrit aucun fichier et ne se
+			// signale pas : c'est ce qui est arrive. Les pixels n'existent que par
+			// Demo3DHostMatThumbTakePixels, cote application.
 			(void)cheminPng; // la vignette ne va plus dans un fichier voisin
 			if (gThumbs.nb >= kThumbMax)
 				return; // file pleine : la vignette attendra le prochain
@@ -13693,6 +13698,18 @@ namespace nkentseu {
 		// Les noms sont derives des PLAGES D'INDICES de sa construction -- la
 		// demo n'a pas de champ nom, et inventer un stockage parallele ici se
 		// desynchroniserait ; les plages, elles, sont structurelles.
+		// ⚠️ CE N'EST PAS UN COMPTE D'OBJETS DU DOCUMENT, MALGRE SON NOM. C'est la
+		// TAILLE DE L'ESPACE D'INDICES des objets, et les lumieres commencent
+		// exactement la : la hierarchie pose `kFirstLight = Demo3DHostObjectCount()`
+		// et HostNodeHiddenOwn code en dur `n >= 86 && n < 90` pour elles. Lui faire
+		// rendre un compte reel decalerait toutes les lumieres.
+		//
+		// Le nom m'a trompe : j'ai cru a un defaut, bati un temoin par indices
+		// dessus (NK_AGENT_CUBE), et l'ai vu ne rien mesurer -- la barre d'etat
+		// affichait « Objets 6 » et je concluais que ce 86 mentait. En realite
+		// « Objets 6 » est ECRIT EN DUR dans PaintStatus, tout comme « 60 ips » et
+		// « Sommets 8 - Aretes 12 - Faces 6 » : c'est LA que rien ne correspond au
+		// document. Le defaut est la, pas ici.
 		int32 Demo3DHostObjectCount() {
 			return hst.ok ? Demo3DState::kNumObj : 0;
 		}
