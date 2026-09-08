@@ -91,6 +91,14 @@ namespace nkentseu {
 
 		// Publie la cible aupres du backend NKGui sous l'id 4096.
 		void Demo3DHostRegisterInto(void *guiBackend);
+		// L'ORIENTATION DU CONTENU DE LA CIBLE, pour celui qui l'AFFICHE.
+		// La regle vit dans NkOffscreenTarget.h et etait consommee par les seuls
+		// RELECTEURS ; l'affichage echantillonnait la cible telle quelle. Sur
+		// OpenGL, dont la premiere rangee stockee est celle du BAS, le viseur
+		// sortait donc retourne alors que la capture du meme instant etait
+		// droite. Mesure : viseur du modeleur contre sa cible relue --
+		// opengl droit 99.171 / retourne 18.130, vulkan et dx11 fideles.
+		bool Demo3DHostTargetBottomUp();
 
 		// ── CABLAGE DES BOUTONS DE LA VUE ───────────────────────────────────
 		// Chaque fonction refait EXACTEMENT ce que fait le raccourci

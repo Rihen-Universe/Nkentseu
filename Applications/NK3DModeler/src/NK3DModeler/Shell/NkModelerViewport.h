@@ -753,7 +753,15 @@ namespace nkentseu {
 			// portee (NkDemo3D.cpp), sous le MEME id 4096. L'ancienne vue est
 			// dormante ; c'est donc l'hote de la demo qui dit Â« pret Â».
 			if (demo::Demo3DHostReady()) {
-				p.Image(nk3d::kViewportTexId, vr);
+				// LE CONTENU DE LA CIBLE EST BAS-HAUT SUR OPENGL. La regle vit dans
+				// NkOffscreenTarget.h et l'hote la lit pour SON dorsal. Les autres
+				// appels a Image() dessinent des vignettes chargees de fichiers,
+				// deja haut-bas : ils ne la prennent pas.
+				// ⚠️ L'APERCU DE MATERIAU (kNkMatPreviewTexId, NkModelerProperties.h)
+				// est une cible hors ecran LUI AUSSI et releve donc de la meme regle.
+				// Il n'est pas touche ici : aucun temoin ne le juge, et je ne corrige
+				// pas ce que je ne peux pas prouver.
+				p.Image(nk3d::kViewportTexId, vr, demo::Demo3DHostTargetBottomUp());
 				st.viewRect = vr; // depot d'assets : importer un clone en scene
 				// ── PASSE-PARTOUT (Rihen) : en vue camera, ce qui deborde du
 				// CADRE de la camera est voile -- couleur/opacite PAR camera

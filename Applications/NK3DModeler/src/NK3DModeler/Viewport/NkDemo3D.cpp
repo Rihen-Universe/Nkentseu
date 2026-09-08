@@ -12893,6 +12893,12 @@ namespace nkentseu {
 				}
 		};
 
+		bool Demo3DHostTargetBottomUp() {
+			// Meme regle que le relecteur, lue au meme endroit -- pas une copie.
+			return hst.ok && hst.ctx.device &&
+				   renderer::NkOffscreenStoredIsBottomUp(hst.ctx.device->GetApi());
+		}
+
 		void Demo3DHostRegisterInto(void *guiBackend) {
 			if (!hst.ok || !hst.rt || !guiBackend)
 				return;

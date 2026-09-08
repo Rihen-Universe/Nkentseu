@@ -350,6 +350,27 @@ namespace nkentseu {
 				void Image(uint32 texId, const NkRect &r) {
 					mDl.AddImage(texId, PxRect(r), {0.f, 0.f}, {1.f, 1.f}, NkColor{255, 255, 255, 255});
 				}
+				// MEME IMAGE, CONTENU STOCKE BAS-HAUT. On echange les bornes de V.
+				//
+				// ⚠️ CE N'EST PAS UNE COMPENSATION NEUVE : c'est la convention que
+				// les RELECTEURS d'une cible hors ecran appliquent depuis toujours
+				// (NkOffscreenTarget.h, NkOffscreenStoredIsBottomUp), portee a son
+				// consommateur manquant -- celui qui AFFICHE. Sans elle, la capture
+				// d'un instant et le viseur au meme instant ne montrent pas la meme
+				// image sur OpenGL : l'une est droite, l'autre retournee.
+				//
+				// ⚠️ ET ELLE NE VAUT QUE POUR UNE CIBLE HORS ECRAN. Une icone ou une
+				// vignette chargee d'un fichier est deja haut-bas sur tous les
+				// dorsaux ; lui appliquer ceci la retournerait. C'est pourquoi le
+				// retournement est un PARAMETRE, pose par l'appelant qui sait ce
+				// qu'il dessine, et non une regle appliquee a toutes les images.
+				void Image(uint32 texId, const NkRect &r, bool contenuBasHaut) {
+					if (!contenuBasHaut) {
+						Image(texId, r);
+						return;
+					}
+					mDl.AddImage(texId, PxRect(r), {0.f, 1.f}, {1.f, 0.f}, NkColor{255, 255, 255, 255});
+				}
 
 				// DECOUPE. Tout ce qui est peint entre Clip et Unclip est coupe au
 				// rectangle donne. C'est ce qui manquait aux panneaux defilants : leur
