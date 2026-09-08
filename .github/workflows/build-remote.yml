@@ -91,8 +91,20 @@ jobs:
 
       - name: Wheel Jenga (NKCode l'embarque pour ses boutons Construire)
         run: |
-          python3 -m pip wheel ./jenga-src -w jenga-src/dist --no-deps -q || echo "wheel indisponible (non bloquant pour les autres cibles)"
-          ls jenga-src/dist/ || true
+          # ⚠️ `pip wheel` ECHOUAIT EN SILENCE SUR LE RUNNER LINUX (2026-09-08) :
+          # il sortait `UNKNOWN-0.0.0-py3-none-any.whl` — sans metadonnees, parce
+          # que le setuptools du runner ne resolvait pas le `version = attr:
+          # Jenga._version.__version__` du pyproject. NKCode ne reconnaissait donc
+          # aucun wheel et le paquet Linux partait SANS Jenga embarque : les
+          # boutons Construire/Executer inoperants, et rien ne le disait puisque
+          # le `|| echo` avalait l'echec. La beta.7 est partie comme ca.
+          # `python -m build` (PEP 517, isole) est ce qui fabrique les releases de
+          # Jenga : meme chemin, meme resultat. Et on VERIFIE le nom produit.
+          set -e
+          python3 -m pip install -q --upgrade build
+          python3 -m build --wheel --outdir jenga-src/dist ./jenga-src
+          ls jenga-src/dist/
+          test -n "$(ls jenga-src/dist/jenga-*.whl 2>/dev/null)"             || { echo "::error::aucun wheel jenga-*.whl produit — le paquet serait sans Jenga embarque"; exit 1; }
 
       - name: Builder ${{ inputs.target }} (${{ inputs.platform }}, ${{ inputs.config }})
         env:
