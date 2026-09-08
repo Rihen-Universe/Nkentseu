@@ -1387,6 +1387,10 @@ namespace nkuidesign {
 			///    un champ d'ETAT, enregistre dans `nkuidesign.cfg` comme le reste du
 			///    decor. Sa couleur seule est persistee (cle `canvas_fond`).
 			NkRemplissage canvasFill;
+			/// L'APERCU DU FOND DE LA TOILE -- **vu, pas ecrit**. Le canvas n'est pas
+			/// un nœud : son aperçu ne peut pas vivre dans `host.apercu*`, qui est
+			/// indexe par nœud. Meme regle, meme priorite, autre porte.
+			char canvasApercu[12] = {};
 			// ── ② L'IMAGE FIGEE DU PRELEVEMENT (07/09) ──────────────────────
 			//
 			// 🔴 RODOLF : *« lorsqu'on prend la pipette le changement n'est pas
@@ -1726,9 +1730,13 @@ namespace nkuidesign {
 					/// n'est complete qu'a ce moment-la. On retient donc le point.
 					bool pipettePris = false;
 					float32 pipetteX = 0.f, pipetteY = 0.f;
-					/// L'APERCU SUIT LE POINTEUR : la couleur est posee pour etre VUE,
-					/// sans marquer d'edition. Seule la validation ecrit pour de bon.
-					bool apercu = false;
+					// 🔴 LE DRAPEAU `apercu` A ETE RETIRE (08/09), et son retrait fait
+					//    partie du correctif : il servait a dire << applique cette couleur
+					//    a la destination pour la montrer >>. La destination ne recoit
+					//    plus rien au survol -- l'apercu vit dans l'hote et le peintre
+					//    l'y lit. *Un etat que plus personne ne pose est un piege pose
+					//    pour demain : quelqu'un le remettra, et la destination
+					//    rebougera.*
 					/// LE CLIC DROIT (ou Echap) ANNULE : on rend EXACTEMENT la couleur
 					/// d'avant, retenue a l'entree du mode.
 					bool annule = false;
@@ -4688,8 +4696,16 @@ namespace nkuidesign {
 						mSt->decorSale = false;
 						mSt->EnregistrerDecor();
 					}
+					// ── L'APERCU PASSE AVANT LA VALEUR REELLE (08/09) ──────────────
+					// ⚠️ ET LA LECTURE EST POSEE **LA OU LE FOND EST PEINT**, pas la ou
+					//    `canvasFill` est range. Poser l'aperçu ailleurs, ce serait
+					//    ecrire une valeur que personne ne regarde -- le meme defaut
+					//    deplace d'un cran.
 					uint32 rgbaFond = 0u;
-					if (NkFondCanvasExplicite(mSt->canvasFill.couleur.Data(), rgbaFond))
+					if (mSt->canvasApercu[0] != '\0'
+						&& NkFondCanvasExplicite(mSt->canvasApercu, rgbaFond))
+						paint.FillColor({area.x, area.y, area.w, area.h}, rgbaFond, 0.f);
+					else if (NkFondCanvasExplicite(mSt->canvasFill.couleur.Data(), rgbaFond))
 						paint.FillColor({area.x, area.y, area.w, area.h}, rgbaFond, 0.f);
 					else
 						paint.Fill({area.x, area.y, area.w, area.h},
@@ -11897,9 +11913,13 @@ namespace nkuidesign {
 	///    << l'annulation rend une couleur approchee >> restait VERTE. *Deuxieme
 	///    fois dans le meme lot qu'un banc mesure sa propre copie.*
 	inline void NkPipetteAnnuler(DesignState::DemandePicker &d) noexcept {
+		// 🔴 ELLE N'A PLUS RIEN A RESTAURER, ET C'EST LA PREUVE QUE LA FORME EST
+		//    JUSTE : la destination n'a jamais bouge. Elle rend au champ la couleur
+		//    d'avant (un affichage) et laisse mourir l'aperçu avec le mode.
+		//    *Avant, << annuler >> ne pouvait rendre que ce qu'on avait pense a
+		//    retenir ; maintenant il n'y a rien a rendre.*
 		snprintf(d.hex, sizeof(d.hex), "%s", d.avant);
 		d.annule = false;
-		d.apercu = true;
 	}
 
 	/// ① LE CURSEUR DU PRELEVEMENT, REPOSE APRES TOUT LE MONDE.
@@ -12008,6 +12028,16 @@ namespace nkuidesign {
 			st.pipetteImagePrete = false;
 			st.pipetteImage.Init(1, 1); // on rend les pixels : l'image pesait la fenetre
 		}
+		// ⚠️ L'APERCU MEURT AVEC LE MODE, ET C'EST SA DUREE DE VIE ENTIERE. Pas une
+		//    enumeration des sorties -- clic droit, Echap, fenetre fermee, selection
+		//    changee : **toutes** passent par << le mode n'est plus arme >>. C'est
+		//    exactement ce qu'on gagne a ne pas ecrire dans la destination.
+		if (!st.picker.pipette) {
+			st.host.apercuNoeud = -1;
+			st.host.apercuIndex = -1;
+			st.host.apercuHex[0] = '\0';
+			st.canvasApercu[0] = '\0';
+		}
 		// (a bis) ① CE QUE LE CURSEUR DIT DU PROCHAIN CLIC -- ET IL LE DIT EN DERNIER.
 		//
 		// 🔴 RODOLF, deuxieme passage : << il y a toujours le symbole ↔ >>. Mon
@@ -12082,7 +12112,17 @@ namespace nkuidesign {
 			const bool pose = !surLaFenetre && bouge && dansImage;
 			if (pose) {
 				snprintf(st.picker.hex, sizeof(st.picker.hex), "%s", lu);
-				st.picker.apercu = true; // pose pour etre VU, sans marquer d'edition
+				// ── L'APERCU EST POSE, PAS ECRIT (08/09) ────────────────────────
+				// 🔴 Il ecrivait `couleurCourante`, **une reference vers le
+				//    remplissage** : l'objet avait deja change, donc il n'y avait rien
+				//    a valider ni a annuler. Il est desormais range LA OU LE PEINTRE
+				//    REGARDE -- l'hote pour un nœud, le champ du decor pour la toile.
+				if (st.picker.noeud >= 0) {
+					st.host.apercuNoeud = st.picker.noeud;
+					st.host.apercuIndex = -1; // le fond effectif du nœud
+					snprintf(st.host.apercuHex, sizeof(st.host.apercuHex), "%s", lu);
+				} else
+					snprintf(st.canvasApercu, sizeof(st.canvasApercu), "%s", lu);
 			}
 			if (NkTracePipetteActive()) {
 				// on n'imprime que les CHANGEMENTS : la couleur lue, ou la raison
@@ -12869,11 +12909,10 @@ namespace nkuidesign {
 				//    ecrit la couleur courante et **n'appelle pas** `touche()`. Sinon
 				//    chaque pixel survole marquerait une edition de document (et une
 				//    ecriture de fichier pour le decor) -- soixante par seconde.
-				if (d.apercu) {
-					d.apercu = false;
-					couleurCourante = NkString(d.hex);
-					d.synchro = 0xFFFFFFFFu; // le champ hexa se resynchronise
-				}
+				// 🔴 ICI VIVAIT LE DEFAUT : ce bloc ecrivait `couleurCourante`, **une
+				//    reference vers le remplissage**. Il n'existe plus. Le champ hexa,
+				//    lui, montre toujours la couleur survolee -- c'est un affichage,
+				//    pas le modele.
 				if (d.change) {
 					d.change = false;
 					ecrireCouleur(d.hex);

@@ -386,12 +386,15 @@ namespace nkuidesign {
 
 	/// Le dessin complet d'un document, enregistre. C'est ce qui porte le coeur du
 	/// temoin a l'echelle du document : *ecrit -> texte -> relu -> MEME dessin*.
+	/// `hote` : optionnel -- quand un essai veut poser un APERCU (la pipette), il
+	/// fournit le sien. Sinon l'hote par defaut, comme avant.
 	inline void RenderDocument(NkRecordingPaint &rec, const NkUIDocument &doc,
-							   const NkPaintRect &surface) {
+							   const NkPaintRect &surface, NkDocumentHost *hote = nullptr) {
 		rec.Reset();
 		NkLayoutResult lay;
 		NkComputeLayout(doc, surface, lay);
-		NkDocumentHost host; // sa resolution PAR DEFAUT est celle de l'application
+		NkDocumentHost local; // sa resolution PAR DEFAUT est celle de l'application
+		NkDocumentHost &host = hote ? *hote : local;
 		host.SyncTo(doc);
 		const NkComponentInput idle;
 		NkDrawDocument(rec, idle, doc, lay, host);
@@ -5003,6 +5006,196 @@ namespace nkuidesign {
 						  oFerme > 100u && oOuvert > oFerme + 20u && oPose < oOuvert && fr.EstImage()
 							  && NkComponentDecl::StrEq(fr.cadrage.Data(), "tile") && dansFenetre,
 						  det);
+				}
+				// ── 145. L'APERCU SE VOIT SANS QUE L'OBJET CHANGE (08/09).
+				//
+				// 🔴 RODOLF : << la couleur [...] n'est pas envoyee a l'objet en temps reel,
+				//    et ca decide quand fournir une couleur sans se preoccuper du clic
+				//    gauche ni du clic droit >>. Mesure : l'apercu ecrivait
+				//    `couleurCourante` -- **une reference vers le remplissage**. L'objet
+				//    avait deja change, donc il n'y avait rien a valider ni a annuler.
+				//
+				// ⚠️ LES TROIS RELATIONS PORTENT SUR LA DESTINATION, JAMAIS SUR LE
+				//    SELECTEUR. *Si un essai peut rester vert alors que l'objet a deja
+				//    change, ce n'est pas un essai.*
+				//
+				// ⚠️ ET (a)/(b) SE JOUENT SUR UN DOCUMENT PRIVE : ma premiere ecriture
+				//    ajoutait un nœud au banc PARTAGE et en vidait les remplissages --
+				//    cinq essais voisins ont rougi, et le banc a plante. *On ne retire pas
+				//    le sol d'un consommateur pour poser son essai.*
+				{
+					NkUIDocument dA;
+					dA.NewDocument("Toile", NkAuthor::Humain);
+					dA.SetMetric("espacement", 0.f);
+					dA.SetMetric("marge", 0.f);
+					dA.nodes[0].layout.kind = NkLayoutKind::Free;
+					const int32 cibleI = dA.AddChild(0, "", NkAuthor::Humain);
+					{
+						NkUINode &q = dA.nodes[(uint32)cibleI];
+						q.shape = NkString("rect");
+						q.layout.kind = NkLayoutKind::Free;
+						q.posX = 20.f;
+						q.posY = 20.f;
+						q.width.mode = NkSizeMode::Fixed;
+						q.width.value = 80.f;
+						q.height.mode = NkSizeMode::Fixed;
+						q.height.value = 40.f;
+						q.fill = NkString("#ff0000");
+					}
+					const NkString avant = dA.nodes[(uint32)cibleI].fill;
+					NkDocumentHost hoteA;
+					// La couleur EMISE pour ce nœud : on cherche la commande qui porte
+					// l'une des deux couleurs, quel que soit son genre de primitive.
+					auto emise = [&](uint32 cible) -> bool {
+						NkRecordingPaint rec;
+						RenderDocument(rec, dA, NkPaintRect{0.f, 0.f, 400.f, 300.f}, &hoteA);
+						for (uint32 i = 0; i < (uint32)rec.cmds.Size(); ++i)
+							if (rec.cmds[i].rgba == cible)
+								return true;
+						return false;
+					};
+					// (a) LE PEINTRE LIT L'APERCU : pose dans l'hote, il montre le VERT et
+					//     le MODELE reste ROUGE.
+					hoteA.apercuNoeud = cibleI;
+					hoteA.apercuIndex = -1;
+					snprintf(hoteA.apercuHex, sizeof(hoteA.apercuHex), "%s", "#00ff00");
+					const bool voitVert = emise(0x00ff00ffu);
+					const bool plusDeRouge = !emise(0xff0000ffu);
+					const char *modele = dA.nodes[(uint32)cibleI].FondEffectif();
+					const bool modeleIntact = modele && NkComponentDecl::StrEq(modele, avant.Data());
+					// (b) L'APERCU RETIRE : le peintre remontre la couleur REELLE.
+					hoteA.apercuNoeud = -1;
+					hoteA.apercuHex[0] = '\0';
+					const bool revenu = emise(0xff0000ffu) && !emise(0x00ff00ffu);
+
+					// (b bis) \u26a0\ufe0f ET LE SURVOL POSE-T-IL L'APERCU LUI-MEME ? Les deux
+					//     mesures ci-dessus posent l'hote A LA MAIN : elles prouvent que le
+					//     PEINTRE lit, pas que le MODE ecrit au bon endroit. Mesure : les
+					//     mutations << l'apercu ecrit de nouveau la destination >> et
+					//     << l'apercu survit au mode >> restaient VERTES. On fait donc
+					//     tourner LA VRAIE BOUCLE.
+					bool survolPose = false, destinationIntacte = false, meurtAvecLeMode = false;
+					{
+						auto image145 = [&](float32 mx, float32 my) {
+							ctxI.input.mousePos = {mx, my};
+							ctxI.input.mouseDown[0] = false;
+							ctxI.BeginFrame(0.016f);
+							ctxI.BeginLayout({340.f, 0.f, 260.f, 900.f});
+							insp.OnUI(ec);
+							NkDessinerPickerDemande(ctxI, stI);
+							ctxI.EndFrame();
+						};
+						if (ctxI.popupDepth > 0)
+							ctxI.ClosePopup();
+						const NkString avantSurvol =
+							stI.doc.nodes[(uint32)rc].fills.Empty()
+								? stI.doc.nodes[(uint32)rc].fill
+								: stI.doc.nodes[(uint32)rc].fills[0].couleur;
+						stI.picker = DesignState::DemandePicker();
+						stI.picker.ouvert = true;
+						stI.picker.id = ctxI.GetId("##s.145.survol");
+						stI.picker.genre = 1u;
+						stI.picker.noeud = rc;
+						stI.picker.index = 0;
+						stI.picker.ancre = {360.f, 200.f, 16.f, 16.f};
+						stI.picker.pipette = true;
+						stI.picker.aBouge = true; // le seuil de mouvement est deja franchi
+						stI.picker.armeX = 500.f;
+						stI.picker.armeY = 500.f;
+						// l'image figee : tout en vert, donc le point survole vaut #00ff00
+						stI.pipetteImage.Init(300, 800);
+						stI.pipetteImage.Effacer(0x00ff00FFu);
+						stI.pipetteImagePrete = true;
+						stI.SelectSingle(rc);
+						image145(60.f, 700.f); // loin de la fenetre du selecteur
+						image145(60.f, 701.f);
+						survolPose = stI.host.apercuNoeud == rc
+									 && NkComponentDecl::StrEq(stI.host.apercuHex, "#00ff00");
+						const NkString apresSurvol =
+							stI.doc.nodes[(uint32)rc].fills.Empty()
+								? stI.doc.nodes[(uint32)rc].fill
+								: stI.doc.nodes[(uint32)rc].fills[0].couleur;
+						destinationIntacte =
+							NkComponentDecl::StrEq(apresSurvol.Data(), avantSurvol.Data());
+						// LE MODE S'ARRETE : l'apercu meurt avec lui, sans enumerer les sorties
+						stI.picker.pipette = false;
+						image145(60.f, 702.f);
+						meurtAvecLeMode = stI.host.apercuNoeud < 0 && stI.host.apercuHex[0] == '\0';
+						stI.picker = DesignState::DemandePicker();
+						if (ctxI.popupDepth > 0)
+							ctxI.ClosePopup();
+					}
+
+					// (c) LA VALIDATION, PAR LE VRAI CHEMIN : `change` traverse l'enveloppe
+					//     et ecrit le modele UNE fois. On l'eprouve sur le nœud du banc,
+					//     SANS rien lui retirer.
+					if (ctxI.popupDepth > 0)
+						ctxI.ClosePopup();
+					stI.picker = DesignState::DemandePicker();
+					stI.picker.ouvert = true;
+					stI.picker.id = ctxI.GetId("##s.145.valide");
+					stI.picker.genre = 1u;
+					stI.picker.noeud = rc;
+					stI.picker.index = 0;
+					stI.picker.ancre = {360.f, 200.f, 16.f, 16.f};
+					stI.SelectSingle(rc);
+					// ⚠️ ON REND LE SOL COMME ON L'A TROUVE : cet essai ECRIT dans le
+					//    nœud du banc partage, et deux essais voisins (60g, 60h) le
+					//    relisent APRES lui. Sans cette remise en etat, ils rougissent --
+					//    et c'est MON essai qui les casse, pas leur code. *Un essai qui
+					//    laisse le terrain modifie fait rougir la maison d'a cote.*
+					const NkString couleurAvant145 =
+						stI.doc.nodes[(uint32)rc].fills.Empty()
+							? stI.doc.nodes[(uint32)rc].fill
+							: stI.doc.nodes[(uint32)rc].fills[0].couleur;
+					// ⚠️ UNE IMAGE D'ABORD, ET C'EST LE MONTAGE : une demande NEUVE
+					//    porte `synchro = 0xFFFFFFFF`, donc l'enveloppe RESYNCHRONISE
+					//    `hex` depuis le modele a sa premiere image. Poser `hex` avant
+					//    cette image-la, c'est le voir ecrase -- et l'essai mesurerait
+					//    alors le modele contre lui-meme.
+					float32 xv = 0.f;
+					uint32 nv = 0u, ov = 0u;
+					image(260.f, true, xv, nv, ov);
+					snprintf(stI.picker.hex, sizeof(stI.picker.hex), "%s", "#0000ff");
+					stI.picker.change = true;
+					image(260.f, true, xv, nv, ov);
+					image(260.f, true, xv, nv, ov);
+					const NkUINode &nRc = stI.doc.nodes[(uint32)rc];
+					const char *apresClic =
+						nRc.fills.Empty() ? nRc.fill.Data() : nRc.fills[0].couleur.Data();
+					const bool ecritAuClic =
+						apresClic && NkComponentDecl::StrEq(apresClic, "#0000ff");
+
+					// on repose EXACTEMENT ce qu'on a trouve, et la demande avec
+					if (stI.doc.nodes[(uint32)rc].fills.Empty())
+						stI.doc.nodes[(uint32)rc].fill = couleurAvant145;
+					else
+						stI.doc.nodes[(uint32)rc].fills[0].couleur = couleurAvant145;
+					stI.picker = DesignState::DemandePicker();
+					if (ctxI.popupDepth > 0)
+						ctxI.ClosePopup();
+					char det145[640];
+					snprintf(det145, sizeof(det145),
+							 "(a) apercu pose : le peintre emet le vert=%d et plus le rouge=%d, "
+							 "pendant que le MODELE vaut toujours \"%s\" -> %d ; (b) apercu "
+							 "retire : le rouge revient et le vert disparait -> %d ; (c) "
+							 "validation par le VRAI chemin : le modele vaut \"%s\" -> %d ; (d) LA "
+							 "VRAIE BOUCLE : le survol pose l'apercu=%d, la destination reste "
+							 "intacte=%d, et l'apercu meurt avec le mode=%d",
+							 voitVert ? 1 : 0, plusDeRouge ? 1 : 0, modele ? modele : "(rien)",
+							 modeleIntact ? 1 : 0, revenu ? 1 : 0,
+							 apresClic ? apresClic : "(rien)", ecritAuClic ? 1 : 0,
+							 survolPose ? 1 : 0, destinationIntacte ? 1 : 0,
+							 meurtAvecLeMode ? 1 : 0);
+					check("145. L'APERCU SE VOIT SANS QUE L'OBJET CHANGE, ET SEUL LE CLIC ECRIT : la couleur "
+						  "survolee vit dans l'HOTE -- le canal de ce qui est VU sans etre ECRIT -- et le "
+						  "peintre la lit EN PRIORITE, la ou le fond est reellement peint. Le document ne "
+						  "bouge pas tant qu'on n'a pas valide, donc l'annulation n'a RIEN a restaurer : la "
+						  "garantie est structurelle, et non une enumeration des sorties qu'on finirait par "
+						  "oublier. Les trois relations portent sur LA DESTINATION, jamais sur le selecteur",
+						  voitVert && plusDeRouge && modeleIntact && revenu && ecritAuClic
+							  && survolPose && destinationIntacte && meurtAvecLeMode,
+						  det145);
 				}
 				// ── 144. LA RANGEE D'INCLINAISON : elle se DESSINE, et elle se CACHE quand
 				//    elle n'a pas de sens. On mesure LE PANNEAU QUI TOURNE, pas la source.

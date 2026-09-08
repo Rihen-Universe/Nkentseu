@@ -95,6 +95,30 @@ namespace nkuidesign {
 			//    68 essais verts sur un ecran magenta. Un defaut par defaut vaut
 			//    mieux qu'un champ vide quand le champ vide autorise deux verites.
 			NkRoleResolver resolve = &NkDesignResolveRole;
+			// ── L'APERCU D'UNE COULEUR, QUI N'EST PAS UNE MODIFICATION ───────────
+			//
+			// 🔴 RODOLF (08/09) : *« la couleur sur le marqueur n'est pas envoyée à
+			//    l'objet [...] et ça décide quand fournir une couleur sans se
+			//    préoccuper du clic gauche ni du clic droit »*.
+			//
+			// ⚠️ MESURE : l'aperçu de la pipette écrivait **dans la destination** --
+			//    `couleurCourante` est une référence vers `fills[i].couleur`. Il n'y
+			//    avait donc rien à valider ni à annuler : l'objet avait déjà changé.
+			//    *Un aperçu qui écrit dans la destination n'est pas un aperçu, c'est
+			//    une modification.*
+			//
+			// ⚠️ ET CE QUE JE CROYAIS PROTEGER NE PROTEGEAIT RIEN : j'évitais
+			//    soigneusement `touche()` pour ne pas marquer d'édition. C'est vrai,
+			//    et sans effet -- **j'avais protégé le JOURNAL, pas la DONNÉE.**
+			//
+			// ⚠️ LA VALEUR VIT DONC ICI, DANS L'HOTE : le canal de ce qui est VU sans
+			//    être ÉCRIT (il porte déjà `editionNode`, `docScale`, `langueDoc`). Le
+			//    peintre la lit EN PRIORITÉ ; le document, lui, ne bouge pas -- ce qui
+			//    rend la validation et l'annulation possibles **par construction**, et
+			//    non par une énumération des sorties qu'on finirait par oublier.
+			int32 apercuNoeud = -1;	 ///< le nœud dont une couleur est en aperçu (-1 = aucun)
+			int32 apercuIndex = -1;	 ///< le remplissage visé (-1 = le fond effectif)
+			char apercuHex[12] = {}; ///< « #rrggbb », vide = pas d'aperçu
 			/// L'ECHELLE DU DOCUMENT (le zoom de la vue), posee par la toile a
 			/// chaque image (correction du 31/08 : « quand on zoome ou dezoome
 			/// le texte garde sa taille... ca devrait evoluer comme les elements
@@ -432,6 +456,34 @@ namespace nkuidesign {
 				return 0xFF00FFFFu; // MAGENTA : la variable est absente, et ca se voit
 			}
 			return NkGHexRGBA(v);
+		}
+
+		/// LA COULEUR D'UN REMPLISSAGE, APERÇU COMPRIS -- **la seule porte**.
+		/// Si l'aperçu vise ce nœud et ce remplissage, c'est LUI qu'on peint ; sinon
+		/// la couleur du modèle, inchangée. `index` vaut -1 pour le fond effectif.
+		/// ⚠️ ELLE NE MODIFIE RIEN : elle CHOISIT ce qu'on lit. Le document reste
+		///    exactement ce qu'il était -- c'est toute la différence entre voir et
+		///    écrire.
+		inline const char *NkCouleurApercue(const NkDocumentHost &h, nkentseu::int32 noeud,
+											nkentseu::int32 index, const char *duModele) {
+			if (h.apercuHex[0] == '\0' || h.apercuNoeud < 0 || h.apercuNoeud != noeud)
+				return duModele;
+			if (h.apercuIndex != index)
+				return duModele;
+			return h.apercuHex;
+		}
+
+		/// LE FOND, A PARTIR D'UNE COULEUR DEJA CHOISIE (aperçu compris).
+		inline nkentseu::uint32 NkGFondRGBADe(const NkUINode &n, const char *c) {
+			if (!c)
+				return 0x808080FFu;
+			const nkentseu::uint32 rgba = NkGCouleur(c);
+			const nkentseu::float32 o = n.FondOpacite();
+			if (o >= 100.f)
+				return rgba;
+			const nkentseu::float32 k = o < 0.f ? 0.f : o * 0.01f;
+			const nkentseu::uint32 a = (nkentseu::uint32)((rgba & 0xFFu) * k + 0.5f);
+			return (rgba & 0xFFFFFF00u) | (a & 0xFFu);
 		}
 
 		/// LE FOND D'UN NŒUD, OPACITÉ COMPRISE — le seul endroit qui traduit la
@@ -1937,13 +1989,17 @@ namespace nkuidesign {
 		/// ⑤ `heritee` : le produit des opacités du nœud et de tous ses ancêtres,
 		/// 0..1. Défaut 1 -- les appelants d'aperçu (la palette, les vignettes) ne
 		/// changent donc pas d'un pixel.
+		/// `noeud` : l'index du nœud dessiné -- il ne sert QU'A l'aperçu, et il vaut
+		/// -1 partout où l'aperçu n'a pas de sens (un composant, une mise en scène).
 		inline void DrawShape(NkComponentPaint &p, const NkPaintRect &r, const NkUINode &n,
 							  const NkDocumentHost &host, const NkMat2D &mEff,
-							  nkentseu::float32 heritee = 1.f) {
+							  nkentseu::float32 heritee = 1.f, nkentseu::int32 noeud = -1) {
 			// Une forme OUVERTE (ligne) n'a besoin que d'une dimension : une ligne
 			// horizontale a une hauteur NULLE, et elle doit se voir (sonde 52).
 			if (NkFormeOuverte(n) ? (r.w <= 0.f && r.h <= 0.f) : (r.w <= 0.f || r.h <= 0.f))
 				return;
+			// L'APERCU PASSE AVANT LE MODELE -- une seule porte (`NkCouleurApercue`).
+			const char *fondApercu = NkCouleurApercue(host, noeud, -1, n.FondEffectif());
 			const char *name = n.label.Data();
 			const char *shape = n.shape.Data();
 
@@ -2251,6 +2307,12 @@ namespace nkuidesign {
 						const NkRemplissage &f = n.fills[fi];
 						if (!f.visible)
 							continue;
+						// L'APERCU VISE UN REMPLISSAGE PRECIS (ou le fond effectif, -1) :
+						// la porte repond pour CE remplissage-ci, et rend sa couleur du
+						// modele partout ailleurs.
+						const char *couleurVue = NkCouleurApercue(
+							host, noeud, (nkentseu::int32)fi,
+							NkCouleurApercue(host, noeud, -1, f.couleur.Data()));
 						// ②-2 le mode de fusion EXACT de ce remplissage, pousse au peintre le temps
 						//     de le peindre (Multiply, Screen, Darken, Lighten, Plus Lighter)
 						const renderdetail::NkGardeFusion gardeFusion(p, f.fusion);
@@ -2275,9 +2337,9 @@ namespace nkuidesign {
 							peint = true;
 							continue;
 						}
-						if (f.couleur.Empty())
+						if ((!couleurVue || !*couleurVue))
 							continue;
-						const uint32 base = NkGCouleur(f.couleur.Data());
+						const uint32 base = NkGCouleur(couleurVue);
 						const float32 k = NkKOpacite(f.opacite, heritee);
 						const uint32 a = (uint32)((base & 0xFFu) * k + 0.5f);
 						const uint32 rgbaF = (base & 0xFFFFFF00u) | (a & 0xFFu);
@@ -2306,7 +2368,9 @@ namespace nkuidesign {
 					}
 					fondPeint = peint;
 				} else if (!n.fill.Empty()) {
-					rgbaFond = NkGCouleur(n.fill.Data());
+					// L'APERCU PASSE AVANT LA CLE SIMPLE, comme il passe avant la liste :
+					// meme porte, meme priorite (`NkCouleurApercue`).
+					rgbaFond = NkGCouleur(NkCouleurApercue(host, noeud, -1, n.fill.Data()));
 					peindreUni(rgbaFond);
 					fondPeint = true;
 				} else {
@@ -2479,7 +2543,7 @@ namespace nkuidesign {
 			if (shape
 				&& (StrEq(shape, "triangle") || StrEq(shape, "pentagone")
 					|| StrEq(shape, "etoile"))) {
-				const uint32 rgba = n.FondEffectif() ? NkGFondRGBA(n)
+				const uint32 rgba = fondApercu ? NkGFondRGBADe(n, fondApercu)
 													: p.ColorOf(host.Role("doc_field_bg"));
 				// ⚠️ LES SOMMETS VIENNENT DE `Sommets.h`, PAS D'UNE TABLE LOCALE.
 				//    Le mode points doit poser une poignee SUR CHAQUE SOMMET
@@ -2505,7 +2569,7 @@ namespace nkuidesign {
 				// LA FLECHE : le fut horizontal a mi-hauteur + la pointe pleine
 				// a droite (l'eventail Lunacy « Line ▸ arrow »).
 				const float32 ym = r.y + r.h * 0.5f;
-				const uint32 rgba = n.FondEffectif() ? NkGFondRGBA(n)
+				const uint32 rgba = fondApercu ? NkGFondRGBADe(n, fondApercu)
 													: p.ColorOf(host.Role("doc_text"));
 				const float32 tete = r.w * 0.25f < 16.f ? (r.w * 0.25f) : 16.f;
 				bool ok = p.Line(r.x, ym, r.x + r.w - tete * 0.6f, ym, host.Role("doc_text"),
@@ -2525,7 +2589,7 @@ namespace nkuidesign {
 				// chantier nomme : ce cadre est l'objet reel du maquettage
 				// (wireframe), pas une mise en scene — il se pose, se deplace,
 				// se sauve, et dira son fichier le jour ou la cle existera.
-				const uint32 rgba = n.FondEffectif() ? NkGFondRGBA(n)
+				const uint32 rgba = fondApercu ? NkGFondRGBADe(n, fondApercu)
 													: p.ColorOf(host.Role("doc_field_bg"));
 				// ⚠️ LE FOND SUIVAIT LE RAYON UNIFORME, LE CONTOUR AUCUN : le
 				//    coin etait donc arrondi ET souligne d'un angle droit.
@@ -2557,7 +2621,7 @@ namespace nkuidesign {
 				// L'AVATAR (la variante de la famille Image) : pastille de profil
 				// — cercle plein + tete/epaules en creux (le vocabulaire des
 				// listes d'utilisateurs). Meme contrat de repli que l'Ellipse.
-				const uint32 rgba = n.FondEffectif() ? NkGFondRGBA(n)
+				const uint32 rgba = fondApercu ? NkGFondRGBADe(n, fondApercu)
 													: p.ColorOf(host.Role("doc_field_bg"));
 				const float32 d = r.w < r.h ? r.w : r.h;
 				const NkPaintRect rc = {r.x + (r.w - d) * 0.5f, r.y + (r.h - d) * 0.5f, d, d};
@@ -2894,7 +2958,8 @@ namespace nkuidesign {
 			if (posee && node != host.editionNode)
 				// UNE SEULE COMPOSITION, LUE PAR LES DEUX CHEMINS : celle que le
 				// pointage utilise deja (`NkPointDansNoeud` -> `NkMatEffective`).
-				renderdetail::DrawShape(p, r, n, host, NkMat2D{}, opaciteEff); // le peintre transforme
+				renderdetail::DrawShape(p, r, n, host, NkMat2D{}, opaciteEff,
+										node); // le peintre transforme
 			else if (posee && host.editionEtiquette) {
 				// RENOMMAGE d'etiquette : le CORPS de l'artboard se dessine,
 				// seule l'etiquette se tait (le champ superpose la remplace).
