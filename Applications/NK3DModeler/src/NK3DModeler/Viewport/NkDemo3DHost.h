@@ -99,6 +99,10 @@ namespace nkentseu {
 		// droite. Mesure : viseur du modeleur contre sa cible relue --
 		// opengl droit 99.171 / retourne 18.130, vulkan et dx11 fideles.
 		bool Demo3DHostTargetBottomUp();
+		// Eteint des passes de POST-TRAITEMENT sur le viseur. Rend faux si la pile
+		// est absente. Sert a chercher, une passe a la fois, laquelle retourne la
+		// cible sur DirectX -- le banc, lui, rend juste sur les quatre dorsaux.
+		bool Demo3DHostSetPost(bool tonemap, bool bloom, bool ssao, bool fxaa);
 
 		// ── CABLAGE DES BOUTONS DE LA VUE ───────────────────────────────────
 		// Chaque fonction refait EXACTEMENT ce que fait le raccourci

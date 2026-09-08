@@ -2491,6 +2491,40 @@ int nkmain(const NkEntryState &entry) {
 		}
 		if (agentShotFrame > 0 && agentFrame == agentShotFrame)
 			st.capturePending = 2; // « tutoriel » : toute la fenetre
+		// NK_AGENT_POST="tonemap,bloom,ssao,fxaa" : eteint des passes de
+		// post-traitement, une par une, sur la cible du viseur.
+		//
+		// ⚠️ POURQUOI CE LEVIER. Le BANC rend juste sur les quatre dorsaux, en
+		// absolu ; le MODELEUR sort inverse sur DirectX. Meme dorsal, meme
+		// generateur, meme chemin de soumission, meme camera. Trois differences
+		// de chemin ont ete mesurees INNOCENTES : la surtaille de rendu, le fait
+		// de rendre hors ecran, et l'ouverture d'un document. Il en reste une, et
+		// le candidat est une PASSE PLEIN ECRAN : elle echantillonne la cible de
+		// scene et la reecrit -- la famille exacte du defaut deja trouve deux fois
+		// chez des consommateurs qu'on n'avait pas comptes, mais A L'INTERIEUR du
+		// graphe, la ou aucun temoin ne regarde.
+		//
+		// ⚠️ UNE PAR UNE, JAMAIS PAR MOITIES : une comparaison qui change deux
+		// variables ne prouve rien. La liste vide (NK_AGENT_POST="") n'eteint
+		// rien ; « tout » les eteint toutes, et ne sert qu'a savoir si la FAMILLE
+		// est en cause avant de chercher LAQUELLE.
+		{
+			static bool sPostFait = false;
+			if (!sPostFait && demo::Demo3DHostReady()) {
+				if (const char *pv = std::getenv("NK_AGENT_POST")) {
+					sPostFait = true;
+					const bool tout = std::strstr(pv, "tout") != nullptr;
+					const bool tm = !(tout || std::strstr(pv, "tonemap"));
+					const bool bl = !(tout || std::strstr(pv, "bloom"));
+					const bool ao = !(tout || std::strstr(pv, "ssao"));
+					const bool fx = !(tout || std::strstr(pv, "fxaa"));
+					const bool ok = demo::Demo3DHostSetPost(tm, bl, ao, fx);
+					std::printf("[nk3d] NK_AGENT_POST=%s : tonemap=%d bloom=%d ssao=%d"
+								" fxaa=%d -> %s\n", pv, tm ? 1 : 0, bl ? 1 : 0, ao ? 1 : 0,
+								fx ? 1 : 0, ok ? "applique" : "REFUSE");
+				}
+			}
+		}
 		// NK_AGENT_VUE=<n> : a la trame n, sauve LE CONTENU DE LA CIBLE HORS
 		// ECRAN par Demo3DHostCaptureView -- la MEME cible que le GUI
 		// echantillonne pour afficher le viseur, sans interface par-dessus.

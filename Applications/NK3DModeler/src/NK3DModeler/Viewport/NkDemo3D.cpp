@@ -12893,6 +12893,26 @@ namespace nkentseu {
 				}
 		};
 
+		bool Demo3DHostSetPost(bool tonemap, bool bloom, bool ssao, bool fxaa) {
+			if (!hst.ok || !hst.ctx.renderer)
+				return false;
+			// ⚠️ IL Y A DEUX CONFIGURATIONS, ET UNE SEULE EST LUE PAR LE GRAPHE.
+			// NkPostProcessStack::GetConfig() est celle de la PILE ;
+			// NkRenderer::GetConfig().postProcess est celle que le MODELEUR pousse
+			// (voir Demo3DHostSetBloom, qui finit par SetPostConfig). Ecrire dans
+			// la premiere ne change rien a l'image : mesure, en eteignant TOUT --
+			// tonemap compris -- l'ecart moyen valait 0.075 sur vulkan et 0.019 sur
+			// dx11, alors que retirer le tonemap ACES doit bouleverser l'image.
+			// Une sonde qui rend « applique » sans rien changer ne prouve rien.
+			renderer::NkPostConfig c = hst.ctx.renderer->GetConfig().postProcess;
+			c.toneMapping = tonemap;
+			c.bloom = bloom;
+			c.ssao = ssao;
+			c.fxaa = fxaa;
+			hst.ctx.renderer->SetPostConfig(c);
+			return true;
+		}
+
 		bool Demo3DHostTargetBottomUp() {
 			// Meme regle que le relecteur, lue au meme endroit -- pas une copie.
 			return hst.ok && hst.ctx.device &&
