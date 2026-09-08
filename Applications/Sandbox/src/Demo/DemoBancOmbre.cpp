@@ -439,6 +439,29 @@ namespace nkentseu {
 				return;
 			if (!ctx.renderer->BeginFrame())
 				return;
+			// NK_BANC_SURTAILLE=<w>x<h> : pose SetRenderSizeOverride, comme le
+			// modeleur, qui rend sa vue 3D a 1064x566 dans une fenetre 1616x939.
+			//
+			// ⚠️ POURQUOI CE LEVIER. Le banc rend JUSTE sur les quatre dorsaux, en
+			// absolu (marque magenta a 4800 px en (4,4), cube derive a x=768.9
+			// y=169.9 pour 768.6 / 171.4 attendus). Le modeleur, meme dorsal, meme
+			// generateur, meme chemin de soumission (GetRender3D + Submit), sort
+			// INVERSE sur DX. La difference est donc dans le CHEMIN, et on la cherche
+			// une a la fois. Celle-ci est la premiere des trois listees.
+			{
+				static bool sSurtaillePosee = false;
+				if (!sSurtaillePosee) {
+					sSurtaillePosee = true;
+					if (const char *sv = ::nkentseu::env::GetEnvVar("NK_BANC_SURTAILLE")) {
+						int32 sw = 0, sh = 0;
+						if (std::sscanf(sv, "%dx%d", &sw, &sh) == 2 && sw > 0 && sh > 0) {
+							ctx.renderer->SetRenderSizeOverride((uint32)sw, (uint32)sh);
+							logger.Infof("[BancOmbre] SetRenderSizeOverride(%d, %d) pose" 
+										 " (fenetre %ux%u)\n", sw, sh, ctx.width, ctx.height);
+						}
+					}
+				}
+			}
 			auto *r3d = ctx.renderer->GetRender3D();
 			auto *meshSys = ctx.renderer->GetMeshSystem();
 			if (!r3d || !meshSys) {
