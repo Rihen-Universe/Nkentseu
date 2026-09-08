@@ -498,8 +498,12 @@ namespace nkentseu {
 					ctx.renderer->SetFinalColorTarget(tl->GetRHIHandle(st->rtB.GetColorResult()));
 					if (auto *r2 = ctx.renderer->GetRender2D()) {
 						r2->Begin(ctx.renderer->GetCmd(), ctx.width, ctx.height);
-						r2->DrawSprite(NkRectF{0.f, 0.f, (float32)ctx.width, (float32)ctx.height},
-									   st->rtA.GetColorResult());
+						// DrawOffscreen et non DrawSprite : rtA EST une cible hors ecran,
+						// et son orientation stockee depend du dorsal. Mesure avant ce
+						// changement, marque posee en haut a gauche : opengl la sortait a
+						// y=695.5 sur 720, dx11 et dx12 a 23.5.
+						r2->DrawOffscreen(NkRectF{0.f, 0.f, (float32)ctx.width, (float32)ctx.height},
+										  st->rtA.GetColorResult());
 						r2->End();
 					}
 					ctx.renderer->Present();
