@@ -101,8 +101,16 @@ jobs:
           # `python -m build` (PEP 517, isole) est ce qui fabrique les releases de
           # Jenga : meme chemin, meme resultat. Et on VERIFIE le nom produit.
           set -e
-          python3 -m pip install -q --upgrade build
-          python3 -m build --wheel --outdir jenga-src/dist ./jenga-src
+          # PEP 668 : depuis 2026, le Python de Homebrew sur les runners macOS
+          # refuse `pip install` et rend « error: externally-managed-environment ».
+          # Le message parle d'un environnement gere par le systeme, pas d'un
+          # probleme de paquet, et il a fait echouer la construction macOS de la
+          # beta.11 en une minute. Un venv jetable contourne proprement : le
+          # runner est ephemere, mais on ne touche pas au Python du systeme, et
+          # la meme recette vaut sur Linux comme sur macOS.
+          python3 -m venv "$RUNNER_TEMP/venv-build"
+          "$RUNNER_TEMP/venv-build/bin/python" -m pip install -q --upgrade pip build
+          "$RUNNER_TEMP/venv-build/bin/python" -m build --wheel --outdir jenga-src/dist ./jenga-src
           ls jenga-src/dist/
           test -n "$(ls jenga-src/dist/jenga-*.whl 2>/dev/null)"             || { echo "::error::aucun wheel jenga-*.whl produit — le paquet serait sans Jenga embarque"; exit 1; }
 
