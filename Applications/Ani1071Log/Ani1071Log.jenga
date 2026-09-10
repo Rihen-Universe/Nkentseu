@@ -1,0 +1,30 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+Ani1071Log.jenga — projet console minimal du livre ANI-1071 (chapitre 9) :
+le logger de Nkentseu a la place de printf. TEMPORAIRE : sert a capturer la
+sortie reelle pour le livre ; a retirer du workspace ensuite.
+"""
+
+from Jenga import *
+from jengaconfig import *
+
+
+with project("Ani1071Log"):
+    consoleapp()
+    language("C++")
+    cppdialect("C++17")
+    location(".")
+    files(["src/**.cpp"])
+    nkentseudependson(
+        ["NKLogger", "NKThreading", "NKContainers", "NKMemory", "NKCore", "NKPlatform"],
+        extra_includes=["src"],
+    )
+    objdir("%{wks.location}/Build/Obj/%{cfg.buildcfg}-%{cfg.system}/%{prj.name}")
+    targetdir("%{wks.location}/Build/Bin/%{cfg.buildcfg}-%{cfg.system}/%{prj.name}")
+    with filter("system:Windows"):
+        usetoolchain(TC_WINDOWS)
+        defines(["WIN32_LEAN_AND_MEAN", "_UNICODE", "UNICODE"])
+    with filter("system:Linux"):
+        usetoolchain("clang-native")
+        links(["pthread"])

@@ -148,7 +148,7 @@ int nkmain(const NkEntryState &state) {
 		for (int32 i = 0; i < N; ++i) {
 			const float32 a = t * 0.6f + static_cast<float32>(i) * (6.2831853f / N);
 			sprites[i].SetPosition(cx + orbit * math::NkCos(a), cy + orbit * math::NkSin(a));
-			sprites[i].SetRotation((t * 90.f) + static_cast<float32>(i) * 30.f); // degres
+			sprites[i].SetRotation(math::NkAngle((t * 90.f) + static_cast<float32>(i) * 30.f));
 			const float32 s = 0.9f + 0.35f * math::NkSin(t * 2.f + static_cast<float32>(i));
 			sprites[i].SetScale(s, s);
 		}
@@ -158,7 +158,7 @@ int nkmain(const NkEntryState &state) {
 		for (int32 i = 0; i < N; ++i)
 			// NkSprite herite de NkIDrawable2D ET NkDrawable -> on choisit le chemin
 			// NkDrawable (nouveau, SFML) pour lever l'ambiguite de surcharge.
-			target.Draw(static_cast<const NkDrawable &>(sprites[i]));
+			target.Draw(sprites[i]);
 		target.Display();
 	}
 

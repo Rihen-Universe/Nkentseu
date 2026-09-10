@@ -15,8 +15,8 @@
     "reportUndefinedVariable": "warning",
     "reportWildcardImportFromLibrary": "none",
     "extraPaths": [
-        "D:/Projets/MacShared/Projets/Jenga",
+        "C:/Users/Rihen/AppData/Local/Programs/Python/Python313/Lib/site-packages",
         ".jenga-typings"
     ],
-    "_jengaIdeConfigVersion": "a950fb367dc6dc79"
+    "_jengaIdeConfigVersion": "1c2687edd52b336e"
 }

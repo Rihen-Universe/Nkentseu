@@ -181,7 +181,7 @@ int nkmain(const NkEntryState &state) {
 		for (int32 i = 0; i < N; ++i) {
 			const float32 a = t * 0.5f + static_cast<float32>(i) * (6.2831853f / N);
 			stars[i].SetPosition(cx + orbit * math::NkCos(a), cy + orbit * math::NkSin(a));
-			stars[i].SetRotation(t * (0.8f + 0.2f * static_cast<float32>(i))); // radians
+			stars[i].SetRotation(math::NkAngle::FromRad(t * (0.8f + 0.2f * static_cast<float32>(i))));
 			const float32 s = 0.9f + 0.25f * math::NkSin(t * 1.5f + static_cast<float32>(i));
 			stars[i].SetScale(s, s);
 		}

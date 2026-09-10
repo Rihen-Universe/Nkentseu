@@ -26,6 +26,7 @@
 #include "NkSystemEvent.h"
 #include "NkCustomEvent.h"
 #include "NkTransferEvent.h"
+#include "NkEventDispatcher.h" // NkActionManager, NkAxisManager, NkInputCode
 #include "NkGenericHidEvent.h"
 #include "NkGenericHidMapper.h"
 #include "NkGraphicsEvent.h"
@@ -428,6 +429,47 @@ namespace nkentseu {
 				return mHidMapper;
 			}
 
+			// --- Actions et axes nommes ---------------------------------------
+			//
+			// Ils sont POSSEDES ICI, et non par l'application. Trois raisons.
+			//
+			// 1. Le systeme d'evenements est deja ce qui sait ce que fait
+			//    l'utilisateur : il tient la file, l'etat du clavier et de la
+			//    souris, et un pointeur vers les manettes. Un gestionnaire
+			//    d'actions pose ailleurs devrait redemander tout cela.
+			// 2. Une action se declenche depuis un evenement. Etre au meme
+			//    endroit que la file, c'est pouvoir le faire sans que
+			//    l'application ecrive une ligne.
+			// 3. Un axe se RELIT a chaque tour depuis l'etat. PumpOS() tourne
+			//    une fois par tour : c'est l'endroit exact pour le faire, et
+			//    l'application n'a plus rien a appeler.
+			//
+			// Avant le 2026-09-05, ces deux gestionnaires etaient des objets
+			// isoles que personne dans le depot ne creait. Ils fonctionnent
+			// maintenant sans branchement.
+			NkActionManager &GetActionManager() noexcept {
+				return mActionManager;
+			}
+
+			const NkActionManager &GetActionManager() const noexcept {
+				return mActionManager;
+			}
+
+			NkAxisManager &GetAxisManager() noexcept {
+				return mAxisManager;
+			}
+
+			const NkAxisManager &GetAxisManager() const noexcept {
+				return mAxisManager;
+			}
+
+			/// @brief Relit tous les axes depuis l'etat courant.
+			/// @note Appele par PumpOS() a chaque tour : une application n'a
+			///       normalement pas a l'appeler. Reste public pour les cas ou
+			///       l'on veut une lecture supplementaire, par exemple juste
+			///       avant un pas de physique tres long.
+			void RefreshAxes();
+
 			// Injection de dependance -- appele par NkSystem::Initialise()
 			void SetGamepadSystem(NkGamepadSystem *gp) noexcept {
 				mGamepadSystem = gp;
@@ -522,6 +564,10 @@ namespace nkentseu {
 			NkEventState mInputState;
 			NkGenericHidMapper mHidMapper;
 			bool mReady = false;
+
+			// Actions et axes nommes, partages par toute l'application.
+			NkActionManager mActionManager;
+			NkAxisManager mAxisManager;
 
 			// Point 3 : ring buffer à la place d'une deque dynamique
 			NkEventRingBuffer mEventQueue;

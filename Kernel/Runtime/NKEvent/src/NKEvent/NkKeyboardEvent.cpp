@@ -363,6 +363,77 @@ namespace nkentseu {
 	}
 
 	// =====================================================================
+	// NkInputNameEquals / NkKeyFromString — le chemin inverse
+	// =====================================================================
+	//
+	// POURQUOI CES DEUX FONCTIONS EXISTENT
+	//   Sans elles, une association touche-action ne peut pas etre relue depuis
+	//   un fichier : on savait ecrire "NK_SPACE", pas le relire. Un menu de
+	//   configuration des commandes etait donc impossible, et les associations
+	//   restaient figees dans le code.
+	//
+	// POURQUOI ON NE FAIT PAS UNE SECONDE TABLE
+	//   NkKeyFromString parcourt la table de NkKeyToString au lieu d'en tenir
+	//   une a elle. Deux tables se contredisent tot ou tard : on ajoute une
+	//   touche dans l'une et pas dans l'autre, et la lecture d'un fichier
+	//   echoue en silence sur cette touche-la. Une seule source, aucun ecart
+	//   possible. Le cout est un parcours de quelques centaines de comparaisons,
+	//   paye au chargement d'une configuration, jamais dans la boucle de jeu.
+
+	static const char *NkSautePrefixes(const char *nom) noexcept {
+		static const char *const prefixes[] = {"NK_", "GP_", "GA_", "MB_", "SC_"};
+		bool encore = true;
+		while (nom != nullptr && encore) {
+			encore = false;
+			for (const char *prefixe : prefixes) {
+				const nk_size taille = std::strlen(prefixe);
+				bool correspond = true;
+				for (nk_size i = 0; i < taille && correspond; ++i) {
+					const char a = nom[i];
+					const char majuscule = (a >= 'a' && a <= 'z') ? static_cast<char>(a - 32) : a;
+					correspond = (majuscule == prefixe[i]);
+				}
+				if (correspond) {
+					nom += taille;
+					encore = true;
+					break;
+				}
+			}
+		}
+		return nom;
+	}
+
+	bool NkInputNameEquals(const char *gauche, const char *droite) noexcept {
+		if (gauche == nullptr || droite == nullptr)
+			return false;
+		const char *a = NkSautePrefixes(gauche);
+		const char *b = NkSautePrefixes(droite);
+		while (*a != '\0' && *b != '\0') {
+			char ca = *a, cb = *b;
+			if (ca >= 'a' && ca <= 'z')
+				ca = static_cast<char>(ca - 32);
+			if (cb >= 'a' && cb <= 'z')
+				cb = static_cast<char>(cb - 32);
+			if (ca != cb)
+				return false;
+			++a;
+			++b;
+		}
+		return *a == '\0' && *b == '\0';
+	}
+
+	NkKey NkKeyFromString(const char *nom) noexcept {
+		if (nom == nullptr || *nom == '\0')
+			return NkKey::NK_UNKNOWN;
+		for (uint32 valeur = 0; valeur < static_cast<uint32>(NkKey::NK_KEY_MAX); ++valeur) {
+			const NkKey touche = static_cast<NkKey>(valeur);
+			if (NkInputNameEquals(NkKeyToString(touche), nom))
+				return touche;
+		}
+		return NkKey::NK_UNKNOWN;
+	}
+
+	// =====================================================================
 	// Utilitaires de classification pour NkKey
 	// =====================================================================
 

@@ -457,6 +457,116 @@ namespace nkentseu {
 			static NkInputCode GamepadAxis(NkGamepadAxis a) noexcept {
 				return {NkInputDevice::NK_GAMEPAD_AXIS, static_cast<uint32>(a), 0};
 			}
+
+			// -----------------------------------------------------------------
+			// Texte <-> code, pour lire et ecrire une configuration
+			// -----------------------------------------------------------------
+			//
+			// La forme est « appareil:entree », par exemple :
+			//
+			//     Key:SPACE          Key:LEFT        Key:NK_ESCAPE
+			//     Mouse:LEFT         Wheel:V         Wheel:H
+			//     Gamepad:SOUTH      GamepadAxis:LEFT_X
+			//
+			// Sans les deux points, on suppose une touche : « SPACE » vaut
+			// « Key:SPACE ». C'est la forme qu'un joueur ecrira le plus souvent,
+			// et lui imposer un prefixe pour rien serait une facon de lui faire
+			// payer notre implementation.
+
+			/// @brief Ecrit le code sous la forme « appareil:entree ».
+			NkString ToString() const {
+				switch (device) {
+					case NkInputDevice::NK_MOUSE:
+						return NkString("Mouse:") +
+							   NkMouseButtonToString(static_cast<NkMouseButton>(code));
+					case NkInputDevice::NK_MOUSEWHEEL:
+						return NkString(code == 1u ? "Wheel:H" : "Wheel:V");
+					case NkInputDevice::NK_GAMEPAD:
+						return NkString("Gamepad:") +
+							   NkGamepadButtonCanonicalName(static_cast<NkGamepadButton>(code));
+					case NkInputDevice::NK_GAMEPAD_AXIS:
+						return NkString("GamepadAxis:") +
+							   NkGamepadAxisCanonicalName(static_cast<NkGamepadAxis>(code));
+					case NkInputDevice::NK_KEYBOARD:
+					default:
+						return NkString("Key:") + NkKeyToString(static_cast<NkKey>(code));
+				}
+			}
+
+			/// @brief Relit un code ecrit par ToString, ou tape par un joueur.
+			/// @param texte « Key:SPACE », « Gamepad:SOUTH », ou simplement « SPACE ».
+			/// @param valide Recoit false si le texte ne designe rien de connu.
+			/// @return Le code, ou une touche NK_UNKNOWN si le texte est invalide.
+			static NkInputCode FromString(const char *texte, bool *valide = nullptr) noexcept {
+				if (valide != nullptr)
+					*valide = false;
+				NkInputCode resultat{};
+				if (texte == nullptr || *texte == '\0')
+					return resultat;
+
+				// Couper sur les deux points, sans allouer.
+				const char *separateur = texte;
+				while (*separateur != '\0' && *separateur != ':')
+					++separateur;
+
+				char appareil[16] = {0};
+				const char *entree = texte;
+				if (*separateur == ':') {
+					const nk_size taille = static_cast<nk_size>(separateur - texte);
+					if (taille >= sizeof(appareil))
+						return resultat;
+					for (nk_size i = 0; i < taille; ++i)
+						appareil[i] = texte[i];
+					entree = separateur + 1;
+				} else {
+					appareil[0] = 'K';
+					appareil[1] = 'e';
+					appareil[2] = 'y';
+				}
+
+				if (NkInputNameEquals(appareil, "Mouse")) {
+					const NkMouseButton b = NkMouseButtonFromString(entree);
+					if (b == NkMouseButton::NK_MB_UNKNOWN)
+						return resultat;
+					if (valide != nullptr)
+						*valide = true;
+					return Mouse(b);
+				}
+				if (NkInputNameEquals(appareil, "Wheel")) {
+					const bool horizontal = NkInputNameEquals(entree, "H") ||
+											NkInputNameEquals(entree, "Horizontal");
+					if (valide != nullptr)
+						*valide = true;
+					return Wheel(horizontal);
+				}
+				if (NkInputNameEquals(appareil, "Gamepad")) {
+					const NkGamepadButton b = NkGamepadButtonFromString(entree);
+					if (b == NkGamepadButton::NK_GP_UNKNOWN)
+						return resultat;
+					if (valide != nullptr)
+						*valide = true;
+					return Gamepad(b);
+				}
+				if (NkInputNameEquals(appareil, "GamepadAxis")) {
+					if (valide != nullptr)
+						*valide = true;
+					return GamepadAxis(NkGamepadAxisFromString(entree));
+				}
+				if (NkInputNameEquals(appareil, "Key")) {
+					const NkKey k = NkKeyFromString(entree);
+					if (k == NkKey::NK_UNKNOWN)
+						return resultat;
+					if (valide != nullptr)
+						*valide = true;
+					return Key(k);
+				}
+				return resultat;
+			}
+
+			/// @brief Surcharge pour NkString, la forme qu'un lecteur de fichier rend.
+			static NkInputCode FromString(const NkString &texte, bool *valide = nullptr) noexcept {
+				return FromString(texte.Data(), valide);
+			}
 	};
 
 	// -------------------------------------------------------------------------
@@ -708,6 +818,23 @@ namespace nkentseu {
 	// -------------------------------------------------------------------------
 	class NkActionManager {
 		public:
+			/// @brief Oublie toutes les actions et toutes leurs commandes.
+			///
+			/// Sert au changement de scene ou de niveau : on vide, puis on
+			/// recharge les commandes de la scene suivante. Sans cela il
+			/// faudrait retirer les actions une par une en connaissant leurs
+			/// noms, ce qui oblige a tenir une liste a cote de la liste.
+			void Clear() noexcept;
+
+			/// @brief Parcourt toutes les commandes, pour les ecrire ou les afficher.
+			/// @param visiteur Appele avec (nom de l'action, commande).
+			template <typename Visiteur> void ForEachCommand(Visiteur &&visiteur) const {
+				mCommands.ForEach([&](const NkString &nom, const NkVector<NkActionCommand> &cmds) {
+					for (const auto &cmd : cmds)
+						visiteur(nom, cmd);
+				});
+			}
+
 			void CreateAction(const NkString &name, NkActionSubscriber handler);
 
 			void AddCommand(const NkActionCommand &cmd);
@@ -831,6 +958,18 @@ namespace nkentseu {
 	// -------------------------------------------------------------------------
 	class NkAxisManager {
 		public:
+			/// @brief Oublie tous les axes et toutes leurs commandes.
+			/// @see NkActionManager::Clear
+			void Clear() noexcept;
+
+			/// @brief Parcourt toutes les commandes, pour les ecrire ou les afficher.
+			template <typename Visiteur> void ForEachCommand(Visiteur &&visiteur) const {
+				mCommands.ForEach([&](const NkString &nom, const NkVector<NkAxisCommand> &cmds) {
+					for (const auto &cmd : cmds)
+						visiteur(nom, cmd);
+				});
+			}
+
 			void CreateAxis(const NkString &name, NkAxisSubscriber handler);
 
 			void AddCommand(const NkAxisCommand &cmd);
@@ -939,6 +1078,225 @@ namespace nkentseu {
 // -------------------------------------------------------------------------
 #define NK_AXIS_SUBSCRIBER(method_)                                                                                    \
 	[this](const NkString &n_, const NkInputCode &c_, float v_) { this->method_(n_, c_, v_); }
+
+// =========================================================================
+// Section : commandes en TEXTE
+// =========================================================================
+//
+// POURQUOI DU TEXTE ET PAS UN FICHIER
+//   NKEvent ne lit aucun fichier, et ne doit pas commencer. Il recoit un
+//   contenu deja en memoire, comme le font les bibliotheques qui savent
+//   charger « depuis la memoire ». L'application reste alors libre : elle lit
+//   un fichier avec NKFileSystem, ou elle recoit le texte du reseau, ou elle
+//   convertit son propre format vers celui-ci. Aucune dependance ajoutee, et
+//   aucun format impose au dela de ces quelques lignes.
+//
+// LE FORMAT, une association par ligne
+//
+//     # les lignes vides et celles qui commencent par # sont ignorees
+//     action Sauter   Key:SPACE     once
+//     action Sauter   Gamepad:SOUTH once
+//     action Tirer    Mouse:LEFT
+//     axis   Horizontal Key:RIGHT    1
+//     axis   Horizontal Key:LEFT    -1
+//     axis   Horizontal GamepadAxis:LEFT_X 1
+//
+//   `action <nom> <code> [once|repeat]`  : `repeat` par defaut, comme l'API.
+//   `axis   <nom> <code> <echelle>`      : l'echelle est un nombre signe.
+//
+//   Le nom d'une action ou d'un axe doit avoir ete cree AVANT le chargement,
+//   par CreateAction ou CreateAxis : c'est le code du jeu qui decide ce qui
+//   existe, le fichier ne decide que des touches. Une ligne qui nomme une
+//   action inconnue est signalee, pas inventee.
+
+	/// @brief Ce qu'un chargement a fait, et ce qu'il a refuse.
+	struct NkBindingsReport {
+			uint32 appliquees = 0;			///< associations posees
+			NkVector<NkString> erreurs;		///< une par ligne refusee, avec son numero
+
+			bool Ok() const noexcept {
+				return erreurs.Empty();
+			}
+	};
+
+	/// @brief Pose des commandes decrites par du texte.
+	/// @param texte Le contenu, dans le format ci-dessus.
+	/// @param actions Gestionnaire d'actions, dont les noms existent deja.
+	/// @param axes Gestionnaire d'axes, dont les noms existent deja.
+	/// @return Le compte des associations posees et la liste des refus.
+	/// @note Rien n'est efface : appelez Clear() avant si vous rechargez tout.
+
+
+	/// @brief Ecrit les commandes actuelles dans le format ci-dessus.
+	/// @note L'aller-retour avec NkLoadBindings ne perd rien.
+	// =========================================================================
+	// Commandes en TEXTE — lecture et ecriture
+	// =========================================================================
+
+	namespace detail {
+
+		/// @brief Decoupe une ligne en mots, sur espaces et tabulations.
+		/// @return Le nombre de mots trouves, au plus `capacite`.
+		inline uint32 NkDecouperMots(const NkString &ligne, NkString *mots, uint32 capacite) {
+			uint32 compte = 0;
+			const char *p = ligne.Data();
+			if (p == nullptr)
+				return 0;
+			while (*p != '\0' && compte < capacite) {
+				while (*p == ' ' || *p == '\t' || *p == '\r')
+					++p;
+				if (*p == '\0')
+					break;
+				const char *debut = p;
+				while (*p != '\0' && *p != ' ' && *p != '\t' && *p != '\r')
+					++p;
+				mots[compte] = NkString(debut, static_cast<nk_size>(p - debut));
+				++compte;
+			}
+			return compte;
+		}
+
+		/// @brief Lit un nombre signe simple, sans notation exponentielle.
+		inline bool NkLireNombre(const NkString &texte, float &sortie) {
+			const char *p = texte.Data();
+			if (p == nullptr || *p == '\0')
+				return false;
+			float signe = 1.f;
+			if (*p == '+' || *p == '-') {
+				if (*p == '-')
+					signe = -1.f;
+				++p;
+			}
+			bool auMoinsUnChiffre = false;
+			float entier = 0.f;
+			while (*p >= '0' && *p <= '9') {
+				entier = entier * 10.f + static_cast<float>(*p - '0');
+				++p;
+				auMoinsUnChiffre = true;
+			}
+			if (*p == '.' || *p == ',') {
+				++p;
+				float poids = 0.1f;
+				while (*p >= '0' && *p <= '9') {
+					entier += static_cast<float>(*p - '0') * poids;
+					poids *= 0.1f;
+					++p;
+					auMoinsUnChiffre = true;
+				}
+			}
+			if (!auMoinsUnChiffre || *p != '\0')
+				return false;
+			sortie = signe * entier;
+			return true;
+		}
+
+	} // namespace detail
+
+	inline NkBindingsReport NkLoadBindings(const NkString &texte, NkActionManager &actions,
+									NkAxisManager &axes) {
+		NkBindingsReport rapport;
+
+		const char *p = texte.Data();
+		if (p == nullptr)
+			return rapport;
+
+		uint32 numero = 0;
+		while (*p != '\0') {
+			const char *debut = p;
+			while (*p != '\0' && *p != '\n')
+				++p;
+			const NkString ligne(debut, static_cast<nk_size>(p - debut));
+			if (*p == '\n')
+				++p;
+			++numero;
+
+			NkString mots[4];
+			const uint32 compte = detail::NkDecouperMots(ligne, mots, 4);
+			if (compte == 0)
+				continue; // ligne vide
+			if (mots[0].Data() != nullptr && mots[0].Data()[0] == '#')
+				continue; // commentaire
+
+			if (compte < 3) {
+				rapport.erreurs.PushBack(
+					NkString::Fmt("ligne {0} : il faut au moins « type nom code »", numero));
+				continue;
+			}
+
+			bool codeValide = false;
+			const NkInputCode code = NkInputCode::FromString(mots[2], &codeValide);
+			if (!codeValide) {
+				rapport.erreurs.PushBack(
+					NkString::Fmt("ligne {0} : entree inconnue « {1} »", numero, mots[2]));
+				continue;
+			}
+
+			if (NkInputNameEquals(mots[0].Data(), "action")) {
+				bool repetable = true;
+				if (compte >= 4) {
+					if (NkInputNameEquals(mots[3].Data(), "once"))
+						repetable = false;
+					else if (!NkInputNameEquals(mots[3].Data(), "repeat")) {
+						rapport.erreurs.PushBack(NkString::Fmt(
+							"ligne {0} : attendu « once » ou « repeat », lu « {1} »", numero, mots[3]));
+						continue;
+					}
+				}
+				const uint64 avant = actions.GetCommandCount(mots[1]);
+				actions.AddCommand(NkActionCommand(mots[1], code, repetable));
+				if (actions.GetCommandCount(mots[1]) == avant) {
+					rapport.erreurs.PushBack(NkString::Fmt(
+						"ligne {0} : action « {1} » inconnue, creez-la avant de charger", numero,
+						mots[1]));
+					continue;
+				}
+				++rapport.appliquees;
+			} else if (NkInputNameEquals(mots[0].Data(), "axis")) {
+				if (compte < 4) {
+					rapport.erreurs.PushBack(
+						NkString::Fmt("ligne {0} : un axe demande une echelle", numero));
+					continue;
+				}
+				float echelle = 0.f;
+				if (!detail::NkLireNombre(mots[3], echelle)) {
+					rapport.erreurs.PushBack(
+						NkString::Fmt("ligne {0} : echelle illisible « {1} »", numero, mots[3]));
+					continue;
+				}
+				const uint64 avant = axes.GetCommandCount(mots[1]);
+				axes.AddCommand(NkAxisCommand(mots[1], code, echelle));
+				if (axes.GetCommandCount(mots[1]) == avant) {
+					rapport.erreurs.PushBack(NkString::Fmt(
+						"ligne {0} : axe « {1} » inconnu, creez-le avant de charger", numero,
+						mots[1]));
+					continue;
+				}
+				++rapport.appliquees;
+			} else {
+				rapport.erreurs.PushBack(NkString::Fmt(
+					"ligne {0} : attendu « action » ou « axis », lu « {1} »", numero, mots[0]));
+			}
+		}
+
+		return rapport;
+	}
+
+	inline NkString NkSaveBindings(const NkActionManager &actions, const NkAxisManager &axes) {
+		NkString sortie = "# Commandes, ecrites par NkSaveBindings.\n"
+						  "# action <nom> <code> [once|repeat]\n"
+						  "# axis   <nom> <code> <echelle>\n";
+
+		actions.ForEachCommand([&](const NkString &nom, const NkActionCommand &cmd) {
+			sortie += NkString::Fmt("action {0} {1} {2}\n", nom, cmd.GetCode().ToString(),
+									cmd.IsRepeatable() ? "repeat" : "once");
+		});
+		axes.ForEachCommand([&](const NkString &nom, const NkAxisCommand &cmd) {
+			sortie += NkString::Fmt("axis {0} {1} {2}\n", nom, cmd.GetCode().ToString(),
+									cmd.GetScale());
+		});
+		return sortie;
+	}
+
 
 } // namespace nkentseu
 

@@ -73,19 +73,63 @@ namespace nkentseu {
 				virtual void Clear(const NkColor2D &color = NkColor2D::Black) = 0;
 
 				// ── View (camera) ─────────────────────────────────────────────────────
+				// SetView pose une vue CUSTOM : a partir de la, le redimensionnement ne
+				// la recale plus tout seul. ResetView revient a la vue par defaut ET
+				// rend la main au suivi automatique.
+				//
+				// ⚠️ Avant le 2026-09-05, « suis-je sur la vue par defaut ? » se decidait
+				// en comparant les champs en egalite FLOTTANTE EXACTE. Deux pieges
+				// silencieux : SetView(GetDefaultView()), geste parfaitement raisonnable,
+				// n'etait pas vu comme une vue custom ; et une camera qui valait par
+				// hasard la vue par defaut, ce qui arrive tout le temps au demarrage,
+				// se faisait confisquer au premier redimensionnement. C'est un drapeau
+				// explicite maintenant.
 				virtual void SetView(const NkView2D &view) = 0;
 				virtual NkView2D GetView() const = 0;
 				virtual NkView2D GetDefaultView() const = 0;
+
+				/// Revient a la vue par defaut et reprend le suivi automatique.
+				virtual void ResetView() {
+					SetView(GetDefaultView());
+				}
+
+				/// Vrai si une vue a ete posee par SetView depuis le dernier ResetView.
+				virtual bool IsViewCustom() const {
+					return false;
+				}
 
 				// ── Viewport ──────────────────────────────────────────────────────────
 				virtual void SetViewport(const NkRect2i &viewport) = 0;
 				virtual NkRect2i GetViewport() const = 0;
 
+				// ── Politique de redimensionnement ────────────────────────────────────
+				// Ce que devient l'image quand la cible change de taille. Voir
+				// NkResizePolicy pour les six reponses possibles.
+				//
+				// designSize est la resolution de reference des politiques d'ajustement.
+				// A zero, on reprend la taille de la vue courante, ce qui est presque
+				// toujours ce que l'on veut : on regle la politique une fois la scene
+				// cadree. Le changement s'applique IMMEDIATEMENT a la taille courante,
+				// sans attendre un redimensionnement.
+				virtual void SetResizePolicy(NkResizePolicy policy, NkVec2f designSize = NkVec2f{0.f, 0.f}) {
+					(void)policy;
+					(void)designSize;
+				}
+
+				virtual NkResizePolicy GetResizePolicy() const {
+					return NkResizePolicy::NK_FOLLOW_WINDOW;
+				}
+
+				/// Resolution de reference des politiques d'ajustement.
+				virtual NkVec2f GetDesignSize() const {
+					return NkVec2f{0.f, 0.f};
+				}
+
 				// ── Resize (cible) ────────────────────────────────────────────────────
-				// Notifie le renderer de la nouvelle taille de framebuffer. La VUE PAR
-				// DEFAUT suit l'ecran (auto) ; une vue CUSTOM posee par SetView reste
-				// intacte (resize uniquement si l'utilisateur le veut). Met aussi a jour
-				// le viewport plein-cadre. Defaut vide pour les implementeurs sans vue.
+				// Notifie le renderer de la nouvelle taille de framebuffer. Ce qu'il en
+				// fait depend de la politique (cf. SetResizePolicy) ; par defaut la vue
+				// suit la fenetre, une vue custom reste intacte, et le viewport passe
+				// plein-cadre. Defaut vide pour les implementeurs sans vue.
 				virtual void OnResize(uint32 width, uint32 height) noexcept {
 					(void)width;
 					(void)height;

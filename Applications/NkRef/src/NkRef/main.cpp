@@ -591,7 +591,12 @@ int nkmain(const NkEntryState &state) {
 		// Réglages, comme chez eux). RIEN n'est perdu : l'Étape 2 embarquera
 		// les OCTETS SOURCE dans le .nkref, pas la texture.
 		constexpr int32 kMaxSide = 4096;
-		NkImage *resized = nullptr;
+		// NkImage::Resize rend une image PAR VALEUR, pas un pointeur : il n'y a
+		// donc rien a liberer a la main, et NkImage n'a pas de Free(). Ce code
+		// tenait un NkImage* et appelait resized->Free() ; il ne compilait plus, et
+		// NkRef avec lui. Repare le 2026-09-05.
+		NkImage resized;
+		bool aReduit = false;
 		if (autoDownscale && (img.Width() > kMaxSide || img.Height() > kMaxSide)) {
 			const int32 big = img.Width() > img.Height() ? img.Width() : img.Height();
 			const float32 s = (float32)kMaxSide / (float32)big;
@@ -599,16 +604,15 @@ int nkmain(const NkEntryState &state) {
 			// piège documenté par le modeleur).
 			resized = img.Resize((int32)((float32)img.Width() * s), (int32)((float32)img.Height() * s),
 								 NkResizeFilter::NK_BICUBIC);
-			if (resized)
+			aReduit = resized.IsValid();
+			if (aReduit)
 				logger.Info("[NkRef] image reduite %dx%d -> %dx%d : %s", img.Width(), img.Height(),
-							resized->Width(), resized->Height(), path);
+							resized.Width(), resized.Height(), path);
 		}
-		const NkImage &srcImg = resized ? *resized : img;
+		const NkImage &srcImg = aReduit ? resized : img;
 		NkTexture *tex = alloc.New<NkTexture>();
 		const bool okTex = tex && tex->LoadFromImage(*target.GetRenderer(), srcImg);
 		const uint32 w = (uint32)srcImg.Width(), h = (uint32)srcImg.Height();
-		if (resized)
-			resized->Free(); // libère pixels + wrapper (pattern Alloc/Free)
 		if (!okTex) {
 			logger.Warn("[NkRef] upload GPU echoue : %s", path);
 			if (tex)
@@ -1724,7 +1728,7 @@ int nkmain(const NkEntryState &state) {
 			NkSprite sp(*tex);
 			sp.SetOrigin({(float32)it.texW * 0.5f, (float32)it.texH * 0.5f});
 			sp.SetPosition(view.WorldToPixel(it.pos, vp));
-			sp.SetRotation(it.rotationDeg);
+			sp.SetRotation(math::NkAngle(it.rotationDeg)); // NkAngle : l'unite est dans le type
 			sp.SetScale({it.scale * view.zoom, it.scale * view.zoom});
 			sp.SetFlipX(it.mirrorX);
 			sp.SetFlipY(it.mirrorY);
@@ -1732,7 +1736,7 @@ int nkmain(const NkEntryState &state) {
 			sp.SetColor(NkColor2D{255, 255, 255, (uint8)(it.opacity * 255.0f + 0.5f)});
 			// NkSprite hérite de NkIDrawable2D ET NkDrawable → on lève
 			// l'ambiguïté de Draw() en ciblant le chemin NkDrawable.
-			target.Draw(static_cast<const NkDrawable &>(sp));
+			target.Draw(sp); // plus de cast : NkSprite n'implemente plus qu'une interface
 		}
 
 		// Les traits de crayon, par-dessus les images (annotations). Culling
@@ -1821,7 +1825,7 @@ int nkmain(const NkEntryState &state) {
 				// La position d'un NkText est sa LIGNE DE BASE : à y=6 le texte
 				// montait HORS fenêtre (invisible, vécu) — on vise le bas de la barre.
 				txt.SetPosition({30.0f, 21.0f});
-				target.Draw(static_cast<const NkDrawable &>(txt));
+				target.Draw(txt);
 			}
 			// Boutons − □ × : survol surligné, glyphes en primitives.
 			const int32 hov = barHit(mousePix.x, mousePix.y, vp);

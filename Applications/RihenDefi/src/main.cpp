@@ -196,13 +196,13 @@ int nkmain(const NkEntryState &state) {
 		// ── Rendu (screen.fill + blit + draw.circle + flip) ───────────────────
 		target.Clear(NkColor2D{30, 30, 40, 255}); // BACKGROUND_COLOR
 
-		target.Draw(static_cast<const NkDrawable &>(sprite));
+		target.Draw(sprite);
 		target.Draw(ball);
 
 		if (hasFont) {
 			fpsText.SetString(NkString::Format("FPS: %d", (int)fpsSmoothed).CStr());
-			target.Draw(static_cast<const nkentseu::renderer::NkIDrawable2D &>(titleText));
-			target.Draw(static_cast<const nkentseu::renderer::NkIDrawable2D &>(fpsText));
+			target.Draw(titleText);
+			target.Draw(fpsText);
 		}
 
 		target.Display(); // pygame.display.flip()

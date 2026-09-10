@@ -323,6 +323,13 @@ namespace nkentseu {
 			hit.hit = true;
 			hit.t = t;
 			hit.point = ray.origin + ray.dir * t;
+			// Les barycentriques, calculees plus haut pour rejeter les rayons
+			// hors du triangle, sont maintenant RENDUES au lieu d'etre jetees.
+			// Elles permettent d'interpoler n'importe quel attribut de sommet
+			// au point touche, coordonnees de texture en tete :
+			//     uv = (1 - u - v) * uv0 + u * uv1 + v * uv2
+			hit.u = u;
+			hit.v = v;
 			NkVec3f nrm = e1.Cross(e2).Normalized();
 			hit.normal = (nrm.Dot(ray.dir) < 0.f) ? nrm : nrm * -1.f;
 			return true;
