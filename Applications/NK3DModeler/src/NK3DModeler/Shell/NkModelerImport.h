@@ -406,22 +406,59 @@ namespace nkentseu {
 			// Le projet a change (cartes dans l'arbre du .nk3dm) : il le sait.
 			if (modelsNes > 0)
 				NkMarkDirty(st);
+			// ⚠️ LE DIAGNOSTIC D'ABORD, LES COMPTES ENSUITE.
+			// Ce message est peint dans le panneau HIERARCHIE, qui est etroit :
+			// il est TRONQUE a une quarantaine de caracteres. Mesure du 27/08,
+			// a l'ecran : « Import : 1 model(s), 1 maillage(s) - nav » -- le mot
+			// « navigateur PLEIN » etait coupe. Le chemin n'etait donc pas muet,
+			// il etait COUPE EXACTEMENT SUR SA RAISON : l'utilisateur lisait un
+			// bilan rassurant d'un import qui n'avait rien produit d'atteignable.
+			// Mettre la cause en TETE la rend lisible quelle que soit la largeur,
+			// et ne coute pas une ligne de mise en page.
 			if (plein)
 				snprintf(st.hierNote, sizeof(st.hierNote),
-						 "Import INCOMPLET (%d model(s), %d maillage(s)) : plus d'emplacement",
+						 "PLUS D'EMPLACEMENT - import incomplet (%d model(s), %d maillage(s))",
 						 modelsNes, noeudsNes);
 			else if (navPlein)
 				snprintf(st.hierNote, sizeof(st.hierNote),
-						 "Import : %d model(s), %d maillage(s) - navigateur PLEIN, cartes partielles",
-						 modelsNes, noeudsNes);
+						 "NAVIGATEUR PLEIN (%d max) - rien d'atteignable, %d model(s) perdu(s)",
+						 (int32)NkModelerState::kMaxBrowser, modelsNes);
 			else if (fichiers < cartes)
 				snprintf(st.hierNote, sizeof(st.hierNote),
-						 "Import : %d carte(s), %d fichier(s) ECRIT(S) sur %d - %s",
-						 cartes, fichiers, cartes, errEcr.Empty() ? "?" : errEcr.CStr());
+						 "ECRITURE ECHOUEE - %d fichier(s) sur %d : %s", fichiers, cartes,
+						 errEcr.Empty() ? "?" : errEcr.CStr());
 			else
 				snprintf(st.hierNote, sizeof(st.hierNote),
 						 "Import : %d model(s), %d maillage(s), %d .nkmesh ecrit(s) - glissez la carte vers la scene",
 						 modelsNes, noeudsNes, fichiers);
+			// ── LE CONTROLE DE LA REGLE, ecrit PENDANT QU'IL ROUGIT ────────────
+			// Regle de Rodolf elargie : « tout ce qu'un import produit doit etre
+			// editable ». Ecrite ici comme une VERIFICATION et non comme une liste
+			// de taches : elle se re-passe a chaque format ajoute, sans que
+			// personne ait a tenir un inventaire a jour.
+			// ⚠️ UN CONTROLE ECRIT QUAND LE DEFAUT EST VIVANT NAIT ROUGE. Ecrit
+			// apres la correction, il naitrait vert et personne ne saurait jamais
+			// s'il sait rougir. Celui-ci echoue AUJOURD'HUI sur la 1re ligne.
+			if (getenv("NK_IMPORT_CHECK")) {
+				const bool atteignable = (cartes > 0) || (modelsNes > 0 && !navPlein && !plein);
+				const bool ecritures = (cartes == 0) || (fichiers == cartes);
+				NkLog::Instance().Infof("[import] CONTROLE REGLE -- ce qui est produit "
+										"doit etre ATTEIGNABLE et ACCEPTE par son mode");
+				NkLog::Instance().Infof("[import]   1. atteignable (scene ou navigateur) : %s "
+										"(models=%d cartes=%d navPlein=%d plein=%d)",
+										atteignable ? "OK" : "ECHEC", modelsNes, cartes,
+										navPlein ? 1 : 0, plein ? 1 : 0);
+				NkLog::Instance().Infof("[import]   2. fichiers ecrits pour chaque carte : %s "
+										"(%d/%d)",
+										ecritures ? "OK" : "ECHEC", fichiers, cartes);
+				NkLog::Instance().Infof("[import]   3. geometrie editable : %s",
+										atteignable ? "a verifier en mode edition"
+													: "NON EVALUABLE (rien d'atteignable)");
+				NkLog::Instance().Infof("[import]   4. UV / textures : ABSENTS et ANNONCES "
+										"tels quels par l'interface -- hors regle aujourd'hui");
+				NkLog::Instance().Infof("[import] CONTROLE : %s",
+										(atteignable && ecritures) ? "VERT" : "ROUGE");
+			}
 			return modelsNes > 0;
 		}
 

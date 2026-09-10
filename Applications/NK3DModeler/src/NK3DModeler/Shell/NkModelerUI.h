@@ -179,6 +179,12 @@ namespace nkentseu {
 				NkColor C(uint16 id) const {
 					return Unpack(mTh.Get(id));
 				}
+				// Couleur EMPAQUETEE (0xRRGGBBAA), sans depaquetage : la forme que
+				// `NkComponentPaint::ColorOf` exige — et c'est celle que le theme
+				// stocke deja. L'adaptateur du kit en fait MOINS que C(), pas plus.
+				uint32 PackedColor(uint16 id) const {
+					return mTh.Get(id);
+				}
 
 				float32 LineH() const {
 					return mFont.LineHeight();
@@ -207,6 +213,20 @@ namespace nkentseu {
 				}
 				void VLine(float32 x, float32 y, float32 h) {
 					mDl.AddRectFilled({Px(x), Px(y), 1.f, Px(y + h) - Px(y)}, C(NkRole::Border));
+				}
+				// ── SURCHARGES AVEC ROLE (2026-08-29) — exigees par NkComponentPaint ──
+				// Le contrat du kit passe un role a CHAQUE trait, et les composants s'en
+				// servent vraiment : mesure sur les deux composants ecrits, 7x border,
+				// 1x guide (le guide d'indentation de l'arbre), 1x text (le curseur de
+				// renommage). Le codage en dur ci-dessus aurait peint ces deux traits en
+				// bordure — rien n'aurait plante, la couleur aurait menti a l'ecran.
+				// Les variantes sans role restent le defaut de l'application : un trait
+				// de separation EST une bordure tant qu'on ne dit pas autre chose.
+				void HLine(float32 x, float32 y, float32 w, uint16 role) {
+					mDl.AddRectFilled({Px(x), Px(y), Px(x + w) - Px(x), 1.f}, C(role));
+				}
+				void VLine(float32 x, float32 y, float32 h, uint16 role) {
+					mDl.AddRectFilled({Px(x), Px(y), 1.f, Px(y + h) - Px(y)}, C(role));
 				}
 
 				// Segment QUELCONQUE. Indispensable des qu'une ligne n'est ni

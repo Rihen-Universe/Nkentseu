@@ -1083,9 +1083,19 @@ Ce que ce chapitre n'a pas fait, et que vous savez maintenant aborder seul :
         \texttt{NkEditorPanel}.
 \end{itemize}
 
+\begin{nkbilan}
+Une application complète tient en quatre gestes répétés à chaque image :
+recueillir les événements, les donner à NKGui, décrire l'interface, soumettre le
+résultat au rendu. Rien de plus n'est nécessaire --- et rien de moins ne suffit,
+car sauter l'un des quatre produit une interface qui s'affiche mais ne réagit
+pas, ou qui réagit sans s'afficher. C'est cette ossature que la coquille du
+chapitre suivant écrit à votre place, et vous venez de voir exactement ce
+qu'elle remplace.
+\end{nkbilan}
+
 \section{Exercices}
 
-\begin{nkexo}[1 — Faire tourner le squelette]
+\begin{nkpratique}[1 — Faire tourner le squelette]
 Créez \nkfile{Applications/MonApp/} avec son \texttt{.jenga} et son
 \texttt{src/MonApp/main.cpp}, recopiez le squelette de la section 4.9,
 compilez, lancez. Vérifiez que le panneau s'affiche avec son titre, que la case à
@@ -1093,9 +1103,9 @@ cocher répond et que le \emph{slider} se déplace. Puis, \textbf{volontairement
 supprimez la ligne \texttt{backend.Submit(ctx.dlOverlay, \dots)}, ajoutez un
 \texttt{BeginCombo} au panneau, et constatez par vous-même ce que « échoue sans
 message » veut dire.
-\end{nkexo}
+\end{nkpratique}
 
-\begin{nkexo}[2 — Un vrai clavier]
+\begin{nkpratique}[2 — Un vrai clavier]
 Complétez le branchement de l'entrée : double-clic, molette horizontale, touches
 d'édition (\texttt{setKey}), raccourcis \texttt{wantCopy}/\texttt{wantCut}/%
 \texttt{wantPaste}/\texttt{wantSelectAll}, et le presse-papiers via
@@ -1103,18 +1113,18 @@ d'édition (\texttt{setKey}), raccourcis \texttt{wantCopy}/\texttt{wantCut}/%
 dans un \texttt{InputText}, que les flèches déplacent le curseur, que Maj+flèche
 sélectionne, que Ctrl+C et Ctrl+V fonctionnent, et qu'un accent s'écrit
 correctement.
-\end{nkexo}
+\end{nkpratique}
 
-\begin{nkexo}[3 — Une image et son identifiant]
+\begin{nkpratique}[3 — Une image et son identifiant]
 Chargez une image PNG avec \texttt{NkImage}, envoyez-la par
 \texttt{backend.UploadImageRGBA} sous un identifiant de votre choix, affichez-la
 avec le widget \texttt{Image}. Puis attribuez-lui \emph{délibérément} le même
 identifiant que la police (\texttt{0x4E4B4654}) et observez ce qui s'affiche.
 Expliquez le résultat à partir de l'ordre de résolution du pont : atlas de
 police d'abord, images ensuite.
-\end{nkexo}
+\end{nkpratique}
 
-\begin{nkexo}[4 — Une application complète]
+\begin{nkpratique}[4 — Une application complète]
 Écrivez un petit gestionnaire de tâches : une table à trois colonnes (fait,
 titre, priorité), un champ de saisie et un bouton pour ajouter une ligne, une
 case à cocher par ligne, et un bouton « Supprimer les tâches terminées ». Les
@@ -1123,4 +1133,42 @@ un \texttt{PushId} par ligne, un identifiant stable pour la table, et
 \textbf{aucune} modification du tableau pendant le parcours — levez un drapeau
 et agissez après \texttt{EndTable}, conformément au dernier idiome du
 chapitre~3.
-\end{nkexo}
+\end{nkpratique}
+
+\begin{nkquestions}
+\begin{enumerate}
+\item Quels sont les quatre gestes d'une image, dans l'ordre ?
+\item Que se passe-t-il si l'on oublie de transmettre les événements à NKGui ?
+\item Où doit vivre l'état de votre application, et pourquoi pas dans le widget ?
+\item Pourquoi faut-il recréer les ressources dépendantes de la taille lors d'un
+      redimensionnement ?
+\item Quelle est la dernière opération d'une image, et que se passe-t-il si on
+      l'oublie ?
+\end{enumerate}
+\end{nkquestions}
+
+\begin{nkdemo}
+Prouvez que l'ordre des quatre gestes compte.
+
+Partez de votre application qui fonctionne. Déplacez la transmission des
+événements \emph{après} la description de l'interface, et relancez. Décrivez
+précisément ce que vous observez --- et notez surtout si l'interface a l'air
+cassée ou seulement \emph{en retard}.
+
+\textbf{Ce que la démonstration établit} : le défaut ne se présente pas comme une
+erreur mais comme une latence d'une image. C'est la forme la plus difficile à
+repérer, parce qu'on l'attribue au matériel.
+\end{nkdemo}
+
+\begin{nklogique}
+Un bouton de votre interface « ne répond qu'une fois sur deux ».
+
+\begin{enumerate}
+\item Énumérez au moins quatre causes possibles, en distinguant celles de
+      l'entrée, celles de l'identité du widget, et celles de la boucle.
+\item Pour chacune, donnez une mesure qui la distinguerait des autres --- une
+      mesure dont le résultat \emph{diffère} selon la cause.
+\item Vous n'avez le droit qu'à \emph{une} mesure. Laquelle choisissez-vous, et
+      qu'est-ce qu'elle ne pourra pas trancher ?
+\end{enumerate}
+\end{nklogique}

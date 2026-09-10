@@ -7,6 +7,11 @@
 #include "NKWindow/NKWindow.h"
 #include "NKWindow/NKMain.h"
 #include "NKEditorKit/NkEditorKit.h"
+// ⚠️ L'umbrella ne tire PAS l'implementation NKCanvas, deliberement : le kit
+// serait alors lie a NKCanvas chez TOUS ses consommateurs, y compris ceux qui
+// rendent en NKRHI. C'est a l'application de choisir son backend et de
+// l'inclure. Voir NkEditorShell::Init (2026-09-01).
+#include "NKEditorKit/NkEditorCanvasRenderer.h"
 #include "NKMemory/NkUniquePtr.h"
 #include "Panels.h"
 
@@ -56,6 +61,12 @@ int nkmain(const NkEntryState &state) {
 	cfg.title = "NKEditorKit - Demo (coquille d'editeur dockable)";
 	cfg.width = 1280;
 	cfg.height = 720;
+	// ── BACKEND DE RENDU, INJECTE ────────────────────────────────────────
+	// Le kit n'en cree plus par defaut depuis le 2026-09-01 : un defaut dans
+	// son .cpp etait une dependance de LIEN pour tout le monde. `static` parce
+	// que le shell NE POSSEDE PAS ce pointeur -- l'objet doit lui survivre.
+	static NkEditorCanvasRenderer canvasRenderer;
+	cfg.renderer = &canvasRenderer;
 	if (!shell || !shell->Init(cfg)) {
 		return -1;
 	}

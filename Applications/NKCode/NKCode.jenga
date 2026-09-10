@@ -83,6 +83,41 @@ _HAS_PYEMBED_MACOS  = os.path.isdir(_PYEMBED_MACOS_INC)
 # Repliquer ces regles ici les dupliquerait et les ferait diverger a la
 # premiere evolution. On extrait donc le wheel officiel (~1 Mo), qui EST le
 # contenu que Jenga distribue. Le produire : ./cri.sh dans le depot Jenga.
+def _version_du_wheel(chemin):
+    """(2, 4, 0) depuis « jenga-2.4.0-py3-none-any.whl ». (0,) si illisible.
+
+    ⚠️ On rend un TUPLE d'entiers, pas la chaine : compare comme des chaines,
+    « 2.10.0 » passerait AVANT « 2.4.0 » -- l'ordre lexicographique met '1'
+    avant '4'. Le defaut n'apparaitrait qu'a la version 10, c'est-a-dire le jour
+    ou plus personne ne s'en souviendrait.
+    """
+    import re
+    m = re.search(r"jenga-(\d+(?:\.\d+)*)", os.path.basename(chemin))
+    if not m:
+        return (0,)
+    return tuple(int(x) for x in m.group(1).split("."))
+
+
+def _version_jenga_installee():
+    """La version du jenga du SYSTEME, ou () si on ne peut pas la lire.
+
+    ⚠️ Rendre () en cas d'echec, et non une version inventee : une comparaison
+    contre une valeur fabriquee crierait au loup ou se tairait a tort. Ne pas
+    savoir est une reponse ; c'est l'appelant qui decide quoi en faire.
+    """
+    try:
+        import subprocess
+        out = subprocess.check_output(["jenga", "--version"], stderr=subprocess.STDOUT,
+                                      timeout=30).decode("utf-8", "replace")
+        import re
+        m = re.search(r"(\d+)\.(\d+)\.(\d+)", out)
+        if m:
+            return tuple(int(g) for g in m.groups())
+    except Exception:
+        pass
+    return ()
+
+
 def _jenga_depuis_wheel():
     import glob, zipfile, shutil
     racines = [_norm(os.getenv("NKCODE_JENGA_SRC", ""))] + [
@@ -92,7 +127,11 @@ def _jenga_depuis_wheel():
     for r in racines:
         if not r or not os.path.isdir(r):
             continue
-        whls = sorted(glob.glob(os.path.join(r, "dist", "*.whl")), key=os.path.getmtime, reverse=True)
+        # ⚠️ TRI PAR VERSION, PAS PAR DATE. `os.path.getmtime` classait par
+        # date d'ecriture : reconstruire un vieux wheel apres un neuf le faisait
+        # gagner, en silence. Une version se compare par ses nombres.
+        whls = sorted(glob.glob(os.path.join(r, "dist", "*.whl")),
+                      key=_version_du_wheel, reverse=True)
         if not whls:
             continue
         stage = _norm(os.path.join(_REPO_ROOT, "Build", "_jenga-embed"))
@@ -107,20 +146,112 @@ def _jenga_depuis_wheel():
                 if n.startswith("Jenga/") and not n.endswith("/"):
                     z.extract(n, stage)
         if os.path.isdir(os.path.join(cible, "Core")):
-            return stage, os.path.basename(whls[0])
-    return "", ""
+            # ⚠️ FRAICHEUR, PAS SEULEMENT NUMERO. Le 2026-09-04 : wheel 2.4.0 du
+            # 2 sept. 15h45, deux commits Jenga le meme soir a 23h33 et 23h37,
+            # numero inchange. La comparaison de versions ci-dessous ne pouvait
+            # RIEN voir : elle compare des nombres, et les nombres etaient
+            # egaux. NKCode embarquait donc un Jenga sans le correctif
+            # « plus de .vscode pour qui ne code pas sur VSCode » -- en silence,
+            # exactement ce que ce fichier pretendait avoir rendu impossible.
+            # On compte les sources de Jenga/ plus recentes que le wheel.
+            _t_whl = os.path.getmtime(whls[0])
+            _perimes = 0
+            for _d, _, _fs in os.walk(os.path.join(r, "Jenga")):
+                if "__pycache__" in _d:
+                    continue
+                for _f in _fs:
+                    if _f.endswith(".py") and os.path.getmtime(os.path.join(_d, _f)) > _t_whl:
+                        _perimes += 1
+            return stage, os.path.basename(whls[0]), _perimes
+    return "", "", 0
 
-_JENGA_STAGE, _JENGA_WHL = _jenga_depuis_wheel()
+_JENGA_STAGE, _JENGA_WHL, _JENGA_PERIMES = _jenga_depuis_wheel()
 _HAS_JENGA_SRC = bool(_JENGA_STAGE)
 
 # Chaine MinGW/ucrt64 ? (meme test que NKIlyana, Model, NkAnimPhysTest...)
 _IS_MINGW = "mingw" in TC_WINDOWS.lower()
 if _HAS_JENGA_SRC:
     print("[NKCode] Jenga embarque depuis le wheel : " + _JENGA_WHL)
+    # ⚠️ ON COMPARE LE WHEEL AU JENGA DU SYSTEME, ET ON LE DIT.
+    # Sans cette comparaison, NKCode construit avec une version et le terminal
+    # avec une autre -- deux systemes de construction silencieusement differents
+    # dans la meme session. Un defaut d'OUTIL se cherche alors dans le CODE.
+    _V_WHL = _version_du_wheel(_JENGA_WHL)
+    _V_SYS = _version_jenga_installee()
+    if _V_SYS and _V_WHL and _V_WHL != _V_SYS:
+        _fmt = lambda t: ".".join(str(x) for x in t)
+        print("[NKCode] ATTENTION : le wheel embarque est en " + _fmt(_V_WHL)
+              + " alors que le jenga du systeme est en " + _fmt(_V_SYS) + ".")
+        print("[NKCode]   NKCode construira donc AUTREMENT que votre terminal.")
+        print("[NKCode]   Remede : ./cri.sh dans le depot Jenga, puis reconstruire NKCode.")
+    elif not _V_SYS:
+        # Ne pas savoir est une reponse : on la DIT, sinon l'absence de `jenga`
+        # dans le PATH du processus de construction rend la garde muette, et
+        # muette ressemble a « tout va bien ».
+        print("[NKCode] NOTE : `jenga --version` injoignable depuis ce processus ; "
+              "la comparaison wheel/systeme n'a pas pu etre faite.")
+    # ⚠️ MEME NUMERO, CODE DIFFERENT : le cas que la comparaison ci-dessus ne
+    # voit pas. Un seul fichier source plus recent que le wheel suffit.
+    if _JENGA_PERIMES:
+        print("[NKCode] ATTENTION : le wheel " + _JENGA_WHL + " est PERIME -- "
+              + str(_JENGA_PERIMES) + " fichier(s) de Jenga/ sont plus recents que lui, "
+              "a numero de version egal.")
+        print("[NKCode]   NKCode embarquerait un Jenga sans ces changements.")
+        print("[NKCode]   Remede : ./cri.sh dans le depot Jenga, puis reconstruire NKCode.")
 else:
     print("[NKCode] ATTENTION : aucun wheel Jenga trouve (dist/*.whl) -> le paquet "
           "n'aura PAS de Jenga embarque, et les boutons Construire/Executer seront "
           "inoperants. Produisez-le avec ./cri.sh dans le depot Jenga.")
+
+
+# ── LA VERSION DE JENGA EXIGEE, ET LE REFUS QUI VA AVEC ──────────────────────
+# `Applications/NKCode/JENGA_VERSION` est la SOURCE UNIQUE. Le CI la lit pour
+# choisir le tag qu'il extrait ; on la lit ici pour verifier le wheel local.
+#
+# ON REFUSE, ON N'AVERTIT PAS. Un avertissement au milieu de deux cents lignes
+# de sortie de construction ne se lit pas : le 10 septembre 2026, la garde
+# « wheel contre systeme » a bien crie, personne ne l'a vue, et la construction
+# macOS a echoue trois fois avant qu'on regarde. Une construction qui s'arrete
+# avec la raison en clair coute une minute ; une qui continue avec le mauvais
+# Jenga coute une soiree.
+def _version_exigee():
+    """Le contenu de JENGA_VERSION, en tuple. () si le fichier manque."""
+    chemin = os.path.join(_REPO_ROOT, "Applications", "NKCode", "JENGA_VERSION")
+    try:
+        with open(chemin, "r", encoding="utf-8") as f:
+            for ligne in f:
+                ligne = ligne.strip()
+                if ligne and not ligne.startswith("#"):
+                    return tuple(int(x) for x in ligne.split("."))
+    except Exception:
+        pass
+    return ()
+
+
+_V_EXIGEE = _version_exigee()
+if _V_EXIGEE and _HAS_JENGA_SRC:
+    _fmt2 = lambda t: ".".join(str(x) for x in t)
+    if _version_du_wheel(_JENGA_WHL) != _V_EXIGEE:
+        raise SystemExit(
+            "[NKCode] ARRET : le wheel embarque est en "
+            + _fmt2(_version_du_wheel(_JENGA_WHL))
+            + " alors que Applications/NKCode/JENGA_VERSION exige "
+            + _fmt2(_V_EXIGEE) + ".\n"
+            "[NKCode]   NKCode se construirait avec un Jenga different de celui\n"
+            "[NKCode]   que le CI installe : les paquets divergeraient en silence.\n"
+            "[NKCode]   Remede : ./cri.sh dans le depot Jenga pour produire le wheel\n"
+            "[NKCode]   attendu, ou corriger JENGA_VERSION si c'est lui qui a tort."
+        )
+    print("[NKCode] Jenga exige : " + _fmt2(_V_EXIGEE) + " -- wheel conforme.")
+elif not _V_EXIGEE:
+    print("[NKCode] NOTE : Applications/NKCode/JENGA_VERSION absent ; "
+          "aucune verification de version possible.")
+
+
+# Chaine MinGW/ucrt64 ? (meme test que NKIlyana, Model, NkAnimPhysTest...)
+# Reproduit de `main` (commit ad0779cb) pour la beta.7 : cette branche ne
+# l'avait pas, et l'exe repartait avec libstdc++-6.dll en import direct.
+_IS_MINGW = "mingw" in TC_WINDOWS.lower()
 
 _VULKAN_SDK     = _norm(os.getenv("VULKAN_SDK", ""))
 _VULKAN_INCLUDE = _norm(os.path.join(_VULKAN_SDK, "Include")) if _VULKAN_SDK else ""
@@ -203,6 +334,61 @@ with project("NKCode"):
     apppublisher("Rihen Universe")
     appversion("0.1.0")
     licensefile("../../LICENSE")
+    appurl("https://rihen-universe.com")
+
+    # ── SIGNATURE (Jenga 2.8.0+) ─────────────────────────────────────────────
+    # NKCode embarque un compilateur : il ecrit des executables, edite des liens
+    # et lance des processus. C'est le profil exact que les moteurs heuristiques
+    # signalent, et l'absence de signature l'aggrave. Des utilisateurs ont eu
+    # l'installeur mis en quarantaine par Windows Defender.
+    #
+    # LA SIGNATURE NE S'ACTIVE QUE SI UN CERTIFICAT EST FOURNI, par la variable
+    # d'environnement ci-dessous. Sans elle, rien ne change : la construction
+    # reste identique, et personne n'est bloque faute de certificat.
+    #
+    #   set JENGA_WINDOWS_CERT=C:\chemin\rihen.pfx
+    #   set JENGA_WINDOWS_CERT_PASSWORD=...        (jamais dans ce fichier)
+    #
+    # `jenga sign` travaille sur des fichiers DEJA CONSTRUITS : le jour ou le
+    # certificat arrive, on signe la release existante sans rien reconstruire.
+    #
+    #   jenga sign --platform windows --certificate rihen.pfx ^
+    #              --file dist\NKCode\NKCode.exe ^
+    #              --file dist\NKCode-<ver>-win64-setup.exe
+    #
+    # NE JAMAIS SIGNER AVEC UN CERTIFICAT AUTO-SIGNE : Windows affiche
+    # « Editeur inconnu » dans les deux cas, et une signature dont la racine
+    # n'est pas de confiance est un motif que les antivirus associent aux
+    # logiciels malveillants. On aggraverait le probleme qu'on veut resoudre.
+    #
+    # Voir Applications/NKCode/docs/ANTIVIRUS.md.
+    _CERT_WINDOWS = os.environ.get("JENGA_WINDOWS_CERT", "")
+    if _CERT_WINDOWS:
+        with filter("system:Windows"):
+            windowssign()
+            windowscertificate(_CERT_WINDOWS)
+
+    _IDENTITE_MACOS = os.environ.get("JENGA_MACOS_IDENTITY", "")
+    if _IDENTITE_MACOS:
+        with filter("system:macOS"):
+            macossign()
+            macossigningidentity(_IDENTITE_MACOS)
+            # Signer ne suffit pas depuis macOS 10.15 : sans notarisation,
+            # Gatekeeper affiche « impossible de verifier le developpeur ».
+            _PROFIL = os.environ.get("JENGA_MACOS_NOTARY_PROFILE", "")
+            if _PROFIL:
+                macosnotaryprofile(_PROFIL)
+
+    # Sous Linux, il n'y a rien a signer DANS le binaire : le noyau ne verifie
+    # aucune signature au lancement. On publie des signatures detachees et un
+    # SHA256SUMS a cote du telechargement. La cle GPG est optionnelle ; sans
+    # elle, les sommes de controle sont produites quand meme, et elles prouvent
+    # deja l'integrite, sinon l'origine.
+    with filter("system:Linux"):
+        linuxsign()
+        _CLE_GPG = os.environ.get("JENGA_GPG_KEY", "")
+        if _CLE_GPG:
+            linuxgpgkey(_CLE_GPG)
 
     # ===== Windows ================================================================
     with filter("system:Windows && !options:windows-runtime=uwp && !system:XboxSeries && !system:XboxOne"):
@@ -255,6 +441,36 @@ with project("NKCode"):
         if _WANT_VULKAN:
             _WIN_LINKS.append("vulkan-1")
         links(_WIN_LINKS)
+
+        # ── Runtime MinGW EN STATIQUE — corrige l'issue beta #15 ──────────────
+        # Sans cela, NKCode.exe importe libstdc++-6.dll, libgcc_s_seh-1.dll et
+        # (une fois les deux premieres figees) libwinpthread-1.dll, que le
+        # chargeur resout PAR LE PATH — donc chez l'UTILISATEUR. Un testeur a
+        # ainsi recu « NKCode.exe - Point d'entree introuvable : clock_gettime64
+        # est introuvable dans C:\msys64\ucrt64\bin\libstdc++-6.dll » : son
+        # msys64, installe pour la toolchain, portait une autre version.
+        # Symptome visible a l'ouverture d'une NOUVELLE FENETRE, car le
+        # processus fils herite du PATH de l'IDE — d'ou un bug « qui varie selon
+        # la machine ». MakeNkCodeDist.py ne livrait aucune de ces trois DLL.
+        #
+        # `-static` et pas seulement `-static-libstdc++ -static-libgcc` : ces
+        # deux drapeaux laissent libwinpthread-1.dll en import DIRECT (elle
+        # etait masquee derriere libstdc++), et le pilote clang ajoute son
+        # `-lwinpthread` APRES nos ldflags — un `-Wl,-Bstatic ... -Bdynamic`
+        # encadrant ne l'attrape donc pas (essaye, sans effet).
+        # NKIlyana.jenga deconseille `-static` seul (« casse la selection lld »)
+        # : VERIFIE sur main le 2026-08-28, ce n'est pas le cas pour NKCode —
+        # build 23/23, table d'imports sans aucune DLL MinGW, et l'IDE demarre.
+        # Si un jour le lien casse, le repli est NKIlyana : les deux drapeaux
+        # `-static-libstdc++ -static-libgcc` PLUS la livraison de
+        # libwinpthread-1.dll a cote de l'exe.
+        #
+        # Reproduit de `main` (ad0779cb) le 2026-09-04 : la beta.7 etait
+        # repartie AVEC les deux DLL en import, faute d'avoir ce commit sur cette
+        # branche. Verifie ici par objdump apres rebuild. A la fusion avec main,
+        # garder la version de main : c'est la meme.
+        if _IS_MINGW:
+            ldflags(["-static"])
 
     # ===== Linux XLib (defaut) ===================================================
     with filter("system:Linux && options:linux-backend=xlib || system:Linux && !options:linux-backend && !options:headless"):

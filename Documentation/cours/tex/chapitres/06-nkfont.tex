@@ -858,9 +858,19 @@ Le premier est celui de ce cours. Le troisième est celui qui \emph{explique}, e
 c'est pourquoi nous l'avons détaillé : le jour où votre texte est flou, décalé
 ou invisible, c'est dans ces quatre étapes que le problème se trouve.
 
+\begin{nkbilan}
+NKFont ne connaît ni image, ni GPU, ni fenêtre : il transforme une police en
+\emph{glyphes} rangés dans un atlas, et vous rend des coordonnées. Le passage à
+l'écran est votre affaire --- ou celle du pont. La séquence est toujours la
+même : charger, demander les caractères voulus, construire l'atlas, dessiner ; et
+le \texttt{Build()} porte un invariant qu'on ne peut pas contourner --- ce qui
+n'a pas été demandé avant ne sera pas dans l'atlas. Le mode \textbf{SDF} donne du
+texte net à toute taille, au prix d'un atlas plus coûteux à produire.
+\end{nkbilan}
+
 \section{Exercices}
 
-\begin{nkexo}[1 — Le plus court chemin vers un texte à l'écran]
+\begin{nkpratique}[1 — Le plus court chemin vers un texte à l'écran]
 Dans une application NKGui minimale, remplacez le chargement de police par une
 boucle sur les dix polices embarquées : pour chaque
 \texttt{NkEmbeddedFontId} de 0 à 9, testez \texttt{IsAvailable}, récupérez son
@@ -869,9 +879,9 @@ nom avec \texttt{GetName}, et affichez la liste dans un panneau.
 Puis ajoutez un bouton qui passe à la police suivante. Vous devrez recharger
 l'atlas \emph{et} le ré-uploader dans le backend — l'exercice est là. Vérifiez ce
 qui se passe si vous oubliez le ré-upload.
-\end{nkexo}
+\end{nkpratique}
 
-\begin{nkexo}[2 — Voir l'atlas]
+\begin{nkdemo}[2 — Voir l'atlas]
 Récupérez le bitmap alpha8 avec \texttt{GetTexDataAsAlpha8}, enveloppez-le dans
 une \texttt{NkImage} — le chapitre~5 vous a donné tout ce qu'il faut — et
 sauvegardez-le en PNG.
@@ -881,9 +891,9 @@ de marge (\texttt{texGlyphPadding}). Comptez-les et comparez avec
 \texttt{face->glyphCount}. Puis recommencez avec une plage de glyphes plus large
 et observez l'atlas grandir. Enfin, mettez \texttt{sdfMode = true} et
 regardez à quoi ressemble un champ de distance.
-\end{nkexo}
+\end{nkdemo}
 
-\begin{nkexo}[3 — Écrire son propre rendu de texte]
+\begin{nkpratique}[3 — Écrire son propre rendu de texte]
 Sans utiliser NKGui, écrivez une fonction qui prend une \texttt{NkFont*}, une
 chaîne UTF-8, une position et une couleur, et remplit deux tableaux de sommets
 et d'indices — exactement comme \texttt{NkGuiDrawList::AddText}. Testez-la sans
@@ -895,9 +905,9 @@ Vérifiez ensuite que la somme des \texttt{advanceX} est bien égale à
 \texttt{advanceX} à l'entier et observez l'écart se creuser avec la longueur de
 la chaîne : vous venez de reproduire le bug contre lequel le commentaire de
 \nkfile{NkGuiDrawList.cpp:257-266} met en garde.
-\end{nkexo}
+\end{nkpratique}
 
-\begin{nkexo}[4 — Toucher les plafonds]
+\begin{nkdemo}[4 — Toucher les plafonds]
 Écrivez un programme console qui ajoute des polices à un atlas dans une boucle,
 en incrémentant la taille d'un pixel à chaque tour, et qui s'arrête quand
 \texttt{AddToAtlas} renvoie \texttt{nullptr}. Combien d'itérations ?
@@ -908,4 +918,29 @@ Ensuite, tentez d'ajouter une police avec
 \texttt{NK\_FONT\_MAX\_GLYPHS}. Que se passe-t-il pour les caractères au-delà ?
 Cherchez la réponse dans le comportement observé, puis dans
 \nkfile{NkFontAtlas.cpp} — et notez si le module vous a prévenu ou non.
-\end{nkexo}
+\end{nkdemo}
+
+\begin{nkquestions}
+\begin{enumerate}
+\item Quels sont les quatre temps de la séquence canonique ?
+\item Que se passe-t-il si l'on demande un caractère après le \texttt{Build()} ?
+\item Qu'est-ce qu'un atlas, et pourquoi n'affiche-t-on pas les glyphes un par
+      un ?
+\item Qu'apporte le mode SDF, et que coûte-t-il ?
+\item Le dépôt embarque des polices : quel problème cela supprime-t-il ?
+\end{enumerate}
+\end{nkquestions}
+
+\begin{nklogique}
+Une application affiche correctement « Bonjour », mais les accents ressortent en
+carrés vides. Le même texte s'affiche bien dans un autre écran de la même
+application.
+
+\begin{enumerate}
+\item Énumérez au moins trois causes possibles.
+\item Le fait que \emph{le même texte} s'affiche bien ailleurs élimine
+      lesquelles ? Justifiez chaque élimination.
+\item Décrivez la mesure qui tranche entre celles qui restent --- et dites ce
+      qu'elle affiche dans chaque cas, sinon elle ne tranche rien.
+\end{enumerate}
+\end{nklogique}

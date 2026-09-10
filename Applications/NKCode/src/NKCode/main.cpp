@@ -7,6 +7,11 @@
 #include "NKWindow/NKWindow.h"
 #include "NKWindow/NKMain.h"
 #include "NKEditorKit/NkEditorKit.h"
+// ⚠️ L'umbrella ne tire PAS l'implementation NKCanvas, deliberement : le kit
+// serait alors lie a NKCanvas chez TOUS ses consommateurs, y compris ceux qui
+// rendent en NKRHI. C'est a l'application de choisir son backend et de
+// l'inclure. Voir NkEditorShell::Init (2026-09-01).
+#include "NKEditorKit/NkEditorCanvasRenderer.h"
 #include "NKMemory/NkUniquePtr.h"
 #include "NKCode/Shell/Panels.h"
 #include "NKCode/Shell/Toolbar.h"
@@ -53,6 +58,10 @@ static nkcode::NkHomeState g_home;
 // notification, puis telechargement de l'installeur Inno qui met a jour EN
 // PLACE et relance NKCode.
 static nkcode::NkUpdateState g_update;
+// Mise a jour de JENGA seul : 1 Mo, aucune reinstallation de NKCode.
+// Separee de g_update parce que les deux produits n'ont ni le meme
+// rythme de publication ni le meme cout de mise a jour.
+static nkcode::NkJengaUpdateState g_jenga_update;
 
 
 int nkmain(const NkEntryState &state) {
@@ -81,6 +90,12 @@ int nkmain(const NkEntryState &state) {
 	cfg.title = "NKCode - IDE (Jenga)";
 	cfg.width = 1440; // grande fenetre centree, REDIMENSIONNABLE (pas maximisee de force)
 	cfg.height = 900;
+	// ── BACKEND DE RENDU, INJECTE ────────────────────────────────────────
+	// Le kit n'en cree plus par defaut depuis le 2026-09-01 : un defaut dans
+	// son .cpp etait une dependance de LIEN pour tout le monde. `static` parce
+	// que le shell NE POSSEDE PAS ce pointeur -- l'objet doit lui survivre.
+	static NkEditorCanvasRenderer canvasRenderer;
+	cfg.renderer = &canvasRenderer;
 	if (!shell || !shell->Init(cfg))
 		return -1;
 
@@ -186,6 +201,7 @@ int nkmain(const NkEntryState &state) {
 	g_menuBar.shell = shell.Get();
 	g_menuBar.home = &g_home; // « Nouveau Workspace » -> wizard complet du launcher (nav==2)
 	g_menuBar.upd = &g_update; // menu Aide > Rechercher les mises a jour (Phase 13)
+	g_menuBar.jup = &g_jenga_update; // menu Aide > Mettre a jour Jenga (1 Mo, sans reinstallation)
 	// (g_menuBar.exePath est pose plus bas, avec le chemin COMPLET de l'exe.)
 	shell->SetMenuBar(&nkcode::MainMenuBarThunk, &g_menuBar);
 	shell->SetOverlay(&nkcode::OverlayThunk, &g_dialogs);	// dialogues modaux (creation/enregistrement)

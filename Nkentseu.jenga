@@ -769,6 +769,13 @@ with workspace("Nkentseu", location="."):
 
         pass
 
+    # Unkeny — moteur de jeu 2D sur NKCanvas. Il COMPOSE NKECS, NKCollision
+    # et NKPhysics ; il n'en reecrit rien. Son editeur vit dans
+    # Applications/UnkenyEditor : un moteur ne contient pas son outil.
+    with include("Engine/Unkeny/Unkeny.jenga"):
+
+        pass
+
 
 
     with include("Applications/NKCode/NKCode.jenga"):
@@ -1467,6 +1474,12 @@ with workspace("Nkentseu", location="."):
 
 
 
+    with include("Applications/NKEditTargetTest/NKEditTargetTest.jenga"):
+
+        pass
+
+
+
     with include("Applications/NKMeshRenderTest/NKMeshRenderTest.jenga"):
 
         pass
@@ -1679,19 +1692,37 @@ with workspace("Nkentseu", location="."):
     # desktop, souris = tete). Voir XR_MISSION_IA.md.
 
     with include("Applications/NKXRDemo/NKXRDemo.jenga"):
-
         pass
 
 
 
     # Etage 3 XR : realite augmentee a marqueurs (camera + NkArSession).
-
     with include("Applications/NKARDemo/NKARDemo.jenga"):
-
         pass
 
 
+    # GemCrush — SEULEMENT si son .jenga est la. Sur cette branche le dossier
+    # n'a jamais ete commite (il l'est sur main) : depuis f9b68097 (2026-09-01)
+    # un clone frais — donc tout runner GitHub Actions — echouait des le
+    # chargement du workspace (« External file not found »), quelle que soit
+    # la cible demandee. Constate le 2026-09-04 sur le build macOS de NKCode.
+    if os.path.isfile(os.path.join(_WORKSPACE_ROOT, "Applications", "Gemcrush", "GemCrush.jenga")):
+        with include("Applications/Gemcrush/GemCrush.jenga"):
+            pass
 
-    # GemCrush — jeu de type match-3 (PC, Android, iOS, HarmonyOS, Web).
-    with include("Applications/Gemcrush/GemCrush.jenga"):
+    # Les trois jeux de plateau, batis sur la coquille moderne NkCanvasApp.
+    # Ils servent aussi de PREUVE a cette coquille : une base qui n a qu un
+    # seul consommateur ne prouve rien sur sa reutilisabilite.
+    with include("Applications/NkDames/NkDames.jenga"):
+        pass
+
+    with include("Applications/NkEchecs/NkEchecs.jenga"):
+        pass
+
+    with include("Applications/NkLudo/NkLudo.jenga"):
+        pass
+
+    # L'editeur d'Unkeny. Il vit ici, pas dans Engine : un moteur ne
+    # contient pas son outil.
+    with include("Applications/UnkenyEditor/UnkenyEditor.jenga"):
         pass

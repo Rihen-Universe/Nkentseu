@@ -3,10 +3,16 @@
 //   events -> BeginFrame -> menubar -> DockSpace -> panneaux -> palette -> rendu.
 // =============================================================================
 #include "NKEditorKit/NkEditorShell.h"
-#include "NKEditorKit/NkEditorCanvasRenderer.h" // backend de rendu par defaut (IDE)
+// ⚠️ PAS D'INCLUDE DE NkEditorCanvasRenderer.h ICI, ET C'EST LE POINT.
+// Il tirait NKCanvas dans le kit, donc "NKCanvas" au dependson, donc une
+// dependance de LIEN pour TOUS les consommateurs -- y compris NkAnimaEditor et
+// Nogee qui injectent un backend NKRHI et n'en executaient jamais une ligne.
+// Le renderer NKCanvas est desormais INJECTE par l'application, comme le
+// renderer NKRHI l'etait deja. Voir NkEditorShell::Init.
 #include "NKEditorKit/NkEditorTooltip.h"		// NkTooltip : infobulle des voyants du footer
 #include <cstdio>								// snprintf (indicateur de zoom barre d'etat)
 
+#include "NKLogger/NkLog.h" // logger : le refus de demarrer doit se LIRE
 #include "NKEvent/NkWindowEvent.h"
 #include "NKEvent/NkMouseEvent.h"
 #include "NKEvent/NkKeyboardEvent.h"
@@ -21,7 +27,10 @@
 
 using namespace nkentseu;
 using namespace nkentseu::nkgui;
-using namespace nkentseu::renderer;
+// ⚠️ `using namespace nkentseu::renderer;` RETIRE le 2026-09-01. C'etait
+// l'espace de noms de NKCanvas, ouvert du temps ou ce fichier instanciait
+// NkEditorCanvasRenderer. Contre-epreuve : aucun symbole de cet espace n'etait
+// utilise -- le compilateur l'a confirme en ne reclamant rien apres le retrait.
 
 namespace nkentseu {
 	namespace editorkit {
@@ -110,9 +119,11 @@ namespace nkentseu {
 					mCodeSlots[i].font = nullptr;
 				}
 			if (mRenderer) { // libere le contexte GPU avant la fenetre
+				// Le shell N'EST JAMAIS PROPRIETAIRE du renderer : il est
+				// toujours injecte, donc toujours detruit par l'application. On
+				// l'arrete quand meme ici, parce que le contexte GPU doit
+				// tomber AVANT la fenetre qui le porte.
 				mRenderer->Shutdown();
-				if (mOwnsRenderer)
-					memory::NkGetDefaultAllocator().Delete(mRenderer);
 				mRenderer = nullptr;
 			}
 			mWindow.Close();
@@ -134,19 +145,36 @@ namespace nkentseu {
 				return false;
 			CopyStr(mTitle, config.title, sizeof(mTitle));
 
-			// Backend de rendu : injecte (app NKRHI/NKRenderer) ou NKCanvas par
-			// defaut (IDE). Resolution AUTO->API faite par l'impl elle-meme.
-			if (config.renderer) {
-				mRenderer = config.renderer;
-				mOwnsRenderer = false;
-			} else {
-				mRenderer = memory::NkGetDefaultAllocator().New<NkEditorCanvasRenderer>();
-				mOwnsRenderer = true;
+			// ── LE BACKEND DE RENDU EST INJECTE, TOUJOURS ────────────────────
+			// Il n'y a plus de defaut, et son absence est une ERREUR FRANCHE.
+			//
+			// ⚠️ POURQUOI PAS DE DEFAUT (mesure du 2026-09-01)
+			//   Ce site instanciait NKCanvas quand rien n'etait injecte. Un
+			//   defaut dans le .cpp du kit est une dependance de LIEN pour tout
+			//   le monde : NkAnimaEditor et Nogee, qui injectent un backend
+			//   NKRHI/NKRenderer, liaient NKCanvas et ses cinq backends
+			//   graphiques sans en executer une ligne. Un defaut par defaut se
+			//   paie par ceux qui ne s'en servent pas.
+			//
+			// ⚠️ ET POURQUOI UN REFUS PLUTOT QU'UN REPLI
+			//   Le depot a deja paye qu'« un repli qui preserve success n'est pas
+			//   un repli, c'est un mensonge » : la panne sort a l'autre bout de
+			//   la chaine, sous le nom d'un innocent. Ici l'oubli est une erreur
+			//   de PROGRAMMATION, pas un reglage d'utilisateur : on echoue tout
+			//   de suite, et le message dit les deux lignes a ecrire.
+			if (!config.renderer) {
+				logger.Error("[NkEditorShell] Init : aucun backend de rendu injecte "
+						  "(NkEditorShellConfig::renderer est nul).\n"
+						  "  Application 2D / IDE  -> #include \"NKEditorKit/NkEditorCanvasRenderer.h\"\n"
+						  "                           static NkEditorCanvasRenderer r; cfg.renderer = &r;\n"
+						  "  Application 3D / RHI  -> #include \"NKGui/NkEditorRHIRenderer.h\"\n"
+						  "                           static NkEditorRHIRenderer r;    cfg.renderer = &r;\n"
+						  "  (le shell ne possede PAS le renderer : il doit lui survivre)");
+				return false;
 			}
-			if (!mRenderer || !mRenderer->Init(mWindow, mGraphicsApi)) {
-				if (mRenderer && mOwnsRenderer)
-					memory::NkGetDefaultAllocator().Delete(mRenderer);
-				mRenderer = nullptr;
+			mRenderer = config.renderer;
+			if (!mRenderer->Init(mWindow, mGraphicsApi)) {
+				mRenderer = nullptr; // possede par l'application : on ne detruit pas
 				return false;
 			}
 

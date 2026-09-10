@@ -422,7 +422,7 @@ l'image courante}. Nous verrons pourquoi à la section 3.6.
 // ANTI-GEL : aucun glissement légitime ne conserve activeId bouton RELÂCHÉ.
 // Si le widget détenant activeId a disparu (hôte redevenu flottant, onglet
 // caché, fenêtre fermée…) il ne libère jamais activeId et l'occlusion bloque
-// TOUTE interaction. Souris haute + activeId encore posé ⇒ on libère d'office.
+// TOUTE interaction. Souris haute + activeId encore posé => on libère d'office.
 if (!input.mouseDown[0] && activeId != NKGUI_ID_NONE) {
     activeId = NKGUI_ID_NONE;
     movingWindowId = NKGUI_ID_NONE;
@@ -453,20 +453,19 @@ portent sur l'état de l'image \emph{précédente} : vos clics arrivent avec une
 image de retard, ou pas du tout.
 \end{nkretenir}
 
-\begin{nkpiege}[Ne pas transposer l'ordre de l'ancien module]
-L'ancien module d'interface, \texttt{NKUI}, avait l'ordre \emph{inverse}, et il
-est documenté ainsi :
+\begin{nkpiege}[L'ordre ne se copie pas d'une bibliothèque à l'autre]
+Événements \emph{puis} \texttt{BeginFrame} : c'est l'ordre de NKGui, et il
+tient à une raison précise --- c'est \texttt{BeginFrame} qui appelle
+\texttt{input.NewFrame()}. D'autres bibliothèques d'interface immédiate
+attendent l'ordre \emph{inverse}, parce qu'elles font ce travail ailleurs.
 
-\begin{nkcode}{Applications/Sandbox/src/DemoNkentseu/NkUICanvas/NkUICanvasDemo.cpp:268-270}
-// Ordre input CORRECT : BeginFrame (vide les deltas clic/release) PUIS les
-// events (re-remplissent pos/boutons/clics) -> les widgets voient le clic.
-\end{nkcode}
+\textbf{Un ordre correct dans une bibliothèque est donc un ordre faux dans une
+autre}, et l'erreur ne se voit pas : rien ne plante. Les clics arrivent avec une
+image de retard, ou pas du tout --- et l'on cherche le défaut dans le widget.
 
-\textbf{Ce commentaire ne s'applique pas à NKGui.} La démo NKGui pompe les
-événements \emph{avant} \texttt{BeginFrame} (\nkfile{main.cpp:438} contre
-\texttt{:468}), précisément parce que c'est \texttt{BeginFrame} qui fait le
-travail de \texttt{NewFrame()}. Si vous copiez du code de l'ancien module, c'est
-la première chose à vérifier.
+Si vous transposez du code venu d'ailleurs --- d'une autre bibliothèque, ou du
+module \texttt{NKUI} déprécié qui traîne encore dans l'arbre --- c'est la
+première chose à vérifier, avant même que le code compile.
 \end{nkpiege}
 
 \section{Comment un widget conserve son état}
@@ -787,7 +786,7 @@ else if (mRenameArmed && ctx.input.mouseClicked[0] && !ctx.input.mouseDoubleClic
 Un test \emph{positif} (« le clic est-il dans mon rectangle ? ») échoue
 naturellement quand quelque chose recouvre. Un test \emph{négatif} (« le clic est-il
 \emph{en dehors} de mon rectangle ? ») réussit au contraire dans ce cas — et
-déclenche à tort. Chaque fois que vous écrivez « clic en dehors ⇒ fermer ou
+déclenche à tort. Chaque fois que vous écrivez « clic en dehors $\Rightarrow$ fermer ou
 valider », commencez par exiger \texttt{ctx.PointReachable(mousePos)}.
 \end{nkpiege}
 
@@ -1655,35 +1654,45 @@ Pile de découpe (draw-list) & 32 & \texttt{NkGuiDrawList.h:52} \\
         agir à l'image suivante.
 \end{enumerate}
 
+\begin{nkbilan}
+En mode immédiat, un widget n'existe pas : il est \emph{redessiné} à chaque
+image, et ce qui doit survivre vit dans vos propres variables. L'identité d'un
+widget vient de son \textbf{identifiant}, pas de sa position --- deux widgets qui
+partagent un identifiant partagent leur état, et le symptôme n'y ressemble pas.
+Le \textbf{routage de l'entrée} est ce qui sépare NKGui d'un simple dessin : le
+z-ordre décide qui reçoit un clic, et une modale doit \emph{consommer} ce
+qu'elle recouvre, faute de quoi le clic traverse.
+\end{nkbilan}
+
 \section{Exercices}
 
-\begin{nkexo}[1 — Le compteur]
+\begin{nkpratique}[1 — Le compteur]
 Écrivez, dans la boucle de la démo, un petit panneau contenant : un
 \texttt{Text} affichant une valeur entière, un bouton « + » et un bouton
 « $-$ ». La valeur est une variable locale de votre boucle. Vérifiez que le
 compteur ne s'incrémente qu'au \emph{relâchement} du bouton, et qu'appuyer puis
 glisser en dehors avant de relâcher n'incrémente pas. Remplacez ensuite
 \texttt{Button} par \texttt{RepeatButton} et observez la différence.
-\end{nkexo}
+\end{nkpratique}
 
-\begin{nkexo}[2 — Le piège des identifiants]
+\begin{nkdemo}[2 — Le piège des identifiants]
 Affichez une liste de cinq éléments, chacun suivi d'un bouton « Supprimer ».
 Version~A : sans \texttt{PushId}. Version~B : avec \texttt{PushId(\&items[i])}
 autour de chaque ligne. Observez ce qui se passe en version~A quand vous
 survolez et cliquez. Expliquez le comportement à partir de \texttt{GetId} et de
 \texttt{ItemHoverable}.
-\end{nkexo}
+\end{nkdemo}
 
-\begin{nkexo}[3 — Comprendre le z-ordre]
+\begin{nklogique}[3 — Comprendre le z-ordre]
 Dessinez deux boutons qui se chevauchent partiellement, le second déclaré après
 le premier. Cliquez dans la zone de recouvrement : lequel réagit ? Inversez
 l'ordre de déclaration et recommencez. Ajoutez ensuite un \texttt{logger.Info}
 qui affiche \texttt{ctx.hotId} et \texttt{ctx.hotIdPrev} à chaque image, et
 observez le décalage d'une image en déplaçant lentement la souris d'un bouton à
 l'autre.
-\end{nkexo}
+\end{nklogique}
 
-\begin{nkexo}[4 — Une modale correcte]
+\begin{nkpratique}[4 — Une modale correcte]
 Écrivez une boîte de dialogue modale maison : un rectangle centré dessiné dans
 \texttt{ctx.dlOverlay} (via \texttt{PushOverlay}/\texttt{PopOverlay}), avec un
 fond assombri sur toute la fenêtre et deux boutons « Valider » et « Annuler ».
@@ -1691,4 +1700,15 @@ Appliquez les gestes de la section 3.6 : \texttt{PushOcclusion(box, 100)},
 \texttt{NkInputLayerScope}, et la fermeture au clic en dehors — en n'oubliant
 pas d'exiger \texttt{PointReachable} pour ce test négatif. Vérifiez qu'un clic
 sur la modale n'atteint pas les widgets qui sont dessous.
-\end{nkexo}
+\end{nkpratique}
+
+\begin{nkquestions}
+\begin{enumerate}
+\item Que veut dire « mode immédiat », et où vit l'état d'un widget ?
+\item D'où vient l'identité d'un widget ? Que se passe-t-il si deux widgets la
+      partagent ?
+\item Qui décide quel widget reçoit un clic quand deux se recouvrent ?
+\item Pourquoi une modale doit-elle consommer l'entrée qu'elle recouvre ?
+\item Pourquoi NKGui n'ouvre-t-il jamais de fenêtre lui-même ?
+\end{enumerate}
+\end{nkquestions}

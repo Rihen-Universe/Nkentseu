@@ -1,0 +1,14 @@
+# La version de Jenga que NKCode EXIGE.
+#
+# SOURCE UNIQUE. Trois consommateurs la lisent :
+#   - .github/workflows/build-remote.yml  (tag a extraire pour construire)
+#   - Applications/NKCode/NKCode.jenga    (verifie le wheel embarque)
+#   - vous, quand vous vous demandez sur quoi NKCode est construit
+#
+# Pour passer a une nouvelle version de Jenga : changer CE numero, et
+# reconstruire le wheel (./cri.sh dans le depot Jenga). Le CI suit tout
+# seul, et NKCode refuse de se construire si le wheel ne suit pas.
+#
+# Le tag correspondant doit exister sur Rihen-Universe/Jenga, prefixe
+# d'un « v » : 2.8.0 ici, v2.8.0 la-bas.
+2.8.0

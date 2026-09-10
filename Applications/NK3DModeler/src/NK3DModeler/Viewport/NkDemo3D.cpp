@@ -15,6 +15,7 @@
 //                            -> RenderGraph -> Flush.
 // =============================================================================
 #include "NkDemoCommon.h"
+#include <chrono>
 #include "NKRHI/Commands/NkICommandBuffer.h" // portage : le graphe s'execute dans le cmd de l'editeur
 #include "NKRenderer/Core/NkRenderGraph.h"
 #include "NKRenderer/Materials/NkMaterialCollection.h" // Upload() du BeginFrame rejoue
@@ -23,6 +24,7 @@
 // propre fichier -- ce fichier-ci en compte deja pres de dix-sept mille.
 #include "NK3DModeler/Viewport/NkMatPreview3D.h"
 #include "NK3DModeler/Viewport/NkVpMatTypeDefaults.h"
+#include "NK3DModeler/Viewport/NkVpEditTarget.h"
 #include "NKWindow/Core/NkWESystem.h" // NkEvents()
 #include "NKEvent/NkEventSystem.h"
 #include "NKEvent/NkKeyboardEvent.h"
@@ -178,7 +180,9 @@ namespace nkentseu {
 		static float32 nkvpEmptyScl[70][3] = {{1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}};
 		// OBJETS UTILISATEUR : nature du slot (0 libre, 1 sphere, 2 cube,
 		// 3 plan, 4 empty).
-		static constexpr int32 kNkvpFirstUser = 96;
+		// kNkvpFirstUser / kNkvpMaxUser / kNkvpEmptyBase vivent desormais dans
+		// NkVpEditTarget.h : la regle qui les utilise doit etre exercable sans
+		// device, donc elle ne peut pas dependre de constantes definies ici.
 		// ── EDITION PROPORTIONNELLE (Blender : « proportional editing ») ────
 		// Deplacer un sommet ENTRAINE ses voisins, d'autant moins qu'ils sont
 		// loin. Le RAYON dit jusqu'ou porte l'influence ; l'ATTENUATION dit
@@ -268,7 +272,7 @@ namespace nkentseu {
 		static bool nkvpShearOpt = false;		   // l'option, pour toute la scene
 		static NkVec3f nkvpEmptySclAx[70][3] = {}; // repere monde de l'echelle
 		static bool nkvpEmptyShear[70] = {};	   // ce noeud en porte-t-il un ?
-		static constexpr int32 kNkvpMaxUser = 64;
+		// kNkvpMaxUser : cf. NkVpEditTarget.h
 		static uint8 nkvpUserKind[kNkvpMaxUser] = {};
 		// Sous-type du noeud utilisateur (style d'empty, variante de courbe/
 		// surface/metaball, primitive demandee) -- porte par le menu Ajouter.
@@ -280,6 +284,14 @@ namespace nkentseu {
 		static int32 nkvpUserRing[kNkvpMaxUser];
 		static float32 nkvpUserAux[kNkvpMaxUser]; // ex. rayon interne du tore
 		static float32 nkvpUserCam[kNkvpMaxUser][3]; // camera : fov, clip debut/fin
+		// TOPOLOGIE n-gon d'un slot utilisateur, conservee entre deux entrees en
+		// edition. ⚠ MEME RAISON QUE `objHE` POUR LA DEMO : re-deriver depuis les
+		// triangles avec quadify perd toute face n-gon non reconstituable, et fait
+		// reapparaitre les diagonales de triangulation en fil de fer. Sans ces deux
+		// tableaux, un objet de l'utilisateur perdrait sa topologie a chaque
+		// aller-retour en edition, alors qu'un objet de demo la garde.
+		static renderer::NkEditMesh sUserHE[kNkvpMaxUser];
+		static bool sUserHasHE[kNkvpMaxUser] = {};
 		// SUPPRESSION par drapeau (heritee par la visibilite effective).
 		static bool nkvpDeleted[kNkvpMaxNodes] = {};
 		// PRESSE-PAPIERS de noeud (copier/coller).
@@ -1419,7 +1431,14 @@ namespace nkentseu {
 				// du draw call pour produire l'AABB MONDE attendue par NkRender3D::Submit.
 				NkVec3f editLocalMin = {-1.f, -1.f, -1.f};
 				NkVec3f editLocalMax = {1.f, 1.f, 1.f};
-				int32 editObjIdx = -1;						 // objet en cours d'édition (index gizmo)
+				int32 editObjIdx = -1;						 // objet de DEMO en cours d'édition (index gizmo)
+				// ⚠ UN SECOND INDEX, ET NON UN INDEX ELARGI. Les deux espaces sont
+				// disjoints et indexent des tableaux differents (`objMesh[kNumObj]`
+				// contre `nkvpUserMesh[kNkvpMaxUser]`). Les melanger dans un seul
+				// entier obligerait chacun des 26 sites qui lisent `editObjIdx` a
+				// redecider de quel cote il est — et le premier qui oublierait
+				// ecrirait dans le mauvais tableau, sans erreur.
+				int32 editUserIdx = -1;						 // slot UTILISATEUR en cours d'édition
 				NkVec3f editObjTint = {0.75f, 0.78f, 0.85f}; // matériau capturé de l'objet
 				float32 editObjMetallic = 0.f;
 				float32 editObjRoughness = 0.7f;
@@ -1439,6 +1458,16 @@ namespace nkentseu {
 				int32 editActiveFace = -1; // identifiant de face n-gon (demi-arêtes)
 				bool editXray = false;			  // Alt+Z : voir/sélectionner à travers (façon Blender)
 				bool editMode = false;			  // TAB : bascule objet <-> édition
+				// LE MODE DE L'INTERFACE, valeur de `NkMode` (0 Objet, 1 Edition,
+				// 2 Sculpture 2.5D, 3 Sculpture, 4 Texturing, 5 Patron, 6 Texture
+				// painting). `editMode` ci-dessus en DERIVE : il vaut vrai quand
+				// `uiMode` est Edition, et les 52 lectures existantes ne changent pas.
+				// ⚠️ AVANT, LE SHELL ENVOYAIT `st.mode != Objet` -- UN BOOLEEN. Sept
+				// modes se repliaient en deux etats, et la distinction Sculpture /
+				// Sculpture 2.5D (qui n'ont PAS les memes exigences de topologie)
+				// etait perdue AVANT d'arriver ici. Ranger le mode ne coute rien et
+				// cesse de detruire l'information a la frontiere.
+				int32 uiMode = 0;
 				bool editTogglePending = false;	  // TAB traité côté frame (accès meshSys)
 				bool editWasDragging = false;	  // pour baker le delta en fin de drag
 				bool editOverlayDirty = true;	  // reconstruire les buffers overlay (cage/points/faces)
@@ -1522,6 +1551,7 @@ namespace nkentseu {
 				int32 modalOp = 0;
 				int32 modalStartPending = 0;      // demande de lancement (callback clavier -> frame)
 				bool modalCancelPending = false;  // Echap / clic droit
+				bool modalConfirmPending = false; // Entree / Espace (CONFIRM du keymap Blender)
 				renderer::NkEditMesh modalSnap;   // etat AVANT l'operation (source de tout apercu)
 				NkVector<uint8> modalSelSnap;     // selection AVANT l'operation
 				float32 modalVal = 0.f;           // parametre CONTINU pilote a la SOURIS
@@ -1532,6 +1562,69 @@ namespace nkentseu {
 				bool modalDirty = true;           // les parametres ont change -> re-appliquer
 				int32 modalLoopA = -1, modalLoopB = -1; // LOOP CUT : arete survolee (apercu de l'anneau)
 				NkVector<uint32> modalSnapEdges; // aretes UNIQUES du snapshot (survol du loop cut)
+				// ── INSTANTANE ENFICHABLE (2026-08-28) ──────────────────────────────
+				// ⚠ IL N'Y A QU'UN SEUL CADRE MODAL, et il ne se duplique pas. Seul CE
+				// QUI EST PHOTOGRAPHIE change. Deux cadres divergeraient au premier
+				// changement -- meme famille que le second soudeur spatial ou le second
+				// verrouillage d'axe.
+				//   kPhotoMaillage : le maillage d'edition (topologie) -> ops 1..8
+				//   kPhotoGizmo    : les trois tableaux de transformation du gizmo ACTIF
+				//                    -> ops 9..11 (deplacer / tourner / redimensionner),
+				//                    en mode OBJET **comme** en mode EDITION.
+				// Les deux modes rangent leur transformation dans un NkGizmo3D (cible 0
+				// pour l'edition, N cibles pour l'objet) : UN seul instantane couvre donc
+				// les deux, et G/R/S n'a pas deux implantations.
+				enum { kPhotoMaillage = 0, kPhotoGizmo = 1 };
+				int32 modalPhoto = kPhotoMaillage;
+				// 88 octets par cible (12 + 64 + 12), BORNE, et surtout O(1) EN TAILLE DE
+				// MAILLAGE la ou `modalSnap` est une copie complete qui croit avec le
+				// modele. Mesure : 22 Ko au maximum pour 256 cibles.
+				NkVec3f modalGzTr[renderer::NkGizmo3D::kMax];
+				NkMat4f modalGzRot[renderer::NkGizmo3D::kMax];
+				NkVec3f modalGzScale[renderer::NkGizmo3D::kMax];
+				// Journalise l'etat INTERMEDIAIRE de la modale (NK_MODAL_OBS=1). Ma propre
+				// mesure de Spin l'a rendu obligatoire : un compteur seul ne distingue pas
+				// « rien ne s'est passe » d'« un apercu attend ». Une modale de
+				// TRANSFORMATION a exactement cette forme -- elle bouge sans etre validee.
+				bool modalObs = false;
+				// CONTRAINTE D'AXE du geste modal : -1 = libre, 0/1/2 = X/Y/Z. La touche
+				// qui la pose viendra apres ; le champ existe des maintenant parce que
+				// c'est lui qui donne son sens a la valeur (un deplacement « de 2 » n'a
+				// pas de sens sans direction). Defaut Y : l'axe vertical est celui qu'on
+				// attend quand on tire sans rien preciser.
+				// ⚠ LE VERROU DU DRAG RESTE L'AUTORITE pour le glissement de poignee
+				// (NkGizmoInput::lockAxis) -- on ne le reecrit pas, on adopte sa
+				// convention 0=X 1=Y 2=Z pour que les deux ne puissent pas diverger.
+				int32 modalAxis = -1;
+				// AXE LOCAL a la SECONDE pression de la meme touche (X puis X). ⚠ Ceci
+				// n'est PAS dans blender_default.py : le keymap n'envoie qu'AXIS_X, et
+				// c'est le code de transformation qui fait tourner global -> local ->
+				// aucun. Verifie par ABSENCE AVEC CONTROLE POSITIF : la « Transform Modal
+				// Map » existe bien dans le fichier (l. 6193) et y declare AXIS_X et
+				// PRECISION -- le vide sur « local » est donc un vrai vide, pas un corpus
+				// tronque ni un mauvais mot-cle.
+				bool modalAxisLocal = false;
+				// CONTRAINTE DE PLAN (Maj+X/Y/Z) : on EXCLUT l'axe au lieu de s'y
+				// restreindre. Keymap : PLANE_X/Y/Z sur shift+X/Y/Z.
+				bool modalPlane = false;
+				// SAISIE NUMERIQUE. Pas davantage dans le keymap (meme controle positif) :
+				// Blender lit les chiffres dans son code de transformation. Tant qu'elle
+				// est active, LA SOURIS NE PILOTE PLUS -- sinon le nombre tape serait
+				// ecrase au premier tremblement du curseur.
+				bool modalNumActive = false;
+				// NK_MODAL_PRECIS=1 : force le modificateur de precision. Maj se TIENT,
+				// et rien n'injecte une touche TENUE en headless -- sans ce drapeau, la
+				// precision ne serait verifiable qu'a la main.
+				bool modalPrecisForce = false;
+				char modalNumBuf[24] = {0};
+				int32 modalNumLen = 0;
+				// LE MODE DANS LEQUEL LA MODALE A ETE LANCEE. Une modale appartient a son
+				// mode : si le mode change pendant qu'elle tourne, elle n'a plus de sens
+				// (son instantane photographie un gizmo qui n'est plus celui qu'on edite).
+				bool modalEditAuLancement = false;
+				// SELECTEUR D'OUTIL demande (Espace / Maj+Espace). Pose ici par le viseur,
+				// consomme par le shell : c'est lui qui possede le composant de menu.
+				bool toolPickerPending = false;
 				// TO SPHERE : centre (espace MAILLAGE) fige au lancement = pivot courant.
 				NkVec3f modalCenterLocal = {0.f, 0.f, 0.f};
 				int32 modalFrames = 0;           // frames ecoulees depuis le lancement
@@ -1869,7 +1962,12 @@ namespace nkentseu {
 		// entre/sort d'edition) ; sinon on ne reecrit que les tranches des objets qui ont
 		// REELLEMENT bouge (ici le seul cube central anime).
 		static void Demo3D_SyncWireBatch(Demo3DState *st, renderer::NkRender3D *r3d, renderer::NkMeshSystem *ms) {
+			// ⚠ `editUserIdx` ENTRE DANS L'EMPREINTE. Sans lui, entrer en edition sur
+			// un objet de l'utilisateur ne changerait pas la signature du lot : le fil
+			// de fer garderait l'objet qu'on vient de retirer, et on verrait sa cage
+			// ET son ancien contour.
 			int32 stamp = (st->editMode ? st->editObjIdx : -1) * 131 + 17;
+			stamp += (st->editMode ? st->editUserIdx : -1) * 1181;
 			for (int32 i = 0; i < Demo3DState::kNumObj; i++)
 				if (st->objMesh[i].IsValid())
 					stamp += (i + 1) * 7;
@@ -1921,6 +2019,8 @@ namespace nkentseu {
 					const uint8 uk = nkvpUserKind[u];
 					if (uk < 1 || uk > 3)
 						continue;
+					if (st->editMode && st->editUserIdx == u)
+						continue; // sa cage n-gon est deja dessinee par l'overlay
 					const int32 un = kNkvpFirstUser + u;
 					if (HostHiddenEff(un))
 						continue;
@@ -2481,6 +2581,9 @@ namespace nkentseu {
 		// MESURE (temporaire) : ce que le dernier pick a eu le droit de tenir
 		// compte -- occupes, ecartes parce que MODEL, caches/verrouilles, mesh.
 		static int32 nkvpPickDbg[4] = {0, 0, 0, 0};
+		// NK_PICK_TRACE=1 : imprime, pour chaque maillage candidat, ou le moteur
+		// PROJETTE son origine, face au pixel clique. Diagnostic de repere.
+		static const bool nkvpPickTrace = getenv("NK_PICK_TRACE") != nullptr;
 		static int32 Demo3D_PickEmptyAt(Demo3DState *st, DemoCtx &ctx, NkVec3f camPos,
 										NkVec3f camTgt, float32 mx, float32 my,
 										float32 *worldOut3) {
@@ -2552,7 +2655,21 @@ namespace nkentseu {
 						W = W * NkMat4f::Scale({nkvpDimFactor[un2][0], nkvpDimFactor[un2][1],
 												nkvpDimFactor[un2][2]});
 					float32 tHit = bestMeshT;
-					if (Demo3D_RayMeshT(msPick, pm, W, camPos, rdW, tHit)) {
+					const bool touche = Demo3D_RayMeshT(msPick, pm, W, camPos, rdW, tHit);
+					// TRACE DU TRANSFORM : « le rayon manque la cible » et « le rayon
+					// est calcule dans le mauvais repere » donnent tous deux
+					// touche=-1. On imprime donc OU LE MOTEUR PROJETTE l'origine du
+					// noeud : si ce point tombe la ou l'objet est DESSINE, le repere
+					// est bon et c'est le test rayon-triangle qui est en cause ;
+					// s'il tombe ailleurs, c'est le repere.
+					if (nkvpPickTrace) {
+						float32 px = 0.f, py = 0.f;
+						const bool devant = uproj(W * NkVec3f{0.f, 0.f, 0.f}, px, py);
+						logger.Info("[Demo3D] TRACE pick maillage : noeud={0} projete=({1}, {2}) devant={3} clic=({4}, {5}) vue={6}x{7} touche={8}\n",
+									kNkvpFirstUser + u2, px, py, devant ? 1 : 0, mx, my,
+									uproj.vw, uproj.vh, touche ? 1 : 0);
+					}
+					if (touche) {
 						bestMeshT = tHit;
 						bestMeshU = e2;
 					}
@@ -3515,6 +3632,50 @@ namespace nkentseu {
 		// ══════════════════════════════════════════════════════════════════════════════
 		// CADRE MODAL GENERIQUE (façon Blender) — un seul mecanisme pour toutes les ops
 		// ══════════════════════════════════════════════════════════════════════════════
+		// ── POSER LA CONTRAINTE D'AXE ───────────────────────────────────────────
+		// UNE seule implantation, appelee par la touche ET par le levier headless :
+		// un levier qui reimplemente la regle prouverait le levier, pas la regle.
+		//   sh = false : X puis X -> global, LOCAL, puis plus de contrainte
+		//   sh = true  : PLANE_* -- on exclut l'axe au lieu de s'y tenir
+		static void Demo3D_ModalPoseAxe(Demo3DState *st, int32 ax, bool sh) {
+			if (sh) {
+				st->modalPlane = true;
+				st->modalAxisLocal = false;
+				st->modalAxis = ax;
+			} else if (st->modalAxis == ax && !st->modalPlane) {
+				if (!st->modalAxisLocal)
+					st->modalAxisLocal = true;
+				else {
+					st->modalAxis = -1;
+					st->modalAxisLocal = false;
+				}
+			} else {
+				st->modalAxis = ax;
+				st->modalAxisLocal = false;
+				st->modalPlane = false;
+			}
+			st->modalDirty = true;
+			logger.Info("[Demo3D] MODAL contrainte : axe={0} repere={1}{2}\n",
+						st->modalAxis < 0 ? "aucun"
+										  : (st->modalAxis == 0 ? "X" : (st->modalAxis == 1 ? "Y" : "Z")),
+						st->modalAxisLocal ? "LOCAL" : "global", st->modalPlane ? " (PLAN)" : "");
+		}
+
+		// Etat de la contrainte, en UNE chaine, pour le bandeau [MODAL] : axe,
+		// repere, plan, saisie en cours. C'est le seul endroit ou l'utilisateur voit
+		// ce que la modale a COMPRIS de ses touches. Tampon statique : il n'y a
+		// qu'une operation modale a la fois, par construction.
+		static const char *Demo3D_ModalEtatTxt(const Demo3DState *st) {
+			static char b[96];
+			const char *axe = st->modalAxis < 0
+								  ? "libre"
+								  : (st->modalAxis == 0 ? "X" : (st->modalAxis == 1 ? "Y" : "Z"));
+			snprintf(b, sizeof(b), "  [%s%s%s]%s", st->modalPlane ? "plan " : "", axe,
+					 st->modalAxisLocal ? " LOCAL" : "",
+					 st->modalNumActive ? "  saisie" : "");
+			return b;
+		}
+
 		static const char *Demo3D_ModalName(int32 op) {
 			switch (op) {
 				case 1:
@@ -3533,6 +3694,12 @@ namespace nkentseu {
 					return "TO SPHERE";
 				case 8:
 					return "SHRINK/FATTEN";
+				case 9:
+					return "DEPLACER";
+				case 10:
+					return "TOURNER";
+				case 11:
+					return "REDIMENSIONNER";
 			}
 			return "-";
 		}
@@ -3544,6 +3711,11 @@ namespace nkentseu {
 				return st->modalVal > 1e-4f;
 			if (st->modalOp == 8)
 				return fabsf(st->modalVal) > 1e-6f; // deplacement SIGNE (gonfler / retrecir)
+			// TRANSFORMATIONS (9/10/11) : valeur SIGNEE, zero = aucun effet. Elles ne
+			// passent pas par une commande de maillage -- leur « effet » est deja
+			// dans le gizmo -- mais la question reste posee pour le journal.
+			if (st->modalOp >= 9 && st->modalOp <= 11)
+				return fabsf(st->modalVal) > 1e-6f;
 			return st->modalOp != 0;
 		}
 		
@@ -3611,9 +3783,139 @@ namespace nkentseu {
 		// Restaure le snapshot + la selection de depart. LOOP CUT : la selection est
 		// remplacee par l'ARETE SURVOLEE -> l'anneau previsualise suit la souris, comme
 		// le trait jaune de Blender avant confirmation.
-		static void Demo3D_ModalRestore(Demo3DState *st) {
+		// ── LE GIZMO QUI PORTE LA TRANSFORMATION DU MODE COURANT ──────────────
+		// UN SEUL endroit decide lequel : en edition c'est `editGizmo` (cible 0,
+		// consommee par ApplyAbout), en objet c'est `gizmo` (N cibles). Repondre
+		// a cette question a deux endroits, c'est se garantir qu'ils divergeront.
+		static renderer::NkGizmo3D &Demo3D_ModalGizmoActif(Demo3DState *st) {
+			if (st->editMode)
+				return st->editGizmo;
+			// ⚠ EN MODE OBJET, TROIS GIZMOS COEXISTENT : `gizmo` (objets de la
+			// demo), `lightGizmo` (lumieres) et `emptyGizmo` (noeuds utilisateur,
+			// index = noeud - 90). Le geste doit porter sur CELUI QUI A LA
+			// SELECTION -- mesure a l'appui : une premiere version rendait
+			// toujours `gizmo`, et la modale s'executait parfaitement en
+			// journalisant translation=(0,0,0), parce qu'elle transformait un
+			// gizmo dont rien n'etait selectionne. Elle avait l'air de marcher.
+			if (st->emptyGizmo.HasSelection())
+				return st->emptyGizmo;
+			if (st->lightSel >= 0 && st->lightSel < Demo3DState::kNumLights)
+				return st->lightGizmo;
+			return st->gizmo;
+		}
+
+		// PRENDRE la photo. Enfichable : le CADRE appelle ceci sans savoir ce qui
+		// est photographie.
+		static void Demo3D_ModalPhotoPrendre(Demo3DState *st) {
+			if (st->modalPhoto == Demo3DState::kPhotoGizmo) {
+				const renderer::NkGizmo3D &G = Demo3D_ModalGizmoActif(st);
+				for (int32 i = 0; i < renderer::NkGizmo3D::kMax; ++i) {
+					st->modalGzTr[i] = G.TranslateOf(i);
+					st->modalGzRot[i] = G.RotationOf(i);
+					st->modalGzScale[i] = G.ScaleOf(i);
+				}
+				return;
+			}
+			st->modalSnap = st->editHE;
+			st->modalSelSnap = st->vertSel;
+			st->modalSnap.GetUniqueEdges(st->modalSnapEdges);
+		}
+
+		// RENDRE la photo, a l'identique. ⚠ On REPOSE les valeurs photographiees ;
+		// on n'applique JAMAIS un delta inverse. Un delta inverse laisse une derive
+		// d'epsilon que l'oeil ne voit pas et qui fausse tout ce qui suit ; reposer
+		// l'instantane rend les memes bits, par construction.
+		static void Demo3D_ModalPhotoRendre(Demo3DState *st) {
+			if (st->modalPhoto == Demo3DState::kPhotoGizmo) {
+				renderer::NkGizmo3D &G = Demo3D_ModalGizmoActif(st);
+				for (int32 i = 0; i < renderer::NkGizmo3D::kMax; ++i) {
+					G.SetTranslateOf(i, st->modalGzTr[i]);
+					G.SetRotationOf(i, st->modalGzRot[i]);
+					G.SetScaleOf(i, st->modalGzScale[i]);
+				}
+				return;
+			}
 			st->editHE = st->modalSnap;
 			st->vertSel = st->modalSelSnap;
+		}
+
+		// La transformation VAUT-ELLE quelque chose ? Compare bit a bit ce que
+		// porte le gizmo avec la photo. Sert a la PREUVE d'annulation exacte.
+		static bool Demo3D_ModalGizmoIdentiqueAPhoto(Demo3DState *st) {
+			const renderer::NkGizmo3D &G = Demo3D_ModalGizmoActif(st);
+			for (int32 i = 0; i < renderer::NkGizmo3D::kMax; ++i) {
+				const NkVec3f t = G.TranslateOf(i), sc = G.ScaleOf(i);
+				if (t.x != st->modalGzTr[i].x || t.y != st->modalGzTr[i].y || t.z != st->modalGzTr[i].z)
+					return false;
+				if (sc.x != st->modalGzScale[i].x || sc.y != st->modalGzScale[i].y ||
+					sc.z != st->modalGzScale[i].z)
+					return false;
+				const NkMat4f r = G.RotationOf(i);
+				for (int32 k = 0; k < 16; ++k)
+					if (((const float32 *)&r)[k] != ((const float32 *)&st->modalGzRot[i])[k])
+						return false;
+			}
+			return true;
+		}
+
+		// APPLIQUER la transformation modale (ops 9/10/11) DEPUIS LA PHOTO.
+		// Jamais cumulatif : on repose l'instantane, puis on pose la valeur
+		// courante -- exactement le principe des ops de maillage.
+		static void Demo3D_ModalGizmoAppliquer(Demo3DState *st) {
+			Demo3D_ModalPhotoRendre(st);
+			renderer::NkGizmo3D &G = Demo3D_ModalGizmoActif(st);
+			const float32 v = st->modalVal;
+			// L'AXE : -1 = libre (repere de la vue), 0/1/2 = X/Y/Z. Le verrou
+			// d'axe du DRAG (NkGizmoInput::lockAxis) reste l'autorite pour le
+			// glissement ; ici on pose la meme convention pour le geste modal.
+			const int32 ax = (st->modalAxis >= 0 && st->modalAxis < 3) ? st->modalAxis : 1;
+			NkVec3f dir{0.f, 0.f, 0.f};
+			(&dir.x)[ax] = 1.f;
+			// ── AXE LOCAL : direction prise dans la rotation PHOTOGRAPHIEE ──────
+			// Le repere local est celui d'AVANT l'operation ; le lire sur l'etat
+			// courant le ferait deriver a chaque apercu -- exactement la raison pour
+			// laquelle le centre du To Sphere est fige au lancement.
+			if (st->modalAxisLocal) {
+				const float32 *m = (const float32 *)&st->modalGzRot[0];
+				const NkVec3f col{m[ax * 4 + 0], m[ax * 4 + 1], m[ax * 4 + 2]};
+				const float32 l = col.Len();
+				if (l > 1e-6f)
+					dir = col * (1.f / l);
+			}
+			// ── PLAN : on EXCLUT l'axe au lieu de s'y restreindre ───────────────
+			// Maj+X veut dire « dans le plan perpendiculaire a X » : le geste porte
+			// donc sur les DEUX autres axes.
+			if (st->modalPlane) {
+				NkVec3f pl{1.f, 1.f, 1.f};
+				(&pl.x)[ax] = 0.f;
+				const float32 l = pl.Len();
+				dir = (l > 1e-6f) ? pl * (1.f / l) : pl;
+			}
+			NkVec3f tr{0.f, 0.f, 0.f}, scl{0.f, 0.f, 0.f};
+			NkMat4f rot = NkMat4f::Identity();
+			if (st->modalOp == 9) {
+				tr = dir * v;
+			} else if (st->modalOp == 10) {
+				rot = NkMat4f::Rotation(dir, NkAngle::FromRad(v * 0.01745329252f));
+			} else if (st->modalOp == 11) {
+				// mScale est un DELTA (Scale applique 1+s) : 0 = inchange.
+				scl = (st->modalAxis >= 0) ? dir * v : NkVec3f{v, v, v};
+			}
+			if (st->editMode) {
+				// EDITION : une seule cible (0), consommee par ApplyAbout autour du
+				// pivot courant. On la pose explicitement plutot que de dependre de
+				// l'etat de selection interne du gizmo.
+				G.SetTranslateOf(0, tr);
+				G.SetRotationOf(0, rot);
+				G.SetScaleOf(0, scl);
+			} else {
+				// OBJET : le meme chemin interne que le drag (mTr/mRot/mScale).
+				G.SetSelectedTransform(tr, rot, scl);
+			}
+		}
+
+		static void Demo3D_ModalRestore(Demo3DState *st) {
+			Demo3D_ModalPhotoRendre(st);
 			if (st->modalOp == 4 && st->modalLoopA >= 0 && st->modalLoopB >= 0) {
 				for (uint32 i = 0; i < (uint32)st->vertSel.Size(); i++)
 					st->vertSel[i] = 0;
@@ -3644,6 +3946,32 @@ namespace nkentseu {
 		// courants, SANS toucher a l'historique ni au journal (rien n'est encore
 		// confirme). Appele UNIQUEMENT quand un parametre a REELLEMENT change.
 		static void Demo3D_ModalPreview(Demo3DState *st, renderer::NkMeshSystem *ms) {
+			// PHOTO GIZMO : l'apercu est la transformation elle-meme. Rien a
+			// reconstruire -- le maillage n'est pas touche, c'est la matrice qui
+			// change. C'est aussi pourquoi cet apercu est gratuit la ou celui des
+			// ops topologiques coute une reconstruction.
+			if (st->modalPhoto == Demo3DState::kPhotoGizmo) {
+				Demo3D_ModalGizmoAppliquer(st);
+				// ETAT INTERMEDIAIRE OBSERVABLE (NK_MODAL_OBS=1). Ma mesure de Spin a
+				// montre qu'un compteur seul ne distingue pas « rien ne s'est passe »
+				// d'« un apercu attend » ; une modale de TRANSFORMATION a exactement
+				// cette forme -- elle bouge SANS etre validee, et aucun compteur de
+				// maillage ne bougera jamais pour le dire.
+				if (st->modalObs) {
+					const renderer::NkGizmo3D &G = Demo3D_ModalGizmoActif(st);
+					const int32 ci = st->editMode ? 0 : (G.ActiveIndex() >= 0 ? G.ActiveIndex() : 0);
+					const NkVec3f t = G.TranslateOf(ci);
+					const NkVec3f sc = G.ScaleOf(ci);
+					logger.Info("[Demo3D] MODAL-OBS {0} EN COURS (non confirme) : contrainte={1} valeur={2} "
+								"-> translation=({3}, {4}, {5}) echelle=({6}, {7}, {8})\n",
+								Demo3D_ModalName(st->modalOp), Demo3D_ModalEtatTxt(st),
+								st->modalVal, t.x, t.y, t.z, sc.x, sc.y, sc.z);
+				}
+				st->modalHasApplied = true;
+				st->modalAppliedVal = st->modalVal;
+				st->modalAppliedSeg = st->modalSeg;
+				return;
+			}
 			NkChrono pvChrono;
 			const bool posOnly = Demo3D_ModalPosOnlyOk(st);
 			Demo3D_ModalRestore(st);
@@ -3703,6 +4031,23 @@ namespace nkentseu {
 			const float32 val = st->modalVal;
 			const int32 seg = st->modalSeg;
 			const bool eff = Demo3D_ModalHasEffect(st);
+			// PHOTO GIZMO : la transformation est DEJA posee par l'apercu. Confirmer,
+			// c'est simplement cesser de pouvoir l'annuler -- il n'y a ni commande de
+			// maillage a rejouer ni instantane a restaurer. Restaurer ici DEFERAIT
+			// justement ce qu'on vient de confirmer.
+			if (st->modalPhoto == Demo3DState::kPhotoGizmo) {
+				const renderer::NkGizmo3D &G = Demo3D_ModalGizmoActif(st);
+				const int32 ci = st->editMode ? 0 : (G.ActiveIndex() >= 0 ? G.ActiveIndex() : 0);
+				const NkVec3f t = G.TranslateOf(ci);
+				st->modalOp = 0;
+				st->modalPhoto = Demo3DState::kPhotoMaillage;
+				st->editOverlayDirty = true;
+				logger.Info("[Demo3D] MODAL {0} CONFIRME (axe={1} valeur={2}) -> translation=({3}, {4}, {5})\n",
+							Demo3D_ModalName(op),
+							st->modalAxis < 0 ? "libre" : (st->modalAxis == 0 ? "X" : (st->modalAxis == 1 ? "Y" : "Z")),
+							val, t.x, t.y, t.z);
+				return;
+			}
 			renderer::NkMeshEditCommand c = Demo3D_ModalCmd(st);
 			Demo3D_ModalRestore(st);
 			st->modalOp = 0;
@@ -3730,6 +4075,21 @@ namespace nkentseu {
 				return;
 			const int32 op = st->modalOp;
 			st->modalLoopA = st->modalLoopB = -1;
+			// PHOTO GIZMO : on REPOSE les trois tableaux photographies -- jamais un
+			// delta inverse. Puis on le PROUVE bit a bit : une derive d'epsilon sur
+			// une transformation est invisible a l'oeil et fausse tout ce qui suit,
+			// donc « ca a l'air identique » ne vaut rien ici.
+			if (st->modalPhoto == Demo3DState::kPhotoGizmo) {
+				st->modalOp = 0;
+				Demo3D_ModalPhotoRendre(st);
+				const bool exact = Demo3D_ModalGizmoIdentiqueAPhoto(st);
+				st->modalPhoto = Demo3DState::kPhotoMaillage;
+				st->editOverlayDirty = true;
+				logger.Info("[Demo3D] MODAL {0} ANNULE -> transformation restauree : comparaison bit a bit "
+							"des 256 cibles (translation + rotation + echelle) = {1}\n",
+							Demo3D_ModalName(op), exact ? "IDENTIQUE" : "DIFFERENT !");
+				return;
+			}
 			st->modalOp = 0;
 			st->editHE = st->modalSnap;
 			st->vertSel = st->modalSelSnap;
@@ -3755,14 +4115,125 @@ namespace nkentseu {
 			}
 		}
 		
+		// ── LE CADRE MODAL, PARTIE GENERIQUE ────────────────────────────────────
+		// Extrait pour etre appele depuis les DEUX modes. ⚠ UN SEUL CADRE MODAL :
+		// c'est la MEME fonction qui tourne en edition et en objet, pas une copie.
+		// Deux cadres divergeraient au premier changement -- meme famille que le
+		// second soudeur spatial ou le second verrouillage d'axe.
+		// Ce qui reste PROPRE a l'edition (le survol de l'anneau du loop cut, qui
+		// interroge la topologie du snapshot) demeure dans la branche edition : il
+		// n'a aucun sens en mode objet.
+		static void Demo3D_ModalParams(Demo3DState *st, float32 mdx, float32 mdy) {
+			st->modalFrames++;
+			float32 injDX = 0.f, injDY = 0.f;
+			if (st->modalInjDrag && st->modalFrames <= st->modalInjFrames) {
+				injDX = st->modalInjDX / (float32)st->modalInjFrames;
+				injDY = st->modalInjDY / (float32)st->modalInjFrames;
+			}
+			st->modalCurX += mdx + injDX;
+			st->modalCurY += mdy + injDY;
+			int32 wheelNotches = 0;
+			if (st->lastWheel != 0.f) {
+				wheelNotches = (st->lastWheel > 0.f) ? 1 : -1;
+				st->lastWheel = 0.f;
+			}
+			if (st->modalInjWheel != 0 && !st->modalInjWheelDone && st->modalFrames >= 2) {
+				st->modalInjWheelDone = true;
+				wheelNotches += st->modalInjWheel;
+				logger.Info("[Demo3D] NK_MODAL_WHEEL -> {0} cran(s) de molette injectes\n", st->modalInjWheel);
+			}
+			if (wheelNotches != 0) {
+				const int32 lo = (st->modalOp == 5) ? 3 : 1;
+				const int32 hi = (st->modalOp == 5) ? 64 : 16;
+				const int32 before = st->modalSeg;
+				st->modalSeg = NkMax(lo, NkMin(hi, st->modalSeg + wheelNotches));
+				if (st->modalSeg != before)
+					st->modalDirty = true;
+			}
+			// ── SAISIE NUMERIQUE : elle PREND LA MAIN sur la souris ─────────────
+			// Tant qu'un nombre est en cours de frappe, la souris ne pilote plus --
+			// sinon le nombre tape serait ecrase au premier tremblement du curseur.
+			if (st->modalNumActive) {
+				const float32 tape = (float32)atof(st->modalNumBuf);
+				if (fabsf(tape - st->modalVal) > 1e-9f) {
+					st->modalVal = tape;
+					st->modalDirty = true;
+				}
+				return;
+			}
+			if (st->modalScale != 0.f) {
+				// ── PRECISION : Maj TENU ralentit le geste d'un facteur 10 ──────
+				// Keymap Blender : PRECISION sur LEFT_SHIFT/RIGHT_SHIFT en value
+				// 'ANY' -- c'est donc un modificateur TENU, lu en continu, et non
+				// un appui a memoriser. D'ou la lecture ici, a chaque tour.
+				const bool precis = st->modalPrecisForce || NkInput.IsKeyDown(NkKey::NK_LSHIFT) ||
+									NkInput.IsKeyDown(NkKey::NK_RSHIFT);
+				const float32 ech = st->modalScale * (precis ? 0.1f : 1.f);
+				float32 nvv = st->modalBase + (st->modalCurX - st->modalStartX) * ech;
+				if (st->modalOp == 5)
+					nvv = NkMax(1.f, NkMin(360.f, nvv));
+				else if (st->modalOp == 7)
+					nvv = NkMax(0.f, NkMin(2.f, nvv));
+				else if (st->modalOp == 4)
+					nvv = NkMax(-1.f, NkMin(1.f, nvv));
+				else if (st->modalOp != 6 && st->modalOp != 8 && !(st->modalOp >= 9 && st->modalOp <= 11))
+					nvv = NkMax(0.f, nvv);
+				// (extrude, shrink/fatten ET les trois transformations sont SIGNES)
+				if (fabsf(nvv - st->modalVal) > 1e-6f) {
+					st->modalVal = nvv;
+					st->modalDirty = true;
+				}
+			}
+		}
+
+		// FIN DE TOUR : apercu si un parametre a REELLEMENT change, puis confirmation
+		// ou annulation. Rend true si le clic a ete consomme par l'operation.
+		static bool Demo3D_ModalFinish(Demo3DState *st, renderer::NkMeshSystem *ms, bool clickNow) {
+			if (st->modalDirty && st->modalHasApplied && st->modalVal == st->modalAppliedVal &&
+				st->modalSeg == st->modalAppliedSeg && st->modalLoopA == st->modalAppliedLoopA &&
+				st->modalLoopB == st->modalAppliedLoopB)
+				st->modalDirty = false;
+			if (st->modalDirty) {
+				st->modalDirty = false;
+				Demo3D_ModalPreview(st, ms);
+			}
+			const int32 injEnd = st->modalInjDrag ? (st->modalInjFrames + 2) : 3;
+			const bool autoConfirm = (st->modalEnvConfirm && st->modalFrames > injEnd);
+			if (st->modalInjCancel && st->modalFrames > injEnd) {
+				st->modalInjCancel = false;
+				st->modalCancelPending = true;
+				logger.Info("[Demo3D] NK_MODAL_CANCEL -> Echap synthetique envoye a l'op modale\n");
+			}
+			if (st->modalCancelPending) {
+				st->modalCancelPending = false;
+				st->modalConfirmPending = false;
+				Demo3D_ModalCancel(st, ms);
+			} else if (clickNow || autoConfirm || st->modalConfirmPending) {
+				st->modalConfirmPending = false;
+				Demo3D_ModalConfirm(st, ms);
+			}
+			return true;
+		}
+
 		// LANCEMENT : capture le snapshot, initialise les parametres et l'ancre souris.
 		static void Demo3D_ModalStart(Demo3DState *st, int32 op, renderer::NkMeshSystem *ms) {
 			if (st->modalOp != 0)
 				Demo3D_ModalCancel(st, ms); // une seule operation modale a la fois
 			st->modalOp = op;
-			st->modalSnap = st->editHE;
-			st->modalSelSnap = st->vertSel;
-			st->modalSnap.GetUniqueEdges(st->modalSnapEdges);
+			// CE QUI SERA PHOTOGRAPHIE : les transformations (9/10/11) photographient
+			// le GIZMO, tout le reste photographie le MAILLAGE. Un seul cadre, deux
+			// instantanes -- c'est la seule difference entre les deux familles.
+			st->modalPhoto = (op >= 9 && op <= 11) ? Demo3DState::kPhotoGizmo
+												   : Demo3DState::kPhotoMaillage;
+			st->modalAxis = -1;
+			st->modalAxisLocal = false;
+			st->modalPlane = false;
+			st->modalNumActive = false;
+			st->modalNumLen = 0;
+			st->modalNumBuf[0] = 0;
+			st->modalConfirmPending = false;
+			st->modalEditAuLancement = st->editMode;
+			Demo3D_ModalPhotoPrendre(st);
 			st->modalFrames = 0;
 			st->modalLoopA = st->modalLoopB = -1;
 			st->modalSnapVerts = st->modalSnap.VertCount();
@@ -3831,6 +4302,55 @@ namespace nkentseu {
 					st->modalSeg = 1;
 					st->modalScale = diag / 400.f;
 					break;
+				// ── TRANSFORMATIONS (G / R / S), les DEUX modes ─────────────────
+				case 9:  // DEPLACER : la souris tire une distance, en unites du monde
+					st->modalVal = 0.f;
+					st->modalSeg = 1;
+					st->modalScale = diag / 400.f;
+					break;
+				case 10: // TOURNER : 1 degre par pixel, comme le spin
+					st->modalVal = 0.f;
+					st->modalSeg = 1;
+					st->modalScale = 1.f;
+					break;
+				case 11: // REDIMENSIONNER : delta d'echelle, 300 px = +1 (double)
+					st->modalVal = 0.f;
+					st->modalSeg = 1;
+					st->modalScale = 1.f / 300.f;
+					break;
+			}
+			// NK_MODAL_AXIS="x|y|z|xx|sx|..." : pose la contrainte au lancement, par
+			// la MEME fonction que la touche (Demo3D_ModalPoseAxe). Un levier qui
+			// reimplementerait la regle prouverait le levier, pas la regle.
+			//   "x"  = axe X global · "xx" = X presse deux fois -> LOCAL
+			//   "sx" = Maj+X -> contrainte de PLAN · "c" = retire la contrainte
+			if (const char *maxs = getenv("NK_MODAL_AXIS")) {
+				for (const char *q = maxs; *q; ++q) {
+					const char c0 = (*q >= 'A' && *q <= 'Z') ? (char)(*q - 'A' + 'a') : *q;
+					if (c0 == 's')
+						continue; // prefixe : traite avec la lettre qui suit
+					const bool sh = (q != maxs && (q[-1] == 's' || q[-1] == 'S'));
+					if (c0 == 'x')
+						Demo3D_ModalPoseAxe(st, 0, sh);
+					else if (c0 == 'y')
+						Demo3D_ModalPoseAxe(st, 1, sh);
+					else if (c0 == 'z')
+						Demo3D_ModalPoseAxe(st, 2, sh);
+					else if (c0 == 'c') {
+						st->modalAxis = -1;
+						st->modalAxisLocal = false;
+						st->modalPlane = false;
+					}
+				}
+			}
+			// NK_MODAL_NUM="<nombre>" : saisie numerique, meme chemin que la frappe.
+			if (const char *mnum = getenv("NK_MODAL_NUM")) {
+				int32 n = 0;
+				for (const char *q = mnum; *q && n < (int32)sizeof(st->modalNumBuf) - 1; ++q)
+					st->modalNumBuf[n++] = *q;
+				st->modalNumBuf[n] = 0;
+				st->modalNumLen = n;
+				st->modalNumActive = (n > 0);
 			}
 			if (st->modalEnvHasVal)
 				st->modalVal = st->modalEnvVal; // pilote headless (pas de souris en capture)
@@ -4373,6 +4893,17 @@ namespace nkentseu {
 				// PORTAGE NK3DModeler : la vue n'ecoute que si elle est concernee.
 				if (!nkvpInputOn || !nkvpHover)
 					return;
+				// ⚠ LA SOURIS AUSSI APPARTIENT A LA MODALE -- mais son ANNULATION au
+				// clic droit se traite ICI, AVANT le retrait. Poser le retrait en
+				// premier rendait `modalCancelPending` inatteignable et SUPPRIMAIT
+				// l'annulation au clic droit : un garde-fou pose au mauvais endroit
+				// emporte ce qu'il devait proteger. Rien ne l'aurait signale.
+				if (st->modalOp != 0) {
+					if (e->GetButton() == NkMouseButton::NK_MB_RIGHT &&
+						!(NkInput.IsKeyDown(NkKey::NK_LSHIFT) || NkInput.IsKeyDown(NkKey::NK_RSHIFT)))
+						st->modalCancelPending = true;
+					return; // ni pick, ni curseur 3D, ni outil : l'op possede la souris
+				}
 				// PORTAGE NK3DModeler : l'outil CURSEUR de la barre fait du clic
 				// gauche un placement de curseur 3D (comme l'outil de Blender). Le
 				// Shift+clic droit de la demo reste valable en parallele.
@@ -4403,9 +4934,81 @@ namespace nkentseu {
 			});
 			// F : bascule caméra ÉDITEUR (orbit) <-> SIMULATION (fly). En EDIT MODE, F crée
 			// une face (n-gon) depuis la sélection -> ne pas basculer la caméra.
+			// ══ TRANSFORM MODAL MAP : LE CLAVIER APPARTIENT A LA MODALE ═══════════
+			// Blender a un keymap SEPARE pendant une operation modale (« Transform
+			// Modal Map », blender_default.py:6193) qui REMPLACE le keymap normal.
+			// Sans lui, X ne peut pas contraindre sur l'axe X -- il supprime.
+			// Enregistre EN PREMIER ; tous les autres rappels se retirent tant que
+			// `modalOp != 0`.
+			// Liaisons LUES A LA SOURCE :
+			//   CONFIRM  LEFTMOUSE · RET · NUMPAD_ENTER · ESPACE
+			//   CANCEL   RIGHTMOUSE · ECHAP
+			//   AXIS_X/Y/Z   X · Y · Z      (2e pression de la MEME touche = LOCAL)
+			//   PLANE_X/Y/Z  Maj+X/Y/Z      (exclut l'axe au lieu de s'y tenir)
+			//   CONS_OFF     C              (retire la contrainte)
+			//   PRECISION    Maj TENU       (lu en continu dans Demo3D_ModalParams)
+			// ⚠ ESPACE CONFIRME UNE MODALE chez Blender, et notre selecteur d'outil est
+			// aussi sur Espace : il CEDE tant qu'une modale tourne, sinon la meme touche
+			// ferait deux choses. C'est ce retrait qui l'assure.
+			// ⚠ Et C, qu'on venait de liberer en deplacant le gizmo COMBINE, retrouve
+			// ici son emploi Blender : retirer la contrainte pendant une modale.
+			NkEvents().AddEventCallback<NkKeyPressEvent>([st](NkKeyPressEvent *e) {
+				if (!nkvpInputOn || !nkvpHover)
+					return;
+				if (st->modalOp == 0)
+					return;
+				const NkKey k = e->GetKey();
+				const bool sh = NkInput.IsKeyDown(NkKey::NK_LSHIFT) || NkInput.IsKeyDown(NkKey::NK_RSHIFT);
+				auto poseAxe = [&](int32 ax) { Demo3D_ModalPoseAxe(st, ax, sh); };
+				if (k == NkKey::NK_X) { poseAxe(0); return; }
+				if (k == NkKey::NK_Y) { poseAxe(1); return; }
+				if (k == NkKey::NK_Z) { poseAxe(2); return; }
+				if (k == NkKey::NK_C) {
+					st->modalAxis = -1;
+					st->modalAxisLocal = false;
+					st->modalPlane = false;
+					st->modalDirty = true;
+					logger.Info("[Demo3D] MODAL contrainte RETIREE\n");
+					return;
+				}
+				if (k == NkKey::NK_ESCAPE) { st->modalCancelPending = true; return; }
+				if (k == NkKey::NK_ENTER || k == NkKey::NK_NUMPAD_ENTER || k == NkKey::NK_SPACE) {
+					st->modalConfirmPending = true;
+					return;
+				}
+				// ⚠ L'enumeration va NK_NUM1..NK_NUM9 PUIS NK_NUM0 : le zero est APRES le
+				// neuf. Une soustraction de plage donnerait 10 pour la touche 0.
+				int32 chiffre = -1;
+				if (k >= NkKey::NK_NUM1 && k <= NkKey::NK_NUM9)
+					chiffre = (int32)k - (int32)NkKey::NK_NUM1 + 1;
+				else if (k == NkKey::NK_NUM0)
+					chiffre = 0;
+				if (chiffre >= 0 || k == NkKey::NK_PERIOD || k == NkKey::NK_MINUS) {
+					if (st->modalNumLen < (int32)sizeof(st->modalNumBuf) - 1) {
+						st->modalNumBuf[st->modalNumLen++] =
+							(chiffre >= 0) ? (char)('0' + chiffre) : (k == NkKey::NK_PERIOD ? '.' : '-');
+						st->modalNumBuf[st->modalNumLen] = 0;
+						st->modalNumActive = true;
+						st->modalDirty = true;
+					}
+					return;
+				}
+				if (k == NkKey::NK_BACK && st->modalNumActive) {
+					if (st->modalNumLen > 0)
+						st->modalNumBuf[--st->modalNumLen] = 0;
+					if (st->modalNumLen == 0)
+						st->modalNumActive = false;
+					st->modalDirty = true;
+					return;
+				}
+			});
 			NkEvents().AddEventCallback<NkKeyPressEvent>([st](NkKeyPressEvent *e) {
 				// PORTAGE NK3DModeler : la vue n'ecoute que si elle est concernee.
 				if (!nkvpInputOn || !nkvpHover)
+					return;
+				// LE CLAVIER APPARTIENT A LA MODALE tant qu'elle tourne (keymap
+				// separe, comme la « Transform Modal Map » de Blender).
+				if (st->modalOp != 0)
 					return;
 				if (e->GetKey() == NkKey::NK_F && !st->editMode) {
 					st->useSimCam = !st->useSimCam;
@@ -4419,6 +5022,10 @@ namespace nkentseu {
 			NkEvents().AddEventCallback<NkKeyPressEvent>([st](NkKeyPressEvent *e) {
 				// PORTAGE NK3DModeler : la vue n'ecoute que si elle est concernee.
 				if (!nkvpInputOn || !nkvpHover)
+					return;
+				// LE CLAVIER APPARTIENT A LA MODALE tant qu'elle tourne (keymap
+				// separe, comme la « Transform Modal Map » de Blender).
+				if (st->modalOp != 0)
 					return;
 				auto &c = st->editorCam;
 				const NkVec3f t = c.GetTarget();
@@ -4553,6 +5160,10 @@ namespace nkentseu {
 				// PORTAGE NK3DModeler : la vue n'ecoute que si elle est concernee.
 				if (!nkvpInputOn || !nkvpHover)
 					return;
+				// LE CLAVIER APPARTIENT A LA MODALE tant qu'elle tourne (keymap
+				// separe, comme la « Transform Modal Map » de Blender).
+				if (st->modalOp != 0)
+					return;
 				const NkKey k = e->GetKey();
 				if (k == NkKey::NK_V) {
 					static bool vsync = true;
@@ -4638,6 +5249,10 @@ namespace nkentseu {
 				// PORTAGE NK3DModeler : la vue n'ecoute que si elle est concernee.
 				if (!nkvpInputOn || !nkvpHover)
 					return;
+				// LE CLAVIER APPARTIENT A LA MODALE tant qu'elle tourne (keymap
+				// separe, comme la « Transform Modal Map » de Blender).
+				if (st->modalOp != 0)
+					return;
 				const NkKey k = e->GetKey();
 				const bool alt = NkInput.IsKeyDown(NkKey::NK_LALT) || NkInput.IsKeyDown(NkKey::NK_RALT);
 				const char *mn[4] = {"TRANSLATE", "ROTATE", "SCALE", "COMBINE (T+R+S)"};
@@ -4658,10 +5273,30 @@ namespace nkentseu {
 				}
 				// TAB : bascule OBJET <-> EDIT MODE. Traité côté frame (accès meshSys pour
 				// cloner le mesh de l'objet sélectionné). Façon Blender.
-				if (k == NkKey::NK_TAB) {
-					st->editTogglePending = true;
+				// ⚠️ TAB N'EST PLUS TRAITE ICI, ET C'EST LE CORRECTIF.
+				// Ce rappel armait `editTogglePending` DIRECTEMENT : l'edition
+				// basculait sans que `st.mode` du shell change, donc sans que
+				// l'onglet suive. C'etait un SECOND CHEMIN vers le meme etat --
+				// le motif de doublon qu'on retire dans toute l'application.
+				//
+				// Le shell tient deja TAB (`main.cpp`, rappel de touche global
+				// garde seulement par la saisie de texte et l'ecran d'accueil) :
+				// il pose `st.mode`, qui redescend par `Demo3DHostSetMode`. La
+				// decision de Rodolf -- « TAB bascule depuis n'importe ou » --
+				// est donc DEJA tenue par ce chemin-la, sans second rappel.
+				//
+				// ⚠️ ET C'EST POURQUOI ON NE POUVAIT PAS SE CONTENTER DE FAIRE
+				// DEMANDER LE MODE ICI : le shell aurait pose le mode en debut
+				// d'image, puis son propre `ToggleEdit` l'aurait REPRIS depuis la
+				// nouvelle valeur en fin d'image -- deux bascules, donc AUCUNE.
+				// TAB serait devenu muet, et le correctif aurait ressemble a une
+				// regression sans rapport.
+				//
+				// TAB ne fait qu'Objet <-> Edition. Le menu radial de TOUS les
+				// modes sera `Ctrl+TAB` ; l'affichage garde `Z`. Pas de raccourci
+				// par mode : le sixieme en demanderait un sixieme.
+				if (k == NkKey::NK_TAB)
 					return;
-				}
 				const bool shiftG = NkInput.IsKeyDown(NkKey::NK_LSHIFT) || NkInput.IsKeyDown(NkKey::NK_RSHIFT);
 				// ── OMBRAGE FLAT / SMOOTH (Blender : menu Object > Shade Flat/Smooth, ou
 				//    Mesh > Shading en Edit Mode). Blender n'a PAS de raccourci direct : on
@@ -4828,13 +5463,15 @@ namespace nkentseu {
 						logger.Info("[Demo3D] Outil de selection : annule\n");
 						return;
 					}
-					// Alt+Z : toggle X-RAY (voir/sélectionner à travers le mesh), façon Blender.
-					if (k == NkKey::NK_Z && alt) {
-						st->editXray = !st->editXray;
-						st->editOverlayDirty = true;
-						logger.Info("[Demo3D] X-ray = {0}\n", st->editXray);
+					// ⚠️ Alt+Z N'EST PLUS TRAITE ICI : SECONDE VOIE RETIREE.
+					// Le shell lie DEJA Alt+Z (`main.cpp:806` -> ToggleXray) et
+					// appelait `Viewport3DSetXray`, c'est-a-dire la vue MORTE.
+					// Mesure : Alt+Z marchait par CE rappel pendant que `st.xray` du
+					// shell derivait dans son coin -- l'ombre d'un etat qu'il ne
+					// pilotait pas. Meme forme que TAB, et le meme piege nomme plus bas
+					// dans ce fichier : « la touche arrive par DEUX voies ».
+					if (k == NkKey::NK_Z && alt)
 						return;
-					}
 					// Ctrl+Z = ANNULER · Ctrl+Shift+Z / Ctrl+Y = RÉTABLIR (historique d'édition).
 					// Traité côté frame (accès meshSys pour resync). Façon Blender.
 					{
@@ -4993,47 +5630,32 @@ namespace nkentseu {
 							st->editMakeFacePending = true;
 							return;
 						}
-						// J = SPIN / RÉVOLUTION. Blender n'a PAS de raccourci par défaut pour
-						// Spin (menu Mesh > Spin) : on prend J, libre chez nous. Shift+J = pas,
-						// Alt+J = angle. Le centre est le CURSEUR 3D, comme dans Blender.
-						if (k == NkKey::NK_J) {
-							if (shiftK) {
-								const int32 cyc[4] = {6, 12, 24, 32};
-								int32 i = 0;
-								for (int32 j = 0; j < 4; j++)
-									if (st->spinSteps == cyc[j])
-										i = j;
-								st->spinSteps = cyc[(i + 1) % 4];
-								logger.Info("[Demo3D] Spin pas = {0}\n", st->spinSteps);
-							} else if (alt) {
-								const float32 cyc[3] = {360.f, 180.f, 90.f};
-								int32 i = 0;
-								for (int32 j = 0; j < 3; j++)
-									if (st->spinAngleDeg == cyc[j])
-										i = j;
-								st->spinAngleDeg = cyc[(i + 1) % 3];
-								logger.Info("[Demo3D] Spin angle = {0} deg\n", st->spinAngleDeg);
-							} else
-								st->modalStartPending = 5; // MODAL : souris = angle, molette = nb de pas
-							return;
-						}
-						// V = EDGE SPLIT (Blender met « rip » sur V ; V était libre chez nous,
-						// on y place la dé-soudure d'arêtes, qui en est la variante topologique).
-						// Shift+V = cycle l'écartement de la déchirure.
-						if (k == NkKey::NK_V) {
-							if (shiftK) {
-								const float32 cyc[3] = {0.f, 0.15f, 0.35f};
-								int32 i = 0;
-								for (int32 j = 0; j < 3; j++)
-									if (st->splitGap == cyc[j])
-										i = j;
-								st->splitGap = cyc[(i + 1) % 3];
-								logger.Info("[Demo3D] Edge split ecart = {0}\n",
-											st->splitGap <= 0.f ? "AUTO (1% bbox)" : "large");
-							} else
-								st->editSplitPending = true;
-							return;
-						}
+						// ── J, V ET Y : TROIS TOUCHES QUI NE NOUS APPARTIENNENT PAS ──────
+						// (2026-08-28, apres lecture du keymap Blender A LA SOURCE --
+						//  scripts/presets/keyconfig/keymap_data/blender_default.py)
+						//
+						// SPIN N'EST PLUS SUR J. Le commentaire precedent disait « Blender
+						// n'a pas de raccourci pour Spin, on prend J, libre chez nous ».
+						// La premiere moitie est vraie (mesh.spin n'a de touche que dans le
+						// keymap LEGACY 2.7x, sous `if params.legacy:` — pas dans le defaut) ;
+						// la seconde est FAUSSE : J est deja pris chez Blender par
+						// `mesh.vert_connect_path`. On squattait donc la touche d'une
+						// operation que nous voudrons un jour. Spin est desormais une ENTREE
+						// DE MENU sans raccourci, comme chez lui, et le cadre modal regle
+						// deja l'angle (souris) et le nombre de pas (molette) : les cycles
+						// Shift+J / Alt+J ne manquent a personne, ils faisaient moins bien.
+						//
+						// ⚠ V ET Y SONT RESERVEES, PAS LIBRES. « Separer les aretes » quitte
+						// V et passe au menu, parce que ce qu'elle fait est `mesh.edge_split`
+						// — qui n'a AUCUN raccourci chez Blender. Mais V ne redevient pas
+						// disponible pour autant :
+						//     V = mesh.rip_move   (arracher : separe en ECARTANT sous le curseur)
+						//     Y = mesh.split      (detacher la selection SUR PLACE)
+						// Ces deux operations nous MANQUENT encore. Le jour ou on les ecrit,
+						// elles reprennent leurs touches. Les donner a autre chose d'ici la
+						// obligerait a les reprendre — c'est exactement l'erreur que J vient
+						// de nous couter, dans l'autre sens.
+						// ⛔ NE PAS ATTRIBUER V NI Y. Elles ont un proprietaire.
 						// I = INSET FACES (Blender à l'identique — I était libre chez nous).
 						// Shift+I = bascule INDIVIDUEL / RÉGION · Alt+I = cycle la profondeur.
 						if (k == NkKey::NK_I) {
@@ -5119,17 +5741,42 @@ namespace nkentseu {
 																				  : "aucun parametre (directionnelle)");
 					}
 				}
+				// ── ESPACE : LE SELECTEUR D'OUTIL ───────────────────────────────
+				// C'est ici que va la selection d'outil que G/R/S ont quittee. Chez
+				// Blender, `wm.toolbar` s'ouvre sur SPACE (si spacebar_action vaut
+				// TOOL) ou MAJ+SPACE (si elle vaut PLAY) -- on accepte les DEUX,
+				// puisque les deux sont des defauts Blender selon la preference.
+				// Le gizmo COMBINE, qui etait sur C, est une entree de ce selecteur.
+				if (k == NkKey::NK_SPACE) {
+					st->toolPickerPending = true;
+					return;
+				}
+				// ── G / R / S : LES MODALES, DANS LES DEUX MODES ────────────────
+				// (2026-08-28) Elles SELECTIONNAIENT l'outil du gizmo. Chez Blender,
+				// G/R/S sont les OPERATEURS MODAUX (transform.translate/rotate/resize)
+				// et la selection d'outil passe par un SELECTEUR (wm.toolbar, sur une
+				// touche a base d'espace) -- jamais par une lettre nue. Verifie a la
+				// source dans blender_default.py.
+				// ⚠ C'est notre etat PRECEDENT qui etait la divergence : aller vers
+				// les modales ne demande aucune raison ecrite, c'est RESTER qui en
+				// aurait demande une.
+				// Le meme geste vaut en OBJET et en EDITION -- l'utilisateur ne doit
+				// pas savoir qu'il change de machinerie. Un seul cadre modal, un seul
+				// instantane enfichable : cf. Demo3D_ModalPhotoPrendre.
+				// Alt+G/R/S restent l'EFFACEMENT de la transformation (deja en place).
 				if (k == NkKey::NK_G) {
 					if (alt)
 						G.ClearSelectedTranslate();
 					else
-						G.SetMode(GZ::MODE_TRANSLATE);
+						st->modalStartPending = 9;
+					return;
 				}
 				if (k == NkKey::NK_R) {
 					if (alt)
 						G.ClearSelectedRotation();
 					else
-						G.SetMode(GZ::MODE_ROTATE);
+						st->modalStartPending = 10;
+					return;
 				}
 				if (k == NkKey::NK_S && !NkInput.IsKeyDown(NkKey::NK_LCTRL) &&
 					!NkInput.IsKeyDown(NkKey::NK_RCTRL)) { // Ctrl+S = ENREGISTRER, pas le gizmo
@@ -5138,11 +5785,20 @@ namespace nkentseu {
 					if (alt)
 						G.ClearSelectedScale();
 					else
-						G.SetMode(GZ::MODE_SCALE);
+						st->modalStartPending = 11;
+					return;
 				}
-				if (k == NkKey::NK_C && !NkInput.IsKeyDown(NkKey::NK_LCTRL) &&
-					!NkInput.IsKeyDown(NkKey::NK_RCTRL)) // Ctrl+C = COPIER, pas le gizmo
-					G.SetMode(GZ::MODE_COMBINE);
+				// ── C : LE QUATRIEME DE LA SERIE, ET IL SUIT SES VOISINS ────────
+				// C posait le gizmo COMBINE (les trois poignees a la fois). C'est une
+				// SELECTION D'OUTIL, pas un geste de transformation : sa place est
+				// donc avec les trois autres, dans le SELECTEUR D'OUTIL (Espace) --
+				// exactement comme Blender range son outil « Transform » dans la
+				// barre d'outils et non sur une lettre.
+				// Le laisser sur C pendant que G, R et S demenagent aurait produit un
+				// orphelin : une liaison qui survit a la raison qui l'avait posee.
+				// ⛔ C EST DONC LIBEREE, et rien ne doit la reprendre a la legere :
+				// chez Blender, C est le pinceau de selection circulaire.
+				(void)0;
 				if (k == NkKey::NK_A) {
 					if (alt) {
 						G.ClearSelection();
@@ -5181,6 +5837,10 @@ namespace nkentseu {
 				NkEvents().AddEventCallback<NkKeyPressEvent>([shadowSys, st](NkKeyPressEvent *e) {
 				// PORTAGE NK3DModeler : la vue n'ecoute que si elle est concernee.
 				if (!nkvpInputOn || !nkvpHover)
+					return;
+				// LE CLAVIER APPARTIENT A LA MODALE tant qu'elle tourne (keymap
+				// separe, comme la « Transform Modal Map » de Blender).
+				if (st->modalOp != 0)
 					return;
 					auto &cfg = shadowSys->GetConfig();
 					// Debug ombres sur F-keys (libère [ ] P N M R pour le keymap Blender) :
@@ -5221,6 +5881,10 @@ namespace nkentseu {
 				NkEvents().AddEventCallback<NkKeyReleaseEvent>([st](NkKeyReleaseEvent *e) {
 				// PORTAGE NK3DModeler : la vue n'ecoute que si elle est concernee.
 				if (!nkvpInputOn || !nkvpHover)
+					return;
+				// LE CLAVIER APPARTIENT A LA MODALE tant qu'elle tourne (keymap
+				// separe, comme la « Transform Modal Map » de Blender).
+				if (st->modalOp != 0)
 					return;
 					if (e->GetKey() == NkKey::NK_F5)
 						st->biasDownHeld = false;
@@ -5267,6 +5931,15 @@ namespace nkentseu {
 
 			// ── Caméras réutilisables du moteur ──────────────────────────────────
 			// Éditeur (Blender) : orbit autour de (0,0.5,0). Simulation (fly) : recul sur -Z.
+			// ⚠️ MESURE 2026-08-27 : SANS EFFET QUAND `NK_FIX_CAM` EST POSE.
+			// `NK_CAM_DIST=3` et `NK_CAM_DIST=6` donnent des captures IDENTIQUES AU
+			// BIT PRES sous `NK_FIX_CAM=1` -- la pose figée est appliquée plus tard
+			// (`st->editorCam.Apply(cam)`) et écrase le rayon posé ici.
+			// Ce n'est pas anodin pour qui s'en sert à mesurer : un levier qui ne
+			// bouge pas rend DEUX captures identiques, ce qui « prouve » aussi bien
+			// que le réglage observé est mort. UN INSTRUMENT INERTE CONFIRME LE
+			// DEFAUT QU'ON LUI SOUMET, QUEL QU'IL SOIT. Vérifier que le levier agit
+			// AVANT de conclure quoi que ce soit de son immobilité.
 			// NK_CAM_DIST : recule la caméra orbit (rayon) pour les captures de test. Défaut 6.5.
 			float32 camRadius = 6.5f;
 			if (const char *cd = getenv("NK_CAM_DIST")) {
@@ -5513,6 +6186,76 @@ namespace nkentseu {
 		// Elle remplit l'etat d'edition COURANT. L'etape suivante consistera a la
 		// faire ecrire dans un EMPLACEMENT (Demo3DEditSlot) plutot que directement
 		// dans st, puis a garder un emplacement par objet edite.
+		// ── ENTREE EN EDITION SUR UN OBJET DE L'UTILISATEUR ─────────────────────
+		// Jumelle de Demo3D_EnterEditOnObject, pour l'AUTRE espace d'indices.
+		// ⚠ POURQUOI UNE JUMELLE ET NON UN PARAMETRE DE PLUS : les deux fonctions
+		// ne lisent ni n'ecrivent les memes tableaux (`objMesh`/`objHE` indexes par
+		// objet de demo contre `nkvpUserMesh`/`sUserHE` indexes par slot), et leur
+		// ancre ne se calcule pas pareil (gizmo de demo contre gizmo des empties).
+		// Les fondre en une seule aurait donne une fonction dont la moitie du corps
+		// est un `if` sur l'espace d'indices — c'est-a-dire le melange que
+		// `editUserIdx` existe pour eviter.
+		static void Demo3D_EnterEditOnUser(Demo3DState *st, renderer::NkMeshSystem *ms,
+										   renderer::NkRender3D *r3d, int32 u) {
+			(void)r3d;
+			if (!ms || u < 0 || u >= kNkvpMaxUser)
+				return;
+			const NkMeshHandle src = nkvpUserMesh[u];
+			if (!src.IsValid() || !ms->HasCPUData(src)) {
+				// ⚠ MESSAGE DISTINCT de « selectionne un objet ». Un objet EST
+				// selectionne ; ce qui manque est sa copie CPU. Reutiliser l'autre
+				// message enverrait l'utilisateur cliquer alors qu'il a deja clique.
+				logger.Warn("[Demo3D] Objet utilisateur sans copie CPU (keepCPU) — edition impossible.\n");
+				return;
+			}
+			const uint32 vc = ms->GetVertexCount(src);
+			const uint32 ic = ms->GetIndexCount(src);
+			const auto *sv = (const renderer::NkVertex3D *)ms->GetVertices(src);
+			const uint32 *si = ms->GetIndices(src);
+			if (!sv || !si || vc == 0 || ic == 0) {
+				logger.Warn("[Demo3D] Objet utilisateur sans geometrie lisible — edition impossible.\n");
+				return;
+			}
+			// TOPOLOGIE REPRISE TELLE QUELLE si l'objet a deja ete edite : meme
+			// raison que pour la demo — quadify ne sait pas reconstituer un n-gon.
+			if (sUserHasHE[u] && sUserHE[u].VertCount() > 0) {
+				st->editHE = sUserHE[u];
+				logger.Info("[Demo3D] EDIT MODE (utilisateur #{0}) : topologie n-gon reprise ({1} faces)\n", u,
+							(int32)st->editHE.FaceCount());
+			} else {
+				st->editHE.BuildFromIndexed(sv, vc, si, ic, /*quadify*/ true);
+				logger.Info("[Demo3D] EDIT MODE (utilisateur #{0}) : {1} sommets, {2} faces\n", u,
+							(int32)st->editHE.VertCount(), (int32)st->editHE.FaceCount());
+			}
+			st->editHistory.Clear();
+			st->editRecorder.Clear();
+			st->editModifiers.Clear();
+			st->editActiveMod = -1;
+			st->editBase = st->editHE;
+			st->editReplayStep = -1;
+			st->vertSel.Clear();
+			st->vertSel.Resize(st->editHE.VertCount());
+			for (uint32 i = 0; i < st->editHE.VertCount(); i++)
+				st->vertSel[i] = 0;
+			st->editMesh = {};
+			Demo3D_SyncFromHE(st, ms);
+			// ANCRE = le MEME transform que celui du draw call de l'objet
+			// (HostEmptyXform du noeud). Le recalculer autrement ferait flotter la
+			// cage a cote de l'objet, et c'est exactement le defaut « cube invisible
+			// qu'on deplace » deja paye sur le sol de la demo.
+			const int32 e = (kNkvpFirstUser + u) - kNkvpEmptyBase;
+			st->editAnchor = HostEmptyXform(e, true);
+			st->editAnchorInv = st->editAnchor.Inverse();
+			st->editObjIdx = -1;
+			st->editUserIdx = u;
+			st->editGizmo.ClearSelection();
+			st->editWasDragging = false;
+			st->editOverlayDirty = true;
+			st->editMode = true;
+			st->wireDirty = true;
+			st->wireStamp = -12345; // la cage sort du lot de fil de fer
+		}
+
 		static void Demo3D_EnterEditOnObject(Demo3DState *st, renderer::NkMeshSystem *ms,
 											 renderer::NkRender3D *r3d, int32 sel) {
 			(void)r3d;
@@ -5800,6 +6543,17 @@ namespace nkentseu {
 						st->modalInjWheel = atoi(mw);
 					if (getenv("NK_MODAL_CANCEL"))
 						st->modalInjCancel = true;
+					// NK_MODAL_OBS=1 : journalise l'etat INTERMEDIAIRE d'une modale de
+					// transformation, a chaque apercu. Obligatoire depuis la mesure de
+					// Spin : un compteur de maillage ne bouge JAMAIS pendant une
+					// transformation, donc sans ceci « la modale marche » et « la
+					// modale ne fait rien » rendent exactement la meme trace.
+					if (getenv("NK_MODAL_PRECIS"))
+						st->modalPrecisForce = true;
+					if (getenv("NK_MODAL_OBS")) {
+						st->modalObs = true;
+						logger.Info("[Demo3D] NK_MODAL_OBS actif : etat intermediaire des modales journalise\n");
+					}
 					if (getenv("NK_MODAL_PERF")) {
 						st->modalPerf = true;
 						logger.Info("[Demo3D] NK_MODAL_PERF actif : cout de chaque apercu modal mesure\n");
@@ -5841,15 +6595,63 @@ namespace nkentseu {
 			// Séquence multi-frames : frame0 entrer -> frame1 sélectionner -> frame2 (op).
 			{
 				static int32 gEditDrv = -2;
-				if (gEditDrv == -2)
-					gEditDrv = getenv("NK_EDIT_MODE") ? 0 : -1;
+				// NK_EDIT_MODE=<1>[,frame] : la FRAME D ATTENTE etait indispensable.
+				// Ce bloc se declenchait a la PREMIERE frame -- avant meme que
+				// NK_OPEN_RECENT n ait ouvert le projet (frame 3), et bien avant qu un
+				// NK_ADD_NODE ait pu creer quoi que ce soit. Editer un objet qu on
+				// vient de creer etait donc impossible : l ordre etait fige a l envers.
+				// Sans virgule, comportement d origine (premiere frame).
+				static int32 gEditDrvFrame = 0;
+				++gEditDrvFrame;
+				if (gEditDrv == -2) {
+					const char *em = getenv("NK_EDIT_MODE");
+					if (!em) {
+						gEditDrv = -1;
+					} else {
+						int32 attente = 0;
+						const char *c = em;
+						while (*c && *c != ',')
+							++c;
+						if (*c == ',')
+							attente = atoi(c + 1);
+						if (gEditDrvFrame >= attente)
+							gEditDrv = 0;
+					}
+				}
 				if (gEditDrv == 0) {
 					int32 obj = 16;
 					if (const char *go = getenv("NK_GIZMO_OBJ"))
 						obj = atoi(go);
 					st->gizmo.Select(obj);
 					st->gizmo.SetMode(0);		  // gizmo d'édition en TRANSLATE (flèches pleines)
-					st->editTogglePending = true; // consommé juste après -> entre en édition ce frame
+					// NK_EDIT_USER=<slot> : entrer en edition sur un objet de
+					// L'UTILISATEUR et non sur un objet de demo.
+					// POURQUOI. NK_EDIT_MODE ne sait viser que `st->gizmo`, l'espace
+					// des objets de DEMO -- or ceux-ci ne sont pas visibles dans le
+					// projet de capture. Trois temoins de suite (contour de selection,
+					// intensite de relief, geometrie annulee) ont bute non pas sur le
+					// code mesure, mais sur l'absence de SUJET VISIBLE. Les objets de
+					// l'utilisateur, eux, se creent (NK_ADD_NODE) et se voient.
+					// L'espace d'indices est l'AUTRE : selEmpty = slot + (96 - 90).
+					// Et `q.selDemo` etant PRIORITAIRE dans la resolution de cible, il
+					// faut VIDER la selection de demo, sinon on editerait le cube 16.
+					if (const char *eu = getenv("NK_EDIT_USER")) {
+						const int32 slot = atoi(eu);
+						if (slot >= 0 && slot < kNkvpMaxUser) {
+							st->gizmo.ClearSelection();
+							st->emptyGizmo.Select(slot + (kNkvpFirstUser - kNkvpEmptyBase));
+						}
+					}
+					// ⚠️ ON N'ARME PLUS LA BASCULE ICI. Depuis que le shell est la source
+					// unique du mode, il repose `st.mode` A CHAQUE IMAGE : entrer en
+					// edition par ce cote faisait entrer le viseur, puis le shell --
+					// toujours en mode Objet -- le faisait RESSORTIR l'image suivante.
+					// Mesure du 28/08 : `cible=2` etait bien journalise, et pourtant
+					// `editMode` valait faux cent images plus tard. Deux entrees qui se
+					// battent, et la derniere gagne.
+					// Ce crochet ne fait donc plus que CHOISIR LA CIBLE ; le mode vient
+					// du shell (`main.cpp` pose `st.mode = Edit` quand NK_EDIT_MODE est
+					// present), par la meme porte que l'onglet et que TAB.
 					if (const char *sm = getenv("NK_EDIT_SELMASK")) {
 						int32 m = atoi(sm) & 7;
 						if (m)
@@ -6121,7 +6923,16 @@ namespace nkentseu {
 						} else if (isOp(op, "inset")) {
 							st->editInsetPending = true; // Inset faces
 						} else if (isOp(op, "edgesplit") || isOp(op, "split")) {
-							st->editSplitPending = true; // Edge split / rip
+							// « SEPARER LES ARETES » = mesh.edge_split : delie les faces
+							// voisines LE LONG des aretes selectionnees.
+							// ⚠ CE N'EST NI le rip (mesh.rip_move, V : ecarte sous le
+							// curseur) NI le split (mesh.split, Y : detache la selection
+							// sur place). L'ancien commentaire disait « Edge split / rip »
+							// et confondait ainsi TROIS operations en deux mots. Un
+							// mauvais raccourci se corrige en une ligne ; un nom qui
+							// recouvre deux operations voyage dans la documentation, les
+							// menus et la tete des gens.
+							st->editSplitPending = true;
 						} else if (isOp(op, "spin")) {
 							st->editSpinPending = true; // Spin / révolution
 						} else if (isOp(op, "dissolve")) {
@@ -6164,6 +6975,14 @@ namespace nkentseu {
 							st->modalStartPending = 7;
 						else if (isM(mo, "shrink") || isM(mo, "fatten"))
 							st->modalStartPending = 8;
+						// Les TRANSFORMATIONS, pilotables comme les autres : sans elles
+						// la modale objet ne serait verifiable qu'a la main.
+						else if (isM(mo, "move") || isM(mo, "deplacer"))
+							st->modalStartPending = 9;
+						else if (isM(mo, "rotate") || isM(mo, "tourner"))
+							st->modalStartPending = 10;
+						else if (isM(mo, "scale") || isM(mo, "echelle"))
+							st->modalStartPending = 11;
 					}
 					gEditDrv = 3;
 				} else if (gEditDrv == 3 && st->editMode) {
@@ -6247,15 +7066,60 @@ namespace nkentseu {
 						st->wireDirty = true;
 						st->wireStamp = -12345; // force la reconstruction complete du batch
 					}
+					// ── SORTIE SUR UN OBJET DE L'UTILISATEUR ────────────────────
+					// ⚠ SANS CE BLOC, TOUTE L'EDITION SERAIT PERDUE EN SILENCE : le
+					// bloc au-dessus ne s'applique qu'aux objets de demo, et
+					// l'ancien `editObjIdx = -1` suffisait a tout oublier. Le
+					// maillage edite serait pourtant reste correct a l'ecran
+					// jusqu'au prochain rendu — le pire des cas.
+					if (st->editUserIdx >= 0 && st->editUserIdx < kNkvpMaxUser) {
+						const int32 u = st->editUserIdx;
+						if (ms) {
+							if (nkvpUserMesh[u].IsValid())
+								ms->Release(nkvpUserMesh[u]);
+							nkvpUserMesh[u] = st->editMesh; // transfert de propriete
+						}
+						st->editMesh = {};
+						// La TOPOLOGIE n-gon aussi : sinon la re-entree en edition
+						// repartirait d'un quadify sur des triangles.
+						sUserHE[u] = st->editHE;
+						sUserHasHE[u] = true;
+						st->wireDirty = true;
+						st->wireStamp = -12345;
+					}
 					st->editMode = false;
 					st->editObjIdx = -1;
+					st->editUserIdx = -1;
 					r3d->ClearEditOverlay();
 				} else {
-					const int32 sel = st->gizmo.ActiveIndex();
-					if (sel < 0)
-						logger.Info("[Demo3D] Sélectionne un objet (clic) avant TAB.\n");
+					// LA REGLE EST DANS NkVpEditTarget.h, exercee par NKEditTargetTest.
+					// Elle vivait ici, en trois lignes, et aucun banc ne pouvait
+					// l atteindre : ce fichier exige un device graphique.
+					NkVpEditQuery q;
+					q.selDemo = st->gizmo.ActiveIndex();
+					q.selEmpty = st->emptyGizmo.ActiveIndex();
+					{
+						const int32 uSlot = NkVpUserSlotOfEmpty(q.selEmpty);
+						if (uSlot >= 0) {
+							q.userKind = nkvpUserKind[uSlot];
+							q.userDeleted = nkvpDeleted[kNkvpFirstUser + uSlot];
+							q.userMeshValid = nkvpUserMesh[uSlot].IsValid();
+						}
+					}
+					const NkVpEditTarget cible = NkVpResolveEditTarget(q);
+					// TRACE : « la bascule n a pas pris » peut venir de six causes
+					// (mauvaise cible, maillage invalide, nature non editable, noeud
+					// supprime, priorite demo) et elles rendent toutes le meme rien.
+					logger.Info("[Demo3D] TRACE edition : selDemo={0} selEmpty={1} kind={2} meshOk={3} supprime={4} -> cible={5} index={6}\n",
+								q.selDemo, q.selEmpty, (int32)q.userKind,
+								q.userMeshValid ? 1 : 0, q.userDeleted ? 1 : 0,
+								(int32)cible.kind, cible.index);
+					if (cible.kind == NkVpEditKind::Demo)
+						Demo3D_EnterEditOnObject(st, ms, r3d, cible.index);
+					else if (cible.kind == NkVpEditKind::Utilisateur)
+						Demo3D_EnterEditOnUser(st, ms, r3d, cible.index);
 					else
-						Demo3D_EnterEditOnObject(st, ms, r3d, sel);
+						logger.Info("[Demo3D] Sélectionne un objet (clic) avant TAB.\n");
 				}
 			}
 
@@ -6316,8 +7180,20 @@ namespace nkentseu {
 					st->selDragging = false;
 					st->selLasso.Clear();
 				}
-				if (!st->editMode)
-					st->modalOp = 0; // filet de securite : plus d'edition -> plus d'op modale
+				// ── FILET DE SECURITE : DESARMER AU CHANGEMENT DE **MODE** ──────
+				// Il disait « plus d'edition -> plus d'op modale », ce qui etait
+				// juste tant que SEULE l'edition avait des modales. Depuis que le
+				// mode OBJET a les siennes (G/R/S), le critere n'est plus « on a
+				// quitte l'edition » mais « on a quitte le mode ou la modale est
+				// nee » : son instantane photographie un gizmo qui n'est plus celui
+				// qu'on manipule.
+				// ⚠ ON NE LE SUPPRIME PAS PARCE QU'IL GENAIT : un garde-fou retire
+				// manque exactement le jour ou il aurait servi. On le REMPLACE par
+				// sa version generale. Et on ANNULE proprement plutot que de mettre
+				// modalOp a zero : sinon la transformation d'apercu resterait posee,
+				// jamais confirmee et plus annulable.
+				if (st->editMode != st->modalEditAuLancement)
+					Demo3D_ModalCancel(st, ctx.renderer ? ctx.renderer->GetMeshSystem() : nullptr);
 			}
 			// La molette : ZOOM camera en temps normal, parametre ENTIER de l'op quand une op
 			// modale tourne (et RAYON du cercle en outil de selection cercle).
@@ -7409,6 +8285,12 @@ namespace nkentseu {
 				if (uk < 1 || uk > 3)
 					continue; // seuls les MAILLAGES se rendent (une lumiere kind 5
 							  // tombait dans le cas « plan » -- constate par Rihen)
+				// L'objet en cours d'edition est dessine par l'OVERLAY d'edition.
+				// Le laisser ici en dessinerait DEUX exemplaires superposes, dont un
+				// figé sur son ancienne forme — et le second masquerait les
+				// modifications au lieu de les montrer.
+				if (st->editMode && st->editUserIdx == u)
+					continue;
 				const int32 un = kNkvpFirstUser + u;
 				if (nkvpIsModel[un])
 					continue; // conteneur : sa geometrie vit dans ses maillages
@@ -7558,6 +8440,45 @@ namespace nkentseu {
 			// le clic sélectionne (vertex / arête / face). Marqueurs = taille écran (fins).
 			// Outils topologie sur le HALF-EDGE (n-gon) : opèrent sur editHE puis régénèrent
 			// le mesh de rendu (Demo3D_SyncFromHE). AVANT le bloc édition (peut le faire sortir).
+			// NK_MODAL_OBJ_OP="nom[,frame]" : lance une modale en mode OBJET.
+			// Le pilote NK_MODAL_OP vit DANS le pilote d'edition et n'atteint
+			// donc jamais le mode objet -- sans ce levier, la modale objet ne
+			// serait verifiable qu'a la main, c'est-a-dire pas verifiable.
+			{
+				static int32 sObjOp = -2, sObjFrame = 0, sObjTick = 0;
+				if (sObjOp == -2) {
+					sObjOp = -1;
+					if (const char *v = getenv("NK_MODAL_OBJ_OP")) {
+						auto pre = [](const char *a, const char *b) -> bool {
+							while (*b) {
+								char x = *a++, y = *b++;
+								if (x >= 'A' && x <= 'Z')
+									x = (char)(x - 'A' + 'a');
+								if (x != y)
+									return false;
+							}
+							return true;
+						};
+						if (pre(v, "move") || pre(v, "deplacer"))
+							sObjOp = 9;
+						else if (pre(v, "rotate") || pre(v, "tourner"))
+							sObjOp = 10;
+						else if (pre(v, "scale") || pre(v, "echelle"))
+							sObjOp = 11;
+						const char *c = v;
+						while (*c && *c != ',')
+							++c;
+						sObjFrame = (*c == ',') ? atoi(c + 1) : 60;
+					}
+				}
+				if (sObjOp > 0) {
+					++sObjTick;
+					if (sObjTick == sObjFrame && !st->editMode) {
+						Demo3D_ModalStart(st, sObjOp, ctx.renderer ? ctx.renderer->GetMeshSystem() : nullptr);
+						sObjOp = -1;
+					}
+				}
+			}
 			if (st->editMode && st->editMesh.IsValid()) {
 				auto *meshSysT = ctx.renderer->GetMeshSystem();
 				if (meshSysT) {
@@ -8043,58 +8964,8 @@ namespace nkentseu {
 					// apercu puisque la geometrie bouge.
 					if (st->modalFrames == 0)
 						st->modalCenterLocal = st->editAnchorInv * pivotW;
-					st->modalFrames++;
-					// ── CURSEUR VIRTUEL : deltas souris REELS + deltas SYNTHETIQUES ────────
-					// La souris est capturee par l'op : ses deltas bruts (modalMDX/MDY) ne vont
-					// nulle part ailleurs. NK_MODAL_DRAG="dx,dy" injecte le meme signal, etale
-					// sur NK_MODAL_DRAG_FRAMES frames -> le geste devient rejouable en capture.
-					float32 injDX = 0.f, injDY = 0.f;
-					if (st->modalInjDrag && st->modalFrames <= st->modalInjFrames) {
-						injDX = st->modalInjDX / (float32)st->modalInjFrames;
-						injDY = st->modalInjDY / (float32)st->modalInjFrames;
-					}
-					st->modalCurX += modalMDX + injDX;
-					st->modalCurY += modalMDY + injDY;
-					// MOLETTE -> parametre ENTIER (segments du bevel, coupes du loop cut, pas du spin).
-					// NK_MODAL_WHEEL=<crans> injecte le meme signal une seule fois.
-					int32 wheelNotches = 0;
-					if (st->lastWheel != 0.f) {
-						wheelNotches = (st->lastWheel > 0.f) ? 1 : -1;
-						st->lastWheel = 0.f;
-					}
-					if (st->modalInjWheel != 0 && !st->modalInjWheelDone && st->modalFrames >= 2) {
-						st->modalInjWheelDone = true;
-						wheelNotches += st->modalInjWheel;
-						logger.Info("[Demo3D] NK_MODAL_WHEEL -> {0} cran(s) de molette injectes\n",
-									st->modalInjWheel);
-					}
-					if (wheelNotches != 0) {
-						const int32 lo = (st->modalOp == 5) ? 3 : 1;
-						const int32 hi = (st->modalOp == 5) ? 64 : 16;
-						const int32 before = st->modalSeg;
-						st->modalSeg = NkMax(lo, NkMin(hi, st->modalSeg + wheelNotches));
-						if (st->modalSeg != before)
-							st->modalDirty = true;
-					}
-					// SOURIS -> parametre CONTINU (largeur du bevel, epaisseur de l'inset, angle
-					// du spin, hauteur de l'extrusion, SLIDE du loop cut). Course horizontale du
-					// CURSEUR VIRTUEL depuis le lancement.
-					if (st->modalScale != 0.f) {
-						float32 nvv = st->modalBase + (st->modalCurX - st->modalStartX) * st->modalScale;
-						if (st->modalOp == 5)
-							nvv = NkMax(1.f, NkMin(360.f, nvv));
-						else if (st->modalOp == 7)
-							nvv = NkMax(0.f, NkMin(2.f, nvv)); // facteur To Sphere (Blender autorise > 1)
-						else if (st->modalOp == 4)
-							nvv = NkMax(-1.f, NkMin(1.f, nvv)); // SLIDE du loop cut : -1 .. +1
-						else if (st->modalOp != 6 && st->modalOp != 8)
-							nvv = NkMax(0.f, nvv); // largeur/epaisseur : jamais negative
-						// (extrude et shrink/fatten sont SIGNES : on ne borne pas)
-						if (fabsf(nvv - st->modalVal) > 1e-6f) {
-							st->modalVal = nvv;
-							st->modalDirty = true;
-						}
-					}
+					// LE CADRE, PARTAGE AVEC LE MODE OBJET (une seule implantation).
+					Demo3D_ModalParams(st, modalMDX, modalMDY);
 					// LOOP CUT : ANNEAU SOUS LE CURSEUR — l'apercu suit la souris AVANT
 					// confirmation (c'etait la demande initiale). Le survol est teste sur la
 					// topologie du SNAPSHOT, pas sur l'apercu (qui change a chaque frame).
@@ -8104,7 +8975,7 @@ namespace nkentseu {
 					// l'arete le plus proche du curseur. Cout maitrise : on ne teste que les
 					// candidats qui AMELIORENT le meilleur score courant (quelques-uns).
 					if (st->modalOp == 4 &&
-						(modalMDX != 0.f || modalMDY != 0.f || injDX != 0.f || injDY != 0.f || st->modalLoopA < 0)) {
+						(modalMDX != 0.f || modalMDY != 0.f || st->modalInjDrag || st->modalLoopA < 0)) {
 						const float32 hx = st->modalCurX, hy = st->modalCurY;
 						int32 ha = -1, hb = -1;
 						float32 hbest = 1e30f;
@@ -8148,32 +9019,8 @@ namespace nkentseu {
 							st->modalDirty = true;
 						}
 					}
-					// APERCU : UNIQUEMENT si un parametre a REELLEMENT change depuis la derniere
-					// application (la comparaison porte sur la VALEUR, pas sur « la souris a
-					// bouge ») -> aucune reconstruction inutile du mesh GPU.
-					if (st->modalDirty && st->modalHasApplied && st->modalVal == st->modalAppliedVal &&
-						st->modalSeg == st->modalAppliedSeg && st->modalLoopA == st->modalAppliedLoopA &&
-						st->modalLoopB == st->modalAppliedLoopB)
-						st->modalDirty = false; // rien n'a bouge : on ne reconstruit RIEN
-					if (st->modalDirty) {
-						st->modalDirty = false;
-						Demo3D_ModalPreview(st, meshSysF);
-					}
-					// Pilote headless : le drag injecte doit s'etre DEROULE avant de confirmer /
-					// d'annuler, sinon on ne prouverait rien de l'evolution de l'apercu.
-					const int32 injEnd = st->modalInjDrag ? (st->modalInjFrames + 2) : 3;
-					const bool autoConfirm = (st->modalEnvConfirm && st->modalFrames > injEnd);
-					if (st->modalInjCancel && st->modalFrames > injEnd) {
-						st->modalInjCancel = false;
-						st->modalCancelPending = true;
-						logger.Info("[Demo3D] NK_MODAL_CANCEL -> Echap synthetique envoye a l'op modale\n");
-					}
-					if (st->modalCancelPending) {
-						st->modalCancelPending = false;
-						Demo3D_ModalCancel(st, meshSysF);
-					} else if (clickNow || autoConfirm) {
-						Demo3D_ModalConfirm(st, meshSysF);
-					}
+					// Apercu + confirmation/annulation : MEME fonction qu'en mode objet.
+					(void)Demo3D_ModalFinish(st, meshSysF, clickNow);
 					// L'operation modale CONSOMME la souris : ni pick, ni poignee de gizmo, ni
 					// outil de selection. (Les DELTAS et la MOLETTE ont deja ete neutralises par
 					// le verrou unique en amont ; ici on neutralise le CLIC, dernier canal.)
@@ -9304,6 +10151,14 @@ namespace nkentseu {
 						} else if (const char *ot = getenv("NK_OUTLINE_THICK")) {
 							r3d->SetSelectionOutline(true, {1.f, 0.45f, 0.05f, 1.f}, (float32)atof(ot));
 						}
+						// ⚠️ MESURE 2026-08-27 : INERTE quand un projet est ouvert par
+						// `NK_OPEN_RECENT`. `NK_SHADING=1` (SOLID non éclairé) rend une
+						// capture IDENTIQUE AU BIT PRES à la même invocation sans lui,
+						// cube visible à l'écran compris. Cause probable, NON vérifiée :
+						// le levier est lu une fois, puis le projet restaure son propre
+						// mode d'affichage en le recouvrant. Ne pas s'en servir comme
+						// témoin tant que ce n'est pas tranché (cf. NK_CAM_DIST, même
+						// famille) -- un levier muet fabrique des confirmations.
 						// NK_SHADING=<0..5> : force le mode d'affichage (0=RENDERED, 1=SOLID
 						// unlit, 2=WIREFRAME, 3=NORMAL, 4=UV, 5=AO) pour une capture headless.
 						if (const char *sh = getenv("NK_SHADING")) {
@@ -9874,6 +10729,20 @@ namespace nkentseu {
 					// des vides a deja coute une fois).
 					st->gizmo.SetSnapQuery(&Demo3D_SnapQuery, &sRayCtx);
 					st->emptyGizmo.SetSnapQuery(&Demo3D_SnapQuery, &sRayCtx);
+					// ── MODALE OBJET : LE MEME CADRE, DEUXIEME SITE D'APPEL ─────────
+					// Pas un second cadre : les MEMES `Demo3D_ModalParams` et
+					// `Demo3D_ModalFinish` qu'en mode edition. Seul l'INSTANTANE differe
+					// (les trois tableaux du gizmo au lieu du maillage), et c'est
+					// Demo3D_ModalPhotoPrendre qui en decide -- pas ce site.
+					// Place AVANT gizmo.Update : l'operation modale possede la souris, et
+					// le clic qui la confirme ne doit pas atteindre une poignee.
+					if (st->modalOp != 0 && !st->editMode) {
+						Demo3D_ModalParams(st, modalMDX, modalMDY);
+						(void)Demo3D_ModalFinish(st, ctx.renderer ? ctx.renderer->GetMeshSystem() : nullptr,
+												 gin.leftPressed);
+						gin.leftPressed = false;
+						gin.leftDown = false;
+					}
 					st->gizmo.Update(targets, n, gin);
 					// ── INSTRUMENT : OU SONT LES POIGNEES, ET CE QUE LE VISEUR RECOIT ──
 					// Deux absences comblees d'un coup (Q57 §3-§4).
@@ -10035,6 +10904,16 @@ namespace nkentseu {
 											pickDejaSel ? 1 : 0,
 											(gin.shiftDown || gin.ctrlDown) ? 1 : 0,
 											nSelAvPick, nSelApPick);
+								// POURQUOI le pick n'a rien trouve. « Rien sous le curseur » et
+								// « tout ce qui etait sous le curseur a ete ecarte » donnent le
+								// MEME touche=-1. Les compteurs existaient deja
+								// (nkvpPickDbg, remplis par Demo3D_PickEmptyAt) mais n'etaient
+								// journalises que sur le chemin du LACHER du navigateur --
+								// jamais sur le clic. Un diagnostic qu'aucun chemin courant
+								// n'imprime ne sert qu'a celui qui l'a ecrit.
+								logger.Info("[Demo3D] MESURE pick vue (causes) : occupes={0} ecartes_model={1} caches={2} candidats_mesh={3}\n",
+											nkvpPickDbg[0], nkvpPickDbg[1], nkvpPickDbg[2],
+											nkvpPickDbg[3]);
 							}
 						}
 					if (getenv("NK_SEL_AT")) {
@@ -10830,11 +11709,14 @@ namespace nkentseu {
 									  "Alt+Shift+B=largeur %s)  |  I=inset %s (Shift=mode, Alt=prof %.2f)",
 									  st->bevelSegments, st->bevelOffset <= 0.f ? "AUTO" : "manuelle",
 									  st->insetIndividual ? "indiv" : "region", st->insetDepth);
+					// Separer les aretes, Spin et Bisect ne sont plus annonces avec une
+					// touche : ils N'EN ONT PLUS (conformite Blender, 2026-08-28). Les
+					// annoncer encore serait pire que de les taire — un raccourci affiche
+					// qui ne marche pas fait douter du clavier, pas de la ligne d'aide.
+					// On indique donc le chemin qui MARCHE : le clic droit.
 					overlay->DrawText({20.f, 190.f},
-									  "V=edge split (Shift=ecart %s)  |  J=spin %d pas / %.0f deg "
-									  "(Shift=pas, Alt=angle, centre=curseur 3D)  |  Ctrl+X=dissolve %s  |  "
-									  "Shift+Alt+S=TO SPHERE  Ctrl+Alt+S=SHRINK/FATTEN",
-									  st->splitGap <= 0.f ? "AUTO" : "large", st->spinSteps, st->spinAngleDeg,
+									  "CLIC DROIT = menu du maillage (Separer les aretes, Spin, Bisect...)  |  "
+									  "Ctrl+X=dissolve %s  |  Shift+Alt+S=TO SPHERE  Ctrl+Alt+S=SHRINK/FATTEN",
 									  (st->editSelMask & 4) ? "FACES" : ((st->editSelMask & 2) ? "ARETES" : "SOMMETS"));
 					// Ombrage courant (Shift+S / Shift+F) + point de pivot (.) + curseur 3D.
 					const bool anySm = st->editHE.AnyFaceSmooth();
@@ -10842,10 +11724,13 @@ namespace nkentseu {
 					// OPERATION MODALE EN COURS : bandeau facon Blender (op + valeurs + sortie).
 					if (st->modalOp != 0) {
 						overlay->DrawText({20.f, 208.f},
-											"[MODAL] %s  |  SOURIS CAPTUREE (ni camera, ni selection, ni gizmo)  |  "
+											"[MODAL] %s%s  |  SOURIS CAPTUREE (ni camera, ni selection, ni gizmo)  |  "
 											"%s(souris): %.4f  |  %s(molette): %d%s  |  clic gauche=CONFIRMER  ·  "
 											"Echap/clic droit=ANNULER",
 											Demo3D_ModalName(st->modalOp),
+											// L'AXE n'a de sens que pour une transformation : l'afficher
+											// partout ferait croire qu'un biseau a une direction.
+											(st->modalOp >= 9 && st->modalOp <= 11) ? Demo3D_ModalEtatTxt(st) : "",
 											(st->modalOp == 4) ? "slide" : "valeur", st->modalVal,
 											(st->modalOp == 4) ? "coupes" : "segments", st->modalSeg,
 											(st->modalOp == 4) ? "  |  anneau: survol souris (occlusion testee)" : "");
@@ -10858,11 +11743,11 @@ namespace nkentseu {
 				} else {
 					overlay->DrawText(
 						{20.f, 100.f},
-						"OBJET  |  Gizmo(G/R/S/C): %s  |  Orient(,): %s  |  Pivot(.): %s  |  TAB=editer l'objet "
-						"selectionne",
+						"OBJET  |  G/R/S=deplacer/tourner/redimensionner  |  ESPACE=outil (%s)  |  "
+						"Orient(,): %s  |  Pivot(.): %s  |  TAB=editer l'objet selectionne",
 						gmName[st->gizmo.Mode() & 3], orName[st->gizmo.Orientation() % 3], st->gizmo.PivotName());
 					overlay->DrawText({20.f, 118.f}, "clic=sel  Shift+clic=multi  A/Alt+A=tout/rien  Alt+G/R/S=clear  "
-													 "|  Ctrl=snap  X/Y/Z=verrou axe  |  Shift+clic droit=curseur 3D");
+													 "|  Ctrl=snap  X/Y/Z=verrou axe (tire)  |  Shift+clic droit=curseur 3D");
 				}
 
 				// ── Tracé des OUTILS DE SÉLECTION (overlay 2D, façon Blender) ──────
@@ -13538,6 +14423,784 @@ namespace nkentseu {
 			auto *st = HostSt();
 			return st && st->editMode;
 		}
+		// OPERATIONS D EDITION : LA FORME PORTEE DEPUIS NkViewport3D
+		// Chaque entree appelle la fonction VIVANTE de ce fichier. Verifie
+		// nommement : Merge passe par Demo3D_MergeHE (qui pose merge.point, le
+		// curseur 3D), Inset par Demo3D_InsetHE (qui pose inset.individual),
+		// Dissolve par Demo3D_DissolveHE (qui pose dissolve.mode). Ce sont les
+		// trois que la vue dormante portait dans une version plus ancienne.
+		//
+		// SUCCES : Demo3D_ApplyCmd ne commite dans l historique QUE si la commande
+		// a modifie le maillage. La profondeur d annulation est donc le seul temoin
+		// fiable du succes, et il ne coute rien. Compter les sommets ne suffirait
+		// pas : une operation peut deplacer sans ajouter.
+		static bool HostEditRun(void (*op)(Demo3DState *, renderer::NkMeshSystem *)) {
+			auto *st = HostSt();
+			auto *ms = hst.ctx.renderer ? hst.ctx.renderer->GetMeshSystem() : nullptr;
+			if (!st || !ms || !st->editMode || !op)
+				return false;
+			const uint32 avant = st->editHistory.UndoCount();
+			// NK_OP_BENCH=1 : cout d'UNE operation complete, pour donner son
+			// DENOMINATEUR au cout de RebuildEdges. Sans lui, « 0,25 ms » ne dit
+			// pas si c'est negligeable ou dominant.
+			static const bool bench = getenv("NK_OP_BENCH") != nullptr;
+			// CONTROLE POSITIF DU CHEMIN : combien de fois l'entonnoir
+			// `BuildFromPolygons` est-il traverse par UNE operation reelle de
+			// l'application ? Si ce compteur reste a zero, ce n'est pas par la
+			// qu'on passe, et toute mesure prise dessus ne veut rien dire.
+			const renderer::NkEmBfpPhases avantPh = renderer::NkEmBfpPhasesGet();
+			const auto tOp0 = std::chrono::high_resolution_clock::now();
+			op(st, ms);
+			if (renderer::NkEmBfpPhasesActives()) {
+				const renderer::NkEmBfpPhases &q = renderer::NkEmBfpPhasesGet();
+				logger.Info("[Demo3D] PHASES entonnoir sur CETTE operation : {0} traversee(s) | "
+							"LinkTwins {1} ms | RebuildEdges {2} ms | RecomputeNormals {3} ms\n",
+							(uint32)(q.appels - avantPh.appels),
+							(float32)(q.msLinkTwins - avantPh.msLinkTwins),
+							(float32)(q.msRebuildEdges - avantPh.msRebuildEdges),
+							(float32)(q.msRecomputeNormals - avantPh.msRecomputeNormals));
+			}
+			if (bench) {
+				const auto tOp1 = std::chrono::high_resolution_clock::now();
+				logger.Info("[Demo3D] BANC operation : {0} ms | verts={1} faces={2} "
+							"hedges={3} aretes={4}\n",
+							std::chrono::duration<double, std::milli>(tOp1 - tOp0).count(),
+							st->editHE.VertCount(), st->editHE.FaceCount(),
+							(uint32)st->editHE.hedges.Size(), st->editHE.EdgeCount());
+			}
+			return st->editHistory.UndoCount() != avant;
+		}
+		bool Demo3DHostEditExtrude(bool individual) {
+			auto *st = HostSt();
+			if (!st)
+				return false;
+			// L etat porte le mode region/individuel ; on le pose le temps de l appel
+			// et on le REND, sinon un bouton changerait un reglage que l utilisateur
+			// n a pas touche.
+			const bool sauve = st->extrudeIndividual;
+			st->extrudeIndividual = individual;
+			const bool ok = HostEditRun(&Demo3D_ExtrudeHE);
+			st->extrudeIndividual = sauve;
+			return ok;
+		}
+		bool Demo3DHostEditDelete() {
+			return HostEditRun(&Demo3D_DeleteHE);
+		}
+		// ── ANNULER / REFAIRE : LE BOUTON PARLAIT A LA MAUVAISE PILE ────────
+		// Il y a DEUX historiques dans ce binaire, et c'est la cause exacte du
+		// « bouton Annuler qui ne fait rien » :
+		//   - `Demo3DState::editHistory` (ICI) -- alimente par les operations,
+		//     commite en trois points, pilote au clavier. Il MARCHE.
+		//   - `g.history` dans NkViewport3D.cpp -- la vue DORMANTE, sans device.
+		//     C'est celui que `Viewport3DUndo()` manipule, et RIEN ne l'alimente.
+		// Le raccourci clavier passait par le premier, le bouton par le second :
+		// d'ou un Annuler qui marche au clavier et reste mort a la souris.
+		//
+		// ⚠️ CE N'EST PAS UN DEPLACEMENT DE DONNEE. L'etat complet (profondeur,
+		// curseur, invalidation) vit DEJA du bon cote ; il n'y avait qu'a exposer
+		// les fonctions. La pile de la vue dormante n'a jamais rien contenu --
+		// il n'y a donc rien a migrer, seulement a cesser de l'interroger.
+		// MESURE D ETAT, et non de pixels : annuler porte une PROFONDEUR et un
+		// CURSEUR, pas une action. Un temoin en image exige que l objet edite soit
+		// VISIBLE ; la profondeur, elle, se mesure toujours -- et c est elle qui
+		// dit si la pile a recule.
+		static bool HostEditHistRun(const char *nom,
+									void (*op)(Demo3DState *, renderer::NkMeshSystem *)) {
+			auto *st = HostSt();
+			if (!st)
+				return false;
+			const uint32 u0 = st->editHistory.UndoCount(), r0 = st->editHistory.RedoCount();
+			const bool ok = HostEditRun(op);
+			logger.Info("[Demo3D] MESURE historique {0} : annuler {1}->{2} refaire {3}->{4} edition={5} agi={6}\n",
+						nom, u0, st->editHistory.UndoCount(), r0, st->editHistory.RedoCount(),
+						st->editMode ? 1 : 0, ok ? 1 : 0);
+			return ok;
+		}
+		bool Demo3DHostEditUndo() {
+			return HostEditHistRun("annuler", &Demo3D_UndoEdit);
+		}
+		bool Demo3DHostEditRedo() {
+			return HostEditHistRun("refaire", &Demo3D_RedoEdit);
+		}
+		// Etat des piles : ce que les boutons doivent lire pour se griser.
+		bool Demo3DHostEditCanUndo() {
+			auto *st = HostSt();
+			return st && st->editMode && st->editHistory.CanUndo();
+		}
+		bool Demo3DHostEditCanRedo() {
+			auto *st = HostSt();
+			return st && st->editMode && st->editHistory.CanRedo();
+		}
+
+		// ── PILE DE MODIFICATEURS : LE PANNEAU ENTIER PARLAIT A LA VUE MORTE ──
+		// Les 14 fonctions `Viewport3D*Modifier*` operent sur `A->mods`, la pile
+		// de la vue DORMANTE, que rien n'alimente. Le panneau « Modificateurs »
+		// et l'entree de menu « Ajouter un modificateur » etaient donc INERTES en
+		// entier -- meme cause que le bouton Annuler, meme forme.
+		// L'etat vit du BON cote (`Demo3DState::editModifiers`, 33 mentions cote
+		// vivant contre 0 cote dormant) : vrai portage, pas deplacement de donnee.
+		//
+		// ⚠️ IL FAUT RESYNCHRONISER APRES CHAQUE MUTATION, et je l'ai d'abord
+		// ECRIT L'INVERSE. J'avais lu `editModifiers.Evaluate` a la ligne 2042 et
+		// conclu que la vue vivante re-evaluait la pile A CHAQUE FRAME, donc que
+		// muter suffisait. Le temoin a REFUTE ce commentaire : la pile passait a
+		// deux modificateurs et l'image ne bougeait pas d'un bit.
+		// La ligne 2042 est DANS `Demo3D_SyncFromHE` -- l'evaluation n'a lieu que
+		// lorsqu'on resynchronise, pas a chaque frame. C'est bien l'equivalent
+		// exact du `SyncMesh` de la vue morte, et j'avais affirme qu'il n'existait
+		// pas apres avoir lu la bonne ligne dans la mauvaise portee.
+		static Demo3DState *HostModSt() {
+			auto *st = HostSt();
+			return (st && st->editMode) ? st : nullptr;
+		}
+		// Toute mutation de la pile passe par ici : une seule porte, donc aucun
+		// point d'ecriture ne peut oublier la resynchronisation.
+		static void HostModTouch(Demo3DState *st) {
+			auto *ms = hst.ctx.renderer ? hst.ctx.renderer->GetMeshSystem() : nullptr;
+			if (st && ms)
+				Demo3D_SyncFromHE(st, ms);
+		}
+		// ── LE MODE DE L'INTERFACE ATTEINT ENFIN LE VISEUR VIVANT ──────────
+		// Regle de Rodolf : « le mode edition dans l'onglet Edition uniquement,
+		// pour l'objet selectionne. Pareil pour la sculpture, la 2.5D, le
+		// texturing. » La machinerie existait DEJA -- `NkMode` porte les sept
+		// modes, l'onglet les ecrit, la cible suit la selection. Il manquait UN
+		// maillon : `main.cpp:1325` faisait `SetEditMode(st.mode != Objet)`, ce
+		// qui commettait DEUX fautes dans une seule ligne :
+		//   1. repliait SEPT modes en UN booleen (perte d'information) ;
+		//   2. l'envoyait a la vue DORMANTE (mauvaise destination).
+		// Corriger la seule destination aurait laisse la genericite perdue, et le
+		// prochain aurait cru le sujet regle.
+		//
+		// ⚠️ ON N'ECRIT PAS `editMode` DIRECTEMENT. Entrer et sortir d'edition a
+		// deja une porte -- `editTogglePending`, qui resout la cible, clone le
+		// maillage, prepare l'historique. Poser le booleen a la main court-
+		// circuiterait tout cela et fabriquerait un second chemin vers le meme
+		// etat : exactement le motif de doublon qu'on retire depuis ce matin.
+		// On ARME donc la porte existante, et `editMode` reste DERIVE.
+		void Demo3DHostSetMode(int32 mode) {
+			auto *st = HostSt();
+			if (!st || mode < 0)
+				return;
+			st->uiMode = mode;
+			const bool veutEdition = (mode == 1); // NkMode::Edit
+			if (veutEdition != st->editMode)
+				st->editTogglePending = true;
+		}
+		int32 Demo3DHostMode() {
+			auto *st = HostSt();
+			return st ? st->uiMode : 0;
+		}
+
+		// ── CADRER TOUT : la fonctionnalite n'existait QUE du cote mort ─────
+		// Mesuree par ce qu'elle FAIT et non par son nom : calculer les bornes de
+		// la scene, puis poser centre et distance de camera. Cote vivant, il n'y
+		// avait AUCUN calcul de bornes ni cadrage -- ni `SceneBounds`, ni
+		// `ZoomToFit`, ni `FitView`, ni `ViewAll` : une ABSENCE, pas un arbitrage.
+		// C'est ce qui a permis a Rodolf de la trancher separement des modales,
+		// qui, elles, entrent en conflit avec le role actuel de G/R/S.
+		//
+		// L'ANGLE EST CONSERVE : on ne change que le centre et la distance. Un
+		// « cadrer tout » qui replacerait aussi la camera ferait perdre le point
+		// de vue choisi, et l'utilisateur devrait le retrouver a chaque fois.
+		void Demo3DHostFrameAll() {
+			auto *st = HostSt();
+			if (!st)
+				return;
+			NkVec3f mn{1e30f, 1e30f, 1e30f}, mx{-1e30f, -1e30f, -1e30f};
+			bool trouve = false;
+			for (int32 u = 0; u < kNkvpMaxUser; ++u) {
+				if (nkvpUserKind[u] == 0)
+					continue;
+				const int32 un = kNkvpFirstUser + u;
+				if (nkvpDeleted[un] || HostHiddenEff(un))
+					continue; // cadrer sur du CACHE reviendrait a viser du vide
+				const int32 e = un - kNkvpFirstEmpty;
+				const NkVec3f c = HostEmptyXform(e, true) * NkVec3f{0.f, 0.f, 0.f};
+				// Demi-etendue approchee par l'echelle du noeud : sans elle, un seul
+				// objet donnerait un rayon NUL et une distance plancher, donc un
+				// cadrage colle au nez.
+				float32 r = fabsf(nkvpEmptyScl[e][0]);
+				if (fabsf(nkvpEmptyScl[e][1]) > r)
+					r = fabsf(nkvpEmptyScl[e][1]);
+				if (fabsf(nkvpEmptyScl[e][2]) > r)
+					r = fabsf(nkvpEmptyScl[e][2]);
+				if (r < 0.5f)
+					r = 0.5f;
+				if (c.x - r < mn.x) mn.x = c.x - r;
+				if (c.y - r < mn.y) mn.y = c.y - r;
+				if (c.z - r < mn.z) mn.z = c.z - r;
+				if (c.x + r > mx.x) mx.x = c.x + r;
+				if (c.y + r > mx.y) mx.y = c.y + r;
+				if (c.z + r > mx.z) mx.z = c.z + r;
+				trouve = true;
+			}
+			if (!trouve)
+				return; // SCENE VIDE : ne rien faire vaut mieux que viser l'origine
+			const NkVec3f centre{(mn.x + mx.x) * 0.5f, (mn.y + mx.y) * 0.5f,
+								 (mn.z + mx.z) * 0.5f};
+			const float32 ex = mx.x - centre.x, ey = mx.y - centre.y, ez = mx.z - centre.z;
+			float32 rayon = sqrtf(ex * ex + ey * ey + ez * ez);
+			if (rayon < 0.25f)
+				rayon = 0.25f;
+			const float32 fovY = 45.f * 3.14159265f / 180.f;
+			float32 d = (rayon * 1.25f) / tanf(fovY * 0.5f);
+			if (d < 0.5f)
+				d = 0.5f;
+			st->editorCam.SetCenter(centre, d, st->editorCam.GetYaw(), st->editorCam.GetPitch());
+			logger.Info("[Demo3D] CADRER TOUT : centre=({0}, {1}, {2}) rayon={3} distance={4}\n",
+						centre.x, centre.y, centre.z, rayon, d);
+		}
+
+		// NK_EDGE_MARK=1 : pose `sel=1` sur TOUTES les aretes vivantes.
+		// Sert a PRODUIRE LE CAS : rien dans l'application n'ecrit `Edge::sel`
+		// (la selection vit dans `vertSel`), donc mesurer sa survie sans le poser
+		// d'abord aurait rendu SEL=0 avant ET apres -- un jeu de donnees incapable
+		// de produire le cas rend n'importe quelle mesure verte.
+		// La question qu'il tranche : un drapeau porte par une ARETE survit-il a
+		// une operation d'edition ? C'est la question qui decide du chiffrage des
+		// COUTURES UV, qui seraient exactement un tel drapeau.
+		int32 Demo3DHostMarkAllEdges() {
+			auto *st = HostSt();
+			if (!st || !st->editMode)
+				return -1;
+			int32 n = 0;
+			for (uint32 i = 0; i < (uint32)st->editHE.edges.Size(); ++i)
+				if (st->editHE.edges[i].alive) {
+					st->editHE.edges[i].sel = 1;
+					++n;
+				}
+			logger.Info("[Demo3D] MARQUAGE aretes : {0} posees a sel=1\n", n);
+			return n;
+		}
+
+		// ── X-RAY : voir et selectionner a travers le maillage ─────────────
+		// L'etat vit ici (`editXray`) et il MARCHAIT deja : c'est le shell qui
+		// ecrivait a cote, dans la vue morte. On expose l'etat vivant, et le
+		// shell cesse d'en tenir une copie qu'il ne pilotait pas.
+		void Demo3DHostSetXray(bool on) {
+			auto *st = HostSt();
+			if (!st || st->editXray == on)
+				return;
+			st->editXray = on;
+			st->editOverlayDirty = true;
+			logger.Info("[Demo3D] X-ray = {0}\n", st->editXray);
+		}
+		bool Demo3DHostXray() {
+			auto *st = HostSt();
+			return st && st->editXray;
+		}
+
+		// ── STATISTIQUES : le panneau comptait la geometrie de la vue MORTE ─
+		// Meme famille que le panneau Transformation : il n'etait pas muet, il
+		// AFFICHAIT DES NOMBRES FAUX. Et son propre commentaire dit pourquoi c'est
+		// grave : « un panneau qui affiche 8 sommets quoi qu'il arrive est pire
+		// qu'un panneau vide, parce qu'on le croit ».
+		//
+		// DEUX SOURCES, selon le mode, et elles n'ont PAS la meme exactitude :
+		//  - EN EDITION : compte EXACT, lu dans `editHE`. Les faces vivantes se
+		//    comptent comme le faisait la vue morte -- en changements
+		//    d'identifiant dans la table triangle -> face, parce que `FaceCount()`
+		//    rend la TAILLE DE LA TABLE, faces mortes comprises.
+		//  - EN MODE OBJET : compte du maillage de RENDU du noeud actif. Sommets
+		//    et triangles exacts ; ⚠️ ARETES APPROCHEES par la relation d'Euler
+		//    (E = V + F - 2), exacte seulement sur un maillage FERME, et faces
+		//    inconnues -> 0. C'est la limite deja documentee de
+		//    `Demo3DHostMeshCounts` ; je la reprends telle quelle plutot que
+		//    d'inventer un second compteur qui divergerait du premier.
+		bool Demo3DHostStats(uint32 *verts, uint32 *edges, uint32 *faces, uint32 *tris) {
+			if (!verts || !edges || !faces || !tris)
+				return false;
+			*verts = *edges = *faces = *tris = 0u;
+			auto *st = HostSt();
+			if (!st)
+				return false;
+			if (st->editMode) {
+				*verts = st->editHE.VertCount();
+				*edges = st->editHE.EdgeCount();
+				// FACES VIVANTES, comptees DANS LA TABLE et non dans la
+				// triangulation. La vue morte comptait les changements
+				// d'identifiant dans la table triangle -> face ; mesure du 28/08 :
+				// cette table est VIDE au repos et ne se remplit qu'apres une
+				// operation, ce qui affichait « 0 face » sur un maillage intact.
+				// La table des faces, elle, porte son propre drapeau `alive` --
+				// c'est la source, pas un sous-produit du rendu.
+				uint32 vivantes = 0u;
+				for (uint32 i = 0; i < st->editHE.FaceCount(); ++i)
+					if (st->editHE.faces[i].alive)
+						++vivantes;
+				*faces = vivantes;
+				// NK_EDGE_BENCH=<n> : COUT REEL de RebuildEdges sur le maillage QUE
+				// L'UTILISATEUR EDITE -- pas sur les 65 536 faces du banc. C'est ce
+				// chiffre qui decide entre « reconstruire dans la meme passe » et
+				// « maintenir au fil des operations ».
+				// ⚠️ MUTE l'etat (la table est reconstruite) : sous variable
+				// d'environnement UNIQUEMENT, et jamais dans le chemin normal.
+				if (const char *eb = getenv("NK_EDGE_BENCH")) {
+					static bool faitB = false;
+					if (!faitB) {
+						faitB = true;
+						int32 iters = atoi(eb);
+						if (iters < 1)
+							iters = 20;
+						const auto t0 = std::chrono::high_resolution_clock::now();
+						for (int32 k = 0; k < iters; ++k)
+							st->editHE.RebuildEdges();
+						const auto t1 = std::chrono::high_resolution_clock::now();
+						const double ms =
+							std::chrono::duration<double, std::milli>(t1 - t0).count() / (double)iters;
+						logger.Info("[Demo3D] BANC RebuildEdges : {0} iterations, {1} ms/appel "
+									"| verts={2} faces={3} hedges={4} aretes={5}\n",
+									iters, ms, st->editHE.VertCount(), st->editHE.FaceCount(),
+									(uint32)st->editHE.hedges.Size(), st->editHE.EdgeCount());
+					}
+				}
+				static const bool trace = getenv("NK_STATS_TRACE") != nullptr;
+				if (trace) {
+					// LA TABLE EST-ELLE VIDE, OU LE COMPTE EST-IL FAUX ?
+					// `EdgeCount()` est le SUSPECT : on ne le croit pas, on compte par
+					// TROIS voies independantes -- taille du conteneur, drapeau vivant,
+					// et paires de demi-aretes. Trois reponses qui se recoupent disent
+					// la verite ; trois qui divergent designent le menteur.
+					const uint32 nEdges = (uint32)st->editHE.edges.Size();
+					uint32 vivantesE = 0u, avecHedge = 0u, selE = 0u, filaires = 0u;
+					for (uint32 i = 0; i < nEdges; ++i) {
+						if (st->editHE.edges[i].alive)
+							++vivantesE;
+						if (st->editHE.edges[i].hedge != NK_EM_INVALID)
+							++avecHedge;
+						if (st->editHE.edges[i].sel)
+							++selE;
+						if (st->editHE.edges[i].alive && st->editHE.edges[i].faceCount == 0)
+							++filaires;
+					}
+					const uint32 nH = (uint32)st->editHE.hedges.Size();
+					uint32 hAvecEdge = 0u, paires = 0u;
+					for (uint32 i = 0; i < nH; ++i) {
+						const auto &h = st->editHE.hedges[i];
+						if (h.edge != NK_EM_INVALID)
+							++hAvecEdge;
+						if (h.twin == NK_EM_INVALID || i < h.twin)
+							++paires;
+					}
+					logger.Info("[Demo3D] ARETES : table={0} vivantes={1} avec_hedge={2} "
+								"| hedges={3} h_avec_edge={4} canonOf={5} SEL={6} filaires={7}\n",
+								nEdges, vivantesE, avecHedge, nH, hAvecEdge,
+								(uint32)st->editHE.canonOf.Size(), selE, filaires);
+				}
+				if (trace)
+					logger.Info("[Demo3D] STATS detail : FaceCount={0} vivantes={1} "
+								"triFace={2} editIdx={3} editRest={4}\n",
+								st->editHE.FaceCount(), vivantes,
+								(uint32)st->editTriFace.Size(), (uint32)st->editIdx.Size(),
+								(uint32)st->editRest.Size());
+				*tris = (uint32)(st->editIdx.Size() / 3u);
+				// 🔴 DEFAUT MESURE LE 28/08, NOMME ICI PARCE QUE C'EST ICI QU'IL SE LIT :
+				// `EdgeCount()` rend 960 sur la sphere au repos et ZERO apres une
+				// subdivision (v=2047 f=1920 t=3840, e=0). La table d'aretes de premiere
+				// classe n'est donc PAS reconstruite par les operations d'edition.
+				// Consequence visible : le panneau affichera « 0 arete » des la premiere
+				// operation. Ce n'est PAS un defaut du panneau -- il rapporte fidelement
+				// ce que le maillage lui dit -- et je ne le corrige pas ici : la cause
+				// est dans le maillage (RebuildEdges sans appelant applicatif, mesure
+				// le 27/08), et la corriger touche le noyau d'edition.
+				return true;
+			}
+			const int32 node = Demo3DHostSelectedEmptyNode();
+			if (node < 0)
+				return false;
+			int32 v = 0, e = 0, t3 = 0;
+			if (!Demo3DHostMeshCounts(node, &v, &e, &t3))
+				return false;
+			*verts = (uint32)v;
+			*edges = (uint32)e;
+			*tris = (uint32)t3;
+			return true;
+		}
+
+		// ── TRANSFORMATION DE L'OBJET ACTIF : UNE PORTE, DEUX ESPACES ───────
+		// Le panneau « Transformation » lisait et reecrivait la vue DORMANTE : il
+		// n'affichait donc pas l'objet selectionne et ses champs ne commandaient
+		// rien. C'est le premier panneau de la serie qui MENT au lieu de se taire
+		// -- les trois precedents etaient muets, celui-ci affiche des valeurs
+		// fausses comme si elles etaient justes.
+		//
+		// ⚠️ ET IL Y A DEUX ESPACES D'INDICES : les objets de DEMO
+		// (`Demo3DHostObjectTransform`, i < kNumObj) et les noeuds de
+		// L'UTILISATEUR (`Demo3DHostEmptyTransform`, node >= 90). Le panneau ne
+		// doit pas les connaitre : la resolution vit ICI, comme pour la cible
+		// d'edition. Laisser deux espaces fuir dans le shell, c'est garantir
+		// qu'un jour l'un des deux sera oublie.
+		// PRIORITE au noeud utilisateur : c'est lui que l'utilisateur cree et
+		// selectionne ; les objets de demo ne sont selectionnables que faute de
+		// mieux.
+		bool Demo3DHostActiveTransform(float32 *pos3, float32 *rotDeg3, float32 *scl3) {
+			if (!pos3 || !rotDeg3 || !scl3)
+				return false;
+			const int32 node = Demo3DHostSelectedEmptyNode();
+			if (node >= 0 && Demo3DHostEmptyTransform(node, pos3, rotDeg3, scl3))
+				return true;
+			const int32 i = Demo3DHostActiveObject();
+			return i >= 0 && Demo3DHostObjectTransform(i, pos3, rotDeg3, scl3);
+		}
+		// NK_XFORM_TRACE=1 : imprime UNE FOIS ce que le panneau lira.
+		// Le temoin en PIXELS du panneau « Transformation » exige de commuter la
+		// page des proprietes, ce qu'aucun levier headless ne sait faire
+		// aujourd'hui. Faute de quoi la mesure se fait ICI, a la porte que le
+		// panneau appelle -- et le recoupement est SEMANTIQUE : la position lue
+		// doit EGALER celle ou l'objet a ete pose (NK_CURSOR3D), pas seulement
+		// « avoir change ».
+		// NK_NODES_TRACE=1 : inventaire des emplacements utilisateur. Sert a
+		// MESURER ce qu'un import produit reellement, plutot qu'a le supposer.
+		void Demo3DHostNodesTrace() {
+			static bool fait = false;
+			if (fait || !getenv("NK_NODES_TRACE"))
+				return;
+			fait = true;
+			int32 occupes = 0, vivants = 0, avecMesh = 0, models = 0, editables = 0;
+			for (int32 u = 0; u < kNkvpMaxUser; ++u) {
+				if (nkvpUserKind[u] == 0)
+					continue;
+				++occupes;
+				const int32 n = kNkvpFirstUser + u;
+				if (nkvpDeleted[n])
+					continue;
+				++vivants;
+				if (nkvpIsModel[n])
+					++models;
+				if (nkvpUserMesh[u].IsValid())
+					++avecMesh;
+				if (NkVpUserKindEditable(nkvpUserKind[u]) && nkvpUserMesh[u].IsValid())
+					++editables;
+			}
+			logger.Info("[Demo3D] INVENTAIRE noeuds : occupes={0} vivants={1} models={2} "
+						"avec_maillage={3} editables={4}\n",
+						occupes, vivants, models, avecMesh, editables);
+			for (int32 u = 0; u < kNkvpMaxUser; ++u) {
+				const int32 n = kNkvpFirstUser + u;
+				if (nkvpUserKind[u] == 0 || nkvpDeleted[n])
+					continue;
+				logger.Info("[Demo3D]   slot={0} noeud={1} kind={2} model={3} mesh={4} parent={5}\n",
+							u, n, (int32)nkvpUserKind[u], nkvpIsModel[n] ? 1 : 0,
+							nkvpUserMesh[u].IsValid() ? 1 : 0, nkvpParentOf[n]);
+			}
+		}
+		void Demo3DHostXformTrace() {
+			static bool fait = false;
+			if (fait || !getenv("NK_XFORM_TRACE"))
+				return;
+			fait = true;
+			float32 p[3] = {0, 0, 0}, r[3] = {0, 0, 0}, c[3] = {0, 0, 0};
+			const bool ok = Demo3DHostActiveTransform(p, r, c);
+			// NK_XFORM_SET="x,y,z" : ECRIT par la MEME porte que le panneau, pour
+			// prouver le second sens -- les champs doivent COMMANDER, pas
+			// seulement afficher. Un panneau qui affiche juste sans commander
+			// reste un panneau mort ; l'inverse est un panneau qui ment.
+			if (const char *xs = getenv("NK_XFORM_SET")) {
+				float32 np[3] = {p[0], p[1], p[2]};
+				int32 k = 0;
+				for (const char *q = xs; k < 3 && *q;) {
+					np[k++] = (float32)atof(q);
+					while (*q && *q != ',')
+						++q;
+					if (*q == ',')
+						++q;
+				}
+				Demo3DHostSetActiveTransform(np, r, c);
+				logger.Info("[Demo3D] TRACE transform ECRITURE : ({0}, {1}, {2})\n", np[0],
+							np[1], np[2]);
+			}
+			logger.Info("[Demo3D] TRACE transform : actif={0} pos=({1}, {2}, {3}) "
+						"rot=({4}, {5}, {6}) ech=({7}, {8}, {9})\n",
+						ok ? 1 : 0, p[0], p[1], p[2], r[0], r[1], r[2], c[0], c[1], c[2]);
+		}
+		void Demo3DHostSetActiveTransform(const float32 *pos3, const float32 *rotDeg3,
+										  const float32 *scl3) {
+			if (!pos3 || !rotDeg3 || !scl3)
+				return;
+			const int32 node = Demo3DHostSelectedEmptyNode();
+			if (node >= 0) {
+				Demo3DHostSetEmptyTransform(node, pos3, rotDeg3, scl3);
+				return;
+			}
+			const int32 i = Demo3DHostActiveObject();
+			if (i >= 0)
+				Demo3DHostSetObjectTransform(i, pos3, rotDeg3, scl3);
+		}
+
+		// ── SELECTION DE MAILLAGE : trois ECRIVAINS, ZERO LECTEUR ───────────
+		// `Viewport3DSelectAll` et `Viewport3DSetSelectMask` ecrivent la selection
+		// de la vue DORMANTE. J'ai cherche qui la LIT hors de cette vue : PERSONNE
+		// (`Viewport3DSelectedCount`, `Viewport3DSelectMask()`,
+		// `Viewport3DObjectSelected` n'ont aucun appelant dans le shell). Trois
+		// ecrivains, zero lecteur.
+		//
+		// ⚠️ LE COMPTE DES MENTIONS NE DIT PAS QUEL COTE EST VIVANT. `vertSel`
+		// affiche 81 mentions vivantes contre 35 dormantes, ce qui ressemble a un
+		// doublon dont les DEUX cotes vivent -- et un tel doublon ne se reglerait
+		// pas en cessant d'interroger le mort, puisqu'il n'y en aurait pas.
+		// Mais 35 mentions INTERNES sans aucun lecteur exterieur, c'est un cote
+		// MORT qui s'agite. Compter les mentions mesure l'activite, pas la vie :
+		// seul « qui LIT le resultat » separe les deux.
+		//
+		// MESURE DES BOUTONS, avant de porter quoi que ce soit : « tout
+		// selectionner » et « tout deselectionner » ne changent RIEN a l'image --
+		// identiques au bit pres a une action de nom INCONNU. ⚠️ Le controle etait
+		// indispensable : sans lui les deux boutons SEMBLAIENT agir, parce que le
+		// crochet de capture force aussi le mode EDITION, et c'est le MODE qui
+		// changeait l'image.
+		void Demo3DHostSelectAll(bool on) {
+			auto *st = HostModSt();
+			auto *ms = hst.ctx.renderer ? hst.ctx.renderer->GetMeshSystem() : nullptr;
+			if (!st || !ms)
+				return;
+			if (on)
+				st->editHE.SelectAll();
+			else
+				st->editHE.SelectNone();
+			Demo3D_PullSel(st);
+			Demo3D_SyncFromHE(st, ms);
+		}
+		// Le masque de sous-mode (1=sommet 2=arete 4=face) est repose A CHAQUE
+		// FRAME par le shell depuis son onglet : on ne resynchronise donc PAS ici,
+		// et on ignore un masque nul -- au moins un mode doit rester actif.
+		void Demo3DHostSetSelectMask(uint32 mask) {
+			auto *st = HostModSt();
+			if (st && (mask & 7u))
+				st->editSelMask = (int32)(mask & 7u);
+		}
+		uint32 Demo3DHostModTypeCount() {
+			return 17u; // cf. renderer::NkModifierType, en ajout seul
+		}
+		const char *Demo3DHostModTypeName(int32 type) {
+			return renderer::NkModifierTypeName((renderer::NkModifierType)type);
+		}
+		uint32 Demo3DHostModCount() {
+			auto *st = HostModSt();
+			return st ? st->editModifiers.Count() : 0u;
+		}
+		int32 Demo3DHostModAdd(int32 type) {
+			auto *st = HostModSt();
+			if (!st || type < 0 || type >= 17)
+				return -1;
+			renderer::NkMeshModifier m;
+			m.type = (renderer::NkModifierType)type;
+			m.enabled = true;
+			st->editModifiers.Add(m);
+			HostModTouch(st);
+			return (int32)st->editModifiers.Count() - 1;
+		}
+		int32 Demo3DHostModTypeAt(uint32 index) {
+			auto *st = HostModSt();
+			if (!st || index >= st->editModifiers.Count())
+				return -1;
+			return (int32)st->editModifiers.modifiers[index].type;
+		}
+		bool Demo3DHostModEnabled(uint32 index) {
+			auto *st = HostModSt();
+			return st && index < st->editModifiers.Count() &&
+				   st->editModifiers.modifiers[index].enabled;
+		}
+		void Demo3DHostModSetEnabled(uint32 index, bool on) {
+			auto *st = HostModSt();
+			if (st && index < st->editModifiers.Count()) {
+				st->editModifiers.SetEnabled(index, on);
+				HostModTouch(st);
+			}
+		}
+		bool Demo3DHostModRemove(uint32 index) {
+			auto *st = HostModSt();
+			if (!st || !st->editModifiers.Remove(index))
+				return false;
+			HostModTouch(st);
+			return true;
+		}
+		bool Demo3DHostModMove(uint32 index, bool up) {
+			auto *st = HostModSt();
+			if (!st)
+				return false;
+			const bool ok = up ? st->editModifiers.MoveUp(index) : st->editModifiers.MoveDown(index);
+			if (ok)
+				HostModTouch(st);
+			return ok;
+		}
+		// DESTRUCTIF : cuit le modificateur dans le maillage. Commit d'historique
+		// AVANT, comme le faisait la vue morte -- sans lui l'operation ne serait
+		// pas annulable, et c'est la seule de la famille qui touche la geometrie.
+		bool Demo3DHostModApply(uint32 index) {
+			auto *st = HostModSt();
+			auto *ms = hst.ctx.renderer ? hst.ctx.renderer->GetMeshSystem() : nullptr;
+			if (!st || !ms || index >= st->editModifiers.Count())
+				return false;
+			renderer::NkEditMesh snapshot = st->editHE;
+			bool pasPremier = false;
+			if (!st->editModifiers.ApplyToBase(index, st->editHE, &pasPremier))
+				return false;
+			st->editHistory.Commit(snapshot);
+			Demo3D_PullSel(st);
+			Demo3D_SyncFromHE(st, ms);
+			return true;
+		}
+		uint32 Demo3DHostModParamCount(uint32 index) {
+			auto *st = HostModSt();
+			if (!st || index >= st->editModifiers.Count())
+				return 0u;
+			uint32 n = 0;
+			renderer::NkModifierParams(st->editModifiers.modifiers[index].type, n);
+			return n;
+		}
+		bool Demo3DHostModParamInfo(uint32 index, uint32 p, const char **label, int32 *type,
+									float32 *minV, float32 *maxV) {
+			auto *st = HostModSt();
+			if (!st || index >= st->editModifiers.Count())
+				return false;
+			uint32 n = 0;
+			const renderer::NkModParam *ps =
+				renderer::NkModifierParams(st->editModifiers.modifiers[index].type, n);
+			if (!ps || p >= n)
+				return false;
+			if (label)
+				*label = ps[p].label;
+			if (type)
+				*type = (int32)ps[p].type;
+			if (minV)
+				*minV = ps[p].minV;
+			if (maxV)
+				*maxV = ps[p].maxV;
+			return true;
+		}
+		float32 Demo3DHostModGetParam(uint32 index, uint32 p) {
+			auto *st = HostModSt();
+			if (!st || index >= st->editModifiers.Count())
+				return 0.f;
+			uint32 n = 0;
+			const renderer::NkModParam *ps =
+				renderer::NkModifierParams(st->editModifiers.modifiers[index].type, n);
+			if (!ps || p >= n)
+				return 0.f;
+			const uint8 *base = (const uint8 *)&st->editModifiers.modifiers[index];
+			const void *field = base + ps[p].offset;
+			switch (ps[p].type) {
+				case renderer::NkModParamType::Bool:
+					return *(const bool *)field ? 1.f : 0.f;
+				case renderer::NkModParamType::Int:
+					return (float32)(*(const int32 *)field);
+				case renderer::NkModParamType::Vec3:
+					return ((const NkVec3f *)field)->x;
+				default:
+					return *(const float32 *)field;
+			}
+		}
+		void Demo3DHostModSetParam(uint32 index, uint32 p, float32 v) {
+			auto *st = HostModSt();
+			if (!st || index >= st->editModifiers.Count())
+				return;
+			uint32 n = 0;
+			const renderer::NkModParam *ps =
+				renderer::NkModifierParams(st->editModifiers.modifiers[index].type, n);
+			if (!ps || p >= n)
+				return;
+			uint8 *base = (uint8 *)&st->editModifiers.modifiers[index];
+			void *field = base + ps[p].offset;
+			switch (ps[p].type) {
+				case renderer::NkModParamType::Bool:
+					*(bool *)field = (v != 0.f);
+					break;
+				case renderer::NkModParamType::Int:
+					*(int32 *)field = (int32)(v + (v < 0.f ? -0.5f : 0.5f));
+					break;
+				case renderer::NkModParamType::Vec3:
+					((NkVec3f *)field)->x = v;
+					break;
+				default:
+					*(float32 *)field = v;
+					break;
+			}
+			HostModTouch(st);
+		}
+		bool Demo3DHostEditMerge() {
+			return HostEditRun(&Demo3D_MergeHE);
+		}
+		bool Demo3DHostEditMakeFace() {
+			return HostEditRun(&Demo3D_MakeFaceHE);
+		}
+		bool Demo3DHostEditSubdivide() {
+			return HostEditRun(&Demo3D_SubdivideHE);
+		}
+		bool Demo3DHostEditLoopCut() {
+			return HostEditRun(&Demo3D_LoopCutHE);
+		}
+		bool Demo3DHostEditInset() {
+			return HostEditRun(&Demo3D_InsetHE);
+		}
+		bool Demo3DHostEditDissolve() {
+			return HostEditRun(&Demo3D_DissolveHE);
+		}
+		bool Demo3DHostEditBevel(bool vertexMode) {
+			// Demo3D_BevelHE prend un troisieme parametre : pas de pointeur uniforme.
+			auto *st = HostSt();
+			auto *ms = hst.ctx.renderer ? hst.ctx.renderer->GetMeshSystem() : nullptr;
+			if (!st || !ms || !st->editMode)
+				return false;
+			const uint32 avant = st->editHistory.UndoCount();
+			Demo3D_BevelHE(st, ms, vertexMode);
+			return st->editHistory.UndoCount() != avant;
+		}
+		// ── LES CINQ SANS FACADE, PORTEES (2026-08-28) ───────────────────────
+		// Chacune coute UNE ligne parce que l'operateur existait deja : c'est le
+		// signe que la structure est la bonne. Si un quatrieme chemin avait
+		// demande un nouvel operateur, c'est la STRUCTURE qu'il aurait fallu
+		// corriger, pas ajouter le chemin.
+		bool Demo3DHostEditSpin() {
+			return HostEditRun(&Demo3D_SpinHE);
+		}
+		bool Demo3DHostEditEdgeSplit() {
+			return HostEditRun(&Demo3D_EdgeSplitHE);
+		}
+		bool Demo3DHostEditModal(int32 op) {
+			auto *st = HostSt();
+			if (!st || !st->editMode || op < 1 || op > 8)
+				return false;
+			// On POSE la demande, on ne lance pas : le cadre modal a besoin de la
+			// souris et du systeme de maillage, dont ce rappel d'interface ne
+			// dispose pas. C'est EXACTEMENT le chemin de la touche clavier
+			// (modalStartPending), donc un seul lancement possible.
+			st->modalStartPending = op;
+			return true;
+		}
+		bool Demo3DHostArmKnife() {
+			auto *st = HostSt();
+			if (!st || !st->editMode)
+				return false;
+			st->knifeArmed = true;
+			st->knifeHasP0 = false;
+			return true;
+		}
+		bool Demo3DHostKnifeArmed() {
+			auto *st = HostSt();
+			return st && st->editMode && st->knifeArmed;
+		}
+		bool Demo3DHostToolPickerTake() {
+			auto *st = HostSt();
+			if (!st || !st->toolPickerPending)
+				return false;
+			st->toolPickerPending = false; // CONSOMME : une demande = une ouverture
+			return true;
+		}
+		bool Demo3DHostModalActive() {
+			auto *st = HostSt();
+			return st && st->modalOp != 0;
+		}
+		int32 Demo3DHostEditSelCount() {
+			auto *st = HostSt();
+			if (!st || !st->editMode)
+				return 0;
+			int32 n = 0;
+			for (uint32 i = 0; i < (uint32)st->vertSel.Size(); ++i)
+				if (st->vertSel[i])
+					++n;
+			return n;
+		}
 		void Demo3DHostSetEditSelMask(int32 mask) {
 			auto *st = HostSt();
 			if (!st)
@@ -14687,6 +16350,23 @@ namespace nkentseu {
 			}
 			m.rough = rough < 0.f ? 0.f : (rough > 1.f ? 1.f : rough);
 			m.metal = metal < 0.f ? 0.f : (metal > 1.f ? 1.f : metal);
+			// ── L INSTANCE MOTEUR RECOIT LA MEME CHOSE ──────────────────────
+			// ETAPE 1 sur deux. Le shader PBR lit aujourd hui uObj (le draw call)
+			// et ignore uMat (l instance) pour albedo/rugosite/metallique. On
+			// alimente donc l instance SANS rien changer au rendu : c est un
+			// no-op verifiable, et c est ce qui rendra l etape 2 -- faire lire
+			// uMat au shader -- invisible a son tour.
+			// ⚠ ICI, PAS DANS LA BOUCLE DE RENDU : cette facade est le point de
+			// CHANGEMENT. Ecrire le tampon d instance a chaque image ajouterait
+			// un cout la ou il n y en avait pas, pour la meme valeur.
+			// ⚠ La copie miroir reste la SOURCE : elle devient source ET
+			// l instance destination. La retirer est la direction, pas ce commit.
+			if (NkvpMatEng(i)) {
+				NkvpMatEng(i)
+					->SetAlbedo({m.albedo[0], m.albedo[1], m.albedo[2]}, m.alpha)
+					->SetRoughness(m.rough)
+					->SetMetallic(m.metal);
+			}
 		}
 		// ── PHYSIQUE DE SURFACE : vernis + diffusion (2026-08-09) ────────────
 		// A part de SetParams : les appelants historiques (collage de groupe,
@@ -14720,6 +16400,22 @@ namespace nkentseu {
 			m.clearcoat = cc < -64.f ? -64.f : (cc > 64.f ? 64.f : cc);
 			m.ccRough = ccRough < 0.f ? 0.f : (ccRough > 1.f ? 1.f : ccRough);
 			m.subsurface = sss < 0.f ? 0.f : (sss > 1.f ? 1.f : sss);
+			// ── L INSTANCE MOTEUR RECOIT LA MEME CHOSE (etape 1) ────────────
+			// ⚠ CONSEQUENCE NOMMEE, PAS GLISSEE : `clearcoat` porte le VERNIS
+			// pour les familles PBR et l INDICE DE REFRACTION pour le type Verre
+			// (double emploi assume, cf. le commentaire de cette fonction). Or
+			// glass.frag.nksl:100 lit `uMat.clearcoat` comme indice -- et rien ne
+			// le remplissait, d ou l indice fige a 1,5 (mesure par capture : deux
+			// rendus a n=1,0 et n=2,4 identiques au bit pres).
+			// L alimenter ici REPARE donc l indice de refraction du verre. Ce
+			// n est pas un no-op pour ce type, et c est mesure separement.
+			// La couleur de diffusion suit l albedo : la matiere transmet sa
+			// propre teinte, comme le fait deja le chemin du draw call.
+			if (NkvpMatEng(i)) {
+				NkvpMatEng(i)
+					->SetClearcoat(m.clearcoat, m.ccRough)
+					->SetSubsurface(m.subsurface, {m.albedo[0], m.albedo[1], m.albedo[2]});
+			}
 		}
 		void Demo3DHostProjMatSetName(int32 i, const char *name) {
 			if (i < 0 || i >= kNkvpMaxProjMats || !nkvpProjMats[i].used || !name || !name[0])
@@ -17143,6 +18839,55 @@ namespace nkentseu {
 					dv = 64;
 				nkvpUserMesh[u] = ms->CreatePlaneMesh((uint32)dv, (uint32)dv);
 			}
+			// ── REGLE DE RODOLF : « TOUT MESH DOIT POUVOIR ETRE EDITABLE » ──────
+			// Ce qui precede a une branche PAR NATURE. Une nature sans generateur
+			// ne recevait AUCUN maillage propre : elle s'affichait avec le
+			// maillage PARTAGE de la scene, et le mode edition la refusait, parce
+			// qu'il exige `nkvpUserMesh[u]` valide.
+			// C'est ce qui rendait le CUBE (nature 2, sous-type 0) et le CERCLE
+			// (nature 10) ineditables -- deux entrees du menu « Ajouter > Maillage »
+			// sur dix, dont la primitive la plus utilisee d'un modeleur.
+			//
+			// ⚠️ DEUX BRANCHES DE PLUS N'AURAIENT PAS TENU LA REGLE. Elles auraient
+			// regle DEUX CAS ; la prochaine nature ajoutee serait retombee dans le
+			// meme trou, en silence. Le repli ci-dessous est GENERIQUE : toute
+			// nature qui n'a pas produit de maillage recoit une COPIE PRIVEE de
+			// celui qu'elle affiche. Copie, et non le partage : deux cubes doivent
+			// s'editer separement, or `GetCube()` rend un handle MIS EN CACHE --
+			// le donner directement ferait editer tous les cubes a la fois. C'est
+			// tres probablement pour cela que la branche manquait.
+			if (!nkvpUserMesh[u].IsValid()) {
+				auto *stR = HostSt();
+				if (stR) {
+					// MEME choix que l'affichage, sinon on editerait autre chose que
+					// ce qui est montre.
+					NkMeshHandle src = stR->meshPlane;
+					if (uk == 1)
+						src = (sub == 1) ? stR->meshIco : stR->meshSphere;
+					else if (uk == 2)
+						src = (sub == 1) ? stR->meshCylinder
+										 : ((sub == 2) ? stR->meshCone : stR->meshCube);
+					if (src.IsValid() && ms->HasCPUData(src)) {
+						renderer::NkMeshDesc d = renderer::NkMeshDesc::Simple(
+							renderer::NkVertexLayout::Default3D(),
+							(const renderer::NkVertex3D *)ms->GetVertices(src),
+							ms->GetVertexCount(src), ms->GetIndices(src), ms->GetIndexCount(src));
+						// ⚠️ NE PAS « OPTIMISER » CETTE COPIE EN PARTAGE.
+						// Elle ressemble a une inefficacite : les autres natures
+						// prennent un handle deja construit, celle-ci en fabrique
+						// un. C'est VOULU. Les `GetXxx()` du systeme de maillage
+						// rendent un handle MIS EN CACHE, partage par toute la
+						// scene ; l'edition modifie le maillage EN PLACE. Partager
+						// ferait donc editer TOUS les cubes a la fois des qu'on en
+						// edite un.
+						// Et c'est tres probablement la raison pour laquelle le
+						// moteur n'a AUCUN `CreateCubeMesh` la ou il a
+						// Sphere/Cylindre/Cone/Tore/Capsule/Plan : le probleme
+						// n'etait pas oublie, il n'etait pas resolu.
+						nkvpUserMesh[u] = ms->Create(d);
+					}
+				}
+			}
 		}
 		// Descripteur d'une lumiere par NOEUD (demo 86..89 ou utilisateur).
 		static renderer::NkLightDesc *HostLightDescOf(int32 node) {
@@ -18404,7 +20149,17 @@ namespace nkentseu {
 										   : (kind == 1 && (sub & 0xFF) == 1 ? 3 : 32);
 				nkvpUserRing[u] = 16;
 				nkvpUserAux[u] = 0.15f;
-				if (kind >= 1 && kind <= 3) {
+				// QUELLES NATURES SONT DES MAILLAGES. 1 sphere, 2 cube/cylindre/
+				// cone, 3 plan, 10 cercle. Les natures 4..9 (empty, lumiere, texte,
+				// courbe, surface, metaball) naissent en MARQUEURS : elles n'ont pas
+				// de geometrie a editer, et la regle « tout mesh doit etre editable »
+				// ne les vise pas.
+				// ⚠️ LE CERCLE (10) ETAIT EXCLU DE CETTE GARDE et ne passait donc
+				// JAMAIS par la generation -- c'est la seconde moitie de la cause,
+				// et le repli generique de HostRegenUserMesh seul ne l'aurait pas
+				// rattrape : on ne replie que ce qu'on appelle.
+				const bool estMaillage = (kind >= 1 && kind <= 3) || kind == 10;
+				if (estMaillage) {
 					HostRegenUserMesh(u);
 					// TOUT MAILLAGE NAIT AVEC UN MATERIAU (regle de Rihen,
 					// comme Blender) : le premier du registre -- cree au

@@ -1,0 +1,1430 @@
+\chapter{Construire un jeu de plateau, de A à Z}
+
+Ce chapitre ne décrit pas un jeu : il le \textbf{construit}. Vous partez d'un
+dossier vide et vous arrivez à un jeu de dames complet --- règles, damier,
+adversaire, écran d'ouverture --- qui se lance sur Windows, Linux, macOS,
+Android, iOS, HarmonyOS et dans un navigateur.
+
+Treize étapes, dans l'ordre. Chacune produit quelque chose qui \emph{se
+construit et se lance} : à aucun moment vous n'écrivez du code que vous ne
+pouvez pas encore éprouver. Rien n'est sauté.
+
+\begin{nkretenir}
+\textbf{L'ordre des étapes est le sujet du chapitre.}
+
+On écrit les règles \emph{avant} l'écran, et le banc \emph{avant} le dessin.
+Ce n'est pas de la discipline : c'est ce qui rend le jeu prouvable. Écrivez le
+dessin d'abord, et vos règles n'auront plus jamais de verdict indépendant de ce
+que vous croyez voir.
+\end{nkretenir}
+
+\section*{Ce que nous allons construire}
+\addcontentsline{toc}{section}{Ce que nous allons construire}
+
+\begin{center}
+\begin{tabular}{@{}rlll@{}}
+\toprule
+\textbf{Étape} & \textbf{Fichier} & \textbf{Ce qu'on obtient} & \textbf{Lignes} \\
+\midrule
+1 & \texttt{NkDames.jenga} & le projet existe & $\approx$60 \\
+2 & \texttt{src/main.cpp} & une fenêtre qui s'ouvre & 12 \\
+3--7 & \texttt{Dames/NkDamesRegles.\{h,cpp\}} & le jeu, sans image & 538 \\
+8 & \texttt{Dames/NkDamesBanc.\{h,cpp\}} & \textbf{la preuve} & 272 \\
+9 & \texttt{Dames/NkDamesTheme.h} & les couleurs & 63 \\
+9--10 & \texttt{Dames/NkDamesEcran.\{h,cpp\}} & le damier à l'écran & 609 \\
+11--13 & \texttt{Dames/NkDamesJeu.\{h,cpp\}} & le jeu jouable & 477 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\noindent Total : \textbf{1\,998 lignes}, sept fichiers de code. Les chiffres
+sont ceux de \texttt{Applications/NkDames} dans le dépôt --- ce chapitre en est
+la reconstruction pas à pas.
+
+\section{Étape 1 --- le dossier et le fichier de projet}
+
+\begin{nkcode}{L'arborescence a creer}
+Applications/NkDames/
+    NkDames.jenga
+    src/
+        main.cpp
+        Dames/
+\end{nkcode}
+
+Rien d'autre : pas de dossier \texttt{assets}, pas de \texttt{Resources}. Ce jeu
+ne chargera \textbf{aucun fichier à l'exécution} --- le damier est dessiné par
+géométrie et la police est embarquée dans le binaire.
+
+\begin{nkretenir}
+\textbf{C'est ce qui permet de démarrer à l'identique sur sept plateformes.} Un
+seul asset à copier, et il faut une chaîne de copie par plateforme, une
+permission de lecture sur Android, un téléchargement de plus avant la première
+image sur le Web. Ne créez ce dossier que le jour où vous avez vraiment un
+fichier à y mettre.
+\end{nkretenir}
+
+Voici le fichier de projet \textbf{minimal et complet} pour construire sur
+ordinateur :
+
+\begin{nkcode}{Applications/NkDames/NkDames.jenga -- version minimale, fonctionnelle}
+from Jenga import *
+from jengaconfig import *
+
+with project("NkDames"):
+    windowedapp()                 # pas de console noire derriere la fenetre
+    language("C++")
+    cppdialect("C++17")
+    location(".")
+
+    files(["src/**.cpp"])         # tout le .cpp sous src/, recursivement
+
+    nkentseudependson(
+        ["NKEvent", "NKWindow", "NKCanvas", "NKImage", "NKFont", "NKGlad",
+         "NKLogger", "NKMath", "NKTime", "NKStream", "NKGui", "NKFileSystem",
+         "NKSerialization", "NKContainers", "NKMemory", "NKCore",
+         "NKPlatform", "NKThreading", "NKAudio"],
+        extra_includes=["src", "%{NKGlad.location}/include",
+                        "%{wks.location}/Externals"])
+
+    objdir("%{wks.location}/Build/Obj/%{cfg.buildcfg}-%{cfg.system}/%{prj.name}")
+    targetdir("%{wks.location}/Build/Bin/%{cfg.buildcfg}-%{cfg.system}/%{prj.name}")
+
+    apppublisher("Rihen Universe")
+    appversion("0.1.0")
+    licensefile("../../LICENSE")
+
+    with filter("system:Windows"):
+        windowedapp()
+        usetoolchain(TC_WINDOWS)
+        defines(["WIN32_LEAN_AND_MEAN", "_UNICODE", "UNICODE"])
+        links(["user32", "gdi32", "opengl32", "dwmapi", "shell32",
+               "ole32", "uuid", "avrt", "winmm"])
+
+    with filter("config:Debug"):
+        defines(["_DEBUG", "DEBUG"]); optimize("Off");   symbols(True)
+    with filter("config:Release"):
+        defines(["NDEBUG"]);          optimize("Speed"); symbols(False)
+\end{nkcode}
+
+\begin{nkretenir}
+\textbf{\texttt{extra\_includes=["src", \dots]} est la ligne qu'on oublie}, et
+son absence donne \texttt{fatal error: 'Dames/NkDamesRegles.h' file not found}
+--- une erreur qui accuse votre inclusion alors que c'est le \emph{projet} qui
+ne sait pas où chercher.
+
+Les dix-neuf modules listés ne sont pas décoratifs : chacun manquant produit une
+erreur d'\emph{édition de liens}, pas de compilation --- donc à la toute fin,
+avec un message qui nomme un symbole et jamais un module.
+\end{nkretenir}
+
+\begin{nkpiege}
+\textbf{Un projet qui n'est pas enregistré dans l'espace de travail n'existe
+pas.} Ajoutez, dans \texttt{Nkentseu.jenga} à la racine :
+
+\begin{nkcode}{Nkentseu.jenga}
+with include("Applications/NkDames/NkDames.jenga"):
+    pass
+\end{nkcode}
+
+Sans cette ligne, \texttt{jenga build --target NkDames} répond que la cible
+n'existe pas --- et l'on relit son \texttt{.jenga} vingt fois, qui est juste.
+\end{nkpiege}
+
+\subsection{Les six autres plateformes}
+
+Chaque plateforme ajoute un \texttt{filter} qui déclare sa chaîne d'outils et
+ses bibliothèques. Le tableau suivant résume ce que chacun apporte ; le fichier
+complet est dans le dépôt.
+
+\begin{center}
+\begin{tabular}{@{}lll@{}}
+\toprule
+\textbf{Plateforme} & \textbf{Chaîne} & \textbf{À déclarer en plus} \\
+\midrule
+Linux (XLib) & \texttt{clang-native} & \texttt{X11 Xext Xrandr GL asound} \\
+macOS & \texttt{clang-native} & \emph{frameworks} Cocoa, Metal, AudioToolbox\dots \\
+Android & \texttt{android-ndk} & id, SDK, ABI, orientation, \texttt{OpenSLES} \\
+iOS & --- & \emph{frameworks} UIKit, Metal, AudioToolbox \\
+HarmonyOS & \texttt{ohos-ndk} & \texttt{bundlename}, \texttt{hilog\_ndk.z} \\
+Web & \texttt{emscripten} & \texttt{ASYNCIFY}, \texttt{USE\_WEBGL2} \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\begin{nkpiege}[Trois erreurs de ce tableau ont réellement été payées]
+\textbf{\texttt{AudioUnit} n'existe pas sur iOS.} C'est un framework séparé sur
+macOS seulement ; sur iOS ses symboles vivent dans \texttt{AudioToolbox}.
+Recopier la liste macOS donne \texttt{ld: framework AudioUnit not found}.
+\emph{Un précédent se vérifie sur SA plateforme.}
+
+\textbf{Sans orientation déclarée}, Android et HarmonyOS imposent la leur et
+l'image sort tournée d'un quart de tour.
+
+\textbf{\texttt{ASYNCIFY} n'est pas une option de confort} sur le Web : sans
+elle, la boucle ne peut pas rendre la main et l'onglet gèle.
+\end{nkpiege}
+
+\section{Étape 2 --- la fenêtre qui s'ouvre}
+
+Douze lignes, et le jeu se lance déjà.
+
+\begin{nkcode}{Applications/NkDames/src/main.cpp}
+#include "Dames/NkDamesJeu.h"
+#include "NKWindow/NKMain.h"
+
+NKENTSEU_DEFINE_APP_DATA(([]() {
+    nkentseu::NkAppData d{};
+    d.appName    = "NkDames";
+    d.appVersion = "1.0.0";
+    return d;
+})());
+
+int nkmain(const nkentseu::NkEntryState &state) {
+    return nkentseu::renderer::NkCanvasApp::Run<nkentseu::jeux::dames::NkDamesJeu>(state);
+}
+\end{nkcode}
+
+\begin{nkretenir}
+\textbf{Ce fichier ne contiendra jamais de logique.} Il déclare le nom et la
+version, puis rend la main à la coquille. Tout le reste a son fichier --- et
+c'est cette discipline qui fait qu'à l'étape 13 vous saurez encore où ajouter
+quelque chose.
+\end{nkretenir}
+
+\begin{nkpiege}
+\textbf{\texttt{\#include "NKWindow/NKMain.h"} fournit le point d'entrée natif}
+de chaque plateforme : \texttt{WinMain}, \texttt{android\_main},
+\texttt{UIApplicationMain}\dots
+
+Sans lui, tout compile et l'édition de liens tombe sur
+\texttt{undefined reference to WinMain} --- une erreur qui ne nomme
+\emph{aucun} de vos fichiers, et qu'on cherche donc partout sauf ici.
+
+Et \textbf{n'écrivez pas votre propre \texttt{main}} : \texttt{nkmain} est le
+point d'entrée portable, avec seize points d'entrée de plateforme derrière lui.
+\end{nkpiege}
+
+\begin{nkpiege}
+\texttt{NKENTSEU\_DEFINE\_APP\_DATA} attend un \texttt{NkAppData}, pas une
+chaîne. Lui passer \texttt{"NkDames"} donne
+\texttt{no viable overloaded '='} --- un message qui ne nomme jamais la cause.
+
+Le \texttt{()} final de la lambda n'est pas décoratif non plus : sans lui, vous
+passez la \emph{fonction} au lieu de son résultat.
+\end{nkpiege}
+
+\section{Étape 3 --- les règles : les types}
+
+Créez \texttt{src/Dames/NkDamesRegles.h}. Regardez d'abord ce qu'il inclut, car
+c'est la décision la plus importante du chapitre :
+
+\begin{nkcode}{Applications/NkDames/src/Dames/NkDamesRegles.h}
+#include "NKContainers/Sequential/NkVector.h"
+#include "NKCore/NkTypes.h"
+\end{nkcode}
+
+\begin{nkretenir}
+\textbf{Deux inclusions. Ni fenêtre, ni GPU, ni image, ni police.}
+
+Conséquence immédiate, et c'est tout l'objet de l'étape 8 : \textbf{ces règles se
+testeront sans ouvrir de fenêtre}, en console, en une seconde, sur une machine
+sans écran.
+
+Rangez une seule règle du côté du dessin, et elle devient invisible au banc. Le
+jeu marchera peut-être ; personne ne pourra le prouver.
+\end{nkretenir}
+
+\begin{nkcode}{Applications/NkDames/src/Dames/NkDamesRegles.h}
+namespace nkentseu {
+    namespace jeux {
+
+        enum class NkDamesCamp : uint8 { NK_BLANC = 0, NK_NOIR = 1 };
+
+        enum class NkDamesPiece : uint8 {
+            NK_VIDE = 0,
+            NK_PION_BLANC, NK_PION_NOIR,
+            NK_DAME_BLANCHE, NK_DAME_NOIRE
+        };
+
+        inline bool NkDamesEstBlanc(NkDamesPiece p) noexcept {
+            return p == NkDamesPiece::NK_PION_BLANC || p == NkDamesPiece::NK_DAME_BLANCHE;
+        }
+        inline bool NkDamesEstNoir(NkDamesPiece p) noexcept {
+            return p == NkDamesPiece::NK_PION_NOIR || p == NkDamesPiece::NK_DAME_NOIRE;
+        }
+        inline bool NkDamesEstDame(NkDamesPiece p) noexcept {
+            return p == NkDamesPiece::NK_DAME_BLANCHE || p == NkDamesPiece::NK_DAME_NOIRE;
+        }
+        inline bool NkDamesAppartient(NkDamesPiece p, NkDamesCamp c) noexcept {
+            return c == NkDamesCamp::NK_BLANC ? NkDamesEstBlanc(p) : NkDamesEstNoir(p);
+        }
+\end{nkcode}
+
+\begin{nkretenir}
+\textbf{Une seule énumération pour la pièce, pas deux champs} « couleur » et
+« type ». Deux champs autorisent l'état \emph{aucune couleur mais une dame} ---
+un état qui n'existe pas dans le jeu et qu'il faudrait pourtant traiter partout.
+
+Les quatre fonctions \texttt{inline} sont la contrepartie : elles rendent
+lisible ce que l'énumération compacte. Elles sont dans l'en-tête, donc
+gratuites.
+\end{nkretenir}
+
+Puis le coup. Un coup de dames n'est pas un déplacement : c'est \emph{une rafle
+entière}.
+
+\begin{nkcode}{Applications/NkDames/src/Dames/NkDamesRegles.h}
+        static const int32 NK_DAMES_MAX_PRISES = 20;
+
+        struct NkDamesCoup {
+                int8 depR = -1, depC = -1;   // case de depart
+                int8 arrR = -1, arrC = -1;   // case d'arrivee FINALE
+
+                uint8 nbPrises = 0;
+                int8 prisR[NK_DAMES_MAX_PRISES] = {};
+                int8 prisC[NK_DAMES_MAX_PRISES] = {};
+
+                // Les cases d'atterrissage successives, pour l'affichage.
+                uint8 nbEtapes = 0;
+                int8 etapeR[NK_DAMES_MAX_PRISES] = {};
+                int8 etapeC[NK_DAMES_MAX_PRISES] = {};
+
+                bool EstPrise() const noexcept { return nbPrises > 0; }
+        };
+\end{nkcode}
+
+\begin{nkretenir}
+\textbf{Des tableaux de taille fixe, pas des vecteurs.} Un coup est copié des
+milliers de fois pendant la génération ; une allocation par copie coûterait
+plus que tout le reste du jeu.
+
+Le commentaire du dépôt justifie le 20 : « le record théorique connu au jeu
+international est de 12 ; 20 laisse une marge sans jamais tronquer une rafle
+légale --- et une troncature silencieuse fausserait le choix de la rafle
+maximale, donc la règle elle-même ».
+
+\textbf{C'est un plafond qui se justifie par la conséquence de son
+dépassement}, pas par une intuition de confort.
+\end{nkretenir}
+
+Enfin la classe :
+
+\begin{nkcode}{Applications/NkDames/src/Dames/NkDamesRegles.h}
+        class NkDamesPartie {
+            public:
+                static const int32 NK_TAILLE = 10;
+
+                NkDamesPartie() { Initialiser(); }
+
+                void Initialiser() noexcept;
+
+                NkDamesPiece Case(int32 r, int32 c) const noexcept {
+                    return DansDamier(r, c) ? mCases[r][c] : NkDamesPiece::NK_VIDE;
+                }
+                void PoserCase(int32 r, int32 c, NkDamesPiece p) noexcept {
+                    if (DansDamier(r, c)) { mCases[r][c] = p; }
+                }
+
+                NkDamesCamp Trait() const noexcept { return mTrait; }
+                void PoserTrait(NkDamesCamp c) noexcept { mTrait = c; }
+
+                void CoupsLegaux(NkVector<NkDamesCoup> &sortie) const;
+                bool Jouer(const NkDamesCoup &coup) noexcept;
+                bool EstTerminee(NkDamesCamp &gagnant) const;
+                int32 CompterPieces(NkDamesCamp camp) const noexcept;
+                void CoupsDepuis(int32 r, int32 c, NkVector<NkDamesCoup> &sortie) const;
+
+                static bool DansDamier(int32 r, int32 c) noexcept {
+                    return r >= 0 && r < NK_TAILLE && c >= 0 && c < NK_TAILLE;
+                }
+                // Les cases jouables sont les SOMBRES. Convention : (r+c) impair.
+                static bool CaseJouable(int32 r, int32 c) noexcept {
+                    return ((r + c) & 1) != 0;
+                }
+
+            private:
+                void GenererPrises(int32 r, int32 c, NkVector<NkDamesCoup> &sortie) const;
+                void ExplorerPrises(int32 r, int32 c, NkDamesPiece piece, NkDamesCoup &courant,
+                                    bool prisesFaites[NK_TAILLE][NK_TAILLE],
+                                    NkVector<NkDamesCoup> &sortie) const;
+                void GenererSimples(int32 r, int32 c, NkVector<NkDamesCoup> &sortie) const;
+
+                NkDamesPiece mCases[NK_TAILLE][NK_TAILLE] = {};
+                NkDamesCamp mTrait = NkDamesCamp::NK_BLANC;
+        };
+\end{nkcode}
+
+\begin{nkretenir}
+\textbf{Six questions publiques suffisent à décrire un jeu au tour par tour} :
+initialiser, lire une case, qui joue, quels coups sont légaux, jouer, est-ce
+fini. Vous retrouverez exactement les mêmes aux échecs et au ludo.
+
+\texttt{Case()} borne elle-même : un indice hors damier rend \texttt{NK\_VIDE}
+au lieu de lire n'importe où. C'est ce qui permet aux générateurs de coups
+d'explorer sans tester les bords à chaque pas.
+
+Et \texttt{CoupsLegaux} \emph{écrit dans} un vecteur qu'on lui donne au lieu
+d'en rendre un : l'appelant réutilise le même tampon à chaque tour.
+\end{nkretenir}
+
+\section{Étape 4 --- l'initialisation}
+
+Créez \texttt{NkDamesRegles.cpp}. Première fonction :
+
+\begin{nkcode}{Applications/NkDames/src/Dames/NkDamesRegles.cpp}
+void NkDamesPartie::Initialiser() noexcept {
+    for (int32 r = 0; r < NK_TAILLE; ++r) {
+        for (int32 c = 0; c < NK_TAILLE; ++c) {
+            mCases[r][c] = NkDamesPiece::NK_VIDE;
+        }
+    }
+    // Rangees 0..3 = noirs (en haut), 6..9 = blancs (en bas).
+    for (int32 r = 0; r < 4; ++r) {
+        for (int32 c = 0; c < NK_TAILLE; ++c) {
+            if (CaseJouable(r, c)) { mCases[r][c] = NkDamesPiece::NK_PION_NOIR; }
+        }
+    }
+    for (int32 r = 6; r < NK_TAILLE; ++r) {
+        for (int32 c = 0; c < NK_TAILLE; ++c) {
+            if (CaseJouable(r, c)) { mCases[r][c] = NkDamesPiece::NK_PION_BLANC; }
+        }
+    }
+    mTrait = NkDamesCamp::NK_BLANC;
+}
+\end{nkcode}
+
+\begin{nkretenir}
+\textbf{Les rangées 4 et 5 restent vides} : c'est ce qui donne 20 pièces par
+camp sur un damier de 10$\times$10. Et \texttt{CaseJouable} est appelée plutôt
+que réécrite --- une seconde définition de « case sombre » quelque part dans le
+dessin, et un jour les deux diffèrent.
+\end{nkretenir}
+
+Et le compteur, qui servira à la fois aux règles, à l'affichage et au banc :
+
+\begin{nkcode}{Applications/NkDames/src/Dames/NkDamesRegles.cpp}
+int32 NkDamesPartie::CompterPieces(NkDamesCamp camp) const noexcept {
+    int32 n = 0;
+    for (int32 r = 0; r < NK_TAILLE; ++r) {
+        for (int32 c = 0; c < NK_TAILLE; ++c) {
+            if (NkDamesAppartient(mCases[r][c], camp)) { ++n; }
+        }
+    }
+    return n;
+}
+\end{nkcode}
+
+\section{Étape 5 --- les coups simples}
+
+En haut du \texttt{.cpp}, les quatre diagonales :
+
+\begin{nkcode}{Applications/NkDames/src/Dames/NkDamesRegles.cpp}
+namespace {
+    // Ordre fixe : il decide, a rafle egale, quel coup l'ordinateur trouve
+    // en premier -- donc il doit etre stable.
+    const int32 kDirR[4] = {-1, -1, 1, 1};
+    const int32 kDirC[4] = {-1, 1, -1, 1};
+}
+\end{nkcode}
+
+\begin{nkretenir}
+\textbf{Un ordre arbitraire qui a une conséquence observable cesse d'être
+arbitraire.} Changer ces quatre paires ne change aucune règle --- mais change le
+coup que l'IA choisit à égalité, donc la partie entière.
+
+Une constante dont la valeur n'importe pas mais dont \emph{la stabilité}
+importe : écrivez-le, sinon quelqu'un les réordonnera pour faire joli.
+\end{nkretenir}
+
+Un pion avance d'une case en diagonale, sans reculer. Une dame glisse.
+
+\begin{nkcode}{Applications/NkDames/src/Dames/NkDamesRegles.cpp -- structure}
+void NkDamesPartie::GenererSimples(int32 r, int32 c, NkVector<NkDamesCoup> &sortie) const {
+    const NkDamesPiece piece = mCases[r][c];
+    const bool dame  = NkDamesEstDame(piece);
+    const int32 sens = NkDamesEstBlanc(piece) ? -1 : +1;   // les blancs montent
+
+    for (int32 d = 0; d < 4; ++d) {
+        if (!dame && kDirR[d] != sens) { continue; }       // un pion ne recule pas
+        int32 rr = r + kDirR[d], cc = c + kDirC[d];
+        while (DansDamier(rr, cc) && mCases[rr][cc] == NkDamesPiece::NK_VIDE) {
+            NkDamesCoup m;
+            m.depR = (int8)r;  m.depC = (int8)c;
+            m.arrR = (int8)rr; m.arrC = (int8)cc;
+            sortie.PushBack(m);
+            if (!dame) { break; }                          // le pion s'arrete a 1
+            rr += kDirR[d]; cc += kDirC[d];                // la dame glisse
+        }
+    }
+}
+\end{nkcode}
+
+\begin{nkretenir}
+\textbf{Une seule fonction pour le pion et la dame}, séparés par deux lignes :
+le \texttt{continue} qui interdit le recul, et le \texttt{break} qui limite à une
+case. Deux fonctions distinctes auraient divergé au premier correctif.
+\end{nkretenir}
+
+\section{Étape 6 --- la rafle, et c'est le seul endroit délicat}
+
+Une rafle est une \emph{suite} de prises dans le même coup. On l'explore en
+profondeur.
+
+\begin{nkcode}{Applications/NkDames/src/Dames/NkDamesRegles.cpp -- l'en-tete du fichier}
+// LE POINT DELICAT, ET IL N'Y EN A QU'UN : la rafle.
+//   On l'explore en profondeur, et la piece prise est marquee "deja prise"
+//   pendant l'exploration SANS ETRE RETIREE du damier : elle continue de
+//   BLOQUER le passage. C'est la regle du jeu, et c'est aussi ce qui evite de
+//   compter deux fois la meme piece. Retirer la piece pendant l'exploration
+//   produirait des rafles qui n'existent pas -- l'erreur classique, et elle
+//   est silencieuse.
+\end{nkcode}
+
+\begin{nkretenir}
+\textbf{Lisez ce paragraphe deux fois : il contient la totalité de la
+difficulté.}
+
+Une pièce capturée n'est retirée qu'\emph{à la fin} de la rafle. Pendant
+l'exploration elle est marquée --- pour ne pas être comptée deux fois --- mais
+elle reste sur le damier et \textbf{bloque le trajet}.
+
+Si vous la retirez tout de suite, votre programme trouvera des rafles qui
+n'existent pas : la case libérée laisse passer une dame qui, en vrai, serait
+arrêtée. Le jeu ne plantera pas. Il trichera.
+\end{nkretenir}
+
+\begin{nkcode}{Applications/NkDames/src/Dames/NkDamesRegles.cpp}
+void NkDamesPartie::ExplorerPrises(int32 r, int32 c, NkDamesPiece piece,
+                                   NkDamesCoup &courant,
+                                   bool prisesFaites[NK_TAILLE][NK_TAILLE],
+                                   NkVector<NkDamesCoup> &sortie) const {
+    const NkDamesCamp camp = NkDamesEstBlanc(piece) ? NkDamesCamp::NK_BLANC
+                                                   : NkDamesCamp::NK_NOIR;
+    const NkDamesCamp adverse = (camp == NkDamesCamp::NK_BLANC) ? NkDamesCamp::NK_NOIR
+                                                                : NkDamesCamp::NK_BLANC;
+    const bool dame = NkDamesEstDame(piece);
+    bool aContinue = false;
+
+    for (int32 d = 0; d < 4; ++d) {
+        // 1. avancer jusqu'a rencontrer une piece
+        // 2. si elle est adverse ET pas deja prise ET la case suivante est libre :
+        //      -> marquer, empiler l'etape, RECURSER, puis DEMARQUER
+        //      -> aContinue = true
+    }
+
+    // 3. une rafle qui ne peut plus continuer est un coup complet
+    if (!aContinue && courant.nbPrises > 0) {
+        courant.arrR = (int8)r; courant.arrC = (int8)c;
+        sortie.PushBack(courant);
+    }
+}
+\end{nkcode}
+
+\begin{nkretenir}
+\textbf{Le « démarquer » après la récursion est ce qui distingue une exploration
+d'un parcours.} Sans lui, la première branche essayée empoisonne toutes les
+suivantes : la deuxième croit que la pièce est déjà prise, et la rafle qu'elle
+aurait trouvée disparaît.
+
+C'est le \emph{retour sur trace} (\emph{backtracking}), et il tient en une
+ligne qu'on oublie une fois sur deux.
+\end{nkretenir}
+
+\begin{nkpiege}
+\textbf{La case de DÉPART de la rafle est vide « pour de faux ».} La pièce y est
+encore, physiquement, puisqu'on n'a rien joué. Une dame qui revient sur sa
+propre case de départ en cours de rafle doit pouvoir passer.
+
+C'est le genre de cas qu'on ne rencontre qu'une partie sur cent --- donc jamais
+pendant le développement, et toujours chez un joueur.
+\end{nkpiege}
+
+\section{Étape 7 --- rafle maximale, jouer, fin de partie}
+
+\begin{nkcode}{Applications/NkDames/src/Dames/NkDamesRegles.cpp -- structure}
+void NkDamesPartie::CoupsLegaux(NkVector<NkDamesCoup> &sortie) const {
+    sortie.Clear();
+    // 1. generer TOUTES les prises de toutes les pieces du camp au trait
+    // 2. s'il y en a : garder UNIQUEMENT celles de nbPrises maximal
+    // 3. sinon seulement : generer les coups simples
+}
+\end{nkcode}
+
+\begin{nkretenir}
+\textbf{Le filtrage par maximum se fait EN SORTIE, jamais pendant
+l'exploration.} Filtrer trop tôt fait perdre des branches qui allaient devenir
+plus longues : une rafle de 2 prises peut se prolonger en 5.
+
+C'est une erreur d'optimisation prématurée qui donne un jeu \emph{presque}
+juste --- le pire cas, car il faut une position précise pour la voir.
+\end{nkretenir}
+
+\begin{nkcode}{Applications/NkDames/src/Dames/NkDamesRegles.cpp -- structure}
+bool NkDamesPartie::Jouer(const NkDamesCoup &coup) noexcept {
+    NkDamesPiece p = Case(coup.depR, coup.depC);
+    if (!NkDamesAppartient(p, mTrait)) {
+        return false;                       // un refus se DIT
+    }
+    PoserCase(coup.depR, coup.depC, NkDamesPiece::NK_VIDE);
+    for (uint8 i = 0; i < coup.nbPrises; ++i) {
+        PoserCase(coup.prisR[i], coup.prisC[i], NkDamesPiece::NK_VIDE);
+    }
+    // Promotion : SEULEMENT si le coup S'ACHEVE sur la derniere rangee.
+    if (!NkDamesEstDame(p)) {
+        if (NkDamesEstBlanc(p) && coup.arrR == 0)              { p = NkDamesPiece::NK_DAME_BLANCHE; }
+        else if (NkDamesEstNoir(p) && coup.arrR == NK_TAILLE-1) { p = NkDamesPiece::NK_DAME_NOIRE; }
+    }
+    PoserCase(coup.arrR, coup.arrC, p);
+    mTrait = (mTrait == NkDamesCamp::NK_BLANC) ? NkDamesCamp::NK_NOIR : NkDamesCamp::NK_BLANC;
+    return true;
+}
+\end{nkcode}
+
+\begin{nkpiege}[Le défaut que le ludo a payé, et il est dans cette fonction]
+\textbf{\texttt{Jouer} ne doit pas faire confiance au coup qu'on lui donne.}
+
+Le ludo du dépôt ne vérifiait que les bornes du numéro de pion, puis écrivait
+l'avancement \emph{tel quel}. Sa génération de coups refusait bien les
+dépassements --- mais rien n'obligeait un appelant à passer par elle. Un coup
+fabriqué à la main, ou \textbf{gardé d'un tour précédent et rejoué après un
+autre lancer de dé}, déplaçait le pion au-delà de l'arrivée. Le compte exact
+était contourné sans un mot.
+
+\textbf{Le contrôle appartient à \texttt{Jouer} parce que c'est le seul endroit
+que TOUS les chemins traversent} : la souris, l'IA, le banc, une reprise de
+partie. Mis dans l'interface, il serait resté hors du banc.
+
+Ce que \texttt{Jouer} doit revérifier, quelle que soit sa provenance : la pièce
+appartient bien au camp au trait, l'arrivée est dans les bornes, et le pas
+correspond à ce que la règle autorise \emph{en ce moment} --- pour le ludo, la
+face du dé courant.
+\end{nkpiege}
+
+\begin{nkretenir}
+\textbf{\texttt{Jouer} rend un booléen, et il faut le lire.} « Un refus se dit,
+il ne se devine pas à l'absence d'effet » : sans ce retour, un coup illégal
+laisse le damier inchangé et le joueur croit que son clic n'a pas été reçu.
+
+\textbf{Et la promotion n'a lieu que si le coup S'ACHÈVE sur la dernière
+rangée.} Un pion qui traverse cette rangée \emph{au milieu} d'une rafle ne
+devient pas dame --- règle réelle, et l'une des cinq que toutes les
+implémentations ratent.
+\end{nkretenir}
+
+\begin{nkcode}{Applications/NkDames/src/Dames/NkDamesRegles.cpp -- structure}
+bool NkDamesPartie::EstTerminee(NkDamesCamp &gagnant) const {
+    if (CompterPieces(NkDamesCamp::NK_BLANC) == 0) { gagnant = NkDamesCamp::NK_NOIR;  return true; }
+    if (CompterPieces(NkDamesCamp::NK_NOIR)  == 0) { gagnant = NkDamesCamp::NK_BLANC; return true; }
+    NkVector<NkDamesCoup> coups;
+    CoupsLegaux(coups);
+    if (coups.Size() == 0) {          // bloque = perdu
+        gagnant = (mTrait == NkDamesCamp::NK_BLANC) ? NkDamesCamp::NK_NOIR : NkDamesCamp::NK_BLANC;
+        return true;
+    }
+    return false;
+}
+\end{nkcode}
+
+\begin{nkpiege}
+\textbf{Un camp sans coup légal a perdu, même s'il lui reste des pièces.} Oublier
+ce cas donne un jeu qui \emph{se fige} : c'est au joueur de jouer, il ne peut
+rien jouer, et rien ne le dit. Le symptôme --- « le jeu ne répond plus » --- ne
+ressemble en rien à sa cause.
+\end{nkpiege}
+
+\section{Étape 8 --- le banc. Avant l'écran.}
+
+\textbf{Vous n'avez encore dessiné aucun pixel, et vous allez déjà prouver que
+votre jeu est juste.} C'est possible uniquement parce que l'étape 3 n'a inclus
+ni fenêtre ni GPU.
+
+\begin{nkcode}{Applications/NkDames/src/Dames/NkDamesBanc.h}
+namespace nkentseu { namespace jeux { namespace dames {
+    /// Rend 0 si tout passe, non nul sinon. Le code de sortie EST le verdict.
+    int32 NkDamesLancerBanc();
+}}}
+\end{nkcode}
+
+Et on le branche \emph{avant} toute fenêtre, dans le jeu :
+
+\begin{nkcode}{Applications/NkDames/src/Dames/NkDamesJeu.cpp -- structure}
+NkOptional<int> NkDamesJeu::OnCommandLine(const NkVector<NkString> &args) {
+    for (uint64 i = 0; i < args.Size(); ++i) {
+        if (args[i] == "--selftest") {
+            return NkDamesLancerBanc();     // on rend un code : pas de fenetre
+        }
+    }
+    return {};                              // rien rendu = on continue normalement
+}
+\end{nkcode}
+
+\begin{nkretenir}
+\textbf{\texttt{OnCommandLine} s'exécute AVANT la création de la fenêtre.} C'est
+ce qui permet à \texttt{NkDames --selftest} de tourner dans une intégration
+continue sans écran, sans GPU, en une seconde.
+
+Rendre une valeur arrête le programme avec ce code ; ne rien rendre le laisse
+démarrer. Un \texttt{NkOptional} plutôt qu'un \texttt{int} sentinelle : « pas de
+réponse » et « le code 0 » sont deux choses différentes.
+\end{nkretenir}
+
+Un cas de banc ressemble à ceci --- on \emph{fabrique} la position :
+
+\begin{nkcode}{Applications/NkDames/src/Dames/NkDamesBanc.cpp -- forme d'un cas}
+// Cas : la promotion n'a lieu QUE si le coup s'acheve sur la derniere rangee.
+{
+    NkDamesPartie p;
+    for (int32 r = 0; r < 10; ++r)
+        for (int32 c = 0; c < 10; ++c)
+            p.PoserCase(r, c, NkDamesPiece::NK_VIDE);   // damier vide : on maitrise tout
+    p.PoserCase(2, 1, NkDamesPiece::NK_PION_BLANC);
+    p.PoserCase(1, 2, NkDamesPiece::NK_PION_NOIR);      // a sauter, arrivee rangee 0
+    p.PoserCase(1, 4, NkDamesPiece::NK_PION_NOIR);      // la rafle CONTINUE
+    p.PoserTrait(NkDamesCamp::NK_BLANC);
+
+    NkVector<NkDamesCoup> coups;
+    p.CoupsLegaux(coups);
+    VERIFIER(coups.Size() == 1);
+    p.Jouer(coups[0]);
+    VERIFIER(p.Case(coups[0].arrR, coups[0].arrC) == NkDamesPiece::NK_PION_BLANC);
+    //        ^ un PION, pas une dame : la rafle ne s'acheve pas rangee 0
+}
+\end{nkcode}
+
+\begin{nkretenir}
+\textbf{On part d'un damier VIDE, jamais de la position initiale.} Sur un damier
+complet, vingt autres coups sont légaux et l'on ne sait plus lequel on mesure.
+
+Fabriquer la position est ce qui rend l'assertion \emph{lisible} :
+\texttt{coups.Size() == 1} n'a de sens que parce qu'on a construit la situation
+où il n'y a qu'un coup.
+\end{nkretenir}
+
+\begin{nkpiege}[Les cas négatifs comptent autant que les positifs]
+Un banc qui vérifie seulement que les coups légaux sont acceptés passe au vert
+sur des règles qui acceptent \textbf{tout}.
+
+Écrivez donc aussi : \emph{on ne peut pas jouer une pièce adverse},
+\emph{une rafle de 3 est obligatoire quand une de 2 existe},
+\emph{un pion ne recule pas en déplacement simple}.
+\end{nkpiege}
+
+\begin{nkretenir}[La contre-épreuve, et elle n'est pas facultative]
+\textbf{Un banc qui n'a jamais rougi est une intention, pas un contrôle.}
+
+Cassez exprès ce qu'il surveille --- retirez le filtre de rafle maximale --- et
+vérifiez qu'il passe au \textbf{rouge}, sur le bon cas, avec un code de sortie
+non nul. Puis restaurez.
+
+Le dépôt inscrit cette contre-épreuve dans l'en-tête du banc, avec le cas qui
+est tombé :
+
+\begin{nkcode}{Applications/NkDames/src/Dames/NkDamesBanc.cpp}
+// CONTRE-EPREUVE FAITE : en retirant le filtre de rafle maximale, le banc
+// est passe au ROUGE sur le bon cas, code de sortie 1.
+\end{nkcode}
+\end{nkretenir}
+
+\begin{nkpiege}[Le cas qui a été faux avant d'être juste]
+Le banc du ludo exigeait d'abord que chaque pas de la piste soit
+\emph{orthogonal}. Il échouait --- et le code avait raison : un vrai plateau de
+ludo a exactement quatre virages en diagonale, aux coins.
+
+\textbf{Un banc rouge n'accuse pas toujours le code.} Avant de corriger ce qui
+est mesuré, vérifiez ce que la mesure attendait.
+\end{nkpiege}
+
+\noindent Lancez-le : \texttt{NkDames.exe --selftest}. Vous avez un jeu prouvé,
+et toujours aucun pixel.
+
+\section{Étape 9 --- le thème, puis la géométrie}
+
+Une seule source pour les couleurs, dans un en-tête sans code :
+
+\begin{nkcode}{Applications/NkDames/src/Dames/NkDamesTheme.h -- forme}
+struct NkDamesTheme {
+        NkColor fond, caseClaire, caseSombre, liseréSel, dispo;
+        NkColor pionBlanc, pionNoir, contour, texte;
+};
+inline const NkDamesTheme &NkDamesThemeDefaut();
+\end{nkcode}
+
+\begin{nkretenir}
+\textbf{Aucune couleur écrite ailleurs.} Une seule valeur en dur dans le dessin,
+et le jour où l'on veut un thème clair il faut la retrouver --- ce qui se
+termine toujours par « il en restait une ».
+\end{nkretenir}
+
+Puis la géométrie. \textbf{Elle se calcule, elle ne se code pas en dur} :
+
+\begin{nkcode}{Applications/NkDames/src/Dames/NkDamesEcran.h -- forme}
+struct NkDamesGeometrie {
+        NkRect damier;      // le carre du jeu
+        float32 caseTaille; // cote d'une case
+        NkRect hud;         // la bande d'information
+        NkRect boutons[2];  // les sieges
+
+        static NkDamesGeometrie Calculer(const renderer::NkLayoutInfo &info);
+};
+\end{nkcode}
+
+\begin{nkpiege}
+\textbf{Le bloc se centre sur l'ÉCRAN, pas sur le plateau.} Le ludo a d'abord
+ancré son menu sur le damier --- un carré centré --- et laissait une bande vide
+sur tout le tiers supérieur en fenêtre portrait.
+
+Chaque rectangle était juste ; leur \emph{ensemble} était mal placé.
+\end{nkpiege}
+
+\subsection{Deux orientations, deux STRUCTURES --- pas deux ratios}
+
+\begin{nkpiege}[Le défaut mesuré sur les trois jeux du dépôt]
+Les trois consultaient \texttt{IsPortrait()} \textbf{une seule fois chacun}, et
+seulement pour choisir un \emph{ratio} de hauteur de barre. La structure
+restait une colonne unique --- barre, damier carré, boutons --- quelle que soit
+l'orientation.
+
+En paysage, c'est la \emph{hauteur} qui commande un carré : le damier devenait
+minuscule et les deux tiers de la largeur restaient vides. Mesure : \textbf{0,57
+du petit côté}, contre 1,00 après correction.
+
+\alerte{} Et le commentaire du fichier affirmait le contraire --- « il tient en portrait
+comme en paysage sans deux mises en page séparées ». Il tenait, en effet.
+\textbf{Tenir n'est pas occuper.}
+\end{nkpiege}
+
+\begin{nkretenir}
+\textbf{En paysage, on passe à DEUX COLONNES} : le plateau à gauche, sur toute
+la hauteur ; la barre, les sièges et les boutons empilés dans une colonne à
+droite, dont la largeur est bornée pour ne pas devenir absurde sur un écran très
+large.
+
+Et si la colonne ne tient pas, \textbf{c'est le plateau qui cède} --- sinon elle
+sort de l'écran par la droite, et aucun calcul ne le signale.
+\end{nkretenir}
+
+\begin{nkpiege}[Le critère de bascule n'est PAS \texttt{IsPortrait()}]
+\texttt{IsPortrait()} ne dit que « hauteur $\geq$ largeur ». Sur un écran
+\emph{presque} carré --- $1100 \times 1000$ --- deux colonnes laissent au plateau
+\textbf{457 px} là où une colonne unique lui en donne \textbf{940}.
+
+Le critère est donc la \textbf{proportion}, pas l'orientation :
+
+\begin{nkcode}{Applications/NkLudo/src/Ludo/NkLudoEcran.cpp}
+const bool colonneUnique = zoneW < zoneH * 1.30f;
+\end{nkcode}
+
+Ce défaut a été trouvé \emph{par le banc}, sur un écran de $1100 \times 1000$.
+Jamais à l'\oe il : personne ne redimensionne une fenêtre à cette taille.
+\end{nkpiege}
+
+\begin{nkretenir}[Et la marge se mesure sur le PETIT côté]
+\texttt{marge = W * 0.03f} donne, en paysage, une marge deux fois plus large que
+haute : la mise en page respire d'un côté et étouffe de l'autre.
+
+\textbf{Une proportion se prend sur la dimension CONTRAINTE}, jamais sur la plus
+grande.
+\end{nkretenir}
+
+\begin{nkretenir}
+\texttt{NkLayoutInfo} porte la \textbf{zone sûre} --- les marges de l'encoche et
+de l'indicateur de geste. Partez d'elle, jamais de la taille brute de la fenêtre,
+sinon la première rangée du damier passe sous l'encoche sur téléphone.
+\end{nkretenir}
+
+\subsection{Une mise en page se met AU BANC, comme une règle}
+
+On dit volontiers qu'un défaut de mise en page « ne se voit que sur une image ».
+C'est faux : \textbf{il ne se voit que sur une image tant que personne n'a écrit
+le calcul.}
+
+\begin{nkretenir}
+\texttt{NkLayoutInfo} se construit à la main. Le cas de banc parcourt donc une
+liste de formats --- téléphone portrait et paysage, tablette, fenêtre de bureau,
+carré, presque carré, ultra-large --- et vérifie des \textbf{relations}, jamais
+des valeurs :
+
+\begin{enumerate}
+\item tout tient dans la zone sûre ;
+\item le plateau reste \emph{carré} ;
+\item le plateau occupe la place disponible ;
+\item la barre ne recouvre pas le plateau.
+\end{enumerate}
+
+Des coordonnées précises casseraient au premier ajustement esthétique ; une
+relation survit.
+\end{nkretenir}
+
+\begin{nkpiege}[Trois critères ont été écrits avant le bon --- c'est la leçon]
+Chacun a été \emph{réfuté par la contre-épreuve} : on force l'ancienne mise en
+page, et l'on regarde si le banc rougit.
+
+\textbf{1. « Rien ne déborde ».} Vert sur le défaut. L'ancienne mise en page ne
+débordait pas --- elle laissait la largeur vide.
+
+\textbf{2. « La boîte englobante couvre 80 \% de la zone ».} Mesuré sur les deux
+mises en page : l'ancienne rendait $0{,}97 \times 0{,}93$ et la nouvelle
+$0{,}87 \times 0{,}94$. \textbf{La contre-épreuve accusait donc la BONNE.} Cause :
+la barre prend toute la largeur dans l'ancienne, donc la boîte couvre l'écran
+pendant que le plateau est minuscule.
+
+\textbf{3. « Le plateau vaut au moins 72 \% du petit côté ».} Celui-ci
+discrimine --- 0,57 contre 1,00 --- et c'est le bon.
+
+\alerte{} \textbf{Un critère qui ne rougit pas sur le défaut connu n'est pas un critère.}
+Les deux premiers auraient été publiés comme des contrôles ; seule la
+contre-épreuve les a démasqués.
+\end{nkpiege}
+
+\begin{nkretenir}[Et le troisième critère DÉCLARE son périmètre]
+Il ne s'applique qu'aux écrans franchement larges ou franchement hauts. Entre les
+deux, aucune mise en page ne peut donner 72 \% au plateau : la barre et les
+boutons mangent 40 \% d'une hauteur de 940 px.
+
+\textbf{Exiger 72 \% là-bas ferait rougir une mise en page qu'on ne sait pas
+améliorer} --- un banc qui punit sans indiquer quoi corriger. Les trois autres
+contrôles, eux, s'appliquent à tous les écrans.
+\end{nkretenir}
+
+\section{Étape 10 --- le dessin}
+
+L'écran reçoit une \emph{vue} : ce qu'il doit montrer, jamais l'objet du jeu.
+
+\begin{nkcode}{Applications/NkDames/src/Dames/NkDamesEcran.h -- forme}
+struct NkDamesVue {
+        const NkDamesPartie *partie;
+        const NkVector<NkDamesCoup> *coupsProposes;
+        int32 selR, selC;
+        bool finie;
+        NkDamesCamp gagnant;
+};
+
+void NkDamesDessiner(nkgui::NkGuiDrawList &dl, const NkDamesGeometrie &geo,
+                     const NkDamesVue &vue);
+\end{nkcode}
+
+\begin{nkretenir}
+\textbf{Le dessin ne prend que des \texttt{const}.} Il ne peut donc rien
+modifier --- ce n'est plus une discipline, c'est le compilateur qui l'impose.
+
+Une fonction de dessin qui recevrait \texttt{NkDamesJeu\&} finirait, un jour de
+fatigue, par jouer un coup depuis le dessin. Et le défaut serait introuvable :
+personne ne cherche une règle de jeu dans un fichier d'affichage.
+\end{nkretenir}
+
+\begin{nkcode}{Applications/NkDames/src/Dames/NkDamesEcran.cpp -- ordre du dessin}
+// 1. le fond
+// 2. les 100 cases (claire / sombre)
+// 3. le liseré de la case selectionnee
+// 4. les pastilles des destinations possibles
+// 5. les pieces (disque + anneau ; une couronne si c'est une dame)
+// 6. le HUD : compteurs, trait, boutons de siege
+// 7. le bandeau de fin, s'il y a lieu
+\end{nkcode}
+
+\begin{nkretenir}
+\textbf{L'ordre EST le résultat.} Il n'y a pas de profondeur en 2D : ce qui est
+dessiné en dernier est devant. Le liseré avant les pièces, et il disparaît
+dessous.
+\end{nkretenir}
+
+\section{Étape 11 --- le clic devient un coup}
+
+\begin{nkcode}{Applications/NkDames/src/Dames/NkDamesJeu.cpp -- structure}
+bool NkDamesJeu::OnPointer(const NkPointer &p) {
+    if (mSplash.Actif())            { return mSplash.Sauter(p); }
+    if (p.phase != NkPointerPhase::NK_PRESSED) { return false; }
+
+    // 1. le point est-il dans le damier ? -> (r, c)
+    // 2. si une piece est deja selectionnee et (r,c) est une destination
+    //       proposee -> jouer ce coup, deselectionner
+    // 3. sinon, si (r,c) porte une piece du camp au trait
+    //       -> selectionner, et demander CoupsDepuis(r, c, mCoupsProposes)
+    // 4. sinon -> deselectionner
+    return true;
+}
+\end{nkcode}
+
+\begin{nkretenir}
+\textbf{Deux clics, jamais un glisser.} Sélectionner puis poser marche à la
+souris \emph{et} au doigt, sans code différent. Un glisser-déposer demanderait un
+suivi de mouvement, un seuil de déclenchement, et une gestion de l'annulation.
+
+\textbf{Et c'est \texttt{CoupsDepuis} qui alimente l'affichage des destinations}
+--- la même fonction de règles qui décide. Recalculer les destinations dans
+l'écran donnerait deux réponses qui divergeraient un jour.
+\end{nkretenir}
+
+\begin{nkpiege}
+\texttt{NkPointer} donne des \textbf{pixels client}, pas des pixels écran. Et la
+géométrie du damier est en pixels client aussi. Les mélanger donne une
+sélection décalée d'exactement la position de la fenêtre --- donc juste quand la
+fenêtre est en haut à gauche, et fausse partout ailleurs.
+\end{nkpiege}
+
+\subsection{Le clavier, et la touche Retour d'Android}
+
+\begin{nkcode}{La methode a redefinir, et sa signature EXACTE}
+bool OnKeyPress(const NkKeyPressEvent &e) override;
+\end{nkcode}
+
+\begin{nkretenir}
+\textbf{Sur Android, la touche RETOUR du système arrive ici.}
+\texttt{NkAndroidEventSystem} traduit \texttt{AKEYCODE\_BACK} en
+\texttt{NK\_ESCAPE} et consomme l'événement : le trajet est complet jusqu'à
+votre jeu.
+
+\textbf{Les trois jeux du dépôt n'avaient pas cette méthode}, et la touche
+semblait morte. \emph{Un événement livré à personne est indiscernable d'un
+événement jamais émis} --- on cherche alors le défaut dans la plateforme, qui
+faisait son travail.
+\end{nkretenir}
+
+\begin{nkcode}{Le geste : fermer ce qui est ouvert, du plus interieur au plus exterieur}
+bool NkDamesJeu::OnKeyPress(const NkKeyPressEvent &e) {
+    if (e.GetKey() != NkKey::NK_ESCAPE) { return false; }
+    if (!mSplash.Termine())            { mSplash.Sauter();       return true; }
+    if (mEcran == NkEcran::NK_PARTIE)  { mEcran = NkEcran::NK_MENU; return true; }
+    return false;   // au menu : on laisse le systeme fermer l'application
+}
+\end{nkcode}
+
+\begin{nkretenir}
+\textbf{Au menu, on ne consomme PAS.} Rendre \texttt{false} laisse le système
+fermer l'application --- et c'est ce que l'utilisateur attend. Consommer partout
+donnerait un jeu dont on ne peut plus sortir par le geste habituel.
+\end{nkretenir}
+
+\begin{nkpiege}[La signature se lit dans la classe de base, pas chez le voisin]
+J'ai d'abord écrit \texttt{OnKeyPress(NkKeyPressEvent \&e)} --- sans
+\texttt{const} --- parce que c'est la forme employée par une démo du dépôt, qui
+passe par un \emph{autre} mécanisme de distribution.
+
+Le compilateur a refusé :
+\texttt{non-virtual member function marked 'override' hides virtual member
+function}.
+
+\textbf{C'est exactement ce que \texttt{override} sert à faire.} Sans lui, la
+méthode aurait compilé comme une \emph{nouvelle} fonction, la classe de base
+aurait continué d'être appelée, et la touche serait restée morte --- avec du code
+qui a l'air juste.
+\end{nkpiege}
+
+\subsection{Les touches de volume du téléphone}
+
+\begin{nkpiege}
+Les touches physiques de volume peuvent sembler n'avoir \textbf{aucun effet} sur
+le son du jeu. La cause n'est pas dans le jeu : elle est dans le \emph{type de
+flux} déclaré par le lecteur audio.
+
+Sur Android, le moteur crée son lecteur OpenSL ES. S'il ne demande pas
+l'interface de configuration, \textbf{le type de flux n'est jamais déclaré}, et
+la bascule de volume est routée vers le flux que le système croit actif ---
+souvent la sonnerie.
+
+\begin{nkcode}{Kernel/Runtime/NKAudio/src/NKAudio/NkAudioBackends.cpp}
+const SLInterfaceID ids[] = {SL_IID_ANDROIDSIMPLEBUFFERQUEUE, SL_IID_ANDROIDCONFIGURATION};
+// ... puis, AVANT Realize() :
+SLint32 flux = SL_ANDROID_STREAM_MEDIA;
+(*cfg)->SetConfiguration(cfg, SL_ANDROID_KEY_STREAM_TYPE, &flux, sizeof(SLint32));
+\end{nkcode}
+
+\textbf{Avant \texttt{Realize}} : après, le lecteur est construit et le type de
+flux n'est plus modifiable.
+\end{nkpiege}
+
+\begin{nkretenir}[Ce que ce correctif ne fait PAS, et il faut le dire]
+Il rattache le son au flux multimédia. Il ne rend pas la bascule de volume
+maîtresse du son \emph{quand le jeu est silencieux} : ce comportement-là vient
+de \texttt{setVolumeControlStream}, qui appartient à l'activité \textbf{Java}.
+
+Or nos jeux sont des \emph{NativeActivity} déclarées
+\texttt{android:hasCode="false"} --- il n'y a pas de Java. La limite est donc
+structurelle, et elle se lève en acceptant une activité Java : c'est une décision
+de produit, pas un correctif.
+
+\emph{Dire ce qu'un correctif ne couvre pas vaut autant que le correctif.}
+\end{nkretenir}
+
+\section{Étape 12 --- l'adversaire}
+
+\begin{nkcode}{Applications/NkDames/src/Dames/NkDamesRegles.h}
+/// Choisit un coup pour l'ordinateur. Simple par construction : elle prefere
+/// la rafle la plus grosse, puis la promotion, puis l'avance.
+/// Ce n'est pas un adversaire fort, et le fichier ne pretend pas l'etre.
+const NkDamesCoup *NkDamesChoisirCoup(const NkDamesPartie &partie,
+                                      const NkVector<NkDamesCoup> &coups,
+                                      uint32 &graine) noexcept;
+\end{nkcode}
+
+\begin{nkretenir}
+Notez la \texttt{graine} passée \emph{par référence} : l'IA départage les
+ex \ae quo au hasard, et ce hasard est \textbf{reproductible}. Même graine, même
+partie --- donc un défaut d'IA se rejoue.
+\end{nkretenir}
+
+\begin{nkpiege}[Deux hasards, et ils ne doivent pas se mélanger]
+Le ludo partageait \textbf{une seule graine} entre le dé et la stratégie. Or la
+fonction de choix avance cette graine \emph{une fois par coup candidat}.
+
+Conséquence : \textbf{la suite des dés dépendait de qui joue.} Un tour d'IA à
+quatre options consommait quatre tirages de plus qu'un tour humain --- donc
+remplacer un siège humain par une IA changeait tous les dés de la partie.
+
+Rodolf, 2026-09-02 : « on doit avoir de l'aléatoire identique pour tous les
+lancers de dé, joueur ou IA, sans distinction, et c'est la stratégie de jeu qui
+fait la différence. »
+
+\textbf{Le dé a donc sa graine, que rien d'autre ne touche ; la stratégie a la
+sienne.}
+\end{nkpiege}
+
+\begin{nkretenir}[Ce que la mesure a dit, et ce qu'elle n'a pas dit]
+Le générateur lui-même a été mesuré sur 1,2 million de lancers : les six faces
+sortent entre 16,62 \% et 16,72 \% (attendu 16,667), et il n'y a \emph{aucun}
+biais par rang --- ni un tirage sur deux, ni sur trois, ni sur quatre.
+
+\alerte{} \textbf{Et le contrôle négatif de cette mesure a d'abord échoué.} Le sabotage
+écrit pour la valider était \texttt{d = 1 if d < 6 else 6} : il \emph{gardait} le
+six, donc ne changeait pas le taux de six. Les deux lignes sortaient identiques,
+et j'allais conclure « aucun biais » sur une mesure aveugle.
+
+\emph{Un sabotage qui ne sabote pas fait déclarer valide un instrument qui ne
+voit rien.}
+\end{nkretenir}
+
+\subsection{Trois paliers, et un seul chemin de code}
+
+Un adversaire à force unique est soit trop dur pour un débutant, soit trop
+faible pour tout le monde. Les trois jeux offrent donc trois paliers.
+
+\begin{nkcode}{Applications/NkLudo/src/Ludo/NkLudoRegles.h}
+enum class NkNiveauIA : uint8 {
+    NK_FACILE = 0, ///< au hasard parmi les coups legaux
+    NK_MOYEN,      ///< l'heuristique gloutonne
+    NK_DIFFICILE   ///< la meme, plus UN COUP D'AVANCE
+};
+\end{nkcode}
+
+\begin{nkretenir}
+\textbf{Un palier ne change QUE la stratégie.} Il ne touche ni au dé, ni aux
+coups légaux, ni à la moindre règle : les trois paliers jouent le \emph{même}
+jeu, avec les \emph{mêmes} dés.
+
+C'est la condition pour que « c'est la stratégie qui fait la différence » soit
+vrai --- et surtout \textbf{mesurable}. Si le palier changeait aussi le hasard,
+on ne saurait pas ce qu'on compare.
+
+\textbf{Et trois, pas cinq} : chaque palier doit se décrire en une phrase, sinon
+le joueur ne sait pas ce qu'il choisit.
+\end{nkretenir}
+
+\begin{nkretenir}[Un seul parcours, des poids différents]
+Trois \emph{fonctions} distinctes auraient divergé au premier correctif de règle.
+On garde donc une seule fonction de choix, et le palier n'agit que sur les
+poids --- plus une sortie anticipée pour le palier facile.
+\end{nkretenir}
+
+\begin{nkcode}{FACILE -- et remarquez ce qu'elle ne fait PAS}
+if (niveau == NkNiveauIA::NK_FACILE) {
+    graine = graine * 1664525u + 1013904223u;
+    return &coups[(graine >> 16) % coups.Size()];
+}
+\end{nkcode}
+
+\begin{nkretenir}
+\textbf{Elle tire au hasard parmi les coups LÉGAUX.} Elle ne triche pas et ne
+joue jamais un coup impossible : elle ne \emph{choisit} simplement pas.
+
+C'est la bonne façon de faire une IA faible. L'affaiblir en lui \emph{interdisant}
+des coups la rendrait exploitable --- le joueur découvrirait qu'elle ne prend
+jamais, et la partie perdrait tout intérêt.
+\end{nkretenir}
+
+\begin{nkcode}{DIFFICILE aux dames -- un coup d'avance, avec les REGLES}
+if (difficile) {
+    NkDamesPartie apres = partie;
+    apres.Jouer(c);
+    NkVector<NkDamesCoup> replique;
+    apres.CoupsLegaux(replique);
+    int32 pire = 0;
+    for (uint32 k = 0; k < replique.Size(); ++k) {
+        if ((int32)replique[k].nbPrises > pire) { pire = (int32)replique[k].nbPrises; }
+    }
+    score -= pire * 90;   // un peu moins que les 100 d'une piece prise
+}
+\end{nkcode}
+
+\begin{nkretenir}
+\textbf{Le palier moyen regarde ce que le coup RAPPORTE ; le difficile regarde
+en plus ce qu'il EXPOSE.}
+
+Et il le mesure \textbf{avec les règles} --- on joue le coup sur une copie et l'on
+demande à l'adversaire ce qu'il pourrait prendre. Jamais avec une heuristique
+« ce coup a l'air dangereux » : une seconde définition du danger divergerait de
+la première.
+
+\textbf{Les poids se lisent les uns par rapport aux autres}, jamais isolément :
+90 par pièce laissée est un peu moins que les 100 d'une pièce prise, pour qu'un
+échange favorable reste jouable.
+\end{nkretenir}
+
+\begin{nkretenir}[Un seul niveau, et il faut le dire]
+Ce n'est \textbf{pas} une recherche : aucune récursion, aucun arbre. Un demi-coup
+d'anticipation suffit à éviter le défaut le plus visible --- donner une pièce à
+chaque tour --- et coûte assez peu pour tourner à chaque coup sans que l'IA
+paraisse « réfléchir ».
+
+Annoncer « une IA d'échecs » serait malhonnête ; annoncer « elle évite de se
+rendre ridicule » est exact.
+\end{nkretenir}
+
+\subsection{Prouver que les paliers diffèrent}
+
+\begin{nkpiege}
+\textbf{Sans mesure, « facile / moyen / difficile » ne sont que trois mots dans
+un menu.} Un palier qui ne change pas la force du jeu est un réglage qui n'est
+pas honoré --- pire qu'un réglage absent, parce que le joueur le croit.
+\end{nkpiege}
+
+\begin{nkretenir}[Le protocole, et ses deux précautions]
+\textbf{1.} Les deux camps reçoivent la \emph{même} suite de dés : l'écart ne
+peut donc venir que de la stratégie.
+
+\textbf{2.} On joue \emph{deux} séries en \textbf{inversant les sièges}. Le siège
+qui commence a un avantage ; sans l'inversion, on mesurerait cet avantage autant
+que la force de l'IA.
+\end{nkretenir}
+
+\begin{nkcode}{Ce que le banc du ludo affiche, sur 240 parties par duel}
+difficile contre facile : 216 / 240
+moyen     contre facile : 203 / 240
+difficile contre moyen  : 138 / 240
+moyen     contre moyen  : 119 / 240   <- le CONTROLE
+\end{nkcode}
+
+\begin{nkretenir}
+\textbf{La dernière ligne est la plus importante, et c'est celle qu'on oublie
+d'écrire.} Le même palier contre lui-même doit rendre un résultat équilibré ---
+119 sur 240.
+
+S'il ne l'était pas, ce que les trois premiers duels mesurent ne serait pas la
+force de l'IA mais un \emph{biais du protocole} : l'avantage de commencer, une
+graine mal répartie, un tour qui ne passe pas.
+
+\emph{Un duel sans son match nul de contrôle ne prouve rien.}
+\end{nkretenir}
+
+\begin{nkretenir}
+Notez aussi l'ordre : le duel \textbf{difficile contre moyen} est celui qui
+compte pour le joueur. Sans lui, on saurait seulement que les deux battent
+facile --- ce qui \emph{n'ordonne pas} les trois paliers entre eux.
+
+Et son écart est modeste (58 \%), ce qui est exactement ce qu'on attend d'un
+demi-coup d'anticipation. Un écart de 90 \% aurait été suspect.
+\end{nkretenir}
+
+\begin{nkcode}{Applications/NkDames/src/Dames/NkDamesJeu.cpp -- structure}
+void NkDamesJeu::OnTick(float32 deltaTime) {
+    if (mSplash.Avancer(deltaTime)) { return; }   // l'ouverture tient l'ecran
+    if (mAnim.Actif())              { mAnim.Avancer(deltaTime); return; }
+    if (mFinie || EstHumain(TraitIndex())) { return; }
+
+    mAttenteIA -= deltaTime;                       // laisser le temps de VOIR
+    if (mAttenteIA <= 0.f) { JouerCoupIA(); mAttenteIA = 0.45f; }
+}
+\end{nkcode}
+
+\begin{nkpiege}
+\textbf{\texttt{Avancer} rend « vrai, je tiens l'écran », et il faut s'arrêter
+là.} Sans ce retour, le jeu tournerait \emph{derrière} l'écran d'ouverture :
+l'IA jouerait ses premiers coups pendant les quatre secondes, et le joueur
+trouverait la partie déjà entamée en arrivant.
+
+\textbf{Et une IA qui joue instantanément donne l'impression d'un bug.} Les
+0,45 seconde d'attente ne servent pas l'IA : elles servent l'\oe il.
+\end{nkpiege}
+
+\section{Étape 13 --- l'ouverture, et les modes}
+
+\begin{nkcode}{Applications/NkDames/src/Dames/NkDamesJeu.cpp}
+bool NkDamesJeu::OnGuiInit() {
+    mSplash.PoserJeu("Dames");
+    Rejouer();
+    return true;
+}
+\end{nkcode}
+
+\begin{nkretenir}
+\textbf{Une ligne pour l'écran d'ouverture.} La coquille porte la marque RIHEN
+et l'animation ; vous ne donnez que le nom du jeu. C'est ce qui rend les
+ouvertures des quatre jeux du dépôt identiques, à un mot près.
+
+Et elle est \textbf{toujours sautable} : « un écran d'ouverture qu'on ne peut pas
+passer est une taxe payée à chaque lancement, y compris par celui qui teste
+vingt fois par heure ».
+\end{nkretenir}
+
+Enfin, les modes. Chaque siège a un contrôleur, et rien d'autre n'en découle :
+
+\begin{nkcode}{Applications/NkDames/src/Dames/NkDamesJeu.h}
+/// Par defaut : vous les blancs, l'IA les noirs.
+NkControleur mControleur[2] = {NkControleur::NK_HUMAIN, NkControleur::NK_IA};
+\end{nkcode}
+
+\begin{nkretenir}
+\textbf{Trois modes de jeu, et aucun n'est un cas particulier du code} :
+humain/IA, humain/humain à deux sur le même écran, IA/IA en simulation. Un
+tableau de deux contrôleurs les produit tous les trois.
+
+Écrire \texttt{if (modeDuo) \dots} aurait donné trois chemins à tester au lieu
+d'un.
+\end{nkretenir}
+
+\section{Construire, lancer, empaqueter}
+
+\begin{nkcode}{Les commandes, dans l'ordre ou vous les taperez}
+jenga build --target NkDames --config Release
+.\Build\Bin\Release-Windows\NkDames\NkDames.exe --selftest    # le banc, 1 s
+.\Build\Bin\Release-Windows\NkDames\NkDames.exe               # le jeu
+
+jenga build --target NkDames --platform web
+jenga package --platform windows --project NkDames --output dist/
+\end{nkcode}
+
+\begin{nkpiege}
+\textbf{\texttt{jenga package} nomme sa sortie d'après le PROJET, pas d'après la
+plateforme.} Empaqueter Windows puis Web dans le même dossier produit deux fois
+\texttt{NkDames.zip}, et le second écrase le premier \emph{en silence}, code de
+sortie 0.
+
+Donnez un dossier de sortie par plateforme. Et \textbf{ouvrez l'archive} : c'est
+en y trouvant un \texttt{.wasm} là où l'on attendait un \texttt{.exe} que le
+défaut se voit, jamais dans la sortie de la commande.
+\end{nkpiege}
+
+\begin{nkretenir}
+\textbf{Un APK Android de ce jeu n'a légitimement pas de \texttt{classes.dex}.}
+C'est une \emph{NativeActivity} : il n'y a pas de code Java à convertir. Un
+contrôle qui exige un \texttt{dex} déclarera cassé un APK qui s'installe et
+fonctionne.
+\end{nkretenir}
+
+\section{Ce qui change pour les échecs et le ludo}
+
+Le squelette ne bouge pas. Ce qui change tient dans une colonne.
+
+\begin{center}
+\begin{tabular}{@{}lll@{}}
+\toprule
+& \textbf{Ce qui est identique} & \textbf{Sa difficulté propre} \\
+\midrule
+Dames & les 7 fichiers, les 6 questions & la \emph{rafle maximale} \\
+Échecs & les 7 fichiers, les 6 questions & roque, prise en passant, échec et mat \\
+Ludo & les 7 fichiers, les 6 questions & 4 sièges, un dé, des sièges éteints \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\begin{center}
+\begin{tabular}{@{}llll@{}}
+\toprule
+& \textbf{NkDames} & \textbf{NkEchecs} & \textbf{NkLudo} \\
+\midrule
+Fichiers & 10 & 9 & 9 \\
+Lignes & 1\,998 & 2\,121 & 2\,130 \\
+Cas de banc & 16 & 14 & 23 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\begin{nkretenir}
+\textbf{Trois jeux, trois cents lignes d'écart.} Ce n'est pas une coïncidence :
+c'est le squelette qui domine, et la règle propre qui est petite.
+
+Apprendre à construire l'un, c'est savoir construire les trois --- et c'est
+exactement ce que ce chapitre voulait vous laisser.
+\end{nkretenir}
+
+\begin{nkretenir}[La leçon du ludo, qui dépasse le ludo]
+Un siège peut être Humain, IA, ou \textbf{désactivé}. Sauter un siège éteint est
+une règle de \emph{tour} --- elle vit donc dans les règles, pas dans l'écran.
+
+Mise du côté du dessin, elle aurait été invisible au banc. Et le banc est le seul
+endroit qui vérifie qu'une partie \textbf{se termine} : sans lui, un tour qui
+donne la main à un siège sans pions ferait attendre le jeu indéfiniment --- et le
+symptôme serait « le jeu se fige », à des lieues de sa cause.
+\end{nkretenir}
+
+\begin{nkbilan}
+Treize étapes, sept fichiers, et un ordre qui n'est pas négociable : le projet,
+la fenêtre, les règles, \textbf{le banc}, puis seulement l'écran, l'entrée,
+l'adversaire. Les règles n'incluent que deux en-têtes --- c'est ce qui rend le
+banc possible, et le banc est ce qui distingue un jeu qui marche d'un jeu dont
+on \emph{sait} qu'il marche. Le dessin ne reçoit que du \texttt{const}, l'écran
+ne décide de rien, et le fichier de jeu est le seul à modifier l'état. Les
+échecs et le ludo se construisent avec les mêmes sept fichiers et les mêmes six
+questions.
+\end{nkbilan}
+
+\begin{nkquestions}
+\begin{enumerate}
+\item Pourquoi écrit-on le banc avant le dessin, et qu'est-ce qui le rend
+      possible ?
+\item Quelles sont les deux seules inclusions du fichier de règles ?
+\item Pourquoi une pièce capturée n'est-elle pas retirée du damier pendant
+      l'exploration d'une rafle ?
+\item Pourquoi le filtrage par rafle maximale se fait-il en sortie et non
+      pendant l'exploration ?
+\item Que se passe-t-il si l'on oublie le cas « camp sans coup légal » ?
+\item Où s'exécute \texttt{OnCommandLine}, et pourquoi est-ce décisif ?
+\end{enumerate}
+\end{nkquestions}
+
+\begin{nkpratique}
+Construisez le \textbf{morpion} en suivant les treize étapes, dans l'ordre, sans
+en sauter une.
+
+Contraintes :
+\begin{enumerate}
+\item votre \texttt{NkMorpionRegles.h} n'inclut que \texttt{NkVector.h} et
+      \texttt{NkTypes.h} ;
+\item votre banc tourne \emph{avant} que le moindre pixel soit dessiné, et
+      contient au moins deux cas négatifs --- on ne joue pas sur une case
+      occupée, et une grille pleine sans alignement est une partie nulle ;
+\item les trois modes (humain/IA, humain/humain, IA/IA) sortent d'un tableau de
+      deux contrôleurs, sans un seul \texttt{if} de mode.
+\end{enumerate}
+
+Puis construisez-le pour le Web et ouvrez-le dans un navigateur.
+\end{nkpratique}
+
+\begin{nkdemo}
+Prouvez que votre banc de morpion mesure vraiment quelque chose.
+
+Cassez exprès la détection d'alignement --- ne testez que les lignes, pas les
+colonnes. Lancez : il doit passer au \textbf{rouge}, sur le cas des colonnes,
+avec un code de sortie non nul. Restaurez, relancez, notez le retour au vert.
+
+\textbf{Recopiez les deux sorties} dans votre compte rendu : c'est la paire qui
+prouve, pas le vert seul.
+
+\alerte{} Si la mutation \emph{ne casse rien}, ne concluez pas trop vite que le contrôle
+manque : vérifiez d'abord que votre jeu d'essai pouvait exprimer l'écart. Une
+grille où l'alignement gagnant est toujours une ligne ne peut pas voir un défaut
+sur les colonnes.
+\end{nkdemo}
+
+\begin{nklogique}
+Un joueur signale : « au ludo, quand je désactive deux sièges, le jeu se fige
+après quelques tours ».
+
+\begin{enumerate}
+\item Sans lire le code, énumérez au moins trois causes possibles, en
+      distinguant celles qui vivraient dans les \emph{règles} de celles qui
+      vivraient dans l'\emph{écran}.
+\item Pour chacune, dites quel cas de banc l'aurait attrapée.
+\item Concluez sur celles qu'aucun banc de règles ne peut voir --- et dites par
+      quel autre moyen on les prend.
+\end{enumerate}
+\end{nklogique}

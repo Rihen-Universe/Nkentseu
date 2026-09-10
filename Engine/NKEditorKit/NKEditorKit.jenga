@@ -25,7 +25,13 @@ with project("NKEditorKit"):
     nkentseudependson(
         ["NKPlatform", "NKCore", "NKMemory", "NKContainers", "NKMath",
          "NKLogger", "NKTime", "NKStream", "NKFileSystem", "NKEvent",
-         "NKWindow", "NKCanvas", "NKFont", "NKImage", "NKGui"],
+         # NKCanvas RETIRE le 2026-09-01 : le kit ne cree plus de renderer.
+         # Il tirait NKCanvas et ses cinq backends graphiques chez TOUS les
+         # consommateurs, y compris NkAnimaEditor et Nogee qui injectent un
+         # backend NKRHI et n'en executaient pas une ligne. L'application qui
+         # veut NkEditorCanvasRenderer declare NKCanvas chez elle -- les quatre
+         # concernees le faisaient deja (mesure avant retrait).
+         "NKWindow", "NKFont", "NKImage", "NKGui"],
         selfexport="NKEditorKit",
         extra_includes=["src"],
     )

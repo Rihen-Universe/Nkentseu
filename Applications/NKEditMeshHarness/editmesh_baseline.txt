@@ -272,3 +272,28 @@ aretes/grille-bords                A=40 fil=0 bord=16 int=24 nonmanif=0 part=1 r
 aretes/idempotence                 A 40 -> 40 ord identique=1 ens identique=1 (1/1 : rejouer ne change rien)
 aretes/filaire-survit              ok=1 A 12 -> 13 fil=1 (fil>=1 : le filaire survit au rebuild)
 aretes/jonction-T-radial3          A=10 fil=0 bord=9 int=0 nonmanif=1 part=1 radial=12 disk=20 hl=12 ord=5285430129815656378 ens=-5493720026203631423
+incr/cube-trois-diagonales         crees=3/3 A=15 fil=3 idem=1 plein=1 disques 18/18 pas incr=30 plein=30
+incr/grille-quatre-diagonales      crees=4/4 A=44 fil=4 idem=1 plein=1 disques 5/5 pas incr=88 plein=88
+incr/disque-vu-depuis-copie        copies=3 disque 3 -> 4 (doit croitre de 1) accord=3/3
+incr/deja-presente                 A 12 -> 13 -> 13 | meme=1 inverse=1 bord-existant-retrouve=1
+matmod/subsurf                     agit=1 faces 6 -> 24 sommets 24 -> 54 slots vivants=6 slot0=0
+matmod/weld                        agit=1 faces 6 -> 6 sommets 24 -> 8 slots vivants=6 slot0=0
+matmod/bevel                       agit=1 faces 6 -> 26 sommets 24 -> 24 slots vivants=6 slot0=0
+matmod/edgesplit                   agit=1 faces 6 -> 6 sommets 24 -> 24 slots vivants=6 slot0=0
+matmod/decimate                    agit=1 faces 32 -> 1 sommets 25 -> 16 slots vivants=1 slot0=0
+matmod/ombrage-par-angle           depart=0 lisses 30deg=0 100deg=6 depart-different=1 slots vivants=6 slot0=0
+enplace/cube-offset0-degenere      ok=1/1 V=48 F=30 E=20 nonmanif=20 jum=24/24 | topo=1 geo=1 tableaux=1 attributs=1 jumelles=1 local=0
+enplace/grille-offset0             ok=1/1 V=41 F=32 E=56 nonmanif=16 jum=80/80 | topo=1 geo=1 tableaux=1 attributs=1 jumelles=1 local=0
+enplace/sphere-offset0             ok=1/1 V=331 F=300 E=511 nonmanif=47 jum=960/960 | topo=1 geo=1 tableaux=1 attributs=1 jumelles=1 local=0
+enplace/sphere-region              ok=1/1 V=331 F=300 E=541 nonmanif=47 jum=1082/1082 | topo=1 geo=1 tableaux=1 attributs=1 jumelles=1 local=0
+enplace/sphere-along-normals       ok=1/1 V=331 F=300 E=541 nonmanif=47 jum=1082/1082 | topo=1 geo=1 tableaux=1 attributs=1 jumelles=1 local=0
+enplace/sphere-to-cursor           ok=1/1 V=331 F=300 E=541 nonmanif=47 jum=1082/1082 | topo=1 geo=1 tableaux=1 attributs=1 jumelles=1 local=0
+enplace/temoin-selection-locale    faces selectionnees=3 (3 attendues)
+enplace/region-locale-3faces       ok=1/1 V=93 F=76 E=168 nonmanif=0 jum=272/272 | topo=1 geo=1 tableaux=1 attributs=1 jumelles=1 local=1
+enplace/cube-materiau-et-ombrage   ok=1/1 V=48 F=30 E=32 nonmanif=20 jum=64/64 | topo=1 geo=1 tableaux=1 attributs=1 jumelles=1 local=0
+enplace/temoin-selection-sphere    faces selectionnees=3 (3 attendues)
+enplace/sphere-region-locale       ok=1/1 V=283 F=252 E=502 nonmanif=1 jum=1004/1004 | topo=1 geo=1 tableaux=1 attributs=1 jumelles=1 local=1
+enplace/temoin-selection-une-face  faces selectionnees=1 (1 attendue)
+enplace/une-seule-face             ok=1/1 V=85 F=68 E=152 nonmanif=0 jum=240/240 | topo=1 geo=1 tableaux=1 attributs=1 jumelles=1 local=1
+normales/edition-locale-portee     ok=1 sel=3 loin=277 normales changees=260 (aujourd hui : TOUTES)
+enplace/refus-sans-selection       ok=0/0 V=24 F=6 E=12 nonmanif=0 jum=24/24 | topo=1 geo=1 tableaux=1 attributs=1 jumelles=1 local=0

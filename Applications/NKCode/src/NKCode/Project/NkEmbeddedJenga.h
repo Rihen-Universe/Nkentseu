@@ -109,6 +109,15 @@ namespace nkentseu {
 				// Vide si le Jenga embarque est absent.
 				static NkString EmbeddedVersion();
 
+				// Dossier qui CONTIENT le package Jenga/ : tools/jenga-src en
+				// distribution, le depot Jenga en developpement. Vide tant que
+				// Configure() n'a trouve aucun Jenga embarque.
+				//
+				// Expose pour la mise a jour de Jenga (NkJengaUpdate.h) : c'est
+				// l'endroit ou le nouveau paquet doit atterrir. Ce n'est pas une
+				// invitation a ecrire ailleurs dedans.
+				static NkString JengaSrcDir();
+
 				bool Start(const Request &req); // false si deja en cours
 				bool Running() const;
 				bool Done() const;

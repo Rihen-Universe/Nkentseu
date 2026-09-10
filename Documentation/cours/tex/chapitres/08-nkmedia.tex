@@ -800,9 +800,18 @@ Le \emph{PTS} est l'instant auquel une image doit être affichée dans la vidéo
 n'a rien à voir avec le temps qu'il a fallu pour la décoder. Confondre les deux,
 c'est mesurer la durée du film au lieu de la vitesse du lecteur.
 
+\begin{nkbilan}
+NKMedia lit et écrit des vidéos, entièrement depuis zéro. Avant d'ouvrir un
+fichier, on le \textbf{sonde} : ce qu'il contient réellement ne se déduit pas de
+son extension. À l'affichage, une vidéo n'est qu'une texture qu'on remplace à
+chaque image --- le rendu n'a aucune notion de « vidéo ». Le \texttt{Close()}
+n'est pas une politesse : sans lui le fichier écrit est \emph{incomplet}, et il
+s'ouvre parfois quand même, ce qui rend l'oubli difficile à détecter.
+\end{nkbilan}
+
 \section{Exercices}
 
-\begin{nkexo}[1 — Sonder avant d'ouvrir]
+\begin{nkdemo}[1 — Sonder avant d'ouvrir]
 Écrivez un petit outil en ligne de commande qui prend un chemin, appelle
 \texttt{NkMediaProbe::ProbeFile}, et affiche le conteneur et toutes les pistes.
 Passez-lui successivement un WAV, un MP3, un MP4 et un fichier texte renommé en
@@ -812,9 +821,9 @@ Ajoutez ensuite une règle : si la première piste vidéo n'a pas un codec parmi
 \texttt{"mjpeg"}, \texttt{"rawrgb"} ou \texttt{"image"}, affichez un
 avertissement disant que la lecture n'est pas garantie par ce cours. Vous venez
 d'écrire le garde-fou qui manque à la plupart des applications.
-\end{nkexo}
+\end{nkdemo}
 
-\begin{nkexo}[2 — Le \emph{round-trip} complet]
+\begin{nkdemo}[2 — Le \emph{round-trip} complet]
 Générez une vidéo de 100 images en MJPEG/AVI, avec un motif dont vous pouvez
 prédire le contenu — par exemple un rectangle qui se déplace d'un pixel par
 image. Relisez-la ensuite avec \texttt{NkVideoReader} et vérifiez que le nombre
@@ -824,9 +833,9 @@ l'image 50.
 Recommencez avec le conteneur MOV. Puis essayez \texttt{RAW\_BGR} et comparez la
 taille des fichiers : vous aurez une idée concrète de ce que compresser veut
 dire.
-\end{nkexo}
+\end{nkdemo}
 
-\begin{nkexo}[3 — Prouver que \texttt{Close()} est obligatoire]
+\begin{nkdemo}[3 — Prouver que \texttt{Close()} est obligatoire]
 Reprenez l'exercice précédent et commentez l'appel à \texttt{vw.Close()}.
 Regardez la taille du fichier produit — elle est presque identique — puis
 essayez de l'ouvrir avec votre lecteur vidéo habituel, et avec
@@ -834,9 +843,9 @@ essayez de l'ouvrir avec votre lecteur vidéo habituel, et avec
 
 Cet exercice prend deux minutes et vous fera gagner une soirée le jour où votre
 application se fermera brutalement en cours d'enregistrement.
-\end{nkexo}
+\end{nkdemo}
 
-\begin{nkexo}[4 — Un lecteur cadencé, dans votre interface]
+\begin{nkpratique}[4 — Un lecteur cadencé, dans votre interface]
 Ajoutez à votre application NKGui un panneau qui lit une séquence d'images
 depuis un dossier (c'est le chemin le plus simple : \texttt{Open} accepte un
 dossier) et l'affiche avec le widget \texttt{Image} du chapitre~5.
@@ -846,4 +855,28 @@ garde-fous de \texttt{NkVideoViewer} : \emph{delta time} aberrant et
 accumulateur débordé. Ajoutez un bouton pause et un \texttt{SliderFloat} de
 vitesse. Vérifiez que vous n'appelez \texttt{UploadRGBA} qu'une seule fois — au
 premier affichage — et \texttt{UpdateRGBA} ensuite.
-\end{nkexo}
+\end{nkpratique}
+
+\begin{nkquestions}
+\begin{enumerate}
+\item Pourquoi sonder un fichier plutôt que se fier à son extension ?
+\item Comment une image décodée arrive-t-elle à l'écran ?
+\item Que manque-t-il à un fichier vidéo dont on a oublié le \texttt{Close()} ?
+\item Où se branche un traitement des pixels dans la chaîne de lecture ?
+\item Qu'est-ce qui cadence la lecture, et que se passe-t-il si on l'ignore ?
+\end{enumerate}
+\end{nkquestions}
+
+\begin{nklogique}
+Une vidéo que vous venez d'écrire s'ouvre dans votre lecteur, mais pas dans celui
+du système.
+
+\begin{enumerate}
+\item Est-ce forcément un défaut de votre écriture ? Donnez au moins une cause
+      où ce n'en est pas un.
+\item Que peut faire votre lecteur qu'un lecteur du système ne fait pas, et
+      pourquoi cette indulgence est-elle un piège pour vous ?
+\item Concluez sur la règle générale : pourquoi un producteur ne doit-il
+      \emph{jamais} être validé par son propre consommateur seul ?
+\end{enumerate}
+\end{nklogique}

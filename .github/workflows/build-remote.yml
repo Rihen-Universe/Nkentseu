@@ -46,12 +46,30 @@ jobs:
         with:
           submodules: recursive
 
+      - name: Version de Jenga exigee par NKCode
+        id: jenga-version
+        run: |
+          # SOURCE UNIQUE : Applications/NKCode/JENGA_VERSION. Ce fichier ne
+          # porte plus de numero en dur ici, donc il ne peut plus diverger.
+          # Avant, `ref:` etait ecrit a la main et il est reste en 2.6.3 pendant
+          # que NKCode passait a 2.8.0 : la construction macOS s'arretait sur
+          # « name 'appurl' is not defined », message qui ne parle pas de Jenga.
+          V=$(grep -v '^#' Applications/NKCode/JENGA_VERSION | tr -d '[:space:]')
+          test -n "$V" || { echo "::error::JENGA_VERSION vide ou introuvable"; exit 1; }
+          echo "version=$V" >> "$GITHUB_OUTPUT"
+          echo "Jenga exige par NKCode : $V"
+
       - name: Depot Jenga
         uses: actions/checkout@v4
         with:
           repository: Rihen-Universe/Jenga
-          # La branche VIVANTE de Rihen (fix frameworks() inclus) — main public est en retard.
-          ref: feat/evenement-avertissement
+          # ⚠️ Epingle sur le TAG de la release, pas sur une branche. Jusqu'au
+          # 2026-09-08 ce champ pointait `feat/evenement-avertissement`, restee
+          # en 2.4.0 : les paquets macOS/Linux embarquaient donc un Jenga plus
+          # vieux que le paquet Windows, sans que rien ne le dise. La branche
+          # est un ANCETRE de v2.6.3 (verifie par merge-base), rien ne se perd.
+          # Bumper ce tag a chaque release de Jenga.
+          ref: v${{ steps.jenga-version.outputs.version }}
           path: jenga-src
 
       - name: Dependances systeme (Linux)
@@ -86,8 +104,28 @@ jobs:
 
       - name: Wheel Jenga (NKCode l'embarque pour ses boutons Construire)
         run: |
-          python3 -m pip wheel ./jenga-src -w jenga-src/dist --no-deps -q || echo "wheel indisponible (non bloquant pour les autres cibles)"
-          ls jenga-src/dist/ || true
+          # ⚠️ `pip wheel` ECHOUAIT EN SILENCE SUR LE RUNNER LINUX (2026-09-08) :
+          # il sortait `UNKNOWN-0.0.0-py3-none-any.whl` — sans metadonnees, parce
+          # que le setuptools du runner ne resolvait pas le `version = attr:
+          # Jenga._version.__version__` du pyproject. NKCode ne reconnaissait donc
+          # aucun wheel et le paquet Linux partait SANS Jenga embarque : les
+          # boutons Construire/Executer inoperants, et rien ne le disait puisque
+          # le `|| echo` avalait l'echec. La beta.7 est partie comme ca.
+          # `python -m build` (PEP 517, isole) est ce qui fabrique les releases de
+          # Jenga : meme chemin, meme resultat. Et on VERIFIE le nom produit.
+          set -e
+          # PEP 668 : depuis 2026, le Python de Homebrew sur les runners macOS
+          # refuse `pip install` et rend « error: externally-managed-environment ».
+          # Le message parle d'un environnement gere par le systeme, pas d'un
+          # probleme de paquet, et il a fait echouer la construction macOS de la
+          # beta.11 en une minute. Un venv jetable contourne proprement : le
+          # runner est ephemere, mais on ne touche pas au Python du systeme, et
+          # la meme recette vaut sur Linux comme sur macOS.
+          python3 -m venv "$RUNNER_TEMP/venv-build"
+          "$RUNNER_TEMP/venv-build/bin/python" -m pip install -q --upgrade pip build
+          "$RUNNER_TEMP/venv-build/bin/python" -m build --wheel --outdir jenga-src/dist ./jenga-src
+          ls jenga-src/dist/
+          test -n "$(ls jenga-src/dist/jenga-*.whl 2>/dev/null)"             || { echo "::error::aucun wheel jenga-*.whl produit — le paquet serait sans Jenga embarque"; exit 1; }
 
       - name: Builder ${{ inputs.target }} (${{ inputs.platform }}, ${{ inputs.config }})
         env:

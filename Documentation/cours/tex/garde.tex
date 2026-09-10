@@ -23,16 +23,24 @@
   % Titre
   \node[anchor=north, text width=15.2cm, align=center]
        at ([yshift=-9.4cm]current page.north) {
-    {\sffamily\bfseries\fontsize{40}{46}\selectfont\color{white}
-      NkCanvas \& NKGui\par}
+    {\sffamily\bfseries\fontsize{34}{40}\selectfont\color{white}
+      Construire avec Nkentseu\par}
     \vspace{10pt}
     {\color{rihenOrange}\rule{4.2cm}{2.6pt}\par}
     \vspace{16pt}
     {\sffamily\fontsize{17}{23}\selectfont\color{white!88}
-      Construire des applications et des jeux\\avec le moteur Nkentseu\par}
+      De la première ligne de C\\à dix applications complètes\par}
     \vspace{10pt}
     {\sffamily\fontsize{12.5}{17}\selectfont\color{rihenOrange}
-      Cours complet pour débutants\par}
+      Cours complet — débutant à professionnel\par}
+    % L'auteur porte sur la couverture, pas seulement dans les credits : c'est
+    % lui qui detient les droits sur cet ouvrage.
+    \vspace{26pt}
+    {\sffamily\fontsize{13.5}{19}\selectfont\color{white}
+      \DocAuteur\par}
+    \vspace{5pt}
+    {\sffamily\fontsize{10}{14}\selectfont\color{white!70}
+      \DocAuteurTitres\par}
   };
 
   % Bas de page
@@ -45,6 +53,14 @@
       Rihen — \DocDate\par}
   };
 \end{tikzpicture}
-
-\restoregeometry
 \end{titlepage}
+% ⚠️ `\restoregeometry` APRES `\end{titlepage}`, jamais dedans. Place a
+% l'interieur, il restaure les marges pendant que l'environnement construit
+% encore sa page : la PREMIERE page suivante herite d'une hauteur de bloc
+% fausse, et sa derniere ligne est imprimee A CHEVAL SUR LE BORD DU PAPIER --
+% coupee en deux dans le sens de la hauteur. Mesure : la ligne « 2.11 Memoire :
+% pile et tas » de la table des matieres, tranchee au milieu des lettres.
+% Le defaut ne se voit sur AUCUNE autre page, et TeX n'emet aucun avertissement
+% (pas d'`Overfull \vbox`) : le bloc a la bonne taille, c'est sa POSITION qui
+% deborde. Il ne se detecte donc qu'en regardant le papier.
+\restoregeometry

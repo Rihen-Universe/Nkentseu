@@ -17,6 +17,8 @@
 #include "NK3DModeler/Viewport/NkViewport3D.h"
 #include "NK3DModeler/Viewport/NkDemo3DHost.h"
 #include "NK3DModeler/Viewport/NkOutCompose.h"
+#include "NK3DModeler/Shell/NkModelerMeshMenu.h" // commandes de maillage : une decl., N chemins
+#include <cstdio> // instrument du menu contextuel (printf/fflush)
 
 namespace nkentseu {
 	namespace nk3d {
@@ -626,7 +628,8 @@ namespace nkentseu {
 		inline void PaintViewport(NkModelerPainter &p, const NkRect &r, NkModelerState &st,
 								  NkHitRegistry &hit, NkWidgetState &ws,
 								  const nkgui::NkGuiInput &in, NkComboPending &combo,
-								  NkCheckPending &checks, const NkShortcutTable &sc) {
+								  NkCheckPending &checks, const NkShortcutTable &sc,
+								  nkgui::NkGuiContext *guiCtx = nullptr) {
 			// Le bloc de surcouche est RE-ARME chaque frame par qui en a besoin
 			// (badge vue camera...) : on repart de zero ici, sinon un bloc
 			// perime survivrait au changement d'onglet et refuserait des clics
@@ -1873,6 +1876,109 @@ namespace nkentseu {
 			PaintBgPopup(p, hit, st, r, barY, barH);
 			// Le panneau des matcaps est peint depuis main, APRES tous les
 			// panneaux : il peut s'ouvrir depuis le panneau Proprietes aussi.
+
+			// ── MENU CONTEXTUEL DU MAILLAGE (clic droit) ────────────────────
+			// Composant du KIT, pas une reecriture : `NkCtxMenuDraw` porte deja
+			// le grisage, le defilement, la recherche et -- depuis aujourd'hui --
+			// la colonne de RACCOURCIS alignee a droite.
+			//
+			// ⚠ LE CLIC DROIT EST DEJA PRIS, DEUX FOIS, dans le viseur : il ANNULE
+			// une operation modale, et Maj+clic droit place le curseur 3D. Ouvrir
+			// le menu sans le savoir aurait fait DEUX choses d'un seul clic. On ne
+			// s'ouvre donc que sur un clic droit NU, hors modale.
+			if (guiCtx && editMode && demo::Demo3DHostReady()) {
+				const bool dansVue = st.viewRect.w > 0.f && in.mousePos.x >= st.viewRect.x &&
+									 in.mousePos.x < st.viewRect.x + st.viewRect.w &&
+									 in.mousePos.y >= st.viewRect.y &&
+									 in.mousePos.y < st.viewRect.y + st.viewRect.h;
+				if (dansVue && in.mouseClicked[1] && !in.shiftDown && !demo::Demo3DHostModalActive() &&
+					!st.meshMenu.open) {
+					st.meshMenu.open = true;
+					st.meshMenu.pos = in.mousePos;
+					st.meshMenuTrace = true;
+				}
+				if (st.meshMenu.open) {
+					const char *labels[kMeshMenuCap];
+					const char *shorts[kMeshMenuCap];
+					bool enabled[kMeshMenuCap];
+					NkMeshCmd ids[kMeshMenuCap];
+					char keybuf[kMeshMenuCap][32];
+					const int32 n =
+						NkMeshMenuBuild(demo::Demo3DHostEditSelMask(), demo::Demo3DHostEditSelCount(), sc,
+										labels, shorts, enabled, ids, keybuf);
+					const int32 choisi = editorkit::NkCtxMenuDraw(*guiCtx, st.meshMenu, labels, enabled, n,
+																 nullptr, nullptr, nullptr, nullptr, 0,
+																 nullptr, shorts);
+					// UNE COMMANDE, PLUSIEURS ENTREES : on ne fait ici que NOMMER
+					// la commande. Ce qu'elle fait vit dans le repartiteur, partage
+					// avec la barre de menu et le clavier.
+					// INSTRUMENT : sans lui, on ne peut pas distinguer « le menu ne
+					// s'ouvre pas » de « il s'ouvre et le clic le rate ». Une seule
+					// ligne par ouverture, pas par image.
+					// NK_MENU_TRACE=1 : instrument, muet par defaut. Sans lui on ne peut
+					// pas distinguer « le menu ne s'ouvre pas » de « il s'ouvre et le clic
+					// le rate » -- les deux se ressemblent exactement de l'exterieur.
+					static const bool trMenu = (std::getenv("NK_MENU_TRACE") != nullptr);
+					if (trMenu && st.meshMenuTrace) {
+						st.meshMenuTrace = false;
+						std::printf("[nk3d-menu] OUVERT mode=%s entrees=%d selection=%d\n",
+									(demo::Demo3DHostEditSelMask() & 4)
+										? "FACE"
+										: ((demo::Demo3DHostEditSelMask() & 2) ? "ARETE" : "SOMMET"),
+									(int)n, (int)demo::Demo3DHostEditSelCount());
+						for (int32 q = 0; q < n; ++q)
+							std::printf("[nk3d-menu]   %2d %-24s %-12s %s\n", (int)q, labels[q],
+										shorts[q][0] ? shorts[q] : "-", enabled[q] ? "actif" : "GRISE");
+						std::fflush(stdout);
+					}
+					if (choisi >= 0 && choisi < n) {
+						// PREUVE DE BOUT EN BOUT (sous NK_MENU_TRACE) : on encadre l'appel
+						// par les compteurs du maillage. « L'entree a ete cliquee » ne
+						// prouve rien ; ce qui prouve, c'est que la GEOMETRIE a change
+						// derriere. ⚠ Une entree MODALE laisse les compteurs INCHANGES et
+						// c'est NORMAL : elle ouvre un apercu qui attend confirmation.
+						uint32 v0 = 0, e0 = 0, f0 = 0, t0 = 0, v1 = 0, e1 = 0, f1 = 0, t1 = 0;
+						if (trMenu)
+							(void)demo::Demo3DHostStats(&v0, &e0, &f0, &t0);
+						const bool fait = NkMeshMenuRun(ids[choisi]);
+						if (trMenu) {
+							(void)demo::Demo3DHostStats(&v1, &e1, &f1, &t1);
+							std::printf("[nk3d-menu] CHOISI %d = %s -> rendu=%d  maillage %u/%u/%u -> %u/%u/%u%s\n",
+										(int)choisi, labels[choisi], fait ? 1 : 0, v0, e0, f0, v1, e1, f1,
+										(v0 == v1 && e0 == e1 && f0 == f1) ? "  (INCHANGE)" : "  (MODIFIE)");
+							std::fflush(stdout);
+						}
+					}
+				}
+			} else if (st.meshMenu.open) {
+				st.meshMenu.open = false; // sortie du mode edition : le menu ne survit pas
+			}
+
+			// ── SELECTEUR D'OUTIL (Espace / Maj+Espace) ─────────────────────
+			// Ce que G/R/S/C ont quitte atterrit ICI. Chez Blender la selection
+			// d'outil n'est jamais une lettre nue : c'est un selecteur qui
+			// s'ouvre sur une touche a base d'espace. MEME composant du kit que
+			// le menu du maillage -- on n'en ecrit pas un second.
+			if (guiCtx) {
+				if (demo::Demo3DHostToolPickerTake()) {
+					st.toolMenu.open = true;
+					st.toolMenu.pos = in.mousePos;
+				}
+				if (st.toolMenu.open) {
+					static const char *const kOutils[4] = {"Deplacer", "Tourner", "Redimensionner",
+														  "Combine (T+R+S)"};
+					// Aucune de ces entrees n'a de raccourci : G/R/S sont desormais
+					// les MODALES, pas la selection d'outil. Afficher « G » ici
+					// mentirait -- G ne selectionne plus cet outil, il lance un geste.
+					static const char *const kRacc[4] = {"", "", "", ""};
+					const bool actifs[4] = {true, true, true, true};
+					const int32 ch = editorkit::NkCtxMenuDraw(*guiCtx, st.toolMenu, kOutils, actifs, 4,
+															  nullptr, nullptr, nullptr, nullptr, 0,
+															  nullptr, kRacc);
+					if (ch >= 0 && ch < 4)
+						demo::Demo3DHostSetGizmoOp(ch); // 0 depl. 1 rot. 2 ech. 3 combine
+				}
+			}
 		}
 
 		// â”€â”€ LIGNE DE TRANSFORMATION â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€

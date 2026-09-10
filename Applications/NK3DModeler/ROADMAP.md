@@ -194,8 +194,126 @@ bibliothèque, le banc peut couvrir les deux.**
 
 ## 📐 Modes objet / édition, et ce qu'est un sous-mesh — SPÉCIFICATION (Rihen, 2026-08-17)
 
+### 🧭 RÈGLE DE CONCEPTION PERMANENTE (Rodolf, 2026-08-27)
+
+> **« On doit partir du même principe que Blender, et avec le temps le définir à
+> notre sauce et notre manière. »**
+
+⚠️ **Ce n'est pas « copier Blender », c'est « PARTIR de Blender ».** La différence
+est opérationnelle :
+
+> **Quand une question de conception se pose et qu'on n'a pas de raison MESURÉE
+> de faire autrement, la réponse par défaut est ce que fait Blender.
+> Diverger demande une raison ; suivre n'en demande pas.**
+
+📌 Elle s'applique rétroactivement à ce qui est déjà écrit ici : la distinction
+sculpture / sculpture 2.5D, la règle des modes, le prisme du maillage.
+
+### ⌨️ LES TROIS AXES ET LEURS TOUCHES — mesuré le 2026-08-27
+
+| axe | où il vit | touche |
+|---|---|---|
+| **interaction** (Objet, Édition, Sculpture, 2.5D, Peinture) | `st.mode` (`NkMode`) | `TAB`, et `Ctrl+TAB` pour la liste complète |
+| **affichage** (rendu, solide, fil de fer, normales, UV, AO) | `st.shading` / `shadingMode` — **jamais** dans `NkMode` | **`Z`** |
+| **espace de travail** (l'onglet) | `st.mode` aussi, *par la règle de Rihen ci-dessous* | le clic sur l'onglet |
+
+**Le modèle de raccourcis retenu :**
+
+```
+TAB        Objet <-> Edition             le trajet frequent
+Ctrl+TAB   menu radial de TOUS les modes  sculpture, 2.5D, peinture
+Z          menu radial de l AFFICHAGE     fil de fer, solide, materiau, rendu
+```
+
+> **Un raccourci pour le trajet fréquent, un modificateur pour la liste complète,
+> et l'affichage garde le sien.**
+
+⚠️ **Pas de raccourci par mode** — sinon le sixième mode en demandera un sixième.
+*Un menu radial se lit ; cinq raccourcis se mémorisent.* Et **`TAB` ne cycle pas
+sur les sept modes** : il ne fait qu'Objet ↔ Édition. Cycler serait plus simple à
+écrire et insupportable à l'usage.
+
+**Ce qui est MESURÉ aujourd'hui, et ce qui ne l'est pas :**
+- ✅ `Z` fait déjà défiler l'affichage (`NkDemo3D.cpp:4628`, six états, journalise
+  « Affichage = … »). **L'axe affichage a déjà sa touche et sa variable.**
+- ❌ `Ctrl+TAB` **n'existe pas**.
+- ❌ `Z` ouvre un **cycle**, pas un menu radial — divergence avec Blender, donc à
+  reprendre le jour où le menu radial existera.
+- 🔴 **COLLISION MESURÉE À NOMMER** : le shell lie `Z` **nu** à `ModalAxisZ`
+  (contrainte d'axe pendant une modale, `main.cpp:804`) pendant que le viseur
+  l'utilise pour l'affichage. **Inoffensif aujourd'hui — les modales sont mortes
+  — mais le jour où elles seront implémentées, `Z` voudra dire deux choses.**
+  À trancher AVEC les modales, pas après.
+
+
 *Écrite ici parce qu'elle n'existait que dans un fichier d'échange non versionné.
 C'est la première fois que le comportement objet/édition est fixé noir sur blanc.*
+
+### ⚠️ COMPLÉMENT DU 2026-08-27 (Rodolf) — LA RÈGLE DES MODES, qui dépasse l'édition
+
+> **« Concernant le mode édition, ça doit se faire dans l'onglet Édition
+> uniquement, pour l'objet sélectionné. Pareil pour la sculpture, la sculpture
+> 2.5D, le texturing, etc. »**
+
+**Deux principes :**
+1. **Un mode vit dans SON onglet** — ce n'est pas un état global de l'application.
+2. **Un mode s'applique à l'OBJET SÉLECTIONNÉ**, pas à un index parallèle ni à une
+   cible implicite.
+
+**Et la forme, corrigée par Rodolf lui-même** — *« Comment ça, copier ? C'est pas
+plus lourd ? »* :
+
+```
+UNE machinerie     entrer / sortir · ce qui est permis · ce que la vue affiche
+                   · LA CIBLE = L'OBJET SÉLECTIONNÉ
+N descripteurs     Objet · Édition · Sculpture 2.5D · Sculpture · Texturing · …
+                   chacun déclare SES outils et SES panneaux
+```
+
+⚠️ **Ce n'est PAS un gabarit à instancier.** Un gabarit invite à copier, et copier
+est le défaut qu'on retire : trois doublons trouvés dans cette application le
+27/08, chacun avec un côté mort et l'entrée publique branchée dessus. **Blender
+n'a pas cinq implémentations de « mode », il en a une et une énumération.**
+
+**État mesuré au 27/08 — la machinerie existe déjà, il lui manque UN maillon :**
+
+| pièce | état |
+|---|---|
+| l'énumération `NkMode` (Object, Edit, Sculpt25D, Sculpt, Texturing, Patron, TexturePaint) | ✅ existe |
+| l'onglet écrit le mode (`NkModelerViewport.h:675`) | ✅ existe |
+| la cible suit la sélection (`editUserIdx` posé depuis la cible résolue) | ✅ vérifié |
+| **le mode atteint le viseur vivant** | ❌ **manquant** |
+
+**Le maillon manquant, précisément** : `main.cpp:1325` fait
+`Viewport3DSetEditMode(st.mode != NkMode::Object)` — il **replie sept modes en un
+booléen** *et* l'envoie à la vue **dormante**. C'est là, et seulement là, que la
+machinerie générique se perd. La réparer, c'est un `Demo3DHostSetMode(int32)` qui
+prend le MODE et non un booléen. **Ne pas déclarer de mode qui n'existe pas** :
+seuls Objet et Édition sont réels aujourd'hui ; les autres sont déjà dans
+l'énumération et n'ont pas besoin d'être annoncés ailleurs.
+
+### ⚠️ SCULPTURE ET SCULPTURE 2.5D SONT DEUX MODES, PAS UN MODE ET SON OPTION
+
+*Rodolf, 27/08 : « N'oublie pas la distinction entre sculpture et sculpture 2.5D. »*
+
+| | ce qui change | ce que ça exige |
+|---|---|---|
+| **Sculpture 2.5D** | un déplacement le long de la normale, sur la surface existante | **aucun changement de topologie** — pas de contre-dépouille, pas de surplomb |
+| **Sculpture réelle** | le volume lui-même | **topologie dynamique** : remaillage, ajout/retrait de géométrie, multi-résolution |
+
+📌 **Pourquoi c'est écrit ici et pas ailleurs** : deux noms proches sur deux
+exigences **opposées**, c'est exactement ce qui se fait fusionner par quelqu'un de
+bien intentionné qui croit simplifier.
+
+📌 **Et ça relie la réécriture demi-arête de la semaine** (cycles chaînés,
+`LinkTwins` localisé, opérations en place) : **c'est l'infrastructure de la
+sculpture RÉELLE.** La 2.5D n'en a pas besoin ; la réelle ne peut pas exister
+sans.
+
+⚠️ **Conséquence sur le descripteur de mode** : il devra pouvoir porter *« ce mode
+change-t-il la topologie, ou seulement les positions ? »*. **Contrainte de
+NON-FERMETURE, pas fonctionnalité à écrire aujourd'hui** — tant qu'un seul mode
+en a besoin, ce n'est pas encore une abstraction.
 
 ### Les deux modes
 
@@ -1143,6 +1261,44 @@ Envoie le journal (`MESURE clic carte`, `MESURE lacher`, `PICK lacher`).
 **Suite** : contrat d'import (d) matériaux/textures et (e) le dialogue.
 
 
+## ⚰️ `NkViewport3D.cpp` EST MORTE — 2 649 lignes, signalée et NON supprimée (2026-08-24)
+
+> 🔴 **ÉTAT AU 2026-08-27 — ELLE NE PEUT TOUJOURS PAS ÊTRE SUPPRIMÉE, et voici
+> exactement ce qui reste.** 21 symboles sur 25 ont été portés dans la journée
+> (annuler/refaire, les 14 modificateurs, la sélection de maillage, les six vues,
+> le panneau Transformation, cadrer tout). **Ce qui bloque encore :**
+>
+> | ce qui reste | pourquoi ça bloque |
+> |---|---|
+> | **les 6 modales** (`BeginModal`, `ModalAxis`, `ModalUpdate`, `ModalConfirm`, `ModalCancel`, `ModalKind`) | 🔴 **décision produit NON TRANCHÉE.** Rodolf a dit **ni les implémenter, ni les retirer** pour l'instant. La transformation modale façon Blender n'existe **que** dans cette vue ; côté vivant, G/R/S **choisissent l'outil** du gizmo. Les porter = implémenter une fonctionnalité **et** décider ce que devient G/R/S. |
+> | `Stats`, `DeleteObject`, `SetOverlays`, `SetXray`, `SetEditMode`, `SetGizmoInput` | portages ordinaires, pas encore faits |
+> | `Resize`, `Shutdown` | ⚠️ **à SUPPRIMER AVEC ELLE, jamais à porter** — c'est son cycle de vie propre. Noté ici pour que personne ne cherche pourquoi ils n'ont pas de façade. |
+>
+> ⚠️ **Ne pas croire le chemin libre parce que la liste a beaucoup maigri :** tant
+> que les modales ne sont pas tranchées, supprimer ce fichier retire une
+> fonctionnalité que personne n'a décidé de retirer.
+
+**Mesuré, pas supposé.** Deux vues 3D coexistent dans l'application :
+
+| | |
+|---|---|
+| `Viewport/NkViewport3D.cpp` (2 649 lignes) | **jamais de device** — `main.cpp:350-351` ne lui en donne aucun |
+| `Viewport/NkDemo3D.cpp` (18 660 lignes) | **la vivante**, celle qui rend |
+
+Conséquence : **tout le dispatch d'édition de `main.cpp:1435-1626` est du code
+mort** — il vise la vue qui ne dessine pas.
+
+⚠️ **NE PAS LA SUPPRIMER — c'est une décision de Rodolf, pas la mienne.** Elle
+est écrite ici pour une raison précise : **une capacité morte non documentée
+recrute.** Quelqu'un finira par l'améliorer, la corriger, l'optimiser, en
+croyant travailler sur la vue vivante — et son travail n'apparaîtra jamais à
+l'écran. C'est arrivé assez de fois cette semaine sur des chaînes bien plus
+courtes.
+
+**Trois options, à trancher** : la supprimer, la réactiver, ou la marquer dans
+le code lui-même (un `#error` sous un drapeau, un préfixe `DEPRECATED_` sur le
+fichier). La troisième est la moins chère et suffit à empêcher le recrutement.
+
 ## 3. Modélisation complète ⬜
 
 - **Mode Édition** : sommets / arêtes / faces, sélection, extrusion, biseau,
@@ -1186,15 +1342,34 @@ ce n'est que la **première moitié**. Ce que Rihen attend, et qui reste à fair
    après coup est un champ de plus dans l'`ObjectUBO`, donc une structure qui
    change, donc **les cinq backends à revalider**. Brancher une interface sur un
    shader incomplet fait payer deux fois. Dans l'ordre :
-   - **Exposer `clearcoat` et `subsurface`** — `pbr.frag.nksl` les calcule
-     **déjà** (lignes 429 et 438) et `NkMaterial` les expose (`SetClearcoat`,
-     `SetSubsurface`) : **le panneau du modeleur ne les propose pas**. Deux
-     paramètres corrects, déjà payés, hors de portée de l'utilisateur. Le gain
-     le moins cher du chantier.
-   - **Transmission + IOR** — *rien* dans le shader aujourd'hui. C'est le « S »
-     de BSDF (*scattering*, qui inclut la transmission) : sans elle, **pas de
-     verre, pas d'eau, pas de liquide crédibles**. Le manque le plus visible
-     pour un modeleur.
+   - ~~**Exposer `clearcoat` et `subsurface`**~~ — ✅ **FAIT, et MESURÉ le
+     2026-08-24.** Le panneau les propose (`Demo3DHostProjMatSetSurface`, appelé
+     depuis `NkModelerProperties.h`), le chemin va jusqu'au GPU
+     (`dc.clearcoat` → `uObj.clearcoat`) et `pbr.frag.nksl` les lit bien
+     (lignes 774-776 pour le vernis, 720-722 pour la diffusion).
+     **Preuve par capture, pas par lecture** : deux rendus du même projet à
+     `cc=0` puis `cc=1` donnent des images **différentes**, alors que deux
+     rendus identiques sont identiques **au bit près**.
+     ⚠️ Le texte ci-dessus disait l'inverse et datait du 6 août. Il a survécu
+     dix-huit jours parce qu'**une liste écrite ne se périme pas bruyamment** :
+     elle ne tombe pas comme un banc, elle ne demande jamais rien.
+   - **Transmission + IOR** — 🔴 **MESURÉ LE 2026-08-24 : L'INDICE NE FAIT
+     RIEN.** Deux rendus de verre à `n=1,0` et `n=2,4` sont **identiques au bit
+     près**, alors que le même banc distingue le type PBR du type Verre — donc
+     le shader du verre tourne bel et bien et l'instrument sait voir un écart.
+     **La cause est localisée** : le champ `vernis` porte l'indice pour le type
+     Verre (double emploi assumé, `NkDemo3D.cpp:14708-14713`, et son SIGNE porte
+     la coche d'activation), mais l'application l'écrit dans `dc.clearcoat` →
+     `uObj.clearcoat`, tandis que `Glass/NkSL/glass.frag.nksl:100` lit
+     `uMat.clearcoat` — que rien ne remplit. Personne ne l'avait vu parce que la
+     valeur de repli, 1,5, est du verre à vitre : **le défaut se cache derrière
+     une valeur par défaut plausible.**
+     ⚠️ Et les six variantes de backend ne s'accordent pas :
+     `Glass/GL/glass.frag.gl.glsl:20` code `float ior=1.45;` **en dur**.
+     C'est le « S » de BSDF (*scattering*, qui inclut la transmission) : sans
+     elle, **pas de verre, pas d'eau, pas de liquide crédibles**. Le manque le
+     plus visible pour un modeleur — et il est plus proche qu'on ne croyait,
+     puisque le réglage existe déjà et qu'il ne lui manque qu'un fil.
    - **Anisotropie** — métal brossé, cheveux, vinyle.
    - **Sheen** — tissus, velours.
 

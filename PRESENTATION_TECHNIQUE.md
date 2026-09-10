@@ -98,7 +98,46 @@ le **framework applicatif** sur lequel on développe un jeu.
 - Panels dockables (Viewport, SceneTree, Inspector, AssetBrowser, Console…),
   gizmos, sélection, undo/redo, gestion de projet.
 - **Rend via NKRenderer** et **utilise NKUI à travers NKRenderer** pour son UI.
-- Anciennement nommé **Unkeny** dans des documents plus anciens.
+- ⚠️ **Anciennement nommé « Unkeny »** dans des documents plus anciens — ce
+  nom a été **réattribué au moteur 2D** le 2026-09-01 (voir plus bas). Il ne
+  désigne plus Nogee nulle part.
+
+
+---
+
+## Unkeny — moteur de jeu 2D (couche Engine)
+
+**Unkeny** est le moteur de jeu **2D**, bâti sur **NKCanvas**.
+
+- Il **compose** ce que le dépôt porte déjà et n'en réécrit rien : **NKECS**
+  (entités), **NKCollision** et **NKPhysics** (simulation 2D), **NKCanvas**
+  (rendu et coquille d'application), **NKGui** (liste d'affichage).
+- Il couvre **tous les genres 2D** — RPG, plateforme, puzzle, jeu de plateau :
+  cartes de tuiles avec parallaxe, animation par images, actions d'entrée,
+  vues multiples et miniatures, physique **facultative**.
+- **Rend via NKCanvas**, **jamais** via NKRenderer.
+
+> ⚠️ **Pourquoi un nom distinct et non « Noge2D »** : NKCanvas et NKRenderer
+> sont **exclusifs** — une fenêtre utilise l'un ou l'autre, jamais les deux
+> (NKCanvas possède ses propres backends, il n'est pas un client de NKRHI). Un
+> nom dérivé de Noge suggérerait une parenté qui n'existe pas. Noge est le
+> moteur 3D, Unkeny le 2D : deux piles, deux noms.
+
+> **Sur la réattribution du nom** (Rodolf, 2026-09-01) : « Unkeny » était un
+> ancien nom de travail, jamais employé. Mesuré avant de le reprendre :
+> **zéro occurrence dans le code**, deux documents seulement. Il était donc
+> libre.
+
+## UnkenyEditor — éditeur du moteur Unkeny
+
+Application bâtie **sur** Unkeny, dans `Applications/` : un moteur ne contient
+pas son outil.
+
+- Viseur (grille, scène, sélection, déplacement), hiérarchie, inspecteur.
+- **Simulation de zone sûre** : profils d'appareils, rotation, bandes
+  inatteignables — pour voir un débordement mobile **avant** de déployer.
+- Il est aussi le **premier consommateur** d'Unkeny : un moteur sans
+  consommateur ne se prouve pas.
 
 ---
 
@@ -112,7 +151,14 @@ Jenga ──construit──▶ Nkentseu
                         ├─ NKRHI ─▶ NKRenderer (3D) ─▶ Noge ─▶ Nogee
                         │                                 └─ NKUI (via NKRenderer)
                         │
-                        └─ NKCanvas (2D) + NKUI ─▶ jeux 2D (Pong, démos)
+                        └─ NKCanvas (2D) + NKGui
+                             ├─▶ Unkeny (moteur 2D) ─▶ UnkenyEditor
+                             │      └─ compose NKECS + NKCollision + NKPhysics
+                             └─▶ jeux 2D directs (Pong, GemCrush, NkDames,
+                                    NkEchecs, NkLudo, démos)
+
+⚠️ Les deux branches ne se mélangent pas : NKCanvas et NKRenderer sont
+   EXCLUSIFS. Une application choisit sa pile, elle ne prend pas les deux.
 ```
 
 ---
@@ -125,6 +171,8 @@ Jenga ──construit──▶ Nkentseu
 | **Nkentseu** | Moteur/framework C++ zero-STL | Toute la stack technique en couches | — |
 | **Noge** | Couche Engine de Nkentseu | Framework de jeu 2D/3D (boucle, ECS, events) | **NKRenderer → NKRHI** |
 | **Nogee** | Application (sur Noge) | Éditeur visuel du moteur Noge | **NKRenderer** + **NKUI** |
+| **Unkeny** | Couche Engine de Nkentseu | Moteur de jeu **2D** (scène, ECS, physique, tuiles, vues) | **NKCanvas** |
+| **UnkenyEditor** | Application (sur Unkeny) | Éditeur d'Unkeny + simulateur de zone sûre | **NKCanvas** + **NKGui** |
 
 > **Annexes** : **PV3DE** (Patient Virtuel 3D Émotif — application médicale cible,
 > au stade doc) est l'autre application phare visée par l'écosystème.

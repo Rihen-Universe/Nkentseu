@@ -13,6 +13,7 @@
 #include "NKCode/Shell/NkHome.h"	  // NkHomeOpenNewWindow (Nouvelle fenetre)
 #include "NKCode/Shell/NkI18n.h"	  // NkT
 #include "NKCode/Shell/NkUpdate.h"	  // NkUpdateState (mises a jour in-app, menu Aide)
+#include "NKCode/Shell/NkJengaUpdate.h" // NkJengaUpdateState (Jenga seul, 1 Mo)
 #include "NKWindow/Core/NkLauncher.h" // OpenURL (Aide)
 
 namespace nkentseu {
@@ -27,6 +28,9 @@ namespace nkentseu {
 				NkCodeDialogs *dlg = nullptr;
 				NkEditorShell *shell = nullptr;
 				NkUpdateState *upd = nullptr; // mises a jour in-app (Phase 13, menu Aide)
+				// Jenga bouge bien plus souvent que l'IDE : sa mise a jour est
+				// separee, pese 1 Mo au lieu de 96, et ne reinstalle rien.
+				NkJengaUpdateState *jup = nullptr;
 				NkHomeState *home = nullptr; // wizard « Nouveau Workspace » du launcher (nav==2)
 				NkString exePath;			 // pour « Nouvelle fenetre » (NkHomeOpenNewWindow)
 				// « Ouvrir un fichier »/« Aller au fichier » via le PICKER MAISON :
@@ -198,6 +202,13 @@ namespace nkentseu {
 					sh->RequestClose();
 				}
 			}
+
+			// Jenga se met a jour SEUL, sans reinstaller NKCode : son Poll() ne
+			// demande jamais de quitter. Pas de verification automatique ici —
+			// une seule interrogation de GitHub au demarrage suffit, et c'est
+			// celle de NKCode ; l'utilisateur declenche celle-ci par le menu.
+			if (mb->jup)
+				mb->jup->Poll();
 
 			// Resultat ASYNCHRONE du picker « Ouvrir un fichier » (PK_File remplit le
 			// buffer a la confirmation, une frame plus tard) -> ouverture ici.
@@ -820,6 +831,24 @@ namespace nkentseu {
 					}
 				} else if (MenuItem(ctx, NkT("mb.help.updates")))
 					NkLauncher::OpenURL("https://github.com/Rihen-Universe/NKCode-Beta/releases");
+
+				// ── Jenga, separement ────────────────────────────────────────
+				// Deux entrees et non une : mettre a jour Jenga ne reinstalle pas
+				// NKCode, et l'utilisateur doit pouvoir faire l'un sans l'autre.
+				// Un Jenga perime ne se voit pas — il construit, sans le mot du
+				// DSL qu'un fichier de projet recent emploie, et l'erreur ne
+				// prononce jamais le mot Jenga.
+				if (mb->jup) {
+					const NkString jl = mb->jup->StatusLabel();
+					const NkString ji = jl.Empty() ? NkString("Mettre a jour Jenga")
+												   : (NkString("Mettre a jour Jenga") + "  \xE2\x80\x94  " + jl.CStr());
+					if (MenuItem(ctx, ji.CStr(), nullptr, !mb->jup->Busy())) {
+						if (mb->jup->available && !mb->jup->url.Empty())
+							mb->jup->reqInstall = true;
+						else
+							mb->jup->reqCheck = true;
+					}
+				}
 				if (MenuItem(ctx, NkT("mb.help.about")))
 					d->showHelp = 2; // fenetre DEDIEE in-app (produit/editeur/contact)
 				EndMenu(ctx);

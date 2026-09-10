@@ -167,6 +167,110 @@ namespace nkentseu {
 		void Demo3DHostSetSnap(bool on, float32 t, float32 rotDeg, float32 scl);
 		bool Demo3DHostSnapEnabled();
 		void Demo3DHostSetGizmoHidden(bool hidden);
+		// OPERATIONS D EDITION, EXPOSEES AU SHELL -- PORTAGE DE LA FORME (etape 1)
+		// NkViewport3D exposait ces operations, NkDemo3D savait les faire mais ne les
+		// offrait a PERSONNE : la facade comptait 421 entrees et ZERO operation
+		// d edition. Les 42 actions de NkVpAction etaient donc cablees sur une vue
+		// sans device -- elles tournaient a chaque image et ne faisaient rien.
+		// LES CORPS VIENNENT DES FONCTIONS VIVANTES DE NkDemo3D, jamais de la vue
+		// dormante : trois y sont plus anciennes -- Merge sans le curseur 3D, Inset
+		// sans individual, Dissolve sans mode.
+		// Rendent true si la commande a REELLEMENT modifie le maillage.
+		bool Demo3DHostEditExtrude(bool individual);
+		bool Demo3DHostEditDelete();
+		bool Demo3DHostEditMerge();
+		bool Demo3DHostEditMakeFace();
+		bool Demo3DHostEditSubdivide();
+		bool Demo3DHostEditLoopCut();
+		bool Demo3DHostEditBevel(bool vertexMode);
+		bool Demo3DHostEditInset();
+		bool Demo3DHostEditDissolve();
+		// ── LES CINQ QUI N'AVAIENT AUCUNE FACADE (2026-08-28) ────────────────
+		// Elles EXISTENT et FONCTIONNENT depuis toujours -- seul le viseur savait
+		// les declencher, au clavier. Sans facade, aucun MENU ne pouvait les
+		// atteindre : c'est ce qui les rendait introuvables, pas leur absence.
+		// UNE COMMANDE, PLUSIEURS ENTREES : barre de menu, menu contextuel et
+		// clavier aboutissent TOUS ici ; la logique n'est rejouee nulle part.
+		bool Demo3DHostEditSpin();
+		bool Demo3DHostEditEdgeSplit();
+		// Operation MODALE (apercu, puis confirmation) : 1 biseau arete, 2 biseau
+		// sommet, 3 inserer, 4 loop cut, 5 spin, 6 extruder, 7 to sphere,
+		// 8 shrink/fatten. Le cadre modal vit dans NkDemo3D et s'occupe seul de
+		// l'apercu, de la confirmation et de l'annulation.
+		bool Demo3DHostEditModal(int32 op);
+		// BISECT : arme le COUTEAU (les deux clics suivants tracent la coupe).
+		// Chez Blender aussi c'est un OUTIL qu'on arme, pas une op immediate.
+		bool Demo3DHostArmKnife();
+		bool Demo3DHostKnifeArmed();
+		// Nombre d'elements SELECTIONNES en mode edition. C'est ce qui permet de
+		// GRISER une entree de menu au lieu de la faire disparaitre : sans ce
+		// chiffre, l'interface ne peut pas savoir si une commande produirait
+		// quelque chose, et devrait donc toutes les proposer.
+		int32 Demo3DHostEditSelCount();
+		// Une operation MODALE tourne-t-elle ? Le clic droit lui appartient alors
+		// (il ANNULE l'operation) : le menu contextuel ne doit surtout pas s'ouvrir
+		// par-dessus, sinon un seul clic ferait les deux.
+		bool Demo3DHostModalActive();
+		// SELECTEUR D'OUTIL demande au clavier (Espace / Maj+Espace) : rend true UNE
+		// fois puis se rearme. Le viseur possede le clavier, le shell possede le
+		// composant de menu -- ce drapeau est le seul point de contact.
+		bool Demo3DHostToolPickerTake();
+		// Annuler / refaire : la pile VIVANTE (Demo3DState::editHistory). La vue
+		// dormante a la sienne, que rien n'alimente -- cf. NkDemo3D.cpp.
+		bool Demo3DHostEditUndo();
+		bool Demo3DHostEditRedo();
+		bool Demo3DHostEditCanUndo();
+		bool Demo3DHostEditCanRedo();
+
+		// ── Pile de modificateurs (panneau « Modificateurs » + menu Ajouter) ──
+		// L'etat vit dans `Demo3DState::editModifiers` ; la vue dormante avait sa
+		// propre pile, que rien n'alimentait.
+		// MODE de l'interface (valeur de NkMode), et non un booleen : la
+		// distinction Sculpture / Sculpture 2.5D doit survivre au passage.
+		void Demo3DHostSetMode(int32 mode);
+		int32 Demo3DHostMode();
+
+		// Pose sel=1 sur toutes les aretes vivantes (mesure de survie de drapeau).
+		int32 Demo3DHostMarkAllEdges();
+
+		// X-ray : l'etat VIVANT est la source ; le shell n'en garde qu'un reflet.
+		void Demo3DHostSetXray(bool on);
+		bool Demo3DHostXray();
+
+		// Compteurs de geometrie du panneau Statistiques. EXACTS en edition ;
+		// en mode objet, aretes APPROCHEES (Euler) et faces inconnues.
+		bool Demo3DHostStats(uint32 *verts, uint32 *edges, uint32 *faces, uint32 *tris);
+
+		// Cadrer la vue sur toute la scene (centre + distance ; l'angle est garde).
+		void Demo3DHostFrameAll();
+
+		// Transformation de l'objet ACTIF, quel que soit son espace d'indices
+		// (objet de demo ou noeud utilisateur). Le shell n'a pas a choisir.
+		bool Demo3DHostActiveTransform(float32 *pos3, float32 *rotDeg3, float32 *scl3);
+		void Demo3DHostXformTrace(); // NK_XFORM_TRACE=1
+		void Demo3DHostNodesTrace(); // NK_NODES_TRACE=1
+		void Demo3DHostSetActiveTransform(const float32 *pos3, const float32 *rotDeg3,
+										  const float32 *scl3);
+
+		// Selection de maillage : la vue dormante avait la sienne, sans lecteur.
+		void Demo3DHostSelectAll(bool on);
+		void Demo3DHostSetSelectMask(uint32 mask);
+
+		uint32 Demo3DHostModTypeCount();
+		const char *Demo3DHostModTypeName(int32 type);
+		uint32 Demo3DHostModCount();
+		int32 Demo3DHostModAdd(int32 type);
+		int32 Demo3DHostModTypeAt(uint32 index);
+		bool Demo3DHostModEnabled(uint32 index);
+		void Demo3DHostModSetEnabled(uint32 index, bool on);
+		bool Demo3DHostModRemove(uint32 index);
+		bool Demo3DHostModMove(uint32 index, bool up);
+		bool Demo3DHostModApply(uint32 index);
+		uint32 Demo3DHostModParamCount(uint32 index);
+		bool Demo3DHostModParamInfo(uint32 index, uint32 p, const char **label, int32 *type,
+									float32 *minV, float32 *maxV);
+		float32 Demo3DHostModGetParam(uint32 index, uint32 p);
+		void Demo3DHostModSetParam(uint32 index, uint32 p, float32 v);
 		bool Demo3DHostInEditMode();
 		void Demo3DHostSetEditSelMask(int32 mask); // bits 1 sommet, 2 arete, 4 face
 		int32 Demo3DHostEditSelMask();
@@ -251,7 +355,13 @@ namespace nkentseu {
 		// objets vides). La transformation d'un parent est repercutee a son
 		// sous-arbre par l'hote (semantique orbite) ; selectionner un parent
 		// ne selectionne PAS ses enfants.
-		int32 Demo3DHostNodeCount();		 // 96 (plafond, empties compris)
+		// ⚠ NE PAS DIMENSIONNER UN TABLEAU SUR CE COMMENTAIRE. Il disait « 96 »
+		// alors que la fonction rend kNkvpMaxNodes = 160 (NkDemo3D.cpp:150). Des
+		// tableaux de 96 cales sur l'ancien chiffre ont ECRASE LA PILE le
+		// 2026-08-30 — plantage a une adresse folle, plusieurs images APRES la
+		// cause, sans rien qui accuse le menteur. Le plafond se lit sur la
+		// CONSTANTE, jamais sur un nombre recopie ici.
+		int32 Demo3DHostNodeCount();		 // = kNkvpMaxNodes (empties compris)
 		int32 Demo3DHostNodeParent(int32 node); // -1 = racine
 		bool Demo3DHostSetNodeParent(int32 child, int32 parent); // refuse les cycles
 		bool Demo3DHostNodeHasChildren(int32 node);

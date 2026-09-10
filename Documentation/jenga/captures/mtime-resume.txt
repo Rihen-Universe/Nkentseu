@@ -1,0 +1,9 @@
+Ce que le programme AFFICHE a chaque etape (le temoin n'est pas la
+sortie de jenga, c'est le comportement du binaire) :
+
+  1. source = VERSION UN, construite normalement       -> VERSION UN
+  2. source = VERSION DEUX, date NEUVE                 -> VERSION DEUX
+  3. source = VERSION TROIS, date REMISE A L'ANCIENNE  -> VERSION DEUX
+  4. la meme source, apres `touch`                     -> VERSION TROIS
+
+Piege REPRODUIT.
