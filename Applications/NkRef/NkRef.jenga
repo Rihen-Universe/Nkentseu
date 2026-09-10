@@ -15,9 +15,6 @@ from Jenga import *
 from jengaconfig import *
 import os
 
-# NKCanvas.lib référence des symboles Vulkan quand le backend est compilé ;
-# motif conditionnel repris de ConquerorLab/NK3DModeler (pas de SDK = pas de lien).
-_VULKAN_LIB = os.path.join(os.getenv("VULKAN_SDK", ""), "Lib").replace("\\", "/") if os.getenv("VULKAN_SDK") else ""
 
 with project("NkRef"):
     windowedapp()
@@ -52,8 +49,8 @@ with project("NkRef"):
     with filter("system:Windows"):
         usetoolchain(TC_WINDOWS)
         defines(["WIN32_LEAN_AND_MEAN", "_UNICODE", "UNICODE"])
-        if _VULKAN_LIB:
-            libdirs([_VULKAN_LIB])
+        if VULKAN_LIB:
+            libdirs([VULKAN_LIB])
         links([
             "user32", "gdi32", "opengl32", "dwmapi", "shell32", "ole32", "uuid",
             # dinput8 : NKWindow utilise DirectInput (manette) -> c_dfDIJoystick2.

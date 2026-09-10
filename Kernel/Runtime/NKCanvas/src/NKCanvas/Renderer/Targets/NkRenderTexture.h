@@ -110,6 +110,11 @@ namespace nkentseu {
 				}
 
 			private:
+				/// Pose une vue sans la marquer comme choix de l'utilisateur.
+				void SetVueSansMarquer(const NkView2D &v);
+				/// Rend a la cible principale la camera qu'elle avait avant ce rendu.
+				void RestaurerCamera();
+
 				uint32 mHandle{0};
 				uint32 mWidth{0};
 				uint32 mHeight{0};
@@ -118,6 +123,12 @@ namespace nkentseu {
 				NkView2D mView{};
 				NkRect2i mViewport{};
 				bool mFrameOpen{false};
+
+				/// Camera de la cible principale, mise de cote entre Clear et Display.
+				NkView2D mVuePrecedente{};
+				NkRect2i mViewportPrecedent{};
+				bool mVuePrecedenteCustom{false};
+				bool mCameraSauvee{false};
 		};
 
 	} // namespace renderer

@@ -676,6 +676,34 @@ int nkmain(const NkEntryState &state) {
 		nkxr::NkXrView views[nkxr::NK_XR_EYE_COUNT];
 		const bool haveViews = xrSession->LocateViews(stageSpace, frameState.predictedDisplayTime, views);
 
+		// Ce que le runtime dit VRAIMENT des deux yeux, journalisé une fois.
+		// Ni le champ de vision ni l'écart interpupillaire n'apparaissaient
+		// nulle part : impossible de répondre à « quels sont les quatre angles
+		// de ce casque ? » autrement qu'en devinant.
+		//
+		// Les quatre angles sont SIGNÉS et le champ est ASYMÉTRIQUE : pour
+		// l'œil gauche, l'angle vers la gauche est plus grand en valeur absolue
+		// que celui vers la droite. C'est visible dans la sortie.
+		{
+			static bool viewsJournalisees = false;
+			if (haveViews && !viewsJournalisees) {
+				viewsJournalisees = true;
+				for (uint32 e = 0; e < nkxr::NK_XR_EYE_COUNT; ++e) {
+					logger.Infof("[NKXRDemo] Oeil %u : fov gauche %.2f droite %.2f "
+								 "haut %.2f bas %.2f (degres) | position %.4f %.4f %.4f\n",
+								 e,
+								 views[e].fov.angleLeft * 180.f / math::NK_PI_F,
+								 views[e].fov.angleRight * 180.f / math::NK_PI_F,
+								 views[e].fov.angleUp * 180.f / math::NK_PI_F,
+								 views[e].fov.angleDown * 180.f / math::NK_PI_F,
+								 views[e].position.x, views[e].position.y, views[e].position.z);
+				}
+				const math::NkVec3f d = views[1].position - views[0].position;
+				logger.Infof("[NKXRDemo] Ecart entre les deux yeux : %.1f mm\n",
+							 1000.f * math::NkSqrt(d.x * d.x + d.y * d.y + d.z * d.z));
+			}
+		}
+
 		// Locomotion au stick gauche (flèches sur le simulateur) : direction
 		// du regard aplatie au sol — regarder en bas ne fait pas creuser.
 		float32 locoDt = float32(locoChrono.Reset().seconds);

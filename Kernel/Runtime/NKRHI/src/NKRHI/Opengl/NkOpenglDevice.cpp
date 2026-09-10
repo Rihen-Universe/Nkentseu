@@ -2821,7 +2821,20 @@ namespace nkentseu {
 		// Generation de la surface demandee. HarmonyOS l'incremente a chaque
 		// creation ; les autres plateformes laissent 0 et ne changent donc pas
 		// de comportement.
+#if defined(NKENTSEU_PLATFORM_HARMONYOS)
 		const uint32 genDemandee = surf.ohSurfaceGeneration;
+#else
+		// Le champ n'existe QUE dans la branche HarmonyOS de NkSurfaceDesc :
+		// le lire ailleurs ne compile pas. Zero est exactement ce que le
+		// commentaire ci-dessus promet pour les autres plateformes, donc le
+		// comportement ne change pas.
+		//
+		// Constate le 7 septembre 2026 en construisant NKRHI pour
+		// Android-arm64 : « no member named 'ohSurfaceGeneration' in
+		// 'nkentseu::NkSurfaceDesc' ». C'etait la seule erreur bloquant toute
+		// la pile 3D sur Android.
+		const uint32 genDemandee = 0u;
+#endif
 		if (newWin == mEglNativeWindow && mEglSurface && genDemandee == mEglSurfaceGeneration) {
 			return true; // meme fenetre ET meme surface -> rien a faire
 		}

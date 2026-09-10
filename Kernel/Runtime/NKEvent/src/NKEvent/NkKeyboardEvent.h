@@ -382,6 +382,22 @@ namespace nkentseu {
 	/// @note Ne pas libérer la chaîne retournée — mémoire statique
 	const char *NkKeyToString(NkKey key) noexcept;
 
+	/// @brief Compare deux noms d'entrée sans tenir compte de la casse ni des préfixes.
+	///
+	/// Les préfixes `NK_`, `GP_`, `GA_`, `MB_` et `SC_` sont retirés de chaque côté,
+	/// autant de fois qu'ils apparaissent. `"NK_SPACE"`, `"SPACE"` et `"space"` sont
+	/// donc le même nom, et `"NK_GP_SOUTH"` répond à `"SOUTH"`.
+	///
+	/// C'est ce qui rend lisible un fichier de configuration écrit par un joueur :
+	/// personne n'a envie de taper `NK_` devant chaque touche.
+	bool NkInputNameEquals(const char *gauche, const char *droite) noexcept;
+
+	/// @brief Convertit un nom de touche en NkKey. L'inverse de NkKeyToString.
+	/// @param nom Nom symbolique, avec ou sans préfixe, casse indifférente.
+	/// @return La touche, ou NkKey::NK_UNKNOWN si aucun nom ne correspond.
+	/// @note Parcourt la table de NkKeyToString : les deux ne peuvent pas diverger.
+	NkKey NkKeyFromString(const char *nom) noexcept;
+
 	/// @brief Vérifie si une touche est un modificateur principal
 	/// @param key La touche à tester
 	/// @return true si key est l'un des : LCTRL, RCTRL, LALT, RALT, LSHIFT, RSHIFT, LSUPER, RSUPER

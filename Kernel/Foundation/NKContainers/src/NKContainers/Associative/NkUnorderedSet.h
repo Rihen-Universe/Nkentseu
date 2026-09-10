@@ -65,13 +65,39 @@ namespace nkentseu {
 			 * @note Complexité O(sizeof(T)) : parcours linéaire des octets de l'élément
 			 */
 			usize operator()(const T &value) const {
-				const nk_uint8 *data = reinterpret_cast<const nk_uint8 *>(&value);
+				return HashOf(value, 0);
+			}
+
+		private:
+			/** @brief FNV-1a sur une suite d'octets. */
+			static usize HashBytes(const nk_uint8 *data, usize count) {
 				usize hash = static_cast<usize>(1469598103934665603ull);
-				for (usize i = 0; i < sizeof(T); ++i) {
+				for (usize i = 0; i < count; ++i) {
 					hash ^= static_cast<usize>(data[i]);
 					hash *= static_cast<usize>(1099511628211ull);
 				}
 				return hash;
+			}
+
+			/**
+			 * @brief Element qui porte un CONTENU : on hache le contenu.
+			 *
+			 * Meme correctif que NkUnorderedMapDefaultHasher, meme raison : hacher
+			 * les octets d'un NkString hache un pointeur d'allocateur et un
+			 * pointeur de tas, donc deux chaines egales ne se retrouvent pas.
+			 */
+			template <typename U>
+			static auto HashOf(const U &value, int) -> decltype(value.Data(), value.Size(), usize()) {
+				const auto *elements = value.Data();
+				if (elements == nullptr)
+					return static_cast<usize>(1469598103934665603ull);
+				return HashBytes(reinterpret_cast<const nk_uint8 *>(elements),
+								 static_cast<usize>(value.Size()) * sizeof(*elements));
+			}
+
+			/** @brief Element sans contenu expose : on hache ses octets, comme avant. */
+			template <typename U> static usize HashOf(const U &value, long) {
+				return HashBytes(reinterpret_cast<const nk_uint8 *>(&value), sizeof(U));
 			}
 	};
 

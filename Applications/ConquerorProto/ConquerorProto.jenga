@@ -12,9 +12,6 @@ from Jenga import *
 from jengaconfig import *
 import os
 
-# NKCanvas.lib (partagé) est compilé AVEC le backend Vulkan : il faut donc lier
-# le loader vulkan-1 même si l'app tourne en OpenGL. On récupère le SDK.
-_VULKAN_LIB = os.path.join(os.getenv("VULKAN_SDK", ""), "Lib").replace("\\", "/") if os.getenv("VULKAN_SDK") else ""
 
 with project("ConquerorProto"):
     windowedapp()
@@ -52,8 +49,8 @@ with project("ConquerorProto"):
         # opengl32 pour le backend GL de NKCanvas ; d3d11/dxgi car NKCanvas
         # compile aussi le backend DX11 par défaut sur Windows (même si non utilisé
         # au runtime -> il faut résoudre les symboles au link).
-        if _VULKAN_LIB:
-            libdirs([_VULKAN_LIB])
+        if VULKAN_LIB:
+            libdirs([VULKAN_LIB])
         links([
             "user32", "gdi32", "opengl32", "dwmapi", "shell32", "ole32", "uuid",
             # dinput8 : NKWindow utilise DirectInput (manette) -> c_dfDIJoystick2.

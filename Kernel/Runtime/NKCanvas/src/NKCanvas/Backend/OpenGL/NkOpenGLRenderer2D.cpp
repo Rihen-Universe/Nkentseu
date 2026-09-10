@@ -535,7 +535,17 @@ namespace nkentseu {
 			if (mUniTex >= 0)
 				glUniform1i(mUniTex, 0);
 			glActiveTexture(GL_TEXTURE0);
-			glViewport(mViewport.left, mViewport.top, mViewport.width, mViewport.height);
+			// glViewport compte son origine en BAS a gauche, alors que tout le reste
+			// du moteur compte en haut a gauche : il faut retourner le Y.
+			//
+			// Le defaut restait invisible tant que le viewport valait tout le cadre
+			// (top = 0 et hauteur = celle du framebuffer : le retournement est alors
+			// l'identite) ou une bande centree (symetrique). Il apparait des qu'un
+			// viewport est decentre, ce que les politiques d'ajustement rendent
+			// possible. mDefaultView.size.y suit toujours la hauteur du framebuffer.
+			const int32 hauteurCadre = static_cast<int32>(mDefaultView.size.y);
+			const int32 basGL = hauteurCadre - (mViewport.top + mViewport.height);
+			glViewport(mViewport.left, basGL, mViewport.width, mViewport.height);
 			// Chaque frame demarre sans scissor (sinon un Clear serait clippe par le
 			// scissor laisse par la frame precedente, l'etat GL etant persistant).
 			glDisable(GL_SCISSOR_TEST);

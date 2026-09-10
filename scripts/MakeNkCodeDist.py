@@ -682,6 +682,58 @@ def Main() -> int:
         except OSError:
             pass
 
+    # ── Shims POSIX `clang++` / `clang` vers Zig ─────────────────────────────
+    # NkEmbeddedJenga::Configure prefixe tools/compilers/zig au PATH sous Unix :
+    # le compilateur par defaut y est Zig, et non llvm-mingw qui produit des
+    # binaires Windows. Mais un lecteur qui tape `clang++ bonjour.cpp` dans le
+    # terminal integre obtenait « commande introuvable » : `zig c++` existe,
+    # `clang++` non. Sous Windows le probleme ne se pose pas (llvm-mingw fournit
+    # clang++.exe), et il etait invisible depuis un poste de developpement, ou
+    # tools/compilers/ n'existe pas et ou clang++ vient du MSYS2 de la machine.
+    #
+    # Le shim est TRANSPARENT : si un vrai clang++ est deja installe sur la
+    # machine, c'est lui qui est appele — le shim se cherche dans le PATH en
+    # s'excluant lui-meme. Zig ne sert que de repli, pour qui n'a rien. Un
+    # utilisateur qui a son compilateur garde son compilateur.
+    #
+    # `zig c++` est un remplacant direct de clang++ — memes options (-o, -c,
+    # -E, -S, -Wall, -O2) — donc toute commande ecrite pour clang++ marche telle
+    # quelle a travers le repli. Ecrits des maintenant, comme le shim `jenga`
+    # ci-dessus, pour que le pipeline soit identique quand le runtime
+    # non-Windows arrivera.
+    Log("shims POSIX clang++/clang -> compilateur systeme, sinon zig (tools/compilers/zig/)")
+    zig_dir = tools / "compilers" / "zig"
+    zig_dir.mkdir(parents=True, exist_ok=True)
+    for shim, sub in (("clang++", "c++"), ("clang", "cc")):
+        p = zig_dir / shim
+        p.write_text(
+            "#!/bin/sh\n"
+            f"# Shim GENERE par scripts/MakeNkCodeDist.py : {shim} du systeme s'il existe,\n"
+            f"# sinon `zig {sub}` (remplacant direct : memes options, meme sortie).\n"
+            'DIR="$(cd "$(dirname "$0")" 2>/dev/null && pwd)"\n'
+            "# 1. un compilateur deja installe sur la machine a priorite : on parcourt\n"
+            "#    le PATH en sautant notre propre dossier. Deux gardes contre la\n"
+            "#    re-execution de soi-meme (= boucle infinie) : DIR vide -> on ne\n"
+            "#    parcourt pas ; et -ef compare l'inode, au cas ou le meme fichier\n"
+            "#    serait joignable par deux chemins.\n"
+            'if [ -n "$DIR" ]; then\n'
+            '  OLDIFS="$IFS"; IFS=:\n'
+            '  for d in $PATH; do\n'
+            '    [ "$d" = "$DIR" ] && continue\n'
+            f'    [ "$d/{shim}" -ef "$0" ] 2>/dev/null && continue\n'
+            f'    if [ -x "$d/{shim}" ]; then IFS="$OLDIFS"; exec "$d/{shim}" "$@"; fi\n'
+            "  done\n"
+            '  IFS="$OLDIFS"\n'
+            "fi\n"
+            "# 2. sinon, zig : a cote de nous d'abord, dans le PATH ensuite.\n"
+            f'if [ -n "$DIR" ] && [ -x "$DIR/zig" ]; then exec "$DIR/zig" {sub} "$@"; fi\n'
+            f'exec zig {sub} "$@"\n',
+            encoding="ascii", newline="\n")
+        try:
+            p.chmod(0o755)
+        except OSError:
+            pass
+
     if not args.skip_compiler:
         comp = DownloadCompiler(REPO / ".cache")
         Log("copie du compilateur par defaut (tools/compilers/llvm-mingw, x86_64 uniquement)")

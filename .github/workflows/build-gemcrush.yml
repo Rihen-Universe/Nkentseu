@@ -7,8 +7,22 @@
 #   Linux       : mesuré le 2026-08-27 sur le poste Windows —
 #                 `jenga build --platform linux` echoue des NKGlad sur
 #                 « 'X11/X.h' file not found », avant meme d'atteindre le code
-#                 du jeu. Ce n'est pas un defaut de GemCrush : l'hote Windows
-#                 n'a pas les en-tetes X11. Un vrai Linux les a.
+#                 du jeu. Ce n'est pas un defaut de GemCrush.
+#
+#                 PRECISION mesuree le 2026-09-10, parce que la formulation
+#                 « l'hote Windows n'a pas les en-tetes X11 » etait trop
+#                 courte et menait au mauvais correctif : ce qui manque n'est
+#                 pas un paquet, c'est un SYSROOT. Une chaine de compilation,
+#                 c'est trois pieces — un compilateur, un sysroot, un editeur
+#                 de liens — et les deux chaines croisees installees ici en
+#                 ont chacune une de trop peu :
+#                   clang-cross-linux  sysroot VIDE  -> echoue des <string>
+#                   zig-linux-x86_64   libc de zig   -> echoue sur X11/Xlib.h
+#                 Le message d'erreur nomme toujours la consequence, jamais la
+#                 cause. Croiser pour de bon est possible (sysroot deplie
+#                 depuis des .deb, plus lld), mais coute trois rustines
+#                 permanentes. Un vrai Linux n'en demande aucune, et c'est
+#                 exactement ce que ce runner apporte.
 #
 # CE QUI SE CONSTRUIT DEJA EN LOCAL, et n'a donc rien a faire ici :
 #   Windows (DX11/DX12/VK/GL/SW), Android (APK universel 4 ABI),

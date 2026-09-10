@@ -121,6 +121,42 @@ namespace nkentseu {
 		if (mAppData.enablePreciseTiming)
 			NkChrono::BeginPreciseTiming();
 
+		// ALIMENTATION AUTOMATIQUE DES ACTIONS
+		//
+		// Avant le 2026-09-05, NkActionManager etait un objet isole : personne
+		// dans le depot n'en creait, et une application devait appeler
+		// TriggerAction elle-meme depuis sa boucle. C'etait le seul etage de
+		// l'entree qui ne se branchait pas tout seul, alors que NkEvents,
+		// NkGamepads et NkInput le font depuis toujours.
+		//
+		// On s'abonne donc ici, une fois pour le processus. Les abonnements
+		// sont appeles A L'EMPILEMENT : une application qui vide la file
+		// elle-meme ne les prive de rien, et une application qui ne la vide
+		// jamais recoit quand meme ses actions.
+		// Les QUATRE appareils, et pas seulement le clavier : une action liee a
+		// un bouton de manette ne partait pas, ce qui vidait de son sens l'idee
+		// meme d'action, qui est justement de ne pas nommer l'appareil.
+		NkActionManager &actions = mEventSystem.GetActionManager();
+
+		mEventSystem.AddEventCallback<NkKeyPressEvent>([&actions](NkKeyPressEvent *e) {
+			actions.TriggerAction(NkInputCode::Key(e->GetKey()), true);
+		});
+		mEventSystem.AddEventCallback<NkKeyReleaseEvent>([&actions](NkKeyReleaseEvent *e) {
+			actions.TriggerAction(NkInputCode::Key(e->GetKey()), false);
+		});
+		mEventSystem.AddEventCallback<NkMouseButtonPressEvent>([&actions](NkMouseButtonPressEvent *e) {
+			actions.TriggerAction(NkInputCode::Mouse(e->GetButton()), true);
+		});
+		mEventSystem.AddEventCallback<NkMouseButtonReleaseEvent>([&actions](NkMouseButtonReleaseEvent *e) {
+			actions.TriggerAction(NkInputCode::Mouse(e->GetButton()), false);
+		});
+		mEventSystem.AddEventCallback<NkGamepadButtonPressEvent>([&actions](NkGamepadButtonPressEvent *e) {
+			actions.TriggerAction(NkInputCode::Gamepad(e->GetButton()), true);
+		});
+		mEventSystem.AddEventCallback<NkGamepadButtonReleaseEvent>([&actions](NkGamepadButtonReleaseEvent *e) {
+			actions.TriggerAction(NkInputCode::Gamepad(e->GetButton()), false);
+		});
+
 		mInitialised = true;
 		return true;
 	}

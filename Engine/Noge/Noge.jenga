@@ -13,22 +13,8 @@ import os
 import shutil
 import subprocess
 
-def _pkg_exists(pkg_name: str) -> bool:
-    if not shutil.which("pkg-config"):
-        return False
-    try:
-        return subprocess.call(
-            ["pkg-config", "--exists", pkg_name],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-        ) == 0
-    except Exception:
-        return False
 
-def _norm(path: str) -> str:
-    return path.replace("\\", "/") if path else path
-
-_HAS_LIBDECOR = _pkg_exists("libdecor-0")
+_HAS_LIBDECOR = PkgExists("libdecor-0")
 _WAYLAND_LINKS = ["pthread", "wayland-client", "wayland-egl", "xkbcommon", "wayland-cursor", "EGL", "GLESv2"]
 _WAYLAND_TEST_LINKS = ["pthread", "wayland-client", "wayland-egl", "xkbcommon", "EGL", "GLESv2"]
 _WAYLAND_DEFINES = ["NOGE_FORCE_WINDOWING_WAYLAND_ONLY"]
@@ -37,16 +23,6 @@ if _HAS_LIBDECOR:
     _WAYLAND_TEST_LINKS.append("decor-0")
     _WAYLAND_DEFINES.append("NOGE_WAYLAND_LIBDECOR")
 
-_VULKAN_SDK = _norm(os.getenv("VULKAN_SDK", ""))
-_VULKAN_INCLUDE = _norm(os.path.join(_VULKAN_SDK, "Include")) if _VULKAN_SDK else ""
-_VULKAN_LIB = _norm(os.path.join(_VULKAN_SDK, "Lib")) if _VULKAN_SDK else ""
-_VULKAN_OPT = os.getenv("NK_ENABLE_VULKAN", "auto").strip().lower()
-if _VULKAN_OPT in ("0", "false", "off", "no"):
-    _WANT_VULKAN = False
-elif _VULKAN_OPT in ("1", "true", "on", "yes"):
-    _WANT_VULKAN = True
-else:
-    _WANT_VULKAN = bool(_VULKAN_INCLUDE) or _pkg_exists("vulkan")
 
 _RENDERER_GLAD_OPT = os.getenv("NK_RENDERER_USE_NKGLAD", "on").strip().lower()
 _USE_NKGLAD = _RENDERER_GLAD_OPT not in ("0", "false", "off", "no")
@@ -94,8 +70,8 @@ with project("Noge"):
         "%{NKMedia.location}/src",    # dependance transitive de NKAudio (codec Opus)
         "%{NKNetwork.location}/src",  # NKNetwork/Replication/NkNetWorld.h (pont ECS NkNetSystem)
     ]
-    if _VULKAN_INCLUDE:
-        _INCLUDE_DIRS.append(_VULKAN_INCLUDE)
+    if VULKAN_INCLUDE:
+        _INCLUDE_DIRS.append(VULKAN_INCLUDE)
     includedirs(_INCLUDE_DIRS)
 
     pchheader("pch/pch.h")
@@ -111,9 +87,9 @@ with project("Noge"):
     dependson(_DEPS)
     _RENDERER_DEFINES = [
         f"NKENTSEU_USE_NKGLAD=1",
-        f"NKENTSEU_ENABLE_VULKAN_BACKEND={1 if _WANT_VULKAN else 0}",
+        f"NKENTSEU_ENABLE_VULKAN_BACKEND={1 if WANT_VULKAN else 0}",
     ]
-    if _WANT_VULKAN:
+    if WANT_VULKAN:
         _RENDERER_DEFINES.append("NK_RHI_VK_ENABLED")
     defines(_RENDERER_DEFINES)
 
@@ -132,14 +108,14 @@ with project("Noge"):
     with filter("system:Windows && !options:windows-runtime=uwp && !system:XboxSeries && !system:XboxOne"):
         usetoolchain(TC_WINDOWS)
         defines(["WIN32_LEAN_AND_MEAN", "NK_RHI_DX11_ENABLED", "NK_RHI_DX12_ENABLED"])
-        if _VULKAN_LIB:
-            libdirs([_VULKAN_LIB])
+        if VULKAN_LIB:
+            libdirs([VULKAN_LIB])
         _WIN_LINKS = [
             "gdi32", "user32", "opengl32", "dwmapi", "shell32",
             "d3d11", "d3d12", "dxgi", "dxguid", "d3dcompiler",
             "uuid", "ole32",
         ]
-        if _WANT_VULKAN:
+        if WANT_VULKAN:
             _WIN_LINKS.append("vulkan-1")
         links(_WIN_LINKS)
 
@@ -151,7 +127,7 @@ with project("Noge"):
     with filter("system:Linux && options:linux-backend=xlib || system:Linux && !options:linux-backend && !options:headless"):
         links(["pthread", "X11", "Xext", "GL"])
         defines(["NKENTSEU_FORCE_WINDOWING_XLIB_ONLY"])
-        if _WANT_VULKAN:
+        if WANT_VULKAN:
             links(["vulkan"])
 
     with filter("system:Linux && options:linux-backend=headless || system:Linux && options:headless"):
@@ -165,7 +141,7 @@ with project("Noge"):
         targetdir("%{wks.location}/Build/Lib/%{cfg.buildcfg}-%{cfg.system}-xcb")
         links(["pthread", "xcb", "xcb-image", "X11", "Xext", "GL"])
         defines(["NKENTSEU_FORCE_WINDOWING_XCB_ONLY"])
-        if _WANT_VULKAN:
+        if WANT_VULKAN:
             links(["vulkan"])
 
     with filter("system:Linux && options:linux-backend=wayland"):
@@ -173,7 +149,7 @@ with project("Noge"):
         targetdir("%{wks.location}/Build/Lib/%{cfg.buildcfg}-%{cfg.system}-wayland")
         defines(_WAYLAND_DEFINES)
         links(_WAYLAND_LINKS)
-        if _WANT_VULKAN:
+        if WANT_VULKAN:
             links(["vulkan"])
 
     with filter("system:macOS"):
@@ -183,7 +159,7 @@ with project("Noge"):
     with filter("system:Android"):
         usetoolchain("android-ndk")
         _ANDROID_LINKS = ["android", "log", "EGL", "GLESv3"]
-        if _WANT_VULKAN:
+        if WANT_VULKAN:
             _ANDROID_LINKS.append("vulkan")
         links(_ANDROID_LINKS)
 
@@ -191,7 +167,7 @@ with project("Noge"):
     with filter("system:HarmonyOS"):
         usetoolchain("ohos-ndk")
         _HARMONY_LINKS = ["hilog_ndk.z", "EGL", "GLESv3"]
-        if _WANT_VULKAN:
+        if WANT_VULKAN:
             _HARMONY_LINKS.append("vulkan")
         links(_HARMONY_LINKS)
 
@@ -235,13 +211,13 @@ with project("Noge"):
                 defines(["NKENTSEU_FORCE_WINDOWING_XLIB_ONLY"])
                 links(["pthread", "X11", "Xext"])
             with filter("system:Windows && !options:windows-runtime=uwp && !system:XboxSeries && !system:XboxOne"):
-                if _VULKAN_LIB:
-                    libdirs([_VULKAN_LIB])
+                if VULKAN_LIB:
+                    libdirs([VULKAN_LIB])
                 _WIN_TEST_LINKS = [
                     "user32", "gdi32", "opengl32", "dwmapi", "shell32",
                     "d3d11", "d3d12", "dxgi", "dxguid", "d3dcompiler",
                     "uuid", "ole32",
                 ]
-                if _WANT_VULKAN:
+                if WANT_VULKAN:
                     _WIN_TEST_LINKS.append("vulkan-1")
                 links(_WIN_TEST_LINKS)

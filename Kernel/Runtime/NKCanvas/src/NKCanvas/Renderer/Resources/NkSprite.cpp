@@ -38,15 +38,14 @@ namespace nkentseu {
 			return {0.f, 0.f, (float32)mTextureRect.width, (float32)mTextureRect.height};
 		}
 
+		// La boite englobante du quad REELLEMENT transforme.
+		//
+		// L'ancien calcul centrait la boite sur la position et ignorait l'origine :
+		// il etait donc faux des que l'origine n'etait pas le centre du sprite,
+		// c'est-a-dire dans presque tous les cas ou l'on fait tourner quelque chose.
+		// TransformRect fait le travail juste, en transformant les quatre coins.
 		NkRect2f NkSprite::GetGlobalBounds() const {
-			// Approximate AABB around the transformed quad
-			float32 w = (float32)mTextureRect.width * mTransform.scale.x;
-			float32 h = (float32)mTextureRect.height * mTransform.scale.y;
-			const float32 cos_r = fabsf(cosf(mTransform.rotation));
-			const float32 sin_r = fabsf(sinf(mTransform.rotation));
-			const float32 aabb_w = w * cos_r + h * sin_r;
-			const float32 aabb_h = w * sin_r + h * cos_r;
-			return {mTransform.position.x - aabb_w * 0.5f, mTransform.position.y - aabb_h * 0.5f, aabb_w, aabb_h};
+			return GetTransform().TransformRect(GetLocalBounds());
 		}
 
 		bool NkSprite::GetFlipX() const {
@@ -61,14 +60,65 @@ namespace nkentseu {
 			renderer.Draw(*this);
 		}
 
-		// ── NkDrawable (nouveau pattern SFML target.Draw(sprite)) ────────────────
-		// A.8 minimal : delegue a l'ancien path NkIRenderer2D::Draw(NkSprite&) via
-		// target.GetRenderer(). states.transform et states.blendMode/texture ne sont
-		// pas encore consommes — sera ameliore quand un cas concret le requiert
-		// (refonte Pong sera l'occasion d'integrer la composition parent transform).
-		void NkSprite::Draw(NkRenderTarget &target, const NkRenderStates & /*states*/) const {
-			if (auto *r = target.GetRenderer())
-				r->Draw(*this);
+		// ── NkDrawable : le sprite COMPOSE l'etat qu'il recoit ───────────────────
+		//
+		// Il le jetait : le parametre etait commente, et le corps deleguait a
+		// l'ancienne voie. Consequence, un sprite ne pouvait pas etre l'enfant d'un
+		// objet transforme — target.Draw(sprite, etatDuParent) ignorait le parent
+		// en silence, sans avertissement ni assertion — alors qu'une NkShape le
+		// pouvait. Corrige le 2026-09-05.
+		//
+		// L'ordre est parent * local : la transformation du sprite s'applique
+		// d'abord a ses coins, celle du parent ensuite.
+		void NkSprite::Draw(NkRenderTarget &target, const NkRenderStates &states) const {
+			if (!mTexture)
+				return;
+
+			NkRenderStates s = states;
+			s.transform *= GetTransform();
+			s.texture = mTexture;
+
+			const NkRect2f uv = mTexture->GetTexCoords(mTextureRect);
+			float32 u0 = uv.left, u1 = uv.left + uv.width;
+			float32 v0 = uv.top, v1 = uv.top + uv.height;
+			if (mFlipX) {
+				const float32 t = u0;
+				u0 = u1;
+				u1 = t;
+			}
+			if (mFlipY) {
+				const float32 t = v0;
+				v0 = v1;
+				v1 = t;
+			}
+
+			const float32 w = (float32)mTextureRect.width;
+			const float32 h = (float32)mTextureRect.height;
+
+			// Deux triangles : la cible ne garantit NK_TRIANGLES sur toutes ses
+			// implementations que pour cette primitive (NkRenderTexture ne sait
+			// traiter qu'elle).
+			NkVertex q[6];
+			auto mk = [&](float32 x, float32 y, float32 u, float32 v) {
+				NkVertex vx;
+				vx.x = x;
+				vx.y = y;
+				vx.u = u;
+				vx.v = v;
+				vx.r = mColor.r;
+				vx.g = mColor.g;
+				vx.b = mColor.b;
+				vx.a = mColor.a;
+				return vx;
+			};
+			q[0] = mk(0.f, 0.f, u0, v0);
+			q[1] = mk(w, 0.f, u1, v0);
+			q[2] = mk(w, h, u1, v1);
+			q[3] = mk(0.f, 0.f, u0, v0);
+			q[4] = mk(w, h, u1, v1);
+			q[5] = mk(0.f, h, u0, v1);
+
+			target.Draw(q, 6, NkPrimitiveType::NK_TRIANGLES, s);
 		}
 
 		// =============================================================================
@@ -262,10 +312,10 @@ namespace nkentseu {
 			return mBounds;
 		}
 
+		// Idem : l'ancien calcul n'appliquait que la position et ignorait
+		// ouvertement la rotation et l'echelle, comme son commentaire l'avouait.
 		NkRect2f NkText::GetGlobalBounds() const {
-			NkRect2f lb = GetLocalBounds();
-			// Apply position (simplified — ignores rotation/scale for AABB)
-			return {lb.left + mTransform.position.x, lb.top + mTransform.position.y, lb.width, lb.height};
+			return GetTransform().TransformRect(GetLocalBounds());
 		}
 
 		// =============================================================================
@@ -276,35 +326,25 @@ namespace nkentseu {
 
 			const NkTexture *atlas = mFont->GetAtlasTexture(mCharacterSize);
 
-			// Build transform matrix
-			float32 tm[16];
-			mTransform.ToMatrix4(tm);
+			// La transformation vient du cache de NkTransformable : c'etait ici la
+			// TROISIEME copie du calcul « origine, echelle, rotation, translation »
+			// du moteur, avec ses propres cos et sin refaits a chaque trame et pour
+			// chaque glyphe. Supprimee le 2026-09-05.
+			const NkTransform &xf = GetTransform();
 
-			// Emit vertices through DrawVertices — transform them inline
 			const uint32 gCount = mVertices.Size();
 			NkVector<NkVertex2D> tverts;
 			tverts.Reserve((NkVector<NkVertex2D>::SizeType)(gCount * 4));
 			NkVector<uint32> indices;
 			indices.Reserve((NkVector<uint32>::SizeType)(gCount * 6));
 
-			const float32 cos_r = cosf(mTransform.rotation);
-			const float32 sin_r = sinf(mTransform.rotation);
-			const float32 sx = mTransform.scale.x;
-			const float32 sy = mTransform.scale.y;
-			const float32 ox = mTransform.origin.x;
-			const float32 oy = mTransform.origin.y;
-			const float32 tx = mTransform.position.x;
-			const float32 ty = mTransform.position.y;
-
 			for (uint32 g = 0; g < gCount; ++g) {
 				const uint32 base = tverts.Size();
 				for (int i = 0; i < 4; ++i) {
 					NkVertex2D v = mVertices[g].v[i];
-					// Origin offset + scale + rotate + translate
-					float32 lx = (v.x - ox) * sx;
-					float32 ly = (v.y - oy) * sy;
-					v.x = lx * cos_r - ly * sin_r + tx;
-					v.y = lx * sin_r + ly * cos_r + ty;
+					const NkVec2f p = xf.TransformPoint(NkVec2f{v.x, v.y});
+					v.x = p.x;
+					v.y = p.y;
 					tverts.PushBack(v);
 				}
 				indices.PushBack(base + 0);
@@ -319,14 +359,30 @@ namespace nkentseu {
 		}
 
 		// ── NkDrawable (nouveau pattern SFML target.Draw(text)) ──────────────────
-		// Comme NkSprite::Draw(target, states), on delegue a l'ancien path pour
-		// l'instant via target.GetRenderer()->Draw(*this). La composition avec
-		// states.transform/blendMode sera ajoutee lors de la refonte Pong (A.9)
-		// ou plus tard quand un besoin concret de composition parent-enfant
-		// pour le texte se presente.
-		void NkText::Draw(NkRenderTarget &target, const NkRenderStates & /*states*/) const {
-			if (auto *r = target.GetRenderer())
-				r->Draw(*this);
+		// ── NkDrawable : le texte COMPOSE lui aussi l'etat qu'il recoit ──────────
+		// Meme correction que pour NkSprite, et pour la meme raison.
+		void NkText::Draw(NkRenderTarget &target, const NkRenderStates &states) const {
+			EnsureGeometryUpdate();
+			if (mVertices.Empty() || !mFont)
+				return;
+
+			NkRenderStates s = states;
+			s.transform *= GetTransform();
+			s.texture = mFont->GetAtlasTexture(mCharacterSize);
+
+			const uint32 gCount = mVertices.Size();
+			NkVector<NkVertex> tri;
+			tri.Reserve((NkVector<NkVertex>::SizeType)(gCount * 6));
+			for (uint32 g = 0; g < gCount; ++g) {
+				const NkVertex2D *v = mVertices[g].v;
+				tri.PushBack(v[0]);
+				tri.PushBack(v[1]);
+				tri.PushBack(v[2]);
+				tri.PushBack(v[0]);
+				tri.PushBack(v[2]);
+				tri.PushBack(v[3]);
+			}
+			target.Draw(tri.Data(), tri.Size(), NkPrimitiveType::NK_TRIANGLES, s);
 		}
 
 		uint32 NkText::FindCharacterPos(NkVec2f /*point*/) const {

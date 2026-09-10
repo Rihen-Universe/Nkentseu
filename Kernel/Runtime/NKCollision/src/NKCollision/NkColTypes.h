@@ -249,6 +249,34 @@ namespace nkentseu {
 				NkVec3f point{};
 				NkVec3f normal{};
 				uint32 bodyId = 0;
+
+				// ── Coordonnées barycentriques du point touché ───────────────
+				//
+				// Remplies par NkRayTriangle3D, qui les calcule de toute façon
+				// pour rejeter les rayons hors du triangle : elles etaient
+				// calculees puis jetees.
+				//
+				// A quoi elles servent : retrouver N'IMPORTE QUEL attribut de
+				// sommet au point touche, par interpolation. Le plus demande
+				// est la coordonnee de texture :
+				//
+				//   uv = (1 - u - v) * uv0 + u * uv1 + v * uv2
+				//
+				// C'est ce qui permet de poser une interface sur une surface
+				// quelconque : on convertit le point touche en pixels de la
+				// texture, et le clic devient une position dans le panneau.
+				//
+				// Sur les volumes (sphere, boite, capsule), elles restent a
+				// zero : la notion n'a pas de sens hors d'un triangle.
+				float32 u = 0.f;
+				float32 v = 0.f;
+
+				// Indice du triangle touche, quand l'appelant parcourt un
+				// maillage. NkRayTriangle3D ne le connait pas — il ne recoit
+				// que trois sommets — donc c'est la boucle appelante qui le
+				// pose. kAucunTriangle tant que personne ne l'a rempli.
+				static const uint32 kAucunTriangle = 0xFFFFFFFFu;
+				uint32 triangleIndex = kAucunTriangle;
 		};
 
 	} // namespace collision

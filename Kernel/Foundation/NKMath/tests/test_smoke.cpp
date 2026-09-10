@@ -21,7 +21,10 @@ TEST_CASE(NKmathmoke, VectorAndRectTypes) {
 	ASSERT_NEAR(3.0f, v3.x, 0.0001f);
 	ASSERT_NEAR(8.0f, v3.y, 0.0001f);
 
-	NkRect r(10, 20, 100, 50);
+	// NkRect2i, et non NkRect : les rectangles ont ete renommes par taille et par
+	// type, et ce test n'avait pas suivi. Il ne compilait donc plus, et il emportait
+	// TOUTE la suite NKMath_Tests avec lui, en silence. Repare le 2026-09-05.
+	NkRect2i r(10, 20, 100, 50);
 	ASSERT_TRUE(r.Contains(20, 40));
 	ASSERT_FALSE(r.Contains(200, 40));
 }
