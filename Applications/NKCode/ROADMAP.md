@@ -559,6 +559,95 @@ Classement par **rapport valeur / coût**, pas par numéro de la spec :
 
 ---
 
+## Phase 14 — NKCode dans le navigateur ⬜  ← **échéance réelle : mi-janvier 2027**
+
+> Ajoutée le 10 septembre 2026. Jusqu'ici le web tenait en une case de la phase 9,
+> « Portage tactile/web (le moteur le permet) ». Il a maintenant une DATE et un
+> USAGE, ce qui le sort du polissage : la **session normale** de RIHEN Academy se
+> compose sur la plateforme, en salle surveillée, sur des épreuves de **trois
+> heures minimum**. Si NKCode tourne dans le navigateur, l'épreuve ouvre une page
+> de code au lieu d'exiger une chaîne d'outils installée sur cinquante machines
+> dont on ne maîtrise aucune.
+
+### Ce que le navigateur ne fera JAMAIS, et il faut partir de là
+
+**Compiler et exécuter du C++ natif dans un onglet est impossible.** Ce n'est pas
+une limite de Nkentseu, c'est le bac à sable du navigateur. Or c'est la raison
+d'être de NKCode : construire et lancer des projets avec Jenga — il embarque même
+CPython 3.12 pour le faire dans son processus (phase 12).
+
+**Cette phase n'est donc pas un portage, c'est une séparation** : ce qui ÉDITE
+d'un côté, ce qui CONSTRUIT de l'autre. Et cette séparation vaut aussi pour la
+version native — construction distante, ferme de compilation, intégration
+continue. On ne travaille pas « pour le web », on décolle deux choses qui
+n'auraient jamais dû être soudées.
+
+**La moitié manquante existe déjà.** RIHEN Academy fait tourner un exécuteur
+isolé — conteneur jetable, sans réseau, en lecture seule, sans privilège, non
+root, mémoire et processus plafonnés — qui porte clang++, g++, make, cmake,
+**Jenga** et le kit Nkentseu. Mesuré le 10 septembre 2026 : **2,7 secondes de
+médiane** sur les deux cents dernières corrections. C'est exactement le service
+de construction qu'un NKCode web réclame.
+
+### Ce qui est déjà là, et qui est plus qu'on ne croit
+
+- ✅ **NKWindow a un backend Emscripten réel** : 2424 lignes contre 3384 pour
+  Win32, retouché le 1er septembre 2026. Fenêtre, système d'événements, manette,
+  glisser-déposer.
+- ✅ **NKCanvas a un backend logiciel** en plus de Vulkan, OpenGL, DirectX et
+  Metal. Un canevas rastérisé en mémoire puis recopié dans un `<canvas>` marche
+  sans aucun chemin GPU.
+- ✅ **La leçon de la boucle est déjà apprise**, sur GemCrush : commit « LA BOUCLE
+  CÈDE LA MAIN — sans quoi l'onglet Web gèle ». Une boucle bloquante fige l'onglet ;
+  il faut rendre la main à l'ordonnanceur du navigateur.
+
+### Les étapes, dans l'ordre où elles lèvent le risque
+
+**0. ⬜ MESURER LE POIDS AVANT TOUT LE RESTE.** Compiler la coquille minimale en
+WebAssembly et regarder ce qu'elle pèse. Un IDE complet peut faire des dizaines
+de mégaoctets, et **nos étudiants sont au Cameroun, souvent en données mobiles**.
+Si le résultat est inacceptable, tout le plan change — et il vaut infiniment
+mieux l'apprendre en septembre qu'en janvier. C'est la seule étape dont le
+résultat peut annuler les suivantes : elle passe donc en premier, avant toute
+architecture.
+
+**1. ⬜ Abstraire la construction.** Une interface `NkBuildBackend` avec deux
+implémentations : `Local` (Jenga embarqué, phase 12) et `Distant` (appel HTTP à
+un service de construction). C'est la clé de voûte, et c'est du gain net en
+natif : construire ailleurs que sur sa machine devient possible.
+
+**2. ⬜ Abstraire le système de fichiers.** Même motif : une interface, deux
+implémentations. `NKFileSystem` en natif ; en navigateur, un système virtuel
+(Emscripten MEMFS/IDBFS) plus l'API File System Access pour ouvrir un vrai
+dossier quand le navigateur le permet.
+
+**3. ⬜ La boucle cède la main.** Appliquer à NKCode ce que GemCrush a appris.
+
+**4. ⬜ Choisir le chemin de rendu**, après mesure : NKCanvas logiciel (le plus
+simple, aucun GPU requis) ou WebGL2 via un chemin GLES3. On tranche sur des
+chiffres, pas sur une préférence.
+
+**5. ⬜ Le mode épreuve.** Une page sans explorateur de disque, sans réglages,
+sans mise à jour in-app : un éditeur, un bouton construire, un panneau de sortie,
+et le rendu qui part vers la plateforme. **Moins NKCode fait de choses ce jour-là,
+mieux c'est** — chaque fonction en plus est une chose qui peut mal tourner devant
+une salle entière.
+
+### Ce qu'on NE porte pas, et il faut le dire d'avance
+
+Pas de Jenga local, pas de chaîne d'outils locale, pas d'accès au disque hors du
+projet, pas de mise à jour in-app (phase 13), pas de débogueur. Le NKCode web est
+volontairement **plus petit** que le natif. Annoncer l'inverse ferait attendre aux
+étudiants un outil qui n'arrivera pas.
+
+### 🎯 Jalon
+
+Un étudiant ouvre une page, écrit un projet, clique sur construire, voit la sortie
+réelle de Jenga et rend son travail — sans avoir rien installé, depuis un
+téléphone si nécessaire.
+
+---
+
 ## Backlog — demandes de Rihen à traiter plus tard
 
 - ⬜ **Dictée vocale dans le composeur du chat IA** (5 août 2026, demande de
