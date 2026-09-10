@@ -1,9 +1,17 @@
 # La version de Jenga que NKCode EXIGE.
 #
-# SOURCE UNIQUE. Trois consommateurs la lisent :
-#   - .github/workflows/build-remote.yml  (tag a extraire pour construire)
-#   - Applications/NKCode/NKCode.jenga    (verifie le wheel embarque)
+# SOURCE UNIQUE. Tous les workflows la lisent, plus le fichier de projet :
+#   - .github/workflows/build-remote.yml       (tag a extraire)
+#   - .github/workflows/build-macos.yml        (idem)
+#   - .github/workflows/build-gemcrush.yml     (idem)
+#   - .github/workflows/build-jeux-plateau.yml (idem)
+#   - Applications/NKCode/NKCode.jenga         (verifie le wheel embarque)
 #   - vous, quand vous vous demandez sur quoi NKCode est construit
+#
+# Les trois derniers workflows ne la lisaient PAS avant le 10 septembre 2026 :
+# ils restaient epingles sur une branche figee en Jenga 2.4.0. Le jour ou
+# NKCode.jenga a employe appurl(), ils se sont tous arretes sur
+# « name 'appurl' is not defined », un message qui ne nomme jamais Jenga.
 #
 # Pour passer a une nouvelle version de Jenga : changer CE numero, et
 # reconstruire le wheel (./cri.sh dans le depot Jenga). Le CI suit tout

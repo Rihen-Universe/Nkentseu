@@ -48,13 +48,28 @@ jobs:
         with:
           submodules: recursive
 
+      - name: Version de Jenga exigee par NKCode
+        id: jenga-version
+        run: |
+          # SOURCE UNIQUE : Applications/NKCode/JENGA_VERSION. Aucun numero en
+          # dur ici, donc aucune divergence possible. Ce champ a porte
+          # `feat/evenement-avertissement` (Jenga 2.4.0) pendant que NKCode
+          # passait a 2.8.0 : le chargement du workspace s'arretait sur
+          # « name 'appurl' is not defined », message qui ne parle pas de Jenga.
+          V=$(grep -v '^#' Applications/NKCode/JENGA_VERSION | tr -d '[:space:]')
+          test -n "$V" || { echo "::error::JENGA_VERSION vide ou introuvable"; exit 1; }
+          echo "version=$V" >> "$GITHUB_OUTPUT"
+          echo "Jenga exige par NKCode : $V"
+
       - name: Depot Jenga (public, la source EST le build system)
         uses: actions/checkout@v4
         with:
           repository: Rihen-Universe/Jenga
-          # Meme branche que build-macos.yml : la vivante de Rihen. main public
-          # est en retard (fix frameworks() absent).
-          ref: feat/evenement-avertissement
+          # Epingle sur le TAG de la release, lu dans JENGA_VERSION.
+          # Ne JAMAIS remettre un nom de branche ici : c'est ainsi que
+          # la CI a construit avec Jenga 2.4.0 pendant que NKCode en
+          # exigeait 2.8.0.
+          ref: v${{ steps.jenga-version.outputs.version }}
           path: jenga-src
 
       - name: Builder GemCrush (Release)
@@ -103,11 +118,28 @@ jobs:
         with:
           submodules: recursive
 
-      - name: Depot Jenga
+      - name: Version de Jenga exigee par NKCode
+        id: jenga-version
+        run: |
+          # SOURCE UNIQUE : Applications/NKCode/JENGA_VERSION. Aucun numero en
+          # dur ici, donc aucune divergence possible. Ce champ a porte
+          # `feat/evenement-avertissement` (Jenga 2.4.0) pendant que NKCode
+          # passait a 2.8.0 : le chargement du workspace s'arretait sur
+          # « name 'appurl' is not defined », message qui ne parle pas de Jenga.
+          V=$(grep -v '^#' Applications/NKCode/JENGA_VERSION | tr -d '[:space:]')
+          test -n "$V" || { echo "::error::JENGA_VERSION vide ou introuvable"; exit 1; }
+          echo "version=$V" >> "$GITHUB_OUTPUT"
+          echo "Jenga exige par NKCode : $V"
+
+      - name: Depot Jenga (public, la source EST le build system)
         uses: actions/checkout@v4
         with:
           repository: Rihen-Universe/Jenga
-          ref: feat/evenement-avertissement
+          # Epingle sur le TAG de la release, lu dans JENGA_VERSION.
+          # Ne JAMAIS remettre un nom de branche ici : c'est ainsi que
+          # la CI a construit avec Jenga 2.4.0 pendant que NKCode en
+          # exigeait 2.8.0.
+          ref: v${{ steps.jenga-version.outputs.version }}
           path: jenga-src
 
       - name: Xcode disponible (on le DIT, on ne le suppose pas)
@@ -149,11 +181,28 @@ jobs:
         with:
           submodules: recursive
 
-      - name: Depot Jenga
+      - name: Version de Jenga exigee par NKCode
+        id: jenga-version
+        run: |
+          # SOURCE UNIQUE : Applications/NKCode/JENGA_VERSION. Aucun numero en
+          # dur ici, donc aucune divergence possible. Ce champ a porte
+          # `feat/evenement-avertissement` (Jenga 2.4.0) pendant que NKCode
+          # passait a 2.8.0 : le chargement du workspace s'arretait sur
+          # « name 'appurl' is not defined », message qui ne parle pas de Jenga.
+          V=$(grep -v '^#' Applications/NKCode/JENGA_VERSION | tr -d '[:space:]')
+          test -n "$V" || { echo "::error::JENGA_VERSION vide ou introuvable"; exit 1; }
+          echo "version=$V" >> "$GITHUB_OUTPUT"
+          echo "Jenga exige par NKCode : $V"
+
+      - name: Depot Jenga (public, la source EST le build system)
         uses: actions/checkout@v4
         with:
           repository: Rihen-Universe/Jenga
-          ref: feat/evenement-avertissement
+          # Epingle sur le TAG de la release, lu dans JENGA_VERSION.
+          # Ne JAMAIS remettre un nom de branche ici : c'est ainsi que
+          # la CI a construit avec Jenga 2.4.0 pendant que NKCode en
+          # exigeait 2.8.0.
+          ref: v${{ steps.jenga-version.outputs.version }}
           path: jenga-src
 
       - name: Dependances systeme
