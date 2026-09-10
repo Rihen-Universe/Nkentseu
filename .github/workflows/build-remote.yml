@@ -56,7 +56,7 @@ jobs:
           # vieux que le paquet Windows, sans que rien ne le dise. La branche
           # est un ANCETRE de v2.6.3 (verifie par merge-base), rien ne se perd.
           # Bumper ce tag a chaque release de Jenga.
-          ref: v2.6.3
+          ref: v2.8.0
           path: jenga-src
 
       - name: Dependances systeme (Linux)
