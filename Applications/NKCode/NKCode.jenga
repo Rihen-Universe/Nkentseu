@@ -286,6 +286,61 @@ with project("NKCode"):
     apppublisher("Rihen Universe")
     appversion("0.1.0")
     licensefile("../../LICENSE")
+    appurl("https://rihen-universe.com")
+
+    # ── SIGNATURE (Jenga 2.8.0+) ─────────────────────────────────────────────
+    # NKCode embarque un compilateur : il ecrit des executables, edite des liens
+    # et lance des processus. C'est le profil exact que les moteurs heuristiques
+    # signalent, et l'absence de signature l'aggrave. Des utilisateurs ont eu
+    # l'installeur mis en quarantaine par Windows Defender.
+    #
+    # LA SIGNATURE NE S'ACTIVE QUE SI UN CERTIFICAT EST FOURNI, par la variable
+    # d'environnement ci-dessous. Sans elle, rien ne change : la construction
+    # reste identique, et personne n'est bloque faute de certificat.
+    #
+    #   set JENGA_WINDOWS_CERT=C:\chemin\rihen.pfx
+    #   set JENGA_WINDOWS_CERT_PASSWORD=...        (jamais dans ce fichier)
+    #
+    # `jenga sign` travaille sur des fichiers DEJA CONSTRUITS : le jour ou le
+    # certificat arrive, on signe la release existante sans rien reconstruire.
+    #
+    #   jenga sign --platform windows --certificate rihen.pfx ^
+    #              --file dist\NKCode\NKCode.exe ^
+    #              --file dist\NKCode-<ver>-win64-setup.exe
+    #
+    # NE JAMAIS SIGNER AVEC UN CERTIFICAT AUTO-SIGNE : Windows affiche
+    # « Editeur inconnu » dans les deux cas, et une signature dont la racine
+    # n'est pas de confiance est un motif que les antivirus associent aux
+    # logiciels malveillants. On aggraverait le probleme qu'on veut resoudre.
+    #
+    # Voir Applications/NKCode/docs/ANTIVIRUS.md.
+    _CERT_WINDOWS = os.environ.get("JENGA_WINDOWS_CERT", "")
+    if _CERT_WINDOWS:
+        with filter("system:Windows"):
+            windowssign()
+            windowscertificate(_CERT_WINDOWS)
+
+    _IDENTITE_MACOS = os.environ.get("JENGA_MACOS_IDENTITY", "")
+    if _IDENTITE_MACOS:
+        with filter("system:macOS"):
+            macossign()
+            macossigningidentity(_IDENTITE_MACOS)
+            # Signer ne suffit pas depuis macOS 10.15 : sans notarisation,
+            # Gatekeeper affiche « impossible de verifier le developpeur ».
+            _PROFIL = os.environ.get("JENGA_MACOS_NOTARY_PROFILE", "")
+            if _PROFIL:
+                macosnotaryprofile(_PROFIL)
+
+    # Sous Linux, il n'y a rien a signer DANS le binaire : le noyau ne verifie
+    # aucune signature au lancement. On publie des signatures detachees et un
+    # SHA256SUMS a cote du telechargement. La cle GPG est optionnelle ; sans
+    # elle, les sommes de controle sont produites quand meme, et elles prouvent
+    # deja l'integrite, sinon l'origine.
+    with filter("system:Linux"):
+        linuxsign()
+        _CLE_GPG = os.environ.get("JENGA_GPG_KEY", "")
+        if _CLE_GPG:
+            linuxgpgkey(_CLE_GPG)
 
     # ===== Windows ================================================================
     with filter("system:Windows && !options:windows-runtime=uwp && !system:XboxSeries && !system:XboxOne"):
