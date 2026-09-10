@@ -3,12 +3,139 @@
 // =============================================================================
 #include "NkEditMesh.h"
 #include "NKContainers/Associative/NkHashMap.h"
+#include "NKTime/NkChrono.h" // sonde de phases de l'entonnoir (NK_BFP_PHASES)
+#include <cstdlib>			  // getenv
 
 #include <stddef.h> // offsetof : parametres adressables par nom
 #include <cmath> // cosf / sinf / atan2f — profils d'arc du bevel, rotations du spin
 
 namespace nkentseu {
 	namespace renderer {
+
+		// ── TABLE PLATE uint64 -> uint32, POUR LES TROIS POINTS CHAUDS ────────
+		// POURQUOI UNE TABLE DE PLUS ALORS QUE `NkHashMap` EXISTE, ET MARCHE
+		// `NkHashMap` est CORRECT ici depuis la correction du melangeur (Q73). Ce
+		// qu'on lui reproche n'est pas sa justesse mais son COUT PAR ENTREE : c'est
+		// une table CHAINEE, un noeud alloue par insertion. Le banc `--perf` le
+		// mesure hors moteur : 131 072 insertions, MEME avec `Reserve`, 25,6 ms —
+		// soit ~195 ns par entree. Une extrusion de 3 faces sur 65 536 faces passe
+		// par 262 144 de ces insertions (LinkTwins) plus 66 049 (BuildVertexMerge) :
+		// la table EST le cout de l'operation.
+		//
+		// Ici : adressage ouvert, sondage lineaire, un seul bloc contigu, AUCUNE
+		// allocation par entree. 16 octets par case, donc 4 cases par ligne de
+		// cache — un sondage rate reste dans la ligne deja chargee.
+		//
+		// ⚠ CE QU'ELLE NE CHANGE PAS, ET C'EST LA CONDITION POUR L'ADOPTER.
+		// Les trois appelants ont tous la meme regle : LA PREMIERE INSERTION GAGNE
+		// (`canon[i] = i` au premier passage, `map.Find(opp)` avant d'inserer,
+		// `seen.Find(key)` avant de creer l'arete). Cette regle ne depend QUE de
+		// l'ordre de la boucle appelante, jamais de l'ordre des seaux — donc
+		// remplacer la table ne peut pas changer un seul resultat. C'est
+		// exactement ce que la reference du harnais (274 lignes, dont les cinq
+		// empreintes `aretes/`) est la pour attester : elle est comparee octet pour
+		// octet, et le hachage de Catmull-Clark a deja montre en Q73 qu'un
+		// changement d'ordre d'iteration s'y voit.
+		//
+		// Elle n'expose ni iteration ni suppression : les trois appelants n'en ont
+		// pas besoin, et une iteration reintroduirait precisement la dependance a
+		// l'ordre des seaux qui a coute une re-etalonnage de reference en Q73.
+		class NkEmFlatMap {
+			public:
+				explicit NkEmFlatMap(uint32 hint) {
+					uint32 cap = 16u;
+					// Charge maximale 1/2 : au-dela, le sondage lineaire s'allonge
+					// vite. `hint` est une BORNE SUPERIEURE chez les trois appelants,
+					// donc la table ne grandira normalement jamais.
+					while (cap < (hint + 1u) * 2u && cap < 0x40000000u)
+						cap <<= 1;
+					Alloc(cap);
+				}
+
+				const uint32 *Find(uint64 k) const {
+					uint32 i = Slot(k);
+					while (mSlots[i].used) {
+						if (mSlots[i].key == k)
+							return &mSlots[i].val;
+						i = (i + 1u) & mMask;
+					}
+					return nullptr;
+				}
+
+				// N'ECRASE PAS une cle deja presente : c'est la regle « la premiere
+				// insertion gagne » des trois appelants, posee ici une seule fois
+				// plutot que re-decidee trois fois par un `if (!found)` a cote.
+				void Insert(uint64 k, uint32 v) {
+					if (mSize * 2u >= mCap)
+						Grow();
+					uint32 i = Slot(k);
+					while (mSlots[i].used) {
+						if (mSlots[i].key == k)
+							return;
+						i = (i + 1u) & mMask;
+					}
+					mSlots[i].key = k;
+					mSlots[i].val = v;
+					mSlots[i].used = 1u;
+					++mSize;
+				}
+
+				uint32 Size() const {
+					return mSize;
+				}
+
+			private:
+				struct Case {
+						uint64 key = 0;
+						uint32 val = 0;
+						uint32 used = 0;
+				};
+
+				// splitmix64 : le MEME finisseur que celui pose dans NkHashMap en Q73,
+				// et pour la meme raison — la cle d'arete `(lo << 32) | hi` a des bits
+				// bas qui valent `lo ^ hi`, minuscules entre sommets voisins. Un modulo
+				// par puissance de deux ne regarderait que ceux-la : 131 072 aretes dans
+				// 18 seaux. Ce n'est pas une precaution, c'est le defaut deja paye.
+				static uint64 Melange(uint64 x) {
+					x += 0x9E3779B97F4A7C15ull;
+					x = (x ^ (x >> 30)) * 0xBF58476D1CE4E5B9ull;
+					x = (x ^ (x >> 27)) * 0x94D049BB133111EBull;
+					return x ^ (x >> 31);
+				}
+
+				uint32 Slot(uint64 k) const {
+					return (uint32)(Melange(k) & (uint64)mMask);
+				}
+
+				void Alloc(uint32 cap) {
+					mCap = cap;
+					mMask = cap - 1u;
+					mSize = 0;
+					mStore.Resize(cap);
+					for (uint32 i = 0; i < cap; ++i) {
+						mStore[i].key = 0;
+						mStore[i].val = 0;
+						mStore[i].used = 0;
+					}
+					mSlots = mStore.Data();
+				}
+
+				void Grow() {
+					NkVector<Case> ancien;
+					ancien.Resize(mCap);
+					for (uint32 i = 0; i < mCap; ++i)
+						ancien[i] = mStore[i];
+					const uint32 vieuxCap = mCap;
+					Alloc(mCap << 1);
+					for (uint32 i = 0; i < vieuxCap; ++i)
+						if (ancien[i].used)
+							Insert(ancien[i].key, ancien[i].val);
+				}
+
+				NkVector<Case> mStore;
+				Case *mSlots = nullptr;
+				uint32 mCap = 0, mMask = 0, mSize = 0;
+		};
 
 		// ── Tangente ORTHOGONALE à la normale (anti-NaN) ──────────────────────────
 		// ⚠ BUG « carrés blancs » : la tangente était figée à (1,0,0) pour TOUS les
@@ -376,8 +503,7 @@ namespace nkentseu {
 			if (eps <= 0.f)
 				eps = 1e-4f;
 			const float32 inv = 1.f / eps;
-			NkHashMap<uint64, uint32> cell;
-			cell.Reserve(n);
+			NkEmFlatMap cell(n);
 			for (uint32 i = 0; i < n; ++i) {
 				const NkVec3f p = verts[i].pos;
 				// Arrondi (et non plancher) : deux coordonnées EXACTEMENT égales donnent la
@@ -387,12 +513,12 @@ namespace nkentseu {
 				const int64 qz = (int64)(p.z * inv + (p.z >= 0.f ? 0.5f : -0.5f));
 				const uint64 key = ((uint64)(qx & 0x1FFFFF)) | (((uint64)(qy & 0x1FFFFF)) << 21) |
 								   (((uint64)(qz & 0x1FFFFF)) << 42);
-				uint32 *found = cell.Find(key);
+				const uint32 *found = cell.Find(key);
 				if (found)
 					canon[i] = *found; // rattaché au représentant du groupe
 				else {
 					canon[i] = i;
-					cell.InsertOrAssign(key, i);
+					cell.Insert(key, i);
 				}
 			}
 		}
@@ -440,8 +566,7 @@ namespace nkentseu {
 			auto C = [&](uint32 v) -> uint64 { return (uint64)((v < nv) ? canon[v] : v); };
 			for (uint32 h = 0; h < (uint32)hedges.Size(); ++h)
 				hedges[h].twin = NK_EM_INVALID;
-			NkHashMap<uint64, NkEmId> map;
-			map.Reserve((uint32)hedges.Size());
+			NkEmFlatMap map((uint32)hedges.Size());
 			for (uint32 h = 0; h < (uint32)hedges.Size(); ++h) {
 				if (!hedges[h].alive || hedges[h].next == NK_EM_INVALID)
 					continue;
@@ -450,12 +575,12 @@ namespace nkentseu {
 				if (o == d)
 					continue; // arête dégénérée
 				const uint64 opp = (d << 32) | o; // demi-arête opposée (d->o)
-				NkEmId *found = map.Find(opp);
+				const uint32 *found = map.Find(opp);
 				if (found && hedges[*found].twin == NK_EM_INVALID) {
-					hedges[h].twin = *found;
+					hedges[h].twin = (NkEmId)*found;
 					hedges[*found].twin = h;
 				} else if (!found) {
-					map.InsertOrAssign((o << 32) | d, h);
+					map.Insert((o << 32) | d, h);
 				}
 			}
 		}
@@ -1171,6 +1296,26 @@ namespace nkentseu {
 			}
 		}
 
+		// ── SONDE DE PHASES DE L'ENTONNOIR ──────────────────────────────────────
+		// `BuildFromPolygons` est traverse par TOUTE operation d'edition. Ces trois
+		// compteurs disent ou partent ses millisecondes, et surtout `appels` sert de
+		// CONTROLE POSITIF : un chemin qu'on optimise sans verifier qu'il est
+		// parcouru est un chemin qu'on optimise pour rien -- nous venons de le payer
+		// sur `ExtrudeSelectedFacesInPlace`, dont un commentaire de 18 lignes
+		// chiffrait le cout alors qu'il n'a aucun appelant de production.
+		NkEmIpPhases &NkEmIpPhasesGet() {
+			static NkEmIpPhases p;
+			return p;
+		}
+		NkEmBfpPhases &NkEmBfpPhasesGet() {
+			static NkEmBfpPhases p;
+			return p;
+		}
+		bool NkEmBfpPhasesActives() {
+			static const bool on = (getenv("NK_BFP_PHASES") != nullptr);
+			return on;
+		}
+
 		void NkEditMesh::BuildFromPolygons(const NkVertex3D *v, uint32 vc, const uint32 *faceStart, uint32 faceCount,
 										   const uint32 *faceVerts, const FaceAttrib *faceAttrib) {
 			Clear();
@@ -1220,8 +1365,65 @@ namespace nkentseu {
 				}
 				faces.PushBack(fc);
 			}
+			// ── SONDE DE PHASES DE L'ENTONNOIR (NK_BFP_PHASES=1) ────────────────
+			// CE CHEMIN-CI est celui que TOUTE operation d'edition traverse (16
+			// operateurs, 26 appels). Il ne faut pas le confondre avec celui que
+			// chiffre le commentaire d'ExtrudeSelectedFaces : celui-la porte sur
+			// `ExtrudeSelectedFacesInPlace`, qui n'a AUCUN appelant de production.
+			// Un commentaire mesure sur un chemin mort reste un commentaire sur un
+			// chemin mort -- d'ou cette sonde-ci, sur le chemin vivant.
+			// Elle sert AUSSI de controle positif : si le compteur reste a zero
+			// pendant qu'on edite, c'est que ce n'est pas par ici qu'on passe.
+			NkEmBfpPhases &ph = NkEmBfpPhasesGet();
+			const bool phOn = NkEmBfpPhasesActives();
+			NkChrono chT;
 			LinkTwins();
+			if (phOn) {
+				ph.msLinkTwins += chT.Elapsed().ToMilliseconds();
+				chT = NkChrono();
+			}
+			// ⚠️ LA COUCHE D'ARETES DE PREMIERE CLASSE, RECONSTRUITE ICI.
+			// Sans cette ligne, TOUTE operation d'edition sortait avec une table
+			// d'aretes VIDE -- et, bien plus grave, avec `canonOf` VIDE :
+			//     au repos            table=960  canonOf=561
+			//     apres subdivision   table=0    canonOf=0
+			// Or `VertOwner()` retombe sur l'INDICE BRUT tant que `canonOf` est
+			// vide (cf. la note de VertOwner, plus haut dans l'en-tete), et aucun
+			// indice brut ne repond a une question topologique. Toute adjacence
+			// calculee apres une operation travaillait donc sur une identite NON
+			// SOUDEE, en silence. Le « 0 arete » du panneau n'etait que le symptome
+			// visible d'une couche topologique absente.
+			//
+			// POURQUOI ICI, ET NULLE PART AILLEURS : 18 operations reconstruisent le
+			// maillage et TOUTES entonnent dans cette fonction. Un appel ici en
+			// couvre dix-huit ; un appel par operation serait dix-huit occasions
+			// d'en oublier une. C'est deja ce que fait sa soeur `BuildFromIndexed`,
+			// et l'ecart entre les deux ETAIT le defaut.
+			//
+			// COUT MESURE EN APPARIE (meme binaire, 7 runs, dispersion d'un run
+			// isole : 93 %) : mediane 2,651 -> 3,603 ms sur une subdivision de
+			// sphere, soit +36 %. Ce n'est PAS gratuit : `RebuildEdges` est un
+			// parcours SEPARE, pas une fusion dans la boucle ci-dessus.
+			// ⚠️ ET C'EST ASSUME : une identite topologique absente est un defaut de
+			// CORRECTION, pas de performance -- 0,95 ms sur un geste manuel ne se
+			// sent pas, une adjacence fausse se sent plus tard et sans rien lever.
+			//
+			// ⚠️ CET APPEL EST FAIT POUR MOURIR D'INANITION. Le modele vise est celui
+			// de Blender : en edition le maillage est VIVANT et les operateurs le
+			// MUTENT -- ils creent leurs aretes au passage, comme le font deja
+			// `AddWireEdge` et `ExtrudeSelectedFacesInPlace`. Chaque operation
+			// migree cesse de passer par ici ; le jour ou la derniere aura migre,
+			// cette ligne n'aura plus d'appelant. On ne la supprime pas d'un coup.
+			RebuildEdges();
+			if (phOn) {
+				ph.msRebuildEdges += chT.Elapsed().ToMilliseconds();
+				chT = NkChrono();
+			}
 			RecomputeNormals();
+			if (phOn) {
+				ph.msRecomputeNormals += chT.Elapsed().ToMilliseconds();
+				ph.appels++;
+			}
 		}
 
 		// =====================================================================
@@ -1455,7 +1657,601 @@ namespace nkentseu {
 		// ⚠ COMPORTEMENT BLENDER (défaut p.offset == 0) : le cap naît EXACTEMENT sur la face
 		// d'origine et la SÉLECTION passe dessus. Rien ne bouge : l'utilisateur déplace/
 		// tourne/redimensionne ensuite lui-même (gizmo, axe normal ou contrainte X/Y/Z).
+		// ── COMPACTAGE DES FACES ET DEMI-ARETES MORTES ──────────────────────────
+		// POURQUOI CETTE FONCTION EXISTE, ET CE QU'ELLE REPARE
+		// Le chemin actuel (ToPolygons -> BuildFromPolygons) fait DISPARAITRE les
+		// faces mortes sans que personne ne l'ait demande : `ToPolygons` ne les emet
+		// pas, `BuildFromPolygons` reconstruit a partir de ce qu'il recoit. Une
+		// operation EN PLACE, elle, les laisse ou elles sont.
+		//
+		// ⚠ CE N'EST PAS UN DETAIL D'HYGIENE. `Quadify` marque des faces mortes des
+		// la construction d'une primitive, et le harnais imprime `faces.Size()` — le
+		// TABLEAU, pas les vivantes. Une operation en place qui ne compacterait pas
+		// rendrait donc un compte DIFFERENT sans qu'aucune topologie n'ait bouge.
+		// C'est la forme la plus penible : le resultat est juste, le nombre est faux.
+		void NkEditMesh::CompactDead(NkVector<NkEmId> *aRemapper) {
+			const uint32 nf = (uint32)faces.Size(), nh = (uint32)hedges.Size();
+			NkVector<uint32> fmap, hmap;
+			fmap.Resize(nf);
+			hmap.Resize(nh);
+			uint32 nfAlive = 0, nhAlive = 0;
+			for (uint32 f = 0; f < nf; ++f)
+				fmap[f] = faces[f].alive ? nfAlive++ : NK_EM_INVALID;
+			// Une demi-arete ne survit que si SA FACE survit : une demi-arete vivante
+			// rattachee a une face morte est un residu, pas une entite.
+			for (uint32 h = 0; h < nh; ++h) {
+				const NkEmId hf = hedges[h].face;
+				const bool ok = hedges[h].alive && hf != NK_EM_INVALID && hf < nf && faces[hf].alive;
+				hmap[h] = ok ? nhAlive++ : NK_EM_INVALID;
+			}
+			if (nfAlive == nf && nhAlive == nh) {
+				// INSTRUMENT : combien de fois paie-t-on les DEUX boucles de
+				// cartographie pour decouvrir qu'il n'y a rien a compacter ?
+				NkEmIpPhasesGet().compactRien++;
+				return; // rien de mort : on ne recopie pas pour rien
+			}
+			NkEmIpPhasesGet().compactFait++;
+			NkVector<Hedge> nhv;
+			nhv.Resize(nhAlive);
+			for (uint32 h = 0; h < nh; ++h) {
+				if (hmap[h] == NK_EM_INVALID)
+					continue;
+				Hedge he = hedges[h];
+				he.next = (he.next < nh && hmap[he.next] != NK_EM_INVALID) ? hmap[he.next] : NK_EM_INVALID;
+				he.twin = (he.twin < nh && hmap[he.twin] != NK_EM_INVALID) ? hmap[he.twin] : NK_EM_INVALID;
+				he.face = (he.face < nf) ? fmap[he.face] : NK_EM_INVALID;
+				// Les cycles radiaux et le lien vers l'arete sont repris a zero par le
+				// prochain RebuildEdges : les remapper ici serait entretenir une vue
+				// que l'on vient d'invalider.
+				he.edge = NK_EM_INVALID;
+				he.rNext = NK_EM_INVALID;
+				he.rPrev = NK_EM_INVALID;
+				nhv[hmap[h]] = he;
+			}
+			NkVector<Face> nfv;
+			nfv.Resize(nfAlive);
+			for (uint32 f = 0; f < nf; ++f) {
+				if (fmap[f] == NK_EM_INVALID)
+					continue;
+				Face fa = faces[f];
+				fa.hedge = (fa.hedge < nh && hmap[fa.hedge] != NK_EM_INVALID) ? hmap[fa.hedge] : NK_EM_INVALID;
+				nfv[fmap[f]] = fa;
+			}
+			// ⚠ Swap ET NON AFFECTATION. `hedges = nhv;` recopie l integralite du
+			// tableau — 262 144 demi-aretes sur une grille 256x256, et une seconde
+			// fois pour les faces. MESURE : la compaction pesait ~20 ms sur les 46 ms
+			// de l operation, plus que tout le reste reuni. Swap est en O(1) : les
+			// deux tableaux echangent leurs pointeurs, et l ancien meurt avec la
+			// variable locale.
+			hedges.Swap(nhv);
+			faces.Swap(nfv);
+			// ⚠ LES INDICES QUE L'APPELANT DETIENT SONT REMAPPES ICI, PAS AILLEURS.
+			// Cette fonction RENUMEROTE ; toute liste de demi-aretes collectee avant
+			// elle designe autre chose apres. La remettre a jour au retour, cote
+			// appelant, obligerait a garder une copie de `hmap` -- c'est-a-dire a
+			// publier un detail interne pour reparer un effet de bord.
+			// Les entrees dont la demi-arete est morte sont RETIREES, pas mises a
+			// INVALID : une liste de « choses a re-apparier » qui contiendrait des
+			// trous ferait travailler l'appelant sur du vide sans qu'il le sache.
+			if (aRemapper) {
+				NkVector<NkEmId> compact;
+				for (uint32 i = 0; i < (uint32)aRemapper->Size(); ++i) {
+					const NkEmId v = (*aRemapper)[i];
+					if (v < nh && hmap[v] != NK_EM_INVALID)
+						compact.PushBack((NkEmId)hmap[v]);
+				}
+				aRemapper->Swap(compact);
+			}
+			for (uint32 i = 0; i < (uint32)verts.Size(); ++i)
+				verts[i].hedge = NK_EM_INVALID;
+		}
+
+		// ── RE-APPARIEMENT LOCAL DES JUMELLES ───────────────────────────────────
+		// CE QU'ELLE REMPLACE, ET CE QU'ELLE NE PEUT PAS REMPLACER
+		// `LinkTwins` global fait trois choses en O(MAILLAGE) : l'identite soudee,
+		// la remise a zero de TOUTES les jumelles, puis un appariement par table sur
+		// TOUTES les demi-aretes. La sonde de phases lui attribue 46 % du cout d'une
+		// extrusion en place — de loin le premier poste.
+		// 🔴 RE-MESURE DU 2026-08-29 : CE 46 % NE TIENT PLUS, ET IL A VOYAGE.
+		// Sonde `NkEmIpPhases`, grille 128x128, 7 executions : sur l'extrusion EN
+		// PLACE, `LinkTwins` fait 25,7 % en selection globale et 11,2 % en locale --
+		// et en locale `LinkTwinsLocal` est DEJA pris 7 fois sur 7, donc ces 11,2 %
+		// sont ce qui reste APRES localisation. Le premier poste est `CompactDead`
+		// (31,3 % en local), pas celui-ci.
+		// ⚠ ET SURTOUT : ce chiffre decrit l'extrusion EN PLACE, qui n'a AUCUN
+		// appelant de production (seul le harnais l'appelle). Il a ete cite comme
+		// s'il decrivait le chemin par la soupe, ou la mesure donne 18-25 %. Une
+		// mesure juste sur un chemin mort reste une mesure sur un chemin mort, y
+		// compris quand on la recopie de bonne foi. Dater et dire le chemin.
+		//
+		// ⚠ MAIS L'APPARIEMENT GLOBAL EST UN « PREMIER ARRIVE » SUR TOUT LE MAILLAGE,
+		// et cela ne se localise PAS en general. Des que deux demi-aretes portent la
+		// meme cle orientee — ce qui arrive exactement quand des sommets se
+		// superposent — le resultat depend de l'ordre de parcours de la TOTALITE des
+		// demi-aretes. C'est le cas `offset = 0`, ou la nappe extrudee retombe sur
+		// l'originale. Le reproduire localement demanderait de refaire le parcours
+		// global, c'est-a-dire de ne rien localiser.
+		//
+		// On ne triche donc pas : on DETECTE cette ambiguite et on retombe sur le
+		// chemin global. La condition est locale et exacte — un sommet duplique dont
+		// l'identite soudee n'est pas lui-meme s'est pose sur un sommet existant.
+		//
+		// QUAND ELLE S'APPLIQUE, POURQUOI ELLE SUFFIT
+		// L'ensemble a re-apparier se FERME en un pas : les demi-aretes du capuchon
+		// (leur sommet d'origine a change), celles des parois (elles sont neuves), et
+		// les ANCIENNES jumelles des premieres — car une demi-arete restee dehors qui
+		// pointait vers un capuchon pointe maintenant dans le vide. Rien d'autre ne
+		// peut avoir besoin de changer : si une demi-arete hors de cet ensemble
+		// devait s'apparier a une demi-arete de l'ensemble, sa jumelle d'avant etait
+		// deja dans l'ensemble, donc elle y serait aussi.
+		//
+		// Rend false si l'ambiguite est detectee ; l'appelant appelle alors
+		// `LinkTwins()`.
+		bool NkEditMesh::LinkTwinsLocal(const NkVector<NkEmId> &touchees, const NkVector<uint32> &copies,
+										uint32 nv0) {
+			BuildVertexMerge(canonOf);
+			const uint32 nc = (uint32)canonOf.Size();
+			// ── LA CONDITION D'AMBIGUITE, ET CE QU'ELLE NE DOIT PAS CONFONDRE ────
+			// `BuildVertexMerge` donne a chaque cellule le PREMIER sommet qui l'occupe.
+			// Une copie ajoutee en fin de tableau n'est donc son propre representant
+			// que si sa position etait libre.
+			//
+			// ⚠ PREMIERE VERSION, TROP LARGE : elle refusait des qu'une copie n'etait
+			// pas son propre representant. Or deux copies peuvent tres bien se
+			// confondre ENTRE ELLES -- c'est le cas de toute primitive qui duplique
+			// ses sommets par face (un cube en a 24 pour 8 positions, une sphere UV en
+			// a sur ses coutures et ses poles) : les copies heritent naturellement de
+			// la meme superposition. Ce n'est pas une ambiguite, c'est la soudure
+			// ordinaire, et elle ne cree aucune cle orientee en double.
+			// Le drapeau `local` du harnais l'a montre tout de suite : UN SEUL des dix
+			// cas prenait le chemin local. Sans lui, « 295 vertes » aurait voulu dire
+			// « le chemin qu'on vient d'ecrire ne sert jamais ».
+			//
+			// CE QUI EST VRAIMENT AMBIGU : une copie posee sur un sommet qui EXISTAIT
+			// DEJA (indice < nv0). C'est alors -- et alors seulement -- que la cle
+			// orientee d'un capuchon devient identique a celle d'une paroi, et que
+			// l'appariement depend de l'ordre de parcours de tout le maillage.
+			// C'est exactement `offset = 0`.
+			for (uint32 k = 0; k < (uint32)copies.Size(); ++k) {
+				const uint32 c = copies[k];
+				if (c >= nc) {
+					canonOf.Clear();
+					return false;
+				}
+				const uint32 r = canonOf[c];
+				if (r != c && r < nv0) { // pose sur un sommet PREEXISTANT
+					canonOf.Clear();
+					return false;
+				}
+			}
+			auto C = [&](uint32 v) -> uint64 { return (uint64)((v < nc) ? canonOf[v] : v); };
+
+			// Fermeture de l'ensemble, en un pas.
+			NkVector<NkEmId> A;
+			NkEmFlatMap dansA((uint32)touchees.Size() * 4u + 16u);
+			auto ajouter = [&](NkEmId h) {
+				if (h == NK_EM_INVALID || h >= (NkEmId)hedges.Size())
+					return;
+				if (dansA.Find((uint64)h))
+					return;
+				dansA.Insert((uint64)h, 1u);
+				A.PushBack(h);
+			};
+			for (uint32 k = 0; k < (uint32)touchees.Size(); ++k) {
+				ajouter(touchees[k]);
+				if (touchees[k] < (NkEmId)hedges.Size())
+					ajouter(hedges[touchees[k]].twin);
+			}
+			for (uint32 k = 0; k < (uint32)A.Size(); ++k)
+				hedges[A[k]].twin = NK_EM_INVALID;
+
+			// ⚠ ORDRE CROISSANT DES INDICES, comme le parcours global. `A` est
+			// construit dans l'ordre des faces touchees, pas des indices : apparier
+			// dans cet ordre-la donnerait le meme ENSEMBLE de paires sur un maillage
+			// sans ambiguite, mais rien ne le garantit des que deux candidats existent.
+			// Tri par insertion : `A` compte quelques dizaines d'elements pour une
+			// edition locale, et un tri general couterait plus a ecrire qu'a executer.
+			for (uint32 i = 1; i < (uint32)A.Size(); ++i) {
+				const NkEmId x = A[i];
+				uint32 j = i;
+				while (j > 0 && A[j - 1] > x) {
+					A[j] = A[j - 1];
+					--j;
+				}
+				A[j] = x;
+			}
+
+			NkEmFlatMap map((uint32)A.Size() * 2u + 16u);
+			for (uint32 k = 0; k < (uint32)A.Size(); ++k) {
+				const NkEmId h = A[k];
+				if (!hedges[h].alive || hedges[h].next == NK_EM_INVALID)
+					continue;
+				const uint64 o = C(hedges[h].origin);
+				const uint64 d = C(hedges[hedges[h].next].origin);
+				if (o == d)
+					continue; // arete degeneree
+				const uint32 *trouve = map.Find((d << 32) | o);
+				if (trouve && hedges[*trouve].twin == NK_EM_INVALID) {
+					hedges[h].twin = (NkEmId)*trouve;
+					hedges[*trouve].twin = h;
+				} else if (!trouve) {
+					map.Insert((o << 32) | d, (uint32)h);
+				}
+			}
+			canonOf.Clear(); // meme post-condition que le chemin global
+			return true;
+		}
+
+		// ── EXTRUSION DE FACES, EN PLACE ────────────────────────────────────────
+		// ETAPE 2 du chantier « cycles chaines ». La branche REGION (le defaut de
+		// NkExtrudeParams) est reproduite a l'identique, mais SANS l'aller-retour par
+		// la soupe de polygones : le maillage n'est plus detruit puis refait, il est
+		// MUTE.
+		//
+		// ⚠ CE QUI DOIT ETRE REPRODUIT AU SOMMET PRES, ET POURQUOI
+		// Le harnais compare V, F, E, bord, non-manifold, aire et centre. E et le
+		// non-manifold sont recalcules PAR LE HARNAIS depuis la liste de faces et les
+		// POSITIONS (soudure positionnelle), jamais depuis le cablage interne. Il
+		// suffit donc de produire les MEMES faces sur les MEMES positions — mais il le
+		// faut exactement, y compris dans les cas degeneres :
+		//   `offset = 0` fait retomber la nappe extrudee SUR l'originale. La soudure
+		//   fusionne alors les deux, et le cube rend `E=20 nonmanif=20`, la grille
+		//   `nonmanif=16`. Une implantation « propre » qui refuserait la degenerescence
+		//   donnerait un maillage plus sain — et une reference differente, sans qu'aucun
+		//   defaut n'existe. On ACCEPTE la degenerescence, comme le chemin actuel.
+		//
+		// L'ORDRE DE DUPLICATION EST UN CONTRAT. Les sommets dupliques sont ajoutes a
+		// la fin, dans l'ordre « faces selectionnees par indice croissant, puis coins
+		// dans l'ordre du cycle de face » — exactement celui du chemin actuel. Un autre
+		// ordre donnerait les memes formes avec d'autres numeros ; rien ne tomberait
+		// aujourd'hui, et le premier temoin qui regarde un indice tomberait demain.
+		bool NkEditMesh::ExtrudeSelectedFacesInPlace(const NkExtrudeParams &p, uint32 *outTwinsLocaux) {
+			// ⚠ `outTwinsLocaux` N'EST PAS UN CONFORT DE DEBOGAGE. Le re-appariement
+			// local retombe SILENCIEUSEMENT sur le chemin global quand il detecte une
+			// ambiguite. Sans ce drapeau, une condition trop prudente ferait retomber
+			// TOUS les cas, le resultat resterait juste, la mesure resterait bonne, et
+			// personne ne saurait que le chemin qu'on vient d'ecrire ne sert jamais.
+			if (outTwinsLocaux)
+				*outTwinsLocaux = 0u;
+			const uint32 nv0 = (uint32)verts.Size();
+			const uint32 nf0 = (uint32)faces.Size();
+
+			// -- 1. Faces selectionnees, dans l'ORDRE DES INDICES ----------------
+			// Le meme ordre que `ToPolygons` : il saute les mortes et les aretes fil
+			// (moins de 3 sommets), et c'est lui qui fixe la numerotation des copies.
+			NkVector<NkEmId> selFaces;
+			NkVector<uint32> selStart, selVerts; // boucles SAUVEGARDEES avant mutation
+			selStart.PushBack(0);
+			NkVec3f avgN{0.f, 0.f, 0.f};
+			NkVector<NkEmId> loop;
+			for (uint32 f = 0; f < nf0; ++f) {
+				if (!faces[f].alive)
+					continue;
+				loop.Clear();
+				GetFaceVerts((NkEmId)f, loop);
+				const uint32 n = (uint32)loop.Size();
+				if (n < 3)
+					continue;
+				bool sel = true;
+				for (uint32 k = 0; k < n && sel; ++k)
+					sel = (loop[k] < (NkEmId)nv0) && verts[loop[k]].sel != 0;
+				if (!sel)
+					continue;
+				selFaces.PushBack((NkEmId)f);
+				for (uint32 k = 0; k < n; ++k)
+					selVerts.PushBack(loop[k]);
+				selStart.PushBack((uint32)selVerts.Size());
+				avgN = avgN + NkEmFaceCross(verts[loop[0]].pos, verts[loop[1]].pos, verts[loop[2]].pos);
+			}
+			if (selFaces.Empty())
+				return false;
+			{
+				const float32 l = avgN.Len();
+				avgN = (l > 1e-6f) ? avgN * (1.f / l) : NkVec3f{0.f, 1.f, 0.f};
+			}
+
+			// -- 2. Offset AUTO : bbox de TOUS les sommets ------------------------
+			// Tous, y compris ceux qu'aucune face ne touche : c'est ce que fait le
+			// chemin actuel (`pv` contient l'integralite du tableau de sommets), et une
+			// bbox restreinte donnerait un autre offset, donc une autre geometrie.
+			float32 off = p.offset;
+			if (off < 0.f) {
+				NkVec3f bmn{1e30f, 1e30f, 1e30f}, bmx{-1e30f, -1e30f, -1e30f};
+				for (uint32 i = 0; i < nv0; ++i) {
+					const NkVec3f q = verts[i].pos;
+					bmn.x = (q.x < bmn.x ? q.x : bmn.x);
+					bmn.y = (q.y < bmn.y ? q.y : bmn.y);
+					bmn.z = (q.z < bmn.z ? q.z : bmn.z);
+					bmx.x = (q.x > bmx.x ? q.x : bmx.x);
+					bmx.y = (q.y > bmx.y ? q.y : bmx.y);
+					bmx.z = (q.z > bmx.z ? q.z : bmx.z);
+				}
+				off = (bmx - bmn).Len() * 0.08f;
+			}
+
+			// -- 3. Normales par sommet, restreintes a la SELECTION ---------------
+			NkVector<NkVec3f> vertN;
+			if (p.direction == NkExtrudeParams::AlongNormals) {
+				NkVector<uint32> cano;
+				BuildVertexMerge(cano);
+				auto cn = [&](uint32 v) { return (v < (uint32)cano.Size()) ? cano[v] : v; };
+				NkVector<NkVec3f> acc;
+				acc.Resize(nv0);
+				for (uint32 i = 0; i < nv0; ++i)
+					acc[i] = {0.f, 0.f, 0.f};
+				for (uint32 s = 0; s < (uint32)selFaces.Size(); ++s) {
+					const uint32 b = selStart[s], e = selStart[s + 1];
+					const NkVec3f fn =
+						NkEmFaceCross(verts[selVerts[b]].pos, verts[selVerts[b + 1]].pos, verts[selVerts[b + 2]].pos);
+					for (uint32 k = b; k < e; ++k) {
+						const uint32 r = cn(selVerts[k]);
+						if (r < nv0)
+							acc[r] = acc[r] + fn;
+					}
+				}
+				vertN.Resize(nv0);
+				for (uint32 i = 0; i < nv0; ++i) {
+					const uint32 r = cn(i);
+					NkVec3f n = (r < nv0) ? acc[r] : NkVec3f{0.f, 0.f, 0.f};
+					const float32 l = n.Len();
+					vertN[i] = (l > 1e-6f) ? n * (1.f / l) : avgN;
+				}
+			}
+			auto extrudePos = [&](const NkVec3f &base, uint32 srcIdx) -> NkVec3f {
+				if (p.direction == NkExtrudeParams::ToCursor) {
+					const NkVec3f d = p.target - base;
+					const float32 t = (p.offset > 0.f) ? p.offset : 1.f;
+					return base + d * (t > 1.f ? 1.f : t);
+				}
+				if (p.direction == NkExtrudeParams::AlongNormals && srcIdx < (uint32)vertN.Size())
+					return base + vertN[srcIdx] * off;
+				return base + avgN * off;
+			};
+
+			// -- 4. Copies des sommets de la region -------------------------------
+			// Copies creees et demi-aretes touchees : les deux entrees du
+			// re-appariement local. Collectees ICI parce que c'est le seul endroit qui
+			// les voit -- les rededuire ensuite reviendrait a re-parcourir le maillage,
+			// c'est-a-dire a payer ce qu'on cherche a eviter.
+			NkVector<uint32> copies;
+			NkVector<NkEmId> touchees;
+			NkVector<int32> vmap;
+			vmap.Resize(nv0);
+			for (uint32 i = 0; i < nv0; ++i)
+				vmap[i] = -1;
+			NkVector<uint8> vsel;
+			vsel.Resize(nv0);
+			for (uint32 i = 0; i < nv0; ++i)
+				vsel[i] = 0;
+			// ⚠ CAPACITE RESERVEE AVANT LES AJOUTS, ET C'EST LE MEME PIEGE POUR LA
+			// TROISIEME FOIS DE LA NUIT. `PushBack` sur un tableau plein RELOGE tout :
+			// 66 049 sommets, 262 144 demi-aretes, 131 072 faces. Un seul relogement
+			// coute plus que l'operation entiere, et il est en O(MAILLAGE) alors que
+			// l'extrusion est en O(REGION) — c'est-a-dire qu'il annule exactement ce
+			// que le chantier cherche a obtenir.
+			// MESURE (sonde de phases, unites de temoin) : « capuchon et parois »
+			// pesait 1,496 sur 6,464 — 23 % d'une operation qui, elle, ne touche que
+			// 3 faces.
+			// Les bornes sont SUPERIEURES et exactes : au plus un sommet copie et une
+			// paroi par coin selectionne. Sur-reserver un peu ne coute qu'une fois ;
+			// sous-reserver rendrait la reservation inutile sans le dire.
+			{
+				const uint32 marge = (uint32)selVerts.Size();
+				verts.Reserve(nv0 + marge);
+				hedges.Reserve((uint32)hedges.Size() + 4u * marge);
+				faces.Reserve((uint32)faces.Size() + marge);
+			}
+			for (uint32 k = 0; k < (uint32)selVerts.Size(); ++k) {
+				const uint32 vi = selVerts[k];
+				if (vi >= nv0 || vmap[vi] >= 0)
+					continue;
+				vmap[vi] = (int32)verts.Size();
+				Vert nvv = verts[vi];
+				nvv.pos = extrudePos(verts[vi].pos, vi);
+				// MEME REPLI DE TANGENTE QUE ToPolygons : une tangente degeneree y est
+				// remplacee par une orthogonale construite depuis la normale. Ne pas le
+				// faire ici laisserait aux copies une tangente que l'ancien chemin
+				// n'aurait jamais produite — invisible sur la topologie, visible au rendu.
+				nvv.tangent = (verts[vi].tangent.Dot(verts[vi].tangent) > 1e-12f)
+								  ? verts[vi].tangent
+								  : NkEmOrthoTangent(verts[vi].normal);
+				nvv.hedge = NK_EM_INVALID;
+				nvv.diskEdge = NK_EM_INVALID;
+				nvv.sel = 1;
+				nvv.selOrder = 0;
+				verts.PushBack(nvv);
+				vsel.PushBack(1);
+				copies.PushBack((uint32)verts.Size() - 1u);
+			}
+
+			// -- 5. Aretes ORIENTEES de la region ---------------------------------
+			// Une arete est INTERIEURE a la region si son opposee (b,a) appartient
+			// aussi a une face selectionnee. Seules les autres engendrent une paroi.
+			NkEmFlatMap selDir((uint32)selVerts.Size());
+			for (uint32 s = 0; s < (uint32)selFaces.Size(); ++s) {
+				const uint32 b = selStart[s], e = selStart[s + 1], n = e - b;
+				for (uint32 k = 0; k < n; ++k)
+					selDir.Insert(((uint64)selVerts[b + k] << 32) | (uint64)selVerts[b + (k + 1u) % n], 1u);
+			}
+
+			// -- 6. LE CAPUCHON : la face selectionnee MONTE ----------------------
+			// Elle garde son identite, son materiau et son ombrage ; seules ses
+			// demi-aretes changent de sommet d'origine. C'est tout ce que « en place »
+			// veut dire — et c'est ce que l'aller-retour obtenait en reconstruisant
+			// l'integralite du maillage.
+			for (uint32 s = 0; s < (uint32)selFaces.Size(); ++s) {
+				const NkEmId f = selFaces[s];
+				const NkEmId start = faces[f].hedge;
+				NkEmId h = start;
+				uint32 garde = 0;
+				do {
+					const uint32 o = hedges[h].origin;
+					if (o < nv0 && vmap[o] >= 0)
+						hedges[h].origin = (NkEmId)vmap[o];
+					touchees.PushBack(h); // son sommet d'origine a change
+					h = hedges[h].next;
+				} while (h != start && h != NK_EM_INVALID && ++garde < 100000u);
+			}
+
+			// -- 7. LES PAROIS : un quad par arete de BORD de region --------------
+			for (uint32 s = 0; s < (uint32)selFaces.Size(); ++s) {
+				const NkEmId f = selFaces[s];
+				// Lus AVANT tout PushBack sur `faces` : une reference y survivrait mal
+				// a une reallocation, et le piege a deja ete paye ailleurs.
+				const uint16 mat = faces[f].material;
+				const uint8 sm = faces[f].smooth;
+				const uint32 b = selStart[s], e = selStart[s + 1], n = e - b;
+				for (uint32 k = 0; k < n; ++k) {
+					const uint32 a = selVerts[b + k], c = selVerts[b + (k + 1u) % n];
+					if (selDir.Find(((uint64)c << 32) | (uint64)a))
+						continue; // arete interieure : deux faces selectionnees la portent
+					if (a >= nv0 || c >= nv0 || vmap[a] < 0 || vmap[c] < 0)
+						continue;
+					const uint32 quad[4] = {a, c, (uint32)vmap[c], (uint32)vmap[a]};
+					const NkEmId h0 = (NkEmId)hedges.Size();
+					const NkEmId gf = (NkEmId)faces.Size();
+					for (uint32 q = 0; q < 4u; ++q) {
+						Hedge he;
+						he.origin = (NkEmId)quad[q];
+						he.next = h0 + ((q + 1u) % 4u);
+						he.face = gf;
+						he.alive = 1;
+						hedges.PushBack(he);
+						touchees.PushBack(h0 + (NkEmId)q); // neuve
+					}
+					Face fa;
+					fa.hedge = h0;
+					fa.alive = 1;
+					fa.material = mat; // heritage de la face MERE, comme le chemin actuel
+					fa.smooth = sm;
+					faces.PushBack(fa);
+				}
+			}
+
+			// -- 8. Remise en etat, et rien de plus -------------------------------
+			// ⚠ ETAPE 2, PHASE A : `LinkTwins` et `RecomputeNormals` restent GLOBAUX.
+			// Ils sont en O(maillage), donc l'operation ne l'est pas encore ; ce qui a
+			// disparu, c'est l'aller-retour par la soupe de polygones et la
+			// reconstruction integrale des sommets et des demi-aretes. Les localiser
+			// est la phase suivante — separee, pour qu'une divergence sache dire
+			// laquelle des deux l'a causee.
+			// ⚠ LA COMPACTION D'ABORD, ET ELLE REMAPPE `touchees`.
+			// Premiere version : j'avais deplace `CompactDead` APRES l'appariement,
+			// parce qu'elle renumerote et invalidait mes indices. Mesure : la region
+			// GLOBALE passait de x0,47 a x1,04 -- apparier sur le tableau NON compacte,
+			// c'est traiter autant de demi-aretes mortes que de vivantes. La solution
+			// n'etait pas de deplacer la compaction mais de lui faire remapper la liste.
+			// ── SONDE DE PHASES DU CHEMIN EN PLACE (NK_BFP_PHASES=1) ────────────
+			NkEmIpPhases &ip = NkEmIpPhasesGet();
+			const bool ipOn = NkEmBfpPhasesActives();
+			NkChrono chI;
+			CompactDead(&touchees);
+			if (ipOn) {
+				ip.msCompactDead += chI.Elapsed().ToMilliseconds();
+				chI = NkChrono();
+			}
+			for (uint32 i = 0; i < (uint32)verts.Size(); ++i)
+				verts[i].hedge = NK_EM_INVALID;
+			for (uint32 h = 0; h < (uint32)hedges.Size(); ++h) {
+				if (!hedges[h].alive)
+					continue;
+				const NkEmId o = hedges[h].origin;
+				if (o < (NkEmId)verts.Size() && verts[o].hedge == NK_EM_INVALID)
+					verts[o].hedge = (NkEmId)h;
+			}
+			if (ipOn) {
+				ip.msVertHedge += chI.Elapsed().ToMilliseconds();
+				chI = NkChrono();
+			}
+			edges.Clear();
+			canonOf.Clear();
+			// ⚠ SEUIL DE RENTABILITE, ET IL EST MESURE, PAS DEVINE.
+			// Le chemin local construit son voisinage, le trie et le hache : c'est
+			// GAGNANT quand le voisinage est petit devant le maillage, et PERDANT quand
+			// la region le couvre -- il fait alors strictement plus de travail que le
+			// balayage global qu'il remplace. Mesure sur une region couvrant tout :
+			// x1,04 au lieu de x0,47. Un quart des demi-aretes est la limite ou les
+			// deux se valent.
+			// Le drapeau `local` du harnais rend ce choix VISIBLE cas par cas : sans
+			// lui, un seuil trop prudent eteindrait le chemin local partout et rien
+			// ne le dirait.
+			const bool vautLaPeine = ((uint32)touchees.Size() * 4u < (uint32)hedges.Size());
+			if (!vautLaPeine || !LinkTwinsLocal(touchees, copies, nv0))
+				LinkTwins(); // region trop large, ou ambiguite positionnelle
+			else {
+				if (outTwinsLocaux)
+					*outTwinsLocaux = 1u;
+				if (ipOn)
+					ip.twinsLocaux++;
+			}
+			if (ipOn) {
+				ip.msLinkTwins += chI.Elapsed().ToMilliseconds();
+				chI = NkChrono();
+			}
+			RecomputeNormals();
+			if (ipOn) {
+				ip.msRecomputeNormals += chI.Elapsed().ToMilliseconds();
+				ip.appels++;
+			}
+			ApplyVertSel(vsel);
+			return true;
+		}
+
 		bool NkEditMesh::ExtrudeSelectedFaces(const NkExtrudeParams &p) {
+			// ⚠ LE BRANCHEMENT VERS `ExtrudeSelectedFacesInPlace` A ETE RETIRE, ET
+			// C'EST UNE DECISION QUI REPOSE SUR UNE MESURE, PAS SUR UN DOUTE.
+			// La version en place est JUSTE — le harnais l'atteste ligne a ligne
+			// (famille `enplace/`) — mais elle est aujourd'hui PLUS LENTE sur une
+			// edition locale : x1,16 a x1,40, mesure en normalisant par un temoin du
+			// meme lancement. Elle ne gagne (x1,25) que lorsque la region couvre tout
+			// le maillage.
+			// La raison est entierement connue : quatre passes de remise en etat
+			// heritees du chemin par la soupe de polygones restent en O(MAILLAGE) —
+			// reconstruction globale de `Vert::hedge`, `CompactDead`, `LinkTwins`,
+			// `RecomputeNormals`. Sonde a 65 536 faces : les desactiver toutes fait
+			// tomber l'operation de 35,9 a 13,9 ms, et les 13,9 restants sont la
+			// seule reconstruction de `Vert::hedge`.
+			// ⚠ Supprimer l'aller-retour n'etait donc PAS l'endroit du gain. Tant que
+			// ces quatre passes ne sont pas localisees, brancher ce chemin
+			// RALENTIRAIT l'editeur. On garde le code, prouve, et on branche quand il
+			// gagnera.
+			//
+			// ══ RE-MESURE DU 2026-08-29 : DEUX CHIFFRES CI-DESSUS NE TIENNENT PLUS ══
+			// Le bloc qui precede est CONSERVE : il explique le debranchement, et sa
+			// conclusion (« les quatre passes empechent de brancher ») reste vraie.
+			// Mais deux de ses chiffres ont ete re-mesures et sont FAUX aujourd'hui.
+			// Sonde `NkEmIpPhases` (NK_BFP_PHASES=1), grille 128x128, 7 executions,
+			// min/max donnes parce qu'un ecart ne se lit pas contre le bruit :
+			//
+			//   selection LOCALE (3 faces)   moyenne      [min .. max]      part
+			//     TOTAL                       5.113   [ 4.478 ..  5.901]   100.0 %
+			//     CompactDead                 1.601   [ 1.420 ..  1.919]    31.3 %
+			//     Vert::hedge                 0.173   [ 0.135 ..  0.280]     3.4 %
+			//     LinkTwins                   0.574   [ 0.532 ..  0.689]    11.2 %
+			//     RecomputeNormals            0.763   [ 0.550 ..  1.231]    14.9 %
+			//   selection GLOBALE : CompactDead 17,7 % · Vert::hedge 1,9 %
+			//                       LinkTwins 25,7 % · Normals 6,4 %
+			//
+			// 🔴 « les 13,9 restants sont la SEULE reconstruction de `Vert::hedge` » :
+			//    FAUX AUJOURD'HUI. Cette passe mesure 0,173 ms en local et 0,270 ms en
+			//    global. Elle est la PLUS PETITE des quatre, pas la plus grosse. Les
+			//    intervalles ne se chevauchent pas avec `CompactDead` -- un ordre de
+			//    grandeur separe les deux. La plus grosse est `CompactDead` (31 %).
+			// 🔴 « `LinkTwins` global fait 46 % du cout » (commentaire de
+			//    `LinkTwinsLocal`, plus bas) : ce 46 % decrit CE chemin-ci, qui n'a
+			//    AUCUN appelant de production -- seul le harnais l'appelle. Il ne se
+			//    transporte pas au chemin par la soupe, ou la mesure donne 18-25 %.
+			//    Et ici `LinkTwinsLocal` est DEJA pris 7 fois sur 7 en selection
+			//    locale : le levier est deja tire, il reste 11,2 %.
+			//
+			// CE QUI A COUTE UNE SEMAINE, ET QU'IL FAUT LIRE COMME UNE REGLE :
+			// ces chiffres etaient JUSTES quand ils ont ete pris. Ils n'etaient pas
+			// dates, et leur precision les a rendus credibles longtemps apres que le
+			// code eut bouge. On en a tire « commencer par `Vert::hedge` » -- soit
+			// 3,4 % de la cible -- et on l'a repete deux fois sans le re-mesurer.
+			// ⚠ UN COMMENTAIRE MESURE QUI N'EST PAS DATE VIEILLIT SANS LE DIRE, ET IL
+			// EST CRU D'AUTANT PLUS QU'IL EST PRECIS. Dater, dire la sonde, dire les
+			// conditions -- ou ne pas chiffrer.
 			NkVector<NkVertex3D> pv;
 			NkVector<uint32> fs, fv;
 			// MATERIAU PAR FACE : les faces non touchees gardent leur index, la face
@@ -2406,27 +3202,31 @@ namespace nkentseu {
 			// Identite SOUDEE : deux sommets exactement au meme endroit sont une seule
 			// identite topologique. Sans cela, un cube (24 sommets dupliques par face)
 			// donnerait 24 aretes distinctes la ou il n'y en a que 12.
-			NkVector<uint32> canon;
-			BuildVertexMerge(canon);
-			auto cn = [&](uint32 v) { return (v < (uint32)canon.Size()) ? canon[v] : v; };
+			// L'identite soudee est CONSERVEE (membre `canonOf`) et non plus jetee en
+			// sortant : EdgeBetween et AddWireEdge la recalculaient chacun de leur
+			// cote, sur tous les sommets, pour repondre a une question locale.
+			BuildVertexMerge(canonOf);
+			auto cn = [&](uint32 v) { return (v < (uint32)canonOf.Size()) ? canonOf[v] : v; };
 
 			edges.Clear();
-			radialPool.Clear();
-			diskPool.Clear();
 			for (uint32 h = 0; h < (uint32)hedges.Size(); ++h)
 				hedges[h].edge = NK_EM_INVALID;
-			NkHashMap<uint64, uint32> seen;
-			// MESURE (banc --perf, 131 072 entrees) : sans Reserve 27,3 ms, avec 18,9 ms.
-			// Le nombre d'aretes vaut au plus le nombre de demi-aretes ; la moitie en est
-			// une borne serree pour une variete. Ce n'est PAS ce qui rendait la fonction
-			// super-quadratique (c'etait la repartition dans les seaux, cf. NkHashMap),
-			// c'est le reste une fois la classe redressee.
-			seen.Reserve((uint32)hedges.Size() / 2u + 16u);
+			// TAILLE ANNONCEE, ET NON DEVINEE. Le nombre d'aretes vaut au plus le
+			// nombre de demi-aretes ; la moitie en est une borne serree pour une
+			// variete. La table plate ne grandit donc jamais ici — la dimensionner
+			// juste n'etait PAS ce qui rendait la fonction super-quadratique
+			// (c'etait la repartition dans les seaux, corrigee en Q73), c'est ce qui
+			// reste une fois la classe redressee.
+			// ⚠ La mesure « sans Reserve 27,3 ms / avec 18,9 ms » qui figurait ici
+			// portait sur `NkHashMap`, qui n'est plus la table employee : elle a ete
+			// retiree plutot que laissee decrire un objet disparu.
+			NkEmFlatMap seen((uint32)hedges.Size() / 2u + 16u);
 			NkVector<NkEmId> loop;
-			// Demi-aretes rattachees a chaque arete, collectees AVANT d'etre aplaties
-			// dans radialPool : on ne connait le nombre d'incidences qu'a la fin du
-			// balayage, et une tranche contigue exige de le savoir.
-			NkVector<NkVector<NkEmId>> radial;
+			// ⚠ LE TABLEAU DE TABLEAUX A DISPARU. Il collectait les demi-aretes de
+			// chaque arete AVANT de les aplatir, parce qu'une tranche contigue exige
+			// de connaitre sa taille d'avance. Un cycle chaine ne l'exige pas : on
+			// branche chaque incidence au moment ou on la voit. Le banc mesurait ce
+			// tableau a 18,3 ms pour 131 072 entrees ; il n'est plus alloue du tout.
 			for (uint32 f = 0; f < (uint32)faces.Size(); ++f) {
 				if (!faces[f].alive)
 					continue;
@@ -2443,30 +3243,34 @@ namespace nkentseu {
 					if (o != d) {
 						const uint64 lo = o < d ? o : d, hi = o < d ? d : o;
 						const uint64 key = (lo << 32) | hi;
-						uint32 *ex = seen.Find(key);
+						const uint32 *ex = seen.Find(key);
 						uint32 ei;
 						if (ex) {
 							ei = *ex;
-							if (edges[ei].faceCount < 255)
-								edges[ei].faceCount++;
 						} else {
 							Edge e{};
 							e.v0 = (NkEmId)lo;
 							e.v1 = (NkEmId)hi;
-							e.hedge = hh;
-							e.faceCount = 1;
+							e.hedge = NK_EM_INVALID; // pose par RadialAppend, cf. ci-dessous
+							e.faceCount = 0;
 							e.alive = 1;
 							ei = (uint32)edges.Size();
-							seen.InsertOrAssign(key, ei);
+							seen.Insert(key, ei);
 							edges.PushBack(e);
-							radial.PushBack(NkVector<NkEmId>{});
 						}
 						// LIEN DEMI-ARETE -> ARETE et CYCLE RADIAL, poses ici parce que
 						// c'est le seul endroit qui voit chaque incidence exactement une
 						// fois. Les recalculer ailleurs reviendrait a re-deduire ce que ce
 						// balayage vient d'etablir.
+						// ⚠ RadialAppend branche EN FIN de cycle. Parcourir depuis la tete
+						// rend donc les demi-aretes dans leur ORDRE D'APPARITION, celui-la
+						// meme que le reservoir aplati produisait. Brancher en tete
+						// donnerait le meme ENSEMBLE dans l'ordre INVERSE, et toutes les
+						// lignes `bmesh2/` et `acces/` tomberaient sans qu'aucune
+						// topologie n'ait bouge.
 						hedges[hh].edge = (NkEmId)ei;
-						radial[ei].PushBack(hh);
+						RadialAppend((NkEmId)ei, hh);
+						edges[ei].radialCount++;
 					}
 					hh = hedges[hh].next;
 				} while (hh != start && hh != NK_EM_INVALID && ++guard < 100000u);
@@ -2487,21 +3291,16 @@ namespace nkentseu {
 				e.hedge = NK_EM_INVALID;
 				e.faceCount = 0;
 				e.alive = 1;
-				edges.PushBack(e);
-				radial.PushBack(NkVector<NkEmId>{}); // filaire : cycle radial VIDE
+				edges.PushBack(e); // filaire : cycle radial VIDE (hedge INVALID, count 0)
 			}
 
-			// ── APLATISSEMENT DU CYCLE RADIAL ───────────────────────────────────
-			// `radialCount` fait desormais autorite sur le nombre de faces incidentes.
-			// `faceCount` est conserve (l'API et la serialisation l'utilisent) mais
-			// realigne dessus : deux compteurs qui divergent finissent toujours par se
-			// contredire, et c'est alors le mauvais qui est lu.
+			// ── PLUS RIEN A APLATIR ─────────────────────────────────────────────
+			// Le cycle radial est deja pose, incidence par incidence, pendant le
+			// balayage. Il ne reste qu'a realigner `faceCount` sur `radialCount` :
+			// deux compteurs qui divergent finissent toujours par se contredire, et
+			// c'est alors le mauvais qui est lu.
 			for (uint32 i = 0; i < (uint32)edges.Size(); ++i) {
-				edges[i].radialStart = (uint32)radialPool.Size();
-				const uint32 k = (i < (uint32)radial.Size()) ? (uint32)radial[i].Size() : 0u;
-				edges[i].radialCount = k;
-				for (uint32 j = 0; j < k; ++j)
-					radialPool.PushBack(radial[i][j]);
+				const uint32 k = edges[i].radialCount;
 				edges[i].faceCount = (uint8)(k > 255u ? 255u : k);
 			}
 
@@ -2512,63 +3311,54 @@ namespace nkentseu {
 			// ses aretes — exactement le piege deja rencontre sur le comptage d'aretes.
 			{
 				const uint32 nv = (uint32)verts.Size();
-				NkVector<uint32> cnt;
-				cnt.Resize(nv);
+				// Toutes les tetes remises a vide : les copies coincidentes restent
+				// vides POUR TOUJOURS et sont resolues a la lecture (VertOwner).
+				// Une seule ecriture par identite, donc une seule verite.
 				for (uint32 i = 0; i < nv; ++i)
-					cnt[i] = 0;
+					verts[i].diskEdge = NK_EM_INVALID;
+				// Branchement dans l'ORDRE DES INDICES d'arete, en FIN de cycle. Le
+				// tri par comptage qu'on remplace produisait exactement cet ordre —
+				// et `acces/`, `bmesh2/` et les empreintes `aretes/` le lisent.
+				// ⚠ `edges[i].v0` et `v1` sont deja des REPRESENTANTS (poses via `cn`),
+				// donc on branche bien sur l'identite soudee et pas sur une copie.
 				for (uint32 i = 0; i < (uint32)edges.Size(); ++i) {
 					if (!edges[i].alive)
 						continue;
 					if (edges[i].v0 < nv)
-						cnt[edges[i].v0]++;
+						DiskAppend(edges[i].v0, (NkEmId)i);
 					if (edges[i].v1 < nv)
-						cnt[edges[i].v1]++;
-				}
-				NkVector<uint32> start;
-				start.Resize(nv);
-				uint32 acc = 0;
-				for (uint32 i = 0; i < nv; ++i) {
-					start[i] = acc;
-					acc += cnt[i];
-				}
-				diskPool.Resize(acc);
-				NkVector<uint32> fill;
-				fill.Resize(nv);
-				for (uint32 i = 0; i < nv; ++i)
-					fill[i] = start[i];
-				for (uint32 i = 0; i < (uint32)edges.Size(); ++i) {
-					if (!edges[i].alive)
-						continue;
-					if (edges[i].v0 < nv)
-						diskPool[fill[edges[i].v0]++] = (NkEmId)i;
-					if (edges[i].v1 < nv)
-						diskPool[fill[edges[i].v1]++] = (NkEmId)i;
-				}
-				for (uint32 i = 0; i < nv; ++i) {
-					const uint32 r = (i < (uint32)canon.Size()) ? canon[i] : i;
-					verts[i].diskStart = start[r < nv ? r : i];
-					verts[i].diskCount = cnt[r < nv ? r : i];
+						DiskAppend(edges[i].v1, (NkEmId)i);
 				}
 			}
 		}
 
 		// ── ACCES AUX DEUX CYCLES ───────────────────────────────────────────────
 		NkEmId NkEditMesh::EdgeBetween(uint32 a, uint32 b) const {
-			NkVector<uint32> canon;
-			BuildVertexMerge(canon);
-			const uint32 nc = (uint32)canon.Size();
-			const uint32 ca = (a < nc) ? canon[a] : a, cb = (b < nc) ? canon[b] : b;
+			// ⚠ CETTE FONCTION APPELAIT BuildVertexMerge A CHAQUE APPEL : une table
+			// de hachage sur TOUS les sommets pour repondre a une question que le
+			// cycle disque rend locale. MESURE : 20 appels coutaient 0,2 ms sur 1 089
+			// sommets et 41 ms sur 66 049 — un cout qui suit la taille du MAILLAGE
+			// alors que la reponse ne depend que du VOISINAGE. Un editeur en emet un
+			// par clic ; le cas ne se voit sur aucun cube.
+			// L'identite soudee est desormais celle que RebuildEdges a posee.
+			const uint32 ca = VertOwner(a), cb = VertOwner(b);
 			if (ca == cb)
 				return NK_EM_INVALID;
 			const uint32 lo = ca < cb ? ca : cb, hi = ca < cb ? cb : ca;
 			// Balayage du DISQUE du sommet plutot que de toutes les aretes : c'est
 			// precisement ce que le cycle disque apporte.
 			if (lo < (uint32)verts.Size()) {
-				const uint32 s0 = verts[lo].diskStart, n0 = verts[lo].diskCount;
-				for (uint32 k = 0; k < n0; ++k) {
-					const NkEmId e = diskPool[s0 + k];
+				const NkEmId tete = verts[lo].diskEdge;
+				NkEmId e = tete;
+				uint32 garde = 0;
+				while (e != NK_EM_INVALID) {
 					if (e < (NkEmId)edges.Size() && edges[e].alive && edges[e].v0 == lo && edges[e].v1 == hi)
 						return e;
+					e = DiskNext(e, lo);
+					// Garde-fou : un cycle rompu ferait tourner l'editeur sans fin,
+					// ce qui est pire qu'une mauvaise reponse — on sort.
+					if (e == tete || ++garde > (uint32)edges.Size() + 4u)
+						break;
 				}
 			}
 			return NK_EM_INVALID;
@@ -2578,10 +3368,15 @@ namespace nkentseu {
 			out.Clear();
 			if (e >= (NkEmId)edges.Size() || !edges[e].alive)
 				return 0;
-			const uint32 s0 = edges[e].radialStart, n0 = edges[e].radialCount;
-			for (uint32 k = 0; k < n0; ++k)
-				if (s0 + k < (uint32)radialPool.Size())
-					out.PushBack(radialPool[s0 + k]);
+			const NkEmId tete = edges[e].hedge;
+			NkEmId h = tete;
+			uint32 garde = 0;
+			while (h != NK_EM_INVALID && h < (NkEmId)hedges.Size()) {
+				out.PushBack(h);
+				h = hedges[h].rNext;
+				if (h == tete || ++garde > (uint32)hedges.Size() + 4u)
+					break;
+			}
 			return (uint32)out.Size();
 		}
 
@@ -2589,24 +3384,26 @@ namespace nkentseu {
 			out.Clear();
 			if (e >= (NkEmId)edges.Size() || !edges[e].alive)
 				return 0;
-			const uint32 s0 = edges[e].radialStart, n0 = edges[e].radialCount;
-			for (uint32 k = 0; k < n0; ++k) {
-				if (s0 + k >= (uint32)radialPool.Size())
-					break;
-				const NkEmId h = radialPool[s0 + k];
+			const NkEmId tete = edges[e].hedge;
+			NkEmId h = tete;
+			uint32 garde = 0;
+			while (h != NK_EM_INVALID) {
 				if (h >= (NkEmId)hedges.Size())
-					continue;
+					break;
 				const NkEmId f = hedges[h].face;
-				if (f == NK_EM_INVALID)
-					continue;
-				bool dup = false;
-				for (uint32 j = 0; j < (uint32)out.Size(); ++j)
-					if (out[j] == f) {
-						dup = true;
-						break;
-					}
-				if (!dup)
-					out.PushBack(f);
+				if (f != NK_EM_INVALID) {
+					bool dup = false;
+					for (uint32 j = 0; j < (uint32)out.Size(); ++j)
+						if (out[j] == f) {
+							dup = true;
+							break;
+						}
+					if (!dup)
+						out.PushBack(f);
+				}
+				h = hedges[h].rNext;
+				if (h == tete || ++garde > (uint32)hedges.Size() + 4u)
+					break;
 			}
 			return (uint32)out.Size();
 		}
@@ -2618,16 +3415,16 @@ namespace nkentseu {
 			// cycle radial existe pour rendre visible.
 			if (e >= (NkEmId)edges.Size() || !edges[e].alive || edges[e].radialCount != 2)
 				return NK_EM_INVALID;
-			const uint32 s0 = edges[e].radialStart;
-			for (uint32 k = 0; k < 2; ++k) {
-				if (s0 + k >= (uint32)radialPool.Size())
-					break;
-				const NkEmId h = radialPool[s0 + k];
+			// Cycle a deux elements : la tete, puis sa suivante. On garde le meme
+			// ORDRE de consultation que la tranche aplatie rendait.
+			NkEmId h = edges[e].hedge;
+			for (uint32 k = 0; k < 2u && h != NK_EM_INVALID; ++k) {
 				if (h >= (NkEmId)hedges.Size())
-					continue;
+					break;
 				const NkEmId ff = hedges[h].face;
 				if (ff != f)
 					return ff;
+				h = hedges[h].rNext;
 			}
 			return NK_EM_INVALID;
 		}
@@ -2636,10 +3433,22 @@ namespace nkentseu {
 			out.Clear();
 			if (v >= (uint32)verts.Size())
 				return 0;
-			const uint32 s0 = verts[v].diskStart, n0 = verts[v].diskCount;
-			for (uint32 k = 0; k < n0; ++k)
-				if (s0 + k < (uint32)diskPool.Size())
-					out.PushBack(diskPool[s0 + k]);
+			// La tranche est portee par le REPRESENTANT ; une copie coincidente n'a
+			// pas la sienne, elle a la meme. Resoudre a la lecture plutot que de
+			// recopier la tranche sur chaque copie, c'est ce qui permet a
+			// AddWireEdge de la deplacer sans avoir a retrouver les 24 copies d'un
+			// coin de cube.
+			const uint32 r = VertOwner(v);
+			const uint32 rr = (r < (uint32)verts.Size()) ? r : v;
+			const NkEmId tete = verts[rr].diskEdge;
+			NkEmId e = tete;
+			uint32 garde = 0;
+			while (e != NK_EM_INVALID && e < (NkEmId)edges.Size()) {
+				out.PushBack(e);
+				e = DiskNext(e, rr);
+				if (e == tete || ++garde > (uint32)edges.Size() + 4u)
+					break;
+			}
 			return (uint32)out.Size();
 		}
 
@@ -2659,37 +3468,112 @@ namespace nkentseu {
 			return n;
 		}
 
+		// ── GREFFE SUR UN CYCLE, A LA PLACE D'UN RELOGEMENT DE TRANCHE ─────────
+		// AVANT (reservoir CSR) : la tranche d'un sommet etait CONTIGUE, donc on ne
+		// pouvait pas y inserer. Ajouter une arete recopiait toute la tranche a la
+		// fin de `diskPool` et laissait l'ancienne en espace MORT — 30 entrees
+		// devenaient 48 sur un cube apres trois ajouts.
+		// MAINTENANT : deux ecritures de voisinage. Rien n'est deplace, rien n'est
+		// perdu, et le cout ne depend plus du degre du sommet.
+		//
+		// ⚠ GREFFE EN FIN DE CYCLE (juste AVANT la tete), pas en tete. Parcourir
+		// depuis la tete rend alors les aretes dans leur ordre d'insertion, donc
+		// dans l'ordre CROISSANT des indices — exactement ce que produisait le tri
+		// par comptage qu'on remplace. Greffer en tete donnerait le meme ENSEMBLE
+		// dans l'ordre inverse : la topologie serait juste et la moitie des lignes
+		// du harnais tomberaient, sans que rien n'ait bouge.
+		void NkEditMesh::DiskAppend(uint32 r, NkEmId e) {
+			if (r >= (uint32)verts.Size() || e >= (NkEmId)edges.Size())
+				return;
+			const NkEmId tete = verts[r].diskEdge;
+			if (tete == NK_EM_INVALID) {
+				verts[r].diskEdge = e;
+				DiskSetNext(e, r, e);
+				DiskSetPrev(e, r, e);
+				return;
+			}
+			const NkEmId queue = DiskPrev(tete, r);
+			DiskSetNext(e, r, tete);
+			DiskSetPrev(e, r, queue);
+			DiskSetNext(queue, r, e);
+			DiskSetPrev(tete, r, e);
+		}
+
+		// Meme greffe, meme raison d'ordre, pour le cycle radial. La TETE est
+		// `Edge::hedge` : le champ existait deja et designait « une demi-arete
+		// porteuse ». Il n'a pas change de sens, il a gagné un cycle derriere lui.
+		void NkEditMesh::RadialAppend(NkEmId e, NkEmId h) {
+			if (e >= (NkEmId)edges.Size() || h >= (NkEmId)hedges.Size())
+				return;
+			const NkEmId tete = edges[e].hedge;
+			if (tete == NK_EM_INVALID) {
+				edges[e].hedge = h;
+				hedges[h].rNext = h;
+				hedges[h].rPrev = h;
+				return;
+			}
+			const NkEmId queue = hedges[tete].rPrev;
+			hedges[h].rNext = tete;
+			hedges[h].rPrev = queue;
+			hedges[queue].rNext = h;
+			hedges[tete].rPrev = h;
+		}
+
 		NkEmId NkEditMesh::AddWireEdge(uint32 a, uint32 b) {
 			if (a >= (uint32)verts.Size() || b >= (uint32)verts.Size())
 				return NK_EM_INVALID;
-			NkVector<uint32> canon;
-			BuildVertexMerge(canon);
-			const uint32 ca = (a < (uint32)canon.Size()) ? canon[a] : a;
-			const uint32 cb = (b < (uint32)canon.Size()) ? canon[b] : b;
+			// La structure doit exister avant qu'on la mette a jour. `canon` de la
+			// bonne taille est la condition : un `canon` du maillage PRECEDENT aurait
+			// la bonne forme et le mauvais contenu.
+			if (edges.Empty() || (uint32)canonOf.Size() != (uint32)verts.Size())
+				RebuildEdges();
+			const uint32 ca = VertOwner(a), cb = VertOwner(b);
 			if (ca == cb)
 				return NK_EM_INVALID; // meme sommet topologique : pas d'arete a creer
-			if (edges.Empty())
-				RebuildEdges();
 			const uint32 lo = ca < cb ? ca : cb, hi = ca < cb ? cb : ca;
-			for (uint32 i = 0; i < (uint32)edges.Size(); ++i)
-				if (edges[i].alive && edges[i].v0 == lo && edges[i].v1 == hi)
-					return (NkEmId)i; // deja presente (bord de face ou filaire)
+			// DEJA PRESENTE ? Par le DISQUE du sommet, pas par un balayage de toutes
+			// les aretes. C'est precisement ce que le cycle disque apporte, et ce
+			// balayage etait le second cout lineaire de la fonction.
+			{
+				const NkEmId tete = verts[lo].diskEdge;
+				NkEmId x = tete;
+				uint32 garde = 0;
+				while (x != NK_EM_INVALID && x < (NkEmId)edges.Size()) {
+					if (edges[x].alive && edges[x].v0 == lo && edges[x].v1 == hi)
+						return x; // deja presente (bord de face ou filaire)
+					x = DiskNext(x, lo);
+					if (x == tete || ++garde > (uint32)edges.Size() + 4u)
+						break;
+				}
+			}
+			// ── MISE A JOUR INCREMENTALE, ET RIEN DE PLUS ───────────────────────
+			// AVANT : la fonction rappelait RebuildEdges() EN ENTIER apres avoir
+			// empile l'arete, parce qu'empiler ne renseignait pas le cycle disque.
+			// MESURE : 20 appels coutaient 11 ms sur 1 024 faces et 959 ms sur
+			// 65 536 — soit ~48 ms par clic, et une croissance en x4,6 par x4 faces.
+			// Tracer k aretes coutait k x n.
+			// Or ni les faces ni les demi-aretes ne bougent quand on ajoute un
+			// filaire : le seul etat a corriger est l'arete elle-meme et les deux
+			// cycles disque de ses extremites. C'est le SEUL endroit de cette classe
+			// ou la structure survit a l'operation ; partout ailleurs elle est
+			// detruite et refaite (ToPolygons -> BuildFromPolygons).
 			Edge e{};
 			e.v0 = (NkEmId)lo;
 			e.v1 = (NkEmId)hi;
 			e.hedge = NK_EM_INVALID; // FILAIRE : aucune face incidente
 			e.faceCount = 0;
 			e.alive = 1;
+			// Cycle radial VIDE : c'est exactement ce que RebuildEdges donne a un
+			// filaire. Le piege d'un `radialStart` laisse a 0 — qui pointait sur la
+			// tranche d'une AUTRE arete, inoffensif tant que le compte vaut 0 et faux
+			// le jour ou quelqu'un lit le depart sans lire le compte — n'existe plus :
+			// la tete vaut INVALID, et INVALID ne designe rien.
+			e.radialCount = 0;
+			const NkEmId ei = (NkEmId)edges.Size();
 			edges.PushBack(e);
-			// RECONSTRUCTION APRES AJOUT. Empiler l'arete suffisait tant qu'`edges`
-			// n'etait qu'une liste ; avec les cycles de l'etape 2 elle ne suffit plus :
-			// le cycle DISQUE du sommet ne verrait pas la nouvelle arete. Defaut
-			// MESURE avant correction : disque(v) restait a 3 au lieu de 4 apres l'ajout
-			// de la diagonale d'un cube. RebuildEdges preserve les filaires — c'est sa
-			// raison d'etre — donc on peut la relancer sans perdre celle qu'on vient de
-			// creer, puis retrouver son index par le disque.
-			RebuildEdges();
-			return EdgeBetween(a, b);
+			DiskAppend(lo, ei);
+			DiskAppend(hi, ei);
+			return ei;
 		}
 
 
