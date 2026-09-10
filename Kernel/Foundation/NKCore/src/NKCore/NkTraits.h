@@ -34,6 +34,45 @@
 #endif
 
 // -------------------------------------------------------------------------
+// SECTION 1 bis : DÉTECTION DES INTRINSÈQUES
+// -------------------------------------------------------------------------
+// On demande à la PRIMITIVE si elle existe, pas au compilateur qui il est.
+//
+// Ces deux questions ne sont pas la même, et les confondre a coûté cher : la
+// condition employée jusqu'ici était `defined(__clang__) || defined(__GNUC__)
+// || defined(_MSC_VER)`. GCC définit `__GNUC__`, il entrait donc dans la
+// branche des intrinsèques — mais g++ 12 ne connaît pas
+// `__is_trivially_destructible`, et tout en-tête qui l'employait devenait
+// incompilable avec g++. Sur les onze primitives de ce fichier, une seule est
+// dans ce cas ; il a suffi d'elle pour rendre NKCore dépendant de clang.
+//
+// `__has_builtin` répond pour chaque primitive séparément, et c'est ce qu'il
+// faut. clang le porte depuis toujours, GCC depuis la 10, et `zig c++` est
+// clang. MSVC est traité à part : il porte ces intrinsèques depuis VS2015 mais
+// n'a `__has_builtin` que depuis VS2022, et il répondrait « non » à des
+// primitives qu'il possède.
+#if defined(_MSC_VER)
+#	define NK_A_INTRINSEQUE(primitive) 1
+#elif defined(__has_builtin)
+#	define NK_A_INTRINSEQUE(primitive) __has_builtin(primitive)
+#else
+#	define NK_A_INTRINSEQUE(primitive) 0
+#endif
+
+// `<type_traits>` disponible : le repli exact, quand la primitive manque.
+//
+// Ce n'est pas un renoncement au principe « sans dépendance STL » annoncé en
+// tête de fichier : l'inclusion conditionnelle ci-dessus existe déjà « pour les
+// fallbacks », et c'est exactement cet usage. Un repli exact vaut mieux qu'une
+// approximation, et une approximation vaut mieux qu'une erreur de compilation —
+// d'où l'ordre des trois niveaux.
+#if defined(__cplusplus) && __cplusplus >= 201103L
+#	define NK_A_TYPE_TRAITS 1
+#else
+#	define NK_A_TYPE_TRAITS 0
+#endif
+
+// -------------------------------------------------------------------------
 // SECTION 2 : ESPACE DE NOMS PRINCIPAL (INDENTATION HIÉRARCHIQUE)
 // -------------------------------------------------------------------------
 // Déclaration de l'espace de noms principal nkentseu::traits.
@@ -915,7 +954,7 @@ namespace nkentseu {
 // Traits pour les types composés (classes, unions, enums, fonctions).
 
 // Détection via intrinsèques du compilateur si disponibles
-#if defined(__clang__) || defined(__GNUC__) || defined(_MSC_VER)
+#if NK_A_INTRINSEQUE(__is_enum)
 		/**
 		 * @brief Vérification de type enum
 		 * @struct NkIsEnum
@@ -959,8 +998,20 @@ namespace nkentseu {
 		template <typename Ret, typename... Args> struct NkIsFunction<Ret(Args...)> : NkTrueType {};
 
 		template <typename Ret, typename... Args> struct NkIsFunction<Ret(Args..., ...)> : NkTrueType {};
+#elif NK_A_TYPE_TRAITS
+		// Repli exact : ces quatre traits existent en C++11, et leur réponse est
+		// celle du compilateur lui-même — la même que l'intrinsèque, par un autre
+		// chemin.
+		template <typename T> struct NkIsEnum : NkBoolConstant<std::is_enum<T>::value> {};
+
+		template <typename T> struct NkIsClass : NkBoolConstant<std::is_class<T>::value> {};
+
+		template <typename T> struct NkIsUnion : NkBoolConstant<std::is_union<T>::value> {};
+
+		template <typename T> struct NkIsFunction : NkBoolConstant<std::is_function<T>::value> {};
 #else
-		// Fallback minimal pour les compilateurs sans intrinsèques
+		// Dernier recours, pré-C++11 : faux pour tout le monde. Conservé tel quel
+		// pour ne pas prétendre corriger un cas qu'on ne peut pas éprouver.
 		template <typename T> struct NkIsEnum : NkFalseType {};
 
 		template <typename T> struct NkIsClass : NkFalseType {};
@@ -1377,9 +1428,12 @@ namespace nkentseu {
  *
  * Équivalent à std::is_base_of. Utilise __is_base_of si disponible.
  */
-#if defined(__clang__) || defined(__GNUC__) || defined(_MSC_VER)
+#if NK_A_INTRINSEQUE(__is_base_of)
 		template <typename Base, typename Derived> struct NkIsBaseOf : NkBoolConstant<__is_base_of(Base, Derived)> {};
+#elif NK_A_TYPE_TRAITS
+		template <typename Base, typename Derived> struct NkIsBaseOf : NkBoolConstant<std::is_base_of<Base, Derived>::value> {};
 #else
+		// Faux pour tout : à défaut de savoir, on ne prétend pas.
 		template <typename Base, typename Derived> struct NkIsBaseOf : NkFalseType {};
 #endif
 
@@ -1546,9 +1600,14 @@ namespace nkentseu {
  *
  * Utilise __is_trivially_destructible si disponible, sinon assume true.
  */
-#if defined(__clang__) || defined(__GNUC__) || defined(_MSC_VER)
+#if NK_A_INTRINSEQUE(__is_trivially_destructible)
 		template <typename T> inline constexpr bool NkIsTriviallyDestructible = __is_trivially_destructible(T);
+#elif NK_A_TYPE_TRAITS
+		template <typename T> inline constexpr bool NkIsTriviallyDestructible = std::is_trivially_destructible<T>::value;
 #else
+		// **Faux, et dangereux.** Répondre « oui » pour tout type fait sauter les
+		// destructeurs à qui s'y fie. Conservé faute de mieux en pré-C++11, mais
+		// c'est la raison pour laquelle le niveau `std::` ci-dessus existe.
 		template <typename T> inline constexpr bool NkIsTriviallyDestructible = true;
 #endif
 
@@ -1560,8 +1619,10 @@ namespace nkentseu {
  *
  * Utilise __is_trivially_constructible si disponible.
  */
-#if defined(__clang__) || defined(__GNUC__) || defined(_MSC_VER)
+#if NK_A_INTRINSEQUE(__is_trivially_constructible)
 		template <typename T> inline constexpr bool NkIsTriviallyConstructible_v = __is_trivially_constructible(T);
+#elif NK_A_TYPE_TRAITS
+		template <typename T> inline constexpr bool NkIsTriviallyConstructible_v = std::is_trivially_constructible<T>::value;
 #else
 		template <typename T> inline constexpr bool NkIsTriviallyConstructible_v = true;
 #endif
@@ -1579,10 +1640,14 @@ namespace nkentseu {
  *
  * Retourne true si T peut être construit sans arguments.
  */
-#if defined(__clang__) || defined(__GNUC__) || defined(_MSC_VER)
+#if NK_A_INTRINSEQUE(__is_constructible)
 		template <typename T> struct NkIsDefaultConstructible : NkBoolConstant<__is_constructible(T)> {};
+#elif NK_A_TYPE_TRAITS
+		template <typename T> struct NkIsDefaultConstructible : NkBoolConstant<std::is_default_constructible<T>::value> {};
 #else
-		// Fallback conservateur
+		// Approximation : « trivialement constructible » implique « constructible »,
+		// mais l'inverse est faux — un type avec constructeur par défaut écrit à la
+		// main serait déclaré non constructible.
 		template <typename T> struct NkIsDefaultConstructible : NkIsTriviallyConstructible<T> {};
 #endif
 
@@ -1603,10 +1668,13 @@ namespace nkentseu {
  *
  * Retourne true si une instance de T peut être assignée depuis U.
  */
-#if defined(__clang__) || defined(__GNUC__) || defined(_MSC_VER)
+#if NK_A_INTRINSEQUE(__is_assignable)
 		template <typename T, typename U> struct NkIsAssignable : NkBoolConstant<__is_assignable(T, U)> {};
+#elif NK_A_TYPE_TRAITS
+		template <typename T, typename U> struct NkIsAssignable : NkBoolConstant<std::is_assignable<T, U>::value> {};
 #else
-		// Fallback pour types arithmétiques/pointeurs
+		// Approximation : arithmétiques et pointeurs seulement. Toute classe
+		// assignable serait déclarée non assignable.
 		template <typename T, typename U>
 		struct NkIsAssignable
 			: NkBoolConstant<(NkIsArithmetic_v<T> && NkIsArithmetic_v<U>) || (NkIsPointer_v<T> && NkIsPointer_v<U>)> {};
@@ -1649,9 +1717,13 @@ namespace nkentseu {
  *
  * Utilise __is_standard_layout si disponible, sinon assume true pour les types simples.
  */
-#if defined(__clang__) || defined(__GNUC__) || defined(_MSC_VER)
+#if NK_A_INTRINSEQUE(__is_standard_layout)
 		template <typename T> struct NkIsStandardLayout : NkBoolConstant<__is_standard_layout(T)> {};
+#elif NK_A_TYPE_TRAITS
+		template <typename T> struct NkIsStandardLayout : NkBoolConstant<std::is_standard_layout<T>::value> {};
 #else
+		// Approximation : une structure de disposition standard serait déclarée
+		// non standard.
 		template <typename T>
 		struct NkIsStandardLayout : NkBoolConstant<NkIsArithmetic_v<T> || NkIsPointer_v<T> || NkIsEnum_v<T>> {};
 #endif
@@ -1708,9 +1780,13 @@ namespace nkentseu {
  *
  * Utilise __is_empty si disponible, sinon vérifie sizeof == 1.
  */
-#if defined(__clang__) || defined(__GNUC__) || defined(_MSC_VER)
+#if NK_A_INTRINSEQUE(__is_empty)
 		template <typename T> struct NkIsEmpty : NkBoolConstant<__is_empty(T)> {};
+#elif NK_A_TYPE_TRAITS
+		template <typename T> struct NkIsEmpty : NkBoolConstant<std::is_empty<T>::value> {};
 #else
+		// **Faux** : `struct { char c; }` mesure un octet sans être vide. Conservé
+		// faute de mieux, mais c'est un piège et il est écrit.
 		template <typename T> struct NkIsEmpty : NkBoolConstant<sizeof(T) == 1> {};
 #endif
 
@@ -1730,8 +1806,10 @@ namespace nkentseu {
  *
  * Utilise __is_polymorphic si disponible, sinon assume false.
  */
-#if defined(__clang__) || defined(__GNUC__) || defined(_MSC_VER)
+#if NK_A_INTRINSEQUE(__is_polymorphic)
 		template <typename T> struct NkIsPolymorphic : NkBoolConstant<__is_polymorphic(T)> {};
+#elif NK_A_TYPE_TRAITS
+		template <typename T> struct NkIsPolymorphic : NkBoolConstant<std::is_polymorphic<T>::value> {};
 #else
 		template <typename T> struct NkIsPolymorphic : NkFalseType {};
 #endif
