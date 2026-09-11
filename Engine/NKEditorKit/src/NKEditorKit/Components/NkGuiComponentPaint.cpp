@@ -82,14 +82,13 @@ namespace nkentseu {
 			if (const NkPaintTransform *m = TransformeActive()) {
 				// Sous transformee : pas de calage au pixel (il tordrait les glyphes),
 				// et LA meme matrice que les formes -- le texte tourne avec sa boite.
-				// ⚠️ SOUS PERSPECTIVE, LA TANGENTE AU DEBUT DE LA LIGNE (palier A) :
-				//    `AddTextTransforme` ne prend que six coefficients. Le texte est a
-				//    la bonne place, a la bonne taille, a la bonne pente -- mais ses
-				//    lignes ne CONVERGENT pas. Dit ici, dit dans l'interface, et leve
-				//    au palier B (chaque glyphe par ses quatre coins).
-				const NkPaintTransform mt = NkPaintTangente(*m, x, baseY);
-				mCtx.DL().AddTextTransforme(face, mCtx.font->TexId(), {x, baseY}, draw, C(role), mt.a,
-											mt.b, mt.c, mt.d, mt.e, mt.f);
+				// ⚠️ SOUS PERSPECTIVE, CHAQUE GLYPHE PAR SES QUATRE COINS (palier B) :
+				//    `AddTextTransforme` ne prend que six coefficients, donc l'affine ne
+				//    peut pas faire converger une ligne. LA DECISION N'EST PAS ICI :
+				//    `NkTexteTransforme` est LA porte, commune aux trois peintres --
+				//    l'ecran, l'export et celui-ci. Trois copies d'une decision, ce
+				//    seraient deux copies qu'aucun temoin ne traverse.
+				NkTexteTransforme(mCtx.DL(), face, mCtx.font->TexId(), {x, baseY}, draw, C(role), *m);
 				return;
 			}
 			mCtx.DL().AddText(face, mCtx.font->TexId(), {Px(x), Px(baseY)}, draw, C(role));

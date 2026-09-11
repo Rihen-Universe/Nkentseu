@@ -194,26 +194,15 @@ namespace nkuidesign {
 										  ? (graisse >= 700.f ? 0.8f : graisse >= 600.f ? 0.5f : 0.3f)
 												* (echelle > 1.f ? echelle : 1.f)
 										  : 0.f;
-				if (const nkentseu::editorkit::NkPaintTransform *m0 = TransformeActive()) {
-					// palier A : sous perspective, la TANGENTE au debut de la ligne (voir
-					// `NkPaintTangente`) -- le texte penche a la bonne place, il ne fuit pas.
-					const nkentseu::editorkit::NkPaintTransform mTan =
-						nkentseu::editorkit::NkPaintTangente(*m0, tx, yBase);
-					const nkentseu::editorkit::NkPaintTransform *m = &mTan;
-					// Sous la matrice du noeud : la mise a l'echelle des glyphes S
-					// (facteur `echelle` autour de l'origine de ligne o) se compose
-					// SOUS M -- M o S : p -> M(o) + echelle * L(p - o). Le texte tourne
-					// avec sa boite, a la meme matrice que les formes.
-					const float32 ta = m->a * echelle, tb = m->b * echelle;
-					const float32 tc = m->c * echelle, td = m->d * echelle;
-					for (int32 passe = 0; passe < (eGras > 0.f ? 2 : 1); ++passe) {
-						const float32 ox = tx + (passe ? eGras : 0.f);
-						const float32 mox = m->a * ox + m->c * yBase + m->e;
-						const float32 moy = m->b * ox + m->d * yBase + m->f;
-						mCtx.DL().AddTextTransforme(f->Face(), f->TexId(), {ox, yBase}, s, col, ta, tb,
-													tc, td, mox - (ta * ox + tc * yBase),
-													moy - (tb * ox + td * yBase));
-					}
+				if (const nkentseu::editorkit::NkPaintTransform *m = TransformeActive()) {
+					// PALIER B (11/09) : LA PORTE DU KIT DECIDE -- perspective : chaque glyphe
+					// par ses quatre coins ; affine : la matrice du nœud composée avec l'échelle
+					// des glyphes autour de l'origine de ligne, comme avant. *La décision ne
+					// se recopie pas ici : recopiée, elle serait hors de portée du témoin.*
+					for (int32 passe = 0; passe < (eGras > 0.f ? 2 : 1); ++passe)
+						nkentseu::editorkit::NkTexteTransforme(mCtx.DL(), f->Face(), f->TexId(),
+															   {tx + (passe ? eGras : 0.f), yBase}, s, col,
+															   *m, echelle);
 					return;
 				}
 				mCtx.DL().AddTextScaled(f->Face(), f->TexId(), {tx, yBase}, s, col, echelle);

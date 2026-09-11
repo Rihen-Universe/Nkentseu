@@ -58,6 +58,133 @@
 #include "NKMath/NkEarcut.h" // le triangulateur, descendu de NKFont le 2026-09-01
 
 namespace nkentseu {
+
+	namespace editorkit {
+
+		/// LE TEXTE PROJETE, GLYPHE PAR GLYPHE (palier B, 11/09).
+		///
+		/// 🔑 Rodolf voyait un cadre qui converge et un texte qui ne converge pas. La
+		///    cause etait nommee au palier A : `AddTextTransforme` (NKGui) ne prend que
+		///    SIX coefficients, donc le texte recevait la TANGENTE affine -- bonne
+		///    place, bonne pente, pas de fuite.
+		///
+		/// ⚠️ ON NE TOUCHE PAS AU NOYAU, et ce n'est pas une precaution : le quad et les
+		///    UV de chaque glyphe sont DEJA publics (`NkFont::FindGlyph`), et
+		///    `AddImagePolygon` accepte des sommets libres avec un UV par sommet. On
+		///    projette donc les QUATRE COINS de chaque glyphe et on les emet nous-memes.
+		///
+		/// ⚠️ LE MEME CHEMIN DE SOMMETS QUE LE TEXTE, verifie en lisant les deux
+		///    emetteurs de `NkGuiDrawList` : `AddTextTransforme` fait
+		///    `Vtx(pos, {u,v}, couleur)` puis deux triangles (i0,i1,i2) et (i0,i2,i3) ;
+		///    `AddImagePolygon` fait exactement les memes appels dans le meme ordre, avec
+		///    la meme teinte empaquetee. **L'echantillonnage de l'atlas et la couleur ne
+		///    changent donc pas** -- ce n'est pas une seconde route, c'est la meme.
+		///
+		/// ⚠️ CE QUI RESTE AFFINE, ET C'EST DIT : l'INTERIEUR de chaque glyphe. Un quad
+		///    texture s'interpole lineairement entre ses quatre sommets ; a l'echelle
+		///    d'un glyphe, la difference avec une vraie division par w est tres en
+		///    dessous du pixel -- c'est la meme limite que l'interieur d'une image
+		///    inclinee, ecrite depuis le 09/09.
+		///
+		/// `echelle` : le facteur du glyphe (1 pour l'atlas a sa taille, autre chose
+		/// quand l'application choisit un palier d'atlas et ajuste). `skew` : l'italique
+		/// factice, comme dans NKGui. Rend le nombre de glyphes emis.
+		inline uint32 NkTexteProjete(nkgui::NkGuiDrawList &dl, const NkFont *face, uint32 texId,
+									 const nkgui::NkVec2 &baseline, const char *texte,
+									 const nkgui::NkColor &col, const NkPaintTransform &m,
+									 float32 echelle = 1.f, float32 skew = 0.f) {
+			if (!face || !texte || !*texte || texId == 0u || echelle <= 0.f)
+				return 0u;
+			const char *p = texte;
+			const char *fin = texte;
+			while (*fin)
+				++fin;
+			float32 x = baseline.x;
+			const float32 y = baseline.y;
+			uint32 poses = 0u;
+			auto P = [&](float32 px, float32 py) -> nkgui::NkVec2 {
+				float32 w = m.g * px + m.h * py + 1.f;
+				if (w < NkPaintWMin())
+					w = NkPaintWMin();
+				return nkgui::NkVec2{(m.a * px + m.c * py + m.e) / w,
+									 (m.b * px + m.d * py + m.f) / w};
+			};
+			// LE CALAGE AU PIXEL SE FAIT DANS LE REPERE DU NŒUD, AVANT LA PROJECTION, et
+			// seulement a l'echelle 1 -- c'est exactement la regle de NKGui
+			// (`AddTextTransforme` cale, `AddTextScaled` ne cale pas : arrondir des
+			// positions mises a l'echelle ferait respirer l'interlettrage). Sans lui, ce
+			// chemin et celui d'avant placeraient les memes glyphes a un demi-pixel l'un
+			// de l'autre -- mesure au premier essai du temoin : 0,57 px d'ecart.
+			auto cale = [&](float32 v) -> float32 {
+				if (echelle < 0.999f || echelle > 1.001f)
+					return v;
+				return (float32)(int32)(v < 0.f ? v - 0.5f : v + 0.5f);
+			};
+			while (p < fin) {
+				const NkFontCodepoint cp = NkFontDecodeUTF8(&p, fin);
+				if (cp == 0u)
+					break;
+				const NkFontGlyph *gl = face->FindGlyph(cp);
+				if (!gl)
+					continue;
+				if (gl->visible) {
+					const float32 x0 = cale(x + gl->x0 * echelle), y0 = cale(y + gl->y0 * echelle);
+					const float32 x1 = x0 + (gl->x1 - gl->x0) * echelle;
+					const float32 y1 = y0 + (gl->y1 - gl->y0) * echelle;
+					const float32 sTop = skew != 0.f ? skew * (y - y0) : 0.f;
+					const float32 sBot = skew != 0.f ? skew * (y - y1) : 0.f;
+					const nkgui::NkVec2 pts[4] = {P(x0 + sTop, y0), P(x1 + sTop, y0), P(x1 + sBot, y1),
+												  P(x0 + sBot, y1)};
+					const nkgui::NkVec2 uvs[4] = {{gl->u0, gl->v0}, {gl->u1, gl->v0}, {gl->u1, gl->v1},
+												  {gl->u0, gl->v1}};
+					dl.AddImagePolygon(texId, pts, uvs, 4, col);
+					++poses;
+				}
+				x += gl->advanceX * echelle; // l'avance vaut aussi pour les espaces
+			}
+			return poses;
+		}
+
+		/// LA PORTE DU TEXTE SOUS TRANSFORMEE -- **une seule decision, pour les trois
+		/// peintres** (le kit, l'ecran, l'export).
+		///
+		/// 🔴 ELLE EXISTE PARCE QU'UNE MUTATION EST RESTEE VERTE : le temoin du palier B
+		///    (cas 155) exerce le peintre d'EXPORT ; avec la meme condition ecrite dans
+		///    TROIS peintres, deux d'entre elles n'etaient prouvees par rien -- casser le
+		///    branchement de l'ecran ne faisait rougir personne. *Trois copies d'une
+		///    decision, ce sont deux copies que le temoin ne traverse pas.*
+		///
+		/// Affine -> le chemin d'avant (`AddTextTransforme`). Perspective -> chaque glyphe
+		/// par ses quatre coins.
+		inline void NkTexteTransforme(nkgui::NkGuiDrawList &dl, const NkFont *face, uint32 texId,
+									  const nkgui::NkVec2 &baseline, const char *texte,
+									  const nkgui::NkColor &col, const NkPaintTransform &m,
+									  float32 echelle = 1.f, float32 skew = 0.f) {
+			if (!m.Affine()) {
+				NkTexteProjete(dl, face, texId, baseline, texte, col, m, echelle, skew);
+				return;
+			}
+			if (echelle > 0.999f && echelle < 1.001f) {
+				// ⚠️ LA MATRICE TELLE QUELLE : la recomposer ferait un aller-retour en
+				//    flottant et deplacerait le texte d'un ulp -- le chemin d'avant, intact.
+				dl.AddTextTransforme(face, texId, baseline, texte, col, m.a, m.b, m.c, m.d, m.e, m.f,
+									 -1.f, skew);
+				return;
+			}
+			// l'echelle des glyphes se compose SOUS la matrice, autour de la ligne de base :
+			// p -> M(o) + echelle * L(p - o), exactement ce que les deux peintres de
+			// l'application ecrivaient chacun de leur cote.
+			const float32 ta = m.a * echelle, tb = m.b * echelle;
+			const float32 tc = m.c * echelle, td = m.d * echelle;
+			const float32 mx = m.a * baseline.x + m.c * baseline.y + m.e;
+			const float32 my = m.b * baseline.x + m.d * baseline.y + m.f;
+			dl.AddTextTransforme(face, texId, baseline, texte, col, ta, tb, tc, td,
+								 mx - (ta * baseline.x + tc * baseline.y),
+								 my - (tb * baseline.x + td * baseline.y), -1.f, skew);
+		}
+
+	} // namespace editorkit
+
 	namespace editorkit {
 
 		class NkGuiComponentPaint : public NkComponentPaint {

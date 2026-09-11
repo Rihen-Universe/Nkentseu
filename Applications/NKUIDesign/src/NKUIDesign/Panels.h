@@ -15565,16 +15565,12 @@ namespace nkuidesign {
 					if (ctx.popupDepth == 0 && NkGuiRectContains(r, ctx.input.mousePos))
 						mSt->status = NkString("Focale : la distance de l'œil au plan du nœud. Plus elle "
 											   "est courte, plus les bords fuient.");
-					// ⚠️ CE QUI MANQUE, ECRIT LA OU ON LE VOIT (et pas seulement dans le
-					//    commit) : les formes fuient, LE TEXTE PENCHE SANS FUIR tant que le
-					//    palier B n'est pas livre. Rodolf verra la difference a l'ecran ; il
-					//    doit savoir qu'elle est CONNUE.
-					const NkRect rn = ctx.NextItemRect(-1.f, 30.f);
-					costume::Texte(dl, F.px9, rn.x + 12.f, rn.y + 1.f,
-								   "Le texte penche, il ne fuit pas encore :", ctx.theme.textDisabled);
-					costume::Texte(dl, F.px9, rn.x + 12.f, rn.y + 14.f,
-								   "ses glyphes partent en affine. Les formes convergent.",
-								   ctx.theme.textDisabled);
+					// 🔴 LA NOTE DU PALIER A EST PARTIE AVEC LE PALIER B (11/09), ET C'EST LA
+					//    REGLE : *une phrase honnete qui devient fausse est un mensonge qu'on a
+					//    ecrit soi-meme.* Elle disait « le texte penche, il ne fuit pas
+					//    encore » ; il fuit, glyphe par glyphe. Ce qui reste affine est
+					//    l'INTERIEUR d'un glyphe et d'une image -- tres en dessous du pixel
+					//    pour un glyphe, dit au survol de l'inclinaison pour une image.
 				}
 			}
 

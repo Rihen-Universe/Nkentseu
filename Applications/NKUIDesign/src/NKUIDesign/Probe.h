@@ -14679,6 +14679,142 @@ namespace nkuidesign {
 				  "silhouette ORTHOGONALE en le DECLARANT -- les deux fichiers sont identiques aux deux attributs pres",
 				  coins && convergence && orthoIntact && pointage && peintre && fichier && svgJuste, det);
 		}
+		// ── 155. LE TEXTE FUIT (11/09, palier B). Au palier A les formes convergeaient et le
+		//    texte non : `AddTextTransforme` ne prend que six coefficients, on lui donnait la
+		//    tangente. Desormais chaque glyphe part par ses QUATRE COINS (`AddImagePolygon`).
+		//
+		// ⚠️ LE TEMOIN NE LIT PAS LA SOURCE ET NE DEMANDE PAS LA POLICE : il peint LA MEME
+		//    ligne deux fois -- sans transformee, puis sous la perspective -- et exige que
+		//    CHAQUE sommet de la seconde soit la projection DERIVEE du sommet de la premiere.
+		//    Les metriques de la police n'entrent donc jamais dans l'assertion.
+		{
+			char det[700];
+			static nkgui::NkGuiContext ctxT;
+			if (!ctxT.Init(900, 600)) {
+				check("155. le texte projete : contexte sans fenetre", false, "Init a refuse");
+			} else {
+				NkTheme themeT;
+				// la matrice : une inclinaison Y de 40 degres, focale 600, autour du centre
+				const NkPaintRect rT = {100.f, 100.f, 340.f, 80.f};
+				const float32 cxT = rT.x + rT.w * 0.5f, cyT = rT.y + rT.h * 0.5f;
+				NkTransfo tT;
+				tT.iY = 40.f;
+				tT.persp = true;
+				tT.focale = 600.f;
+				const NkMat2D mT = NkMatDe(tT, cxT, cyT);
+				NkTransfo tO = tT;
+				tO.persp = false;
+				const NkMat2D mO = NkMatDe(tO, cxT, cyT);
+				// une passe : le peintre d'EXPORT (il embarque sa police, donc il a des glyphes
+				// sans fenetre), et on releve les sommets ajoutes
+				auto passe = [&](const NkMat2D *m, NkVector<nkgui::NkVec2> &pts, NkVector<uint32> &couleurs) {
+					pts.Clear();
+					couleurs.Clear();
+					ctxT.BeginFrame(0.016f);
+					ctxT.BeginLayout({0.f, 0.f, 900.f, 600.f});
+					const uint32 avant = (uint32)ctxT.dl.vtx.Size();
+					{
+						// 🔴 `policeExacte = false`, ET C'EST LE TEMOIN QUI L'EXIGE : en mode
+						//    exact, ce peintre choisit un ATLAS selon le facteur de la matrice --
+						//    les deux passes n'auraient pas les memes glyphes, et l'ecart mesure
+						//    serait celui de DEUX POLICES, pas celui de la projection. Paye au
+						//    premier essai : 0,61 px d'ecart et une << fuite >> de 1,06 qui ne
+						//    voulaient rien dire. Ici : UN atlas, etire par la matrice.
+						NkExportPaint pe(ctxT, themeT, nullptr, false);
+						if (m)
+							pe.PushTransform(NkPaintTransformDe(*m));
+						pe.TextHex(rT, "IIIIIIIIIIIIIIIIIIII", 0xff0000ffu, 0u, NkTextAlign::Left, 40.f, 0.f);
+						if (m)
+							pe.PopTransform();
+					}
+					for (uint32 i = avant; i < (uint32)ctxT.dl.vtx.Size(); ++i) {
+						pts.PushBack(ctxT.dl.vtx[i].pos);
+						couleurs.PushBack(ctxT.dl.vtx[i].col);
+					}
+					ctxT.EndFrame();
+				};
+				NkVector<nkgui::NkVec2> vDroit, vPersp, vOrtho;
+				NkVector<uint32> cDroit, cPersp, cOrtho;
+				passe(nullptr, vDroit, cDroit);
+				passe(&mT, vPersp, cPersp);
+				passe(&mO, vOrtho, cOrtho);
+				// (a) MEME NOMBRE DE SOMMETS : aucun glyphe perdu, aucun ajoute -- c'est le meme
+				//     chemin (quatre sommets, deux triangles), pas une seconde route.
+				const bool memeCompte = vDroit.Size() > 0 && vDroit.Size() == vPersp.Size()
+										&& vDroit.Size() == vOrtho.Size();
+				// (b) CHAQUE SOMMET A SA PLACE DERIVEE : la projection refaite ici.
+				auto projete = [&](const NkMat2D &m, float32 px, float32 py, float32 &ox, float32 &oy) {
+					float32 w = m.g * px + m.h * py + 1.f;
+					if (w < NkWMin())
+						w = NkWMin();
+					ox = (m.a * px + m.c * py + m.e) / w;
+					oy = (m.b * px + m.d * py + m.f) / w;
+				};
+				float32 ecartMax = 0.f;
+				uint32 couleursEgales = 0u;
+				if (memeCompte)
+					for (uint32 i = 0; i < (uint32)vDroit.Size(); ++i) {
+						float32 ax = 0.f, ay = 0.f;
+						projete(mT, vDroit[i].x, vDroit[i].y, ax, ay);
+						const float32 ex = vPersp[i].x > ax ? vPersp[i].x - ax : ax - vPersp[i].x;
+						const float32 ey = vPersp[i].y > ay ? vPersp[i].y - ay : ay - vPersp[i].y;
+						if (ex > ecartMax)
+							ecartMax = ex;
+						if (ey > ecartMax)
+							ecartMax = ey;
+						if (cPersp[i] == cDroit[i])
+							++couleursEgales;
+					}
+				const bool placesJustes = memeCompte && ecartMax < 0.01f;
+				// ⚠️ LA COULEUR EST LA MEME, sommet pour sommet : `AddImagePolygon` empaquette la
+				//    teinte comme le texte -- c'est ce que je voulais verifier plutot qu'absorber.
+				const bool memeCouleur = memeCompte && couleursEgales == (uint32)vDroit.Size();
+				// (c) LA FUITE : la hauteur du PREMIER glyphe contre celle du DERNIER. Le premier
+				//     sommet d'un quad est son coin haut-gauche, le quatrieme son coin bas-gauche.
+				auto hauteurGlyphe = [&](const NkVector<nkgui::NkVec2> &v, uint32 quad) -> float32 {
+					const uint32 i = quad * 4u;
+					if (i + 3u >= (uint32)v.Size())
+						return 0.f;
+					const float32 dy = v[i + 3u].y - v[i].y;
+					return dy < 0.f ? -dy : dy;
+				};
+				const uint32 nQuads = (uint32)vPersp.Size() / 4u;
+				const float32 hP0 = hauteurGlyphe(vPersp, 0u), hPn = hauteurGlyphe(vPersp, nQuads - 1u);
+				const float32 hO0 = hauteurGlyphe(vOrtho, 0u), hOn = hauteurGlyphe(vOrtho, nQuads - 1u);
+				const float32 fuite = (hPn > 0.f) ? hP0 / hPn : 0.f;
+				const float32 fuiteO = (hOn > 0.f) ? hO0 / hOn : 0.f;
+				const bool convergence = nQuads >= 4u && fuite > 1.1f && fuiteO > 0.999f && fuiteO < 1.001f;
+				// (d) L'AVANCE NE BOUGE PAS : la ligne droite et la ligne orthogonale ont la meme
+				//     largeur en unites du nœud (la matrice orthogonale ecrase, elle ne re-espace pas).
+				auto largeur = [&](const NkVector<nkgui::NkVec2> &v) -> float32 {
+					float32 x0 = 1e9f, x1 = -1e9f;
+					for (uint32 i = 0; i < (uint32)v.Size(); ++i) {
+						if (v[i].x < x0) x0 = v[i].x;
+						if (v[i].x > x1) x1 = v[i].x;
+					}
+					return x1 - x0;
+				};
+				const float32 lDroit = largeur(vDroit), lOrtho = largeur(vOrtho);
+				// l'orthogonale a 40 degres ecrase en cos(40) = 0.766 : on verifie le RAPPORT
+				const float32 rapport = lDroit > 0.f ? lOrtho / lDroit : 0.f;
+				const bool avance = rapport > 0.70f && rapport < 0.82f;
+				snprintf(det, sizeof(det),
+						 "%u sommets par passe (droit / perspective / orthogonal : %u / %u / %u) -> %d ; chaque sommet "
+						 "a sa place derivee : ecart max %.4f px -> %d ; couleurs identiques %u/%u -> %d ; fuite : "
+						 "premier glyphe %.2f px, dernier %.2f px (rapport %.3f) ; en orthogonal %.2f / %.2f "
+						 "(rapport %.3f) -> %d ; avance : largeur %.1f -> %.1f (rapport %.3f, cos 40 = 0.766) -> %d",
+						 (uint32)vDroit.Size(), (uint32)vDroit.Size(), (uint32)vPersp.Size(), (uint32)vOrtho.Size(),
+						 memeCompte ? 1 : 0, (double)ecartMax, placesJustes ? 1 : 0, couleursEgales,
+						 (uint32)vDroit.Size(), memeCouleur ? 1 : 0, (double)hP0, (double)hPn, (double)fuite,
+						 (double)hO0, (double)hOn, (double)fuiteO, convergence ? 1 : 0, (double)lDroit, (double)lOrtho,
+						 (double)rapport, avance ? 1 : 0);
+				check("155. LE TEXTE FUIT : chaque glyphe part par ses QUATRE COINS, et chaque sommet tombe a la "
+					  "place DERIVEE de son sommet droit ; le premier glyphe d'une ligne inclinee est plus haut que "
+					  "le dernier, la ou l'orthogonal les garde egaux ; la couleur ne bouge pas d'un sommet (meme "
+					  "chemin d'emission que le texte) et l'avance non plus",
+					  memeCompte && placesJustes && memeCouleur && convergence && avance, det);
+			}
+		}
 		// ── 94. ① L'APERCU PENDANT LE TRACE (05/09). Rodolf : « pourquoi quand on dessine un
 		//    graphique on voit juste le rectangle qui s'allonge, et des qu'on relache on voit la
 		//    forme ? » Deux mesures : LA TABLE DE GENRE (une seule, lue par le relachement et par
