@@ -10,6 +10,8 @@
 #include "NKMemory/NkAllocator.h"
 #include "NKTime/NkChrono.h" // cap FPS : pacing haute précision (Now/Sleep)
 #include <cstdlib>			 // getenv (NK_FPS_CAP)
+#include <cstdio>			 // sonde NK_AGENT_TONELDR
+#include "NKImage/Core/NkImage.h" // sonde NK_AGENT_TONELDR : PNG du transient
 
 // Windows : ::Sleep() a une granularité ~15,6 ms par défaut -> le sleep du pacing
 // FPS déborde le spin -> jitter (saccade/clignotement des ombres). timeBeginPeriod(1)
@@ -1340,6 +1342,83 @@ namespace nkentseu {
 					NkGraphResId capturedToneId = toneTexId;
 					fxaa.Execute([this, capturedToneId](NkICommandBuffer *cmd) {
 						NkTextureHandle ldr = mRenderGraph->GetResourceTexture(capturedToneId);
+						// SONDE NK_AGENT_TONELDR : on copie l'ENTREE de FXAA, brute, dans un
+						// tampon de relecture AVANT que FXAA ne la lise. C'est la mesure que
+						// le coordinateur exigeait : « lis l'entree reelle de FXAA, pas ce que
+						// tu deduis de FXAA eteinte ». Trois mesures honnetes se contredisent
+						// sur yFlipUV pour DX ; si l'orientation STOCKEE de ce transient varie
+						// selon le contexte, ce n'est pas une constante par API.
+						// ⚠️ LA RELECTURE VIT ICI, PAS DANS EndFrame : le modeleur rend dans le
+						// tampon de commandes de l'editeur et n'atteint JAMAIS
+						// NkRendererImpl::EndFrame -- mesure : la copie s'armait 110 fois et
+						// aucun PNG ne sortait. A la trame N+1, la copie de la trame N est
+						// soumise depuis longtemps : un WaitIdle ici est sur, et ce chemin-ci
+						// est emprunte par TOUTES les applications qui font tourner FXAA.
+						if (mDbgTonePending && mDbgToneBuf.IsValid() && !mDbgToneDone) {
+							mDbgTonePending = false;
+							mDbgToneDone = true;
+							mDevice->WaitIdle();
+							const bool isDX12 = mDevice->GetApi() == NkGraphicsApi::NK_GFX_API_DX12;
+							const uint32 srcPitch = isDX12 ? ((mDbgToneW * 4u + 255u) & ~255u) : mDbgToneW * 4u;
+							NkMappedMemory mapped = mDevice->MapBuffer(mDbgToneBuf);
+							const char *chemin = std::getenv("NK_AGENT_TONELDR");
+							bool ok = false;
+							if (mapped.IsValid() && chemin && chemin[0]) {
+								NkImage img;
+								if (img.Create(mDbgToneW, mDbgToneH, math::NkColor(0, 0, 0, 255), 4)) {
+									// lignes TELLES QUE STOCKEES : aucun retournement, meme sur OpenGL
+									for (uint32 row = 0; row < mDbgToneH; ++row)
+										memcpy(img.Pixels() + (uint64)row * mDbgToneW * 4u,
+											   (const uint8 *)mapped.ptr + (uint64)row * srcPitch, mDbgToneW * 4u);
+									ok = img.Save(chemin);
+								}
+								mDevice->UnmapBuffer(mDbgToneBuf);
+							}
+							std::printf("[toneldr] transient ToneLDR %ux%u, lignes telles que stockees -> %s : %s\n",
+										mDbgToneW, mDbgToneH, chemin ? chemin : "?", ok ? "ecrit" : "ECHEC");
+							std::fflush(stdout);
+						}
+						// NK_AGENT_TONELDR_TRAME=<n> : n'armer qu'a partir de la trame n. Sans
+						// cette porte, la sonde tirait a la PREMIERE trame de FXAA -- avant que
+						// le modeleur ait pose son ciel (classe bleue mesuree : 0,2 %).
+						static int sToneTrame = -1;
+						if (sToneTrame < 0) {
+							const char *tv = std::getenv("NK_AGENT_TONELDR_TRAME");
+							sToneTrame = tv ? std::atoi(tv) : 0;
+						}
+						// ⚠️ On compte les EXECUTIONS DE CETTE PASSE, pas mFrameCounter : celui-ci
+						// s'incremente dans EndFrame, que le modeleur n'atteint jamais -- avec lui
+						// la porte ne s'ouvrait jamais (mesure : 0 PNG a la trame 60).
+						static int sTonePasses = 0;
+						++sTonePasses;
+						if (ldr.IsValid() && !mDbgToneDone && !mDbgTonePending && sTonePasses >= sToneTrame &&
+							std::getenv("NK_AGENT_TONELDR")) {
+							mDbgToneW = mCfg.width;
+							mDbgToneH = mCfg.height;
+							if (!mDbgToneBuf.IsValid()) {
+								const uint32 alignedPitch = (mDbgToneW * 4u + 255u) & ~255u; // DX12 : 256
+								NkBufferDesc bd;
+								bd.sizeBytes = (uint64)alignedPitch * mDbgToneH;
+								bd.type = NkBufferType::NK_STAGING;
+								bd.usage = NkResourceUsage::NK_READBACK;
+								mDbgToneBuf = mDevice->CreateBuffer(bd);
+							}
+							if (mDbgToneBuf.IsValid()) {
+								cmd->TextureBarrier(ldr, NkResourceState::NK_SHADER_READ, NkResourceState::NK_TRANSFER_SRC);
+								NkBufferTextureCopyRegion region{};
+								region.width = mDbgToneW;
+								region.height = mDbgToneH;
+								region.depth = 1;
+								region.bufferRowPitch = 0;
+								cmd->CopyTextureToBuffer(ldr, mDbgToneBuf, region);
+								cmd->TextureBarrier(ldr, NkResourceState::NK_TRANSFER_SRC, NkResourceState::NK_SHADER_READ);
+								mDbgTonePending = true;
+								// CONTROLE POSITIF D'ARMEMENT : sans cette ligne, « pas de PNG » ne
+								// distingue pas « la passe ne tourne pas » de « EndFrame n'est pas atteint ».
+								std::printf("[toneldr] copie de ToneLDR %ux%u ARMEE dans FXAA_Final\n", mDbgToneW, mDbgToneH);
+								std::fflush(stdout); // tue par timeout, un stdout redirige ne se vide jamais
+							}
+						}
 						if (mPostProcess && ldr.IsValid()) {
 							mPostProcess->ExecuteFXAA(cmd, ldr);
 						}

@@ -11061,7 +11061,18 @@ namespace nkentseu {
 				}
 				// Sans l'override, le graphe rendrait a la taille de la FENETRE
 				// dans une cible a la taille de la VUE.
-				hst.ctx.renderer->SetRenderSizeOverride(hst.wantW, hst.wantH);
+				// NK_AGENT_SANS_SURTAILLE=1 : SAUTE la surtaille de rendu, a la seule fin
+				// de mesurer. Le banc rend juste sur DX avec FXAA a la taille de la
+				// fenetre ; le modeleur rend inverse sur DX avec FXAA SOUS surtaille.
+				// Si sauter la surtaille redresse DX ici, l'interaction surtaille x FXAA
+				// est nommee des deux cotes. Sans la variable, rien ne change.
+				// ⚠️ Sans surtaille, le graphe rend a la taille de la FENETRE dans une
+				// cible a la taille de la VUE : l'image est partielle, mais son
+				// ORIENTATION reste lisible (texte de l'incrustation, ciel).
+				if (std::getenv("NK_AGENT_SANS_SURTAILLE"))
+					std::printf("[nk3d] NK_AGENT_SANS_SURTAILLE : SetRenderSizeOverride SAUTE (mesure)\n");
+				else
+					hst.ctx.renderer->SetRenderSizeOverride(hst.wantW, hst.wantH);
 				if (auto *texLib = hst.ctx.renderer->GetTextures())
 					hst.ctx.renderer->SetFinalColorTarget(texLib->GetRHIHandle(hst.rt->GetColorResult()));
 				nkvpW = (float32)hst.wantW;
