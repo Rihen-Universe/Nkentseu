@@ -5418,8 +5418,8 @@ namespace nkuidesign {
 						wVue = ctxI.popupRects[0].w;
 						return oz;
 					};
-					stI.etatFill = NkRemplissage();
-					stI.etatFill.couleur = NkString("#ff0000");
+					stI.couleurFill = NkRemplissage();
+					stI.couleurFill.couleur = NkString("#ff0000");
 					const uint32 oNoyau = ouvrir("##s.149.noyau", 0u, -1, -1, nullptr, 0u);
 					const float32 wNoyau = wVue;
 					const uint32 oEtat = ouvrir("##s.149.etat", 1u, rc, -1, "Hover", 0u);
@@ -5441,8 +5441,10 @@ namespace nkuidesign {
 					//    Les sommets servent a UNE chose : voir revenir les cinq vignettes.
 					const bool plusLeNoyau = wEtat > wNoyau + 30.f && wEtat == wFill;
 					const bool memeFenetre = wEtat == wFill && oEtat * 2u < oFill && oEtat * 4u > oFill;
+					// ⚠️ (11/09, nuit) 26 et non plus 52 : la rangee VARIABLE a un sens pour un
+					//    etat (le visiteur voit ses champs), seule l'OPACITE est retiree.
 					const float32 dH = hFill - hEtat;
-					const bool variableRetiree = dH > 50.f && dH < 54.f;
+					const bool variableRetiree = dH > 24.f && dH < 28.f;
 					const bool texteCommeFond = oTexte == oEtat;
 					// (c) L'ECRITURE SE POSE DANS LE BLOC D'ETAT : on rouvre l'etat, on fait ce que la
 					//     frappe d'un hexa fait (`change` + `hex`), et on relit le document.
@@ -5506,7 +5508,7 @@ namespace nkuidesign {
 					snprintf(det149, sizeof(det149),
 							 "MEME course : noyau nu %u sommets, etat (fond) %u, etat (texte) %u, remplissage %u ; l'etat "
 							 "n'est plus le noyau (largeur %.0f, noyau %.0f, remplissage %.0f) -> %d ; meme fenetre, sans "
-							 "les cinq vignettes (2x%u < %u < 4x%u) -> %d ; rangees variable ET opacite retirees : %.0f px [52] -> %d ; texte = "
+							 "les cinq vignettes (2x%u < %u < 4x%u) -> %d ; rangee d'opacite retiree (la variable reste) : %.0f px [26] -> %d ; texte = "
 							 "fond -> %d ; (c) ecrit dans le bloc Hover (couleurTexte=#00ff00, fond vide)=%d, remplissages "
 							 "intacts=%d, terrain rendu=%d ; (d) portes d'ETATS qui demandent l'enveloppe : %u/2 (fond ; texte+bordure)",
 							 oNoyau, oEtat, oTexte, oFill, (double)wEtat, (double)wNoyau, (double)wFill, plusLeNoyau ? 1 : 0,
@@ -5515,7 +5517,7 @@ namespace nkuidesign {
 					check("149. LA PASTILLE D'ETATS OUVRE LA MEME FENETRE QU'UN REMPLISSAGE, pas le noyau nu : "
 						  "l'enveloppe recoit un remplissage transitoire et ECRIT dans le bloc d'etat, jamais dans "
 						  "les remplissages du nœud ; elle est plus courte de ce que la regle du type retire (une "
-						  "couleur unie, pas de variable, pas d'opacite, pas de mode de fusion) ; le fond et la "
+						  "couleur unie, pas d'opacite, pas de mode de fusion ; la variable reste) ; le fond et la "
 						  "couleur du texte ouvrent la meme fenetre ; et les deux pastilles la DEMANDENT (source lue)",
 						  plusLeNoyau && memeFenetre && variableRetiree && texteCommeFond && ecritDansLEtat && fillsIntacts
 							  && terrainRendu && portesEnveloppe == 2u,
@@ -12769,7 +12771,10 @@ namespace nkuidesign {
 					nGenre3 = compte("picker.genre = 3u");	 // le doublon : il ne doit plus exister
 					nMain = compte("sw.x - pw - 8.f");		 // le placement recopie : idem
 					nKit = compte("NkPlacerPresDeLAncre(sw"); // les trois sites lisent le kit
-					unSeulChemin = nPastille == 6u && nGenre3 == 0u && nMain == 0u && nKit == 3u;
+					// 11/09 nuit : SEPT -- la pastille de la couleur du texte (APPARENCE) ne
+					// passait par aucune porte ; elle passe desormais par celle-ci. Le
+					// recensement a l'ECRAN (ce que chaque porte OUVRE) est le cas 153.
+					unSeulChemin = nPastille == 7u && nGenre3 == 0u && nMain == 0u && nKit == 3u;
 				}
 			}
 			snprintf(det, sizeof(det),
@@ -14100,6 +14105,290 @@ namespace nkuidesign {
 				  "du texte ou la couleur de bordure d'un etat est COMPTEE, sa suppression REFUSEE, le detachement "
 				  "les rend litterales -- ajoutes le 11/09 au bloc d'etat, ils manquaient au visiteur unique",
 				  porteAccepte && usages == 2u && refuse && uRefus == 2u && detaches == 2u && litteraux && supprime, det);
+		}
+		// ── 153. TOUTES LES PORTES A LA PASTILLE, MESUREES A L'ECRAN (11/09, nuit). Rodolf a
+		//    trouve deux fois une pastille qui ouvrait le NOYAU NU (canvas, puis ETATS). Le cas
+		//    136 (c) compte les appels dans la source -- il dit qu'une porte EXISTE, pas ce
+		//    qu'elle OUVRE -- et le compte de SOMMETS ne distingue pas le noyau de l'enveloppe
+		//    (cas 149). Ici : chaque pastille DESSINEE est trouvee au releve, cliquee par le
+		//    vrai chemin, et sa fenetre mesuree sur la LARGEUR du popup.
+		//
+		// ⚠️ LE TEMOIN COMPTE TOUTES LES PORTES, PAS CELLE QU'ON VIENT DE CORRIGER : il exige
+		//    les huit familles, et que chaque instance ouvre l'enveloppe (la largeur d'un
+		//    remplissage, mesuree dans la meme course) -- sauf BORDURES, qui ouvre SA fenetre
+		//    (hexa, epaisseur, position, cotes...), nommee comme telle et distincte du noyau.
+		{
+			char det[900];
+			static nkgui::NkGuiContext ctxQ;
+			if (!ctxQ.Init(900, 8000)) {
+				check("153. le recensement des pastilles : contexte sans fenetre", false, "Init a refuse");
+			} else {
+				nkgui::NkGuiIntrospectActiver(ctxQ, true);
+				static DesignState stQ;
+				stQ.doc.NewDocument("Toile", NkAuthor::Humain);
+				const int32 pgQ = stQ.doc.AddChild(0, "", NkAuthor::Humain);
+				stQ.doc.nodes[(uint32)pgQ].shape = NkString("frame");
+				stQ.doc.nodes[(uint32)pgQ].layout.kind = NkLayoutKind::Free;
+				stQ.doc.nodes[(uint32)pgQ].width.mode = NkSizeMode::Fixed;
+				stQ.doc.nodes[(uint32)pgQ].width.value = 400.f;
+				stQ.doc.nodes[(uint32)pgQ].height.mode = NkSizeMode::Fixed;
+				stQ.doc.nodes[(uint32)pgQ].height.value = 300.f;
+				const int32 rA = stQ.doc.AddChild(pgQ, "", NkAuthor::Humain);
+				{
+					NkUINode &z = stQ.doc.nodes[(uint32)rA];
+					z.shape = NkString("rect");
+					z.width.mode = NkSizeMode::Fixed;
+					z.width.value = 120.f;
+					z.height.mode = NkSizeMode::Fixed;
+					z.height.value = 40.f;
+					NkRemplissage f1;
+					f1.couleur = NkString("#1976d2");
+					z.fills.PushBack(f1);
+					NkBordure b;
+					b.couleur = NkString("#30363d");
+					b.epaisseur = 2.f;
+					z.borders.PushBack(b);
+					NkEffet e;
+					e.couleur = NkString("#000000");
+					z.effets.PushBack(e);
+				}
+				const int32 tB = stQ.doc.AddChild(pgQ, "", NkAuthor::Humain);
+				{
+					NkUINode &z = stQ.doc.nodes[(uint32)tB];
+					z.shape = NkString("text");
+					z.text = NkString("Salut");
+					z.textColor = NkString("#ff0000");
+					z.width.mode = NkSizeMode::Fixed;
+					z.width.value = 80.f;
+					z.height.mode = NkSizeMode::Fixed;
+					z.height.value = 20.f;
+				}
+				stQ.Recompute(NkPaintRect{0.f, 0.f, 600.f, 900.f});
+				static InspectorPanel inspQ(&stQ);
+				NkEditorFrameContext ecQ;
+				ecQ.ui = &ctxQ;
+				ecQ.dt = 0.016f;
+				const nkgui::NkRect regionQ = {600.f, 0.f, 300.f, 8000.f};
+				auto imageQ = [&](float32 mx, float32 my, bool bas) {
+					ctxQ.input.mousePos = {mx, my};
+					ctxQ.input.mouseDown[0] = bas;
+					ctxQ.BeginFrame(0.016f);
+					ctxQ.BeginLayout(regionQ);
+					inspQ.OnUI(ecQ);
+					NkDessinerPickerDemande(ctxQ, stQ);
+					ctxQ.EndFrame();
+				};
+				auto fermer = [&]() {
+					if (ctxQ.popupDepth > 0)
+						ctxQ.ClosePopup();
+					stQ.picker = DesignState::DemandePicker();
+					imageQ(-1.f, -1.f, false);
+					imageQ(-1.f, -1.f, false);
+				};
+				// les HUIT familles de portes ; l'identifiant d'une instance moins son numero
+				// (sans le `##` de tete : le releve coupe a `##`, la pastille note le reste)
+				static const char *const kFam[8] = {"insp.fill.pastille", "insp.bord.pastille", "insp.effet.pastille",
+												"insp.etat.pastille", "insp.etat.texte",   "insp.etat.bord",
+												"insp.app.texte.pastille", "insp.canvas.pastille"};
+				static const char *const kNom[8] = {"remplissage", "bordure", "effet", "etat:fond", "etat:texte",
+												"etat:bordure", "apparence:texte", "canvas"};
+				auto famille = [&](const char *cle) -> int32 {
+					for (int32 k = 0; k < 8; ++k) {
+						const char *a = kFam[k], *b = cle;
+						while (*a && *b && *a == *b) {
+							++a;
+							++b;
+						}
+						if (*a)
+							continue;
+						while (*b >= '0' && *b <= '9')
+							++b;
+						if (!*b)
+							return k;
+					}
+					return -1;
+				};
+				uint32 instances[8] = {}, enveloppes[8] = {}, noyaux[8] = {}, autres[8] = {};
+				float32 largeur[8] = {}, hauteur[8] = {};
+				uint32 inconnues = 0u, muettes = 0u;
+				char nomsInconnus[240] = {};
+				float32 wEnveloppe = 0.f;
+				// une selection : relever les pastilles, puis CLIQUER chacune et mesurer
+				struct Vue {
+						char cle[48];
+						nkgui::NkRect r;
+				};
+				auto parcourir = [&](int32 selection) {
+					if (selection >= 0)
+						stQ.SelectSingle(selection);
+					else {
+						stQ.SelectClear();
+						// la pastille du CANVAS n'existe qu'en mode << Couleur >> : on pose une
+						// couleur au decor APRES sa premiere lecture (`LireDecorUneFois` lirait
+						// sinon celui de la machine par-dessus). Rien n'est ecrit : pas de geste.
+						imageQ(-1.f, -1.f, false);
+						stQ.canvasFill = NkRemplissage();
+						stQ.canvasFill.couleur = NkString("#0d1117");
+					}
+					fermer();
+					// ÉTATS est REPLIEE par defaut : on la deplie par SON geste -- un clic sur
+					// son titre, trouve au releve (`insp.section.ÉTATS`) -- pas en touchant
+					// l'etat du panneau.
+					if (const nkgui::NkGuiNote *m = nkgui::NkGuiIntrospectTrouverCle(ctxQ, "insp.section.ÉTATS.ouvert")) {
+						if (m->rect.x < 0.5f) {
+							if (const nkgui::NkGuiNote *t = nkgui::NkGuiIntrospectTrouverCle(ctxQ, "insp.section.ÉTATS")) {
+								const float32 tx = t->rect.x + t->rect.w * 0.5f, ty = t->rect.y + t->rect.h * 0.5f;
+								imageQ(tx, ty, false);
+								imageQ(tx, ty, true);
+								imageQ(tx, ty, false);
+								fermer();
+							}
+						}
+					}
+					NkVector<Vue> vues;
+					int32 nb = 0;
+					const nkgui::NkGuiNote *notes = nkgui::NkGuiIntrospectNotes(ctxQ, nb);
+					for (int32 i = 0; i < nb; ++i)
+						if (NkComponentDecl::StrEq(notes[i].libelle, "pastille couleur")) {
+							Vue v;
+							snprintf(v.cle, sizeof(v.cle), "%s", notes[i].cle);
+							v.r = notes[i].rect;
+							vues.PushBack(v);
+						}
+					for (uint32 k = 0; k < (uint32)vues.Size(); ++k) {
+						const int32 fam = famille(vues[k].cle);
+						if (fam < 0) {
+							++inconnues; // une porte que la table ne connait pas : elle doit s'y ajouter
+							const size_t li = strlen(nomsInconnus);
+							snprintf(nomsInconnus + li, sizeof(nomsInconnus) - li, "%s%s", li ? "," : "", vues[k].cle);
+							continue;
+						}
+						fermer();
+						const float32 cx = vues[k].r.x + vues[k].r.w * 0.5f, cy = vues[k].r.y + vues[k].r.h * 0.5f;
+						imageQ(cx, cy, false); // le survol precede l'appui
+						imageQ(cx, cy, true);
+						imageQ(cx, cy, false);
+						imageQ(-1.f, -1.f, false);
+						imageQ(-1.f, -1.f, false);
+						++instances[fam];
+						if (!stQ.picker.ouvert || !ctxQ.IsPopupOpen(stQ.picker.id)) {
+							++muettes; // cliquee, et rien ne s'est ouvert
+							continue;
+						}
+						const float32 w = ctxQ.popupRects[0].w;
+						largeur[fam] = w;
+						hauteur[fam] = ctxQ.popupRects[0].h;
+						if (fam == 0 && wEnveloppe == 0.f)
+							wEnveloppe = w; // la fenetre d'un REMPLISSAGE : la reference, mesuree ici
+						if (stQ.picker.genre == 1u)
+							++enveloppes[fam];
+						else if (stQ.picker.genre == 0u)
+							++noyaux[fam];
+						else
+							++autres[fam];
+					}
+					fermer();
+				};
+				parcourir(rA);
+				parcourir(tB);
+				parcourir(-1);
+				// le CONTROLE POSITIF : le noyau nu, ouvert a la main, a une AUTRE largeur -- la
+				// mesure distingue bien les deux fenetres
+				stQ.SelectSingle(rA);
+				fermer();
+				stQ.picker.ouvert = true;
+				stQ.picker.id = ctxQ.GetId("##s.153.noyau");
+				stQ.picker.genre = 0u;
+				stQ.picker.noeud = rA;
+				stQ.picker.ancre = {700.f, 200.f, 16.f, 16.f};
+				imageQ(-1.f, -1.f, false);
+				imageQ(-1.f, -1.f, false);
+				const float32 wNoyau = ctxQ.popupRects[0].w;
+				fermer();
+				// LE VERDICT, famille par famille
+				uint32 familles = 0u, fautes = 0u;
+				char lignes[600] = {};
+				for (int32 k = 0; k < 8; ++k) {
+					if (instances[k] > 0u)
+						++familles;
+					const bool attendueEnveloppe = k != 1; // BORDURES ouvre SA fenetre
+					const bool juste = instances[k] > 0u
+									  && (attendueEnveloppe ? (enveloppes[k] == instances[k] && largeur[k] == wEnveloppe)
+														: (autres[k] == instances[k] && largeur[k] != wEnveloppe
+														   && largeur[k] != wNoyau));
+					if (!juste)
+						++fautes;
+					const size_t l = strlen(lignes);
+					snprintf(lignes + l, sizeof(lignes) - l, "%s%s x%u : %s %.0f px%s", k ? " ; " : "", kNom[k], instances[k],
+							 noyaux[k] ? "NOYAU" : (enveloppes[k] ? "enveloppe" : (autres[k] ? "sa fenetre" : "-")),
+							 (double)largeur[k], juste ? "" : " [FAUX]");
+				}
+				// (b) LES MASQUAGES PAR SENS, lus sur la HAUTEUR (26 px par rangee) : un EFFET
+				//     garde l'opacite et la variable (le modele porte les deux) -> la hauteur
+				//     d'un remplissage ; un ETAT et le TEXTE perdent l'opacite, gardent la
+				//     variable -> 26 de moins ; le CANVAS perd la variable, garde l'opacite ->
+				//     26 de moins aussi.
+				const float32 hF = hauteur[0];
+				auto proche = [](float32 a, float32 b) { return a > b - 0.5f && a < b + 0.5f; };
+				const bool hEffet = proche(hauteur[2], hF);
+				const bool hEtats = proche(hauteur[3], hF - 26.f) && proche(hauteur[4], hF - 26.f) && proche(hauteur[5], hF - 26.f);
+				const bool hTexte = proche(hauteur[6], hF - 26.f);
+				const bool hCanvas = proche(hauteur[7], hF - 26.f);
+				const bool masquages = hF > 0.f && hEffet && hEtats && hTexte && hCanvas;
+				// (c) L'ECRITURE, PAR LE VRAI CLIC : la pastille d'EFFET et celle du TEXTE, puis ce
+				//     que la frappe d'un hexa fait (`change` + `hex`) -- la couleur se pose DANS
+				//     l'effet (son opacite gardee) et DANS le texte, les remplissages intacts.
+				auto cliquerCle = [&](const char *cle) -> bool {
+					fermer();
+					const nkgui::NkGuiNote *t = nkgui::NkGuiIntrospectTrouverCle(ctxQ, cle);
+					if (!t)
+						return false;
+					const float32 tx = t->rect.x + t->rect.w * 0.5f, ty = t->rect.y + t->rect.h * 0.5f;
+					imageQ(tx, ty, false);
+					imageQ(tx, ty, true);
+					imageQ(tx, ty, false);
+					imageQ(-1.f, -1.f, false);
+					return stQ.picker.ouvert && stQ.picker.genre == 1u;
+				};
+				auto taper = [&](const char *hex) {
+					snprintf(stQ.picker.hex, sizeof(stQ.picker.hex), "%s", hex);
+					stQ.picker.change = true;
+					imageQ(-1.f, -1.f, false);
+				};
+				stQ.SelectSingle(rA);
+				fermer();
+				const float32 opAvant = stQ.doc.nodes[(uint32)rA].effets[0].opacite;
+				const bool ouvreEffet = cliquerCle("insp.effet.pastille0");
+				taper("#00ff00");
+				const NkUINode &zA = stQ.doc.nodes[(uint32)rA];
+				const bool ecritEffet = ouvreEffet && NkComponentDecl::StrEq(zA.effets[0].couleur.Data(), "#00ff00")
+										&& zA.effets[0].opacite == opAvant && zA.fills.Size() == 1u
+										&& NkComponentDecl::StrEq(zA.fills[0].couleur.Data(), "#1976d2");
+				stQ.SelectSingle(tB);
+				fermer();
+				const bool ouvreTexte = cliquerCle("insp.app.texte.pastille");
+				taper("#0000ff");
+				const NkUINode &zB = stQ.doc.nodes[(uint32)tB];
+				const bool ecritTexte = ouvreTexte && NkComponentDecl::StrEq(zB.textColor.Data(), "#0000ff") && zB.fills.Empty();
+				fermer();
+				snprintf(det, sizeof(det),
+						 "%u famille(s) sur 8 trouvee(s) a l'ecran, %u inconnue(s) [%s], %u muette(s) ; enveloppe (remplissage) %.0f "
+						 "px, noyau nu %.0f px (controle positif) ; %s || (b) hauteurs : remplissage %.0f, effet %.0f [=], "
+						 "etats %.0f/%.0f/%.0f [-26], texte %.0f [-26], canvas %.0f [-26] -> %d || (c) ecriture : effet "
+						 "ouvert=%d pose=%d (opacite gardee, remplissages intacts), texte ouvert=%d pose=%d",
+						 familles, inconnues, nomsInconnus, muettes, (double)wEnveloppe, (double)wNoyau, lignes, (double)hF,
+						 (double)hauteur[2], (double)hauteur[3], (double)hauteur[4], (double)hauteur[5], (double)hauteur[6],
+						 (double)hauteur[7], masquages ? 1 : 0, ouvreEffet ? 1 : 0, ecritEffet ? 1 : 0, ouvreTexte ? 1 : 0,
+						 ecritTexte ? 1 : 0);
+				check("153. TOUTES LES PORTES A LA PASTILLE, MESUREES A L'ECRAN : chaque pastille que l'inspecteur "
+					  "dessine est trouvee au releve, cliquee par le vrai chemin, et sa fenetre mesuree sur la LARGEUR "
+					  "du popup -- huit familles, toutes l'enveloppe d'un remplissage sauf BORDURES qui ouvre sa propre "
+					  "fenetre, aucune le noyau nu, aucune muette, aucune inconnue de la table ; les masquages suivent "
+					  "le SENS (la hauteur le dit) ; et la couleur choisie se pose dans l'effet et dans le texte",
+					  familles == 8u && fautes == 0u && inconnues == 0u && muettes == 0u && wEnveloppe > 0.f
+						  && wNoyau > 0.f && wNoyau != wEnveloppe && masquages && ecritEffet && ecritTexte,
+					  det);
+			}
 		}
 		// ── 94. ① L'APERCU PENDANT LE TRACE (05/09). Rodolf : « pourquoi quand on dessine un
 		//    graphique on voit juste le rectangle qui s'allonge, et des qu'on relache on voit la
