@@ -439,6 +439,45 @@ namespace nkentseu {
 				return;
 			if (!ctx.renderer->BeginFrame())
 				return;
+			// NK_BANC_POST="tonemap,bloom,ssao,fxaa" : eteint des passes de post-
+			// traitement sur le banc, une par une -- le pendant de NK_AGENT_POST du
+			// modeleur, et pour la MEME question : FXAA AGIT-elle ici ?
+			//
+			// ⚠️ ELLE ECRIT DANS LA CONFIGURATION QUE LE GRAPHE LIT. Il y en a deux :
+			// NkPostProcessStack::GetConfig() (la pile) et NkRenderer::GetConfig()
+			// .postProcess (le graphe, via SetPostConfig). Ecrire dans la premiere
+			// imprimait « applique » et ne changeait rien -- mesure : eteindre TOUT,
+			// tonemap compris, ne bougeait l'image que de 0.019. Le controle positif
+			// de ce levier est donc « tonemap » : eteint, l'image DOIT etre bouleversee.
+			{
+				static bool sPostPose = false;
+				if (!sPostPose) {
+					sPostPose = true;
+					if (const char *pv = ::nkentseu::env::GetEnvVar("NK_BANC_POST")) {
+						const bool tout = std::strstr(pv, "tout") != nullptr;
+						renderer::NkPostConfig c = ctx.renderer->GetConfig().postProcess;
+						// « +fxaa » ALLUME, « fxaa » ETEINT. Le banc cree son renderer
+						// avec fxaa=false (main.cpp, cas 20 : « un anticrenelage
+						// EFFACERAIT ce qu'on vient mesurer »). Pour que le banc juge
+						// yFlipUV avec ses temoins absolus, il faut pouvoir l'allumer.
+						// Controle d'armement : la sonde NK_AGENT_TONELDR n'imprime
+						// « ARMEE » que si la passe FXAA_Final tourne reellement.
+						auto veut = [&](const char *nom, bool &champ) {
+							char plus[16] = {'+', 0};
+							std::strncat(plus, nom, sizeof(plus) - 2);
+							if (std::strstr(pv, plus)) champ = true;
+							else if (tout || std::strstr(pv, nom)) champ = false;
+						};
+						veut("tonemap", c.toneMapping);
+						veut("bloom", c.bloom);
+						veut("ssao", c.ssao);
+						veut("fxaa", c.fxaa);
+						ctx.renderer->SetPostConfig(c);
+						logger.Infof("[BancOmbre] NK_BANC_POST=%s : tonemap=%d bloom=%d ssao=%d fxaa=%d\n",
+									 pv, c.toneMapping ? 1 : 0, c.bloom ? 1 : 0, c.ssao ? 1 : 0, c.fxaa ? 1 : 0);
+					}
+				}
+			}
 			// NK_BANC_SURTAILLE=<w>x<h> : pose SetRenderSizeOverride, comme le
 			// modeleur, qui rend sa vue 3D a 1064x566 dans une fenetre 1616x939.
 			//

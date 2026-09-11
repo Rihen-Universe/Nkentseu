@@ -1,6 +1,7 @@
 #pragma once
 // =============================================================================
 // NkRendererImpl.h  — NKRenderer v4.0
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // Implémentation concrète de NkRenderer.
 // Possède tous les sous-systèmes. Thread-safe sur Init/Shutdown.
 // =============================================================================
@@ -201,6 +202,12 @@ namespace nkentseu {
 				NkFrameContext mFrameCtx;
 				bool mInitialized = false;
 				NkRendererStats mStats;
+				// SONDE NK_AGENT_TONELDR=<png> : relecture BRUTE du transient ToneLDR,
+				// l'ENTREE de FXAA, lignes telles que STOCKEES (aucune convention de
+				// relecteur appliquee). Une seule prise par processus.
+				NkBufferHandle mDbgToneBuf;
+				bool mDbgTonePending = false, mDbgToneDone = false;
+				uint32 mDbgToneW = 0, mDbgToneH = 0;
 
 				// Sous-systèmes (ordre d'initialisation = ordre de déclaration)
 				memory::NkUniquePtr<NkResources> mResources;   // toujours actif (default tex/samplers/layouts)
