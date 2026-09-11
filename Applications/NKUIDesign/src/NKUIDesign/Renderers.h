@@ -521,6 +521,37 @@ namespace nkuidesign {
 													: (n.textColor.Empty() ? nullptr
 																		   : n.textColor.Data());
 		}
+		/// LES BORDURES VUES : celles de la porte du modele (`BorduresEffectives`),
+		/// avec la surcharge de l'état affiché PAR CHAMP -- couleur, épaisseur -- sur
+		/// CHAQUE bordure qui se peint. `logement` : `cap + 1` bordures fournies par
+		/// l'appelant (les copies surchargées, plus la clé historique) ; AUCUNE copie
+		/// tant qu'aucun état ne pose de bordure. Épaisseur posée à 0 = retirée.
+		/// ⚠️ L'EXPORT SVG lit la porte du MODELE, pas celle-ci : il exporte la base,
+		///    et c'est dit -- un état est un mode de vue.
+		inline nkentseu::uint32 NkBorduresVues(const NkDocumentHost &h, const NkUINode &n,
+											   const NkBordure **out, nkentseu::uint32 cap,
+											   NkBordure *logement) {
+			const nkentseu::uint32 nb = n.BorduresEffectives(out, cap, logement[cap]);
+			const NkApparenceEtat *a = NkEtatVu(h, n);
+			if (!a || !a->BordurePosee())
+				return nb;
+			nkentseu::uint32 gardees = 0u;
+			for (nkentseu::uint32 i = 0; i < nb; ++i) {
+				logement[gardees] = *out[i];
+				if (!a->bordureCouleur.Empty())
+					logement[gardees].couleur = a->bordureCouleur;
+				if (a->bordureEpaisseur >= 0.f) {
+					logement[gardees].epaisseur = a->bordureEpaisseur;
+					for (nkentseu::uint32 c = 0; c < 4u; ++c)
+						logement[gardees].cotes[c] = -1.f; // l'état pose une épaisseur UNIFORME
+				}
+				if (logement[gardees].epaisseur <= 0.f)
+					continue; // retirée dans cet état
+				out[gardees] = &logement[gardees];
+				++gardees;
+			}
+			return gardees;
+		}
 		/// L'OPACITE DU FOND VUE : celle de l'état si posée (>= 0), sinon la base.
 		inline nkentseu::float32 NkOpaciteFondVue(const NkDocumentHost &h, const NkUINode &n) {
 			const NkApparenceEtat *a = NkEtatVu(h, n);
@@ -2480,9 +2511,9 @@ namespace nkuidesign {
 				//    `BorduresEffectives` decide seule de ce qui se peint -- les deux
 				//    boucles ci-dessous et la ligne plus bas ne font que dessiner.
 				const NkBordure *bordures[NkUINode::kMaxBorduresPeintes];
-				NkBordure bordureHistorique;
+				NkBordure logementBordures[NkUINode::kMaxBorduresPeintes + 1u];
 				const uint32 nbBordures =
-					n.BorduresEffectives(bordures, NkUINode::kMaxBorduresPeintes, bordureHistorique);
+					NkBorduresVues(host, n, bordures, NkUINode::kMaxBorduresPeintes, logementBordures);
 				if (traceNb >= 3u) {
 					for (uint32 bi = 0; bi < nbBordures; ++bi) {
 						const NkBordure &b = *bordures[bi];
@@ -2548,9 +2579,9 @@ namespace nkuidesign {
 				//    le document de Rodolf : aucune ligne ne la porte -- son image ne
 				//    change pas ; c'est dit en Q145 plutot que glisse.
 				const NkBordure *bordures[NkUINode::kMaxBorduresPeintes];
-				NkBordure bordureHistorique;
+				NkBordure logementBordures[NkUINode::kMaxBorduresPeintes + 1u];
 				const uint32 nbBordures =
-					n.BorduresEffectives(bordures, NkUINode::kMaxBorduresPeintes, bordureHistorique);
+					NkBorduresVues(host, n, bordures, NkUINode::kMaxBorduresPeintes, logementBordures);
 				const NkBordure *bd = nbBordures > 0u ? bordures[0] : nullptr;
 				const float32 ep = bd ? bd->epaisseur : 2.f;
 				const char *ext = bd ? bd->extremite.Data() : "";

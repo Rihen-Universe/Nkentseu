@@ -5469,11 +5469,14 @@ namespace nkuidesign {
 						ctxI.ClosePopup();
 					stI.picker = DesignState::DemandePicker();
 					// (d) LE CHEMIN D'OUVERTURE, lu a la source : les DEUX pastilles d'ETATS demandent
-					//     l'enveloppe (`picker.genre = 1u` a moins de 600 caracteres de leur identifiant).
+					//     l'enveloppe (`picker.genre = 1u` a moins de 1000 caracteres de leur identifiant).
 					uint32 portesEnveloppe = 0u;
 					{
 						const NkString src = NkFile::ReadAllText("Applications/NKUIDesign/src/NKUIDesign/Panels.h");
-						static const char *const kIds[2] = {"\"##insp.etat.pastille%u\"", "\"##insp.etat.texte%u\""};
+						// ② b (11/09) : la couleur du texte ET celle de la bordure passent par UNE
+						//   lambda (`couleurEtat`, identifiant `##insp.etat.%s%u`) -- une porte,
+						//   deux appelants ; la pastille du fond reste a part.
+						static const char *const kIds[2] = {"\"##insp.etat.pastille%u\"", "\"##insp.etat.%s%u\""};
 						for (uint32 q = 0; q < 2u && !src.Empty(); ++q) {
 							const char *d = src.Data();
 							for (; *d; ++d) {
@@ -5505,7 +5508,7 @@ namespace nkuidesign {
 							 "n'est plus le noyau (largeur %.0f, noyau %.0f, remplissage %.0f) -> %d ; meme fenetre, sans "
 							 "les cinq vignettes (2x%u < %u < 4x%u) -> %d ; rangees variable ET opacite retirees : %.0f px [52] -> %d ; texte = "
 							 "fond -> %d ; (c) ecrit dans le bloc Hover (couleurTexte=#00ff00, fond vide)=%d, remplissages "
-							 "intacts=%d, terrain rendu=%d ; (d) pastilles d'ETATS qui demandent l'enveloppe : %u/2",
+							 "intacts=%d, terrain rendu=%d ; (d) portes d'ETATS qui demandent l'enveloppe : %u/2 (fond ; texte+bordure)",
 							 oNoyau, oEtat, oTexte, oFill, (double)wEtat, (double)wNoyau, (double)wFill, plusLeNoyau ? 1 : 0,
 							 oEtat, oFill, oEtat, memeFenetre ? 1 : 0, (double)dH, variableRetiree ? 1 : 0, texteCommeFond ? 1 : 0,
 							 ecritDansLEtat ? 1 : 0, fillsIntacts ? 1 : 0, terrainRendu ? 1 : 0, portesEnveloppe);
@@ -13776,6 +13779,173 @@ namespace nkuidesign {
 				  "EXACTEMENT comme une liste. Le controle negatif est le diff du flux de son document entre les deux "
 				  "binaires -- vide",
 				  rodolf && contrat && peintre && ligne, det);
+		}
+		// ── 150. LA BORDURE PAR ETAT (11/09, lot ② b), PAR LA PORTE POSEE EN (a). Le temoin
+		//    du coordinateur : un etat posant CETTE SEULE propriete -> elle change, le reste ne
+		//    bouge pas, document intact. Et parce que la cle historique passe par la porte, un
+		//    rect a `borderColor` recoit la surcharge EXACTEMENT comme un rect a liste.
+		{
+			char det[760];
+			NkUIDocument dB;
+			dB.NewDocument("Toile", NkAuthor::Humain);
+			dB.SetMetric("espacement", 0.f);
+			dB.SetMetric("marge", 0.f);
+			dB.nodes[0].layout.kind = NkLayoutKind::Free;
+			auto rect = [&](float32 px) -> int32 {
+				const int32 k = dB.AddChild(0, "", NkAuthor::Humain);
+				NkUINode &z = dB.nodes[(uint32)k];
+				z.shape = NkString("rect");
+				z.layout.kind = NkLayoutKind::Free;
+				z.posX = px;
+				z.posY = 20.f;
+				z.width.mode = NkSizeMode::Fixed;
+				z.width.value = 80.f;
+				z.height.mode = NkSizeMode::Fixed;
+				z.height.value = 40.f;
+				z.fill = NkString("#ff0000");
+				return k;
+			};
+			// A : une LISTE [#123456, 2 px, interieur] ; Hover pose la seule couleur, Pressed la
+			//     seule epaisseur (6), Focus l'epaisseur 0 (retiree).
+			const int32 nA = rect(20.f);
+			{
+				NkUINode &z = dB.nodes[(uint32)nA];
+				NkBordure b;
+				b.couleur = NkString("#123456");
+				b.epaisseur = 2.f;
+				b.position = NkBordurePos::Interieur;
+				z.borders.PushBack(b);
+				NkBlocEtat(z, "Hover").bordureCouleur = NkString("#00ff00");
+				NkBlocEtat(z, "Pressed").bordureEpaisseur = 6.f;
+				NkBlocEtat(z, "Focus").bordureEpaisseur = 0.f;
+			}
+			// B : la CLE HISTORIQUE (#123456, borderW 2) ; Hover pose la seule couleur.
+			const int32 nB = rect(140.f);
+			{
+				NkUINode &z = dB.nodes[(uint32)nB];
+				z.borderColor = NkString("#123456");
+				z.borderW = 2.f;
+				NkBlocEtat(z, "Hover").bordureCouleur = NkString("#00ff00");
+			}
+			// C : un rect dont DISABLED ne pose que le fond : sa ligne ne gagne aucun jeton
+			const int32 nC = rect(260.f);
+			NkBlocEtat(dB.nodes[(uint32)nC], "Disabled").fond = NkString("#00ffff");
+
+			NkDocumentHost hB;
+			auto flux = [&](const char *etat, NkRecordingPaint &rec) {
+				snprintf(hB.etatAffiche, sizeof(hB.etatAffiche), "%s", etat ? etat : "");
+				RenderDocument(rec, dB, NkPaintRect{0.f, 0.f, 400.f, 300.f}, &hB);
+			};
+			auto compte = [&](const NkRecordingPaint &rec, uint32 rgba) -> uint32 {
+				uint32 n = 0u;
+				for (uint32 i = 0; i < (uint32)rec.cmds.Size(); ++i)
+					if (rec.cmds[i].op == NkPaintOp::FillColor && rec.cmds[i].rgba == rgba)
+						++n;
+				return n;
+			};
+			// la plus grande LARGEUR d'une commande de cadre de la couleur donnee
+			auto largeurMax = [&](const NkRecordingPaint &rec, uint32 rgba) -> float32 {
+				float32 w = 0.f;
+				for (uint32 i = 0; i < (uint32)rec.cmds.Size(); ++i)
+					if (rec.cmds[i].op == NkPaintOp::FillColor && rec.cmds[i].rgba == rgba && rec.cmds[i].w > w)
+						w = rec.cmds[i].w;
+				return w;
+			};
+			NkRecordingPaint base, hover, pressed, focus;
+			flux("", base);
+			flux("Hover", hover);
+			flux("Pressed", pressed);
+			flux("Focus", focus);
+			const uint32 cadreBase = compte(base, 0x123456ffu), fondsBase = compte(base, 0xff0000ffu);
+			// (a) la base : des cadres #123456 (A ET B), les fonds rouges, aucun vert.
+			// ⚠️ Ma premiere course disait << 3 fonds rouges >> ; il y en a 5 : le cadre
+			//    repeint l'INTERIEUR a la couleur du fond (une commande de plus par rect
+			//    borde). On lit le nombre, on ne le suppose pas -- il sert de reference.
+			const bool okBase = cadreBase == 2u && fondsBase >= 3u && compte(base, 0x00ff00ffu) == 0u;
+			// (b) Hover (couleur seule) : TOUS les cadres passent au vert -- ceux de la liste (A)
+			//     comme ceux de la cle historique (B) --, autant qu'avant, les fonds ne bougent pas,
+			//     et ce sont les SEULES commandes differentes
+			const uint32 diffHover = base.DiffCount(hover);
+			const bool okHover = compte(hover, 0x00ff00ffu) == cadreBase && compte(hover, 0x123456ffu) == 0u
+								 && compte(hover, 0xff0000ffu) == fondsBase && diffHover == cadreBase;
+			// (c) Pressed (epaisseur seule, 2 -> 6) : la couleur reste #123456, la geometrie des
+			//     cadres de A change (B n'a pas de bloc Pressed : ses cadres ne bougent pas)
+			const uint32 diffPressed = base.DiffCount(pressed);
+			// ⚠️ La commande de cadre garde la LARGEUR du rect (80) quelle que soit
+			//    l'epaisseur : c'est la commande ENTIERE qui differe (1 seule, celle de A).
+			const bool okPressed = compte(pressed, 0x123456ffu) == cadreBase && compte(pressed, 0xff0000ffu) == fondsBase
+								   && diffPressed == 1u;
+			// (d) Focus (epaisseur 0) : A n'a PLUS de cadre (ni l'interieur repeint qui va
+			//     avec), B garde le sien, les trois fonds propres restent
+			const uint32 cadreFocus = compte(focus, 0x123456ffu);
+			const bool okFocus = cadreFocus + 1u == cadreBase && compte(focus, 0xff0000ffu) >= 3u
+								 && compte(focus, 0xff0000ffu) < fondsBase;
+			// (e) le document n'a pas bouge
+			const NkUINode &qA = dB.nodes[(uint32)nA];
+			const NkUINode &qB = dB.nodes[(uint32)nB];
+			const bool intact = qA.borders.Size() == 1u && NkComponentDecl::StrEq(qA.borders[0].couleur.Data(), "#123456")
+								&& qA.borders[0].epaisseur == 2.f && NkComponentDecl::StrEq(qB.borderColor.Data(), "#123456")
+								&& qB.borderW == 2.f && qB.borders.Empty();
+			// (f) le fichier : ` bordure=` x4 (A x3, B x1), la ligne de C sans jeton nouveau, relu
+			//     identique, et le document relu peint pareil sous Hover
+			NkString texte;
+			dB.Save(texte);
+			auto compterMotif = [&](const char *motif) -> uint32 {
+				uint32 n = 0u, lm = 0u;
+				while (motif[lm])
+					++lm;
+				const char *p = texte.Data();
+				while (p && *p) {
+					if (NkString(p).StartsWith(motif)) {
+						++n;
+						p += lm;
+					} else
+						++p;
+				}
+				return n;
+			};
+			const uint32 nBord = compterMotif("bordure="), nApp = compterMotif("apparence_");
+			NkUIDocument dR;
+			const bool relu = dR.Load(texte.Data());
+			bool memes = relu && dR.nodes.Size() == dB.nodes.Size();
+			if (memes) {
+				const NkApparenceEtat *ah = NkBlocEtatSi(dR.nodes[(uint32)nA], "Hover");
+				const NkApparenceEtat *ap = NkBlocEtatSi(dR.nodes[(uint32)nA], "Pressed");
+				const NkApparenceEtat *af = NkBlocEtatSi(dR.nodes[(uint32)nA], "Focus");
+				const NkApparenceEtat *bh = NkBlocEtatSi(dR.nodes[(uint32)nB], "Hover");
+				const NkApparenceEtat *cd = NkBlocEtatSi(dR.nodes[(uint32)nC], "Disabled");
+				memes = ah && ap && af && bh && cd && NkComponentDecl::StrEq(ah->bordureCouleur.Data(), "#00ff00")
+						&& ah->bordureEpaisseur < 0.f && ap->bordureCouleur.Empty() && ap->bordureEpaisseur == 6.f
+						&& af->bordureEpaisseur == 0.f && NkComponentDecl::StrEq(bh->bordureCouleur.Data(), "#00ff00")
+						&& !cd->BordurePosee() && NkComponentDecl::StrEq(cd->fond.Data(), "#00ffff");
+			}
+			uint32 diffRelu = 999u;
+			if (memes) {
+				NkRecordingPaint reluP;
+				snprintf(hB.etatAffiche, sizeof(hB.etatAffiche), "%s", "Hover");
+				RenderDocument(reluP, dR, NkPaintRect{0.f, 0.f, 400.f, 300.f}, &hB);
+				diffRelu = hover.DiffCount(reluP);
+			}
+			hB.etatAffiche[0] = '\0';
+			const bool fichier = nBord == 4u && nApp == 5u && memes && diffRelu == 0u;
+			snprintf(det, sizeof(det),
+					 "(a) base : %u cadre(s) #123456, %u fonds rouges -> %d ; (b) Hover (couleur seule) : %u cadres VERTS "
+					 "[%u], 0 ancien=%d, fonds intacts=%d, %u diff [%u] -> %d ; (c) Pressed (epaisseur seule) : couleur "
+					 "gardee=%d, %u diff (A seul), largeur max %.0f -> %.0f -> %d ; (d) Focus (epaisseur 0) : %u cadre(s) "
+					 "[B seul, < %u] -> %d ; (e) document intact -> %d ; (f) fichier : bordure= x%u [4], apparence_ x%u "
+					 "[5], relu=%d, memes=%d, relu peint pareil sous Hover (diff %u) -> %d",
+					 cadreBase, fondsBase, okBase ? 1 : 0, compte(hover, 0x00ff00ffu), cadreBase,
+					 compte(hover, 0x123456ffu) == 0u ? 1 : 0, compte(hover, 0xff0000ffu) == fondsBase ? 1 : 0, diffHover,
+					 cadreBase, okHover ? 1 : 0, compte(pressed, 0x123456ffu) == cadreBase ? 1 : 0, diffPressed,
+					 (double)largeurMax(base, 0x123456ffu), (double)largeurMax(pressed, 0x123456ffu), okPressed ? 1 : 0,
+					 cadreFocus, cadreBase, okFocus ? 1 : 0, intact ? 1 : 0, nBord, nApp, relu ? 1 : 0, memes ? 1 : 0,
+					 diffRelu, fichier ? 1 : 0);
+			check("150. LA BORDURE PAR ETAT, PAR LA PORTE : un etat qui ne pose que la couleur de bordure change "
+				  "toutes les commandes de cadre -- de la liste ET de la cle historique -- et rien d'autre ; "
+				  "l'epaisseur seule change la geometrie et garde la couleur ; l'epaisseur 0 retire la bordure "
+				  "dans cet etat ; le document est intact ; le jeton ` bordure=` ne s'ecrit que pose, se relit, "
+				  "et le document relu peint pareil",
+				  okBase && okHover && okPressed && okFocus && intact && fichier, det);
 		}
 		// ── 94. ① L'APERCU PENDANT LE TRACE (05/09). Rodolf : « pourquoi quand on dessine un
 		//    graphique on voit juste le rectangle qui s'allonge, et des qu'on relache on voit la

@@ -12884,7 +12884,9 @@ namespace nkuidesign {
 						//   dans le champ vise du bloc ; un bloc devenu vide disparait (pas de
 						//   cle fantome) ; les tampons d'ETATS se resynchronisent.
 						NkApparenceEtat &bloc = NkBlocEtat(*n, d.etat);
-						(d.champEtat == 1u ? bloc.couleurTexte : bloc.fond) = f.couleur;
+						(d.champEtat == 1u ? bloc.couleurTexte
+						 : d.champEtat == 2u ? bloc.bordureCouleur
+											 : bloc.fond) = f.couleur;
 						if (bloc.Vide())
 							NkRetirerBlocEtat(*n, d.etat);
 						mSt->doc.MarkHumanEdit(d.noeud);
@@ -16026,7 +16028,10 @@ namespace nkuidesign {
 									 a0->fond.Data());
 							snprintf(mEtatsTexteBuf[e], sizeof(mEtatsTexteBuf[e]), "%s",
 									 a0->couleurTexte.Data());
-						}
+							snprintf(mEtatsBordBuf[e], sizeof(mEtatsBordBuf[e]), "%s",
+									 a0->bordureCouleur.Data());
+						} else
+							mEtatsBordBuf[e][0] = '\0';
 					}
 				}
 				// ⚠️ LA COLONNE SUIT LE PLUS LONG NOM, elle n'est pas fixee :
@@ -16133,76 +16138,123 @@ namespace nkuidesign {
 									   "(trop d'états pour l'éditeur)", ctx.theme.textMuted);
 					}
 				}
-				// ── ② TEXTE ET OMBRE PAR ETAT (11/09), POSES PAR LA REGLE ──────────
-				// ⚠️ CHAQUE RANGEE INTERROGE `NkProprieteAUnSensParEtat` : c'est ce qui
-				//    rend le masquage STRUCTUREL. Une rangee ajoutee demain pour une
-				//    section « non par nature » ne se dessinerait pas -- par construction.
-				//    Et la rangee suit aussi la regle du TYPE : pas de couleur de texte
-				//    par etat sur un rectangle, pas d'ombre par etat sans ombre a surcharger.
+				// ── ② TEXTE, OMBRE, BORDURE PAR ETAT (11/09), POSES PAR LA REGLE ────────
+				// ⚠️ CHAQUE BLOC INTERROGE `NkProprieteAUnSensParEtat` : c'est ce qui rend le
+				//    masquage STRUCTUREL -- un bloc ajoute demain pour une section « non par
+				//    nature » ne se dessinerait pas, par construction. Et chaque bloc suit la
+				//    regle du TYPE : pas de couleur de texte sur un rect, pas d'ombre sans ombre,
+				//    pas de bordure sans bordure qui se peint (par la porte, cle historique
+				//    comprise).
+				// ⚠️ UN BLOC PAR PROPRIETE, UNE RANGEE PAR ETAT : trois proprietes cote a cote
+				//    ne tiennent pas dans la largeur du panneau -- mesure, pas suppose.
 				const bool texteParEtat = NkProprieteAUnSensParEtat("TYPOGRAPHIE")
 										   && NkSectionSApplique("TYPOGRAPHIE", *n);
 				const bool ombreParEtat = NkProprieteAUnSensParEtat("EFFETS") && n->effets.Size() > 0;
-				if (texteParEtat || ombreParEtat) {
+				const NkBordure *bordsPeints[NkUINode::kMaxBorduresPeintes];
+				NkBordure bordHisto;
+				const uint32 nbBordsPeints = n->BorduresEffectives(bordsPeints, NkUINode::kMaxBorduresPeintes, bordHisto);
+				const bool bordureParEtat = NkProprieteAUnSensParEtat("BORDURES") && nbBordsPeints > 0u;
+				auto enTete = [&](const char *titre) {
 					const NkRect rt = ctx.NextItemRect(-1.f, costume::HRangee);
-					costume::Texte(dl, F.px9, rt.x + 12.f, costume::CentrerBande(F.px9, rt.y),
-								   texteParEtat && ombreParEtat ? "Texte, puis ombre (flou · opacité)"
-								   : texteParEtat				  ? "Texte"
-																  : "Ombre (flou · opacité)",
+					costume::Texte(dl, F.px9, rt.x + 12.f, costume::CentrerBande(F.px9, rt.y), titre,
 								   ctx.theme.textMuted);
+				};
+				auto nomEtat = [&](const NkRect &r, uint32 e) -> float32 {
+					costume::Texte(dl, F.px10, r.x + 12.f, costume::CentrerBande(F.px10, r.y), etats[e],
+								   ctx.theme.textMuted);
+					return r.x + 12.f + colEtat;
+				};
+				auto poser = [&](uint32 e) -> NkApparenceEtat & {
+					return NkBlocEtat(*n, etats[e]);
+				};
+				auto fini = [&](uint32 e) {
+					if (NkBlocEtat(*n, etats[e]).Vide())
+						NkRetirerBlocEtat(*n, etats[e]);
+					mSt->doc.MarkHumanEdit(mSt->selected);
+					mSt->host.SyncTo(mSt->doc);
+				};
+				// un champ « — » (herite) qui, clique, pose la valeur de BASE ; sinon un ChampNombre
+				auto champHerite = [&](const char *id, const NkRect &rc, float32 valeur, float32 base,
+									   float32 vmax, float32 &nouvelle) -> bool {
+					if (valeur < 0.f) {
+						const bool sv = ctx.popupDepth == 0 && NkGuiRectContains(rc, ctx.input.mousePos);
+						dl.AddRectFilled(rc, sv ? ctx.theme.rowHover : CouleurInput(), 4.f);
+						costume::Texte(dl, F.px10, rc.x + costume::PadChamp, costume::CentrerY(F.px10, rc.y, rc.h),
+									   "\xE2\x80\x94", ctx.theme.textMuted);
+						if (sv && ctx.input.mouseClicked[0]) {
+							nouvelle = base;
+							return true;
+						}
+						return false;
+					}
+					float32 v = valeur;
+					if (ChampNombre(ctx, id, rc, v, 0.5f, 0.f, vmax)) {
+						nouvelle = v;
+						return true;
+					}
+					return false;
+				};
+				// une pastille + un hexa qui posent une COULEUR d'etat dans `champ`
+				auto couleurEtat = [&](const char *prefixe, uint32 e, float32 x, const NkRect &r, char *buf,
+									   uint32 cap, NkString &champ, uint8 champEtat) -> float32 {
+					const NkRect sw = {x, r.y + (costume::HRangee - 16.f) * 0.5f, 16.f, 16.f};
+					char idP[48], idH[48];
+					snprintf(idP, sizeof(idP), "##insp.etat.%s%u", prefixe, e);
+					snprintf(idH, sizeof(idH), "##insp.etat.%shex%u", prefixe, e);
+					const bool viaP = NkPastilleCouleur(ctx, *mSt, idP, sw, buf, cap, mSt->selected);
+					// ① L'ENVELOPPE, PAS LE NOYAU NU : la demande recoit le bloc d'etat qu'elle
+					//   edite ; `genre == 0` = la porte vient de l'ouvrir, on charge le
+					//   remplissage transitoire avec la couleur posee.
+					if (mSt->picker.ouvert && mSt->picker.id == ctx.GetId(idP)) {
+						if (mSt->picker.genre == 0u) {
+							mSt->etatFill = NkRemplissage();
+							mSt->etatFill.couleur = NkString(buf);
+						}
+						mSt->picker.genre = 1u; // l'enveloppe complete
+						mSt->picker.noeud = mSt->selected;
+						mSt->picker.index = -1;
+						snprintf(mSt->picker.etat, sizeof(mSt->picker.etat), "%s", etats[e]);
+						mSt->picker.champEtat = champEtat;
+					}
+					const float32 xh = sw.x + 16.f + (float32)costume::EspSerre;
+					ctx.SetNextItemRect({xh, costume::BandeY(r.y), 64.f, costume::HControle});
+					if ((nkgui::InputText(ctx, idH, buf, 10) && NkPorteHex(buf, cap)) || viaP) {
+						champ = NkString(buf);
+						fini(e);
+					}
+					return xh + 64.f + (float32)costume::EspLarge;
+				};
+				if (texteParEtat) {
+					enTete("Couleur du texte, par état");
+					for (uint32 e = 0; e < nbEtats && e < kMaxEtatsUI; ++e) {
+						if (NkComponentDecl::StrEq(etats[e], "Normal"))
+							continue; // Normal EST la base
+						const NkRect r = ctx.NextItemRect(-1.f, costume::HRangee);
+						const float32 x = nomEtat(r, e);
+						const NkApparenceEtat *bloc = NkBlocEtatSi(*n, etats[e]);
+						const NkString avantT = bloc ? bloc->couleurTexte : NkString();
+						NkString tampon = avantT;
+						couleurEtat("texte", e, x, r, mEtatsTexteBuf[e], (uint32)sizeof(mEtatsTexteBuf[e]), tampon, 1u);
+						if (!NkComponentDecl::StrEq(avantT.Data(), tampon.Data())) {
+							poser(e).couleurTexte = tampon;
+							fini(e);
+						}
+					}
 				}
-				// l'ombre de BASE du nœud : ce qu'un clic sur « — » pose comme point de depart
-				float32 flouBase = 4.f, opaciteBase = 25.f;
-				for (uint32 i = 0; i < (uint32)n->effets.Size(); ++i)
-					if (n->effets[i].visible) {
-						flouBase = n->effets[i].flou;
-						opaciteBase = n->effets[i].opacite;
-						break;
-					}
-				for (uint32 e = 0; (texteParEtat || ombreParEtat) && e < nbEtats && e < kMaxEtatsUI; ++e) {
-					if (NkComponentDecl::StrEq(etats[e], "Normal"))
-						continue; // Normal EST la base : rien a surcharger
-					const NkRect r = ctx.NextItemRect(-1.f, costume::HRangee);
-					const float32 x0 = r.x + 12.f;
-					costume::Texte(dl, F.px10, x0, costume::CentrerBande(F.px10, r.y), etats[e],
-								   ctx.theme.textMuted);
-					float32 x = x0 + colEtat;
-					if (texteParEtat) {
-						// la COULEUR DU TEXTE de cet etat : pastille + hexa, comme le fond
-						const NkRect sw = {x, r.y + (costume::HRangee - 16.f) * 0.5f, 16.f, 16.f};
-						char idT[40];
-						snprintf(idT, sizeof(idT), "##insp.etat.texte%u", e);
-						const bool viaP = NkPastilleCouleur(ctx, *mSt, idT, sw, mEtatsTexteBuf[e],
-														  (uint32)sizeof(mEtatsTexteBuf[e]), mSt->selected);
-						if (mSt->picker.ouvert && mSt->picker.id == ctx.GetId(idT)) { // ① l'enveloppe
-							if (mSt->picker.genre == 0u) {
-								mSt->etatFill = NkRemplissage();
-								mSt->etatFill.couleur = NkString(mEtatsTexteBuf[e]);
-							}
-							mSt->picker.genre = 1u;
-							mSt->picker.noeud = mSt->selected;
-							mSt->picker.index = -1;
-							snprintf(mSt->picker.etat, sizeof(mSt->picker.etat), "%s", etats[e]);
-							mSt->picker.champEtat = 1u; // la couleur du texte
+				if (ombreParEtat) {
+					enTete("Ombre, par état : flou · opacité");
+					float32 flouBase = 4.f, opaciteBase = 25.f;
+					for (uint32 i = 0; i < (uint32)n->effets.Size(); ++i)
+						if (n->effets[i].visible) {
+							flouBase = n->effets[i].flou;
+							opaciteBase = n->effets[i].opacite;
+							break;
 						}
-						char idH[40];
-						snprintf(idH, sizeof(idH), "##insp.etat.textehex%u", e);
-						const float32 xh = sw.x + 16.f + (float32)costume::EspSerre;
-						ctx.SetNextItemRect({xh, costume::BandeY(r.y), 64.f, costume::HControle});
-						if ((nkgui::InputText(ctx, idH, mEtatsTexteBuf[e], 10)
-							 && NkPorteHex(mEtatsTexteBuf[e], (uint32)sizeof(mEtatsTexteBuf[e])))
-							|| viaP) {
-							NkApparenceEtat &bloc = NkBlocEtat(*n, etats[e]);
-							bloc.couleurTexte = NkString(mEtatsTexteBuf[e]);
-							if (bloc.Vide())
-								NkRetirerBlocEtat(*n, etats[e]);
-							mSt->doc.MarkHumanEdit(mSt->selected);
-							mSt->host.SyncTo(mSt->doc);
-						}
-						x = xh + 64.f + (float32)costume::EspLarge;
-					}
-					if (ombreParEtat) {
-						// l'OMBRE de cet etat, PAR CHAMP : flou puis opacite. « — » = herite ;
-						// un clic dessus pose la valeur de BASE, pour partir de ce qu'on voit.
+					for (uint32 e = 0; e < nbEtats && e < kMaxEtatsUI; ++e) {
+						if (NkComponentDecl::StrEq(etats[e], "Normal"))
+							continue;
+						const NkRect r = ctx.NextItemRect(-1.f, costume::HRangee);
+						float32 x = nomEtat(r, e);
 						const NkApparenceEtat *a = NkBlocEtatSi(*n, etats[e]);
 						const float32 vals[2] = {a ? a->ombreFlou : -1.f, a ? a->ombreOpacite : -1.f};
 						const float32 bases[2] = {flouBase, opaciteBase};
@@ -16211,28 +16263,39 @@ namespace nkuidesign {
 							const NkRect rc = {x, costume::BandeY(r.y), 40.f, costume::HControle};
 							char idO[48];
 							snprintf(idO, sizeof(idO), "insp.etat.ombre%u.%u", e, k);
-							if (vals[k] < 0.f) {
-								const bool sv = ctx.popupDepth == 0 && NkGuiRectContains(rc, ctx.input.mousePos);
-								dl.AddRectFilled(rc, sv ? ctx.theme.rowHover : CouleurInput(), 4.f);
-								costume::Texte(dl, F.px10, rc.x + costume::PadChamp,
-											   costume::CentrerY(F.px10, rc.y, rc.h), "\xE2\x80\x94",
-											   ctx.theme.textMuted);
-								if (sv && ctx.input.mouseClicked[0]) {
-									NkApparenceEtat &bloc = NkBlocEtat(*n, etats[e]);
-									(k == 0 ? bloc.ombreFlou : bloc.ombreOpacite) = bases[k];
-									mSt->doc.MarkHumanEdit(mSt->selected);
-									mSt->host.SyncTo(mSt->doc);
-								}
-							} else {
-								float32 v = vals[k];
-								if (ChampNombre(ctx, idO, rc, v, 0.5f, 0.f, maxs[k])) {
-									NkApparenceEtat &bloc = NkBlocEtat(*n, etats[e]);
-									(k == 0 ? bloc.ombreFlou : bloc.ombreOpacite) = v;
-									mSt->doc.MarkHumanEdit(mSt->selected);
-									mSt->host.SyncTo(mSt->doc);
-								}
+							float32 nv = 0.f;
+							if (champHerite(idO, rc, vals[k], bases[k], maxs[k], nv)) {
+								(k == 0 ? poser(e).ombreFlou : poser(e).ombreOpacite) = nv;
+								fini(e);
 							}
 							x += 40.f + (float32)costume::EspSerre;
+						}
+					}
+				}
+				if (bordureParEtat) {
+					enTete("Bordure, par état : couleur · épaisseur (0 = retirée)");
+					const float32 epBase = bordsPeints[0]->epaisseur;
+					for (uint32 e = 0; e < nbEtats && e < kMaxEtatsUI; ++e) {
+						if (NkComponentDecl::StrEq(etats[e], "Normal"))
+							continue;
+						const NkRect r = ctx.NextItemRect(-1.f, costume::HRangee);
+						float32 x = nomEtat(r, e);
+						const NkApparenceEtat *a = NkBlocEtatSi(*n, etats[e]);
+						const NkString avantB = a ? a->bordureCouleur : NkString();
+						NkString tampon = avantB;
+						x = couleurEtat("bord", e, x, r, mEtatsBordBuf[e], (uint32)sizeof(mEtatsBordBuf[e]), tampon, 2u);
+						if (!NkComponentDecl::StrEq(avantB.Data(), tampon.Data())) {
+							poser(e).bordureCouleur = tampon;
+							fini(e);
+							a = NkBlocEtatSi(*n, etats[e]);
+						}
+						const NkRect rc = {x, costume::BandeY(r.y), 40.f, costume::HControle};
+						char idE[48];
+						snprintf(idE, sizeof(idE), "insp.etat.bordep%u", e);
+						float32 nv = 0.f;
+						if (champHerite(idE, rc, a ? a->bordureEpaisseur : -1.f, epBase, 64.f, nv)) {
+							poser(e).bordureEpaisseur = nv;
+							fini(e);
 						}
 					}
 				}
@@ -18789,6 +18852,8 @@ namespace nkuidesign {
 			char mEtatsBuf[kMaxEtatsUI][12] = {};
 			/// ② les tampons hexa de la COULEUR DU TEXTE par état (11/09)
 			char mEtatsTexteBuf[kMaxEtatsUI][12] = {};
+			/// ② b les tampons hexa de la COULEUR DE BORDURE par état (11/09)
+			char mEtatsBordBuf[kMaxEtatsUI][12] = {};
 			/// Les tampons hexa des ARRETS : [remplissage][arret].
 			enum { kMaxArretsUI = 12 }; ///< au-dela, la liste le dit et n'edite pas
 			char mArretsBuf[kMaxFillsUI][kMaxArretsUI][12] = {};

@@ -458,11 +458,21 @@ namespace nkuidesign {
 			bool OmbrePosee() const {
 				return ombreFlou >= 0.f || ombreOpacite >= 0.f;
 			}
+			/// LA BORDURE PAR ETAT (11/09, lot ② b) -- par champ, comme l'ombre : la
+			/// couleur et l'epaisseur de l'etat remplacent celles de CHAQUE bordure
+			/// qui se peint (par la porte `BorduresEffectives`) ; position, jointure,
+			/// cotes restent ceux du noeud. Epaisseur 0 posee = AUCUNE bordure dans
+			/// cet etat (un bouton Pressed qui perd son trait). < 0 / vide = herite.
+			NkString bordureCouleur;		 ///< hexa, vide = HERITE
+			float32 bordureEpaisseur = -1.f; ///< px, < 0 = HERITE, 0 = retiree
+			bool BordurePosee() const {
+				return !bordureCouleur.Empty() || bordureEpaisseur >= 0.f;
+			}
 
 			/// Vrai si ce bloc ne pose RIEN — il n'a alors pas a etre ecrit.
 			bool Vide() const {
 				return fond.Empty() && radius < 0.f && opacite < 0.f && couleurTexte.Empty()
-					   && !OmbrePosee();
+					   && !OmbrePosee() && !BordurePosee();
 			}
 	};
 
@@ -3099,6 +3109,15 @@ namespace nkuidesign {
 						else
 							WriteNum(out, a.ombreOpacite);
 					}
+					if (a.BordurePosee()) {
+						out.Append(" bordure=");
+						out.Append(a.bordureCouleur.Empty() ? "-" : a.bordureCouleur.Data());
+						out.Append(',');
+						if (a.bordureEpaisseur < 0.f)
+							out.Append('-');
+						else
+							WriteNum(out, a.bordureEpaisseur);
+					}
 					out.Append('\n');
 				}
 				if (!n.transposeDe.Empty())
@@ -4075,6 +4094,20 @@ namespace nkuidesign {
 										++v;
 									if (*v && !(*v == '-' && v[1] == '\0'))
 										a.ombreOpacite = ParseNum(v);
+								} else if (NkString(champ).StartsWith("bordure=")) {
+									// `bordure=<hex|->,<epaisseur|->`
+									const char *v = champ + 8;
+									char part[32];
+									uint32 m = 0;
+									while (*v && *v != ',' && m + 1 < (uint32)sizeof(part))
+										part[m++] = *v++;
+									part[m] = '\0';
+									if (!(m == 0 || (m == 1 && part[0] == '-')))
+										a.bordureCouleur = NkString(part);
+									if (*v == ',')
+										++v;
+									if (*v && !(*v == '-' && v[1] == '\0'))
+										a.bordureEpaisseur = ParseNum(v);
 								}
 							}
 							if (!a.etat.Empty())
