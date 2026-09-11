@@ -230,6 +230,34 @@ namespace {
 		return (sommets > 0u) ? (mxx - mnx) * (mxz - mnz) : 0.f;
 	}
 
+	// Le rapport entre la PLUS GRANDE et la PLUS PETITE maille A L'ECRAN DU RENDU.
+	// 1,00 = densite parfaitement uniforme, et c'est tout l'apport de la grille
+	// projetee : depenser un sommet par bloc de pixels, pas par metre carre.
+	float32 RapportPasEcran(const NkProjectedGrid &g, const NkProjectedGridParams &p,
+							const NkMat4f &vpRendu) {
+		float32 mn = 1e30f, mx = 0.f;
+		for (uint32 j = 0; j <= p.rows; j += 8u) {
+			for (uint32 i = 0; i + 8u <= p.cols; i += 8u) {
+				NkVec3f a, b;
+				if (!NkProjectedGridVertex(g, p, i, j, a) ||
+					!NkProjectedGridVertex(g, p, i + 8u, j, b))
+					continue;
+				const NkVec4f qa = vpRendu * NkVec4f(a.x, a.y, a.z, 1.f);
+				const NkVec4f qb = vpRendu * NkVec4f(b.x, b.y, b.z, 1.f);
+				if (qa.w <= 1e-6f || qb.w <= 1e-6f)
+					continue;
+				const float32 dx = qb.x / qb.w - qa.x / qa.w;
+				const float32 dy = qb.y / qb.w - qa.y / qa.w;
+				const float32 d = NkSqrt(dx * dx + dy * dy);
+				if (d < mn)
+					mn = d;
+				if (d > mx)
+					mx = d;
+			}
+		}
+		return (mn > 1e-9f) ? mx / mn : 0.f;
+	}
+
 	// LA MEME QUESTION, MAIS POSEE DANS LE BON ECRAN.
 	//
 	// `PixelsDecouverts` compare le NDC d'un pixel de RENDU aux bornes de la
@@ -823,6 +851,135 @@ int NkSondeOceanGrille() {
 					 (double)aS0, nS0, (double)aS2, nS2);
 		XCHECK(aS0 > 0.f && NkFabs(aS2 - aS0) < 1e-3f * aS0,
 			   "(x11b) CONTRE-EPREUVE : SANS portee, displacementMax n'elargit RIEN (le fait du 07/09)");
+	}
+
+	// (x12) LA COURBE, AVANT LE CHOIX.
+	//
+	// On ne cherche pas « la bonne valeur » par tatonnement : on MESURE couverture
+	// et gachis sur les DEUX degres de liberte de la camera de portee, sur la pose
+	// la plus rasante -- celle qui vaut 0,90. Si les deux mesures ont un domaine
+	// commun, la valeur ET sa raison en sortent ensemble. Si elles n'en ont pas,
+	// c'est un RESULTAT : la technique a une limite structurelle sur cette pose, et
+	// ca se dit au lieu de se noyer dans un compromis.
+	{
+		const Pose rasante = {{0.f, 1.f, 0.f}, {0.f, 1.2f, -60.f}, "au ras de l'eau"};
+		const NkMat4f vpR = VP(rasante);
+		const NkMat4f invR = vpR.Inverse();
+		const float32 elevations[7] = {0.1f, 0.25f, 0.5f, 1.f, 2.f, 8.f, 32.f};
+		const float32 pitches[6] = {0.02f, 0.05f, 0.15f, 0.35f, 0.7f, 1.0f};
+		std::fprintf(stderr, "     (x12) COURBE sur la pose rasante (couverture doit rester 1,00)\n");
+		uint32 cellules = 0, couvertes = 0;
+		float32 planche = 1e30f, pitchPlancher = 0.f, elevPlancher = 0.f;
+		for (uint32 a = 0; a < 6u; ++a) {
+			for (uint32 e = 0; e < 7u; ++e) {
+				NkProjectedGridParams pk = p;
+				pk.rangeElevation = elevations[e];
+				pk.rangePitchMin = pitches[a];
+				const NkProjectedGrid gk = BUILD(rasante, pk);
+				uint32 vus = 0;
+				const uint32 trous =
+					PixelsDecouvertsPortee(gk, pk, invR, pk.baseY + pk.displacementMax, 48u, vus);
+				uint32 tot = 0;
+				const float32 gach = Gachis(gk, pk, vpR, 2u, tot);
+				++cellules;
+				if (vus > 0u && Couverture(vus, trous) > 0.999f)
+					++couvertes;
+				if (gach < planche) {
+					planche = gach;
+					pitchPlancher = pitches[a];
+					elevPlancher = elevations[e];
+				}
+				std::fprintf(stderr,
+							 "     (x12) pitchMin %.2f | elev %5.2f m -> couverture %.2f | gachis %.2f\n",
+							 (double)pitches[a], (double)elevations[e],
+							 (double)Couverture(vus, trous), (double)gach);
+			}
+		}
+
+		// 🔴 CE QUE LA COURBE DIT, ET CE N'EST PAS CE QU'ON ATTENDAIT.
+		//
+		// 1. LA COUVERTURE NE SE DEGRADE JAMAIS -- 1,00 dans les 42 cellules, sur les
+		//    DEUX axes. Le compromis de Johanson (« trop bas, on perd la couverture »)
+		//    N'EXISTE PAS dans cette version, et la raison est structurelle : l'etendue
+		//    n'est plus rognee sur l'ecran de la camera de portee, donc tout point
+		//    rabattu est deja sous son horizon des qu'elle est au-dessus de la tranche.
+		//    Il n'y a donc AUCUN arbitrage a faire entre ces deux nombres-la.
+		// 2. ET LE GACHIS A UN PLANCHER qu'aucun reglage ne franchit. Il decroit avec
+		//    les deux axes mais SATURE : a plein aplomb (le maximum possible), 8 m et
+		//    32 m d'elevation donnent le meme nombre.
+		//
+		// CONSEQUENCE : l'objectif de 0,50 n'est PAS atteignable par ces deux
+		// parametres. Ce n'est pas un echec de reglage, c'est la forme de l'etendue --
+		// un RECTANGLE aligne sur les axes en NDC de portee, alors que l'eau vue par le
+		// rendu est un TRAPEZE. Un rectangle circonscrit a un trapeze gaspille la
+		// moitie par construction, et c'est exactement la ou le plancher se pose.
+		std::fprintf(stderr,
+					 "     (x12) PLANCHER du gachis : %.2f (pitchMin %.2f, elev %.2f m) --"
+					 " objectif 0,50 NON atteint par ces deux parametres\n",
+					 (double)planche, (double)pitchPlancher, (double)elevPlancher);
+		XCHECK(cellules == 42u && couvertes == cellules,
+			   "(x12) la couverture vaut 1,00 dans TOUTE la nappe : les deux axes ne l'entament jamais");
+	}
+
+	// (x13) CE QU'UN REGLAGE DONNE AILLEURS -- le compromis entre les POSES.
+	//
+	// La courbe (x12) ne parle que de la pose rasante. Prendre son minimum comme
+	// defaut serait choisir en silence : le meme reglage agit sur toutes les vues.
+	// On mesure donc les trois poses ET l'uniformite du pas ecran pour chaque
+	// candidat, et on EXIGE que le compromis soit reel. S'il ne l'etait pas, il y
+	// aurait un repas gratuit -- et il faudrait le prendre au lieu de le decrire.
+	{
+		struct Cand {
+				float32 pitch;
+				float32 elev;
+				const char *nom;
+		};
+		const Cand cands[4] = {
+			{0.05f, 0.5f, "defaut actuel"},
+			{0.15f, 2.0f, "intermediaire"},
+			{0.35f, 8.0f, "plongeant"},
+			{1.00f, 32.0f, "plein aplomb"},
+		};
+		const Pose troisPoses[3] = {
+			{{0.f, 8.f, 0.f}, {0.f, 2.f, -60.f}, "pont 8 m"},
+			{{0.f, 1.f, 0.f}, {0.f, 1.2f, -60.f}, "rasante 1 m"},
+			{{0.f, -3.f, 0.f}, {0.f, 1.f, -20.f}, "sous l'eau"},
+		};
+		float32 gachPontDefaut = 0.f, gachPontAplomb = 0.f;
+		float32 rapportDefaut = 0.f, rapportAplomb = 0.f;
+		for (uint32 c = 0; c < 4u; ++c) {
+			NkProjectedGridParams pk = p;
+			pk.rangePitchMin = cands[c].pitch;
+			pk.rangeElevation = cands[c].elev;
+			float32 g3[3] = {0.f, 0.f, 0.f};
+			for (uint32 k = 0; k < 3u; ++k) {
+				const NkProjectedGrid gk = BUILD(troisPoses[k], pk);
+				uint32 tot = 0;
+				g3[k] = Gachis(gk, pk, VP(troisPoses[k]), 2u, tot);
+			}
+			const NkProjectedGrid gPont = BUILD(troisPoses[0], pk);
+			const float32 rap = RapportPasEcran(gPont, pk, VP(troisPoses[0]));
+			std::fprintf(stderr,
+						 "     (x13) %-14s (pitch %.2f, elev %5.2f) : gachis pont %.2f | rasante %.2f"
+						 " | sous l'eau %.2f | pas ecran x%.2f\n",
+						 cands[c].nom, (double)cands[c].pitch, (double)cands[c].elev, (double)g3[0],
+						 (double)g3[1], (double)g3[2], (double)rap);
+			if (c == 0u) {
+				gachPontDefaut = g3[0];
+				rapportDefaut = rap;
+			}
+			if (c == 3u) {
+				gachPontAplomb = g3[0];
+				rapportAplomb = rap;
+			}
+		}
+		std::fprintf(stderr,
+					 "     (x13) ce que coute le plein aplomb sur la vue de pont : gachis %.2f -> %.2f,"
+					 " pas ecran x%.2f -> x%.2f\n",
+					 (double)gachPontDefaut, (double)gachPontAplomb, (double)rapportDefaut,
+					 (double)rapportAplomb);
+		XCHECK(gachPontAplomb > gachPontDefaut || rapportAplomb > rapportDefaut * 1.5f,
+			   "(x13) le compromis est REEL : ce qui soulage la vue rasante abime la vue de pont");
 	}
 
 	std::fprintf(stderr, "=== grille projetee : %d passes, %d echecs ===\n", gP, gF);
