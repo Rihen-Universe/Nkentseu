@@ -443,10 +443,26 @@ namespace nkuidesign {
 			NkString fond;			///< hexa, vide = HERITE de l'etat Normal
 			float32 radius = -1.f;	///< < 0 = HERITE
 			float32 opacite = -1.f; ///< < 0 = HERITE
+			// ── CE QU'UN ETAT PEUT AUSSI VOULOIR DIRE (11/09, recensement Q143) ──
+			// Sur quinze sections, QUATRE ont un sens par etat : la bordure, l'ombre,
+			// la couleur du texte, l'opacite du nœud. Ici les deux dont la porte de
+			// resolution est UNIQUE chez le peintre. La bordure attend sa porte
+			// (`BordureEffective`) ; l'opacite du nœud attend le SENS du champ
+			// `opacite` ci-dessus, qui vaut aujourd'hui pour le FOND.
+			// ⚠️ PAR CHAMP, PAS PAR BLOC : un etat qui ne pose que l'ombre laisse tout
+			//    le reste a la base. C'est ce qui rend « Hover = un peu plus d'ombre »
+			//    exprimable sans recopier le nœud entier.
+			NkString couleurTexte;		///< hexa, vide = HERITE
+			float32 ombreFlou = -1.f;	///< px, < 0 = HERITE (le flou de CHAQUE ombre)
+			float32 ombreOpacite = -1.f; ///< 0..100, < 0 = HERITE
+			bool OmbrePosee() const {
+				return ombreFlou >= 0.f || ombreOpacite >= 0.f;
+			}
 
 			/// Vrai si ce bloc ne pose RIEN — il n'a alors pas a etre ecrit.
 			bool Vide() const {
-				return fond.Empty() && radius < 0.f && opacite < 0.f;
+				return fond.Empty() && radius < 0.f && opacite < 0.f && couleurTexte.Empty()
+					   && !OmbrePosee();
 			}
 	};
 
@@ -3033,6 +3049,26 @@ namespace nkuidesign {
 						out.Append('-');
 					else
 						WriteNum(out, a.opacite);
+					// LES JETONS SUIVANTS SONT NOMMES ET OPTIONNELS : un bloc qui n'en pose
+					// aucun s'ecrit EXACTEMENT comme avant -- un document d'avant se
+					// reenregistre octet pour octet. Et un lecteur d'avant, qui lit trois
+					// jetons, ne casse pas sur les suivants : il les ignore.
+					if (!a.couleurTexte.Empty()) {
+						out.Append(" texte=");
+						out.Append(a.couleurTexte.Data());
+					}
+					if (a.OmbrePosee()) {
+						out.Append(" ombre=");
+						if (a.ombreFlou < 0.f)
+							out.Append('-');
+						else
+							WriteNum(out, a.ombreFlou);
+						out.Append(',');
+						if (a.ombreOpacite < 0.f)
+							out.Append('-');
+						else
+							WriteNum(out, a.ombreOpacite);
+					}
 					out.Append('\n');
 				}
 				if (!n.transposeDe.Empty())
@@ -3984,6 +4020,32 @@ namespace nkuidesign {
 								}
 								while (*q == ' ')
 									++q;
+							}
+							// LES JETONS NOMMES, dans n'importe quel ordre, inconnus ignores :
+							// `texte=#rrggbb`, `ombre=<flou>,<opacite>` (« - » = herite).
+							while (*q) {
+								uint32 k = 0;
+								while (*q && *q != ' ' && k + 1 < (uint32)sizeof(champ))
+									champ[k++] = *q++;
+								champ[k] = '\0';
+								while (*q == ' ')
+									++q;
+								if (NkString(champ).StartsWith("texte="))
+									a.couleurTexte = NkString(champ + 6);
+								else if (NkString(champ).StartsWith("ombre=")) {
+									const char *v = champ + 6;
+									char part[32];
+									uint32 m = 0;
+									while (*v && *v != ',' && m + 1 < (uint32)sizeof(part))
+										part[m++] = *v++;
+									part[m] = '\0';
+									if (!(m == 0 || (m == 1 && part[0] == '-')))
+										a.ombreFlou = ParseNum(part);
+									if (*v == ',')
+										++v;
+									if (*v && !(*v == '-' && v[1] == '\0'))
+										a.ombreOpacite = ParseNum(v);
+								}
 							}
 							if (!a.etat.Empty())
 								n.apparences.PushBack(a);

@@ -3218,16 +3218,19 @@ namespace nkuidesign {
 				e.flou = 4.f;
 				e.opacite = 50.f;
 				n.effets.PushBack(e);
-				renderdetail::NkGOmbres(rec, {100.f, 100.f, 50.f, 50.f}, n);
+				// 11/09 : l'hote entre dans NkGOmbres (etat affiche) ; ici AUCUN etat
+				// affiche -- ce temoin mesure la base, et il la mesure comme avant.
+				NkDocumentHost hOmbre;
+				renderdetail::NkGOmbres(rec, {100.f, 100.f, 50.f, 50.f}, n, hOmbre);
 				const uint32 avecOmbre = (uint32)rec.cmds.Size();
 				rec.cmds.Clear();
 				n.effets[0].visible = false;
-				renderdetail::NkGOmbres(rec, {100.f, 100.f, 50.f, 50.f}, n);
+				renderdetail::NkGOmbres(rec, {100.f, 100.f, 50.f, 50.f}, n, hOmbre);
 				const uint32 oeilFerme = (uint32)rec.cmds.Size();
 				rec.cmds.Clear();
 				n.effets[0].visible = true;
 				n.effets[0].type = NkEffetType::OmbreInterne;
-				renderdetail::NkGOmbres(rec, {100.f, 100.f, 50.f, 50.f}, n);
+				renderdetail::NkGOmbres(rec, {100.f, 100.f, 50.f, 50.f}, n, hOmbre);
 				const uint32 interne = (uint32)rec.cmds.Size();
 				snprintf(buf, sizeof(buf),
 						 "portee=%u commande(s), oeil ferme=%u, interne=%u (non peinte, dit "
@@ -12621,13 +12624,16 @@ namespace nkuidesign {
 						}
 						return n;
 					};
-					// CINQ portes ouvrent le selecteur (etats, effets, remplissages,
-					// bordures, canvas) et TOUTES passent par la meme fonction.
+					// SIX portes ouvrent le selecteur (etats : fond ET, depuis le 11/09,
+					// couleur du texte par etat ; effets, remplissages, bordures, canvas)
+					// et TOUTES passent par la meme fonction. ⚠️ Le compte est fige EXPRES :
+					// une septieme porte devra passer ici et dire pourquoi -- c'est ce qui
+					// a attrape la sixieme (cas 147) le jour meme.
 					nPastille = compte("NkPastilleCouleur(ctx, *mSt");
 					nGenre3 = compte("picker.genre = 3u");	 // le doublon : il ne doit plus exister
 					nMain = compte("sw.x - pw - 8.f");		 // le placement recopie : idem
 					nKit = compte("NkPlacerPresDeLAncre(sw"); // les trois sites lisent le kit
-					unSeulChemin = nPastille == 5u && nGenre3 == 0u && nMain == 0u && nKit == 3u;
+					unSeulChemin = nPastille == 6u && nGenre3 == 0u && nMain == 0u && nKit == 3u;
 				}
 			}
 			snprintf(det, sizeof(det),
@@ -13257,6 +13263,223 @@ namespace nkuidesign {
 				  baseRouge && hoverVert && docApresHover && pressedRouge && focusBase
 					  && apercuGagne && retour && rayons,
 				  det);
+		}
+		// ── 147. LA COULEUR DU TEXTE ET L'OMBRE PAR ETAT (11/09). Recensement Q143 : quatre
+		//    proprietes ont un sens par etat ; ici les deux dont la porte est UNIQUE chez le
+		//    peintre. Le temoin est celui du coordinateur : *Hover posant CETTE SEULE propriete*
+		//    -> elle change, LE RESTE NE BOUGE PAS, le document est intact.
+		//
+		// ⚠️ ON COMPTE LES COMMANDES QUI DIFFERENT, pas seulement celle qu'on attend : c'est ce
+		//    qui attrape « la surcharge fuit sur une voisine » (un fond qui lirait la couleur du
+		//    texte). Et le peintre enregistreur de base JETTE le rgba du texte (`TextHex` ->
+		//    `Text` par role) : on le RETIENT ici, sans rien reconstruire du dessin.
+		{
+			char det[720];
+			struct PeintreQuiRetientLaCouleurDuTexte : NkRecordingPaint {
+				void TextHex(const NkPaintRect &r, const char *t, uint32 rgba, uint16 roleRepli,
+							 NkTextAlign align, float32 px, float32 graisse) override {
+					NkRecordingPaint::TextHex(r, t, rgba, roleRepli, align, px, graisse);
+					if (!cmds.Empty())
+						cmds[cmds.Size() - 1].rgba = rgba;
+				}
+			};
+			NkUIDocument dT;
+			dT.NewDocument("Toile", NkAuthor::Humain);
+			dT.SetMetric("espacement", 0.f);
+			dT.SetMetric("marge", 0.f);
+			dT.nodes[0].layout.kind = NkLayoutKind::Free;
+			auto boite = [&](const char *forme, float32 px) -> int32 {
+				const int32 k = dT.AddChild(0, "", NkAuthor::Humain);
+				NkUINode &q = dT.nodes[(uint32)k];
+				q.shape = NkString(forme);
+				q.layout.kind = NkLayoutKind::Free;
+				q.posX = px;
+				q.posY = 20.f;
+				q.width.mode = NkSizeMode::Fixed;
+				q.width.value = 80.f;
+				q.height.mode = NkSizeMode::Fixed;
+				q.height.value = 40.f;
+				return k;
+			};
+			// A : un rectangle ROUGE avec UNE ombre noire (flou 4, opacite 25). Hover ne pose
+			//     que la couleur du texte (sans effet sur un rect : le flux doit rester IDENTIQUE) ;
+			//     Pressed ne pose que le flou de l'ombre ; Focus ne pose que son opacite.
+			const int32 nA = boite("rect", 20.f);
+			{
+				NkUINode &q = dT.nodes[(uint32)nA];
+				q.fill = NkString("#ff0000");
+				NkEffet e;
+				e.couleur = NkString("#000000");
+				e.flou = 4.f;
+				e.opacite = 25.f;
+				q.effets.PushBack(e);
+				NkBlocEtat(q, "Hover").couleurTexte = NkString("#00ff00");
+				NkBlocEtat(q, "Pressed").ombreFlou = 12.f;
+				NkBlocEtat(q, "Focus").ombreOpacite = 100.f;
+			}
+			// B : un TEXTE rouge. Hover ne pose que la couleur du texte -> VERT ; Pressed ne pose
+			//     que le flou de l'ombre -> un texte n'a pas d'ombre : flux IDENTIQUE.
+			const int32 nB = boite("text", 140.f);
+			{
+				NkUINode &q = dT.nodes[(uint32)nB];
+				q.text = NkString("Salut");
+				q.textColor = NkString("#ff0000");
+				NkBlocEtat(q, "Hover").couleurTexte = NkString("#00ff00");
+				NkBlocEtat(q, "Pressed").ombreFlou = 12.f;
+			}
+			// C : un rect dont DISABLED ne pose QUE le fond -- le bloc d'AVANT ce lot : sa
+			//     ligne de fichier doit s'ecrire exactement comme avant (aucun jeton nouveau).
+			//     ⚠️ Sur Disabled, pas sur Hover : `etatAffiche` vaut pour TOUS les nœuds, et
+			//     un fond de C qui changerait sous Hover compterait comme une commande
+			//     differente -- ma premiere course l'a paye (2 diff au lieu de 1).
+			const int32 nC = boite("rect", 260.f);
+			dT.nodes[(uint32)nC].fill = NkString("#0000ff");
+			NkBlocEtat(dT.nodes[(uint32)nC], "Disabled").fond = NkString("#00ffff");
+
+			NkDocumentHost hT;
+			auto flux = [&](const char *etat, PeintreQuiRetientLaCouleurDuTexte &rec) {
+				snprintf(hT.etatAffiche, sizeof(hT.etatAffiche), "%s", etat ? etat : "");
+				RenderDocument(rec, dT, NkPaintRect{0.f, 0.f, 400.f, 300.f}, &hT);
+			};
+			// la couleur EMISE du texte « Salut »
+			auto texteRgba = [&](const NkRecordingPaint &rec) -> uint32 {
+				for (uint32 i = 0; i < (uint32)rec.cmds.Size(); ++i)
+					if (rec.cmds[i].op == NkPaintOp::Text && NkComponentDecl::StrEq(rec.cmds[i].text.Data(), "Salut"))
+						return rec.cmds[i].rgba;
+				return 0u;
+			};
+			// le FOND rouge de A : emis, et son arrondi
+			auto fondRouge = [&](const NkRecordingPaint &rec) -> bool {
+				for (uint32 i = 0; i < (uint32)rec.cmds.Size(); ++i)
+					if (rec.cmds[i].op == NkPaintOp::FillColor && rec.cmds[i].rgba == 0xff0000ffu
+						&& rec.cmds[i].w == 80.f && rec.cmds[i].rounding == 0.f)
+						return true;
+				return false;
+			};
+			// L'OMBRE : les quads NOIRS (rgb = 0, alpha > 0) ; le plus large, et son alpha
+			auto ombreMax = [&](const NkRecordingPaint &rec, uint32 &alpha) -> float32 {
+				float32 w = 0.f;
+				alpha = 0u;
+				for (uint32 i = 0; i < (uint32)rec.cmds.Size(); ++i) {
+					const NkPaintCmd &c = rec.cmds[i];
+					if (c.op != NkPaintOp::FillColor || (c.rgba & 0xFFFFFF00u) != 0u || (c.rgba & 0xFFu) == 0u)
+						continue;
+					if (c.w > w) {
+						w = c.w;
+						alpha = c.rgba & 0xFFu;
+					}
+				}
+				return w;
+			};
+
+			PeintreQuiRetientLaCouleurDuTexte base, hover, pressed, focus;
+			flux("", base);
+			flux("Hover", hover);
+			flux("Pressed", pressed);
+			flux("Focus", focus);
+			uint32 aBase = 0u, aHover = 0u, aPressed = 0u, aFocus = 0u;
+			const float32 wBase = ombreMax(base, aBase), wHover = ombreMax(hover, aHover);
+			const float32 wPressed = ombreMax(pressed, aPressed), wFocus = ombreMax(focus, aFocus);
+			// (a) LA BASE : texte rouge, fond rouge, une ombre presente.
+			const bool okBase = texteRgba(base) == 0xff0000ffu && fondRouge(base) && wBase > 80.f && aBase > 0u;
+			// (b) HOVER : le texte de B devient VERT, et c'est LA SEULE commande qui differe --
+			//     le bloc Hover de A pose la meme couleur de texte, et un rect n'en a que faire.
+			const uint32 diffHover = base.DiffCount(hover);
+			const bool okHover = texteRgba(hover) == 0x00ff00ffu && diffHover == 1u && fondRouge(hover)
+								 && wHover == wBase && aHover == aBase;
+			// (c) PRESSED : le flou 4 -> 12 : le quad le plus large grossit de 2 x 8 = 16 px, son
+			//     alpha ne bouge pas, le texte reste rouge, le fond reste rouge et carre. Les
+			//     quatre anneaux changent, RIEN d'autre.
+			const uint32 diffPressed = base.DiffCount(pressed);
+			const bool okPressed = wPressed == wBase + 16.f && aPressed == aBase && texteRgba(pressed) == 0xff0000ffu
+								   && fondRouge(pressed) && diffPressed == 4u;
+			// (d) FOCUS : l'opacite 25 -> 100 : l'alpha du quad le plus large est x4, sa largeur
+			//     ne bouge pas, texte et fond non plus.
+			const uint32 diffFocus = base.DiffCount(focus);
+			const bool okFocus = wFocus == wBase && aFocus == 4u * aBase && texteRgba(focus) == 0xff0000ffu
+								 && fondRouge(focus) && diffFocus == 4u;
+			// (e) LE DOCUMENT N'A PAS BOUGE : afficher un etat est un mode de vue.
+			const NkUINode &qA = dT.nodes[(uint32)nA];
+			const NkUINode &qB = dT.nodes[(uint32)nB];
+			const bool intact = NkComponentDecl::StrEq(qA.fill.Data(), "#ff0000") && qA.effets[0].flou == 4.f
+								&& qA.effets[0].opacite == 25.f && NkComponentDecl::StrEq(qB.textColor.Data(), "#ff0000");
+			// (f) LA REGLE « A UN SENS PAR ETAT » : six OUI, huit NON -- la table fermee de Q143.
+			static const char *const kNon[8] = {"DISPOSITION", "ANCRAGE", "ALIGNEMENT", "ALIGNER LA SÉLECTION",
+												"ESPACEMENT", "CIBLE", "POINTS DE RUPTURE", "CANVAS"};
+			static const char *const kOui[6] = {"REMPLISSAGES", "APPARENCE", "BORDURES", "EFFETS", "TYPOGRAPHIE", "CALQUE"};
+			uint32 nonFaux = 0u, ouiVrais = 0u;
+			for (uint32 i = 0; i < 8u; ++i)
+				if (!NkProprieteAUnSensParEtat(kNon[i]))
+					++nonFaux;
+			for (uint32 i = 0; i < 6u; ++i)
+				if (NkProprieteAUnSensParEtat(kOui[i]))
+					++ouiVrais;
+			const bool regle = nonFaux == 8u && ouiVrais == 6u;
+			// (g) L'ALLER-RETOUR : les jetons nommes s'ecrivent SEULEMENT quand ils sont poses
+			//     (texte= x2 : A.Hover, B.Hover ; ombre= x3 : A.Pressed, A.Focus, B.Pressed ; la
+			//     ligne de C, fond seul, n'en porte AUCUN), se relisent, et le document relu
+			//     PEINT PAREIL sous Pressed.
+			NkString texte;
+			dT.Save(texte);
+			auto compter = [&](const char *motif) -> uint32 {
+				uint32 n = 0u;
+				const char *p = texte.Data();
+				uint32 lm = 0u;
+				while (motif[lm])
+					++lm;
+				while (p && *p) {
+					if (NkString(p).StartsWith(motif)) {
+						++n;
+						p += lm;
+					} else
+						++p;
+				}
+				return n;
+			};
+			const uint32 nTexte = compter("texte="), nOmbre = compter("ombre="), nApp = compter("apparence_");
+			NkUIDocument dR;
+			const bool relu = dR.Load(texte.Data());
+			bool memes = relu && dR.nodes.Size() == dT.nodes.Size();
+			if (memes) {
+				const NkApparenceEtat *ah = NkBlocEtatSi(dR.nodes[(uint32)nA], "Hover");
+				const NkApparenceEtat *ap = NkBlocEtatSi(dR.nodes[(uint32)nA], "Pressed");
+				const NkApparenceEtat *af = NkBlocEtatSi(dR.nodes[(uint32)nA], "Focus");
+				const NkApparenceEtat *ch = NkBlocEtatSi(dR.nodes[(uint32)nC], "Disabled");
+				memes = ah && ap && af && ch && NkComponentDecl::StrEq(ah->couleurTexte.Data(), "#00ff00")
+						&& ah->ombreFlou < 0.f && ah->ombreOpacite < 0.f && ap->ombreFlou == 12.f
+						&& ap->ombreOpacite < 0.f && ap->couleurTexte.Empty() && af->ombreFlou < 0.f
+						&& af->ombreOpacite == 100.f && ch->couleurTexte.Empty() && !ch->OmbrePosee()
+						&& NkComponentDecl::StrEq(ch->fond.Data(), "#00ffff");
+			}
+			uint32 diffRelu = 999u;
+			if (memes) {
+				PeintreQuiRetientLaCouleurDuTexte reluP;
+				snprintf(hT.etatAffiche, sizeof(hT.etatAffiche), "%s", "Pressed");
+				RenderDocument(reluP, dR, NkPaintRect{0.f, 0.f, 400.f, 300.f}, &hT);
+				diffRelu = pressed.DiffCount(reluP);
+			}
+			hT.etatAffiche[0] = '\0';
+			const bool allerRetour = nTexte == 2u && nOmbre == 3u && nApp == 6u && memes && diffRelu == 0u;
+
+			snprintf(det, sizeof(det),
+					 "(a) base : texte %08x, fond rouge=%d, ombre w=%.0f a=%u -> %d ; (b) Hover : texte %08x, "
+					 "%u commande(s) differente(s) [attendu 1], ombre w=%.0f a=%u -> %d ; (c) Pressed (flou seul) : "
+					 "w=%.0f [attendu %.0f] a=%u, %u diff [4] -> %d ; (d) Focus (opacite seule) : w=%.0f a=%u "
+					 "[attendu %u], %u diff [4] -> %d ; (e) document intact -> %d ; (f) regle : %u/8 non, %u/6 oui "
+					 "-> %d ; (g) fichier : texte= x%u [2], ombre= x%u [3], apparence_ x%u [6], relu=%d, memes=%d, "
+					 "peint pareil sous Pressed (diff %u) -> %d",
+					 texteRgba(base), fondRouge(base) ? 1 : 0, (double)wBase, aBase, okBase ? 1 : 0, texteRgba(hover),
+					 diffHover, (double)wHover, aHover, okHover ? 1 : 0, (double)wPressed, (double)(wBase + 16.f),
+					 aPressed, diffPressed, okPressed ? 1 : 0, (double)wFocus, aFocus, 4u * aBase, diffFocus,
+					 okFocus ? 1 : 0, intact ? 1 : 0, nonFaux, ouiVrais, regle ? 1 : 0, nTexte, nOmbre, nApp,
+					 relu ? 1 : 0, memes ? 1 : 0, diffRelu, allerRetour ? 1 : 0);
+			check("147. LA COULEUR DU TEXTE ET L'OMBRE PAR ETAT : un etat qui ne pose que la couleur du texte "
+				  "change LA SEULE commande du texte (le rect voisin qui porte le meme bloc ne bouge pas) ; un "
+				  "etat qui ne pose que le flou grossit les quatre anneaux d'ombre et rien d'autre ; l'opacite "
+				  "seule change l'alpha et rien d'autre ; le document est intact ; la regle « a un sens par "
+				  "etat » rend 8 non / 6 oui ; les jetons nommes ne s'ecrivent que poses, se relisent, et le "
+				  "document relu peint pareil",
+				  okBase && okHover && okPressed && okFocus && intact && regle && allerRetour, det);
 		}
 		// ── 94. ① L'APERCU PENDANT LE TRACE (05/09). Rodolf : « pourquoi quand on dessine un
 		//    graphique on voit juste le rectangle qui s'allonge, et des qu'on relache on voit la

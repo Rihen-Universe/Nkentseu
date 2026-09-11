@@ -11074,6 +11074,30 @@ namespace nkuidesign {
 		return "";
 	}
 
+	// ── CE QU'UN ETAT PEUT VOULOIR DIRE (recensement Q143, 11/09) ───────────
+	//
+	// 🔴 LE CRITERE : *cette propriété peut-elle légitimement différer entre
+	//    Normal, Hover, Pressed, Focus et Disabled ?* Quinze sections, trois
+	//    réponses : OUI attendu (bordure, ombre, couleur du texte, opacité) ; NON
+	//    par nature -- un état qui déplace, redimensionne, tourne ou incline un
+	//    nœud **n'est plus un état, c'est une animation** ; douteux (typographie
+	//    entière, pile de remplissages, effets autres que l'ombre) -- pour Rodolf.
+	//
+	// ⚠️ ON CACHE CE QUI NE PEUT PAS EXISTER. Les huit « non par nature »
+	//    (DISPOSITION, ANCRAGE, ALIGNEMENT, ALIGNER LA SÉLECTION, ESPACEMENT,
+	//    CIBLE, POINTS DE RUPTURE, CANVAS) n'ont AUCUNE rangée dans ETATS, et ce
+	//    n'est pas un oubli : toute rangée d'état se pose PAR cette règle, donc une
+	//    rangée ajoutée pour DISPOSITION demain serait cachée par construction --
+	//    pas par vigilance. ⚠️ ELLE EST LIBRE POUR ETRE SONDABLE (cas 147).
+	inline bool NkProprieteAUnSensParEtat(const char *section) {
+		static const char *const kOui[] = {"REMPLISSAGES", "APPARENCE", "BORDURES",
+										   "EFFETS",		"TYPOGRAPHIE", "CALQUE"};
+		for (nkentseu::uint32 i = 0; i < 6u; ++i)
+			if (NkComponentDecl::StrEq(section, kOui[i]))
+				return true;
+		return false;
+	}
+
 	inline bool NkSectionSApplique(const char *titre, const NkUINode &n) {
 		if (!titre || !*titre)
 			return true;
@@ -15943,10 +15967,15 @@ namespace nkuidesign {
 					mEtatsGen = mSt->editionGeneration;
 					for (uint32 i = 0; i < kMaxEtatsUI; ++i)
 						mEtatsBuf[i][0] = '\0';
-					for (uint32 e = 0; e < nbEtats && e < kMaxEtatsUI; ++e)
-						if (const NkApparenceEtat *a0 = NkBlocEtatSi(*n, etats[e]))
+					for (uint32 e = 0; e < nbEtats && e < kMaxEtatsUI; ++e) {
+						mEtatsTexteBuf[e][0] = '\0';
+						if (const NkApparenceEtat *a0 = NkBlocEtatSi(*n, etats[e])) {
 							snprintf(mEtatsBuf[e], sizeof(mEtatsBuf[e]), "%s",
 									 a0->fond.Data());
+							snprintf(mEtatsTexteBuf[e], sizeof(mEtatsTexteBuf[e]), "%s",
+									 a0->couleurTexte.Data());
+						}
+					}
 				}
 				// ⚠️ LA COLONNE SUIT LE PLUS LONG NOM, elle n'est pas fixee :
 				//    la capture montrait « FocusVisible » PASSANT SOUS la pastille
@@ -16038,12 +16067,104 @@ namespace nkuidesign {
 									   "(trop d'états pour l'éditeur)", ctx.theme.textMuted);
 					}
 				}
+				// ── ② TEXTE ET OMBRE PAR ETAT (11/09), POSES PAR LA REGLE ──────────
+				// ⚠️ CHAQUE RANGEE INTERROGE `NkProprieteAUnSensParEtat` : c'est ce qui
+				//    rend le masquage STRUCTUREL. Une rangee ajoutee demain pour une
+				//    section « non par nature » ne se dessinerait pas -- par construction.
+				//    Et la rangee suit aussi la regle du TYPE : pas de couleur de texte
+				//    par etat sur un rectangle, pas d'ombre par etat sans ombre a surcharger.
+				const bool texteParEtat = NkProprieteAUnSensParEtat("TYPOGRAPHIE")
+										   && NkSectionSApplique("TYPOGRAPHIE", *n);
+				const bool ombreParEtat = NkProprieteAUnSensParEtat("EFFETS") && n->effets.Size() > 0;
+				if (texteParEtat || ombreParEtat) {
+					const NkRect rt = ctx.NextItemRect(-1.f, costume::HRangee);
+					costume::Texte(dl, F.px9, rt.x + 12.f, costume::CentrerBande(F.px9, rt.y),
+								   texteParEtat && ombreParEtat ? "Texte, puis ombre (flou · opacité)"
+								   : texteParEtat				  ? "Texte"
+																  : "Ombre (flou · opacité)",
+								   ctx.theme.textMuted);
+				}
+				// l'ombre de BASE du nœud : ce qu'un clic sur « — » pose comme point de depart
+				float32 flouBase = 4.f, opaciteBase = 25.f;
+				for (uint32 i = 0; i < (uint32)n->effets.Size(); ++i)
+					if (n->effets[i].visible) {
+						flouBase = n->effets[i].flou;
+						opaciteBase = n->effets[i].opacite;
+						break;
+					}
+				for (uint32 e = 0; (texteParEtat || ombreParEtat) && e < nbEtats && e < kMaxEtatsUI; ++e) {
+					if (NkComponentDecl::StrEq(etats[e], "Normal"))
+						continue; // Normal EST la base : rien a surcharger
+					const NkRect r = ctx.NextItemRect(-1.f, costume::HRangee);
+					const float32 x0 = r.x + 12.f;
+					costume::Texte(dl, F.px10, x0, costume::CentrerBande(F.px10, r.y), etats[e],
+								   ctx.theme.textMuted);
+					float32 x = x0 + colEtat;
+					if (texteParEtat) {
+						// la COULEUR DU TEXTE de cet etat : pastille + hexa, comme le fond
+						const NkRect sw = {x, r.y + (costume::HRangee - 16.f) * 0.5f, 16.f, 16.f};
+						char idT[40];
+						snprintf(idT, sizeof(idT), "##insp.etat.texte%u", e);
+						const bool viaP = NkPastilleCouleur(ctx, *mSt, idT, sw, mEtatsTexteBuf[e],
+														  (uint32)sizeof(mEtatsTexteBuf[e]), mSt->selected);
+						char idH[40];
+						snprintf(idH, sizeof(idH), "##insp.etat.textehex%u", e);
+						const float32 xh = sw.x + 16.f + (float32)costume::EspSerre;
+						ctx.SetNextItemRect({xh, costume::BandeY(r.y), 64.f, costume::HControle});
+						if ((nkgui::InputText(ctx, idH, mEtatsTexteBuf[e], 10)
+							 && NkPorteHex(mEtatsTexteBuf[e], (uint32)sizeof(mEtatsTexteBuf[e])))
+							|| viaP) {
+							NkApparenceEtat &bloc = NkBlocEtat(*n, etats[e]);
+							bloc.couleurTexte = NkString(mEtatsTexteBuf[e]);
+							if (bloc.Vide())
+								NkRetirerBlocEtat(*n, etats[e]);
+							mSt->doc.MarkHumanEdit(mSt->selected);
+							mSt->host.SyncTo(mSt->doc);
+						}
+						x = xh + 64.f + (float32)costume::EspLarge;
+					}
+					if (ombreParEtat) {
+						// l'OMBRE de cet etat, PAR CHAMP : flou puis opacite. « — » = herite ;
+						// un clic dessus pose la valeur de BASE, pour partir de ce qu'on voit.
+						const NkApparenceEtat *a = NkBlocEtatSi(*n, etats[e]);
+						const float32 vals[2] = {a ? a->ombreFlou : -1.f, a ? a->ombreOpacite : -1.f};
+						const float32 bases[2] = {flouBase, opaciteBase};
+						const float32 maxs[2] = {256.f, 100.f};
+						for (uint32 k = 0; k < 2u; ++k) {
+							const NkRect rc = {x, costume::BandeY(r.y), 40.f, costume::HControle};
+							char idO[48];
+							snprintf(idO, sizeof(idO), "insp.etat.ombre%u.%u", e, k);
+							if (vals[k] < 0.f) {
+								const bool sv = ctx.popupDepth == 0 && NkGuiRectContains(rc, ctx.input.mousePos);
+								dl.AddRectFilled(rc, sv ? ctx.theme.rowHover : CouleurInput(), 4.f);
+								costume::Texte(dl, F.px10, rc.x + costume::PadChamp,
+											   costume::CentrerY(F.px10, rc.y, rc.h), "\xE2\x80\x94",
+											   ctx.theme.textMuted);
+								if (sv && ctx.input.mouseClicked[0]) {
+									NkApparenceEtat &bloc = NkBlocEtat(*n, etats[e]);
+									(k == 0 ? bloc.ombreFlou : bloc.ombreOpacite) = bases[k];
+									mSt->doc.MarkHumanEdit(mSt->selected);
+									mSt->host.SyncTo(mSt->doc);
+								}
+							} else {
+								float32 v = vals[k];
+								if (ChampNombre(ctx, idO, rc, v, 0.5f, 0.f, maxs[k])) {
+									NkApparenceEtat &bloc = NkBlocEtat(*n, etats[e]);
+									(k == 0 ? bloc.ombreFlou : bloc.ombreOpacite) = v;
+									mSt->doc.MarkHumanEdit(mSt->selected);
+									mSt->host.SyncTo(mSt->doc);
+								}
+							}
+							x += 40.f + (float32)costume::EspSerre;
+						}
+					}
+				}
 // ⚠️ CE QUI S'ÉDITE ICI, ET CE QUI NE S'ÉDITE PAS ENCORE : le FOND
-				//    se pose (c'est la propriété la plus visible, donc celle qui
-				//    rend le geste vérifiable à l'œil) ; le rayon et l'opacité
-				//    par état sont dans le MODÈLE et dans le FICHIER, pas encore
-				//    dans le panneau. Mieux vaut un champ vrai que trois
-				//    demi-champs -- et la section le DIT plutôt que de le taire.
+				//    se pose, et depuis le 11/09 la COULEUR DU TEXTE et l'OMBRE
+				//    (flou, opacité) ; le rayon et l'opacité par état sont dans le
+				//    MODÈLE et dans le FICHIER, pas encore dans le panneau -- l'opacité
+				//    attend que Rodolf tranche son SENS (fond ou nœud). Mieux vaut un
+				//    champ vrai que trois demi-champs -- et la section le DIT.
 				designkit::KeyValue(ctx, "rayon / opacité", "au lot suivant");
 			}
 
@@ -18589,6 +18710,8 @@ namespace nkuidesign {
 			///    section le DIT (voir CorpsEtats).
 			static constexpr uint32 kMaxEtatsUI = 12;
 			char mEtatsBuf[kMaxEtatsUI][12] = {};
+			/// ② les tampons hexa de la COULEUR DU TEXTE par état (11/09)
+			char mEtatsTexteBuf[kMaxEtatsUI][12] = {};
 			/// Les tampons hexa des ARRETS : [remplissage][arret].
 			enum { kMaxArretsUI = 12 }; ///< au-dela, la liste le dit et n'edite pas
 			char mArretsBuf[kMaxFillsUI][kMaxArretsUI][12] = {};

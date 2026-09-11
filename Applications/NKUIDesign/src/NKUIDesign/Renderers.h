@@ -513,6 +513,14 @@ namespace nkuidesign {
 			const NkApparenceEtat *a = NkEtatVu(h, n);
 			return (a && !a->fond.Empty()) ? a->fond.Data() : n.FondEffectif();
 		}
+		/// LA COULEUR DU TEXTE VUE : celle de l'état s'il en pose une, sinon la base.
+		/// (Mesure Q143 : UN seul site la résout chez le peintre -- porte unique.)
+		inline const char *NkCouleurTexteVue(const NkDocumentHost &h, const NkUINode &n) {
+			const NkApparenceEtat *a = NkEtatVu(h, n);
+			return (a && !a->couleurTexte.Empty()) ? a->couleurTexte.Data()
+													: (n.textColor.Empty() ? nullptr
+																		   : n.textColor.Data());
+		}
 		/// L'OPACITE DU FOND VUE : celle de l'état si posée (>= 0), sinon la base.
 		inline nkentseu::float32 NkOpaciteFondVue(const NkDocumentHost &h, const NkUINode &n) {
 			const NkApparenceEtat *a = NkEtatVu(h, n);
@@ -1919,23 +1927,37 @@ namespace nkuidesign {
 		/// noeud (un coin droit reste droit, un coin arrondi s'arrondit de R +
 		/// grossi). Le flou est approche par des anneaux de plus en plus
 		/// transparents -- le peintre n'a pas de primitive floue, et ca se dit.
+		/// ⚠️ L'HOTE ENTRE ICI (11/09) : **un appelant modifie, pas une seconde
+		///    résolution**. L'ombre était le seul des quatre « oui » du recensement
+		///    dont la porte était unique MAIS sans hôte -- elle ne pouvait donc pas
+		///    lire l'état affiché. Le rayon des ombres, lui, suit toujours la base :
+		///    dit en Q142, hors de ce lot, et désormais à un jeton près.
 		inline void NkGOmbres(NkComponentPaint &p, const NkPaintRect &r, const NkUINode &n,
-							  nkentseu::float32 heritee = 1.f) {
+							  const NkDocumentHost &host, nkentseu::float32 heritee = 1.f) {
 			nkentseu::float32 R[4], c[4];
 			NkGRayons(n, R);
 			NkGBornerRayons(r.w, r.h, R, c);
+			// LA SURCHARGE D'ETAT DE L'OMBRE, PAR CHAMP : le flou et l'opacité posés par
+			// l'état remplacent ceux de CHAQUE ombre du nœud ; le déport, l'étendue et
+			// la couleur restent ceux du nœud. « Hover = un peu plus d'ombre » sans
+			// recopier l'ombre entière.
+			const NkApparenceEtat *etat = NkEtatVu(host, n);
 			for (nkentseu::uint32 i = 0; i < (nkentseu::uint32)n.effets.Size(); ++i) {
 				const NkEffet &e = n.effets[i];
 				if (!e.visible || e.couleur.Empty() || e.type != NkEffetType::OmbrePortee)
 					continue;
+				const nkentseu::float32 flouVu =
+					(etat && etat->ombreFlou >= 0.f) ? etat->ombreFlou : e.flou;
+				const nkentseu::float32 opaciteVue =
+					(etat && etat->ombreOpacite >= 0.f) ? etat->ombreOpacite : e.opacite;
 				const nkentseu::uint32 base = NkGCouleur(e.couleur.Data());
-				const nkentseu::float32 op = NkKOpacite(e.opacite, heritee);
+				const nkentseu::float32 op = NkKOpacite(opaciteVue, heritee);
 				if (op <= 0.f)
 					continue;
-				const int32 kAnneaux = e.flou > 0.5f ? 4 : 1;
+				const int32 kAnneaux = flouVu > 0.5f ? 4 : 1;
 				for (int32 k = kAnneaux; k >= 1; --k) {
 					const nkentseu::float32 t = (nkentseu::float32)k / (nkentseu::float32)kAnneaux;
-					const nkentseu::float32 grossi = e.etendue + e.flou * t;
+					const nkentseu::float32 grossi = e.etendue + flouVu * t;
 					const nkentseu::float32 a01 = op / (nkentseu::float32)kAnneaux;
 					const nkentseu::uint32 a =
 						(nkentseu::uint32)((base & 0xFFu) * a01 + 0.5f);
@@ -1947,7 +1969,7 @@ namespace nkuidesign {
 					// s'adoucit que du flou (grossi > 0), jamais d'un rayon invente
 					nkentseu::float32 Rq[4];
 					for (nkentseu::uint32 j = 0; j < 4u; ++j)
-						Rq[j] = c[j] > 0.f ? c[j] + grossi : (e.flou > 0.5f ? grossi : 0.f);
+						Rq[j] = c[j] > 0.f ? c[j] + grossi : (flouVu > 0.5f ? grossi : 0.f);
 					NkGRectCoins(p, q, (base & 0xFFFFFF00u) | (a & 0xFFu), Rq);
 				}
 			}
@@ -2128,7 +2150,7 @@ namespace nkuidesign {
 				//    primitive floue, donc on empile quelques anneaux de plus en
 				//    plus transparents. Ça DIT le flou sans le mentir — et le jour
 				//    où une primitive existera, ce site est le seul à changer.
-				NkGOmbres(p, r, n, heritee); // par coin : l'ombre lit les quatre rayons du noeud
+				NkGOmbres(p, r, n, host, heritee); // par coin : l'ombre lit les quatre rayons du noeud
 				// ⚠️ ET LE TRACÉ ÉDITÉ PASSE APRÈS L'OMBRE, POUR LA MÊME RAISON.
 				//    Sortir avant `NkGOmbres` aurait fait DISPARAÎTRE l'ombre au
 				//    moment précis où l'on déplace un coin — une propriété perdue
@@ -2734,9 +2756,12 @@ namespace nkuidesign {
 				if (!vide) {
 					// non traduit = attenue MEME si une couleur est posee : le
 					// repli doit se voir.
-					const uint32 rgba = (n.textColor.Empty() || !traduit)
-											? p.ColorOf(roleTexte)
-											: NkGCouleur(n.textColor.Data());
+					// LA COULEUR VIENT DE LA PORTE D'ETAT (aperçu > état > base n'a pas
+					// de sens ici : la pipette ne vise pas le texte) ; « non traduit »
+					// attenue toujours, état ou pas -- le repli doit se voir.
+					const char *couleurTexte = NkCouleurTexteVue(host, n);
+					const uint32 rgba = (!couleurTexte || !traduit) ? p.ColorOf(roleTexte)
+																	: NkGCouleur(couleurTexte);
 					const float32 corps = (n.fontPx > 0.f ? n.fontPx : 12.f) * host.docScale;
 					p.TextHex(r, t, rgba, roleTexte, al, corps, n.fontWeight);
 				} else
