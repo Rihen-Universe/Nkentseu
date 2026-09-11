@@ -258,6 +258,120 @@ namespace {
 		return (mn > 1e-9f) ? mx / mn : 0.f;
 	}
 
+	float32 Croix(const float32 *px, const float32 *py, uint32 a, uint32 b, uint32 c) {
+		return (px[b] - px[a]) * (py[c] - py[a]) - (py[b] - py[a]) * (px[c] - px[a]);
+	}
+
+	// L'ENVELOPPE CONVEXE du nuage (Andrew, chaine monotone), au plus 40 points.
+	// C'est la FORME REELLE de l'eau vue, dont l'etendue rectangulaire n'est qu'un
+	// majorant. Rend le nombre de sommets, remplis dans l'ordre du tour.
+	uint32 EnveloppeConvexe(const float32 *px, const float32 *py, uint32 n, uint32 *enveloppe) {
+		if (n < 3u || n > 40u)
+			return 0u;
+		uint32 ordre[40];
+		for (uint32 i = 0; i < n; ++i)
+			ordre[i] = i;
+		for (uint32 i = 1u; i < n; ++i) { // tri par insertion sur (x, puis y)
+			const uint32 k = ordre[i];
+			uint32 j = i;
+			while (j > 0u && (px[ordre[j - 1u]] > px[k] ||
+							  (px[ordre[j - 1u]] == px[k] && py[ordre[j - 1u]] > py[k]))) {
+				ordre[j] = ordre[j - 1u];
+				--j;
+			}
+			ordre[j] = k;
+		}
+		uint32 H[82];
+		uint32 k = 0u;
+		for (uint32 t = 0; t < n; ++t) { // chaine basse
+			const uint32 i = ordre[t];
+			while (k >= 2u && Croix(px, py, H[k - 2u], H[k - 1u], i) <= 1e-12f)
+				--k;
+			H[k++] = i;
+		}
+		const uint32 seuil = k + 1u;
+		for (uint32 t = n - 1u; t-- > 0u;) { // chaine haute
+			const uint32 i = ordre[t];
+			while (k >= seuil && Croix(px, py, H[k - 2u], H[k - 1u], i) <= 1e-12f)
+				--k;
+			H[k++] = i;
+		}
+		const uint32 m = (k > 0u) ? k - 1u : 0u; // le dernier point reboucle sur le premier
+		for (uint32 i = 0; i < m; ++i)
+			enveloppe[i] = H[i];
+		return m;
+	}
+
+	bool DansPolygone(const float32 *px, const float32 *py, const uint32 *idx, uint32 m, float32 x,
+					  float32 y) {
+		if (m < 3u)
+			return false;
+		bool dedans = false;
+		for (uint32 i = 0, j = m - 1u; i < m; j = i++) {
+			const float32 xi = px[idx[i]], yi = py[idx[i]];
+			const float32 xj = px[idx[j]], yj = py[idx[j]];
+			if (((yi > y) != (yj > y)) && (x < (xj - xi) * (y - yi) / (yj - yi) + xi))
+				dedans = !dedans;
+		}
+		return dedans;
+	}
+
+	// LE GACHIS QUE LAISSERAIT UN PAVAGE PARFAIT DE LA FORME.
+	//
+	// C'est LE nombre qui decide s'il faut ecrire ce pavage. On ne l'extrapole pas
+	// a partir du remplissage -- ce serait supposer que tout sommet hors de
+	// l'enveloppe est perdu, ce qui est plausible et non mesure. On compte donc
+	// seulement les sommets qui tombent DEJA dans l'enveloppe, et on mesure LEUR
+	// taux de perte : c'est exactement ce que vaudrait le gachis si l'etendue
+	// epousait la forme au lieu de sa boite.
+	float32 GachisDansForme(const NkProjectedGrid &g, const NkProjectedGridParams &p,
+							const NkMat4f &renderVP, const uint32 *idx, uint32 m, uint32 pas,
+							uint32 &dedans) {
+		uint32 perdus = 0;
+		dedans = 0;
+		const float32 hauteurs[3] = {p.baseY, p.baseY + p.displacementMax,
+									 p.baseY - p.displacementMax};
+		for (uint32 j = 0; j <= p.rows; j += pas) {
+			for (uint32 i = 0; i <= p.cols; i += pas) {
+				const float32 u = (float32)i / (float32)p.cols;
+				const float32 v = (float32)j / (float32)p.rows;
+				const float32 nx = g.ndcMinX + (g.ndcMaxX - g.ndcMinX) * u;
+				const float32 ny = g.ndcMinY + (g.ndcMaxY - g.ndcMinY) * v;
+				if (!DansPolygone(g.ndcX, g.ndcY, idx, m, nx, ny))
+					continue;
+				NkVec3f w;
+				if (!NkProjectedGridVertex(g, p, i, j, w))
+					continue;
+				++dedans;
+				bool vu = false;
+				for (uint32 h = 0; h < 3u && !vu; ++h) {
+					const NkVec4f q = renderVP * NkVec4f(w.x, hauteurs[h], w.z, 1.f);
+					if (q.w <= 1e-6f)
+						continue;
+					const float32 iw = 1.f / q.w;
+					const float32 sx = q.x * iw, sy = q.y * iw;
+					if (sx >= -1.f && sx <= 1.f && sy >= -1.f && sy <= 1.f)
+						vu = true;
+				}
+				if (!vu)
+					++perdus;
+			}
+		}
+		return (dedans > 0u) ? (float32)perdus / (float32)dedans : 0.f;
+	}
+
+	float32 AirePolygone(const float32 *px, const float32 *py, const uint32 *idx, uint32 m) {
+		if (m < 3u)
+			return 0.f;
+		float64 a = 0.0;
+		for (uint32 i = 0; i < m; ++i) {
+			const uint32 u = idx[i], v = idx[(i + 1u) % m];
+			a += (float64)px[u] * (float64)py[v] - (float64)px[v] * (float64)py[u];
+		}
+		a *= 0.5;
+		return (float32)(a < 0.0 ? -a : a);
+	}
+
 	// LA MEME QUESTION, MAIS POSEE DANS LE BON ECRAN.
 	//
 	// `PixelsDecouverts` compare le NDC d'un pixel de RENDU aux bornes de la
@@ -980,6 +1094,188 @@ int NkSondeOceanGrille() {
 					 (double)rapportAplomb);
 		XCHECK(gachPontAplomb > gachPontDefaut || rapportAplomb > rapportDefaut * 1.5f,
 			   "(x13) le compromis est REEL : ce qui soulage la vue rasante abime la vue de pont");
+	}
+
+	// (x14) LA FORME DE L'EAU VUE, MESUREE AVANT D'ETRE PAVEE.
+	//
+	// L'etendue est une BOITE en NDC de portee ; la forme reelle est l'enveloppe
+	// convexe du nuage dont cette boite est tiree. Le REMPLISSAGE (aire enveloppe /
+	// aire boite) dit ce que la boite enferme de vide.
+	//
+	// ⚠️ ET IL SE VERIFIE TOUT SEUL. Les sommets etant uniformes dans la boite, la
+	// fraction qui tombe hors de la forme vaut a peu pres 1 - remplissage. Si ce
+	// nombre reproduit le GACHIS mesure par un instrument tout a fait different
+	// (x9), alors la forme est bien la cause. S'il ne le reproduit pas, mon
+	// explication est fausse et c'est ce chiffre-la qui le dira.
+	{
+		const Pose troisPoses[3] = {
+			{{0.f, 8.f, 0.f}, {0.f, 2.f, -60.f}, "pont 8 m"},
+			{{0.f, 1.f, 0.f}, {0.f, 1.2f, -60.f}, "rasante 1 m"},
+			{{0.f, -3.f, 0.f}, {0.f, 1.f, -20.f}, "sous l'eau"},
+		};
+		float32 ecarts[3] = {0.f, 0.f, 0.f};
+		float32 gachisForme[3] = {0.f, 0.f, 0.f};
+		for (uint32 k = 0; k < 3u; ++k) {
+			const NkProjectedGrid gk = BUILD(troisPoses[k], p);
+			uint32 env[40];
+			const uint32 m = EnveloppeConvexe(gk.ndcX, gk.ndcY, gk.ndcCount, env);
+			const float32 aireForme = AirePolygone(gk.ndcX, gk.ndcY, env, m);
+			const float32 aireBoite = (gk.ndcMaxX - gk.ndcMinX) * (gk.ndcMaxY - gk.ndcMinY);
+			const float32 remplissage = (aireBoite > 1e-9f) ? aireForme / aireBoite : 0.f;
+			uint32 tot = 0;
+			const float32 gach = Gachis(gk, p, VP(troisPoses[k]), 2u, tot);
+			const float32 predit = 1.f - remplissage;
+			ecarts[k] = NkFabs(predit - gach);
+			// LE NOMBRE QUI DECIDE : ce que vaudrait le gachis si l'etendue epousait
+			// la forme. Mesure sur les sommets qui y tombent deja, pas extrapole.
+			uint32 dedans = 0;
+			gachisForme[k] = GachisDansForme(gk, p, VP(troisPoses[k]), env, m, 2u, dedans);
+			std::fprintf(stderr,
+						 "     (x14) %-12s : enveloppe %u sommets | remplissage %.2f |"
+						 " 1-remplissage %.2f contre gachis %.2f (ecart %.2f) | PAVER LA FORME"
+						 " laisserait %.2f sur %u sommets\n",
+						 troisPoses[k].nom, m, (double)remplissage, (double)predit, (double)gach,
+						 (double)ecarts[k], (double)gachisForme[k], dedans);
+		}
+
+		// 🔴 CE QUE LE MODELE EXPLIQUE, ET OU IL CASSE.
+		//
+		// « 1 - remplissage » predit le gachis a 0,03 et 0,06 pres quand l'oeil est
+		// HORS de la tranche (pont a 8 m, sous l'eau a -3 m) : l'instrument est bon
+		// et le raisonnement tient. Il rate de 0,52 sur la vue rasante, ou l'oeil est
+		// DANS la tranche. La boite n'y enferme que 37 % de vide, pas 90 % : LA FORME
+		// DE L'ETENDUE N'EST DONC PAS LA CAUSE du 0,90, et mon explication du commit
+		// precedent tombe a son tour.
+		//
+		// On n'assert ici que ce qui est prouve : le modele vaut la ou il vaut. Le
+		// gachis non explique reste porte par (x9), qui reste rouge.
+		XCHECK(ecarts[0] < 0.10f && ecarts[2] < 0.10f,
+			   "(x14) hors de la tranche, le vide de la boite PREDIT le gachis (ecart < 0,10)");
+		XCHECK(ecarts[1] > 0.30f,
+			   "(x14b) DANS la tranche il ne le predit plus : une TROISIEME cause existe");
+	}
+
+	// (x15) LE CAS DEGENERE AVANT LE CAS GENERAL.
+	//
+	// Un pavage non rectangulaire suppose un POLYGONE : au moins trois sommets et
+	// une aire non nulle. Avant d'ecrire ce pavage, on mesure si cette condition
+	// tient sur les poses ou la version actuelle refusait proprement -- l'horizon
+	// qui coupe le cadre, la plongee verticale, l'oeil dans le plan.
+	//
+	// Ce que ce temoin exige : TOUTE grille qui se declare visible offre un
+	// polygone pavable. S'il rougit, c'est que le pavage devra garder le rectangle
+	// dans ces cas-la -- et un refus honnete vaut mieux qu'un pavage faux.
+	{
+		const Pose degen[6] = {
+			{{0.f, 8.f, 0.f}, {0.f, 8.f, -60.f}, "pile a l'horizon"},
+			{{0.f, 30.f, 0.f}, {0.f, 0.f, -0.001f}, "plongee verticale"},
+			{{0.f, -3.f, 0.f}, {0.f, 1.f, -20.f}, "sous l'eau"},
+			{{0.f, 8.f, 0.f}, {0.f, 60.f, -10.f}, "vers le ciel"},
+			{{0.f, 0.f, 0.f}, {0.f, 0.f, -60.f}, "oeil DANS le plan"},
+			{{0.f, 1.f, 0.f}, {0.f, 1.2f, -60.f}, "rasante 1 m"},
+		};
+		uint32 visibles = 0, pavables = 0;
+		for (uint32 k = 0; k < 6u; ++k) {
+			const NkProjectedGrid gk = BUILD(degen[k], p);
+			if (!gk.visible) {
+				std::fprintf(stderr, "     (x15) %-20s : invisible (dit)\n", degen[k].nom);
+				continue;
+			}
+			++visibles;
+			uint32 env[40];
+			const uint32 m = EnveloppeConvexe(gk.ndcX, gk.ndcY, gk.ndcCount, env);
+			const float32 aire = AirePolygone(gk.ndcX, gk.ndcY, env, m);
+			const bool pavable = (m >= 3u) && (aire > 1e-9f);
+			if (pavable)
+				++pavables;
+			std::fprintf(stderr,
+						 "     (x15) %-20s : %u points, enveloppe %u sommets, aire %.4f%s%s -> %s\n",
+						 degen[k].nom, gk.ndcCount, m, (double)aire,
+						 gk.repliPleinEcran ? " [repli plein ecran]" : "",
+						 gk.rogneHorizon ? " [rogne horizon]" : "",
+						 pavable ? "PAVABLE" : "PAS DE POLYGONE");
+		}
+		std::fprintf(stderr, "     (x15) %u poses visibles, %u pavables\n", visibles, pavables);
+		XCHECK(visibles > 0u && pavables == visibles,
+			   "(x15) toute grille qui se declare visible offre un polygone pavable");
+	}
+
+	// (x16) LA TROISIEME CAUSE, ISOLEE PAR UNE SEULE VARIABLE.
+	//
+	// (x14) montre que le modele tient hors de la tranche et casse dedans. Trois
+	// poses, c'est un motif, pas une preuve : elles different aussi par l'altitude,
+	// la visee et la distance. On change donc UNE chose et rien d'autre -- l'oeil
+	// passe de 2,10 m a 1,90 m, de part et d'autre du sommet de la tranche (2,00 m),
+	// meme direction de visee, meme tout le reste.
+	//
+	// Si l'ecart saute en franchissant ce seuil, la cause est le RABATTEMENT : les
+	// points d'intersection du tronc de vue et de la tranche sont ecrases sur le
+	// plan de repos, et quand l'oeil est DANS la tranche, leur empreinte au sol
+	// couvre bien plus large que l'eau reellement visible. Ce n'est alors ni le bord
+	// lointain, ni la forme de l'etendue : c'est l'etape 4 elle-meme.
+	//
+	// 🔴 PREMIERE VERSION DE CE TEMOIN : REFUTEE PAR LUI-MEME, ET JE LA LAISSE DITE.
+	// Il opposait 2,10 m et 1,90 m -- 20 cm de part et d'autre du sommet de tranche
+	// -- en exigeant que l'ecart saute de 0,20. Mesure : 0,03 puis 0,12. Un facteur
+	// quatre, mais pas un saut, et rien qui approche les 0,52 de l'oeil a 1,00 m.
+	// FRANCHIR LE SEUIL NE SUFFIT DONC PAS : la perte n'est pas un interrupteur,
+	// elle croit a mesure que l'oeil descend vers le plan. Le temoin mesure
+	// desormais CETTE forme-la, qui est celle que la mesure a montree.
+	{
+		const float32 hauteurs[7] = {3.0f, 2.5f, 2.1f, 1.9f, 1.5f, 1.0f, 0.5f};
+		float32 gachis[7] = {0.f, 0.f, 0.f, 0.f, 0.f, 0.f, 0.f};
+		float32 pavage[7] = {0.f, 0.f, 0.f, 0.f, 0.f, 0.f, 0.f};
+		for (uint32 k = 0; k < 7u; ++k) {
+			const Pose po = {{0.f, hauteurs[k], 0.f},
+							 {0.f, hauteurs[k] + 0.2f, -60.f},
+							 "sonde hauteur"};
+			const NkProjectedGrid gk = BUILD(po, p);
+			uint32 env[40];
+			const uint32 m = EnveloppeConvexe(gk.ndcX, gk.ndcY, gk.ndcCount, env);
+			const float32 aireForme = AirePolygone(gk.ndcX, gk.ndcY, env, m);
+			const float32 aireBoite = (gk.ndcMaxX - gk.ndcMinX) * (gk.ndcMaxY - gk.ndcMinY);
+			const float32 remplissage = (aireBoite > 1e-9f) ? aireForme / aireBoite : 0.f;
+			uint32 tot = 0;
+			gachis[k] = Gachis(gk, p, VP(po), 2u, tot);
+			uint32 dedans = 0;
+			pavage[k] = GachisDansForme(gk, p, VP(po), env, m, 2u, dedans);
+			std::fprintf(stderr,
+						 "     (x16) oeil a %4.2f m %-14s : remplissage %.2f | gachis %.2f |"
+						 " ecart %.2f | en pavant la forme %.2f\n",
+						 (double)hauteurs[k], (hauteurs[k] > 2.f) ? "(HORS tranche)" : "(DANS tranche)",
+						 (double)remplissage, (double)gachis[k],
+						 (double)NkFabs((1.f - remplissage) - gachis[k]), (double)pavage[k]);
+		}
+
+		// 🔴 ET MA DEUXIEME VERSION DE CE TEMOIN ETAIT FAUSSE AUSSI -- dite, pas
+		// effacee. Elle comparait la variation « DANS la tranche » entre 1,50 m et
+		// 0,50 m. Or le gachis PASSE PAR UN MAXIMUM a 1,00 m (0,90) et redescend :
+		// 1,50 m et 0,50 m valent tous DEUX 0,82, et leur difference s'annule. Deux
+		// points symetriques autour d'un sommet ne mesurent pas une variation -- ils
+		// mesurent zero, quelle que soit la pente entre eux.
+		//
+		// CE QUE LA NAPPE MONTRE VRAIMENT :
+		//  - le gachis monte de 0,20 a 0,90 puis REDESCEND a 0,82 : non monotone ;
+		//  - la rampe COMMENCE AVANT la tranche (0,22 a 2,50 m, 0,35 a 2,10 m, tous
+		//    deux dehors) : la frontiere de tranche ne declenche donc PAS le gachis ;
+		//  - mais elle SEPARE NETTEMENT le gain du pavage : epouser la forme donne
+		//    exactement 0,00 aux trois hauteurs AU-DESSUS de la tranche, et ne
+		//    descend jamais sous 0,15 en dessous.
+		// C'est ce seuil-la qui existe, et il porte sur une autre grandeur que celle
+		// que j'avais testee.
+		uint32 nulsDehors = 0, nonNulsDedans = 0;
+		for (uint32 k = 0; k < 3u; ++k)
+			if (pavage[k] < 0.01f)
+				++nulsDehors;
+		for (uint32 k = 3u; k < 7u; ++k)
+			if (pavage[k] > 0.15f)
+				++nonNulsDedans;
+		std::fprintf(stderr,
+					 "     (x16) pavage de la forme : %u/3 hauteurs HORS tranche a 0,00 |"
+					 " %u/4 hauteurs DANS la tranche au-dessus de 0,15\n",
+					 nulsDehors, nonNulsDedans);
+		XCHECK(nulsDehors == 3u && nonNulsDedans == 4u,
+			   "(x16) paver la forme ANNULE le gachis au-dessus de la tranche, et jamais dedans");
 	}
 
 	std::fprintf(stderr, "=== grille projetee : %d passes, %d echecs ===\n", gP, gF);

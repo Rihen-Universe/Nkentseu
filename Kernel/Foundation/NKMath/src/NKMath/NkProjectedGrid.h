@@ -80,11 +80,23 @@
 //        sous son horizon. Les deux axes ne sont pas en tension ;
 //      — le GÂCHIS a un PLANCHER qui sature à 0,58, jamais 0,50.
 //
-// LA CAUSE EST DONC LA FORME DE L'ÉTENDUE, PAS LE PLACEMENT : c'est un RECTANGLE
-// aligné sur les axes en NDC de portée, alors que l'eau vue par le rendu est un
-// TRAPÈZE. Un rectangle circonscrit à un trapèze gaspille la moitié par
-// construction — et le plancher se pose exactement là. C'est le levier du
-// prochain lot, et il est nommé plutôt que deviné.
+// 3. LA FORME DE L'ÉTENDUE : innocente elle aussi — TROISIÈME élimination, et
+//    c'est encore une explication écrite ICI qui tombe. J'avais nommé le rectangle
+//    circonscrit au trapèze comme « le levier du prochain lot ». Pour le vérifier
+//    avant de l'écrire, la grille garde désormais le nuage dont l'étendue est
+//    tirée (`ndcX/ndcY`), ce qui permet de comparer la BOÎTE à la FORME réelle —
+//    son enveloppe convexe. Deux mesures en sortent :
+//      — le vide de la boîte PRÉDIT le gâchis quand l'œil est hors de la tranche :
+//        0,14 prédit contre 0,17 mesuré depuis un pont, 0,17 contre 0,24 sous
+//        l'eau. L'instrument est bon et le raisonnement tient ;
+//      — il ne le prédit plus DU TOUT en vue rasante : 0,37 contre 0,90, écart
+//        0,52. La boîte n'y enferme que 37 % de vide, et non 90 %.
+//    Et le nombre qui tranche, MESURÉ et non extrapolé — ce que laisserait un
+//    pavage PARFAIT de la forme, compté sur les sommets qui y tombent déjà :
+//        pont 0,17 → 0,00      sous l'eau 0,24 → 0,03      rasante 0,90 → 0,83
+//    Épouser la forme est donc spectaculaire partout SAUF là où l'objectif est
+//    fixé. C'est un vrai gain, mais ce n'est PAS la réponse au gâchis rasant, et
+//    il ne sera pas écrit sur la foi d'un espoir.
 //
 // ET LE DÉFAUT (0,05 ; 0,50 m) RESTE, PAR MESURE ET NON PAR INERTIE. Le tableau
 // (x13) croise quatre réglages et trois poses : tout ce qui soulage la vue
@@ -93,9 +105,29 @@
 // ×1,00 à ×5,57 — c'est-à-dire détruire le 1,00 contre 251,00 qui justifie toute
 // la technique. On échangerait un témoin rouge contre un pire.
 //
+// CE QUI RESTE, ET IL EST CERNÉ SANS ÊTRE RÉSOLU. Balayé sur sept hauteurs d'œil
+// (3,00 m à 0,50 m, même visée), le gâchis vaut :
+//     3,00→0,20   2,50→0,22   2,10→0,35   1,90→0,49   1,50→0,82   1,00→0,90
+//     0,50→0,82
+// Trois choses s'y lisent, et aucune n'était celle que j'avais supposée :
+//  — la rampe COMMENCE AVANT la tranche (0,22 puis 0,35, l'œil étant encore
+//    au-dessus) : le sommet de tranche ne déclenche donc pas le gâchis ;
+//  — la courbe n'est pas monotone, elle PASSE PAR UN MAXIMUM à 1,00 m puis
+//    redescend — ce qui a piégé un de mes propres témoins, qui comparait deux
+//    hauteurs symétriques autour de ce sommet et lisait donc zéro ;
+//  — mais ce sommet de tranche SÉPARE NETTEMENT le gain du pavage : épouser la
+//    forme donne exactement 0,00 aux trois hauteurs au-dessus, et jamais moins de
+//    0,15 en dessous.
+// L'étape qui sur-estime est le RABATTEMENT des points de la tranche sur le plan
+// de repos : plus la vue est rasante, plus l'empreinte au sol de ce qu'on écrase
+// déborde l'eau réellement visible. C'est l'étape 4, et c'est là qu'il faudra
+// chercher — le rectangle, le bord lointain et le placement ayant été éliminés
+// par la mesure, chacun à son tour.
+//
 // Autrement dit : la caméra de portée est POSÉE et prouvée sur la couverture et
-// la stabilité ; le gâchis en vue rasante n'est pas un réglage à trouver, c'est
-// une forme à changer. C'est un lot, pas un doute.
+// la stabilité ; le gâchis en vue rasante n'est ni un réglage à trouver, ni une
+// forme à changer — les trois ont été éliminés par la mesure. C'est un lot, pas
+// un doute, et il porte maintenant sur l'étape 4 elle-même.
 //
 // ── LE CAS DÉGÉNÉRÉ, DIT PLUTÔT QUE MASQUÉ ──────────────────────────────────
 // Quand un point retenu est DERRIÈRE la caméra (w <= 0), son image projective
@@ -197,6 +229,18 @@ namespace nkentseu {
 				// où une deuxième caméra entre dans le calcul. On l'écrit donc :
 				// voici la view-projection dans laquelle l'étendue se lit.
 				NkMat4f rangeViewProj;
+				// ── LE NUAGE DONT L'ÉTENDUE EST TIRÉE, en NDC de portée ─────────────
+				// L'étendue ci-dessus est une BOÎTE, donc un MAJORANT de la forme réelle
+				// de l'eau vue. Tant qu'on ne garde que la boîte, personne ne peut
+				// mesurer ce qu'elle enferme de vide : ça n'est mesurable que si l'on
+				// garde aussi ce qu'elle enferme. Ces points sont les positions rabattues
+				// sur le plan de repos, projetées dans l'écran de portée — la forme que
+				// le pavage devra suivre le jour où il suivra autre chose qu'un
+				// rectangle. `ndcCount` vaut 0 quand l'étendue ne dérive d'aucun nuage
+				// (repli plein écran), et ce zéro est une information, pas un oubli.
+				float32 ndcX[40];
+				float32 ndcY[40];
+				uint32 ndcCount = 0u;
 		};
 
 		// Déprojette un point NDC vers le monde. Rend faux quand la division
@@ -434,6 +478,10 @@ namespace nkentseu {
 				}
 				const float32 iw = 1.f / q.w;
 				const float32 nx = q.x * iw, ny = q.y * iw;
+				// On GARDE le nuage, et pas seulement ses bornes : c'est lui la forme
+				// réelle de l'eau vue, dont la boîte n'est qu'un majorant.
+				g.ndcX[i] = nx;
+				g.ndcY[i] = ny;
 				if (nx < mnx)
 					mnx = nx;
 				if (nx > mxx)
@@ -443,6 +491,7 @@ namespace nkentseu {
 				if (ny > mxy)
 					mxy = ny;
 			}
+			g.ndcCount = borne ? n : 0u; // le repli plein écran ne dérive d'aucun nuage
 
 			const float32 b = p.edgeBias;
 			if (!borne) {
