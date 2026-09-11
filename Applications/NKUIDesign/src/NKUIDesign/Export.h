@@ -179,6 +179,11 @@ namespace nkuidesign {
 				}
 				// la matrice sans son echelle (le glyphe est deja a la bonne taille) ; la
 				// translation amene la ligne de base la ou la matrice complete l'aurait mise
+				// palier A : sous perspective, la TANGENTE au debut de la ligne -- meme
+				// limite qu'a l'ecran, meme remede au palier B.
+				const nkentseu::editorkit::NkPaintTransform mTan =
+					nkentseu::editorkit::NkPaintTangente(*m, tx, yBase);
+				m = &mTan;
 				const float32 ta = m->a / k, tb = m->b / k, tc = m->c / k, td = m->d / k;
 				for (nkentseu::int32 p = 0; p < passes; ++p) {
 					const float32 ox = tx + (p ? eGras / k : 0.f);

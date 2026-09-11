@@ -111,6 +111,8 @@ namespace nkuidesign {
 			float32 sy = 1.f; ///< echelle verticale
 			float32 iX = 0.f; ///< inclinaison autour de X, en degres
 			float32 iY = 0.f; ///< inclinaison autour de Y, en degres
+			bool persp = false;		 ///< l'inclinaison se projette-t-elle en PERSPECTIVE ?
+			float32 focale = 800.f;	 ///< distance de l'oeil au plan du noeud, en px
 			/// Vrai quand il n'y a rien à faire — le cas de l'immense majorité des
 			/// nœuds. ⚠️ IL EST INTERROGÉ AVANT TOUT CALCUL : sans ce court-circuit,
 			/// chaque point de chaque forme paierait un sinus, et surtout chaque
@@ -120,6 +122,11 @@ namespace nkuidesign {
 			bool Identite() const {
 				return deg == 0.f && !mh && !mv && sx == 1.f && sy == 1.f && iX == 0.f
 					   && iY == 0.f;
+			}
+			/// Vrai quand la perspective a quelque chose a projeter : sans inclinaison,
+			/// un plan vu de face reste un rectangle, focale ou pas.
+			bool PerspectiveActive() const {
+				return persp && focale > 0.f && (iX != 0.f || iY != 0.f);
 			}
 	};
 
@@ -132,6 +139,8 @@ namespace nkuidesign {
 		t.sy = n.echelleY;
 		t.iX = n.inclinaisonX;
 		t.iY = n.inclinaisonY;
+		t.persp = n.perspective;
+		t.focale = n.focale;
 		return t;
 	}
 
@@ -260,21 +269,81 @@ namespace nkuidesign {
 	struct NkMat2D {
 			// | a c e |   les points sont des colonnes (x, y, 1)
 			// | b d f |
+			// | g h 1 |   ⚠️ LA TROISIEME RANGEE (11/09) : w = g x + h y + 1, et le point
+			//             rendu est (a x + c y + e) / w. A g = h = 0 c'est l'affine
+			//             d'avant, MOT POUR MOT -- toutes les fonctions ci-dessous
+			//             gardent le chemin affine separe pour que l'orthogonal ne
+			//             change pas d'un ulp (le temoin est un diff de flux a zero).
+			//
+			// 🔑 POURQUOI UNE HOMOGRAPHIE ET PAS UNE AFFINE DE PLUS : le trapeze d'une
+			//    vraie perspective N'EST PAS AFFINE -- deux bords paralleles y
+			//    convergent, ce qu'aucune matrice 2x3 ne sait faire. C'est la limite
+			//    qui etait ecrite dans `NkMatDe` depuis le 09/09, et que Rodolf a vue.
 			float32 a = 1.f, b = 0.f, c = 0.f, d = 1.f, e = 0.f, f = 0.f;
+			float32 g = 0.f, h = 0.f;
 			bool Identite() const {
-				return a == 1.f && b == 0.f && c == 0.f && d == 1.f && e == 0.f && f == 0.f;
+				return a == 1.f && b == 0.f && c == 0.f && d == 1.f && e == 0.f && f == 0.f
+					   && g == 0.f && h == 0.f;
+			}
+			/// Affine : la rangee de perspective est nulle. Le chemin rapide, et le
+			/// SEUL emprunte par un document sans perspective.
+			bool Affine() const {
+				return g == 0.f && h == 0.f;
 			}
 	};
+
+	/// LE PLANCHER DE `w`. Un point dont le `w` passe sous ce seuil est DERRIERE
+	/// l'oeil : sa projection n'existe pas (elle se retournerait). On le pince, et
+	/// on le dit ici -- l'interface borne la focale pour que le cas ne se presente
+	/// pas sur une boite raisonnable.
+	inline float32 NkWMin() {
+		return 0.05f;
+	}
+	/// La focale la plus courte qu'on accepte, en px. En dessous, un nœud un peu
+	/// grand aurait des coins derriere l'oeil.
+	inline float32 NkFocaleMin() {
+		return 100.f;
+	}
+	inline float32 NkFocaleMax() {
+		return 10000.f;
+	}
 
 	/// `m` puis `n` (n ∘ m) — l'ordre se lit « d'abord m, ensuite n ».
 	inline NkMat2D NkMatComposer(const NkMat2D &n, const NkMat2D &m) {
 		NkMat2D o;
-		o.a = n.a * m.a + n.c * m.b;
-		o.b = n.b * m.a + n.d * m.b;
-		o.c = n.a * m.c + n.c * m.d;
-		o.d = n.b * m.c + n.d * m.d;
-		o.e = n.a * m.e + n.c * m.f + n.e;
-		o.f = n.b * m.e + n.d * m.f + n.f;
+		if (n.Affine() && m.Affine()) { // le chemin d'avant, inchange
+			o.a = n.a * m.a + n.c * m.b;
+			o.b = n.b * m.a + n.d * m.b;
+			o.c = n.a * m.c + n.c * m.d;
+			o.d = n.b * m.c + n.d * m.d;
+			o.e = n.a * m.e + n.c * m.f + n.e;
+			o.f = n.b * m.e + n.d * m.f + n.f;
+			return o;
+		}
+		// LE PRODUIT 3x3, puis la NORMALISATION : une homographie est definie a un
+		// facteur pres, on ramene le coin bas-droit a 1 pour que `w = g x + h y + 1`
+		// reste vrai a chaque etage -- sans quoi deux compositions donneraient deux
+		// echelles differentes pour la meme geometrie.
+		const float32 A = n.a * m.a + n.c * m.b + n.e * m.g;
+		const float32 C = n.a * m.c + n.c * m.d + n.e * m.h;
+		const float32 E = n.a * m.e + n.c * m.f + n.e;
+		const float32 B = n.b * m.a + n.d * m.b + n.f * m.g;
+		const float32 Dd = n.b * m.c + n.d * m.d + n.f * m.h;
+		const float32 F = n.b * m.e + n.d * m.f + n.f;
+		const float32 G = n.g * m.a + n.h * m.b + m.g;
+		const float32 H = n.g * m.c + n.h * m.d + m.h;
+		const float32 I = n.g * m.e + n.h * m.f + 1.f;
+		if (I == 0.f)
+			return o; // degeneres : l'identite plutot que des infinis (meme repli que l'inverse)
+		const float32 k = 1.f / I;
+		o.a = A * k;
+		o.b = B * k;
+		o.c = C * k;
+		o.d = Dd * k;
+		o.e = E * k;
+		o.f = F * k;
+		o.g = G * k;
+		o.h = H * k;
 		return o;
 	}
 
@@ -283,8 +352,19 @@ namespace nkuidesign {
 			return;
 		const float32 nx = m.a * x + m.c * y + m.e;
 		const float32 ny = m.b * x + m.d * y + m.f;
-		x = nx;
-		y = ny;
+		if (m.Affine()) { // le chemin d'avant, sans une operation de plus
+			x = nx;
+			y = ny;
+			return;
+		}
+		// LA DIVISION PAR `w` : c'est ELLE la perspective. Tout le reste (les coins
+		// d'un rect, les 48 points d'une ellipse, les sommets d'un trace, le
+		// pointage par l'inverse) passe par ici et en herite.
+		float32 w = m.g * x + m.h * y + 1.f;
+		if (w < NkWMin())
+			w = NkWMin(); // derriere l'oeil : pince, jamais retourne
+		x = nx / w;
+		y = ny / w;
 	}
 
 	/// L'INVERSE. ⚠️ Elle rend l'identité si le déterminant est nul — ce qui
@@ -303,17 +383,44 @@ namespace nkuidesign {
 	}
 
 	inline NkMat2D NkMatInverse(const NkMat2D &m) {
-		const float32 det = m.a * m.d - m.b * m.c;
 		NkMat2D o;
-		if (det == 0.f)
+		if (m.Affine()) { // le chemin d'avant, inchange
+			const float32 det = m.a * m.d - m.b * m.c;
+			if (det == 0.f)
+				return o;
+			const float32 k = 1.f / det;
+			o.a = m.d * k;
+			o.b = -m.b * k;
+			o.c = -m.c * k;
+			o.d = m.a * k;
+			o.e = (m.c * m.f - m.d * m.e) * k;
+			o.f = (m.b * m.e - m.a * m.f) * k;
 			return o;
-		const float32 k = 1.f / det;
-		o.a = m.d * k;
-		o.b = -m.b * k;
-		o.c = -m.c * k;
-		o.d = m.a * k;
-		o.e = (m.c * m.f - m.d * m.e) * k;
-		o.f = (m.b * m.e - m.a * m.f) * k;
+		}
+		// L'INVERSE D'UNE HOMOGRAPHIE EST UNE HOMOGRAPHIE : l'adjointe de la 3x3,
+		// normalisee. C'est ce qui fait que LE POINTAGE SUIT LA PERSPECTIVE sans
+		// une ligne de code a lui -- `NkPointDansNoeud` ramene le point dans le
+		// repere du nœud et teste la boite droite, exactement comme avant.
+		const float32 A = m.d - m.f * m.h;
+		const float32 B = m.f * m.g - m.b;
+		const float32 G = m.b * m.h - m.d * m.g;
+		const float32 C = m.e * m.h - m.c;
+		const float32 Dd = m.a - m.e * m.g;
+		const float32 H = m.c * m.g - m.a * m.h;
+		const float32 E = m.c * m.f - m.e * m.d;
+		const float32 F = m.e * m.b - m.a * m.f;
+		const float32 I = m.a * m.d - m.b * m.c;
+		if (I == 0.f)
+			return o;
+		const float32 k = 1.f / I;
+		o.a = A * k;
+		o.b = B * k;
+		o.c = C * k;
+		o.d = Dd * k;
+		o.e = E * k;
+		o.f = F * k;
+		o.g = G * k;
+		o.h = H * k;
 		return o;
 	}
 
@@ -386,6 +493,42 @@ namespace nkuidesign {
 			m.b = b2;
 			m.c = c2;
 			m.d = d2;
+			// ── LA PERSPECTIVE, DERIVEE ELLE AUSSI (11/09, palier A) ──────────
+			//
+			// On garde le `z` au lieu de le jeter. Dans le repere CENTRE du nœud :
+			//
+			//   apres Rx(a) puis Ry(b) :  z' = -x*sin b + y*sin a*cos b
+			//
+			// L'oeil est a la distance `focale` devant le plan ; un point remonte
+			// vers lui d'autant que son `z'` est grand :
+			//
+			//   w = 1 - z'/focale = 1 + (x*sin b - y*sin a*cos b) / focale
+			//
+			// et le point rendu est (T·p) / w. C'est exactement la projection
+			// orthographique d'au-dessus DIVISEE PAR w -- a focale infinie, w = 1
+			// et les deux se confondent. *Ce qui manquait n'etait pas une matrice
+			// de plus : c'etait la division.*
+			if (t.PerspectiveActive()) {
+				const float32 gz = sb / t.focale;
+				const float32 hz = -sa * cb / t.focale;
+				// la meme mise au centre que l'affine, mais en 3x3 :
+				//   p' = C + (L·(p - C)) / (1 + (g,h)·(p - C))
+				// on developpe pour rester dans la forme « w = g x + h y + 1 »
+				const float32 i0 = 1.f - gz * cx - hz * cy;
+				if (i0 != 0.f) {
+					const float32 k = 1.f / i0;
+					const float32 la = m.a, lb = m.b, lc = m.c, ld = m.d;
+					m.a = (la + cx * gz) * k;
+					m.c = (lc + cx * hz) * k;
+					m.b = (lb + cy * gz) * k;
+					m.d = (ld + cy * hz) * k;
+					m.e = (cx * i0 - (la * cx + lc * cy)) * k;
+					m.f = (cy * i0 - (lb * cx + ld * cy)) * k;
+					m.g = gz * k;
+					m.h = hz * k;
+					return m; // le recentrage est DEJA fait
+				}
+			}
 		}
 		// puis on recentre : p' = C + R·S·(p - C)
 		m.e = cx - (m.a * cx + m.c * cy);
@@ -403,7 +546,15 @@ namespace nkuidesign {
 	///        droits — c'est voulu : lui faire porter des angles l'obligerait à
 	///        produire des rectangles non alignés, qu'aucun de ses consommateurs
 	///        ne sait lire).
-	inline NkMat2D NkMatEffective(const NkUIDocument &doc, const NkLayoutResult &lay, int32 i) {
+	/// `avecPerspective = false` : la MEME matrice, projection ORTHOGONALE -- ce que
+	/// le nœud serait sans la fuite. Une seule lectrice aujourd'hui, l'export SVG,
+	/// qui n'a pas de perspective dans son format et l'ECRIT (`data-projection`)
+	/// plutot que de laisser croire a une silhouette qu'il ne sait pas rendre.
+	inline NkMat2D NkMatEffective(const NkUIDocument &doc, const NkLayoutResult &lay, int32 i,
+								  bool avecPerspective = true);
+
+	inline NkMat2D NkMatEffective(const NkUIDocument &doc, const NkLayoutResult &lay, int32 i,
+								  bool avecPerspective) {
 		NkMat2D m;
 		// ── LE REFUS PAR AXE, ICI ET NULLE PART AILLEURS ────────────────────
 		// Un enfant peut refuser d'heriter un axe de ses ancetres : la rotation
@@ -420,6 +571,8 @@ namespace nkuidesign {
 		while (doc.IsValidIndex(k) && k > 0 && garde++ < 256u) {
 			const NkUINode &n = doc.nodes[(uint32)k];
 			NkTransfo t = NkTransfoDe(n);
+			if (!avecPerspective)
+				t.persp = false;
 			if (refR) {
 				t.deg = 0.f;
 				t.mh = false;

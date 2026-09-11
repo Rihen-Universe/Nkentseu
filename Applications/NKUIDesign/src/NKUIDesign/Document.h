@@ -1182,6 +1182,17 @@ namespace nkuidesign {
 			///    `w` au sommet ET dans les cinq dorsaux -- chantier de socle, pas ici.
 			float32 inclinaisonX = 0.f;
 			float32 inclinaisonY = 0.f;
+			/// ── LA PROJECTION DE L'INCLINAISON (cles `projection`, `focale`) ──
+			/// 🔑 Rodolf, 11/09 : « ca ne tient pas compte de la perspective, uniquement
+			///    de l'orthogonalite -- pourtant on doit pouvoir choisir ». Le choix est
+			///    ICI, sur le noeud : `false` = orthogonale (ce que le document faisait,
+			///    et ce que tous les documents existants gardent), `true` = perspective,
+			///    avec une DISTANCE FOCALE en pixels -- la distance de l'oeil au plan du
+			///    noeud. Plus elle est courte, plus la fuite est forte.
+			/// ⚠️ ADDITIF : rien ne s'ecrit tant que la perspective n'est pas demandee,
+			///    donc un document d'avant se reenregistre octet pour octet.
+			bool perspective = false;
+			float32 focale = 800.f;
 
 			// ── VERROUILLER / MASQUER (vague 2, source `/layers`) ────────────
 			/// ⚠️ DEUX BOOLÉENS, DEUX EFFETS DIFFÉRENTS, ET LA DIFFÉRENCE EST TOUT
@@ -3197,6 +3208,13 @@ namespace nkuidesign {
 					WriteNum(out, n.inclinaisonX);
 					out.Append('\n');
 				}
+				if (n.perspective) {
+					// `projection = perspective` ; l'orthogonale ne s'ecrit pas (c'est le defaut)
+					Field(out, "projection", "perspective");
+					out.Append("  focale = ");
+					WriteNum(out, n.focale);
+					out.Append('\n');
+				}
 				if (n.inclinaisonY != 0.f) {
 					out.Append("  inclinaison_y = ");
 					WriteNum(out, n.inclinaisonY);
@@ -4162,6 +4180,13 @@ namespace nkuidesign {
 							n.inclinaisonX = ParseNum(val);
 						else if (StrEq(key, "inclinaison_y"))
 							n.inclinaisonY = ParseNum(val);
+						// ⚠️ UNE VALEUR INCONNUE N'ALLUME PAS LA PERSPECTIVE : seule
+						//    « perspective » la pose. Un document ecrit par une version qui
+						//    aurait une troisieme projection se relit sans la mal comprendre.
+						else if (StrEq(key, "projection"))
+							n.perspective = StrEq(val, "perspective");
+						else if (StrEq(key, "focale"))
+							n.focale = ParseNum(val);
 						else if (StrEq(key, "echelle_x"))
 							n.echelleX = NkEchelleSaine(ParseNum(val));
 						else if (StrEq(key, "echelle_y"))

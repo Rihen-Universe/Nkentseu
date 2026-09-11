@@ -3004,6 +3004,8 @@ namespace nkuidesign {
 		t.d = m.d;
 		t.e = m.e;
 		t.f = m.f;
+		t.g = m.g; // la rangee de perspective (11/09) : zero pour l'orthogonal
+		t.h = m.h;
 		return t;
 	}
 

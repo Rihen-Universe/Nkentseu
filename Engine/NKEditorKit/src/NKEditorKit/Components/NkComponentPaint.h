@@ -189,11 +189,56 @@ namespace nkentseu {
 		///    qui ne la connaissent pas gardent les defauts VIDES ci-dessous et
 		///    dessinent droit -- exactement comme avant.
 		struct NkPaintTransform {
-				float32 a = 1.f, b = 0.f, c = 0.f, d = 1.f, e = 0.f, f = 0.f;
+					float32 a = 1.f, b = 0.f, c = 0.f, d = 1.f, e = 0.f, f = 0.f;
+				/// ⚠️ LA RANGEE DE PERSPECTIVE (11/09) : w = g x + h y + 1, le point rendu
+				///    est (a x + c y + e) / w. A g = h = 0 -- tout ce qui existait avant --
+				///    le peintre prend le meme chemin qu'hier, sans une operation de plus.
+				float32 g = 0.f, h = 0.f;
 				bool Identite() const {
-					return a == 1.f && b == 0.f && c == 0.f && d == 1.f && e == 0.f && f == 0.f;
+					return a == 1.f && b == 0.f && c == 0.f && d == 1.f && e == 0.f && f == 0.f
+						   && g == 0.f && h == 0.f;
+				}
+				bool Affine() const {
+					return g == 0.f && h == 0.f;
 				}
 		};
+
+		/// LE PLANCHER DE `w` : un point dont le w tombe dessous est derriere l'oeil.
+		/// On le pince plutot que de le retourner. (Le meme nombre que `NkWMin` cote
+		/// document : ecrit deux fois parce que le kit ne depend pas de l'application,
+		/// et c'est la SEULE valeur partagee de ce lot.)
+		inline float32 NkPaintWMin() {
+			return 0.05f;
+		}
+
+		/// LA TANGENTE AFFINE d'une transformee EN UN POINT : la meilleure affine qui
+		/// coincide avec l'homographie en `(px, py)` (sa valeur ET sa derivee).
+		///
+		/// 🔴 ELLE EXISTE POUR LE TEXTE, ET C'EST UNE LIMITE ASSUMEE DU PALIER A : les
+		///    glyphes partent chez NKGui avec SIX coefficients (`AddTextTransforme`).
+		///    Leur donner la partie affine brute de l'homographie poserait le texte AU
+		///    MAUVAIS ENDROIT ; la tangente le pose au bon, a la bonne taille et a la
+		///    bonne pente -- il PENCHE mais il ne FUIT pas (ses lignes ne convergent
+		///    pas). Le palier B projettera chaque glyphe par ses quatre coins.
+		/// ⚠️ A g = h = 0 elle rend la matrice TELLE QUELLE (pas une recomposition qui
+		///    differerait d'un ulp) : l'orthogonal ne bouge pas.
+		inline NkPaintTransform NkPaintTangente(const NkPaintTransform &m, float32 px, float32 py) {
+			if (m.Affine())
+				return m;
+			NkPaintTransform o;
+			float32 w = m.g * px + m.h * py + 1.f;
+			if (w < NkPaintWMin())
+				w = NkPaintWMin();
+			const float32 X = (m.a * px + m.c * py + m.e) / w;
+			const float32 Y = (m.b * px + m.d * py + m.f) / w;
+			o.a = (m.a - X * m.g) / w;
+			o.b = (m.b - Y * m.g) / w;
+			o.c = (m.c - X * m.h) / w;
+			o.d = (m.d - Y * m.h) / w;
+			o.e = X - (o.a * px + o.c * py);
+			o.f = Y - (o.b * px + o.d * py);
+			return o;
+		}
 
 		// ── L'INTERFACE ─────────────────────────────────────────────────────────
 		class NkComponentPaint {

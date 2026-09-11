@@ -15517,6 +15517,65 @@ namespace nkuidesign {
 					"Inclinaison Y", "insp.app.inclinaison.y",
 					[](const NkUINode &q) { return q.inclinaisonY; },
 					[](NkUINode &q, float32 v) { q.inclinaisonY = v; });
+				// ── ② LA PROJECTION (11/09) : orthogonale ou perspective ─────────────
+				//
+				// 🔑 Rodolf : « ca ne tient pas compte de la perspective, uniquement de
+				//    l'orthogonalite -- pourtant on doit pouvoir choisir ». Le choix est
+				//    ici, a cote des angles qu'il projette.
+				//
+				// ⚠️ CACHEE TANT QU'AUCUN ANGLE N'EST POSE : sans inclinaison, un plan vu
+				//    de face reste un rectangle -- la focale ne changerait RIEN. *On cache
+				//    ce qui ne peut pas agir ; on explique ce qui n'agit pas encore.*
+				if (n->inclinaisonX == 0.f && n->inclinaisonY == 0.f)
+					return;
+				{
+					const NkRect r = ctx.NextItemRect(-1.f, 26.f);
+					const float32 x0 = r.x + 12.f;
+					costume::Texte(dl, F.px10, x0, costume::CentrerBande(F.px10, r.y), "Projection",
+								   ctx.theme.textMuted);
+				}
+				{
+					static const char *const kProj[2] = {"Orthogonale", "Perspective"};
+					const int32 choix = designkit::Segmented(ctx, kProj, 2, n->perspective ? 1 : 0,
+															 "insp.app.projection");
+					if (choix >= 0 && (choix == 1) != n->perspective) {
+						n->perspective = (choix == 1);
+						mSt->doc.MarkHumanEdit(mSt->selected);
+						mSt->host.SyncTo(mSt->doc);
+					}
+				}
+				if (n->perspective) {
+					const NkRect r = ctx.NextItemRect(-1.f, 26.f);
+					const float32 x0 = r.x + 12.f;
+					costume::Texte(dl, F.px10, x0, costume::CentrerBande(F.px10, r.y), "Focale",
+								   ctx.theme.textMuted);
+					const NkRect rf = {x0 + ColChampsCalc(r.w - 24.f), costume::BandeY(r.y), 56.f,
+									   costume::HControle};
+					float32 v = n->focale;
+					// Les bornes viennent de la GEOMETRIE (`NkFocaleMin` / `NkFocaleMax`) :
+					// trop courte, les coins d'un nœud un peu grand passeraient DERRIERE
+					// l'oeil -- et un point derriere l'oeil n'a pas de projection.
+					if (ChampNombre(ctx, "insp.app.focale", rf, v, 5.f, NkFocaleMin(), NkFocaleMax())) {
+						n->focale = v;
+						mSt->doc.MarkHumanEdit(mSt->selected);
+						mSt->host.SyncTo(mSt->doc);
+					}
+					costume::Texte(dl, F.px9, rf.x + rf.w + 4.f, costume::CentrerBande(F.px9, r.y), "px",
+								   ctx.theme.textMuted);
+					if (ctx.popupDepth == 0 && NkGuiRectContains(r, ctx.input.mousePos))
+						mSt->status = NkString("Focale : la distance de l'œil au plan du nœud. Plus elle "
+											   "est courte, plus les bords fuient.");
+					// ⚠️ CE QUI MANQUE, ECRIT LA OU ON LE VOIT (et pas seulement dans le
+					//    commit) : les formes fuient, LE TEXTE PENCHE SANS FUIR tant que le
+					//    palier B n'est pas livre. Rodolf verra la difference a l'ecran ; il
+					//    doit savoir qu'elle est CONNUE.
+					const NkRect rn = ctx.NextItemRect(-1.f, 30.f);
+					costume::Texte(dl, F.px9, rn.x + 12.f, rn.y + 1.f,
+								   "Le texte penche, il ne fuit pas encore :", ctx.theme.textDisabled);
+					costume::Texte(dl, F.px9, rn.x + 12.f, rn.y + 14.f,
+								   "ses glyphes partent en affine. Les formes convergent.",
+								   ctx.theme.textDisabled);
+				}
 			}
 
 			/// L'ARRONDI, dans le bloc géométrie (Lunacy ; Q86, 04/09), avec ses quatre

@@ -328,18 +328,54 @@ namespace nkentseu {
 					return m.Identite() ? nullptr : &m;
 				}
 				static nkgui::NkVec2 T(const NkPaintTransform &m, float32 x, float32 y) noexcept {
-					return {m.a * x + m.c * y + m.e, m.b * x + m.d * y + m.f};
+					// ⚠️ LA DIVISION PAR `w` EST ICI, ET NULLE PART AILLEURS (11/09) : les
+					//    coins d'un rect, les 48 points d'une ellipse, les sommets d'un
+					//    trace, les extremites d'une ligne et l'englobant d'une decoupe
+					//    passent tous par cette fonction. *Une seule porte a diviser.*
+					if (!m.Affine()) {
+						float32 w = m.g * x + m.h * y + 1.f;
+						if (w < NkPaintWMin())
+							w = NkPaintWMin();
+						return nkgui::NkVec2{(m.a * x + m.c * y + m.e) / w,
+											 (m.b * x + m.d * y + m.f) / w};
+					}
+					return nkgui::NkVec2{m.a * x + m.c * y + m.e, m.b * x + m.d * y + m.f};
 				}
 				/// h o m : d'abord m (la nouvelle), puis h (celle du dessus).
 				static NkPaintTransform Composer(const NkPaintTransform &h,
 												 const NkPaintTransform &m) noexcept {
 					NkPaintTransform r;
-					r.a = h.a * m.a + h.c * m.b;
-					r.b = h.b * m.a + h.d * m.b;
-					r.c = h.a * m.c + h.c * m.d;
-					r.d = h.b * m.c + h.d * m.d;
-					r.e = h.a * m.e + h.c * m.f + h.e;
-					r.f = h.b * m.e + h.d * m.f + h.f;
+					if (h.Affine() && m.Affine()) { // le chemin d'avant, inchange
+						r.a = h.a * m.a + h.c * m.b;
+						r.b = h.b * m.a + h.d * m.b;
+						r.c = h.a * m.c + h.c * m.d;
+						r.d = h.b * m.c + h.d * m.d;
+						r.e = h.a * m.e + h.c * m.f + h.e;
+						r.f = h.b * m.e + h.d * m.f + h.f;
+						return r;
+					}
+					// le produit 3x3 puis la normalisation -- la meme regle que
+					// `NkMatComposer` cote document : `w = g x + h y + 1` a chaque etage.
+					const float32 A = h.a * m.a + h.c * m.b + h.e * m.g;
+					const float32 C = h.a * m.c + h.c * m.d + h.e * m.h;
+					const float32 E = h.a * m.e + h.c * m.f + h.e;
+					const float32 B = h.b * m.a + h.d * m.b + h.f * m.g;
+					const float32 D = h.b * m.c + h.d * m.d + h.f * m.h;
+					const float32 F = h.b * m.e + h.d * m.f + h.f;
+					const float32 G = h.g * m.a + h.h * m.b + m.g;
+					const float32 H = h.g * m.c + h.h * m.d + m.h;
+					const float32 I = h.g * m.e + h.h * m.f + 1.f;
+					if (I == 0.f)
+						return r;
+					const float32 k = 1.f / I;
+					r.a = A * k;
+					r.b = B * k;
+					r.c = C * k;
+					r.d = D * k;
+					r.e = E * k;
+					r.f = F * k;
+					r.g = G * k;
+					r.h = H * k;
 					return r;
 				}
 				static void Coins(const NkPaintTransform &m, const NkPaintRect &r,

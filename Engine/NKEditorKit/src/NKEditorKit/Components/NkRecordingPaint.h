@@ -127,6 +127,9 @@ namespace nkentseu {
 				float32 rounding = 0.f;
 				/// Pour PushTransform : a,b,c,d dans x,y,w,h ; e dans rounding ; f ICI.
 				float32 tf = 0.f;
+				/// Pour PushTransform : la RANGEE DE PERSPECTIVE (11/09). A zero pour
+				/// tout ce qui existait avant -- deux flux d'hier restent egaux.
+				float32 tg = 0.f, th = 0.f;
 				uint16 icon = 0;
 				uint8 align = 0;
 				NkString text;
@@ -144,7 +147,8 @@ namespace nkentseu {
 						icon != o.icon || align != o.align || image != o.image || xy.Size() != o.xy.Size())
 						return false;
 					if (!Near(x, o.x) || !Near(y, o.y) || !Near(w, o.w) || !Near(h, o.h) ||
-						!Near(rounding, o.rounding) || !Near(tf, o.tf))
+						!Near(rounding, o.rounding) || !Near(tf, o.tf) || !Near(tg, o.tg) ||
+						!Near(th, o.th))
 						return false;
 					const char *a = text.Data(), *b = o.text.Data();
 					if (!a || !b)
@@ -239,8 +243,11 @@ namespace nkentseu {
 				/// coefficients, puis les commandes qu'elle couvre.
 				void PushTransform(const NkPaintTransform &t) override {
 					Push(NkPaintOp::PushTransform, {t.a, t.b, t.c, t.d}, 0, 0, 0, t.e, 0, 0, nullptr);
-					if (!cmds.Empty())
+					if (!cmds.Empty()) {
 						cmds[cmds.Size() - 1].tf = t.f;
+						cmds[cmds.Size() - 1].tg = t.g;
+						cmds[cmds.Size() - 1].th = t.h;
+					}
 				}
 				bool ImagePolygone(const float32 *xy, const float32 *uv, int32 count, uint32 image,
 								   float32 opacite) override {

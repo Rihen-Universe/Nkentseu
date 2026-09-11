@@ -14390,6 +14390,295 @@ namespace nkuidesign {
 					  det);
 			}
 		}
+		// ── 154. LA PERSPECTIVE (11/09, palier A). Rodolf : « ca ne tient pas compte de la
+		//    perspective, uniquement de l'orthogonalite -- pourtant on doit pouvoir choisir ».
+		//    Le choix est sur le noeud (`projection`, `focale`) et la matrice est devenue une
+		//    HOMOGRAPHIE : w = g x + h y + 1, et tout se divise par w.
+		//
+		// ⚠️ LA PLACE DES COINS EST DERIVEE ICI, PAS RELUE DU CODE : l'essai refait le calcul
+		//    (Rx puis Ry, z garde, division par 1 - z/f) et compare. Un temoin qui appellerait
+		//    la meme fonction que le peintre ne prouverait que sa propre coherence.
+		{
+			char det[900];
+			NkUIDocument dP;
+			dP.NewDocument("Toile", NkAuthor::Humain);
+			dP.SetMetric("espacement", 0.f);
+			dP.SetMetric("marge", 0.f);
+			dP.nodes[0].layout.kind = NkLayoutKind::Free;
+			const int32 nP = dP.AddChild(0, "", NkAuthor::Humain);
+			{
+				NkUINode &z = dP.nodes[(uint32)nP];
+				z.shape = NkString("rect");
+				z.layout.kind = NkLayoutKind::Free;
+				z.posX = 100.f;
+				z.posY = 100.f;
+				z.width.mode = NkSizeMode::Fixed;
+				z.width.value = 200.f;
+				z.height.mode = NkSizeMode::Fixed;
+				z.height.value = 100.f;
+				z.fill = NkString("#ff0000");
+				z.inclinaisonY = 40.f; // une inclinaison AUTOUR DE Y : les bords verticaux fuient
+				z.perspective = true;
+				z.focale = 600.f;
+			}
+			NkLayoutResult layP;
+			NkComputeLayout(dP, NkPaintRect{0.f, 0.f, 800.f, 600.f}, layP);
+			const NkPaintRect rP = layP.At(nP);
+			const float32 cxP = rP.x + rP.w * 0.5f, cyP = rP.y + rP.h * 0.5f;
+			// LA DERIVATION, refaite ici : p (centre) -> Rx(a) -> Ry(b) -> / (1 - z/f)
+			auto projete = [&](float32 x, float32 y, bool avecPerspective, float32 &ox, float32 &oy) {
+				const NkUINode &z = dP.nodes[(uint32)nP];
+				float32 sa = 0.f, ca = 1.f, sb = 0.f, cb = 1.f;
+				if (z.inclinaisonX != 0.f)
+					NkSinCosDeg(z.inclinaisonX, sa, ca);
+				if (z.inclinaisonY != 0.f)
+					NkSinCosDeg(z.inclinaisonY, sb, cb);
+				const float32 dx = x - cxP, dy = y - cyP;
+				const float32 px2 = dx * cb + dy * sa * sb;
+				const float32 py2 = dy * ca;
+				const float32 pz2 = -dx * sb + dy * sa * cb;
+				const float32 w = avecPerspective ? 1.f - pz2 / z.focale : 1.f;
+				ox = cxP + px2 / w;
+				oy = cyP + py2 / w;
+			};
+			// (a) LES QUATRE COINS : ceux de la matrice == ceux de la derivation
+			const NkMat2D mP = NkMatEffective(dP, layP, nP);
+			float32 quad[8];
+			float32 ecartMax = 0.f;
+			{
+				const float32 xs[4] = {rP.x, rP.x + rP.w, rP.x + rP.w, rP.x};
+				const float32 ys[4] = {rP.y, rP.y, rP.y + rP.h, rP.y + rP.h};
+				for (uint32 k = 0; k < 4u; ++k) {
+					float32 mx = xs[k], my = ys[k];
+					NkMatPoint(mP, mx, my);
+					quad[k * 2u] = mx;
+					quad[k * 2u + 1u] = my;
+					float32 ax = 0.f, ay = 0.f;
+					projete(xs[k], ys[k], true, ax, ay);
+					const float32 ex = (mx > ax ? mx - ax : ax - mx), ey = (my > ay ? my - ay : ay - my);
+					if (ex > ecartMax)
+						ecartMax = ex;
+					if (ey > ecartMax)
+						ecartMax = ey;
+				}
+			}
+			const bool coins = ecartMax < 0.01f;
+			// (b) LES BORDS CONVERGENT : les deux cotes verticaux n'ont plus la meme hauteur.
+			//     En ORTHOGONAL ils l'ont -- c'est ce que la version affine faisait, et c'est
+			//     exactement ce que Rodolf a vu.
+			auto hauteurCote = [&](const float32 *q, uint32 c0, uint32 c1) -> float32 {
+				const float32 dy = q[c1 * 2u + 1u] - q[c0 * 2u + 1u];
+				return dy < 0.f ? -dy : dy;
+			};
+			const float32 gauche = hauteurCote(quad, 0u, 3u), droite = hauteurCote(quad, 1u, 2u);
+			const float32 fuite = gauche > droite ? gauche / droite : droite / gauche;
+			dP.nodes[(uint32)nP].perspective = false;
+			const NkMat2D mO = NkMatEffective(dP, layP, nP);
+			float32 quadO[8];
+			{
+				const float32 xs[4] = {rP.x, rP.x + rP.w, rP.x + rP.w, rP.x};
+				const float32 ys[4] = {rP.y, rP.y, rP.y + rP.h, rP.y + rP.h};
+				for (uint32 k = 0; k < 4u; ++k) {
+					float32 mx = xs[k], my = ys[k];
+					NkMatPoint(mO, mx, my);
+					quadO[k * 2u] = mx;
+					quadO[k * 2u + 1u] = my;
+				}
+			}
+			const float32 gaucheO = hauteurCote(quadO, 0u, 3u), droiteO = hauteurCote(quadO, 1u, 2u);
+			const bool convergence = fuite > 1.2f && gaucheO > droiteO - 0.01f && gaucheO < droiteO + 0.01f;
+			// (c) L'ORTHOGONAL N'A PAS BOUGE : sa matrice est AFFINE (g = h = 0) et ses coins
+			//     sont ceux de la derivation SANS division.
+			float32 ecartO = 0.f;
+			{
+				const float32 xs[4] = {rP.x, rP.x + rP.w, rP.x + rP.w, rP.x};
+				const float32 ys[4] = {rP.y, rP.y, rP.y + rP.h, rP.y + rP.h};
+				for (uint32 k = 0; k < 4u; ++k) {
+					float32 ax = 0.f, ay = 0.f;
+					projete(xs[k], ys[k], false, ax, ay);
+					const float32 ex = (quadO[k * 2u] > ax ? quadO[k * 2u] - ax : ax - quadO[k * 2u]);
+					const float32 ey = (quadO[k * 2u + 1u] > ay ? quadO[k * 2u + 1u] - ay : ay - quadO[k * 2u + 1u]);
+					if (ex > ecartO)
+						ecartO = ex;
+					if (ey > ecartO)
+						ecartO = ey;
+				}
+			}
+			const bool orthoIntact = mO.Affine() && ecartO < 0.01f;
+			dP.nodes[(uint32)nP].perspective = true;
+			// (d) LE POINTAGE SUIT LA SILHOUETTE PROJETEE -- et le CONTROLE INVERSE : un point
+			//     DANS la boite droite mais HORS du quadrilatere ne doit PAS designer le noeud.
+			auto dansQuad = [&](float32 px, float32 py) -> bool {
+				int32 signe = 0;
+				for (uint32 k = 0; k < 4u; ++k) {
+					const uint32 j = (k + 1u) & 3u;
+					const float32 ax = quad[k * 2u], ay = quad[k * 2u + 1u];
+					const float32 bx = quad[j * 2u], by = quad[j * 2u + 1u];
+					const float32 cr = (bx - ax) * (py - ay) - (by - ay) * (px - ax);
+					const int32 sg = cr > 0.001f ? 1 : (cr < -0.001f ? -1 : 0);
+					if (sg == 0)
+						continue;
+					if (signe == 0)
+						signe = sg;
+					else if (sg != signe)
+						return false;
+				}
+				return true;
+			};
+			uint32 grille = 0u, accords = 0u, dedansHorsBoite = 0u, dansBoiteHorsSilhouette = 0u, bienRefuses = 0u;
+			for (uint32 iy = 0; iy <= 40u; ++iy)
+				for (uint32 ix = 0; ix <= 40u; ++ix) {
+					const float32 px = rP.x - 40.f + (rP.w + 80.f) * (float32)ix / 40.f;
+					const float32 py = rP.y - 40.f + (rP.h + 80.f) * (float32)iy / 40.f;
+					const bool attendu = dansQuad(px, py);
+					const bool obtenu = NkPointDansNoeud(dP, layP, nP, px, py);
+					++grille;
+					if (attendu == obtenu)
+						++accords;
+					const bool dansBoiteDroite = px >= rP.x && px < rP.x + rP.w && py >= rP.y && py < rP.y + rP.h;
+					if (attendu && !dansBoiteDroite)
+						++dedansHorsBoite; // la silhouette deborde la boite : elle n'est pas la boite
+					if (!attendu && dansBoiteDroite) {
+						++dansBoiteHorsSilhouette; // LE CONTROLE INVERSE
+						if (!obtenu)
+							++bienRefuses;
+					}
+				}
+			// la grille tolere le bord (un point a 0.001 d'une arete peut tomber des deux cotes)
+			const bool pointage = grille > 0u && accords * 100u >= grille * 99u && dedansHorsBoite > 0u
+								  && dansBoiteHorsSilhouette > 0u && bienRefuses == dansBoiteHorsSilhouette;
+			// (e) LE PEINTRE DU KIT DIVISE PAR w : un rect peint sous cette matrice a ses
+			//     sommets a la place projetee (et non a la place affine).
+			bool peintre = false;
+			float32 ecartPeintre = 999.f;
+			{
+				static nkgui::NkGuiContext ctxW;
+				if (ctxW.Init(800, 600)) {
+					NkTheme themeW;
+					ctxW.BeginFrame(0.016f);
+					ctxW.BeginLayout({0.f, 0.f, 800.f, 600.f});
+					const uint32 avant = (uint32)ctxW.dl.vtx.Size();
+					{
+						NkDesignPaint pw(ctxW, themeW);
+						pw.PushTransform(NkPaintTransformDe(mP));
+						pw.FillColor({rP.x, rP.y, rP.w, rP.h}, 0xff0000ffu, 0.f);
+						pw.PopTransform();
+					}
+					// les sommets ajoutes : leur enveloppe doit coller au quadrilatere projete
+					float32 x0 = 1e9f, y0 = 1e9f, x1 = -1e9f, y1 = -1e9f;
+					for (uint32 i = avant; i < (uint32)ctxW.dl.vtx.Size(); ++i) {
+						const nkgui::NkVec2 p = ctxW.dl.vtx[i].pos;
+						if (p.x < x0) x0 = p.x;
+						if (p.x > x1) x1 = p.x;
+						if (p.y < y0) y0 = p.y;
+						if (p.y > y1) y1 = p.y;
+					}
+					ctxW.EndFrame();
+					float32 qx0 = 1e9f, qy0 = 1e9f, qx1 = -1e9f, qy1 = -1e9f;
+					for (uint32 k = 0; k < 4u; ++k) {
+						if (quad[k * 2u] < qx0) qx0 = quad[k * 2u];
+						if (quad[k * 2u] > qx1) qx1 = quad[k * 2u];
+						if (quad[k * 2u + 1u] < qy0) qy0 = quad[k * 2u + 1u];
+						if (quad[k * 2u + 1u] > qy1) qy1 = quad[k * 2u + 1u];
+					}
+					auto ecart = [](float32 a, float32 b) { return a > b ? a - b : b - a; };
+					ecartPeintre = ecart(x0, qx0);
+					if (ecart(y0, qy0) > ecartPeintre) ecartPeintre = ecart(y0, qy0);
+					if (ecart(x1, qx1) > ecartPeintre) ecartPeintre = ecart(x1, qx1);
+					if (ecart(y1, qy1) > ecartPeintre) ecartPeintre = ecart(y1, qy1);
+					peintre = ecartPeintre < 0.6f;
+				}
+			}
+			// (f) LE FICHIER : `projection` et `focale` ne s'ecrivent QUE sous perspective ;
+			//     relu, le noeud peint pareil ; et un document orthogonal n'en porte aucune trace.
+			NkString texteP;
+			dP.Save(texteP);
+			const bool ecrit = NkString(texteP).Contains("projection = perspective") && NkString(texteP).Contains("focale = 600");
+			NkUIDocument dR;
+			const bool relu = dR.Load(texteP.Data());
+			bool memeMatrice = false;
+			if (relu && dR.IsValidIndex(nP)) {
+				NkLayoutResult layR;
+				NkComputeLayout(dR, NkPaintRect{0.f, 0.f, 800.f, 600.f}, layR);
+				const NkMat2D mR = NkMatEffective(dR, layR, nP);
+				memeMatrice = mR.g == mP.g && mR.h == mP.h && mR.a == mP.a && mR.e == mP.e
+							  && dR.nodes[(uint32)nP].perspective && dR.nodes[(uint32)nP].focale == 600.f;
+			}
+			dP.nodes[(uint32)nP].perspective = false;
+			NkString texteO;
+			dP.Save(texteO);
+			const bool orthoMuet = !NkString(texteO).Contains("projection") && !NkString(texteO).Contains("focale");
+			dP.nodes[(uint32)nP].perspective = true;
+			const bool fichier = ecrit && relu && memeMatrice && orthoMuet;
+			// (g) L'EXPORT SVG : la MEME silhouette qu'en orthogonal, et il le DECLARE.
+			//     Le temoin ne lit pas des nombres dans une chaine : il exporte DEUX fois
+			//     (perspective, puis orthogonal) et exige que les deux fichiers soient
+			//     IDENTIQUES une fois les deux attributs de declaration retires. *Si la
+			//     matrice partait avec la fuite, les deux differeraient.*
+			static DesignState stSvg;
+			stSvg.doc = dP;
+			stSvg.Recompute(NkPaintRect{0.f, 0.f, 800.f, 600.f});
+			NkExportOptions oSvg;
+			oSvg.format = NkExportFormat::SVG;
+			NkString svgP, svgO;
+			NkExportResultat rSvgP, rSvgO;
+			const bool expP = NkExporterSVG(stSvg, oSvg, "", svgP, rSvgP);
+			stSvg.doc.nodes[(uint32)nP].perspective = false;
+			stSvg.Recompute(NkPaintRect{0.f, 0.f, 800.f, 600.f});
+			const bool expO = NkExporterSVG(stSvg, oSvg, "", svgO, rSvgO);
+			NkString sansDecl;
+			{
+				const char *p = svgP.Data();
+				const char *cle = " data-projection=\"perspective\"";
+				while (p && *p) {
+					const char *a = p, *b = cle;
+					while (*a && *b && *a == *b)
+						++a, ++b;
+					if (!*b) { // on saute la declaration ET l'attribut de focale qui suit
+						p = a;
+						const char *fin = a;
+						const char *cf = " data-focale=\"";
+						const char *x = fin, *y = cf;
+						while (*x && *y && *x == *y)
+							++x, ++y;
+						if (!*y) {
+							while (*x && *x != '"')
+								++x;
+							if (*x == '"')
+								++x;
+							p = x;
+						}
+						continue;
+					}
+					sansDecl.Append(*p);
+					++p;
+				}
+			}
+			const bool declare = NkString(svgP).Contains("data-projection=\"perspective\"")
+								 && NkString(svgP).Contains("data-focale=\"600");
+			const bool memeSilhouette = expP && expO && NkComponentDecl::StrEq(sansDecl.Data(), svgO.Data());
+			const bool svgJuste = declare && memeSilhouette;
+			snprintf(det, sizeof(det),
+					 "(a) quatre coins : ecart max a la derivation %.4f px -> %d ; (b) fuite : cotes %.1f et %.1f "
+					 "(rapport %.2f), en orthogonal %.1f = %.1f -> %d ; (c) orthogonal : matrice affine=%d, ecart "
+					 "%.4f -> %d ; (d) pointage : %u/%u points d'accord avec la silhouette, %u dedans hors de la "
+					 "boite droite, %u DANS la boite mais hors silhouette dont %u refuses -> %d ; (e) peintre du "
+					 "kit : ecart d'enveloppe %.2f px -> %d ; (f) fichier : ecrit=%d, relu=%d, meme matrice=%d, "
+					 "orthogonal muet=%d -> %d ; (g) SVG : declare=%d, meme silhouette qu'en orthogonal=%d -> %d",
+					 (double)ecartMax, coins ? 1 : 0, (double)gauche, (double)droite, (double)fuite, (double)gaucheO,
+					 (double)droiteO, convergence ? 1 : 0, mO.Affine() ? 1 : 0, (double)ecartO, orthoIntact ? 1 : 0,
+					 accords, grille, dedansHorsBoite, dansBoiteHorsSilhouette, bienRefuses, pointage ? 1 : 0,
+					 (double)ecartPeintre, peintre ? 1 : 0, ecrit ? 1 : 0, relu ? 1 : 0, memeMatrice ? 1 : 0,
+					 orthoMuet ? 1 : 0, fichier ? 1 : 0, declare ? 1 : 0, memeSilhouette ? 1 : 0,
+					 svgJuste ? 1 : 0);
+			check("154. LA PERSPECTIVE : les quatre coins tombent a leur place DERIVEE (Rx, Ry, division par "
+				  "1 - z/f), les deux cotes verticaux ne mesurent plus pareil -- ils FUIENT -- la ou "
+				  "l'orthogonal les gardait egaux ; le pointage suit la silhouette PROJETEE, et un point DANS "
+				  "la boite droite mais HORS de la silhouette est refuse ; le peintre du kit divise par w ; "
+				  "l'orthogonal reste affine, au pixel et au fichier (rien ne s'y ecrit) ; et l'export SVG ecrit la "
+				  "silhouette ORTHOGONALE en le DECLARANT -- les deux fichiers sont identiques aux deux attributs pres",
+				  coins && convergence && orthoIntact && pointage && peintre && fichier && svgJuste, det);
+		}
 		// ── 94. ① L'APERCU PENDANT LE TRACE (05/09). Rodolf : « pourquoi quand on dessine un
 		//    graphique on voit juste le rectangle qui s'allonge, et des qu'on relache on voit la
 		//    forme ? » Deux mesures : LA TABLE DE GENRE (une seule, lue par le relachement et par

@@ -718,7 +718,14 @@ namespace nkuidesign {
 			if (n.masque)
 				return;
 			const NkPaintRect r = e.lay->At(i);
-			const NkMat2D eff = NkMatEffective(doc, *e.lay, i);
+			// ⚠️ LA MATRICE ORTHOGONALE, ET L'EXPORT LE DIT (11/09) : SVG n'a pas de
+			//    perspective -- sa `matrix(...)` est affine par definition. On ecrit donc
+			//    la silhouette SANS fuite, et on pose `data-projection` / `data-focale`
+			//    sur le groupe pour que le fichier ne fasse pas croire au contraire.
+			//    *Un fichier qui a l'air juste et ne l'est pas est ce qu'on refuse.* Le
+			//    dialogue a deux modes (garder orthogonal / aplatir en polygone), tranche
+			//    par Rodolf, vient au palier C.
+			const NkMat2D eff = NkMatEffective(doc, *e.lay, i, false);
 			const NkMat2D propre = NkMatComposer(NkMatInverse(parentEff), eff);
 			++e.groupes;
 			Indenter(e);
@@ -730,6 +737,10 @@ namespace nkuidesign {
 			}
 			if (!n.label.Empty())
 				Ajouter(e.corps, "data-nom", Echapper(n.label.Data()).Data());
+			if (n.perspective && (n.inclinaisonX != 0.f || n.inclinaisonY != 0.f)) {
+				Ajouter(e.corps, "data-projection", "perspective");
+				Ajouter(e.corps, "data-focale", n.focale);
+			}
 			// ① (07/09) L'OPACITE ET LA FUSION DU NŒUD, SUR SON GROUPE.
 			// 🔴 Elles etaient PERDUES EN SILENCE : `Style()` prend un
 			//    `NkRemplissage*`, jamais un nœud, donc l'export portait celles des

@@ -194,7 +194,12 @@ namespace nkuidesign {
 										  ? (graisse >= 700.f ? 0.8f : graisse >= 600.f ? 0.5f : 0.3f)
 												* (echelle > 1.f ? echelle : 1.f)
 										  : 0.f;
-				if (const nkentseu::editorkit::NkPaintTransform *m = TransformeActive()) {
+				if (const nkentseu::editorkit::NkPaintTransform *m0 = TransformeActive()) {
+					// palier A : sous perspective, la TANGENTE au debut de la ligne (voir
+					// `NkPaintTangente`) -- le texte penche a la bonne place, il ne fuit pas.
+					const nkentseu::editorkit::NkPaintTransform mTan =
+						nkentseu::editorkit::NkPaintTangente(*m0, tx, yBase);
+					const nkentseu::editorkit::NkPaintTransform *m = &mTan;
 					// Sous la matrice du noeud : la mise a l'echelle des glyphes S
 					// (facteur `echelle` autour de l'origine de ligne o) se compose
 					// SOUS M -- M o S : p -> M(o) + echelle * L(p - o). Le texte tourne
