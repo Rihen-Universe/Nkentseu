@@ -1387,6 +1387,12 @@ namespace nkuidesign {
 			///    un champ d'ETAT, enregistre dans `nkuidesign.cfg` comme le reste du
 			///    decor. Sa couleur seule est persistee (cle `canvas_fond`).
 			NkRemplissage canvasFill;
+			/// ① LE REMPLISSAGE TRANSITOIRE D'UN ETAT : l'enveloppe exige un
+			///   `NkRemplissage`, un bloc d'etat porte une COULEUR. Celui-ci recoit la
+			///   couleur du champ vise a l'ouverture ; chaque ecriture de l'enveloppe le
+			///   traverse et se pose dans le bloc d'etat (`touche()`). Il n'est ni dans le
+			///   document ni dans le fichier : c'est une adaptation, pas une donnee.
+			NkRemplissage etatFill;
 			/// L'APERCU DU FOND DE LA TOILE -- **vu, pas ecrit**. Le canvas n'est pas
 			/// un nœud : son aperçu ne peut pas vivre dans `host.apercu*`, qui est
 			/// indexe par nœud. Meme regle, meme priorite, autre porte.
@@ -1704,6 +1710,13 @@ namespace nkuidesign {
 					nkentseu::uint8 genre = 0;
 					nkentseu::int32 noeud = -1;
 					nkentseu::int32 index = -1;
+					/// ① (11/09 soir) LA CIBLE D'ETAT : vide = pas un etat. Rodolf : « le color
+					///   picker a ce niveau n'est pas correct » -- la pastille d'ETATS ouvrait le
+					///   NOYAU NU, le defaut du canvas revenu. La demande dit desormais QUEL bloc
+					///   d'etat et QUEL champ (0 = fond, 1 = couleur du texte) elle edite ;
+					///   l'enveloppe recoit `etatFill` et ecrit dans ce bloc, par `touche()`.
+					char etat[24] = {};
+					nkentseu::uint8 champEtat = 0;
 					nkentseu::int32 arretSel = 0; ///< l'ARRET COURANT : c'est lui que le selecteur edite
 					nkentseu::int32 arretDrag = -1;
 					nkentseu::uint32 synchro = 0xFFFFFFFFu; ///< cle du dernier tampon hexa resynchronise
@@ -11721,6 +11734,8 @@ namespace nkuidesign {
 				//    partait dans le popover de remplissage. Les deux sections qui
 				//    ont besoin d'un autre genre le posent juste après leur appel.
 				st.picker.genre = 0u;
+				st.picker.etat[0] = '\0'; // ① meme regle : la cible d'etat ne survit pas a l'ouvreur precedent
+				st.picker.champEtat = 0u;
 				snprintf(st.picker.hex, sizeof(st.picker.hex), "%s", hexBuf ? hexBuf : "");
 			}
 		}
@@ -12142,9 +12157,14 @@ namespace nkuidesign {
 				//    a valider ni a annuler. Il est desormais range LA OU LE PEINTRE
 				//    REGARDE -- l'hote pour un nœud, le champ du decor pour la toile.
 				if (st.picker.noeud >= 0) {
-					st.host.apercuNoeud = st.picker.noeud;
-					st.host.apercuIndex = -1; // le fond effectif du nœud
-					snprintf(st.host.apercuHex, sizeof(st.host.apercuHex), "%s", lu);
+					// ① UN ETAT : l'apercu vaut pour son FOND (aperçu > état > base, meme
+					//   porte) ; pour la couleur du TEXTE d'un etat il n'y a pas de porte
+					//   d'apercu (`apercuIndex` vise un remplissage) -- pas d'apercu, dit.
+					if (st.picker.etat[0] == '\0' || st.picker.champEtat == 0u) {
+						st.host.apercuNoeud = st.picker.noeud;
+						st.host.apercuIndex = -1; // le fond effectif du nœud
+						snprintf(st.host.apercuHex, sizeof(st.host.apercuHex), "%s", lu);
+					}
 				} else
 					snprintf(st.canvasApercu, sizeof(st.canvasApercu), "%s", lu);
 			}
@@ -12821,6 +12841,9 @@ namespace nkuidesign {
 				//    `d.noeud >= 0` est identique, et les essais 60b/86/87/88 le
 				//    prouvent sans avoir été touchés.
 				const bool surNoeud = d.noeud >= 0;
+				// ① UN ETAT : la demande decrit un nœud (les gardes de selection valent),
+				//   mais ce qu'elle edite est un BLOC D'ETAT, pas un remplissage du nœud.
+				const bool surEtat = surNoeud && d.etat[0] != '\0';
 				if (!d.ouvert) {
 					if (ctx.IsPopupOpen(d.id))
 						ctx.ClosePopup();
@@ -12838,12 +12861,14 @@ namespace nkuidesign {
 					return;
 				}
 				NkUINode *const n = surNoeud ? &mSt->doc.nodes[(uint32)d.noeud] : nullptr;
-				if (surNoeud && (d.index < 0 || (uint32)d.index >= (uint32)n->fills.Size())) {
+				if (surNoeud && !surEtat && (d.index < 0 || (uint32)d.index >= (uint32)n->fills.Size())) {
 					d.ouvert = false;
 					return;
 				}
-				// LE REMPLISSAGE EDITE : celui du nœud, ou celui du DECOR de la toile.
-				NkRemplissage &f = surNoeud ? n->fills[(uint32)d.index] : mSt->canvasFill;
+				// LE REMPLISSAGE EDITE : celui du nœud, celui d'un ETAT (transitoire), ou
+				// celui du DECOR de la toile -- l'enveloppe recoit ce qu'elle edite.
+				NkRemplissage &f = surEtat ? mSt->etatFill
+									: (surNoeud ? n->fills[(uint32)d.index] : mSt->canvasFill);
 				NkDegrade &g = f.degrade;
 				// ⚠️ L'IMAGE EST UN CHEMIN DE NŒUD, PAR CONSTRUCTION -- pas par l'absence
 				//    de l'onglet. Trois sites de cette branche lisent la BOITE du nœud
@@ -12851,9 +12876,22 @@ namespace nkuidesign {
 				//    laisser protégés par une décision d'INTERFACE, c'est les rouvrir au
 				//    premier changement d'interface. Le décor de la toile ne peut donc
 				//    pas être une image, quoi que porte son remplissage.
-				const bool estImage = surNoeud && f.EstImage();
+				const bool estImage = surNoeud && !surEtat && f.EstImage();
 				auto &F = costume::Fontes();
 				auto touche = [&]() {
+					if (surEtat) {
+						// ① L'ECRITURE D'UN ETAT : la couleur traverse `etatFill` et se pose
+						//   dans le champ vise du bloc ; un bloc devenu vide disparait (pas de
+						//   cle fantome) ; les tampons d'ETATS se resynchronisent.
+						NkApparenceEtat &bloc = NkBlocEtat(*n, d.etat);
+						(d.champEtat == 1u ? bloc.couleurTexte : bloc.fond) = f.couleur;
+						if (bloc.Vide())
+							NkRetirerBlocEtat(*n, d.etat);
+						mSt->doc.MarkHumanEdit(d.noeud);
+						mSt->host.SyncTo(mSt->doc);
+						mEtatsGen = 0xFFFFFFFFu;
+						return;
+					}
 					if (!surNoeud) {
 						// ⚠️ ON MARQUE, ON N'ECRIT PAS. Le selecteur appelle `touche()` a
 						//    CHAQUE image d'un glisser dans le carre de teinte : ecrire le
@@ -12873,7 +12911,8 @@ namespace nkuidesign {
 					d.arretSel = 0;
 				// LA COULEUR COURANTE : celle de l'arrêt courant si dégradé, sinon celle du remplissage
 				NkString &couleurCourante = g.Actif() ? g.arrets[(uint32)d.arretSel].couleur : f.couleur;
-				const uint32 cleSync = ((uint32)d.noeud << 20) ^ ((uint32)d.index << 12) ^ (uint32)(g.Actif() ? d.arretSel + 1 : 0);
+				const uint32 cleSync = ((uint32)d.noeud << 20) ^ ((uint32)d.index << 12) ^ (uint32)(g.Actif() ? d.arretSel + 1 : 0)
+									   ^ (surEtat ? (0x40000000u ^ ((uint32)d.champEtat << 8) ^ (uint32)d.etat[0]) : 0u);
 				if (d.synchro != cleSync) {
 					d.synchro = cleSync;
 					mEditerVariable = false; // ③ changer de remplissage désarme « Modifier la variable »
@@ -12960,8 +12999,11 @@ namespace nkuidesign {
 				//    de la toile. Garder sa hauteur aurait laissé un vide de 26 px au bas
 				//    de la fenêtre : *une hauteur qui ne suit pas son contenu, c'est la
 				//    même faute qu'une largeur décidée sans regarder le texte.*
-				const float32 hVariable = surNoeud ? 26.f + (couleurLiee ? 26.f : 0.f) : 0.f;
-				const float32 hHex = 26.f + 26.f + hVariable;
+				// ① UN ETAT N'A PAS DE VARIABLE NON PLUS : ses champs sont des couleurs
+				//   litterales (le modele le dit), la rangee ne peut pas exister.
+				const float32 hVariable = (surNoeud && !surEtat) ? 26.f + (couleurLiee ? 26.f : 0.f) : 0.f;
+				// ① ET PAS DE RANGEE D'OPACITE POUR UN ETAT : la hauteur suit le contenu.
+				const float32 hHex = 26.f + (surEtat ? 0.f : 26.f) + hVariable;
 				// LIER UNE VARIABLE EXISTANTE : la liste se deplie DANS le popover (une rangee
 				// de 20 px par variable, six au plus -- au-dela, le rail Variables), et la
 				// boite grandit d'autant ; rien tant que la liste est repliee ou que la
@@ -12969,7 +13011,7 @@ namespace nkuidesign {
 				const uint32 nVarsDoc = (uint32)mSt->doc.variables.Size();
 				const uint32 nVarsListe = nVarsDoc < 6u ? nVarsDoc : 6u;
 				(void)nVarsListe; // le compte AFFICHE est desormais celui du filtre (③)
-				const bool listeVars = surNoeud && mVarsDeplie && nVarsDoc > 0u && !NkEstReference(couleurCourante.Data()) && !estImage;
+				const bool listeVars = surNoeud && !surEtat && mVarsDeplie && nVarsDoc > 0u && !NkEstReference(couleurCourante.Data()) && !estImage;
 				// ③ les lignes RETENUES par le filtre (six au plus), plus le champ de recherche
 				uint32 varsFiltrees = 0u;
 				uint32 idxVars[6] = {0u, 0u, 0u, 0u, 0u, 0u};
@@ -13065,7 +13107,8 @@ namespace nkuidesign {
 					//    « pas encore branchés ». *On cache ce qui ne peut pas exister ; on
 					//    explique ce qui n'agit pas encore.* Les rouvrir en croyant réparer
 					//    un oubli remettrait un choix mort dans la fenêtre.
-					const uint32 nVignettes = surNoeud ? 6u : 1u;
+					// ① ET UN ETAT NON PLUS : une couleur unie, c'est tout ce qu'un bloc porte.
+					const uint32 nVignettes = (surNoeud && !surEtat) ? 6u : 1u;
 					for (uint32 k = 0; k < nVignettes; ++k) {
 						// ⚠️ RENOMMEE : elle s'appelait `estImage` et masquait la variable du
 						//    MEME nom qui dit si le REMPLISSAGE est une image. Deux sens pour
@@ -13133,6 +13176,9 @@ namespace nkuidesign {
 						}
 					}
 					// séparateur, la GOUTTE (fusion), la CROIX -- dessinés
+					// ① PAS DE GOUTTE POUR UN ETAT : le mode de fusion est celui du
+					//   remplissage du nœud ; un bloc d'etat n'en porte pas.
+					if (!surEtat) {
 					dl.AddLine({x0 + 150.f, y + 3.f}, {x0 + 150.f, y + 19.f}, ctx.theme.border, 1.f);
 					{
 						const NkRect rg = rGoutte;
@@ -13151,6 +13197,7 @@ namespace nkuidesign {
 							mFusionMenuOuvert = !mFusionMenuOuvert;
 							ctx.input.mouseClicked[0] = false;
 						}
+					}
 					}
 					// ── LA PIPETTE (07/09, Rodolf) : DANS L'ENVELOPPE, donc dans TOUS
 					//    les selecteurs -- une seule ecriture ────────────────────
@@ -13356,7 +13403,7 @@ namespace nkuidesign {
 							mRectImageRecharger = bRe;
 							if (svCh && ctx.input.mouseClicked[0]) {
 								ctx.input.mouseClicked[0] = false;
-								if (surNoeud) // un choix d'image s'ecrit DANS un nœud
+								if (surNoeud && !surEtat) // un choix d'image s'ecrit DANS un nœud
 									mSt->OuvrirChoixImage(d.noeud, d.index);
 								fermerPopover = true;
 							} else if (svRe && ctx.input.mouseClicked[0]) {
@@ -13464,14 +13511,19 @@ namespace nkuidesign {
 							ecrireCouleur(d.hex);
 						}
 					}
+					// ① PAS D'OPACITE POUR UN ETAT : le bloc pose une COULEUR ; l'opacite
+					//   d'un etat est celle du NŒUD (tranche par Rodolf, lot ③), pas un
+					//   pourcentage attache a cette couleur. Le champ ne peut pas exister.
 					float32 &opRef = g.Actif() ? g.arrets[(uint32)d.arretSel].opacite : f.opacite;
-					float32 op = opRef;
-					if (ChampNombre(ctx, "insp.popover.op", ro, op, 1.f, 0.f, 100.f, true)) {
-						opRef = op;
-						touche();
+					if (!surEtat) {
+						float32 op = opRef;
+						if (ChampNombre(ctx, "insp.popover.op", ro, op, 1.f, 0.f, 100.f, true)) {
+							opRef = op;
+							touche();
+						}
+						costume::Texte(dl, F.px9, ro.x + ro.w + 3.f, costume::CentrerY(F.px9, ro.y, 20.f), "%",
+									   ctx.theme.textMuted);
 					}
-					costume::Texte(dl, F.px9, ro.x + ro.w + 3.f, costume::CentrerY(F.px9, ro.y, 20.f), "%",
-								   ctx.theme.textMuted);
 					// LE MENU DES MODELES, dessine DANS la boite (un clic dedans ne ferme pas le
 					// popover) ; les six sans conversion sont nommes, grises, avec la raison
 					if (mModeleMenuOuvert) {
@@ -13515,7 +13567,7 @@ namespace nkuidesign {
 					// ⚠️ LE DAMIER EST SOUS LA BARRE, pas derrière la fenêtre : c'est lui qui rend la
 					//    transparence LISIBLE — sans lui, une barre qui va du fond du popover à la
 					//    couleur ne dit pas si le début est transparent ou sombre.
-					{
+					if (!surEtat) { // ① pas de rangee d'opacite pour un etat (voir le champ, plus haut)
 						const NkRect ra = {x0, y + 26.f + 3.f, x1 - x0, 20.f};
 						costume::Texte(dl, F.px9, ra.x, costume::CentrerY(F.px9, ra.y, 20.f), "Opacité", ctx.theme.textMuted);
 						const float32 xb = ra.x + 44.f;
@@ -13576,7 +13628,7 @@ namespace nkuidesign {
 					//    validée ce matin : le décor suit la MACHINE, pas le document.
 					// ⚠️ MASQUAGE SOUS LA REGLE DU TYPE, pas une rangée muette : une variable
 					//    de DOCUMENT ne peut pas exister pour un décor de MACHINE.
-					if (surNoeud) {
+					if (surNoeud && !surEtat) {
 						const NkRect rv = {x0, y + 52.f + 3.f, x1 - x0, 20.f};
 						if (NkEstReference(couleurCourante.Data())) {
 							const NkVariable *var = mSt->doc.TrouverVariable(couleurCourante.Data());
@@ -16041,6 +16093,20 @@ namespace nkuidesign {
 					const bool pickerEtat =
 						NkPastilleCouleur(ctx, *mSt, idPast, sw, mEtatsBuf[e], (uint32)sizeof(mEtatsBuf[e]),
 										  mSt->selected); // decrit un nœud
+					// ① L'ENVELOPPE, PAS LE NOYAU NU (Rodolf, 11/09 soir) : la demande recoit
+					//   le bloc d'etat qu'elle edite ; `genre == 0` = la porte vient de
+					//   l'ouvrir, on charge le remplissage transitoire avec la couleur posee.
+					if (mSt->picker.ouvert && mSt->picker.id == ctx.GetId(idPast)) {
+						if (mSt->picker.genre == 0u) {
+							mSt->etatFill = NkRemplissage();
+							mSt->etatFill.couleur = NkString(mEtatsBuf[e]);
+						}
+						mSt->picker.genre = 1u; // l'enveloppe complete
+						mSt->picker.noeud = mSt->selected;
+						mSt->picker.index = -1;
+						snprintf(mSt->picker.etat, sizeof(mSt->picker.etat), "%s", etats[e]);
+						mSt->picker.champEtat = 0u; // le fond
+					}
 					// LE CHAMP HEXA DU FOND -- la moitié qui rend le geste VRAI :
 					// une section qui liste sans poser n'est pas utilisable.
 					// ⚠️ VIDER LE CHAMP RETIRE LA SURCHARGE (retour à l'hérité) et
@@ -16107,6 +16173,17 @@ namespace nkuidesign {
 						snprintf(idT, sizeof(idT), "##insp.etat.texte%u", e);
 						const bool viaP = NkPastilleCouleur(ctx, *mSt, idT, sw, mEtatsTexteBuf[e],
 														  (uint32)sizeof(mEtatsTexteBuf[e]), mSt->selected);
+						if (mSt->picker.ouvert && mSt->picker.id == ctx.GetId(idT)) { // ① l'enveloppe
+							if (mSt->picker.genre == 0u) {
+								mSt->etatFill = NkRemplissage();
+								mSt->etatFill.couleur = NkString(mEtatsTexteBuf[e]);
+							}
+							mSt->picker.genre = 1u;
+							mSt->picker.noeud = mSt->selected;
+							mSt->picker.index = -1;
+							snprintf(mSt->picker.etat, sizeof(mSt->picker.etat), "%s", etats[e]);
+							mSt->picker.champEtat = 1u; // la couleur du texte
+						}
 						char idH[40];
 						snprintf(idH, sizeof(idH), "##insp.etat.textehex%u", e);
 						const float32 xh = sw.x + 16.f + (float32)costume::EspSerre;

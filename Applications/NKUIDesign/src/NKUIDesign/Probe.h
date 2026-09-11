@@ -5385,6 +5385,139 @@ namespace nkuidesign {
 						  plusLeNoyau && memeFenetre && variableRetiree && pastilleDemandeLEnveloppe,
 						  det137);
 				}
+				// ── 149. LA PASTILLE D'ETATS OUVRE LA MEME FENETRE QU'UN REMPLISSAGE (11/09 soir).
+				//    Rodolf, sur le lot ① : « le color picker a ce niveau n'est pas correct ». C'est le
+				//    defaut du canvas revenu : la pastille d'ETATS (fond, couleur du texte) ouvrait le
+				//    NOYAU NU. Le cas 136 (c) compte SIX portes vers la meme fonction -- mais la meme
+				//    fonction n'est pas la meme fenetre. Ce temoin est celui du canvas (137), etendu.
+				//
+				// ⚠️ QUATRE MESURES, MEME COURSE : le noyau nu, la fenetre d'un etat, celle d'un
+				//    remplissage ; la hauteur ; le chemin d'ouverture lu a la source ; et L'ECRITURE :
+				//    ce que l'enveloppe ecrit se pose dans le BLOC D'ETAT, et les remplissages du nœud
+				//    n'ont pas bouge.
+				{
+					float32 hVue = 0.f, wVue = 0.f;
+					auto ouvrir = [&](const char *idp, uint8 genre, int32 noeud, int32 index, const char *etat,
+									  uint8 champ) -> uint32 {
+						if (ctxI.popupDepth > 0)
+							ctxI.ClosePopup();
+						stI.picker = DesignState::DemandePicker();
+						stI.picker.ouvert = true;
+						stI.picker.id = ctxI.GetId(idp);
+						stI.picker.genre = genre;
+						stI.picker.noeud = noeud;
+						stI.picker.index = index;
+						snprintf(stI.picker.etat, sizeof(stI.picker.etat), "%s", etat ? etat : "");
+						stI.picker.champEtat = champ;
+						stI.picker.ancre = {360.f, 200.f, 16.f, 16.f};
+						float32 xz = 0.f;
+						uint32 nz = 0u, oz = 0u;
+						image(260.f, true, xz, nz, oz);
+						image(260.f, true, xz, nz, oz);
+						hVue = ctxI.popupRects[0].h;
+						wVue = ctxI.popupRects[0].w;
+						return oz;
+					};
+					stI.etatFill = NkRemplissage();
+					stI.etatFill.couleur = NkString("#ff0000");
+					const uint32 oNoyau = ouvrir("##s.149.noyau", 0u, -1, -1, nullptr, 0u);
+					const float32 wNoyau = wVue;
+					const uint32 oEtat = ouvrir("##s.149.etat", 1u, rc, -1, "Hover", 0u);
+					const float32 hEtat = hVue, wEtat = wVue;
+					const uint32 oTexte = ouvrir("##s.149.texte", 1u, rc, -1, "Hover", 1u);
+					const uint32 oFill = ouvrir("##s.149.fill", 1u, rc, 0, nullptr, 0u);
+					const float32 hFill = hVue, wFill = wVue;
+					// (a) l'etat n'ouvre plus le noyau nu ; (b) c'est la fenetre d'un remplissage, plus
+					//     courte de ce que la regle du type retire (vignettes, variable, opacite, goutte) ;
+					//     DEUX rangees manquent en HAUTEUR -- la variable et l'opacite, 26 px chacune,
+					//     52 exactement --, et le fond comme le texte ouvrent la meme fenetre.
+					// ⚠️ LE COMPTE DE SOMMETS NE DISTINGUE PAS LE NOYAU DE L'ENVELOPPE, et ma
+					//    premiere course l'a montre : l'etat fait 393 sommets, le noyau nu 544 --
+					//    ses six rangees R G B H S V pesent plus que le fond, l'hexa et la croix.
+					//    Le cas 137 passait parce que la barre d'opacite du canvas GONFLAIT son
+					//    compte. Ce qui distingue les deux boites est leur LARGEUR : l'enveloppe
+					//    fait la largeur du popover de remplissage (250), le noyau nu celle de
+					//    `ColorPicker4` (212) -- deux nombres lus sur `popupRects`, pas supposes.
+					//    Les sommets servent a UNE chose : voir revenir les cinq vignettes.
+					const bool plusLeNoyau = wEtat > wNoyau + 30.f && wEtat == wFill;
+					const bool memeFenetre = wEtat == wFill && oEtat * 2u < oFill && oEtat * 4u > oFill;
+					const float32 dH = hFill - hEtat;
+					const bool variableRetiree = dH > 50.f && dH < 54.f;
+					const bool texteCommeFond = oTexte == oEtat;
+					// (c) L'ECRITURE SE POSE DANS LE BLOC D'ETAT : on rouvre l'etat, on fait ce que la
+					//     frappe d'un hexa fait (`change` + `hex`), et on relit le document.
+					const uint32 fillsAvant = (uint32)stI.doc.nodes[(uint32)rc].fills.Size();
+					const NkString fill0Avant = fillsAvant > 0u ? stI.doc.nodes[(uint32)rc].fills[0].couleur : NkString();
+					const bool blocAbsentAvant = NkBlocEtatSi(stI.doc.nodes[(uint32)rc], "Hover") == nullptr;
+					ouvrir("##s.149.ecrit", 1u, rc, -1, "Hover", 1u);
+					snprintf(stI.picker.hex, sizeof(stI.picker.hex), "%s", "#00ff00");
+					stI.picker.change = true;
+					{
+						float32 xz = 0.f;
+						uint32 nz = 0u, oz = 0u;
+						image(260.f, true, xz, nz, oz);
+					}
+					const NkApparenceEtat *bh = NkBlocEtatSi(stI.doc.nodes[(uint32)rc], "Hover");
+					const bool ecritDansLEtat = bh && NkComponentDecl::StrEq(bh->couleurTexte.Data(), "#00ff00") && bh->fond.Empty();
+					const bool fillsIntacts = (uint32)stI.doc.nodes[(uint32)rc].fills.Size() == fillsAvant
+											  && (fillsAvant == 0u
+												  || NkComponentDecl::StrEq(stI.doc.nodes[(uint32)rc].fills[0].couleur.Data(), fill0Avant.Data()));
+					// on rend le terrain comme on l'a trouve : le bloc pose par l'essai est retire
+					NkRetirerBlocEtat(stI.doc.nodes[(uint32)rc], "Hover");
+					const bool terrainRendu = blocAbsentAvant && NkBlocEtatSi(stI.doc.nodes[(uint32)rc], "Hover") == nullptr;
+					if (ctxI.popupDepth > 0)
+						ctxI.ClosePopup();
+					stI.picker = DesignState::DemandePicker();
+					// (d) LE CHEMIN D'OUVERTURE, lu a la source : les DEUX pastilles d'ETATS demandent
+					//     l'enveloppe (`picker.genre = 1u` a moins de 600 caracteres de leur identifiant).
+					uint32 portesEnveloppe = 0u;
+					{
+						const NkString src = NkFile::ReadAllText("Applications/NKUIDesign/src/NKUIDesign/Panels.h");
+						static const char *const kIds[2] = {"\"##insp.etat.pastille%u\"", "\"##insp.etat.texte%u\""};
+						for (uint32 q = 0; q < 2u && !src.Empty(); ++q) {
+							const char *d = src.Data();
+							for (; *d; ++d) {
+								const char *x = d, *y = kIds[q];
+								while (*x && *y && *x == *y) {
+									++x;
+									++y;
+								}
+								if (!*y)
+									break;
+							}
+							if (*d)
+								for (uint32 k = 0; k < 1000u && d[k]; ++k) {
+									const char *x = d + k, *y = "picker.genre = 1u;";
+									while (*x && *y && *x == *y) {
+										++x;
+										++y;
+									}
+									if (!*y) {
+										++portesEnveloppe;
+										break;
+									}
+								}
+						}
+					}
+					char det149[560];
+					snprintf(det149, sizeof(det149),
+							 "MEME course : noyau nu %u sommets, etat (fond) %u, etat (texte) %u, remplissage %u ; l'etat "
+							 "n'est plus le noyau (largeur %.0f, noyau %.0f, remplissage %.0f) -> %d ; meme fenetre, sans "
+							 "les cinq vignettes (2x%u < %u < 4x%u) -> %d ; rangees variable ET opacite retirees : %.0f px [52] -> %d ; texte = "
+							 "fond -> %d ; (c) ecrit dans le bloc Hover (couleurTexte=#00ff00, fond vide)=%d, remplissages "
+							 "intacts=%d, terrain rendu=%d ; (d) pastilles d'ETATS qui demandent l'enveloppe : %u/2",
+							 oNoyau, oEtat, oTexte, oFill, (double)wEtat, (double)wNoyau, (double)wFill, plusLeNoyau ? 1 : 0,
+							 oEtat, oFill, oEtat, memeFenetre ? 1 : 0, (double)dH, variableRetiree ? 1 : 0, texteCommeFond ? 1 : 0,
+							 ecritDansLEtat ? 1 : 0, fillsIntacts ? 1 : 0, terrainRendu ? 1 : 0, portesEnveloppe);
+					check("149. LA PASTILLE D'ETATS OUVRE LA MEME FENETRE QU'UN REMPLISSAGE, pas le noyau nu : "
+						  "l'enveloppe recoit un remplissage transitoire et ECRIT dans le bloc d'etat, jamais dans "
+						  "les remplissages du nœud ; elle est plus courte de ce que la regle du type retire (une "
+						  "couleur unie, pas de variable, pas d'opacite, pas de mode de fusion) ; le fond et la "
+						  "couleur du texte ouvrent la meme fenetre ; et les deux pastilles la DEMANDENT (source lue)",
+						  plusLeNoyau && memeFenetre && variableRetiree && texteCommeFond && ecritDansLEtat && fillsIntacts
+							  && terrainRendu && portesEnveloppe == 2u,
+						  det149);
+				}
 				// ── 138. LES DEUX PASTILLES SE FERMENT-ELLES PAR LES MEMES PORTES ?
 				//    Rodolf : << quand on ouvre le color picker du canvas, si on clique dans le
 				//    vide ca ne se ferme pas >>. Celui d'un remplissage se ferme.
