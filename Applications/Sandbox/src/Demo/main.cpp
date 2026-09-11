@@ -17,6 +17,7 @@
 // =============================================================================
 #include "DemoCommon.h"
 #include <cstdlib> // getenv (diag opt-in NK_VK_VALIDATION)
+#include <cstring> // strncmp (leviers d'agent dans le titre de la fenetre)
 #if defined(NKENTSEU_PLATFORM_ANDROID)
 #include <sys/system_properties.h> // selection de la demo via debug.nk.demo
 #endif
@@ -483,7 +484,21 @@ int nkmain(const NkEntryState &state) {
 #ifndef NK_DEFAULT_DEMO
 	#define NK_DEFAULT_DEMO 0
 #endif
-	NkGraphicsApi api = ParseBackend(state.GetArgs());
+	// Dorsal : un mot inconnu est REFUSE EN LE NOMMANT, avant toute fenetre (cf.
+	// ParseBackend, DemoCommon.h). Il retombait en silence sur OpenGL.
+	NkGraphicsApi api = NkGraphicsApi::NK_GFX_API_OPENGL;
+	{
+		NkString backendBad;
+		if (!ParseBackend(state.GetArgs(), api, backendBad)) {
+			logger.Errorf("[main] dorsal graphique inconnu : '%s'\n", backendBad.CStr());
+			logger.Errorf("[main] choix : %s (casse ignoree)\n", NkDemoBackendChoices());
+			logger.Errorf("[main] REFUS -- on ne retombe pas en silence sur OpenGL.\n");
+			std::printf("[main] dorsal graphique inconnu : '%s' -- choix : %s -- REFUS, code 2\n", backendBad.CStr(),
+						NkDemoBackendChoices());
+			std::fflush(stdout);
+			return 2;
+		}
+	}
 	bool demoArgMalformed = false;
 	NkString demoArgOffending;
 	NkString demoArgName;
@@ -727,6 +742,45 @@ int nkmain(const NkEntryState &state) {
 		logger.Errorf("[main] NkDeviceFactory::Create failed\n");
 		window.Close();
 		return 2;
+	}
+
+	// ── TITRE : LE DORSAL RETENU, PAS LE DORSAL DEMANDE (demande de Rodolf, 11/09) ──
+	// Il teste l'inversion A L'OEIL sur quatre dorsaux : il doit savoir lequel il
+	// regarde sans lire la console -- c'est ce qui avait brouille sa journee du 06/09.
+	// Le titre pose a la creation de la fenetre (plus haut) ne connait que la DEMANDE :
+	// la fenetre existe avant le device. On le repose donc ICI, avec l'API que le
+	// device DECLARE. Repli verifie le 11/09 : NkDeviceFactory::Create n'en a aucun
+	// (un echec sort en code 2, ci-dessus) ; mais ParseBackend rendait OpenGL EN
+	// SILENCE pour un --backend= non reconnu (« d3d11 », « DX11 ») -- le cas exact ou
+	// un titre tire de la demande aurait menti. Corrige dans le meme lot (refus nomme,
+	// code 2) ; le titre reste tire du device, qui est la seule source qui ne ment pas.
+	// Les leviers d'agent actifs suivent, abreges : deux captures qui ne different que
+	// par un levier doivent se distinguer au titre.
+	{
+		NkString titre = NkFormat("NkRenderer demo : {0} — {1}", demo.name, NkGraphicsApiName(device->GetApi()));
+		static const char *const kLeviers[] = {"NK_BANC_POST",		"NK_BANC_RESIZE",	  "NK_BANC_SURTAILLE",
+											   "NK_BANC_HORSECRAN", "NK_AGENT_ONRESIZE", "NK_DEFERRED"};
+		NkString leviers;
+		for (const char *nom : kLeviers) {
+			const char *v = getenv(nom);
+			if (!v || !v[0])
+				continue;
+			const char *court = nom + 3; // sans « NK_ »
+			if (std::strncmp(court, "BANC_", 5) == 0)
+				court += 5;
+			if (!leviers.Empty())
+				leviers += " ";
+			leviers += court;
+			leviers += "=";
+			leviers += v;
+		}
+		if (!leviers.Empty()) {
+			titre += " [";
+			titre += leviers;
+			titre += "]";
+		}
+		window.SetTitle(titre);
+		logger.Infof("[main] titre : %s\n", titre.CStr());
 	}
 
 	// ── Renderer ─────────────────────────────────────────────────────────────
