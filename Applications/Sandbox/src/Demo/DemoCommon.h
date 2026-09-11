@@ -47,20 +47,76 @@ namespace nkentseu {
 		// =========================================================================
 		// Helpers : parsing arguments
 		// =========================================================================
-		inline NkGraphicsApi ParseBackend(const NkVector<NkString> &args) {
-			for (size_t i = 1; i < args.Size(); i++) {
-				if (args[i] == "--backend=vulkan" || args[i] == "-bvk")
-					return NkGraphicsApi::NK_GFX_API_VULKAN;
-				if (args[i] == "--backend=dx11" || args[i] == "-bdx11")
-					return NkGraphicsApi::NK_GFX_API_DX11;
-				if (args[i] == "--backend=dx12" || args[i] == "-bdx12")
-					return NkGraphicsApi::NK_GFX_API_DX12;
-				if (args[i] == "--backend=metal" || args[i] == "-bmtl")
-					return NkGraphicsApi::NK_GFX_API_METAL;
-				if (args[i] == "--backend=sw" || args[i] == "-bsw")
-					return NkGraphicsApi::NK_GFX_API_SOFTWARE;
+		// Choix du dorsal. Formes : --backend=<nom>, --backend <nom>, ou les drapeaux
+		// courts -bgl -bvk -bdx11 -bdx12 -bmtl -bsw. Sans argument : OpenGL.
+		//
+		// ⚠️ UN MOT INCONNU EST REFUSE EN LE NOMMANT (11/09). Version precedente : tout
+		// `--backend=` non reconnu retombait EN SILENCE sur OpenGL -- `--backend=DX11`
+		// ou `--backend=d3d11` lancait OpenGL, et l'on croyait tester DirectX. C'est la
+		// regle deja posee pour NK3DModeler (d4b9a1002) : on refuse, on liste les
+		// choix, l'appelant sort en code 2, AVANT d'ouvrir la fenetre.
+		// La CASSE est ignoree (« DX11 » == « dx11 ») : qui tape DX11 sait ce qu'il
+		// veut. Un AUTRE mot (« d3d11 », « vk ») n'est pas devine : refuse.
+		// ⚠️ DEUX VOCABULAIRES POUR LE MEME CHOIX : celui-ci (« sw », drapeaux -b*) et
+		// celui de NKEditorKit (NkEditorGfxApiFromName : « software », « auto ») que
+		// NK3DModeler emploie. Constate, pas unifie ici : renderdemo ne depend pas du kit.
+		// Rend false sur un mot inconnu ; `outBad` recoit alors l'argument fautif et
+		// `out` n'est PAS touche.
+		inline const char *NkDemoBackendChoices() {
+			return "opengl|vulkan|dx11|dx12|metal|sw  (ou -bgl -bvk -bdx11 -bdx12 -bmtl -bsw)";
+		}
+		inline bool NkDemoBackendFromName(const NkString &mot, NkGraphicsApi &out) {
+			char m[16];
+			const usize n = mot.Size();
+			if (n == 0 || n >= sizeof(m))
+				return false;
+			for (usize k = 0; k < n; ++k) {
+				const char c = mot.CStr()[k];
+				m[k] = (c >= 'A' && c <= 'Z') ? (char)(c - 'A' + 'a') : c;
 			}
-			return NkGraphicsApi::NK_GFX_API_OPENGL;
+			m[n] = 0;
+			struct Entree { const char *nom; NkGraphicsApi api; };
+			static const Entree kTable[] = {
+				{"opengl", NkGraphicsApi::NK_GFX_API_OPENGL}, {"-bgl", NkGraphicsApi::NK_GFX_API_OPENGL},
+				{"vulkan", NkGraphicsApi::NK_GFX_API_VULKAN}, {"-bvk", NkGraphicsApi::NK_GFX_API_VULKAN},
+				{"dx11", NkGraphicsApi::NK_GFX_API_DX11},	  {"-bdx11", NkGraphicsApi::NK_GFX_API_DX11},
+				{"dx12", NkGraphicsApi::NK_GFX_API_DX12},	  {"-bdx12", NkGraphicsApi::NK_GFX_API_DX12},
+				{"metal", NkGraphicsApi::NK_GFX_API_METAL},	  {"-bmtl", NkGraphicsApi::NK_GFX_API_METAL},
+				{"sw", NkGraphicsApi::NK_GFX_API_SOFTWARE},	  {"-bsw", NkGraphicsApi::NK_GFX_API_SOFTWARE},
+			};
+			for (const Entree &e : kTable) {
+				const char *a = m, *b = e.nom;
+				while (*a && *a == *b) { ++a; ++b; }
+				if (*a == 0 && *b == 0) { out = e.api; return true; }
+			}
+			return false;
+		}
+		inline bool ParseBackend(const NkVector<NkString> &args, NkGraphicsApi &out, NkString &outBad) {
+			NkGraphicsApi api = NkGraphicsApi::NK_GFX_API_OPENGL;
+			for (usize i = 1; i < args.Size(); i++) {
+				const NkString &a = args[i];
+				NkString mot;
+				bool porte = false;
+				if (a.StartsWith("--backend=")) {
+					mot = a.SubStr(10);
+					porte = true;
+				} else if (a == "--backend") {
+					if (i + 1 >= args.Size()) {
+						outBad = "--backend (sans valeur)";
+						return false;
+					}
+					mot = args[++i];
+					porte = true;
+				} else if (a.StartsWith("-b") && NkDemoBackendFromName(a, api)) {
+					continue; // drapeau court reconnu
+				}
+				if (porte && !NkDemoBackendFromName(mot, api)) {
+					outBad = mot.Empty() ? NkString("--backend= (vide)") : mot;
+					return false;
+				}
+			}
+			out = api;
+			return true;
 		}
 
 		// Vrai si la chaine est un entier decimal non vide (pas de "2abc", pas de "").
