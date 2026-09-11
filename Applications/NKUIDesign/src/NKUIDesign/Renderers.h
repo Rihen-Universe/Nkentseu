@@ -2475,25 +2475,21 @@ namespace nkuidesign {
 				// l'inspecteur grise la rangee et le dit), la position et la jointure du
 				// modele ; sans polygone au peintre, le contour de la boite dit qu'il y a
 				// une bordure.
+				// ── LES BORDURES QUI SE PEIGNENT : LA PORTE, UNE FOIS (11/09) ────────
+				// ⚠️ Plus aucun filtre ni recopie de `borderColor` ici : la porte
+				//    `BorduresEffectives` decide seule de ce qui se peint -- les deux
+				//    boucles ci-dessous et la ligne plus bas ne font que dessiner.
+				const NkBordure *bordures[NkUINode::kMaxBorduresPeintes];
+				NkBordure bordureHistorique;
+				const uint32 nbBordures =
+					n.BorduresEffectives(bordures, NkUINode::kMaxBorduresPeintes, bordureHistorique);
 				if (traceNb >= 3u) {
-					bool unTrait = false;
-					auto anneau = [&](const NkBordure &b) {
-						if (!b.visible || b.couleur.Empty() || b.epaisseur <= 0.f)
-							return;
-						unTrait = true;
+					for (uint32 bi = 0; bi < nbBordures; ++bi) {
+						const NkBordure &b = *bordures[bi];
 						if (!NkGAnneauTrace(p, traceXY, traceNb, NkGBordureRGBA(b, heritee), b.epaisseur, b.position, b.jointure.Data()))
 							p.OutlineSharp(r, host.Role("border"));
-					};
-					for (uint32 bi = 0; bi < (uint32)n.borders.Size(); ++bi)
-						anneau(n.borders[bi]);
-					if (n.borders.Empty() && !n.borderColor.Empty()) {
-						NkBordure b;
-						b.couleur = n.borderColor;
-						b.epaisseur = n.borderW > 0.f ? n.borderW : 1.f;
-						b.position = NkBordurePos::Interieur; // le geste historique
-						anneau(b);
 					}
-					if (!unTrait && !fondPeint)
+					if (nbBordures == 0u && !fondPeint)
 						p.OutlineSharp(r, host.Role("border"));
 					return;
 				}
@@ -2502,35 +2498,11 @@ namespace nkuidesign {
 				//    fichier porte et que l'écran ignore. `NkGCadre` déplace les
 				//    quatre bandes selon intérieur / centre / extérieur : c'est
 				//    tout ce que « position » veut dire, et ça se voit.
-				if (!n.borders.Empty()) {
-					bool trace = false;
-					for (uint32 bi = 0; bi < (uint32)n.borders.Size(); ++bi) {
-						const NkBordure &b = n.borders[bi];
-						if (!b.visible || b.couleur.Empty() || b.epaisseur <= 0.f)
-							continue;
-						NkGCadre(p, r, b, Rc, rgbaFond, heritee);
-						trace = true;
-					}
-					if (!trace && !fondPeint) {
-					// 🔴 `OutlineSharp` ET NON UN ANNEAU ARRONDI, ET C'EST UNE
-					//    LIMITE, PAS UN CHOIX. Ici AUCUN fond n'a ete peint : il
-					//    n'existe donc pas de couleur pour creuser l'interieur, et
-					//    ce peintre n'a ni primitive d'anneau ni masque.
-					//    `OutlineSharp` (`AddRect`, non rempli) est la SEULE forme
-					//    creuse disponible -- et elle ne sait pas arrondir.
-					//    J'ai essaye l'anneau : il peignait un BLOC PLEIN couleur
-					//    bordure par-dessus le noeud, et le banc l'a vu.
-					//    Manque porte au canal : une primitive de contour arrondi
-					//    (ou un decoupage arrondi) dans NkComponentPaint.
-						p.OutlineSharp(r, host.Role("border"));
-					}
-				} else if (!n.borderColor.Empty()) {
-					NkBordure b;
-					b.couleur = n.borderColor;
-					b.epaisseur = n.borderW > 0.f ? n.borderW : 1.f;
-					b.position = NkBordurePos::Interieur; // le geste historique
-					NkGCadre(p, r, b, Rc, rgbaFond, heritee);
-				} else if (!fondPeint) {
+				// (la liste, la cle simple, rien : trois branches d'avant, UNE boucle
+				//  depuis la porte -- une liste toute masquee rend 0, comme avant)
+				for (uint32 bi = 0; bi < nbBordures; ++bi)
+					NkGCadre(p, r, *bordures[bi], Rc, rgbaFond, heritee);
+				if (nbBordures == 0u && !fondPeint) {
 					// 🔴 `OutlineSharp` ET NON UN ANNEAU ARRONDI, ET C'EST UNE
 					//    LIMITE, PAS UN CHOIX. Ici AUCUN fond n'a ete peint : il
 					//    n'existe donc pas de couleur pour creuser l'interieur, et
@@ -2571,10 +2543,15 @@ namespace nkuidesign {
 				// LA BORDURE D'UNE LIGNE : sa premiere bordure visible donne couleur,
 				// epaisseur et EXTREMITES (plate / ronde / carree) ; sans bordure, le
 				// trait d'avant (role doc_text, 2 px, plate).
-				const NkBordure *bd = nullptr;
-				for (uint32 bi = 0; bi < (uint32)n.borders.Size() && !bd; ++bi)
-					if (n.borders[bi].visible && !n.borders[bi].couleur.Empty() && n.borders[bi].epaisseur > 0.f)
-						bd = &n.borders[bi];
+				// ⚠️ PAR LA PORTE, donc la cle historique `borderColor` vaut AUSSI pour
+				//    une ligne (11/09) : avant, seule la ligne l'ignorait. Mesure sur
+				//    le document de Rodolf : aucune ligne ne la porte -- son image ne
+				//    change pas ; c'est dit en Q145 plutot que glisse.
+				const NkBordure *bordures[NkUINode::kMaxBorduresPeintes];
+				NkBordure bordureHistorique;
+				const uint32 nbBordures =
+					n.BorduresEffectives(bordures, NkUINode::kMaxBorduresPeintes, bordureHistorique);
+				const NkBordure *bd = nbBordures > 0u ? bordures[0] : nullptr;
 				const float32 ep = bd ? bd->epaisseur : 2.f;
 				const char *ext = bd ? bd->extremite.Data() : "";
 				float32 ux = bx - ax, uy = by - ay;

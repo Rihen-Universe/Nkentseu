@@ -621,16 +621,15 @@ namespace nkuidesign {
 				}
 				return true;
 			};
+			// LA MEME PORTE QUE LE PEINTRE (11/09) : l'export ne recopie plus la cle
+			// historique, il lit ce qui se peint.
 			bool unTrait = false;
-			for (uint32 i = 0; i < (uint32)n.borders.Size(); ++i)
-				unTrait = trait(n.borders[i]) || unTrait;
-			if (n.borders.Empty() && !n.borderColor.Empty()) {
-				NkBordure b;
-				b.couleur = n.borderColor;
-				b.epaisseur = n.borderW > 0.f ? n.borderW : 1.f;
-				b.position = NkBordurePos::Interieur;
-				unTrait = trait(b);
-			}
+			const NkBordure *bordures[NkUINode::kMaxBorduresPeintes];
+			NkBordure bordureHistorique;
+			const uint32 nbBordures =
+				n.BorduresEffectives(bordures, NkUINode::kMaxBorduresPeintes, bordureHistorique);
+			for (uint32 i = 0; i < nbBordures; ++i)
+				unTrait = trait(*bordures[i]) || unTrait;
 			(void)peint;
 			(void)unTrait;
 		}

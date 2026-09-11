@@ -973,18 +973,48 @@ namespace nkuidesign {
 					return nullptr;
 				return fill.Empty() ? nullptr : fill.Data();
 			}
-			/// LA BORDURE QUI SE PEINT — meme contrat que `FondEffectif` : le
-			/// DERNIER visible gagne, une liste toute masquee ne peint RIEN, et
-			/// sans liste c'est la cle simple qui parle.
-			const NkBordure *BordureEffective() const {
-				for (uint32 i = (uint32)borders.Size(); i > 0; --i) {
-					const NkBordure &b = borders[i - 1];
-					if (b.visible && !b.couleur.Empty())
-						return &b;
+			/// LES BORDURES QUI SE PEIGNENT -- LA PORTE UNIQUE (11/09, Q143 -> Q145).
+			///
+			/// 🔴 AVANT ELLE, QUATRE LECTEURS DECIDAIENT CHACUN : les deux boucles du
+			///    rectangle (anneau d'un trace edite, cadre), la ligne, et l'export SVG
+			///    -- trois recopiaient la cle historique `borderColor` en une bordure,
+			///    la ligne l'ignorait. Et `BordureEffective()` (le DERNIER visible)
+			///    existait ici SANS AUCUN APPELANT : une porte declaree que personne
+			///    n'empruntait. Un etat de bordure branche sur l'un des quatre aurait
+			///    fui sur les trois autres. La voici, et les quatre passent par elle.
+			///
+			/// LE CONTRAT : TOUTES les bordures qui se peignent, dans l'ordre de la
+			/// liste (le dernier se peint par-dessus) ; une bordure masquee, sans
+			/// couleur ou d'epaisseur nulle n'y est pas ; une liste toute masquee ne
+			/// rend RIEN (masquer le dernier oeil doit se voir) ; SANS liste, la cle
+			/// simple `borderColor` devient UNE bordure interieure d'epaisseur
+			/// `borderW` (ou 1) -- le geste historique, ecrit une fois.
+			/// ⚠️ DES POINTEURS, PAS DES COPIES : le peintre passe ici a chaque image.
+			///    `legacy` est le logement de la bordure synthetisee, fourni par
+			///    l'appelant -- la porte ne possede rien.
+			/// Rend le nombre ecrit dans `out` (au plus `cap`).
+			static constexpr uint32 kMaxBorduresPeintes = 16u;
+			uint32 BorduresEffectives(const NkBordure **out, uint32 cap, NkBordure &legacy) const {
+				uint32 n = 0u;
+				if (!borders.Empty()) {
+					for (uint32 i = 0; i < (uint32)borders.Size(); ++i) {
+						const NkBordure &b = borders[i];
+						if (!b.visible || b.couleur.Empty() || b.epaisseur <= 0.f)
+							continue;
+						if (n < cap)
+							out[n] = &b;
+						++n;
+					}
+					return n > cap ? cap : n;
 				}
-				if (!borders.Empty())
-					return nullptr;
-				return nullptr; // sans liste : l'appelant lit borderColor/borderW
+				if (borderColor.Empty() || cap == 0u)
+					return 0u;
+				legacy = NkBordure();
+				legacy.couleur = borderColor;
+				legacy.epaisseur = borderW > 0.f ? borderW : 1.f;
+				legacy.position = NkBordurePos::Interieur;
+				out[0] = &legacy;
+				return 1u;
 			}
 			/// MATERIALISER la liste depuis les cles simples. Meme regle que pour
 			/// les remplissages, y compris le « il ne vide pas la cle simple ».

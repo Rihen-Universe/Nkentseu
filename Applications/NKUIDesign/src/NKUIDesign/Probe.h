@@ -13481,6 +13481,169 @@ namespace nkuidesign {
 				  "document relu peint pareil",
 				  okBase && okHover && okPressed && okFocus && intact && regle && allerRetour, det);
 		}
+		// ── 148. LA PORTE DES BORDURES (11/09, lot ② a). Q143 : la bordure n'avait PAS de
+		//    porte unique -- quatre lecteurs (anneau, cadre, ligne, export SVG) decidaient
+		//    chacun, trois recopiaient la cle historique `borderColor`, et `BordureEffective()`
+		//    existait sans appelant. Ici : `BorduresEffectives` rend ce que chacun lisait.
+		//
+		// ⚠️ LE CONTROLE NEGATIF N'EST PAS ICI : il est le `diff` du flux (`--flux=`) du
+		//    document de Rodolf entre le binaire d'AVANT la porte et celui d'APRES -- vide.
+		//    Ce cas mesure le CONTRAT de la porte, sur son document et sur des cas fabriques.
+		{
+			char det[720];
+			// (a) LE DOCUMENT DE RODOLF : pour CHAQUE noeud, la porte rend exactement ce que
+			//     lisaient les lecteurs (liste filtree, sinon cle simple), et SIX noeuds
+			//     passent par la cle historique -- comptes, pas supposes.
+			NkUIDocument dR;
+			const NkString texteR = NkFile::ReadAllText("nkuidesign_document.nkuidoc");
+			const bool charge = !texteR.Empty() && dR.Load(texteR.Data());
+			uint32 nHisto = 0u, nListe = 0u, ecarts = 0u, total = 0u;
+			if (charge) {
+				total = (uint32)dR.nodes.Size();
+				for (uint32 i = 0; i < total; ++i) {
+					const NkUINode &n = dR.nodes[i];
+					const NkBordure *bp[NkUINode::kMaxBorduresPeintes];
+					NkBordure leg;
+					const uint32 nb = n.BorduresEffectives(bp, NkUINode::kMaxBorduresPeintes, leg);
+					uint32 attendu = 0u;
+					if (!n.borders.Empty()) {
+						for (uint32 k = 0; k < (uint32)n.borders.Size(); ++k)
+							if (n.borders[k].visible && !n.borders[k].couleur.Empty() && n.borders[k].epaisseur > 0.f)
+								++attendu;
+						if (nb > 0u)
+							++nListe;
+					} else if (!n.borderColor.Empty()) {
+						attendu = 1u;
+						++nHisto;
+						const float32 ep = n.borderW > 0.f ? n.borderW : 1.f;
+						if (nb != 1u || !NkComponentDecl::StrEq(bp[0]->couleur.Data(), n.borderColor.Data())
+							|| bp[0]->position != NkBordurePos::Interieur || bp[0]->epaisseur != ep)
+							++ecarts;
+					}
+					if (nb != attendu)
+						++ecarts;
+				}
+			}
+			const bool rodolf = charge && ecarts == 0u && nHisto == 6u;
+			// (b) LE CONTRAT SUR DES CAS FABRIQUES
+			NkUINode q;
+			const NkBordure *bp[NkUINode::kMaxBorduresPeintes];
+			NkBordure leg;
+			const uint32 cRien = q.BorduresEffectives(bp, NkUINode::kMaxBorduresPeintes, leg);
+			q.borderColor = NkString("#112233");
+			q.borderW = 0.f;
+			const uint32 cHisto = q.BorduresEffectives(bp, NkUINode::kMaxBorduresPeintes, leg);
+			const bool histoJuste = cHisto == 1u && bp[0] == &leg && NkComponentDecl::StrEq(leg.couleur.Data(), "#112233")
+									&& leg.epaisseur == 1.f && leg.position == NkBordurePos::Interieur;
+			q.borderW = 3.f;
+			q.BorduresEffectives(bp, NkUINode::kMaxBorduresPeintes, leg);
+			const bool histoEp = leg.epaisseur == 3.f;
+			const uint32 cCap0 = q.BorduresEffectives(bp, 0u, leg);
+			// une liste TOUTE MASQUEE ne retombe pas sur la cle simple : masquer le dernier oeil se voit
+			NkBordure b1;
+			b1.couleur = NkString("#445566");
+			b1.visible = false;
+			q.borders.PushBack(b1);
+			const uint32 cMasquee = q.BorduresEffectives(bp, NkUINode::kMaxBorduresPeintes, leg);
+			q.borders[0].visible = true;
+			const uint32 cListe = q.BorduresEffectives(bp, NkUINode::kMaxBorduresPeintes, leg);
+			const bool pointeur = cListe == 1u && bp[0] == &q.borders[0]; // pas de copie
+			NkBordure b0;
+			b0.couleur = NkString("#778899");
+			b0.epaisseur = 0.f; // epaisseur nulle : ne se peint pas
+			q.borders.PushBack(b0);
+			const uint32 cEpNulle = q.BorduresEffectives(bp, NkUINode::kMaxBorduresPeintes, leg);
+			NkBordure b2;
+			b2.couleur = NkString("#aabbcc");
+			q.borders.PushBack(b2);
+			const uint32 cDeux = q.BorduresEffectives(bp, NkUINode::kMaxBorduresPeintes, leg);
+			const bool ordre = cDeux == 2u && bp[0] == &q.borders[0] && bp[1] == &q.borders[2];
+			const uint32 cCap1 = q.BorduresEffectives(bp, 1u, leg);
+			const bool contrat = cRien == 0u && histoJuste && histoEp && cCap0 == 0u && cMasquee == 0u && pointeur
+								 && cEpNulle == 1u && ordre && cCap1 == 1u;
+			// (c) LE PEINTRE : un rect a cle historique peint EXACTEMENT comme le meme rect a
+			//     liste [couleur, 2 px, interieur] -- la cle passe par la porte, elle n'est
+			//     plus recopiee par chaque boucle.
+			auto rectDoc = [&](NkUIDocument &d, bool liste) -> int32 {
+				d.NewDocument("Toile", NkAuthor::Humain);
+				d.SetMetric("espacement", 0.f);
+				d.SetMetric("marge", 0.f);
+				d.nodes[0].layout.kind = NkLayoutKind::Free;
+				const int32 k = d.AddChild(0, "", NkAuthor::Humain);
+				NkUINode &z = d.nodes[(uint32)k];
+				z.shape = NkString("rect");
+				z.layout.kind = NkLayoutKind::Free;
+				z.posX = 20.f;
+				z.posY = 20.f;
+				z.width.mode = NkSizeMode::Fixed;
+				z.width.value = 80.f;
+				z.height.mode = NkSizeMode::Fixed;
+				z.height.value = 40.f;
+				z.fill = NkString("#ff0000");
+				if (liste) {
+					NkBordure b;
+					b.couleur = NkString("#123456");
+					b.epaisseur = 2.f;
+					b.position = NkBordurePos::Interieur;
+					z.borders.PushBack(b);
+				} else {
+					z.borderColor = NkString("#123456");
+					z.borderW = 2.f;
+				}
+				return k;
+			};
+			NkUIDocument dH, dL;
+			rectDoc(dH, false);
+			rectDoc(dL, true);
+			NkRecordingPaint pH, pL;
+			RenderDocument(pH, dH, NkPaintRect{0.f, 0.f, 400.f, 300.f});
+			RenderDocument(pL, dL, NkPaintRect{0.f, 0.f, 400.f, 300.f});
+			uint32 cadreH = 0u;
+			for (uint32 i = 0; i < (uint32)pH.cmds.Size(); ++i)
+				if (pH.cmds[i].op == NkPaintOp::FillColor && pH.cmds[i].rgba == 0x123456ffu)
+					++cadreH;
+			const uint32 diffHL = pH.DiffCount(pL);
+			const bool peintre = cadreH > 0u && diffHL == 0u;
+			// (d) LA LIGNE : la cle historique vaut desormais AUSSI pour elle (avant, seule
+			//     la ligne l'ignorait) -- un CHANGEMENT, mesure : son trait suit l'epaisseur
+			//     de la cle. Sur le document de Rodolf, aucune ligne ne porte la cle.
+			NkUIDocument dN, dK;
+			{
+				const int32 kN = rectDoc(dN, false), kK = rectDoc(dK, false);
+				dN.nodes[(uint32)kN].shape = NkString("line");
+				dN.nodes[(uint32)kN].borderColor = NkString();
+				dK.nodes[(uint32)kK].shape = NkString("line");
+				dK.nodes[(uint32)kK].borderW = 5.f;
+			}
+			NkRecordingPaint pN, pK;
+			RenderDocument(pN, dN, NkPaintRect{0.f, 0.f, 400.f, 300.f});
+			RenderDocument(pK, dK, NkPaintRect{0.f, 0.f, 400.f, 300.f});
+			const uint32 diffLigne = pN.DiffCount(pK);
+			uint32 lignesRodolfACle = 0u;
+			if (charge)
+				for (uint32 i = 0; i < total; ++i)
+					if (NkComponentDecl::StrEq(dR.nodes[i].shape.Data(), "line") && dR.nodes[i].borders.Empty()
+						&& !dR.nodes[i].borderColor.Empty())
+						++lignesRodolfACle;
+			const bool ligne = diffLigne > 0u && lignesRodolfACle == 0u;
+			snprintf(det, sizeof(det),
+					 "(a) document de Rodolf charge=%d : %u noeuds, %u par la cle historique [6], %u a liste, "
+					 "%u ecart(s) entre la porte et les lecteurs d'avant -> %d ; (b) contrat : rien=%u, cle -> 1 "
+					 "interieure 1 px=%d, borderW 3 -> 3=%d, cap 0 -> %u, liste toute masquee -> %u (pas la cle), "
+					 "pointeur sur la liste=%d, epaisseur nulle exclue -> %u, ordre de la liste=%d, cap 1 -> %u -> %d ; "
+					 "(c) peintre : %u commande(s) de cadre par la cle, %u diff avec la liste [0] -> %d ; (d) ligne : "
+					 "%u diff avec / sans cle (changement dit), %u ligne(s) de Rodolf a cle [0] -> %d",
+					 charge ? 1 : 0, total, nHisto, nListe, ecarts, rodolf ? 1 : 0, cRien, histoJuste ? 1 : 0,
+					 histoEp ? 1 : 0, cCap0, cMasquee, pointeur ? 1 : 0, cEpNulle, ordre ? 1 : 0, cCap1, contrat ? 1 : 0,
+					 cadreH, diffHL, peintre ? 1 : 0, diffLigne, lignesRodolfACle, ligne ? 1 : 0);
+			check("148. LA PORTE DES BORDURES : `BorduresEffectives` rend, pour chaque noeud du document de Rodolf, "
+				  "exactement ce que les quatre lecteurs lisaient chacun de leur cote, et la cle historique "
+				  "`borderColor` passe par elle (six noeuds) ; le contrat tient sur les cas fabriques (liste toute "
+				  "masquee = rien, epaisseur nulle exclue, pointeurs, cap) ; et le peintre peint la cle historique "
+				  "EXACTEMENT comme une liste. Le controle negatif est le diff du flux de son document entre les deux "
+				  "binaires -- vide",
+				  rodolf && contrat && peintre && ligne, det);
+		}
 		// ── 94. ① L'APERCU PENDANT LE TRACE (05/09). Rodolf : « pourquoi quand on dessine un
 		//    graphique on voit juste le rectangle qui s'allonge, et des qu'on relache on voit la
 		//    forme ? » Deux mesures : LA TABLE DE GENRE (une seule, lue par le relachement et par
