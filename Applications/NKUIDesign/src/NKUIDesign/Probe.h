@@ -14129,7 +14129,7 @@ namespace nkuidesign {
 		//    neuvieme variante de selecteur, et elle est fermee -- l'enveloppe RECOIT ses
 		//    champs propres au lieu de les perdre.
 		{
-			char det[900];
+			char det[1800];
 			static nkgui::NkGuiContext ctxQ;
 			if (!ctxQ.Init(900, 8000)) {
 				check("153. le recensement des pastilles : contexte sans fenetre", false, "Init a refuse");
@@ -14173,6 +14173,29 @@ namespace nkuidesign {
 					z.width.value = 80.f;
 					z.height.mode = NkSizeMode::Fixed;
 					z.height.value = 20.f;
+				}
+				// ⚠️ LES BLOCS D'ETAT SONT POSES D'AVANCE, ET C'EST LA MESURE QUI L'EXIGE :
+				//    ecrire dans un etat qui n'a pas encore de bloc le CREE -- l'empreinte
+				//    gagnerait une case, et << une case de plus >> ne se compare pas a << une
+				//    case changee >>. Chaque champ part d'une couleur a lui, distincte de
+				//    toutes les autres : ce qui bouge se voit, et se nomme.
+				{
+					uint32 nEt = 0u;
+					const char *const *tEt = nkuidesign::guifmt::NkGEtats(nEt);
+					const int32 cibles[2] = {rA, tB};
+					uint32 teinte = 0u;
+					for (uint32 c = 0u; c < 2u; ++c)
+						for (uint32 e = 0u; e < nEt; ++e) {
+							NkApparenceEtat &b = NkBlocEtat(stQ.doc.nodes[(uint32)cibles[c]], tEt[e]);
+							char h[12];
+							snprintf(h, sizeof(h), "#20%02x%02x", (unsigned)(0x30u + teinte), 0x01u);
+							b.fond = NkString(h);
+							snprintf(h, sizeof(h), "#20%02x%02x", (unsigned)(0x30u + teinte), 0x02u);
+							b.couleurTexte = NkString(h);
+							snprintf(h, sizeof(h), "#20%02x%02x", (unsigned)(0x30u + teinte), 0x03u);
+							b.bordureCouleur = NkString(h);
+							++teinte;
+						}
 				}
 				stQ.Recompute(NkPaintRect{0.f, 0.f, 600.f, 900.f});
 				static InspectorPanel inspQ(&stQ);
@@ -14223,6 +14246,65 @@ namespace nkuidesign {
 				float32 largeur[8] = {}, hauteur[8] = {};
 				uint32 sommets[8] = {};
 				uint32 inconnues = 0u, muettes = 0u;
+				// ── (d) OU LA VALEUR ATTERRIT (12/09) ───────────────────────────────────
+				// ⚠️ LA LARGEUR DIT QUELLE FENETRE S'OUVRE, LA HAUTEUR CE QU'ELLE RESERVE,
+				//    LES SOMMETS CE QU'ELLE PEINT -- aucune des trois ne dit OU LA COULEUR
+				//    SE POSE. Une porte qui ouvre la bonne fenetre et ecrit dans le bloc
+				//    VOISIN passait le recensement d'hier en entier. Deux fois ce soir j'ai
+				//    trouve ce defaut a la main (une porte qui ecrivait dans les
+				//    remplissages du nœud, une autre qui n'ecrivait RIEN) : ce que l'œil a
+				//    trouve deux fois, la mesure doit le trouver seule.
+				//
+				//    Chaque pastille recoit un hexa UNIQUE, et on exige DEUX choses :
+				//    le champ vise le porte, et AUCUNE autre couleur du document n'a bouge.
+				//    ⚠️ Le second juge est LE VISITEUR UNIQUE, pas une liste recopiee ici :
+				//       une liste locale se perimerait au prochain champ ajoute -- c'est
+				//       exactement la faute du 11/09 (`couleurTexte` et `bordureCouleur`
+				//       ajoutes AILLEURS que dans le visiteur, cas 152).
+				static const char *const kChamp[8] = {"fills[]", "borders[]", "effets[]", "etat.fond",
+													  "etat.texte", "etat.bordure", "textColor", "canvas"};
+				uint32 ecrits[8] = {};
+				char fautesE[300] = {};
+				uint32 serie = 0u;
+				auto empreinte = [&](NkVector<NkString> &v) {
+					v.Clear();
+					stQ.doc.VisiterCouleurs([&](const NkString &c) { v.PushBack(c); });
+				};
+				// QUEL champ nomme porte cette couleur -- et combien la portent
+				auto ouEstElle = [&](const char *hex, char *sortie, uint32 cap) -> uint32 {
+					uint32 n = 0u;
+					sortie[0] = '\0';
+					auto note = [&](const NkString &c, const char *quoi) {
+						const char *d = c.Data();
+						if (d && NkComponentDecl::StrEq(d, hex)) {
+							++n;
+							snprintf(sortie, (size_t)cap, "%s", quoi);
+						}
+					};
+					for (uint32 i = 0u; i < (uint32)stQ.doc.nodes.Size(); ++i) {
+						NkUINode &z = stQ.doc.nodes[i];
+						note(z.fill, "fill");
+						note(z.textColor, "textColor");
+						note(z.borderColor, "borderColor");
+						for (uint32 j = 0u; j < (uint32)z.fills.Size(); ++j)
+							note(z.fills[j].couleur, "fills[]");
+						for (uint32 j = 0u; j < (uint32)z.borders.Size(); ++j)
+							note(z.borders[j].couleur, "borders[]");
+						for (uint32 j = 0u; j < (uint32)z.effets.Size(); ++j)
+							note(z.effets[j].couleur, "effets[]");
+						for (uint32 j = 0u; j < (uint32)z.apparences.Size(); ++j) {
+							note(z.apparences[j].fond, "etat.fond");
+							note(z.apparences[j].couleurTexte, "etat.texte");
+							note(z.apparences[j].bordureCouleur, "etat.bordure");
+						}
+					}
+					const char *cd = stQ.canvasFill.couleur.Data();
+					if (cd && NkComponentDecl::StrEq(cd, hex)) {
+						++n;
+						snprintf(sortie, (size_t)cap, "%s", "canvas");
+					}
+					return n;
+				};
 				char nomsInconnus[240] = {};
 				float32 wEnveloppe = 0.f;
 				// une selection : relever les pastilles, puis CLIQUER chacune et mesurer
@@ -14295,6 +14377,48 @@ namespace nkuidesign {
 						// l'autre ne dit ce qu'elle PEINT. Mesure du 11/09 : la mutation << l'enveloppe
 						// perd les champs recus >> restait VERTE sans ce compte.
 						sommets[fam] = (uint32)ctxQ.dlOverlay.vtx.Size();
+						// (d) ET LA COULEUR, OU VA-T-ELLE ? Un hexa unique, par le champ du popup.
+						{
+							char hexU[12];
+							snprintf(hexU, sizeof(hexU), "#%02x%02x%02x", (unsigned)(0xA0u + (uint32)fam),
+								 (unsigned)(0x10u + (serie & 0x3Fu)), (unsigned)(0x40u + ((serie >> 6) & 0x3Fu)));
+							++serie;
+							NkVector<NkString> av, ap;
+							empreinte(av);
+							const NkString canAv = stQ.canvasFill.couleur;
+							snprintf(stQ.picker.hex, sizeof(stQ.picker.hex), "%s", hexU);
+							stQ.picker.change = true;
+							imageQ(-1.f, -1.f, false);
+							empreinte(ap);
+							uint32 bouges = 999u;
+							if (av.Size() == ap.Size()) {
+								bouges = 0u;
+								for (uint32 q = 0u; q < (uint32)av.Size(); ++q) {
+									const char *a = av[q].Data(), *b = ap[q].Data();
+									if (!NkComponentDecl::StrEq(a ? a : "", b ? b : ""))
+										++bouges;
+								}
+							}
+							const char *ca = canAv.Data(), *cb = stQ.canvasFill.couleur.Data();
+							const bool canBouge = !NkComponentDecl::StrEq(ca ? ca : "", cb ? cb : "");
+							char quoi[24];
+							const uint32 porteurs = ouEstElle(hexU, quoi, (uint32)sizeof(quoi));
+							const bool auBonEndroit = porteurs == 1u && NkComponentDecl::StrEq(quoi, kChamp[fam]);
+							// ⚠️ LE CANVAS N'ECRIT PAS DANS LE DOCUMENT, ET C'EST VOULU : il marque le
+							//    decor sale et l'enregistre au relacher (un acces disque par image,
+							//    sinon). Pour lui, zero couleur du document doit bouger -- et c'est SON
+							//    remplissage qui prend. Le dire ici, c'est refuser de compter comme
+							//    faute ce qui est une decision.
+							const bool seulement = (fam == 7) ? (bouges == 0u && canBouge)
+															  : (bouges == 1u && !canBouge);
+							if (auBonEndroit && seulement)
+								++ecrits[fam];
+							else if (strlen(fautesE) < 230u) {
+								const size_t lf = strlen(fautesE);
+								snprintf(fautesE + lf, sizeof(fautesE) - lf, "%s%s->%s(x%u, %u bouge%s)", lf ? " " : "",
+									 kNom[fam], quoi[0] ? quoi : "nulle part", porteurs, bouges, canBouge ? ", canvas" : "");
+							}
+						}
 						if (fam == 0 && wEnveloppe == 0.f)
 							wEnveloppe = w; // la fenetre d'un REMPLISSAGE : la reference, mesuree ici
 						if (stQ.picker.genre == 1u)
@@ -14361,6 +14485,23 @@ namespace nkuidesign {
 				//    << l'enveloppe perd les champs recus >> restait VERTE (mesure du 11/09) :
 				//    la boite gardait sa taille et ne dessinait plus rien dedans.
 				const bool dessineBordure = sommets[1] > sommets[0];
+				// (d) CHAQUE PORTE ECRIT-ELLE DANS SON BLOC, ET NULLE PART AILLEURS ?
+				uint32 portesJustes = 0u;
+				char lignesE[300] = {};
+				for (int32 k = 0; k < 8; ++k) {
+					if (instances[k] > 0u && ecrits[k] == instances[k])
+						++portesJustes;
+					const size_t le = strlen(lignesE);
+					snprintf(lignesE + le, sizeof(lignesE) - le, "%s%s %u/%u", k ? " " : "", kNom[k], ecrits[k],
+						 instances[k]);
+				}
+				const bool ecritures = portesJustes == 8u;
+				// ⚠️ ET CHAQUE FENETRE PEINT QUELQUE CHOSE : une boite qui garde sa taille et
+				//    ne dessine plus rien dedans a deja ete vue le 11/09.
+				bool peignent = true;
+				for (int32 k = 0; k < 8; ++k)
+					if (instances[k] > 0u && sommets[k] == 0u)
+						peignent = false;
 				const bool masquages = hF > 0.f && hEffet && hEtats && hTexte && hCanvas && hBordure
 									   && dessineBordure;
 				// (c) L'ECRITURE, PAR LE VRAI CLIC : la pastille d'EFFET et celle du TEXTE, puis ce
@@ -14385,6 +14526,15 @@ namespace nkuidesign {
 				};
 				stQ.SelectSingle(rA);
 				fermer();
+				// ⚠️ (d) A VOLONTAIREMENT ECRIT PARTOUT : chaque pastille a recu un hexa UNIQUE,
+				//    donc les couleurs de depart n'y sont plus. Le point (c) ci-dessous compare a
+				//    des valeurs NOMMEES (« les remplissages intacts ») : on les REPOSE ici, et on
+				//    l'ecrit -- une mesure qui abime le decor de la suivante doit le remettre, pas
+				//    demander a l'autre de fermer les yeux.
+				stQ.doc.nodes[(uint32)rA].fills[0].couleur = NkString("#1976d2");
+				stQ.doc.nodes[(uint32)rA].borders[0].couleur = NkString("#30363d");
+				stQ.doc.nodes[(uint32)rA].effets[0].couleur = NkString("#000000");
+				stQ.doc.nodes[(uint32)tB].textColor = NkString("#ff0000");
 				const float32 opAvant = stQ.doc.nodes[(uint32)rA].effets[0].opacite;
 				const bool ouvreEffet = cliquerCle("insp.effet.pastille0");
 				taper("#00ff00");
@@ -14415,21 +14565,25 @@ namespace nkuidesign {
 						 "px, noyau nu %.0f px (controle positif) ; %s || (b) hauteurs : remplissage %.0f, effet %.0f [=], "
 						 "etats %.0f/%.0f/%.0f [-26], texte %.0f [-26], canvas %.0f [-26], BORDURE %.0f [+148, ses champs "
 						 "recus] et %u sommets contre %u au remplissage -> %d || (c) ecriture : effet "
-						 "ouvert=%d pose=%d (opacite gardee, remplissages intacts), bordure ouverte=%d posee=%d, texte ouvert=%d pose=%d",
+						 "ouvert=%d pose=%d (opacite gardee, remplissages intacts), bordure ouverte=%d posee=%d, texte ouvert=%d "
+						 "pose=%d || (d) OU LA VALEUR ATTERRIT, porte par porte [%s] -> %d, toutes peignent -> %d%s%s",
 						 familles, inconnues, nomsInconnus, muettes, (double)wEnveloppe, (double)wNoyau, lignes, (double)hF,
 						 (double)hauteur[2], (double)hauteur[3], (double)hauteur[4], (double)hauteur[5], (double)hauteur[6],
 						 (double)hauteur[7], (double)hauteur[1], sommets[1], sommets[0], masquages ? 1 : 0,
 						 ouvreEffet ? 1 : 0, ecritEffet ? 1 : 0, ouvreBord ? 1 : 0, ecritBordure ? 1 : 0,
-						 ouvreTexte ? 1 : 0, ecritTexte ? 1 : 0);
+						 ouvreTexte ? 1 : 0, ecritTexte ? 1 : 0, lignesE, ecritures ? 1 : 0, peignent ? 1 : 0,
+						 fautesE[0] ? " ; FAUTES : " : "", fautesE);
 				check("153. TOUTES LES PORTES A LA PASTILLE, MESUREES A L'ECRAN : chaque pastille que l'inspecteur "
 					  "dessine est trouvee au releve, cliquee par le vrai chemin, et sa fenetre mesuree sur la LARGEUR "
 					  "du popup -- huit familles, TOUTES l'enveloppe d'un remplissage (la fenetre a part de la "
 					  "bordure est fermee, l'enveloppe recoit ses champs), aucune le noyau nu, aucune muette, aucune "
 					  "inconnue de la table ; les masquages suivent "
-					  "le SENS (la hauteur le dit) ; et la couleur choisie se pose dans l'effet et dans le texte",
+					  "le SENS (la hauteur le dit) ; chaque fenetre PEINT ; et -- la grandeur qui manquait -- "
+					  "la couleur choisie atterrit DANS LE BLOC VISE et dans AUCUN AUTRE, porte par porte, "
+					  "le visiteur unique des couleurs faisant foi pour « nulle part ailleurs »",
 					  familles == 8u && fautes == 0u && inconnues == 0u && muettes == 0u && wEnveloppe > 0.f
 						  && wNoyau > 0.f && wNoyau != wEnveloppe && masquages && ecritEffet && ecritBordure
-						  && ecritTexte,
+						  && ecritTexte && ecritures && peignent,
 					  det);
 			}
 		}
