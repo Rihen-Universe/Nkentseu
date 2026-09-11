@@ -64,15 +64,38 @@
 // Mesuré 0,17 depuis un pont (œil à 8 m) et 0,24 sous l'eau — mais 0,90 avec
 // l'œil à 1 m visant l'horizon, contre un seuil de 0,50 annoncé AVANT la mesure.
 // La couverture y est bien de 1,00, et c'est précisément le piège : elle est
-// obtenue en maillant beaucoup trop large. Borner l'étendue au point d'eau le
-// plus lointain que le tronc de vue atteint a divisé l'empreinte par 1,25
-// MILLION (1,1·10¹³ → 8,9·10⁶ m²) sans presque rien changer à ce nombre
-// (0,92 → 0,90) : la cause restante n'est donc pas le bord lointain de
-// l'étendue, c'est le PLACEMENT de la caméra de portée quand la visée rase
-// l'eau. Le témoin (x9) reste ROUGE là-dessus, volontairement.
+// obtenue en maillant beaucoup trop large. Le témoin (x9) reste ROUGE là-dessus,
+// volontairement — le seuil n'a pas bougé d'un centième.
+//
+// DEUX PISTES ONT ÉTÉ ÉLIMINÉES PAR LA MESURE, ET LA SECONDE ÉTAIT LA MIENNE.
+// 1. LE BORD LOINTAIN DE L'ÉTENDUE : innocent. Borner au point d'eau le plus
+//    lointain que le tronc de vue atteint a divisé l'empreinte par 1,25 MILLION
+//    (1,1·10¹³ → 8,9·10⁶ m²) sans presque rien changer au gâchis (0,92 → 0,90).
+// 2. LE PLACEMENT DE LA CAMÉRA DE PORTÉE : innocent lui aussi, et j'avais écrit
+//    le contraire ici même. La nappe (x12) balaie les DEUX degrés de liberté
+//    (42 cellules) sur la pose rasante, et elle dit deux choses :
+//      — la COUVERTURE vaut 1,00 dans les 42 cellules. Le compromis de Johanson
+//        (« trop basse, elle perd la couverture ») N'EXISTE PAS ici : l'étendue
+//        n'étant plus rognée sur l'écran de portée, tout point rabattu est déjà
+//        sous son horizon. Les deux axes ne sont pas en tension ;
+//      — le GÂCHIS a un PLANCHER qui sature à 0,58, jamais 0,50.
+//
+// LA CAUSE EST DONC LA FORME DE L'ÉTENDUE, PAS LE PLACEMENT : c'est un RECTANGLE
+// aligné sur les axes en NDC de portée, alors que l'eau vue par le rendu est un
+// TRAPÈZE. Un rectangle circonscrit à un trapèze gaspille la moitié par
+// construction — et le plancher se pose exactement là. C'est le levier du
+// prochain lot, et il est nommé plutôt que deviné.
+//
+// ET LE DÉFAUT (0,05 ; 0,50 m) RESTE, PAR MESURE ET NON PAR INERTIE. Le tableau
+// (x13) croise quatre réglages et trois poses : tout ce qui soulage la vue
+// rasante alourdit la vue de pont ET l'uniformité du pas écran. Descendre au
+// plancher de 0,58 ferait passer le pont de 0,17 à 0,49 et le pas écran de
+// ×1,00 à ×5,57 — c'est-à-dire détruire le 1,00 contre 251,00 qui justifie toute
+// la technique. On échangerait un témoin rouge contre un pire.
 //
 // Autrement dit : la caméra de portée est POSÉE et prouvée sur la couverture et
-// la stabilité ; elle n'est pas encore BIEN PLACÉE. C'est un lot, pas un doute.
+// la stabilité ; le gâchis en vue rasante n'est pas un réglage à trouver, c'est
+// une forme à changer. C'est un lot, pas un doute.
 //
 // ── LE CAS DÉGÉNÉRÉ, DIT PLUTÔT QUE MASQUÉ ──────────────────────────────────
 // Quand un point retenu est DERRIÈRE la caméra (w <= 0), son image projective
