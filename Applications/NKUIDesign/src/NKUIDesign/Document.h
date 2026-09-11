@@ -442,13 +442,17 @@ namespace nkuidesign {
 			NkString etat;			///< « Hover », « Pressed »... (table fermee)
 			NkString fond;			///< hexa, vide = HERITE de l'etat Normal
 			float32 radius = -1.f;	///< < 0 = HERITE
-			float32 opacite = -1.f; ///< < 0 = HERITE
+			/// L'OPACITE DU NŒUD (0..100), < 0 = HERITE. 🔴 SENS TRANCHE PAR RODOLF LE
+			///   11/09 : c'est celle de CALQUE, qui s'applique aux enfants -- un bouton
+			///   Disabled a 50 % s'estompe EN ENTIER. Le lot 652632e6e l'avait branchee
+			///   sur l'opacite du FOND ; aucun document n'en portait, la cle
+			///   `apparence_<Etat>` garde sa forme (troisieme jeton), son sens est dit.
+			float32 opacite = -1.f;
 			// ── CE QU'UN ETAT PEUT AUSSI VOULOIR DIRE (11/09, recensement Q143) ──
 			// Sur quinze sections, QUATRE ont un sens par etat : la bordure, l'ombre,
-			// la couleur du texte, l'opacite du nœud. Ici les deux dont la porte de
-			// resolution est UNIQUE chez le peintre. La bordure attend sa porte
-			// (`BordureEffective`) ; l'opacite du nœud attend le SENS du champ
-			// `opacite` ci-dessus, qui vaut aujourd'hui pour le FOND.
+			// la couleur du texte, l'opacite du nœud. Les quatre sont ici desormais :
+			// l'ombre et la couleur du texte (lot ①), la bordure (lot ② b, par sa
+			// porte `BorduresEffectives`), l'opacite du nœud (lot ③, ci-dessus).
 			// ⚠️ PAR CHAMP, PAS PAR BLOC : un etat qui ne pose que l'ombre laisse tout
 			//    le reste a la base. C'est ce qui rend « Hover = un peu plus d'ombre »
 			//    exprimable sans recopier le nœud entier.
@@ -3068,6 +3072,8 @@ namespace nkuidesign {
 				if (!n.targetUnit.Empty())
 					Field(out, "unite", n.targetUnit.Data());
 				// `apparence_<Etat> = fond radius opacite`, « - » = HERITE.
+				// ⚠️ `opacite` EST CELLE DU NŒUD (CALQUE, enfants compris), pas celle du
+				//    fond -- sens tranche le 11/09 ; le jeton garde sa place.
 				// ⚠️ Un bloc VIDE ne s'ecrit pas : ouvrir la section d'un etat
 				//    sans rien y poser ne doit pas alourdir le fichier -- sinon
 				//    le simple fait de REGARDER un etat le ferait exister.
@@ -4043,7 +4049,8 @@ namespace nkuidesign {
 						}
 						else if (StrEq(key, "unite"))
 							n.targetUnit = NkString(val);
-						// `apparence_<Etat> = fond radius opacite` ; « - » = herite.
+						// `apparence_<Etat> = fond radius opacite` ; « - » = herite ;
+						// `opacite` = celle du NŒUD (CALQUE), sens tranche le 11/09.
 						// ⚠️ ON N'EXIGE PAS QUE L'ETAT SOIT CONNU A LA LECTURE :
 						//    un document ecrit par une version qui aurait un
 						//    SEPTIEME etat doit se relire sans perdre sa ligne.

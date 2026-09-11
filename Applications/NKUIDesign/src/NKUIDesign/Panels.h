@@ -16299,13 +16299,35 @@ namespace nkuidesign {
 						}
 					}
 				}
+				if (NkProprieteAUnSensParEtat("CALQUE")) {
+					// ③ L'OPACITE DU NŒUD par etat (11/09) : texte et enfants compris -- le sens
+					//   tranche par Rodolf. Base = l'opacite de CALQUE du nœud.
+					enTete("Opacité du nœud, par état (texte et enfants compris)");
+					for (uint32 e = 0; e < nbEtats && e < kMaxEtatsUI; ++e) {
+						if (NkComponentDecl::StrEq(etats[e], "Normal"))
+							continue;
+						const NkRect r = ctx.NextItemRect(-1.f, costume::HRangee);
+						const float32 x = nomEtat(r, e);
+						const NkApparenceEtat *a = NkBlocEtatSi(*n, etats[e]);
+						const NkRect rc = {x, costume::BandeY(r.y), 40.f, costume::HControle};
+						char idO[48];
+						snprintf(idO, sizeof(idO), "insp.etat.opacite%u", e);
+						float32 nv = 0.f;
+						if (champHerite(idO, rc, a ? a->opacite : -1.f, n->opacite, 100.f, nv)) {
+							poser(e).opacite = nv;
+							fini(e);
+						}
+						costume::Texte(dl, F.px9, rc.x + rc.w + 3.f, costume::CentrerY(F.px9, rc.y, rc.h), "%",
+									   ctx.theme.textMuted);
+					}
+				}
 // ⚠️ CE QUI S'ÉDITE ICI, ET CE QUI NE S'ÉDITE PAS ENCORE : le FOND
-				//    se pose, et depuis le 11/09 la COULEUR DU TEXTE et l'OMBRE
-				//    (flou, opacité) ; le rayon et l'opacité par état sont dans le
-				//    MODÈLE et dans le FICHIER, pas encore dans le panneau -- l'opacité
-				//    attend que Rodolf tranche son SENS (fond ou nœud). Mieux vaut un
-				//    champ vrai que trois demi-champs -- et la section le DIT.
-				designkit::KeyValue(ctx, "rayon / opacité", "au lot suivant");
+				//    se pose, et depuis le 11/09 la COULEUR DU TEXTE, l'OMBRE (flou,
+				//    opacité), la BORDURE (couleur, épaisseur) et l'OPACITÉ DU NŒUD ;
+				//    le rayon par état est dans le MODÈLE et dans le FICHIER, pas encore
+				//    dans le panneau. Mieux vaut un champ vrai qu'un demi-champ -- et la
+				//    section le DIT.
+				designkit::KeyValue(ctx, "rayon", "au lot suivant");
 			}
 
 			void CorpsEffets(NkGuiContext &ctx) {

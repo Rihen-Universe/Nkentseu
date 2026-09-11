@@ -13391,7 +13391,7 @@ namespace nkuidesign {
 					 hoverVert ? 1 : 0, (double)rPressed, pressedRouge ? 1 : 0,
 					 focusBase ? 1 : 0, apercuGagne ? 1 : 0, retour ? 1 : 0, rayons ? 1 : 0);
 			check("146. LES ETATS SE PEIGNENT : un etat affiche se lit par LES MEMES portes que l'apercu "
-				  "de pipette -- fond, rayon, opacite -- et l'ordre de priorite est ecrit une fois "
+				  "de pipette -- fond, rayon ; l'opacite est celle du NŒUD, cas 151 -- et l'ordre de priorite est ecrit une fois "
 				  "(apercu > etat > base). Un etat qui ne pose qu'un rayon ne touche pas la couleur ; un "
 				  "etat sans bloc rend exactement la base ; et AFFICHER un etat n'ecrit RIEN dans le "
 				  "document -- c'est un mode de vue. Le controle negatif est a zero : sans etat affiche, "
@@ -13946,6 +13946,123 @@ namespace nkuidesign {
 				  "dans cet etat ; le document est intact ; le jeton ` bordure=` ne s'ecrit que pose, se relit, "
 				  "et le document relu peint pareil",
 				  okBase && okHover && okPressed && okFocus && intact && fichier, det);
+		}
+		// ── 151. L'OPACITE D'UN ETAT EST CELLE DU NŒUD (11/09, lot ③, tranche par Rodolf).
+		//    Le lot 652632e6e l'avait branchee sur le FOND ; un bouton Disabled a 50 % doit
+		//    s'estomper EN ENTIER, texte et enfants compris -- ce que fait le CSS. Le sens du
+		//    champ change ; aucun document n'en portait ; c'est dit au fichier et au commit.
+		//
+		// ⚠️ L'ANCIEN SENS DOIT ETRE DETECTABLE COMME FAUX : le temoin lit l'alpha du TEXTE
+		//    enfant, pas seulement celui du fond. << Seul le fond s'estompe >> est la mutation.
+		{
+			char det[640];
+			struct PeintreQuiRetientLaCouleurDuTexte : NkRecordingPaint {
+				void TextHex(const NkPaintRect &r, const char *t, uint32 rgba, uint16 roleRepli,
+							 NkTextAlign align, float32 px, float32 graisse) override {
+					NkRecordingPaint::TextHex(r, t, rgba, roleRepli, align, px, graisse);
+					if (!cmds.Empty())
+						cmds[cmds.Size() - 1].rgba = rgba;
+				}
+			};
+			NkUIDocument dO;
+			dO.NewDocument("Toile", NkAuthor::Humain);
+			dO.SetMetric("espacement", 0.f);
+			dO.SetMetric("marge", 0.f);
+			dO.nodes[0].layout.kind = NkLayoutKind::Free;
+			// A : un rect ROUGE opaque ; Disabled ne pose que l'opacite (50)
+			const int32 nA = dO.AddChild(0, "", NkAuthor::Humain);
+			{
+				NkUINode &z = dO.nodes[(uint32)nA];
+				z.shape = NkString("rect");
+				z.layout.kind = NkLayoutKind::Free;
+				z.posX = 20.f;
+				z.posY = 20.f;
+				z.width.mode = NkSizeMode::Fixed;
+				z.width.value = 120.f;
+				z.height.mode = NkSizeMode::Fixed;
+				z.height.value = 60.f;
+				z.fill = NkString("#ff0000");
+				NkBlocEtat(z, "Disabled").opacite = 50.f;
+			}
+			// B : un TEXTE rouge, ENFANT de A -- c'est lui qui distingue les deux sens
+			const int32 nB = dO.AddChild(nA, "", NkAuthor::Humain);
+			{
+				NkUINode &z = dO.nodes[(uint32)nB];
+				z.shape = NkString("text");
+				z.layout.kind = NkLayoutKind::Free;
+				z.posX = 10.f;
+				z.posY = 10.f;
+				z.width.mode = NkSizeMode::Fixed;
+				z.width.value = 80.f;
+				z.height.mode = NkSizeMode::Fixed;
+				z.height.value = 20.f;
+				z.text = NkString("Salut");
+				z.textColor = NkString("#ff0000");
+			}
+			NkDocumentHost hO;
+			auto flux = [&](const char *etat, PeintreQuiRetientLaCouleurDuTexte &rec) {
+				snprintf(hO.etatAffiche, sizeof(hO.etatAffiche), "%s", etat ? etat : "");
+				RenderDocument(rec, dO, NkPaintRect{0.f, 0.f, 400.f, 300.f}, &hO);
+			};
+			auto alphaFond = [&](const NkRecordingPaint &rec) -> uint32 {
+				for (uint32 i = 0; i < (uint32)rec.cmds.Size(); ++i)
+					if (rec.cmds[i].op == NkPaintOp::FillColor && (rec.cmds[i].rgba & 0xFFFFFF00u) == 0xff000000u
+						&& rec.cmds[i].w == 120.f)
+						return rec.cmds[i].rgba & 0xFFu;
+				return 999u;
+			};
+			auto alphaTexte = [&](const NkRecordingPaint &rec) -> uint32 {
+				for (uint32 i = 0; i < (uint32)rec.cmds.Size(); ++i)
+					if (rec.cmds[i].op == NkPaintOp::Text && NkComponentDecl::StrEq(rec.cmds[i].text.Data(), "Salut"))
+						return rec.cmds[i].rgba & 0xFFu;
+				return 999u;
+			};
+			PeintreQuiRetientLaCouleurDuTexte base, dis, hover;
+			flux("", base);
+			flux("Disabled", dis);
+			flux("Hover", hover);
+			// (a) la base : fond et texte OPAQUES (255)
+			const bool okBase = alphaFond(base) == 255u && alphaTexte(base) == 255u;
+			// (b) Disabled (opacite 50, seule) : le fond ET le texte enfant a 128 -- l'ancien
+			//     sens laisserait le texte a 255 ; et ce sont les DEUX seules commandes differentes
+			const uint32 diffDis = base.DiffCount(dis);
+			const bool okDis = alphaFond(dis) == 128u && alphaTexte(dis) == 128u && diffDis == 2u;
+			// (c) Hover (aucun bloc) : exactement la base
+			const bool okHover = base.DiffCount(hover) == 0u;
+			// (d) le document n'a pas bouge : l'opacite de CALQUE de A est restee 100
+			const bool intact = dO.nodes[(uint32)nA].opacite == 100.f && dO.nodes[(uint32)nB].opacite == 100.f
+								&& NkComponentDecl::StrEq(dO.nodes[(uint32)nA].fill.Data(), "#ff0000");
+			// (e) le fichier : `apparence_Disabled = - - 50` (troisieme jeton, meme place), relu, et
+			//     le document relu peint pareil sous Disabled
+			NkString texte;
+			dO.Save(texte);
+			const bool jeton = NkString(texte).Contains("apparence_Disabled = - - 50");
+			NkUIDocument dR;
+			const bool relu = dR.Load(texte.Data());
+			const NkApparenceEtat *ad = relu && dR.IsValidIndex(nA) ? NkBlocEtatSi(dR.nodes[(uint32)nA], "Disabled") : nullptr;
+			const bool memes = ad && ad->opacite == 50.f && ad->fond.Empty() && ad->radius < 0.f;
+			uint32 diffRelu = 999u;
+			if (memes) {
+				PeintreQuiRetientLaCouleurDuTexte reluP;
+				snprintf(hO.etatAffiche, sizeof(hO.etatAffiche), "%s", "Disabled");
+				RenderDocument(reluP, dR, NkPaintRect{0.f, 0.f, 400.f, 300.f}, &hO);
+				diffRelu = dis.DiffCount(reluP);
+			}
+			hO.etatAffiche[0] = '\0';
+			const bool fichier = jeton && memes && diffRelu == 0u;
+			snprintf(det, sizeof(det),
+					 "(a) base : fond a=%u, texte a=%u -> %d ; (b) Disabled (opacite 50 seule) : fond a=%u [128], "
+					 "TEXTE ENFANT a=%u [128 -- l'ancien sens dirait 255], %u diff [2] -> %d ; (c) Hover sans bloc = "
+					 "la base -> %d ; (d) document intact (CALQUE de A = 100) -> %d ; (e) fichier : jeton a sa "
+					 "place=%d, relu=%d, memes=%d, relu peint pareil (diff %u) -> %d",
+					 alphaFond(base), alphaTexte(base), okBase ? 1 : 0, alphaFond(dis), alphaTexte(dis), diffDis,
+					 okDis ? 1 : 0, okHover ? 1 : 0, intact ? 1 : 0, jeton ? 1 : 0, relu ? 1 : 0, memes ? 1 : 0,
+					 diffRelu, fichier ? 1 : 0);
+			check("151. L'OPACITE D'UN ETAT EST CELLE DU NŒUD : Disabled a 50 % estompe le fond ET le texte "
+				  "enfant (l'ancien sens -- le fond seul -- laisserait le texte opaque, et c'est detectable) ; "
+				  "un etat sans bloc rend la base ; le document est intact ; le troisieme jeton garde sa place "
+				  "au fichier, se relit, et le document relu peint pareil",
+				  okBase && okDis && okHover && intact && fichier, det);
 		}
 		// ── 94. ① L'APERCU PENDANT LE TRACE (05/09). Rodolf : « pourquoi quand on dessine un
 		//    graphique on voit juste le rectangle qui s'allonge, et des qu'on relache on voit la

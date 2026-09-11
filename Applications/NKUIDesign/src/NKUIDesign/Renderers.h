@@ -552,10 +552,24 @@ namespace nkuidesign {
 			}
 			return gardees;
 		}
-		/// L'OPACITE DU FOND VUE : celle de l'état si posée (>= 0), sinon la base.
-		inline nkentseu::float32 NkOpaciteFondVue(const NkDocumentHost &h, const NkUINode &n) {
+		/// L'OPACITE DU NŒUD VUE (③, 11/09, tranché par Rodolf) : celle de l'état si
+		/// posée (>= 0), sinon celle du nœud (CALQUE) -- celle qui s'applique aux
+		/// enfants. 🔴 LE CHAMP `opacite` D'UN ETAT A CHANGE DE SENS : le lot
+		///    652632e6e l'avait branché sur l'opacité du FOND (`NkOpaciteFondVue`, qui
+		///    n'existe plus). Sa raison est celle du design : un bouton Disabled à 50 %
+		///    s'estompe EN ENTIER, texte et enfants compris -- ce que fait le CSS.
+		///    Aucun document n'en portait ; le sens est dit ici, au fichier et au commit.
+		///    L'opacité du FOND reste celle du remplissage : la base, sans surcharge.
+		inline nkentseu::float32 NkOpaciteNoeudVue(const NkDocumentHost &h, const NkUINode &n) {
 			const NkApparenceEtat *a = NkEtatVu(h, n);
-			return (a && a->opacite >= 0.f) ? a->opacite : n.FondOpacite();
+			return (a && a->opacite >= 0.f) ? a->opacite : n.opacite;
+		}
+		/// UN RGBA SOUS L'OPACITE HERITEE (0..1) : l'alpha est multiplié. Sert au
+		/// texte, qui composait sa couleur SANS l'héritage (mesure du 11/09).
+		inline nkentseu::uint32 NkGRGBAHerite(nkentseu::uint32 rgba, nkentseu::float32 heritee) {
+			const nkentseu::float32 k = heritee < 0.f ? 0.f : (heritee > 1.f ? 1.f : heritee);
+			const nkentseu::uint32 a = (nkentseu::uint32)((rgba & 0xFFu) * k + 0.5f);
+			return (rgba & 0xFFFFFF00u) | (a & 0xFFu);
 		}
 
 		/// LE FOND, A PARTIR D'UNE COULEUR DEJA CHOISIE (aperçu et état compris),
@@ -2117,7 +2131,9 @@ namespace nkuidesign {
 			// aperçu > état > base -- l'ordre est écrit UNE fois, plus haut ; ici on
 			// ne fait que le composer.
 			const char *fondApercu = NkCouleurApercue(host, noeud, -1, NkFondVu(host, n));
-			const nkentseu::float32 opaciteVue = NkOpaciteFondVue(host, n);
+			// ③ L'opacité du FOND est celle du remplissage -- l'état, lui, agit sur le NŒUD
+			//   (`NkOpaciteNoeudVue`, lue par `NkDrawDocument`, héritée par les enfants).
+			const nkentseu::float32 opaciteVue = n.FondOpacite();
 			const char *name = n.label.Data();
 			const char *shape = n.shape.Data();
 
@@ -2493,11 +2509,17 @@ namespace nkuidesign {
 				} else if (!n.fill.Empty()) {
 					// L'APERCU PASSE AVANT LA CLE SIMPLE, comme il passe avant la liste :
 					// meme porte, meme priorite (`NkCouleurApercue`).
-					rgbaFond = NkGCouleur(NkCouleurApercue(host, noeud, -1, NkFondVu(host, n)));
+					// ③ (11/09) LA CLE SIMPLE HERITE L'OPACITE DU NŒUD, comme la liste
+					//   (`NkKOpacite(f.opacite, heritee)`) : elle l'IGNORAIT -- un nœud a
+					//   `fill` seul restait opaque sous un CALQUE a 50 %, et le cas 151 l'a
+					//   vu (fond a=255 pendant que le texte enfant passait a 128). Mesure :
+					//   aucun nœud du document de Rodolf n'est sous 100.
+					rgbaFond = NkGRGBAHerite(NkGCouleur(NkCouleurApercue(host, noeud, -1, NkFondVu(host, n))),
+											 heritee);
 					peindreUni(rgbaFond);
 					fondPeint = true;
 				} else {
-					rgbaFond = p.ColorOf(host.Role("doc_field_bg"));
+					rgbaFond = NkGRGBAHerite(p.ColorOf(host.Role("doc_field_bg")), heritee);
 					peindreUni(rgbaFond);
 					fondPeint = true; // le fond de rôle EST un fond
 				}
@@ -2768,14 +2790,19 @@ namespace nkuidesign {
 					// de sens ici : la pipette ne vise pas le texte) ; « non traduit »
 					// attenue toujours, état ou pas -- le repli doit se voir.
 					const char *couleurTexte = NkCouleurTexteVue(host, n);
-					const uint32 rgba = (!couleurTexte || !traduit) ? p.ColorOf(roleTexte)
-																	: NkGCouleur(couleurTexte);
+					const uint32 rgbaTexte = (!couleurTexte || !traduit) ? p.ColorOf(roleTexte)
+																		 : NkGCouleur(couleurTexte);
+					// ③ LE TEXTE HERITE L'OPACITE (11/09) : il l'IGNORAIT -- un nœud à 50 %
+					//   gardait son texte à 100 %, et un Disabled ne pouvait pas estomper
+					//   son libellé. Mesure : aucun nœud du document de Rodolf n'est sous
+					//   100 -- son image ne change pas.
+					const uint32 rgba = NkGRGBAHerite(rgbaTexte, heritee);
 					const float32 corps = (n.fontPx > 0.f ? n.fontPx : 12.f) * host.docScale;
 					p.TextHex(r, t, rgba, roleTexte, al, corps, n.fontWeight);
 				} else
 					// LE MEME CORPS QUE LA BRANCHE D'AU-DESSUS : un repli qui ne
 					// suit pas le zoom est le defaut que Rodolf a signale DEUX fois.
-					p.TextHex(r, name ? name : "Texte", p.ColorOf(roleTexte), roleTexte, al,
+					p.TextHex(r, name ? name : "Texte", NkGRGBAHerite(p.ColorOf(roleTexte), heritee), roleTexte, al,
 							  (n.fontPx > 0.f ? n.fontPx : 12.f) * host.docScale, n.fontWeight);
 				return;
 			}
@@ -3011,8 +3038,11 @@ namespace nkuidesign {
 		//    nœud à 0 % est toujours là, simplement invisible -- et le pointage doit
 		//    continuer de le trouver. Confondre les deux ferait disparaître un objet
 		//    qu'on ne pourrait plus rattraper qu'en le cherchant dans l'arbre.
+		// ③ (11/09) L'ETAT AFFICHE PEUT POSER L'OPACITE DU NŒUD : une seule porte,
+		//   `NkOpaciteNoeudVue` -- et parce qu'elle entre ICI, dans le produit hérité,
+		//   un Disabled à 50 % estompe le nœud ET sa descendance.
 		const nkentseu::float32 opaciteEff =
-			opaciteHeritee * renderdetail::NkKOpacite(n.opacite, 1.f);
+			opaciteHeritee * renderdetail::NkKOpacite(renderdetail::NkOpaciteNoeudVue(host, n), 1.f);
 		// ⑥ (07/09) LE MODE DE FUSION DU NŒUD, VERSION PARTIELLE : par COMMANDE.
 		//    La garde couvre le dessin du nœud ET sa descendance (elle vit jusqu'au
 		//    bout de la fonction) -- c'est ce qu'un mode de calque veut dire. La pile
