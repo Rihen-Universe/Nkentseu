@@ -1,7 +1,9 @@
 // =============================================================================
 // NkRenderGraph.cpp  — NKRenderer v5.0
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // =============================================================================
 #include "NkRenderGraph.h"
+#include <cstdlib>
 #include "NKLogger/NkLog.h"
 #include <cstdio>
 #include <cstring>
@@ -683,6 +685,43 @@ namespace nkentseu {
 					}
 
 					NkRect2D area((int32)0, (int32)0, (int32)rpW, (int32)rpH);
+					// SONDE NK_RG_ETENDUE : ce qui est REELLEMENT pose pour chaque passe -- l'etendue
+					// du viewport/ciseaux (rpW x rpH), la chaine d'echange (swW x swH), et d'ou
+					// vient l'etendue : la taille DECLAREE de l'attachement (transientDesc), qui pour
+					// une cible IMPORTEE avec handle est le `fd` passe a ImportTexture -- pas la
+					// taille reelle de la texture.
+					// ⚠️ DETECTEUR DE CHANGEMENT, pas « N premieres executions » : le graphe se
+					// reconstruit (SetPostConfig a la trame suivante, SetFinalColorTarget a la
+					// redirection NK_CAPTURE), et une fenetre fixe melange l'avant et l'apres --
+					// mesure : FXAA_Final vue a 1280x720 dans la vraie chaine d'echange alors
+					// que la capture lisait la cible redirigee. On imprime a la premiere vue
+					// d'une passe et a CHAQUE changement de son tuple.
+					if (std::getenv("NK_RG_ETENDUE")) {
+						struct Vu { char nom[32]; uint32 t[9]; };
+						static Vu sVus[32]; static uint32 sNb = 0; static uint32 sLignes = 0;
+						uint32 dw = 0, dh = 0, imp = 0, tex = 0;
+						if (!pass.colors.Empty()) {
+							if (auto *r = FindRes(pass.colors[0].resId)) {
+								dw = r->transientDesc.width; dh = r->transientDesc.height;
+								imp = r->isTransient ? 0u : 1u; tex = r->texture.IsValid() ? 1u : 0u;
+							}
+						}
+						const uint32 t[9] = {rpW, rpH, swW, swH, needsCustomFB ? 1u : 0u, imp, tex, dw, dh};
+						Vu *v = nullptr;
+						for (uint32 i = 0; i < sNb; ++i)
+							if (std::strncmp(sVus[i].nom, pass.name.CStr(), 31) == 0) { v = &sVus[i]; break; }
+						bool change = false;
+						if (!v && sNb < 32) { v = &sVus[sNb++]; std::strncpy(v->nom, pass.name.CStr(), 31); v->nom[31] = 0; change = true; }
+						if (v && !change) for (int k = 0; k < 9; ++k) if (v->t[k] != t[k]) { change = true; break; }
+						if (v && change && sLignes < 200) {
+							++sLignes;
+							for (int k = 0; k < 9; ++k) v->t[k] = t[k];
+							std::printf("[rg-etendue] %-16s viewport/ciseaux %ux%u | swapchain %ux%u | fbo custom=%u"
+										" | couleur0 : importee=%u handle=%u declaree %ux%u\n",
+										pass.name.CStr(), rpW, rpH, swW, swH, t[4], imp, tex, dw, dh);
+							std::fflush(stdout);
+						}
+					}
 					// Si effectiveRP est invalide (cas FB custom), BeginRenderPass
 					// fait fallback sur le RP associe au FB.
 					cmd->BeginRenderPass(effectiveRP, effectiveFb, area);

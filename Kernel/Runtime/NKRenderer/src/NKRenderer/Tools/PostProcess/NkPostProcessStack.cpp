@@ -1,5 +1,6 @@
 // =============================================================================
 // NkPostProcessStack.cpp  — NKRenderer v5.0
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // Post-processing : ACES tonemap (D.4b), FXAA 3.11, dual-Kawase bloom, SSAO.
 //
 // État courant D.4b : tonemap ACES wire bout-en-bout (shader compile via
@@ -9,6 +10,8 @@
 // les active.
 // =============================================================================
 #include "NkPostProcessStack.h"
+#include <cstdlib>
+#include <cstdio>
 #include "NKRenderer/Core/NkTextureLibrary.h"
 #include "NKRenderer/Core/NkResources.h"
 #include "NKRenderer/Mesh/NkMeshSystem.h"
@@ -994,6 +997,17 @@ void main() {
 			pc.invResW = 1.0f / (float)(mW > 0 ? mW : 1);
 			pc.invResH = 1.0f / (float)(mH > 0 ? mH : 1);
 			pc.yFlipUV = isVK ? -1.f : +1.f;
+			// SONDE NK_RG_ETENDUE : ce que FXAA recoit VRAIMENT -- mW/mH (d'ou vient invRes)
+			// et le signe. Sous surtaille, mW/mH suit-il la chaine d'echange ou la cible ?
+			if (std::getenv("NK_RG_ETENDUE")) {
+				static uint32 lw = 0, lh = 0; static float lf = 0.f;
+				if (lw != mW || lh != mH || lf != pc.yFlipUV) {
+					lw = mW; lh = mH; lf = pc.yFlipUV;
+					std::printf("[fxaa-recoit] mW x mH = %ux%u  invRes = (%.6f, %.6f)  yFlipUV = %+.0f\n",
+								mW, mH, pc.invResW, pc.invResH, pc.yFlipUV);
+					std::fflush(stdout);
+				}
+			}
 			pc._pad = 0.f;
 			cmd->PushConstants(::nkentseu::NkShaderStage::NK_ALL_GRAPHICS, 0, sizeof(pc), &pc);
 			cmd->Draw(3, 1, 0, 0);
