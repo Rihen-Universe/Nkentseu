@@ -3,6 +3,7 @@
 // NkRendererImpl.cpp  — NKRenderer v5.0
 // =============================================================================
 #include "NkRendererImpl.h"
+#include <cstring>
 #include "NKRenderer/Tools/Reflection/NkPlanarReflectionSystem.h"
 #include "NKRenderer/Tools/VoxelAO/NkVoxelAOSystem.h"
 #include "NKRenderer/Materials/NkMaterialCollection.h"
@@ -1536,6 +1537,53 @@ namespace nkentseu {
 				const uint32 sw = mDevice->GetSwapchainWidth(), sh = mDevice->GetSwapchainHeight();
 				if ((sw != mCfg.width || sh != mCfg.height) && sw > 0 && sh > 0)
 					OnResize(sw, sh);
+			}
+			// SONDE NK_AGENT_ONRESIZE=<render2d|render3d|overlay|post|aucun|rebuild|attente>
+			// [+ _TRAME=<n>, defaut 5] : decompose ApplyRenderSize a taille INCHANGEE.
+			//   render2d|render3d|overlay|post : UN SEUL des quatre OnResize, puis
+			//                                    WaitIdle + RebuildRenderGraph ;
+			//   aucun   : AUCUN OnResize, WaitIdle + RebuildRenderGraph ;
+			//   rebuild : RebuildRenderGraph SEUL ;
+			//   attente : WaitIdle SEUL.
+			// MESURE (banc, +fxaa, cube derive, 11/09) : les SEPT modes retournent dx11 a
+			// l'identique (2970 px, y=549.1), Vulkan droit (169.9) -- ET LE MEME BINAIRE
+			// SANS AUCUN LEVIER AUSSI. Ce levier n'a donc RIEN isole : la reference
+			// « +fxaa sans surtaille, dx11 droit » d'ou il partait avait ete lue sur la
+			// MARQUE 2D, dessinee dans Overlay2D APRES FXAA_Final -- un temoin qui ne
+			// peut pas voir FXAA. Lue sur le cube (qui traverse FXAA), FXAA seule
+			// retourne DX11 et DX12. Garde comme instrument : c'est la seule facon de
+			// decomposer ApplyRenderSize a taille egale. Inerte sans la variable.
+			{
+				static int sQuel = -1; static uint32 sTrame = 5; static bool sFait = false;
+				if (sQuel == -1) {
+					sQuel = 0;
+					if (const char *v = std::getenv("NK_AGENT_ONRESIZE")) {
+						if (std::strcmp(v, "render2d") == 0) sQuel = 1;
+						else if (std::strcmp(v, "render3d") == 0) sQuel = 2;
+						else if (std::strcmp(v, "overlay") == 0) sQuel = 3;
+						else if (std::strcmp(v, "post") == 0) sQuel = 4;
+						else if (std::strcmp(v, "aucun") == 0) sQuel = 5;
+						else if (std::strcmp(v, "rebuild") == 0) sQuel = 6;
+						else if (std::strcmp(v, "attente") == 0) sQuel = 7;
+					}
+					if (const char *t = std::getenv("NK_AGENT_ONRESIZE_TRAME")) sTrame = (uint32)std::atoi(t);
+				}
+				if (sQuel > 0 && !sFait && mFrameCounter >= sTrame) {
+					sFait = true;
+					const uint32 w0 = mCfg.width, h0 = mCfg.height;
+					const char *nom = "aucun";
+					if (sQuel == 1 && mRender2D) { mRender2D->OnResize(w0, h0); nom = "Render2D"; }
+					if (sQuel == 2 && mRender3D) { mRender3D->OnResize(w0, h0); nom = "Render3D"; }
+					if (sQuel == 3 && mOverlay) { mOverlay->OnResize(w0, h0); nom = "Overlay"; }
+					if (sQuel == 4 && mPostProcess) { mPostProcess->OnResize(w0, h0); nom = "PostProcess"; }
+					const bool attend = (sQuel != 6);
+					const bool refait = (sQuel != 7);
+					if (attend && mDevice) mDevice->WaitIdle();
+					if (refait) RebuildRenderGraph();
+					std::printf("[onresize-seul] OnResize=%s (%u, %u) a la trame %u | WaitIdle=%d RebuildRenderGraph=%d\n",
+								sQuel <= 4 ? nom : "aucun", w0, h0, mFrameCounter, attend ? 1 : 0, refait ? 1 : 0);
+					std::fflush(stdout);
+				}
 			}
 
 			if (!mDevice->BeginFrame(mFrameCtx))
