@@ -28,35 +28,51 @@
 //    ⚠️ Couper par le seul plan de repos ne suffit pas : une vague qui monte
 //    entre dans le champ par le haut de l'écran, et la grille bâtie sur le plan
 //    de repos ne la couvrirait pas. C'est le défaut classique de cette famille.
-// 3. On rabat ces points sur le plan de repos et on cherche leur étendue dans
-//    l'espace projectif de la caméra.
-// 4. La grille [0,1]² est étalée sur cette étendue, puis chaque sommet est
-//    redéprojeté vers le plan de repos. La hauteur vient ensuite de la houle.
+// 3. On dérive une CAMÉRA DE PORTÉE : la caméra de rendu, remontée au-dessus de
+//    la tranche et contrainte à regarder le plan. Quand le rendu était déjà
+//    au-dessus et regardait le plan, elle lui est IDENTIQUE.
+// 4. On rabat les points sur le plan de repos et on cherche leur étendue dans
+//    l'espace projectif de cette caméra DE PORTÉE — plus dans celui du rendu.
+// 5. La grille [0,1]² est étalée sur cette étendue, puis chaque sommet est
+//    redéprojeté vers le plan de repos DEPUIS LA CAMÉRA DE PORTÉE. La hauteur
+//    vient ensuite de la houle.
 //
-// ── LE DOMAINE DE CETTE VERSION, ET CE QU'IL Y MANQUE ───────────────────────
-// 🔴 CETTE GRILLE EXIGE QUE L'ŒIL SOIT AU-DESSUS DE LA TRANCHE :
-//        eye.y > baseY + displacementMax
-// En dehors, elle REFUSE (`horsDomaine`) au lieu de rendre une grille plausible.
+// ── LE DOMAINE EST TOMBÉ (2026-09-12), ET VOICI CE QU'IL A COÛTÉ ────────────
+// La version du 07/09 EXIGEAIT que l'œil soit au-dessus de la tranche
+// (`eye.y > baseY + displacementMax`) et REFUSAIT en dehors. Ce n'était pas une
+// précaution : œil à 1 m, crête à 2 m, sur 1 225 pixels où la surface déplacée
+// se voit, la grille en couvrait ZÉRO. Le prix en plans d'océan était écrit
+// franchement — pas de caméra au ras de l'eau, pas de caméra sous l'eau, pas de
+// vague au-dessus de l'objectif.
 //
-// Ce n'est pas une précaution de principe, c'est une MESURE : œil à 1 m, crête à
-// 2 m, sur 1 225 pixels où la surface déplacée se voit, la grille en couvrait
-// ZÉRO (témoin (x2), le 2026-09-07). La cause n'est pas une étendue trop
-// serrée — c'est que la crête, passée au-dessus de l'œil, se voit AU-DESSUS de
-// l'horizon du plan de repos, et qu'un rayon parti au-dessus de cet horizon ne
-// rencontre jamais ce plan. Élargir l'étendue n'y change rien : il n'y a aucun
-// sommet à poser là.
+// LA CAMÉRA DE PORTÉE EST ÉCRITE, et la raison de ne pas l'écrire ne tenait pas.
+// Elle était : « son placement est un compromis VISUEL que Johanson règle à
+// l'œil, et on ne règle pas à l'œil ce qu'on ne peut pas regarder. » Or un
+// compromis visuel n'est pas un compromis non mesurable. Trois nombres le
+// jugent sans jamais regarder, et ce sont eux qui ont conduit chaque décision
+// de ce fichier :
+//   COUVERTURE — la fraction des pixels voyant de l'eau que la grille atteint.
+//     La MÊME mesure qui disait « zéro sur 1 225 » dit aujourd'hui 1,00 sur la
+//     même pose. Elle marche dans les deux sens, c'est ce qui la rend valable.
+//   GÂCHIS — la fraction des sommets qui ne peuvent rien éclairer, à aucune des
+//     hauteurs permises par la houle.
+//   STABILITÉ — le *swimming*, mesuré comme une DÉRIVÉE : un déplacement continu
+//     est proportionnel à l'angle. Quart de rotation, quart de glissement.
+//     Mesuré : rapport 3,99 et 4,00 pour 4,00 attendu.
 //
-// CE QUI MANQUE A UN NOM : la CAMÉRA DE PORTÉE de Johanson (§2.4-2.5). Au lieu
-// de lancer les rayons depuis la caméra de rendu, on les lance depuis une caméra
-// dérivée dont l'orientation est CONTRAINTE à regarder le plan — ainsi chaque
-// rayon le rencontre, quelle que soit la pose. Son placement est un compromis
-// VISUEL que Johanson règle à l'œil ; il n'a pas été écrit ici parce qu'on ne
-// règle pas à l'œil ce qu'on ne peut pas regarder.
+// 🔴 CE QUI N'EST PAS ACQUIS, ET LE CHIFFRE EST LÀ : LE GÂCHIS AUX VUES RASANTES.
+// Mesuré 0,17 depuis un pont (œil à 8 m) et 0,24 sous l'eau — mais 0,90 avec
+// l'œil à 1 m visant l'horizon, contre un seuil de 0,50 annoncé AVANT la mesure.
+// La couverture y est bien de 1,00, et c'est précisément le piège : elle est
+// obtenue en maillant beaucoup trop large. Borner l'étendue au point d'eau le
+// plus lointain que le tronc de vue atteint a divisé l'empreinte par 1,25
+// MILLION (1,1·10¹³ → 8,9·10⁶ m²) sans presque rien changer à ce nombre
+// (0,92 → 0,90) : la cause restante n'est donc pas le bord lointain de
+// l'étendue, c'est le PLACEMENT de la caméra de portée quand la visée rase
+// l'eau. Le témoin (x9) reste ROUGE là-dessus, volontairement.
 //
-// ⚠️ CE QUE LE DOMAINE COÛTE, dit franchement : pas de caméra au ras de l'eau,
-// pas de caméra sous l'eau, pas de vague qui passe au-dessus de l'objectif.
-// C'est-à-dire trois des plans les plus spectaculaires d'un océan. La version
-// utile aujourd'hui est la vue large depuis un pont ou une falaise.
+// Autrement dit : la caméra de portée est POSÉE et prouvée sur la couverture et
+// la stabilité ; elle n'est pas encore BIEN PLACÉE. C'est un lot, pas un doute.
 //
 // ── LE CAS DÉGÉNÉRÉ, DIT PLUTÔT QUE MASQUÉ ──────────────────────────────────
 // Quand un point retenu est DERRIÈRE la caméra (w <= 0), son image projective
@@ -93,17 +109,51 @@ namespace nkentseu {
 				// Marge en NDC. Johanson en met une : sans elle, un sommet exactement au
 				// bord se retrouve à l'extérieur après déplacement, et l'eau décolle du
 				// bord de l'écran d'un pixel — un défaut qu'on ne voit qu'en mouvement.
+				// ⚠️ Avec la caméra de portée cette marge est RELATIVE à l'étendue
+				// retenue, et non plus absolue en NDC : l'étendue n'est plus bornée par
+				// l'écran, donc « 0,05 de NDC » n'y désigne plus une fraction connue.
 				float32 edgeBias = 0.05f;
+
+				// ── LA CAMÉRA DE PORTÉE (Johanson §2.4-2.5) ─────────────────────────
+				// Faux = chemin d'origine : les sommets sortent de la caméra de rendu,
+				// et la grille REFUSE hors du domaine `eye.y > baseY + displacementMax`.
+				// Vrai = les sommets sortent d'une caméra DÉRIVÉE, contrainte à regarder
+				// le plan, et il n'y a plus de domaine à respecter.
+				// Gardé commutable pour que le défaut d'origine reste REPRODUCTIBLE :
+				// une correction dont on ne peut plus rejouer le défaut n'est plus
+				// prouvable six mois plus tard.
+				bool rangeCamera = true;
+				// De combien la caméra de portée est remontée AU-DESSUS du sommet de la
+				// tranche (m). C'est le seul « réglage » de Johanson ; il ne se règle pas
+				// à l'œil ici : son effet est mesuré (couverture, gâchis, stabilité).
+				float32 rangeElevation = 0.5f;
+				// Sinus de l'inclinaison MINIMALE de la visée sous l'horizontale. Sans
+				// ce plancher, une caméra qui vise l'horizon donne un point visé à
+				// l'infini — et une caméra de portée qui regarde l'infini ne regarde
+				// plus le plan.
+				float32 rangePitchMin = 0.05f;
 		};
 
 		struct NkProjectedGrid {
 				// Faux = la tranche d'eau ne coupe pas le tronc de vue : il n'y a rien à
 				// mailler, et ça se DIT (au lieu de rendre une grille vide plausible).
 				bool visible = false;
-				// Vrai = l'œil n'est PAS au-dessus de la tranche : hors du domaine de
-				// cette version. `visible` reste faux. Voir l'en-tête : ce qui manque
-				// est la caméra de portée de Johanson, et elle a un nom.
+				// Vrai = l'œil n'est PAS au-dessus de la tranche, ET la caméra de portée
+				// est désactivée : hors du domaine du chemin d'origine. `visible` reste
+				// faux. Avec `rangeCamera`, ce drapeau ne se lève JAMAIS — c'est
+				// exactement ce que la caméra de portée achète.
 				bool horsDomaine = false;
+				// Vrai = la caméra de portée a réellement été posée pour cette image.
+				bool porteePosee = false;
+				// Vrai = elle a dû être REMONTÉE au-dessus de la tranche, c'est-à-dire
+				// que l'œil de rendu, lui, n'était pas dans l'ancien domaine.
+				bool porteeRemontee = false;
+				// Vrai = l'étendue a été rognée pour rester SOUS l'horizon de la caméra
+				// de portée. Au-delà, un sommet n'a pas d'intersection avec le plan : il
+				// ne serait pas « imprécis », il n'existerait pas.
+				bool rogneHorizon = false;
+				// L'altitude d'où la caméra de portée a lancé ses rayons (m).
+				float32 porteeY = 0.f;
 				// Vrai = l'étendue projective n'était pas bornée (un point retenu était
 				// derrière la caméra) et on a pris l'écran entier. Voir l'en-tête.
 				bool repliPleinEcran = false;
@@ -112,8 +162,18 @@ namespace nkentseu {
 				float32 ndcMinY = -1.f, ndcMaxY = 1.f;
 				// Combien de points ont servi à la construire (0 = invisible).
 				uint32 pointsRetenus = 0u;
-				// L'inverse de la view-projection, gardée pour déprojeter les sommets.
+				// L'inverse de la view-projection DONT LES SOMMETS SORTENT, gardée pour
+				// les déprojeter.
 				NkMat4f invViewProj;
+				// ── DANS QUEL ÉCRAN L'ÉTENDUE CI-DESSUS EST-ELLE ÉCRITE ? ───────────
+				// `ndcMinX..ndcMaxY` ne sont pas des nombres absolus : ce sont des
+				// coordonnées NDC, et un NDC n'existe que relativement à une caméra.
+				// Tant que la grille se construisait depuis la caméra de rendu, la
+				// question ne se posait pas et la réponse restait implicite — c'est
+				// exactement le genre de chose qui devient faux sans prévenir le jour
+				// où une deuxième caméra entre dans le calcul. On l'écrit donc :
+				// voici la view-projection dans laquelle l'étendue se lit.
+				NkMat4f rangeViewProj;
 		};
 
 		// Déprojette un point NDC vers le monde. Rend faux quand la division
@@ -146,20 +206,69 @@ namespace nkentseu {
 			return true;
 		}
 
-		// Construit la grille pour une view-projection donnée.
+		// Le rayon du pixel (nx, ny) rencontre-t-il le plan y = py DEVANT la caméra
+		// dont on donne l'inverse de la view-projection, ET à moins de `distMax` de
+		// l'œil (distance horizontale) ?
+		//
+		// LES DEUX CONDITIONS BORNENT L'ÉTENDUE, et aucune n'est un réglage.
+		// 1. RATER LE PLAN : au-dessus de l'horizon, le rayon ne rencontre rien —
+		//    un sommet posé là n'est pas imprécis, il n'existe pas.
+		// 2. TROP LOIN : près de l'horizon, la déprojection est quasi singulière et
+		//    quelques centièmes de NDC valent des milliers de kilomètres au sol.
+		//    Mesuré : sans cette borne, l'empreinte atteignait 1,1·10¹³ m² — onze
+		//    millions de km² pour un océan qu'on regarde à 2 km — et 92 % des
+		//    sommets tombaient hors champ. La borne n'est pas choisie à l'œil : on
+		//    ne maille pas plus loin que le point d'eau le plus lointain que le
+		//    tronc de vue du RENDU atteint réellement.
+		NK_FORCE_INLINE bool NkSommetDansPortee(const NkMat4f &invVP, float32 nx, float32 ny,
+												float32 py, const NkVec3f &eye,
+												float32 distMax) noexcept {
+			NkVec3f a, b;
+			if (!NkUnprojectNDC(invVP, nx, ny, -1.f, a))
+				return false;
+			if (!NkUnprojectNDC(invVP, nx, ny, 1.f, b))
+				return false;
+			const NkVec3f d = b - a;
+			if (NkFabs(d.y) < 1e-9f)
+				return false;
+			const float32 t = (py - a.y) / d.y;
+			if (t < 0.f)
+				return false;
+			const NkVec3f m = a + d * t;
+			const float32 dx = m.x - eye.x, dz = m.z - eye.z;
+			return (dx * dx + dz * dz) <= distMax * distMax;
+		}
+
+		// Construit la grille pour une caméra de rendu donnée.
 		// `eye` est demande EXPLICITEMENT plutot que deduit de la matrice : la
 		// deduire couterait une inversion de plus et, surtout, l'appelant l'a deja.
 		// Un parametre qu'on peut donner ne se devine pas.
-		inline NkProjectedGrid NkProjectedGridBuild(const NkMat4f &viewProj, const NkVec3f &eye,
+		//
+		// ⚠️ LA PROJECTION ET LA VUE SONT DEMANDÉES SÉPARÉMENT, et non leur produit.
+		// Ce n'est pas de la cosmétique : la caméra de portée doit réutiliser la
+		// PROJECTION du rendu (même ouverture, même rapport d'image, mêmes plans)
+		// avec une AUTRE orientation. Un produit déjà fait ne se défait pas, et le
+		// re-factoriser à coups d'inversions serait payer pour reconstituer ce que
+		// l'appelant tient déjà dans la main.
+		inline NkProjectedGrid NkProjectedGridBuild(const NkMat4f &proj, const NkMat4f &view,
+													const NkVec3f &eye,
 													const NkProjectedGridParams &p) noexcept {
 			NkProjectedGrid g;
-			g.invViewProj = viewProj.Inverse();
+			const NkMat4f viewProj = proj * view;
+			const NkMat4f invRender = viewProj.Inverse();
+			// Par défaut — et c'est le cas définitif quand la caméra de portée est
+			// désactivée — les sommets sortent de la caméra de RENDU et l'étendue se
+			// lit dans son écran. La caméra de portée, si elle est posée, remplacera
+			// les DEUX ensemble : elles ne se séparent pas.
+			g.invViewProj = invRender;
+			g.rangeViewProj = viewProj;
 
-			// LE DOMAINE, VERIFIE AVANT TOUT LE RESTE. Hors domaine on REFUSE : la
-			// mesure du 07/09 dit qu'on y couvrait 0 pixel sur 1 225, et une grille
-			// qui ne couvre rien tout en se declarant visible est pire qu'une
-			// absence -- elle fait chercher le defaut ailleurs.
-			if (eye.y <= p.baseY + p.displacementMax) {
+			// LE DOMAINE, ET IL N'EXISTE QUE SANS CAMERA DE PORTEE. Hors domaine le
+			// chemin d'origine REFUSE : la mesure du 07/09 dit qu'on y couvrait 0
+			// pixel sur 1 225, et une grille qui ne couvre rien tout en se declarant
+			// visible est pire qu'une absence -- elle fait chercher le defaut
+			// ailleurs. La camera de portee supprime la cause, donc la garde.
+			if (!p.rangeCamera && eye.y <= p.baseY + p.displacementMax) {
 				g.horsDomaine = true;
 				return g;
 			}
@@ -172,7 +281,7 @@ namespace nkentseu {
 				const float32 nx = (k & 1u) ? 1.f : -1.f;
 				const float32 ny = (k & 2u) ? 1.f : -1.f;
 				const float32 nz = (k & 4u) ? 1.f : -1.f;
-				coinOk[k] = NkUnprojectNDC(g.invViewProj, nx, ny, nz, coins[k]);
+				coinOk[k] = NkUnprojectNDC(invRender, nx, ny, nz, coins[k]);
 				if (coinOk[k])
 					++nCoins;
 			}
@@ -205,11 +314,97 @@ namespace nkentseu {
 			if (n == 0u)
 				return g; // rien : la tranche d'eau ne coupe pas le tronc
 
-			// 3. rabattus sur le plan de repos, puis ramenés en NDC.
+			// JUSQU'OÙ LE RENDU VOIT-IL DE L'EAU ? Les points retenus sont exactement
+			// l'intersection du tronc de vue et de la tranche : le plus lointain d'entre
+			// eux borne ce qu'il y a à mailler. C'est une borne MESURÉE sur la vue en
+			// cours, pas une constante posée à la main, et elle suit l'ouverture, le
+			// plan lointain et la pose sans qu'on ait à la régler.
+			float32 distMax = 0.f;
+			for (uint32 i = 0; i < n; ++i) {
+				const float32 dx = pts[i].x - eye.x, dz = pts[i].z - eye.z;
+				const float32 d2 = dx * dx + dz * dz;
+				if (d2 > distMax)
+					distMax = d2;
+			}
+			distMax = NkSqrt(distMax) * (1.f + p.edgeBias);
+
+			// 3. LA CAMÉRA DE PORTÉE (Johanson §2.4-2.5).
+			//
+			// Le tronc de vue et la tranche viennent d'être découpés avec la caméra de
+			// RENDU : c'est bien elle qui décide de ce qu'on VOIT, et ça ne change pas.
+			// Ce qui change est la caméra qui LANCE LES RAYONS. On en dérive une,
+			// remontée au-dessus de la tranche et contrainte à regarder le plan : ainsi
+			// chacun de ses rayons le rencontre, quelle que soit la pose du rendu — y
+			// compris au ras de l'eau, sous l'eau, ou une vague par-dessus l'objectif.
+			//
+			// ⚠️ ELLE RÉUTILISE LA PROJECTION DU RENDU, pas seulement par économie :
+			// quand l'œil de rendu est déjà au-dessus de la tranche et regarde le plan,
+			// la construction ci-dessous redonne EXACTEMENT la caméra de rendu. La
+			// caméra de portée est alors l'identité, et tout ce que le chemin d'origine
+			// mesurait de bon reste vrai au chiffre près. Une correction qui ne se voit
+			// pas là où rien n'était cassé est une correction qui ne compense rien.
+			NkMat4f rangeVP = viewProj;
+			NkMat4f invRange = invRender;
+			if (p.rangeCamera) {
+				// 3a. remontée au-dessus de la tranche. L'epsilon n'est pas une
+				// coquetterie : à altitude nulle au-dessus du plan, le point visé est
+				// la caméra elle-même et la visée n'a plus de direction.
+				const float32 elev = NkMax(p.rangeElevation, 1e-3f);
+				NkVec3f projPos = eye;
+				const float32 yMin = p.baseY + p.displacementMax + elev;
+				if (projPos.y < yMin) {
+					projPos.y = yMin;
+					g.porteeRemontee = true;
+				}
+
+				// 3b. la direction de visée du RENDU, lue sur son rayon central.
+				NkVec3f dir{0.f, -1.f, 0.f};
+				NkVec3f a0, b0;
+				if (NkUnprojectNDC(invRender, 0.f, 0.f, -1.f, a0) &&
+					NkUnprojectNDC(invRender, 0.f, 0.f, 1.f, b0)) {
+					const NkVec3f f = (b0 - a0).Normalized();
+					if (f.LenSq() > 0.5f)
+						dir = f;
+				}
+
+				// 3c. LE PLANCHER D'INCLINAISON. Une visée horizontale (ou qui monte)
+				// donne un point visé à l'infini : on la rabat sous l'horizontale. C'est
+				// la seule entorse à « suivre le rendu », et elle est bornée, donc
+				// mesurable — pas réglée à l'œil.
+				const float32 pitch = NkMax(p.rangePitchMin, 1e-3f);
+				if (!(dir.y < -pitch)) {
+					dir.y = -pitch;
+					dir = dir.Normalized();
+					if (dir.LenSq() < 0.5f)
+						dir = NkVec3f{0.f, -1.f, 0.f};
+				}
+
+				// 3d. le point visé, SUR le plan de repos.
+				const float32 tAim = (p.baseY - projPos.y) / dir.y; // dir.y < 0, projPos.y > baseY
+				NkVec3f aim = projPos + dir * tAim;
+				aim.y = p.baseY;
+
+				// Visée quasi verticale : `forward × up` s'annule et LookAt rendrait une
+				// base dégénérée (Normalize() d'un vecteur nul rend le vecteur nul, en
+				// silence). On change de référence plutôt que de produire une matrice
+				// muette dont l'inverse partirait en NaN.
+				NkVec3f up{0.f, 1.f, 0.f};
+				if (NkFabs(dir.y) > 0.9999f)
+					up = NkVec3f{0.f, 0.f, -1.f};
+
+				rangeVP = proj * NkMat4f::LookAt(projPos, aim, up);
+				invRange = rangeVP.Inverse();
+				g.porteePosee = true;
+				g.porteeY = projPos.y;
+			}
+			g.rangeViewProj = rangeVP;
+			g.invViewProj = invRange; // LES SOMMETS SORTENT DE LA CAMÉRA DE PORTÉE
+
+			// 4. rabattus sur le plan de repos, puis ramenés dans l'écran DE PORTÉE.
 			float32 mnx = 1e30f, mxx = -1e30f, mny = 1e30f, mxy = -1e30f;
 			bool borne = true;
 			for (uint32 i = 0; i < n; ++i) {
-				const NkVec4f q = viewProj * NkVec4f(pts[i].x, p.baseY, pts[i].z, 1.f);
+				const NkVec4f q = rangeVP * NkVec4f(pts[i].x, p.baseY, pts[i].z, 1.f);
 				if (q.w <= 1e-6f) {
 					borne = false; // derrière la caméra : pas d'image projective
 					break;
@@ -233,6 +428,51 @@ namespace nkentseu {
 				mxx = 1.f + b;
 				mny = -1.f - b;
 				mxy = 1.f + b;
+			} else if (p.rangeCamera) {
+				// LA MARGE, RELATIVE À L'ÉTENDUE. L'écran de la caméra de portée n'est
+				// l'écran de personne : « 0,05 de NDC » n'y désigne plus une fraction
+				// connue de l'image. On élargit donc de 5 % de l'étendue retenue.
+				const float32 mxyBrut = mxy;
+				const float32 ex = (mxx - mnx) * b, ey = (mxy - mny) * b;
+				mnx -= ex;
+				mxx += ex;
+				mny -= ey;
+				mxy += ey;
+
+				// ⚠️ ET AUCUN ROGNAGE SUR L'ÉCRAN DE LA CAMÉRA DE PORTÉE. Le chemin
+				// d'origine rognait sur [-1, 1] parce que son écran ÉTAIT celui du
+				// rendu : au-delà, on maillait ce que personne ne voit. Ici l'écran de
+				// portée est un intermédiaire de calcul — y rogner couperait de l'eau
+				// que le rendu voit VRAIMENT. L'étendue est déjà serrée sur les points
+				// du tronc de rendu : c'est eux, et non un cadre, qui la bornent.
+				//
+				// LA SEULE BORNE QUI GARDE UN SENS EST L'HORIZON de la caméra de portée,
+				// et seulement parce que la marge vient peut-être de la franchir : la
+				// recherche part de l'étendue AVANT marge, qui est sûre par construction
+				// (elle ne contient que des points réels, donc atteints).
+				// ⚠️ LA RECHERCHE PART DE L'ÉTENDUE AVANT MARGE — mais elle ne la suppose
+				// plus sûre. Elle l'est pour l'horizon (elle ne contient que des points
+				// réels, donc atteints) ; elle ne l'est PAS pour la distance, puisque le
+				// haut de la boîte englobante peut déjà viser bien au-delà du point le
+				// plus lointain qui l'a produite. On descend donc depuis le bas, qui est
+				// sûr des deux côtés.
+				if (!NkSommetDansPortee(invRange, mnx, mxy, p.baseY, eye, distMax) ||
+					!NkSommetDansPortee(invRange, mxx, mxy, p.baseY, eye, distMax)) {
+					float32 lo = mny, hi = mxy;
+					if (NkSommetDansPortee(invRange, mnx, mxyBrut, p.baseY, eye, distMax) &&
+						NkSommetDansPortee(invRange, mxx, mxyBrut, p.baseY, eye, distMax))
+						lo = mxyBrut;
+					for (uint32 it = 0; it < 40u; ++it) {
+						const float32 mid = (lo + hi) * 0.5f;
+						if (NkSommetDansPortee(invRange, mnx, mid, p.baseY, eye, distMax) &&
+							NkSommetDansPortee(invRange, mxx, mid, p.baseY, eye, distMax))
+							lo = mid;
+						else
+							hi = mid;
+					}
+					mxy = lo;
+					g.rogneHorizon = true;
+				}
 			} else {
 				// La marge de Johanson, puis le rognage à l'écran élargi : au-delà, on
 				// mailleraiit ce que personne ne voit.
