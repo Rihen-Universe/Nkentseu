@@ -69,6 +69,7 @@
 // dependance au temps ecoule : la meme image a la meme frame, toujours.
 // =============================================================================
 #include "DemoCommon.h"
+#include <cstdio>
 #include "NKRenderer/Materials/NkMaterial.h"
 #include "NKRenderer/Materials/NkMaterialSystem.h"
 #include "NKRenderer/Mesh/NkMeshSystem.h"
@@ -475,6 +476,29 @@ namespace nkentseu {
 						ctx.renderer->SetPostConfig(c);
 						logger.Infof("[BancOmbre] NK_BANC_POST=%s : tonemap=%d bloom=%d ssao=%d fxaa=%d\n",
 									 pv, c.toneMapping ? 1 : 0, c.bloom ? 1 : 0, c.ssao ? 1 : 0, c.fxaa ? 1 : 0);
+					}
+				}
+			}
+			// NK_BANC_RESIZE=<w>x<h> : appelle ctx.renderer->OnResize(w, h) UNE fois, a la
+			// 5e trame, SANS override. Ce qu'il separe : l'override a taille EGALE a la
+			// chaine (1280x720) retourne DX sous FXAA (cube a 549.1), alors qu'un
+			// rebuild du graphe seul (SetPostConfig) ne retourne rien. Or
+			// SetRenderSizeOverride == ApplyRenderSize(touchDevice=false) == OnResize
+			// des sous-systemes + WaitIdle + RebuildRenderGraph. Si un OnResize a taille
+			// egale, hors override, retourne DX aussi, la variable est « OnResize des
+			// sous-systemes apres l'init » -- et un redimensionnement de fenetre le
+			// ferait dans le modeleur. Sans la variable, rien ne change.
+			{
+				static bool sResizeFait = false;
+				if (!sResizeFait && ctx.frame >= 5) {
+					sResizeFait = true;
+					if (const char *rv = ::nkentseu::env::GetEnvVar("NK_BANC_RESIZE")) {
+						int32 rw = 0, rh = 0;
+						if (std::sscanf(rv, "%dx%d", &rw, &rh) == 2 && rw > 0 && rh > 0) {
+							ctx.renderer->OnResize((uint32)rw, (uint32)rh);
+							std::printf("[BancOmbre] OnResize(%d, %d) a la trame %u, sans override\n", rw, rh, ctx.frame);
+							std::fflush(stdout);
+						}
 					}
 				}
 			}
