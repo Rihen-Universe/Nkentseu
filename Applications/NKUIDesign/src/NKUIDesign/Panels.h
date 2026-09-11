@@ -15960,6 +15960,40 @@ namespace nkuidesign {
 						wNom = w;
 				}
 				const float32 colEtat = wNom + (float32)costume::EspLarge;
+				// ── « AFFICHER » : QUEL ETAT LA TOILE MONTRE (08/09) ─────────────────
+				// 🔴 Inventaire Q141 : les états s'écrivaient et ne se peignaient jamais.
+				//    Ici on choisit l'état que le peintre MONTRE -- un mode de vue, pas
+				//    une donnée : rien n'est écrit dans le document, et « Normal » rend
+				//    la toile exactement comme avant.
+				// ⚠️ LE SELECTEUR PLUTOT QUE LE VRAI SURVOL, et c'est un arbitrage écrit :
+				//    il se prouve sans fenêtre, et il sert au DESIGN -- on veut VOIR
+				//    l'état appui sans tenir la souris. Le vrai survol viendra avec les
+				//    comportements, par la même porte.
+				{
+					const NkRect r = ctx.NextItemRect(-1.f, costume::HRangee);
+					costume::Texte(dl, F.px10, r.x + 12.f, costume::CentrerBande(F.px10, r.y),
+								   "Afficher", ctx.theme.textMuted);
+				}
+				{
+					int32 courant = -1;
+					for (uint32 e = 0; e < nbEtats; ++e)
+						if (NkComponentDecl::StrEq(mSt->host.etatAffiche, etats[e]))
+							courant = (int32)e;
+					// « Normal » = l'état de base : rien d'affiché en surcharge
+					if (courant < 0)
+						for (uint32 e = 0; e < nbEtats; ++e)
+							if (NkComponentDecl::StrEq(etats[e], "Normal"))
+								courant = (int32)e;
+					const int32 choix = designkit::Segmented(ctx, etats, (int32)nbEtats, courant,
+															 "insp.etats.afficher");
+					if (choix >= 0) {
+						if (NkComponentDecl::StrEq(etats[choix], "Normal"))
+							mSt->host.etatAffiche[0] = '\0';
+						else
+							snprintf(mSt->host.etatAffiche, sizeof(mSt->host.etatAffiche), "%s",
+									 etats[choix]);
+					}
+				}
 				for (uint32 e = 0; e < nbEtats; ++e) {
 					const NkRect r = ctx.NextItemRect(-1.f, costume::HRangee);
 					const float32 x0 = r.x + 12.f, x1 = r.x + r.w - 12.f;

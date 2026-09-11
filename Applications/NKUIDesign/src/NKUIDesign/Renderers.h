@@ -119,6 +119,23 @@ namespace nkuidesign {
 			int32 apercuNoeud = -1;	 ///< le nœud dont une couleur est en aperçu (-1 = aucun)
 			int32 apercuIndex = -1;	 ///< le remplissage visé (-1 = le fond effectif)
 			char apercuHex[12] = {}; ///< « #rrggbb », vide = pas d'aperçu
+			// ── L'ETAT AFFICHE (08/09) ──────────────────────────────────────────
+			//
+			// 🔴 INVENTAIRE Q141 : les états s'écrivaient, se relisaient du fichier,
+			//    et **aucun peintre ne lisait `NkApparenceEtat`**. Modèle complet,
+			//    interface, aller-retour -- et rien à l'écran. *Déclaré, jamais
+			//    livré*, dans sa forme la plus pure.
+			//
+			// ⚠️ MESURE AVANT D'ECRIRE : aucune notion d'« état courant » n'existait
+			//    nulle part (zéro occurrence) ; le fond se résout à TROIS sites, déjà
+			//    derrière la porte de l'aperçu de pipette ; le rayon à quatre, dont
+			//    trois dans `DrawShape` ; l'opacité du fond dans `NkGFondRGBADe`.
+			//    L'état se lit donc PAR LES MEMES PORTES -- pas une seconde résolution.
+			//
+			// ⚠️ C'EST UN MODE DE VUE, PAS UNE DONNEE : « montrer le nœud dans son état
+			//    Hover » pour le DESSINER, sans tenir la souris. Le vrai survol viendra
+			//    avec les comportements. Vide = l'état de base, exactement comme avant.
+			char etatAffiche[16] = {};
 			/// L'ECHELLE DU DOCUMENT (le zoom de la vue), posee par la toile a
 			/// chaque image (correction du 31/08 : « quand on zoome ou dezoome
 			/// le texte garde sa taille... ca devrait evoluer comme les elements
@@ -473,12 +490,43 @@ namespace nkuidesign {
 			return h.apercuHex;
 		}
 
-		/// LE FOND, A PARTIR D'UNE COULEUR DEJA CHOISIE (aperçu compris).
-		inline nkentseu::uint32 NkGFondRGBADe(const NkUINode &n, const char *c) {
+		// ── L'ORDRE DE PRIORITE, ECRIT UNE FOIS ET LU PARTOUT ───────────────────
+		//
+		//        aperçu de pipette  >  état affiché  >  valeur de base
+		//
+		// ⚠️ POURQUOI DANS CET ORDRE : l'aperçu est un GESTE en cours, posé par-dessus
+		//    ce qu'on regarde ; l'état est un MODE de vue ; la base est le document.
+		//    Deux surcharges qui ne se connaissent pas finissent par se marcher
+		//    dessus un jour -- c'est pour ça qu'elles se composent ici, en une
+		//    expression, et nulle part ailleurs.
+		//
+		/// LE BLOC D'ETAT VU pour ce nœud : celui de l'état affiché s'il existe et
+		/// pose quelque chose ; nullptr sinon -- et alors RIEN ne change.
+		inline const NkApparenceEtat *NkEtatVu(const NkDocumentHost &h, const NkUINode &n) {
+			if (h.etatAffiche[0] == '\0')
+				return nullptr;
+			const NkApparenceEtat *a = NkBlocEtatSi(n, h.etatAffiche);
+			return (a && !a->Vide()) ? a : nullptr;
+		}
+		/// LE FOND VU : celui de l'état s'il en pose un, sinon le fond effectif.
+		inline const char *NkFondVu(const NkDocumentHost &h, const NkUINode &n) {
+			const NkApparenceEtat *a = NkEtatVu(h, n);
+			return (a && !a->fond.Empty()) ? a->fond.Data() : n.FondEffectif();
+		}
+		/// L'OPACITE DU FOND VUE : celle de l'état si posée (>= 0), sinon la base.
+		inline nkentseu::float32 NkOpaciteFondVue(const NkDocumentHost &h, const NkUINode &n) {
+			const NkApparenceEtat *a = NkEtatVu(h, n);
+			return (a && a->opacite >= 0.f) ? a->opacite : n.FondOpacite();
+		}
+
+		/// LE FOND, A PARTIR D'UNE COULEUR DEJA CHOISIE (aperçu et état compris),
+		/// et d'une opacité déjà choisie de la même façon.
+		inline nkentseu::uint32 NkGFondRGBADe(const NkUINode &n, const char *c,
+											  nkentseu::float32 o) {
+			(void)n;
 			if (!c)
 				return 0x808080FFu;
 			const nkentseu::uint32 rgba = NkGCouleur(c);
-			const nkentseu::float32 o = n.FondOpacite();
 			if (o >= 100.f)
 				return rgba;
 			const nkentseu::float32 k = o < 0.f ? 0.f : o * 0.01f;
@@ -511,9 +559,23 @@ namespace nkuidesign {
 
 		/// LES QUATRE RAYONS EFFECTIFS d'un nœud, dans l'ordre horaire depuis le
 		/// haut-gauche. Passe par `RayonCoin` — la porte, jamais `radius` en direct.
+		/// LES RAYONS VUS : un état pose UN rayon pour les quatre coins (le modèle
+		/// d'état n'en connaît qu'un) ; sans état, les quatre de la base.
+		inline void NkGRayonsVus(const NkDocumentHost &h, const NkUINode &n,
+								 nkentseu::float32 out[4]);
 		inline void NkGRayons(const NkUINode &n, nkentseu::float32 out[4]) {
 			for (nkentseu::uint32 i = 0; i < 4u; ++i)
 				out[i] = n.RayonCoin(i);
+		}
+		inline void NkGRayonsVus(const NkDocumentHost &h, const NkUINode &n,
+								 nkentseu::float32 out[4]) {
+			const NkApparenceEtat *a = NkEtatVu(h, n);
+			if (a && a->radius >= 0.f) {
+				for (nkentseu::uint32 i = 0; i < 4u; ++i)
+					out[i] = a->radius;
+				return;
+			}
+			NkGRayons(n, out);
 		}
 
 		/// BORNER QUATRE RAYONS CONTRE LA BOÎTE — la règle, en un seul endroit.
@@ -1999,7 +2061,10 @@ namespace nkuidesign {
 			if (NkFormeOuverte(n) ? (r.w <= 0.f && r.h <= 0.f) : (r.w <= 0.f || r.h <= 0.f))
 				return;
 			// L'APERCU PASSE AVANT LE MODELE -- une seule porte (`NkCouleurApercue`).
-			const char *fondApercu = NkCouleurApercue(host, noeud, -1, n.FondEffectif());
+			// aperçu > état > base -- l'ordre est écrit UNE fois, plus haut ; ici on
+			// ne fait que le composer.
+			const char *fondApercu = NkCouleurApercue(host, noeud, -1, NkFondVu(host, n));
+			const nkentseu::float32 opaciteVue = NkOpaciteFondVue(host, n);
 			const char *name = n.label.Data();
 			const char *shape = n.shape.Data();
 
@@ -2020,7 +2085,7 @@ namespace nkuidesign {
 				//    (dessin normal et renommage d'etiquette). Une page a
 				//    laquelle Rodolf donne un arrondi se peignait carree.
 				float32 Ra[4];
-				NkGRayons(n, Ra);
+				NkGRayonsVus(host, n, Ra);
 				NkGBornerRayons(r.w, r.h, Ra, Ra);
 				const uint32 fondArt = p.ColorOf(host.Role("artboard_bg"));
 				NkGRectCoins(p, r, fondArt, Ra);
@@ -2142,7 +2207,7 @@ namespace nkuidesign {
 					if (r.w <= 0.f || r.h <= 0.f)
 						return true;
 					float32 Rg[4], cg[4];
-					NkGRayons(n, Rg);
+					NkGRayonsVus(host, n, Rg);
 					NkGBornerRayons(r.w, r.h, Rg, cg);
 					float32 contour[80];
 					const uint32 nc = NkGContourArrondi(r, cg, contour, 8u);
@@ -2290,7 +2355,7 @@ namespace nkuidesign {
 				};
 				// LES QUATRE RAYONS EFFECTIFS, lus par la porte du modèle.
 				float32 Rc[4];
-				NkGRayons(n, Rc);
+				NkGRayonsVus(host, n, Rc);
 				// L'UNI : le contour du trace edite s'il y en a un (et si le peintre sait le
 				// polygone), la boite arrondie sinon -- une seule porte pour les trois sites
 				auto peindreUni = [&](uint32 rgba) {
@@ -2310,9 +2375,14 @@ namespace nkuidesign {
 						// L'APERCU VISE UN REMPLISSAGE PRECIS (ou le fond effectif, -1) :
 						// la porte repond pour CE remplissage-ci, et rend sa couleur du
 						// modele partout ailleurs.
+						// LE REMPLISSAGE DU DESSUS est celui que l'état surcharge : c'est
+						// lui que `FondEffectif` rend, donc c'est lui que `NkFondVu`
+						// remplace. Les autres gardent leur couleur du modèle.
+						const bool duDessus = (n.FondEffectif() == f.couleur.Data());
 						const char *couleurVue = NkCouleurApercue(
 							host, noeud, (nkentseu::int32)fi,
-							NkCouleurApercue(host, noeud, -1, f.couleur.Data()));
+							NkCouleurApercue(host, noeud, -1,
+											 duDessus ? NkFondVu(host, n) : f.couleur.Data()));
 						// ②-2 le mode de fusion EXACT de ce remplissage, pousse au peintre le temps
 						//     de le peindre (Multiply, Screen, Darken, Lighten, Plus Lighter)
 						const renderdetail::NkGardeFusion gardeFusion(p, f.fusion);
@@ -2370,7 +2440,7 @@ namespace nkuidesign {
 				} else if (!n.fill.Empty()) {
 					// L'APERCU PASSE AVANT LA CLE SIMPLE, comme il passe avant la liste :
 					// meme porte, meme priorite (`NkCouleurApercue`).
-					rgbaFond = NkGCouleur(NkCouleurApercue(host, noeud, -1, n.fill.Data()));
+					rgbaFond = NkGCouleur(NkCouleurApercue(host, noeud, -1, NkFondVu(host, n)));
 					peindreUni(rgbaFond);
 					fondPeint = true;
 				} else {
@@ -2543,7 +2613,7 @@ namespace nkuidesign {
 			if (shape
 				&& (StrEq(shape, "triangle") || StrEq(shape, "pentagone")
 					|| StrEq(shape, "etoile"))) {
-				const uint32 rgba = fondApercu ? NkGFondRGBADe(n, fondApercu)
+				const uint32 rgba = fondApercu ? NkGFondRGBADe(n, fondApercu, opaciteVue)
 													: p.ColorOf(host.Role("doc_field_bg"));
 				// ⚠️ LES SOMMETS VIENNENT DE `Sommets.h`, PAS D'UNE TABLE LOCALE.
 				//    Le mode points doit poser une poignee SUR CHAQUE SOMMET
@@ -2569,7 +2639,7 @@ namespace nkuidesign {
 				// LA FLECHE : le fut horizontal a mi-hauteur + la pointe pleine
 				// a droite (l'eventail Lunacy « Line ▸ arrow »).
 				const float32 ym = r.y + r.h * 0.5f;
-				const uint32 rgba = fondApercu ? NkGFondRGBADe(n, fondApercu)
+				const uint32 rgba = fondApercu ? NkGFondRGBADe(n, fondApercu, opaciteVue)
 													: p.ColorOf(host.Role("doc_text"));
 				const float32 tete = r.w * 0.25f < 16.f ? (r.w * 0.25f) : 16.f;
 				bool ok = p.Line(r.x, ym, r.x + r.w - tete * 0.6f, ym, host.Role("doc_text"),
@@ -2589,13 +2659,13 @@ namespace nkuidesign {
 				// chantier nomme : ce cadre est l'objet reel du maquettage
 				// (wireframe), pas une mise en scene — il se pose, se deplace,
 				// se sauve, et dira son fichier le jour ou la cle existera.
-				const uint32 rgba = fondApercu ? NkGFondRGBADe(n, fondApercu)
+				const uint32 rgba = fondApercu ? NkGFondRGBADe(n, fondApercu, opaciteVue)
 													: p.ColorOf(host.Role("doc_field_bg"));
 				// ⚠️ LE FOND SUIVAIT LE RAYON UNIFORME, LE CONTOUR AUCUN : le
 				//    coin etait donc arrondi ET souligne d'un angle droit.
 				//    Les deux lisent maintenant LES QUATRE rayons.
 				float32 Ri[4];
-				NkGRayons(n, Ri);
+				NkGRayonsVus(host, n, Ri);
 				// Le repli historique a 2 px quand AUCUN coin n'est pose --
 				// garde tel quel : le retirer changerait le dessin de tous les
 				// cadres d'image existants, ce qui n'est pas l'objet ici.
@@ -2621,7 +2691,7 @@ namespace nkuidesign {
 				// L'AVATAR (la variante de la famille Image) : pastille de profil
 				// — cercle plein + tete/epaules en creux (le vocabulaire des
 				// listes d'utilisateurs). Meme contrat de repli que l'Ellipse.
-				const uint32 rgba = fondApercu ? NkGFondRGBADe(n, fondApercu)
+				const uint32 rgba = fondApercu ? NkGFondRGBADe(n, fondApercu, opaciteVue)
 													: p.ColorOf(host.Role("doc_field_bg"));
 				const float32 d = r.w < r.h ? r.w : r.h;
 				const NkPaintRect rc = {r.x + (r.w - d) * 0.5f, r.y + (r.h - d) * 0.5f, d, d};

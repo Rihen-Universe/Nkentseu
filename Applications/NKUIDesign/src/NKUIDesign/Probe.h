@@ -13152,6 +13152,112 @@ namespace nkuidesign {
 					  && exportJuste,
 				  det);
 		}
+		// ── 146. LES ETATS SE PEIGNENT (08/09). Inventaire Q141 : les etats s'ecrivaient,
+		//    se relisaient du fichier, et AUCUN peintre ne lisait `NkApparenceEtat`.
+		//    Modele complet, interface, aller-retour -- et rien a l'ecran.
+		//
+		// ⚠️ ON LIT LES COMMANDES DU PEINTRE, PAS LA SOURCE : la couleur EMISE avec
+		//    l'etat affiche, sans lui, et sous l'apercu de pipette. Et le DOCUMENT est
+		//    relu apres chaque rendu : afficher un etat ne doit rien y ecrire.
+		{
+			char det[560];
+			NkUIDocument dE;
+			dE.NewDocument("Toile", NkAuthor::Humain);
+			dE.SetMetric("espacement", 0.f);
+			dE.SetMetric("marge", 0.f);
+			dE.nodes[0].layout.kind = NkLayoutKind::Free;
+			const int32 ne = dE.AddChild(0, "", NkAuthor::Humain);
+			{
+				NkUINode &q = dE.nodes[(uint32)ne];
+				q.shape = NkString("rect");
+				q.layout.kind = NkLayoutKind::Free;
+				q.posX = 20.f;
+				q.posY = 20.f;
+				q.width.mode = NkSizeMode::Fixed;
+				q.width.value = 80.f;
+				q.height.mode = NkSizeMode::Fixed;
+				q.height.value = 40.f;
+				q.fill = NkString("#ff0000");
+				// l'etat Hover pose un fond ET un rayon ; Pressed ne pose QU'un rayon
+				NkApparenceEtat &h = NkBlocEtat(q, "Hover");
+				h.fond = NkString("#00ff00");
+				h.radius = 12.f;
+				NkApparenceEtat &pr = NkBlocEtat(q, "Pressed");
+				pr.radius = 6.f;
+			}
+			NkDocumentHost hE;
+			auto emise = [&](uint32 rgba) -> bool {
+				NkRecordingPaint rec;
+				RenderDocument(rec, dE, NkPaintRect{0.f, 0.f, 400.f, 300.f}, &hE);
+				for (uint32 i = 0; i < (uint32)rec.cmds.Size(); ++i)
+					if (rec.cmds[i].rgba == rgba)
+						return true;
+				return false;
+			};
+			// le rayon EMIS avec la couleur donnee : la commande de fond porte son arrondi
+			auto rayonEmis = [&](uint32 rgba) -> float32 {
+				NkRecordingPaint rec;
+				RenderDocument(rec, dE, NkPaintRect{0.f, 0.f, 400.f, 300.f}, &hE);
+				for (uint32 i = 0; i < (uint32)rec.cmds.Size(); ++i)
+					if (rec.cmds[i].rgba == rgba)
+						return rec.cmds[i].rounding;
+				return -1.f;
+			};
+			auto documentIntact = [&]() -> bool {
+				const NkUINode &q = dE.nodes[(uint32)ne];
+				return NkComponentDecl::StrEq(q.fill.Data(), "#ff0000") && q.RayonCoin(0) == 0.f;
+			};
+
+			// (a) LE CONTROLE NEGATIF : sans etat affiche, ROUGE et rayon de base.
+			hE.etatAffiche[0] = '\0';
+			const bool baseRouge = emise(0xff0000ffu) && !emise(0x00ff00ffu);
+			const float32 rBase = rayonEmis(0xff0000ffu);
+			// (b) L'ETAT HOVER AFFICHE : VERT, rayon 12 -- et le document n'a pas bouge.
+			snprintf(hE.etatAffiche, sizeof(hE.etatAffiche), "%s", "Hover");
+			const bool hoverVert = emise(0x00ff00ffu) && !emise(0xff0000ffu);
+			const float32 rHover = rayonEmis(0x00ff00ffu);
+			const bool docApresHover = documentIntact();
+			// (c) L'ETAT PRESSED : il ne pose QU'un rayon -> la couleur reste la BASE
+			//     (rouge), seul l'arrondi change. C'est la surcharge par champ, pas par bloc.
+			snprintf(hE.etatAffiche, sizeof(hE.etatAffiche), "%s", "Pressed");
+			const bool pressedRouge = emise(0xff0000ffu) && !emise(0x00ff00ffu);
+			const float32 rPressed = rayonEmis(0xff0000ffu);
+			// (d) UN ETAT SANS BLOC (Focus) : exactement la base.
+			snprintf(hE.etatAffiche, sizeof(hE.etatAffiche), "%s", "Focus");
+			const bool focusBase = emise(0xff0000ffu) && rayonEmis(0xff0000ffu) == rBase;
+			// (e) LA PRIORITE : apercu de pipette > etat > base. Hover affiche ET un
+			//     apercu bleu pose -> BLEU, pas vert.
+			snprintf(hE.etatAffiche, sizeof(hE.etatAffiche), "%s", "Hover");
+			hE.apercuNoeud = ne;
+			hE.apercuIndex = -1;
+			snprintf(hE.apercuHex, sizeof(hE.apercuHex), "%s", "#0000ff");
+			const bool apercuGagne = emise(0x0000ffffu) && !emise(0x00ff00ffu);
+			hE.apercuNoeud = -1;
+			hE.apercuHex[0] = '\0';
+			// (f) et on repasse a la base : tout revient, le document est toujours intact.
+			hE.etatAffiche[0] = '\0';
+			const bool retour = emise(0xff0000ffu) && !emise(0x00ff00ffu) && documentIntact();
+
+			const bool rayons = rBase == 0.f && rHover == 12.f && rPressed == 6.f;
+			snprintf(det, sizeof(det),
+					 "(a) sans etat : rouge, rayon %.0f -> %d ; (b) Hover affiche : VERT, rayon "
+					 "%.0f, document intact=%d -> %d ; (c) Pressed (rayon seul) : rouge, rayon "
+					 "%.0f -> %d ; (d) Focus (aucun bloc) : la base -> %d ; (e) apercu > etat : "
+					 "BLEU sous Hover -> %d ; (f) retour a la base, document intact -> %d ; les "
+					 "trois rayons 0/12/6 -> %d",
+					 (double)rBase, baseRouge ? 1 : 0, (double)rHover, docApresHover ? 1 : 0,
+					 hoverVert ? 1 : 0, (double)rPressed, pressedRouge ? 1 : 0,
+					 focusBase ? 1 : 0, apercuGagne ? 1 : 0, retour ? 1 : 0, rayons ? 1 : 0);
+			check("146. LES ETATS SE PEIGNENT : un etat affiche se lit par LES MEMES portes que l'apercu "
+				  "de pipette -- fond, rayon, opacite -- et l'ordre de priorite est ecrit une fois "
+				  "(apercu > etat > base). Un etat qui ne pose qu'un rayon ne touche pas la couleur ; un "
+				  "etat sans bloc rend exactement la base ; et AFFICHER un etat n'ecrit RIEN dans le "
+				  "document -- c'est un mode de vue. Le controle negatif est a zero : sans etat affiche, "
+				  "le peintre emet ce qu'il emettait",
+				  baseRouge && hoverVert && docApresHover && pressedRouge && focusBase
+					  && apercuGagne && retour && rayons,
+				  det);
+		}
 		// ── 94. ① L'APERCU PENDANT LE TRACE (05/09). Rodolf : « pourquoi quand on dessine un
 		//    graphique on voit juste le rectangle qui s'allonge, et des qu'on relache on voit la
 		//    forme ? » Deux mesures : LA TABLE DE GENRE (une seule, lue par le relachement et par
