@@ -252,4 +252,71 @@ namespace nkuidesign {
 		return 0;
 	}
 
+	/// `--flux=<document.nkuidoc>[,<sortie.txt>]` : LE FLUX DE LA TOILE POUR UN
+	/// DOCUMENT CHARGE -- le sien, pas un cas fabrique.
+	///
+	/// ⚠️ POURQUOI UNE SECONDE ENTREE A COTE DE `--temoin-rendu` : celui-ci mesure
+	///    un document REPRESENTATIF construit ici, pour juger une refonte
+	///    d'apparence. Celui-la mesure UN document donne, pour juger qu'une porte
+	///    posee dans le peintre n'a rien change a l'image de Rodolf : on ecrit le
+	///    flux avec le binaire d'AVANT, puis avec celui d'APRES, et le `diff` doit
+	///    etre VIDE. C'est le controle negatif << a zero pixel >> -- au sens du
+	///    flux : commande par commande, geometrie et couleur comprises. Ce que le
+	///    flux ne voit pas (le texte sans police, l'interieur d'une commande
+	///    fusionnee) est dit en tete de ce fichier ; sur la TOILE il n'y a pas de
+	///    commande fusionnee, et le texte y est une commande a part entiere.
+	///
+	/// La surface est FIXE (1600 x 1000) : l'agencement en depend, et les deux
+	/// binaires doivent le calculer sur la meme.
+	inline nkentseu::int32 NkFluxDocument(const char *arg) {
+		using namespace nkentseu;
+		char doc[512] = {0}, sortie[512] = {0};
+		{
+			uint32 i = 0;
+			for (; arg && arg[i] && arg[i] != ',' && i + 1 < sizeof(doc); ++i)
+				doc[i] = arg[i];
+			doc[i] = '\0';
+			if (arg && arg[i] == ',') {
+				++i;
+				uint32 j = 0;
+				for (; arg[i] && j + 1 < sizeof(sortie); ++i, ++j)
+					sortie[j] = arg[i];
+				sortie[j] = '\0';
+			}
+		}
+		if (!doc[0]) {
+			printf("[flux] usage : --flux=<document.nkuidoc>[,<sortie.txt>]\n");
+			return 1;
+		}
+		if (!sortie[0])
+			snprintf(sortie, sizeof(sortie), "%s.flux.txt", doc);
+		const NkString texte = NkFile::ReadAllText(doc);
+		NkUIDocument d;
+		if (texte.Empty() || !d.Load(texte.Data())) {
+			printf("[flux] document illisible : %s\n", doc);
+			return 1;
+		}
+		NkString out = NkString("# flux de la toile d'un document charge -- `--flux=<doc>`\n"
+								"# Une ligne par commande : op, x, y, w, h, rayon, role, rgba, texte.\n"
+								"# Surface fixe 1600 x 1000. Sert a l'avant / apres entre deux binaires.\n");
+		{
+			NkLayoutResult lay;
+			NkComputeLayout(d, NkPaintRect{0.f, 0.f, 1600.f, 1000.f}, lay);
+			NkComponentInput in;
+			nkentseu::editorkit::NkRecordingPaint pv;
+			NkDocumentHost hote;
+			hote.SyncTo(d);
+			pv.Reset();
+			NkDrawDocument(pv, in, d, lay, hote, 0);
+			NkEcrireFlux(out, doc, pv);
+		}
+		if (!NkFile::WriteAllText(sortie, out.Data())) {
+			printf("[flux] ecriture refusee : %s\n", sortie);
+			return 1;
+		}
+		printf("[flux] %u noeud(s), flux ecrit dans %s (%u octets)\n", (uint32)d.nodes.Size(), sortie,
+			   (uint32)out.Size());
+		return 0;
+	}
+
 } // namespace nkuidesign
