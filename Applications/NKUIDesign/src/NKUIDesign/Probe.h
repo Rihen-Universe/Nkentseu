@@ -18147,7 +18147,21 @@ namespace nkuidesign {
 			//    detail, avec le seuil de confort de 8 ms en toutes lettres. *Un humain
 			//    qui la lit apprend quelque chose ; un banc qui l'affirme apprend le
 			//    temps qu'il fait.*
-			const bool coutTenable = msApres <= msAvant + 0.5 && msCache <= msApres + 0.5;
+			//
+			// 🔴 TROISIEME OCCURRENCE, LE 11/09 : sous charge (une construction en
+			//    parallele), `Empty` a lu 22,63 ms et `Probe` 46,52 -- la RELATION posee le
+			//    08/09 (`msApres <= msAvant`) est tombee. Elle etait plus robuste qu'un
+			//    seuil, mais elle mesure encore la machine : les deux durees ne subissent
+			//    pas la meme charge au meme instant, et rien ne garantit leur ordre quand
+			//    l'ordonnanceur s'en mele. **AUCUNE DUREE N'ENTRE PLUS DANS L'ASSERTION.**
+			//
+			// ⚠️ ET LE PROPOS N'EST PAS PERDU, PARCE QU'IL NE TENAIT PAS A UNE HORLOGE :
+			//    « la nouvelle question n'est pas plus chere » se prouve par un COMPTE
+			//    D'ACCES DISQUE -- `cacheOk` ci-dessus exige 1, 1, 2 puis 3 acces pour
+			//    quatre interrogations. Un compte est un FAIT du programme ; une duree est
+			//    un fait de la machine. *Un essai qui rougit quand une autre tache tourne
+			//    fait douter de toute la batterie.*
+			//    Les trois durees restent imprimees, en INFORMATION, pour l'humain qui lit.
 			// 5. LE DESSIN : trois empreintes DISTINCTES, a 32, 64 et 128 px.
 			auto empreinte = [](uint8 contenu, float32 taille) -> uint32 {
 				NkRecordingPaint r;
@@ -18180,24 +18194,24 @@ namespace nkuidesign {
 					 "trois dossiers : contenu(vide,fichiers,sous)=%u/%u/%u et sous-dossiers=%u/%u/%u -> %d "
 					 "(un dossier de fichiers SEULS est plein pour l'icone et sans enfant pour le chevron) ; "
 					 "illisible != vide (Empty dit vide, Probe dit illisible)=%d ; cache : %u/%u/%u/%u acces "
-					 "pour 4 questions -> %d ; COUT sur 124 dossiers : Empty %.2f ms, Probe %.2f ms, "
-					 "cache relu %.3f ms (%s le seuil de confort de 8 ms -- INFORMATION, pas assertion) ; "
-					 "le cache n'est pas plus lent et la nouvelle question pas plus chere=%d ; "
-					 "trois empreintes distinctes a "
+					 "pour 4 questions -> %d (c'est CA, « pas plus cher » : un compte, pas une horloge) ; "
+					 "duree sur 124 dossiers, INFORMATION SEULE et hors de toute assertion depuis le "
+					 "11/09 : Empty %.2f ms, Probe %.2f ms, cache relu %.3f ms (%s le seuil de confort "
+					 "de 8 ms) ; trois empreintes distinctes a "
 					 "32/64/128 px=%d",
 					 (uint32)tVide, (uint32)tFich, (uint32)tSous, (uint32)cVide, (uint32)cFich,
 					 (uint32)cSous, troisEtats ? 1 : 0, illisiblePasVide ? 1 : 0, apres1, apres2, apres3,
 					 apres4, cacheOk ? 1 : 0, msAvant, msApres, msCache,
-					 msApres < 8.0 ? "sous" : "AU-DELA DE", coutTenable ? 1 : 0,
+					 msApres < 8.0 ? "sous" : "AU-DELA DE",
 					 troisDessins ? 1 : 0);
 			check("123. UN DOSSIER VIDE, UN DOSSIER PLEIN ET UN DOSSIER QU'ON NE PEUT PAS LIRE NE SE DESSINENT PAS "
-				  "PAREIL, ET LE COUT EST MESURE : on ne demande pas « combien d'entrees » mais « au moins une » "
+				  "PAREIL, ET LE COUT SE COMPTE (il ne se chronometre plus) : on ne demande pas « combien d'entrees » mais « au moins une » "
 				  "(arret au premier, aucune allocation), la reponse est retenue par chemin ET par horodatage (deux "
 				  "interrogations, un seul acces), et seules les entrees A L'ECRAN sont sondees. Le chevron et "
 				  "l'icone posent deux questions VOISINES -- « a-t-il des sous-dossiers ? » et « contient-il quelque "
 				  "chose ? » -- auxquelles repond UNE SEULE fonction parametree ; un dossier illisible n'est ni vide "
 				  "ni plein, et son infobulle le dit",
-				  troisEtats && illisiblePasVide && cacheOk && coutTenable && troisDessins, det);
+				  troisEtats && illisiblePasVide && cacheOk && troisDessins, det);
 			NkDirectory::Delete("sonde_remplissage", true);
 		}
 		// -- 124. (3) LE CHEVRON SUIT LA MEME REGLE POUR TOUTES LES ENTREES (05/09, v5).
