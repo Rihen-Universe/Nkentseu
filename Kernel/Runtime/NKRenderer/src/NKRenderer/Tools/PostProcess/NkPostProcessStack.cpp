@@ -16,6 +16,7 @@
 #include "NKRenderer/Core/NkResources.h"
 #include "NKRenderer/Mesh/NkMeshSystem.h"
 #include "NKRenderer/Shader/NkShaderLibrary.h"
+#include "NKRenderer/Tools/Offscreen/NkOffscreenTarget.h" // NkOffscreenStoredIsBottomUp : la regle de stockage
 
 #include "NKLogger/NkLog.h"
 
@@ -983,12 +984,24 @@ void main() {
 
 			// Push 16 bytes : (invResW, invResH, yFlipUV, _pad). Stage ALL_GRAPHICS
 			// pour matcher la range pipeline.
-			// yFlipUV : sur Vulkan le viewport est Y-flipped (storage transient
-			// top-down), donc on flip l'UV cote VS pour matcher. Sur OpenGL le
-			// viewport n'est pas flipped et le transient FBO est aussi top-down,
-			// mais l'output vers swapchain doit etre flippe -> on garde UV direct.
-			// (Convention oppose au tonemap qui ecrit direct au swapchain).
-			const bool isVK = mDevice && mDevice->GetApi() == NkGraphicsApi::NK_GFX_API_VULKAN;
+			//
+			// yFlipUV DERIVE DE LA REGLE DE STOCKAGE, ecrite une seule fois
+			// (NkOffscreenStoredIsBottomUp, NkOffscreenTarget.h). Recalibrage du 11/09.
+			// Le nuanceur (pp_fxaa.vert.nksl) pose uvBase.y = 0 en BAS du clip, sur
+			// les trois dorsaux : GL et DX nativement, Vulkan par son viewport a
+			// hauteur negative. L'entree ToneLDR a sa rangee 0 en HAUT sur VK et DX,
+			// en BAS sur GL. Il faut donc retourner l'UV partout ou le stockage n'est
+			// pas bas->haut : VK ET DX.
+			// ⚠️ L'ANCIENNE REGLE ETAIT `isVK ? -1 : +1`. Son +1 DX avait ete cale
+			// quand le generateur HLSL niait Y en sortie du nuanceur de sommets --
+			// la negation jouait alors, sur DX, le role du viewport retourne de
+			// Vulkan. fe4329ee a retire la negation ; ses cinq temoins tournaient
+			// FXAA ETEINTE (le banc la coupe a la creation) et la marque d'ecran est
+			// dessinee APRES FXAA_Final (Overlay2D) : aucun temoin ne traversait
+			// cette passe. Mesure qui l'a demasque, marque ET cube dans la meme
+			// course : FXAA allumee, dx11 et dx12 cube a 549.1 RETOURNE, marque 23.5 ;
+			// FXAA eteinte, cube 169.9 ; vulkan et opengl 169.9 dans les deux cas.
+			const bool stockageBasHaut = mDevice && NkOffscreenStoredIsBottomUp(mDevice->GetApi());
 
 			struct PC {
 					float invResW, invResH, yFlipUV, _pad;
@@ -996,7 +1009,7 @@ void main() {
 
 			pc.invResW = 1.0f / (float)(mW > 0 ? mW : 1);
 			pc.invResH = 1.0f / (float)(mH > 0 ? mH : 1);
-			pc.yFlipUV = isVK ? -1.f : +1.f;
+			pc.yFlipUV = stockageBasHaut ? +1.f : -1.f;
 			// SONDE NK_RG_ETENDUE : ce que FXAA recoit VRAIMENT -- mW/mH (d'ou vient invRes)
 			// et le signe. Sous surtaille, mW/mH suit-il la chaine d'echange ou la cible ?
 			if (std::getenv("NK_RG_ETENDUE")) {
