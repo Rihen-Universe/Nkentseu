@@ -1847,8 +1847,17 @@ namespace nkuidesign {
 					f(n.borders[i].couleur);
 				for (uint32 i = 0; i < (uint32)n.effets.Size(); ++i)
 					f(n.effets[i].couleur);
-				for (uint32 i = 0; i < (uint32)n.apparences.Size(); ++i)
+				// 🔴 (11/09) LES DEUX CHAMPS D'ETAT AJOUTES CE JOUR-LA MANQUAIENT ICI :
+				//    `couleurTexte` (lot ①) et `bordureCouleur` (lot ② b). `NkPorteHex`
+				//    accepte « @cle » : un etat pouvait donc REFERENCER une variable que ce
+				//    visiteur ne voyait pas -- comptee zero, supprimable sous lui, magenta.
+				//    C'est exactement le defaut que l'avertissement ci-dessus annoncait,
+				//    et je l'ai commis en ajoutant les champs AILLEURS qu'ici.
+				for (uint32 i = 0; i < (uint32)n.apparences.Size(); ++i) {
 					f(n.apparences[i].fond);
+					f(n.apparences[i].couleurTexte);
+					f(n.apparences[i].bordureCouleur);
+				}
 			}
 			/// ... et de tout le document : les noeuds ET les arbres des declarations
 			/// (un composant dont le fond reference une variable EST un usage).

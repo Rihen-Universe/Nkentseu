@@ -14064,6 +14064,43 @@ namespace nkuidesign {
 				  "au fichier, se relit, et le document relu peint pareil",
 				  okBase && okDis && okHover && intact && fichier, det);
 		}
+		// ── 152. LE VISITEUR DES COULEURS VOIT LES CHAMPS D'ETAT (11/09). Les lots ① et ② b
+		//    ont ajoute `couleurTexte` et `bordureCouleur` au bloc d'etat SANS les ajouter au
+		//    visiteur unique (compter, detacher, supprimer). `NkPorteHex` accepte « @cle » :
+		//    une reference y etait possible, et INVISIBLE -- la variable se supprimait sous elle.
+		{
+			char det[420];
+			NkUIDocument dV;
+			dV.NewDocument("Toile", NkAuthor::Humain);
+			NkVariable acc;
+			acc.cle = NkString("accent");
+			acc.valeur = NkString("#123456");
+			dV.variables.PushBack(acc);
+			const int32 nV = dV.AddChild(0, "", NkAuthor::Humain);
+			NkBlocEtat(dV.nodes[(uint32)nV], "Hover").couleurTexte = NkString("@accent");
+			NkBlocEtat(dV.nodes[(uint32)nV], "Pressed").bordureCouleur = NkString("@accent");
+			// la PORTE D'ENTREE accepte bien une reference (c'est pourquoi le defaut etait atteignable)
+			char tampon[12] = "@accent";
+			const bool porteAccepte = NkPorteHex(tampon, (uint32)sizeof(tampon));
+			const uint32 usages = dV.CompterUsagesVariable("accent");
+			uint32 uRefus = 0u;
+			const bool refuse = !dV.SupprimerVariable("accent", &uRefus) && dV.variables.Size() == 1u;
+			const uint32 detaches = dV.DetacherVariable("accent");
+			const NkApparenceEtat *h = NkBlocEtatSi(dV.nodes[(uint32)nV], "Hover");
+			const NkApparenceEtat *p = NkBlocEtatSi(dV.nodes[(uint32)nV], "Pressed");
+			const bool litteraux = h && p && NkComponentDecl::StrEq(h->couleurTexte.Data(), "#123456")
+								   && NkComponentDecl::StrEq(p->bordureCouleur.Data(), "#123456");
+			const bool supprime = dV.CompterUsagesVariable("accent") == 0u && dV.SupprimerVariable("accent")
+								  && dV.variables.Empty();
+			snprintf(det, sizeof(det),
+					 "la porte hexa accepte « @accent »=%d ; usages comptes %u [2 : texte d'etat, bordure d'etat] ; "
+					 "suppression refusee=%d (dit %u) ; detaches %u, litteraux=%d ; supprimee ensuite=%d",
+					 porteAccepte ? 1 : 0, usages, refuse ? 1 : 0, uRefus, detaches, litteraux ? 1 : 0, supprime ? 1 : 0);
+			check("152. LE VISITEUR DES COULEURS VOIT LES CHAMPS D'ETAT : une variable referencee par la couleur "
+				  "du texte ou la couleur de bordure d'un etat est COMPTEE, sa suppression REFUSEE, le detachement "
+				  "les rend litterales -- ajoutes le 11/09 au bloc d'etat, ils manquaient au visiteur unique",
+				  porteAccepte && usages == 2u && refuse && uRefus == 2u && detaches == 2u && litteraux && supprime, det);
+		}
 		// ── 94. ① L'APERCU PENDANT LE TRACE (05/09). Rodolf : « pourquoi quand on dessine un
 		//    graphique on voit juste le rectangle qui s'allonge, et des qu'on relache on voit la
 		//    forme ? » Deux mesures : LA TABLE DE GENRE (une seule, lue par le relachement et par
