@@ -211,6 +211,27 @@ namespace nkentseu {
 		}
 
 		// =====================================================================
+		// LA VITESSE AU CENTRE D'UNE CELLULE — le chemin que la bascule MAC rend
+		// dangereux (voir NkFluidGrid.h pour la convention de face).
+		//
+		// ÉTAT AUJOURD'HUI : la grille est COLOCALISÉE, la vitesse est déjà au
+		// centre, et cette fonction rend la valeur telle quelle. Le contrôle (m1)
+		// du banc est donc ROUGE, et c'est VOULU : il est écrit avant la bascule
+		// pour pouvoir rougir avant de verdir. Après la bascule, ce corps devient
+		// la MOYENNE DES DEUX FACES qui bordent la cellule :
+		//     ux = 0,5 * ( mU[Idx(i,j,k)] + mU[Idx(i+1,j,k)] )
+		// exacte sur un champ linéaire, et fausse de h^2/8 * f'' sur un quadratique
+		// — les deux volets que (m1) exige.
+		// =====================================================================
+		void NkFluidGrid::VelocityAtCenter(uint32 i, uint32 j, uint32 k, float32 &ux, float32 &uy,
+										   float32 &uz) const {
+			const uint32 id = Idx(i, j, k);
+			ux = mU[id];
+			uy = mV[id];
+			uz = mW[id];
+		}
+
+		// =====================================================================
 		// Advection SEMI-LAGRANGIENNE (Stam 1999, § 2.2) : on remonte le temps
 		// depuis le centre de chaque cellule et on lit le champ là-bas.
 		// =====================================================================

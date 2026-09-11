@@ -307,6 +307,26 @@ namespace nkentseu {
 				const float32 *VelocityY() const { return mV.Data(); }
 				const float32 *VelocityZ() const { return mW.Data(); }
 
+				// ── LA VITESSE AU CENTRE D'UNE CELLULE ──────────────────────────
+				// ⚠️ C'EST LE CHEMIN QUE LA BASCULE MAC REND DANGEREUX, et c'est
+				// pour ça qu'il porte un nom AVANT d'avoir un contenu. Tout ce qui
+				// lit la vitesse au centre d'une cellule — flottabilité, vorticité,
+				// statistiques, rendu, vent — devra passer par ici.
+				//   AUJOURD'HUI (grille COLOCALISEE) : la vitesse EST deja au centre,
+				//   cette fonction rend la valeur telle quelle, et le controle (m1)
+				//   du banc est ROUGE. C'est voulu : il doit rougir avant de verdir.
+				//   APRES LA BASCULE (grille DECALEE) : u vivra sur les FACES et
+				//   cette fonction rendra la MOYENNE DES DEUX FACES qui bordent la
+				//   cellule.
+				// CONVENTION DE FACE, ecrite ici parce que c'est elle qui decide de
+				// tout : la face x d'indice i est la face GAUCHE de la cellule
+				// (i,j,k), a x = boundsMin.x + (i-1)*h ; le centre de la cellule
+				// reste a (i-0.5)*h. La face DROITE de la cellule i est donc la face
+				// GAUCHE de la cellule i+1 : UNE case pour UNE face, jamais deux --
+				// c'est exactement ce qui rend la divergence COMPACTE et adjointe
+				// exacte du Laplacien de pression. L'allocation ne change pas.
+				void VelocityAtCenter(uint32 i, uint32 j, uint32 k, float32 &ux, float32 &uy, float32 &uz) const;
+
 				// Échantillonnage trilinéaire d'un champ en coordonnées MONDE (rendu).
 				float32 SampleDensityWorld(const math::NkVec3f &p) const;
 				float32 SampleTemperatureWorld(const math::NkVec3f &p) const;
