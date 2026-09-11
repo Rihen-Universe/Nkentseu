@@ -4895,8 +4895,9 @@ namespace nkuidesign {
 				check("60d. LE POPOVER TIENT DANS LA FENETRE : pastille sur la derniere ligne visible, le popover est "
 					  "REMONTE et tous ses sommets restent dans la fenetre -- la liste d'arrets et le + sont atteignables",
 					  op > 300u && oyMin >= 0.f && oyMax <= 900.5f, det);
-				// 60c. le popover de BORDURE (genre 2) : hexa, epaisseur, position, cotes,
-				// jointure, extremites -- dans l'overlay, a gauche, dans l'ecran
+				// 60c. LA BORDURE DANS L'ENVELOPPE (11/09, nuit) : plus de fenetre a elle --
+				// l'enveloppe RECOIT ses champs (epaisseur, position, cotes, jointure,
+				// extremites) -- dans l'overlay, a gauche, dans l'ecran
 				// LE PANNEAU SANS POPOVER, MESURE MAINTENANT : le temoin compare deux mesures de LA
 				// MEME course, jamais un nombre fige. Le « 3777 » d'avant rougissait des qu'une
 				// section s'ajoutait -- « ALIGNER LA SELECTION » l'a fait le 05/09.
@@ -4917,7 +4918,8 @@ namespace nkuidesign {
 				stI.picker = DesignState::DemandePicker();
 				stI.picker.ouvert = true;
 				stI.picker.id = ctxI.GetId("##sonde.popover.bord");
-				stI.picker.genre = 2u;
+				stI.picker.genre = 1u; // l'enveloppe, plus le popover a part
+				stI.picker.champNoeud = 3u; // ... qui recoit les champs de CETTE bordure
 				stI.picker.noeud = rc;
 				stI.picker.index = 0;
 				stI.picker.ancre = {360.f, 300.f, 16.f, 16.f};
@@ -4943,7 +4945,7 @@ namespace nkuidesign {
 				//    Ce qui est mesure ici, et qui est vrai : le popover se dessine dans l'overlay,
 				//    a GAUCHE de sa pastille, entierement dans l'ecran ; et le panneau, lui, ne
 				//    bouge pas.
-				check("60c. LE POPOVER D'UNE BORDURE (selecteur, hexa, epaisseur, position, cotes, jointure, "
+				check("60c. LA BORDURE OUVRE L'ENVELOPPE, QUI RECOIT SES CHAMPS (selecteur, hexa, epaisseur, position, cotes, jointure, "
 					  "extremites) dessine dans l'overlay, a gauche de sa pastille, entierement dans l'ecran ; le panneau garde ses "
 					  "rangees (meme nombre de sommets avec et sans le popover, MEME course)",
 					  stI.picker.ouvert && op > 300u && oxMin >= 0.f && oxMax <= 360.f && npSansPopover > 0u
@@ -12770,11 +12772,14 @@ namespace nkuidesign {
 					nPastille = compte("NkPastilleCouleur(ctx, *mSt");
 					nGenre3 = compte("picker.genre = 3u");	 // le doublon : il ne doit plus exister
 					nMain = compte("sw.x - pw - 8.f");		 // le placement recopie : idem
-					nKit = compte("NkPlacerPresDeLAncre(sw"); // les trois sites lisent le kit
-					// 11/09 nuit : SEPT -- la pastille de la couleur du texte (APPARENCE) ne
-					// passait par aucune porte ; elle passe desormais par celle-ci. Le
-					// recensement a l'ECRAN (ce que chaque porte OUVRE) est le cas 153.
-					unSeulChemin = nPastille == 7u && nGenre3 == 0u && nMain == 0u && nKit == 3u;
+					nKit = compte("NkPlacerPresDeLAncre(sw"); // les sites qui lisent le kit
+					// 11/09 nuit : SEPT appels a la pastille -- la couleur du texte
+					// (APPARENCE) ne passait par aucune porte, elle passe desormais par
+					// celle-ci. Et DEUX sites lisent le placement du kit, plus trois : la
+					// fenetre a part de la BORDURE a disparu (l'enveloppe recoit ses champs),
+					// donc son placement avec. *Le compte fige a fait son travail : il a
+					// rougi le jour ou une fenetre a ete retiree, au lieu de laisser filer.*
+					unSeulChemin = nPastille == 7u && nGenre3 == 0u && nMain == 0u && nKit == 2u;
 				}
 			}
 			snprintf(det, sizeof(det),
@@ -13049,15 +13054,19 @@ namespace nkuidesign {
 					};
 					nArme = compte("d.attendRelache = true;");	  // l'armement pose l'attente
 					nAccepte = compte("NkPipetteAccepteAppui(");  // declaration + un seul appelant
-					// le curseur est repose apres CHACUN des deux popovers. On compte des
-					// APPELS d'une fonction, pas un motif de source : un commentaire peut
-					// faire mordre un motif, il ne peut pas appeler une fonction.
+					// le curseur est repose apres LE popover. On compte des APPELS d'une
+					// fonction, pas un motif de source : un commentaire peut faire mordre un
+					// motif, il ne peut pas appeler une fonction.
 					nCurseur = compte("NkPipetteCurseur(ctx, st.picker)");
 				}
 			}
 			// un site d'armement ; la regle DECLAREE puis APPELEE (2) ; le curseur repose
-			// apres CHACUN des deux popovers (2)
-			const bool cable = nArme == 1u && nAccepte == 2u && nCurseur == 2u;
+			// apres LE popover (1).
+			// ⚠️ C'ETAIT DEUX JUSQU'AU 11/09 AU SOIR : la bordure avait sa fenetre a elle,
+			//    avec sa propre repose du curseur. Elle a disparu -- l'enveloppe recoit ses
+			//    champs -- et ce compte l'a DIT en rougissant plutot que de laisser croire
+			//    que la pipette etait toujours reposee deux fois.
+			const bool cable = nArme == 1u && nAccepte == 2u && nCurseur == 1u;
 			const bool unSeulAppuiNePrelevePas = !p1 && !p2 && !p3 && !p4;
 			const bool deuxAppuisPrelevent = p5;
 			const bool survolNePrelevePas = !p6;
@@ -14114,9 +14123,11 @@ namespace nkuidesign {
 		//    vrai chemin, et sa fenetre mesuree sur la LARGEUR du popup.
 		//
 		// ⚠️ LE TEMOIN COMPTE TOUTES LES PORTES, PAS CELLE QU'ON VIENT DE CORRIGER : il exige
-		//    les huit familles, et que chaque instance ouvre l'enveloppe (la largeur d'un
-		//    remplissage, mesuree dans la meme course) -- sauf BORDURES, qui ouvre SA fenetre
-		//    (hexa, epaisseur, position, cotes...), nommee comme telle et distincte du noyau.
+		//    les huit familles, et que CHACUNE ouvre l'enveloppe -- la largeur d'un
+		//    remplissage, mesuree dans la meme course. Depuis le 11/09 au soir, BORDURES
+		//    aussi : sa fenetre a elle (236 px, sans pipette ni modele ni croix) etait la
+		//    neuvieme variante de selecteur, et elle est fermee -- l'enveloppe RECOIT ses
+		//    champs propres au lieu de les perdre.
 		{
 			char det[900];
 			static nkgui::NkGuiContext ctxQ;
@@ -14210,6 +14221,7 @@ namespace nkuidesign {
 				};
 				uint32 instances[8] = {}, enveloppes[8] = {}, noyaux[8] = {}, autres[8] = {};
 				float32 largeur[8] = {}, hauteur[8] = {};
+				uint32 sommets[8] = {};
 				uint32 inconnues = 0u, muettes = 0u;
 				char nomsInconnus[240] = {};
 				float32 wEnveloppe = 0.f;
@@ -14278,6 +14290,11 @@ namespace nkuidesign {
 						const float32 w = ctxQ.popupRects[0].w;
 						largeur[fam] = w;
 						hauteur[fam] = ctxQ.popupRects[0].h;
+						// les SOMMETS de la fenetre ouverte : ce qu'elle DESSINE. La largeur dit
+						// QUELLE fenetre s'ouvre, la hauteur dit ce qu'elle RESERVE -- ni l'une ni
+						// l'autre ne dit ce qu'elle PEINT. Mesure du 11/09 : la mutation << l'enveloppe
+						// perd les champs recus >> restait VERTE sans ce compte.
+						sommets[fam] = (uint32)ctxQ.dlOverlay.vtx.Size();
 						if (fam == 0 && wEnveloppe == 0.f)
 							wEnveloppe = w; // la fenetre d'un REMPLISSAGE : la reference, mesuree ici
 						if (stQ.picker.genre == 1u)
@@ -14311,7 +14328,7 @@ namespace nkuidesign {
 				for (int32 k = 0; k < 8; ++k) {
 					if (instances[k] > 0u)
 						++familles;
-					const bool attendueEnveloppe = k != 1; // BORDURES ouvre SA fenetre
+					const bool attendueEnveloppe = true; // les HUIT, bordure comprise (11/09 nuit)
 					const bool juste = instances[k] > 0u
 									  && (attendueEnveloppe ? (enveloppes[k] == instances[k] && largeur[k] == wEnveloppe)
 														: (autres[k] == instances[k] && largeur[k] != wEnveloppe
@@ -14334,7 +14351,18 @@ namespace nkuidesign {
 				const bool hEtats = proche(hauteur[3], hF - 26.f) && proche(hauteur[4], hF - 26.f) && proche(hauteur[5], hF - 26.f);
 				const bool hTexte = proche(hauteur[6], hF - 26.f);
 				const bool hCanvas = proche(hauteur[7], hF - 26.f);
-				const bool masquages = hF > 0.f && hEffet && hEtats && hTexte && hCanvas;
+				// ① LA BORDURE, ELLE, EST PLUS HAUTE : l'enveloppe RECOIT ses cinq rangees
+				//    propres (epaisseur, position, cotes, jointure, extremites) =
+				//    `HauteurChampsBordure()` = 26+26+48+24+24 = 148 px. C'est la difference
+				//    entre << recevoir ses champs >> et << les perdre en fermant sa fenetre >>.
+				const bool hBordure = proche(hauteur[1], hF + 148.f);
+				// ⚠️ ET ELLE DESSINE PLUS QU'UN REMPLISSAGE : la hauteur dit ce que la fenetre
+				//    RESERVE, les sommets disent ce qu'elle PEINT. Sans ce compte, la mutation
+				//    << l'enveloppe perd les champs recus >> restait VERTE (mesure du 11/09) :
+				//    la boite gardait sa taille et ne dessinait plus rien dedans.
+				const bool dessineBordure = sommets[1] > sommets[0];
+				const bool masquages = hF > 0.f && hEffet && hEtats && hTexte && hCanvas && hBordure
+									   && dessineBordure;
 				// (c) L'ECRITURE, PAR LE VRAI CLIC : la pastille d'EFFET et celle du TEXTE, puis ce
 				//     que la frappe d'un hexa fait (`change` + `hex`) -- la couleur se pose DANS
 				//     l'effet (son opacite gardee) et DANS le texte, les remplissages intacts.
@@ -14364,6 +14392,17 @@ namespace nkuidesign {
 				const bool ecritEffet = ouvreEffet && NkComponentDecl::StrEq(zA.effets[0].couleur.Data(), "#00ff00")
 										&& zA.effets[0].opacite == opAvant && zA.fills.Size() == 1u
 										&& NkComponentDecl::StrEq(zA.fills[0].couleur.Data(), "#1976d2");
+				// ① ET LA BORDURE : sa couleur se pose DANS la bordure, son opacite est gardee,
+				//    les remplissages du nœud ne bougent pas. Sans ce point, la mutation
+				//    << l'ecriture de la couleur de bordure ne se pose pas >> restait VERTE.
+				const float32 opBordAvant = stQ.doc.nodes[(uint32)rA].borders[0].opacite;
+				const bool ouvreBord = cliquerCle("insp.bord.pastille0");
+				taper("#00ffff");
+				const NkUINode &zBo = stQ.doc.nodes[(uint32)rA];
+				const bool ecritBordure = ouvreBord && zBo.borders.Size() == 1u
+										  && NkComponentDecl::StrEq(zBo.borders[0].couleur.Data(), "#00ffff")
+										  && zBo.borders[0].opacite == opBordAvant && zBo.fills.Size() == 1u
+										  && NkComponentDecl::StrEq(zBo.fills[0].couleur.Data(), "#1976d2");
 				stQ.SelectSingle(tB);
 				fermer();
 				const bool ouvreTexte = cliquerCle("insp.app.texte.pastille");
@@ -14374,19 +14413,23 @@ namespace nkuidesign {
 				snprintf(det, sizeof(det),
 						 "%u famille(s) sur 8 trouvee(s) a l'ecran, %u inconnue(s) [%s], %u muette(s) ; enveloppe (remplissage) %.0f "
 						 "px, noyau nu %.0f px (controle positif) ; %s || (b) hauteurs : remplissage %.0f, effet %.0f [=], "
-						 "etats %.0f/%.0f/%.0f [-26], texte %.0f [-26], canvas %.0f [-26] -> %d || (c) ecriture : effet "
-						 "ouvert=%d pose=%d (opacite gardee, remplissages intacts), texte ouvert=%d pose=%d",
+						 "etats %.0f/%.0f/%.0f [-26], texte %.0f [-26], canvas %.0f [-26], BORDURE %.0f [+148, ses champs "
+						 "recus] et %u sommets contre %u au remplissage -> %d || (c) ecriture : effet "
+						 "ouvert=%d pose=%d (opacite gardee, remplissages intacts), bordure ouverte=%d posee=%d, texte ouvert=%d pose=%d",
 						 familles, inconnues, nomsInconnus, muettes, (double)wEnveloppe, (double)wNoyau, lignes, (double)hF,
 						 (double)hauteur[2], (double)hauteur[3], (double)hauteur[4], (double)hauteur[5], (double)hauteur[6],
-						 (double)hauteur[7], masquages ? 1 : 0, ouvreEffet ? 1 : 0, ecritEffet ? 1 : 0, ouvreTexte ? 1 : 0,
-						 ecritTexte ? 1 : 0);
+						 (double)hauteur[7], (double)hauteur[1], sommets[1], sommets[0], masquages ? 1 : 0,
+						 ouvreEffet ? 1 : 0, ecritEffet ? 1 : 0, ouvreBord ? 1 : 0, ecritBordure ? 1 : 0,
+						 ouvreTexte ? 1 : 0, ecritTexte ? 1 : 0);
 				check("153. TOUTES LES PORTES A LA PASTILLE, MESUREES A L'ECRAN : chaque pastille que l'inspecteur "
 					  "dessine est trouvee au releve, cliquee par le vrai chemin, et sa fenetre mesuree sur la LARGEUR "
-					  "du popup -- huit familles, toutes l'enveloppe d'un remplissage sauf BORDURES qui ouvre sa propre "
-					  "fenetre, aucune le noyau nu, aucune muette, aucune inconnue de la table ; les masquages suivent "
+					  "du popup -- huit familles, TOUTES l'enveloppe d'un remplissage (la fenetre a part de la "
+					  "bordure est fermee, l'enveloppe recoit ses champs), aucune le noyau nu, aucune muette, aucune "
+					  "inconnue de la table ; les masquages suivent "
 					  "le SENS (la hauteur le dit) ; et la couleur choisie se pose dans l'effet et dans le texte",
 					  familles == 8u && fautes == 0u && inconnues == 0u && muettes == 0u && wEnveloppe > 0.f
-						  && wNoyau > 0.f && wNoyau != wEnveloppe && masquages && ecritEffet && ecritTexte,
+						  && wNoyau > 0.f && wNoyau != wEnveloppe && masquages && ecritEffet && ecritBordure
+						  && ecritTexte,
 					  det);
 			}
 		}

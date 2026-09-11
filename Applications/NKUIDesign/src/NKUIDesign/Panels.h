@@ -1916,7 +1916,6 @@ namespace nkuidesign {
 			/// mais appele par le crochet d'overlay : ce pont le rend joignable.
 			void (*popoverRemplissage)(nkgui::NkGuiContext &, void *) = nullptr;
 			void *popoverUser = nullptr;
-			void (*popoverBordure)(nkgui::NkGuiContext &, void *) = nullptr; ///< genre 2
 			void Consigner(const char *t) {
 				journal.PushBack(NkString(t ? t : ""));
 			}
@@ -12258,11 +12257,9 @@ namespace nkuidesign {
 			NkPipetteCurseur(ctx, st.picker); // ① on parle EN DERNIER
 			return;
 		}
-		if (st.picker.genre == 2u && st.popoverBordure) {
-			st.popoverBordure(ctx, st.popoverUser); // hexa, epaisseur, position, cotes, jointure, extremites
-			NkPipetteCurseur(ctx, st.picker); // ① idem : apres le dessin de la fenetre
-			return;
-		}
+		// ① (11/09, nuit) LE GENRE 2 N'EXISTE PLUS : la bordure ouvre L'ENVELOPPE, qui
+		//    recoit ses champs propres (`BlocChampsBordure`). Une variante de selecteur
+		//    de moins -- c'etait la neuvieme.
 		float32 col[4] = {0.5f, 0.5f, 0.5f, 1.f};
 		const nkgui::NkColor c0 = NkCouleurDepuisHex(st.picker.hex);
 		col[0] = (float32)c0.r / 255.f;
@@ -12622,11 +12619,7 @@ namespace nkuidesign {
 				if (mSt) {
 					mSt->popoverRemplissage = &InspectorPanel::PopoverRemplissageC;
 					mSt->popoverUser = this;
-					mSt->popoverBordure = &InspectorPanel::PopoverBordureC;
 				}
-			}
-			static void PopoverBordureC(NkGuiContext &ctx, void *u) {
-				static_cast<InspectorPanel *>(u)->DessinerPopoverBordure(ctx);
 			}
 			/// Une rangée de choix (trois boutons) dans un popover ; rend l'indice cliqué ou -1.
 			int32 RangeeChoix(NkGuiContext &ctx, float32 x0, float32 x1, float32 y, const char *titre,
@@ -12658,96 +12651,29 @@ namespace nkuidesign {
 			/// LE POPOVER D'UNE BORDURE : le sélecteur (couleur) · hexa + opacité ·
 			/// épaisseur + position · côtés · jointure · extrémités (grisées sur une
 			/// forme fermée, et dit). Appelé par le crochet d'overlay, jamais par le panneau.
-			void DessinerPopoverBordure(NkGuiContext &ctx) {
-				DesignState::DemandePicker &d = mSt->picker;
-				if (!d.ouvert || !mSt->doc.IsValidIndex(d.noeud) || mSt->selected != d.noeud) {
-					if (d.ouvert && ctx.IsPopupOpen(d.id)) // ④ il suit la selection
-						ctx.ClosePopup();
-					d.ouvert = false;
-					return;
-				}
-				NkUINode &n = mSt->doc.nodes[(uint32)d.noeud];
-				if (d.index < 0 || (uint32)d.index >= (uint32)n.borders.Size()) {
-					d.ouvert = false;
-					return;
-				}
-				NkBordure &b = n.borders[(uint32)d.index];
+			/// ① LES CHAMPS PROPRES D'UNE BORDURE (epaisseur, position, cotes, jointure,
+			/// extremites), EXTRAITS DE LEUR FENETRE A PART (11/09, nuit).
+			///
+			/// 🔑 Rodolf, deux fois : « retire le color picker pour mettre le bon ». La
+			///    bordure ouvrait SA fenetre (236 px) -- ni le noyau nu, ni l'enveloppe :
+			///    une neuvieme variante de selecteur, sans pipette, sans modele
+			///    Hex/RGB/HSB, sans croix. **L'enveloppe RECOIT donc ces champs**, comme
+			///    elle recoit un bloc d'etat ; elle ne les perd pas, et la fenetre a part
+			///    disparait.
+			/// ⚠️ AUCUNE LIGNE DE DESSIN N'EST REECRITE : ce bloc est celui du popover,
+			///    deplace tel quel ; seul l'appel a `touche()` devient un drapeau, parce
+			///    que l'ecriture appartient desormais a l'appelant.
+			/// Rend la hauteur consommee ; `modifie` passe a vrai si un champ a change.
+			static float32 HauteurChampsBordure() {
+				return 26.f + 26.f + 48.f + 24.f + 24.f;
+			}
+			void BlocChampsBordure(NkGuiContext &ctx, float32 x0, float32 x1, float32 y,
+								   NkBordure &b, const NkUINode &n, bool &modifie) {
 				auto &F = costume::Fontes();
-				auto touche = [&]() {
-					mSt->doc.MarkHumanEdit(d.noeud);
-					mSt->host.SyncTo(mSt->doc);
-					mBordsGen = -1;
-				};
-				const uint32 cleSync = ((uint32)d.noeud << 20) ^ ((uint32)d.index << 12) ^ 0xB0Du;
-				if (d.synchro != cleSync) {
-					d.synchro = cleSync;
-					snprintf(d.hex, sizeof(d.hex), "%s", b.couleur.Data() ? b.couleur.Data() : "");
-				}
-				const float32 pw = 236.f;
-				const float32 hPicker = 160.f + 8.f; // ③ sans les six rangees
-				const float32 ph = 8.f + hPicker + 26.f + 26.f + 26.f + 48.f + 24.f + 24.f + 8.f;
-				const NkRect sw = d.ancre;
-				// ① (07/09) LE PLACEMENT VIENT DU KIT, PLUS D'ICI : la MEME regle que le
-				//   selecteur generique et que NKGui -- sous l'ancre, retournee si besoin,
-				//   rentree dans la vue. Trois copies identiques vivaient dans ce fichier ;
-				//   toutes les trois avaient diverge de la BIBLIOTHEQUE.
-				NkRect pr = editorkit::NkPlacerPresDeLAncre(sw, pw, ph, (float32)ctx.viewW, (float32)ctx.viewH, editorkit::NkCoteAncre::AGauche);
-				if (!NkPopupDeLaDemande(ctx, d)) {
-					d.ouvert = false; // clic dehors / Echap : NKGui a ferme, on suit
-					return;
-				}
-				if (!nkgui::BeginPopupId(ctx, d.id, pr, sw)) {
-					d.ouvert = false;
-					return;
-				}
 				auto &dl = ctx.DL();
-				const float32 x0 = pr.x + 8.f, x1 = pr.x + pr.w - 8.f;
-				float32 y = pr.y + 8.f;
-				// 1. le sélecteur
-				{
-					float32 col[4] = {0.5f, 0.5f, 0.5f, 1.f};
-					const nkgui::NkColor c0 = NkCouleurDepuisHex(d.hex);
-					col[0] = (float32)c0.r / 255.f;
-					col[1] = (float32)c0.g / 255.f;
-					col[2] = (float32)c0.b / 255.f;
-					ctx.layout.cursor = {x0, y};
-					ctx.layout.lineStartX = x0;
-					if (nkgui::ColorPicker4(ctx, "##nkuidesign.popover.bord.pick", col,
-											 (nkgui::NkGuiColorFlags)((nkentseu::uint32)nkgui::NkGuiColorFlags::NoAlpha
-																   | (nkentseu::uint32)nkgui::NkGuiColorFlags::NoInputs))) {
-						static const char *const kHex = "0123456789abcdef";
-						d.hex[0] = '#';
-						for (int32 k = 0; k < 3; ++k) {
-							float32 v = col[k] < 0.f ? 0.f : (col[k] > 1.f ? 1.f : col[k]);
-							const int32 o = (int32)(v * 255.f + 0.5f);
-							d.hex[1 + k * 2] = kHex[(o >> 4) & 0xF];
-							d.hex[2 + k * 2] = kHex[o & 0xF];
-						}
-						d.hex[7] = '\0';
-						b.couleur = NkString(d.hex);
-						touche();
-					}
-					y += hPicker;
-				}
-				// 2. hexa + opacité
-				{
-					const NkRect rh = {x0, y + 3.f, 80.f, costume::HControle};
-					ctx.SetNextItemRect(rh);
-					if (nkgui::InputText(ctx, "##nkuidesign.popover.bord.hex", d.hex, 10) && NkPorteHex(d.hex, (uint32)sizeof(d.hex))) {
-						b.couleur = NkString(d.hex);
-						touche();
-					}
-					const NkRect ro = {x1 - 40.f - 12.f, y + 3.f, 40.f, costume::HControle};
-					float32 op = b.opacite;
-					if (ChampNombre(ctx, "insp.popover.bord.op", ro, op, 1.f, 0.f, 100.f)) {
-						b.opacite = op;
-						touche();
-					}
-					costume::Texte(dl, F.px9, ro.x + ro.w + 3.f, costume::CentrerY(F.px9, ro.y, 20.f), "%",
-								   ctx.theme.textMuted);
-					y += 26.f;
-				}
-				// 3. épaisseur + position
+				(void)F;
+				(void)dl;
+// 3. épaisseur + position
 				{
 					costume::Texte(dl, F.px10, x0, costume::CentrerY(F.px10, y + 3.f, 20.f), "Épaisseur",
 								   ctx.theme.textMuted);
@@ -12755,7 +12681,7 @@ namespace nkuidesign {
 					float32 ep = b.epaisseur > 0.f ? b.epaisseur : 1.f;
 					if (ChampNombre(ctx, "insp.popover.bord.ep", re, ep, 0.25f, 0.f, 64.f)) {
 						b.epaisseur = ep;
-						touche();
+						modifie = true;
 					}
 					costume::Texte(dl, F.px9, re.x + re.w + 4.f, costume::CentrerY(F.px9, re.y, 20.f), "px",
 								   ctx.theme.textMuted);
@@ -12765,7 +12691,7 @@ namespace nkuidesign {
 					const int32 c = RangeeChoix(ctx, x0, x1, y, "Position", kPos, 3u, actif, false);
 					if (c >= 0) {
 						b.position = c == 0 ? NkBordurePos::Interieur : (c == 1 ? NkBordurePos::Centre : NkBordurePos::Exterieur);
-						touche();
+						modifie = true;
 					}
 					y += 26.f;
 				}
@@ -12795,7 +12721,7 @@ namespace nkuidesign {
 						float32 v = b.Cote(kc);
 						if (ChampNombre(ctx, idc, rk, v, 0.25f, 0.f, 64.f)) {
 							b.cotes[kc] = v;
-							touche();
+							modifie = true;
 						}
 						costume::Texte(dl, F.px9, rk.x + 3.f, rk.y - 9.f, kCote[kc], ctx.theme.textMuted);
 					}
@@ -12813,7 +12739,7 @@ namespace nkuidesign {
 					const int32 cj = RangeeChoix(ctx, x0, x1, y, "Jointure", kJoint, 3u, aj, false);
 					if (cj >= 0) {
 						b.jointure = cj == 0 ? NkString() : NkString(kJoint[cj]);
-						touche();
+						modifie = true;
 					}
 					y += 24.f;
 					const bool ouverte = NkFormeOuverte(n);
@@ -12824,13 +12750,13 @@ namespace nkuidesign {
 					const int32 ce = RangeeChoix(ctx, x0, x1, y, "Extrémités", kExtLib, 3u, ae, !ouverte);
 					if (ce >= 0 && ouverte) {
 						b.extremite = ce == 0 ? NkString() : NkString(kExtCle[ce]);
-						touche();
+						modifie = true;
 					}
 					if (!ouverte && NkGuiRectContains({x0, y, x1 - x0, 22.f}, ctx.input.mousePos))
 						mSt->status = NkString("Extrémités : une forme fermée n'en a pas — elles valent pour une ligne.");
 				}
-				nkgui::EndPopup(ctx);
 			}
+
 			static void PopoverRemplissageC(NkGuiContext &ctx, void *u) {
 				static_cast<InspectorPanel *>(u)->DessinerPopoverRemplissage(ctx);
 			}
@@ -12875,7 +12801,12 @@ namespace nkuidesign {
 				//   l'OPACITE existe pour un remplissage et pour un EFFET (le modele la
 				//   porte), pas pour un etat (celle du nœud, lot ③) ni pour le texte.
 				const bool surCible = surEtat || (surNoeud && d.champNoeud != 0u);
-				const bool opaciteAUnSens = !surCible || (!surEtat && d.champNoeud == 1u);
+				// l'OPACITE existe pour un remplissage, un EFFET et une BORDURE (le modele
+				// la porte) ; pas pour un etat (celle du nœud) ni pour le texte.
+				const bool opaciteAUnSens =
+					!surCible || (!surEtat && (d.champNoeud == 1u || d.champNoeud == 3u));
+				// ① LA BORDURE apporte SES champs dans l'enveloppe (voir `BlocChampsBordure`)
+				const bool surBordure = surNoeud && !surEtat && d.champNoeud == 3u;
 				if (!d.ouvert) {
 					if (ctx.IsPopupOpen(d.id))
 						ctx.ClosePopup();
@@ -12900,6 +12831,10 @@ namespace nkuidesign {
 				if (surNoeud && !surEtat && d.champNoeud == 1u
 					&& (d.index < 0 || (uint32)d.index >= (uint32)n->effets.Size())) {
 					d.ouvert = false; // l'effet vise a disparu
+					return;
+				}
+				if (surBordure && (d.index < 0 || (uint32)d.index >= (uint32)n->borders.Size())) {
+					d.ouvert = false; // la bordure visee a disparu
 					return;
 				}
 				// LE REMPLISSAGE EDITE : celui du nœud, celui d'un ETAT (transitoire), ou
@@ -12940,6 +12875,11 @@ namespace nkuidesign {
 							ef.couleur = f.couleur;
 							ef.opacite = f.opacite;
 							mEffetsGen = 0xFFFFFFFFu;
+						} else if (d.champNoeud == 3u) {
+							NkBordure &bo = n->borders[(uint32)d.index];
+							bo.couleur = f.couleur;
+							bo.opacite = f.opacite;
+							mBordsGen = -1;
 						} else {
 							n->textColor = f.couleur;
 							mApparGen = 0xFFFFFFFFu;
@@ -13066,7 +13006,8 @@ namespace nkuidesign {
 				//    la toile n'en a pas (machine, pas document).
 				const float32 hVariable = surNoeud ? 26.f + (couleurLiee ? 26.f : 0.f) : 0.f;
 				// ① LA RANGEE D'OPACITE N'EXISTE QUE LA OU LE MODELE PORTE UNE OPACITE.
-				const float32 hHex = 26.f + (opaciteAUnSens ? 26.f : 0.f) + hVariable;
+				const float32 hHex = 26.f + (opaciteAUnSens ? 26.f : 0.f) + hVariable
+									 + (surBordure ? HauteurChampsBordure() : 0.f);
 				// LIER UNE VARIABLE EXISTANTE : la liste se deplie DANS le popover (une rangee
 				// de 20 px par variable, six au plus -- au-dela, le rail Variables), et la
 				// boite grandit d'autant ; rien tant que la liste est repliee ou que la
@@ -13837,6 +13778,16 @@ namespace nkuidesign {
 								mSt->Consigner(msg);
 							}
 						}
+					}
+					// ① LES CHAMPS PROPRES DE LA BORDURE, RECUS PAR L'ENVELOPPE : ils occupent
+					//    la fin de la bande `hHex` (elle les a comptes plus haut). L'ecriture
+					//    passe par `touche()`, comme tout le reste de cette fenetre.
+					if (surBordure) {
+						bool modifieBordure = false;
+						BlocChampsBordure(ctx, x0, x1, y + hHex + hVars - HauteurChampsBordure(),
+										  n->borders[(uint32)d.index], *n, modifieBordure);
+						if (modifieBordure)
+							touche();
 					}
 					y += hHex + hVars;
 				}
@@ -18306,16 +18257,27 @@ namespace nkuidesign {
 							NkPastilleCouleur(ctx, *mSt, idPast, sw, mBordsBuf[i], (uint32)sizeof(mBordsBuf[i]),
 										  mSt->selected); // decrit un nœud
 						// ── LA LIGNE, COMME CHEZ LUNACY : pastille · nom · opacité · œil · poubelle
-						// Le détail (hexa, épaisseur, position, côtés, jointure, extrémités) vit
-						// dans le POPOVER de bordure (DessinerPopoverBordure, via l'overlay).
+						// ① (11/09, nuit) LE DETAIL VIT DANS L'ENVELOPPE, PLUS DANS UNE FENETRE A
+						// ELLE : hexa, opacite, modele, variable et pipette viennent de
+						// l'enveloppe ; epaisseur, position, cotes, jointure et extremites sont
+						// le bloc qu'elle RECOIT (`BlocChampsBordure`). Neuvieme variante de
+						// selecteur fermee.
 						if (mSt->picker.ouvert && mSt->picker.id == ctx.GetId(idPast)) {
 							if (simple) {
 								n->MaterialiserBorders();
 								mBordsGen = -1;
 							}
-							mSt->picker.genre = 2u;
+							const uint32 ib = simple ? 0u : i;
+							if (mSt->picker.genre == 0u && ib < (uint32)n->borders.Size()) {
+								mSt->couleurFill = NkRemplissage();
+								mSt->couleurFill.couleur = n->borders[ib].couleur;
+								mSt->couleurFill.opacite = n->borders[ib].opacite;
+							}
+							mSt->picker.genre = 1u; // l'enveloppe complete
 							mSt->picker.noeud = mSt->selected;
-							mSt->picker.index = (int32)(simple ? 0u : i);
+							mSt->picker.index = (int32)ib;
+							mSt->picker.etat[0] = '\0';
+							mSt->picker.champNoeud = 3u; // la couleur de CETTE bordure
 						}
 						(void)pickerBord;
 						{
