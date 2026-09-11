@@ -163,6 +163,34 @@ régression, pas un déplacement :
    dépendent d'aucun solveur.
 2. **Le stockage et les bords** : `u` sur les faces x `(nx+1)·ny·nz`, `v` sur les
    faces y, `w` sur les faces z ; les scalaires **ne bougent pas**.
+
+   ⚠️ **RELEVÉ DU 12/09, AVANT D'ÉCRIRE LA BASCULE : ce point 2 SOUS-ESTIME son
+   ampleur, et c'est mesuré, pas supposé.** Le portage ne se réduit pas au
+   stockage et aux bords. Le solveur compte **37 sites de lecture de
+   `mU`/`mV`/`mW`, répartis dans 12 fonctions**, dont **trois en portent six
+   chacune** : `MeasureVelocity`, `ComputeVorticity` et `AdvectVelocity`. Écrire
+   « le stockage et les bords » laissait croire à un geste local ; c'en est un qui
+   traverse tout le fichier, et le dire change l'estimation de la nuit.
+
+   🔒 **Le même relevé écarte un risque, et c'est la bonne nouvelle : HORS DU BANC,
+   AUCUN consommateur ne lit les tableaux de vitesse.** Le `NkFluidVolumeSystem`
+   de Noge, `NkFluidGridRaymarch` et `NkVFXSystem` ne lisent que la **densité** et
+   la **température**. Les ancrages du § 3 — le pont ECS 8/8 et toute la chaîne
+   colorimétrique — ne tiennent donc pas à une précaution qu'on pourrait oublier :
+   ils tiennent à une **absence de lien**. (Les `VelocityX/Y` de
+   `NKEvent/NkTouchEvent.h` sont la vitesse d'un DOIGT sur un écran tactile : même
+   nom, autre objet, aucun rapport.)
+
+   📐 **LA CONVENTION DE FACE, fixée ici parce que c'est elle qui décide de tout** :
+   la face x d'indice `i` est la face **GAUCHE** de la cellule `(i,j,k)`, à
+   `x = boundsMin.x + (i-1)*h` ; le centre de la cellule reste à `(i-0.5)*h`. La
+   face **droite** de la cellule `i` EST la face gauche de la cellule `i+1` : **une
+   case pour une face, jamais deux** — c'est exactement ce qui rend la divergence
+   compacte et adjointe exacte du Laplacien. L'allocation `(nx+2)(ny+2)(nz+2)` et
+   `Idx(i,j,k)` **ne changent pas** : c'est leur SENS qui change. C'est ce qui
+   permet aux contrôles (m1)/(m2) d'être **identiques à l'octet près** avant et
+   après la bascule — donc de rendre un **VERDICT**, et non une réécriture dont on
+   ne saurait plus si elle juge la grille ou juge le nouveau code d'essai.
 3. **La projection** — c'est elle qui porte tout le gain. Mesurer le critère
    décisif du § 1 **ici**, avant de toucher à l'advection.
 4. **L'advection**, chaque composante rebroussée depuis **sa** face.

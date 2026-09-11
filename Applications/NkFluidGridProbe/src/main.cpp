@@ -50,6 +50,7 @@ void PalierFeu();
 void PalierVorticite();
 void EnqueteConfinement();
 void PalierBranchement();
+void PalierGrilleMAC(); // (m1) et (m2) — les deux contrôles de la bascule MAC
 void ImagesDuConfinement(float32 epsilon);
 float32 EpsilonConfinement();
 
@@ -588,6 +589,11 @@ int main(int argc, char **argv) {
 	}
 
 	ControlesPositifs();
+	// (m1) et (m2) : les deux controles de la BASCULE MAC. Ils sont ROUGES tant que
+	// la grille est COLOCALISEE, et c'est exactement leur raison d'etre -- un temoin
+	// qui naitrait vert le jour de la bascule ne dirait pas s'il juge la bascule ou
+	// s'il juge que « ca compile ». Voir PLAN_GRILLE_MAC.md, § 2 et § 4.
+	PalierGrilleMAC();
 	// Les deux ENQUETES (six regimes de masse, table des schemas) coutent a elles
 	// seules plus que tous les temoins reunis : elles tournent sous NK_FLUID_DIAG=1.
 	// Ce ne sont pas des temoins -- ce sont les mesures qui ont DESIGNE la cause de

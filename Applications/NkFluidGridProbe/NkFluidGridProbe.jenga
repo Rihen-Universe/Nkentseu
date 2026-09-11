@@ -26,6 +26,7 @@ with project("NkFluidGridProbe"):
         "src/rendu.cpp",
         "src/vorticite.cpp",
         "src/branchement.cpp",
+        "src/grille_mac.cpp",
         "%{wks.location}/Kernel/Runtime/NKRenderer/src/NKRenderer/Tools/VFX/NkFluidGrid.cpp",
         "%{wks.location}/Kernel/Runtime/NKRenderer/src/NKRenderer/Tools/VFX/NkFluidGridRaymarch.cpp",
         "%{wks.location}/Kernel/Runtime/NKRenderer/src/NKRenderer/Tools/VFX/NkFluidVolumeStore.cpp",
