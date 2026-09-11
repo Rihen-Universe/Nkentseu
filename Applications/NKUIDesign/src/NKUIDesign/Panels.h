@@ -1807,6 +1807,12 @@ namespace nkuidesign {
 					/// elements que l'export refuse ensuite.
 					bool tout = false;
 					nkentseu::uint32 nbExportables = 0u;
+					/// ③ (11/09, palier C) LA PERSPECTIVE A L'EXPORT SVG : faux = garder
+					/// orthogonal (le defaut, celui qui ne ment sur rien), vrai = aplatir en
+					/// polygone. **Le choix se retient d'un export a l'autre**, comme le
+					/// format et l'echelle -- c'est un champ de cette structure, qui survit
+					/// a la fermeture du dialogue.
+					bool aplatirPerspective = false;
 			};
 			NkChoixExport choixExport;
 			/// ④ La DEMANDE d'export, posée par le menu contextuel et lue par l'overlay :

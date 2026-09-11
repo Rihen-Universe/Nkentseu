@@ -195,6 +195,31 @@ namespace nkuidesign {
 			} else if (!multi && k >= 0)
 				st.DireAuPied("Un seul objet : les deux sorties donnent le même fichier.");
 		}
+		// ── ③ LA PERSPECTIVE (SVG seulement) : les DEUX modes, tranches par Rodolf ──
+		//
+		// 🔑 « Les deux, au choix dans le dialogue » : SVG n'a pas de perspective, donc
+		//    il faut choisir ce qu'on perd. GARDER ORTHOGONAL (le defaut) garde les
+		//    formes et le texte editables et DIT ce qu'il n'a pas fait ; APLATIR donne
+		//    le contour exact et perd la nature du nœud -- et le texte, qui n'a pas de
+		//    forme projetable, s'ecrit droit ET se retrouve NOMME dans le rapport.
+		// ⚠️ GRISE HORS SVG, et le pied dit pourquoi : un PNG suit deja le peintre, il
+		//    n'a rien a aplatir.
+		{
+			static const char *const kLib[2] = {"Garder orthogonal", "Aplatir en polygone"};
+			const bool svg = !png;
+			const bool kActif[2] = {svg, svg};
+			const int32 k = rangee("Perspective", kLib, kActif, 2, svg ? (c.aplatirPerspective ? 1 : 0) : 0);
+			if (svg && k >= 0) {
+				c.aplatirPerspective = (k == 1);
+				relire = true;
+				st.DireAuPied(k == 1 ? "Aplatir : le contour sera exact, mais un rectangle devient un polygone — "
+									   "et le texte, qui n'a pas de forme projetable, sera écrit droit et nommé "
+									   "dans le rapport."
+									 : "Garder orthogonal : formes et texte restent éditables ; la fuite n'est pas "
+									   "écrite, et le fichier le déclare (data-projection).");
+			} else if (!svg && k >= 0)
+				st.DireAuPied("Un PNG suit déjà le peintre : sa perspective est dans les pixels, il n'y a rien à aplatir.");
+		}
 		// ── LE NOM (recompose a chaque changement de choix, mais jamais pendant la frappe) ──
 		if (relire) {
 			NkExportOptions o;

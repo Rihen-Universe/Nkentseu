@@ -73,6 +73,17 @@ namespace nkuidesign {
 			/// ⚠️ Sans effet a un seul objet : les deux donnent le meme fichier, et le dialogue
 			///    grise donc le choix plutot que de laisser croire a une difference.
 			bool unFichierParObjet = false;
+			/// ③ (11/09, palier C) SVG ET LA PERSPECTIVE -- les DEUX modes, tranches par
+			/// Rodolf (« les deux, au choix dans le dialogue ») :
+			///   faux (defaut) = GARDER ORTHOGONAL : formes et textes restent editables,
+			///     `data-projection` et la focale sont poses sur le groupe, et le rapport
+			///     le dit. Ce mode ne ment sur rien.
+			///   vrai = APLATIR EN POLYGONE : le contour exact, au prix de la nature du
+			///     nœud (un `rect` devient un `polygon`). ⚠️ LE TEXTE N'A PAS DE FORME
+			///     PROJETABLE sans contours de glyphes : il s'ecrit DROIT, et chaque texte
+			///     concerne est NOMME dans le rapport. *Un SVG qui parait juste sans
+			///     l'etre est ce qu'on refuse -- alors on le dit.*
+			bool aplatirPerspective = false;
 	};
 
 	struct NkExportResultat {

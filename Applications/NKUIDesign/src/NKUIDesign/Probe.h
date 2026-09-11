@@ -14858,6 +14858,194 @@ namespace nkuidesign {
 					  memeCompte && placesJustes && memeCouleur && convergence && avance, det);
 			}
 		}
+		// ── 156. L'EXPORT SVG A DEUX MODES (11/09, palier C). Rodolf a tranche : « les deux,
+		//    au choix dans le dialogue ». SVG n'a pas de perspective -- il faut donc choisir ce
+		//    qu'on perd, et le DIRE.
+		//
+		// ⚠️ CE QUE LE TEMOIN REFUSE : un fichier qui parait juste sans l'etre. En mode aplati,
+		//    la matrice du groupe ne doit PLUS etre posee (sinon la projection s'applique deux
+		//    fois), et le texte -- qui n'a pas de forme projetable -- doit etre NOMME.
+		{
+			char det[820];
+			static DesignState stC;
+			stC.doc.NewDocument("Toile", NkAuthor::Humain);
+			stC.doc.SetMetric("espacement", 0.f);
+			stC.doc.SetMetric("marge", 0.f);
+			stC.doc.nodes[0].layout.kind = NkLayoutKind::Free;
+			const int32 pgC = stC.doc.AddChild(0, "", NkAuthor::Humain);
+			{
+				NkUINode &z = stC.doc.nodes[(uint32)pgC];
+				z.shape = NkString("frame");
+				z.layout.kind = NkLayoutKind::Free;
+				z.width.mode = NkSizeMode::Fixed;
+				z.width.value = 400.f;
+				z.height.mode = NkSizeMode::Fixed;
+				z.height.value = 300.f;
+			}
+			const int32 rC = stC.doc.AddChild(pgC, "", NkAuthor::Humain);
+			{
+				NkUINode &z = stC.doc.nodes[(uint32)rC];
+				z.shape = NkString("rect");
+				z.layout.kind = NkLayoutKind::Free;
+				z.posX = 40.f;
+				z.posY = 40.f;
+				z.width.mode = NkSizeMode::Fixed;
+				z.width.value = 200.f;
+				z.height.mode = NkSizeMode::Fixed;
+				z.height.value = 100.f;
+				z.fill = NkString("#ff0000");
+				z.inclinaisonY = 40.f;
+				z.perspective = true;
+				z.focale = 600.f;
+			}
+			const int32 tC = stC.doc.AddChild((int32)rC, "", NkAuthor::Humain);
+			{
+				NkUINode &z = stC.doc.nodes[(uint32)tC];
+				z.shape = NkString("text");
+				z.layout.kind = NkLayoutKind::Free;
+				z.text = NkString("Penche");
+				z.width.mode = NkSizeMode::Fixed;
+				z.width.value = 120.f;
+				z.height.mode = NkSizeMode::Fixed;
+				z.height.value = 24.f;
+				z.perspective = true;   // le texte fuit a l'ecran (palier B)...
+				z.inclinaisonY = 40.f;  // ... mais le SVG ne sait pas l'ecrire
+				z.focale = 600.f;
+			}
+			stC.Recompute(NkPaintRect{0.f, 0.f, 800.f, 600.f});
+			stC.SelectClear();
+			auto contient = [](const char *h, const char *n) -> bool {
+				for (const char *p = h; p && *p; ++p) {
+					const char *a = p, *b = n;
+					while (*a && *b && *a == *b)
+						++a, ++b;
+					if (!*b)
+						return true;
+				}
+				return false;
+			};
+			// 🔴 LES OPTIONS SE COMPOSENT COMME L'APPELANT REEL LES COMPOSE, et c'est
+			//    une mutation VERTE qui l'a exige : << le choix du dialogue ne voyage pas
+			//    jusqu'a l'export >> ne rougissait pas, parce que ce temoin fabriquait ses
+			//    options a la main. Il ne traversait donc jamais le chemin qui porte le
+			//    choix. *Un temoin qui construit lui-meme ce que l'application transporte
+			//    ne prouve rien du transport.* Ici, `optionsDe` fait ce que fait le site
+			//    d'export : il LIT le `NkChoixExport` du panneau.
+			auto optionsDe = [&](const DesignState::NkChoixExport &c) {
+				NkExportOptions o;
+				o.format = (NkExportFormat)c.format;
+				o.echelle = c.echelle;
+				o.selection = c.selection;
+				o.embarquer = c.embarquer;
+				o.unFichierParObjet = c.parObjet;
+				o.aplatirPerspective = c.aplatirPerspective;
+				o.tout = true;
+				return o;
+			};
+			stC.choixExport.format = 1; // SVG
+			stC.choixExport.aplatirPerspective = false;
+			const NkExportOptions oOrtho = optionsDe(stC.choixExport);
+			stC.choixExport.aplatirPerspective = true; // le choix du dialogue...
+			const NkExportOptions oPlat = optionsDe(stC.choixExport); // ... et il voyage
+			NkString svgO, svgP;
+			NkExportResultat rO, rP;
+			const bool expO = NkExporterSVG(stC, oOrtho, "", svgO, rO);
+			const bool expP = NkExporterSVG(stC, oPlat, "", svgP, rP);
+			// (a) LE DEFAUT EST << GARDER ORTHOGONAL >> : c'est celui qui ne ment sur rien.
+			// le DEFAUT, lu des deux cotes : celui du dialogue (le champ du panneau) et
+			// celui des options -- si l'un des deux basculait, le fichier mentirait par
+			// omission au premier export.
+			NkExportOptions oDefaut;
+			DesignState::NkChoixExport cNeuf;
+			const bool defautJuste = !oDefaut.aplatirPerspective && !cNeuf.aplatirPerspective
+									 && !optionsDe(cNeuf).aplatirPerspective;
+			// (b) GARDER ORTHOGONAL : la matrice est posee, la nature du nœud gardee, et la
+			//     perspective DECLAREE (attribut) -- c'est le palier A, inchange.
+			const bool orthoJuste = expO && contient(svgO.Data(), "transform=\"matrix(")
+									&& contient(svgO.Data(), "<rect") && contient(svgO.Data(), "<text")
+									&& contient(svgO.Data(), "data-projection=\"perspective\"")
+									&& !contient(svgO.Data(), "<polygon");
+			// (c) APLATIR : la silhouette part en POLYGONE, le rect a disparu, et la matrice
+			//     N'EST PLUS POSEE sur le nœud projete -- sinon la projection compterait deux fois.
+			const bool polygone = expP && contient(svgP.Data(), "<polygon points=\"");
+			// le nœud incline n'a plus de `<rect>` : seul le cadre de page en garde un
+			uint32 nRectO = 0u, nRectP = 0u, nMatO = 0u, nMatP = 0u;
+			{
+				auto compter = [&](const char *h, const char *n) -> uint32 {
+					uint32 c = 0u;
+					for (const char *p = h; p && *p; ++p) {
+						const char *a = p, *b = n;
+						while (*a && *b && *a == *b)
+							++a, ++b;
+						if (!*b)
+							++c;
+					}
+					return c;
+				};
+				nRectO = compter(svgO.Data(), "<rect");
+				nRectP = compter(svgP.Data(), "<rect");
+				nMatO = compter(svgO.Data(), "transform=\"matrix(");
+				nMatP = compter(svgP.Data(), "transform=\"matrix(");
+			}
+			const bool aplatiJuste = polygone && nRectP < nRectO && nMatP < nMatO;
+			// (d) LE TEXTE EST NOMME, ET LE RAPPORT LE DIT. C'est la sortie honnete du mode :
+			//     un texte n'a pas de forme projetable sans les contours de ses glyphes.
+			const bool texteNomme = expP && contient(svgP.Data(), "texte NON PROJETE")
+									&& contient(svgP.Data(), "Penche")
+									&& contient(rP.message, "NON PROJET");
+			// et en orthogonal, aucune note de ce genre : il n'y a rien a avouer
+			const bool orthoMuet = expO && !contient(svgO.Data(), "texte NON PROJETE")
+								   && !contient(rO.message, "NON PROJET");
+			// (d bis) LE CABLAGE DU CHOIX, LU A LA SOURCE.
+			//
+			// 🔴 UNE MUTATION VERTE, DEUX FOIS : << le choix du dialogue ne voyage pas
+			//    jusqu'a l'export >>. Ce temoin COMPOSE les options lui-meme -- il ne peut
+			//    donc rien dire du site qui les compose dans l'application, et ma premiere
+			//    correction (recopier ce site dans une lambda) n'a rien change : recopier
+			//    un chemin n'est pas le traverser. Le vrai site exige un selecteur de
+			//    fichiers et un disque ; on lit donc la SOURCE, comme les essais 132, 135,
+			//    136, 141 et 149. *Quand on ne peut pas emprunter le chemin, on prouve
+			//    qu'il existe -- et on dit lequel des deux on a fait.*
+			uint32 nCablage = 0u;
+			{
+				const NkString src = NkFile::ReadAllText("Applications/NKUIDesign/src/NKUIDesign/ExportSVG.h");
+				const char *cle = "o.aplatirPerspective = c.aplatirPerspective";
+				for (const char *d = src.Data(); d && *d; ++d) {
+					const char *x = d, *y = cle;
+					while (*x && *y && *x == *y)
+						++x, ++y;
+					if (!*y)
+						++nCablage;
+				}
+			}
+			const bool cableAuDialogue = nCablage == 1u;
+			// (e) LES DEUX FICHIERS SE RELISENT, PAR LA PORTE QUE LA SONDE 82 EMPRUNTE
+			//     DEJA (`NkSVGCodec::Decode`, qui rasterise). ⚠️ CE QUE CE POINT PROUVE ET
+			//     CE QU'IL NE PROUVE PAS : le parseur maison ne sait ni `<text>` ni
+			//     `<image>` -- son en-tete le dit -- donc il atteste que les deux fichiers
+			//     sont STRUCTURELLEMENT relisibles, pas que leur texte y est.
+			const NkImage rasO = NkSVGCodec::Decode((const uint8 *)svgO.Data(), (usize)svgO.Length(), 0, 0);
+			const NkImage rasP = NkSVGCodec::Decode((const uint8 *)svgP.Data(), (usize)svgP.Length(), 0, 0);
+			const bool relus = rasO.IsValid() && rasO.Pixels() && rasP.IsValid() && rasP.Pixels();
+			snprintf(det, sizeof(det),
+					 "(a) defaut = garder orthogonal -> %d ; (b) orthogonal : matrice posee, rect et text gardes, "
+					 "perspective DECLAREE, aucun polygone -> %d ; (c) aplati : polygone=%d, rect %u -> %u, "
+					 "matrix %u -> %u (plus posee sur le nœud projete) -> %d ; (d) texte NOMME dans les notes et "
+					 "dans le rapport (« %s ») -> %d, et l'orthogonal n'avoue rien -> %d ; (d bis) le choix du "
+					 "dialogue est CABLE a l'export (source lue) : %u site -> %d ; (e) les deux fichiers "
+					 "se relisent -> %d",
+					 defautJuste ? 1 : 0, orthoJuste ? 1 : 0, polygone ? 1 : 0, nRectO, nRectP, nMatO, nMatP,
+					 aplatiJuste ? 1 : 0, rP.message, texteNomme ? 1 : 0, orthoMuet ? 1 : 0, nCablage,
+					 cableAuDialogue ? 1 : 0, relus ? 1 : 0);
+			check("156. L'EXPORT SVG A DEUX MODES : « garder orthogonal » (le defaut) ecrit les formes et les "
+				  "textes EDITABLES et DECLARE la perspective qu'il ne sait pas rendre ; « aplatir en polygone » "
+				  "ecrit le contour EXACT (le rect devient un polygone) et ne pose plus la matrice -- sinon la "
+				  "projection compterait deux fois ; et le texte, qui n'a pas de forme projetable, est ecrit "
+				  "droit, NOMME dans une note et compte dans le rapport. Les deux fichiers se relisent",
+				  defautJuste && orthoJuste && aplatiJuste && texteNomme && orthoMuet && cableAuDialogue
+					  && relus,
+				  det);
+		}
 		// ── 94. ① L'APERCU PENDANT LE TRACE (05/09). Rodolf : « pourquoi quand on dessine un
 		//    graphique on voit juste le rectangle qui s'allonge, et des qu'on relache on voit la
 		//    forme ? » Deux mesures : LA TABLE DE GENRE (une seule, lue par le relachement et par
