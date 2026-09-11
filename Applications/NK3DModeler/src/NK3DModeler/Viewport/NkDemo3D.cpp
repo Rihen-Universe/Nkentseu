@@ -1321,6 +1321,19 @@ namespace nkentseu {
 				// ── Caméras réutilisables du moteur (NkCameraController.h) ──
 				// ÉDITEUR (Blender) : orbit = milieu ; pan = Shift+milieu ; zoom = molette.
 				renderer::NkOrbitCameraController3D editorCam;
+				// ── PIVOT D'ORBITE SANS SELECTION, FIGE A L'APPUI ──────────────
+				// Sans selection, l'orbite tournait autour de `mTarget`, c'est-a-dire
+				// du point vise A LA DISTANCE DE MISE AU POINT COURANTE. Ce n'est
+				// PAS l'origine du monde (Pan et le vol deplacent la cible avec la
+				// camera), mais sa PROFONDEUR est perimee : approcher un objet apres
+				// avoir cadre une grande scene laisse la cible loin DERRIERE lui, et
+				// l'orbite balaye. On vise donc ce que la camera REGARDE VRAIMENT.
+				// ⚠️ FIGE A L'APPUI, jamais recalcule pendant le glissement : un
+				// pivot qui se redefinit a chaque image fait deriver la camera et
+				// rend le geste indosable.
+				NkVec3f orbitPivot = {0.f, 0.f, 0.f};
+				bool orbitPivotValid = false; // un pivot est fige pour ce glissement
+				bool orbitMidPrev = false;	  // molette enfoncee a l'image precedente
 				// SIMULATION (jeu/archviz) : fly/FPS (WASD + regard clic-droit).
 				renderer::NkFlyCameraController3D simCam;
 				bool useSimCam = false;	  // F = bascule éditeur/simulation
@@ -2513,9 +2526,14 @@ namespace nkentseu {
 		// MESURE (temporaire) : ce que le dernier pick a eu le droit de tenir
 		// compte -- occupes, ecartes parce que MODEL, caches/verrouilles, mesh.
 		static int32 nkvpPickDbg[4] = {0, 0, 0, 0};
+		// `fallbackDist` : la distance du DERNIER repli (rien de touche, sol hors
+		// champ). 8 unites pour le lacher du navigateur, qui n'a pas d'echelle
+		// propre ; l'orbite, elle, passe sa distance de mise au point courante --
+		// tourner autour d'un point a 8 unites quand on regarde a 400 serait le
+		// meme defaut sous un autre nom. Le defaut preserve les appelants d'avant.
 		static int32 Demo3D_PickEmptyAt(Demo3DState *st, DemoCtx &ctx, NkVec3f camPos,
 										NkVec3f camTgt, float32 mx, float32 my,
-										float32 *worldOut3) {
+										float32 *worldOut3, float32 fallbackDist = 8.f) {
 			const Demo3D_ScreenProj uproj =
 				Demo3D_ScreenProj::Make(camPos, camTgt, 60.f, (float32)ctx.width, (float32)ctx.height);
 			const NkVec3f fwd2 = (camTgt - camPos).Normalized();
@@ -2644,12 +2662,113 @@ namespace nkentseu {
 						tW = tg;
 				}
 				if (tW > 1e29f)
-					tW = 8.f / (rdW.Len() > 1e-6f ? rdW.Len() : 1.f);
+					tW = fallbackDist / (rdW.Len() > 1e-6f ? rdW.Len() : 1.f);
 				worldOut3[0] = camPos.x + rdW.x * tW;
 				worldOut3[1] = camPos.y + rdW.y * tW;
 				worldOut3[2] = camPos.z + rdW.z * tW;
 			}
 			return bestU;
+		}
+
+		// LE POINT QUE LA CAMERA REGARDE : premier point touche par le rayon du CENTRE
+		// DE L'ECRAN, a defaut le plan du sol, a defaut un point a la distance de mise
+		// au point courante. Une seule ecriture, deux appelants (l'orbite sans
+		// selection et sa sonde) : deux copies auraient fini par repondre deux points
+		// differents sans que personne sache lequel fait foi.
+		static NkVec3f Demo3D_PivotVise(Demo3DState *st, DemoCtx &ctx) {
+			const NkVec3f cP = st->editorCam.GetPosition();
+			const NkVec3f cT = st->editorCam.GetTarget();
+			float32 w3[3] = {cT.x, cT.y, cT.z};
+			Demo3D_PickEmptyAt(st, ctx, cP, cT, (float32)ctx.width * 0.5f, (float32)ctx.height * 0.5f, w3,
+							   st->editorCam.GetDistance());
+			return NkVec3f{w3[0], w3[1], w3[2]};
+		}
+
+		// SONDE NK_AGENT_ORBITE=<degres> [+ _TRAME=<n>, defaut 60 ; _LOIN=<unites>] :
+		// LE TEMOIN DU PIVOT D'ORBITE, SANS FENETRE ET SANS INJECTION D'ENTREE.
+		// Elle rejoue le GESTE (le vrai chemin : le pivot vise puis OrbitAroundPivot)
+		// ET l'ancien comportement (Rotate autour de la cible) DEPUIS LE MEME ETAT,
+		// et mesure les deux exigences :
+		//   1. la distance camera-pivot est CONSERVEE par l'orbite ;
+		//   2. le point que la camera regardait reste DANS LE CADRE.
+		// _LOIN eloigne d'abord la camera comme le ferait un vol (la cible suit, la
+		// profondeur reste perimee) : c'est la situation de Rodolf.
+		// ⚠️ Elle REMET l'etat de la camera apres mesure, mais SetCenter reecrit aussi
+		// les valeurs de Recenter : une course sous sonde n'est pas une session de
+		// travail. Inerte sans la variable.
+		static void Demo3D_SondeOrbite(Demo3DState *st, DemoCtx &ctx) {
+			static int sDeg = -2, sTrame = 60;
+			static float32 sLoin = 0.f, sDist = 0.f;
+			static uint64 sFrame = 0;
+			if (sDeg == -2) {
+				const char *v = std::getenv("NK_AGENT_ORBITE");
+				sDeg = (v && v[0]) ? std::atoi(v) : -1;
+				if (const char *t = std::getenv("NK_AGENT_ORBITE_TRAME"))
+					sTrame = std::atoi(t);
+				if (const char *l = std::getenv("NK_AGENT_ORBITE_LOIN"))
+					sLoin = (float32)std::atof(l);
+				if (const char *d = std::getenv("NK_AGENT_ORBITE_DIST"))
+					sDist = (float32)std::atof(d);
+			}
+			++sFrame;
+			if (sDeg <= 0 || (int32)sFrame != sTrame)
+				return;
+
+			auto &cam = st->editorCam;
+			// LA SITUATION DE RODOLF, CONSTRUITE : _DIST pousse la cible a `dist`
+			// DEVANT la camera SANS bouger la camera -- l'etat ou l'on se trouve apres
+			// avoir cadre une grande scene puis s'etre approche : l'objet regarde est
+			// a quelques unites, la cible est loin derriere lui. C'est la PROFONDEUR
+			// PERIMEE, et c'est elle la cause, pas l'origine du monde.
+			// _LOIN eloigne en plus de l'origine (vol : la cible suit la camera), pour
+			// verifier que la position dans le monde, elle, n'y est pour rien.
+			if (sLoin != 0.f)
+				cam.MoveCameraRelative(0.f, 0.f, sLoin);
+			if (sDist > 0.f) {
+				const NkVec3f C = cam.GetPosition();
+				const NkVec3f f = (cam.GetTarget() - C).Normalized();
+				cam.SetCenter(C + f * sDist, sDist, cam.GetYaw(), cam.GetPitch());
+			}
+			const NkVec3f T0 = cam.GetTarget();
+			const float32 D0 = cam.GetDistance(), Y0 = cam.GetYaw(), P0 = cam.GetPitch();
+			const NkVec3f C0 = cam.GetPosition();
+			// Le point REGARDE, mesure une fois : c'est lui qui doit rester visible.
+			const NkVec3f vise = Demo3D_PivotVise(st, ctx);
+			const float32 rad = (float32)sDeg * 3.14159265f / 180.f;
+			const int32 pas = 30;
+			const float32 dx = (rad / 0.005f) / (float32)pas; // 0.005 rad par unite (mRotateSpeed)
+			auto dedans = [&](NkVec3f P) {
+				const Demo3D_ScreenProj pr = Demo3D_ScreenProj::Make(cam.GetPosition(), cam.GetTarget(), 60.f,
+																	 (float32)ctx.width, (float32)ctx.height);
+				float32 px = 0.f, py = 0.f;
+				if (!pr(P, px, py))
+					return false;
+				return px >= 0.f && py >= 0.f && px < (float32)ctx.width && py < (float32)ctx.height;
+			};
+			std::printf("[orbite] depart : camera (%.2f, %.2f, %.2f) cible (%.2f, %.2f, %.2f) distance %.2f\n",
+						C0.x, C0.y, C0.z, T0.x, T0.y, T0.z, D0);
+			std::printf("[orbite] point regarde au centre de l'ecran : (%.2f, %.2f, %.2f), a %.2f de la camera\n",
+						vise.x, vise.y, vise.z, (vise - C0).Len());
+			// ── LE GESTE D'AUJOURD'HUI : orbite autour du point vise ───────────
+			for (int32 i = 0; i < pas; ++i)
+				cam.OrbitAroundPivot(vise, dx, 0.f);
+			const float32 dApres = (cam.GetPosition() - vise).Len();
+			const bool vuApres = dedans(vise);
+			std::printf("[orbite] APRES %d deg autour du point vise : distance au pivot %.3f -> %.3f (ecart %.4f), "
+						"point regarde %s\n",
+						sDeg, (vise - C0).Len(), dApres, dApres - (vise - C0).Len(),
+						vuApres ? "DANS LE CADRE" : "HORS CADRE");
+			// ── L'ANCIEN COMPORTEMENT, DEPUIS LE MEME ETAT : Rotate ────────────
+			cam.SetCenter(T0, D0, Y0, P0);
+			for (int32 i = 0; i < pas; ++i)
+				cam.Rotate(dx, 0.f);
+			const float32 dVieux = (cam.GetPosition() - vise).Len();
+			const bool vuVieux = dedans(vise);
+			std::printf("[orbite] AVANT (Rotate autour de la cible) : distance au pivot %.3f -> %.3f (ecart %.4f), "
+						"point regarde %s\n",
+						(vise - C0).Len(), dVieux, dVieux - (vise - C0).Len(), vuVieux ? "DANS LE CADRE" : "HORS CADRE");
+			cam.SetCenter(T0, D0, Y0, P0); // on rend l'etat de depart
+			std::fflush(stdout);
 		}
 
 		// Test PRECIS des objets de DEMO pour le gizmo : resout le MEME mesh que le
@@ -5678,6 +5797,8 @@ namespace nkentseu {
 
 		void Demo3D_Frame(DemoCtx &ctx, float32 dt) {
 			auto *st = (Demo3DState *)ctx.userData;
+			if (st)
+				Demo3D_SondeOrbite(st, ctx); // inerte sans NK_AGENT_ORBITE
 			// Delta souris RÉEL de la frame = (courant - précédent) -> vaut 0 sans mouvement
 			// (contrairement à NkInput.MouseDelta*() périmé). Alimente les 2 gizmos (objet + edit).
 			const float32 curMouseX = ((float32)NkInput.MouseX() - nkvpOffX);
@@ -6519,7 +6640,34 @@ namespace nkentseu {
 						selPivot = st->gizmo.GetPivot();
 						haveSelPivot = true;
 					}
-					if (NkInput.IsMouseDown(NkMouseButton::NK_MB_MIDDLE)) {
+					const bool midDown = NkInput.IsMouseDown(NkMouseButton::NK_MB_MIDDLE);
+					// ── LE PIVOT SANS SELECTION SE FIGE ICI, AU FRONT MONTANT ───────
+					// Defaut signale par Rodolf (11/09) : « la camera tourne autour d'un
+					// point beaucoup trop loin ou hors ecran » quand rien n'est
+					// selectionne. Mesure : l'orbite tournait autour de `mTarget`, que la
+					// camera VISE toujours (Apply -> SetTarget) -- donc pas l'origine du
+					// monde, contrairement a ce qu'on croyait -- mais posee a la DISTANCE
+					// DE MISE AU POINT COURANTE. Approcher un objet apres avoir cadre une
+					// grande scene laisse cette cible loin DERRIERE lui : on tourne alors
+					// autour d'un point qu'on ne voit plus.
+					// On vise donc ce que la camera REGARDE : le premier point touche par
+					// le rayon du CENTRE DE L'ECRAN, a defaut le plan du sol, a defaut un
+					// point a la distance courante -- c'est exactement l'ordre que
+					// `Demo3D_PickEmptyAt` applique deja pour le lacher du navigateur, et
+					// c'est LE MEME pick, pour qu'ils ne puissent pas diverger.
+					// ⚠️ CENTRE DE L'ECRAN, PAS SOUS LE CURSEUR : sous le curseur est plus
+					// fin (Blender le fait) mais deplace le pivot PENDANT le geste. Si
+					// Rodolf le veut, ce sera une preference, pas un remplacement.
+					// ⚠️ ET IL NE SE RECALCULE PAS PENDANT LE GLISSEMENT : un pivot
+					// reevalue a chaque image fait deriver la camera.
+					if (midDown && !st->orbitMidPrev && !shift && !haveSelPivot) {
+						st->orbitPivot = Demo3D_PivotVise(st, ctx);
+						st->orbitPivotValid = true;
+					}
+					if (!midDown)
+						st->orbitPivotValid = false; // le glissement est fini
+					st->orbitMidPrev = midDown;
+					if (midDown) {
 						if (shift)
 							st->editorCam.Pan(-mdx, -mdy); // "grab" façon Blender : on tire la scène (axes inversés)
 						else {
@@ -6527,10 +6675,13 @@ namespace nkentseu {
 								st->orthoView = false; // orbite libre -> perspective (Blender)
 							// Orbite RIGIDE autour du centroïde de la sélection (position ET
 							// cible tournent ENSEMBLE) : aucun re-visée du pivot -> AUCUN saut
-							// au premier orbit. Sans sélection : orbite normale autour de la
-							// cible courante. Le pan (ci-dessus) reste intact (jamais re-pivoté).
+							// au premier orbit. Le pan (ci-dessus) reste intact (jamais re-pivoté).
+							// Sans sélection : autour du point figé ci-dessus. Le chemin AVEC
+							// sélection est inchangé, au flottant près.
 							if (haveSelPivot)
 								st->editorCam.OrbitAroundPivot(selPivot, mdx, mdy);
+							else if (st->orbitPivotValid)
+								st->editorCam.OrbitAroundPivot(st->orbitPivot, mdx, mdy);
 							else
 								st->editorCam.Rotate(mdx, mdy);
 						}
