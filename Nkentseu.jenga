@@ -1223,6 +1223,10 @@ with workspace("Nkentseu", location="."):
 
         pass
 
+    with include("Applications/NKGeniaTemoin/NKGeniaTemoin.jenga"):
+
+        pass
+
     with include("Applications/NkAnimaTest/NkAnimaTest.jenga"):
 
         pass
