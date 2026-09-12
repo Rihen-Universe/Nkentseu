@@ -51,6 +51,7 @@ void PalierVorticite();
 void EnqueteConfinement();
 void PalierBranchement();
 void PalierGrilleMAC(); // (m1) et (m2) — les deux contrôles de la bascule MAC
+void EnqueteBascule();	// les deux ENQUÊTES de la bascule (NK_FLUID_MAC=3)
 void ImagesDuConfinement(float32 epsilon);
 float32 EpsilonConfinement();
 
@@ -597,6 +598,14 @@ int main(int argc, char **argv) {
 	// conclure quoi que ce soit -- sans quoi on jugerait la bascule sur un banc
 	// qu'on aurait choisi parce qu'il est rapide.
 	const char *mac = ::nkentseu::env::GetEnvVar("NK_FLUID_MAC");
+	// NK_FLUID_MAC=3 : les deux ENQUETES de la bascule. Ce ne sont PAS des temoins
+	// et elles ne rendent AUCUN verdict : elles font varier la RESOLUTION pour
+	// departager un effet de BORD d'un defaut de SCHEMA. Une question posee a une
+	// seule resolution ne peut pas trancher entre les deux.
+	if (mac != nullptr && mac[0] == '3') {
+		EnqueteBascule();
+		return 0;
+	}
 	if (mac != nullptr && (mac[0] == '1' || mac[0] == '2')) {
 		ControlesPositifs();
 		PalierGrilleMAC();
