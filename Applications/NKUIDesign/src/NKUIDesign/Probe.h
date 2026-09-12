@@ -5249,10 +5249,9 @@ namespace nkuidesign {
 					snprintf(det144, sizeof(det144),
 							 "MEME course : le panneau emet %u sommets avec les rangees, %u sans "
 							 "(nœud qui refuse la rotation) -> %d ; determinant a la borne "
-							 "(80\u00b0, 80\u00b0) = %.4f, et a 90\u00b0 = %.4f -- la forme se "
+							 "(%.0f\u00b0, %.0f\u00b0) = %.4f, et a 90\u00b0 = %.4f -- la forme se "
 							 "reduirait a un TRAIT et le pointage designerait sa boite droite "
-							 "-> %d ; (f) degrade EN DESSOUS d'un aplat : %u commande(s) [>2, ses bandes "
-			 "survivent], dessus %08x [00ff00ff] -> %d",
+							 "-> %d",
 							 nAvec, nSans, rangeeVisible ? 1 : 0, (double)bMax, (double)bMax, (double)dBorne, (double)dHors,
 							 borneSaine ? 1 : 0);
 					check("144. LA RANGEE D'INCLINAISON SE DESSINE, ET SE CACHE QUAND ELLE N'A PAS DE SENS : "
@@ -15700,7 +15699,8 @@ namespace nkuidesign {
 					 "(c) fond ET teinte : %u [1], %08x = l'APLAT multiplie [%08x] -> %d ; (d) un etat "
 					 "sans fond laisse le degrade intact (diff %u) -> %d ; (e) pile a DEUX remplissages : "
 			 "%u commande(s) [2], dessous %08x [ff0000ff] INTACT, dessus %08x [00ff00ff] REMPLACE "
-			 "-> %d",
+			 "-> %d ; (f) degrade EN DESSOUS d'un aplat : %u commande(s) [>2, ses bandes "
+			 "survivent], dessus %08x [00ff00ff] -> %d",
 					 nB, pB, dB, degradeAvant ? 1 : 0, nR, pR, remplace ? 1 : 0, nD, pD, vertMul,
 					 ordre ? 1 : 0, rSans.DiffCount(rSansH), intact ? 1 : 0, nP2, pP2, dP2, pile ? 1 : 0,
 			 nQ, dQ, dessousSurvit ? 1 : 0);
