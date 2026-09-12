@@ -61,6 +61,57 @@
 //                          coordonnees d'ECRAN. Reference d'orientation qui ne
 //                          traverse ni camera ni projection ni scene.
 //
+// ── VUE 6 : LE TEMOIN DE HALO (12/09) ───────────────────────────────────────
+//   Une source COMPACTE, BRILLANTE, DECENTREE sur fond UNI : ni ciel, ni sol,
+//   ni occultant. Un cube face camera, eclaire par une directionnelle qui
+//   arrive DE la camera (N.L = 1 sur la face vue), rugosite 1, sans ombre.
+//   ⚠️ Le fond n'est PAS noir : c'est la couleur d'effacement du moteur, mesuree
+//   a 63 en LDR (~0,05 HDR) -- loin sous le seuil de 3,62, et elle s'annule
+//   dans ON - OFF. Je l'avais ecrit « noir » avant la premiere capture.
+//   NK_BANC_SOURCE         teinte du cube (multiplicateur d'albedo, defaut 1).
+//                          ⚠️ NkDrawCall3D n'a AUCUN champ emissif : la radiance
+//                          HDR de la source n'est PAS ce nombre, c'est
+//                          teinte x eclairement x BRDF. Elle se LIT dans la
+//                          capture (bloom eteint, ACES inverse sur les points
+//                          non satures, blanc a 7,24), elle ne se pose pas.
+//   NK_BANC_SOURCE_LUM     intensite de la directionnelle (defaut 3)
+//   NK_BANC_SOURCE_TAILLE  arete du cube en unites monde (defaut 1). A la
+//                          profondeur par defaut (12), 70 deg de champ, 720 px :
+//                          1 unite = ~43 px, au-dessus de l'empreinte des 13
+//                          taps de la passe brillante (~4x4 texels HDR).
+//                          0.05 = ~2 px, SOUS l'empreinte : c'est la taille qui
+//                          fait parler la moyenne de Karis.
+//   NK_BANC_SOURCE_POS     "x,y,z" (defaut "3,6,-12" : le point du cube temoin,
+//                          decentre dans les DEUX axes -- sans quoi un halo en
+//                          miroir retomberait sur sa source et ne se verrait pas)
+//   NK_BANC_BLOOM=1 (main.cpp) allume la passe a la CREATION, seuil 0,5 ;
+//   NK_BANC_POST=bloom l'eteint ENSUITE par SetPostConfig. ON et OFF partagent
+//   donc la meme creation ; seule la passe change entre les deux captures.
+//
+//   CE QUE LA COURBE DOIT DEPARTAGER, ECRIT AVANT LA MESURE (Q192). Profil
+//   radial I(r) = moyenne de (ON - OFF) par anneau de 2 px autour du centroide
+//   de la SOURCE, pour une famille de radiances S/seuil croissantes, deux
+//   tailles, quatre dorsaux. Chaque cause laisse une trace DIFFERENTE, et
+//   plusieurs peuvent etre presentes a la fois :
+//     * COUPURE DURE SANS GENOU (SoftThreshold : 0 exact sous le seuil,
+//       lineaire jusqu'a 5 seuils, quadratique au-dela, contribution > 1 au-dela
+//       de ~5,8 seuils) : I = 0 sous le seuil ; au franchissement un halo qui
+//       apparait deja LARGE ; amplitude en (S - seuil) a forme constante, puis
+//       qui croit PLUS VITE que S.
+//     * PYRAMIDE TROP COURTE (6 mips W/2..W/64, tente de 3 texels) : le rayon ou
+//       I tombe sous 1/255 SATURE vers ~192 px quel que soit S, avec un bord net.
+//     * REMONTEE ADDITIVE NON NORMALISEE : l'energie par octave de rayon (somme
+//       de I(r)·2·pi·r sur [r, 2r]) est CONSTANTE d'une octave a l'autre -- un
+//       profil en 1/r^2, plat et etendu : « une grosse eponge ».
+//     * SATURATION EN AMONT : plateau a 255 dont la LARGEUR croit avec S alors
+//       que la queue ne bouge pas ; ou, pour la source de 2 px seulement, une
+//       amplitude qui plafonne quand S croit (Karis borne a ~1,4 toute source
+//       plus petite que l'empreinte).
+//   POSITION (sites `isVK ? -1 : +1` des sous-passes bloom, NkPostProcessStack
+//   l. 1202 et 1235, jamais juges) : centroide du halo contre centroide de la
+//   source dans la MEME image ; un retournement d'une sous-passe mettrait le
+//   halo a (H - y_s), soit |H - 2 y_s| de sa source.
+//
 // Se capture avec les crochets deja presents dans `main.cpp` :
 //   NK_MAXFRAMES=40 NK_CAPTURE=30 NK_CAPTURE_PATH=... renderdemo --demo=21
 //
@@ -616,10 +667,12 @@ namespace nkentseu {
 				cd.target = {0.f, 0.f, 0.f};
 				cd.fovY = 50.f;
 				cd.farPlane = 4000.f;
-			} else if (st->vue == 1) {
+			} else if (st->vue == 1 || st->vue == 6) {
 				// VUE CIEL : l'oeil a hauteur d'homme, l'horizon au milieu de
 				// l'image. C'est le cadrage qui rend le profil vertical lisible —
 				// la moitie haute est du ciel, du zenith vers l'horizon.
+				// VUE 6 (halo) : le MEME cadrage, pour que la source tombe la ou
+				// tombait le cube temoin (x ~769, y ~170 sur 1280x720).
 				cd.position = {0.f, 1.6f, 0.f};
 				cd.target = {0.f, 1.6f, -10.f};
 				cd.fovY = 70.f;
@@ -700,6 +753,23 @@ namespace nkentseu {
 					r3d->SetSkyParams(sk);
 				}
 				r3d->SetSkyboxEnabled(envAmb);
+				r3d->BeginScene(sctx);
+			} else if (st->vue == 6) {
+				// ── VUE 6 : FOND UNI, UNE DIRECTIONNELLE QUI VIENT DE LA CAMERA ───
+				// Propagation vers -Z : la lumiere ARRIVE du cote de l'oeil (z=0)
+				// et frappe la face +Z du cube, celle que la camera voit, avec
+				// N.L = 1. Aucune ombre, aucun ciel : tout ce qui depasse le seuil
+				// de la passe brillante est la source, et rien d'autre. (Pas de
+				// `sctx.ambientIntensity` ici : le champ est MORT, le moteur ne le
+				// lit pas -- l'ambiante reelle est l'IBL de la config, 0,05.)
+				NkLightDesc lum;
+				lum.type = NkLightType::NK_DIRECTIONAL;
+				lum.direction = {0.f, 0.f, -1.f};
+				lum.color = {1.f, 1.f, 1.f};
+				lum.intensity = BancFloat("NK_BANC_SOURCE_LUM", 3.f);
+				lum.castShadow = false;
+				sctx.lights.PushBack(lum);
+				r3d->SetSkyboxEnabled(false);
 				r3d->BeginScene(sctx);
 			} else {
 			NkLightDesc soleil;
@@ -886,7 +956,49 @@ namespace nkentseu {
 			// NK_BANC_SANS_SOL=1 la retire. En vue CIEL elle est la SEULE geometrie :
 			// tant qu'elle est la, une bande sombre en haut de l'image peut venir du
 			// sol autant que du ciel, et la lecture ne tranche rien.
-			if (BancInt("NK_BANC_SANS_SOL", 0) == 0) {
+			// ── VUE 6 : LA SOURCE DU HALO ───────────────────────────────────────
+			// Un cube, pas un plan : `GetPlane()` est horizontal et la camera le
+			// verrait par la tranche. La face +Z du cube regarde l'oeil et recoit
+			// la directionnelle de plein fouet. Sa radiance HDR vaut
+			// teinte x intensite x BRDF (Lambert, rugosite 1) : elle se LIT sur la
+			// capture bloom eteint, elle n'est pas posee ici.
+			if (st->vue == 6) {
+				float32 px = 3.f, py = 6.f, pz = -12.f;
+				if (const char *pv = ::nkentseu::env::GetEnvVar("NK_BANC_SOURCE_POS")) {
+					float a = 0.f, b = 0.f, c = 0.f;
+					if (pv[0] && std::sscanf(pv, "%f,%f,%f", &a, &b, &c) == 3) {
+						px = a;
+						py = b;
+						pz = c;
+					}
+				}
+				const float32 taille = BancFloat("NK_BANC_SOURCE_TAILLE", 1.f);
+				const float32 teinte = BancFloat("NK_BANC_SOURCE", 1.f);
+				NkDrawCall3D src;
+				src.mesh = meshSys->GetCube();
+				src.transform = NkMat4f::Translate({px, py, pz}) * NkMat4f::Scale({taille, taille, taille});
+				src.aabb = {{px - taille, py - taille, pz - taille}, {px + taille, py + taille, pz + taille}};
+				src.tint = {teinte, teinte, teinte};
+				src.alpha = 1.f;
+				src.roughness = 1.f;
+				src.metallic = 0.f;
+				src.castShadow = false;
+				src.receiveShadow = false;
+				r3d->Submit(src);
+				// Par printf : le `logger` du banc n'atteint pas un stdout redirige
+				// (Q188), et une capture dont on ne sait plus le reglage ne prouve rien.
+				static bool sSourceDite = false;
+				if (!sSourceDite) {
+					sSourceDite = true;
+					std::printf("[BancHalo] source teinte=%.3f taille=%.3f pos=(%.2f,%.2f,%.2f) lum=%.3f\n",
+								teinte, taille, px, py, pz, BancFloat("NK_BANC_SOURCE_LUM", 3.f));
+					std::fflush(stdout);
+				}
+			}
+
+			// (vue 6 : ni sol ni occultant -- une surface etendue passerait le seuil
+			// et c'est le halo du SOL qu'on mesurerait, comme en Q190.)
+			if (st->vue != 6 && BancInt("NK_BANC_SANS_SOL", 0) == 0) {
 				NkDrawCall3D sol;
 				sol.mesh = meshSys->GetPlane();
 				sol.transform = NkMat4f::Scale({40.f, 1.f, 40.f});
@@ -903,7 +1015,7 @@ namespace nkentseu {
 			// ── L'OCCULTANT ─────────────────────────────────────────────────────
 			// Absent de la vue CIEL : il n'y a rien a occulter, et sa presence
 			// mettrait une ombre dans le cadre qu'on mesure.
-			if (st->vue != 1 && st->matOccultant && st->matOccultant->IsValid()) {
+			if (st->vue != 1 && st->vue != 6 && st->matOccultant && st->matOccultant->IsValid()) {
 				NkDrawCall3D occ;
 				occ.mesh = meshSys->GetCube();
 				occ.transform = NkMat4f::Translate({0.f, 2.6f, 0.f}) * NkMat4f::Scale({3.2f, 0.18f, 3.2f});

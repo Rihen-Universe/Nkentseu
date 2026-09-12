@@ -765,6 +765,16 @@ namespace nkentseu {
 				static float sLast = -1.f;
 				const bool first = (sLast < 0.f);
 				if (first || thr > sLast * 1.01f || thr < sLast * 0.99f) {
+					// NK_RG_SEUIL : la meme ligne, par printf. Le seuil HDR que la passe
+					// brillante recoit se lit dans la MEME course que la capture, pas
+					// dans une formule : `logger.Info` n'atteint pas un stdout redirige.
+					if (getenv("NK_RG_SEUIL")) {
+						std::printf("[seuil-bloom] cfgExpo=%.4f resolved=%.4f valid=%d stale=%d "
+									"aeExposure=%.4f bloomThreshold=%.4f seuilHDR=%.4f\n",
+									mCfg.postProcess.exposure, resolved, valid ? 1 : 0, stale ? 1 : 0, aeExposure,
+									mCfg.postProcess.bloomThreshold, thr);
+						std::fflush(stdout);
+					}
 					logger.Info("[MESURE cas4] autoOn={0} cfgExpo={1} resolved={2} valid={3} "
 								"stale={4} aeExposure={5} seuilBrut={6} bloomThr={7}\n",
 								(mPostProcess && mPostProcess->IsAutoExposureEnabled()) ? 1 : 0,
