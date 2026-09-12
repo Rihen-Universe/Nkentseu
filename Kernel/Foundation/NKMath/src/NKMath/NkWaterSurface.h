@@ -195,6 +195,13 @@ namespace nkentseu {
 				float32 jxx = 1.f, jxz = 0.f;
 				float32 jzx = 0.f, jzz = 1.f;
 				float32 jacobianXZ = 1.f;
+				// ── LA TANGENTE, dP/dx normalisée ───────────────────────────────────
+				// Exposée pour la même raison que le jacobien : elle est DÉJÀ dérivée
+				// analytiquement pour la normale, et un consommateur qui en a besoin
+				// (le format de sommet `Default3D` en réclame une) la refabriquerait
+				// sinon par un produit vectoriel approché — une seconde version, fausse
+				// d'une autre manière, et silencieuse. Au repos c'est (1, 0, 0).
+				NkVec3f tangent = {1.f, 0.f, 0.f};
 		};
 
 		// La surface en (x, z) à l'instant t. `depthOverride` (>= 0) remplace
@@ -242,6 +249,11 @@ namespace nkentseu {
 			//     | dP.z/dx   dP.z/dz |  =  | dPdx.z   dPdz.z |
 			// Au repos les tangentes valent (1,0,0) et (0,0,1) : J = 1 EXACTEMENT, et
 			// pas « à peu près » — c'est ce que le contrôle négatif (y1) vérifie.
+			// La tangente, prise sur la MÊME dérivée que la normale — jamais refaite.
+			{
+				const float32 lt = NkSqrt(dPdx.x * dPdx.x + dPdx.y * dPdx.y + dPdx.z * dPdx.z);
+				o.tangent = (lt > 1e-9f) ? dPdx * (1.f / lt) : NkVec3f{1.f, 0.f, 0.f};
+			}
 			o.jxx = dPdx.x; // dP.x/dx
 			o.jxz = dPdz.x; // dP.x/dz
 			o.jzx = dPdx.z; // dP.z/dx

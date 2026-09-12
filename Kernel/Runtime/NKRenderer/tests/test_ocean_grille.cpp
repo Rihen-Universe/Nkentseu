@@ -36,6 +36,7 @@
 #include "NKMath/NkFunctions.h"
 #include "NKMath/NkProjectedGrid.h"
 #include "NKMath/NkWaterSurface.h"
+#include "NKVFX/NkWaterMeshBuilder.h" // le PRODUCTEUR, eprouve sans fenetre
 #include <cstdio>
 
 using namespace nkentseu;
@@ -2323,6 +2324,102 @@ int NkSondeOceanGrille() {
 						 attendu, z, intact ? 1 : 0);
 			XCHECK(z == 0u && intact,
 				   "(n2b) capacite insuffisante : le pavage REFUSE et n'ecrit RIEN");
+		}
+	}
+
+	// (p1)(p2) LE PRODUCTEUR NKVFX, EPROUVE SANS FENETRE.
+	//
+	// Il ne connait aucun de ses hotes : ni ECS, ni Noge, ni application. On lui
+	// donne une camera et de la memoire, il rend des sommets et des indices. C'est
+	// ce qui permet de le mesurer ici, sans device et sans fenetre.
+	//
+	// ⚠️ BASE_Y N'EST PAS ZERO, ET C'EST DELIBERE. `NkWaterEval` rend une hauteur
+	// de vague AUTOUR DE ZERO et ignore le plan de repos ; la grille, elle, pose
+	// ses sommets SUR ce plan. Si le producteur oubliait de composer les deux,
+	// l'eau serait dessinee a l'altitude zero -- et un temoin ecrit avec baseY = 0
+	// ne le verrait JAMAIS, les deux valeurs coincidant. C'est la lecon de la
+	// donnee d'essai muette, payee deux fois cette nuit.
+	{
+		const Pose pose = {{0.f, 11.f, 0.f}, {0.f, 5.f, -60.f}, "pont, plan a 3 m"};
+		vfx::NkWaterMeshParams wp;
+		wp.grid = p;
+		wp.grid.cols = 8u;
+		wp.grid.rows = 8u;
+		wp.grid.baseY = 3.f; // NON NUL : voir ci-dessus
+		wp.waves = UneHouleTest(20.f, 0.6f, 0.5f, 0.f);
+		wp.time = 0.f;
+
+		// LES COMPTES ATTENDUS SONT CALCULES A LA MAIN, jamais demandes aux
+		// fonctions qu'on teste : comparer une fonction a elle-meme ne prouve rien.
+		const uint32 sommetsAttendus = 9u * 9u;	   // (cols+1)(rows+1)
+		const uint32 indicesAttendus = 8u * 8u * 6u; // cols*rows*6
+		const uint32 bordAttendu = 2u * (8u + 8u);
+
+		renderer::NkVertex3D sommets[128];
+		uint32 tri[512];
+		uint32 manquants = 0u;
+		const uint32 nv = vfx::NkWaterBuildVertices(PROJ(), VUE(pose), pose.oeil, wp, sommets,
+													128u, &manquants);
+		const uint32 ni = vfx::NkWaterBuildIndices(wp.grid, tri, 512u);
+		const NkPavageMesure m = MesurerPavage(tri, ni, wp.grid.cols, wp.grid.rows);
+
+		uint32 nan = 0u;
+		for (uint32 k = 0; k < nv; ++k)
+			if (!EstFini(sommets[k].pos.x) || !EstFini(sommets[k].pos.y) ||
+				!EstFini(sommets[k].pos.z) || !EstFini(sommets[k].normal.y))
+				++nan;
+
+		std::fprintf(stderr,
+					 "     (p1) producteur : %u sommets (attendu %u, manquants %u) | %u indices"
+					 " (attendu %u) | aretes une fois %u (bord %u), trois fois %u | NaN %u\n",
+					 nv, sommetsAttendus, manquants, ni, indicesAttendus, m.aretesUneFois,
+					 bordAttendu, m.aretesTrois, nan);
+
+		XCHECK(nv == sommetsAttendus && manquants == 0u,
+			   "(p1) le producteur rend la grille PLEINE, aucun sommet manquant");
+		XCHECK(ni == indicesAttendus, "(p1b) et le compte d'indices vaut 2 (nx-1)(ny-1) 3");
+		// ⚠️ SEUL L'APPARIEMENT D'ARETES VOIT une maille cassee : mesure en (n2), le
+		// compte, l'enroulement et la degenerescence sont AVEUGLES a un indice
+		// deplace. Ce temoin s'appuie donc sur celui des quatre nombres qui juge.
+		XCHECK(m.aretesUneFois == bordAttendu && m.aretesTrois == 0u,
+			   "(p1c) topologie saine -- et c'est l'APPARIEMENT D'ARETES qui le dit, pas les quatre");
+		XCHECK(nan == 0u, "(p1d) aucun NaN dans les positions ni les normales");
+
+		// (p2) CONTROLE NEGATIF : amplitude ET raideur nulles -> rien ne bouge, et le
+		// producteur doit rendre EXACTEMENT le plan de repos de la grille. Pas « a peu
+		// pres » : au bit, comme (y1).
+		{
+			vfx::NkWaterMeshParams plat = wp;
+			plat.waves = UneHouleTest(20.f, 0.f, 0.f, 0.f);
+			renderer::NkVertex3D calmes[128];
+			uint32 manq2 = 0u;
+			const uint32 nv2 = vfx::NkWaterBuildVertices(PROJ(), VUE(pose), pose.oeil, plat,
+														 calmes, 128u, &manq2);
+			const NkProjectedGrid g =
+				NkProjectedGridBuild(PROJ(), VUE(pose), pose.oeil, plat.grid);
+			uint32 ecarts = 0u, horsPlan = 0u;
+			float32 pireEcart = 0.f;
+			for (uint32 j = 0; j <= plat.grid.rows; ++j)
+				for (uint32 i = 0; i <= plat.grid.cols; ++i) {
+					NkVec3f base;
+					if (!NkProjectedGridVertex(g, plat.grid, i, j, base))
+						continue;
+					const NkVec3f &q = calmes[j * (plat.grid.cols + 1u) + i].pos;
+					const float32 d = (q - base).Len();
+					if (d != 0.f) {
+						++ecarts;
+						if (d > pireEcart)
+							pireEcart = d;
+					}
+					if (q.y != plat.grid.baseY)
+						++horsPlan;
+				}
+			std::fprintf(stderr,
+						 "     (p2) houle nulle, plan a %.1f m : %u sommets, %u ecarts au plan de"
+						 " repos (pire %.3e m), %u hors du plan\n",
+						 (double)plat.grid.baseY, nv2, ecarts, (double)pireEcart, horsPlan);
+			XCHECK(nv2 == sommetsAttendus && manq2 == 0u && ecarts == 0u && horsPlan == 0u,
+				   "(p2) CONTROLE NEGATIF : a houle nulle le producteur rend le plan de repos AU BIT");
 		}
 	}
 

@@ -108,6 +108,16 @@ _REGISTRY: dict = {
     "NKSL"           : _m("NKENTSEU_NKSL",         ["NKPlatform", "NKCore", "NKMemory", "NKContainers", "NKLogger", "NKMath", "NKThreading", "NKFileSystem"]),
     "NKRHI"          : _m("NKENTSEU_RHI",          ["NKPlatform", "NKCore", "NKMemory", "NKContainers", "NKLogger", "NKMath", "NKEvent", "NKWindow", "NKFileSystem", "NKSL"]),
     "NKRenderer"     : _m("NKENTSEU_RENDERER",     ["NKPlatform", "NKCore", "NKMemory", "NKContainers", "NKLogger", "NKMath", "NKTime", "NKThreading", "NKEvent", "NKWindow", "NKRHI", "NKSL", "NKImage", "NKFont", "NKFileSystem", "NKSerialization", "NKReflection", "NKAnima"]),
+    # NKVFX : les EFFETS (eau, eclaboussures, particules, fluides). Il existe
+    # parce qu'un effet doit DESSINER et, tot ou tard, RENCONTRER une geometrie --
+    # or NKRenderer ne connait ni NKCollision ni NKPhysics, et celles-ci ne
+    # connaissent pas NKRenderer : un effet qui a besoin de collision n'avait
+    # AUCUNE maison. NKVFX -> {NKRenderer, NKCollision, NKPhysics} est acyclique.
+    # ⚠️ Il ne declare AUJOURD HUI que NKRenderer : le premier effet qui y vit (le
+    # producteur d eau) est de la geometrie pure. NKCollision et NKPhysics
+    # s ajouteront quand un effet les exigera VRAIMENT -- une dependance declaree
+    # que personne n honore ferait lier tous les consommateurs pour rien.
+    "NKVFX"          : _m("NKENTSEU_VFX",          ["NKPlatform", "NKCore", "NKMemory", "NKContainers", "NKLogger", "NKMath", "NKRenderer"]),
     "NKImage"        : _m("NKENTSEU_IMAGE",        ["NKPlatform", "NKCore", "NKMemory", "NKContainers", "NKLogger", "NKMath", "NKFileSystem"]),
     "NKMedia"        : _m("NKENTSEU_MEDIA",        ["NKPlatform", "NKCore", "NKMemory", "NKContainers", "NKMath", "NKLogger", "NKStream", "NKFileSystem", "NKImage", "NKThreading"]),
     "NKFont"         : _m("NKENTSEU_FONT",         ["NKPlatform", "NKCore", "NKMemory", "NKContainers", "NKLogger", "NKMath", "NKImage"]),
