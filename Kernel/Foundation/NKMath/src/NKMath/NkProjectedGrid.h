@@ -163,18 +163,34 @@
 // Trois critères sur quatre sont donc tenus, et la vue rasante passe sous les
 // seuils sur les deux qu'elle violait.
 //
-// 🔴 MAIS LA STABILITÉ EST DÉTRUITE, et c'était le risque annoncé. Le glissement
-// d'une image à l'autre, sur la vue rasante, vaut 14,99 mailles pour 1° de
-// rotation contre 0,0357 pour 0,25° : RAPPORT 419,79, là où un déplacement
-// continu vaudrait 4,00. La cause est le caractère BINAIRE du test — un point
-// change de camp quand la caméra tourne, il entre ou sort de l'étendue, la boîte
-// saute, et tous les sommets sautent avec elle. (x20) le démontre en comptant les
-// égarés à plusieurs angles.
+// LA PREMIÈRE VERSION, BINAIRE, A DÉTRUIT LA STABILITÉ — et c'est écrit plutôt
+// qu'effacé, parce que c'est ce défaut qui a dicté la forme du correctif. Un
+// point changeait de camp quand la caméra tournait : glissement 14,99 mailles
+// pour 1° contre 0,0357 pour 0,25°, RAPPORT 419,79 pour 4,00 attendu. Ce n'était
+// pas une mauvaise constante, c'était une FONCTION DISCONTINUE là où la caméra
+// la traverse — un booléen ne peut produire que ça.
 //
-// Le seuil n'a pas été lissé pour sauver le résultat : (x10) et (x19d) restent
-// ROUGES. Un retrait qui répare trois nombres en cassant le quatrième n'est pas
-// fini — et le dire vaut mieux que d'échanger un défaut mesuré contre un défaut
-// visible, qui est précisément celui que l'œil de Rodolf verrait en premier.
+// ── LE RABATTEMENT CONTINU, ET CE QU'IL RÈGLE ──────────────────────────────
+// Le point égaré n'est plus SUPPRIMÉ, il est RABATTU vers le barycentre des
+// points de confiance d'une fraction `t` qui vaut 0 au seuil et 1 bien au-delà.
+// Au franchissement, `t = 0` : le point contribue exactement sa position, et
+// rien ne saute. Mesuré, sans toucher au témoin :
+//        stabilité   419,79  →  4,00   (pont 3,99, sous l'eau 4,00)
+//        gâchis       0,20   →  0,20   — le gain est conservé
+//        pas écran   ×1,08   → ×1,08   — conservé aussi
+//        couverture   1,00 partout, structurellement : rien n'est jamais retiré.
+// Les trois poses sont mesurées sur 272 sommets comparés chacune.
+//
+// ⚠️ PAS D'HYSTÉRÉSIS, et le refus est motivé : deux seuils auraient introduit un
+// état d'une image à la suivante, alors que toute la valeur de la grille projetée
+// est de se reconstruire depuis la seule caméra, SANS MÉMOIRE. On y perdrait le
+// déterminisme et la reproductibilité du banc, et le saut ne disparaîtrait pas —
+// il se déplacerait sur le second seuil.
+//
+// ET LE REPLI A CESSÉ DE SERVIR : `retraitAbandonne` ne se lève plus sur aucune
+// des trois poses. Les deux « stabilité 0,00 » d'avant n'étaient pas de la
+// stabilité mais une ABSENCE DE MESURE — zéro sommet comparable, la boîte
+// réduite ayant dégénéré. Le mélange ne l'effondre plus : 0 comparaison → 272.
 //
 // ── LE CAS DÉGÉNÉRÉ, DIT PLUTÔT QUE MASQUÉ ──────────────────────────────────
 // Quand un point retenu est DERRIÈRE la caméra (w <= 0), son image projective
@@ -242,6 +258,13 @@ namespace nkentseu {
 				// passer le gâchis de 0,90 à 0,12 ET le pas d'écran de ×2,50 à ×1,02.
 				// Commutable pour que l'état d'avant reste REPRODUCTIBLE.
 				bool retraitEgares = true;
+				// Sur quelle épaisseur de NDC le retrait MONTE EN PUISSANCE. Un point
+				// exactement au seuil de visibilité n'est pas retiré du tout ; un point
+				// à `retraitMarge` au-delà l'est entièrement. C'est ce qui rend le
+				// retrait CONTINU au franchissement — et donc le glissement à nouveau
+				// proportionnel à l'angle. À zéro, on retrouve le test binaire et son
+				// saut ; le paramètre a donc un effet mesurable des deux côtés.
+				float32 retraitMarge = 0.25f;
 		};
 
 		struct NkProjectedGrid {
@@ -305,6 +328,11 @@ namespace nkentseu {
 				// de rendu ne voit pas. Exposé pour qu'un instrument puisse refaire le
 				// classement de son côté et le comparer à celui-ci.
 				bool ndcEgare[40];
+				// De combien ce point a été RABATTU vers la zone de confiance : 0 = pas
+				// du tout (il est visible, ou juste au seuil), 1 = entièrement. C'est la
+				// grandeur CONTINUE qui a remplacé le booléen, et l'exposer permet de
+				// vérifier qu'elle varie sans saut quand la caméra tourne.
+				float32 retraitT[40];
 				uint32 ndcCount = 0u;
 				// Vrai = le retrait a effectivement rétréci l'étendue.
 				bool retraitApplique = false;
@@ -377,6 +405,30 @@ namespace nkentseu {
 			const NkVec3f m = a + d * t;
 			const float32 dx = m.x - eye.x, dz = m.z - eye.z;
 			return (dx * dx + dz * dz) <= distMax * distMax;
+		}
+
+		// DE COMBIEN cette position au sol est-elle dans l'écran du rendu ? Positif =
+		// dedans, négatif = dehors, ZÉRO exactement au bord. C'est la version
+		// CONTINUE de la question que posait `NkEauVueAuSol`, et c'est elle qui rend
+		// le retrait continu : un booléen ne peut que sauter au franchissement, une
+		// marge signée permet de rabattre d'une quantité qui tend vers zéro au seuil.
+		// On garde la meilleure des trois hauteurs : c'est celle qui décide si la
+		// houle peut rendre ce point visible.
+		NK_FORCE_INLINE float32 NkMargeEauVue(const NkMat4f &viewProj, float32 baseY,
+											  float32 dispMax, float32 x, float32 z) noexcept {
+			const float32 hauteurs[3] = {baseY, baseY + dispMax, baseY - dispMax};
+			float32 best = -1e30f;
+			for (uint32 h = 0; h < 3u; ++h) {
+				const NkVec4f q = viewProj * NkVec4f(x, hauteurs[h], z, 1.f);
+				if (q.w <= 1e-6f)
+					continue; // derrière la caméra : aussi loin dehors que possible
+				const float32 iw = 1.f / q.w;
+				const float32 nx = q.x * iw, ny = q.y * iw;
+				const float32 m = NkMin(1.f - NkFabs(nx), 1.f - NkFabs(ny));
+				if (m > best)
+					best = m;
+			}
+			return best;
 		}
 
 		// La caméra de RENDU voit-elle de l'eau à cette position au sol ? On essaie les
@@ -560,11 +612,10 @@ namespace nkentseu {
 
 			// 4. rabattus sur le plan de repos, puis ramenés dans l'écran DE PORTÉE.
 			// DEUX étendues sont accumulées : la COMPLÈTE, sur tous les points, et la
-			// RETRAITÉE, sur les seuls points dont la position rabattue est de l'eau que
-			// la caméra de rendu voit vraiment.
+			// RETRAITÉE, où chaque point est rabattu vers la zone de confiance d'une
+			// quantité CONTINUE.
 			float32 mnx = 1e30f, mxx = -1e30f, mny = 1e30f, mxy = -1e30f;
-			float32 rnx = 1e30f, rxx = -1e30f, rny = 1e30f, rxy = -1e30f;
-			uint32 gardes = 0u;
+			float32 poidsTotal = 0.f, cx = 0.f, cy = 0.f;
 			bool borne = true;
 			for (uint32 i = 0; i < n; ++i) {
 				const NkVec4f q = rangeVP * NkVec4f(pts[i].x, p.baseY, pts[i].z, 1.f);
@@ -588,46 +639,75 @@ namespace nkentseu {
 				if (ny > mxy)
 					mxy = ny;
 
-				// L'ÉGARÉ se juge sur la position RABATTUE, avec la caméra de RENDU :
+				// L'ÉGAREMENT se juge sur la position RABATTUE, avec la caméra de RENDU :
 				// c'est elle qui décide de ce qu'on voit, et l'écrasement a déjà eu lieu.
 				// On juge donc le point tel qu'il SERA utilisé, pas tel qu'il était.
-				const bool egare =
-					!NkEauVueAuSol(viewProj, p.baseY, p.displacementMax, pts[i].x, pts[i].z);
-				g.ndcEgare[i] = egare;
-				if (!egare) {
-					++gardes;
-					if (nx < rnx)
-						rnx = nx;
-					if (nx > rxx)
-						rxx = nx;
-					if (ny < rny)
-						rny = ny;
-					if (ny > rxy)
-						rxy = ny;
-				}
+				//
+				// ⚠️ ET IL SE MESURE, IL NE SE DÉCIDE PAS. La version booléenne de ce
+				// test a détruit la stabilité : rapport 419,79 pour 4,00 attendu, parce
+				// qu'un point changeait de camp d'une image à l'autre et que la boîte
+				// sautait avec lui. Ici la marge signée donne un poids continu.
+				const float32 marge =
+					NkMargeEauVue(viewProj, p.baseY, p.displacementMax, pts[i].x, pts[i].z);
+				const float32 echelle = NkMax(p.retraitMarge, 1e-4f);
+				float32 t = p.retraitEgares ? (-marge / echelle) : 0.f;
+				t = NkClamp(t, 0.f, 1.f);
+				g.retraitT[i] = t;
+				g.ndcEgare[i] = (t > 0.5f);
+				const float32 poids = 1.f - t;
+				poidsTotal += poids;
+				cx += poids * nx;
+				cy += poids * ny;
 			}
 			g.ndcCount = borne ? n : 0u; // le repli plein écran ne dérive d'aucun nuage
 
-			// LE RETRAIT, ET CE QU'IL FAIT QUAND IL NE RESTE RIEN.
+			// LE RETRAIT, EN DEUXIÈME PASSE — ET IL NE RETIRE RIEN.
 			//
-			// ⚠️ IL PEUT NE PAS RESTER DE QUOI FORMER UNE ÉTENDUE, et ce n'est pas une
-			// crainte théorique : mesuré sur la vue de pont, 6 points sur 8 sont égarés
-			// et les 2 survivants partagent la même hauteur en NDC — la boîte est plate.
-			// REFUSER là serait effacer l'océan d'une vue qui marche parfaitement
-			// (couverture 1,00, gâchis 0,17), et la couverture est le critère qui ne se
-			// négocie pas. Le retrait s'applique donc où il peut et DÉCLARE où il ne
-			// peut pas : on retombe sur l'étendue complète et `retraitAbandonne` le dit.
-			// Un repli tu serait une compensation ; un repli déclaré est un comportement.
-			if (borne && p.retraitEgares) {
-				if (gardes >= 2u && rxx > rnx && rxy > rny) {
+			// Chaque point est RABATTU vers le barycentre des points de confiance, d'une
+			// fraction `t` qui vaut 0 au seuil de visibilité et 1 bien au-delà. Au
+			// franchissement, `t` vaut zéro : le point contribue alors EXACTEMENT sa
+			// position, et rien ne saute. C'est toute la différence avec le booléen.
+			//
+			// ⚠️ PAS D'HYSTÉRÉSIS, ET C'EST DÉLIBÉRÉ. Deux seuils auraient introduit un
+			// état d'une image à la suivante — or la grille projetée vaut précisément
+			// parce qu'elle se reconstruit depuis la seule caméra, SANS MÉMOIRE. On y
+			// perdrait le déterminisme et la reproductibilité du banc, et le saut ne
+			// disparaîtrait pas : il se déplacerait sur le second seuil.
+			//
+			// Rien n'étant jamais réellement retiré, la COUVERTURE est structurellement
+			// préservée : un point rabattu reste dans l'étendue, il cesse seulement de
+			// l'étirer vers ce que personne ne regarde.
+			if (borne && p.retraitEgares && poidsTotal > 1e-4f) {
+				cx /= poidsTotal;
+				cy /= poidsTotal;
+				float32 rnx = 1e30f, rxx = -1e30f, rny = 1e30f, rxy = -1e30f;
+				for (uint32 i = 0; i < n; ++i) {
+					const float32 t = g.retraitT[i];
+					const float32 px = g.ndcX[i] + (cx - g.ndcX[i]) * t;
+					const float32 py = g.ndcY[i] + (cy - g.ndcY[i]) * t;
+					if (px < rnx)
+						rnx = px;
+					if (px > rxx)
+						rxx = px;
+					if (py < rny)
+						rny = py;
+					if (py > rxy)
+						rxy = py;
+				}
+				if (rxx > rnx && rxy > rny) {
 					mnx = rnx;
 					mxx = rxx;
 					mny = rny;
 					mxy = rxy;
 					g.retraitApplique = true;
 				} else {
+					// Tous les points se sont effondrés sur le barycentre : il n'y a plus
+					// d'étendue. On garde la COMPLÈTE et on le DIT plutôt que de refuser,
+					// parce que refuser effacerait l'océan d'une vue qui marche.
 					g.retraitAbandonne = true;
 				}
+			} else if (borne && p.retraitEgares) {
+				g.retraitAbandonne = true;
 			}
 
 			const float32 b = p.edgeBias;
