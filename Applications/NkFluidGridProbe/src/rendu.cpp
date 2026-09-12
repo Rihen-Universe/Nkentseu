@@ -324,9 +324,19 @@ void PalierRendu() {
 		const float32 gch = OpaciteMoyenne(img, rp.width, bp.x0, bp.x0 + w, y0, y1, bg, nG);
 		const float32 dr = OpaciteMoyenne(img, rp.width, bp.x1 - w, bp.x1, y0, y1, bg, nD);
 		const float32 cote = (gch > dr) ? gch : dr;
+		// ⚠️ UN PLAFOND N'EST PAS UNE MESURE. Quand les deux bords sont EXACTEMENT a
+		// 0,00 -- ce qui arrive depuis la bascule MAC -- le rapport est INFINI, et
+		// l'imprimer « 999.00 » fabriquerait un nombre que quelqu'un comparerait un
+		// jour a 850,00 en croyant avoir mesure une baisse. On imprime donc la
+		// SATURATION COMME SATURATION.
+		char rap[40];
+		if (cote > 0.f)
+			snprintf(rap, sizeof(rap), "%.2f", (double)(c / cote));
+		else
+			snprintf(rap, sizeof(rap), "SATURE (bords a 0,00 : rapport infini)");
 		snprintf(buf, sizeof(buf),
-				 "centre %.2f (%u px) contre bord gauche %.2f (%u px) et bord droit %.2f (%u px) — rapport %.2f (critere > 1,5)",
-				 (double)c, nC, (double)gch, nG, (double)dr, nD, (double)((cote > 0.f) ? c / cote : 999.f));
+				 "centre %.2f (%u px) contre bord gauche %.2f (%u px) et bord droit %.2f (%u px) — rapport %s (critere > 1,5)",
+				 (double)c, nC, (double)gch, nG, (double)dr, nD, rap);
 		ProbeCheck(c > 1.5f * cote, "(2.1) la colonne est PLUS DENSE AU CENTRE", buf);
 	}
 
@@ -340,8 +350,14 @@ void PalierRendu() {
 		uint32 nB = 0, nH = 0;
 		const float32 basse = OpaciteMoyenne(img, rp.width, x0, x1, bp.y1 - bh / 4, bp.y1, bg, nB);
 		const float32 haute = OpaciteMoyenne(img, rp.width, x0, x1, bp.y0, bp.y0 + bh / 4, bg, nH);
-		snprintf(buf, sizeof(buf), "bande basse %.2f (%u px) contre bande haute %.2f (%u px) — rapport %.2f",
-				 (double)basse, nB, (double)haute, nH, (double)((haute > 0.f) ? basse / haute : 999.f));
+		// Meme regle qu'en (2.1) : une saturation s'imprime comme une saturation.
+		char rap2[40];
+		if (haute > 0.f)
+			snprintf(rap2, sizeof(rap2), "%.2f", (double)(basse / haute));
+		else
+			snprintf(rap2, sizeof(rap2), "SATURE (bande haute a 0,00)");
+		snprintf(buf, sizeof(buf), "bande basse %.2f (%u px) contre bande haute %.2f (%u px) — rapport %s",
+				 (double)basse, nB, (double)haute, nH, rap2);
 		ProbeCheck(basse > haute, "(2.2) elle S'ATTENUE EN S'ELEVANT", buf);
 	}
 

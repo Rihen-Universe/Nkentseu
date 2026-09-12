@@ -318,8 +318,129 @@ namespace nkentseu {
 					}
 		}
 
+		// =====================================================================
+		// ADVECTION CONSERVATIVE EN FLUX — donor-cell (décentrement amont), ordre 1.
+		// Courant, Isaacson & Rees 1952 ; cadre : Lentine, Aanjaneya & Fedkiw, SCA 2011.
+		//
+		// LE PRINCIPE, et c'est lui seul qui fait la conservation : on ne demande
+		// plus « d'où vient ce qui arrive ici ? » — la question du semi-lagrangien,
+		// qui n'a AUCUN bilan — mais « combien traverse CETTE FACE ? ». Un flux est
+		// calculé UNE fois par face, RETRANCHÉ à la cellule amont et AJOUTÉ à la
+		// cellule aval : la somme sur l'intérieur est donc conservée par
+		// construction, au bit près. C'est ce qui exige la grille DÉCALÉE.
+		//
+		// Les faces de PAROI ne sont jamais parcourues et portent u = 0 : rien ne
+		// peut quitter le domaine, ce que la garde de (f1) vérifie.
+		//
+		// ⚠️ Tous les flux sont calculés depuis `src` — l'état au DÉBUT du sous-pas
+		// — et jamais depuis `dst` en cours de modification : sinon le schéma
+		// cesserait d'être explicite, et l'ordre de parcours changerait le résultat.
+		// =====================================================================
+		void NkFluidGrid::AdvectFluxUnePasse(NkVector<float32> &dst, const NkVector<float32> &src, float32 dt,
+											 int32 bnd) {
+			const float32 dt0 = dt / mParams.cellSize; // pas en CELLULES
+			const uint32 sy = mNx + 2;
+			const uint32 sz = (mNx + 2) * (mNy + 2);
+
+			for (uint32 i = 0; i < mCount; ++i)
+				dst[i] = src[i];
+
+			// Faces x INTERNES : la face i sépare les cellules i-1 et i.
+			for (uint32 k = 1; k <= mNz; ++k)
+				for (uint32 j = 1; j <= mNy; ++j)
+					for (uint32 i = 2; i <= mNx; ++i) {
+						const uint32 id = Idx(i, j, k);
+						const float32 u = mU[id];
+						// DÉCENTREMENT AMONT : le donneur est la cellule d'où le
+						// fluide VIENT. C'est ce qui rend le schéma borné — il ne
+						// fabrique jamais une valeur qui n'existait pas.
+						const float32 phi = (u > 0.f) ? src[id - 1] : src[id];
+						const float32 F = u * dt0 * phi;
+						dst[id - 1] -= F;
+						dst[id] += F;
+					}
+			// Faces y INTERNES
+			for (uint32 k = 1; k <= mNz; ++k)
+				for (uint32 j = 2; j <= mNy; ++j)
+					for (uint32 i = 1; i <= mNx; ++i) {
+						const uint32 id = Idx(i, j, k);
+						const float32 v = mV[id];
+						const float32 phi = (v > 0.f) ? src[id - sy] : src[id];
+						const float32 F = v * dt0 * phi;
+						dst[id - sy] -= F;
+						dst[id] += F;
+					}
+			// Faces z INTERNES
+			for (uint32 k = 2; k <= mNz; ++k)
+				for (uint32 j = 1; j <= mNy; ++j)
+					for (uint32 i = 1; i <= mNx; ++i) {
+						const uint32 id = Idx(i, j, k);
+						const float32 w = mW[id];
+						const float32 phi = (w > 0.f) ? src[id - sz] : src[id];
+						const float32 F = w * dt0 * phi;
+						dst[id - sz] -= F;
+						dst[id] += F;
+					}
+			SetBoundary(bnd, dst);
+		}
+
+		// Le nombre de Courant MAXIMAL vu sur l'intérieur, pour le pas `dt`.
+		// Sur grille décalée la condition porte sur les vitesses de FACE : on prend,
+		// par axe, la plus grande des deux faces de la cellule, et on somme les trois
+		// axes — c'est la forme 3D NON-SPLITTÉE du critère, celle que ce schéma exige.
+		float32 NkFluidGrid::MaxCFL(float32 dt) const {
+			const float32 dt0 = dt / mParams.cellSize;
+			const uint32 sy = mNx + 2;
+			const uint32 sz = (mNx + 2) * (mNy + 2);
+			float32 mx = 0.f;
+			for (uint32 k = 1; k <= mNz; ++k)
+				for (uint32 j = 1; j <= mNy; ++j)
+					for (uint32 i = 1; i <= mNx; ++i) {
+						const uint32 id = Idx(i, j, k);
+						const float32 au = NkMax(NkAbs(mU[id]), NkAbs(mU[id + 1]));
+						const float32 av = NkMax(NkAbs(mV[id]), NkAbs(mV[id + sy]));
+						const float32 aw = NkMax(NkAbs(mW[id]), NkAbs(mW[id + sz]));
+						const float32 c = (au + av + aw) * dt0;
+						if (c > mx)
+							mx = c;
+					}
+			return mx;
+		}
+
+		// SOUS-CYCLAGE — ce n'est PAS un contournement, c'est ce que le schéma EXIGE.
+		// Un schéma conditionnellement stable qu'on fait tourner hors de sa condition
+		// ne « marche presque » pas : il DIVERGE. On découpe donc le pas en sous-pas
+		// qui respectent le CFL.
+		//
+		// ⚠️ SEULS LES SCALAIRES sont sous-cyclés, et on NE RE-PROJETTE PAS entre les
+		// sous-pas : la vitesse ne change pas dans l'intervalle, la projection n'a
+		// donc rien à refaire — et c'est ce qui garde le coût borné.
+		void NkFluidGrid::AdvectScalarFlux(NkVector<float32> &dst, const NkVector<float32> &src, float32 dt,
+										   int32 bnd) {
+			const uint32 n = (mStats.advectSubsteps > 0) ? mStats.advectSubsteps : 1u;
+			if (n == 1) {
+				AdvectFluxUnePasse(dst, src, dt, bnd);
+				return;
+			}
+			const float32 dts = dt / (float32)n;
+			AdvectFluxUnePasse(dst, src, dts, bnd);
+			for (uint32 s = 1; s < n; ++s) {
+				AdvectFluxUnePasse(mScratchA, dst, dts, bnd);
+				for (uint32 i = 0; i < mCount; ++i)
+					dst[i] = mScratchA[i];
+			}
+		}
+
 		// Advection d'un scalaire : semi-lagrangien seul, ou corrige MacCormack.
 		void NkFluidGrid::AdvectScalar(NkVector<float32> &dst, const NkVector<float32> &src, float32 dt, int32 bnd) {
+			// L'advection CONSERVATIVE EN FLUX passe devant : c'est un AUTRE schéma,
+			// pas une correction du semi-lagrangien, et MacCormack ne s'y applique
+			// pas. On mesure le PREMIER ORDRE NU avant tout limiteur (§ 2 du plan) —
+			// sinon on ne saurait jamais ce que le limiteur a rendu.
+			if (mParams.advectFluxConservative) {
+				AdvectScalarFlux(dst, src, dt, bnd);
+				return;
+			}
 			if (!mParams.advectMacCormack) {
 				AdvectSemiLagrangien(dst, src, dt, bnd, 1.f);
 				return;
@@ -1204,6 +1325,32 @@ namespace nkentseu {
 
 			MeasureDivergence(mStats.divAfterMean, mStats.divAfterMax, false);
 			MeasureDivergence(mStats.divAfterMeanStrict, mStats.divAfterMaxStrict, true);
+
+			// LE NOMBRE DE COURANT ET LE SOUS-CYCLAGE — calculés ICI, APRÈS la
+			// projection, parce que c'est le champ de vitesse FINAL qui transporte
+			// les scalaires. Le semi-lagrangien étant inconditionnellement stable,
+			// ces deux chiffres ne gouvernent que le schéma en FLUX ; on les publie
+			// toujours, parce qu'un CFL qu'on ne regarde pas est exactement ce qui
+			// fait diverger un schéma explicite sans prévenir.
+			mStats.advectCFL = MaxCFL(dt);
+			mStats.advectSubsteps = 1;
+			mStats.advectSubstepCapHit = false;
+			if (mParams.advectFluxConservative) {
+				const float32 cible = (mParams.advectCFLTarget > 0.f) ? mParams.advectCFLTarget : 0.9f;
+				if (mStats.advectCFL > cible) {
+					uint32 ni = (uint32)NkCeil(mStats.advectCFL / cible);
+					if (ni < 1u)
+						ni = 1u;
+					const uint32 cap = (mParams.advectMaxSubsteps > 0) ? mParams.advectMaxSubsteps : 1u;
+					if (ni > cap) {
+						ni = cap;
+						// La borne mord : le pas ne respecte PLUS le CFL. On le DIT
+						// plutôt que de laisser le schéma diverger en silence.
+						mStats.advectSubstepCapHit = true;
+					}
+					mStats.advectSubsteps = ni;
+				}
+			}
 
 			if (mParams.advectionEnabled) {
 				AdvectScalar(mDensity0, mDensity, dt, 0);

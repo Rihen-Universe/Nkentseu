@@ -151,38 +151,120 @@ static void ControleConservation() {
 
 	const float32 dt = 1.f / 120.f;
 	const uint32 pas = 200;
-	float32 divMax = 0.f, paroiMax = 0.f;
+
+	// ── COURSE 1 : LE SEMI-LAGRANGIEN, publié comme RÉFÉRENCE ───────────────
+	// Elle ne rend AUCUN verdict : elle dit d'où l'on part. Et elle tourne dans la
+	// MÊME course du banc que le verdict — un chiffre et ce à quoi on le compare ne
+	// valent que s'ils viennent du même endroit.
+	float32 divS = 0.f, paroiS = 0.f;
 	for (uint32 s = 0; s < pas; ++s) {
 		// Le champ est RÉ-IMPOSÉ à chaque pas : l'advection de la vitesse le
 		// perturberait sinon, et on mesurerait sa dérive au lieu de mesurer le
 		// bilan de masse. (Les parois restent étanches dans tous les cas.)
 		PoserChampSansDivergence(g, p);
 		g.Step(dt);
-		if (g.Stats().divAfterMean > divMax)
-			divMax = g.Stats().divAfterMean;
+		if (g.Stats().divAfterMean > divS)
+			divS = g.Stats().divAfterMean;
 		const float32 paroi = g.WallLayerMass();
-		if (paroi > paroiMax)
-			paroiMax = paroi;
+		if (paroi > paroiS)
+			paroiS = paroi;
 	}
-	const float32 masse1 = g.TotalMass();
-	const float32 derive = (masse0 > 0.f) ? ProbeAbs(masse1 - masse0) / masse0 : 1.f;
+	const float32 deriveSemi = (masse0 > 0.f) ? ProbeAbs(g.TotalMass() - masse0) / masse0 : 1.f;
+
+	// ── COURSE 2 : LE SCHÉMA EN FLUX — c'est LUI qui est jugé ───────────────
+	NkFluidGridParams q = p;
+	q.advectFluxConservative = true;
+	NkFluidGrid gf;
+	if (!gf.Init(q)) {
+		ProbeCheck(false, "(f1) Init de la grille en flux", "Init a rendu false");
+		return;
+	}
+	gf.EmitSphere({0.2f, 0.2f, 0.2f}, 0.06f, 1.f, 0.f, 0.f);
+	const float32 masseF0 = gf.TotalMass();
+
+	// On garde le champ INITIAL : sans lui, impossible de savoir si le champ a
+	// seulement BOUGÉ — et une masse conservée parce que RIEN n'a été transporté
+	// serait le pire des verts (voir la garde (f1b) plus bas).
+	const uint32 totalF = gf.Stats().cellsTotal;
+	NkVector<float32> dInit;
+	dInit.Resize(totalF, 0.f);
+	{
+		const float32 *d0 = gf.Density();
+		for (uint32 i = 0; i < totalF; ++i)
+			dInit[i] = d0[i];
+	}
+
+	float32 divF = 0.f, paroiF = 0.f, cflF = 0.f;
+	uint32 sousPasF = 0;
+	bool capF = false;
+	for (uint32 s = 0; s < pas; ++s) {
+		PoserChampSansDivergence(gf, q);
+		gf.Step(dt);
+		if (gf.Stats().divAfterMean > divF)
+			divF = gf.Stats().divAfterMean;
+		const float32 paroi = gf.WallLayerMass();
+		if (paroi > paroiF)
+			paroiF = paroi;
+		if (gf.Stats().advectCFL > cflF)
+			cflF = gf.Stats().advectCFL;
+		if (gf.Stats().advectSubsteps > sousPasF)
+			sousPasF = gf.Stats().advectSubsteps;
+		if (gf.Stats().advectSubstepCapHit)
+			capF = true;
+	}
+	const float32 masseF1 = gf.TotalMass();
+	const float32 deriveFlux = (masseF0 > 0.f) ? ProbeAbs(masseF1 - masseF0) / masseF0 : 1.f;
+
+	// ── (f1b) GARDE : LE CHAMP A-T-IL SEULEMENT BOUGÉ ? ─────────────────────
+	// ⚠️ Sans elle, (f1) serait VERT pour la pire des raisons : une masse conservée
+	// parce que RIEN n'a été transporté. C'est le piège du cas Z du banc — « vitesse
+	// nulle -> masse conservée » ne prouve que « rien ne bouge ». Et ce montage-ci
+	// l'aggrave : le centre du tourbillon est un point STATIONNAIRE de la fonction
+	// de courant, et c'est justement là que la bulle est posée.
+	// On mesure donc la variation L1 du champ, rapportée à la masse : la part de la
+	// masse qui a CHANGÉ DE PLACE. Si elle est nulle, (f1) est HORS SUJET.
+	{
+		float64 l1 = 0.0;
+		const float32 *dfin = gf.Density();
+		for (uint32 k = 1; k <= gf.Nz(); ++k)
+			for (uint32 j = 1; j <= gf.Ny(); ++j)
+				for (uint32 i = 1; i <= gf.Nx(); ++i) {
+					const uint32 id = gf.Idx(i, j, k);
+					l1 += (float64)ProbeAbs(dfin[id] - dInit[id]);
+				}
+		const float32 h3 = gf.CellSize() * gf.CellSize() * gf.CellSize();
+		const float32 bouge = (masseF0 > 0.f) ? (float32)(l1 * (float64)h3) / masseF0 : 0.f;
+		snprintf(buf, sizeof(buf),
+				 "variation L1 du champ = %.2f %% de la masse initiale (exigé > 5 %%) — sans cette garde, "
+				 "« la masse se conserve » serait VRAI d'un schéma qui ne transporte RIEN, et (f1) serait "
+				 "vert pour la pire des raisons",
+				 (double)(bouge * 100.f));
+		ProbeCheck(bouge > 0.05f, "(f1b) GARDE : le champ a réellement été TRANSPORTÉ", buf);
+	}
+
+	printf("    RÉFÉRENCE (aucun verdict) — semi-lagrangien sur le MÊME montage : dérive %.3e ;\n"
+		   "    |div|*h max %.3e m/s ; masse paroi %.3e\n",
+		   (double)deriveSemi, (double)divS, (double)paroiS);
 
 	snprintf(buf, sizeof(buf),
-			 "masse %.9f -> %.9f, dérive relative %.3e sur %u pas (seuil %.0e) ; |div|*h max APRÈS "
-			 "advection de la vitesse %.3e m/s (le champ POSÉ, lui, est à divergence nulle — c'est la "
-			 "GARDE ci-dessus qui le mesure) ; masse touchant la paroi %.3e (elle ne peut pas SORTIR : u.n = 0)",
-			 (double)masse0, (double)masse1, (double)derive, pas, (double)kSeuilDerive, (double)divMax,
-			 (double)paroiMax);
-	ProbeCheck(derive < kSeuilDerive, "(f1) la masse se conserve à l'epsilon machine", buf);
+			 "masse %.9f -> %.9f, dérive relative %.3e sur %u pas (seuil %.0e) ; CFL max %.3f, %u sous-pas%s ; "
+			 "|div|*h max APRÈS advection de la vitesse %.3e m/s (le champ POSÉ est à divergence nulle — "
+			 "c'est la GARDE ci-dessus) ; masse paroi %.3e ; le SEMI-LAGRANGIEN, lui, dérive de %.3e",
+			 (double)masseF0, (double)masseF1, (double)deriveFlux, pas, (double)kSeuilDerive, (double)cflF,
+			 sousPasF, capF ? " (BORNE ATTEINTE)" : "", (double)divF, (double)paroiF, (double)deriveSemi);
+	ProbeCheck(deriveFlux < kSeuilDerive, "(f1) la masse se conserve à l'epsilon machine", buf);
 }
 
 // =============================================================================
 void PalierAdvectionFlux() {
 	printf("\n=== (f) ADVECTION CONSERVATIVE EN FLUX — Lentine, Aanjaneya & Fedkiw, SCA 2011 ===\n");
-	printf("    ⚠️ (f1) est ROUGE tant que l'advection reste SEMI-LAGRANGIENNE : elle n'a aucun\n");
-	printf("    bilan, son interpolation redistribue sans vérifier que ce qui part arrive.\n");
-	printf("    Un schéma en FLUX est conservatif PAR CONSTRUCTION — il doit donc verdir au\n");
-	printf("    PREMIER jet, sinon le portage est faux. Voir PLAN_ADVECTION_FLUX.md, § 1.\n");
+	printf("    (f1) juge le schéma en FLUX. Sur le MÊME montage et dans la MÊME course, le\n");
+	printf("    semi-lagrangien est publié comme RÉFÉRENCE et ne rend aucun verdict : il n'a\n");
+	printf("    AUCUN bilan — son interpolation redistribue sans vérifier que ce qui part d'une\n");
+	printf("    cellule arrive dans une autre — et il dérivait de 1,132e-01 le 12/09, quand le\n");
+	printf("    schéma en flux n'existait pas encore. Un schéma en FLUX est conservatif PAR\n");
+	printf("    CONSTRUCTION : il doit verdir au PREMIER jet, sinon le portage est faux.\n");
+	printf("    Voir PLAN_ADVECTION_FLUX.md, § 1.\n");
 
 	ControleConservation();
 }
