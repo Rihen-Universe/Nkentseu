@@ -178,10 +178,16 @@ namespace nkuidesign {
 					NkGuiComponentPaint::TextHex(r, s, rgba, roleRepli, align, px, graisse);
 					return;
 				}
-				const nkentseu::nkgui::NkColor col = {(uint8)((rgba >> 24) & 0xFFu),
-													  (uint8)((rgba >> 16) & 0xFFu),
-													  (uint8)((rgba >> 8) & 0xFFu),
-													  (uint8)(rgba & 0xFFu)};
+				// ⚠️ LE SEUL SITE DE COULEUR HORS DU KIT : ce peintre-ci choisit son atlas et
+				//    construit sa couleur lui-meme, donc `Unpack` ne le couvre pas. La teinte
+				//    s'y applique par la MEME porte (`Teinter`), sinon le texte d'un bouton
+				//    teinte resterait seul a sa couleur d'origine. (Le chemin de repli, lui,
+				//    retombe sur `Text(role)` donc sur `Unpack` : il est deja couvert.)
+				const uint32 rgbaT = Teinter(rgba);
+				const nkentseu::nkgui::NkColor col = {(uint8)((rgbaT >> 24) & 0xFFu),
+															  (uint8)((rgbaT >> 16) & 0xFFu),
+															  (uint8)((rgbaT >> 8) & 0xFFu),
+															  (uint8)(rgbaT & 0xFFu)};
 				const float32 largeur = f->MeasureWidth(s) * echelle;
 				float32 tx = r.x;
 				if (align == nkentseu::editorkit::NkTextAlign::Center)

@@ -336,7 +336,10 @@ namespace nkentseu {
 					c.h = r.h;
 					c.role = role;
 					c.role2 = role2;
-					c.rgba = rgba;
+					// ⚠️ LE POINT UNIQUE DE COULEUR DE CE PEINTRE : toutes les ops passent par
+					//    `Push`. La teinte s'y applique, donc LE BANC VOIT ce que l'ecran voit --
+					//    un temoin qui ne verrait pas la teinte ne pourrait pas la prouver.
+					c.rgba = Teinter(rgba);
 					c.rounding = rounding;
 					c.icon = icon;
 					c.align = align;

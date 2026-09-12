@@ -332,10 +332,9 @@ namespace nkentseu {
 				bool PolygonHexBrut(const float32 *xy, int32 count, uint32 rgba) {
 					if (!xy || count < 3)
 						return false;
-					const nkgui::NkColor col = {(uint8)((rgba >> 24) & 0xFFu),
-												(uint8)((rgba >> 16) & 0xFFu),
-												(uint8)((rgba >> 8) & 0xFFu),
-												(uint8)(rgba & 0xFFu)};
+					// ⚠️ CE CALCUL ETAIT RECOPIE ICI (12/09) : un second point de couleur,
+					//    donc une teinte qui aurait saute les degrades et les traces edites.
+					const nkgui::NkColor col = Unpack(rgba);
 					enum { kMaxPts = 128 };
 					if (count <= (int32)kMaxPts) {
 						math::NkVec2f pts[kMaxPts];
@@ -437,7 +436,11 @@ namespace nkentseu {
 						t[i] = {uv[i * 2], uv[i * 2 + 1]};
 					}
 					const float32 k = opacite < 0.f ? 0.f : (opacite > 100.f ? 1.f : opacite * 0.01f);
-					mCtx.DL().AddImagePolygon(image, p, t, count, nkgui::NkColor{255, 255, 255, (uint8)(255.f * k + 0.5f)});
+					// ⚠️ LE BLANC EST LE MULTIPLICATEUR de l'image : c'est exactement la que la
+					//    teinte d'un etat doit agir. Sans ce site, une image resterait seule
+					//    non teintee -- l'exception qu'on refuse (Unity teinte le sprite).
+					mCtx.DL().AddImagePolygon(image, p, t, count,
+												  Unpack(0xFFFFFF00u | ((uint32)(255.f * k + 0.5f) & 0xFFu)));
 					return true;
 				}
 				void PushBlend(NkPaintBlend b) override {
@@ -566,9 +569,15 @@ namespace nkentseu {
 					const float32 x = Px(r.x), y = Px(r.y);
 					return {x, y, Px(r.x + r.w) - x, Px(r.y + r.h) - y};
 				}
-				static nkgui::NkColor Unpack(uint32 c) noexcept {
-					return {(uint8)((c >> 24) & 0xFFu), (uint8)((c >> 16) & 0xFFu),
-							(uint8)((c >> 8) & 0xFFu), (uint8)(c & 0xFFu)};
+				/// ⚠️ LE POINT UNIQUE DE COULEUR DE CE PEINTRE, et c'est pour ca que la
+				///    TEINTE se pose ICI : `C(role)` y passe (onze sites), `FillColor` y
+				///    passe, et `PolygonHexBrut` y passe depuis le 12/09 -- il recopiait
+				///    ce calcul a la main, ce qui en faisait un second point de couleur.
+				/// ⚠️ NON STATIQUE DESORMAIS : elle lit la teinte de l'instance.
+				nkgui::NkColor Unpack(uint32 c) const noexcept {
+					const uint32 t = Teinter(c);
+					return {(uint8)((t >> 24) & 0xFFu), (uint8)((t >> 16) & 0xFFu),
+						(uint8)((t >> 8) & 0xFFu), (uint8)(t & 0xFFu)};
 				}
 				nkgui::NkColor C(uint16 role) const noexcept {
 					return Unpack(mTheme.Get(role));

@@ -14221,13 +14221,17 @@ namespace nkuidesign {
 				};
 				// les HUIT familles de portes ; l'identifiant d'une instance moins son numero
 				// (sans le `##` de tete : le releve coupe a `##`, la pastille note le reste)
-				static const char *const kFam[8] = {"insp.fill.pastille", "insp.bord.pastille", "insp.effet.pastille",
+				// ⚠️ LA NEUVIEME (12/09) : la TEINTE par etat. Une porte neuve DOIT se declarer
+				//    ici -- sans quoi ce cas rougit de lui-meme (« inconnue de la table »), et
+				//    c'est precisement ce qu'on lui demande de faire. Il l'a fait : dix
+				//    pastilles inconnues au premier passage, avant meme que ce lot soit fini.
+				static const char *const kFam[9] = {"insp.fill.pastille", "insp.bord.pastille", "insp.effet.pastille",
 												"insp.etat.pastille", "insp.etat.texte",   "insp.etat.bord",
-												"insp.app.texte.pastille", "insp.canvas.pastille"};
-				static const char *const kNom[8] = {"remplissage", "bordure", "effet", "etat:fond", "etat:texte",
-												"etat:bordure", "apparence:texte", "canvas"};
+												"insp.app.texte.pastille", "insp.canvas.pastille", "insp.etat.teinte"};
+				static const char *const kNom[9] = {"remplissage", "bordure", "effet", "etat:fond", "etat:texte",
+												"etat:bordure", "apparence:texte", "canvas", "etat:teinte"};
 				auto famille = [&](const char *cle) -> int32 {
-					for (int32 k = 0; k < 8; ++k) {
+					for (int32 k = 0; k < 9; ++k) {
 						const char *a = kFam[k], *b = cle;
 						while (*a && *b && *a == *b) {
 							++a;
@@ -14242,9 +14246,9 @@ namespace nkuidesign {
 					}
 					return -1;
 				};
-				uint32 instances[8] = {}, enveloppes[8] = {}, noyaux[8] = {}, autres[8] = {};
-				float32 largeur[8] = {}, hauteur[8] = {};
-				uint32 sommets[8] = {};
+				uint32 instances[9] = {}, enveloppes[9] = {}, noyaux[9] = {}, autres[9] = {};
+				float32 largeur[9] = {}, hauteur[9] = {};
+				uint32 sommets[9] = {};
 				uint32 inconnues = 0u, muettes = 0u;
 				// ── (d) OU LA VALEUR ATTERRIT (12/09) ───────────────────────────────────
 				// ⚠️ LA LARGEUR DIT QUELLE FENETRE S'OUVRE, LA HAUTEUR CE QU'ELLE RESERVE,
@@ -14261,8 +14265,9 @@ namespace nkuidesign {
 				//       une liste locale se perimerait au prochain champ ajoute -- c'est
 				//       exactement la faute du 11/09 (`couleurTexte` et `bordureCouleur`
 				//       ajoutes AILLEURS que dans le visiteur, cas 152).
-				static const char *const kChamp[8] = {"fills[]", "borders[]", "effets[]", "etat.fond",
-													  "etat.texte", "etat.bordure", "textColor", "canvas"};
+				static const char *const kChamp[9] = {"fills[]", "borders[]", "effets[]", "etat.fond",
+													  "etat.texte", "etat.bordure", "textColor", "canvas",
+													  "etat.teinte"};
 				uint32 ecrits[8] = {};
 				char fautesE[300] = {};
 				uint32 serie = 0u;
@@ -14296,6 +14301,7 @@ namespace nkuidesign {
 							note(z.apparences[j].fond, "etat.fond");
 							note(z.apparences[j].couleurTexte, "etat.texte");
 							note(z.apparences[j].bordureCouleur, "etat.bordure");
+							note(z.apparences[j].teinte, "etat.teinte");
 						}
 					}
 					const char *cd = stQ.canvasFill.couleur.Data();
@@ -14448,8 +14454,8 @@ namespace nkuidesign {
 				fermer();
 				// LE VERDICT, famille par famille
 				uint32 familles = 0u, fautes = 0u;
-				char lignes[600] = {};
-				for (int32 k = 0; k < 8; ++k) {
+				char lignes[700] = {};
+				for (int32 k = 0; k < 9; ++k) {
 					if (instances[k] > 0u)
 						++familles;
 					const bool attendueEnveloppe = true; // les HUIT, bordure comprise (11/09 nuit)
@@ -14488,18 +14494,18 @@ namespace nkuidesign {
 				// (d) CHAQUE PORTE ECRIT-ELLE DANS SON BLOC, ET NULLE PART AILLEURS ?
 				uint32 portesJustes = 0u;
 				char lignesE[300] = {};
-				for (int32 k = 0; k < 8; ++k) {
+				for (int32 k = 0; k < 9; ++k) {
 					if (instances[k] > 0u && ecrits[k] == instances[k])
 						++portesJustes;
 					const size_t le = strlen(lignesE);
 					snprintf(lignesE + le, sizeof(lignesE) - le, "%s%s %u/%u", k ? " " : "", kNom[k], ecrits[k],
 						 instances[k]);
 				}
-				const bool ecritures = portesJustes == 8u;
+				const bool ecritures = portesJustes == 9u;
 				// ⚠️ ET CHAQUE FENETRE PEINT QUELQUE CHOSE : une boite qui garde sa taille et
 				//    ne dessine plus rien dedans a deja ete vue le 11/09.
 				bool peignent = true;
-				for (int32 k = 0; k < 8; ++k)
+				for (int32 k = 0; k < 9; ++k)
 					if (instances[k] > 0u && sommets[k] == 0u)
 						peignent = false;
 				const bool masquages = hF > 0.f && hEffet && hEtats && hTexte && hCanvas && hBordure
@@ -14561,7 +14567,7 @@ namespace nkuidesign {
 				const bool ecritTexte = ouvreTexte && NkComponentDecl::StrEq(zB.textColor.Data(), "#0000ff") && zB.fills.Empty();
 				fermer();
 				snprintf(det, sizeof(det),
-						 "%u famille(s) sur 8 trouvee(s) a l'ecran, %u inconnue(s) [%s], %u muette(s) ; enveloppe (remplissage) %.0f "
+						 "%u famille(s) sur 9 trouvee(s) a l'ecran, %u inconnue(s) [%s], %u muette(s) ; enveloppe (remplissage) %.0f "
 						 "px, noyau nu %.0f px (controle positif) ; %s || (b) hauteurs : remplissage %.0f, effet %.0f [=], "
 						 "etats %.0f/%.0f/%.0f [-26], texte %.0f [-26], canvas %.0f [-26], BORDURE %.0f [+148, ses champs "
 						 "recus] et %u sommets contre %u au remplissage -> %d || (c) ecriture : effet "
@@ -14575,13 +14581,13 @@ namespace nkuidesign {
 						 fautesE[0] ? " ; FAUTES : " : "", fautesE);
 				check("153. TOUTES LES PORTES A LA PASTILLE, MESUREES A L'ECRAN : chaque pastille que l'inspecteur "
 					  "dessine est trouvee au releve, cliquee par le vrai chemin, et sa fenetre mesuree sur la LARGEUR "
-					  "du popup -- huit familles, TOUTES l'enveloppe d'un remplissage (la fenetre a part de la "
+					  "du popup -- NEUF familles (la teinte par etat est la neuvieme, 12/09), TOUTES l'enveloppe d'un remplissage (la fenetre a part de la "
 					  "bordure est fermee, l'enveloppe recoit ses champs), aucune le noyau nu, aucune muette, aucune "
 					  "inconnue de la table ; les masquages suivent "
 					  "le SENS (la hauteur le dit) ; chaque fenetre PEINT ; et -- la grandeur qui manquait -- "
 					  "la couleur choisie atterrit DANS LE BLOC VISE et dans AUCUN AUTRE, porte par porte, "
 					  "le visiteur unique des couleurs faisant foi pour « nulle part ailleurs »",
-					  familles == 8u && fautes == 0u && inconnues == 0u && muettes == 0u && wEnveloppe > 0.f
+					  familles == 9u && fautes == 0u && inconnues == 0u && muettes == 0u && wEnveloppe > 0.f
 						  && wNoyau > 0.f && wNoyau != wEnveloppe && masquages && ecritEffet && ecritBordure
 						  && ecritTexte && ecritures && peignent,
 					  det);
@@ -15269,6 +15275,204 @@ namespace nkuidesign {
 				  "rien. ⚠️ Aucun vocabulaire n'est choisi ici : c'est une decision de format, elle "
 				  "touche les documents enregistres",
 				  horsProduites == 5u && nCat > 0u && reconnues == (uint32)nCat && videMuet && cable, det);
+		}
+		// ── 158. LA TEINTE PAR ETAT (12/09) : LE DEGRADE SURVIT, SEULE LA LUMINANCE BOUGE.
+		//    Rodolf : « garder la meme couleur peu importe l'etat et jouer juste avec la
+		//    luminance, comme le fait Unity ». C'est un MULTIPLICATEUR, pas un remplacement.
+		//
+		// 🔴 CE QUE LA MESURE AVAIT MONTRE, ET QUI A MOTIVE CE LOT : un etat qui pose un
+		//    `fond` sur un nœud dont le remplissage est un DEGRADE ne change RIEN -- 0
+		//    commande sur 30 -- et rien ne le dit. Deux verrous nommes : `FondEffectif()`
+		//    ne rend que la premiere couleur UNIE (donc `(nul)` pour un degrade nu, et
+		//    `duDessus` est faux), et `peindreDegrade` fait `continue` AVANT tout usage de
+		//    la couleur calculee.
+		//
+		// ⚠️ LA TEINTE NE PASSE PAS PAR CES DEUX SITES, ET C'EST VOULU : elle multiplie a
+		//    L'EMISSION. Casser l'un ou l'autre ne fera donc PAS rougir ce cas -- ce n'est
+		//    pas une faiblesse du temoin, c'est que le chemin est ailleurs. Le mode
+		//    REMPLACEMENT sur un degrade reste un lot a lui, et c'est LUI que ces deux
+		//    sites jugeront.
+		{
+			char det[900];
+			// un rect dont le SEUL remplissage est un DEGRADE NU (aucune couleur unie) --
+			// celui-la meme dont `FondEffectif()` rend `(nul)`
+			auto batirT = [&](NkUIDocument &d) -> int32 {
+				d.NewDocument("Toile", NkAuthor::Humain);
+				d.SetMetric("espacement", 0.f);
+				d.SetMetric("marge", 0.f);
+				d.nodes[0].layout.kind = NkLayoutKind::Free;
+				const int32 z = d.AddChild(0, "", NkAuthor::Humain);
+				NkUINode &n = d.nodes[(uint32)z];
+				n.shape = NkString("rect");
+				n.layout.kind = NkLayoutKind::Free;
+				n.posX = 10.f;
+				n.posY = 10.f;
+				n.width.mode = NkSizeMode::Fixed;
+				n.width.value = 120.f;
+				n.height.mode = NkSizeMode::Fixed;
+				n.height.value = 60.f;
+				NkRemplissage f;
+				NkArretDegrade a0, a1;
+				a0.position = 0.f;
+				a0.couleur = NkString("#ff0000");
+				a1.position = 1.f;
+				a1.couleur = NkString("#0000ff");
+				f.degrade.arrets.PushBack(a0);
+				f.degrade.arrets.PushBack(a1);
+				n.fills.PushBack(f);
+				return z;
+			};
+			NkUIDocument dT;
+			const int32 zT = batirT(dT);
+			// ⚠️ UN FRERE SANS TEINTE, ET IL EST LA POUR UNE RAISON PRECISE : si la garde de
+			//    PORTEE ne restaurait pas `tint` a la sortie, la teinte FUIRAIT sur le nœud
+			//    suivant. Avec un seul nœud, une restauration oubliee resterait INVISIBLE --
+			//    le temoin dirait vert sur un defaut. C'est ce frere qui l'attrape.
+			const int32 fT = dT.AddChild(0, "", NkAuthor::Humain);
+			{
+				NkUINode &z = dT.nodes[(uint32)fT];
+				z.shape = NkString("rect");
+				z.layout.kind = NkLayoutKind::Free;
+				z.posX = 200.f;
+				z.posY = 10.f;
+				z.width.mode = NkSizeMode::Fixed;
+				z.width.value = 80.f;
+				z.height.mode = NkSizeMode::Fixed;
+				z.height.value = 60.f;
+				z.fill = NkString("#00ff00");
+			}
+			// le degrade est bien NU : c'est le cas que l'ancien chemin perdait
+			const bool degradeNu = dT.nodes[(uint32)zT].FondEffectif() == nullptr;
+			NkBlocEtat(dT.nodes[(uint32)zT], "Hover").teinte = NkString("#808080");
+			NkBlocEtat(dT.nodes[(uint32)zT], "Pressed").teinte = NkString("#ffffff");
+			NkDocumentHost hT;
+			auto rendre = [&](const char *etat, NkRecordingPaint &rec) {
+				snprintf(hT.etatAffiche, sizeof(hT.etatAffiche), "%s", etat ? etat : "");
+				RenderDocument(rec, dT, NkPaintRect{0.f, 0.f, 400.f, 300.f}, &hT);
+			};
+			// les BANDES du degrade : le peintre enregistreur n'a pas de polygone, donc
+			// `peindreDegrade` retombe sur `peindreDegradeBandes`, qui emet des `FillColor`.
+			// C'est ce qui rend le degrade MESURABLE sans ecran.
+			auto bandes = [&](const NkRecordingPaint &rec, uint32 &n, uint32 &prem, uint32 &der) {
+				n = 0u;
+				prem = 0u;
+				der = 0u;
+				for (uint32 i = 0; i < (uint32)rec.cmds.Size(); ++i) {
+					if (rec.cmds[i].op != NkPaintOp::FillColor || rec.cmds[i].w != 120.f)
+						continue;
+					if (n == 0u)
+						prem = rec.cmds[i].rgba;
+					der = rec.cmds[i].rgba;
+					++n;
+				}
+			};
+			NkRecordingPaint base, gris, blanc;
+			rendre("", base);
+			rendre("Hover", gris);
+			rendre("Pressed", blanc);
+			hT.etatAffiche[0] = '\0';
+			uint32 nB = 0u, pB = 0u, dB = 0u, nG = 0u, pG = 0u, dG = 0u, nW = 0u, pW = 0u, dW = 0u;
+			bandes(base, nB, pB, dB);
+			bandes(gris, nG, pG, dG);
+			bandes(blanc, nW, pW, dW);
+			// (a) LE DEGRADE SURVIT : autant de bandes, et ses deux extremites restent
+			//     DISTINCTES -- un remplacement les aurait rendues egales.
+			const bool survit = nG == nB && nB > 2u && pG != dG && pB != dB;
+			// (b) SEULE LA LUMINANCE BOUGE : chaque canal multiplie par 0x80/0xFF ~ 0,502
+			auto canal = [](uint32 c, uint32 k) -> uint32 { return (c >> (24u - k * 8u)) & 0xFFu; };
+			auto attendu = [](uint32 v) -> uint32 { return (v * 0x80u + 127u) / 255u; };
+			uint32 ecartMax = 0u;
+			for (uint32 k = 0; k < 3u; ++k) {
+				const uint32 aP = attendu(canal(pB, k)), rP = canal(pG, k);
+				const uint32 aD = attendu(canal(dB, k)), rD = canal(dG, k);
+				const uint32 e1 = aP > rP ? aP - rP : rP - aP;
+				const uint32 e2 = aD > rD ? aD - rD : rD - aD;
+				if (e1 > ecartMax)
+					ecartMax = e1;
+				if (e2 > ecartMax)
+					ecartMax = e2;
+			}
+			const bool luminance = ecartMax <= 1u;
+			// (c) LE CONTROLE NEGATIF, ET IL EST ESSENTIEL : une teinte BLANCHE ne change
+			//     RIEN -- l'image est identique A L'OCTET. Un document sans teinte non plus.
+			const uint32 diffBlanc = base.DiffCount(blanc);
+			// (d) LE FICHIER : jeton NOMME ` teinte=`, relu, et le relu peint pareil
+			NkString texteT;
+			dT.Save(texteT);
+			const bool jetonT = NkString(texteT).Contains("teinte=#808080");
+			NkUIDocument dR2;
+			const bool reluT = dR2.Load(texteT.Data());
+			const NkApparenceEtat *aR = reluT && dR2.IsValidIndex(zT)
+										   ? NkBlocEtatSi(dR2.nodes[(uint32)zT], "Hover")
+										   : nullptr;
+			const bool memeT = aR && NkComponentDecl::StrEq(aR->teinte.Data(), "#808080");
+			uint32 diffRelu2 = 999u;
+			if (memeT) {
+				NkRecordingPaint reluP;
+				snprintf(hT.etatAffiche, sizeof(hT.etatAffiche), "%s", "Hover");
+				RenderDocument(reluP, dR2, NkPaintRect{0.f, 0.f, 400.f, 300.f}, &hT);
+				hT.etatAffiche[0] = '\0';
+				diffRelu2 = gris.DiffCount(reluP);
+			}
+			const bool fichierT = jetonT && reluT && memeT && diffRelu2 == 0u;
+			// (e) LA VARIABLE EST VUE PAR LE VISITEUR UNIQUE -- la faute du 11/09 ne se
+			//     repete pas : une teinte qui REFERENCE une variable est comptee.
+			NkUIDocument dV2;
+			dV2.NewDocument("Toile", NkAuthor::Humain);
+			NkVariable vT;
+			vT.cle = NkString("ombre");
+			vT.valeur = NkString("#808080");
+			dV2.variables.PushBack(vT);
+			const int32 nV2 = dV2.AddChild(0, "", NkAuthor::Humain);
+			NkBlocEtat(dV2.nodes[(uint32)nV2], "Hover").teinte = NkString("@ombre");
+			// (f) LA GARDE DE PORTEE RESTAURE, ET C'EST UNE SECONDE GARANTIE.
+			//
+			// ⚠️ POURQUOI CE POINT EXISTE, ET CE QU'IL NE DIT PAS : un frere non teinte ne
+			//    peut PAS heriter de la teinte du voisin, parce que chaque nœud REECRIT sa
+			//    propre teinte a l'entree de `DrawShape` (identite quand aucun etat n'en
+			//    pose). La mutation « le destructeur ne restaure rien » reste donc VERTE
+			//    contre le frere -- mesure faite, elle l'est. La restauration ne protege pas
+			//    les freres : elle protege le jour ou quelqu'un peindra APRES les enfants,
+			//    ce que `NkDrawDocument` ne fait pas aujourd'hui (mesure : rien n'est peint
+			//    apres la boucle des enfants).
+			//
+			//    Elle ne s'observe donc pas a l'image : elle s'observe SUR LE PEINTRE. Ici on
+			//    exige les DEUX : que la teinte ait bien ete POSEE pendant le dessin (sinon
+			//    le point passerait meme sans teinte du tout), et qu'elle soit RENDUE apres.
+			NkRecordingPaint sonde;
+			const uint32 tintAvant = sonde.tint;
+			NkLayoutResult layF;
+			NkComputeLayout(dT, NkPaintRect{0.f, 0.f, 400.f, 300.f}, layF);
+			snprintf(hT.etatAffiche, sizeof(hT.etatAffiche), "%s", "Hover");
+			renderdetail::DrawShape(sonde, layF.At(zT), dT.nodes[(uint32)zT], hT, NkMat2D{});
+			hT.etatAffiche[0] = '\0';
+			const uint32 tintApres = sonde.tint;
+			uint32 nS = 0u, pS = 0u, dS = 0u;
+			bandes(sonde, nS, pS, dS);
+			// la teinte etait bien POSEE : les bandes sortent teintees, comme plus haut
+			const bool teintePosee = nS > 2u && pS == pG && dS == dG;
+			const bool restaure = teintePosee && tintAvant == 0xFFFFFFFFu && tintApres == tintAvant;
+			const bool vueDuVisiteur = dV2.CompterUsagesVariable("ombre") == 1u
+									   && !dV2.SupprimerVariable("ombre");
+			snprintf(det, sizeof(det),
+					 "degrade NU (FondEffectif = nul) -> %d ; (a) il SURVIT : %u bandes -> %u, extremites "
+					 "%08x/%08x -> %08x/%08x (distinctes) -> %d ; (b) seule la luminance bouge : ecart max "
+					 "au produit par 0x80 = %u [<=1] -> %d ; (c) CONTROLE NEGATIF, teinte BLANCHE : %u "
+					 "commande(s) differente(s) [0] ; (d) fichier : jeton=%d relu=%d meme=%d, le relu peint "
+					 "pareil (diff %u) -> %d ; (e) une teinte « @ombre » est VUE du visiteur unique -> %d ; "
+			 "(f) la garde RESTAURE le peintre : teinte posee=%d, %08x -> %08x -> %d",
+					 degradeNu ? 1 : 0, nB, nG, pB, dB, pG, dG, survit ? 1 : 0, ecartMax, luminance ? 1 : 0,
+					 diffBlanc, jetonT ? 1 : 0, reluT ? 1 : 0, memeT ? 1 : 0, diffRelu2, fichierT ? 1 : 0,
+					 vueDuVisiteur ? 1 : 0, teintePosee ? 1 : 0, tintAvant, tintApres, restaure ? 1 : 0);
+			check("158. LA TEINTE PAR ETAT MULTIPLIE, ELLE NE REMPLACE PAS : sur un degrade NU -- celui "
+				  "dont `FondEffectif()` rend `(nul)` et que le fond d'etat perdait en silence -- le "
+				  "degrade SURVIT a l'etat (autant de bandes, extremites toujours distinctes) et seule la "
+				  "LUMINANCE bouge (chaque canal multiplie) ; une teinte BLANCHE ne change rien A L'OCTET "
+				  "(controle negatif) ; le jeton nomme se relit et le document relu peint pareil ; et une "
+				  "teinte qui REFERENCE une variable est vue du visiteur unique",
+				  degradeNu && survit && luminance && diffBlanc == 0u && fichierT && vueDuVisiteur
+			  && restaure,
+		  det);
 		}
 		// ── 94. ① L'APERCU PENDANT LE TRACE (05/09). Rodolf : « pourquoi quand on dessine un
 		//    graphique on voit juste le rectangle qui s'allonge, et des qu'on relache on voit la

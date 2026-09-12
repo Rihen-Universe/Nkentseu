@@ -410,6 +410,39 @@ namespace nkentseu {
 					(void)opacite;
 					return false;
 				}
+				// ── LA TEINTE DU NŒUD (2026-09-12) ──────────────────────────────
+				/// UN MULTIPLICATEUR APPLIQUE A L'EMISSION. Il traverse ce qu'il ne
+				/// comprend pas -- un degrade, une image, une pile -- sans avoir a le
+				/// connaitre : *il ne peut pas casser ce qu'il ne connait pas.* C'est
+				/// le Color Tint d'Unity : le degrade SURVIT a tous les etats, seule
+				/// la luminance bouge.
+				///
+				/// 🔴 CE N'EST PAS UN ETAT ARME, ET LA DISTINCTION EST ENTIERE. Une
+				///    garde `PushTint`/`PopTint` obligerait chaque APPELANT a poser ET
+				///    a depiler ; le premier qui oublie fait fuir la teinte sur le nœud
+				///    suivant. *Un etat qu'il faut ARMER se fait oublier par la porte
+				///    que les appelants empruntent.* Ici `tint` est REECRIT au debut du
+				///    dessin de CHAQUE nœud (identite quand aucun etat n'en pose) et
+				///    restaure par un objet de PORTEE, dans la MEME fonction --
+				///    `DrawShape`, qui compte treize `return`. Aucun appelant n'a rien
+				///    a faire : **personne ne peut oublier ce que personne n'a a faire.**
+				///
+				/// Un peintre futur en herite sans le savoir, pourvu qu'il teinte a son
+				/// point de couleur -- les deux peintres du kit le font en UN site chacun.
+				uint32 tint = 0xFFFFFFFFu;
+
+				/// Multiplie une couleur 0xRRGGBBAA par la teinte courante. IDENTITE
+				/// quand la teinte est blanche opaque -- le cas de tout nœud sans etat,
+				/// donc le controle negatif est exact a l'octet.
+				uint32 Teinter(uint32 c) const noexcept {
+					if (tint == 0xFFFFFFFFu)
+						return c;
+					const uint32 r = (((c >> 24) & 0xFFu) * ((tint >> 24) & 0xFFu) + 127u) / 255u;
+					const uint32 g = (((c >> 16) & 0xFFu) * ((tint >> 16) & 0xFFu) + 127u) / 255u;
+					const uint32 b = (((c >> 8) & 0xFFu) * ((tint >> 8) & 0xFFu) + 127u) / 255u;
+					const uint32 a = ((c & 0xFFu) * (tint & 0xFFu) + 127u) / 255u;
+					return (r << 24) | (g << 16) | (b << 8) | a;
+				}
 		};
 
 	} // namespace editorkit

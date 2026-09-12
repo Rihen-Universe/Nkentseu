@@ -474,9 +474,33 @@ namespace nkuidesign {
 			}
 
 			/// Vrai si ce bloc ne pose RIEN — il n'a alors pas a etre ecrit.
+			/// ── LA TEINTE DE L'ETAT (12/09) : UN MULTIPLICATEUR, PAS UN REMPLACEMENT ──
+			///
+			/// 🔴 MESURE QUI A MOTIVE CE CHAMP : un etat qui pose un `fond` sur un nœud dont
+			///    le remplissage est un DEGRADE ne change RIEN -- 0 commande sur 30. Deux
+			///    verrous : `FondEffectif()` ne rend que la premiere couleur UNIE (donc
+			///    `(nul)` pour un degrade nu, et la comparaison `duDessus` est fausse), et la
+			///    branche `peindreDegrade` fait `continue` AVANT tout usage de la couleur
+			///    calculee. L'etat etait perdu **sans un mot**.
+			///
+			/// LA TEINTE NE PASSE PAS PAR LA : elle multiplie A L'EMISSION, donc elle traverse
+			/// ce qu'elle ne comprend pas -- un degrade, une image, une pile -- sans avoir a le
+			/// connaitre. *Elle ne peut pas casser ce qu'elle ne connait pas.* C'est le Color
+			/// Tint d'Unity, et c'est ce que Rodolf a demande : **le degrade SURVIT a tous les
+			/// etats, seule la luminance bouge** (une teinte grise = « le meme bouton, en plus
+			/// sombre », sans rien redefinir).
+			///
+			/// ⚠️ L'ORDRE EST FIXE, ET IL SE DECIDE UNE FOIS : **on remplace d'abord, on
+			///    multiplie ensuite.** L'etat choisit QUEL fond est peint (le degrade d'origine
+			///    ou l'aplat de `fond`), la teinte multiplie CE QUI A ETE CHOISI. Dans l'autre
+			///    sens, un remplacement ecraserait la teinte et les deux reglages se
+			///    contrediraient.
+			///
+			/// Vide = AUCUNE teinte (identite). Hexa littéral ; jeton nomme ` teinte=`.
+			NkString teinte;
 			bool Vide() const {
 				return fond.Empty() && radius < 0.f && opacite < 0.f && couleurTexte.Empty()
-					   && !OmbrePosee() && !BordurePosee();
+					   && !OmbrePosee() && !BordurePosee() && teinte.Empty();
 			}
 	};
 
@@ -1868,6 +1892,11 @@ namespace nkuidesign {
 					f(n.apparences[i].fond);
 					f(n.apparences[i].couleurTexte);
 					f(n.apparences[i].bordureCouleur);
+					// 🔴 (12/09) LA TEINTE EST UNE COULEUR DU DOCUMENT, DONC ELLE EST ICI.
+					//    Le 11/09, `couleurTexte` et `bordureCouleur` ont ete ajoutes AILLEURS
+					//    qu'ici : une variable pouvait y etre referencee sans que ce visiteur
+					//    la voie -- comptee zero, supprimable sous elle. L'essai 152 le garde.
+					f(n.apparences[i].teinte);
 				}
 			}
 			/// ... et de tout le document : les noeuds ET les arbres des declarations
@@ -3144,6 +3173,10 @@ namespace nkuidesign {
 						else
 							WriteNum(out, a.bordureEpaisseur);
 					}
+					if (!a.teinte.Empty()) {
+						out.Append(" teinte=");
+						out.Append(a.teinte.Data());
+					}
 					out.Append('\n');
 				}
 				if (!n.transposeDe.Empty())
@@ -4142,7 +4175,8 @@ namespace nkuidesign {
 										++v;
 									if (*v && !(*v == '-' && v[1] == '\0'))
 										a.bordureEpaisseur = ParseNum(v);
-								}
+								} else if (NkString(champ).StartsWith("teinte="))
+									a.teinte = NkString(champ + 7);
 							}
 							if (!a.etat.Empty())
 								n.apparences.PushBack(a);

@@ -12889,6 +12889,7 @@ namespace nkuidesign {
 						NkApparenceEtat &bloc = NkBlocEtat(*n, d.etat);
 						(d.champEtat == 1u ? bloc.couleurTexte
 						 : d.champEtat == 2u ? bloc.bordureCouleur
+						 : d.champEtat == 3u ? bloc.teinte
 											 : bloc.fond) = f.couleur;
 						if (bloc.Vide())
 							NkRetirerBlocEtat(*n, d.etat);
@@ -16249,6 +16250,9 @@ namespace nkuidesign {
 				const bool texteParEtat = NkProprieteAUnSensParEtat("TYPOGRAPHIE")
 										   && NkSectionSApplique("TYPOGRAPHIE", *n);
 				const bool ombreParEtat = NkProprieteAUnSensParEtat("EFFETS") && n->effets.Size() > 0;
+				// la teinte a un sens des qu'il y a quelque chose a peindre -- elle traverse
+				// aplats, degrades, images et piles sans avoir a les connaitre
+				const bool teinteParEtat = NkProprieteAUnSensParEtat("REMPLISSAGES");
 				const NkBordure *bordsPeints[NkUINode::kMaxBorduresPeintes];
 				NkBordure bordHisto;
 				const uint32 nbBordsPeints = n->BorduresEffectives(bordsPeints, NkUINode::kMaxBorduresPeintes, bordHisto);
@@ -16394,6 +16398,30 @@ namespace nkuidesign {
 						float32 nv = 0.f;
 						if (champHerite(idE, rc, a ? a->bordureEpaisseur : -1.f, epBase, 64.f, nv)) {
 							poser(e).bordureEpaisseur = nv;
+							fini(e);
+						}
+					}
+				}
+				// ── LA TEINTE PAR ETAT (12/09) : LE MULTIPLICATEUR ─────────────────
+				// 🔴 CE QUE LA MESURE A MONTRE : un etat qui pose un `fond` sur un nœud
+				//    dont le remplissage est un DEGRADE ne change RIEN (0 commande sur
+				//    30), et rien ne le dit. La teinte, elle, multiplie a l'emission :
+				//    le degrade GARDE ses deux couleurs, seule la luminance bouge.
+				// ⚠️ L'ORDRE : on REMPLACE d'abord (`fond`), on MULTIPLIE ensuite.
+				if (teinteParEtat) {
+					enTete("Teinte, par état : multiplie le fond (blanc = aucune)");
+					for (uint32 e = 0; e < nbEtats && e < kMaxEtatsUI; ++e) {
+						if (NkComponentDecl::StrEq(etats[e], "Normal"))
+							continue; // Normal EST la base
+						const NkRect r = ctx.NextItemRect(-1.f, costume::HRangee);
+						const float32 x = nomEtat(r, e);
+						const NkApparenceEtat *bloc = NkBlocEtatSi(*n, etats[e]);
+						const NkString avantTe = bloc ? bloc->teinte : NkString();
+						NkString tampon = avantTe;
+						couleurEtat("teinte", e, x, r, mEtatsTeinteBuf[e],
+								(uint32)sizeof(mEtatsTeinteBuf[e]), tampon, 3u);
+						if (!NkComponentDecl::StrEq(avantTe.Data(), tampon.Data())) {
+							poser(e).teinte = tampon;
 							fini(e);
 						}
 					}
@@ -19024,6 +19052,8 @@ namespace nkuidesign {
 			char mEtatsTexteBuf[kMaxEtatsUI][12] = {};
 			/// ② b les tampons hexa de la COULEUR DE BORDURE par état (11/09)
 			char mEtatsBordBuf[kMaxEtatsUI][12] = {};
+			/// ① (12/09) les tampons hexa de la TEINTE par état -- le multiplicateur
+			char mEtatsTeinteBuf[kMaxEtatsUI][12] = {};
 			/// Les tampons hexa des ARRETS : [remplissage][arret].
 			enum { kMaxArretsUI = 12 }; ///< au-dela, la liste le dit et n'edite pas
 			char mArretsBuf[kMaxFillsUI][kMaxArretsUI][12] = {};

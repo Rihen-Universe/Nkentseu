@@ -513,6 +513,24 @@ namespace nkuidesign {
 			const NkApparenceEtat *a = NkEtatVu(h, n);
 			return (a && !a->fond.Empty()) ? a->fond.Data() : n.FondEffectif();
 		}
+		/// LA TEINTE VUE (12/09) : le MULTIPLICATEUR de l'etat affiche, `0xFFFFFFFF`
+		/// (l'identite) quand aucun etat n'en pose -- donc un document sans teinte peint
+		/// exactement comme avant, a l'octet.
+		///
+		/// ⚠️ L'ORDRE, FIXE UNE FOIS : **on remplace d'abord, on multiplie ensuite.** Le
+		///    `fond` de l'etat choisit QUOI est peint ; la teinte multiplie CE QUI A ETE
+		///    CHOISI. Dans l'autre sens un remplacement ecraserait la teinte, et les deux
+		///    reglages se contrediraient.
+		///
+		/// Les references « @cle » sont resolues comme partout ailleurs (`NkGCouleur`, qui
+		/// rend MAGENTA si la variable est absente), et le visiteur unique des couleurs les
+		/// compte : une variable teinte est protegee de la suppression comme les autres.
+		inline nkentseu::uint32 NkTeinteVue(const NkDocumentHost &h, const NkUINode &n) {
+			const NkApparenceEtat *a = NkEtatVu(h, n);
+			if (!a || a->teinte.Empty())
+				return 0xFFFFFFFFu;
+			return NkGCouleur(a->teinte.Data());
+		}
 		/// LA COULEUR DU TEXTE VUE : celle de l'état s'il en pose une, sinon la base.
 		/// (Mesure Q143 : UN seul site la résout chez le peintre -- porte unique.)
 		inline const char *NkCouleurTexteVue(const NkDocumentHost &h, const NkUINode &n) {
@@ -1284,6 +1302,29 @@ namespace nkuidesign {
 		}
 		/// La garde : pousse le mode a la construction, le retire a la destruction --
 		/// un `continue` dans la boucle des remplissages ne laisse jamais un mode derriere lui.
+		/// LA TEINTE D'UN NŒUD, POSEE ET RESTAUREE DANS LA MEME FONCTION (12/09).
+		///
+		/// 🔴 CE N'EST PAS UNE GARDE D'APPELANT, et la distinction est tout le sujet.
+		///    Un `PushTint`/`PopTint` obligerait chaque appelant a poser ET a depiler ;
+		///    le premier qui oublie fait fuir la teinte sur le nœud suivant. *Un etat
+		///    qu'il faut ARMER se fait oublier par la porte que les appelants
+		///    empruntent.* Ici SEULE `DrawShape` s'en sert, dans son propre corps.
+		///
+		/// ⚠️ ET L'OBJET DE PORTEE N'EST PAS UN RAFFINEMENT : `DrawShape` compte
+		///    TREIZE `return`. Une restauration ecrite a la main en oublierait un,
+		///    et la teinte fuirait sur le nœud suivant -- exactement le defaut qu'on
+		///    refuse. Elle protege aussi du jour ou quelqu'un peindra apres les enfants.
+		struct NkGardeTeinte {
+			NkComponentPaint &p;
+			nkentseu::uint32 avant;
+			NkGardeTeinte(NkComponentPaint &peintre, nkentseu::uint32 t)
+				: p(peintre), avant(peintre.tint) {
+				p.tint = t;
+			}
+			~NkGardeTeinte() {
+				p.tint = avant;
+			}
+		};
 		struct NkGardeFusion {
 				NkComponentPaint &p;
 				bool actif;
@@ -2130,6 +2171,12 @@ namespace nkuidesign {
 			// L'APERCU PASSE AVANT LE MODELE -- une seule porte (`NkCouleurApercue`).
 			// aperçu > état > base -- l'ordre est écrit UNE fois, plus haut ; ici on
 			// ne fait que le composer.
+			// ⚠️ LA TEINTE DE L'ETAT, POSEE POUR TOUT CE QUE CE NŒUD EMET -- fond, degrade,
+			//    image, bordures, texte -- et RESTAUREE a la sortie, treize `return` plus
+			//    bas. C'est LA porte : elle multiplie a l'emission, donc elle traverse ce
+			//    qu'elle ne comprend pas. Un degrade GARDE ses deux couleurs, leur rapport
+			//    est intact, seule la luminance bouge -- ce que Rodolf a demande.
+			const renderdetail::NkGardeTeinte gardeTeinte(p, NkTeinteVue(host, n));
 			const char *fondApercu = NkCouleurApercue(host, noeud, -1, NkFondVu(host, n));
 			// ③ L'opacité du FOND est celle du remplissage -- l'état, lui, agit sur le NŒUD
 			//   (`NkOpaciteNoeudVue`, lue par `NkDrawDocument`, héritée par les enfants).
