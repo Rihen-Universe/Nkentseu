@@ -15795,6 +15795,131 @@ namespace nkuidesign {
 				  "Position garde ses deux champs. Les brancher aurait ouvert une seconde porte",
 				  maquette && source && ancrageVivant, det);
 		}
+		// ── 162. LES TROIS DOUTEUX SONT CACHES PAR CONSTRUCTION (12/09). Rodolf a tranche le
+		//    11/09 : typographie entiere, pile de remplissages, effets autres que l'ombre --
+		//    CACHES. Ils l'etaient par ABSENCE ; ce cas garde la FERMETURE du format d'etat,
+		//    pour qu'un douteux ajoute demain sans rouvrir la decision fasse rougir.
+		//
+		// ⚠️ TROIS GARDES, TROIS MESURES REELLES : l'ECRIVAIN (un etat complet sauve porte
+		//    exactement quatre jetons nommes, aucun autre), le LECTEUR (un jeton `police=`
+		//    injecte au fichier ne pose AUCUN champ), le PANNEAU (ses en-tetes de rangees
+		//    d'etat, lus a la source). Les PASTILLES d'etat sont gardees par l'essai 153
+		//    (neuf familles, aucune inconnue) : on le cite, on ne le recopie pas.
+		{
+			char det[760];
+			auto compter = [](const char *h, const char *n) -> uint32 {
+				uint32 c = 0u;
+				for (const char *p = h; p && *p; ++p) {
+					const char *a = p, *b = n;
+					while (*a && *b && *a == *b)
+						++a, ++b;
+					if (!*b)
+						++c;
+				}
+				return c;
+			};
+			// (a) L'ECRIVAIN : un etat qui pose TOUT ce que le bloc sait dire
+			NkUIDocument dF;
+			dF.NewDocument("Toile", NkAuthor::Humain);
+			const int32 nF = dF.AddChild(0, "", NkAuthor::Humain);
+			{
+				NkApparenceEtat &b = NkBlocEtat(dF.nodes[(uint32)nF], "Hover");
+				b.fond = NkString("#111111");
+				b.radius = 3.f;
+				b.opacite = 80.f;
+				b.couleurTexte = NkString("#222222");
+				b.ombreFlou = 4.f;
+				b.ombreOpacite = 30.f;
+				b.bordureCouleur = NkString("#333333");
+				b.bordureEpaisseur = 2.f;
+				b.teinte = NkString("#444444");
+			}
+			NkString texteF;
+			dF.Save(texteF);
+			// la ligne `apparence_Hover = ...` et ses jetons nommes
+			uint32 nJetons = 0u, nEgal = 0u;
+			bool ligneTrouvee = false;
+			{
+				const char *p = texteF.Data();
+				const char *cle = "apparence_Hover = ";
+				for (; p && *p; ++p) {
+					const char *a = p, *b = cle;
+					while (*a && *b && *a == *b)
+						++a, ++b;
+					if (!*b) {
+						ligneTrouvee = true;
+						for (const char *q = a; *q && *q != '\n'; ++q)
+							if (*q == '=')
+								++nEgal;
+						break;
+					}
+				}
+			}
+			nJetons = nEgal; // apres « = », chaque `=` est un jeton nomme
+			const bool nommes = ligneTrouvee && NkString(texteF).Contains(" texte=")
+								&& NkString(texteF).Contains(" ombre=") && NkString(texteF).Contains(" bordure=")
+								&& NkString(texteF).Contains(" teinte=");
+			const bool ecrivainFerme = nommes && nJetons == 4u;
+			// (b) LE LECTEUR : un jeton DOUTEUX injecte au fichier ne pose AUCUN champ
+			NkUIDocument dG;
+			dG.NewDocument("Toile", NkAuthor::Humain);
+			const int32 nG = dG.AddChild(0, "", NkAuthor::Humain);
+			NkBlocEtat(dG.nodes[(uint32)nG], "Hover").fond = NkString("#0000ff");
+			NkString texteG;
+			dG.Save(texteG);
+			// on remplace le fond par « - » et on injecte trois jetons douteux
+			NkString injecte;
+			{
+				const char *src = texteG.Data();
+				const char *cle = "apparence_Hover = #0000ff";
+				const char *pos = nullptr;
+				for (const char *p = src; p && *p; ++p) {
+					const char *a = p, *b = cle;
+					while (*a && *b && *a == *b)
+						++a, ++b;
+					if (!*b) {
+						pos = p;
+						break;
+					}
+				}
+				if (pos) {
+					// la ligne entiere est REMPLACEE : on reprend a sa fin de ligne, pour ne pas
+					// laisser trainer les jetons positionnels d'origine derriere l'injection
+					const char *finLigne = pos;
+					while (*finLigne && *finLigne != '\n')
+						++finLigne;
+					for (const char *q = src; q < pos; ++q)
+						injecte.Append(*q);
+					injecte.Append("apparence_Hover = - - - police=Arial pile=2 effet=lueur");
+					injecte.Append(finLigne);
+				}
+			}
+			NkUIDocument dR;
+			const bool relu = !injecte.Empty() && dR.Load(injecte.Data());
+			const NkApparenceEtat *bloc = relu && dR.IsValidIndex(nG) ? NkBlocEtatSi(dR.nodes[(uint32)nG], "Hover") : nullptr;
+			// le bloc est absent OU vide : rien des trois douteux n'a atterri nulle part
+			const bool lecteurFerme = relu && (!bloc || bloc->Vide());
+			// (c) LE PANNEAU, a la source : ses en-tetes de rangees d'etat, et AUCUN douteux
+			const NkString srcP2 = NkFile::ReadAllText("Applications/NKUIDesign/src/NKUIDesign/Panels.h");
+			const uint32 nEnTetes = compter(srcP2.Data(), "enTete(\"");
+			const uint32 nDouteux = compter(srcP2.Data(), "enTete(\"Police") + compter(srcP2.Data(), "enTete(\"Pile")
+								  + compter(srcP2.Data(), "enTete(\"Effets") + compter(srcP2.Data(), "insp.etat.police")
+								  + compter(srcP2.Data(), "insp.etat.pile") + compter(srcP2.Data(), "insp.etat.effet");
+			const bool panneauFerme = nEnTetes == 5u && nDouteux == 0u;
+			snprintf(det, sizeof(det),
+					 "(a) l'ecrivain : ligne d'etat trouvee=%d, %u jeton(s) nomme(s) [4 : texte, ombre, bordure, "
+					 "teinte] -> %d ; (b) le lecteur : « police=Arial pile=2 effet=lueur » injectes, relu=%d, bloc "
+					 "absent ou VIDE=%d -> %d ; (c) le panneau : %u en-tete(s) de rangees d'etat [5], douteux %u [0] "
+					 "-> %d ; les pastilles sont gardees par l'essai 153",
+					 ligneTrouvee ? 1 : 0, nJetons, ecrivainFerme ? 1 : 0, relu ? 1 : 0,
+					 (!bloc || bloc->Vide()) ? 1 : 0, lecteurFerme ? 1 : 0, nEnTetes, nDouteux, panneauFerme ? 1 : 0);
+			check("162. LES TROIS DOUTEUX SONT CACHES PAR CONSTRUCTION : le format d'etat est une table "
+				  "FERMEE -- l'ecrivain n'emet que ses quatre jetons nommes, le lecteur ne pose aucun champ "
+				  "pour un jeton douteux injecte, le panneau n'ouvre que ses cinq rangees d'etat et aucune "
+				  "pour la police, la pile ou les effets. Rodolf a tranche : caches -- et ce n'est plus par "
+				  "absence, c'est mesure",
+				  ecrivainFerme && lecteurFerme && panneauFerme, det);
+		}
 		// ── 94. ① L'APERCU PENDANT LE TRACE (05/09). Rodolf : « pourquoi quand on dessine un
 		//    graphique on voit juste le rectangle qui s'allonge, et des qu'on relache on voit la
 		//    forme ? » Deux mesures : LA TABLE DE GENRE (une seule, lue par le relachement et par

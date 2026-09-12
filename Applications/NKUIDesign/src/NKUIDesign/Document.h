@@ -448,6 +448,29 @@ namespace nkuidesign {
 			///   sur l'opacite du FOND ; aucun document n'en portait, la cle
 			///   `apparence_<Etat>` garde sa forme (troisieme jeton), son sens est dit.
 			float32 opacite = -1.f;
+			// ── LE FORMAT D'ETAT EST UNE TABLE FERMEE, ET TROIS DOUTEUX EN SONT EXCLUS ──
+			//    PAR DECISION (Rodolf, 11/09 ; applique et mesure le 12/09, essai 162).
+			//
+			// 🔴 LE RECENSEMENT Q143 A LAISSE TROIS PROPRIETES « DOUTEUSES » -- ni oui, ni
+			//    non par nature -- pour que Rodolf tranche :
+			//      1. la TYPOGRAPHIE ENTIERE par etat (police, corps, graisse -- pas la
+			//         couleur du texte, qui, elle, a un sens et est ici) ;
+			//      2. la PILE DE REMPLISSAGES par etat (la liste entiere -- pas le fond ni
+			//         la teinte, qui sont ici) ;
+			//      3. les EFFETS AUTRES QUE L'OMBRE par etat (l'ombre, elle, est ici).
+			//    Rodolf a tranche : **caches**. Ils n'ont donc AUCUN champ dans ce bloc,
+			//    AUCUN jeton au fichier, AUCUNE rangee dans ETATS.
+			//
+			// ⚠️ CACHES PAR CONSTRUCTION, PAS PAR VIGILANCE. Jusqu'ici ils l'etaient par
+			//    ABSENCE -- personne n'avait ecrit de rangee -- et la regle du panneau
+			//    raisonne par SECTION (`NkProprieteAUnSensParEtat`) : TYPOGRAPHIE,
+			//    REMPLISSAGES et EFFETS y sont autorisees, donc une rangee « police par
+			//    etat » ajoutee demain n'aurait ete arretee par RIEN. L'essai 162 garde
+			//    desormais la fermeture elle-meme : l'ecrivain n'emet que les jetons de
+			//    ce bloc, le lecteur n'en pose pas d'autre, le panneau n'ouvre pas de
+			//    rangee au-dela -- et l'essai 153 garde les pastilles (neuf familles,
+			//    aucune inconnue). *Ajouter un douteux ici sans rouvrir la decision fera
+			//    rougir -- et c'est le but.*
 			// ── CE QU'UN ETAT PEUT AUSSI VOULOIR DIRE (11/09, recensement Q143) ──
 			// Sur quinze sections, QUATRE ont un sens par etat : la bordure, l'ombre,
 			// la couleur du texte, l'opacite du nœud. Les quatre sont ici desormais :
