@@ -5251,7 +5251,8 @@ namespace nkuidesign {
 							 "(nœud qui refuse la rotation) -> %d ; determinant a la borne "
 							 "(80\u00b0, 80\u00b0) = %.4f, et a 90\u00b0 = %.4f -- la forme se "
 							 "reduirait a un TRAIT et le pointage designerait sa boite droite "
-							 "-> %d",
+							 "-> %d ; (f) degrade EN DESSOUS d'un aplat : %u commande(s) [>2, ses bandes "
+			 "survivent], dessus %08x [00ff00ff] -> %d",
 							 nAvec, nSans, rangeeVisible ? 1 : 0, (double)bMax, (double)bMax, (double)dBorne, (double)dHors,
 							 borneSaine ? 1 : 0);
 					check("144. LA RANGEE D'INCLINAISON SE DESSINE, ET SE CACHE QUAND ELLE N'A PAS DE SENS : "
@@ -15499,116 +15500,216 @@ namespace nkuidesign {
 			  && restaure && reecrit,
 		  det);
 		}
-		// ── 159. LE GESTE MUET NE L'EST PLUS (12/09) : « PAS ENCORE », ET CE QUI MARCHE.
-		//    Mesure Q155 : un `fond` d'etat pose sur un nœud dont le remplissage du DESSUS
-		//    est un degrade ne change RIEN (0 commande sur 30), et rien ne le disait.
+		// ── 160. LE FOND D'ETAT REMPLACE LE DEGRADE (12/09), ET L'ORDRE EST FIXE :
+		//    **on remplace d'abord, on multiplie ensuite.** L'etat choisit QUEL fond est
+		//    peint -- le degrade d'origine ou l'aplat de remplacement -- et la teinte
+		//    multiplie CE QUI A ETE CHOISI. Dans l'autre sens, un remplacement ecraserait
+		//    la teinte et les deux reglages se contrediraient.
 		//
-		// ⚠️ CE CAS NE CORRIGE PAS LE DEFAUT -- il garde le fait qu'on le DIT. Le mode
-		//    REMPLACEMENT sur un degrade reste un lot a lui ; « pas encore » et « jamais »
-		//    ne se remplacent pas l'un l'autre.
+		// 🔴 LES DEUX VERROUS QUE CE LOT REFERME (mesure Q155, 0 commande sur 30) :
+		//    ① `duDessus` comparait des POINTEURS issus de `FondEffectif()`, qui ne rend
+		//       que la premiere couleur UNIE -- `nullptr` sur un degrade nu, donc la
+		//       comparaison etait fausse et `NkFondVu` n'etait JAMAIS consulte.
+		//    ② le `continue` de `peindreDegrade` courait AVANT tout usage de `couleurVue`.
 		{
-			char det[620];
-			auto noeudAvec = [&](int32 genre) -> NkUINode {
-				NkUINode z;
-				z.shape = NkString("rect");
-				if (genre == 0) { // un DEGRADE nu au-dessus
-					NkRemplissage f;
-					NkArretDegrade a0, a1;
-					a0.couleur = NkString("#ff0000");
-					a1.position = 1.f;
-					a1.couleur = NkString("#0000ff");
-					f.degrade.arrets.PushBack(a0);
-					f.degrade.arrets.PushBack(a1);
-					z.fills.PushBack(f);
-				} else if (genre == 1) { // un APLAT
-					NkRemplissage f;
-					f.couleur = NkString("#ff0000");
-					z.fills.PushBack(f);
-				} else if (genre == 2) { // un aplat SOUS un degrade : c'est le DESSUS qui compte
-					NkRemplissage a;
-					a.couleur = NkString("#ff0000");
-					z.fills.PushBack(a);
-					NkRemplissage g;
-					NkArretDegrade s0, s1;
-					s0.couleur = NkString("#00ff00");
-					s1.position = 1.f;
-					s1.couleur = NkString("#0000ff");
-					g.degrade.arrets.PushBack(s0);
-					g.degrade.arrets.PushBack(s1);
-					z.fills.PushBack(g);
-				} else if (genre == 3) { // un degrade MASQUE **AU-DESSUS** d'un aplat :
-					NkRemplissage g;
-					NkArretDegrade s0, s1;
-					s0.couleur = NkString("#00ff00");
-					s1.position = 1.f;
-					s1.couleur = NkString("#0000ff");
-					g.degrade.arrets.PushBack(s0);
-					g.degrade.arrets.PushBack(s1);
-					g.visible = false;
-					// ⚠️ L'APLAT D'ABORD, LE DEGRADE MASQUE AU-DESSUS -- et l'ordre est TOUT le
-					//    test. Dans l'autre sens, le parcours rencontre l'aplat en premier et rend
-					//    `false` sans jamais atteindre la garde de visibilite : le cas passait
-					//    pour les mauvaises raisons, et la mutation « un masque compte quand
-					//    meme » restait VERTE. Mesure faite, elle l'etait.
-					NkRemplissage a;
-					a.couleur = NkString("#ff0000");
-					z.fills.PushBack(a);
-					z.fills.PushBack(g);
-				}
+			// ⚠️ SIX POINTS A DIRE : le tampon les tient TOUS. A 820 il tronquait, et (f) --
+			//    celui qui attrape « le remplacement vise toute la pile » -- disparaissait du
+			//    rapport alors qu'il mesurait. Un detail tronque ment par omission.
+			char det[1500];
+			auto batirR = [&](NkUIDocument &d, const char *fondEtat, const char *teinteEtat) -> int32 {
+				d.NewDocument("Toile", NkAuthor::Humain);
+				d.SetMetric("espacement", 0.f);
+				d.SetMetric("marge", 0.f);
+				d.nodes[0].layout.kind = NkLayoutKind::Free;
+				const int32 z = d.AddChild(0, "", NkAuthor::Humain);
+				NkUINode &n = d.nodes[(uint32)z];
+				n.shape = NkString("rect");
+				n.layout.kind = NkLayoutKind::Free;
+				n.posX = 10.f;
+				n.posY = 10.f;
+				n.width.mode = NkSizeMode::Fixed;
+				n.width.value = 120.f;
+				n.height.mode = NkSizeMode::Fixed;
+				n.height.value = 60.f;
+				NkRemplissage f; // un DEGRADE NU : aucune couleur unie a montrer
+				NkArretDegrade a0, a1;
+				a0.position = 0.f;
+				a0.couleur = NkString("#ff0000");
+				a1.position = 1.f;
+				a1.couleur = NkString("#0000ff");
+				f.degrade.arrets.PushBack(a0);
+				f.degrade.arrets.PushBack(a1);
+				n.fills.PushBack(f);
+				if (fondEtat)
+					NkBlocEtat(n, "Hover").fond = NkString(fondEtat);
+				if (teinteEtat)
+					NkBlocEtat(n, "Hover").teinte = NkString(teinteEtat);
 				return z;
 			};
-			const NkUINode nDeg = noeudAvec(0), nApl = noeudAvec(1), nSup = noeudAvec(2),
-							 nMasq = noeudAvec(3);
-			NkUINode nVide;
-			// (a) LA PORTE : vraie pour un degrade AU-DESSUS, fausse partout ailleurs
-			const bool porte = nDeg.DessusEnDegrade() && !nApl.DessusEnDegrade()
-							   && nSup.DessusEnDegrade() && !nMasq.DessusEnDegrade()
-							   && !nVide.DessusEnDegrade();
-			// (b) ELLE DIT LA MEME CHOSE QUE LE PEINTRE : c'est bien ce nœud-la qui perd son
-			//     fond d'etat -- `FondEffectif()` ne rend rien pour lui.
-			const bool memeVerite = nDeg.FondEffectif() == nullptr && nApl.FondEffectif() != nullptr;
-			// (c) LE CABLAGE de la section, LU A LA SOURCE (l'afficher exigerait un geste)
-			const NkString srcQ = NkFile::ReadAllText("Applications/NKUIDesign/src/NKUIDesign/Panels.h");
-			uint32 nAppelQ = 0u, nPhraseQ = 0u, nJamais = 0u;
+			// combien de commandes de fond, et de quelle couleur
+			auto fonds = [&](const NkRecordingPaint &rec, uint32 &n, uint32 &prem, uint32 &der) {
+				n = 0u;
+				prem = 0u;
+				der = 0u;
+				for (uint32 i = 0; i < (uint32)rec.cmds.Size(); ++i) {
+					if (rec.cmds[i].op != NkPaintOp::FillColor || rec.cmds[i].w != 120.f)
+						continue;
+					if (n == 0u)
+						prem = rec.cmds[i].rgba;
+					der = rec.cmds[i].rgba;
+					++n;
+				}
+			};
+			NkDocumentHost hR;
+			auto rendreR = [&](NkUIDocument &d, const char *etat, NkRecordingPaint &rec) {
+				snprintf(hR.etatAffiche, sizeof(hR.etatAffiche), "%s", etat ? etat : "");
+				RenderDocument(rec, d, NkPaintRect{0.f, 0.f, 400.f, 300.f}, &hR);
+				hR.etatAffiche[0] = '\0';
+			};
+			// (a) SANS ETAT : le degrade, en bandes, deux extremites DISTINCTES
+			NkUIDocument dRa;
+			batirR(dRa, "#00ff00", nullptr);
+			NkRecordingPaint rBase, rRempl;
+			rendreR(dRa, "", rBase);
+			rendreR(dRa, "Hover", rRempl);
+			uint32 nB = 0u, pB = 0u, dB = 0u, nR = 0u, pR = 0u, dR = 0u;
+			fonds(rBase, nB, pB, dB);
+			fonds(rRempl, nR, pR, dR);
+			const bool degradeAvant = nB > 2u && pB != dB;
+			// (b) AVEC LE FOND D'ETAT : UN SEUL aplat, et c'est la couleur de l'etat.
+			//     C'est exactement ce qui NE SE PRODUISAIT PAS : 0 commande changee sur 30.
+			const bool remplace = nR == 1u && pR == 0x00ff00ffu;
+			// (c) L'ORDRE : fond + teinte -> l'APLAT est multiplie (0x00ff00 x 0x808080).
+			//     Si la teinte s'appliquait AVANT, on verrait le degrade teinte, pas l'aplat.
+			NkUIDocument dRb;
+			batirR(dRb, "#00ff00", "#808080");
+			NkRecordingPaint rDeux;
+			rendreR(dRb, "Hover", rDeux);
+			uint32 nD = 0u, pD = 0u, dD = 0u;
+			fonds(rDeux, nD, pD, dD);
+			// ⚠️ L'ALPHA DE LA TEINTE VAUT 0xFF, PAS 0x80 : un hexa « #808080 » ne dit RIEN
+			//    de l'opacite, et `NkGCouleur` lui donne 255. Le produit attendu est donc
+			//    008000ff -- ce que la mesure rend. (Mon premier calcul multipliait l'alpha
+			//    par 0x80 et attendait 00800080 : *quand la mesure et l'attendu divergent,
+			//    l'attendu est suspect en premier.*)
+			auto mulCanal = [](uint32 c, uint32 t) -> uint32 { return (c * t + 127u) / 255u; };
+			const uint32 vertMul = (mulCanal(0x00u, 0x80u) << 24) | (mulCanal(0xffu, 0x80u) << 16)
+								   | (mulCanal(0x00u, 0x80u) << 8) | mulCanal(0xffu, 0xffu);
+			const bool ordre = nD == 1u && pD == vertMul;
+			// (d) LE CONTROLE NEGATIF : un etat qui ne pose PAS de fond laisse le degrade
+			//     intact -- le remplacement ne se declenche que quand on le demande.
+			NkUIDocument dRc;
+			batirR(dRc, nullptr, "#ffffff");
+			NkRecordingPaint rSans, rSansH;
+			rendreR(dRc, "", rSans);
+			rendreR(dRc, "Hover", rSansH);
+			const bool intact = rSans.DiffCount(rSansH) == 0u;
+			// (e) UNE PILE A DEUX REMPLISSAGES : aplat ROUGE dessous, degrade DESSUS.
+			//
+			// ⚠️ C'EST ICI QUE LE SENS DU PARCOURS ET LA CIBLE DU REMPLACEMENT SE MESURENT.
+			//    Avec un seul remplissage, « premier » et « dessus » sont le MEME indice, et
+			//    « le dessus » et « toute la pile » ont le MEME effet : deux mutations
+			//    restaient VERTES faute de pile -- mon temoin, pas le code.
+			//
+			//    Attendu : le DESSOUS garde sa couleur (le fond d'etat ne surcharge que le
+			//    dessus), le DESSUS cede au vert. Soit DEUX commandes : rouge puis verte.
+			//    Un parcours inverse remplacerait l'APLAT et laisserait le degrade en bandes ;
+			//    un remplacement sur toute la pile rendrait les DEUX vertes.
+			NkUIDocument dRd;
 			{
-				auto compter = [](const char *h, const char *n) -> uint32 {
-					uint32 c = 0u;
-					for (const char *p = h; p && *p; ++p) {
-						const char *a = p, *b = n;
-						while (*a && *b && *a == *b)
-							++a, ++b;
-						if (!*b)
-							++c;
-					}
-					return c;
-				};
-				nAppelQ = compter(srcQ.Data(), "n->DessusEnDegrade()");
-				// ⚠️ LA PHRASE, PAS UN MOT COURANT : « pas encore » apparait 39 fois dans ce
-				//    fichier (vocabulaire de commentaire). Compte ainsi, le temoin aurait
-				//    laisse passer la SUPPRESSION de la phrase -- les 38 autres l'auraient
-				//    rassure. On compte donc la formulation elle-meme.
-				nPhraseQ = compter(srcQ.Data(), "ne s'applique pas encore");
-				// ⚠️ ET LE MOT QU'ON REFUSE : une limite d'implementation ne s'ecrit pas
-				//    comme une loi. Si « jamais » apparait dans cette phrase, c'est un mensonge.
-				nJamais = compter(srcQ.Data(), "ne s'applique jamais");
+				dRd.NewDocument("Toile", NkAuthor::Humain);
+				dRd.SetMetric("espacement", 0.f);
+				dRd.SetMetric("marge", 0.f);
+				dRd.nodes[0].layout.kind = NkLayoutKind::Free;
+				const int32 z = dRd.AddChild(0, "", NkAuthor::Humain);
+				NkUINode &n = dRd.nodes[(uint32)z];
+				n.shape = NkString("rect");
+				n.layout.kind = NkLayoutKind::Free;
+				n.posX = 10.f;
+				n.posY = 10.f;
+				n.width.mode = NkSizeMode::Fixed;
+				n.width.value = 120.f;
+				n.height.mode = NkSizeMode::Fixed;
+				n.height.value = 60.f;
+				NkRemplissage bas; // LE DESSOUS : un aplat rouge, il ne doit PAS bouger
+				bas.couleur = NkString("#ff0000");
+				n.fills.PushBack(bas);
+				NkRemplissage haut; // LE DESSUS : le degrade, c'est lui que l'etat surcharge
+				NkArretDegrade h0, h1;
+				h0.position = 0.f;
+				h0.couleur = NkString("#101010");
+				h1.position = 1.f;
+				h1.couleur = NkString("#e0e0e0");
+				haut.degrade.arrets.PushBack(h0);
+				haut.degrade.arrets.PushBack(h1);
+				n.fills.PushBack(haut);
+				NkBlocEtat(n, "Hover").fond = NkString("#00ff00");
 			}
-			const bool cableQ = nAppelQ == 1u && nPhraseQ >= 1u && nJamais == 0u;
+			NkRecordingPaint rPile;
+			rendreR(dRd, "Hover", rPile);
+			uint32 nP2 = 0u, pP2 = 0u, dP2 = 0u;
+			fonds(rPile, nP2, pP2, dP2);
+			// deux commandes exactement : le dessous INTACT, le dessus REMPLACE
+			const bool pile = nP2 == 2u && pP2 == 0xff0000ffu && dP2 == 0x00ff00ffu;
+			// (f) LE DEGRADE EST EN DESSOUS, L'APLAT AU-DESSUS : le degrade doit SURVIVRE.
+			//
+			// ⚠️ C'EST CE CAS-LA QUI MESURE LA CIBLE DU REMPLACEMENT, et rien d'autre. En (e),
+			//    le seul degrade ETAIT le dessus : remplacer « le dessus » ou « toute la pile »
+			//    rendait la meme image, et la mutation restait VERTE. Ici le degrade n'est pas
+			//    la cible : ses bandes doivent rester, et seul l'aplat du dessus vire au vert.
+			NkUIDocument dRe;
+			{
+				dRe.NewDocument("Toile", NkAuthor::Humain);
+				dRe.SetMetric("espacement", 0.f);
+				dRe.SetMetric("marge", 0.f);
+				dRe.nodes[0].layout.kind = NkLayoutKind::Free;
+				const int32 z = dRe.AddChild(0, "", NkAuthor::Humain);
+				NkUINode &n = dRe.nodes[(uint32)z];
+				n.shape = NkString("rect");
+				n.layout.kind = NkLayoutKind::Free;
+				n.posX = 10.f;
+				n.posY = 10.f;
+				n.width.mode = NkSizeMode::Fixed;
+				n.width.value = 120.f;
+				n.height.mode = NkSizeMode::Fixed;
+				n.height.value = 60.f;
+				NkRemplissage bas; // LE DESSOUS : un degrade -- il n'est PAS la cible de l'etat
+				NkArretDegrade b0, b1;
+				b0.position = 0.f;
+				b0.couleur = NkString("#101010");
+				b1.position = 1.f;
+				b1.couleur = NkString("#e0e0e0");
+				bas.degrade.arrets.PushBack(b0);
+				bas.degrade.arrets.PushBack(b1);
+				n.fills.PushBack(bas);
+				NkRemplissage haut; // LE DESSUS : un aplat, c'est LUI que l'etat surcharge
+				haut.couleur = NkString("#0000ff");
+				n.fills.PushBack(haut);
+				NkBlocEtat(n, "Hover").fond = NkString("#00ff00");
+			}
+			NkRecordingPaint rBas;
+			rendreR(dRe, "Hover", rBas);
+			uint32 nQ = 0u, pQ = 0u, dQ = 0u;
+			fonds(rBas, nQ, pQ, dQ);
+			// les BANDES du degrade du dessous survivent (bien plus de 2 commandes), et la
+			// DERNIERE -- le dessus -- est le vert de l'etat
+			const bool dessousSurvit = nQ > 2u && dQ == 0x00ff00ffu;
 			snprintf(det, sizeof(det),
-					 "(a) la porte : degrade au-dessus=%d, aplat=%d, degrade SUR un aplat=%d, degrade "
-					 "MASQUE=%d, nœud vide=%d -> %d ; (b) c'est bien le nœud qui perd son fond "
-					 "(FondEffectif nul)=%d ; (c) la section appelle la porte (source lue) : %u site, "
-					 "la phrase « ne s'applique pas encore » %u fois [1], « ne s'applique jamais » "
-			 "%u fois [0] -> %d",
-					 nDeg.DessusEnDegrade() ? 1 : 0, nApl.DessusEnDegrade() ? 1 : 0,
-					 nSup.DessusEnDegrade() ? 1 : 0, nMasq.DessusEnDegrade() ? 1 : 0,
-					 nVide.DessusEnDegrade() ? 1 : 0, porte ? 1 : 0, memeVerite ? 1 : 0, nAppelQ,
-					 nPhraseQ, nJamais, cableQ ? 1 : 0);
-			check("159. LE GESTE MUET NE L'EST PLUS : un nœud dont le remplissage du DESSUS est un "
-				  "degrade perd son fond d'etat (mesure : 0 commande sur 30), et la section le DIT "
-				  "desormais -- « pas encore », jamais « jamais », en nommant ce qui marche (la "
-				  "teinte). La porte suit le MEME parcours que `FondEffectif()` : le dessus compte, "
-				  "un degrade masque ne compte pas, un nœud sans remplissage non plus",
-				  porte && memeVerite && cableQ, det);
+					 "(a) sans etat : %u commande(s) de fond, extremites %08x/%08x (distinctes) -> %d ; "
+					 "(b) fond d'etat sur le degrade : %u commande(s) [1], couleur %08x [00ff00ff] -> %d ; "
+					 "(c) fond ET teinte : %u [1], %08x = l'APLAT multiplie [%08x] -> %d ; (d) un etat "
+					 "sans fond laisse le degrade intact (diff %u) -> %d ; (e) pile a DEUX remplissages : "
+			 "%u commande(s) [2], dessous %08x [ff0000ff] INTACT, dessus %08x [00ff00ff] REMPLACE "
+			 "-> %d",
+					 nB, pB, dB, degradeAvant ? 1 : 0, nR, pR, remplace ? 1 : 0, nD, pD, vertMul,
+					 ordre ? 1 : 0, rSans.DiffCount(rSansH), intact ? 1 : 0, nP2, pP2, dP2, pile ? 1 : 0,
+			 nQ, dQ, dessousSurvit ? 1 : 0);
+			check("160. LE FOND D'ETAT REMPLACE LE DEGRADE : un nœud dont le seul remplissage est un "
+				  "degrade NU (celui que `FondEffectif()` ne sait pas nommer) recoit enfin le fond de "
+				  "son etat -- le degrade cede la place a UN aplat, la ou 0 commande sur 30 changeait "
+				  "avant ; l'ordre est tenu (on remplace d'abord, la teinte multiplie l'APLAT ensuite) ; "
+				  "et un etat qui ne pose pas de fond laisse le degrade intact",
+				  degradeAvant && remplace && ordre && intact && pile && dessousSurvit, det);
 		}
 		// ── 94. ① L'APERCU PENDANT LE TRACE (05/09). Rodolf : « pourquoi quand on dessine un
 		//    graphique on voit juste le rectangle qui s'allonge, et des qu'on relache on voit la

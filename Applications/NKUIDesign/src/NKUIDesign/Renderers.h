@@ -531,6 +531,14 @@ namespace nkuidesign {
 				return 0xFFFFFFFFu;
 			return NkGCouleur(a->teinte.Data());
 		}
+		/// L'ETAT AFFICHE POSE-T-IL UN FOND ? (12/09) -- la question que le peintre doit
+		/// poser AVANT de peindre un degrade : un fond d'etat REMPLACE le remplissage du
+		/// dessus, degrade compris. Une seule porte, pour que le peintre et le banc
+		/// repondent pareil.
+		inline bool NkFondDEtatPose(const NkDocumentHost &h, const NkUINode &n) {
+			const NkApparenceEtat *a = NkEtatVu(h, n);
+			return a && !a->fond.Empty();
+		}
 		/// LA COULEUR DU TEXTE VUE : celle de l'état s'il en pose une, sinon la base.
 		/// (Mesure Q143 : UN seul site la résout chez le peintre -- porte unique.)
 		inline const char *NkCouleurTexteVue(const NkDocumentHost &h, const NkUINode &n) {
@@ -2494,7 +2502,13 @@ namespace nkuidesign {
 						// LE REMPLISSAGE DU DESSUS est celui que l'état surcharge : c'est
 						// lui que `FondEffectif` rend, donc c'est lui que `NkFondVu`
 						// remplace. Les autres gardent leur couleur du modèle.
-						const bool duDessus = (n.FondEffectif() == f.couleur.Data());
+						// ⚠️ PAR INDICE, PLUS PAR POINTEUR (12/09). L'ancienne ligne comparait
+						//    `n.FondEffectif()` a `f.couleur.Data()` : sur un degrade nu, la premiere
+						//    rend `nullptr` et la comparaison est FAUSSE pour tous les remplissages --
+						//    `NkFondVu` n'etait jamais consulte, et le fond d'etat se perdait en
+						//    silence (0 commande sur 30). L'indice, lui, designe le dessus meme quand
+						//    il n'a aucune couleur unie a montrer.
+						const bool duDessus = ((nkentseu::int32)fi == n.IndexDessusVisible());
 						const char *couleurVue = NkCouleurApercue(
 							host, noeud, (nkentseu::int32)fi,
 							NkCouleurApercue(host, noeud, -1,
@@ -2519,7 +2533,17 @@ namespace nkuidesign {
 							peint = true;
 							continue;
 						}
-						if (peindreDegrade(f.degrade)) {
+						// ⚠️ ON REMPLACE D'ABORD, ON MULTIPLIE ENSUITE -- l'ordre se decide une fois.
+						//    Un etat qui pose un `fond` REMPLACE le remplissage du dessus, degrade
+						//    compris : le degrade cede la place a l'aplat, et la teinte multiplie
+						//    ENSUITE ce qui a ete choisi. Dans l'autre sens, le remplacement
+						//    ecraserait la teinte et les deux reglages se contrediraient.
+						//
+						// 🔴 C'EST LE SECOND VERROU NOMME EN Q155 : ce `continue` courait AVANT tout
+						//    usage de `couleurVue`, donc la couleur d'etat calculee juste au-dessus
+						//    etait jetee. Il ne court plus quand un etat remplace ce fond-la.
+						const bool remplaceParEtat = duDessus && NkFondDEtatPose(host, n);
+						if (!remplaceParEtat && peindreDegrade(f.degrade)) {
 							peint = true;
 							continue;
 						}
