@@ -201,8 +201,9 @@
 // du côté qui laisse voir.
 //
 // ⚠️ CE QUE CE FICHIER N'EST PAS. Il ne dessine rien, il ne connaît ni GPU ni
-// tampon de sommets : il rend des POSITIONS. Le pavage, les indices et le rendu
-// sont au consommateur. C'est la même séparation que NkSplashLaw : la seule
+// tampon de sommets : il rend des POSITIONS — et, depuis le 12/09, l'ORDRE dans
+// lequel les lire (`NkProjectedGridIndices`, de la combinatoire pure). Le rendu,
+// les tampons et la composition avec la houle restent au consommateur. C'est la même séparation que NkSplashLaw : la seule
 // chose qui puisse être fausse ici est de la géométrie, et de la géométrie se
 // mesure sans écran.
 // =============================================================================
@@ -814,6 +815,56 @@ namespace nkentseu {
 			out = a + d * t;
 			out.y = p.baseY;
 			return true;
+		}
+
+		// ── LE PAVAGE : deux triangles par cellule ──────────────────────────────
+		//
+		// C'était la seule pièce de la chaîne minimale que personne n'avait écrite.
+		// Elle est de la COMBINATOIRE PURE : aucune position, aucun GPU, aucun
+		// tampon — seulement l'ordre dans lequel un consommateur doit lire les
+		// sommets. C'est ce qui la rend mesurable sans écran, comme le reste du
+		// fichier.
+		//
+		// ⚠️ LA CONVENTION, ÉCRITE PARCE QU'UN DÉCALAGE D'UN S'Y CACHE FACILEMENT.
+		// `NkProjectedGridVertex` accepte i dans [0, cols] et j dans [0, rows] : il y
+		// a donc (cols+1) × (rows+1) SOMMETS pour cols × rows CELLULES. Le sommet
+		// (i, j) est à l'indice j·(cols+1) + i, et le compte d'indices vaut
+		// cols·rows·6 — c'est-à-dire 2·(nx−1)·(ny−1)·3 avec nx = cols+1.
+		//
+		// L'ENROULEMENT est constant : les deux triangles (v00, v10, v11) et
+		// (v00, v11, v01) tournent dans le même sens en espace paramètre. Ce n'est
+		// pas à croire sur parole — le témoin (u1) le mesure sur chaque triangle.
+
+		// Combien d'indices le pavage écrira pour cols × rows CELLULES.
+		NK_FORCE_INLINE uint32 NkProjectedGridIndexCount(uint32 cols, uint32 rows) noexcept {
+			return cols * rows * 6u;
+		}
+
+		// Écrit le pavage dans `out`. Rend le nombre d'indices écrits, et ZÉRO si la
+		// capacité ne suffit pas — il n'écrit jamais un maillage tronqué, qui serait
+		// un maillage à fissures que personne ne verrait venir.
+		NK_FORCE_INLINE uint32 NkProjectedGridIndices(uint32 cols, uint32 rows, uint32 *out,
+													  uint32 capacity) noexcept {
+			const uint32 need = NkProjectedGridIndexCount(cols, rows);
+			if (cols == 0u || rows == 0u || out == nullptr || capacity < need)
+				return 0u;
+			const uint32 nx = cols + 1u;
+			uint32 n = 0u;
+			for (uint32 j = 0; j < rows; ++j) {
+				for (uint32 i = 0; i < cols; ++i) {
+					const uint32 v00 = j * nx + i;
+					const uint32 v10 = v00 + 1u;
+					const uint32 v01 = v00 + nx;
+					const uint32 v11 = v01 + 1u;
+					out[n++] = v00;
+					out[n++] = v10;
+					out[n++] = v11;
+					out[n++] = v00;
+					out[n++] = v11;
+					out[n++] = v01;
+				}
+			}
+			return n;
 		}
 
 	} // namespace math

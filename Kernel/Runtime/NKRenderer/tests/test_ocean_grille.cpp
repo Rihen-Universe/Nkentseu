@@ -293,6 +293,80 @@ namespace {
 		return (mn > 1e-9f) ? mx / mn : 0.f;
 	}
 
+	// ── LES QUATRE NOMBRES QUI DISENT QU'UN MAILLAGE EST BIEN FORME ──────────
+	// Aucun d'eux ne regarde une image : ce sont des comptes sur des indices. Un
+	// maillage qui les satisfait n'a pas de fissures.
+	struct NkPavageMesure {
+			uint32 indices = 0u;
+			uint32 aretesUneFois = 0u; // vues une seule fois = le BORD du maillage
+			uint32 aretesTrois = 0u;   // vues trois fois ou plus : impossible si sain
+			uint32 orientationPos = 0u, orientationNeg = 0u;
+			uint32 degeneres = 0u;
+			uint32 horsBornes = 0u;
+	};
+
+	NkPavageMesure MesurerPavage(const uint32 *idx, uint32 n, uint32 cols, uint32 rows) {
+		NkPavageMesure m;
+		m.indices = n;
+		const uint32 nx = cols + 1u;
+		const uint32 sommets = nx * (rows + 1u);
+		const uint32 tris = n / 3u;
+		for (uint32 t = 0; t < tris; ++t) {
+			const uint32 a = idx[t * 3u], b = idx[t * 3u + 1u], c = idx[t * 3u + 2u];
+			if (a >= sommets || b >= sommets || c >= sommets) {
+				++m.horsBornes;
+				continue;
+			}
+			if (a == b || b == c || a == c) {
+				++m.degeneres;
+				continue;
+			}
+			// ⚠️ L'AIRE SIGNEE SE PREND EN ESPACE PARAMETRE (i, j) : elle y est
+			// ENTIERE, donc « aire nulle » est exact et ne demande AUCUN epsilon a
+			// choisir. Un seuil arbitraire de plus serait un seuil de plus a defendre.
+			const int32 ax = (int32)(a % nx), ay = (int32)(a / nx);
+			const int32 bx = (int32)(b % nx), by = (int32)(b / nx);
+			const int32 cx = (int32)(c % nx), cy = (int32)(c / nx);
+			const int32 aire2 = (bx - ax) * (cy - ay) - (cx - ax) * (by - ay);
+			if (aire2 > 0)
+				++m.orientationPos;
+			else if (aire2 < 0)
+				++m.orientationNeg;
+			else
+				++m.degeneres; // trois sommets alignes
+		}
+		// Les aretes, comptees SANS conteneur associatif : le depot est zero-STL, et
+		// sur 384 aretes une double boucle exacte vaut mieux qu'une table de hachage
+		// ecrite a trois heures du matin.
+		uint32 ea[1200], eb[1200];
+		uint32 ne = 0u;
+		for (uint32 t = 0; t < tris && ne + 3u <= 1200u; ++t) {
+			const uint32 v[3] = {idx[t * 3u], idx[t * 3u + 1u], idx[t * 3u + 2u]};
+			for (uint32 e = 0; e < 3u; ++e) {
+				uint32 a = v[e], b = v[(e + 1u) % 3u];
+				if (a > b) {
+					const uint32 s = a;
+					a = b;
+					b = s;
+				}
+				ea[ne] = a;
+				eb[ne] = b;
+				++ne;
+			}
+		}
+		for (uint32 i = 0; i < ne; ++i) {
+			uint32 c = 0u;
+			for (uint32 j = 0; j < ne; ++j)
+				if (ea[j] == ea[i] && eb[j] == eb[i])
+					++c;
+			if (c == 1u)
+				++m.aretesUneFois;
+			else if (c >= 3u)
+				++m.aretesTrois;
+		}
+		return m;
+	}
+
 	float32 Croix(const float32 *px, const float32 *py, uint32 a, uint32 b, uint32 c) {
 		return (px[b] - px[a]) * (py[c] - py[a]) - (py[b] - py[a]) * (px[c] - px[a]);
 	}
@@ -2164,6 +2238,91 @@ int NkSondeOceanGrille() {
 			}
 			XCHECK(avecRefus > 0u,
 				   "(w3) au-dela de raideur 1, la preimage REFUSE au lieu de rendre un resultat non converge");
+		}
+	}
+
+	// (u1)(u2) LE PAVAGE : quatre nombres, aucun jugement.
+	//
+	// C'etait la seule piece de la chaine minimale que personne n'avait ecrite. Une
+	// demonstration est VISUELLE, et ce chantier s'interdit de rien regler a l'oeil :
+	// la justesse du pavage se mesure donc SANS REGARDER. Un maillage qui satisfait
+	// les quatre nombres ci-dessous n'a PAS DE FISSURES -- et « pas de fissures » est
+	// exactement ce qu'un oeil chercherait en premier. Ce que l'oeil garde, c'est le
+	// GOUT, et celui-la appartient a Rodolf.
+	{
+		const uint32 cols = 8u, rows = 8u;
+		uint32 tri[512];
+		const uint32 n = NkProjectedGridIndices(cols, rows, tri, 512u);
+
+		// ⚠️ LE COMPTE ATTENDU EST CALCULE ICI, depuis nx et ny -- il n'est PAS
+		// demande a la fonction qu'on teste. Comparer une fonction a elle-meme ne
+		// prouve rien ; on confronte les deux a un troisieme chiffre ecrit a la main.
+		const uint32 nx = cols + 1u, ny = rows + 1u;
+		const uint32 attendu = 2u * (nx - 1u) * (ny - 1u) * 3u;
+		// Et le bord, lui aussi compte a la main : 2 (cols + rows) aretes.
+		const uint32 bordAttendu = 2u * (cols + rows);
+		const NkPavageMesure m = MesurerPavage(tri, n, cols, rows);
+
+		std::fprintf(stderr,
+					 "     (u1) %u x %u cellules : %u indices (attendu %u, fonction %u) | aretes"
+					 " vues une fois %u (bord attendu %u), trois fois ou plus %u | orientation"
+					 " +%u / -%u | degeneres %u | hors bornes %u\n",
+					 cols, rows, n, attendu, NkProjectedGridIndexCount(cols, rows),
+					 m.aretesUneFois, bordAttendu, m.aretesTrois, m.orientationPos,
+					 m.orientationNeg, m.degeneres, m.horsBornes);
+
+		XCHECK(n == attendu && NkProjectedGridIndexCount(cols, rows) == attendu,
+			   "(u1) le compte d'indices vaut EXACTEMENT 2 (nx-1)(ny-1) 3");
+		XCHECK(m.aretesTrois == 0u && m.aretesUneFois == bordAttendu,
+			   "(u1b) chaque arete INTERIEURE est partagee par exactement DEUX triangles");
+		XCHECK(m.orientationNeg == 0u && m.orientationPos == n / 3u,
+			   "(u1c) l'enroulement est COHERENT : aucun triangle a contresens");
+		XCHECK(m.degeneres == 0u && m.horsBornes == 0u,
+			   "(u1d) aucun triangle degenere, aucun indice hors bornes");
+
+		// (u2) LE VOLET NEGATIF. Sans lui, (u1) ne prouve que « ca compile ».
+		//
+		// ⚠️ ET JE NE PRETENDS PAS QUE LES QUATRE ROUGISSENT. Deplacer UN indice
+		// laisse le COMPTE inchange -- il est structurellement aveugle a la topologie.
+		// On MESURE donc lequel des quatre attrape la faute, au lieu d'annoncer un
+		// « tout rougit » que la mecanique interdit.
+		{
+			uint32 casse[512];
+			for (uint32 i = 0; i < n; ++i)
+				casse[i] = tri[i];
+			casse[7] = casse[7] + 1u; // un seul indice d'un quad, deplace d'un sommet
+			const NkPavageMesure b = MesurerPavage(casse, n, cols, rows);
+			const bool compteVoit = (n != attendu);
+			const bool aretesVoient = (b.aretesUneFois != bordAttendu) || (b.aretesTrois != 0u);
+			const bool enroulVoit = (b.orientationNeg != 0u);
+			const bool degenVoit = (b.degeneres != 0u || b.horsBornes != 0u);
+			std::fprintf(stderr,
+						 "     (u2) UN indice deplace : aretes une fois %u (contre %u), trois fois"
+						 " %u | orientation +%u / -%u | degeneres %u -> attrape par :"
+						 " compte=%d aretes=%d enroulement=%d degeneres=%d\n",
+						 b.aretesUneFois, bordAttendu, b.aretesTrois, b.orientationPos,
+						 b.orientationNeg, b.degeneres, compteVoit ? 1 : 0, aretesVoient ? 1 : 0,
+						 enroulVoit ? 1 : 0, degenVoit ? 1 : 0);
+			XCHECK(aretesVoient || enroulVoit || degenVoit,
+				   "(u2) une seule maille cassee est ATTRAPEE par les nombres qui peuvent la voir");
+		}
+
+		// (u2b) ET LE REFUS D'ECRIRE UN MAILLAGE TRONQUE. Une capacite insuffisante
+		// doit rendre ZERO et ne rien ecrire : un pavage a moitie ecrit serait un
+		// maillage a fissures que personne ne verrait venir.
+		{
+			uint32 petit[8];
+			for (uint32 i = 0; i < 8u; ++i)
+				petit[i] = 0xFFFFFFFFu;
+			const uint32 z = NkProjectedGridIndices(cols, rows, petit, 8u);
+			bool intact = true;
+			for (uint32 i = 0; i < 8u; ++i)
+				if (petit[i] != 0xFFFFFFFFu)
+					intact = false;
+			std::fprintf(stderr, "     (u2b) capacite 8 pour %u indices : rend %u, tampon intact=%d\n",
+						 attendu, z, intact ? 1 : 0);
+			XCHECK(z == 0u && intact,
+				   "(u2b) capacite insuffisante : le pavage REFUSE et n'ecrit RIEN");
 		}
 	}
 
