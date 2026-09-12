@@ -117,7 +117,8 @@ _REGISTRY: dict = {
     # producteur d eau) est de la geometrie pure. NKCollision et NKPhysics
     # s ajouteront quand un effet les exigera VRAIMENT -- une dependance declaree
     # que personne n honore ferait lier tous les consommateurs pour rien.
-    "NKVFX"          : _m("NKENTSEU_VFX",          ["NKPlatform", "NKCore", "NKMemory", "NKContainers", "NKLogger", "NKMath", "NKRenderer"]),
+    # NKTime : reclame par NkVfxLiveness.h (NkChrono, le controle de vie) depuis le 2026-09-12.
+    "NKVFX"          : _m("NKENTSEU_VFX",          ["NKPlatform", "NKCore", "NKMemory", "NKContainers", "NKLogger", "NKMath", "NKTime", "NKRenderer"]),
     "NKImage"        : _m("NKENTSEU_IMAGE",        ["NKPlatform", "NKCore", "NKMemory", "NKContainers", "NKLogger", "NKMath", "NKFileSystem"]),
     "NKMedia"        : _m("NKENTSEU_MEDIA",        ["NKPlatform", "NKCore", "NKMemory", "NKContainers", "NKMath", "NKLogger", "NKStream", "NKFileSystem", "NKImage", "NKThreading"]),
     "NKFont"         : _m("NKENTSEU_FONT",         ["NKPlatform", "NKCore", "NKMemory", "NKContainers", "NKLogger", "NKMath", "NKImage"]),

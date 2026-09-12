@@ -37,6 +37,7 @@
 #include "NKMath/NkProjectedGrid.h"
 #include "NKMath/NkWaterSurface.h"
 #include "NKVFX/NkWaterMeshBuilder.h" // le PRODUCTEUR, eprouve sans fenetre
+#include "NKVFX/NkVfxLiveness.h"	  // le CONTROLE DE VIE : « ca s'execute »
 #include <cstdio>
 
 using namespace nkentseu;
@@ -2421,6 +2422,99 @@ int NkSondeOceanGrille() {
 			XCHECK(nv2 == sommetsAttendus && manq2 == 0u && ecarts == 0u && horsPlan == 0u,
 				   "(p2) CONTROLE NEGATIF : a houle nulle le producteur rend le plan de repos AU BIT");
 		}
+	}
+
+	// (p3) LE CONTROLE DE VIE : « ca s'execute », pas seulement « ca s'enregistre ».
+	//
+	// Le defaut maison, paye huit fois : un parametre DECLARE qui n'est pas HONORE.
+	// Un compteur d'appels ne le voit pas -- il compte des intentions. Un seul
+	// temoin separe les deux : SI LE TEMPS PAR IMAGE NE BOUGE PAS QUAND ON DOUBLE
+	// LA RESOLUTION, LE SYSTEME NE TOURNE PAS. Doubler cols ET rows quadruple les
+	// sommets : un producteur vivant rend un rapport proche de 4.
+	//
+	// L'instrument (NkVfxLiveness.h) est celui que la sonde ECS reutilisera tel
+	// quel : ce qu'il juge ici, c'est le producteur nu ; la-bas, un monde entier.
+	//
+	// ⚠️ LE VOLET NEGATIF EST OBLIGATOIRE. Sans lui, (p3) ne prouve que « ca
+	// compile ». Un locataire DEBRANCHE -- qui ENREGISTRE la resolution mais
+	// n'EXECUTE rien -- doit rendre un rapport plat. C'est exactement la forme du
+	// defaut maison, et c'est elle que l'instrument doit savoir attraper.
+	{
+		struct ContexteVie {
+				vfx::NkWaterMeshParams wp;
+				NkMat4f proj, vue;
+				NkVec3f oeil;
+				renderer::NkVertex3D *out;
+				uint32 capacite;
+				bool branche;
+				uint32 derniereResolution; // ecrite a CHAQUE tick, branche ou non
+				uint32 rendus;			   // sommets produits, cumules
+				uint32 refus;			   // appels ayant rendu 0
+		};
+		// ⚠️ 129 x 129 sommets = ~930 Ko : en STATIQUE, jamais sur la pile. La sonde
+		// du feu est morte en 0xC00000FD avant son premier printf pour l'avoir oublie.
+		static renderer::NkVertex3D tampon[129u * 129u];
+
+		const Pose pose = {{0.f, 11.f, 0.f}, {0.f, 5.f, -60.f}, "pont"};
+		ContexteVie cx;
+		cx.wp.grid = p;
+		cx.wp.grid.baseY = 3.f;
+		cx.wp.waves = UneHouleTest(20.f, 0.6f, 0.5f, 0.f);
+		cx.wp.time = 0.f;
+		cx.proj = PROJ();
+		cx.vue = VUE(pose);
+		cx.oeil = pose.oeil;
+		cx.out = tampon;
+		cx.capacite = 129u * 129u;
+		cx.branche = true;
+		cx.derniereResolution = 0u;
+		cx.rendus = 0u;
+		cx.refus = 0u;
+
+		const vfx::NkLivenessTick tick = +[](void *vctx, uint32 res) {
+			ContexteVie &c = *static_cast<ContexteVie *>(vctx);
+			c.derniereResolution = res; // ENREGISTRE, toujours...
+			if (!c.branche)
+				return; // ...mais n'EXECUTE que si branche : le defaut maison, reproduit
+			c.wp.grid.cols = res;
+			c.wp.grid.rows = res;
+			c.wp.time += 1.f / 60.f; // la houle avance : une image, pas un rejeu
+			const uint32 n = vfx::NkWaterBuildVertices(c.proj, c.vue, c.oeil, c.wp, c.out, c.capacite,
+													   nullptr);
+			if (n == 0u)
+				++c.refus;
+			else
+				c.rendus += n;
+		};
+
+		// La courbe, sur deux doublements : 32 -> 64 -> 128.
+		const vfx::NkLivenessReport a = vfx::NkMeasureLiveness(tick, &cx, 32u, 64u, 9u, 3u);
+		const vfx::NkLivenessReport b = vfx::NkMeasureLiveness(tick, &cx, 64u, 128u, 9u, 3u);
+		std::fprintf(stderr,
+					 "     (p3) VIVANT  : 32 -> 64 : %.1f -> %.1f us/image, rapport %.2f | 64 -> 128 :"
+					 " %.1f -> %.1f us/image, rapport %.2f | refus %u, sommets produits %u\n",
+					 a.usLow, a.usHigh, a.ratio, b.usLow, b.usHigh, b.ratio, cx.refus, cx.rendus);
+		XCHECK(cx.refus == 0u,
+			   "(p3) chaque tick a rendu une grille PLEINE : le temps mesure est celui d'un vrai travail");
+		XCHECK(a.ratio >= 2.0 && b.ratio >= 2.0,
+			   "(p3) VIVANT : doubler la resolution fait BOUGER le temps par image (x4 sommets, rapport >= 2)");
+
+		// (p3b) VOLET NEGATIF : le locataire DEBRANCHE. Il enregistre la resolution
+		// -- on le verifie : derniereResolution vaut bien 128 a la fin -- et ne fait
+		// rien d'autre. Beaucoup de ticks par echantillon, parce qu'un tick vide
+		// dure quelques nanosecondes et que l'horloge en resout cent.
+		cx.branche = false;
+		cx.derniereResolution = 0u;
+		const uint32 refusAvant = cx.refus, rendusAvant = cx.rendus;
+		const vfx::NkLivenessReport d = vfx::NkMeasureLiveness(tick, &cx, 64u, 128u, 9u, 2000u);
+		std::fprintf(stderr,
+					 "     (p3b) DEBRANCHE : 64 -> 128 : %.3f -> %.3f us/image, rapport %.2f | derniere"
+					 " resolution enregistree %u | sommets produits pendant ce temps %u\n",
+					 d.usLow, d.usHigh, d.ratio, cx.derniereResolution, cx.rendus - rendusAvant);
+		XCHECK(cx.derniereResolution == 128u && cx.rendus == rendusAvant && cx.refus == refusAvant,
+			   "(p3b) le parametre EST enregistre et RIEN n'est produit : c'est bien le defaut maison");
+		XCHECK(d.ratio < 2.0,
+			   "(p3b) VOLET NEGATIF : un systeme qui enregistre sans executer rend un rapport PLAT -- (p3) rougirait");
 	}
 
 	std::fprintf(stderr, "=== grille projetee : %d passes, %d echecs ===\n", gP, gF);

@@ -40,8 +40,12 @@ with project("NKVFX"):
     cppdialect("C++17")
     location(".")
 
+    # NKTime : reclame par NkVfxLiveness.h (NkChrono), le controle de vie qui
+    # separe « ca s'enregistre » de « ca s'execute ». Ajoute le jour ou un fichier
+    # l'a exige, pas avant -- c'est la regle de ce module.
     nkentseudependson(
-        ["NKPlatform", "NKCore", "NKMemory", "NKContainers", "NKLogger", "NKMath", "NKRenderer"],
+        ["NKPlatform", "NKCore", "NKMemory", "NKContainers", "NKLogger", "NKMath", "NKTime",
+         "NKRenderer"],
         selfexport="NKVFX",
         extra_includes=["src"],
     )
