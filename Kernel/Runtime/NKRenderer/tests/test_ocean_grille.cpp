@@ -351,6 +351,103 @@ namespace {
 		return dedans;
 	}
 
+	// Declaration anticipee : `EmpreinteDeplacee` s'appuie sur elle, et elle est
+	// definie plus bas avec les autres instruments d'etendue.
+	bool SommetSurEtendue(const NkProjectedGrid &g, const NkProjectedGridParams &p, float32 x0,
+						  float32 x1, float32 y0, float32 y1, uint32 i, uint32 j, NkVec3f &out);
+
+	// Une houle a UN train, pour le banc de composition.
+	NkWaterParams UneHouleTest(float32 lambda, float32 amplitude, float32 raideur, float32 phase) {
+		NkWaterParams h;
+		h.waveCount = 1u;
+		h.waves[0].amplitude = amplitude;
+		h.waves[0].wavelength = lambda;
+		h.waves[0].direction = NkVec2f{1.f, 0.f};
+		h.waves[0].steepness = raideur;
+		h.waves[0].phase = phase;
+		return h;
+	}
+
+	// L'EMPREINTE DEPLACEE : la frontiere de l'etendue, poussee par la houle.
+	//
+	// ⚠️ SON DOMAINE DE VALIDITE, DIT AVANT L'USAGE. Prendre l'IMAGE DE LA FRONTIERE
+	// pour la FRONTIERE DE L'IMAGE n'est licite que si l'application est INJECTIVE,
+	// c'est-a-dire tant que le jacobien horizontal reste positif. Des que J <= 0 la
+	// surface se replie, le polygone s'auto-intersecte, et un test pair-impair y
+	// rendrait n'importe quoi -- un nombre, mais pas une mesure. On REND donc `jMin`
+	// pour que l'appelant sache dans quel regime il mesure au lieu de le supposer.
+	uint32 EmpreinteDeplacee(const NkProjectedGrid &g, const NkProjectedGridParams &p,
+							 const NkWaterParams &houle, float32 t, float32 x0, float32 x1,
+							 float32 y0, float32 y1, float32 *px, float32 *pz, uint32 *idx,
+							 uint32 capacite, float32 &jMin) {
+		jMin = 1e30f;
+		uint32 m = 0;
+		const uint32 pas = 2u;
+		for (uint32 cote = 0; cote < 4u; ++cote) {
+			const uint32 fin = (cote == 0u || cote == 2u) ? p.cols : p.rows;
+			for (uint32 s = 0; s < fin && m < capacite; s += pas) {
+				uint32 i = 0u, j = 0u;
+				if (cote == 0u) {
+					i = s;
+					j = 0u;
+				} else if (cote == 1u) {
+					i = p.cols;
+					j = s;
+				} else if (cote == 2u) {
+					i = p.cols - s;
+					j = p.rows;
+				} else {
+					i = 0u;
+					j = p.rows - s;
+				}
+				NkVec3f w;
+				if (!SommetSurEtendue(g, p, x0, x1, y0, y1, i, j, w))
+					continue;
+				const NkWaterPoint q = NkWaterEval(houle, w.x, w.z, t);
+				if (q.jacobianXZ < jMin)
+					jMin = q.jacobianXZ;
+				px[m] = q.position.x;
+				pz[m] = q.position.z;
+				idx[m] = m;
+				++m;
+			}
+		}
+		return m;
+	}
+
+	// LA COUVERTURE APRES COMPOSITION.
+	//
+	// On part toujours d'un pixel de RENDU -- c'est lui qui decide de ce qu'on voit
+	// -- on trouve le point d'eau qu'il voit, et on demande s'il tombe dans
+	// l'empreinte DEPLACEE, et non plus dans l'etendue au repos. C'est toute la
+	// difference : la couverture 1,00 acquise est une garantie sur le plan de REPOS,
+	// alors que la camera regarde la surface DEPLACEE.
+	//
+	// `fenetre` restreint l'echantillonnage au centre de l'ecran (1,0 = plein
+	// ecran). Comparer plein ecran et centre dit si les trous sont AU BORD ou
+	// REPARTIS -- et les deux ne s'expliquent pas pareil. C'est un PROXY, dit comme
+	// tel : le bord de l'ecran n'est pas exactement le bord de l'etendue, mais
+	// l'etendue est construite pour couvrir l'ecran, donc les deux se correspondent.
+	float32 CouvertureComposee(const NkMat4f &renderInvVP, float32 hauteur, uint32 N,
+							   const float32 *px, const float32 *pz, const uint32 *idx, uint32 m,
+							   float32 fenetre, uint32 &vus) {
+		uint32 dedans = 0;
+		vus = 0;
+		for (uint32 i = 0; i <= N; ++i) {
+			for (uint32 j = 0; j <= N; ++j) {
+				const float32 nx = fenetre * (-1.f + 2.f * (float32)i / (float32)N);
+				const float32 ny = fenetre * (-1.f + 2.f * (float32)j / (float32)N);
+				NkVec3f w;
+				if (!PixelVoitLePlan(renderInvVP, nx, ny, hauteur, w))
+					continue;
+				++vus;
+				if (DansPolygone(px, pz, idx, m, w.x, w.z))
+					++dedans;
+			}
+		}
+		return (vus > 0u) ? (float32)dedans / (float32)vus : 0.f;
+	}
+
 	// LE GACHIS QUE LAISSERAIT UN PAVAGE PARFAIT DE LA FORME.
 	//
 	// C'est LE nombre qui decide s'il faut ecrire ce pavage. On ne l'extrapole pas
@@ -1786,6 +1883,107 @@ int NkSondeOceanGrille() {
 					 basculesBinaire, basculesContinu);
 		XCHECK(basculesBinaire > 0u && basculesContinu == 0u,
 			   "(x20) l'ancien critere BASCULE, le nouveau NON : voila ce que le continu achete");
+	}
+
+	// (z1)(z2)(z3) LA COUVERTURE APRES DEPLACEMENT HORIZONTAL.
+	//
+	// LA FAILLE, DITE AVANT LA MESURE : la couverture 1,00 gagnee plus haut est une
+	// garantie sur le PLAN DE REPOS. Ce que la camera voit est la surface DEPLACEE.
+	// On a mesure la premiere et SUPPOSE la seconde. Et l'asymetrie est nette : la
+	// verticale est gardee par `displacementMax`, l'HORIZONTALE ne l'est par rien --
+	// donc c'est aux BORDS de l'etendue que ca doit se rouvrir.
+	//
+	// HYPOTHESE A REFUTER : la grille ne couvre plus l'eau deplacee sur une bande
+	// large comme l'amplitude horizontale, le long des bords. CRITERE ECRIT
+	// D'AVANCE : je la tiendrai pour confirmee si, a raideur >= 0,5, la couverture
+	// PLEIN ECRAN tombe sous 0,999 PENDANT QUE la couverture CENTRALE reste a 1,000.
+	// C'est ce couple, et non la seule chute, qui separe « au bord » de « reparti ».
+	//
+	// ⚠️ ET LE PIEGE DE COMMENSURABILITE, PARCE QUE JE VIENS D'EN PAYER UN. Si les
+	// points de mesure tombent sur des positions commensurables avec la periode de
+	// la vague, on mesure toujours la MEME PHASE -- exactement la faute des quatre
+	// resolutions multiples de 4 qui echantillonnaient le sinus pile a +/-1. Des
+	// deux parades possibles, celle que j'ai prise est le DECALAGE DE PHASE PAR
+	// POSE (0 / 1,1 / 2,3 rad), pas des pas premiers avec la longueur d'onde.
+	{
+		const Pose troisPoses[3] = {
+			{{0.f, 8.f, 0.f}, {0.f, 2.f, -60.f}, "pont 8 m"},
+			{{0.f, 1.f, 0.f}, {0.f, 1.2f, -60.f}, "rasante 1 m"},
+			{{0.f, -3.f, 0.f}, {0.f, 1.f, -20.f}, "sous l'eau"},
+		};
+		const float32 phases[3] = {0.f, 1.1f, 2.3f};
+		const float32 raideurs[5] = {0.f, 0.25f, 0.5f, 0.75f, 1.f};
+		float32 px[512], pz[512];
+		uint32 idx[512];
+
+		uint32 controleOk = 0, confirmees = 0, auBord = 0;
+		for (uint32 k = 0; k < 3u; ++k) {
+			const NkMat4f vpR = VP(troisPoses[k]);
+			const NkMat4f invR = vpR.Inverse();
+			const NkProjectedGrid gk = BUILD(troisPoses[k], p);
+			for (uint32 r = 0; r < 5u; ++r) {
+				const NkWaterParams houle = UneHouleTest(20.f, 0.6f, raideurs[r], phases[k]);
+				float32 jMin = 0.f;
+				const uint32 m = EmpreinteDeplacee(gk, p, houle, 0.f, gk.ndcMinX, gk.ndcMaxX,
+												   gk.ndcMinY, gk.ndcMaxY, px, pz, idx, 512u, jMin);
+				uint32 vusPlein = 0, vusCentre = 0;
+				const float32 cPlein =
+					CouvertureComposee(invR, p.baseY, 48u, px, pz, idx, m, 1.f, vusPlein);
+				const float32 cCentre =
+					CouvertureComposee(invR, p.baseY, 48u, px, pz, idx, m, 0.5f, vusCentre);
+				std::fprintf(stderr,
+							 "     (z2) %-12s raideur %.2f : J min %+.3f | couverture composee"
+							 " PLEIN ECRAN %.3f (%u px) | CENTRE %.3f (%u px)\n",
+							 troisPoses[k].nom, (double)raideurs[r], (double)jMin, (double)cPlein,
+							 vusPlein, (double)cCentre, vusCentre);
+				// (z1) LE CONTROLE NEGATIF : a raideur nulle, rien ne bouge, donc la
+				// couverture composee DOIT valoir 1,000. Si elle ne le vaut pas, c'est
+				// ma mesure qui est fausse -- pas la grille.
+				if (r == 0u && cPlein > 0.999f && cCentre > 0.999f)
+					++controleOk;
+				if (raideurs[r] >= 0.5f && cPlein < 0.999f) {
+					++confirmees;
+					if (cCentre > 0.999f)
+						++auBord;
+				}
+			}
+		}
+		std::fprintf(stderr,
+					 "     (z1/z2) controle negatif OK sur %u/3 poses | %u cas (raideur >= 0,5)"
+					 " perdent de la couverture, dont %u AU BORD (centre intact)\n",
+					 controleOk, confirmees, auBord);
+		XCHECK(controleOk == 3u,
+			   "(z1) CONTROLE NEGATIF : a raideur nulle, la couverture composee vaut 1,000");
+
+		// (z3) LE PRIX DE LA GARDE. Elargir l'etendue rachete la couverture, mais
+		// c'est du GACHIS en plus -- et on a mesure que descendre le gachis a 0,58
+		// detruirait le 1,00 contre 251,00 qui justifie toute la technique. Une
+		// couverture rachetee trop cher n'est pas un gain, donc on donne LES DEUX
+		// chiffres avant de proposer quoi que ce soit.
+		{
+			const Pose banc = troisPoses[1]; // la rasante : c'est elle qui a deja souffert
+			const NkMat4f vpR = VP(banc);
+			const NkMat4f invR = vpR.Inverse();
+			const NkProjectedGrid gk = BUILD(banc, p);
+			const NkWaterParams houle = UneHouleTest(20.f, 0.6f, 1.f, phases[1]);
+			const float32 marges[4] = {0.f, 0.05f, 0.10f, 0.20f};
+			for (uint32 e = 0; e < 4u; ++e) {
+				const float32 ex = (gk.ndcMaxX - gk.ndcMinX) * marges[e];
+				const float32 ey = (gk.ndcMaxY - gk.ndcMinY) * marges[e];
+				const float32 x0 = gk.ndcMinX - ex, x1 = gk.ndcMaxX + ex;
+				const float32 y0 = gk.ndcMinY - ey, y1 = gk.ndcMaxY + ey;
+				float32 jMin = 0.f;
+				const uint32 m =
+					EmpreinteDeplacee(gk, p, houle, 0.f, x0, x1, y0, y1, px, pz, idx, 512u, jMin);
+				uint32 vus = 0, tot = 0;
+				const float32 c = CouvertureComposee(invR, p.baseY, 48u, px, pz, idx, m, 1.f, vus);
+				const float32 gach = GachisSurEtendue(gk, p, vpR, x0, x1, y0, y1, 2u, tot);
+				std::fprintf(stderr,
+							 "     (z3) elargissement %3.0f %% : couverture composee %.3f | gachis"
+							 " %.2f (%u sommets)\n",
+							 (double)(marges[e] * 100.f), (double)c, (double)gach, tot);
+			}
+		}
 	}
 
 	std::fprintf(stderr, "=== grille projetee : %d passes, %d echecs ===\n", gP, gF);
