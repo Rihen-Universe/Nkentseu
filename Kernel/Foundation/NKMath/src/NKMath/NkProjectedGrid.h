@@ -154,13 +154,27 @@
 // plutôt que d'inventer. La contribution du rabattement n'est donc mesurée QUE sur
 // la vue rasante.
 //
-// AUCUN CORRECTIF N'EST ÉCRIT ICI. La cause est nommée avec son chiffre ; le
-// geste — retrait, recalibrage ou déplacement — se décidera en le sachant.
+// ── LE RETRAIT EST ÉCRIT, ET IL PAIE LE QUATRIÈME CRITÈRE ──────────────────
+// `retraitEgares` retire de l'étendue les points dont la position rabattue n'est
+// pas de l'eau que la caméra voit. Mesuré sur les trois poses :
+//        gâchis      0,17 / 0,90 / 0,24   →   0,17 / 0,20 / 0,24
+//        pas écran   ×1,00 / ×2,50 / ×1,39 →  ×1,00 / ×1,08 / ×1,39
+//        couverture  1,00 partout, AVANT comme APRÈS — elle ne bouge pas.
+// Trois critères sur quatre sont donc tenus, et la vue rasante passe sous les
+// seuils sur les deux qu'elle violait.
 //
-// Autrement dit : la caméra de portée est POSÉE et prouvée sur la couverture et
-// la stabilité ; le gâchis en vue rasante n'est ni un réglage à trouver, ni une
-// forme à changer — les trois ont été éliminés par la mesure. C'est un lot, pas
-// un doute, et il porte maintenant sur l'étape 4 elle-même.
+// 🔴 MAIS LA STABILITÉ EST DÉTRUITE, et c'était le risque annoncé. Le glissement
+// d'une image à l'autre, sur la vue rasante, vaut 14,99 mailles pour 1° de
+// rotation contre 0,0357 pour 0,25° : RAPPORT 419,79, là où un déplacement
+// continu vaudrait 4,00. La cause est le caractère BINAIRE du test — un point
+// change de camp quand la caméra tourne, il entre ou sort de l'étendue, la boîte
+// saute, et tous les sommets sautent avec elle. (x20) le démontre en comptant les
+// égarés à plusieurs angles.
+//
+// Le seuil n'a pas été lissé pour sauver le résultat : (x10) et (x19d) restent
+// ROUGES. Un retrait qui répare trois nombres en cassant le quatrième n'est pas
+// fini — et le dire vaut mieux que d'échanger un défaut mesuré contre un défaut
+// visible, qui est précisément celui que l'œil de Rodolf verrait en premier.
 //
 // ── LE CAS DÉGÉNÉRÉ, DIT PLUTÔT QUE MASQUÉ ──────────────────────────────────
 // Quand un point retenu est DERRIÈRE la caméra (w <= 0), son image projective
@@ -220,6 +234,14 @@ namespace nkentseu {
 				// l'infini — et une caméra de portée qui regarde l'infini ne regarde
 				// plus le plan.
 				float32 rangePitchMin = 0.05f;
+
+				// ── LE RETRAIT DES POINTS ÉGARÉS ────────────────────────────────────
+				// Un point retenu dont la position RABATTUE n'est pas de l'eau que la
+				// caméra de rendu voit tire l'étendue vers un endroit que personne ne
+				// regarde. Mesuré en vue rasante : 6 points sur 12, et les retirer fait
+				// passer le gâchis de 0,90 à 0,12 ET le pas d'écran de ×2,50 à ×1,02.
+				// Commutable pour que l'état d'avant reste REPRODUCTIBLE.
+				bool retraitEgares = true;
 		};
 
 		struct NkProjectedGrid {
@@ -279,7 +301,19 @@ namespace nkentseu {
 				// ne peut pas distinguer un point qui était déjà au sol d'un point qu'on
 				// a aplati de deux mètres — et ce sont deux choses différentes.
 				float32 ptsY[40];
+				// Vrai = ce point est ÉGARÉ : rabattu, il désigne un sol que la caméra
+				// de rendu ne voit pas. Exposé pour qu'un instrument puisse refaire le
+				// classement de son côté et le comparer à celui-ci.
+				bool ndcEgare[40];
 				uint32 ndcCount = 0u;
+				// Vrai = le retrait a effectivement rétréci l'étendue.
+				bool retraitApplique = false;
+				// Vrai = le retrait ne laissait pas de quoi former une étendue, et on a
+				// gardé la COMPLÈTE. Ce n'est pas un échec silencieux : c'est un
+				// comportement, et il se lit.
+				bool retraitAbandonne = false;
+				// Vrai = même l'étendue complète est plate : rien à mailler, et ça se dit.
+				bool etendueDegeneree = false;
 		};
 
 		// Déprojette un point NDC vers le monde. Rend faux quand la division
@@ -343,6 +377,24 @@ namespace nkentseu {
 			const NkVec3f m = a + d * t;
 			const float32 dx = m.x - eye.x, dz = m.z - eye.z;
 			return (dx * dx + dz * dz) <= distMax * distMax;
+		}
+
+		// La caméra de RENDU voit-elle de l'eau à cette position au sol ? On essaie les
+		// trois hauteurs que la houle permet : si aucune ne tombe dans l'écran, aucune
+		// vague ne rendra ce point visible.
+		NK_FORCE_INLINE bool NkEauVueAuSol(const NkMat4f &viewProj, float32 baseY, float32 dispMax,
+										   float32 x, float32 z) noexcept {
+			const float32 hauteurs[3] = {baseY, baseY + dispMax, baseY - dispMax};
+			for (uint32 h = 0; h < 3u; ++h) {
+				const NkVec4f q = viewProj * NkVec4f(x, hauteurs[h], z, 1.f);
+				if (q.w <= 1e-6f)
+					continue;
+				const float32 iw = 1.f / q.w;
+				const float32 nx = q.x * iw, ny = q.y * iw;
+				if (nx >= -1.f && nx <= 1.f && ny >= -1.f && ny <= 1.f)
+					return true;
+			}
+			return false;
 		}
 
 		// Construit la grille pour une caméra de rendu donnée.
@@ -507,7 +559,12 @@ namespace nkentseu {
 			g.invViewProj = invRange; // LES SOMMETS SORTENT DE LA CAMÉRA DE PORTÉE
 
 			// 4. rabattus sur le plan de repos, puis ramenés dans l'écran DE PORTÉE.
+			// DEUX étendues sont accumulées : la COMPLÈTE, sur tous les points, et la
+			// RETRAITÉE, sur les seuls points dont la position rabattue est de l'eau que
+			// la caméra de rendu voit vraiment.
 			float32 mnx = 1e30f, mxx = -1e30f, mny = 1e30f, mxy = -1e30f;
+			float32 rnx = 1e30f, rxx = -1e30f, rny = 1e30f, rxy = -1e30f;
+			uint32 gardes = 0u;
 			bool borne = true;
 			for (uint32 i = 0; i < n; ++i) {
 				const NkVec4f q = rangeVP * NkVec4f(pts[i].x, p.baseY, pts[i].z, 1.f);
@@ -530,8 +587,48 @@ namespace nkentseu {
 					mny = ny;
 				if (ny > mxy)
 					mxy = ny;
+
+				// L'ÉGARÉ se juge sur la position RABATTUE, avec la caméra de RENDU :
+				// c'est elle qui décide de ce qu'on voit, et l'écrasement a déjà eu lieu.
+				// On juge donc le point tel qu'il SERA utilisé, pas tel qu'il était.
+				const bool egare =
+					!NkEauVueAuSol(viewProj, p.baseY, p.displacementMax, pts[i].x, pts[i].z);
+				g.ndcEgare[i] = egare;
+				if (!egare) {
+					++gardes;
+					if (nx < rnx)
+						rnx = nx;
+					if (nx > rxx)
+						rxx = nx;
+					if (ny < rny)
+						rny = ny;
+					if (ny > rxy)
+						rxy = ny;
+				}
 			}
 			g.ndcCount = borne ? n : 0u; // le repli plein écran ne dérive d'aucun nuage
+
+			// LE RETRAIT, ET CE QU'IL FAIT QUAND IL NE RESTE RIEN.
+			//
+			// ⚠️ IL PEUT NE PAS RESTER DE QUOI FORMER UNE ÉTENDUE, et ce n'est pas une
+			// crainte théorique : mesuré sur la vue de pont, 6 points sur 8 sont égarés
+			// et les 2 survivants partagent la même hauteur en NDC — la boîte est plate.
+			// REFUSER là serait effacer l'océan d'une vue qui marche parfaitement
+			// (couverture 1,00, gâchis 0,17), et la couverture est le critère qui ne se
+			// négocie pas. Le retrait s'applique donc où il peut et DÉCLARE où il ne
+			// peut pas : on retombe sur l'étendue complète et `retraitAbandonne` le dit.
+			// Un repli tu serait une compensation ; un repli déclaré est un comportement.
+			if (borne && p.retraitEgares) {
+				if (gardes >= 2u && rxx > rnx && rxy > rny) {
+					mnx = rnx;
+					mxx = rxx;
+					mny = rny;
+					mxy = rxy;
+					g.retraitApplique = true;
+				} else {
+					g.retraitAbandonne = true;
+				}
+			}
 
 			const float32 b = p.edgeBias;
 			if (!borne) {
@@ -593,8 +690,10 @@ namespace nkentseu {
 				mny = NkMax(mny - b, -1.f - b);
 				mxy = NkMin(mxy + b, 1.f + b);
 			}
-			if (mxx <= mnx || mxy <= mny)
-				return g; // étendue vide : rien de visible
+			if (mxx <= mnx || mxy <= mny) {
+				g.etendueDegeneree = true;
+				return g; // étendue plate : rien à mailler, et ça se DIT
+			}
 
 			g.visible = true;
 			g.pointsRetenus = n;
