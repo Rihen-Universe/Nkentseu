@@ -53,6 +53,7 @@ void PalierBranchement();
 void PalierGrilleMAC(); // (m1) et (m2) — les deux contrôles de la bascule MAC
 void EnqueteBascule();	  // les deux ENQUÊTES de la bascule (NK_FLUID_MAC=3)
 void PalierAdvectionFlux(); // (f1) le contrôle négatif de l'advection en flux
+void EnqueteLePrix();		// (f2) LE PRIX du donor-cell (NK_FLUID_MAC=4)
 void ImagesDuConfinement(float32 epsilon);
 float32 EpsilonConfinement();
 
@@ -606,6 +607,18 @@ int main(int argc, char **argv) {
 	if (mac != nullptr && mac[0] == '3') {
 		EnqueteBascule();
 		return 0;
+	}
+	// NK_FLUID_MAC=4 : (f2) LE PRIX du donor-cell, mesure sur le PREMIER ORDRE NU
+	// et AVEC le sous-cyclage que la course (e) reclame. Mesurer sans, puis activer
+	// le sous-cyclage pour (e), reviendrait a mesurer DEUX SCHEMAS DIFFERENTS : le
+	// sous-cyclage change la diffusion effective. Les planchers sont ceux du § 2 du
+	// plan, ecrits AVANT la mesure et jamais deplaces depuis.
+	if (mac != nullptr && mac[0] == '4') {
+		EnqueteLePrix();
+		printf("\n=============================================================\n");
+		printf("BILAN (mode NK_FLUID_MAC=4, (f2) LE PRIX) : %d controles, %d ROUGES\n", gChecks, gFailures);
+		printf("=============================================================\n");
+		return gFailures == 0 ? 0 : 1;
 	}
 	if (mac != nullptr && (mac[0] == '1' || mac[0] == '2')) {
 		ControlesPositifs();

@@ -256,6 +256,237 @@ static void ControleConservation() {
 }
 
 // =============================================================================
+// (f2) LE PRIX — pré-enregistré dans PLAN_ADVECTION_FLUX.md, § 2, AVANT mesure.
+//
+// ⚠️ LA QUESTION N'EST PAS « la masse se conserve-t-elle ». Elle se conservera :
+// c'est une propriété du schéma, et (f1) l'a déjà prouvée. La question est À QUEL
+// PRIX. Conserver la masse d'une fumée qui ne tourbillonne plus n'a AUCUNE valeur.
+//
+// ⚠️ ET ON MESURE AVEC LE SOUS-CYCLAGE QUE LA COURSE (e) RÉCLAME. Mesurer à un dt
+// confortable sans sous-cyclage, puis l'activer pour (e), reviendrait à mesurer
+// DEUX SCHÉMAS DIFFÉRENTS : le sous-cyclage change la diffusion effective.
+//
+// ── PRÉDICTION CALCULÉE DEPUIS LE MÉCANISME, écrite avant la course ─────────
+// La diffusion numérique du donor-cell d'ordre 1 vaut D = (u·h/2)(1 − CFL), et la
+// largeur ajoutée après un temps T vaut sigma^2 = 2·D·T.
+// Sur la scène du panache (u ~ 0,5 m/s, h = 0,025 m, T = 3 s, CFL ~ 0,16) :
+//     D      ~ 0,00525 m^2/s
+//     sigma  ~ racine(2 × 0,00525 × 3) ~ 0,177 m
+// à comparer au rayon actuel du panache, 0,03453 m. J'attends donc :
+//   - un rayon ~ racine(0,0345^2 + 0,177^2) ~ 0,18 m, soit x 5,2 ;
+//   - une enstrophie DIVISÉE PAR ~25 (elle va comme le CARRÉ du gradient de
+//     température, lissé d'un facteur ~5), soit ~0,8 contre un plancher de 9,6 ;
+//   - la fumée qui TOUCHE LES PAROIS, donc la garde de (a) qui rougit — sans que
+//     la masse sorte, puisque les faces de paroi portent u = 0.
+// AUTREMENT DIT : JE PRÉDIS QUE LE PREMIER ORDRE NU ÉCHOUE (f2). Si la mesure me
+// contredit, tant mieux, et c'est elle qui gagne.
+// =============================================================================
+struct ResultatPrix {
+		float32 enstrophieMoy = 0.f, vorticiteMoy = 0.f, concentration = 0.f;
+		float32 rayon = 0.f, masseTranche = 0.f, hauteurBary = 0.f;
+		float32 deriveMasse = 0.f, paroiMax = 0.f;
+		float32 cflMax = 0.f, msParPas = 0.f, vmax = 0.f, tmax = 0.f;
+		uint32 sousPasMax = 1, nan = 0, cellulesStrictes = 0;
+		bool capHit = false, rayonValide = false;
+};
+
+// Les compteurs communs à toutes les scènes, relevés à chaque pas.
+static void RelevePas(const NkFluidGrid &g, ResultatPrix &r, float64 &ensSum, float64 &vortSum, float64 &msSum) {
+	ensSum += (float64)g.Stats().enstrophy;
+	vortSum += (float64)g.Stats().vorticityMean;
+	msSum += (float64)g.Stats().ms;
+	if (g.Stats().advectCFL > r.cflMax)
+		r.cflMax = g.Stats().advectCFL;
+	if (g.Stats().advectSubsteps > r.sousPasMax)
+		r.sousPasMax = g.Stats().advectSubsteps;
+	if (g.Stats().advectSubstepCapHit)
+		r.capHit = true;
+	if (g.Stats().maxSpeed > r.vmax)
+		r.vmax = g.Stats().maxSpeed;
+	if (g.Stats().maxTemperature > r.tmax)
+		r.tmax = g.Stats().maxTemperature;
+	r.nan += g.Stats().nanCount;
+}
+
+// ── SCÈNE P : le panache établi. C'est ICI que le détail se paie. ───────────
+// Montage identique à la course A du palier ④ (source continue, epsilon = 0),
+// pour que les chiffres soient comparables aux références du 12/09.
+static ResultatPrix ScenePanache(bool flux, uint32 pas) {
+	ResultatPrix r;
+	NkFluidGridParams p;
+	p.boundsMin = {-0.35f, 0.f, -0.35f};
+	p.boundsMax = {0.35f, 1.4f, 0.35f};
+	p.cellSize = 0.025f;
+	p.pressureTolerance = 1.0e-4f;
+	p.pressureIterations = 400;
+	p.densityDissipation = 0.f;
+	p.temperatureDissipation = 0.f;
+	p.advectFluxConservative = flux;
+	NkFluidGrid g;
+	if (!g.Init(p))
+		return r;
+	const float32 dt = 1.f / 120.f;
+	float64 ensSum = 0.0, vortSum = 0.0, msSum = 0.0;
+	for (uint32 s = 0; s < pas; ++s) {
+		g.EmitSphere({0.f, 0.06f, 0.f}, 0.05f, 4.f * dt, 1400.f * dt, 0.f);
+		g.Step(dt);
+		RelevePas(g, r, ensSum, vortSum, msSum);
+	}
+	r.enstrophieMoy = (float32)(ensSum / (float64)pas);
+	r.vorticiteMoy = (float32)(vortSum / (float64)pas);
+	r.msParPas = (float32)(msSum / (float64)pas);
+	r.cellulesStrictes = g.Stats().cellsStrict;
+	uint32 rangee = 0;
+	r.rayonValide = g.PlumeRadius(0.60f, r.rayon, r.masseTranche, rangee);
+	NkVec3f c;
+	if (g.DensityCentroid(c))
+		r.hauteurBary = c.y;
+	// P = rms(|omega|) / moy(|omega|) : la CONCENTRATION, qui ne dépend pas de
+	// l'échelle de l'écoulement — la seule grandeur comparable entre deux schémas
+	// qui ne produisent pas le même panache.
+	const float32 V = (float32)r.cellulesStrictes * 0.025f * 0.025f * 0.025f;
+	if (V > 0.f && r.vorticiteMoy > 0.f)
+		r.concentration = NkSqrt(r.enstrophieMoy / V) / r.vorticiteMoy;
+	return r;
+}
+
+// ── SCÈNE A : la MASSE, le but du lot. Bulle posée, aucune source. ──────────
+static ResultatPrix SceneMasse(bool flux) {
+	ResultatPrix r;
+	NkFluidGridParams p;
+	p.boundsMin = {-0.3f, 0.f, -0.3f};
+	p.boundsMax = {0.3f, 1.8f, 0.3f};
+	p.cellSize = 0.03f;
+	p.densityDissipation = 0.f;
+	p.temperatureDissipation = 0.f;
+	p.pressureIterations = 600;
+	p.pressureTolerance = 1.0e-5f;
+	p.advectFluxConservative = flux;
+	NkFluidGrid g;
+	if (!g.Init(p))
+		return r;
+	g.EmitSphere({0.f, 0.15f, 0.f}, 0.07f, 1.f, 150.f, 0.f);
+	const float32 m0 = g.TotalMass();
+	const float32 dt = 1.f / 120.f;
+	float64 ensSum = 0.0, vortSum = 0.0, msSum = 0.0;
+	for (uint32 s = 0; s < 500; ++s) {
+		g.Step(dt);
+		RelevePas(g, r, ensSum, vortSum, msSum);
+		const float32 paroi = g.WallLayerMass();
+		if (paroi > r.paroiMax)
+			r.paroiMax = paroi;
+	}
+	r.msParPas = (float32)(msSum / 500.0);
+	r.deriveMasse = (m0 > 0.f) ? (g.TotalMass() - m0) / m0 : 1.f;
+	return r;
+}
+
+// ── SCÈNE E : celle de (e) — LA SEULE où le sous-cyclage MORD vraiment ──────
+// vmax y monte à 7,782 m/s : à dt = 1/60 et h = 0,02, CFL vaut ~6,5.
+static ResultatPrix SceneDixSecondes(bool flux) {
+	ResultatPrix r;
+	NkFluidGridParams p;
+	p.boundsMin = {-0.25f, 0.f, -0.25f};
+	p.boundsMax = {0.25f, 1.f, 0.25f};
+	p.cellSize = 0.02f;
+	p.densityDissipation = 0.2f;
+	p.temperatureDissipation = 0.5f;
+	p.buoyancyAlpha = 0.3f;
+	p.advectFluxConservative = flux;
+	NkFluidGrid g;
+	if (!g.Init(p))
+		return r;
+	const float32 dt = 1.f / 60.f;
+	float64 ensSum = 0.0, vortSum = 0.0, msSum = 0.0;
+	for (uint32 s = 0; s < 600; ++s) {
+		g.EmitSphere({0.f, 0.05f, 0.f}, 0.05f, 6.f * dt, 900.f * dt, 0.f);
+		g.Step(dt);
+		RelevePas(g, r, ensSum, vortSum, msSum);
+	}
+	r.enstrophieMoy = (float32)(ensSum / 600.0);
+	r.msParPas = (float32)(msSum / 600.0);
+	NkVec3f c;
+	if (g.DensityCentroid(c))
+		r.hauteurBary = c.y;
+	return r;
+}
+
+void EnqueteLePrix() {
+	printf("\n=== (f2) LE PRIX DU DONOR-CELL NU — planchers PRÉ-ENREGISTRÉS (§ 2 du plan) ===\n");
+	printf("    PRÉDICTION CALCULÉE depuis le mécanisme, écrite AVANT la course :\n");
+	printf("      D = (u·h/2)(1-CFL) ~ 0,00525 m^2/s  ->  sigma = rac(2·D·T) ~ 0,177 m sur 3 s\n");
+	printf("      => rayon attendu ~ 0,18 m (x 5,2) et enstrophie divisée par ~25, soit ~0,8\n");
+	printf("      contre un plancher de 9,6. JE PRÉDIS DONC QUE LE PREMIER ORDRE NU ÉCHOUE.\n");
+	printf("    Le semi-lagrangien tourne dans la MÊME course, comme référence.\n");
+	char buf[520];
+
+	// ── LE BUT : la masse ───────────────────────────────────────────────────
+	printf("\n--- (f2) LE BUT : la masse ---\n");
+	const ResultatPrix mS = SceneMasse(false);
+	const ResultatPrix mF = SceneMasse(true);
+	printf("      schéma            dérive de masse   masse paroi max   CFL    sous-pas   ms/pas\n");
+	printf("      semi-lagrangien   %+9.4f %%        %.3e        %.3f  %5u      %6.1f\n",
+		   (double)(mS.deriveMasse * 100.f), (double)mS.paroiMax, (double)mS.cflMax, mS.sousPasMax,
+		   (double)mS.msParPas);
+	printf("      FLUX (donor-cell) %+9.4f %%        %.3e        %.3f  %5u      %6.1f%s\n",
+		   (double)(mF.deriveMasse * 100.f), (double)mF.paroiMax, (double)mF.cflMax, mF.sousPasMax,
+		   (double)mF.msParPas, mF.capHit ? "  (BORNE)" : "");
+	snprintf(buf, sizeof(buf),
+			 "dérive %+.4f %% contre %+.4f %% pour le semi-lagrangien, sur la MÊME scène et dans la MÊME "
+			 "course (critère < 1 %%, seuil NON déplacé)",
+			 (double)(mF.deriveMasse * 100.f), (double)(mS.deriveMasse * 100.f));
+	ProbeCheck(ProbeAbs(mF.deriveMasse) < 0.01f, "(f2) LE BUT : la masse est enfin conservée", buf);
+
+	// ── LE PRIX : l'enstrophie et le détail ─────────────────────────────────
+	printf("\n--- (f2) LE PRIX : l'enstrophie et le détail de la fumée ---\n");
+	const ResultatPrix pS = ScenePanache(false, 360);
+	const ResultatPrix pF = ScenePanache(true, 360);
+	printf("      schéma            enstrophie   |omega| moy   P (concentr.)   rayon 0,60 m   y bary   ms/pas\n");
+	printf("      semi-lagrangien   %10.6f   %9.4f    %9.3f     %8.5f m   %6.3f   %6.1f\n",
+		   (double)pS.enstrophieMoy, (double)pS.vorticiteMoy, (double)pS.concentration, (double)pS.rayon,
+		   (double)pS.hauteurBary, (double)pS.msParPas);
+	printf("      FLUX (donor-cell) %10.6f   %9.4f    %9.3f     %8.5f m   %6.3f   %6.1f\n",
+		   (double)pF.enstrophieMoy, (double)pF.vorticiteMoy, (double)pF.concentration, (double)pF.rayon,
+		   (double)pF.hauteurBary, (double)pF.msParPas);
+
+	snprintf(buf, sizeof(buf),
+			 "enstrophie du PANACHE %.6f contre %.6f au semi-lagrangien (plancher 9,600 = perte de 50 %% "
+			 "max, pré-enregistré). ⚠️ Ce plancher ne porte PAS sur l'ancrage 1,458000, qui mesure rot(u) "
+			 "sur une rotation solide SANS aucun scalaire et doit rester inchangé",
+			 (double)pF.enstrophieMoy, (double)pS.enstrophieMoy);
+	ProbeCheck(pF.enstrophieMoy >= 9.6f, "(f2) le détail SURVIT : enstrophie du panache >= 9,6", buf);
+
+	snprintf(buf, sizeof(buf),
+			 "P = rms(|omega|)/moy(|omega|) = %.3f contre %.3f (plancher 2,000). P ne dépend pas de "
+			 "l'échelle de l'écoulement : c'est la seule grandeur comparable entre deux schémas qui ne "
+			 "produisent pas le même panache",
+			 (double)pF.concentration, (double)pS.concentration);
+	ProbeCheck(pF.concentration >= 2.0f, "(f2) la vorticité se RASSEMBLE encore : P >= 2,0", buf);
+
+	// ── LÀ OÙ LE SOUS-CYCLAGE MORD ──────────────────────────────────────────
+	printf("\n--- (f2) LA SCÈNE (e) : la SEULE où le sous-cyclage mord ---\n");
+	const ResultatPrix eS = SceneDixSecondes(false);
+	const ResultatPrix eF = SceneDixSecondes(true);
+	printf("      schéma            CFL max   sous-pas   vmax      Tmax     NaN   y bary   ms/pas\n");
+	printf("      semi-lagrangien   %7.3f   %8u   %6.3f   %7.1f   %3u   %6.3f   %6.1f\n", (double)eS.cflMax,
+		   eS.sousPasMax, (double)eS.vmax, (double)eS.tmax, eS.nan, (double)eS.hauteurBary, (double)eS.msParPas);
+	printf("      FLUX (donor-cell) %7.3f   %8u   %6.3f   %7.1f   %3u   %6.3f   %6.1f%s\n", (double)eF.cflMax,
+		   eF.sousPasMax, (double)eF.vmax, (double)eF.tmax, eF.nan, (double)eF.hauteurBary, (double)eF.msParPas,
+		   eF.capHit ? "  (BORNE ATTEINTE)" : "");
+	snprintf(buf, sizeof(buf),
+			 "CFL max %.3f, %u sous-pas%s, %u NaN, %.1f ms/pas contre %.1f au semi-lagrangien — le "
+			 "sous-cyclage est NOMMÉ et son coût PUBLIÉ : tu, il serait une régression de performance "
+			 "qu'on découvrirait dans six mois",
+			 (double)eF.cflMax, eF.sousPasMax, eF.capHit ? " (BORNE ATTEINTE)" : "", eF.nan, (double)eF.msParPas,
+			 (double)eS.msParPas);
+	ProbeCheck(eF.nan == 0 && !eF.capHit, "(f2) la scène (e) tient : ni NaN ni borne de sous-pas atteinte", buf);
+
+	printf("\n    ⚠️ NON MESURÉ DANS CE LOT, et je le dis plutôt que de l'omettre : le plancher\n");
+	printf("    (2.1) contraste > 10 exige le chemin de RENDU. Il reste donc un critère\n");
+	printf("    pré-enregistré NON JUGÉ, et le lot ne peut pas se dire complet sans lui.\n");
+}
+
+// =============================================================================
 void PalierAdvectionFlux() {
 	printf("\n=== (f) ADVECTION CONSERVATIVE EN FLUX — Lentine, Aanjaneya & Fedkiw, SCA 2011 ===\n");
 	printf("    (f1) juge le schéma en FLUX. Sur le MÊME montage et dans la MÊME course, le\n");
