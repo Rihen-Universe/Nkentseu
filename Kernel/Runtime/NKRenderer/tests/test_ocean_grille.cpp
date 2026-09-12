@@ -197,6 +197,33 @@ namespace {
 		return (nb > 0u) ? (float32)(somme / (float64)nb) : 0.f;
 	}
 
+	// Combien de sommets ont pu etre COMPARES entre deux images. Meme logique de
+	// rejet que `GlissementMoyen`, mot pour mot.
+	//
+	// ⚠️ UN GLISSEMENT DE 0,00 NE VEUT PAS DIRE « parfaitement stable » : il peut
+	// vouloir dire « aucun sommet comparable ». Les deux se ressemblent a l'oeil nu
+	// et ne disent pas du tout la meme chose -- c'est le meme piege qu'une
+	// couverture de 1,00 sur une population vide, deja paye deux fois cette nuit.
+	uint32 SommetsComparables(const NkProjectedGrid &ga, const NkProjectedGrid &gb,
+							  const NkProjectedGridParams &p, uint32 pas) {
+		uint32 nb = 0;
+		for (uint32 j = 0; j <= p.rows; j += pas) {
+			for (uint32 i = 0; i + pas <= p.cols; i += pas) {
+				NkVec3f a, b, voisin;
+				if (!NkProjectedGridVertex(ga, p, i, j, a))
+					continue;
+				if (!NkProjectedGridVertex(gb, p, i, j, b))
+					continue;
+				if (!NkProjectedGridVertex(ga, p, i + pas, j, voisin))
+					continue;
+				if ((voisin - a).Len() < 1e-6f)
+					continue;
+				++nb;
+			}
+		}
+		return nb;
+	}
+
 	// L'ETENDUE au sol reellement maillee (m²) : la boite englobante en (x, z) des
 	// sommets QUI EXISTENT. C'est la mesure de « l'etendue » dont parle le lot ② --
 	// une etendue se compare en metres carres, pas en impressions.
@@ -520,6 +547,29 @@ namespace {
 	// l'appelant doit verifier `vus > 0` separement.
 	float32 Couverture(uint32 vus, uint32 trous) {
 		return (vus > 0u) ? (float32)(vus - trous) / (float32)vus : 0.f;
+	}
+
+	// La couverture la PIRE parmi les hauteurs reellement visibles depuis la pose.
+	// Une hauteur que personne ne voit ne compte pas -- lecon du 07/09, payee deux
+	// fois -- et `hauteursVues` dit combien ont pu etre mesurees, pour que
+	// l'appelant distingue « 1,00 partout » de « rien n'a pu etre mesure ».
+	float32 CouvertureMin(const NkProjectedGrid &g, const NkProjectedGridParams &p,
+						  const NkMat4f &invRendu, uint32 &hauteursVues) {
+		const float32 hauteurs[3] = {p.baseY, p.baseY + p.displacementMax,
+									 p.baseY - p.displacementMax};
+		float32 pire = 1.f;
+		hauteursVues = 0;
+		for (uint32 h = 0; h < 3u; ++h) {
+			uint32 vus = 0;
+			const uint32 trous = PixelsDecouvertsPortee(g, p, invRendu, hauteurs[h], 48u, vus);
+			if (vus == 0u)
+				continue;
+			++hauteursVues;
+			const float32 c = Couverture(vus, trous);
+			if (c < pire)
+				pire = c;
+		}
+		return (hauteursVues > 0u) ? pire : 0.f;
 	}
 
 } // namespace
@@ -1207,8 +1257,14 @@ int NkSondeOceanGrille() {
 		};
 		float32 ecarts[3] = {0.f, 0.f, 0.f};
 		float32 gachisForme[3] = {0.f, 0.f, 0.f};
+		// ⚠️ EPINGLE SUR L'ETAT D'AVANT LE RETRAIT. Ce temoin a ete ecrit pour
+		// mesurer la pathologie du rabattement ; laisser le nouveau defaut y entrer
+		// lui ferait mesurer autre chose SANS RIEN CASSER DE VISIBLE -- exactement
+		// l'instrument qui se retourne en restant vert, paye une fois cette nuit.
+		NkProjectedGridParams pAvant = p;
+		pAvant.retraitEgares = false;
 		for (uint32 k = 0; k < 3u; ++k) {
-			const NkProjectedGrid gk = BUILD(troisPoses[k], p);
+			const NkProjectedGrid gk = BUILD(troisPoses[k], pAvant);
 			uint32 env[40];
 			const uint32 m = EnveloppeConvexe(gk.ndcX, gk.ndcY, gk.ndcCount, env);
 			const float32 aireForme = AirePolygone(gk.ndcX, gk.ndcY, env, m);
@@ -1317,11 +1373,15 @@ int NkSondeOceanGrille() {
 		const float32 hauteurs[7] = {3.0f, 2.5f, 2.1f, 1.9f, 1.5f, 1.0f, 0.5f};
 		float32 gachis[7] = {0.f, 0.f, 0.f, 0.f, 0.f, 0.f, 0.f};
 		float32 pavage[7] = {0.f, 0.f, 0.f, 0.f, 0.f, 0.f, 0.f};
+		// EPINGLE SUR L'ETAT D'AVANT LE RETRAIT : cette nappe decrit la pathologie,
+		// pas la grille corrigee.
+		NkProjectedGridParams pAvant = p;
+		pAvant.retraitEgares = false;
 		for (uint32 k = 0; k < 7u; ++k) {
 			const Pose po = {{0.f, hauteurs[k], 0.f},
 							 {0.f, hauteurs[k] + 0.2f, -60.f},
 							 "sonde hauteur"};
-			const NkProjectedGrid gk = BUILD(po, p);
+			const NkProjectedGrid gk = BUILD(po, pAvant);
 			uint32 env[40];
 			const uint32 m = EnveloppeConvexe(gk.ndcX, gk.ndcY, gk.ndcCount, env);
 			const float32 aireForme = AirePolygone(gk.ndcX, gk.ndcY, env, m);
@@ -1393,8 +1453,13 @@ int NkSondeOceanGrille() {
 		};
 		uint32 instrumentsAccordes = 0;
 		float32 gachReduits[2] = {-1.f, -1.f};
+		// EPINGLE SUR L'ETAT D'AVANT LE RETRAIT : c'est ce temoin qui DEMONTRE la
+		// cause (0,90 -> 0,12). Mesure sur la grille deja retraitee, il comparerait
+		// une etendue corrigee a elle-meme et ne demontrerait plus rien.
+		NkProjectedGridParams pAvant = p;
+		pAvant.retraitEgares = false;
 		for (uint32 k = 0; k < 2u; ++k) {
-			const NkProjectedGrid gk = BUILD(bancs[k], p);
+			const NkProjectedGrid gk = BUILD(bancs[k], pAvant);
 			const NkMat4f renderVP = VP(bancs[k]);
 
 			// 1. VALIDATION DE L'INSTRUMENT AVANT DE LUI FAIRE CONFIANCE. Sur
@@ -1538,6 +1603,128 @@ int NkSondeOceanGrille() {
 					 (double)pire);
 		XCHECK(pire < 1.5f,
 			   "(x18) le pas ecran reste quasi constant sur TOUTES les poses, pas seulement la nominale");
+	}
+
+	// (x19) LE RETRAIT, JUGE SUR LES QUATRE CRITERES ET SUR LES TROIS POSES.
+	//
+	// C'est un RETRAIT, pas une compensation : un point dont la position rabattue
+	// n'est pas de l'eau que la camera voit n'a aucune raison d'etre dans l'etendue.
+	// Mais un retrait se paie peut-etre ailleurs, et les quatre criteres comptent
+	// tous les quatre :
+	//   COUVERTURE 1,00  -- c'est LE risque du retrait : retirer un point retrecit
+	//                       la boite, et ce qui n'etait couvert que PAR ce point
+	//                       peut se decouvrir. Non negociable.
+	//   STABILITE  >= 3,9 -- un critere d'appartenance BINAIRE peut faire entrer et
+	//                       sortir un point d'une image a l'autre, et le sommet
+	//                       correspondant sauterait. C'est le swimming, et c'est le
+	//                       risque que je surveille en priorite.
+	//   GACHIS     < 0,50
+	//   PAS ECRAN  x1,00  -- mesure sur les TROIS poses, plus seulement la nominale.
+	{
+		const Pose troisPoses[3] = {
+			{{0.f, 8.f, 0.f}, {0.f, 2.f, -60.f}, "pont 8 m"},
+			{{0.f, 1.f, 0.f}, {0.f, 1.2f, -60.f}, "rasante 1 m"},
+			{{0.f, -3.f, 0.f}, {0.f, 1.f, -20.f}, "sous l'eau"},
+		};
+		uint32 couvertes = 0, gachisOk = 0, pasOk = 0, stables = 0;
+		for (uint32 k = 0; k < 3u; ++k) {
+			const NkMat4f vpR = VP(troisPoses[k]);
+			const NkMat4f invR = vpR.Inverse();
+			NkProjectedGridParams pAvant = p, pApres = p;
+			pAvant.retraitEgares = false;
+			pApres.retraitEgares = true;
+
+			const NkProjectedGrid gA = BUILD(troisPoses[k], pAvant);
+			const NkProjectedGrid gB = BUILD(troisPoses[k], pApres);
+			uint32 hA = 0, hB = 0, tA = 0, tB = 0;
+			const float32 cA = CouvertureMin(gA, pAvant, invR, hA);
+			const float32 cB = CouvertureMin(gB, pApres, invR, hB);
+			const float32 gaA = Gachis(gA, pAvant, vpR, 2u, tA);
+			const float32 gaB = Gachis(gB, pApres, vpR, 2u, tB);
+			const float32 paA = RapportPasEcran(gA, pAvant, vpR);
+			const float32 paB = RapportPasEcran(gB, pApres, vpR);
+
+			// LA STABILITE APRES LE RETRAIT, mesuree comme toujours en derivee.
+			const NkProjectedGrid s0 = BUILD(troisPoses[k], pApres);
+			const NkProjectedGrid s1 = BUILD(TournerYaw(troisPoses[k], 1.f), pApres);
+			const NkProjectedGrid sq = BUILD(TournerYaw(troisPoses[k], 0.25f), pApres);
+			const float32 dUn = GlissementMoyen(s0, s1, pApres, 4u);
+			const float32 dQuart = GlissementMoyen(s0, sq, pApres, 4u);
+			const float32 rapport = (dQuart > 1e-9f) ? dUn / dQuart : 0.f;
+			// Le compte leve l'ambiguite du zero : 0,00 sur 0 sommet compare n'est pas
+			// une stabilite parfaite, c'est une absence de mesure.
+			const uint32 comparables = SommetsComparables(s0, s1, pApres, 4u);
+
+			std::fprintf(stderr,
+						 "     (x19) %-12s : retrait %s | couverture %.2f -> %.2f (%u hauteurs)"
+						 " | gachis %.2f -> %.2f | pas ecran x%.2f -> x%.2f | stabilite %.2f sur"
+						 " %u sommets compares\n",
+						 troisPoses[k].nom,
+						 gB.retraitApplique ? "APPLIQUE " : (gB.retraitAbandonne ? "abandonne" : "inactif  "),
+						 (double)cA, (double)cB, hB, (double)gaA, (double)gaB, (double)paA,
+						 (double)paB, (double)rapport, comparables);
+
+			if (hB > 0u && cB > 0.999f)
+				++couvertes;
+			if (gaB < 0.50f)
+				++gachisOk;
+			if (paB < 1.5f)
+				++pasOk;
+			if (dUn > 1e-6f && rapport > 3.f && rapport < 5.f)
+				++stables;
+		}
+		XCHECK(couvertes == 3u, "(x19) COUVERTURE 1,00 sur les trois poses APRES le retrait");
+		XCHECK(gachisOk == 3u, "(x19b) GACHIS sous 0,50 sur les trois poses");
+		XCHECK(pasOk == 3u, "(x19c) PAS ECRAN quasi constant sur les TROIS poses");
+		XCHECK(stables == 3u,
+			   "(x19d) STABILITE : le retrait ne fait pas sauter les sommets entre deux images");
+	}
+
+	// (x20) POURQUOI LA STABILITE CASSE : LE CRITERE D'APPARTENANCE BASCULE.
+	//
+	// Le retrait repose sur un test BINAIRE -- egare ou non. Si un point change de
+	// camp quand la camera tourne d'un degre, il entre ou sort de l'etendue, la
+	// boite saute, et TOUS les sommets sautent avec elle. C'est exactement le
+	// *swimming*, et (x10) le mesure a 419,79 pour 4,00 attendu.
+	//
+	// On ne suppose pas ce mecanisme : on compte les egares a plusieurs angles. Si
+	// le compte change, la bascule est demontree. S'il ne change pas, la cause du
+	// saut est ailleurs et il faudra la chercher -- ce temoin peut donc echouer a
+	// prouver ce qu'il avance, et c'est ce qui le rend valable.
+	{
+		const Pose bancs[3] = {
+			{{0.f, 8.f, 0.f}, {0.f, 2.f, -60.f}, "pont 8 m"},
+			{{0.f, 1.f, 0.f}, {0.f, 1.2f, -60.f}, "rasante 1 m"},
+			{{0.f, -3.f, 0.f}, {0.f, 1.f, -20.f}, "sous l'eau"},
+		};
+		const float32 angles[4] = {0.f, 0.25f, 0.5f, 1.f};
+		uint32 bascules = 0;
+		for (uint32 k = 0; k < 3u; ++k) {
+			uint32 comptes[4] = {0u, 0u, 0u, 0u};
+			uint32 appliques[4] = {0u, 0u, 0u, 0u};
+			for (uint32 a = 0; a < 4u; ++a) {
+				const NkProjectedGrid gk = BUILD(TournerYaw(bancs[k], angles[a]), p);
+				uint32 e = 0;
+				for (uint32 i = 0; i < gk.ndcCount; ++i)
+					if (gk.ndcEgare[i])
+						++e;
+				comptes[a] = e;
+				appliques[a] = gk.retraitApplique ? 1u : 0u;
+			}
+			const bool bascule = (comptes[0] != comptes[1]) || (comptes[1] != comptes[2]) ||
+								 (comptes[2] != comptes[3]) || (appliques[0] != appliques[3]);
+			if (bascule)
+				++bascules;
+			std::fprintf(stderr,
+						 "     (x20) %-12s : egares a 0/0,25/0,5/1 deg = %u/%u/%u/%u |"
+						 " retrait applique = %u/%u/%u/%u -> %s\n",
+						 bancs[k].nom, comptes[0], comptes[1], comptes[2], comptes[3],
+						 appliques[0], appliques[1], appliques[2], appliques[3],
+						 bascule ? "BASCULE" : "stable");
+		}
+		std::fprintf(stderr, "     (x20) %u pose(s) sur 3 ou l'appartenance bascule\n", bascules);
+		XCHECK(bascules > 0u,
+			   "(x20) le compte d'egares BASCULE avec la rotation : voila la cause du saut");
 	}
 
 	std::fprintf(stderr, "=== grille projetee : %d passes, %d echecs ===\n", gP, gF);
