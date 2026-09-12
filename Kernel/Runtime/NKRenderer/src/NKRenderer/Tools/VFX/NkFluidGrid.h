@@ -312,12 +312,12 @@ namespace nkentseu {
 				// pour ça qu'il porte un nom AVANT d'avoir un contenu. Tout ce qui
 				// lit la vitesse au centre d'une cellule — flottabilité, vorticité,
 				// statistiques, rendu, vent — devra passer par ici.
-				//   AUJOURD'HUI (grille COLOCALISEE) : la vitesse EST deja au centre,
-				//   cette fonction rend la valeur telle quelle, et le controle (m1)
-				//   du banc est ROUGE. C'est voulu : il doit rougir avant de verdir.
-				//   APRES LA BASCULE (grille DECALEE) : u vivra sur les FACES et
-				//   cette fonction rendra la MOYENNE DES DEUX FACES qui bordent la
-				//   cellule.
+				//   La grille est DECALEE : u vit sur les FACES, et cette fonction rend
+				//   la MOYENNE DES DEUX FACES qui bordent la cellule. MESURE du 12/09,
+				//   a code d'essai IDENTIQUE A L'OCTET PRES : le controle (m1) est passe
+				//   de ROUGE (1,250e-01 puis 9,375e-02, quand la grille etait encore
+				//   colocalisee) a VERT (1,192e-07 puis 4,773e-08). C'est CE PASSAGE qui
+				//   est le verdict -- un temoin ne vert n'aurait rien dit du tout.
 				// CONVENTION DE FACE, ecrite ici parce que c'est elle qui decide de
 				// tout : la face x d'indice i est la face GAUCHE de la cellule
 				// (i,j,k), a x = boundsMin.x + (i-1)*h ; le centre de la cellule
@@ -382,10 +382,23 @@ namespace nkentseu {
 				void ComputeVorticity();
 				void AddVorticityConfinement(float32 dt); // Fedkiw 2001, eq. (11)
 				void AddWind(float32 dt);				  // NkIForceField : newtons / masse declaree
-				// Position de depart (coordonnees de GRILLE) d'ou vient ce qui arrive en (i,j,k).
-				void Backtrace(uint32 i, uint32 j, uint32 k, float32 dt0, const NkVector<float32> &fu,
-							   const NkVector<float32> &fv, const NkVector<float32> &fw, float32 &x, float32 &y,
-							   float32 &z) const;
+				// La VITESSE au point de GRILLE (gx,gy,gz), interpolee depuis les FACES.
+				// gx est en unites de CENTRE (le centre de la cellule i vaut i) ; comme
+				// u vit a i-0,5, on passe gx+0,5 a Trilinear, qui indexe les centres.
+				// C'est LE decalage de la grille decalee, et il tient en trois additions.
+				void VelocityAtGrid(const NkVector<float32> &fu, const NkVector<float32> &fv,
+									const NkVector<float32> &fw, float32 gx, float32 gy, float32 gz, float32 &vx,
+									float32 &vy, float32 &vz) const;
+				// Position de depart (coordonnees de GRILLE) d'ou vient ce qui arrive au
+				// point (gx,gy,gz). Prend des FLOTTANTS : sur grille decalee le point de
+				// depart d'une face n'est pas un centre de cellule.
+				void BacktraceAt(float32 gx, float32 gy, float32 gz, float32 dt0, const NkVector<float32> &fu,
+								 const NkVector<float32> &fv, const NkVector<float32> &fw, float32 &x, float32 &y,
+								 float32 &z) const;
+				// Les bords de VITESSE sur grille decalee. Rien a voir avec SetBoundary :
+				// la composante NORMALE n'est plus « inversee dans un fantome », elle est
+				// imposee NULLE SUR la face de paroi, exactement la ou la paroi est.
+				void SetVelocityWalls();
 				// Un aller SEUL, semi-lagrangien. `sens` vaut +1 (remonter le temps) ou -1.
 				void AdvectSemiLagrangien(NkVector<float32> &dst, const NkVector<float32> &src, float32 dt, int32 bnd,
 										  float32 sens);

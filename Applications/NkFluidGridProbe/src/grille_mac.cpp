@@ -5,8 +5,14 @@
 // « Numerical Calculation of Time-Dependent Viscous Incompressible Flow of Fluid
 // with Free Surface », Physics of Fluids 8 (1965), p. 2182-2189.
 //
-// ⚠️ CES DEUX CONTRÔLES SONT ÉCRITS AVANT LA BASCULE, ET ILS SONT ROUGES
-// AUJOURD'HUI. C'EST LEUR RAISON D'ÊTRE. Le plan (PLAN_GRILLE_MAC.md, § 4) fixe
+// ⚠️ CES DEUX CONTRÔLES ONT ÉTÉ ÉCRITS AVANT LA BASCULE, ET ILS ÉTAIENT ROUGES.
+// C'EST LEUR RAISON D'ÊTRE, et c'est ce qui leur donne aujourd'hui leur valeur.
+// Mesure du 12/09, à code d'essai IDENTIQUE À L'OCTET PRÈS — seuls le SENS du
+// tableau et le stencil de divergence ont changé :
+//     (m1) positif  1,250e-01  ->  1,192e-07   (exigé <= 1,0e-06)
+//     (m1) négatif  9,375e-02  ->  4,773e-08   (l'erreur vaut bien h^2/8 * f'')
+//     (m2) damier   0,000000   ->  2,000000 m/s (attendu 2,000000)
+// Le plan (PLAN_GRILLE_MAC.md, § 4) fixe
 // l'ordre : les deux contrôles neufs d'abord, SEULS, avant que la moindre
 // équation ne bouge. Un témoin qui naîtrait VERT le jour de la bascule ne
 // prouverait rien — on ne saurait pas s'il juge la bascule ou s'il juge que
@@ -250,9 +256,12 @@ static void ControleDamier() {
 // =============================================================================
 void PalierGrilleMAC() {
 	printf("\n=== (m) LES DEUX CONTRÔLES DE LA BASCULE MAC (Harlow & Welch 1965) ===\n");
-	printf("    ⚠️ ROUGES ATTENDUS TANT QUE LA GRILLE EST COLOCALISÉE. Ils sont écrits AVANT\n");
-	printf("    la bascule, exprès : un témoin qui naîtrait vert ne dirait pas s'il juge la\n");
-	printf("    bascule ou s'il juge que « ça compile ». Voir PLAN_GRILLE_MAC.md, § 2 et § 4.\n");
+	printf("    Écrits AVANT la bascule, et ROUGES sur la grille colocalisée — course du\n");
+	printf("    12/09 : (m1) 1,250e-01 puis 9,375e-02 ; (m2) 0,000000 au lieu de 2,000000.\n");
+	printf("    Ils doivent être VERTS une fois le stockage porté sur les FACES. C'est ce\n");
+	printf("    passage du rouge au vert, à code d'essai IDENTIQUE À L'OCTET PRÈS, qui est le\n");
+	printf("    verdict : un témoin né vert n'aurait pas dit s'il juge la grille ou s'il juge\n");
+	printf("    que « ça compile ». Voir PLAN_GRILLE_MAC.md, § 2 et § 4.\n");
 
 	ControleInterpolationFaceCentre();
 	ControleDamier();
