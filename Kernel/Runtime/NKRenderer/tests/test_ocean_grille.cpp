@@ -2123,7 +2123,7 @@ int NkSondeOceanGrille() {
 		}
 	}
 
-	// (w1)(w2)(w3) LA PREIMAGE : re-former l'etendue au lieu de la rembourrer.
+	// (k1)(k2)(k3) LA PREIMAGE : re-former l'etendue au lieu de la rembourrer.
 	//
 	// LE RAISONNEMENT VIENT DE L'ECHEC PRECEDENT. La grille couvre R au repos et
 	// affiche D(R) ; exiger que D(R) contienne V revient a construire R contenant
@@ -2132,7 +2132,7 @@ int NkSondeOceanGrille() {
 	// seuil. La preimage n'ajoute aucun sommet : elle les RE-FORME.
 	//
 	// ⚠️ DEUX CHOSES DITES AVANT LES CHIFFRES, pour qu'on ne les lise pas de travers.
-	// 1. La couverture de (w2) est QUASI TAUTOLOGIQUE a convergence donnee : si
+	// 1. La couverture de (k2) est QUASI TAUTOLOGIQUE a convergence donnee : si
 	//    Newton converge, D(D^-1(W)) = W et la couverture revient mecaniquement a sa
 	//    valeur de repos. Ce 1,000 mesure la CONVERGENCE. Les nombres porteurs sont
 	//    le residu, les iterations et les refus.
@@ -2185,7 +2185,7 @@ int NkSondeOceanGrille() {
 				if (iter > pireIter)
 					pireIter = iter;
 				std::fprintf(stderr,
-							 "     (w2) %-12s raideur %.2f : couverture RE-FORMEE %.3f | residu max"
+							 "     (k2) %-12s raideur %.2f : couverture RE-FORMEE %.3f | residu max"
 							 " %.2e m | %u iterations max | %u refus | gachis %.2f (ref %.2f)\n",
 							 troisPoses[k].nom, (double)raideurs[r], (double)c, (double)residu,
 							 iter, refus, (double)gach, (double)gachRef);
@@ -2205,13 +2205,13 @@ int NkSondeOceanGrille() {
 					 " refus | gachis tenu sur %u | pire residu %.2e m en %u iterations\n",
 					 controleOk, restaurees, casMesures, gachisTenu, (double)pireResidu, pireIter);
 		XCHECK(controleOk == 3u,
-			   "(w1) CONTROLE NEGATIF : a raideur nulle la preimage est l'identite, residu nul");
+			   "(k1) CONTROLE NEGATIF : a raideur nulle la preimage est l'identite, residu nul");
 		XCHECK(restaurees == casMesures && casMesures > 0u,
-			   "(w2) la preimage RESTAURE la couverture composee a 1,000, sans refus");
+			   "(k2) la preimage RESTAURE la couverture composee a 1,000, sans refus");
 		XCHECK(gachisTenu == casMesures,
-			   "(w2b) et le gachis ne bouge pas : aucun sommet ajoute, l'etendue est re-formee");
+			   "(k2b) et le gachis ne bouge pas : aucun sommet ajoute, l'etendue est re-formee");
 
-		// (w3) LA GARDE DOIT FAIRE FEU, PAS EXISTER. Une capacite qui declare refuser
+		// (k3) LA GARDE DOIT FAIRE FEU, PAS EXISTER. Une capacite qui declare refuser
 		// et qu'on ne fait jamais refuser n'a qu'une INTENTION pour garantie -- c'est
 		// ce que (x7) avait deja etabli. On pousse donc la raideur AU-DELA de 1, la
 		// ou J passe sous 0 : la preimage n'y est plus UNIQUE, et Newton doit REFUSER
@@ -2229,7 +2229,7 @@ int NkSondeOceanGrille() {
 					EmpreintePreimage(gk, p, houle, 0.f, gk.ndcMinX, gk.ndcMaxX, gk.ndcMinY,
 									  gk.ndcMaxY, px, pz, idx, 512u, residu, iter, refus);
 				std::fprintf(stderr,
-							 "     (w3) raideur %.2f (J min ~ %.2f) : %u sommets, %u REFUS, residu"
+							 "     (k3) raideur %.2f (J min ~ %.2f) : %u sommets, %u REFUS, residu"
 							 " max %.2e m, %u iterations\n",
 							 (double)dures[r], (double)(1.f - dures[r]), m, refus, (double)residu,
 							 iter);
@@ -2237,11 +2237,11 @@ int NkSondeOceanGrille() {
 					++avecRefus;
 			}
 			XCHECK(avecRefus > 0u,
-				   "(w3) au-dela de raideur 1, la preimage REFUSE au lieu de rendre un resultat non converge");
+				   "(k3) au-dela de raideur 1, la preimage REFUSE au lieu de rendre un resultat non converge");
 		}
 	}
 
-	// (u1)(u2) LE PAVAGE : quatre nombres, aucun jugement.
+	// (n1)(n2) LE PAVAGE : quatre nombres, aucun jugement.
 	//
 	// C'etait la seule piece de la chaine minimale que personne n'avait ecrite. Une
 	// demonstration est VISUELLE, et ce chantier s'interdit de rien regler a l'oeil :
@@ -2264,7 +2264,7 @@ int NkSondeOceanGrille() {
 		const NkPavageMesure m = MesurerPavage(tri, n, cols, rows);
 
 		std::fprintf(stderr,
-					 "     (u1) %u x %u cellules : %u indices (attendu %u, fonction %u) | aretes"
+					 "     (n1) %u x %u cellules : %u indices (attendu %u, fonction %u) | aretes"
 					 " vues une fois %u (bord attendu %u), trois fois ou plus %u | orientation"
 					 " +%u / -%u | degeneres %u | hors bornes %u\n",
 					 cols, rows, n, attendu, NkProjectedGridIndexCount(cols, rows),
@@ -2272,15 +2272,15 @@ int NkSondeOceanGrille() {
 					 m.orientationNeg, m.degeneres, m.horsBornes);
 
 		XCHECK(n == attendu && NkProjectedGridIndexCount(cols, rows) == attendu,
-			   "(u1) le compte d'indices vaut EXACTEMENT 2 (nx-1)(ny-1) 3");
+			   "(n1) le compte d'indices vaut EXACTEMENT 2 (nx-1)(ny-1) 3");
 		XCHECK(m.aretesTrois == 0u && m.aretesUneFois == bordAttendu,
-			   "(u1b) chaque arete INTERIEURE est partagee par exactement DEUX triangles");
+			   "(n1b) chaque arete INTERIEURE est partagee par exactement DEUX triangles");
 		XCHECK(m.orientationNeg == 0u && m.orientationPos == n / 3u,
-			   "(u1c) l'enroulement est COHERENT : aucun triangle a contresens");
+			   "(n1c) l'enroulement est COHERENT : aucun triangle a contresens");
 		XCHECK(m.degeneres == 0u && m.horsBornes == 0u,
-			   "(u1d) aucun triangle degenere, aucun indice hors bornes");
+			   "(n1d) aucun triangle degenere, aucun indice hors bornes");
 
-		// (u2) LE VOLET NEGATIF. Sans lui, (u1) ne prouve que « ca compile ».
+		// (n2) LE VOLET NEGATIF. Sans lui, (n1) ne prouve que « ca compile ».
 		//
 		// ⚠️ ET JE NE PRETENDS PAS QUE LES QUATRE ROUGISSENT. Deplacer UN indice
 		// laisse le COMPTE inchange -- il est structurellement aveugle a la topologie.
@@ -2297,17 +2297,17 @@ int NkSondeOceanGrille() {
 			const bool enroulVoit = (b.orientationNeg != 0u);
 			const bool degenVoit = (b.degeneres != 0u || b.horsBornes != 0u);
 			std::fprintf(stderr,
-						 "     (u2) UN indice deplace : aretes une fois %u (contre %u), trois fois"
+						 "     (n2) UN indice deplace : aretes une fois %u (contre %u), trois fois"
 						 " %u | orientation +%u / -%u | degeneres %u -> attrape par :"
 						 " compte=%d aretes=%d enroulement=%d degeneres=%d\n",
 						 b.aretesUneFois, bordAttendu, b.aretesTrois, b.orientationPos,
 						 b.orientationNeg, b.degeneres, compteVoit ? 1 : 0, aretesVoient ? 1 : 0,
 						 enroulVoit ? 1 : 0, degenVoit ? 1 : 0);
 			XCHECK(aretesVoient || enroulVoit || degenVoit,
-				   "(u2) une seule maille cassee est ATTRAPEE par les nombres qui peuvent la voir");
+				   "(n2) une seule maille cassee est ATTRAPEE par les nombres qui peuvent la voir");
 		}
 
-		// (u2b) ET LE REFUS D'ECRIRE UN MAILLAGE TRONQUE. Une capacite insuffisante
+		// (n2b) ET LE REFUS D'ECRIRE UN MAILLAGE TRONQUE. Une capacite insuffisante
 		// doit rendre ZERO et ne rien ecrire : un pavage a moitie ecrit serait un
 		// maillage a fissures que personne ne verrait venir.
 		{
@@ -2319,10 +2319,10 @@ int NkSondeOceanGrille() {
 			for (uint32 i = 0; i < 8u; ++i)
 				if (petit[i] != 0xFFFFFFFFu)
 					intact = false;
-			std::fprintf(stderr, "     (u2b) capacite 8 pour %u indices : rend %u, tampon intact=%d\n",
+			std::fprintf(stderr, "     (n2b) capacite 8 pour %u indices : rend %u, tampon intact=%d\n",
 						 attendu, z, intact ? 1 : 0);
 			XCHECK(z == 0u && intact,
-				   "(u2b) capacite insuffisante : le pavage REFUSE et n'ecrit RIEN");
+				   "(n2b) capacite insuffisante : le pavage REFUSE et n'ecrit RIEN");
 		}
 	}
 
