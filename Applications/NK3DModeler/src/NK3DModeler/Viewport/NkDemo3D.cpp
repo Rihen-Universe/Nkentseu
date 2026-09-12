@@ -2684,6 +2684,141 @@ namespace nkentseu {
 			return NkVec3f{w3[0], w3[1], w3[2]};
 		}
 
+		// LA PROFONDEUR DE CE QU'ON REGARDE, posee sur la camera AVANT un pan ou un
+		// zoom. Pan et Zoom se reglent sur la distance a la cible ; apres un cadrage
+		// large puis une approche, cette distance est perimee (cible loin derriere
+		// l'objet) : le pan va 46x trop vite et le zoom avance vers un point qu'on ne
+		// regarde pas. Le MEME pick que l'orbite (Demo3D_PivotVise) donne le point
+		// regarde ; la cible glisse a sa profondeur, la camera ne bouge pas. Ce n'est
+		// PAS la meme ligne que l'orbite : elle, tourne autour du point ; ici, on ne
+		// fait que remettre la distance a l'echelle de ce qu'on voit.
+		static float32 Demo3D_RefocaliserSurLeVise(Demo3DState *st, DemoCtx &ctx) {
+			const NkVec3f C = st->editorCam.GetPosition();
+			const NkVec3f vise = Demo3D_PivotVise(st, ctx);
+			const float32 d = (vise - C).Len();
+			if (d > 1e-3f)
+				st->editorCam.RefocusAt(d);
+			return d;
+		}
+
+		// SONDE NK_AGENT_PAN=<px> [+ _TRAME=<n>, defaut 60 ; _DIST=<unites> ; _ZOOM=<crans>,
+		// defaut 10] : LE TEMOIN DU PAN ET DU ZOOM, sans fenetre ni injection d'entree.
+		// Deux etats depuis la MEME camera : A = profondeur telle quelle ; B = la cible
+		// poussee a _DIST devant sans bouger la camera (la profondeur perimee de Rodolf).
+		// Pour chacun, le geste D'AUJOURD'HUI (refocaliser sur le point regarde, puis
+		// Pan / Zoom) et L'ANCIEN (Pan / Zoom directs), depuis le meme etat. Mesures :
+		//   pan  : K = deplacement ECRAN du point regarde, en px par px de glissement.
+		//          Un RAPPORT, jamais une vitesse : le critere est K_B / K_A = 1 apres
+		//          (le pan ne depend plus de la profondeur de la cible), ~_DIST /
+		//          profondeur avant.
+		//   zoom : distance camera -> point regarde, apres / avant, pour _ZOOM crans de
+		//          zoom avant. Attendu : LE FACTEUR QUE LE CONTROLEUR APPLIQUE A SA
+		//          PROPRE DISTANCE (mZoomStep^crans, borne par mMinDistance), lu dans la
+		//          meme course -- pas une constante supposee : le modeleur regle son pas
+		//          de zoom, et 0,88^10 etait faux. Et le point regarde doit rester
+		//          DEVANT la camera -- l'ancien chemin fonce vers la cible perimee et
+		//          passe au travers de l'objet, meme quand la profondeur est saine.
+		// ⚠️ Elle REMET l'etat de la camera apres mesure, mais SetCenter reecrit aussi
+		// Recenter : une course sous sonde n'est pas une session de travail. Inerte sans
+		// la variable.
+		static void Demo3D_SondePanZoom(Demo3DState *st, DemoCtx &ctx) {
+			static int sPx = -2, sTrame = 60, sZoom = 10;
+			static float32 sDist = 0.f;
+			static uint64 sFrame = 0;
+			if (sPx == -2) {
+				const char *v = std::getenv("NK_AGENT_PAN");
+				sPx = (v && v[0]) ? std::atoi(v) : -1;
+				if (const char *t = std::getenv("NK_AGENT_PAN_TRAME"))
+					sTrame = std::atoi(t);
+				if (const char *d = std::getenv("NK_AGENT_PAN_DIST"))
+					sDist = (float32)std::atof(d);
+				if (const char *z = std::getenv("NK_AGENT_PAN_ZOOM"))
+					sZoom = std::atoi(z);
+			}
+			++sFrame;
+			if (sPx <= 0 || (int32)sFrame != sTrame)
+				return;
+
+			auto &cam = st->editorCam;
+			const NkVec3f T0 = cam.GetTarget();
+			const float32 D0 = cam.GetDistance(), Y0 = cam.GetYaw(), P0 = cam.GetPitch();
+			auto ecran = [&](NkVec3f P, float32 &px, float32 &py) {
+				const Demo3D_ScreenProj pr = Demo3D_ScreenProj::Make(cam.GetPosition(), cam.GetTarget(), 60.f,
+																	 (float32)ctx.width, (float32)ctx.height);
+				return pr(P, px, py);
+			};
+			auto devant = [&](NkVec3f P) {
+				const NkVec3f C = cam.GetPosition();
+				const NkVec3f f = (cam.GetTarget() - C).Normalized();
+				return (P.x - C.x) * f.x + (P.y - C.y) * f.y + (P.z - C.z) * f.z > 0.f;
+			};
+			struct Mesure {
+					float32 kNew, kOld, zNew, zOld, fact;
+			};
+			auto etat = [&](const char *nom, float32 pousse) {
+				cam.SetCenter(T0, D0, Y0, P0);
+				if (pousse > 0.f) {
+					const NkVec3f C = cam.GetPosition();
+					const NkVec3f f = (cam.GetTarget() - C).Normalized();
+					cam.SetCenter(C + f * pousse, pousse, Y0, P0);
+				}
+				const NkVec3f C = cam.GetPosition();
+				const NkVec3f V = Demo3D_PivotVise(st, ctx);
+				const float32 dV = (V - C).Len();
+				const NkVec3f Ts = cam.GetTarget();
+				const float32 Ds = cam.GetDistance(), Ys = cam.GetYaw(), Ps = cam.GetPitch();
+				float32 x0 = 0.f, y0 = 0.f, x1 = 0.f, y1 = 0.f, x2 = 0.f, y2 = 0.f;
+				ecran(V, x0, y0);
+				std::printf("[panzoom] etat %s : cible a %.2f, point regarde a %.2f (ecran %.1f, %.1f)\n", nom, Ds, dV,
+							x0, y0);
+				Mesure m{};
+				// Pan, aujourd'hui : refocaliser puis tirer la scene de sPx px vers la droite.
+				Demo3D_RefocaliserSurLeVise(st, ctx);
+				cam.Pan(-(float32)sPx, 0.f);
+				ecran(V, x1, y1);
+				m.kNew = (x1 - x0) / (float32)sPx;
+				// Pan, avant : le meme glissement sans refocaliser.
+				cam.SetCenter(Ts, Ds, Ys, Ps);
+				cam.Pan(-(float32)sPx, 0.f);
+				ecran(V, x2, y2);
+				m.kOld = (x2 - x0) / (float32)sPx;
+				std::printf("[panzoom]   pan %d px : point regarde deplace de %.1f px (aujourd'hui, K=%.3f) | "
+							"%.1f px (avant, K=%.3f)\n",
+							sPx, x1 - x0, m.kNew, x2 - x0, m.kOld);
+				// Zoom, aujourd'hui.
+				cam.SetCenter(Ts, Ds, Ys, Ps);
+				Demo3D_RefocaliserSurLeVise(st, ctx);
+				for (int32 i = 0; i < sZoom; ++i)
+					cam.Zoom(1.f);
+				m.zNew = (V - cam.GetPosition()).Len() / (dV > 1e-6f ? dV : 1.f);
+				// Le facteur que le controleur a reellement applique a SA distance : apres
+				// refocalisation elle valait dV, donc c'est l'attendu de zNew.
+				m.fact = cam.GetDistance() / (dV > 1e-6f ? dV : 1.f);
+				const bool devNew = devant(V);
+				// Zoom, avant.
+				cam.SetCenter(Ts, Ds, Ys, Ps);
+				for (int32 i = 0; i < sZoom; ++i)
+					cam.Zoom(1.f);
+				m.zOld = (V - cam.GetPosition()).Len() / (dV > 1e-6f ? dV : 1.f);
+				const bool devOld = devant(V);
+				std::printf("[panzoom]   zoom %d crans : distance au point regarde x%.3f, %s (aujourd'hui) | "
+							"x%.3f, %s (avant)\n",
+							sZoom, m.zNew, devNew ? "DEVANT" : "DERRIERE LA CAMERA", m.zOld,
+							devOld ? "DEVANT" : "DERRIERE LA CAMERA");
+				return m;
+			};
+			const Mesure A = etat("A (profondeur telle quelle)", 0.f);
+			const Mesure B = etat("B (cible poussee)", sDist);
+			std::printf("[panzoom] RAPPORT K_B / K_A : aujourd'hui %.3f | avant %.3f   (critere : 1 apres)\n",
+						A.kNew != 0.f ? B.kNew / A.kNew : 0.f, A.kOld != 0.f ? B.kOld / A.kOld : 0.f);
+			std::printf("[panzoom] ZOOM, facteur du controleur x%.3f (A) x%.3f (B) : distance au point regarde "
+						"A aujourd'hui x%.3f, B aujourd'hui x%.3f | A avant x%.3f, B avant x%.3f   (critere : "
+						"aujourd'hui = facteur, et DEVANT)\n",
+						A.fact, B.fact, A.zNew, B.zNew, A.zOld, B.zOld);
+			cam.SetCenter(T0, D0, Y0, P0); // on rend l'etat de depart
+			std::fflush(stdout);
+		}
+
 		// SONDE NK_AGENT_ORBITE=<degres> [+ _TRAME=<n>, defaut 60 ; _LOIN=<unites>] :
 		// LE TEMOIN DU PIVOT D'ORBITE, SANS FENETRE ET SANS INJECTION D'ENTREE.
 		// Elle rejoue le GESTE (le vrai chemin : le pivot vise puis OrbitAroundPivot)
@@ -5799,6 +5934,8 @@ namespace nkentseu {
 			auto *st = (Demo3DState *)ctx.userData;
 			if (st)
 				Demo3D_SondeOrbite(st, ctx); // inerte sans NK_AGENT_ORBITE
+			if (st)
+				Demo3D_SondePanZoom(st, ctx); // inerte sans NK_AGENT_PAN
 			// Delta souris RÉEL de la frame = (courant - précédent) -> vaut 0 sans mouvement
 			// (contrairement à NkInput.MouseDelta*() périmé). Alimente les 2 gizmos (objet + edit).
 			const float32 curMouseX = ((float32)NkInput.MouseX() - nkvpOffX);
@@ -6664,6 +6801,14 @@ namespace nkentseu {
 						st->orbitPivot = Demo3D_PivotVise(st, ctx);
 						st->orbitPivotValid = true;
 					}
+					// ── LE PAN SE REGLE SUR CE QU'ON REGARDE, au front montant aussi ──
+					// Pan est proportionnel a la distance a la cible ; quand cette
+					// profondeur est perimee (cible loin derriere l'objet), il va 46x
+					// trop vite. On pose la profondeur du point regarde UNE fois, a
+					// l'appui, sans bouger la camera. Avec ou sans selection : la
+					// vitesse d'un « grab » n'a rien a voir avec la selection.
+					if (midDown && !st->orbitMidPrev && shift)
+						Demo3D_RefocaliserSurLeVise(st, ctx);
 					if (!midDown)
 						st->orbitPivotValid = false; // le glissement est fini
 					st->orbitMidPrev = midDown;
@@ -6692,6 +6837,10 @@ namespace nkentseu {
 					// (En mode CERCLE de sélection, la molette est réservée au rayon ; pendant
 					// une op MODALE, `wheel` vaut deja 0 — cf. le verrou souris unique.)
 					if (wheel != 0.f && st->selTool != 3) { // l'outil CERCLE capte la molette (rayon)
+						// Chaque cran est un geste : la profondeur du point regarde est
+						// posee AVANT lui. Le zoom avance alors vers ce qu'on voit, et le
+						// pan a la molette a la meme echelle que le pan a la souris.
+						Demo3D_RefocaliserSurLeVise(st, ctx);
 						const float32 step = wheel * 22.f;
 						if (shift)
 							st->editorCam.Pan(0.f, step); // vertical
@@ -13525,8 +13674,16 @@ namespace nkentseu {
 			st->orthoView = false; // orbite libre -> perspective (meme regle que la demo)
 		}
 		void Demo3DHostPan(float32 dx, float32 dy) {
-			if (auto *st = HostSt())
+			if (auto *st = HostSt()) {
+				// La main du gizmo n'a pas de front montant : un geste commence quand
+				// l'appel precedent n'etait pas a la trame d'avant. La profondeur du
+				// point regarde se pose alors UNE fois, comme pour Shift+milieu.
+				static uint32 sTramePrec = 0xFFFFFFFFu;
+				if (hst.ctx.frame != sTramePrec + 1u)
+					Demo3D_RefocaliserSurLeVise(st, hst.ctx);
+				sTramePrec = hst.ctx.frame;
 				st->editorCam.Pan(-dx, -dy); // « grab » facon Blender, comme la demo
+			}
 		}
 		void Demo3DHostZoomWheel(float32 notches) {
 			if (auto *st = HostSt())
