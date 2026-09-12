@@ -553,6 +553,103 @@ void EnqueteStabilite() {
 	}
 }
 
+// =============================================================================
+// (g1) RESSERRER LA RUPTURE PAR DICHOTOMIE.
+//
+// (f3) a laisse un trou que j'ai dit moi-meme : le balayage saute de 1/10 s
+// (CFL 1,077, SAIN) a 1/8 s (CFL 1,353, CASSE). La rupture est entre les deux et
+// je ne sais PAS ou. ⚠️ ON NE CHOISIT PAS UNE MARGE DE SECURITE CONTRE UNE BORNE
+// QU'ON N'A PAS -- et c'est une marge qu'il faudra choisir en (g3).
+//
+// On publie donc un ENCADREMENT, pas un point : « entre X et Y » est une mesure,
+// « environ Z » n'en est pas une.
+//
+// ── LES DEUX PIEGES DE (f3) SONT CONSERVES, parce qu'ils decidaient de tout ──
+//   - le FILET reste COUPE (advectMaxSubsteps = 1) : avec le sous-cyclage le
+//     schema ne casse jamais, il subdivise, et on mesurerait LE FILET ;
+//   - la MASSE reste ecartee comme detecteur : le donor-cell est conservatif MEME
+//     instable. Le detecteur est la DENSITE NEGATIVE, exact et non commode : elle
+//     vaut 0,000e+00 EXACTEMENT tant que le schema est monotone.
+//
+// ── PREDICTION CALCULEE, ecrite avant la course ─────────────────────────────
+// La theorie donne CFL <= 1 pour le donor-cell 3D non-splitte. Or (f3) a mesure
+// SAIN a 1,077, donc AU-DESSUS de 1 -- et ce n'est pas une contradiction : mon
+// estimateur de CFL prend, par axe, le MAX des deux faces de la cellule
+// (max(|u[i]|, |u[i+1]|)), alors que la condition vraie porte sur la somme des
+// flux SORTANTS. Il SURESTIME donc le CFL reel, et la rupture doit apparaitre
+// au-dessus de 1 dans MES unites. J'attends l'encadrement quelque part entre
+// 1,077 et 1,353, et je ne pretends pas savoir ou : c'est la question posee.
+// =============================================================================
+void EnqueteRuptureFine() {
+	printf("\n=== (g1) RESSERRER LA RUPTURE PAR DICHOTOMIE ===\n");
+	printf("    (f3) laissait la rupture ENTRE CFL 1,077 (sain) et 1,353 (casse), sans savoir\n");
+	printf("    ou. On ne choisit pas une marge de securite contre une borne qu'on n'a pas.\n");
+	printf("    ⚠️ Filet COUPE (advectMaxSubsteps = 1) et masse ECARTEE comme detecteur : c'est\n");
+	printf("    la DENSITE NEGATIVE qui juge, et elle vaut 0,000e+00 EXACTEMENT tant que le\n");
+	printf("    schema est monotone.\n");
+	printf("    PREDICTION : l'encadrement tombe AU-DESSUS de 1 car mon estimateur de CFL prend\n");
+	printf("    le MAX des deux faces par axe, quand la condition vraie porte sur les flux\n");
+	printf("    SORTANTS -- il SURESTIME. Je n'affirme pas ou, entre 1,077 et 1,353.\n");
+	char buf[520];
+
+	float32 dtSain = 1.f / 10.f;  // (f3) : CFL 1,077, sain
+	float32 dtCasse = 1.f / 8.f;  // (f3) : CFL 1,353, casse
+
+	// ── GARDE : l'encadrement de depart EST-IL un encadrement ? ─────────────
+	// Une dichotomie lancee sur des bornes qui ne se comportent pas comme annonce
+	// convergerait proprement vers un nombre FAUX. On le verifie au lieu de
+	// reprendre (f3) sur parole.
+	const EtatStabilite bas0 = CourseStabilite(dtSain, 1u, 100u);
+	const EtatStabilite haut0 = CourseStabilite(dtCasse, 1u, 100u);
+	snprintf(buf, sizeof(buf),
+			 "borne basse 1/10 s : CFL %.3f, densite min %+.3e -> %s ; borne haute 1/8 s : CFL %.3f, "
+			 "densite min %+.3e -> %s. Une dichotomie lancee sur un faux encadrement convergerait "
+			 "proprement vers un nombre FAUX",
+			 (double)bas0.cflMax, (double)bas0.dMin, bas0.casse ? "CASSE" : "sain", (double)haut0.cflMax,
+			 (double)haut0.dMin, haut0.casse ? "CASSE" : "sain");
+	ProbeCheck(!bas0.casse && haut0.casse, "(g1) GARDE : l'encadrement de depart EST un encadrement", buf);
+	// ⚠️ L'encadrement est INVALIDE si la borne basse CASSE, ou si la borne haute NE
+	// CASSE PAS. Un premier jet écrivait `bas0.casse || haut0.casse` — qui sortait
+	// dès que la borne haute cassait, c'est-à-dire dans le cas NORMAL, puisque
+	// c'est sa raison d'être. La dichotomie ne tournait jamais et le mode rendait
+	// un bilan VERT à UN SEUL contrôle. Un bilan vert qui ne prouve rien est
+	// exactement ce que ce banc traque, et il était dans ma propre garde.
+	// Le cas dégradé ROUGIT donc explicitement, au lieu de sortir en silence.
+	if (bas0.casse || !haut0.casse) {
+		ProbeCheck(false, "(g1) la rupture est ENCADREE a mieux que 0,01 en CFL",
+				   "l'encadrement de depart est INVALIDE : la dichotomie n'a PAS tourne. Ce controle "
+				   "rougit explicitement plutot que de laisser un bilan vert a un seul controle");
+		return;
+	}
+
+	float32 cflSain = bas0.cflMax, cflCasse = haut0.cflMax;
+	printf("      iter   dt (s)        CFL      densite min    verdict    encadrement CFL\n");
+	const uint32 kIterations = 10; // 2^10 : l'intervalle initial (0,276) divise par 1024
+	for (uint32 it = 0; it < kIterations; ++it) {
+		const float32 dtm = 0.5f * (dtSain + dtCasse);
+		const EtatStabilite e = CourseStabilite(dtm, 1u, 100u);
+		if (e.casse) {
+			dtCasse = dtm;
+			cflCasse = e.cflMax;
+		} else {
+			dtSain = dtm;
+			cflSain = e.cflMax;
+		}
+		printf("      %2u    %.6f   %8.4f   %+.3e    %-7s   [%.4f ; %.4f]\n", it + 1, (double)dtm, (double)e.cflMax,
+			   (double)e.dMin, e.casse ? "CASSE" : "sain", (double)cflSain, (double)cflCasse);
+		fflush(stdout);
+	}
+
+	const float32 largeur = cflCasse - cflSain;
+	snprintf(buf, sizeof(buf),
+			 "la rupture est ENTRE CFL %.4f (dernier SAIN, dt = 1/%.2f s) et CFL %.4f (premier CASSE, "
+			 "dt = 1/%.2f s) — largeur %.5f apres %u dichotomies. C'est un ENCADREMENT, pas un point : "
+			 "« environ » n'aurait pas ete une mesure",
+			 (double)cflSain, (double)(1.f / dtSain), (double)cflCasse, (double)(1.f / dtCasse), (double)largeur,
+			 kIterations);
+	ProbeCheck(largeur < 0.01f, "(g1) la rupture est ENCADREE a mieux que 0,01 en CFL", buf);
+}
+
 void EnqueteLePrix() {
 	printf("\n=== (f2) LE PRIX DU DONOR-CELL NU — planchers PRÉ-ENREGISTRÉS (§ 2 du plan) ===\n");
 	printf("    PRÉDICTION CALCULÉE depuis le mécanisme, écrite AVANT la course :\n");

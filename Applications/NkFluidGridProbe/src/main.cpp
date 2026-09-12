@@ -55,6 +55,7 @@ void EnqueteBascule();	  // les deux ENQUÊTES de la bascule (NK_FLUID_MAC=3)
 void PalierAdvectionFlux(); // (f1) le contrôle négatif de l'advection en flux
 void EnqueteLePrix();		// (f2) LE PRIX du donor-cell (NK_FLUID_MAC=4)
 void EnqueteStabilite();	// (f3) LA STABILITÉ, filet coupé (NK_FLUID_MAC=5)
+void EnqueteRuptureFine();	// (g1) la rupture ENCADRÉE par dichotomie (NK_FLUID_MAC=6)
 void ImagesDuConfinement(float32 epsilon);
 float32 EpsilonConfinement();
 
@@ -632,6 +633,22 @@ int main(int argc, char **argv) {
 		EnqueteStabilite();
 		printf("\n=============================================================\n");
 		printf("BILAN (mode NK_FLUID_MAC=5, (f3) LA STABILITE) : %d controles, %d ROUGES\n", gChecks, gFailures);
+		printf("=============================================================\n");
+		return gFailures == 0 ? 0 : 1;
+	}
+	// NK_FLUID_MAC=6 : (g1) RESSERRER LA RUPTURE par dichotomie. (f3) laissait la
+	// rupture ENTRE CFL 1,077 (sain) et 1,353 (casse) sans savoir ou -- et ON NE
+	// CHOISIT PAS UNE MARGE DE SECURITE CONTRE UNE BORNE QU'ON N'A PAS. Ce mode
+	// publie un ENCADREMENT, pas un point : « entre X et Y » est une mesure,
+	// « environ Z » n'en est pas une.
+	// Les deux pieges de (f3) sont conserves : filet COUPE (sinon on mesure le
+	// filet) et masse ECARTEE comme detecteur (le donor-cell reste conservatif meme
+	// instable) -- c'est la DENSITE NEGATIVE qui juge.
+	if (mac != nullptr && mac[0] == '6') {
+		EnqueteRuptureFine();
+		printf("\n=============================================================\n");
+		printf("BILAN (mode NK_FLUID_MAC=6, (g1) LA RUPTURE ENCADREE) : %d controles, %d ROUGES\n", gChecks,
+			   gFailures);
 		printf("=============================================================\n");
 		return gFailures == 0 ? 0 : 1;
 	}
