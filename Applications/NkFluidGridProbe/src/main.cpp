@@ -54,6 +54,7 @@ void PalierGrilleMAC(); // (m1) et (m2) — les deux contrôles de la bascule MA
 void EnqueteBascule();	  // les deux ENQUÊTES de la bascule (NK_FLUID_MAC=3)
 void PalierAdvectionFlux(); // (f1) le contrôle négatif de l'advection en flux
 void EnqueteLePrix();		// (f2) LE PRIX du donor-cell (NK_FLUID_MAC=4)
+void EnqueteStabilite();	// (f3) LA STABILITÉ, filet coupé (NK_FLUID_MAC=5)
 void ImagesDuConfinement(float32 epsilon);
 float32 EpsilonConfinement();
 
@@ -617,6 +618,20 @@ int main(int argc, char **argv) {
 		EnqueteLePrix();
 		printf("\n=============================================================\n");
 		printf("BILAN (mode NK_FLUID_MAC=4, (f2) LE PRIX) : %d controles, %d ROUGES\n", gChecks, gFailures);
+		printf("=============================================================\n");
+		return gFailures == 0 ? 0 : 1;
+	}
+	// NK_FLUID_MAC=5 : (f3) LA STABILITE, qui CHANGE DE NATURE avec ce schema.
+	// ⚠️ Le FILET y est COUPE (advectMaxSubsteps = 1) pour mesurer la condition NUE :
+	// avec le sous-cyclage, le schema ne casse JAMAIS -- il subdivise -- et on
+	// mesurerait LE FILET au lieu du schema. (f3b) verifie ensuite, separement, que
+	// le filet rattrape bien le dt qui cassait sans lui.
+	// ⚠️ Le detecteur n'est PAS la masse : le donor-cell reste conservatif MEME
+	// instable. C'est la DENSITE NEGATIVE qui trahit la perte de monotonie.
+	if (mac != nullptr && mac[0] == '5') {
+		EnqueteStabilite();
+		printf("\n=============================================================\n");
+		printf("BILAN (mode NK_FLUID_MAC=5, (f3) LA STABILITE) : %d controles, %d ROUGES\n", gChecks, gFailures);
 		printf("=============================================================\n");
 		return gFailures == 0 ? 0 : 1;
 	}

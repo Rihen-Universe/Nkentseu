@@ -411,6 +411,148 @@ static ResultatPrix SceneDixSecondes(bool flux) {
 	return r;
 }
 
+// =============================================================================
+// (f3) LA STABILITÉ — elle CHANGE DE NATURE, et il faut la nommer.
+//
+// Le semi-lagrangien de Stam est INCONDITIONNELLEMENT stable : c'est sa raison
+// d'être, et c'est ce que ce lot abandonne. Un flux explicite ne l'est pas.
+//
+// ⚠️ DEUX PIÈGES DE MESURE, tous deux évités ici et dits plutôt que contournés :
+//
+//  1. AVEC LE SOUS-CYCLAGE ACTIF, LE SCHÉMA NE CASSE JAMAIS — il subdivise.
+//     Mesurer « à quel dt ça casse » avec le filet en place reviendrait à mesurer
+//     LE FILET, pas le schéma. On coupe donc le filet (advectMaxSubsteps = 1)
+//     pour mesurer la condition NUE, puis on vérifie SÉPARÉMENT que le filet la
+//     respecte — c'est (f3b).
+//
+//  2. LA MASSE NE PEUT PAS SERVIR DE DÉTECTEUR. Le donor-cell est conservatif
+//     MÊME quand il est instable : un flux retranché ici est ajouté là, que le
+//     schéma oscille ou non. La masse resterait donc parfaitement conservée
+//     pendant que le champ explose. Le bon détecteur est la DENSITÉ NÉGATIVE :
+//     le décentrement amont est MONOTONE tant que CFL <= 1, et produit des
+//     sous-dépassements au-delà. C'est net, précoce, et analytique.
+//
+// PRÉDICTION CALCULÉE, écrite avant la course — et cette fois la grandeur prédite
+// EST celle que la théorie donne, ce qui n'était pas le cas en (f2) :
+//     CFL = (|u| + |v| + |w|) * dt / h  <=  1
+// J'attends donc un dernier dt sain juste SOUS CFL = 1, et un premier dt cassé
+// juste AU-DESSUS.
+// =============================================================================
+struct EtatStabilite {
+		float32 cflMax = 0.f, dMin = 0.f, dMax = 0.f;
+		uint32 nan = 0, sousPasMax = 1;
+		bool casse = false;
+};
+
+static EtatStabilite CourseStabilite(float32 dt, uint32 maxSousPas, uint32 pas) {
+	EtatStabilite e;
+	NkFluidGridParams p;
+	p.boundsMin = {0.f, 0.f, 0.f};
+	p.boundsMax = {0.4f, 0.4f, 0.4f};
+	p.cellSize = 0.02f;
+	p.projectionEnabled = false;
+	p.buoyancyEnabled = false;
+	p.densityDissipation = 0.f;
+	p.temperatureDissipation = 0.f;
+	p.advectFluxConservative = true;
+	p.advectMaxSubsteps = maxSousPas; // 1 = FILET COUPÉ
+	NkFluidGrid g;
+	if (!g.Init(p))
+		return e;
+	g.EmitSphere({0.2f, 0.2f, 0.2f}, 0.06f, 1.f, 0.f, 0.f);
+
+	for (uint32 s = 0; s < pas; ++s) {
+		PoserChampSansDivergence(g, p);
+		g.Step(dt);
+		if (g.Stats().advectCFL > e.cflMax)
+			e.cflMax = g.Stats().advectCFL;
+		if (g.Stats().advectSubsteps > e.sousPasMax)
+			e.sousPasMax = g.Stats().advectSubsteps;
+		e.nan += g.Stats().nanCount;
+	}
+	// Densités extrêmes sur l'INTÉRIEUR : c'est le sous-dépassement qui signale
+	// la perte de monotonie, bien avant que des NaN n'apparaissent.
+	const float32 *d = g.Density();
+	e.dMin = 1.0e30f;
+	e.dMax = -1.0e30f;
+	for (uint32 k = 1; k <= g.Nz(); ++k)
+		for (uint32 j = 1; j <= g.Ny(); ++j)
+			for (uint32 i = 1; i <= g.Nx(); ++i) {
+				const float32 v = d[g.Idx(i, j, k)];
+				if (v < e.dMin)
+					e.dMin = v;
+				if (v > e.dMax)
+					e.dMax = v;
+			}
+	e.casse = (e.nan > 0) || (e.dMin < -1.0e-6f) || (e.dMax > 10.f);
+	return e;
+}
+
+void EnqueteStabilite() {
+	printf("\n=== (f3) LA STABILITÉ — le schéma CHANGE DE NATURE, et on la NOMME ===\n");
+	printf("    Le semi-lagrangien est INCONDITIONNELLEMENT stable ; le flux ne l'est pas.\n");
+	printf("    ⚠️ Le FILET est COUPÉ ici (advectMaxSubsteps = 1) : avec le sous-cyclage, le\n");
+	printf("    schéma ne casse JAMAIS, et on mesurerait le filet au lieu du schéma.\n");
+	printf("    ⚠️ Le détecteur n'est PAS la masse : le donor-cell est conservatif MÊME\n");
+	printf("    instable. C'est la DENSITÉ NÉGATIVE qui trahit la perte de monotonie.\n");
+	printf("    PRÉDICTION CALCULÉE : rupture au voisinage de CFL = 1.\n");
+	printf("      dt (s)      CFL max    densite min    densite max   NaN   verdict\n");
+
+	// Le balayage est RAFFINE AUTOUR DE CFL = 1, et c'est une correction de MONTAGE
+	// faite AVANT la mesure, pas un critere deplace : sur ce montage (f1) donnait
+	// CFL = 0,092 a dt = 1/120, donc CFL vaut environ 11 * dt. Un balayage qui
+	// sauterait de 1/15 (CFL ~ 0,74) a 1/10 (CFL ~ 1,10) n'echantillonnerait RIEN
+	// autour de 1, et le verdict dependrait de la RESOLUTION du balayage au lieu de
+	// la physique. Les deux derniers pas montent franchement au-dessus pour garantir
+	// qu'une rupture soit atteinte -- sans quoi (f3) ne prouverait rien.
+	const float32 dts[13] = {1.f / 120.f, 1.f / 60.f, 1.f / 40.f, 1.f / 30.f, 1.f / 25.f,
+							 1.f / 20.f,  1.f / 16.f, 1.f / 14.f, 1.f / 12.f, 1.f / 11.f,
+							 1.f / 10.f,  1.f / 8.f,  1.f / 6.f};
+	float32 dernierSain = 0.f, premierCasse = 0.f;
+	float32 dtDernierSain = 0.f, dtPremierCasse = 0.f;
+	for (uint32 c = 0; c < 13; ++c) {
+		const EtatStabilite e = CourseStabilite(dts[c], 1u, 100u);
+		printf("      1/%-6.0f  %8.3f   %+.3e    %+.3e   %3u   %s\n", (double)(1.f / dts[c]), (double)e.cflMax,
+			   (double)e.dMin, (double)e.dMax, e.nan, e.casse ? "CASSE" : "sain");
+		fflush(stdout);
+		if (!e.casse) {
+			dernierSain = e.cflMax;
+			dtDernierSain = dts[c];
+		} else if (premierCasse == 0.f) {
+			premierCasse = e.cflMax;
+			dtPremierCasse = dts[c];
+		}
+	}
+
+	char buf[520];
+	snprintf(buf, sizeof(buf),
+			 "dernier dt SAIN : 1/%.0f s a CFL %.3f ; premier dt CASSE : 1/%.0f s a CFL %.3f. La condition "
+			 "attendue est CFL <= 1, et la rupture tombe bien dans son voisinage — NOMMEE, c'est une "
+			 "propriete connue du schema ; TUE, c'eut ete une regression de robustesse",
+			 (double)(dtDernierSain > 0.f ? 1.f / dtDernierSain : 0.f), (double)dernierSain,
+			 (double)(dtPremierCasse > 0.f ? 1.f / dtPremierCasse : 0.f), (double)premierCasse);
+	ProbeCheck(dernierSain >= 0.8f && premierCasse > 0.f && premierCasse <= 2.5f,
+			   "(f3) la rupture tombe au VOISINAGE de CFL = 1", buf);
+
+	// ── (f3b) LE FILET : le MÊME dt, avec le sous-cyclage ───────────────────
+	// Sans ce contrôle, (f3) dirait « ça casse » sans jamais prouver que la parade
+	// fonctionne. C'est lui qui justifie le sous-cyclage.
+	if (dtPremierCasse > 0.f) {
+		const EtatStabilite avecFilet = CourseStabilite(dtPremierCasse, 64u, 100u);
+		snprintf(buf, sizeof(buf),
+				 "au MEME dt (1/%.0f s) qui cassait sans filet : CFL %.3f decoupe en %u sous-pas, densite "
+				 "min %+.3e, %u NaN -> %s. Le sous-cyclage n'est donc pas un contournement : c'est la "
+				 "parade, et elle est MESUREE",
+				 (double)(1.f / dtPremierCasse), (double)avecFilet.cflMax, avecFilet.sousPasMax,
+				 (double)avecFilet.dMin, avecFilet.nan, avecFilet.casse ? "CASSE ENCORE" : "SAIN");
+		ProbeCheck(!avecFilet.casse, "(f3b) LE FILET tient : le sous-cyclage rattrape le dt qui cassait", buf);
+	} else {
+		ProbeCheck(false, "(f3b) LE FILET n'a pas pu etre eprouve",
+				   "aucun dt du balayage n'a casse : le balayage ne monte pas assez haut, et (f3) ne "
+				   "prouve donc PAS que le schema est conditionnellement stable");
+	}
+}
+
 void EnqueteLePrix() {
 	printf("\n=== (f2) LE PRIX DU DONOR-CELL NU — planchers PRÉ-ENREGISTRÉS (§ 2 du plan) ===\n");
 	printf("    PRÉDICTION CALCULÉE depuis le mécanisme, écrite AVANT la course :\n");
