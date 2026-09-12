@@ -15451,6 +15451,28 @@ namespace nkuidesign {
 			bandes(sonde, nS, pS, dS);
 			// la teinte etait bien POSEE : les bandes sortent teintees, comme plus haut
 			const bool teintePosee = nS > 2u && pS == pG && dS == dG;
+			// (g) LA REECRITURE PAR NŒUD A LIEU, INDEPENDAMMENT DE LA GARDE.
+			//
+			// ⚠️ (f) OBSERVE LA RESTAURATION ; CELUI-CI OBSERVE LA REECRITURE. Les deux
+			//    mecanismes protegent la MEME propriete (« la teinte ne fuit pas »), et
+			//    c'est precisement le danger : une propriete garantie deux fois est une
+			//    propriete dont l'ECHEC EST MASQUE. Sans ce point, retirer la reecriture
+			//    ne rougirait rien -- la garde couvrirait -- et la faute dormirait jusqu'au
+			//    jour ou l'autre moitie disparaitrait a son tour.
+			//
+			//    La mesure : on pose une teinte PARASITE sur le peintre AVANT de dessiner
+			//    un nœud qui n'a AUCUN etat. Si la reecriture a lieu, elle l'ecrase et la
+			//    couleur sort INTACTE. Sinon, le nœud herite d'une teinte qui n'est pas la
+			//    sienne -- exactement la fuite qu'un `PushTint` d'appelant produirait.
+			NkRecordingPaint parasite;
+			parasite.tint = 0xFF0000FFu; // rouge : rien dans le document ne la demande
+			renderdetail::DrawShape(parasite, layF.At(fT), dT.nodes[(uint32)fT], hT, NkMat2D{});
+			uint32 vertFrere = 0u;
+			for (uint32 i = 0; i < (uint32)parasite.cmds.Size(); ++i)
+				if (parasite.cmds[i].op == NkPaintOp::FillColor && parasite.cmds[i].w == 80.f)
+					vertFrere = parasite.cmds[i].rgba;
+			// le frere est un aplat #00ff00 sans etat : il doit sortir EXACTEMENT ainsi
+			const bool reecrit = vertFrere == 0x00ff00ffu;
 			const bool restaure = teintePosee && tintAvant == 0xFFFFFFFFu && tintApres == tintAvant;
 			const bool vueDuVisiteur = dV2.CompterUsagesVariable("ombre") == 1u
 									   && !dV2.SupprimerVariable("ombre");
@@ -15460,10 +15482,13 @@ namespace nkuidesign {
 					 "au produit par 0x80 = %u [<=1] -> %d ; (c) CONTROLE NEGATIF, teinte BLANCHE : %u "
 					 "commande(s) differente(s) [0] ; (d) fichier : jeton=%d relu=%d meme=%d, le relu peint "
 					 "pareil (diff %u) -> %d ; (e) une teinte « @ombre » est VUE du visiteur unique -> %d ; "
-			 "(f) la garde RESTAURE le peintre : teinte posee=%d, %08x -> %08x -> %d",
+			 "(f) la garde RESTAURE le peintre : teinte posee=%d, %08x -> %08x -> %d ; "
+			 "(g) et chaque nœud REECRIT la sienne : un frere sans etat, peint sous une teinte "
+			 "parasite rouge, sort en %08x [00ff00ff] -> %d",
 					 degradeNu ? 1 : 0, nB, nG, pB, dB, pG, dG, survit ? 1 : 0, ecartMax, luminance ? 1 : 0,
 					 diffBlanc, jetonT ? 1 : 0, reluT ? 1 : 0, memeT ? 1 : 0, diffRelu2, fichierT ? 1 : 0,
-					 vueDuVisiteur ? 1 : 0, teintePosee ? 1 : 0, tintAvant, tintApres, restaure ? 1 : 0);
+					 vueDuVisiteur ? 1 : 0, teintePosee ? 1 : 0, tintAvant, tintApres, restaure ? 1 : 0,
+			 vertFrere, reecrit ? 1 : 0);
 			check("158. LA TEINTE PAR ETAT MULTIPLIE, ELLE NE REMPLACE PAS : sur un degrade NU -- celui "
 				  "dont `FondEffectif()` rend `(nul)` et que le fond d'etat perdait en silence -- le "
 				  "degrade SURVIT a l'etat (autant de bandes, extremites toujours distinctes) et seule la "
@@ -15471,7 +15496,7 @@ namespace nkuidesign {
 				  "(controle negatif) ; le jeton nomme se relit et le document relu peint pareil ; et une "
 				  "teinte qui REFERENCE une variable est vue du visiteur unique",
 				  degradeNu && survit && luminance && diffBlanc == 0u && fichierT && vueDuVisiteur
-			  && restaure,
+			  && restaure && reecrit,
 		  det);
 		}
 		// ── 159. LE GESTE MUET NE L'EST PLUS (12/09) : « PAS ENCORE », ET CE QUI MARCHE.
