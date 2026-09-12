@@ -588,6 +588,34 @@ int main(int argc, char **argv) {
 		return 0;
 	}
 
+	// Mode BASCULE MAC : seuls les controles de la bascule et le CRITERE DECISIF
+	// tournent. Ce n'est PAS un raccourci de complaisance, et il ne rend aucun
+	// verdict definitif : la course COMPLETE coute ~15 minutes (mesure du 12/09),
+	// et juger le § 4.3 du plan n'exige que deux tableaux. Une boucle de mesure
+	// courte est ce qui permet de corriger sans changer de sujet entre deux essais.
+	// Le verdict, lui, reste celui de la course complete, qu'on relance AVANT de
+	// conclure quoi que ce soit -- sans quoi on jugerait la bascule sur un banc
+	// qu'on aurait choisi parce qu'il est rapide.
+	const char *mac = ::nkentseu::env::GetEnvVar("NK_FLUID_MAC");
+	if (mac != nullptr && (mac[0] == '1' || mac[0] == '2')) {
+		ControlesPositifs();
+		PalierGrilleMAC();
+		// NK_FLUID_MAC=2 : le JALON LE PLUS COURT -- seuls (m1) et (m2) tournent,
+		// en moins d'une seconde. Il repond a UNE seule question : le stockage sur
+		// les FACES est-il pose et la divergence est-elle devenue compacte ? Il ne
+		// dit RIEN du solveur, RIEN de la masse, et surtout RIEN du critere decisif
+		// du § 1 -- pour celui-la il faut NK_FLUID_MAC=1, et pour un verdict, la
+		// course complete.
+		if (mac[0] == '1') {
+			MasseEtDivergence(false);
+			PlancherDuSolveur(0.f);
+		}
+		printf("\n=============================================================\n");
+		printf("BILAN (mode NK_FLUID_MAC, PARTIEL — pas un verdict) : %d controles, %d ROUGES\n", gChecks, gFailures);
+		printf("=============================================================\n");
+		return gFailures == 0 ? 0 : 1;
+	}
+
 	ControlesPositifs();
 	// (m1) et (m2) : les deux controles de la BASCULE MAC. Ils sont ROUGES tant que
 	// la grille est COLOCALISEE, et c'est exactement leur raison d'etre -- un temoin

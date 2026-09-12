@@ -214,21 +214,25 @@ namespace nkentseu {
 		// LA VITESSE AU CENTRE D'UNE CELLULE — le chemin que la bascule MAC rend
 		// dangereux (voir NkFluidGrid.h pour la convention de face).
 		//
-		// ÉTAT AUJOURD'HUI : la grille est COLOCALISÉE, la vitesse est déjà au
-		// centre, et cette fonction rend la valeur telle quelle. Le contrôle (m1)
-		// du banc est donc ROUGE, et c'est VOULU : il est écrit avant la bascule
-		// pour pouvoir rougir avant de verdir. Après la bascule, ce corps devient
-		// la MOYENNE DES DEUX FACES qui bordent la cellule :
-		//     ux = 0,5 * ( mU[Idx(i,j,k)] + mU[Idx(i+1,j,k)] )
-		// exacte sur un champ linéaire, et fausse de h^2/8 * f'' sur un quadratique
-		// — les deux volets que (m1) exige.
+		// LA GRILLE EST DÉCALÉE (MAC) : `mU[Idx(i,j,k)]` est la face GAUCHE de la
+		// cellule (i,j,k), à x = boundsMin.x + (i-1)*h. La vitesse AU CENTRE est
+		// donc la MOYENNE DES DEUX FACES qui bordent la cellule. C'est le chemin
+		// que prennent la flottabilité, la vorticité, les statistiques, le rendu et
+		// le vent — et c'est celui que le contrôle (m1) juge, par ses DEUX volets :
+		//   - exacte sur un champ LINÉAIRE (la moyenne de deux faces symétriques
+		//     autour du centre vaut la valeur au centre) ;
+		//   - fausse de h^2/8 * f'' sur un champ QUADRATIQUE, parce que
+		//     (f(x-h/2) + f(x+h/2))/2 = f(x) + (h/2)^2/2 * f''. Cette erreur n'est
+		//     pas un défaut : c'est la signature de l'interpolation, et l'exiger
+		//     NON NULLE est ce qui empêche (m1) de ne prouver que « ça compile ».
+		// La face i+1 existe toujours pour i <= nx : l'allocation (nx+2) la porte.
 		// =====================================================================
 		void NkFluidGrid::VelocityAtCenter(uint32 i, uint32 j, uint32 k, float32 &ux, float32 &uy,
 										   float32 &uz) const {
 			const uint32 id = Idx(i, j, k);
-			ux = mU[id];
-			uy = mV[id];
-			uz = mW[id];
+			ux = 0.5f * (mU[id] + mU[Idx(i + 1, j, k)]);
+			uy = 0.5f * (mV[id] + mV[Idx(i, j + 1, k)]);
+			uz = 0.5f * (mW[id] + mW[Idx(i, j, k + 1)]);
 		}
 
 		// =====================================================================
@@ -243,22 +247,38 @@ namespace nkentseu {
 		// translation, -0,11 % ; cas G, panache SANS contact de paroi, -45 %) mais le
 		// terme en dt^2 |grad u|^2 du jacobien de la carte de retour : il est nul en
 		// translation (grad u = 0) et grand dans un ecoulement etire.
-		void NkFluidGrid::Backtrace(uint32 i, uint32 j, uint32 k, float32 dt0, const NkVector<float32> &fu,
-									const NkVector<float32> &fv, const NkVector<float32> &fw, float32 &x, float32 &y,
-									float32 &z) const {
-			const uint32 id = Idx(i, j, k);
+		// La vitesse au point de GRILLE (gx,gy,gz), interpolée depuis les FACES.
+		// u vit sur les faces x : la face d'indice i est au point gx = i - 0,5. Pour
+		// que Trilinear — qui indexe les CENTRES — lise les bonnes cases, on lui
+		// passe gx + 0,5. Même décalage pour v en y et w en z. C'est LE décalage de
+		// la grille décalée, et toute l'advection en dépend.
+		void NkFluidGrid::VelocityAtGrid(const NkVector<float32> &fu, const NkVector<float32> &fv,
+										 const NkVector<float32> &fw, float32 gx, float32 gy, float32 gz,
+										 float32 &vx, float32 &vy, float32 &vz) const {
+			vx = Trilinear(fu, gx + 0.5f, gy, gz);
+			vy = Trilinear(fv, gx, gy + 0.5f, gz);
+			vz = Trilinear(fw, gx, gy, gz + 0.5f);
+		}
+
+		void NkFluidGrid::BacktraceAt(float32 gx, float32 gy, float32 gz, float32 dt0, const NkVector<float32> &fu,
+									  const NkVector<float32> &fv, const NkVector<float32> &fw, float32 &x,
+									  float32 &y, float32 &z) const {
+			float32 vx, vy, vz;
+			VelocityAtGrid(fu, fv, fw, gx, gy, gz, vx, vy, vz);
 			if (!mParams.advectRK2) {
-				x = (float32)i - dt0 * fu[id];
-				y = (float32)j - dt0 * fv[id];
-				z = (float32)k - dt0 * fw[id];
+				x = gx - dt0 * vx;
+				y = gy - dt0 * vy;
+				z = gz - dt0 * vz;
 				return;
 			}
-			const float32 xm = (float32)i - 0.5f * dt0 * fu[id];
-			const float32 ym = (float32)j - 0.5f * dt0 * fv[id];
-			const float32 zm = (float32)k - 0.5f * dt0 * fw[id];
-			x = (float32)i - dt0 * Trilinear(fu, xm, ym, zm);
-			y = (float32)j - dt0 * Trilinear(fv, xm, ym, zm);
-			z = (float32)k - dt0 * Trilinear(fw, xm, ym, zm);
+			const float32 xm = gx - 0.5f * dt0 * vx;
+			const float32 ym = gy - 0.5f * dt0 * vy;
+			const float32 zm = gz - 0.5f * dt0 * vz;
+			float32 mx, my, mz;
+			VelocityAtGrid(fu, fv, fw, xm, ym, zm, mx, my, mz);
+			x = gx - dt0 * mx;
+			y = gy - dt0 * my;
+			z = gz - dt0 * mz;
 		}
 
 		void NkFluidGrid::AdvectSemiLagrangien(NkVector<float32> &dst, const NkVector<float32> &src, float32 dt,
@@ -268,7 +288,9 @@ namespace nkentseu {
 				for (uint32 j = 1; j <= mNy; ++j)
 					for (uint32 i = 1; i <= mNx; ++i) {
 						float32 x, y, z;
-						Backtrace(i, j, k, dt0, mU, mV, mW, x, y, z);
+						// Un SCALAIRE vit au CENTRE : son point de départ se rebrousse
+						// depuis (i,j,k), et la vitesse y est interpolée depuis les faces.
+						BacktraceAt((float32)i, (float32)j, (float32)k, dt0, mU, mV, mW, x, y, z);
 						dst[Idx(i, j, k)] = Trilinear(src, x, y, z);
 					}
 			SetBoundary(bnd, dst);
@@ -313,12 +335,70 @@ namespace nkentseu {
 					for (uint32 i = 1; i <= mNx; ++i) {
 						const uint32 id = Idx(i, j, k);
 						float32 x, y, z, mn, mx;
-						Backtrace(i, j, k, dt0, mU, mV, mW, x, y, z);
+						BacktraceAt((float32)i, (float32)j, (float32)k, dt0, mU, mV, mW, x, y, z);
 						TrilinearBornes(src, x, y, z, mn, mx);
 						const float32 v = mScratchA[id] + 0.5f * (src[id] - mScratchB[id]);
 						dst[id] = Clampf(v, mn, mx);
 					}
 			SetBoundary(bnd, dst);
+		}
+
+		// =====================================================================
+		// LES BORDS DE VITESSE sur grille décalée.
+		//
+		// Rien à voir avec `SetBoundary` : la composante NORMALE n'est plus
+		// « inversée dans un fantôme » pour que la moyenne s'annule à l'interface,
+		// elle est imposée NULLE **sur** la face de paroi, exactement là où la paroi
+		// est. C'est le gain silencieux de la bascule — l'ancienne convention
+		// donnait à la couche collée aux parois une divergence apparente que le
+		// solveur ne pouvait pas faire tomber (mesure du 05/09 : 5,408 % -> 5,407 %
+		// en forçant le résidu 78 fois plus bas).
+		//
+		// Les couches fantômes TANGENTIELLES sont recopiées (glissement libre) pour
+		// que l'interpolation et les différences restent définies au bord.
+		// =====================================================================
+		void NkFluidGrid::SetVelocityWalls() {
+			const uint32 X = mNx, Y = mNy, Z = mNz;
+
+			// 1. vitesse NORMALE nulle sur les six parois
+			for (uint32 k = 1; k <= Z; ++k)
+				for (uint32 j = 1; j <= Y; ++j) {
+					mU[Idx(1, j, k)] = 0.f;
+					mU[Idx(X + 1, j, k)] = 0.f;
+				}
+			for (uint32 k = 1; k <= Z; ++k)
+				for (uint32 i = 1; i <= X; ++i) {
+					mV[Idx(i, 1, k)] = 0.f;
+					mV[Idx(i, Y + 1, k)] = 0.f;
+				}
+			for (uint32 j = 1; j <= Y; ++j)
+				for (uint32 i = 1; i <= X; ++i) {
+					mW[Idx(i, j, 1)] = 0.f;
+					mW[Idx(i, j, Z + 1)] = 0.f;
+				}
+
+			// 2. couches fantômes TANGENTIELLES recopiées (glissement libre)
+			for (uint32 k = 0; k <= Z + 1; ++k)
+				for (uint32 i = 0; i <= X + 1; ++i) {
+					mU[Idx(i, 0, k)] = mU[Idx(i, 1, k)];
+					mU[Idx(i, Y + 1, k)] = mU[Idx(i, Y, k)];
+					mW[Idx(i, 0, k)] = mW[Idx(i, 1, k)];
+					mW[Idx(i, Y + 1, k)] = mW[Idx(i, Y, k)];
+				}
+			for (uint32 j = 0; j <= Y + 1; ++j)
+				for (uint32 i = 0; i <= X + 1; ++i) {
+					mU[Idx(i, j, 0)] = mU[Idx(i, j, 1)];
+					mU[Idx(i, j, Z + 1)] = mU[Idx(i, j, Z)];
+					mV[Idx(i, j, 0)] = mV[Idx(i, j, 1)];
+					mV[Idx(i, j, Z + 1)] = mV[Idx(i, j, Z)];
+				}
+			for (uint32 k = 0; k <= Z + 1; ++k)
+				for (uint32 j = 0; j <= Y + 1; ++j) {
+					mV[Idx(0, j, k)] = mV[Idx(1, j, k)];
+					mV[Idx(X + 1, j, k)] = mV[Idx(X, j, k)];
+					mW[Idx(0, j, k)] = mW[Idx(1, j, k)];
+					mW[Idx(X + 1, j, k)] = mW[Idx(X, j, k)];
+				}
 		}
 
 		void NkFluidGrid::AdvectVelocity(float32 dt) {
@@ -329,19 +409,34 @@ namespace nkentseu {
 				mW0[i] = mW[i];
 			}
 			const float32 dt0 = dt / mParams.cellSize;
+			// CHAQUE COMPOSANTE EST REBROUSSÉE DEPUIS SA PROPRE FACE — c'est ce que
+			// le § 4.4 du plan demande, et ça ne se sépare pas du § 4.3 : une grille
+			// décalée dont l'advection traiterait les faces comme des centres ne
+			// produit aucun écoulement dont on puisse mesurer la divergence.
+			// La face x d'indice i est au point de grille (i - 0,5 ; j ; k), et on y
+			// relit u avec le même décalage de +0,5.
 			for (uint32 k = 1; k <= mNz; ++k)
 				for (uint32 j = 1; j <= mNy; ++j)
-					for (uint32 i = 1; i <= mNx; ++i) {
-						const uint32 id = Idx(i, j, k);
+					for (uint32 i = 2; i <= mNx; ++i) {
 						float32 x, y, z;
-						Backtrace(i, j, k, dt0, mU0, mV0, mW0, x, y, z);
-						mU[id] = Trilinear(mU0, x, y, z);
-						mV[id] = Trilinear(mV0, x, y, z);
-						mW[id] = Trilinear(mW0, x, y, z);
+						BacktraceAt((float32)i - 0.5f, (float32)j, (float32)k, dt0, mU0, mV0, mW0, x, y, z);
+						mU[Idx(i, j, k)] = Trilinear(mU0, x + 0.5f, y, z);
 					}
-			SetBoundary(1, mU);
-			SetBoundary(2, mV);
-			SetBoundary(3, mW);
+			for (uint32 k = 1; k <= mNz; ++k)
+				for (uint32 j = 2; j <= mNy; ++j)
+					for (uint32 i = 1; i <= mNx; ++i) {
+						float32 x, y, z;
+						BacktraceAt((float32)i, (float32)j - 0.5f, (float32)k, dt0, mU0, mV0, mW0, x, y, z);
+						mV[Idx(i, j, k)] = Trilinear(mV0, x, y + 0.5f, z);
+					}
+			for (uint32 k = 2; k <= mNz; ++k)
+				for (uint32 j = 1; j <= mNy; ++j)
+					for (uint32 i = 1; i <= mNx; ++i) {
+						float32 x, y, z;
+						BacktraceAt((float32)i, (float32)j, (float32)k - 0.5f, dt0, mU0, mV0, mW0, x, y, z);
+						mW[Idx(i, j, k)] = Trilinear(mW0, x, y, z + 0.5f);
+					}
+			SetVelocityWalls();
 		}
 
 		// =====================================================================
@@ -382,8 +477,12 @@ namespace nkentseu {
 					const uint32 base = Idx(1, j, k);
 					for (uint32 i = 0; i < mNx; ++i) {
 						const uint32 id = base + i;
-						D[id] = -0.5f * h *
-								(U[id + 1] - U[id - 1] + V[id + sy] - V[id - sy] + W[id + sz] - W[id - sz]);
+						// GRILLE DÉCALÉE : divergence COMPACTE des six faces de la
+						// cellule. div_vraie = ((u[i+1]-u[i]) + ...)/h, et le
+						// potentiel de Stam veut div_stam = -h^2 * div_vraie, d'où
+						// le facteur -h (et non -0,5*h, qui était le prix de la
+						// différence centrée de pas 2).
+						D[id] = -h * ((U[id + 1] - U[id]) + (V[id + sy] - V[id]) + (W[id + sz] - W[id]));
 						if (!mParams.pressureWarmStart)
 							P[id] = 0.f;
 					}
@@ -455,24 +554,41 @@ namespace nkentseu {
 			mStats.pressureResidual = residual;
 			mStats.pressureCapHit = (iter >= mParams.pressureIterations) && (residual >= seuil);
 
-			// u <- u - grad(p)
+			// u <- u - grad(p), AUX FACES.
+			//
+			// La face x d'indice i SÉPARE les cellules i-1 et i : le gradient y vaut
+			// exactement (p[i] - p[i-1])/h, une différence COMPACTE. C'est l'adjoint
+			// exact de la divergence ci-dessus, et c'est toute la raison d'être de la
+			// bascule : les deux opérateurs sont enfin le même, la grille ne se
+			// découple plus en sous-réseaux pair/impair.
 			float32 *Um = mU.Data();
 			float32 *Vm = mV.Data();
 			float32 *Wm = mW.Data();
-			const float32 inv2h = 0.5f / h;
+			const float32 invh = 1.f / h;
 			for (uint32 k = 1; k <= mNz; ++k)
-				for (uint32 j = 1; j <= mNy; ++j) {
-					const uint32 base = Idx(1, j, k);
-					for (uint32 i = 0; i < mNx; ++i) {
-						const uint32 id = base + i;
-						Um[id] -= inv2h * (P[id + 1] - P[id - 1]);
-						Vm[id] -= inv2h * (P[id + sy] - P[id - sy]);
-						Wm[id] -= inv2h * (P[id + sz] - P[id - sz]);
+				for (uint32 j = 1; j <= mNy; ++j)
+					for (uint32 i = 2; i <= mNx; ++i) { // faces INTERNES en x
+						const uint32 id = Idx(i, j, k);
+						Um[id] -= invh * (P[id] - P[id - 1]);
 					}
-				}
-			SetBoundary(1, mU);
-			SetBoundary(2, mV);
-			SetBoundary(3, mW);
+			for (uint32 k = 1; k <= mNz; ++k)
+				for (uint32 j = 2; j <= mNy; ++j) // faces INTERNES en y
+					for (uint32 i = 1; i <= mNx; ++i) {
+						const uint32 id = Idx(i, j, k);
+						Vm[id] -= invh * (P[id] - P[id - sy]);
+					}
+			for (uint32 k = 2; k <= mNz; ++k) // faces INTERNES en z
+				for (uint32 j = 1; j <= mNy; ++j)
+					for (uint32 i = 1; i <= mNx; ++i) {
+						const uint32 id = Idx(i, j, k);
+						Wm[id] -= invh * (P[id] - P[id - sz]);
+					}
+
+			// LES PAROIS : vitesse NORMALE nulle *sur la face*, et fantômes
+			// tangentiels recopiés. C'est le gain silencieux de la grille décalée —
+			// la condition de non-pénétration s'écrit exactement là où la paroi est,
+			// au lieu d'être approchée par une couche fantôme portant -u_normal.
+			SetVelocityWalls();
 		}
 
 		// =====================================================================
@@ -484,13 +600,28 @@ namespace nkentseu {
 			const float32 beta = EffectiveBeta();
 			const float32 alpha = mParams.buoyancyAlpha;
 			const float32 tAmb = mParams.ambientTemperature;
+			// GRILLE DÉCALÉE : la poussée est une force VERTICALE, elle vit donc sur
+			// les faces y. La face y d'indice j SÉPARE les cellules (i,j-1,k) et
+			// (i,j,k) : la température et la densité qu'elle voit sont la MOYENNE
+			// des deux cellules qu'elle borde. Écrire `mTemperature[id]` seul
+			// décalerait la force d'une demi-cellule vers le haut — une erreur qui
+			// ne se verrait sur aucun témoin de loi, seulement sur le transport.
+			//
+			// Faces INTERNES seulement (j = 2..ny) : sur les faces de PAROI la
+			// vitesse normale est imposée nulle, et y ajouter une force la ferait
+			// mentir.
 			for (uint32 k = 1; k <= mNz; ++k)
-				for (uint32 j = 1; j <= mNy; ++j)
+				for (uint32 j = 2; j <= mNy; ++j)
 					for (uint32 i = 1; i <= mNx; ++i) {
 						const uint32 id = Idx(i, j, k);
-						mV[id] += dt * (beta * (mTemperature[id] - tAmb) - alpha * mDensity[id]);
+						const uint32 bas = Idx(i, j - 1, k);
+						const float32 T = 0.5f * (mTemperature[id] + mTemperature[bas]);
+						const float32 d = 0.5f * (mDensity[id] + mDensity[bas]);
+						mV[id] += dt * (beta * (T - tAmb) - alpha * d);
 					}
-			SetBoundary(2, mV);
+			// Les fantômes tangentiels doivent suivre : ComputeVorticity lit
+			// vc(i,j,k±1), qui touche la couche fantôme.
+			SetVelocityWalls();
 		}
 
 		// =====================================================================
@@ -511,17 +642,47 @@ namespace nkentseu {
 		// =====================================================================
 		void NkFluidGrid::ComputeVorticity() {
 			const float32 inv2h = 1.f / (2.f * mParams.cellSize);
+			// ⚠️ ÉCART ASSUMÉ AU PLAN, ET DIT PLUTÔT QU'ENFOUI. Le § 2 de
+			// PLAN_GRILLE_MAC.md prévoyait de porter omega sur les ARÊTES, et donc
+			// que sa valeur absolue CHANGE (autre population). Je le garde AU CENTRE
+			// des cellules, calculé à partir des faces moyennées. Trois raisons, et
+			// la troisième est la bonne :
+			//   1. c'est là que Fedkiw 2001 calcule le confinement, et le confinement
+			//      est le seul consommateur de omega ;
+			//   2. les arêtes exigeraient trois réseaux distincts et un gradient de
+			//      |omega| défini sur un quatrième ;
+			//   3. surtout : la population comptée reste la MÊME, donc l'ancrage
+			//      « enstrophie 1,458000 sur la rotation solide » reste VÉRIFIABLE.
+			//      Changer de population aurait rendu ce témoin incomparable, et on
+			//      aurait perdu la seule garde qui dise que l'instrument n'a pas bougé.
+			// La moyenne de deux faces est EXACTE sur un champ linéaire : l'écart de
+			// 0,0000 % sur la rotation solide doit donc rester nul. S'il cesse de
+			// l'être, c'est l'instrument qui a bougé, pas la physique.
+			//
+			// Les moyennes sont écrites en ligne plutôt que via VelocityAtCenter :
+			// appelée sur (i+1), celle-ci lirait la face (i+2), qui déborde de la
+			// rangée quand i vaut nx. Ici tous les indices restent <= N+1.
 			for (uint32 k = 1; k <= mNz; ++k)
 				for (uint32 j = 1; j <= mNy; ++j)
 					for (uint32 i = 1; i <= mNx; ++i) {
 						const uint32 id = Idx(i, j, k);
+						// vitesses AU CENTRE des cellules voisines (moyenne des 2 faces)
+						auto uc = [&](uint32 a, uint32 b, uint32 c) {
+							return 0.5f * (mU[Idx(a, b, c)] + mU[Idx(a + 1, b, c)]);
+						};
+						auto vc = [&](uint32 a, uint32 b, uint32 c) {
+							return 0.5f * (mV[Idx(a, b, c)] + mV[Idx(a, b + 1, c)]);
+						};
+						auto wc = [&](uint32 a, uint32 b, uint32 c) {
+							return 0.5f * (mW[Idx(a, b, c)] + mW[Idx(a, b, c + 1)]);
+						};
 						// omega = ( dw/dy - dv/dz , du/dz - dw/dx , dv/dx - du/dy )
-						const float32 ox = (mW[Idx(i, j + 1, k)] - mW[Idx(i, j - 1, k)]) * inv2h -
-										   (mV[Idx(i, j, k + 1)] - mV[Idx(i, j, k - 1)]) * inv2h;
-						const float32 oy = (mU[Idx(i, j, k + 1)] - mU[Idx(i, j, k - 1)]) * inv2h -
-										   (mW[Idx(i + 1, j, k)] - mW[Idx(i - 1, j, k)]) * inv2h;
-						const float32 oz = (mV[Idx(i + 1, j, k)] - mV[Idx(i - 1, j, k)]) * inv2h -
-										   (mU[Idx(i, j + 1, k)] - mU[Idx(i, j - 1, k)]) * inv2h;
+						const float32 ox = (wc(i, j + 1, k) - wc(i, j - 1, k)) * inv2h -
+										   (vc(i, j, k + 1) - vc(i, j, k - 1)) * inv2h;
+						const float32 oy = (uc(i, j, k + 1) - uc(i, j, k - 1)) * inv2h -
+										   (wc(i + 1, j, k) - wc(i - 1, j, k)) * inv2h;
+						const float32 oz = (vc(i + 1, j, k) - vc(i - 1, j, k)) * inv2h -
+										   (uc(i, j + 1, k) - uc(i, j - 1, k)) * inv2h;
 						mOmegaX[id] = ox;
 						mOmegaY[id] = oy;
 						mOmegaZ[id] = oz;
@@ -569,12 +730,24 @@ namespace nkentseu {
 			const float32 h = mParams.cellSize;
 			const float32 inv2h = 1.f / (2.f * h);
 			const float32 k1 = eps * h;
+			const uint32 sy = mNx + 2;
+			const uint32 sz = (mNx + 2) * (mNy + 2);
+			// PASSE 1 — l'accélération AU CENTRE des cellules (omega et grad|omega| y
+			// vivent). On emprunte trois tampons déjà alloués : mScratchA/B, libres
+			// hors MacCormack, et mDivergence, que `Project` recalcule INTÉGRALEMENT
+			// juste après. Aucun code ne lit ces trois-là entre ici et la projection.
+			float32 *AX = mScratchA.Data();
+			float32 *AY = mScratchB.Data();
+			float32 *AZ = mDivergence.Data();
 			float64 accSum = 0.0;
 			uint32 n = 0;
 			for (uint32 k = 1; k <= mNz; ++k)
 				for (uint32 j = 1; j <= mNy; ++j)
 					for (uint32 i = 1; i <= mNx; ++i) {
 						const uint32 id = Idx(i, j, k);
+						AX[id] = 0.f;
+						AY[id] = 0.f;
+						AZ[id] = 0.f;
 						// eta = grad |omega|
 						const float32 ex = (mOmegaMag[Idx(i + 1, j, k)] - mOmegaMag[Idx(i - 1, j, k)]) * inv2h;
 						const float32 ey = (mOmegaMag[Idx(i, j + 1, k)] - mOmegaMag[Idx(i, j - 1, k)]) * inv2h;
@@ -592,17 +765,34 @@ namespace nkentseu {
 						const float32 fx = ny * oz - nz * oy;
 						const float32 fy = nz * ox - nx * oz;
 						const float32 fz = nx * oy - ny * ox;
-						const float32 ax = k1 * fx, ay = k1 * fy, az = k1 * fz;
-						mU[id] += dt * ax;
-						mV[id] += dt * ay;
-						mW[id] += dt * az;
-						accSum += (float64)NkSqrt(ax * ax + ay * ay + az * az);
+						AX[id] = k1 * fx;
+						AY[id] = k1 * fy;
+						AZ[id] = k1 * fz;
+						accSum += (float64)NkSqrt(AX[id] * AX[id] + AY[id] * AY[id] + AZ[id] * AZ[id]);
 						++n;
 					}
+			// PASSE 2 — la force part du CENTRE et arrive sur les FACES, moyennée
+			// entre les deux cellules que chaque face sépare. Faces INTERNES seules.
+			for (uint32 k = 1; k <= mNz; ++k)
+				for (uint32 j = 1; j <= mNy; ++j)
+					for (uint32 i = 2; i <= mNx; ++i) {
+						const uint32 id = Idx(i, j, k);
+						mU[id] += dt * 0.5f * (AX[id] + AX[id - 1]);
+					}
+			for (uint32 k = 1; k <= mNz; ++k)
+				for (uint32 j = 2; j <= mNy; ++j)
+					for (uint32 i = 1; i <= mNx; ++i) {
+						const uint32 id = Idx(i, j, k);
+						mV[id] += dt * 0.5f * (AY[id] + AY[id - sy]);
+					}
+			for (uint32 k = 2; k <= mNz; ++k)
+				for (uint32 j = 1; j <= mNy; ++j)
+					for (uint32 i = 1; i <= mNx; ++i) {
+						const uint32 id = Idx(i, j, k);
+						mW[id] += dt * 0.5f * (AZ[id] + AZ[id - sz]);
+					}
 			mStats.confinementAccelMean = (n > 0) ? (float32)(accSum / (float64)n) : 0.f;
-			SetBoundary(1, mU);
-			SetBoundary(2, mV);
-			SetBoundary(3, mW);
+			SetVelocityWalls();
 		}
 
 		// =====================================================================
@@ -623,25 +813,50 @@ namespace nkentseu {
 			const float32 h = mParams.cellSize;
 			float64 accSum = 0.0;
 			uint32 n = 0;
+			// LA STATISTIQUE se mesure AU CENTRE des cellules : c'est la population
+			// que le témoin (w1) lit, et elle doit rester |F|/m — 0,5000 m/s^2 pour
+			// une force uniforme de 0,5 N sur 1 kg. La mesurer par face donnerait 0
+			// sur les faces perpendiculaires a la force et fausserait le chiffre.
 			for (uint32 k = 1; k <= mNz; ++k)
 				for (uint32 j = 1; j <= mNy; ++j)
 					for (uint32 i = 1; i <= mNx; ++i) {
-						const uint32 id = Idx(i, j, k);
 						const NkVec3f p = {mParams.boundsMin.x + ((float32)i - 0.5f) * h,
 										   mParams.boundsMin.y + ((float32)j - 0.5f) * h,
 										   mParams.boundsMin.z + ((float32)k - 0.5f) * h};
 						const NkVec3f F = mParams.field->Force(p, mFieldTime); // newtons
 						const float32 ax = F.x * invM, ay = F.y * invM, az = F.z * invM;
-						mU[id] += dt * ax;
-						mV[id] += dt * ay;
-						mW[id] += dt * az;
 						accSum += (float64)NkSqrt(ax * ax + ay * ay + az * az);
 						++n;
 					}
+			// LA FORCE, elle, s'applique sur les FACES, et chacune est évaluée A LA
+			// POSITION DE SA FACE : la face x d'indice i est a x = boundsMin.x +
+			// (i-1)*h, mais reste au MILIEU de la cellule en y et z.
+			for (uint32 k = 1; k <= mNz; ++k)
+				for (uint32 j = 1; j <= mNy; ++j)
+					for (uint32 i = 2; i <= mNx; ++i) {
+						const NkVec3f p = {mParams.boundsMin.x + ((float32)i - 1.f) * h,
+										   mParams.boundsMin.y + ((float32)j - 0.5f) * h,
+										   mParams.boundsMin.z + ((float32)k - 0.5f) * h};
+						mU[Idx(i, j, k)] += dt * mParams.field->Force(p, mFieldTime).x * invM;
+					}
+			for (uint32 k = 1; k <= mNz; ++k)
+				for (uint32 j = 2; j <= mNy; ++j)
+					for (uint32 i = 1; i <= mNx; ++i) {
+						const NkVec3f p = {mParams.boundsMin.x + ((float32)i - 0.5f) * h,
+										   mParams.boundsMin.y + ((float32)j - 1.f) * h,
+										   mParams.boundsMin.z + ((float32)k - 0.5f) * h};
+						mV[Idx(i, j, k)] += dt * mParams.field->Force(p, mFieldTime).y * invM;
+					}
+			for (uint32 k = 2; k <= mNz; ++k)
+				for (uint32 j = 1; j <= mNy; ++j)
+					for (uint32 i = 1; i <= mNx; ++i) {
+						const NkVec3f p = {mParams.boundsMin.x + ((float32)i - 0.5f) * h,
+										   mParams.boundsMin.y + ((float32)j - 0.5f) * h,
+										   mParams.boundsMin.z + ((float32)k - 1.f) * h};
+						mW[Idx(i, j, k)] += dt * mParams.field->Force(p, mFieldTime).z * invM;
+					}
 			mStats.windAccelMean = (n > 0) ? (float32)(accSum / (float64)n) : 0.f;
-			SetBoundary(1, mU);
-			SetBoundary(2, mV);
-			SetBoundary(3, mW);
+			SetVelocityWalls();
 		}
 
 		// =====================================================================
@@ -722,7 +937,24 @@ namespace nkentseu {
 		// Mesures
 		// =====================================================================
 		void NkFluidGrid::MeasureDivergence(float32 &meanOut, float32 &maxOut, bool strict) const {
-			// divergence * h, en m/s : 0,5 * ( du + dv + dw ) sur les voisins.
+			// divergence * h, en m/s. GRILLE DÉCALÉE (MAC) : la divergence d'une
+			// cellule est la DIFFÉRENCE COMPACTE de ses deux faces opposées,
+			//     div*h = (u[i+1] - u[i]) + (v[j+1] - v[j]) + (w[k+1] - w[k])
+			// où u[i] est la face GAUCHE de la cellule (i,j,k) et u[i+1] sa face
+			// DROITE (qui est la face gauche de la cellule i+1 : une case, une face).
+			//
+			// ⚠️ C'EST CE STENCIL, ET NON LA DIFFÉRENCE CENTRÉE DE PAS 2, qui est
+			// l'ADJOINT EXACT du Laplacien à 6 voisins que résout la projection. La
+			// différence centrée lisait u[i+1] - u[i-1] : deux cases de MÊME parité.
+			// Elle découplait la grille en sous-réseaux pair/impair (le mode
+			// « damier »), ce qui donnait au témoin (b) un PLANCHER DE
+			// DISCRÉTISATION que plus aucun balayage ne pouvait franchir — mesuré
+			// le 05/09 : résidu divisé par 102, rapport inchangé au dix-millième.
+			//
+			// Conséquence directe, et c'est le contrôle (m2) : ce stencil VOIT le
+			// damier (il en rend 2,000000 m/s) là où le centré rendait ZÉRO. Et il
+			// reste AVEUGLE à un champ uniforme, qui rend toujours 0 — sans quoi
+			// « non nul » ne serait pas un critère.
 			float64 sum = 0.0;
 			float32 mx = 0.f;
 			uint32 n = 0;
@@ -733,8 +965,9 @@ namespace nkentseu {
 			for (uint32 k = k0; k <= k1; ++k)
 				for (uint32 j = j0; j <= j1; ++j)
 					for (uint32 i = i0; i <= i1; ++i) {
-						const float32 d = 0.5f * (mU[Idx(i + 1, j, k)] - mU[Idx(i - 1, j, k)] + mV[Idx(i, j + 1, k)] -
-												  mV[Idx(i, j - 1, k)] + mW[Idx(i, j, k + 1)] - mW[Idx(i, j, k - 1)]);
+						const float32 d = (mU[Idx(i + 1, j, k)] - mU[Idx(i, j, k)]) +
+										  (mV[Idx(i, j + 1, k)] - mV[Idx(i, j, k)]) +
+										  (mW[Idx(i, j, k + 1)] - mW[Idx(i, j, k)]);
 						const float32 a = NkAbs(d);
 						sum += (float64)a;
 						++n;
@@ -757,12 +990,22 @@ namespace nkentseu {
 						if (IsBad(mU[id]) || IsBad(mV[id]) || IsBad(mW[id]) || IsBad(mDensity[id]) ||
 							IsBad(mTemperature[id]))
 							++bad;
-						float32 s = NkSqrt(mU[id] * mU[id] + mV[id] * mV[id] + mW[id] * mW[id]);
+						// La VITESSE D'UNE CELLULE est celle de son CENTRE : sur grille
+						// décalée, lire mU[id] seul lirait une FACE et sous-estimerait
+						// (ou surestimerait) la vitesse de la cellule d'un demi-pas.
+						float32 cx, cy, cz;
+						VelocityAtCenter(i, j, k, cx, cy, cz);
+						float32 s = NkSqrt(cx * cx + cy * cy + cz * cz);
 						if (s > lim && s > 0.f) {
+							// La borne mord au centre : on met à l'échelle les SIX faces
+							// de la cellule, sans quoi le champ resterait au-dessus.
 							const float32 f = lim / s;
 							mU[id] *= f;
+							mU[Idx(i + 1, j, k)] *= f;
 							mV[id] *= f;
+							mV[Idx(i, j + 1, k)] *= f;
 							mW[id] *= f;
+							mW[Idx(i, j, k + 1)] *= f;
 							s = lim;
 							++clamped;
 						}
@@ -784,8 +1027,9 @@ namespace nkentseu {
 				for (uint32 k = 2; k <= mNz - 1; ++k)
 					for (uint32 j = 2; j <= mNy - 1; ++j)
 						for (uint32 i = 2; i <= mNx - 1; ++i) {
-							const uint32 id = Idx(i, j, k);
-							sums += (float64)NkSqrt(mU[id] * mU[id] + mV[id] * mV[id] + mW[id] * mW[id]);
+							float32 cx, cy, cz;
+							VelocityAtCenter(i, j, k, cx, cy, cz);
+							sums += (float64)NkSqrt(cx * cx + cy * cy + cz * cz);
 							++ns;
 						}
 			}
@@ -896,8 +1140,15 @@ namespace nkentseu {
 						const float32 w = mTemperature[id] - tAmb;
 						if (w <= 0.f)
 							continue;
+						// La vitesse verticale D'UNE CELLULE est celle de son CENTRE :
+						// la moyenne de ses deux faces y. Lire `mV[id]` seul lirait la
+						// face BASSE et décalerait la mesure d'un demi-pas — c'est
+						// exactement l'erreur que le contrôle (m1) rend visible, et
+						// c'est ce témoin-ci, (c1), qui la paierait.
+						float32 cx, cy, cz;
+						VelocityAtCenter(i, j, k, cx, cy, cz);
 						wsum += (float64)w;
-						vsum += (float64)w * (float64)mV[id];
+						vsum += (float64)w * (float64)cy;
 					}
 			return (wsum > 0.0) ? (float32)(vsum / wsum) : 0.f;
 		}
