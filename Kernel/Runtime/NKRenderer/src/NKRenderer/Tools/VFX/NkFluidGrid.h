@@ -149,6 +149,30 @@ namespace nkentseu {
 				// mesure, eteint par defaut, jusqu'a une advection vraiment conservative.
 				bool advectMacCormack = false;
 
+				// ── ADVECTION CONSERVATIVE EN FLUX (donor-cell d'ordre 1) ───────
+				// Courant, Isaacson & Rees 1952 ; cadre : Lentine, Aanjaneya &
+				// Fedkiw, « Mass and Momentum Conservation for Fluid Simulation »,
+				// SCA 2011. On ne demande plus « d'ou vient ce qui arrive ici ? »
+				// (le semi-lagrangien, qui n'a AUCUN bilan) mais « combien traverse
+				// CETTE FACE ? » : un flux par face, retranche a l'amont, ajoute a
+				// l'aval. La masse est donc conservee PAR CONSTRUCTION.
+				// ⚠️ EXIGE la grille DECALEE : un flux vit sur une FACE, et sur une
+				// grille colocalisee il n'existait aucun endroit ou le poser.
+				// Pre-enregistrement complet : PLAN_ADVECTION_FLUX.md.
+				// Eteint par defaut tant que son PRIX n'est pas mesure (§ 2 du plan).
+				bool advectFluxConservative = false;
+				// ⚠️ LA STABILITE CHANGE DE NATURE. Le semi-lagrangien est
+				// INCONDITIONNELLEMENT stable ; un flux explicite ne l'est pas. La
+				// condition est celle de Courant-Friedrichs-Lewy, sous sa forme 3D
+				// non-splittee : (|u| + |v| + |w|) * dt / h <= 1. On sous-cycle donc
+				// les SCALAIRES pour la respecter -- ce n'est pas un contournement,
+				// c'est ce que le schema EXIGE : hors de sa condition, il ne « marche
+				// presque » pas, il DIVERGE.
+				float32 advectCFLTarget = 0.9f; // marge sous 1
+				// Borne de securite sur le nombre de sous-pas : si elle mord, le cout
+				// explose et le dire vaut mieux que le subir (`advectSubstepCapHit`).
+				uint32 advectMaxSubsteps = 64;
+
 				// CONFINEMENT DE VORTICITE — Fedkiw, Stam & Jensen, « Visual Simulation of
 				// Smoke », SIGGRAPH 2001, § 4, eq. (9)-(11). C'est ce qui fait d'un jet un
 				// PANACHE : l'advection semi-lagrangienne DISSIPE la vorticite (c'est le
@@ -262,6 +286,15 @@ namespace nkentseu {
 				uint32 speedClamped = 0; // cellules bornées par maxSpeed (0 attendu)
 				uint32 nanCount = 0;	 // NaN/Inf trouvés (0 attendu)
 				float32 ms = 0.f;
+
+				// ADVECTION EN FLUX : le nombre de Courant reellement vu au dernier
+				// pas, et le nombre de SOUS-PAS qu'il a fallu pour rester sous la
+				// condition. Ces deux chiffres se PUBLIENT : nomme, le sous-cyclage
+				// est une propriete connue du schema ; tu, c'est une regression de
+				// performance qu'on decouvrira dans six mois.
+				float32 advectCFL = 0.f;
+				uint32 advectSubsteps = 0;
+				bool advectSubstepCapHit = false; // la borne de securite a mordu
 		};
 
 		// =====================================================================
@@ -406,6 +439,13 @@ namespace nkentseu {
 				void TrilinearBornes(const NkVector<float32> &f, float32 x, float32 y, float32 z, float32 &mn,
 									 float32 &mx) const;
 				void AdvectScalar(NkVector<float32> &dst, const NkVector<float32> &src, float32 dt, int32 bnd);
+				// Le nombre de Courant MAXIMAL vu sur l'interieur pour le pas `dt`.
+				float32 MaxCFL(float32 dt) const;
+				// UN sous-pas de donor-cell : un flux par FACE, retranche a l'amont
+				// et ajoute a l'aval, tous calcules depuis `src`.
+				void AdvectFluxUnePasse(NkVector<float32> &dst, const NkVector<float32> &src, float32 dt, int32 bnd);
+				// L'advection en flux complete, SOUS-CYCLEE pour respecter le CFL.
+				void AdvectScalarFlux(NkVector<float32> &dst, const NkVector<float32> &src, float32 dt, int32 bnd);
 				void AdvectVelocity(float32 dt);
 				void Project(float32 dt);
 				void SetBoundary(int32 b, NkVector<float32> &f);
