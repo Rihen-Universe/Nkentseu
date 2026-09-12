@@ -1011,6 +1011,33 @@ namespace nkuidesign {
 					return nullptr;
 				return fill.Empty() ? nullptr : fill.Data();
 			}
+			/// LE REMPLISSAGE DU DESSUS EST-IL UN DEGRADE ? (12/09)
+			///
+			/// 🔴 C'EST EXACTEMENT LE CAS OU LE `fond` D'UN ETAT SE PERD, et la mesure le dit :
+			///    **0 commande changee sur 30**. Deux verrous -- `FondEffectif()` juste au-dessus
+			///    ne rend que la premiere couleur UNIE (donc `nullptr` pour un degrade nu, et la
+			///    comparaison `duDessus` du peintre est fausse), et la branche du degrade fait
+			///    `continue` AVANT tout usage de la couleur d'etat.
+			///
+			/// ⚠️ CETTE PORTE NE CORRIGE RIEN : elle permet a l'interface de DIRE que le fond
+			///    d'etat ne s'applique PAS ENCORE a ce remplissage. **« Pas encore » et « jamais »
+			///    ne se remplacent pas l'un l'autre** : remplacer un degrade par un aplat au survol
+			///    est un geste de design legitime -- c'est une limite d'implementation, et elle a
+			///    son lot. La TEINTE, elle, fonctionne sur ce meme nœud (elle multiplie a
+			///    l'emission, donc elle traverse le degrade).
+			///
+			/// ⚠️ LE MEME PARCOURS QUE `FondEffectif()` -- du DESSUS vers le dessous, premier
+			///    visible -- pour que l'interface dise EXACTEMENT ce que le peintre fait. Deux
+			///    parcours differents diraient deux verites.
+			bool DessusEnDegrade() const {
+				for (uint32 i = (uint32)fills.Size(); i > 0; --i) {
+					const NkRemplissage &f = fills[i - 1];
+					if (!f.visible)
+						continue;
+					return f.degrade.Actif();
+				}
+				return false;
+			}
 			/// LES BORDURES QUI SE PEIGNENT -- LA PORTE UNIQUE (11/09, Q143 -> Q145).
 			///
 			/// 🔴 AVANT ELLE, QUATRE LECTEURS DECIDAIENT CHACUN : les deux boucles du

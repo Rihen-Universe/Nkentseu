@@ -16247,6 +16247,26 @@ namespace nkuidesign {
 				//    comprise).
 				// ⚠️ UN BLOC PAR PROPRIETE, UNE RANGEE PAR ETAT : trois proprietes cote a cote
 				//    ne tiennent pas dans la largeur du panneau -- mesure, pas suppose.
+				// ⚠️ DIRE CE QUI NE MARCHE PAS ENCORE (12/09). Mesure : un `fond` d'etat pose sur un
+				//    nœud dont le remplissage du DESSUS est un DEGRADE ne change RIEN -- 0 commande
+				//    sur 30 -- et jusqu'ici **rien ne le disait**. Le geste restait muet, et un geste
+				//    muet fait conclure que la fonction n'existe pas.
+				// ⚠️ « PAS ENCORE », JAMAIS « JAMAIS » : remplacer un degrade par un aplat au survol
+				//    est un geste de design legitime. C'est une limite d'implementation, elle a son
+				//    lot, et la phrase le dit -- en indiquant ce qui MARCHE des maintenant.
+				if (n->DessusEnDegrade()) {
+					const NkRect rAv = ctx.NextItemRect(-1.f, 22.f);
+					ctx.BeginDisabled();
+					costume::Texte(dl, F.px10, rAv.x + 12.f, costume::CentrerY(F.px10, rAv.y, 22.f),
+								   "Le fond d'état ne s'applique pas encore à un dégradé — la teinte, si.",
+								   ctx.theme.textMuted);
+					ctx.EndDisabled();
+					if (nkgui::NkGuiIntrospectActif(ctx)) {
+						nkgui::NkGuiNoter(ctx, nkgui::NkGuiNature::Region, ctx.GetId("insp.etat.degradedit"),
+									  "fond d'etat sans effet sur un degrade", rAv, 0u);
+						nkgui::NkGuiIntrospectCler(ctx, "insp.etat.degradedit");
+					}
+				}
 				const bool texteParEtat = NkProprieteAUnSensParEtat("TYPOGRAPHIE")
 										   && NkSectionSApplique("TYPOGRAPHIE", *n);
 				const bool ombreParEtat = NkProprieteAUnSensParEtat("EFFETS") && n->effets.Size() > 0;

@@ -15474,6 +15474,117 @@ namespace nkuidesign {
 			  && restaure,
 		  det);
 		}
+		// ── 159. LE GESTE MUET NE L'EST PLUS (12/09) : « PAS ENCORE », ET CE QUI MARCHE.
+		//    Mesure Q155 : un `fond` d'etat pose sur un nœud dont le remplissage du DESSUS
+		//    est un degrade ne change RIEN (0 commande sur 30), et rien ne le disait.
+		//
+		// ⚠️ CE CAS NE CORRIGE PAS LE DEFAUT -- il garde le fait qu'on le DIT. Le mode
+		//    REMPLACEMENT sur un degrade reste un lot a lui ; « pas encore » et « jamais »
+		//    ne se remplacent pas l'un l'autre.
+		{
+			char det[620];
+			auto noeudAvec = [&](int32 genre) -> NkUINode {
+				NkUINode z;
+				z.shape = NkString("rect");
+				if (genre == 0) { // un DEGRADE nu au-dessus
+					NkRemplissage f;
+					NkArretDegrade a0, a1;
+					a0.couleur = NkString("#ff0000");
+					a1.position = 1.f;
+					a1.couleur = NkString("#0000ff");
+					f.degrade.arrets.PushBack(a0);
+					f.degrade.arrets.PushBack(a1);
+					z.fills.PushBack(f);
+				} else if (genre == 1) { // un APLAT
+					NkRemplissage f;
+					f.couleur = NkString("#ff0000");
+					z.fills.PushBack(f);
+				} else if (genre == 2) { // un aplat SOUS un degrade : c'est le DESSUS qui compte
+					NkRemplissage a;
+					a.couleur = NkString("#ff0000");
+					z.fills.PushBack(a);
+					NkRemplissage g;
+					NkArretDegrade s0, s1;
+					s0.couleur = NkString("#00ff00");
+					s1.position = 1.f;
+					s1.couleur = NkString("#0000ff");
+					g.degrade.arrets.PushBack(s0);
+					g.degrade.arrets.PushBack(s1);
+					z.fills.PushBack(g);
+				} else if (genre == 3) { // un degrade MASQUE **AU-DESSUS** d'un aplat :
+					NkRemplissage g;
+					NkArretDegrade s0, s1;
+					s0.couleur = NkString("#00ff00");
+					s1.position = 1.f;
+					s1.couleur = NkString("#0000ff");
+					g.degrade.arrets.PushBack(s0);
+					g.degrade.arrets.PushBack(s1);
+					g.visible = false;
+					// ⚠️ L'APLAT D'ABORD, LE DEGRADE MASQUE AU-DESSUS -- et l'ordre est TOUT le
+					//    test. Dans l'autre sens, le parcours rencontre l'aplat en premier et rend
+					//    `false` sans jamais atteindre la garde de visibilite : le cas passait
+					//    pour les mauvaises raisons, et la mutation « un masque compte quand
+					//    meme » restait VERTE. Mesure faite, elle l'etait.
+					NkRemplissage a;
+					a.couleur = NkString("#ff0000");
+					z.fills.PushBack(a);
+					z.fills.PushBack(g);
+				}
+				return z;
+			};
+			const NkUINode nDeg = noeudAvec(0), nApl = noeudAvec(1), nSup = noeudAvec(2),
+							 nMasq = noeudAvec(3);
+			NkUINode nVide;
+			// (a) LA PORTE : vraie pour un degrade AU-DESSUS, fausse partout ailleurs
+			const bool porte = nDeg.DessusEnDegrade() && !nApl.DessusEnDegrade()
+							   && nSup.DessusEnDegrade() && !nMasq.DessusEnDegrade()
+							   && !nVide.DessusEnDegrade();
+			// (b) ELLE DIT LA MEME CHOSE QUE LE PEINTRE : c'est bien ce nœud-la qui perd son
+			//     fond d'etat -- `FondEffectif()` ne rend rien pour lui.
+			const bool memeVerite = nDeg.FondEffectif() == nullptr && nApl.FondEffectif() != nullptr;
+			// (c) LE CABLAGE de la section, LU A LA SOURCE (l'afficher exigerait un geste)
+			const NkString srcQ = NkFile::ReadAllText("Applications/NKUIDesign/src/NKUIDesign/Panels.h");
+			uint32 nAppelQ = 0u, nPhraseQ = 0u, nJamais = 0u;
+			{
+				auto compter = [](const char *h, const char *n) -> uint32 {
+					uint32 c = 0u;
+					for (const char *p = h; p && *p; ++p) {
+						const char *a = p, *b = n;
+						while (*a && *b && *a == *b)
+							++a, ++b;
+						if (!*b)
+							++c;
+					}
+					return c;
+				};
+				nAppelQ = compter(srcQ.Data(), "n->DessusEnDegrade()");
+				// ⚠️ LA PHRASE, PAS UN MOT COURANT : « pas encore » apparait 39 fois dans ce
+				//    fichier (vocabulaire de commentaire). Compte ainsi, le temoin aurait
+				//    laisse passer la SUPPRESSION de la phrase -- les 38 autres l'auraient
+				//    rassure. On compte donc la formulation elle-meme.
+				nPhraseQ = compter(srcQ.Data(), "ne s'applique pas encore");
+				// ⚠️ ET LE MOT QU'ON REFUSE : une limite d'implementation ne s'ecrit pas
+				//    comme une loi. Si « jamais » apparait dans cette phrase, c'est un mensonge.
+				nJamais = compter(srcQ.Data(), "ne s'applique jamais");
+			}
+			const bool cableQ = nAppelQ == 1u && nPhraseQ >= 1u && nJamais == 0u;
+			snprintf(det, sizeof(det),
+					 "(a) la porte : degrade au-dessus=%d, aplat=%d, degrade SUR un aplat=%d, degrade "
+					 "MASQUE=%d, nœud vide=%d -> %d ; (b) c'est bien le nœud qui perd son fond "
+					 "(FondEffectif nul)=%d ; (c) la section appelle la porte (source lue) : %u site, "
+					 "la phrase « ne s'applique pas encore » %u fois [1], « ne s'applique jamais » "
+			 "%u fois [0] -> %d",
+					 nDeg.DessusEnDegrade() ? 1 : 0, nApl.DessusEnDegrade() ? 1 : 0,
+					 nSup.DessusEnDegrade() ? 1 : 0, nMasq.DessusEnDegrade() ? 1 : 0,
+					 nVide.DessusEnDegrade() ? 1 : 0, porte ? 1 : 0, memeVerite ? 1 : 0, nAppelQ,
+					 nPhraseQ, nJamais, cableQ ? 1 : 0);
+			check("159. LE GESTE MUET NE L'EST PLUS : un nœud dont le remplissage du DESSUS est un "
+				  "degrade perd son fond d'etat (mesure : 0 commande sur 30), et la section le DIT "
+				  "desormais -- « pas encore », jamais « jamais », en nommant ce qui marche (la "
+				  "teinte). La porte suit le MEME parcours que `FondEffectif()` : le dessus compte, "
+				  "un degrade masque ne compte pas, un nœud sans remplissage non plus",
+				  porte && memeVerite && cableQ, det);
+		}
 		// ── 94. ① L'APERCU PENDANT LE TRACE (05/09). Rodolf : « pourquoi quand on dessine un
 		//    graphique on voit juste le rectangle qui s'allonge, et des qu'on relache on voit la
 		//    forme ? » Deux mesures : LA TABLE DE GENRE (une seule, lue par le relachement et par
