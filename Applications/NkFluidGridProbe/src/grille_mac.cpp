@@ -62,6 +62,7 @@
 // réponse est écrite à la main.
 // =============================================================================
 #include "NKRenderer/Tools/VFX/NkFluidGrid.h"
+#include "NKRenderer/Tools/VFX/NkForceField.h" // NkUniformForceField (enquête (w2))
 
 #include <cstdio>
 
@@ -265,4 +266,120 @@ void PalierGrilleMAC() {
 
 	ControleInterpolationFaceCentre();
 	ControleDamier();
+}
+
+// =============================================================================
+// LES DEUX ENQUÊTES DE LA BASCULE — ce ne sont PAS des témoins, et elles ne
+// rendent AUCUN verdict. Elles répondent à deux questions que la course du 12/09
+// a laissées ouvertes, et elles y répondent en faisant varier la RÉSOLUTION :
+// une question posée à une SEULE résolution ne peut pas distinguer un effet de
+// BORD d'un défaut de SCHÉMA.
+// =============================================================================
+
+// ── (c1) : l'écart décroît-il comme 1/n ? ───────────────────────────────────
+// PRÉDICTION ÉCRITE AVANT LA COURSE, et falsifiable : la poussée vit sur les
+// faces y et porte la MOYENNE des deux cellules qu'elle sépare ; au bord de la
+// bulle chaude, une face entre une cellule froide et une chaude ne reçoit que la
+// MOITIÉ. Une colonne de n cellules chaudes perd donc ~25 % sur CHACUNE de ses
+// deux extrémités, soit un déficit relatif ~0,5/n.
+//   SI l'écart décroît comme 1/n — donc si le produit « écart x n » reste
+//   CONSTANT — le SCHÉMA est juste et c'est le TÉMOIN qui mesure un effet de
+//   bord : la flottabilité sur les faces est le schéma standard d'une grille
+//   décalée, et il n'y a rien à y changer.
+//   SINON, ma cause est FAUSSE et c'est le schéma qu'il faut regarder.
+static void EnqueteBoussinesqRaffinee() {
+	printf("\n--- ENQUÊTE (c1) : l'écart décroît-il comme 1/n ? ---\n");
+	printf("    n = cellules chaudes sur la colonne centrale, COMPTÉ et non supposé.\n");
+	printf("    Si l'écart va comme 1/n, le produit (écart x n) reste CONSTANT.\n");
+	printf("      h (m)        grille        n    écart (%%)   écart x n\n");
+
+	const float32 hs[4] = {0.05f, 0.025f, 0.0125f, 0.00625f};
+	for (uint32 c = 0; c < 4; ++c) {
+		NkFluidGridParams p;
+		p.boundsMin = {-0.25f, 0.f, -0.25f};
+		p.boundsMax = {0.25f, 0.5f, 0.25f};
+		p.cellSize = hs[c];
+		p.ambientTemperature = 300.f;
+		p.gravity = 9.81f;
+		p.buoyancyBeta = -1.f; // Boussinesq
+		p.projectionEnabled = false;
+		p.advectionEnabled = false;
+		NkFluidGrid g;
+		if (!g.Init(p))
+			continue;
+		const float32 dT = 100.f;
+		g.EmitSphere({0.f, 0.25f, 0.f}, 0.08f, 1.f, dT, 0.f);
+
+		const uint32 ic = (g.Nx() + 1u) / 2u, kc = (g.Nz() + 1u) / 2u;
+		uint32 n = 0;
+		const float32 *T = g.Temperature();
+		for (uint32 j = 1; j <= g.Ny(); ++j)
+			if (T[g.Idx(ic, j, kc)] > p.ambientTemperature + 1.0e-3f)
+				++n;
+
+		const float32 dt = 1.f / 240.f;
+		const uint32 pas = 240; // 1 s
+		for (uint32 s = 0; s < pas; ++s)
+			g.Step(dt);
+		const float32 t = dt * (float32)pas;
+		const float32 attendu = (p.gravity * dT / p.ambientTemperature) * t;
+		const float32 ecart = ProbeAbs(g.HotVerticalVelocity() - attendu) / attendu * 100.f;
+		printf("      %.5f   %3u x %3u x %3u  %3u   %8.4f   %9.3f\n", (double)hs[c], g.Nx(), g.Ny(), g.Nz(), n,
+			   (double)ecart, (double)(ecart * (float32)n));
+		fflush(stdout);
+	}
+}
+
+// ── (w2) : le rapport tend-il vers 2,0000 quand on raffine ? ────────────────
+// L'ancrage (w2) est passé de 1,9966 à 1,9961 avec la bascule. La POPULATION
+// comptée n'a PAS changé (mêmes cellules, même `DensityCentroid`) ; ce qui a
+// changé, c'est le CHEMIN : la vitesse d'advection passe désormais par une
+// interpolation face -> centre, et les faces de PAROI sont exactement nulles au
+// lieu d'être approchées par un fantôme portant -u.
+//   SI c'est bien cela, l'écart à 2,0000 doit DIMINUER quand on raffine.
+//   SINON, ce n'est pas un effet de discrétisation, et c'est le branchement du
+//   vent sur les faces qu'il faut regarder.
+static float32 DeplacementVent(const NkIForceField *champ, float32 masse, float32 h, uint32 pas, float32 dt) {
+	NkFluidGridParams p;
+	p.boundsMin = {0.f, 0.f, 0.f};
+	p.boundsMax = {1.5f, 0.5f, 0.5f};
+	p.cellSize = h;
+	p.projectionEnabled = false;
+	p.buoyancyEnabled = false;
+	p.field = champ;
+	p.fieldParticleMass = masse;
+	NkFluidGrid g;
+	if (!g.Init(p))
+		return 0.f;
+	g.EmitSphere({0.25f, 0.25f, 0.25f}, 0.06f, 1.f, 0.f, 0.f);
+	NkVec3f c0;
+	if (!g.DensityCentroid(c0))
+		return 0.f;
+	for (uint32 s = 0; s < pas; ++s)
+		g.Step(dt);
+	NkVec3f c1;
+	if (!g.DensityCentroid(c1))
+		return 0.f;
+	return c1.x - c0.x;
+}
+
+static void EnqueteRapportDesMasses() {
+	printf("\n--- ENQUÊTE (w2) : le rapport tend-il vers 2,0000 quand on raffine ? ---\n");
+	printf("      h (m)      d(m=1)      d(m=2)     rapport    écart à 2,0000\n");
+	NkUniformForceField champ({0.5f, 0.f, 0.f});
+	const float32 hs[3] = {0.05f, 0.025f, 0.0125f};
+	for (uint32 c = 0; c < 3; ++c) {
+		const float32 d1 = DeplacementVent(&champ, 1.f, hs[c], 120, 1.f / 120.f);
+		const float32 d2 = DeplacementVent(&champ, 2.f, hs[c], 120, 1.f / 120.f);
+		const float32 r = (d2 > 0.f) ? (d1 / d2) : 0.f;
+		printf("      %.5f   %.6f   %.6f   %.6f   %+.6f\n", (double)hs[c], (double)d1, (double)d2, (double)r,
+			   (double)(r - 2.f));
+		fflush(stdout);
+	}
+}
+
+void EnqueteBascule() {
+	printf("\n=== LES DEUX ENQUÊTES DE LA BASCULE (aucun verdict — on fait varier h) ===\n");
+	EnqueteBoussinesqRaffinee();
+	EnqueteRapportDesMasses();
 }
