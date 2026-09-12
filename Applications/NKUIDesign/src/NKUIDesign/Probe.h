@@ -14268,7 +14268,23 @@ namespace nkuidesign {
 				static const char *const kChamp[9] = {"fills[]", "borders[]", "effets[]", "etat.fond",
 													  "etat.texte", "etat.bordure", "textColor", "canvas",
 													  "etat.teinte"};
-				uint32 ecrits[8] = {};
+				// 🔴 (12/09) ETAIT `ecrits[8]` : la neuvieme famille (indice 8) l'ecrivait HORS BORNE,
+				//    dans la pile voisine. 10/10 en Debug, 11/10 en Release -- revele par la fusion.
+				uint32 ecrits[9] = {};
+				// ⚠️ TOUT TABLEAU INDEXE PAR FAMILLE SUIT `kFam`, ET LE COMPILATEUR LE VERIFIE : la
+				//    prochaine famille ajoutee sans agrandir l'un d'eux ne compilera pas. Un oubli de
+				//    taille ne doit plus dependre de la disposition de la pile pour se montrer.
+				static constexpr uint32 kNbFamilles = (uint32)(sizeof(kFam) / sizeof(kFam[0]));
+				static_assert(sizeof(kNom) / sizeof(kNom[0]) == kNbFamilles, "kNom : une famille sans nom");
+				static_assert(sizeof(kChamp) / sizeof(kChamp[0]) == kNbFamilles, "kChamp : une famille sans champ");
+				static_assert(sizeof(instances) / sizeof(instances[0]) == kNbFamilles, "instances : trop court");
+				static_assert(sizeof(enveloppes) / sizeof(enveloppes[0]) == kNbFamilles, "enveloppes : trop court");
+				static_assert(sizeof(noyaux) / sizeof(noyaux[0]) == kNbFamilles, "noyaux : trop court");
+				static_assert(sizeof(autres) / sizeof(autres[0]) == kNbFamilles, "autres : trop court");
+				static_assert(sizeof(largeur) / sizeof(largeur[0]) == kNbFamilles, "largeur : trop court");
+				static_assert(sizeof(hauteur) / sizeof(hauteur[0]) == kNbFamilles, "hauteur : trop court");
+				static_assert(sizeof(sommets) / sizeof(sommets[0]) == kNbFamilles, "sommets : trop court");
+				static_assert(sizeof(ecrits) / sizeof(ecrits[0]) == kNbFamilles, "ecrits : trop court");
 				char fautesE[300] = {};
 				uint32 serie = 0u;
 				auto empreinte = [&](NkVector<NkString> &v) {
