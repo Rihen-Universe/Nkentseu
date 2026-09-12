@@ -1040,8 +1040,9 @@ namespace nkentseu {
 					snprintf(passName, sizeof(passName), "Bloom_Up_%d", i);
 					auto &up = g.AddPass(passName, NkPassType::NK_POST_PROCESS);
 					up.Reads(bloomMip[i + 1]);
-					// NK_LOAD pour preserver le downsample de la mip courante
-					// (la pass upsample blende additif par-dessus).
+					// NK_LOAD pour preserver le downsample de la mip courante : la
+					// passe de remontee le MELANGE avec le niveau grossier remonte
+					// (lerp, poids kNkBloomScatter), elle ne l'additionne plus.
 					up.SetColor(0, bloomMip[i], NkLoadOp::NK_LOAD);
 					uint32 div = 1u << (i + 2); // mip i+1 = W/(2^(i+2))
 					uint32 srcW = mCfg.width / div ? mCfg.width / div : 1;
@@ -1050,7 +1051,26 @@ namespace nkentseu {
 					up.Execute([this, src, srcW, srcH](NkICommandBuffer *cmd) {
 						NkTextureHandle srcTex = mRenderGraph->GetResourceTexture(src);
 						if (mPostProcess && srcTex.IsValid()) {
-							mPostProcess->DrawBloomUpPass(cmd, srcTex, srcW, srcH, 1.0f);
+							// L'EPARPILLEMENT s : poids du niveau grossier dans le lerp de
+							// la remontee (pp_bloomup sort (col, s) sous melange classique
+							// SRC_ALPHA / ONE_MINUS_SRC_ALPHA). 0,7 est la valeur par defaut d'Unity ; 1,0
+							// effacerait le niveau fin, 0 rendrait le halo a sa seule
+							// premiere mip. Les poids des six niveaux somment a 1 quelle
+							// que soit s : l'energie ne depend pas de ce reglage.
+							// NK_BLOOM_SCATTER=<s> l'override (banc : c'est le levier qui
+							// separe « le melange conserve l'energie » de « s vaut 0,7 »).
+							static float sScatter = -1.f;
+							if (sScatter < 0.f) {
+								sScatter = 0.7f;
+								if (const char *v = getenv("NK_BLOOM_SCATTER"))
+									if (v[0])
+										sScatter = (float)atof(v);
+								if (sScatter < 0.f)
+									sScatter = 0.f;
+								if (sScatter > 1.f)
+									sScatter = 1.f;
+							}
+							mPostProcess->DrawBloomUpPass(cmd, srcTex, srcW, srcH, sScatter);
 						}
 					});
 				}
