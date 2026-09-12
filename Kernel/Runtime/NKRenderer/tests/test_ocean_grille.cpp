@@ -448,6 +448,69 @@ namespace {
 		return (vus > 0u) ? (float32)dedans / (float32)vus : 0.f;
 	}
 
+	// L'EMPREINTE RE-FORMEE PAR LA PREIMAGE.
+	//
+	// Au lieu de REMBOURRER l'etendue -- ce qui paie sur toute la surface une
+	// correction due sur une bande -- on RE-FORME ses sommets : chaque point de la
+	// frontiere W est remplace par D^-1(W), de sorte qu'apres deplacement il
+	// retombe exactement sur W. Aucun sommet ajoute, aucune etendue elargie.
+	//
+	// ⚠️ CE QUE CETTE MESURE PROUVE, ET CE QU'ELLE NE PROUVE PAS. Si Newton
+	// converge, alors D(D^-1(W)) = W et la couverture revient a sa valeur de repos
+	// MECANIQUEMENT. Le 1,000 qui en sort mesure donc la CONVERGENCE, pas la
+	// couverture. Les nombres porteurs sont ceux qu'on rend a cote : le RESIDU, le
+	// nombre d'ITERATIONS, et les REFUS.
+	uint32 EmpreintePreimage(const NkProjectedGrid &g, const NkProjectedGridParams &p,
+							 const NkWaterParams &houle, float32 t, float32 x0, float32 x1,
+							 float32 y0, float32 y1, float32 *px, float32 *pz, uint32 *idx,
+							 uint32 capacite, float32 &residuMax, uint32 &iterMax, uint32 &refus) {
+		residuMax = 0.f;
+		iterMax = 0u;
+		refus = 0u;
+		uint32 m = 0;
+		const uint32 pas = 2u;
+		for (uint32 cote = 0; cote < 4u; ++cote) {
+			const uint32 fin = (cote == 0u || cote == 2u) ? p.cols : p.rows;
+			for (uint32 s = 0; s < fin && m < capacite; s += pas) {
+				uint32 i = 0u, j = 0u;
+				if (cote == 0u) {
+					i = s;
+					j = 0u;
+				} else if (cote == 1u) {
+					i = p.cols;
+					j = s;
+				} else if (cote == 2u) {
+					i = p.cols - s;
+					j = p.rows;
+				} else {
+					i = 0u;
+					j = p.rows - s;
+				}
+				NkVec3f w;
+				if (!SommetSurEtendue(g, p, x0, x1, y0, y1, i, j, w))
+					continue;
+				float32 wx = w.x, wz = w.z;
+				uint32 it = 0u;
+				const bool ok = NkWaterInverseXZ(houle, w.x, w.z, t, wx, wz, it);
+				if (it > iterMax)
+					iterMax = it;
+				if (!ok)
+					++refus;
+				// On DEPLACE la preimage : elle doit retomber sur la cible.
+				const NkWaterPoint q = NkWaterEval(houle, wx, wz, t);
+				const float32 ex = q.position.x - w.x, ez = q.position.z - w.z;
+				const float32 r = NkSqrt(ex * ex + ez * ez);
+				if (r > residuMax)
+					residuMax = r;
+				px[m] = q.position.x;
+				pz[m] = q.position.z;
+				idx[m] = m;
+				++m;
+			}
+		}
+		return m;
+	}
+
 	// LE GACHIS QUE LAISSERAIT UN PAVAGE PARFAIT DE LA FORME.
 	//
 	// C'est LE nombre qui decide s'il faut ecrire ce pavage. On ne l'extrapole pas
@@ -1983,6 +2046,124 @@ int NkSondeOceanGrille() {
 							 " %.2f (%u sommets)\n",
 							 (double)(marges[e] * 100.f), (double)c, (double)gach, tot);
 			}
+		}
+	}
+
+	// (w1)(w2)(w3) LA PREIMAGE : re-former l'etendue au lieu de la rembourrer.
+	//
+	// LE RAISONNEMENT VIENT DE L'ECHEC PRECEDENT. La grille couvre R au repos et
+	// affiche D(R) ; exiger que D(R) contienne V revient a construire R contenant
+	// D^-1(V). Elargir R « partout » a ete mesure puis REFUSE : +20 % ne rendait que
+	// 0,741 de couverture en faisant passer le gachis de 0,20 a 0,52, au-dela de son
+	// seuil. La preimage n'ajoute aucun sommet : elle les RE-FORME.
+	//
+	// ⚠️ DEUX CHOSES DITES AVANT LES CHIFFRES, pour qu'on ne les lise pas de travers.
+	// 1. La couverture de (w2) est QUASI TAUTOLOGIQUE a convergence donnee : si
+	//    Newton converge, D(D^-1(W)) = W et la couverture revient mecaniquement a sa
+	//    valeur de repos. Ce 1,000 mesure la CONVERGENCE. Les nombres porteurs sont
+	//    le residu, les iterations et les refus.
+	// 2. Le gachis est INCHANGE PAR CONSTRUCTION, et ce n'est pas un gain mesure :
+	//    la preimage bouge les sommets AU REPOS, alors que le gachis porte sur les
+	//    positions AFFICHEES, qui restent W. S'il s'ameliorait, c'est que je
+	//    mesurerais autre chose.
+	//
+	// 🔴 ET MON PREMIER CRITERE DE CONVERGENCE ETAIT FAUX D'AVANCE. Je l'avais ecrit
+	// en ABSOLU -- residu sous 1e-4 m -- sans mesurer le plancher de bruit de
+	// l'arithmetique a ces magnitudes. Mesure : le residu plafonnait a 1,22e-04 et
+	// 2,44e-04 m avec les 24 iterations toujours consommees. Or l'etendue s'etale
+	// jusqu'a ~2 000 m, ou 1 ULP de float32 vaut EXACTEMENT 2,44e-04 m : les residus
+	// etaient a 1 et 2 ULP, c'est-a-dire que Newton avait converge aussi loin que le
+	// type le permet et que j'exigeais mieux que ce qu'il peut representer. Le seuil
+	// est donc devenu RELATIF a la magnitude -- pas desserre au jugé.
+	{
+		const Pose troisPoses[3] = {
+			{{0.f, 8.f, 0.f}, {0.f, 2.f, -60.f}, "pont 8 m"},
+			{{0.f, 1.f, 0.f}, {0.f, 1.2f, -60.f}, "rasante 1 m"},
+			{{0.f, -3.f, 0.f}, {0.f, 1.f, -20.f}, "sous l'eau"},
+		};
+		const float32 phases[3] = {0.f, 1.1f, 2.3f};
+		const float32 raideurs[4] = {0.f, 0.5f, 0.75f, 0.9f};
+		float32 px[512], pz[512];
+		uint32 idx[512];
+		uint32 controleOk = 0, restaurees = 0, casMesures = 0, gachisTenu = 0;
+		float32 pireResidu = 0.f;
+		uint32 pireIter = 0u;
+
+		for (uint32 k = 0; k < 3u; ++k) {
+			const NkMat4f vpR = VP(troisPoses[k]);
+			const NkMat4f invR = vpR.Inverse();
+			const NkProjectedGrid gk = BUILD(troisPoses[k], p);
+			uint32 totRef = 0;
+			const float32 gachRef = Gachis(gk, p, vpR, 2u, totRef);
+			for (uint32 r = 0; r < 4u; ++r) {
+				const NkWaterParams houle = UneHouleTest(20.f, 0.6f, raideurs[r], phases[k]);
+				float32 residu = 0.f;
+				uint32 iter = 0u, refus = 0u;
+				const uint32 m =
+					EmpreintePreimage(gk, p, houle, 0.f, gk.ndcMinX, gk.ndcMaxX, gk.ndcMinY,
+									  gk.ndcMaxY, px, pz, idx, 512u, residu, iter, refus);
+				uint32 vus = 0;
+				const float32 c = CouvertureComposee(invR, p.baseY, 48u, px, pz, idx, m, 1.f, vus);
+				uint32 tot = 0;
+				const float32 gach = Gachis(gk, p, vpR, 2u, tot);
+				if (residu > pireResidu)
+					pireResidu = residu;
+				if (iter > pireIter)
+					pireIter = iter;
+				std::fprintf(stderr,
+							 "     (w2) %-12s raideur %.2f : couverture RE-FORMEE %.3f | residu max"
+							 " %.2e m | %u iterations max | %u refus | gachis %.2f (ref %.2f)\n",
+							 troisPoses[k].nom, (double)raideurs[r], (double)c, (double)residu,
+							 iter, refus, (double)gach, (double)gachRef);
+				if (r == 0u && c > 0.999f && residu < 1e-6f)
+					++controleOk;
+				if (raideurs[r] > 0.f) {
+					++casMesures;
+					if (c > 0.999f && refus == 0u)
+						++restaurees;
+					if (NkFabs(gach - gachRef) < 0.01f)
+						++gachisTenu;
+				}
+			}
+		}
+		std::fprintf(stderr,
+					 "     (w1/w2) controle negatif %u/3 | %u cas sur %u restaures a 1,000 sans"
+					 " refus | gachis tenu sur %u | pire residu %.2e m en %u iterations\n",
+					 controleOk, restaurees, casMesures, gachisTenu, (double)pireResidu, pireIter);
+		XCHECK(controleOk == 3u,
+			   "(w1) CONTROLE NEGATIF : a raideur nulle la preimage est l'identite, residu nul");
+		XCHECK(restaurees == casMesures && casMesures > 0u,
+			   "(w2) la preimage RESTAURE la couverture composee a 1,000, sans refus");
+		XCHECK(gachisTenu == casMesures,
+			   "(w2b) et le gachis ne bouge pas : aucun sommet ajoute, l'etendue est re-formee");
+
+		// (w3) LA GARDE DOIT FAIRE FEU, PAS EXISTER. Une capacite qui declare refuser
+		// et qu'on ne fait jamais refuser n'a qu'une INTENTION pour garantie -- c'est
+		// ce que (x7) avait deja etabli. On pousse donc la raideur AU-DELA de 1, la
+		// ou J passe sous 0 : la preimage n'y est plus UNIQUE, et Newton doit REFUSER
+		// au lieu d'en rendre une au hasard.
+		{
+			const Pose banc = troisPoses[1];
+			const NkProjectedGrid gk = BUILD(banc, p);
+			const float32 dures[3] = {1.0f, 1.3f, 1.8f};
+			uint32 avecRefus = 0;
+			for (uint32 r = 0; r < 3u; ++r) {
+				const NkWaterParams houle = UneHouleTest(20.f, 0.6f, dures[r], phases[1]);
+				float32 residu = 0.f;
+				uint32 iter = 0u, refus = 0u;
+				const uint32 m =
+					EmpreintePreimage(gk, p, houle, 0.f, gk.ndcMinX, gk.ndcMaxX, gk.ndcMinY,
+									  gk.ndcMaxY, px, pz, idx, 512u, residu, iter, refus);
+				std::fprintf(stderr,
+							 "     (w3) raideur %.2f (J min ~ %.2f) : %u sommets, %u REFUS, residu"
+							 " max %.2e m, %u iterations\n",
+							 (double)dures[r], (double)(1.f - dures[r]), m, refus, (double)residu,
+							 iter);
+				if (refus > 0u)
+					++avecRefus;
+			}
+			XCHECK(avecRefus > 0u,
+				   "(w3) au-dela de raideur 1, la preimage REFUSE au lieu de rendre un resultat non converge");
 		}
 	}
 
