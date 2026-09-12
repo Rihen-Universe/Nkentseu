@@ -889,6 +889,12 @@ with workspace("Nkentseu", location="."):
 
         pass
 
+    # NkEauEcsProbe : le pont ECS -> producteur d eau (NkWaterSystem), eprouve
+    # SANS DEVICE, avec son controle de vie (2026-09-12). Lie NKVFX puis NKRenderer.
+    with include("Applications/NkEauEcsProbe/NkEauEcsProbe.jenga"):
+
+        pass
+
 
 
     with include("Sandbox/System/NKFileSystem/NKFileSystemSandbox.jenga"):
