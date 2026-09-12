@@ -1,0 +1,76 @@
+# config/chemins_partages.list — LES CHEMINS PARTAGES ENTRE AGENTS (2026-08-24)
+# =============================================================================
+# POURQUOI CE FICHIER EXISTE
+#
+#   « Un chemin partage entre agents concurrents est une variable globale
+#     deguisee en fichier temporaire. »
+#
+#   Mesure du 24/08 : le commit 9b774ab8 du chantier rendu porte le MESSAGE d un
+#   autre agent avec SES douze fichiers a lui. Cause : les messages etaient
+#   composes dans un fichier au chemin FIXE sous /tmp, et /tmp est partage par
+#   tous les agents de cette machine. Deux qui ecrivent au meme instant echangent
+#   leurs contenus — ET RIEN N ECHOUE. Aucun code de retour, aucun journal,
+#   aucune trace. C est un defaut parfaitement silencieux.
+#
+# POURQUOI CETTE REGLE-LA PLUTOT QUE CELLE DU LIBELLE
+#   Une regle « le message de commit decrit-il son contenu ? » a ete mesuree et
+#   marche (elle a retrouve le cas seule, sur 2195 commits). Mais elle voit la
+#   COPIE et pas le DEPLACEMENT : si le fichier partage avait ete ecrase AVANT
+#   le commit de la victime, il n y aurait aucun doublon et elle resterait verte.
+#   Elle CONSTATE apres le degat. Celle-ci EMPECHE : le chemin partage EST le
+#   degat, et il se voit avant qu il serve.
+#
+# CE QUE LA REGLE DIT, EXACTEMENT, ET RIEN DE PLUS
+#   il dit       « ce script ecrit a un chemin FIXE sous un repertoire partage »
+#                — exact, verifiable, aucune prose a interpreter.
+#   il ne dit PAS « ce script a un bug » : un chemin fixe dans un outil qui ne
+#                tourne jamais en parallele ne fait de mal a personne. C est
+#                pourquoi « tolere » existe, et pourquoi sa note est obligatoire.
+#
+# CE QUI N EST PAS UN CHEMIN FIXE
+#   mktemp / mktemp -d              un chemin unique par execution
+#   "${TMPDIR:-/tmp}/nom.$$"        le $$ le rend propre au processus
+#   /data/local/tmp/...             chemin d un PERIPHERIQUE Android, pas de
+#                                   cette machine (ancrage : « /tmp/ » ne compte
+#                                   que s il n est pas precede d un caractere de
+#                                   chemin — sinon nkdeploy.py sortait a tort)
+#
+# FORMAT — un couple fichier+chemin par ligne, champs separes par « | » :
+#
+#   <fichier> | <chemin fixe> | <classe> | <note>
+#
+#   classe :
+#     interdit   ROUGE. Deux agents peuvent se croiser dessus. A corriger.
+#     tolere     VERT, et la NOTE DOIT DIRE POURQUOI ce chemin n est pas
+#                partageable en pratique. Une note vide est un ECHEC : « tolere »
+#                sans raison est le mot qu on met pour faire taire l outil.
+#
+#   Une occurrence NON CLASSEE fait ROUGIR — meme dessin que bancs.list et
+#   capacites.list. Repondre « ce n en est pas un » est une reponse valide ; ne
+#   rien repondre n en est pas une.
+#
+# DIRECTIVES — ce sont des DONNEES, pas des heuristiques cachees dans le code
+#
+# EXCLU-ARBRE = Externals/
+# EXCLU-ARBRE = Build/_jenga-embed/
+#
+#   Les deux sont du code TIERS VENDORISE. On ne le corrige pas, on ne le classe
+#   pas ligne a ligne : on declare l arbre, et la declaration se lit ici plutot
+#   que de vivre dans une condition du script.
+#
+# CANARI = NKCANARI-TMP
+#
+#   ⚠️ SANS LUI, UN DETECTEUR CASSE ET UN DEPOT SAIN RENDENT LA MEME SORTIE VERTE.
+#   verif_chemins.sh porte dans son en-tete une ligne d exemple marquee de ce
+#   jeton. Elle DOIT etre retrouvee a chaque passage ; si elle ne l est plus,
+#   l outil ne lit plus les fichiers et il le DIT (code 2) au lieu de rendre vert.
+#   Seules les lignes portant ce jeton sont exclues du verdict — pas le fichier
+#   entier : un vrai chemin fixe ecrit dans verif_chemins.sh doit le faire rougir
+#   comme n importe quel autre.
+# =============================================================================
+
+# --- CLASSEMENT --------------------------------------------------------------
+# (vide au 24/08 : les deux seuls cas trouves ont ete CORRIGES, pas classes.
+#  Voir le commit — un premier rouge qu on classe au lieu de reparer apprend a
+#  l equipe que ce fichier sert a faire taire l outil.)
+contre_epreuve_chemins.sh | /tmp/nkchemin_fantome.log | tolere | Le chemin du FANTOME de la contre-epreuve. Il n est jamais ECRIT par un agent : ce script fabrique un fichier NkCheminFantome.sh qui contient cette chaine, le fait examiner par la garde, puis le supprime. Le fantome n est jamais EXECUTE. La chaine existe ici POUR ETRE DETECTEE — la cacher (en la construisant par morceaux) reviendrait a apprendre a la garde a ne pas voir sa propre epreuve.
