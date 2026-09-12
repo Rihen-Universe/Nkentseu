@@ -168,7 +168,16 @@ namespace nkentseu {
 				// les SCALAIRES pour la respecter -- ce n'est pas un contournement,
 				// c'est ce que le schema EXIGE : hors de sa condition, il ne « marche
 				// presque » pas, il DIVERGE.
-				float32 advectCFLTarget = 0.9f; // marge sous 1
+				// ⚠️⚠️ CE NOMBRE N'EST PAS UN CFL DE MANUEL, ET SA DEFINITION VOYAGE
+				// AVEC LUI. `MaxCFL` prend, PAR AXE, le MAX des deux faces de la
+				// cellule, alors que la condition vraie porte sur la SOMME DES FLUX
+				// SORTANTS : il SURESTIME le CFL theorique, d'un facteur qui depend
+				// du champ. MESURE du 12/09 : le schema est encore SAIN a 1,077 dans
+				// ces unites, et la rupture est ENCADREE entre 1,2433 et 1,2436 --
+				// PAS a 1,0. Lire « cible 0,9 » comme un CFL theorique de 0,9 serait
+				// donc une erreur d'un QUART. Un nombre dont l'unite n'est pas
+				// standard doit porter sa definition PARTOUT ou il passe.
+				float32 advectCFLTarget = 0.9f;
 				// Borne de securite sur le nombre de sous-pas : si elle mord, le cout
 				// explose et le dire vaut mieux que le subir (`advectSubstepCapHit`).
 				uint32 advectMaxSubsteps = 64;
@@ -292,6 +301,9 @@ namespace nkentseu {
 				// condition. Ces deux chiffres se PUBLIENT : nomme, le sous-cyclage
 				// est une propriete connue du schema ; tu, c'est une regression de
 				// performance qu'on decouvrira dans six mois.
+				// ⚠️ `advectCFL` est dans les UNITES DU BANC, pas celles de la
+				// theorie : max des deux faces par axe au lieu de la somme des flux
+				// sortants, donc SURESTIME. Rupture mesuree entre 1,2433 et 1,2436.
 				float32 advectCFL = 0.f;
 				uint32 advectSubsteps = 0;
 				bool advectSubstepCapHit = false; // la borne de securite a mordu
