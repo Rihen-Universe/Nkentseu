@@ -22,6 +22,26 @@
 // compare à sa loi physique. Le maillage et le rendu sont NOMMÉS comme non faits
 // à la fin de cet en-tête.
 //
+// ── 0. LE DÉFERLEMENT : CE QUI EST PROMIS, ET CE QUI EST IMPOSSIBLE ICI ─────
+// 🔴 UN CHAMP DE HAUTEUR NE PEUT PAS REPRÉSENTER UNE VAGUE QUI SE RETOURNE.
+// Une surface qui se replie est MULTIVALUÉE — au-dessus d'un même (x, z) il y a
+// deux nappes d'eau, la lèvre et le creux sous elle — et un `y = f(x, z)` n'en
+// rend qu'une, par définition. Aucun réglage ne contourne ça : ce n'est pas une
+// limite d'implémentation, c'est le type de l'objet. Ce fichier ne le promet
+// donc pas, et rien ici ne doit laisser croire qu'il le fait.
+//
+// CE QUI EST LIVRÉ À LA PLACE : le DÉPLACEMENT HORIZONTAL de Gerstner (les
+// « choppy waves » de Tessendorf). Il élargit les creux, aiguise les crêtes, et
+// pousse jusqu'à l'AUTO-INTERSECTION du maillage — c'est-à-dire l'APPARENCE du
+// déferlement, obtenue sans jamais quitter le champ de hauteur.
+//
+// ET ÇA SE MESURE, sans regarder : le JACOBIEN HORIZONTAL du déplacement,
+//        J = det( d(P.x, P.z) / d(x, z) )
+// vaut 1 quand rien ne bouge, décroît quand la crête se resserre, et PASSE SOUS
+// ZÉRO exactement quand l'application se replie sur elle-même — donc quand la
+// vague a brisé. C'est un NOMBRE et non un jugement à l'œil, et c'est lui qui
+// pilote l'écume de déferlement (voir `NkWaterFoam`).
+//
 // ── 1. LA HOULE : somme de vagues de Gerstner ───────────────────────────────
 // Une sinusoïde ordinaire fait des vagues symétriques : crêtes et creux ont la
 // même forme, et l'océan ne ressemble pas à ça. Gerstner déplace le point AUSSI
@@ -100,9 +120,13 @@
 //     ondule si on ne fige pas le plan de base.
 //   * LE RENDU. Aucun nuanceur, aucun matériau branché. `NkWaterShade` rend la
 //     couleur que le nuanceur devrait produire ; personne ne l'appelle encore.
-//   * L'ÉCUME est une VALEUR (0 à 1), pas une texture ni des particules.
-//   * Le cambrement modifie la vitesse et l'amplitude, PAS la forme non linéaire
-//     du déferlement : une vague ne se retourne pas ici.
+//   * L'ÉCUME reste une VALEUR (0 à 1), pas une texture ni des particules — mais
+//     elle est désormais un CHAMP : sa troisième source est le jacobien, donc
+//     elle vaut zéro là où la surface ne se resserre pas. Une valeur par point
+//     n'est pas une texture ; c'est ce qu'un nuanceur consomme pour en faire une.
+//   * Le cambrement modifie la vitesse et l'amplitude. La vague NE SE RETOURNE
+//     PAS ici, et ne le pourra jamais dans un champ de hauteur (§0) ; ce qui est
+//     mesuré est le REPLI de l'application horizontale, par `jacobianXZ`.
 // =============================================================================
 #include "NKMath/NkFunctions.h"
 #include "NKMath/NkVec.h"
@@ -154,6 +178,14 @@ namespace nkentseu {
 				NkVec3f position = {0.f, 0.f, 0.f}; // le point DÉPLACÉ (x et z bougent : c'est Gerstner)
 				NkVec3f normal = {0.f, 1.f, 0.f};	 // analytique EXACTE (jacobien complet), unitaire
 				NkVec3f normalFast = {0.f, 1.f, 0.f}; // la forme de GPU Gems, pour comparaison (temoin (o2))
+				// LE JACOBIEN HORIZONTAL, det( d(P.x, P.z) / d(x, z) ).
+				// 1 = rien ne bouge · < 1 = la crête se resserre · <= 0 = l'application
+				// se replie, la vague a BRISÉ.
+				// ⚠️ Il n'est pas recalculé : les deux tangentes sont déjà dérivées
+				// analytiquement pour la normale, et ce déterminant est leur mineur
+				// horizontal. Le recalculer ailleurs créerait une seconde version qui
+				// divergerait un jour de celle-ci — sans que rien ne le dise.
+				float32 jacobianXZ = 1.f;
 		};
 
 		// La surface en (x, z) à l'instant t. `depthOverride` (>= 0) remplace
@@ -196,6 +228,13 @@ namespace nkentseu {
 				fz -= dz * Ak * C;
 				fy -= Q * Ak * S;
 			}
+			// LE JACOBIEN HORIZONTAL, pris sur les tangentes qu'on vient de dériver :
+			//     | dP.x/dx   dP.x/dz |     | dPdx.x   dPdz.x |
+			//     | dP.z/dx   dP.z/dz |  =  | dPdx.z   dPdz.z |
+			// Au repos les tangentes valent (1,0,0) et (0,0,1) : J = 1 EXACTEMENT, et
+			// pas « à peu près » — c'est ce que le contrôle négatif (y1) vérifie.
+			o.jacobianXZ = dPdx.x * dPdz.z - dPdz.x * dPdx.z;
+
 			NkVec3f n = dPdz.Cross(dPdx); // (0,0,1) x (1,0,0) = (0,1,0) au repos : +Y
 			const float32 l = NkSqrt(n.x * n.x + n.y * n.y + n.z * n.z);
 			o.normal = l > 1e-9f ? n * (1.f / l) : NkVec3f{0.f, 1.f, 0.f};
@@ -232,6 +271,15 @@ namespace nkentseu {
 				float32 shoreDepth = 0.6f;
 				// ...et sur les crêtes au-dessus de cette hauteur (m).
 				float32 crestHeight = 0.35f;
+				// ── L'ÉCUME DE DÉFERLEMENT ──────────────────────────────────────
+				// Seuil de JACOBIEN sous lequel l'eau est considérée comme en train de
+				// briser. J = 1 au repos, 0 au repli sur soi.
+				// ⚠️ Ce seuil n'est pas de la même nature que les deux ci-dessus. Ceux-là
+				// portent sur une PROFONDEUR et une HAUTEUR — des accidents de position,
+				// vrais même sur une mer d'huile. Celui-ci porte sur la DÉFORMATION : il
+				// ne se déclenche que là où la surface se resserre réellement, et c'est
+				// ce qui fait de l'écume un CHAMP au lieu d'une valeur allumée partout.
+				float32 breakJacobian = 0.5f;
 		};
 
 		// Beer-Lambert par canal : T = exp(-sigma d). d < 0 (terrain émergé) -> 1.
@@ -249,11 +297,19 @@ namespace nkentseu {
 						   bottomColor.z * T.z + o.deepColor.z * (1.f - T.z)};
 		}
 
-		// L'écume : 0 à 1. Deux sources, et le maximum des deux (elles se
+		// L'écume : 0 à 1. TROIS sources, et le maximum des trois (elles se
 		// superposent au rivage, là où la vague déferle sur le sable).
 		//   * le RIVAGE : la profondeur passe sous `shoreDepth` ;
-		//   * les CRÊTES : la hauteur dépasse `crestHeight`.
-		NK_FORCE_INLINE float32 NkWaterFoam(const NkWaterOptics &o, float32 depth, float32 surfaceY) noexcept {
+		//   * les CRÊTES : la hauteur dépasse `crestHeight` ;
+		//   * le DÉFERLEMENT : le jacobien passe sous `breakJacobian`.
+		//
+		// ⚠️ LE JACOBIEN EST UN PARAMÈTRE PAR DÉFAUT, ET CE N'EST PAS UN DÉTAIL DE
+		// CONFORT. Les appelants existants passent trois arguments ; avec `1.f` — la
+		// valeur au repos — la troisième source ne contribue jamais, et leur résultat
+		// est INCHANGÉ AU BIT. Un paramètre ajouté sans défaut neutre aurait changé
+		// en silence ce que mesurent des témoins écrits pour autre chose.
+		NK_FORCE_INLINE float32 NkWaterFoam(const NkWaterOptics &o, float32 depth, float32 surfaceY,
+											float32 jacobian = 1.f) noexcept {
 			float32 f = 0.f;
 			if (o.shoreDepth > 1e-6f && depth < o.shoreDepth)
 				f = NkClamp(1.f - depth / o.shoreDepth, 0.f, 1.f);
@@ -261,6 +317,11 @@ namespace nkentseu {
 				const float32 c = NkClamp((surfaceY - o.crestHeight) / o.crestHeight, 0.f, 1.f);
 				if (c > f)
 					f = c;
+			}
+			if (o.breakJacobian > 1e-6f && jacobian < o.breakJacobian) {
+				const float32 b = NkClamp((o.breakJacobian - jacobian) / o.breakJacobian, 0.f, 1.f);
+				if (b > f)
+					f = b;
 			}
 			return f;
 		}
