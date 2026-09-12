@@ -15711,6 +15711,90 @@ namespace nkuidesign {
 				  "et un etat qui ne pose pas de fond laisse le degrade intact",
 				  degradeAvant && remplace && ordre && intact && pile && dessousSurvit, det);
 		}
+		// ── 161. LES DEUX BOUTONS « CONTRAINTES DE POSITION » SONT PARTIS (12/09), ET LA
+		//    RAISON SE MESURE. Deux carres inertes vivaient a droite de la rangee Position,
+		//    et leur clic disait « a brancher (reference Banani) ». Or la maquette de
+		//    reference ne les dessine PAS, et la fonction qu'on leur pretait est DEJA livree
+		//    par ANCRAGE (`anchorEdges`). Les brancher aurait ouvert une seconde porte.
+		//
+		// ⚠️ CE QUE CE CAS PROUVE, ET CE QU'IL NE PROUVE PAS : la MAQUETTE est lue par le
+		//    banc (pas affirmee par moi) ; la SOURCE du panneau est lue (le message et les
+		//    boutons ont disparu, les champs X/Y restent declares). Le PIXEL de la rangee
+		//    n'est pas mesure -- ces boutons n'avaient aucun identifiant a relever.
+		{
+			char det[700];
+			auto compter = [](const char *h, const char *n) -> uint32 {
+				uint32 c = 0u;
+				for (const char *p = h; p && *p; ++p) {
+					const char *a = p, *b = n;
+					while (*a && *b && *a == *b)
+						++a, ++b;
+					if (!*b)
+						++c;
+				}
+				return c;
+			};
+			auto trouver = [](const char *h, const char *n) -> const char * {
+				for (const char *p = h; p && *p; ++p) {
+					const char *a = p, *b = n;
+					while (*a && *b && *a == *b)
+						++a, ++b;
+					if (!*b)
+						return p;
+				}
+				return nullptr;
+			};
+			// (a) LA MAQUETTE, LUE PAR LE BANC : chaque section « Position » de l'export, et
+			//     ce qu'elle contient jusqu'a la section suivante -- ZERO bouton attendu.
+			const NkString maq = NkFile::ReadAllText("Applications/NKUIDesign/design/banani_export_2026-08-30.txt");
+			const char *kPos = "SectionTitle label={t('Position')}";
+			uint32 nSections = 0u, nBoutons = 0u;
+			{
+				const char *p = maq.Data();
+				while (p && *p) {
+					const char *d = trouver(p, kPos);
+					if (!d)
+						break;
+					++nSections;
+					const char *f = trouver(d + 10, "SectionTitle");
+					// compter `<button` dans [d, f)
+					for (const char *q = d; q && *q && (!f || q < f); ++q) {
+						const char *a = q, *b = "<button";
+						while (*a && *b && *a == *b)
+							++a, ++b;
+						if (!*b)
+							++nBoutons;
+					}
+					p = f ? f : nullptr;
+				}
+			}
+			const bool maquette = maq.Size() > 100000u && nSections == 2u && nBoutons == 0u;
+			// (b) LA SOURCE DU PANNEAU : le message « a brancher » n'existe plus, les boutons
+			//     inertes non plus, et la rangee Position declare toujours ses deux champs.
+			const NkString srcB = NkFile::ReadAllText("Applications/NKUIDesign/src/NKUIDesign/Panels.h");
+			const uint32 nBrancher = compter(srcB.Data(), "Contraintes de position : à brancher");
+			const uint32 nInertes = compter(srcB.Data(), "deux boutons carrés de la référence — inertes");
+			const uint32 nX = compter(srcB.Data(), "\"insp.dispo.x\"");
+			const uint32 nY = compter(srcB.Data(), "\"insp.dispo.y\"");
+			const bool source = nBrancher == 0u && nInertes == 0u && nX == 1u && nY == 1u;
+			// (c) ET LA FONCTION N'EST PAS PERDUE : l'ancrage a sa section, et elle ecrit
+			//     `anchorEdges` (la porte unique) -- lu a la source, comme le reste.
+			const uint32 nAncr = compter(srcB.Data(), "n->anchorEdges |= zs[i].bit;");
+			const bool ancrageVivant = nAncr == 1u;
+			snprintf(det, sizeof(det),
+					 "(a) la maquette (%u octets, lue par le banc) : %u section(s) « Position » [2], %u bouton(s) "
+					 "entre chacune et la suivante [0] -> %d ; (b) la source : « a brancher » %u fois [0], boutons "
+					 "inertes %u [0], champs X %u / Y %u [1/1] -> %d ; (c) ANCRAGE ecrit toujours anchorEdges : "
+					 "%u site [1] -> %d",
+					 (uint32)maq.Size(), nSections, nBoutons, maquette ? 1 : 0, nBrancher, nInertes, nX, nY,
+					 source ? 1 : 0, nAncr, ancrageVivant ? 1 : 0);
+			check("161. LES DEUX BOUTONS « CONTRAINTES DE POSITION » SONT PARTIS, ET LA RAISON SE MESURE : "
+				  "la maquette de reference, lue par le banc, ne dessine AUCUN bouton sous « Position » ; la "
+				  "fonction qu'on leur pretait est livree par ANCRAGE, qui ecrit toujours `anchorEdges` ; le "
+				  "message « a brancher » et les deux carres inertes ont disparu du panneau, et la rangee "
+				  "Position garde ses deux champs. Les brancher aurait ouvert une seconde porte",
+				  maquette && source && ancrageVivant, det);
+		}
 		// ── 94. ① L'APERCU PENDANT LE TRACE (05/09). Rodolf : « pourquoi quand on dessine un
 		//    graphique on voit juste le rectangle qui s'allonge, et des qu'on relache on voit la
 		//    forme ? » Deux mesures : LA TABLE DE GENRE (une seule, lue par le relachement et par

@@ -15743,8 +15743,8 @@ namespace nkuidesign {
 					costume::Texte(dl, F.px10, x0, costume::CentrerBande(F.px10, r.y),
 								   "Position", ctx.theme.textMuted);
 					const float32 champs0 = x0 + ColChampsCalc(r.w - 24.f);
-					const float32 wBtns = 2.f * 20.f + 4.f;
-					const float32 colW = (x1 - champs0 - wBtns - 12.f) * 0.5f;
+					// (12/09) plus de boutons a droite : les champs X/Y reprennent toute la largeur
+					const float32 colW = (x1 - champs0) * 0.5f;
 					const NkRect rx = {champs0, costume::BandeY(r.y), colW - 3.f, costume::HControle};
 					const NkRect ry = {champs0 + colW + 3.f, costume::BandeY(r.y), colW - 3.f, costume::HControle};
 					const NkColor rouge = nkentseu::editorkit::NkThemeUnpack(
@@ -15779,25 +15779,22 @@ namespace nkuidesign {
 					}
 					if (bouge)
 						mSt->doc.MarkHumanEdit(mSt->selected);
-					// les deux boutons carrés de la référence — inertes, et ils
-					// le DISENT au clic (règle des menus : jamais un no-op muet).
-					for (int32 i = 0; i < 2; ++i) {
-						const NkRect rb = {x1 - wBtns + (float32)i * 24.f, costume::BandeY(r.y), 20.f, costume::HControle};
-						dl.AddRectFilled(rb, CouleurInput(), 4.f);
-						dl.AddRect(rb, ctx.theme.border, 1.f, 4.f);
-						if (i == 0) {
-							dl.AddLine({rb.x + 10.f, rb.y + 6.f}, {rb.x + 10.f, rb.y + 14.f},
-									   ctx.theme.textMuted, 1.2f);
-							dl.AddLine({rb.x + 6.f, rb.y + 10.f}, {rb.x + 14.f, rb.y + 10.f},
-									   ctx.theme.textMuted, 1.2f);
-						} else
-							dl.AddCircleFilled({rb.x + 10.f, rb.y + 10.f}, 2.f,
-											   ctx.theme.textMuted);
-						if (ctx.popupDepth == 0 && ctx.input.mouseClicked[0]
-							&& NkGuiRectContains(rb, ctx.input.mousePos))
-							mSt->status = NkString(
-								"Contraintes de position : à brancher (référence Banani).");
-					}
+										// ── LES DEUX BOUTONS « CONTRAINTES DE POSITION » SONT PARTIS (12/09) ──
+					// 🔴 ILS ETAIENT DESSINES ICI DEPUIS LONGTEMPS, INERTES, et leur clic disait
+					//    « a brancher (reference Banani) ». Mesure avant de trancher :
+					//    - la MAQUETTE de reference (InspectorPanelV2, tout l'export) dessine sous
+					//      « Position » deux champs X/Y puis la section Taille -- ZERO bouton, dans
+					//      les deux sections « Position » qu'elle contient ;
+					//    - la fonction qu'on leur pretait -- contraindre la position aux bords du
+					//      parent -- est DEJA livree par la section ANCRAGE (`anchorEdges`, les
+					//      quatre bords, le widget graphique de la reference), qui dit elle-meme
+					//      quand elle ne s'applique pas (parent hors `Anchor`) ; la reference 13
+					//      l'ecrit : « livre autrement, c'est notre ancrage, plus expressif » ;
+					//    - ils n'avaient ni identifiant, ni releve d'introspection, ni temoin :
+					//      RIEN ne les gardait, et le recensement des portes ne les voyait pas.
+					//    Les brancher aurait ouvert une SECONDE porte vers l'ancrage -- une porte,
+					//    pas deux. Les faire renvoyer visait une section juste en dessous. Ils
+					//    partent donc, et l'essai 161 lit la maquette lui-meme pour le garder.
 					if (n && !libre)
 						nkgui::TextWrapped(ctx, "calculée — jamais écrite dans le document");
 				}
