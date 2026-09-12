@@ -15200,6 +15200,76 @@ namespace nkuidesign {
 					  && relus,
 				  det);
 		}
+		// ── 157. UN ROLE HORS DU CATALOGUE DU KIT EST DIT (12/09, mesure Q155). Rodolf veut
+		//    que Widget avance ; la mesure a montre autre chose : QUATRE vocabulaires de roles
+		//    coexistent et ne se rencontrent nulle part. Le MENU ecrit son libelle d'affichage
+		//    en francais, `main.cpp` pose « bouton » et « titre », la table applicative dit
+		//    « Button » (44 entrees, aucun appelant), et le CATALOGUE DU KIT dit « button »
+		//    (9 roles) -- le seul qui porte les evenements exiges et le masque d'etats.
+		//
+		// ⚠️ CE CAS NE CHOISIT AUCUN VOCABULAIRE, et le lot non plus : choisir lequel fait foi
+		//    est une decision de FORMAT, elle touche des documents DEJA ENREGISTRES, et elle
+		//    appartient a Rodolf. Ce qui est mesure ici, c'est qu'on le DIT au lieu de se taire.
+		//
+		// ⚠️ CE QUE CE CAS PROUVE, ET CE QU'IL NE PROUVE PAS : la PORTE est traversee pour de
+		//    vrai (points a et b) ; le CABLAGE de la section est LU A LA SOURCE (point c),
+		//    comme aux essais 132, 135, 136, 141, 149 et 156 -- l'afficher exigerait d'activer
+		//    l'onglet Widget, donc un geste. Le dire, c'est refuser qu'une preuve se fasse
+		//    passer pour une autre.
+		{
+			char det[760];
+			// (a) LES GRAPHIES QUE L'APPLICATION PRODUIT : aucune n'a de repondant dans le kit
+			static const char *const kProduites[5] = {"bouton", "Button", "champ de saisie",
+													  "titre", "bouton à répétition"};
+			uint32 horsProduites = 0u;
+			for (uint32 i = 0; i < 5u; ++i)
+				if (NkRoleHorsCatalogue(kProduites[i]))
+					++horsProduites;
+			// (b) LES CLES DU CATALOGUE : toutes reconnues -- la porte ne dit pas « hors » a tout
+			uint16 nCat = 0u;
+			const nkentseu::editorkit::NkRoleDecl *cat = nkentseu::editorkit::NkRoleCatalog(nCat);
+			uint32 reconnues = 0u;
+			for (uint16 i = 0; i < nCat; ++i)
+				if (!NkRoleHorsCatalogue(cat[i].name))
+					++reconnues;
+			// un role vide n'est pas « hors catalogue » : il n'y a rien a signaler
+			const bool videMuet = !NkRoleHorsCatalogue("") && !NkRoleHorsCatalogue(nullptr);
+			// (c) LE CABLAGE DE LA SECTION, LU A LA SOURCE (l'afficher exigerait un geste)
+			const NkString srcP = NkFile::ReadAllText("Applications/NKUIDesign/src/NKUIDesign/Panels.h");
+			uint32 nAppel = 0u, nPhrase = 0u;
+			{
+				auto compter = [](const char *h, const char *n) -> uint32 {
+					uint32 c = 0u;
+					for (const char *p = h; p && *p; ++p) {
+						const char *a = p, *b = n;
+						while (*a && *b && *a == *b)
+							++a, ++b;
+						if (!*b)
+							++c;
+					}
+					return c;
+				};
+				nAppel = compter(srcP.Data(), "NkRoleHorsCatalogue(n->role.Data())");
+				nPhrase = compter(srcP.Data(), "Hors catalogue du kit");
+			}
+			const bool cable = nAppel == 1u && nPhrase >= 1u;
+			snprintf(det, sizeof(det),
+					 "(a) les %u graphies que l'application PRODUIT (« bouton », « Button », « champ de "
+					 "saisie », « titre », « bouton à répétition ») sont hors catalogue : %u / 5 ; "
+					 "(b) les %u cles du catalogue du kit sont reconnues : %u / %u, et un role vide reste "
+					 "muet -> %d ; (c) la section APPELLE la porte (source lue) : %u site, phrase posee %u "
+					 "fois -> %d",
+					 5u, horsProduites, (uint32)nCat, reconnues, (uint32)nCat, videMuet ? 1 : 0, nAppel,
+					 nPhrase, cable ? 1 : 0);
+			check("157. UN ROLE HORS DU CATALOGUE DU KIT EST DIT : les cinq graphies que "
+				  "l'application produit elle-meme (le libelle francais du menu, le « Button » des "
+				  "documents livres, « titre »...) n'ont AUCUN repondant dans le kit -- ni evenement "
+				  "exige ni masque d'etats -- et la section RÔLE le SIGNALE desormais au lieu de se "
+				  "taire ; les cles du catalogue, elles, sont reconnues, et un role vide ne declenche "
+				  "rien. ⚠️ Aucun vocabulaire n'est choisi ici : c'est une decision de format, elle "
+				  "touche les documents enregistres",
+				  horsProduites == 5u && nCat > 0u && reconnues == (uint32)nCat && videMuet && cable, det);
+		}
 		// ── 94. ① L'APERCU PENDANT LE TRACE (05/09). Rodolf : « pourquoi quand on dessine un
 		//    graphique on voit juste le rectangle qui s'allonge, et des qu'on relache on voit la
 		//    forme ? » Deux mesures : LA TABLE DE GENRE (une seule, lue par le relachement et par

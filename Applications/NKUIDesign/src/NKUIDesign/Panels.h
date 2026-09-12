@@ -40,6 +40,8 @@
 
 #include "NKGui/Core/NkGuiDrawListRaster.h" // LE rasteriseur de la maison (la pipette le PILOTE)
 #include "NKEditorKit/Components/NkGuiComponentPaint.h"
+#include "NKEditorKit/Components/NkComponentRole.h" // LE catalogue de roles du kit --
+// la seule table qui porte les EVENEMENTS exiges et le masque d'ETATS (mesure Q155)
 #include "NKEditorKit/NkFilePickerNav.h"
 #include "NKWindow/Core/NkLauncher.h" // ⑤ LE lanceur systeme de la maison (un seul) // ② le selecteur a deux volets (vignettes)
 #include "NKEditorKit/NkEditorKit.h"
@@ -11712,6 +11714,29 @@ namespace nkuidesign {
 		return true;
 	}
 
+	/// ⚠️ CE ROLE A-T-IL UN REPONDANT DANS LE KIT ? (12/09, mesure Q155)
+	///
+	/// 🔴 QUATRE VOCABULAIRES DE ROLES COEXISTENT, ET NE SE RENCONTRENT NULLE PART :
+	///    le MENU ecrit son LIBELLE D'AFFICHAGE en francais (« bouton a repetition ») --
+	///    un seul champ texte, dessine a l'ecran ET rendu au clic ; `main.cpp` pose
+	///    « bouton » et « titre » ; la table `NkGuiValidate` dit « Button » (44 entrees,
+	///    AUCUN appelant) ; et le CATALOGUE DU KIT dit « button » (9 roles) -- le seul
+	///    qui porte les evenements exiges et le masque d'etats. Les quatre documents
+	///    livres portent `role = Button`, une graphie qu'AUCUN geste d'interface ne
+	///    produit.
+	///
+	/// ⚠️ CETTE PORTE NE CHOISIT PAS LE VOCABULAIRE. Choisir lequel fait foi est une
+	///    decision de FORMAT : elle appartient a Rodolf, et elle touche des fichiers
+	///    DEJA ENREGISTRES. Ici on se borne a DIRE ce qui est -- ce role n'a pas de
+	///    repondant dans le kit, donc rien ne le consomme. **Aucune migration, aucune
+	///    correction, aucun document touche.**
+	///
+	/// UNE SEULE PORTE : la section RÔLE et le banc lisent la MEME reponse. Deux
+	/// lectures divergeraient au premier role ajoute au catalogue.
+	inline bool NkRoleHorsCatalogue(const char *role) {
+		return role && *role && !nkentseu::editorkit::NkFindRole(role);
+	}
+
 	inline bool NkPastilleCouleur(nkgui::NkGuiContext &ctx, DesignState &st, const char *idStr,
 								  const nkgui::NkRect &sw, char *hexBuf, nkentseu::uint32 cap,
 								  nkentseu::int32 noeudDecrit) {
@@ -16776,13 +16801,26 @@ namespace nkuidesign {
 					mSt->menuRole.filtreFocus = true;
 				}
 				if (!n->role.Empty()) {
+					// ① (12/09) DIRE CE QUI EST, PAS LE CORRIGER : un role hors du catalogue du
+					//   kit n'a ni evenements exiges ni masque d'etats -- RIEN ne le consomme, et
+					//   jusqu'ici rien ne le disait. Le geste « promouvoir » ecrit le libelle du
+					//   menu ; le kit attend ses propres cles. Choisir lequel fait foi touche les
+					//   documents enregistres : c'est a Rodolf, pas a ce panneau.
+					const bool hors = NkRoleHorsCatalogue(n->role.Data());
 					const NkRect r2 = ctx.NextItemRect(-1.f, 22.f);
 					ctx.BeginDisabled();
 					costume::Texte(dl, F.px10, r2.x + 12.f,
 								   costume::CentrerY(F.px10, r2.y, 22.f),
-								   "Les paramètres du rôle arrivent avec la taxonomie.",
+								   hors ? "Hors catalogue du kit : aucun événement ni état n'y répond."
+									  : "Les paramètres du rôle arrivent avec la taxonomie.",
 								   ctx.theme.textMuted);
 					ctx.EndDisabled();
+					// le releve dit LAQUELLE des deux phrases est posee (banc sans fenetre)
+					if (nkgui::NkGuiIntrospectActif(ctx)) {
+						nkgui::NkGuiNoter(ctx, nkgui::NkGuiNature::Region, ctx.GetId("insp.role.etat"),
+									  hors ? "role hors catalogue" : "role au catalogue", r2, 0u);
+						nkgui::NkGuiIntrospectCler(ctx, "insp.role.etat");
+					}
 				}
 			}
 			static void CorpsTypographieC(void *u, NkGuiContext &ctx) {
