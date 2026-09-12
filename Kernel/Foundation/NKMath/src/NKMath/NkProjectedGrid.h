@@ -118,11 +118,44 @@
 //  — mais ce sommet de tranche SÉPARE NETTEMENT le gain du pavage : épouser la
 //    forme donne exactement 0,00 aux trois hauteurs au-dessus, et jamais moins de
 //    0,15 en dessous.
-// L'étape qui sur-estime est le RABATTEMENT des points de la tranche sur le plan
-// de repos : plus la vue est rasante, plus l'empreinte au sol de ce qu'on écrase
-// déborde l'eau réellement visible. C'est l'étape 4, et c'est là qu'il faudra
-// chercher — le rectangle, le bord lointain et le placement ayant été éliminés
-// par la mesure, chacun à son tour.
+// 🔴 ET LA CAUSE EST LE RABATTEMENT — QUATRIÈME PISTE, ET CELLE-LÀ TIENT.
+// On appelle ÉGARÉ un point retenu dont la position AU SOL, une fois rabattu,
+// n'est pas de l'eau que la caméra de rendu voit : il étire l'étendue vers un
+// endroit que personne ne regarde. Mesuré en vue rasante, 6 points sur 12 le
+// sont, et si on les retire de l'étendue :
+//        GÂCHIS 0,90 → 0,12
+// L'instrument qui le dit a d'abord été accordé sur l'ancien : sur l'étendue
+// réellement retenue, il retrouve 0,90 et 0,17 au centième près.
+//
+// ⚠️ LE MÉCANISME EST L'INVERSE DE CELUI QU'ON ATTENDAIT. J'avais prédit les
+// points LOINTAINS — les intersections de la tranche avec le plan lointain, dont
+// l'empreinte part vers l'horizon. Mesure : distance moyenne des égarés 1 m,
+// contre 1 915 m pour les gardés. Ce sont les points PRÈS DE L'ŒIL, et quatre
+// d'entre eux sont des COINS DU TRONC DE VUE à 0,1 m — donc visibles PAR
+// DÉFINITION, et que l'écrasement fait sortir du visible en les posant au sol aux
+// pieds d'une caméra qui regarde devant elle. L'écrasement moyen ne les distingue
+// pas non plus (1,33 m contre 2,00 m) : ce n'est pas DE COMBIEN on aplatit qui
+// décide, c'est OÙ tombe le point une fois aplati.
+//
+// ET LA MÊME SUPPRESSION RÉPARE UN SECOND CRITÈRE, ce qui vaut mieux qu'une
+// corrélation : le PAS D'ÉCRAN de la vue rasante passe de ×2,50 à ×1,02 en
+// retirant exactement les mêmes points. Deux mesures indépendantes réparées par
+// un seul retrait tiennent lieu de preuve bien plus solidement que le gâchis seul.
+//
+// 🔴 AU PASSAGE, UNE DETTE QUE PERSONNE N'AVAIT VUE : ce ×2,50 est l'état ACTUEL,
+// avant qu'on touche à quoi que ce soit. Le ×1,00 dont ce fichier se réclame est
+// celui de la pose nominale — (x3) ne mesurait que celle-là, et je l'ai rapporté
+// comme s'il valait pour la grille. En vue rasante la plus grande maille vaut deux
+// fois et demie la plus petite, et aucun témoin ne le disait. (x18) le dit
+// maintenant, et il est ROUGE.
+//
+// ⚠️ CE QUI N'EST PAS ÉTABLI : le contrôle « pont 8 m » n'a pas pu être calculé —
+// deux points gardés seulement, boîte réduite dégénérée, l'instrument rend −1,00
+// plutôt que d'inventer. La contribution du rabattement n'est donc mesurée QUE sur
+// la vue rasante.
+//
+// AUCUN CORRECTIF N'EST ÉCRIT ICI. La cause est nommée avec son chiffre ; le
+// geste — retrait, recalibrage ou déplacement — se décidera en le sachant.
 //
 // Autrement dit : la caméra de portée est POSÉE et prouvée sur la couverture et
 // la stabilité ; le gâchis en vue rasante n'est ni un réglage à trouver, ni une
@@ -240,6 +273,12 @@ namespace nkentseu {
 				// (repli plein écran), et ce zéro est une information, pas un oubli.
 				float32 ndcX[40];
 				float32 ndcY[40];
+				// La hauteur QU'AVAIT chaque point avant d'être rabattu sur le plan de
+				// repos. C'est la mesure directe de l'écrasement de l'étape 4 : l'écart
+				// à `baseY` est exactement ce que le rabattement a effacé. Sans elle, on
+				// ne peut pas distinguer un point qui était déjà au sol d'un point qu'on
+				// a aplati de deux mètres — et ce sont deux choses différentes.
+				float32 ptsY[40];
 				uint32 ndcCount = 0u;
 		};
 
@@ -482,6 +521,7 @@ namespace nkentseu {
 				// réelle de l'eau vue, dont la boîte n'est qu'un majorant.
 				g.ndcX[i] = nx;
 				g.ndcY[i] = ny;
+				g.ptsY[i] = pts[i].y; // ce que le rabattement vient d'effacer
 				if (nx < mnx)
 					mnx = nx;
 				if (nx > mxx)

@@ -360,6 +360,98 @@ namespace {
 		return (dedans > 0u) ? (float32)perdus / (float32)dedans : 0.f;
 	}
 
+	// La position AU SOL que designe un point de l'ecran de portee.
+	bool SolDepuisNDC(const NkProjectedGrid &g, const NkProjectedGridParams &p, float32 nx,
+					  float32 ny, NkVec3f &out) {
+		NkVec3f a, b;
+		if (!NkUnprojectNDC(g.invViewProj, nx, ny, -1.f, a))
+			return false;
+		if (!NkUnprojectNDC(g.invViewProj, nx, ny, 1.f, b))
+			return false;
+		const NkVec3f d = b - a;
+		if (NkFabs(d.y) < 1e-9f)
+			return false;
+		const float32 t = (p.baseY - a.y) / d.y;
+		if (t < 0.f)
+			return false;
+		out = a + d * t;
+		out.y = p.baseY;
+		return true;
+	}
+
+	// La camera de RENDU voit-elle de l'eau a cette position au sol ? MEME critere
+	// que `Gachis`, mot pour mot : trois hauteurs, dans l'ecran, devant. Il DOIT
+	// etre le meme, sinon comparer les deux instruments ne voudrait rien dire.
+	bool EauVisibleAuSol(const NkMat4f &renderVP, const NkProjectedGridParams &p, float32 x,
+						 float32 z) {
+		const float32 hauteurs[3] = {p.baseY, p.baseY + p.displacementMax,
+									 p.baseY - p.displacementMax};
+		for (uint32 h = 0; h < 3u; ++h) {
+			const NkVec4f q = renderVP * NkVec4f(x, hauteurs[h], z, 1.f);
+			if (q.w <= 1e-6f)
+				continue;
+			const float32 iw = 1.f / q.w;
+			const float32 sx = q.x * iw, sy = q.y * iw;
+			if (sx >= -1.f && sx <= 1.f && sy >= -1.f && sy <= 1.f)
+				return true;
+		}
+		return false;
+	}
+
+	bool SommetSurEtendue(const NkProjectedGrid &g, const NkProjectedGridParams &p, float32 x0,
+						  float32 x1, float32 y0, float32 y1, uint32 i, uint32 j, NkVec3f &out) {
+		const float32 u = (float32)i / (float32)p.cols;
+		const float32 v = (float32)j / (float32)p.rows;
+		return SolDepuisNDC(g, p, x0 + (x1 - x0) * u, y0 + (y1 - y0) * v, out);
+	}
+
+	// Le gachis d'une grille etalee sur une ETENDUE DONNEE, et non sur celle que la
+	// grille a retenue. Sert a mesurer ce que vaudrait l'etendue si tel point n'y
+	// avait pas contribue -- SANS rien changer a l'algorithme.
+	float32 GachisSurEtendue(const NkProjectedGrid &g, const NkProjectedGridParams &p,
+							 const NkMat4f &renderVP, float32 x0, float32 x1, float32 y0,
+							 float32 y1, uint32 pas, uint32 &total) {
+		uint32 perdus = 0;
+		total = 0;
+		for (uint32 j = 0; j <= p.rows; j += pas) {
+			for (uint32 i = 0; i <= p.cols; i += pas) {
+				NkVec3f m;
+				if (!SommetSurEtendue(g, p, x0, x1, y0, y1, i, j, m))
+					continue;
+				++total;
+				if (!EauVisibleAuSol(renderVP, p, m.x, m.z))
+					++perdus;
+			}
+		}
+		return (total > 0u) ? (float32)perdus / (float32)total : 0.f;
+	}
+
+	float32 RapportPasEcranSurEtendue(const NkProjectedGrid &g, const NkProjectedGridParams &p,
+									  const NkMat4f &vpRendu, float32 x0, float32 x1, float32 y0,
+									  float32 y1) {
+		float32 mn = 1e30f, mx = 0.f;
+		for (uint32 j = 0; j <= p.rows; j += 8u) {
+			for (uint32 i = 0; i + 8u <= p.cols; i += 8u) {
+				NkVec3f a, b;
+				if (!SommetSurEtendue(g, p, x0, x1, y0, y1, i, j, a) ||
+					!SommetSurEtendue(g, p, x0, x1, y0, y1, i + 8u, j, b))
+					continue;
+				const NkVec4f qa = vpRendu * NkVec4f(a.x, a.y, a.z, 1.f);
+				const NkVec4f qb = vpRendu * NkVec4f(b.x, b.y, b.z, 1.f);
+				if (qa.w <= 1e-6f || qb.w <= 1e-6f)
+					continue;
+				const float32 dx = qb.x / qb.w - qa.x / qa.w;
+				const float32 dy = qb.y / qb.w - qa.y / qa.w;
+				const float32 d = NkSqrt(dx * dx + dy * dy);
+				if (d < mn)
+					mn = d;
+				if (d > mx)
+					mx = d;
+			}
+		}
+		return (mn > 1e-9f) ? mx / mn : 0.f;
+	}
+
 	float32 AirePolygone(const float32 *px, const float32 *py, const uint32 *idx, uint32 m) {
 		if (m < 3u)
 			return 0.f;
@@ -1276,6 +1368,176 @@ int NkSondeOceanGrille() {
 					 nulsDehors, nonNulsDedans);
 		XCHECK(nulsDehors == 3u && nonNulsDedans == 4u,
 			   "(x16) paver la forme ANNULE le gachis au-dessus de la tranche, et jamais dedans");
+	}
+
+	// (x17) LA CONTRIBUTION DU RABATTEMENT, MESUREE ET NON SUPPOSEE.
+	//
+	// Trois causes ont ete eliminees par la mesure : le bord lointain, le placement
+	// de la portee, la forme de l'etendue. Reste l'ECRASEMENT de l'etape 4 : les
+	// points d'intersection du tronc de vue et de la tranche sont projetes comme si
+	// l'eau etait au sol sous eux -- (x, baseY, z) -- alors qu'ils etaient a
+	// (x, y, z) avec y n'importe ou dans la tranche.
+	//
+	// LA QUESTION : combien de sommets, en vue rasante, sont perdus PARCE QUE leurs
+	// points fondateurs ont ete rabattus ? On appelle EGARE un point retenu dont la
+	// position AU SOL, apres rabattement, n'est pas de l'eau que la camera de rendu
+	// voit. Un tel point etire l'etendue vers un endroit que personne ne regarde.
+	//
+	// ⚠️ AUCUN CORRECTIF N'EST PROPOSE ICI. On mesure une contribution : ce que
+	// vaudrait le gachis si les egares n'avaient pas contribue a l'etendue. Le geste
+	// -- retrait, recalibrage ou deplacement -- se decidera apres, en sachant.
+	{
+		const Pose bancs[2] = {
+			{{0.f, 1.f, 0.f}, {0.f, 1.2f, -60.f}, "rasante 1 m"},
+			{{0.f, 8.f, 0.f}, {0.f, 2.f, -60.f}, "pont 8 m (controle)"},
+		};
+		uint32 instrumentsAccordes = 0;
+		float32 gachReduits[2] = {-1.f, -1.f};
+		for (uint32 k = 0; k < 2u; ++k) {
+			const NkProjectedGrid gk = BUILD(bancs[k], p);
+			const NkMat4f renderVP = VP(bancs[k]);
+
+			// 1. VALIDATION DE L'INSTRUMENT AVANT DE LUI FAIRE CONFIANCE. Sur
+			// l'etendue que la grille a REELLEMENT retenue, le nouvel instrument doit
+			// retrouver le gachis de (x9). Sinon son chiffre sur une etendue reduite
+			// ne voudrait rien dire.
+			uint32 totRef = 0, totOwn = 0;
+			const float32 gachRef = Gachis(gk, p, renderVP, 2u, totRef);
+			const float32 gachOwn = GachisSurEtendue(gk, p, renderVP, gk.ndcMinX, gk.ndcMaxX,
+													 gk.ndcMinY, gk.ndcMaxY, 2u, totOwn);
+			if (NkFabs(gachOwn - gachRef) < 0.01f)
+				++instrumentsAccordes;
+
+			// 2. CLASSER LES POINTS RETENUS : egare ou non.
+			uint32 egares = 0;
+			float32 mnx = 1e30f, mxx = -1e30f, mny = 1e30f, mxy = -1e30f;
+			float64 distEgares = 0.0, distGardes = 0.0;
+			float64 ecrasEgares = 0.0, ecrasGardes = 0.0;
+			for (uint32 i = 0; i < gk.ndcCount; ++i) {
+				NkVec3f sol;
+				if (!SolDepuisNDC(gk, p, gk.ndcX[i], gk.ndcY[i], sol))
+					continue;
+				const float32 dx = sol.x - bancs[k].oeil.x, dz = sol.z - bancs[k].oeil.z;
+				const float32 dist = NkSqrt(dx * dx + dz * dz);
+				const float32 ecras = NkFabs(gk.ptsY[i] - p.baseY);
+				const bool vu = EauVisibleAuSol(renderVP, p, sol.x, sol.z);
+				if (k == 0u)
+					std::fprintf(stderr,
+								 "     (x17) rasante | point %2u : hauteur avant rabattement"
+								 " %+6.2f m, au sol a %9.1f m -> %s\n",
+								 i, (double)gk.ptsY[i], (double)dist, vu ? "vu" : "EGARE");
+				if (vu) {
+					distGardes += (float64)dist;
+					ecrasGardes += (float64)ecras;
+					if (gk.ndcX[i] < mnx)
+						mnx = gk.ndcX[i];
+					if (gk.ndcX[i] > mxx)
+						mxx = gk.ndcX[i];
+					if (gk.ndcY[i] < mny)
+						mny = gk.ndcY[i];
+					if (gk.ndcY[i] > mxy)
+						mxy = gk.ndcY[i];
+				} else {
+					++egares;
+					distEgares += (float64)dist;
+					ecrasEgares += (float64)ecras;
+				}
+			}
+			const uint32 gardes = gk.ndcCount - egares;
+
+			// 3. CE QUE VAUDRAIT L'ETENDUE SANS EUX -- avec la MEME marge relative.
+			// ⚠️ Le pas ecran de l'etendue REDUITE ne veut rien dire seul : on mesure
+			// aussi celui de l'etendue ACTUELLE, sur la MEME pose. Comparer une
+			// etendue hypothetique au x1,00 de la pose nominale serait comparer deux
+			// choses differentes.
+			const float32 pasActuel = RapportPasEcranSurEtendue(
+				gk, p, renderVP, gk.ndcMinX, gk.ndcMaxX, gk.ndcMinY, gk.ndcMaxY);
+			float32 gachReduit = -1.f, pasReduit = -1.f;
+			if (gardes >= 2u && mxx > mnx && mxy > mny) {
+				const float32 ex = (mxx - mnx) * p.edgeBias, ey = (mxy - mny) * p.edgeBias;
+				uint32 totR = 0;
+				gachReduit = GachisSurEtendue(gk, p, renderVP, mnx - ex, mxx + ex, mny - ey,
+											  mxy + ey, 2u, totR);
+				pasReduit = RapportPasEcranSurEtendue(gk, p, renderVP, mnx - ex, mxx + ex,
+													  mny - ey, mxy + ey);
+			}
+			gachReduits[k] = gachReduit;
+			std::fprintf(stderr,
+						 "     (x17) %-20s : %u points dont %u EGARES | distance moyenne egares"
+						 " %.0f m contre gardes %.0f m | ecrasement moyen %.2f contre %.2f m\n",
+						 bancs[k].nom, gk.ndcCount, egares,
+						 (egares > 0u) ? distEgares / (float64)egares : 0.0,
+						 (gardes > 0u) ? distGardes / (float64)gardes : 0.0,
+						 (egares > 0u) ? ecrasEgares / (float64)egares : 0.0,
+						 (gardes > 0u) ? ecrasGardes / (float64)gardes : 0.0);
+			std::fprintf(stderr,
+						 "     (x17) %-20s : gachis %.2f (controle %.2f) -> SANS les egares"
+						 " %.2f | pas ecran actuel x%.2f -> reduit x%.2f\n",
+						 bancs[k].nom, (double)gachRef, (double)gachOwn, (double)gachReduit,
+						 (double)pasActuel, (double)pasReduit);
+		}
+
+		// 🔴 LA CAUSE EST TROUVEE, ET LE MECANISME EST L'INVERSE DE CE QUE J'AVAIS
+		// PREDIT.
+		//
+		// J'attendais que les egares soient les points LOINTAINS -- les intersections
+		// de la tranche avec le plan lointain, a ~2 870 m, dont l'empreinte au sol
+		// part vers l'horizon. Mesure : distance moyenne des EGARES 1 m, contre
+		// 1 915 m pour les gardes. C'est exactement le contraire.
+		//
+		// Les egares sont les points PRES DE L'OEIL, et quatre d'entre eux sont des
+		// COINS DU TRONC DE VUE a 0,1 m : des points qui etaient VISIBLES PAR
+		// DEFINITION -- ils sont dans le tronc -- et que le rabattement fait sortir du
+		// visible en les posant au sol aux pieds d'une camera qui regarde devant elle.
+		// C'est la demonstration la plus nette possible du mecanisme : ce n'est pas
+		// leur position qui les perd, c'est l'ecrasement lui-meme.
+		//
+		// Et l'ecrasement MOYEN ne les distingue pas non plus (1,33 m pour les egares
+		// contre 2,00 m pour les gardes) : ce n'est donc pas « de combien on aplatit »
+		// qui decide, c'est OU tombe le point une fois aplati.
+		//
+		// ⚠️ CE QUE JE NE PRETENDS PAS. Le controle « pont 8 m » n'a PAS pu etre
+		// calcule : il ne reste que 2 points gardes, la boite reduite est degeneree, et
+		// l'instrument rend -1,00 au lieu d'inventer. C'est une limite de la mesure,
+		// pas un resultat -- la contribution du rabattement n'est donc etablie QUE sur
+		// la vue rasante.
+		XCHECK(instrumentsAccordes == 2u,
+			   "(x17) le nouvel instrument retrouve le gachis de (x9) sur l'etendue reelle");
+		XCHECK(gachReduits[0] >= 0.f && gachReduits[0] < 0.50f,
+			   "(x17b) LE RABATTEMENT EXPLIQUE LE GACHIS RASANT : sans les egares, sous 0,50");
+	}
+
+	// (x18) LE QUATRIEME CRITERE, MESURE AILLEURS QUE SUR LA POSE NOMINALE.
+	//
+	// 🔴 UNE DETTE TROUVEE PAR ACCIDENT, ET QUI N'A RIEN A VOIR AVEC CE QU'ON TOUCHE.
+	// (x3) mesure le pas ecran depuis un pont : x1,00. J'ai rapporte ce x1,00 comme
+	// s'il caracterisait la grille -- il ne caracterise que CETTE pose. En mesurant
+	// la meme chose sur la vue rasante pour les besoins de (x17), elle est sortie a
+	// x2,50 : la plus grande maille vaut deux fois et demie la plus petite, et aucun
+	// temoin ne le disait.
+	//
+	// Ce n'est pas un prix qu'on vient de payer, c'etait deja la. Mais le critere
+	// exige x1,00, donc ce temoin le DIT plutot que de laisser (x3) parler pour
+	// toutes les poses, et il ROUGIT.
+	{
+		const Pose troisPoses[3] = {
+			{{0.f, 8.f, 0.f}, {0.f, 2.f, -60.f}, "pont 8 m"},
+			{{0.f, 1.f, 0.f}, {0.f, 1.2f, -60.f}, "rasante 1 m"},
+			{{0.f, -3.f, 0.f}, {0.f, 1.f, -20.f}, "sous l'eau"},
+		};
+		float32 pire = 0.f;
+		for (uint32 k = 0; k < 3u; ++k) {
+			const NkProjectedGrid gk = BUILD(troisPoses[k], p);
+			const float32 rap = RapportPasEcran(gk, p, VP(troisPoses[k]));
+			if (rap > pire)
+				pire = rap;
+			std::fprintf(stderr, "     (x18) %-12s : pas ecran x%.2f\n", troisPoses[k].nom,
+						 (double)rap);
+		}
+		std::fprintf(stderr, "     (x18) pire pas ecran sur les trois poses : x%.2f\n",
+					 (double)pire);
+		XCHECK(pire < 1.5f,
+			   "(x18) le pas ecran reste quasi constant sur TOUTES les poses, pas seulement la nominale");
 	}
 
 	std::fprintf(stderr, "=== grille projetee : %d passes, %d echecs ===\n", gP, gF);
