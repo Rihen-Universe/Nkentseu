@@ -383,7 +383,12 @@ static ResultatPrix SceneMasse(bool flux) {
 
 // ── SCÈNE E : celle de (e) — LA SEULE où le sous-cyclage MORD vraiment ──────
 // vmax y monte à 7,782 m/s : à dt = 1/60 et h = 0,02, CFL vaut ~6,5.
-static ResultatPrix SceneDixSecondes(bool flux) {
+//
+// `cibleCFL` : 0 laisse le défaut du solveur. ⚠️ CETTE CIBLE EST DANS LES UNITÉS
+// DU BANC, PAS DANS CELLES DE LA THÉORIE — voir la définition portée par
+// `NkFluidGridParams::advectCFLTarget`. La rupture mesurée en (g1) est à 1,2433
+// dans CES unités, pas à 1,0.
+static ResultatPrix SceneDixSecondes(bool flux, float32 cibleCFL = 0.f) {
 	ResultatPrix r;
 	NkFluidGridParams p;
 	p.boundsMin = {-0.25f, 0.f, -0.25f};
@@ -393,6 +398,8 @@ static ResultatPrix SceneDixSecondes(bool flux) {
 	p.temperatureDissipation = 0.5f;
 	p.buoyancyAlpha = 0.3f;
 	p.advectFluxConservative = flux;
+	if (cibleCFL > 0.f)
+		p.advectCFLTarget = cibleCFL;
 	NkFluidGrid g;
 	if (!g.Init(p))
 		return r;
@@ -648,6 +655,106 @@ void EnqueteRuptureFine() {
 			 (double)cflSain, (double)(1.f / dtSain), (double)cflCasse, (double)(1.f / dtCasse), (double)largeur,
 			 kIterations);
 	ProbeCheck(largeur < 0.01f, "(g1) la rupture est ENCADREE a mieux que 0,01 en CFL", buf);
+}
+
+// =============================================================================
+// (g2) LA COURBE DIFFUSION / CIBLE, et (g3) LE CHOIX DE LA CIBLE.
+//
+// ⚠️⚠️ TOUTES LES CIBLES DE CETTE ENQUÊTE SONT DANS LES UNITÉS DU BANC. `MaxCFL`
+// prend, par axe, le MAX des deux faces de la cellule, là où la condition vraie
+// porte sur la SOMME DES FLUX SORTANTS : il SURESTIME, d'un facteur qui dépend du
+// champ. Le schéma est encore SAIN à 1,077 dans ces unités, et (g1) a ENCADRÉ la
+// rupture entre 1,2433 et 1,2436 — PAS à 1,0. Lire « cible 0,9 » comme un CFL de
+// manuel serait une erreur d'un quart.
+//
+// ── (g3) LA RÈGLE DE MARGE, ÉCRITE AVANT D'EN CONNAÎTRE LE RÉSULTAT ─────────
+// La cible retenue est la PLUS HAUTE valeur de la grille testée qui reste sous
+//     kMargeSecurite * (borne BASSE de l'encadrement de (g1))
+// JUSTIFICATION, et elle ne dépend pas du chiffre que la règle produira : la
+// borne de rupture a été mesurée sur UNE scène (le tourbillon de (f1)). Or le
+// facteur de surestimation de `MaxCFL` DÉPEND DU CHAMP — grand sous fort
+// cisaillement, petit sur un champ lisse. Une borne mesurée sur une scène ne se
+// transporte donc pas telle quelle sur une autre, où la rupture peut apparaître
+// PLUS BAS dans ces mêmes unités. 20 % couvrent cette variabilité inter-scènes.
+// C'est une POLITIQUE, pas un nombre choisi pour obtenir la réponse qui arrange.
+// =============================================================================
+static const float32 kMargeSecurite = 0.80f;	   // 20 % sous la borne basse
+static const float32 kRuptureBorneBasse = 1.2433f; // (g1), UNITÉS DU BANC
+
+void EnqueteCibleSousCyclage() {
+	printf("\n=== (g2) LA COURBE DIFFUSION / CIBLE, puis (g3) LE CHOIX ===\n");
+	printf("    ⚠️ Cibles dans les UNITÉS DU BANC : MaxCFL prend le max des deux faces par axe au\n");
+	printf("    lieu de la somme des flux sortants — il SURESTIME. (g1) a encadré la rupture entre\n");
+	printf("    1,2433 et 1,2436, PAS à 1,0.\n");
+	printf("    RÈGLE DE MARGE, écrite AVANT d'en connaître le résultat : cible = la plus haute de\n");
+	printf("    la grille telle que cible <= %.2f x %.4f = %.4f. Justification indépendante du\n",
+		   (double)kMargeSecurite, (double)kRuptureBorneBasse, (double)(kMargeSecurite * kRuptureBorneBasse));
+	printf("    résultat : le facteur de surestimation DÉPEND DU CHAMP, donc une borne mesurée sur\n");
+	printf("    UNE scène ne se transporte pas telle quelle sur une autre.\n");
+	printf("    PRÉDICTION : n = ceil(CFL/cible), donc la courbe aura des PALIERS — entre deux\n");
+	printf("    cibles qui donnent le même n, RIEN ne change. Je prédis que le prix pourrait NE PAS\n");
+	printf("    bouger. Mais le système est bouclé (moins de diffusion -> Tmax plus haut -> vitesse\n");
+	printf("    plus haute -> CFL plus haut), donc je mesure au lieu de conclure.\n");
+	char buf[560];
+
+	// La RÉFÉRENCE semi-lagrangienne, dans la MÊME course : elle donne le
+	// dénominateur du prix. Un rapport dont le numérateur et le dénominateur
+	// viennent de deux courses différentes ne mesure rien.
+	const ResultatPrix ref = SceneDixSecondes(false);
+	printf("\n    RÉFÉRENCE semi-lagrangienne (MÊME course) : Tmax %.1f K, vmax %.3f m/s, %.1f ms/pas\n",
+		   (double)ref.tmax, (double)ref.vmax, (double)ref.msParPas);
+
+	const float32 cibles[6] = {0.40f, 0.60f, 0.80f, 0.90f, 1.00f, 1.20f};
+	ResultatPrix res[6];
+	printf("\n      cible   CFL max   sous-pas    Tmax (K)   Tmax/ref   vmax     NaN   ms/pas\n");
+	for (uint32 c = 0; c < 6; ++c) {
+		res[c] = SceneDixSecondes(true, cibles[c]);
+		printf("      %.2f    %7.3f   %8u   %8.1f   %7.3f   %6.3f   %3u   %6.1f%s\n", (double)cibles[c],
+			   (double)res[c].cflMax, res[c].sousPasMax, (double)res[c].tmax,
+			   (double)(ref.tmax > 0.f ? res[c].tmax / ref.tmax : 0.f), (double)res[c].vmax, res[c].nan,
+			   (double)res[c].msParPas, res[c].capHit ? "  (BORNE)" : "");
+		fflush(stdout);
+	}
+
+	// (g2) LA TENDANCE, mesurée et non supposée.
+	snprintf(buf, sizeof(buf),
+			 "Tmax conservé : %.1f K à la cible la plus BASSE (%.2f) contre %.1f K à la plus HAUTE (%.2f). "
+			 "La théorie dit que la diffusion du donor-cell, D = (u*h/2)(1-CFL), DÉCROÎT quand le CFL "
+			 "effectif monte, donc Tmax doit CROÎTRE avec la cible. Si la courbe ne suit pas, c'est une "
+			 "TROUVAILLE et elle vaut plus que le réglage",
+			 (double)res[0].tmax, (double)cibles[0], (double)res[5].tmax, (double)cibles[5]);
+	ProbeCheck(res[5].tmax >= res[0].tmax, "(g2) la diffusion DÉCROÎT quand la cible monte", buf);
+
+	// ── (g3) LE CHOIX, par application MÉCANIQUE de la règle ────────────────
+	const float32 plafond = kMargeSecurite * kRuptureBorneBasse;
+	float32 cibleRetenue = cibles[0];
+	for (uint32 c = 0; c < 6; ++c)
+		if (cibles[c] <= plafond)
+			cibleRetenue = cibles[c];
+	printf("\n    (g3) CIBLE RETENUE : %.2f (UNITÉS DU BANC) — la plus haute de la grille sous %.4f\n",
+		   (double)cibleRetenue, (double)plafond);
+
+	// CONTRÔLE NÉGATIF : à la cible retenue, AUCUN cas de la batterie ne casse.
+	const ResultatPrix ctrlE = SceneDixSecondes(true, cibleRetenue);
+	const ResultatPrix ctrlM = SceneMasse(true);
+	const ResultatPrix ctrlP = ScenePanache(true, 120);
+	const EtatStabilite ctrlT = CourseStabilite(1.f / 120.f, 64u, 100u);
+	const bool batterieSaine = (ctrlE.nan == 0 && !ctrlE.capHit) && (ctrlM.nan == 0 && !ctrlM.capHit) &&
+							   (ctrlP.nan == 0 && !ctrlP.capHit) && !ctrlT.casse && ctrlT.dMin >= -1.0e-6f;
+	snprintf(buf, sizeof(buf),
+			 "à la cible %.2f : scène (e) %u NaN%s ; scène masse %u NaN%s ; panache %u NaN%s ; tourbillon "
+			 "densité min %+.3e. Une cible qui ferait casser un seul cas ne serait pas un réglage, ce "
+			 "serait une régression",
+			 (double)cibleRetenue, ctrlE.nan, ctrlE.capHit ? " (BORNE)" : "", ctrlM.nan,
+			 ctrlM.capHit ? " (BORNE)" : "", ctrlP.nan, ctrlP.capHit ? " (BORNE)" : "", (double)ctrlT.dMin);
+	ProbeCheck(batterieSaine, "(g3) CONTRÔLE NÉGATIF : aucun cas de la batterie ne casse à la cible retenue", buf);
+
+	// ── LE NOUVEAU PRIX — le seul chiffre destiné à Rodolf ───────────────────
+	const float32 prixRetenu = (ctrlE.tmax > 0.f) ? ref.tmax / ctrlE.tmax : 0.f;
+	printf("\n    ===> LE NOUVEAU PRIX : Tmax / %.2f   (annoncé Tmax / 3,2 en (f2))\n", (double)prixRetenu);
+	printf("         référence %.1f K, à la cible retenue %.1f K — MÊME course.\n", (double)ref.tmax,
+		   (double)ctrlE.tmax);
+	printf("    ⚠️ Ce rapport vient d'une SEULE course, référence et mesure comprises.\n");
 }
 
 void EnqueteLePrix() {

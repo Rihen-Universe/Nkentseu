@@ -56,6 +56,7 @@ void PalierAdvectionFlux(); // (f1) le contrôle négatif de l'advection en flux
 void EnqueteLePrix();		// (f2) LE PRIX du donor-cell (NK_FLUID_MAC=4)
 void EnqueteStabilite();	// (f3) LA STABILITÉ, filet coupé (NK_FLUID_MAC=5)
 void EnqueteRuptureFine();	// (g1) la rupture ENCADRÉE par dichotomie (NK_FLUID_MAC=6)
+void EnqueteCibleSousCyclage(); // (g2)+(g3) la courbe, la cible, le NOUVEAU prix (NK_FLUID_MAC=7)
 void ImagesDuConfinement(float32 epsilon);
 float32 EpsilonConfinement();
 
@@ -649,6 +650,19 @@ int main(int argc, char **argv) {
 		printf("\n=============================================================\n");
 		printf("BILAN (mode NK_FLUID_MAC=6, (g1) LA RUPTURE ENCADREE) : %d controles, %d ROUGES\n", gChecks,
 			   gFailures);
+		printf("=============================================================\n");
+		return gFailures == 0 ? 0 : 1;
+	}
+	// NK_FLUID_MAC=7 : (g2) la COURBE diffusion/cible, MESUREE et non supposee, puis
+	// (g3) le CHOIX de la cible avec une regle de marge ecrite AVANT d'en connaitre
+	// le resultat -- et le NOUVEAU PRIX, Tmax divise par combien.
+	// ⚠️ Les cibles sont dans les UNITES DU BANC : MaxCFL prend le max des deux faces
+	// par axe au lieu de la somme des flux sortants, donc SURESTIME. La rupture est
+	// ENCADREE entre 1,2433 et 1,2436, PAS a 1,0.
+	if (mac != nullptr && mac[0] == '7') {
+		EnqueteCibleSousCyclage();
+		printf("\n=============================================================\n");
+		printf("BILAN (mode NK_FLUID_MAC=7, (g2)+(g3) LA CIBLE) : %d controles, %d ROUGES\n", gChecks, gFailures);
 		printf("=============================================================\n");
 		return gFailures == 0 ? 0 : 1;
 	}

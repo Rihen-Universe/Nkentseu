@@ -388,6 +388,19 @@ namespace nkentseu {
 		// Sur grille décalée la condition porte sur les vitesses de FACE : on prend,
 		// par axe, la plus grande des deux faces de la cellule, et on somme les trois
 		// axes — c'est la forme 3D NON-SPLITTÉE du critère, celle que ce schéma exige.
+		//
+		// ⚠️⚠️ CE N'EST PAS LE CFL DE LA THÉORIE, ET C'EST ICI QU'IL FAUT LE LIRE.
+		// Prendre le MAX des deux faces d'un axe MAJORE la SOMME DES FLUX SORTANTS,
+		// qui est la quantité dont dépend réellement la monotonie du décentrement
+		// amont. Cet estimateur SURESTIME donc, d'un facteur qui DÉPEND DU CHAMP :
+		// grand là où les deux faces d'une cellule diffèrent (fort cisaillement),
+		// petit sur un champ lisse.
+		// MESURE DU 12/09 sur la scène du tourbillon, qui donne l'écart réel : le
+		// schéma est encore SAIN à 1,077 dans ces unités, et la rupture est ENCADRÉE
+		// entre 1,2433 et 1,2436 — pas à 1,0. Toute cible exprimée dans cette échelle
+		// doit porter cette définition avec elle.
+		// ⚠️ Et parce que le facteur dépend du CHAMP, une borne mesurée sur UNE scène
+		// ne se transporte pas telle quelle : c'est ce qui justifie une MARGE.
 		float32 NkFluidGrid::MaxCFL(float32 dt) const {
 			const float32 dt0 = dt / mParams.cellSize;
 			const uint32 sy = mNx + 2;
