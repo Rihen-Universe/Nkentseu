@@ -49,6 +49,7 @@
 #include "NK3DModeler/Shell/NkModelerProperties.h" // panneau de proprietes
 #include "NK3DModeler/Shell/NkModelerBrowser.h" // navigateur de contenu
 #include "NK3DModeler/Shell/NkModelerImport.h"  // import de fichiers 3D (bouton Importer)
+#include "NK3DModeler/Genia/NkGeniaImport.h"     // GENIA : image -> generateur externe -> import (bouton Generer)
 #include "NK3DModeler/Shell/NkModelerMenus.h"   // menus deroulants
 // ECRAN D'ACCUEIL + socle PROJET (.nk3dm) : l'accueil est peint tant qu'aucun
 // projet n'est ouvert, et il porte l'execution differee des actions projet.
@@ -2081,6 +2082,12 @@ int nkmain(const NkEntryState &entry) {
 				const char *un[1] = {st.picker.pickerResultPath};
 				(void)nk3d::NkImportFiles(st, un, 1);
 			}
+			// 3 = GENERER UN OBJET DEPUIS UNE IMAGE (bouton « Generer », GENIA).
+			// Le generateur est un PROCESSUS EXTERNE derriere NkIGenerateur ; le
+			// glTF qu'il ecrit passe par LA MEME chaine que l'import (ci-dessus).
+			// Aucune logique de generation ici : on enchaine, c'est tout.
+			if (st.pickerAction == 3 && st.picker.pickerResultPath[0])
+				(void)nk3d::NkGeniaImporterImage(st, st.picker.pickerResultPath);
 			st.pickerAction = 0;
 			st.matNewPending = false;
 			// Le mode « nouveau materiau » du selecteur se desarme TOUT SEUL,
@@ -2683,6 +2690,52 @@ int nkmain(const NkEntryState &entry) {
 			if (sPickFrame > 0 && agentFrame == sPickFrame) {
 				nk3d::NkPickerOuvrirImport(st);
 				st.pickerAction = 2;
+			}
+		}
+		// NK_GENIA_IMAGE=<chemin> : la generation + import par le MEME chemin que
+		// la confirmation du picker « Generer » (nk3d::NkGeniaImporterImage) --
+		// pour rejouer sans main. Appliquee UNE fois, hote pret, frame 10, comme
+		// NK_IMPORT_FILE. PERIMETRE, dit ici : couvre generateur -> glTF ->
+		// charge -> decoupe -> creation -> archivage ; ne couvre NI le bouton
+		// NI le picker -- une relecture a la main reste necessaire pour eux.
+		// NK_GENIA_PROJET=<dossier parent> : CREE un projet JETABLE
+		// `<parent>/GeniaTemoin/` a la frame 3, hote pret, par LE MEME appel que
+		// la boite « Nouveau projet » (NkProjectCreate, NkModelerWelcome.h cas 6),
+		// puis rejoue `opened()` SANS `rec.Touch` : un temoin ne s'inscrit pas dans
+		// les recents de Rodolf, et n'ecrit jamais dans un de ses projets --
+		// c'est pourquoi NK_OPEN_RECENT n'est pas utilise ici. L'import refuse
+		// sans projet (NkImportCreate) : sans ce crochet, NK_GENIA_IMAGE ne
+		// mesurerait que ce refus.
+		{
+			static bool sGeniaProjDone = false;
+			if (!sGeniaProjDone && agentFrame >= 3 && demo::Demo3DHostReady()) {
+				sGeniaProjDone = true;
+				if (const char *v = std::getenv("NK_GENIA_PROJET")) {
+					NkString errP;
+					const bool dejaOuvert = proj.open;
+					const bool okP = !dejaOuvert && nk3d::NkProjectCreate(v, "GeniaTemoin", proj, &errP);
+					if (okP) {
+						st.welcome = false;
+						st.newProjOpen = false;
+						st.projError[0] = 0;
+						nk3d::NkClearDirty(st);
+					}
+					nkentseu::NkLog::Instance().Infof("[genia] MESURE projet jetable : '%s/GeniaTemoin' -> %s%s", v,
+													  okP ? "cree" : "REFUSE : ",
+													  okP ? "" : (dejaOuvert ? "un projet est deja ouvert" : errP.CStr()));
+				}
+			}
+		}
+		{
+			static bool sAgentGeniaDone = false;
+			if (!sAgentGeniaDone && agentFrame >= 10 && demo::Demo3DHostReady()) {
+				sAgentGeniaDone = true;
+				if (const char *v = std::getenv("NK_GENIA_IMAGE")) {
+					const int32 avant = st.BrowserCount();
+					const bool ok = nk3d::NkGeniaImporterImage(st, v);
+					nkentseu::NkLog::Instance().Infof("[genia] MESURE crochet : '%s' -> %s, %d carte(s) nee(s)", v,
+													  ok ? "importe" : "REFUSE", st.BrowserCount() - avant);
+				}
 			}
 		}
 		{

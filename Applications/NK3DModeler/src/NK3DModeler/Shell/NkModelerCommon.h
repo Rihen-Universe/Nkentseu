@@ -302,5 +302,18 @@ namespace nkentseu {
 			st.picker.AjouterFiltre("Tous les fichiers", "*");
 		}
 
+		// GENIA -- le selecteur de l'IMAGE a generer (bouton « Generer » du
+		// navigateur). Meme regle que l'import : pas de confinement au projet,
+		// depart a la racine. Les extensions sont celles que le generateur
+		// (Tools/Genia/genia_triposr.py, via Pillow) lit REELLEMENT.
+		inline void NkPickerOuvrirImage(NkModelerState &st) {
+			st.picker.OpenPickerBase(editorkit::NkFilePickerState::PK_File,
+									 st.projectRoot.CStr(), nullptr, 0, nullptr);
+			st.picker.filtres.Clear();
+			st.picker.filtreActif = 0;
+			st.picker.AjouterFiltre("Images (.png .jpg .jpeg .webp .bmp)", "png;jpg;jpeg;webp;bmp");
+			st.picker.AjouterFiltre("Tous les fichiers", "*");
+		}
+
 	} // namespace nk3d
 } // namespace nkentseu
