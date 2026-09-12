@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 # -*- coding: utf-8 -*-
+# AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 
 r"""
 
@@ -927,6 +928,16 @@ with workspace("Nkentseu", location="."):
 
 
     with include("Kernel/Runtime/NKRenderer/NKRenderer.jenga"):
+
+        pass
+
+
+
+    # NKVFX (effets : eau, eclaboussures, particules ; APRES NKRenderer dont il
+    # depend). Sans cette inclusion le module serait declare dans le registre et
+    # JAMAIS construit -- « declare mais pas honore » au niveau du build.
+
+    with include("Kernel/Runtime/NKVFX/NKVFX.jenga"):
 
         pass
 
