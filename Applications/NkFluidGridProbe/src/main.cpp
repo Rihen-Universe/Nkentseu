@@ -51,7 +51,8 @@ void PalierVorticite();
 void EnqueteConfinement();
 void PalierBranchement();
 void PalierGrilleMAC(); // (m1) et (m2) — les deux contrôles de la bascule MAC
-void EnqueteBascule();	// les deux ENQUÊTES de la bascule (NK_FLUID_MAC=3)
+void EnqueteBascule();	  // les deux ENQUÊTES de la bascule (NK_FLUID_MAC=3)
+void PalierAdvectionFlux(); // (f1) le contrôle négatif de l'advection en flux
 void ImagesDuConfinement(float32 epsilon);
 float32 EpsilonConfinement();
 
@@ -609,12 +610,14 @@ int main(int argc, char **argv) {
 	if (mac != nullptr && (mac[0] == '1' || mac[0] == '2')) {
 		ControlesPositifs();
 		PalierGrilleMAC();
-		// NK_FLUID_MAC=2 : le JALON LE PLUS COURT -- seuls (m1) et (m2) tournent,
-		// en moins d'une seconde. Il repond a UNE seule question : le stockage sur
-		// les FACES est-il pose et la divergence est-elle devenue compacte ? Il ne
-		// dit RIEN du solveur, RIEN de la masse, et surtout RIEN du critere decisif
-		// du § 1 -- pour celui-la il faut NK_FLUID_MAC=1, et pour un verdict, la
-		// course complete.
+		PalierAdvectionFlux();
+		// NK_FLUID_MAC=2 : le JALON LE PLUS COURT -- seuls (m1), (m2) et (f1)
+		// tournent, en quelques secondes. Il repond a des questions de SCHEMA, sur
+		// des champs analytiques : le stockage sur les FACES est-il pose, la
+		// divergence est-elle compacte, et le bilan de masse est-il ferme ? Il ne
+		// dit RIEN du PRIX du schema, RIEN de sa stabilite, et surtout RIEN du
+		// critere decisif du § 1 -- pour celui-la il faut NK_FLUID_MAC=1, et pour un
+		// verdict, la course complete.
 		if (mac[0] == '1') {
 			MasseEtDivergence(false);
 			PlancherDuSolveur(0.f);
@@ -631,6 +634,11 @@ int main(int argc, char **argv) {
 	// qui naitrait vert le jour de la bascule ne dirait pas s'il juge la bascule ou
 	// s'il juge que « ca compile ». Voir PLAN_GRILLE_MAC.md, § 2 et § 4.
 	PalierGrilleMAC();
+	// (f1) le controle negatif de l'ADVECTION CONSERVATIVE EN FLUX. ROUGE tant que
+	// l'advection reste semi-lagrangienne : elle n'a AUCUN bilan. Un schema en flux
+	// est conservatif par construction et doit le faire verdir au PREMIER jet.
+	// Voir PLAN_ADVECTION_FLUX.md, § 1.
+	PalierAdvectionFlux();
 	// Les deux ENQUETES (six regimes de masse, table des schemas) coutent a elles
 	// seules plus que tous les temoins reunis : elles tournent sous NK_FLUID_DIAG=1.
 	// Ce ne sont pas des temoins -- ce sont les mesures qui ont DESIGNE la cause de
