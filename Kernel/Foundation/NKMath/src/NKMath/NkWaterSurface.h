@@ -185,6 +185,15 @@ namespace nkentseu {
 				// analytiquement pour la normale, et ce déterminant est leur mineur
 				// horizontal. Le recalculer ailleurs créerait une seconde version qui
 				// divergerait un jour de celle-ci — sans que rien ne le dise.
+				// ── LA MATRICE, et pas seulement son déterminant ────────────────────
+				// Inverser le déplacement demande de résoudre J · delta = r : le
+				// déterminant seul n'y suffit pas. Ces quatre entrées sont les mêmes
+				// tangentes, rangées :
+				//     | jxx  jxz |     | dP.x/dx   dP.x/dz |
+				//     | jzx  jzz |  =  | dP.z/dx   dP.z/dz |
+				// Au repos c'est l'identité, donc jxx = jzz = 1 et jxz = jzx = 0.
+				float32 jxx = 1.f, jxz = 0.f;
+				float32 jzx = 0.f, jzz = 1.f;
 				float32 jacobianXZ = 1.f;
 		};
 
@@ -233,7 +242,14 @@ namespace nkentseu {
 			//     | dP.z/dx   dP.z/dz |  =  | dPdx.z   dPdz.z |
 			// Au repos les tangentes valent (1,0,0) et (0,0,1) : J = 1 EXACTEMENT, et
 			// pas « à peu près » — c'est ce que le contrôle négatif (y1) vérifie.
-			o.jacobianXZ = dPdx.x * dPdz.z - dPdz.x * dPdx.z;
+			o.jxx = dPdx.x; // dP.x/dx
+			o.jxz = dPdz.x; // dP.x/dz
+			o.jzx = dPdx.z; // dP.z/dx
+			o.jzz = dPdz.z; // dP.z/dz
+			// ⚠️ LE DÉTERMINANT EST TIRÉ DES QUATRE CHAMPS, et non recalculé depuis les
+			// tangentes : deux expressions équivalentes finiraient un jour par ne plus
+			// l'être, et rien ne le dirait. Une seule source.
+			o.jacobianXZ = o.jxx * o.jzz - o.jxz * o.jzx;
 
 			NkVec3f n = dPdz.Cross(dPdx); // (0,0,1) x (1,0,0) = (0,1,0) au repos : +Y
 			const float32 l = NkSqrt(n.x * n.x + n.y * n.y + n.z * n.z);
@@ -243,6 +259,80 @@ namespace nkentseu {
 			if (lf > 1e-9f)
 				o.normalFast = o.normalFast * (1.f / lf);
 			return o;
+		}
+
+		// ── LA PRÉIMAGE : quel point AU REPOS se déplace jusqu'à (tx, tz) ? ────────
+		//
+		// POURQUOI ELLE, ET PAS UN REMBOURRAGE. La grille couvre R au repos et affiche
+		// D(R) ; pour garantir D(R) ⊇ V il faut construire R ⊇ D⁻¹(V). Élargir R
+		// « partout » fait payer sur toute la surface une correction due sur une
+		// bande, et c'est mesuré : +20 % d'étendue ne rendait que 0,741 de couverture
+		// tout en faisant passer le gâchis de 0,20 à 0,52 — au-delà de son seuil.
+		// La préimage, elle, ne rajoute aucun sommet : elle les REFORME.
+		//
+		// Gerstner ne s'inverse pas analytiquement, mais son jacobien est exact et
+		// déjà dérivé, donc Newton converge en quelques pas :
+		//        W(n+1) = W(n) − J⁻¹ ( D(W(n)) − T )
+		// Le point de départ est la cible elle-même : le déplacement est une petite
+		// perturbation de l'identité, pas une transformation quelconque.
+		//
+		// 🔴 SON DOMAINE, ÉCRIT AVANT LE CODE — comme la limite du champ de hauteur.
+		// `J > 0` EST la condition d'inversibilité locale, et J vaut 1 − raideur pour
+		// un train (mesuré par (y2)). Au-delà de raideur 1, la préimage n'est plus
+		// UNIQUE : ce n'est pas qu'on ne sait pas la calculer, c'est qu'il y en a
+		// plusieurs. La fonction REFUSE alors, au lieu d'en rendre une au hasard.
+		//
+		// ⚠️ ET ELLE REFUSE AUSSI QUAND ELLE N'A PAS CONVERGÉ. Un solveur qui rend
+		// silencieusement un résultat non convergé est pire que pas de solveur : il
+		// déplace l'erreur au lieu de la signaler. `iterations` est rendu dans tous
+		// les cas, pour que l'appelant puisse mesurer la convergence au lieu de la
+		// croire.
+		// 🔴 LA TOLÉRANCE EST RELATIVE À LA MAGNITUDE, ET C'EST UNE MESURE QUI L'IMPOSE.
+		// Première version : un seuil ABSOLU de 1e-4 m. Il ne pouvait pas être atteint.
+		// Mesuré sur les trois poses, le résidu plafonnait à 1,22e-04 et 2,44e-04 m,
+		// avec les 24 itérations systématiquement consommées — or l'étendue s'étale
+		// jusqu'à ~2·10³ m, et 1 ULP de float32 y vaut EXACTEMENT 2,44e-04 m. Les
+		// résidus étaient donc à 1 et 2 ULP : Newton avait convergé aussi loin que
+		// l'arithmétique le permet, et le critère exigeait mieux que ce que le type
+		// peut représenter. C'est la faute déjà payée ailleurs dans ce dépôt — un
+		// critère écrit d'avance sur un instrument trop grossier est faux d'avance.
+		// On demande donc quelques ULP RELATIFS, ce qui est l'énoncé sensé, au lieu de
+		// desserrer le seuil absolu au jugé.
+		NK_FORCE_INLINE bool NkWaterInverseXZ(const NkWaterParams &p, float32 tx, float32 tz,
+											  float32 t, float32 &outX, float32 &outZ,
+											  uint32 &iterations, float32 toleranceRelative = 1e-6f,
+											  uint32 maxIter = 24u) noexcept {
+			float32 x = tx, z = tz;
+			iterations = 0u;
+			outX = x;
+			outZ = z;
+			// L'échelle de la cible fixe le grain atteignable. Le plancher absolu tient
+			// le cas où la cible est proche de l'origine, où le relatif s'effondrerait.
+			const float32 magnitude = NkFabs(tx) + NkFabs(tz);
+			const float32 tolerance = NkMax(1e-5f, toleranceRelative * magnitude);
+			for (uint32 n = 0; n < maxIter; ++n) {
+				const NkWaterPoint w = NkWaterEval(p, x, z, t);
+				const float32 rx = w.position.x - tx, rz = w.position.z - tz;
+				iterations = n + 1u;
+				if (rx * rx + rz * rz <= tolerance * tolerance) {
+					outX = x;
+					outZ = z;
+					return true;
+				}
+				if (NkFabs(w.jacobianXZ) < 1e-6f) {
+					outX = x; // plus inversible ici : la surface se replie
+					outZ = z;
+					return false;
+				}
+				const float32 inv = 1.f / w.jacobianXZ;
+				const float32 dx = (w.jzz * rx - w.jxz * rz) * inv;
+				const float32 dz = (-w.jzx * rx + w.jxx * rz) * inv;
+				x -= dx;
+				z -= dz;
+			}
+			outX = x;
+			outZ = z;
+			return false; // pas convergé, et ça se DIT
 		}
 
 		// La hauteur seule (les témoins de dispersion suivent une crête là-dessus).
