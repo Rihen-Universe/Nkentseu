@@ -45,6 +45,14 @@ namespace {
 
 	int gP = 0, gF = 0;
 
+	// LE PLANCHER DE COMPARAISONS sous lequel un temoin de stabilite ne conclut
+	// PAS. Avec un pas de 4 sur une grille 64x64, une image pleine en offre ~272 ;
+	// en dessous de 32 (un peu plus d'un huitieme), la grille a trop change entre
+	// les deux images pour qu'une moyenne veuille dire quoi que ce soit. Le cas
+	// sort alors INDETERMINE -- ni vert ni rouge. Un vert obtenu sur zero
+	// comparaison serait un faux vert, et un faux vert est pire qu'un rouge.
+	const uint32 kPlancherComparables = 32u;
+
 	void XCHECK(bool ok, const char *quoi) {
 		if (ok) {
 			++gP;
@@ -1023,7 +1031,7 @@ int NkSondeOceanGrille() {
 			{{0.f, 8.f, 0.f}, {0.f, 2.f, -60.f}, "nominale, oeil a 8 m"},
 			{{0.f, 1.f, 0.f}, {0.f, 1.2f, -60.f}, "au ras de l'eau, oeil a 1 m"},
 		};
-		uint32 lisses = 0;
+		uint32 lisses = 0, indetermines = 0;
 		for (uint32 k = 0; k < 2u; ++k) {
 			const NkProjectedGrid gRepos = BUILD(bancs[k], p);
 			const NkProjectedGrid gUn = BUILD(TournerYaw(bancs[k], 1.f), p);
@@ -1031,15 +1039,29 @@ int NkSondeOceanGrille() {
 			const float32 dUn = GlissementMoyen(gRepos, gUn, p, 4u);
 			const float32 dQuart = GlissementMoyen(gRepos, gQuart, p, 4u);
 			const float32 rapport = (dQuart > 1e-9f) ? dUn / dQuart : 0.f;
+			// ⚠️ LE COMPTE DE COMPARAISONS S'IMPRIME TOUJOURS, pas seulement quand le
+			// glissement vaut zero. Un compteur qui n'apparait qu'au cas suspect ne
+			// protege que le cas qu'on avait deja soupconne.
+			const uint32 comparables = SommetsComparables(gRepos, gUn, p, 4u);
+			const bool mesurable = comparables >= kPlancherComparables;
 			std::fprintf(stderr,
 						 "     (x10) %-28s : glissement 1 deg %.4f maille | 0,25 deg %.4f"
-						 " -> rapport %.2f (4,00 = continu)\n",
-						 bancs[k].nom, (double)dUn, (double)dQuart, (double)rapport);
-			if (dUn > 1e-6f && rapport > 3.f && rapport < 5.f)
+						 " -> rapport %.2f (4,00 = continu) | %u sommets compares%s\n",
+						 bancs[k].nom, (double)dUn, (double)dQuart, (double)rapport, comparables,
+						 mesurable ? "" : "  -> INDETERMINE");
+			if (!mesurable)
+				++indetermines;
+			else if (rapport > 3.f && rapport < 5.f)
 				++lisses;
 		}
-		XCHECK(lisses == 2u,
-			   "(x10) le glissement est PROPORTIONNEL a l'angle : aucun saut entre deux images voisines");
+		// LE COMPTE PORTE L'ASSERTION : sous le plancher, le cas n'est ni vert ni
+		// rouge, il est INDETERMINE. Un vert obtenu sur zero comparaison est un faux
+		// vert -- c'est le piege du 07/09, trois sondes vertes pendant que le defaut
+		// etait a l'ecran. Et un temoin dont TOUS les cas seraient indetermines ne
+		// prouverait rien : on exige donc au moins un cas mesurable.
+		std::fprintf(stderr, "     (x10) %u lisses, %u indetermines sur 2\n", lisses, indetermines);
+		XCHECK(indetermines < 2u && lisses == (2u - indetermines),
+			   "(x10) le glissement est PROPORTIONNEL a l'angle la ou il est MESURABLE");
 
 		// CONTRE-EPREUVE : si la camera de portee SAUTAIT d'une image a l'autre, ce
 		// nombre doit le voir. On lui fournit donc le saut -- meme rotation de 0,25
@@ -1626,7 +1648,7 @@ int NkSondeOceanGrille() {
 			{{0.f, 1.f, 0.f}, {0.f, 1.2f, -60.f}, "rasante 1 m"},
 			{{0.f, -3.f, 0.f}, {0.f, 1.f, -20.f}, "sous l'eau"},
 		};
-		uint32 couvertes = 0, gachisOk = 0, pasOk = 0, stables = 0;
+		uint32 couvertes = 0, gachisOk = 0, pasOk = 0, stables = 0, stablesIndet = 0;
 		for (uint32 k = 0; k < 3u; ++k) {
 			const NkMat4f vpR = VP(troisPoses[k]);
 			const NkMat4f invR = vpR.Inverse();
@@ -1670,14 +1692,22 @@ int NkSondeOceanGrille() {
 				++gachisOk;
 			if (paB < 1.5f)
 				++pasOk;
-			if (dUn > 1e-6f && rapport > 3.f && rapport < 5.f)
+			// LE COMPTE PORTE L'ASSERTION. Sous le plancher, la pose sort INDETERMINEE
+			// au lieu d'etre comptee comme un echec : « rien n'etait mesurable » et
+			// « ca a saute » ne sont pas le meme verdict, et les confondre ferait
+			// porter au correctif un tort qui n'est peut-etre pas le sien.
+			if (comparables < kPlancherComparables)
+				++stablesIndet;
+			else if (rapport > 3.f && rapport < 5.f)
 				++stables;
 		}
+		std::fprintf(stderr, "     (x19) stabilite : %u mesurables et lisses, %u INDETERMINEES\n",
+					 stables, stablesIndet);
 		XCHECK(couvertes == 3u, "(x19) COUVERTURE 1,00 sur les trois poses APRES le retrait");
 		XCHECK(gachisOk == 3u, "(x19b) GACHIS sous 0,50 sur les trois poses");
 		XCHECK(pasOk == 3u, "(x19c) PAS ECRAN quasi constant sur les TROIS poses");
-		XCHECK(stables == 3u,
-			   "(x19d) STABILITE : le retrait ne fait pas sauter les sommets entre deux images");
+		XCHECK(stablesIndet < 3u && stables == (3u - stablesIndet),
+			   "(x19d) STABILITE : la ou c'est MESURABLE, le retrait ne fait pas sauter les sommets");
 	}
 
 	// (x20) POURQUOI LA STABILITE CASSE : LE CRITERE D'APPARTENANCE BASCULE.
@@ -1698,33 +1728,64 @@ int NkSondeOceanGrille() {
 			{{0.f, -3.f, 0.f}, {0.f, 1.f, -20.f}, "sous l'eau"},
 		};
 		const float32 angles[4] = {0.f, 0.25f, 0.5f, 1.f};
-		uint32 bascules = 0;
+		uint32 basculesBinaire = 0, basculesContinu = 0;
 		for (uint32 k = 0; k < 3u; ++k) {
-			uint32 comptes[4] = {0u, 0u, 0u, 0u};
-			uint32 appliques[4] = {0u, 0u, 0u, 0u};
+			uint32 binaires[4] = {0u, 0u, 0u, 0u};
+			uint32 continus[4] = {0u, 0u, 0u, 0u};
 			for (uint32 a = 0; a < 4u; ++a) {
-				const NkProjectedGrid gk = BUILD(TournerYaw(bancs[k], angles[a]), p);
-				uint32 e = 0;
-				for (uint32 i = 0; i < gk.ndcCount; ++i)
+				const Pose po = TournerYaw(bancs[k], angles[a]);
+				const NkProjectedGrid gk = BUILD(po, p);
+				const NkMat4f renderVP = VP(po);
+				uint32 b = 0, c = 0;
+				for (uint32 i = 0; i < gk.ndcCount; ++i) {
+					// L'ANCIEN critere, refait ici a l'identique : le point rabattu
+					// est-il, OUI ou NON, de l'eau que la camera voit ?
+					NkVec3f sol;
+					if (SolDepuisNDC(gk, p, gk.ndcX[i], gk.ndcY[i], sol) &&
+						!EauVisibleAuSol(renderVP, p, sol.x, sol.z))
+						++b;
+					// Le NOUVEAU : rabattu a plus de la moitie.
 					if (gk.ndcEgare[i])
-						++e;
-				comptes[a] = e;
-				appliques[a] = gk.retraitApplique ? 1u : 0u;
+						++c;
+				}
+				binaires[a] = b;
+				continus[a] = c;
 			}
-			const bool bascule = (comptes[0] != comptes[1]) || (comptes[1] != comptes[2]) ||
-								 (comptes[2] != comptes[3]) || (appliques[0] != appliques[3]);
-			if (bascule)
-				++bascules;
+			const bool bB = (binaires[0] != binaires[1]) || (binaires[1] != binaires[2]) ||
+							(binaires[2] != binaires[3]);
+			const bool bC = (continus[0] != continus[1]) || (continus[1] != continus[2]) ||
+							(continus[2] != continus[3]);
+			if (bB)
+				++basculesBinaire;
+			if (bC)
+				++basculesContinu;
 			std::fprintf(stderr,
-						 "     (x20) %-12s : egares a 0/0,25/0,5/1 deg = %u/%u/%u/%u |"
-						 " retrait applique = %u/%u/%u/%u -> %s\n",
-						 bancs[k].nom, comptes[0], comptes[1], comptes[2], comptes[3],
-						 appliques[0], appliques[1], appliques[2], appliques[3],
-						 bascule ? "BASCULE" : "stable");
+						 "     (x20) %-12s : critere BINAIRE a 0/0,25/0,5/1 deg = %u/%u/%u/%u (%s)"
+						 " | critere CONTINU = %u/%u/%u/%u (%s)\n",
+						 bancs[k].nom, binaires[0], binaires[1], binaires[2], binaires[3],
+						 bB ? "BASCULE" : "stable", continus[0], continus[1], continus[2],
+						 continus[3], bC ? "BASCULE" : "stable");
 		}
-		std::fprintf(stderr, "     (x20) %u pose(s) sur 3 ou l'appartenance bascule\n", bascules);
-		XCHECK(bascules > 0u,
-			   "(x20) le compte d'egares BASCULE avec la rotation : voila la cause du saut");
+		// ⚠️ CE TEMOIN A CHANGE DE SENS DEUX FOIS, ET LES DEUX SONT ECRITES.
+		//
+		// Version 1, quand le retrait etait BINAIRE : il demontrait la CAUSE du saut
+		// -- l'appartenance bascule, la boite saute, les sommets sautent (6/6/4/5 sur
+		// le pont). Version 2, apres le passage au continu : j'ai garde l'assertion
+		// « ca bascule toujours » en la croyant inoffensive. ELLE EST DEVENUE FAUSSE :
+		// 0 pose sur 3. Le nouveau critere (`t > 0,5`) n'est pas l'ancien (`marge <=
+		// 0`), et les six « egares » du pont etaient tous MARGINALEMENT dehors --
+		// c'est bien pour ca qu'un degre de rotation les faisait changer de camp.
+		//
+		// Version 3, celle-ci : on mesure LES DEUX CRITERES COTE A COTE sur les memes
+		// images. L'ancien doit basculer -- sinon il n'y avait rien a corriger -- et le
+		// nouveau doit rester stable. C'est la contre-epreuve a une seule variable du
+		// passage au continu, et elle peut echouer des deux cotes.
+		std::fprintf(stderr,
+					 "     (x20) bascule : %u pose(s) sur 3 avec le critere BINAIRE, %u avec le"
+					 " critere CONTINU\n",
+					 basculesBinaire, basculesContinu);
+		XCHECK(basculesBinaire > 0u && basculesContinu == 0u,
+			   "(x20) l'ancien critere BASCULE, le nouveau NON : voila ce que le continu achete");
 	}
 
 	std::fprintf(stderr, "=== grille projetee : %d passes, %d echecs ===\n", gP, gF);
