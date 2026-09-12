@@ -803,6 +803,190 @@ namespace {
 		ECHECK(peuProfond, "(r) en eau PEU PROFONDE la vitesse suit sqrt(g h) a 10 % : les vagues RALENTISSENT au rivage");
 	}
 
+	// ─────────────────────────────────────────────────────────────────────
+	// (y1)(y2)(y3) LE DEFERLEMENT : le jacobien horizontal, et ce qu'il donne.
+	//
+	// ⚠️ CE QUI N'EST PAS PROMIS, redit ici et pas seulement dans l'en-tete : un
+	// champ de hauteur ne peut PAS representer une vague qui se retourne, parce
+	// qu'une surface repliee est MULTIVALUEE et qu'un y = f(x, z) ne l'est jamais.
+	// Ce qui est mesure est le REPLI DE L'APPLICATION HORIZONTALE :
+	//        J = det( d(P.x, P.z) / d(x, z) )
+	// J = 1 au repos, et J <= 0 quand l'application se replie sur elle-meme.
+	// ─────────────────────────────────────────────────────────────────────
+	void TemoinDeferlement() {
+		std::fprintf(stderr, "-- (y1..y3) le deferlement : J = det(d(P.x,P.z)/d(x,z)) --\n");
+
+		// (y1) CONTROLE NEGATIF. Si J ne vaut pas 1 quand RIEN ne deplace, le
+		// jacobien est faux et tout ce qui suit ment -- le seuil comme l'ecume.
+		// Deux facons de ne rien deplacer, et les DEUX doivent rendre 1 EXACTEMENT,
+		// pas « a peu pres » : au repos les tangentes valent (1,0,0) et (0,0,1), et
+		// 1*1 - 0*0 est exact en flottant.
+		{
+			const NkWaterParams sansAmpl = UneHoule(20.f, 0.f, 0.8f); // amplitude nulle
+			const NkWaterParams sansRaid = UneHoule(20.f, 0.6f, 0.f); // raideur nulle
+			bool exactA = true, exactR = true;
+			float32 pireA = 0.f, pireR = 0.f;
+			for (uint32 i = 0; i < 200u; ++i) {
+				const float32 x = 0.37f * (float32)i, z = 0.11f * (float32)i, t = 0.05f * (float32)i;
+				const float32 ja = NkWaterEval(sansAmpl, x, z, t).jacobianXZ;
+				const float32 jr = NkWaterEval(sansRaid, x, z, t).jacobianXZ;
+				if (ja != 1.f) {
+					exactA = false;
+					if (NkFabs(ja - 1.f) > pireA)
+						pireA = NkFabs(ja - 1.f);
+				}
+				if (jr != 1.f) {
+					exactR = false;
+					if (NkFabs(jr - 1.f) > pireR)
+						pireR = NkFabs(jr - 1.f);
+				}
+			}
+			std::fprintf(stderr,
+						 "     amplitude nulle : ecart max a 1 = %.3e | raideur nulle : %.3e (200 points)\n",
+						 (double)pireA, (double)pireR);
+			ECHECK(exactA && exactR, "(y1) CONTROLE NEGATIF : sans deplacement, J vaut 1 AU BIT");
+		}
+
+		// (y2) LE SEUIL DE BRISURE SE MESURE, IL NE SE CHOISIT PAS.
+		//
+		// PREDICTION ECRITE AVANT LA MESURE, depuis le code : Q est normalise par
+		// (k A N), donc Q A k = raideur / N. Pour UN train aligne sur x, les termes
+		// croises sont nuls et dP.z/dz vaut 1 ; il reste
+		//        J = 1 - raideur * sin(theta)
+		// donc J <= 0 pour la premiere fois a RAIDEUR = 1,000 EXACTEMENT. Si la
+		// mesure dit autre chose, c'est ma lecture du code qui est fausse.
+		//
+		// ⚠️ ET LA DEPENDANCE A LA RESOLUTION EST DANS L'ECHANTILLONNAGE, PAS DANS LA
+		// LOI. J est analytique et ponctuel ; mais un seuil cherche en BALAYANT une
+		// grille peut rater le maximum du sinus si la grille est grossiere, et
+		// rendre un seuil trop grand. Il doit donc CONVERGER quand on raffine. S'il
+		// derivait au lieu de converger, je mesurerais la discretisation et pas la
+		// vague -- c'est exactement ce que le chantier feu vient de payer.
+		{
+			// 🔴 ET MES RESOLUTIONS PASSAIENT POUR UNE MAUVAISE RAISON. Premiere
+			// version : 16, 64, 256, 1024 -- TOUS multiples de 4. Avec x = 20 i / n,
+			// l'angle vaut 2 pi i / n et le sinus atteint EXACTEMENT +/-1 a chaque
+			// fois : les quatre grilles tombaient pile sur le minimum de J, donc
+			// AUCUNE ne pouvait manquer le seuil. Le temoin ne testait pas ce qu'il
+			// annoncait. On ajoute 37 et 101, qui ne divisent pas le tour.
+			const uint32 resolutions[6] = {16u, 37u, 64u, 101u, 256u, 1024u};
+			float32 seuils[6] = {0.f, 0.f, 0.f, 0.f, 0.f, 0.f};
+			float32 minJUn[6] = {0.f, 0.f, 0.f, 0.f, 0.f, 0.f};
+			for (uint32 r = 0; r < 6u; ++r) {
+				const uint32 n = resolutions[r];
+				float32 seuil = -1.f;
+				for (uint32 s = 1u; s <= 400u && seuil < 0.f; ++s) {
+					const float32 raideur = 0.005f * (float32)s; // 0,005 -> 2,000
+					const NkWaterParams p = UneHoule(20.f, 0.6f, raideur);
+					float32 minJ = 1e30f;
+					for (uint32 i = 0; i < n; ++i) {
+						const float32 x = 20.f * (float32)i / (float32)n;
+						const float32 j = NkWaterEval(p, x, 0.f, 0.f).jacobianXZ;
+						if (j < minJ)
+							minJ = j;
+					}
+					if (minJ <= 0.f)
+						seuil = raideur;
+				}
+				seuils[r] = seuil;
+
+				// LA MESURE DIRECTE DE L'ERREUR D'ECHANTILLONNAGE, sans balayage. A
+				// raideur 1, J vaut exactement 0 au point ou le sinus vaut 1 : une
+				// grille qui tombe juste rend 0, une grille qui manque ce point rend un
+				// petit POSITIF, et ce positif EST l'erreur de discretisation. C'est
+				// plus fin que le balayage, dont le pas de 0,005 est plus grossier que
+				// l'ecart attendu (~0,004 a n = 37) et qui ne pourrait donc pas le voir.
+				{
+					const NkWaterParams p1 = UneHoule(20.f, 0.6f, 1.f);
+					float32 mj = 1e30f;
+					for (uint32 i = 0; i < n; ++i) {
+						const float32 x = 20.f * (float32)i / (float32)n;
+						const float32 j = NkWaterEval(p1, x, 0.f, 0.f).jacobianXZ;
+						if (j < mj)
+							mj = j;
+					}
+					minJUn[r] = mj;
+				}
+				std::fprintf(stderr,
+							 "     %4u points par longueur d'onde : J <= 0 des raideur %.3f | a raideur 1,"
+							 " min J = %+.5f%s\n",
+							 n, (double)seuil, (double)minJUn[r],
+							 (n % 4u == 0u) ? "  (grille alignee sur le sinus)" : "  (grille DESALIGNEE)");
+			}
+			const float32 fin = seuils[5];
+			float32 ecartRes = 0.f, pireMinJ = 0.f;
+			for (uint32 r = 0; r < 6u; ++r) {
+				const float32 e = NkFabs(seuils[r] - fin);
+				if (e > ecartRes)
+					ecartRes = e;
+				if (minJUn[r] > pireMinJ)
+					pireMinJ = minJUn[r];
+			}
+			std::fprintf(stderr,
+						 "     seuil le plus fin %.3f (prediction 1,000) | ecart max entre resolutions %.3f"
+						 " | pire min J a raideur 1 : %+.5f\n",
+						 (double)fin, (double)ecartRes, (double)pireMinJ);
+			ECHECK(fin > 0.f && NkFabs(fin - 1.f) < 0.02f,
+				   "(y2) le seuil de brisure MESURE tombe sur la prediction : raideur 1,000");
+			ECHECK(ecartRes < 0.05f && pireMinJ < 0.02f,
+				   "(y2b) il NE DEPEND PAS de la resolution, y compris sur des grilles DESALIGNEES");
+		}
+
+		// (y3) L'ECUME EST UN CHAMP, PAS UNE VALEUR.
+		// On ISOLE la source jacobien : rivage et cretes desactives, sinon le temoin
+		// melangerait trois causes et ne dirait rien -- c'est la regle qui a produit
+		// (q1) et (q2) plus haut.
+		{
+			NkWaterOptics opt;
+			opt.shoreDepth = 0.f;
+			opt.crestHeight = 0.f;
+			const NkWaterParams brise = UneHoule(20.f, 0.6f, 1.4f); // au-dela du seuil
+			uint32 nonNuls = 0, total = 0, incoherents = 0;
+			float32 fmin = 1e30f, fmax = -1e30f, jmin = 1e30f;
+			for (uint32 i = 0; i < 400u; ++i) {
+				const float32 x = 20.f * (float32)i / 400.f;
+				const NkWaterPoint w = NkWaterEval(brise, x, 0.f, 0.f);
+				const float32 f = NkWaterFoam(opt, 10.f, w.position.y, w.jacobianXZ);
+				++total;
+				if (f > 0.f)
+					++nonNuls;
+				if ((f > 0.f) != (w.jacobianXZ < opt.breakJacobian))
+					++incoherents;
+				if (f < fmin)
+					fmin = f;
+				if (f > fmax)
+					fmax = f;
+				if (w.jacobianXZ < jmin)
+					jmin = w.jacobianXZ;
+			}
+			std::fprintf(stderr,
+						 "     raideur 1,4 : J min %.3f | ecume de %.3f a %.3f | non nulle sur %u points"
+						 " sur %u | incoherences %u\n",
+						 (double)jmin, (double)fmin, (double)fmax, nonNuls, total, incoherents);
+			ECHECK(incoherents == 0u,
+				   "(y3) l'ecume est non nulle EXACTEMENT la ou J passe sous le seuil, et nulle ailleurs");
+			ECHECK(fmin == 0.f && fmax > 0.f && nonNuls < total,
+				   "(y3b) c'est un CHAMP : nul par endroits, non nul ailleurs -- pas une valeur uniforme");
+
+			// CONTRE-EPREUVE : une mer CALME ne doit produire AUCUNE ecume de
+			// deferlement. Sans elle, une ecume allumee partout passerait pour un
+			// champ -- « un champ d'ecume uniforme est un echec, meme s'il est joli ».
+			const NkWaterParams calme = UneHoule(20.f, 0.6f, 0.2f);
+			float32 fmaxCalme = 0.f;
+			for (uint32 i = 0; i < 400u; ++i) {
+				const float32 x = 20.f * (float32)i / 400.f;
+				const NkWaterPoint w = NkWaterEval(calme, x, 0.f, 0.f);
+				const float32 f = NkWaterFoam(opt, 10.f, w.position.y, w.jacobianXZ);
+				if (f > fmaxCalme)
+					fmaxCalme = f;
+			}
+			std::fprintf(stderr, "     CONTRE-EPREUVE mer calme (raideur 0,2) : ecume max %.3f\n",
+						 (double)fmaxCalme);
+			ECHECK(fmaxCalme == 0.f,
+				   "(y3c) CONTRE-EPREUVE : une mer calme ne produit AUCUNE ecume de deferlement");
+		}
+	}
+
 } // namespace
 
 int RunEauTests(int &pass, int &fail) {
@@ -816,5 +1000,6 @@ int RunEauTests(int &pass, int &fail) {
 	TemoinTissu();
 	TemoinHoule();
 	TemoinRivage();
+	TemoinDeferlement();
 	return fail;
 }
