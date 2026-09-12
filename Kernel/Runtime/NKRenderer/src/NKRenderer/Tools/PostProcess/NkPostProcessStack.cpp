@@ -413,9 +413,17 @@ void main() {
 				pd.shader = mShaderBloomUp;
 				pd.depthStencil = NkDepthStencilDesc::NoDepth();
 				pd.rasterizer = NkRasterizerDesc::NoCull();
-				// Phase H.2 : blend additif (SRC + DST = ONE * src + ONE * dst).
-				// L'upsample accumule par-dessus le contenu (deja downsamples).
-				pd.blend = NkBlendDesc::Additive();
+				// LA REMONTEE MELANGE, ELLE N'ADDITIONNE PLUS (12/09). Le blend etait
+				// additif (ONE * src + ONE * dst) : les six niveaux s'empilaient et
+				// l'energie du halo valait 8,9x l'exces de la source (Q193, banc vue 6),
+				// pour 6 x bloomStrength 1,5 = 9 predit -- la seconde cause de
+				// « l'eponge ». En melange classique (SRC_ALPHA * src +
+				// ONE_MINUS_SRC_ALPHA * dst), avec pp_bloomup qui sort (col, s) NON
+				// premultiplie, la cible devient lerp(niveau courant, remontee, s) : les
+				// niveaux se PONDERENT (somme des poids = 1) et l'energie revient a
+				// celle de la passe brillante. (Sortir (col * s, s) ici donnerait un
+				// poids s^2 : 0,58 de l'energie a s = 0,7, mesure.)
+				pd.blend = NkBlendDesc::Alpha();
 				pd.debugName = "PP_BloomUp";
 				pd.renderPass = mBloomRT[0].GetRenderPass();
 				pd.AddPushConstant(::nkentseu::NkShaderStage::NK_ALL_GRAPHICS, 0,
