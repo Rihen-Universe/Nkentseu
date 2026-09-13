@@ -28,6 +28,9 @@
 #include "Noge/Sequencer/NkSequencer.h"
 #include "Noge/ECS/Components/Core/NkTransform.h"
 #include "NKFileSystem/NkFile.h" // SaveToFile / LoadFromFile : octets bruts, jamais du texte
+// La piste `Animation` a besoin du registre ET du lecteur de NKAnima. Ils sont
+// inclus ICI et pas dans l'en-tete : celui-ci n'en declare que le nom.
+#include "NKAnima/Clip/NkClipRegistry.h"
 
 namespace nkentseu {
 
@@ -229,22 +232,107 @@ namespace nkentseu {
 			return true;
 		}
 
+		// ── LA PISTE `Animation`, ET POURQUOI IL FAUT DEUX APPELS ────────────
+		//
+		// ⚠️ LIS CECI AVANT D'« ALLÉGER » EN SUPPRIMANT LE `Update(0.f)`.
+		//
+		// On veut la pose À UN INSTANT ABSOLU `t`. Le réflexe est d'écrire :
+		//
+		//     lecteur.SeekTo(t);
+		//     const NkAnimationState &s = lecteur.GetState();   // ← FAUX
+		//
+		// et c'est faux SANS AUCUN MESSAGE. Mesuré le 2026-09-13 :
+		//
+		//     NkAnimation.cpp:539   void NkAnimationPlayer::SeekTo(float32 t) {
+		//     NkAnimation.cpp:540       mTime = t;
+		//     NkAnimation.cpp:541   }
+		//
+		// `SeekTo` POSE LE TEMPS ET N'ÉVALUE RIEN. `GetState()` rend alors l'état
+		// de l'évaluation PRÉCÉDENTE : une pose plausible, simplement en retard.
+		//
+		// L'évaluation vit dans `Update` — et, détail qui sauve tout, elle est
+		// HORS du test de lecture :
+		//
+		//     NkAnimation.cpp:601   void Update(float32 dt) {
+		//                             if (!mClip) return;
+		//                             if (mPlaying) { mTime += dt * mSpeed; ... }
+		//     NkAnimation.cpp:631       Evaluate(mClip, mTime, mState);   ← toujours
+		//
+		// Donc `Update(0.f)` évalue SANS faire avancer le temps, que la lecture
+		// soit en cours ou non. D'où les deux appels, dans cet ordre.
+		//
+		// Et non, on ne peut pas appeler `Evaluate(clip, t, out)` directement :
+		// elle est PRIVÉE (`NkAnimation.h:445` porte `private:`, la déclaration est
+		// l.466). Si NKAnima reçoit un jour un `EvaluateAt(t)` public, ces deux
+		// lignes deviendront une seule — et ce commentaire devra partir avec elles.
+		void SeqEvalueAnimation(const NkTrack &piste, float32 time, NkWorld &world,
+								const anim::NkClipRegistry *clips) noexcept {
+			// Sans registre, une piste `Animation` ne peut pas résoudre le clip
+			// qu'elle désigne. Elle n'applique donc RIEN — elle ne dégrade jamais
+			// la pose existante, et l'appelant qui a oublié le registre voit une
+			// scène immobile plutôt qu'une scène fausse.
+			if (clips == nullptr || piste.clips.Empty())
+				return;
+			ecs::NkTransform *tr = world.Get<ecs::NkTransform>(piste.entity);
+			if (tr == nullptr)
+				return;
+
+			// Le DERNIER clip actif l'emporte, comme le dernier plan caméra : deux
+			// clips qui se chevauchent sont un montage volontaire, et c'est celui du
+			// dessus qui gagne. Le vrai mélange par poids viendra avec les pistes
+			// NLA — il n'est pas simulé ici, et ne doit pas en avoir l'air.
+			const NkClipOnTrack *choisi = nullptr;
+			for (uint32 i = 0; i < (uint32)piste.clips.Size(); ++i)
+				if (piste.clips[i].IsActive(time) && piste.clips[i].GetWeight(time) > 0.f)
+					choisi = &piste.clips[i];
+			if (choisi == nullptr)
+				return;
+
+			const anim::NkAnimationClip *clip = clips->Resolve(choisi->clipHandle);
+			if (clip == nullptr)
+				return; // refus nommé, lisible par clips->DernierRefus()
+
+			anim::NkAnimationPlayer lecteur;
+			lecteur.SetClip(clip);
+			lecteur.SeekTo(choisi->GetLocalTime(time)); // pose le temps…
+			lecteur.Update(0.f);						// …et SEULE cette ligne évalue
+
+			const anim::NkAnimationState &etat = lecteur.GetState();
+			tr->localPosition = etat.position;
+			tr->localScale = etat.scale;
+			// `etat.rotation` est un NkVec4f (x, y, z, w), `NkTransform` attend un
+			// NkQuatf : on reconstruit composante par composante plutôt que de
+			// supposer que les deux types se convertissent. Ils ne se convertissent
+			// pas, et une conversion implicite qui compilerait serait pire.
+			tr->localRotation = NkQuatf(etat.rotation.x, etat.rotation.y, etat.rotation.z, etat.rotation.w);
+			// Sans ce drapeau, la pose change en mémoire et RIEN ne bouge à l'écran.
+			tr->worldDirty = true;
+		}
+
 	} // namespace
 
-	void NkTrack::Evaluate(float32 time, NkWorld &world) const noexcept {
+	void NkTrack::Evaluate(float32 time, NkWorld &world, const anim::NkClipRegistry *clips) const noexcept {
 		if (muted || weight <= 0.f)
 			return;
 		if (entity == NkEntityId::Invalid())
 			return;
+
+		// ── LA PISTE `Animation` — elle AGIT enfin ───────────────────────────
+		if (type == NkTrackType::Animation) {
+			SeqEvalueAnimation(*this, time, world, clips);
+			return;
+		}
+
 		if (channels.Empty())
 			return;
 
 		// ── CE QUI EST BRANCHÉ, ET CE QUI NE L'EST PAS ───────────────────────
-		// Transform et Property écrivent dans NkTransform. Animation, Camera,
-		// Audio, Event, FacialAnim, BlendShape, Light, PostProcess, Particle,
-		// Visibility et NLA sont déclarés dans l'en-tête et N'AGISSENT PAS
-		// encore : ils sortent d'ici sans rien toucher, et ce commentaire est
-		// le seul endroit où c'est écrit.
+		// `Animation` est traitée ci-dessus ; `Transform` et `Property` écrivent
+		// dans NkTransform. `Camera`, `Audio`, `Event`, `FacialAnim`,
+		// `BlendShape`, `Light`, `PostProcess`, `Particle`, `Visibility` et `NLA`
+		// sont déclarées dans l'en-tête et N'AGISSENT PAS encore : elles sortent
+		// d'ici sans rien toucher, et ce commentaire est le seul endroit où c'est
+		// écrit. Dix sur treize, contre onze hier.
 		if (type != NkTrackType::Transform && type != NkTrackType::Property)
 			return;
 
@@ -341,10 +429,10 @@ namespace nkentseu {
 	// =========================================================================
 	// NkSequence
 	// =========================================================================
-	void NkSequence::Evaluate(float32 time, NkWorld &world) const noexcept {
+	void NkSequence::Evaluate(float32 time, NkWorld &world, const anim::NkClipRegistry *clips) const noexcept {
 		const uint32 nt = (uint32)tracks.Size();
 		for (uint32 i = 0; i < nt; ++i)
-			tracks[i].Evaluate(time, world);
+			tracks[i].Evaluate(time, world, clips);
 		const uint32 nn = (uint32)nlaTracks.Size();
 		for (uint32 i = 0; i < nn; ++i)
 			nlaTracks[i].Evaluate(time, world);
