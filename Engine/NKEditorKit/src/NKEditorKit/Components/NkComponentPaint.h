@@ -2,7 +2,7 @@
 // -----------------------------------------------------------------------------
 // @File    NkComponentPaint.h
 // @Brief   Le PEINTRE vu par un composant : une interface, pas une implementation.
-// @Author  Rihen
+// @Author  TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // @License Proprietary - All Rights Reserved (see LICENSE)
 //
 // =============================================================================
@@ -18,14 +18,24 @@
 //  contre cette interface ne changera pas d'une ligne le jour ou l'implementation
 //  arrivera — seule la classe passee en argument changera.
 //
-//  ⚠️ CE QUE J'AI ECRIT ICI EN ATTENDANT, ET QUI DISPARAIT A SON ARRIVEE :
-//     `NkGuiComponentPaint` — un adaptateur MINCE sur la liste d'affichage de
-//     NKGui (aucune geometrie nouvelle, aucune decision de rendu). Il existe
-//     parce qu'une interface sans implementation ne se compile pas contre un
-//     appelant reel, et qu'une declaration sans consommateur est exactement le
-//     defaut que cette tranche existe pour eviter. Le jour ou le peintre de
-//     NK3DModeler arrive, il devient la seconde implementation — et si elle est
-//     meilleure, l'adaptateur s'efface. **Il ne doit surtout pas grossir.**
+//  ⚠️ LE DECLENCHEUR EST ADVENU — 2026-08-30, ET VOICI CE QU'IL A DONNE.
+//     Le peintre de NK3DModeler est ARRIVE : `NkModelerComponentPaint.h`
+//     (147 l., commit `6f62e114`, branche `refonte-interface-nk3dmodeler`),
+//     les 13 virtuelles couvertes, et `tree_view` + `content_browser` rendent
+//     deja chez lui derriere `NK_KIT_TREE=1` / `NK_KIT_BROWSER=1`, nourris par
+//     sa hierarchie vivante.
+//
+//     ⚠️ MAIS LA PHRASE D'ORIGINE — « si elle est meilleure, l'adaptateur
+//     s'efface » — ETAIT FAUSSE, et la mesure du 30/08 dit pourquoi : le
+//     peintre de NK3DModeler exige un `NkModelerPainter`, que NkUIDesign n'a
+//     pas et n'aura jamais. Il ne peut donc pas remplacer
+//     `NkGuiComponentPaint` : il s'y AJOUTE. La realite advenue est TROIS
+//     implementations perennes, une par monde :
+//        NkGuiComponentPaint      le monde NkGuiDrawList (NkUIDesign)
+//        NkModelerComponentPaint  le monde NkModelerPainter (NK3DModeler)
+//        NkRecordingPaint         les essais (lit ce qui est emis)
+//     Et « il ne doit pas grossir » reste vrai pour chacune : une decision de
+//     rendu se prend dans le COMPOSANT, jamais dans un peintre.
 //
 // =============================================================================
 //  LES DEUX EXIGENCES DE RECEPTION (Q60 §5), ECRITES DANS LA SIGNATURE
@@ -146,7 +156,17 @@ namespace nkentseu {
 				bool mouseReleased = false; ///< front montant, CETTE image
 				bool doubleClick = false;
 				bool rightPressed = false;
-				bool ctrl = false, shift = false;
+				/// ⚠️ `alt` A REJOINT SES DEUX FRERES LE 2026-09-01, ET LE MANQUE
+				///    ETAIT BIEN DANS LE SOCLE : `NkGuiInput` porte `altDown`
+				///    depuis toujours, mais l'entree des COMPOSANTS s'arretait a
+				///    ctrl/shift. Un composant qui voulait « tracer depuis le
+				///    centre » (Alt, la convention de Figma/Sketch/Illustrator)
+				///    devait donc remonter au contexte NKGui — c'est-a-dire
+				///    court-circuiter la structure meme qui existe pour l'en
+				///    dispenser, et le faire dans un endroit ou le contexte n'est
+				///    pas toujours a portee.
+				///    Additif, defaut faux : aucun consommateur ne change.
+				bool ctrl = false, shift = false, alt = false;
 
 				/// Une charge de glisser-deposer survole-t-elle le composant ?
 				/// Le TYPE est une chaine libre — meme convention que le
@@ -161,6 +181,64 @@ namespace nkentseu {
 		/// parce que la planche du 18/08 le demande au pied de carte (ecart n.11) et
 		/// que NKGui n'expose pas son aide interne — cf. `ROADMAP.md` §2.
 		enum class NkTextAlign : uint8 { Left = 0, Center, Right };
+
+		/// UNE TRANSFORMEE AFFINE 2x3 (2026-09-03, NkUIDesign). Les points sont des
+		/// colonnes (x, y, 1) :   | a c e |
+		///                        | b d f |
+		/// ⚠️ ADDITIF : elle n'entre dans aucune signature existante. Les peintres
+		///    qui ne la connaissent pas gardent les defauts VIDES ci-dessous et
+		///    dessinent droit -- exactement comme avant.
+		struct NkPaintTransform {
+					float32 a = 1.f, b = 0.f, c = 0.f, d = 1.f, e = 0.f, f = 0.f;
+				/// ⚠️ LA RANGEE DE PERSPECTIVE (11/09) : w = g x + h y + 1, le point rendu
+				///    est (a x + c y + e) / w. A g = h = 0 -- tout ce qui existait avant --
+				///    le peintre prend le meme chemin qu'hier, sans une operation de plus.
+				float32 g = 0.f, h = 0.f;
+				bool Identite() const {
+					return a == 1.f && b == 0.f && c == 0.f && d == 1.f && e == 0.f && f == 0.f
+						   && g == 0.f && h == 0.f;
+				}
+				bool Affine() const {
+					return g == 0.f && h == 0.f;
+				}
+		};
+
+		/// LE PLANCHER DE `w` : un point dont le w tombe dessous est derriere l'oeil.
+		/// On le pince plutot que de le retourner. (Le meme nombre que `NkWMin` cote
+		/// document : ecrit deux fois parce que le kit ne depend pas de l'application,
+		/// et c'est la SEULE valeur partagee de ce lot.)
+		inline float32 NkPaintWMin() {
+			return 0.05f;
+		}
+
+		/// LA TANGENTE AFFINE d'une transformee EN UN POINT : la meilleure affine qui
+		/// coincide avec l'homographie en `(px, py)` (sa valeur ET sa derivee).
+		///
+		/// 🔴 ELLE EXISTE POUR LE TEXTE, ET C'EST UNE LIMITE ASSUMEE DU PALIER A : les
+		///    glyphes partent chez NKGui avec SIX coefficients (`AddTextTransforme`).
+		///    Leur donner la partie affine brute de l'homographie poserait le texte AU
+		///    MAUVAIS ENDROIT ; la tangente le pose au bon, a la bonne taille et a la
+		///    bonne pente -- il PENCHE mais il ne FUIT pas (ses lignes ne convergent
+		///    pas). Le palier B projettera chaque glyphe par ses quatre coins.
+		/// ⚠️ A g = h = 0 elle rend la matrice TELLE QUELLE (pas une recomposition qui
+		///    differerait d'un ulp) : l'orthogonal ne bouge pas.
+		inline NkPaintTransform NkPaintTangente(const NkPaintTransform &m, float32 px, float32 py) {
+			if (m.Affine())
+				return m;
+			NkPaintTransform o;
+			float32 w = m.g * px + m.h * py + 1.f;
+			if (w < NkPaintWMin())
+				w = NkPaintWMin();
+			const float32 X = (m.a * px + m.c * py + m.e) / w;
+			const float32 Y = (m.b * px + m.d * py + m.f) / w;
+			o.a = (m.a - X * m.g) / w;
+			o.b = (m.b - Y * m.g) / w;
+			o.c = (m.c - X * m.h) / w;
+			o.d = (m.d - Y * m.h) / w;
+			o.e = X - (o.a * px + o.c * py);
+			o.f = Y - (o.b * px + o.d * py);
+			return o;
+		}
 
 		// ── L'INTERFACE ─────────────────────────────────────────────────────────
 		class NkComponentPaint {
@@ -185,6 +263,31 @@ namespace nkentseu {
 				/// creuser suppose de savoir quoi remettre a l'interieur.
 				virtual void Outline(const NkPaintRect &r, uint16 border, uint16 inner,
 									 float32 rounding = 0.f) = 0;
+				/// Contour a COULEURS EXPLICITES — le pendant de `FillColor` pour
+				/// `Outline`, et il vient d'un DEFAUT MESURE le 2026-09-01.
+				///
+				/// ⚠️ `Outline` prend deux ROLES (`uint16`). Deux sites de NkUIDesign
+				///    lui passaient `0x00000000u` en croyant ecrire « interieur
+				///    transparent » : c'est le ROLE 0, donc une couleur PLEINE. Les
+				///    poignees de sommet et de rotation etaient donc peintes en
+				///    DISQUES NOIRS -- et Rodolf, sur `probleme_nepouse_pas_181556.png`,
+				///    a lu ces quatre pastilles noires posees hors des coins comme
+				///    « les vertices qui n'epousent pas la forme ». Un parametre mal
+				///    lu au site d'appel a produit un rapport de bogue sur une tout
+				///    autre fonctionnalite.
+				///
+				/// ⚠️ ELLE N'EST PAS PURE, ET C'EST DELIBERE : elle s'exprime avec
+				///    `FillColor`, la primitive que toute implementation porte deja.
+				///    Aucun implementeur ne change, et `NkRecordingPaint` l'enregistre
+				///    sans une ligne. Additive au sens strict.
+				///
+				/// Un `inner` a alpha nul laisse voir le fond : c'est l'anneau creux.
+				virtual void OutlineColor(const NkPaintRect &r, uint32 border, uint32 inner,
+										  float32 rounding = 0.f) {
+					FillColor(r, border, rounding);
+					FillColor({r.x + 1.f, r.y + 1.f, r.w - 2.f, r.h - 2.f}, inner,
+							  rounding > 1.f ? rounding - 1.f : 0.f);
+				}
 				/// Contour a angles vifs, sans repeindre le fond.
 				virtual void OutlineSharp(const NkPaintRect &r, uint16 role) = 0;
 				virtual void HLine(float32 x, float32 y, float32 w, uint16 role) = 0;
@@ -202,11 +305,144 @@ namespace nkentseu {
 				/// Icone par POIGNEE OPAQUE (exigence B ci-dessus). `0` = aucune.
 				virtual void Icon(const NkPaintRect &r, uint16 iconHandle, uint16 role) = 0;
 
+				// ── AJOUTS ADDITIFS DU 2026-08-30 (chaine du designer) ──────────
+				// ⚠️ DEFAUT INERTE QUI LE DIT : ces deux primitives rendent FAUX
+				//    quand l'implementation ne sait pas les dessiner — l'appelant
+				//    peint alors un REPLI VISIBLE au lieu d'un vide silencieux.
+				//    Additives avec defaut : AUCUNE des trois implementations (les
+				//    deux de cet arbre, l'adaptateur de NK3DModeler) ne casse a la
+				//    compilation ; chacune les comble quand son monde le permet.
+				/// Ellipse PLEINE inscrite dans `r`. Vrai si dessinee.
+				virtual bool Ellipse(const NkPaintRect &r, uint16 role) {
+					(void)r;
+					(void)role;
+					return false;
+				}
+				/// Segment de `(x1,y1)` a `(x2,y2)`. Vrai si dessine.
+				virtual bool Line(float32 x1, float32 y1, float32 x2, float32 y2, uint16 role,
+								  float32 thickness) {
+					(void)x1;
+					(void)y1;
+					(void)x2;
+					(void)y2;
+					(void)role;
+					(void)thickness;
+					return false;
+				}
+
+				// ── AJOUT ADDITIF DU 2026-08-31 (formes Lunacy : triangle,
+				//    pentagone, etoile, fleche — vague (b) du rail) ─────────────
+				/// Polygone PLEIN en couleur rgba (0xRRGGBBAA), points ecran en
+				/// PAIRES (x,y) dans `xy` (2*count valeurs). Vrai si dessine —
+				/// faux : l'appelant peint un repli VISIBLE (le contrat
+				/// d'Ellipse/Line, inchange).
+				virtual bool PolygonHex(const float32 *xy, int32 count, uint32 rgba) {
+					(void)xy;
+					(void)count;
+					(void)rgba;
+					return false;
+				}
+
+				// ── AJOUT ADDITIF DU 2026-08-31 (vocabulaire d'apparence §8ter) ──
+				/// Texte en COULEUR POSEE (l'apparence par element du document),
+				/// avec un corps de police demande en px (0 = celui du peintre) et
+				/// une graisse indicative (0 = normale). ⚠️ DEFAUT QUI REPLIE SUR
+				/// LE ROLE : une implementation qui ne sait ni la couleur ni le
+				/// corps (le peintre ENREGISTREUR, l'adaptateur NK3DModeler) rend
+				/// le meme texte par `Text(role)` — la geometrie et le contenu
+				/// restent justes, seul le costume manque, et il manque pareil a
+				/// chaque passe (le banc de neutralite ne bouge pas).
+				virtual void TextHex(const NkPaintRect &r, const char *s, uint32 rgba,
+									 uint16 roleRepli, NkTextAlign align = NkTextAlign::Left,
+									 float32 px = 0.f, float32 graisse = 0.f) {
+					(void)rgba;
+					(void)px;
+					(void)graisse;
+					Text(r, s, roleRepli, align);
+				}
+
 				// ── Decoupe ─────────────────────────────────────────────────────
 				// Indispensable des qu'un composant defile : sans elle, une carte a
 				// demi sortie du panneau deborde sur son voisin.
 				virtual void PushClip(const NkPaintRect &r) = 0;
 				virtual void PopClip() = 0;
+
+				// ── LA TRANSFORMEE (2026-09-03) ────────────────────────────────
+				/// Empiler une transformee : tout ce qui se peint ensuite passe par
+				/// elle, jusqu'au `PopTransform` correspondant. Rotation, miroir et
+				/// ECHELLE d'un noeud et de ses ancetres -- texte compris.
+				/// 🔑 POURQUOI SUR LE PEINTRE, ET PAS DANS CHAQUE DESSIN : le document
+				///    peint des formes, des composants ET du texte par des primitives
+				///    droites (`Fill`, `Outline`, `TextHex`...). Tourner chacune
+				///    « chez elle » aurait donne trois implementations -- et, mesure le
+				///    03/09, un bouton dont le fond tourne pendant que son libelle
+				///    reste droit. Une seule porte, en amont de toutes les primitives.
+				/// ⚠️ DEFAUT VIDE, ET C'EST LE CONTRAT ADDITIF : un peintre qui ne la
+				///    surcharge pas dessine droit, comme avant. Les deux peintres du
+				///    kit la surchargent : `NkGuiComponentPaint` l'APPLIQUE,
+				///    `NkRecordingPaint` l'ENREGISTRE (le temoin sans ecran la voit).
+				virtual void PushTransform(const NkPaintTransform &t) { (void)t; }
+				virtual void PopTransform() {}
+
+				// ── LE MODE DE MELANGE (2026-09-04) -- AJOUT ADDITIF ─────────────
+				/// Ce que l'etat de melange du GPU donne EXACTEMENT : les valeurs sont
+				/// celles de `NkGuiBlend`. Un peintre qui ne sait pas melanger ignore
+				/// les deux appels (le defaut) : il peint en alpha, comme avant.
+				enum class NkPaintBlend : uint8 { Alpha = 0, Multiply, Screen, Darken, Lighten, PlusLighter };
+				virtual void PushBlend(NkPaintBlend b) { (void)b; }
+				virtual void PopBlend() {}
+
+				// ── L'IMAGE (2026-09-05, chaine de l'image de NkUIDesign) ─────────
+				/// Un polygone CONVEXE texture, un uv PAR SOMMET (`xy` et `uv` : count
+				/// paires) : l'image d'un remplissage qui suit un contour arrondi, ou
+				/// tournee. `image` est le handle du dorsal (0 = aucune texture : le
+				/// peintre repond faux et l'appelant peint son damier -- rien n'est
+				/// simule). `opacite` en 0..100. VIRTUELLE A VIDE : un peintre qui ne sait
+				/// pas rend faux et l'appelant le voit -- le contrat de PolygonHex ; les
+				/// consommateurs recompilent sans une ligne changee (PushTransform,
+				/// PushBlend : meme preuve).
+				virtual bool ImagePolygone(const float32 *xy, const float32 *uv, int32 count, uint32 image,
+										   float32 opacite) {
+					(void)xy;
+					(void)uv;
+					(void)count;
+					(void)image;
+					(void)opacite;
+					return false;
+				}
+				// ── LA TEINTE DU NŒUD (2026-09-12) ──────────────────────────────
+				/// UN MULTIPLICATEUR APPLIQUE A L'EMISSION. Il traverse ce qu'il ne
+				/// comprend pas -- un degrade, une image, une pile -- sans avoir a le
+				/// connaitre : *il ne peut pas casser ce qu'il ne connait pas.* C'est
+				/// le Color Tint d'Unity : le degrade SURVIT a tous les etats, seule
+				/// la luminance bouge.
+				///
+				/// 🔴 CE N'EST PAS UN ETAT ARME, ET LA DISTINCTION EST ENTIERE. Une
+				///    garde `PushTint`/`PopTint` obligerait chaque APPELANT a poser ET
+				///    a depiler ; le premier qui oublie fait fuir la teinte sur le nœud
+				///    suivant. *Un etat qu'il faut ARMER se fait oublier par la porte
+				///    que les appelants empruntent.* Ici `tint` est REECRIT au debut du
+				///    dessin de CHAQUE nœud (identite quand aucun etat n'en pose) et
+				///    restaure par un objet de PORTEE, dans la MEME fonction --
+				///    `DrawShape`, qui compte treize `return`. Aucun appelant n'a rien
+				///    a faire : **personne ne peut oublier ce que personne n'a a faire.**
+				///
+				/// Un peintre futur en herite sans le savoir, pourvu qu'il teinte a son
+				/// point de couleur -- les deux peintres du kit le font en UN site chacun.
+				uint32 tint = 0xFFFFFFFFu;
+
+				/// Multiplie une couleur 0xRRGGBBAA par la teinte courante. IDENTITE
+				/// quand la teinte est blanche opaque -- le cas de tout nœud sans etat,
+				/// donc le controle negatif est exact a l'octet.
+				uint32 Teinter(uint32 c) const noexcept {
+					if (tint == 0xFFFFFFFFu)
+						return c;
+					const uint32 r = (((c >> 24) & 0xFFu) * ((tint >> 24) & 0xFFu) + 127u) / 255u;
+					const uint32 g = (((c >> 16) & 0xFFu) * ((tint >> 16) & 0xFFu) + 127u) / 255u;
+					const uint32 b = (((c >> 8) & 0xFFu) * ((tint >> 8) & 0xFFu) + 127u) / 255u;
+					const uint32 a = ((c & 0xFFu) * (tint & 0xFFu) + 127u) / 255u;
+					return (r << 24) | (g << 16) | (b << 8) | a;
+				}
 		};
 
 	} // namespace editorkit

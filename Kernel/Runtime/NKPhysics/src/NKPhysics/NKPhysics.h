@@ -1,4 +1,5 @@
 #pragma once
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // =============================================================================
 // NKPhysics.h — Include unique du module de dynamique du corps rigide. [SCAFFOLD]
 //
@@ -18,3 +19,7 @@
 #include "NKPhysics/NkJoint.h"
 #include "NKPhysics/NkPhysicsWorld.h"
 #include "NKPhysics/NkRagdoll.h"
+#include "NKPhysics/NkCloth.h" // tissu XPBD (2026-09-05)
+#include "NKPhysics/NkMannequin.h" // corps skinne : capsules par os, point-dans-maillage (2026-09-05)
+#include "NKPhysics/NkBodySDF.h"  // champ de distance signe du corps skinne (2026-09-05, lot 2)
+#include "NKPhysics/NkGarment.h"   // vetements proceduraux sur squelette (2026-09-05)

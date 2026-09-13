@@ -79,6 +79,18 @@ namespace nkentseu {
 			const float32 lh = mCtx.font->LineHeight();
 			const float32 baseY = r.y + (r.h - lh) * 0.5f + mCtx.font->Ascent();
 
+			if (const NkPaintTransform *m = TransformeActive()) {
+				// Sous transformee : pas de calage au pixel (il tordrait les glyphes),
+				// et LA meme matrice que les formes -- le texte tourne avec sa boite.
+				// ⚠️ SOUS PERSPECTIVE, CHAQUE GLYPHE PAR SES QUATRE COINS (palier B) :
+				//    `AddTextTransforme` ne prend que six coefficients, donc l'affine ne
+				//    peut pas faire converger une ligne. LA DECISION N'EST PAS ICI :
+				//    `NkTexteTransforme` est LA porte, commune aux trois peintres --
+				//    l'ecran, l'export et celui-ci. Trois copies d'une decision, ce
+				//    seraient deux copies qu'aucun temoin ne traverse.
+				NkTexteTransforme(mCtx.DL(), face, mCtx.font->TexId(), {x, baseY}, draw, C(role), *m);
+				return;
+			}
 			mCtx.DL().AddText(face, mCtx.font->TexId(), {Px(x), Px(baseY)}, draw, C(role));
 		}
 
@@ -103,7 +115,7 @@ namespace nkentseu {
 			// la mise en page doit s'en apercevoir des maintenant.
 			const float32 side = r.w < r.h ? r.w : r.h;
 			const NkPaintRect q{r.x + (r.w - side) * 0.5f, r.y + (r.h - side) * 0.5f, side, side};
-			mCtx.DL().AddRectFilled(R(q), C(role), side * 0.15f);
+			RectRempli(q, C(role), side * 0.15f); // transforme s'il le faut
 		}
 
 	} // namespace editorkit

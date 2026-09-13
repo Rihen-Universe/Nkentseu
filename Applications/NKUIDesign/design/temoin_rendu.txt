@@ -1,0 +1,22 @@
+# temoin de rendu NkUIDesign -- flux de commandes du peintre
+# Une ligne par commande : op, x, y, w, h, rayon, role, rgba,
+# texte. Un `diff` de ce fichier NOMME ce qui a bouge, et de
+# combien -- ce qu'une capture ne dit pas.
+# ⚠️ Il se REGENERE : `--temoin-rendu`. Toute difference non
+#    voulue est une regression visuelle.
+
+# ecran toile : 5 commande(s)
+FillColor         28.0     28.0    160.0     48.0  r=6.0    role=0    rgba=0969daff 
+FillColor         28.0     28.0    160.0     48.0  r=6.0    role=0    rgba=f6f8fa99 
+FillColor         28.0     28.0    160.0     48.0  r=6.0    role=0    rgba=30363dff 
+FillColor         30.0     30.0    156.0     44.0  r=4.0    role=0    rgba=f6f8fa99 
+Text              28.0     28.0     90.0     20.0  r=0.0    role=39   rgba=00000000 Valider
+
+# ecran inspecteur.bordures : 1 commande(s), 393 sommet(s)
+cmd unis      idx=1050  englobant     22.0     13.0    256.0     51.0
+
+# ecran inspecteur.remplissages : 1 commande(s), 606 sommet(s)
+cmd unis      idx=1596  englobant     22.0     13.0    252.4    116.0
+
+# ecran inspecteur.effets : 1 commande(s), 563 sommet(s)
+cmd unis      idx=1548  englobant     22.0     13.0    256.0     82.0

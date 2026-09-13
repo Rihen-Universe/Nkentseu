@@ -577,6 +577,37 @@ namespace nkentseu {
 #undef NK_MB_PRESS
 #undef NK_MB_RELEASE
 
+			// =================================================================
+			//  ⚠️ UN DOUBLE-CLIC EST AUSSI UN APPUI, ET WINDOWS NOUS L'AVAIT PRIS
+			// =================================================================
+			//  La classe de fenetre porte `CS_DBLCLKS` (NkWin32Window.cpp:487).
+			//  Windows REMPLACE alors le second `WM_xBUTTONDOWN` par
+			//  `WM_xBUTTONDBLCLK` -- il ne l'ajoute pas. Ce bloc n'emettait que
+			//  `NkMouseDoubleClickEvent` : le second appui n'existait donc POUR
+			//  PERSONNE. Consequences mesurees le 2026-09-01 :
+			//    - `NkGuiInput::mouseDown[b]` reste FAUX pendant le second clic,
+			//      donc `mouseClicked[b]` aussi ;
+			//    - tout consommateur qui croise le double-clic avec un appui
+			//      (`if (mousePressed) { ... if (doubleClick) ... }`) ne voit
+			//      RIEN -- c'est le defaut « double-cliquer ne donne pas acces a
+			//      la modification fine » rapporte par Rodolf sur NkUIDesign ;
+			//    - la detection INTERNE de secours de NKGui (2 clics < 0,40 s)
+			//      ne peut pas prendre le relais : elle s'arme sur
+			//      `mouseClicked`, qui n'arrive jamais ;
+			//    - un GLISSER amorce sur un double-clic est impossible, le
+			//      bouton etant declare relache alors qu'il est enfonce.
+			//
+			//  ⚠️ ET LE CONTRAT ETAIT DEJA ECRIT, il n'etait pas honore.
+			//     `NkMouseEvent.h:543-545` dit mot pour mot : *« GetClickCount()
+			//     permet de distinguer un simple-clic manuel d'un double-clic
+			//     detecte par l'OS (ce dernier genere AUSSI
+			//     NkMouseDoubleClickEvent) »* -- « aussi » suppose l'appui. On
+			//     ne change donc pas le contrat : on le rend vrai. L'appui porte
+			//     `clickCount = 2`, ce qui permet a qui le veut de distinguer.
+			//
+			//  L'ordre compte : l'APPUI d'abord, le double-clic ensuite -- un
+			//  consommateur qui lit les deux dans l'ordre d'arrivee voit le
+			//  geste comme il s'est produit.
 			case WM_LBUTTONDBLCLK:
 			case WM_RBUTTONDBLCLK:
 			case WM_MBUTTONDBLCLK: {
@@ -586,7 +617,10 @@ namespace nkentseu {
 				NkMouseButton btn = (msg == WM_LBUTTONDBLCLK)	? NkMouseButton::NK_MB_LEFT
 									: (msg == WM_RBUTTONDBLCLK) ? NkMouseButton::NK_MB_RIGHT
 																: NkMouseButton::NK_MB_MIDDLE;
-				NkMouseDoubleClickEvent evt(btn, pt.x, pt.y, sp.x, sp.y, NkWin32_CurrentMods(), winId);
+				NkModifierState mods = NkWin32_CurrentMods();
+				NkMouseButtonPressEvent press(btn, pt.x, pt.y, sp.x, sp.y, 2, mods, winId);
+				EnqueueForWindow(press);
+				NkMouseDoubleClickEvent evt(btn, pt.x, pt.y, sp.x, sp.y, mods, winId);
 				EnqueueForWindow(evt);
 				break;
 			}

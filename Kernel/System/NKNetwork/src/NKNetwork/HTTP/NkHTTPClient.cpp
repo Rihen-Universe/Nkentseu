@@ -20,7 +20,7 @@
 //   • Windows/Linux/macOS : mbedTLS ou OpenSSL via compilation conditionnelle
 //   • WebAssembly : Délégation à emscripten_fetch (géré séparément)
 //
-// AUTEUR   : Rihen
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // DATE     : 2026-02-10
 // VERSION  : 1.0.0
 // LICENCE  : Propriétaire - usage régi par le fichier LICENSE à la racine du dépôt
@@ -31,6 +31,7 @@
 // -------------------------------------------------------------------------
 
 #include "pch.h"
+#include "NKCore/Text/NkSnprintf.h"
 #include "NkHTTPClient.h"
 
 // Opérations bas-niveau, chaînes, temps et fichiers via les modules Nkentseu (zero-STL)
@@ -255,7 +256,7 @@ namespace {
 		hints.ai_protocol = IPPROTO_TCP;
 
 		char portStr[16];
-		snprintf(portStr, sizeof(portStr), "%u", port);
+		nkentseu::NkSnprintf(portStr, sizeof(portStr), "%u", port);
 
 		addrinfo *result = nullptr;
 		if (getaddrinfo(host, portStr, &hints, &result) != 0) {
@@ -428,7 +429,7 @@ namespace nkentseu {
 				return;
 			}
 			char buf[512];
-			snprintf(buf, sizeof(buf), "Bearer %s", token);
+			nkentseu::NkSnprintf(buf, sizeof(buf), "Bearer %s", token);
 			AddHeader("Authorization", buf);
 		}
 
@@ -446,7 +447,7 @@ namespace nkentseu {
 													  static_cast<uint32>(credentials.Length()));
 
 			char authHeader[1024];
-			snprintf(authHeader, sizeof(authHeader), "Basic %s", b64.CStr());
+			nkentseu::NkSnprintf(authHeader, sizeof(authHeader), "Basic %s", b64.CStr());
 			AddHeader("Authorization", authHeader);
 		}
 
@@ -506,7 +507,7 @@ namespace nkentseu {
 				return;
 			}
 			char buf[512];
-			snprintf(buf, sizeof(buf), "Bearer %s", token);
+			nkentseu::NkSnprintf(buf, sizeof(buf), "Bearer %s", token);
 			// Remplacer ou ajouter l'en-tête Authorization
 			bool found = false;
 			for (auto &h : mDefaultHeaders) {

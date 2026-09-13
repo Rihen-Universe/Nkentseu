@@ -134,9 +134,9 @@ namespace {
 			const uint32 expectedBones = (uint32)baseline.skinJoints.Size();
 			Check(scene.skeletons.Size() == 1, "NkGLTFImporter::Import: 1 squelette (fichier skinne)");
 			if (!scene.skeletons.Empty()) {
-				Check(scene.skeletons[0].boneCount == expectedBones,
+				Check(scene.skeletons[0].BoneCount() == expectedBones,
 					  "NkGLTFImporter::Import: boneCount == baseline.skinJoints.Size()");
-				logger.Infof("     squelette: %u os\n", scene.skeletons[0].boneCount);
+				logger.Infof("     squelette: %u os\n", scene.skeletons[0].BoneCount());
 			}
 		} else {
 			Check(scene.skeletons.Empty(), "NkGLTFImporter::Import: 0 squelette (fichier non skinne)");
@@ -152,7 +152,27 @@ namespace {
 	}
 
 	// ── FBX ───────────────────────────────────────────────────────────────
-	void TestFBX(const char *path) noexcept {
+	// `expectedMaterials`   : combien de materiaux le loader doit rendre.
+	// `expectedResolvedTex` : combien d'images doivent etre REELLEMENT DECODEES.
+	//
+	// ⚠️ POURQUOI DEUX ATTENTES, ET POURQUOI ELLES SONT PARAMETREES (2026-09-02).
+	// Jusqu'a cette date le banc exigeait `scene.materials.Empty()` en toutes
+	// circonstances, avec le commentaire « le loader reel ne supporte pas les
+	// materiaux ». C'etait vrai a l'ecriture ; le commit d28a3728 a AJOUTE les
+	// materiaux Phong + textures externes. La garde codait donc une LIMITATION
+	// qui a ete levee, et son rouge s'est fait lire A L'ENVERS -- comme une
+	// regression du chargeur, alors qu'il venait de progresser.
+	//   -> Une garde qui encode une limitation doit nommer ce qu'elle attend,
+	//      sinon elle survit a ce qu'elle decrivait et accuse le progres.
+	//
+	// ⚠️ ET LA SECONDE ATTENTE EST CELLE QUI MANQUAIT VRAIMENT. Compter les
+	// materiaux ne dit RIEN de leurs textures : un materiau qui NOMME
+	// 'textures/x.jpg' sans que le fichier soit trouve compte exactement comme un
+	// materiau texture. C'est le defaut mesure le 2026-09-02 -- le sous-dossier
+	// etait jete par NkFBXLoader, donc TROIS materiaux et ZERO image, et ce banc
+	// serait reste vert. On verifie donc `NkGLTFImage::valid`, le drapeau du
+	// DECODAGE reel, et non la presence d'un nom.
+	void TestFBX(const char *path, uint32 expectedMaterials, uint32 expectedResolvedTex) noexcept {
 		const NkString resolu = CheminRessource(path);
 		path = resolu.Data();
 		logger.Infof("-- NkFBXImporter: %s --\n", path);
@@ -200,6 +220,28 @@ namespace {
 		// forte que l'ancienne.
 		Check(scene.materials.Size() == baseMats,
 			  "NkFBXImporter::Import: nb materiaux == baseline renderer::LoadFBX (l'adaptateur n'invente rien)");
+
+		// Materiaux : le compte ATTENDU, nomme par l'appelant (cf. bloc en tete).
+		Check(scene.materials.Size() == expectedMaterials,
+			  "NkFBXImporter::Import: nombre de materiaux conforme a l'attendu");
+		logger.Infof("     materiaux: %u (attendu %u)\n", (uint32)scene.materials.Size(), expectedMaterials);
+
+		// ── LE CONTROLE QUI MANQUAIT : une texture RESOLUE, pas declaree ──────
+		// `NkGLTFImage::valid` n'est vrai que si le fichier a ete trouve ET
+		// decode. Un nom de texture pointant dans le vide laisse `valid` a faux.
+		uint32 resolved = 0;
+		for (uint32 i = 0; i < (uint32)baseline.images.Size(); ++i) {
+			if (baseline.images[(decltype(baseline.images)::SizeType)i].valid)
+				++resolved;
+		}
+		Check(resolved == expectedResolvedTex,
+			  "renderer::LoadFBX: nombre de textures REELLEMENT DECODEES conforme");
+		logger.Infof("     textures decodees: %u / %u declarees (attendu %u)\n", resolved,
+					 (uint32)baseline.images.Size(), expectedResolvedTex);
+
+		// Squelette et animation : toujours des no-ops cote adaptateur. Si l'un
+		// des deux devient supporte un jour, CE Check tombera -- et il faudra
+		// le parametrer comme les materiaux ci-dessus, pas le supprimer.
 		Check(scene.skeletons.Empty(), "NkFBXImporter::Import: 0 squelette (non supporte par le loader reel)");
 		Check(scene.animations.Empty(), "NkFBXImporter::Import: 0 animation (non supportee par le loader reel)");
 	}
@@ -226,8 +268,13 @@ int main(int argc, char **argv) {
 	TestGLTF("Resources/Models/rubber_duck/scene.gltf");
 	TestGLTF("Resources/Models/CesiumMan/CesiumMan.glb");
 
-	TestFBX("Resources/Models/test/cube_ascii.fbx");
-	TestFBX("Resources/Models/Futuristic_Car_2.1_fbx.fbx");
+	// cube_ascii : geometrie nue, aucun materiau, aucune texture.
+	TestFBX("Resources/Models/test/cube_ascii.fbx", 0, 0);
+	// Futuristic_Car : 3 materiaux Phong (carrosserie / noir / vitrage) et
+	// 3 textures externes (C/N/S) qui vivent dans Resources/Models/textures/.
+	// Les 3 doivent etre DECODEES : c'est ce chiffre qui a valu 0 jusqu'au
+	// correctif de resolution de chemin du 2026-09-02 (NkFBXLoader).
+	TestFBX("Resources/Models/Futuristic_Car_2.1_fbx.fbx", 3, 3);
 
 	logger.Infof("=== Resultat : %d OK / %d FAIL ===\n", gPassCount, gFailCount);
 	return gFailCount == 0 ? 0 : 1;

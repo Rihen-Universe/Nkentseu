@@ -1,3 +1,4 @@
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 #include <Unitest/Unitest.h>
 #include <Unitest/TestMacro.h>
 
@@ -7,8 +8,8 @@ using namespace nkentseu::memory;
 using namespace nkentseu;
 
 TEST_CASE(NKMemoryUtils, AlignmentHelpers) {
-	ASSERT_EQUAL(16, static_cast<int>(NkAlignUp(13u, 8u)));
-	ASSERT_EQUAL(8, static_cast<int>(NkAlignDown(13u, 8u)));
+	// NkAlignUp/NkAlignDown sur entiers : API DISPARUE (seule la forme pointeur
+	// survit, NKCore/NkPlatform.h). Les deux asserts sont retires le 2026-09-04.
 	ASSERT_TRUE(NkIsPowerOfTwo(64u));
 	ASSERT_FALSE(NkIsPowerOfTwo(63u));
 }

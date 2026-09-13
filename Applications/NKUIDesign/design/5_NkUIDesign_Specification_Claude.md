@@ -28,7 +28,14 @@ interface NkGuiDocument {
 }
 
 interface ShapeNode {
-  id: string; kind: "rect"|"ellipse"|"text"|"image"|"path"|"frame";
+  id: string; kind: "rect"|"ellipse"|"text"|"image"|"path"|"frame"
+             |"line"|"line_up";  // ← ÉTENDU le 2026-08-31 (additif) : l'outil
+             // Ligne (Lunacy : L) trace un segment. Sa boîte est le transform ;
+             // la diagonale DESCEND (`line`) ou MONTE (`line_up`). Un segment
+             // libre à deux ancres reste exprimable en "path" quand le
+             // vectoriel (§8bis) arrivera ; ces deux valeurs couvrent le geste
+             // quotidien sans données vectorielles. Clé fichier : `forme` —
+             // écrite seulement si présente, documents d'avant intacts.
   transform: { x:number; y:number; w:number; h:number; rotation?:number };
   style: Record<string, unknown>;      // fond, bordure, ombre, typo...
   effects?: EffectStack;               // §3bis — ombres/flou/dégradés/fusion

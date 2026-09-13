@@ -186,6 +186,30 @@ namespace nkentseu {
 				// Gray8 = atlas de police (etendu en RGBA blanc + alpha) ; RGBA8 = image.
 				virtual bool UploadFontGray8(uint32 texId, const uint8 *pixels, int32 w, int32 h) = 0;
 				virtual bool UploadImageRGBA(uint32 texId, const uint8 *pixels, int32 w, int32 h) = 0;
+
+				// ── Capture d'écran ─────────────────────────────────────────────────
+				// ARME une capture : au prochain EndFrame(), APRES la présentation, le
+				// backbuffer est relu et écrit dans `path` (format déduit de
+				// l'extension — la sauvegarde est celle de NkImage).
+				//
+				// ⚠️ POURQUOI « ARMER » ET PAS « CAPTURER TOUT DE SUITE » : le contrat
+				//    du readback NKCanvas (`NkRenderWindow::Capture`, cf.
+				//    NkRenderWindowCapture.cpp) est « à appeler après Display() ». Le
+				//    seul endroit qui GARANTIT ce moment est la fin de EndFrame() de
+				//    l'implémentation — pas le code applicatif, qui parle pendant la
+				//    frame. Une capture immédiate lirait la frame d'avant, ou pire.
+				//
+				// ⚠️ CE N'EST PAS UNE NEUVIÈME COPIE. Le dépôt porte déjà huit
+				//    recopies de capture (cf. CAPTURE_MONTAGE_ET_IA_DANS_LES_APPS.md,
+				//    §2) ; cette méthode n'en écrit aucune : elle ROUTE vers le
+				//    readback du noyau, seul endroit où le pixel est lu.
+				//
+				// Retourne vrai si la capture est armée. Par défaut : refus — un
+				// backend sans readback ne promet rien qu'il ne tiendra pas.
+				virtual bool CaptureNext(const char *path) noexcept {
+					(void)path;
+					return false;
+				}
 		};
 
 	} // namespace editorkit

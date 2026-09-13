@@ -1,4 +1,5 @@
 // =============================================================================
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // NkSLCodeGenGLSLVulkan.cpp  — v4.0
 //
 // Backend GLSL 4.50+ pour Vulkan.
@@ -38,7 +39,7 @@
 //      layout(constant_id=N) const int VAL = default;
 // =============================================================================
 #include "NKSL/CodeGen/NkSLCodeGen.h"
-#include <cstdio>
+#include "NKCore/Text/NkSnprintf.h"
 
 namespace nkentseu {
 
@@ -92,18 +93,18 @@ namespace nkentseu {
 		int binding = b.HasBinding() ? b.binding : mAutoBinding++;
 
 		if (b.HasInputAttachment()) {
-			snprintf(buf, sizeof(buf), "layout(input_attachment_index=%d, set=%d, binding=%d) ", b.inputAttachment, set,
+			nkentseu::NkSnprintf(buf, sizeof(buf), "layout(input_attachment_index=%d, set=%d, binding=%d) ", b.inputAttachment, set,
 					 binding);
 			return NkString(buf);
 		}
 
 		if (extra && extra[0]) {
-			snprintf(buf, sizeof(buf), "layout(set=%d, binding=%d, %s) ", set, binding, extra);
+			nkentseu::NkSnprintf(buf, sizeof(buf), "layout(set=%d, binding=%d, %s) ", set, binding, extra);
 		} else if (b.HasImageFormat()) {
 			// Storage image : le qualifier de format est obligatoire en GLSL Vulkan.
-			snprintf(buf, sizeof(buf), "layout(set=%d, binding=%d, %s) ", set, binding, b.imageFormat.CStr());
+			nkentseu::NkSnprintf(buf, sizeof(buf), "layout(set=%d, binding=%d, %s) ", set, binding, b.imageFormat.CStr());
 		} else {
-			snprintf(buf, sizeof(buf), "layout(set=%d, binding=%d) ", set, binding);
+			nkentseu::NkSnprintf(buf, sizeof(buf), "layout(set=%d, binding=%d) ", set, binding);
 		}
 		return NkString(buf);
 	}
@@ -152,7 +153,7 @@ namespace nkentseu {
 			ver = 450;
 
 		char buf[256];
-		snprintf(buf, sizeof(buf), "#version %u\n", ver);
+		nkentseu::NkSnprintf(buf, sizeof(buf), "#version %u\n", ver);
 		Emit(NkString(buf));
 
 		// NOTE: NE PAS emettre "#extension GL_KHR_vulkan_glsl : require". Ce n'est PAS
@@ -180,7 +181,7 @@ namespace nkentseu {
 		// Taille de workgroup compute.
 		if (mStage == NkSLStage::NK_COMPUTE) {
 			char lsbuf[96];
-			snprintf(lsbuf, sizeof(lsbuf), "layout(local_size_x = %u, local_size_y = %u, local_size_z = %u) in;",
+			nkentseu::NkSnprintf(lsbuf, sizeof(lsbuf), "layout(local_size_x = %u, local_size_y = %u, local_size_z = %u) in;",
 					 mLocalSizeX, mLocalSizeY, mLocalSizeZ);
 			EmitLine(NkString(lsbuf));
 			EmitNewLine();
@@ -255,11 +256,11 @@ namespace nkentseu {
 				else
 					loc = (v->storage == NkSLStorageQual::NK_IN) ? mAutoInLoc++ : mAutoOutLoc++;
 				char buf[64];
-				snprintf(buf, sizeof(buf), "layout(location = %d) ", loc);
+				nkentseu::NkSnprintf(buf, sizeof(buf), "layout(location = %d) ", loc);
 				line += NkString(buf);
 			} else if (v->binding.HasLocation()) {
 				char buf[64];
-				snprintf(buf, sizeof(buf), "layout(location = %d) ", v->binding.location);
+				nkentseu::NkSnprintf(buf, sizeof(buf), "layout(location = %d) ", v->binding.location);
 				line += NkString(buf);
 			}
 
@@ -304,7 +305,7 @@ namespace nkentseu {
 		line += typeStr + " " + v->name;
 		if (v->type->arraySize > 0) {
 			char buf[32];
-			snprintf(buf, sizeof(buf), "[%u]", v->type->arraySize);
+			nkentseu::NkSnprintf(buf, sizeof(buf), "[%u]", v->type->arraySize);
 			line += NkString(buf);
 		} else if (v->type->isUnsized) {
 			line += "[]";
@@ -570,13 +571,13 @@ namespace nkentseu {
 		char buf[64];
 		switch (lit->baseType) {
 			case NkSLBaseType::NK_INT:
-				snprintf(buf, sizeof(buf), "%lld", (long long)lit->intVal);
+				nkentseu::NkSnprintf(buf, sizeof(buf), "%lld", (long long)lit->intVal);
 				return buf;
 			case NkSLBaseType::NK_UINT:
-				snprintf(buf, sizeof(buf), "%lluu", (unsigned long long)lit->uintVal);
+				nkentseu::NkSnprintf(buf, sizeof(buf), "%lluu", (unsigned long long)lit->uintVal);
 				return buf;
 			case NkSLBaseType::NK_FLOAT: {
-				snprintf(buf, sizeof(buf), "%.8g", lit->floatVal);
+				nkentseu::NkSnprintf(buf, sizeof(buf), "%.8g", lit->floatVal);
 				bool hasDot = false;
 				for (int i = 0; buf[i]; i++)
 					if (buf[i] == '.' || buf[i] == 'e' || buf[i] == 'E')
@@ -587,7 +588,7 @@ namespace nkentseu {
 				return s;
 			}
 			case NkSLBaseType::NK_DOUBLE:
-				snprintf(buf, sizeof(buf), "%.16glf", lit->floatVal);
+				nkentseu::NkSnprintf(buf, sizeof(buf), "%.16glf", lit->floatVal);
 				return buf;
 			case NkSLBaseType::NK_BOOL:
 				return lit->boolVal ? "true" : "false";

@@ -1,4 +1,5 @@
 #pragma once
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // =============================================================================
 // NkRenderer2DTypes.h — Shared types for the NKRenderer 2D system
 // =============================================================================
@@ -118,6 +119,14 @@ namespace nkentseu {
 			NK_ADD,		 // additive (fire, glow effects)
 			NK_MULTIPLY, // multiply (shadows)
 			NK_NONE,	 // no blending (overwrite)
+			// ── AJOUT ADDITIF DU 2026-09-04 (modes de fusion de NkUIDesign) : ce que
+			//    l'etat de melange du GPU donne EXACTEMENT, sans lire la destination.
+			//    Appendus apres NK_NONE : rien d'existant ne change de numero. Un
+			//    dorsal qui ne les connait pas (branche par defaut) peint en alpha.
+			NK_SCREEN,		 // 1 - (1-s)(1-d) : ONE / ONE_MINUS_SRC_COLOR
+			NK_DARKEN,		 // min(s, d)      : equation MIN
+			NK_LIGHTEN,		 // max(s, d)      : equation MAX
+			NK_PLUS_LIGHTER, // s + d          : ONE / ONE
 		};
 
 		// ── Primitive type ───────────────────────────────────────────────────────

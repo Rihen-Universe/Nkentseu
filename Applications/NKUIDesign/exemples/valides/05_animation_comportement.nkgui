@@ -1,0 +1,39 @@
+nkgui 0.3
+
+// TROIS SECTIONS DU FORMAT sur les huit connues (geometry, widgets, behavior,
+// controller, callback, animation, fonts, include). Les chemins pointes
+// `n1.value` et `Enum.Haut` se lisent en argument, en pin et en expression.
+//
+// ⚠️ CE FICHIER INDENTE UNIFORMEMENT, ET C'EST DESORMAIS UN CHOIX, PLUS UNE
+//    CONTRAINTE. Il portait jusqu'au 2026-08-27 un avertissement disant qu'une
+//    tranche brute indentee autrement ne revenait pas a l'octet. La limite est
+//    levee -- `valides/08` et `valides/09` sont la pour le prouver. On garde
+//    l'uniformite ici parce qu'un exemple realiste doit ressembler a ce qu'on
+//    ecrit vraiment ; l'irregularite se mesure ailleurs, expres.
+widgets {
+  Slider "n1" {
+    bind = modele.valeur
+    min = 0, max = 1, step = 0.05
+  }
+
+  Progress "avancement" {
+    bind = modele.avancement
+    overlay = "pourcent"
+    indeterminate = false
+  }
+}
+
+behavior "seuil" {
+  set r = n1.value * 100
+  if n1.value > 0.8 {
+    Callback "alerte"(Enum.Haut)
+  }
+}
+
+animation "bouton_valider" {
+  transition "appui" {
+    target = "valider"
+    duration = 0.12
+    easing = EaseOut
+  }
+}

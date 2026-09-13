@@ -1,0 +1,123 @@
+# AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
+"""NkEauEcsProbe -- le pont ECS -> producteur d'eau, EPROUVE SANS DEVICE, et son
+CONTROLE DE VIE.
+
+`NkWaterSystem` prend un `renderer::NkMeshSystem*` -- la dependance la plus
+etroite -- et son etage CPU tourne SANS lui. C'est ce qui rend cette sonde
+possible : un monde ECS reel, le VRAI `NkTransformSystem`, le VRAI ordonnanceur,
+et aucun device.
+
+Les deux `.cpp` de Noge sont COMPILES DIRECTEMENT ici, comme dans NkFluidEcsProbe :
+lier Noge entier tirerait l'application, les couches et les scenes pour eprouver
+un pont qui n'a besoin d'aucun des trois. NKRenderer, lui, EST lie : le pont
+reference NkMeshSystem (Create/UpdateVertices/Release) meme s'il ne l'appelle
+pas sans registre -- le linker ne sait pas qu'un pointeur restera nul.
+
+⚠️ DECLARER ≠ LIER ≠ INCLURE. `useappdeps` n'emet que les defines _STATIC_LIB ;
+la liste de liens est ECRITE A LA MAIN, dans l'ordre eprouve par NKRenderer_Tests
+(le linker mono-passe resout vers l'aval) : NKVFX avant NKRenderer, parce qu'il y
+refere. Meme motif que DemoRW.
+"""
+from Jenga import *
+from jengaconfig import *
+
+
+with project("NkEauEcsProbe"):
+    consoleapp()
+    language("C++")
+    cppdialect("C++17")
+    location(".")
+    files([
+        "src/main.cpp",
+        "%{wks.location}/Engine/Noge/src/Noge/ECS/Systems/NkWaterSystem.cpp",
+        "%{wks.location}/Engine/Noge/src/Noge/ECS/Systems/NkTransformSystem.cpp",
+    ])
+
+    # Defines _STATIC_LIB des modules dont on inclut les en-tetes (transitif). Ne lie RIEN.
+    useappdeps("NKVFX", "NKRenderer", "NKECS", "NKCanvas", "NKAnima", "NKEvent", "NKWindow",
+               "NKLogger", "NKMath", "NKTime", "NKStream", "NKFileSystem", "NKContainers",
+               "NKMemory", "NKCore", "NKPlatform", "NKThreading", "NKRHI", "NKSL",
+               "NKSerialization", "NKReflection", "NKImage", "NKFont")
+
+    # Memes chemins que Noge.jenga (ils compilent deja NkRenderSystem.cpp, qui inclut
+    # NkMeshSystem.h), plus NKVFX, Noge et Externals.
+    _INC = [
+        "src",
+        "%{wks.location}/Externals",
+        "%{NKVFX.location}/src",
+        "%{wks.location}/Engine/Noge/src",
+        "%{NKECS.location}/src",
+        "%{NKRenderer.location}/src",
+        "%{NKAnima.location}/src",
+        "%{NKRHI.location}/src",
+        "%{NKSL.location}/src",
+        "%{NKCore.location}/src",
+        "%{NKPlatform.location}/src",
+        "%{NKMath.location}/src",
+        "%{NKTime.location}/src",
+        "%{NKLogger.location}/src",
+        "%{NKContainers.location}/src",
+        "%{NKMemory.location}/src",
+        "%{NKEvent.location}/src",
+        "%{NKWindow.location}/src",
+        "%{NKThreading.location}/src",
+        "%{NKSerialization.location}/src",
+        "%{NKReflection.location}/src",
+        "%{NKFileSystem.location}/src",
+        "%{NKStream.location}/src",
+        "%{NKFont.location}/src",
+        "%{NKImage.location}/src",
+        "%{NKGlad.location}/include",
+    ]
+    if VULKAN_INCLUDE:
+        _INC.append(VULKAN_INCLUDE)
+    includedirs(_INC)
+
+    # ⚠️ ORDRE MANUEL : le referant AVANT le refere. NKVFX -> NKRenderer -> ...
+    _LINKS = [
+        "NKVFX", "NKECS",
+        "NKRenderer", "NKCanvas", "NKAnima", "NKEvent", "NKWindow", "NKLogger",
+        "NKMath", "NKTime", "NKStream", "NKFileSystem",
+        "NKContainers", "NKMemory", "NKCore", "NKPlatform", "NKThreading",
+        "NKRHI", "NKSL", "NKSerialization", "NKReflection", "NKImage", "NKFont",
+    ]
+    if USE_NKGLAD:
+        _LINKS.append("NKGlad")
+    _LINKS.extend(["NKGLSlang", "NKSPIRVCross"])
+    links(_LINKS)
+    dependson(_LINKS)
+
+    _DEFS = [f"NKENTSEU_ENABLE_VULKAN_BACKEND={1 if WANT_VULKAN else 0}"]
+    if WANT_VULKAN:
+        _DEFS.append("NK_RHI_VK_ENABLED")
+    defines(_DEFS)
+
+    objdir("%{wks.location}/Build/Obj/%{cfg.buildcfg}-%{cfg.system}/%{prj.name}")
+    targetdir("%{wks.location}/Build/Bin/%{cfg.buildcfg}-%{cfg.system}/%{prj.name}")
+
+    with filter("system:Windows && !options:windows-runtime=uwp && !system:XboxSeries && !system:XboxOne"):
+        usetoolchain(TC_WINDOWS)
+        defines(["WIN32_LEAN_AND_MEAN", "_UNICODE", "UNICODE", "NK_RHI_DX11_ENABLED", "NK_RHI_DX12_ENABLED"])
+        if VULKAN_LIB:
+            libdirs([VULKAN_LIB])
+        _WIN = [
+            "user32", "gdi32", "opengl32", "dwmapi", "shell32",
+            "d3d11", "d3d12", "dxgi", "dxguid", "d3dcompiler",
+            "uuid", "ole32",
+        ]
+        if WANT_VULKAN:
+            _WIN.append("vulkan-1")
+        links(_WIN)
+
+    with filter("system:Linux"):
+        links(["pthread", "X11", "Xext", "GL"])
+
+    with filter("config:Debug"):
+        defines(["_DEBUG", "DEBUG"])
+        optimize("Off")
+        symbols(True)
+
+    with filter("config:Release"):
+        defines(["NDEBUG"])
+        optimize("Speed")
+        symbols(False)

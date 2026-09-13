@@ -8,9 +8,14 @@
 //                2. Spécialisation de nkentseu::NkFormatter<MyType>
 //                3. Macro NK_FORMATTER / NK_FORMATTER_END
 //              Compatible avec les conventions du framework Nkentseu.
-// AUTEUR: Rihen
+//              Depuis le 2026-09-04, le coeur nombre -> texte est
+//              NKCore/Text/NkNumberToText.h (sans libc) : plus de <cstdio>,
+//              <cstring> ni <cmath> ici. Les sorties console (NkPrint...) sont
+//              dans NkPrint.h. Les facades C (NkSnprintf / NkVsnprintf) sont
+//              dans NKCore/Text/NkSnprintf.h.
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // DATE: 2026
-// VERSION: 4.0.0
+// VERSION: 4.1.0
 // -----------------------------------------------------------------------------
 
 #pragma once
@@ -26,11 +31,10 @@
 #include "NkStringView.h"
 #include "NKContainers/Sequential/NkVector.h"
 #include "NKContainers/Iterators/NkIterator.h"
+#include "NKCore/Text/NkNumberToText.h"
+#include "NKCore/Text/NkSnprintf.h"
 
-#include <cstdio>
-#include <cstring>
 #include <cstdint>
-#include <cmath>
 #include <stdexcept>
 #include <type_traits>
 #include <utility>
@@ -124,11 +128,7 @@ namespace nkentseu {
 		return buf;
 	}
 
-	// Sorties pratiques
-	template <typename... Args> void NkPrint(NkStringView fmt, const Args &...args);
-	template <typename... Args> void NkPrintln(NkStringView fmt, const Args &...args);
-	template <typename... Args> void NkEPrint(NkStringView fmt, const Args &...args);
-	template <typename... Args> void NkEPrintln(NkStringView fmt, const Args &...args);
+	// Sorties pratiques (NkPrint, NkPrintln, NkEPrint, NkEPrintln) : voir NkPrint.h
 
 } // namespace nkentseu
 
@@ -244,34 +244,30 @@ namespace nkentseu {
 			char type = p.type ? p.type : 'd';
 
 			NkString result;
-			char buf[72];
+			char buf[numtext::kBodyMax];
 
 			switch (type) {
 				case 'd':
 				case 'i':
-					snprintf(buf, sizeof(buf), "%lld",
-							 static_cast<long long>(negative ? -static_cast<long long>(uval) : uval));
-					result = buf;
+					if (negative)
+						result.Append('-');
+					result.Append(buf, numtext::NkUIntToDigits(uval, 10u, false, buf));
 					break;
 				case 'u':
-					snprintf(buf, sizeof(buf), "%llu", uval);
-					result = buf;
+					result.Append(buf, numtext::NkUIntToDigits(uval, 10u, false, buf));
 					break;
 				case 'x':
-					snprintf(buf, sizeof(buf), "%llx", uval);
-					result = buf;
+					result.Append(buf, numtext::NkUIntToDigits(uval, 16u, false, buf));
 					if (p.alt)
 						result = NkString("0x") + result;
 					break;
 				case 'X':
-					snprintf(buf, sizeof(buf), "%llX", uval);
-					result = buf;
+					result.Append(buf, numtext::NkUIntToDigits(uval, 16u, true, buf));
 					if (p.alt)
 						result = NkString("0X") + result;
 					break;
 				case 'o':
-					snprintf(buf, sizeof(buf), "%llo", uval);
-					result = buf;
+					result.Append(buf, numtext::NkUIntToDigits(uval, 8u, false, buf));
 					if (p.alt && result.Length() > 0 && result[0] != '0')
 						result = NkString("0") + result;
 					break;
@@ -292,13 +288,15 @@ namespace nkentseu {
 				case 'c':
 					return p.ApplyWidth(NkStringView(NkString(1, static_cast<char>(uval))), false);
 				case '%': {
-					snprintf(buf, sizeof(buf), "%.6g%%", static_cast<double>(uval) * 100.0);
-					return p.ApplyWidth(NkStringView(NkString(buf)), true);
+					const numtext::NkDoubleBits bits = numtext::NkDecompose(static_cast<double>(uval) * 100.0);
+					usize n = numtext::NkGeneralBody(bits, 6, false, false, buf);
+					buf[n++] = '%';
+					return p.ApplyWidth(NkStringView(buf, n), true);
 				}
 				default:
-					snprintf(buf, sizeof(buf), "%lld",
-							 static_cast<long long>(negative ? -static_cast<long long>(uval) : uval));
-					result = buf;
+					if (negative)
+						result.Append('-');
+					result.Append(buf, numtext::NkUIntToDigits(uval, 10u, false, buf));
 					break;
 			}
 
@@ -333,7 +331,6 @@ namespace nkentseu {
 		inline NkString NkFmtFloat(double val, const NkFormatProps &p) {
 			char type = p.type ? p.type : 'g';
 			int prec = p.HasPrecision() ? p.precision : 6;
-			bool neg = std::signbit(val);
 
 			double fval = val;
 			bool appendPct = false;
@@ -352,6 +349,10 @@ namespace nkentseu {
 				case 'G':
 					typeChar = type;
 					break;
+				case 'a':
+				case 'A':
+					typeChar = type;
+					break;
 				case '%':
 					fval *= 100.0;
 					appendPct = true;
@@ -362,12 +363,14 @@ namespace nkentseu {
 					break;
 			}
 
-			char spec[32];
-			snprintf(spec, sizeof(spec), "%%%s.%d%c", p.alt ? "#" : "", prec, typeChar);
-
-			char buf[128];
-			snprintf(buf, sizeof(buf), spec, fval);
-			NkString result(buf);
+			// Coeur sans libc : NkNumberToText (conversion exacte, arrondi pair).
+			const numtext::NkDoubleBits bits = numtext::NkDecompose(fval);
+			const bool neg = bits.negative; // faux pour un NaN, comme la CRT de reference
+			char buf[numtext::kBodyMax];
+			NkString result;
+			if (neg)
+				result.Append('-');
+			result.Append(buf, numtext::NkFloatBodyAny(bits, typeChar, prec, p.alt, buf));
 			if (appendPct)
 				result.Append('%');
 
@@ -779,7 +782,7 @@ namespace nkentseu {
 			static NkString Convert(const char *const &v, const NkFormatProps &p) {
 				if (!v)
 					return p.ApplyWidth(NkStringView("<null>"), false);
-				NkStringView sv(v, std::strlen(v));
+				NkStringView sv(v, numtext::NkCStrLen(v));
 				if (p.HasPrecision() && static_cast<int>(sv.Size()) > p.precision)
 					sv = sv.SubStr(0, p.precision);
 				// sv est déjà NkStringView : pas de conversion implicite ambiguë
@@ -826,10 +829,13 @@ namespace nkentseu {
 
 	template <typename T> struct NkFormatter<T *, std::enable_if_t<!std::is_same_v<std::remove_cv_t<T>, char>>> {
 			static NkString Convert(T *const &v, const NkFormatProps &p) {
+				// « 0x » + hexadecimal minimal, identique sur toutes les plateformes
+				// (auparavant « %p » de la libc : 16 chiffres sans prefixe sous MinGW)
 				char buf[32];
-				snprintf(buf, sizeof(buf), "%p", static_cast<const void *>(v));
-				// NkStringView(const char*) : résout l'ambiguïté sans allocation NkString
-				return p.ApplyWidth(NkStringView(buf), false);
+				buf[0] = '0';
+				buf[1] = 'x';
+				const usize n = 2u + numtext::NkUIntToDigits(reinterpret_cast<uintptr>(v), 16u, false, buf + 2);
+				return p.ApplyWidth(NkStringView(buf, n), false);
 			}
 	};
 
@@ -857,22 +863,6 @@ namespace nkentseu {
 
 	template <typename... Args> void NkPrintfTo(NkString &out, NkStringView fmt, const Args &...args) {
 		out.Append(NkPrintf(fmt, args...));
-	}
-
-	template <typename... Args> void NkPrint(NkStringView fmt, const Args &...args) {
-		std::fputs(NkFormat(fmt, args...).Data(), stdout);
-	}
-
-	template <typename... Args> void NkPrintln(NkStringView fmt, const Args &...args) {
-		std::puts(NkFormat(fmt, args...).Data());
-	}
-
-	template <typename... Args> void NkEPrint(NkStringView fmt, const Args &...args) {
-		std::fputs(NkFormat(fmt, args...).Data(), stderr);
-	}
-
-	template <typename... Args> void NkEPrintln(NkStringView fmt, const Args &...args) {
-		std::fputs((NkFormat(fmt, args...) + "\n").Data(), stderr);
 	}
 
 	// Surcharge pour les conteneurs séquentiels

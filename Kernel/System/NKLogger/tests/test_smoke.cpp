@@ -1,8 +1,9 @@
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 #include <Unitest/Unitest.h>
 #include <Unitest/TestMacro.h>
 
 #include "NKLogger/NkLogLevel.h"
-#include "NKLogger/NkFormatter.h"
+#include "NKLogger/NkLoggerFormatter.h" // NkFormatter -> NkLoggerFormatter (2026-09-04)
 #include "NKLogger/NkLogMessage.h"
 
 using namespace nkentseu;
@@ -14,7 +15,7 @@ TEST_CASE(NKLoggerSmoke, LogLevelRoundTrip) {
 }
 
 TEST_CASE(NKLoggerSmoke, FormatterIncludesMessageAndLevel) {
-	NkFormatter formatter("[%L] %v");
+	NkLoggerFormatter formatter("[%L] %v");
 	NkLogMessage msg(NkLogLevel::NK_DEBUG, "hello-log", "", 0, "", "test");
 
 	NkString out = formatter.Format(msg);

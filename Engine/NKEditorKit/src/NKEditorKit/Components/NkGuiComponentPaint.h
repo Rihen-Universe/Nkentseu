@@ -3,28 +3,31 @@
 // @File    NkGuiComponentPaint.h
 // @Brief   Implementation MINCE de `NkComponentPaint` sur la liste d'affichage
 //          de NKGui — le strict necessaire pour qu'un composant s'affiche.
-// @Author  Rihen
+// @Author  TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // @License Proprietary - All Rights Reserved (see LICENSE)
 //
 // =============================================================================
-//  ⚠️ CE FICHIER EST PROVISOIRE, ET IL FAUT QU'IL LE RESTE.
+//  ⚠️ CE FICHIER N'EST PLUS PROVISOIRE — IL EST L'IMPLEMENTATION DU MONDE NKGUI.
 // =============================================================================
-//  Le peintre partage arrive de NK3DModeler (`NkModelerPainter`, 571 l.,
-//  `NkModelerUI.h`), extrait par son agent — je le RECOIS, je ne le prends pas.
-//  Ce fichier n'est PAS ce peintre et ne cherche pas a le devenir.
+//  Ecrit comme depannage « en attendant le peintre de NK3DModeler », il a
+//  change de statut le 2026-08-30, quand ce peintre est arrive
+//  (`NkModelerComponentPaint.h`, 147 l., commit `6f62e114`) : la mesure a
+//  montre qu'il ne pouvait PAS remplacer ce fichier — il exige un
+//  `NkModelerPainter`, que NkUIDesign n'a pas. Deux mondes de rendu, deux
+//  implementations perennes (plus `NkRecordingPaint` pour les essais).
 //
-//  IL EXISTE POUR UNE SEULE RAISON : une interface sans implementation ne se
-//  compile contre aucun appelant reel, et une declaration sans consommateur
-//  serait exactement le quatrieme systeme dormant que cette tranche existe pour
-//  ne pas creer. Il faut un peintre — n'importe lequel — pour que la chaine
-//  « declaration -> dessin -> ecran » soit fermee aujourd'hui.
+//  ⚠️ ET RIEN N'A MAIGRI, PARCE QUE LA MESURE L'A REFUSE. Ce qu'il porte est
+//     soit le RESPECT DU CONTRAT (l'ellipse, le centrage — les retirer ferait
+//     mentir la signature), soit une DEPENDANCE NOMMEE vers NKGui (l'atlas
+//     d'icones, le contour arrondi — elles disparaitront quand NKGui saura).
+//     Un doublon dont une moitie porte une connaissance que l'autre n'a pas ne
+//     se retire pas ; ici il n'y a meme pas doublon, il y a deux mondes.
 //
 //  🚧 REGLE POUR CELUI QUI PASSERA APRES MOI : **il ne doit pas grossir.**
 //     Chaque methode se contente de traduire un appel vers `NkGuiDrawList`.
 //     Aucune geometrie nouvelle, aucune decision de rendu, aucun cas
-//     particulier. Le jour ou l'on est tente d'ajouter un effet ici, c'est le
-//     signe que le peintre de NK3DModeler doit arriver — pas que ce fichier
-//     doit s'etoffer.
+//     particulier. Une decision de rendu se prend dans le COMPOSANT — c'est ce
+//     qui garantit que les trois peintres rendent la MEME chose.
 //
 // CE QU'IL FAIT QUAND MEME, ET POURQUOI IL LE FAUT :
 //   - **l'ellipse** (« mon_tres_long_fichier... ») : le contrat de
@@ -52,8 +55,136 @@
 #include "NKEditorKit/Components/NkComponentPaint.h"
 #include "NKEditorKit/NkTheme.h"
 #include "NKGui/NKGui.h"
+#include "NKMath/NkEarcut.h" // le triangulateur, descendu de NKFont le 2026-09-01
 
 namespace nkentseu {
+
+	namespace editorkit {
+
+		/// LE TEXTE PROJETE, GLYPHE PAR GLYPHE (palier B, 11/09).
+		///
+		/// 🔑 Rodolf voyait un cadre qui converge et un texte qui ne converge pas. La
+		///    cause etait nommee au palier A : `AddTextTransforme` (NKGui) ne prend que
+		///    SIX coefficients, donc le texte recevait la TANGENTE affine -- bonne
+		///    place, bonne pente, pas de fuite.
+		///
+		/// ⚠️ ON NE TOUCHE PAS AU NOYAU, et ce n'est pas une precaution : le quad et les
+		///    UV de chaque glyphe sont DEJA publics (`NkFont::FindGlyph`), et
+		///    `AddImagePolygon` accepte des sommets libres avec un UV par sommet. On
+		///    projette donc les QUATRE COINS de chaque glyphe et on les emet nous-memes.
+		///
+		/// ⚠️ LE MEME CHEMIN DE SOMMETS QUE LE TEXTE, verifie en lisant les deux
+		///    emetteurs de `NkGuiDrawList` : `AddTextTransforme` fait
+		///    `Vtx(pos, {u,v}, couleur)` puis deux triangles (i0,i1,i2) et (i0,i2,i3) ;
+		///    `AddImagePolygon` fait exactement les memes appels dans le meme ordre, avec
+		///    la meme teinte empaquetee. **L'echantillonnage de l'atlas et la couleur ne
+		///    changent donc pas** -- ce n'est pas une seconde route, c'est la meme.
+		///
+		/// ⚠️ CE QUI RESTE AFFINE, ET C'EST DIT : l'INTERIEUR de chaque glyphe. Un quad
+		///    texture s'interpole lineairement entre ses quatre sommets ; a l'echelle
+		///    d'un glyphe, la difference avec une vraie division par w est tres en
+		///    dessous du pixel -- c'est la meme limite que l'interieur d'une image
+		///    inclinee, ecrite depuis le 09/09.
+		///
+		/// `echelle` : le facteur du glyphe (1 pour l'atlas a sa taille, autre chose
+		/// quand l'application choisit un palier d'atlas et ajuste). `skew` : l'italique
+		/// factice, comme dans NKGui. Rend le nombre de glyphes emis.
+		inline uint32 NkTexteProjete(nkgui::NkGuiDrawList &dl, const NkFont *face, uint32 texId,
+									 const nkgui::NkVec2 &baseline, const char *texte,
+									 const nkgui::NkColor &col, const NkPaintTransform &m,
+									 float32 echelle = 1.f, float32 skew = 0.f) {
+			if (!face || !texte || !*texte || texId == 0u || echelle <= 0.f)
+				return 0u;
+			const char *p = texte;
+			const char *fin = texte;
+			while (*fin)
+				++fin;
+			float32 x = baseline.x;
+			const float32 y = baseline.y;
+			uint32 poses = 0u;
+			auto P = [&](float32 px, float32 py) -> nkgui::NkVec2 {
+				float32 w = m.g * px + m.h * py + 1.f;
+				if (w < NkPaintWMin())
+					w = NkPaintWMin();
+				return nkgui::NkVec2{(m.a * px + m.c * py + m.e) / w,
+									 (m.b * px + m.d * py + m.f) / w};
+			};
+			// LE CALAGE AU PIXEL SE FAIT DANS LE REPERE DU NŒUD, AVANT LA PROJECTION, et
+			// seulement a l'echelle 1 -- c'est exactement la regle de NKGui
+			// (`AddTextTransforme` cale, `AddTextScaled` ne cale pas : arrondir des
+			// positions mises a l'echelle ferait respirer l'interlettrage). Sans lui, ce
+			// chemin et celui d'avant placeraient les memes glyphes a un demi-pixel l'un
+			// de l'autre -- mesure au premier essai du temoin : 0,57 px d'ecart.
+			auto cale = [&](float32 v) -> float32 {
+				if (echelle < 0.999f || echelle > 1.001f)
+					return v;
+				return (float32)(int32)(v < 0.f ? v - 0.5f : v + 0.5f);
+			};
+			while (p < fin) {
+				const NkFontCodepoint cp = NkFontDecodeUTF8(&p, fin);
+				if (cp == 0u)
+					break;
+				const NkFontGlyph *gl = face->FindGlyph(cp);
+				if (!gl)
+					continue;
+				if (gl->visible) {
+					const float32 x0 = cale(x + gl->x0 * echelle), y0 = cale(y + gl->y0 * echelle);
+					const float32 x1 = x0 + (gl->x1 - gl->x0) * echelle;
+					const float32 y1 = y0 + (gl->y1 - gl->y0) * echelle;
+					const float32 sTop = skew != 0.f ? skew * (y - y0) : 0.f;
+					const float32 sBot = skew != 0.f ? skew * (y - y1) : 0.f;
+					const nkgui::NkVec2 pts[4] = {P(x0 + sTop, y0), P(x1 + sTop, y0), P(x1 + sBot, y1),
+												  P(x0 + sBot, y1)};
+					const nkgui::NkVec2 uvs[4] = {{gl->u0, gl->v0}, {gl->u1, gl->v0}, {gl->u1, gl->v1},
+												  {gl->u0, gl->v1}};
+					dl.AddImagePolygon(texId, pts, uvs, 4, col);
+					++poses;
+				}
+				x += gl->advanceX * echelle; // l'avance vaut aussi pour les espaces
+			}
+			return poses;
+		}
+
+		/// LA PORTE DU TEXTE SOUS TRANSFORMEE -- **une seule decision, pour les trois
+		/// peintres** (le kit, l'ecran, l'export).
+		///
+		/// 🔴 ELLE EXISTE PARCE QU'UNE MUTATION EST RESTEE VERTE : le temoin du palier B
+		///    (cas 155) exerce le peintre d'EXPORT ; avec la meme condition ecrite dans
+		///    TROIS peintres, deux d'entre elles n'etaient prouvees par rien -- casser le
+		///    branchement de l'ecran ne faisait rougir personne. *Trois copies d'une
+		///    decision, ce sont deux copies que le temoin ne traverse pas.*
+		///
+		/// Affine -> le chemin d'avant (`AddTextTransforme`). Perspective -> chaque glyphe
+		/// par ses quatre coins.
+		inline void NkTexteTransforme(nkgui::NkGuiDrawList &dl, const NkFont *face, uint32 texId,
+									  const nkgui::NkVec2 &baseline, const char *texte,
+									  const nkgui::NkColor &col, const NkPaintTransform &m,
+									  float32 echelle = 1.f, float32 skew = 0.f) {
+			if (!m.Affine()) {
+				NkTexteProjete(dl, face, texId, baseline, texte, col, m, echelle, skew);
+				return;
+			}
+			if (echelle > 0.999f && echelle < 1.001f) {
+				// ⚠️ LA MATRICE TELLE QUELLE : la recomposer ferait un aller-retour en
+				//    flottant et deplacerait le texte d'un ulp -- le chemin d'avant, intact.
+				dl.AddTextTransforme(face, texId, baseline, texte, col, m.a, m.b, m.c, m.d, m.e, m.f,
+									 -1.f, skew);
+				return;
+			}
+			// l'echelle des glyphes se compose SOUS la matrice, autour de la ligne de base :
+			// p -> M(o) + echelle * L(p - o), exactement ce que les deux peintres de
+			// l'application ecrivaient chacun de leur cote.
+			const float32 ta = m.a * echelle, tb = m.b * echelle;
+			const float32 tc = m.c * echelle, td = m.d * echelle;
+			const float32 mx = m.a * baseline.x + m.c * baseline.y + m.e;
+			const float32 my = m.b * baseline.x + m.d * baseline.y + m.f;
+			dl.AddTextTransforme(face, texId, baseline, texte, col, ta, tb, tc, td,
+								 mx - (ta * baseline.x + tc * baseline.y),
+								 my - (tb * baseline.x + td * baseline.y), -1.f, skew);
+		}
+
+	} // namespace editorkit
+
 	namespace editorkit {
 
 		class NkGuiComponentPaint : public NkComponentPaint {
@@ -79,35 +210,189 @@ namespace nkentseu {
 
 				// ── Primitives ──────────────────────────────────────────────────
 				void Fill(const NkPaintRect &r, uint16 role, float32 rounding) override {
-					mCtx.DL().AddRectFilled(R(r), C(role), rounding);
+					RectRempli(r, C(role), rounding);
 				}
 				void FillColor(const NkPaintRect &r, uint32 rgba, float32 rounding) override {
-					mCtx.DL().AddRectFilled(R(r), Unpack(rgba), rounding);
+					RectRempli(r, Unpack(rgba), rounding);
 				}
 				void Outline(const NkPaintRect &r, uint16 border, uint16 inner,
 							 float32 rounding) override {
 					// Contournement assume : `AddRect` ne sait pas arrondir. Plein
 					// puis creusement d'un pixel. Meme geste que `NkModelerPainter`,
 					// et il disparait le jour ou NKGui sait arrondir un contour.
-					const nkgui::NkRect q = R(r);
-					mCtx.DL().AddRectFilled(q, C(border), rounding);
-					mCtx.DL().AddRectFilled({q.x + 1.f, q.y + 1.f, q.w - 2.f, q.h - 2.f}, C(inner),
-											rounding > 1.f ? rounding - 1.f : 0.f);
+					RectRempli(r, C(border), rounding);
+					RectRempli({r.x + 1.f, r.y + 1.f, r.w - 2.f, r.h - 2.f}, C(inner),
+							   rounding > 1.f ? rounding - 1.f : 0.f);
 				}
 				void OutlineSharp(const NkPaintRect &r, uint16 role) override {
+					if (const NkPaintTransform *m = TransformeActive()) {
+						nkgui::NkVec2 p[4];
+						Coins(*m, r, p);
+						mCtx.DL().AddPolyline(p, 4, C(role), 1.f, true);
+						return;
+					}
 					mCtx.DL().AddRect(R(r), C(role), 1.f);
 				}
 				void HLine(float32 x, float32 y, float32 w, uint16 role) override {
+					if (const NkPaintTransform *m = TransformeActive()) {
+						mCtx.DL().AddLine(T(*m, x, y), T(*m, x + w, y), C(role), 1.f);
+						return;
+					}
 					mCtx.DL().AddRectFilled({Px(x), Px(y), Px(x + w) - Px(x), 1.f}, C(role));
 				}
 				void VLine(float32 x, float32 y, float32 h, uint16 role) override {
+					if (const NkPaintTransform *m = TransformeActive()) {
+						mCtx.DL().AddLine(T(*m, x, y), T(*m, x, y + h), C(role), 1.f);
+						return;
+					}
 					mCtx.DL().AddRectFilled({Px(x), Px(y), 1.f, Px(y + h) - Px(y)}, C(role));
 				}
 
 				void Text(const NkPaintRect &r, const char *s, uint16 role, NkTextAlign align) override;
 				void Icon(const NkPaintRect &r, uint16 iconHandle, uint16 role) override;
 
+				// Traductions pures (2026-08-30) — la regle « il ne doit pas
+				// grossir » tient : l'ellipse parametrique vit dans NKGui
+				// (`AddEllipseFilled`), la ligne dans `AddLine`.
+				bool Ellipse(const NkPaintRect &r, uint16 role) override {
+					if (const NkPaintTransform *m = TransformeActive()) {
+						// 48 points : la meme finesse que l'ellipse native pour un rayon
+						// de l'ordre de la boite, transformes un a un.
+						enum { kN = 48 };
+						nkgui::NkVec2 p[kN];
+						const float32 cx = r.x + r.w * 0.5f, cy = r.y + r.h * 0.5f;
+						for (int32 i = 0; i < kN; ++i) {
+							const float32 ang = 6.2831853f * (float32)i / (float32)kN;
+							p[i] = T(*m, cx + r.w * 0.5f * NkCosApprox(ang), cy + r.h * 0.5f * NkSinApprox(ang));
+						}
+						mCtx.DL().AddConvexPolyFilled(p, kN, C(role));
+						return true;
+					}
+					mCtx.DL().AddEllipseFilled({r.x + r.w * 0.5f, r.y + r.h * 0.5f}, r.w * 0.5f,
+											   r.h * 0.5f, C(role));
+					return true;
+				}
+				bool Line(float32 x1, float32 y1, float32 x2, float32 y2, uint16 role,
+						  float32 thickness) override {
+					if (const NkPaintTransform *m = TransformeActive()) {
+						mCtx.DL().AddLine(T(*m, x1, y1), T(*m, x2, y2), C(role), thickness);
+						return true;
+					}
+					mCtx.DL().AddLine({x1, y1}, {x2, y2}, C(role), thickness);
+					return true;
+				}
+				/// Polygone plein, CONCAVE COMPRIS — triangulation par
+				/// ear-clipping SANS ALLOCATION (`NKMath/NkEarcut.h`).
+				///
+				/// 🔴 CE QU'IL FAISAIT AVANT, ET POURQUOI C'ÉTAIT UN DÉFAUT LIVRÉ :
+				///    un ÉVENTAIL DEPUIS LE CENTROÏDE. Juste pour un convexe, juste
+				///    pour une étoile, FAUX dès que le contour est concave — les
+				///    triangles de l'éventail traversent le creux et le
+				///    remplissage déborde. Tant que l'application ne posait que des
+				///    rectangles et des ellipses, personne ne pouvait le voir ; les
+				///    poignées de Bézier ont rendu le défaut atteignable, donc réel.
+				///
+				/// 🔴 ET LA PREMIÈRE TENTATIVE DE RÉPARATION A FAIT PLANTER
+				///    L'APPLICATION — corruption de tas, `0xC0000374`, en trois
+				///    secondes. La cause n'était pas ici : `NkEarcut` (la porte qui
+				///    ALLOUE) libère chaque oreille découpée, puis libère la liste
+				///    une seconde fois depuis sa tête, laquelle a presque toujours
+				///    été découpée. Une DOUBLE LIBÉRATION, présente depuis le
+				///    début, que seuls des milliers d'appels par seconde rendaient
+				///    visible. On passe donc par `NkEarcutVers`, la porte SANS
+				///    ALLOCATION : pas de tas, donc pas de libération à équilibrer,
+				///    donc pas de double libération possible.
+				///
+				/// ⚠️ LES TAMPONS SONT SUR LA PILE, ET LEUR TAILLE EST EXACTE : un
+				///    polygone simple à N sommets donne toujours N-2 triangles.
+				///    `NkContourDe` plafonne à 128 points, d'où 128 nœuds et
+				///    3*(128-2) indices. Aucune allocation dans la boucle de
+				///    dessin — c'était l'autre moitié du problème.
+				///
+				/// ⚠️ REPLI EXPLICITE PLUTÔT QUE RIEN : si la triangulation ne rend
+				///    aucun triangle (contour dégénéré, points alignés, contour qui
+				///    se croise), on repeint l'éventail d'avant. Il est faux sur un
+				///    concave, mais il montre QUELQUE CHOSE — et une forme qui
+				///    disparaît est pire qu'une forme mal remplie : elle fait croire
+				///    à une suppression.
+				bool PolygonHex(const float32 *xy, int32 count, uint32 rgba) override {
+					if (const NkPaintTransform *m = TransformeActive()) {
+						if (!xy || count < 3 || count > 128)
+							return false;
+						float32 tmp[256];
+						for (int32 i = 0; i < count; ++i) {
+							const nkgui::NkVec2 q = T(*m, xy[i * 2], xy[i * 2 + 1]);
+							tmp[i * 2] = q.x;
+							tmp[i * 2 + 1] = q.y;
+						}
+						return PolygonHexBrut(tmp, count, rgba);
+					}
+					return PolygonHexBrut(xy, count, rgba);
+				}
+				bool PolygonHexBrut(const float32 *xy, int32 count, uint32 rgba) {
+					if (!xy || count < 3)
+						return false;
+					// ⚠️ CE CALCUL ETAIT RECOPIE ICI (12/09) : un second point de couleur,
+					//    donc une teinte qui aurait saute les degrades et les traces edites.
+					const nkgui::NkColor col = Unpack(rgba);
+					enum { kMaxPts = 128 };
+					if (count <= (int32)kMaxPts) {
+						math::NkVec2f pts[kMaxPts];
+						::nkentseu::detail::NkEarcutNode<float32> noeuds[kMaxPts];
+						uint32 idx[(kMaxPts - 2) * 3];
+						for (int32 i = 0; i < count; ++i)
+							pts[i] = math::NkVec2f(xy[i * 2], xy[i * 2 + 1]);
+						// ⚠️ LE SENS N'EST PAS NOTRE AFFAIRE : `NkEarcutVers` mesure
+						//    l'aire signée et se retourne tout seul. Le peintre reçoit
+						//    des contours dans un sens quelconque (une forme dont on a
+						//    tiré les sommets peut s'être retournée) et n'a pas à le
+						//    savoir.
+						const uint32 nbTri = ::nkentseu::NkEarcutVers<float32>(
+							pts, (uint32)count, noeuds, kMaxPts, idx, (kMaxPts - 2) * 3);
+						if (nbTri > 0) {
+							for (uint32 t = 0; t < nbTri; ++t) {
+								const math::NkVec2f &a = pts[idx[t * 3 + 0]];
+								const math::NkVec2f &b = pts[idx[t * 3 + 1]];
+								const math::NkVec2f &c = pts[idx[t * 3 + 2]];
+								mCtx.DL().AddTriangleFilled({a.x, a.y}, {b.x, b.y}, {c.x, c.y},
+															col);
+							}
+							return true;
+						}
+					}
+					// repli : l'éventail d'avant (voir l'avertissement ci-dessus)
+					float32 cx = 0.f, cy = 0.f;
+					for (int32 i = 0; i < count; ++i) {
+						cx += xy[i * 2];
+						cy += xy[i * 2 + 1];
+					}
+					cx /= (float32)count;
+					cy /= (float32)count;
+					for (int32 i = 0; i < count; ++i) {
+						const int32 j = (i + 1) % count;
+						mCtx.DL().AddTriangleFilled({xy[i * 2], xy[i * 2 + 1]},
+													{xy[j * 2], xy[j * 2 + 1]}, {cx, cy}, col);
+					}
+					return true;
+				}
+
 				void PushClip(const NkPaintRect &r) override {
+					if (const NkPaintTransform *m = TransformeActive()) {
+						// ⚠️ UNE DECOUPE TOURNEE N'EST PAS UN RECTANGLE. On prend l'englobant
+						//    du rectangle transforme : il ne coupe jamais ce qui doit se
+						//    voir, il peut en laisser un peu plus. Dit ici, pas cache.
+						nkgui::NkVec2 p[4];
+						Coins(*m, r, p);
+						float32 x0 = p[0].x, y0 = p[0].y, x1 = p[0].x, y1 = p[0].y;
+						for (int32 i = 1; i < 4; ++i) {
+							if (p[i].x < x0) x0 = p[i].x;
+							if (p[i].x > x1) x1 = p[i].x;
+							if (p[i].y < y0) y0 = p[i].y;
+							if (p[i].y > y1) y1 = p[i].y;
+						}
+						mCtx.DL().PushClipRect({x0, y0, x1 - x0, y1 - y0}, true);
+						return;
+					}
 					mCtx.DL().PushClipRect(R(r), true);
 				}
 				void PopClip() override {
@@ -119,6 +404,164 @@ namespace nkentseu {
 				/// des glyphes poses a mi-pixel) : `Px` est repris tel quel de
 				/// `NkModelerUI.h:59`, et c'est l'une des choses que la reception du
 				/// peintre doit GARDER, pas « nettoyer ».
+			public:
+				// ── LA TRANSFORMEE : la pile et ses aides ──────────────────────
+				// `protected` : un peintre derive (celui d'une application, avec
+				// ses propres polices) doit lire la matrice en vigueur pour la
+				// respecter dans SES primitives. Le kit ne devine pas les siennes.
+				void PushTransform(const NkPaintTransform &m) override {
+					if (mSpT < kProfT) {
+						// Composee avec celle du dessus : un enfant sous un parent
+						// transforme ajoute la sienne, il ne la remplace pas.
+						const NkPaintTransform *h = TransformeActive();
+						mPileT[mSpT] = h ? Composer(*h, m) : m;
+					}
+					++mSpT; // au-dela de la profondeur : on compte, on n'applique pas
+				}
+				void PopTransform() override {
+					if (mSpT > 0)
+						--mSpT;
+				}
+				// ── LE MODE DE MELANGE (2026-09-04) : la liste de dessin le porte par commande ──
+				bool ImagePolygone(const float32 *xy, const float32 *uv, int32 count, uint32 image,
+								   float32 opacite) override {
+					// sous la matrice en vigueur, comme PolygonHex ; sans texture (0) : faux,
+					// et l'appelant peint son damier -- rien n'est simule
+					if (!xy || !uv || count < 3 || count > 128 || image == 0u)
+						return false;
+					nkgui::NkVec2 p[128], t[128];
+					const NkPaintTransform *m = TransformeActive();
+					for (int32 i = 0; i < count; ++i) {
+						p[i] = m ? T(*m, xy[i * 2], xy[i * 2 + 1]) : nkgui::NkVec2{xy[i * 2], xy[i * 2 + 1]};
+						t[i] = {uv[i * 2], uv[i * 2 + 1]};
+					}
+					const float32 k = opacite < 0.f ? 0.f : (opacite > 100.f ? 1.f : opacite * 0.01f);
+					// ⚠️ LE BLANC EST LE MULTIPLICATEUR de l'image : c'est exactement la que la
+					//    teinte d'un etat doit agir. Sans ce site, une image resterait seule
+					//    non teintee -- l'exception qu'on refuse (Unity teinte le sprite).
+					mCtx.DL().AddImagePolygon(image, p, t, count,
+												  Unpack(0xFFFFFF00u | ((uint32)(255.f * k + 0.5f) & 0xFFu)));
+					return true;
+				}
+				void PushBlend(NkPaintBlend b) override {
+					mCtx.DL().PushBlend((nkgui::NkGuiBlend)(uint8)b);
+				}
+				void PopBlend() override {
+					mCtx.DL().PopBlend();
+				}
+			protected:
+				/// La transformee en vigueur, ou nullptr a l'identite / hors pile.
+				const NkPaintTransform *TransformeActive() const noexcept {
+					if (mSpT == 0 || mSpT > kProfT)
+						return nullptr;
+					const NkPaintTransform &m = mPileT[mSpT - 1];
+					return m.Identite() ? nullptr : &m;
+				}
+				static nkgui::NkVec2 T(const NkPaintTransform &m, float32 x, float32 y) noexcept {
+					// ⚠️ LA DIVISION PAR `w` EST ICI, ET NULLE PART AILLEURS (11/09) : les
+					//    coins d'un rect, les 48 points d'une ellipse, les sommets d'un
+					//    trace, les extremites d'une ligne et l'englobant d'une decoupe
+					//    passent tous par cette fonction. *Une seule porte a diviser.*
+					if (!m.Affine()) {
+						float32 w = m.g * x + m.h * y + 1.f;
+						if (w < NkPaintWMin())
+							w = NkPaintWMin();
+						return nkgui::NkVec2{(m.a * x + m.c * y + m.e) / w,
+											 (m.b * x + m.d * y + m.f) / w};
+					}
+					return nkgui::NkVec2{m.a * x + m.c * y + m.e, m.b * x + m.d * y + m.f};
+				}
+				/// h o m : d'abord m (la nouvelle), puis h (celle du dessus).
+				static NkPaintTransform Composer(const NkPaintTransform &h,
+												 const NkPaintTransform &m) noexcept {
+					NkPaintTransform r;
+					if (h.Affine() && m.Affine()) { // le chemin d'avant, inchange
+						r.a = h.a * m.a + h.c * m.b;
+						r.b = h.b * m.a + h.d * m.b;
+						r.c = h.a * m.c + h.c * m.d;
+						r.d = h.b * m.c + h.d * m.d;
+						r.e = h.a * m.e + h.c * m.f + h.e;
+						r.f = h.b * m.e + h.d * m.f + h.f;
+						return r;
+					}
+					// le produit 3x3 puis la normalisation -- la meme regle que
+					// `NkMatComposer` cote document : `w = g x + h y + 1` a chaque etage.
+					const float32 A = h.a * m.a + h.c * m.b + h.e * m.g;
+					const float32 C = h.a * m.c + h.c * m.d + h.e * m.h;
+					const float32 E = h.a * m.e + h.c * m.f + h.e;
+					const float32 B = h.b * m.a + h.d * m.b + h.f * m.g;
+					const float32 D = h.b * m.c + h.d * m.d + h.f * m.h;
+					const float32 F = h.b * m.e + h.d * m.f + h.f;
+					const float32 G = h.g * m.a + h.h * m.b + m.g;
+					const float32 H = h.g * m.c + h.h * m.d + m.h;
+					const float32 I = h.g * m.e + h.h * m.f + 1.f;
+					if (I == 0.f)
+						return r;
+					const float32 k = 1.f / I;
+					r.a = A * k;
+					r.b = B * k;
+					r.c = C * k;
+					r.d = D * k;
+					r.e = E * k;
+					r.f = F * k;
+					r.g = G * k;
+					r.h = H * k;
+					return r;
+				}
+				static void Coins(const NkPaintTransform &m, const NkPaintRect &r,
+								  nkgui::NkVec2 *p) noexcept {
+					p[0] = T(m, r.x, r.y);
+					p[1] = T(m, r.x + r.w, r.y);
+					p[2] = T(m, r.x + r.w, r.y + r.h);
+					p[3] = T(m, r.x, r.y + r.h);
+				}
+				// sin/cos sans <cmath> dans l'en-tete : polynomes suffisants pour des
+				// arcs de dessin (erreur < 1e-3), le meme parti que `NkSinCosDeg` du document.
+				static float32 NkSinApprox(float32 x) noexcept {
+					while (x > 3.14159265f) x -= 6.2831853f;
+					while (x < -3.14159265f) x += 6.2831853f;
+					const float32 x2 = x * x;
+					return x * (1.f - x2 / 6.f * (1.f - x2 / 20.f * (1.f - x2 / 42.f * (1.f - x2 / 72.f))));
+				}
+				static float32 NkCosApprox(float32 x) noexcept { return NkSinApprox(x + 1.57079633f); }
+				/// Un rectangle (arrondi ou non) rempli, transforme s'il le faut.
+				void RectRempli(const NkPaintRect &r, const nkgui::NkColor &col, float32 rounding) {
+					const NkPaintTransform *m = TransformeActive();
+					if (!m) {
+						mCtx.DL().AddRectFilled(R(r), col, rounding);
+						return;
+					}
+					if (r.w <= 0.f || r.h <= 0.f)
+						return;
+					float32 ro = rounding;
+					const float32 demi = (r.w < r.h ? r.w : r.h) * 0.5f;
+					if (ro > demi) ro = demi;
+					if (ro <= 0.5f) {
+						nkgui::NkVec2 p[4];
+						Coins(*m, r, p);
+						mCtx.DL().AddConvexPolyFilled(p, 4, col);
+						return;
+					}
+					// quatre arcs de kS segments, dans le repere propre, PUIS transformes :
+					// l'arrondi se calcule droit, comme pour les formes du document.
+					enum { kS = 6 };
+					nkgui::NkVec2 p[4 * (kS + 1)];
+					int32 n = 0;
+					const float32 cxs[4] = {r.x + r.w - ro, r.x + r.w - ro, r.x + ro, r.x + ro};
+					const float32 cys[4] = {r.y + ro, r.y + r.h - ro, r.y + r.h - ro, r.y + ro};
+					const float32 a0s[4] = {-1.57079633f, 0.f, 1.57079633f, 3.14159265f};
+					for (int32 k = 0; k < 4; ++k)
+						for (int32 s = 0; s <= kS; ++s) {
+							const float32 ang = a0s[k] + 1.57079633f * (float32)s / (float32)kS;
+							p[n++] = T(*m, cxs[k] + ro * NkCosApprox(ang), cys[k] + ro * NkSinApprox(ang));
+						}
+					mCtx.DL().AddConvexPolyFilled(p, n, col);
+				}
+				enum { kProfT = 16 };
+				NkPaintTransform mPileT[kProfT];
+				int32 mSpT = 0;
+
+			private:
 				static float32 Px(float32 v) noexcept {
 					return (float32)(int32)(v + 0.5f);
 				}
@@ -126,9 +569,15 @@ namespace nkentseu {
 					const float32 x = Px(r.x), y = Px(r.y);
 					return {x, y, Px(r.x + r.w) - x, Px(r.y + r.h) - y};
 				}
-				static nkgui::NkColor Unpack(uint32 c) noexcept {
-					return {(uint8)((c >> 24) & 0xFFu), (uint8)((c >> 16) & 0xFFu),
-							(uint8)((c >> 8) & 0xFFu), (uint8)(c & 0xFFu)};
+				/// ⚠️ LE POINT UNIQUE DE COULEUR DE CE PEINTRE, et c'est pour ca que la
+				///    TEINTE se pose ICI : `C(role)` y passe (onze sites), `FillColor` y
+				///    passe, et `PolygonHexBrut` y passe depuis le 12/09 -- il recopiait
+				///    ce calcul a la main, ce qui en faisait un second point de couleur.
+				/// ⚠️ NON STATIQUE DESORMAIS : elle lit la teinte de l'instance.
+				nkgui::NkColor Unpack(uint32 c) const noexcept {
+					const uint32 t = Teinter(c);
+					return {(uint8)((t >> 24) & 0xFFu), (uint8)((t >> 16) & 0xFFu),
+						(uint8)((t >> 8) & 0xFFu), (uint8)(t & 0xFFu)};
 				}
 				nkgui::NkColor C(uint16 role) const noexcept {
 					return Unpack(mTheme.Get(role));

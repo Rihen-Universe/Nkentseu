@@ -1,4 +1,5 @@
 #pragma once
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // =============================================================================
 // Nkentseu/Physics/NkPhysicsSystems.h
 // =============================================================================
@@ -167,7 +168,7 @@ namespace nkentseu {
 			[[nodiscard]] NkSystemDesc Describe() const override {
 				return NkSystemDesc{}
 					.Reads<NkTransform>()
-					.Writes<NkRagdoll>()
+					.Writes<NkRagdollComponent>()
 					.Writes<NkSkeleton>()
 					.InGroup(NkSystemGroup::PostUpdate)
 					.WithPriority(450.f)
@@ -177,9 +178,9 @@ namespace nkentseu {
 			void Execute(NkWorld &world, float32 dt) noexcept override;
 
 		private:
-			void TransitionToRagdoll(NkRagdoll &rd, NkSkeleton &sk, NkWorld &world, float32 dt) noexcept;
-			void ApplyRagdollToSkeleton(NkRagdoll &rd, NkSkeleton &sk, NkWorld &world) noexcept;
-			void BlendAnimRagdoll(NkRagdoll &rd, NkSkeleton &sk, NkWorld &world, float32 dt) noexcept;
+			void TransitionToRagdoll(NkRagdollComponent &rd, NkSkeleton &sk, NkWorld &world, float32 dt) noexcept;
+			void ApplyRagdollToSkeleton(NkRagdollComponent &rd, NkSkeleton &sk, NkWorld &world) noexcept;
+			void BlendAnimRagdoll(NkRagdollComponent &rd, NkSkeleton &sk, NkWorld &world, float32 dt) noexcept;
 	};
 
 	// =========================================================================

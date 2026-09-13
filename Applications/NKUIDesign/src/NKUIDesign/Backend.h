@@ -443,6 +443,25 @@ namespace nkuidesign {
 		return false;
 	}
 
+	/// LES BACKENDS PROPOSABLES A L UTILISATEUR, a UN SEUL endroit.
+	///
+	/// ⚠️ CETTE LISTE VIVAIT DANS LE PANNEAU DE PREFERENCES, qui va disparaitre.
+	///    Une capacite ne se debranche pas avant que son remplacant existe : la
+	///    liste remonte donc ici, ou elle ne depend d aucun panneau, AVANT que
+	///    le panneau parte. Le menu et le panneau lisent la meme table tant que
+	///    les deux coexistent -- deux tables auraient diverge des le premier
+	///    backend ajoute.
+	///
+	/// ⚠️ `metal` N Y EST PAS, et c est deliberе : `NkGfxParse` l accepte comme
+	///    nom mais le refuse a la resolution sur cette plateforme. Le proposer
+	///    dans un menu serait offrir un choix qui echoue.
+	inline const char *const *NkGfxApiNames(uint32 &count) {
+		static const char *const kApis[] = {"auto", "opengl", "vulkan",
+										   "dx11", "dx12",   "software"};
+		count = 6;
+		return kApis;
+	}
+
 	/// Le geste complet : relire, remplacer la cle, reecrire atomiquement.
 	/// ⚠️ IL RELIT JUSTE AVANT D'ECRIRE, il ne se sert pas d'un texte garde en
 	///    memoire au demarrage : entre les deux, quelqu'un a pu editer le fichier

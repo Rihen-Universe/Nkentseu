@@ -21,6 +21,10 @@
 #include "NKEditorKit/NkEditorContext.h"
 #include "NKEditorKit/NkEditorPanel.h"
 #include "NKEditorKit/NkEditorCommand.h"
+// ⚠️ La coquille porte LE point de synchronisation des deux objets theme
+//    (`ApplyTheme`) : elle a donc besoin des ROLES de l editeur, en plus du
+//    `NkGuiTheme` que `NKGui/NKGui.h` lui apporte plus bas.
+#include "NKEditorKit/NkTheme.h"
 
 #include "NKWindow/NKWindow.h"
 #include "NKEvent/NkKeyboardEvent.h"
@@ -75,6 +79,14 @@ namespace nkentseu {
 
 				void RequestClose() noexcept {
 					mRunning = false;
+				}
+
+				/// Le backend de rendu ACTIF — injecté par l'app, ou NKCanvas par
+				/// défaut. Jamais nul après un Init() réussi. Exposé pour que l'app
+				/// puisse armer une capture (`CaptureNext`) sans posséder le backend
+				/// qu'elle n'a pas injecté.
+				NkIEditorRenderer *Renderer() noexcept {
+					return mRenderer;
 				}
 
 				// ── Fermeture EXPLICITE de la fenetre (croix de la barre de titre) ──
@@ -183,6 +195,188 @@ namespace nkentseu {
 				// retirer : sinon elle herite du chrome de NKCode et lui ressemble, alors
 				// qu'elle ne fait pas le meme metier. Le dock reprend alors la largeur
 				// liberee.
+				// ── GEOMETRIE DE L EN-TETE (optionnelle) ────────────────────────
+				// Par defaut la coquille calcule sa barre de titre (`ItemHeight()+10`)
+				// et sa barre d outils (46). Une application dont la maquette impose
+				// des cotes exactes les pose ici.
+				//
+				// ⚠️ ADDITIF : 0 = comportement historique, inchange. Aucune
+				//    application existante ne bouge.
+				//
+				// ⚠️ ET CES VALEURS NE PASSENT PAS PAR `S()`. Ce sont des PIXELS,
+				//    pas des unites a mettre a l echelle : quand une maquette dit 28,
+				//    la mesure sur la capture doit rendre 28. Les faire passer par le
+				//    facteur DPI donnerait 30 sur un ecran a 107 % -- « la valeur est
+				//    ecrite » sans etre « la valeur est honoree ».
+				//
+				// `logo` : bloc CARRE colle au coin haut-gauche, qui CHEVAUCHE les
+				// deux bandes. Les deux bandes commencent alors a x = logo.
+				void SetHeaderLayout(float32 titleH, float32 bandH, float32 logo) noexcept {
+					mHeaderTitleH = titleH;
+					mHeaderBandH = bandH;
+					mHeaderLogo = logo;
+				}
+
+				// ═══════════════════════════════════════════════════════════════
+				//  LE POINT DE SYNCHRONISATION DES DEUX OBJETS THEME
+				// ═══════════════════════════════════════════════════════════════
+				//  ⚠️ IL Y A **DEUX** OBJETS THEME DANS CE DEPOT, ET RIEN NE LES
+				//     SYNCHRONISAIT :
+				//       - `editorkit::NkTheme` / `NkThemeLibrary` : les ROLES, les
+				//         jetons nommes, l audit de contraste, les fichiers de
+				//         theme. C est **l autorite** ;
+				//       - `nkgui::NkGuiTheme` (porte par `NkGuiContext`) : ce que le
+				//         DESSIN lit, a chaque primitive.
+				//
+				//  DEFAUT MESURE (agent NKCraft, chantier voisin) : bascule de
+				//  l editeur en Clair, le levier repond « accepte (courant : Clair) »,
+				//  les vignettes du navigateur changent — et le menu contextuel ne
+				//  bouge pas d un pixel, parce que `NkCtxMenuDraw` lit `ctx.theme`.
+				//  **Deux objets, chacun cru par une partie du dessin.** C est le
+				//  motif des deux registres homonymes de roles, applique aux themes.
+				//
+				//  ⚠️ DEUX OBJETS N EST PAS LE PROBLEME — ils sont dans deux couches,
+				//     NKGui dessous, NKEditorKit dessus, ce que la regle « UN SEUL
+				//     SOCLE D INTERFACE DANS NKGui, SPECIALISE PAR EDITEUR » (Rodolf,
+				//     2026-08-17) prescrit. **Deux AUTORITES, si.** D ou : une seule
+				//     direction, la bibliotheque POUSSE vers le theme du dessin, et
+				//     elle le fait ICI, en un seul endroit qu on peut citer.
+				//
+				//  ⚠️ CE QUE LA CONVERSION NE PEUT PAS FAIRE, et il faut le savoir
+				//     pour ne pas s y fier a tort :
+				//       - `NkGuiTheme` porte des ETATS (survol, actif) que `NkTheme`
+				//         ne porte pas en roles. Ils sont **derives par une regle
+				//         nommee** — melange vers l accent — pas inventes couleur par
+				//         couleur ;
+				//       - `success` / `warning` / `danger` / `info` n ont AUCUN role
+				//         equivalent cote editeur : ils sont **laisses tels quels**,
+				//         et c est dit plutot que tu ;
+				//       - `scrim` et `shadow` sont des voiles noirs a alpha : ils ne
+				//         dependent pas du theme.
+				void ApplyTheme(const NkTheme &t) noexcept;
+
+				// ⚠️ L INDICATEUR « Zoom NNN% » DU PIED N EST PAS UN ZOOM DE VUE :
+				//    il rend `ActiveCodeSize() / kDefaultCodeFontSize`, c est-a-dire
+				//    le zoom de la POLICE DE CODE (Ctrl+= / Ctrl+0), une notion de
+				//    NKCode. Une application sans editeur de code l affiche sans
+				//    rien derriere -- et si elle a par ailleurs un zoom de TOILE,
+				//    l ecran porte deux nombres sous le meme mot, qui ne disent pas
+				//    la meme chose. Mesure NkUIDesign : « 100 % » dans le cluster de
+				//    toile et « Zoom 107 % » au pied, au meme instant.
+				//    ⚠️ ADDITIF : `true` = comportement historique, NKCode ne bouge
+				//       pas.
+				/// DEBRANCHER LA BARRE D'ETAT ENTIERE, PAS LA DETRUIRE (meme regle
+				/// que SetActivityBars) — ajoute le 2026-08-30 : le plan de
+				/// NkUIDesign (§4/§13) ne prevoit qu'UN bandeau bas, le rail de
+				/// pastilles ; la barre d'etat VSCode en faisait un second. A
+				/// faux, la bande basse n'est plus ni reservee ni dessinee (sauf
+				/// si un SetStatusBarFn est pose : le hook garde sa bande), et
+				/// SetFooter route son texte vers le RAIL BAS — une seule verite
+				/// d'affichage, aucun message perdu.
+				void SetStatusBarVisible(bool v) noexcept {
+					mStatusBarVisible = v;
+				}
+				/// DEBRANCHER LA GRANDE BARRE DE DEFILEMENT DES PANNEAUX ANCRES
+				/// (meme motif que SetStatusBarVisible — additif, 01/09, retour de
+				/// Rodolf : « la scrollbar la plus grande doit etre supprimee »).
+				/// A faux, les fenetres de panneaux passent NoScrollbar a NKGui :
+				/// la MOLETTE et le bornage restent (le contenu long demeure
+				/// atteignable), seule la barre externe ne se dessine plus — pour
+				/// les applications dont les panneaux portent leurs propres
+				/// ascenseurs par section. Defaut : vrai (NKCode et les autres
+				/// consommateurs ne bougent pas).
+				void SetDockScrollbarVisible(bool v) noexcept {
+					mDockScrollbars = v;
+				}
+				/// Le TEXTE du rail bas, a droite des pastilles (l'aide
+				/// contextuelle de l'outil arme, l'etat de l'application).
+				void SetRailFooterText(const char *t) noexcept {
+					// copie bornee inline : `CopyStr` vit dans le .cpp
+					uint32 i = 0;
+					for (; t && t[i] && i + 1 < (uint32)sizeof(mRailFooterText); ++i)
+						mRailFooterText[i] = t[i];
+					mRailFooterText[i] = 0;
+				}
+
+				void SetFooterZoomIndicator(bool visible) noexcept {
+					mFooterZoom = visible;
+				}
+
+				// ═══════════════════════════════════════════════════════════════
+				//  RAILS DE PASTILLES (document 3 §13) — ETATS 1 ET 2
+				// ═══════════════════════════════════════════════════════════════
+				//  Trois rails FINS (28 px) aux bords du corps, EN DEHORS des
+				//  panneaux fixes. Chacun porte des pastilles de 28x28, une par
+				//  panneau SECONDAIRE.
+				//
+				//  ETAT 1 — repliee : l icone seule, infobulle au survol.
+				//  ETAT 2 — depliee : le panneau glisse EN OVERLAY par-dessus le
+				//           canvas, voile semi-transparent dessous, ferme par un
+				//           clic ailleurs ou un second clic sur la pastille.
+				//
+				//  ⚠️ L ETAT 2 NE REDIMENSIONNE PAS LE CANVAS, et c est EXACTEMENT
+				//     ce qui le distingue de l etat 3 (ancre). Le rectangle du dock
+				//     ne retranche que les 28 px des RAILS, jamais la largeur du
+				//     tiroir. Si un jour le dock se met a bouger quand on deplie,
+				//     l etat 2 est devenu l etat 3 sans que personne l ait decide.
+				//
+				//  ⚠️ UNE SEULE PASTILLE DEPLIEE PAR RAIL (§13.3) : deplier la
+				//     seconde referme la premiere. La regle vit dans `mRailOuvert`,
+				//     UN entier par rail — un ensemble d ouverts aurait rendu la
+				//     regle facultative.
+				//
+				//  ⚠️ CE N EST PAS LA BARRE D ACTIVITE, ET LA MESURE LE DIT. Avant
+				//     d ecrire ceci, la question « qui porte deja un rail lateral ? »
+				//     a ete posee (porte du 28/08). Reponse : `DrawActivityBar` en
+				//     porte un — mais ses huit icones sont un `switch (idx)` code en
+				//     dur (Explorateur, Recherche, Controle de source...), sans
+				//     libelle, sans infobulle, et sans tiroir. Elle bascule des vues
+				//     ANCREES, c est-a-dire l etat 3. Ce qui a ete REPRIS, en
+				//     revanche : `NkTooltip` (l infobulle des voyants du pied),
+				//     `NkEditorPanel` (le tiroir dessine un panneau existant, il
+				//     n en invente pas un second) et le voile de `theme.scrim`.
+				struct NkEditorRailItem {
+						/// Titre du panneau a deplier. ⚠️ C est une CLE : elle doit
+						/// s ecrire a l identique ici et dans `NkEditorPanel(...)`.
+						const char *panel = "";
+						const char *tooltip = ""; ///< infobulle de l etat 1
+						const char *glyphe = "";  ///< 1 a 2 lettres, faute d atlas
+						// ── ADDITIF (costume Banani, 2026-08-31) — les défauts rendent
+						//    le comportement historique, aucun consommateur ne bouge. ──
+						/// Dessin de la pastille PAR L'APPLICATION (à la place du
+						/// glyphe) : icône vectorielle, libellé, badge — l'app dessine
+						/// tout le CONTENU dans `r` avec ses propres polices ; la
+						/// coquille garde le fond d'état, l'infobulle et le clic.
+						/// `actif` = tiroir déplié, `survol` = souris dessus.
+						void (*icone)(nkgui::NkGuiContext &ui, const nkgui::NkRect &r, bool actif,
+									  bool survol, void *user) = nullptr;
+						void *iconeUser = nullptr;
+						/// Largeur de la pastille (rail bas : une PILULE « icône +
+						/// libellé » est plus large que 28). 0 = les 28 historiques.
+						float32 largeur = 0.f;
+				};
+				static const int32 kRailMax = 8;
+
+				/// Pose les pastilles d un rail. `side` : NK_LEFT, NK_RIGHT ou
+				/// NK_BOTTOM. Un rail sans pastille n est pas dessine du tout — une
+				/// bande vide de 28 px serait du chrome, exactement ce qu on vient
+				/// de retirer.
+				/// ⚠️ AU-DELA DE `kRailMax`, LE RAIL CRIE ET REFUSE le surplus : il
+				///    ne le laisse pas tomber en silence.
+				void SetRail(NkEditorDockSide side, const NkEditorRailItem *items, int32 count) noexcept;
+
+				/// Ouvre (ou ferme, index -1) le TIROIR d'une pastille de rail par
+				/// programme — mise en scène et raccourcis. Additif (2026-08-31) :
+				/// même règle qu'un clic sur la pastille, une seule par rail.
+				void OuvrirTiroir(NkEditorDockSide side, int32 index) noexcept {
+					const int32 slot = side == NkEditorDockSide::NK_LEFT	? 0
+									   : side == NkEditorDockSide::NK_RIGHT ? 1
+									   : side == NkEditorDockSide::NK_BOTTOM ? 2
+																			 : -1;
+					if (slot >= 0 && index < mRailCount[slot])
+						mRailOuvert[slot] = index;
+				}
+
 				void SetActivityBars(bool left, bool right) noexcept {
 					mActivityBarLeft = left;
 					mActivityBarRight = right;
@@ -349,6 +543,80 @@ namespace nkentseu {
 					mTitleLogoAspect = aspect;
 				}
 
+				// ═══════════════════════════════════════════════════════════════
+				//  COSTUME EXACT (remandat Banani, 2026-08-31) — TOUT EST ADDITIF
+				// ═══════════════════════════════════════════════════════════════
+				//  Chaque crochet a un défaut = comportement historique : NKCode et
+				//  les autres consommateurs ne bougent pas d'un pixel tant qu'ils
+				//  n'optent pas.
+
+				/// Le bloc logo carré (SetHeaderLayout) dessiné PAR L'APPLICATION.
+				/// Prime sur SetTitleLogo et sur le « O » Rihen par défaut — c'est le
+				/// même patron que SetMenuBar : l'app fournit le dessin, la coquille
+				/// fournit la place.
+				void SetHeaderLogoFn(void (*fn)(nkgui::NkGuiContext &, const nkgui::NkRect &, void *),
+									 void *user = nullptr) noexcept {
+					mHeaderLogoFn = fn;
+					mHeaderLogoUser = user;
+				}
+
+				/// Police dédiée à la BARRE DE TITRE (menus + nom de fichier). Posée,
+				/// elle remplace ctx.font le temps de DrawTitleBar — les menus d'une
+				/// maquette à 11 px cessent d'hériter du 12-16 px de l'interface.
+				void SetTitleBarFont(nkgui::NkGuiFont *f) noexcept {
+					mTitleBarFont = f;
+				}
+
+				/// Contrôles de fenêtre COMPACTS (Banani TopHeader) : réduire /
+				/// agrandir sur fond `theme.button`, fermer sur FOND ROUGE permanent.
+				/// faux = les trois zones larges historiques. `sizePx` : le côté du
+				/// bouton (13 = la maquette ; Rodolf 31/08 : « trop petits » —
+				/// l'application choisit, glyphes et zone cliquable suivent).
+				void SetWindowControlsCompact(bool v, float32 sizePx = 13.f) noexcept {
+					mWinControlsCompact = v;
+					mWinControlsSize = (sizePx >= 8.f && sizePx <= 28.f) ? sizePx : 13.f;
+				}
+
+				/// Rail bas, à DROITE : pastille d'état colorée + texte (« Prêt »).
+				/// Dessinés seulement si le texte est non vide.
+				void SetRailFooterStatus(const char *texte, nkgui::NkColor pastille) noexcept {
+					uint32 i = 0;
+					for (; texte && texte[i] && i + 1 < (uint32)sizeof(mRailStatusText); ++i)
+						mRailStatusText[i] = texte[i];
+					mRailStatusText[i] = 0;
+					mRailStatusColor = pastille;
+				}
+
+				/// Masque la barre d'onglets des panneaux LATÉRAUX même à plusieurs
+				/// (les panneaux dessinent alors leur propre en-tête, patron Banani
+				/// « Hiérarchie » / « Bouton_Connexion »). Le panneau central garde sa
+				/// règle historique.
+				void SetSideTabsVisible(bool v) noexcept {
+					mSideTabsVisible = v;
+				}
+
+				/// Charge et téléverse une police D'APPLICATION (taille fixe d'une
+				/// maquette). Les texIds mFont+16..+23 sont réservés à ces huit
+				/// emplacements — distincts du code (+1/+8..+15) et du terminal (+2).
+				/// La police doit déjà être chargée (LoadEmbedded/LoadFromFile) ;
+				/// ce point d'entrée pose le texId et téléverse l'atlas.
+				bool UploadAppFont(nkgui::NkGuiFont &font, uint32 slot) noexcept {
+					if (slot >= 8u || !mRenderer || !font.Valid())
+						return false;
+					font.texId = mFont.TexId() + 16u + slot;
+					return mRenderer->UploadFontGray8(font.TexId(), font.pixels, font.atlasW, font.atlasH);
+				}
+
+				/// Force la taille de la police d'interface (px logiques) SANS la
+				/// persister : les réglages utilisateur sur disque ne bougent pas,
+				/// et le choix ne survit pas à l'application qui ne le redemande pas.
+				void ForceUiFontSize(float32 px) noexcept {
+					if (px < 8.f || px > 40.f)
+						return;
+					mFontPrefs.uiSize = px;
+					LoadUiFont();
+				}
+
 				// ── Layout ──────────────────────────────────────────────────────────
 				void ResetLayout() noexcept {
 					mDockBootstrap = true;
@@ -440,6 +708,7 @@ namespace nkentseu {
 				void LoadTermFont() noexcept;		   ///< (re)charge la police du TERMINAL (taille globale fixe)
 				void DrawPreferences(NkEditorFrameContext &ec) noexcept; ///< fenetre Preferences (categories)
 				void BuildMenuBar(NkEditorFrameContext &ec, const nkgui::NkRect &rect) noexcept;
+				void DrawHeaderLogo(NkEditorFrameContext &ec, const nkgui::NkRect &r) noexcept;
 				void DrawTitleBar(NkEditorFrameContext &ec, const nkgui::NkRect &bar) noexcept;
 				void DrawToolbar(NkEditorFrameContext &ec, const nkgui::NkRect &rect) noexcept;
 				void HandleEdgeResize(float32 W, float32 H) noexcept;
@@ -523,6 +792,9 @@ namespace nkentseu {
 				int32 mNumCommands = 0;
 				NkEditorAppMenuFn mAppMenuFn = nullptr;
 				void *mAppMenuUser = nullptr;
+				float32 mHeaderTitleH = 0.f; // 0 = calcul historique
+				float32 mHeaderBandH = 0.f;  // 0 = 46 historique
+				float32 mHeaderLogo = 0.f;   // 0 = logo dans la barre, pas de bloc carre
 				NkEditorAppMenuFn mMenuBarFn = nullptr; // barre COMPLETE fournie par l'app (SetMenuBar)
 				void *mMenuBarUser = nullptr;
 				NkEditorAppMenuFn mFileMenuFn = nullptr;
@@ -543,6 +815,11 @@ namespace nkentseu {
 				// === Barre de titre custom + footer + activity bar ===
 				char mTitle[160] = {};
 				char mTitleCenter[200] = {};
+				bool mStatusBarVisible = true;
+				/// Barre de defilement externe des panneaux ancres (voir
+				/// SetDockScrollbarVisible) — vrai par defaut.
+				bool mDockScrollbars = true;
+				char mRailFooterText[256] = {};
 				char mFooterLeft[256] = {};
 				// Voyants du footer (cf. SetFooterLights)
 				nkgui::NkColor mFooterLights[8] = {};
@@ -551,6 +828,27 @@ namespace nkentseu {
 				char mFooterRight[128] = {};
 				int32 mActivityIndex = 0;					  // icone selectionnee dans l'activity bar
 				int32 mActivityIndexRight = -1;				  // icone marquee de la barre DROITE (IA)
+				// Rails de pastilles : 0 = gauche, 1 = droite, 2 = bas.
+				NkEditorRailItem mRailItems[3][kRailMax] = {};
+				int32 mRailCount[3] = {0, 0, 0};
+				/// Index de la pastille DEPLIEE, -1 si aucune. Un entier, pas un
+				/// ensemble : c est ce qui rend « une seule par rail » structurel.
+				int32 mRailOuvert[3] = {-1, -1, -1};
+				void DrawRail(int32 slot, const nkgui::NkRect &bar, bool vertical) noexcept;
+				void DrawRailDrawers(NkEditorFrameContext &ec, const nkgui::NkRect &corps) noexcept;
+				NkEditorPanel *TrouverPanneau(const char *titre) noexcept;
+
+				// ── Costume exact (Banani 2026-08-31), cf. bloc public « COSTUME EXACT » ──
+				void (*mHeaderLogoFn)(nkgui::NkGuiContext &, const nkgui::NkRect &, void *) = nullptr;
+				void *mHeaderLogoUser = nullptr;
+				nkgui::NkGuiFont *mTitleBarFont = nullptr; // police dédiée barre de titre (menus 11 px)
+				bool mWinControlsCompact = false;		   // contrôles compacts, fermer rouge permanent
+				float32 mWinControlsSize = 13.f;		   // côté du bouton compact (l'app choisit)
+				bool mSideTabsVisible = true;			   // barres d'onglets des panneaux latéraux
+				char mRailStatusText[64] = {};			   // « Prêt » à droite du rail bas
+				nkgui::NkColor mRailStatusColor = {63, 185, 80, 255};
+
+				bool mFooterZoom = true;					  // cf. SetFooterZoomIndicator
 				bool mActivityBarLeft = true;				  // cf. SetActivityBars
 				bool mActivityBarRight = true;
 				bool mMaskBodyOnPopup = true;				  // cf. SetMaskBodyOnPopup

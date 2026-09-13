@@ -1,0 +1,4 @@
+nkgui 0.3
+widgets {
+ Dropdown "d" { items = ["a",] }
+}

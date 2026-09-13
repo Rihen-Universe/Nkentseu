@@ -113,6 +113,15 @@ with project("NKXR"):
     # Tests numériques (desktop uniquement) : poses, projection asymétrique,
     # prédiction, cycle de session — le simulateur tourne sans fenêtre.
     with filter("(system:Linux || system:macOS || (system:Windows && !options:windows-runtime=uwp && !system:XboxSeries && !system:XboxOne)) && !system:Android && !system:iOS && !system:Web"):
-        with test():
-            testfiles(["tests/**.cpp"])
+        # Cinq fichiers a main() : deux self-tests deviennent des sous-suites ; bench_ar_flow (banc),
+        # outil_ar_image (outil) et sonde_openxr_blend (sonde, dependance externe) restent hors
+        # des suites (Jenga 2.6, 2026-09-04).
+        with test("Xr"):
+            testfiles(["tests/test_xr.cpp"])
+            testownmain()
+            links(["NKXR", "NKWindow", "NKEvent", "NKTime", "NKLogger", "NKMath", "NKContainers", "NKMemory", "NKCore", "NKPlatform"])
+        # Jenga 2.6.1 : la seconde sous-suite (2026-09-04) ; bench_ar_flow, outil_ar_image et sonde_openxr_blend restent hors des suites.
+        with test("Ar"):
+            testfiles(["tests/test_ar.cpp"])
+            testownmain()
             links(["NKXR", "NKWindow", "NKEvent", "NKTime", "NKLogger", "NKMath", "NKContainers", "NKMemory", "NKCore", "NKPlatform"])

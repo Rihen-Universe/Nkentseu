@@ -1,9 +1,11 @@
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 #include <Unitest/Unitest.h>
 #include <Unitest/TestMacro.h>
 
 #include "NKWindow/Core/NkTypes.h"
 #include "NKEvent/NkGraphicsEvent.h" // NkGraphicsApi et NkGraphicsApiToString
 #include "NKLogger/NkLog.h"
+#include "NKEvent/NkGraphicsEvent.h" // NkGraphicsApiToString vit ici (2026-09-04)
 
 #include <ctime>
 
@@ -15,6 +17,10 @@ TEST_CASE(NKWindowBenchmark, RendererApiToStringLoop) {
 	volatile std::size_t sink = 0;
 	const clock_t t0 = std::clock();
 	for (int i = 0; i < kIters; ++i) {
+		// Apport de feat/noge-feu conserve (mesure le 2026-09-12) : la sentinelle
+		// *_RENDERER_API_MAX n'existe dans AUCUN en-tete du depot ; borner sur
+		// NK_GFX_API_NVN+1 serait equivalent, NK_GFX_API_MAX etant l'enumerateur
+		// suivant. On garde la forme de main, qui nomme la sentinelle.
 		// La sentinelle s'appelle NK_GFX_API_MAX. Le nom employe ici,
 		// NK_GFX_API_RENDERER_API_MAX, n'a jamais existe, et l'en-tete qui
 		// declare NkGraphicsApiToString n'etait pas inclus : ce fichier ne

@@ -1,0 +1,107 @@
+"""NkMatGraphDemo — le graphe de materiaux REND, prouve par des valeurs calculables.
+
+APPLICATION et non `tests/` : la politique du workspace desactive l'execution des
+tests unitaires ; un banc qui doit prouver quelque chose est un executable.
+
+SANS FENETRE. Device DX11 headless (pas de surface -> pas de swapchain), rendu
+hors-ecran par `Tools/Offscreen` REUTILISE tel quel, lecture par ReadbackPixels.
+On ne lie donc ni NKWindow ni NKEvent pour la fenetre elle-meme -- ils restent
+dans la chaine parce que NKRenderer en depend a la liaison, pas parce qu'on
+ouvre quoi que ce soit.
+
+⚠️ CE BANC NE JUGE PAS PAR L'IMAGE, et c'est sa raison d'etre : le 22/08, un
+descripteur ecrit sur un binding absent du layout n'a produit AUCUNE erreur,
+AUCUN journal et CINQ signatures d'image identiques. On mesure donc des ecarts
+entre canaux d'un meme pixel, calculables depuis le graphe.
+"""
+from Jenga import *
+from jengaconfig import *
+import os
+
+
+def _norm(p):
+    return p.replace("\\", "/") if p else p
+
+
+_VULKAN_SDK     = _norm(os.getenv("VULKAN_SDK", ""))
+_VULKAN_INCLUDE = _norm(os.path.join(_VULKAN_SDK, "Include")) if _VULKAN_SDK else ""
+_VULKAN_LIB     = _norm(os.path.join(_VULKAN_SDK, "Lib")) if _VULKAN_SDK else ""
+_VULKAN_OPT     = os.getenv("NK_ENABLE_VULKAN", "auto").strip().lower()
+if _VULKAN_OPT in ("0", "false", "off", "no"):
+    _WANT_VULKAN = False
+elif _VULKAN_OPT in ("1", "true", "on", "yes"):
+    _WANT_VULKAN = True
+else:
+    _WANT_VULKAN = bool(_VULKAN_INCLUDE)
+
+_GLSLANG_LIBS_WINDOWS = [
+    "glslang", "SPIRV", "MachineIndependent", "GenericCodeGen",
+    "glslang-default-resource-limits",
+]
+_IS_MINGW = "mingw" in TC_WINDOWS.lower()
+
+with project("NkMatGraphDemo"):
+    consoleapp()
+    language("C++")
+    cppdialect("C++17")
+    location(".")
+    files(["src/main.cpp"])
+
+    # ⚠️ LE FORMATAGE EST UNE ERREUR, PAS UN AVERTISSEMENT (2026-08-22).
+    #
+    # Fait mesure par l agent NK3DModeler : un printf reclamait sept %u et n en
+    # recevait que six. Le septieme lisait de la memoire indeterminee et
+    # affichait « nonmanif=18 » sur un cube parfaitement manifold. Rien ne
+    # plante, rien n arrete la construction -- et LE NOMBRE EST CREDIBLE.
+    #
+    # C est la seule forme de defaut connue de ce depot qui FABRIQUE DU FAUX
+    # SAVOIR au lieu d en cacher : un chiffre faux entre dans un rapport, puis
+    # dans une decision. Un banc dont toute la valeur tient dans les nombres
+    # qu il imprime ne peut pas se permettre un avertissement qui defile.
+    #
+    # Controle positif effectue avant d ajouter ce drapeau : un « %u » de trop
+    # injecte volontairement remonte bien « more '%' conversions than data
+    # arguments ». La chaine de construction VOIT le defaut ; ce drapeau lui
+    # fait ARRETER dessus.
+    cxxflags(["-Werror=format", "-Werror=format-insufficient-args", "-Werror=format-extra-args"])
+
+    # NKRenderer (systeme de materiaux + Tools/Offscreen) + NKRHI + NKSL + le noyau.
+    nkentseudependson(
+        # NkEditMesh est du CPU pur, mais il vit dans NKRenderer : on tire donc la
+        # chaine de liaison de NKRenderer, sans les modules IA qui ne servent a rien ici.
+        ["NKRenderer", "NKRHI", "NKSL", "NKWindow", "NKEvent", "NKFont", "NKImage",
+         "NKFileSystem", "NKSerialization", "NKReflection", "NKGlad", "NKMath", "NKTime",
+         "NKStream", "NKLogger", "NKContainers", "NKMemory", "NKCore", "NKPlatform",
+         "NKThreading", "NKGLSlang", "NKSPIRVCross"],
+        # NkShortcutTable est un EN-TETE PUR : on ajoute son chemin d'inclusion
+        # sans LIER NKEditorKit. Le lier trainerait NKUI, NKCanvas et NKFont pour
+        # verifier une structure de donnees — et allongerait encore un `--check`
+        # qui coute deja plusieurs minutes.
+        # NkNodeGraph aussi : en-tete pur, aucune cible de build a lier.
+        # NkNodeGraph et la couche 3 materiaux sont des EN-TETES PURS : chemin
+        # d'inclusion, aucune cible a lier.
+        extra_includes=["src", "%{NKGlad.location}/include",
+                        "%{wks.location}/Kernel/Runtime/NKGraph/src"]
+                       + ([_VULKAN_INCLUDE] if _VULKAN_INCLUDE else []),
+        extra_defines=[f"NKENTSEU_ENABLE_VULKAN_BACKEND={1 if _WANT_VULKAN else 0}"],
+    )
+
+    objdir("%{wks.location}/Build/Obj/%{cfg.buildcfg}-%{cfg.system}/%{prj.name}")
+    targetdir("%{wks.location}/Build/Bin/%{cfg.buildcfg}-%{cfg.system}/%{prj.name}")
+
+    with filter("system:Windows && !options:windows-runtime=uwp && !system:XboxSeries && !system:XboxOne"):
+        usetoolchain(TC_WINDOWS)
+        defines(["WIN32_LEAN_AND_MEAN", "_UNICODE", "UNICODE"])
+        if _VULKAN_LIB:
+            libdirs([_VULKAN_LIB])
+        _WIN_LINKS = [
+            "NKGLSlang", "NKSPIRVCross",
+            "user32", "gdi32", "opengl32", "dwmapi", "shell32",
+            "uuid", "ole32", "dxguid",
+            "d3d11", "d3d12", "dxgi", "d3dcompiler",
+        ]
+        if _WANT_VULKAN:
+            _WIN_LINKS.append("vulkan-1")
+            if not _IS_MINGW:
+                _WIN_LINKS.extend(_GLSLANG_LIBS_WINDOWS)
+        links(_WIN_LINKS)

@@ -1,3 +1,4 @@
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 #include <Unitest/Unitest.h>
 #include <Unitest/TestMacro.h>
 
@@ -81,7 +82,7 @@ TEST_CASE(NKMemorySystem, CreateGcDestroyGcAndProfile) {
 	ASSERT_TRUE(memorySystem.SetGcName(gameplayGc, "Gameplay"));
 	NkGcProfile named{};
 	ASSERT_TRUE(memorySystem.GetGcProfile(gameplayGc, &named));
-	ASSERT_EQUAL(0, NkCompare(named.Name, "Gameplay", 8u));
+	ASSERT_EQUAL(0, NkMemCompare(named.Name, "Gameplay", 8u));
 
 	ProfileGcNode::DestroyedCount = 0;
 	ProfileGcNode *node = gameplayGc->New<ProfileGcNode>();

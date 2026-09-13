@@ -8,7 +8,7 @@
 //  - Thread-safety via NkSpinLock avec guard RAII local (pas de dépendance externe)
 //  - Callbacks optionnels : overhead minimal si nullptr
 //
-// Auteur : Rihen
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // Date : 2024-2026
 // License : Proprietary - All Rights Reserved (see LICENSE)
 // =============================================================================
@@ -17,6 +17,7 @@
 // PRÉ-COMPILED HEADER - TOUJOURS EN PREMIER
 // -------------------------------------------------------------------------
 #include "pch.h"
+#include "NKCore/Text/NkSnprintf.h"
 
 // -------------------------------------------------------------------------
 // EN-TÊTES DU MODULE
@@ -235,14 +236,14 @@ namespace nkentseu {
 			auto FormatBytes = [](nk_uint64 bytes) -> const char * {
 				static char buffer[32];
 				if (bytes >= (1024ULL * 1024 * 1024)) {
-					snprintf(buffer, sizeof(buffer), "%.2f GB",
+					nkentseu::NkSnprintf(buffer, sizeof(buffer), "%.2f GB",
 							 static_cast<float>(bytes) / (1024.0f * 1024.0f * 1024.0f));
 				} else if (bytes >= (1024ULL * 1024)) {
-					snprintf(buffer, sizeof(buffer), "%.2f MB", static_cast<float>(bytes) / (1024.0f * 1024.0f));
+					nkentseu::NkSnprintf(buffer, sizeof(buffer), "%.2f MB", static_cast<float>(bytes) / (1024.0f * 1024.0f));
 				} else if (bytes >= 1024) {
-					snprintf(buffer, sizeof(buffer), "%.2f KB", static_cast<float>(bytes) / 1024.0f);
+					nkentseu::NkSnprintf(buffer, sizeof(buffer), "%.2f KB", static_cast<float>(bytes) / 1024.0f);
 				} else {
-					snprintf(buffer, sizeof(buffer), "%llu B", static_cast<unsigned long long>(bytes));
+					nkentseu::NkSnprintf(buffer, sizeof(buffer), "%llu B", static_cast<unsigned long long>(bytes));
 				}
 				return buffer;
 			};

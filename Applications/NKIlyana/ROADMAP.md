@@ -881,7 +881,7 @@ actions rejouables et apprenables.
 | domaine | vocabulaire d'actions | où c'est déjà |
 |---|---|---|
 | Modéliser | `NkMeshEditCommand`, journal `.nkmec` | NK3DModeler, `NKMeshAITest` ✅ |
-| Animer | commandes de pose / IK | `Applications/NkAnima` |
+| Animer | commandes de pose / IK | `Applications/NkAnimaEditor` |
 | Parler | synthèse vocale | `Kernel/AI/NKSpeech`, NKTTS (LJSpeech + Griffin-Lim) |
 | Interface 2D | `NkUIComponent` (donnée, pas code) | Engine/Noge |
 | Peindre | opérations sur `NKImage` / NKCanvas | à définir |

@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- NkUIDesign : export SVG, un lecteur du document .nkuidoc (pas les commandes du peintre) -->
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="200" height="120" viewBox="0 0 200 120">
+  <defs>
+    <filter id="ombre1" x="-50%" y="-50%" width="200%" height="200%">
+      <feDropShadow dx="0" dy="4" stdDeviation="2" flood-color="#000000" flood-opacity="0.25"/>
+    </filter>
+    <linearGradient id="deg2" gradientUnits="userSpaceOnUse" x1="110" y1="10" x2="110" y2="50">
+      <stop offset="0" stop-color="#000000"/>
+      <stop offset="1" stop-color="#ffffff"/>
+    </linearGradient>
+  </defs>
+  <g transform="translate(0 0)">
+    <g id="n1" data-nom="Page">
+      <rect x="0" y="0" width="200" height="120" fill="#ffffff" stroke="#30363d" stroke-width="1"/>
+      <g id="n2" data-nom="Uni" filter="url(#ombre1)">
+        <rect x="10" y="10" width="60" height="40" fill="#ff0000"/>
+      </g>
+      <g id="n3" data-nom="Degrade">
+        <rect x="80" y="10" width="60" height="40" fill="url(#deg2)"/>
+      </g>
+      <g id="n4" data-nom="FondTexte">
+        <rect x="10" y="60" width="60" height="30" fill="#ffffff"/>
+      </g>
+      <g id="n5" data-nom="Texte">
+        <text x="10" y="79.209" font-family="Inter, sans-serif" font-size="14" fill="#000000" text-anchor="start" xml:space="preserve">Ab</text>
+      </g>
+      <g id="n6" data-nom="Image">
+        <image x="80" y="60" width="40" height="40" preserveAspectRatio="none" href="sonde_export_2x2.png"/>
+      </g>
+      <g id="n7" data-nom="Tourne" transform="matrix(0.707 0.707 -0.707 0.707 101.967 -86.17)">
+        <rect x="140" y="65" width="30" height="30" fill="#0000ff"/>
+      </g>
+    </g>
+  </g>
+</svg>

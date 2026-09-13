@@ -29,9 +29,13 @@ with project("NKUIDesign"):
     files(["src/**.cpp"])
 
     nkentseudependson(
+        # NKSerialization : depuis la bascule du 2026-08-22, le lecteur/ecrivain
+        # `.nkgui` vit dans NKSerialization/NkGui/NkGuiArchive.h et rend une
+        # NkArchive. NKReflection vient avec (NKSerialization en depend).
         ["NKEditorKit", "NKCanvas", "NKGui", "NKWindow", "NKEvent", "NKGlad",
          "NKFont", "NKImage", "NKLogger", "NKMath", "NKTime", "NKStream",
-         "NKFileSystem", "NKContainers", "NKMemory", "NKCore", "NKPlatform",
+         "NKFileSystem", "NKSerialization", "NKReflection",
+         "NKContainers", "NKMemory", "NKCore", "NKPlatform",
          "NKThreading"],
         extra_includes=["src", "src/NKUIDesign", "%{NKGlad.location}/include"]
                        + ([VULKAN_INCLUDE] if VULKAN_INCLUDE else []),

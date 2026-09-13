@@ -1,0 +1,143 @@
+# config/controles.list - INVENTAIRE DE MES PROPRES CONTROLES (2026-08-24)
+# =============================================================================
+# POURQUOI CE FICHIER EXISTE
+#
+#   « Un controle qui n'a jamais rougi n'est pas un controle, c'est une
+#     intention. »
+#
+#   Le chantier design a ecrit un controle avec « \b » dans une chaine Python
+#   NON BRUTE. Dans ce contexte « \b » n'est pas une frontiere de mot mais le
+#   caractere RETOUR ARRIERE. Le controle tournait, ne trouvait rien, et RENDAIT
+#   VERT. Il ne l'a pris qu'en reinjectant un defaut connu pour le voir rougir.
+#
+#   ⚠️ C'est ma propre regle dans sa version la plus sournoise : l'« ok » etait
+#   bien APRES l'ecriture, et il ne prouvait rien - parce qu'il portait sur ZERO
+#   CAS EXAMINE. « Je n'ai rien trouve » et « je ne lis plus le fichier »
+#   rendent la meme sortie verte.
+#
+#   Donc : la question « ce controle a-t-il DEJA rougi ? » doit se lire quelque
+#   part, mecaniquement, et pas dans la memoire de celui qui l'a ecrit.
+#
+# LE DESSIN, ET C'EST CELUI DE bancs.list ET DE capacites.list
+#   Ce fichier est la DONNEE. Il n'est pas devine, il s'ecrit.
+#   `./verif_controles.sh` le confronte au journal `controles_rouges.journal` et
+#   NOMME tout controle qui n'a jamais rougi. Il ne ROUGIT PAS pour autant : un
+#   controle jamais rouge n'est pas casse, il est SUSPECT. Meme registre que les
+#   dettes « A-DATER » - nomme a chaque passage, jamais oublie.
+#
+# LE CLIQUET (voir plus bas) EST CE QUI EMPECHE LA DERIVE
+#   Le compte de controles jamais rouges PEUT DESCENDRE, IL NE PEUT PAS MONTER.
+#   Un controle NOUVEAU se fait rougir a la naissance, sans exception. Sinon on
+#   accumule des intentions au rythme ou on croit accumuler des garanties.
+#
+# FORMAT - un controle par ligne, champs separes par « | » :
+#
+#   <id> | <fichier> | <ce qu'il refuse> | <epreuve> | <motif attendu>
+#
+#   epreuve : le script qui sait le faire rougir A LA DEMANDE.
+#     ce-bancs        ./contre_epreuve_verif.sh
+#     ce-capacites    ./contre_epreuve_capacites.sh
+#     ignore-gpu      ./epreuve_ignore_gpu.sh
+#     msaa-contrat    ./epreuve_msaa_contract.sh
+#     ce-controles    ./contre_epreuve_controles.sh
+#     ce-chemins      ./contre_epreuve_chemins.sh
+#     temoins-cap     ./epreuve_temoins_cap.sh
+#     disparition     ./epreuve_disparition.sh
+#     aucune          PERSONNE NE SAIT LE FAIRE ROUGIR AUJOURD'HUI. Ce n'est pas
+#                     une case a remplir plus tard : c'est le resultat le plus
+#                     utile de ce fichier. Motif vide.
+#
+#   motif : chaine FIXE (grep -F, jamais une regex) cherchee dans la sortie de
+#     l'epreuve. C'est elle qui transforme « j'ai lance l'epreuve » en « j'ai VU
+#     ce controle rougir ». Une regex ici rejouerait exactement le defaut du
+#     chantier design : un motif qui ne peut pas apparaitre rend vert.
+#
+# ⚠️ CE QUE LE JOURNAL PROUVE, ET CE QU'IL NE PROUVE PAS
+#   Il prouve que l'EPREUVE a affirme avoir vu le controle rougir. La force de
+#   l'entree est donc celle de l'epreuve, pas plus. C'est pour cela que les
+#   quatre epreuves ont toutes un CONTROLE NEGATIF : elles refusent de demarrer
+#   si l'arbre est deja rouge ou deja sale. Sans ce refus, un « [vu] » ne
+#   vaudrait rien - il vaudrait ce que valait le « ok » du chantier design.
+#
+# PLAFOND-JAMAIS-ROUGE = 12
+#
+#   Mesure du 2026-08-27 : sur 54 controles inventories, 42 ont deja rougi sous
+#   une epreuve et 14 n'ont jamais rougi. Ces 14 sont des HERITAGES - ecrits
+#   avant ce fichier. Le plafond les gele : on peut en resorber, on ne peut pas
+#   en ajouter en silence. Le relever est possible et c'est un geste DELIBERE
+#   qui apparait dans un diff.
+#   Son ABSENCE est un ECHEC D'INSTRUMENT : un cliquet absent et un cliquet
+#   satisfait produisent la meme sortie verte.
+# =============================================================================
+
+# --- verif_bancs.sh ---------------------------------------------------------
+bancs/garde-projet-non-classe    | verif_bancs.sh | un projet d'Applications/ sans ligne de classement | ce-bancs | code de sortie 3 (echec de classement)
+bancs/projet-nomme               | verif_bancs.sh | dire qu'un projet manque sans dire LEQUEL | ce-bancs | le projet NOMME dans le rapport
+bancs/construction-echouee       | verif_bancs.sh | lire une construction ratee comme un succes silencieux | ce-bancs | construction echouee
+bancs/ancien-binaire-non-lance   | verif_bancs.sh | executer l'ANCIEN binaire quand la construction echoue | ce-bancs | L'ANCIEN BINAIRE N'A PAS TOURNE
+bancs/execution-echouee          | verif_bancs.sh | lire un code de sortie non nul comme un succes | ce-bancs | le CODE DU BANC rapporte tel quel
+bancs/cause-citee-construction   | verif_bancs.sh | dire QUE sans dire POURQUOI, cote compilateur (exigence 5) | ce-bancs | la premiere ligne significative du compilateur
+bancs/cause-citee-execution      | verif_bancs.sh | dire QUE sans dire POURQUOI, cote banc (exigence 5) | ce-bancs | la premiere ligne significative de la SORTIE DU BANC
+bancs/retour-au-vert             | verif_bancs.sh | rester rouge apres reparation (un outil casse en permanence ne prouve rien) | ce-bancs | retour au code 0
+bancs/ignore-troisieme-etat      | verif_bancs.sh | compter un banc IGNORE comme OK ou comme ECHEC | ignore-gpu | verdict du banc : IGNORE
+bancs/ignore-code-declare        | verif_bancs.sh | deviner le code d'IGNORE au lieu de le lire dans bancs.list | ignore-gpu | code de sortie du banc : 77
+bancs/ignore-compte              | verif_bancs.sh | passer un IGNORE sous silence sur la ligne de verdict | ignore-gpu | compte sur la ligne de verdict : present
+bancs/ignore-section             | verif_bancs.sh | compter un IGNORE sans le NOMMER | ignore-gpu | section IGNORES : presente
+bancs/ignore-avertissement       | verif_bancs.sh | laisser lire « OK » comme « tout est verifie » | ignore-gpu | avertissement sous le verdict : present
+bancs/ignore-raison-lue-A        | verif_bancs.sh | fabriquer la raison d'un IGNORE au lieu de la LIRE dans la sortie du banc (cas : aucune carte) | ignore-gpu | raison propre au defaut A : trouvee
+bancs/ignore-raison-lue-B        | verif_bancs.sh | fabriquer la raison d'un IGNORE au lieu de la LIRE (cas : temoin refuse) | ignore-gpu | raison propre au defaut B : trouvee
+bancs/precond-sous-modules       | verif_bancs.sh | [TRI 27/08 : NON MESURE -- l eprouver exigerait de vider un sous-module. Presume FAUX ROUGE, sur la mesure du 22/08 citee dans le code : un worktree aux sous-modules vides rend 9 bancs en echec de construction.] juger le depot depuis un arbre sans sous-modules | aucune |
+bancs/precond-liste-absente      | verif_bancs.sh | [TRI 27/08 : FAUX ROUGE, MESURE. Neutralise + liste retiree -> code 3, rattrape par la garde de classement (125 projets NON CLASSES).] juger sans config/bancs.list | aucune |
+bancs/instr-temoin-inventaire    | verif_bancs.sh | [TRI 27/08 : FAUX ROUGE, MESURE. Neutralise + inventaire muet -> code 1, rattrape par 'declares banc mais HORS du workspace'. ⚠️ J avais raisonne FAUX VERT ; la mesure m a contredit.] conclure quand l'inventaire des projets ne lit plus le workspace | aucune |
+bancs/verdict-absence-motif      | verif_bancs.sh | [TRI 27/08 : JAMAIS EXECUTE. AUCUN banc de bancs.list n utilise 'code+absence:'. Ce n est pas 'jamais rouge', c est du code qu aucune donnee n atteint. Une epreuve invasive porterait sur du code mort : le geste juste est de l exercer ou de le retirer.] code 0 alors qu'un motif interdit est present dans la sortie | aucune |
+bancs/verdict-presence-motif     | verif_bancs.sh | [TRI 27/08 : JAMAIS EXECUTE. AUCUN banc n utilise 'code+presence:'. Meme remarque.] code 0 alors qu'un motif exige est absent de la sortie | aucune |
+bancs/sans-verdict-jamais-vert   | verif_bancs.sh | [TRI 27/08 : JAMAIS EXECUTE. AUCUN banc n est classe 'sans-verdict'. Meme remarque.] prendre le code de sortie d'un banc « sans-verdict » pour un verdict | aucune |
+bancs/delai-banc-muet            | verif_bancs.sh | [TRI 27/08 : NI VERT NI ROUGE -- la passe PEND. Un banc muet sans delai ne produit pas un faux vert : il produit une absence de verdict, que quelqu un finit par voir. Troisieme etat, non prevu par la question.] attendre indefiniment un banc qui ne rend jamais la main | aucune |
+
+# --- verif_capacites.sh -----------------------------------------------------
+cap/detection-D1                 | verif_capacites.sh | une virtuelle creuse APPARIEE a un drapeau qui promet true | ce-capacites | D1 nomme NkIDevice::GetNkCapFantomeLevel
+cap/detection-D2                 | verif_capacites.sh | un champ qu'on regle et qui ne fait rien | ce-capacites | D2 nomme NkDeviceCaps::nkCapFantome
+cap/candidat-non-classe          | verif_capacites.sh | une capacite detectee sans ligne de classement | ce-capacites | code 4 (echec de classement)
+cap/classement-interdit          | verif_capacites.sh | « vision-assumee » alors qu'un drapeau annonce true a du code (regle a) | ce-capacites | CLASSEMENT INTERDIT, pas seulement
+cap/date-vide-reste-rouge        | verif_capacites.sh | une « dette-datee » sans date (un oubli n'est pas une dette datee) | ce-capacites | a date VIDE reste rouge
+cap/cliquet-rompu                | verif_capacites.sh | que le stock d'echeances non fixees MONTE en silence | ce-capacites | l'outil dit CLIQUET ROMPU, et nomme le plafond
+cap/cliquet-absent               | verif_capacites.sh | un cliquet absent lu comme un cliquet satisfait | ce-capacites | sans directive de plafond : ECHEC D'INSTRUMENT (code 2), pas un vert
+cap/retour-au-vert-en-classant   | verif_capacites.sh | revenir au vert en desactivant l'outil plutot qu'en classant | ce-capacites | on revient au vert en CLASSANT, pas en desactivant
+cap/autocontrole-format-awk      | verif_capacites.sh | [TRI 27/08 : FAUX VERT PRESUME, NON MESURE. Le script le documente lui-meme : une chaine de format awk cassee vide sa section, et une section vide se lit 'rien a signaler'. Le mesurer demande de casser un awk a dessein -- faisable, non fait.] une chaine de format awk non fermee -> une section VIDE lue « rien a signaler » | aucune |
+cap/precond-entete-introuvable   | verif_capacites.sh | [TRI 27/08 : FAUX ROUGE, MESURE. Neutralise + en-tetes inexistants -> code 2, rattrape par le plancher NB_MOTIFS ('0 symbole extrait').] conclure quand un en-tete examine a ete deplace | aucune |
+cap/precond-liste-absente        | verif_capacites.sh | [TRI 27/08 : FAUX ROUGE, MESURE. Neutralise + liste retiree -> code 2, rattrape par le controle du cliquet absent.] conclure sans config/capacites.list | aucune |
+cap/instr-nb-motifs              | verif_capacites.sh | [TRI 27/08 : FAUX ROUGE, MESURE. Neutralise + extraction vide -> code 2, rattrape par le plancher NB_HITS ('0 occurrence sur tout le corpus').] conclure quand l'extraction ne lit plus les en-tetes | aucune |
+cap/instr-nb-hits                | verif_capacites.sh | [TRI 27/08 : FAUX ROUGE, MESURE. Neutralise + corpus vide -> code 2, rattrape par le TEMOIN D2. Dernier maillon avant le vert.] conclure quand grep n'a rien lu du corpus | aucune |
+cap/temoin-D1                    | verif_capacites.sh | [TRI 27/08 : 🔴 FAUX VERT, MESURE. Detecteur rendu muet + les deux temoins neutralises -> CODE 0, '0 candidat, tous classes'. Rien d autre ne rattrape. EPREUVE INVASIVE OBLIGATOIRE.] confondre « rien a signaler » et « je ne detecte plus » (D1) | temoins-cap | le temoin D1 est NOMME
+cap/temoin-D2                    | verif_capacites.sh | [TRI 27/08 : 🔴 FAUX VERT, MESURE. Meme mesure que D1 : code 0, vert, sur un detecteur qui ne detecte plus rien. EPREUVE INVASIVE OBLIGATOIRE.] confondre « rien a signaler » et « je ne detecte plus » (D2) | temoins-cap | le temoin D2 est NOMME
+
+# --- les bancs du contrat d'echantillonnage (ils sont a moi) -----------------
+msaa/contrat-suit-les-drapeaux   | NkMsaaContractCheck | un `case` qui ignore le drapeau correspondant | msaa-contrat | [FAIL] SupportsSamples(2/4/8/16) == le drapeau correspondant
+msaa/contrat-borne-exprimable    | NkMsaaContractCheck | NK_S32 / NK_S64 acceptes (EXPRIMABLE pris pour HONORABLE) | msaa-contrat | [FAIL] NK_S32 et NK_S64 refuses sur les 16 combinaisons
+msaa/contrat-non-puissance-de-2  | NkMsaaContractCheck | 3, 7, 0, 100... acceptes par le contrat | msaa-contrat | [FAIL] 10 valeurs impossibles refusees
+msaa/contrat-max-samples         | NkMsaaContractCheck | MaxSamples() incoherent avec SupportsSamples() | msaa-contrat | [FAIL] MaxSamples() honorable, et rien au-dessus
+
+# --- verif_controles.sh lui-meme (sinon c est un tableau de bord des controles
+#     jamais rouges, jamais rouge lui-meme) -----------------------------------
+ctl/cliquet-rompu                | verif_controles.sh | que le stock de controles jamais rouges MONTE en silence | ce-controles | l'outil dit CLIQUET ROMPU
+ctl/controle-neuf-nomme          | verif_controles.sh | compter un controle jamais rouge sans le NOMMER | ce-controles | le controle fantome est NOMME, pas seulement compte
+ctl/motif-introuvable-nul        | verif_controles.sh | enregistrer un rouge qu'on n'a pas vu (le defaut du chantier design, retourne) | ce-controles | aucune ligne de journal pour un motif introuvable
+ctl/cliquet-absent               | verif_controles.sh | un cliquet absent lu comme un cliquet satisfait | ce-controles | code 2 : ECHEC D'INSTRUMENT, jamais un vert
+
+# --- verif_chemins.sh — la garde des chemins partages entre agents ----------
+chem/occurrence-non-classee      | verif_chemins.sh | une ecriture a un chemin fixe sous un repertoire partage, sans ligne de classement | ce-chemins | l outil dit NON CLASSE
+chem/fichier-nomme               | verif_chemins.sh | compter une occurrence sans NOMMER le fichier | ce-chemins | le fichier est NOMME, pas seulement compte
+chem/chemin-cite                 | verif_chemins.sh | nommer le fichier sans citer le CHEMIN en cause | ce-chemins | le CHEMIN exact est cite
+chem/tolere-sans-note            | verif_chemins.sh | une tolerance sans raison ecrite (le mot qu on met pour faire taire l outil) | ce-chemins | l outil dit TOLERE SANS NOTE
+chem/retour-au-vert-en-classant  | verif_chemins.sh | revenir au vert en desactivant l outil plutot qu en classant | ce-chemins | on revient au vert en CLASSANT, pas en desactivant
+chem/tolerance-comptee           | verif_chemins.sh | qu une tolerance disparaisse du rapport (une tolerance oubliee redevient un defaut) | ce-chemins | la tolerance ne disparait pas du rapport
+chem/interdit-reste-rouge        | verif_chemins.sh | que « interdit » serve de case pour classer sans reparer | ce-chemins | reste ROUGE, ce n est pas une case pour classer sans reparer
+chem/canari-perdu                | verif_chemins.sh | un detecteur qui ne lit plus les fichiers et rend vert | ce-chemins | ECHEC D INSTRUMENT, et surtout PAS un vert
+chem/plancher-lecture            | verif_chemins.sh | conclure en n ayant presque rien lu | ce-chemins | un outil qui ne lit presque plus rien ne conclut pas
+# --- la disparition d une dette (27/08) : on ne juge pas la lecture, on refuse
+#     qu une disparition passe inapercue ----------------------------------------
+cap/disparition-sans-reponse     | verif_capacites.sh | qu une dette quitte la liste des candidats sans que personne ne dise pourquoi -- une LECTURE CREUSE (un logger.Warn suffit) sortirait n importe quelle dette et ferait descendre le cliquet pour rien | disparition | code 4 : une dette disparue sans reponse fait ROUGIR
+cap/disparition-symbole-nomme    | verif_capacites.sh | compter une disparition sans NOMMER le symbole concerne | disparition | le symbole est NOMME
+cap/disparition-causes-dites     | verif_capacites.sh | signaler une disparition sans dire que la cause dangereuse (lecture creuse) est possible | disparition | la cause dangereuse est nommee (lecture creuse)
+cap/disparition-silence-legitime | verif_capacites.sh | crier quand un champ est SUPPRIME du code -- un controle qui rougit a chaque suppression est desactive dans la semaine | disparition | une suppression de code ne fait PAS rougir
+cap/disparition-deja-tranchee    | verif_capacites.sh | rougir sur une disparition dont quelqu un a deja rendu compte (implementee, vision-assumee) | disparition | une disparition deja tranchee ne rougit pas

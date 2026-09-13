@@ -1,0 +1,428 @@
+nkuidoc 1
+# Document de MISE EN SCENE des ecrans 14/15 (deco fenetre client) :
+# la fenetre « Mon Application » annotee — zone de saisie, bords de
+# redimensionnement, legende Decoration/Curseur. Contenu de DEMO au
+# format officiel (cadrage Rodolf 31/08) — rien de peint dans le code.
+titre = Deco_Fenetre_Client
+auteur = humain
+verifiee = 0
+corrigee = 0
+origine = main
+
+noeud 0
+  libelle = Toile
+  enfants = 1 13 14 15 16 17 18 19
+  largeur = expand 0 0 0
+  hauteur = expand 0 0 0
+  agencement = free start start 0
+  auteur = humain
+  verifiee = 0
+  corrigee = 0
+  origine = main
+
+noeud 1
+  libelle = Éditeur
+  enfants = 2 3 4 5 6 7 8 9 10 11 12
+  largeur = fixed 700 0 0
+  hauteur = fixed 440 0 0
+  agencement = free start start 0
+  position = 30 90
+  forme = frame
+  cible = Bureau 1440 x 900
+  auteur = humain
+  verifiee = 0
+  corrigee = 0
+  origine = main
+
+noeud 2
+  libelle = Barre de titre
+  enfants = 
+  largeur = fixed 700 0 0
+  hauteur = fixed 32 0 0
+  agencement = none start start 0
+  position = 0 0
+  forme = rect
+  fond = #1e2430
+  auteur = humain
+  verifiee = 0
+  corrigee = 0
+  origine = main
+
+noeud 3
+  libelle = Icône app
+  enfants = 
+  largeur = fixed 16 0 0
+  hauteur = fixed 16 0 0
+  agencement = none start start 0
+  position = 12 8
+  forme = rect
+  fond = #2f81f7
+  rayon = 3
+  auteur = humain
+  verifiee = 0
+  corrigee = 0
+  origine = main
+
+noeud 4
+  libelle = Titre app
+  enfants = 
+  largeur = fixed 120 0 0
+  hauteur = fixed 14 0 0
+  agencement = none start start 0
+  position = 34 9
+  forme = text
+  texte = Mon Application
+  couleur_texte = #e6edf3
+  police_px = 11
+  graisse = 500
+  auteur = humain
+  verifiee = 0
+  corrigee = 0
+  origine = main
+
+noeud 5
+  libelle = Bouton fenêtre 1
+  enfants = 
+  largeur = fixed 26 0 0
+  hauteur = fixed 20 0 0
+  agencement = none start start 0
+  position = 596 6
+  forme = rect
+  fond = #2a3140
+  rayon = 3
+  auteur = humain
+  verifiee = 0
+  corrigee = 0
+  origine = main
+
+noeud 6
+  libelle = Bouton fenêtre 2
+  enfants = 
+  largeur = fixed 26 0 0
+  hauteur = fixed 20 0 0
+  agencement = none start start 0
+  position = 626 6
+  forme = rect
+  fond = #2a3140
+  rayon = 3
+  auteur = humain
+  verifiee = 0
+  corrigee = 0
+  origine = main
+
+noeud 7
+  libelle = Bouton fenêtre 3
+  enfants = 
+  largeur = fixed 26 0 0
+  hauteur = fixed 20 0 0
+  agencement = none start start 0
+  position = 656 6
+  forme = rect
+  fond = #2a3140
+  rayon = 3
+  auteur = humain
+  verifiee = 0
+  corrigee = 0
+  origine = main
+
+noeud 8
+  libelle = Panneau latéral
+  enfants = 
+  largeur = fixed 140 0 0
+  hauteur = fixed 404 0 0
+  agencement = none start start 0
+  position = 0 32
+  forme = rect
+  fond = #eef0f3
+  auteur = humain
+  verifiee = 0
+  corrigee = 0
+  origine = main
+
+noeud 9
+  libelle = Contenu
+  enfants = 
+  largeur = fixed 200 0 0
+  hauteur = fixed 18 0 0
+  agencement = none start start 0
+  position = 160 52
+  forme = text
+  texte = Activité
+  couleur_texte = #1f2328
+  police_px = 13
+  graisse = 600
+  auteur = humain
+  verifiee = 0
+  corrigee = 0
+  origine = main
+
+noeud 10
+  libelle = Bord de redim. bas
+  enfants = 
+  largeur = fixed 700 0 0
+  hauteur = fixed 5 0 0
+  agencement = none start start 0
+  position = 0 435
+  forme = rect
+  fond = #f6c46a
+  auteur = humain
+  verifiee = 0
+  corrigee = 0
+  origine = main
+
+noeud 11
+  libelle = Bord de redim. droit
+  enfants = 
+  largeur = fixed 5 0 0
+  hauteur = fixed 440 0 0
+  agencement = none start start 0
+  position = 695 0
+  forme = rect
+  fond = #f6c46a
+  auteur = humain
+  verifiee = 0
+  corrigee = 0
+  origine = main
+
+noeud 12
+  libelle = Coin de redim.
+  enfants = 
+  largeur = fixed 14 0 0
+  hauteur = fixed 14 0 0
+  agencement = none start start 0
+  position = 686 426
+  forme = rect
+  fond = #f0a92e
+  auteur = humain
+  verifiee = 0
+  corrigee = 0
+  origine = main
+
+noeud 13
+  libelle = Trait annotation 1
+  enfants = 
+  largeur = fixed 18 0 0
+  hauteur = fixed 2 0 0
+  agencement = none start start 0
+  position = 736 104
+  forme = rect
+  fond = #b45309
+  auteur = humain
+  verifiee = 0
+  corrigee = 0
+  origine = main
+
+noeud 14
+  libelle = Annotation saisie 1
+  enfants = 
+  largeur = fixed 210 0 0
+  hauteur = fixed 14 0 0
+  agencement = none start start 0
+  position = 760 96
+  forme = text
+  texte = zone de saisie — sans elle,
+  couleur_texte = #b45309
+  police_px = 12
+  graisse = 500
+  auteur = humain
+  verifiee = 0
+  corrigee = 0
+  origine = main
+
+noeud 15
+  libelle = Annotation saisie 2
+  enfants = 
+  largeur = fixed 240 0 0
+  hauteur = fixed 14 0 0
+  agencement = none start start 0
+  position = 760 112
+  forme = text
+  texte = la fenêtre ne peut pas être déplacée
+  couleur_texte = #b45309
+  police_px = 12
+  graisse = 500
+  auteur = humain
+  verifiee = 0
+  corrigee = 0
+  origine = main
+
+noeud 16
+  libelle = Trait annotation 2
+  enfants = 
+  largeur = fixed 18 0 0
+  hauteur = fixed 2 0 0
+  agencement = none start start 0
+  position = 736 520
+  forme = rect
+  fond = #b45309
+  auteur = humain
+  verifiee = 0
+  corrigee = 0
+  origine = main
+
+noeud 17
+  libelle = Annotation bords 1
+  enfants = 
+  largeur = fixed 210 0 0
+  hauteur = fixed 14 0 0
+  agencement = none start start 0
+  position = 760 506
+  forme = text
+  texte = bord de redimensionnement,
+  couleur_texte = #b45309
+  police_px = 12
+  graisse = 500
+  auteur = humain
+  verifiee = 0
+  corrigee = 0
+  origine = main
+
+noeud 18
+  libelle = Annotation bords 2
+  enfants = 
+  largeur = fixed 250 0 0
+  hauteur = fixed 14 0 0
+  agencement = none start start 0
+  position = 760 522
+  forme = text
+  texte = dessinés par l'application, pas par le système
+  couleur_texte = #b45309
+  police_px = 12
+  graisse = 500
+  auteur = humain
+  verifiee = 0
+  corrigee = 0
+  origine = main
+
+noeud 19
+  libelle = Légende
+  enfants = 20 21 22 23 24 25 26
+  largeur = fixed 190 0 0
+  hauteur = fixed 168 0 0
+  agencement = free start start 0
+  position = 740 180
+  forme = rect
+  fond = #ffffff
+  couleur_bord = #d8dee8
+  bordure = 1
+  rayon = 8
+  auteur = humain
+  verifiee = 0
+  corrigee = 0
+  origine = main
+
+noeud 20
+  libelle = Titre Décoration
+  enfants = 
+  largeur = fixed 120 0 0
+  hauteur = fixed 12 0 0
+  agencement = none start start 0
+  position = 12 12
+  forme = text
+  texte = DÉCORATION
+  couleur_texte = #656d76
+  police_px = 10
+  graisse = 700
+  auteur = humain
+  verifiee = 0
+  corrigee = 0
+  origine = main
+
+noeud 21
+  libelle = Choix Native
+  enfants = 
+  largeur = fixed 100 0 0
+  hauteur = fixed 14 0 0
+  agencement = none start start 0
+  position = 24 32
+  forme = text
+  texte = Native
+  couleur_texte = #656d76
+  police_px = 12
+  auteur = humain
+  verifiee = 0
+  corrigee = 0
+  origine = main
+
+noeud 22
+  libelle = Choix Client
+  enfants = 
+  largeur = fixed 120 0 0
+  hauteur = fixed 14 0 0
+  agencement = none start start 0
+  position = 24 52
+  forme = text
+  texte = Client   ✓
+  couleur_texte = #1f2328
+  police_px = 12
+  graisse = 600
+  auteur = humain
+  verifiee = 0
+  corrigee = 0
+  origine = main
+
+noeud 23
+  libelle = Titre Curseur
+  enfants = 
+  largeur = fixed 120 0 0
+  hauteur = fixed 12 0 0
+  agencement = none start start 0
+  position = 12 80
+  forme = text
+  texte = CURSEUR
+  couleur_texte = #656d76
+  police_px = 10
+  graisse = 700
+  auteur = humain
+  verifiee = 0
+  corrigee = 0
+  origine = main
+
+noeud 24
+  libelle = Choix Flèche
+  enfants = 
+  largeur = fixed 100 0 0
+  hauteur = fixed 14 0 0
+  agencement = none start start 0
+  position = 24 100
+  forme = text
+  texte = Flèche
+  couleur_texte = #1f2328
+  police_px = 12
+  graisse = 600
+  auteur = humain
+  verifiee = 0
+  corrigee = 0
+  origine = main
+
+noeud 25
+  libelle = Choix Main
+  enfants = 
+  largeur = fixed 100 0 0
+  hauteur = fixed 14 0 0
+  agencement = none start start 0
+  position = 24 120
+  forme = text
+  texte = Main
+  couleur_texte = #656d76
+  police_px = 12
+  auteur = humain
+  verifiee = 0
+  corrigee = 0
+  origine = main
+
+noeud 26
+  libelle = Choix Personnalisé
+  enfants = 
+  largeur = fixed 130 0 0
+  hauteur = fixed 14 0 0
+  agencement = none start start 0
+  position = 24 140
+  forme = text
+  texte = Personnalisé…
+  couleur_texte = #656d76
+  police_px = 12
+  auteur = humain
+  verifiee = 0
+  corrigee = 0
+  origine = main

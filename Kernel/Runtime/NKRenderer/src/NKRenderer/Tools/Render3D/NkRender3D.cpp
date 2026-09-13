@@ -1,3 +1,4 @@
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // =============================================================================
 // NkRender3D.cpp  — NKRenderer v5.0
 // =============================================================================
@@ -138,12 +139,26 @@ namespace nkentseu {
 					// 2026-05-24 Triplanar : .x = tileSize en metres (0=disabled),
 					// .y = metersPerUnit (echelle globale, copie de NkUnits()),
 					// .z = enable flag (0/1 redondant avec .x>0 mais explicite cote
-					// shader), .w = reserve. Doit matcher ObjBlock 3 endroits +
-					// ObjectUBO dans VS+FS (regle GLSL shared block).
+					// shader), .w = ECHELLE DU PARALLAX depuis le 10 aout (ce commentaire
+					// disait encore « reserve » : il est faux depuis, cf. NkRender3D.cpp
+					// « .w = echelle du parallax »). Doit matcher les SEPT ObjBlock
+					// locaux et ObjectUBO dans VS+FS (regle GLSL shared block).
 					NkVec4f triplanarParams; // 208
-			}; // total 224
+					// MOUILLAGE (2026-09-06) — Lagarde, « Water drop 3b ». DEUX scalaires
+					// suffisent a TOUT l'effet, et c'est un resultat algebrique, pas un
+					// raccourci : la formule ne depend de la porosite et du mouillage que
+					// par leur PRODUIT (cf. NkWetnessMap.h, temoin (w2)).
+					//   .x = wetK   = mouillage x porosite  -> albedo x (1 - 0.8 wetK)
+					//                                          rugosite x (1 - 0.4 wetK)
+					//   .y = waterK = mouillage x waterLayer -> F0 vers celui de l'eau
+					//   .z, .w = reserve (et ce mot est verifie : rien ne les lit)
+					// A ZERO la formule est l'IDENTITE EXACTE : une passe qui ne remplit
+					// pas ce champ rend exactement l'image d'avant. On se trompe du cote
+					// qui laisse voir.
+					NkVec4f wetParams;
+			}; // total 240
 
-			static_assert(sizeof(ObjectUBO) == 224, "ObjectUBO std140 layout");
+			static_assert(sizeof(ObjectUBO) == 240, "ObjectUBO std140 layout");
 			// Phase F.B.1 : pool d'ObjectUBO (frame x drawIdx). Pre-alloue
 			// mFramesInFlight * mObjectPoolCap buffers a Init pour eviter
 			// toute allocation dans le hot path et tout vkCmdUpdateBuffer dans
@@ -1808,8 +1823,20 @@ namespace nkentseu {
 					NkVec4f subsurfaceColor;
 					NkVec4f shadowOverrides;
 					NkVec4f triplanarParams;
+					// MOUILLAGE (2026-09-06) — Lagarde, « Water drop 3b ». DEUX scalaires
+					// suffisent a TOUT l'effet, et c'est un resultat algebrique, pas un
+					// raccourci : la formule ne depend de la porosite et du mouillage que
+					// par leur PRODUIT (cf. NkWetnessMap.h, temoin (w2)).
+					//   .x = wetK   = mouillage x porosite  -> albedo x (1 - 0.8 wetK)
+					//                                          rugosite x (1 - 0.4 wetK)
+					//   .y = waterK = mouillage x waterLayer -> F0 vers celui de l'eau
+					//   .z, .w = reserve (et ce mot est verifie : rien ne les lit)
+					// A ZERO la formule est l'IDENTITE EXACTE : une passe qui ne remplit
+					// pas ce champ rend exactement l'image d'avant. On se trompe du cote
+					// qui laisse voir.
+					NkVec4f wetParams;
 			};
-			static_assert(sizeof(ObjBlock) == 224, "ObjBlock std140 deferred");
+			static_assert(sizeof(ObjBlock) == 240, "ObjBlock std140 deferred");
 
 			const bool poolFrameValid = (mFrameSlot < mUBOObjectPool.Size()) && (mFrameSlot < mObjectSetPool.Size());
 			if (!poolFrameValid)
@@ -1843,6 +1870,33 @@ namespace nkentseu {
 				ob.metallic = dc.metallic;
 				ob.roughness = dc.roughness;
 				ob.aoStrength = dc.aoStrength;
+				// MOUILLAGE : le drawcall parle en mouillage/porosite/pellicule ;
+				// le bloc uniforme ne transporte que les DEUX produits dont la
+				// formule depend. Le pincement est ici, une seule fois, du cote
+				// ou l'on peut le prouver -- pas dans le nuanceur.
+				{
+					const float32 w = NkClamp(dc.wetness, 0.f, 1.f);
+					ob.wetParams = NkVec4f{w * NkClamp(dc.wetPorosity, 0.f, 1.f),
+										   w * NkClamp(dc.waterLayer, 0.f, 1.f), 0.f, 0.f};
+				}
+				// MOUILLAGE : le drawcall parle en mouillage/porosite/pellicule ;
+				// le bloc uniforme ne transporte que les DEUX produits dont la
+				// formule depend. Le pincement est ici, une seule fois, du cote
+				// ou l'on peut le prouver -- pas dans le nuanceur.
+				{
+					const float32 w = NkClamp(dc.wetness, 0.f, 1.f);
+					ob.wetParams = NkVec4f{w * NkClamp(dc.wetPorosity, 0.f, 1.f),
+										   w * NkClamp(dc.waterLayer, 0.f, 1.f), 0.f, 0.f};
+				}
+				// MOUILLAGE : le drawcall parle en mouillage/porosite/pellicule ;
+				// le bloc uniforme ne transporte que les DEUX produits dont la
+				// formule depend. Le pincement est ici, une seule fois, du cote
+				// ou l'on peut le prouver -- pas dans le nuanceur.
+				{
+					const float32 w = NkClamp(dc.wetness, 0.f, 1.f);
+					ob.wetParams = NkVec4f{w * NkClamp(dc.wetPorosity, 0.f, 1.f),
+										   w * NkClamp(dc.waterLayer, 0.f, 1.f), 0.f, 0.f};
+				}
 				ob.emissiveStrength = 0.f;				 // emissive via materiau (v1)
 				ob.normalStrength = matInst ? 1.f : 0.f; // normal map si materiau
 				// Meme alimentation que le chemin forward : les deux chemins doivent
@@ -2757,9 +2811,21 @@ namespace nkentseu {
 					NkVec4f shadowOverrides;
 					// 2026-05-24 Triplanar (cf ObjectUBO Init pour le sens des champs).
 					NkVec4f triplanarParams;
+					// MOUILLAGE (2026-09-06) — Lagarde, « Water drop 3b ». DEUX scalaires
+					// suffisent a TOUT l'effet, et c'est un resultat algebrique, pas un
+					// raccourci : la formule ne depend de la porosite et du mouillage que
+					// par leur PRODUIT (cf. NkWetnessMap.h, temoin (w2)).
+					//   .x = wetK   = mouillage x porosite  -> albedo x (1 - 0.8 wetK)
+					//                                          rugosite x (1 - 0.4 wetK)
+					//   .y = waterK = mouillage x waterLayer -> F0 vers celui de l'eau
+					//   .z, .w = reserve (et ce mot est verifie : rien ne les lit)
+					// A ZERO la formule est l'IDENTITE EXACTE : une passe qui ne remplit
+					// pas ce champ rend exactement l'image d'avant. On se trompe du cote
+					// qui laisse voir.
+					NkVec4f wetParams;
 			};
 
-			static_assert(sizeof(ObjBlock) == 224, "ObjBlock std140 shadow");
+			static_assert(sizeof(ObjBlock) == 240, "ObjBlock std140 shadow");
 
 			// Phase F.B.1 : pattern UBO-per-draw. Chaque drawcall consume un slot
 			// du pool (UBO + descriptor set pre-bind 1:1). WriteBuffer fait un
@@ -2927,8 +2993,20 @@ namespace nkentseu {
 					NkVec4f subsurfaceColor;
 					NkVec4f shadowOverrides;
 					NkVec4f triplanarParams;
+					// MOUILLAGE (2026-09-06) — Lagarde, « Water drop 3b ». DEUX scalaires
+					// suffisent a TOUT l'effet, et c'est un resultat algebrique, pas un
+					// raccourci : la formule ne depend de la porosite et du mouillage que
+					// par leur PRODUIT (cf. NkWetnessMap.h, temoin (w2)).
+					//   .x = wetK   = mouillage x porosite  -> albedo x (1 - 0.8 wetK)
+					//                                          rugosite x (1 - 0.4 wetK)
+					//   .y = waterK = mouillage x waterLayer -> F0 vers celui de l'eau
+					//   .z, .w = reserve (et ce mot est verifie : rien ne les lit)
+					// A ZERO la formule est l'IDENTITE EXACTE : une passe qui ne remplit
+					// pas ce champ rend exactement l'image d'avant. On se trompe du cote
+					// qui laisse voir.
+					NkVec4f wetParams;
 			};
-			static_assert(sizeof(ObjBlock) == 224, "ObjBlock std140 shadow lineaire");
+			static_assert(sizeof(ObjBlock) == 240, "ObjBlock std140 shadow lineaire");
 
 			const bool poolFrameValid =
 				(mFrameSlot < mUBOObjectPool.Size()) && (mFrameSlot < mObjectSetPool.Size());
@@ -2993,9 +3071,21 @@ namespace nkentseu {
 					NkVec4f subsurfaceColor;
 					NkVec4f shadowOverrides;
 					NkVec4f triplanarParams;
+					// MOUILLAGE (2026-09-06) — Lagarde, « Water drop 3b ». DEUX scalaires
+					// suffisent a TOUT l'effet, et c'est un resultat algebrique, pas un
+					// raccourci : la formule ne depend de la porosite et du mouillage que
+					// par leur PRODUIT (cf. NkWetnessMap.h, temoin (w2)).
+					//   .x = wetK   = mouillage x porosite  -> albedo x (1 - 0.8 wetK)
+					//                                          rugosite x (1 - 0.4 wetK)
+					//   .y = waterK = mouillage x waterLayer -> F0 vers celui de l'eau
+					//   .z, .w = reserve (et ce mot est verifie : rien ne les lit)
+					// A ZERO la formule est l'IDENTITE EXACTE : une passe qui ne remplit
+					// pas ce champ rend exactement l'image d'avant. On se trompe du cote
+					// qui laisse voir.
+					NkVec4f wetParams;
 			};
 
-			static_assert(sizeof(ObjBlock) == 224, "ObjBlock std140");
+			static_assert(sizeof(ObjBlock) == 240, "ObjBlock std140");
 
 			// Phase F.B.1 : pattern UBO-per-draw. mObjectDrawIdx est deja
 			// incremente par RenderShadowPass (qui tourne AVANT cette passe via
@@ -3192,8 +3282,20 @@ namespace nkentseu {
 					NkVec4f subsurfaceColor;
 					NkVec4f shadowOverrides;
 					NkVec4f triplanarParams;
+					// MOUILLAGE (2026-09-06) — Lagarde, « Water drop 3b ». DEUX scalaires
+					// suffisent a TOUT l'effet, et c'est un resultat algebrique, pas un
+					// raccourci : la formule ne depend de la porosite et du mouillage que
+					// par leur PRODUIT (cf. NkWetnessMap.h, temoin (w2)).
+					//   .x = wetK   = mouillage x porosite  -> albedo x (1 - 0.8 wetK)
+					//                                          rugosite x (1 - 0.4 wetK)
+					//   .y = waterK = mouillage x waterLayer -> F0 vers celui de l'eau
+					//   .z, .w = reserve (et ce mot est verifie : rien ne les lit)
+					// A ZERO la formule est l'IDENTITE EXACTE : une passe qui ne remplit
+					// pas ce champ rend exactement l'image d'avant. On se trompe du cote
+					// qui laisse voir.
+					NkVec4f wetParams;
 			};
-			static_assert(sizeof(ObjBlock) == 224, "ObjBlock std140 transparent");
+			static_assert(sizeof(ObjBlock) == 240, "ObjBlock std140 transparent");
 			cmd->BindGraphicsPipeline(mPBRBlendPipeline);
 			for (auto &sdc : mTransparent) {
 				auto &dc = sdc.dc;
@@ -3413,7 +3515,24 @@ namespace nkentseu {
 						NkVec4f subsurfaceColor;
 						NkVec4f shadowOverrides;
 						NkVec4f triplanarParams;
+						// MOUILLAGE (2026-09-06) — Lagarde, « Water drop 3b ». DEUX scalaires
+						// suffisent a TOUT l'effet, et c'est un resultat algebrique, pas un
+						// raccourci : la formule ne depend de la porosite et du mouillage que
+						// par leur PRODUIT (cf. NkWetnessMap.h, temoin (w2)).
+						//   .x = wetK   = mouillage x porosite  -> albedo x (1 - 0.8 wetK)
+						//                                          rugosite x (1 - 0.4 wetK)
+						//   .y = waterK = mouillage x waterLayer -> F0 vers celui de l'eau
+						//   .z, .w = reserve (et ce mot est verifie : rien ne les lit)
+						// A ZERO la formule est l'IDENTITE EXACTE : une passe qui ne remplit
+						// pas ce champ rend exactement l'image d'avant. On se trompe du cote
+						// qui laisse voir.
+						NkVec4f wetParams;
 				};
+				// Cette copie-ci etait la SEULE des sept sans garde de taille.
+				// Elle est ajoutee ici, dans le meme geste que l'agrandissement :
+				// une copie non gardee est precisement celle qu'une fusion oublie
+				// sans que rien ne le dise.
+				static_assert(sizeof(ObjBlock) == 240, "ObjBlock std140 contour");
 				ObjBlock ob{};
 				ob.model = dc.transform;
 				ob.normalMatrix = dc.transform.Inverse().Transpose();
@@ -3453,9 +3572,21 @@ namespace nkentseu {
 					NkVec4f subsurfaceColor;
 					NkVec4f shadowOverrides;
 					NkVec4f triplanarParams;
+					// MOUILLAGE (2026-09-06) — Lagarde, « Water drop 3b ». DEUX scalaires
+					// suffisent a TOUT l'effet, et c'est un resultat algebrique, pas un
+					// raccourci : la formule ne depend de la porosite et du mouillage que
+					// par leur PRODUIT (cf. NkWetnessMap.h, temoin (w2)).
+					//   .x = wetK   = mouillage x porosite  -> albedo x (1 - 0.8 wetK)
+					//                                          rugosite x (1 - 0.4 wetK)
+					//   .y = waterK = mouillage x waterLayer -> F0 vers celui de l'eau
+					//   .z, .w = reserve (et ce mot est verifie : rien ne les lit)
+					// A ZERO la formule est l'IDENTITE EXACTE : une passe qui ne remplit
+					// pas ce champ rend exactement l'image d'avant. On se trompe du cote
+					// qui laisse voir.
+					NkVec4f wetParams;
 			};
 
-			static_assert(sizeof(ObjBlock) == 224, "ObjBlock std140 instanced");
+			static_assert(sizeof(ObjBlock) == 240, "ObjBlock std140 instanced");
 			// ObjBlock identité : le shader instancié fait worldPos = uObj.model *
 			// inst.models[id] * pos ; avec model=identité, l'instance porte tout.
 			auto MakeIdentityObj = []() {

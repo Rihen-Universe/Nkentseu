@@ -1,9 +1,11 @@
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // =============================================================================
 // NkPhysicsWorld.cpp — Monde de simulation du corps rigide. [M0]
 // M0 : intégration semi-implicite (gravité) + délégation détection à NKCollision +
 // synchronisation des shapes. Pas encore de solveur (les corps se traversent) -> M1.
 // =============================================================================
 #include "NKPhysics/NkPhysicsWorld.h"
+#include "NKPhysics/NkVehicle.h"
 #include "NKPhysics/NkIntegrator.h"
 
 namespace nkentseu {
@@ -72,34 +74,9 @@ namespace nkentseu {
 						 : NkVec3f{I.x > 0 ? 1.f / I.x : 0.f, I.y > 0 ? 1.f / I.y : 0.f, I.z > 0 ? 1.f / I.z : 0.f};
 		}
 
-		// Forme MONDE = forme de REPOS (locale) transformée par la pose (position+orientation).
-		// Générale : box, capsule, cylindre, cône, sphère… tournent CORRECTEMENT.
-		static collision::NkShape NkTransformShape(const collision::NkShape &rest, const NkVec3f &pos,
-												   const NkQuatf &q) noexcept {
-			using T = NkShapeType;
-			collision::NkShape s = rest;
-			switch (rest.type) {
-				case T::NK_BOX3D:
-					s.p0 = pos + q * rest.p0;
-					s.orientation = q * rest.orientation;
-					break;
-				case T::NK_CAPSULE3D:
-				case T::NK_SEGMENT2D:
-				case T::NK_CAPSULE2D:
-					s.p0 = pos + q * rest.p0;
-					s.p1 = pos + q * rest.p1;
-					break; // 2 extrémités
-				case T::NK_CYLINDER3D:
-				case T::NK_CONE3D:
-					s.p0 = pos + q * rest.p0;
-					s.p1 = q * rest.p1;
-					break; // p1 = axe (direction)
-				default:
-					s.p0 = pos + q * rest.p0;
-					break; // sphère/cercle/point…
-			}
-			return s;
-		}
+		// NkTransformShape (forme MONDE depuis la forme de repos) vit dans NkRigidBody.h depuis le
+		// 2026-09-05 : le tissu (NkCloth::AddCollidersFromWorld) en a besoin, et une fonction
+		// `static` de ce fichier était invisible du dehors -- même geste que NkInvInertiaApply.
 
 		// Forme de REPOS (locale) depuis la forme monde initiale + pose initiale (inverse).
 		static collision::NkShape NkComputeRestShape(const collision::NkShape &world, const NkVec3f &pos,
@@ -182,13 +159,7 @@ namespace nkentseu {
 
 		// ── Validation physique (M10) : COM + moments ────────────────────────
 		// Inertie (forward) en repère monde appliquée à ω : I·ω = R·(Idiag ⊙ (Rᵀω)).
-		static NkVec3f NkInertiaApply(const NkRigidBody &b, const NkVec3f &w) noexcept {
-			const NkVec3f loc = b.orientation.Conjugate() * w;
-			const NkVec3f I{b.invInertiaDiag.x > 0.f ? 1.f / b.invInertiaDiag.x : 0.f,
-							b.invInertiaDiag.y > 0.f ? 1.f / b.invInertiaDiag.y : 0.f,
-							b.invInertiaDiag.z > 0.f ? 1.f / b.invInertiaDiag.z : 0.f};
-			return b.orientation * NkVec3f{loc.x * I.x, loc.y * I.y, loc.z * I.z};
-		}
+		// NkInertiaApply : remontee dans NkRigidBody.h (2026-09-03), partagee.
 
 		float32 NkPhysicsWorld::TotalMass(uint32 lm) const {
 			float32 m = 0.f;
@@ -399,11 +370,7 @@ namespace nkentseu {
 
 		// Inertie inverse en repère MONDE appliquée à un vecteur (torque -> accel ang.) :
 		//   invI_world * v = R * (invInertiaDiag ⊙ (Rᵀ v))   avec R = orientation.
-		static NkVec3f NkInvInertiaApply(const NkRigidBody &b, const NkVec3f &v) noexcept {
-			const NkVec3f loc = b.orientation.Conjugate() * v;
-			const NkVec3f sc{loc.x * b.invInertiaDiag.x, loc.y * b.invInertiaDiag.y, loc.z * b.invInertiaDiag.z};
-			return b.orientation * sc;
-		}
+		// NkInvInertiaApply : remontee dans NkRigidBody.h (2026-09-03), partagee.
 
 		// ── M1+M2 : solveur de contacts (normale + frottement + angulaire) ────
 		struct NkSolverPoint {
@@ -825,9 +792,30 @@ namespace nkentseu {
 			}
 		}
 
+		void NkPhysicsWorld::RegisterVehicle(NkVehicle *v) noexcept {
+			for (uint32 i = 0; i < (uint32)mVehicles.Size(); ++i)
+				if (mVehicles[(NkVector<NkVehicle *>::SizeType)i] == v)
+					return;
+			mVehicles.PushBack(v);
+		}
+		void NkPhysicsWorld::UnregisterVehicle(NkVehicle *v) noexcept {
+			for (uint32 i = 0; i < (uint32)mVehicles.Size(); ++i)
+				if (mVehicles[(NkVector<NkVehicle *>::SizeType)i] == v) {
+					mVehicles[(NkVector<NkVehicle *>::SizeType)i] =
+						mVehicles[(NkVector<NkVehicle *>::SizeType)(mVehicles.Size() - 1)];
+					mVehicles.PopBack();
+					return;
+				}
+		}
+
 		void NkPhysicsWorld::Substep(float32 dt) {
 			if (dt <= 0.f)
 				return;
+			// 0) roues : forces de suspension + impulsions d'adhérence, AU PAS FIXE,
+			//    avant l'intégration : les forces entrent dans force/torque, les
+			//    impulsions dans les vitesses -- comme celles du solveur.
+			for (uint32 i = 0; i < (uint32)mVehicles.Size(); ++i)
+				mVehicles[(NkVector<NkVehicle *>::SizeType)i]->StepFixed(dt);
 			// 1) forces -> vitesses
 			for (uint32 i = 0; i < (uint32)mBodies.Size(); ++i) {
 				NkRigidBody &b = mBodies[i];

@@ -1,4 +1,5 @@
 // =============================================================================
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // NKLogger/NkLogLevel.h
 // Définition des niveaux de log et fonctions utilitaires de conversion.
 //
@@ -26,6 +27,7 @@
 // NkLogLevel est un header fondamental : dépendances minimales requises.
 
 #include "NKCore/NkTypes.h"
+#include "NKCore/Text/NkSnprintf.h"
 #include "NKLogger/NkLoggerApi.h"
 
 // -------------------------------------------------------------------------
@@ -437,7 +439,7 @@ namespace nkentseu {
 
 			// 2. Variable d'environnement module-spécifique
 			char envVar[64];
-			snprintf(envVar, sizeof(envVar), "NK_LOG_%s", moduleName);
+			nkentseu::NkSnprintf(envVar, sizeof(envVar), "NK_LOG_%s", moduleName);
 			const char* envLevel = std::getenv(envVar);
 			if (envLevel) {
 				return NkStringToLogLevel(envLevel);

@@ -1,3 +1,4 @@
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // =============================================================================
 // NkRHI_Device_GL.cpp — Implémentation OpenGL 4.3+ du NkIDevice
 // Utilise Direct State Access (GL 4.5+) avec fallback OpenGL ES sur Android
@@ -10,6 +11,7 @@
 #include "NKContainers/Associative/NkUnorderedMap.h"
 #include <cmath>
 #include <cstring>
+#include <cstdarg>
 
 // ── Contexte GLX (Linux/X11) ────────────────────────────────────────────────
 // glad (via NkOpenglDevice.h) définit __gl_h_ AVANT -> <GL/glx.h> n'inclut pas
@@ -57,6 +59,7 @@ extern "C" int gladLoadGLES2(GLADloadfunc load);
 extern "C" int gladLoaderLoadGLES2(void);
 #endif
 
+
 // ── Contexte WebGL (Emscripten/WASM) ────────────────────────────────────────
 // Meme contrainte de header que le bloc EGL ci-dessus : glad/gles2.h est
 // inconciliable avec glad/gl.h deja inclus — on declare donc localement le
@@ -71,21 +74,58 @@ extern "C" int gladLoadGLES2(GLADloadfunc load);
 extern "C" void gladSetGLES2PostCallback(GLADpostcallback cb);
 // NKTEMP-DIAG : a retirer (fonction libre : une lambda variadique n'est pas
 // convertible en pointeur de fonction variadique sous clang/wasm).
-static void NkWebGladPostCallback(void *, const char *name, GLADapiproc, int, ...) {
+// 2026-09-04 : (1) pour glEnable/glDisable/glIsEnabled l'argument est LU
+// (va_arg) et imprime -- « GLERR in glDisable » ne disait pas QUELLE capacite,
+// et c'est la capacite qu'il faut garder ; (2) une erreur REPETEE se dit UNE
+// fois puis se tait : le triplet (erreur, fonction, argument) est memorise. Le
+// budget global de 40 d'avant laissait passer 40 fois la MEME ligne (une par
+// image), puis taisait les suivantes, differentes -- un instrument qui parle
+// a chaque image est un instrument qu'on finit par ne plus lire.
+static void NkWebGladPostCallback(void *, const char *name, GLADapiproc, int len_args, ...) {
 	if (!glad_glGetError)
 		return;
 	GLenum err = glad_glGetError();
 	if (err == GL_NO_ERROR)
 		return;
+	if (!name)
+		name = "?";
+	// Argument « capacite » des interrupteurs d'etat -- seul cas ou le premier
+	// argument variadique est un GLenum a coup sur.
+	unsigned cap = 0u;
+	bool hasCap = false;
+	if (len_args >= 1 &&
+		(strcmp(name, "glEnable") == 0 || strcmp(name, "glDisable") == 0 || strcmp(name, "glIsEnabled") == 0)) {
+		va_list ap;
+		va_start(ap, len_args);
+		cap = va_arg(ap, unsigned);
+		va_end(ap);
+		hasCap = true;
+	}
+	// Memoire des erreurs deja dites : table fixe, sans allocation (chemin
+	// appele a chaque commande GL). `name` est un litteral de glad : stable.
+	struct NkVue {
+		GLenum err;
+		const char *name;
+		unsigned cap;
+	};
+	static NkVue sVues[32];
+	static int sNb = 0;
+	for (int i = 0; i < sNb; ++i)
+		if (sVues[i].err == err && sVues[i].cap == cap && strcmp(sVues[i].name, name) == 0)
+			return; // deja dite : silence
+	if (sNb >= 32)
+		return; // table pleine : borne, comme l'ancien budget
+	sVues[sNb++] = {err, name, cap};
 	GLint prog = 0, vao = 0, fbo = 0;
 	glad_glGetIntegerv(GL_CURRENT_PROGRAM, &prog);
 	glad_glGetIntegerv(GL_VERTEX_ARRAY_BINDING, &vao);
 	glad_glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING, &fbo);
-	static int sBudget = 40; // borne le spam
-	if (sBudget > 0) {
-		--sBudget;
-		fprintf(stderr, "[WebDiag] GLERR 0x%X in %s prog=%d vao=%d fbo=%d\n", err, name, prog, vao, fbo);
-	}
+	if (hasCap)
+		fprintf(stderr, "[WebDiag] GLERR 0x%X in %s(cap=0x%X) prog=%d vao=%d fbo=%d (dite une fois, tue ensuite)\n", err,
+				name, cap, prog, vao, fbo);
+	else
+		fprintf(stderr, "[WebDiag] GLERR 0x%X in %s prog=%d vao=%d fbo=%d (dite une fois, tue ensuite)\n", err, name, prog,
+				vao, fbo);
 }
 #endif
 
@@ -99,6 +139,20 @@ static void NkWebGladPostCallback(void *, const char *name, GLADapiproc, int, ..
 	} while (0)
 
 namespace nkentseu {
+
+	bool NkWebDiagEnabled() noexcept {
+		// Lu UNE fois : le diagnostic est sur un chemin chaud (chaque liaison
+		// de tampon), une lecture d'environnement par appel couterait plus que
+		// la trace elle-meme.
+		static const bool actif = []() noexcept {
+			// Deux sources, une seule garde : la variable d'environnement (bureau,
+			// CI) et celle que la page pose depuis `?diag=1` (Emscripten mappe
+			// Module.ENV sur getenv). Cote utilisateur, l'URL suffit.
+			const char *v = ::getenv("NK_WEB_DIAG");
+			return v && v[0] && v[0] != '0';
+		}();
+		return actif;
+	}
 
 	namespace {
 		// ── Debug callback OpenGL (GL_KHR_debug, core 4.3+) ─────────────────────
@@ -992,39 +1046,175 @@ namespace nkentseu {
 		NK_GL_LOG("Shutdown\n");
 	}
 
+
+	// =====================================================================
+	// INTERROGATION DES CAPACITES -- deux pieges neutralises (2026-09-02)
+	// =====================================================================
+	// PIEGE 1 : glGetIntegerv N'ECRIT RIEN quand il echoue. Les 17 requetes de
+	// QueryCaps partageaient UNE seule variable jamais reinitialisee : chaque
+	// capacite ratee heritait de la derniere reussie. Mesure sous WebGL2 : six
+	// capacites d'affilee recevaient MAX_UNIFORM_BLOCK_SIZE (~65536), dont une
+	// anisotropie de 65536. Les capacites n'etaient pas manquantes : elles
+	// etaient FAUSSES ET PLAUSIBLES -- aucune a zero, toutes l'air renseignees.
+	//
+	// PIEGE 2 : une file d'erreurs non vidue fait attribuer a une requete
+	// l'echec de la precedente. On vide AVANT, on relit APRES.
+	//
+	// 📌 Et la vraie parade est en amont des deux : NE PAS POSER LA QUESTION
+	// quand la cible n'a pas la fonctionnalite (cf. NkGLHasComputeAndSSBO).
+	// Meme famille que la garde EGL : demander a une cible ce qu'elle n'a pas.
+	static bool NkGLHasAnisotropicFilter();
+
+	static void NkGLClearErrors() {
+		for (int garde = 0; garde < 64 && glGetError() != GL_NO_ERROR; ++garde) {
+		}
+	}
+
+	// Rend false ET remet `out` a zero si la requete echoue : jamais la valeur
+	// du voisin, jamais un chiffre credible sorti de nulle part.
+	static bool NkGLQueryCap(GLenum pname, GLint &out) {
+		NkGLClearErrors();
+		out = 0;
+		glGetIntegerv(pname, &out);
+		if (glGetError() != GL_NO_ERROR) {
+			out = 0;
+			return false;
+		}
+		return true;
+	}
+
+	static bool NkGLQueryCapIndexed(GLenum pname, GLuint index, GLint &out) {
+		NkGLClearErrors();
+		out = 0;
+		glGetIntegeri_v(pname, index, &out);
+		if (glGetError() != GL_NO_ERROR) {
+			out = 0;
+			return false;
+		}
+		return true;
+	}
+
+	// Compute et SSBO arrivent ENSEMBLE (GL 4.3 / ES 3.1). WebGL2 n'en a aucun,
+	// quelle que soit la version que le contexte annonce -- c'est pour ca que le
+	// test de version ne suffit pas et que la cible est traitee a part.
+	static bool NkGLHasComputeAndSSBO() {
+#if defined(NKENTSEU_PLATFORM_EMSCRIPTEN)
+		return false;
+#else
+		GLint maj = 0, min = 0;
+		if (!NkGLQueryCap(GL_MAJOR_VERSION, maj) || !NkGLQueryCap(GL_MINOR_VERSION, min))
+			return false;
+#if defined(NK_OPENGL_ES)
+		return (maj > 3) || (maj == 3 && min >= 1);
+#else
+		return (maj > 4) || (maj == 4 && min >= 3);
+#endif
+#endif
+	}
+
+	// L'interrupteur GL_FRAMEBUFFER_SRGB est une capacite de BUREAU (GL 3.0 /
+	// ARB_framebuffer_sRGB). En OpenGL ES et WebGL2, l'encodage sRGB est decide par
+	// le FORMAT du framebuffer, pas par un interrupteur : glEnable/glDisable(0x8DB9)
+	// leve GL_INVALID_ENUM. Mesure le 2026-09-04 sur le journal de Rodolf puis en
+	// headless : « WebGL: INVALID_ENUM: disable: invalid capability » x33, puis
+	// `[WebDiag] GLERR 0x500 in glDisable(cap=0x8DB9)` -- BeginFrame le posait a
+	// CHAQUE image. Seule l'extension EXT_sRGB_write_control rend l'interrupteur a
+	// ES ; on la demande, et sans elle on NE POSE PAS la question (meme famille
+	// que la garde EGL et que NkGLHasComputeAndSSBO : ne pas demander a une cible
+	// ce qu'elle n'a pas). Sur ES sans l'extension, le format du swapchain fait
+	// foi : c'est deja ce que la cible fait toute seule.
+	static bool NkGLHasFramebufferSrgbControl() {
+#if defined(NKENTSEU_PLATFORM_EMSCRIPTEN)
+		static int cached = -1;
+		if (cached < 0) {
+			cached = 0;
+			EMSCRIPTEN_WEBGL_CONTEXT_HANDLE ctx = emscripten_webgl_get_current_context();
+			if (ctx != 0 && emscripten_webgl_enable_extension(ctx, "EXT_sRGB_write_control"))
+				cached = 1;
+		}
+		return cached == 1;
+#elif defined(NK_OPENGL_ES)
+		static int cached = -1;
+		if (cached < 0) {
+			const char *ext = (const char *)glGetString(GL_EXTENSIONS);
+			cached = (ext && strstr(ext, "GL_EXT_sRGB_write_control") != nullptr) ? 1 : 0;
+		}
+		return cached == 1;
+#else
+		return true; // GL 3.3+ core, exige par ce device
+#endif
+	}
+
 	void NkOpenGLDevice::QueryCaps() {
 		GLint v = 0;
-		glGetIntegerv(GL_MAX_TEXTURE_SIZE, &v);
-		mCaps.maxTextureDim2D = (uint32)v;
-		glGetIntegerv(GL_MAX_3D_TEXTURE_SIZE, &v);
-		mCaps.maxTextureDim3D = (uint32)v;
-		glGetIntegerv(GL_MAX_CUBE_MAP_TEXTURE_SIZE, &v);
-		mCaps.maxTextureCubeSize = (uint32)v;
-		glGetIntegerv(GL_MAX_ARRAY_TEXTURE_LAYERS, &v);
-		mCaps.maxTextureArrayLayers = (uint32)v;
-		glGetIntegerv(GL_MAX_COLOR_ATTACHMENTS, &v);
-		mCaps.maxColorAttachments = (uint32)v;
-		glGetIntegerv(GL_MAX_VERTEX_ATTRIBS, &v);
-		mCaps.maxVertexAttributes = (uint32)v;
-		glGetIntegerv(GL_MAX_UNIFORM_BLOCK_SIZE, &v);
-		mCaps.maxUniformBufferRange = (uint32)v;
-		glGetIntegerv(GL_MAX_SHADER_STORAGE_BLOCK_SIZE, &v);
-		mCaps.maxStorageBufferRange = (uint32)v;
-		glGetIntegeri_v(GL_MAX_COMPUTE_WORK_GROUP_SIZE, 0, &v);
-		mCaps.maxComputeGroupSizeX = (uint32)v;
-		glGetIntegeri_v(GL_MAX_COMPUTE_WORK_GROUP_SIZE, 1, &v);
-		mCaps.maxComputeGroupSizeY = (uint32)v;
-		glGetIntegeri_v(GL_MAX_COMPUTE_WORK_GROUP_SIZE, 2, &v);
-		mCaps.maxComputeGroupSizeZ = (uint32)v;
-		glGetIntegerv(GL_MAX_COMPUTE_SHARED_MEMORY_SIZE, &v);
-		mCaps.maxComputeSharedMemory = (uint32)v;
-		glGetIntegerv(GL_MAX_TEXTURE_MAX_ANISOTROPY, &v);
-		mCaps.maxSamplerAnisotropy = (uint32)v;
-		glGetIntegerv(GL_UNIFORM_BUFFER_OFFSET_ALIGNMENT, &v);
-		mCaps.minUniformBufferAlign = (uint32)v;
-		glGetIntegerv(GL_SHADER_STORAGE_BUFFER_OFFSET_ALIGNMENT, &v);
-		mCaps.minStorageBufferAlign = (uint32)v;
+		mHasFramebufferSrgbControl = NkGLHasFramebufferSrgbControl();
+		if (!mHasFramebufferSrgbControl)
+			NK_GL_LOG("GL_FRAMEBUFFER_SRGB : pas d'interrupteur sur ce contexte (ES/WebGL2 sans "
+					  "EXT_sRGB_write_control) -- le format du swapchain fait foi, BeginFrame ne le pose pas\n");
 
+		// -- capacites universelles (present sur toutes les cibles GL/ES) -----
+		if (NkGLQueryCap(GL_MAX_TEXTURE_SIZE, v))
+			mCaps.maxTextureDim2D = (uint32)v;
+		if (NkGLQueryCap(GL_MAX_3D_TEXTURE_SIZE, v))
+			mCaps.maxTextureDim3D = (uint32)v;
+		if (NkGLQueryCap(GL_MAX_CUBE_MAP_TEXTURE_SIZE, v))
+			mCaps.maxTextureCubeSize = (uint32)v;
+		if (NkGLQueryCap(GL_MAX_ARRAY_TEXTURE_LAYERS, v))
+			mCaps.maxTextureArrayLayers = (uint32)v;
+		if (NkGLQueryCap(GL_MAX_COLOR_ATTACHMENTS, v))
+			mCaps.maxColorAttachments = (uint32)v;
+		if (NkGLQueryCap(GL_MAX_VERTEX_ATTRIBS, v))
+			mCaps.maxVertexAttributes = (uint32)v;
+		if (NkGLQueryCap(GL_MAX_UNIFORM_BLOCK_SIZE, v))
+			mCaps.maxUniformBufferRange = (uint32)v;
+		if (NkGLQueryCap(GL_UNIFORM_BUFFER_OFFSET_ALIGNMENT, v))
+			mCaps.minUniformBufferAlign = (uint32)v;
+		// Unites de texture du fragment -- la limite qui a fait tomber le Web le
+		// 2026-09-02 (PBR : 17 demandes pour 16 accordees par ANGLE). Si la
+		// requete echoue, NkGLQueryCap n'ecrit RIEN et le champ garde son defaut
+		// DECIDE de 16 : le minimum garanti, jamais un zero ni la valeur de la
+		// variable voisine (`v` est partagee -- c'est exactement le defaut des
+		// sept capacites fausses et plausibles corrige plus bas).
+		if (NkGLQueryCap(GL_MAX_TEXTURE_IMAGE_UNITS, v) && v > 0)
+			mCaps.maxFragmentTextureUnits = (uint32)v;
+
+		// -- compute et SSBO : on NE POSE PAS la question si la cible n'en a pas
+		// Une capacite absente vaut ZERO, jamais un defaut optimiste : un
+		// maxComputeGroupSizeX non nul sur une cible sans compute est exactement
+		// le genre de valeur sur laquelle une decision de rendu se construit.
+		if (NkGLHasComputeAndSSBO()) {
+			if (NkGLQueryCap(GL_MAX_SHADER_STORAGE_BLOCK_SIZE, v))
+				mCaps.maxStorageBufferRange = (uint32)v;
+			if (NkGLQueryCap(GL_SHADER_STORAGE_BUFFER_OFFSET_ALIGNMENT, v))
+				mCaps.minStorageBufferAlign = (uint32)v;
+			if (NkGLQueryCapIndexed(GL_MAX_COMPUTE_WORK_GROUP_SIZE, 0, v))
+				mCaps.maxComputeGroupSizeX = (uint32)v;
+			if (NkGLQueryCapIndexed(GL_MAX_COMPUTE_WORK_GROUP_SIZE, 1, v))
+				mCaps.maxComputeGroupSizeY = (uint32)v;
+			if (NkGLQueryCapIndexed(GL_MAX_COMPUTE_WORK_GROUP_SIZE, 2, v))
+				mCaps.maxComputeGroupSizeZ = (uint32)v;
+			if (NkGLQueryCap(GL_MAX_COMPUTE_SHARED_MEMORY_SIZE, v))
+				mCaps.maxComputeSharedMemory = (uint32)v;
+		} else {
+			mCaps.maxStorageBufferRange = 0;
+			mCaps.minStorageBufferAlign = 0;
+			mCaps.maxComputeGroupSizeX = 0;
+			mCaps.maxComputeGroupSizeY = 0;
+			mCaps.maxComputeGroupSizeZ = 0;
+			mCaps.maxComputeSharedMemory = 0;
+		}
+
+		// -- anisotropie : extension, absente du coeur WebGL2 ------------------
+		// 1 = filtrage isotrope, la valeur JUSTE quand l'extension manque.
+		if (NkGLHasAnisotropicFilter() && NkGLQueryCap(GL_MAX_TEXTURE_MAX_ANISOTROPY, v))
+			mCaps.maxSamplerAnisotropy = (uint32)v;
+		else
+			mCaps.maxSamplerAnisotropy = 1;
+
+		// La file est rendue PROPRE : sans ca, la premiere verification d'erreur
+		// du reste du moteur heriterait des INVALID_ENUM d'ici et accuserait un
+		// innocent.
+		NkGLClearErrors();
 		mCaps.computeShaders = NkDeviceInitComputeEnabledForApi(mInit, NkGraphicsApi::NK_GFX_API_OPENGL);
 		mCaps.geometryShaders = true;
 		mCaps.tessellationShaders = true;
@@ -1032,11 +1222,28 @@ namespace nkentseu {
 		mCaps.multiViewport = true;
 		mCaps.independentBlend = true;
 		mCaps.timestampQueries = true;
-		mCaps.textureCompressionBC = true; // sur desktop
+		// BC (S3TC/DXT) est un format DESKTOP. Sur ES/WebGL2 il n'existe que par
+		// extension, et l'annoncer `true` sans l'avoir est une promesse faite au
+		// code : le moteur choisirait un format que le televersement refusera.
+		// Un drapeau de capacite dit ce que la cible A, pas ce qu'on souhaite.
+#if defined(NK_OPENGL_ES)
+		mCaps.textureCompressionBC = false;
+#else
+		mCaps.textureCompressionBC = true;
+#endif
 
 		// MSAA support
 		GLint maxS = 0;
-		glGetIntegerv(GL_MAX_COLOR_TEXTURE_SAMPLES, &maxS);
+		// GL_MAX_COLOR_TEXTURE_SAMPLES est DESKTOP-ONLY (GL 3.2+). ES et WebGL2
+		// exposent GL_MAX_SAMPLES. La requete brute echouait donc sur Web et
+		// laissait maxS a 0 : les quatre drapeaux msaa* tombaient a false sans
+		// que rien ne le dise. Dernier representant, dans cette meme fonction, de
+		// la famille « demander a une cible ce qu'elle n'a pas ».
+#if defined(NK_OPENGL_ES)
+		NkGLQueryCap(GL_MAX_SAMPLES, maxS);
+#else
+		NkGLQueryCap(GL_MAX_COLOR_TEXTURE_SAMPLES, maxS);
+#endif
 		mCaps.msaa2x = maxS >= 2;
 		mCaps.msaa4x = maxS >= 4;
 		mCaps.msaa8x = maxS >= 8;
@@ -1941,6 +2148,119 @@ namespace nkentseu {
 	} // namespace
 #endif // NKENTSEU_PLATFORM_EMSCRIPTEN
 
+	namespace {
+
+	// =========================================================================
+	// BUDGET D'UNITES DE TEXTURE — ET CE N'EST PAS UN CORRECTIF « WEB »
+	// =========================================================================
+	// Mesure du 2026-09-02, sur une VRAIE carte : `PBR` declare 17
+	// echantillonneurs au fragment (apres la fusion des cookies), WebGL2 en
+	// accorde 16, glLinkProgram refuse, ecran vide. Le defaut datait du 11/08
+	// 00h01 (tables LTC) et personne ne l'avait vu pendant 22 jours : le seul
+	// web jamais execute (SwiftShader) en accorde PLUS de 16.
+	//
+	// 🔴 CE BLOC NE TESTE AUCUNE PLATEFORME, ET C'EST TOUT L'INTERET. La regle
+	// gravee dit : « une application qui interroge la plateforme a deja perdu ».
+	// Le voisin du dessus (NkWebGL2AdaptGLSL) est pilote par
+	// `#if defined(NKENTSEU_PLATFORM_EMSCRIPTEN)` -- un `si (web)` dans le
+	// moteur. Celui-ci compare CE QUE LE SHADER DEMANDE a CE QUE LE PILOTE
+	// ACCORDE (mCaps.maxFragmentTextureUnits, lu au glGetIntegerv). Il se
+	// declenche donc sur n'importe quelle cible etroite -- WebGL2 aujourd'hui,
+	// un GL ES pauvre demain -- sans que personne ne l'ait nommee.
+	//
+	// ⚠️ IL EST VOLONTAIREMENT HORS DE TOUTE GARDE DE PLATEFORME, et il
+	// n'utilise AUCUN des helpers NkWeb* (qui, eux, vivent sous la garde) :
+	// une fonction pilotee par une capacite ne doit pas dependre d'un #if de
+	// cible, sinon elle redevient un `si (web)` par la porte de derriere.
+	//
+	// ⚠️ CE QU'IL RETIRE, ET POURQUOI C'EST GRATUIT ICI. `tShadowAtlasRaw` n'a
+	// qu'UN usage : la recherche de bloqueurs PCSS (NkShadowAtlas.glsli). Or
+	// NkRendererConfig::ApplyQuality() met `pcss = false` des NK_LOW, et
+	// ForTarget() donne NK_MOBILE aux cibles etroites : sur elles, cette
+	// branche est DEJA MORTE a l'execution. On ne perd aucune image.
+	//
+	// ⚠️ ET LE REPLI EST UNE DEGRADATION, PAS UN TROU. On neutralise le test
+	// `mode == 4` : le flot tombe alors sur le PCF 3x3 de fin de fonction, qui
+	// n'utilise que le sampler comparatif. L'ombre devient plus douce, elle ne
+	// disparait pas. « Ce qui ne peut pas se faire doit avoir une doublure
+	// credible, jamais un trou. »
+	//
+	// 🗄️ RESERVE DISPONIBLE, non depensee : fusionner l'IBL (irradiance +
+	// prefiltre) et le cube de ciel rendrait 2 unites de plus. On ne les prend
+	// pas parce qu'on n'en a pas besoin -- elles retablissent la marge le jour
+	// ou une cible descendrait plus bas.
+
+	// Combien d'echantillonneurs une source DECLARE-t-elle ?
+	// On compare la DEMANDE du shader au BUDGET du pilote, plutot que de coder
+	// en dur le besoin de PBR ici : NKRHI n'a pas a connaitre ses shaders.
+	inline uint32 NkCountDeclaredSamplers(const char *src) {
+		uint32 n = 0;
+		for (const char *p = src; (p = strstr(p, "uniform")) != nullptr; ++p) {
+			const char *q = p + 7;
+			if (*q != ' ' && *q != '\t')
+				continue;
+			while (*q == ' ' || *q == '\t')
+				++q;
+			static const char *kPrec[] = {"lowp", "mediump", "highp"};
+			for (uint32 i = 0; i < 3; ++i) {
+				const size_t l = strlen(kPrec[i]);
+				if (strncmp(q, kPrec[i], l) == 0 && (q[l] == ' ' || q[l] == '\t')) {
+					q += l;
+					while (*q == ' ' || *q == '\t')
+						++q;
+					break;
+				}
+			}
+			if (strncmp(q, "sampler", 7) == 0 || strncmp(q, "isampler", 8) == 0 ||
+				strncmp(q, "usampler", 8) == 0)
+				++n;
+		}
+		return n;
+	}
+
+	// Retire `tShadowAtlasRaw` et neutralise la branche qui l'utilise.
+	// Ligne par ligne, sur une COPIE : la source d'origine n'est jamais touchee,
+	// donc le chemin BUREAU reste identique octet pour octet -- « le bureau ne
+	// bouge pas d'un pixel » est vrai PAR CONSTRUCTION, pas par comparaison.
+	inline NkString NkTrimShadowRawSampler(const char *src) {
+		NkString out;
+		const char *p = src;
+		const char *end = src + strlen(src);
+		while (p < end) {
+			const char *nl = (const char *)memchr(p, '\n', (size_t)(end - p));
+			const char *lineEnd = nl ? nl : end;
+
+			NkString ligne;
+			ligne.Append(p, (uint32)(lineEnd - p));
+			const char *c = ligne.CStr();
+			const char *nom = strstr(c, "tShadowAtlasRaw");
+			const char *pcss = strstr(c, "mode == 4");
+
+			if (nom && strstr(c, "uniform") != nullptr) {
+				// la DECLARATION disparait : c'est elle qui coute l'unite.
+			} else if (nom) {
+				// usage unique (recherche de bloqueurs PCSS) : valeur neutre.
+				// 1.0 = « rien de plus proche que le plan » -> aucun bloqueur.
+				// Code mort de toute facon : le test ci-dessous ne passe plus.
+				out += "            float zs = 1.0;\n";
+			} else if (pcss) {
+				// PCSS neutralise -> le flot tombe sur le PCF 3x3 de fin de
+				// fonction. Degradation, pas suppression.
+				out.Append(c, (uint32)(pcss - c));
+				out += "false /* PCSS retire : budget d'unites de texture */";
+				out += (pcss + 9);
+				out += "\n";
+			} else {
+				out += ligne;
+				out += "\n";
+			}
+			p = nl ? nl + 1 : end;
+		}
+		return out;
+	}
+
+	} // namespace
+
 	// =============================================================================
 	// Shaders
 	// =============================================================================
@@ -1996,6 +2316,26 @@ namespace nkentseu {
 			NkString adapted = NkWebGL2AdaptGLSL(src, glStage, webFixes);
 			src = adapted.CStr();
 #endif
+			// BUDGET D'UNITES DE TEXTURE — aucune plateforme n'est interrogee.
+			// On compare ce que le shader DEMANDE a ce que le pilote ACCORDE.
+			// Sur bureau (32 unites accordees pour 17 demandees) la condition est
+			// fausse et `src` n'est pas touche : le chemin bureau est identique
+			// octet pour octet, par construction.
+			NkString budgetTrimmed;
+			if (glStage == GL_FRAGMENT_SHADER && mCaps.maxFragmentTextureUnits > 0 &&
+				NkCountDeclaredSamplers(src) > mCaps.maxFragmentTextureUnits) {
+				budgetTrimmed = NkTrimShadowRawSampler(src);
+				// fprintf, pas le formateur a marqueurs : c'est la convention de
+				// diagnostic de ce fichier, et NkFormat prendrait des accolades
+				// litterales pour des marqueurs de substitution.
+				fprintf(stderr,
+						"[NkRHI_GL] budget d'unites de texture : %u demandees pour %u "
+						"accordees -> PCSS retire (repli PCF 3x3), %u restantes\n",
+						(unsigned)NkCountDeclaredSamplers(src),
+						(unsigned)mCaps.maxFragmentTextureUnits,
+						(unsigned)NkCountDeclaredSamplers(budgetTrimmed.CStr()));
+				src = budgetTrimmed.CStr();
+			}
 			GLuint sh = CompileGLStage(glStage, src);
 			if (sh) {
 				glAttachShader(prog, sh);
@@ -2046,18 +2386,25 @@ namespace nkentseu {
 					// >= 16 rendrait TOUS les draws du programme invalides.
 					if (loc >= 0)
 						glUniform1i(loc, (GLint)NkWebRemapTexUnit((uint32)f.binding));
-					// NKTEMP-DIAG : a retirer (assignations d'unites)
-					fprintf(stderr, "[WebDiag] prog=%u '%s' assign '%s' bind=%d unit=%u loc=%d\n", prog,
-							desc.debugName ? desc.debugName : "?", f.name, f.binding,
-							NkWebRemapTexUnit((uint32)f.binding), loc);
+					// DIAGNOSTIC, derriere la garde depuis le 2026-09-04 : ce dump
+					// imprimait une ligne PAR SAMPLER, inconditionnellement -- ~40
+					// lignes, chacune avec sa pile d'appels dans les outils de
+					// developpement. C'est ce qui rendait le chargement « hyper
+					// lent » quand ils sont ouverts, et ca ne dit rien a un
+					// utilisateur. Un journal silencieux par defaut, verbeux a la
+					// demande (?diag=1).
+					if (NkWebDiagEnabled())
+						fprintf(stderr, "[WebDiag] prog=%u '%s' assign '%s' bind=%d unit=%u loc=%d\n", prog,
+								desc.debugName ? desc.debugName : "?", f.name, f.binding,
+								NkWebRemapTexUnit((uint32)f.binding), loc);
 				}
 			}
 			glUseProgram((GLuint)prevProg);
 		}
-		// NKTEMP-DIAG : a retirer (instrumentation samplers/unites WebGL2).
+		// DIAGNOSTIC, derriere la garde depuis le 2026-09-04 (cf. ci-dessus).
 		// Dump de TOUS les uniforms sampler actifs du programme et de l'unite
 		// qui leur est reellement assignee apres la re-application.
-		{
+		if (NkWebDiagEnabled()) {
 			GLint uniformCount = 0;
 			glGetProgramiv(prog, GL_ACTIVE_UNIFORMS, &uniformCount);
 			for (GLint u = 0; u < uniformCount; ++u) {
@@ -2294,7 +2641,8 @@ namespace nkentseu {
 			}
 		}
 		// NKTEMP-DIAG : a retirer (instrumentation classes de buffers WebGL2)
-		fprintf(stderr, "[WebDiag] BindVB gl=%u binding=%u\n", bufId, binding);
+		if (NkWebDiagEnabled())
+			fprintf(stderr, "[WebDiag] BindVB gl=%u binding=%u\n", bufId, binding);
 		glBindBuffer(GL_ARRAY_BUFFER, bufId);
 		for (uint32 i = 0; i < vl.attributes.Size(); ++i) {
 			const auto &a = vl.attributes[i];
@@ -2495,13 +2843,23 @@ namespace nkentseu {
 		GLenum status = glCheckNamedFramebufferStatus(fbo, GL_FRAMEBUFFER);
 #endif
 		if (status != GL_FRAMEBUFFER_COMPLETE) {
-#if defined(NK_OPENGL_ES)
 			// Un FBO ne peut se creer que sur le thread qui detient le contexte.
 			// Sans contexte courant, TOUS les appels GL sont des no-op silencieux
 			// et le status renvoye ne veut rien dire : on le dit explicitement,
 			// sinon on cherche un probleme d'attachement qui n'existe pas.
+			//
+			// Garde de CAPACITE (NK_EGL_AVAILABLE), PAS de dialecte (NK_OPENGL_ES) :
+			// cf. la definition du macro en tete de fichier. Cette ligne a bloque le
+			// build Web entier le 2026-09-02.
+#if defined(NK_EGL_AVAILABLE)
 			NK_GL_ERR("Framebuffer incomplete: 0x%X (ctx courant=%p, thread=%lu)\n", (unsigned)status,
 					  (void *)eglGetCurrentContext(), (unsigned long)pthread_self());
+#elif defined(NKENTSEU_PLATFORM_EMSCRIPTEN)
+			// DOUBLURE, pas trou : le Web n'a pas EGL mais expose EXACTEMENT le meme
+			// renseignement -- le contexte courant. Le diagnostic garde donc sa valeur
+			// la ou il servait le plus. (Meme appel qu'a la l. ~1507 de ce fichier.)
+			NK_GL_ERR("Framebuffer incomplete: 0x%X (ctx WebGL courant=%d)\n", (unsigned)status,
+					  (int)emscripten_webgl_get_current_context());
 #else
 			NK_GL_ERR("Framebuffer incomplete: 0x%X\n", (unsigned)status);
 #endif
@@ -2960,10 +3318,14 @@ namespace nkentseu {
 		// GL_FRAMEBUFFER_SRGB encode gamma à l'écriture du framebuffer par défaut. On le
 		// pose chaque frame (idempotent, contexte courant garanti) pour rester cohérent
 		// avec VK/DX : false = UNORM (affichage direct), true = sRGB (encode auto).
-		if (NkSwapchainFormatIsSrgb(mInit.context.swapchainFormat))
-			glEnable(GL_FRAMEBUFFER_SRGB);
-		else
-			glDisable(GL_FRAMEBUFFER_SRGB);
+		// Garde de CAPACITE (2026-09-04) : sans interrupteur (ES/WebGL2), ne pas poser
+		// la question -- glDisable(0x8DB9) levait GL_INVALID_ENUM a chaque image sur Web.
+		if (mHasFramebufferSrgbControl) {
+			if (NkSwapchainFormatIsSrgb(mInit.context.swapchainFormat))
+				glEnable(GL_FRAMEBUFFER_SRGB);
+			else
+				glDisable(GL_FRAMEBUFFER_SRGB);
+		}
 		return true;
 	}
 

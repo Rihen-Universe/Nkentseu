@@ -1,4 +1,5 @@
 // =============================================================================
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // NkSLCodeGenHLSL.cpp
 // Génération HLSL SM5+ depuis l'AST NkSL.
 //
@@ -12,8 +13,8 @@
 //   - SV_Position, SV_Target, SV_Depth etc.
 // =============================================================================
 #include "NKSL/CodeGen/NkSLCodeGen.h"
+#include "NKCore/Text/NkSnprintf.h"
 #include "NKContainers/String/NkFormat.h"
-#include <cstdio>
 
 namespace nkentseu {
 
@@ -219,7 +220,7 @@ namespace nkentseu {
 	static NkString HlslArrSuffix(NkSLTypeNode *t) {
 		if (t && t->arraySize > 0) {
 			char buf[32];
-			snprintf(buf, sizeof(buf), "[%u]", t->arraySize);
+			nkentseu::NkSnprintf(buf, sizeof(buf), "[%u]", t->arraySize);
 			return NkString(buf);
 		}
 		return t && t->isUnsized ? NkString("[]") : NkString("");
@@ -495,7 +496,7 @@ namespace nkentseu {
 				// Lowercase : les références dans le corps sont en lowercase (id->name via AST)
 				NkString texName = v->name.ToLower();
 				// Texture (registre = binding ; DX11 SRV = 128 slots, large)
-				snprintf(buf, sizeof(buf), "%s %s_tex : register(t%d);", BaseTypeToHLSL(v->type->baseType).CStr(),
+				nkentseu::NkSnprintf(buf, sizeof(buf), "%s %s_tex : register(t%d);", BaseTypeToHLSL(v->type->baseType).CStr(),
 						 texName.CStr(), b);
 				EmitLine(NkString(buf));
 				poolUsed[NkSL_SamplerPoolSlot(v)] = true;
@@ -508,7 +509,7 @@ namespace nkentseu {
 						: BaseTypeToHLSL(v->type->baseType);
 				NkString vn = v->name.ToLower();
 				char ibuf[160];
-				snprintf(ibuf, sizeof(ibuf), "%s %s : register(u%d);", imgType.CStr(), vn.CStr(), u);
+				nkentseu::NkSnprintf(ibuf, sizeof(ibuf), "%s %s : register(u%d);", imgType.CStr(), vn.CStr(), u);
 				EmitLine(NkString(ibuf));
 			}
 		}
@@ -516,19 +517,19 @@ namespace nkentseu {
 		{
 			char sb[96];
 			if (poolUsed[0]) {
-				snprintf(sb, sizeof(sb), "SamplerState nksl_smp_wrap : register(s%d);", kNkSLSamplerPoolBase + 0);
+				nkentseu::NkSnprintf(sb, sizeof(sb), "SamplerState nksl_smp_wrap : register(s%d);", kNkSLSamplerPoolBase + 0);
 				EmitLine(NkString(sb));
 			}
 			if (poolUsed[1]) {
-				snprintf(sb, sizeof(sb), "SamplerState nksl_smp_clamp : register(s%d);", kNkSLSamplerPoolBase + 1);
+				nkentseu::NkSnprintf(sb, sizeof(sb), "SamplerState nksl_smp_clamp : register(s%d);", kNkSLSamplerPoolBase + 1);
 				EmitLine(NkString(sb));
 			}
 			if (poolUsed[2]) {
-				snprintf(sb, sizeof(sb), "SamplerState nksl_smp_point : register(s%d);", kNkSLSamplerPoolBase + 2);
+				nkentseu::NkSnprintf(sb, sizeof(sb), "SamplerState nksl_smp_point : register(s%d);", kNkSLSamplerPoolBase + 2);
 				EmitLine(NkString(sb));
 			}
 			if (poolUsed[3]) {
-				snprintf(sb, sizeof(sb), "SamplerComparisonState nksl_smp_cmp : register(s%d);",
+				nkentseu::NkSnprintf(sb, sizeof(sb), "SamplerComparisonState nksl_smp_cmp : register(s%d);",
 						 kNkSLSamplerPoolBase + 3);
 				EmitLine(NkString(sb));
 			}
@@ -568,7 +569,7 @@ namespace nkentseu {
 		// NkDirectX11CommandBuffer::PushConstants. Doit matcher kNkDXPushConstantReg côté device.
 		if (b->kind == NkSLNodeKind::NK_DECL_PUSH_CONSTANT) {
 			char pcbuf[64];
-			snprintf(pcbuf, sizeof(pcbuf), "cbuffer %s : register(b13)", b->blockName.CStr());
+			nkentseu::NkSnprintf(pcbuf, sizeof(pcbuf), "cbuffer %s : register(b13)", b->blockName.CStr());
 			EmitLine(NkString(pcbuf));
 			EmitLine("{");
 			IndentPush();
@@ -586,7 +587,7 @@ namespace nkentseu {
 		if (reg >= mReg)
 			mReg = reg + 1;
 		char buf[64];
-		snprintf(buf, sizeof(buf), "cbuffer %s : register(b%d)", b->blockName.CStr(), reg);
+		nkentseu::NkSnprintf(buf, sizeof(buf), "cbuffer %s : register(b%d)", b->blockName.CStr(), reg);
 		EmitLine(NkString(buf));
 		EmitLine("{");
 		IndentPush();
@@ -601,7 +602,7 @@ namespace nkentseu {
 	void NkSLCodeGenHLSL::GenSBuffer(NkSLBlockDeclNode *b) {
 		int reg = b->binding.HasBinding() ? b->binding.binding : 0;
 		char buf[64];
-		snprintf(buf, sizeof(buf), "RWStructuredBuffer<%s> %s : register(u%d);", b->blockName.CStr(),
+		nkentseu::NkSnprintf(buf, sizeof(buf), "RWStructuredBuffer<%s> %s : register(u%d);", b->blockName.CStr(),
 				 b->instanceName.Empty() ? b->blockName.CStr() : b->instanceName.CStr(), reg);
 		EmitLine(NkString(buf));
 		EmitNewLine();
@@ -625,7 +626,7 @@ namespace nkentseu {
 			// Compute (SM5) : attribut [numthreads(X,Y,Z)] obligatoire avant l'entrée.
 			if (mStage == NkSLStage::NK_COMPUTE) {
 				char nt[96];
-				snprintf(nt, sizeof(nt), "[numthreads(%u, %u, %u)]", mLocalSizeX, mLocalSizeY, mLocalSizeZ);
+				nkentseu::NkSnprintf(nt, sizeof(nt), "[numthreads(%u, %u, %u)]", mLocalSizeX, mLocalSizeY, mLocalSizeZ);
 				EmitLine(NkString(nt));
 			}
 			bool hasOutput = (mStage == NkSLStage::NK_VERTEX && !mOutputStructName.Empty()) ||
@@ -1085,6 +1086,17 @@ namespace nkentseu {
 		if (name == "imageAtomicAdd" && call->args.Size() >= 3)
 			return "InterlockedAdd(" + GenExpr(call->args[0]) + "[" + GenExpr(call->args[1]) + "], " +
 				   GenExpr(call->args[2]) + ")";
+		// Atomiques sur tampon (2026-09-05) : forme Interlocked* a deux arguments -- SANS valeur de retour
+		// (la forme a trois arguments est une instruction, pas une expression) : un `uint old = atomicAdd(...)`
+		// n'est pas honore par CE generateur natif, dit ; le chemin GLSL -> SPIR-V -> SPIRV-Cross l'honore.
+		if ((name == "atomicAdd" || name == "atomicMin" || name == "atomicMax" || name == "atomicAnd" ||
+			 name == "atomicOr" || name == "atomicXor" || name == "atomicExchange") && call->args.Size() >= 2) {
+			NkString op = NkString("Interlocked") + NkString(name.CStr() + 6);
+			return op + "(" + GenExpr(call->args[0]) + ", " + GenExpr(call->args[1]) + ")";
+		}
+		if (name == "atomicCompSwap" && call->args.Size() >= 3)
+			return "InterlockedCompareStore(" + GenExpr(call->args[0]) + ", " + GenExpr(call->args[1]) + ", " +
+				   GenExpr(call->args[2]) + ")";
 
 		// CONVENTION MATRICE constructeur (cf. NkSLCodeGenHLSLDX12) : GLSL `matN(c0,c1,…)`
 		// prend les COLONNES, HLSL `floatNxN(r0,r1,…)` prend les LIGNES. Un constructeur
@@ -1110,13 +1122,13 @@ namespace nkentseu {
 		char buf[64];
 		switch (lit->baseType) {
 			case NkSLBaseType::NK_INT:
-				snprintf(buf, sizeof(buf), "%lld", (long long)lit->intVal);
+				nkentseu::NkSnprintf(buf, sizeof(buf), "%lld", (long long)lit->intVal);
 				return buf;
 			case NkSLBaseType::NK_UINT:
-				snprintf(buf, sizeof(buf), "%lluu", (unsigned long long)lit->uintVal);
+				nkentseu::NkSnprintf(buf, sizeof(buf), "%lluu", (unsigned long long)lit->uintVal);
 				return buf;
 			case NkSLBaseType::NK_FLOAT: {
-				snprintf(buf, sizeof(buf), "%.8g", lit->floatVal);
+				nkentseu::NkSnprintf(buf, sizeof(buf), "%.8g", lit->floatVal);
 				NkString s(buf);
 				bool hasDot = false;
 				for (int i = 0; buf[i]; i++)

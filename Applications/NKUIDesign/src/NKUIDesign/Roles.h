@@ -71,50 +71,23 @@ namespace nkuidesign {
 	using nkentseu::editorkit::NkResolveRole;
 
 	// ── (a) LA CANONISATION ─────────────────────────────────────────────────
-	// PascalCase / camelCase -> snake_case. PURE : aucune allocation, aucun
-	// etat, aucune dependance au theme. C'est ce qui la rend deplacable telle
-	// quelle dans `NkTheme.inl`.
+	// ⚠️ ELLE N'EST PLUS ICI, ET ELLE N'A PAS ETE DEPLACEE PAR MOI : elle
+	//    etait DEJA dans le kit, et cablee. `NkRoleRegistry::Find`
+	//    (`NkTheme.inl`) essaie le nom brut, puis la forme canonisee, puis
+	//    NOMME le rattrapage via `NkRoleAudit`. C'est ce que font les neuf
+	//    lignes « rattrape par canonisation -> ... ; A CORRIGER A LA SOURCE »
+	//    qu'on lit au demarrage : ce n'est pas un manque, c'est le kit qui
+	//    reclame la correction a la source.
 	//
-	// REGLE, en une phrase : on insere un « _ » devant toute MAJUSCULE qui suit
-	// une minuscule ou un chiffre, puis on met tout en minuscules.
+	// ⚠️ CE QUI RESTAIT ICI ETAIT UN DOUBLON, mesure le 2026-08-29 :
+	//    les deux exemplaires etaient FONCTIONNELLEMENT IDENTIQUES, a un
+	//    commentaire pres, et la documentation du kit porte deja la meme
+	//    limite (« un ACRONYME colle ne se coupe pas »). Rien n'a ete perdu en
+	//    le retirant -- ce qui est precisement la condition pour retirer un
+	//    doublon plutot que de le laisser diverger.
 	//
-	//   PanelBg      -> panel_bg          TextOnAccent -> text_on_accent
-	//   PanelHeader  -> panel_header      AccentUi     -> accent_ui
-	//   TypeFolder   -> type_folder       panel_bg     -> panel_bg   (inchange)
-	//   nk3d.AnneauBrosse -> nk3d.anneau_brosse
-	//
-	// ⚠️ SA LIMITE, ECRITE AVEC ELLE PLUTOT QUE DECOUVERTE PLUS TARD : un
-	//    ACRONYME colle ne se coupe pas. « NKThing » donne « nkthing », pas
-	//    « nk_thing » -- la regle ne peut pas savoir ou finit l'acronyme. Aucun
-	//    des 30 roles du coeur n'est dans ce cas ; le jour ou l'un le sera, le
-	//    repli franc (b) le dira au lieu de le peindre en magenta.
-	//
-	// Rend `false` si l'entree est nulle, vide, ou si le resultat ne tient pas
-	// dans `cap` -- une troncature silencieuse fabriquerait un nom qui ne resout
-	// pas et deplacerait le defaut au lieu de le signaler.
-	inline bool NkCanonicalRoleName(const char *in, char *out, uint32 cap) {
-		if (!in || !*in || !out || cap == 0)
-			return false;
-		uint32 n = 0;
-		char prev = 0;
-		for (const char *p = in; *p; ++p) {
-			const char c = *p;
-			const bool upper = (c >= 'A' && c <= 'Z');
-			const bool prevLowerOrDigit =
-				(prev >= 'a' && prev <= 'z') || (prev >= '0' && prev <= '9');
-			if (upper && prevLowerOrDigit) {
-				if (n + 1 >= cap)
-					return false;
-				out[n++] = '_';
-			}
-			if (n + 1 >= cap)
-				return false;
-			out[n++] = upper ? (char)(c - 'A' + 'a') : c;
-			prev = c;
-		}
-		out[n] = 0;
-		return n > 0;
-	}
+	//    Voir `NKEditorKit/NkTheme.h` (declaration) et `NkTheme.inl`
+	//    (definition, pure et sans etat).
 
 	// ── (b) LE REPLI FRANC ──────────────────────────────────────────────────
 	// Ce que le magenta ne disait pas : QUEL role. Une couleur criarde dit qu'il
@@ -134,10 +107,35 @@ namespace nkuidesign {
 					NkString canon; ///< la forme qui a resolu, vide si aucune
 			};
 
-			/// Un nom qui n'a resolu sous AUCUNE forme. C'est le magenta.
+			// ⚠️ CE REGISTRE EST VIDE EN PRATIQUE, ET IL A MENTI PENDANT DES
+			//    JOURS. Mesure du 2026-08-28, sur le journal de Rodolf :
+			//
+			//      9 lignes  « role PanelBg rattrape par canonisation »
+			//      resume    « 0 role(s) NON RESOLU(S), 0 rattrape(s) »
+			//
+			//    **Un compteur qui ne compte pas ce que le programme vient
+			//    d imprimer est un faux vert a l etat pur.** La cause n est pas
+			//    un compte faux : ce sont DEUX REGISTRES HOMONYMES. Les lignes
+			//    sortent de `NkTheme.inl:266` -- le resolveur du KIT -- qui
+			//    alimente `nkentseu::editorkit::NkRoleAudit`. Le resume, lui,
+			//    lisait `nkuidesign::NkRoleAudit`, celui-ci, que le resolveur du
+			//    kit n'a jamais touche.
+			//
+			//    Deux classes du meme nom dans deux espaces, l'une nourrie et
+			//    l autre lue : le compilateur choisit la plus proche et
+			//    personne ne voit rien. On DELEGUE donc au registre du kit,
+			//    plutot que d'en tenir un second qui ne peut que diverger.
 			static NkVector<Entry> &Faults() {
 				static NkVector<Entry> v;
 				return v;
+			}
+
+			/// Les comptes qui FONT FOI : ceux du kit, qui est seul a resoudre.
+			static uint32 KitFaultCount() {
+				return nkentseu::editorkit::NkRoleAudit::FaultCount();
+			}
+			static uint32 KitRescuedCount() {
+				return nkentseu::editorkit::NkRoleAudit::RescuedCount();
 			}
 			/// Un nom qui n'a resolu qu'APRES canonisation : la declaration est a
 			/// corriger a la source, mais l'ecran est juste.
@@ -163,11 +161,28 @@ namespace nkuidesign {
 			static void Summary(NkString &out, uint32 maxNames = 5) {
 				out = NkString("");
 				char b[128];
+				// Les comptes du KIT : c est lui qui resout et qui imprime.
 				snprintf(b, sizeof(b), "%u role(s) NON RESOLU(S), %u rattrape(s) par canonisation",
-						 FaultCount(), RescuedCount());
+						 KitFaultCount() + FaultCount(),
+						 KitRescuedCount() + RescuedCount());
 				out.Append(b);
-				AppendList(out, Faults(), "  |  non resolus : ", maxNames, false);
-				AppendList(out, Rescued(), "  |  a corriger a la source : ", maxNames, true);
+				// ⚠️ LE COMPTE ADDITIONNAIT KIT + APPLICATION, LA LISTE NE NOMMAIT
+				//    QUE L'APPLICATION. Mesure du 2026-08-29 : le bandeau annoncait
+				//    « 2 role(s) NON RESOLU(S) » et n'en citait qu'UN. Un compteur
+				//    qui dit deux et n'en nomme qu'un envoie chercher le second a
+				//    la main -- c'est-a-dire exactement le travail que ce bandeau
+				//    existe pour supprimer. On liste les DEUX registres, dans le
+				//    meme ordre que le compte les additionne.
+				// ⚠️ UN SEUL REGISTRE EST NOMME PARCE QU'IL N'Y EN A PLUS QU'UN
+				//    D'ALIMENTE. `NkDesignResolveRole` delegue desormais au kit ;
+				//    les listes locales restent declarees mais ne recoivent plus
+				//    rien. Les lister aurait affiche une section vide en
+				//    permanence -- et le jour ou quelqu'un y ecrirait a nouveau,
+				//    le compte les prend deja en charge.
+				AppendList(out, nkentseu::editorkit::NkRoleAudit::Faults(),
+						   "  |  non resolus : ", maxNames, false);
+				AppendList(out, nkentseu::editorkit::NkRoleAudit::Rescued(),
+						   "  |  a corriger a la source : ", maxNames, true);
 			}
 
 			// ⚠️ AJOUT DEDUPLIQUE. Le dessin passe par ici a CHAQUE image : sans
@@ -193,7 +208,14 @@ namespace nkuidesign {
 						return false;
 				return *a == *b;
 			}
-			static void AppendList(NkString &out, const NkVector<Entry> &v, const char *lead,
+			/// ⚠️ GENERIQUE SUR LE TYPE D'ENTREE, et ce n'est pas de l'elegance :
+			///    le kit et l'application ont chacun leur `Entry`, deux types
+			///    DISTINCTS qui portent les deux memes champs. Rendre la fonction
+			///    generique coute un mot-cle ; recopier son corps aurait coute un
+			///    second endroit ou corriger le jour ou le format du bandeau
+			///    change.
+			template <typename E>
+			static void AppendList(NkString &out, const NkVector<E> &v, const char *lead,
 								   uint32 maxNames, bool withCanon) {
 				if (v.Size() == 0)
 					return;
@@ -228,19 +250,22 @@ namespace nkuidesign {
 	inline uint16 NkDesignResolveRole(const char *roleName) {
 		if (!roleName || !*roleName)
 			return NK_ROLE_INVALID;
-		const uint16 direct = NkResolveRole(roleName);
-		if (direct != NK_ROLE_INVALID)
-			return direct;
-		char canon[96];
-		if (NkCanonicalRoleName(roleName, canon, sizeof(canon))) {
-			const uint16 id = NkResolveRole(canon);
-			if (id != NK_ROLE_INVALID) {
-				NkRoleAudit::Note(NkRoleAudit::Rescued(), roleName, canon);
-				return id;
-			}
-		}
-		NkRoleAudit::Note(NkRoleAudit::Faults(), roleName, "");
-		return NK_ROLE_INVALID;
+		// ⚠️ ELLE DELEGUE, ET TOUT CE QU'ELLE FAISAIT EN PLUS ETAIT UN DOUBLON.
+		//    `NkResolveRole` -> `NkRoleRegistry::Find` fait DEJA les trois etapes :
+		//    nom brut, forme canonisee, puis echec franc NOTE dans l'audit du kit.
+		//    Cette fonction les refaisait par-dessus, avec son PROPRE audit.
+		//
+		//    Mesure du 2026-08-29, et c'est elle qui a tout explique : le bandeau
+		//    annoncait « 2 role(s) NON RESOLU(S) » pour UN SEUL nom. Les deux
+		//    registres contenaient le meme `card_bg` -- une faute unique, comptee
+		//    deux fois, parce que deux resolveurs identiques la notaient chacun
+		//    chez soi. Le « second role » que personne ne trouvait n'existait pas.
+		//
+		//    Et sa branche de canonisation etait DEJA MORTE : le kit canonise en
+		//    amont, donc `NkResolveRole` rendait deja un role valide pour les
+		//    graphies PascalCase, et on n'entrait jamais dans le `if`. Ecrite
+		//    quand le kit ne canonisait pas, jamais retiree quand Q64 l'a fait.
+		return NkResolveRole(roleName);
 	}
 
 } // namespace nkuidesign

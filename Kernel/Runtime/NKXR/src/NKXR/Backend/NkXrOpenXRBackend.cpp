@@ -15,11 +15,12 @@
 //     dans NkXrTime — l'app ne doit dater ses requêtes de pose qu'avec le
 //     predictedDisplayTime du WaitFrame, jamais avec NkXrSession::Now().
 //
-// Auteur   : Rihen
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // Copyright: (c) 2024-2026 Rihen. Tous droits réservés.
 // =============================================================================
 
 #include "NKXR/Backend/NkXrOpenXRBackend.h"
+#include "NKCore/Text/NkSnprintf.h"
 #include "NKLogger/NkLog.h"
 #include "NKMemory/NkAllocator.h"
 
@@ -265,17 +266,17 @@ namespace nkentseu {
 				char full[1024] = {};
 				const bool absolute = (libPath[1] == ':') || (libPath[0] == '\\') || (libPath[0] == '/');
 				if (absolute) {
-					snprintf(full, sizeof(full), "%s", libPath);
+					nkentseu::NkSnprintf(full, sizeof(full), "%s", libPath);
 				}
 				else {
-					snprintf(full, sizeof(full), "%s", manifestPath);
+					nkentseu::NkSnprintf(full, sizeof(full), "%s", manifestPath);
 					char *slash = strrchr(full, '\\');
 					char *slash2 = strrchr(full, '/');
 					if (slash2 > slash) {
 						slash = slash2;
 					}
 					if (slash != nullptr) {
-						snprintf(slash + 1, sizeof(full) - nk_size(slash + 1 - full), "%s", libPath);
+						nkentseu::NkSnprintf(slash + 1, sizeof(full) - nk_size(slash + 1 - full), "%s", libPath);
 					}
 				}
 				HMODULE lib = LoadLibraryA(full);
@@ -283,7 +284,7 @@ namespace nkentseu {
 					logger.Errorf("[NKXR/OpenXR] Chargement du runtime KO : %s\n", full);
 					return nullptr;
 				}
-				snprintf(outPath, cap, "%s", full);
+				nkentseu::NkSnprintf(outPath, cap, "%s", full);
 				return lib;
 			}
 
@@ -320,7 +321,7 @@ namespace nkentseu {
 			const char *override_ = getenv("NK_XR_OPENXR_LOADER");
 			if (override_ != nullptr && *override_ != '\0') {
 				mOxr->library = LoadLibraryA(override_);
-				snprintf(loadedFrom, sizeof(loadedFrom), "%s", override_);
+				nkentseu::NkSnprintf(loadedFrom, sizeof(loadedFrom), "%s", override_);
 				if (mOxr->library == nullptr) {
 					// Un chemin explicite introuvable est une DEMANDE NON TENUE.
 					// Les voies 2 et 3 répondront quand même, et la trace finale
@@ -475,8 +476,8 @@ namespace nkentseu {
 			}
 			XrInstanceCreateInfo createInfo{};
 			createInfo.type = XR_TYPE_INSTANCE_CREATE_INFO;
-			snprintf(createInfo.applicationInfo.applicationName, XR_MAX_APPLICATION_NAME_SIZE, "NKXRDemo");
-			snprintf(createInfo.applicationInfo.engineName, XR_MAX_ENGINE_NAME_SIZE, "Nkentseu");
+			nkentseu::NkSnprintf(createInfo.applicationInfo.applicationName, XR_MAX_APPLICATION_NAME_SIZE, "NKXRDemo");
+			nkentseu::NkSnprintf(createInfo.applicationInfo.engineName, XR_MAX_ENGINE_NAME_SIZE, "Nkentseu");
 			createInfo.applicationInfo.applicationVersion = 1;
 			createInfo.applicationInfo.engineVersion = 1;
 			// 1.0 et non CURRENT : on ne demande que ce qu'on consomme — un
@@ -590,7 +591,7 @@ namespace nkentseu {
 				sysProps.next = &handProps;
 			}
 			if (mOxr->getSystemProperties != nullptr && XR_SUCCEEDED(mOxr->getSystemProperties(mOxr->instance, mOxr->systemId, &sysProps))) {
-				snprintf(mSystemName, sizeof(mSystemName), "%s", sysProps.systemName);
+				nkentseu::NkSnprintf(mSystemName, sizeof(mSystemName), "%s", sysProps.systemName);
 				mOxr->handTrackingSupported = mOxr->handTrackingExt && (handProps.supportsHandTracking == XR_TRUE);
 			}
 			logger.Infof("[NKXR/OpenXR] Suivi des mains : %s.\n",
@@ -1509,8 +1510,8 @@ namespace nkentseu {
 			}
 			XrActionSetCreateInfo setInfo{};
 			setInfo.type = XR_TYPE_ACTION_SET_CREATE_INFO;
-			snprintf(setInfo.actionSetName, XR_MAX_ACTION_SET_NAME_SIZE, "nkxr");
-			snprintf(setInfo.localizedActionSetName, XR_MAX_LOCALIZED_ACTION_SET_NAME_SIZE, "NKXR");
+			nkentseu::NkSnprintf(setInfo.actionSetName, XR_MAX_ACTION_SET_NAME_SIZE, "nkxr");
+			nkentseu::NkSnprintf(setInfo.localizedActionSetName, XR_MAX_LOCALIZED_ACTION_SET_NAME_SIZE, "NKXR");
 			if (XR_FAILED(mOxr->createActionSet(mOxr->instance, &setInfo, &mOxr->actionSet))) {
 				logger.Errorf("[NKXR/OpenXR] xrCreateActionSet KO.\n");
 				return;
@@ -1522,8 +1523,8 @@ namespace nkentseu {
 				actionInfo.type = XR_TYPE_ACTION_CREATE_INFO;
 				// Nom technique GÉNÉRÉ (contrainte [a-z0-9_]) ; le nom de
 				// l'app, libre, part dans le localisé — unique par l'index.
-				snprintf(actionInfo.actionName, XR_MAX_ACTION_NAME_SIZE, "action_%u", i);
-				snprintf(actionInfo.localizedActionName, XR_MAX_LOCALIZED_ACTION_NAME_SIZE, "%u %s", i,
+				nkentseu::NkSnprintf(actionInfo.actionName, XR_MAX_ACTION_NAME_SIZE, "action_%u", i);
+				nkentseu::NkSnprintf(actionInfo.localizedActionName, XR_MAX_LOCALIZED_ACTION_NAME_SIZE, "%u %s", i,
 						 (desc.name != nullptr && desc.name[0] != '\0') ? desc.name : "action");
 				switch (desc.type) {
 					case NkXrActionType::NK_XR_ACTION_BOOL: actionInfo.actionType = XR_ACTION_TYPE_BOOLEAN_INPUT; break;

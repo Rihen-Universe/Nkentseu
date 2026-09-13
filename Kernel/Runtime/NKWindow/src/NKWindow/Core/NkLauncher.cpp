@@ -1,11 +1,14 @@
 // =============================================================================
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // NkLauncher.cpp
+// AUTEUR (ajout RevealFile, 2026-09-05) : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // -----------------------------------------------------------------------------
 // Implementation multi-plateforme. Chaque section est gatee par les macros
 // NKENTSEU_PLATFORM_* (definies dans NKPlatform/NkPlatformDetect.h).
 // =============================================================================
 
 #include "NKWindow/Core/NkLauncher.h"
+#include "NKCore/Text/NkSnprintf.h"
 #include "NKPlatform/NkPlatformDetect.h"
 #include "NKLogger/NkLog.h"
 
@@ -32,6 +35,7 @@ namespace nkentseu {
 	// Variable globale exposee par NkAndroidWindow.cpp : pointe sur
 	// l'android_app* courant (necessaire pour JNI : VM + activity).
 	extern struct android_app *nk_android_global_app;
+
 } // namespace nkentseu
 #endif
 
@@ -49,6 +53,25 @@ namespace nkentseu {
 #endif
 
 namespace nkentseu {
+
+	// ── LE SEPARATEUR QUE LE SYSTEME EXIGE (2026-09-06) ─────────────────────
+	// Le detail du defaut et la raison de sa publicite sont dans l'en-tete.
+	bool NkLauncher::ToNativePath(const char *path, char *out, unsigned long long cap) noexcept {
+		if (!path || !out || cap == 0ull)
+			return false;
+		unsigned long long i = 0ull;
+		for (; path[i] && i + 1ull < cap; ++i)
+#if defined(NKENTSEU_PLATFORM_WINDOWS)
+			out[i] = (path[i] == '/') ? '\\' : path[i];
+#else
+			out[i] = path[i];
+#endif
+		if (path[i] != '\0')
+			return false; // tronque : on refuse plutot que d'ouvrir un voisin
+		out[i] = '\0';
+		return true;
+	}
+
 
 	// ─────────────────────────────────────────────────────────────────────────
 	// OpenURL — selon plateforme
@@ -140,12 +163,12 @@ namespace nkentseu {
 		// l'expansion shell. Pas de sanitization -- l'appelant doit garantir
 		// que l'URL ne contient pas de "'" malveillant.
 		char cmd[2048];
-		std::snprintf(cmd, sizeof(cmd), "xdg-open '%s' >/dev/null 2>&1 &", url);
+		nkentseu::NkSnprintf(cmd, sizeof(cmd), "xdg-open '%s' >/dev/null 2>&1 &", url);
 		return std::system(cmd) == 0;
 
 #elif defined(NKENTSEU_PLATFORM_MACOS)
 		char cmd[2048];
-		std::snprintf(cmd, sizeof(cmd), "open '%s' >/dev/null 2>&1 &", url);
+		nkentseu::NkSnprintf(cmd, sizeof(cmd), "open '%s' >/dev/null 2>&1 &", url);
 		return std::system(cmd) == 0;
 
 #elif defined(NKENTSEU_PLATFORM_IOS)
@@ -181,15 +204,20 @@ namespace nkentseu {
 		if (!filePath || !*filePath)
 			return false;
 #if defined(NKENTSEU_PLATFORM_WINDOWS)
-		const HINSTANCE r = ::ShellExecuteA(nullptr, "open", filePath, nullptr, nullptr, SW_SHOWNORMAL);
+		char win[2048];
+		if (!NkLauncher::ToNativePath(filePath, win, sizeof(win))) {
+			logger.Warn("[NkLauncher] chemin trop long pour OpenFile : {0}", filePath);
+			return false;
+		}
+		const HINSTANCE r = ::ShellExecuteA(nullptr, "open", win, nullptr, nullptr, SW_SHOWNORMAL);
 		return (reinterpret_cast<INT_PTR>(r) > 32);
 #elif defined(NKENTSEU_PLATFORM_LINUX)
 		char cmd[2048];
-		std::snprintf(cmd, sizeof(cmd), "xdg-open '%s' >/dev/null 2>&1 &", filePath);
+		nkentseu::NkSnprintf(cmd, sizeof(cmd), "xdg-open '%s' >/dev/null 2>&1 &", filePath);
 		return std::system(cmd) == 0;
 #elif defined(NKENTSEU_PLATFORM_MACOS)
 		char cmd[2048];
-		std::snprintf(cmd, sizeof(cmd), "open '%s' >/dev/null 2>&1 &", filePath);
+		nkentseu::NkSnprintf(cmd, sizeof(cmd), "open '%s' >/dev/null 2>&1 &", filePath);
 		return std::system(cmd) == 0;
 #elif defined(NKENTSEU_PLATFORM_ANDROID)
 		// Android : pour ouvrir un fichier local on doit passer par un Intent
@@ -216,15 +244,20 @@ namespace nkentseu {
 		if (!folderPath || !*folderPath)
 			return false;
 #if defined(NKENTSEU_PLATFORM_WINDOWS)
-		const HINSTANCE r = ::ShellExecuteA(nullptr, "explore", folderPath, nullptr, nullptr, SW_SHOWNORMAL);
+		char win[2048];
+		if (!NkLauncher::ToNativePath(folderPath, win, sizeof(win))) {
+			logger.Warn("[NkLauncher] chemin trop long pour OpenFolder : {0}", folderPath);
+			return false;
+		}
+		const HINSTANCE r = ::ShellExecuteA(nullptr, "explore", win, nullptr, nullptr, SW_SHOWNORMAL);
 		return (reinterpret_cast<INT_PTR>(r) > 32);
 #elif defined(NKENTSEU_PLATFORM_LINUX)
 		char cmd[2048];
-		std::snprintf(cmd, sizeof(cmd), "xdg-open '%s' >/dev/null 2>&1 &", folderPath);
+		nkentseu::NkSnprintf(cmd, sizeof(cmd), "xdg-open '%s' >/dev/null 2>&1 &", folderPath);
 		return std::system(cmd) == 0;
 #elif defined(NKENTSEU_PLATFORM_MACOS)
 		char cmd[2048];
-		std::snprintf(cmd, sizeof(cmd), "open '%s' >/dev/null 2>&1 &", folderPath);
+		nkentseu::NkSnprintf(cmd, sizeof(cmd), "open '%s' >/dev/null 2>&1 &", folderPath);
 		return std::system(cmd) == 0;
 #elif defined(NKENTSEU_PLATFORM_HARMONYOS)
 		// HarmonyOS : pas de notion d'explorateur de fichiers ouvrable depuis
@@ -236,6 +269,54 @@ namespace nkentseu {
 		(void)folderPath;
 		return false;
 #endif
+	}
+
+	// ──────────────────────────────────────────────────────────────────────
+	// RevealFile — le dossier, AVEC le fichier en evidence (2026-09-05)
+	// ──────────────────────────────────────────────────────────────────────
+	bool NkLauncher::RevealFile(const char *filePath) noexcept {
+		if (!filePath || !*filePath)
+			return false;
+	#if defined(NKENTSEU_PLATFORM_WINDOWS)
+		// ⚠️ Explorer rend souvent un code d'echec MEME quand il a ouvert la fenetre.
+		//    On ne peut donc pas se fier a sa valeur de retour comme a un succes
+		//    d'affichage ; l'appelant garde de toute facon le chemin lisible.
+		// ⚠️ ICI LA CONVERSION N'EST PAS UNE PRECAUTION, C'EST LA CONDITION :
+		//    `/select,` est un ARGUMENT DE LIGNE DE COMMANDE. Avec des barres
+		//    obliques, l'Explorateur abandonne l'analyse et ouvre « Documents »
+		//    -- en rendant un code de succes. C'est le defaut que Rodolf decrit
+		//    par « ouvrir le dossier ouvre le mauvais dossier ».
+		char win[2048];
+		if (!NkLauncher::ToNativePath(filePath, win, sizeof(win))) {
+			logger.Warn("[NkLauncher] chemin trop long pour RevealFile : {0}", filePath);
+			return false;
+		}
+		char arg[2176];
+		std::snprintf(arg, sizeof(arg), "/select,\"%s\"", win);
+		const HINSTANCE r = ::ShellExecuteA(nullptr, "open", "explorer.exe", arg, nullptr, SW_SHOWNORMAL);
+		const bool ok = (reinterpret_cast<INT_PTR>(r) > 32);
+		if (!ok)
+			logger.Warn("[NkLauncher] explorer /select a echoue pour {0}", filePath);
+		return ok;
+	#elif defined(NKENTSEU_PLATFORM_MACOS)
+		char cmd[2048];
+		std::snprintf(cmd, sizeof(cmd), "open -R '%s' >/dev/null 2>&1 &", filePath);
+		return std::system(cmd) == 0;
+	#else
+		// Linux et le reste : pas de selection possible, on ouvre LE DOSSIER.
+		const char *fin = nullptr;
+		for (const char *p = filePath; *p; ++p)
+			if (*p == '/' || *p == '\\')
+				fin = p;
+		if (!fin)
+			return OpenFolder(".");
+		char dossier[2048];
+		const std::size_t n = static_cast<std::size_t>(fin - filePath);
+		const std::size_t m = n < sizeof(dossier) - 1 ? n : sizeof(dossier) - 1;
+		std::memcpy(dossier, filePath, m);
+		dossier[m] = '\0';
+		return OpenFolder(dossier);
+	#endif
 	}
 
 } // namespace nkentseu

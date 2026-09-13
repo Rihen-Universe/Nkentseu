@@ -1,0 +1,49 @@
+nkgui 0.3
+
+// LE FICHIER DE CONTROLE DE L'INDENTATION -- ECRIT A LA MAIN, VOLONTAIREMENT
+// IRREGULIER.
+//
+// Il n'existe pas pour etre lisible : il existe parce qu'un corpus qui indente
+// partout pareil ne peut pas voir une normalisation. Ecrit le 2026-08-27 AVANT
+// le correctif, et il etait rouge -- premier ecart a l'octet 1903. Sans lui, le
+// temoin aurait ete vert des deux cotes et n'aurait rien prouve.
+//
+// Chaque ligne du document ci-dessous porte une largeur d'indentation
+// DIFFERENTE, et chacune vise un chemin DIFFERENT du couple lecteur/ecrivain :
+//
+//   [A] 3 espaces    -- la premiere ligne indentee du fichier : c'est elle qui
+//                       donne `style.indent`, donc le cran que l'ecrivain
+//                       genere partout ailleurs. La choisir a 3 fait que toute
+//                       autre largeur devient visible ;
+//   [B] 1 tabulateur -- une indentation qui n'est meme pas faite d'espaces ;
+//   [C] 6 espaces    -- deux crans la ou la profondeur n'en demande qu'un ;
+//   [E] 9 espaces    -- APRES une ligne vide et un commentaire, c'est-a-dire le
+//                       cas ou la trivia de tete porte deja des lignes
+//                       COMPLETES. Ce n'est pas le meme chemin que [A] ;
+//   [D] 0 espace     -- une ligne collee a la marge DANS un bloc imbrique. Sa
+//                       trivia de tete ne contient QUE le saut de ligne, et
+//                       c'est ce qui la distingue d'un noeud que l'editeur
+//                       vient de creer -- dont la trivia, elle, est VIDE ;
+//   [F] 5 espaces    -- l'accolade fermante, qui passe par `CloseLine` et non
+//                       par `OpenMember`. Le meme mecanisme vit a DEUX
+//                       endroits, et n'en corriger qu'un donne un vert a moitie
+//                       merite ;
+//   [G] 7 espaces    -- une TRANCHE BRUTE (`behavior`), qui ne passe pas par le
+//                       modele.
+//
+// Les sept chemins ont chacun leur controle dans le banc (famille 24), avec la
+// sortie reemise imprimee sous les yeux quand ils rougissent.
+widgets {
+   VBox "controle" {
+	justify = End
+      gap = 4
+
+         // [E] un commentaire pose apres une ligne vide
+         align = Start
+Text "marge" { text = "colle a la marge" }
+     }
+}
+
+behavior "irregulier" {
+       set r = 1
+}

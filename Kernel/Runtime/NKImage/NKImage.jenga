@@ -140,14 +140,22 @@ with project("NKImage"):
     with filter("(system:Linux || system:macOS || (system:Windows && !options:windows-runtime=uwp && !system:XboxSeries && !system:XboxOne)) && !system:Android && !system:iOS && !system:Web"):
         with test():
             testfiles(["tests/**.cpp"])
-            # TestEXR.cpp est un OUTIL autonome, pas un test unitaire : il definit
-            # son propre main(), qui entrait en conflit avec celui que Jenga genere
-            # pour Unitest. La suite NKImage_Tests ne se construisait donc plus du
-            # tout, en silence. Exclu le 2026-09-05 ; le fichier reste dans le depot
-            # comme code de validation du codec EXR.
-            excludefiles(["tests/TestEXR.cpp"])
+            # ── FUSION DE feat/svg-codec DANS transit (2026-09-12) : la question de R7 est RESOLUE ──
+            # transit gardait excludefiles(TestEXR) parce que TestEXR.cpp portait son propre main().
+            # MESURE sur l'arbre fusionne : TestEXR.cpp n'a PLUS de main() -- le commit 86d16f49a
+            # (05/09, feat/svg-codec) l'a deplace dans TestMain.cpp, qui appelle TestEXR_Run() et
+            # TestSVG_Run(). Exclure TestEXR.cpp retirerait donc un symbole appele : excludefiles
+            # est ECARTE par la regle, testownmain() est GARDE (un seul main()).
+            # La suite n'est plus vide : elle compte ses cas et imprime « SVG : n / N ».
+            # LE BANC lie NKFont pour eprouver l'INJECTION (NkFontGlyphSource) :
+            # c'est le seul endroit du module ou NKFont apparait, et c'est voulu.
+            # La bibliotheque NKImage, elle, ne le connait pas -- verifie par un
+            # grep dans le banc lui-meme.
+            includedirs(["%{wks.location}/Kernel/Runtime/NKFont/src"])
+            testownmain()  # la suite fournit son main() -- le mot propre de Jenga 2.6 (2026-09-04)
             links([
                 "NKImage",
+                "NKFont",
                 "NKMemory",
                 "NKCore",
             ])

@@ -1,0 +1,4 @@
+nkgui 0.3
+widgets {
+ Button "a" { color = #12345 }
+}

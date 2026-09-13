@@ -1,0 +1,30 @@
+nkgui 0.3
+
+// La virgule qui SEPARE deux membres sur une meme ligne, les vec2, les
+// couleurs et les listes. La virgule retenue est un vrai separateur : la
+// mutation M16 le prouve en la faisant disparaitre.
+widgets {
+
+  Window "apercu" {
+    title = "Apercu"
+    pos = (120, 80), size = (640, 480)
+    modal = false
+  }
+
+  Dropdown "choix" {
+    items = ["un", "deux", "trois"]
+    editable = true
+  }
+
+  Image "logo" {
+    source = Fichier
+    tint = #F79A28
+    uv0 = (0, 0), uv1 = (1, 1)
+  }
+
+  Chart "courbe" {
+    values = [1, 2, 3, 5, 8]
+    kind = Lignes
+    min = 0, max = 10, height = 120
+  }
+}

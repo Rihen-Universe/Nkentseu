@@ -1,10 +1,11 @@
 // =============================================================================
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // NkSLCodeGenGLSL.cpp
 // Génération GLSL 4.30+ depuis l'AST NkSL.
 // =============================================================================
 #include "NKSL/CodeGen/NkSLCodeGen.h"
+#include "NKCore/Text/NkSnprintf.h"
 #include "NKContainers/String/NkStringUtils.h"
-#include <cstdio>
 
 namespace nkentseu {
 
@@ -174,7 +175,7 @@ namespace nkentseu {
 		NkString s = BaseTypeToString(t->baseType);
 		if (t->arraySize > 0) {
 			char buf[32];
-			snprintf(buf, sizeof(buf), "[%u]", t->arraySize);
+			nkentseu::NkSnprintf(buf, sizeof(buf), "[%u]", t->arraySize);
 			s += NkString(buf);
 		} else if (t->isUnsized) {
 			s += "[]";
@@ -214,7 +215,7 @@ namespace nkentseu {
 		if (isSamplerOrImage) {
 			int b = v->binding.HasBinding() ? v->binding.binding : mAutoBinding++;
 			char buf[64];
-			snprintf(buf, sizeof(buf), "layout(binding = %d) ", b + bindingBase);
+			nkentseu::NkSnprintf(buf, sizeof(buf), "layout(binding = %d) ", b + bindingBase);
 			return NkString(buf);
 		}
 		return "";
@@ -253,7 +254,7 @@ namespace nkentseu {
 		if (ver < 430)
 			ver = 430;
 		char buf[128];
-		snprintf(buf, sizeof(buf), "#version %u core\n", ver);
+		nkentseu::NkSnprintf(buf, sizeof(buf), "#version %u core\n", ver);
 		EmitLine(NkString(buf));
 		EmitNewLine();
 
@@ -267,7 +268,7 @@ namespace nkentseu {
 			EmitLine("#extension GL_ARB_compute_shader : require");
 			EmitNewLine();
 			char lsbuf[96];
-			snprintf(lsbuf, sizeof(lsbuf), "layout(local_size_x = %u, local_size_y = %u, local_size_z = %u) in;",
+			nkentseu::NkSnprintf(lsbuf, sizeof(lsbuf), "layout(local_size_x = %u, local_size_y = %u, local_size_z = %u) in;",
 					 mLocalSizeX, mLocalSizeY, mLocalSizeZ);
 			EmitLine(NkString(lsbuf));
 			EmitNewLine();
@@ -417,9 +418,9 @@ namespace nkentseu {
 				char buf[96];
 				// Une storage image en écriture EXIGE un qualifier de format en GLSL.
 				if (NkSLTypeIsImage(v->type->baseType) && v->binding.HasImageFormat())
-					snprintf(buf, sizeof(buf), "layout(binding = %d, %s) ", b, v->binding.imageFormat.CStr());
+					nkentseu::NkSnprintf(buf, sizeof(buf), "layout(binding = %d, %s) ", b, v->binding.imageFormat.CStr());
 				else
-					snprintf(buf, sizeof(buf), "layout(binding = %d) ", b);
+					nkentseu::NkSnprintf(buf, sizeof(buf), "layout(binding = %d) ", b);
 				line += NkString(buf);
 			} else if (v->storage == NkSLStorageQual::NK_IN || v->storage == NkSLStorageQual::NK_OUT) {
 				// Interface in/out : TOUJOURS emettre une location (explicite ou
@@ -433,11 +434,11 @@ namespace nkentseu {
 				else
 					loc = (v->storage == NkSLStorageQual::NK_IN) ? mAutoInLoc++ : mAutoOutLoc++;
 				char buf[64];
-				snprintf(buf, sizeof(buf), "layout(location = %d) ", loc);
+				nkentseu::NkSnprintf(buf, sizeof(buf), "layout(location = %d) ", loc);
 				line += NkString(buf);
 			} else if (v->binding.HasLocation()) {
 				char buf[64];
-				snprintf(buf, sizeof(buf), "layout(location = %d) ", v->binding.location);
+				nkentseu::NkSnprintf(buf, sizeof(buf), "layout(location = %d) ", v->binding.location);
 				line += NkString(buf);
 			}
 
@@ -491,7 +492,7 @@ namespace nkentseu {
 		line += typeStr + " " + v->name;
 		if (v->type->arraySize > 0) {
 			char buf[32];
-			snprintf(buf, sizeof(buf), "[%u]", v->type->arraySize);
+			nkentseu::NkSnprintf(buf, sizeof(buf), "[%u]", v->type->arraySize);
 			line += NkString(buf);
 		} else if (v->type->isUnsized) {
 			line += "[]";
@@ -514,27 +515,27 @@ namespace nkentseu {
 			char buf[160];
 			switch (pm.type) {
 				case NkSLBaseType::NK_MAT4:
-					snprintf(buf, sizeof(buf),
+					nkentseu::NkSnprintf(buf, sizeof(buf),
 							 "mat4(_PushConstants[%u], _PushConstants[%u], _PushConstants[%u], _PushConstants[%u])", vi,
 							 vi + 1, vi + 2, vi + 3);
 					return NkString(buf);
 				case NkSLBaseType::NK_MAT3:
-					snprintf(buf, sizeof(buf),
+					nkentseu::NkSnprintf(buf, sizeof(buf),
 							 "mat3(_PushConstants[%u].xyz, _PushConstants[%u].xyz, _PushConstants[%u].xyz)", vi, vi + 1,
 							 vi + 2);
 					return NkString(buf);
 				case NkSLBaseType::NK_VEC4:
-					snprintf(buf, sizeof(buf), "_PushConstants[%u]", vi);
+					nkentseu::NkSnprintf(buf, sizeof(buf), "_PushConstants[%u]", vi);
 					return NkString(buf);
 				case NkSLBaseType::NK_VEC3:
-					snprintf(buf, sizeof(buf), "_PushConstants[%u].xyz", vi);
+					nkentseu::NkSnprintf(buf, sizeof(buf), "_PushConstants[%u].xyz", vi);
 					return NkString(buf);
 				case NkSLBaseType::NK_VEC2:
-					snprintf(buf, sizeof(buf), "_PushConstants[%u].xy", vi);
+					nkentseu::NkSnprintf(buf, sizeof(buf), "_PushConstants[%u].xy", vi);
 					return NkString(buf);
 				default: {
 					const char *sw = (comp == 0) ? "x" : (comp == 1) ? "y" : (comp == 2) ? "z" : "w";
-					snprintf(buf, sizeof(buf), "_PushConstants[%u].%s", vi, sw);
+					nkentseu::NkSnprintf(buf, sizeof(buf), "_PushConstants[%u].%s", vi, sw);
 					return NkString(buf);
 				}
 			}
@@ -549,7 +550,7 @@ namespace nkentseu {
 		if ((b->storage == NkSLStorageQual::NK_PUSH_CONSTANT || b->kind == NkSLNodeKind::NK_DECL_PUSH_CONSTANT) &&
 			mPushVec4Count > 0) {
 			char buf[64];
-			snprintf(buf, sizeof(buf), "uniform vec4 _PushConstants[%u];", mPushVec4Count);
+			nkentseu::NkSnprintf(buf, sizeof(buf), "uniform vec4 _PushConstants[%u];", mPushVec4Count);
 			EmitLine(NkString(buf));
 			EmitNewLine();
 			return;
@@ -562,11 +563,11 @@ namespace nkentseu {
 		if (b->binding.HasBinding()) {
 			char buf[128];
 			if (b->binding.HasSet() && !mOpts->flattenGLSLBindings) {
-				snprintf(buf, sizeof(buf), "layout(set = %d, binding = %d, %s) ", b->binding.set, b->binding.binding,
+				nkentseu::NkSnprintf(buf, sizeof(buf), "layout(set = %d, binding = %d, %s) ", b->binding.set, b->binding.binding,
 						 pk);
 			} else {
 				int flat = b->binding.HasBinding() ? b->binding.binding : mAutoBinding++;
-				snprintf(buf, sizeof(buf), "layout(binding = %d, %s) ", flat, pk);
+				nkentseu::NkSnprintf(buf, sizeof(buf), "layout(binding = %d, %s) ", flat, pk);
 			}
 			Emit(NkString(buf));
 		} else {
@@ -578,7 +579,7 @@ namespace nkentseu {
 			// suivre une numerotation UNIFIEE qui reproduit le descriptor layout.
 			// (Un compteur separe pour les UBO decalait les samplers -> ecran noir.)
 			char buf[64];
-			snprintf(buf, sizeof(buf), "layout(binding = %d, %s) ", mAutoBinding++, pk);
+			nkentseu::NkSnprintf(buf, sizeof(buf), "layout(binding = %d, %s) ", mAutoBinding++, pk);
 			Emit(NkString(buf));
 		}
 
@@ -862,13 +863,13 @@ namespace nkentseu {
 		char buf[64];
 		switch (lit->baseType) {
 			case NkSLBaseType::NK_INT:
-				snprintf(buf, sizeof(buf), "%lld", (long long)lit->intVal);
+				nkentseu::NkSnprintf(buf, sizeof(buf), "%lld", (long long)lit->intVal);
 				return buf;
 			case NkSLBaseType::NK_UINT:
-				snprintf(buf, sizeof(buf), "%lluu", (unsigned long long)lit->uintVal);
+				nkentseu::NkSnprintf(buf, sizeof(buf), "%lluu", (unsigned long long)lit->uintVal);
 				return buf;
 			case NkSLBaseType::NK_FLOAT: {
-				snprintf(buf, sizeof(buf), "%.8g", lit->floatVal);
+				nkentseu::NkSnprintf(buf, sizeof(buf), "%.8g", lit->floatVal);
 				bool hasDot = false;
 				for (int i = 0; buf[i]; i++)
 					if (buf[i] == '.' || buf[i] == 'e' || buf[i] == 'E')
@@ -879,7 +880,7 @@ namespace nkentseu {
 				return s;
 			}
 			case NkSLBaseType::NK_DOUBLE:
-				snprintf(buf, sizeof(buf), "%.16glf", lit->floatVal);
+				nkentseu::NkSnprintf(buf, sizeof(buf), "%.16glf", lit->floatVal);
 				return buf;
 			case NkSLBaseType::NK_BOOL:
 				return lit->boolVal ? "true" : "false";

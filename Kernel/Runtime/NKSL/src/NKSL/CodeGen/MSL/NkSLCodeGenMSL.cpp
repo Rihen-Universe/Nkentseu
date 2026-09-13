@@ -1,4 +1,5 @@
 // =============================================================================
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // NkSLCodeGen_MSL.cpp
 // Génération MSL 2.0+ depuis l'AST NkSL.
 //
@@ -12,7 +13,7 @@
 //   - discard_fragment() au lieu de discard
 // =============================================================================
 #include "NKSL/CodeGen/NkSLCodeGen.h"
-#include <cstdio>
+#include "NKCore/Text/NkSnprintf.h"
 
 namespace nkentseu {
 
@@ -186,7 +187,7 @@ namespace nkentseu {
 		NkString s = BaseTypeToMSL(t->baseType);
 		if (t->arraySize > 0) {
 			char buf[32];
-			snprintf(buf, sizeof(buf), "[%u]", t->arraySize);
+			nkentseu::NkSnprintf(buf, sizeof(buf), "[%u]", t->arraySize);
 			s = "array<" + s + ", " + NkString(buf + 1, t->arraySize) + ">";
 		}
 		return s;
@@ -582,13 +583,13 @@ namespace nkentseu {
 		char buf[64];
 		switch (lit->baseType) {
 			case NkSLBaseType::NK_INT:
-				snprintf(buf, sizeof(buf), "%lld", (long long)lit->intVal);
+				nkentseu::NkSnprintf(buf, sizeof(buf), "%lld", (long long)lit->intVal);
 				return buf;
 			case NkSLBaseType::NK_UINT:
-				snprintf(buf, sizeof(buf), "%lluu", (unsigned long long)lit->uintVal);
+				nkentseu::NkSnprintf(buf, sizeof(buf), "%lluu", (unsigned long long)lit->uintVal);
 				return buf;
 			case NkSLBaseType::NK_FLOAT: {
-				snprintf(buf, sizeof(buf), "%.8g", lit->floatVal);
+				nkentseu::NkSnprintf(buf, sizeof(buf), "%.8g", lit->floatVal);
 				NkString s(buf);
 				bool hasDot = false;
 				for (int i = 0; buf[i]; i++)

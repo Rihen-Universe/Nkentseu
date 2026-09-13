@@ -15,7 +15,7 @@
 //  - Utilise NKPlatform/NkFoundationLog.h pour logging interne
 //  - Headers platform-specific inclus conditionnellement
 //
-// Auteur : Rihen
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // Date : 2024-2026
 // License : Proprietary - All Rights Reserved (see LICENSE)
 // =============================================================================
@@ -24,6 +24,7 @@
 // PRECOMPILED HEADER (requis pour tous les fichiers .cpp du projet)
 // -------------------------------------------------------------------------
 #include "pch.h"
+#include "NKCore/Text/NkSnprintf.h"
 
 // -------------------------------------------------------------------------
 // EN-TÊTES DU MODULE
@@ -431,7 +432,7 @@ void NkInitializePlatformInfo() {
 	struct utsname uts;
 	if (uname(&uts) == 0) {
 		static nk_char osVersion[256];
-		snprintf(osVersion, sizeof(osVersion), "%s %s", uts.release, uts.version);
+		nkentseu::NkSnprintf(osVersion, sizeof(osVersion), "%s %s", uts.release, uts.version);
 		sPlatformInfo.osVersion = osVersion;
 	} else {
 		sPlatformInfo.osVersion = "Linux";
@@ -475,17 +476,17 @@ void NkInitializePlatformInfo() {
 #if defined(NKENTSEU_COMPILER_MSVC)
 	sPlatformInfo.compilerName = "MSVC";
 	static nk_char compilerVersion[32];
-	snprintf(compilerVersion, sizeof(compilerVersion), "%d", _MSC_VER);
+	nkentseu::NkSnprintf(compilerVersion, sizeof(compilerVersion), "%d", _MSC_VER);
 	sPlatformInfo.compilerVersion = compilerVersion;
 #elif defined(NKENTSEU_COMPILER_GCC)
 	sPlatformInfo.compilerName = "GCC";
 	static nk_char compilerVersion[32];
-	snprintf(compilerVersion, sizeof(compilerVersion), "%d.%d.%d", __GNUC__, __GNUC_MINOR__, __GNUC_PATCHLEVEL__);
+	nkentseu::NkSnprintf(compilerVersion, sizeof(compilerVersion), "%d.%d.%d", __GNUC__, __GNUC_MINOR__, __GNUC_PATCHLEVEL__);
 	sPlatformInfo.compilerVersion = compilerVersion;
 #elif defined(NKENTSEU_COMPILER_CLANG)
 	sPlatformInfo.compilerName = "Clang";
 	static nk_char compilerVersion[32];
-	snprintf(compilerVersion, sizeof(compilerVersion), "%d.%d.%d", __clang_major__, __clang_minor__,
+	nkentseu::NkSnprintf(compilerVersion, sizeof(compilerVersion), "%d.%d.%d", __clang_major__, __clang_minor__,
 			 __clang_patchlevel__);
 	sPlatformInfo.compilerVersion = compilerVersion;
 #else
@@ -919,7 +920,7 @@ void NkPrintPlatformInfo() {
 		// Ajouter un séparateur si ce n'est pas la première feature
 		if (offset > 0 && offset < sizeof(simd) - 1) {
 			const nk_size remaining = sizeof(simd) - offset;
-			const int sepWritten = snprintf(simd + offset, remaining, ", ");
+			const int sepWritten = nkentseu::NkSnprintf(simd + offset, remaining, ", ");
 			if (sepWritten > 0) {
 				const nk_size advanced = static_cast<nk_size>(sepWritten);
 				offset += (advanced < remaining) ? advanced : (remaining - 1);
@@ -928,7 +929,7 @@ void NkPrintPlatformInfo() {
 		// Ajouter le nom de la feature
 		if (offset < sizeof(simd) - 1) {
 			const nk_size remaining = sizeof(simd) - offset;
-			const int nameWritten = snprintf(simd + offset, remaining, "%s", name);
+			const int nameWritten = nkentseu::NkSnprintf(simd + offset, remaining, "%s", name);
 			if (nameWritten > 0) {
 				const nk_size advanced = static_cast<nk_size>(nameWritten);
 				offset += (advanced < remaining) ? advanced : (remaining - 1);

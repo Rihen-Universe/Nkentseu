@@ -1,4 +1,5 @@
 // =============================================================================
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // NkSLCodeGen_Advanced.cpp  — v3.0
 //
 // CORRECTION BUG: SemanticFor() ne prend plus de static local.
@@ -7,12 +8,12 @@
 // Le compteur autoIndex est passé depuis GenInputOutputStructs() comme variable locale.
 // =============================================================================
 #include "NKSL/CodeGen/NkSLCodeGen.h"
+#include "NKCore/Text/NkSnprintf.h"
 #include "NKSL/Frontend/NkSLSemantic.h"
 #include "NKSL/Compiler/NkSLCompiler.h"
 #include "NKSL/Frontend/NkSLLexer.h"
 #include "NKSL/Frontend/NkSLParser.h"
 #include "NKLogger/NkLog.h"
-#include <cstdio>
 
 namespace nkentseu {
 
@@ -45,6 +46,12 @@ namespace nkentseu {
 			return args[0] + "[" + args[1] + "]";
 		if (funcName == "imageStore" && args.Size() >= 3)
 			return args[0] + "[" + args[1] + "] = " + args[2];
+		// Atomiques sur tampon (2026-09-05), meme forme que les imageAtomic* : sans valeur de retour, dit.
+		if ((funcName == "atomicAdd" || funcName == "atomicMin" || funcName == "atomicMax" || funcName == "atomicAnd" ||
+			 funcName == "atomicOr" || funcName == "atomicXor" || funcName == "atomicExchange") && args.Size() >= 2)
+			return NkString("Interlocked") + NkString(funcName.CStr() + 6) + "(" + args[0] + ", " + args[1] + ")";
+		if (funcName == "atomicCompSwap" && args.Size() >= 3)
+			return "InterlockedCompareStore(" + args[0] + ", " + args[1] + ", " + args[2] + ")";
 		if (funcName == "imageAtomicAdd" && args.Size() >= 3)
 			return "InterlockedAdd(" + args[0] + "[" + args[1] + "], " + args[2] + ")";
 		if (funcName == "imageAtomicMin" && args.Size() >= 3)
@@ -209,6 +216,18 @@ namespace nkentseu {
 			return args[0] + "_tex.read(uint2(" + args[1] + "))";
 		if (funcName == "imageStore" && args.Size() >= 3)
 			return args[0] + "_tex.write(" + args[2] + ", uint2(" + args[1] + "))";
+		// Atomiques sur tampon (2026-09-05) : atomic_fetch_*_explicit sur l'adresse du membre, memory_order_relaxed.
+		if ((funcName == "atomicAdd" || funcName == "atomicMin" || funcName == "atomicMax" || funcName == "atomicAnd" ||
+			 funcName == "atomicOr" || funcName == "atomicXor") && args.Size() >= 2) {
+			NkString op(funcName.CStr() + 6);
+			NkString lower;
+			for (uint32 k = 0; k < op.Size(); ++k)
+				lower += (char)((op[k] >= 'A' && op[k] <= 'Z') ? (op[k] - 'A' + 'a') : op[k]);
+			return "atomic_fetch_" + lower + "_explicit((volatile device atomic_uint*)&" + args[0] + ", " + args[1] +
+				   ", memory_order_relaxed)";
+		}
+		if (funcName == "atomicExchange" && args.Size() >= 2)
+			return "atomic_exchange_explicit((volatile device atomic_uint*)&" + args[0] + ", " + args[1] + ", memory_order_relaxed)";
 		if (funcName == "imageAtomicAdd" && args.Size() >= 3)
 			return "atomic_fetch_add_explicit((volatile device atomic_int*)&" + args[0] + "[" + args[1] + "], " +
 				   args[2] + ", memory_order_relaxed)";
@@ -307,10 +326,10 @@ namespace nkentseu {
 		bool isReadWrite = (b->storage == NkSLStorageQual::NK_BUFFER);
 		char buf[256];
 		if (isReadWrite) {
-			snprintf(buf, sizeof(buf), "RWStructuredBuffer<%s> %s : register(u%d);", b->blockName.CStr(),
+			nkentseu::NkSnprintf(buf, sizeof(buf), "RWStructuredBuffer<%s> %s : register(u%d);", b->blockName.CStr(),
 					 b->instanceName.Empty() ? b->blockName.ToLower().CStr() : b->instanceName.CStr(), reg);
 		} else {
-			snprintf(buf, sizeof(buf), "StructuredBuffer<%s> %s : register(t%d);", b->blockName.CStr(),
+			nkentseu::NkSnprintf(buf, sizeof(buf), "StructuredBuffer<%s> %s : register(t%d);", b->blockName.CStr(),
 					 b->instanceName.Empty() ? b->blockName.ToLower().CStr() : b->instanceName.CStr(), reg);
 		}
 		EmitLine(NkString(buf));

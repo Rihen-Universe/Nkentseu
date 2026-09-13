@@ -1,15 +1,16 @@
 // =============================================================================
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // NKAgent/NkAgentLLMReasoning.cpp — voir NkAgentLLMReasoning.h pour la portée,
 // le scénario, la justification de l'encodage numérique du prompt et les
 // limites (latence, absence d'encodeur BPE).
 // =============================================================================
 #include "NKAgent/NkAgentLLMReasoning.h"
+#include "NKCore/Text/NkSnprintf.h"
 #include "NKInfer/NkGGUFDequant.h"
 #include "NKFileSystem/NkFile.h"
 #include "NKTensor/NkTensor.h"
 #include "NKTime/NkChrono.h"
 
-#include <cstdio>
 #include <cstring>
 
 namespace nkentseu {
@@ -59,7 +60,7 @@ namespace nkentseu {
 					char buf[160];
 					bool ok = true;
 #define NK_AGENT_LLM_LOAD(field, suffix)                                                                             \
-	std::snprintf(buf, sizeof(buf), "blk.%u." suffix, layer);                                                        \
+	nkentseu::NkSnprintf(buf, sizeof(buf), "blk.%u." suffix, layer);                                                        \
 	ok = ok && DequantNamed(path, gguf, buf, w.field)
 					NK_AGENT_LLM_LOAD(attnNorm, "attn_norm.weight");
 					NK_AGENT_LLM_LOAD(wq, "attn_q.weight");
@@ -128,7 +129,7 @@ namespace nkentseu {
 				// `ids`.
 				void AppendDigits(const NkAgentLLMModel &model, uint32 value, NkVector<int64> &ids) {
 					char buf[16];
-					std::snprintf(buf, sizeof(buf), "%u", value);
+					nkentseu::NkSnprintf(buf, sizeof(buf), "%u", value);
 					for (const char *p = buf; *p; ++p)
 						ids.PushBack((int64)model.digitTokenId[*p - '0']);
 				}

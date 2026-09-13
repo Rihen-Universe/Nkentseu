@@ -1,4 +1,5 @@
 // =============================================================================
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // NkQwen2LoraGpu.cpp — voir le .h pour la portée, le checkpointing et le choix
 // du rang.
 //
@@ -14,6 +15,7 @@
 // modifiée.
 // =============================================================================
 #include "NKInfer/NkQwen2LoraGpu.h"
+#include "NKCore/Text/NkSnprintf.h"
 #include "NKInfer/NkQKGpuBackward.h"
 #include "NKInfer/NkGGUFDequant.h"
 #include "NKTensor/NkTensorGpu.h"
@@ -1118,7 +1120,7 @@ void main() {
 						{"ffn_down.weight", &L.wDown},
 					};
 					for (uint32 i = 0; i < sizeof(quant) / sizeof(quant[0]); ++i) {
-						std::snprintf(name, sizeof(name), "blk.%u.%s", l, quant[i].suffix);
+						nkentseu::NkSnprintf(name, sizeof(name), "blk.%u.%s", l, quant[i].suffix);
 						const NkGGUFTensorInfo *info = Find(name);
 						if (!info) {
 							SetErr(err, "NkQwen2LoraGpu::Load : tenseur de couche introuvable");
@@ -1137,7 +1139,7 @@ void main() {
 						{"attn_v.bias", &L.bv, kvd},
 					};
 					for (uint32 i = 0; i < sizeof(plain) / sizeof(plain[0]); ++i) {
-						std::snprintf(name, sizeof(name), "blk.%u.%s", l, plain[i].suffix);
+						nkentseu::NkSnprintf(name, sizeof(name), "blk.%u.%s", l, plain[i].suffix);
 						const NkGGUFTensorInfo *info = Find(name);
 						if (!info) {
 							SetErr(err, "NkQwen2LoraGpu::Load : norme/biais introuvable");

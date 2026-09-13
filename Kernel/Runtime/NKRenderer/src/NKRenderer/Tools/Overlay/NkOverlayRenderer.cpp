@@ -1,9 +1,11 @@
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // NkOverlayRenderer.cpp — NKRenderer v4.0
 #include "NkOverlayRenderer.h"
 #include "NKRenderer/Tools/Text/NkTextRenderer.h"
 #include "NKRenderer/Tools/Render2D/NkRender2D.h"
 #include <cstdio>
 #include <cstdarg>
+#include "NKCore/Text/NkSnprintf.h"
 // Suppress Win32 GDI macro after all headers
 #ifdef DrawText
 #undef DrawText
@@ -46,8 +48,14 @@ namespace nkentseu {
 			if (!mTxt || !mFont.IsValid())
 				return;
 			char buf[256];
-			snprintf(buf, sizeof(buf), "Draw:%u  Tris:%u  GPU:%.2fms  CPU:%.2fms  Batches:%u", s.drawCalls, s.triangles,
-					 s.gpuTimeMs, s.cpuTimeMs, s.batchCount);
+			// Un instrument absent se dit (« -- »), il ne rend pas un faux zero (2026-09-04).
+			char gpu[24];
+			if (s.gpuTimeValid)
+				snprintf(gpu, sizeof(gpu), "%.2fms", s.gpuTimeMs);
+			else
+				snprintf(gpu, sizeof(gpu), "--");
+			nkentseu::NkSnprintf(buf, sizeof(buf), "Draw:%u  Tris:%u  GPU:%s  CPU:%.2fms  Batches:%u", s.drawCalls, s.triangles, gpu,
+					 s.cpuTimeMs, s.batchCount);
 			mTxt->DrawText(pos, buf, mFont, 14.f, 0xFFFFFFFF);
 
 			// Background semi-transparent
@@ -68,7 +76,7 @@ namespace nkentseu {
 			char buf[512];
 			va_list va;
 			va_start(va, fmt);
-			vsnprintf(buf, sizeof(buf), fmt, va);
+			nkentseu::NkVsnprintf(buf, sizeof(buf), fmt, va);
 			va_end(va);
 			mTxt->DrawText(pos, buf, mFont, 14.f, 0xFFFFFFFF);
 		}

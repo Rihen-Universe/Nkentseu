@@ -107,6 +107,79 @@ namespace nkentseu {
 			// navigateur de projet -- les deux doivent parler la meme couleur.
 			TypeFolder,
 
+			// ⚠️ DEUX ROLES AJOUTES LE 2026-08-29, SUR UNE INSUFFISANCE DEMONTREE
+			//    DU VOCABULAIRE -- pas sur une preference de conception.
+			//
+			//    La mesure : dans `NkEditorShell::Init`, `button` vaut #191D23 et
+			//    `track` vaut #0D1117. **Ils different.** Or la conversion tire les
+			//    deux du meme role `InputBg` : un seul role ne peut pas rendre deux
+			//    couleurs. Meme histoire pour la barre d'onglets, #191D23 ici et
+			//    `WindowBg` (#0D1117) dans la conversion. Tant que ces roles
+			//    manquaient, la palette de la coquille etait **inexprimable** dans
+			//    le vocabulaire des themes -- et c'est pour ca qu'elle etait restee
+			//    recopiee a la main.
+			//
+			//    AJOUTES EN FIN, comme l'exige la regle append-only ci-dessus.
+			//    (La serialisation, elle, se fait par NOM -- `button_bg = RRGGBBAA`
+			//    -- donc un theme deja enregistre ne connait simplement pas ces deux
+			//    lignes, et c'est exactement le cas que le repli ci-dessous traite.)
+
+			/// Fond d'un BOUTON. Distinct du fond d'un CHAMP (`InputBg`) : un bouton
+			/// se pose SUR une surface, un champ se creuse DEDANS.
+			/// ⚠️ `NkThemeNonDefini` par defaut -> repli sur `InputBg`.
+			ButtonBg,
+
+			/// Fond de la BARRE d'onglets, distinct du fond de fenetre (`WindowBg`)
+			/// et de l'onglet lui-meme (`PanelHeader`).
+			/// ⚠️ `NkThemeNonDefini` par defaut -> repli sur `WindowBg`.
+			TabBarBg,
+
+			// ⚠️ SIX ROLES AJOUTES LE 2026-08-31 (reference Banani, doc 11 §3) --
+			//    APPEND-ONLY, discipline ButtonBg/TabBarBg : NkThemeNonDefini par
+			//    defaut, repli sur un role source (GetOuRepli). Un theme
+			//    enregistre avant eux reste valide, rien ne devient magenta, et
+			//    AUCUNE conversion existante ne les lit : le rendu d'avant ne
+			//    peut pas bouger.
+
+			/// Fond de la TOILE de design. ⚠️ IL SUIT LE THEME (test de Rodolf,
+			/// 31/08 : « cette couleur blanche c'est pour le theme light ; en
+			/// Design il faut la meme couleur de fond que pour Behavior et les
+			/// autres ») : sombre en theme sombre (#0d1117, le fond de la vue
+			/// Behavior), clair en theme clair (#f5f7fb, la valeur Banani V2).
+			/// L'ancienne doctrine « toile claire meme en editeur sombre » etait
+			/// la generalisation abusive d'UN ecran de la maquette. Repli : PanelBg.
+			CanvasBg,
+			/// Les points de la grille de toile — suivent le theme comme le fond
+			/// (clair : #d4dce8, pas 20 ; sombre : la bordure #30363d). Repli : Border.
+			CanvasDot,
+			/// Vert d'etat : « Pret », simulation, modele LOCAL. Repli : AccentUi.
+			StatusOk,
+			/// Rouge d'etat : erreurs console, rejets, fermer. Repli : AccentSel.
+			StatusErr,
+			/// Violet de TOUT ce qui est IA (etoile, badges, bande modele) --
+			/// la maquette est systematique la-dessus. Repli : AccentUi.
+			AccentAI,
+			/// Lignes de magnetisme de la toile (#ff4fd8). Repli : AccentSel.
+			SnapLine,
+			/// Fond d'un ARTBOARD pose sur la toile (Banani V2 : cadre BLANC —
+			/// le document se concoit clair, quel que soit le fond de toile, qui
+			/// lui suit le theme depuis le 31/08). Repli : CanvasBg.
+			ArtboardBg,
+			/// Texte d'un element DU DOCUMENT (dessine sur ArtboardBg) — sombre,
+			/// parce que le document se concoit clair, quel que soit le theme de
+			/// l'editeur. PROVISOIRE jusqu'au vocabulaire d'apparence (§8ter) :
+			/// le jour ou un element porte sa couleur, elle prime. Repli : Text.
+			DocText,
+			/// Fond d'un rectangle/champ DU DOCUMENT (les champs du formulaire de
+			/// la maquette : gris clair sur cadre blanc). Meme statut provisoire.
+			/// Repli : InputBg.
+			DocFieldBg,
+			/// Texte SECONDAIRE du document (etiquette d'artboard « Connexion —
+			/// Mobile 390 x 844 », libelles de champs : #656d76 dans la maquette,
+			/// un gris de TOILE CLAIRE distinct du TextMuted de l'editeur).
+			/// Repli : DocText. Ajout 31/08, meme regime facultatif-avec-repli.
+			DocMuted,
+
 			Count
 		};
 
@@ -264,6 +337,17 @@ namespace nkentseu {
 				bool isText = false;
 		};
 
+		/// ⚠️ « CE ROLE N'A JAMAIS ETE POSE » -- et le zero est choisi contre le
+		///    magenta a dessein. Le constructeur peint tous les roles en magenta
+		///    criard pour qu'un oubli SAUTE AUX YEUX ; c'est une bonne regle, et
+		///    elle interdit d'utiliser le magenta comme sentinelle : on ne
+		///    distinguerait plus « oublie » de « pas encore invente ». Un alpha
+		///    NUL, lui, n'est la valeur legitime d'aucun fond -- une surface
+		///    entierement transparente ne se peint pas. La sentinelle est donc
+		///    lisible sans ambiguite, et un role neuf qui la porte se replie au
+		///    lieu de crier.
+		static constexpr NkThemeColor NkThemeNonDefini = 0x00000000u;
+
 		class NkTheme {
 			public:
 				NkTheme(); ///< construit le theme SOMBRE par defaut
@@ -273,6 +357,23 @@ namespace nkentseu {
 
 				NkThemeColor Get(NkRole r) const {
 					return (uint16)r < (uint16)NkRole::Count ? mColors[(uint16)r] : 0xFF00FFFFu;
+				}
+
+				/// Lit `r`, et retombe sur `repli` si `r` n'a jamais ete defini.
+				///
+				/// ⚠️ C'EST LE MECANISME QUI REND UN ROLE NEUF GRATUIT. Ajouter un
+				///    role a une enumeration ne coute rien ; lui donner une valeur
+				///    par defaut, si. Une constante fixe serait fausse pour tout
+				///    theme qui a change la couleur d'a cote -- `GitHubDarkPro`
+				///    part de `Dark()` puis remplace `InputBg`, donc un `ButtonBg`
+				///    fige a la valeur de `Dark()` aurait diverge dans CE theme-la
+				///    seulement, c'est-a-dire de la pire facon : une fois sur deux.
+				///    Ici le role neuf **suit** son role source tant que personne ne
+				///    l'a pose. Aucun theme existant ne change d'apparence, et un
+				///    theme qui veut la distinction l'ecrit.
+				NkThemeColor GetOuRepli(NkRole r, NkRole repli) const {
+					const NkThemeColor c = Get(r);
+					return c == NkThemeNonDefini ? Get(repli) : c;
 				}
 				void Set(NkRole r, NkThemeColor c) {
 					if ((uint16)r < (uint16)NkRole::Count)
@@ -360,6 +461,11 @@ namespace nkentseu {
 		// rien lier. L'APPLICATION lit le texte -- elle sait ou sont ses dossiers,
 		// livre puis surcharge utilisateur, exactement comme pour les icones -- et
 		// le passe ici.
+		/// Le theme par defaut de la COQUILLE (palette GitHub Dark d origine,
+		/// exprimee en roles). N est PAS dans `AddBuiltins` : c est un defaut,
+		/// pas un choix du menu. Voir sa definition pour la raison complete.
+		NkTheme NkThemeCoquilleDefaut();
+
 		class NkThemeLibrary {
 			public:
 				void AddBuiltins(); ///< Sombre et Clair

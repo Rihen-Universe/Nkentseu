@@ -61,6 +61,15 @@ namespace nkentseu {
 		// (lastItemId/lastItemRect) puis suit le meme chemin que BeginDropTarget.
 		// Une source reste un widget (BeginDragSource a besoin d'activeId).
 		NKENTSEU_NKGUI_API bool BeginDropTarget(NkGuiContext &ctx, NkGuiId id, const NkRect &rect) noexcept;
+		// SOURCE A ZONE EXPLICITE (2026-09-03, NkUIDesign) : la jumelle de la cible a
+		// zone, pour la meme raison -- une ligne d'arbre ou une case peinte par un
+		// composant n'est pas un widget, donc `activeId` ne la designera jamais.
+		// Arme sur un appui DANS `rect`, demarre au-dela du meme seuil de ~4 px que
+		// la forme widget, et alimente LA MEME machine d'etat du contexte. Ne touche
+		// ni a activeId ni a hotId : les widgets contenus gardent survol et clic.
+		// True tant qu'un glisser DEPUIS cette zone est en cours ; appeler
+		// SetDragPayload + EndDragSource dans le bloc, comme pour la forme widget.
+		NKENTSEU_NKGUI_API bool BeginDragSource(NkGuiContext &ctx, NkGuiId id, const NkRect &rect) noexcept;
 		// Livraison : non-nul UNE frame — au relachement sur la cible, si le
 		// type correspond. Un lacher HORS de toute cible ne livre rien.
 		NKENTSEU_NKGUI_API const void *AcceptDragPayload(NkGuiContext &ctx, const char *type,
@@ -450,6 +459,16 @@ namespace nkentseu {
 		NKENTSEU_NKGUI_API void EndCombo(NkGuiContext &ctx) noexcept;
 		// Primitif de popup générique (fermé au clic-dehors / Échap). Ouvre avec
 		// ctx.OpenPopup(ctx.GetId(idStr)). À refermer par EndPopup si true.
+		// `rect` = où le popup se dessine (couche overlay) ; `ancre` = le widget
+		// qui l'a ouvert (un clic dedans ne le referme pas). Retourne true tant
+		// qu'il est ouvert : l'app dessine SES widgets dedans, puis EndPopup.
+		NKENTSEU_NKGUI_API bool BeginPopup(NkGuiContext &ctx, const char *idStr, const NkRect &rect,
+										   const NkRect &ancre) noexcept;
+		// La meme porte, par ID deja calcule : indispensable quand celui qui OUVRE
+		// et celui qui DESSINE ne sont pas dans la meme pile d'identites (un
+		// panneau ouvre, le crochet d'overlay dessine).
+		NKENTSEU_NKGUI_API bool BeginPopupId(NkGuiContext &ctx, NkGuiId id, const NkRect &rect,
+											 const NkRect &ancre) noexcept;
 		NKENTSEU_NKGUI_API void EndPopup(NkGuiContext &ctx) noexcept;
 
 		// ── Menus (barre + sous-menus imbriqués + contextuel) ─────────────────
@@ -464,8 +483,14 @@ namespace nkentseu {
 		NKENTSEU_NKGUI_API void EndMenu(NkGuiContext &ctx) noexcept;
 		// Élément de menu cliquable (+ raccourci affiché à droite, optionnel).
 		// Retourne true au clic (et ferme la chaîne de menus).
+		// `checked` : l'entrée porte une COCHE à droite (état booléen). ⚠️ Une entrée
+		// qui bascule un état DOIT porter une coche plutôt qu'un libellé qui
+		// s'inverse — « Afficher la grille » devenant « Masquer la grille » oblige à
+		// déduire l'état courant du libellé proposé, et on se trompe une fois sur
+		// deux. Ajouté en DERNIER avec une valeur par défaut : aucun appelant
+		// existant ne bouge, et le dessin est inchangé tant que `checked` est faux.
 		NKENTSEU_NKGUI_API bool MenuItem(NkGuiContext &ctx, const char *label, const char *shortcut = nullptr,
-										 bool enabled = true) noexcept;
+										 bool enabled = true, bool checked = false) noexcept;
 		// Menu CONTEXTUEL (clic droit) : l'app appelle
 		// ctx.OpenPopupAt(ctx.GetId(idStr), mousePos) au clic droit, puis dessine
 		// le contenu entre BeginPopupMenu/EndPopupMenu (mêmes MenuItem/BeginMenu).

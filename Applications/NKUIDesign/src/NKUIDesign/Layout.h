@@ -110,6 +110,28 @@ namespace nkuidesign {
 			}
 	};
 
+	/// CET AGENCEMENT LIT-IL `mainAlign` / `crossAlign` ?
+	///
+	/// 🔴 IL VIT ICI, A COTE DU SOLVEUR, ET PAS DANS L'INSPECTEUR — c'est tout
+	///    l'interet. `PlaceChildren` ne lit l'alignement que dans sa branche
+	///    LIGNE/COLONNE : `Free`, `Anchor` et `Grid` rendent la main avant. Ce fait
+	///    appartient au solveur ; l'inspecteur ne fait que le RAPPORTER a
+	///    l'utilisateur (« enregistre, pas applique »). Une seconde liste ecrite
+	///    la-bas aurait diverge au premier agencement ajoute — et la phrase serait
+	///    devenue le mensonge qu'elle repare.
+	///
+	/// ⚠️ TROUVE PAR L'INVENTAIRE DU 07/09 (Q118, mesure 2, famille 1) : les huit
+	///    boutons de la section ALIGNEMENT restaient actifs sous `Free`, `Anchor` et
+	///    `Grid`, ecrivaient, se persistaient — et ne changeaient rien.
+	///
+	/// ⚠️ LE CAS 93c NE CROIT PAS CE PREDICAT SUR PAROLE : pour chacun des cinq
+	///    agencements, il change l'alignement et regarde si une boite BOUGE. Un
+	///    predicat qui mentirait rougirait.
+	inline bool NkAlignementLuParLeSolveur(nkentseu::editorkit::NkLayoutKind k) {
+		return k == nkentseu::editorkit::NkLayoutKind::Row
+			   || k == nkentseu::editorkit::NkLayoutKind::Column;
+	}
+
 	namespace layoutdetail {
 
 		using namespace nkentseu::editorkit;
@@ -148,6 +170,35 @@ namespace nkuidesign {
 			if (inner.h < 0.f)
 				inner.h = 0.f;
 
+			// ── TOILE ───────────────────────────────────────────────────────
+			// Chaque enfant est pose a SES coordonnees, dans le repere interieur du
+			// parent. C'est le seul agencement qui LIT la position au lieu de la
+			// calculer -- et c'est tout ce qui separe la toile du modele declaratif.
+			//
+			// ⚠️ LA TAILLE, ELLE, SE RESOUT COMME PARTOUT AILLEURS (`solvedetail::
+			//    Axis`). Une forme posee garde donc `fixed`, `expand` et `weight` :
+			//    on n'a pas fabrique un second systeme de tailles pour la toile,
+			//    sinon un noeud change de comportement en changeant de parent.
+			if (p.layout.kind == NkLayoutKind::Free) {
+				for (uint32 i = 0; i < n; ++i) {
+					const NkUINode &c = doc.nodes[(uint32)kids[i]];
+					NkPaintRect cr;
+					cr.w = solvedetail::Axis(c.width, m, inner.w, c.width.minVal);
+					cr.h = solvedetail::Axis(c.height, m, inner.h, c.height.minVal);
+					// ⚠️ `r`, PAS `inner` : la toile se repere sur le CADRE du parent,
+					//    marge NON comprise. Mesure du premier essai : une forme posee
+					//    a (95,228) se dessinait a (103,236) -- decalee de la marge de 8.
+					//    Un concepteur qui tape 95 attend 95 ; la marge est une notion de
+					//    FLUX (elle ecarte des enfants qui se suivent), et une toile n a
+					//    pas de flux. La garder ici aurait fait mentir chaque coordonnee
+					//    du document sans que rien ne le dise.
+					cr.x = r.x + c.posX;
+					cr.y = r.y + c.posY;
+					PlaceSubtree(doc, m, kids[i], cr, out);
+				}
+				return;
+			}
+
 			// ── ANCRAGE ─────────────────────────────────────────────────────
 			// Chaque enfant est pose independamment contre les bords qu'il declare.
 			// Deux bords opposes = il s'etire entre eux ; un seul = il s'y colle a
@@ -169,6 +220,29 @@ namespace nkuidesign {
 									  : (l ? inner.x : inner.x + (inner.w - w) * 0.5f);
 					cr.y = (!t && b) ? inner.y + inner.h - h
 									 : (t ? inner.y : inner.y + (inner.h - h) * 0.5f);
+					// ⑦ (07/09, S11) LA MARGE : `posX`/`posY` se COMPOSENT avec le bord.
+					// ⚠️ AUCUN CHAMP NEUF, ET C'EST LA MOITIE DU CORRECTIF. `posX`/`posY`
+					//    existent depuis toujours sur le nœud, sont deja serialises (cle
+					//    `position`), deja ecrits par le glisser a la souris ET par le geste
+					//    d'alignement, et deja lus par la branche `Free`. Ici, ils
+					//    n'etaient LUS par personne : le logement du decalage existait, il
+					//    etait ignore d'un seul cote. En inventer un seaurait ete la
+					//    troisieme seconde version de ce depot, apres le soudeur de sommets
+					//    et le cycle de metriques.
+					// ⚠️ LE DEFAUT EST ZERO PAR CONSTRUCTION : `posX`/`posY` valent 0 sur
+					//    un nœud neuf et la cle `position` ne s'ecrit que non nulle. Un
+					//    document existant ne peut donc pas bouger (cas 130b, 131).
+					// ⚠️ UN AXE ETIRE ENTRE DEUX BORDS N'A PLUS DE LIBERTE : sa place est
+					//    entierement dite par les deux bords, et lui ajouter un decalage le
+					//    ferait deborder de celui qu'il touche. On n'applique donc rien sur
+					//    cet axe -- ce n'est pas un oubli, c'est ce que « ancre des deux
+					//    cotes » veut dire. (Des marges par cote, qui RETRECIRAIENT la
+					//    boite au lieu de la deplacer, sont une autre notion : elles
+					//    demanderaient quatre nombres, et personne ne les a demandees.)
+					if (!(l && ri))
+						cr.x += c.posX;
+					if (!(t && b))
+						cr.y += c.posY;
 					PlaceSubtree(doc, m, kids[i], cr, out);
 				}
 				return;
@@ -345,6 +419,14 @@ namespace nkuidesign {
 	/// Le noeud le plus PROFOND dont le rectangle contient le point. C'est la
 	/// « pose a la souris » : on ne retient pas ou l'utilisateur a lache, on
 	/// retient DANS QUI il a lache. Rend -1 si le point tombe hors de la racine.
+	///
+	/// ⚠️ A PROFONDEUR EGALE, LE DERNIER DE L'ORDRE DOCUMENT GAGNE (`>=`), et
+	///    c'est le 4e retour de Rodolf qui l'a paye : « Aide e-mail » (le texte
+	///    par defaut) est le FRERE du « Champ e-mail », pose PAR-DESSUS — avec
+	///    `>` strict, le premier frere de l'ordre document (le rect) absorbait
+	///    tous les clics, et le texte visible au premier plan etait
+	///    inatteignable (« Element non editable »). Le dernier dessine est le
+	///    plus haut a l'ecran : c'est lui que tout outil de dessin pointe.
 	inline int32 NkPickNode(const NkUIDocument &doc, const NkLayoutResult &lay, float32 x, float32 y) {
 		int32 best = -1, bestDepth = -1;
 		for (uint32 i = 0; i < (uint32)doc.nodes.Size(); ++i) {
@@ -353,7 +435,7 @@ namespace nkuidesign {
 			int32 depth = 0;
 			for (int32 c = doc.nodes[i].parent; c >= 0; c = doc.nodes[(uint32)c].parent)
 				++depth;
-			if (depth > bestDepth) {
+			if (depth >= bestDepth) {
 				bestDepth = depth;
 				best = (int32)i;
 			}

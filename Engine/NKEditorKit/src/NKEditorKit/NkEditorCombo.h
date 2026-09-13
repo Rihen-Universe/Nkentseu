@@ -7,10 +7,11 @@
 //          dans `bounds` (ex. le rect du panneau) — jamais coupe hors-ecran.
 //          Independant de toute application (raw NkGuiContext/NkGuiDrawList/
 //          NkGuiFont), meme esprit que NkOverlayTextField.h.
-// @Author  Rihen
+// @Author  TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // @License Proprietary - All Rights Reserved (see LICENSE)
 // -----------------------------------------------------------------------------
 #include "NKGui/NKGui.h"
+#include "NKEditorKit/NkEditorSurface.h" // ④ LA porte unique pour peindre au-dessus
 
 namespace nkentseu {
 	namespace editorkit {
@@ -118,13 +119,22 @@ namespace nkentseu {
 				menu.y = bounds.y;
 			if (menu.y + menu.h > bounds.y + bounds.h)
 				menu.y = bounds.y + bounds.h - menu.h;
+			// ④ (06/09) CE MENU NE RECLAMAIT RIEN DU TOUT -- ni occlusion, ni couche,
+			//    ni clavier -- et faisait ses hit-tests au `NkGuiRectContains` brut. Un
+			//    widget de couche 0 restait donc survolable et cliquable SOUS la liste
+			//    deroulante ouverte. Recense le 06/09 : c'etait la seule flottante du kit
+			//    a n'avoir AUCUN des trois gestes.
+			// ⚠️ PAS DE CLAVIER : ce combo n'a ni champ de saisie ni navigation aux
+			//    fleches. Lui faire prendre le clavier priverait l'hote de ses raccourcis
+			//    pour une liste qui n'en fait rien -- reclamer trop est aussi un defaut.
+			NkSurfaceFlottante _surface(ctx, menu, NkCouche::Menu, NkPriseClavier::Non);
 			dl.AddRectFilled(menu, panelBg, ctx.S(6.f));
 			dl.AddRect(menu, border, 1.f);
 			const NkVec2 mp = ctx.input.mousePos;
 			float32 y = menu.y + ctx.S(4.f);
 			for (int32 i = 0; i < n; ++i) {
 				const NkRect row = {menu.x + ctx.S(4.f), y, w - ctx.S(8.f), rowH};
-				const bool hov = NkGuiRectContains(row, mp);
+				const bool hov = _surface.Survole(row); // occlusion comprise, pas un rect brut
 				const bool s = (i == sel);
 				if (hov || s)
 					dl.AddRectFilled(row, s ? accent : rowHover, ctx.S(4.f));

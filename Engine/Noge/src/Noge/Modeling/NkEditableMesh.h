@@ -1,4 +1,5 @@
 #pragma once
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // =============================================================================
 // Nkentseu/Modeling/NkEditableMesh.h
 // =============================================================================
@@ -43,6 +44,21 @@
 //   Vertex → une demi-arête sortante (Vert::hedge)
 //   Hedge  → origin/twin/next/face (demi-arête classique)
 //   Face   → une demi-arête de bord + boucle via next (N sommets quelconque)
+//
+// CONVENTION D'ORIENTATION DES FACES (Rodolf, 2026-09-04 : « on va faire la même
+// chose que le modeleur ») :
+//   La normale d'une face est celle que calcule renderer::NkEditMesh
+//   (NkEditMesh.cpp, NkEmFaceCross) : n = (p2 - p0) x (p1 - p0), p0..p2 étant les
+//   trois premiers sommets de la boucle. C'est l'OPPOSÉ du produit vectoriel
+//   « trigonométrique » habituel : les sommets d'une face s'énumèrent dans
+//   l'ordre HORAIRE vus depuis le côté vers lequel pointe la normale.
+//   Exemple mesuré (tests/test_editable_mesh.cpp, SingleTriangle) :
+//   (0,0,0), (1,0,0), (0,1,0) — trigonométrique vu de +Z — donne une normale -Z.
+//   Pour obtenir +Z, énumérer (0,0,0), (0,1,0), (1,0,0).
+//   Le contrat initial (26/07) disait « CCW » et contredisait le code (31/07,
+//   16/08) ; c'est le contrat et le test qui ont été corrigés, pas le code —
+//   retourner le produit vectoriel aurait inversé toutes les normales du
+//   modeleur NK3DModeler (faces arrière, éclairage, sens des extrusions).
 //
 // USAGE TYPIQUE :
 //   NkEditableMesh em;
@@ -114,19 +130,23 @@ namespace nkentseu {
 							 const NkVec4f &color = {1, 1, 1, 1}) noexcept;
 
 			/**
-			 * @brief Ajoute une face à N sommets quelconque (n-gon), dans l'ordre CCW.
+			 * @brief Ajoute une face à N sommets quelconque (n-gon), sommets dans
+			 *        l'ordre HORAIRE vus du côté de la normale (cf. CONVENTION
+			 *        D'ORIENTATION en tête de fichier).
 			 * @return Index de la face créée.
 			 */
 			uint32 AddPolygon(NkSpan<const uint32> vertIds) noexcept;
 
 			/**
-			 * @brief Ajoute un triangle (v0, v1, v2 dans l'ordre CCW).
+			 * @brief Ajoute un triangle (v0, v1, v2 dans l'ordre HORAIRE vus du côté
+			 *        de la normale : normale = (p2 - p0) x (p1 - p0)).
 			 * @return Index de la face créée.
 			 */
 			uint32 AddTri(uint32 v0, uint32 v1, uint32 v2) noexcept;
 
 			/**
-			 * @brief Ajoute un quad (v0, v1, v2, v3 dans l'ordre CCW).
+			 * @brief Ajoute un quad (v0, v1, v2, v3 dans l'ordre HORAIRE vus du côté
+			 *        de la normale, cf. CONVENTION D'ORIENTATION).
 			 * @return Index de la face créée.
 			 */
 			uint32 AddQuad(uint32 v0, uint32 v1, uint32 v2, uint32 v3) noexcept;

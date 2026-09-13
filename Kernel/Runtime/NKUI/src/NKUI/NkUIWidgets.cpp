@@ -1,4 +1,5 @@
 // -----------------------------------------------------------------------------
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // @File    NkUIWidgets.cpp
 // @Brief   Implémentation de tous les widgets NkUI.
 // @Author  TEUGUIA TADJUIDJE Rodolf Séderis
@@ -13,9 +14,9 @@
  */
 
 #include "NKUI/NkUIWidgets.h"
+#include "NKCore/Text/NkSnprintf.h"
 #include "NKUI/NkUIWindow.h"
 #include <cstring>
-#include <cstdio>
 #include <cstdlib>
 #include <climits>
 #include <cmath>
@@ -1314,7 +1315,7 @@ namespace nkentseu {
 				opts = *valueOpts;
 
 			char valBuf[32];
-			::snprintf(valBuf, sizeof(valBuf), fmt ? fmt : "%.2f", value);
+			nkentseu::NkSnprintf(valBuf, sizeof(valBuf), fmt ? fmt : "%.2f", value);
 			const float32 valW = font.MeasureWidth(valBuf);
 			const float32 valueExtra = valW + opts.gap + 4.f;
 
@@ -1431,7 +1432,7 @@ namespace nkentseu {
 					const float32 labelY = TextBaselineY(sliderR, font);
 					if (opts.placement == NkUISliderValuePlacement::NK_IN_LABEL) {
 						char labelValue[320];
-						::snprintf(labelValue, sizeof(labelValue), "%s: %s", lp.label, valBuf);
+						nkentseu::NkSnprintf(labelValue, sizeof(labelValue), "%s: %s", lp.label, valBuf);
 						font.RenderText(dl, {labelX, labelY}, labelValue, ctx.theme.colors.textPrimary);
 					} else {
 						font.RenderText(dl, {labelX, labelY}, lp.label, ctx.theme.colors.textPrimary);
@@ -1457,12 +1458,12 @@ namespace nkentseu {
 								const NkUISliderValueOptions *valueOpts) noexcept {
 			bool changed = false;
 			char buf[128];
-			::snprintf(buf, sizeof(buf), "%s##0", label);
+			nkentseu::NkSnprintf(buf, sizeof(buf), "%s##0", label);
 			SetNextWidth(ctx, ls, width > 0 ? width * 0.5f : 0);
 			changed |= SliderFloat(ctx, ls, dl, font, buf, values[0], vmin, vmax, "%.2f", width > 0 ? width * 0.5f : 0,
 								   valueOpts);
 			SameLine(ctx, ls, 0, 4.f);
-			::snprintf(buf, sizeof(buf), "##%s1", label);
+			nkentseu::NkSnprintf(buf, sizeof(buf), "##%s1", label);
 			SetNextWidth(ctx, ls, width > 0 ? width * 0.5f : 0);
 			changed |= SliderFloat(ctx, ls, dl, font, buf, values[1], vmin, vmax, "%.2f", width > 0 ? width * 0.5f : 0,
 								   valueOpts);
@@ -1489,7 +1490,7 @@ namespace nkentseu {
 			}
 			DrawWidgetBg(dl, ctx.theme, r, NkUIWidgetType::NK_INPUT_FLOAT, state);
 			char buf[32];
-			::snprintf(buf, sizeof(buf), "%.3f", value);
+			nkentseu::NkSnprintf(buf, sizeof(buf), "%.3f", value);
 			DrawLabel(dl, font, ctx.theme, r, buf, true);
 			NkUILayout::AdvanceItem(ctx, ls, r);
 			return changed;
@@ -1681,7 +1682,7 @@ namespace nkentseu {
 			NkNumericInputState &st = AccessWidgetState(sInputStore, id, NkNumericInputState{});
 
 			if (!st.editing || !ctx.IsFocused(id)) {
-				::snprintf(st.buf, sizeof(st.buf), "%d", value);
+				nkentseu::NkSnprintf(st.buf, sizeof(st.buf), "%d", value);
 			}
 
 			const bool textChanged =
@@ -1711,7 +1712,7 @@ namespace nkentseu {
 			NkNumericInputState &st = AccessWidgetState(sInputStore, id, NkNumericInputState{});
 
 			if (!st.editing || !ctx.IsFocused(id)) {
-				::snprintf(st.buf, sizeof(st.buf), fmt ? fmt : "%.3f", value);
+				nkentseu::NkSnprintf(st.buf, sizeof(st.buf), fmt ? fmt : "%.3f", value);
 			}
 
 			const bool textChanged =

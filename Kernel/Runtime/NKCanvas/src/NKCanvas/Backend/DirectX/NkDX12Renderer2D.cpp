@@ -1,3 +1,4 @@
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // =============================================================================
 // NkDX12Renderer2D.cpp — DirectX 12 2D renderer
 // Root signature: root constants (16 floats = projection), descriptor table
@@ -757,6 +758,27 @@ namespace nkentseu {
 				mPSOMul, vsBlob.Get(), psBlob.Get());
 			ok &= MakePSO(MakeBlendDesc(D3D12_BLEND_ONE, D3D12_BLEND_ZERO, D3D12_BLEND_ONE, D3D12_BLEND_ZERO, false),
 						  mPSONone, vsBlob.Get(), psBlob.Get());
+			// 2026-09-04 : les quatre modes exacts de plus (l'operation en parametre)
+			auto MakeBlendDescOp = [](D3D12_BLEND src, D3D12_BLEND dst, D3D12_BLEND_OP op) -> D3D12_BLEND_DESC {
+				D3D12_BLEND_DESC bd{};
+				bd.RenderTarget[0].BlendEnable = TRUE;
+				bd.RenderTarget[0].SrcBlend = src;
+				bd.RenderTarget[0].DestBlend = dst;
+				bd.RenderTarget[0].BlendOp = op;
+				bd.RenderTarget[0].SrcBlendAlpha = D3D12_BLEND_ONE;
+				bd.RenderTarget[0].DestBlendAlpha = D3D12_BLEND_INV_SRC_ALPHA;
+				bd.RenderTarget[0].BlendOpAlpha = D3D12_BLEND_OP_ADD;
+				bd.RenderTarget[0].RenderTargetWriteMask = D3D12_COLOR_WRITE_ENABLE_ALL;
+				return bd;
+			};
+			ok &= MakePSO(MakeBlendDescOp(D3D12_BLEND_ONE, D3D12_BLEND_INV_SRC_COLOR, D3D12_BLEND_OP_ADD), mPSOScreen,
+						  vsBlob.Get(), psBlob.Get());
+			ok &= MakePSO(MakeBlendDescOp(D3D12_BLEND_ONE, D3D12_BLEND_ONE, D3D12_BLEND_OP_MIN), mPSODarken, vsBlob.Get(),
+						  psBlob.Get());
+			ok &= MakePSO(MakeBlendDescOp(D3D12_BLEND_ONE, D3D12_BLEND_ONE, D3D12_BLEND_OP_MAX), mPSOLighten, vsBlob.Get(),
+						  psBlob.Get());
+			ok &= MakePSO(MakeBlendDescOp(D3D12_BLEND_ONE, D3D12_BLEND_ONE, D3D12_BLEND_OP_ADD), mPSOPlus, vsBlob.Get(),
+						  psBlob.Get());
 			return ok;
 		}
 
@@ -1162,6 +1184,18 @@ namespace nkentseu {
 						break;
 					case NkBlendMode::NK_NONE:
 						pso = mPSONone.Get();
+						break;
+					case NkBlendMode::NK_SCREEN:
+						pso = mPSOScreen.Get();
+						break;
+					case NkBlendMode::NK_DARKEN:
+						pso = mPSODarken.Get();
+						break;
+					case NkBlendMode::NK_LIGHTEN:
+						pso = mPSOLighten.Get();
+						break;
+					case NkBlendMode::NK_PLUS_LIGHTER:
+						pso = mPSOPlus.Get();
 						break;
 					default:
 						pso = mPSOAlpha.Get();

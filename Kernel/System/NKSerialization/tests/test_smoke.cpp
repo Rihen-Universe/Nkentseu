@@ -1,3 +1,4 @@
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // =============================================================================
 // tests/test_smoke.cpp
 // =============================================================================
@@ -396,7 +397,7 @@ static void TestAssetIO() {
 	meta.AddTag("albedo");
 
 	// Payload fictif (2 KB de données)
-	NkVector<nk_uint8> payload(2048u);
+	NkVector<nk_uint8> payload(static_cast<nk_size>(2048u)); // ambigu avec NkVector(const T&) sinon (2026-09-04)
 	for (nk_size i = 0; i < 2048u; ++i)
 		payload[i] = static_cast<nk_uint8>(i & 0xFF);
 

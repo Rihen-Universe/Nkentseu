@@ -1,0 +1,17 @@
+nkgui 0.2
+
+// UN FICHIER D'UNE VERSION PLUS ANCIENNE, avec un ROLE RENOMME depuis.
+// `RepeatButton` est l'ancien nom de `Button` (document 7 §5). Il est ENCORE
+// LU, et la validation le signale par un AVERTISSEMENT -- pas une erreur :
+// un vieux fichier doit rester ouvrable, sinon on ne peut pas le mettre a jour.
+//
+// Diagnostic attendu : W-ROLE-ALIAS, et rien d'autre.
+widgets {
+
+  RepeatButton "plus" {
+    label = "+"
+    repeat = true
+    repeatDelay = 0.4
+    repeatRate = 0.05
+  }
+}

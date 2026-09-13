@@ -1,11 +1,12 @@
 /*
+ * AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
  * NkUIViewport3D.cpp — Viewport 3D production-ready style Unreal Engine.
  * Partie 1/3 : projection, primitives 3D, helpers.
  */
 #include "NkUIViewport3D.h"
+#include "NKCore/Text/NkSnprintf.h"
 #include <cmath>
 #include <cstring>
-#include <cstdio>
 
 namespace nkentseu {
 	namespace nkui {
@@ -676,7 +677,7 @@ namespace nkentseu {
 				// Popup "Add" (simplifié — on ajoute un cube pour la démo)
 				if (hov && ctx.input.IsMouseClicked(0) && state.numObjects < NkVP3DState::MAX_OBJECTS) {
 					char nm[32];
-					::snprintf(nm, sizeof(nm), "Cube%d", state.numObjects);
+					nkentseu::NkSnprintf(nm, sizeof(nm), "Cube%d", state.numObjects);
 					uint8 r = (140 + state.numObjects * 20) % 256;
 					AddObject(state, nm, NkVP3DObjectShape::NK_VP3D_CUBE, {r, 180, 255, 255});
 				}
@@ -860,22 +861,22 @@ namespace nkentseu {
 			char buf[64];
 			float32 ly = y + 6.f + font.metrics.ascender;
 
-			::snprintf(buf, sizeof(buf), "FPS: %.1f", state.fps);
+			nkentseu::NkSnprintf(buf, sizeof(buf), "FPS: %.1f", state.fps);
 			font.RenderText(dl, {x + 6.f, ly}, buf, kTextPrimary, panW - 8.f, false);
 			ly += lh;
 
-			::snprintf(buf, sizeof(buf), "Objects: %d", state.numObjects);
+			nkentseu::NkSnprintf(buf, sizeof(buf), "Objects: %d", state.numObjects);
 			font.RenderText(dl, {x + 6.f, ly}, buf, kTextSecond, panW - 8.f, false);
 			ly += lh;
 
-			::snprintf(buf, sizeof(buf), "Selected: %d", state.numSelected);
+			nkentseu::NkSnprintf(buf, sizeof(buf), "Selected: %d", state.numSelected);
 			font.RenderText(dl, {x + 6.f, ly}, buf, kTextSecond, panW - 8.f, false);
 			ly += lh;
 
 			const char *modeName = state.gizmoCfg.mode == NkUIGizmoMode::NK_TRANSLATE ? "Translate"
 								   : state.gizmoCfg.mode == NkUIGizmoMode::NK_ROTATE  ? "Rotate"
 																					  : "Scale";
-			::snprintf(buf, sizeof(buf), "Mode: %s", modeName);
+			nkentseu::NkSnprintf(buf, sizeof(buf), "Mode: %s", modeName);
 			font.RenderText(dl, {x + 6.f, ly}, buf, kAccent, panW - 8.f, false);
 		}
 
@@ -916,12 +917,12 @@ namespace nkentseu {
 				const auto &t = obj.transform;
 				const auto &g = state.gizmoCfg;
 				if (g.mode == NkUIGizmoMode::NK_TRANSLATE)
-					::snprintf(buf, sizeof(buf), "%.2f, %.2f, %.2f", t.position.x, t.position.y, t.position.z);
+					nkentseu::NkSnprintf(buf, sizeof(buf), "%.2f, %.2f, %.2f", t.position.x, t.position.y, t.position.z);
 				else if (g.mode == NkUIGizmoMode::NK_ROTATE)
-					::snprintf(buf, sizeof(buf), "%.1f, %.1f, %.1f deg", t.rotationDeg.x, t.rotationDeg.y,
+					nkentseu::NkSnprintf(buf, sizeof(buf), "%.1f, %.1f, %.1f deg", t.rotationDeg.x, t.rotationDeg.y,
 							   t.rotationDeg.z);
 				else
-					::snprintf(buf, sizeof(buf), "%.2f, %.2f, %.2f", t.scale.x, t.scale.y, t.scale.z);
+					nkentseu::NkSnprintf(buf, sizeof(buf), "%.2f, %.2f, %.2f", t.scale.x, t.scale.y, t.scale.z);
 				const float32 tw = font.MeasureWidth(buf);
 				const float32 bx = c.x - tw * 0.5f, by2 = c.y + 24.f;
 				dl.AddRectFilled({bx - 4.f, by2 - 2.f, tw + 8.f, font.metrics.lineHeight + 4.f}, {0, 0, 0, 160}, 3.f);
@@ -1521,7 +1522,7 @@ namespace nkentseu {
 					const NkRect fr = {fx, yy, fw - 2.f, lh + 4.f};
 					dl.AddRectFilled(fr, {30, 30, 35, 200}, 2.f);
 					dl.AddRect(fr, c2.col2.WithAlpha(100), 1.f, 2.f);
-					::snprintf(buf, sizeof(buf), "%.3f", *c2.val);
+					nkentseu::NkSnprintf(buf, sizeof(buf), "%.3f", *c2.val);
 					font.RenderText(dl, {fr.x + 3.f, fr.y + (fr.h - lh) * 0.5f + asc}, buf, col, fw - 6.f, false);
 					const float32 lbW = font.MeasureWidth(c2.lbl);
 					font.RenderText(dl, {fr.x + fw - lbW - 3.f, fr.y + (fr.h - lh) * 0.5f + asc}, c2.lbl, c2.col2,
@@ -1562,7 +1563,7 @@ namespace nkentseu {
 					const NkRect fr = {fx, y, fw - 2.f, lh + 4.f};
 					dl.AddRectFilled(fr, {30, 30, 35, 200}, 2.f);
 					dl.AddRect(fr, c2.col2.WithAlpha(100), 1.f, 2.f);
-					::snprintf(buf, sizeof(buf), "%.3f", c2.val);
+					nkentseu::NkSnprintf(buf, sizeof(buf), "%.3f", c2.val);
 					font.RenderText(dl, {fr.x + 3.f, fr.y + (fr.h - lh) * 0.5f + asc}, buf, kTextPrimary, fw - 6.f,
 									false);
 					const float32 lbW = font.MeasureWidth(c2.lbl);
@@ -1594,7 +1595,7 @@ namespace nkentseu {
 					const NkRect fr = {fx, y, fw - 2.f, lh + 4.f};
 					dl.AddRectFilled(fr, {30, 30, 35, 200}, 2.f);
 					dl.AddRect(fr, c2.col2.WithAlpha(100), 1.f, 2.f);
-					::snprintf(buf, sizeof(buf), "%.1f", c2.val);
+					nkentseu::NkSnprintf(buf, sizeof(buf), "%.1f", c2.val);
 					font.RenderText(dl, {fr.x + 3.f, fr.y + (fr.h - lh) * 0.5f + asc}, buf, kTextPrimary, fw - 6.f,
 									false);
 					const float32 lbW = font.MeasureWidth(c2.lbl);
@@ -1625,7 +1626,7 @@ namespace nkentseu {
 					const NkRect fr = {fx, y, fw - 2.f, lh + 4.f};
 					dl.AddRectFilled(fr, {30, 30, 35, 200}, 2.f);
 					dl.AddRect(fr, c2.col2.WithAlpha(100), 1.f, 2.f);
-					::snprintf(buf, sizeof(buf), "%.3f", c2.val);
+					nkentseu::NkSnprintf(buf, sizeof(buf), "%.3f", c2.val);
 					font.RenderText(dl, {fr.x + 3.f, fr.y + (fr.h - lh) * 0.5f + asc}, buf, kTextPrimary, fw - 6.f,
 									false);
 					const float32 lbW = font.MeasureWidth(c2.lbl);
@@ -1695,7 +1696,7 @@ namespace nkentseu {
 
 			char buf[80];
 			// Position caméra
-			::snprintf(buf, sizeof(buf), "Cam  Yaw:%.0f  Pitch:%.0f  Dist:%.1f", state.camera.yaw, state.camera.pitch,
+			nkentseu::NkSnprintf(buf, sizeof(buf), "Cam  Yaw:%.0f  Pitch:%.0f  Dist:%.1f", state.camera.yaw, state.camera.pitch,
 					   state.camera.distance);
 			stat(buf);
 
@@ -1707,7 +1708,7 @@ namespace nkentseu {
 			// Sélection
 			if (state.numSelected > 0) {
 				const NkVP3DObject &obj = state.objects[state.selectedIdx[0]];
-				::snprintf(buf, sizeof(buf), "Sel: %s  Pos(%.2f,%.2f,%.2f)", obj.name, obj.transform.position.x,
+				nkentseu::NkSnprintf(buf, sizeof(buf), "Sel: %s  Pos(%.2f,%.2f,%.2f)", obj.name, obj.transform.position.x,
 						   obj.transform.position.y, obj.transform.position.z);
 				stat(buf, kSelectionHL);
 			}

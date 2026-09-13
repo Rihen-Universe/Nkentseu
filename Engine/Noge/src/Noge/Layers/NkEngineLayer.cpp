@@ -1,3 +1,4 @@
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // =============================================================================
 // Nkentseu/Core/NkEngineLayer.cpp
 // =============================================================================
@@ -6,6 +7,7 @@
 #include "Noge/ECS/Systems/NkTransformSystem.h"
 #include "Noge/ECS/Systems/NkPhysicsSystem.h"
 #include "Noge/ECS/Systems/NkParticleSystem.h"
+#include "Noge/ECS/Systems/NkFluidVolumeSystem.h"
 #include "Noge/ECS/Entities/NkBehaviourSystem.h"
 #include "Noge/ECS/Scripting/NkScriptSystem.h"
 #include "NKLogger/NkLog.h"
@@ -165,6 +167,15 @@ namespace nkentseu {
 
 			NkParticleSystem &ps = mScheduler.AddSystem<NkParticleSystem>();
 			ps.Init(mRenderer);
+
+			// Les VOLUMES DE FLUIDE (fumee/feu, grille eulerienne) -- 2026-09-06.
+			// Il prend le REGISTRE, pas le renderer : le registre est CPU pur, donc
+			// ce pont s eprouve sans device (banc NkFluidEcsProbe). Le PAS de
+			// simulation appartient a NkVFXSystem::Update, une fois par image.
+			if (renderer::NkVFXSystem *vfx = mRenderer->GetVFX()) {
+				NkFluidVolumeSystem &fs = mScheduler.AddSystem<NkFluidVolumeSystem>();
+				fs.Init(&vfx->FluidVolumes());
+			}
 		}
 
 		logger.Infof("[NkEngineLayer] %u systèmes core enregistrés\n", mScheduler.SystemCount());

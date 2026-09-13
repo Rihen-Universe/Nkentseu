@@ -2,7 +2,7 @@
 // -----------------------------------------------------------------------------
 // @File    NkRecordingPaint.h
 // @Brief   Un peintre qui n'affiche rien et ENREGISTRE tout — le banc headless.
-// @Author  Rihen
+// @Author  TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // @License Proprietary - All Rights Reserved (see LICENSE)
 //
 // =============================================================================
@@ -63,6 +63,18 @@ namespace nkentseu {
 			Icon,
 			PushClip,
 			PopClip,
+			// Ajoutees le 2026-08-30 (chaine du designer) — EN FIN, avant Count :
+			// l'enumeration est append-only comme toutes celles de la forme.
+			Ellipse,
+			Line,
+			// 2026-09-03 : la transformee du peintre. EN FIN, avant Count.
+			PushTransform,
+			PopTransform,
+			// 2026-09-04 : le mode de melange du peintre. EN FIN, avant Count.
+			PushBlend,
+			PopBlend,
+			// 2026-09-05 : l'image du peintre (polygone texture). EN FIN, avant Count.
+			Image,
 			Count
 		};
 
@@ -88,6 +100,20 @@ namespace nkentseu {
 					return "PushClip";
 				case NkPaintOp::PopClip:
 					return "PopClip";
+				case NkPaintOp::Ellipse:
+					return "Ellipse";
+				case NkPaintOp::Line:
+					return "Line";
+				case NkPaintOp::PushTransform:
+					return "PushTransform";
+				case NkPaintOp::PopTransform:
+					return "PopTransform";
+				case NkPaintOp::PushBlend:
+					return "PushBlend";
+				case NkPaintOp::PopBlend:
+					return "PopBlend";
+				case NkPaintOp::Image:
+					return "Image";
 				default:
 					return "?";
 			}
@@ -99,9 +125,18 @@ namespace nkentseu {
 				uint16 role = 0, role2 = 0;
 				uint32 rgba = 0;
 				float32 rounding = 0.f;
+				/// Pour PushTransform : a,b,c,d dans x,y,w,h ; e dans rounding ; f ICI.
+				float32 tf = 0.f;
+				/// Pour PushTransform : la RANGEE DE PERSPECTIVE (11/09). A zero pour
+				/// tout ce qui existait avant -- deux flux d'hier restent egaux.
+				float32 tg = 0.f, th = 0.f;
 				uint16 icon = 0;
 				uint8 align = 0;
 				NkString text;
+				/// Pour Image : le handle, et les sommets / uv (count paires) -- x,y,w,h
+				/// portent l'englobant, rgba l'opacite (0..255) dans l'octet bas.
+				uint32 image = 0;
+				NkVector<float32> xy, uv;
 
 				/// Egalite STRUCTURELLE, geometrie comprise. C'est ce qui rend la
 				/// comparaison de deux flux significative : si seule l'operation
@@ -109,10 +144,11 @@ namespace nkentseu {
 				/// « aucun changement ».
 				bool SameAs(const NkPaintCmd &o) const {
 					if (op != o.op || role != o.role || role2 != o.role2 || rgba != o.rgba ||
-						icon != o.icon || align != o.align)
+						icon != o.icon || align != o.align || image != o.image || xy.Size() != o.xy.Size())
 						return false;
 					if (!Near(x, o.x) || !Near(y, o.y) || !Near(w, o.w) || !Near(h, o.h) ||
-						!Near(rounding, o.rounding))
+						!Near(rounding, o.rounding) || !Near(tf, o.tf) || !Near(tg, o.tg) ||
+						!Near(th, o.th))
 						return false;
 					const char *a = text.Data(), *b = o.text.Data();
 					if (!a || !b)
@@ -190,6 +226,61 @@ namespace nkentseu {
 				void Icon(const NkPaintRect &r, uint16 iconHandle, uint16 role) override {
 					Push(NkPaintOp::Icon, r, role, 0, 0, 0.f, iconHandle, 0, nullptr);
 				}
+				bool Ellipse(const NkPaintRect &r, uint16 role) override {
+					Push(NkPaintOp::Ellipse, r, role, 0, 0, 0.f, 0, 0, nullptr);
+					return true;
+				}
+				bool Line(float32 x1, float32 y1, float32 x2, float32 y2, uint16 role,
+						  float32 thickness) override {
+					// Le rect porte les DEUX EXTREMITES (x,y)-(w,h relatifs) : la
+					// geometrie complete du segment, pas seulement sa boite.
+					Push(NkPaintOp::Line, {x1, y1, x2 - x1, y2 - y1}, role, 0, 0, thickness, 0, 0,
+						 nullptr);
+					return true;
+				}
+				/// LA TRANSFORMEE S'ENREGISTRE -- c'est ce qui rend le texte tourne
+				/// PROUVABLE sans ecran : le banc lit `PushTransform` avec ses six
+				/// coefficients, puis les commandes qu'elle couvre.
+				void PushTransform(const NkPaintTransform &t) override {
+					Push(NkPaintOp::PushTransform, {t.a, t.b, t.c, t.d}, 0, 0, 0, t.e, 0, 0, nullptr);
+					if (!cmds.Empty()) {
+						cmds[cmds.Size() - 1].tf = t.f;
+						cmds[cmds.Size() - 1].tg = t.g;
+						cmds[cmds.Size() - 1].th = t.h;
+					}
+				}
+				bool ImagePolygone(const float32 *xy, const float32 *uv, int32 count, uint32 image,
+								   float32 opacite) override {
+					if (!xy || !uv || count < 3)
+						return false;
+					float32 x0 = xy[0], y0 = xy[1], x1 = xy[0], y1 = xy[1];
+					for (int32 i = 1; i < count; ++i) {
+						if (xy[i * 2] < x0) x0 = xy[i * 2];
+						if (xy[i * 2] > x1) x1 = xy[i * 2];
+						if (xy[i * 2 + 1] < y0) y0 = xy[i * 2 + 1];
+						if (xy[i * 2 + 1] > y1) y1 = xy[i * 2 + 1];
+					}
+					const float32 k = opacite < 0.f ? 0.f : (opacite > 100.f ? 1.f : opacite * 0.01f);
+					Push(NkPaintOp::Image, {x0, y0, x1 - x0, y1 - y0}, 0, 0, (uint32)(255.f * k + 0.5f) & 0xFFu, 0.f, 0, 0,
+						 nullptr);
+					NkPaintCmd &c = cmds[cmds.Size() - 1];
+					c.image = image;
+					for (int32 i = 0; i < count * 2; ++i) {
+						c.xy.PushBack(xy[i]);
+						c.uv.PushBack(uv[i]);
+					}
+					return true;
+				}
+				void PopTransform() override {
+					Push(NkPaintOp::PopTransform, {0.f, 0.f, 0.f, 0.f}, 0, 0, 0, 0.f, 0, 0, nullptr);
+				}
+				/// 2026-09-04 : le mode dans `icon` (sa valeur NkPaintBlend), rien d'autre
+				void PushBlend(NkPaintBlend b) override {
+					Push(NkPaintOp::PushBlend, {0.f, 0.f, 0.f, 0.f}, 0, 0, 0, 0.f, (uint16)b, 0, nullptr);
+				}
+				void PopBlend() override {
+					Push(NkPaintOp::PopBlend, {0.f, 0.f, 0.f, 0.f}, 0, 0, 0, 0.f, 0, 0, nullptr);
+				}
 				void PushClip(const NkPaintRect &r) override {
 					++mClipDepth;
 					if (mClipDepth > mMaxClipDepth)
@@ -245,7 +336,10 @@ namespace nkentseu {
 					c.h = r.h;
 					c.role = role;
 					c.role2 = role2;
-					c.rgba = rgba;
+					// ⚠️ LE POINT UNIQUE DE COULEUR DE CE PEINTRE : toutes les ops passent par
+					//    `Push`. La teinte s'y applique, donc LE BANC VOIT ce que l'ecran voit --
+					//    un temoin qui ne verrait pas la teinte ne pourrait pas la prouver.
+					c.rgba = Teinter(rgba);
 					c.rounding = rounding;
 					c.icon = icon;
 					c.align = align;

@@ -1,4 +1,5 @@
 #pragma once
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // =============================================================================
 // NkDX12Renderer2D.h — DirectX 12 2D renderer backend
 // Uses root constants for projection (no CBV heap needed for a 64-byte matrix).
@@ -72,6 +73,11 @@ namespace nkentseu {
 				ComPtr<ID3D12PipelineState> mPSOAdd;
 				ComPtr<ID3D12PipelineState> mPSOMul;
 				ComPtr<ID3D12PipelineState> mPSONone;
+				// 2026-09-04 : Screen, Darken (MIN), Lighten (MAX), Plus Lighter -- exacts
+				ComPtr<ID3D12PipelineState> mPSOScreen;
+				ComPtr<ID3D12PipelineState> mPSODarken;
+				ComPtr<ID3D12PipelineState> mPSOLighten;
+				ComPtr<ID3D12PipelineState> mPSOPlus;
 
 				// Dynamic vertex/index buffers (host-visible upload heap), utilisés en
 				// RING par frame : chaque SubmitBatches écrit à un offset qui AVANCE

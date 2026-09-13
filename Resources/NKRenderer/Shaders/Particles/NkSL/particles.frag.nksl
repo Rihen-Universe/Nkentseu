@@ -1,0 +1,19 @@
+// particles.frag.nksl — NKRenderer — billboard de particule (VRAI dialecte NkSL)
+// 2026-09-04, borne 2 : la particule est un quad TEXTURE. La texture definit la
+// forme et la teinte (atlas ou image seule), la couleur du sommet (degrade de
+// vie) la module. Sans texture sur l'emetteur, NkVFXSystem lie un repli --
+// un disque doux blanc 32x32 genere a l'initialisation -- et le DIT une fois
+// par emetteur (stderr). Le disque doux qui vivait ici en dur est devenu ce
+// repli : meme rendu qu'avant pour un emetteur sans texture.
+@location(0) in vec2 vUV;
+@location(1) in vec4 vColor;
+@location(0) out vec4 fragColor;
+@binding(set=0, binding=1) uniform sampler2D tParticle;
+@stage(fragment)
+@entry
+void main() {
+    vec4 t = texture(tParticle, vUV);
+    vec4 c = vColor * t;
+    if (c.a <= 0.003) discard;
+    fragColor = c;
+}

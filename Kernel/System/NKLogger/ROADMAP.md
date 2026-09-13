@@ -106,7 +106,7 @@ interne.
   fonctionnel** : coût par ligne (fichier / sans écriture / filtrée), autonome,
   son propre `main`, aucune dépendance à un cadre de test. Lancement :
   `bash Kernel/System/NKLogger/tests/build_bench.sh` puis
-  `/tmp/nklogbench/bench_nklogger.exe`. Il **échoue** si une durée est nulle ou
+  `Build/Tests/nklogbench/bench_nklogger.exe`. Il **échoue** si une durée est nulle ou
   si une ligne filtrée ne coûte pas moins qu'une ligne émise.
 - `test_smoke.cpp`, `test_indexed_format.cpp` — ⏳ **écrits, non exécutés ici**.
   Ils s'appuient sur `Unitest`, fourni par **Jenga**, et l'exécution des tests

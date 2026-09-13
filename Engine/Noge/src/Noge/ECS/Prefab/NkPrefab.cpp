@@ -1,8 +1,10 @@
 // =============================================================================
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // FICHIER: NKECS/Prefab/NkPrefab.cpp
 // DESCRIPTION: Implémentations des méthodes d'instanciation et sérialisation.
 // =============================================================================
 #include "NkPrefab.h"
+#include "NKCore/Text/NkSnprintf.h"
 #include "NKECS/Reflect/NkReflect.h"
 #include "Noge/ECS/Components/SceneComponent/NkSceneComponent.h" // NkSceneComponent
 #include "NKContainers/String/NkFormat.h"						 // NkFormat
@@ -55,7 +57,7 @@ namespace nkentseu {
 	// Écrit un float avec précision contrôlée
 	static void WriteJsonFloat(char *buf, uint32 &offset, uint32 bufSize, float32 val) noexcept {
 		char temp[64];
-		int len = std::snprintf(temp, sizeof(temp), "%.6g", static_cast<double>(val));
+		int len = nkentseu::NkSnprintf(temp, sizeof(temp), "%.6g", static_cast<double>(val));
 		for (int i = 0; i < len && offset < bufSize - 1; ++i) {
 			buf[offset++] = temp[i];
 		}

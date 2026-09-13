@@ -1,4 +1,5 @@
 // =============================================================================
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // NKTime/NkDuration.cpp
 // Implémentation de NkDuration::ToString / ToStringPrecise.
 //
@@ -21,6 +22,7 @@
 // 3. Headers système nécessaires
 
 #include "pch.h"
+#include "NKCore/Text/NkSnprintf.h"
 #include "NKTime/NkDuration.h"
 
 #include <cstdio>
@@ -62,35 +64,35 @@ namespace nkentseu {
 		// Sélection de l'unité adaptative par ordre décroissant de magnitude
 		if (absNs == 0) {
 			// Cas spécial : durée nulle affichée simplement
-			::snprintf(buf, sizeof(buf), "0s");
+			nkentseu::NkSnprintf(buf, sizeof(buf), "0s");
 		} else if (absNs >= NS_PER_DAY) {
 			// Durée >= 1 jour : affichage en jours avec 2 décimales
-			::snprintf(buf, sizeof(buf), "%.2fd",
+			nkentseu::NkSnprintf(buf, sizeof(buf), "%.2fd",
 					   static_cast<float64>(mNanoseconds) / static_cast<float64>(NS_PER_DAY));
 		} else if (absNs >= NS_PER_HOUR) {
 			// Durée >= 1 heure : affichage en heures avec 2 décimales
-			::snprintf(buf, sizeof(buf), "%.2fh",
+			nkentseu::NkSnprintf(buf, sizeof(buf), "%.2fh",
 					   static_cast<float64>(mNanoseconds) / static_cast<float64>(NS_PER_HOUR));
 		} else if (absNs >= NS_PER_MINUTE) {
 			// Durée >= 1 minute : affichage en minutes avec 2 décimales
-			::snprintf(buf, sizeof(buf), "%.2fmin",
+			nkentseu::NkSnprintf(buf, sizeof(buf), "%.2fmin",
 					   static_cast<float64>(mNanoseconds) / static_cast<float64>(NS_PER_MINUTE));
 		} else if (absNs >= NS_PER_SECOND) {
 			// Durée >= 1 seconde : affichage en secondes avec 3 décimales
-			::snprintf(buf, sizeof(buf), "%.3fs",
+			nkentseu::NkSnprintf(buf, sizeof(buf), "%.3fs",
 					   static_cast<float64>(mNanoseconds) / static_cast<float64>(NS_PER_SECOND));
 		} else if (absNs >= NS_PER_MILLISECOND) {
 			// Durée >= 1 milliseconde : affichage en ms avec 3 décimales
-			::snprintf(buf, sizeof(buf), "%.3fms",
+			nkentseu::NkSnprintf(buf, sizeof(buf), "%.3fms",
 					   static_cast<float64>(mNanoseconds) / static_cast<float64>(NS_PER_MILLISECOND));
 		} else if (absNs >= NS_PER_MICROSECOND) {
 			// Durée >= 1 microseconde : affichage en us avec 3 décimales
-			::snprintf(buf, sizeof(buf), "%.3fus",
+			nkentseu::NkSnprintf(buf, sizeof(buf), "%.3fus",
 					   static_cast<float64>(mNanoseconds) / static_cast<float64>(NS_PER_MICROSECOND));
 		} else {
 			// Durée < 1 microseconde : affichage en nanosecondes (entier)
 			// Pas de décimales car la précision native est déjà en ns
-			::snprintf(buf, sizeof(buf), "%lldns", static_cast<long long>(mNanoseconds));
+			nkentseu::NkSnprintf(buf, sizeof(buf), "%lldns", static_cast<long long>(mNanoseconds));
 		}
 
 		// Construction de la chaîne NKEntseu depuis le buffer C
@@ -115,7 +117,7 @@ namespace nkentseu {
 
 		// Formatage direct de la valeur interne en nanosecondes
 		// %lld pour int64 sur toutes les plateformes supportées
-		::snprintf(buf, sizeof(buf), "%lld ns", static_cast<long long>(mNanoseconds));
+		nkentseu::NkSnprintf(buf, sizeof(buf), "%lld ns", static_cast<long long>(mNanoseconds));
 
 		// Construction de la chaîne NKEntseu depuis le buffer C
 		return NkString(buf);
@@ -132,7 +134,7 @@ namespace nkentseu {
 	- Toutes les autres méthodes de NkDuration sont constexpr et/ou inline.
 	- Elles sont donc définies dans le header pour permettre l'inlining
 	  et l'évaluation à la compilation par le compilateur.
-	- ToString() et ToStringPrecise() utilisent snprintf() qui :
+	- ToString() et ToStringPrecise() utilisent nkentseu::NkSnprintf() qui :
 	  * Nécessite <cstdio> (header système)
 	  * Alloue dynamiquement via NkString (non-constexpr)
 	  * Ne peut pas être évaluée à la compilation

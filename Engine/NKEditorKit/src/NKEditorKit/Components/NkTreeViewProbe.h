@@ -2,7 +2,7 @@
 // -----------------------------------------------------------------------------
 // @File    NkTreeViewProbe.h
 // @Brief   LE BANC de l'arbre, sans fenetre, sans GPU et SANS CIBLE DE BUILD.
-// @Author  Rihen
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // @License Proprietary - All Rights Reserved (see LICENSE)
 //
 // =============================================================================
@@ -101,6 +101,7 @@
 // -----------------------------------------------------------------------------
 
 #include "NKEditorKit/Components/NkComponentCheck.h"
+#include "NKCore/Text/NkSnprintf.h"
 #include "NKEditorKit/Components/NkComponentInstance.h"
 #include "NKEditorKit/Components/NkRecordingPaint.h"
 #include "NKEditorKit/Components/NkTreeViewModel.h"
@@ -376,7 +377,7 @@ namespace nkentseu {
 				NkRecordingPaint a1, a2;
 				RenderFresh(a1, nullptr, idle);
 				RenderFresh(a2, nullptr, idle);
-				snprintf(buf, sizeof(buf), "%u commandes, %u differences", (uint32)a1.cmds.Size(),
+				nkentseu::NkSnprintf(buf, sizeof(buf), "%u commandes, %u differences", (uint32)a1.cmds.Size(),
 						 a1.DiffCount(a2));
 				check("1.  TEMOIN DE BRUIT : deux passes identiques -> 0 difference",
 					  a1.DiffCount(a2) == 0, buf);
@@ -388,7 +389,7 @@ namespace nkentseu {
 				mi.SetMetric("row_h", 40.f);
 				NkRecordingPaint b;
 				RenderFresh(b, &mi, idle);
-				snprintf(buf, sizeof(buf), "row_h 24 -> 40 : %u commandes differentes",
+				nkentseu::NkSnprintf(buf, sizeof(buf), "row_h 24 -> 40 : %u commandes differentes",
 						 a1.DiffCount(b));
 				check("2.  CONTROLE POSITIF : une METRIQUE ecrasee change le dessin",
 					  a1.DiffCount(b) > 0, buf);
@@ -398,7 +399,7 @@ namespace nkentseu {
 				pi.SetParam("show_lock", 1.f);
 				NkRecordingPaint c;
 				RenderFresh(c, &pi, idle);
-				snprintf(buf, sizeof(buf), "show_lock 0 -> 1 : %u differences", a1.DiffCount(c));
+				nkentseu::NkSnprintf(buf, sizeof(buf), "show_lock 0 -> 1 : %u differences", a1.DiffCount(c));
 				check("3.  un PARAMETRE ecrase change le dessin", a1.DiffCount(c) > 0, buf);
 
 				// ── 4. UNE VARIANTE ─────────────────────────────────────────────
@@ -406,7 +407,7 @@ namespace nkentseu {
 				vi.SetVariantByName("flat_list");
 				NkRecordingPaint d2;
 				RenderFresh(d2, &vi, idle);
-				snprintf(buf, sizeof(buf), "tree -> flat_list : %u differences", a1.DiffCount(d2));
+				nkentseu::NkSnprintf(buf, sizeof(buf), "tree -> flat_list : %u differences", a1.DiffCount(d2));
 				check("4.  une VARIANTE change la mise en page (un modele, N rendus)",
 					  a1.DiffCount(d2) > 0, buf);
 
@@ -414,7 +415,7 @@ namespace nkentseu {
 				NkComponentInstance pristine(decl);
 				NkRecordingPaint e;
 				RenderFresh(e, &pristine, idle);
-				snprintf(buf, sizeof(buf), "%u differences (attendu : 0)", a1.DiffCount(e));
+				nkentseu::NkSnprintf(buf, sizeof(buf), "%u differences (attendu : 0)", a1.DiffCount(e));
 				check("5.  une instance VIERGE se comporte comme la declaration",
 					  a1.DiffCount(e) == 0, buf);
 
@@ -426,11 +427,11 @@ namespace nkentseu {
 				const bool loaded = reloaded.Load(text.Data(), &unknown, &applied);
 				NkRecordingPaint f;
 				RenderFresh(f, &reloaded, idle);
-				snprintf(buf, sizeof(buf), "entete=%d applique=%u inconnu=%u, %u diff. avec l'ecrit",
+				nkentseu::NkSnprintf(buf, sizeof(buf), "entete=%d applique=%u inconnu=%u, %u diff. avec l'ecrit",
 						 loaded ? 1 : 0, applied, unknown, b.DiffCount(f));
 				check("6.  ALLER-RETOUR FICHIER : ecrit -> texte -> relu -> MEME dessin",
 					  loaded && unknown == 0 && applied > 0 && b.DiffCount(f) == 0, buf);
-				snprintf(buf, sizeof(buf), "%u differences (doit rester > 0)", a1.DiffCount(f));
+				nkentseu::NkSnprintf(buf, sizeof(buf), "%u differences (doit rester > 0)", a1.DiffCount(f));
 				check("6b. et le dessin relu differe TOUJOURS de la reference", a1.DiffCount(f) > 0,
 					  buf);
 
@@ -445,21 +446,21 @@ namespace nkentseu {
 				bogus.SetMetric("cle_qui_nexiste_pas", 999.f);
 				NkRecordingPaint g;
 				RenderFresh(g, &bogus, idle);
-				snprintf(buf, sizeof(buf), "%u ecrasements retenus, %u differences (attendu : 0 et 0)",
+				nkentseu::NkSnprintf(buf, sizeof(buf), "%u ecrasements retenus, %u differences (attendu : 0 et 0)",
 						 bogus.OverrideCount(), a1.DiffCount(g));
 				check("8.  CONTROLE NEGATIF : une cle inconnue de la declaration ne change RIEN",
 					  bogus.OverrideCount() == 0 && a1.DiffCount(g) == 0, buf);
 				NkComponentInstance perime(decl);
 				uint32 u2 = 0, a2c = 0;
 				perime.Load("nkuicomp 1\nmetrique disparue = 3\nmetrique row_h = 30\n", &u2, &a2c);
-				snprintf(buf, sizeof(buf), "inconnu=%u applique=%u", u2, a2c);
+				nkentseu::NkSnprintf(buf, sizeof(buf), "inconnu=%u applique=%u", u2, a2c);
 				check("8b. un fichier a moitie perime se charge, et COMPTE l'inconnu",
 					  u2 == 1 && a2c == 1, buf);
 
 				// ── 9. LES BORNES VIENNENT DE LA DECLARATION ────────────────────
 				NkComponentInstance clamp(decl);
 				clamp.SetMetric("row_h", -12.f);
-				snprintf(buf, sizeof(buf), "-12 ramene a %.1f", clamp.Metric("row_h"));
+				nkentseu::NkSnprintf(buf, sizeof(buf), "-12 ramene a %.1f", clamp.Metric("row_h"));
 				check("9.  une longueur negative est refusee par l'INSTANCE, pas par l'appelant",
 					  clamp.Metric("row_h") >= 0.f, buf);
 
@@ -474,7 +475,7 @@ namespace nkentseu {
 					m.SetOpen(m.nodes[2].id, false, true);
 					NkRecordingPaint r1;
 					const NkTreeViewResult after = RenderInto(r1, m, nullptr, idle, nullptr);
-					snprintf(buf, sizeof(buf), "%d lignes -> %d apres pliage de « Eclairage »",
+					nkentseu::NkSnprintf(buf, sizeof(buf), "%d lignes -> %d apres pliage de « Eclairage »",
 							 before.visibleCount, after.visibleCount);
 					check("10. RECURSION : replier un noeud retire EXACTEMENT sa descendance",
 						  before.visibleCount == 7 && after.visibleCount == 5, buf);
@@ -493,7 +494,7 @@ namespace nkentseu {
 					const float32 xGrand = TextXOf(a1, "Lumiere directionnelle");
 					const float32 step = decl.Metric("indent_step");
 					const float32 d1 = xKid - xRoot, d3 = xGrand - xRoot;
-					snprintf(buf, sizeof(buf), "racine=%.1f enfant=%.1f petit-enfant=%.1f, pas=%.1f",
+					nkentseu::NkSnprintf(buf, sizeof(buf), "racine=%.1f enfant=%.1f petit-enfant=%.1f, pas=%.1f",
 							 xRoot, xKid, xGrand, step);
 					check("11. la PROFONDEUR se lit dans la geometrie : 1 cran, puis 2",
 						  xRoot >= 0.f && d1 > step - 0.01f && d1 < step + 0.01f &&
@@ -515,7 +516,7 @@ namespace nkentseu {
 					flat.SetVariantByName("flat_list");
 					NkRecordingPaint rf;
 					const NkTreeViewResult rv = RenderInto(rf, m, &flat, idle, nullptr);
-					snprintf(buf, sizeof(buf), "%d lignes en plat (7 attendu), toggled %u -> %u",
+					nkentseu::NkSnprintf(buf, sizeof(buf), "%d lignes en plat (7 attendu), toggled %u -> %u",
 							 rv.visibleCount, toggledBefore, (uint32)m.toggled.Size());
 					check("12. C2 : la variante plate montre tout SANS modifier l'etat de pliage",
 						  rv.visibleCount == 7 && m.toggled.Size() == toggledBefore &&
@@ -535,7 +536,7 @@ namespace nkentseu {
 					click.mousePressed = true;
 					NkRecordingPaint r;
 					RenderInto(r, m, nullptr, click, &h);
-					snprintf(buf, sizeof(buf), "onSelect=%d index=%d", ev.selects, ev.lastIndex);
+					nkentseu::NkSnprintf(buf, sizeof(buf), "onSelect=%d index=%d", ev.selects, ev.lastIndex);
 					check("13. onSelect part au clic, avec l'index de la ligne visee",
 						  ev.selects == 1 && ev.lastIndex == 5, buf);
 					// ⚠️ `ev.selects > 0` FAIT PARTIE DE LA CONDITION : sans lui,
@@ -564,7 +565,7 @@ namespace nkentseu {
 					click.mousePressed = true;
 					NkRecordingPaint r;
 					RenderInto(r, m, nullptr, click, &h);
-					snprintf(buf, sizeof(buf), "onExpand=%d (open=%d) onSelect=%d", ev.expands,
+					nkentseu::NkSnprintf(buf, sizeof(buf), "onExpand=%d (open=%d) onSelect=%d", ev.expands,
 							 ev.lastOpen ? 1 : 0, ev.selects);
 					check("14. le CHEVRON plie, et le clic qui plie NE selectionne PAS",
 						  ev.expands == 1 && !ev.lastOpen && ev.selects == 0, buf);
@@ -589,7 +590,7 @@ namespace nkentseu {
 					RenderInto(r, m, nullptr, click, &h);
 					const uint32 afterAdd = (uint32)m.chosen.Size();
 					RenderInto(r, m, nullptr, click, &h); // meme Ctrl+clic : bascule inverse
-					snprintf(buf, sizeof(buf), "1 -> %u -> %u", afterAdd, (uint32)m.chosen.Size());
+					nkentseu::NkSnprintf(buf, sizeof(buf), "1 -> %u -> %u", afterAdd, (uint32)m.chosen.Size());
 					check("15. SELECTION MULTIPLE : Ctrl+clic ajoute, puis le meme retire",
 						  afterAdd == 2 && m.chosen.Size() == 1, buf);
 				}
@@ -620,7 +621,7 @@ namespace nkentseu {
 					click.mouseX = LabelX(decl, 2);
 					click.mouseY = RowCenterY(decl, 3); // jusqu'a « Lumiere directionnelle »
 					RenderInto(r, m, nullptr, click, &h);
-					snprintf(buf, sizeof(buf), "%u selectionnes (4 attendus : rangs 0 a 3)",
+					nkentseu::NkSnprintf(buf, sizeof(buf), "%u selectionnes (4 attendus : rangs 0 a 3)",
 							 (uint32)m.chosen.Size());
 					check("16. SELECTION DE PLAGE : Maj+clic prend les rangs affiches, bornes comprises",
 						  m.chosen.Size() == 4, buf);
@@ -648,7 +649,7 @@ namespace nkentseu {
 					drop.dragType = "node";
 					drop.dragReleased = true;
 					const NkTreeViewResult bad = RenderInto(r, m, nullptr, drop, &h);
-					snprintf(buf, sizeof(buf), "refuse=%d, onDrop=%d (0 attendu)",
+					nkentseu::NkSnprintf(buf, sizeof(buf), "refuse=%d, onDrop=%d (0 attendu)",
 							 bad.dropRefusedCycle ? 1 : 0, ev.drops);
 					check("17. GARDE ANTI-CYCLE : lacher un noeud dans sa propre descendance est REFUSE",
 						  bad.dropRefusedCycle && ev.drops == 0, buf);
@@ -665,7 +666,7 @@ namespace nkentseu {
 					press2.mousePressed = true;
 					RenderInto(r, m2, nullptr, press2, &h2);
 					const NkTreeViewResult good = RenderInto(r, m2, nullptr, drop, &h2);
-					snprintf(buf, sizeof(buf), "accepte=%d onDrop=%d position=%u",
+					nkentseu::NkSnprintf(buf, sizeof(buf), "accepte=%d onDrop=%d position=%u",
 							 good.dropAccepted ? 1 : 0, ev2.drops, (uint32)ev2.lastDropPos);
 					check("17b. CONTRE-EPREUVE : un depot hors de la descendance est ACCEPTE",
 						  good.dropAccepted && ev2.drops == 1 &&
@@ -695,7 +696,7 @@ namespace nkentseu {
 					drop.dragType = "node";
 					drop.dragReleased = true;
 					RenderInto(r, m, nullptr, drop, &h);
-					snprintf(buf, sizeof(buf), "position=%u (%u attendu = before)",
+					nkentseu::NkSnprintf(buf, sizeof(buf), "position=%u (%u attendu = before)",
 							 (uint32)ev.lastDropPos, (uint32)NkTreeDropPos::Before);
 					check("18. le TIERS HAUT d'une ligne donne `before` (reordonner), pas `into`",
 						  ev.drops == 1 && ev.lastDropPos == (uint8)NkTreeDropPos::Before, buf);
@@ -723,7 +724,7 @@ namespace nkentseu {
 					Events::Copy(m.renameBuf, (uint32)sizeof(m.renameBuf), "Heros");
 					m.renameCommit = true;
 					RenderInto(r, m, nullptr, idle, &h);
-					snprintf(buf, sizeof(buf), "debut=%d onRename=%d « %s » -> « %s »", started ? 1 : 0,
+					nkentseu::NkSnprintf(buf, sizeof(buf), "debut=%d onRename=%d « %s » -> « %s »", started ? 1 : 0,
 							 ev.renames, ev.lastOld, ev.lastNew);
 					check("19. RENOMMAGE : le double-clic arme la saisie, la validation de l'hote emet",
 						  started && ev.renames == 1, buf);
@@ -738,7 +739,7 @@ namespace nkentseu {
 					m.renameCommit = true;
 					const int32 before = ev.renames;
 					RenderInto(r, m, nullptr, idle, &h);
-					snprintf(buf, sizeof(buf), "onRename %d -> %d (inchange attendu)", before,
+					nkentseu::NkSnprintf(buf, sizeof(buf), "onRename %d -> %d (inchange attendu)", before,
 							 ev.renames);
 					check("19c. CONTRE-EPREUVE : valider un nom IDENTIQUE n'emet rien",
 						  ev.renames == before, buf);
@@ -752,7 +753,7 @@ namespace nkentseu {
 					NkTreeViewHooks h = MakeHooks(&ev);
 					NkRecordingPaint r;
 					RenderInto(r, m, nullptr, idle, &h);
-					snprintf(buf, sizeof(buf),
+					nkentseu::NkSnprintf(buf, sizeof(buf),
 							 "select=%d activate=%d menu=%d expand=%d rename=%d drop=%d flag=%d",
 							 ev.selects, ev.activates, ev.menus, ev.expands, ev.renames, ev.drops,
 							 ev.flags);
@@ -763,7 +764,7 @@ namespace nkentseu {
 				}
 
 				// ── 21. DECOUPE EQUILIBREE ──────────────────────────────────────
-				snprintf(buf, sizeof(buf), "profondeur max %u", a1.MaxClipDepth());
+				nkentseu::NkSnprintf(buf, sizeof(buf), "profondeur max %u", a1.MaxClipDepth());
 				check("21. la pile de decoupe est equilibree (PushClip == PopClip)", a1.ClipBalanced(),
 					  buf);
 
@@ -784,7 +785,7 @@ namespace nkentseu {
 					bfs.nodes[2].parent = 0;
 					// « Sol » (indice 2) a pour parent 0, alors que la branche
 					// courante est [0,1,...] : ce n'est plus un ordre prefixe.
-					snprintf(buf, sizeof(buf), "prefixe=%d, largeur=%d (1 puis 0 attendus)",
+					nkentseu::NkSnprintf(buf, sizeof(buf), "prefixe=%d, largeur=%d (1 puis 0 attendus)",
 							 ok.IsWellFormed() ? 1 : 0, bfs.IsWellFormed() ? 1 : 0);
 					check("22. la precondition d'ordre se VERIFIE, et le verificateur discrimine",
 						  ok.IsWellFormed() && !bfs.IsWellFormed(), buf);
@@ -793,7 +794,7 @@ namespace nkentseu {
 				// ── 23. LA CONVERGENCE `.nkgui` EST PRODUITE, PAS AFFIRMEE ──────
 				char ctrl[3072];
 				const uint32 nWritten = NkWriteControllerBlock(decl, ctrl, sizeof(ctrl));
-				snprintf(buf, sizeof(buf), "%u evenements declares, bloc de %u octets", decl.eventCount,
+				nkentseu::NkSnprintf(buf, sizeof(buf), "%u evenements declares, bloc de %u octets", decl.eventCount,
 						 nWritten);
 				check("23. le bloc `controller` de la spec .nkgui v0.2 s'emet depuis la declaration",
 					  nWritten > 0 && decl.eventCount == 7, buf);
@@ -827,7 +828,7 @@ namespace nkentseu {
 						NkComponentDecl::StrEq(pos->enumNames[(uint8)NkTreeDropPos::Before], "before") &&
 						NkComponentDecl::StrEq(pos->enumNames[(uint8)NkTreeDropPos::Into], "into") &&
 						NkComponentDecl::StrEq(pos->enumNames[(uint8)NkTreeDropPos::After], "after");
-					snprintf(buf, sizeof(buf), "%u libelles declares pour %u valeurs C++",
+					nkentseu::NkSnprintf(buf, sizeof(buf), "%u libelles declares pour %u valeurs C++",
 							 pos ? (uint32)pos->enumCount : 0u, (uint32)NkTreeDropPos::Count);
 					check("24. les LIBELLES d'enum de la charge suivent l'enumeration C++", ok, buf);
 				}
@@ -835,7 +836,7 @@ namespace nkentseu {
 				// ── 25. LE REGISTRE ENUMERE ─────────────────────────────────────
 				NkComponentRegistry::Register(decl);
 				NkComponentRegistry::Register(decl); // idempotence
-				snprintf(buf, sizeof(buf), "%u composant(s) enregistre(s)",
+				nkentseu::NkSnprintf(buf, sizeof(buf), "%u composant(s) enregistre(s)",
 						 NkComponentRegistry::Count());
 				check("25. le registre enumere, et l'enregistrement est idempotent",
 					  NkComponentRegistry::Count() == 1 &&
@@ -852,7 +853,7 @@ namespace nkentseu {
 					hidpi.surfaceScale = 2.f;
 					NkRecordingPaint s2;
 					RenderFresh(s2, nullptr, hidpi);
-					snprintf(buf, sizeof(buf), "echelle 1.0 -> 2.0 : %u differences",
+					nkentseu::NkSnprintf(buf, sizeof(buf), "echelle 1.0 -> 2.0 : %u differences",
 							 a1.DiffCount(s2));
 					check("26. l'echelle de SURFACE traverse jusqu'aux metriques (temoin simultane "
 						  "DIFFERE)",
@@ -868,7 +869,7 @@ namespace nkentseu {
 				{
 					NkFormIssue issues[16];
 					const NkCheckReport rp = NkCheckComponent(decl, issues, 16);
-					snprintf(buf, sizeof(buf), "%u erreur(s), %u note(s)", rp.errors, rp.notes);
+					nkentseu::NkSnprintf(buf, sizeof(buf), "%u erreur(s), %u note(s)", rp.errors, rp.notes);
 					check("27. la declaration passe `NkCheckComponent` SANS ERREUR", rp.errors == 0,
 						  buf);
 					for (uint16 i = 0; i < rp.written; ++i) {
@@ -886,7 +887,7 @@ namespace nkentseu {
 					NkComponentDecl fake = decl;
 					fake.role = "arbre_qui_nexiste_pas";
 					const NkCheckReport bad = NkCheckComponent(fake);
-					snprintf(buf, sizeof(buf), "%u erreur(s) sur un role hors catalogue", bad.errors);
+					nkentseu::NkSnprintf(buf, sizeof(buf), "%u erreur(s) sur un role hors catalogue", bad.errors);
 					check("27b. CONTRE-EPREUVE : le verificateur SAIT rougir", bad.errors > 0, buf);
 				}
 
@@ -907,7 +908,7 @@ namespace nkentseu {
 					dbl.doubleClick = true;
 					NkRecordingPaint r;
 					RenderInto(r, m, &act, dbl, &h);
-					snprintf(buf, sizeof(buf), "onActivate=%d, renommage arme=%d (attendu : 1 et 0)",
+					nkentseu::NkSnprintf(buf, sizeof(buf), "onActivate=%d, renommage arme=%d (attendu : 1 et 0)",
 							 ev.activates, m.renaming != 0 ? 1 : 0);
 					check("28. `activate_on_double_click` HONORE : le double-clic active au lieu de "
 						  "renommer",
@@ -937,7 +938,7 @@ namespace nkentseu {
 					//    Le rang 10 est vide (l'arbre en a 7) et reste dans la surface.
 					rc.mouseY = RowCenterY(decl, 10); // sous la derniere ligne, dans la zone
 					RenderInto(r, m, nullptr, rc, &h);
-					snprintf(buf, sizeof(buf), "sur ligne=%d, sur le fond=%d (2 puis -1 attendus)",
+					nkentseu::NkSnprintf(buf, sizeof(buf), "sur ligne=%d, sur le fond=%d (2 puis -1 attendus)",
 							 onRow, ev.lastMenuIndex);
 					check("29. onContextMenu : l'index de la ligne, et -1 sur le fond",
 						  ev.menus == 2 && onRow == 2 && ev.lastMenuIndex == -1, buf);

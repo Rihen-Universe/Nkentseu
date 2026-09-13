@@ -3,6 +3,11 @@
 // backend. Compile VS + FS via le VRAI NkSLCompiler vers GL / Vulkan-GLSL /
 // HLSL-DX11 / HLSL-DX12 et imprime succès + code généré complet. Pas de GPU requis.
 // Sert à diagnostiquer : (A) éclairage FS cassé GL/DX, (B) instancing DX11.
+//
+// VERDICT (2026-08-22) : ce banc RENDAIT 0 inconditionnellement alors que sa
+// propre sortie portait « success=0 » deux fois. Un banc qui échoue en rendant
+// « tout va bien » est pire qu'absent : il éteint l'alarme au lieu de la poser.
+// Il compte désormais ses échecs et rend 1 dès qu'il y en a un.
 // =============================================================================
 #include "NKSL/Compiler/NkSLCompiler.h"
 #include "NKSL/Core/NkSLTypes.h"
@@ -74,14 +79,38 @@ void main() {
 }
 )NKSL";
 
+// Nombre de contrôles tombés. Toute sortie « success=0 », toute source générée
+// vide et tout fichier d'entrée manquant l'incrémentent. C'est LUI qui fait le
+// code de sortie : aucun chemin de ce main ne rend 0 en ayant compté un échec.
+static int gFail  = 0;
+static int gTotal = 0;
+
+// Un seul endroit décide qu'un résultat de compilation est bon, pour que le
+// diagnostic PBR et les huit conversions soient jugés par la même règle.
+static bool Juge(const NkSLCompileResult &r, const char *name) {
+	++gTotal;
+	if (!r.success) {
+		++gFail;
+		printf("  [FAIL] %s : la compilation a échoué (success=0)\n", name);
+		for (const auto &e : r.errors)
+			printf("    ERREUR ligne %u: %s\n", e.line, e.message.CStr());
+		return false;
+	}
+	// Une compilation « réussie » qui ne produit aucun octet est le même
+	// mensonge d'un cran plus bas : success=1, et rien à donner au backend.
+	if (r.source.Empty()) {
+		++gFail;
+		printf("  [FAIL] %s : success=1 mais source générée VIDE (0 octet)\n", name);
+		return false;
+	}
+	return true;
+}
+
 static void Check(NkSLCompiler &c, NkSLTarget t, NkSLStage stage, const char *src, const char *name) {
 	NkSLCompileResult r = c.Compile(NkString(src), stage, t);
 	printf("\n========================= %s : success=%d =========================\n", name, r.success ? 1 : 0);
-	if (!r.success) {
-		for (const auto &e : r.errors)
-			printf("  ERREUR ligne %u: %s\n", e.line, e.message.CStr());
+	if (!Juge(r, name))
 		return;
-	}
 	printf("%s\n", r.source.CStr());
 }
 
@@ -109,13 +138,34 @@ int main() {
 	printf("=== DIAGNOSTIC : PBR fragment — lumières GL vs VK ===\n");
 	{
 		NkString pbrFS = ReadAll("Resources/NKRenderer/Shaders/PBR/NkSL/pbr.frag.nksl");
-		if (!pbrFS.Empty()) {
-			NkSLCompileResult gl = c.Compile(pbrFS, NkSLStage::NK_FRAGMENT, NkSLTarget::NK_GLSL);
-			NkSLCompileResult vk = c.Compile(pbrFS, NkSLStage::NK_FRAGMENT, NkSLTarget::NK_GLSL_VULKAN);
+		// Le shader est VERSIONNÉ (git le suit) : son absence est un échec du
+		// banc, pas une raison de sauter le contrôle en silence.
+		if (pbrFS.Empty()) {
+			++gFail;
+			printf("  [FAIL] pbr.frag.nksl introuvable ou vide — fichier suivi par git : "
+				   "lance le banc depuis la RACINE du dépôt\n");
+		} else {
+			// Les .nksl du moteur portent des « #include "Include/*.glsli" », résolus
+			// relativement à Resources/NKRenderer/Shaders (convention documentée dans
+			// NkShaderIncludeResolver.h). Compile() ne connaît PAS ce dossier : sans ce
+			// Preprocess explicite, le banc mesurait l'absence de chemin de recherche
+			// DANS LE BANC et l'imputait à NkSL. Un instrument qui accuse son sujet à la
+			// place de son propre montage est la faute que ce chantier existe pour ôter.
+			NkVector<NkSLCompileError> incErr;
+			const NkString pbrSrc = c.Preprocess(pbrFS, NkString("Resources/NKRenderer/Shaders"), &incErr);
+			for (const auto &e : incErr) {
+				++gFail;
+				printf("  [FAIL] pbr.frag.nksl ligne %u : %s\n", e.line, e.message.CStr());
+			}
+
+			NkSLCompileResult gl = c.Compile(pbrSrc, NkSLStage::NK_FRAGMENT, NkSLTarget::NK_GLSL);
+			NkSLCompileResult vk = c.Compile(pbrSrc, NkSLStage::NK_FRAGMENT, NkSLTarget::NK_GLSL_VULKAN);
 			printf("\n----- PBR FS GLSL-OpenGL (success=%d, %u octets) -----\n%s\n", gl.success ? 1 : 0,
 				   (unsigned)gl.source.Size(), gl.source.CStr());
 			printf("\n----- PBR FS GLSL-Vulkan (success=%d, %u octets) -----\n%s\n", vk.success ? 1 : 0,
 				   (unsigned)vk.source.Size(), vk.source.CStr());
+			Juge(gl, "PBR FS GLSL-OpenGL");
+			Juge(vk, "PBR FS GLSL-Vulkan");
 		}
 	}
 	printf("\n\n");
@@ -130,6 +180,14 @@ int main() {
 	Check(c, NkSLTarget::NK_GLSL_VULKAN, NkSLStage::NK_FRAGMENT, kInstancedFS, "FS GLSL-Vulkan");
 	Check(c, NkSLTarget::NK_HLSL_DX11, NkSLStage::NK_FRAGMENT, kInstancedFS, "FS HLSL-DX11");
 	Check(c, NkSLTarget::NK_HLSL_DX12, NkSLStage::NK_FRAGMENT, kInstancedFS, "FS HLSL-DX12");
-	printf("\n=== FIN ===\n");
+
+	// LE VERDICT. Avant le 22/08 cette ligne était « return 0; » : le banc
+	// affichait success=0 deux fois et rendait « tout va bien ».
+	printf("\n=== FIN : %d contrôles, %d en échec ===\n", gTotal, gFail);
+	if (gFail != 0) {
+		printf("[ECHEC] NkSLCheck : %d/%d conversions NkSL ne passent pas.\n", gFail, gTotal);
+		return 1;
+	}
+	printf("[OK] NkSLCheck : les %d conversions passent.\n", gTotal);
 	return 0;
 }

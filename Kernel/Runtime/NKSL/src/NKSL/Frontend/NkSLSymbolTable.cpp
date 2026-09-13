@@ -626,6 +626,21 @@ namespace nkentseu {
 		defFunc("dFdy", {NkSLBaseType::NK_VEC3}, NkSLBaseType::NK_VEC3);
 		defFunc("dFdy", {NkSLBaseType::NK_VEC4}, NkSLBaseType::NK_VEC4);
 		defFunc("fwidth", {NkSLBaseType::NK_FLOAT}, NkSLBaseType::NK_FLOAT);
+		// Atomiques sur MEMBRE DE BLOC DE STOCKAGE (2026-09-05) : les memes noms qu'en GLSL (passage tel quel
+		// vers GLSL et GLSL-Vulkan, donc SPIR-V par glslang, donc HLSL/MSL par SPIRV-Cross) ; les generateurs
+		// natifs HLSL/MSL les mappent comme imageAtomic* (Interlocked*, atomic_fetch_*_explicit). Le premier
+		// argument est une LVALUE (C.c[i]) : la table ne le verifie pas, le compilateur du dorsal le fera.
+		// Temoin : NkGpuAtomicWitness (1 048 576 invocations -> compte exact ; mutation `+=` -> faux).
+		for (NkSLBaseType t : {NkSLBaseType::NK_UINT, NkSLBaseType::NK_INT}) {
+			defFunc("atomicAdd", {t, t}, t);
+			defFunc("atomicMin", {t, t}, t);
+			defFunc("atomicMax", {t, t}, t);
+			defFunc("atomicAnd", {t, t}, t);
+			defFunc("atomicOr", {t, t}, t);
+			defFunc("atomicXor", {t, t}, t);
+			defFunc("atomicExchange", {t, t}, t);
+			defFunc("atomicCompSwap", {t, t, t}, t);
+		}
 		defFunc("barrier", {}, NkSLBaseType::NK_VOID);
 		defFunc("memoryBarrier", {}, NkSLBaseType::NK_VOID);
 		defFunc("groupMemoryBarrier", {}, NkSLBaseType::NK_VOID);

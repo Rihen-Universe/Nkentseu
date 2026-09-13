@@ -168,7 +168,7 @@ Légende : ✅ Livré · 🔶 Partiel · ⏳ En cours · ❌ TODO · 🚫 Abando
 - `NkBSpline` (générique k-ordre) pour animation skeletal lissée
 
 ### Précision et noise
-- Pas de noise procédural (Perlin, Simplex, Worley). Utile pour NKAnimation
+- Pas de noise procédural (Perlin, Simplex, Worley). Utile pour NKAnima
   procédurale, génération de terrain, fog volumétrique.
 - Pas de générateur Mersenne Twister ni PCG. `rand()` est limité pour
   simulations physiques.
@@ -204,6 +204,6 @@ Légende : ✅ Livré · 🔶 Partiel · ⏳ En cours · ❌ TODO · 🚫 Abando
   traits), NKContainers (`String/NkFormat.h` pour `NkFormatter`)
 - **Modules au-dessus qui en dépendent** : NKRHI (matrices upload GPU),
   NKRenderer (Vec/Mat/Quat partout), NKPhysics (Vec/Mat/Quat + AABB futur),
-  NKAnimation (Quat + interpolation), NKUI (Color + Rect 2D), NKScene
+  NKAnima (Quat + interpolation), NKUI (Color + Rect 2D), NKScene
   (TransformComponent), Noge éditeur (gizmos), PV3DE (Face/Body animation
   pose)

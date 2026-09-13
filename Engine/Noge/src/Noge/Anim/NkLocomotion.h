@@ -58,7 +58,7 @@
 #include "NKContainers/Sequential/NkVector.h"
 #include "Noge/ECS/Components/Animation/NkAnimation.h"
 #include "Noge/Rigging/NkIKSolver.h"
-#include "NKAnimation/NkAnimation.h"
+#include "NKAnima/Clip/NkAnimation.h"
 #include "NKPhysics/NkPhysicsWorld.h"
 #include "NKCollision/NkColTypes.h"
 
@@ -332,7 +332,7 @@ namespace nkentseu {
 	// NkLocomotionSystem : le blend Walk/Run est un anim::NkBlendTree1D
 	// RÉEL (ConfigureBlend fournit les clips, SetParameter/Update font le
 	// mélange bone-local ou legacy matriciel selon le clip -- voir
-	// NKAnimation/NkAnimation.h) — zéro blend
+	// NKAnima/NkAnimation.h) — zéro blend
 	// réimplémenté ici. Limitation assumée : la pose résultante est écrite
 	// dans ecs::NkSkeleton comme transform MONDE indépendante par os
 	// (DecomposeTRS direct, pas de re-FK) -- correct pour un squelette PLAT

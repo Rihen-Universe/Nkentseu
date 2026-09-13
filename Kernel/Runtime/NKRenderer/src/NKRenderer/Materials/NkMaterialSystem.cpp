@@ -2,6 +2,12 @@
 // NkMaterialSystem.cpp  — NKRenderer v4.0
 // =============================================================================
 #include "NkMaterialSystem.h"
+
+// Les numeros de binding du set materiau, cites AUSSI par le banc qui lit le
+// shader sur le disque : voir NkMaterialBindings.h pour le defaut mesure qui a
+// rendu ce partage necessaire (un descripteur ecrit sur un binding ABSENT du
+// layout ne provoque RIEN -- ni erreur, ni journal, ni difference d image).
+#include "NKRenderer/Materials/NkMaterialBindings.h"
 #include "NKLogger/NkLog.h"
 #include "NKMemory/NkAllocator.h"
 
@@ -35,13 +41,25 @@ namespace nkentseu {
 			//                   3=albedo, 4=normal, 5=ORM, 6=emissive texture.
 			// → binding=8 est libre dans les deux namespaces (UBO et texture).
 			NkDescriptorSetLayoutDesc instLayout;
-			instLayout.Add(8, NkDescriptorType::NK_UNIFORM_BUFFER, RHIStage::NK_ALL_GRAPHICS)
-				.Add(3, NkDescriptorType::NK_COMBINED_IMAGE_SAMPLER, RHIStage::NK_ALL_GRAPHICS)
-				.Add(4, NkDescriptorType::NK_COMBINED_IMAGE_SAMPLER, RHIStage::NK_ALL_GRAPHICS)
-				.Add(5, NkDescriptorType::NK_COMBINED_IMAGE_SAMPLER, RHIStage::NK_ALL_GRAPHICS)
-				.Add(6, NkDescriptorType::NK_COMBINED_IMAGE_SAMPLER, RHIStage::NK_ALL_GRAPHICS)
+			instLayout.Add(NK_MATBIND_UBO, NkDescriptorType::NK_UNIFORM_BUFFER, RHIStage::NK_ALL_GRAPHICS)
+				.Add(NK_MATBIND_ALBEDO, NkDescriptorType::NK_COMBINED_IMAGE_SAMPLER, RHIStage::NK_ALL_GRAPHICS)
+				.Add(NK_MATBIND_NORMAL_OR_MATCAP, NkDescriptorType::NK_COMBINED_IMAGE_SAMPLER, RHIStage::NK_ALL_GRAPHICS)
+				.Add(NK_MATBIND_ORM, NkDescriptorType::NK_COMBINED_IMAGE_SAMPLER, RHIStage::NK_ALL_GRAPHICS)
+				.Add(NK_MATBIND_EMISSIVE, NkDescriptorType::NK_COMBINED_IMAGE_SAMPLER, RHIStage::NK_ALL_GRAPHICS)
 				// binding 7 : carte de HAUTEUR du parallax (etape 3, 10 aout).
-				.Add(7, NkDescriptorType::NK_COMBINED_IMAGE_SAMPLER, RHIStage::NK_ALL_GRAPHICS);
+				.Add(NK_MATBIND_HEIGHT, NkDescriptorType::NK_COMBINED_IMAGE_SAMPLER, RHIStage::NK_ALL_GRAPHICS)
+				// binding 9 : carte de MASQUE des couches (22 aout, LayeredV1).
+				//
+				// ⚠️ CE LAYOUT EST UNIQUE ET PARTAGE PAR TOUS LES ARCHETYPES. Ce
+				// binding-la ne sert qu'a LayeredV1, mais il s'ajoute au set de
+				// TOUTES les instances, y compris les 16 autres gabarits qui n'ont
+				// rien demande. C'est le seul endroit du fichier ou un ajout local
+				// a une portee globale — d'ou le temoin de non-regression
+				// Demo4..Demo8 (scripts/matgraph_temoin_demos.sh) passe AVANT et
+				// APRES ce changement, avec cinq signatures identiques.
+				//
+				// 8 est deja pris par l'UBO materiau ; on saute donc a 9.
+				.Add(NK_MATBIND_LAYER_MASK, NkDescriptorType::NK_COMBINED_IMAGE_SAMPLER, RHIStage::NK_ALL_GRAPHICS);
 			mInstDescLayout = mDevice->CreateDescriptorSetLayout(instLayout);
 
 			mLinearSampler = mDevice->CreateSampler(NkSamplerDesc::Linear());
@@ -619,8 +637,11 @@ namespace nkentseu {
 				// Hauteur du parallax : blanc = surface au plus haut partout, et
 				// l'echelle a zero (defaut) court-circuite la boucle cote shader.
 				NkTextureHandle heightTex = GetTex("height");
+				// Masque des couches : blanc = masque plein. Voir le commentaire de
+				// NK_LAYER_MASK_TEX_R sur le choix de ce repli.
+				NkTextureHandle maskTex = GetTex("mask");
 
-				NkDescriptorWrite writes[6] = {};
+				NkDescriptorWrite writes[7] = {};
 				// binding 8: material UBO (binding=4 est pris par texNormal SAMPLER en GL).
 				// bufferRange depend du type material (sizeof exact).
 				{
@@ -634,7 +655,7 @@ namespace nkentseu {
 							 matType == NkMaterialType::NK_ANIME)
 						uboRange = sizeof(NkToonParams);
 					writes[0].set = inst->mDescSet;
-					writes[0].binding = 8;
+					writes[0].binding = NK_MATBIND_UBO;
 					writes[0].type = NkDescriptorType::NK_UNIFORM_BUFFER;
 					writes[0].buffer = inst->mUBO;
 					writes[0].bufferRange = uboRange;
@@ -647,12 +668,13 @@ namespace nkentseu {
 					writes[idx].texture = tex;
 					writes[idx].sampler = mLinearSampler;
 				};
-				fillTex(1, 3, albedoTex);
-				fillTex(2, 4, slot4Tex);
-				fillTex(3, 5, ormTex);
-				fillTex(4, 6, emissiveTex);
-				fillTex(5, 7, heightTex);
-				mDevice->UpdateDescriptorSets(writes, 6);
+				fillTex(1, NK_MATBIND_ALBEDO, albedoTex);
+				fillTex(2, NK_MATBIND_NORMAL_OR_MATCAP, slot4Tex);
+				fillTex(3, NK_MATBIND_ORM, ormTex);
+				fillTex(4, NK_MATBIND_EMISSIVE, emissiveTex);
+				fillTex(5, NK_MATBIND_HEIGHT, heightTex);
+				fillTex(6, NK_MATBIND_LAYER_MASK, maskTex);
+				mDevice->UpdateDescriptorSets(writes, 7);
 				inst->MarkClean();
 			}
 		}
@@ -1078,6 +1100,10 @@ namespace nkentseu {
 			mLayeredV1.numLayers = (n < 1) ? 1 : (n > 8 ? 8 : n);
 			mDirty = true;
 			return this;
+		}
+
+		NkMaterialInstance *NkMaterialInstance::SetLayerV1MaskMap(NkTexHandle t) {
+			return SetTexture("mask", t);
 		}
 
 		NkMaterialInstance *NkMaterialInstance::SetTexture(const NkString &n, NkTexHandle t) {

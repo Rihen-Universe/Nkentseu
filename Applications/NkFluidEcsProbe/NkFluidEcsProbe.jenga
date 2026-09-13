@@ -1,0 +1,50 @@
+# AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
+"""NkFluidEcsProbe — le pont ECS -> volumes de fluide, EPROUVE SANS DEVICE.
+
+`NkParticleSystem`, le pont ECS des particules, prend un `renderer::NkRenderer*` :
+aucun banc ne peut donc l'exercer sans device, et personne ne l'a jamais fait
+tourner sans fenetre. Le pont des fluides prend le REGISTRE
+(`renderer::NkFluidVolumeStore`), qui est CPU pur -- c'est ce qui rend ce banc
+possible.
+
+Les trois `.cpp` du moteur sont COMPILES DIRECTEMENT ici : ni NKRenderer ni Noge
+ne sont lies. C'est deliberé -- lier NKRenderer entier tirerait glslang, le RHI
+et les shaders pour eprouver un pont qui n'a besoin d'aucun des trois, et une
+course de temoins ne doit pas dependre d'un GPU.
+"""
+from Jenga import *
+from jengaconfig import *
+import os
+
+
+with project("NkFluidEcsProbe"):
+    consoleapp()
+    language("C++")
+    cppdialect("C++17")
+    location(".")
+    files([
+        "src/main.cpp",
+        "%{wks.location}/Kernel/Runtime/NKRenderer/src/NKRenderer/Tools/VFX/NkFluidGrid.cpp",
+        "%{wks.location}/Kernel/Runtime/NKRenderer/src/NKRenderer/Tools/VFX/NkFluidVolumeStore.cpp",
+        "%{wks.location}/Engine/Noge/src/Noge/ECS/Systems/NkFluidVolumeSystem.cpp",
+        "%{wks.location}/Engine/Noge/src/Noge/ECS/Systems/NkTransformSystem.cpp",
+    ])
+
+    nkentseudependson(
+        ["NKECS", "NKSerialization", "NKReflection", "NKMath", "NKTime", "NKStream",
+         "NKLogger", "NKFileSystem", "NKContainers", "NKMemory", "NKCore", "NKPlatform",
+         "NKThreading"],
+        extra_includes=[
+            "src",
+            "%{wks.location}/Kernel/Runtime/NKRenderer/src",
+            "%{wks.location}/Engine/Noge/src",
+        ],
+    )
+
+    objdir("%{wks.location}/Build/Obj/%{cfg.buildcfg}-%{cfg.system}/%{prj.name}")
+    targetdir("%{wks.location}/Build/Bin/%{cfg.buildcfg}-%{cfg.system}/%{prj.name}")
+
+    with filter("system:Windows && !options:windows-runtime=uwp && !system:XboxSeries && !system:XboxOne"):
+        usetoolchain(TC_WINDOWS)
+        defines(["WIN32_LEAN_AND_MEAN", "_UNICODE", "UNICODE"])
+        links(["user32", "gdi32", "shell32", "uuid", "ole32"])

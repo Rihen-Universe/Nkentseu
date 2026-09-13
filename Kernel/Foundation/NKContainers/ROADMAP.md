@@ -309,7 +309,7 @@ doxygen des deux méthodes **pour que personne ne le prenne pour un oubli**.
 Corollaire mesuré : `Insert(T&&)` sur un doublon **ne consomme pas** la source —
 rien n'est déplacé quand rien n'est inséré.
 
-⚠️ **Ce n'est pas un manque théorique.** `NKAnimation/NkAnimation.h` déclare
+⚠️ **Ce n'est pas un manque théorique.** `NKAnima/NkAnimation.h` déclare
 **4 champs `NkHashMap`** (l. 277, 278, 684, 685) : tant que le conteneur refusait
 les types non copiables, `NkAnimationTrack<T>` ne pouvait pas devenir un type
 valeur à ressource possédée. Et `NKRenderer/Streaming/NkStreamingSystem` a

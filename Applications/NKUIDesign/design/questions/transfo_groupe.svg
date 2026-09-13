@@ -1,0 +1,69 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="620" viewBox="0 0 1000 620">
+  <rect width="1000" height="620" fill="#0d1117"/>
+  <text x="30" y="42" fill="#e6edf3" font-family="Segoe UI,Arial" font-size="21" font-weight="600">Transformée de groupe — trois questions, une capture suffit</text>
+  <text x="30" y="68" fill="#8b949e" font-family="Segoe UI,Arial" font-size="13.5">La référence (doc 13) ne dit rien sur ces trois points. Une capture Lunacy vaut mieux qu'une supposition.</text>
+
+  <!-- Q1 -->
+  <text x="30" y="112" fill="#f79a28" font-family="Segoe UI,Arial" font-size="15" font-weight="600">① Le cadre de sélection d'un objet TOURNÉ</text>
+  <text x="30" y="136" fill="#8b949e" font-family="Segoe UI,Arial" font-size="12.5">Aujourd'hui chez nous (défaut) :</text>
+  <g transform="translate(40,150)">
+    <g transform="rotate(14 90 30)"><rect x="0" y="0" width="180" height="60" rx="4" fill="#1f6feb"/>
+      <text x="90" y="36" fill="#fff" font-family="Segoe UI,Arial" font-size="13" text-anchor="middle">Se connecter</text></g>
+    <rect x="-4" y="-6" width="196" height="76" fill="none" stroke="#58a6ff" stroke-width="1.5"/>
+    <g fill="#fff" stroke="#58a6ff" stroke-width="1.4">
+      <rect x="-8" y="-10" width="8" height="8"/><rect x="90" y="-10" width="8" height="8"/><rect x="188" y="-10" width="8" height="8"/>
+      <rect x="-8" y="26" width="8" height="8"/><rect x="188" y="26" width="8" height="8"/>
+      <rect x="-8" y="62" width="8" height="8"/><rect x="90" y="62" width="8" height="8"/><rect x="188" y="62" width="8" height="8"/>
+    </g>
+  </g>
+  <text x="30" y="252" fill="#f85149" font-family="Segoe UI,Arial" font-size="12.5">cadre DROIT, désaxé de l'objet</text>
+  <text x="300" y="136" fill="#8b949e" font-family="Segoe UI,Arial" font-size="12.5">Chez Lunacy — c'est bien ça ?</text>
+  <g transform="translate(320,150)">
+    <g transform="rotate(14 90 30)">
+      <rect x="0" y="0" width="180" height="60" rx="4" fill="#1f6feb"/>
+      <text x="90" y="36" fill="#fff" font-family="Segoe UI,Arial" font-size="13" text-anchor="middle">Se connecter</text>
+      <rect x="-4" y="-4" width="188" height="68" fill="none" stroke="#3fb950" stroke-width="1.6"/>
+      <g fill="#fff" stroke="#3fb950" stroke-width="1.4">
+        <rect x="-8" y="-8" width="8" height="8"/><rect x="86" y="-8" width="8" height="8"/><rect x="180" y="-8" width="8" height="8"/>
+        <rect x="-8" y="26" width="8" height="8"/><rect x="180" y="26" width="8" height="8"/>
+        <rect x="-8" y="60" width="8" height="8"/><rect x="86" y="60" width="8" height="8"/><rect x="180" y="60" width="8" height="8"/>
+      </g>
+    </g>
+  </g>
+  <text x="300" y="252" fill="#3fb950" font-family="Segoe UI,Arial" font-size="12.5">cadre TOURNÉ, poignées aux coins tournés</text>
+  <text x="640" y="180" fill="#e6edf3" font-family="Segoe UI,Arial" font-size="13">Et y a-t-il un <tspan font-weight="600">badge d'angle</tspan></text>
+  <text x="640" y="200" fill="#e6edf3" font-family="Segoe UI,Arial" font-size="13">pendant la rotation (« 14° ») ?</text>
+
+  <line x1="30" y1="272" x2="970" y2="272" stroke="#30363d"/>
+
+  <!-- Q2 -->
+  <text x="30" y="304" fill="#f79a28" font-family="Segoe UI,Arial" font-size="15" font-weight="600">② Redimensionner un objet TOURNÉ : quel repère ?</text>
+  <g transform="translate(60,320)">
+    <g transform="rotate(14 70 25)"><rect x="0" y="0" width="140" height="50" rx="4" fill="#30363d" stroke="#58a6ff"/>
+      <rect x="136" y="21" width="9" height="9" fill="#fff" stroke="#3fb950" stroke-width="1.4"/></g>
+    <path d="M175 30 l40 10" stroke="#3fb950" stroke-width="2.2" marker-end="url(#fl)"/>
+  </g>
+  <defs><marker id="fl" markerWidth="8" markerHeight="8" refX="6" refY="4" orient="auto">
+    <path d="M0 0 L8 4 L0 8 z" fill="#3fb950"/></marker></defs>
+  <text x="300" y="345" fill="#e6edf3" font-family="Segoe UI,Arial" font-size="13">En tirant la poignée droite d'un objet tourné,</text>
+  <text x="300" y="366" fill="#3fb950" font-family="Segoe UI,Arial" font-size="13">l'objet s'allonge-t-il selon SON axe (le vert),</text>
+  <text x="300" y="387" fill="#f85149" font-family="Segoe UI,Arial" font-size="13">ou selon l'axe horizontal de l'écran ?</text>
+
+  <line x1="30" y1="410" x2="970" y2="410" stroke="#30363d"/>
+
+  <!-- Q3 -->
+  <text x="30" y="442" fill="#f79a28" font-family="Segoe UI,Arial" font-size="15" font-weight="600">③ Redimensionner un GROUPE : jusqu'où ça descend ?</text>
+  <g transform="translate(60,458)">
+    <rect x="0" y="0" width="150" height="80" fill="none" stroke="#58a6ff" stroke-dasharray="4 3"/>
+    <rect x="12" y="12" width="60" height="24" rx="3" fill="#1f6feb"/>
+    <text x="42" y="29" fill="#fff" font-family="Segoe UI,Arial" font-size="10" text-anchor="middle">Texte</text>
+    <rect x="12" y="46" width="120" height="20" rx="3" fill="#30363d"/>
+  </g>
+  <text x="240" y="478" fill="#e6edf3" font-family="Segoe UI,Arial" font-size="13">Les enfants suivent — d'accord. Mais leur <tspan font-weight="600">TEXTE</tspan> :</text>
+  <text x="240" y="500" fill="#3fb950" font-family="Segoe UI,Arial" font-size="13">a) la taille de police grandit aussi (vraie mise à l'échelle), ou</text>
+  <text x="240" y="522" fill="#d29922" font-family="Segoe UI,Arial" font-size="13">b) seule la boîte grandit, le texte garde son corps ?</text>
+  <text x="240" y="548" fill="#8b949e" font-family="Segoe UI,Arial" font-size="12.5">Les deux existent selon les outils — et ça change tout le modèle chez nous.</text>
+
+  <line x1="30" y1="568" x2="970" y2="568" stroke="#30363d"/>
+  <text x="30" y="594" fill="#8b949e" font-family="Segoe UI,Arial" font-size="13">Une capture par question suffit — même prise à l'arrache. Sans elles, je devine, et on corrige plus tard.</text>
+</svg>

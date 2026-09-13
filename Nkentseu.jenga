@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 # -*- coding: utf-8 -*-
+# AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 
 r"""
 
@@ -394,7 +395,7 @@ IDE auto-config (jenga ide-setup)
 
 
 
-Auteur : Rihen
+Auteur : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 
 Date   : 2026
 
@@ -448,9 +449,9 @@ with workspace("Nkentseu", location="."):
 
 
 
-    dutc(enable=True)
+    dutc(enable=True, allow=["NKCore_Tests", "NKMath_Tests", "NKContainers_Tests", "NKMemory_Tests", "NKPhysics_Tests", "NKFileSystem_Tests", "NKStream_Tests", "NKReflection_Tests", "NKWindow_Tests", "NKCamera_Tests", "NKCollision_Tests", "NKImage_Tests", "NKPlatform_Tests", "NKLogger_Tests", "NKTime_Tests", "Noge_Tests", "NKThreading_Tests", "NKAnima_Tests", "NKSerialization_Smoke_Tests", "NKECS_EntitySerialization_Tests", "NKXR_Xr_Tests", "NKAudio_Audio_Tests", "NKSerialization_ReflectSerializer_Tests", "NKSerialization_ReflectPhase3_Tests", "NKSerialization_ReflectObjContainer_Tests", "NKSerialization_Bench_Tests", "NKECS_ReflectBridge_Tests", "NKXR_Ar_Tests", "NKSerialization_ReflectPhase5_Tests", "NKRenderer_Tests"])  # reouverture module par module (2026-09-04, Rodolf : « on suit ta recommandation »)
 
-    dute(enable=True)
+    dute(enable=True, allow=["NKCore_Tests", "NKMath_Tests", "NKContainers_Tests", "NKMemory_Tests", "NKPhysics_Tests", "NKFileSystem_Tests", "NKStream_Tests", "NKReflection_Tests", "NKWindow_Tests", "NKCamera_Tests", "NKCollision_Tests", "NKImage_Tests", "NKPlatform_Tests", "NKLogger_Tests", "NKTime_Tests", "Noge_Tests", "NKThreading_Tests", "NKAnima_Tests", "NKSerialization_Smoke_Tests", "NKECS_EntitySerialization_Tests", "NKXR_Xr_Tests", "NKAudio_Audio_Tests", "NKSerialization_ReflectSerializer_Tests", "NKSerialization_ReflectPhase3_Tests", "NKSerialization_ReflectObjContainer_Tests", "NKSerialization_Bench_Tests", "NKECS_ReflectBridge_Tests", "NKXR_Ar_Tests", "NKSerialization_ReflectPhase5_Tests", "NKRenderer_Tests"])
 
 
 
@@ -836,25 +837,19 @@ with workspace("Nkentseu", location="."):
 
 
 
-    # NKAnimPhysics (pose physiquement correcte : masse/COM, equilibre, contacts,
-    # correction de pose et de clip). Extrait de NKRenderer/Tools/Animation le
-    # 2026-08-14 -- bloc de decision "substrats animation" du CLAUDE.md parent.
-    # CPU pur, headless, Foundation seule. NE depend PAS de NKPhysics aujourd hui :
-    # voir l en-tete de NKAnimPhysics.jenga, qui dit pourquoi, et ou brancher le
-    # pont le jour venu (NkRagdoll, jamais un second pont).
-
-    with include("Kernel/Runtime/NKAnimPhysics/NKAnimPhysics.jenga"):
-
-        pass
+    # NKAnimPhysics a REJOINT NKAnima le 2026-09-04 (NKAnima/src/NKAnima/Physics/) :
+    # decision de Rodolf, motivee par un CYCLE -- NKAnima dependait d animphys, et
+    # animphys devait consommer NkSkeletonDef qui vit dans NKAnima. Meme socle,
+    # zero GPU. 21 modules Runtime au lieu de 22.
 
 
 
-    # NKAnimation (substrat d animation : clips, blend 1D/2D, HFSM, reciblage,
+    # NKAnima (substrat d animation : clips, blend 1D/2D, HFSM, reciblage,
     # motion path, edition de pose-cles). Extrait de NKRenderer/Tools/Animation
     # le 2026-08-14. Foundation seule ; le renderer n en garde que la facade
     # de rendu et le debug-draw, et les CONSOMME.
 
-    with include("Kernel/Runtime/NKAnimation/NKAnimation.jenga"):
+    with include("Kernel/Runtime/NKAnima/NKAnima.jenga"):
 
         pass
 
@@ -901,6 +896,12 @@ with workspace("Nkentseu", location="."):
 
         pass
 
+    # NkEauEcsProbe : le pont ECS -> producteur d eau (NkWaterSystem), eprouve
+    # SANS DEVICE, avec son controle de vie (2026-09-12). Lie NKVFX puis NKRenderer.
+    with include("Applications/NkEauEcsProbe/NkEauEcsProbe.jenga"):
+
+        pass
+
 
 
     with include("Sandbox/System/NKFileSystem/NKFileSystemSandbox.jenga"):
@@ -927,7 +928,29 @@ with workspace("Nkentseu", location="."):
 
 
 
+    with include("Sandbox/System/NKSerialization/NKSerializationSandbox.jenga"):
+
+        pass
+
+
+
+    with include("Sandbox/System/NKArchive/NKArchiveSandbox.jenga"):
+
+        pass
+
+
+
     with include("Kernel/Runtime/NKRenderer/NKRenderer.jenga"):
+
+        pass
+
+
+
+    # NKVFX (effets : eau, eclaboussures, particules ; APRES NKRenderer dont il
+    # depend). Sans cette inclusion le module serait declare dans le registre et
+    # JAMAIS construit -- « declare mais pas honore » au niveau du build.
+
+    with include("Kernel/Runtime/NKVFX/NKVFX.jenga"):
 
         pass
 
@@ -1034,6 +1057,18 @@ with workspace("Nkentseu", location="."):
 
 
     with include("Applications/NkGpuProbe/NkGpuProbe.jenga"):
+
+        pass
+
+
+
+    with include("Applications/NkFluidGridProbe/NkFluidGridProbe.jenga"):
+
+        pass
+
+
+
+    with include("Applications/NkFluidEcsProbe/NkFluidEcsProbe.jenga"):
 
         pass
 
@@ -1193,6 +1228,14 @@ with workspace("Nkentseu", location="."):
 
         pass
 
+    with include("Applications/NkQualityProfileTest/NkQualityProfileTest.jenga"):
+
+        pass
+
+    with include("Applications/NkSystemsRevivalTest/NkSystemsRevivalTest.jenga"):
+
+        pass
+
     with include("Applications/NkFBXParityDemo/NkFBXParityDemo.jenga"):
 
         pass
@@ -1209,7 +1252,7 @@ with workspace("Nkentseu", location="."):
 
         pass
 
-    with include("Applications/NkAnimPhysTest/NkAnimPhysTest.jenga"):
+    with include("Applications/NkAnimaTest/NkAnimaTest.jenga"):
 
         pass
 
@@ -1472,6 +1515,29 @@ with workspace("Nkentseu", location="."):
 
         pass
 
+    with include("Applications/NkMsaaContractCheck/NkMsaaContractCheck.jenga"):
+
+        pass
+
+
+
+    with include("Applications/NkMsaaDeviceCheck/NkMsaaDeviceCheck.jenga"):
+
+        pass
+
+
+    with include("Applications/NkMsaaVulkanCheck/NkMsaaVulkanCheck.jenga"):
+
+        pass
+
+    with include("Applications/NkIblEnabledCheck/NkIblEnabledCheck.jenga"):
+
+        pass
+
+    with include("Applications/NkDebugOverlayCheck/NkDebugOverlayCheck.jenga"):
+
+        pass
+
 
 
     with include("Applications/NKEditTargetTest/NKEditTargetTest.jenga"):
@@ -1493,6 +1559,21 @@ with workspace("Nkentseu", location="."):
 
 
     with include("Applications/NkSLCheck/NkSLCheck.jenga"):
+
+        pass
+
+
+
+    # Banc du graphe de materiaux (couche 3 sur NKGraph). Voisin de NkSLCheck
+    # parce qu il partage exactement ses dependances : NKSL + Foundation, sans
+    # GPU ni fenetre.
+    with include("Applications/NkMatGraphCheck/NkMatGraphCheck.jenga"):
+
+        pass
+
+
+
+    with include("Applications/NkMatGraphDemo/NkMatGraphDemo.jenga"):
 
         pass
 

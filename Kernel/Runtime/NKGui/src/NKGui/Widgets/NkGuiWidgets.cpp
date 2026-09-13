@@ -1,12 +1,15 @@
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // =============================================================================
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // NkGuiWidgets.cpp — widgets immédiats NKGui (Phase 2-3 : Button, Panel, Text).
 // =============================================================================
 #include "NKGui/Widgets/NkGuiWidgets.h"
+#include "NKCore/Text/NkSnprintf.h"
 #include "NKGui/Core/NkGuiFont.h"
 #include "NKFont/NkFont.h"				  // NkFontEncodeUTF8 / CalcTextSizeX
 #include "NKContainers/String/NkString.h" // NkString : parse (ToFloat) + format (Format)
+#include "NKGui/Core/NkGuiIntrospect.h"   // le releve : ce que cette trame dessine
 #include "NKMath/NkFunctions.h"			  // math::NkClamp / NkRound (zéro stdlib)
-#include <cstdio>
 #include <cstring>
 
 namespace nkentseu {
@@ -67,7 +70,7 @@ namespace nkentseu {
 		// (pas 1e6) → le scroll H n'apparaît que si un contenu DÉPASSE réellement
 		// (fenêtres). false = contenu à largeur naturelle déborde (boîte H dédiée).
 		static bool BeginScrollFrame(NkGuiContext &ctx, NkGuiId id, const NkRect &area, bool horizontal,
-									 bool fillWidth = false) noexcept;
+									 bool fillWidth = false, bool sansBarre = false) noexcept;
 		static void EndScrollFrame(NkGuiContext &ctx) noexcept;
 		static NkGuiScrollState ScrollGet(NkGuiContext &ctx, NkGuiId id) noexcept;
 		static void ScrollSet(NkGuiContext &ctx, NkGuiId id, const NkGuiScrollState &s) noexcept;
@@ -188,6 +191,37 @@ namespace nkentseu {
 			// Symetrie d'API ; rien a fermer aujourd'hui.
 		}
 
+		bool BeginDragSource(NkGuiContext &ctx, NkGuiId id, const NkRect &rect) noexcept {
+			if (id == NKGUI_ID_NONE)
+				return false;
+			// Deja en cours depuis cette zone ?
+			if (ctx.dragActive)
+				return ctx.dragSourceId == id;
+			// ARMEMENT : un appui DANS la zone -- pas activeId, qu'aucun widget ne
+			// posera ici. On retient l'ancre comme la forme widget.
+			if (ctx.input.mouseClicked[0] && ctx.InputHits(rect)) {
+				ctx.dragCandidateId = id;
+				ctx.dragCandidatePos = ctx.input.mousePos;
+			}
+			if (ctx.dragCandidateId != id)
+				return false;
+			if (!ctx.input.mouseDown[0]) {
+				ctx.dragCandidateId = NKGUI_ID_NONE; // relache sans avoir glisse : un clic
+				return false;
+			}
+			// Demarrage au-dela du MEME seuil que la forme widget : un clic n'est pas
+			// un glisser, et le seuil evite les departs accidentels.
+			const float32 dx = ctx.input.mousePos.x - ctx.dragCandidatePos.x;
+			const float32 dy = ctx.input.mousePos.y - ctx.dragCandidatePos.y;
+			if (dx * dx + dy * dy > 16.f) {
+				ctx.dragActive = true;
+				ctx.dragSourceId = id;
+				ctx.dragDelivered = false;
+				return true;
+			}
+			return false;
+		}
+
 		bool BeginDropTarget(NkGuiContext &ctx, NkGuiId id, const NkRect &rect) noexcept {
 			// Zone declaree, pas capturee : voir l'en-tete. On ne touche ni a
 			// activeId ni a hotId -- les widgets qu'elle contient gardent leur
@@ -268,6 +302,15 @@ namespace nkentseu {
 			bool hovered = false, held = false;
 			const bool pressed = ctx.ButtonBehavior(id, r, flags, repeatDelay, repeatRate, &hovered, &held);
 
+			// ⚠️ LE RELEVE SE POSE AVANT LE HOOK DE STYLE, ET C'EST LA SEULE
+			//    PLACE JUSTE. `StyleDraw` sort par un `return` : note en dessous,
+			//    tout bouton re-skinne par l'application deviendrait invisible au
+			//    releve — c'est-a-dire exactement les boutons d'un editeur qui
+			//    soigne son apparence, donc ceux qu'on cherche le plus souvent.
+			NkGuiNoter(ctx, NkGuiNature::Bouton, id, label, r,
+					   static_cast<uint16>((ctx.IsDisabled() ? NK_GUI_ETAT_GRISE : 0) |
+										   (hovered ? NK_GUI_ETAT_SURVOLE : 0) | (held ? NK_GUI_ETAT_ENFONCE : 0)));
+
 			// Hook de style : l'app peut re-skinner totalement le bouton.
 			if (StyleDraw(ctx, NkGuiStyleKind::Button, r, id, label, hovered, held, false, ctx.IsDisabled()))
 				return pressed;
@@ -298,6 +341,11 @@ namespace nkentseu {
 			const float32 w = (ctx.font && ctx.font->Valid()) ? ctx.font->MeasureWidth(s) : 0.f;
 			const NkRect r = ctx.NextItemRect(w, lh);
 			TextAt(ctx, {r.x, r.y}, s, ctx.IsDisabled() ? ctx.theme.textDisabled : ctx.theme.text);
+			// Un libelle n'a pas d'identite : il n'appelle jamais GetId. On en
+			// derive une pour le releve seulement — elle sert a comparer deux
+			// releves, jamais a piloter une interaction.
+			NkGuiNoter(ctx, NkGuiNature::Texte, ctx.GetId(s), s, r,
+					   static_cast<uint16>(ctx.IsDisabled() ? NK_GUI_ETAT_GRISE : 0));
 		}
 
 		// Découpe `text` en lignes tenant dans `ww` : coupe aux ESPACES (mots), avec
@@ -377,6 +425,11 @@ namespace nkentseu {
 
 			const NkRect r = ctx.NextItemRect(ww, (n > 0 ? n : 1) * lineH);
 			const NkColor col = ctx.IsDisabled() ? ctx.theme.textDisabled : ctx.theme.text;
+			// Meme raison que Text : un libelle n'a pas d'identite propre, on en
+			// derive une pour comparer deux releves. Le releve porte le texte
+			// ENTIER, pas les lignes coupees -- c'est lui qu'un banc compare.
+			NkGuiNoter(ctx, NkGuiNature::Texte, ctx.GetId(text), text, r,
+					   static_cast<uint16>(ctx.IsDisabled() ? NK_GUI_ETAT_GRISE : 0));
 			for (int32 i = 0; i < n; ++i) {
 				const float32 baseY = r.y + i * lineH + ctx.font->Ascent();
 				ctx.DL().AddTextRange(face, ctx.font->TexId(), {r.x, baseY}, lb[i], le[i], col);
@@ -400,6 +453,12 @@ namespace nkentseu {
 
 			bool hov = false, held = false;
 			const bool pressed = ctx.ButtonBehavior(id, r, NkGuiButtonFlags::None, -1.f, -1.f, &hov, &held);
+
+			NkGuiNoter(ctx, NkGuiNature::Case, id, label, r,
+					   static_cast<uint16>((ctx.IsDisabled() ? NK_GUI_ETAT_GRISE : 0) |
+										   (state == NkGuiCheck::On ? NK_GUI_ETAT_COCHE : 0) |
+										   (state == NkGuiCheck::Mixed ? NK_GUI_ETAT_MIXTE : 0) |
+										   (hov ? NK_GUI_ETAT_SURVOLE : 0) | (held ? NK_GUI_ETAT_ENFONCE : 0)));
 
 			const NkRect boxR = {r.x, r.y + (r.h - box) * 0.5f, box, box};
 			// Hook de style : l'app peut redessiner la case (boîte + coche).
@@ -560,7 +619,7 @@ namespace nkentseu {
 			if (ctx.font && ctx.font->Valid()) {
 				const float32 baseY = CenteredBaseline(ctx, r);
 				char buf[32];
-				::snprintf(buf, sizeof(buf), "%.2f", static_cast<double>(value));
+				nkentseu::NkSnprintf(buf, sizeof(buf), "%.2f", static_cast<double>(value));
 				const float32 vx = track.x + track.w + 12.f;
 				ctx.DL().AddText(ctx.font->Face(), ctx.font->TexId(), {vx, baseY}, buf, ctx.theme.text);
 				ctx.DL().AddText(ctx.font->Face(), ctx.font->TexId(), {vx + ctx.font->MeasureWidth(buf) + 14.f, baseY},
@@ -914,6 +973,16 @@ namespace nkentseu {
 				ctx.inputScroll = 0.f;
 			}
 			const bool focused = (ctx.inputId == id);
+			// ⚠️ RELEVÉ (2026-08-30) : la nature `Champ` existait dans le vocabulaire
+			//    sans qu'aucun widget ne la pose. La chaîne du designer a eu besoin
+			//    de VISER un champ de saisie depuis un pilote (le champ « Contenu »
+			//    de l'inspecteur NkUIDesign). Règle du 29/08 appliquée : trois
+			//    lignes, le jour où un chantier en a besoin. `SELECTION` marque le
+			//    champ qui a le focus clavier — un pilote sait alors si sa frappe
+			//    arrivera, avant de taper.
+			NkGuiNoter(ctx, NkGuiNature::Champ, id, label, field,
+					   static_cast<uint16>((ctx.IsDisabled() ? NK_GUI_ETAT_GRISE : 0) |
+										   (focused ? NK_GUI_ETAT_SELECTION : 0)));
 			const bool submitted = TextEditField(ctx, field, buf, bufSize, focused, flags, maxChars);
 
 			if (ctx.font && ctx.font->Valid() && label && LabelEnd(label) != label) {
@@ -1439,6 +1508,9 @@ namespace nkentseu {
 		void Separator(NkGuiContext &ctx) noexcept {
 			const NkRect r = ctx.NextItemRect(0.f, 1.f);
 			ctx.DL().AddRectFilled({r.x, r.y, r.w, 1.f}, ctx.theme.border);
+			// Sans lui, deux groupes d'un menu se lisent comme une liste plate :
+			// le releve perdrait le decoupage que l'oeil voit a l'ecran.
+			NkGuiNoter(ctx, NkGuiNature::Separateur, NKGUI_ID_NONE, "", r, NK_GUI_ETAT_AUCUN);
 			// Dans un menu deroulant auto-dimensionne : contribue a la hauteur
 			// mesuree — sinon chaque separateur « vole » sa hauteur consommee et
 			// le DERNIER item du menu sort du popup (partiellement invisible).
@@ -1786,6 +1858,12 @@ namespace nkentseu {
 				open = !open;
 				ctx.SetNodeOpen(id, open);
 			}
+			// ⚠️ `ouvert` est l'etat INTERMEDIAIRE d'une section, comme pour
+			//    un menu : c'est lui qui prouve qu'un corps de section est
+			//    reellement dessine -- l'inspecteur en a eu besoin le 29/08.
+			NkGuiNoter(ctx, NkGuiNature::Section, id, label, r,
+					   static_cast<uint16>((open ? NK_GUI_ETAT_OUVERT : NK_GUI_ETAT_REPLIE) |
+										   (hov ? NK_GUI_ETAT_SURVOLE : 0)));
 			ctx.DL().AddRectFilled(r, hov ? ctx.theme.buttonHover : ctx.theme.header, ctx.theme.rounding);
 			const float32 a = h * 0.22f;
 			const NkVec2 cc = {r.x + 12.f, r.y + h * 0.5f};
@@ -1933,6 +2011,12 @@ namespace nkentseu {
 
 			bool hov = false, held = false;
 			const bool clicked = ctx.ButtonBehavior(id, r, NkGuiButtonFlags::None, -1.f, -1.f, &hov, &held);
+
+			// Avant le hook, meme raison que pour ButtonEx : `StyleDraw` sort.
+			NkGuiNoter(ctx, NkGuiNature::Element, id, label, r,
+					   static_cast<uint16>((ctx.IsDisabled() ? NK_GUI_ETAT_GRISE : 0) |
+										   (selected ? NK_GUI_ETAT_SELECTION : 0) | (hov ? NK_GUI_ETAT_SURVOLE : 0) |
+										   (held ? NK_GUI_ETAT_ENFONCE : 0)));
 
 			// Hook de style (re-skin total de la ligne).
 			if (StyleDraw(ctx, NkGuiStyleKind::Selectable, r, id, label, hov, held, selected, ctx.IsDisabled()))
@@ -2156,7 +2240,10 @@ namespace nkentseu {
 					}
 				}
 				const bool selected = (i == sel);
-				const NkColor bg = selected ? ctx.theme.panel : (en && hov) ? ctx.theme.buttonHover : ctx.theme.button;
+				const NkColor bg = selected
+									   ? (ctx.theme.tabActiveIsWindowBg ? ctx.theme.bgPrimary
+																		: ctx.theme.panel)
+									   : (en && hov) ? ctx.theme.buttonHover : ctx.theme.button;
 				ctx.DL().AddRectFilled(r, bg, 4.f);
 				if (selected)
 					ctx.DL().AddRectFilled({r.x, r.y + r.h - 3.f, r.w, 3.f}, ctx.theme.accent);
@@ -2249,7 +2336,10 @@ namespace nkentseu {
 				}
 
 				const bool selected = (i == sel);
-				const NkColor bg = selected ? ctx.theme.panel : (en && hov) ? ctx.theme.buttonHover : ctx.theme.button;
+				const NkColor bg = selected
+									   ? (ctx.theme.tabActiveIsWindowBg ? ctx.theme.bgPrimary
+																		: ctx.theme.panel)
+									   : (en && hov) ? ctx.theme.buttonHover : ctx.theme.button;
 				ctx.DL().AddRectFilled(r, bg, 4.f);
 				if (selected)
 					ctx.DL().AddRectFilled({r.x, r.y + r.h - 3.f, r.w, 3.f}, ctx.theme.accent);
@@ -2289,6 +2379,12 @@ namespace nkentseu {
 			// à avant). Id dérivé du titre (titres de panneaux supposés distincts).
 			const NkRect content = {r.x, top, r.w, r.y + r.h - top};
 			const NkGuiId id = ctx.GetId((title && *title) ? title : "##panel");
+			// ⚠️ ON NOTE LE RECTANGLE DU PANNEAU, PAS CELUI DE SON CONTENU.
+			//    C'est lui qui repond a « ce panneau est-il a l'ecran, et ou ».
+			//    Un panneau cache derriere un onglet arrive ici avec un rectangle
+			//    degenere : il est note quand meme, et marque `vide` — la
+			//    difference avec « absent du releve » est tout l'interet (C2).
+			NkGuiNoter(ctx, NkGuiNature::Panneau, id, (title && *title) ? title : "", r, NK_GUI_ETAT_AUCUN);
 			return BeginScrollFrame(ctx, id, content, false);
 		}
 
@@ -2441,7 +2537,7 @@ namespace nkentseu {
 			// Ouvre le contenu de l'onglet `m` ancré. `dlSlot` = winDL de l'hôte (-1 =
 			// couche fond du DockSpace central) ; `hostWinId` = id de l'hôte (occlusion).
 			bool BeginDockedTabContent(NkGuiContext &ctx, NkGuiWindowMeta *m, NkGuiId id, int32 dlSlot,
-									   NkGuiId hostWinId) noexcept {
+									   NkGuiId hostWinId, bool sansBarre = false) noexcept {
 				ctx.curWindow = dlSlot;
 				ctx.curWindowId = (dlSlot >= 0) ? hostWinId : NKGUI_ID_NONE;
 				ctx.curWindowDocked = false;
@@ -2449,7 +2545,8 @@ namespace nkentseu {
 					return false; // onglet inactif → contenu caché
 				ctx.curWindowDocked = true;
 				ctx.winSavedLayout = ctx.layout;
-				BeginScrollFrame(ctx, id ^ 0x5555u, m->dockRect, /*horizontal=*/true, /*fillWidth=*/true);
+				BeginScrollFrame(ctx, id ^ 0x5555u, m->dockRect, /*horizontal=*/true, /*fillWidth=*/true,
+								 sansBarre);
 				return true;
 			}
 
@@ -2532,7 +2629,8 @@ namespace nkentseu {
 				} else {
 					EnsureHostRendered(ctx, m, mi, id); // dessine chrome+arbre (1×/frame, winDL → pose dockDL)
 					m = &ctx.windowMeta[mi];
-					return BeginDockedTabContent(ctx, m, id, m->dockDL, id); // l'onglet de l'hôte lui-même
+					return BeginDockedTabContent(ctx, m, id, m->dockDL, id,
+												  NkGuiHasWinFlag(flags, NkGuiWindowFlags::NoScrollbar)); // l'onglet de l'hôte lui-même
 				}
 			}
 
@@ -2584,7 +2682,8 @@ namespace nkentseu {
 						m->dockActiveTab = false;
 					} else if (m->dockNode >= 0) {
 						// dockDL = LA draw-list où le FOND a été peint → le contenu la suit.
-						return BeginDockedTabContent(ctx, m, id, m->dockDL, m->dockHost);
+						return BeginDockedTabContent(ctx, m, id, m->dockDL, m->dockHost,
+													 NkGuiHasWinFlag(flags, NkGuiWindowFlags::NoScrollbar));
 					}
 				}
 			}
@@ -2757,7 +2856,8 @@ namespace nkentseu {
 			//    → l'auto-largeur remplit la fenêtre ; le scroll H n'apparaît que si un
 			//    contenu (large explicite, image, SameLine…) DÉPASSE vraiment. ──
 			const NkRect content = {wr.x, wr.y + th, wr.w, wr.h - th};
-			BeginScrollFrame(ctx, id ^ 0x5555u, content, /*horizontal=*/true, /*fillWidth=*/true);
+			BeginScrollFrame(ctx, id ^ 0x5555u, content, /*horizontal=*/true, /*fillWidth=*/true,
+							 NkGuiHasWinFlag(flags, NkGuiWindowFlags::NoScrollbar));
 			return true;
 		}
 
@@ -3642,7 +3742,7 @@ namespace nkentseu {
 		// dessinés par l'appelant). Réserve les gouttières selon les barres de la
 		// FRAME PRÉCÉDENTE (anti-oscillation). Empile une frame (imbrication OK).
 		static bool BeginScrollFrame(NkGuiContext &ctx, NkGuiId id, const NkRect &area, bool horizontal,
-									 bool fillWidth) noexcept {
+									 bool fillWidth, bool sansBarre) noexcept {
 			if (ctx.childDepth >= NkGuiContext::ChildMax)
 				return false;
 			NkGuiScrollState st = ScrollGet(ctx, id);
@@ -3687,6 +3787,7 @@ namespace nkentseu {
 			f.id = id;
 			f.area = area;
 			f.horizontal = horizontal;
+			f.sansBarre = sansBarre;
 			f.scrollX = st.x;
 			f.scrollY = st.y;
 			f.contentTop = area.y - st.y;
@@ -3729,8 +3830,10 @@ namespace nkentseu {
 
 			ctx.DL().PopClipRect();
 
-			const bool barV = maxY > 0.f;
-			const bool barH = horiz && maxX > 0.f;
+			// `sansBarre` (NoScrollbar) : le defilement et son bornage restent,
+			// la barre ne se DESSINE pas (et ne reserve plus sa gouttiere).
+			const bool barV = maxY > 0.f && !f.sansBarre;
+			const bool barH = horiz && maxX > 0.f && !f.sansBarre;
 			// Scrollbar UNIFORME (identique aux panneaux code/sortie/terminal) : piste
 			// subtile theme-aware, pouce contraste, + fleches aux extremites.
 			const bool sbLight =
@@ -4724,6 +4827,17 @@ namespace nkentseu {
 		}
 
 		// ── Image / Icône ───────────────────────────────────────────────────────
+		bool BeginPopupId(NkGuiContext &ctx, NkGuiId id, const NkRect &rect,
+						  const NkRect &ancre) noexcept {
+			return BeginPopupLevel(ctx, id, 0, rect, ancre);
+		}
+		bool BeginPopup(NkGuiContext &ctx, const char *idStr, const NkRect &rect,
+						const NkRect &ancre) noexcept {
+			// La porte d'entree de `EndPopup`, deja publique : elle n'ajoute aucun
+			// comportement, elle EXPOSE `BeginPopupLevel` au niveau 0.
+			return BeginPopupLevel(ctx, ctx.GetId(idStr), 0, rect, ancre);
+		}
+
 		void Image(NkGuiContext &ctx, uint32 texId, float32 w, float32 h, NkColor tint, NkVec2 uv0,
 				   NkVec2 uv1) noexcept {
 			const float32 ww = w > 0.f ? w : ctx.ContentWidth();
@@ -4843,6 +4957,15 @@ namespace nkentseu {
 			ctx.DL().PopClipRect();
 			ctx.DL().PushClipRect(rect, false); // contenu
 			ctx.BeginLayout(rect);
+			// LA MOLETTE APPARTIENT AU POPUP OUVERT (2026-09-05) : il la reserve pour la
+			// prochaine image, et lit celle mise de cote pour lui -- son contenu (une
+			// liste qui defile) la voit, ce qui est dessous ne la voit pas ; EndPopup
+			// la remet a zero pour ce qui suit.
+			ctx.input.ReserverMolette();
+			if (ctx.input.wheelReserve != 0.f || ctx.input.wheelHReserve != 0.f) {
+				ctx.input.wheel = ctx.input.wheelReserve;
+				ctx.input.wheelH = ctx.input.wheelHReserve;
+			}
 			return true;
 		}
 
@@ -4850,6 +4973,8 @@ namespace nkentseu {
 			const int32 level = ctx.curPopupLevel;
 			if (level < 0)
 				return;
+			ctx.input.wheel = 0.f; // la molette du popup ne traverse pas vers ce qui suit
+			ctx.input.wheelH = 0.f;
 			ctx.DL().PopClipRect();
 			ctx.layout = ctx.popupSaved[level]; // restaure le layout du parent
 			ctx.curPopupLevel = level - 1;		// revient au parent / principale
@@ -4980,6 +5105,7 @@ namespace nkentseu {
 			ctx.DL().AddRectFilled({rect.x, rect.y + rect.h - 1.f, rect.w, 1.f}, ctx.theme.border);
 			ctx.menuBarRect = rect;
 			ctx.menuBarX = rect.x + 4.f;
+			NkGuiNoter(ctx, NkGuiNature::BarreMenus, ctx.GetId("##barre-menus"), "", rect, NK_GUI_ETAT_AUCUN);
 			return true;
 		}
 
@@ -5044,6 +5170,19 @@ namespace nkentseu {
 			}
 			const bool open = (ctx.popupDepth > level && ctx.popupStack[level] == id);
 
+			// ⚠️ LE MENU SE NOTE AVEC LE NIVEAU DE SON TITRE, PAS DE SON CONTENU.
+			//    `BeginPopupLevel` fait ensuite monter `curPopupLevel` : noter
+			//    apres rangerait « Backend graphique » au meme etage que ses six
+			//    entrees, et la hierarchie qu'on veut lire disparaitrait.
+			// ⚠️ `ouvert` EST UN ETAT INTERMEDIAIRE, et c'est le critere C4 : un
+			//    menu deroule n'a rien valide. Sans lui, on ne distingue pas
+			//    « rien ne s'est passe » d'« un menu attend un choix » — c'est
+			//    exactement ce qui a laisse le sous-menu des backends non prouve
+			//    deux tours de suite.
+			NkGuiNoter(ctx, NkGuiNature::Menu, id, label, titleR,
+					   static_cast<uint16>((open ? NK_GUI_ETAT_OUVERT : NK_GUI_ETAT_REPLIE) |
+										   (hov ? NK_GUI_ETAT_SURVOLE : 0)));
+
 			// Titre / entrée.
 			if (hov || open)
 				ctx.DL().AddRectFilled(titleR, ctx.theme.buttonHover, inBar ? 0.f : 3.f);
@@ -5091,7 +5230,8 @@ namespace nkentseu {
 			EndPopup(ctx);
 		}
 
-		bool MenuItem(NkGuiContext &ctx, const char *label, const char *shortcut, bool enabled) noexcept {
+		bool MenuItem(NkGuiContext &ctx, const char *label, const char *shortcut, bool enabled,
+					  bool checked) noexcept {
 			const float32 h = ctx.ItemHeight();
 			const NkRect r = ctx.NextItemRect(0.f, h);
 			const NkGuiId id = ctx.GetId(label);
@@ -5117,6 +5257,16 @@ namespace nkentseu {
 						ctx.popupDepth = L + 1;
 				}
 			}
+			// ⚠️ `enabled` ET `checked` SONT DES PARAMETRES DE L'APPELANT : ils ne
+			//    se deduisent d'aucun etat du contexte, et c'est pour ca qu'ils
+			//    devaient etre releves ICI et nulle part ailleurs. C'est le
+			//    critere C3 — sans eux, le grisage exige par Rodolf sur les menus
+			//    des deux applications reste improuvable.
+			NkGuiNoter(ctx, NkGuiNature::EntreeMenu, id, label, r,
+					   static_cast<uint16>((enabled ? 0 : NK_GUI_ETAT_GRISE) | (checked ? NK_GUI_ETAT_COCHE : 0) |
+										   (hov ? NK_GUI_ETAT_SURVOLE : 0)),
+					   shortcut);
+
 			const NkColor lc = !enabled ? ctx.theme.textDisabled : hov ? NkColor{255, 255, 255, 255} : ctx.theme.text;
 			if (ctx.font && ctx.font->Valid()) {
 				ctx.DL().AddText(ctx.font->Face(), ctx.font->TexId(), {r.x + 8.f, CenteredBaseline(ctx, r)}, label, lc, -1.f, 0.f, LabelEnd(label));
@@ -5126,6 +5276,20 @@ namespace nkentseu {
 									 {r.x + r.w - sw - 10.f, CenteredBaseline(ctx, r)}, shortcut,
 									 ctx.theme.textDisabled);
 				}
+			}
+			// ⚠️ LA COCHE EST DESSINEE, PAS ECRITE. Un caractère « ✓ » dépendrait de
+			//    la présence du glyphe U+2713 dans l'atlas de la police chargée —
+			//    absent, il ne rendrait RIEN et l'état serait muet. Deux segments de
+			//    la liste de dessin ne dépendent d'aucune police.
+			// ⚠️ ET ELLE EST A DROITE, PAS A GAUCHE : une gouttière de coche à gauche
+			//    décalerait le libellé de TOUTES les entrées de TOUTES les
+			//    applications, y compris celles qui n'ont aucun état à montrer.
+			if (checked) {
+				const NkColor cc = enabled ? lc : ctx.theme.textDisabled;
+				const float32 s2 = h * 0.22f;
+				const float32 cx = r.x + r.w - 14.f, cy = r.y + r.h * 0.5f;
+				ctx.DL().AddLine({cx - s2, cy}, {cx - s2 * 0.3f, cy + s2 * 0.7f}, cc, 1.6f);
+				ctx.DL().AddLine({cx - s2 * 0.3f, cy + s2 * 0.7f}, {cx + s2, cy - s2 * 0.8f}, cc, 1.6f);
 			}
 			if (clicked)
 				ctx.ClosePopup(); // valider ferme toute la chaîne

@@ -2,11 +2,12 @@
 // -----------------------------------------------------------------------------
 // @File    NkTheme.inl
 // @Brief   Implantation du systeme de themes. Incluse par NkTheme.h.
-// @Author  Rihen
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // @License Proprietary - All Rights Reserved (see LICENSE)
 // -----------------------------------------------------------------------------
 
 #include <math.h>
+#include "NKCore/Text/NkSnprintf.h"
 #include <stdio.h> // puits par defaut du repli franc (NkRoleAudit) : stderr
 
 namespace nkentseu {
@@ -28,6 +29,18 @@ namespace nkentseu {
 					"node_body",	 "node_wire",		 "viewport_top",  "viewport_bottom",
 					"grid_line",
 					"type_folder",
+					"button_bg",
+					"tab_bar_bg",
+					"canvas_bg",
+					"canvas_dot",
+					"status_ok",
+					"status_err",
+					"accent_ai",
+					"snap_line",
+					"artboard_bg",
+					"doc_text",
+					"doc_field_bg",
+					"doc_muted",
 				};
 				return kNames;
 			}
@@ -262,11 +275,11 @@ namespace nkentseu {
 				return;
 			char line[256];
 			if (canon && *canon)
-				snprintf(line, sizeof(line),
+				nkentseu::NkSnprintf(line, sizeof(line),
 						 "role « %s » rattrape par canonisation -> « %s » ; A CORRIGER A LA SOURCE",
 						 name ? name : "(nul)", canon);
 			else
-				snprintf(line, sizeof(line),
+				nkentseu::NkSnprintf(line, sizeof(line),
 						 "role « %s » NON RESOLU : il sera peint avec la couleur de repli",
 						 name ? name : "(nul)");
 			slot.fn(slot.user, line);
@@ -275,7 +288,7 @@ namespace nkentseu {
 		inline void NkRoleAudit::Summary(NkString &out, uint32 maxNames) {
 			out = NkString("");
 			char b[160];
-			snprintf(b, sizeof(b), "%u role(s) NON RESOLU(S), %u rattrape(s) par canonisation",
+			nkentseu::NkSnprintf(b, sizeof(b), "%u role(s) NON RESOLU(S), %u rattrape(s) par canonisation",
 					 FaultCount(), RescuedCount());
 			out.Append(b);
 
@@ -301,7 +314,7 @@ namespace nkentseu {
 						}
 						if (n > shown) {
 							char t[48];
-							snprintf(t, sizeof(t), " (+%u)", n - shown);
+							nkentseu::NkSnprintf(t, sizeof(t), " (+%u)", n - shown);
 							o.Append(t);
 						}
 					}
@@ -429,6 +442,30 @@ namespace nkentseu {
 			return (float32)((hi + 0.05) / (lo + 0.05));
 		}
 
+		// ── LES ROLES BANANI (doc 11 §3), UNE SEULE TABLE ───────────────────────
+		// Poses par CHAQUE fabrique livree : les valeurs sont celles de la
+		// maquette (reference exacte, Rodolf 30/08) et ne dependent pas du theme
+		// de l'EDITEUR — le vert « Pret » est LE vert, le violet IA est LE
+		// violet. Un theme FICHIER qui ne les porte pas garde le repli
+		// (GetOuRepli), rien ne casse.
+		// ⚠️ `CanvasBg`/`CanvasDot` NE SONT PLUS ICI (test de Rodolf, 31/08 :
+		//    « cette couleur blanche c'est pour le theme light ; en Design il
+		//    faut la meme couleur de fond que pour Behavior et les autres »).
+		//    Le fond de toile SUIT LE THEME : chaque fabrique (Dark/Light) pose
+		//    le sien, plus bas. La lecture « la toile V2 est claire meme en
+		//    editeur sombre » etait la generalisation abusive d'UN ecran de la
+		//    maquette — sa main prime sur l'export.
+		inline void NkThemePoserRolesBanani(NkTheme &t) {
+			t.Set(NkRole::StatusOk, NkTheme::FromHex("#3fb950"));
+			t.Set(NkRole::StatusErr, NkTheme::FromHex("#f85149"));
+			t.Set(NkRole::AccentAI, NkTheme::FromHex("#a371f7"));
+			t.Set(NkRole::SnapLine, NkTheme::FromHex("#ff4fd8"));
+			t.Set(NkRole::ArtboardBg, NkTheme::FromHex("#ffffff"));
+			t.Set(NkRole::DocText, NkTheme::FromHex("#1f2328"));
+			t.Set(NkRole::DocFieldBg, NkTheme::FromHex("#f2f4f8"));
+			t.Set(NkRole::DocMuted, NkTheme::FromHex("#656d76"));
+		}
+
 		// ── THEMES LIVRES ───────────────────────────────────────────────────────
 		inline NkTheme NkTheme::Dark() {
 			NkTheme t;
@@ -491,6 +528,12 @@ namespace nkentseu {
 			S(NkRole::GridLine, "#FFFFFF14");
 
 			S(NkRole::TypeFolder, "#E3B341"); // ambre de dossier, version GitHub
+			NkThemePoserRolesBanani(t);
+			// La toile SUIT LE THEME (Rodolf, 31/08) : en sombre, le meme fond
+			// que la vue Behavior (#0d1117) — pas la toile claire de l'ecran V2.
+			// Les points de grille prennent la bordure GitHub, subtile dessus.
+			S(NkRole::CanvasBg, "#0d1117");
+			S(NkRole::CanvasDot, "#30363d");
 			return t;
 		}
 
@@ -543,6 +586,11 @@ namespace nkentseu {
 			S(NkRole::GridLine, "#00000014");
 			// Assombri : #F0B429 sur fond blanc passe inapercu.
 			S(NkRole::TypeFolder, "#A87400");
+			NkThemePoserRolesBanani(t);
+			// La toile claire de la maquette V2 appartient au THEME CLAIR
+			// (Rodolf, 31/08) : #f5f7fb, points #d4dce8 — les valeurs Banani.
+			S(NkRole::CanvasBg, "#f5f7fb");
+			S(NkRole::CanvasDot, "#d4dce8");
 			return t;
 		}
 
@@ -551,6 +599,25 @@ namespace nkentseu {
 			// se fondre en noir sur un fond sombre.
 			for (uint16 i = 0; i < (uint16)NkRole::Count; ++i)
 				mColors[i] = 0xFF00FFFFu;
+			// ⚠️ LES ROLES A REPLI NE PRENNENT PAS LE MAGENTA. Le magenta dit
+			//    « quelqu'un a oublie de me poser » ; ces deux-la ne sont pas
+			//    oublies, ils sont FACULTATIFS et se replient sur leur role source
+			//    (cf. `GetOuRepli`). Les laisser en magenta rendrait tous les
+			//    boutons de toutes les applications magenta a la seconde ou la
+			//    conversion les lirait -- un role neuf doit etre gratuit.
+			mColors[(uint16)NkRole::ButtonBg] = NkThemeNonDefini;
+			mColors[(uint16)NkRole::TabBarBg] = NkThemeNonDefini;
+			// Les six roles Banani du 31/08 : meme regime facultatif-avec-repli.
+			mColors[(uint16)NkRole::CanvasBg] = NkThemeNonDefini;
+			mColors[(uint16)NkRole::CanvasDot] = NkThemeNonDefini;
+			mColors[(uint16)NkRole::StatusOk] = NkThemeNonDefini;
+			mColors[(uint16)NkRole::StatusErr] = NkThemeNonDefini;
+			mColors[(uint16)NkRole::AccentAI] = NkThemeNonDefini;
+			mColors[(uint16)NkRole::SnapLine] = NkThemeNonDefini;
+			mColors[(uint16)NkRole::ArtboardBg] = NkThemeNonDefini;
+			mColors[(uint16)NkRole::DocText] = NkThemeNonDefini;
+			mColors[(uint16)NkRole::DocFieldBg] = NkThemeNonDefini;
+			mColors[(uint16)NkRole::DocMuted] = NkThemeNonDefini;
 			mName = NkString("Sombre");
 		}
 
@@ -732,9 +799,103 @@ namespace nkentseu {
 		}
 
 		// ── BIBLIOTHEQUE ────────────────────────────────────────────────────────
+		// ── LES THEMES GITHUB, ET ILS SONT ICI ─────────────────────────────────
+		// ⚠️ DANS LE KIT, PAS DANS L APPLICATION, et c est la regle pour TOUTES les
+		//    applications : « Dark Pro / Light Pro pour toutes les applications ».
+		//    Definis dans une application, chaque application les redefinirait
+		//    differemment -- six « GitHub Dark Pro » qui ne se ressemblent pas, et
+		//    aucun moyen de dire lequel fait foi.
+		//
+		// ⚠️ ILS HERITENT DE LA BASE, ILS NE LA REECRIVENT PAS. Seuls les roles que
+		//    GitHub DEFINIT reellement sont poses ; les autres (axes X/Y/Z, en-tetes
+		//    de noeuds, degrade de vue 3D) n ont aucun equivalent chez GitHub et
+		//    gardent ceux de `Dark()` / `Light()`. C est exactement le mecanisme que
+		//    `AddFromText` exploite deja -- « un theme de trois lignes doit heriter
+		//    des 26 autres ». Inventer une valeur GitHub pour un role que GitHub
+		//    n a pas, ce serait publier un chiffre sans provenance.
+		//
+		// PROVENANCE DES VALEURS : jetons Primer de GitHub. `#0969da` (accent clair)
+		// et `#ffffff` sont en outre LISIBLES SUR LA PLANCHE 091913 de NkUIDesign,
+		// qui montre « Fond #0969da / Texte #ffffff » dans l Inspecteur -- deux des
+		// valeurs sont donc confirmees par une source interne, pas seulement par ma
+		// memoire. Les autres viennent des jetons Primer publies.
+		inline NkTheme NkThemeGitHubDarkPro() {
+			NkTheme t = NkTheme::Dark();
+			t.SetName("GitHub Dark Pro");
+			t.Set(NkRole::WindowBg, NkTheme::FromHex("#0d1117"));	// canvas.default
+			t.Set(NkRole::PanelBg, NkTheme::FromHex("#161b22"));	// canvas.subtle
+			t.Set(NkRole::PanelHeader, NkTheme::FromHex("#21262d")); // canvas.inset+
+			t.Set(NkRole::Border, NkTheme::FromHex("#30363d"));		// border.default
+			t.Set(NkRole::InputBg, NkTheme::FromHex("#0d1117"));
+			t.Set(NkRole::LabelCol, NkTheme::FromHex("#161b22"));
+			t.Set(NkRole::Text, NkTheme::FromHex("#c9d1d9"));		// fg.default
+			t.Set(NkRole::TextMuted, NkTheme::FromHex("#8b949e"));	// fg.muted
+			t.Set(NkRole::TextOnAccent, NkTheme::FromHex("#ffffff"));
+			t.Set(NkRole::AccentUi, NkTheme::FromHex("#58a6ff"));	// accent.fg
+			// ⚠️ `AccentSel` RESTE L ORANGE DU PRODUIT. C est une regle du depot --
+			//    « le BLEU dit l etat de l INTERFACE, l AMBRE dit la selection » --
+			//    et elle ne depend pas du theme choisi. La remplacer par un jeton
+			//    GitHub ferait disparaitre la distinction dans ce theme-la seulement,
+			//    ce qui est pire qu une couleur inhabituelle : c est une regle qui
+			//    tient une fois sur deux.
+			return t;
+		}
+
+		inline NkTheme NkThemeGitHubLightPro() {
+			NkTheme t = NkTheme::Light();
+			t.SetName("GitHub Light Pro");
+			t.Set(NkRole::WindowBg, NkTheme::FromHex("#ffffff"));	// canvas.default
+			t.Set(NkRole::PanelBg, NkTheme::FromHex("#f6f8fa"));	// canvas.subtle
+			t.Set(NkRole::PanelHeader, NkTheme::FromHex("#eaeef2"));
+			t.Set(NkRole::Border, NkTheme::FromHex("#d0d7de"));		// border.default
+			t.Set(NkRole::InputBg, NkTheme::FromHex("#ffffff"));
+			t.Set(NkRole::LabelCol, NkTheme::FromHex("#f6f8fa"));
+			t.Set(NkRole::Text, NkTheme::FromHex("#1f2328"));		// fg.default
+			t.Set(NkRole::TextMuted, NkTheme::FromHex("#656d76"));	// fg.muted
+			t.Set(NkRole::TextOnAccent, NkTheme::FromHex("#ffffff"));
+			t.Set(NkRole::AccentUi, NkTheme::FromHex("#0969da"));	// accent.fg
+			return t;
+		}
+
+		// ⚠️ LE THEME PAR DEFAUT DE LA COQUILLE (migration du 2026-08-30).
+		//    C est la palette « GitHub Dark » que `NkEditorShell::Init` recopiait
+		//    a la main depuis des semaines, ENFIN exprimee dans le vocabulaire
+		//    des roles -- ce qui n est devenu possible que quand `ButtonBg` et
+		//    `TabBarBg` ont ete ajoutes (le fond d un bouton et la barre
+		//    d onglets n avaient pas de mot).
+		//
+		//    ⚠️ PAS DANS `AddBuiltins`, ET C EST VOULU : ce n est pas un choix
+		//       offert a l utilisateur, c est le defaut de la coquille. L ajouter
+		//       a la liste en ferait un cinquieme theme du menu Affichage, et il
+		//       y ferait doublon avec « GitHub Dark Pro » sans lui etre identique
+		//       -- deux entrees qui se ressemblent et different est exactement ce
+		//       qu un menu ne doit pas offrir.
+		inline NkTheme NkThemeCoquilleDefaut() {
+			NkTheme t = NkTheme::Dark();
+			t.SetName("Coquille (GitHub Dark)");
+			t.Set(NkRole::WindowBg, NkTheme::FromHex("#0d1117"));	 // editeur
+			t.Set(NkRole::PanelBg, NkTheme::FromHex("#010409"));	 // sidebar, plus sombre
+			t.Set(NkRole::PanelHeader, NkTheme::FromHex("#191d23")); // titres/menus
+			t.Set(NkRole::Border, NkTheme::FromHex("#212730"));
+			t.Set(NkRole::InputBg, NkTheme::FromHex("#0d1117"));
+			t.Set(NkRole::Text, NkTheme::FromHex("#dfdfdf"));
+			t.Set(NkRole::TextMuted, NkTheme::FromHex("#7d8590"));
+			t.Set(NkRole::TextOnAccent, NkTheme::FromHex("#ffffff"));
+			t.Set(NkRole::AccentUi, NkTheme::FromHex("#1f6feb"));
+			// Les deux roles qui ont rendu cette palette exprimable :
+			t.Set(NkRole::ButtonBg, NkTheme::FromHex("#191d23")); // != InputBg, c etait le point
+			t.Set(NkRole::TabBarBg, NkTheme::FromHex("#191d23"));
+			return t;
+		}
+
 		inline void NkThemeLibrary::AddBuiltins() {
 			mThemes.PushBack(NkTheme::Dark());
 			mThemes.PushBack(NkTheme::Light());
+			// ⚠️ AJOUTES APRES, jamais AVANT : `mCurrent = 0` designe le premier, et
+			//    inserer devant changerait silencieusement le theme par defaut de
+			//    toutes les applications qui appellent `AddBuiltins`.
+			mThemes.PushBack(NkThemeGitHubDarkPro());
+			mThemes.PushBack(NkThemeGitHubLightPro());
 			mCurrent = 0;
 		}
 

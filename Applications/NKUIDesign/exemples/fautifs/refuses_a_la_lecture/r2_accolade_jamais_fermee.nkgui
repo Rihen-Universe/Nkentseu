@@ -1,0 +1,4 @@
+nkgui 0.2
+widgets {
+ Button "a" { label = "x"
+}

@@ -125,8 +125,26 @@ with project("NKECS"):
 
     # Tests unitaires (desktop uniquement)
     with filter("(system:Linux || system:macOS || (system:Windows && !options:windows-runtime=uwp && !system:XboxSeries && !system:XboxOne)) && !system:Android && !system:iOS && !system:Web"):
-        with test():
-            testfiles(["tests/**.cpp"])
+        # Deux fichiers, deux main() : une sous-suite par fichier (Jenga 2.6, 2026-09-04).
+        with test("EntitySerialization"):
+            testfiles(["tests/test_entity_serialization.cpp"])
+            testownmain()
+            links([
+                "NKECS",
+                "NKReflection",
+                "NKSerialization",
+                "NKThreading",
+                "NKContainers",
+                "NKCore",
+                "NKMemory",
+                "NKLogger",
+                "NKMath",
+                "NKPlatform",
+            ])
+        # Jenga 2.6.1 : la seconde sous-suite (2026-09-04).
+        with test("ReflectBridge"):
+            testfiles(["tests/test_reflect_bridge.cpp"])
+            testownmain()
             links([
                 "NKECS",
                 "NKReflection",

@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
+# AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 """RendererSandbox — projets Sandbox de la categorie Renderer (NKRenderer). Inclus par Sandbox.jenga.
 Variables graphiques/Wayland partagees via useconfig (graphics.jenga/wayland.jenga)."""
 from Jenga import *
@@ -19,7 +20,7 @@ if not _os.path.isdir(_NK_SHADERS_DIR):
 _NK_SHADERS_DIR = _NK_SHADERS_DIR.replace("\\", "/")
 
 
-def sandboxusenkrenderer(project_name: str, source_files: list, app_id_suffix: str, needs_camera: bool = False, use_nkimage: bool = False, use_nkfont: bool = False, use_nkgen: bool = False):
+def sandboxusenkrenderer(project_name: str, source_files: list, app_id_suffix: str, needs_camera: bool = False, use_nkimage: bool = False, use_nkfont: bool = False, use_nkgen: bool = False, use_nkvfx: bool = False):
     with project(project_name):
         useappdeps("platform", "core", "memory", "containers", "math", "threading", "logger", "time", "event", "window", "image", "font", "rhi", "stream", "filesystem", "renderer", "serialization", "reflection", "NKMedia")
         windowedapp()
@@ -49,8 +50,10 @@ def sandboxusenkrenderer(project_name: str, source_files: list, app_id_suffix: s
             "%{NKSL.location}/src",
             "%{NKRenderer.location}/src",
             # Substrats d animation extraits de NKRenderer le 2026-08-14.
-            "%{NKAnimation.location}/src",
-            "%{NKAnimPhysics.location}/src",
+            "%{NKAnima.location}/src",
+            # Physique (sonde vehicule NK_VEHICLE_PROBE, 2026-09-04)
+            "%{NKPhysics.location}/src",
+            "%{NKCollision.location}/src",
             "%{NKSerialization.location}/src",
             "%{NKReflection.location}/src",
             "%{NKMedia.location}/src",
@@ -59,6 +62,11 @@ def sandboxusenkrenderer(project_name: str, source_files: list, app_id_suffix: s
             _SANDBOX_INCLUDE_DIRS.append("%{NKImage.location}/src")
         if use_nkfont:
             _SANDBOX_INCLUDE_DIRS.append("%{NKFont.location}/src")
+        if use_nkvfx:
+            # NKVFX : les effets (le producteur d'eau NkWaterMeshBuilder, sonde
+            # NK_OCEAN_PROBE). LIER N'EST PAS INCLURE : links()/dependson() ne
+            # transportent aucun chemin d'en-tete, il faut ce includedirs en plus.
+            _SANDBOX_INCLUDE_DIRS.append("%{NKVFX.location}/src")
         if use_nkgen:
             # Sous-systeme IA (Kernel/AI) : NKGen + sa pile (pour DemoNKGen).
             _SANDBOX_INCLUDE_DIRS.append("%{NKGen.location}/src")
@@ -72,9 +80,18 @@ def sandboxusenkrenderer(project_name: str, source_files: list, app_id_suffix: s
 
         _BASE_LINKS = [
             "NKMedia",  # avant NKImage/NKThreading (le linker mono-passe résout les refs vers l'aval)
+        ]
+        if use_nkvfx:
+            # ⚠️ NKVFX AVANT NKRenderer : le linker est mono-passe et resout vers
+            # l'aval ; NKVFX depend de NKRenderer, donc il vient d'abord. Dette deja
+            # nommee dans NKVFX.jenga : rien n'automatise cet ordre, chaque
+            # application consommant NKVFX doit l'ecrire a la main.
+            _BASE_LINKS.insert(0, "NKVFX")
+        _BASE_LINKS += [
+            "NKPhysics", "NKCollision",  # sonde vehicule ; leurs refs (NKMath, NKContainers) sont en aval
             "NKEvent", "NKWindow", "NKGlad", "NKLogger",
             "NKMath", "NKTime", "NKStream", "NKFileSystem",
-            "NKContainers", "NKMemory", "NKCore", "NKPlatform", "NKThreading", "NKRHI", "NKRenderer", "NKAnimation", "NKAnimPhysics", "NKSL",
+            "NKContainers", "NKMemory", "NKCore", "NKPlatform", "NKThreading", "NKRHI", "NKRenderer", "NKAnima", "NKSL",
             "NKSerialization", "NKReflection"
         ]
         if use_nkimage:
@@ -254,8 +271,29 @@ def sandboxusenkrenderer(project_name: str, source_files: list, app_id_suffix: s
             # sans aucun changement cote moteur (equivalent Web de
             # androidassets, cf. filtre Android ci-dessus).
             if _os.path.isdir(_NK_SHADERS_DIR):
+                # ⚠️ ON N EMBARQUE PAS LES DIALECTES QUE LE WEB NE PEUT PAS LIRE.
+                # Mesure du 2026-09-03 sur l arbre preloade (474 fichiers) :
+                #   126 .hlsl (DirectX) + 62 .msl (Metal) = 188 fichiers, 247 976 o
+                # JAMAIS ouverts par le moteur -- et pas seulement « inutiles sur
+                # le web » : RIEN dans le depot ne les lit depuis cet arbre. Ce
+                # sont des SORTIES du convertisseur (NkShaderLibrary reportAndSave
+                # VK->HLSL/MSL), versionnees a cote de leurs sources. Le chargeur,
+                # lui, construit deux chemins et deux seulement : <Mat>/NkSL/*.nksl
+                # d abord, <Mat>/VK/*.vk.glsl en repli -- « tous les backends
+                # chargent le .vk.glsl », DX11/DX12/Metal convertissant a chaud.
+                # Chaque entree coute DEUX rappels de progression et une entree
+                # MEMFS creee une par une : c est du temps de chargement paye par
+                # toutes les cibles web pour des fichiers que personne n ouvre.
+                # 🔎 NON RETIRES, FAUTE DE PREUVE D EXECUTION : les 68 .gl.glsl
+                # (105 405 o). Le code mesure ne construit aucun chemin "GL/",
+                # mais DEUX COMMENTAIRES du depot affirment le contraire
+                # (NkRender3D.cpp:496, NkPostProcessStack.cpp:346). Tant qu une
+                # execution n a pas tranche entre le code et ces commentaires, on
+                # ne retire pas : un gain certain d abord, l incertain apres.
                 emscriptenextraflags([
                     "--preload-file", f"{_NK_SHADERS_DIR}@/Resources/NKRenderer/Shaders",
+                    "--exclude-file", "*.hlsl",
+                    "--exclude-file", "*.msl",
                 ])
 
         # ===== HarmonyOS ==============================================================
@@ -356,6 +394,8 @@ def sandboxusenkrenderer(project_name: str, source_files: list, app_id_suffix: s
 # =================================== NKRenderer UI =======================================================
 # sandboxusenkrenderer("Scene", ["src/DemoNkentseu/Base05/NkRendererDemo.cpp"], "sandbox.scene.base04", use_nkimage=True, use_nkfont=True)
 sandboxusenkrenderer("r2d01", ["src/DemoNkentseu/Base05/NkRenderer2DDemo.cpp"], "sandbox.scene.r2d01", use_nkimage=True, use_nkfont=True)
-sandboxusenkrenderer("renderdemo", ["src/Demo/**.cpp"], "sandbox.render.demo", use_nkimage=True, use_nkfont=True, use_nkgen=True)
+# use_nkvfx : SEUL renderdemo consomme NKVFX (sonde NK_OCEAN_PROBE). Les autres
+# projets de ce fichier gardent exactement leurs listes d'avant.
+sandboxusenkrenderer("renderdemo", ["src/Demo/**.cpp"], "sandbox.render.demo", use_nkimage=True, use_nkfont=True, use_nkgen=True, use_nkvfx=True)
 # Test CPU du loader glTF 2.0 (NkGLTFLoader) — pas de GPU requis.
 sandboxusenkrenderer("gltftest", ["src/GLTFTest/**.cpp"], "sandbox.render.gltftest", use_nkimage=True, use_nkfont=True)

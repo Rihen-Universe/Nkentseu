@@ -1,5 +1,6 @@
 // =============================================================================
 // NKFileSystem/NkDirectory.h
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // Opérations utilitaires sur les répertoires : création, suppression, parcours.
 //
 // Design :
@@ -286,6 +287,72 @@ namespace nkentseu {
 			/// @note Windows : CSIDL_APPDATA (%APPDATA%)
 			/// @note Unix : ~/.config (convention XDG)
 			static NkPath GetAppDataDirectory();
+
+			// =====================================================================
+			//  LES DOSSIERS DE L'UTILISATEUR (2026-09-05)
+			// =====================================================================
+			// ⚠️ ILS SE LISENT DU SYSTEME, ILS NE SE DEVINENT PAS. Ecrire
+			//    `home + "/Desktop"` est faux trois fois : sur un Windows francais le
+			//    dossier s'appelle « Bureau », un dossier redirige vers OneDrive n'est plus
+			//    sous le profil, et un Linux en francais suit `XDG_DESKTOP_DIR`. Le
+			//    selecteur de fichiers du kit en a besoin pour sa section « Acces rapide » ;
+			//    la connaissance appartient au systeme de fichiers, pas a l'editeur.
+			enum class NkUserFolder : nkentseu::uint8 {
+				Desktop = 0,
+				Documents,
+				Downloads,
+				Pictures,
+				Music,
+				Videos,
+				Count
+			};
+
+			/// Le chemin d'un dossier usuel de l'utilisateur, RESOLU PAR LE SYSTEME.
+			/// Rend un chemin VIDE quand le systeme ne le connait pas (le dossier n'existe
+			/// pas, la plateforme n'a pas la notion) : l'appelant doit le tester, et un
+			/// chemin vide vaut mieux qu'un chemin invente.
+			/// @note Windows : `SHGetFolderPathA` (CSIDL) -- redirections OneDrive et noms
+			///       localises compris. ⚠️ `Downloads` n'a PAS de CSIDL : il est cherche
+			///       sous le profil, et ne sera donc pas trouve s'il a ete deplace.
+			/// @note Linux : `~/.config/user-dirs.dirs` (specification XDG), sinon les noms
+			///       anglais sous le profil.
+			/// @note macOS : les noms fixes sous le profil (ce sont ceux du systeme).
+			static NkPath GetUserFolder(NkUserFolder which);
+
+			// =====================================================================
+			//  « EN CONTIENT-IL AU MOINS UN ? » (2026-09-05)
+			// =====================================================================
+			// Rodolf : « il faut aussi distinguer dossier vide de dossier plein ». Un
+			// selecteur de fichiers pose cette question a CHAQUE dossier qu'il affiche --
+			// et deux fois : « a-t-il des sous-dossiers ? » pour le chevron du rail,
+			// « contient-il quelque chose ? » pour l'icone.
+			//
+			// ⚠️ CE N'EST PAS `Empty()`, ET LA DIFFERENCE EST LE COUT. `Empty()` appelle
+			//    `GetEntries()`, qui ENUMERE TOUT et alloue un vecteur d'entrees completes
+			//    (nom, chemin, taille, date) : sur un dossier de dix mille fichiers on paie
+			//    dix mille entrees pour repondre « oui ». Ici on s'arrete au PREMIER
+			//    element qui compte, et on n'alloue rien.
+			//
+			// ⚠️ ET CE N'EST PAS UN `bool`. Un dossier dont la lecture est REFUSEE (droits,
+			//    volume demonte) n'est ni vide ni plein. `Empty()` rend `true` dans ce cas
+			//    -- il annonce « vide » ce qu'il n'a pas pu lire. L'appelant doit pouvoir
+			//    dire « je ne sais pas », sinon l'interface ment.
+			enum class NkDirProbe : nkentseu::uint8 {
+				Illisible = 0, ///< le dossier n'existe pas, ou son ouverture est refusee
+				Vide,		   ///< ouvert, parcouru, rien qui compte
+				Plein		   ///< au moins un element qui compte -- on s'est arrete la
+			};
+
+			/// Le dossier contient-il AU MOINS UN element ? Arret au premier trouve.
+			/// @param path Chemin du dossier
+			/// @param directoriesOnly `true` = ne comptent que les SOUS-DOSSIERS (la
+			///        question du chevron) ; `false` = tout compte (la question de l'icone).
+			///        UN SEUL corps pour les deux questions : deux fonctions voisines
+			///        divergeraient au premier changement de regle.
+			/// @param skipHidden Ignorer les entrees cachees / systeme et celles dont le nom
+			///        commence par un point -- c'est ce que le selecteur affiche.
+			/// @return `Illisible`, `Vide` ou `Plein`.
+			static NkDirProbe Probe(const char *path, bool directoriesOnly, bool skipHidden = true);
 
 		private:
 			// -------------------------------------------------------------

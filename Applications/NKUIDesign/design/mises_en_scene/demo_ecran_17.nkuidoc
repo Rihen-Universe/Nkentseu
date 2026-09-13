@@ -1,0 +1,583 @@
+nkuidoc 1
+# Document de MISE EN SCENE de l'ecran 17 (etats de champs) : cinq blocs
+# — normal, lecture seule, desactive avec raison (infobulle), occupe,
+# groupe voile. Contenu de DEMO au format officiel (cadrage 31/08).
+titre = Etats_De_Champs
+auteur = humain
+verifiee = 0
+corrigee = 0
+origine = main
+
+noeud 0
+  libelle = Toile
+  enfants = 1 14 30 31 32 33 34
+  largeur = expand 0 0 0
+  hauteur = expand 0 0 0
+  agencement = free start start 0
+  auteur = humain
+  verifiee = 0
+  corrigee = 0
+  origine = main
+
+noeud 1
+  libelle = Paramètres
+  enfants = 2 3 5 6 10 11 16 17 20
+  largeur = fixed 500 0 0
+  hauteur = fixed 640 0 0
+  agencement = free start start 0
+  position = 240 60
+  forme = frame
+  cible = Bureau 1440 x 900
+  auteur = humain
+  verifiee = 0
+  corrigee = 0
+  origine = main
+
+noeud 2
+  libelle = Libellé Nom du projet
+  enfants = 
+  largeur = fixed 300 0 0
+  hauteur = fixed 14 0 0
+  agencement = none start start 0
+  position = 28 24
+  forme = text
+  texte = Nom du projet
+  couleur_texte = #374151
+  police_px = 12
+  graisse = 500
+  auteur = humain
+  verifiee = 0
+  corrigee = 0
+  origine = main
+
+noeud 3
+  libelle = Champ nom
+  enfants = 4
+  largeur = fixed 444 0 0
+  hauteur = fixed 36 0 0
+  agencement = free start start 0
+  position = 28 44
+  forme = rect
+  fond = #ffffff
+  couleur_bord = #d1d5db
+  bordure = 1
+  rayon = 6
+  auteur = humain
+  verifiee = 0
+  corrigee = 0
+  origine = main
+
+noeud 4
+  libelle = Valeur nom
+  enfants = 
+  largeur = fixed 200 0 0
+  hauteur = fixed 15 0 0
+  agencement = none start start 0
+  position = 12 10
+  forme = text
+  texte = Nkentseu
+  couleur_texte = #111827
+  police_px = 13
+  graisse = 500
+  auteur = humain
+  verifiee = 0
+  corrigee = 0
+  origine = main
+
+noeud 5
+  libelle = Libellé Identifiant
+  enfants = 
+  largeur = fixed 300 0 0
+  hauteur = fixed 14 0 0
+  agencement = none start start 0
+  position = 28 100
+  forme = text
+  texte = Identifiant
+  couleur_texte = #374151
+  police_px = 12
+  graisse = 500
+  auteur = humain
+  verifiee = 0
+  corrigee = 0
+  origine = main
+
+noeud 6
+  libelle = Champ identifiant
+  enfants = 7 8
+  largeur = fixed 444 0 0
+  hauteur = fixed 36 0 0
+  agencement = free start start 0
+  position = 28 120
+  forme = rect
+  fond = #f9fafb
+  couleur_bord = #d1d5db
+  bordure = 1
+  rayon = 6
+  auteur = humain
+  verifiee = 0
+  corrigee = 0
+  origine = main
+
+noeud 7
+  libelle = Préfixe id
+  enfants = 
+  largeur = fixed 30 0 0
+  hauteur = fixed 15 0 0
+  agencement = none start start 0
+  position = 10 10
+  forme = text
+  texte = NK-
+  couleur_texte = #111827
+  police_px = 13
+  graisse = 500
+  auteur = humain
+  verifiee = 0
+  corrigee = 0
+  origine = main
+
+noeud 8
+  libelle = Sélection id
+  enfants = 9
+  largeur = fixed 76 0 0
+  hauteur = fixed 18 0 0
+  agencement = free start start 0
+  position = 36 9
+  forme = rect
+  fond = #bfdbfe
+  rayon = 1
+  auteur = humain
+  verifiee = 0
+  corrigee = 0
+  origine = main
+
+noeud 9
+  libelle = Valeur id
+  enfants = 
+  largeur = fixed 74 0 0
+  hauteur = fixed 15 0 0
+  agencement = none start start 0
+  position = 2 1
+  forme = text
+  texte = 2026-0084
+  couleur_texte = #1d4ed8
+  police_px = 13
+  graisse = 500
+  auteur = humain
+  verifiee = 0
+  corrigee = 0
+  origine = main
+
+noeud 10
+  libelle = Libellé Clé de licence
+  enfants = 
+  largeur = fixed 300 0 0
+  hauteur = fixed 14 0 0
+  agencement = none start start 0
+  position = 28 176
+  forme = text
+  texte = Clé de licence
+  couleur_texte = #9ca3af
+  police_px = 12
+  graisse = 500
+  auteur = humain
+  verifiee = 0
+  corrigee = 0
+  origine = main
+
+noeud 11
+  libelle = Région désactivée
+  enfants = 12
+  largeur = fixed 444 0 0
+  hauteur = fixed 52 0 0
+  agencement = free start start 0
+  position = 28 196
+  forme = rect
+  fond = #ffffff
+  couleur_bord = #d1d5db
+  bordure = 1
+  rayon = 8
+  auteur = humain
+  verifiee = 0
+  corrigee = 0
+  origine = main
+
+noeud 12
+  libelle = Champ licence
+  enfants = 13
+  largeur = fixed 424 0 0
+  hauteur = fixed 36 0 0
+  agencement = free start start 0
+  position = 10 8
+  forme = rect
+  fond = #f3f4f6
+  couleur_bord = #e5e7eb
+  bordure = 1
+  rayon = 6
+  auteur = humain
+  verifiee = 0
+  corrigee = 0
+  origine = main
+
+noeud 13
+  libelle = Valeur licence
+  enfants = 
+  largeur = fixed 20 0 0
+  hauteur = fixed 15 0 0
+  agencement = none start start 0
+  position = 12 10
+  forme = text
+  texte = —
+  couleur_texte = #d1d5db
+  police_px = 13
+  auteur = humain
+  verifiee = 0
+  corrigee = 0
+  origine = main
+
+noeud 14
+  libelle = Infobulle raison
+  enfants = 15
+  largeur = fixed 236 0 0
+  hauteur = fixed 28 0 0
+  agencement = free start start 0
+  position = 756 268
+  forme = rect
+  fond = #1f2937
+  rayon = 7
+  auteur = humain
+  verifiee = 0
+  corrigee = 0
+  origine = main
+
+noeud 15
+  libelle = Texte infobulle
+  enfants = 
+  largeur = fixed 220 0 0
+  hauteur = fixed 13 0 0
+  agencement = none start start 0
+  position = 12 8
+  forme = text
+  texte = Disponible après activation du compte
+  couleur_texte = #f3f4f6
+  police_px = 11
+  auteur = humain
+  verifiee = 0
+  corrigee = 0
+  origine = main
+
+noeud 16
+  libelle = Libellé Synchronisation
+  enfants = 
+  largeur = fixed 300 0 0
+  hauteur = fixed 14 0 0
+  agencement = none start start 0
+  position = 28 268
+  forme = text
+  texte = Synchronisation
+  couleur_texte = #374151
+  police_px = 12
+  graisse = 500
+  auteur = humain
+  verifiee = 0
+  corrigee = 0
+  origine = main
+
+noeud 17
+  libelle = Champ occupé
+  enfants = 18 19
+  largeur = fixed 444 0 0
+  hauteur = fixed 36 0 0
+  agencement = free start start 0
+  position = 28 288
+  forme = rect
+  fond = #f9fafb
+  couleur_bord = #e5e7eb
+  bordure = 1
+  rayon = 6
+  auteur = humain
+  verifiee = 0
+  corrigee = 0
+  origine = main
+
+noeud 18
+  libelle = Rond occupé
+  enfants = 
+  largeur = fixed 12 0 0
+  hauteur = fixed 12 0 0
+  agencement = none start start 0
+  position = 12 12
+  forme = rect
+  fond = #93c5fd
+  rayon = 6
+  auteur = humain
+  verifiee = 0
+  corrigee = 0
+  origine = main
+
+noeud 19
+  libelle = Texte occupé
+  enfants = 
+  largeur = fixed 220 0 0
+  hauteur = fixed 15 0 0
+  agencement = none start start 0
+  position = 32 10
+  forme = text
+  texte = Vérification en cours…
+  couleur_texte = #9ca3af
+  police_px = 13
+  auteur = humain
+  verifiee = 0
+  corrigee = 0
+  origine = main
+
+noeud 20
+  libelle = Groupe avancé
+  enfants = 21 22 23 24 25 26 27 28
+  largeur = fixed 444 0 0
+  hauteur = fixed 170 0 0
+  agencement = free start start 0
+  position = 28 344
+  forme = rect
+  fond = #f5f6f8
+  couleur_bord = #e5e7eb
+  bordure = 1
+  rayon = 8
+  auteur = humain
+  verifiee = 0
+  corrigee = 0
+  origine = main
+
+noeud 21
+  libelle = Titre avancé
+  enfants = 
+  largeur = fixed 200 0 0
+  hauteur = fixed 14 0 0
+  agencement = none start start 0
+  position = 14 12
+  forme = text
+  texte = Options avancées
+  couleur_texte = #9ca3af
+  police_px = 12
+  graisse = 600
+  auteur = humain
+  verifiee = 0
+  corrigee = 0
+  origine = main
+
+noeud 22
+  libelle = Case 1
+  enfants = 
+  largeur = fixed 14 0 0
+  hauteur = fixed 14 0 0
+  agencement = none start start 0
+  position = 14 40
+  forme = rect
+  fond = #e5e7eb
+  couleur_bord = #d1d5db
+  bordure = 1
+  rayon = 3
+  auteur = humain
+  verifiee = 0
+  corrigee = 0
+  origine = main
+
+noeud 23
+  libelle = Texte case 1
+  enfants = 
+  largeur = fixed 300 0 0
+  hauteur = fixed 14 0 0
+  agencement = none start start 0
+  position = 36 40
+  forme = text
+  texte = Activer les mises à jour automatiques
+  couleur_texte = #b6bcc6
+  police_px = 12
+  auteur = humain
+  verifiee = 0
+  corrigee = 0
+  origine = main
+
+noeud 24
+  libelle = Case 2
+  enfants = 
+  largeur = fixed 14 0 0
+  hauteur = fixed 14 0 0
+  agencement = none start start 0
+  position = 14 66
+  forme = rect
+  fond = #e5e7eb
+  couleur_bord = #d1d5db
+  bordure = 1
+  rayon = 3
+  auteur = humain
+  verifiee = 0
+  corrigee = 0
+  origine = main
+
+noeud 25
+  libelle = Texte case 2
+  enfants = 
+  largeur = fixed 300 0 0
+  hauteur = fixed 14 0 0
+  agencement = none start start 0
+  position = 36 66
+  forme = text
+  texte = Envoyer les journaux de diagnostic
+  couleur_texte = #b6bcc6
+  police_px = 12
+  auteur = humain
+  verifiee = 0
+  corrigee = 0
+  origine = main
+
+noeud 26
+  libelle = Libellé niveau
+  enfants = 
+  largeur = fixed 140 0 0
+  hauteur = fixed 14 0 0
+  agencement = none start start 0
+  position = 14 96
+  forme = text
+  texte = Niveau de détail
+  couleur_texte = #b6bcc6
+  police_px = 12
+  auteur = humain
+  verifiee = 0
+  corrigee = 0
+  origine = main
+
+noeud 27
+  libelle = Combo niveau
+  enfants = 
+  largeur = fixed 160 0 0
+  hauteur = fixed 28 0 0
+  agencement = none start start 0
+  position = 14 114
+  forme = rect
+  fond = #eceef1
+  couleur_bord = #e5e7eb
+  bordure = 1
+  rayon = 6
+  auteur = humain
+  verifiee = 0
+  corrigee = 0
+  origine = main
+
+noeud 28
+  libelle = Bouton réinitialiser
+  enfants = 29
+  largeur = fixed 110 0 0
+  hauteur = fixed 28 0 0
+  agencement = free start start 0
+  position = 320 114
+  forme = rect
+  fond = #eceef1
+  couleur_bord = #e5e7eb
+  bordure = 1
+  rayon = 6
+  auteur = humain
+  verifiee = 0
+  corrigee = 0
+  origine = main
+
+noeud 29
+  libelle = Texte réinitialiser
+  enfants = 
+  largeur = fixed 90 0 0
+  hauteur = fixed 13 0 0
+  agencement = none start start 0
+  position = 18 8
+  forme = text
+  texte = Réinitialiser
+  couleur_texte = #b6bcc6
+  police_px = 12
+  graisse = 500
+  auteur = humain
+  verifiee = 0
+  corrigee = 0
+  origine = main
+
+noeud 30
+  libelle = État 1
+  enfants = 
+  largeur = fixed 170 0 0
+  hauteur = fixed 13 0 0
+  agencement = none start start 0
+  position = 60 84
+  forme = text
+  texte = normal
+  couleur_texte = #b45309
+  police_px = 11
+  graisse = 500
+  auteur = humain
+  verifiee = 0
+  corrigee = 0
+  origine = main
+
+noeud 31
+  libelle = État 2
+  enfants = 
+  largeur = fixed 170 0 0
+  hauteur = fixed 13 0 0
+  agencement = none start start 0
+  position = 60 160
+  forme = text
+  texte = lecture seule
+  couleur_texte = #b45309
+  police_px = 11
+  graisse = 500
+  auteur = humain
+  verifiee = 0
+  corrigee = 0
+  origine = main
+
+noeud 32
+  libelle = État 3
+  enfants = 
+  largeur = fixed 170 0 0
+  hauteur = fixed 13 0 0
+  agencement = none start start 0
+  position = 60 240
+  forme = text
+  texte = désactivé — avec raison
+  couleur_texte = #b45309
+  police_px = 11
+  graisse = 500
+  auteur = humain
+  verifiee = 0
+  corrigee = 0
+  origine = main
+
+noeud 33
+  libelle = État 4
+  enfants = 
+  largeur = fixed 170 0 0
+  hauteur = fixed 13 0 0
+  agencement = none start start 0
+  position = 60 330
+  forme = text
+  texte = occupé
+  couleur_texte = #b45309
+  police_px = 11
+  graisse = 500
+  auteur = humain
+  verifiee = 0
+  corrigee = 0
+  origine = main
+
+noeud 34
+  libelle = État 5
+  enfants = 
+  largeur = fixed 170 0 0
+  hauteur = fixed 13 0 0
+  agencement = none start start 0
+  position = 60 420
+  forme = text
+  texte = groupe désactivé (voilé)
+  couleur_texte = #b45309
+  police_px = 11
+  graisse = 500
+  auteur = humain
+  verifiee = 0
+  corrigee = 0
+  origine = main

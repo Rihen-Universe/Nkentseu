@@ -1,0 +1,52 @@
+nkgui 0.3
+
+// Le panneau de reglages de l'editeur.
+// Ecrit a la main : c'est un exemple, pas une sortie de generateur.
+widgets {
+
+  Panel "reglages" {
+    title = "Reglages"
+
+    VBox "colonne" {
+      gap = 8
+      align = Start
+
+      Text "titre" {
+        text = "Apparence"
+        wrap = true
+      }
+
+      Separator "sep" { orientation = Horizontal }
+
+      Checkbox "sombre" {
+        label = "Theme sombre"
+        bind = ui.themeSombre
+        tristate = false
+      }
+
+      Slider "echelle" {
+        bind = ui.echelle
+        min = 0.5
+        max = 3.0
+        step = 0.25
+      }
+
+      // Un commentaire en tete de membre : conserve depuis la bascule.
+      TextField "recherche" {
+        bind = ui.filtre
+        placeholder = "Filtrer..."
+        maxChars = 64
+      }
+
+      Spacer "vide" { size = 12 }
+
+      HBox "actions" {
+        gap = 6
+        justify = End
+
+        Button "annuler" { label = "Annuler" }
+        Button "ok" { label = "Enregistrer" }
+      }
+    }
+  }
+}

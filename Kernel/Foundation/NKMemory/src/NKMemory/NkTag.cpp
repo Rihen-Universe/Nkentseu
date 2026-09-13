@@ -8,7 +8,7 @@
 //  - Overhead minimal : atomiques lock-free quand supportés par la plateforme
 //  - Debug-only extensions conditionnelles via NKENTSEU_MEMORY_TAGGING_VERBOSE
 //
-// Auteur : Rihen
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // Date : 2024-2026
 // License : Proprietary - All Rights Reserved (see LICENSE)
 // =============================================================================
@@ -17,6 +17,7 @@
 // PRÉ-COMPILED HEADER - TOUJOURS EN PREMIER
 // -------------------------------------------------------------------------
 #include "pch.h"
+#include "NKCore/Text/NkSnprintf.h"
 
 // -------------------------------------------------------------------------
 // EN-TÊTES DU MODULE
@@ -76,13 +77,13 @@ namespace {
 	// Helper : formatage de taille humaine pour les logs
 	const char *FormatSize(nkentseu::nk_uint64 bytes, char *buffer, nkentseu::nk_size bufferSize) {
 		if (bytes >= (1024ULL * 1024 * 1024)) {
-			snprintf(buffer, bufferSize, "%.1f GB", static_cast<float>(bytes) / (1024.0f * 1024.0f * 1024.0f));
+			nkentseu::NkSnprintf(buffer, bufferSize, "%.1f GB", static_cast<float>(bytes) / (1024.0f * 1024.0f * 1024.0f));
 		} else if (bytes >= (1024ULL * 1024)) {
-			snprintf(buffer, bufferSize, "%.1f MB", static_cast<float>(bytes) / (1024.0f * 1024.0f));
+			nkentseu::NkSnprintf(buffer, bufferSize, "%.1f MB", static_cast<float>(bytes) / (1024.0f * 1024.0f));
 		} else if (bytes >= 1024) {
-			snprintf(buffer, bufferSize, "%.1f KB", static_cast<float>(bytes) / 1024.0f);
+			nkentseu::NkSnprintf(buffer, bufferSize, "%.1f KB", static_cast<float>(bytes) / 1024.0f);
 		} else {
-			snprintf(buffer, bufferSize, "%llu B", static_cast<unsigned long long>(bytes));
+			nkentseu::NkSnprintf(buffer, bufferSize, "%llu B", static_cast<unsigned long long>(bytes));
 		}
 		return buffer;
 	}
@@ -298,7 +299,7 @@ namespace nkentseu {
 				char percentBuf[16] = {0};
 				if (budget > 0) {
 					const float pct = (static_cast<float>(used) / static_cast<float>(budget)) * 100.0f;
-					snprintf(percentBuf, sizeof(percentBuf), "%.1f%%", pct);
+					nkentseu::NkSnprintf(percentBuf, sizeof(percentBuf), "%.1f%%", pct);
 					percentStr = percentBuf;
 
 					// Marker visuel si over budget ou proche du seuil
@@ -323,7 +324,7 @@ namespace nkentseu {
                                       (totalBudget > 0) ? 
                                           [&]() { 
                                               static char buf[16]; 
-                                              snprintf(buf, sizeof(buf), "%.1f%%", 
+                                              nkentseu::NkSnprintf(buf, sizeof(buf), "%.1f%%", 
                                                       static_cast<float>(totalUsed) / static_cast<float>(totalBudget) * 100.0f);
                                               return buf; 
                                           }() : "N/A",

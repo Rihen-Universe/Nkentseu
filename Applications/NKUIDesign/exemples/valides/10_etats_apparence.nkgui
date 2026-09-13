@@ -1,0 +1,108 @@
+nkgui 0.3
+
+// LES CINQ ETATS D APPARENCE -- la liste fermee, tranchee par Rodolf le
+// 2026-08-27 apres un releve de huit outils.
+//
+//     Normal . Hover . Pressed . Focus . Disabled
+//
+// Ce fichier les exerce tous les cinq, et il exerce surtout la question que le
+// mot `Normal` a ouverte :
+//
+// ⚠️ `appearance { }` ET `appearance(Normal) { }` SONT LE MEME ETAT.
+//    Chez tous les outils qui NOMMENT le repos -- Unity, Godot, WPF, Figma --
+//    le repos nomme EST le socle : aucun n a a la fois un socle et un etat de
+//    repos distincts. Les deux graphies sont donc synonymes.
+//
+//    Mais la GRAPHIE appartient au fichier. L archive retient laquelle des deux
+//    a ete ecrite (`$state` est absente quand il n y a pas de parentheses), et
+//    l ecrivain reemet le lexeme tel quel. **Le modele ne canonise pas** --
+//    sinon l aller-retour casserait pour tous les documents ecrits dans
+//    l autre graphie.
+//
+//    Consequence : les CUMULER sur un meme widget est un doublon, et c est
+//    signale (W-ETAT-DOUBLE). Ce fichier ne les cumule donc pas -- `valider`
+//    y voit un widget en graphie nue et un autre en graphie parenthesee.
+//
+// ⚠️ DEUX NOMS DE FOCUS, ET CE FICHIER MONTRE LES DEUX CAS REELS.
+//    `FocusVisible` ne s affiche qu au clavier ; `Focus` s affiche quelle que
+//    soit l origine. Le BOUTON ci-dessous porte son anneau sur `FocusVisible`
+//    -- un anneau qui apparaitrait au clic de souris est precisement ce que
+//    `:focus-visible` a ete invente pour eviter. Le CHAMP DE SAISIE, lui,
+//    porte son contour sur `Focus` : il doit se voir focalise dans tous les
+//    cas, et c est legitime.
+//
+//    Un `stroke` pose sur `Focus` declenche `W-FOCUS-ANNEAU` -- un
+//    AVERTISSEMENT, pas une erreur : il pose la question, il ne tranche pas a
+//    la place du concepteur. Le champ ci-dessous l assume donc en connaissance
+//    de cause, et c est pour ca qu il est dans ce fichier.
+//
+// ⚠️ QUAND PLUSIEURS ETATS SONT VRAIS EN MEME TEMPS, UN SEUL S APPLIQUE, et
+//    l ordre est fixe :
+//
+//        Disabled > Pressed > Hover > FocusVisible > Focus > Normal
+//
+//    Le cumul permettrait de produire un rendu que PERSONNE n a dessine -- la
+//    somme accidentelle de deux regles. Avec la priorite, ce qui s affiche est
+//    toujours quelque chose que quelqu un a choisi.
+//
+// ⚠️ ET CE QUI N EST PAS DANS LA LISTE COMPTE AUTANT : `Idle` (aucun des huit
+//    outils ne l emploie), `Active` (quatre sens incompatibles), `Default`
+//    (le bouton par defaut d un dialogue en CSS et en Qt), `Checked` et
+//    `Selected` (des DONNEES du composant, que le document declare deja).
+//    Voir design/9_Grammaire_complete.md §3.2bis.
+widgets {
+
+  // Le repos en graphie NUE.
+  Button "valider" {
+    label = "Valider"
+
+    appearance {
+      radius = 6
+      font = "Inter"
+      fill { color = #2F6F7A }
+    }
+
+    appearance(Hover) {
+      fill { color = #3A8894 }
+    }
+
+    appearance(Pressed) {
+      fill { color = #24565E }
+    }
+
+    appearance(FocusVisible) {
+      stroke { color = #F79A28, width = 2 }
+    }
+
+    appearance(Disabled) {
+      fill { color = #6B7B7E }
+    }
+  }
+
+  // Le MEME repos, en graphie PARENTHESEE. Les deux fichiers-la doivent revenir
+  // a l octet : c est ce qui prouve que rien n est canonise.
+  Button "annuler" {
+    label = "Annuler"
+
+    appearance(Normal) {
+      radius = 6
+      fill { color = #3A3F44 }
+    }
+
+    appearance(Hover) {
+      fill { color = #4A5056 }
+    }
+  }
+
+  // LE CAS LEGITIME DE `Focus` : un champ de saisie doit se voir focalise
+  // quelle que soit l origine -- souris comprise. Il assume donc
+  // W-FOCUS-ANNEAU, qui est un avertissement et non une faute.
+  TextField "recherche" {
+    bind = ui.filtre
+    placeholder = "Filtrer..."
+
+    appearance(Focus) {
+      stroke { color = #F79A28, width = 2 }
+    }
+  }
+}

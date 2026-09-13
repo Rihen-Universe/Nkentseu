@@ -2,16 +2,16 @@
 // FICHIER: NKContainers/String/NkStringHash.cpp
 // DESCRIPTION: Implémentation des fonctions de hachage pour les chaînes de caractères
 //              Ce module fournit les définitions des algorithmes déclarés dans NkStringHash.h
-// AUTEUR: Rihen
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // DATE: 2026-02-07
 // VERSION: 1.0.0
 // -----------------------------------------------------------------------------
 
 #include "NkStringHash.h"
+#include "NKCore/Text/NkSnprintf.h"
 #include "NkString.h"
 #include "Encoding/NkASCII.h"
 #include <cstring>
-#include <cstdio>
 #include <cmath>
 
 namespace nkentseu {
@@ -1398,19 +1398,19 @@ namespace nkentseu {
 
 		NkString NkHashToHex32(uint32 hash) NKENTSEU_NOEXCEPT {
 			char buffer[9];
-			snprintf(buffer, sizeof(buffer), "%08X", hash);
+			nkentseu::NkSnprintf(buffer, sizeof(buffer), "%08X", hash);
 			return NkString(buffer);
 		}
 
 		NkString NkHashToHex64(uint64 hash) NKENTSEU_NOEXCEPT {
 			char buffer[17];
-			snprintf(buffer, sizeof(buffer), "%016llX", static_cast<unsigned long long>(hash));
+			nkentseu::NkSnprintf(buffer, sizeof(buffer), "%016llX", static_cast<unsigned long long>(hash));
 			return NkString(buffer);
 		}
 
 		NkString NkHashToHex128(const uint64 hash[2]) NKENTSEU_NOEXCEPT {
 			char buffer[33];
-			snprintf(buffer, sizeof(buffer), "%016llX%016llX", static_cast<unsigned long long>(hash[0]),
+			nkentseu::NkSnprintf(buffer, sizeof(buffer), "%016llX%016llX", static_cast<unsigned long long>(hash[0]),
 					 static_cast<unsigned long long>(hash[1]));
 			return NkString(buffer);
 		}

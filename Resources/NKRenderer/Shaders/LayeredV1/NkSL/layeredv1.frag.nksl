@@ -69,6 +69,11 @@ uniform LayeredV1UBO {
 
 // Grille de voxels (set global) : rgb = radiance réémise, a = opacité. Portée
 // par le set 0, donc déjà remplie par le renderer pour tous les matériaux.
+// Carte de MASQUE des couches (22 aout). Un seul slot, quatre canaux : une
+// couche designe son CANAL via NK_LAYER_MASK_TEX_R..A, pas sa texture. Repli
+// cote C++ : blanc 1x1, donc masque plein — voir NkMaterialSystem.h.
+@binding(set=2, binding=9) uniform sampler2D tMask;
+
 @binding(set=0, binding=27) uniform sampler3D tVoxelOpacity;
 #include "Include/NkVoxelAO.glsli"
 
@@ -108,6 +113,19 @@ float PickMask(int source, vec4 color, vec2 uv, float k, float layerAlbedoA) {
     if (source == 5) return clamp(uv.y, 0.0, 1.0);
     if (source == 6) return clamp(k, 0.0, 1.0);
     if (source == 7) return clamp(layerAlbedoA, 0.0, 1.0);
+    // Sources 8..11 : les quatre canaux de la carte de masque. L'echantillonnage
+    // se fait ICI, dans le helper : un sampler est un GLOBAL, comme un UBO, donc
+    // autorise — c'est deja ce que fait NkVoxelConeTraceGI avec tVoxelOpacity.
+    // La coordonnee, elle, arrive en PARAMETRE : une varying referencee dans un
+    // helper ferait sortir un input.xxx hors de l'entree au generateur HLSL, et
+    // DX refuserait le shader (X3004).
+    if (source >= 8) {
+        vec4 m = texture(tMask, uv);
+        if (source == 8) return clamp(m.r, 0.0, 1.0);
+        if (source == 9) return clamp(m.g, 0.0, 1.0);
+        if (source == 10) return clamp(m.b, 0.0, 1.0);
+        if (source == 11) return clamp(m.a, 0.0, 1.0);
+    }
     return 0.0;
 }
 

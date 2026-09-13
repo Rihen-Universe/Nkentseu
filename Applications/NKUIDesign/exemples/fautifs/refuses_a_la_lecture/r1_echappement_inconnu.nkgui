@@ -1,0 +1,4 @@
+nkgui 0.2
+widgets {
+ T "t" { text = "a\z" }
+}

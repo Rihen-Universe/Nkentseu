@@ -1,4 +1,5 @@
 #pragma once
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // =============================================================================
 // NkOpenGLCommandBuffer.h
 // Command buffer OpenGL : enregistre les commandes en mémoire CPU,
@@ -449,12 +450,17 @@ namespace nkentseu {
 			// =========================================================================
 			// Timestamp
 			// =========================================================================
+			// Marqueur d'horodatage ENREGISTRE dans le tampon (2026-09-04) : il part avec les
+			// commandes, la ou le dessin a lieu -- un appel direct au device tombe AVANT la
+			// relecture du tampon et ne mesure rien. Convention : idx pair = DEBUT du chrono
+			// idx/2, idx impair = FIN (0/1 = la frame, 2/3 = la passe VFX). AVANT : ce corps
+			// appelait glQueryCounter(idx, ...) avec idx comme NOM d'objet GL jamais alloue.
 			void WriteTimestamp(uint32 idx) override {
 #if defined(NK_OPENGL_ES)
 				(void)idx;
 				// OpenGL ES ne supporte pas les timestamp queries de cette manière.
 #else
-				Push([idx] { glQueryCounter(idx, GL_TIMESTAMP); });
+				Push([this, idx] { GL_WriteTimestamp(idx); }); // corps dans le .cpp : le device n'est que declare ici
 #endif
 			}
 
@@ -502,6 +508,7 @@ namespace nkentseu {
 
 			// ── Implémentations GL appelées depuis Execute ────────────────────────────
 			void GL_BeginRenderPass(NkRenderPassHandle rp, NkFramebufferHandle fb, const NkRect2D &area);
+			void GL_WriteTimestamp(uint32 idx);
 			void GL_BindGraphicsPipeline(NkPipelineHandle p);
 			void GL_BindComputePipeline(NkPipelineHandle p);
 			void GL_BindDescriptorSet(NkDescSetHandle set, uint32 idx, const NkVector<uint32> &dynOff);

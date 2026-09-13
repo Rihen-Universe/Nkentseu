@@ -1,4 +1,5 @@
 ﻿#pragma once
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 
 // =============================================================================
 // NkWin32Gamepad.h
@@ -23,6 +24,7 @@
 // =============================================================================
 
 #include "NKPlatform/NkPlatformDetect.h"
+#include "NKCore/Text/NkSnprintf.h"
 
 #if defined(NKENTSEU_PLATFORM_WINDOWS) && !defined(NKENTSEU_PLATFORM_UWP) && !defined(NKENTSEU_PLATFORM_XBOX)
 
@@ -60,7 +62,6 @@
 #include <array>
 #include <vector>
 #include <cstring>
-#include <cstdio>
 #include <cmath>
 #include <string>
 
@@ -713,8 +714,8 @@ namespace nkentseu {
 				info.hasBattery = true;
 				info.numButtons = static_cast<uint32>(NkGamepadButton::NK_GAMEPAD_BUTTON_MAX);
 				info.numAxes = static_cast<uint32>(NkGamepadAxis::NK_GAMEPAD_AXIS_MAX);
-				std::snprintf(info.id, sizeof(info.id), "XInput#%u", static_cast<unsigned>(idx));
-				std::snprintf(info.name, sizeof(info.name), "Xbox Controller %u", static_cast<unsigned>(idx));
+				nkentseu::NkSnprintf(info.id, sizeof(info.id), "XInput#%u", static_cast<unsigned>(idx));
+				nkentseu::NkSnprintf(info.name, sizeof(info.name), "Xbox Controller %u", static_cast<unsigned>(idx));
 			}
 
 			// =====================================================================
@@ -760,9 +761,9 @@ namespace nkentseu {
 					else if (vid == 0x057E)
 						info.type = NkGamepadType::NK_GP_TYPE_NINTENDO;
 
-					std::snprintf(info.id, sizeof(info.id), "DInput#%u-VID_%04X-PID_%04X", i,
+					nkentseu::NkSnprintf(info.id, sizeof(info.id), "DInput#%u-VID_%04X-PID_%04X", i,
 								  static_cast<unsigned>(vid), static_cast<unsigned>(pid));
-					std::snprintf(info.name, sizeof(info.name), "%s", dc.name);
+					nkentseu::NkSnprintf(info.name, sizeof(info.name), "%s", dc.name);
 				}
 			}
 

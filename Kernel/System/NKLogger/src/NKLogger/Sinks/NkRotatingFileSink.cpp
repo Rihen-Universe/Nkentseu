@@ -1,4 +1,5 @@
 // =============================================================================
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // NKLogger/Sinks/NkRotatingFileSink.cpp
 // Implémentation du sink avec rotation automatique basée sur la taille.
 //
@@ -16,6 +17,7 @@
 // =============================================================================
 
 #include "pch.h"
+#include "NKCore/Text/NkSnprintf.h"
 
 #include "NKLogger/Sinks/NkRotatingFileSink.h"
 #include "NKLogger/NkLogMessage.h"
@@ -242,7 +244,7 @@ namespace nkentseu {
 		char suffixBuffer[32];
 
 		// Formatage sûr de l'index en chaîne décimale
-		const int written = ::snprintf(suffixBuffer, sizeof(suffixBuffer), ".%zu", static_cast<size_t>(index));
+		const int written = nkentseu::NkSnprintf(suffixBuffer, sizeof(suffixBuffer), ".%zu", static_cast<size_t>(index));
 
 		// Récupération du chemin de base via méthode unlocked (mutex déjà acquis)
 		NkString result = GetFilenameUnlocked();

@@ -1,7 +1,7 @@
 // -----------------------------------------------------------------------------
 // FICHIER: Core\NKContainers\src\NKContainers\String\NkStringBuilder.cpp
 // DESCRIPTION: Implémentation de la classe NkStringBuilder pour concaténations efficaces
-// AUTEUR: Rihen
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // DATE: 2026-02-07
 // VERSION: 1.0.0
 // -----------------------------------------------------------------------------
@@ -24,6 +24,7 @@
 // -------------------------------------------------------------------------
 #include <cstdio>
 #include <cstdarg>
+#include "NKCore/Text/NkSnprintf.h"
 #include <cstdlib>
 #include <cstring>
 
@@ -1161,13 +1162,13 @@ namespace nkentseu {
 		}
 		va_list args_copy;
 		va_copy(args_copy, args);
-		int size = std::vsnprintf(nullptr, 0, format, args_copy);
+		int size = NkVsnprintf(nullptr, 0, format, args_copy);
 		va_end(args_copy);
 		if (size < 0) {
 			return *this;
 		}
 		GrowIfNeeded(size);
-		std::vsnprintf(mBuffer + mLength, size + 1, format, args);
+		NkVsnprintf(mBuffer + mLength, size + 1, format, args);
 		mLength += size;
 		return *this;
 	}

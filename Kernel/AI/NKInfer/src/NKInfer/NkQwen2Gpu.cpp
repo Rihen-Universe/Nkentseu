@@ -1,4 +1,5 @@
 // =============================================================================
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // NkQwen2Gpu.cpp — forward complet du 7B sur GPU. Voir NkQwen2Gpu.h pour la
 // portée et les choix de conception.
 //
@@ -15,6 +16,7 @@
 // Aucune ligne de NKTensor n'est modifiée (même méthode qu'au jalon 4).
 // =============================================================================
 #include "NKInfer/NkQwen2Gpu.h"
+#include "NKCore/Text/NkSnprintf.h"
 #include "NKInfer/NkGGUFDequant.h"
 #include "NKInfer/NkSampling.h"
 #include "NKTensor/NkTensorGpu.h"
@@ -817,7 +819,7 @@ void main() {
 						{"ffn_down.weight", &L.wDown},
 					};
 					for (uint32 i = 0; i < sizeof(quant) / sizeof(quant[0]); ++i) {
-						std::snprintf(name, sizeof(name), "blk.%u.%s", l, quant[i].suffix);
+						nkentseu::NkSnprintf(name, sizeof(name), "blk.%u.%s", l, quant[i].suffix);
 						const NkGGUFTensorInfo *info = Find(name);
 						if (!info) {
 							SetErr(err, "NkQwen2Gpu::Load : tenseur de couche introuvable");
@@ -836,7 +838,7 @@ void main() {
 						{"attn_v.bias", &L.bv, kvd},
 					};
 					for (uint32 i = 0; i < sizeof(plain) / sizeof(plain[0]); ++i) {
-						std::snprintf(name, sizeof(name), "blk.%u.%s", l, plain[i].suffix);
+						nkentseu::NkSnprintf(name, sizeof(name), "blk.%u.%s", l, plain[i].suffix);
 						const NkGGUFTensorInfo *info = Find(name);
 						if (!info) {
 							SetErr(err, "NkQwen2Gpu::Load : norme/biais de couche introuvable");

@@ -1,4 +1,5 @@
 // =============================================================================
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // NkAudioDemo — main.cpp
 // -----------------------------------------------------------------------------
 // Console app : valide que NKAudio peut charger un WAV et le jouer via le
@@ -14,6 +15,7 @@
 #include "NKLogger/NkLog.h"
 
 #include <cstdio>
+#include <cmath> // sinf/cosf : inclusion explicite (vivait du transitif de NkFormat.h)
 #include <cstring>
 #include <cstdlib>
 #include <thread>

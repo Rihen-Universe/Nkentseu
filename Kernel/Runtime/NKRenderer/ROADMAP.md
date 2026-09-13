@@ -710,7 +710,7 @@ Le chiffre `197/205` circulait sans support durable : il ne vivait que dans
 
 | origine | cibles | état |
 |---|---|---|
-| **A₁** — NKRenderer a gagné `NKAnimation`/`NKAnimPhysics` (extraction du 14/08) ; `Tutoriels3D.jenga` lie une **liste manuelle** que rien n'a forcée à suivre | Tuto02Renderer, Tuto03Scene, Tuto04Camera, Tuto05Meshes | ⏳ corrigé sur `feat/nkanimation`, **non fusionné** |
+| **A₁** — NKRenderer a gagné `NKAnima`/`NKAnimPhysics` (extraction du 14/08) ; `Tutoriels3D.jenga` lie une **liste manuelle** que rien n'a forcée à suivre | Tuto02Renderer, Tuto03Scene, Tuto04Camera, Tuto05Meshes | ⏳ corrigé sur `feat/nkanimation`, **non fusionné** |
 | **A₂** — NKTensor a gagné un dorsal GPU ; la fermeture de liens de ses consommateurs n'a pas suivi | NKTensorDemo | ✅ **corrigé** (`d6ab06a6`) |
 | **B** — appelants restés en arrière d'une **réécriture** d'API (NKFont : `NkFontLibrary`/`NkTextShaper`/`NkShapeResult` remplacés · NkImage devenu type valeur) | NkRHIDemoText, NkImageDemo | ⏳ traité sur `feat/nkanimation`, **non fusionné** ; NkRHIDemoText y est **désactivée**, avec un arbitrage laissé à Rodolf (porter ou supprimer) |
 | **C** — déclaration sans corps dans Foundation (`NkString::begin()/end()`) — **pas une migration** | Gamepad | 🚫 hors périmètre — routé à l'agent NKAnimation |
@@ -725,9 +725,9 @@ registre. Deux mécanismes, deux endroits à corriger.
 
 📏 **Portée du défaut A₁, bornée** : les `.jenga` citant `"NKRenderer"` **sans**
 passer par `nkentseudependson` sont **deux** — `Tutoriels3D` (cassé) et `DemoRW`
-(même liste manuelle sans NKAnimation, **latent** : son binaire ne tire pas
+(même liste manuelle sans NKAnima, **latent** : son binaire ne tire pas
 `NkAnimationSystem.obj`). Les autres vont bien : le registre déclare correctement
-`NKRenderer → NKAnimation` (`config/modules.jenga:109`).
+`NKRenderer → NKAnima` (`config/modules.jenga:109`).
 
 ### ❌ Route racine essayée sur A₂ et **réfutée par la mesure** — ne pas la refaire
 
@@ -907,7 +907,7 @@ Où le reste est parti :
 
 | | module | espace de noms | volume |
 |---|---|---|---|
-| clips, keyframes, échantillonnage, player, blend 1D/2D, HFSM, reciblage, éditeur de pose-clés, motion path | `Kernel/Runtime/NKAnimation` | `nkentseu::anim` | **3 456 l.** |
+| clips, keyframes, échantillonnage, player, blend 1D/2D, HFSM, reciblage, éditeur de pose-clés, motion path | `Kernel/Runtime/NKAnima` | `nkentseu::anim` | **3 456 l.** |
 | masse/COM, équilibre, contacts, correction de pose et de clip | `Kernel/Runtime/NKAnimPhysics` | `nkentseu::animphys` | **1 621 l.** |
 
 **NKRenderer est désormais CONSOMMATEUR de ces deux modules**, et son code le dit :
@@ -1928,7 +1928,661 @@ optionnelle.
 - ❌ Bake thickness/SSS (peau, tissus translucides)
 - ❌ Pipeline de bake batché (tous les assets d'une scène)
 
-### T.2 — Graphe de matériaux (extension des templates existants)
+### ⚠️ FAIT MESURÉ (2026-08-22) — 33 types de matériau déclarés, **17 gabarits enregistrés**
+
+`NkMaterialType` compte **33** valeurs ; `NkMaterialSystem::RegisterBuiltins()`
+n'en enregistre que **17**. Les 16 autres n'ont **aucun gabarit** : `Create()`
+retombe sur PBR, et les types sont indiscernables à l'œil. Le code le dit
+lui-même pour la famille réaliste, corrigée le 11 août — *« leurs shaders
+existaient depuis toujours mais aucun gabarit ne les nommait »*.
+
+```
+NK_CUSTOM  NK_DEBUG_AO  NK_DEBUG_DEPTH  NK_DEBUG_NORMALS  NK_DEBUG_UV
+NK_FLAT  NK_GLOW_2D  NK_PBR_SPECULAR  NK_PIXEL_ART  NK_SKETCH  NK_SPRITE_2D
+NK_TERRAIN  NK_UPBGE_EEVEE  NK_VOLUME  NK_WATER  NK_WATERCOLOR
+```
+
+**C'est consigné, pas corrigé** — les corriger est un autre chantier. Deux
+conséquences immédiates :
+
+1. Toute garantie de non-régression sur « les archetypes » porte sur **17**, pas
+   sur « une trentaine ». Le dire évite de croire plus tard qu'on a cassé
+   quelque chose qui n'existait pas.
+2. ⚠️ **`NK_UPBGE_EEVEE` est dans la liste.** Il a été cité comme preuve que le
+   moteur était « déjà du bon côté de la barrière » EEVEE/Cycles pour le mélange
+   de BSDF. Le raisonnement reste juste — un rasteriseur mélange les paramètres
+   ou les résultats, jamais les closures — mais **l'argument par cet archétype ne
+   vaut rien** : il ne rend pas ce qu'il annonce.
+
+C'est la **quatrième occurrence de la même forme** repérée ce jour-là (un `bool
+ssr` activé par deux presets et jamais implémenté ; un en-tête annonçant une
+capacité absente qui existait ; `outlineWidth`/`outlineColor` transmis et ignorés
+par le shader toon). **Ce n'est plus une série de coïncidences, c'est un motif du
+dépôt** : la déclaration et l'implémentation vivent dans deux fichiers que rien
+ne force à s'accorder.
+
+### T.2 — Graphe de matériaux — ⏳ **DÉMARRÉ ET PROUVÉ EN CONSOLE (2026-08-22)**
+
+Preuve : `Applications/NkMatGraphCheck` — **application** console, **35 cas, 0
+échec**, sans GPU ni fenêtre (dépendances de `NkSLCheck` : NKSL + Foundation).
+**21 mutations vérifiées rouges** au total sur les trois couches livrées.
+
+| brique | état | où |
+|---|---|---|
+| substrat de graphe | ✅ réutilisé, pas réécrit | `Kernel/Runtime/NKGraph` (couche 1) |
+| types de prises matériau + conversions dirigées | ✅ | `Materials/Graph/NkMatGraphTypes.h` |
+| prototypes de nœuds | ✅ 5 | Principled · Diffuse · Emission · **Mix Shader** · Material Output |
+| validation de domaine | ✅ | zéro sortie · sorties multiples · sortie non reliée · cycle |
+| **compilateur → NkSL** | ✅ v1 | `Materials/Graph/NkMatGraphCompile.h` |
+| **preuve de RENDU sur GPU** | ✅ | `Applications/NkMatGraphDemo` — DX11 headless, 7 cas, 4 mutations rouges |
+| masque de couche par **texture** | ✅ | 4 canaux, binding 9, `SetLayerV1MaskMap()` |
+| nœuds `Value` · `RGB` · `Math` (7 op.) · `Mix Color` (6 modes) | ✅ 2026-08-22 | une propriété de nœud porte une **décision**, pas seulement une valeur |
+| nœud `ColorRamp` | ✅ 2026-08-22 | la première propriété à **charge utile variable** |
+| nœuds `Image Texture` · `Texture Coordinate` · `Mapping` | ✅ 2026-08-22 | **aucun binding neuf** — voir ci-dessous, la mesure a changé la réponse |
+| **variables exposées — ENTRÉES** | ✅ 2026-08-22 | l'API publique du moteur ; ⚠️ preuve de **rendu** non atteinte, voir ci-dessous |
+| variables exposées — **sorties** | ❌ | en attente d'une décision de Rodolf : par pixel ou par matériau |
+| **rang 2** — `Noise` · `Gradient` · `Checker` | ✅ 2026-08-22 | procédural : **zéro slot de texture** |
+| **rang 2** — `Voronoi` · `Wave` · `Brick` | ✅ 2026-08-22 | **rang 2 complet** — 22 prototypes |
+| `Normal Map` · `Bump` · `Separate XYZ` | ✅ 2026-08-22 | **rang 1 complet** — convention tranchée, voir ci-dessous |
+| canevas d'édition | ❌ | couche 2, `NKEditorKit`, partagé — pas ce chantier |
+
+**Le NkSL émis COMPILE sur les quatre backends** (GL, Vulkan, DX11, DX12), vérifié
+par le vrai `NkSLCompiler` — pas comparé à un témoin textuel. Un graphe
+sérialisé, relu, puis recompilé rend le **même shader au caractère près**.
+
+#### Les trois décisions qui structurent le générateur
+
+**1. Un « shader » est quatre locales, pas une struct.** NkSL n'accepte pas de
+variable locale de type struct utilisateur (contrainte relevée dans
+`layeredv1.frag.nksl`). Un shader est donc émis en `albedo` (vec3), `metallic`
+(float), `roughness` (float), `emission` (vec3) — exactement le motif de
+l'accumulateur de LayeredV1. Ce n'est pas un choix de style.
+
+**2. `Mix Shader` mélange les PARAMÈTRES, pas des closures.** Cycles mélange des
+closures (une lobe tirée au hasard par rayon) ; **EEVEE approxime**, et NKRenderer
+est un rasteriseur. Le mélange est donc composante par composante, facteur borné
+à [0,1]. C'est ce que font EEVEE, Unreal et Unity. La **forme** du graphe est
+celle de Blender ; seule son exécution diffère.
+
+**3. Une entrée ni câblée ni renseignée donne le NOIR.** Le blanc ferait passer un
+matériau non fini pour un matériau clair. Le neutre doit **se voir**.
+
+#### `ColorRamp` — la première charge utile **variable** (2026-08-22)
+
+Jusque-là toute propriété portait une charge de taille **fixe** : un réel, trois,
+quatre. Une rampe en porte **4×N**, et N vient du fichier. C'est elle qui éprouve
+vraiment le sac de propriétés — et sa réponse conditionne `Image Texture`, dont
+le chemin d'image est aussi une charge variable.
+
+**Le découpage vit à UN SEUL endroit** (`NkMatLisRampe`), partagé par le
+compilateur et le banc : un découpage dupliqué finirait par diverger, et c'est le
+compilateur qui aurait raison sans que personne le sache. Quatre réels par arrêt,
+plafond **32** arrêts, positions **strictement croissantes**.
+
+**Cinq réponses, toutes distinctes, parce qu'elles ne se réparent pas pareil :**
+
+| cas | réponse |
+|---|---|
+| propriété **absente** | ✅ compile — rampe noir→blanc par défaut. **Voisin légitime** : le nœud vient d'être posé, l'auteur n'a pas choisi |
+| compte de réels non multiple de 4 | refus `mal-formee` |
+| positions **dans le désordre** | refus `positions-dans-le-desordre` → il faut réordonner |
+| deux arrêts **à la même position** | refus `deux-arrets-a-la-meme-position` → il faut en déplacer un |
+| au-delà du plafond | refus `trop-d-arrets (33 demandes, plafond 32)` |
+
+⚠️ **Les deux défauts de position ont d'abord partagé un message**, et c'est un cas
+de banc qui a exigé de les séparer : le désordre se corrige en réordonnant, une
+égalité en **déplaçant** un arrêt. Un message commun oblige l'auteur à
+comprendre lui-même lequel des deux il a sous les yeux.
+
+⚠️ **Le refus du plafond DIT LE COMPTE.** « Trop d'arrêts » seul oblige à deviner
+combien retirer.
+
+**Aucune division dans le shader** : le dénominateur de chaque segment est
+calculé **à la compilation**, et la validation a déjà garanti qu'il est non nul en
+refusant les positions égales. Une division laissée dans le shader serait une
+garde à maintenir pour rien.
+
+**Preuve de rendu — et c'est elle qui compte** : une rampe à **trois** arrêts,
+rouge → **vert au milieu** → rouge, lue à `fac = 0,5`, doit rendre du **vert
+pur**. Un émetteur qui ne lirait que le premier et le dernier arrêt — l'erreur
+naturelle quand on traite une **liste** comme une **paire** — rendrait du rouge
+interpolé avec du rouge. **Les deux résultats sont des couleurs plausibles ;
+seul le canal où tombe l'écart les distingue.** Mesuré : `(52, 180, 52)`, écart
+sur le vert = 128, exactement l'arrêt du milieu.
+
+#### ⚠️ Trois faits mesurés qui affaiblissent une garantie qu'on employait (2026-08-22)
+
+Ils sont regroupés ici parce qu'ils portent tous sur **la valeur de nos preuves**,
+pas sur une fonctionnalité.
+
+**1. « Ça compile sur les 4 backends » ne garantit PAS que les fonctions appelées
+existent.** Mesuré : une mutation retirant `Voronoi` de la liste des nœuds qui
+réclament les briques de bruit produit un shader appelant `NkHash22` **sans que
+`NkHash22` soit déclarée** — et `GL=ok VK=ok DX11=ok DX12=ok`. Le frontend NkSL
+ne rejette pas l'appel d'une fonction inconnue. Toute assertion du dépôt qui se
+repose sur « les quatre backends acceptent » doit donc être lue comme *plus
+faible qu'elle n'en a l'air*, et complétée par une vérification de **présence des
+dépendances** quand le shader en a.
+
+**2. Un tampon dimensionné « généreusement » est une bombe à retardement quand ce
+qu'il mesure grandit par conception.** Le cas du menu de la bibliothèque écrivait
+dans `const NkMatNodeProto *menu[16]`, et la requête rend le **compte réel** : à
+17 prototypes proposables, l'itération sortait du tableau — segfault. Le cas
+était pourtant le bon, il grandissait avec le système : c'est précisément ce qui
+l'a fait déborder. Dimensionner sur ce qui grandit, pas sur un nombre choisi.
+
+**3. `NkFormat` tronque en silence sur un indice positionnel hors ordre.** Une
+chaîne employant `{6}` avant `{5}` s'est trouvée coupée juste après `{6}`, sans
+erreur ni avertissement. La ligne de résultat était incomplète dans plusieurs
+rapports avant qu'on ne le remarque. **Employer les indices dans l'ordre.**
+
+#### 🎨 Rang 2 — le procédural, et une contrainte du dialecte qu'il a révélée
+
+`Noise Texture`, `Gradient Texture`, `Checker Texture`. Leur intérêt n'est pas
+seulement d'ajouter des motifs : **ils ne consomment aucun slot de texture**. Un
+matériau entièrement procédural ne coûte donc rien au plafond de 6 — et un cas le
+vérifie en comptant les bindings émis (0).
+
+##### ⚠️ Le fait mesuré qui a décidé de la conception
+
+**L'`#include` du dialecte NkSL ne se résout PAS quand le shader est compilé
+depuis une chaîne.** Les quatre backends rendent `#include not found:
+Include/NkNoise.glsli`. Un shader engendré n'existe pas sur disque : il doit donc
+être **autonome**.
+
+Conséquence : les fonctions de `NkNoise.glsli` (`NkHash2`, `NkHash22`,
+`NkValueNoise2D`, `NkFBM2D`) sont **recopiées** dans le compilateur — ce qui est
+exactement le motif de duplication que ce dépôt a payé plusieurs fois.
+
+⚠️ **Donc la duplication est GARDÉE.** Un cas de banc **lit `NkNoise.glsli` sur le
+disque** et exige que chaque fonction émise s'y retrouve **mot pour mot** —
+signatures *et* morceaux de corps, parce qu'une signature seule passerait alors
+que le corps aurait divergé. Le jour où quelqu'un corrige une formule dans le
+fichier, le banc reste rouge tant que le compilateur n'a pas suivi. C'est la même
+parade que pour les bindings : **comparer le code à une vérité externe, faute de
+pouvoir partager**.
+
+Et la limite elle-même est devenue un cas permanent
+(`nksl/include-ne-se-resout-pas-depuis-une-chaine`) : **une limite non testée se
+perd**. Si le résolveur apprend un jour à travailler depuis une chaîne, ce cas
+passera au rouge — et ce sera le bon moment pour supprimer la recopie.
+
+##### Deux décisions de mise en œuvre
+
+- **Les octaves sont bornées DANS le shader**, pas au moment de la compilation.
+  Le compte vient d'une valeur du graphe, donc potentiellement d'un paramètre
+  exposé : une boucle dont le compte est libre peut ne pas se dérouler, et
+  certains backends refusent alors le shader. Le cas vérifie que la borne est
+  dans le **code émis** — sinon un `detail` branché sur un autre nœud y
+  échapperait.
+- **Les briques de bruit ne sont émises que si un nœud les réclame**, vérifié
+  dans les deux sens.
+
+##### Les trois derniers : `Voronoi`, `Wave`, `Brick`
+
+- **Voronoi** déroule un voisinage `3x3` **littéral**. Une borne connue à la
+  compilation est ce qui permet à tous les backends de dérouler la boucle ; un
+  rayon variable ferait un shader qui compile ici et pas ailleurs — le défaut le
+  plus pénible, parce qu'il fait accuser la machine. Il réutilise `NkHash22`,
+  déjà recopiée et déjà gardée.
+- **Wave** vaut `0,5 + 0,5·sin(x·échelle·2π)` : période `1/échelle`, borné dans
+  [0,1] **sans clamp**. Un sinus brut sortirait de [0,1] et un `clamp`
+  écraserait les creux au lieu de les rendre.
+- **Brick** décale les joints d'une demi-brique **une rangée sur deux**. Sans ce
+  décalage on obtient un **quadrillage** — un mur parfaitement plausible, et
+  faux. Le cas vérifie que le décalage est calculé **et employé** : un décalage
+  calculé mais jamais lu donnerait exactement ce quadrillage, et la seule
+  vérification de présence passerait.
+
+##### La preuve de rendu : un calcul, pas une relation
+
+Les preuves précédentes mesuraient des **relations entre canaux** parce que
+l'éclairage était inconnu. Le damier permet mieux : **son arithmétique est
+prédictible**. Au pixel central, `uv = (0,5 ; 0,5)` ; le damier vaut
+`mod(floor(x)+floor(y)+floor(z), 2)` sur la coordonnée mise à l'échelle :
+
+| graphe | coordonnée | somme | case | mesuré |
+|---|---|---|---|---|
+| sans décalage, échelle 5 | (2,5 ; 2,5 ; 0) | 2+2+0 = **4** | paire → `color2` | **(52,180,52)** vert |
+| décalage +0,2, échelle 5 | (3,5 ; 2,5 ; 0) | 3+2+0 = **5** | impaire → `color1` | **(180,52,52)** rouge |
+
+⚠️ **Ce cas désigne LAQUELLE des deux couleurs doit sortir.** Une erreur d'un
+demi-carreau donnerait l'autre — et l'image resterait un damier parfaitement
+plausible. La mutation qui décale le damier d'une case n'est attrapée **que** par
+ce rendu : les 74 cas de compilation la laissent passer.
+
+#### 🎛️ Les paramètres exposés — l'API publique du moteur (2026-08-22)
+
+C'est le point où ce chantier cesse d'être un compilateur de shaders. Une API
+publique se change mal après coup, d'où le soin sur la forme.
+
+**Une propriété `expose.<prise>` porte le NOM PUBLIC du paramètre.** Présente =
+exposé, absente = constante. Le nom **est** la donnée — c'est lui que le code du
+jeu emploiera (`SetFloat("usure", 0.7f)`) ; un booléen obligerait à inventer le
+nom ailleurs, donc à le maintenir à deux endroits.
+
+⚠️ **« Exposé » n'est pas le défaut, et ce n'est pas un choix de prototype.** Une
+constante se **replie** dans le code émis ; une variable exposée vit dans un bloc
+uniforme et **aucune optimisation n'est plus possible sur elle**. Tout exposer
+donnerait un matériau pilotable et lent. Et `roughness` est exposable dans un
+matériau et pas dans un autre : c'est donc un choix **d'auteur, sur son nœud**,
+porté par l'instance.
+
+##### Ce que la disposition garantit
+
+⚠️ **Elle porte des DÉCALAGES, jamais un ordre.** En `std140` un `vec3` s'aligne
+sur 16 octets : réel, vec3, réel donnent **0, 16, 28** pour un bloc de **32** —
+pas 0, 4, 16. Un moteur qui déduirait les positions de l'ordre de déclaration
+écrirait à côté dès le premier `vec3`, **sans erreur, avec une valeur crédible**.
+
+⚠️ **Un jeton de compilation accompagne la disposition.** Recompiler un graphe
+**édité** peut réordonner le bloc ; du code de jeu ayant retenu un décalage
+écrirait alors dans le mauvais paramètre. **L'API est par NOM**, et tout cache de
+décalage doit porter ce jeton et se jeter quand il change.
+
+**Le défaut d'un paramètre exposé EST le `defaultValue` de sa prise**, jamais une
+seconde valeur à côté : deux sources pour une même chose divergent, et c'est
+alors l'éditeur qui montre l'une pendant que le moteur envoie l'autre. Le cas le
+vérifie en **changeant** le défaut après avoir posé l'exposition.
+
+**Aucun binding neuf** : le bloc réutilise le slot 8 — l'UBO matériau, mort pour
+un matériau engendré qui n'a pas de struct figée. Même raisonnement que les
+textures.
+
+##### 🔴 Une prise CONNECTÉE **et** exposée est refusée, en la nommant
+
+C'est le cas le plus insidieux, et il manquait à la proposition initiale. Si une
+prise reçoit un lien **et** porte une exposition, **le lien remplace la valeur
+exposée** : `SetFloat("usure", 0.9f)` ne fait **rien**. Le matériau compile, il
+rend, le paramètre est mort — aucune erreur, aucun journal.
+
+⚠️ **Chez Blender le problème ne se pose pas parce que brancher un lien fait
+disparaître le widget : l'interface rend l'état impossible.** Nous n'avons pas
+d'interface — **c'est donc la validation qui doit le rendre impossible.**
+
+##### ⚠️ Le coût, nommé plutôt que déduit
+
+« Le même matériau, deux objets, deux valeurs » implique un bloc **par
+instance**, pas par matériau : un tampon uniforme par objet (ou des push
+constants pour les petits blocs), donc **une écriture et une liaison de plus par
+objet dessiné**. C'est écrit ici pour que quelqu'un puisse le contester en le
+voyant, plutôt que le découvrir dans un profil.
+
+##### ⚠️ CE QUI N'EST PAS PROUVÉ : le rendu
+
+Les entrées sont prouvées **à la compilation** — 67 cas, 5 mutations rouges,
+NkSL valide sur les 4 backends. **La preuve de RENDU n'est pas atteinte.** Un
+banc qui compile une fois et rend trois fois en ne changeant que le contenu du
+bloc affiche le plancher achromatique : les valeurs n'arrivent pas au shader.
+
+Ce qui a été **écarté par la mesure**, pour que personne ne recommence :
+
+- ce n'est pas l'index de set (essai en `set=0, binding=1` : même résultat) ;
+- ce n'est pas un renumérotage séquentiel des cbuffers (liaison simultanée au
+  slot 1 : sans effet) ;
+- ce n'est pas une écriture partielle (le tampon entier est écrit) ;
+- les handles sont tous valides (layout, set, tampon), et le HLSL généré place
+  bien le bloc sur `register(b8)` ;
+- DX11 **ignore l'index de set** et lie par le numéro de binding, lequel est
+  sous la limite de 14 cbuffers.
+
+La cause reste à trouver. **Tant qu'elle ne l'est pas, l'exposition est une
+capacité prouvée à la compilation seulement** — et le dire vaut mieux que de
+laisser croire qu'un `SetFloat` piloterait quoi que ce soit aujourd'hui.
+
+#### 🗿 Le relief — convention tranchée, et la normale qui **voyage** (2026-08-22)
+
+**Convention interne : OpenGL, `+Y` vers le haut** (« vert vers le haut »). Une
+carte DirectX (`-Y`) se convertit **à l'import, jamais dans le shader**. Trois
+raisons : Blender emploie cette convention et Rodolf construit sur les siennes —
+diverger produirait des reliefs **inversés** en important son propre travail,
+avec un symptôme notoirement difficile à diagnostiquer (l'image reste plausible,
+elle est juste creuse là où elle devrait être bombée) ; Vulkan et OpenGL sont les
+deux backends validés ; et convertir à l'import évite de payer **par pixel** tout
+en rendant l'état de la texture **visible dans la donnée**.
+
+⚠️ **Le drapeau de provenance existe dès maintenant, bien que rien ne le consomme
+encore.** L'ajouter après coup obligerait à **deviner** la convention des textures
+déjà importées — et les deux hypothèses donnent une image plausible, donc le
+doute serait indécidable.
+
+**Le cas qui décide est une ABSENCE d'effet** : les shaders émis pour `opengl`,
+`directx` et *sans convention* sont **identiques au caractère près** (2806 o
+chacun). La tentation naturelle — retourner Y par pixel — marche, coûte à chaque
+fragment, et rend l'état de la donnée invisible ; seule l'égalité des textes la
+dénonce. Une mutation qui traite la convention dans le shader met ce cas au rouge.
+
+##### La normale voyage — un `shader` porte désormais **cinq** composantes
+
+⚠️ **Avant le 22/08 le puits recalculait `normalize(vNormal)`** : tout travail de
+relief en amont était jeté **en silence**, le shader compilait, l'image restait
+plausible, et le nœud n'aurait servi à rien. *Un nœud dont la sortie n'est lue
+par personne est pire qu'un nœud absent : il donne l'illusion que la capacité
+existe.* La normale a donc rejoint albedo/metallic/roughness/emission, et le
+puits éclaire avec celle du graphe. Le cas vérifie **les deux maillons de la
+chaîne** (Normal Map → Principled → puits) **et une absence** — le puits ne doit
+plus recalculer la géométrique.
+
+Une prise `normal` non câblée vaut la **normale géométrique**, pas le noir : un
+vecteur nul serait une direction indéfinie. Ce n'est pas un repli plausible,
+c'est le comportement **défini** de la prise.
+
+##### Base tangente : par dérivées d'écran, et seulement si utile
+
+Le vertex engendré ne fournit **aucune tangente** ; s'en passer n'est pas un
+choix mais la seule voie honnête. On emploie le **cadre cotangent de Schuler**,
+déjà utilisé par `pbr.frag.nksl` et pour la raison écrite là-bas : les tangentes
+de sommet peuvent être nulles ou désalignées des UV, et le relief part alors dans
+une direction **arbitraire par face**. Elle n'est émise que si un `Normal Map`
+la réclame — un shader qui la calculerait sans s'en servir paierait deux paires
+de dérivées à chaque pixel pour rien, et le cas le vérifie **dans les deux sens**.
+
+##### La preuve de rendu — l'éclairage est **étalonné**, jamais réimplanté
+
+C'est la réponse au piège habituel : pour savoir de quel côté une bosse doit
+s'éclairer, on ne recalcule pas l'ombrage — **on le mesure**. Le même shader, le
+même éclairage, mais une normale **imposée** via un nœud `RGB` donne les couleurs
+de référence.
+
+| rendu | pixel | ce que ça établit |
+|---|---|---|
+| étalon, normale vers **−x** | 129 | le côté clair |
+| étalon, normale vers **+x** | 82 | le côté sombre |
+| carte **plate** (0,5 ; 0,5 ; 1) | 121 | **exactement** la normale géométrique, 3 canaux au bit |
+| `Bump` force **+1** | **129** | tombe sur l'étalon −x |
+| `Bump` force **−1** | **82** | tombe sur l'étalon +x |
+| carte **penchée** (0,75 ; 0,5 ; 1) | **82** | tombe sur l'étalon +x |
+
+⚠️ **Fait établi par ces correspondances exactes, et écrit pendant qu'on le
+sait** : la base tangente construite par dérivées d'écran est **unitaire et
+alignée sur `+u`**. Rien ne l'imposait a priori — la normalisation commune de
+`T` et `B` préserve leur rapport, elle ne garantit pas leur norme. C'est la
+correspondance au bit entre la carte penchée et l'étalon `+x` qui l'établit.
+
+⚠️ **L'appariement est ORIENTÉ, et il doit l'être.** Une première version
+acceptait « chacun tombe sur l'un des deux étalons », dans n'importe quel ordre —
+une **inversion globale** du signe l'aurait donc passée au vert, puisque les deux
+résultats se contentent d'échanger. Le sens se **déduit du graphe** : la hauteur
+vaut `u`, qui croît avec `+x`, son gradient pointe vers `+x`, et la formule
+incline la normale à l'**opposé** du gradient. Une force positive doit donc
+rendre l'étalon `−x`. La mutation qui inverse le signe tombe.
+
+⚠️ **Et la carte plate ne suffit pas** — c'est une mutation qui l'a montré. Avec
+un texel neutre la normale tangente vaut `(0, 0, 1)`, donc **T et B sont
+multipliés par zéro** : une base tangente cassée est **invisible**. D'où le cas de
+la carte **penchée**, qui la fait intervenir. Sous la mutation, elle rend 145
+(côté clair, donc le mauvais) au lieu de 82.
+
+##### Deux notes de mise en œuvre
+
+- `Separate XYZ` a été ajouté **avec** le relief, pas après : sans lui aucun
+  scalaire **variable** n'existe dans un graphe, et `Bump` n'aurait pu être
+  mesuré que sur son absence d'effet.
+- Le déterminant du repère est **gardé** : une division nue produirait un NaN sur
+  un triangle dégénéré ou vu par la tranche — même raison que la division du nœud
+  `Math`, et même conséquence (un défaut qui change d'aspect d'un backend à
+  l'autre fait accuser la machine).
+
+#### 🖼️ `Image Texture` — livré, et **sans toucher au layout partagé**
+
+**Plafond fixe de textures, refus nommé, source unique.** Les deux autres voies
+tombent, et pour des raisons écrites :
+
+- un **tableau de descripteurs** avec indexation dynamique exige
+  `descriptorIndexing` : correct en Vulkan et DX12, fragile en GL et DX11. Ça
+  casserait la **parité 5 backends**, qui est un acquis dur du dépôt.
+- un **layout par matériau** est la vraie réponse à long terme, mais le layout est
+  partagé aujourd'hui : ce refactoring toucherait tout le monde en même temps.
+
+⚠️ **La condition non négociable** : le plafond est déclaré **une fois**, et le
+layout comme le compilateur le lisent **au même endroit** —
+`Materials/NkMaterialBindings.h`. S'il vit à deux endroits, on recrée **par
+construction** la panne silencieuse déjà mesurée : un compilateur qui autorise 8
+et un layout qui en déclare 6 écrira sur deux bindings inexistants, **sans un
+mot**.
+
+**Le plafond sera un chiffre avec une provenance écrite**, pris sur ce que les
+backends *garantissent* et non sur ce qui semble raisonnable : GL 3.3 garantit 16
+unités de texture en fragment, DX11 en garantit 128 — **c'est le plancher qui
+commande**, moins ce que le moteur consomme déjà (bindings 3 à 7 et 9).
+
+⚠️ **LA MESURE A CHANGÉ LA RÉPONSE, et en mieux : il n'y a AUCUN binding neuf.**
+
+Deux faits mesurés le 2026-08-22, avant d'écrire une ligne :
+
+1. **Le shader PBR déclare déjà 27 samplers en fragment** — 5 dans le set
+   matériau, 22 dans le set global (IBL, atlas d'ombres, 12 lumières, voxels,
+   LTC, matcap). La spécification OpenGL n'en garantit que **16** par étage : le
+   moteur dépasse donc déjà le minimum garanti et s'appuie sur les 32 que
+   donnent les pilotes réels. ⚠️ **C'est une dette ANTÉRIEURE à ce chantier** —
+   elle est nommée ici, elle n'est pas aggravée. Et elle invalide le calcul
+   qu'on avait prévu : un budget « 16 moins ce qui est pris » serait déjà
+   **négatif**.
+2. **Le dépôt réutilise déjà le même binding pour des usages différents selon le
+   shader** : le binding 3 porte `tAlbedo` en PBR et `tReflection` en sol
+   miroir ; le binding 4 porte `tNormal`, `tMatcap`, `tReflectionBack` ou
+   `tShadowRamp` selon l'archétype. **Le sens d'un binding est donc LOCAL AU
+   SHADER**, et c'est une propriété établie du dépôt, pas une invention.
+
+**Conséquence** : un matériau **engendré** n'a que faire de `tAlbedo` ou de
+`tHeight` — ces slots sont morts pour lui. Il réutilise donc **les six
+emplacements que le layout déclare déjà**, dans l'ordre topologique. Le plafond
+n'est pas un chiffre choisi : **c'est le nombre de slots existants**, et il vaut
+**6**.
+
+Ce que ça évite est exactement le risque qui inquiétait : **aucun binding neuf,
+donc aucune nouvelle occasion d'écrire sur un binding que le layout ne déclare
+pas** — la panne silencieuse mesurée le 22/08, qui ne produit ni erreur, ni
+journal, ni différence d'image.
+
+**Le contrôle qui protège la condition, et c'est le plus important des trois** :
+le banc lit `NkMaterialBindings.h` **et** le shader émis, et vérifie que chaque
+binding déclaré appartient à la table, qu'ils sont tous distincts, et qu'aucun ne
+dépasse le plus grand de la table. ⚠️ **En comptant des NOMBRES** — chercher le
+nom du sampler testerait le générateur de noms, pas le shader (`tMask` devient
+`tmask_tex` en HLSL).
+
+**Le refus dit le compte** : *« ce graphe demande 7 textures, le plafond est
+6 »*. Et le bord exact est testé : 6 compile, 7 refuse — un `>=` au lieu d'un `>`
+refuserait le cas parfaitement légitime.
+
+⚠️ **`Image Texture` est le premier nœud à DEUX sorties** (`color` et `alpha`), et
+c'est lui qui a imposé de nommer les locales engendrées **d'après le nom de la
+prise** et non par un `val` unique : un nœud à deux sorties n'a pas « une »
+valeur, et l'entrée qui lirait « la » valeur en prendrait une au hasard.
+
+⚠️ **Un cas de banc a survécu à sa mutation, et la faute était dans le cas** :
+il cherchait le **nom** de la locale du `Mapping` n'importe où dans le shader.
+Sous la mutation « l'entrée `vector` est ignorée », le nœud `Mapping` émettait
+toujours sa *déclaration* — donc le nom était présent, et le cas passait au vert
+alors que la texture lisait l'UV brut. **Chercher un nom n'est pas chercher un
+usage.** Le cas vérifie désormais que l'appel de texture **cite** la locale, et
+que le shader mappé **ne lit plus** l'UV brut.
+
+
+#### Les nœuds de calcul — une propriété qui porte une **décision** (2026-08-22)
+
+`Math` (7 opérations) et `Mix Color` (6 modes) sont les premiers nœuds dont **le
+calcul lui-même** est choisi par une propriété. Jusque-là une propriété portait
+une *valeur* ; celles-ci portent une *décision*, et c'est le premier endroit du
+compilateur où une propriété pilote le **code émis**.
+
+⚠️ **Une opération inconnue FAIT ÉCHOUER la compilation, en la nommant.** La
+tentation est de retomber sur la première de la liste parce que « ça marche » :
+le matériau compilerait, rendrait, et **calculerait autre chose que ce que le
+fichier dit**. Un fichier écrit par une version future, ou une faute de frappe,
+passerait inaperçu jusqu'au résultat. Le cas distingue explicitement le voisin
+**légitime** : une propriété *absente* (le nœud vient d'être posé, l'auteur n'a
+pas choisi) doit, elle, compiler.
+
+⚠️ **Les opérations sont des MOTS, jamais des numéros**, et la table est à **un
+seul endroit** — lue par le compilateur, énumérée par le banc, bientôt proposée
+par l'interface. Un numéro d'énumération se décale dès qu'on insère une valeur au
+milieu, et les graphes déjà enregistrés se mettent alors à calculer autre chose
+en silence. Trois listes finiraient par diverger, et c'est le compilateur qui
+aurait raison sans que personne le sache.
+
+**Deux gardes numériques, chacune avec son cas** : la division par zéro rend 0
+(comme Blender) — une division nue produirait un NaN qui contamine tout l'aval et
+**change d'aspect d'un backend à l'autre**, donc le pire à diagnostiquer ; et
+`pow` borne sa base à 0, pour la même raison.
+
+**Preuves** : les **13** opérations compilent sur les 4 backends (le compte vient
+de la table, pas d'un nombre écrit dans le banc — ajouter une opération sans
+l'émettre met le cas au rouge tout seul). Et côté **rendu** : `Mix Color` en mode
+`melanger` à `fac=0,5` donne un écart de **64**, en mode `eclaircir` à `fac=1` un
+écart de **128** — exactement le **double**. Un compilateur qui ignorerait le mode
+rendrait 64 dans les deux cas ; c'est la différence entre les deux qui le
+dénonce.
+
+⚠️ **Un déréférencement nul trouvé par une mutation, et corrigé** : retirer le
+refus laissait l'indice d'opération à −1, et le pointeur de table était
+déréférencé sans contrôle — le banc **mourait** au lieu d'échouer. Un code qui ne
+peut se tromper que par un plantage n'est pas robuste, il est chanceux. Le
+pointeur est vérifié désormais.
+
+#### 🎯 LA CIBLE POSÉE PAR RODOLF (2026-08-22) — **chaque paramètre EST une prise typée**
+
+> « le principe sur blender qui fait qu'**un champ de couleur peut recevoir une
+> texture fichier ou procédural** ? je veux ça au lieu d'avoir un champ couleur à
+> part et un champ texture de différents types à part. »
+
+**Le principe est juste ; la mécanique qu'il propose ne l'est pas, et il faut
+dire les deux.** Sa formule — « une couleur c'est une texture 1×1 de contenu
+uni » — n'est pas ce que fait Blender, et coûterait cher ici : un
+échantillonnage coûte un slot de descripteur (on en a 16 à 32), une liaison de
+sampler et une lecture mémoire **par pixel**, quand une constante se replie dans
+un bloc uniforme — gratuit. Et depuis le 22/08 on sait qu'**écrire sur un binding
+absent du layout ne provoque rien** : multiplier les bindings multiplie une
+surface de panne silencieuse déjà mesurée.
+
+**Le principe réel, plus simple et plus fort :**
+
+> Un paramètre n'est pas une **valeur**, c'est une **expression d'un type donné**.
+> Une constante en est une forme, un échantillonnage d'image une autre, un
+> procédural une troisième. **Ce qui les rend interchangeables est le TYPE, pas
+> un format de stockage commun.**
+
+C'est la phrase de `NkNodeGraph.h` appliquée aux paramètres : *« on unifie
+l'AUTORAT, jamais l'EXÉCUTION »*. Une seule prise à l'autorat, deux chemins de
+compilation.
+
+**Ce que ça condamne**, et c'est structurant : aujourd'hui un matériau porte
+`NkPBRParams` (une struct **fixe** de réels) **et** un tableau **fixe** de canaux
+de texture. **Deux représentations parallèles de la même question** — « d'où
+vient la valeur de ce paramètre ». C'est cette dualité qui produit les défauts
+déjà vus : un canal utile à un archétype et pas à l'autre, une liste de textures
+à maintenir à côté d'une liste de réels. La cible est leur convergence vers des
+prises typées, et `NkSocket::defaultValue` est déjà le mécanisme, un cran plus
+bas.
+
+⚠️ **Et ça résout « remplir avec ou sans nœud »** — Rodolf n'a ouvert l'éditeur de
+nœuds dans **aucune** de ses quatre captures : il est dans le panneau de
+propriétés, il clique un point, il choisit une source. Le graphe existe derrière,
+il ne le voit jamais. **Ce ne sont pas deux systèmes à réconcilier : c'est la
+même donnée, avec deux façons de la toucher.**
+
+**Livré le 2026-08-22 — la brique qui rend le menu possible :**
+`NkMatNoeudsPourPrise` / `NkMatNoeudsPourPriseDe` répondent à « que puis-je
+brancher ici ? » **en interrogeant le registre**, jamais une liste écrite par
+famille — une liste se périmerait au premier nœud ajouté et proposerait ce que
+`Connect` refuse. Le résultat est **asymétrique**, exactement comme chez
+Blender, parce que les conversions sont dirigées :
+
+| prise | menu calculé |
+|---|---|
+| `Principled.base_color` (couleur) | `RGB` **et** `Value` (un réel se diffuse en gris) |
+| `Principled.roughness` (réel) | `Value` **seul** — `RGB` en est absent |
+| `Material Output.surface` (shader) | les 4 BSDF ; ni le puits, ni `Value`, ni `RGB` |
+
+Un nœud **sans aucune sortie** — le `Material Output` — n'est jamais proposable,
+et ça tombe sans cas particulier : rien ne peut sortir d'un puits.
+
+**Deux réserves inscrites :**
+- ⚠️ **Toutes les prises ne peuvent pas tout accepter.** Un paramètre qui alimente
+  l'**état du pipeline** (mode de mélange, mode d'ombre) ne peut pas varier par
+  pixel à moindre coût. `NkMatSocketDecl::constanteSeulement` existe pour ça, et
+  l'interface doit alors **ne pas afficher de point** plutôt qu'ouvrir un menu
+  vide — un menu vide laisse croire à une panne. **Aucun des 7 prototypes actuels
+  n'est dans ce cas** : le drapeau est testé sur son mécanisme, pas sur un usage,
+  et c'est écrit dans le banc.
+- **Une expression sur une prise a un coût, et il doit être visible.** Brancher un
+  bruit procédural sur `roughness` est gratuit à écrire et cher à rendre. Ce
+  n'est pas une raison de l'interdire, c'est une raison de savoir le mesurer.
+
+⚠️ **Coordination** : `NkVpMatTypeDefaults.h` (NK3DModeler) est **la même donnée
+vue d'un troisième bout**. Sa note dit qu'elle doit disparaître le jour où le
+graphe porte les défauts. **Ce jour n'est pas encore arrivé** — les prototypes
+déclarent la forme des prises, pas encore leurs valeurs — mais il se rapproche,
+et le déclencheur sera annoncé avant, pas constaté après.
+
+#### La preuve de rendu — et pourquoi elle ne regarde **pas** l'image
+
+`NkMatGraphDemo` (2026-08-22) : device **DX11 headless** (pas de HWND, donc pas
+de swapchain), `Tools/Offscreen` **réutilisé tel quel** — aucune ligne de
+`NkOffscreenTarget` modifiée —, lecture par `ReadbackPixels`, jamais par
+`Capture(path)`.
+
+⚠️ **Il ne compare aucune image, et c'est délibéré.** Le même jour, en vérifiant
+qu'un témoin par signature d'image saurait attraper une erreur de binding, on a
+écrit volontairement un descripteur sur un binding absent du layout : **aucune
+erreur, aucun journal, cinq signatures identiques**. *Une ressource qui n'arrive
+pas ne change pas l'image tant que personne ne la lit.* Un témoin par capture est
+donc structurellement aveugle à toute une classe de défauts.
+
+**Ce qu'on mesure à la place : des écarts entre canaux d'un même pixel**, dont la
+valeur attendue se calcule **depuis le graphe**, sans rien savoir du modèle
+d'éclairage. Avec un nœud `Emission`, le graphe impose `albedo = 0` et
+`metallic = 0`, donc `diffuse = 0` et `specColor = vec3(1)` : **tout ce qui n'est
+pas l'émission est achromatique**. La soustraction de deux canaux élimine ce
+terme gris inconnu ; ce qui reste est exactement ce que le graphe a déclaré.
+
+Rendu en RGBA8 **UNORM** (linéaire, pas sRGB) pour que l'attendu reste un entier
+exact. Résultats mesurés :
+
+| graphe | pixel central | attendu, calculé depuis le graphe | mesuré |
+|---|---|---|---|
+| Emission rouge `128/255` | (180, 52, 52) | V == B, écart R−V = **128** | exact |
+| Emission verte `128/255` | (52, 180, 52) | R == B, écart V−R = **128** | exact |
+| `Mix Shader(rouge, verte, 0)` | (180, 52, 52) | identique au rouge seul, 3 canaux | exact |
+| `Mix Shader(rouge, verte, 1)` | (52, 180, 52) | identique au vert seul | exact |
+| `Mix Shader(rouge, verte, 0,5)` | (116, 116, 52) | R == V, écarts = **64** = la moitié | exact |
+
+Le plancher achromatique vaut **52** dans les cinq rendus — c'est ce qui autorise
+à les comparer entre eux, et c'est vérifié par un cas à part.
+
+**Deux cas existent uniquement pour empêcher un faux vert** : le fond
+d'effacement est **magenta**, une couleur que ces graphes ne peuvent pas
+produire, de sorte qu'un tracé qui n'aurait pas eu lieu se voie au lieu de se
+confondre avec du noir ; et le plancher gris est comparé entre rendus, faute de
+quoi toutes les comparaisons croisées seraient sans valeur.
+
+⚠️ **Deux pièges payés en chemin, qui reserviront** :
+- le générateur HLSL **déduit la sémantique d'un attribut de son NOM de
+  variable** (`NkSLCodeGenHLSLStructs.cpp`) : `aPos` → `POSITION`, mais `aColor`
+  et `aUV` ne figurent dans aucune entrée et retombent sur `TEXCOORD<location>`.
+  Le layout C++ cesse alors de correspondre au shader **sans le moindre
+  message**. Le banc n'utilise donc qu'un seul attribut, dont le nom est dans la
+  table, et synthétise les autres varyings dans le vertex.
+- `EndCapture` est **obligatoire** avant `ReadbackPixels` : le readback suppose la
+  texture en `SHADER_READ`, état que seule cette fermeture rétablit. Écrire la
+  passe à la main laisse la texture dans le mauvais état et le readback lit du
+  vide **sans se plaindre**.
+
+#### ⚠️ Ce qui reste à savoir avant de continuer
+
+- Le générateur **refuse** un nœud dont il n'a pas d'émetteur, et n'émet **rien**.
+  Un nœud sauté laisserait son consommateur lire une locale jamais déclarée : le
+  shader ne compilerait pas, et l'erreur accuserait le générateur au lieu du
+  graphe.
+- Le modèle d'éclairage émis est **celui de LayeredV1, à l'identique** — pour que
+  deux matériaux côte à côte dans la même scène se ressemblent. Le jour où
+  l'ombrage évolue, les deux doivent évoluer ensemble.
+- Le forçage du point décimal dans les littéraux (`2` → `2.0`) est une
+  **précaution non prouvée** : sa mutation a survécu, les quatre backends
+  acceptent `2`. Elle reste pour Metal et le backend logiciel, non exercés.
+
+### T.2 — détail d'origine (conservé)
 - ❌ Les templates matériaux actuels deviennent des graphes pré-câblés
   navigables/éditables — **compatibilité ascendante garantie** (les `.nkasset`
   existants continuent de fonctionner)
@@ -1995,3 +2649,535 @@ fine est inutilisable en production stylisée.
 Au-delà : Phase H texture pipeline + Phase M Forward+ + Phase I animation
 + Phase J VFX = renderer **complet** AAA. K/O/P/Q/R/S = spécialisations
 selon usage cible (jeu real-time vs cinema vs editor vs VR).
+
+---
+
+## 📌 CONCEPTION EN ATTENTE — la règle de disposition des blocs uniformes, par la réflexion
+
+**Statut : conçu, pas lancé** (2026-08-22). Rien n'est cassé aujourd'hui ; cette
+entrée existe pour que celui qui prendra le chantier n'ait pas à re-dériver le
+raisonnement. Quinze minutes d'écriture contre une demi-journée de réflexion.
+
+### Le fait qui la motive
+
+`std140` et HLSL **ne rangent pas un bloc uniforme de la même façon**, et leur
+désaccord est muet. Mesuré le 22/08/2026, dans les deux sens, en lisant le pixel :
+
+```
+uniform NkGraphParams { float usure; vec3 teinte; };
+```
+
+- `std140` **aligne** tout `vec3` sur 16 → `teinte` est à **16**.
+- HLSL interdit seulement à un membre de **chevaucher** une frontière de 16
+  octets ; un `float3` a besoin de 12 octets et tient donc **entier** dans 4..16
+  → `teinte` est à **4**.
+
+Le moteur écrivait à 16, le shader lisait à 4. Pixel mesuré `(0,0,0)`, aucune
+erreur, aucun journal. En forçant l'écriture à 4 : `(128,0,0)` exact.
+
+⚠️ **Avec un seul `vec3`, les deux conventions donnent zéro.** La panne n'apparaît
+qu'au **second** paramètre. C'est pourquoi elle a survécu à une matrice de sept
+montages différents, tous verts.
+
+### Ce qui existe déjà, et pourquoi ça ne suffit pas
+
+1. **Le graphe de matériaux est corrigé** (voie 2, `NkMatGraphCompile.h`) : le
+   compilateur émet du remplissage nommé `_nkPadN` jusqu'à la prochaine frontière
+   de 16 avant chaque vecteur. Les deux conventions tombent forcément au même
+   endroit. **Ce garde ne couvre que les blocs ENGENDRÉS.**
+
+2. **Les archétypes écrits à la main sont sains** — vérifié : `NkPBRParams` n'a
+   aucun membre `NkVec3f`, ses vecteurs sont tous des `NkVec4f`, ses réels vont
+   par groupes de quatre. Mais ils sont sains **parce que la discipline a été
+   tenue**, pas parce qu'elle est garantie.
+
+3. **Des `static_assert` sur `sizeof`** gardent les cinq structs de
+   `NkMaterialSystem.h` (`NkPBRParams` 96, `NkPBRLayer` 32, `NkLayeredParams`
+   208, `NkLayeredV1Params` 336, `NkToonParams` 96). Ils cassent la
+   **construction**, pas un banc qu'il faut penser à lancer. ⚠️ **Mais ils ne
+   vérifient pas la disposition** : un bloc peut avoir la bonne taille et ranger
+   ses membres au mauvais endroit — c'est exactement la faute ci-dessus, où la
+   taille était identique des deux côtés.
+
+**C'est une liste de nombres. Une liste se périme ; une règle non.**
+
+### La conception proposée
+
+Un banc console qui parcourt les propriétés **réfléchies** et applique une
+règle, pas une énumération.
+
+**Matière première** : `NKReflection` porte déjà `NkProperty` avec son **type**
+et son **décalage**. Tout est là ; rien à instrumenter à la main.
+
+**La règle, en une phrase** :
+
+> Dans tout type marqué « bloc uniforme », **tout membre de type vectoriel doit
+> se trouver à un décalage multiple de 16**, et la taille totale doit être un
+> multiple de 16.
+
+C'est la condition **nécessaire et suffisante** pour que `std140` et HLSL
+coïncident : à un multiple de 16, `std140` ne réaligne rien et HLSL ne peut pas
+chevaucher. Les scalaires ne posent jamais problème — ils tombent au même
+endroit dans les deux conventions tant qu'aucun vecteur ne les suit dans un
+registre partiel.
+
+**Pourquoi c'est une règle et pas une liste** : elle grandit avec la structure
+toute seule. Un membre ajouté est vérifié sans que personne y pense ; un membre
+retiré n'oblige à rien mettre à jour. C'est la même distinction qu'entre une
+table de valeurs par défaut par type et un défaut dérivé du registre : la
+première se périme silencieusement, la seconde suit.
+
+### Trois pièges à ne pas rater en l'implémentant
+
+1. ⚠️ **Ne pas se contenter de vérifier que la règle est cohérente avec
+   elle-même.** Un contrôle qui relit la table de décalages du compilateur et la
+   compare à sa propre arithmétique est vert quoi qu'il arrive — c'est
+   littéralement ce qui s'est passé pendant trois jours avec le cas
+   `variable/decalages-std140`. **Un contrôle qui vérifie une convention ne
+   vérifie pas un accord.** La preuve finale reste
+   `rendu/parametre-expose-pilote-le-pixel` (`NkMatGraphDemo`), qui **lit la
+   valeur depuis la carte** et compare deux variantes — un paramètre contre
+   deux. Le banc de réflexion est une commodité rapide ; il ne remplace pas
+   celui-là.
+
+2. ⚠️ **Les structs imbriqués comptent.** `NkLayeredParams` embarque deux
+   `NkPBRParams`. Un membre vectoriel bien placé dans le parent peut être mal
+   placé dans l'enfant, et l'inverse. La règle doit descendre récursivement.
+
+3. ⚠️ **Le marquage « bloc uniforme » doit être une donnée, pas une heuristique
+   sur le nom.** Un filtre du genre « les types dont le nom finit par `Params` »
+   rate le premier bloc nommé autrement, et le rate en silence — quatrième
+   occurrence dans ce dépôt de « chercher un nom n'est pas chercher un usage ».
+
+### Coût estimé et déclencheur
+
+Une demi-journée. **Déclencheur** : le jour où un membre vectoriel entre dans un
+struct de bloc écrit à la main, ou le jour où quelqu'un ajoute un archétype. Les
+`static_assert` tiendront jusque-là — ils ne laissent pas la dérive être
+silencieuse, ils obligent seulement à un geste conscient.
+
+---
+
+## 📌 Les GROUPES de nœuds — mesure du registre, et le regroupement (2026-08-22)
+
+Demande de Rodolf (R8/R9 de `echanges/design.reponses.md`) : *« un groupe est un
+groupement de nœuds que l'utilisateur peut empaqueter pour réutiliser à volonté
+comme des fonctions »*, et son interface **se déduit** des fils qui traversent la
+frontière de la sélection — elle ne se déclare pas.
+
+Preuve : `Applications/NkMatGraphCheck` — **106 cas, 0 échec, 13 mutations sur 13
+détectées**.
+
+### 🔴 Le fait d'architecture : il y a DEUX registres, et ils ne répondent pas pareil
+
+Un groupe est un **type de nœud créé par l'utilisateur à l'exécution**. La
+question « le registre l'accepte-t-il ? » n'a **pas de réponse unique**.
+
+| | verdict | mesure |
+|---|---|---|
+| **couche 1** — `NkNodeGraph` | ✅ **accepte** | il n'a **aucun** registre de types de nœuds : `NkNode::type` est une `NkString` libre, `AddNode` ne valide rien. Une clé composée à l'exécution porte des prises, se relie, prend son rang au tri topologique et traverse le fichier **mot pour mot**. |
+| **couche 3** — `kProtos` | ❌ **clos à la compilation** | tableau `static const`. `NkMatFindProto`, `NkMatAddNode` **et** le menu `NkMatNoeudsPourPrise` lisent **cette seule source**. |
+
+**La conséquence utile est dans la seconde ligne** : le menu interrogeant le
+**même** registre, **ouvrir le registre ouvre le menu sans une ligne de plus**. Il
+n'y a **pas deux endroits à réparer**. Le catalogue doit devenir **deux sources
+lues par la même porte** — prototypes compilés + prototypes de groupe enregistrés
+à l'exécution. ⏳ **En attente d'arbitrage de Rodolf.**
+
+⚠️ **Trou trouvé au passage** : `NkMatValidate` — la validation **de domaine** —
+rend **`ok`** sur un graphe portant un type de nœud inconnu ; elle ne consulte pas
+le catalogue. Seul l'**émetteur** l'arrête, en le **nommant**. Ça tient tant qu'un
+type inconnu est une anomalie ; plus le jour où un groupe est un type légitime.
+
+### La récursion : refusée et nommée, mais à l'APLATISSEMENT
+
+`RecursiveSubgraph` attrape la boucle **directe et indirecte** (deux maillons — un
+contrôle regardant le voisin immédiat la manquerait). Mais **la construction
+réussit** : un document récursif se bâtit, et n'échoue qu'à l'usage. Le cas exige
+**les deux**, pour que l'écart avec ce que Rodolf demande soit *mesuré*, pas
+oublié — si le contrôle passe à l'insertion, **le cas tombera et sera relu**.
+
+⚠️ Mesure qui tranche le débat « borne ou refus nommé » : sans le contrôle de
+récursion, la borne de profondeur (32) arrête quand même — mais rend
+**`trop-profond`**. **Ça s'arrête, et ça accuse le mauvais coupable.**
+
+### `NkGraphGroup.h/.inl` — regrouper / dégrouper
+
+Dans le **cœur**, parce que regrouper est de l'**autorat** : ça ne regarde que des
+nœuds, des prises et des liens, jamais ce qu'un type *signifie*. Garde-fou n°1
+intact.
+
+Traité : déduplication **par prise source**, ordre déterministe (verticale du
+nœud interne, puis horizontale, puis indice de prise, puis identifiant), noms
+venus de la prise interne avec homonymes désambiguïsés **dans l'ordre déjà figé**,
+liens dedans→dedans laissés à l'intérieur.
+
+⚠️ **Le piège absent de l'énoncé** : chaque graphe tient **son propre registre de
+types et ses propres conversions dirigées**. Un sous-graphe créé vide refuse à
+l'intérieur un lien réel → couleur que le parent acceptait, et **le fil est perdu
+sans un mot** — `Connect` rend une erreur que personne ne lit. Registre **et**
+conversions sont recopiés en premier (`ConversionCount`/`ConversionAt`, ajoutés à
+`NkNodeGraph` pour ça).
+
+### 🔴 Trois mutations sur huit ont SURVÉCU au premier tour
+
+1. **« l'ordre des prises n'est plus trié » est passée verte.** Le cas comparait
+   la **suite des noms** — or ils dérivent des prises internes (`a`, `a_2`, `a_3`)
+   et sortent **dans ce même ordre quelle que soit la permutation**. La suite des
+   noms est identique quand le câblage est **entièrement permuté**. **Sixième
+   occurrence de « je vérifie une étiquette, jamais la relation ».** Le cas compare
+   désormais la **correspondance** (qui se branche sur quoi). Il a fallu aussi
+   refaire le graphe d'essai : **avec une entrée et une sortie, l'ordre est une
+   propriété vide.**
+2. et 3. **« défaut de prise non recopié » et « propriété non recopiée » sont
+   passées vertes parce que le graphe d'essai n'en portait aucun.** Ce n'est pas
+   l'assertion qui manquait, **c'est la matière** — un contrôle ne peut pas voir
+   disparaître ce qui n'existe pas.
+
+> **Un contrôle ne vaut que ce que son graphe d'essai porte. Une assertion juste
+> sur une matière absente est verte pour rien.**
+
+### ⚠️ Ce que le critère « aller-retour identique » ne prouve PAS
+
+Une **déduplication ratée y survit** : cinq entrées identiques se redistribuent
+correctement au dégroupement et le graphe revient identique. Le critère est
+**nécessaire, pas suffisant** — d'où un second cas qui regarde l'**interface**.
+
+Deux limites écrites dans le banc : la forme canonique range les nœuds par leur
+**contenu** (normaliser le texte sérialisé alignerait deux ordres différents) et
+**signale `ambigu`** quand deux nœuds partagent un descripteur, au lieu de rendre
+un vert trompeur ; et **`Dégrouper` ne supprime pas la définition** — retirer un
+graphe du document décalerait les index, et chaque `graph` rangé dans un
+`NkEvalStep` désignerait le mauvais graphe.
+
+## 📌 (b1) — la seconde cible de rendu est EXPRIMABLE (2026-08-22)
+
+**Aucun shader du dépôt ne déclarait deux sorties couleur** — les `@location(1)
+out` qu'on y trouve sont tous des varyings de **sommet**. Il n'y avait rien pour
+l'attester, et (b1) allait être construit dessus.
+
+✅ Mesuré : les quatre générateurs émettent le second attachement avec le bon
+sémantique (`SV_Target0` **et** `SV_Target1` en HLSL, `location = 0` **et**
+`location = 1` en GLSL), glslang rend du vrai SPIR-V, et un **témoin** à une seule
+cible distingue « la seconde cible est refusée » de « mon shader est mauvais ».
+
+⚠️ **Le cas ne lit pas `success`, et la mutation dit pourquoi** : quand on retire
+la seconde sortie, **les quatre colonnes de génération restent à « gen »** pendant
+que la cible est entièrement absente. Un générateur qui ignorerait
+`@location(1)` et émettrait les deux sorties sur `SV_Target0` écrirait la valeur
+auxiliaire **par-dessus la couleur** : image plausible, tampon auxiliaire vide.
+
+### Les quatre canaux, et le format proposé
+
+| canal | contenu | bornes |
+|---|---|---|
+| **R, G, B** | la valeur de la sortie nommée résolue cette passe | **non bornée par nature** |
+| **A** | **validité** — ce pixel porte-t-il cette sortie ? | **{0, 1}, un bit** |
+
+**Le quatrième canal n'est pas un identifiant** : le moteur résout **une seule**
+sortie nommée par passe, puisque l'API est **par nom** (`NkMatSortieMateriau`). Il
+n'y a rien à identifier — seulement à dire **si le pixel la porte**.
+
+**Proposé : `R16G16B16A16_FLOAT`, 8 o/px (16 Mo en 1080p)**, avec une propriété
+**domaine déclaré** sur le nœud `Named Output` ; une seule sortie `non bornée`
+promeut la cible en 32 bits, et **la promotion est nommée dans le journal** — le
+coût cher devient optionnel et **imputable**. ⏳ **En attente d'arbitrage.**
+
+⚠️ **Ce qu'un matériau sans sortie nommée y écrit** — fait matériel : *une sortie
+MRT non écrite sur un pixel couvert est **indéfinie**, pas nulle*. Donc **tout
+matériau déclare et écrit la seconde sortie** ; celui qui n'a rien à y mettre
+écrit `(0,0,0,0)`, et **quand `A == 0`, RGB n'a aucun sens**. Un lecteur qui
+ignorerait `A` lirait `0.0` — une valeur **parfaitement plausible** sur un matériau
+qui n'a jamais entendu parler de cette sortie. Le contrôle correspondant se mesure
+**sans GPU**, sur le NkSL émis.
+
+## 📌 Les trois arbitrages appliqués — catalogue ouvert, validation réparée, récursion à l'insertion (2026-08-22)
+
+Rodolf a tranché les deux questions remontées plus haut. Preuve :
+`Applications/NkMatGraphCheck` — **111 cas, 0 échec, 19 mutations sur 19
+détectées**.
+
+### 1. Deux sources, une seule porte
+
+`NkMatFindProto` consulte la table compilée **puis** un registre d'exécution.
+Comme `NkMatAddNode`, `NkMatProtoCount`/`NkMatProtoAt` et le menu
+`NkMatNoeudsPourPrise` lisaient **déjà** cette porte, **le menu s'est ouvert sans
+une ligne de plus** — c'est la propriété mesurée *avant* de demander l'arbitrage,
+et c'est elle qui a rendu la décision bon marché.
+
+⚠️ **La condition est posée à l'ENREGISTREMENT, pas à la lecture** : une clé qui
+porte le nom d'un proto compilé est refusée en se nommant
+(`eclipserait-un-proto-compile`). La collision devenant impossible, l'ordre de
+consultation n'a plus de conséquence — on consulte quand même la table statique
+d'abord pour que l'invariant se lise dans le code. Le cas vérifie qu'**après** le
+refus la porte rend toujours *le proto compilé*, pas seulement que le code de
+retour est bon.
+
+⚠️ **Stockage à capacité fixe, et c'est un choix.** Un prototype se lit par
+`const NkMatNodeProto*` qui pointe sur des `NkMatSocketDecl` qui pointent sur des
+chaînes. Rangé dans un `NkVector`, tout ce monde change d'adresse à la première
+réallocation, et le pointeur déjà rendu lit de la mémoire libérée — **sans
+planter, en rendant des noms de prises plausibles**. Plafond nommé : 32 groupes,
+16 prises, 48 octets.
+
+⚠️ **Limite écrite dans le code** : le registre est unique **pour le processus**.
+Deux documents ouverts partagent leurs groupes. La porte `NkMatFindProto(clé)` ne
+transporte aucun contexte ; lui en donner un toucherait tous ses appelants. Le
+jour où deux documents doivent s'ignorer, c'est **la signature** qu'il faudra
+changer, pas ce stockage.
+
+**Le pont** — `NkMatEnregistreGroupe` dérive l'interface de la **frontière** d'un
+sous-graphe. Types transportés **par leur nom**, jamais par leur identifiant.
+
+⚠️ **`parPixel` d'un groupe** : vrai dès qu'**un seul** nœud interne est une
+source intrinsèque. Et quand c'est **indécidable** — un groupe imbriqué apparaît
+comme un `graph.instance` qu'on ne peut pas résoudre sans le document — on prend
+le **côté sûr**, parce que les deux erreurs ne coûtent pas pareil :
+
+> `true` à tort **refuse** une sortie licite : faux, mais **bruyant**.
+> `false` à tort **accepte** une valeur qui change à chaque pixel et la fait
+> passer pour celle du matériau : faux, **plausible**, jamais signalé.
+
+### 2. `NkMatValidate` frappe à la porte — une réparation
+
+Elle rendait `ok` sur un type de nœud absent du catalogue. Le contrôle est posé
+**en premier** : compter les sorties d'un graphe dont on ne connaît pas les nœuds
+nommerait un défaut secondaire pendant que la vraie cause passe.
+
+⚠️ **Et la réparation a failli dégrader le message.** Avant, l'émetteur disait
+« nœud non compilable : *le type* ». La validation le rattrape désormais plus tôt
+— donc plus près de la cause — mais rendait un « type-de-nœud-inconnu » **muet sur
+lequel**.
+
+> **Attraper plus tôt ne doit jamais faire perdre le nom.**
+
+### 3. Récursion refusée à l'insertion, **et le second filet reste**
+
+`NkPoseInstance` refuse **avant toute modification** — le cas exige que le graphe
+soit **inchangé** après le refus. `NkNode::subgraph` restant public, un graphe peut
+arriver **par un fichier** sans jamais passer par une insertion : le contrôle à
+l'aplatissement est conservé, et **le cas mesure les deux filets séparément**,
+sans quoi on pourrait retirer le second sans que rien ne le dise.
+
+### 🔴 Six mutations, deux ont survécu — et la leçon a une troisième forme
+
+1. **« le pont recopie le sens des prises au lieu de l'inverser » est passée
+   verte.** Le cas exigeait « une entrée et une sortie » — **vrai aussi quand les
+   deux sens sont inversés** : le compte est **symétrique**, le câblage non. Le
+   prototype avait toutes ses prises à l'envers, et le cas affichait
+   « 1 entrée(s) 1 sortie(s) (1 et 1 attendues) ». **Septième occurrence de « je
+   compte, je ne relie pas »**, et la plus fourbe : le nombre n'était pas
+   approximativement juste, il était **exactement** juste.
+2. **« la détection de récursion réduite au voisin immédiat » est passée verte —
+   et la cause n'est pas le cas, c'est le graphe d'essai.** À deux maillons,
+   regarder le voisin immédiat **suffit** : le contrôle récursif n'était pas
+   mesuré **du tout**. Ajout d'une chaîne à **trois** maillons.
+
+> **Trois formes du même défaut, rencontrées en trois jours : il manquait la
+> MATIÈRE (aucun défaut de prise dans le graphe), puis la RELATION (des noms sans
+> leur câblage), puis la PROFONDEUR (une chaîne trop courte). Une assertion juste
+> sur un graphe d'essai trop pauvre ne mesure rien — et elle est verte.**
+
+## ⚠️ DÉFAUT CONNU, CORRECTION PLANIFIÉE — le registre de groupes est unique pour le processus
+
+**Le registre de groupes est unique pour le processus ; deux documents ouverts
+partagent leurs groupes.** Défaut connu, correction planifiée.
+
+Ce n'est pas une simplification acceptable. Dans une application qui ouvre
+plusieurs documents — NK3DModeler, NKScena, Nogee — il produit trois symptômes, et
+**aucun ne se voit dans un banc** :
+
+1. un groupe défini dans le document A apparaît dans le menu de B ;
+2. deux documents indépendants entrent en collision de noms, et le second se voit
+   refuser un nom qu'il est seul à employer ;
+3. B casse quand A se ferme.
+
+> **Ça se découvrira chez un utilisateur, pas dans un banc.**
+
+**Ce qu'il faut corriger n'est pas le stockage, c'est la SIGNATURE de la porte.**
+`NkMatFindProto(clé)` ne transporte aucun contexte ; tant qu'elle n'en transporte
+pas, aucun rangement ne peut séparer deux documents. Le stockage à capacité fixe,
+lui, reste un choix délibéré et bon.
+
+**Quand** : juste après (b1). Décalé **volontairement** — ouvrir la signature
+touche tous les appelants, et mêler ce changement à la seconde cible de rendu
+donnerait une mesure qui porte sur deux choses à la fois. Le changement viendra
+seul, **avec son propre témoin : *deux documents ne voient pas les groupes l'un de
+l'autre***.
+
+📌 Écrit ici et dans `NkMatGraphTypes.h` parce qu'**une limite écrite se corrige ;
+une limite sue se transmet en s'effaçant**.
+
+## ✅ (b1) — la sortie nommée PAR PIXEL, vers une seconde cible de rendu (2026-08-22)
+
+> ### ⚠️ PORTÉE — à lire avant le compte de cas
+>
+> **(b1) est prouvé jusqu'au NkSL émis, et pas au-delà. Aucune image n'a été
+> rendue, aucune valeur relue depuis la carte. Manquent : la cible
+> `R16G16B16A16_FLOAT` côté RHI, son effacement à `(0,0,0,0)`, et une lecture
+> réelle.**
+>
+> Sans cette phrase, « 116 cas, 0 échec, 26 mutations sur 26 » se lit comme « la
+> seconde cible fonctionne ». **Elle ne fonctionne pas : elle est correctement
+> décrite.** C'est beaucoup, ce n'est pas la même chose — et c'est précisément
+> l'écart qu'on passe des nuits à traquer ailleurs.
+>
+> 📌 La même phrase s'imprime **avec le compte**, à la fin de `NkMatGraphCheck`.
+> Rangée seulement ici, elle serait vraie et jamais lue.
+
+L'étage `par_pixel_cible` est **construit**. Format signé par Rodolf :
+**`R16G16B16A16_FLOAT`, 8 o/px** — RGB = la valeur, **A = la validité**.
+
+Preuve : `Applications/NkMatGraphCheck` — **116 cas, 0 échec, 26 mutations sur 26
+détectées**. Tout se mesure **sans GPU**, sur le NkSL émis, parce que la propriété
+qui compte est syntaxique : la sortie est-elle déclarée, est-elle **écrite**, et
+avec quel alpha.
+
+### Le contrat, en une ligne
+
+> **RGB = la valeur de la sortie résolue ; A = 1 si ce pixel la porte, 0 sinon.
+> Quand `A == 0`, RGB n'a aucun sens et le lecteur n'a pas le droit de le lire.**
+
+⚠️ **Tout matériau déclare ET écrit la seconde cible**, y compris celui qui n'a
+aucune sortie nommée — parce qu'**une sortie MRT non écrite sur un pixel couvert
+est INDÉFINIE**, ni conservée, ni nulle. Celui qui n'a rien à y mettre écrit
+`(0,0,0,0)`.
+
+Un matériau d'étage **(a)** écrit **zéro lui aussi** : (a) est une constante
+calculée sur le processeur, lui faire payer une écriture par pixel viderait
+l'argument « quasi gratuit ».
+
+### 🔴 Le même piège, découvert un étage plus haut
+
+`NkMatSortieMateriau::valeur[3]` est la valeur **processeur**. Une sortie (b1)
+n'en a aucune — sa valeur naît dans le shader. Le tableau restait donc **à zéro**,
+et ce zéro **se lit exactement comme « la valeur vaut zéro »**.
+
+C'est le canal alpha, transposé du tampon vers la structure C++ — et il entrait
+**par la porte de derrière**, dans le code écrit pour le corriger ailleurs.
+
+> **Que la même faute change d'étage sans changer de forme est ce qui la rend
+> générale : ce n'est pas un défaut du tampon, c'est l'absence de distinction
+> entre « rien » et « zéro », partout où elle n'est pas explicitement portée.**
+
+Le zéro est toujours disponible, toujours plausible, et ne se signale jamais. Le
+cœur le fait déjà bien pour les valeurs de graphe — « jamais renseigné » a **une
+seule** représentation, `type == NK_TYPE_INVALID`. C'est la même règle, et elle
+était déjà écrite dans `NkNodeGraph.h`. Réparé de la même façon : un drapeau
+`valeurConnue`. Un lecteur qui l'ignore lit `false` et doit s'en occuper ; il ne
+peut pas se tromper en silence.
+
+📌 **Et deux étapes de la passe des sorties étaient devenues fausses en silence.**
+Le refus « ta sortie dépend du pixel » et l'évaluation processeur s'appliquaient à
+**tous** les étages — implicitement correct tant qu'un seul étage existait. Le
+message disait déjà « est déclarée `par_materiau` », mais **le code ne le
+vérifiait pas** : (b1) est par pixel *par définition*, le refuser pour cette
+raison aurait refusé l'étage entier.
+
+> **Une condition implicitement vraie parce qu'il n'existe qu'un seul cas devient
+> fausse le jour où le second arrive — et elle ne prévient pas.**
+
+### Les refus, nommés
+
+- une sortie **demandée mais absente** du graphe → erreur qui **la nomme**.
+  ⚠️ Rendre un tampon vide serait le repli plausible : il se lirait comme « ce
+  matériau ne porte pas cette valeur », **indiscernable du cas légitime**.
+- **plusieurs** sorties `par_pixel_cible` et **aucune** demandée → refus. Prendre
+  « la première » rendrait une valeur crédible issue d'une sortie que personne n'a
+  demandée. Un **témoin** vérifie que la même scène compile dès qu'on nomme la
+  sortie voulue.
+
+### Reste à faire pour (b1)
+
+La preuve de **rendu** n'est pas atteinte : tout ce qui précède se mesure sur la
+source émise. Manquent la création de la cible `R16G16B16A16_FLOAT` côté RHI, son
+effacement à `(0,0,0,0)`, et une lecture réelle depuis la carte. **Le domaine
+déclaré par sortie** (borné / non borné) et la **promotion 32 bits nommée** ne
+sont pas non plus construits — ils le seront quand une sortie réelle en aura
+besoin, et pas avant.
+
+## 📌 La connaissance existe, mais pas là où quelqu'un la chercherait (2026-08-23)
+
+Trois formes, sorties la même nuit sur trois chantiers, même racine :
+
+| forme | ce qu'elle coûte |
+|---|---|
+| une limite **sue** et non écrite | se transmet **en s'effaçant** |
+| une limite **écrite au mauvais endroit** | **ne se transmet pas du tout** |
+| deux documents qui **divergent** | **fabriquent du faux travail** — deux séances de décision préparées sur des points déjà tranchés ailleurs |
+
+⚠️ **La deuxième est la plus coûteuse, et elle a été payée ici même.**
+`Kernel/Runtime/NKGraph/src/NKGraph/NkNodeGraph.h` porte **depuis le début**
+exactement la règle qui manquait à `NkMatSortieMateriau` : *« JAMAIS RENSEIGNÉ et
+RENSEIGNÉ À VIDE sont deux états différents »*, avec « jamais renseigné » ramené à
+**une seule** représentation. Sa note cite même le piège **payé** par l'agent
+NkUIDesign dans la nuit du 21 au 22/08.
+
+> **Quelqu'un l'avait déjà payé. Il l'avait écrit. Et il a été repayé quand même,
+> deux étages plus haut** — non par négligence, mais parce que **rien ne pousse à
+> lire l'en-tête du module d'en dessous quand on écrit une structure au-dessus**.
+> La règle était disponible, gratuite, et invisible.
+
+**La question, ajoutée au préambule de `NkMatGraphCheck` comme cinquième règle :**
+*cette règle existe-t-elle déjà quelque part sous moi ?*
+
+⚠️ Et elle **n'a pas de réponse mécanique** — il ne faut pas prétendre le
+contraire. On ne relit pas le noyau avant chaque structure, et aucun outil ne dira
+« la règle que tu t'apprêtes à violer est écrite trois modules plus bas ». La
+poser vaut quand même mieux : elle coûte trente secondes sur les questions où l'on
+**sait** qu'un module d'en dessous a déjà tranché — la représentation d'une valeur
+absente, la stabilité d'un identifiant, l'ordre d'évaluation — et ce sont
+justement celles où la réponse existe.
+
+## ✅ La signature de la porte est ouverte — deux documents ne se voient plus (2026-08-23)
+
+Le défaut déclaré la veille est **corrigé**, et il l'a été **seul**, après (b1) :
+mêler sa mesure à celle de la seconde cible en aurait fait une mesure qui porte
+sur deux choses à la fois.
+
+**Ce qui a changé n'est pas le stockage — c'est la signature.** Le registre de
+prototypes est devenu un **paramètre de toute la couche 3** :
+`NkMatFindProto`, `NkMatProtoCount`/`NkMatProtoAt`, `NkMatAddNode`,
+`NkMatNoeudsPourPrise(De)`, `NkMatValidate`, `NkMatEnregistreGroupe`,
+`NkMatCompileToNkSL`, et en interne `CalculeContagion` /
+`TrouveSourceParPixel`. **307 points d'appel** réécrits (banc et démo).
+
+⚠️ **Et il n'a AUCUNE valeur par défaut.** Un défaut qui serait retombé sur un
+registre global aurait laissé le défaut atteignable en silence : tout appelant qui
+n'y aurait pas pensé aurait continué de partager. Ici le compilateur oblige chaque
+appelant à dire **de quel document il parle** — désagréable une fois, définitif.
+Le singleton `NkMatRegistre()` **n'existe plus** ; il n'y a pas de porte de
+derrière à refermer plus tard.
+
+### Le témoin, et il mesure les quatre symptômes annoncés
+
+`groupe/deux-documents-ne-voient-pas-leurs-groupes` — ils ne se corrigent pas
+forcément ensemble, donc ils sont mesurés séparément :
+
+1. un groupe défini dans A n'est **pas trouvable** depuis B ;
+2. il n'apparaît **pas dans le menu** de B ;
+3. A et B emploient **le même nom** sans se gêner — le plus fourbe, parce qu'il se
+   manifestait par un refus d'apparence légitime (« déjà enregistré ») sur un nom
+   que le second document est pourtant seul à employer ;
+4. **fermer A ne casse pas B**.
+
+Plus un **témoin interne** : chaque document voit **son propre** groupe. Sans lui,
+un registre cassé qui ne rendrait jamais rien passerait les quatre contrôles pour
+la pire des raisons. Et `chezA != chezB` — deux documents qui pointeraient sur une
+**seule** définition rejoueraient le défaut sous une autre forme.
+
+### 🔴 La mutation qui compte
+
+Rendre le stockage `static` — **deux jetons** — remet toutes les instances en
+commun sans toucher à une seule signature. Elle reproduit **les quatre symptômes
+d'un coup**, mot pour mot :
+
+```
+chacun voit le sien=11 et pas celui de l autre=00 | menus : le sien=1 pas l autre=00
+| meme nom des deux cotes 'ok'/'deja-enregistre' chacun le sien=0
+| B survit a la fermeture de A=0
+```
+
+Deux autres mutations séparent proprement les deux moitiés : quand le **menu**
+cesse de consulter le registre, la partie « trouvable » reste verte et seule la
+partie « menu » tombe.

@@ -1,0 +1,28 @@
+nkgui 0.3
+
+// LES TROIS ECHAPPEMENTS DU DOCUMENT 2 §2, et rien d'autre : \n, \" et \\.
+// Un quatrieme (\t par exemple) fait REFUSER le fichier a la lecture -- voir
+// fautifs/refuses_a_la_lecture/r1_echappement_inconnu.nkgui.
+//
+// Et de l'UTF-8 pour de vrai : ce fichier doit revenir OCTET POUR OCTET, donc
+// aucun caractere ne doit etre re-encode au passage.
+widgets {
+
+  Text "message" {
+    text = "Ligne 1\nLigne 2 avec un \"guillemet\" et une barre \\ oblique"
+    wrap = true
+    maxLines = 4
+  }
+
+  Text "accents" {
+    text = "Yaoundé, Cameroun — rendu à 60 Hz sur un écran 4K."
+  }
+
+  Text "non_latin" {
+    text = "Ελληνικά, Кириллица, 日本語, العربية"
+  }
+
+  Text "symboles" {
+    text = "≤ ≥ ≠ → ∑ ∞ · « » … ✓"
+  }
+}

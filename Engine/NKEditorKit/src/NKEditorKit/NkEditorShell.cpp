@@ -1,4 +1,5 @@
 // =============================================================================
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // NkEditorShell.cpp — implementation de la coquille d'editeur (sur NKGui).
 //   events -> BeginFrame -> menubar -> DockSpace -> panneaux -> palette -> rendu.
 // =============================================================================
@@ -9,6 +10,13 @@
 // Nogee qui injectent un backend NKRHI et n'en executaient jamais une ligne.
 // Le renderer NKCanvas est desormais INJECTE par l'application, comme le
 // renderer NKRHI l'etait deja. Voir NkEditorShell::Init.
+#include "NKEditorKit/NkThemeToGui.h" // LA conversion NkTheme -> NkGuiTheme (une seule)
+// ⚠️ Fusion du 2026-09-12 : la branche feat/noge-feu reintroduisait ici
+//    `#include "NKEditorKit/NkEditorCanvasRenderer.h"`. Retire, et ce n'est pas
+//    un arbitrage : (1) aucune ligne de code de ce fichier n'utilise le symbole ;
+//    (2) cet en-tete tire NKCanvas (l.16-18), absent des includes du kit, et le
+//    compilateur le refuse : fatal error 'NKCanvas/Core/NkContextDesc.h' not found.
+#include "NKEditorKit/NkEditorSurface.h" // ④ LA porte unique pour peindre au-dessus
 #include "NKEditorKit/NkEditorTooltip.h"		// NkTooltip : infobulle des voyants du footer
 #include <cstdio>								// snprintf (indicateur de zoom barre d'etat)
 
@@ -21,8 +29,12 @@
 #include "NKFileSystem/NkDirectory.h"
 #include "NKFileSystem/NkPath.h"
 #include "NKPlatform/NkEnv.h" // env::GetEnvVar (emplacements du sélecteur)
+#include "NKMath/NkFunctions.h" // NkSin/NkCos/NkSqrt/NkAtan2 — la marque Rihen
+                               // est TRACEE, pas chargee. ⚠️ `nkentseu::math`,
+                               // pas `std::` (règle de Rodolf du 18/08).
 #if defined(_WIN32)
 #include <windows.h> // GetLogicalDrives (barre latérale disques)
+#include "NKCore/Text/NkSnprintf.h"
 #endif
 
 using namespace nkentseu;
@@ -182,22 +194,90 @@ namespace nkentseu {
 
 			// Theme GitHub Dark (palette fournie). #0D1117 fond, #191D23 surfaces,
 			// #010409 chrome sombre, #1F6FEB accent, #DFDFDF texte, #519ABA secondaire.
+			//
+			// ⚠️ POURQUOI CES SEIZE COULEURS NE PASSENT PAS PAR `NkThemeVersGui`,
+			//    ET LA MESURE QUI L A DECIDE (2026-08-29). L intention etait de les
+			//    remplacer par une conversion -- « une recopie manuelle est une
+			//    conversion ecrite sans etre nommee, elle divergera au premier role
+			//    ajoute ». Le raisonnement est juste. **La mesure dit que la
+			//    divergence a DEJA eu lieu, et qu elle porte sur le MAPPAGE, pas sur
+			//    la palette** : ces seize valeurs ne sont pas exprimables dans le
+			//    vocabulaire des roles. Sept champs le prouvent :
+			//
+			//      champ         ici               ce que la conversion donnerait
+			//      button        #191D23           InputBg  -> #0D1117
+			//      track         #0D1117           InputBg  -> #0D1117
+			//                    ^ `button` et `track` DIFFERENT ici, et un seul
+			//                      role `InputBg` ne peut pas rendre deux couleurs.
+			//      tabBar        #191D23           WindowBg -> #0D1117
+			//      tabActive     #0D1117           PanelBg  -> #010409
+			//      buttonHover   #212730           Mix(button, accent, 0.20)
+			//      tabHover      #212730           Mix(tab, accent, 0.20)
+			//      selection     #1F6FEB **a=200** accent, a=255
+			//      rounding      0.f               non touche -> reste a 5.f
+			//
+			//    Convertir changerait donc l APPARENCE, pas seulement la forme du
+			//    code. ⚠️ Et ca ne toucherait pas que cette coquille : **seul
+			//    NkUIDesign appelle `ApplyTheme`** -- verifie par recherche sur
+			//    l arbre. Pour toutes les autres applications (NKCode en tete, en
+			//    pause depuis des semaines et qui fonctionne), cette palette EST le
+			//    theme livre. Un nettoyage de code n a pas a restyler quatre
+			//    editeurs en passant.
+			//
+			// NOTE : CE QUE CA DIT VRAIMENT, et c est plus utile que le refactor --
+			//    `NkTheme` n a pas les roles qu il faudrait pour decrire cette
+			//    palette : il lui manque de quoi distinguer le fond d un BOUTON du
+			//    fond d un CHAMP, et de quoi dire la barre d onglets. C est un
+			//    manque du VOCABULAIRE DES ROLES, nomme ici et non resolu :
+			//    l ajouter est une decision de conception du kit, pas un effet de
+			//    bord d une extraction faite a cote.
+			//
+			// == CE QUI RESTE A FAIRE, ET IL NE MANQUE PLUS QUE LE JOUR ==========
+			//    ⚠️ LES DEUX ROLES MANQUANTS EXISTENT DEPUIS LE 2026-08-29 :
+			//    `NkRole::ButtonBg` et `NkRole::TabBarBg` (decision de Rodolf via le
+			//    canal, sur la mesure ci-dessus). Ils se replient sur `InputBg` et
+			//    `WindowBg` tant qu'un theme ne les pose pas -- mesure appariee : les
+			//    4 themes integres x 35 champs sortent OCTET POUR OCTET identiques
+			//    avant et apres leur ajout. **La palette ci-dessous est donc
+			//    desormais EXPRIMABLE.**
+			//
+			//    Ce qui reste, quand quelqu un le fera de jour et avec Rodolf :
+			//      1. ecrire cette palette comme un `NkTheme` nomme -- appelons-le
+			//         `NkThemeCoquilleDefaut()` -- avec `ButtonBg = #191D23`,
+			//         `TabBarBg = #191D23`, et les autres roles tels que la table
+			//         ci-dessus les donne ;
+			//      2. remplacer les seize lignes qui suivent par un seul
+			//         `NkThemeVersGui(mUI.theme, NkThemeCoquilleDefaut())` ;
+			//      3. reposer A LA MAIN, APRES l'appel, les trois valeurs que la
+			//         conversion ne porte pas et ne doit pas porter :
+			//             mUI.theme.rounding = 0.f;        // geometrie, pas couleur
+			//             mUI.theme.selection.a = 200;     // alpha, aucun role
+			//             mUI.theme.tabActive = ...;       // cf. la table ci-dessus
+			//         ⚠️ Ces trois-la sont le RESTE IRREDUCTIBLE. Les faire entrer
+			//            dans les roles serait inventer du vocabulaire pour cacher
+			//            une exception -- ce qui est exactement le defaut qu'on
+			//            vient de corriger, a l'envers.
+			//      4. relancer une mesure appariee de la meme forme que celle du
+			//         29/08 (4 themes x 35 champs, diff attendu VIDE) AVANT de
+			//         croire que le rendu n'a pas bouge. Une sonde de trente lignes
+			//         suffit ; elle a ete ecrite, utilisee, puis retiree ce jour-la.
+			//
+			//    ⚠️ POURQUOI CE N'EST PAS FAIT ICI. Seul NkUIDesign appelle
+			//       `ApplyTheme` : pour NKCode et les autres, cette palette EST le
+			//       theme livre. La migration se VOIT a l'ecran, donc elle se valide
+			//       a l'oeil -- et ce n'est pas un travail de nuit.
+			// == ETAPES 2 ET 3 DE LA MIGRATION (2026-08-30) =====================
+			// Les seize recopies manuelles sont devenues UN appel a LA conversion,
+			// sur le theme nomme `NkThemeCoquilleDefaut()`. Les quatre etapes
+			// ecrites ci-dessus ont ete suivies dans l ordre ; la mesure du champ
+			// par champ est dans le message du commit de migration.
+			NkThemeVersGui(mUI.theme, NkThemeCoquilleDefaut());
+			// -- LE RESTE IRREDUCTIBLE, repose A LA MAIN, comme documente --------
+			// Ces trois valeurs n ont pas de role et ne doivent pas en avoir un
+			// (cf. la note ci-dessus : inventer du vocabulaire pour cacher une
+			// exception serait le defaut corrige, a l envers).
 			NkGuiTheme &t = mUI.theme;
-			t.bgPrimary = {13, 17, 23, 255}; // editeur #0D1117
-			t.panel = {1, 4, 9, 255};		 // sidebar #010409 (plus sombre)
-			t.header = {25, 29, 35, 255};	 // titres/menus #191D23
-			t.button = {25, 29, 35, 255};
-			t.buttonHover = {33, 39, 48, 255};	   // hover liste (#191D23 + un poil)
-			t.buttonActive = {31, 111, 235, 255};  // selection active #1F6FEB
-			t.border = {33, 39, 48, 255};		   // bord subtil
-			t.text = {223, 223, 223, 255};		   // #DFDFDF
-			t.textDisabled = {125, 133, 144, 255}; // muted
-			t.selection = {31, 111, 235, 200};	   // #1F6FEB (semi)
-			t.accent = {31, 111, 235, 255};		   // #1F6FEB
-			t.track = {13, 17, 23, 255};
-			t.tabBar = {25, 29, 35, 255}; // barre d'onglets #191D23
-			t.tab = {25, 29, 35, 255};	  // onglet inactif #191D23
-			t.tabHover = {33, 39, 48, 255};
+			t.selection.a = 200;			 // le voile de selection reste un VOILE
 			t.tabActive = {13, 17, 23, 255}; // onglet actif = fond editeur #0D1117
 			t.rounding = 0.f;				 // coins droits
 
@@ -526,6 +606,75 @@ namespace nkentseu {
 				case NkKey::NK_EQUALS:
 					mUI.input.SetKey(NkGuiKey::Equal, down);
 					break; // Ctrl+= / Ctrl++ : zoom éditeur
+				// ══════════════════════════════════════════════════════════════
+				// 🔴 CE QUI MANQUAIT ICI, ET QUI ETAIT ACCUSE AILLEURS (2026-09-02)
+				// ══════════════════════════════════════════════════════════════
+				// `NkGuiTypes.h` portait DEUX signalements disant que `Ctrl+1..6`
+				// et `Ctrl+,` etaient « annonces par l'ecran Parametres sans
+				// qu'aucun code puisse les recevoir, FAUTE DE CODE DE TOUCHE ».
+				// **Le diagnostic etait faux.** `Num3`..`Num6` et `Comma` sont
+				// dans l'enumeration depuis le lot du launcher : c'est CE
+				// `switch`-ci qui s'arretait a `NK_NUM2` et ne les emettait
+				// jamais.
+				//
+				// *Une valeur d'enumeration que personne n'emet est aussi morte
+				// qu'une valeur absente -- et elle est PIRE, parce qu'elle a l'air
+				// presente.* On la lit dans l'enum, on en conclut que le socle
+				// sait la recevoir, et on va chercher le defaut chez l'appelant.
+				// Deux signalements successifs l'ont cherche du mauvais cote.
+				//
+				// ⚠️ ET LE PAVE NUMERIQUE SUIT LA MEME REGLE QUE `Num0`..`Num2`
+				//    quelques lignes plus haut : sur AZERTY, les chiffres du haut
+				//    demandent `Maj`, donc le pave est la seule saisie directe. Le
+				//    traiter pour 0-2 et pas pour 3-6 aurait fait marcher la
+				//    moitie des raccourcis sur la moitie des claviers.
+				case NkKey::NK_NUM3:
+				case NkKey::NK_NUMPAD_3:
+					mUI.input.SetKey(NkGuiKey::Num3, down);
+					break;
+				case NkKey::NK_NUM4:
+				case NkKey::NK_NUMPAD_4:
+					mUI.input.SetKey(NkGuiKey::Num4, down);
+					break;
+				case NkKey::NK_NUM5:
+				case NkKey::NK_NUMPAD_5:
+					mUI.input.SetKey(NkGuiKey::Num5, down);
+					break;
+				case NkKey::NK_NUM6:
+				case NkKey::NK_NUMPAD_6:
+					mUI.input.SetKey(NkGuiKey::Num6, down);
+					break;
+				case NkKey::NK_COMMA:
+					mUI.input.SetKey(NkGuiKey::Comma, down);
+					break; // Ctrl+, : Parametres
+				// ── LES HUIT LETTRES QUI COMPLETENT L'ALPHABET (A..Z) ─────────
+				// Posees toutes d'un coup plutot que `A` et `R` seules : la
+				// prochaine application qui voudra `S` ou `E` ne rouvrira pas ce
+				// fichier. *Un chantier groupe qui se rouvre n'a pas ete fait.*
+				case NkKey::NK_A:
+					mUI.input.SetKey(NkGuiKey::A, down);
+					break; // Ctrl+A : tout selectionner
+				case NkKey::NK_B:
+					mUI.input.SetKey(NkGuiKey::B, down);
+					break;
+				case NkKey::NK_E:
+					mUI.input.SetKey(NkGuiKey::E, down);
+					break;
+				case NkKey::NK_M:
+					mUI.input.SetKey(NkGuiKey::M, down);
+					break;
+				case NkKey::NK_Q:
+					mUI.input.SetKey(NkGuiKey::Q, down);
+					break;
+				case NkKey::NK_R:
+					mUI.input.SetKey(NkGuiKey::R, down);
+					break; // R : outil rectangle
+				case NkKey::NK_S:
+					mUI.input.SetKey(NkGuiKey::S, down);
+					break;
+				case NkKey::NK_U:
+					mUI.input.SetKey(NkGuiKey::U, down);
+					break;
 				default:
 					break;
 			}
@@ -672,22 +821,75 @@ namespace nkentseu {
 			// d'outils / panneaux / barre d'etat (façon « page de demarrage » VS).
 			const bool fullScreen = mUI.appFullScreen && mStartScreenFn;
 
-			const float32 titleH = mUI.ItemHeight() + mUI.S(10.f); // barre de titre legerement plus grande
+			// ⚠️ COTES IMPOSEES PAR L APPLICATION quand elle en pose (SetHeaderLayout),
+			//    sinon le calcul historique. Elles ne passent PAS par `S()` : une
+			//    maquette qui dit 28 doit se mesurer 28 sur la capture.
+			const float32 titleH =
+				(mHeaderTitleH > 0.f) ? mHeaderTitleH : (mUI.ItemHeight() + mUI.S(10.f));
 			mUI.titleBarH = titleH;								   // l'ecran de demarrage doit commencer en dessous
-			const float32 toolbarH =
-				(mToolbarFn && !fullScreen) ? mUI.S(46.f) : 0.f; // combos labellises (vue principale IDE)
-			const float32 footerH = fullScreen ? 0.f : mUI.S(22.f);
+			const float32 bandH = (mHeaderBandH > 0.f) ? mHeaderBandH : mUI.S(46.f);
+			const float32 toolbarH = (mToolbarFn && !fullScreen) ? bandH : 0.f;
+			// Le bloc logo CHEVAUCHE les deux bandes : les bandes commencent a sa
+			// droite, jamais au bord de la fenetre.
+			const float32 logoW = (mHeaderLogo > 0.f && !fullScreen) ? mHeaderLogo : 0.f;
+			// La bande basse n'est reservee que si quelqu'un l'affiche : la barre
+			// d'etat du shell (visible) ou le hook de l'application.
+			const float32 footerH =
+				(fullScreen || (!mStatusBarVisible && !mStatusBarFn)) ? 0.f : mUI.S(22.f);
 			// Largeur des bandes d'icones, PAR COTE : une app sans « vues » a
 			// basculer les desactive (SetActivityBars) et le dock recupere la place.
 			const float32 activityW = mUI.S(48.f);
 			const float32 actWL = mActivityBarLeft ? activityW : 0.f;
 			const float32 actWR = mActivityBarRight ? activityW : 0.f;
+			// ── LES RAILS DE PASTILLES (§13) ────────────────────────────────
+			// ⚠️ 28 PIXELS, SANS `S()` -- le document le dit, la capture doit le
+			//    rendre. Et un rail SANS pastille ne prend AUCUNE place : une
+			//    bande vide de 28 px serait du chrome, exactement ce qu on vient
+			//    de retirer avec les barres d activite.
+			const float32 railW = 28.f;
+			const float32 railL = mRailCount[0] > 0 ? railW : 0.f;
+			const float32 railR = mRailCount[1] > 0 ? railW : 0.f;
+			const float32 railB = mRailCount[2] > 0 ? railW : 0.f;
 
 			// Barre de titre custom UNE ligne : logo + menus | infos | min/max/close.
-			DrawTitleBar(ec, {0.f, 0.f, W, titleH});
+			// ══ ② TRACE — QUELLE PHASE POSE LE CURSEUR (`NK_TRACE_PIPETTE=1`) ═════
+			//
+			// 🔴 La trace precedente ne nommait QUE mes ecritures : les 18 autres sites
+			//    (NKGui) ecrivent sans se nommer, et je ne peux pas les instrumenter --
+			//    ils vivent dans le noyau. **On instrumente donc les PHASES de l'image**,
+			//    ici, ou elles se suivent toutes : la phase qui a change la valeur est
+			//    nommee, meme quand l'ecrivain, lui, se tait.
+			//
+			// ⚠️ On n'imprime QUE les changements, et seulement quand la valeur devient
+			//    un curseur de redimensionnement -- le symptome qu'on cherche. Le reste
+			//    serait du bruit qui cacherait la ligne utile.
+			const bool tracePhase = []() {
+				const char *v = getenv("NK_TRACE_PIPETTE");
+				return v && v[0] && v[0] != '0';
+			}();
+			nkgui::NkGuiCursor curseurPrec = mUI.wantCursor;
+			auto phase = [&](const char *nom) {
+				if (!tracePhase || mUI.wantCursor == curseurPrec)
+					return;
+				static const char *const kN[] = {"fleche", "texte", "main", "REDIM <->",
+											 "redim haut-bas"};
+				const int32 a = (int32)curseurPrec, b = (int32)mUI.wantCursor;
+				printf("[pipette] phase %-22s : %s -> %s\n", nom,
+						a >= 0 && a < 5 ? kN[a] : "?", b >= 0 && b < 5 ? kN[b] : "?");
+				curseurPrec = mUI.wantCursor;
+			};
+			phase("depart de l'image");
+			DrawTitleBar(ec, {logoW, 0.f, W - logoW, titleH});
+			phase("barre de titre");
 			// Barre d'outils Visual Studio (config/plateforme cible + Build/Run + emulateur).
 			if (mToolbarFn && !fullScreen)
-				DrawToolbar(ec, {0.f, titleH, W, toolbarH});
+				DrawToolbar(ec, {logoW, titleH, W - logoW, toolbarH});
+			phase("barre d'outils");
+			// ⚠️ LE BLOC LOGO EST DESSINE APRES LES DEUX BANDES, et c est la seule
+			//    facon de le faire CHEVAUCHER : il est plus haut que la premiere
+			//    bande, donc il ne peut pas vivre dedans.
+			if (logoW > 0.f)
+				DrawHeaderLogo(ec, {0.f, 0.f, logoW, logoW});
 
 			const float32 bodyTop = titleH + toolbarH;
 			const float32 bodyH = H - bodyTop - footerH;
@@ -718,7 +920,11 @@ namespace nkentseu {
 				}
 			if (!mMaskBodyOnPopup)
 				overPopup = false;
-			const bool modal = mShowPrefs || mUI.appModal || overPopup || mCtxOpen;
+			// ② UNE MODALE QUI S'EST DECLAREE (NkGuiInput::ReserverSaisie) COMPTE COMME MODALE.
+			//    C'est ce qui fait entrer ici les dialogues dessines par l'APPLICATION dans le
+			//    crochet d'overlay -- le selecteur de fichier, en particulier : ils arrivent
+			//    apres les panneaux, donc ni `appModal` ni `overPopup` ne les voyaient.
+			const bool modal = mShowPrefs || mUI.appModal || overPopup || mCtxOpen || mUI.input.saisieReserveePrec;
 			nkgui::NkGuiInput savedInput;
 			if (modal) {
 				savedInput = mUI.input;
@@ -733,6 +939,16 @@ namespace nkentseu {
 				mUI.input.wheel = mUI.input.wheelH = 0.f;
 				mUI.input.charCount = 0;
 				mUI.input.wantCopy = mUI.input.wantCut = mUI.input.wantPaste = mUI.input.wantSelectAll = false;
+				// ② ET LES TOUCHES (2026-09-05) : le bloc neutralisait la souris, la molette et
+				//    les caracteres, JAMAIS l'etat des touches. `Suppr` atteignait donc la toile
+				//    sous un dialogue ouvert, et supprimait la selection. On efface l'appui ET le
+				//    front ; `keyPrev` n'est pas touche, et tout est restaure d'un bloc apres les
+				//    panneaux (`mUI.input = savedInput`) : l'overlay voit l'entree reelle.
+				for (int32 ki = 0; ki < nkgui::NkGuiInput::KeyCount; ++ki) {
+					mUI.input.keyDown[ki] = false;
+					mUI.input.keyInit[ki] = false;
+				}
+				mUI.input.ctrlDown = mUI.input.shiftDown = mUI.input.altDown = false;
 			}
 
 			if (fullScreen) {
@@ -743,16 +959,54 @@ namespace nkentseu {
 					DrawActivityBar({0.f, bodyTop, actWL, bodyH});
 				if (mActivityBarRight)
 					DrawActivityBarRight({W - actWR, bodyTop, actWR, bodyH}); // IA (panneau droit)
-				DockSpace(mUI, "##EditorDock", {actWL, bodyTop, W - actWL - actWR, bodyH});
+				// ⚠️ LE DOCK NE RETRANCHE QUE LES RAILS, JAMAIS LE TIROIR. C est la
+				//    ligne qui distingue l etat 2 de l etat 3 : si la largeur du
+				//    tiroir apparaissait ici, deplier une pastille REDIMENSIONNERAIT
+				//    le canvas, et l etat 2 serait devenu l etat 3 sans decision.
+				const NkRect corps = {actWL + railL, bodyTop,
+									  W - actWL - actWR - railL - railR, bodyH - railB};
+				if (railL > 0.f)
+					DrawRail(0, {actWL, bodyTop, railW, bodyH - railB}, true);
+				if (railR > 0.f)
+					DrawRail(1, {W - actWR - railW, bodyTop, railW, bodyH - railB}, true);
+				if (railB > 0.f)
+					DrawRail(2, {actWL, bodyTop + bodyH - railW, W - actWL - actWR, railW},
+							 false);
+				// ⚠️ QUI RECOIT LE CLIC ? `activeId` avant / apres : si le DockSpace l'a
+				//    pris, un separateur s'est SAISI du geste -- et ce n'est plus une
+				//    question de curseur. On ne l'imprime que sur un clic.
+				const nkgui::NkGuiId actifAvantDock = mUI.activeId;
+				DockSpace(mUI, "##EditorDock", corps);
+			phase("DockSpace (separateurs)");
+				{
+					static const bool traceDock = []() {
+						const char *v = getenv("NK_TRACE_PIPETTE");
+						return v && v[0] && v[0] != '0';
+					}();
+					if (traceDock && mUI.input.mouseClicked[0] && mUI.activeId != actifAvantDock)
+						printf("[pipette] >>> LE CLIC EST PRIS PAR LE DOCKSPACE (separateur) : "
+							   "actif %u -> %u\n",
+							   (unsigned)actifAvantDock, (unsigned)mUI.activeId);
+				}
 				// Seul le panneau CENTRAL masque la barre d'onglets de sa feuille quand il
 				// est seul (il affiche ses propres onglets de fichiers) ; Terminal/Sortie/
 				// sidebars gardent TOUJOURS leurs onglets, même seuls (façon VSCode).
 				for (int32 i = 0; i < mNumPanels; ++i)
 					if (mPanels[i])
+						// Costume Banani (SetSideTabsVisible(false)) : les panneaux
+						// LATÉRAUX aussi masquent leur barre d'onglets quand ils sont
+						// seuls — ils dessinent alors leur propre en-tête de 34 px.
 						DockWindowHideSingleTab(mUI, mPanels[i]->Title(),
-												mPanels[i]->DefaultSide() == NkEditorDockSide::NK_CENTER);
+												!mSideTabsVisible
+													|| mPanels[i]->DefaultSide() == NkEditorDockSide::NK_CENTER);
 				BootstrapDocking();
 				DrawPanels(ec);
+			phase("PANNEAUX");
+				// ⚠️ APRES LES PANNEAUX : le tiroir passe PAR-DESSUS le dock. Pose
+				//    avant, il finirait derriere, et on croirait qu il ne s ouvre
+				//    pas.
+				DrawRailDrawers(ec, corps);
+			phase("tiroirs de rail");
 				if (mStatusBarFn) {
 					// Barre d'etat « a sa maniere » (SetStatusBarFn, patron SetMenuBar) :
 					// l'app dessine TOUTE la bande — fond, voyants, textes, zoom compris.
@@ -771,17 +1025,22 @@ namespace nkentseu {
 				}
 			}
 			HandleEdgeResize(W, H); // bords de redimensionnement (fenetre sans bordure)
+			phase("bords de fenetre");
 
 			if (modal)
 				mUI.input = savedInput; // restaure pour le popup
 			mPopupMasked = false;
 			DrawContextMenu(); // menu contextuel shell-level (au-dessus des panneaux)
+			phase("menu contextuel");
 			// (DrawFilePicker retiré : add-folder réutilise LE picker de l'app, Dialogs.h.
 			//  Le picker fichier/dossier UNIFIÉ sera extrait dans NKEditorKit — phase 2.)
 			DrawCommandPalette(ec);
+			phase("palette de commandes");
 			DrawPreferences(ec); // fenetre Preferences (menu dedie)
+			phase("preferences");
 			if (mOverlayFn)
 				mOverlayFn(ec, mOverlayUser); // dialogues modaux de l'app (creation/proprietes)
+			phase("OVERLAY (pipette)");
 
 			// Bordure de NOTRE fenetre (l'OS n'en dessine plus) — sauf si maximisee.
 			if (!mWindow.IsMaximized())
@@ -789,6 +1048,25 @@ namespace nkentseu {
 
 			mUI.EndFrame();
 
+			// ══ TRACE — `NK_TRACE_PIPETTE=1` : LE DERNIER MOT SUR LE CURSEUR ═════
+			// ⚠️ C'est ICI que l'OS apprend quel curseur afficher : tout ce qui a ete
+			//    ecrit avant, par n'importe quel site, aboutit a cette ligne. Une trace
+			//    posee plus haut dirait ce qu'on a VOULU ; celle-ci dit ce qui EST.
+			//    On n'imprime que les CHANGEMENTS -- sinon soixante lignes par seconde.
+			{
+				static const bool traceCurseur = []() {
+					const char *v = getenv("NK_TRACE_PIPETTE");
+					return v && v[0] && v[0] != '0';
+				}();
+				static int32 dernier = -1;
+				if (traceCurseur && (int32)mUI.wantCursor != dernier) {
+					dernier = (int32)mUI.wantCursor;
+					static const char *const kNoms[] = {"fleche", "texte", "main", "REDIM <->",
+													   "redim haut-bas"};
+					printf("[pipette] >>> L'OS RECOIT : %s\n",
+						   dernier >= 0 && dernier < 5 ? kNoms[dernier] : "?");
+				}
+			}
 			mWindow.SetCursor(MapCursor(mUI.wantCursor));
 
 			mRenderer->BeginFrame();
@@ -798,6 +1076,252 @@ namespace nkentseu {
 		}
 
 		// ── Activity bar (bande verticale d'icones a gauche, facon VSCode) ────────
+		// ═══════════════════════════════════════════════════════════════════════
+		//  LES RAILS DE PASTILLES (document 3 §13) — etats 1 et 2
+		// ═══════════════════════════════════════════════════════════════════════
+		void NkEditorShell::SetRail(NkEditorDockSide side, const NkEditorRailItem *items,
+									int32 count) noexcept {
+			int32 slot = -1;
+			if (side == NkEditorDockSide::NK_LEFT)
+				slot = 0;
+			else if (side == NkEditorDockSide::NK_RIGHT)
+				slot = 1;
+			else if (side == NkEditorDockSide::NK_BOTTOM)
+				slot = 2;
+			if (slot < 0) {
+				// ⚠️ NK_TOP et NK_CENTER N ONT PAS DE RAIL, et le dire vaut mieux
+				//    que d ignorer : une application qui pose un rail en haut
+				//    verrait simplement rien apparaitre, et chercherait le defaut
+				//    dans son dessin.
+				logger.Error("[NkEditorShell] SetRail : seuls NK_LEFT, NK_RIGHT et "
+							 "NK_BOTTOM portent un rail. Rien n'a ete pose.");
+				return;
+			}
+			if (count > kRailMax) {
+				// ⚠️ LE PLAFOND CRIE. Un rail qui garderait les huit premieres et
+				//    laisserait tomber le reste donnerait une pastille absente sans
+				//    aucune trace -- et on chercherait pourquoi le panneau
+				//    « n existe pas ».
+				logger.Error("[NkEditorShell] SetRail : {0} pastilles demandées, plafond "
+							 "kRailMax={1}. Les suivantes sont REFUSÉES, pas ignorées.",
+							 count, (int32)kRailMax);
+				count = kRailMax;
+			}
+			mRailCount[slot] = count < 0 ? 0 : count;
+			for (int32 i = 0; i < mRailCount[slot]; ++i)
+				mRailItems[slot][i] = items[i];
+			mRailOuvert[slot] = -1;
+		}
+
+		NkEditorPanel *NkEditorShell::TrouverPanneau(const char *titre) noexcept {
+			if (!titre || !*titre)
+				return nullptr;
+			for (int32 i = 0; i < mNumPanels; ++i) {
+				if (!mPanels[i])
+					continue;
+				const char *t = mPanels[i]->Title();
+				int32 k = 0;
+				while (t[k] && titre[k] && t[k] == titre[k])
+					++k;
+				if (t[k] == '\0' && titre[k] == '\0')
+					return mPanels[i];
+			}
+			return nullptr;
+		}
+
+		// ETAT 1 : la pastille repliee, avec son infobulle.
+		void NkEditorShell::DrawRail(int32 slot, const NkRect &bar, bool vertical) noexcept {
+			auto &dl = mUI.dl;
+			dl.AddRectFilled(bar, mUI.theme.header);
+			// ⚠️ 28 PIXELS, ET ILS NE PASSENT PAS PAR `S()`. Le document dit 28 px
+			//    et la mesure sur la capture doit rendre 28 -- meme regle que les
+			//    deux bandes de l en-tete. Un facteur DPI donnerait 30 a 107 %.
+			const float32 cell = 28.f;
+			const NkVec2 m = mUI.input.mousePos;
+			const bool ptrOk = (mUI.hoveredWindowId == NKGUI_ID_NONE);
+
+			// Costume Banani (2026-08-31) : dès qu'une pastille du rail porte son
+			// propre dessin (`icone`), le rail prend la géométrie de la maquette —
+			// marge 8, écart 4, hauteur de pilule 20 au rail bas — et le CONTENU
+			// est dessiné par l'application. Sans `icone`, rien ne bouge.
+			bool costume = false;
+			for (int32 i = 0; i < mRailCount[slot]; ++i)
+				if (mRailItems[slot][i].icone)
+					costume = true;
+			float32 curseur = costume ? 8.f : 4.f;
+
+			for (int32 i = 0; i < mRailCount[slot]; ++i) {
+				const NkEditorRailItem &it = mRailItems[slot][i];
+				const float32 lg = (it.largeur > 0.f) ? it.largeur : cell;
+				NkRect r;
+				if (vertical)
+					r = {bar.x, bar.y + curseur, cell, cell};
+				else if (costume)
+					r = {bar.x + curseur, bar.y + (bar.h - 20.f) * 0.5f, lg, 20.f};
+				else
+					r = {bar.x + curseur, bar.y, lg, cell};
+				curseur += (vertical ? cell : lg) + (costume ? 4.f : 0.f);
+				const bool hov = ptrOk && m.x >= r.x && m.x < r.x + r.w && m.y >= r.y
+								 && m.y < r.y + r.h;
+				const bool ouvert = (mRailOuvert[slot] == i);
+
+				if (it.icone) {
+					// Fond d'état seulement (accent à 13 % quand déplié — Banani
+					// SideRail —, survol discret sinon) ; le contenu vient de l'app.
+					if (ouvert) {
+						NkColor voile = mUI.theme.accent;
+						voile.a = 34; // ≈ 13 % (la pilule #2f81f722 de la maquette)
+						dl.AddRectFilled(r, voile, 4.f);
+					} else if (hov)
+						dl.AddRectFilled(r, mUI.theme.buttonHover, 4.f);
+					it.icone(mUI, r, ouvert, hov, it.iconeUser);
+				} else {
+					if (ouvert)
+						dl.AddRectFilled(r, mUI.theme.accent, 4.f);
+					else if (hov)
+						dl.AddRectFilled(r, mUI.theme.buttonHover, 4.f);
+
+					if (mUI.font && mUI.font->Valid() && it.glyphe && *it.glyphe) {
+						const float32 w = mUI.font->MeasureWidth(it.glyphe);
+						const float32 by = r.y + (r.h - mUI.font->LineHeight()) * 0.5f
+										   + mUI.font->Ascent();
+						dl.AddText(mUI.font->Face(), mUI.font->TexId(),
+								   {r.x + (r.w - w) * 0.5f, by}, it.glyphe,
+								   ouvert ? mUI.theme.onAccent
+										  : (hov ? mUI.theme.text : mUI.theme.textDisabled));
+					}
+				}
+
+				// L infobulle de l etat 1. ⚠️ REPRISE, PAS REECRITE : `NkTooltip`
+				//    sert deja aux voyants du pied de fenetre.
+				NkTooltip(mUI, hov, it.tooltip && *it.tooltip ? it.tooltip : it.panel);
+
+				if (hov && mUI.input.mouseClicked[0]) {
+					// §13.3 : deplier la seconde referme la premiere. La regle est
+					// structurelle -- `mRailOuvert` est UN entier.
+					mRailOuvert[slot] = ouvert ? -1 : i;
+					// ⚠️ LE CLIC EST CONSOMME. Sans ca, le meme clic servait a
+					//    ouvrir la pastille PUIS a la refermer par la regle du
+					//    « clic ailleurs » quelques lignes plus bas : la pastille
+					//    clignotait sans jamais rester ouverte.
+					mUI.input.mouseClicked[0] = false;
+				}
+			}
+
+			// LE TEXTE DU RAIL BAS (2026-08-30, fusion des bandeaux §4/§13) :
+			// l'aide contextuelle vit dans l'espace restant, a droite des
+			// pastilles — un bandeau, deux contenus, zero second etage.
+			// La pastille d'état à DROITE (« ● Prêt », Banani BottomRail) : point
+			// de 6 px + texte, alignés au bord droit. Le texte d'aide s'arrête
+			// avant elle.
+			float32 statusLx = bar.x + bar.w;
+			if (!vertical && mRailStatusText[0] && mUI.font && mUI.font->Valid()) {
+				const float32 tw = mUI.font->MeasureWidth(mRailStatusText);
+				const float32 tx = bar.x + bar.w - 8.f - tw;
+				const float32 by = bar.y + (bar.h - mUI.font->LineHeight()) * 0.5f
+								   + mUI.font->Ascent();
+				dl.AddText(mUI.font->Face(), mUI.font->TexId(), {tx, by}, mRailStatusText,
+						   mUI.theme.textDisabled);
+				const float32 dy = bar.y + bar.h * 0.5f;
+				dl.AddCircleFilled({tx - 4.f - 3.f, dy}, 3.f, mRailStatusColor);
+				statusLx = tx - 4.f - 6.f - 8.f;
+			}
+			if (!vertical && mRailFooterText[0] && mUI.font && mUI.font->Valid()) {
+				const float32 tx = bar.x + curseur + 12.f;
+				const float32 by = bar.y + (bar.h - mUI.font->LineHeight()) * 0.5f
+								   + mUI.font->Ascent();
+				dl.PushClipRect({tx, bar.y, statusLx - tx - 8.f, bar.h}, true);
+				dl.AddText(mUI.font->Face(), mUI.font->TexId(), {tx, by}, mRailFooterText,
+						   mUI.theme.textDisabled);
+				dl.PopClipRect();
+			}
+		}
+
+		// ETAT 2 : le tiroir, EN OVERLAY par-dessus le canvas.
+		void NkEditorShell::DrawRailDrawers(NkEditorFrameContext &ec, const NkRect &corps) noexcept {
+			const float32 cell = 28.f;
+			const float32 taille = 320.f; // §13.2 : « largeur/hauteur par defaut ~320px »
+			bool clicDansUnTiroir = false;
+
+			for (int32 slot = 0; slot < 3; ++slot) {
+				const int32 i = mRailOuvert[slot];
+				if (i < 0 || i >= mRailCount[slot])
+					continue;
+				NkEditorPanel *p = TrouverPanneau(mRailItems[slot][i].panel);
+
+				NkRect d;
+				if (slot == 0)
+					d = {corps.x + cell, corps.y, taille, corps.h};
+				else if (slot == 1)
+					d = {corps.x + corps.w - cell - taille, corps.y, taille, corps.h};
+				else
+					d = {corps.x, corps.y + corps.h - cell - 240.f, corps.w, 240.f};
+
+				// ⚠️ TOUT CECI VA DANS LA COUCHE OVERLAY. Le tiroir doit passer
+				//    PAR-DESSUS les panneaux ancres ; dessine dans la couche
+				//    normale, il finirait derriere le dock et on croirait qu il ne
+				//    s ouvre pas.
+				PushOverlay(mUI);
+				// ④ (06/09) LE TIROIR PEINT UN VOILE ET NE RECLAMAIT RIEN. Le voile
+				//    disait « ce qui est dessous attend » ; l'entree, elle, passait
+				//    quand meme. On declare `corps` -- la zone que le voile couvre --
+				//    et non le seul rectangle du tiroir : c'est TOUT le corps qui
+				//    attend.
+				// ⚠️ PAS DE CLAVIER : le tiroir accueille un PANNEAU de l'hote, qui a
+				//    ses propres champs ; lui prendre le clavier ici les couperait.
+				NkSurfaceFlottante _tiroir(mUI, corps, NkCouche::Menu, NkPriseClavier::Non);
+				// Le voile : il dit « ce qui est dessous attend ». Sans lui, le
+				// tiroir se lit comme un panneau de plus, pas comme un tiroir.
+				mUI.dlOverlay.AddRectFilled(corps, mUI.theme.scrim);
+				mUI.dlOverlay.AddRectFilled(d, mUI.theme.panel, 6.f);
+				mUI.dlOverlay.AddRect(d, mUI.theme.border, 1.f, 6.f);
+
+				const float32 titreH = mUI.ItemHeight() + 6.f;
+				if (mUI.font && mUI.font->Valid()) {
+					const char *t = p ? p->Title() : mRailItems[slot][i].panel;
+					mUI.dlOverlay.AddText(mUI.font->Face(), mUI.font->TexId(),
+										  {d.x + 10.f, d.y + (titreH - mUI.font->LineHeight()) * 0.5f
+														   + mUI.font->Ascent()},
+										  t, mUI.theme.text);
+				}
+				mUI.dlOverlay.AddLine({d.x, d.y + titreH}, {d.x + d.w, d.y + titreH},
+									  mUI.theme.border, 1.f);
+
+				const NkRect dedans = {d.x, d.y + titreH, d.w, d.h - titreH};
+				if (p) {
+					// ⚠️ LE TIROIR DESSINE UN PANNEAU EXISTANT, il n en invente pas
+					//    un second. C est ce qui rendra l etat 3 (l ancrer) presque
+					//    gratuit : le meme objet, ancre au lieu d etre pose ici.
+					if (BeginChild(mUI, "##tiroir", dedans, false, true)) {
+						p->OnUI(ec);
+						EndChild(mUI);
+					}
+				} else if (mUI.font && mUI.font->Valid()) {
+					// ⚠️ UNE PASTILLE QUI NE TROUVE PAS SON PANNEAU LE DIT. Un
+					//    tiroir vide ressemble a un panneau casse ; cette ligne
+					//    nomme la cle qui n a rien trouve, et la cle est la seule
+					//    chose qui puisse etre fausse.
+					mUI.dlOverlay.AddText(mUI.font->Face(), mUI.font->TexId(),
+										  {dedans.x + 10.f, dedans.y + 24.f},
+										  "Aucun panneau enregistre sous ce titre.",
+										  mUI.theme.danger);
+				}
+				PopOverlay(mUI);
+
+				const NkVec2 m = mUI.input.mousePos;
+				if (m.x >= d.x && m.x < d.x + d.w && m.y >= d.y && m.y < d.y + d.h)
+					clicDansUnTiroir = true;
+			}
+
+			// §13.2 : « un clic ailleurs sur le canvas la referme ». ⚠️ Le clic sur
+			// la PASTILLE a deja ete consomme plus haut : sans cette consommation,
+			// ouvrir et refermer se produisaient dans la meme image.
+			if (mUI.input.mouseClicked[0] && !clicDansUnTiroir) {
+				for (int32 slot = 0; slot < 3; ++slot)
+					mRailOuvert[slot] = -1;
+			}
+		}
+
 		void NkEditorShell::DrawActivityBar(const NkRect &bar) noexcept {
 			auto &dl = mUI.dl;
 			const NkColor barBg = mUI.theme.header; // theme-aware (suit Dark/Light)
@@ -996,8 +1520,136 @@ namespace nkentseu {
 
 		// ── Barre de titre custom (UNE ligne : logo + menus | infos | controles) ──
 		// Layout facon VSCode : [logo][Fichier Affichage ...]   <infos centre>   [─ ☐ ✕]
+		//
+		// ═══════════════════════════════════════════════════════════════════════
+		//  LE BLOC LOGO : LA MARQUE RIHEN, LE « O »
+		// ═══════════════════════════════════════════════════════════════════════
+		//  Un disque COUPE AU-DESSUS DE SON CENTRE : petite face haute, grande
+		//  face basse, et un VIDE entre les deux. Ce n'est pas un demi-disque —
+		//  une coupe au centre donnerait deux moities egales, c'est-a-dire une
+		//  autre marque.
+		//
+		// ⚠️ CE QU IL Y AVAIT AVANT, ET POURQUOI CA NE POUVAIT PAS RESTER : une
+		//    grille de 2x2 carres, posee pour que le bloc existe des la premiere
+		//    image. Un bouche-trou. Or ce bloc est l ANCRE VISUELLE de la fenetre,
+		//    le premier element que l oeil rencontre — un bouche-trou y est plus
+		//    visible que partout ailleurs, et il se lit comme la marque.
+		//
+		// ⚠️ ET IL EST DANS LE KIT, PAS DANS L APPLICATION. Toutes les
+		//    applications Rihen (NKCode, NK3DModeler, Nogee, NkAnimaEditor,
+		//    NkUIDesign, PV3DE) portent la MEME marque. La definir dans chaque
+		//    application, ce serait six dessins qui divergent des la premiere
+		//    retouche — exactement le raisonnement qui met les themes ici.
+		//
+		// ⚠️ TRACEE, PAS CHARGEE. Une texture exigerait un decodeur, un chemin de
+		//    ressource et un cas « fichier absent » — alors que ce bloc doit
+		//    exister DES LA PREMIERE IMAGE, meme sans aucune ressource. Deux
+		//    polygones convexes n exigent rien. Une application qui veut son
+		//    propre logo pose `SetTitleLogo`, teste en premier ci-dessous.
+		//
+		//  Couleurs : charte Rihen — petrole #0A555F (face haute), orange #F79A28
+		//  (face basse). Ce sont des couleurs de MARQUE, pas des roles de theme :
+		//  une marque qui change avec le theme n est plus une marque.
+		//
+		// ⚠️ REPERE ECRAN : **y croit vers le BAS**. Un point d angle `a` est donc
+		//    (cx + R cos a, cy + R sin a) avec a = -pi/2 EN HAUT et a = +pi/2 EN
+		//    BAS. Ma premiere version a raisonne en repere mathematique et a
+		//    produit deux arcs qui se recouvraient. C est ecrit ici parce que
+		//    l erreur ne se voit pas a la relecture du code, seulement a l ecran.
+		// ⚠️ CE N ETAIT PAS UN « POINT DE SYNCHRONISATION », C ETAIT UNE
+		//    CONVERSION -- et elle vivait ICI, dans un `namespace {}` anonyme,
+		//    donc **inaccessible a l editeur de liens** pour toute application
+		//    sans coquille. NK3DModeler n utilise deliberement pas
+		//    `NkEditorShell` (`NkModelerUI.h:5`) : sa seule sortie etait d en
+		//    ecrire une seconde. C est le mecanisme des deux registres de roles
+		//    homonymes et des deux objets theme payes cette semaine -- **la
+		//    deuxieme copie n est presque jamais un caprice, c est la seule porte
+		//    restee ouverte.**
+		//
+		//    La conversion vit desormais dans `NKEditorKit/NkThemeToGui.h`, et
+		//    `NkThemeUnpack` / `NkThemeMix` avec elle. Cette methode n est plus
+		//    qu un APPELANT parmi d autres. **Deux appelants d une conversion ne
+		//    font pas deux autorites.**
+		void NkEditorShell::ApplyTheme(const NkTheme &t) noexcept {
+			NkThemeVersGui(mUI, t);
+		}
+
+		void NkEditorShell::DrawHeaderLogo(NkEditorFrameContext &, const NkRect &r) noexcept {
+			auto &dl = mUI.dl;
+			dl.AddRectFilled(r, mUI.theme.header);
+			// Costume exact (2026-08-31) : l'application dessine son propre bloc
+			// logo (patron SetMenuBar). Le « O » Rihen reste le défaut du kit.
+			if (mHeaderLogoFn) {
+				mHeaderLogoFn(mUI, r, mHeaderLogoUser);
+				return;
+			}
+			if (mTitleLogoTex) {
+				const float32 g = r.w * 0.5f;
+				dl.AddImage(mTitleLogoTex, {r.x + (r.w - g) * 0.5f, r.y + (r.h - g) * 0.5f, g, g},
+							{0.f, 0.f}, {1.f, 1.f}, {255, 255, 255, 255});
+				return;
+			}
+
+			const float32 kPi = 3.14159265f;
+			const float32 rad = (r.w < r.h ? r.w : r.h) * 0.34f;
+			const float32 cx = r.x + r.w * 0.5f;
+			const float32 cy = r.y + r.h * 0.5f;
+			const float32 coupe = cy - rad * 0.30f;	 // AU-DESSUS du centre
+			const float32 vide = rad * 0.05f;		 // le VIDE entre les deux faces
+
+			const NkColor kPetrole = {10, 85, 95, 255};	 // #0A555F
+			const NkColor kOrange = {247, 154, 40, 255}; // #F79A28
+
+			// ⚠️ 32 POINTS D ARC, PAS 8. A 56 px de bloc, un arc a 8 segments se
+			//    lit comme un polygone : la marque devient anguleuse, et c est le
+			//    genre de detail qu on ne voit qu une fois imprime.
+			static const int32 kN = 32;
+			NkVec2 poly[kN];
+
+			// Un segment de disque coupe a l ordonnee `y` : la demi-corde vaut
+			// R*sqrt(1 - (dy/R)^2), et les deux bouts de l arc sont aux angles
+			// atan2(dy, +demiCorde) et atan2(dy, -demiCorde).
+			// La FACE HAUTE va du bout GAUCHE au bout DROIT **par le haut** ;
+			// la FACE BASSE va du bout DROIT au bout GAUCHE **par le bas**.
+			// Les deux arcs suffisent : la corde ferme le polygone toute seule.
+			const float32 dyH = (coupe - vide) - cy;
+			const float32 kH = 1.f - (dyH / rad) * (dyH / rad);
+			if (kH > 0.f) {
+				const float32 demi = rad * nkentseu::math::NkSqrt(kH);
+				const float32 aD = nkentseu::math::NkAtan2(dyH, demi);	// bout droit
+				const float32 aG = -kPi - aD;							// bout gauche
+				for (int32 i = 0; i < kN; ++i) {
+					const float32 a = aG + (aD - aG) * ((float32)i / (float32)(kN - 1));
+					poly[i] = {cx + rad * nkentseu::math::NkCos(a),
+							   cy + rad * nkentseu::math::NkSin(a)};
+				}
+				dl.AddConvexPolyFilled(poly, kN, kPetrole);
+			}
+
+			const float32 dyB = (coupe + vide) - cy;
+			const float32 kB = 1.f - (dyB / rad) * (dyB / rad);
+			if (kB > 0.f) {
+				const float32 demi = rad * nkentseu::math::NkSqrt(kB);
+				const float32 aD = nkentseu::math::NkAtan2(dyB, demi);
+				const float32 aG = -kPi - aD + 2.f * kPi; // le meme, un tour plus loin
+				for (int32 i = 0; i < kN; ++i) {
+					const float32 a = aD + (aG - aD) * ((float32)i / (float32)(kN - 1));
+					poly[i] = {cx + rad * nkentseu::math::NkCos(a),
+							   cy + rad * nkentseu::math::NkSin(a)};
+				}
+				dl.AddConvexPolyFilled(poly, kN, kOrange);
+			}
+		}
+
 		void NkEditorShell::DrawTitleBar(NkEditorFrameContext &ec, const NkRect &bar) noexcept {
 			auto &dl = mUI.dl;
+			// Costume exact (2026-08-31) : police dédiée de la barre de titre —
+			// menus et nom de fichier d'une maquette à 11 px cessent d'hériter de
+			// la police d'interface. Échangée pour TOUTE la barre (menus déroulants
+			// compris, dessinés pendant BuildMenuBar), restaurée à la sortie.
+			nkgui::NkGuiFont *fontInterface = mUI.font;
+			if (mTitleBarFont && mTitleBarFont->Valid())
+				mUI.font = mTitleBarFont;
 			const NkColor bg = mUI.theme.header; // barre de titre (suit Dark/Light)
 			const NkColor fg = mUI.theme.text;
 			const NkColor accent = mUI.theme.accent;
@@ -1011,7 +1663,19 @@ namespace nkentseu {
 			// deja dans l'image, on NE re-ecrit PAS "nkcode". Sinon icone carree (+ texte).
 			float32 cursorX = bar.x + pad;
 			bool wordmark = false;
-			if (mTitleLogoTex) {
+			// ⚠️ QUAND LE BLOC LOGO CARRE EXISTE, LA BARRE N EN REDESSINE PAS UN.
+			//    Mesure sur capture : un carre bleu de 12 px s intercalait entre le
+			//    « O » Rihen et « Fichier » — le repli « pas de texture chargee » de
+			//    cette barre, qui ignorait que le bloc a cheval sur les deux bandes
+			//    porte deja la marque. **Deux logos a 40 px l un de l autre**, et le
+			//    second etait un carre de remplissage.
+			// ⚠️ ET LES MENUS PARTENT ALORS DU BORD DU BLOC, sans marge : le
+			//    document 3 §5 l exige — « colle au bord droit du bloc logo, pas
+			//    d espace mort entre le logo et le menu, ils forment un seul groupe
+			//    visuel ».
+			if (mHeaderLogo > 0.f) {
+				cursorX = bar.x;
+			} else if (mTitleLogoTex) {
 				const float32 lg = bar.h * 0.62f;
 				if (mTitleLogoAspect > 0.f) { // logo complet (ratio preserve)
 					const float32 lw = lg * mTitleLogoAspect;
@@ -1039,10 +1703,24 @@ namespace nkentseu {
 
 			auto inR = [&](const NkRect &r) { return m.x >= r.x && m.x < r.x + r.w && m.y >= r.y && m.y < r.y + r.h; };
 			const NkColor hovBg = lightBar ? NkColor{0, 0, 0, 24} : NkColor{255, 255, 255, 26};
+			// Compact (Banani) : trois boutons 13×13, écart 4, marge droite 12 —
+			// des PIXELS de maquette, pas des unités à passer par S() (même règle
+			// que SetHeaderLayout). Historique : trois zones larges de 42.
 			const float32 bw = mUI.S(42.f);
-			const NkRect cClose = {bar.x + bar.w - bw, bar.y, bw, bar.h};
-			const NkRect cMax = {bar.x + bar.w - bw * 2.f, bar.y, bw, bar.h};
-			const NkRect cMin = {bar.x + bar.w - bw * 3.f, bar.y, bw, bar.h};
+			NkRect cClose, cMax, cMin;
+			if (mWinControlsCompact) {
+				// `mWinControlsSize` : l'application choisit le côté (Rodolf,
+				// 31/08 : les 13 px de la maquette étaient trop petits à l'usage).
+				const float32 cs = mWinControlsSize, gap = 4.f, right = 12.f;
+				const float32 cyBtn = bar.y + (bar.h - cs) * 0.5f;
+				cClose = {bar.x + bar.w - right - cs, cyBtn, cs, cs};
+				cMax = {cClose.x - gap - cs, cyBtn, cs, cs};
+				cMin = {cMax.x - gap - cs, cyBtn, cs, cs};
+			} else {
+				cClose = {bar.x + bar.w - bw, bar.y, bw, bar.h};
+				cMax = {bar.x + bar.w - bw * 2.f, bar.y, bw, bar.h};
+				cMin = {bar.x + bar.w - bw * 3.f, bar.y, bw, bar.h};
+			}
 
 			// Menus DANS la barre de titre (uniquement dans l'editeur, pas le launcher).
 			if (!mUI.appFullScreen)
@@ -1060,7 +1738,19 @@ namespace nkentseu {
 				titleLx = ix - mUI.S(10.f);
 				titleRx = ix + iw + mUI.S(10.f); // + petite marge
 				const float32 by = bar.y + (bar.h - mUI.font->LineHeight()) * 0.5f + mUI.font->Ascent();
-				dl.AddText(mUI.font->Face(), mUI.font->TexId(), {ix, by}, info, {150, 150, 150, 255});
+				// Costume (police de barre posée) : la pastille « ● » d'un fichier
+				// non enregistré se peint en `theme.warning` et le NOM en
+				// `theme.text` — Banani TopHeader. Historique sinon : gris moyen.
+				if (mTitleBarFont && info[0] == '\xE2' && info[1] == '\x97' && info[2] == '\x8F') {
+					dl.AddText(mUI.font->Face(), mUI.font->TexId(), {ix, by}, "\xE2\x97\x8F",
+							   mUI.theme.warning);
+					const float32 dw = mUI.font->MeasureWidth("\xE2\x97\x8F");
+					dl.AddText(mUI.font->Face(), mUI.font->TexId(), {ix + dw, by}, info + 3,
+							   mUI.theme.text);
+				} else if (mTitleBarFont)
+					dl.AddText(mUI.font->Face(), mUI.font->TexId(), {ix, by}, info, mUI.theme.text);
+				else
+					dl.AddText(mUI.font->Face(), mUI.font->TexId(), {ix, by}, info, {150, 150, 150, 255});
 			}
 
 			bool consumed = false;
@@ -1070,8 +1760,59 @@ namespace nkentseu {
 				return {r.x + hx, r.y + vy, r.w - 2.f * hx, r.h - 2.f * vy};
 			};
 			const float32 cround = mUI.S(4.f);
+			// ── Compact 13×13 (Banani TopHeader) : réduire/agrandir sur fond
+			//    `theme.button`, glyphes 7 px `textDisabled`, fermer FOND ROUGE
+			//    PERMANENT #f85149 avec × blanc. Les trois se dessinent ici et les
+			//    blocs historiques sont sautés. ──
+			if (mWinControlsCompact) {
+				// Les GLYPHES SUIVENT LE CÔTÉ choisi (proportions de la maquette
+				// à 13 px, mises à l'échelle) — agrandir la zone cliquable sans
+				// agrandir le dessin aurait fait des boutons vides.
+				const float32 cs2 = mWinControlsSize;
+				const float32 demiTrait = cs2 * 0.27f; // 3.5/13
+				const float32 carre = cs2 * 0.46f;	   // 6/13
+				const float32 demiX = cs2 * 0.19f;
+				// Réduire.
+				{
+					const bool h = inR(cMin);
+					dl.AddRectFilled(cMin, h ? mUI.theme.buttonHover : mUI.theme.button, 3.f);
+					const float32 gx = cMin.x + cMin.w * 0.5f, gy = cMin.y + cMin.h * 0.5f;
+					dl.AddLine({gx - demiTrait, gy}, {gx + demiTrait, gy}, mUI.theme.textDisabled,
+							   1.2f);
+					if (h && mUI.input.mouseClicked[0]) {
+						mWindow.Minimize();
+						consumed = true;
+					}
+				}
+				// Agrandir / restaurer.
+				{
+					const bool h = inR(cMax);
+					dl.AddRectFilled(cMax, h ? mUI.theme.buttonHover : mUI.theme.button, 3.f);
+					const float32 gx = cMax.x + cMax.w * 0.5f, gy = cMax.y + cMax.h * 0.5f;
+					dl.AddRect({gx - carre * 0.5f, gy - carre * 0.5f, carre, carre},
+							   mUI.theme.textDisabled, 1.2f);
+					if (h && mUI.input.mouseClicked[0]) {
+						mWindow.Maximize();
+						consumed = true;
+					}
+				}
+				// Fermer — rouge permanent (la maquette le montre ainsi au repos).
+				{
+					const bool h = inR(cClose);
+					const NkColor rouge = {248, 81, 73, 255}; // #f85149 (Banani --color-error)
+					dl.AddRectFilled(cClose, h ? NkColor{255, 110, 102, 255} : rouge, 3.f);
+					const float32 gx = cClose.x + cClose.w * 0.5f, gy = cClose.y + cClose.h * 0.5f;
+					const NkColor blanc = {255, 255, 255, 255};
+					dl.AddLine({gx - demiX, gy - demiX}, {gx + demiX, gy + demiX}, blanc, 1.4f);
+					dl.AddLine({gx - demiX, gy + demiX}, {gx + demiX, gy - demiX}, blanc, 1.4f);
+					if (h && mUI.input.mouseClicked[0]) {
+						mRunning = false;
+						consumed = true;
+					}
+				}
+			}
 			// Minimiser (trait).
-			{
+			if (!mWinControlsCompact) {
 				const bool h = inR(cMin);
 				if (h)
 					dl.AddRectFilled(chip(cMin), hovBg, cround);
@@ -1083,7 +1824,7 @@ namespace nkentseu {
 				}
 			}
 			// Maximiser / restaurer (carre, ou double carre si maximise).
-			{
+			if (!mWinControlsCompact) {
 				const bool h = inR(cMax);
 				if (h)
 					dl.AddRectFilled(chip(cMax), hovBg, cround);
@@ -1101,7 +1842,7 @@ namespace nkentseu {
 				}
 			}
 			// Fermer (X, survol rouge #f85149 arrondi).
-			{
+			if (!mWinControlsCompact) {
 				const bool h = inR(cClose);
 				if (h)
 					dl.AddRectFilled(chip(cClose), {248, 81, 73, 255}, cround);
@@ -1148,6 +1889,7 @@ namespace nkentseu {
 					}
 				}
 			}
+			mUI.font = fontInterface; // fin de barre : la police d'interface reprend
 		}
 
 		// ── Barre d'outils horizontale (sous la barre de titre, facon Visual Studio) ─
@@ -1176,8 +1918,57 @@ namespace nkentseu {
 				return;
 			const float32 b = mUI.S(7.f);
 			const NkVec2 m = mUI.input.mousePos; // coords CLIENT (NCHITTEST=HTCLIENT)
-			const bool L = m.x <= b, R = m.x >= W - b, T = m.y <= b, Bm = m.y >= H - b;
-			const int32 edge = (L ? 1 : 0) | (R ? 2 : 0) | (T ? 4 : 0) | (Bm ? 8 : 0);
+			// ① (07/09) LE BORD NE SE SAISIT PAS A TRAVERS UNE FLOTTANTE. Voir
+			//   `NkBordSaisissable` : le selecteur de couleur, rabattu a 2 px du bord
+			//   droit, tombait dans cette bande -- curseur ↔ mensonger, et un clic y
+			//   aurait demarre un redimensionnement au lieu de choisir une couleur.
+			// ⚠️ UN SEUL VERDICT, POUR LE CURSEUR **ET** POUR LE CLIC. La garde d'hier
+			//    ne regardait que les flottantes ; celle-ci commence par la question qui
+			//    manquait -- **le pointeur est-il seulement DANS la fenetre ?** Quand il
+			//    est sur une flottante, la coquille masque l'entree a
+			//    (-100000, -100000) et cette fonction s'execute AVANT la restauration :
+			//    la position masquee etait lue comme le coin haut-gauche.
+			const int32 masqueBords =
+				NkBordsSousLePointeur(m, W, H, b, mUI.popupRects, mUI.popupDepth);
+			const bool saisissable = masqueBords != 0;
+			// ══ TRACE (`NK_TRACE_PIPETTE=1`) — POURQUOI LA GARDE MORD OU NE MORD PAS
+			//
+			// 🔴 La trace de Rodolf montre << phase bords de fenetre : fleche -> REDIM >>
+			//    ALORS QUE CETTE GARDE EXISTE. **Une garde qui existe et ne mord pas est
+			//    plus dangereuse qu'une garde absente : on la croit posee.** On ne la
+			//    reecrit donc pas -- on lui fait DIRE ce qu'elle voit : la souris, la
+			//    bande, le nombre de flottantes ouvertes et le rectangle de la premiere.
+			//    Le trou est soit << aucune flottante enregistree a cet instant >>, soit
+			//    << la souris n'est pas DEDANS >> -- et ces deux-la n'ont pas le meme
+			//    remede.
+			{
+				static const bool traceBord = []() {
+					const char *v = getenv("NK_TRACE_PIPETTE");
+					return v && v[0] && v[0] != '0';
+				}();
+				static int32 dernierEtat = -1;
+				const int32 etat = (saisissable ? 1 : 0) | (mUI.popupDepth > 0 ? 2 : 0);
+				if (traceBord && etat != dernierEtat) {
+					dernierEtat = etat;
+					const NkRect &p0 = mUI.popupRects[0];
+					printf("[pipette] BORDS : souris (%.0f, %.0f), bande %.0f px, "
+						   "flottantes=%d, popup0 = (%.0f, %.0f) %.0fx%.0f -> saisissable=%d\n",
+						   (double)m.x, (double)m.y, (double)b, mUI.popupDepth, (double)p0.x,
+						   (double)p0.y, (double)p0.w, (double)p0.h, saisissable ? 1 : 0);
+				}
+				// ⚠️ ET LE DESTINATAIRE DU CLIC, PAS SEULEMENT L'AFFICHAGE : c'est lui qui
+				//    compte. Un curseur laid se supporte ; un clic detourne fait
+				//    redimensionner la fenetre au lieu de choisir une couleur.
+				if (traceBord && saisissable && mUI.input.mouseClicked[0])
+					printf("[pipette] >>> LE CLIC PART EN REDIMENSIONNEMENT DE FENETRE "
+						   "(souris %.0f, %.0f)\n",
+						   (double)m.x, (double)m.y);
+			}
+			if (!saisissable)
+				return;
+			// ⚠️ LES BORDS VIENNENT DE LA PORTE, PLUS D'ICI : c'est elle qui a repondu
+			//    << aucun >> pour une position hors fenetre ou sous une flottante.
+			const int32 edge = masqueBords;
 			if (!edge)
 				return;
 
@@ -1191,7 +1982,11 @@ namespace nkentseu {
 
 			// Clic sur un bord -> HAND-OFF NATIF a l'OS (resize fluide + aero-snap), sans
 			// contournement : chaque backend implemente NkWindow::BeginResize nativement.
-			if (mUI.input.mouseClicked[0]) {
+			// ⚠️ ET LE CLIC PASSE PAR LE MEME VERDICT (`NkBordPrendLeClic`) : un bord
+			//    qui ne s'affiche pas ne doit pas se saisir non plus. *Deux
+			//    consequences, une decision* -- c'est ce qui empeche d'en corriger une
+			//    et de croire l'autre faite.
+			if (NkBordPrendLeClic(masqueBords, mUI.input.mouseClicked[0])) {
 				NkWindow::NkResizeEdge e = NkWindow::NkResizeEdge::Left;
 				switch (edge) {
 					case 1:
@@ -1264,10 +2059,12 @@ namespace nkentseu {
 				rightX -= rw + pad * 2.f;
 			}
 			// Indicateur de ZOOM (police du code) : "Zoom NNN%" cliquable -> reinitialise (Ctrl+0).
-			{
+			// ⚠️ C'est le zoom de la POLICE DE CODE, pas un zoom de vue : une
+			//    application sans editeur de code le masque (SetFooterZoomIndicator).
+			if (mFooterZoom) {
 				const int32 pct = static_cast<int32>(ActiveCodeSize() / kDefaultCodeFontSize * 100.f + 0.5f);
 				char z[24];
-				std::snprintf(z, sizeof(z), "Zoom %d%%", pct);
+				nkentseu::NkSnprintf(z, sizeof(z), "Zoom %d%%", pct);
 				const float32 zw = mUI.font->MeasureWidth(z);
 				const NkRect zr = {rightX - zw - pad, bar.y + 2.f, zw + pad * 2.f, footerH - 3.f};
 				const bool zhov = nkgui::NkGuiRectContains(zr, mUI.input.mousePos);
@@ -1523,6 +2320,16 @@ namespace nkentseu {
 		void NkEditorShell::SetFooter(const char *left, const char *right) noexcept {
 			CopyStr(mFooterLeft, left ? left : "", sizeof(mFooterLeft));
 			CopyStr(mFooterRight, right ? right : "", sizeof(mFooterRight));
+			// Barre d'etat debranchee : le message va au RAIL BAS — sans ce
+			// routage, « gfx ecrit, actif au prochain lancement » deviendrait
+			// invisible le jour ou une app fusionne ses bandeaux.
+			if (!mStatusBarVisible && !mStatusBarFn) {
+				char joint[256];
+				const bool deux = right && *right;
+				snprintf(joint, sizeof(joint), deux ? "%s%s" : "%s", left ? left : "",
+						 deux ? right : "");
+				CopyStr(mRailFooterText, joint, sizeof(mRailFooterText));
+			}
 		}
 
 		void NkEditorShell::SetTitleInfo(const char *center) noexcept {
@@ -1835,6 +2642,13 @@ namespace nkentseu {
 			if (y < 2.f)
 				y = 2.f;
 			const NkRect box = {x, y, w, h};
+			// ④ (06/09) CE MENU-CI NE RECLAMAIT RIEN. Il s'en remettait a `mCtxOpen`,
+			//    teste dans la condition `modal` de la boucle d'image, qui neutralise
+			//    l'entree des PANNEAUX -- mais ne declare rien au routeur d'occlusion.
+			//    Un widget natif dessine dans la couche overlay restait donc atteignable
+			//    sous le menu. Et surtout : le kit avait DEUX menus contextuels dont un
+			//    seul reclamait, ce que le recensement du 06/09 a mis au jour.
+			NkSurfaceFlottante _menu(mUI, box, NkCouche::Menu, NkPriseClavier::Oui);
 			dl.AddRectFilled({box.x + 2.f, box.y + 3.f, box.w, box.h}, NkColor{0, 0, 0, 60}, 6.f); // ombre
 			dl.AddRectFilled(box, mUI.theme.panel, 6.f);
 			dl.AddRect(box, mUI.theme.border, 1.f);
@@ -2019,7 +2833,7 @@ void NkEditorShell::MaximizeWindow() noexcept {
 					const NkGuiDockNode &d = mUI.dockNodes[order[k]];
 					const int32 c0 = (d.kind == 1 && d.child0 >= 0 && d.child0 < 256) ? map[d.child0] : -1;
 					const int32 c1 = (d.kind == 1 && d.child1 >= 0 && d.child1 < 256) ? map[d.child1] : -1;
-					std::snprintf(buf, sizeof(buf), "node=%d|%d|%d|%.4f|%d|%d|%d\n", k, static_cast<int32>(d.kind),
+					nkentseu::NkSnprintf(buf, sizeof(buf), "node=%d|%d|%d|%.4f|%d|%d|%d\n", k, static_cast<int32>(d.kind),
 								  d.vertical ? 1 : 0, static_cast<double>(d.ratio), c0, c1, d.activeTab);
 					out += buf;
 					if (d.kind == 2)
@@ -2027,7 +2841,7 @@ void NkEditorShell::MaximizeWindow() noexcept {
 							for (uint32 m2 = 0; m2 < mUI.windowMeta.Size(); ++m2)
 								if (mUI.windowMeta[m2].id == d.windows[w]) {
 									if (mUI.windowMeta[m2].title[0]) {
-										std::snprintf(buf, sizeof(buf), "nwin=%d|%s\n", k, mUI.windowMeta[m2].title);
+										nkentseu::NkSnprintf(buf, sizeof(buf), "nwin=%d|%s\n", k, mUI.windowMeta[m2].title);
 										out += buf;
 									}
 									break;
@@ -2040,7 +2854,7 @@ void NkEditorShell::MaximizeWindow() noexcept {
 						if (wm.id != wid)
 							continue;
 						if (wm.dockNode < 0 && wm.hostRoot < 0 && wm.init) {
-							std::snprintf(buf, sizeof(buf), "float=%.1f|%.1f|%.1f|%.1f|%s\n",
+							nkentseu::NkSnprintf(buf, sizeof(buf), "float=%.1f|%.1f|%.1f|%.1f|%s\n",
 										  static_cast<double>(wm.rect.x), static_cast<double>(wm.rect.y),
 										  static_cast<double>(wm.rect.w), static_cast<double>(wm.rect.h),
 										  mPanels[i]->Title());
@@ -2064,7 +2878,12 @@ void NkEditorShell::MaximizeWindow() noexcept {
 					SetNextWindowPos(mUI, 60.f + i * 28.f, menuH + 40.f + i * 28.f);
 					SetNextWindowSize(mUI, 360.f, 280.f);
 				}
-				if (Begin(mUI, p->Title(), p->OpenPtr())) {
+				// La grande barre externe se debranche par SetDockScrollbarVisible
+				// (molette conservee — les panneaux de NkUIDesign portent leurs
+				// propres ascenseurs par section).
+				if (Begin(mUI, p->Title(), p->OpenPtr(),
+						  mDockScrollbars ? nkgui::NkGuiWindowFlags::None
+										  : nkgui::NkGuiWindowFlags::NoScrollbar)) {
 					// Une fenêtre FLOTTANTE recouvre la souris et ce n'est pas la nôtre ->
 					// souris neutralisée pendant OnUI : le code custom des panneaux (éditeur,
 					// arbres) lit l'input en direct et recevrait sinon clics/molette À TRAVERS
@@ -2138,8 +2957,11 @@ void NkEditorShell::MaximizeWindow() noexcept {
 			// Mesure du 2026-08-17 (Nogee, --occlusion-test), temoin a l'appui :
 			// panneau ancre -> ItemHoverable = 1 palette FERMEE **et** 1 palette
 			// OUVERTE, donc le clic traversait.
-			mUI.PushOcclusion({0.f, 0.f, W, H}, 50);
-			NkGuiContext::NkInputLayerScope _paletteLayer(mUI, 50);
+			// ④ (06/09) ET LE TROISIEME GESTE MANQUAIT : le clavier. La palette a un
+			//    champ de recherche et se pilote aux fleches -- sans reserve, la toile
+			//    de l'hote voyait les MEMES touches. Les trois passent par une porte.
+			NkSurfaceFlottante _palette(mUI, {0.f, 0.f, W, H}, NkCouche::Menu,
+									   NkPriseClavier::Oui);
 
 			const float32 pw = 480.f, rowH = mUI.ItemHeight() + 4.f, headH = mUI.ItemHeight() + 12.f;
 			const int32 count = mNumCommands;
@@ -2418,6 +3240,13 @@ void NkEditorShell::MaximizeWindow() noexcept {
 			auto hit = [&](const NkRect &r) { return NkGuiRectContains(r, mp); };
 
 			const float32 pw = 620.f, ph = 505.f, px = (W - pw) * 0.5f, py = (H - ph) * 0.5f;
+			// ④ (06/09) LES PREFERENCES SONT UNE MODALE, et elles ne se declaraient
+			//    pas. Elles tenaient par `mShowPrefs` dans la condition `modal` de la
+			//    boucle -- meme demi-protection que le menu contextuel ci-dessus, meme
+			//    trou : rien au routeur d'occlusion. Le voile plein ecran est declare,
+			//    et non la seule fenetre : rien derriere ne doit repondre.
+			NkSurfaceFlottante _prefs(mUI, {0.f, 0.f, W, H}, NkCouche::Modale,
+									  NkPriseClavier::Oui);
 			dl.AddRectFilled({0.f, 0.f, W, H}, kBackdrop);
 			// Clic hors fenetre -> ferme (sauf la frame d'ouverture : le clic du menu
 			// est lui-meme hors du popup centre, il fermerait aussitot).
@@ -2496,7 +3325,7 @@ void NkEditorShell::MaximizeWindow() noexcept {
 							sz = 8.f;
 					}
 					char sb[8];
-					std::snprintf(sb, sizeof(sb), "%d", static_cast<int>(sz + 0.5f));
+					nkentseu::NkSnprintf(sb, sizeof(sb), "%d", static_cast<int>(sz + 0.5f));
 					const NkRect szBox = {cx + 338.f, y, 36.f, 26.f};
 					dl.AddRectFilled(szBox, NkColor{22, 27, 34, 255}, 4.f);
 					const float32 sw = mFont.MeasureWidth(sb);

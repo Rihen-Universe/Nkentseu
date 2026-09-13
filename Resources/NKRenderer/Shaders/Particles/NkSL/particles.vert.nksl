@@ -1,0 +1,63 @@
+// particles.vert.nksl — NKRenderer — billboard de particule (VRAI dialecte NkSL)
+// Ecrit le 2026-09-04. AVANT : le pipeline « ParticlesBillboard » n'avait AUCUN
+// shader (ni vertexLayout, ni topology) — CreateGraphicsPipeline rendait {} et
+// Draw partait sans programme. Et le CPU ecrivait quatre sommets a la MEME
+// position : meme avec un programme, l'aire etait nulle.
+//
+// 2026-09-04 (soir), INSTANCIATION : le CPU n'ecrit plus six sommets de 32 o par
+// particule (sommets 3,8-4,5 ms + envoi 9,3 Mo/image a 50 000) mais UN
+// enregistrement de 24 o par particule ; le coin vient d'un tampon STATIQUE de
+// six sommets (binding 0, par sommet), la particule d'un tampon par INSTANCE
+// (binding 1). Draw(6, N). Mesure avant : NKRHI honore le taux par instance sur
+// les quatre dorsaux (glVertexAttribDivisor / VK_VERTEX_INPUT_RATE_INSTANCE /
+// D3D11_INPUT_PER_INSTANCE_DATA / D3D12_..._PER_INSTANCE_DATA) et WebGL2 aussi
+// (divisor par attribut, ES 3.0) -- la voie gl_VertexID + SSBO n'existe pas sur
+// WebGL2 (pas de SSBO), l'instanciation est la seule qui porte partout.
+//
+// Les coins sont expanses DANS LE VERTEX SHADER, a partir de aSize et du
+// repere camera lu dans uCam.view (ligne 0 = right monde, ligne 1 = up monde).
+// Pas de geometry shader : WebGL2 n'en a pas, et le Web est le chemin Apple.
+
+@location(0) in vec2  aCorner;   // PAR SOMMET : (0,0) (1,0) (1,1) (0,0) (1,1) (0,1) -- quad statique partage
+@location(1) in vec3  aPos;      // PAR INSTANCE : centre monde de la particule
+@location(2) in vec4  aColor;    // PAR INSTANCE : RGBA8_UNORM -> vec4 normalise
+@location(3) in float aSize;     // PAR INSTANCE : cote du billboard, en metres
+@location(4) in float aRotation; // PAR INSTANCE : rotation dans le plan de l'ecran, radians
+
+@binding(set=0, binding=0)
+uniform CameraUBO {
+    mat4  view;
+    mat4  proj;
+    mat4  viewProj;
+    mat4  invViewProj;
+    vec4  camPos;
+    vec4  camDir;
+    vec2  viewport;
+    float time;
+    float deltaTime;
+    float iblStrength;
+} uCam;
+
+@location(0) out vec2 vUV;
+@location(1) out vec4 vColor;
+
+@stage(vertex)
+@entry
+void main() {
+    vUV    = aCorner;
+    vColor = aColor;
+
+    // Repere camera en MONDE : les colonnes de la matrice de vue transposee.
+    vec3 right = vec3(uCam.view[0][0], uCam.view[1][0], uCam.view[2][0]);
+    vec3 up    = vec3(uCam.view[0][1], uCam.view[1][1], uCam.view[2][1]);
+
+    // Coin centre : (0,0)->(-1,-1) ... (1,1)->(+1,+1)
+    vec2 c = aCorner * 2.0 - 1.0;
+    float cs = cos(aRotation);
+    float sn = sin(aRotation);
+    vec2 r = vec2(c.x * cs - c.y * sn, c.x * sn + c.y * cs);
+
+    float h = aSize * 0.5;
+    vec3 world = aPos + right * (r.x * h) + up * (r.y * h);
+    gl_Position = uCam.viewProj * vec4(world, 1.0);
+}

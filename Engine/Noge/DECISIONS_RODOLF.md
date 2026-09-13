@@ -1,0 +1,3940 @@
+# Noge — ce qui attend une décision de toi
+
+> Une page. Le détail est dans `Engine/Noge/echanges_noge.md` (rapport complet).
+> Branche `feat/noge-inventaire`, arbre `Nkentseu-noge`.
+> **Mise en ordre du 2026-09-02, en fin de journée.**
+
+> # 🟢 RODOLF — LE WEB REND. Relance : c'est plus léger.
+>
+> **Le correctif PBR tient, tu l'as confirmé.** Le paquet a maigri depuis :
+> **−247 976 octets (−24,7 %)**, **188 fichiers en moins**, et **~950 écritures
+> console au chargement ramenées à ~21**.
+>
+> ```
+> Build\Bin\Release-Web
+enderdemo
+enderdemo.bat 9002
+> http://localhost:9002/renderdemo.html?demo=2
+> ```
+>
+> **Deux choses à me renvoyer**, et elles tiennent en un copier-coller :
+> 1. la ligne **`Demo 3D | API : …`** et le panneau **`Shadow tweak`** — c'est ce
+>    qui fait passer la colonne Web au **vert** ;
+> 2. la ligne neuve **`[NkWeb] preparation terminee en <N> ms pour 288
+>    dependances`** — c'est elle qui dira si la lenteur est réglée, **en
+>    chiffres**. Elle n'existait pas hier.
+>
+> 📌 **Et l'essai à cinq secondes, avant tout le reste : ferme les outils de
+> développement et recharge.** Si ça change tout, la lenteur était la console —
+> et le palier que je viens de poser l'a déjà traitée. Si ça ne change rien,
+> c'est ailleurs, et la ligne de mesure ci-dessus dira où.
+>
+> ⚠️ **L'ombre est plus douce qu'avant, c'est attendu** — repli PCF 3×3, le PCSS
+> coûtait l'unité de texture qui manquait. Ce n'est pas un défaut.
+
+> ### 🗄️ Historique — la relance d'hier soir
+>
+> **Tes deux essais ne testaient pas le correctif** : tes wasm dataient de
+> **09h13 et 10h41**, le correctif de **22h50**. Tu n'as jamais eu le bon binaire
+> entre les mains. **Les deux arbres sont reconstruits (23h25 et 23h27, 30/30) et
+> j'ai vérifié que le correctif est DANS les fichiers**, pas seulement qu'il
+> compile.
+>
+> **Peu importe le port : les DEUX arbres sont corrects maintenant.**
+>
+> ```
+> Build\Bin\Release-Web\renderdemo\renderdemo.bat 9002
+> http://localhost:9002/renderdemo.html?demo=2
+> ```
+>
+> ### 🔑 LE TÉMOIN — une ligne, dans la console, qui ne peut pas mentir
+>
+> ```
+> [NkRHI_GL] budget d'unites de texture : 17 demandees pour 16 accordees
+>            -> PCSS retire (repli PCF 3x3), 16 restantes
+> ```
+>
+> **Si tu vois cette ligne, tu es sur le bon binaire et le correctif s'est
+> déclenché.** Elle n'existe que depuis ce soir, et elle s'imprime sur le chemin
+> NORMAL — pas sur un échec.
+>
+> ⚠️ **N'utilise PAS « absence de `[WebDiag]` » comme témoin, je me suis
+> corrigé** : le message `link FAIL` porte lui aussi l'étiquette `[WebDiag]` et
+> il n'est **pas** conditionné par le drapeau de diagnostic. Voir des `[WebDiag]`
+> ne dirait donc pas « vieux binaire », ça pourrait aussi dire « nouveau binaire,
+> et ça a encore échoué » — *un témoin qui confond deux causes ne tranche rien.*
+>
+> ### Ce que tu dois voir si le correctif tient
+>
+> - **plus de `link FAIL` sur `PBR`** ;
+> - la ligne **`Demo 3D | API : OpenGL`** et le panneau **`Shadow tweak`** ;
+> - **l'ombre est plus douce** — c'est le repli PCF 3×3, **c'est attendu, ce
+>   n'est pas un défaut**. Le PCSS (durcissement au contact) est retiré sur cette
+>   cible : il coûtait l'unité de texture qui manquait, et il était **déjà
+>   désactivé** par le palier de qualité mobile.
+>
+> 📌 **La leçon, et elle est structurelle** : *un correctif compilé mais non
+> déployé est indistinguable d'un correctif absent, du point de vue de celui qui
+> teste.* On a passé la journée à séparer « ça compile » de « ça tourne » — voici
+> le troisième état, entre les deux : **ça compile, ça ne tourne pas encore chez
+> toi**. Le livrable d'un correctif de cible n'est pas le commit, **c'est le
+> binaire que tu lances**.
+
+
+## 📌 CE QUI RESTE, ET CE QUI NE T'ATTEND PLUS
+
+**Cinq des huit blocs sont tranchés.** Ils restent écrits, avec leur réponse et
+sa date — *une feuille qui garde des questions déjà répondues fait perdre du
+temps ; une feuille qui efface l'historique fait re-trancher.*
+
+### 🟠 CE QUI T'ATTEND ENCORE — **trois choses**, le point B est tombé ce soir
+
+| # | ce qu'il faut | de qui | coût |
+|---|---|---|---|
+| **A″** 🟠 | ✅ **CORRIGÉ le 02/09 — il te reste 2 minutes.** Le défaut est traité : **17 → 16**, par un déclencheur qui **ne nomme aucune plateforme** (il compare la demande du shader au budget du pilote). Constructions vertes, banc vert. ⚠️ **Marge ZÉRO** — 16/16, l'état exact qui a explosé le 11/08 ; le banc est désormais le rempart, et la réserve IBL/sky rendra 2 unités quand le GPU sera libre. **Ce qu'il manque : une exécution sur ta carte**, port **9002**. Historique : ✅ **FAIT, et ça avait RÉFUTÉ le vert Web.** Tu as lancé sur ta carte : `PBR` ne se lie pas — **17 unités de texture demandées, 16 accordées**, écran vide. Le vert d'hier venait de SwiftShader, plus permissif que le matériel. **Ce qui t'attend maintenant, ce n'est plus un test, c'est une décision** : lancer la **variante réduite de `PBR`** (conçue, chiffrée **~2-3 j**, non codée). ⚠️ macOS/iOS étant bloquées par la signature, **ce défaut coûte 3 plateformes sur 7**. Tout en **section 10**. | **toi** — dire quand | ~2-3 j |
+| ~~**B**~~ | ✅ **FAIT le 02/09 à 19h31 — HarmonyOS REND LA 3D.** Tu as lancé l'émulateur, j'ai installé le `.hap` du 10/08 et **lu le HUD moi-même** : `Demo 3D | API : OpenGL`, panneau `Shadow tweak`, `FPS approx : 8.3`, 17 sphères PBR + ombres portées. **5 cibles sur 7.** ⚠️ Réserve écrite : binaire du **10/08**, donc l'image prouve « HarmonyOS rendait la 3D le 10/08 » — un re-test sur un `.hap` à jour reste à faire, **comme pour Linux**. Détail : **carte, section 9**. | — | fait |
+| **C** | **Re-tester Linux sous WSL.** Le vert repose sur la capture du 29/07 + ton témoignage ; le build d'aujourd'hui n'y a jamais tourné. WSL2 n'a pas répondu en 120 s pendant cette session. | toi (débloquer WSL), puis moi | ~10 min |
+| **G** ✨ | **Les particules : finir le renderer, ou pas maintenant ?** Mesuré le 03/09 : la simulation tourne (401 vivantes), mais **aucun pipeline VFX n'a de shader**, **personne n'appelle `Update`**, et les quads ont une **aire nulle** — zéro pixel sur les deux backends. Trois pièces, ~1,5 j, ordre et témoins au **bloc 13**. | **toi** | dire quand |
+| ~~**F**~~ 🚗 | ✅ **TRANCHÉ (a) ET LIVRÉ le 03/09.** Le couple s'intègre pour tout le monde (`d471956d`, bancs des consommateurs au même compte) ; `NkVehicle` livré selon la conception — roue par raycast, suspension à trois gardes, adhérence en vitesse à annuler bornée par le cercle de friction, **dans** le pas fixe, surface à 16 lignes. Banc **48/48** avec contre-épreuve (`µ = 0,01` → elle patine) et **deux mutations prouvées**. Reste : Ackermann, réglage sur les deux voitures du dépôt. Détail : `CONCEPTION_VEHICULE.md` §7. | — | fait |
+| **F′** 🚗 | **Le jeu de voiture peut s'ouvrir** — c'était ta condition : *« si et seulement si la physique est prête »*. Elle l'est, headless. **Ce qui manque pour le dire à l'image** : une capture d'une voiture qui roule dans `renderdemo` (GPU → Ilyana d'abord). | **toi** | dire quand |
+| **F₀** 🚗 | **La physique de véhicule : (a) ou (b) ?** *(historique)* La conception est écrite (`Engine/Noge/CONCEPTION_VEHICULE.md`, ~2,5-3 j). ⚠️ **Une seule question t'attend** : l'étape 0 corrige `NkIntegrator` — le champ `torque` existe et **n'est jamais intégré** — donc pour **tout le monde**, ragdoll compris. **(a)** on corrige le socle (ma recommandation : c'est un défaut, pas un choix) ; **(b)** le véhicule recopie chez lui. | **toi** | une phrase |
+| ~~**E**~~ | ✅ **FAIT le 04/09.** `NkRetargetSkeleton` a disparu, `NkSkeletonDef` est LA structure, conversion à l'import (`FromLocalBind`), local dérivé. Témoin : conversion qui se retourne à 1e-4 sur un repos incliné + reciblage aux mêmes poses qu'avant. Détail bloc 11. | — | fait |
+| **E₁** | *(historique)* 🟢 **TRANCHÉ (04/09) : on unifie dans `NKAnima`.** Rodolf, contre ma recommandation — et une mesure prise après sa décision lui donne raison : `NkRetargetSkeleton` **n'a aucun consommateur hors du module**, l'unification ne casse donc aucun contrat public. Plan écrit au **bloc 11**, ~½ j, **non exécuté, rien ne bloque**. | — | à faire |
+| **E₀** | 🦴 **Faut-il UNIFIER les deux conventions de pose de repos ?** *(historique)* `NkRetargetSkeleton` (local relatif au parent) contre `NkSkeletonDef` (matrices bind/inverse-bind). Mesure faite : **ce ne sont pas deux versions d'une même chose**. Coûts, apports et recommandation au **bloc 11**. | **toi** | une phrase |
+| **D** | 🦴 **Où vit `NkSkeletonDef`** — la seule vraie décision d'architecture qui reste. Détail et candidat mesuré au **bloc 6**. | **toi** | une phrase |
+
+### ✅ CE QUI EST TRANCHÉ — n'y reviens que si tu changes d'avis
+
+| bloc | question | réponse | date |
+|---|---|---|---|
+| 2 | doublures CPU cloth / hair / softbody | **après la course** (la course n'en utilise aucun) | 02/09 |
+| 3 | `NkSkeleton` pesait 77 064 octets | **fait — 88 octets**, actif partagé façon `USkeleton`, tous les consommateurs verts, banc contre-éprouvé | 02/09 |
+| 4 | `.gitattributes` et les shaders `.nksl` | **fait** — `*.nksl text eol=lf`, normalisation délibérée avec preuve après (commit `58d7e07d`, 14h35) | 02/09 |
+| 7 | les greffons (`NkSharedLib`, frontière C, `xr`/`camera`) | **APRÈS la course** — conception et chiffrage restent en réserve, rien n'est rouvert | 02/09 |
+| 8 | le dossier `Applications/NkAnima` | **option 2** — le document a rejoint la bibliothèque, `Kernel/Runtime/NKAnima/ROADMAP_PRODUIT.md` ; dossier vide retiré, aucune ligne perdue | 02/09 |
+
+📍 **La carte des 7 plateformes est en bas de cette page, section 9.**
+🗺️ **État au 02/09 au soir : 4 cibles vertes sur matériel réel** — Windows,
+Android, Linux, **HarmonyOS (ce soir)**.
+🔴 **Le Web a été RÉFUTÉ sur ta vraie carte** : `PBR` demande **17** unités de
+texture, WebGL2 en accorde **16** — pas de PBR, écran vide. Le vert d'hier venait
+d'un **rendu logiciel**, plus permissif que le matériel. **Section 10** : mesure,
+datation (le shader a franchi la limite le **11/08 à 00h01**), doublure conçue,
+banc spécifié.
+🔒 **macOS et iOS ne sont pas en retard : elles sont BLOQUÉES PAR LA SIGNATURE DE
+CODE.** La CI **construit** les deux, personne ne peut **exécuter** l'artefact.
+Ce n'est pas un correctif moteur, c'est un compte développeur Apple.
+
+> 🔴 **CONSÉQUENCE QUI CHANGE UNE PRIORITÉ — le Web EST le chemin Apple.**
+> Tant que la signature bloque, c'est **par le navigateur** qu'un utilisateur
+> macOS ou iOS verra tourner le moteur.
+> ⚠️ **Et c'est précisément ce chemin-là qui vient d'être réfuté** (section 10).
+> Le défaut `PBR`/16 unités ne bloque donc pas une cible sur sept : il bloque
+> **la seule voie ouverte vers trois d'entre elles**. C'est ce qui en fait le
+> point le plus rentable de tout le dossier.
+
+---
+
+## 1. 🔴 L'IMAGE WEB — **RÉFUTÉE SUR VRAI GPU** le 02/09 au soir
+
+> ### 🔴 LE VERT DE CE BLOC EST TOMBÉ — lis la section 10 avant ce qui suit
+> Sur ta vraie carte : `FRAGMENT shader texture image units count exceeds
+> MAX_TEXTURE_IMAGE_UNITS(16)` → `PBR` ne se lie pas → **écran vide**.
+> Mesure : `pbr.frag.nksl` déclare **27** échantillonneurs, la fusion des cookies
+> en retire **10**, il en reste **17** pour **16** accordées. **Une de trop.**
+> Le shader a franchi la limite le **11/08 à 00h01** et personne ne l'a su
+> pendant 22 jours, parce que le seul web jamais exécuté (SwiftShader) en accorde
+> plus de 16.
+>
+> 📌 **Le texte ci-dessous n'est pas effacé** : la capture était vraie, la chaîne
+> logicielle est bel et bien correcte, et le mode d'emploi reste valable pour le
+> jour où la variante réduite sera là. *On ne corrige pas un journal, on le date.*
+
+> ### 🟡 CE QUI AVAIT ÉTÉ ÉCRIT LE MATIN — vrai en logiciel, réfuté sur matériel
+> **Ce qui a été obtenu depuis que ce bloc a été écrit** :
+> `Captures/plateforme_web_2026-09-02.png` — HUD lu ligne à ligne :
+> `Demo 3D | API : …`, panneau `Shadow tweak` (`VSM atlas 4096 px`),
+> `Draw:1093 Tris:489586`. **La 3D rend dans un navigateur.** Web est la
+> **4ᵉ cible verte**.
+>
+> ⚠️ **La réserve, et elle est réelle** : ce rendu est **LOGICIEL**
+> (SwiftShader, ~9 h pour aboutir), sur le binaire **Debug** post-EGL. Ça prouve
+> que la chaîne complète — contexte, shaders, 22 passes, ombres — est correcte.
+> Ça ne prouve **rien sur les performances**, et ça n'a jamais touché un pilote
+> GPU réel. *Un rendu logiciel valide la logique, pas le matériel.*
+>
+> 👉 **Ce qui t'attend (point A du sommaire)** : les 2 minutes ci-dessous, sur ta
+> carte. Le mode d'emploi qui suit reste **entièrement valable**.
+>
+> 🔴 **ET CE BLOC A CHANGÉ DE POIDS LE MÊME SOIR.** Tu as nommé la cause du
+> blocage Apple — *« ça compile avec GitHub Actions mais je ne peux pas exécuter
+> à cause de la signature, donc il faut que le web fonctionne »*. **Le navigateur
+> est donc le chemin par lequel macOS et iOS verront tourner le moteur.** Ces
+> deux minutes ne confirment plus une case : elles ouvrent **trois plateformes
+> sur sept**. Détail en section 9, points 6 et 7.
+
+La chaîne 3D web est **débloquée et vérifiée** : elle construit (30/30), elle lie,
+elle initialise entièrement, elle exécute 22 passes par image, et il n'y a **plus
+une seule erreur** dans le journal. Ce qui manque n'est pas du code : c'est **un
+vrai GPU**. Je n'ai que SwiftShader (rendu logiciel), trop lent pour aboutir, et
+je ne touche pas à ta carte pendant qu'Ilyana s'entraîne.
+
+> # 🚨 9002. PAS 9001.
+> ### La consigne était déjà écrite plus bas, et elle a raté : tu as testé sur **9001**, donc le **Debug**.
+> On l'a su à tes `[WebDiag]` qui inondaient la console — ils sont **éteints en
+> Release**. Le défaut `PBR` est **indépendant du build** (il aurait rougi
+> pareil), donc **ton verdict tient**. Mais la prochaine mesure ne doit pas se
+> jouer là-dessus : une consigne enterrée sous vingt lignes n'est pas une
+> consigne, c'est une note d'espoir.
+>
+> ```
+> Build\Bin\Release-Web\renderdemo\renderdemo.bat 9002
+> http://localhost:9002/renderdemo.html?demo=2
+> ```
+>
+> **Le témoin qui tranche en une ligne** — la taille du wasm :
+> `curl -s -o NUL -w "%{size_download}\n" http://localhost:9002/renderdemo.wasm`
+> **27 444 289 = Release ✅** · **35 052 605 = Debug ❌ (tu es sur l'ancien serveur)**
+>
+> 📌 *Le piège n'est pas d'oublier le port : c'est que `renderdemo.bat` prend
+> **9001 par défaut**, échoue à réserver le port **sans le dire**, et ouvre quand
+> même ton navigateur — sur le serveur de quelqu'un d'autre. **Un échec muet qui
+> ouvre quand même une fenêtre est pire qu'un échec** : il fabrique un faux
+> témoin qui a l'air juste.*
+
+⚠️ **LIS ÇA D'ABORD — un serveur tourne DÉJÀ sur le port 9001** (PID 30152), et
+il sert l'arbre **Debug** (vérifié : il rend un wasm de 35 052 605 octets, exactement
+le fichier Debug). C'est peut-être le tien, lancé avant de te coucher : **ne le
+tue pas**, ce n'est pas nécessaire. Mais `renderdemo.bat` prend **9001 par
+défaut** — lancé sans argument, il **échouera à réserver le port sans le dire**,
+et ton navigateur s'ouvrira quand même… **sur l'ancien serveur**. Tu croirais
+tester le Release en testant le Debug. D'où le port explicite :
+
+**Ce que tu lances :**
+
+```
+Build\Bin\Release-Web\renderdemo\renderdemo.bat 9002
+```
+
+puis dans ton navigateur :
+
+```
+http://localhost:9002/renderdemo.html?demo=2
+```
+
+**Vérifie en une ligne que c'est bien le Release qui répond** — la taille du wasm
+est le témoin le plus simple :
+
+```
+curl -s -o NUL -w "%{size_download}\n" http://localhost:9002/renderdemo.wasm
+```
+
+| ce que tu lis | ce que ça veut dire |
+|---|---|
+| **27 444 289** | ✅ Release — c'est ce qu'on veut mesurer |
+| 35 052 605 | ❌ Debug — tu es sur l'ancien serveur, change de port |
+
+**Ce que tu dois regarder — pas « une image », ce HUD précisément :**
+
+| ce que tu cherches | ce que ça prouve |
+|---|---|
+| la ligne **`Demo 3D \| API : ...`** en haut à gauche | ✅ la démo 3D tourne vraiment. **C'est LE test.** |
+| le panneau **`== Shadow tweak (panel debug) ==`** à droite | ✅ le sous-système d'ombres est monté (`VSM atlas 4096 px`) |
+| **`FPS approx :`** avec une valeur | ✅ la boucle rend des images |
+| l'image | sphères PBR + **ombres portées** + grille de cubes |
+
+⚠️ **`Draw:` et `Tris:` — deux corrections successives, voici l'état FINAL.**
+J'avais d'abord écrit « non nuls = le test », puis « ne les regarde jamais » :
+les deux étaient faux. La vérité est **datée** : les compteurs ont été branchés
+le **5 août** (commit `7f3ada7b` — « les compteurs de rendu comptent enfin »,
+dans la classe de base du tampon, donc tous backends). Tes captures du 29/07
+affichaient `Draw:0` avec la 3D à 142 FPS parce qu'elles PRÉCÈDENT ce commit.
+**Sur ton build actuel, ils font foi : attends-toi à du non-nul** (le Web
+logiciel affiche `Draw:1093 Tris:489586`). Mais le test PRINCIPAL reste la
+ligne `Demo 3D` + le panneau d'ombres — eux valent sur n'importe quel binaire.
+
+⚠️ **Le vrai signe d'échec, celui d'HarmonyOS** : un fond **uni**, avec
+seulement `Active: R2D|R3D|TEXT|OVERLAY` et **aucune ligne `Demo 3D`**, **aucun
+panneau Shadow tweak**. C'est ça, « le moteur vit, la 3D non ».
+
+Si la ligne `Demo 3D` et le panneau d'ombres sortent avec de la géométrie, **la
+cible Web passe au vert**.
+
+🔵 **Si le résultat te surprend, le contrôle le moins cher est déjà sous ta
+main** : le Debug est servi sur `http://localhost:9001/renderdemo.html?demo=2`,
+il est à jour (reconstruit avec les mêmes correctifs) et seulement **plus lent**.
+Deux builds différents qui donnent la même image confirment le résultat ; deux
+images différentes désignent la configuration, pas le moteur.
+
+---
+
+## 2. ✅ TRANCHÉ (02/09) — les trois doublures CPU : **APRÈS LA COURSE**
+
+> **Réponse : après la course**, comme recommandé plus bas. La course de voitures
+> n'utilise ni tissu, ni cheveux, ni corps mous — ce sont des systèmes de
+> personnage. Conséquence assumée et écrite : **ces 3 systèmes restent absents du
+> Web** jusque-là (WebGL2 n'a pas de compute), et le module n'est donc pas
+> cohérent sur les 7 cibles pendant ce temps. **Rien n'est rouvert.**
+>
+> *Le texte d'origine est conservé ci-dessous : c'est lui qui porte le
+> raisonnement, et il redeviendra la feuille de route le jour où on lancera.*
+
+### La question, telle qu'elle était posée — **quand**, pas **si**
+
+`NkClothSystem`, `NkHairSystem`, `NkSoftBodySystem` sont en **compute GPU**, et
+**WebGL2 n'a pas de compute** (mesuré). Sur une de tes sept cibles, ils ne
+pourront jamais tourner tels quels.
+
+**Le principe est déjà tranché par ta propre règle** — *ce qui ne peut pas se
+faire doit avoir une doublure crédible, jamais un trou*. Donc la question n'est
+pas s'il faut une doublure, mais **quand** :
+
+- **maintenant** — le module est cohérent sur les 7 cibles, mais ça retarde la course ;
+- **après la course** — on avance sur le jeu, et ces 3 systèmes restent absents du Web.
+
+🔵 **Ma recommandation : après la course.** La course de voitures n'utilise aucun
+des trois (tissu, cheveux, corps mous sont du personnage). **Bloqué tant que tu
+n'as pas répondu :** rien — je ne les rouvre pas.
+
+---
+
+## 3. ✅ FAIT (02/09) — `NkSkeleton` : **77 064 → 88 octets**
+
+> **Ce bloc est résolu, et pas par une décision : par une mesure.** Le
+> dimensionnement retenu est celui d'Unreal — un **actif partagé** (`USkeleton`)
+> plus un par-instance dimensionné au réel. `sizeof(NkSkeleton)` passe de
+> **77 064 à 88 octets**. Tous les consommateurs ont été migrés et ré-exécutés
+> **verts**, le banc a été contre-éprouvé, et la pile ne déborde plus.
+>
+> 📌 **Le recensement s'est fait au COMPILATEUR, pas au `grep`** — et c'était
+> nécessaire : `NkAssetIODemo` atteignait le type par un **champ**, sans jamais
+> écrire son nom. Le `grep` l'avait raté.
+>
+> ⚠️ **Ce qui reste ouvert n'est plus la taille, c'est le PLACEMENT** de
+> `NkSkeletonDef` → **bloc 6, point 1** (point D du sommaire).
+>
+> *Chiffres d'origine conservés ci-dessous — ils disent pourquoi c'était urgent.*
+
+### Le constat d'origine — 🔴 `NkSkeleton` pesait **77 064 octets**
+
+Mesuré : `sizeof(NkSkeleton)` = **75 Ko**. `bones[256]` + `skinMatrices[256]` en
+tableaux fixes, pour des squelettes qui en utilisent quelques-uns.
+
+Dans un ECS les composants sont rangés **par valeur**. Donc :
+- **100 personnages = 7,5 Mo** de squelettes ;
+- **75 Ko recopiés** à chaque changement d'archétype ;
+- quatre exemplaires sur la pile **font planter** un programme (c'est comme ça
+  que je l'ai trouvé : mon banc est tombé en dépassement de pile).
+
+🔵 **Ma recommandation : passer les tableaux en allocation dynamique**, ou baisser
+`kMaxBones` à une valeur réaliste (64 ?). **Je n'y touche pas** : c'est ton code,
+d'autres modules le consomment, et c'est une décision d'architecture.
+
+---
+
+## 4. ✅ FAIT (02/09, 14h35) — `.gitattributes` : les `.nksl` sont en LF
+
+> **Réponse : la règle a été ajoutée**, exactement comme recommandé — à un moment
+> choisi, arbre propre, vérification après. Commit `58d7e07d`.
+>
+> ```
+> *.nksl text eol=lf
+> ```
+>
+> **Décision de toi (02/09, déléguée au coordinateur)** : normalisation
+> **délibérée, avec preuve après** — plutôt que de la subir un jour par accident.
+> Le motif est écrit dans le fichier lui-même : les 131 `.nksl` étaient
+> `i/lf w/crlf` sous `text=auto`, et *c'est la seule famille de défauts qui
+> traverse une revue entière par construction — aucun diff ne la montre, la copie
+> de l'auteur est déjà juste.*
+>
+> *Le raisonnement d'origine est gardé ci-dessous : il explique pourquoi on ne
+> déclenche pas ça un jour au hasard.*
+
+### Le constat d'origine — piège rétroactif
+
+Constat : les `.nksl` sont en **CRLF sur le disque**, **LF dans l'index**, et
+`.gitattributes` n'a **aucune règle** pour eux — alors que ce sont des données
+lues **octet pour octet** par le compilateur de shaders.
+
+⚠️ **Pourquoi je ne l'ai pas corrigé** : ajouter une règle de fin de ligne
+**renormalise tout le jeu de fichiers** au prochain checkout. Un dépôt entier de
+shaders réécrit en silence, ce n'est pas quelque chose à déclencher sans toi.
+
+🔵 **Ma recommandation : ajouter `*.nksl text eol=lf`, mais à un moment choisi**,
+avec un arbre propre et une vérification après. Pas maintenant.
+
+---
+
+---
+
+## 5. 🔎 Ton témoignage, et ce que la relecture change — ✅ LINUX VERT, ❔ HARMONYOS OUVERT
+
+> **Ce que ce bloc a produit, au 02/09** :
+> - ✅ **Linux passe au VERT** — capture `Captures/plateforme_linux.png` (29/07,
+>   15h38) **+ ton témoignage du 02/09**. La réserve d'attribution ci-dessous est
+>   levée par ton mot. ⚠️ Reste le **re-test sous WSL** (point C du sommaire) :
+>   le vert porte sur le 29/07, pas sur le build d'aujourd'hui.
+> - ❔ **HarmonyOS reste OUVERT** — c'est le point B du sommaire, et c'est du
+>   travail, pas une décision : reconstruire le `.hap`. Marche à suivre à la fin
+>   de ce bloc, et carte en section 9.
+> - ✅ **Web** : traité au bloc 1 (vert avec réserve).
+
+**Ce que tu as dit** (2026-09-02) : *« sur HarmonyOS et Linux j'ai vu, même sur
+Web »*, puis *« j'ai donc testé la démo `--demo=` ce jour-là, ce qui a fonctionné
+sur toutes les plateformes sauf iOS et macOS »*, et sur le chemin : **« NKRHI,
+NKRenderer »** — donc le bon, celui qui porte Noge. Tu posais toi-même la
+réserve « il faut encore vérifier ». Je l'ai traité comme un indice.
+
+### ✅ LINUX : trace trouvée, et c'est le bon chemin
+
+**`Captures/plateforme_linux.png`**, **29/07 à 15h38** — citée nulle part, elle
+dormait dans le dépôt. Scène 3D complète : `Demo 3D | API : OpenGL`, panneau
+`Shadow tweak` (`VSM atlas 4096 px`), sphères PBR, ombres portées, **81,6 FPS**,
+et `[Phase H] Texture file-based : test_pattern.png LOAD OK`.
+
+⭐ **Jumelle** : `plateforme_windows.png`, **15h34** — même scène, même cadrage,
+**142,1 FPS**. Une comparaison Windows/Linux délibérée, en une session.
+
+⚠️ Rien *dans l'image* ne nomme le système : l'attribution repose sur le nom du
+fichier et l'appariement. **Un mot de toi la ferme.**
+
+### 🔴 HARMONYOS : je m'étais trompé, et voici la date exacte de l'explication
+
+J'avais classé HarmonyOS en échec. **Relecture faite, le verdict était mal
+cadré** — et ce que je citais (`Draw:0 Tris:0`) est le témoin qu'on sait
+maintenant sans valeur.
+
+Relu avec le bon témoin : **aucune ligne `Demo 3D`**, **aucun panneau
+`Shadow tweak`**, **aucun `FPS approx`**. Et `PLATEFORMES_ETAT.md:182` le dit
+lui-même : *« IDENTIQUE au HUD renderdemo (**demo 0 Subsystems**) »*.
+
+> **Cette capture montre la démo 0. Elle n'a jamais exercé la 3D.** Ce n'est pas
+> une preuve que la 3D échoue sur HarmonyOS — c'est une preuve qu'elle n'a pas
+> été testée.
+
+**Et la chronologie explique tout l'écart avec ton souvenir :**
+
+| date | événement |
+|---|---|
+| **29/07 19h09** | la capture HarmonyOS est prise → **démo 0** |
+| **09/08 23h33** | commit `a762bda8` — *« demo 3D par defaut »*, pose `NK_DEFAULT_DEMO=2` |
+
+**La capture précède de onze jours le correctif qui fait démarrer HarmonyOS en
+3D.** Ton souvenir et ma mesure ne se contredisent pas : ils parlent de deux
+binaires différents. **HarmonyOS repasse de ❌ à ❔.**
+
+### 🔴 WEB : même relecture, même conclusion
+
+`PLATEFORMES_ETAT.md:158-162` dit `Execute frame=1 : passes=1` et *« screenshot
+pris **trop tôt**, virtual-time-budget »*. Ma mesure d'aujourd'hui donne **22
+passes par image**. La capture a été prise **à la première image, une seule
+passe** : elle testait la création du contexte, pas le rendu 3D. **Web aussi
+repasse de ❌ à ❔.**
+
+### 🛠️ HarmonyOS : le chemin praticable, pour quand le GPU sera libre
+
+Il n'y a **aucun `.hap` construit** aujourd'hui — il faut le refaire. Bonne
+nouvelle : **tu n'as plus rien à sélectionner**, la démo 3D est figée à la
+compilation depuis le 09/08.
+
+```
+jenga build --target renderdemo --platform HarmonyOS --config Release
+```
+
+puis installe le `.hap` produit sous `Build/Bin/Release-HarmonyOS/renderdemo/`
+sur l'émulateur, et lance.
+
+**Ce que tu dois voir** — et surtout **plus jamais `Draw:`/`Tris:`** :
+
+| ce que tu cherches | verdict |
+|---|---|
+| ligne **`Demo 3D \| API : ...`** + panneau **`Shadow tweak`** | ✅ la 3D tourne |
+| aplat uni + seulement `Active: R2D\|R3D\|TEXT\|OVERLAY`, sans ligne `Demo 3D` | ❌ c'est la démo 0, comme en juillet |
+
+---
+
+---
+
+## 6. 🦴 Le squelette : fait « comme Unreal » — 🟠 LE POINT 1 EST LA DÉCISION QUI RESTE
+
+> 🟠 **C'est le point D du sommaire, et le seul arbitrage d'architecture encore
+> ouvert de toute cette feuille.** Les points 2 et 3 en dépendent : la convention
+> de pose de repos et le doublon de nom ne se tranchent qu'une fois l'étage
+> choisi. **Candidat mesuré : `NKAnima`** — c'est là que vivent déjà le reciblage
+> (`NkAnimRetarget`, 660 l.) et le mélange (`NkBlendTree1D/2D`), et le module est
+> **pur Foundation, sans GPU**, donc il ne tire rien derrière lui.
+> ⚠️ **Le prix, dit d'avance** : Noge ne dépend aujourd'hui **ni** de `NKAnima`
+> **ni** de `NKAnimPhysics` — descendre l'actif **ajoute une dépendance**.
+> 📌 *La bibliothèque s'appelle `NKAnima` depuis le 02/09 (ex-`NKAnimation`),
+> et sa feuille produit est `Kernel/Runtime/NKAnima/ROADMAP_PRODUIT.md`.*
+
+`sizeof(NkSkeleton)` : **77 064 → 88 octets**. Actif partagé + par-instance au
+réel, tous les consommateurs migrés et re-exécutés verts, banc contre-éprouvé.
+Détail : rapport, mesure 9.
+
+Pour qu'il serve « à tout système qui gère les animations squelettiques »
+(tes mots), il reste trois choix — je n'en ai tranché aucun :
+
+1. **L'étage de `NkSkeletonDef`** (l'actif). Candidats : `NKAnima` (le
+   substrat extrait de NKRenderer le 14/08, où vit déjà le reciblage) ou
+   `NKAnimPhysics`. ⚠️ Noge ne dépend d'aucun des deux aujourd'hui : descendre
+   l'actif AJOUTE une dépendance.
+2. **La convention de pose de repos.** Ton `NkRetargetSkeleton` (noyau) stocke
+   du LOCAL relatif au parent ; le squelette Noge stocke des matrices
+   bind/inverse-bind. L'un des deux devra se convertir vers l'autre.
+3. **Un nom.** Il existe maintenant deux `NkBoneDef` — le mien (os de rendu) et
+   celui du ragdoll (corps physique). Espaces de noms distincts, ça compile,
+   mais c'est le motif `NkShaderStage` : lequel renomme-t-on ?
+
+---
+
+## 7. ✅ TRANCHÉ (02/09) — les greffons : **APRÈS LA COURSE**
+
+> **Ta décision : après la course.** Le chantier n'est **pas ouvert** :
+> `NkSharedLib`, la frontière C versionnée, les greffons `xr` et `camera` restent
+> **conçus et chiffrés, en réserve** — rien n'est commencé, rien n'est à défaire.
+> Les 15 sites qui recopient `LoadLibrary`/`dlopen` à la main restent tels quels
+> jusque-là ; c'est un coût connu, pas un oubli.
+>
+> ⚠️ **Ce que cette décision NE remet PAS en cause** : les deux vérités rétablies
+> dans `_DEPS` le même jour (`NKAnima`, `NKCanvas` — exercés sans être déclarés,
+> corrigé, **41/41**) sont **acquises**. Elles ne dépendaient pas des greffons.
+>
+> *Chiffrage et conception conservés ci-dessous — c'est le dossier prêt à
+> rouvrir, tel quel, le jour où tu diras oui.*
+
+Ton audit de consommation est fait (rapport, mesure 10) : 24 modules consommés,
+deux vérités rétablies dans `_DEPS` (`NKAnima`, `NKCanvas` — exercés sans
+être déclarés, corrigé, 41/41), un seul déclaré-inerte réel (`NKAnimPhysics`,
+proposition : l'exercer quand un jeu jouera l'équilibre — PV3DE, pas la course).
+
+**`NKXR` et `NKCamera`, que tu as nommés, ne sont PAS câblés en dur — exprès.**
+Ta piste greffons est la bonne réponse : un jeu de course n'embarque pas
+OpenXR, et chaque « dû » câblé en dur grossit tous les binaires (le wasm fait
+déjà 27 Mo). La conception est écrite (§10.4 du rapport) : `NkSharedLib`
+d'abord (15 sites recopient `LoadLibrary`/`dlopen` à la main aujourd'hui —
+mesuré), frontière **C pur versionnée** (zéro-STL et ABI C++ ne traversent pas
+une DLL), doublure crédible obligatoire, et **un seul système pour la maison**
+(moteur + panneau Greffons de NkUIDesign + `Extensions/` de NkCode).
+
+**Chiffrage : ~1,5 à 2 semaines** pour `NkSharedLib` + la frontière + les deux
+premiers greffons (`xr` avec le simulateur sans casque, `camera`), chacun aux
+trois conditions (corps, appelant, banc qui rougit débranché).
+
+**Ta décision** : lancer ce chantier — maintenant, ou après la course ?
+
+---
+
+## 8. ✅ TRANCHÉ ET FAIT (02/09) — NkAnima : le dossier est rangé, rien n'a été perdu
+
+**Fait (phase 2)** : `NKAnimation` → **`NKAnima`** (casse du noyau, `NK`).
+48 fichiers, 118 occurrences, `git mv` pour que l'historique suive. Deux bonnes
+surprises : l'espace de noms est `nkentseu::anim` (**aucun namespace touché**) et
+le nom `NKAnima` était **libre**. Preuves : Noge 41/41, LocomotionDemo **9/0**,
+AssetIODemo **55/0**, SystemsRevivalTest **34/0**, NkAnimPhysTest 27/27,
+**Nogee 45/45** — les
+comptes sont **identiques à l'avant-renommage**, aucun banc n'a disparu.
+
+🔴 **Ce que je n'ai PAS fait, et pourquoi.** Tu as dit « on ne doit pas avoir
+NkAnima ET NkAnimaEditor ». Mesure faite avant de toucher :
+
+| | `Applications/NkAnima` | `Applications/NkAnimaEditor` |
+|---|---|---|
+| code | **0 ligne** | 1 859 lignes |
+| `.jenga` | **aucun** | ✅ |
+| contenu | **`ROADMAP.md`, 598 lignes** | l'application |
+
+**`Applications/NkAnima` n'est pas une application : c'est un dossier qui porte
+un document** — et `Nkentseu/CLAUDE.md` y renvoie **deux fois** (lignes 65 et 68,
+« à lire au démarrage »). Le supprimer casserait ces deux liens et détruirait
+598 lignes de pilotage. Il n'y a donc pas deux applications à fusionner : il y a
+**une application et un document mal rangé**.
+
+**Ta décision — trois options, aucune ne supprime :**
+1. le document rejoint l'application → `NkAnimaEditor/ROADMAP.md` ;
+2. il rejoint la bibliothèque → `Kernel/Runtime/NKAnima/ROADMAP.md` (il parle
+   surtout de jalons moteur : IK, blend, physique de pose) — **ma préférence** ;
+3. il reste, et `Applications/NkAnima/` est assumé comme dossier de doc.
+
+Dans les cas 1 et 2, les deux liens de `CLAUDE.md` sont à corriger — je le ferai
+dans le même geste.
+
+### ✅ RÉPONSE APPLIQUÉE LE 2026-09-02 — option 2
+
+```
+Applications/NkAnima/ROADMAP.md  ->  Kernel/Runtime/NKAnima/ROADMAP_PRODUIT.md
+```
+
+**`ROADMAP_PRODUIT.md`, et non `ROADMAP.md` : la place était prise.** Le module a
+déjà son `ROADMAP.md` (écrit le 17/08) qui décrit **le module** et renvoie
+explicitement au **parcours produit**. Écraser l'un par l'autre aurait détruit un
+document pour en ranger un autre. Les deux cohabitent, chacun dit en tête ce
+qu'il est.
+
+- `git mv` — l'historique suit, **aucune ligne supprimée** (613 l. intactes) ;
+- **les deux liens de `Nkentseu/CLAUDE.md` (l. 65 et 68) sont corrigés** —
+  ⚠️ ce fichier est **gitignoré**, donc hors commit et non versionné : il a été
+  corrigé à la main, avec une note datée disant que le nouveau chemin n'existe
+  que sur `feat/noge-inventaire` tant que la branche n'est pas fusionnée
+  (l'arbre principal porte encore `NKAnimation` et `Applications/NkAnima`) ;
+- **8 autres renvois suivis** (`Kernel/Runtime/NKAnima/ROADMAP.md` ×6,
+  `Kernel/AI`, `NKGraph`, `NKPhysics`, `NkAnimPhysTest/src/main.cpp:311`,
+  `NKIlyana/ROADMAP.md:884`, `Engine/Noge/ROADMAP.md:1758`) ;
+- **`Applications/NkAnima/` retiré APRÈS vérification** qu'aucun `.jenga` ne le
+  nomme et qu'il n'est pas dans la liste `include(...)` de `Nkentseu.jenga` — le
+  registre des projets est **explicite**, pas un balayage de dossiers ;
+- **les blocs datés qui constatent l'ancien chemin n'ont pas été réécrits**
+  (celui du 23/07 dans le document déplacé, le §12.1 du rapport, cinq carnets
+  hors dépôt). *On ne corrige pas un journal, on le date.*
+
+📌 **Et « on ne doit pas avoir NkAnima ET NkAnimaEditor » est satisfait sans
+supprimer quoi que ce soit** : il n'y avait pas deux applications, il y avait une
+application (`Applications/NkAnimaEditor`) et un document mal rangé.
+
+---
+
+---
+
+---
+
+## 9. 🗺️ LA CARTE DES 7 PLATEFORMES — **4 vertes sur matériel réel**, et ce qu'il faut pour les 3 autres
+
+> 🔄 **Compte révisé le 02/09 au soir, à la baisse.** On a dit « 5 sur 7 » pendant
+> quelques heures : le Web y était compté sur une image obtenue en **rendu
+> logiciel**. Le test sur ta vraie carte l'a **réfuté** — `PBR` ne se lie pas
+> (17 unités de texture demandées, 16 accordées). **Section 10.**
+> Vertes sur matériel réel : **Windows, Android, Linux, HarmonyOS**.
+
+> **Ce qui est mesuré ici, c'est le chemin 3D** (`NKRHI` + `NKRenderer`) — le seul
+> que Noge emprunte. ⚠️ **Le socle 2D (`NKCanvas`) est porté sur les sept** : la
+> fenêtre, le contexte GL, les entrées et le 2D fonctionnent partout. Confondre
+> les deux, c'est ce qui a fait croire pendant des semaines que « tout marchait »
+> **et** que « rien ne marchait » — les deux affirmations étaient vraies, et
+> parlaient d'objets différents.
+>
+> 🔴 **LE TÉMOIN, ET IL EST UNIQUE.** Une cible est verte quand le HUD affiche la
+> ligne **`Demo 3D | API : …`** ET le panneau **`== Shadow tweak ==`**.
+> **`Draw:` / `Tris:` ne servent qu'après le 5 août** (commit `7f3ada7b`, où les
+> compteurs ont été branchés) : toute capture antérieure affiche `Draw:0` même
+> quand la 3D tourne à 142 FPS. *Un témoin invalidé contamine tout ce qu'il a
+> jugé* — c'est lui qui a fait classer HarmonyOS en échec à tort.
+>
+> 📦 **LES PREUVES SONT MAINTENANT DANS LE DÉPÔT — et la règle qui les y garde.**
+> Jusqu'au 02/09, toutes les images citées ici vivaient **hors dépôt**
+> (`/Captures/` était ignoré en bloc) : *un verdict dont la preuve peut
+> disparaître d'un coup de ménage n'est pas un verdict, c'est un souvenir.*
+> Décision de Rodolf, avec sa contrainte — *« retire donc Captures de gitignore,
+> mais je dois limiter le nombre de fichiers lourds »* :
+>
+> > **Une image qui fait foi dans un document est versionnée.
+> > Une image de travail ne l'est pas.**
+>
+> Appliquée en **allowlist nommée** dans `.gitignore` (pas un dossier entier) :
+> **9 fichiers, 2 292 069 octets** — les 5 captures de plateforme, les **2 témoins
+> invalidés** qu'on garde exprès pour pouvoir raconter les deux verdicts qu'ils
+> ont fait tomber, et les 2 captures de `model_loaders/` réellement citées. Les
+> 941 autres images du dossier restent ignorées. Détail, justification par image
+> et **contrôle négatif** : **`Captures/LISEZMOI.md`**.
+
+| # | cible | 3D | preuve | ce qui manque |
+|---|---|---|---|---|
+| 1 | **Windows** | ✅ | backend de référence, `plateforme_windows.png` (29/07, 142,1 FPS) | — |
+| 2 | **Android** | ✅ | `Captures/nk_android_demo3d.png` — 18 sphères PBR, ombres, **59 FPS**, `VSM atlas 4096 px` | — (⚠️ textures **procédurales**, pas file-based) |
+| 3 | **Linux** | ✅ | `Captures/plateforme_linux.png` (29/07, 15h38, **81,6 FPS**, HUD lu) **+ ton témoignage du 02/09** | **re-test sous WSL** — le vert date du 29/07 |
+| 4 | **Web** | 🟠 | **CORRIGÉ, non revérifié.** Le défaut est nommé et traité (17 → 16, section 10) ; il manque **une exécution** sur ta carte pour le confirmer. Au soir du 02/09 il était ROUGE : `PBR` ne se liait pas — `texture image units count exceeds MAX_TEXTURE_IMAGE_UNITS(16)`, écran vide. 🟡 **Vert en LOGICIEL** : `Captures/plateforme_web_2026-09-02.png` reste vraie, prise sous SwiftShader qui accorde **plus de 16** unités | **2 minutes de navigateur** pour confirmer le correctif — ⚠️ sur le port **9002** (Release) |
+| 5 | **HarmonyOS** | ✅ | `Captures/plateforme_harmonyos_2026-09-02.jpeg` — **HUD lu le 02/09 à 19h31** : `Demo 3D \| API : OpenGL`, panneau `Shadow tweak` (`VSM atlas 4096 px`), `FPS approx : 8.3`, 17 sphères PBR + ombres portées | **re-test sur un `.hap` à jour** — l'image vient du binaire du **10/08** |
+| 6 | **macOS** | 🔒 | **ça construit** (CI GitHub, artefact réel le 28/08) — **ça ne s'exécute pas** | 🔒 **la SIGNATURE DE CODE**, pas un correctif moteur |
+| 7 | **iOS** | 🔒 | idem — la CI produit un artefact, personne ne peut le lancer | 🔒 **signature + profil d'approvisionnement**, plus contraignant que macOS |
+
+### Ce qu'il faut, cible par cible — **exactement**
+
+**3. LINUX — re-tester sous WSL** *(point C)*
+Le vert repose sur une capture du **29/07** ; le build d'aujourd'hui n'y a jamais
+tourné, donc **une régression depuis juillet resterait invisible**. Bloqué par la
+machine, pas par le code : `wsl.exe --list --verbose` puis
+`wsl.exe -e bash -lc 'uname -sr'` **n'ont rien rendu en 120 s** pendant cette
+session. *Un WSL qui pend au-delà de deux minutes est un résultat.*
+→ **Toi** : débloquer WSL2. → **Moi** : rebâtir `renderdemo` sous Linux, relancer
+`--demo=2`, comparer le HUD à la capture du 29/07.
+
+**4. WEB — confirmer sur un vrai GPU** *(point A, ~2 min)*
+Tout le reste est fait : 30/30 à la construction, l'édition de liens passe,
+l'initialisation est complète, **22 passes par image**, **zéro erreur** au
+journal, et l'image sort en rendu logiciel. Il manque **une carte**.
+Mode d'emploi complet au **bloc 1** (⚠️ port explicite `9002` : un serveur tourne
+déjà sur `9001` et sert le **Debug** — sans le port, tu croirais tester le
+Release).
+
+**5. HARMONYOS — ✅ VERT LE 2026-09-02 À 19h31** *(point B — fait)*
+
+> # ✅ HARMONYOS REND LA 3D. J'AI OUVERT L'IMAGE ET LU LE HUD.
+>
+> **`Captures/plateforme_harmonyos_2026-09-02.jpeg`** — 2720×1260, prise sur
+> l'émulateur que tu venais de lancer. Ce que le HUD dit, mot pour mot :
+>
+> ```
+> Demo 3D  |  API : OpenGL  |  Affichage(Z): RENDERED  |  Couleur(B): GRIS
+> FPS approx : 8.3  |  dt: 119.90 ms
+> [Phase H] Texture file-based : fallback procedural
+>
+>          == Shadow tweak (panel debug) ==
+>          VSM atlas : 4096 px      quality : 4
+>          softness  : 0.005        slots : 14 (rend 1 | cache 13)
+>          framesInFlight : 3
+> ```
+>
+> | ce que je cherchais | trouvé |
+> |---|---|
+> | ligne **`Demo 3D \| API :`** — *le* test | ✅ `Demo 3D | API : OpenGL` |
+> | panneau **`Shadow tweak`** | ✅ monté, `VSM atlas 4096 px` |
+> | **`FPS approx`** avec une valeur | ✅ `8.3` |
+> | l'image | ✅ **17 sphères PBR**, **ombres portées douces** sous chacune, grille de cubes colorés, deux colonnes projetant leur ombre, grille verte d'instances, gizmo 3D, sol quadrillé |
+>
+> 🚫 **`Draw:1093  Tris:489582  Batches:1093` — non nuls, et ils n'ont PAS jugé.**
+> Ils sont là parce que ce binaire (10/08) est postérieur au câblage des compteurs
+> (05/08), exactement comme prévu. Le verdict tient sur `Demo 3D` + `Shadow tweak`.
+> 📌 **Mais ils offrent un recoupement gratuit, et il est frappant** : le Web
+> logiciel affichait **`Draw:1093 Tris:489586`**, HarmonyOS affiche
+> **`Draw:1093 Tris:489582`**. Deux plateformes, deux backends, **le même nombre
+> de dessins et quatre triangles d'écart**. C'est la même scène qui rend des deux
+> côtés — un recoupement que ni l'une ni l'autre des deux mesures ne pouvait
+> fabriquer seule.
+>
+> ⚠️ **LES BORNES, ET ELLES COMPTENT** :
+> 1. **binaire du 10/08** → l'image prouve « **HarmonyOS rendait la 3D le 10/08** »,
+>    pas « le moteur d'aujourd'hui y rend ». *Même forme que Linux, dont le vert
+>    porte sur le 29/07.* Le re-test sur un `.hap` à jour reste à faire ;
+> 2. **8,3 FPS n'est PAS un verdict de performance** : build **Debug**, sur un
+>    émulateur dont le GL est paravirtualisé (`DGLES`), pendant qu'Ilyana occupe
+>    la carte. Ce chiffre dit « ça tourne », rien de plus ;
+> 3. **textures procédurales**, pas file-based (`[Phase H] fallback procedural`) —
+>    exactement comme Android.
+>
+> 🧰 **Deux pièges d'instrument franchis, notés parce qu'ils reviendront** :
+> - **`hdc list targets` rendait `[Empty]` alors que l'émulateur tournait.** Il
+>   écoutait bien sur `127.0.0.1:5555` (vérifié au `netstat`), mais le serveur
+>   `hdc` ne s'y était pas connecté : il faut **`hdc tconn 127.0.0.1:5555`**
+>   d'abord. *Sans ce contrôle, l'échec d'installation qui aurait suivi se serait
+>   lu comme un échec du binaire* — la cinquième fois de la journée qu'un problème
+>   d'instrument imite un problème de code ;
+> - **`hdc` préfixe le répertoire courant à un chemin absolu Windows**
+>   (`d:\Rihen\Rodolf\D:/Projets/…`) et **Git Bash convertit les chemins distants**
+>   `/data/local/tmp/…` en chemins Windows. Remèdes : se placer dans le dossier du
+>   `.hap` et le nommer nu ; `MSYS_NO_PATHCONV=1` pour `file recv`. Et
+>   `snapshot_display` **refuse `.png`** — le suffixe doit être `.jpeg`.
+>
+> 🟢 **Ilyana n'a jamais été touchée.** Relevés encadrant l'opération : avant
+> **5 206 Mio / 97 %**, pendant **6 887 Mio / 50 %** (l'émulateur a pris ~1,4 Gio),
+> après arrêt de l'application **5 922 Mio**, puis retour à **44-80 %**. Son
+> compteur CPU a continué d'avancer (+1,22 s en 5 s). **J'ai arrêté MON
+> application** (`aa force-stop`) dès la capture obtenue — pas l'émulateur, qui est
+> le tien, et surtout pas l'entraînement.
+>
+> ⚠️ **La capture n'est PAS dans le commit** : `Captures/` est **gitignoré**
+> (`.gitignore:689`), comme l'étaient déjà `plateforme_linux.png` et
+> `plateforme_web_2026-09-02.png`. Toute la base de preuves de cette carte vit
+> hors dépôt. Le fichier est sur le disque, dans `Nkentseu/Captures/`.
+
+**Ce qui était écrit avant l'image — conservé, parce que c'est le raisonnement
+qui a mené à la prendre :**
+
+🔴 **Ce n'est pas un échec, c'est un non-test.** La capture du 29/07 montre la
+démo 0 ; le correctif `a762bda8` — *« demo 3D par defaut »*, `NK_DEFAULT_DEMO=2`
+— date du **09/08 23h33**, **onze jours plus tard**. La capture et ton souvenir
+parlent de **deux binaires différents**.
+
+```
+jenga build --target renderdemo --platform HarmonyOS --config Release
+```
+puis installer le `.hap` produit sous `Build/Bin/Release-HarmonyOS/renderdemo/`
+sur l'émulateur (`C:\ohos\Emulator\…`, port hdc 5555) et lancer. **Tu n'as plus
+rien à sélectionner** : la démo 3D est figée à la compilation depuis le 09/08.
+⚠️ Purger `harmony-build/entry/build` avant repackage, sinon hvigor re-empaquette
+l'ancienne `.so`.
+
+🔵 **Une piste à 5 minutes, trouvée en rangeant — et je la borne.** Un `.hap`
+`renderdemo` **existe déjà** :
+`Nkentseu-nkcode/Build/Bin/Debug-HarmonyOS/renderdemo/renderdemo.hap`, **47 Mo,
+daté du 10/08 20h41** — soit **21 h après** le correctif « démo 3D par défaut »,
+et sur une branche (`feat/nkcode-panneaux`) dont l'historique **contient** ce
+commit (vérifié : `a762bda8` en est bien un ancêtre).
+⚠️ **Ce n'est PAS un verdict sur le moteur d'aujourd'hui** : ce binaire a
+**23 jours de retard** sur les sources — tout le chantier Noge, les correctifs
+Web, `quality`, le squelette lui sont postérieurs. *Un binaire plus vieux que ses
+sources ne juge rien.* Il peut répondre à **une seule** question, gratuitement :
+**la démo 3D démarre-t-elle par défaut sur HarmonyOS ?** Si oui, la
+reconstruction est une formalité ; si non, on sait où chercher avant de payer le
+build.
+
+### 🗣️ TON TÉMOIGNAGE DU 2026-09-02 — *« oui »* — et ce qu'il ferme exactement
+
+**Question posée** : la démo 3D démarre-t-elle par défaut sur HarmonyOS ?
+**Ta réponse** : **oui**. Concordant avec ce que tu disais déjà le matin —
+*« j'ai testé la démo `--demo=` ce jour-là, ça a fonctionné sur toutes les
+plateformes sauf iOS et macOS »*, par le chemin **NKRHI / NKRenderer**.
+
+✅ **Ce que ça ferme : LE CANAL DE SÉLECTION.** C'était la seule inconnue de
+mécanisme, et elle est levée. Le code l'écrit noir sur blanc — `main.cpp:411` :
+*« `NK_DEFAULT_DEMO` : démo de repli quand **AUCUN canal de sélection runtime
+n'existe**. C'est le cas de HarmonyOS NEXT : le sandbox ne monte pas
+`/data/local/tmp` (fichiers `kDemoFiles` invisibles, vérifié sur l'émulateur —
+Permission denied même pour `hdc`, qui n'est pas root), et le NDK public n'expose
+aucune API de paramètre système. »* Face à ça, `RendererSandbox.jenga:300` fige
+`defines(["NK_DEFAULT_DEMO=2"])` dans le filtre HarmonyOS. **Ton « oui » dit que
+ce figeage fait son travail** : on n'a plus à pousser de `nk_demo.txt`, ni à
+générer un `EntryAbility.ets` pour relayer la démo par le Want d'`aa start`.
+
+🔴 **CE QUE ÇA NE FAIT PAS : LA COLONNE NE BOUGE PAS. HarmonyOS reste ❔.**
+Une cible passe au vert sur **une image ouverte et un HUD lu**, jamais sur un
+souvenir — *le tien pas plus que le mien*. C'est cette règle exacte qui a payé
+aujourd'hui : ta capture du 29/07 semblait prouver HarmonyOS, elle montrait la
+démo 0, et **deux verdicts sont tombés** quand on l'a relue avec le bon témoin.
+Ce que ton « oui » change, c'est le **pronostic**, pas la preuve.
+
+> **État à écrire tel quel : témoignage concordant, image manquante.**
+
+📌 **DÉPASSÉ UNE HEURE PLUS TARD — et la règle a tenu jusqu'au bout.** Rodolf a
+lancé l'émulateur ; l'image a été prise, ouverte, son HUD lu. **La colonne bouge
+maintenant, et c'est l'image qui la bouge, pas le témoignage.** Les deux
+concordaient : c'est agréable, ça n'a jamais été une preuve. *Le paragraphe
+ci-dessus reste écrit parce qu'il dit pourquoi on est allé chercher l'image au
+lieu de se contenter d'un « oui ».*
+
+⚠️ **Et même l'image, quand elle viendra de ce `.hap`-là, sera bornée** : elle
+prouverait « **HarmonyOS rendait la 3D le 10/08** », pas « le moteur d'aujourd'hui
+y rend ». Exactement le statut de Linux, dont le vert porte sur le **29/07**.
+
+### 🕐 ⛔ POURQUOI JE NE PRENAIS PAS LA CAPTURE — *levé à 19h20, Rodolf a lancé l'émulateur*
+
+> **Ce blocage est résolu** : Rodolf a lancé l'émulateur lui-même, la capture a
+> été prise dans la foulée (résultat en tête de ce bloc). Le texte reste parce
+> qu'il documente la règle de priorité, qui, elle, ne change pas.
+
+**Aucun appareil connecté** : `hdc list targets` rend **`[Empty]`** — l'émulateur
+n'est pas lancé, il faudrait le démarrer.
+⚠️ **Et ce même `[Empty]` s'est reproduit APRÈS le lancement** : l'émulateur
+écoutait, mais `hdc` n'y était pas connecté. Le remède est `hdc tconn
+127.0.0.1:5555` — voir les pièges d'instrument en tête de bloc.
+
+**Et c'est là que ça bloque, en une ligne : le démarrer prendrait le GPU
+d'Ilyana.** Mesure du moment : **RTX 3070 Laptop, utilisation 100 %,
+5 206 / 8 192 Mio occupés** (`NKIlyana`, PID 19692, en entraînement depuis le
+01/09 18h08). L'émulateur HarmonyOS NEXT est un système complet avec accélération
+graphique matérielle — il entrerait en concurrence directe sur une carte déjà
+saturée, avec moins de 3 Gio libres, et il ouvrirait sa fenêtre sur ta session.
+**Ilyana est prioritaire : on ne l'arrête pas, on ne lui dispute pas sa carte.**
+
+📌 *Ce n'est pas un obstacle technique, c'est un ordre de priorité.* La capture
+elle-même serait légitime — `hdc shell snapshot_display` photographie l'écran de
+**l'émulateur**, jamais le tien.
+
+**La séquence — ✅ CELLE-CI A MARCHÉ, corrigée des trois pièges rencontrés.**
+À réutiliser telle quelle pour le re-test sur un `.hap` à jour (~10 min) :
+
+```sh
+export PATH="$PATH:/c/ohos/Emulator/HarmonyOS-NEXT-miku404/sdk/HarmonyOS-NEXT-DB1/openharmony/toolchains"
+export MSYS_NO_PATHCONV=1          # sinon Git Bash traduit /data/local/tmp en chemin Windows
+
+hdc tconn 127.0.0.1:5555           # ⚠️ INDISPENSABLE : sans ça, list targets rend [Empty]
+hdc list targets                   # doit afficher 127.0.0.1:5555
+
+cd .../Debug-HarmonyOS/renderdemo  # ⚠️ hdc préfixe le cwd à un chemin absolu Windows
+hdc -t 127.0.0.1:5555 install renderdemo.hap
+
+hdc -t 127.0.0.1:5555 shell "aa start -a EntryAbility -b com.nkentseu.sandbox.render.demo -m entry"
+hdc -t 127.0.0.1:5555 shell "hilog -P <pid>"        # le journal dit pourquoi s'il n'y a pas d'image
+hdc -t 127.0.0.1:5555 shell "snapshot_display -f /data/local/tmp/harmony_3d.jpeg"   # ⚠️ .jpeg, pas .png
+hdc -t 127.0.0.1:5555 file recv /data/local/tmp/harmony_3d.jpeg plateforme_harmonyos_<date>.jpeg
+
+hdc -t 127.0.0.1:5555 shell "aa force-stop com.nkentseu.sandbox.render.demo"   # rendre la carte
+```
+
+📌 **Le journal, relevé pendant l'exécution, confirme l'image sans la remplacer** :
+`eglSwapBuffers` toutes les ~1 s avec **53 000 à 80 000 appels GL par lot**. Une
+charge pareille n'est pas celle d'un écran vide — mais c'est un **indice**, et
+c'est le HUD qui a tranché.
+
+**Ce que je lirai dans l'image — et rien d'autre** : la ligne
+**`Demo 3D | API : …`**, le panneau **`== Shadow tweak ==`**, un **`FPS approx`**
+avec une valeur. 🚫 **Pas `Draw:` / `Tris:`** — ce binaire est du 10/08, donc
+postérieur au câblage des compteurs du 05/08 : ils seront probablement non nuls,
+**et ça ne prouvera rien**. L'échec, lui, a une signature nette : un aplat uni
+avec seulement `Active: R2D|R3D|TEXT|OVERLAY` et **aucune** ligne `Demo 3D`.
+
+✅ **Ce critère a été écrit AVANT de regarder l'image, et appliqué tel quel.**
+Les trois marqueurs étaient là ; `Draw:`/`Tris:` étaient non nuls comme annoncé
+et n'ont pas servi. *Un critère de verdict posé avant la mesure est le seul qui
+ne s'ajuste pas au résultat.*
+
+**6 et 7. macOS et iOS — 🔒 BLOQUÉES PAR LA SIGNATURE, pas par le moteur**
+
+> 🗣️ **Rodolf, 2026-09-02** : *« pour macOS et iOS je ne peux pas tester pour
+> l'instant, car ça compile avec GitHub Actions mais je ne peux pas exécuter à
+> cause de la signature — donc il faut que le web fonctionne. »*
+
+📌 **La cause est nommée, et ça change la nature de la case.** Ces deux cibles ne
+sont pas « sans trace faute d'avoir essayé » : **elles construisent**, l'artefact
+existe, et **c'est l'exécution qui est interdite**. macOS refuse de lancer un
+binaire non signé et non notarisé (Gatekeeper) ; iOS n'installe rien sans
+signature **et** profil d'approvisionnement. *Un blocage administratif ressemble
+à un trou technique sur un tableau — il ne se répare pas du tout pareil.*
+
+**Ce qu'il faudrait exactement, pour que le coût soit déjà chiffré le jour où tu
+voudras débloquer :**
+
+| | macOS | iOS |
+|---|---|---|
+| **compte** | Apple Developer Program — **99 $/an** | le même compte, obligatoire |
+| **identité** | certificat *Developer ID Application* | certificat *Apple Development* / *Distribution* |
+| **en plus** | **notarisation** (envoi à Apple, puis agrafage) pour lancer hors du Mac de compilation | **profil d'approvisionnement** listant l'UDID de chaque appareil |
+| **matériel pour exécuter** | un Mac | un iPhone/iPad, **ou** le simulateur (qui, lui, ne demande pas de signature) |
+| **contourne la signature ?** | oui, localement : `xattr -d com.apple.quarantine`, ou lancer sur le Mac qui a compilé | **non** sur appareil réel — seul le **simulateur** échappe à la contrainte |
+
+🔵 **Les deux chemins les moins chers, dans l'ordre, si tu veux ouvrir Apple** :
+1. **le simulateur iOS** — il exécute sans signature. Il faut un Mac (le runner CI
+   en est un, mais il rend un artefact, il ne rend pas d'écran) ;
+2. **un Mac emprunté une heure**, pour lancer l'artefact macOS déjà produit avec
+   `xattr -d com.apple.quarantine`. Pas de compte, pas de notarisation, juste une
+   image à regarder.
+
+*Aucun des deux ne demande les 99 $ — ils demandent un Mac. Le compte ne devient
+obligatoire que pour **distribuer**, pas pour voir tourner.*
+
+**Et ce qui est déjà là, côté construction** — ça a tourné :
+- `.github/workflows/build-remote.yml` construit **n'importe quelle cible** sur
+  macOS ou iOS via un runner GitHub (`macos-latest`), en une commande :
+  `gh workflow run build-remote.yml -f target=renderdemo -f platform=macos` ;
+- il a **produit des artefacts réels le 28/08** :
+  `Build/Artefacts-CI/GemCrush-macOS/GemCrush-macOS.tar.gz` (1,7 Mo) et
+  `GemCrush-iOS/GemCrush-iOS.tar.gz` (1,3 Mo).
+
+⚠️ **Ce que ça donne, et ce que ça ne donne pas.** GemCrush est un jeu **2D** :
+il prouve la chaîne de build Apple, **pas** le chemin 3D. Et **la CI construit,
+elle n'exécute pas** — l'artefact macOS demande un Mac pour tourner, l'iOS un
+appareil ou un simulateur. Enfin, le backend **Metal « compile », il n'est pas
+validé** (le wiki le documente en *intention*), et **NkSL n'a pas encore Metal**.
+
+**L'ordre le moins cher, si tu veux ouvrir Apple** : (a) lancer le workflow sur
+`renderdemo`/macos — ça coûte une commande et ça dit tout de suite si ça
+**construit et lie** ; (b) seulement ensuite, trouver de quoi l'exécuter (Mac
+emprunté, ou simulateur iOS).
+🚫 **Rien de tout ça n'a été lancé** : c'est hors du mandat de rangement. C'est
+une carte, pas un travail commencé.
+
+### 🔴 CE QUE LE BLOCAGE APPLE CHANGE POUR LE WEB — une priorité, pas une remarque
+
+Rodolf le dit lui-même en une clause : *« …donc il faut que le web fonctionne. »*
+
+**Tant que la signature bloque, le navigateur EST le chemin Apple.** Un
+utilisateur macOS ou iOS ne verra pas tourner Noge par un binaire natif — il le
+verra par le Web. Ce qui reclasse le **point A** :
+
+| avant | après |
+|---|---|
+| « confirmer la 7ᵉ case, 2 minutes » | **la seule voie ouverte vers 2 plateformes sur 7** |
+
+⚠️ **Et ça déplace aussi une réserve déjà écrite.** Le vert Web est en rendu
+**logiciel** ; les trois doublures CPU (cloth/hair/softbody) sont **absentes du
+Web** parce que WebGL2 n'a pas de compute (bloc 2, classé « après la course »).
+Cette décision reste bonne pour la course — mais **si le Web devient la vitrine
+Apple, ces absences ne concernent plus une cible sur sept : elles concernent
+trois**. Ce n'est pas une raison de rouvrir le bloc 2 maintenant ; c'est une
+raison de le **relire le jour où Apple comptera**.
+
+---
+
+## 10. 🔴 LE DÉFAUT WEB SUR VRAI GPU — `PBR` demande **17** unités de texture, la cible en donne **16**
+
+> 🗣️ **Ton verdict, 2026-09-02 au soir**, sur ta vraie carte :
+> ```
+> [NkRHI_GL][WebDiag] link FAIL:
+> FRAGMENT shader texture image units count exceeds MAX_TEXTURE_IMAGE_UNITS(16)
+> [NkShader] CreateShader fail 'PBR' (glslang : V:1 F:1)
+> ```
+> Pas de PBR → pas de sphères → **écran vide**. Le Web n'est **pas** vert.
+
+### 🔑 Ce que ça fait à la capture d'hier — réinterprétée, pas annulée
+
+`Captures/plateforme_web_2026-09-02.png` **était vraie**. Elle a été prise sous
+**SwiftShader**, qui annonce **plus de 16** unités. Elle montrait donc une chaîne
+3D correcte… dans un environnement **plus permissif que le matériel**.
+
+> 🔴 **LA LEÇON, ET ELLE VAUT BIEN AU-DELÀ DU WEB :**
+> **un rendu logiciel valide la LOGIQUE et masque les LIMITES MATÉRIELLES** —
+> unités de texture, tailles d'uniformes, formats, extensions, précisions. Un
+> vert obtenu en logiciel ne se note donc jamais « ça marche », mais
+> **« logique validée, matériel non éprouvé »**.
+>
+> C'est la famille du jour, encore : *le témoin ne varie pas comme le sujet.* Le
+> logiciel est un juge **plus généreux** que le réel — et un juge généreux ne dit
+> rien quand on franchit une limite.
+
+⚠️ **Et le coût n'est plus d'une cible.** macOS et iOS étant bloquées par la
+signature, **le navigateur est le chemin Apple**. Ce défaut ne coûte donc pas une
+plateforme : **il en coûte trois sur sept.**
+
+### 📏 LA MESURE — le compte exact, et il tombe à UN près
+
+`Resources/NKRenderer/Shaders/PBR/NkSL/pbr.frag.nksl` déclare **27
+échantillonneurs** dans l'étage fragment :
+
+| famille | n | noms |
+|---|---:|---|
+| matériau | **5** | `tAlbedo` `tNormal` `tORM` `tEmissive` `tHeight` |
+| IBL | **3** | `tEnvIrradiance` `tEnvPrefilter` `tBRDFLUT` |
+| ciel / AO volumétrique | **2** | `tSkyEnvCube` `tVoxelOpacity` |
+| ombres | **2** | `tShadowAtlas` `tShadowAtlasRaw` |
+| cookies 2D | **8** | `tLight3DCookie0..7` |
+| cookies cube | **4** | `tLight3DCubeCookie0..3` |
+| divers | **3** | `tMatcap` `tLTC1` `tLTC2` |
+| **total** | **27** | |
+
+**Une doublure existe déjà** — `NkWebMergeCookieSamplers`
+(`NkOpenglDevice.cpp:2013`) : elle **supprime les déclarations** des cookies
+`1..7` et cube `1..3`, et redirige leurs usages vers le slot 0. Elle en retire
+**10**.
+
+```
+27 déclarés  −  10 fusionnés  =  17 actifs        la cible en donne 16
+                                                  →  il en manque UNE
+```
+
+🔴 **Le commentaire du code annonce « 24 → 14 ». Il avait raison le jour où il a
+été écrit.** L'inventaire qu'il énumère compte 24 samplers — il **ne connaît pas**
+`tHeight`, `tLTC1`, `tLTC2`. Datation au `git log -S` :
+
+| date | événement | total | après fusion |
+|---|---|---:|---:|
+| **31/07** | la fusion est écrite (`22b030b6`) | 24 | **14** ✅ |
+| **10/08 22h53** | `tHeight` — parallax occlusion (`b45aba13`) | 25 | 15 ✅ |
+| **11/08 00h01** | `tLTC1` + `tLTC2` — tables LTC (`8e72961a`) | **27** | **17** 🔴 |
+
+> **Le shader a franchi la limite le 11 août à 00h01, et personne ne l'a su
+> pendant 22 jours** — parce que le seul environnement web jamais exécuté
+> (SwiftShader) en accorde plus de 16. *Un budget calculé une fois, dans un
+> commentaire, n'est pas un budget : c'est le souvenir d'un budget.* Rien ne le
+> recalculait quand le shader grossissait.
+
+✅ **Contrôle d'étendue — `PBR` est le SEUL au-dessus de 16.** Relevé sur les 25
+étages fragment du dépôt : Terrain 9, Water 6, CarPaint 6, Skin 5, Glass 5,
+SSR 4, tout le reste ≤ 3. **Le défaut est localisé, pas systémique** — bonne
+nouvelle pour le coût du correctif.
+
+### 📌 L'IRONIE UTILE — le moteur ne connaît pas sa propre limite
+
+Sur ce même chemin, `QueryCaps` rendait **« caps non disponibles »**
+(`NkDeviceFactory.cpp:132`). Mais le vrai problème est un cran plus bas, et il se
+mesure :
+
+> **`NkDeviceCaps` porte 16 champs `max*` — et AUCUN ne dit combien d'unités de
+> texture l'étage fragment peut adresser.**
+> Il connaît `maxTextureDim2D`, `maxTextureArrayLayers`, `maxColorAttachments`,
+> `maxVertexAttributes`, `maxSamplerAnisotropy`… **la seule limite qui a cassé la
+> cible est la seule qu'il ne porte pas.**
+
+**Donc le moteur ne peut pas s'y adapter, même s'il le voulait** — et c'est
+exactement ce que la règle gravée exige : *le jeu déclare une intention, le
+moteur décide.* Ici, le moteur **n'a pas la donnée pour décider**. Il ne peut que
+subir, en silence, jusqu'au `glLinkProgram`.
+
+*Parente de « ne pas poser la question vaut mieux que traiter l'erreur », prise à
+l'envers : on ne pose pas la question ET on ne traite pas l'erreur — on découvre
+la limite en la franchissant, chez toi, dans ta console.*
+
+### 🛠️ LA DOUBLURE — conçue, **non codée** (trop grosse pour un lot de rangement)
+
+**Le principe, non négociable** : *ce qui ne peut pas se faire doit avoir une
+doublure crédible, jamais un trou.* Une cible à 16 unités doit obtenir une
+**variante réduite de PBR**, choisie **par le moteur**.
+
+🚫 **Aucun `#ifdef WEB` dans le shader.** Ce serait la plateforme qui remonte
+dans le contenu — l'inverse exact de la règle. Le shader ne sait jamais où il
+tourne ; il connaît un **budget**, que le moteur lui donne.
+
+**Étape 0 — ✅ FAITE le 02/09 : la limite est désormais CONNAISSABLE**
+Ajouter `maxFragmentTextureUnits` à `NkDeviceCaps`, renseigné par chaque backend
+(`glGetIntegerv(GL_MAX_TEXTURE_IMAGE_UNITS)` côté GL). ⚠️ **Avec la garde déjà
+gravée** : `glGetIntegerv` **n'écrit rien** quand il échoue — valeur de repli
+**décidée** (16, le minimum garanti par WebGL2), jamais un zéro par défaut, et
+jamais la valeur de la variable voisine.
+
+> ✅ **FAIT et compilé (NKRHI 16/16)** : `maxFragmentTextureUnits = 16` ajouté à
+> `NkDeviceCaps` (`NkIDevice.h`), renseigné par
+> `NkGLQueryCap(GL_MAX_TEXTURE_IMAGE_UNITS)` dans `NkOpenglDevice::QueryCaps`.
+> **Le défaut de 16 n'est pas un zéro par défaut, c'est une valeur décidée** : si
+> la requête échoue, `NkGLQueryCap` n'écrit rien et le champ garde **la valeur la
+> plus contraignante**, jamais la plus optimiste — et jamais la valeur de la
+> variable voisine `v`, qui est exactement le défaut des « sept capacités fausses
+> et plausibles » corrigé plus bas dans le même fichier.
+> 📌 *La structure portait 16 limites et aucune n'était celle-ci. C'est
+> maintenant 17, et le moteur peut enfin poser la question avant de choisir sa
+> variante.*
+
+**Étape 1 — un palier « unités de texture » dans `NkRenderQuality`**
+Le profil porte le budget ; `ForTarget()` le renseigne depuis les caps. Le
+matériau demande des canaux, le moteur en accorde autant que le budget permet.
+
+**Étape 2 — la variante réduite. 🔴 RÈGLE : FUSIONNER AVANT D'ÉTEINDRE.**
+
+> 🗣️ **Rodolf, 02/09** : *« s'il y avait possibilité de fusionner certaines
+> textures, ça devrait être vraiment bien pour éviter de perdre en qualité. »*
+
+**Les six unités récupérables ne sont pas de même nature, et c'est tout le
+sujet** — quatre ne coûtent rien, deux coûtent une perte visible :
+
+| nature | ce que ça fait | perte |
+|---|---|---|
+| **FUSION** (4 unités) | la donnée est **toujours là**, simplement rangée autrement — deux vues d'une même texture, deux LUT dans un atlas, un cube réutilisé | **aucune, ou négligeable** |
+| **EXTINCTION** (2 unités) | la donnée **disparaît**, remplacée par un repli | **visible** |
+
+> **L'ordre d'application est une RÈGLE, pas une préférence : on épuise la
+> fusion avant de toucher à l'extinction.**
+
+✅ **ET LA FUSION SUFFIT. On n'éteint RIEN.** Compte mesuré :
+
+```
+27 déclarés − 10 (fusion des cookies) − 4 (les quatre fusions) = 13  ≤ 16 ✅
+```
+
+**13 sur 16, zéro extinction, 3 unités de marge.** Les deux extinctions
+(`tVoxelOpacity`, `tMatcap`) **restent en réserve, non appliquées** — elles ne
+serviront que si une cible future descend sous 13.
+
+📌 **Et c'est mieux que la marge de 11 que je visais.** *13 sans extinction vaut
+mieux que 11 avec* : la perte est visible, la marge ne l'est pas. On ne paie pas
+en qualité une sécurité qu'on peut obtenir en rangement.
+
+### 🔬 ÉTAPE 2 — LA MESURE A CORRIGÉ MA CONCEPTION : un seul sampler suffit
+
+⚠️ **J'avais conçu quatre fusions avant d'aller lire le shader. En le lisant,
+deux d'entre elles se sont révélées inutiles ou fausses.** Ce que la lecture
+donne, sampler par sampler :
+
+| candidat | ce que la lecture montre | verdict |
+|---|---|---|
+| **`tShadowAtlasRaw`** | **1 seul usage**, dans la recherche de bloqueurs **PCSS** (`NkShadowAtlas.glsli:228`). Or `ApplyQuality()` met `pcss = false` en `NK_MOBILE` et `NK_LOW` — et `ForTarget()` donne `NK_MOBILE` au Web. **Sur la cible contrainte, ce sampler est déjà dans une branche morte.** | ✅ **GRATUIT** — rien à fusionner, rien à éteindre : la fonctionnalité est déjà désactivée par le palier de qualité |
+| `tVoxelOpacity` | 🔴 **je l'avais classé « jamais échantillonné » — c'était FAUX.** Le `grep` sur `pbr.frag.nksl` ne montrait que sa déclaration ; il est échantillonné dans `Include/NkVoxelAO.glsli:57`, inclus ligne 168. | ❌ **pas libre** — l'éteindre reste une extinction, à garder en réserve |
+| `tEnvIrradiance` + `tEnvPrefilter` | fusion réelle, change l'éclairage indirect | ⏳ **demande une capture A/B** |
+| `tLTC1` + `tLTC2` | atlas 2D — le repliage des UV touche 5 sites | ⏳ **la plus coûteuse des quatre**, comme pressenti |
+| `tSkyEnvCube` | réutiliser le cube IBL change le reflet miroir | ⏳ **demande une capture A/B** |
+
+> 🔑 **`17 − 1 = 16 ≤ 16`. Le seul retrait gratuit suffit à faire tenir la
+> cible** — sans fusionner quoi que ce soit, sans rien éteindre, sans toucher à
+> l'éclairage. Marge : **0**.
+>
+> 📌 **Et c'est la leçon de méthode du lot** : *j'ai conçu quatre fusions avant
+> de lire le shader ; la lecture en a rendu deux inutiles et une fausse.* La
+> conception sur inventaire de noms est plus rapide que la lecture — et c'est
+> exactement pour ça qu'elle se trompe.
+
+**Ce qui reste à décider, et c'est à toi** : 16/16 tient, mais **sans marge** —
+et c'est précisément l'état qui a produit le défaut du 11 août. Deux voies :
+
+| | ce qu'on fait | résultat | prix |
+|---|---|---|---|
+| **a** | le retrait gratuit **seul** | **16/16**, marge 0 | aucun — livrable sans capture |
+| **b** | + les fusions IBL et sky | **14/16**, marge 2 | 2 captures A/B, GPU requis |
+
+🔵 **Ma recommandation : (a) maintenant, (b) quand le GPU sera libre.** *16 livré
+sans risque vaut mieux que 14 promis* — et le banc, lui, est déjà là pour dire le
+jour où le shader repassera au-dessus.
+
+⛔ **Pourquoi je n'ai pas codé (a) ce soir, et c'est un blocage nommé** : le
+retrait doit être **conditionnel au budget mesuré**, jamais inconditionnel — le
+bureau garde ses 17 samplers et son PCSS. Or **NkSL n'a aucune injection de
+`#define`** : `NkSLCompileOptions` (`NkSLTypes.h:419`) porte versions, modèles de
+shader et drapeaux — **aucune macro**. Les deux mécanismes possibles :
+1. **ajouter l'injection de macros à `NkSLCompileOptions`** — propre, réutilisable,
+   mais c'est une évolution du langage, pas un correctif ;
+2. **étendre la transformation de source qui existe déjà** —
+   `NkWebGL2AdaptGLSL`/`NkWebMergeCookieSamplers` (`NkOpenglDevice.cpp:2013`)
+   réécrit déjà la source pour la cible contrainte. Le retrait de
+   `tShadowAtlasRaw` y tiendrait en quelques lignes, **juste à côté de la fusion
+   des cookies qui est exactement la même famille**.
+
+🔵 **La (2) est la bonne** — la porte de la maison le dit : *avant d'écrire un
+mécanisme, chercher qui le porte déjà*. Le mécanisme existe, il est éprouvé, et
+il est déjà branché sur ce chemin exact. ⚠️ Mais il est aujourd'hui piloté par
+`#if defined(NKENTSEU_PLATFORM_EMSCRIPTEN)` — **un test de plateforme**. Le
+brancher sur `fragmentTextureUnits` (posé à l'étape 1) le rendrait piloté par la
+**limite mesurée**, ce qui est la règle. *Ce n'est plus un correctif Web : c'est
+la suppression d'un `si (web)`.*
+
+**Chiffrage : une demi-journée** pour (a) par la voie (2), banc à l'appui.
+
+**Le détail — quatre fusions, aucune perte notable :**
+
+| # | sacrifice | gain | coût visuel |
+|---|---|---:|---|
+| 1 | **`tShadowAtlasRaw` fusionné** avec `tShadowAtlas` (même texture, deux vues) | **1** | nul si le PCF passe par la vue *compare* |
+| 2 | **IBL fusionnée** : `tEnvIrradiance` + `tEnvPrefilter` → un seul cube, irradiance au mip le plus haut | **1** | faible — c'est l'approximation classique |
+| 3 | **`tLTC1`+`tLTC2` → un atlas 2D** (deux LUT 64×64, elles tiennent côte à côte) | **1** | nul |
+| 4 | **`tSkyEnvCube` réutilise le cube IBL** quand le ciel est la source | **1** | nul dans la démo |
+| | **total par FUSION** | **4** | 27 − 10 − 4 = **13 ≤ 16** ✅ |
+| — | 🗄️ **RÉSERVE DISPONIBLE, non appliquée** : `tVoxelOpacity` et `tMatcap` éteints (repli : AO analytique, matcap neutre) | *2* | *visible. **Ce n'est pas un renoncement** : c'est deux unités qu'on sait où prendre, le jour où une cible descendrait sous le budget actuel. On ne les dépense pas parce qu'on n'en a pas besoin.* |
+
+📌 **Marge : 3 unités, pas 0.** *Un correctif qui atteint pile la limite recasse
+au prochain sampler ajouté* — c'est littéralement ce qui s'est produit le
+11 août. Et désormais le **banc** (ci-dessous) le dira le jour même.
+
+### 🟢 FEU VERT DE RODOLF (02/09), aux conditions posées
+
+1. **le bureau garde ses 17 échantillonneurs** — la variante réduite ne concerne
+   qu'une cible à 16 unités ;
+2. **la sélection appartient au moteur** — aucun `#ifdef` dans le shader ;
+3. **fusionner avant d'éteindre** — et la fusion suffit, donc rien ne s'éteint.
+
+⚠️ **Deux garanties à prouver, pas seulement à annoncer :**
+- **le bureau ne bouge pas d'un pixel.** Preuve : paire de captures Windows
+  avant/après, plus le témoin de flux. *Un correctif « pour le Web » qui déplace
+  un pixel sur le bureau est une régression déguisée en amélioration.*
+- **le banc de budget existe AVANT la variante** — fait, voir ci-dessous.
+
+**Chiffrage restant : ~1,5 à 2 jours** (étape 1 : une journée ; étape 2 : les
+quatre fusions + une capture A/B chacune).
+
+### ✅ (a) LIVRÉ — 17 → 16, et **ce n'est pas un correctif Web, c'est la suppression d'un `si (web)`**
+
+**Le code** : `NkTrimShadowRawSampler` + `NkCountDeclaredSamplers`, dans
+`NkOpenglDevice.cpp`, **volontairement HORS de toute garde de plateforme** — et
+sans aucun des helpers `NkWeb*`, qui vivent, eux, sous la garde. *Une fonction
+pilotée par une capacité ne doit pas dépendre d'un `#if` de cible, sinon elle
+redevient un `si (web)` par la porte de derrière.*
+
+**Le déclencheur ne nomme personne** :
+
+```cpp
+if (glStage == GL_FRAGMENT_SHADER && mCaps.maxFragmentTextureUnits > 0 &&
+    NkCountDeclaredSamplers(src) > mCaps.maxFragmentTextureUnits) { … }
+```
+
+> Il compare **ce que le shader demande** à **ce que le pilote accorde**. Pas de
+> plateforme, pas de preset, pas de constante 17 codée en dur dans NKRHI —
+> *NKRHI n'a pas à connaître ses shaders.* Il se déclenchera tout seul sur
+> n'importe quelle cible étroite, WebGL2 aujourd'hui, un GL ES pauvre demain,
+> **sans que personne ne l'ait nommée**.
+
+**Le repli est une dégradation, pas un trou** : le test `mode == 4` est
+neutralisé, le flot tombe sur le **PCF 3×3** de fin de fonction, qui n'utilise
+que le sampler comparatif. L'ombre devient plus douce, elle ne disparaît pas.
+
+**Et le bureau ne bouge pas d'un pixel — par construction, pas par comparaison.**
+La transformation travaille sur une **copie** ; sur bureau la condition est
+fausse (32 accordées pour 17 demandées), `src` n'est jamais touché. *Une
+non-régression prouvée par la structure vaut mieux qu'une non-régression prouvée
+par deux captures qu'il faut savoir comparer.*
+
+**Mesure — le banc, avant et après :**
+
+```
+$ python Tools/verif_budget_samplers.py --cible web
+🔴 pbr.frag.nksl : 17 pour 16 — 1 de trop.                      sortie 1
+
+$ python Tools/verif_budget_samplers.py --cible web --apres-trim --controle
+Retrait pilote par le budget applique : tShadowAtlasRaw retire
+(PCSS -> repli PCF 3x3 ; branche deja morte a NK_MOBILE)
+✅ (a) compteur sensible : les 185 etages gagnent exactement 1.
+✅ (b) frontiere juste : 16 = vert, 17 = ROUGE.
+Aucun depassement — 185 etages mesures, budget 16.              sortie 0
+```
+
+**Constructions** : NKRHI **16/16**, NKRenderer **24/24**, **Noge 41/41** — le
+même compte que la ligne de base prise avant d'ouvrir le lot.
+
+⚠️ **CE QUE CETTE PREUVE NE COUVRE PAS, ET JE LE BORNE.** Le mode `--apres-trim`
+du banc **réimplémente la règle en Python** ; il ne teste pas le C++. C'est
+délibéré — *le juge doit venir d'ailleurs que le jugé* — mais il faut le dire
+net : **la règle et son arithmétique sont prouvées (17 → 16), le code C++ est
+compilé et non exécuté.** Sa vérification tient en une ligne, le jour où le Web
+tournera : le journal doit afficher
+`[NkRHI_GL] budget d'unites de texture : 17 demandees pour 16 accordees ->
+PCSS retire (repli PCF 3x3), 16 restantes`.
+
+### 🔴 MARGE ZÉRO — à dire fort, parce que c'est l'état qui a explosé le 11 août
+
+**16 sur 16. Il n'y a plus une seule unité libre.** C'est *exactement* la
+configuration qui a produit ce défaut : un budget atteint pile, qu'un seul
+sampler ajouté fait basculer — et qui l'a fait basculer le 11/08 à 00h01, sans
+que personne ne le voie pendant 22 jours.
+
+**Ce qui change, et c'est la seule chose qui change** : le banc existe
+maintenant. Le prochain sampler ajouté à `PBR` **rougira le jour même**, pas
+22 jours plus tard, et pas dans ta console.
+
+🗄️ **La réserve qui rétablira la marge** : fusionner l'IBL (`tEnvIrradiance` +
+`tEnvPrefilter`) et le cube de ciel (`tSkyEnvCube`) rend **2 unités** → 14/16.
+Elles demandent une capture A/B chacune, donc le GPU. **Ce n'est pas un
+renoncement : c'est deux unités dont on sait où elles sont**, qu'on ne dépense
+pas faute de besoin. *La cible tient sur un fil — le fil est solide, et il est
+désormais surveillé.*
+
+### 🔎 LES AUTRES `si (plateforme)` — recensés, nommés, **non corrigés**
+
+Relevé sur NKRHI et NKRenderer. ⚠️ **Toutes les gardes de plateforme ne sont pas
+de la même famille**, et les confondre ferait un mauvais lot :
+
+| famille | exemples | verdict |
+|---|---|---|
+| ✅ **vraies différences d'OS** — une API existe ou n'existe pas | `_putenv_s` contre `setenv` (`NkGpuPolicy.cpp:33,43`), `NvOptimusEnablement` (`:8`), les 49 appels EGL gardés | **légitimes** — ce n'est pas une capacité, c'est un autre système |
+| 🔴 **capacités déguisées en plateforme** — la vraie question est « de quoi la cible est-elle capable ? » | le **remap d'unités de texture** (`NkOpenglDevice.cpp:1965-1975` et `:2931`) : la table est calculée pour **`MAX_TEXTURE_IMAGE_UNITS=16` codé en dur**, sous `#if EMSCRIPTEN`, avec le commentaire *« SwiftShader n'accorde que 16 »* — **le nombre est écrit à la main là où `mCaps.maxFragmentTextureUnits` le dit maintenant** | **à basculer** — même geste que celui de ce lot |
+| 🔴 même famille | **`NkWebMergeCookieSamplers`** lui-même (`:2013`), sous `#if EMSCRIPTEN`, alors qu'il répond à une contrainte d'unités | **à basculer** |
+
+📌 **Le motif commun des deux 🔴** : *un 16 écrit à la main dans un commentaire,
+sous une garde de plateforme.* C'est la forme exacte du défaut que ce lot vient
+de corriger — **et c'est la forme exacte du « 24 → 14 » qui a vieilli en
+silence.** Un lot propre les basculerait tous les trois sur
+`mCaps.maxFragmentTextureUnits`, et supprimerait les trois derniers nombres
+codés en dur. **Non fait ici : hors mandat, et ça mérite son propre lot.**
+
+### 🧪 LE BANC — ce défaut doit rougir à la construction, pas dans ta console
+
+**Spécification, non codée** *(même raison)* :
+
+> Pour chaque étage fragment du dépôt, compter les échantillonneurs **après** les
+> transformations de la cible (donc après `NkWebMergeCookieSamplers` pour le Web)
+> et **échouer** si le compte dépasse le budget de la cible.
+
+**Quatre exigences, et ce sont elles qui font la différence entre ce banc et un
+banc qui compte pour rien :**
+1. il compte **après transformation**, pas sur la source — sinon il mesure un
+   objet que la cible ne verra jamais ;
+2. il porte **le budget de chaque cible**, pas une constante — 16 pour
+   WebGL2/GLES, davantage sur bureau ;
+3. **contrôle positif obligatoire** : ajouter un sampler bidon à `PBR` doit le
+   faire **rougir**. Sans cette contre-épreuve, un banc qui compte mal reste vert
+   pour toujours — *un zéro n'est un résultat qu'après un contrôle positif* ;
+4. il tourne **à la construction** : la limite est statiquement connue, elle n'a
+   pas besoin d'un GPU pour être vérifiée.
+
+### ✅ LE BANC EXISTE — `Tools/verif_budget_samplers.py`, écrit AVANT la variante
+
+```
+$ python Tools/verif_budget_samplers.py --cible web --controle
+🔴 DEPASSEMENT  Resources/NKRenderer/Shaders/PBR/NkSL/pbr.frag.nksl
+   17 echantillonneurs pour 16 accordes — 1 de trop.
+   tAlbedo, tNormal, tORM, tEmissive, tHeight, tEnvIrradiance, tEnvPrefilter,
+   tBRDFLUT, tSkyEnvCube, tVoxelOpacity, tShadowAtlas, tShadowAtlasRaw,
+   tLight3DCookie0, tLight3DCubeCookie0, tMatcap, tLTC1, tLTC2
+--- CONTROLE POSITIF ---
+✅ (a) compteur sensible : les 185 etages gagnent exactement 1.
+✅ (b) frontiere juste : 16 = vert, 17 = ROUGE.
+                                                             → sortie 1
+$ python Tools/verif_budget_samplers.py --cible desktop --controle
+Aucun depassement — 185 etage(s) fragment mesures, budget 32.  → sortie 0
+```
+
+**Il retrouve les 17 noms un par un** — le même compte que la mesure manuelle,
+obtenu autrement. Rouge sur Web, vert sur bureau : le budget par cible n'est pas
+décoratif.
+
+🔴 **ET MON PREMIER CONTRÔLE POSITIF ÉTAIT FAUX — il s'est dénoncé au premier
+essai.** Il injectait un sampler dans chaque étage et comptait les
+dépassements : le total ne bougeait pas, donc l'instrument se déclarait muet.
+**Cause : la donnée d'essai ne pouvait pas exprimer l'écart.** `PBR` dépassait
+déjà (17 → 18, toujours « 1 dépassement »), et l'étage suivant est à 9 —
+injecter 1 ne le fait pas traverser 16. *Le dépôt ne contient aucun shader assis
+sur la frontière.*
+
+C'est la porte de la maison appliquée à moi-même : *quand une mutation survit,
+la cause n'est pas toujours « le contrôle manque » — c'est souvent « le jeu
+d'essai ne peut pas exprimer l'écart ». Le juge était bon, la question mal
+posée.* Le contrôle éprouve maintenant **la frontière elle-même**, sur deux
+étages synthétiques à `budget` et `budget+1` : un `>` écrit `>=` n'y survit pas.
+
+📌 **Un défaut d'instrument attrapé au passage** : la console Windows est en
+cp1252, et l'emoji de verdict faisait **tomber le script** par
+`UnicodeEncodeError` — *un banc qui plante avant d'imprimer son verdict est
+indiscernable d'un banc vert quand on lit son code de sortie à travers un
+`| head`*. Flux reconfigurés en UTF-8. Cousin exact de l'`EXIT=0` déjà signalé
+dans ce dossier.
+
+*C'est le seul banc de ce lot qui aurait attrapé le défaut le 11 août à 00h01.*
+
+---
+
+---
+
+---
+
+## 11. 🦴 UNIFIER LES DEUX CONVENTIONS DE POSE DE REPOS ? — question posée, non tranchée
+
+**Le contexte** : tu as approuvé la descente de `NkSkeletonDef` dans `NKAnima`
+(bloc 6, point 1). En la préparant, j'ai mesuré les deux structures qui vont
+cohabiter dans `nkentseu::anim` — et **elles ne se ressemblent pas**.
+
+| | `anim::NkRetargetSkeleton` (noyau, existant) | `NkSkeletonDef` (celui qui descend) |
+|---|---|---|
+| forme | **4 tableaux parallèles** : `parent`, `bindLocal`, `names`, `topo` | **1 tableau de structures** : `bones[]` de `{name, parent, bindPose, inverseBindPose}` |
+| pose de repos | `NkMat4f` **LOCAL**, relatif au parent | matrices **bind / inverse-bind** (monde) |
+| ordre | `topo` explicite (parents avant enfants), avec détection de cycle | implicite : `parent < i` supposé |
+| nom | `NkString` | `char[64]` |
+| services | `BindWorldPos`, `BindWorld`, `BindHeight`, `BuildTopo` | `FindBone` |
+
+> 🔴 **Ma conclusion, et elle est nette : ce ne sont pas deux versions d'une même
+> chose, ce sont deux structures différentes.** L'une décrit un squelette
+> **à recibler** (on part d'une pose locale, on dérive le monde par FK) ; l'autre
+> décrit un squelette **à peaufiner pour le GPU** (les matrices inverse-bind sont
+> exactement ce que la peau consomme). Chacune est dans la forme qui sert son
+> usage.
+
+**Le déplacement n'a donc PAS besoin de les unifier**, et je ne les unifie pas :
+elles coexistent dans `nkentseu::anim`, comme deux types voisins et distincts.
+
+### Ce que l'unification coûterait, et ce qu'elle apporterait
+
+| | |
+|---|---|
+| ✅ **apport** | **un seul squelette dans le moteur.** Aujourd'hui, recibler une animation vers un personnage Noge demande une conversion à la main, que personne n'a écrite — donc le reciblage (660 lignes, livré le 06/08) **ne sert pas encore Noge**. Unifier, c'est brancher l'un sur l'autre. |
+| ✅ **apport** | une seule convention à apprendre, un seul format `.nkskel` le jour où il existera. |
+| 💸 **coût** | `BindWorld()` est une **FK récursive** : passer de local à monde est un calcul, pas une lecture. Le faire à chaque image serait une régression ; le faire à la construction demande un cache — donc un troisième état. |
+| 💸 **coût** | `topo` + détection de cycle n'existent pas côté `NkSkeletonDef` : soit on les ajoute (et on alourdit l'actif partagé), soit on les perd (et on réintroduit le risque de boucle infinie que `BuildTopo` attrape). |
+| 💸 **coût** | `NkString` contre `char[64]` : l'actif partagé est **copié par valeur dans l'ECS** au moment de la construction. Un `NkString` y met une allocation par os. |
+| 🔴 **risque** | six consommateurs recompilent, et **c'est un changement de contrat, pas un déplacement** — le recensement doit passer par le compilateur, comme pour `NkSkeleton`, où `NkAssetIODemo` atteignait le type par un **champ** sans jamais écrire son nom. |
+
+### 🗂️ 04/09 — NKAnima a une arborescence, et NKAnimPhysics y est entré
+
+`src/NKAnima/` était **plat** (9 fichiers) ; y verser six paires de plus en aurait fait quinze en
+vrac. Convention des voisins mesurée (anglais, PascalCase) → `Skeleton/ Clip/ Retarget/ Motion/
+Physics/ Edit/`, un `NKAnima.h` d'agrégation à la racine et **rien d'autre** — *la racine est un
+contrat, pas une salle d'attente*. `NkAnimationEditor` va dans `Edit/` parce que c'est un **modèle
+sans UI** (lu : aucun include NKGui). `git mv` partout, l'histoire suit ; `NkAnimPhysTest` devient
+`NkAnimaTest`, le banc du module ; `NKAnimPhysics.jenga` supprimée, **huit références** de build
+retirées ou reportées ; **21 modules Runtime au lieu de 22**. NKRenderer dépendait déjà de NKAnima :
+aucune dépendance nouvelle.
+
+### 🔴 LE COMPTE ÉTAIT DE TROIS, PAS DEUX — et NKAnimPhysics rentre dans NKAnima (04/09, après-midi)
+
+Rodolf : *« j'espère que ce n'est pas un chantier dupliqué »* puis *« pourquoi ne pas
+mettre NkAnimPhysique dans NkAnima ? »*. Mesuré :
+
+| structure | où | ce qu'elle redit | sort |
+|---|---|---|---|
+| `anim::NkSkeletonDef` | NKAnima | — | **la cible** |
+| `anim::NkRetargetSkeleton` | reciblage | parent, repos local, noms, topo | ✅ **supprimée** (ci-dessous) |
+| **`physics::NkBoneDef`** | `NKPhysics/NkRagdoll.h` | **`parent`** + corps rigide + joint | 🔴 **à absorber** : un os du squelette unifié + une table d'**attributs physiques** (forme, matériau, joint, limites) — jamais un second squelette qui redit `parent` |
+
+**Deux prémisses corrigées par la lecture** : `NkClipBalancePass.h` ne fait que *citer*
+`NkRagdoll.h` dans un commentaire — **aucune inclusion**, sa `.jenga` dit vrai ; et
+`NkRagdoll::Build` **est implémenté** (inline) **et exercé** par `NKPhysics/tests/test_physics.cpp`
+(deux sites) — pas « déclaré, non livré ».
+
+**Le cycle qui décide du déménagement** : NKAnima dépend d'animphys ; dès qu'animphys consomme
+`NkSkeletonDef`, animphys → NKAnima → animphys. On le rentre : `NKAnima/src/NKAnima/Physique/`,
+mêmes noms de fichiers (`git mv`), espace `anim`, `.jenga` supprimée, **huit références** de build
+retirées ou reportées, `NkAnimPhysTest` devient le banc de NKAnima. NKRenderer dépendait **déjà** de
+NKAnima (mesuré) : aucune dépendance nouvelle. **Déclaré vs consommé** : NKRenderer inclut vraiment
+(2 fichiers) ; RendererSandbox et Tutoriels3D déclarent sans inclure ; NkAnimaEditor inclut **sans
+déclarer**.
+
+**La conversion pose → positions monde vit en UN endroit** (NKAnima), pas une par appelant : les FK
+existantes recensées — reciblage (`WorldOf` de test), `NkIKSolver`, `NkLocomotion`, `AnimBridge`
+(éditeur) — sont autant de copies candidates à converger. Non fait dans ce lot au-delà du reciblage.
+
+**Critères de fin, mesurables** : 21 modules Runtime au lieu de 22 · une seule définition de la
+**topologie** (parent + repos) — `NkSkeletonDef` — les autres structs (pose par instance, IK,
+jiggle) référencent par index et **aucune ne redit `parent`** (mesuré : 0 sur 4) · bancs
+d'animphys à l'identique depuis leur nouvelle maison · consommateurs recompilés, la liste.
+
+### 📍 04/09 — OÙ EN EST LE COMPTE, au grep, en fin de journée
+
+`grep "int32 parent ="` dans NKAnima/NKPhysics/Noge/éditeur : **une** définition de type
+(`NkSkeletonDef`). Reste une **copie de données** : `NkAnimationClip::jointParent/jointTopo` — le
+clip embarque la topologie du squelette qu'il anime (le clip glTF la reçoit à l'import ; l'éditeur
+et `ApplyFKSkinning` la lisent). Ce n'est pas une seconde *structure*, c'est un second *exemplaire*,
+et un exemplaire peut diverger. La retirer, c'est faire passer le squelette à chaque consommateur
+du clip (NKRenderer, Noge, éditeur) — un lot à part, à trancher, pas à glisser dans celui-ci.
+
+### ✅ 04/09 (soir) — NORMALES DE NOGE : le contrat et le test disent ce que fait le code (`f360fdd4`)
+
+Rodolf : *« on va faire la même chose que le modeleur. »* Le code est la référence : `NkEditMesh.cpp`
+(`NkEmFaceCross`, 31/07 et 16/08) calcule **(p2 − p0) × (p1 − p0)**, soit **−Z** pour le triangle
+(0,0,0), (1,0,0), (0,1,0) — trigonométrique vu de +Z. `NkEditableMesh.h` promettait « ordre CCW » (26/07)
+et le test attendait +Z : **c'est le contrat et le test qui ont été corrigés**, pas le code — retourner le
+produit vectoriel aurait inversé toutes les normales du modeleur (faces arrière, éclairage, sens des
+extrusions). Le contrat porte désormais une **CONVENTION D'ORIENTATION** en tête de fichier (formule,
+exemple mesuré, ce qu'il faut énumérer pour obtenir +Z) ; les trois cas (`SingleTriangle`,
+`RecalcNormalsSmooth`, `FlipNormals`) attendent le signe que le code produit.
+**Témoin** : `jenga test --project Noge_Tests` **8/11 → 11/11, 52/52 assertions, EXIT=0** (binaire
+20:16:12 > source 20:13:54).
+📌 **Fait mesuré, non tranché** : `NkDescs.h:284` déclare `frontFace = NkFrontFace::NK_CCW` par défaut
+alors que le commentaire de `NkEditMesh.cpp` dit « le moteur rend en FRONT = HORAIRE ». Deux textes pour
+un seul code ; à lire avec les primitives de `NkMeshSystem` avant d'en faire une règle.
+
+### ✅ 04/09 (soir) — WEB : la capacité fautive était `GL_FRAMEBUFFER_SRGB` — et le build web était cassé par le chrono GPU (`bfdedf70`)
+
+**Mesuré, pas deviné.** L'instrument `[WebDiag] GLERR` disait « in glDisable » sans dire quoi ; il lit
+maintenant l'argument (`va_arg`) : **`glDisable(cap=0x8DB9)` = `GL_FRAMEBUFFER_SRGB`**, posé par
+`NkOpenGLDevice::BeginFrame` **à chaque image**. En ES/WebGL2 l'encodage sRGB est un **format**, pas un
+interrupteur — la question ne se pose pas (même famille que la garde EGL et `NkGLHasComputeAndSSBO`).
+Les gardes `GL_DEPTH_CLAMP`/`GL_MULTISAMPLE` datent du 31/07 : elles n'étaient pas en cause.
+- **Garde par capacité** : `NkGLHasFramebufferSrgbControl()` — bureau : vrai ; ES/Web : seulement avec
+  `EXT_sRGB_write_control` (demandée comme l'anisotropie) → `mHasFramebufferSrgbControl`, dit une fois au
+  journal quand absent ; `BeginFrame` ne touche l'interrupteur que s'il existe.
+- **Une erreur répétée se dit une fois puis se tait** : le triplet (erreur, fonction, argument) est
+  mémorisé (table fixe de 32) ; le budget global de 40 d'avant laissait passer 40 fois la même ligne.
+- 🔴 **Le build web était DÉJÀ cassé**, par le chrono GPU (`cdec0d7f`, 16h41) : `glad_glQueryCounter` et
+  `glad_glGetQueryObjectui64v` sont *déclarés* par `glad/gl.h` (bureau) mais seul `gles2.c` est lié sur
+  Web → `wasm-ld: undefined symbol`, 30/31. **Le contrôle `if (!glad_glQueryCounter)` ne protège pas d'un
+  échec de LIEN.** Sur ES le chrono est `EXT_disjoint_timer_query` : pointeurs `EXT` déclarés localement
+  (`glad/gles2.h` est inconciliable avec `glad/gl.h`), nuls → « chrono GPU absent », dit une fois, HUD « -- ».
+  Le binaire du soir de Rodolf (00:20) précédait ce commit : il n'a pas vu la casse.
+- **Outillage** : `Tools/web_headless_mesure.sh` + `Tools/web_headless_pilote.mjs` — http.server 9002 +
+  Edge headless piloté par DevTools (Node 22 d'emsdk). La boucle web est `emscripten_sleep(0)` sous
+  Asyncify : **une image = un `setTimeout` ≤ 1 ms, pas `requestAnimationFrame`** (le premier compteur
+  rendait 0 image pendant que 33 avertissements prouvaient des images) ; dessins WebGL comptés en
+  contrôle croisé (~1 050 par image).
+**Témoin** : avant → GLERR `cap=0x8DB9` dès l'image 1 (×33 navigateur, puis l'instrument) ; après →
+**0 GLERR, 0 `INVALID_ENUM`, 0 avertissement WebGL sur 80 puis 88 images** (deux courses, plafond 240 s,
+168 images propres cumulées), renderer lu **ANGLE D3D11 / RTX 3070** (pas SwiftShader), ~0,4-0,6 img/s
+(GPU partagé avec Ilyana à 50-95 % + onglet headless — ce n'est pas la vitesse de Rodolf) ;
+`[NkWeb] preparation terminee` présente (162 / 167 / 215 ms). Build web 30/31 → SUCCESS ; bureau
+renderdemo Debug 42/42. La borne « 100 images en une course » n'est pas atteinte (88 au plafond de temps),
+dit tel quel. **Ce qu'il te reste** : recharger `renderdemo.html?demo=2` (Release-Web reconstruit 20:34)
+— ta console ne doit plus porter ni `INVALID_ENUM` ni `GLERR`.
+
+### 🔩 04/09 (soir) — JENGA 2.6.2 : forme propre remise, wheel NKCode lu (`a1343480`)
+
+- `NKSerialization.jenga:95` reprend `%{NKMath.location}/src` (le défaut était le **filtre**, pas la
+  sous-suite : `_filteredIncludeDirs` jamais expansé, corrigé côté Jenga aux trois étages). Témoin :
+  `NKSerialization_ReflectPhase5_Tests` **117 passed, 0 failed**.
+- `jenga info --no-daemon` depuis la racine : **`[NKCode] Jenga embarque depuis le wheel :
+  jenga-2.6.2-py3-none-any.whl`**, `Build/_jenga-embed/` ré-extrait à 20:43.
+- 📌 **Observation de l'agent Jenga, à toi, pas traitée** : `NKCode.jenga` tente **plus de vingt
+  écritures dans `Build/_jenga-embed/` à CHAQUE évaluation** de l'espace de travail (`_jenga_depuis_wheel`,
+  l. 74-105 : efface et ré-extrait le wheel au chargement du `.jenga`). Un fichier de build qui écrit au
+  chargement — c'est probablement le `Build/_jenga-embed` « régénéré par chaque build voisin » que mon
+  prédécesseur avait rencontré. À décider : extraire seulement si le wheel est plus récent que
+  `Build/_jenga-embed/`, ou ne le faire qu'à la construction de NKCode.
+
+### ✅ 04/09 (soir) — PARTICULES (A) : le quad s'expanse sur le GPU par INSTANCIATION (`860d0e70`)
+
+**Mesuré avant d'écrire** — ce que NKRHI expose le plus proprement sur les quatre dorsaux : le taux
+**par instance** est honoré partout (`glVertexArrayBindingDivisor` bureau, `glVertexAttribDivisor` par
+attribut sur WebGL2, `VK_VERTEX_INPUT_RATE_INSTANCE`, `D3D11_INPUT_PER_INSTANCE_DATA`, DX12 idem),
+`Draw(vertexCount, instanceCount)` est branché partout, `gl_VertexID`/`gl_InstanceID` sont mappés dans
+tous les générateurs NkSL. La voie « `gl_VertexID` + tampon lu dans le VS » exige un SSBO — **WebGL2 n'en
+a pas** : l'instanciation est la seule qui porte partout, y compris le chemin Apple. Software : ne boucle
+les instances que si `shader->usesInstancing`, posé à la main pour un seul shader
+(`NkSoftwareDevice.cpp:1580`) — nommé, pas traité (dorsal encore bogué par ailleurs).
+
+**Ce qui a changé** : `particles.vert.nksl` lit `aCorner` (binding 0, six `vec2` statiques, 48 o, un
+tampon pour tous les émetteurs) et `aPos/aColor/aSize/aRotation` (binding 1, PAR INSTANCE) ;
+`NkParticleInstance` = 24 o (`static_assert`) ; le tampon d'un émetteur = `maxParticles × 24` (÷8) ;
+`Draw(6, vivantes)`. Le fragment et la texture (borne 2) ne bougent pas.
+
+**Témoin** (renderdemo **Debug**, OpenGL, 640×480, images 150/180, GPU partagé avec Ilyana 13-95 %) :
+
+| N | sommets avant → après | envoi avant → après | GPU passe VFX |
+|---|---|---|---|
+| 500 | 0,04-0,08 → **0,015-0,016 ms** | 0,015-0,026 (92 Ko) → **0,012-0,014 (11 Ko)** | 0,008 = 0,008 |
+| 5 000 | 0,65-0,74 → **0,17-0,21** | 0,11-0,13 (936 Ko) → **0,027-0,031 (116 Ko)** | 0,015 = 0,015 |
+| 50 000 | 4,3-5,1 → **0,98-1,61** | 1,0-1,5 (9 277 Ko) → **0,15-0,23 (1 168 Ko)** | 0,086 → 0,088-0,092 |
+
+Sommets + envoi à 50 000 : **5,3-6,6 → 1,1-1,8 ms** (÷3,7-4,8 — **pas ÷6**, dit tel quel : la boucle
+parcourt encore `maxParticles` et empaquette la couleur ; l'envoi seul fait ÷6,5, les octets ÷8).
+Image CPU 11,0-14,0 → 8,3-11,1 ms. **Pixels** : damier 2×2 sur une particule immobile, quatre cellules
+lisibles avant et après, boîte identique à ±2 px ; **deux courses du même binaire diffèrent déjà de 15 %**
+des pixels de la boîte (rotation aléatoire à la naissance) et avant/après tombe dans ce plancher
+(moyenne 6-15 contre 14,7) — *le plancher de bruit se mesure avant de comparer*.
+`Captures/noge_particules_instancie_2026-09-04.png`.
+
+⚠️ **Dits, pas corrigés — antérieurs au lot (lignes non touchées)** : sur **DX11** la particule se dessine
+mais en **lame verticale** — le repère caméra est lu par `uCam.view[0][0], [1][0], [2][0]`, indexation
+GLSL (colonne, ligne) que HLSL lit (ligne, colonne) ; sur **Vulkan** elle ne se dessine pas (jeu global
+`uCam`, nommé le 04/09 matin). Les deux relèvent du même lot « jeu global Vulkan + repère caméra
+portable » ; la voie propre est de passer `right`/`up` caméra dans `uCam` plutôt que de les extraire
+d'une matrice dont l'indexation change de dialecte.
+
+### 📐 04/09 (soir) — PLAN (B) : simulation « à la Unreal », cible PAR ÉMETTEUR — écrit AVANT le code
+
+**Décision de Rodolf** : `simTarget = Auto | CPU | GPU` par émetteur, `Auto` par défaut = GPU si le
+device a le compute, sinon CPU **dit** au journal ; l'état derrière une interface de stockage
+(CPU SoA / GPU SSBO) ; **un seul chemin de dessin** (l'instancié du lot A) ; noyau NkSL pour
+l'intégration ; ce que le jeu relit d'un émetteur GPU arrive **une image plus tard**.
+
+**Mesuré avant le plan** :
+- `NkEmitterDesc::simMode` (`NkSimMode {CPU, GPU}`) **existe déjà, écrit nulle part, lu nulle part** —
+  un des six champs « déclarés, jamais lus ». Le plan le **remplace** par `simTarget` (`NkSimTarget
+  {AUTO, CPU, GPU}`, défaut `AUTO`) plutôt que d'ajouter un second champ pour la même chose : aucun
+  appelant ne le nomme, donc additif en effet.
+- Le compute existe déjà dans NKRenderer : `NkIBLCompute::CompileKernel` est **le précédent à copier**
+  (NkSL `@stage(compute)` → GLSL, puis HLSL/SPIR-V/MSL par `NkShaderConverter`, `CreateShader`,
+  `NkDescriptorSetLayoutDesc::Add(binding, NK_STORAGE_BUFFER, NK_COMPUTE)`, `CreateComputePipeline`,
+  repli CPU dit). ⚠️ `NkAnimationSystem::Init` crée un pipeline « MorphTargets » **sans shader** : une
+  coquille, pas un précédent.
+- La capacité : `NkDeviceCaps::computeShaders` (renseignée par `NkGLHasComputeAndSSBO` sur GL ; **faux
+  sur WebGL2 quelle que soit la version**) ; `NkBufferDesc::Storage(sz, cpuRead)` ; `ReadBuffer` pour la
+  relecture ; `UAVBarrier` entre compute et dessin ; `NkDescriptorWrite{type=NK_STORAGE_BUFFER}`.
+
+**Interface (dans `NkVFXSystem.h`, additive)** :
+```cpp
+enum class NkSimTarget : uint8 { AUTO, CPU, GPU };   // remplace NkSimMode (jamais lu)
+struct NkEmitterDesc { ...; NkSimTarget simTarget = NkSimTarget::AUTO; ... };
+// Le stockage de l'état d'UN émetteur -- le dessin ne connaît que InstanceBuffer()/DrawCount().
+struct NkIParticleStore {
+    virtual ~NkIParticleStore() = default;
+    virtual bool Init(NkIDevice*, const NkEmitterDesc&) = 0;
+    virtual void Spawn(const NkParticleBirth* births, uint32 n) = 0;   // le CPU décide QUI naît, toujours
+    virtual void Step(NkICommandBuffer* cmd, float dt) = 0;            // CPU : boucle ; GPU : Dispatch
+    virtual NkBufferHandle InstanceBuffer() const = 0;                // NkParticleInstance × N, binding 1
+    virtual uint32 DrawCount() const = 0;                              // CPU : vivantes ; GPU : maxParticles (mortes = taille 0)
+    virtual uint32 AliveCount() const = 0;                             // GPU : valeur de l'image PRÉCÉDENTE (relecture différée), dit
+    virtual bool IsGPU() const = 0;
+};
+```
+`NkParticleBirth` = {pos, vel, life, sizeStart/End, colorStart/End, rotation, rotSpeed} — la naissance
+reste sur le CPU (formes d'émission, aléa, `Burst`) : c'est ce que fait Niagara pour la partie
+« spawn » des émetteurs GPU simples, et ça garde **un seul générateur** d'aléa et une seule sémantique
+de `NkEmitterDesc` pour les deux cibles. Le CPU pousse `n` naissances par image (quelques Ko), jamais
+l'état.
+
+**Les deux stockages** :
+- `NkParticleStoreCPU` : l'existant (`particles`, `freeSlots`, `aliveCount`, construction des
+  enregistrements) déplacé tel quel derrière l'interface — **comportement inchangé, mêmes chiffres**.
+- `NkParticleStoreGPU` : trois SSBO — `state` (pos, vel, life, maxLife, size0/1, color0/1, rot, rotSpeed :
+  64 o × max), `births` (× max naissances/image), `counter` (naissances consommées, vivantes) — et le
+  tampon d'instances du lot A **créé avec `NK_STORAGE_BUFFER | NK_VERTEX_BUFFER`** : le noyau écrit
+  `NkParticleInstance` dedans, le dessin le lit — un seul chemin de dessin, aucune copie. Noyau NkSL
+  `particles_sim.comp.nksl` (`local_size_x = 256`) : par emplacement, si mort et naissances restantes →
+  `atomicAdd` sur le compteur, initialise depuis `births[k]` ; puis intégration (gravité, vie, taille et
+  couleur interpolées, rotation) ; écrit l'instance (taille 0 si mort). `Dispatch(ceil(max/256))` puis
+  `UAVBarrier(instances)` avant la passe VFX. Relecture : `ReadBuffer(counter)` sur la copie de l'image
+  **précédente** (`Storage(…, cpuRead=true)`, anneau de 2) → `AliveCount()` a une image de retard, écrit
+  dans l'en-tête.
+- `Auto` : `caps.computeShaders && !web` → GPU ; sinon CPU **et une ligne** `[NkVFX] emetteur N :
+  simTarget=Auto -> CPU (pas de compute sur ce device)` — une fois par émetteur.
+
+**Ce qui change dans `NkVFXSystem`** : `Emitter` garde `desc`, `id`, `texSet`, `spawnAccum`, `enabled`
+et reçoit `NkIParticleStore* store` ; `SpawnParticle`/`UpdateEmitter` deviennent « produire les
+naissances de l'image » + `store->Step` ; `RenderEmitter` lie `mQuadVB` + `store->InstanceBuffer()` et
+tire `store->DrawCount()` ; `Profile()` garde ses postes (naissance / intégration / sommets / envoi
+deviennent, côté GPU, naissance CPU / envoi des naissances / dispatch) ; `GetActiveParticleCount` somme
+les `AliveCount()`. `SetEmitterPos`, `Burst`, `EnableEmitter` inchangés.
+
+**Ce qui recompile** : `NkVFXSystem.h` a **10 includers** (NKRenderer, Noge `NkParticleSystem`,
+NK3DModeler, DemoRW, Sandbox, NkSimulationRenderer…) → NKRenderer + ces applications ; aucun n'utilise
+`simMode`, aucune signature publique ne change hormis le champ renommé.
+
+**Témoins prévus** : (1) même émetteur en `CPU` et en `GPU`, même graine, même image à epsilon
+(damier, une particule immobile ; puis 5 000 en régime établi, comparaison de la boîte, plancher de bruit
+mesuré avant) ; (2) `Auto` sur Web → la ligne « -> CPU » au journal, image inchangée ; (3) courbe
+50 000 / 500 000 / 1 000 000 en GPU, chiffre honnête, cible 1 000 000 sous 16 ms — Ilyana sur le GPU
+pendant la mesure, donc **le chiffre sera celui d'un GPU partagé**, dit.
+
+**Ordre d'exécution** : (a) `simTarget` + `Auto` résolu et dit + interface + `NkParticleStoreCPU` —
+comportement inchangé, mêmes chiffres qu'au lot A ; (b) `NkParticleStoreGPU` + noyau, sur OpenGL
+d'abord (le seul dorsal où les particules sont éprouvées à l'image) ; (c) les témoins.
+
+### ✅ 04/09 (soir) — PLAN (B), étape (a) LIVRÉE : l'état derrière `NkIParticleStore` (`25e89b6c`)
+
+`NkParticleStoreCPU` (SoA : `pos`, `vel`, `life`, `maxLife`, `size`, `rotation`, `rotSpeed`, `color`,
+`alive`, pile d'emplacements libres, un `NkParticleInstance` de 24 o par vivante) derrière
+`NkIParticleStore` ; `NkIParticleSolver` (forces à la place de la gravité — la porte du SPH) ;
+`simTarget = AUTO` **remplace** `simMode` (déclaré le 10/05, jamais lu ni écrit) ; `AUTO` résolu et **dit
+une fois par émetteur** — aujourd'hui toujours CPU : « compute présent mais stockage GPU pas encore
+livré -> CPU » (le stockage GPU **n'est pas livré**, c'est dit, pas simulé) ; `SpawnBirths(id, births,
+n)` additif (réseau d'un bloc de fluide) ; le dessin lit `InstanceBuffer()`/`DrawCount()` — un seul chemin.
+
+**Mesuré en chemin, deux fois** : (1) trois passes SoA sur `capacity` doublaient l'intégration
+(1,4-1,9 → 3,6 ms à 50 000) → boucle fusionnée ; (2) toujours 3,5-4,6 → en **Debug**,
+`NkVector::operator[]` est un appel par accès sur neuf colonnes ; l'ancienne boucle tenait une référence
+sur la structure → pointeurs bruts pris une fois par pas. **Témoin final** (Debug, OpenGL, 640×480,
+images 150/180, GPU partagé) : 50 000 → **intégration 0,93-1,11 ms** (lot A : 1,4-1,9), **sommets
+0,73-0,94** (lot A : 0,98-1,61), envoi 0,08-0,16 (1 168 Ko) ; 5 000 → 0,10 / 0,07 / 0,015 ; 500 → 0,01 /
+0,009 / 0,01. Damier : quatre cellules, boîte identique à ±3 px. *Une mesure prise après chaque geste,
+pas une à la fin : la première version « équivalente » était deux fois plus lente.*
+
+### 🌊 04/09 (soir) — FLUIDES : mesuré (il n'y a rien), famille fixée (SPH sur le stockage), PLAN avant le code
+
+**Mesuré, rien supposé** : aucun `NkFluid*`, aucun SPH, aucune hauteur d'eau dans le code (recherche par
+nom de fichier ET par symbole : `class/struct Nk*Fluid|SPH|Water|Ocean|HeightField|Wave` → seuls `NkSphere`
+et deux `*SphereParams` répondent) ; `Kernel/Runtime/NKSimulation` = README « SPÉCIFICATION, aucun code,
+pas dans `Nkentseu.jenga` » + `docs/ROADMAP.md` (D1 océan FFT, D3 gaz eulérien, **D4 fluides particulaires
+« SPH d'abord, puis FLIP/PIC »**, M1 « `NkVFXSystem` : séparer l'état du dessin ») ; `NkSimulationRenderer`
+= stub PV3DE (émotions, blend shapes), 131 l., pas de fluide ; « Water » = un **shader de surface** (vagues
+de Gerstner, réfraction/réflexion/écume) que seul `Sandbox/Base05/NkRendererDemo.cpp` appelle via
+`CreateWaterMaterial` — symbole **absent** de NKRenderer.
+
+**Rodolf** : *« si tu ne trouves pas, on crée. »* **Famille fixée (coordinateur, recommandation) : SPH sur
+le stockage des particules, CPU d'abord** ; hauteur d'eau (lac, mer — le plugin Water d'Unreal) nommée,
+pas maintenant.
+
+**Où vit l'état — mesuré** : les particules appartiennent à `NkVFXSystem` (NKRenderer), désormais derrière
+`NkIParticleStore` / `NkParticleStoreCPU` (SoA : `pos`, `vel`, `life`, `size`, `color`… — étape (a) du plan
+(B), ce soir). Le solveur va **du côté du propriétaire**, pas un troisième exemplaire :
+`Kernel/Runtime/NKRenderer/src/NKRenderer/Tools/VFX/NkSPHSolver.{h,cpp}`, une implémentation de
+`NkIParticleSolver` que le stockage CPU appelle à la place de sa gravité. ⚠️ Le README de NKSimulation dit
+que l'état ne devrait pas vivre dans le moteur de rendu (M1) : c'est exactement ce que l'interface prépare —
+le jour où NKSimulation naît, `NkParticleStore*` et `NkSPHSolver` y déménagent **sans changer le dessin**.
+
+**Un fluide = un émetteur** dont `desc.solver` pointe un `NkSPHSolver` : forme d'émission, débit, `Burst`,
+texture, mélange, dessin par quad instancié — tout est réutilisé. Le solveur ajoute à chaque particule
+une **densité** et une **pression** et fait s'exercer des forces entre voisines.
+
+**Noyau (WCSPH classique, Müller 2003 / Monaghan)** :
+- voisinage par **grille uniforme** de cellule `h` (rayon de lissage), reconstruite chaque pas : tri par
+  cellule (comptage + préfixe, O(N)), voisines = 27 cellules. **C'est la grille qui décide O(N) contre
+  O(N²)** — on a payé O(N²) ce matin sur la naissance ;
+- densité ρᵢ = Σⱼ m·W_poly6(rᵢⱼ, h) ; pression pᵢ = k·(ρᵢ − ρ₀) (équation d'état linéaire, raideur `k` ;
+  Tait γ=7 nommée pour plus tard) ;
+- forces : pression −Σⱼ m·(pᵢ+pⱼ)/(2ρⱼ)·∇W_spiky ; viscosité μ·Σⱼ m·(vⱼ−vᵢ)/ρⱼ·∇²W_visc ; gravité ; puis
+  **bornes** : boîte `bounds` avec restitution `e` (position ramenée sur la paroi, vitesse normale
+  inversée × e). Pas de STL, pas d'allocation par pas (tableaux réutilisés).
+- paramètres exposés (`NkSPHParams`) : `h` (0,1 m), `restDensity` ρ₀ (1000), `stiffness` k (200),
+  `viscosity` μ (0,1), `particleMass` m (dérivée de ρ₀·h³ par défaut), `gravity`, `bounds` min/max,
+  `restitution` (0,3), `maxSpeed` (borne de stabilité, dite si elle mord). Le pas de temps : celui de
+  l'émetteur, **sous-pas** jusqu'à `dt ≤ 0,4·h/maxSpeed` (CFL), nombre de sous-pas dit au profil.
+
+**Témoins chiffrés, AVANT l'image** (banc `NKRenderer_Tests` ou sonde `NK_SPH_PROBE`, sans fenêtre) :
+(a) **conservation** — 1 000 particules dans une boîte close, N vivantes constant et masse Σm constante à
+epsilon ; (b) **repos** — un bloc lâché dans une boîte atteint une hauteur stable et la densité moyenne
+revient à **ρ₀ ± 5 %** — *c'est le test qui dit qu'un SPH est un SPH et pas des billes* ; (c) **rupture de
+barrage** — front à t = 1 s comparé à x ≈ 2·√(g·h₀)·t (eau peu profonde), à 20 % ; (d) **stabilité** —
+10 s sans explosion (vitesse max bornée). **Mutation** : pression coupée → (b) rougit (la densité ne
+revient pas à ρ₀ : tout s'empile).
+
+**Puis l'image** : dam break capturé dans ma fenêtre (particules bleues, `NK_CAPTURE`),
+`Captures/noge_fluide_dam_break_2026-09-04.png`, Ilyana lue avant/après. **Coût** : courbe
+1 000 / 10 000 / 50 000 sur CPU, chiffre honnête (Debug, dit).
+
+**Ce qui recompile** : NKRenderer seul (nouveaux fichiers, `NkEmitterDesc::solver` déjà ajouté à l'étape
+(a)) ; les 10 includers de `NkVFXSystem.h` recompilent pour le champ, aucune signature publique ne change.
+**GPU** : viendra par la cible de simulation (plan (B)), pas maintenant.
+
+### 🔴 04/09 (nuit) — SPH LIVRÉ, TÉMOINS ROUGES DITS : le noyau injecte de l'énergie depuis le repos
+
+`NkSPHSolver` (`Kernel/Runtime/NKRenderer/src/NKRenderer/Tools/VFX/`) + sonde `NK_SPH_PROBE` dans
+`Demo3D` (scènes `repos|dam|conserve`, mutation `NK_SPH_NOPRESSURE=1`, verdicts `[SPH TEMOIN]` imprimés
+à la dernière image). **Ce qui est vert** : conservation (2048/2048, 253,52 kg constant), pas de NaN,
+l'image (`Captures/noge_fluide_dam_break_2026-09-04.png`, une éclaboussure bleue par le stockage + quad
+instancié + mélange alpha : le chemin de dessin ne change pas). **Ce qui est rouge** : repos
+ρ/ρ₀ = 0,79-0,94 (attendu 1 ± 5 %), la colonne de 0,4 m gonfle jusqu'à +1,2 m, vmax croît 3,7 → 7,9 m/s
+en 3 s **depuis le repos** ; dam break front 0,35-0,39 m contre 1,40 ; stabilité 10 s : vmax collé à la
+borne. La mutation « pression coupée » donne ρ/ρ₀ = 4,69 (tout s'empile) : le témoin discrimine.
+
+**Éliminé, mesuré (une expérience par hypothèse)** : le pas de temps (CFL 0,4 → 0,15, 6 → 16 sous-pas :
+identique) ; l'impact (bloc posé au lieu de lâché : identique) ; la pression négative (bornée à 0 :
+identique) ; la masse (calibrée sur le réseau : ρ₀ exact à t = 0). **Reste à examiner, dans l'ordre** :
+(1) les parois par clamp de position — sans particules fantômes, la colonne n'a pas d'appui
+hydrostatique (la couche du sol a p = 0 et ne porte rien) ; (2) le terme de pression symétrique
+(p_i + p_j)/(2ρ_j) avec la densité min 0,19 ρ₀ des particules isolées ; (3) passer à un schéma à
+correction de densité (PCISPH / DFSPH) si (1)-(2) ne suffisent pas — c'est ce que font les moteurs qui
+tiennent à 60 Hz. *Une pression qui monte depuis le repos est un défaut de formulation, pas de réglage :
+le dire tel quel vaut mieux qu'un réglage qui cache.*
+
+**Coût (Debug, chiffre honnête)** : 2 048 particules 51-69 ms/image à 6 sous-pas (114-160 à 16) ; 4 096 :
+110-130 ms à 6 sous-pas. La grille est bien O(N) (2× particules → 2× temps) ; la courbe 1 000 / 10 000 /
+50 000 attend un noyau qui tient au repos — la mesurer sur un fluide qui bout mesurerait le bouillonnement.
+
+### 🔴 04/09 (nuit, 2) — SPH : parois fantômes + Monaghan livrés, TOUJOURS ROUGE ; le choix nommé avec son chiffre : DFSPH
+
+Lot du coordinateur exécuté dans l'ordre : (1) **parois par particules fantômes** — deux couches fixes
+sur les six faces, espacement h/2, même masse, comptées dans la densité, pression miroir (Akinci),
+jamais intégrées (8 800 fantômes pour la boîte du repos) ; (2) **terme de pression de Monaghan**
+`(p_i/ρ_i² + p_j/ρ_j²)`. Les scènes de la sonde n'ont pas bougé ; la trace dit maintenant la densité de
+la couche du sol et le nombre de fantômes ; `NK_SPH_K`, `NK_SPH_MU`, `NK_SPH_MAXSUB`, `NK_SPH_G0` pilotent
+les expériences sans recompiler.
+
+**Témoins, inchangés en verdict** : conservation VERTE ; repos ρ/ρ₀ = 0,77 (avant 0,79-0,94), la
+surface monte à +1,48 ; dam break 0,52 m parcourus (avant 0,35) contre 1,40 ; vmax collé à 8 m/s.
+Mutation pression coupée : 5,21 (le témoin discrimine toujours).
+
+**Les expériences qui tranchent, une par hypothèse** :
+| hypothèse | expérience | résultat |
+|---|---|---|
+| bug de code (forces non nulles sur un réseau symétrique) | gravité nulle depuis le réseau parfait (`NK_SPH_G0=1`) | **immobile** : vmax 0,00 pendant 2 s, ρ 0,977 (surface 0,81) → le code est cohérent |
+| pas de temps | CFL 0,4 → 0,15 (6 → 16 sous-pas) | identique |
+| impact de la chute | bloc posé sur le sol | identique |
+| pression négative | bornée à 0 | identique |
+| support des parois | fantômes, 2 couches | identique (sol ρ/ρ₀ 0,86 : la couche du sol ne touche même pas les fantômes, elle rebondit) |
+| compressibilité de l'équation d'état | k = 200 → **1 000** → **3 000** (c = 14 → 31 → 55 m/s, 36-40 sous-pas) | **PIRE à chaque cran** : ρ moy 0,77 → 0,65 → 0,60, vmax 8 partout |
+
+🔑 **Lecture** : la densité maximale ne dépasse jamais 1,05-1,13 — le fluide ne se comprime pas, il
+**s'éjecte**. Une compression locale de quelques % (gradient spiky en 1/r, 27 voisines seulement à
+h = 2d) produit une accélération de plusieurs milliers de m/s² ; plus k est grand, plus l'éjection est
+violente. Un WCSPH explicite à cette résolution vit dans une fenêtre étroite (c ≥ 10·vmax **et** Δρ ≤ 1 %)
+que ce montage n'atteint pas ; le rendre stable demanderait h = 3-4d (4× plus de voisines, 8× plus cher)
+ou un noyau à correction de densité.
+
+**Choix nommé, avec son chiffre — à coder au prochain lot, pas ce soir** : **DFSPH** (Bender & Koschier
+2015) : plus d'équation d'état — deux projections par pas (densité constante, divergence nulle), ρ tenu à
+**0,1-1 %** par construction, pas de temps **4-5 ms** à h = 0,1 (CFL 0,4·h/vmax avec vmax ≈ 4-8 m/s) soit
+**3-4 sous-pas par image au lieu de 16-40** ; chaque itération coûte ≈ 2 passes de voisinage (comme un pas
+WCSPH), 2-5 itérations par projection → **≈ 10-20 passes par image contre 32-80 aujourd'hui** : moins cher
+ET stable. Estimation : ~1 j (facteur α par particule, boucle de correction, réutilisation de la grille,
+des fantômes et des témoins tels quels). La courbe 1 000 / 10 000 / 50 000 en Release (témoin O(N)) se
+mesure sur DFSPH ; la mesurer sur un fluide qui s'éjecte mesurerait l'éjection.
+
+Coût actuel (Debug) : 2 048 particules + 8 800 fantômes, 145-180 ms/image à 16 sous-pas ; 4 096 :
+270-350 ms.
+
+### ✅ 04/09 (nuit, 3) — DFSPH : LE REPOS TIENT (`650a3730`) — décision du coordinateur, arbitrage délégué par Rodolf
+
+Bender & Koschier 2015, en réutilisant tout (grille O(N), fantômes Akinci, sonde, scènes **inchangées**) :
+noyau **cubique** pour W et ∇W (un seul noyau, α cohérent — poly6/spiky mélangés fausseraient α) ; listes de
+voisines construites une fois par sous-pas ; α_i = ρ_i / (|Σ m∇W|² + Σ|m∇W|²) ; solveur de **divergence
+nulle** (particules à ≥ 20 voisines fluides) ; XSPH + gravité ; solveur de **densité constante** (ρ* borné à
+ρ₀ en surface libre, itéré jusqu'à résidu moyen < 0,1 %, bornes d'itérations comptées et dites) ; CFL 0,4·h/vmax
+**mesuré**, sous-pas comptés. Plus d'équation d'état.
+
+**Témoins (Debug, 2 048 particules + 8 800 fantômes)** — les mêmes scènes que ce soir :
+
+| témoin | WCSPH (nuit, 2) | **DFSPH** |
+|---|---|---|
+| repos ρ/ρ₀ moyen après 2 s | 0,77 | **1,001** (min 0,996 / max 1,004) |
+| repos, couche du sol | 0,86 | **1,001** |
+| repos calme (vmax à 3 s) | 7,2 m/s, croissant | **0,067 m/s**, décroissant (0,47 → 0,26 → 0,11 → 0,08) |
+| sous-pas / image | 16-40 | **1** (dam break : 2) |
+| itérations | — | densité 24-26 (résidu 0,09 %), divergence 1 ; aucune borne atteinte |
+| conservation | vert | **vert** (2048/2048, 256,01 kg) |
+| mutation « projection coupée » | 5,21 rouge | **5,90 rouge** (discrimine) |
+| coût / image | 145-180 ms (16 sous-pas) | **43-53 ms** (1 sous-pas, ~26 traversées) |
+| dam break, front à t = 0,25 s | 0,52 m | 0,535 m — **ÉCHEC selon Ritter** (2√(g h₀)·t = 1,40 m) |
+
+📌 **Sur le dam break, dit tel quel** : le critère écrit (Ritter : lit sec, non visqueux, eau peu profonde)
+donne 1,40 m à 0,25 s pour h₀ = 0,8 m ; mesuré 0,535 m, écart 62 %. La référence **expérimentale** (Martin &
+Moyce 1952, colonne a = 0,8 m, T = t√(2g/a) = 1,24) donne un front nettement plus lent que Ritter à ce T — de
+l'ordre de x/a ≈ 1,6-1,7, soit ≈ 0,5-0,6 m parcourus. **Je ne l'ai pas vérifié contre les tables** : la scène
+et le critère restent tels quels ; à trancher avec la table sous les yeux, pas de mémoire. L'image montre une
+nappe cohérente qui avance et remonte sur le mur opposé (`Captures/noge_fluide_dam_break_dfsph_2026-09-04.png`,
+Release, ci-dessous).
+
+### 📏 04/09 (nuit, 4) — DFSPH en RELEASE : les cinq témoins, la mutation, la courbe O(N)
+
+Binaire Release 21:58:37, scènes inchangées, Ilyana lue avant/après (VRAM 4,7-5,6 Go, 57-95 %, PID 11904).
+
+| témoin (scène repos, 2 048 + 8 800 fantômes, 10 s) | mesure | verdict |
+|---|---|---|
+| repos ρ/ρ₀ moyen après 2 s | **1,001** (min 0,996 / max 1,004) | ✅ ± 5 % |
+| couche du sol | **1,001** | ✅ ± 5 % |
+| vmax décroissant depuis le repos | 0,26 (1 s) → 0,10 (5 s) → 0,06 (9 s) → **0,038 m/s** à la fin | ✅ < 0,1 |
+| conservation | 2048/2048, 256,01 kg constants | ✅ |
+| 10 s stable | 9,98 s, vmax global 0,92 m/s, 0 NaN, 1 sous-pas, 24-26 itérations (résidu 0,09 %) | ✅ |
+| mutation « projection coupée » | ρ/ρ₀ = 5,90, tout s'empile | ✅ rouge, discrimine |
+| dam break, front à t = 0,25 s (4 096) | 0,535 m contre 1,40 (Ritter) — écart 62 % | 🔴 **ROUGE selon le critère écrit** |
+| filet maxSpeed = 8 m/s pendant le dam break | mord (vmax global 8,00 ; 185 bornées à 50 653) | ⚠️ dit — la scène garde ses 8 m/s |
+
+Coût Release : 2 048 particules **12,4-12,9 ms/image** (Debug 43-53).
+
+**Courbe O(N) (scène dam, Release, par image, frames 30 / 60)** :
+
+| N | fantômes | sous-pas | itérations dens. | ms / image | µs / (particule · traversée) |
+|---|---|---|---|---|---|
+| 1 000 | 6 304 | 2 / 1 | 5 / 7 | 5,1 / **3,1** | 0,51 / 0,45 |
+| 10 648 | 27 520 | 3 / 2 | 15 / 9,5 | 142 / **69** | 0,30 / 0,34 |
+| 50 653 | 75 404 | 4 / 3 | 30 / 13,3 | 1 345 / **713** | 0,35 / 0,35 |
+
+🔴 **Le témoin « 50 000 ≤ 50 × 1 000 » est ROUGE tel qu'écrit** : 713 / 3,1 = **228×** pour 50,6× de
+particules. **Mais la grille, elle, est O(N)** : par particule et par traversée de voisinage, le coût est
+**constant** (0,35-0,45 µs, il baisse même). Ce qui grossit avec N n'est pas le voisinage, ce sont **les
+sous-pas** (la grande colonne tombe plus vite : 1 → 3) et **les itérations de Jacobi** du solveur de densité
+(7 → 13 : l'information de pression traverse un domaine plus grand une voisine à la fois). C'est la
+propriété connue des projections itérées ; les remèdes classiques sont le **démarrage à chaud** (κ de l'image
+précédente) et la tolérance relative — nommés, pas faits.
+
+📌 **Sur le dam break** : Ritter suppose un lit sec, aucune viscosité, l'eau peu profonde et une colonne
+infinie ; l'expérience (Martin & Moyce 1952) donne à T = t√(2g/a) ≈ 1,24 un front nettement plus lent. Le
+critère reste tel quel : **à trancher avec la table sous les yeux**, pas de mémoire.
+`Captures/noge_fluide_dam_break_dfsph_2026-09-04.png` (Release, image 40) : une nappe cohérente, pas une
+éclaboussure de billes.
+
+### 🔴 04/09 (nuit, 5) — DAM BREAK : le vrai critère (Martin & Moyce, table citée) — toujours ROUGE, et dans l'autre sens
+
+**Le critère écrit était faux** (Ritter, 2√(g h₀)·t : vitesse asymptotique d'un lit sec non visqueux ; à
+t = 0,25 s le front accélère encore). **La vraie table**, telle que reproduite dans une source ouverte
+(Lethe, `chaos-polymtl/lethe`, `examples/multiphysics/dam-break/dam-break-2d.py`, colonne 3,5 × 7 = n² = 2,
+T = t√(2g/a), Z = x/a) : T = [0, 0,41, 0,84, 1,19, 1,43, 1,63, 1,82, 1,97, 2,20, 2,32, 2,50, 2,64, 2,82,
+2,96], Z = [1, 1,11, 1,23, 1,44, 1,67, 1,89, 2,11, 2,33, 2,56, 2,78, 3,00, 3,22, 3,44, 3,67] — écrite dans
+la sonde avec sa source. Martin & Moyce adimensionnent par T = t√(n²g/a) ; notre colonne est **carrée**
+(n² = 1) → T = t√(g/a). ⚠️ **La table n² = 1 n'a pas été trouvée en source ouverte** (Cébron & Sigrist,
+arXiv:1002.3213, fig. 4 : une courbe, pas une table) ; on applique la table n² = 2 sous l'adimensionnement
+de M&M et on le dit. Contrôle d'échelle : Ritter donne Z − 1 = 2T pour n² = 1 comme pour n² = 2.
+**Instrument corrigé** : le front est le front **dense** (ρ ≥ 0,5 ρ₀), pas l'éclat isolé ; mesuré, les deux
+coïncident (front compact) — l'instrument n'était pas en cause.
+
+**Verdict, scène inchangée (Release, 4 096, h = 0,1)** : le front est **1,5-2× trop RAPIDE** à tous les
+temps — Z − 1 = 0,92 à T = 1,05 contre 0,36 (table), 1,70 à T = 1,58 contre 0,83 ; écart moyen **140 %**
+(81 % avec le retard de vanne +0,175 que Lethe applique) → **ROUGE contre la vraie table**, dans l'autre sens
+que Ritter (qui donnerait 2,1 à T = 1,05). Lu de la fig. 4 de Cébron & Sigrist (colonne carrée, T = t√(g/H)) :
+≈ 1,45 à T = 1,0 et ≈ 2,1 à T = 1,5 contre nos 1,92 et 2,7 — **35-45 % trop rapide** même contre la courbe
+n² = 1, lue à l'œil (pas tabulée).
+
+**Expérience discriminante (instrument `NK_SPH_H`, pas la scène)** : résolution doublée (h = 0,05, d = 0,025,
+32 768 particules, même colonne 0,8 m) → **encore plus rapide** : Z − 1 = 1,25 à T = 1,05, écart moyen 234 %.
+🔑 **Lecture** : plus la résolution monte, plus le front tend vers l'idéal non visqueux (Ritter 2T), pas vers
+l'expérience — ce n'est pas un défaut de résolution, c'est un manque de **résistance à l'effondrement** :
+candidats, dans l'ordre — la borne ρ* ≥ ρ₀ en surface libre (les particules de surface, sans pression, courent
+devant comme un sable sec), les parois à glissement libre + XSPH 0,05 (aucun frottement au sol, alors qu'une
+simulation non visqueuse — NPM, fig. 10 — reproduit pourtant M&M avec des parois glissantes), la
+géométrie 3D (largeur z = a, murs latéraux à 0,4 m : l'expérience est un canal étroit aussi). **Défaut
+réel, nommé, non corrigé.** Le repos, lui, tient toujours (1,001, sol compris).
+
+**Non fait de ce lot, dit** : démarrage à chaud des κ + tolérance relative (itérations 7 → 13 avec N) ;
+mesure de vmax sans le filet 8 m/s ; plan B étapes b-c (stockage GPU + noyau NkSL). Ils attendent la
+prochaine session, dans cet ordre.
+
+### 📏 04/09 (nuit, 6) — LES CAUSES DU FRONT TROP RAPIDE : une expérience par hypothèse, un chiffre chacune
+
+Deux références séparées dans la sonde, scène inchangée (Release, 4 096 particules, h = 0,1) :
+**Cébron & Sigrist 2D** (arXiv:1002.3213, fig. 4, colonne carrée, T = t√(g/H), courbe SPH « Numerical [9] »
+**lue à l'œil ± 0,05**, pas tabulée) = cible à 15 % pour un SPH de même famille ; **Martin & Moyce 1952**
+(table via Lethe, n² = 2, adimensionnement T = t√(n²g/a)) = référence physique, 30 % une fois le frottement
+modélisé. Boutons d'instrument (jamais la scène) : `NK_SPH_SURF` (borne de surface 1 dure / 0 aucune / 2
+douce), `NK_SPH_ALPHA` (viscosité artificielle de Monaghan, c = 50), `NK_SPH_WALL` (poids XSPH des
+fantômes : frottement de paroi), `NK_SPH_H` (résolution). Métrique d'agglutination : particules à ρ > 1,1 ρ₀.
+
+| expérience | Cébron 2D (Z−1, moyen / max) | M&M (sans / avec retard de vanne +0,175) | agglutinées | note |
+|---|---|---|---|---|
+| **base** (borne dure, α = 0, paroi 1) | **41 % / 49 %** | 140 % / 81 % | 0 | trop rapide partout |
+| borne de surface **aucune** | 80 % | 105 % | 0 | 🔴 **le solveur se fige** : front −0,025 m constant, 100 itérations plafond, 4 096 bornées |
+| borne de surface **douce** | 79 % | 104 % | **222** | figé aussi, et l'agglutination apparaît (instabilité de traction) |
+| **α = 0,05** | **19 % / 36 %** | 96 % / 51 % | 0 | phase tardive dans la cible (16, 10, 5, 0 %), phase précoce 30-36 % |
+| α = 0,05 + paroi 0 (glissement libre) | 21 % | 100 % / 54 % | 0 | la paroi vaut ±2 % |
+| paroi 0 seule | 48 % | 152 % / 90 % | 0 | idem, légèrement pire que base |
+| **α = 0,075** | **13 % / 24 % → OK ±15 %** | 60 % / **26 %** | 1 | ⚠️ mais le **repos** n'est plus calme : vmax 1,19 m/s à la fin (au lieu de 0,04), 5,99 global, ρ min 0,84 |
+| α = 0,1 | 14 % / 34 % → OK | 32 % / **15 % → OK** | 0 | le front tardif devient trop LENT (T ≥ 1,9 : 23-34 %) et le front dense décroche de l'éclat |
+| α = 0,2 | 480 % | 842 % | 0 | 🔴 explose dès t = 0,05 s : viscosité explicite hors de sa stabilité |
+| α = 0,05 à **h = 0,05** (32 768) | 393 % | 700 % | 0 | 🔴 explose aussi : l'α artificiel dépend de la résolution, cause de l'explosion non établie |
+| **Morris ν = 0,02 m²/s** (physique, CFL visqueuse mesurée : 2 sous-pas) — 04/09 23h, binaire reconstruit | **10 % / 18 % → OK ±15 %** | 65 % / **28 %** | 0 | ✅ **et le repos reste vert sur 10 s** (1,001, sol 1,001, vmax 0,015) ; ν = 0,01 → 27 %, ν = 0,03 → 10 % (repos vert aussi) ; Re ≈ 160 |
+| Morris ν = 0,02 à **h = 0,05, MÊME colonne 0,8 m** (32 768) | **12 % / 26 %** | 53 % / 24 % | 0 | ✅ **indépendant de la résolution** (2 points) — 5 sous-pas visqueux (3,9 ms), mesurés ; ce que α n'avait pas |
+| Morris ν = 0,02, **canal n² = 2** (géométrie de la table, 8 192 ; 65 536 à h/2) | — (figure carrée) | **9 % brut / 18 %** ; h/2 : **11 % / 17 %** | 0 | ✅ la comparaison à l'EXPÉRIENCE est légitime là seulement ; le filet 8 m/s y mord (dit) |
+
+🔑 **Lecture** : (1) la borne dure ρ* ≥ ρ₀ n'est pas le levier — sans elle le solveur ne converge plus ; (2) le
+frottement de paroi via XSPH ne pèse rien ; (3) **la cause est l'absence de viscosité** : α = 0,075 met le
+front à 13 % de la référence SPH 2D et à 26 % de l'expérience (retard de vanne compris) — **mais casse le
+repos calme** (1,19 m/s). Les deux témoins se paient l'un par l'autre avec une viscosité *artificielle*
+explicite ; **le défaut du solveur reste α = 0** (repos vert, front rouge, tous deux dits). **Suite nommée** :
+viscosité **physique** (laminaire, Morris 1997 ou Monaghan-Cleary-Gingold) avec sa **CFL visqueuse**, qui
+n'agit pas au repos et ne dépend pas de la résolution ; puis, si M&M reste hors 30 %, le canal 3D à la
+géométrie de M&M (n² = 2). Le SPH GPU attend un front juste **et** un repos calme ensemble.
+
+Toujours non fait de ce lot : démarrage à chaud + tolérance relative ; vmax sans filet ; plan B b-c.
+
+### ✅ 04/09 (23h, après la coupure d'électricité) — MORRIS : le front tient ET le repos reste calme ; démarrage à chaud amorti ; canal n² = 2 — `0d2d6e08`
+
+**Reprise** : machine redémarrée vers 22h45 pendant le lot ; le diff non commité (terme de Morris, CFL
+visqueuse, `NK_SPH_NU`) était un **état cohérent** dont les chiffres venaient d'un binaire d'avant la coupure
+(`build_rel_10`, 22:38) — `build_rel_11` tué (un `.obj.tmp` orphelin en témoin). Gardé, **remesuré** sur un
+binaire reconstruit (objets des cibles supprimés, puis 31/31 ; un `jenga rebuild --target NKUIDesign` d'un
+autre agent a nettoyé toute la sortie Release à 23:00 pendant mon premier build — attendu qu'il finisse, rien
+touché). Ilyana (PID 29432) lue avant/après chaque course : jamais interrompue. Aucune capture de l'écran ;
+ma fenêtre seule (`NK_CAPTURE`).
+
+**Viscosité physique laminaire** (Morris, Fox & Zhu, *J. Comput. Phys.* 136, 214-226, 1997) : terme
+`Σ m (μ_i+μ_j)/(ρ_i ρ_j) · (x_ij·∇W)/(|x_ij|²+0,01h²) · (v_i−v_j)`, fantômes à v = 0, ρ₀, lu sur tampon ;
+**condition de pas** `dt ≤ 0,125 hs²/ν` avec **hs = h/2** (longueur de lissage du noyau cubique — écrite avec h
+elle ne mordait pas et le repos s'agitait dès ν ≥ 0,02), **comptée dans les sous-pas et dite**
+(`subStepsViscous`) : 2 sous-pas à h = 0,1 (15,6 ms), 5 à h = 0,05 (3,9 ms), **mesurés**. **ν = 0,02 m²/s
+retenu** : le plus petit du balayage (0 / 0,01 / 0,02 / 0,03 → Cébron 41 / 27 / 10 / 10 %) qui tient la
+cible ; **Reynolds du banc** `√(2ga)·a/ν ≈ 3,96 × 0,8 / 0,02 ≈ 160` ; l'eau (10⁻⁶, Re ≈ 3·10⁶) est hors de
+portée d'un maillage à 16 particules par largeur, dit dans l'en-tête.
+
+| témoin (même course, défauts, Release, binaire 23:33) | mesure | verdict |
+|---|---|---|
+| repos 10 s (2 048 + 8 800 fantômes) | ρ/ρ₀ **1,001** (0,996-1,004), **sol 1,001**, vmax **0,015 m/s** à la fin, 2048/2048 et 256,01 kg, 9,98 s, 0 NaN | ✅ les cinq |
+| mutation « projection coupée » | 5,90 | ✅ rouge, discrimine |
+| dam break, Cébron & Sigrist 2D (fig. 4, lue ± 0,05) | **10 %** (max 18 %) | ✅ ≤ 15 % |
+| idem à **h/2, même colonne 0,8 m** (32 768) | **12 %** (max 26 %) | ✅ écart de 2 points (≤ 5) |
+| Martin & Moyce, colonne carrée (table n² = 2 sous l'adimensionnement de M&M) | 65 % brut / 28 % avec retard de vanne | ⚠️ hors 30 % brut — géométrie différente de la table |
+| Martin & Moyce, **canal n² = 2** (`NK_SPH_N2=2`, 8 192, fantômes des six faces) | **9 % brut** (max 20 %) / 18 % avec retard ; h/2 même colonne (65 536) : 11 % / 17 % | ✅ légitime là seulement |
+| filet 8 m/s | 4 096 : ne mord plus (vmax réel 3,67) ; 50 653 : mordait, **vmax réel 8,83 m/s** sans filet, front inchangé ; canal n² = 2 : mord (8,00), dit | ⚠️ dit |
+
+⚠️ **Piège d'instrument payé deux fois** : `NK_SPH_H=0.05` avec `NK_SPH_N=16` change la **scène** (colonne 0,4 m,
+Re ≈ 56), pas la résolution — la résolution double se mesure avec `N=32` (même colonne). Mes deux premières
+courses h/2 étaient fausses (18 %, 32 %) ; corrigées, elles donnent 12 % et 11 %.
+
+**Démarrage à chaud des κ** (`warmStart`, défaut vrai, `warmStartScale = 0,5`) : le κ **total** du pas
+précédent (somme des κ de Jacobi, gardé **tel quel** par emplacement du stockage — c'est une pression,
+invariant au pas), appliqué une fois avant d'itérer. **Mesuré en chemin, deux fois rouge** : (1) mémorisé en
+κ·dt² et rendu en /dt² → ×4 à chaque doublement des sous-pas (repos à 0,41 ρ₀, 8 m/s) — corrigé ; (2) rejoué
+à 1,0, invariant : **explose encore** (trace image par image : résidu 0 % et 2 itérations dès la 3ᵉ image
+pendant que min ρ*/ρ₀ tombe 0,85 → 0,05 et vmax 0,25 → 4,5 m/s). 🔑 **Le solveur ne sait pas tirer** (κ ≥ 0
+par la borne de surface, et le solveur de divergence ignore la détente) : tout excès rejoué est
+**irréversible et s'accumule**, et le résidu borné ne le voit pas. Amorti à s = 0,5, un excès décroît en sⁿ
+et les itérations fournissent le reste. Résultat, images 30/60 : itérations **6/4 → 4/3** (1 000),
+**21/12 → 13/8** (10 648), **25/15 → 15/8** (50 653) ; au repos 13 → 8,5 ; s = 0,25 fait moins bien
+(17/10, 20/12). En régime établi (image 60) les deux grands domaines sont à **8** : la croissance avec N
+s'arrête là, **pas pendant l'effondrement** (15 à l'image 30). Repos et front **inchangés**. La tolérance
+est déjà relative (0,1 % de ρ₀) : rien d'autre à faire là. 🔴 **50 653 : 497-780 ms/image contre la cible
+100 ms** (3 sous-pas × 8-15 traversées × 0,35 µs/particule, plancher de bruit ≈ 20 % entre deux courses
+identiques) : le CPU n'y arrivera pas, dit — c'est le SPH GPU qui répond, après le plan B b-c.
+
+**Nommé, non fait** : plan B étapes b-c (stockage GPU + noyau NkSL des particules ordinaires) ; SPH GPU ;
+les coefficients de Cébron & Sigrist restent lus à l'œil sur la figure (± 0,05).
+
+### ✅ 05/09 (00h) — PLAN (B), étapes b-c LIVRÉES : le stockage GPU des particules ordinaires, sans atomique — commit ci-dessous
+
+`NkParticleStoreGPU` derrière `NkIParticleStore` : trois tampons (état 3 × vec4 par emplacement, naissances,
+**instances créées `STORAGE | VERTEX`** — le noyau écrit ce que le dessin lit, aucune copie, `DrawCount()` =
+capacité, les mortes à taille 0) et un noyau NkSL `particles_sim` à **deux modes** (naissances vers leurs
+emplacements, puis intégration de tous les emplacements), chaîne de compilation copiée de `NkIBLCompute`.
+
+🔑 **Ce qui change par rapport au plan** : le plan prévoyait un `atomicAdd` pour attribuer les emplacements et
+un `AliveCount()` « une image plus tard » par relecture. Or **c'est le CPU qui a choisi la vie de chaque
+particule** : il tient donc lui-même l'horloge des morts (`life -= dt`, morte si ≤ 0, les mêmes opérations
+float32 que le noyau) → emplacements libres, `AliveCount` et emplacement de chaque naissance **exacts sans
+relecture ni atomique**, résultat déterministe. Les instances sont écrites par **deux vues du même tampon**
+(`float[]` et `uint[]`) : NkSL n'a pas `floatBitsToUint`, et une structure `{vec3, float, uint, float}`
+s'alignerait sur 32 o en std430 quand le dessin en lit 24.
+
+`NkVFXSystem` : **AUTO = GPU dès que le device a le compute** (décision du 04/09) ; sans compute → CPU dit ;
+refus du stockage GPU → CPU dit **avec la raison** ; un solveur (SPH) force le CPU et le dit. Piège payé :
+`renderer::NkShaderHandle` ≠ `nkentseu::NkShaderHandle` (CLAUDE.md), et le patch par heredoc Bash qui
+transforme `\n` (mémoire) — une course entière mesurée sur l'ancien binaire, jetée.
+
+| témoin (Release, OpenGL, Ilyana sur le GPU à 32-97 %) | mesure | verdict |
+|---|---|---|
+| même image CPU/GPU — fontaine déterministe (`NK_VFX_DETERMINISTE=1`, 3 000, **pas fixe** `NK_FIXED_DT=1`, image 120, région hors HUD) | 3 024 px > 8, écart moyen 1,05 ; **plancher CPU/CPU : 3 035 px, 0,96** (la rotation des disques reste tirée) ; 635 / 637 px particule, boîte à 1 px | ✅ dans le plancher |
+| même image — particule seule (image 60, région du disque) | boîte identique x[228..317] y[152..273], 5 894 / 5 888 px | ✅ |
+| tirage aléatoire 5 000 | **non comparable** : 87 000 px entre deux courses CPU (graine du hasard) | ⚠️ dit |
+| AUTO sans compute → CPU dit (`--backend=sw`) | « stockage GPU refuse (API sans compute) -> CPU » — par le **refus** : le device software annonce `computeShaders = true` sans API de calcul | ✅ dit / 🚩 capacité mensongère relevée |
+| courbe GPU 50 000 | CPU 0,12 (horloge) + 0,04 ms (envoi) contre 0,72 + 0,83 + 0,12 en CPU ; image GPU 5,6-7,4 ms (CPU : 6,5-6,9) | ✅ |
+| 500 000 | CPU 0,9 (naissances) + 1,0 + 0,04 ; image GPU 6,7-7,9 ms, passe VFX 0,82 ms | ✅ |
+| **1 000 000** | CPU naissances 2,4-4,6 (16 000 tirages/image, sur CPU par décision) + horloge 1,7-1,8 ms ; **image GPU 5,9-9,4 ms**, passe VFX 1,7-1,8 ms, dt réel 7-16 ms | ✅ « sous 16 ms » sur un GPU **partagé**, dit |
+
+Référence CPU à 1 000 000 (stockage CPU) : 14 + 12 + 4 ms. Le chrono GPU est celui de l'image entière (scène
+comprise) : le coût du dispatch seul n'est pas isolé (≲ 3 ms à 1 M par différence, pas mesuré à part).
+
+**Nommé, non fait** : DX11 / Vulkan / Metal non mesurés pour ce noyau (compilent par la même chaîne) ;
+graine du hasard fixable pour un plancher à zéro ; le **SPH GPU** (le repos est calme et le front juste :
+ses deux conditions sont réunies).
+
+### 📏 05/09 (00h40) — LE DFSPH SUR GPU : la même physique, pas encore le même coût — `540d6c3a`
+
+`NkSPHStoreGPU` derrière `NkIParticleStore`, fourni par le solveur lui-même (`NkIParticleSolver::CreateGPUStore`,
+que `NkSPHSolver` implémente) : `NkVFXSystem` l'initialise quand la cible résolue est GPU et retombe sur le CPU en
+le disant. **Grille par tri** (Green, *Particle Simulation using CUDA*, NVIDIA 2010, § « Building the Grid using
+Sorting ») : clé de cellule, **tri bitonique** — NkSL n'a **aucun atomique sur tampon** (seulement `imageAtomic*`),
+donc pas de tri par comptage —, début/fin de cellule là où la clé change ; les fantômes triés **une fois** dans
+leur grille, le fluide retrié à chaque sous-pas. **Une passe = un noyau** (15 noyaux NkSL, préfixe commun) :
+densité + α + voisines, κ (divergence / densité, borne de surface), correction, chaud amorti, XSPH + Morris sur
+tampon, gravité, réduction du résidu en 256 partiels **relu une fois par itération**, intégration + filets +
+instances, statistiques en 256 × 16. Fantômes : une seule recette CPU/GPU (`BuildBoundaryPositions`). Les
+paramètres et les statistiques restent ceux du `NkSPHSolver` : la sonde lit `Stats()` sans savoir où le fluide
+est calculé.
+
+**Trois rouges payés en chemin, dits** : (1) `C5058 no buffers available for bindable storage buffer` — NVIDIA
+expose **16 blocs de stockage par étage**, j'en déclarais 22 → regroupés en 12 (paires clé/indice, début/fin,
+champs par particule à foulée 8) ; (2) le stockage ordinaire **remplaçait** celui du solveur (deux lignes
+« -> GPU », vivantes 0 : `resolved == GPU` sans `!e->store`) ; (3) le piège `\n` de l'outil Bash, deux fois
+(une course entière mesurée sur l'ancien binaire, jetée ; une chaîne C cassée).
+
+| témoin (Release, OpenGL, Ilyana à **66-100 %** du GPU) | CPU | GPU | verdict |
+|---|---|---|---|
+| voisinage : réseau parfait sans gravité, 1 014 particules | ρ 0,976 (0,850..1,000), sol 1,000, vmax 0,00 | **identique à trois décimales** | ✅ même ensemble de voisines |
+| repos 10 s (2 048 + 8 800 fantômes) | 1,001 / sol 1,001 / vmax 0,015 | **1,001 (0,997..1,003) / 1,001 / 0,020**, 2048 et 256,01 kg, 0 NaN | ✅ les cinq |
+| mutation projection coupée | 5,90 | 5,90 | ✅ rouge des deux côtés |
+| dam carré, Cébron 2D / M&M | 10 % (18) / 65 – 28 % | **10 % (19) / 65 – 29 %** | ✅ |
+| canal n² = 2, M&M | 9 % (20) / 18 % | **9 % (20) / 18 %** | ✅ |
+| itérations (repos / dam) | 8,5 / 8 – 5 | 8,5 / 8 – 5 | ✅ |
+| même image à pas fixe (dam, image 40) | — | boîte identique x[148..382] y[200..362], 6 609 / 6 614 px, 6 886 px > 8 (XSPH Jacobi contre Gauss-Seidel, ordre des flottants) | ✅ à epsilon, dit |
+| `--backend=sw` / AUTO sur GL | — | « refuse : API sans compute -> stockage CPU » / « AUTO -> GPU (solveur sur GPU) » | ✅ dits |
+
+🔴 **Le coût** (ms/image, images 30/60, GPU partagé) : **4 096 : 26-29** (CPU 47-54, ÷2 seulement) ; **50 653 :
+128-136** (CPU 497-780 : ÷4-5 ; **cible 16**) ; **195 112 : 680-864** (cible 33) ; **1 000 000 : 4 880-5 268** ;
+repos 2 048 : 16-28 avec des pointes à 101-372. Deux causes mesurées : **23-117 synchronisations par image** (une
+relecture de résidu par itération et par sous-pas — `sync` dans la trace) et les passes de voisinage qui
+**recalculent la traversée des 27 cellules, les distances et le noyau à chaque itération** (le CPU les met en
+cache une fois par sous-pas). Leviers, dans l'ordre : listes de voisines en cache sur GPU (indices, noyau
+recalculé), résidu relu une itération sur deux, tri des seules particules qui ont changé de cellule.
+
+**Nommé, non fait** : ces leviers (suite immédiate) ; DX11/Vulkan/Metal pour ces noyaux ; le vent (`NkForceField`)
+— **rien n'existe** dans le code (un seul `windStrength` de matériau, un shader) ; la capacité mensongère du
+device software (`computeShaders = true` sans API) — à corriger dans NKRHI par l'agent qui y touchera.
+
+### 📏 05/09 (01h10) — SPH GPU, le premier levier de coût : listes de voisines en cache + résidu relu une itération sur deux — `23f36944`
+
+Un noyau `sph_neigh` construit **une fois par sous-pas** la liste des voisines de chaque particule (64 indices ;
+fluide < cap, fantôme ≥ cap ; compte brut relevé, dépassement dit) ; densité, κ, correction et non-pression
+lisent la liste (le noyau W/∇W est recalculé : moins cher que la traversée des 27 cellules). Le résidu est relu
+aux itérations impaires (divergence) et paires (densité) : au plus une itération de plus qu'en CPU — mesuré
+**9,0 au repos contre 8,5**.
+
+| ms/image (Release, OpenGL, Ilyana 56-97 %) | CPU | GPU avant | **GPU après** | cible |
+|---|---|---|---|---|
+| repos 2 048 (+ 8 800 fantômes) | 15-17 | 16-28 (pointes 372) | **8-11** | — |
+| dam 4 096 | 47-54 | 26-29 | **10-11** | — |
+| canal n² = 2, 8 192 | 75-190 | 54-79 | **15-16** | — |
+| dam 50 653 | 497-780 | 128-136 | **39-64** | 16 🔴 |
+| dam 195 112 | — | 680-864 | **164-254** | 33 🔴 |
+| dam 1 000 000 | — | 4 880-5 268 | **1 242-1 643** | honnête |
+
+Synchronisations par image : 12 au repos (23-24 avant), 16-25 à 50 653 (33-54), 44-65 à 1 M (91-117). **Témoins
+inchangés** (repos 1,001 / 1,001 / 0,016 ; Cébron 10 % ; M&M 9 % sur n² = 2).
+
+🔴 **Toujours hors cible** : 50 653 à 39-64 ms (×2,4-4 la cible), 195 112 à 164-254 (×5-8). Ce qui reste, dans
+l'ordre du coût : le **tri bitonique complet à chaque sous-pas** (136 passes à 65 536, 210 à 1 M — un tri par
+comptage demande un atomique sur tampon que NkSL n'a pas), les 16-65 synchronisations restantes, 3-4 sous-pas
+par image sur le dam (CFL sur vmax), et un GPU partagé. Leviers nommés, non faits : atomiques sur tampon dans
+NkSL puis tri par comptage ; retri des seules particules qui changent de cellule ; nombre d'itérations fixe
+mesuré (zéro relecture) ; un profil GPU par passe (le chrono est celui du CPU, relectures comprises).
+
+### ✅ 05/09 (01h40) — LE VENT : `NkForceField`, une source de force externe commune — `96f227ad`
+
+**Mesuré avant d'écrire** : rien n'existait (un seul `windStrength` de matériau — un shader, pas une force).
+`NkForceField` (Tools/VFX) vit sur l'émetteur (`NkEmitterDesc::field`) et s'ajoute à la gravité comme une
+**accélération**, là où elle est ajoutée, dans les **quatre chemins** : stockage CPU, noyau GPU ordinaire, SPH CPU,
+SPH GPU. **Une formule, deux langages** : `NkEvalForceField` (C++) et `NkForceFieldNkSL()` (source NkSL concaténée
+au préambule des noyaux, bloc uniforme `Field` de 3 vec4). Quatre formes : uniforme, vortex (tangentiel autour
+d'un axe, plein jusqu'au rayon puis en 1/r), turbulence (bruit de valeur à trois canaux), **bruit de curl**
+(rotationnel d'un potentiel de bruit par différences centrées — Bridson, Hourihan, Nordenstam, *Curl-Noise for
+Procedural Fluid Flow*, SIGGRAPH 2007 — à divergence nulle par construction).
+
+| témoin (§6.4) | mesure | verdict |
+|---|---|---|
+| force uniforme → accélération = F/m (particule seule, gravité nulle, pas fixe, centroïde du disque) | Δx(1 s)/Δx(0,5 s) = **4,34 / 4,64** CPU, **4,19 / 4,62** GPU (attendu 4 ; 3,94 en Euler explicite ; 3,5 px pour le petit déplacement → ±15 %) ; Δx(a=2)/Δx(a=1) = **2,06 / 2,20** CPU, **1,97 / 2,17** GPU (attendu 2) ; CPU = GPU à 0,3 px | ✅ à la précision du pixel |
+| bruit de curl → divergence nulle | \|div\| / (\|a\| · f) = **0,0005** sur 1 000 points ; **contrôle** turbulence : 1,56 | ✅ (< 5 %), le contrôle rougit |
+| SPH GPU au repos sous vent nul | 1,001 / sol 1,001 / vmax 0,021 — inchangé | ✅ |
+| SPH GPU sous vent latéral 0,5 m/s² | le fluide **s'incline** (surface −0,612 au lieu de −0,633) et reste calme (1,001 / 1,001 / 0,027) | ✅ (non demandé, mesuré) |
+
+Boutons : `NK_VFX_WIND` / `NK_SPH_WIND` = `uniform|vortex|turb|curl:strength[:fréquence]`, `NK_WIND_TEST=1`.
+**Nommé, non fait** : vortex et turbulence mesurés par la divergence seulement (pas d'image) ; tissu, cheveux et
+herbe liront ce même champ (§6.3, après).
+
+### 📏 05/09 (02h40) — ATOMIQUES DANS NkSL (`75c6955a`), TRI PAR COMPTAGE (`33da1d6b`), INTERFACE DU VENT (`ebf6c348`, `39d10222`) — et une cause d'hier fausse en grandeur
+
+**C. L'interface du vent, d'abord** : `Kernel/Foundation/NKMath/src/NKMath/NkIForceField.h` (`ebf6c348`, un fichier) —
+`math::NkIForceField::Force(const NkVec3f &position, float32 time) const` en **newtons** sur une particule ponctuelle, plus
+`NkUniformForceField` de test. C'est le texte de l'agent tissu **à l'octet près** (sa copie vit dans `NKPhysics/`, non
+commitée) ; en NKMath parce que **NKRenderer ne dépend pas de NKPhysics** (`rendererDeps`). `renderer::NkForceField`
+l'implémente (`39d10222`) : Force = accélération × `forceScale` (1 kg par défaut, convention dite). À la fusion, la
+copie NKPhysics devient un `#include` de celle-ci — écrit dans les échanges pour l'agent tissu.
+
+**A. Les atomiques sur tampon dans NkSL** (`75c6955a`) : `atomicAdd/Min/Max/And/Or/Xor/Exchange/CompSwap` sur un membre de
+bloc de stockage, `uint` et `int`, **le même chemin d'émission que `imageAtomic*`** — noms GLSL passés tels quels
+(GLSL, GLSL-Vulkan → SPIR-V par glslang → HLSL/MSL par SPIRV-Cross : le chemin des noyaux des stockages GPU) ;
+générateurs natifs HLSL (`Interlocked*`, forme à deux arguments sans valeur de retour, dit) et Advanced MSL
+(`atomic_fetch_*_explicit`). **Témoin** (`NkGpuAtomicWitness`, sonde `NK_ATOMIC_TEST=1`) : **1 048 576 invocations →
+1 048 576 exactement, `atomicMax` → 1 048 575, sur OpenGL ET sur Vulkan** ; mutation `C.c[0] = C.c[0] + 1u` → **48**
+(GL) et **33** (Vulkan) : le banc rougit sans atomique. `NkSLComputeCheck [ATOMIQUES]` : GLSL/GLSL-Vulkan portent
+`atomicAdd(`, SPIR-V 375 mots validés par glslang, HLSL-DX11 natif porte `InterlockedAdd` ; **HLSL-DX12 (SM6) et MSL
+natifs ne mappent pas** (trou préexistant : ils ne mappent pas non plus `imageAtomic*`), sans effet sur les devices.
+Pièges : `NkSLSymbolTable.cpp` a des **fins de ligne mixtes** (l. 629 finit par `\r`) — un motif LF n'y matche pas ;
+`K_COUNT` est le terminateur d'énumération des noyaux (collision de nom).
+
+**B. Le tri par comptage** (`33da1d6b`, Green 2010 § counting sort) : `sph_count` (atomicAdd par cellule), relecture des
+comptes + préfixe sur CPU (une synchronisation par sous-pas, dite), `sph_fill`, `sph_scatter` (atomicAdd sur le
+curseur) — trois noyaux au lieu de 136-210 passes bitoniques ; fantômes une fois. **Physique identique** : voisinage
+sur réseau parfait (1 014) à trois décimales, repos 10 s 1,001 / 1,001 / 0,014, Cébron 9 %, M&M 9 % sur n² = 2.
+
+| ms/image (Release, OpenGL, Ilyana 55-64 %) | bitonique + cache | **comptage** | cible |
+|---|---|---|---|
+| repos 2 048 | 8-11 | 9-11 (pointes 45-52) | — |
+| dam 4 096 | 10-11 | **7,5-12** | — |
+| canal n² = 2 (8 192) | 15-16 | 14-99 (pointe) | — |
+| dam 50 653 | 39-64 | **37-56** | 16 🔴 |
+| dam 195 112 | 164-254 | **172-238** | 33 🔴 |
+| dam 1 000 000 | 1 242-1 643 | **1 227-1 704** | honnête |
+
+🔴 **Ma cause d'hier était fausse en grandeur** : « le tri bitonique complet à chaque sous-pas » ne pesait presque
+rien — le remplacer ne bouge pas le coût. Ce qui coûte, à mesurer avant de toucher : les passes κ / correction (64
+voisines × N, 15-29 par image sur 3-4 sous-pas), les 19-55 synchronisations restantes, le GPU partagé. **Prochain
+instrument, nommé** : un profil GPU par passe (chrono GPU autour de chaque dispatch) — pas un nouveau levier à
+l'aveugle. Puis : itérations fixes mesurées (zéro relecture), scan GPU du préfixe.
+
+**Nommé, non fait** : ce profil ; DX12/MSL natifs pour les atomiques ; retri partiel ; device software qui ment
+(`computeShaders = true`) — agent NKRHI.
+
+### 📏 05/09 (03h40) — L'INSTRUMENT : le profil GPU par passe du SPH — `b037bf32` — et le levier qu'il désigne, essayé et rejeté
+
+**L'instrument** (couche du dessous d'abord) : `NkIDevice::GetTimestampResult(index, t0, t1)` (un chrono par index, le
+plus ancien résultat disponible, jamais bloquant — **ajouté en fin de classe**), anneau GL 32 × 8 ; dans le stockage
+SPH, `WriteTimestamp` autour de chaque `Dispatch` sur le chrono « 4 + sorte de noyau », drainé après chaque relecture,
+et l'attente CPU de chaque `ReadBuffer` chronométrée à part. `NK_SPH_PROFILE=1` → ligne `[SPH PROFIL]`. Vulkan n'a pas
+de chrono : refusé et dit. 🔴 **Rouge payé** : en portant l'anneau à 32, `GetTimestampResults` écrivait 32 paires dans
+le `uint64 ns[4]` du renderer — débordement de pile, SIGSEGV en `#0 0x0` après la première image, **même sans sonde** ;
+trouvé par l'épreuve de contrôle (HEAD tourne, mon diff plante), pas par la théorie de la vtable que j'avais d'abord
+suivie (objets périmés : mesuré faux). Borné par `count`.
+
+**Le tableau** (Release, OpenGL, Ilyana 43-75 % du GPU ; image 60, image 30 entre parenthèses) :
+
+| passe (ms GPU, nombre) | repos 2 048 | 50 653 | 195 112 |
+|---|---|---|---|
+| κ (divergence + densité) | 0,84 (22) | **9,5** (32) — (15,2 / 51) | **55** (48) — (91 / 85) |
+| correction | 0,84 (20) | **10,2** (28) — (16,6 / 48) | **58** (44) — (101 / 82) |
+| voisinage (cache) | 0,31 (2) | 3,0 (4) | 11,7 (4) |
+| non-pression (XSPH + Morris) | 0,10 | 1,8 | 6,8 |
+| densité-α | 0,06 | 1,3 | 3,5 |
+| réduction du résidu | 0,10 (10) | 0,76 (14) | 4,1 (22) |
+| **tri (count + fill + scatter)** | 0,06 | **0,15** | 0,3 |
+| **GPU total** | **2,4** | **27,2** (37,2) | **141** (216) |
+| attente CPU des relectures | 4,5 | **38,1** (55,0) | 181 (236) |
+| image CPU | 5,2 | **39,6** (57,1) | 184 (240) |
+
+🔑 **Lecture** : (1) κ + correction = **73 %** du GPU, ~0,30-0,36 ms par passe à 50 k = 64 voisines × 50 k = 3,2 M
+lectures de voisine par passe : **la bande passante**, pas le calcul ; (2) le tri que j'avais nommé « premier coût »
+vaut **0,5 %** ; (3) l'attente CPU des relectures = 96 % de l'image et dépasse le GPU total de ~11 ms à 50 k (bulles
+des 19-28 synchronisations) ; (4) 3-4 sous-pas par image (CFL sur vmax 7 m/s) multiplient tout.
+
+**Levier (a), essayé et rejeté** — itérations prédites (celles du sous-pas précédent, sondées à une de moins), relues
+une fois, prolongées si besoin : 50 653 → 35,7 ms à l'image 60 (au lieu de 39,6 ; GPU 26,3 inchangé) **mais 81 ms à
+l'image 30** (la prédiction traîne quand le besoin change vite) ; 195 112 → 299-304 (au lieu de 172-238) ; repos
+inchangé. Première version à `pred = it` : cliquet à 38-92 itérations (sur-convergence, 124-141 ms). **Non commité**,
+diff gardé dans le scratchpad. Le CPU n'attend pas des bulles évitables : il attend un GPU qui travaille.
+
+**Cible honnête** : 50 653 = **36-40 ms** avec le GPU partagé (cible 16 : ×2,3-2,5). **Extrapolation, dite comme
+telle** : GPU seul, passes ~1,5-2× plus rapides → GPU total 14-18 ms hors bulles ; la cible exigerait ET un GPU seul,
+ET zéro relecture intra-pas, ET moins d'octets par voisine (κ/ρ précalculé, positions et vitesses lues une fois par
+paire) — trois leviers, chacun à mesurer au tableau, un à la fois.
+
+**Nommé, non fait** : réduction de la bande passante par voisine ; scan GPU du préfixe (0,15 ms de tri : sans objet) ;
+fusion κ + correction (impossible sans barrière : deux gathers dépendants) ; **DX12/MSL natifs pour les atomiques**
+(trou préexistant, même pour `imageAtomic*` — pour l'agent NkSL quand il y en aura un) ; retri partiel ; device
+software qui ment (`computeShaders = true`, agent NKRHI).
+
+### 📏 05/09 (04h) — DERNIER LEVIER DE LA NUIT : moins d'octets par voisine — `0d53d6b3` — −9 % de GPU à 50 653, physique inchangée
+
+**Mesuré avant** : κ lisait `X[j]` + `V[j]` (16 + 16 o, deux tableaux), la correction `X[j]` + κ_j et ρ_j dans la ligne de
+32 o de `FL` (48 o, une division), la non-pression 64 o sur trois lignes. **Après** : un paquet par particule,
+`PK[2j] = (pos, κ/ρ)`, `PK[2j+1] = (vel, m/ρ)`, écrit par les noyaux qui changent pos / vel / κ / ρ ; fantômes écrits une
+fois. 16 blocs de stockage : la limite NVIDIA, atteinte.
+
+| 50 653, image 60 (Ilyana 59-66 %) | avant | **après** |
+|---|---|---|
+| κ (ms / dispatchs) | 9,5 / 32 (0,30 par passe) | **9,44 / 33 (0,29)** |
+| correction | 10,2 / 28 (0,36) | **9,18 / 30 (0,31)** |
+| GPU total | 27,2 (37,2 à l'image 30) | **24,7 (36,0)** |
+| image 0d53d6b3U | 39,6 (57,1) | **35,6 (53,4)** |
+| 195 112 : GPU total / image | 141 / 184 | **138 / 155** |
+
+Physique inchangée : repos 10 s **1,001 / 1,001 / 0,015** ; Cébron **10 %** ; M&M **9 %** sur n² = 2 ; même image à pas fixe
+contre la référence 0d53d6b3U (6 651 / 6 609 px, boîte à 1 px). **Lecture honnête** : −9 % de GPU, −10 % d'image — les octets
+par voisine ne sont pas tout le coût d'une passe (liste de 64 indices = 256 o par particule, noyau W/∇W, GPU partagé).
+**Cible** : 50 653 = **35,6 ms** (image 60) / 53 (image 30) sur GPU partagé, ×2,2-3,3 la cible 16. **Extrapolation, dite
+comme telle** : GPU seul → 12-16 ms de GPU hors bulles. Non fait : indices de voisines en `uint16` relatifs à la cellule.
+
+### ✅ 05/09 (04h20) — LE VENT EN NEWTONS, tranché par délégation — `97e9c28f` (contrat, un fichier), `9468fe2f`
+
+`NkIForceField::Force` rend des **newtons** ; **chaque consommateur divise par la masse de SA particule** :
+`NkEmitterDesc::particleMass` (**explicite**, 1 kg par défaut, `NK_VFX_MASS` dans la sonde) pour les particules CPU/GPU,
+`Mass()` calibrée pour le SPH CPU/GPU (0,125 kg dans les scènes : 0,0625 N par particule = l'ancien 0,5 m/s²).
+`forceScale` a disparu ; le bloc uniforme `Field` porte 1/masse. Même convention chez l'agent tissu ; le contrat en une
+ligne dans l'en-tête NKMath est cherry-pickable. **Témoin** : F = 1 N, t = 1 s → Δx(m = 1) / Δx(m = 2) = **2,12 (CPU),
+2,11 (GPU)**, attendu 2 ; SPH GPU sous 0,0625 N : surface −0,609 (−0,612 avant, même inclinaison), vmax 0,023 ;
+divergence du curl 0,0005. La décision `forceScale` n'attend plus Rodolf.
+||||||| 27e5b34c
+### 🧵 05/09 (03h30) — LE TISSU : XPBD dans NKPhysics (`NkCloth`), sept témoins verts, mutation rouge, courbe (rouge dit), image — `8f577adc` + commit ci-dessous
+
+*Rodolf (05/09, 01h) : « est-ce que les tissus, la fumée, le feu, les océans sont déjà traités ? » — non. Le tissu est la
+famille 3 de `ROADMAP_PRODUITS.md` §6 ; ceci est le lot du 05/09, dans l'arbre `Nkentseu-tissu` (branche `feat/noge-tissu`
+depuis `feat/noge-inventaire`).*
+
+**Mesuré avant d'écrire, rien supposé.** `NkClothSim`, `NkClothSystem`, `NkHairSim`, `NkSoftBody` existent dans Noge
+(`Engine/Noge/src/Noge/Physics/NkPhysicsMesh.h`, `Systems/NkPhysicsSystems.h`) : ce sont des **déclarations sans un seul
+corps** — `grep -c "NkClothSystem::" NkPhysicsSystems.cpp` = 0, zéro appelant, des poignées GPU `nk_uint64` jamais
+remplies (le `ROADMAP.md` de Noge les classe « spec seule, compute shaders, Phase C »). Aucun `NkPBD*`/`NkXPBD*` ; la
+« contrainte de distance » de NKPhysics est un **joint entre corps rigides** (`CreateDistanceJoint`), pas une contrainte de
+particules ; la grille du SPH est une méthode **privée** de `NkSPHSolver` soudée à `NkSPHParams` (boîte fixe, cellule = h)
+et à ses tampons de noyau, dans NKRenderer ; `NkIParticleStore` est l'état d'un **émetteur** (naissances/morts, pile
+d'emplacements, tampon d'instances du quad, `NkIDevice`, `NkEmitterDesc`) ; `physics::NkRagdoll` fournit des corps
+(sphère/capsule) dans un monde ; `NkTransformShape` (forme monde depuis la forme de repos) était `static` dans
+`NkPhysicsWorld.cpp`, invisible du dehors.
+
+**Où il vit, et pourquoi** : **NKPhysics** (`Kernel/Runtime/NKPhysics/src/NKPhysics/NkCloth.h/.cpp`, `NkSpatialHash.h`),
+namespace `physics`. Bibliothèque de simulation pure, zéro STL, formes de NKCollision pour les collisions, les corps du
+ragdoll dans le même module (`AddCollidersFromWorld(monde, masque de couche)` prend les formes MONDE des corps par la
+**même** `NkTransformShape` que la synchronisation du monde — remontée dans `NkRigidBody.h` pour ça), suite
+`NKPhysics_Tests` déjà rouverte. Pas dans NKRenderer à côté du SPH : un tissu est un **maillage** à topologie fixe qui se
+dessine comme un maillage, pas un émetteur. Le composant ECS `NkClothSim` de Noge est l'endroit où ce solveur se branchera
+(nommé, non fait : c'est de l'intégration Noge, pas de la physique).
+
+**Modèle (cité dans le code)** : PBD (Müller, Heidelberger, Hennix, Ratcliff 2007) avec la raideur XPBD (Macklin, Müller,
+Chentanez 2016, éq. 17-18 : `alpha~ = alpha / h²`, `dlambda = (-C - alpha~ lambda) / (w_a + w_b + alpha~)`), sous-pas de
+Macklin et al. 2019. Particules (pos, prev, vel, masse inverse — 0 = épinglée) + contraintes de distance **structurelles**,
+**cisaillement** (deux diagonales par quad), **flexion** ; collisions sphère / capsule / plan / boîte alignée par projection
+à l'épaisseur ; auto-collision par hachage spatial ; vitesses `(x - x_prev)/h`, amortissement `1 - damping h`.
+
+**Choix, dits** :
+- **Flexion = distance entre sommets opposés** (deux arêtes d'écart, Provot 1995), pas l'angle dièdre de Müller 2007 §4.3 :
+  même projection que les autres contraintes (un seul code, une seule formule XPBD), pas de singularité à plat (le gradient
+  du dièdre s'annule quand les deux triangles sont coplanaires — la position de repos d'une nappe), coût d'une arête. Perdu :
+  la flexion vraie sur un maillage triangulé quelconque — nommé.
+- **Stockage = colonnes SoA propres**, pas `NkIParticleStore` : celui-ci est l'état d'un émetteur dans NKRenderer, que
+  NKPhysics ne voit pas ; le réutiliser aurait tiré le tissu dans le système d'effets ou le renderer dans la physique. Même
+  forme (une colonne par attribut, pointeurs bruts pris une fois par pas).
+- **Grille = `NkSpatialHash` propre** (Teschner et al. 2003 : cellule hachée par les trois grands premiers, table 2N, tri par
+  comptage — le MÊME schéma que `BuildNeighbors` du SPH, seule l'adresse est hachée). Pourquoi pas celle du SPH : privée,
+  dans NKRenderer, boîte fixe ; une nappe n'a pas de boîte fixe et 1 m³ à cellules de 3 mm = 32 M de cellules denses. Le
+  jour où le SPH veut une boîte mobile, c'est celle-ci qu'il prend.
+- **Vent = `math::NkIForceField`** (`Kernel/Foundation/NKMath/src/NKMath/NkIForceField.h`, **cherry-pick `ebf6c348`** du
+  chantier Noge → `b36df7f3` ici : la seule couche que NKRenderer et NKPhysics voient tous les deux), `Force(position,
+  temps)` en **newtons** par particule, champ uniforme de test, projection sur la normale optionnelle (`forceOnNormal`, une
+  voile). ⚠️ **Écart d'unité** avec le `NkForceField` du VFX (`96f227ad`), qui s'ajoute à la gravité comme une
+  **accélération** sur des particules sans masse : à trancher à la fusion (adaptateur d'un côté, masse unitaire de l'autre).
+- **Frottement EN POSITION** (Macklin et al. 2014, §6.1 éq. 23 : le glissement tangentiel du sous-pas est annulé s'il est
+  < mu d, sinon réduit de mu d), sur les contacts ET les auto-contacts (glissement relatif). Mesuré avant, en vitesse
+  (`v_t *= 1 - mu`) : la nappe posée sur la sphère glissait de 3 cm/s et tombait à t = 4 s — un frottement en vitesse ne
+  produit pas d'adhérence.
+- **lambda remis à zéro à chaque sous-pas** (XPBD 2016 §3.3). Le démarrage à chaud (lambda du sous-pas précédent appliqué
+  une fois avant d'itérer, comme le kappa du DFSPH) a été essayé et **retiré** : échelle 1,0 et 0,9 → NaN, 0,7 → explosion
+  (vmax 52 m/s), 0,5 → stable sans converger. La correction de position du sous-pas précédent est déjà dans la vitesse :
+  elle compte deux fois.
+- **32 sous-pas x 4 itérations** par défaut, mesuré (table dans `NkCloth.h`) : à 4 x 4, n_it passes de Gauss-Seidel ne
+  propagent pas la charge le long d'une colonne de 31 maillons (diffusif, O(k²)) — (a) à 21,8 % d'étirement, (d) à 55 %
+  d'écart **sur un solveur juste mais non convergé** ; ce sont les sous-pas qui convergent (16 x 4 : 1,45 % / 1,1 % ;
+  32 x 4 : 0,43 % / 0,26 % ; 4 x 64 : 1,5 % / 0,02 %).
+- **Liste des paires d'auto-collision** relue à chaque itération, reconstruite quand la dérive cumulée `2 vmax h` atteint la
+  marge (rayon de recherche 4r = contact 2r + marge 2r) : au repos une traversée par pas, en chute une tous les quelques
+  sous-pas. Mesuré : la traversée des 27 cellules à chaque itération coûtait 50 ms sur 61 à 32 x 32 ; une liste par pas
+  avec marge `2 vmax dt` coûtait 0,9-3,4 s à 128 x 128 (rayon 84 mm pour 7,9 mm d'espacement : 350 voisines).
+
+**Témoins (§6.4), scènes fixées AVANT l'image — `tests/test_cloth.cpp`, appelé par le `main` de `test_physics.cpp`,
+`jenga test --config Release --project NKPhysics_Tests` : 61 + 22 = 83 passes, 0 échec.** Nappe 1 m x 1 m, 32 x 32,
+0,2 kg, dt = 1/60, 32 x 4 :
+
+| témoin | mesure | critère | verdict |
+|---|---|---|---|
+| (a) drapé au repos, deux coins hauts épinglés, 5 s | étirement max **0,43 %**, moyen 0,018 % ; vmax 0,0003 m/s ; E = 0,9798 J constante à 1e-4 près | < 1 % ; < 0,01 m/s ; non croissante | ✅ |
+| (f) conservation | 1024 particules, 0,2000 kg, à chaque scène | constants | ✅ |
+| (b) nappe lâchée sur une sphère R = 0,3 | pénétration max des centres **0,000 mm** ; 14,9 % des particules à la surface ; centre y = 0,3044 pour 0,3050 | < 1 mm ; ≥ 10 % ; ± 5 mm | ✅ |
+| (c) nappe pliée en deux sur un plan (2r = 25,8 mm) | écart des pans **63,3 mm** ; dmin non voisines 25,8 mm ; **auto-collision coupée : −1,2 mm** | ≥ 20,6 mm ; ≥ 23,2 mm ; contre-épreuve rouge | ✅ |
+| (d) **raideur indépendante du pas** (rangée haute épinglée, alpha 0,05 m/N) | élongation moyenne **0,1284 % à dt, 0,1280 % à dt/2 — écart 0,26 %** ; PBD pur (`xpbd = false`) : 0,0040 / 0,0010 %, écart 75 % | ≤ 5 % ; contre-épreuve rouge | ✅ |
+| (e) vent uniforme F = m g tan 30° par particule, rangée haute épinglée, 8 s | angle **30,07°** ; vmax 0,013 m/s | 30° ± 3° | ✅ |
+| (g) une capsule cinématique du monde porte la nappe (`AddCollidersFromWorld`) | pénétration 0,000 mm, filtre de couche (1 puis 3 formes), 0 forme ignorée | | ✅ |
+
+**Mutation SOURCE** (`dl = -C / wsum` dans `SolveDistances`, `grep -c` = 1, binaire reconstruit) : **(d) rougit** (0,0040 /
+0,0010 %, et l'élongation n'est plus mesurable) — et (c) aussi. Restaurée **depuis une copie** (`cmp` identique, `grep -c`
+= 0), suite verte.
+
+**Trois rouges payés par les scènes, dits dans les sources** : le vent soufflait **dans le plan** de la nappe (1,17° au
+lieu de 30 : une nappe XY ne se cisaille pas, elle bascule autour de sa rangée si le vent est selon z) ; compliance 0,002
+m/N **négligeable** devant 1/m = 5 120 kg⁻¹ (`alpha~/w` = 1 % : XPBD et PBD donnaient les mêmes chiffres, 0,45 / 0,15 %) ;
+charnière du pli **comprimée** (2r + 2 mm < espacement : elle poussait le pan du dessus hors du pan du dessous).
+
+**Courbe (Release, OpenGL, `renderdemo --demo=2 NK_CLOTH_PROBE=1 NK_CLOTH_N=…`, pas fixe 1/60, moyenne des 60 premières
+images = la chute comprise, 32 x 4, `NkChrono` autour de `Step`, Ilyana sur le GPU — le tissu est CPU) :**
+
+| nappe | ms / image avec auto-collision | sans | rapport à 32² (avec) | listes de paires / image |
+|---|---|---|---|---|
+| 32 x 32 (1 024) | **13,3-14,8** | 11,4-16,2 | 1 | 1 |
+| 128 x 128 (16 384) | **338-358** | 162-166 | 23-27x pour 16x de particules | 3-8 |
+| 256 x 256 (65 536) | **1 093-1 317** | 665 | **74-99x pour 64x** | 11 |
+
+🔴 **Le critère « 256² ≤ 64 x le coût de 32² » est ROUGE : 74-99x.** Le solveur seul est sous-linéaire (665 / 11,4-16,2 =
+41-58x pour 64x) ; c'est l'auto-collision qui dépasse, et la cause est mesurée dans la colonne de droite : le nombre de
+reconstructions de la liste par image n'est pas indépendant de l'échelle — la marge vaut 2r, et r = 0,4 x espacement
+divise par 8 de 32² à 256², donc à vitesse égale la liste se reconstruit 8x plus souvent (11 par image contre 1). Chaque
+construction est O(N) (~0,7 µs par particule), mais leur nombre est O(v / r). Leviers nommés : marge découplée de r (par
+exemple 4 espacements, la liste grossit peu sur une nappe plate), mise à jour incrémentale des seules particules qui ont
+changé de cellule, et surtout le GPU. Et le coût absolu — **1,1-1,3 s par image à 256²** — dit la même chose que le
+DFSPH : 128 passes de contraintes par image sur le CPU, c'est le prix des témoins ; les leviers de convergence (Jacobi +
+Chebyshev, coloriage de graphe, attaches à longue portée pour les épingles — Kim, Chentanez, Müller 2012) sont ceux qui
+rendraient 8 x 4 suffisant.
+
+**Image** : `Captures/noge_tissu_drape_2026-09-05.png` (494 688 o, allowlist du `.gitignore`, ligne dans
+`Captures/LISEZMOI.md`) — `NK_CLOTH_N=64 NK_CAPTURE=150`, nappe 64 x 64 de 2,4 m (orange Rihen, maillage dynamique par
+`NkMeshSystem::UpdateVertices`, 7 938 triangles) drapée sur une sphère R = 0,8 m (pétrole Rihen) **en l'air**, vent 0,4 m g
+projeté sur la normale (le pan de droite se soulève), auto-collision active ; 42-60 ms par pas. Ma fenêtre seule
+(`NK_CAPTURE` = relecture de la cible finale, aucune capture d'écran), premier plan lu avant (le VS Code de Rodolf),
+`NKIlyana.exe` (PID 29432) présente avant et après chaque course, jamais touchée. Deux rouges payés pour l'image : au sol,
+la scène était **cachée dans le cube central** de la démo (deux captures vides, « dessin soumis » imprimé) ; à 1 m / 0,35 m
+elle tenait dans un vingtième du cadre.
+
+**Nommé, non fait** : brancher `NkClothSim` (Noge, ECS) sur `NkCloth` — et décider ce que deviennent ses poignées GPU
+déclarées ; **cheveux = tissu 1D** (chaîne de particules, mêmes contraintes de distance + flexion, `NkHairSim` déclaré sans
+corps) + rendu de brins + attache au crâne par `NkSkeletonDef` ; **herbe** = instanciation + vent + shader (rien à
+simuler) ; **GPU** (noyaux NkSL, Jacobi par coloriage, comme `NkSPHStoreGPU`) ; flexion dièdre ; boîte orientée et formes
+concaves comme colliders (comptées `collidersIgnored`) ; frottement dont la limite mu d dépend du sous-pas (à 16 x 4 le
+pli glissait, à 32 x 4 non) ; **normale du plan non tournée** dans `NkTransformShape` (passe par `default`, mesuré en la
+déplaçant — un corps-plan tourné garde sa normale de repos) ; unité du vent (N contre accélération) à trancher ; le puits
+console de NKLogger muet à travers un tuyau en Release (les témoins impriment sur stderr, dit dans le fichier).
+
+### 🧵 05/09 (05h) — TISSU, suite : le vent TRANCHÉ, le levier de la liste de paires mesuré, le LOT BUDGET (« est-ce que ça va supporter du temps réel ? »), et le déclaré non livré de Noge — `9733ffa2`, `22329a0d`, commit budget ci-dessous
+
+**Vent — unité tranchée par le coordinateur (05/09, 04h)** : `math::NkIForceField::Force` rend des **newtons** ; chaque
+consommateur **divise par la masse de SA particule** (la nappe : 0,2 kg / 1 024 ; le VFX : sa masse par particule, 1 kg par
+défaut, lue — jamais supposée en silence). Le contrat tient en une ligne dans l'en-tête, commit `97e9c28f` de l'agent Noge,
+**cherry-pick `22329a0d`** ici : les deux branches portent le même fichier à l'octet près, la fusion n'a rien à réconcilier
+sur le vent.
+
+**Déclaré non livré, à porter au branchement ECS** : `NkClothSim`, `NkClothSystem`, `NkHairSim`, `NkSoftBody` de Noge
+(`Physics/NkPhysicsMesh.h`, `Systems/NkPhysicsSystems.h`) sont des déclarations sans corps ni appelant, avec des poignées
+GPU `nk_uint64` que personne ne remplit. Le solveur vivant est `physics::NkCloth` ; le jour du branchement, `NkClothSim`
+devient l'enveloppe ECS de `NkCloth` (paramètres + épingles + entité maillage), et ses poignées GPU déclarées disparaissent
+ou attendent le GPU par coloriage — pas un troisième tissu.
+
+**Levier de la liste de paires (`9733ffa2`), mesuré à 256² (Release, moyenne des 60 premières images, chute comprise)** :
+critère **exact** (positions mémorisées à la liste ; deux particules ne peuvent s'être rapprochées de plus de
+`2 max_i |d_i − d_moyen|`, comparé à la marge — en chute libre tout bouge ensemble, rien ne se rapproche), marge
+`max(2r, k vmax dt)` :
+
+| k | listes / image | paires | ms / image |
+|---|---|---|---|
+| 0 | 13,8 | 190 | 1 215 |
+| **0,15** | 7,8 | 208 | **1 150** ← retenu |
+| 0,25 | 5,1 | 571 | 1 232 |
+| 0,5 | 2,6 | 790 k | 2 037 |
+| 1 | 1,3 | 3,96 M | 5 052 |
+
+🔴 Le témoin « ≤ 2 listes par image à 256² » n'est atteint qu'à k ≥ 0,5, **où le coût double** : ce n'est pas le nombre de
+listes qui coûte, c'est le nombre de paires relues par les passes. La mesure désignait donc le nombre de passes — et c'est
+ce que le lot budget a pris.
+
+**LOT BUDGET (Rodolf, 04h : « la simulation de tissu est très lente »)** — règle prise cette nuit par l'agent Noge :
+**profil avant tout levier**, par une horloge **prêtée par l'appelant** (`params.clock`, NKPhysics n'a pas NKTime ; la
+sonde prête `NkChrono`), une phase = un poste (`NkClothProfile`).
+
+Profil AVANT (32², 32 x 4, image 120) : **11,7 ms** = prédiction 0,61 | structurelles 3,10 | cisaillement 3,18 | flexion
+3,24 | colliders 1,02 | listes 0,10 + résolution 0,02 | vitesses 0,04 | mesure 0,41. **Les contraintes sont 82 % du coût, à
+13 ns par projection** — du Gauss-Seidel séquentiel, non vectorisable ; sur CPU le seul levier est le nombre de passes.
+
+**Pourquoi 32 sous-pas — la cause, mesurée** : `bendCompliance = 0,01 m/N` donnait α̃ = 0,01 / h² = 576 contre 2w = 10 240,
+une flexion quasi **rigide** (une plaque, pas un tissu) — et c'est elle qui exigeait 32 sous-pas à (d). Balayage (écart (d)
+entre dt et dt/2 ; (a) = étirement max de la scène singulière) :
+
+| sous-pas x itérations | (d) flexion 0,01 | (d) flexion 1,0 | (a) flexion 1,0 |
+|---|---|---|---|
+| 8 x 1 | 52 % | 19 % | 21 % |
+| 16 x 1 | 27 % | 7,0 % | 6,4 % |
+| 32 x 1 | 11 % | 2,9 % | 1,7 % |
+| 8 x 2 | 40 % | 7,4 % | 12 % |
+| **16 x 2** | 9,6 % | **0,64 %** | 3,4 % |
+| 32 x 2 | 1,3 % | 0,27 % | 0,88 % |
+
+**Défaut : flexion 1 m/N, 16 x 2 (32 passes au lieu de 128).** (b) (c) (d) (e) (g) verts au défaut ; la scène (a) (deux
+coins épinglés à exactement la largeur : la rangée haute est une corde tendue à sa longueur, tension infinie sans sag)
+reste singulière et garde 32 x 2 dans son témoin, dit là-bas ; (e) sur 10 s, seuil 0,05 m/s (la flexion souple flotte
+encore à 8 s : 0,032 m/s). Suite : **83 passes**. Macklin 2019 donne 4-10 x 1 ; ici 16 x 2 — l'écart restant est la
+flexion par distance (deux arêtes, raide par construction) et les diagonales rigides ; nommé.
+
+**Profil APRÈS (image 120 ; moyenne 60-120 entre parenthèses)** :
+
+| nappe | total | prédiction | struct | cisaillement | flexion | colliders | listes | mesure |
+|---|---|---|---|---|---|---|---|---|
+| 32² (1 024) | **2,56 ms** (3,17) | 0,25 | 0,69 | 0,62 | 0,63 | 0,28 | 0,04 | 0,02 |
+| 64² (4 096) | **12,8 ms** (14,2) | 1,02 | 2,71 | 2,62 | 2,72 | 1,42 | 2,09 | 0,10 |
+| 128² (16 384) | **72,3 ms** (75,9) | 4,58 | 11,65 | 11,53 | 11,81 | 6,42 | **25,6** (3 listes / image, 8 ms chacune) | 0,29 |
+
+🔴 **Cibles du coordinateur, avec le chiffre** : 32² < 2 ms → **2,6-3,8 ms** (÷3,6 obtenu sur 11-16, pas ÷6) ; 64² (un
+vêtement de jeu) < 4 ms → **12,8-15,8 ms** ; 128² < 12 ms → **72-76 ms**, dont 35 % de construction de listes (8 ms par
+liste à 16 384 particules : la traversée hachée des 27 cellules et `Adjacent()` par balayage). `Measure()` ne retraverse
+plus le hachage (dmin lu sur la liste de paires : 0,47 → 0,02 ms). `selfEveryIteration` (résolution des paires une fois par
+sous-pas) mesuré **sans effet** (la résolution coûte 0,0-0,2 ms) — laissé vrai.
+
+**Ce que le profil désigne, dans l'ordre, nommé** : (1) **le GPU par coloriage de graphe** — Jacobi par couleurs (une nappe
+régulière se colorie en 8 couleurs pour structurelles + cisaillement + flexion), noyaux NkSL sur tampons SoA, le même
+chemin que `NkParticleStoreGPU` / `NkSPHStoreGPU` ; cible écrite : **10 vêtements de 4 096 sous 4 ms GPU** ; (2) le
+hachage (cellules triées une fois par liste, `Adjacent()` par masque de bits sur la grille, 35 % à 128²) ; (3) les colliders
+une fois par sous-pas (9 %) ; (4) 12 x 2 non mesuré ; (5) SoA aligné + `-Rpass=loop-vectorize` ne rendra rien tant que le
+solveur est Gauss-Seidel — c'est Jacobi (donc le GPU) qui vectorise.
+
+### 👗 05/09 (matin) — DES VÊTEMENTS SUR UN MANNEQUIN EN MOUVEMENT : ce qui marche, ce qui ne marche pas encore, et le chiffre de chaque phrase
+
+*Rodolf, 05/09 à 07h : « j'aimerais que tu me dises si on pourra simuler des vêtements sur des mannequins
+en mouvement sans que le tissu n'entre dans les mesh du mannequin ». Réponse courte : **oui pour le contact
+avec les proxies (0,000 mm), non encore pour « dans le maillage » (0 n'est pas atteint)** — et ce qui manque
+est nommé plus bas. Lot dans `Nkentseu-noge`, après la fusion de `feat/noge-tissu`.*
+
+**Le modèle, et ce que Rodolf fournit.** Ses mannequins (`D:\Rodolf\manequin`) sont du **FBX Mixamo**.
+Mesuré, pas supposé : `XBot.fbx` **skinné** charge (99 796 sommets, 49 112 triangles, 65 joints) — ce
+chemin fonctionne ; mais `Walking.fbx`, **clip seul**, rend `charge=0, 0 animation, 0 sommet` (65 nodes
+lus) : **notre chargeur FBX ne lit aucune courbe d'animation**. Les `.glb` (XBot, YBot) portent bien un
+squelette mais leur clip embarqué dure **0,03 à 0,07 s** (une T-pose). Un seul actif du dépôt porte une
+vraie marche : **CesiumMan** (2,00 s). ⚠️ **Chantier NKRenderer nommé, non pris ici** : lecture des
+`AnimationCurveNode` FBX, et reciblage d'un clip sans peau sur un squelette par les noms (NkAnima).
+**Ce que je demande à Rodolf** : les mêmes marches **en glTF** (`.glb`, squelette + une animation, T-pose,
+mètres) — Mixamo l'exporte en option ; sinon le chargeur FBX passe devant les vêtements.
+
+**IN PLACE, tranché par Rodolf** (« éviter que les animations envoyées utilisent leur propre déplacement
+monde… ou toi-même tu prends la main ») : le clip **ne déplace jamais** le personnage. La sonde mesure le
+déplacement horizontal de la racine sur le clip (première image contre huit autres) et le **verrouille**
+s'il existe ; l'avance vient du **code** (1,2 m/s, demi-tour optionnel), jamais d'une touche injectée
+(porte). Mesure : XBot.glb **0,000 m**, CesiumMan **0,010 m** — les deux sont déjà in place.
+
+**Ce qui a été construit** (commits `NKPhysics` puis sonde) :
+- `NkCloth` reçoit des **colliders animés** : l'appelant écrit la pose de fin de pas, le tissu garde celle
+  de début, chaque **sous-pas voit la forme interpolée** — une capsule à 3 m/s parcourt 50 mm par image
+  mais 1,6 mm par sous-pas (l'anti-tunnel), et le **frottement lit la vitesse du collider** (sinon un bras
+  qui bouge laisse la manche derrière lui). Témoins : tapis roulant 0,97 m sur 1,0 (contre-épreuve
+  0,000 m) ; capsule à 3 m/s à travers un rideau : **0 particule traversée, 22 sans l'interpolation**.
+- **Épingles à cible** : une particule épinglée suit un os **linéairement sur les sous-pas**, avec sa
+  vitesse — c'est l'attache d'un vêtement à un squelette. Erreur mesurée : **0,000 mm** partout.
+- `NkMannequin` : les **20 rôles** d'un humanoïde résolus par la **structure** du squelette (les noms ne
+  départagent que gauche et droite) — le rig Mixamo et le **même rig privé de tous ses noms** donnent la
+  même carte ; capsules **ajustées sur la peau** (quantile 0,9 des distances des sommets au segment).
+  Sur XBot : 26 capsules, taille 1,82 m, épaules 0,09 m, hanches 0,16 m, rayons 144 / 147 / 97 / 122 mm.
+- `NkGarment` : **sept vêtements procéduraux** (cape, foulard, jupe, t-shirt, chemise, robe, pantalon) +
+  chapeau rigide, chacun **une fonction des mesures du corps**, épinglé aux bons os, panneaux **cousus**
+  (t-shirt : emmanchures à trous, manches cousues au bord). Une seule table de mesures : **la même
+  fonction habille l'homme et la femme**, rien n'est écrit par corps.
+
+**🔴 LE RÉSULTAT, SUR CesiumMan (5,5 s, sa vraie marche, avance 1,2 m/s)** :
+
+| vêtement | particules | pas (ms) | pénétration des CAPSULES | particules **DANS LE MAILLAGE** |
+|---|---|---|---|---|
+| cape | 392 | 8,6 | **0,000 mm** | max 9 / image, moyenne 1,66 |
+| foulard | 112 | 1,8 | **0,000 mm** | 9 à 13 **en permanence** (le col traverse la mâchoire) |
+| jupe | 840 | 20,5 | 43,97 mm 🔴 | max 37, moyenne 8,80 |
+
+**« Aucune particule dans le maillage » n'est donc PAS atteint.** Les proxies capsules tiennent le contact
+(0,000 mm sur cape et foulard, à chaque image, y compris en marche) mais **une capsule ne décrit pas une
+section qui n'est pas un disque** : aux endroits où le corps s'écarte du cylindre (mâchoire, aisselle,
+entrejambe, fesses), le tissu passe sous la peau sans jamais pénétrer la capsule.
+
+**🔬 ET LE TEST LUI-MÊME A DÛ ÊTRE MIS À L'ÉPREUVE — sans ça, ce lot concluait FAUX.** Le premier chiffre
+mesuré était « 132 particules de jupe dans le corps de XBot, en permanence ». Contrôle **positif** (le
+centre de chaque triangle rentré de 1 cm sous sa face, donc dedans par construction) : la parité n'en
+reconnaît que **47,4 %** sur XBot et **48,8 %** sur YBot — ces corps Mixamo sont faits de **plusieurs
+coques ouvertes qui se recouvrent**, un rayon en traverse deux là où il devrait en traverser une. Sur
+CesiumMan, le même contrôle rend **100 %**, et le contrôle négatif (512 points à 3 m) **0**. Les 132
+étaient un **artefact de l'actif**, pas une pénétration. *Un test point-dans-maillage ne vaut que sur une
+surface fermée, et un personnage de production n'en est pas une : le contrôle positif se fait AVANT de
+lire le verdict.* Un second test a été écrit pour les coques ouvertes (triangle le plus proche + signe de
+sa normale, Ericson §5.1.5) : il rend **102 faux positifs sur 512** sur XBot contre 2 sur CesiumMan — lui
+non plus ne sauve pas un maillage à coques imbriquées, dit.
+
+**Le skinning — la question de Rodolf à 12h (« les vertices sont saccadés »).** Témoin en quatre points,
+imprimé à l'ouverture de la sonde : (1) **pose de repos skinnée contre maillage brut = 0,0000 m** sur XBot
+et YBot ; (2) somme des poids **[1,0000 ; 1,0000]**, 0 sommet à poids nul ; (3) **0** indice d'os hors
+bornes ; (4) **0** os déclaré avant son parent. Et en mouvement : **allongement max d'arête ×1,00, 0 arête
+au-delà de ×2 sur 147 336**, avec et sans la marche. **La liaison et la pose sont saines sur ces corps.**
+CesiumMan rend 2,19 m au témoin (1) : ce n'est **pas** un défaut de poids mais un changement de **repère**
+(fichier Z-up, rotation portée par le nœud racine) — le témoin (1) ne vaut que pour un modèle dont le nœud
+est l'identité, dit.
+
+**Ce qui manque pour atteindre zéro** (nommé, non fait, avec son coût) :
+1. **Collision contre le maillage skinné**, pas contre les capsules — c'est l'étage (b) annoncé. Le test
+   point-dans-maillage coûte **112 ms par image** en l'état (parcours de 4 672 triangles par particule) :
+   inutilisable tel quel. La forme praticable est un **champ de distance signé du corps**, recalculé à
+   basse résolution par image (64³ autour du personnage), lu en une interpolation trilinéaire par
+   particule — coût attendu de l'ordre du budget des colliders actuels ; à mesurer, pas à promettre.
+2. **Le col du foulard** traverse la mâchoire : ajustement du patron contre la tête, ou col plus bas.
+3. **La jupe** sur CesiumMan s'étire (416 %) et pénètre : ses jambes s'écartent plus que le patron ne le
+   permet ; il faut une jupe plus évasée ou un patron qui lit l'amplitude du clip.
+4. **Le pantalon** : sa couture ceinture-jambe est tirée par la cuisse qui pivote (9,6 % d'étirement en
+   marche synthétique, **inchangé de 32 × 4 à 32 × 8** — ce n'est donc pas un défaut de convergence mais
+   de patron : il manque un fond d'entrejambe).
+5. **Le GPU par coloriage** (déjà nommé par l'agent tissu) : 20 ms pour une jupe de 840 particules sur CPU
+   dit que trois vêtements simultanés ne tiennent pas dans une image.
+
+**Défauts payés, dits** : dans la sonde, le testeur de repos était construit **avant** que la peau de repos
+soit remplie — il travaillait sur un tableau vide, l'ajustement au maillage n'avait **aucun effet** et rien
+ne le signalait. Et **`NkMat4f::TransformVector` ne compile pas** (déclarée rendant un `NkVec3`, son corps
+rend un `NkVec4` ; `NkGLTFLoader.cpp:179` note le même défaut et le contourne aussi) — contournée ici,
+**nommée pour l'agent NKMath**.
+
+### 🧊 05/09 (13h) — LE CHAMP DE DISTANCE SIGNÉ DU CORPS : ce que le tissu voit désormais, ce qu'il coûte, et le corps sur lequel il est FAUX
+
+*Suite directe du bloc précédent. Il disait : capsules = 0,000 mm de pénétration, mais 9 à 37 particules
+sous la peau. Voici l'étage (b), et son verdict — mesuré, pas promis.*
+
+**Ce qui est construit** : `physics::NkBodySDF` (NKPhysics), reconstruit à chaque image depuis le maillage
+skinné. Bande exacte (distance point-triangle, Ericson §5.1.5), **signe par pseudonormale pondérée par les
+angles** (Bærentzen & Aanæs 2005 — la seule normale juste quand le point le plus proche tombe sur une arête
+ou un sommet), propagation par balayage rapide 8 passes (Zhao 2005). Le tissu le lit par `Sample` /
+`Gradient` / `Project` ; les capsules restent en **secours** (hors grille, et pour la **vitesse du corps**
+dans le frottement — un champ ne porte pas de vitesse, dit), et `NkClothStats` sépare `sdfContacts` de
+`contacts` : on sait qui a résolu quoi.
+
+**🔑 CALIBRÉ AVANT DE JUGER — c'est la porte du lot précédent, appliquée à l'instrument suivant.**
+
+| corps | positif (centres de triangles rentrés de 1 cm) | négatif (points lointains) | centre du corps | mutation (signe inversé) |
+|---|---|---|---|---|
+| **CesiumMan** (4 672 tri) | **127 / 127 = 100 %** | 0 / 256 | **dedans** | positif → **0 %** ✅ mord |
+| **XBot** (49 112 tri) | 🔴 **306 / 1 250 = 24,5 %** | 0 / 256 | 🔴 **dit DEHORS** | positif → 75,5 % |
+
+**Le champ est FAUX sur XBot / YBot**, exactement comme la parité l'était : leurs coques ouvertes qui se
+recouvrent trompent aussi la pseudonormale. **Le remède est nommé, non fait** : le nombre d'enroulement
+généralisé (Jacobson, Kavan, Sorkine-Hornung, SIGGRAPH 2013), qui somme sur *tous* les triangles par
+cellule. *Deux instruments différents, réfutés par le même actif : ce n'est plus l'instrument qu'il faut
+soupçonner, c'est le maillage — et un corps de production n'est pas étanche.*
+
+**Ce que le champ change, sur le corps où il est calibré** (CesiumMan, 5,5 s, sa vraie marche, 1,2 m/s) :
+
+| vêtement | sous la peau, capsules seules | sous la peau, **avec le champ** | pénétration résiduelle dans le champ |
+|---|---|---|---|
+| foulard | 9 à 13 **en permanence** | **max 2, moyenne 0,12** | 6,7 mm |
+| cape | max 9, moyenne 1,66 | **max 6, moyenne 0,18** | 1,7 mm |
+| jupe | max 37, moyenne 8,80 | max 24, moyenne 4,31 | 26,7 mm |
+
+**🔴 « 0 particule sous la peau » n'est toujours pas atteint, et la cause est identifiée** : le champ est
+construit à la pose de **fin** de pas et sert tel quel aux 32 sous-pas, alors que les capsules, elles, sont
+**interpolées** — le corps bouge sous un champ figé. Le prochain geste est donc l'**interpolation de deux
+champs** (début et fin de pas), ou un champ par sous-pas si le coût le permet ; ce n'est pas une question de
+résolution.
+
+**🔴 COÛT : 26 ms/image à 64³ (cible : < 3 ms), et le coût ne suit PAS la résolution :**
+
+| résolution | coût | calibration |
+|---|---|---|
+| 32 | 21 ms | 🔴 64,6 % |
+| 48 | 17 ms | 🔴 87,4 % |
+| **64** | **26 ms** | ✅ **100 %** |
+
+*Le goulot est la **bande** (rasteriser 4 672 triangles), pas le balayage : baisser la résolution ne gagne
+rien et perd le signe.* Leviers nommés : construire le champ dans la seule **boîte des vêtements** (une jupe
+occupe le cinquième du corps), paralléliser la bande, ou le GPU. La cible « 3 vêtements sous 4 ms » reste
+celle du **GPU par coloriage** déjà écrite par l'agent tissu.
+
+**Les patrons, non corrigés, nommés** : six témoins rouges (chemise 1,26 %, robe 3,97 %, jupe 3,47 %,
+t-shirt 2,02 %, pantalon 9,64 % — inchangé de 32×4 à 32×8, donc géométrie et non convergence). La règle à
+appliquer : *un panneau dont la longueur au repos ne correspond pas à la distance entre ses épingles est
+étiré par construction* — coudre à la longueur lue sur le squelette. Et la jupe de CesiumMan (406 %) demande
+un évasé calculé sur l'amplitude du clip, pas une constante.
+
+**Deux dettes à porter ailleurs** : `NkMat4f::TransformVector` **ne compile pas** (déclarée rendant un
+`NkVec3`, son corps rend un `NkVec4` ; `NkGLTFLoader.cpp:179` note le même défaut) → **agent NKMath**. Le
+chargeur **FBX** charge `XBot.fbx` skinné (99 796 sommets, 65 os) mais rend **0 animation** sur
+`Walking.fbx` → **agent NKRenderer**, et en attendant les marches de Rodolf **en glTF**.
+
+### 🧊 05/09 (14h30) — DEUX CHAMPS INTERPOLÉS, UNE MESURE FAUSSE CORRIGÉE, ET UN WINDING NUMBER QUI NE MARCHE PAS (dit avec ses chiffres)
+
+*Suite du bloc précédent, dans l'ordre de mes propres causes.*
+
+**1. Deux champs interpolés — la cause que j'avais nommée.** Le champ était construit à la pose de fin
+et servait **figé** aux 32 sous-pas, pendant que les capsules, elles, étaient interpolées. `NkCloth` prend
+maintenant `bodySDF` **et** `bodySDFPrev` ; chaque sous-pas lit distance et gradient **interpolés à sa
+fraction**. Mesuré (CesiumMan, 5,5 s, sa vraie marche) : pénétration résiduelle de la **cape 1,68 → 0,58 mm**
+(cible < 1 mm atteinte), du **foulard 6,65 → 1,20 mm**. La projection est **bornée à une cellule** : sans
+borne, deux champs interpolés téléportent une particule là où le corps a beaucoup bougé — l'étirement de la
+cape est passé de 8,7 % à **269 %** le jour où les deux champs sont arrivés, c'est ce qui l'a fait voir.
+
+**2. 🔑 LA MESURE ÉTAIT FAUSSE, et c'est elle qui donnait le pire chiffre du lot précédent.** Une particule
+**épinglée suit un os** : elle est sous la peau **par construction** — une épaule, une taille, un cou. Je les
+comptais. **Les « 9 à 13 particules de foulard en permanence sous la peau » étaient ses 29 épingles.**
+Corrigé dans les deux mesures (`NkClothStats::maxSdfPenetration` et le compteur de la sonde, qui ne lit plus
+que les particules **libres**). Ce qui reste, honnêtement :
+
+| vêtement | sous la peau (particules libres) | résidu dans le champ |
+|---|---|---|
+| cape | **max 4, moyenne 0,11** | 0,58 mm |
+| foulard | **max 2, moyenne 0,15** | 1,20 mm |
+| jupe | max 26, moyenne 3,57 | 18,9 mm |
+
+*Deux fois dans la même journée, le chiffre le plus alarmant venait de l'instrument et non du code : la
+parité sur des coques ouvertes, puis les épingles comptées comme des pénétrations. La règle qui en sort :
+**avant de rapporter un mauvais chiffre, se demander ce que l'instrument compte exactement** — et pour un
+compteur de pénétration, la première question est « qu'est-ce qui a le droit d'être dedans ? ».*
+
+**3. 🔴 Le nombre d'enroulement généralisé : écrit, mesuré, ROUGE.** `NkBodySDF::WindingNumber` (angle
+solide de Van Oosterom & Strackee 1983, grille de signe séparée, valeur **continue** interpolée) devait
+rendre utilisables les corps non étanches de Rodolf. **Il ne marche pas**, et je le dis plutôt que de le
+laisser croire :
+
+| corps | pseudonormale | winding 12 | winding 16 | winding 24 |
+|---|---|---|---|---|
+| CesiumMan (fermé) | **100 %** | 60,6 % | 49,6 % | 31,5 % |
+| XBot (non étanche) | 24,5 % | 13,4 % | 18,6 % | — |
+
+**Il EMPIRE quand la résolution monte** : ce n'est donc pas un échantillonnage trop grossier mais une erreur
+systématique. L'orientation est écartée (le même critère sur `|w|` rend 49,6 %, à l'identique). Coût :
+**0,4 s** (CesiumMan, 4 672 triangles) à **4,1 s** (XBot, 49 112) par construction à 16³ — O(résolution³ ×
+triangles), sans la hiérarchie de Barnes-Hut que Jacobson décrit (approximation dipolaire par grappes), qui
+est **le vrai lot**. Le mode reste optionnel, jamais par défaut, l'avertissement est en tête de l'enum.
+
+**Donc, pour Rodolf, sans détour : le champ ne sert toujours pas sur ses mannequins.** XBot et YBot ne sont
+pas étanches et les **deux** signes essayés s'y trompent. Sur un corps fermé, il fonctionne.
+
+**Restent rouges, nommés** : la cape s'étire (143 % avec la borne, contre 8,7 % sans champ) — **conflit
+épingle/champ** : ses épingles suivent l'os pendant que le champ pousse leurs voisines, et l'arête entre les
+deux paie ; la jupe (406 %) demande un patron évasé sur l'amplitude du clip ; six témoins de patron (43
+verts, 6 rouges) ; le coût du champ (24 ms) et du pas (cape 21 ms, jupe 45 ms) restent au-dessus de 16.
+
+### 🪡 05/09 (16h) — LE CONFLIT ÉPINGLE/CHAMP, UNE TROISIÈME MESURE CORRIGÉE, ET LA VOIE « RENDRE LES CORPS ÉTANCHES »
+
+**Le conflit épingle/champ, réglé pour ce qu'il valait.** Une épingle est une contrainte **dure** — sa
+position vient de l'os ; le champ pousse sa **voisine** à l'épaisseur de la peau, et l'arête entre les deux
+paie tout l'écart. `NkCloth` calcule maintenant, par parcours en largeur sur l'adjacence des contraintes, la
+**distance topologique** de chaque particule à l'épingle la plus proche, et **pondère** la poussée du champ :
+0 sur l'épingle, 1 au-delà de `sdfPinBlendRings` anneaux (défaut **3**).
+
+**⚠️ Et la mesure a encore dû être corrigée avant de conclure — troisième fois de la journée, même motif.**
+Le balayage 3 / 5 / 8 anneaux donnait 51,8 % / 97,7 % / 37,8 % d'étirement : **non monotone**, donc ce
+n'était pas un régime mais un **pic isolé** — et un maximum sur 300 images ne dit rien d'un pic. La sonde
+imprime désormais **max, moyenne par image, et nombre d'images au-dessus de 5 %**.
+
+| anneaux | étirement moyen / image | images > 5 % | pic | sous la peau (max / moyenne) |
+|---|---|---|---|---|
+| 0 (sans zone) | 4,59 % | 44 / 301 | 142,6 % | 11 / 0,76 |
+| **3 (défaut)** | **3,03 %** | **31 / 301** | 51,8 % | **4 / 0,21** |
+| 8 | 3,11 % | 40 / 301 | 37,8 % | 5 / 0,26 |
+
+*La zone de transition améliore **les deux axes à la fois** — c'était la condition posée : jamais l'un contre
+l'autre.* 🔴 Le critère « cape < 1 % **et** ≤ 4 sous la peau » : la seconde moitié est **atteinte**, la
+première **non** (3,03 % de moyenne). **La cause restante n'est plus l'épingle** : le champ est reconstruit
+chaque image sur une grille dont la cellule fait **26 mm**, son isosurface interpolée « respire » d'une image
+à l'autre, et un tissu de 6 mm d'épaisseur y est sensible. Le levier est la **finesse locale** (la boîte des
+vêtements) — qui est aussi le levier de coût : les deux chantiers n'en font qu'un.
+
+**📌 LA VOIE À MESURER AVANT BARNES-HUT : RENDRE LES CORPS ÉTANCHES.** Le champ est juste sur un corps fermé
+(CesiumMan 100 %) et faux sur XBot / YBot (24,5 %, centre « dehors »), parce que ces corps sont **deux coques
+ouvertes qui se recouvrent**. Deux remèdes possibles, et **le second n'a pas été essayé** :
+1. **Barnes-Hut** sur le nombre d'enroulement (Jacobson 2013) — coûteux, et ma somme directe est déjà fausse
+   (elle **empire** quand la résolution monte) : *avant d'accélérer une formule, la calibrer à 100 % sur un
+   corps fermé — sinon l'accélération n'accélère qu'une erreur.*
+2. **Une passe d'étanchéité à l'import** : fermer les coques ouvertes (boucher les bords), ou dériver une
+   **enveloppe** unique (par exemple l'isosurface d'un champ non signé dilaté puis érodé — une fermeture
+   morphologique, dont notre grille est déjà le support). Elle se paierait **une fois par actif**, pas par
+   image, et elle rendrait le corps utilisable par *tous* les tests d'intérieur, pas seulement le nôtre.
+   **À mesurer d'abord** : c'est probablement moins cher que Barnes-Hut, et c'est la vraie réponse à
+   « les corps de production ne sont pas étanches ».
+
+### 🎯 05/09 (17h) — LE CHAMP SUIT LES VÊTEMENTS : le foulard tient son critère double, la cape non — et la raison se lit dans le tableau
+
+**Le geste** : la grille du champ couvre une **boîte imposée** (celle des particules du vêtement, dilatée)
+au lieu du corps entier, et les triangles qui ne la croisent pas ne sont **même pas rastérisés**
+(`Stats::skippedTriangles` : 2 200 à 2 900 sur 4 672). Le pilotage passe de la résolution à la **taille de
+cellule** — c'est elle qui compte pour un tissu de 6 mm — avec un **plafond de cellules** qui borne la
+dépense ; et le chiffre rendu dit ce qu'on a **obtenu**, jamais ce qu'on a demandé.
+
+| vêtement | champ | cellule | étirement moyen / image | images > 5 % | sous la peau (max / moy) | coût du champ |
+|---|---|---|---|---|---|---|
+| foulard | commun (corps) | 26 mm | 9,57 % | **301 / 301** | 3 / 0,43 | 23 ms partagés |
+| **foulard** | **propre (cou)** | **12 mm** | **0,18 %** | **0 / 301** | **0 / 0,00** | 22,7 ms |
+| cape | commun | 26 mm | 3,03 % | 31 / 301 | 4 / 0,21 | 23 ms partagés |
+| cape | propre | 15 mm | 4,55 % | 43 / 301 | 16 / 1,19 | 28,7 ms |
+
+✅ **Le foulard tient le critère double** — 0 particule sous la peau **et** 0,18 % d'étirement moyen, dans la
+**même course**. C'est le premier vêtement à le tenir, et il valide toute la chaîne : capsules animées,
+épingles à cible, deux champs interpolés, zone de transition, boîte du vêtement.
+
+🔴 **La cape ne le tient pas, et la boîte ne l'aide pas.** La raison est dans le tableau : **sa boîte est
+aussi grande que le corps** (une cape descend aux genoux et bat derrière), donc le plafond de cellules
+ramène la cellule à 15 mm et on ne gagne rien. **Le gain de la boîte est proportionnel à la COMPACITÉ du
+vêtement** : énorme pour un foulard (le cou), nul pour une cape. *Ce n'est pas « la boîte ne marche pas » :
+c'est « une boîte pleine ne peut pas être fine autour d'un objet creux ».* Pour les grands vêtements, il
+faut la finesse **là où le tissu est** — bande étroite autour des particules, ou grille creuse — pas une
+boîte pleine. Nommé.
+
+🔴 **Coût, hors cible** : foulard 22,7 ms de champ + 4,4 ms de pas ; cape 28,7 + 19,7. La cible était
+« champ + cape + foulard < 16 ms ». **Le champ domine, et c'est la rastérisation de la bande** — le même
+diagnostic qu'à 14h, confirmé une fois de plus : ni la résolution ni la boîte n'y changent grand-chose, il
+faut paralléliser ou passer au GPU.
+
+**Ordre qui reste** : l'étanchéité à l'import (bloc précédent, avec sa porte), la finesse locale pour les
+grands vêtements, les six patrons, puis Barnes-Hut si l'étanchéité ne suffit pas.
+
+### 📏 05/09 (18h) — LA DISTANCE EXACTE PAR PARTICULE : chaque vêtement a SA méthode (mesuré dans les deux sens)
+
+**Le geste** : plus de grille de champ du tout. Les **triangles** sont rangés une fois par image dans une
+grille uniforme accordée au rayon des requêtes (`NkBodyProximity`), et chaque particule demande la **distance
+exacte** au plus proche — aucune cellule, aucune interpolation, aucune isosurface qui « respire ». Les
+primitives (point le plus proche d'un triangle, poids de pseudonormale) sont **partagées** avec le champ :
+un seul code pour les deux chemins.
+
+**Le poste dominant a disparu** : construction **0,43 ms/image** (grille de 24 mm, 30 233 insertions pour
+4 672 triangles) contre **22 à 29 ms** pour rastériser la bande du champ.
+
+| vêtement | méthode | étirement moyen | images > 5 % | sous la peau (max / moy) | pas |
+|---|---|---|---|---|---|
+| cape | champ commun 26 mm | 3,03 % | 31 / 301 | 4 / 0,21 | 19 ms |
+| cape | champ propre 15 mm | 4,55 % | 43 / 301 | 16 / 1,19 | 20 ms |
+| **cape** | **distance exacte** | **1,58 %** | **6 / 301** | 9 / 1,06 | 34 ms |
+| **foulard** | **champ propre 12 mm** | **0,18 %** | **0 / 301** | **0 / 0,00** | 4,4 ms |
+| foulard | distance exacte | 28,93 % | 301 / 301 | 2 / 1,41 | 40 ms |
+
+**🔑 Le résultat n'est pas « une méthode gagne » : c'est que CHAQUE VÊTEMENT A SA MÉTHODE.** Un grand
+vêtement lâche (cape) veut la **distance exacte** — elle divise son étirement par deux et ne respire pas ; un
+vêtement **serré et compact** (foulard) veut un **champ fin sur sa boîte** — la distance exacte l'étire de
+29 %, parce que ses particules touchent en permanence et que la normale exacte saute d'un triangle à l'autre
+là où le champ lissait. *Mesuré dans les deux sens, pas supposé — et c'est la troisième fois aujourd'hui que
+la bonne réponse est « ça dépend, et voici de quoi ».*
+
+🔴 **Restent rouges** : la cape ne tient pas son critère double (1,58 % > 1 %, 9 sous la peau > 4) ; le pas
+monte à 34-40 ms parce que la requête est appelée **128 fois par image** (32 sous-pas × 4 itérations) — le
+levier suivant est de résoudre les colliders **une fois par sous-pas**, non mesuré. Premier essai payé : avec
+un rayon de 8 cm et une cellule de 48 mm, la requête visitait 5³ cellules et le pas montait à **600 ms**.
+
+---
+
+### 🧵 05/09 (18h30) — LES MATIÈRES (nylon, coton, cuir…) : ce que Rodolf demande, et l'état exact
+
+*Rodolf : « est-ce que les tissus prennent bien en compte le fait d'avoir le nylon, le coton, le cuir ? »
+**Réponse honnête : il a ce qu'il faut pour, mais ce n'est pas fait.*** `NkClothParams` porte déjà tous les
+paramètres physiques — compliance structurelle, de cisaillement, de flexion, amortissement, frottement,
+épaisseur, masse — mais **aucune matière n'est nommée** : ni préréglage, ni table, ni source. Un vêtement
+sort aujourd'hui avec des chiffres choisis pour que le solveur converge, pas pour ressembler à du coton.
+
+**Ce qui est décidé, à faire APRÈS la bande étroite, l'étanchéité et les patrons** (nommé maintenant pour
+qu'il ne se perde pas) :
+1. **`NkClothMaterial`** : un nom + les paramètres, avec la **masse surfacique (g/m²)** comme entrée — c'est
+   la donnée textile réelle, la masse par particule s'en déduit (`m = densité × aire / N`) — et les
+   compliances **par unité de longueur** : ⚠️ *aujourd'hui une compliance dépend du maillage, donc elle ment
+   dès que la nappe change de densité ; c'est à mesurer et à dire avant de publier des valeurs.*
+2. **Six matières citées, valeurs SOURCÉES dans le code** (jamais de mémoire) : coton ~150 g/m², soie ~60,
+   nylon ~80 (frottement bas), denim ~350 (raide), cuir ~800 (très raide en flexion, épais, frottement
+   haut), laine ~250. L'ordre de grandeur suffit **si l'ordre relatif est juste et écrit**.
+3. **Le témoin, visuel autant que chiffré** : la **même nappe**, même scène, même clip, sous chaque matière →
+   un chiffre par matière (nombre de plis par la courbure, amplitude au bord libre, énergie à 3 s) et
+   l'**ORDRE exigé** : cuir < denim < laine < coton < nylon < soie. Une matière qui casse l'ordre est un
+   réglage faux. **Mutation** : deux matières échangées → l'ordre rougit.
+4. **Une image** : six drapés côte à côte, même instant.
+5. Chaque `NkGarment` porte sa matière (défaut coton) ; le format la lira quand il existera.
+
+### 🧭 05/09 (19h30) — LE VÊTEMENT PORTE SA MÉTHODE ET SON RYTHME — et les témoins ont réfuté ma première règle en une course
+
+**Ce qui est décidé** : la façon dont un vêtement voit le corps n'est plus un réglage global, c'est une
+**propriété de la pièce** — `NkGarment::collision` vaut `NK_FIELD` (champ fin sur sa boîte), `NK_EXACT`
+(distance exacte au maillage) ou `NK_AUTO`. Défauts : foulard → champ ; cape, jupe, robe → exact ; t-shirt,
+chemise, pantalon → **AUTO**, tranché sur le **serrage** (distance moyenne des particules libres au corps,
+mesurée au repos, seuil 20 mm), et le chiffre est **imprimé pour chaque pièce** : « cape : serrage 105,4 mm
+→ distance exacte ; foulard : 47,5 mm → champ fin ». ⚠️ Dit : avec **deux** pièces seulement, ce seuil n'est
+pas étalonné — *un seuil posé sur deux points est une droite qui passe par deux points*. Ce sont les défauts
+de pièce qui décident aujourd'hui ; l'AUTO attend les vêtements du milieu.
+
+**Résultat, une seule course, chaque pièce avec son réglage :**
+
+| vêtement | méthode | rythme | pas | étirement moyen | images > 5 % | sous la peau |
+|---|---|---|---|---|---|---|
+| cape | distance exacte | 1 × par sous-pas | **8,15 ms** | 1,35 % | 9 / 301 | 9 / 1,25 |
+| foulard | champ fin 12 mm | chaque itération | 4,30 ms | **0,18 %** | **0 / 301** | **0 / 0,00** |
+
+✅ Le pas de la cape est **sous 16 ms** (8,15 contre 28,5) et le foulard garde ses zéros : chaque pièce a son
+meilleur chiffre **dans la même course**.
+
+**🔴 Et ma première règle était fausse — les témoins l'ont dit en une course.** J'avais lié le rythme des
+colliders à la méthode (« distance exacte → une fois par sous-pas »). `NKPhysics_Tests` est passé de **43/6 à
+42/7**, et le rouge neuf était **(h4) jupe** : une pièce en distance exacte, mais qui touche les cuisses en
+permanence, exactement comme le foulard touche le cou. **Ce qui décide n'est pas « lâche ou serré » mais LE
+TAUX DE CONTACT**, que la construction ne connaît pas. Le défaut redevient « chaque itération » pour toutes
+les pièces ; l'appelant qui a mesuré espace (la sonde le fait pour la seule cape). *Un défaut posé sur une
+règle qui « se tient » doit passer les témoins avant d'être un défaut : celui-là a tenu deux heures et une
+course.*
+
+🔴 **Reste** : la cape ne tient pas son critère double (1,35 % pour 1 %, 9 sous la peau pour 4) — c'est la
+bande étroite, point suivant. Puis l'étanchéité à l'import (les corps de Rodolf), les six patrons, et les
+matières (avec sa condition : les raideurs par unité de longueur d'abord, témoin « même matière, 32² et 64²,
+même drapé à 5 % » — le test XPBD étendu au maillage).
+
+### 📉 05/09 (20h30) — LE TAUX DE CONTACT MESURÉ À L'EXÉCUTION : écrit, instrumenté, et ÉTEINT — les témoins l'ont refusé trois fois
+
+*Le principe était juste : « le taux de contact, la construction ne le connaît pas, mais l'exécution si ».
+Le solveur compte donc, à chaque pas, la fraction des particules **libres** en contact — les épinglées sont
+hors population, elles sont dans le corps par construction — lissée entre les images, et le rythme des
+colliders peut la suivre. **La mesure a refusé le mécanisme.***
+
+| configuration | suite | cape (pas / étirement moyen) | foulard (étirement / sous la peau) |
+|---|---|---|---|
+| **sans adaptatif — retenu** | **43 / 6** | 8,15 ms / 1,35 % | 0,18 % / 0 |
+| adaptatif, taux parti de 0 | 44 / 5 | 13,33 ms / 1,35 % | 🔴 **24,91 %** / 2 |
+| adaptatif, taux parti de 1 | 🔴 **41 / 8** | 8,86 ms / 1,28 % | 0,19 % / 0 |
+
+**Aucune n'est nettement meilleure**, et les deux dernières déplacent le problème au lieu de le résoudre.
+**La cause est dans la mesure, pas dans l'idée** : `mContact` n'est relevé qu'au **dernier sous-pas**, donc
+le taux rendu (0,5 à 0,7 % ici) sous-estime le contact réel et ne discrimine plus rien ; et le seuil de 6 %
+n'est étalonné sur rien — *le même défaut que le seuil de serrage, que j'avais déjà signalé deux heures
+plus tôt et que j'ai reproduit*. Le mécanisme reste en place, **éteint**, avec ses trois mesures et sa cause
+écrites dans l'en-tête. Avant de le rallumer : compter les contacts sur **tous** les sous-pas, et étalonner
+le seuil sur **plusieurs** pièces.
+
+📌 **Un enseignement payé au passage, qui vaut au-delà d'ici** : *un mécanisme adaptatif doit démarrer du
+côté SÛR.* Parti de zéro, le premier pas espaçait les colliders, le col du foulard se posait de travers et
+gardait **24,9 %** d'étirement pour toute la course — une seule image mal jouée, et la pièce ne s'en remet
+jamais.
+
+**État retenu ce soir** : suite **43 / 6** ; cape 8,15 ms (sous les 16) et 1,35 % ; foulard 0,18 % et
+**0 particule sous la peau sur 301 images**. Ordre qui reste : bande étroite pour la cape, **étanchéité à
+l'import (ce que Rodolf attend sur ses corps — devant les patrons)**, les six patrons, les matières.
+
+### 🔥 05/09 (nuit) — LA FUMÉE ET LE FEU SUR GRILLE : le socle du § 6, 26 témoins verts et 2 rouges que la mesure explique
+
+**Ce qui existait avant d'écrire une ligne (mesuré, et deux noms piègent).**
+`Advect`, `Combustion`, `Smoke`/`Fumee`, `Fire`/`Flame` : **zéro occurrence** dans
+`Kernel/` et `Engine/`. `NkGrid3D` (NKRHI/Tools/Grid3D) **n'est pas** une grille de
+simulation — c'est la **grille de sol du viewport** (lignes, axes, fondu). `Tools/Voxel`
+(7 fichiers, vraies textures 3D) est un **squelette de sculpture** façon ZBrush, annoncé
+tel quel dans ses en-têtes, dont l'unique appelant est `NkPixolSculptSystem`. Et le
+« noyau de projection du DFSPH » que le roadmap propose de réutiliser **n'existe pas
+comme noyau** : `NkSPHSolver` corrige la vitesse par un facteur alpha sur des listes de
+voisines, en ligne dans `StepOnce`, sans Laplacien ni matrice. Le partage avec la grille
+sera le **stockage GPU**, pas le solveur. Dit plutôt que supposé.
+
+**Ce qui est livré.** `Kernel/Runtime/NKRenderer/src/NKRenderer/Tools/VFX/NkFluidGrid.*`
+(grille eulérienne : densité, température, carburant, vitesse ; advection
+semi-lagrangienne ; projection de pression ; flottabilité de Boussinesq ; combustion) et
+`NkFluidGridRaymarch.*` (marche de rayon **CPU** + couleur du corps noir **calculée**).
+Banc : `Applications/NkFluidGridProbe` — **28 contrôles, 26 verts, 2 rouges**, sans GPU
+ni fenêtre. Sources citées dans le code : Stam *Stable Fluids* SIGGRAPH 1999 ; Fedkiw,
+Stam & Jensen *Visual Simulation of Smoke* SIGGRAPH 2001 eq. (8) ; Kajiya & Von Herzen
+SIGGRAPH 1984 ; Planck 1901 ; Wyman, Sloan & Shirley JCGT 2013 ; sRGB IEC 61966-2-1 ;
+Press & al. *Numerical Recipes* 3e éd. eq. 20.5.19.
+
+**Les deux rouges, et pourquoi ce ne sont pas des bugs à corriger à l'aveugle.**
+
+1. **La masse n'est pas conservée : -45,9 % en 500 pas.** Six régimes ont départagé les
+   causes possibles : vitesse nulle **0,0000 %** ; translation pure loin des parois
+   **-0,11 %** ; panache **-33 à -46 %**. Ce n'est donc ni les parois (le banc vérifie à
+   chaque pas que la couche collée aux parois reste vide, et elle l'est) ni la divergence
+   résiduelle. Diviser le pas de temps par 4 ne change **rien** (-51,6 / -51,4 / -51,2 %) :
+   la perte est **spatiale**, c'est la diffusion de l'interpolation trilinéaire.
+   Le correctif MacCormack (Selle & al. 2008) est **écrit et mesuré** : il transforme
+   -45,9 % en **+25,8 %** — même ordre de grandeur, signe inversé — et **fait rougir le
+   témoin de transport** (0,070 -> 1,331 cellule, le limiteur écrête le front). Il reste
+   donc **éteint par défaut**, disponible, avec son tableau. Ce qu'il faudrait : une
+   advection **conservative en flux** (Lentine, Aanjaneya & Fedkiw 2011). **Non fait.**
+2. **La divergence après projection reste à 0,39 % au lieu de 0,1 %** — et **ce n'est pas
+   le solveur**. On l'a prouvé en le forçant à converger 78 fois plus loin (résidu max
+   3,175e-6 -> 4,075e-8 m/s, 35 -> 180 puis 4 000 balayages) : le rapport n'a **pas
+   bougé** (5,4084 % -> 5,4070 % -> 5,4070 %). La cause est la **grille colocalisée** :
+   la projection résout un Laplacien de pas 1, alors que la divergence centrée de la
+   vitesse corrigée fait apparaître un Laplacien de **pas 2** — le mode « damier ».
+   (Hypothèse écartée en chemin : « c'est la couche des parois ». Faux : sur l'intérieur
+   **strict**, 0,417 % contre 0,389 %.) Le correctif est la **grille décalée MAC**
+   (Harlow & Welch 1965), celle qu'utilise Fedkiw 2001. **Non fait.**
+
+**Les verts qui comptent.** Flottabilité mesurée **à 0,0002 %** de la loi d'Archimède /
+Boussinesq a = g (T - T_amb) / T_amb ; transport à **0,070 cellule** de l'endroit attendu ;
+10 s sans NaN ; **7 contrôles d'instrument** avant le premier chiffre (masse, divergence
+et barycentre confrontés chacun à une réponse analytique **et** à un cas dont la réponse
+doit être zéro) ; **4 mutations** qui mordent (projection coupée -> divergence 72 % ;
+advection coupée -> 25 cellules d'erreur ; table du corps noir remplacée par une rampe
+linéaire -> refusée ; densité nulle -> 0 pixel allumé).
+
+**La couleur du feu n'est copiée d'aucune table** : elle est calculée à chaque appel par
+la loi de Planck intégrée contre les fonctions colorimétriques CIE 1931, puis convertie
+en sRGB. Trois contrôles **indépendants** la valident : un spectre d'énergie égale tombe
+sur le point blanc E (0,3331 / 0,3335 pour 1/3), le maximum de Planck **balayé** tombe sur
+la loi de Wien à **0,008 %**, et un corps noir à 6504 K tombe sur **D65** (0,3134 / 0,3237
+pour 0,3127 / 0,3290). Elle rend 1 000 K -> (255, 47, 0), 2 000 K -> (255, 141, 21),
+3 000 K -> (255, 185, 110).
+
+**Les deux images** — `Captures/fumee_colonne_2026-09-05.png` et
+`Captures/feu_degrade_2026-09-05.png` — sont des **rendus CPU**, sans fenêtre ni device ;
+`Captures/LISEZMOI.md` dit à côté de chacune ce qu'elle prouve et ce qu'elle ne prouve
+pas. **Non fait et nommé** : le portage GPU (NKRHI/NkSL, texture 3D + compute), le
+confinement de vorticité, la comparaison avec des billboards (elle passerait par le
+chemin GPU des particules : comparer une marche CPU à un dessin GPU comparerait deux
+machines, pas deux méthodes), une vraie lumière dynamique émise par la flamme (seule une
+couleur émissive est rendue).
+
+### 🌀 06→07/09 (nuit) — LE CONFINEMENT DE VORTICITÉ, ET LA GRILLE BRANCHÉE (ECS · NkVFXSystem · vent)
+
+**L'ordre était fixé par Rodolf** : ① le confinement de vorticité d'abord, *« parce
+que c'est le seul qui change ce qu'il VOIT »* ; ② brancher la grille ; ③ la grille
+décalée MAC *« si la nuit y suffit »*. **③ N'EST PAS COMMENCÉE, et l'arrêt est
+volontaire** : la consigne disait de s'arrêter proprement à la fin de ② et de le
+dire plutôt que de livrer trois moitiés.
+
+**Banc `NkFluidGridProbe` : 57 contrôles, 51 verts, 6 rouges.** Banc neuf
+`NkFluidEcsProbe` : **8 contrôles, 8 verts**. Aucun GPU, aucune fenêtre.
+`NKIlyana.exe` (PID 33468) présente avant et après, jamais touchée.
+
+#### 🔴 CE QUI EST ROUGE — quatre des sept témoins du confinement
+
+Seuils écrits **avant** la mesure, et qui **n'ont pas bougé d'un chiffre**
+(`epsilon = 8`, 360 pas, grille 28 × 56 × 28, 36 504 cellules strictes) :
+
+| témoin | mesure | seuil | |
+|---|---|---|---|
+| **(v1)** enstrophie totale B/A | 11,4899 → **5,0291** = **× 0,44** | ≥ 2,00 | 🔴 |
+| **(v3)** la masse n'empire pas | dérive A **−29,331 %**, B **−42,491 %** | + 5 points max | 🔴 |
+| **(v4)** la divergence n'empire pas | strict A **0,39252 %**, B **6,32962 %** (× 16,1) | × 1,50 max | 🔴 |
+| **(v5)** MUTATION jugée sur l'enstrophie | C/A = **× 1,058** | < 1,00 | 🔴 |
+
+**(v1) et (v5) sont un défaut de MON CRITÈRE, pas du code**, et c'est le résultat
+le plus utile de la nuit :
+
+> Au bout de 3 s, la course A et la course B ne sont plus le **même écoulement** —
+> le panache confiné monte **deux fois moins haut** (barycentre y = 0,634 m contre
+> 1,048 m). Comparer l'enstrophie TOTALE de deux écoulements différents, c'est
+> comparer deux **sujets**, pas deux **réglages**.
+
+Le balayage le montre en une ligne : sur les **60 premiers pas** — avant que les
+écoulements ne divergent — l'enstrophie **monte** avec epsilon (× 1,19 à
+epsilon = 8) ; sur toute la course elle **descend** (× 0,39). Deux colonnes, deux
+verdicts opposés, aucune contradiction.
+
+**(v1) et (v5) n'ont pas été retouchés** : ils restent écrits tels quels et
+rouges. Un critère **(v6)** a été écrit **à côté**, daté, et **pré-enregistré
+avant la course qui l'a jugé** — la **concentration** de la vorticité
+`P = rms(|ω|) / moy(|ω|)`, qui vaut 1 sur un champ uniforme et grandit quand la
+vorticité se rassemble en filaments. *« Confiner » veut dire exactement ça.* Il
+mord **dans les deux sens** :
+
+```
+P, sur les 36 504 cellules STRICTES (V = 0,5704 m^3)
+   A  epsilon =  0   3,875
+   B  epsilon = +8   5,362   × 1,384   le confinement CONCENTRE    (v6)  ✅
+   C  epsilon = -8   1,634   × 0,422   la force inversée ÉTALE     (v6b) ✅
+```
+
+🔴 **ET (v5) A APPRIS MIEUX QUE SON ROUGE : LE RAYON DU PANACHE NE DÉPARTAGE PAS
+LE SIGNE DE LA FORCE.** À `epsilon = -8` — précisément la faute qu'on cherche à
+attraper — le panache est **encore plus large** qu'avec le confinement : **0,137 m
+contre 0,071 m**, soit × 3,59 sur A au lieu de × 1,85. C'est logique une fois vu :
+étaler la vorticité étale aussi la fumée. **Le témoin (v2), seul, serait donc passé
+au VERT sur un signe faux.** Seule la concentration sépare les deux — et c'est
+écrit dans l'en-tête de `vorticite.cpp`, là où quelqu'un lira (v2).
+
+**(v3) et (v4), eux, ne sont pas un défaut de critère : c'est le PRIX.** Le
+confinement ne crée ni la perte de masse ni la divergence résiduelle — **il
+aggrave les deux rouges déjà mesurés le 05/09**, dont les correctifs sont déjà
+nommés : **grille décalée MAC** (Harlow & Welch 1965) pour la divergence,
+**advection conservative en flux** (Lentine, Aanjaneya & Fedkiw 2011) pour la
+masse.
+
+#### 📐 LE BALAYAGE QUI A CHOISI epsilon — et qui chiffre le prix
+
+`NK_FLUID_SWEEP=1`, 240 pas, même scène, seul epsilon change. C'est une enquête de
+**paramètre** : les seuils des témoins sont ailleurs et ne dépendent pas d'elle.
+
+```
+ eps   ens 60 pas   ×A    ens totale   ×A    rayon      ×A    div strict   dérive masse   y barycentre
+0.00      0.41521  1.00      8.01887  1.00   0.04790 m 1.00     0.57034 %      -26.23 %       0.951
+0.25      0.42030  1.01      7.96623  0.99   0.04831 m 1.01     0.59096 %      -27.64 %       0.942
+0.50      0.42536  1.02      7.89160  0.98   0.04865 m 1.02     0.61508 %      -28.96 %       0.930
+1.00      0.43533  1.05      7.61809  0.95   0.04904 m 1.02     0.67169 %      -31.15 %       0.902
+2.00      0.45450  1.09      6.90605  0.86   0.04837 m 1.01     0.82993 %      -33.58 %       0.838
+8.00      0.49530  1.19      3.09351  0.39   0.05944 m 1.24     5.32671 %      -35.99 %       0.514
+16.00     0.34577  0.83      2.89655  0.36   0.06515 m 1.36    16.47617 %      -46.82 %       0.359
+```
+*(la ligne epsilon = 4 est dans le journal du banc : 0,48740 / ×1,17 · 5,12568 /
+×0,64 · 0,05243 m / ×1,09 · 1,41030 % · −35,10 % · 0,704)*
+
+**`epsilon = 8` retenu** — le plus PETIT du balayage qui atteint le seuil de (v2)
+**déjà pré-enregistré** (× 1,15). La règle de choix est écrite dans le code :
+*choisir un paramètre et déplacer un critère sont deux gestes différents.* Le
+défaut du solveur brut **reste 0** — rien de ce qui existe aujourd'hui ne change
+de comportement ; ce sont les réglages `NkFluidVolume::Smoke()`/`Fire()`, dont le
+travail est l'apparence, qui l'arment.
+
+⚠️ **Au-delà de 8, tout se dégrade, y compris l'enstrophie précoce** (× 0,83 à
+epsilon = 16). La borne n'est pas un goût : elle est dans le tableau.
+
+#### 🔬 LA CAUSE DE (v4), MESURÉE — et c'est l'argument pour ③
+
+Le 05/09, on avait prouvé que la divergence résiduelle de 0,39 % ne vient **pas du
+solveur** : forcé 78 fois plus loin, le rapport n'avait pas bougé. **La même
+contre-épreuve, rejouée AVEC le confinement armé**, rend le même verdict :
+
+```
+epsilon = 8, mêmes 40 pas, même grille allégée
+  borne   tolérance   balayages/pas   résidu final   |div|·h/|u| STRICT
+   200      1e-04          35,6        3,556e-06        9,473474 %
+   800      1e-06         131,0        9,091e-08        9,472982 %
+  4000      1e-08        4000,0        4,414e-08        9,472982 %
+```
+
+**Le résidu s'effondre d'un facteur 39 et le rapport ne bouge pas d'un
+dix-millième.** Ce n'est donc pas « le solveur n'arrive plus à suivre » : le
+remède ne sera jamais « plus de balayages ». C'est la **grille colocalisée** — la
+projection résout un Laplacien de pas 1 pendant que la divergence centrée en voit
+un de pas 2 — et le confinement, qui injecte de la haute fréquence dans le champ
+de vitesse, **rend cet écart cher**.
+
+> **Le confinement n'a pas créé le défaut de la grille colocalisée : il l'a rendu
+> visible et coûteux.** ③ est exactement ce qui rendrait ① abordable, et c'est la
+> mesure qui le dit.
+
+#### ✅ CE QUI EST VERT, AVEC SON CHIFFRE
+
+**Deux instruments neufs, calibrés avant qu'on croie leur chiffre** (6 contrôles) :
+l'**enstrophie** contre une rotation solide `u = Ω × r`, dont le rotationnel vaut
+`2Ω` exactement — mesuré **4,000000 1/s pour 4,000000 attendu, écart 0,0000 %**, et
+1,458000 m³/s² pour 1,458000 en valeur absolue ; contrôle négatif : champ uniforme
+→ 0,000e+00. Le **rayon de giration** contre une gaussienne d'écart-type connu
+(`σ√2`) — **0,08483 m pour 0,08485 attendu, écart 0,03 %** ; contrôles négatifs :
+une cellule seule → rayon nul, tranche vide → l'instrument **rend false** au lieu
+de fabriquer un point.
+
+**Le confinement agit, et deux instruments INDÉPENDANTS le disent** — l'un lit le
+champ de densité, l'autre ne connaît que des pixels :
+- **(v2)** rayon du panache à y = 0,60 m : **0,03822 → 0,07073 m, × 1,85** (masses
+  de tranche publiées à côté : × 1,91 — comparer deux rayons sans comparer les
+  masses comparerait deux populations) ;
+- **(i1)** à l'IMAGE, ligne y = 84 : rayon en pixels **5,329 → 13,124, × 2,46** ; la
+  boîte du panache passe de **45 à 72 px** de large.
+
+**Le VENT est branché, et la MASSE est HONORÉE** (`math::NkIForceField`, contrat
+en newtons) :
+- **(w1)** force uniforme 0,50 N sur 1 kg, 1 s : déplacement **0,25160 m** contre
+  **0,25208 m** attendus par la somme discrète — **0,019 cellule** d'écart ;
+- **(w2)** ⭐ **doubler la masse divise l'accélération par deux** : 0,25160 m contre
+  0,12602 m, **rapport 1,9966**. *C'est le seul témoin qui prouve que
+  `fieldParticleMass` est HONORÉ — un paramètre déclaré et non honoré est pire
+  qu'un paramètre absent, et il ne se voit nulle part ailleurs ;*
+- **(w3)** le vrai `renderer::NkForceField` du dépôt passe par le même contrat :
+  **écart 0,0000 %** avec le champ de test ;
+- **(w4)** aucun champ → 0,000000 m ; **(w5)** champ présent, interrupteur coupé →
+  0,000000 m au lieu de 0,25208 : la mutation mord.
+
+**Le REGISTRE (`NkFluidVolumeStore`) — 9 témoins verts.** Créer recale les bornes
+relatives en monde ; `StepAll` fait avancer (`SteppedLastFrame = 1`,
+`StepsTotal = 30`, masse 0 → 0,000664499) et la source sort au centre déclaré ; la
+source est un **DÉBIT** (un pas à 2 dt injecte **1,9991 ×** la masse d'un pas à dt) ;
+déplacer le centre emporte la boîte **et** la fumée (écart **0,00e+00 m**) ;
+détruire invalide la poignée de l'appelant et rend `Grid()` nul ; une grille
+impossible rend une poignée **invalide** au lieu d'une poignée morte.
+
+⭐ **Et une paire de témoins qui ne peut pas être satisfaite par un solveur cassé :**
+- **(r5)** projection coupée, 1,2 N sur +z : la fumée dérive de **+0,1525 m**
+  (3,81 cellules) ;
+- **(r5b)** **projection ACTIVE, même vent, même boîte close : +0,00001 m.** C'est
+  la **physique juste** — dans une boîte fermée, une force de volume uniforme est
+  exactement équilibrée par le gradient de pression, et un ventilateur uniforme
+  ne déplace pas le contenu d'une boîte. *Une projection morte rendrait (r5) plus
+  vert et (r5b) rouge.*
+
+**Le PONT ECS — banc neuf `NkFluidEcsProbe`, 8/8, sans device.** Monde ECS réel +
+le **vrai `NkTransformSystem` de Noge** (le banc n'écrit pas la position monde
+lui-même : ce serait éprouver le banc). Une entité `NkFluidVolume + NkTransform`
+fait naître un volume **à sa position monde** ; le déplacer déplace le volume
+(erreur cumulée **0,00e+00 m**) ; `StepAll` le fait avancer (masse 0 →
+0,001424622 en 20 images) ; éteindre le composant éteint le volume ; **détruire
+l'entité RAMASSE le volume** ; ⭐ **un volume créé par un AUTRE producteur SURVIT
+au ramassage** (le pont ne ramasse que ce qu'il a créé — *une liste d'exclusion ne
+protège que ce qu'on a pensé à y mettre*) ; sans registre, rien n'est créé et rien
+ne plante ; sans `Execute`, aucun volume.
+
+**NON-RÉGRESSION, et elle est exacte.** Les cinq témoins du 05/09 et les paliers ②
+et ③ rendent des chiffres **identiques au dernier chiffre** : masse −45,8798 %,
+divergence stricte 0,417057 %, Boussinesq à 0,0002 %, transport 0,070 cellule,
+rendu 74,02 et 1,34, Wien 0,0079 %, D65 (0,3134 / 0,3237). *Le confinement à
+`epsilon = 0` ne change rien, et ce n'est pas une supposition.*
+
+#### ⛔ CE QUE JE NE PRÉTENDS PAS
+
+- **Aucun code GPU.** Grille CPU, rendu CPU, registre CPU. Le portage NKRHI/NkSL
+  (texture 3D + compute) reste **nommé, pas commencé**.
+- **`NkVFXSystem::Update` n'a pas TOURNÉ** — il exige un device et une fenêtre. Ce
+  qui est éprouvé est `NkFluidVolumeStore::StepAll`, **la fonction même que cet
+  Update appelle** ; le lien entre les deux est une ligne que seule la compilation
+  vérifie. Ce n'est pas la même chose que de l'avoir vu tourner, et c'est dit.
+- **Aucune image de moteur** : les deux images de cette nuit sont des marches de
+  rayon **CPU**, sans fenêtre ni device, comme celles du 05/09.
+- **La grille décalée MAC (③) n'est pas commencée** ; **l'advection conservative
+  non plus** ; le correctif **MacCormack limité reste éteint par défaut** — je ne
+  l'ai pas rallumé.
+- **Le coût du confinement n'est pas isolé.** La seconde passe de vorticité ajoutée
+  par pas n'a pas de chronomètre à elle : ce que je peux dire honnêtement est une
+  **borne** — deux passes de ~30 opérations par cellule contre 35 à 210 balayages
+  SOR du Poisson, soit de l'ordre de **1 à 3 %** du pas. C'est un raisonnement sur
+  des comptes d'opérations, **pas une mesure**, et la mesure qui trancherait est un
+  chronomètre dans `ComputeVorticity`. ⚠️ **Et les ms/pas de cette nuit ne se
+  comparent pas à celles du 05/09** : la machine portait un build complet en
+  parallèle une partie de la nuit. Comparer deux chronos pris sous deux charges
+  comparerait la machine, pas le code.
+- **Rien n'est prouvé sur ce que ça donne DANS UN JEU** : un volume par entité, à
+  130-230 ms le pas sur 43 904 cellules et un seul fil, n'est pas un budget d'image.
+- **Pas de vraie lumière dynamique** émise par la flamme : seule une couleur
+  émissive est rendue dans le volume.
+
+#### 👁️ CE QUE RODOLF DOIT REGARDER AU RÉVEIL
+
+1. **Les deux images, côte à côte** —
+   `Captures/fumee_jet_sans_confinement_2026-09-07.png` et
+   `Captures/fumee_panache_confinement_2026-09-07.png`. Même scène, même graine,
+   même nombre de pas : **seul epsilon change**. C'est la seule chose de cette nuit
+   qui se juge à l'œil, et c'est ce qu'il avait demandé.
+   ⚠️ **Elles ont été REGARDÉES, et voici ce qu'elles montrent exactement** : le jet
+   est une colonne lisse et sans détail ; le panache est **plus large et
+   STRUCTURÉ**, avec des bouffées internes visibles. **Elles ne montrent PAS encore
+   de grosses volutes qui s'enroulent** — la boîte fait 0,5 m de côté et la caméra
+   est proche, donc les tourbillons que le confinement entretient restent de la
+   taille de quelques cellules. *« Plus large et structuré » est ce que ces images
+   prouvent ; « ça tournoie » dirait plus que ce qu'elles montrent.*
+2. **Le prix, et l'arbitrage qui lui revient** : le confinement fait passer la
+   dérive de masse de −29 % à −42 % et la divergence de 0,39 % à 6,33 %. Je l'ai
+   armé **dans les réglages de Noge** (`Smoke()`, `Fire()`) et laissé **éteint dans
+   le solveur brut**. Si ce prix lui paraît trop cher pour l'instant, il n'y a
+   qu'un chiffre à changer — et le tableau du balayage dit ce que chaque valeur
+   coûte.
+3. **③ passe devant le reste** : la contre-épreuve du plancher, rejouée avec le
+   confinement, dit que la divergence n'est pas le solveur mais la grille. La
+   grille décalée MAC n'est plus un raffinement — c'est ce qui rend le confinement
+   payable.
+
+### 📏 12/09 (soir) — LES VOLUTES QUI MANQUENT : c'est la BOÎTE (la résolution), pas le schéma — mesuré, pas jugé à l'œil
+
+**La question** (reprise de Rodolf, 12/09) : le panache du 07/09 est « plus large et
+structuré, **mais sans grosses volutes qui s'enroulent** (boîte de 0,5 m, caméra
+proche : les tourbillons restent de la taille de quelques cellules) ». Cette
+parenthèse était une **prédiction mesurable**. Est-ce la **boîte** (la résolution :
+la source fait 3 cellules de rayon) ou le **schéma** (la dissipation numérique et
+le confinement en `epsilon·h` accrochent les structures à la grille) ? Si c'est la
+boîte, on s'arrête : une limite comprise coûte moins qu'un solveur réécrit.
+
+**Pré-enregistrement AVANT la première ligne de code** : `PLAN_VOLUTES.md` (commit
+`2e0f2c78`), à côté du solveur. Critères, contrôles et **règle de décision** écrits
+d'avance : `r = D(h = 1 cm) / D(h = 2 cm)` sur la scène du panache — **r ≥ 1,6 →
+la boîte ; r ≤ 1,3 → le schéma ; entre → indéterminé.** Rien n'a bougé après.
+
+**L'instrument (n1)** — une échelle de longueur EN CELLULES, pas un jugement à
+l'œil : autocorrélation **signée** de `omega` (tel que le solveur le calcule,
+accesseurs en lecture seule) le long des deux axes horizontaux, intégrée jusqu'au
+premier zéro ; diamètre `D = (3π/4)·L`, facteur **dérivé** sur un tourbillon de
+Rankine, pas ajusté. **Cinq contrôles verts** : Rankine R = 6 → **13,16** (12 ± 12 %),
+R = 3 → **7,17** (6 ± 20 %), rapport **1,836** ([1,8 ; 2,2]) ; bruit blanc → 1,48
+(< 2) ; rotation uniforme → **false** ; grille vide → **false**.
+
+**Le résultat, sur la scène EXACTE des deux images du 07/09** (`ConstruirePanache`,
+fidélité de la copie éprouvée au dernier chiffre), D moyenné sur les 60 derniers
+pas de 255 :
+
+```
+                                      h        D (cellules)   D (m)     D / source
+ A  jet,     epsilon = 0             2 cm      2,84            0,057    0,47
+ B  panache, epsilon = 8             2 cm      2,20            0,044    0,37     <- la phrase du 07/09 etait JUSTE
+ B  boite / 2, cellules constantes   1 cm      2,33            0,023    0,19     (n2a : parois a 0,125 m, confondant DIT)
+ B  meme boite, h seul change        1 cm      4,77            0,048    0,40     (n2b : 400 000 cellules, 3,3 s/pas)
+
+ r(n2b) = 4,769 / 2,201 = 2,167 >= 1,6   ->   C'EST LA BOITE.   En metres : x 1,08.
+```
+
+**Ce que ça veut dire, sans plus.** La taille des structures est fixée par la
+**physique** (≈ 0,045 m, 0,4 fois le diamètre de la source de 0,12 m) et **ne bouge
+pas quand la grille s'affine** ; à 2 cm elle tombait à 2,2 cellules parce que
+4,5 cm font 2,2 cellules de 2 cm, et c'est tout. La grille de 2 cm était trop grosse
+pour la montrer — **pas le schéma**. Et (n2a), la boîte divisée par deux à cellules
+constantes, disait r = 1,06 : **le confondant des parois annoncé d'avance a parlé**
+(source de 12 cm entre des parois à 12,5 cm de l'axe, D en mètres y tombe à 2,3 cm).
+Une question posée à une seule géométrie ne pouvait pas trancher — c'est pour ça
+qu'il y avait deux expériences.
+
+⚠️ **Ce que « c'est la boîte » n'achète PAS.** Affiner ne fait pas apparaître de
+*plus grosses* volutes : l'image à 1 cm (`Captures/fumee_panache_h1cm_2026-09-12.png`,
+même caméra, regardée) montre une colonne **plus fine et plus filamentée, pas plus
+enroulée**. Des structures de 4-5 cm à 3 pixels par centimètre font ~14 pixels : ce
+sont les « bouffées » qu'on voyait déjà. Des *grosses* volutes seraient des
+structures plus grandes **par rapport à la source** — une autre physique (temps,
+poussée, taille de source), pas une autre grille. Coût de la résolution qui montre
+proprement ces 4-5 cm : ×8 cellules, ×9,4 le temps par pas sur un fil (348 → 3 275 ms).
+
+**Le second instrument (n1'), le critère Q** (Hunt, Wray & Moin 1988) — écrit et daté
+en cours de route (`PLAN_VOLUTES.md` § 5bis), **sur une prémisse que (n2b) a ensuite
+réfutée** (§ 5ter : je croyais (n1) accroché à l'épaisseur de nappe, grid-mince ; il
+ne l'est pas). Il reste parce qu'il sépare **rotation et cisaillement**, ce que (n1)
+ne fait pas — six contrôles verts, dont le décisif : un cisaillement pur `u = a z`
+rend **zéro cellule** (Q = 0 exactement) là où (n1) y verrait une échelle. Ce qu'il
+dit : avec le confinement, **60 % de l'enstrophie est dans des cellules à rotation
+dominante contre 12 % pour le jet** — « ça tourne » est un nombre — mais en **~680
+petits cœurs de ~4 cellules (8 cm)**, pas en quelques gros. Et il rend le **même
+verdict** : r' = 10,24 / 4,13 = **2,48 → la boîte**. 🔴 **Sa limite, rouge telle
+qu'écrite** : à son seuil pré-enregistré (Q ≥ 1 % de Q_max) un fond de faible Q
+percole jusqu'aux parois latérales et il **refuse 40 pas sur 60** à 2 cm, 14 sur 60
+à 1 cm ; le chiffre est la moyenne des pas acceptés. Levier nommé, non fait : un
+seuil sur |omega| en plus du seuil sur Q.
+
+🔴 **Les autres rouges, dits.** (n3b) invariance par translation : **5,8 % d'écart
+pour 1e-4 exigé** — et la cause est **mesurée**, pas supposée ((n3b') vert) : après
+UNE émission, **13 cellules** de densité diffèrent entre les deux repères (arrondi
+float32 de `bmin + (i−0,5)h` sur le bord de la sphère de `EmitSphere`), donc les deux
+courses ne sont pas le même problème discret, et l'écart mesure la sensibilité de
+l'écoulement, pas l'instrument. Le seuil reste écrit tel quel. (n3a) déterminisme
+et (n3c) fidélité de la copie : verts au dernier chiffre.
+
+**Un piège payé, écrit dans le code** : le premier contrôle positif posait une rotation
+solide *tronquée* (vitesse nulle hors du disque) — ce n'est pas « omega uniforme dans
+un disque, nul dehors » : le saut de vitesse est une **nappe de signe opposé** dont
+l'enstrophie domine, et l'instrument, juste, la mesurait (D = 3,65 pour 12). Montage
+corrigé en Rankine (irrotationnel dehors), **seuils intacts**.
+
+**Aucune ligne du solveur n'a changé.** Ajoutés : `OmegaX/Y/Z/Mag()` en lecture seule
+(`NkFluidGrid.h`), `volutes.cpp` dans `NkFluidGridProbe`, le mode `NK_FLUID_VOLUTES=1`
+(la course complète joue les contrôles, (n1), (n3), (n2a) ; seul le mode joue (n2b),
+~20 min). **Rien n'est poussé.**
+
+### 🔩 04/09 (nuit) — JENGA 2.6 : ce qui est appliqué, ce qui est mesuré en retour
+
+- **`-static` — le défaut était chez nous** : `config/toolchain.jenga:55` (bloc Windows natif) promettait
+  le lien statique en commentaire et ne passait que `--target`. Corrigé (`-static-libstdc++ -static-libgcc
+  -static -Wl,-Bstatic -lpthread` ; sans `-static`, `libwinpthread-1.dll` restait importée). Témoin :
+  `objdump -p NKMath_Tests.exe` ne liste plus aucune DLL de chaîne, et l'exe lancé avec
+  `PATH=/c/Windows/System32` seul rend 8/8.
+- **`testownmain()`** remplace mes trois fichiers vides (NKPhysics, NKCollision, NKImage — supprimés) ;
+  NKSerialization, NKECS, NKXR, NKAudio déclarent chacun **une** sous-suite (`Smoke`, `EntitySerialization`,
+  `Xr`, `Audio`).
+- **Défaut de Jenga 2.6 mesuré** : le contexte `test()` remet `_currentProject` à `None` à sa sortie
+  (`Api.py:999`) au lieu de rendre le projet parent → un **second** `with test("…")` dans le même projet
+  échoue (*« test context must be placed directly inside a project block »*) — et tout mot du DSL écrit
+  après un bloc `test()` dans un projet est **silencieusement ignoré** (`_currentProject` vaut `None`).
+  Les autres sous-suites (NKSerialization ×5, NKECS ×1, NKXR ×1, les deux bancs NKLogger/NKTime) sont
+  **nommées** dans les `.jenga`, pas déclarées. À Jenga : `__exit__` doit rendre `self._parent`.
+- **`testmainfile()`** : remplit `excludeMainFiles` que le Builder ne lit nulle part — mot inerte, nommé.
+- **`NKCode.jenga:345`** : aucun `-static` dans ce fichier aujourd'hui (grep) — le signalement ne se
+  retrouve pas, dit tel quel.
+
+### 🟢 04/09 (soir) — MODULES DONT LES TESTS SONT ROUVERTS (`Nkentseu.jenga:451-453`, `allow=[...]`)
+
+Jenga 2.5.0 (`dutc/dute(enable=True, allow=[...])`, source `D:\Projets\MacShared\Projets\Jenga`,
+`jenga --version` = 2.5.0 vérifié avant d'écrire). **Tout le monde hérite de cette liste à la fusion** :
+un `jenga test` y compile et lance ces suites, les autres restent bloquées comme avant.
+Liste, un module par commit, mise à jour à chaque ajout :
+- `NKCore_Tests` — 9/9, 45 assertions, 126 ms (build+run 19 s)
+- `NKMath_Tests` — 8/8, 499 assertions ; **témoin de l'interrupteur** : mutation `NkRectT::Contains` → 7/8 rouge
+  *par `jenga test`* (`NKmathmoke_VectorAndRectTypes`), restauré → 8/8.
+
+- `NKContainers_Tests` — 32 réussis, 32 au total, 141 réussies, 141 au total (build+run 20 s)
+- `NKMemory_Tests` — 28 réussis, 28 au total, 3403 réussies, 3403 au total (build+run 21 s)
+- `NKPhysics_Tests` — 61 passes, 0 échec (main nu de `test_physics.cpp`, build+run 30 s). **Forme
+  trouvée pour une suite qui fournit son `main()`** : Jenga n'injecte son `Unitest/Entry` que si
+  `testmaintemplate()` est vide → `NKPhysics.jenga` pointe un fichier **vide à dessein**
+  (`tests/nk_main_fourni_par_le_test.cpp`). C'est un contournement explicite, dit dans le fichier ;
+  la forme propre (« la suite fournit son main ») est à demander à Jenga.
+- `NKAnima_Tests` — 8 réussis, 8 au total, 8 réussies, 8 au total (build+run 14 s) — **suite créée depuis les bancs existants** de NkAnimaTest (les huit SelfTests du module, aucun cas nouveau ; `tests/test_selftests.cpp`, `with test()` dans `NKAnima.jenga`). Mutation du noyau FK (`world[j] = local[j]`) → `M2_NkAnimRetarget` rouge *par `jenga test`*, restauré → vert. Restent dans l'application : NkRoleContext (NKRenderer), NKAudio, et les trois témoins de câblage de l'éditeur (XBot.glb demande un actif).
+
+- `NKFileSystem_Tests` — 3 réussis, 3 au total, 11 réussies, 11 au total (build+run 27 s)
+- `NKStream_Tests` — 3 réussis, 3 au total, 10 réussies, 10 au total (build+run 32 s)
+- `NKReflection_Tests` — 7 réussis, 7 au total, 42 réussies, 42 au total (build+run 29 s)
+- `NKWindow_Tests` — 2 réussis, 2 au total, 5 réussies, 5 au total (build+run 40 s)
+- `NKCamera_Tests` — 3 réussis, 3 au total, 7 réussies, 7 au total (build+run 70 s)
+- `NKCollision_Tests` — All tests passed for NKCollision_Tests. (main nu, fichier vide en testmaintemplate ; build+run 28 s)
+- `NKImage_Tests` — All tests passed for NKImage_Tests. (main nu, fichier vide en testmaintemplate ; build+run 37 s)
+- `NKThreading_Tests` — Tests : 14 réussis, 14 au total, Assertions : 50 réussies, 50 au total (build+run 18 s) — **rouvert après avoir ÉCRIT les QUATRE primitives**
+  (`NkLatch`, `NkEvent`, `NkBarrier`, et `NkReaderWriterLock` découverte en reliant : déclarées, exportées, jamais définies — 0 symbole). Écrites sur
+  `NkMutex` + `NkConditionVariable` (`WaitUntil` sur horloge monotone), sans STL : latch à usage unique
+  (`CountDown` ne remonte jamais, `Wait` relit l'état à l'échéance), événement manuel/automatique
+  (`Set` persiste — un `Set` avant `Wait` ne se perd pas ; `Pulse` transitoire, par génération en manuel,
+  par consommation en automatique), barrière à phases (le dernier arrivé mène, `Reset` force la phase).
+  **Deux cas ajoutés qui rougissent sans moi** : `EventSetBeforeWaitIsNotLost` et `EventTimedWaitReturns`
+  (bornes 35 ms ≤ t < 1 s, jamais un test qui pend). Mutation « `Set` n'a d'effet que si quelqu'un attend »
+  → le premier rougit *par `jenga test`* ; restauré → vert.
+- `NKPlatform_Tests` — 0 réussis, 0 au total, 0 réussies, 0 au total (build+run 18 s)
+- `NKLogger_Tests` — 2 réussis, 2 au total, 5 réussies, 5 au total (build+run 28 s)
+- `NKTime_Tests` — 5 réussis, 5 au total, 24 réussies, 24 au total (build+run 27 s)
+- `Noge_Tests` — ✅ **11 réussis, 11 au total, 52 assertions (04/09 soir, `f360fdd4`)** : Rodolf a tranché « on va faire la même chose que le modeleur », le contrat et le test disent désormais ce que le code fait (bloc ci-dessous). *Historique :* 8 réussis, 5 échoués, 11 au total, 47 réussies, 5 échouées, 52 au total (build+run 130 s) — **rouvert AVEC ses rouges, informatifs** : les trois cas
+  rouges (`SingleTriangle`, `RecalcNormalsSmooth`, `FlipNormals`) attendent une normale **+Z** pour un
+  triangle donné **CCW** dans le plan XY — c'est le contrat écrit de `NkEditableMesh.h:117-129`
+  (« dans l'ordre CCW »). Or `NkEditMesh.cpp:315` calcule `(p2 − p0) × (p1 − p0)`, soit **−Z** pour ce
+  même triangle : l'implémentation (refonte NK3DModeler, 31/07 et 16/08) est *horaire-positive*, le
+  contrat et le test (26/07) sont *trigonométriques*. **Le test a raison contre le contrat ; défaut de
+  module nommé, pas corrigé** — inverser le produit vectoriel retourne toutes les normales du
+  modeleur (faces arrière, éclairage), c'est un arbitrage de convention pour Rodolf, pas un geste de nuit.
+
+- `NKPhysics_Tests` — All tests passed for NKPhysics_Tests. (`testownmain()`, Jenga 2.6 ; build+run 32 s)
+- `NKCollision_Tests` — All tests passed for NKCollision_Tests. (`testownmain()`, Jenga 2.6 ; build+run 29 s)
+- `NKImage_Tests` — All tests passed for NKImage_Tests. (`testownmain()`, Jenga 2.6 ; build+run 35 s)
+- `NKSerialization_Smoke_Tests` — All tests passed for NKSerialization_Smoke_Tests. (`testownmain()`, Jenga 2.6 ; build+run 31 s)
+- `NKECS_EntitySerialization_Tests` — All tests passed for NKECS_EntitySerialization_Tests. (`testownmain()`, Jenga 2.6 ; build+run 34 s)
+- `NKXR_Xr_Tests` — All tests passed for NKXR_Xr_Tests. (`testownmain()`, Jenga 2.6 ; build+run 44 s)
+- `NKAudio_Audio_Tests` — Résultats : 52 PASSED, 0 FAILED (`testownmain()`, macro `NK_TEST` maison ; build+run 7 s). Deux rouges au premier passage, tranchés : **le test avait raison** sur `DetectFormat` (la garde `size < 4` contredisait sa propre branche ID3 à 3 octets — corrigée, trivial) ; **le test était faux** sur le passe-bas (stéréo entrelacée : +1/−1 devient un continu par canal, qu'un passe-bas laisse passer — signal mono de Nyquist, suivi).
+- `NKSerialization_ReflectSerializer_Tests` — All tests passed for NKSerialization_ReflectSerializer_Tests. (`testownmain()`, Jenga 2.6.1 ; build+run 30 s)
+- `NKSerialization_ReflectPhase3_Tests` — All tests passed for NKSerialization_ReflectPhase3_Tests. (`testownmain()`, Jenga 2.6.1 ; build+run 33 s)
+- `NKSerialization_ReflectObjContainer_Tests` — All tests passed for NKSerialization_ReflectObjContainer_Tests. (`testownmain()`, Jenga 2.6.1 ; build+run 32 s)
+- `NKSerialization_Bench_Tests` — All tests passed for NKSerialization_Bench_Tests. (`testownmain()`, Jenga 2.6.1 ; build+run 34 s)
+- `NKECS_ReflectBridge_Tests` — All tests passed for NKECS_ReflectBridge_Tests. (`testownmain()`, Jenga 2.6.1 ; build+run 38 s)
+- `NKXR_Ar_Tests` — All tests passed for NKXR_Ar_Tests. (`testownmain()`, Jenga 2.6.1 ; build+run 53 s)
+- `NKSerialization_ReflectPhase5_Tests` — All tests passed for NKSerialization_ReflectPhase5_Tests. (`testownmain()` + NKMath ajouté à la sous-suite : `NkMathReflect.h` l'exige ; `%{NKMath.location}` ne se résout pas dans une sous-suite, chemin relatif ; build+run 7 s)
+**Défaut nommé, pas corrigé ici** : les exécutables de test (et les applis) sont liés **dynamiquement** à
+`libstdc++-6.dll`/`libgcc_s_seh-1.dll`/`libwinpthread-1.dll` malgré `config/toolchain.jenga:92-94`
+(`-static-libgcc -static-libstdc++ -static`), et le runner de `jenga test` ne pose pas le `PATH` de la
+chaîne : `NKMath_Tests.exe` sort en **127 muet** (« Tests failed », zéro ligne) alors que la suite est
+verte. Contournement mesuré : `PATH=/c/msys64/ucrt64/bin:$PATH jenga test …`. À Jenga : le runner
+doit prépendre le `bin` de la chaîne choisie ; à Nkentseu : vérifier pourquoi `-static` n'atteint pas
+l'éditeur de liens.
+
+### 🧪 04/09 (soir) — LES SUITES FOUNDATION LANCÉES À LA MAIN
+
+NKCore 9/9 · NKMath 8/8 · NKContainers 32/32 · NKMemory Tests : 28 réussis, 28 au total (un test faux suivi sur le contrat
+documenté de `NkPointerHashMap::Insert`) · NKPhysics 61/61. Mutation `NkRectT::Contains` → NKMath 7/8 :
+les suites mordent. Recette et table dans `echanges/noge.questions.md`. Toujours rien de branché.
+
+### 🚦 04/09 (soir) — RÉOUVERTURE DES TESTS : Jenga n'a pas de forme par module
+
+Rodolf : « on suit ta recommandation », module par module. **Mesuré dans Jenga** : `dutc`/`dute` sont
+à portée d'espace de travail, sans liste blanche ni activation par projet ; `jenga test --force` ne
+parvient pas au Builder, qui rebloque. Je n'ai rien bricolé dans `Nkentseu.jenga` : la demande à Jenga
+(liste blanche + `--force` transmis) est écrite dans `echanges/noge.questions.md`. **Aucun module n'est
+rouvert** à ce jour ; l'ordre prévu quand la forme existera : Foundation (NKCore, NKMemory, NKMath,
+NKContainers), NKPhysics (61/61 à la main), NKAnima, puis le reste — un module par commit.
+
+### 🔧 04/09 (soir) — LES 13 TESTS CASSÉS RÉPARÉS, sans rien brancher
+
+Deux catégories tenues séparées. **Renommée, le test suit** : `NkRect→NkRectI`, `NkCompare→NkMemCompare`,
+`NkFormatter→NkLoggerFormatter`, `NkStream::WriteMode→NK_WRITE_MODE`, `NkScopedLock` devenu template,
+`NkGraphicsApi` parti dans `nkentseu::graphics`. **Disparue, le cas est supprimé** : `NkAlignUp/Down` sur
+entiers (deux asserts), `NkFormatIndexed` (fichier entier, trois cas — aucune définition dans l'arbre, deux
+commentaires de `NkLogger.h` mentent encore), la sentinelle `*_RENDERER_API_MAX`. Deux includes manquants
+(`<cmath>` dans un test, `<utility>` dans **le module** `NkAssetMetadata.h`). NKXR n'était pas cassé (include
+externe absent de ma recette). Témoin : `clang++ -fsyntax-only` **76/76**. Les 20 modules « `with test()`
+sans dossier » sont nommés et datés dans `echanges/noge.questions.md`, avec la recette de liaison manuelle.
+La politique `dutc/dute` de `Nkentseu.jenga` n'a pas bougé.
+
+### 📏 04/09 — LA COPIE `jointParent/jointTopo` DU CLIP : mesurée, pas tranchée
+
+Lecteurs : `Clip/NkAnimation.cpp` (18 : **sérialisation** du clip — parents et topo font partie du
+format de fichier —, FK, échantillonnage), `AnimBridge.cpp` (13), `NkGLTFAnimBake.cpp` (6, l'écrit
+à l'import), `NkAnimRetarget.cpp` (2, l'écrit au reciblage), `NkRagdollBridge.h` (2). Retirer la
+copie = changer le **format d'actif** et cinq consommateurs ; un clip qui *référence* son squelette
+suppose que le squelette existe à côté du clip partout où il est chargé (le renderer charge des
+clips sans NkSkeletonDef aujourd'hui). Avis inchangé — un clip référence, il ne recopie pas — mais
+c'est un lot de format, à trancher avec Rodolf, pas à glisser en fin de journée.
+
+### 🔎 04/09 — LES TESTS « FANTÔMES » : correction, et le tableau
+
+Mon aveu du midi était mal formulé : `jenga test` **trouve** les 60 projets `*_Tests` — j'avais passé
+le nom du module au lieu de `NKPhysics_Tests`. La cause réelle : **`Nkentseu.jenga:451-453`,
+`dutc(enable=True)` / `dute(enable=True)`** (compilation *et* exécution des tests désactivées), depuis
+`5d90c862` du 2026-03-12. Mesure : 77 fichiers, **64 compilent** en isolation, 13 cassés (9 modules),
+20 modules déclarent `with test()` sans dossier ; `test_physics.cpp` lié à la main → **61/61**.
+Tableau complet dans `echanges/noge.questions.md`. **Rien n'est branché** avant que Rodolf tranche.
+
+### ✅ 04/09 — UN SEUL CONSTRUCTEUR DE RAGDOLL
+
+**Mesuré avant de bouger.** Trois noms, pas trois constructeurs : (1) `physics::NkRagdoll::Build`
+(vue + attributs explicites) ; (2) `NkRagdollBridge` (éditeur) — fabriquait **ses** corps depuis
+`bindGlobal[]` et savait deux choses que `Build` ignorait : *dériver* les formes (capsule
+joint→parent) et *ancrer* la racine (KINEMATIC) ; (3) `NkRagdoll` de Noge — un **composant ECS**
+(liens os→entité + machine d'état), pas un constructeur : personne dans Noge ne remplit ces liens
+(seul le banc, à la main, 1 os). Le survivant : `Build`. La dérivation (`NkRagdollAttrsFromSkeleton`)
+vit à côté de lui dans NKPhysics ; le pont de l'éditeur n'est plus qu'un pont (vue depuis
+`bindGlobal`, attributs dérivés, `ReadPose` pour le retour) ; le composant de Noge s'appelle
+`NkRagdollComponent` — l'homonyme est à **0** au grep.
+
+**Témoin, depuis les deux appelants** (NkSystemsRevivalTest, **55/55**) : attributs explicites →
+chaîne pendue 0,000 m / coupée 4,987 m ; attributs dérivés → chaîne racine ancrée 0,000 m, **même
+chaîne racine libérée 4,987 m** (rien d'autre ne retenait), coupée = trois racines ancrées, 0 joint,
+personne ne tombe. Une première contre-épreuve « coupée tombe » était fausse *par construction* :
+une racine dérivée est ancrée — le témoin devait libérer la racine, pas couper la chaîne.
+
+### 📏 04/09 (nuit) — PARTICULES : LA RÉPARTITION MESURÉE, puis la correction qu'elle désignait
+
+**Quatre chronos CPU** (`NkVFXSystem::Profile()`, par image) sur 50 000 particules, AVANT :
+naissance **6 → 793 ms** · intégration 0,9 · sommets 3,7 · envoi 0,9 (8,3 Mo) · commandes 0,0.
+**Tout était dans la naissance** : `SpawnParticle` balayait le tableau depuis le début pour trouver un
+emplacement libre — O(N) par particule née, O(N²) par image. Correction : une **pile d'emplacements
+libres** (O(1)), et le tableau de sommets réalloué chaque image (9,6 Mo) devenu tampon réutilisé.
+APRÈS, même courbe (640×480, images 150/180, GPU partagé avec Ilyana 48–94 %) :
+
+| particules | CPU frame | naissance | intégration | sommets | envoi | GPU frame | GPU passe VFX |
+|---|---|---|---|---|---|---|---|
+| 0 | 6,8 ms | — | — | — | — | 6,9–8,2 | — |
+| 500 | 6,8 | 0,004 | 0,012 | 0,03 | 0,01 (92 Ko) | 3,6–7,0 | **0,008** |
+| 5 000 | 6,8 | 0,009 | 0,13–0,20 | 0,64–0,72 | 0,10–0,18 (0,9 Mo) | 6,9–7,1 | **0,015** |
+| 50 000 (0,02 m) | **10,4–12,4** | 0,12–0,28 | 0,85–1,27 | **3,8–4,2** | 1,2–1,8 (9,3 Mo) | 10,5–12,3 | **0,085–0,090** |
+| 50 000 (0,25 m) | 9,3–10,0 | 0,16–0,20 | 1,0–1,1 | 3,5–4,5 | 1,0–1,5 | 9,1–10,3 | **0,36–0,37** |
+
+Lecture : **50 000 tiennent 10–12 ms** (contre 20–940 ms avant) ; le dessin GPU des particules vaut
+**moins de 0,4 ms** même à 0,25 m (surdessin ×4, pas ×100) ; la frame GPU suit le CPU parce que le GPU
+attend le CPU. Le prochain poste est **sommets 4 ms + envoi 1,5 ms** : l'expansion du quad sur le GPU
+(un enregistrement de 32 o par particule, instancié, le coin tiré de `gl_VertexID`) les divise par six.
+
+**Deux instruments corrigés en mesurant** : (1) le chrono de frame posait sa fin *avant* la relecture
+du tampon de commandes — il mesurait l'attente de la frame précédente, pas les dessins ; fin déplacée
+après `EndFrame`. (2) `NkOpenGLCommandBuffer::WriteTimestamp(idx)` appelait `glQueryCounter(idx, …)`
+avec `idx` comme **nom d'objet GL jamais alloué** — déclaré, pas livré ; il enregistre maintenant un
+marqueur rejoué avec les commandes (pair = début, impair = fin ; 2/3 = la passe VFX). Les « 364 ms »
+d'hier étaient une attente CPU comptée par un chrono mal placé — *un instrument mal posé rend un faux*.
+
+**C. La simulation sur GPU (compute) — nommée, pas faite sans Rodolf.** C'est l'étape Niagara : l'état
+des particules quitte le CPU (plus d'intégration, de sommets ni d'envoi par image — 0 Ko au lieu de
+9,3 Mo), le CPU ne pousse que les naissances. Chiffre visé : **1 000 000 de particules sous 16 ms**,
+là où le chemin CPU actuel plafonne vers 70–80 000 (10–12 ms pour 50 000, linéaire). Décision de
+conception : elle change **qui possède l'état** (le GPU), donc la lecture côté jeu (collisions, tri,
+requêtes) — à trancher avec lui.
+
+**Divergence à noter (pas à résoudre ici)** : `Applications/NKCode/NKCode.jenga` est au 14/08 dans cet
+arbre (`Nkentseu-noge`) et au 04/09 11:05 dans `Nkentseu` (master), où la l.345 porte un `-static` de
+projet ; ici c'est un commentaire Android. Règle gravée : une référence `fichier:ligne` porte l'arbre et
+le commit.
+
+### ✨ 04/09 (soir) — PARTICULES, borne 2 : la TEXTURE rend, et le chrono GPU MESURE
+
+**A. La texture.** `NkEmitterDesc::texture` était déclarée et jamais lue. Un layout de descripteurs
+`{binding 1 : image+sampler}` partagé par les trois pipelines, un descripteur par émetteur lié à
+`CreateEmitter`, `@binding(set=0, binding=1) uniform sampler2D tParticle` dans `particles.frag.nksl`
+— la texture définit la forme et la teinte, la couleur du sommet la module. **Sans texture, le repli
+est dit** (`[NkVFX] emetteur 1 sans texture : repli disque doux blanc 32x32`) : le disque doux qui
+vivait en dur dans le fragment est devenu une texture générée à l'init — même rendu qu'avant.
+**Témoin en pixels** : une particule immobile portant un damier 2×2 magenta/vert → **quatre cellules**
+lisibles (1 386 / 837 / 1 710 / 1 667 px), deux diagonales perpendiculaires (|cos| 0,19) qui se
+croisent (écart 5,7 px). `Captures/noge_particules_texture_2026-09-04.png`. Piège rencontré : le
+panneau HUD translucide recouvrait le quadrant haut-droit et faussait le compte — la sonde pose
+la particule hors du panneau ; *la capture de sa seule fenêtre inclut son propre HUD*.
+
+**B. Le chrono GPU.** `NkIDevice::BeginTimestampQuery/EndTimestampQuery/GetTimestampResults` étaient
+des corps **vides** qu'aucun backend ne surchargeait, et personne n'écrivait `gpuTimeMs` : le
+`GPU: 0.00ms` du HUD n'était pas tronqué, il n'existait pas. Désormais OpenGL pose
+`glQueryCounter(GL_TIMESTAMP)` en début/fin de frame (anneau de 4, lecture sans blocage), le
+renderer remplit `gpuTimeMs` et un `gpuTimeValid` ; **sans instrument le HUD dit `GPU:--`**, pas
+0.00. **La courbe** (`renderdemo --demo=2`, 640×480, images 150/180) : 0 particule **1,4–4,2 ms** ·
+500 **2,2–2,6** · 5 000 **2,7–6,1** · 50 000 **8,8 ms puis 37 / 69 / 182 / 364 ms** (CPU 21–667 ms :
+simulation + 9,6 Mo de sommets réécrits chaque image). Elle varie avec le nombre ; **50 000 ne
+tiennent pas 16 ms, de loin**. Réserve dite : Ilyana occupait le GPU à 47–100 % pendant ces mesures
+(PID 11904 inchangé) — les valeurs absolues sont celles d'un GPU partagé, la pente est réelle.
+
+**C. Le jeu global Vulkan** (`uCam` lié par nom sur le chemin aplati GL, le sampler au set 0
+binding 1 à côté) : **nommé, pas fait** — la borne suivante.
+
+### ✨ 04/09 — PARTICULES, borne 1 : le MÉLANGE déclaré est celui qui rend (la texture, pas encore)
+
+`NkEmitterDesc::blend` était **déclaré et jamais lu** : un seul pipeline, Additive, pour tous — le
+même défaut que les huit fois précédentes. Désormais **trois pipelines**, un par famille que
+`NkBlendDesc` sait fabriquer (Additive, Alpha, Opaque), choisis à l'appel par le mélange de
+l'émetteur. Les trois autres modes (`MULTIPLY`, `PREMULT`, `SCREEN`) n'ont **pas de fabrique** :
+repli Alpha **dit une fois** sur stderr (`[NkVFX] NkBlendMode 3 non honore…`), jamais en silence.
+
+**Témoin, en pixels** (`renderdemo --demo=2`, OpenGL, frame 170, capture headless `NK_CAPTURE`) :
+même émetteur, `NK_VFX_BLEND=additive` → **2 426** pixels quasi blancs (le cœur s'empile jusqu'à
+saturer) ; `alpha` → **1 027** ; `alpha` une seconde fois → 1 026 ; `multiply` (repli) → 1 021 —
+c'est le fond seul. Le bruit run à run (émetteur stochastique) vaut 33 732 pixels différents ;
+le sujet en fait 69 282. Image : `Captures/noge_particules_melange_2026-09-04.png` (additive |
+alpha, côte à côte).
+
+**Pas fait, dit clairement** : `NkEmitterDesc::texture` reste non lu — l'honorer demande le
+chemin des descripteurs (jeu global Vulkan pour les pipelines VFX) et un sampler dans
+`particles.frag.nksl` ; c'est la borne 2, un lot à part avec son propre témoin (une texture
+asymétrique, pour que l'image dise si elle est lue et dans quel sens).
+
+### ✅ 04/09 — UNE SEULE CONVERSION POSE → MONDE, dans `Skeleton/`
+
+**Sept** boucles `world[j] = world[parent] × local[j]` vivaient dans sept endroits : le clip
+(`ApplyFKSkinning`), le reciblage (`WorldOf`), `FromLocalBind` lui-même, l'IK de Noge
+(`BuildWorldPose`, qui supposait *parent avant enfant* sans `topo`), et l'éditeur (trois
+propagations partielles : chaîne IK fixée, joint saisi). Une seule désormais :
+`NkForwardKinematics` / `NkSkeletonDef::LocalToWorld` (`Skeleton/NkSkeletonDef.h`), avec les
+deux boutons dont l'éditeur a besoin (`skip[]`, `rootsFixed`) et le repli *ordre d'index* quand
+`topo` est vide. **Mesuré en passant** : `BuildTopo` n'était appelé que par le banc — les
+squelettes réels (glTF, démos) n'avaient **jamais** d'ordre topologique ; `NkGLTFIO` le calcule
+maintenant **à l'import**. Témoin : test 0 juge la conversion contre la **géométrie à la main**
+(joint 2 de la chaîne à 30° = (−0,5 ; 1,866 ; 0)), pas contre elle-même ; mutation du noyau
+(`world[j] = local[j]`) → `[ FAIL ] M2` ; restauré → 13/14. Consommateurs reconstruits :
+NkAnimaTest 26/26, Nogee 44/44, NkAnimaEditor 31/31, NkLocomotionDemo 41/41 (banc 9/0).
+
+Désordre listé, pas corrigé : `NkAnimaEditor/NkRagdollBridge.h` construit *ses* corps rigides
+depuis `bindGlobal` — une seconde fabrique de ragdoll à côté de `physics::NkRagdoll::Build`
+(pas une seconde structure de squelette : il lit des matrices, pas des `parent`).
+
+### ✅ 04/09 — LA TROISIÈME STRUCTURE A DISPARU : `physics::NkBoneDef` → vue du squelette + attributs
+
+`NkRagdoll.h` portait un `NkBoneDef` (parent + corps + joint) : un second squelette qui **redisait
+`parent`**. Remplacé par `NkSkeletonView` (parents + repos monde, tableaux bruts — NKPhysics
+n'inclut pas NKAnima, la vue n'est pas une copie) et `NkRagdollBoneAttr` (type de corps, offset
+du centre de masse, forme, matériau, joint et limites — *rien de topologique*). `Build(world,
+vue, attrs)`. **Critère de fin au grep** : parmi `struct Nk*Bone*/Nk*Skel*`, seul `NkSkeletonDef`
+définit `parent` ; `NkIKBone`, `NkJiggleBone`, `NkRagdollBoneLink` référencent par index.
+
+**Deux choses apprises en le prouvant.** (1) `jenga test` répond *« No test projects found »*
+même avec `--force`, alors que 42 `.jenga` déclarent `with test()` : **`NKPhysics/tests/
+test_physics.cpp` n'est compilé par personne** — ma phrase de l'après-midi « exercé par
+test_physics.cpp » était vraie du texte, fausse du binaire. Les deux sites y sont réécrits quand
+même ; le **seul banc qui exerce `NkRagdoll::Build` est désormais NkSystemsRevivalTest**
+(+4 checks, 52/52). (2) Épingler la racine en changeant `type = STATIC` *après* `Build` laissait
+`invMass = 1` : le solveur poussait un mur et la chaîne s'affaissait de 1,26 m. Le type de corps
+est un **attribut physique de l'os** (`NkRagdollBoneAttr::type`), `CreateBody` en déduit la masse.
+Témoin : même table d'attributs, topologie **chaîne** → le dernier corps reste pendu (0,000 m) ;
+topologie **coupée** → il tombe de 4,987 m en 1 s. Le témoin varie comme le sujet.
+
+Désordre listé, pas corrigé : Noge a *son* `NkRagdoll` (`Physics/NkPhysicsMesh.h`, données du
+composant) homonyme de `physics::NkRagdoll` — ambigu sous `using namespace`, à qualifier.
+
+### 🧪 04/09 — LA PREUVE PAR MUTATION, et ce qu'elle a d'abord raté
+
+Conversion à l'import cassée (`bindPose = loc`, FK sans le parent) → le banc doit rougir.
+**Deux rounds l'ont laissée passer.** Non parce que le témoin était mauvais : parce que le
+binaire ne contenait pas la mutation — un en-tête modifié, un build « SUCCESS », et une lib
+ou un exe pas relié. *Un build vert qui ne reconstruit pas ce qu'on mesure est un build qui
+ment* — troisième fois ce chantier. Nettoyage dur (objets + lib + exe supprimés), rebuild :
+**abandon par assertion d'indice** avant même le rapport. Un témoin qui *plante* n'est pas
+un témoin qui *rougit* : court-circuit posé après le test 0 (un squelette dont la conversion
+est fausse ne nourrit pas les tests suivants). Résultat : mutation → **`[ FAIL ] M2`, 12/14** ;
+restauration → **`[ OK ] M2`, 13/14**. Le témoin mord, proprement.
+
+### ✅ EXÉCUTÉ LE 04/09 — une seule structure, la conversion à l'import, le témoin qui mord
+
+**`NkRetargetSkeleton` n'existe plus** — pas un alias, pas un « au cas où » :
+`grep` sur tout le code rend zéro, seules les archives (ce bloc, le rapport, la
+roadmap du module) la nomment encore, datée. `NkSkeletonDef` a gagné exactement
+ce que le plan disait : `topo` + `BuildTopo()` (détection de cycle conservée),
+`BindLocal(j)` **dérivé** (`inverse(monde(parent)) × monde(j)`, jamais stocké),
+`BindWorld/BindWorldPos/BindHeight`, `ParentVector()`, et **`FromLocalBind()` —
+la conversion, à l'import, une fois** : FK dans l'ordre topologique, monde et
+inverse-monde remplis, aucun actif produit à moitié si la hiérarchie a un cycle.
+
+**Le reciblage consomme l'actif** : cinq signatures passent de
+`const NkRetargetSkeleton &` à `const NkSkeletonDef &` ; `RetargetClip` prend
+désormais `jointInverseBind` **dans l'actif** (`inverseBindPose`) au lieu de le
+recalculer — une seule source de vérité pour la peau et le reciblage.
+
+**Le témoin, et il est double :**
+- **test 0, neuf** : sur une chaîne dont le repos est **incliné de 30°** (le cas
+  où la convention diffère), chaque `BindLocal(j)` dérivé **redonne le local
+  d'origine** à 1e-4, `monde × inverse-monde = identité`, et le monde **n'est pas**
+  le local (sinon la conversion n'aurait rien fait) ;
+- **test 3, inchangé dans ses attentes** : source au repos plat, cible au repos à
+  30° → le bout de la cible reste **pile à sa position de repos**, et pas à
+  celle de la source. *Mêmes poses à ε qu'avant l'unification* — c'est
+  l'animation reciblée avant/après que la consigne demandait.
+
+`NkAnimPhysTest` : `[ OK ] M2 NkAnimRetarget`, **13/14 suites** — le même compte
+qu'avant (la 14ᵉ est `XBot.glb`, absent du dépôt, préexistant).
+
+**Ce qui a recompilé — la liste, pas l'impression** : `NKAnima` 9/9,
+`NkAnimPhysTest` 27/27, puis la chaîne des consommateurs de l'actif — voir le
+message du commit pour les comptes.
+
+### 🟢 TRANCHÉ PAR RODOLF (04/09) — **on unifie, contre ma recommandation**
+
+> *« non, on les unifie dans NkAnima car elle sera utile pour plusieurs systèmes
+> qui en auront besoin. »*
+
+**Et une mesure prise après sa décision la rend beaucoup moins chère que ce que
+j'avais chiffré.** Je m'étais arrêté sur « changement de contrat, six
+consommateurs » — j'avais compté les consommateurs du **squelette**, pas ceux de
+la **structure qui disparaît** :
+
+| structure | qui la nomme, hors de NKAnima |
+|---|---|
+| `NkSkeletonDef` (celle qui reste) | `NkLocomotionDemo`, `NkSystemsRevivalTest`, `Noge/NkAnimation.h`, `Noge/NkGLTFIO.cpp` |
+| **`NkRetargetSkeleton`** (celle qui disparaît) | **PERSONNE.** Elle ne vit que dans `NkAnimRetarget.{h,cpp}` — un seul module, un seul fichier de corps |
+
+> 🔑 **Le seul appelant externe du reciblage est `NkAnimPhysTest`, et il passe
+> par `NkAnimRetarget`, pas par la structure.** L'unification ne casse donc
+> aucun contrat public : elle change les **paramètres de cinq fonctions
+> statiques** d'un module dont un seul test se sert.
+
+### Le plan, dans l'ordre — ce qui disparaît, qui consomme quoi, où vit la conversion
+
+**1. Ce qui disparaît** : `struct NkRetargetSkeleton` (4 tableaux parallèles :
+`parent`, `bindLocal`, `names`, `topo`). Ses quatre services **ne disparaissent
+pas** — ils deviennent des fonctions libres sur `NkSkeletonDef` :
+`BindWorld`, `BindWorldPos`, `BindHeight`, `BuildTopo`.
+
+**2. Ce que `NkSkeletonDef` doit gagner** — et c'est le cœur de la décision :
+
+| besoin du reciblage | dans `NkSkeletonDef` aujourd'hui | à faire |
+|---|---|---|
+| pose de repos **locale** | absente : il porte `bindPose` / `inverseBindPose` (monde) | **rien à ajouter** : le local se dérive — `local(j) = inverse(bindPose(parent)) × bindPose(j)` |
+| `topo` (parents avant enfants) | implicite (`parent < i` supposé) | **champ ajouté**, construit à l'import, **avec détection de cycle** — c'est le seul filet que `BuildTopo` apportait, on ne le perd pas |
+| `names` | `char[64]` dans `NkBoneDef` | rien — et on **gagne** : plus d'allocation par os, l'actif reste copiable par valeur |
+
+**3. Où vit la conversion : À L'IMPORT, UNE FOIS.** C'est le point de la
+consigne, et il est structurant — *une convention s'absorbe une fois, au moment
+où la donnée entre, jamais dans une seconde structure qui la porterait en
+parallèle.* Les importateurs (`NkGLTFIO`, FBX) écrivent déjà `bindPose` et
+`inverseBindPose` ; ils ajouteront `topo` au même endroit. **Aucune conversion à
+l'exécution**, donc pas de FK récursive par image — le coût que je redoutais au
+tableau ci-dessous **disparaît avec la structure**.
+
+**4. Ce qui recompile** : `NkAnimRetarget.{h,cpp}` (les cinq signatures et leur
+corps), `NkAnimPhysTest` (le seul appelant externe), et **rien d'autre** — les
+quatre consommateurs de `NkSkeletonDef` ne voient qu'un **champ ajouté**.
+⚠️ Recensement **au compilateur**, comme toujours : `NkAssetIODemo` atteignait
+`NkSkeleton` par un **champ** sans jamais écrire son nom.
+
+**5. La preuve** : les six bancs au même compte (Noge 41/41, Nogee 45/45,
+LocomotionDemo 9/0, AssetIODemo 55/0, SystemsRevivalTest 48/0, NkAnimPhysTest
+13/14) **et** une contre-épreuve sur la conversion — un squelette dont le local
+dérivé doit redonner le monde d'origine à ε près, sinon la conversion est
+fausse et silencieuse.
+
+**Chiffrage révisé : ~½ journée** (contre « une journée de recensement » quand je
+croyais le contrat public). 🚫 **Non exécuté** : ce lot-ci livrait l'image de la
+voiture, les particules et `?diag=1`. **Rien ne bloque** — c'est le prochain.
+
+### 🗄️ Ce que j'avais recommandé, et pourquoi Rodolf a eu raison de trancher autrement
+
+### 🔵 Ce que je recommande, et pourquoi c'est « pas maintenant »
+
+**Garder les deux, et écrire UNE fonction de conversion** `NkRetargetSkeleton →
+NkSkeletonDef`, le jour où un cas réel la demande — c'est-à-dire le jour où on
+recible une animation sur un personnage Noge. Aujourd'hui **aucun code ne fait ce
+trajet** : unifier maintenant, ce serait payer un changement de contrat pour un
+besoin que rien n'exerce.
+
+*C'est la même règle que pour `NKAnimPhysics` au bloc 7 : on l'exerce quand un
+jeu jouera l'équilibre, pas avant.*
+
+**Ta décision** : (a) on garde les deux et on écrit la conversion au premier
+besoin réel — ma recommandation ; (b) on unifie maintenant, en acceptant le
+changement de contrat et sa journée de recensement au compilateur.
+
+
+---
+
+---
+
+## 12. ⏱️ LA LENTEUR DE CHARGEMENT WEB — mesurée, deux causes traitées, une troisième nommée
+
+> 🗣️ **Rodolf, 2026-09-03** : *« ça prend, mais c'est hyper lent. »*
+> ✅ **Le correctif PBR tient** — le Web rend. Ce bloc traite ce qui reste.
+
+### 📏 CE QUI ÉTAIT EMBARQUÉ, ET CE QUE LE MOTEUR OUVRE VRAIMENT
+
+Le paquet web embarquait **l'arbre `Resources/NKRenderer/Shaders` en entier** :
+**474 fichiers, 1 005 867 octets**. Mesure de ce que le chargeur construit
+comme chemins — `NkShaderLibrary.cpp:679` et `:723` :
+
+| | | |
+|---|---|---|
+| `<Mat>/NkSL/<mat>.{vert,frag}.nksl` | **préféré** | 103 fichiers |
+| `<Mat>/VK/<mat>.{vert,frag}.vk.glsl` | **repli** — *« tous les backends chargent le `.vk.glsl` »*, DX11/DX12/Metal convertissant **à chaud** | 94 fichiers |
+| `Include/*.glsli` | résolus par l'`IncludeResolver` | 8 fichiers |
+
+🔴 **Les `.hlsl` et `.msl` ne sont lus par PERSONNE depuis cet arbre.** Ce ne
+sont pas « des dialectes inutiles sur le web » : ce sont des **sorties** du
+convertisseur (`NkShaderLibrary` `reportAndSave` VK→HLSL/MSL), versionnées à
+côté de leurs sources. Les seules lectures de `.hlsl` du dépôt visent
+`Resources/Shaders/Model/` — **un autre dossier**, pour `Applications/Model`.
+
+### ✅ CE QUI EST FAIT — et le chiffre, pas l'impression
+
+| | avant | après | gain |
+|---|---:|---:|---:|
+| `renderdemo.data` | 1 005 867 o | **757 891 o** | **−247 976 o (−24,7 %)** |
+| entrées du paquet | 476 | **288** | **−188** |
+| `.hlsl` / `.msl` | 126 / 62 | **0 / 0** | — |
+| `.nksl` / `.vk.glsl` / `.glsli` | 103 / 94 / 8 | **103 / 94 / 8** | intacts |
+| écritures console au chargement | **~952** | **~21** | **−98 %** |
+
+**Piste 1 — le filtre** : `--exclude-file *.hlsl` et `*.msl` sur le
+`--preload-file`. Les deux arbres sont reconstruits (Release **et** Debug,
+30/30, `.data` identiques à 757 891 o).
+
+**Piste 2 — la journalisation** : `monitorRunDependencies` appelait
+`Module.setStatus` à **chaque** dépendance, et `setStatus` faisait un
+`console.log`. Soit ~952 écritures. **Avec les outils de développement ouverts —
+et Rodolf les a — une écriture console coûte des centaines de fois un `printf`** :
+chaque ligne est formatée, horodatée, rattachée à une pile et rendue dans le DOM.
+*C'est le seul coût de chargement qui GROSSIT quand on l'observe.* Palier à 5 %.
+⚠️ **La barre et le texte à l'écran restent mis à jour à chaque fichier** : ils ne
+coûtent rien, et c'est ce que l'utilisateur regarde. **On bride la console, pas
+l'interface.**
+
+⏱️ **Et le paquet mesure désormais son propre temps** — deux lignes neuves :
+```
+[NkWeb] preparation : 288 dependances
+[NkWeb] preparation terminee en <N> ms pour 288 dependances
+```
+*Sans compteur, la prochaine comparaison serait un ressenti.* La ligne d'après
+donnera **combien**.
+
+### 🔎 CE QUI N'EST PAS FAIT, ET POURQUOI
+
+**Les 68 `.gl.glsl` (105 405 o) restent embarqués.** Le code mesuré ne construit
+**aucun** chemin `GL/` — mais **deux commentaires du dépôt affirment le
+contraire** (`NkRender3D.cpp:496`, `NkPostProcessStack.cpp:346`). Tant qu'une
+exécution n'a pas tranché entre le code et ses commentaires, **on ne retire
+pas** : le gain certain d'abord, l'incertain après. *Retirer 105 Ko sur la foi
+d'une lecture, contre deux commentaires qui disent l'inverse, c'est exactement
+la conception sur inventaire qui s'est trompée hier.*
+
+**Piste 3 — le nombre d'entrées MEMFS** (288 créées une par une) : non ouverte.
+Un paquet unique ou un index éviterait le coût par entrée, mais **on mesure
+d'abord** ce que les deux premières pistes ont donné. Il se peut qu'il ne reste
+rien à gagner.
+
+
+---
+
+---
+
+## 13. ✨ LES PARTICULES — mesurées avant d'être ouvertes : **il y a du vrai code**
+
+> Consigne : *cherche où vit le corps, ne compte pas un suffixe* — souvenir de
+> `NkCGXDetect` (1 347 l. d'en-tête, un `.cpp` de trois lignes) et de `NKGraph`
+> (zéro `.cpp`, 1 519 l. dans les `.inl`).
+
+### Ce que la mesure donne
+
+| | mesure | verdict |
+|---|---|---|
+| `NKRenderer/Tools/VFX/NkVFXSystem.cpp` | **460 lignes**, **0 corps vide** | 🟢 **du vrai code**, pas une coquille |
+| `NkVFXSystem.h` | 210 l., 5 inline | déclarations + petits accesseurs |
+| ce qu'il expose | **émetteurs** (`CreateEmitter`, `Burst`, `SetEmitterPos`), **traînées** (`AddTrailPoint`), **décalques** | trois familles, pas une |
+| `NkEmitterDesc` | ~20 champs réglés : formes d'émission, débit, rafale, durée de vie, vitesses, tailles, **dégradé de couleur**, gravité, dispersion | une vraie surface d'auteur |
+| **appelants réels** | `NkRendererImpl`, `Noge/ECS/Systems/NkParticleSystem`, `NK3DModeler`, `DemoRW`, `Sandbox`, `NkSimulationRenderer` | 🟢 **exercé**, pas déclaré-inerte |
+| pont ECS de Noge | `NkParticleSystem::Execute` — **50 l. avec un vrai corps** : `Query<NkParticleEmitter, NkTransform>`, recréation sur `dirty`, synchro de position | 🟢 |
+
+> 🔑 **Conclusion : le chantier « particules » n'est PAS « écrire des
+> particules ».** Le socle existe, il est branché, et un jeu peut déjà émettre.
+> Ouvrir ce chantier en croyant partir de zéro aurait produit un doublon — *le
+> peintre écrit deux fois*.
+
+### Deux bonnes nouvelles mesurées, qu'on aurait pu croire fausses
+
+1. **Aucun `compute`, aucun SSBO** dans le VFX (0 occurrence). La simulation est
+   **CPU**, les particules sont montées en **billboards** dans un VBO
+   (`ParticlesBillboard`, « 4 verts billboard »). ✅ **Donc le VFX tourne sur
+   WebGL2** — contrairement aux trois doublures cloth/hair/softbody du bloc 2,
+   qui sont en compute et restent absentes du Web. *La cible étroite ne coûte
+   rien ici.*
+2. **Aucun geometry shader utilisé.** Des `particles.geom.*` existent bien dans
+   `Resources`, et `NkShaderLibrary` sait charger un étage géométrie — mais
+   `NkVFXSystem` n'en demande aucun. ✅ **Second obstacle WebGL2 évité** (GLES
+   n'a pas d'étage géométrie). ⚠️ Ces `.geom` rejoignent donc les `.hlsl`/`.msl`
+   du bloc 12 : **des artefacts versionnés que personne n'ouvre**.
+
+### 🔴 RÉPONSE MESURÉE LE 03/09 — « est-ce que ça REND ? » : **NON.** Et ce n'est pas le dessin qui manque, c'est tout ce qui est autour.
+
+**Ce qui a été fait pour le savoir** — une sonde dans `Demo3D`, sous
+`NK_VFX_PROBE=1` seulement (zéro effet sinon), en trois temps, chaque temps
+tranchant une hypothèse :
+
+| temps | geste | mesure | ce que ça tranche |
+|---|---|---|---|
+| 1 | créer **un émetteur** (400/s, 1 000 max) et capturer la frame 90, backend **logiciel** puis **OpenGL** | `emetteur cree id=1`, passe `VFX` exécutée 3×/frame, **0 erreur**, **0 pixel** sur les deux images | le système est branché ; rien ne s'affiche |
+| 2 | faire **avancer** la simulation (`vfx->Update(dt, cam)`) | **toujours 0 pixel** | ce n'était pas *que* le tick |
+| 3 | **compter** | vivantes : **136 → 230 → 318 → 401** aux frames 30/60/90/120 (≈ 400/s × 0,25 s = 100 par tranche : cohérent) | **simulé, pas dessiné** |
+
+**Puis la lecture, guidée par les chiffres — trois manques, indépendants :**
+
+1. 🔴 **Personne ne fait avancer la simulation.** `NkVFXSystem::Update(dt, cam)` n'a **aucun appelant actif** dans le dépôt : ni `NkRendererImpl` (qui crée le VFX à `InitVFX` et le *dessine* dans la passe `VFX`), ni le pont Noge (`NkParticleSystem.cpp:14` : *« l'animation des particules est faite par le pipeline NKRenderer »* — **faux**), ni aucune démo active. Le seul appelant est `Demo06_10.cpp.legacy`, retiré le 08/05. *Une passe qui dessine une simulation que personne n'avance.*
+2. 🔴 **Aucun des trois pipelines VFX n'a de shader.** `ParticlesBillboard`, `TrailMesh`, `Decal` : rasterizer, profondeur, mélange, un `debugName` — **ni `shader`, ni `vertexLayout`, ni `topology`**. Et `NkOpenGLDevice::CreateGraphicsPipeline` **rend `{}` quand `d.shader` est introuvable** (`NkOpenglDevice.cpp:2370`). `BindGraphicsPipeline(invalide)` ne lie rien, `Draw(vivantes × 4)` part sans programme. **Le dessin VFX est un échafaudage** — et ça ne s'est jamais vu parce que rien n'avançait la simulation (manque 1) : `aliveCount == 0` court-circuitait le dessin avant qu'il ne puisse échouer.
+3. 🟠 **Même avec un shader, les quads ont une aire nulle.** Le CPU écrit **quatre sommets à la même position** (`v.pos = p.pos`, seul `uv` change), la taille voyage en attribut ; le commentaire dit *« expansés dans le vertex shader ou ici »* — **ni l'un ni l'autre**. Les shaders GL historiques (`Particles/GL/particle.vert`) sont un *pass-through* prévu pour un **geometry shader** (`particles.geom.*`) que le VFX ne lie pas ; et `particles.nksl` (10/05, commit « Vulkan renderer ») porte le **layout PBR générique** (`aPos/aNormal/aTangent/aUV/aUV2/aColor`, `uObject.model * aPos`) — ce n'est pas un shader de particules.
+
+📌 **Et six champs de `NkEmitterDesc` sur 24 ne sont jamais lus** : `texture`, `blend`, `coneAngle`, `loop`, `simMode`, `worldSpace`. La surface d'auteur promet plus que le système ne tient — *déclaré, pas livré*, comme les 108 widgets dont 2 peignent.
+
+> 🔑 **Ce que ça change à la question.** Le chantier n'est ni « écrire des particules » (la simulation existe et tourne : 401 vivantes), ni « corriger un bug » : c'est **finir un renderer de particules dont on n'a que la moitié CPU**. Trois pièces à écrire, dans cet ordre, chacune avec son témoin : (a) le **tick** dans `NkRendererImpl` (une ligne, et le pont Noge cesse de mentir) ; (b) **un vrai shader de particules** — layout `NkVertexParticle`, expansion des coins **dans le vertex shader** à partir de `aSize` et du right/up caméra (pas de geometry shader : WebGL2 n'en a pas, et c'est le chemin Apple) — attaché aux trois pipelines ; (c) la **texture** et le **mélange** honorés. **Chiffrage : ~1,5 j.** 🚫 **Non lancé** — c'est une décision.
+
+⚠️ **Ce que la mesure ne donne PAS** : le coût par particule (aucun chronomètre posé — inutile tant que rien ne se dessine) et la limite réelle de `maxParticles`. Ils se mesureront **après** (b).
+
+🧰 **La sonde reste dans `Demo3D.cpp`, sous `NK_VFX_PROBE=1`** : elle reproduit les quatre nombres en une commande, sans rien changer pour qui ne pose pas la variable. Un contrôle positif CPU (expansion des coins) a été **préparé et non appliqué** : sans shader, il n'aurait rien prouvé.
+
+### ✅ 2026-09-04 — **ELLES RENDENT.** Quatre manques, pas trois : le quatrième était la passe elle-même
+
+`Captures/noge_particules_2026-09-04.png` — une gerbe de particules additives,
+`renderdemo` OpenGL. **Le témoin est le compteur qui VARIE avec le sujet** :
+
+| état | vivantes | `Draw:` | `Tris:` | écart |
+|---|---:|---:|---:|---:|
+| sans particules | 0 | 1093 | 489 588 | — |
+| frame 60 | 167 | **1094** | 489 916 | **+328** ≈ 167 × 2 |
+| frame 170 | 502 | **1094** | 490 542 | **+954** ≈ 502 × 2 |
+
+`Draw` monte de **un** (un appel par émetteur, constant — c'est juste) et `Tris`
+suit le nombre de particules, **deux triangles chacune**. *Un compteur qui ne
+varie pas avec le sujet ne mesure pas le sujet ; celui-ci varie.*
+
+**Ce qu'il a fallu — et le quatrième manque n'était pas dans mon relevé d'hier :**
+
+| # | manque | correctif |
+|---|---|---|
+| 1 | aucun pipeline VFX n'avait de **shader** | `particles.vert.nksl` + `particles.frag.nksl` écrits, `LoadOrCompileVF("Particles")`, `pd.shader` + `pd.vertexLayout` (layout `NkVertexParticle`, stride 32) |
+| 2 | quads d'**aire nulle** | **six** sommets par particule (la topologie est `TRIANGLE_LIST` : quatre faisaient un triangle et un orphelin), coins expansés **dans le vertex shader** depuis `aUV`/`aSize` et le repère caméra tiré de `uCam.view` — **pas de geometry shader** : WebGL2 n'en a pas, et le Web est le chemin Apple |
+| 3 | personne n'appelait **`Update`** | la sonde le fait côté application, comme le faisait le legacy — le renderer n'a **ni `dt` ni caméra** à lui, lui en donner est une décision à part |
+| 4 | 🔴 **la passe `VFX` du graphe avait un corps VIDE** — `(void)cmd;` sous un commentaire affirmant *« VFX flush intégré par le sous-système VFX »*, et `NkVFXSystem::Render` n'avait **aucun appelant** | la passe appelle `mVFX->Render(cmd, …)` |
+
+> 🔑 **Le quatrième ne s'était pas vu hier, et c'est structurel** : les manques
+> 1 et 3 le masquaient. Sans tick, `aliveCount == 0` court-circuitait le dessin ;
+> sans shader, le pipeline était invalide de toute façon. **Trois défauts
+> empilés, chacun cachant le suivant** — on ne les découvre qu'en les retirant un
+> par un, et chaque retrait doit être mesuré, sinon on croit avoir fini.
+> *Et deux commentaires affirmaient le contraire du code* (celui de la passe,
+> celui du pont Noge) : un commentaire n'est pas une preuve d'exécution.
+
+⚠️ **Bornes, dites nettes.** (a) La **texture** et le **mélange** par émetteur ne
+sont toujours pas honorés — `NkEmitterDesc::texture` reste non lu ; le fragment
+dessine un disque doux, pas un sprite. (b) Le pipeline ne déclare **pas** de
+`descriptorSetLayouts` : le vertex shader lit `uCam` par le chemin **aplati de
+GL**. Vérifié sur OpenGL ; **Vulkan demandera le layout global**, non fait, nommé.
+(c) Le **coût par particule** n'est toujours pas chiffré.
+
+### 🔎 CE QUI RESTE À MESURER AVANT DE PROPOSER QUOI QUE CE SOIT
+
+Je **n'ouvre pas** ce chantier sans ces trois réponses, faute de quoi je
+proposerais des fonctionnalités par-dessus un système que je n'ai pas vu tourner :
+
+1. **est-ce que ça REND ?** Le code existe et il est appelé — ça ne prouve pas
+   une image. *C'est exactement la distinction qui a coûté la journée d'hier :
+   « ça compile » ≠ « ça tourne ».* Il faut une capture d'un émetteur vivant ;
+2. **quelle est la limite réelle ?** `maxParticles = 1000` par défaut, montage
+   CPU par image : le coût par particule n'a jamais été chiffré ;
+3. **que manque-t-il pour un jeu ?** Les candidats visibles à la lecture :
+   collision des particules, tri par profondeur pour la transparence, sous-émetteurs.
+   **Aucun n'est à proposer avant d'avoir vu l'existant à l'œuvre.**
+
+🚫 **Rien n'est commencé, et c'est délibéré** : le mandat disait de mesurer
+d'abord. La mesure change la question — de « faut-il écrire des particules ? »
+à « que manque-t-il à celles qui existent ? », et la seconde ne se répond pas
+sans les faire tourner.
+
+
+## 14. 💧 L'EAU AU-DELÀ DU FLUIDE — ce qui est fait, et les trois choses qui t'attendent (06/09)
+
+*Tes deux phrases du 05/09 au soir : « l'océan peut être un plan qui s'anime, mais
+comment gérer le splash, les fonds marins ? » et « n'oublie pas l'effet mouillé ».*
+
+**Fait et prouvé, 59 témoins verts** (`NKPhysics_Tests` : 45 ; `NKRenderer_Tests` : 14) :
+le fluide **publie** ses contacts (une particule lâchée de 1 m publie le sien à
+**0,08 pas de temps** de la chute libre, position exactement sur le plan, vitesse
+d'impact à **0,1 %**) ; une **loi d'éclaboussure** en tire des gouttes ; une **carte
+de mouillage** en espace UV s'écrit, **sèche** (w(τ) = w₀/e à **0,00 %**) et
+assombrit la matière avec la formule de Lagarde ; le **tissu mouillé** pèse
+0,2000 → **0,3200 kg** et pend **2,44 mm** plus bas ; la **houle de Gerstner** tient
+la dispersion d'Airy à **0,06-0,13 %** ; la **profondeur** pilote la couleur, l'écume
+et le ralentissement des vagues au rivage (√(g h) à **0,26-1,44 %**).
+
+### 🟠 Les trois choses qui demandent TA décision
+
+**1. La loi d'éclaboussure : proportionnelle à la VITESSE ou à l'ÉNERGIE ?**
+Ta consigne disait les deux, et elles s'excluent : « nombre ∝ énergie » est en v²
+(deux fois la vitesse = **quatre** fois les gouttes) ; « deux fois la vitesse →
+deux fois plus de gouttes » est en v. J'ai retenu la **linéaire**, parce que
+c'est celle qui avait un témoin écrit, et j'ai laissé l'exposant en paramètre :
+`NkSplashParams::exponent`, 1 par défaut, 2 rejoue l'énergie. Le banc mesure les
+deux (rapport 2,000 contre 4,000). **Dis-moi laquelle tu veux voir** — c'est un
+seul chiffre à changer, et ça se juge à l'œil, pas au calcul.
+
+**2. L'entrée « mouillage » du nuanceur PBR : je ne l'ai PAS branchée, et c'est
+délibéré.** La formule est écrite et prouvée côté CPU (`math::NkApplyWetness`,
+7 témoins), mais la brancher demande d'ajouter deux flottants à `ObjectUBO` —
+qui est **recopié dans 5 endroits de `NkRender3D.cpp` et dans 6 langages de
+nuanceur** (NkSL, GL, VK, DX11, DX12, MSL). Changer une disposition de bloc
+uniforme partagée par tout le rendu, un soir, **sans pouvoir lancer le rendu**
+(NKIlyana entraîne sur la carte), c'est le genre de geste qui casse le PBR de
+tout le monde pendant trois jours. Ça se fait, ça prend une demi-journée avec
+une image avant/après. **Je le fais quand tu me le dis.**
+
+**3. Le maillage de l'océan : grille projetée, décidée mais pas écrite.** J'ai
+tranché pour la **grille projetée devant la caméra** (Johanson, Lund 2004) contre
+les anneaux concentriques : nombre de sommets **constant**, densité uniforme à
+l'écran, coût indépendant de la distance de vue et de la taille de l'océan. Coût
+dit : il faut borner la projection quand la caméra regarde l'horizon. Le modèle
+(hauteur, normale, profondeur, couleur, écume) est prêt et mesuré ; **il n'y a
+aucune ligne de maillage ni de rendu.** Évaluation CPU mesurée : **0,24 µs par
+sommet** avec 8 trains, donc 17 ms pour 256×256 sur un cœur — c'est du GPU qu'il
+faut, et c'est dit.
+
+### Ce que la mesure m'a fait corriger, et que je te raconte parce que c'est instructif
+
+- **La normale de GPU Gems est du premier ordre.** Je l'avais recopiée (elle est
+  citée partout), et mon témoin l'a trouvée à **4,275°** des différences finies.
+  Un second témoin a séparé les deux causes possibles : à **un seul train** elle
+  tombe à 0,034° — donc ce n'était pas une faute de copie, sa formule est exacte
+  pour une vague et approchée pour une somme. Remplacée par le **jacobien
+  complet** (toujours analytique) : **0,13°**. L'ancienne reste disponible.
+- **« La nappe mouillée pend plus bas » a été ROUGE, et j'avais tort sur la
+  scène, pas sur le code.** Avec la compliance par défaut (0 = inextensible),
+  une nappe pend à la longueur de son tissu : la masse ne peut pas l'allonger.
+  Il fallait un tissu qui s'étire. Les trois mesures (α = 0 : −0,19 mm ;
+  α = 1e-4 : +0,09 mm, sous le bruit du solveur ; α = 1e-3 : **+2,44 mm**) sont
+  toutes les trois dans le banc et s'impriment.
+
+### Non fait, nommé
+
+Le GPU du SPH ne publie **aucun** contact (seul le CPU le fait) ; le terrain
+n'est pas lu depuis la forme `Heightfield` de NKCollision (la profondeur prend
+une hauteur, d'où qu'elle vienne) ; l'écume est une **valeur**, pas une texture ;
+une vague ne **déferle** pas (le cambrement change la vitesse et l'amplitude, pas
+la forme) ; le mouillage du tissu est **global**, pas par zone ; aucune image de
+rendu — les deux images livrées sont des **tracés du banc**, et `Captures/LISEZMOI.md`
+le dit à côté de chacune.
+
+---
+
+## Ce qui est fait et ne t'attend pas
+
+- **Web débloqué** : garde EGL (`NK_OPENGL_ES` ne veut pas dire « EGL disponible »)
+  → 23/30 ✗ **→ 30/30 ✓** ; shader `PP_AutoExposure` (bloc divergent entre étages)
+  → `valid=0` **→ `valid=1`**, zéro erreur.
+- **Textures FBX** : elles étaient cherchées **un dossier trop haut** → la voiture
+  charge maintenant ses 3 cartes (0/3 → **3/3**).
+- **`quality` est opérant** : l'enum passait de « écrit 7 fois, lu 0 fois » à
+  l'axe qui pilote le rendu, + `ForTarget()` qui choisit le profil **dans le
+  moteur** (l'appli ne nomme plus ni plateforme ni preset).
+- **`Noge/Systems` : 3 systèmes sur 6 réanimés** (jiggle, mocap, ragdoll), chacun
+  avec un corps, un appelant réel et un banc contre-éprouvé.
+- **Journal web** : 12 411 lignes de diagnostic par exécution → **0** (extinguible).
+- **`QueryCaps`** ne fabrique plus de capacités fausses et plausibles.
+- **`NkSkeleton`** : **77 064 → 88 octets**, actif partagé façon `USkeleton`,
+  tous les consommateurs migrés et re-exécutés verts.
+- **`NKAnimation` → `NKAnima`** : 48 fichiers, 118 occurrences, `git mv`, **aucun
+  espace de noms touché** (`nkentseu::anim`), tous les bancs au même compte
+  (Noge 41/41, Nogee 45/45, LocomotionDemo 9/0, AssetIODemo 55/0,
+  SystemsRevivalTest 34/0, NkAnimPhysTest 27/27).
+- **Le document égaré est rangé** : `Applications/NkAnima/ROADMAP.md` →
+  `Kernel/Runtime/NKAnima/ROADMAP_PRODUIT.md`, 10 renvois suivis, dossier vide
+  retiré après vérification du registre de projets, **zéro ligne perdue**.
+- **`*.nksl text eol=lf`** : les 131 shaders ont enfin une règle de fin de ligne.
+- **HarmonyOS rend la 3D** — image prise et HUD lu le 02/09 à 19h31, sur le `.hap`
+  du 10/08. **4ᵉ cible verte sur matériel réel.**
+- **Le défaut Web est NOMMÉ et DATÉ** — `PBR` demande 17 unités de texture pour
+  16 accordées ; franchi le **11/08 à 00h01** (tables LTC), invisible 22 jours
+  parce que SwiftShader en accorde plus de 16. Doublure conçue et chiffrée
+  (~2-3 j), banc spécifié. **Section 10.**
+- **`--demo 2` et `demo 2` ne retombent plus en silence sur la démo 0** — et la
+  vraie cause du symptôme était le **répertoire courant** (2 erreurs en démo 0,
+  **47 en démo 3D dont 18 shaders introuvables** : les deux chemins n'ont pas la
+  même sensibilité à la même ressource manquante).

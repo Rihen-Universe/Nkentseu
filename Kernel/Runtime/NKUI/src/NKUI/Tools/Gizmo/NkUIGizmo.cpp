@@ -1,4 +1,5 @@
 /*
+ * AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
  * NkUIGizmo.cpp — v3 final
  *
  * Corrections :
@@ -8,8 +9,8 @@
  *  3. DrawGrid3D avec grille infinie (fade-out) et plan de sol plein/wireframe
  */
 #include "NKUI/Tools/Gizmo/NkUIGizmo.h"
+#include "NKCore/Text/NkSnprintf.h"
 #include <cmath>
-#include <cstdio>
 
 namespace nkentseu {
 	namespace nkui {
@@ -733,7 +734,7 @@ namespace nkentseu {
 											 : (ax2 == NKGIZMO_AX_Y) ? state.accumY
 																	 : state.accumZ;
 					char buf[32];
-					::snprintf(buf, sizeof(buf), "%.1f\xc2\xb0", totalDeg);
+					nkentseu::NkSnprintf(buf, sizeof(buf), "%.1f\xc2\xb0", totalDeg);
 					const float32 tw = static_cast<float32>(::strlen(buf)) * 7.f;
 					dl.AddRectFilled({arcTip.x + 8.f, arcTip.y - 10.f, tw + 6.f, 16.f}, {0, 0, 0, 160}, 3.f);
 					dl.AddText({arcTip.x + 11.f, arcTip.y - 2.f}, buf, col, 11.f);

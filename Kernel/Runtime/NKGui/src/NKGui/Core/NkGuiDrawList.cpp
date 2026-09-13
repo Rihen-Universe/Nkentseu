@@ -1,8 +1,10 @@
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // =============================================================================
 // NkGuiDrawList.cpp — primitives de dessin NKGui (Phase 2).
 // =============================================================================
 #include "NKGui/Core/NkGuiDrawList.h"
 #include "NKFont/NkFont.h"
+#include "NKFont/Core/NkFontSizeCache.h" // NkFontScaleRenderer : quads de glyphe a l'echelle
 #include <cmath>
 
 namespace nkentseu {
@@ -13,6 +15,7 @@ namespace nkentseu {
 			idx.Clear();
 			cmds.Clear();
 			clipDepth = 0;
+			blendDepth = 0; // 2026-09-04
 		}
 
 		void NkGuiDrawList::Append(const NkGuiDrawList &o) noexcept {
@@ -56,16 +59,18 @@ namespace nkentseu {
 
 		NkGuiDrawCmd &NkGuiDrawList::CurCmd(uint32 texId) noexcept {
 			const NkRect clip = CurrentClip();
+			const NkGuiBlend blend = CurrentBlend(); // 2026-09-04 : un mode de melange par commande
 			bool need = (cmds.Size() == 0);
 			if (!need) {
 				const NkGuiDrawCmd &b = cmds.Back();
 				need = (b.texId != texId) || b.clipRect.x != clip.x || b.clipRect.y != clip.y ||
-					   b.clipRect.w != clip.w || b.clipRect.h != clip.h;
+					   b.clipRect.w != clip.w || b.clipRect.h != clip.h || b.blend != blend;
 			}
 			if (need) {
 				NkGuiDrawCmd c;
 				c.texId = texId;
 				c.clipRect = clip;
+				c.blend = blend;
 				c.idxOffset = static_cast<uint32>(idx.Size());
 				c.idxCount = 0;
 				c.type = texId ? NkGuiDrawCmdType::TexturedTriangles : NkGuiDrawCmdType::Triangles;
@@ -89,6 +94,42 @@ namespace nkentseu {
 			idx.PushBack(b);
 			idx.PushBack(c);
 			cmd.idxCount += 3u;
+		}
+
+		// ── LA FINESSE DES COURBES : UNE SEULE ECRITURE ─────────────────────
+		// 🔴 LE MEME CALCUL VIVAIT EN TROIS EXEMPLAIRES (cercle, ellipse, arc) et
+		//    un QUATRIEME site l'ignorait carrement : le rectangle arrondi rempli
+		//    portait `const int32 seg = 4;` en dur. Resultat mesure par Rodolf :
+		//    *« les arrondis laissent des cassures, ce n'est pas lisse »* -- le
+		//    FOND etait facette a 4 segments par coin pendant que les contours en
+		//    prenaient au moins 12. Avec ou sans bordure, puisque le fond est
+		//    anguleux de naissance.
+		//
+		// ⚠️ ET LE REMEDE N'EST PAS D'ECRIRE 12 A LA PLACE DE 4 : la finesse doit
+		//    SUIVRE LE RAYON (un coin de 2 px n'a pas besoin de douze segments,
+		//    un coin de 40 en veut plus). On appelle donc LA FONCTION, on
+		//    n'invente pas un second nombre. *Une constante ecrite a la main a
+		//    cote d'une fonction qui sait calculer la bonne valeur est une
+		//    divergence qui attend son jour.*
+		static inline int32 NkGuiCercleSegs(float32 radius) noexcept {
+			int32 segs = static_cast<int32>(8.f * radius / 4.f) + 8;
+			if (segs < 12)
+				segs = 12;
+			else if (segs > 128)
+				segs = 128;
+			return segs;
+		}
+
+		// Segments d'un QUART de cercle : la meme regle, divisee par quatre puis
+		// bornee 3..16. Deterministe : c'est ce qui rend la geometrie verifiable
+		// au banc.
+		static inline int32 NkGuiArcSegs(float32 radius) noexcept {
+			int32 n = NkGuiCercleSegs(radius) / 4;
+			if (n < 3)
+				n = 3;
+			else if (n > 16)
+				n = 16;
+			return n;
 		}
 
 		void NkGuiDrawList::AddRectFilled(const NkRect &r, const NkColor &col, float32 rounding) noexcept {
@@ -121,7 +162,8 @@ namespace nkentseu {
 			};
 			const float32 PI = 3.14159265358979f;
 			const float32 a0[4] = {PI, 1.5f * PI, 0.f, 0.5f * PI}; // sens horaire (y vers le bas)
-			const int32 seg = 4;								   // segments par coin
+			// La finesse SUIT LE RAYON -- voir NkGuiCercleSegs pour le pourquoi.
+			const int32 seg = NkGuiArcSegs(rad);
 			const uint32 ic = Vtx({(x0 + x1) * 0.5f, (y0 + y1) * 0.5f}, uv, c);
 			uint32 prev = 0, first = 0;
 			bool has = false;
@@ -168,6 +210,25 @@ namespace nkentseu {
 			Tri(i0, i2, i3, texId);
 		}
 
+		void NkGuiDrawList::AddImagePolygon(uint32 texId, const NkVec2 *pts, const NkVec2 *uvs, int32 n,
+											 const NkColor &tint) noexcept {
+			// Polygone CONVEXE texturé (uv par sommet) — l'image d'un remplissage rognée
+			// par un contour arrondi, ou tournée. Même éventail qu'AddConvexPolyFilled,
+			// même chemin que le texte et AddImage (TexturedTriangles) : le backend
+			// résout déjà `texId`. Un uv (0,0) sur TOUS les sommets serait pris pour
+			// « couleur unie » par le vertex : c'est le contrat des sommets, pas le nôtre.
+			if (!pts || !uvs || n < 3 || texId == 0u)
+				return;
+			const uint32 c = NkGuiPackColor(tint);
+			const uint32 i0 = Vtx(pts[0], uvs[0], c);
+			uint32 prev = Vtx(pts[1], uvs[1], c);
+			for (int32 i = 2; i < n; ++i) {
+				const uint32 cur = Vtx(pts[i], uvs[i], c);
+				Tri(i0, prev, cur, texId);
+				prev = cur;
+			}
+		}
+
 		void NkGuiDrawList::AddRectFilledMultiColor(const NkRect &r, const NkColor &tl, const NkColor &tr,
 													const NkColor &br, const NkColor &bl) noexcept {
 			// Quad à couleurs de coin (dégradé bilinéaire) — base du sélecteur de
@@ -201,22 +262,6 @@ namespace nkentseu {
 			Tri(i0, i2, i3, 0u);
 		}
 
-		// Segments d'un quart de cercle pour un rayon donne — MEME regle que
-		// AddCircleFilled (8*r/4 + 8, borne 12..128), divisee par 4 puis bornee
-		// 3..16. Deterministe : c'est ce qui rend la geometrie verifiable au banc.
-		static inline int32 NkGuiArcSegs(float32 radius) noexcept {
-			int32 segs = static_cast<int32>(8.f * radius / 4.f) + 8;
-			if (segs < 12)
-				segs = 12;
-			else if (segs > 128)
-				segs = 128;
-			int32 n = segs / 4;
-			if (n < 3)
-				n = 3;
-			else if (n > 16)
-				n = 16;
-			return n;
-		}
 
 		void NkGuiDrawList::AddRect(const NkRect &r, const NkColor &col, float32 thickness,
 									float32 rounding) noexcept {
@@ -302,13 +347,8 @@ namespace nkentseu {
 			const float32 th = thickness * thickScale;
 			if (r <= 0.f || th <= 0.f)
 				return;
-			if (segs <= 0) {
-				segs = static_cast<int32>(8.f * r / 4.f) + 8;
-				if (segs < 12)
-					segs = 12;
-				else if (segs > 128)
-					segs = 128;
-			}
+			if (segs <= 0)
+				segs = NkGuiCercleSegs(r);
 			// `r` = ligne MEDIANE (convention des emulations remplacees).
 			const float32 ro = r + th * 0.5f;
 			float32 ri = r - th * 0.5f;
@@ -385,6 +425,35 @@ namespace nkentseu {
 		void NkGuiDrawList::AddText(const NkFont *face, uint32 texId, const NkVec2 &baseline, const char *text,
 									const NkColor &col, float32 maxWidth, float32 skew,
 									const char *textEnd) noexcept {
+			// LA PORTE A ANGLE NUL : la boucle de glyphes vit dans `AddTextTourne`, une
+			// seule fois. Une seconde boucle aurait diverge a la premiere retouche.
+			AddTextTourne(face, texId, baseline, text, col, 0.f, baseline, maxWidth, skew, textEnd);
+		}
+
+		void NkGuiDrawList::AddTextTourne(const NkFont *face, uint32 texId, const NkVec2 &baseline,
+										  const char *text, const NkColor &col, float32 angleDeg,
+										  const NkVec2 &pivot, float32 maxWidth, float32 skew,
+										  const char *textEnd) noexcept {
+			// LA PORTE TOURNEE : une rotation autour d'un pivot est une affine.
+			if (angleDeg == 0.f) {
+				AddTextTransforme(face, texId, baseline, text, col, 1.f, 0.f, 0.f, 1.f, 0.f, 0.f,
+								  maxWidth, skew, textEnd);
+				return;
+			}
+			const float32 rad = angleDeg * 0.017453292519943295f;
+			const float32 sn = std::sin(rad), cs = std::cos(rad);
+			// p' = P + R (p - P)  ->  e = Px - (a Px + c Py), f = Py - (b Px + d Py)
+			const float32 ma = cs, mb = sn, mc = -sn, md = cs;
+			const float32 me = pivot.x - (ma * pivot.x + mc * pivot.y);
+			const float32 mf = pivot.y - (mb * pivot.x + md * pivot.y);
+			AddTextTransforme(face, texId, baseline, text, col, ma, mb, mc, md, me, mf, maxWidth,
+							  skew, textEnd);
+		}
+
+		void NkGuiDrawList::AddTextTransforme(const NkFont *face, uint32 texId, const NkVec2 &baseline,
+											  const char *text, const NkColor &col, float32 ta, float32 tb,
+											  float32 tc, float32 td, float32 te, float32 tf, float32 maxWidth,
+											  float32 skew, const char *textEnd) noexcept {
 			if (!face || !text || !*text || texId == 0u)
 				return;
 			const uint32 c = NkGuiPackColor(col);
@@ -402,6 +471,18 @@ namespace nkentseu {
 			const float32 xEnd = (maxWidth >= 0.f) ? baseline.x + maxWidth : 1.0e30f;
 			float32 x = baseline.x;
 			const float32 y = baseline.y;
+			// sin/cos UNE fois, et seulement s'il y a un angle : la porte `AddText`
+			// ne paie aucune trigonometrie. Le calage au pixel s'est fait AVANT, sur
+			// la ligne droite -- un texte tourne ne se cale pas au pixel.
+			// L'AFFINE, appliquee aux quatre sommets de chaque quad. A l'identite,
+			// `tourne` rend son entree telle quelle : les appelants d'avant ne paient rien.
+			const bool tourneVraiment =
+				!(ta == 1.f && tb == 0.f && tc == 0.f && td == 1.f && te == 0.f && tf == 0.f);
+			auto tourne = [&](NkVec2 v) -> NkVec2 {
+				if (!tourneVraiment)
+					return v;
+				return NkVec2{ta * v.x + tc * v.y + te, tb * v.x + td * v.y + tf};
+			};
 
 			while (p < end) {
 				const NkFontCodepoint cp = NkFontDecodeUTF8(&p, end);
@@ -428,14 +509,70 @@ namespace nkentseu {
 					// de la ligne de base (haut penché à droite, descendantes à gauche).
 					const float32 sTop = skew != 0.f ? skew * (y - y0) : 0.f;
 					const float32 sBot = skew != 0.f ? skew * (y - y1) : 0.f;
-					const uint32 i0 = Vtx({x0 + sTop, y0}, {g->u0, g->v0}, c);
-					const uint32 i1 = Vtx({x1 + sTop, y0}, {g->u1, g->v0}, c);
-					const uint32 i2 = Vtx({x1 + sBot, y1}, {g->u1, g->v1}, c);
-					const uint32 i3 = Vtx({x0 + sBot, y1}, {g->u0, g->v1}, c);
+					// LES QUATRE SOMMETS DU QUAD, TOURNES AUTOUR DU PIVOT -- comme un
+					// contour. A angle nul, `tourne` rend son entree telle quelle.
+					const uint32 i0 = Vtx(tourne({x0 + sTop, y0}), {g->u0, g->v0}, c);
+					const uint32 i1 = Vtx(tourne({x1 + sTop, y0}), {g->u1, g->v0}, c);
+					const uint32 i2 = Vtx(tourne({x1 + sBot, y1}), {g->u1, g->v1}, c);
+					const uint32 i3 = Vtx(tourne({x0 + sBot, y1}), {g->u0, g->v1}, c);
 					Tri(i0, i1, i2, texId);
 					Tri(i0, i2, i3, texId);
 				}
 				x += g->advanceX;
+			}
+		}
+
+		void NkGuiDrawList::AddTextScaled(const NkFont *face, uint32 texId, const NkVec2 &baseline,
+										  const char *text, const NkColor &col, float32 scale,
+										  float32 maxWidth) noexcept {
+			// Texte à l'ÉCHELLE (2026-08-31, « le texte doit suivre le zoom ») :
+			// la GÉOMÉTRIE du glyphe scalé vivait déjà dans la couche du dessous
+			// (`NkFontScaleRenderer::GetScaledGlyphQuad`, NKFont) — ici on ne fait
+			// que l'émettre en quads. Les UV ne bougent pas : c'est l'atlas
+			// existant, agrandi/réduit par le filtre GPU. Net en réduction, doux
+			// en agrandissement — le SDF (NkFontSdf, futur) est nommé dans NKFont.
+			if (scale <= 0.f)
+				return;
+			// À l'échelle ~1, le chemin historique reste le bon : il a le
+			// pixel-snap qui évite le flou. On ne duplique pas sa qualité ici.
+			if (scale > 0.999f && scale < 1.001f) {
+				AddText(face, texId, baseline, text, col, maxWidth);
+				return;
+			}
+			if (!face || !text || !*text || texId == 0u)
+				return;
+			const uint32 c = NkGuiPackColor(col);
+			const char *p = text;
+			const char *end = text;
+			while (*end)
+				++end;
+			const float32 xEnd = (maxWidth >= 0.f) ? baseline.x + maxWidth : 1.0e30f;
+			float32 x = baseline.x;
+			const float32 y = baseline.y;
+			while (p < end) {
+				const NkFontCodepoint cp = NkFontDecodeUTF8(&p, end);
+				if (cp == 0u)
+					break;
+				const NkFontGlyph *g = face->FindGlyph(cp);
+				if (!g)
+					continue;
+				if (g->visible) {
+					// ⚠️ PAS de pixel-snap ici : arrondir des positions scalées
+					// ferait « respirer » l'interlettrage à chaque cran de zoom.
+					float32 x0 = 0.f, y0 = 0.f, x1 = 0.f, y1 = 0.f;
+					NkFontScaleRenderer::GetScaledGlyphQuad(g, x, y, scale, &x0, &y0, &x1, &y1,
+															nullptr);
+					if (x1 > xEnd)
+						break; // troncature simple, comme AddText
+					const uint32 i0 = Vtx({x0, y0}, {g->u0, g->v0}, c);
+					const uint32 i1 = Vtx({x1, y0}, {g->u1, g->v0}, c);
+					const uint32 i2 = Vtx({x1, y1}, {g->u1, g->v1}, c);
+					const uint32 i3 = Vtx({x0, y1}, {g->u0, g->v1}, c);
+					Tri(i0, i1, i2, texId);
+					Tri(i0, i2, i3, texId);
+				}
+				// L'avance se scale AUSSI pour les glyphes invisibles (espaces).
+				x += g->advanceX * scale;
 			}
 		}
 
@@ -471,16 +608,31 @@ namespace nkentseu {
 			}
 		}
 
+		void NkGuiDrawList::AddEllipseFilled(const NkVec2 &center, float32 rx, float32 ry, const NkColor &col,
+											  int32 segs) noexcept {
+			if (rx <= 0.f || ry <= 0.f)
+				return;
+			if (segs <= 0)
+				segs = NkGuiCercleSegs(rx > ry ? rx : ry);
+			const uint32 cc = NkGuiPackColor(col);
+			const NkVec2 uv{0.f, 0.f};
+			const uint32 ic = Vtx(center, uv, cc);
+			const float32 kTau = 6.28318530718f;
+			uint32 prev = Vtx({center.x + rx, center.y}, uv, cc);
+			for (int32 s = 1; s <= segs; ++s) {
+				const float32 ang = kTau * static_cast<float32>(s) / static_cast<float32>(segs);
+				const uint32 cur =
+					Vtx({center.x + std::cos(ang) * rx, center.y + std::sin(ang) * ry}, uv, cc);
+				Tri(ic, prev, cur, 0u);
+				prev = cur;
+			}
+		}
+
 		void NkGuiDrawList::AddCircleFilled(const NkVec2 &center, float32 r, const NkColor &col, int32 segs) noexcept {
 			if (r <= 0.f)
 				return;
-			if (segs <= 0) {
-				segs = static_cast<int32>(8.f * r / 4.f) + 8;
-				if (segs < 12)
-					segs = 12;
-				else if (segs > 128)
-					segs = 128;
-			}
+			if (segs <= 0)
+				segs = NkGuiCercleSegs(r);
 			const uint32 cc = NkGuiPackColor(col);
 			const NkVec2 uv{0.f, 0.f};
 			const uint32 ic = Vtx(center, uv, cc);

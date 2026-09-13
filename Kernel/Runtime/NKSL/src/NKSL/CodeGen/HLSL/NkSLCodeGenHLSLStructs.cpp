@@ -1,4 +1,5 @@
 // =============================================================================
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // NkSLCodeGenHLSL_Structs.cpp  — v3.0
 //
 // CORRECTIONS BUG CRITIQUE:
@@ -8,8 +9,8 @@
 //     ce qui garantit un résultat déterministe peu importe l'ordre de compilation
 // =============================================================================
 #include "NKSL/CodeGen/NkSLCodeGen.h"
+#include "NKCore/Text/NkSnprintf.h"
 #include "NKSL/Frontend/NkSLSemantic.h"
-#include <cstdio>
 
 namespace nkentseu {
 
@@ -70,13 +71,13 @@ namespace nkentseu {
 						if (name.StartsWith("fragcolor") || name.StartsWith("outcolor")) {
 							for (int j = 0; j < 4; j++) {
 								char numBuf[4];
-								snprintf(numBuf, sizeof(numBuf), "%d", j);
+								nkentseu::NkSnprintf(numBuf, sizeof(numBuf), "%d", j);
 								if (name.EndsWith(NkString(numBuf).View())) {
-									snprintf(buf, sizeof(buf), "SV_Target%d", j);
+									nkentseu::NkSnprintf(buf, sizeof(buf), "SV_Target%d", j);
 									return NkString(buf);
 								}
 							}
-							snprintf(buf, sizeof(buf), "SV_Target%d", loc);
+							nkentseu::NkSnprintf(buf, sizeof(buf), "SV_Target%d", loc);
 							return NkString(buf);
 						}
 						return r.fragOutSem;
@@ -84,17 +85,17 @@ namespace nkentseu {
 					if (isVertexInput && r.inputSem && r.inputSem[0])
 						return r.inputSem;
 					if (!isVertexInput && !isFragmentOut && r.outputSem && r.outputSem[0]) {
-						snprintf(buf, sizeof(buf), "TEXCOORD%d", loc);
+						nkentseu::NkSnprintf(buf, sizeof(buf), "TEXCOORD%d", loc);
 						return NkString(buf);
 					}
 				}
 			}
 
 			if (isFragmentOut) {
-				snprintf(buf, sizeof(buf), "SV_Target%d", loc);
+				nkentseu::NkSnprintf(buf, sizeof(buf), "SV_Target%d", loc);
 				return NkString(buf);
 			}
-			snprintf(buf, sizeof(buf), "TEXCOORD%d", loc);
+			nkentseu::NkSnprintf(buf, sizeof(buf), "TEXCOORD%d", loc);
 			return NkString(buf);
 		}
 
@@ -115,9 +116,9 @@ namespace nkentseu {
 		// Règle 3 : auto-index — utilise le paramètre, PAS un static
 		char buf[32];
 		if (isFragmentOut) {
-			snprintf(buf, sizeof(buf), "SV_Target%d", autoIndex);
+			nkentseu::NkSnprintf(buf, sizeof(buf), "SV_Target%d", autoIndex);
 		} else {
-			snprintf(buf, sizeof(buf), "TEXCOORD%d", autoIndex);
+			nkentseu::NkSnprintf(buf, sizeof(buf), "TEXCOORD%d", autoIndex);
 		}
 		return NkString(buf);
 	}
@@ -156,7 +157,7 @@ namespace nkentseu {
 					sem = "COLOR";
 				else {
 					char b[24];
-					snprintf(b, sizeof(b), "TEXCOORD%d", texIdx++);
+					nkentseu::NkSnprintf(b, sizeof(b), "TEXCOORD%d", texIdx++);
 					sem = b;
 				}
 				EmitLine(TypeToHLSL(v->type) + " " + v->name + " : " + sem + ";");
@@ -271,7 +272,7 @@ namespace nkentseu {
 					return "SV_Position";
 				return "POSITION";
 			}
-			snprintf(buf, sizeof(buf), "TEXCOORD%d", v->binding.location);
+			nkentseu::NkSnprintf(buf, sizeof(buf), "TEXCOORD%d", v->binding.location);
 			return NkString(buf);
 		}
 
@@ -309,7 +310,7 @@ namespace nkentseu {
 
 		// Auto-index depuis le paramètre, PAS un static
 		char buf[32];
-		snprintf(buf, sizeof(buf), "TEXCOORD%d", autoIndex);
+		nkentseu::NkSnprintf(buf, sizeof(buf), "TEXCOORD%d", autoIndex);
 		return NkString(buf);
 	}
 
@@ -332,7 +333,7 @@ namespace nkentseu {
 					int loc = v->binding.HasLocation() ? v->binding.location : autoLoc;
 					autoLoc = loc + 1;
 					char buf[64];
-					snprintf(buf, sizeof(buf), " [[attribute(%d)]]", loc);
+					nkentseu::NkSnprintf(buf, sizeof(buf), " [[attribute(%d)]]", loc);
 					EmitLine(TypeToMSL(v->type) + " " + v->name + NkString(buf) + ";");
 				}
 				EmitLine("uint _vertex_id   [[vertex_id]];");
@@ -362,7 +363,7 @@ namespace nkentseu {
 				int colorIdx = 0; // ← variable locale, PAS static
 				for (auto *v : mOutputVars) {
 					char buf[64];
-					snprintf(buf, sizeof(buf), " [[color(%d)]]", colorIdx++);
+					nkentseu::NkSnprintf(buf, sizeof(buf), " [[color(%d)]]", colorIdx++);
 					EmitLine(TypeToMSL(v->type) + " " + v->name + NkString(buf) + ";");
 				}
 				if (mOutputVars.Empty() && !mWritesDepth) {
@@ -421,7 +422,7 @@ namespace nkentseu {
 			int bidx = b->binding.HasBinding() ? b->binding.binding : bufIdx++;
 			char buf[256];
 			NkString instName = b->instanceName.Empty() ? b->blockName.ToLower() : b->instanceName;
-			snprintf(buf, sizeof(buf), "%s %s& %s [[buffer(%d)]]", addrSpace.CStr(), b->blockName.CStr(),
+			nkentseu::NkSnprintf(buf, sizeof(buf), "%s %s& %s [[buffer(%d)]]", addrSpace.CStr(), b->blockName.CStr(),
 					 instName.CStr(), bidx);
 			sig += NkString(buf);
 			first = false;
@@ -436,12 +437,12 @@ namespace nkentseu {
 					sig += ", ";
 				int bidx = v->binding.HasBinding() ? v->binding.binding : texIdx;
 				char buf[256];
-				snprintf(buf, sizeof(buf), "%s %s_tex [[texture(%d)]]", BaseTypeToMSL(v->type->baseType).CStr(),
+				nkentseu::NkSnprintf(buf, sizeof(buf), "%s %s_tex [[texture(%d)]]", BaseTypeToMSL(v->type->baseType).CStr(),
 						 v->name.CStr(), bidx);
 				sig += NkString(buf);
 				first = false;
 				sig += ", ";
-				snprintf(buf, sizeof(buf), "sampler %s_smp [[sampler(%d)]]", v->name.CStr(), sampIdx);
+				nkentseu::NkSnprintf(buf, sizeof(buf), "sampler %s_smp [[sampler(%d)]]", v->name.CStr(), sampIdx);
 				sig += NkString(buf);
 				texIdx++;
 				sampIdx++;
@@ -455,7 +456,7 @@ namespace nkentseu {
 									? (NkString("texture2d<") + NkSLImageFormatToMSLElem(v->binding.imageFormat) +
 									   ", access::read_write>")
 									: BaseTypeToMSL(v->type->baseType);
-				snprintf(buf, sizeof(buf), "%s %s_tex [[texture(%d)]]", imgT.CStr(), v->name.CStr(), bidx);
+				nkentseu::NkSnprintf(buf, sizeof(buf), "%s %s_tex [[texture(%d)]]", imgT.CStr(), v->name.CStr(), bidx);
 				sig += NkString(buf);
 				first = false;
 			}

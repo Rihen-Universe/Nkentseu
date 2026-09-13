@@ -1,0 +1,158 @@
+nkuidoc 1
+# Document de MISE EN SCENE de la vague Lunacy (b) (31/08) : les quatre
+# natures ADDITIVES du vocabulaire §4.2 — triangle, pentagone, etoile,
+# fleche, puis image et avatar (famille Image du rail, 01/09) —
+# fleche — posees a cote des trois historiques (rect, ellipse, ligne).
+# Sert de preuve de rendu ET de round-trip (Ctrl+S le reenregistre tel
+# quel), et de terrain de test pour Rodolf.
+titre = Demo_Formes
+auteur = humain
+verifiee = 0
+corrigee = 0
+origine = main
+
+noeud 0
+  libelle = Toile
+  enfants = 1
+  largeur = expand 0 0 0
+  hauteur = expand 0 0 0
+  agencement = free start start 0
+  auteur = humain
+  verifiee = 0
+  corrigee = 0
+  origine = main
+
+noeud 1
+  libelle = Formes
+  enfants = 2 3 4 5 6 7 8 9 10
+  largeur = fixed 640 0 0
+  hauteur = fixed 420 0 0
+  agencement = free start start 0
+  position = 40 60
+  forme = frame
+  auteur = humain
+  verifiee = 0
+  corrigee = 0
+  origine = main
+
+noeud 2
+  libelle = Rectangle
+  enfants =
+  largeur = fixed 140 0 0
+  hauteur = fixed 100 0 0
+  agencement = none start start 0
+  position = 30 30
+  forme = rect
+  fond = #4c6fff
+  rayon = 8
+  auteur = humain
+  verifiee = 0
+  corrigee = 0
+  origine = main
+
+noeud 3
+  libelle = Ellipse
+  enfants =
+  largeur = fixed 140 0 0
+  hauteur = fixed 100 0 0
+  agencement = none start start 0
+  position = 210 30
+  forme = ellipse
+  auteur = humain
+  verifiee = 0
+  corrigee = 0
+  origine = main
+
+noeud 4
+  libelle = Triangle
+  enfants =
+  largeur = fixed 140 0 0
+  hauteur = fixed 100 0 0
+  agencement = none start start 0
+  position = 390 30
+  forme = triangle
+  fond = #3fb950
+  auteur = humain
+  verifiee = 0
+  corrigee = 0
+  origine = main
+
+noeud 5
+  libelle = Pentagone
+  enfants =
+  largeur = fixed 140 0 0
+  hauteur = fixed 120 0 0
+  agencement = none start start 0
+  position = 30 180
+  forme = pentagone
+  fond = #f79a28
+  auteur = humain
+  verifiee = 0
+  corrigee = 0
+  origine = main
+
+noeud 6
+  libelle = Etoile
+  enfants =
+  largeur = fixed 150 0 0
+  hauteur = fixed 140 0 0
+  agencement = none start start 0
+  position = 210 170
+  forme = etoile
+  fond = #d29922
+  auteur = humain
+  verifiee = 0
+  corrigee = 0
+  origine = main
+
+noeud 7
+  libelle = Fleche
+  enfants =
+  largeur = fixed 160 0 0
+  hauteur = fixed 60 0 0
+  agencement = none start start 0
+  position = 390 200
+  forme = fleche
+  auteur = humain
+  verifiee = 0
+  corrigee = 0
+  origine = main
+
+noeud 8
+  libelle = Ligne
+  enfants =
+  largeur = fixed 160 0 0
+  hauteur = fixed 60 0 0
+  agencement = none start start 0
+  position = 390 300
+  forme = line
+  auteur = humain
+  verifiee = 0
+  corrigee = 0
+  origine = main
+
+noeud 9
+  libelle = Image
+  enfants =
+  largeur = fixed 140 0 0
+  hauteur = fixed 100 0 0
+  agencement = none start start 0
+  position = 40 300
+  forme = image
+  auteur = humain
+  verifiee = 0
+  corrigee = 0
+  origine = main
+
+noeud 10
+  libelle = Avatar
+  enfants =
+  largeur = fixed 72 0 0
+  hauteur = fixed 72 0 0
+  agencement = none start start 0
+  position = 220 310
+  forme = avatar
+  auteur = humain
+  verifiee = 0
+  corrigee = 0
+  origine = main

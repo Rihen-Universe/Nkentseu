@@ -1,10 +1,11 @@
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // =============================================================================
 // AnimBridge.cpp — implémentation du pont. SEUL TU à inclure NKRenderer (anim).
 // =============================================================================
 #include "NKRenderer/Mesh/NkGLTFAnimBake.h"
 #include "AnimBridge.h"
-#include "NKAnimation/NkAnimation.h"
-#include "NKAnimation/NkAnimationEditor.h"
+#include "NKAnima/Clip/NkAnimation.h"
+#include "NKAnima/Edit/NkAnimationEditor.h"
 #include "NKRenderer/Mesh/NkGLTFLoader.h"
 #include "NKRenderer/Mesh/NkFBXLoader.h" // routage .fbx (chantier FBX, 2026-08-17)
 // ── Viewport 3D : moteur de rendu complet (TU isolé) ────────────────────────
@@ -24,10 +25,11 @@
 #include "NKRenderer/Tools/PostProcess/NkPostProcessStack.h" // Execute() tonemap ACES
 #include "NKRenderer/Core/NkRenderGraph.h"					 // Execute() pipeline complet (option A)
 #include "NKGui/NkGuiRHIBackend.h"							 // RegisterTexture (Integrations/NKGui)
-#include "NkAnimaEditor/NkRagdollBridge.h"					 // couplage ragdoll <-> squelette (NKPhysics)
-#include "NKAnimPhysics/NkPoseMass.h"						 // M3.1 : distribution de masse + COM
-#include "NKAnimPhysics/NkBalance.h"						 // M3.2 : équilibre, polygone de support
-#include "NKAnimPhysics/NkContactDetector.h"				 // M3.3 : détection des appuis au sol
+#include "NkAnimaEditor/NkRagdollBridge.h"
+#include "NKAnima/Skeleton/NkSkeletonDef.h" // LA conversion locale -> monde (2026-09-04)					 // couplage ragdoll <-> squelette (NKPhysics)
+#include "NKAnima/Physics/NkPoseMass.h"						 // M3.1 : distribution de masse + COM
+#include "NKAnima/Physics/NkBalance.h"						 // M3.2 : équilibre, polygone de support
+#include "NKAnima/Physics/NkContactDetector.h"				 // M3.3 : détection des appuis au sol
 #include "NKLogger/NkLog.h"
 #include <cstdlib>
 #include <cmath>
@@ -67,7 +69,7 @@ namespace nkanima {
 
 				// ── Debug COM (M3.1/M3.2/M3.3) : tampons réutilisés, zéro alloc/frame ──
 				bool showCom = false;
-				nkentseu::animphys::NkPoseMass poseMass;
+				nkentseu::anim::NkPoseMass poseMass;
 				NkVector<NkVec3f> comPos;	  // positions monde des joints (scratch)
 				NkVector<int32> comParent;	  // ignoré, exigé par AnimGetSkeleton
 				int32 comRegime = 0;		  // 0 = uniforme (pas de noms), 1 = anthropométrique
@@ -538,13 +540,10 @@ namespace nkanima {
 			inChain[k] = false;
 		for (uint32 i = 0; i < n; ++i)
 			inChain[(uint32)chain[i]] = true;
-		for (uint32 oi = 0; oi < (uint32)g.topo.Size(); ++oi) {
-			uint32 k = g.topo[oi];
-			if (inChain[k])
-				continue;
-			int32 p = g.clip.jointParent[k];
-			out[k] = (p >= 0) ? (out[(uint32)p] * baseLocal[k]) : out[k];
-		}
+		// LA conversion du squelette (NkAnima, Skeleton/) : la chaine IK est fixee
+		// (skip), les racines gardent leur monde (rootsFixed).
+		anim::NkForwardKinematics(g.clip.jointParent.Data(), g.topo.Data(), jc, baseLocal.Data(), out.Data(),
+								  inChain.Data(), true);
 		g.worldEdit = out;
 	}
 
@@ -582,14 +581,15 @@ namespace nkanima {
 		out[(uint32)jsel] = NkMat4f::Translate(jp) * (Rz.ToMat4() * rotP(M));
 		// propage : enfants recalculés depuis le parent (ordre topo). Les joints hors
 		// sous-arbre de jsel retrouvent leur monde inchangé (parent non bougé).
-		for (uint32 oi = 0; oi < (uint32)g.topo.Size(); ++oi) {
-			uint32 k = g.topo[oi];
-			if (k == (uint32)jsel)
-				continue;
-			int32 p = g.clip.jointParent[k];
-			if (p < 0)
-				continue;
-			out[k] = out[(uint32)p] * baseLocal[k];
+		{
+			// LA conversion du squelette (NkAnima, Skeleton/) : le joint saisi est
+			// fixe (skip), les racines gardent leur monde (rootsFixed).
+			NkVector<bool> fixe;
+			fixe.Resize(g.topo.Size());
+			for (uint32 k = 0; k < (uint32)fixe.Size(); ++k)
+				fixe[k] = (k == (uint32)jsel);
+			anim::NkForwardKinematics(g.clip.jointParent.Data(), g.topo.Data(), (uint32)g.topo.Size(),
+									  baseLocal.Data(), out.Data(), fixe.Data(), true);
 		}
 		g.worldEdit = out;
 	}
@@ -614,14 +614,15 @@ namespace nkanima {
 		out[(uint32)jsel].position.y += dy;
 		out[(uint32)jsel].position.z += dz;
 		// propage : le sous-arbre suit (offset local conservé), le reste inchangé.
-		for (uint32 oi = 0; oi < (uint32)g.topo.Size(); ++oi) {
-			uint32 k = g.topo[oi];
-			if (k == (uint32)jsel)
-				continue;
-			int32 p = g.clip.jointParent[k];
-			if (p < 0)
-				continue;
-			out[k] = out[(uint32)p] * baseLocal[k];
+		{
+			// LA conversion du squelette (NkAnima, Skeleton/) : le joint saisi est
+			// fixe (skip), les racines gardent leur monde (rootsFixed).
+			NkVector<bool> fixe;
+			fixe.Resize(g.topo.Size());
+			for (uint32 k = 0; k < (uint32)fixe.Size(); ++k)
+				fixe[k] = (k == (uint32)jsel);
+			anim::NkForwardKinematics(g.clip.jointParent.Data(), g.topo.Data(), (uint32)g.topo.Size(),
+									  baseLocal.Data(), out.Data(), fixe.Data(), true);
 		}
 		g.worldEdit = out;
 	}
@@ -1001,11 +1002,11 @@ namespace nkanima {
 					g.comFeetPos.Clear();
 					for (uint32 k = 0; k < (uint32)g.comFeet.Size(); ++k)
 						g.comFeetPos.PushBack(g.comPos[g.comFeet[k]]);
-					const int32 nc = nkentseu::animphys::NkContactDetector::DetectSupportPoints(
+					const int32 nc = nkentseu::anim::NkContactDetector::DetectSupportPoints(
 						g.comFeetPos.Data(), (int32)g.comFeetPos.Size(), planePoint, planeNormal, threshold,
 						g.comSupport);
 					if (nc > 0) {
-						const auto bal = nkentseu::animphys::NkBalance::EvaluateStatic(
+						const auto bal = nkentseu::anim::NkBalance::EvaluateStatic(
 							com, g.comSupport.Data(), (int32)g.comSupport.Size(), planeNormal);
 						g.comVerdict = bal.balanced ? 1 : 0;
 					}

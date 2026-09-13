@@ -32,4 +32,5 @@
 #include "NKGui/Core/NkGuiDrawList.h"
 #include "NKGui/Core/NkGuiFont.h"
 #include "NKGui/Core/NkGuiContext.h"
+#include "NKGui/Core/NkGuiIntrospect.h" // introspection : lire ce qui a ete dessine
 #include "NKGui/Widgets/NkGuiWidgets.h"

@@ -1,0 +1,161 @@
+nkuidoc 1
+# Onglet de demonstration « HUD_Jeu » (5e retour de Rodolf, 01/09) : le
+# troisieme document distinct des onglets — un HUD sombre a deux jauges,
+# reconnaissable en un coup d oeil.
+titre = HUD_Jeu
+auteur = humain
+verifiee = 0
+corrigee = 0
+origine = main
+
+noeud 0
+  libelle = Toile
+  enfants = 1
+  largeur = expand 0 0 0
+  hauteur = expand 0 0 0
+  agencement = free start start 0
+  auteur = humain
+  verifiee = 0
+  corrigee = 0
+  origine = main
+
+noeud 1
+  libelle = HUD
+  enfants = 2 3 4 5 6 7 8 9
+  largeur = fixed 480 0 0
+  hauteur = fixed 270 0 0
+  agencement = free start start 0
+  position = 60 80
+  forme = frame
+  cible = HD 1280 x 720
+  auteur = humain
+  verifiee = 0
+  corrigee = 0
+  origine = main
+
+noeud 2
+  libelle = Fond de jeu
+  enfants =
+  largeur = fixed 480 0 0
+  hauteur = fixed 270 0 0
+  agencement = none start start 0
+  position = 0 0
+  forme = rect
+  fond = #0d1117
+  rayon = 0
+  auteur = humain
+  verifiee = 0
+  corrigee = 0
+  origine = main
+
+noeud 3
+  libelle = Jauge vie fond
+  enfants =
+  largeur = fixed 200 0 0
+  hauteur = fixed 16 0 0
+  agencement = none start start 0
+  position = 16 16
+  forme = rect
+  fond = #30363d
+  rayon = 4
+  auteur = humain
+  verifiee = 0
+  corrigee = 0
+  origine = main
+
+noeud 4
+  libelle = Jauge vie valeur
+  enfants =
+  largeur = fixed 150 0 0
+  hauteur = fixed 16 0 0
+  agencement = none start start 0
+  position = 16 16
+  forme = rect
+  fond = #d1242f
+  rayon = 4
+  auteur = humain
+  verifiee = 0
+  corrigee = 0
+  origine = main
+
+noeud 5
+  libelle = Libelle vie
+  enfants =
+  largeur = fixed 120 0 0
+  hauteur = fixed 14 0 0
+  agencement = none start start 0
+  position = 20 17
+  forme = text
+  texte = VIE 75/100
+  couleur_texte = #ffffff
+  police_px = 10
+  graisse = 600
+  auteur = humain
+  verifiee = 0
+  corrigee = 0
+  origine = main
+
+noeud 6
+  libelle = Jauge mana fond
+  enfants =
+  largeur = fixed 200 0 0
+  hauteur = fixed 16 0 0
+  agencement = none start start 0
+  position = 16 40
+  forme = rect
+  fond = #30363d
+  rayon = 4
+  auteur = humain
+  verifiee = 0
+  corrigee = 0
+  origine = main
+
+noeud 7
+  libelle = Jauge mana valeur
+  enfants =
+  largeur = fixed 90 0 0
+  hauteur = fixed 16 0 0
+  agencement = none start start 0
+  position = 16 40
+  forme = rect
+  fond = #0969da
+  rayon = 4
+  auteur = humain
+  verifiee = 0
+  corrigee = 0
+  origine = main
+
+noeud 8
+  libelle = Libelle mana
+  enfants =
+  largeur = fixed 120 0 0
+  hauteur = fixed 14 0 0
+  agencement = none start start 0
+  position = 20 41
+  forme = text
+  texte = MANA 45/100
+  couleur_texte = #ffffff
+  police_px = 10
+  graisse = 600
+  auteur = humain
+  verifiee = 0
+  corrigee = 0
+  origine = main
+
+noeud 9
+  libelle = Score
+  enfants =
+  largeur = fixed 110 0 0
+  hauteur = fixed 16 0 0
+  agencement = none start start 0
+  position = 352 16
+  forme = text
+  texte = SCORE 12480
+  couleur_texte = #ffffff
+  police_px = 12
+  graisse = 700
+  texte_aligne = droite
+  auteur = humain
+  verifiee = 0
+  corrigee = 0
+  origine = main

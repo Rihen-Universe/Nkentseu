@@ -19,29 +19,71 @@ namespace nkentseu {
 		using namespace nkentseu;
 		using namespace nkentseu::nkgui;
 
+		// ── Le STYLE OPTIONNEL du champ superpose (2026-08-31, edition en place
+		//    sur la toile — regle de Rodolf : « on doit voir qu'on edite DANS la
+		//    toile, pas dans une boite ») ─────────────────────────────────────
+		// Additif : nullptr = le comportement historique exact (fond opaque,
+		// aligne a gauche, echelle 1). Le mecanisme est UNIQUE — chaque site
+		// d'edition en place (toile, etiquette, hierarchie) passe par lui, la
+		// regle du contrat (Entree valide, Echap annule, clic ailleurs valide)
+		// ne se recopie pas par site.
+		struct NkOverlayFieldStyle {
+				bool fond = true;	   ///< false = TRANSPARENT (edition dans la toile)
+				bool bord = true;	   ///< le lisere de focus
+				int32 align = 0;	   ///< 0 gauche, 1 centre, 2 droite — l'alignement du NOEUD
+				float32 echelle = 1.f; ///< corps affiche = police x echelle (texte zoome)
+				NkColor texte = {230, 237, 243, 255};
+		};
+
 		// ── Champ de saisie mono-ligne minimal pour l'overlay (positionne en absolu) ──
 		// Edite `buf` quand `focused` ; renvoie via les codepoints tapes + Backspace.
 		inline void NkOverlayTextField(NkGuiContext &ctx, NkGuiDrawList &dl, const NkGuiFont *f, const NkRect &r,
-									   char *buf, int32 cap, bool focused) {
-			const float32 asc = f ? f->Ascent() : 0.f, lh = f ? f->LineHeight() : 0.f;
-			dl.AddRectFilled(r, NkColor{22, 27, 34, 255}, 4.f);
-			dl.AddRect(r, focused ? NkColor{88, 166, 255, 255} : NkColor{48, 54, 61, 255}, 1.f);
+									   char *buf, int32 cap, bool focused,
+									   const NkOverlayFieldStyle *style = nullptr) {
+			static const NkOverlayFieldStyle kDefaut;
+			const NkOverlayFieldStyle &st = style ? *style : kDefaut;
+			const float32 ech = st.echelle > 0.f ? st.echelle : 1.f;
+			const float32 asc = (f ? f->Ascent() : 0.f) * ech, lh = (f ? f->LineHeight() : 0.f) * ech;
+			if (st.fond)
+				dl.AddRectFilled(r, NkColor{22, 27, 34, 255}, 4.f);
+			if (st.bord)
+				dl.AddRect(r, focused ? NkColor{88, 166, 255, 255} : NkColor{48, 54, 61, 255}, 1.f);
 			// Edition complete (caret, SELECTION, copier/couper/coller, double-clic, clic-position).
 			// Etat statique associe au buffer focus (un seul champ edite a la fois).
 			static const void *s_owner = nullptr;
 			static int32 s_caret = 0, s_anchor = -1;
 			static float32 s_blink = 0.f;
 			static bool s_drag = false;
-			const float32 pad = 8.f;
+			const float32 pad = st.fond ? 8.f : 2.f; // transparent : le texte reste A SA PLACE
 			int32 len = 0;
 			while (buf[len])
 				++len;
-			auto measW = [&](const char *s) -> float32 { return f ? f->MeasureWidth(s) : 0.f; };
+			// ⚠️ TOUTES les mesures passent par l'ECHELLE : caret, selection,
+			//    defilement et dessin restent d'accord entre eux quel que soit
+			//    le zoom du document.
+			auto measW = [&](const char *s) -> float32 {
+				return f ? f->MeasureWidth(s) * ech : 0.f;
+			};
 			auto slice = [&](int32 n, char *out) {
 				int32 m = n < 599 ? n : 599;
 				for (int32 k = 0; k < m; ++k)
 					out[k] = buf[k];
 				out[m] = '\0';
+			};
+			// L'ORIGINE DU TEXTE SUIT L'ALIGNEMENT DU NOEUD (regle de Rodolf :
+			// « l'alignement doit etre respecte PENDANT la frappe, pas au
+			// valider ») — tant que le texte tient ; s'il deborde, gauche +
+			// defilement, comme avant.
+			auto origineX = [&]() -> float32 {
+				const float32 availW0 = r.w - pad * 2.f;
+				const float32 tw = measW(buf);
+				if (tw <= availW0) {
+					if (st.align == 1)
+						return r.x + (r.w - tw) * 0.5f;
+					if (st.align == 2)
+						return r.x + r.w - pad - tw;
+				}
+				return r.x + pad;
 			};
 			if (focused) {
 				if (s_owner != buf) {
@@ -91,7 +133,7 @@ namespace nkentseu {
 					slice(s_caret, tp0);
 					const float32 pw = measW(tp0);
 					const float32 offc = (pw > availW0) ? (pw - availW0) : 0.f;
-					const float32 target = mp.x - (r.x + pad) + offc;
+					const float32 target = mp.x - origineX() + offc;
 					int32 best = 0;
 					float32 bestd = 1e9f;
 					char acc[600];
@@ -267,6 +309,7 @@ namespace nkentseu {
 				slice(focused ? s_caret : 0, tp);
 				const float32 caretW = focused ? measW(tp) : 0.f;
 				const float32 offX = (focused && caretW > availW) ? (caretW - availW) : 0.f;
+				const float32 ox = origineX();
 				const NkRect clip = {r.x + pad, r.y, r.w - pad * 2.f, r.h};
 				dl.PushClipRect(clip, true);
 				if (focused && s_anchor >= 0 && s_anchor != s_caret) { // surbrillance selection
@@ -276,16 +319,20 @@ namespace nkentseu {
 					slice(lo, a);
 					slice(hi, b);
 					const float32 xa = measW(a), xb = measW(b);
-					dl.AddRectFilled({r.x + pad - offX + xa, r.y + 4.f, xb - xa, r.h - 8.f},
+					dl.AddRectFilled({ox - offX + xa, r.y + 4.f, xb - xa, r.h - 8.f},
 									 NkColor{46, 110, 190, 140});
 				}
-				dl.AddText(f->Face(), f->TexId(), {r.x + pad - offX, r.y + (r.h - lh) * 0.5f + asc}, buf[0] ? buf : "",
-						   NkColor{230, 237, 243, 255});
+				// `AddTextScaled` retombe sur AddText a l'echelle ~1 (pixel-snap
+				// conserve pour tous les champs historiques).
+				dl.AddTextScaled(f->Face(), f->TexId(), {ox - offX, r.y + (r.h - lh) * 0.5f + asc},
+								 buf[0] ? buf : "", st.texte, ech);
 				if (focused) {
 					const float32 phase = s_blink - (float32)(int64)s_blink;
 					if (phase < 0.55f) {
-						const float32 caretX = r.x + pad + (caretW - offX) + 1.f;
-						dl.AddRectFilled({caretX, r.y + 5.f, 1.5f, r.h - 10.f}, NkColor{200, 210, 220, 255});
+						const float32 caretX = ox + (caretW - offX) + 1.f;
+						const float32 caretH = lh > 8.f ? lh : (r.h - 10.f);
+						dl.AddRectFilled({caretX, r.y + (r.h - caretH) * 0.5f, 1.5f, caretH},
+										 NkColor{200, 210, 220, 255});
 					}
 				}
 				dl.PopClipRect();

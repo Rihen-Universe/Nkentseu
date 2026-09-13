@@ -53,6 +53,7 @@ namespace nkentseu {
 			// les effacer. Seule la modale du BAS le pose ; les suivantes s'y posent.
 			const bool premiereDeLaPile = (ctx.modalDepth == 0);
 			++ctx.modalDepth;
+			ctx.input.ReserverSaisie(); // ② une modale possede souris, molette ET clavier (une image de retard)
 			if (premiereDeLaPile)
 				dl.AddRectFilled({0.f, 0.f, static_cast<float32>(ctx.viewW), static_cast<float32>(ctx.viewH)},
 								  NkColor{0, 0, 0, 120});
@@ -184,8 +185,21 @@ namespace nkentseu {
 			// MODALITE : force ctx.popupDepth > 0 tant que ce dialogue reste affiche —
 			// deja verifie par la quasi-totalite des points d'interaction de NKCode,
 			// donc bloque TOUT le reste de l'appli sans autre modification.
-			if (ctx.popupDepth == 0)
+			// ③ (07/09) ET IL DIT QUI IL EST. `ClosePopup` remet `popupDepth` a 0 mais
+			//    ne touche PAS `popupStack` : prendre le niveau 0 sans y ecrire son
+			//    identite laissait l'identifiant du DERNIER popup -- le menu « Fichier » --
+			//    en place. `BeginMenu` teste `popupDepth > 0 && popupStack[0] == monId` :
+			//    le menu se croyait donc encore ouvert, et restait a l'ecran apres avoir
+			//    agi (Rodolf, 07/09).
+			// ⚠️ *UN ETAT QU'ON PREND SANS SE NOMMER USURPE L'IDENTITE DU PRECEDENT.*
+			//    Le compteur disait « quelqu'un est ouvert » et la pile disait encore
+			//    « c'est le menu » : deux moities d'une meme verite, une seule tenue.
+			// ⚠️ SEULEMENT QUAND ON PREND LE NIVEAU. Si un popup legitime est deja
+			//    ouvert, il a son identite -- l'ecraser serait usurper a notre tour.
+			if (ctx.popupDepth == 0) {
 				ctx.popupDepth = 1;
+				ctx.popupStack[0] = ctx.GetId(title);
+			}
 			// NkGuiContext::Update() (debut de frame, AVANT que ce dialogue ne se dessine)
 			// reinitialise ctx.popupDepth a 0 des qu'un clic tombe hors de
 			// popupRects[0]/popupAnchor de la frame PRECEDENTE. Sans les renseigner, CHAQUE
@@ -296,6 +310,7 @@ namespace nkentseu {
 			// VOILE : une seule fois pour toute la pile (voir NkModalDraw).
 			const bool premiereDeLaPile = (ctx.modalDepth == 0);
 			++ctx.modalDepth;
+			ctx.input.ReserverSaisie(); // ② une modale possede souris, molette ET clavier (une image de retard)
 			if (premiereDeLaPile)
 				dl.AddRectFilled({0.f, 0.f, static_cast<float32>(ctx.viewW),
 								  static_cast<float32>(ctx.viewH)},
@@ -391,8 +406,21 @@ namespace nkentseu {
 			// APRES, poserait les siennes, mais l'ancrage `popupAnchor` lui serait
 			// vole par celle-ci.
 			if (!inerte) {
-				if (ctx.popupDepth == 0)
+				// ③ (07/09) ET IL DIT QUI IL EST. `ClosePopup` remet `popupDepth` a 0 mais
+				//    ne touche PAS `popupStack` : prendre le niveau 0 sans y ecrire son
+				//    identite laissait l'identifiant du DERNIER popup -- le menu « Fichier » --
+				//    en place. `BeginMenu` teste `popupDepth > 0 && popupStack[0] == monId` :
+				//    le menu se croyait donc encore ouvert, et restait a l'ecran apres avoir
+				//    agi (Rodolf, 07/09).
+				// ⚠️ *UN ETAT QU'ON PREND SANS SE NOMMER USURPE L'IDENTITE DU PRECEDENT.*
+				//    Le compteur disait « quelqu'un est ouvert » et la pile disait encore
+				//    « c'est le menu » : deux moities d'une meme verite, une seule tenue.
+				// ⚠️ SEULEMENT QUAND ON PREND LE NIVEAU. Si un popup legitime est deja
+				//    ouvert, il a son identite -- l'ecraser serait usurper a notre tour.
+				if (ctx.popupDepth == 0) {
 					ctx.popupDepth = 1;
+					ctx.popupStack[0] = ctx.GetId(title);
+				}
 				ctx.popupRects[0] = box;
 				ctx.popupAnchor = box;
 				ctx.PushOcclusion(box, 100);

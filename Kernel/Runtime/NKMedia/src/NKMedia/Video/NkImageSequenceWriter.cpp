@@ -1,7 +1,9 @@
 // =============================================================================
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // NKMedia/Video/NkImageSequenceWriter.cpp — export séquence d'images (PNG/JPEG/…).
 // =============================================================================
 #include "NKMedia/Video/NkImageSequenceWriter.h"
+#include "NKCore/Text/NkSnprintf.h"
 #include "NKImage/Core/NkImage.h"
 #include "NKFileSystem/NkFile.h"
 #include "NKMemory/NKMemory.h"
@@ -126,7 +128,7 @@ namespace nkentseu {
 
 			// Nom de fichier numéroté : dir/base_0001.ext
 			char path[1024];
-			::snprintf(path, sizeof(path), "%s/%s_%0*d.%s", mDir, mBase, mPadding, mFrame + 1, mExt);
+			nkentseu::NkSnprintf(path, sizeof(path), "%s/%s_%0*d.%s", mDir, mBase, mPadding, mFrame + 1, mExt);
 
 			NkFile f;
 			const uint32 mode =

@@ -78,7 +78,7 @@
 ┌─────────────────────────────────────────────────────────────┐
 │                    DOMAIN MODULES                            │
 │  NKGraphics | NKPhysics | NKAudio | NKNetwork | NKAI        │
-│  NKAnimation | NKUI | NKVR                                   │
+│  NKAnima | NKUI | NKVR                                   │
 └─────────────────────────────────────────────────────────────┘
                             ▲
 ┌─────────────────────────────────────────────────────────────┐
@@ -1568,7 +1568,7 @@ NKAI/
 
 ---
 
-### 6.7 NKAnimation
+### 6.7 NKAnima
 
 **Type:** SHARED Library
 **Dépendances:** NKMath, NKECS
@@ -1584,8 +1584,8 @@ NKAI/
 #### Fichiers
 
 ```
-NKAnimation/
-├── include/NKAnimation/
+NKAnima/
+├── include/NKAnima/
 │   ├── NkSkeleton.h
 │   ├── NkAnimationClip.h
 │   ├── NkAnimator.h
@@ -1782,7 +1782,7 @@ graph TD
         Audio[NKAudio]
         Network[NKNetwork]
         AI[NKAI]
-        Animation[NKAnimation]
+        Animation[NKAnima]
         UI[NKUI]
         VR[NKVR]
     end
@@ -2238,7 +2238,7 @@ NkenSDK-1.0.0-win64/
 * NKAudio
 * NKNetwork
 * NKAI
-* NKAnimation
+* NKAnima
 
 **Phase 7: Editor (3 mois)**
 

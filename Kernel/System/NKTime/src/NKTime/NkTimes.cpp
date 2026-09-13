@@ -1,4 +1,5 @@
 // =============================================================================
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // NKTime/NkTimes.cpp
 // Implémentation de la classe NkTime.
 //
@@ -22,10 +23,10 @@
 // 4. Headers système
 
 #include "pch.h"
+#include "NKCore/Text/NkSnprintf.h"
 #include "NKTime/NkTimes.h"
 #include "NKCore/Assert/NkAssert.h"
 
-#include <cstdio>
 #include <ctime>
 
 // Inclusion conditionnelle des headers Windows
@@ -273,7 +274,7 @@ namespace nkentseu {
 		char buf[32];
 
 		// Formatage ISO 8601 étendu : HH:MM:SS.mmm.nnnnnn
-		::snprintf(buf, sizeof(buf), "%02d:%02d:%02d.%03d.%06d", mHour, mMinute, mSecond, mMillisecond,
+		nkentseu::NkSnprintf(buf, sizeof(buf), "%02d:%02d:%02d.%03d.%06d", mHour, mMinute, mSecond, mMillisecond,
 				   mNanosecond % NANOSECONDS_PER_MILLISECOND);
 
 		// Construction de la chaîne NKEntseu depuis le buffer C

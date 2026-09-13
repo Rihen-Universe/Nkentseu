@@ -1,4 +1,5 @@
 // =============================================================================
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // NkSLCompiler.cpp  — v4.0
 //
 // CORRECTIONS v4.0 :
@@ -10,6 +11,7 @@
 //   6. FillShaderDesc() compatible nouveaux targets
 // =============================================================================
 #include "NKSL/Compiler/NkSLCompiler.h"
+#include "NKCore/Text/NkSnprintf.h"
 #include "NKSL/Compiler/NkGLSLCompiler.h" // NkGLSLToSPIRV (glslang in-tree via NKGLSlang)
 #include "NKSL/Frontend/NkSLLexer.h"
 #include "NKSL/Frontend/NkSLParser.h"
@@ -346,16 +348,45 @@ namespace nkentseu {
 					//
 					// Verifie AVANT de corriger : les 82 shaders du corpus moteur passent
 					// glslang (82/82). Cette correction ne reveille rien.
+					// ⚠ DEUX JOURNAUX SE RENCONTRENT ICI, ET ILS NE VIENNENT PAS DE LA
+					// MEME ETAPE. `glslRes` est le resultat du GENERATEUR GLSL-Vulkan --
+					// il a REUSSI, mais il peut porter des diagnostics non fatals.
+					// `echec` est celui de GLSLANG, qui a refuse. Les concatener sans
+					// etiquette vaut a peine mieux qu'une liste vide : l'auteur lirait
+					// « erreur ligne 42 » sans savoir QUI se plaint, et chercherait
+					// dans le mauvais etage.
+					//
+					// Chaque entree porte donc son etape a DEUX endroits : dans `file`,
+					// pour qui lit la structure, et EN TETE DU MESSAGE, pour qui
+					// n'imprime que `message` -- ce que font TOUS les appelants
+					// d'aujourd'hui, mesure le 2026-08-23.
 					NkSLCompileResult echec = res;
 					NKSL_ERR("GLSL-Vulkan->SPIR-V failed: texte GLSL renvoye pour DIAGNOSTIC, success reste FAUX\n");
 					res = glslRes;
 					res.target = NkSLTarget::NK_GLSL_VULKAN;
 					res.success = false;
 					res.bytecode.Clear(); // rien ne doit ressembler a du SPIR-V
-					for (auto &e : echec.errors)
-						res.errors.PushBack(e);
+					// Les diagnostics deja presents viennent du generateur : on les
+					// etiquette AVANT d'ajouter ceux de glslang, sinon on ne saurait
+					// plus les distinguer une fois melanges.
+					for (uint32 i = 0; i < (uint32)res.errors.Size(); ++i) {
+						res.errors[i].file = NkString("generateur GLSL-Vulkan");
+						NkString m("[generateur GLSL-Vulkan] ");
+						m.Append(res.errors[i].message);
+						res.errors[i].message = m;
+					}
+					for (auto &e : echec.errors) {
+						NkSLCompileError etiquetee = e;
+						etiquetee.file = NkString("glslang (SPIR-V)");
+						NkString m("[glslang/SPIR-V] ");
+						m.Append(e.message);
+						etiquetee.message = m;
+						res.errors.PushBack(etiquetee);
+					}
 					if (res.errors.Empty())
-						res.AddError(0, "compilation SPIR-V echouee (glslang), aucun detail remonte", true);
+						res.AddError(
+							0, "[glslang/SPIR-V] compilation SPIR-V echouee, aucun detail remonte par glslang",
+							true);
 				}
 				break;
 			}
@@ -794,10 +825,10 @@ namespace nkentseu {
 
 							// Inclure avec traçage de numéros de lignes (#line)
 							char lineBuf[64];
-							snprintf(lineBuf, sizeof(lineBuf), "#line 1 \"%s\"\n", fullPath.CStr());
+							nkentseu::NkSnprintf(lineBuf, sizeof(lineBuf), "#line 1 \"%s\"\n", fullPath.CStr());
 							result += NkString(lineBuf);
 							result += Preprocess(incSrc, baseDir, errors, includedFiles);
-							snprintf(lineBuf, sizeof(lineBuf), "#line %u \"%s\"\n", line + 1,
+							nkentseu::NkSnprintf(lineBuf, sizeof(lineBuf), "#line %u \"%s\"\n", line + 1,
 									 filename.Empty() ? "shader" : filename.CStr());
 							result += NkString(lineBuf);
 						} else {

@@ -1,4 +1,5 @@
 #pragma once
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // -----------------------------------------------------------------------------
 // @File    NkGuiDrawList.h
 // @Brief   Liste de commandes de dessin NKGui — sortie indépendante du backend.
@@ -31,12 +32,27 @@ namespace nkentseu {
 			TexturedTriangles ///< triangles texturés (texte/atlas/image)
 		};
 
+		/// ── AJOUT ADDITIF DU 2026-09-04 : LE MODE DE MELANGE PAR COMMANDE ──────
+		/// Ce que l'etat de melange du GPU donne EXACTEMENT (sans lire la destination) :
+		/// Alpha (le defaut, celui de toujours), Multiply, Screen, Darken, Lighten,
+		/// PlusLighter. Le dorsal traduit chaque valeur en son etat ; un dorsal qui
+		/// ne connait pas une valeur peint en alpha.
+		enum class NkGuiBlend : uint8 {
+			Alpha = 0,
+			Multiply,
+			Screen,
+			Darken,
+			Lighten,
+			PlusLighter
+		};
+
 		struct NkGuiDrawCmd {
 				NkGuiDrawCmdType type = NkGuiDrawCmdType::Triangles;
 				uint32 idxOffset = 0;
 				uint32 idxCount = 0;
 				uint32 texId = 0;
 				NkRect clipRect = {0.f, 0.f, 1.0e9f, 1.0e9f};
+				NkGuiBlend blend = NkGuiBlend::Alpha; ///< 2026-09-04 : additif, defaut alpha
 		};
 
 		// Empaquetage couleur (cohérent avec le dépaquetage côté backend).
@@ -51,6 +67,9 @@ namespace nkentseu {
 				NkVector<NkGuiDrawCmd> cmds;
 				NkRect clipStack[32] = {};
 				int32 clipDepth = 0;
+				// 2026-09-04 : la pile des modes de melange (meme patron que la decoupe)
+				NkGuiBlend blendStack[16] = {};
+				int32 blendDepth = 0;
 				float32 thickScale = 1.f; ///< échelle DPI des épaisseurs de traits/bordures (préservée par Reset)
 
 				// ── Cycle de frame ────────────────────────────────────────────────
@@ -61,6 +80,19 @@ namespace nkentseu {
 				NkRect CurrentClip() const noexcept;
 				void PushClipRect(const NkRect &r, bool intersect = true) noexcept;
 				void PopClipRect() noexcept;
+				// ── 2026-09-04 : le mode de melange en vigueur (additif) ──────────
+				NkGuiBlend CurrentBlend() const noexcept {
+					return blendDepth > 0 ? blendStack[blendDepth - 1] : NkGuiBlend::Alpha;
+				}
+				void PushBlend(NkGuiBlend b) noexcept {
+					if (blendDepth < 16)
+						blendStack[blendDepth] = b;
+					++blendDepth; // au-dela : on compte, on n'applique pas
+				}
+				void PopBlend() noexcept {
+					if (blendDepth > 0)
+						--blendDepth;
+				}
 
 				// ── Primitives ────────────────────────────────────────────────────
 				void AddRectFilled(const NkRect &r, const NkColor &col, float32 rounding = 0.f) noexcept;
@@ -80,12 +112,23 @@ namespace nkentseu {
 				// UV, `tint` multiplie l'échantillon (blanc = telle quelle).
 				void AddImage(uint32 texId, const NkRect &r, const NkVec2 &uv0, const NkVec2 &uv1,
 							  const NkColor &tint) noexcept;
+				// Polygone CONVEXE texturé, un uv PAR SOMMET : l'image d'un remplissage qui
+				// suit un contour arrondi, ou tournée (2026-09-05, chaîne de l'image de
+				// NkUIDesign). Éventail depuis pts[0], `texId` résolu par le backend comme
+				// AddImage ; `tint` multiplie l'échantillon (l'alpha porte l'opacité).
+				void AddImagePolygon(uint32 texId, const NkVec2 *pts, const NkVec2 *uvs, int32 n,
+									 const NkColor &tint) noexcept;
 				void AddLine(const NkVec2 &a, const NkVec2 &b, const NkColor &col, float32 thickness = 1.f) noexcept;
 				void AddTriangleFilled(const NkVec2 &a, const NkVec2 &b, const NkVec2 &c, const NkColor &col) noexcept;
 				// Triangle à DÉGRADÉ (3 couleurs de sommet) — roue de teinte + triangle SV.
 				void AddTriangleMultiColor(const NkVec2 &a, const NkVec2 &b, const NkVec2 &c, const NkColor &ca,
 										   const NkColor &cb, const NkColor &cc) noexcept;
 				void AddCircleFilled(const NkVec2 &center, float32 r, const NkColor &col, int32 segs = 0) noexcept;
+				// Ellipse pleine (rx/ry) — même éventail qu'AddCircleFilled, deux rayons.
+				// Ajoutée le 2026-08-30 : l'outil Formes de NkUIDesign trace des
+				// ellipses (Lunacy §7.2) et le cercle seul l'aurait fait mentir.
+				void AddEllipseFilled(const NkVec2 &center, float32 rx, float32 ry, const NkColor &col,
+									  int32 segs = 0) noexcept;
 				// Contour de cercle (anneau). `r` est le rayon de la LIGNE MEDIANE : le
 				// trait occupe [r - th/2, r + th/2] — meme convention que les emulations
 				// qu'il remplace (Mou/Nkoung `CircleOutline`, ConquerorLab `NkcRing`),
@@ -112,6 +155,32 @@ namespace nkentseu {
 				void AddText(const NkFont *face, uint32 texId, const NkVec2 &baseline, const char *text,
 							 const NkColor &col, float32 maxWidth = -1.f, float32 skew = 0.f,
 							 const char *textEnd = nullptr) noexcept;
+				/// Texte TOURNE de `angleDeg` (degres, sens horaire ecran) autour de
+				/// `pivot`. C'est LA boucle de glyphes ; `AddText` n'en est qu'une porte
+				/// a angle nul. Chaque glyphe reste un quad : ses quatre sommets
+				/// passent par la rotation, comme un contour. Le calage au pixel se
+				/// fait AVANT la rotation, sur la ligne droite -- un texte tourne ne
+				/// se cale pas au pixel, et le caler apres aurait tordu les glyphes.
+				void AddTextTourne(const NkFont *face, uint32 texId, const NkVec2 &baseline,
+								   const char *text, const NkColor &col, float32 angleDeg,
+								   const NkVec2 &pivot, float32 maxWidth = -1.f, float32 skew = 0.f,
+								   const char *textEnd = nullptr) noexcept;
+				/// Texte sous une TRANSFORMEE AFFINE 2x3 (colonnes (x,y,1) ; |a c e| |b d f|).
+				/// C'est LA boucle de glyphes ; `AddText` (identite) et `AddTextTourne`
+				/// (rotation autour d'un pivot) n'en sont que des portes. Rotation,
+				/// miroir et ECHELLE passent par la meme matrice que les formes.
+				void AddTextTransforme(const NkFont *face, uint32 texId, const NkVec2 &baseline,
+									   const char *text, const NkColor &col, float32 ta, float32 tb,
+									   float32 tc, float32 td, float32 te, float32 tf,
+									   float32 maxWidth = -1.f, float32 skew = 0.f,
+									   const char *textEnd = nullptr) noexcept;
+				// Texte à l'ÉCHELLE : quads et avances multipliés par `scale`
+				// (géométrie `NkFontScaleRenderer`, NKFont — la couche du dessous
+				// la portait déjà). Sert au texte d'un DOCUMENT zoomé : palier
+				// d'atlas le plus proche + échelle résiduelle, jamais un atlas par
+				// cran de zoom. À ~1, retombe sur AddText (pixel-snap).
+				void AddTextScaled(const NkFont *face, uint32 texId, const NkVec2 &baseline, const char *text,
+								   const NkColor &col, float32 scale, float32 maxWidth = -1.f) noexcept;
 				// Dessine la sous-chaîne [begin, end) (sans troncature) — brique du
 				// retour à la ligne (TextWrapped) qui passe des plages de ligne.
 				void AddTextRange(const NkFont *face, uint32 texId, const NkVec2 &baseline, const char *begin,

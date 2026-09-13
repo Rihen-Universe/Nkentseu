@@ -1,3 +1,4 @@
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // =============================================================================
 // test_physics.cpp — Self-test NKPhysics (NKLogger, pas printf). [M0]
 // =============================================================================
@@ -17,6 +18,10 @@ static int g_pass = 0, g_fail = 0;
 			logger.Errorf("  [FAIL] %s\n", msg);                                                                       \
 		}                                                                                                              \
 	} while (0)
+
+int RunClothTests(int &pass, int &fail); // test_cloth.cpp
+int RunEauTests(int &pass, int &fail);   // test_eau.cpp (2026-09-06, §6.6)
+int RunGarmentTests(int &pass, int &fail); // test_garment.cpp (vetements sur mannequin, 2026-09-05)
 
 static bool Near(float32 a, float32 b, float32 eps = 1e-3f) {
 	float32 d = a - b;
@@ -387,21 +392,26 @@ int main() {
 		ad.position = {0.f, 5.f, 0.f};
 		const NkBodyId anchor = world.CreateBody(ad, collision::NkShape::Sphere({0, 5, 0}, 0.1f));
 
-		NkBoneDef bones[3];
+		// Le SQUELETTE (topologie + repos monde) d'un cote, les attributs physiques
+		// de l'autre : plus personne ne redit `parent`.
+		const int32 parents[3] = {-1, 0, 1};
+		NkVec3f rest[3];
+		NkRagdollBoneAttr bones[3];
 		// os 0 (haut), centre 4.5 ; os 1, centre 3.5 ; os 2, centre 2.5 (demi-hauteur 0.5)
 		for (int k = 0; k < 3; ++k) {
-			bones[k].position = {0.f, 4.5f - k * 1.0f, 0.f};
+			rest[k] = {0.f, 4.5f - k * 1.0f, 0.f};
 			bones[k].shape = collision::NkShape::Box3D({0, 4.5f - k * 1.0f, 0}, {0.2f, 0.5f, 0.2f});
 			bones[k].jointType = NkJointType::BALL;
 		}
-		bones[0].parent = -1;
-		bones[1].parent = 0;
 		bones[1].jointPivot = {0.f, 4.f, 0.f};
-		bones[2].parent = 1;
 		bones[2].jointPivot = {0.f, 3.f, 0.f};
+		NkSkeletonView skel;
+		skel.parent = parents;
+		skel.restPos = rest;
+		skel.count = 3;
 
 		NkRagdoll ragdoll;
-		ragdoll.Build(world, bones, 3);
+		ragdoll.Build(world, skel, bones);
 		// suspendre l'os racine à l'ancre statique.
 		world.CreateBallJoint(anchor, ragdoll.Body(0), {0.f, 5.f, 0.f});
 
@@ -600,19 +610,21 @@ int main() {
 		const NkBodyId anchor = world.CreateBody(ad, collision::NkShape::Sphere({0, 5, 0}, 0.1f));
 
 		// bras à 2 os (révolute axe Z) tendu horizontalement.
-		NkBoneDef bones[2];
-		bones[0].parent = -1;
-		bones[0].position = {1.f, 5.f, 0.f};
+		const int32 parents[2] = {-1, 0};
+		const NkVec3f rest[2] = {{1.f, 5.f, 0.f}, {3.f, 5.f, 0.f}};
+		NkRagdollBoneAttr bones[2];
 		bones[0].shape = collision::NkShape::Box3D({1, 5, 0}, {1.f, 0.15f, 0.15f});
-		bones[1].parent = 0;
-		bones[1].position = {3.f, 5.f, 0.f};
 		bones[1].shape = collision::NkShape::Box3D({3, 5, 0}, {1.f, 0.15f, 0.15f});
 		bones[1].jointType = NkJointType::REVOLUTE;
 		bones[1].jointPivot = {2.f, 5.f, 0.f};
 		bones[1].jointAxis = {0, 0, 1};
+		NkSkeletonView skel;
+		skel.parent = parents;
+		skel.restPos = rest;
+		skel.count = 2;
 
 		NkRagdoll ragdoll;
-		ragdoll.Build(world, bones, 2);
+		ragdoll.Build(world, skel, bones);
 		// ancrer l'os racine (révolute motorisé) + activer les moteurs du ragdoll.
 		const NkJointId aj = world.CreateRevoluteJoint(anchor, ragdoll.Body(0), {0, 5, 0}, {0, 0, 1});
 		world.SetRevoluteMotor(aj, 0.f, 30.f, 800.f);
@@ -650,6 +662,14 @@ int main() {
 		CHECK(world.OverlapShape(collision::NkShape::Sphere({0.f, 6.0f, 0.f}, 0.1f), ids2) == 0,
 			  "capsule tournee : ne couvre plus l'ancien sommet vertical (0,6,0)");
 	}
+
+	// Tissu XPBD (2026-09-05) : les temoins vivent dans test_cloth.cpp, memes compteurs.
+	RunClothTests(g_pass, g_fail);
+	// Vetements sur mannequin (2026-09-05) : temoins (h1)-(h7) dans test_garment.cpp, memes compteurs.
+	RunGarmentTests(g_pass, g_fail);
+	// L'eau au-dela du fluide (2026-09-06) : eclaboussures (§6.6 palier 1) et
+	// mouillage (paliers 2-3) -- temoins dans test_eau.cpp, memes compteurs.
+	RunEauTests(g_pass, g_fail);
 
 	logger.Info("=== NKPhysics : {0} passes, {1} echecs ===\n", g_pass, g_fail);
 	return g_fail == 0 ? 0 : 1;

@@ -1,0 +1,487 @@
+#pragma once
+
+/*
+	NkEarcut.h — Triangulation ear-clipping avec support complet des trous.
+
+	⚠️ CE FICHIER A DEMENAGE LE 2026-09-01, DE NKFont VERS NKMath, ET LE
+	   DEMENAGEMENT EST TOUT L'INTERET DU LOT. Il vivait dans NKFont parce que le
+	   premier qui en a eu besoin construisait des maillages de texte 3D — mais
+	   il ne parle NI de police NI de glyphe : ses seules dependances sont
+	   NKCore, NKMath, NKContainers et NKMemory. C'etait de la geometrie pure
+	   rangee dans le module de celui qui l'avait ecrite.
+
+	   Le prix de ce mauvais etage s'est mesure le meme jour : le peintre de
+	   NKEditorKit remplissait ses polygones par un EVENTAIL DEPUIS LE CENTROIDE
+	   — juste pour un convexe ou une etoile, FAUX pour un contour concave — et
+	   NkUIDesign venait de livrer des poignees de Bezier, donc des formes
+	   concaves que l'utilisateur peut dessiner. *La piece existait, personne ne
+	   pouvait l'atteindre.*
+
+	   Regle du depot (porte du 28/08) : avant d'ecrire un mecanisme, chercher
+	   qui le porte deja, en commencant par la couche du dessous. Ici la reponse
+	   etait « quelqu'un, au mauvais etage » — et la reparation n'est pas une
+	   reecriture, c'est un `git mv`.
+
+	Corrections v2 :
+	  - NkEarcutConnectHole : utilisait holeNext (=hole->next) au lieu de holeLast
+		(=hole->prev) pour le pont retour → créait une boucle infinie dans le ring.
+	  - Indices globaux : NkEarcut retourne maintenant des indices dans un tableau
+		plat [outer | hole1 | hole2 | ...], non plus des indices locaux par contour.
+		Cela permet d'indexer directement dans un tableau de vertices combiné.
+
+	Usage :
+		NkVector<NkVector<NkVec2f>> polygon;
+		polygon.PushBack(outerContour);   // CCW, index 0..outer.Size()-1
+		polygon.PushBack(holeContour);    // CW, index outer.Size()..outer.Size()+hole.Size()-1
+		auto indices = NkEarcut<float>(polygon);
+		// indices[i] est un indice global dans la flat list outer+hole
+*/
+
+#include "NKCore/NkTypes.h"
+#include "NKMath/NKMath.h"
+#include "NKContainers/Sequential/NkVector.h"
+#include "NKMemory/NkAllocator.h"
+
+#include <cmath>
+#include <cstddef>
+#include <limits>
+
+namespace nkentseu {
+
+	namespace detail {
+
+		// =====================================================================
+		// NŒUDS POUR LA LISTE DOUBLEMENT CHAÎNÉE
+		// =====================================================================
+
+		template <typename T> struct NkEarcutNode {
+				T x, y;
+				std::size_t i; // Index GLOBAL dans le tableau flat (outer+holes)
+				NkEarcutNode *prev;
+				NkEarcutNode *next;
+
+				NkEarcutNode(T x_, T y_, std::size_t i_) : x(x_), y(y_), i(i_), prev(nullptr), next(nullptr) {
+				}
+				// ⚠️ AJOUT ADDITIF DU 2026-09-01 : sans constructeur par défaut, ce
+				//    nœud ne peut pas vivre dans un TAMPON FOURNI PAR L'APPELANT —
+				//    et c'est tout le motif de `NkEarcutVers`, la porte sans
+				//    allocation. Le constructeur à trois arguments reste, la porte
+				//    qui alloue s'en sert toujours.
+				NkEarcutNode() : x(T(0)), y(T(0)), i(0), prev(nullptr), next(nullptr) {
+				}
+		};
+
+		template <typename T>
+		inline NkEarcutNode<T> *NkEarcutInsertNode(std::size_t i, T x, T y, NkEarcutNode<T> *last) {
+			NkEarcutNode<T> *p = nkentseu::memory::NkGetDefaultAllocator().New<NkEarcutNode<T>>(x, y, i);
+			if (!last) {
+				p->prev = p;
+				p->next = p;
+			} else {
+				p->next = last->next;
+				p->prev = last;
+				last->next->prev = p;
+				last->next = p;
+			}
+			return p;
+		}
+
+		template <typename T> inline void NkEarcutRemoveNode(NkEarcutNode<T> *p) {
+			p->next->prev = p->prev;
+			p->prev->next = p->next;
+		}
+
+		template <typename T> inline void NkEarcutDeleteList(NkEarcutNode<T> *start) {
+			if (!start)
+				return;
+			NkEarcutNode<T> *p = start;
+			do {
+				NkEarcutNode<T> *nxt = p->next;
+				nkentseu::memory::NkGetDefaultAllocator().Delete(p);
+				p = nxt;
+			} while (p != start);
+		}
+
+		// =====================================================================
+		// GÉOMÉTRIE DE BASE
+		// =====================================================================
+
+		// Aire signée du triangle (p,q,r) pour Y-up :
+		//   < 0  →  CCW   (oreille valide pour un polygone CCW)
+		//   > 0  →  CW    (oreille invalide)
+		template <typename T> inline T NkEarcutArea(NkEarcutNode<T> *p, NkEarcutNode<T> *q, NkEarcutNode<T> *r) {
+			return (q->y - p->y) * (r->x - q->x) - (q->x - p->x) * (r->y - q->y);
+		}
+
+		// Test si P est dans le triangle ABC
+		template <typename T> inline bool NkEarcutPointInTriangle(T ax, T ay, T bx, T by, T cx, T cy, T px, T py) {
+			T s1 = (bx - ax) * (py - ay) - (by - ay) * (px - ax);
+			T s2 = (cx - bx) * (py - by) - (cy - by) * (px - bx);
+			T s3 = (ax - cx) * (py - cy) - (ay - cy) * (px - cx);
+			return (s1 >= 0 && s2 >= 0 && s3 >= 0) || (s1 <= 0 && s2 <= 0 && s3 <= 0);
+		}
+
+		// Vérifie si le sommet `ear` est une oreille valide
+		template <typename T> inline bool NkEarcutIsEar(NkEarcutNode<T> *ear) {
+			NkEarcutNode<T> *a = ear->prev;
+			NkEarcutNode<T> *b = ear;
+			NkEarcutNode<T> *c = ear->next;
+
+			// Doit être un sommet convexe (aire < 0 = CCW pour un polygone CCW)
+			if (NkEarcutArea(a, b, c) >= 0)
+				return false;
+
+			// Aucun autre point ne doit être dans le triangle
+			NkEarcutNode<T> *p = c->next;
+			while (p != a) {
+				if (NkEarcutPointInTriangle(a->x, a->y, b->x, b->y, c->x, c->y, p->x, p->y))
+					return false;
+				p = p->next;
+			}
+			return true;
+		}
+
+		// =====================================================================
+		// TRIANGULATION PRINCIPALE (ear-clipping sur liste chaînée)
+		// =====================================================================
+
+		template <typename T> inline void NkEarcutLinked(NkEarcutNode<T> *ear, NkVector<std::size_t> &triangles) {
+			if (!ear)
+				return;
+
+			NkEarcutNode<T> *stop = ear;
+			std::size_t iterations = 0;
+			const std::size_t maxIter = 16000;
+
+			while (ear->prev != ear->next && iterations++ < maxIter) {
+				if (NkEarcutIsEar(ear)) {
+					triangles.PushBack(ear->prev->i);
+					triangles.PushBack(ear->i);
+					triangles.PushBack(ear->next->i);
+
+					NkEarcutNode<T> *nxt = ear->next;
+					NkEarcutRemoveNode(ear);
+					// 🔴 NE PLUS LIBERER ICI -- C ETAIT UNE DOUBLE LIBERATION.
+					//    Cette ligne faisait `Delete(ear)` ; puis `NkEarcut`
+					//    reliberait la liste depuis sa tete, laquelle a presque
+					//    toujours ete decoupee, donc deja liberee. Un appel unique
+					//    corrompt le tas en silence et survit ; une boucle de dessin
+					//    (des milliers d appels par seconde) tombe en trois secondes
+					//    sur un 0xC0000374 qui ne dit rien de sa cause.
+					//    L appelant libere TOUT a la fin, depuis son propre inventaire.
+					ear = nxt;
+					stop = nxt;
+				} else {
+					ear = ear->next;
+					if (ear == stop)
+						break;
+				}
+			}
+
+			// Triangle final restant
+			if (ear->prev != ear && ear->next != ear && ear->prev->next == ear) {
+				triangles.PushBack(ear->prev->i);
+				triangles.PushBack(ear->i);
+				triangles.PushBack(ear->next->i);
+			}
+		}
+
+		// =====================================================================
+		// CRÉATION DE LISTE AVEC OFFSET GLOBAL
+		// =====================================================================
+
+		// Construit une liste chaînée circulaire depuis un contour.
+		// Chaque nœud reçoit l'index GLOBAL offset+i (ou offset+(size-1-i) si inverse).
+		// `reverse` = true pour les trous (inverse l'ordre de traversée).
+		template <typename T>
+		inline NkEarcutNode<T> *NkEarcutCreateListWithOffset(const NkVector<math::NkVec2T<T>> &points, bool reverse,
+															 std::size_t offset,
+															 NkVector<NkEarcutNode<T> *> *inventaire = nullptr) {
+			NkEarcutNode<T> *last = nullptr;
+			const std::size_t n = points.Size();
+			if (reverse) {
+				// Parcours inverse : le point à l'index `i` dans points reçoit
+				// l'index global `offset + i` mais est inséré en ordre inverse
+				// pour inverser le sens de traversée (CW → CCW dans la liste).
+				for (std::size_t k = n; k-- > 0;) {
+					last = NkEarcutInsertNode(offset + k, points[k].x, points[k].y, last);
+					if (inventaire)
+						inventaire->PushBack(last);
+				}
+			} else {
+				for (std::size_t k = 0; k < n; ++k) {
+					last = NkEarcutInsertNode(offset + k, points[k].x, points[k].y, last);
+					if (inventaire)
+						inventaire->PushBack(last);
+				}
+			}
+			return last;
+		}
+
+		// =====================================================================
+		// GESTION DES TROUS : PONT (BRIDGE)
+		// =====================================================================
+
+		// Trouve la paire de sommets (un sur outer, un sur hole) la plus proche.
+		template <typename T>
+		inline void NkEarcutFindBridge(NkEarcutNode<T> *outer, NkEarcutNode<T> *hole, NkEarcutNode<T> *&outOuter,
+									   NkEarcutNode<T> *&outHole) {
+			T minDist = std::numeric_limits<T>::max();
+			outOuter = outer;
+			outHole = hole;
+
+			for (NkEarcutNode<T> *o = outer;; o = o->next) {
+				for (NkEarcutNode<T> *h = hole;; h = h->next) {
+					T dx = o->x - h->x;
+					T dy = o->y - h->y;
+					T dist = dx * dx + dy * dy;
+					if (dist < minDist) {
+						minDist = dist;
+						outOuter = o;
+						outHole = h;
+					}
+					if (h->next == hole)
+						break;
+				}
+				if (o->next == outer)
+					break;
+			}
+		}
+
+		// Connecte un trou au contour extérieur via un pont.
+		//
+		// Avant :
+		//   outer: ... → A → B → C → ...  (B = outerBridge)
+		//   hole:  ... → W → X → Y → ...  (X = holeBridge, W = X->prev)
+		//
+		// Après (single ring) :
+		//   ... → A → B → X → Y → ... → W → C → ...
+		//
+		// CORRECTION : utilise holeLast = holeBridge->prev (= W) pour le pont
+		// retour, et non holeBridge->next (= Y) comme c'était le cas avant.
+		template <typename T> inline void NkEarcutConnectHole(NkEarcutNode<T> *outer, NkEarcutNode<T> *hole) {
+			NkEarcutNode<T> *outerBridge, *holeBridge;
+			NkEarcutFindBridge(outer, hole, outerBridge, holeBridge);
+
+			NkEarcutNode<T> *outerNext = outerBridge->next; // C
+			NkEarcutNode<T> *holeLast = holeBridge->prev;	// W (dernier nœud du trou)
+
+			// Pont aller : B → X
+			outerBridge->next = holeBridge;
+			holeBridge->prev = outerBridge;
+
+			// Pont retour : W → C  (referme le ring après le trou)
+			holeLast->next = outerNext;
+			outerNext->prev = holeLast;
+		}
+
+		// Test point-dans-polygone (ray casting)
+		template <typename T>
+		inline bool NkEarcutPointInPolygon(const NkVector<math::NkVec2T<T>> &poly, const math::NkVec2T<T> &point) {
+			bool inside = false;
+			std::size_t n = poly.Size();
+			for (std::size_t i = 0, j = n - 1; i < n; j = i++) {
+				const math::NkVec2T<T> &pi = poly[i];
+				const math::NkVec2T<T> &pj = poly[j];
+				if (((pi.y > point.y) != (pj.y > point.y)) &&
+					(point.x < (pj.x - pi.x) * (point.y - pi.y) / (pj.y - pi.y + static_cast<T>(1e-8)) + pi.x))
+					inside = !inside;
+			}
+			return inside;
+		}
+
+	} // namespace detail
+
+	// =========================================================================
+	// API PUBLIQUE SANS ALLOCATION : NkEarcutVers
+	// =========================================================================
+
+	/**
+	 * @brief Triangule un contour SIMPLE (sans trou) SANS ALLOUER : l'appelant
+	 *        fournit ses tampons, le triangulateur n'a ni état ni tas.
+	 *
+	 * 🔴 CETTE PORTE EXISTE PARCE QUE LA PORTE QUI ALLOUE AVAIT UNE DOUBLE
+	 *    LIBÉRATION, ET QU'ELLE A FAIT PLANTER L'APPLICATION.
+	 *    `NkEarcutLinked` libère CHAQUE oreille qu'elle découpe
+	 *    (`Delete(ear)`) ; puis `NkEarcut` libère la liste une seconde fois
+	 *    depuis sa tête (`NkEarcutDeleteList(outerList)`) — or cette tête a
+	 *    presque toujours été découpée, donc déjà libérée. La liste est parcourue
+	 *    après libération, et refermée une seconde fois.
+	 *
+	 *    Pourquoi personne ne l'avait vue : un appel UNIQUE (le maillage d'un
+	 *    glyphe au chargement, un cas de recette) corrompt le tas en silence et
+	 *    survit le plus souvent. Une boucle de dessin appelle des milliers de
+	 *    fois par seconde — et là ça tombe en trois secondes, avec un
+	 *    `0xC0000374` qui ne dit rien de sa cause.
+	 *    *Le défaut était dans le triangulateur depuis le début ; il a fallu un
+	 *    appelant assez répétitif pour le rendre visible.*
+	 *
+	 * ⚠️ ET C'EST POURQUOI LA RÉPARATION N'EST PAS « CORRIGER LA LIBÉRATION »
+	 *    MAIS « NE PLUS ALLOUER ». Sans tas, il n'y a plus de libération à
+	 *    équilibrer, donc plus de double libération possible — la classe entière
+	 *    de défauts disparaît au lieu d'être corrigée exemplaire par exemplaire.
+	 *    C'est aussi le motif zéro-STL de la maison : l'appelant fournit ses
+	 *    tampons.
+	 *
+	 * ⚠️ LE SENS DE PARCOURS EST MESURÉ ICI, PAS DEMANDÉ À L'APPELANT. La porte
+	 *    qui alloue exige un contour CCW et rend zéro triangle si on se trompe —
+	 *    un contrat qu'un appelant sur deux casse sans le savoir, et dont
+	 *    l'échec est SILENCIEUX (une forme qui disparaît). L'aire signée le dit
+	 *    en N opérations : on la mesure, on parcourt à l'envers si besoin.
+	 *    *Ce qui est mesurable ne se demande pas.*
+	 *
+	 * @param points   le contour, `nb` points.
+	 * @param nb       le nombre de points (< 3 → aucun triangle).
+	 * @param noeuds   tampon de travail de l'appelant, au moins `nb` nœuds.
+	 * @param capN     sa capacité.
+	 * @param sortie   où écrire les indices, au moins `3 * (nb - 2)`.
+	 * @param capS     sa capacité.
+	 *
+	 * @return le nombre de TRIANGLES écrits (donc `3 x` ce nombre d'indices), et
+	 *         **0 si un tampon est trop petit** : on refuse franchement plutôt
+	 *         que d'allouer dans le dos de l'appelant ou d'écrire à côté.
+	 *
+	 * @note LA BORNE EST EXACTE, PAS UNE ESTIMATION : la triangulation d'un
+	 *       polygone simple à N sommets donne toujours **N - 2** triangles.
+	 *       L'appelant peut donc dimensionner sans marge et sans crainte.
+	 */
+	template <typename T = float>
+	inline nkentseu::uint32 NkEarcutVers(const math::NkVec2T<T> *points, nkentseu::uint32 nb,
+										 detail::NkEarcutNode<T> *noeuds, nkentseu::uint32 capN,
+										 nkentseu::uint32 *sortie, nkentseu::uint32 capS) {
+		if (!points || !noeuds || !sortie || nb < 3u)
+			return 0u;
+		if (capN < nb || capS < (nb - 2u) * 3u)
+			return 0u; // refus franc — voir @return
+
+		// ── LE SENS, MESURÉ ────────────────────────────────────────────────
+		// L'aire signée (formule du lacet) dit le sens de parcours. Le découpage
+		// d'oreilles ci-dessous teste la convexité par `NkEarcutArea(...) < 0`,
+		// donc il attend le sens que produit une aire signée POSITIVE ici.
+		T deux = T(0);
+		for (nkentseu::uint32 i = 0; i < nb; ++i) {
+			const nkentseu::uint32 j = (i + 1u) % nb;
+			deux += points[i].x * points[j].y - points[j].x * points[i].y;
+		}
+		const bool inverser = (deux < T(0));
+
+		// ── L'ANNEAU, DANS LE TAMPON DE L'APPELANT ─────────────────────────
+		// ⚠️ Les indices écrits restent ceux du tableau `points` D'ORIGINE, même
+		//    quand on le parcourt à l'envers : l'appelant indexe ses propres
+		//    points, il n'a pas à savoir qu'on a retourné quoi que ce soit.
+		for (nkentseu::uint32 k = 0; k < nb; ++k) {
+			const nkentseu::uint32 src = inverser ? (nb - 1u - k) : k;
+			noeuds[k].x = points[src].x;
+			noeuds[k].y = points[src].y;
+			noeuds[k].i = (std::size_t)src;
+			noeuds[k].prev = &noeuds[(k + nb - 1u) % nb];
+			noeuds[k].next = &noeuds[(k + 1u) % nb];
+		}
+
+		// ── LE DÉCOUPAGE — LE MÊME QUE L'AUTRE PORTE, MAIS SANS `Delete` ────
+		// On DÉCHAÎNE l'oreille au lieu de la libérer : le tampon appartient à
+		// l'appelant, il se videra tout seul quand sa portée se ferme.
+		detail::NkEarcutNode<T> *ear = &noeuds[0];
+		detail::NkEarcutNode<T> *stop = ear;
+		nkentseu::uint32 nbTri = 0u;
+		nkentseu::uint32 tours = 0u;
+		// ⚠️ LA BORNE D'ITÉRATIONS EST UN GARDE-FOU, PAS UNE LIMITE DE TRAVAIL :
+		//    un contour qui se croise (deux arêtes qui se traversent) n'a pas de
+		//    triangulation, et la boucle tournerait sans fin. `nb * nb` la
+		//    laisse finir tout contour sain et arrête net les autres.
+		const nkentseu::uint32 maxTours = nb * nb + 16u;
+
+		while (ear->prev != ear->next && tours++ < maxTours) {
+			if (detail::NkEarcutIsEar(ear)) {
+				if (nbTri * 3u + 3u > capS)
+					break; // ceinture : jamais écrire hors du tampon
+				sortie[nbTri * 3u + 0u] = (nkentseu::uint32)ear->prev->i;
+				sortie[nbTri * 3u + 1u] = (nkentseu::uint32)ear->i;
+				sortie[nbTri * 3u + 2u] = (nkentseu::uint32)ear->next->i;
+				++nbTri;
+				detail::NkEarcutNode<T> *nxt = ear->next;
+				detail::NkEarcutRemoveNode(ear); // déchaîné, PAS libéré
+				ear = nxt;
+				stop = nxt;
+			} else {
+				ear = ear->next;
+				if (ear == stop)
+					break;
+			}
+		}
+
+		// Le triangle final restant.
+		if (ear->prev != ear && ear->next != ear && ear->prev->next == ear
+			&& nbTri * 3u + 3u <= capS) {
+			sortie[nbTri * 3u + 0u] = (nkentseu::uint32)ear->prev->i;
+			sortie[nbTri * 3u + 1u] = (nkentseu::uint32)ear->i;
+			sortie[nbTri * 3u + 2u] = (nkentseu::uint32)ear->next->i;
+			++nbTri;
+		}
+		return nbTri;
+	}
+
+	// =========================================================================
+	// API PUBLIQUE : NkEarcut
+	// =========================================================================
+
+	/**
+	 * @brief Triangule un polygone avec trous par ear-clipping.
+	 *
+	 * @tparam T Type des coordonnées (float, double…)
+	 *
+	 * @param polygon
+	 *   polygon[0]   = contour extérieur  → doit être CCW (aire > 0 en Y-up)
+	 *   polygon[1..] = trous              → doivent être CW  (aire < 0 en Y-up)
+	 *
+	 * @return Indices GLOBAUX dans le tableau plat [outer | hole1 | hole2 | …].
+	 *   - Indices 0 … outer.Size()-1                         → outer
+	 *   - Indices outer.Size() … outer.Size()+hole1.Size()-1 → hole1
+	 *   - etc.
+	 *
+	 * @note Normaliser le winding AVANT d'appeler :
+	 *   outer CCW → aire > 0  (si CW, inverser les points)
+	 *   holes CW  → aire < 0  (si CCW, inverser les points)
+	 */
+	template <typename T = float> NkVector<std::size_t> NkEarcut(const NkVector<NkVector<math::NkVec2T<T>>> &polygon) {
+		NkVector<std::size_t> triangles;
+		if (polygon.IsEmpty() || polygon[0].Size() < 3)
+			return triangles;
+
+		// Outer avec indices globaux 0..outer.Size()-1
+		NkVector<detail::NkEarcutNode<T> *> inventaire;
+		detail::NkEarcutNode<T> *outerList =
+			detail::NkEarcutCreateListWithOffset(polygon[0], false, 0, &inventaire);
+
+		std::size_t globalOffset = polygon[0].Size();
+
+		// Trous avec indices globaux offset..offset+hole.Size()-1
+		for (std::size_t h = 1; h < polygon.Size(); ++h) {
+			if (polygon[h].Size() < 3)
+				continue;
+			// Ignore les trous flottants (premier point hors du contour extérieur)
+			if (!detail::NkEarcutPointInPolygon(polygon[0], polygon[h][0]))
+				continue;
+
+			// Trou CW → inversion = CCW dans la liste, puis bridge le connecte
+			detail::NkEarcutNode<T> *holeList =
+				detail::NkEarcutCreateListWithOffset(polygon[h], true, globalOffset, &inventaire);
+			detail::NkEarcutConnectHole(outerList, holeList);
+			globalOffset += polygon[h].Size();
+		}
+
+		detail::NkEarcutLinked(outerList, triangles);
+		// 🔴 ON LIBERE DEPUIS L INVENTAIRE, PAS DEPUIS L ANNEAU. L ancien code
+		//    appelait `NkEarcutDeleteList(outerList)` -- or le decoupage retire
+		//    des noeuds de l anneau (et, avant la correction du 2026-09-01, les
+		//    liberait deja). Parcourir l anneau apres coup ne voyait plus les
+		//    noeuds decoupes et repassait sur une tete deja liberee : une DOUBLE
+		//    LIBERATION, silencieuse sur un appel unique, mortelle sur des
+		//    milliers. L inventaire, lui, contient CHAQUE noeud alloue, une fois.
+		for (std::size_t k = 0; k < inventaire.Size(); ++k)
+			nkentseu::memory::NkGetDefaultAllocator().Delete(inventaire[(nkentseu::uint32)k]);
+
+		return triangles;
+	}
+
+} // namespace nkentseu

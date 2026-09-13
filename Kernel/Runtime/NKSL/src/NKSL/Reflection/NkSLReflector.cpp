@@ -1,4 +1,5 @@
 // =============================================================================
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // NkSLReflector.cpp  — v3.0
 //
 // Reflection automatique depuis l'AST NkSL.
@@ -18,8 +19,8 @@
 //   NkString cpp = reflector.GenerateLayoutCPP(r, "myLayout");
 // =============================================================================
 #include "NKSL/CodeGen/NkSLCodeGen.h"
+#include "NKCore/Text/NkSnprintf.h"
 #include "NKContainers/String/NkFormat.h"
-#include <cstdio>
 
 namespace nkentseu {
 
@@ -321,7 +322,7 @@ namespace nkentseu {
 				default:
 					break;
 			}
-			snprintf(buf, sizeof(buf),
+			nkentseu::NkSnprintf(buf, sizeof(buf),
 					 "    {\n"
 					 "      \"name\": \"%s\",\n"
 					 "      \"kind\": \"%s\",\n"
@@ -341,7 +342,7 @@ namespace nkentseu {
 		for (uint32 i = 0; i < (uint32)reflection.vertexInputs.Size(); i++) {
 			const auto &vi = reflection.vertexInputs[i];
 			char buf[256];
-			snprintf(buf, sizeof(buf), "    { \"name\": \"%s\", \"location\": %u, \"components\": %u }%s\n",
+			nkentseu::NkSnprintf(buf, sizeof(buf), "    { \"name\": \"%s\", \"location\": %u, \"components\": %u }%s\n",
 					 vi.name.CStr(), vi.location, vi.components,
 					 (i + 1 < (uint32)reflection.vertexInputs.Size()) ? "," : "");
 			json += NkString(buf);
@@ -353,7 +354,7 @@ namespace nkentseu {
 		for (uint32 i = 0; i < (uint32)reflection.stageOutputs.Size(); i++) {
 			const auto &so = reflection.stageOutputs[i];
 			char buf[256];
-			snprintf(buf, sizeof(buf), "    { \"name\": \"%s\", \"location\": %u }%s\n", so.name.CStr(), so.location,
+			nkentseu::NkSnprintf(buf, sizeof(buf), "    { \"name\": \"%s\", \"location\": %u }%s\n", so.name.CStr(), so.location,
 					 (i + 1 < (uint32)reflection.stageOutputs.Size()) ? "," : "");
 			json += NkString(buf);
 		}
@@ -400,12 +401,12 @@ namespace nkentseu {
 			}
 
 			if (r.kind == NkSLResourceKind::NK_PUSH_CONSTANT) {
-				snprintf(buf, sizeof(buf),
+				nkentseu::NkSnprintf(buf, sizeof(buf),
 						 "// Push constant: %s (%u bytes)\n"
 						 "%s.AddPushConstant(\"%s\", NK_SHADER_STAGE_ALL, 0, %u);\n",
 						 r.name.CStr(), r.sizeBytes, varName.CStr(), r.name.CStr(), r.sizeBytes);
 			} else {
-				snprintf(buf, sizeof(buf),
+				nkentseu::NkSnprintf(buf, sizeof(buf),
 						 "// %s: set=%u binding=%u%s\n"
 						 "%s.AddBinding(%u, %u, %s, 1, NK_SHADER_STAGE_ALL); // %s\n",
 						 r.name.CStr(), r.set, r.binding,
@@ -437,14 +438,14 @@ namespace nkentseu {
 					fmtStr = "NK_FORMAT_R32G32B32A32_FLOAT";
 					break;
 			}
-			snprintf(buf, sizeof(buf), "%s_vertex.AddAttribute(%u, 0, %s, %u); // %s\n", varName.CStr(), vi.location,
+			nkentseu::NkSnprintf(buf, sizeof(buf), "%s_vertex.AddAttribute(%u, 0, %s, %u); // %s\n", varName.CStr(), vi.location,
 					 fmtStr, stride, vi.name.CStr());
 			cpp += NkString(buf);
 			stride += size;
 		}
 
 		char strideBuf[64];
-		snprintf(strideBuf, sizeof(strideBuf), "%s_vertex.SetStride(0, %u);\n", varName.CStr(), stride);
+		nkentseu::NkSnprintf(strideBuf, sizeof(strideBuf), "%s_vertex.SetStride(0, %u);\n", varName.CStr(), stride);
 		cpp += NkString(strideBuf);
 
 		return cpp;

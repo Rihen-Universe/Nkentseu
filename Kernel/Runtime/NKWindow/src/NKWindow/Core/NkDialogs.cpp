@@ -1,4 +1,6 @@
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 #include "NkDialogs.h"
+#include "NKCore/Text/NkSnprintf.h"
 #include "NKPlatform/NkPlatformDetect.h"
 
 // ---------------------------------------------------------------------------
@@ -268,7 +270,7 @@ namespace nkentseu {
 		NkDialogResult res;
 		// Convertir initial en #RRGGBB pour zenity
 		char hex[8];
-		snprintf(hex, sizeof(hex), "#%02X%02X%02X", (initial >> 16) & 0xFF, (initial >> 8) & 0xFF, initial & 0xFF);
+		nkentseu::NkSnprintf(hex, sizeof(hex), "#%02X%02X%02X", (initial >> 16) & 0xFF, (initial >> 8) & 0xFF, initial & 0xFF);
 		NkString cmd = "zenity --color-selection --color=";
 		cmd += hex;
 		NkString output = ExecCommand(cmd.CStr());

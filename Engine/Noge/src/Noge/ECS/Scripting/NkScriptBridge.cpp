@@ -1,4 +1,5 @@
 // =============================================================================
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // FICHIER: Noge/ECS/Scripting/NkScriptBridge.cpp
 // DESCRIPTION: Implémentation du chargeur de scripts DLL avec hot-reload.
 //
@@ -16,6 +17,7 @@
 // =============================================================================
 
 #include "NkScriptBridge.h"
+#include "NKCore/Text/NkSnprintf.h"
 
 #include "NKContainers/Sequential/NkVector.h"
 #include "NKContainers/String/NkString.h"
@@ -25,7 +27,6 @@
 #include "NKLogger/NkLog.h"
 #include "NKMemory/NKMemory.h"
 
-#include <cstdio>
 #include <cstring>
 
 // Includes plateforme en DERNIER (windows.h pollue les macros — les headers
@@ -119,7 +120,7 @@ namespace nkentseu {
 			// Shadow copy : LoadLibrary verrouille le fichier chargé. On charge une
 			// copie suffixée pour que la recompilation puisse écraser l'original.
 			++slot.generation;
-			std::snprintf(slot.shadowPath, sizeof(slot.shadowPath), "%s.hot%u", slot.path, slot.generation);
+			nkentseu::NkSnprintf(slot.shadowPath, sizeof(slot.shadowPath), "%s.hot%u", slot.path, slot.generation);
 			if (!NkFile::Copy(slot.path, slot.shadowPath, /*overwrite*/ true)) {
 				logger.Error("NkScriptLoader: shadow copy impossible '{0}' -> '{1}'", slot.path, slot.shadowPath);
 				slot.shadowPath[0] = '\0';

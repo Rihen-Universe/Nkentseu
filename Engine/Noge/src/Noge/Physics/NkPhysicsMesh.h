@@ -1,4 +1,5 @@
 #pragma once
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // =============================================================================
 // Nkentseu/Physics/NkPhysicsMesh.h
 // =============================================================================
@@ -218,7 +219,10 @@ namespace nkentseu {
 	NK_COMPONENT(NkJiggleBone)
 
 	// =========================================================================
-	// NkRagdoll — ragdoll physics pour chutes et impacts
+	// NkRagdollComponent -- le COMPOSANT ragdoll : liens os -> entite corps rigide +
+	// machine d'etat (anime / transition / ragdoll / cinematique). Renomme le
+	// 2026-09-04 : il etait l'homonyme de physics::NkRagdoll, LE constructeur, et
+	// ce n'en est pas un -- personne dans Noge ne remplit ces liens aujourd'hui.
 	// =========================================================================
 	struct NkRagdollBoneLink {
 			uint32 skeletonBoneIdx = 0;				  ///< Os dans NkSkeleton
@@ -227,7 +231,7 @@ namespace nkentseu {
 			float32 mass = 1.f;
 	};
 
-	struct NkRagdoll {
+	struct NkRagdollComponent {
 			static constexpr uint32 kMaxBones = 64u;
 
 			NkRagdollBoneLink bones[kMaxBones] = {};
@@ -262,7 +266,7 @@ namespace nkentseu {
 				blendSpeed = -speed;
 			}
 	};
-	NK_COMPONENT(NkRagdoll)
+	NK_COMPONENT(NkRagdollComponent)
 
 	// =========================================================================
 	// NkMotionCapture — import et playback données mocap

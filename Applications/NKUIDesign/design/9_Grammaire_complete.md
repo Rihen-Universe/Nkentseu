@@ -148,13 +148,288 @@ Reprises de doc 3 §12.2 (sections **6. Apparence**, **7. Typographie**) et §8t
 | `blur` | `radius`, `backdrop` *(Bool)* |
 | typographie *(dans `appearance` directement)* | `font`, `weight`, `size`, `lineHeight`, `textAlign` |
 
-🔴 **À trancher — les noms des ÉTATS.** `appearance(Hover)` a besoin d'une liste
-fermée. Doc 3 §12.2 les nomme en français : *repos, survol, pressé, désactivé,
-focus*. Le format est en anglais (doc 7 **R1**). La transposition évidente est
-`Idle` · `Hover` · `Pressed` · `Disabled` · `Focus`, **mais personne ne l'a
-écrite**, et un nom d'état est un nom que les utilisateurs apprendront. *Non
-implémenté tant que ce n'est pas dit* : le parseur accepte n'importe quel
-`Identifier` en `state_ref` et ne valide pas la liste.
+### 3.2bis ✅ Les noms des ÉTATS — **tranché le 2026-08-27**
+
+> # `Disabled` > `Pressed` > `Hover` > `FocusVisible` > `Focus` > `Normal`
+>
+> **Six noms, et l'ordre EST la priorité.** Quand plusieurs états sont vrais en
+> même temps, celui de gauche gagne et **lui seul s'applique**.
+>
+> **Décision de Rodolf**, prise sur le relevé ci-dessous. Elle retient les quatre
+> noms proposés, **ajoute `Normal` explicite** (le repos porte un nom au lieu
+> d'être implicite, pour la lisibilité) et **ajoute `FocusVisible`**. `Idle` reste
+> écarté pour la raison mesurée — **aucun des huit outils ne l'emploie**.
+
+#### ⚠️ Pourquoi une PRIORITÉ et non un cumul
+
+> **Le cumul permet de produire un rendu que PERSONNE n'a dessiné** — la somme
+> accidentelle de deux règles, que l'utilisateur final voit sans qu'aucun
+> concepteur ne l'ait validée. **Avec la priorité fixe, ce qui s'affiche est
+> toujours quelque chose que quelqu'un a choisi.**
+
+Et le choix reste ouvert **dans un seul sens**, ce qui est le point : la priorité
+fixe est un **sous-ensemble strict** du cumul. Passer au cumul plus tard, avec
+l'ordre de cascade égal à cet ordre-ci, laisse les documents existants rendre
+**à l'identique**. L'inverse — restreindre un cumul en priorité — casserait des
+documents. **On peut élargir plus tard ; on ne pourra pas restreindre.**
+
+⚠️ **L'ordre est tenu par un contrôle, pas par ce paragraphe** (26h). Une table
+qu'on réordonnerait « pour ranger » changerait ce qui s'affiche à l'écran, en
+silence et sans qu'aucun fichier ne bouge — mesuré par la mutation F1 : **77 / 78,
+et 26h est le seul contrôle rouge.**
+
+#### ⚠️ Pourquoi DEUX noms de focus, alors qu'un seul serait plus simple
+
+> **CSS a vécu des années avec un seul `:focus` et a dû ajouter
+> `:focus-visible`.** Un écosystème mature a essayé un seul nom et n'a pas pu s'y
+> tenir.
+
+Les deux besoins sont réels et distincts : un **champ de texte** doit se voir
+focalisé **quelle que soit l'origine** ; un **bouton** ne doit montrer son anneau
+**qu'au clavier**. « Clavier uniquement » rendrait le champ inhabillable ;
+« toutes origines » sacrifierait l'accessibilité.
+
+Le coût de la subtilité est réel — six noms dont deux voisins — et il est payé par
+**`W-FOCUS-ANNEAU`** : un `stroke` posé sur `Focus` déclenche un avertissement qui
+suggère `FocusVisible`. **La distinction cesse d'être un piège de documentation
+pour devenir une question posée au bon moment.**
+
+> 📌 **Le premier document que cet avertissement a attrapé était le nôtre** :
+> `valides/10_etats_apparence.nkgui`, écrit deux heures plus tôt, posait l'anneau
+> de son *bouton* sur `Focus`. Le fichier a été corrigé, et un champ de saisie y a
+> été ajouté pour porter le cas légitime de `Focus`.
+
+Seul `stroke` déclenche l'avertissement. Un anneau peut aussi se faire au `shadow`
+(la technique du `box-shadow`), mais un `shadow` sur le focus est tout aussi
+plausible comme simple mise en avant : **élargir ici fabriquerait un faux
+positif**, exactement ce que le correctif d'apparence du 23/08 a dû défaire.
+
+**Implémenté et mesuré** : le lecteur modélise `appearance(État)`, la validation
+refuse ce qui n'est pas dans la liste (`E-ÉTAT-INCONNU`), et le contenu des blocs
+à état est jugé comme celui des blocs nus. Contrôles 23e et 26a–26l.
+
+⚠️ **Passer de cinq à six noms est un ÉLARGISSEMENT, donc la direction sûre** :
+la liste accepte plus, jamais moins, et aucun document existant ne peut cesser
+d'être lu. Mesuré plutôt que supposé — la famille 20, qui défend la compatibilité
+ascendante et qui avait déjà rattrapé une erreur de conception ce jour-là, repasse
+intacte.
+
+#### ⚠️ `appearance { }` et `appearance(Normal) { }` — **synonymes**
+
+`Normal` explicite a ouvert une question que la liste implicite évitait. La
+réponse tient au relevé, pas au goût :
+
+> **Chez tous les outils qui NOMMENT le repos — Unity (`normalColor`), Godot
+> (`normal`), WPF (`Normal` dans `CommonStates`), Figma (`Default`) — le repos
+> nommé EST le socle.** Aucun n'a *à la fois* un socle et un état de repos
+> distincts. CSS n'a même pas de `:normal` : le sélecteur nu est la base.
+
+Un « socle » séparé de « l'état de repos » serait donc une invention sans
+précédent dans les huit outils — et toute la méthode de cette liste a été de ne
+rien inventer.
+
+**Mais la GRAPHIE appartient au fichier.** `$state` est *absente* de l'archive
+quand le fichier n'écrit pas de parenthèses : le modèle **ne canonise pas**, et
+l'écrivain réémet le lexème tel quel — espaces intérieurs compris
+(`appearance(  Normal  )` revient à l'octet).
+
+> ⚠️ **C'est la promesse centrale qui a décidé seule, exactement comme annoncé :**
+> *un document lu et réécrit sans modification rend les mêmes octets.* Si les deux
+> formes existaient et que l'écrivain n'en régénérait qu'une, l'aller-retour
+> casserait pour **tous** les documents employant l'autre. Même raisonnement que
+> `0.50` contre `0.5` : la valeur est une, la forme écrite appartient au fichier.
+> Mesuré par la mutation N4 — l'écrivain qui régénère l'état au lieu de réémettre
+> son lexème : **72 / 73, et le seul contrôle rouge est 26f.**
+
+**Conséquence, et elle avait besoin de son diagnostic** : les cumuler sur un même
+widget déclare deux fois le même état → **`W-ÉTAT-DOUBLE`**. Avertissement et non
+erreur, délibérément : dire *laquelle des deux gagne* reviendrait à trancher la
+question de la **combinaison**, qui reste ouverte.
+
+#### ⚠️ La restriction que la fermeture a failli coûter
+
+La première version acceptait `Ident ( Ident ) {` **partout**. Le contrôle 20 l'a
+attrapée immédiatement : `futurMembre(x) { }` — le membre inconnu d'un fichier
+0.4 — cessait d'être conservé verbatim. **On aurait inventé une structure pour une
+construction qu'on ne connaît pas**, puis jugé son contenu contre un schéma qu'on
+n'a pas : la règle (d) sacrifiée pour fermer une limite. Le §7 est net —
+`appearance_blk := "appearance" ('(' state_ref ')')? …` — l'en-tête parenthésé
+appartient à `appearance` et à lui seul. Contrôle 26g.
+
+---
+
+#### Le relevé qui a fondé la décision
+
+`appearance(Hover)` a besoin d'une liste fermée. Doc 3 §12.2 les nomme en
+français — *repos, survol, pressé, désactivé, focus* — et le format est en
+anglais (doc 7 **R1**). La transposition évidente était
+`Idle · Hover · Pressed · Disabled · Focus`. **Elle a été confrontée à ce qui se
+fait ailleurs avant d'être figée**, parce qu'un nom d'état est un nom que les
+utilisateurs apprendront et qu'ils arriveront ici en connaissant déjà un autre
+outil.
+
+Relevé sur huit outils (CSS/MDN, Figma, Unity uGUI **et** UI Toolkit, Qt QStyle
+**et** feuilles de style, Flutter, SwiftUI, Blender, Godot) et quatre systèmes de
+design (Material 3, Adobe Spectrum, eBay Playbook, SAP Fiori).
+
+*Statut : **tranché et implémenté**. Le lecteur modélise l'état, la validation
+le juge contre la liste fermée.*
+
+#### Ce qui revient partout — le noyau dur
+
+| concept | où, et sous quel nom |
+|---|---|
+| **survol** | `:hover` CSS, Qt, Unity UI Toolkit · `State_MouseOver` Qt · `Highlighted` Unity uGUI · `hovered` Flutter · `hover` Godot, Figma, Material, Spectrum · `MouseOver` WPF |
+| **pressé** | `:active` CSS · `:pressed`/`State_Sunken` Qt · `Pressed` Unity uGUI, Godot, WPF, Figma · `pressed` Flutter, Material · `isPressed` SwiftUI · `UI_SELECT` Blender |
+| **désactivé** | `:disabled` CSS, Qt, Unity UIT · `Disabled` Unity uGUI, Godot, WPF, Figma, Spectrum · `disabled` Flutter, Material |
+| **focus** | `:focus` CSS, Qt, Unity UIT · `focus` Godot, Spectrum · `focused` Flutter, WPF · **absent** de Unity uGUI et du thème Blender |
+| **repos** | `Normal` Unity uGUI, Godot, WPF · `Default` Figma, Spectrum · `Enabled` Material, eBay · **rien du tout** Flutter (`Set` vide) et CSS (sélecteur nu) |
+
+#### La proposition d'alors : **quatre noms, et `Idle` disparaît**
+
+> **`Hover` · `Pressed` · `Focus` · `Disabled`**
+>
+> *Rodolf a retenu les quatre et **ajouté `Normal`** — voir en tête de section.
+> Le relevé lui-même désignait ce mot : « si un nom explicite est voulu malgré
+> tout, `Normal` est le seul défendable ».*
+
+#### Pourquoi chacun y est
+
+- **`Hover`** — le nom le plus attesté du relevé, et de loin. `Highlighted`
+  (Unity uGUI) est écarté : le même mot sert chez Blender au surlignage
+  **clavier**, il mélange deux choses.
+- **`Pressed`** — attesté chez Unity, Godot, WPF, Figma, Flutter, Material, Qt.
+  Il dit sans ambiguïté ce que CSS appelle `:active`, et **c'est précisément
+  pour éviter ce mot-là** (voir plus bas).
+- **`Focus`** — sans `-ed` : `focus` (CSS, Qt, Unity UIT, Godot, Spectrum, eBay)
+  l'emporte nettement sur `focused` (Flutter, WPF).
+- **`Disabled`** — et il faut dire **pourquoi c'est le membre inconfortable de la
+  liste** : ce n'est pas un état d'interaction. MDN le range avec `:checked` et
+  `:invalid` dans les *« input pseudo-classes »*, pas avec `:hover`/`:active`
+  dans les *« user action pseudo-classes »*. Material ne lui accorde **pas** de
+  *state layer*. Il est ici quand même, parce que Unity, Godot, Qt, Figma,
+  Flutter, WPF et Spectrum le stylent tous, et que **tout le monde cherchera
+  `appearance(Disabled)` en premier**. C'est un choix d'usage assumé contre la
+  taxinomie, pas un oubli.
+
+#### Pourquoi `Idle` n'y est pas — et c'est le changement le plus net
+
+1. **Le mot n'apparaît dans aucun des huit outils.** Pas un. C'est un mot de
+   machine à états ou d'animation, pas de vocabulaire d'interface. Les seuls
+   noms attestés pour le repos sont `Normal` (Unity, Godot, WPF) et `Default`
+   (Figma, Spectrum) — et `Default` est un piège (voir plus bas).
+2. **Le format sait déjà le dire.** `appearance { … }` sans argument **est** le
+   repos. C'est exactement le choix de Flutter (le repos est l'ensemble vide) et
+   de CSS (le sélecteur nu). Ajouter `Idle` créerait **deux façons d'écrire la
+   même chose** — et deux façons d'écrire une chose divergent toujours : un
+   fichier écrirait `appearance`, un autre `appearance(Idle)`, et il faudrait un
+   jour décider laquelle gagne quand les deux sont présentes.
+
+Si un nom explicite est voulu malgré tout, **`Normal`** est le seul défendable :
+trois des outils que les utilisateurs de NkUI connaissent déjà l'emploient.
+
+#### Pourquoi les autres n'y sont pas — les exclusions se justifient
+
+**Écartés parce que le mot est ambigu :**
+
+| mot | pourquoi |
+|---|---|
+| **`Active`** | **le mot le plus toxique du domaine — quatre sens documentés et incompatibles** : CSS `:active` = en cours de pression ; Qt `:active`/`State_Active` = *la fenêtre est active* ; eBay `Active` = la destination courante ; SwiftUI `ControlActiveState.active` = encore l'état de fenêtre. La page de Figma sur les états **se contredit elle-même** : elle dit « Active » dans le texte et sérialise `State=Pressed` dans le tableau. `Pressed` couvre le sens utile sans le piège. |
+| **`Default`** | repos chez Figma/Spectrum/Material, mais **le bouton par défaut d'un dialogue** en CSS (`:default`), en Qt (`:default`) et chez Blender (`UI_BUT_ACTIVE_DEFAULT`). |
+| **`Highlighted`** | survol chez Unity uGUI, surlignage clavier chez Blender. |
+
+**Écartés parce que ce sont des DONNÉES du composant, pas des états d'interaction
+— et c'est la vraie ligne de partage :**
+
+`Checked` · `Selected` · `Indeterminate` · `ReadOnly` · `Error` · `Loading`
+
+> ⚠️ **C'est ce mélange qui rend ces listes ingouvernables ailleurs.** Trois
+> sources le disent, chacune à sa façon :
+>
+> - **CSS**, normativement : deux familles nommées différemment dans le même
+>   standard — *user action* (`:hover`, `:active`, `:focus`) contre *input*
+>   (`:checked`, `:disabled`, `:read-only`, `:indeterminate`, `:invalid`).
+> - **Material 3**, par son mécanisme : la *state layer* n'existe que pour
+>   quatre états — `hover` (0.08), `focus` (0.12), `pressed` (0.12),
+>   `dragged` (0.16). `selected`, `activated`, `error` passent par autre chose.
+> - **Blender**, structurellement : `ThemeWidgetStateColors` désigne
+>   **exclusivement** l'état de la **donnée** (animée, sur une keyframe, pilotée
+>   par un driver, surchargée, modifiée, en erreur). L'interaction n'y figure
+>   pas du tout.
+>
+> **Et Qt montre le prix à payer quand on ne trace pas la ligne : ~45
+> pseudo-états**, dont `:first`, `:middle`, `:only-one`, `:adjoins-item`,
+> `:has-children` — qui ne sont pas des états mais des **positions dans une
+> structure**.
+
+Un état transitoire est **produit par le système d'entrée**, dure de zéro à
+quelques centaines de millisecondes, et ne se sérialise pas. `Checked`,
+`Selected`, `ReadOnly` sont **des propriétés que le programme fixe**, qui
+persistent, et **que le document déclare déjà** (`tristate`, `enabled`, `bind`).
+Les remettre dans `appearance(X)` dupliquerait une information qui vit ailleurs.
+
+**Écartés parce que trop spécifiques à un outil ou à un domaine :**
+
+`Visited` · `Link` · `Target` (CSS seul, propres à l'hypertexte) ·
+`ScrolledUnder` (Flutter seul, c'est une relation de position) ·
+`Inactive` (Unity UI Toolkit seul) · `Pending` (Spectrum seul).
+
+**Le seul écarté qui reviendra frapper : `Dragged`.** Flutter le porte, Material
+lui accorde une *state layer* à part entière (0.16), Spectrum et eBay l'ont
+aussi. Il est absent de CSS, Qt, Unity et Godot. Il n'est pas dans la liste parce
+que **NkUI n'a pas encore de glisser-déposer** — mais c'est **le premier à
+ajouter** le jour où il en aura un, et il est bien un état d'interaction, pas une
+donnée.
+
+#### ⚠️ La question que cette liste NE règle PAS : la combinaison
+
+Une liste fermée sans opérateur de combinaison force à inventer des noms
+composés. **Godot en est la démonstration** : il a dû ajouter `hover_pressed`,
+puis `font_hover_pressed_color`, puis les variantes `_mirrored` — onze StyleBox
+et sept couleurs pour un seul bouton — et documenter une priorité *ad hoc*
+(« disabled, hover et pressed priment sur focus »).
+
+Quatre stratégies existent, et il faudra en choisir une :
+
+| stratégie | qui | ce que ça coûte |
+|---|---|---|
+| chaînage + priorité | CSS (cascade), Qt (**ET logique explicite**, plus une négation `!` : `QPushButton:hover:!pressed`), Unity UI Toolkit | un moteur de priorité |
+| noms composés | Godot (`hover_pressed`) | explosion combinatoire |
+| une seule couche à la fois | Material 3 | simple, **et jamais tranché** — voir ci-dessous |
+| groupes orthogonaux | WPF : `CommonStates` {Normal, MouseOver, Pressed, Disabled} **et** `FocusStates` {Focused, Unfocused}, un état actif dans chaque | il faut décider quelles dimensions sont orthogonales |
+
+> ⚠️ **Material n'a jamais tranché.** Sa spécification dit à un endroit « When
+> multiple states occur at once, such as selection and hover, **both** state
+> indicators should be displayed » et à un autre « **only one** state layer is
+> applied at a time ». Le ticket qui met les deux passages face à face
+> (material-components-android #2003) a été **fermé sans réponse des
+> mainteneurs**. Le système de design le plus documenté du monde laisse la
+> question ouverte : `.nkgui` doit la trancher **explicitement**, pas en hériter.
+
+**Piste** : le relevé penche vers les **groupes orthogonaux**. Godot dessine
+`focus` **par-dessus** l'apparence de base — c'est-à-dire qu'il traite déjà le
+focus comme orthogonal, mais par le rendu au lieu du vocabulaire. WPF le fait par
+le vocabulaire. Les deux arrivent au même endroit.
+
+#### Une seconde limite à nommer tout de suite : le focus clavier
+
+CSS distingue `:focus`, `:focus-visible` (le focus doit être **rendu visible**,
+typiquement au clavier et non à la souris) et `:focus-within`. Qt fait la même
+distinction avec `State_KeyboardFocusChange`, Spectrum avec `focus` **et**
+`keyboard-focus`. Un `Focus` unique fait perdre la distinction souris/clavier —
+qui est aujourd'hui **une exigence d'accessibilité**, pas un raffinement.
+`FocusVisible` est donc le deuxième nom probable, après `Dragged`.
+
+#### Ce que ça a débloqué — fait le 2026-08-27
+
+Fermer cette liste était **le seul verrou** devant `appearance(Hover)`. Il est
+levé : l'en-tête parenthésé n'est plus une tranche verbatim, son contenu est jugé,
+et **la validation n'est plus asymétrique**.
+
+Le contrôle 23e, qui *figeait* l'asymétrie (« 1 diagnostic, pas 2 »), a été
+**retourné** : il exige désormais **2** diagnostics, chacun avec sa ligne **et son
+état dans le chemin**. Même fichier, même faute, chiffre inverse — c'est la mesure
+de la fermeture, pas une nouvelle affirmation.
 
 ### 3.3 ⚠️ Le garde-fou, et il fait partie de la décision
 
@@ -540,51 +815,154 @@ se lire.*
 
 ---
 
-## 8. État d'implémentation, au 2026-08-21
+## 8. État d'implémentation — **mis à jour le 2026-08-21, format `nkgui 0.3`**
 
-| § | proposé | implémenté dans le parseur |
+> **Rodolf a tranché le 2026-08-21.** Ses cinq décisions sont descendues dans le
+> code ; le format passe de **0.2 à 0.3**. Le document 2 n'a toujours **pas** été
+> touché : il lui appartient, et ce tableau dit exactement ce qu'il aurait à y
+> reporter.
+
+| § | proposé | implémenté dans le lecteur/écrivain v0.3 |
 |---|---|---|
-| 2 — `Text`, `Spacer` | ✅ | ✅ *(aucune ligne à écrire : `Kind := Identifier`)* |
-| 3 — apparence | ✅ | ❌ **en attente du OUI de Rodolf** |
-| 4 — animation | ✅ | ❌ **en attente du OUI de Rodolf** |
-| 5 — polices | ✅ | ❌ **en attente du OUI de Rodolf** |
-| 6.1 — littéral de liste | 🔴 | ❌ refusé avec `E-PARSE`, jamais deviné |
-| 6.2 — identifiant pointé | 🔴 | ⚠️ **lu**, pour que les exemples du doc 2 se lisent |
-| 6.3 — grammaire du thème | 🔴 | ❌ `include` est lu, sa cible n'est pas résolue |
-| 6.4 — validation par rôle | 🔴 | ❌ syntaxe seulement |
+| 2 — `Text`, `Spacer` | ✅ | ✅ rôles au catalogue de validation (`NkGuiValidate.h`) |
+| 3 — apparence | ✅ | ✅ `appearance` / `appearance(État)` / `fill·stroke·shadow·blur`, forme en ligne conservée |
+| 4 — animation | ✅ | ✅ `transition` · `ambience` · `continuous`, avec `track` / `key` / `map` |
+| 5 — polices | ✅ | ✅ `fonts` / `font` / `source` / `fallback` / `metrics` + `glyph "A" -> 1366` |
+| 6.1 — littéral de liste | ✅ **tranché** | ✅ **et les dictionnaires aussi** : `[a, b]` et `{ clé = v }`, imbriqués |
+| 6.2 — identifiant pointé | ✅ **tranché** | ✅ `n1.value`, `Enum.X`, `a.b.c` — en argument, en pin, en expression ; `NkGSplitPath` pour qui doit résoudre |
+| 6.3 — grammaire du thème | 🔴 | ❌ **toujours ouvert** — `include` est lu, sa cible n'est pas résolue |
+| 6.4 — validation par rôle | ✅ **tranché** | ✅ `NkGuiValidate.h`, **contre le vocabulaire du document 7**, alias compris |
 
-⚠️ **Le parseur livré implémente le document 2 v0.2 tel qu'il est écrit, et rien
-de plus.** Les sections 3, 4 et 5 de ce document sont des propositions ; les
-coder avant l'accord ferait exister un format que personne n'a validé — et c'est
-justement contre ça que le document 8 §6 vient d'écrire une règle.
+### 8.1 Les deux choix de la validation, et ils ne sont pas neutres
+
+**Le vocabulaire de référence est celui du document 7, pas la table §8 du
+document 2.** Les dix documents du corpus sont écrits en `Text`, `TextField`,
+`Dropdown`, `Item`, `Progress` ; valider contre la table §8 les rejetterait en
+bloc — c'est-à-dire rejeter tout ce qui existe. Les anciens noms restent lus, en
+**alias**, avec un avertissement `W-ROLE-ALIAS` qui nomme le nouveau.
+
+**Un rôle inconnu produit une erreur nommée, jamais un rejet muet du fichier
+entier.** C'est pour ça que la validation vit dans un fichier *séparé* du
+lecteur : le document se lit d'abord, intégralement, et se juge ensuite. *Un
+outil qui refuse d'ouvrir ce qu'il signale est celui qui empêche de le réparer.*
+
+Codes émis : `E-ROLE-INCONNU`, `E-TYPE` (propriété hors schéma **ou** valeur d'un
+type que le rôle n'attend pas), `W-ROLE-ALIAS`.
+
+### 8.2 ⚠️ La contrainte qui prime : mettre à jour sans rien détruire
+
+Rodolf, mot pour mot : *« rassure-toi que le système pourra facilement être mis à
+jour sans tout détruire et sans bug. »* Quatre règles la tiennent, et elles sont
+dans le code, pas seulement dans ce document :
+
+| | règle | où elle vit |
+|---|---|---|
+| **a** | le fichier porte sa version, relue et **réémise telle quelle** | `NkGDocument::versionMajor/Minor` — un 0.2 se réécrit en 0.2 |
+| **b** | un lecteur récent lit **tous** les fichiers anciens | rien de la v0.2 n'a été retiré ni resserré ; corpus 0.2 à 10/10 |
+| **c** | un lecteur ancien **refuse clairement** un fichier plus récent | **majeure** supérieure → `E-VERSION-INCOMPATIBLE`, « ce fichier est trop récent pour moi » |
+| **d** | ce qu'on ne comprend pas, on le **préserve tel quel** | **mineure** supérieure → section (et membre de widget) inconnus gardés en **texte brut**, réémis à l'octet près |
+
+⚠️ **La frontière entre (c) et (d) est la MAJEURE, et ce n'est pas un détail de
+numérotation.** Refuser aussi la mineure serait plus simple et plus faux : ça
+transformerait le moindre ajout futur en rupture, et le format ne pourrait plus
+jamais grandir sans casser les outils déjà déployés.
+
+⚠️ **La règle (d) impose sa forme au code.** On ne peut pas préserver ce qu'on ne
+sait pas modéliser en le faisant passer par le modèle : il faut garder **la
+tranche de source**. C'est pour ça que le lexeur note l'offset de début et de fin
+de chaque jeton et que le modèle porte un type `NkGRaw`.
+
+⚠️ **Ce que la règle (d) exige du format, et il vaut mieux le dire maintenant** :
+une construction future doit être un **bloc accoladé**. Une construction sans
+bloc n'est pas délimitable sans connaître sa grammaire, donc pas préservable.
+C'est une contrainte sur les versions à venir, pas une limite de cette
+implémentation.
+
+### 8.3 Ce qui a été retiré, et c'est un progrès
+
+Les deux réglages « ligne vide après l'en-tête » et « ligne vide entre les
+sections » de `NkGWriteOptions` **n'existent plus**. C'étaient des heuristiques :
+on devinait l'intention de l'auteur à partir d'une seule observation. Les lignes
+vides sont désormais **lues et conservées** comme les commentaires — il n'y a
+plus rien à deviner, donc plus rien qui puisse se tromper.
+
+### 8.4 La trivia, et pourquoi un découpage naïf suffit
+
+Tout ce que le lexeur jette entre deux jetons est récupéré **verbatim**, découpé
+en lignes, et rattaché soit à la fin de la ligne du jeton précédent, soit au
+début de celle du suivant. Un commentaire de bloc sur plusieurs lignes est coupé
+en autant de morceaux — et se recolle à l'identique à l'écriture, parce que
+chaque morceau est réémis tel quel suivi d'un retour à la ligne. *Le modèle n'a
+pas besoin de savoir que c'était un commentaire ; il a besoin de ne rien perdre.*
+
+Seule l'indentation de la dernière ligne — celle qui précède immédiatement le
+jeton — est délibérément abandonnée : c'est l'écrivain qui la régénère, sinon
+deux règles se disputeraient la même colonne.
 
 ### Où il vit, et comment on le vérifie
 
 | | |
 |---|---|
 | lecteur, écrivain, modèle | `src/NKUIDesign/NkGuiFormat.h` |
+| validation rôles et types | `src/NKUIDesign/NkGuiValidate.h` |
 | le banc d'aller-retour | `src/NKUIDesign/NkGuiRoundTrip.h` |
 | `NKUIDesign --roundtrip=<dossier>` | l'aller-retour sur tous les `.nkgui` d'un dossier |
-| `NKUIDesign --roundtrip-controles` | les témoins de bruit et contrôles positifs/négatifs |
+| `NKUIDesign --roundtrip-controles` | les témoins de bruit, contrôles positifs et négatifs |
+| `NKUIDesign --valider=<dossier>` | la validation par rôle et par type |
 
-**Mesure du 2026-08-21**, sur les dix documents de
-`D:/Projets/Camrail/AI/CorpusUI/sortie/nkgui` (271 à 3 015 nœuds, jusqu'à 13
-niveaux d'imbrication) : **10/10 équivalents, et 10/10 identiques octet pour
-octet**. Contrôles : **14/14**.
+**Mesure du 2026-08-21 (v0.3)**, sur les dix documents de
+`D:/Projets/Camrail/AI/CorpusUI/sortie/nkgui` (270 à 3 015 nœuds, jusqu'à 13
+niveaux d'imbrication) : **10/10 équivalents, 10/10 identiques octet pour octet**,
+et **0 erreur / 0 avertissement** à la validation. Contrôles : **36/36**.
 
 ⚠️ **Le taux seul ne vaut rien sans les contrôles, et c'est pour ça qu'ils sont
 livrés avec.** Une fonction de comparaison qui répondrait « égal » en toutes
-circonstances donnerait exactement le même 10/10. Les contrôles 2a à 2f
-vérifient qu'une valeur, un identifiant, **l'ordre des membres**, un lexème
-numérique réécrit, une section en trop et l'ordre des drapeaux sont bien
-**détectés** ; le contrôle 7 vérifie qu'une expression réémise garde sa
+circonstances donnerait exactement le même 10/10. Les contrôles 2a à 2j vérifient
+qu'une valeur, un identifiant, **l'ordre des membres**, un lexème numérique
+réécrit, une section en trop, l'ordre des drapeaux, **un commentaire manquant**,
+**une ligne vide manquante**, un élément de liste et une clé de dictionnaire sont
+bien **détectés** ; le contrôle 7 vérifie qu'une expression réémise garde sa
 précédence — *une expression peut se réécrire juste et se calculer faux.*
 
-⚠️ **Une limite mesurée, pas supposée** : **les commentaires et les lignes vides
-ne survivent pas** à l'aller-retour. Le document reste équivalent, le fichier
-n'est plus identique. Un `.nkgui` écrit à la main et enregistré par l'éditeur
-perd donc ses commentaires — à dire à l'utilisateur, ou à corriger en portant
-la trivia dans le modèle. **Décision de Rodolf.**
+⚠️ **Le contrôle 20b est le plus important du banc.** Un document **0.4 fictif**
+contient une section inconnue *et* un membre de widget inconnu, commentaires
+intérieurs compris : les deux doivent revenir à l'octet près. Le 20c vérifie
+l'inverse — la même source estampillée **0.3** doit être **refusée**. Sans cette
+paire, la préservation ne serait pas liée à la version : elle serait une
+tolérance permanente, c'est-à-dire un trou.
+
+⚠️ **La limite nommée le 2026-08-21 est levée** : les commentaires et les lignes
+vides **survivent** à l'aller-retour, et la trivia **entre dans la comparaison
+d'équivalence** — sans quoi un écrivain qui jetterait tous les commentaires
+resterait « équivalent ».
+
+### 8.5 Ce qui reste ouvert
+
+1. **La grammaire du thème** (§6.3) — `include "Theme.nkgui"` se lit, sa cible ne
+   se résout pas. `NkTheme` (NKEditorKit, 302 lignes) porte déjà des rôles de
+   couleur nommés avec héritage : c'est de là qu'il faut partir.
+2. ✅ **Les noms des états d'apparence** (§3.2bis) — **clos le 2026-08-27**, les
+   trois décisions comprises :
+   - la liste : `Disabled > Pressed > Hover > FocusVisible > Focus > Normal` ;
+   - la **combinaison** : **priorité fixe**, pas cumul — *le cumul permet un
+     rendu que personne n'a dessiné*. Élargissable au cumul plus tard sans
+     casser un document ; l'inverse ne l'aurait pas été ;
+   - le **focus clavier** : `Focus` **et** `FocusVisible`, parce que *CSS a
+     essayé un seul nom et n'a pas pu s'y tenir*. Le coût est payé par
+     `W-FOCUS-ANNEAU`.
+
+   La limite `appearance(Hover)` est fermée avec.
+
+   ⚠️ **Ce qui reste ouvert ici** : `Dragged` (Flutter, Material *state layer*
+   0.16, Spectrum, eBay le portent ; NkUI n'a pas encore de glisser-déposer).
+   C'est **le premier à ajouter** le jour où il en aura un — et l'ajouter sera
+   un élargissement, donc sans risque pour les documents existants.
+3. **La forme du chemin de propriété animée** (§4.3) — `"shadow.blur"` suppose
+   qu'on sait désigner la propriété d'un effet empilé. Nommer les blocs d'effet
+   (`shadow "portee" { … }`) est **implémenté** et évite l'indice ; rendre ce nom
+   obligatoire dès qu'on anime un effet reste une décision de Rodolf.
+4. **`W-THEME-ABANDONNE` et `I-SURCHARGE`** (§3.3) — les deux diagnostics de
+   garde-fou sur les surcharges d'apparence ne sont pas encore comptés.
 
 ---
 

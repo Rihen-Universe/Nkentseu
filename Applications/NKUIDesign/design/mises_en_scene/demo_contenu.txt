@@ -1,0 +1,30 @@
+# Contenu de demonstration du content_browser pose sur la toile
+# (cadrage Rodolf 31/08 : la demo est une ressource, pas du code).
+[entrees]        # nom|nature
+Materiaux|dossier
+Maillages|dossier
+Textures|dossier
+caisse.nkmesh|maillage
+sol.nkmat|materiau
+bois_albedo.nktex|texture
+metal.nkmat|materiau
+perso.nkmesh|maillage
+ciel.nktex|texture
+herbe.nkmat|materiau
+rocher.nkmesh|maillage
+eau.nkmat|materiau
+[chemin]         # le fil d'Ariane, une miette par ligne
+projet
+assets
+niveau1
+[natures]        # les puces de filtre
+maillage
+materiau
+texture
+[dossiers]       # parent|nom (ordre prefixe, -1 = racine)
+-1|projet
+0|Materiaux
+0|Maillages
+0|Textures
+-1|Favoris
+4|sol.nkmat

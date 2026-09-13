@@ -1,3 +1,4 @@
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // =============================================================================
 // Noge/Rigging/NkIKSolver.cpp — pont ECS -> renderer::NkIKSystem
 // -----------------------------------------------------------------------------
@@ -44,20 +45,23 @@ namespace nkentseu {
 	// -------------------------------------------------------------------------
 	void NkIKSolver::BuildWorldPose(const ecs::NkSkeleton &sk, NkVector<NkMat4f> &outWorld) noexcept {
 		outWorld.Clear();
-		const uint32 n = sk.boneCount;
+		const uint32 n = sk.BoneCount();
 		if (n == 0)
 			return;
 		outWorld.Reserve(n);
 		for (uint32 i = 0; i < n; ++i)
 			outWorld.PushBack(NkMat4f::Identity());
 
+		// La pose est PAR INSTANCE, la hierarchie est dans la DEFINITION partagee.
+		// Les locaux sont ecrits en place, puis LA conversion du squelette (NkAnima,
+		// Skeleton/) les propage -- dans l'ordre `topo` s'il existe, en ordre
+		// d'index sinon (l'ancien comportement, parent avant enfant suppose).
 		for (uint32 i = 0; i < n; ++i) {
-			const ecs::NkBone &b = sk.bones[i];
-			const NkMat4f local =
-				NkMat4f::Translate(b.localPosition) * b.localRotation.ToMat4() * NkMat4f::Scale(b.localScale);
-			const int32 parent = b.parent;
-			outWorld[i] = (parent >= 0 && (uint32)parent < i) ? (outWorld[(uint32)parent] * local) : local;
+			const ecs::NkBonePose &bp = sk.Pose(i);
+			outWorld[i] =
+				NkMat4f::Translate(bp.localPosition) * bp.localRotation.ToMat4() * NkMat4f::Scale(bp.localScale);
 		}
+		sk.def->LocalToWorld(outWorld.Data(), outWorld.Data());
 	}
 
 	// -------------------------------------------------------------------------
@@ -75,9 +79,9 @@ namespace nkentseu {
 
 		for (uint32 k = 0; k < (uint32)boneIdx.Size(); ++k) {
 			const uint32 bi = boneIdx[k];
-			if (bi >= sk.boneCount || bi >= worldAfterCount)
+			if (bi >= sk.BoneCount() || bi >= worldAfterCount)
 				continue;
-			const int32 parent = sk.bones[bi].parent;
+			const int32 parent = sk.Def(bi).parent;
 			const NkMat4f local = (parent >= 0 && (uint32)parent < worldAfterCount)
 									  ? (worldAfter[(uint32)parent].Inverse() * worldAfter[bi])
 									  : worldAfter[bi];
@@ -85,14 +89,14 @@ namespace nkentseu {
 			NkVec3f t, s;
 			NkMat4f rot;
 			local.DecomposeTRS(t, rot, s);
-			sk.bones[bi].localPosition = t;
-			sk.bones[bi].localRotation = NkQuatf(rot);
-			sk.bones[bi].localScale = s;
+			sk.Pose(bi).localPosition = t;
+			sk.Pose(bi).localRotation = NkQuatf(rot);
+			sk.Pose(bi).localScale = s;
 		}
 
-		const uint32 count = (sk.boneCount < worldAfterCount) ? sk.boneCount : worldAfterCount;
+		const uint32 count = (sk.BoneCount() < worldAfterCount) ? sk.BoneCount() : worldAfterCount;
 		for (uint32 i = 0; i < count; ++i)
-			sk.skinMatrices[i] = worldAfter[i] * sk.bones[i].inverseBindPose;
+			sk.skinMatrices[i] = worldAfter[i] * sk.Def(i).inverseBindPose;
 	}
 
 	// -------------------------------------------------------------------------

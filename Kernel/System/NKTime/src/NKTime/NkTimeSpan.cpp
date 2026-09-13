@@ -1,4 +1,5 @@
 // =============================================================================
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // NKTime/NkTimeSpan.cpp
 // Implémentation de la classe NkTimeSpan.
 //
@@ -21,6 +22,7 @@
 // 3. Headers système nécessaires
 
 #include "pch.h"
+#include "NKCore/Text/NkSnprintf.h"
 #include "NKTime/NkTimeSpan.h"
 
 #include <cstdio>
@@ -364,20 +366,20 @@ namespace nkentseu {
 		// Composant jours : affiché uniquement si non nul
 		if (days > 0) {
 			off +=
-				::snprintf(buf + off, sizeof(buf) - static_cast<size_t>(off), "%lldj ", static_cast<long long>(days));
+				nkentseu::NkSnprintf(buf + off, sizeof(buf) - static_cast<size_t>(off), "%lldj ", static_cast<long long>(days));
 		}
 
 		// Composant horaire : toujours affiché avec format HH:MM:SS
-		off += ::snprintf(buf + off, sizeof(buf) - static_cast<size_t>(off), "%02lld:%02lld:%02lld",
+		off += nkentseu::NkSnprintf(buf + off, sizeof(buf) - static_cast<size_t>(off), "%02lld:%02lld:%02lld",
 						  static_cast<long long>(hours), static_cast<long long>(mins), static_cast<long long>(secs));
 
 		// Composant milliseconde : affiché si non nul ou si nanosecondes présentes
 		if (ms > 0 || ns > 0) {
-			off += ::snprintf(buf + off, sizeof(buf) - static_cast<size_t>(off), ".%03lld", static_cast<long long>(ms));
+			off += nkentseu::NkSnprintf(buf + off, sizeof(buf) - static_cast<size_t>(off), ".%03lld", static_cast<long long>(ms));
 
 			// Composant nanoseconde : affiché uniquement si non nul
 			if (ns > 0) {
-				::snprintf(buf + off, sizeof(buf) - static_cast<size_t>(off), ".%06lld", static_cast<long long>(ns));
+				nkentseu::NkSnprintf(buf + off, sizeof(buf) - static_cast<size_t>(off), ".%06lld", static_cast<long long>(ns));
 			}
 		}
 

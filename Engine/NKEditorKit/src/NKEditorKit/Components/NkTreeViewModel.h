@@ -3,7 +3,7 @@
 // @File    NkTreeViewModel.h
 // @Brief   L'ARBRE de la bibliotheque — le SECOND composant declare, et par la
 //          meme occasion le premier test independant de la forme.
-// @Author  Rihen
+// @Author  TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // @License Proprietary - All Rights Reserved (see LICENSE)
 //
 // =============================================================================
@@ -154,6 +154,53 @@ namespace nkentseu {
 				//    connait pas la semantique d'heritage de l'application.
 				bool hidden = false; ///< invisible dans la vue (l'oeil)
 				bool locked = false; ///< inselectionnable (le cadenas)
+
+				// ⑥ (2026-09-05, nuit) L'INFOBULLE DE CE NOEUD. Vide = aucune, et c'est le
+				// defaut : les quatre consommateurs existants n'en posent pas et ne changent
+				// pas d'une ligne.
+				// ⚠️ AJOUTEE PARCE QU'UN LIBELLE PEUT ETRE TRONQUE et que le composant est le
+				//    SEUL a savoir ou il l'a coupe. J'avais d'abord ecrit que c'etait
+				//    impossible sans toucher les quatre consommateurs : c'etait faux -- un
+				//    champ additif au defaut vide ne touche personne.
+				NkString infobulle;
+
+				// ② (2026-09-05, nuit) LA SILHOUETTE DESSINEE de ce noeud (voir
+				// `NkSilhouettes.h`). 0 = `Auto` = aucune, et c'est le defaut : les quatre
+				// consommateurs existants n'en posent pas et gardent leur rendu.
+				// ⚠️ ELLE NE REMPLACE PAS `icon`, qui reste la poignee d'atlas de l'hote. Un
+				//    rail de fichiers n'a pas d'atlas -- il a besoin d'une forme TRACEE.
+				uint8 silhouette = 0;
+
+				// ③ (2026-09-05, nuit) CE NOEUD EST UN EN-TETE DE SECTION : il se peint sur
+				// une BANDE plus sombre, sur toute la largeur. Rodolf : « pour distinguer
+				// "Dossier courant" des autres, on doit avoir une barre differente pour ce
+				// titre, donc plus sombre » -- c'est ce qui separe visuellement les blocs.
+				// ⚠️ EXPLICITE, PAS DEDUIT. On aurait pu le deviner (« verrouille ET sans
+				//    chemin »), mais deux notions qui coincident aujourd'hui divergeront : un
+				//    noeud verrouille qui n'est pas un titre existera un jour.
+				// Faux par defaut : les quatre consommateurs gardent leur rendu.
+				bool bandeau = false;
+
+				// ④ (2026-09-05, nuit) CE NOEUD A DES ENFANTS QUI NE SONT PAS ENCORE DANS
+				// LE MODELE. Le chevron s'affiche quand meme, et le deplier appelle
+				// `onExpand` : c'est a l'hote de charger, puis de reconstruire.
+				// ⚠️ POURQUOI CE DRAPEAU EXISTE : le rail d'un selecteur ne peut pas lister
+				//    les sous-dossiers de TOUS les dossiers -- ce serait un acces disque par
+				//    entree a chaque image. Il le fait pour ceux qu'on deplie, et il ANNONCE
+				//    les autres. Sans ce drapeau, un dossier plein n'aurait pas de chevron
+				//    tant qu'on ne l'aurait pas ouvert -- c'est-a-dire jamais.
+				// Faux par defaut : les quatre consommateurs gardent leur rendu.
+				bool enfantsPossibles = false;
+
+				// (2026-09-05, v5) ÉTAT DE REMPLISSAGE de ce nœud, quand c'est un dossier
+				// (`NkContenuDossier`). 0 = pas encore demandé au disque, et c'est le défaut :
+				// les consommateurs existants gardent leur rendu.
+				// ⚠️ VOISIN DE `enfantsPossibles`, PAS IDENTIQUE : le chevron demande « a-t-il
+				//    des SOUS-DOSSIERS ? », l'icône demande « contient-il QUELQUE CHOSE ? ».
+				//    Un dossier plein de fichiers et sans sous-dossier répond non au premier
+				//    et oui au second. Deux questions voisines, une seule fonction paramétrée
+				//    pour y répondre (`NkDirectory::Probe`).
+				uint8 contenu = 0;
 				/// Le drapeau vient-il d'un ancetre plutot que du noeud ? Sert a le
 				/// peindre attenue. L'application le calcule ; sans lui, l'icone
 				/// mentirait sur l'endroit ou l'on peut agir.
@@ -230,9 +277,57 @@ namespace nkentseu {
 				char renameBuf[128] = {};
 				bool renameCommit = false; ///< leve par l'hote : valider
 				bool renameCancel = false; ///< leve par l'hote : abandonner
+				/// CONTRAT UNIVERSEL D'EDITION (Rodolf, 31/08) : un clic HORS de la
+				/// rangee editee VALIDE la saisie, puis le clic fait son effet normal
+				/// (selection). C'est le COMPOSANT qui le tient — il est le seul a
+				/// connaitre le rectangle de la rangee editee ; un hote qui testait
+				/// « hors de la zone de l'arbre » laissait un clic sur une AUTRE
+				/// rangee sans effet (mesure du 01/09 : l'edition ne se quittait
+				/// plus). `renameEatClick` : l'hote qui OUVRE un renommage par
+				/// programme (le [+] de Pages) le leve pour que le clic d'ouverture
+				/// — hors de la rangee par construction — ne valide pas la saisie a
+				/// l'image meme de sa naissance.
+				bool renameEatClick = false;
 
 				char filter[128] = {};
 				float32 scroll = 0.f;
+
+				// ── ② (2026-09-06) L'ANCRE DE VUE : CE QUI RESTE A SA PLACE ──────
+				// Rodolf : « quand je deplie chaque dossier a gauche, ca deplie mais ca
+				// me ramene en haut du contenu de gauche. »
+				//
+				// ⚠️ LE DEFILEMENT N'EST PLUS LA VERITE, IL EN EST LA CONSEQUENCE.
+				//    `scroll` est un nombre de pixels ; il ne survit ni a une
+				//    RECONSTRUCTION de la liste (l'hote vide `nodes` et la reremplit --
+				//    le rail du selecteur le fait a chaque depliage) ni a la NAISSANCE DE
+				//    RANGEES AU-DESSUS (deplier un ancetre en insere). Les deux defauts
+				//    se corrigent a des endroits differents si l'on garde le nombre ; ils
+				//    disparaissent tous les deux si l'on garde L'ENTREE.
+				//
+				//    L'ancre est donc l'IDENTITE du nœud du haut de la vue, plus le
+				//    decalage en pixels de sa rangee par rapport au bord haut de la zone
+				//    (toujours dans ]-hauteurDeRangee, 0]). A chaque image, le dessin
+				//    RECALCULE `scroll` depuis ces deux valeurs, puis les remet a jour
+				//    depuis le `scroll` obtenu (molette, barre). Un id est stable a
+				//    travers une reconstruction ; un rang, non.
+				//
+				// ⚠️ AUCUN ARMEMENT. Personne n'a a dire « garde ma place » : c'est le
+				//    regime permanent. Un etat qu'il faut armer se fera oublier par la
+				//    porte que les appelants empruntent -- ce depot l'a deja paye.
+				// ⚠️ ET LE REPLI EST NOMME : si l'ancre a disparu du modele, ou si un
+				//    ancetre replie la cache, on garde le `scroll` courant (borne). On ne
+				//    revient PAS en haut : rien ne dit que le haut est ce qu'on regardait.
+				// ⚠️ A NE PAS CONFONDRE avec `anchor` ci-dessus, qui est l'ancre d'une
+				//    SELECTION DE PLAGE (Maj+clic). Deux ancres, deux sujets.
+				nk_uint64 ancreVue = 0;
+				float32 ancreVueDecalage = 0.f;
+				/// LE TEMOIN QUI DIT **QUI A ECRIT `scroll`**. Le composant y recopie la
+				/// valeur qu'il laisse en sortant. A l'image suivante, si `scroll` en
+				/// differe, c'est que QUELQU'UN D'AUTRE l'a deplace -- l'hote et sa barre
+				/// de defilement -- et c'est alors LE DEFILEMENT qui fait foi, pas
+				/// l'ancre. Sans ce temoin, l'ancre annulerait chaque glissement de la
+				/// barre a l'image suivante : le pouce reviendrait tout seul.
+				float32 scrollDernier = 0.f;
 
 				// ── LA SOURCE D'UN GLISSER EN COURS ─────────────────────────────
 				// Etat INTERNE au composant, pas une entree : il le pose lui-meme au
@@ -455,6 +550,19 @@ namespace nkentseu {
 				void (*rowOverlay)(void *user, NkComponentPaint &p, int32 index, float32 x, float32 y,
 								   float32 w, float32 h) = nullptr;
 
+				/// Largeur (px) que la ligne RESERVE a droite pour ce que
+				/// `rowOverlay` y dessinera (badge, pastille). Le libelle est borne
+				/// AVANT cette reserve : c'est LUI qui cede (ellipse du peintre),
+				/// jamais le dessin de droite.
+				///
+				/// ⚠️ POURQUOI UN HOOK, ET PAS « l'overlay n'a qu'a se placer » :
+				///    le libelle est dessine PAR LE COMPOSANT, l'overlay passe
+				///    APRES. Sans reserve, un nom long court sous le badge, ou le
+				///    badge se coupe au bord du panneau en plein mot — c'est
+				///    l'ecart E2 du cote a cote (NkUIDesign, doc 17) : la planche
+				///    fait ceder le NOM, jamais le badge.
+				float32 (*rowRightReserve)(void *user, NkComponentPaint &p, int32 index) = nullptr;
+
 				/// Colonnes supplementaires. C'est litteralement la colonne « Layer »
 				/// de `WorldOutlinerPanel`, portee en point de greffe : Nogee l'a,
 				/// NK3DModeler ne l'a pas, et aucune des deux n'a a l'imposer a
@@ -554,6 +662,77 @@ namespace nkentseu {
 				bool dropRefusedCycle = false;
 
 				int32 visibleCount = 0; ///< lignes REELLEMENT emises, pour le pied et la molette
+
+				/// ① (2026-09-05, v5) L'INFOBULLE DU NŒUD SURVOLE — **RAPPORTEE, PAS PEINTE**.
+				///
+				/// L'arbre la dessinait lui-meme, juste apres son `PopClip`, a
+				/// `souris + 12/+16` et DANS SA PROPRE LISTE DE DESSIN. Consequence
+				/// visible sur les captures de Rodolf : le cartouche opaque tombait sur
+				/// la rangee du dessous et en MASQUAIT le libelle — une entree du rail
+				/// paraissait sans nom. Un composant qui peint hors de son rectangle
+				/// prend une decision de mise en page qui ne lui appartient pas : seul
+				/// l'hote sait ou est le bord de la fenetre, quelle couche est au-dessus,
+				/// et quelle place est libre a cote du rail.
+				///
+				/// Donc l'arbre RELEVE et l'hote PEINT. `infobulle` est vide quand rien
+				/// n'est survole ou quand le nœud n'en porte pas ; `infobulleY/H`
+				/// donnent la rangee survolee en coordonnees ecran, pour que l'hote
+				/// pose le cartouche EN FACE d'elle sans la recouvrir.
+				NkString infobulle;
+				float32 infobulleY = 0.f;
+				float32 infobulleH = 0.f;
+
+				// ── ① (2026-09-06) LA GOUTTIERE DE DEFILEMENT — **RAPPORTEE, PAS PEINTE**
+				//
+				// Rodolf : « il n'y a pas de scrollbar vertical ni a gauche ni a droite
+				// pour montrer LA PROFONDEUR. » Le mot compte : la barre ne sert pas
+				// seulement a defiler, elle DIT combien il y a de contenu et ou l'on se
+				// trouve dedans. Un rail de 70 rangees ressemble sinon a un rail de 15.
+				//
+				// ⚠️ LE KIT PORTE DEJA UNE BARRE — `NkEditorScrollbar.h`
+				//    (`NkVScrollbar`), celle de l'editeur de code, extraite pour toute
+				//    l'interface. En ecrire une seconde ici serait la copie que ce
+				//    composant existe justement pour supprimer. Mais elle prend un
+				//    `NkGuiContext` et une `NkGuiDrawList`, et ce fichier compile SANS
+				//    NKGui (c'est sa condition d'echec C3). Il ne peut donc pas
+				//    l'appeler.
+				//
+				//    Donc la meme forme que l'infobulle : L'ARBRE RESERVE ET RAPPORTE,
+				//    L'HOTE PEINT. Le composant retire la gouttiere de sa zone de
+				//    contenu (les rangees ne passent plus dessous, donc un clic sur la
+				//    barre n'atteint aucune rangee -- la reclamation est geometrique),
+				//    et rend ici son rectangle exact plus les deux longueurs dont
+				//    `NkVScrollbar` a besoin. Deux endroits pour une meme geometrie,
+				//    ce serait deux endroits pour se tromper.
+				//
+				// ⚠️ LA GOUTTIERE EST RESERVEE **TOUJOURS**, pas seulement quand ca
+				//    deborde, et c'est une mesure de stabilite : la largeur reservee
+				//    change le nombre de colonnes du navigateur, donc la hauteur du
+				//    contenu, donc la reponse a « est-ce que ca deborde ». Reserver sous
+				//    condition ferait osciller la mise en page a la frontiere. Le rail
+				//    n'a pas ce probleme, mais la regle est la meme des deux cotes --
+				//    une regle, pas une liste de cas.
+				//
+				// `defilVue` <= `defilContenu` dit qu'il n'y a rien a defiler :
+				// `NkVScrollbar` peint alors la gouttiere sans pouce, ce qui est
+				// l'information « tout est visible ».
+				float32 defilX = 0.f, defilY = 0.f, defilW = 0.f, defilH = 0.f;
+				float32 defilContenu = 0.f; ///< hauteur TOTALE des rangees emises (px)
+				float32 defilVue = 0.f;		///< hauteur VISIBLE de la zone de contenu (px)
+				float32 defilPas = 0.f;		///< une rangee (px) — le pas des fleches
+
+				/// ⑦ (2026-09-06) LA RANGEE SURVOLEE, par son index dans `nodes` ; -1 si
+				/// la souris n'est sur aucune. Additif et inerte pour qui l'ignore.
+				///
+				/// ⚠️ POURQUOI ELLE MANQUAIT, ET CE QU'ELLE DEBLOQUE : l'arbre savait
+				///    quelle rangee est sous la souris (il en depend pour le survol, le
+				///    clic et le menu) et ne le disait a personne. Un hote qui doit
+				///    savoir SUR QUOI un glisser va se poser devait donc recalculer la
+				///    geometrie des rangees chez lui -- c'est-a-dire tenir un second
+				///    calcul de ce que l'arbre calcule deja, et le voir diverger au
+				///    premier changement de metrique. *Ce que le composant sait, il le
+				///    rapporte ; l'hote ne le redevine pas.*
+				int32 survoleIndex = -1;
 		};
 
 		// ── LA SIGNATURE TYPE ───────────────────────────────────────────────────
@@ -595,7 +774,13 @@ namespace nkentseu {
 				{"show_visibility", "Colonne oeil", NkParamKind::Bool, 1.f, 0.f, 0.f, nullptr, 0},
 				{"show_lock", "Colonne cadenas", NkParamKind::Bool, 0.f, 0.f, 0.f, nullptr, 0},
 				{"show_type", "Colonne type", NkParamKind::Bool, 0.f, 0.f, 0.f, nullptr, 0},
-				{"indent_guides", "Filets d'indentation", NkParamKind::Bool, 0.f, 0.f, 0.f, nullptr, 0},
+				// ⚠️ DEFAUT PASSE DE 0 A 1 LE 2026-08-30, SUR UNE MESURE A DEUX
+				//    CONSOMMATEURS : NkUIDesign le posait explicitement a 1, et le
+				//    premier consommateur externe (NK3DModeler) a failli accuser son
+				//    adaptateur pour un parametre... a son defaut. Quand les deux
+				//    seuls consommateurs veulent 1, le defaut 0 n'est pas un choix,
+				//    c'est un piege -- chacun le paie a son premier arbre.
+				{"indent_guides", "Filets d'indentation", NkParamKind::Bool, 1.f, 0.f, 0.f, nullptr, 0},
 				// La divergence mesuree entre les deux copies, devenue un reglage.
 				{"default_open", "Noeuds deplies par defaut", NkParamKind::Bool, 1.f, 0.f, 0.f, nullptr,
 				 0},
@@ -610,6 +795,13 @@ namespace nkentseu {
 				 0},
 				{"range_select", "Selection de plage (Maj)", NkParamKind::Bool, 1.f, 0.f, 0.f, nullptr,
 				 0},
+				// ⑦ (06/09) Un arbre qui n'a AUCUN ordre a reordonner ne doit proposer
+				//    que « dans » : un rail de dossiers ne se range pas a la main, le
+				//    systeme de fichiers trie par nom. Y proposer « avant / apres »
+				//    serait promettre un geste qui n'existe pas. Defaut FAUX : les trois
+				//    arbres de scene mesures reordonnent vraiment, et ils ne bougent pas.
+				{"drop_into_only", "Depot : seulement DANS (jamais avant/apres)", NkParamKind::Bool,
+				 0.f, 0.f, 0.f, nullptr, 0},
 				// ⚠️ EXIGE PAR LE ROLE `tree`, QUI RECLAME `onActivate`. Aucune des
 				//    trois copies d'arbre de SCENE mesurees n'active quoi que ce soit :
 				//    chez elles, le double-clic RENOMME. L'arbre de FICHIERS de NKCode,
@@ -652,6 +844,11 @@ namespace nkentseu {
 				{"search_h", 30.f, "barre de recherche"},
 				{"footer_h", 24.f, "pied de panneau"},
 				{"stroke_w", 1.f, "epaisseur d'un contour de selection"},
+				// ① La gouttiere que l'arbre RESERVE a droite et que l'hote peint avec
+				//    `NkVScrollbar`. Meme valeur que `NkScrollbarWidth()` du kit --
+				//    l'ecrire ici plutot que d'inclure NKGui garde la condition C3.
+				{"scrollbar_w", 14.f, "gouttiere de defilement reservee a droite ; l'hote y "
+									  "peint la barre standard du kit"},
 				{"accent_bar_w", 3.f, "barre d'accent a gauche de la ligne active (la planche)"},
 				{"drop_line_h", 2.f, "epaisseur du trait d'insertion avant/apres"},
 				{"guide_x", 7.f, "position du filet d'indentation dans son cran"},

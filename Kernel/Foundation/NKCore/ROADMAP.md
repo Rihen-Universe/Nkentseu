@@ -192,5 +192,5 @@ devront être créés :
   export, inline, foundation log)
 - **Modules au-dessus qui en dépendent** : NKMath, NKMemory, NKContainers,
   NKRHI, NKRenderer, tous les services moteur (NKFont, NKImage, NKAudio,
-  NKPhysics, NKAnimation, NKScript, NKScene, NKUI), Nkentseu/Core application
+  NKPhysics, NKAnima, NKScript, NKScene, NKUI), Nkentseu/Core application
   framework, Noge éditeur, PV3DE
