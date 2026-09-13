@@ -127,6 +127,9 @@ namespace nkentseu {
 				// la nature du solveur et perd la stabilité que le Gauss-Seidel donne
 				// gratuitement. L'alternance ne touche qu'à l'ordre.
 				bool alternateSweep = true; // false = l'ordre fixe d'avant le 13/09
+				// false = la retenue vise la vitesse du DÉBUT du pas (le comportement
+				// d'avant le 13/09, qui laissait la voiture fluer en pente frein serré).
+				bool staticFriction = true;
 				float32 engineBrake = 0.10f;		// fraction de engineForce, par roue MOTRICE, gaz
 													// relâchés (|throttle| < 0,05). 0 = aucun frein moteur.
 				float32 freezeSpeed = 0.05f;	// m/s : sous ce glissement, on annule sec
