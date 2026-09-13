@@ -15,6 +15,7 @@
 #include "NKRenderer/Tools/VFX/NkSPHSolver.h" // sonde fluide SPH (2026-09-04)
 #include "NKPhysics/NkVehicle.h"          // sonde VEHICULE (NK_VEHICLE_PROBE=1)
 #include "NKPhysics/NkCloth.h"            // sonde TISSU XPBD (NK_CLOTH_PROBE=1, 2026-09-05)
+#include "NKVFX/NkWaterMeshBuilder.h"     // sonde OCEAN (NK_OCEAN_PROBE=1, 2026-09-13)
 #include "Demo3DMannequin.h"              // sonde VETEMENTS SUR MANNEQUIN (NK_MANNEQUIN_PROBE=1, 2026-09-05)
 #include <cstdlib>
 #include <cstring>
@@ -69,6 +70,36 @@ namespace nkentseu {
 				uint32 clothBuildsSum = 0; // listes de paires reconstruites, cumul sur les images du relevé
 				NkVec3f clothSphereC = {0.f, 0.f, 0.f};
 				float32 clothSphereR = 0.f;
+				// ── SONDE OCEAN (NK_OCEAN_PROBE=1, 2026-09-13) ──────────────────────
+				// La grille projetee de NKVFX (NkProjectedGridBuild + NkProjectedGridVertex
+				// + le pavage NkProjectedGridIndices), deplacee par la houle de Gerstner
+				// (NkWaterEval), dessinee comme un MAILLAGE DYNAMIQUE : exactement le
+				// chemin que le tissu emprunte deja (NkMeshSystem::UpdateVertices). Rien
+				// n'est invente ici -- aucun nuanceur neuf, aucun Gerstner GPU, aucun ECS.
+				bool ocean = false;
+				vfx::NkWaterMeshParams oceanP;
+				NkMeshHandle oceanMesh;
+				NkVector<renderer::NkVertex3D> oceanVerts;
+				NkVector<uint32> oceanIdx;
+				float32 oceanTime = 0.f;
+				uint32 oceanSlotCentre = 0u;  // (rows/2)(cols+1) + cols/2 : le sommet suivi image par image
+				float32 oceanAmpDemandee = 0.f; // somme des amplitudes des trains, pour juger l'amplitude mesuree
+				// Rugosite PBR de la surface (NK_OCEAN_ROUGH). 0,5 et pas 0,18 : MESURE du
+				// 13/09, deux captures a la meme pose -- a 0,18 le speculaire d'une surface
+				// presque horizontale mange l'albedo et l'eau sort GRISE, indiscernable du
+				// sol. Ce n'est donc pas un gout, c'est le seul reglage mesure ou la
+				// couleur demandee se voit.
+				float32 oceanRough = 0.5f;
+				// Mesures cumulees sur la course (le bilan est imprime au Shutdown).
+				uint32 oceanFrames = 0u;	 // images ou la grille a RENDU des sommets
+				uint32 oceanRefus = 0u;		 // images ou elle a REFUSE (zero sommet)
+				uint32 oceanManquants = 0u;	 // pire nombre de sommets manquants vu
+				float32 oceanEcartMax = 0.f; // max |y - baseY| sur tous les sommets, toutes les images
+				// Sommet CENTRAL suivi image par image : sa variance verticale est la mesure
+				// de « ca bouge VRAIMENT ». A amplitude nulle elle vaut zero AU BIT.
+				float64 oceanYSum = 0.0, oceanYSum2 = 0.0;
+				float64 oceanMsSum = 0.0;
+				uint32 oceanMsN = 0u;
 				// sonde VETEMENTS SUR MANNEQUIN (NK_MANNEQUIN_PROBE=1, 2026-09-05) : Demo3DMannequin.cpp
 				Demo3DMannequinProbe *mannequin = nullptr;
 				NkMeshHandle meshCylinderHat;
@@ -2414,6 +2445,95 @@ static NkTexHandle CreateLanternCubeCookie(NkTextureLibrary *texLib, NkIDevice *
 				std::fprintf(stderr, "[TISSU PROBE] nappe %ux%u (%u particules, %u triangles) epaisseur %.1f mm, vent %.4g N/particule (m g = %.4g), sphere R=%.2f, auto-collision=%d, sous-pas %u x %u, mesh valide=%d\n",
 							 n, n, n * n, (uint32)st->clothIdx.Size() / 3u, 1000.f * cl->params.thickness, wind, mP * 9.81f, st->clothSphereR,
 							 (int)cl->params.selfCollision, cl->params.substeps, cl->params.iterations, (int)st->clothMesh.IsValid());
+			}
+			// ── SONDE OCEAN (2026-09-13), sous NK_OCEAN_PROBE=1 seulement ─────────────────
+			// LA PREMIERE IMAGE DE L'OCEAN. La chaine est minimale et n'invente rien :
+			//     NkProjectedGridBuild -> NkProjectedGridVertex -> deplacement CPU par
+			//     NkWaterEval ; NkProjectedGridIndices (le pavage) -> UpdateVertices.
+			// Le tissu fait deja exactement ce chemin-la : c'est le controle positif de
+			// « cable ». Pas de Gerstner GPU, pas de nuanceur neuf, pas d'ECS.
+			//
+			// Variables (toutes optionnelles) :
+			//   NK_OCEAN_N=<n>        resolution de la grille EN ECRAN (defaut 64 -> 65x65 sommets)
+			//   NK_OCEAN_BASEY=<m>    altitude du plan de repos (defaut 0.6 : au-dessus du sol
+			//                         opaque de la demo (y=0) MEME DANS LES CREUX, -0,52 m)
+			//   NK_OCEAN_ROUGH=<r>    rugosite PBR (defaut 0.5 ; a 0.18 l'eau sort grise)
+			//   NK_OCEAN_DISP=<m>     demi-epaisseur de la tranche que la houle peut occuper
+			//   NK_OCEAN_AMP=<k>      facteur sur les amplitudes (0 = LE CONTROLE NEGATIF de (o2))
+			//   NK_OCEAN_STEEP=<k>    facteur sur la cambrure Q
+			//   NK_OCEAN_RANGECAM=0   coupe la camera de portee -> la grille RETROUVE son domaine
+			//                         et REFUSE quand l'oeil n'est pas au-dessus de la tranche
+			//   NK_OCEAN_FLIP=1       inverse l'enroulement des triangles (instrument de face avant)
+			if (const char *op = std::getenv("NK_OCEAN_PROBE"); op && op[0] == '1') {
+				st->ocean = true;
+				math::NkProjectedGridParams &g = st->oceanP.grid;
+				uint32 n = 64u;
+				if (const char *e = std::getenv("NK_OCEAN_N"); e && e[0]) n = (uint32)std::atoi(e);
+				if (n < 1u) n = 1u;
+				g.cols = n;
+				g.rows = n;
+				// 0,6 m et pas 0,25 : le sol opaque de la demo est a y = 0, et les creux
+				// descendent de 0,52 m sous le plan de repos. A 0,25 le sol RESSORT dans
+				// les creux -- mesure faite, capture a l'appui : des plaques grises au
+				// milieu de l'eau, qu'on prendrait pour un defaut de maillage.
+				g.baseY = 0.6f;
+				if (const char *e = std::getenv("NK_OCEAN_BASEY"); e && e[0]) g.baseY = (float32)std::atof(e);
+				g.displacementMax = 1.f; // MAJORE la somme des amplitudes ci-dessous (0,52 m)
+				if (const char *e = std::getenv("NK_OCEAN_DISP"); e && e[0]) g.displacementMax = (float32)std::atof(e);
+				if (const char *e = std::getenv("NK_OCEAN_RANGECAM"); e && e[0] == '0') g.rangeCamera = false;
+				float32 ampK = 1.f, steepK = 1.f;
+				if (const char *e = std::getenv("NK_OCEAN_AMP"); e && e[0]) ampK = (float32)std::atof(e);
+				if (const char *e = std::getenv("NK_OCEAN_STEEP"); e && e[0]) steepK = (float32)std::atof(e);
+				if (const char *e = std::getenv("NK_OCEAN_ROUGH"); e && e[0]) st->oceanRough = (float32)std::atof(e);
+				// Trois trains de Gerstner : une houle longue, une mer de vent, une ride.
+				math::NkWaterParams &w = st->oceanP.waves;
+				w.waveCount = 3u;
+				w.depth = 0.f; // eau profonde : c = sqrt(g / k)
+				w.waves[0].amplitude = 0.30f * ampK; w.waves[0].wavelength = 12.0f;
+				w.waves[0].direction = {1.f, 0.f};        w.waves[0].steepness = 0.55f * steepK; w.waves[0].phase = 0.f;
+				w.waves[1].amplitude = 0.15f * ampK; w.waves[1].wavelength = 5.0f;
+				w.waves[1].direction = {0.7071f, 0.7071f}; w.waves[1].steepness = 0.50f * steepK; w.waves[1].phase = 1.3f;
+				w.waves[2].amplitude = 0.07f * ampK; w.waves[2].wavelength = 2.2f;
+				w.waves[2].direction = {-0.4061f, 0.9138f}; w.waves[2].steepness = 0.40f * steepK; w.waves[2].phase = 2.6f;
+				st->oceanAmpDemandee = w.waves[0].amplitude + w.waves[1].amplitude + w.waves[2].amplitude;
+				st->oceanP.color = 0xFFFFFFFFu;
+				st->oceanSlotCentre = (g.rows / 2u) * (g.cols + 1u) + g.cols / 2u;
+				// (o1) LES DEUX COMPTES SONT CALCULES A LA MAIN ICI, et non demandes a la
+				// bibliotheque qu'ils sont censes juger : (cols+1)(rows+1) sommets pour
+				// cols x rows cellules, 6 indices par cellule.
+				const uint32 attenduV = (n + 1u) * (n + 1u);
+				const uint32 attenduI = 6u * n * n;
+				const uint32 nv = vfx::NkWaterVertexCount(g);
+				const uint32 ni = vfx::NkWaterIndexCount(g);
+				st->oceanVerts.Resize(nv);
+				st->oceanIdx.Resize(ni);
+				const uint32 ecritsI = vfx::NkWaterBuildIndices(g, st->oceanIdx.Data(), ni);
+				if (const char *e = std::getenv("NK_OCEAN_FLIP"); e && e[0] == '1')
+					for (uint32 t = 0; t + 2u < ecritsI; t += 3u) {
+						const uint32 tmp = st->oceanIdx[t + 1u];
+						st->oceanIdx[t + 1u] = st->oceanIdx[t + 2u];
+						st->oceanIdx[t + 2u] = tmp;
+					}
+				// Sommets de depart : le plan de repos. Le maillage doit exister AVANT la
+				// premiere camera ; il est entierement reecrit a chaque image.
+				for (uint32 i = 0; i < nv; ++i) {
+					renderer::NkVertex3D &v = st->oceanVerts[i];
+					v.pos = {0.f, g.baseY, 0.f};
+					v.normal = {0.f, 1.f, 0.f};
+					v.tangent = {1.f, 0.f, 0.f};
+					v.uv = {0.f, 0.f};
+					v.uv2 = v.uv;
+					v.color = 0xFFFFFFFFu;
+				}
+				renderer::NkMeshDesc md = renderer::NkMeshDesc::Simple(renderer::NkVertexLayout::Default3D(), st->oceanVerts.Data(),
+																	   nv, st->oceanIdx.Data(), ecritsI);
+				md.dynamic = true;
+				md.debugName = "Demo3D_Ocean";
+				st->oceanMesh = meshSys->Create(md);
+				std::fprintf(stderr, "[OCEAN PROBE] grille %ux%u : sommets %u (attendu a la main %u), indices %u (attendu a la main %u, ecrits %u) | plan y=%.3f, tranche +-%.2f m, cameraPortee=%d | 3 trains, amplitudes %.3f+%.3f+%.3f = %.3f m, cambrures %.3f/%.3f/%.3f | mesh valide=%d\n",
+							 g.cols, g.rows, nv, attenduV, ni, attenduI, ecritsI, g.baseY, g.displacementMax, (int)g.rangeCamera,
+							 w.waves[0].amplitude, w.waves[1].amplitude, w.waves[2].amplitude, st->oceanAmpDemandee,
+							 w.waves[0].steepness, w.waves[1].steepness, w.waves[2].steepness, (int)st->oceanMesh.IsValid());
 			}
 			// ── SONDE VETEMENTS SUR MANNEQUIN (2026-09-05), sous NK_MANNEQUIN_PROBE=1 seulement ─────
 			// Le corps (glTF / FBX skinne), ses capsules, ses vetements : Demo3DMannequin.cpp.
@@ -4858,6 +4978,69 @@ static NkTexHandle CreateLanternCubeCookie(NkTextureLibrary *texLib, NkIDevice *
 						wc.roughness = 0.9f;
 						r3d->Submit(wc);
 					}
+				}
+			}
+
+			// ── SONDE OCEAN : la grille est reconstruite POUR CETTE camera, la houle
+			//    deplace ses sommets, et le maillage dynamique part au dessin.
+			//    C'est ICI et pas dans la phase d'update : la grille projetee depend de
+			//    la camera de CETTE image, et la camera n'est definitive qu'apres les
+			//    controleurs (editorCam.Apply ci-dessus). La construire plus tot ferait
+			//    suivre l'eau avec une image de retard -- ce qu'on ne verrait qu'en
+			//    mouvement, donc jamais sur une capture.
+			if (st->ocean && st->oceanMesh.IsValid()) {
+				const float32 fdt = 1.f / 60.f; // pas FIXE : deux courses donnent la MEME image
+				st->oceanP.time = st->oceanTime;
+				NkChrono chrono;
+				uint32 manquants = 0u;
+				const uint32 nv = vfx::NkWaterBuildVertices(cam.GetProj(), cam.GetView(), cam.GetPosition(), st->oceanP,
+															st->oceanVerts.Data(), (uint32)st->oceanVerts.Size(), &manquants);
+				const float64 msO = chrono.Elapsed().milliseconds;
+				st->oceanMsSum += msO;
+				++st->oceanMsN;
+				st->oceanTime += fdt;
+				if (manquants > st->oceanManquants)
+					st->oceanManquants = manquants;
+				if (nv == 0u) {
+					// LE REFUS SE DIT. Zero sommet a deux causes que le producteur separe :
+					// la grille n'est pas visible (hors du champ, hors domaine sans camera de
+					// portee) ou elle a des TROUS -- `manquants` tranche.
+					++st->oceanRefus;
+					if (st->oceanRefus == 1u)
+						std::fprintf(stderr, "[OCEAN PROBE] image %u : la grille REFUSE (sommets manquants %u) -- rien n'est dessine\n",
+									 (unsigned)ctx.frame, manquants);
+				} else {
+					++st->oceanFrames;
+					NkVec3f omin{1e30f, 1e30f, 1e30f}, omax{-1e30f, -1e30f, -1e30f};
+					float32 ecartImage = 0.f;
+					for (uint32 i = 0; i < nv; ++i) {
+						const NkVec3f &p = st->oceanVerts[i].pos;
+						omin.x = NkMin(omin.x, p.x); omin.y = NkMin(omin.y, p.y); omin.z = NkMin(omin.z, p.z);
+						omax.x = NkMax(omax.x, p.x); omax.y = NkMax(omax.y, p.y); omax.z = NkMax(omax.z, p.z);
+						const float32 d = p.y - st->oceanP.grid.baseY;
+						const float32 ad = d < 0.f ? -d : d;
+						if (ad > ecartImage)
+							ecartImage = ad;
+					}
+					if (ecartImage > st->oceanEcartMax)
+						st->oceanEcartMax = ecartImage;
+					const float64 yc = (float64)st->oceanVerts[st->oceanSlotCentre < nv ? st->oceanSlotCentre : 0u].pos.y;
+					st->oceanYSum += yc;
+					st->oceanYSum2 += yc * yc;
+					if (auto *ms3 = ctx.renderer->GetMeshSystem())
+						ms3->UpdateVertices(st->oceanMesh, st->oceanVerts.Data(), nv);
+					NkDrawCall3D oc;
+					oc.mesh = st->oceanMesh;
+					oc.aabb = {omin, omax};
+					oc.tint = {0.05f, 0.28f, 0.42f}; // couleur PLATE : ni reflet, ni ecume peinte, ni Beer-Lambert
+					oc.metallic = 0.f;
+					oc.roughness = st->oceanRough; // NK_OCEAN_ROUGH : instrument de rugosite
+					oc.castShadow = false;
+					r3d->Submit(oc);
+					if ((ctx.frame % 30u) == 0u)
+						std::fprintf(stderr, "[OCEAN PROBE] image %u t=%.2f s : %u sommets, ecart max au plan %.4f m (amplitudes demandees %.3f m), grille %.3f ms/image (moyenne %.3f sur %u), empreinte [%.1f %.1f]x[%.1f %.1f] m\n",
+									 (unsigned)ctx.frame, st->oceanTime, nv, ecartImage, st->oceanAmpDemandee, (float32)msO,
+									 (float32)(st->oceanMsSum / (float64)st->oceanMsN), st->oceanMsN, omin.x, omax.x, omin.z, omax.z);
 				}
 			}
 
@@ -7527,6 +7710,17 @@ static NkTexHandle CreateLanternCubeCookie(NkTextureLibrary *texLib, NkIDevice *
 			// sonde MANNEQUIN : le bilan (maximums sur la course) avant de rendre l etat
 			if (auto *stm = static_cast<Demo3DState *>(ctx.userData))
 				Demo3DMannequinReport(stm->mannequin);
+			// sonde OCEAN : le bilan de la course. La VARIANCE VERTICALE du sommet
+			// central est le verdict de (o2) « ca bouge VRAIMENT » ; a amplitude nulle
+			// elle vaut zero AU BIT, et l'ecart au plan de repos aussi.
+			if (auto *sto = static_cast<Demo3DState *>(ctx.userData); sto && sto->ocean) {
+				const float64 nF = (float64)(sto->oceanFrames ? sto->oceanFrames : 1u);
+				const float64 moy = sto->oceanYSum / nF;
+				const float64 var = sto->oceanYSum2 / nF - moy * moy;
+				std::fprintf(stderr, "[OCEAN PROBE] BILAN : %u images dessinees, %u refus, pire manquants %u | ecart max |y - plan| = %.9f m (amplitudes demandees %.3f m) | sommet central : moyenne %.6f m, variance verticale %.9e m2 | %.3f ms/image sur %u images\n",
+							 sto->oceanFrames, sto->oceanRefus, sto->oceanManquants, sto->oceanEcartMax, sto->oceanAmpDemandee,
+							 moy, var, (float32)(sto->oceanMsN ? sto->oceanMsSum / (float64)sto->oceanMsN : 0.0), sto->oceanMsN);
+			}
 			auto *st = (Demo3DState *)ctx.userData;
 			if (st && st->maskedMat)
 				NkMaterial::Destroy(st->maskedMat);
