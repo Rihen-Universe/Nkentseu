@@ -1,3 +1,4 @@
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // =============================================================================
 // Noge/ECS/Systems/NkRenderSystem.cpp — pont ECS -> NKRenderer (3D)
 // =============================================================================
@@ -46,12 +47,19 @@ namespace nkentseu {
 		mSceneCtx.time += dt;
 		mSceneCtx.viewMode = mViewMode; // mode de rendu (Solid/Wireframe/...)
 
-		// 5. Envoi GPU : BeginScene -> Submit* -> Flush
+		// 5. Envoi GPU : BeginScene -> Submit* -> (Flush)
 		r3d->BeginScene(mSceneCtx);
 		for (const auto &dc : mOpaqueCalls) {
 			r3d->Submit(dc);
 		}
-		r3d->Flush(mCmd);
+		// Le Flush n'appartient a ce systeme que si l'hote le lui laisse. Un hote
+		// qui possede sa frame device (editeur rendant hors ecran) declenche
+		// lui-meme `graph->Execute(cmd)`, et la passe Geometry flushe LA, dans une
+		// passe ouverte. Flusher ici consommerait la scene avant le graphe
+		// (`mInScene` retombe a false) et l'ecran resterait vide sans une erreur.
+		// Cf. NkRenderSystem.h, SetOwnsFlush.
+		if (mOwnsFlush)
+			r3d->Flush(mCmd);
 	}
 
 	// =========================================================================
