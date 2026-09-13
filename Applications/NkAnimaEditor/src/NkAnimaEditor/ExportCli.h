@@ -36,6 +36,20 @@ namespace nkanima {
 			unsigned int edits = 3;			  // --edits=
 			float amp = 1.f;				  // --amp=
 			int mutateKey = -1;				  // --mutate=
+			// ── Preuves du second lot (2026-09-13) ───────────────────────────
+			// --save-button=<f> : édite, pose le chemin, puis appelle `CmdSave` —
+			//                     LA fonction que le bouton « Enregistrer » appelle.
+			// --save-as=<f>     : appelle `CmdSaveAsConfirmed`, la branche de
+			//                     confirmation du sélecteur de fichiers du kit.
+			// --scrub=<t>       : pose le curseur à t SANS lecture, puis écrit
+			//                     l'empreinte de la POSE (16 flottants par joint).
+			// --play-to=<t>     : atteint t EN LISANT, même empreinte. Les deux
+			//                     doivent coïncider AU BIT : c'est ce qui dit que le
+			//                     scrub est JUSTE, pas seulement qu'il bouge.
+			const char *saveButtonPath = nullptr;
+			const char *saveAsPath = nullptr;
+			float scrubTime = -1.f;
+			float playToTime = -1.f;
 	};
 
 	// Reconnaît et consomme un argument. true = c'était un drapeau d'export.

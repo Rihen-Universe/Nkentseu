@@ -6,6 +6,7 @@
 // =============================================================================
 #include "ExportCli.h"
 #include "AnimBridge.h"
+#include "Commands.h" // on appelle LES fonctions du bouton, jamais un clic
 #include "NKAnima/Clip/NkAnimation.h"
 #include "NKFileSystem/NkFile.h"
 #include "NKLogger/NkLog.h"
@@ -165,9 +166,7 @@ namespace nkanima {
 			}
 		}
 
-		bool WriteDigest(const NkAnimationClip &c, const char *path) {
-			NkString body;
-			BuildDigest(c, body);
+		bool WriteBody(const NkString &body, const char *path) {
 			nkentseu::uint64 h = Fnv1a(body.CStr(), body.Size());
 			NkString all;
 			all += "FNV1A64 ";
@@ -181,6 +180,45 @@ namespace nkanima {
 			}
 			logger.Info("[ExportCli] empreinte '{0}' : {1} octets\n", path, (nkentseu::uint32)all.Size());
 			return true;
+		}
+
+		bool WriteDigest(const NkAnimationClip &c, const char *path) {
+			NkString body;
+			BuildDigest(c, body);
+			return WriteBody(body, path);
+		}
+
+		// Empreinte d'une POSE : 16 flottants par joint (matrice monde), en hexa.
+		// Pas les positions seules — une rotation pure d'un os ne déplace pas sa
+		// propre position, et une empreinte de positions la laisserait passer.
+		bool WritePoseDigest(const char *path, const char *mode, nkentseu::float32 t) {
+			NkVector<nkentseu::float32> m;
+			AnimGetPoseMatrices(m);
+			if (m.Empty()) {
+				logger.Errorf("[ExportCli] pose vide : rien a empreindre (%s)\n", mode);
+				return false;
+			}
+			// ⚠️ NI LE MODE NI L'INSTANT n'entrent dans l'empreinte : le journal les
+			// dit, le corps comparé ne porte QUE la pose. Mesuré en chemin le
+			// 2026-09-13 : avec `tHex` dans le corps, deux scrubs à des instants
+			// différents rendaient des empreintes différentes — par leur ÉTIQUETTE,
+			// alors que les 19 lignes d'os étaient identiques au bit. Le témoin
+			// disait « le curseur bouge » exactement quand il ne bougeait pas.
+			logger.Info("[ExportCli] empreinte de pose : mode={0} t={1}\n", mode, t);
+			NkString body;
+			body += "NKANIM-POSE 1 joints=";
+			DecU32(body, (nkentseu::uint32)(m.Size() / 16u));
+			body += '\n';
+			for (nkentseu::uint32 j = 0; j < (nkentseu::uint32)(m.Size() / 16u); ++j) {
+				body += "j ";
+				DecU32(body, j);
+				for (nkentseu::uint32 e = 0; e < 16u; ++e) {
+					body += ' ';
+					HexF32(body, m[j * 16u + e]);
+				}
+				body += '\n';
+			}
+			return WriteBody(body, path);
 		}
 
 		bool StartsWith(const char *s, const char *p, const char **rest) {
@@ -222,11 +260,28 @@ namespace nkanima {
 			out.mutateKey = atoi(v);
 			return true;
 		}
+		if (StartsWith(arg, "--save-button=", &v)) {
+			out.saveButtonPath = v;
+			return true;
+		}
+		if (StartsWith(arg, "--save-as=", &v)) {
+			out.saveAsPath = v;
+			return true;
+		}
+		if (StartsWith(arg, "--scrub=", &v)) {
+			out.scrubTime = (float)atof(v);
+			return true;
+		}
+		if (StartsWith(arg, "--play-to=", &v)) {
+			out.playToTime = (float)atof(v);
+			return true;
+		}
 		return false;
 	}
 
 	bool ExportCliWanted(const NkExportCliArgs &a) {
-		return a.exportPath != nullptr || a.verifyPath != nullptr;
+		return a.exportPath != nullptr || a.verifyPath != nullptr || a.saveButtonPath != nullptr ||
+			   a.saveAsPath != nullptr || a.scrubTime >= 0.f || a.playToTime >= 0.f;
 	}
 
 	int ExportCliRun(const NkExportCliArgs &a) {
@@ -267,11 +322,34 @@ namespace nkanima {
 			return 0;
 		}
 
-		// ── Mode EXPORT : charger, éditer sans main, écrire ────────────────────
+		// ── Tous les autres modes ont besoin du MODELE ────────────────────────
 		if (!AnimInit(a.modelPath)) {
 			logger.Errorf("[ExportCli] modele non charge : %s\n", a.modelPath ? a.modelPath : "(nul)");
 			return 2;
 		}
+
+		// ── LE CURSEUR : scrub SANS lecture, ou lecture jusqu'à t ─────────────
+		// `AnimSeek` est exactement ce que le glissé de la timeline appelle
+		// (Panels.h l.135 et l.141) ; `AnimUpdate` est ce que le panneau appelle à
+		// chaque image. Aucun chemin parallèle, encore une fois.
+		if (a.scrubTime >= 0.f || a.playToTime >= 0.f) {
+			const bool scrub = (a.scrubTime >= 0.f);
+			const nkentseu::float32 t = scrub ? a.scrubTime : a.playToTime;
+			if (scrub) {
+				AnimSeek(t);
+			} else {
+				// UNE seule avance de t depuis 0 : `mTime` vaut t AU BIT, pas la
+				// somme de soixante pas de 1/60 s qui n'y tomberait jamais.
+				AnimSetPlaying(true);
+				AnimUpdate(t);
+			}
+			if (!a.digestPath) {
+				logger.Errorf("[ExportCli] --scrub/--play-to exigent --digest=\n");
+				return 10;
+			}
+			return WritePoseDigest(a.digestPath, scrub ? "scrub" : "lecture", t) ? 0 : 9;
+		}
+
 		nkentseu::uint32 changed = AnimScriptedEdit(a.edits, a.amp);
 		if (a.edits > 0 && changed == 0) {
 			logger.Errorf("[ExportCli] aucune pose-cle MODIFIEE (edits=%u) : rien a ecrire qui prouve l'edition\n",
@@ -287,6 +365,27 @@ namespace nkanima {
 		// mémoire, jamais une relecture. C'est le terme de gauche de la comparaison.
 		if (a.digestPath && !WriteDigest(*clip, a.digestPath))
 			return 4;
+
+		// ── LE GESTE DE RODOLF, sans main : on appelle LA fonction du bouton ──
+		// `CmdSave` est littéralement ce que la commande « Fichier: Enregistrer »
+		// (Ctrl+S) et le bouton de la barre d'outils appellent ; `CmdSaveAsConfirmed`
+		// est la branche de confirmation du sélecteur. Aucun clic n'est simulé : on
+		// entre par la même porte, un cran en dessous du dessin.
+		// ⚠️ Et on ne regarde PAS leur valeur de retour — le bouton ne la regarde pas
+		// non plus. Ce qui fait foi, c'est le fichier écrit, relu par --verify.
+		if (a.saveButtonPath) {
+			AnimSetSavePath(a.saveButtonPath);
+			CmdSave(nullptr);
+			logger.Info("[ExportCli] bouton Enregistrer : {0} poses-cles modifiees -> {1}\n", changed,
+						a.saveButtonPath);
+			return 0;
+		}
+		if (a.saveAsPath) {
+			CmdSaveAsConfirmed(a.saveAsPath);
+			logger.Info("[ExportCli] Enregistrer sous (confirme) : {0} poses-cles modifiees -> {1}\n", changed,
+						a.saveAsPath);
+			return 0;
+		}
 		if (!AnimExportClip(a.exportPath)) {
 			logger.Errorf("[ExportCli] ecriture .nkanim echouee : %s\n", a.exportPath ? a.exportPath : "(nul)");
 			return 5;
