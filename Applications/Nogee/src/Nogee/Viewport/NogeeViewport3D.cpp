@@ -94,6 +94,7 @@ namespace nkentseu {
 					// ── Temoins ───────────────────────────────────────────────
 					int32 frames = 0;
 					int32 selSoumises = 0; ///< entites REELLEMENT soumises au lisere
+					char nomsDessines[512] = {}; ///< « Nom(source du maillage) », lisible tel quel
 					int32 eligible = 0; ///< entites qui satisfont la requete de SubmitMeshes
 					uint32 dcGraphe = 0;  ///< appels de dessin ENREGISTRES pendant graph->Execute
 					uint32 triGraphe = 0; ///< triangles enregistres pendant graph->Execute
@@ -123,8 +124,15 @@ namespace nkentseu {
 			// l.142-148), recompte ICI. Deux raisons : un temoin qui vient du meme
 			// endroit que la chose mesuree ne prouve rien, et les statistiques du
 			// renderer sont figees par `EndFrame()` — que l'editeur ne nous donne pas.
-			int32 CountEligible(ecs::NkWorld &w) {
+			// Le meme predicat que `NkRenderSystem::SubmitMeshes` (NkRenderSystem.cpp
+			// l.142-148), recompte ICI — un temoin qui vient du meme endroit que la
+			// chose mesuree ne prouve rien. Il collecte AUSSI les noms : si Rodolf
+			// doit nous dire ce qu'il voit, autant que son ecran le lui dise.
+			int32 CountEligible(ecs::NkWorld &w, char *noms, size_t tailleNoms) {
 				int32 n = 0;
+				size_t pos = 0;
+				if (noms && tailleNoms > 0)
+					noms[0] = '\0';
 				w.Query<ecs::NkTransform, ecs::NkMeshComponent, ecs::NkMaterialComponent>().ForEach(
 					[&](ecs::NkEntityId id, const ecs::NkTransform &, const ecs::NkMeshComponent &m,
 						const ecs::NkMaterialComponent &) {
@@ -133,7 +141,36 @@ namespace nkentseu {
 						if (!m.visible)
 							return;
 						++n;
+						if (!noms || pos + 1 >= tailleNoms)
+							return;
+						// Le NOM de l'entite, et D'OU vient son maillage. « primitive »
+						// quand il n'a pas de fichier : c'est precisement le cas qui ne
+						// survit pas a une sauvegarde, et le voir ecrit evite de le
+						// confondre avec un maillage importe.
+						const ecs::NkName *nm = w.Get<ecs::NkName>(id);
+						const char *src = m.meshPath.Empty() ? "primitive" : m.meshPath.CStr();
+						// LA POIGNEE ET LE NOMBRE DE TRIANGLES, par entite. Deux pistes
+						// s'eliminent avec ces deux chiffres : si deux entites portent la
+						// MEME poignee, la bibliotheque a reutilise un emplacement ; si une
+						// entite annonce le nombre de triangles d'une AUTRE, c'est
+						// l'intervalle d'indices qui a bouge. On ne devine ni l'un ni
+						// l'autre : on les ecrit.
+						unsigned long long poignee = (unsigned long long)m.meshHandle;
+						int tri = -1;
+						if (NkMeshSystem *ms = g.r3 ? g.r3->GetMeshSystem() : nullptr) {
+							NkMeshHandle h{m.meshHandle};
+							if (h.IsValid())
+								tri = (int)(ms->GetIndexCount(h) / 3u);
+						}
+						const int ecrit = std::snprintf(noms + pos, tailleNoms - pos,
+														"%s%s[maillage %s, poignee %llu, %d triangle(s)]",
+														pos ? ", " : "", nm ? nm->value : "(sans nom)", src,
+														poignee, tri);
+						if (ecrit > 0)
+							pos += (size_t)ecrit;
 					});
+				if (noms && pos == 0 && tailleNoms > 8)
+					std::snprintf(noms, tailleNoms, "AUCUN");
 				return n;
 			}
 
@@ -387,7 +424,7 @@ namespace nkentseu {
 				const bool ok = g.rt->Capture(g.capPath);
 				char m[640];
 				std::snprintf(m, sizeof(m),
-							  "[Nogee/Viewport3D] CAPTURE image %d -> '%s' : %s (cible %ux%u, mesh eligibles=%d)\n",
+							  "[Nogee/Viewport3D] CAPTURE image %d -> '%s' : %s (cible %ux%u, %d mesh eligible(s))\n",
 							  (int)g.frames, g.capPath, ok ? "ecrite" : "ECHEC", g.rtW, g.rtH, (int)g.eligible);
 				logger.Info(m);
 				g.capPath[0] = '\0';
@@ -417,7 +454,7 @@ namespace nkentseu {
 			g.transforms.Execute(*g.world, dt);
 
 			// 3. Le pont ECS : BeginScene + Submit. PAS de Flush (SetOwnsFlush(false)).
-			g.eligible = CountEligible(*g.world);
+			g.eligible = CountEligible(*g.world, g.nomsDessines, sizeof(g.nomsDessines));
 			g.render.SetCommandBuffer(cmd);
 			g.render.Execute(*g.world, dt);
 
@@ -535,19 +572,24 @@ namespace nkentseu {
 					}
 				}
 				const float32 accord = fwd.x * att.x + fwd.y * att.y + fwd.z * att.z;
-				char m[640];
+				// ⚠️ UNE SEULE LIGNE, EN TOUTES LETTRES. C'est celle que Rodolf lira
+				// pour nous dire ce qui se passe chez lui : elle doit se suffire, sans
+				// qu'il ait a connaitre le vocabulaire du moteur.
+				//   eligibles = ce que le monde offre au rendu
+				//   soumises  = ce qui est parti vers la file de dessin
+				//   ecartees  = ce que le tronc de vue a rejete AVANT cette file
+				// Si eligibles vaut 0, le defaut est dans la scene ; si soumises egale
+				// ecartees, la camera regarde ailleurs ; si les deux sont bons et que
+				// rien ne se voit, le defaut est APRES la soumission.
+				char m[1100];
 				std::snprintf(m, sizeof(m),
-							  "[Nogee/Viewport3D] image %d : cible %ux%u (aspect %.3f) | ECS eligibles=%d | "
-							  "LISERE soumis=%d | "
-							  "SUBMIT soumis=%u ECARTES_PAR_LE_FRUSTUM=%u | GRAPHE dessins=%u triangles=%u | "
-							  "(muet : stats.drawCalls=%u) | camera (%.2f,%.2f,%.2f) avant (%.2f,%.2f,%.2f) "
-							  "attendue (%.2f,%.2f,%.2f) ACCORD=%.3f\n",
-							  (int)g.frames, g.rtW, g.rtH,
-							  (double)g.rtW / (double)(g.rtH > 0 ? g.rtH : 1), (int)g.eligible, (int)g.selSoumises,
-							  cs.opaqueSubmitted,
-							  cs.opaqueCulled, g.dcGraphe, g.triGraphe, st.drawCalls, (double)eye.x, (double)eye.y,
-							  (double)eye.z, (double)fwd.x, (double)fwd.y, (double)fwd.z, (double)att.x,
-							  (double)att.y, (double)att.z, (double)accord);
+							  "[Nogee/Viewport3D] image %d | %d entite(s) eligible(s) au rendu, %u "
+							  "soumise(s), %u ecartee(s) par le tronc de vue | MAILLAGES : %s | "
+							  "vue %ux%u | camera (%.2f,%.2f,%.2f) accord avant %.3f | graphe %u "
+							  "dessin(s) %u triangle(s)\n",
+							  (int)g.frames, (int)g.eligible, cs.opaqueSubmitted, cs.opaqueCulled,
+							  g.nomsDessines[0] ? g.nomsDessines : "AUCUN", g.rtW, g.rtH, (double)eye.x,
+							  (double)eye.y, (double)eye.z, (double)accord, g.dcGraphe, g.triGraphe);
 				logger.Info(m);
 			}
 		}

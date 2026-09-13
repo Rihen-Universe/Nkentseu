@@ -91,6 +91,8 @@ int nkmain(const nkentseu::NkEntryState &state) {
 			NogeeShellViewportSansMesh(); // negatif (n1) : entite sans mesh
 		else if (a == "--viewport-inactif")
 			NogeeShellViewportInactif(); // negatif (n1) : entite desactivee
+		else if (std::strncmp(a.CStr(), "--viewport-echarde=", 19) == 0)
+			NogeeShellViewportEcharde(a.CStr() + 19); // reproduction Q12
 		else if (std::strncmp(a.CStr(), "--viewport-sauver=", 18) == 0)
 			NogeeShellViewportSauver(a.CStr() + 18);
 		else if (std::strncmp(a.CStr(), "--viewport-charger=", 19) == 0)
