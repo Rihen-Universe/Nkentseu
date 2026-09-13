@@ -1489,22 +1489,49 @@ namespace nkentseu {
 				return;
 			const int64 t0 = ::nkentseu::NkChrono::Now().nanoseconds;
 
+			// ── (s0) LA VENTILATION DU PAS ───────────────────────────────────────
+			// ⚠️ POURQUOI CES CHRONOS SONT DANS LE SOLVEUR ET PAS DANS LE BANC : les
+			// phases sont INTERNES a `Step()`. Les mesurer de l'exterieur ne donnerait
+			// que le total — c'est-a-dire exactement le chiffre qu'on cherche a
+			// DECOMPOSER. Leur cout est ~15 lectures d'horloge devant ~244 ms, et la
+			// garde de perturbation du § 7 du plan le verifie au lieu de l'affirmer.
+			// ⚠️ `NkChrono::Now()` est appele une fois par borne ; `jal` porte la borne
+			// courante pour qu'aucune phase ne soit comptee deux fois ni oubliee — la
+			// somme des parts est ensuite comparee au total, et c'est la garde (s0g).
+			int64 jal = t0;
+#define NK_PHASE(champ)                                                                                          \
+	do {                                                                                                         \
+		const int64 nk_t = ::nkentseu::NkChrono::Now().nanoseconds;                                              \
+		mStats.champ = (float32)((float64)(nk_t - jal) / 1.0e6);                                                 \
+		jal = nk_t;                                                                                              \
+	} while (0)
+
 			AddSources(dt);
 			Combust(dt);
+			NK_PHASE(msCombustion);
 			AddBuoyancy(dt);
+			NK_PHASE(msFlottabilite);
 			// Les FORCES, dans l'ordre de Fedkiw 2001 (§ 4) : flottabilite, puis
 			// confinement de vorticite, puis les forces externes ; ensuite seulement
 			// l'advection, puis la projection. Le confinement lit omega du champ de
 			// vitesse COURANT : la vorticite se calcule donc juste avant.
 			ComputeVorticity();
+			NK_PHASE(msVorticite1);
 			AddVorticityConfinement(dt);
+			NK_PHASE(msConfinement);
 			AddWind(dt);
 			mFieldTime += dt;
+			NK_PHASE(msVent);
 
 			if (mParams.advectionEnabled)
 				AdvectVelocity(dt);
+			NK_PHASE(msAdvVitesse);
 
+			// ⚠️ CE PARCOURS-CI EST DE L'INSTRUMENTATION, pas de la physique : la
+			// divergence AVANT projection ne sert qu'aux temoins. On l'accumule donc
+			// dans `msMesures`, comme les deux qui suivent la projection.
 			MeasureDivergence(mStats.divBeforeMean, mStats.divBeforeMax, false);
+			NK_PHASE(msMesures);
 
 			if (mParams.projectionEnabled)
 				Project(dt);
@@ -1513,9 +1540,15 @@ namespace nkentseu {
 				mStats.pressureResidual = 0.f;
 				mStats.pressureCapHit = false;
 			}
+			NK_PHASE(msProjection);
 
 			MeasureDivergence(mStats.divAfterMean, mStats.divAfterMax, false);
 			MeasureDivergence(mStats.divAfterMeanStrict, mStats.divAfterMaxStrict, true);
+			{
+				const int64 nk_t = ::nkentseu::NkChrono::Now().nanoseconds;
+				mStats.msMesures += (float32)((float64)(nk_t - jal) / 1.0e6);
+				jal = nk_t;
+			}
 
 			// LE NOMBRE DE COURANT ET LE SOUS-CYCLAGE — calculés ICI, APRÈS la
 			// projection, parce que c'est le champ de vitesse FINAL qui transporte
@@ -1542,6 +1575,7 @@ namespace nkentseu {
 					mStats.advectSubsteps = ni;
 				}
 			}
+			NK_PHASE(msCFL);
 
 			if (mParams.advectionEnabled) {
 				AdvectScalar(mDensity0, mDensity, dt, 0);
@@ -1553,6 +1587,7 @@ namespace nkentseu {
 					mFuel.Swap(mFuel0);
 				}
 			}
+			NK_PHASE(msAdvScalaires);
 
 			// Dissipation et refroidissement
 			if (mParams.densityDissipation > 0.f) {
@@ -1572,6 +1607,8 @@ namespace nkentseu {
 				for (uint32 i = 0; i < mCount; ++i)
 					mFuel[i] *= f;
 			}
+
+			NK_PHASE(msDissipation);
 
 			MeasureVelocity();
 			// SECONDE passe de vorticite : la premiere servait le confinement et decrivait
@@ -1595,7 +1632,22 @@ namespace nkentseu {
 							tmax = t;
 					}
 			mStats.maxTemperature = tmax;
+
+			// Tout ce qui precede depuis `msDissipation` est de l'INSTRUMENTATION :
+			// MeasureVelocity, la SECONDE vorticite, les trois reductions totales et
+			// le balayage de Tmax. Un moteur qui n'a pas besoin de ces temoins ne
+			// paierait pas cette part — c'est pourquoi elle est comptee a part.
+			{
+				const int64 nk_t = ::nkentseu::NkChrono::Now().nanoseconds;
+				mStats.msMesures += (float32)((float64)(nk_t - jal) / 1.0e6);
+				jal = nk_t;
+			}
+
+			mStats.msPhysique = mStats.msCombustion + mStats.msFlottabilite + mStats.msVorticite1 +
+								mStats.msConfinement + mStats.msVent + mStats.msAdvVitesse + mStats.msProjection +
+								mStats.msCFL + mStats.msAdvScalaires + mStats.msDissipation;
 			mStats.ms = (float32)((::nkentseu::NkChrono::Now().nanoseconds - t0) / 1.0e6);
+#undef NK_PHASE
 		}
 
 	} // namespace renderer

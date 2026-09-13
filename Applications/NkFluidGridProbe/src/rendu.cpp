@@ -385,6 +385,104 @@ void PalierRendu() {
 }
 
 // =============================================================================
+// (s0) LA VENTILATION DU PAS — pré-enregistrée au § 7 de PLAN_SIMULATION_GPU.md.
+// Mode NK_FLUID_MAC=e. ⚠️ Ce n'est PAS un témoin de schéma : il répond à UNE
+// question — quelle part du pas est la PROJECTION ?
+// ⚠️ SANS CETTE MESURE, ANNONCER UN GAIN DE PORTAGE SERAIT DE LA FOI. AMDAHL : un
+// facteur 10 sur une phase qui pèse 60 % ne donne que 2,17 sur le total.
+// =============================================================================
+void EnqueteVentilationPas() {
+	printf("\n=== (s0) LA VENTILATION DU PAS : quelle part est la PROJECTION ? ===\n");
+	printf("    PRÉ-ENREGISTRÉ (PLAN_SIMULATION_GPU.md § 7), prédiction écrite AVANT :\n");
+	printf("      projection 50 a 75 %% · advection scalaires 15 a 30 %% ·\n");
+	printf("      instrumentation 3 a 10 %% · le reste sous 10 %%\n");
+	printf("    Calcul : 268,3 balayages SOR par pas sur 50 000 cellules = ~13,4 M mises a\n");
+	printf("    jour, contre ~0,5 M pour l'instrumentation — un rapport de 27 pour 1.\n");
+	printf("    ⚠️ MA REGLE, QUE JE NE NEGOCIE PAS : si la projection pese MOINS DE 50 %%,\n");
+	printf("    je CHANGE DE CIBLE et je le dis, meme si cela contredit le titre du plan.\n");
+	printf("    ⚠️ L'HYPOTHESE DANGEREUSE : Step() contient TROIS parcours de divergence,\n");
+	printf("    DEUX vorticites et QUATRE reductions. Si cette famille pese lourd, les\n");
+	printf("    244,3 ms publies comme « cout de simulation » sont en partie le cout du\n");
+	printf("    solveur qui SE MESURE LUI-MEME — et tout le lot B se relit autrement.\n");
+	char buf[640];
+
+	NkFluidGrid g;
+	ConstruirePanache(g, false, 255, 8.f); // le MEME montage que (r) : panache etabli
+
+	const uint32 kPas = 30;
+	const float32 dt = 1.f / 60.f;
+	float64 sCombu = 0, sFlot = 0, sVort = 0, sConf = 0, sVent = 0, sAdvV = 0;
+	float64 sProj = 0, sCFL = 0, sAdvS = 0, sDiss = 0, sMes = 0, sPhys = 0, sTot = 0;
+	for (uint32 s = 0; s < kPas; ++s) {
+		g.EmitSphere({0.f, 0.05f, 0.f}, 0.06f, 7.f * dt, 400.f * dt, 0.f);
+		g.Step(dt);
+		const NkFluidGridStats &t = g.Stats();
+		sCombu += t.msCombustion;
+		sFlot += t.msFlottabilite;
+		sVort += t.msVorticite1;
+		sConf += t.msConfinement;
+		sVent += t.msVent;
+		sAdvV += t.msAdvVitesse;
+		sProj += t.msProjection;
+		sCFL += t.msCFL;
+		sAdvS += t.msAdvScalaires;
+		sDiss += t.msDissipation;
+		sMes += t.msMesures;
+		sPhys += t.msPhysique;
+		sTot += t.ms;
+	}
+	const float64 n = (float64)kPas;
+	const float64 tot = sTot / n;
+	const float64 pc = (tot > 0.0) ? 100.0 / tot : 0.0;
+
+	printf("\n      grille %u x %u x %u = %u cellules, %u pas, %u balayages SOR au dernier pas\n", g.Nx(), g.Ny(),
+		   g.Nz(), g.Nx() * g.Ny() * g.Nz(), kPas, g.Stats().pressureIters);
+	printf("      phase                            ms / pas      part\n");
+	printf("      PROJECTION (solveur pression)   %9.2f   %6.2f %%\n", sProj / n, (sProj / n) * pc);
+	printf("      advection des scalaires (x3)    %9.2f   %6.2f %%\n", sAdvS / n, (sAdvS / n) * pc);
+	printf("      advection de la vitesse         %9.2f   %6.2f %%\n", sAdvV / n, (sAdvV / n) * pc);
+	printf("      vorticite (1re, pour le confin.)%9.2f   %6.2f %%\n", sVort / n, (sVort / n) * pc);
+	printf("      confinement de vorticite        %9.2f   %6.2f %%\n", sConf / n, (sConf / n) * pc);
+	printf("      flottabilite                    %9.2f   %6.2f %%\n", sFlot / n, (sFlot / n) * pc);
+	printf("      combustion                      %9.2f   %6.2f %%\n", sCombu / n, (sCombu / n) * pc);
+	printf("      vent                            %9.2f   %6.2f %%\n", sVent / n, (sVent / n) * pc);
+	printf("      CFL + sous-cyclage              %9.2f   %6.2f %%\n", sCFL / n, (sCFL / n) * pc);
+	printf("      dissipation                     %9.2f   %6.2f %%\n", sDiss / n, (sDiss / n) * pc);
+	printf("      -----------------------------------------------------\n");
+	printf("      PHYSIQUE (somme)                %9.2f   %6.2f %%\n", sPhys / n, (sPhys / n) * pc);
+	printf("      INSTRUMENTATION (le banc)       %9.2f   %6.2f %%\n", sMes / n, (sMes / n) * pc);
+	printf("      TOTAL mesure                    %9.2f   100,00 %%\n", tot);
+	fflush(stdout);
+
+	// ── (s0g) LA GARDE DE SOMME ────────────────────────────────────────────
+	const float64 somme = (sPhys + sMes) / n;
+	const float64 ecart = (tot > 0.0) ? ((somme > tot ? somme - tot : tot - somme) / tot) : 1.0;
+	snprintf(buf, sizeof(buf),
+			 "physique %.2f + instrumentation %.2f = %.2f ms, contre %.2f ms de total mesure : ecart "
+			 "relatif %.4f (seuil 2 %%, ecrit AVANT). Si la somme ne fait pas le total, une phase echappe "
+			 "au comptage et AUCUN pourcentage n'est lisible — pas meme celui qui decide du portage",
+			 sPhys / n, sMes / n, somme, tot, ecart);
+	ProbeCheck(ecart < 0.02, "(s0g) GARDE : la somme des parts vaut le TOTAL a 2 % pres", buf);
+
+	// ── LA REGLE, APPLIQUEE MECANIQUEMENT ─────────────────────────────────
+	const float64 partProj = (sProj / n) * pc;
+	const float64 reste = 1.0 - partProj / 100.0;
+	printf("\n    REGLE (ecrite AVANT) : si la projection pese MOINS de 50 %%, je change de cible.\n");
+	if (partProj >= 50.0)
+		printf("    ==> La projection pese %.2f %% : LA CIBLE DU PLAN TIENT.\n", partProj);
+	else {
+		printf("    ==> La projection ne pese que %.2f %% : JE CHANGE DE CIBLE, et je le dis.\n", partProj);
+		printf("    Le titre du plan (« le solveur de pression d'abord ») est REFUTE par la mesure.\n");
+	}
+	printf("    AMDAHL sur le chiffre MESURE : un facteur 10 sur la projection SEULE donnerait\n");
+	printf("    1 / (%.4f + %.4f/10) = %.2f fois sur le PAS COMPLET.\n", reste, partProj / 100.0,
+		   1.0 / (reste + partProj / 1000.0));
+	printf("    ⚠️ La part de l'INSTRUMENTATION (%.2f %%) se lit A PART : un moteur qui n'a pas\n",
+		   (sMes / n) * pc);
+	printf("    besoin de ces temoins ne la paierait pas.\n");
+}
+
+// =============================================================================
 // (r) LES DEUX MESURES QUI MANQUAIENT POUR CHOISIR UN CHEMIN D'AFFICHAGE.
 // Pré-enregistrées dans PLAN_FEU_VISIBLE.md, § (r), AVANT ce code.
 // Mode NK_FLUID_MAC=d. ⚠️ Ce n'est PAS un témoin de schéma : il chiffre des COÛTS.

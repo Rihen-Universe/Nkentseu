@@ -64,6 +64,7 @@ void EnqueteComptageAnalytique(); // (j1) le comptage À LA MAIN (NK_FLUID_MAC=a
 void EnqueteComptageChaleur();	  // (k1) le MÊME comptage, sur la CHALEUR (NK_FLUID_MAC=b)
 void EnqueteEchelleDebit();		  // (p2) l'échelle de débit, re-réglage de (e) (NK_FLUID_MAC=c)
 void EnqueteCoutAffichage();	  // (r) marche avec/sans ombres + le transfert (NK_FLUID_MAC=d)
+void EnqueteVentilationPas();	  // (s0) la ventilation du pas par phase (NK_FLUID_MAC=e)
 void PalierVolutes(bool complet); // (n1)(n3)(n2a) toujours ; (n2b) sous NK_FLUID_VOLUTES=1 (PLAN_VOLUTES.md)
 void ImagesDuConfinement(float32 epsilon);
 float32 EpsilonConfinement();
@@ -739,6 +740,20 @@ int main(int argc, char **argv) {
 	// banc n'ouvre aucun device. Sa part CPU l'est, le reste est BORNÉ et dit tel.
 	// ⚠️ Les deux verdicts sont des RAPPORTS, jamais des seuils en millisecondes :
 	// un seuil dépendrait de la machine, un rapport désigne le chemin à écrire.
+	// NK_FLUID_MAC=e : (s0) LA VENTILATION DU PAS. L'etape 0 du portage GPU, et
+	// elle peut TUER le lot : si la projection pese moins de 50 %, la cible change.
+	// ⚠️ AMDAHL est calcule sur le chiffre MESURE, pas suppose — un facteur 10 sur
+	// une phase qui pese 60 % ne donne que 2,17 sur le total.
+	// ⚠️ Sa garde (s0g) verifie que la somme des parts vaut le total a 2 % pres :
+	// si une phase echappe au comptage, aucun pourcentage n'est lisible.
+	if (mac != nullptr && mac[0] == 'e') {
+		EnqueteVentilationPas();
+		printf("\n=============================================================\n");
+		printf("BILAN (mode NK_FLUID_MAC=e, (s0) LA VENTILATION DU PAS) : %d controles, %d ROUGES\n", gChecks,
+			   gFailures);
+		printf("=============================================================\n");
+		return gFailures == 0 ? 0 : 1;
+	}
 	if (mac != nullptr && mac[0] == 'd') {
 		EnqueteCoutAffichage();
 		printf("\n=============================================================\n");
