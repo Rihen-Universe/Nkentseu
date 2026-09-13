@@ -852,3 +852,80 @@ Conséquence, et elle borne exactement ce que ce lot peut prétendre :
 `advectFluxConservative` reste `false`, `advectFluxLimiter` reste `Ordre1`. Les
 contrôles vivent dans le mode `b`, **hors de la course complète** (trois scènes de
 600 pas), comme (j1) : le compte de la course complète reste **87 / 7**.
+
+---
+
+## 14. LE RÉSULTAT DE (k1) — LA CHALEUR SE COMPTE, ET LE 8,7 EST MESURÉ
+
+**Mode `NK_FLUID_MAC=b`, 5 contrôles, 0 ROUGE.**
+
+```
+COMPTAGE À LA MAIN : 81 cellules ; A_T = 9,719999e-03 par pas ;
+f_T = 0,991701293 ; H attendue = 1,153720232 K·m³
+
+schéma              chaleur (K·m³)   écart à l'analytique   facteur    Tmax
+ANALYTIQUE (main)     1,153720232    —                       1,000       —
+FLUX ordre 1          1,153720617    3,338e-07               1,000     550,5
+FLUX van Leer         1,153721809    1,367e-06               1,000     571,7
+SEMI-LAGRANGIEN      10,060710907    7,720e+00               8,720    1749,4
+```
+
+**Le `1,15372` écrit d'avance est celui que le solveur conservatif rend.** Les
+trois préconditions du § 13 tiennent donc : la chaleur au-dessus de l'ambiante
+**est** une quantité conservée de ce schéma.
+
+> **Le facteur 8,720 cesse d'être une déduction.** La référence de (h1) porte bien
+> une chaleur **qu'aucune source n'a fournie**, et c'est désormais mesuré contre un
+> nombre calculé **hors du solveur**.
+
+### ⚠️ MA PRÉDICTION TOMBE DANS SON PROPRE INTERVALLE — la première fois
+
+Prédit : **`1e-6` à `1e-4`**, plus lâche qu'en (j1), pour un **mécanisme nommé**
+(la quantification du `float32` autour de 300 K). Mesuré : **`1,367e-06`**, dans
+l'intervalle, à son bord inférieur. Après trois sous-estimations, une
+surestimation et un excès de pessimisme, **c'est la première prédiction de cette
+série qui tombe juste** — et elle y tombe parce qu'elle était **adossée à un
+mécanisme** au lieu d'être une fourchette de confort.
+
+### Le mécanisme est visible, isolé par le contrôle négatif
+
+Le **même** montage négatif, joué sur les deux champs, sépare les deux effets :
+
+```
+(j1b) masse   : amplitude sur 600 pas = 0,000e+00   EXACTEMENT
+(k1b) chaleur : amplitude sur 600 pas = 1,648e-05
+```
+
+**La masse est rigoureusement constante ; la chaleur dérive de `1,6e-05`.** C'est
+exactement la quantification annoncée : la densité vit autour de **zéro**, où le
+`float32` est fin ; la température vit autour de **300 K**, où son quantum vaut
+`3,05e-05` K, et le solveur refait `T <- T_amb + (T − T_amb)·f` **600 fois**. Le
+contrôle négatif ne se contente donc pas de verdir : **il mesure l'effet qu'il
+était censé exclure.**
+
+Second détail du même ordre : van Leer s'écarte **4 fois plus** que l'ordre 1
+(`1,367e-06` contre `3,338e-07`). Le flux antidiffusif ajoute de l'arithmétique par
+face, donc des arrondis — la conservation reste exacte **en algèbre**, pas en
+`float32`.
+
+### (k0), le contrôle qui manquait à (j1)
+
+```
+grille neuve                        H = 0,000e+00   (Reset met T = T_amb : MESURÉ)
+après UN EmitSphere, AUCUN pas      H = 0,009720000  contre 0,009719999  (1,122e-07)
+                                    M = 0,000064800  contre 0,000064800  (4,628e-08)
+```
+
+Il **sépare** « la source injecte ce que je crois » de « le transport conserve » —
+deux choses que (j1) jugeait **ensemble**. Les deux attendus sont **non nuls et
+exacts**, donc ce n'est pas un témoin nul ; et il valide **rétroactivement** le
+dénombrement `N = 81` sur lequel reposait (j1).
+
+### La délimitation du § 13 reste vraie, et ce vert ne l'efface pas
+
+`Tmax` n'est pas la chaleur. Ce lot mesure **le dénominateur** de l'argument de
+Q10 — *et rien d'autre*. Il ne dit pas que `571,7 K` est la bonne valeur ; il dit
+que `1749,4 K` est atteint **avec 8,72 fois la chaleur injectée**, donc que ce
+nombre **ne peut pas servir de cible**. Ce que `Tmax` mesure ici est la
+**concentration** de la chaleur au voisinage de la source — une grandeur de
+**répartition**, gouvernée par le schéma *et* par le réglage de la scène.
