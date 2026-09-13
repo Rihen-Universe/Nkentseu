@@ -2,6 +2,7 @@
 // Nogee/Panels/WorldOutlinerPanel.cpp — portage NKUI -> NKGui, vise sur §7 (cf. .h)
 // =============================================================================
 #include "WorldOutlinerPanel.h"
+#include "Nogee/Viewport/NogeeViewport3D.h" // LA QUESTION : ce maillage est-il introuvable ?
 #include "NKGui/NKGui.h"
 #include "NKLogger/NkLog.h" // temoin du cablage (une ligne, une fois)
 #include "Noge/ECS/NkEcsUtil.h"
@@ -223,6 +224,12 @@ namespace nkentseu {
 				opened = TreeNodeEditable(ctx, idStr, node->name, static_cast<int32>(sizeof(node->name)));
 				clicked = ctx.IsItemHovered() && ctx.input.mouseClicked[0];
 			} else {
+				// ⚠️ UNE ENTITE DONT LE MAILLAGE EST INTROUVABLE DOIT SE VOIR ICI.
+				// Sans cela, elle a l'air d'un objet ordinaire dans l'arbre alors
+				// qu'elle ne peut rien afficher — c'est exactement ce qui a fait
+				// chercher un defaut de moteur pendant deux echanges.
+				if (NogeeViewport3DMaillageManquant(id.Pack()))
+					Text(ctx, "[!] maillage introuvable");
 				clicked = SelectableEditable(ctx, idStr, node->name, static_cast<int32>(sizeof(node->name)),
 											 isSelected);
 			}

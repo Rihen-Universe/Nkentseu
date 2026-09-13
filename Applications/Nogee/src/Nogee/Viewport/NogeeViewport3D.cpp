@@ -786,6 +786,25 @@ namespace nkentseu {
 
 		} // namespace
 
+		bool NogeeViewport3DMaillageManquant(nk_uint64 entite) {
+			if (!g.world || !g.ok || entite == 0ull)
+				return false;
+			NkMeshSystem *ms = g.r3 ? g.r3->GetMeshSystem() : nullptr;
+			if (!ms)
+				return false;
+			const ecs::NkEntityId id = ecs::NkEntityId::Unpack(entite);
+			if (!id.IsValid() || !g.world->IsAlive(id))
+				return false;
+			const ecs::NkMeshComponent *mc = g.world->Get<ecs::NkMeshComponent>(id);
+			if (!mc)
+				return false;
+			// La poignee n'est posee qu'apres le premier import (paresseux, dans
+			// SubmitMeshes). Avant, on ne SAIT pas : on repond non plutot que
+			// d'alarmer sur une entite qui n'a simplement pas encore ete rendue.
+			NkMeshHandle hm{mc->meshHandle};
+			return hm.IsValid() && ms->IsMissingMarker(hm);
+		}
+
 		bool NogeeViewport3DPick(float32 vx, float32 vy, nk_uint64 *entite, float32 *distance, int32 *precision) {
 			if (entite)
 				*entite = 0ull;

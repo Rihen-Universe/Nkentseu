@@ -120,6 +120,19 @@ namespace nkentseu {
 		// suffit a le definir, puisque son origine est la position de la camera.
 		bool NogeeViewport3DRayFromView(float32 vx, float32 vy, float32 origine[3], float32 direction[3]);
 
+		// ── UNE QUESTION, PAS UN ACCES ───────────────────────────────────────
+		// L'Outliner et Details doivent pouvoir SIGNALER une entite dont le
+		// maillage est introuvable. Ils n'ont pas — et ne doivent pas avoir —
+		// acces au systeme de maillage : leur ouvrir NKRenderer les ferait
+		// entrer en collision avec NKCanvas, et surtout leur donnerait un
+		// pouvoir dont ils n'ont pas besoin. On leur donne donc LA QUESTION,
+		// avec le plus petit contrat possible : un identifiant empaquete entre,
+		// un oui ou un non sort.
+		//
+		// Faux si l'entite n'existe pas, n'a pas de maillage, ou en a un valide.
+		// Vrai UNIQUEMENT si son maillage est le marqueur MAILLAGE_MANQUANT.
+		bool NogeeViewport3DMaillageManquant(nk_uint64 entite);
+
 		// ── SELECTION : QUEL OBJET SOUS CE PIXEL ─────────────────────────────
 		// Parcours ECS sur le CPU, AABB puis triangles, le plus proche gagne.
 		// Arbitrage de Rodolf (13/09) : le CPU d'abord — le tampon d'identifiants
