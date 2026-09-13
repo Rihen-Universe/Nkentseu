@@ -650,6 +650,90 @@ namespace nkanima {
 		g.editor.InsertPoseKey(local);
 	}
 
+	// ── Sortie : écrire ce qui vient d'être édité (2026-09-13) ─────────────────
+	// On EMPRUNTE l'écrivain qui existe déjà dans NKAnima (`SaveBinary`, format
+	// `.nkanim` v2). L'éditeur édite `g.clip` EN PLACE (NkAnimationEditor tient un
+	// pointeur sur lui et écrit dans ses `boneTracks`) : le clip courant EST donc
+	// exactement ce qu'il faut écrire, sans conversion ni copie intermédiaire.
+	bool AnimExportClip(const char *path) {
+		if (!g.loaded || !path || !*path)
+			return false;
+		return g.clip.SaveBinary(nkentseu::NkString(path));
+	}
+
+	const void *AnimClipHandle() {
+		return (const void *)&g.clip;
+	}
+
+	uint32 AnimScriptedEdit(uint32 count, float32 amp) {
+		if (!g.loaded || count == 0)
+			return 0;
+		const uint32 jc = (uint32)g.clip.jointParent.Size();
+		if (jc == 0)
+			return 0;
+		// Joints PORTEURS d'enfants : ce sont les seuls que l'aim-FK fait pivoter
+		// visiblement (une feuille tournerait sur elle-même sans rien entraîner).
+		NkVector<bool> hasChild;
+		hasChild.Resize(jc);
+		for (uint32 j = 0; j < jc; ++j)
+			hasChild[j] = false;
+		for (uint32 j = 0; j < jc; ++j) {
+			int32 p = g.clip.jointParent[j];
+			if (p >= 0 && (uint32)p < jc)
+				hasChild[(uint32)p] = true;
+		}
+		NkVector<int32> movable;
+		for (uint32 j = 0; j < jc; ++j)
+			if (hasChild[j])
+				movable.PushBack((int32)j);
+		if (movable.Empty())
+			return 0;
+		const uint32 before = g.editor.PoseKeyCount();
+		const float32 dur = g.clip.duration;
+		uint32 changed = 0;
+		for (uint32 k = 0; k < count; ++k) {
+			const float32 t = dur * (float32)(k + 1) / (float32)(count + 1);
+			AnimSeek(t);					   // curseur + player en pause, comme un scrub
+			g.player.Update(0.f);			   // rafraîchit l'état À t même en pause (cf. NK_POSE_TEST)
+			const float32 tc = g.editor.GetCursor(); // temps APRÈS snap : c'est lui qui fait foi
+			AnimBeginPoseEdit();			   // capture la pose de travail
+			const int32 j = movable[(uint32)(k % (uint32)movable.Size())];
+			// ⚠️ Compter les poses-clés AJOUTÉES ne prouverait RIEN ici : un clip
+			// baké à 30 ips a déjà une clé à chaque image (61 clés pour 2 s), donc
+			// insérer au curseur REMPLACE une clé existante et le compte ne bouge
+			// pas. Le témoin honnête est la VALEUR : on relit la matrice de l'os
+			// édité à ce temps-là, avant et après, et on la compare AU BIT.
+			NkMat4f avant = NkMat4f::Identity();
+			bool avaitCle = false;
+			if ((uint32)j < (uint32)g.clip.boneTracks.Size()) {
+				int32 ki = g.clip.boneTracks[(uint32)j].FindKeyAtTime(tc, 1e-3f);
+				if (ki >= 0) {
+					avant = g.clip.boneTracks[(uint32)j].GetKey((uint32)ki).value;
+					avaitCle = true;
+				}
+			}
+			AnimRotateJoint(j, amp * 0.1f * (float32)(k + 1));
+			AnimCommitPoseKey();
+			AnimEndPoseEdit();
+			if ((uint32)j < (uint32)g.clip.boneTracks.Size()) {
+				int32 ki = g.clip.boneTracks[(uint32)j].FindKeyAtTime(tc, 1e-3f);
+				if (ki >= 0) {
+					const NkMat4f &apres = g.clip.boneTracks[(uint32)j].GetKey((uint32)ki).value;
+					bool diff = !avaitCle;
+					for (int e = 0; e < 16 && !diff; ++e)
+						if (avant.data[e] != apres.data[e])
+							diff = true;
+					if (diff)
+						++changed;
+				}
+			}
+		}
+		const uint32 after = g.editor.PoseKeyCount();
+		logger.Info("[AnimBridge] edition scriptee : {0} -> {1} poses-cles, {2}/{3} modifiees (amp={4})\n", before,
+					after, changed, count, amp);
+		return changed;
+	}
+
 	// ── Viewport 3D embarqué (device PARTAGÉ avec l'éditeur) ───────────────────────
 	void Anim3DSetSharedDevice(void *device) {
 		g.sharedDev = (NkIDevice *)device;

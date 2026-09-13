@@ -1,4 +1,5 @@
 #pragma once
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // =============================================================================
 // AnimBridge.h — pont anim <-> UI. Interface en types FOUNDATION uniquement
 // (float/NkVec3f/NkVector). N'inclut NI NKRenderer NI l'Editor Kit : évite le
@@ -76,6 +77,35 @@ namespace nkanima {
 	void AnimJointWorldPos(int32 jointIdx, float32 &x, float32 &y, float32 &z);
 	// Enregistre la pose de travail en pose-clé au curseur courant.
 	void AnimCommitPoseKey();
+
+	// ── Sortie : écrire ce qu'on vient d'éditer (2026-09-13) ──────────────────
+	// L'éditeur n'écrivait RIEN : ce qu'on posait ne sortait pas du processus. Le
+	// format n'est PAS neuf — c'est le `.nkanim` binaire versionné que NKAnima
+	// possède déjà (`NkAnimationClip::SaveBinary`/`LoadBinary`, v2), celui-là même
+	// que DemoAnim (Sandbox) écrit puis rejoue. On l'emprunte, on n'en invente pas
+	// un de plus.
+	//
+	// ⚠️ CE QUE LE FORMAT NE PORTE TOUJOURS PAS : les pistes de morph, de transform
+	// objet, de matériau, de caméra et de lumière du clip. Elles ne sont pas encore
+	// éditables ici, donc rien n'est perdu AUJOURD'HUI — mais le jour où l'éditeur
+	// y touchera, l'écrivain devra suivre. (La perte des `jointNames`, elle, a été
+	// mesurée le 2026-09-13 et corrigée : le format est passé en v3.)
+	bool AnimExportClip(const char *path); // .nkanim du clip courant ; false si rien
+
+	// Édition SCRIPTÉE, sans la moindre injection d'entrée (ni souris ni clavier) :
+	// pour chaque k, place le curseur à t = duration*(k+1)/(count+1), entre en
+	// édition de pose, fait pivoter un joint porteur d'enfants de `amp`*0,1*(k+1)
+	// radians, et enregistre la pose-clé. C'est le seul moyen de rejouer un geste
+	// d'édition sans main sur la souris.
+	// Renvoie le nombre de poses-clés dont la VALEUR a changé — surtout pas le
+	// nombre de clés ajoutées : un clip baké à 30 ips a déjà une clé à chaque
+	// image, donc une insertion au curseur en REMPLACE une et n'en ajoute aucune.
+	uint32 AnimScriptedEdit(uint32 count, float32 amp);
+
+	// Adresse du clip courant (`const nkentseu::anim::NkAnimationClip*`) exposée en
+	// `void*` pour que cet en-tête reste sans NKAnima, comme Anim3DSetSharedDevice
+	// le fait déjà pour le device. Sert à l'empreinte (ExportCli.cpp).
+	const void *AnimClipHandle();
 
 	// ── Viewport 3D embarqué (NKRenderer offscreen, device PARTAGÉ avec l'UI) ──
 	// texId du viewport dans le backend NKGui (AddImage côté panneau / RegisterTexture
