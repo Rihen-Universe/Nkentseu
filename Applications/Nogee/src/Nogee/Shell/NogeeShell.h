@@ -74,6 +74,15 @@ namespace nkentseu {
 		// la mise en evidence soit MESURABLE en pixels sans qu'aucun clic ne soit
 		// simule. Sans ce drapeau, la selection initiale du shell porte sur une
 		// entite SANS mesh : rien ne doit alors s'entourer.
+		// ── LA SCENE SURVIT-ELLE A LA FERMETURE ? ────────────────────────────
+		// `--viewport-sauver=<f>` ecrit la scene puis journalise son empreinte
+		// AVANT ; `--viewport-charger=<f>` la relit dans un PROCESSUS NEUF et
+		// journalise l'empreinte APRES. On compare les deux textes.
+		// `--viewport-modifier` est le NEGATIF : il perturbe une transformation
+		// apres lecture, et la comparaison DOIT alors echouer.
+		void NogeeShellViewportSauver(const char *chemin) noexcept;
+		void NogeeShellViewportCharger(const char *chemin) noexcept;
+		void NogeeShellViewportModifier() noexcept;
 		void NogeeShellViewportSelectionne() noexcept;
 		void NogeeShellViewportSelection() noexcept;
 		void NogeeShellViewportPointage() noexcept;

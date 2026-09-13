@@ -113,15 +113,21 @@ namespace nkentseu {
 				const auto &cs = reg.entries[i];
 				if (!cs.serialize || !cs.typeName)
 					continue;
-
-				// TODO : obtenir le pointeur du composant via NkWorld + typeId
-				// Pour l'instant on produit des archives vides (stub — Phase 2 complet)
-				// La vraie implémentation nécessite NkTypeRegistry::GetComponent(world, id, typeId)
-				(void)world;
-				(void)id;
+				// Chaque serialiseur fait son propre Get<T> typé et rend FAUX si
+				// l'entite ne porte pas ce composant : une entite sans maillage
+				// n'ecrit pas de bloc maillage vide.
+				NkArchive compArc;
+				if (!cs.serialize(world, id, compArc))
+					continue;
+				out.SetObject(cs.typeName, compArc);
 				++written;
 			}
 
+			// UN COMPTE ECRIT DANS LE FICHIER. Sans lui, une archive qui perd
+			// tous ses composants se relit sans une seule erreur -- c'est
+			// exactement ce que faisait la version precedente, qui rendait
+			// `true` apres n'avoir rien ecrit.
+			out.SetInt64("componentCount", (nk_int64)written);
 			return true;
 		}
 
@@ -172,18 +178,17 @@ namespace nkentseu {
 			auto &reg = Registry::Get();
 			for (nk_uint32 i = 0; i < reg.count; ++i) {
 				const auto &cs = reg.entries[i];
-				if (!cs.typeName || !cs.deserialize || !cs.addDefault)
+				if (!cs.typeName || !cs.deserialize)
 					continue;
 
 				NkArchive compArc;
 				if (!arc.GetObject(cs.typeName, compArc))
 					continue;
 
-				// Ajouter le composant par défaut puis désérialiser
-				cs.addDefault(scene.World(), id);
-				void *ptr = nullptr; // TODO : obtenir via NkWorld::GetRaw(id, typeId)
-				if (ptr)
-					cs.deserialize(ptr, compArc);
+				// Le deserialiseur AJOUTE le composant puis le remplit : un seul
+				// geste, donc jamais d'etat intermediaire ou le composant existe
+				// et reste a sa valeur par defaut.
+				cs.deserialize(scene.World(), id, compArc);
 			}
 
 			return true;
