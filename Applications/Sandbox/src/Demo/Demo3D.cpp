@@ -14,11 +14,13 @@
 #include "NKRenderer/Tools/VFX/NkVFXSystem.h" // sonde VFX
 #include "NKRenderer/Tools/VFX/NkSPHSolver.h" // sonde fluide SPH (2026-09-04)
 #include "NKPhysics/NkVehicle.h"          // sonde VEHICULE (NK_VEHICLE_PROBE=1)
+#include "NKRenderer/Mesh/NkFBXLoader.h"   // le VRAI corps de la voiture (2026-09-13)
 #include "NKPhysics/NkCloth.h"            // sonde TISSU XPBD (NK_CLOTH_PROBE=1, 2026-09-05)
 #include "NKVFX/NkWaterMeshBuilder.h"     // sonde OCEAN (NK_OCEAN_PROBE=1, 2026-09-13)
 #include "Demo3DMannequin.h"              // sonde VETEMENTS SUR MANNEQUIN (NK_MANNEQUIN_PROBE=1, 2026-09-05)
 #include <cstdlib>
 #include <cstring>
+#include <cmath> // camera de poursuite (lissage independant de la cadence), 2026-09-13
 #include "NKRenderer/Tools/VFX/NkGpuAtomicWitness.h" // temoin des atomiques NkSL (2026-09-05)
 #include <cstdio>
 #include "DemoCommon.h"
@@ -57,6 +59,57 @@ namespace nkentseu {
 				nkentseu::physics::NkPhysicsWorld *vehWorld = nullptr;
 				nkentseu::physics::NkVehicle *veh = nullptr;
 				float32 vehClock = 0.f;
+				// ── PILOTAGE / CAMERA / VRAI CORPS (2026-09-13) ─────────────────────
+				// L'entree n'est plus ecrite en dur : soit le CLAVIER (fleches + espace,
+				// H bascule conduite<->editeur), soit un SCENARIO ECRIT (liste de
+				// couples temps/commande) sous NK_VEHICLE_SCENARIO=1. Aucune touche
+				// n'est jamais simulee : le scenario appelle SetInput directement,
+				// comme le banc NkSystemsRevivalTest.
+				bool vehDrive = true;									   // conduite : la camera suit, les fleches pilotent
+				float32 vehSteer = 0.f, vehThrottle = 0.f, vehBrake = 0.f; // derniere consigne ENVOYEE
+				float32 vehSpin[4] = {0.f, 0.f, 0.f, 0.f};				   // angle de roulement, rad (DERIVE de la vitesse)
+				// Camera de poursuite + de quoi MESURER qu'elle suit et ne tremble pas.
+				bool vehCamInit = false;
+				bool vehCamFollow = true; // NK_VEHICLE_CAM=0 -> figee (volet negatif de v2)
+				NkVec3f vehCamPos{}, vehCamTgt{}, vehCamPrev{};
+				float32 vehCamJitMax = 0.f;
+				float64 vehCamJitSum = 0.0;
+				uint32 vehCamJitN = 0;
+				// TREMBLER n'est pas AVANCER : une camera qui suit une voiture a 8 m/s
+				// se deplace forcement de 0,06 m par image a 140 images/s. Ce qui
+				// distingue un suivi lisse d'un tremblement, c'est la variation de ce
+				// deplacement -- la difference SECONDE. On mesure les deux.
+				NkVec3f vehCamDeltaPrev{};
+				float32 vehCamSecMax = 0.f;
+				float64 vehCamSecSum = 0.0;
+				uint32 vehCamSecN = 0;
+				float32 vehCamSecDt = 0.f; // la duree de l'image ou le pire a eu lieu : un chiffre porte sa cadence
+				uint32 vehFramesIn = 0, vehFramesTot = 0; // images ou la voiture est CADREE (les 3 conditions)
+				uint32 vehFramesNdc = 0, vehFramesVu = 0; // le detail : rectangle central / dans le tronc de vue
+				float32 vehNdcMax = 0.f;				  // pire ecart au centre de l'image (max(|x|,|y|) en NDC)
+				// ⚠️ MESURE DU 13/09 : « dans le rectangle central » NE TEMOIGNE PAS a lui
+				// seul. Camera FIGEE, la voiture s'eloigne EN LIGNE DROITE : son ecart
+				// angulaire au centre reste sous 0,5 et le volet negatif restait vert a
+				// 2798/2798. Ce qui discrimine, c'est la DISTANCE (et donc la taille a
+				// l'ecran) et l'appartenance au tronc de vue -- la voiture finit a plus de
+				// 100 m, au-dela du plan lointain. On mesure les trois.
+				float32 vehDistMin = 1e30f, vehDistMax = 0.f;
+				float64 vehDistSum = 0.0;
+				float32 vehDtPrec = 0.f, vehCamSecDtPrec = 0.f;
+				// Le vrai corps : maillages CUITS (transforms de noeud FBX appliquees).
+				bool vehModel = false; // faux -> cube + spheres, et le journal le DIT
+				NkMeshHandle vehBodyMesh;
+				NkMeshHandle vehWheelMesh[4];
+				float32 vehWheelVisR[4] = {0.f, 0.f, 0.f, 0.f}; // rayon VISUEL de chaque roue (m)
+				float32 vehPhysR = 0.f;							// rayon PHYSIQUE (NkVehicleTuning n'en a qu'UN)
+				// Scenario ecrit + releves.
+				bool vehScenario = false;
+				uint32 vehPhase = 0;
+				NkVec3f vehMarkPos{}, vehMarkRight{};
+				float64 vehDtSum = 0.0;
+				float32 vehDtMax = 0.f;
+				uint32 vehDtN = 0;
+				bool vehVerdict = false;
 				// sonde TISSU (NK_CLOTH_PROBE=1, 2026-09-05) : une nappe XPBD lachee sur une sphere, dans le vent
 				nkentseu::physics::NkCloth *cloth = nullptr;
 				nkentseu::math::NkUniformForceField clothWind;
@@ -2253,12 +2306,245 @@ static NkTexHandle CreateLanternCubeCookie(NkTextureLibrary *texLib, NkIDevice *
 				sol.orientation = NkQuatf::Identity();
 				st->vehWorld->CreateBody(sol, collision::NkShape::Box3D({0.f, -0.5f, 0.f}, {200.f, 0.5f, 200.f}));
 				st->veh = new NkVehicle(*st->vehWorld);
-				st->veh->SetChassisBox({-4.f, 1.15f, -3.f}, {0.9f, 0.5f, 2.2f}, 1200.f);
-				st->veh->AddWheel({-0.8f, -0.5f, 1.3f}, NkWheel::kSteered);
-				st->veh->AddWheel({0.8f, -0.5f, 1.3f}, NkWheel::kSteered);
-				st->veh->AddWheel({-0.8f, -0.5f, -1.3f}, NkWheel::kPowered);
-				st->veh->AddWheel({0.8f, -0.5f, -1.3f}, NkWheel::kPowered);
-				std::fprintf(stderr, "[VEHICULE PROBE] voiture creee (chassis id=%u)\n", (unsigned)st->veh->Chassis());
+				st->vehScenario = [] { const char *e = std::getenv("NK_VEHICLE_SCENARIO"); return e && e[0] == '1'; }();
+				if (const char *cf = std::getenv("NK_VEHICLE_CAM"); cf && cf[0] == '0')
+					st->vehCamFollow = false; // volet NEGATIF de v2 : camera figee
+				// ═══════════════════════════════════════════════════════════════
+				//  LE VRAI CORPS (2026-09-13) — Futuristic_Car_2.1_fbx.fbx.
+				//
+				//  ⚠️ CE QUE LE CHARGEUR NE FAIT PAS, ET QU'IL FAUT FAIRE ICI :
+				//  `renderer::LoadFBX` remplit `out.nodes` (TRS de chaque Model) mais
+				//  n'APPLIQUE PAS ces transforms a la geometrie statique (cf. l'entete
+				//  de NkFBXLoader.h). Ce modele a 15 Geometry placees par 16 Model :
+				//  le maillage fusionne brut est donc un TAS a l'origine, couche sur
+				//  le flanc (boite mesuree 2,488 x 7,096 x 2,087 -- la longueur sur Y).
+				//  Le noeud racine `Car_Con_Box` porte Lcl Rotation = (-90, 0, 0) :
+				//  la geometrie est Z-up, redressee par le noeud. On assemble donc
+				//  soi-meme, puis on MESURE la boite obtenue au lieu de la supposer.
+				//
+				//  ⚠️ `Resources/Models/car.glb` est un LEURRE : 168 octets, JSON
+				//  « NK low placeholder », `"primitives":[{}]`, maillage VIDE. Il
+				//  donnerait une voiture INVISIBLE qu'on prendrait pour un defaut de
+				//  rendu. On ne le charge jamais.
+				//
+				//  Ce qui est RENDU et ce qui est un proxy de rig : mesure par le
+				//  MATERIAU, pas par le nom. Les 5 pieces dont le materiau s'appelle
+				//  « box » (Car_Con_Box + les quatre *_Wheel_Force_*) sont les
+				//  volumes de commande de l'addon voiture ; les 10 autres portent
+				//  Futuristic_Car / _black / _glass. Seules ces 10 sont dessinees.
+				// ═══════════════════════════════════════════════════════════════
+				const NkVec3f startPos = {-4.f, 1.15f, -3.f};
+				bool poseDepuisModele = false;
+				NkVec3f halfEx = {0.9f, 0.5f, 2.2f};	 // repli : la caisse cubique d'avant
+				NkVec3f ancre[4] = {{-0.8f, -0.5f, 1.3f}, {0.8f, -0.5f, 1.3f}, {-0.8f, -0.5f, -1.3f}, {0.8f, -0.5f, -1.3f}};
+				bool steered[4] = {true, true, false, false};
+				{
+					static const char *kChemins[] = {"Resources/Models/Futuristic_Car_2.1_fbx.fbx",
+													 "../../../../Resources/Models/Futuristic_Car_2.1_fbx.fbx"};
+					// Les QUATRE roues rendues, par le nom que l'artiste a donne au Model.
+					// (Les noms sont melanges dans le fichier -- « Front_Steering_Mesh_2_R »
+					// EST la roue avant droite : mesure, boite ronde en YZ, mince en X,
+					// centree sur un des quatre coins. On garde le nom du fichier.)
+					static const char *kRoues[4] = {"Back_Wheel_Mesh_1_L", "Back_Wheel_Mesh_1_R",
+													"Front_Wheel_Mesh_2_L", "Front_Steering_Mesh_2_R"};
+					renderer::NkGLTFMeshData fbx;
+					bool charge = false;
+					// NK_VEHICLE_NOMODEL=1 : LA MUTATION du volet negatif de v3 -- on refuse
+					// de charger le modele, et le repli (cube + 4 spheres) doit se voir ET
+					// se DIRE. Un repli silencieux donnerait une voiture invisible qu'on
+					// prendrait pour un defaut de rendu. Meme idiome que NK_SPH_NOPRESSURE.
+					const bool sansModele = [] { const char *e = std::getenv("NK_VEHICLE_NOMODEL"); return e && e[0] == '1'; }();
+					for (uint32 c = 0; c < 2u && !charge && !sansModele; ++c)
+						charge = renderer::LoadFBX(NkString(kChemins[c]), fbx);
+					if (!charge || fbx.subMeshes.Empty()) {
+						std::fprintf(stderr, "[VEHICULE MODELE] ECHEC (%s) -> on RETOMBE sur le cube + 4 spheres\n",
+									 sansModele ? "NK_VEHICLE_NOMODEL=1, mutation demandee" : "FBX introuvable ou vide");
+					} else {
+						// (a) transforms MONDE de chaque noeud (le chargeur ne les applique pas)
+						const uint32 nn = (uint32)fbx.nodes.Size();
+						NkVector<NkMat4f> gm;
+						NkVector<int32> parent;
+						gm.Resize(nn);
+						parent.Resize(nn);
+						for (uint32 i = 0; i < nn; ++i) parent[i] = -1;
+						for (uint32 i = 0; i < nn; ++i)
+							for (uint32 c = 0; c < (uint32)fbx.nodes[i].children.Size(); ++c) {
+								const int32 ch = fbx.nodes[i].children[c];
+								if (ch >= 0 && ch < (int32)nn) parent[(uint32)ch] = (int32)i;
+							}
+						NkVector<uint8> fait;
+						fait.Resize(nn);
+						for (uint32 i = 0; i < nn; ++i) fait[i] = 0u;
+						for (uint32 pass = 0; pass < nn + 1u; ++pass)
+							for (uint32 i = 0; i < nn; ++i) {
+								if (fait[i]) continue;
+								const int32 p = parent[i];
+								if (p >= 0 && !fait[(uint32)p]) continue;
+								const renderer::NkGLTFNode &nd = fbx.nodes[i];
+								const NkMat4f loc = nd.hasMatrix ? nd.matrix
+															 : NkMat4f::TRS(nd.translation,
+																			NkQuatf(nd.rotation.x, nd.rotation.y, nd.rotation.z, nd.rotation.w),
+																			nd.scale);
+								gm[i] = (p >= 0) ? (gm[(uint32)p] * loc) : loc;
+								fait[i] = 1u;
+							}
+						// (b) cuisson par groupe : 0 = caisse, 1..4 = les quatre roues
+						NkVector<renderer::NkVertex3D> gv[5];
+						NkVector<uint32> gi[5];
+						NkVec3f bmin[5], bmax[5];
+						for (uint32 g = 0; g < 5u; ++g) { bmin[g] = {1e30f, 1e30f, 1e30f}; bmax[g] = {-1e30f, -1e30f, -1e30f}; }
+						uint32 ignores = 0;
+						for (uint32 s = 0; s < (uint32)fbx.subMeshes.Size(); ++s) {
+							const renderer::NkSubMesh &sm = fbx.subMeshes[s];
+							// proxy de rig ? le materiau le dit
+							const int32 mi = (s < (uint32)fbx.subMeshMaterial.Size()) ? fbx.subMeshMaterial[s] : -1;
+							// ⚠️ MESURE DU 13/09 : le nom d'un materiau sort du chargeur AVEC sa
+							// decoration FBX -- l'octet nul puis 0x01 puis « Material » (les
+							// sous-mesh, eux, passent par FbxCleanName ; les materiaux non).
+							// Comparer a « box » rendait 0 exclusion sur 5 attendues, et la
+							// caisse mesurait 3,539 de large au lieu de 3,220 : les cylindres
+							// de commande du rig etaient comptes dans le chassis. On coupe donc
+							// au premier octet de controle avant de comparer.
+							bool proxyDeRig = false;
+							if (mi >= 0 && mi < (int32)fbx.materials.Size()) {
+								const char *mn = fbx.materials[(uint32)mi].name.CStr();
+								uint32 k = 0;
+								char net[32] = {0};
+								while (mn && mn[k] && (unsigned char)mn[k] >= 0x20u && k < 31u) { net[k] = mn[k]; ++k; }
+								proxyDeRig = (std::strcmp(net, "box") == 0);
+							}
+							if (proxyDeRig) {
+								++ignores;
+								continue;
+							}
+							uint32 grp = 0;
+							for (uint32 w = 0; w < 4u; ++w)
+								if (sm.name == NkString(kRoues[w])) grp = w + 1u;
+							int32 ni = -1;
+							for (uint32 i = 0; i < nn; ++i)
+								if (fbx.nodes[i].name == sm.name) { ni = (int32)i; break; }
+							const NkMat4f M = (ni >= 0) ? gm[(uint32)ni] : NkMat4f::Identity();
+							for (uint32 ii = 0; ii < sm.indexCount; ++ii) {
+								const uint32 vi = fbx.indices[sm.firstIndex + ii] + sm.baseVertex;
+								if (vi >= (uint32)fbx.vertices.Size()) continue;
+								renderer::NkVertex3D v = fbx.vertices[vi];
+								const NkVec3f p0 = M.TransformPoint(v.pos);
+								// ⚠️ NkMat4T::TransformVector NE COMPILE PAS (NkMat.h:994 : elle
+								// renvoie un NkVec4 la ou sa signature promet un NkVec3). C'est un
+								// modele : personne ne l'avait jamais instanciee, donc l'erreur
+								// dormait. On ne touche pas a NKMath depuis ici -- on prend la
+								// difference de deux points, ce qui EST la transformation d'une
+								// direction pour une transformation affine (et celles-ci le sont :
+								// tous les Lcl Scaling du fichier valent 1, mesure).
+								const NkVec3f n = M.TransformPoint(v.pos + v.normal) - p0;
+								const float32 ln = std::sqrt(n.Dot(n));
+								v.pos = p0;
+								v.normal = (ln > 1e-8f) ? n * (1.f / ln) : NkVec3f{0.f, 1.f, 0.f};
+								gi[grp].PushBack((uint32)gv[grp].Size());
+								gv[grp].PushBack(v);
+								bmin[grp] = {v.pos.x < bmin[grp].x ? v.pos.x : bmin[grp].x, v.pos.y < bmin[grp].y ? v.pos.y : bmin[grp].y,
+											 v.pos.z < bmin[grp].z ? v.pos.z : bmin[grp].z};
+								bmax[grp] = {v.pos.x > bmax[grp].x ? v.pos.x : bmax[grp].x, v.pos.y > bmax[grp].y ? v.pos.y : bmax[grp].y,
+											 v.pos.z > bmax[grp].z ? v.pos.z : bmax[grp].z};
+							}
+						}
+						bool complet = !gv[0].Empty();
+						for (uint32 g = 1; g < 5u; ++g)
+							if (gv[g].Empty()) complet = false;
+						if (!complet) {
+							std::fprintf(stderr, "[VEHICULE MODELE] ECHEC : caisse=%u sommets, roues=%u/%u/%u/%u -> on RETOMBE sur le cube + 4 spheres\n",
+										 (unsigned)gv[0].Size(), (unsigned)gv[1].Size(), (unsigned)gv[2].Size(), (unsigned)gv[3].Size(),
+										 (unsigned)gv[4].Size());
+						} else {
+							// (c) l'ECHELLE, mesuree : on ramene la LONGUEUR de la caisse a 4,4 m
+							//     (la longueur du chassis d'origine). Le fichier dit
+							//     UnitScaleFactor = 100 (1 unite = 1 m) et la caisse mesure
+							//     ~6,96 -> le modele n'est pas a l'echelle d'une vraie voiture.
+							const NkVec3f tailleA = bmax[0] - bmin[0];
+							const NkVec3f centreA = (bmax[0] + bmin[0]) * 0.5f;
+							const float32 kLongueurCible = 4.4f;
+							const float32 s = (tailleA.z > 1e-4f) ? (kLongueurCible / tailleA.z) : 1.f;
+							// L'AVANT du modele est en -Z (les deux roues directrices y sont),
+							// l'avant de la physique est en +Z (le banc : plein gaz -> +Z).
+							// D'ou un lacet de 180 deg CUIT dans les sommets : (x,y,z) -> (-x,y,-z).
+							const NkVec3f o = {-s * centreA.x, s * centreA.y, -s * centreA.z}; // origine chassis
+							auto versChassis = [&](const NkVec3f &p) -> NkVec3f {
+								return {-s * p.x - o.x, s * p.y - o.y, -s * p.z - o.z};
+							};
+							halfEx = tailleA * (s * 0.5f);
+							// rayons VISUELS + centres des roues, mesures groupe par groupe
+							NkVec3f cw[4];
+							float32 sommeR = 0.f;
+							for (uint32 w = 0; w < 4u; ++w) {
+								const NkVec3f tw = (bmax[w + 1] - bmin[w + 1]) * s;
+								const NkVec3f cwa = (bmax[w + 1] + bmin[w + 1]) * 0.5f;
+								st->vehWheelVisR[w] = 0.5f * (tw.y > tw.z ? tw.y : tw.z); // l'axe MINCE est X
+								sommeR += st->vehWheelVisR[w];
+								cw[w] = versChassis(cwa);
+							}
+							st->vehPhysR = sommeR * 0.25f; // NkVehicleTuning n'a qu'UN rayon
+							// Ancres de suspension : X/Z du modele, et un SEUL Y pour les quatre
+							// (sinon la caisse reposerait de travers -- les roues avant du modele
+							// sont plus petites que les arrieres, 2 rayons pour 1 seul dans la
+							// physique). Au repos le centre de roue pend de 2/3 de la course.
+							const float32 kRest = 0.35f; // NkVehicleTuning::restLength, valeur par defaut
+							float32 yMoy = 0.f;
+							for (uint32 w = 0; w < 4u; ++w) yMoy += cw[w].y;
+							yMoy *= 0.25f;
+							for (uint32 w = 0; w < 4u; ++w) {
+								ancre[w] = {cw[w].x, yMoy + (2.f / 3.f) * kRest, cw[w].z};
+								steered[w] = cw[w].z > 0.f; // +Z = avant : ce sont les roues directrices
+							}
+							// (d) cuisson finale dans le bon repere + creation des maillages
+							for (uint32 g = 0; g < 5u; ++g) {
+								const NkVec3f org = (g == 0) ? NkVec3f{0.f, 0.f, 0.f} : cw[g - 1];
+								for (uint32 i = 0; i < (uint32)gv[g].Size(); ++i) {
+									renderer::NkVertex3D &v = gv[g][i];
+									v.pos = versChassis(v.pos) - org;
+									v.normal = {-v.normal.x, v.normal.y, -v.normal.z};
+									v.tangent = {1.f, 0.f, 0.f};
+									v.uv2 = v.uv;
+									v.color = 0xFFFFFFFFu;
+								}
+								renderer::NkMeshDesc md = renderer::NkMeshDesc::Simple(
+									renderer::NkVertexLayout::Default3D(), gv[g].Data(), (uint32)gv[g].Size(), gi[g].Data(),
+									(uint32)gi[g].Size());
+								md.debugName = (g == 0) ? "Vehicule_Caisse" : "Vehicule_Roue";
+								if (g == 0) st->vehBodyMesh = meshSys->Create(md);
+								else st->vehWheelMesh[g - 1] = meshSys->Create(md);
+							}
+							st->vehModel = st->vehBodyMesh.IsValid();
+							for (uint32 w = 0; w < 4u; ++w)
+								if (!st->vehWheelMesh[w].IsValid()) st->vehModel = false;
+							poseDepuisModele = st->vehModel;
+							std::fprintf(stderr,
+										 "[VEHICULE MODELE] %s : %u sous-mesh, %u ignores (materiau « box » = proxy de rig)\n"
+										 "[VEHICULE MODELE] boite ASSEMBLEE de la caisse (unites fichier) = %.3f x %.3f x %.3f, centre (%.3f, %.3f, %.3f)\n"
+										 "[VEHICULE MODELE] axe haut = Y APRES les transforms de noeud (racine Car_Con_Box : Lcl Rotation X = -90 deg ; geometrie Z-up)\n"
+										 "[VEHICULE MODELE] echelle = %.4f (longueur %.3f -> %.2f m) ; lacet 180 deg cuit (avant du modele en -Z, avant physique en +Z)\n"
+										 "[VEHICULE MODELE] demi-tailles chassis = (%.3f, %.3f, %.3f) m ; rayon PHYSIQUE = %.3f m (un seul), rayons VISUELS = %.3f/%.3f/%.3f/%.3f m\n"
+										 "[VEHICULE MODELE] ancres (repere chassis) : (%.3f,%.3f,%.3f)%s (%.3f,%.3f,%.3f)%s (%.3f,%.3f,%.3f)%s (%.3f,%.3f,%.3f)%s\n",
+										 kChemins[0], (unsigned)fbx.subMeshes.Size(), (unsigned)ignores, tailleA.x, tailleA.y, tailleA.z,
+										 centreA.x, centreA.y, centreA.z, s, tailleA.z, kLongueurCible, halfEx.x, halfEx.y, halfEx.z,
+										 st->vehPhysR, st->vehWheelVisR[0], st->vehWheelVisR[1], st->vehWheelVisR[2], st->vehWheelVisR[3],
+										 ancre[0].x, ancre[0].y, ancre[0].z, steered[0] ? " AV" : " AR", ancre[1].x, ancre[1].y, ancre[1].z,
+										 steered[1] ? " AV" : " AR", ancre[2].x, ancre[2].y, ancre[2].z, steered[2] ? " AV" : " AR",
+										 ancre[3].x, ancre[3].y, ancre[3].z, steered[3] ? " AV" : " AR");
+						}
+					}
+				}
+				st->veh->SetChassisBox(startPos, halfEx, 1200.f);
+				for (uint32 w = 0; w < 4u; ++w)
+					st->veh->AddWheel(ancre[w], steered[w] ? NkWheel::kSteered : NkWheel::kPowered);
+				if (poseDepuisModele)
+					st->veh->Tuning().wheelRadius = st->vehPhysR;
+				else
+					st->vehPhysR = st->veh->Tuning().wheelRadius;
+				std::fprintf(stderr,
+							 "[VEHICULE PROBE] voiture creee (chassis id=%u) ; corps = %s ; pilotage = %s\n"
+							 "[VEHICULE PROBE] CLAVIER : Haut = accelerer, Bas = marche arriere, Gauche/Droite = braquer, Espace = frein, H = conduite/editeur\n",
+							 (unsigned)st->veh->Chassis(), poseDepuisModele ? "Futuristic_Car_2.1_fbx.fbx" : "CUBE + 4 SPHERES (repli)",
+							 st->vehScenario ? "SCENARIO ECRIT (NK_VEHICLE_SCENARIO=1, aucune touche lue)" : "clavier");
 			}
 			// LE VENT (2026-09-05) : NK_VFX_WIND / NK_SPH_WIND = uniform|vortex|turb|curl:strength[:frequence]
 			auto parseWind = [](const char *s, NkForceField &f) {
@@ -2875,6 +3161,19 @@ static NkTexHandle CreateLanternCubeCookie(NkTextureLibrary *texLib, NkIDevice *
 					logger.Info("[Demo3D] Camera = {0}\n", st->useSimCam
 															   ? "SIMULATION (fly: WASD+clic droit)"
 															   : "EDITEUR (orbit: milieu/Shift+milieu/molette)");
+				}
+			});
+			// H : CONDUIRE <-> EDITER (2026-09-13, sonde VEHICULE). En conduite, la
+			// caméra suit la voiture et les flèches pilotent ; en édition, on retrouve
+			// la caméra orbit/fly et la voiture roule sur son erre. La bascule n'existe
+			// que si la sonde est active — sans elle, H reste libre.
+			NkEvents().AddEventCallback<NkKeyPressEvent>([st](NkKeyPressEvent *e) {
+				if (e->GetKey() == NkKey::NK_H && st->veh && !st->editMode) {
+					st->vehDrive = !st->vehDrive;
+					st->vehCamInit = false; // la caméra se replace sans glisser depuis l'ancienne pose
+					logger.Info("[Demo3D] Vehicule = {0}\n",
+								st->vehDrive ? "CONDUITE (fleches = braquer/accelerer, Bas = marche arriere, Espace = frein)"
+											 : "EDITEUR (la voiture continue sur son erre)");
 				}
 			});
 			// Pavé numérique façon Blender : 1=FRONT (Ctrl=BACK) · 3=RIGHT (Ctrl=LEFT) ·
@@ -4481,17 +4780,130 @@ static NkTexHandle CreateLanternCubeCookie(NkTextureLibrary *texLib, NkIDevice *
 					const char *e = std::getenv("NK_MAXFRAMES");
 					return e ? (unsigned)std::atoi(e) : 0u;
 				}();
-				// sonde VEHICULE : plein gaz 1 s apres le depart, braquage doux ensuite
+				// ── SONDE VEHICULE : LE PILOTAGE (2026-09-13) ─────────────────────
+				// L'entree venait d'ici, ECRITE EN DUR : SetInput(0, 1, 0). Elle vient
+				// desormais soit du CLAVIER (c'est le lot : que Rodolf conduise), soit
+				// d'un SCENARIO ECRIT. ⚠️ Aucune touche n'est JAMAIS simulee : le
+				// scenario est une liste de couples (temps, commande) qui appelle
+				// SetInput directement -- exactement ce que fait le banc
+				// NkSystemsRevivalTest. Le clavier est pour Rodolf, pas pour la mesure.
 				if (st->veh && st->vehWorld) {
 					st->vehClock += dt;
-					st->veh->SetInput(0.f, 1.f, 0.f); // ligne droite, plein gaz : on veut la VOIR rouler
+					st->vehDtSum += (float64)dt;
+					st->vehDtMax = dt > st->vehDtMax ? dt : st->vehDtMax;
+					++st->vehDtN;
+					const auto *b0 = st->vehWorld->GetBody(st->veh->Chassis());
+					float32 steer = 0.f, thr = 0.f, brk = 0.f;
+					if (st->vehScenario && st->vehDtN == 1u) {
+						st->vehMarkPos = b0->position; // sinon la 1re « derive » se mesure depuis (0,0,0)
+						st->vehMarkRight = b0->orientation.Right();
+					}
+					if (st->vehScenario) {
+						// LE SCENARIO ECRIT — six phases, chacune avec ce qu'elle prouve.
+						// (t de debut, braquage, accelerateur, frein, ce qu'on y mesure)
+						struct Phase { float32 t0; float32 s, a, f; const char *quoi; };
+						static const Phase kScn[] = {
+							{0.0f,  0.f, 0.f, 0.f, "repos : la voiture se pose"},
+							{1.5f,  0.f, 1.f, 0.f, "ACCELERATEUR : ForwardSpeed doit CROITRE"},
+							{4.5f,  0.f, 0.f, 0.f, "RIEN : volet negatif -- sans touche la vitesse doit TENDRE VERS 0"},
+							{7.5f,  0.f, 1.f, 0.f, "ACCELERATEUR : on reprend de la vitesse pour braquer"},
+							{10.5f, 1.f, 1.f, 0.f, "BRAQUAGE : la trajectoire doit DEVIER (position laterale)"},
+							{14.5f, 0.f, 0.f, 1.f, "FREIN : ForwardSpeed doit DECROITRE jusqu'a l'arret"},
+							{17.5f, 0.f, 0.f, 0.f, "fin"}};
+						const uint32 kN = (uint32)(sizeof(kScn) / sizeof(kScn[0]));
+						uint32 p = 0;
+						while (p + 1u < kN && st->vehClock >= kScn[p + 1u].t0) ++p;
+						if (p != st->vehPhase) {
+							// FRONTIERE DE PHASE : on releve, et pour le braquage on
+							// mesure la DERIVE LATERALE (projection sur l'axe droit du
+							// repere pris au debut de la phase), pas une impression.
+							const NkVec3f d = b0->position - st->vehMarkPos;
+							std::fprintf(stderr,
+										 "[VEHICULE SCENARIO] t=%.2fs fin de « %s » : v=%+.3f m/s, pos=(%.3f, %.3f, %.3f), "
+										 "deplacement depuis le debut de la phase = %.3f m, DERIVE LATERALE = %+.3f m\n",
+										 st->vehClock, kScn[st->vehPhase].quoi, st->veh->ForwardSpeed(), b0->position.x,
+										 b0->position.y, b0->position.z, (float32)std::sqrt(d.Dot(d)), d.Dot(st->vehMarkRight));
+							st->vehPhase = p;
+							st->vehMarkPos = b0->position;
+							st->vehMarkRight = b0->orientation.Right();
+							std::fprintf(stderr, "[VEHICULE SCENARIO] t=%.2fs debut de « %s » -> SetInput(%.1f, %.1f, %.1f)\n",
+										 st->vehClock, kScn[p].quoi, kScn[p].s, kScn[p].a, kScn[p].f);
+						}
+						steer = kScn[p].s;
+						thr = kScn[p].a;
+						brk = kScn[p].f;
+					} else if (st->vehDrive) {
+						// LE CLAVIER — fleches + espace. Pas de ZQSD/WASD : ces touches
+						// appartiennent deja a la camera fly et au gizmo de l'editeur.
+						if (NkInput.IsKeyDown(NkKey::NK_LEFT)) steer -= 1.f;
+						if (NkInput.IsKeyDown(NkKey::NK_RIGHT)) steer += 1.f;
+						if (NkInput.IsKeyDown(NkKey::NK_UP)) thr += 1.f;
+						if (NkInput.IsKeyDown(NkKey::NK_DOWN)) thr -= 1.f;
+						if (NkInput.IsKeyDown(NkKey::NK_SPACE)) brk = 1.f;
+					}
+					st->vehSteer = steer;
+					st->vehThrottle = thr;
+					st->vehBrake = brk;
+					st->veh->SetInput(steer, thr, brk);
 					st->vehWorld->Advance(dt); // la voiture avance DEDANS, au pas fixe
+					// ROULEMENT DES ROUES — DERIVE de la vitesse du chassis, pas simule :
+					// NkWheel ne porte AUCUN angle de roulement (il porte le braquage, la
+					// compression, le contact). Une roue qui tourne au rythme de la caisse
+					// n'invente rien tant qu'on le dit : elle ne patine pas a l'image.
+					{
+						const float32 v = st->veh->ForwardSpeed();
+						for (uint32 w = 0; w < 4u && w < st->veh->WheelCount(); ++w) {
+							const float32 r = st->vehWheelVisR[w] > 1e-3f ? st->vehWheelVisR[w] : st->vehPhysR;
+							if (r > 1e-3f) st->vehSpin[w] += (v / r) * dt;
+						}
+					}
 					if ((ctx.frame % 60u) == 0u) {
 						const auto *b = st->vehWorld->GetBody(st->veh->Chassis());
-						std::fprintf(stderr, "[VEHICULE PROBE] frame %u t=%.2fs : pos=(%.2f, %.2f, %.2f) v=%.2f m/s roues au sol=%d%d%d%d\n",
+						// le braquage REEL est celui des roues DIRECTRICES : l'ordre des
+						// roues vient des groupes du FBX, la roue 0 n'est pas forcement
+						// une roue avant.
+						float32 braquageReel = 0.f;
+						for (uint32 w = 0; w < st->veh->WheelCount(); ++w)
+							if (std::fabs(st->veh->Wheel(w).steerAngle) > std::fabs(braquageReel))
+								braquageReel = st->veh->Wheel(w).steerAngle;
+						std::fprintf(stderr,
+									 "[VEHICULE PROBE] frame %u t=%.2fs : pos=(%.2f, %.2f, %.2f) v=%.2f m/s roues au sol=%d%d%d%d "
+									 "consigne=(braquage %+.2f, gaz %+.2f, frein %.2f) braquage reel=%+.1f deg\n",
 									 (unsigned)ctx.frame, st->vehClock, b->position.x, b->position.y, b->position.z, st->veh->ForwardSpeed(),
 									 (int)st->veh->Wheel(0).grounded, (int)st->veh->Wheel(1).grounded,
-									 (int)st->veh->Wheel(2).grounded, (int)st->veh->Wheel(3).grounded);
+									 (int)st->veh->Wheel(2).grounded, (int)st->veh->Wheel(3).grounded, st->vehSteer, st->vehThrottle,
+									 st->vehBrake, braquageReel * 57.29578f);
+					}
+					// ── LE VERDICT, a la derniere image (NK_MAXFRAMES) ────────────
+					// Un chiffre porte sa configuration : on redit la cadence sous
+					// laquelle il a ete pris, sinon « 0,08 m par image » ne veut rien
+					// dire (a 30 images/s la camera parcourt deux fois plus par image
+					// qu'a 60, pour exactement le meme mouvement).
+					if (maxFramesProbe && ctx.frame + 1 == maxFramesProbe && !st->vehVerdict) {
+						st->vehVerdict = true;
+						const float32 dtMoy = st->vehDtN ? (float32)(st->vehDtSum / (float64)st->vehDtN) : 0.f;
+						const float32 jitMoy = st->vehCamJitN ? (float32)(st->vehCamJitSum / (float64)st->vehCamJitN) : 0.f;
+						std::fprintf(stderr,
+									 "[VEHICULE VERDICT] %u images, dt moyen %.4f s (%.1f images/s), dt max %.4f s ; corps = %s\n"
+									 "[VEHICULE VERDICT] CADRAGE : %u/%u images CADREES = %.1f %% (rectangle central %u, tronc de "
+									 "vue %u, distance <= 20 m) ; pire ecart au centre %.3f ; distance min/moy/max %.1f/%.1f/%.1f m ; "
+									 "camera %s\n"
+									 "[VEHICULE VERDICT] SUIVI : deplacement de la camera entre deux images -- moyen %.4f m, "
+									 "max %.4f m (soit %.2f m/s au pire : c'est la VITESSE de la voiture, pas un tremblement)\n"
+									 "[VEHICULE VERDICT] STABILITE : variation de ce deplacement (difference SECONDE, le vrai "
+									 "tremblement) -- moyenne %.5f m, max %.5f m, ce max entre une image de %.4f s et la precedente "
+									 "de %.4f s (dt moyen %.4f s)\n",
+									 (unsigned)st->vehDtN, dtMoy, dtMoy > 1e-6f ? 1.f / dtMoy : 0.f, st->vehDtMax,
+									 st->vehModel ? "Futuristic_Car_2.1_fbx.fbx" : "CUBE + 4 SPHERES (repli)",
+									 (unsigned)st->vehFramesIn, (unsigned)st->vehFramesTot,
+									 st->vehFramesTot ? 100.f * (float32)st->vehFramesIn / (float32)st->vehFramesTot : 0.f,
+									 (unsigned)st->vehFramesNdc, (unsigned)st->vehFramesVu, st->vehNdcMax,
+									 st->vehFramesTot ? st->vehDistMin : 0.f,
+									 st->vehFramesTot ? (float32)(st->vehDistSum / (float64)st->vehFramesTot) : 0.f, st->vehDistMax,
+									 st->vehCamFollow ? "QUI SUIT" : "FIGEE (volet negatif)", jitMoy,
+									 st->vehCamJitMax, dtMoy > 1e-6f ? st->vehCamJitMax / dtMoy : 0.f,
+									 st->vehCamSecN ? (float32)(st->vehCamSecSum / (float64)st->vehCamSecN) : 0.f, st->vehCamSecMax,
+									 st->vehCamSecDt, st->vehCamSecDtPrec, dtMoy);
 					}
 				}
 				// sonde TISSU : pas FIXE 1/60, cout du pas mesure, sommets renvoyes au maillage
@@ -4812,6 +5224,90 @@ static NkTexHandle CreateLanternCubeCookie(NkTextureLibrary *texLib, NkIDevice *
 				st->editorCam.Apply(cam); // NK_FIX_CAM : pose figée déterministe
 			}
 
+			// ── LA CAMERA QUI SUIT LA VOITURE (2026-09-13) ────────────────────────
+			// Elle ecrase la camera d'edition tant qu'on CONDUIT (H bascule). Elle est
+			// derriere la voiture, sur l'horizontale : le lacet du chassis est pris a
+			// PLAT (composante Y retiree) -- sinon chaque tangage de suspension ferait
+			// piquer la camera, et c'est precisement le tremblement qu'on veut eviter.
+			// Le lissage est INDEPENDANT DE LA CADENCE : alpha = 1 - exp(-k*dt). Ecrit
+			// en alpha constant, la camera tremblerait a 30 images/s et pas a 120 --
+			// et le chiffre de stabilite ne voudrait plus rien dire.
+			if (st->veh && st->vehWorld && st->vehDrive) {
+				const auto *b = st->vehWorld->GetBody(st->veh->Chassis());
+				if (b) {
+					const NkVec3f f = b->orientation.Forward();
+					NkVec3f plat = {f.x, 0.f, f.z};
+					const float32 lp = std::sqrt(plat.Dot(plat));
+					plat = (lp > 1e-4f) ? plat * (1.f / lp) : NkVec3f{0.f, 0.f, 1.f};
+					const float32 kRecul = 9.f, kHauteur = 3.4f, kVisee = 4.f, kViseeH = 1.2f;
+					const NkVec3f veutP = b->position - plat * kRecul + NkVec3f{0.f, kHauteur, 0.f};
+					const NkVec3f veutT = b->position + plat * kVisee + NkVec3f{0.f, kViseeH, 0.f};
+					if (!st->vehCamInit) {
+						st->vehCamPos = veutP;
+						st->vehCamTgt = veutT;
+						st->vehCamPrev = veutP;
+						st->vehCamInit = true;
+					} else if (st->vehCamFollow) {
+						const float32 aP = 1.f - std::exp(-6.f * dt);  // position : souple
+						const float32 aT = 1.f - std::exp(-12.f * dt); // visee : plus vive, sinon on perd la voiture en virage
+						st->vehCamPos = st->vehCamPos + (veutP - st->vehCamPos) * aP;
+						st->vehCamTgt = st->vehCamTgt + (veutT - st->vehCamTgt) * aT;
+					}
+					cam.SetPosition(st->vehCamPos);
+					cam.SetTarget(st->vehCamTgt);
+					cam.SetOrtho(false);
+					// ── LES DEUX CHIFFRES DE v2, releves ICI (la camera est definitive) ──
+					// 1) la voiture reste-t-elle dans le rectangle central de l'image ?
+					//    (projection du chassis par le viewProj de CETTE image)
+					// 2) la camera tremble-t-elle ? (deplacement entre deux images)
+					const NkMat4f vp = cam.GetViewProj();
+					const NkVec3f ndc = vp.TransformPoint(b->position);
+					const float32 ax = std::fabs(ndc.x), ay = std::fabs(ndc.y);
+					const float32 pire = ax > ay ? ax : ay;
+					const NkVec3f versCam = b->position - st->vehCamPos;
+					const float32 dist = std::sqrt(versCam.Dot(versCam));
+					const bool dansRect = (pire <= 0.5f);
+					const bool vue = cam.IsSphereVisible(b->position, 2.5f); // rayon englobant de la voiture
+					const bool cadree = dansRect && vue && dist <= 20.f;
+					++st->vehFramesTot;
+					if (dansRect) ++st->vehFramesNdc;
+					if (vue) ++st->vehFramesVu;
+					if (cadree) ++st->vehFramesIn;
+					if (pire > st->vehNdcMax) st->vehNdcMax = pire;
+					st->vehDistSum += (float64)dist;
+					if (dist < st->vehDistMin) st->vehDistMin = dist;
+					if (dist > st->vehDistMax) st->vehDistMax = dist;
+					const NkVec3f dcam = st->vehCamPos - st->vehCamPrev;
+					const float32 jit = std::sqrt(dcam.Dot(dcam));
+					if (st->vehFramesTot > 1u) {
+						st->vehCamJitSum += (float64)jit;
+						++st->vehCamJitN;
+						if (jit > st->vehCamJitMax) st->vehCamJitMax = jit;
+						if (st->vehFramesTot > 2u) {
+							const NkVec3f sec = dcam - st->vehCamDeltaPrev;
+							const float32 ls = std::sqrt(sec.Dot(sec));
+							st->vehCamSecSum += (float64)ls;
+							++st->vehCamSecN;
+							if (ls > st->vehCamSecMax) {
+								st->vehCamSecMax = ls;
+								st->vehCamSecDt = dt;
+								st->vehCamSecDtPrec = st->vehDtPrec;
+							}
+						}
+						st->vehCamDeltaPrev = dcam;
+					}
+					st->vehCamPrev = st->vehCamPos;
+					st->vehDtPrec = dt;
+					if (st->vehScenario && (ctx.frame % 120u) == 0u)
+						std::fprintf(stderr,
+									 "[VEHICULE CAMERA] frame %u t=%.2fs %s : voiture a (%.3f, %.3f) en NDC, a %.1f m "
+									 "-> %s ; %u/%u images cadrees\n",
+									 (unsigned)ctx.frame, st->vehClock, st->vehCamFollow ? "SUIT" : "FIGEE (volet negatif)", ndc.x,
+									 ndc.y, dist, cadree ? "CADREE" : (vue ? "hors cadre" : "HORS DU TRONC DE VUE"),
+									 (unsigned)st->vehFramesIn, (unsigned)st->vehFramesTot);
+				}
+			}
+
 			// ── Lights ───────────────────────────────────────────────────────────
 			NkSceneContext sctx;
 			sctx.camera = cam;
@@ -5033,25 +5529,50 @@ static NkTexHandle CreateLanternCubeCookie(NkTextureLibrary *texLib, NkIDevice *
 				dc.metallic = 0.f;
 				dc.roughness = 0.92f;
 				r3d->Submit(dc);
-				// sonde VEHICULE : chassis (cube) + 4 roues (spheres), transformes du monde physique
+				// ── sonde VEHICULE : LE CORPS (2026-09-13) ────────────────────────
+				// Le maillage du FBX est cuit en repere CHASSIS (echelle, lacet de 180
+				// deg et recentrage deja dans les sommets) : il suffit donc de le poser
+				// sur la transformation du corps physique, sans rien recalculer -- c'est
+				// ce qui rend la comparaison « le modele suit-il le chassis ? » exacte
+				// au dernier chiffre, et non approximative.
+				// Si le modele manque, on RETOMBE sur le cube + 4 spheres -- jamais une
+				// voiture invisible en silence (le journal l'a deja dit a l'init).
 				if (st->veh && st->vehWorld) {
 					const auto *b = st->vehWorld->GetBody(st->veh->Chassis());
 					NkDrawCall3D vc;
-					vc.mesh = st->meshCube;
-					vc.transform = NkMat4f::TRS(b->position, b->orientation, {1.8f, 1.0f, 4.4f});
-					vc.aabb = {b->position - NkVec3f{3.f, 3.f, 3.f}, b->position + NkVec3f{3.f, 3.f, 3.f}};
-					vc.tint = {0.85f, 0.15f, 0.1f};
+					vc.mesh = st->vehModel ? st->vehBodyMesh : st->meshCube;
+					vc.transform = st->vehModel ? NkMat4f::TRS(b->position, b->orientation, {1.f, 1.f, 1.f})
+												: NkMat4f::TRS(b->position, b->orientation, {1.8f, 1.0f, 4.4f});
+					vc.aabb = {b->position - NkVec3f{4.f, 4.f, 4.f}, b->position + NkVec3f{4.f, 4.f, 4.f}};
+					vc.tint = st->vehModel ? NkVec3f{1.f, 1.f, 1.f} : NkVec3f{0.85f, 0.15f, 0.1f};
 					vc.metallic = 0.6f;
 					vc.roughness = 0.35f;
 					r3d->Submit(vc);
 					for (uint32 wi = 0; wi < st->veh->WheelCount(); ++wi) {
 						const auto &w = st->veh->Wheel(wi);
+						const bool vraieRoue = st->vehModel && wi < 4u && st->vehWheelMesh[wi].IsValid();
 						NkDrawCall3D wc;
-						wc.mesh = st->meshSphere;
-						const float32 rr = st->veh->Tuning().wheelRadius;
-						wc.transform = NkMat4f::TRS(w.worldPos, b->orientation, {rr * 2.f, rr * 2.f, rr * 2.f});
-						wc.aabb = {w.worldPos - NkVec3f{1.f, 1.f, 1.f}, w.worldPos + NkVec3f{1.f, 1.f, 1.f}};
-						wc.tint = w.grounded ? NkVec3f{0.1f, 0.1f, 0.1f} : NkVec3f{0.9f, 0.9f, 0.1f};
+						wc.mesh = vraieRoue ? st->vehWheelMesh[wi] : st->meshSphere;
+						const float32 rPhys = st->veh->Tuning().wheelRadius;
+						if (vraieRoue) {
+							// NkVehicle n'a qu'UN rayon pour les quatre roues, le modele en
+							// a deux (avant plus petites que les arriere). On corrige la
+							// HAUTEUR de chaque roue de l'ecart, pour que le bas de la roue
+							// DESSINEE touche exactement le point de contact calcule.
+							const NkVec3f up = b->orientation.Up();
+							const NkVec3f c = w.worldPos - up * (rPhys - st->vehWheelVisR[wi]);
+							// braquage autour de l'axe haut du chassis, roulement autour de
+							// son axe droit : l'ordre compte (on braque, PUIS on roule).
+							const NkQuatf qs(NkAngle::FromRad(w.steerAngle), NkVec3f{0.f, 1.f, 0.f});
+							const NkQuatf qr(NkAngle::FromRad(st->vehSpin[wi]), NkVec3f{1.f, 0.f, 0.f});
+							wc.transform = NkMat4f::TRS(c, b->orientation * qs * qr, {1.f, 1.f, 1.f});
+							wc.aabb = {c - NkVec3f{1.5f, 1.5f, 1.5f}, c + NkVec3f{1.5f, 1.5f, 1.5f}};
+							wc.tint = {1.f, 1.f, 1.f};
+						} else {
+							wc.transform = NkMat4f::TRS(w.worldPos, b->orientation, {rPhys * 2.f, rPhys * 2.f, rPhys * 2.f});
+							wc.aabb = {w.worldPos - NkVec3f{1.5f, 1.5f, 1.5f}, w.worldPos + NkVec3f{1.5f, 1.5f, 1.5f}};
+							wc.tint = w.grounded ? NkVec3f{0.1f, 0.1f, 0.1f} : NkVec3f{0.9f, 0.9f, 0.1f};
+						}
 						wc.metallic = 0.f;
 						wc.roughness = 0.9f;
 						r3d->Submit(wc);
