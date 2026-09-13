@@ -272,7 +272,7 @@ ratio `.h`/`.cpp` n'est pas une mesure de complétude. Ce qui suit l'est.
 |---|---|---|
 | Facial | 790 | 0 |
 | Anim2D | 468 | 0 |
-| Sequencer | 416 | 0 |
+| Sequencer | 416 | **451** (2026-09-13) |
 | Viewport | 378 | 0 |
 | Physics | 346 | 0 |
 | Selection | 310 | 0 |
@@ -3191,8 +3191,86 @@ débloquante (ce que chaque item permet de faire ensuite) :
     (application des composants, actuellement stub), nettoyer les doublons
     morts (`Core/NkEngineLayer.h`, `Rendering/NkRenderer.h`,
     `Physics/NkPhysicsComponents.h`).
-11. ⬜ **`Sequencer/NkSequencer.h`** — structures de données/évaluation de
-    timeline pures (le rendu des tracks caméra/lumière est Phase C).
+11. ✅ **`Sequencer/NkSequencer.{h,cpp}`** — **fait le 2026-09-13** (`NkSequencer.cpp`, 451 l.).
+    Les 16 méthodes déclarées sans corps en ont un ; les 16 autres étaient déjà
+    inline. Le banc `Applications/NkSequenceCheck` le prouve **sans fenêtre et
+    sans GPU** : une séquence de 2 s à 24 i/s produit des PNG numérotés sur le
+    disque, et deux images de la suite diffèrent.
+    ⚠️ **Ce qui n'est PAS fait, et qui le dit dans le code** : les pistes NLA
+    n'appliquent rien (la pile de poses n'existe pas), `SaveToFile`/`LoadFromFile`
+    rendent `false` sans toucher au disque, et **onze des treize `NkTrackType`**
+    sortent de `NkTrack::Evaluate` sans rien modifier — seuls `Transform` et
+    `Property` agissent. Le rendu des pistes caméra/lumière reste Phase C.
+
+
+---
+
+# 🎬 LE SÉQUENCEUR A UN CORPS — 2026-09-13
+
+> **Provenance de tous les chiffres de ce bloc** : arbre `Nkentseu-film`, branche
+> `feat/sequenceur-film`, partie de `9c3fad332` (= `transit` = `origin/main`,
+> vérifié par `rev-parse`) · Windows · `jenga build --config Release`.
+> **Verdict lu dans le `Status:` du journal, jamais dans le code de sortie.**
+
+**Ce qui a changé.** `Sequencer/NkSequencer.h` (416 l.) était une spécification
+sans corps depuis son écriture. Mesure du 2026-09-13 : **16 méthodes déclarées
+sans corps, 16 définies inline** — et surtout **aucun `#include` dans tout le
+dépôt** : il n'était jamais passé dans un compilateur. Un commentaire de
+`NkEcsUtil.h:21` affirmait pourtant qu'il était utilisé.
+
+**Le piège, à retenir pour tout le reste de Noge.** L'en-tête **compile nu**
+(0 erreur). Son corps, lui, ne compilait pas : `using namespace ecs;`
+(`NkSequencer.h:50`) fait entrer un second `NkKeyframe`
+(`Noge/ECS/Components/Animation/NkAnimation.h:185`), le nom devient ambigu, la
+définition perd son statut de membre, et le champ `time` retombe alors sur
+`::time` de la libc — le compilateur finit par parler de `time_t`. L'en-tête ne
+s'en apercevait pas parce qu'il se qualifie lui-même **une seule fois**, l.116.
+
+> **Un en-tête qui compile n'annonce pas que son corps compilera.** Les autres
+> sous-systèmes « spec seule » de ce document (`Facial` 790 l., `Anim2D` 468 l.,
+> `Viewport` 378 l., `Selection` 310 l.…) sont dans la même situation : leur
+> « ça compile » ne vaut que pour l'en-tête.
+
+**Ce qui est livré.** `NkSequencer.cpp`, 451 l. Interpolation (`Constant`,
+`Linear`, `Bezier`/`Auto` par Hermite, trois `Ease`), canaux de clés triés en
+permanence, **contrat de bord** aligné sur `NKAnima` (hors intervalle → valeur de
+bord, jamais d'extrapolation), fondus de clips, plan caméra actif, avance du temps
+avec bouclage **par modulo** (une remise à `loopStart` ferait dériver la cadence),
+évaluation d'une piste `Transform` vers `NkTransform` avec `worldDirty` posé.
+
+**Ce qui n'est PAS livré, et qui refuse de faire semblant.** `NkNLATrack::Evaluate`
+n'applique rien. `SaveToFile`/`LoadFromFile` rendent `false` **sans toucher au
+disque** : un format qui perdrait caméras et marqueurs serait à supporter pour
+toujours. Onze `NkTrackType` sur treize sortent sans rien modifier. Les trois sont
+nommés dans le code, à l'endroit exact.
+
+**La preuve.** `Applications/NkSequenceCheck` — application console, **aucune
+fenêtre, aucun GPU, aucune souris, aucun clavier**. Quatre critères, chacun avec
+son attendu écrit avant la mesure **et son négatif** : les clés se relisent (et
+ne s'extrapolent pas), le temps change la pose (et à vitesse nulle elle ne bouge
+pas d'un bit), les images existent sur le disque (et à durée nulle il n'y en a
+aucune, pas une seule vide), deux images de la suite diffèrent (et si le temps
+est figé, elles sont identiques).
+
+    BILAN MESURE : 21 verts, 0 rouges, 48 images ecrites
+
+> ⚠️ **Ce que ce banc ne prouve pas.** Les pixels sont **peints par le
+> processeur** — un fond fixe et un carré dont la position est lue dans le monde
+> ECS *après* `Evaluate`. Ce n'est pas une preuve de `NKRenderer` : c'est une
+> preuve du **pilote temporel**, qui est ce qui manquait. Le rendu hors écran
+> (`NkOffscreenTarget::ReadbackPixels` / `Capture`, qui existent et tournent déjà
+> dans NK3DModeler) est une **question séparée**, volontairement non mélangée à
+> celle-ci : un banc qui exigerait un périphérique ne tournerait pas sur une
+> machine sans GPU, et un échec de device se lirait comme un échec du séquenceur.
+
+**Dette ouverte, non payée ici.** (a) `using namespace ecs;` dans un en-tête
+public impose ses collisions à tout ce qui l'inclut ; le retirer touche tout Noge
+et se mesure à part. (b) `AddTrack`, `AddChannel`, `AddClip`, `AddShot` et
+`AddMarker` rendent **une référence dans un `NkVector` qui vient de grossir** : le
+bloc USAGE de l'en-tête (l.25-32) enseigne un motif qui devient un pointeur fou dès
+la deuxième piste. Le banc adresse tout **par indice**.
+
+---
 
 ## Phase B — GPU léger (une fois un peu de marge disponible)
 
