@@ -2277,10 +2277,156 @@ int NkSondeOceanGrille() {
 			   "(n1) le compte d'indices vaut EXACTEMENT 2 (nx-1)(ny-1) 3");
 		XCHECK(m.aretesTrois == 0u && m.aretesUneFois == bordAttendu,
 			   "(n1b) chaque arete INTERIEURE est partagee par exactement DEUX triangles");
-		XCHECK(m.orientationNeg == 0u && m.orientationPos == n / 3u,
+		// ⚠️ CE CRITERE NE DIT QUE LA COHERENCE, ET IL A LAISSE PASSER UNE FAUTE.
+		// L'aire signee se prend en espace PARAMETRE (i, j) : tous les triangles y
+		// tournent dans le meme sens, et c'est tout ce qu'on peut y lire. Du 12/09 au
+		// 13/09 ce nombre etait VERT pendant que la normale geometrique de chaque
+		// triangle pointait vers le BAS dans le monde -- l'ocean etait eclaire par
+		// dessous. Un critere de coherence est satisfait aussi bien a l'endroit qu'a
+		// l'envers ; c'est (n1e), avec une camera, qui dit le SENS.
+		// Le signe attendu a CHANGE le 13/09 avec le correctif d'enroulement : il est
+		// desormais NEGATIF en espace parametre, et c'est ce qui met la normale du
+		// monde vers le HAUT.
+		XCHECK(m.orientationPos == 0u && m.orientationNeg == n / 3u,
 			   "(n1c) l'enroulement est COHERENT : aucun triangle a contresens");
 		XCHECK(m.degeneres == 0u && m.horsBornes == 0u,
 			   "(n1d) aucun triangle degenere, aucun indice hors bornes");
+
+		// (n1e) LE SENS, ET PAS SEULEMENT LA COHERENCE -- le trou par lequel la faute
+		// du 12/09 est passee.
+		//
+		// La combinatoire ne peut pas voir un enroulement retourne : il faut poser la
+		// grille DANS LE MONDE. On lui donne donc une camera, on deprojette chaque
+		// sommet sur le plan d'eau, et on mesure le produit vectoriel des deux aretes
+		// de chaque triangle -- la grandeur dont le rasteriseur derive la face.
+		//
+		// 🎯 LE SIGNE ATTENDU NE VIENT PAS D'UN RAISONNEMENT, IL VIENT DU DEPOT.
+		// Ma premiere version de ce temoin exigeait `(e1 x e2).y > 0` « parce qu'une
+		// surface d'eau se regarde par le dessus » -- et elle rougissait sur les
+		// quatre poses. J'avais raisonne sur la main droite en oubliant que la
+		// projection du moteur renverse l'enroulement vu a l'ecran.
+		//
+		// La reference est `NkMeshSystem::CreatePlaneMesh` : ce plan porte DEUX
+		// nappes, et celle qu'il commente « enroulement visible d'EN HAUT -> nappe du
+		// dessus (normale +Y) » ecrit (a, a+1, b) avec a+1 en +X et b en +Z, donc
+		// e1 x e2 = (0, -dx.dz, 0) : **y NEGATIF**. C'est un plan qui s'eclaire
+		// correctement dans toutes les demos depuis des mois.
+		//
+		// La convention effective du moteur est donc : **face avant vue du dessus
+		// <=> (e1 x e2).y < 0**, et le produit avec la direction de l'oeil est
+		// negatif de la meme facon. Un temoin qui affirme l'inverse mesure ma
+		// trigonometrie, pas le moteur.
+		//
+		// ⚠️ DEUX NOMBRES, PAS UN. Le sens vertical et le sens face a l'oeil sont
+		// deux proprietes distinctes ; elles coincident tant que l'oeil est au-dessus
+		// de l'eau. Si elles divergeaient un jour, ce serait la scene qui aurait
+		// change, pas le pavage.
+		//
+		// ⚠️ ET ON BALAIE PLUSIEURS POSES. Une seule pose ne prouverait rien d'un
+		// maillage construit DEPUIS la camera : le sens doit tenir pour toutes.
+		{
+			const Pose poses[4] = {{{0.f, 3.f, 8.f}, {0.f, 0.6f, 0.f}, "plongeante"},
+								   {{0.f, 1.6f, 9.f}, {0.f, 0.6f, 0.f}, "rasante"},
+								   {{0.f, 9.f, 2.f}, {0.f, 0.6f, 0.f}, "du dessus"},
+								   {{-7.f, 4.f, -6.f}, {0.f, 0.6f, 0.f}, "de biais"}};
+			for (uint32 ip = 0; ip < 4u; ++ip) {
+				NkProjectedGridParams pg;
+				pg.cols = cols;
+				pg.rows = rows;
+				pg.baseY = 0.6f;
+				pg.rangeCamera = true;
+				const NkProjectedGrid gg = BUILD(poses[ip], pg);
+				NkVec3f pos[81];
+				bool ok = gg.visible;
+				for (uint32 j = 0; ok && j <= rows; ++j)
+					for (uint32 i = 0; ok && i <= cols; ++i)
+						if (!NkProjectedGridVertex(gg, pg, i, j, pos[j * (cols + 1u) + i]))
+							ok = false;
+				if (!ok) {
+					std::fprintf(stderr, "     (n1e) pose %s : la grille REFUSE, pose ecartee\n",
+								 poses[ip].nom);
+					continue;
+				}
+				uint32 haut = 0u, bas = 0u, versCam = 0u, dosCam = 0u;
+				for (uint32 t = 0; t + 2u < n; t += 3u) {
+					const NkVec3f &a = pos[tri[t]], &b = pos[tri[t + 1u]], &c = pos[tri[t + 2u]];
+					const NkVec3f e1 = b - a, e2 = c - a;
+					const NkVec3f nrm{e1.y * e2.z - e1.z * e2.y, e1.z * e2.x - e1.x * e2.z,
+									  e1.x * e2.y - e1.y * e2.x};
+					if (nrm.y > 0.f)
+						++haut;
+					else if (nrm.y < 0.f)
+						++bas;
+					const NkVec3f g3 = (a + b + c) * (1.f / 3.f);
+					const NkVec3f versOeil = poses[ip].oeil - g3;
+					const float32 d = nrm.x * versOeil.x + nrm.y * versOeil.y + nrm.z * versOeil.z;
+					if (d > 0.f)
+						++versCam;
+					else if (d < 0.f)
+						++dosCam;
+				}
+				std::fprintf(stderr,
+							 "     (n1e) pose %s : e1xe2 y<0 (face AVANT, convention du plan de"
+							 " NkMeshSystem) %u / y>0 %u | vers l'oeil %u / de dos %u (sur %u"
+							 " triangles)\n",
+							 poses[ip].nom, bas, haut, dosCam, versCam, n / 3u);
+				XCHECK(haut == 0u && bas == n / 3u,
+					   "(n1e) chaque triangle presente sa FACE AVANT a une camera au-dessus de l'eau");
+				XCHECK(versCam == 0u && dosCam == n / 3u,
+					   "(n1e) ... et le meme signe se lit face a l'oeil, sur toutes les poses");
+			}
+		}
+
+		// (n1f) LE VOLET NEGATIF DE (n1e), et il vise le defaut REEL du 12/09 :
+		// un pavage retourne est-il ATTRAPE ? On retourne les trois indices de chaque
+		// triangle -- ce que faisait exactement l'ancien ordre -- et on verifie que
+		// (n1e) rougirait, pendant que (n1c) resterait satisfait a l'envers.
+		{
+			uint32 renverse[512];
+			for (uint32 t = 0; t + 2u < n; t += 3u) {
+				renverse[t] = tri[t];
+				renverse[t + 1u] = tri[t + 2u];
+				renverse[t + 2u] = tri[t + 1u];
+			}
+			const NkPavageMesure r = MesurerPavage(renverse, n, cols, rows);
+			const Pose pose{{0.f, 3.f, 8.f}, {0.f, 0.6f, 0.f}, "plongeante"};
+			NkProjectedGridParams pg;
+			pg.cols = cols;
+			pg.rows = rows;
+			pg.baseY = 0.6f;
+			pg.rangeCamera = true;
+			const NkProjectedGrid gg = BUILD(pose, pg);
+			NkVec3f pos[81];
+			bool ok = gg.visible;
+			for (uint32 j = 0; ok && j <= rows; ++j)
+				for (uint32 i = 0; ok && i <= cols; ++i)
+					if (!NkProjectedGridVertex(gg, pg, i, j, pos[j * (cols + 1u) + i]))
+						ok = false;
+			uint32 aLenvers = 0u;
+			for (uint32 t = 0; ok && t + 2u < n; t += 3u) {
+				const NkVec3f &a = pos[renverse[t]], &b = pos[renverse[t + 1u]],
+							  &c = pos[renverse[t + 2u]];
+				const NkVec3f e1 = b - a, e2 = c - a;
+				const float32 ny = e1.z * e2.x - e1.x * e2.z;
+				if (ny > 0.f) // le signe que (n1e) REFUSE : face arriere vue du dessus
+					++aLenvers;
+			}
+			// La coherence reste PARFAITE sur le pavage retourne : c'est tout le
+			// probleme, et c'est pourquoi (n1c) seul ne suffisait pas.
+			const bool coherenceTientQuandMeme =
+				(r.degeneres == 0u && r.horsBornes == 0u && r.aretesTrois == 0u &&
+				 (r.orientationPos == n / 3u || r.orientationNeg == n / 3u));
+			std::fprintf(stderr,
+						 "     (n1f) pavage RETOURNE (c'est l'ordre d'AVANT le 13/09) : coherence"
+						 " encore satisfaite=%d | triangles a l'envers %u sur %u -> (n1e)"
+						 " rougirait=%d\n",
+						 coherenceTientQuandMeme ? 1 : 0, aLenvers, n / 3u,
+						 (aLenvers == n / 3u) ? 1 : 0);
+			XCHECK(ok && aLenvers == n / 3u,
+				   "(n1f) un pavage RETOURNE est attrape par (n1e), et par lui SEUL");
+			XCHECK(coherenceTientQuandMeme,
+				   "(n1f) ... pendant que la coherence de (n1c) reste satisfaite a l'envers");
+		}
 
 		// (n2) LE VOLET NEGATIF. Sans lui, (n1) ne prouve que « ca compile ».
 		//
