@@ -50,6 +50,20 @@ namespace nkanima {
 			const char *saveAsPath = nullptr;
 			float scrubTime = -1.f;
 			float playToTime = -1.f;
+			// ── Sonde d'EQUILIBRE (2026-09-13) ───────────────────────────────
+			// --balance=<t> : pose le curseur à t et écrit dans --digest= le rapport
+			//                 complet — régime de masse, COM uniforme ET courant,
+			//                 appuis, polygone, verdict, marge. Il lit ce que le
+			//                 viewport affiche : la même fonction, pas une copie.
+			// --lean=<rad>  : penche le TORSE de tant de radians avant de juger. Une
+			//                 pose franchement déséquilibrée, fabriquée sans main.
+			// --foot=<f>    : demi-côté de l'empreinte d'un appui, en fraction de la
+			//                 taille du personnage (-1 = garder le défaut). À 0, le
+			//                 polygone se reduit aux contacts bruts.
+			bool balance = false;
+			float balanceTime = 0.f;
+			float lean = 0.f;
+			float footPrint = -1.f;
 	};
 
 	// Reconnaît et consomme un argument. true = c'était un drapeau d'export.
