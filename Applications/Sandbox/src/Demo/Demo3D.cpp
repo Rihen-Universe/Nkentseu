@@ -2356,6 +2356,164 @@ static NkTexHandle CreateLanternCubeCookie(NkTextureLibrary *texLib, NkIDevice *
 			// ── SONDE VEHICULE (2026-09-04) — Rodolf veut VOIR la voiture rouler ──
 			// Sous NK_VEHICLE_PROBE=1 seulement. La surface, telle que la conception
 			// l'ecrit : un monde, un sol, une voiture, quatre roues, SetInput.
+			// ═══════════════════════════════════════════════════════════════════
+			//  NK_OBB_PROBE=1 : L'OBB GEANT, SANS LE VEHICULE (2026-09-13)
+			//
+			//  Mesure a expliquer : sur un sol INCLINE, la voiture est projetee a
+			//  15 km au premier contact, et la distance d'ejection suit la
+			//  demi-taille du sol (200 m -> rien ; 2 000 -> -1 480 ; 20 000 ->
+			//  -15 285). Un ecart proportionnel a une DIMENSION designe un calcul
+			//  qui utilise une dimension la ou il faudrait une position relative.
+			//
+			//  ⚠️ CETTE SONDE N'A PAS DE VEHICULE : une simple caisse lachee sur le
+			//  sol incline. Si le defaut survit, tout NkVehicle sort du champ des
+			//  suspects ; s'il disparait, c'est moi qu'il faut regarder. Aucune
+			//  image n'est necessaire -- tout se passe ici, a l'init.
+			if (const char *op = std::getenv("NK_OBB_PROBE"); op && op[0] == '1') {
+				using namespace nkentseu::physics;
+				std::fprintf(stderr, "[OBB SONDE] caisse 1x1x1 (100 kg) lachee de 0,5 m sur un sol incline, "
+									 "SANS vehicule. 600 pas a 1/60 s.\n");
+				static const float32 kTailles[] = {200.f, 800.f, 2000.f, 8000.f, 20000.f};
+				static const float32 kAngles[] = {5.f, 10.f, 20.f, -10.f};
+				// ── TROISIEME ETAGE : LE MEME SOL, MAIS AVEC UN VEHICULE ────────
+				// La caisse lachee ne reproduit rien, le rayon de roue est exact a
+				// toutes les tailles. Il reste a savoir si c'est le VEHICULE qui
+				// reveille le defaut -- et, si oui, lequel de ses ingredients.
+				// Meme sol, meme pente, aucune image : tout ici.
+				for (uint32 gg = 0; gg < 2u; ++gg)
+				for (uint32 ia = 0; ia < 4u; ++ia) {
+					for (uint32 it = 0; it < 5u; ++it) {
+						const float32 th = kAngles[ia] / 57.29578f, S = kTailles[it];
+						NkPhysicsWorld w;
+						w.SetGravity({0.f, -9.81f, 0.f});
+						NkBodyDef g;
+						g.type = NkBodyType::STATIC;
+						const float32 c = std::cos(th), sn = std::sin(th);
+						g.orientation = NkQuatf(NkAngle::FromRad(-th), NkVec3f{1.f, 0.f, 0.f});
+						g.position = {0.f, -0.5f * c, 0.5f * sn};
+						collision::NkShape fg = collision::NkShape::Box3D(g.position, {S, 0.5f, S});
+						fg.orientation = g.orientation;
+						w.CreateBody(g, fg);
+						// DEUX GEOMETRIES. Celle du repli (caisse cubique, ancres au BAS de
+						// la caisse, rayon 0,35) laisse 58 cm entre le bas du chassis et le
+						// sol. Celle que le FBX DERIVE n'en laisse que **6,8 cm** : ses
+						// ancres sont a -0,026, pres du CENTRE de la caisse, et son rayon
+						// vaut 0,476. Si seule la seconde casse, le coupable est le contact
+						// CHASSIS/sol, ni la roue ni la taille du sol.
+						const bool geoFbx = (gg == 1u);
+						NkVehicle veh(w);
+						if (geoFbx) {
+							veh.SetChassisBox({0.f, 1.f, 0.f}, {1.020f, 0.667f, 2.200f}, 1200.f);
+							veh.AddWheel({0.990f, -0.026f, -1.608f}, NkWheel::kPowered);
+							veh.AddWheel({-0.990f, -0.026f, -1.608f}, NkWheel::kPowered);
+							veh.AddWheel({0.840f, -0.026f, 1.618f}, NkWheel::kSteered);
+							veh.AddWheel({-0.840f, -0.026f, 1.618f}, NkWheel::kSteered);
+							veh.Tuning().wheelRadius = 0.476f;
+						} else {
+							veh.SetChassisBox({0.f, 1.f, 0.f}, {0.9f, 0.5f, 2.2f}, 1200.f);
+							veh.AddWheel({-0.8f, -0.5f, 1.3f}, NkWheel::kSteered);
+							veh.AddWheel({0.8f, -0.5f, 1.3f}, NkWheel::kSteered);
+							veh.AddWheel({-0.8f, -0.5f, -1.3f}, NkWheel::kPowered);
+							veh.AddWheel({0.8f, -0.5f, -1.3f}, NkWheel::kPowered);
+						}
+						if (auto *bb2 = w.GetBody(veh.Chassis())) bb2->orientation = g.orientation;
+						// PLEIN GAZ : c'est ce que le banc 5 fait quand il explose, et c'est
+						// le dernier ingredient que cette sonde isolee n'avait pas.
+						veh.SetInput(0.f, 1.f, 0.f);
+						uint32 pasFou = 0;
+						NkVec3f avant{}, apres{};
+						for (uint32 k = 0; k < 600u; ++k) {
+							const NkVec3f p0v = w.GetBody(veh.Chassis())->position;
+							w.Step(1.f / 60.f);
+							const NkVec3f p1v = w.GetBody(veh.Chassis())->position;
+							const NkVec3f dd = p1v - p0v;
+							if (!pasFou && std::sqrt(dd.Dot(dd)) > 10.f) { pasFou = k + 1u; avant = p0v; apres = p1v; }
+						}
+						const NkVec3f fin = w.GetBody(veh.Chassis())->position;
+						if (pasFou)
+							std::fprintf(stderr,
+										 "[OBB VEHIC] geo %s, pente %+6.1f deg, demi-sol %6.0f m : EJECTE au pas %u -- "
+										 "(%.2f, %.2f, %.2f) -> (%.2f, %.2f, %.2f) ; dx/demi-taille = %+.5f\n",
+										 geoFbx ? "FBX " : "cube", kAngles[ia], S, pasFou, avant.x, avant.y, avant.z,
+										 apres.x, apres.y, apres.z, apres.x / S);
+						else
+							std::fprintf(stderr,
+										 "[OBB VEHIC] geo %s, pente %+6.1f deg, demi-sol %6.0f m : SAIN -- position finale "
+										 "(%.3f, %.3f, %.3f)\n",
+										 geoFbx ? "FBX " : "cube", kAngles[ia], S, fin.x, fin.y, fin.z);
+					}
+				}
+				for (uint32 ia = 0; ia < 4u; ++ia) {
+					for (uint32 it = 0; it < 5u; ++it) {
+						const float32 th = kAngles[ia] / 57.29578f, S = kTailles[it];
+						NkPhysicsWorld w;
+						w.SetGravity({0.f, -9.81f, 0.f});
+						NkBodyDef g;
+						g.type = NkBodyType::STATIC;
+						const float32 c = std::cos(th), sn = std::sin(th);
+						g.orientation = NkQuatf(NkAngle::FromRad(-th), NkVec3f{1.f, 0.f, 0.f});
+						g.position = {0.f, -0.5f * c, 0.5f * sn};
+						collision::NkShape fg = collision::NkShape::Box3D(g.position, {S, 0.5f, S});
+						fg.orientation = g.orientation;
+						w.CreateBody(g, fg);
+						NkBodyDef d;
+						d.type = NkBodyType::DYNAMIC;
+						d.position = {0.f, 0.5f, 0.f};
+						d.orientation = g.orientation; // posee a plat SUR la pente
+						d.material.density = 100.f;	   // 1 m3
+						collision::NkShape fd = collision::NkShape::Box3D(d.position, {0.5f, 0.5f, 0.5f});
+						fd.orientation = d.orientation;
+						const NkBodyId id = w.CreateBody(d, fd);
+						uint32 pasFou = 0;
+						NkVec3f avant{}, apres{};
+						for (uint32 k = 0; k < 600u; ++k) {
+							const NkVec3f p0b = w.GetBody(id)->position;
+							w.Step(1.f / 60.f);
+							const NkVec3f p1b = w.GetBody(id)->position;
+							const NkVec3f dd = p1b - p0b;
+							if (!pasFou && std::sqrt(dd.Dot(dd)) > 10.f) {
+								pasFou = k + 1u;
+								avant = p0b;
+								apres = p1b;
+							}
+						}
+						// ── LE RAYCAST, ISOLE ──────────────────────────────────
+						// La caisse lachee ne reproduit rien : le seul chemin que le
+						// vehicule emprunte EN PLUS vers ce sol est le RAYON de roue.
+						// Et la suspension applique sa force AU POINT TOUCHE :
+						// `ApplyForceAtPoint(n * Fs, hit.point)` -> le bras de levier
+						// est (hit.point - position). Un point touche a 15 km donne un
+						// couple colossal pour une force ordinaire -- ce qui expliquerait
+						// une ejection PROPORTIONNELLE a la demi-taille.
+						{
+							collision::NkRay3D r;
+							r.origin = {0.f, 1.f, 0.f};
+							r.dir = {0.f, -1.f, 0.f};
+							r.maxT = 5.f;
+							NkBodyId hb = NK_INVALID_BODY;
+							collision::NkRayHit3D hh;
+							const bool touche = w.Raycast(r, hb, hh, 0xFFFFFFFFu);
+							std::fprintf(stderr,
+										 "[OBB RAYON]  pente %+6.1f deg, demi-sol %6.0f m : touche=%d t=%.4f "
+										 "point=(%.3f, %.3f, %.3f) normale=(%.4f, %.4f, %.4f)\n",
+										 kAngles[ia], S, (int)touche, touche ? hh.t : -1.f, hh.point.x, hh.point.y,
+										 hh.point.z, hh.normal.x, hh.normal.y, hh.normal.z);
+						}
+						const NkVec3f fin = w.GetBody(id)->position;
+						if (pasFou)
+							std::fprintf(stderr,
+										 "[OBB SONDE] pente %+6.1f deg, demi-sol %6.0f m : EJECTEE au pas %u -- "
+										 "(%.2f, %.2f, %.2f) -> (%.2f, %.2f, %.2f) ; dx/demi-taille = %+.5f\n",
+										 kAngles[ia], S, pasFou, avant.x, avant.y, avant.z, apres.x, apres.y, apres.z,
+										 apres.x / S);
+						else
+							std::fprintf(stderr,
+										 "[OBB SONDE] pente %+6.1f deg, demi-sol %6.0f m : SAINE -- position finale "
+										 "(%.3f, %.3f, %.3f)\n",
+										 kAngles[ia], S, fin.x, fin.y, fin.z);
+					}
+				}
+			}
 			if (const char *vp = std::getenv("NK_VEHICLE_PROBE"); vp && vp[0] == '1') {
 				using namespace nkentseu::physics;
 				// NK_VEHICLE_HZ=<n> : le PAS FIXE du monde (defaut 60). C'est le seul
