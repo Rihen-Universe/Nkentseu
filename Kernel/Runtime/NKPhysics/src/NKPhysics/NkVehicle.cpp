@@ -157,7 +157,12 @@ namespace nkentseu {
 				}
 			}
 
-			for (uint32 i = 0; i < WheelCount(); ++i) {
+			// BALAYAGE ALTERNÉ : un sous-pas sur deux parcourt les roues à l'envers.
+			// Voir NkVehicle.h — sans cela, la roue traitée en premier laisse un lacet
+			// résiduel du même signe à chaque pas, et il s'accumule.
+			const bool aLEnvers = mTuning.alternateSweep && ((mSweep++ & 1u) != 0u);
+			for (uint32 k = 0; k < WheelCount(); ++k) {
+				const uint32 i = aLEnvers ? (WheelCount() - 1u - k) : k;
 				NkWheel &w = mWheels[(NkVector<NkWheel>::SizeType)i];
 
 				// ── braquage : lissé vers la consigne (un créneau sur l'axe de
