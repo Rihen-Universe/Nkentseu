@@ -116,6 +116,24 @@ namespace nkentseu {
 				float32 vehCoastV0 = 0.f, vehCoastT0 = -1.f;
 				bool vehCoastDit = false;
 				bool vehNoCoast = false; // NK_VEHICLE_NOCOAST=1 : la mutation
+				// ── BANC 2 : VITESSE DE POINTE ; BANC 3 : MANOEUVRE SERREE (2026-09-13) ──
+				uint32 vehBanc = 1u; // NK_VEHICLE_SCENARIO=1 (route), 2 (pointe), 3 (serre)
+				float32 vehVprec = 0.f, vehTprec = 0.f;
+				// banc 3 : la boite du cercle decrit, et le glissement lateral residuel
+				float32 vehCx0 = 1e30f, vehCx1 = -1e30f, vehCz0 = 1e30f, vehCz1 = -1e30f;
+				float64 vehSlipSum = 0.0;
+				uint32 vehSlipN = 0;
+				float64 vehVSum = 0.0;
+				uint32 vehVN = 0;
+				// ── LE DECOLLAGE (2026-09-13) ───────────────────────────────────────
+				// La « saturation » du banc 2 n'en etait pas une : au verdict, 0 roue
+				// sur 4 touchait le sol. Une vitesse de pointe se mesure ROUES AU SOL ;
+				// on date donc la premiere perte de contact et la perte totale, et on
+				// garde la vitesse maximale atteinte avec les QUATRE roues au sol.
+				float32 vehPerteT = -1.f, vehPerteV = 0.f;
+				uint32 vehPerteMasque = 0u;
+				float32 vehDecolT = -1.f, vehDecolV = 0.f;
+				float32 vehVmaxSol = 0.f, vehVmaxSolT = 0.f;
 				// sonde TISSU (NK_CLOTH_PROBE=1, 2026-09-05) : une nappe XPBD lachee sur une sphere, dans le vent
 				nkentseu::physics::NkCloth *cloth = nullptr;
 				nkentseu::math::NkUniformForceField clothWind;
@@ -2310,9 +2328,27 @@ static NkTexHandle CreateLanternCubeCookie(NkTextureLibrary *texLib, NkIDevice *
 				sol.type = NkBodyType::STATIC;
 				sol.position = {0.f, -0.5f, 0.f};
 				sol.orientation = NkQuatf::Identity();
-				st->vehWorld->CreateBody(sol, collision::NkShape::Box3D({0.f, -0.5f, 0.f}, {200.f, 0.5f, 200.f}));
+				// ⚠️ LA TAILLE DU SOL EST UN INSTRUMENT, PAS UN DECOR (mesure du 13/09).
+				// Le sol mesurait 400 x 400 m. Au banc 2 (plein gaz continu) la voiture
+				// atteignait le bord a z = 200 m en 14,96 s, SORTAIT DE LA PISTE et
+				// tombait dans le vide : le « palier a 108 m/s » qu'on prenait pour une
+				// vitesse de pointe etait la VITESSE LIMITE D'UN CORPS EN CHUTE (0 roue
+				// au sol, somme des forces de suspension = 0,0 N). Une piste trop courte
+				// ne rend pas une mesure imprecise : elle rend la mesure d'autre chose.
+				// 90 s a ~114 m/s demandent ~10 km ; on en met 20.
+				const float32 demiSol = [] {
+					const char *e = std::getenv("NK_VEHICLE_SCENARIO");
+					return (e && e[0] == '2') ? 20000.f : 200.f;
+				}();
+				st->vehWorld->CreateBody(sol, collision::NkShape::Box3D({0.f, -0.5f, 0.f}, {demiSol, 0.5f, demiSol}));
+				std::fprintf(stderr, "[VEHICULE PISTE] sol %.0f x %.0f m (demi-taille %.0f m)\n", 2.f * demiSol,
+							 2.f * demiSol, demiSol);
 				st->veh = new NkVehicle(*st->vehWorld);
-				st->vehScenario = [] { const char *e = std::getenv("NK_VEHICLE_SCENARIO"); return e && e[0] == '1'; }();
+				st->vehBanc = [] {
+					const char *e = std::getenv("NK_VEHICLE_SCENARIO");
+					return (e && e[0] >= '1' && e[0] <= '3') ? (uint32)(e[0] - '0') : 0u;
+				}();
+				st->vehScenario = st->vehBanc != 0u;
 				if (const char *cf = std::getenv("NK_VEHICLE_CAM"); cf && cf[0] == '0')
 					st->vehCamFollow = false; // volet NEGATIF de v2 : camera figee
 				// ═══════════════════════════════════════════════════════════════
@@ -2712,11 +2748,28 @@ static NkTexHandle CreateLanternCubeCookie(NkTextureLibrary *texLib, NkIDevice *
 					st->veh->Tuning().rollingResistance = 0.f;
 					st->veh->Tuning().engineBrake = 0.f;
 				}
+				// NK_VEHICLE_NODRAG=1 : la mutation de la TRAINEE -- sans elle on doit
+				// RETROUVER la courbe d'avant (1 097 km/h a 90 s, encore +1,64 m/s2).
+				// NK_VEHICLE_NOACKERMANN=1 : roues avant PARALLELES, le comportement
+				// d'avant le 13/09. Les deux mutations ne changent QUE le reglage : le
+				// code ajoute reste sur le chemin, donc s'il faisait autre chose en plus
+				// la mutation ne rendrait pas l'ancien chiffre.
+				const bool sansTrainee = [] { const char *e = std::getenv("NK_VEHICLE_NODRAG"); return e && e[0] == '1'; }();
+				const bool sansAckermann = [] { const char *e = std::getenv("NK_VEHICLE_NOACKERMANN"); return e && e[0] == '1'; }();
+				if (sansTrainee) st->veh->Tuning().dragCd = 0.f;
+				if (sansAckermann) st->veh->Tuning().ackermann = 0.f;
 				std::fprintf(stderr,
 							 "[VEHICULE RELACHEMENT] resistance au roulement C_rr = %.4f, frein moteur = %.3f x engineForce "
-							 "par roue motrice%s\n",
+							 "par roue motrice%s\n"
+							 "[VEHICULE AIR] Cd = %.3f, rho = %.3f kg/m3, aire frontale = %.4f m2 (0 = derivee : "
+							 "4 x demiX x demiY = %.4f m2, le rectangle englobant -- il SURESTIME d'environ 15 %%)%s\n"
+							 "[VEHICULE DIRECTION] ackermann = %.2f (0 = roues paralleles, 1 = geometrie exacte)%s\n",
 							 st->veh->Tuning().rollingResistance, st->veh->Tuning().engineBrake,
-							 st->vehNoCoast ? " -- NK_VEHICLE_NOCOAST=1, MUTATION : les deux a zero" : "");
+							 st->vehNoCoast ? " -- NK_VEHICLE_NOCOAST=1, MUTATION : les deux a zero" : "",
+							 st->veh->Tuning().dragCd, st->veh->Tuning().airDensity, st->veh->Tuning().frontalArea,
+							 4.f * halfEx.x * halfEx.y, sansTrainee ? " -- NK_VEHICLE_NODRAG=1, MUTATION : Cd a zero" : "",
+							 st->veh->Tuning().ackermann,
+							 sansAckermann ? " -- NK_VEHICLE_NOACKERMANN=1, MUTATION : roues paralleles" : "");
 				std::fprintf(stderr,
 							 "[VEHICULE PROBE] voiture creee (chassis id=%u) ; corps = %s ; pilotage = %s\n"
 							 "[VEHICULE PROBE] CLAVIER : Haut = accelerer, Bas = marche arriere, Gauche/Droite = braquer, Espace = frein, H = conduite/editeur\n",
@@ -4971,11 +5024,108 @@ static NkTexHandle CreateLanternCubeCookie(NkTextureLibrary *texLib, NkIDevice *
 					++st->vehDtN;
 					const auto *b0 = st->vehWorld->GetBody(st->veh->Chassis());
 					float32 steer = 0.f, thr = 0.f, brk = 0.f;
+					if (st->vehDtN == 30u) { // apres plusieurs sous-pas fixes : Autotune a tourne
+						const auto &tA = st->veh->Tuning();
+						std::fprintf(stderr,
+									 "[VEHICULE AUTOTUNE] mu = %.4f, engineForce = %.1f N/roue motrice, brakeForce = %.1f "
+									 "N/roue, raideur = %.1f N/m, amortissement = %.1f N.s/m\n"
+									 "[VEHICULE AUTOTUNE] traction MAXIMALE = mu x somme(Fsusp des motrices) = %.4f x %.1f "
+									 "= %.1f N, contre 2 x engineForce = %.1f N demandes -> la voiture est %s\n",
+									 tA.mu, tA.engineForce, tA.brakeForce, tA.stiffness, tA.damping, tA.mu, 1200.f * 9.81f * 0.5f,
+									 tA.mu * 1200.f * 9.81f * 0.5f, 2.f * tA.engineForce,
+									 (tA.mu * 1200.f * 9.81f * 0.5f < 2.f * tA.engineForce) ? "LIMITEE PAR L'ADHERENCE"
+																							: "limitee par le moteur");
+					}
 					if (st->vehScenario && st->vehDtN == 1u) {
 						st->vehMarkPos = b0->position; // sinon la 1re « derive » se mesure depuis (0,0,0)
 						st->vehMarkRight = b0->orientation.Right();
 					}
-					if (st->vehScenario) {
+					if (st->vehBanc == 2u) {
+						// ══ BANC 2 : LA VITESSE DE POINTE ══════════════════════════
+						// Plein gaz, ligne droite, jusqu'a ce que ca sature. Ce banc
+						// existe pour MESURER la voiture telle qu'elle est AVANT
+						// d'ajouter la trainee : une prediction de vitesse de pointe
+						// batie sur un coefficient de frottement SUPPOSE ne vaut rien.
+						steer = 0.f;
+						thr = 1.f;
+						brk = 0.f;
+						// Contact : la mesure qui decide si « vitesse de pointe » veut dire
+						// quelque chose. On la prend a CHAQUE image, pas tous les 5 s.
+						{
+							uint32 auSol = 0u, masque = 0u;
+							for (uint32 w6 = 0; w6 < st->veh->WheelCount(); ++w6)
+								if (st->veh->Wheel(w6).grounded) { ++auSol; masque |= (1u << w6); }
+							const float32 vf = st->veh->ForwardSpeed();
+							if (auSol == 4u) {
+								if (vf > st->vehVmaxSol) { st->vehVmaxSol = vf; st->vehVmaxSolT = st->vehClock; }
+							} else if (st->vehPerteT < 0.f && st->vehClock > 1.f) {
+								st->vehPerteT = st->vehClock;
+								st->vehPerteV = vf;
+								st->vehPerteMasque = masque;
+								std::fprintf(stderr,
+											 "[VEHICULE DECOLLAGE] PREMIERE perte de contact a t=%.2f s, v=%.3f m/s "
+											 "(%.1f km/h) : %u roue(s) au sol\n",
+											 st->vehClock, vf, vf * 3.6f, auSol);
+							}
+							if (auSol == 0u && st->vehDecolT < 0.f && st->vehClock > 1.f) {
+								st->vehDecolT = st->vehClock;
+								st->vehDecolV = vf;
+								std::fprintf(stderr,
+											 "[VEHICULE DECOLLAGE] contact TOTALEMENT perdu a t=%.2f s, v=%.3f m/s "
+											 "(%.1f km/h) -- au-dela, aucune traction : ce n'est plus une voiture qui "
+											 "roule\n",
+											 st->vehClock, vf, vf * 3.6f);
+							}
+						}
+						if (st->vehClock - st->vehTprec >= 5.f) {
+							const float32 v = st->veh->ForwardSpeed();
+							const float32 dtp = st->vehClock - st->vehTprec;
+							std::fprintf(stderr,
+										 "[VEHICULE POINTE] t=%6.1f s : v = %7.3f m/s (%6.1f km/h), dv/dt = %+.4f m/s2\n",
+										 st->vehClock, v, v * 3.6f, (v - st->vehVprec) / dtp);
+							st->vehVprec = v;
+							st->vehTprec = st->vehClock;
+						}
+					} else if (st->vehBanc == 3u) {
+						// ══ BANC 3 : LA MANOEUVRE SERREE (Ackermann) ══════════════
+						// 4 s pour prendre ~3 m/s, puis braquage a fond. On releve la
+						// BOITE du cercle decrit (donc son rayon) et le glissement
+						// lateral RESIDUEL des roues directrices -- c'est exactement
+						// ce que la conception §4 appelle « racler ».
+						const bool enVirage = st->vehClock >= 4.f;
+						steer = enVirage ? 1.f : 0.f;
+						thr = (st->veh->ForwardSpeed() < 3.f) ? 1.f : 0.f;
+						brk = 0.f;
+						if (st->vehClock >= 9.f) { // 5 s de plus pour s'installer dans le cercle
+							const NkVec3f pc = b0->position;
+							st->vehCx0 = pc.x < st->vehCx0 ? pc.x : st->vehCx0;
+							st->vehCx1 = pc.x > st->vehCx1 ? pc.x : st->vehCx1;
+							st->vehCz0 = pc.z < st->vehCz0 ? pc.z : st->vehCz0;
+							st->vehCz1 = pc.z > st->vehCz1 ? pc.z : st->vehCz1;
+							for (uint32 w3 = 0; w3 < st->veh->WheelCount(); ++w3)
+								if (st->veh->Wheel(w3).flags & nkentseu::physics::NkWheel::kSteered) {
+									st->vehSlipSum += (float64)std::fabs(st->veh->Wheel(w3).slipLat);
+									++st->vehSlipN;
+								}
+							st->vehVSum += (float64)st->veh->ForwardSpeed();
+							++st->vehVN;
+							if (!st->vehCoastDit) { // une seule fois : les angles installes
+								st->vehCoastDit = true;
+								float32 aG = 0.f, aD = 0.f;
+								for (uint32 w4 = 0; w4 < st->veh->WheelCount(); ++w4) {
+									const auto &wd = st->veh->Wheel(w4);
+									if (!(wd.flags & nkentseu::physics::NkWheel::kSteered)) continue;
+									if (wd.localPos.x > 0.f) aD = wd.steerAngle;
+									else aG = wd.steerAngle;
+								}
+								std::fprintf(stderr,
+											 "[VEHICULE SERRE] angles installes a fond : roue DROITE %+.2f deg, roue GAUCHE "
+											 "%+.2f deg (ecart %.2f deg) ; consigne maxSteerDeg = %.1f deg\n",
+											 aD * 57.29578f, aG * 57.29578f, std::fabs(aD - aG) * 57.29578f,
+											 st->veh->Tuning().maxSteerDeg);
+							}
+						}
+					} else if (st->vehScenario) {
 						// LE SCENARIO ECRIT — six phases, chacune avec ce qu'elle prouve.
 						// (t de debut, braquage, accelerateur, frein, ce qu'on y mesure)
 						struct Phase { float32 t0; float32 s, a, f; const char *quoi; };
@@ -5080,6 +5230,55 @@ static NkTexHandle CreateLanternCubeCookie(NkTextureLibrary *texLib, NkIDevice *
 					// qu'a 60, pour exactement le meme mouvement).
 					if (maxFramesProbe && ctx.frame + 1 == maxFramesProbe && !st->vehVerdict) {
 						st->vehVerdict = true;
+						if (st->vehBanc == 2u) {
+							const float32 v = st->veh->ForwardSpeed();
+							// ── LE BILAN DES FORCES, pas seulement la vitesse ──────────
+							// Ma prediction supposait que TOUTE la force moteur passe et
+							// que la trainee voit ForwardSpeed. Les deux se verifient ici
+							// plutot que de laisser un ecart inexplique.
+							const auto *bb = st->vehWorld->GetBody(st->veh->Chassis());
+							const NkVec3f vv = bb->linearVelocity;
+							const float32 vnorm = std::sqrt(vv.Dot(vv));
+							float32 sumFs = 0.f;
+							uint32 auSol = 0;
+							for (uint32 w5 = 0; w5 < st->veh->WheelCount(); ++w5) {
+								sumFs += st->veh->Wheel(w5).suspForce;
+								if (st->veh->Wheel(w5).grounded) ++auSol;
+							}
+							const auto &tg = st->veh->Tuning();
+							const float32 aire = tg.frontalArea > 0.f ? tg.frontalArea : 4.f * 1.020f * 0.667f;
+							const float32 Faero = 0.5f * tg.airDensity * tg.dragCd * aire * vnorm * vnorm;
+							const float32 Froul = tg.rollingResistance * sumFs;
+							const float32 Famort = 0.02f * 1200.f * vnorm;
+							std::fprintf(stderr,
+										 "[VEHICULE POINTE] VERDICT apres %.1f s : v = %.3f m/s (%.1f km/h), "
+										 "dv/dt sur les 5 dernieres secondes = %+.5f m/s2\n"
+										 "[VEHICULE POINTE] BILAN : |v| = %.3f m/s contre ForwardSpeed %.3f m/s (ecart %+.2f %%) ; "
+										 "roues au sol %u/4 ; somme Fsusp = %.1f N (poids = %.1f N)\n"
+										 "[VEHICULE POINTE] FORCES a l'equilibre : trainee %.1f N + roulement %.1f N + "
+										 "amortissement %.1f N = %.1f N -> force motrice REELLEMENT delivree ; "
+										 "2 x engineForce = %.1f N (ecart %+.1f %%)\n",
+										 st->vehClock, v, v * 3.6f, (v - st->vehVprec) / (st->vehClock - st->vehTprec),
+										 vnorm, v, v > 1e-3f ? 100.f * (vnorm / v - 1.f) : 0.f, (unsigned)auSol, sumFs,
+										 1200.f * 9.81f, Faero, Froul, Famort, Faero + Froul + Famort, 2.f * tg.engineForce,
+										 tg.engineForce > 1e-3f ? 100.f * ((Faero + Froul + Famort) / (2.f * tg.engineForce) - 1.f) : 0.f);
+							std::fprintf(stderr,
+										 "[VEHICULE DECOLLAGE] VERDICT : premiere perte de contact t=%.2f s v=%.3f m/s ; "
+										 "contact nul t=%.2f s v=%.3f m/s ; VITESSE MAX LES QUATRE ROUES AU SOL = %.3f m/s "
+										 "(%.1f km/h) atteinte a t=%.2f s\n",
+										 st->vehPerteT, st->vehPerteV, st->vehDecolT, st->vehDecolV, st->vehVmaxSol,
+										 st->vehVmaxSol * 3.6f, st->vehVmaxSolT);
+						}
+						if (st->vehBanc == 3u) {
+							const float32 dx = st->vehCx1 - st->vehCx0, dz = st->vehCz1 - st->vehCz0;
+							std::fprintf(stderr,
+										 "[VEHICULE SERRE] VERDICT : boite du cercle %.3f x %.3f m -> rayon %.3f m ; "
+										 "vitesse moyenne %.3f m/s ; glissement lateral RESIDUEL moyen des roues "
+										 "directrices %.5f m/s (%u releves)\n",
+										 dx, dz, 0.25f * (dx + dz), st->vehVN ? (float32)(st->vehVSum / (float64)st->vehVN) : 0.f,
+										 st->vehSlipN ? (float32)(st->vehSlipSum / (float64)st->vehSlipN) : 0.f,
+										 (unsigned)st->vehSlipN);
+						}
 						const float32 dtMoy = st->vehDtN ? (float32)(st->vehDtSum / (float64)st->vehDtN) : 0.f;
 						const float32 jitMoy = st->vehCamJitN ? (float32)(st->vehCamJitSum / (float64)st->vehCamJitN) : 0.f;
 						std::fprintf(stderr,
