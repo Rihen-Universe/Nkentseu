@@ -1,3 +1,4 @@
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // =============================================================================
 // NkMaterialSystem.cpp  — NKRenderer v4.0
 // =============================================================================
@@ -1036,6 +1037,23 @@ namespace nkentseu {
 		NkMaterialInstance *NkMaterialInstance::SetReflFloorBlend(float32 blend) {
 			mPBR.reflBlend = blend;
 			MarkPBRChanged(NK_PBR_O_REFL_FLOOR);
+			return this;
+		}
+
+		// ── CONTRIBUTION D'EAU (2026-09-13) ─────────────────────────────────────
+		// AUCUN `MarkPBRChanged` ICI, ET C'EST VOULU : ces deux reels ne vont PAS
+		// dans le UBO du materiau (set=2), qui est plein a 96 octets et dont le
+		// fichier d'en-tete previent que le 96 cascade sur quatre structures et
+		// six nuanceurs. Ils voyagent par le bloc OBJET (set=1), relu a CHAQUE
+		// image par NkRender3D : il n'y a donc rien a salir, et rien a propager
+		// aux enfants -- l'heritage M.4 porte sur les champs du UBO.
+		//
+		// LE PINCEMENT EST FAIT ICI, une seule fois, la ou un temoin peut le
+		// lire -- meme discipline que le mouillage, dont le produit est pince
+		// cote C++ plutot que dans chaque nuanceur.
+		NkMaterialInstance *NkMaterialInstance::SetWaterReflect(float32 strength, float32 rough) {
+			mWaterReflect = strength < 0.f ? 0.f : (strength > 1.f ? 1.f : strength);
+			mWaterReflectRough = rough < 0.f ? 0.f : (rough > 1.f ? 1.f : rough);
 			return this;
 		}
 

@@ -3202,6 +3202,30 @@ namespace nkentseu {
 						NkVec4f{tile, mpu > 0.f ? mpu : 1.f, tile > 0.f ? 1.f : 0.f, par};
 				}
 
+				// ── CONTRIBUTION D'EAU (2026-09-13) ──────────────────────────
+				// Le reflet du ciel et le Fresnel, poses sur l'INSTANCE DE
+				// MATERIAU, quel que soit son gabarit. Meme canal que le
+				// triplanaire juste au-dessus : une propriete de l'instance que
+				// le rendu recopie dans le bloc OBJET. Ce n'est donc PAS un type
+				// de materiau de plus -- `NkMaterialType` en contient deja un,
+				// `NK_WATER`, que le registre des gabarits n'enregistre pas et
+				// que personne n'a jamais charge.
+				//
+				// ⚠️ `.x` ET `.y` RESTENT A ZERO SUR CE CHEMIN, ET CE N'EST PAS
+				// MON CHOIX : le MOUILLAGE (2026-09-06) n'est alimente que dans
+				// `FlushDeferredGeometry`. Sur le chemin AVANT -- celui-ci, le
+				// defaut -- `ob` est initialise a zero et personne n'y ecrit
+				// `dc.wetness` : regler le mouillage d'un objet n'a aucun effet
+				// hors differe. Le defaut est ANTERIEUR a ce bloc, il n'est pas
+				// de mon lot, et je l'ecris ici plutot que de le corriger en
+				// passant : le corriger changerait l'image de toute scene qui
+				// pose deja un mouillage, sans qu'un temoin l'ait annonce.
+				{
+					const float32 wRefl = matInst ? matInst->mWaterReflect : 0.f;
+					const float32 wRog = matInst ? matInst->mWaterReflectRough : 0.f;
+					ob.wetParams = NkVec4f{0.f, 0.f, wRefl, wRog};
+				}
+
 				NkBufferHandle ubo = mUBOObjectPool[mFrameSlot][mObjectDrawIdx];
 				NkDescSetHandle os = mObjectSetPool[mFrameSlot][mObjectDrawIdx];
 				if (ubo.IsValid())
