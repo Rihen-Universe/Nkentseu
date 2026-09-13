@@ -245,6 +245,7 @@ namespace nkentseu {
 				wheelFwd = Norm(wheelFwd - w.contactNormal * wheelFwd.Dot(w.contactNormal));
 				const NkVec3f lat = Norm(w.contactNormal.Cross(wheelFwd));
 				const float32 vLat = vC.Dot(lat);
+				w.slipLatPre = vLat; // diagnostic : ce qui ENTRE, pour juger du dépassement
 				const float32 vLong = vC.Dot(wheelFwd);
 				const float32 mLat = EffMass(*b, r, lat);
 				const float32 mLong = EffMass(*b, r, wheelFwd);
