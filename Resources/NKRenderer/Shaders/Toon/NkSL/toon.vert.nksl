@@ -1,3 +1,4 @@
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // toon.vert.nksl — NKRenderer — Toon/Cel-shading Vertex (VRAI dialecte NkSL).
 @location(0) in vec3 aPos;
 @location(1) in vec3 aNormal;
@@ -24,6 +25,11 @@ uniform ObjectUBO {
     vec4  subsurfaceColor;
     vec4  shadowOverrides;
     vec4  triplanarParams;
+    // ⚠️ DECLARE ICI MEME S'IL N'EST PAS LU AU SOMMET : un bloc uniforme
+    // partage dont les deux etages donnent des declarations differentes est
+    // refuse par le lien GL, ou pire, lu de travers. C'est l'etage FRAGMENT
+    // qui s'en sert (contribution d'eau, .z / .w).
+    vec4  wetParams;
 } uObj;
 
 @location(0) out vec3 vWorldPos;
