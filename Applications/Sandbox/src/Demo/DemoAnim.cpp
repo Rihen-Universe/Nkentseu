@@ -1,3 +1,4 @@
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // =============================================================================
 // DemoAnim.cpp — NkAnima M1 : pipeline d'animation (clip + .nkanim + player)
 // -----------------------------------------------------------------------------
@@ -125,7 +126,26 @@ namespace nkentseu {
 			}
 
 			// ── M1 round-trip : bake -> save .nkanim -> reload -> play ────────────
-			if (st->skinned) {
+			// NK_NKANIM=<chemin> (2026-09-13) : rejoue un `.nkanim` VENU D'AILLEURS —
+			// typiquement celui qu'écrit NkAnimaEditor --export. Sans cette variable,
+			// rien ne change : le bake historique reste le chemin par défaut. C'est ce
+			// qui fait du `.nkanim` un format d'ÉCHANGE et pas un aller-retour privé :
+			// le lecteur n'est plus celui qui a écrit le fichier.
+			const char *extAnim = getenv("NK_NKANIM");
+			if (st->skinned && extAnim && extAnim[0]) {
+				st->nkanimPath = NkString(extAnim);
+				bool loaded = st->clip.LoadBinary(st->nkanimPath);
+				st->jointCount = (uint32)st->clip.boneTracks.Size();
+				st->frameCount = (st->jointCount > 0) ? st->clip.boneTracks[0].KeyCount() : 0;
+				st->roundTripOK = loaded && st->jointCount > 0;
+				logger.Info("[DemoAnim] .nkanim EXTERNE '{0}' : lu={1} (joints={2} frames={3} dur={4})\n",
+							st->nkanimPath.CStr(), loaded ? 1 : 0, st->jointCount, st->frameCount,
+							st->clip.duration);
+				if (loaded) {
+					st->player.SetClip(&st->clip);
+					st->player.Play(anim::NkPlayMode::NK_LOOP, 1.f);
+				}
+			} else if (st->skinned) {
 				int32 animIdx = data.animations.Empty() ? -1 : 0;
 				anim::NkAnimationClip baked;
 				if (BakeClipFromGLTF(data, animIdx, 30.f, baked)) {
