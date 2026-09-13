@@ -12,6 +12,7 @@
 #include "NKLogger/NkLog.h"
 #include <cstdlib>
 #include <cstring>
+#include <cmath>
 
 namespace nkanima {
 
@@ -221,6 +222,46 @@ namespace nkanima {
 			return WriteBody(body, path);
 		}
 
+		// Decimal a virgule fixe : le rapport d'equilibre se lit a l'oeil (« de
+		// combien le COM se deplace, en centimetres »), et l'hexa ne se lit pas.
+		// L'hexa reste pour ce qui doit etre compare au bit ; ici on veut un nombre
+		// que Rodolf peut opposer a son intuition.
+		void DecF(NkString &s, nkentseu::float32 v, nkentseu::uint32 dec) {
+			bool neg = (v < 0.f);
+			if (neg)
+				v = -v;
+			nkentseu::uint32 mul = 1;
+			for (nkentseu::uint32 i = 0; i < dec; ++i)
+				mul *= 10u;
+			const nkentseu::uint64 scaled = (nkentseu::uint64)((double)v * (double)mul + 0.5);
+			if (neg)
+				s += '-';
+			DecU32(s, (nkentseu::uint32)(scaled / mul));
+			if (dec > 0) {
+				s += '.';
+				const nkentseu::uint32 frac = (nkentseu::uint32)(scaled % mul);
+				nkentseu::uint32 p = mul / 10u;
+				while (p > 0) {
+					s += (char)('0' + ((frac / p) % 10u));
+					p /= 10u;
+				}
+			}
+		}
+
+		void Vec3(NkString &s, const nkentseu::float32 *v) {
+			s += '(';
+			for (int i = 0; i < 3; ++i) {
+				if (i)
+					s += ' ';
+				DecF(s, v[i], 4);
+			}
+			s += ") hex";
+			for (int i = 0; i < 3; ++i) {
+				s += ' ';
+				HexF32(s, v[i]);
+			}
+		}
+
 		bool StartsWith(const char *s, const char *p, const char **rest) {
 			nkentseu::usize n = strlen(p);
 			if (strncmp(s, p, n) != 0)
@@ -268,6 +309,19 @@ namespace nkanima {
 			out.saveAsPath = v;
 			return true;
 		}
+		if (StartsWith(arg, "--balance=", &v)) {
+			out.balance = true;
+			out.balanceTime = (float)atof(v);
+			return true;
+		}
+		if (StartsWith(arg, "--lean=", &v)) {
+			out.lean = (float)atof(v);
+			return true;
+		}
+		if (StartsWith(arg, "--foot=", &v)) {
+			out.footPrint = (float)atof(v);
+			return true;
+		}
 		if (StartsWith(arg, "--scrub=", &v)) {
 			out.scrubTime = (float)atof(v);
 			return true;
@@ -281,7 +335,7 @@ namespace nkanima {
 
 	bool ExportCliWanted(const NkExportCliArgs &a) {
 		return a.exportPath != nullptr || a.verifyPath != nullptr || a.saveButtonPath != nullptr ||
-			   a.saveAsPath != nullptr || a.scrubTime >= 0.f || a.playToTime >= 0.f;
+			   a.saveAsPath != nullptr || a.scrubTime >= 0.f || a.playToTime >= 0.f || a.balance;
 	}
 
 	int ExportCliRun(const NkExportCliArgs &a) {
@@ -326,6 +380,96 @@ namespace nkanima {
 		if (!AnimInit(a.modelPath)) {
 			logger.Errorf("[ExportCli] modele non charge : %s\n", a.modelPath ? a.modelPath : "(nul)");
 			return 2;
+		}
+
+		// ── L'ÉQUILIBRE : ce que le viewport calcule, en NOMBRES ──────────────
+		if (a.balance) {
+			if (a.footPrint >= 0.f)
+				AnimSetFootPrintFraction(a.footPrint);
+			AnimSeek(a.balanceTime);
+			int32 leaned = -1;
+			if (a.lean != 0.f) {
+				leaned = AnimLeanTorso(a.lean);
+				if (leaned < 0) {
+					logger.Errorf("[ExportCli] --lean : aucun joint de tronc NOMME dans ce rig\n");
+					return 12;
+				}
+			}
+			NkAnimBalanceReport r;
+			if (!AnimComputeBalance(r)) {
+				logger.Errorf("[ExportCli] equilibre : rien a calculer (pose vide)\n");
+				return 11;
+			}
+			NkString b;
+			b += "NKANIM-BALANCE 1\n";
+			b += "joints=";
+			DecU32(b, (nkentseu::uint32)r.jointCount);
+			b += " regime=";
+			b += (r.regime == 1) ? "anthropometrique" : (r.regime == 0 ? "uniforme" : "aucun");
+			b += " upAxis=";
+			DecU32(b, (nkentseu::uint32)r.upAxis);
+			b += " sol=";
+			DecF(b, r.floorLevel, 4);
+			b += " penche=";
+			DecF(b, a.lean, 3);
+			b += "rad joint=";
+			DecI32(b, leaned);
+			b += '\n';
+			b += "comUniforme= ";
+			Vec3(b, r.comUniform);
+			b += '\n';
+			b += "comCourant=  ";
+			Vec3(b, r.comCurrent);
+			b += '\n';
+			// L'ECART, en centimetres et par axe : c'est la question posee.
+			const nkentseu::float32 d[3] = {r.comCurrent[0] - r.comUniform[0], r.comCurrent[1] - r.comUniform[1],
+											r.comCurrent[2] - r.comUniform[2]};
+			const nkentseu::float32 norme = (nkentseu::float32)sqrt((double)(d[0] * d[0] + d[1] * d[1] + d[2] * d[2]));
+			b += "ecart_cm= (";
+			for (int i = 0; i < 3; ++i) {
+				if (i)
+					b += ' ';
+				DecF(b, d[i] * 100.f, 2);
+			}
+			b += ") norme_cm= ";
+			DecF(b, norme * 100.f, 2);
+			b += '\n';
+			b += "appuisNommes=";
+			DecU32(b, (nkentseu::uint32)r.footCount);
+			b += " contacts=";
+			DecU32(b, (nkentseu::uint32)r.contactCount);
+			b += " sommetsPolygone=";
+			DecU32(b, (nkentseu::uint32)r.supportCount);
+			b += " demiEmpreinte_cm=";
+			DecF(b, r.footHalfSize * 100.f, 2);
+			b += " tolerance_cm=";
+			DecF(b, r.contactThreshold * 100.f, 2);
+			b += '\n';
+			b += "verdict=";
+			b += (r.verdict == 1) ? "EQUILIBRE" : (r.verdict == 0 ? "DESEQUILIBRE" : "INDETERMINE");
+			b += " marge_cm=";
+			DecF(b, r.margin * 100.f, 2);
+			b += '\n';
+			// Les NOMS qui ont ete reconnus comme appuis : sans eux, « 0 appui » ne
+			// dit pas si le rig n'a pas de pieds ou si nos mots-cles les ont ratés.
+			const NkAnimationClip *cl = (const NkAnimationClip *)AnimClipHandle();
+			if (cl) {
+				b += "noms=";
+				DecU32(b, (nkentseu::uint32)cl->jointNames.Size());
+				b += '\n';
+				for (nkentseu::uint32 j = 0; j < (nkentseu::uint32)cl->jointNames.Size(); ++j) {
+					b += "  joint ";
+					DecU32(b, j);
+					b += ' ';
+					b += cl->jointNames[j];
+					b += '\n';
+				}
+			}
+			if (!a.digestPath) {
+				logger.Errorf("[ExportCli] --balance exige --digest=\n");
+				return 10;
+			}
+			return WriteBody(b, a.digestPath) ? 0 : 9;
 		}
 
 		// ── LE CURSEUR : scrub SANS lecture, ou lecture jusqu'à t ─────────────
