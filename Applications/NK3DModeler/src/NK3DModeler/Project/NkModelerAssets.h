@@ -1,4 +1,5 @@
 #pragma once
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // =============================================================================
 // NkModelerAssets.h — UN FICHIER PAR ASSET, sur le disque.
 //
@@ -41,6 +42,10 @@
 // =============================================================================
 
 #include "NK3DModeler/Project/NkModelerScene.h" // helpers NkSc* + lecteur HERITE
+// LA GEOMETRIE DANS LE FICHIER. Un en-tete a part, sans hote 3D ni rendu : la
+// sonde `--probe=geom` l'eprouve sans fenetre, ce qui serait impossible si le
+// codec vivait ici, au milieu des appels a la vue 3D.
+#include "NK3DModeler/Project/NkModelerGeom.h"
 
 #include "NKFileSystem/NkFile.h"
 #include "NKFileSystem/NkDirectory.h"
@@ -538,6 +543,20 @@ namespace nkentseu {
 					cr.SetFloat32("aux", aux);
 					nd.SetObject("creation", cr);
 				}
+				// ── LA GEOMETRIE (13/09) ────────────────────────────────────
+				// « creation » ci-dessus dit comment REFABRIQUER une primitive ;
+				// il ne dit rien de ce qu'on lui a FAIT. Des qu'un noeud porte son
+				// propre maillage -- importe, ou sorti du mode edition -- ce sont
+				// SES sommets qui font foi, et c'est eux qu'on ecrit. Un noeud qui
+				// n'a pas de maillage propre n'ecrit rien : ses parametres suffisent
+				// et un bloc vide couterait sans rien dire.
+				{
+					const void *vp = nullptr;
+					const uint32 *ip = nullptr;
+					uint32 vc = 0u, ic = 0u;
+					if (demo::Demo3DHostMeshData(n, &vp, &vc, &ip, &ic))
+						(void)NkGeomWrite(nd, vp, vc, demo::Demo3DHostVertexBytes(), ip, ic);
+				}
 				if (kind == 5) { // LUMIERE — le TYPE est le sous-type, deja ecrit
 					NkArchive li;
 					float32 col[3] = {1.f, 1.f, 1.f}, inten = 8.f;
@@ -668,6 +687,35 @@ namespace nkentseu {
 					demo::Demo3DHostSetMeshParams(n, NkScInt(cr, "segments", 32),
 												  NkScInt(cr, "anneaux", 16),
 												  NkScFloat(cr, "aux", 0.15f));
+				// ── LA GEOMETRIE, APRES les parametres de creation ──────────
+				// L'ORDRE EST LA REGLE, pas un detail : poser les parametres
+				// REGENERE le maillage de la primitive. Rendre les sommets avant
+				// eux, c'est les voir effaces par la sphere qu'on vient de
+				// redemander. Les sommets du fichier passent donc EN DERNIER, et
+				// ce sont eux qui font foi.
+				{
+					NkVector<uint8> gv;
+					NkVector<uint32> gi;
+					uint32 gvc = 0u;
+					NkString gwhy;
+					if (NkGeomRead(nd, demo::Demo3DHostVertexBytes(), gv, &gvc, gi, &gwhy)) {
+						if (!demo::Demo3DHostSetMeshData(n, gv.Data(), gvc, gi.Data(),
+														 (uint32)gi.Size()))
+							NkLog::Instance().Warn(
+								"[geometrie] noeud {0} : {1} sommets relus, mais la vue 3D "
+								"les a refuses",
+								n, (int32)gvc);
+					} else if (!gwhy.Empty()) {
+						// UN REFUS SE DIT. Une cle absente est normale (primitive,
+						// ou fichier ecrit avant ce bloc) et ne remplit pas `gwhy` ;
+						// tout le reste est un maillage qu'on ne rend PAS, et le
+						// taire ferait disparaitre du travail sans un mot.
+						NkLog::Instance().Warn("[geometrie] noeud {0} non restauree : {1}", n,
+											   gwhy.CStr());
+						if (nodeMiss)
+							++*nodeMiss;
+					}
+				}
 				float32 pos[3], rot[3], scl[3];
 				NkScGetVec3(nd, "position", pos, 0.f, 0.f, 0.f);
 				NkScGetVec3(nd, "rotation", rot, 0.f, 0.f, 0.f);

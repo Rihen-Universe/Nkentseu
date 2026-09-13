@@ -1,4 +1,5 @@
 #pragma once
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // =============================================================================
 // NkModelerScene.h — SERIALISATION DE LA SCENE dans le .nk3dm.
 //
@@ -58,15 +59,16 @@
 // ── CE QUI N'EST PAS ENCORE SAUVEGARDE ───────────────────────────────────────
 //   Dit ici ET a l'ecran d'accueil, parce qu'un silence ferait perdre du
 //   travail :
-//   * la GEOMETRIE EDITEE (sommets deplaces en mode Edition) : un maillage est
-//     regenere depuis ses parametres de creation, pas relu ;
-//   * la GEOMETRIE IMPORTEE (17/08) : meme dette -- le `.nkmesh` d'un model
-//     importe ecrit ses noeuds, origines et noms, pas encore ses sommets ; a
-//     la reouverture d'un AUTRE jour, les noeuds reviennent en primitives de
-//     leur nature. Dans LA session, l'editeur de model travaille sur
-//     l'archive vivante : la geometrie y est reelle. Trouvee en preparant la
-//     creation des noeuds de l'import (en cherchant qui relit un maillage
-//     arbitraire), pas en relisant ce fichier ;
+//   * la GEOMETRIE EDITEE et la GEOMETRIE IMPORTEE : PLUS D'ACTUALITE depuis
+//     le 13/09 -- elles sont enregistrees. Tout noeud qui porte SON PROPRE
+//     maillage (importe, ou sorti du mode Edition) ecrit ses sommets et ses
+//     indices dans son fichier sous la cle `geometrie` (cf. NkModelerGeom.h),
+//     et les retrouve a la relecture. Une primitive du catalogue, elle,
+//     n'ecrit toujours que ses PARAMETRES de creation : elle se refabrique a
+//     l'identique, et recopier ses sommets couterait sans rien apporter. Ce
+//     qui reste vrai : un fichier ecrit AVANT cette date n'a pas le bloc, et
+//     ses noeuds reviennent donc en primitives de leur nature -- il le DIT en
+//     ne portant pas la cle, ce qui se lit ;
 //   * les MODIFICATEURS (la pile n'a pas encore de modele de donnees) ;
 //   * les objets de la SCENE DE DEMONSTRATION (noeuds 0..95) : ils
 //     reapparaissent tels qu'a l'ouverture, seul leur masquage par scene
