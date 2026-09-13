@@ -290,6 +290,35 @@ namespace nkentseu {
 
 				// ── INTERRUPTEURS DE MUTATION (les témoins DOIVENT rougir) ──────────
 				bool projectionEnabled = true; // faux -> témoin (b) divergence rouge
+				// ⚠️⚠️ LES TEMOINS DE MESURE. DEFAUT : ALLUMES, et ce defaut est la
+				// regle, pas une commodite. Decide par Rodolf via le coordinateur le
+				// 2026-09-13, et la FORMULATION compte plus que la decision :
+				//
+				//   DANS LE BANC, ils restent TOUJOURS allumes, SANS INTERRUPTEUR —
+				//   c'est lui le juge, et UN JUGE QUI PEUT FERMER LES YEUX NE JUGE
+				//   PLUS. Aucun mode du banc ne touche ce champ, et aucune variable
+				//   d'environnement ne l'expose.
+				//
+				//   SUR LE CHEMIN TEMPS REEL (NK_FIRE_PROBE et tout ce qui vise
+				//   l'affichage), ils sont ETEINTS — et c'est l'EXTINCTION qui
+				//   s'annonce, dans le bandeau ET dans le journal, jamais l'allumage.
+				//   Un reglage qu'il faut penser a ARMER se fait oublier ; un bandeau
+				//   qui dit « temoins eteints » se voit.
+				//
+				// CE QUI S'ETEINT : les trois MeasureDivergence, la SECONDE
+				// ComputeVorticity (celle refaite « pour l'appelant »), et les trois
+				// reductions TotalMass / TotalHeat / TotalFuel. Toutes sont `const` ou
+				// sans effet sur le pas suivant : les couper ne change AUCUN champ.
+				//
+				// ⚠️ CE QUI NE S'ETEINT PAS, ET POURQUOI — mesure du 13/09 :
+				// `MeasureVelocity` N'EST PAS UNE MESURE. Son nom ment : quand une
+				// cellule depasse `maxSpeed`, elle MULTIPLIE les six vitesses de face
+				// par `lim/s`. C'est un FILET DE SECURITE, donc de la physique. La
+				// couper changerait le champ, pas seulement le rapport. Elle porte
+				// aussi le comptage des NaN, qu'un chemin temps reel a tout interet a
+				// garder. Le balayage de Tmax reste lui aussi : le bandeau l'affiche,
+				// et c'est un seul parcours sans arithmetique.
+				bool temoinsMesure = true;
 				bool advectionEnabled = true;  // faux -> témoin (d) transport rouge
 				bool buoyancyEnabled = true;   // faux -> témoin (c) rouge
 
@@ -385,8 +414,18 @@ namespace nkentseu {
 				float32 msCFL = 0.f;		  // MaxCFL + choix du nombre de sous-pas
 				float32 msAdvScalaires = 0.f; // AdvectScalar x3 (densite, temperature, carburant)
 				float32 msDissipation = 0.f;  // les trois rappels multiplicatifs
-				float32 msMesures = 0.f;	  // TOUTE la famille INSTRUMENTATION
-				float32 msPhysique = 0.f;	  // somme de la famille PHYSIQUE
+				// L'INSTRUMENTATION, en DEUX parts — parce que toute ne peut pas
+				// s'eteindre, et qu'annoncer « 18,64 ms d'economie » sans ce partage
+				// serait promettre ce qu'on ne peut pas rendre.
+				float32 msMesuresEteintes = 0.f; // ce que le temps reel PEUT couper
+				float32 msMesuresGardees = 0.f;	 // ce qu'il doit garder (voir plus bas)
+				float32 msMesures = 0.f;		 // la somme des deux
+				float32 msPhysique = 0.f;		 // somme de la famille PHYSIQUE
+				// Vrai quand les temoins coupables ont ete SAUTES a ce pas. Les stats
+				// qu'ils alimentent valent alors ZERO — et ce zero ne dit pas « mesure
+				// a zero », il dit « PAS MESURE ». C'est pour cela que ce drapeau
+				// existe : un zero sans drapeau serait un mensonge silencieux.
+				bool temoinsEteints = false;
 
 				// ADVECTION EN FLUX : le nombre de Courant reellement vu au dernier
 				// pas, et le nombre de SOUS-PAS qu'il a fallu pour rester sous la

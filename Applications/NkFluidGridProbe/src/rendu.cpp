@@ -413,6 +413,7 @@ void EnqueteVentilationPas() {
 	const float32 dt = 1.f / 60.f;
 	float64 sCombu = 0, sFlot = 0, sVort = 0, sConf = 0, sVent = 0, sAdvV = 0;
 	float64 sProj = 0, sCFL = 0, sAdvS = 0, sDiss = 0, sMes = 0, sPhys = 0, sTot = 0;
+	float64 sEteint = 0, sGarde = 0;
 	for (uint32 s = 0; s < kPas; ++s) {
 		g.EmitSphere({0.f, 0.05f, 0.f}, 0.06f, 7.f * dt, 400.f * dt, 0.f);
 		g.Step(dt);
@@ -428,6 +429,8 @@ void EnqueteVentilationPas() {
 		sAdvS += t.msAdvScalaires;
 		sDiss += t.msDissipation;
 		sMes += t.msMesures;
+		sEteint += t.msMesuresEteintes;
+		sGarde += t.msMesuresGardees;
 		sPhys += t.msPhysique;
 		sTot += t.ms;
 	}
@@ -451,7 +454,18 @@ void EnqueteVentilationPas() {
 	printf("      -----------------------------------------------------\n");
 	printf("      PHYSIQUE (somme)                %9.2f   %6.2f %%\n", sPhys / n, (sPhys / n) * pc);
 	printf("      INSTRUMENTATION (le banc)       %9.2f   %6.2f %%\n", sMes / n, (sMes / n) * pc);
+	printf("        dont EXTINGUIBLE (temps reel) %9.2f   %6.2f %%\n", sEteint / n, (sEteint / n) * pc);
+	printf("        dont GARDE (filet + Tmax)     %9.2f   %6.2f %%\n", sGarde / n, (sGarde / n) * pc);
 	printf("      TOTAL mesure                    %9.2f   100,00 %%\n", tot);
+	printf("\n    ⚠️ LE PARTAGE COMPTE PLUS QUE LE TOTAL. `MeasureVelocity` N'EST PAS une\n");
+	printf("    mesure : quand une cellule depasse maxSpeed, elle MULTIPLIE les six vitesses\n");
+	printf("    de face par lim/s. C'est un FILET DE SECURITE, donc de la PHYSIQUE, et la\n");
+	printf("    couper changerait le CHAMP, pas seulement le rapport. Annoncer %.2f ms\n", sMes / n);
+	printf("    d'economie serait donc promettre ce qu'on ne peut pas rendre : l'economie\n");
+	printf("    REELLE du chemin temps reel est %.2f ms.\n", sEteint / n);
+	printf("    ⚠️ ET DANS LE BANC, RIEN NE S'ETEINT : aucun mode ne touche `temoinsMesure`,\n");
+	printf("    aucune variable d'environnement ne l'expose. Un juge qui peut fermer les\n");
+	printf("    yeux ne juge plus.\n");
 	fflush(stdout);
 
 	// ── (s0g) LA GARDE DE SOMME ────────────────────────────────────────────

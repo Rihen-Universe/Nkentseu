@@ -359,3 +359,102 @@ moteur n'a pas besoin de ces témoins à chaque image. Les rendre **optionnels**
 ⚠️ **Je ne le fais PAS dans ce lot** : le banc a besoin de ces témoins, et les
 rendre optionnels veut dire décider **qui** les allume. C'est une décision, pas une
 optimisation, et elle appartient à Rodolf.
+
+---
+
+## 9. LA RÈGLE DES TÉMOINS, TRANCHÉE — et ce qu'elle rend RÉELLEMENT
+
+> **Dans le BANC, les témoins restent TOUJOURS allumés, SANS interrupteur** — c'est
+> lui le juge, et **un juge qui peut fermer les yeux ne juge plus**. Aucun mode,
+> aucune variable d'environnement n'expose `temoinsMesure`.
+>
+> **Sur le chemin TEMPS RÉEL, ils sont ÉTEINTS — et c'est l'EXTINCTION qui
+> s'annonce**, dans le bandeau ET dans le journal, jamais l'allumage. *Un réglage
+> qu'il faut penser à armer se fait oublier ; un bandeau qui dit « témoins
+> éteints » se voit.*
+
+### ⚠️ `MeasureVelocity` N'EST PAS UNE MESURE — trouvé en LISANT, avant de couper
+
+Son nom ment. Quand une cellule dépasse `maxSpeed`, elle **multiplie les six
+vitesses de face** par `lim/s` : c'est un **filet de sécurité**, donc de la
+**physique**. La couper aurait changé le **champ**, pas seulement le rapport — le
+contrôle négatif du banc l'aurait dit, mais **après**. Elle reste donc allumée
+partout, avec le balayage de `Tmax` que le bandeau affiche.
+
+### Ce que l'extinction rend, MESURÉ et non supposé
+
+```
+INSTRUMENTATION totale              19,96 ms    8,64 %
+  dont EXTINGUIBLE (temps reel)     14,58 ms    6,31 %   <- l economie REELLE
+  dont GARDE (filet + Tmax)          5,38 ms    2,33 %   <- ne peut pas partir
+TOTAL du pas                       231,10 ms
+```
+
+> **L'économie n'est pas de `18,64 ms` comme nous l'attendions : elle est de
+> `14,58 ms`.** Les `5,38 ms` restants sont le filet et le `Tmax`. **Annoncer 18,6
+> aurait été promettre ce qu'on ne peut pas rendre.**
+
+**Sur la sonde temps réel** (65 536 cellules) : `sim 147,1 à 154,8 ms` et
+`227,1 à 236,4 ms` par image, contre `153,5 à 196,0` et `245,7 à 301,6` avant, avec
+`TEMOINS ETEINTS : OUI` dans chaque ligne de journal.
+⚠️ **Le signe est bon, la magnitude n'est PAS séparable de la charge machine** : le
+même total a déjà varié de 70 % d'une course à l'autre. **Le chiffre qui vaut est
+`msMesuresEteintes`**, mesuré dans la **même** course que son total.
+
+### Le contrôle négatif du banc : VERT
+
+`87 contrôles, 7 ROUGES`, **rouges identiques au texte**, ancrages au dernier
+chiffre — enstrophie `1,458000`, (w2) `2,0015`, (d) `0,019 cellule`, (b)
+`0,000029 %`. **Le banc n'a rien éteint**, et c'est ce que la règle exige.
+
+### ⟹ LA CIBLE, MISE À JOUR AVEC LES VRAIS CHIFFRES
+
+Le plafond des `8x` demandait un pas de `27,44 ms`. Avec l'extinction, le CPU passe
+de `231,10` à `216,52 ms` — soit **`1,07x`** — et le budget restant pour la physique
+devient `27,44 − 5,38 = 22,06 ms` au lieu de `8,8`.
+
+    exige sur la PHYSIQUE pour tenir les 8x :  200,87 / 22,06 = x 9,1
+    (contre x 22,8 avant l extinction)
+
+> **L'extinction ne fait pas gagner `1,07x` : elle fait passer l'exigence de
+> `x22,8` à `x9,1`.** C'est là toute sa valeur — elle **débloque le plafond**, elle
+> n'accélère presque rien.
+
+Et la cible reste celle de (s0) : **le pas COMPLET, ou rien.**
+
+```
+x10 sur la projection SEULE (39 %)    -> 1,54x    insuffisant
+x10 sur les DEUX advections (44,8 %)  -> 1,67x    insuffisant
+x10 sur TOUTE la physique             -> 5,88x    insuffisant
+x20 sur TOUTE la physique             -> 7,66x    tout juste sous 8x
+```
+
+### ⚠️ CE QUE ÇA REPRÉSENTE COMME CHANTIER — dit honnêtement
+
+Porter **tout le pas**, ce n'est pas porter un solveur :
+
+1. le **solveur de pression** — et **le SOR séquentiel ne se parallélise pas tel
+   quel**. Il faut passer à un Jacobi rouge-noir, c'est-à-dire **changer
+   d'algorithme, pas seulement de processeur** : le nombre de balayages changera,
+   **et le résultat aussi** ;
+2. l'**advection de la vitesse** semi-lagrangienne (29 %) et ses interpolations
+   trilinéaires ;
+3. l'**advection en flux** des scalaires (16 %), **sous-cyclée** — un nombre de
+   passes qui dépend du champ, donc décidé sur le GPU ou synchronisé à chaque pas ;
+4. vorticité, confinement, flottabilité, dissipation (≈ 6 %) ;
+5. et le **transfert** : les champs montent une fois et ne redescendent que
+   lorsqu'on les lit — or **le banc les lit à chaque pas**, donc le banc CPU et le
+   chemin GPU ne peuvent pas être le même code.
+
+**Le point dur n'est pas le nombre de lignes, c'est le § 1** : un Jacobi rouge-noir
+ne rend pas le même champ qu'un SOR séquentiel à la même tolérance. **Le volet
+négatif de (s1) — même masse, même chaleur, même `Tmax` à `1e-4` — est donc le vrai
+risque du chantier, pas la performance.**
+
+> **Estimation honnête : ce n'est pas un lot, c'est un chantier de la taille de la
+> bascule MAC ou de l'advection en flux** — plusieurs jours, avec son propre banc
+> d'équivalence CPU/GPU à écrire **avant** le premier nuanceur. **Et il peut échouer
+> sur (s1)-négatif plutôt que sur la vitesse.**
+
+**Si Rodolf préfère renoncer, (s0) lui aura fait économiser ce chantier** — et
+c'était exactement sa raison d'être.
