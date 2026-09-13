@@ -1,4 +1,5 @@
 #pragma once
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // =============================================================================
 // NkEnvironmentSystem.h  — NKRenderer v5.0  (Tools/Environment/)
 //
@@ -282,6 +283,26 @@ namespace nkentseu {
 				// si le chargement et la convolution ont reussi.
 				bool LoadFromHDR(const NkString &path);
 
+				// ── UN ENVIRONNEMENT EN IMAGE A-T-IL VRAIMENT ETE CHARGE ? ────────
+				// ⚠️ CE N'EST PAS « les cubemaps sont valides ». Le moteur genere
+				// TOUJOURS un ciel procedural de repli : la validite repond donc
+				// « oui » en permanence, et c'est exactement pourquoi le drapeau
+				// d'ambiance ne pouvait pas s'en deduire (cf. le commentaire de
+				// `hasEnv` dans NkRender3D.cpp).
+				//
+				// Ce drapeau-ci dit autre chose : **un fichier a ete lu ET convolu
+				// avec succes**. C'est le FAIT, pas l'intention -- `cfg.source =
+				// HDR_FILE` peut echouer et retomber sur le degrade, auquel cas la
+				// reponse est NON, comme elle doit l'etre.
+				//
+				// Il existe parce que « les reflets suivent le chargement du ciel »
+				// (decision de Rodolf, 2026-09-13) : un reglage qu'il faut penser a
+				// ARMER se fait oublier par tous ceux qui croient l'avoir arme --
+				// Demo4 et Demo5 chargeaient une HDRI et ne reflétaient rien.
+				bool HasImageEnvironment() const {
+					return mImageEnvLoaded;
+				}
+
 				// Accesseurs RHI pour Render3D / NkMaterialSystem (binding 8/9/10 du shader PBR).
 				NkTextureHandle GetIrradianceCubemap() const {
 					return mIrradiance;
@@ -317,6 +338,12 @@ namespace nkentseu {
 			private:
 				NkIDevice *mDevice = nullptr;
 				NkEnvironmentConfig mCfg;
+
+				// Un environnement EN IMAGE a-t-il ete lu et convolu avec succes ?
+				// Faux des qu'on retombe sur le ciel procedural -- y compris apres un
+				// echec de chargement, et c'est le point : le repli ne doit PAS se
+				// faire passer pour un monde charge.
+				bool mImageEnvLoaded = false;
 
 				NkTextureHandle mIrradiance; // samplerCube (binding 8)
 				NkTextureHandle mPrefilter;	 // samplerCube (binding 9, mip-mapped)

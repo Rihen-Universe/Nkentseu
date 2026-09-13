@@ -1217,6 +1217,11 @@ namespace nkentseu {
 		void NkEnvironmentSystem::LoadProceduralEx(const NkSkyParams &P) {
 			if (!mDevice)
 				return;
+			// LE REPLI NE SE FAIT PAS PASSER POUR UN MONDE CHARGE. Ce ciel est
+			// genere TOUJOURS -- au demarrage, et encore apres un echec de
+			// chargement HDR. C'est pour cela que la validite des cubemaps ne peut
+			// pas servir de drapeau : elle repond « oui » en permanence.
+			mImageEnvLoaded = false;
 			// Alias locaux : le corps ci-dessous n'a pas change de forme, seuls
 			// les points d'echantillonnage passent desormais par SampleSkyModel.
 			const NkVec3f &skyTop = P.skyTop;
@@ -1446,6 +1451,9 @@ namespace nkentseu {
 		// shader GPU). Hash de cache = path + tailles config (pas le mtime
 		// pour cette v0 — clear cache manuel si on swap le .hdr).
 		bool NkEnvironmentSystem::LoadFromHDR(const NkString &path) {
+			// Remis a FAUX des l'entree : si cette fonction echoue a mi-chemin, le
+			// drapeau ne doit pas garder la valeur d'un chargement precedent.
+			mImageEnvLoaded = false;
 			if (!mDevice)
 				return false;
 			if (path.Empty()) {
@@ -1532,6 +1540,11 @@ namespace nkentseu {
 				auto cpath = IBLCachePath(mCfg.cacheDir, hash);
 				if (TryLoadIBLCache(cpath, hash, mDevice, mBrdfLUT, mIrradiance, mPrefilter, irrSize, prefSize,
 									prefMips, lutSize)) {
+					// ⚠️ LE CACHE EST UNE SORTIE REUSSIE COMME L'AUTRE. L'oublier ici
+					// aurait donne un moteur qui reflete le ciel a la premiere course
+					// et plus jamais ensuite -- le genre de defaut qu'on attribue au
+					// pilote graphique.
+					mImageEnvLoaded = true;
 					// `hdr` se libere toute seule en sortant de la portee.
 					return true;
 				}
@@ -1845,6 +1858,7 @@ namespace nkentseu {
 				SaveIBLCache(cpath, hash, irrSize, prefSize, prefMips, lutSize, lutData.data(), irrData, prefData);
 			}
 
+			mImageEnvLoaded = true;
 			// `hdr` se libere toute seule en sortant de la portee.
 			return true;
 		}
