@@ -1,4 +1,5 @@
 // =============================================================================
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // NkVehicle.cpp — roue par raycast, suspension à trois gardes, adhérence en
 // vitesse à annuler bornée par le cercle de friction. Tout DANS le pas fixe.
 // =============================================================================
@@ -190,14 +191,30 @@ namespace nkentseu {
 				float32 Jlat = -vLat * mLat;
 				// longitudinal : moteur + frein (le frein ne peut pas inverser le sens)
 				float32 Jlong = 0.f;
+				const bool gazLache = std::fabs(mThrottle) < 0.05f;
 				if (w.flags & NkWheel::kPowered)
 					Jlong += mThrottle * mTuning.engineForce * h;
-				if (mBrake > 0.f) {
-					float32 Jb = mBrake * mTuning.brakeForce * h;
+				// ── TOUT CE QUI RETARDE, PLAFONNÉ ENSEMBLE (2026-09-13) ──────────
+				// frein pilote + résistance au roulement + frein moteur. Le plafond
+				// « de quoi l'arrêter, pas plus » porte sur leur SOMME, et c'est le
+				// point : plafonnés chacun dans son coin, deux freinages qui s'arrêtent
+				// chacun juste à temps INVERSENT la voiture à eux deux. Le frein seul
+				// était plafonné dans son propre `if` : le défaut était latent, il ne
+				// s'est jamais montré parce qu'il n'y avait qu'un seul freinage.
+				// Les trois restent à l'INTÉRIEUR du cercle de friction ci-dessous :
+				// sur la glace, aucun d'eux ne peut freiner plus que mu ne le permet.
+				float32 Jret = 0.f;
+				if (mBrake > 0.f)
+					Jret += mBrake * mTuning.brakeForce * h;
+				if (mTuning.rollingResistance > 0.f)
+					Jret += mTuning.rollingResistance * Fs * h; // ∝ la CHARGE : nulle roue en l'air
+				if (gazLache && mTuning.engineBrake > 0.f && (w.flags & NkWheel::kPowered))
+					Jret += mTuning.engineBrake * mTuning.engineForce * h;
+				if (Jret > 0.f) {
 					const float32 Jstop = std::fabs(vLong) * mLong; // de quoi l'arrêter, pas plus
-					if (Jb > Jstop)
-						Jb = Jstop;
-					Jlong += (vLong > 0.f ? -Jb : Jb);
+					if (Jret > Jstop)
+						Jret = Jstop;
+					Jlong += (vLong > 0.f ? -Jret : Jret);
 				}
 				// LE CERCLE DE FRICTION — la borne unique qui donne le survirage
 				const float32 Jmax = mTuning.mu * Fs * h;
