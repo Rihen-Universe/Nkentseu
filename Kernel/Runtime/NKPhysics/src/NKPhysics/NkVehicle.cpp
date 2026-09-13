@@ -273,11 +273,32 @@ namespace nkentseu {
 					Jret += mTuning.rollingResistance * Fs * h; // ∝ la CHARGE : nulle roue en l'air
 				if (gazLache && mTuning.engineBrake > 0.f && (w.flags & NkWheel::kPowered))
 					Jret += mTuning.engineBrake * mTuning.engineForce * h;
+				// ── LE FROTTEMENT STATIQUE (2026-09-13) ────────────────────
+				// Mesuré : frein à fond sur 10°, la voiture FLUAIT en arrière à
+				// 3,9 cm/s — 14 cm toutes les quatre secondes, visible à l'œil.
+				// La cause n'est pas « rien ne freine » : c'est UN PAS DE RETARD.
+				// `StepFixed` applique les impulsions AVANT que l'intégrateur
+				// n'ajoute la gravité. À l'arrêt vLong vaut 0 au début du sous-pas,
+				// donc le plafond « de quoi l'arrêter » vaut 0 et AUCUNE impulsion
+				// ne part ; la gravité ajoute ensuite g·sinθ·h, que le sous-pas
+				// SUIVANT annule — après que la voiture a avancé. La vitesse fait
+				// une dent de scie entre 0 et g·sinθ·h, et la voiture descend.
+				// La retenue vise donc la vitesse que la roue AURA à la fin du pas.
+				// Le cercle de friction, lui, borne le tout juste en dessous, PAR
+				// ROUE : c'est lui qui donne le frottement statique, et c'est lui
+				// qui refusera de tenir une pente au-delà de tanθ = mu.
+				// ⚠️ Sur le PLAT, gravité·wheelFwd = 0 exactement (gravité verticale,
+				// wheelFwd horizontal) : le comportement plat est inchangé AU BIT.
+				// Seule la gravité est anticipée : la suspension est portée par la
+				// normale (projection nulle sur wheelFwd) et la poussée moteur est
+				// déjà dans Jlong.
+				const float32 vLongFin =
+					mTuning.staticFriction ? (vLong + mWorld.Config().gravity.Dot(wheelFwd) * h) : vLong;
 				if (Jret > 0.f) {
-					const float32 Jstop = std::fabs(vLong) * mLong; // de quoi l'arrêter, pas plus
+					const float32 Jstop = std::fabs(vLongFin) * mLong; // de quoi l'arrêter, pas plus
 					if (Jret > Jstop)
 						Jret = Jstop;
-					Jlong += (vLong > 0.f ? -Jret : Jret);
+					Jlong += (vLongFin > 0.f ? -Jret : Jret);
 				}
 				// LE CERCLE DE FRICTION — la borne unique qui donne le survirage
 				const float32 Jmax = mTuning.mu * Fs * h;
