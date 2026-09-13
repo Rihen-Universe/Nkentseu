@@ -98,6 +98,7 @@ namespace nkentseu {
 				float32 vehDtPrec = 0.f, vehCamSecDtPrec = 0.f;
 				// Le vrai corps : maillages CUITS (transforms de noeud FBX appliquees).
 				bool vehModel = false; // faux -> cube + spheres, et le journal le DIT
+				NkMatInstHandle vehMat; // materiau de la voiture (couleur + normales du FBX)
 				NkMeshHandle vehBodyMesh;
 				NkMeshHandle vehWheelMesh[4];
 				float32 vehWheelVisR[4] = {0.f, 0.f, 0.f, 0.f}; // rayon VISUEL de chaque roue (m)
@@ -2399,6 +2400,11 @@ static NkTexHandle CreateLanternCubeCookie(NkTextureLibrary *texLib, NkIDevice *
 						NkVec3f bmin[5], bmax[5];
 						for (uint32 g = 0; g < 5u; ++g) { bmin[g] = {1e30f, 1e30f, 1e30f}; bmax[g] = {-1e30f, -1e30f, -1e30f}; }
 						uint32 ignores = 0;
+						uint32 triDirect = 0, triMiroir = 0; // sens des ilots UV (det du jacobien)
+						// L'etendue UV : on ne CONCLUT pas « c'est le rendu » sans avoir
+						// verifie que les sommets portent bien des coordonnees de texture.
+						NkVec2f uvMin = {1e30f, 1e30f}, uvMax = {-1e30f, -1e30f};
+						uint32 uvNuls = 0;
 						for (uint32 s = 0; s < (uint32)fbx.subMeshes.Size(); ++s) {
 							const renderer::NkSubMesh &sm = fbx.subMeshes[s];
 							// proxy de rig ? le materiau le dit
@@ -2445,6 +2451,9 @@ static NkTexHandle CreateLanternCubeCookie(NkTextureLibrary *texLib, NkIDevice *
 								const float32 ln = std::sqrt(n.Dot(n));
 								v.pos = p0;
 								v.normal = (ln > 1e-8f) ? n * (1.f / ln) : NkVec3f{0.f, 1.f, 0.f};
+								if (v.uv.x == 0.f && v.uv.y == 0.f) ++uvNuls;
+								uvMin = {v.uv.x < uvMin.x ? v.uv.x : uvMin.x, v.uv.y < uvMin.y ? v.uv.y : uvMin.y};
+								uvMax = {v.uv.x > uvMax.x ? v.uv.x : uvMax.x, v.uv.y > uvMax.y ? v.uv.y : uvMax.y};
 								gi[grp].PushBack((uint32)gv[grp].Size());
 								gv[grp].PushBack(v);
 								bmin[grp] = {v.pos.x < bmin[grp].x ? v.pos.x : bmin[grp].x, v.pos.y < bmin[grp].y ? v.pos.y : bmin[grp].y,
@@ -2507,9 +2516,40 @@ static NkTexHandle CreateLanternCubeCookie(NkTextureLibrary *texLib, NkIDevice *
 									renderer::NkVertex3D &v = gv[g][i];
 									v.pos = versChassis(v.pos) - org;
 									v.normal = {-v.normal.x, v.normal.y, -v.normal.z};
-									v.tangent = {1.f, 0.f, 0.f};
 									v.uv2 = v.uv;
 									v.color = 0xFFFFFFFFu;
+								}
+								// ── LES TANGENTES (2026-09-13) ──────────────────────────
+								// Elles etaient ECRITES EN DUR a (1, 0, 0) -- une constante
+								// pour tout le maillage. Une carte de normales se lit dans le
+								// repere tangent : avec une tangente constante, ce repere est
+								// faux partout sauf par hasard, et la carrosserie se couvre de
+								// marbrures qu'on prendrait pour la texture. Mesure visible a
+								// la capture du 13/09. Ici chaque sommet appartient a UN SEUL
+								// triangle (les indices sont developpes), donc la tangente du
+								// triangle EST celle du sommet -- pas de lissage aux aretes,
+								// et c'est dit plutot que sous-entendu.
+								for (uint32 t3 = 0; t3 + 2 < (uint32)gv[g].Size(); t3 += 3) {
+									renderer::NkVertex3D &a3 = gv[g][t3];
+									renderer::NkVertex3D &b3 = gv[g][t3 + 1];
+									renderer::NkVertex3D &c3 = gv[g][t3 + 2];
+									const NkVec3f e1 = b3.pos - a3.pos, e2 = c3.pos - a3.pos;
+									const float32 du1 = b3.uv.x - a3.uv.x, dv1 = b3.uv.y - a3.uv.y;
+									const float32 du2 = c3.uv.x - a3.uv.x, dv2 = c3.uv.y - a3.uv.y;
+									const float32 det = du1 * dv2 - du2 * dv1;
+									if (det > 0.f) ++triDirect;
+									else if (det < 0.f) ++triMiroir;
+									NkVec3f T = (std::fabs(det) > 1e-12f) ? (e1 * dv2 - e2 * dv1) * (1.f / det)
+																		 : NkVec3f{1.f, 0.f, 0.f};
+									renderer::NkVertex3D *tri[3] = {&a3, &b3, &c3};
+									for (uint32 k3 = 0; k3 < 3u; ++k3) {
+										// Gram-Schmidt contre la normale du sommet : la tangente
+										// doit vivre DANS le plan de la surface.
+										const NkVec3f n3 = tri[k3]->normal;
+										NkVec3f to = T - n3 * n3.Dot(T);
+										const float32 lt = std::sqrt(to.Dot(to));
+										tri[k3]->tangent = (lt > 1e-8f) ? to * (1.f / lt) : NkVec3f{1.f, 0.f, 0.f};
+									}
 								}
 								renderer::NkMeshDesc md = renderer::NkMeshDesc::Simple(
 									renderer::NkVertexLayout::Default3D(), gv[g].Data(), (uint32)gv[g].Size(), gi[g].Data(),
@@ -2522,6 +2562,123 @@ static NkTexHandle CreateLanternCubeCookie(NkTextureLibrary *texLib, NkIDevice *
 							for (uint32 w = 0; w < 4u; ++w)
 								if (!st->vehWheelMesh[w].IsValid()) st->vehModel = false;
 							poseDepuisModele = st->vehModel;
+							// ═══════════════════════════════════════════════════════
+							//  LA COULEUR (2026-09-13) — MESURER avant de conclure.
+							//
+							//  La voiture etait grise. Avant d'accuser le rendu, on
+							//  demande au chargeur ce qu'il rapporte VRAIMENT : combien
+							//  de materiaux, combien d'images DECODEES, et si les
+							//  sommets portent des UV. Les trois reponses sont
+							//  imprimees ci-dessous, qu'elles soient bonnes ou non.
+							//  Si le modele n'avait AUCUNE texture, on poserait des
+							//  materiaux credibles EN LE DISANT -- jamais en silence.
+							// ═══════════════════════════════════════════════════════
+							std::fprintf(stderr,
+										 "[VEHICULE COULEUR] le chargeur rapporte : %u materiau(x), %u image(s), UV des sommets "
+										 "cuits u[%.3f, %.3f] v[%.3f, %.3f], %u sommets a UV (0,0)\n",
+										 (unsigned)fbx.materials.Size(), (unsigned)fbx.images.Size(), uvMin.x, uvMax.x,
+										 uvMin.y, uvMax.y, (unsigned)uvNuls);
+							for (uint32 mi2 = 0; mi2 < (uint32)fbx.materials.Size(); ++mi2) {
+								const renderer::NkGLTFMaterial &gm = fbx.materials[mi2];
+								std::fprintf(stderr,
+											 "[VEHICULE COULEUR]   materiau %u : couleur de base (%.2f, %.2f, %.2f, %.2f), "
+											 "metal %.2f, rugosite %.2f, images couleur=%d normales=%d emission=%d\n",
+											 mi2, gm.baseColorFactor.x, gm.baseColorFactor.y, gm.baseColorFactor.z,
+											 gm.baseColorFactor.w, gm.metallicFactor, gm.roughnessFactor, gm.baseColorImage,
+											 gm.normalImage, gm.emissiveImage);
+							}
+							for (uint32 ii2 = 0; ii2 < (uint32)fbx.images.Size(); ++ii2) {
+								const renderer::NkGLTFImage &gi2 = fbx.images[ii2];
+								std::fprintf(stderr, "[VEHICULE COULEUR]   image %u : uri=%s, decodee=%d, %dx%d\n", ii2,
+											 gi2.uri.CStr(), (int)gi2.valid, gi2.valid ? gi2.decoded.Width() : 0,
+											 gi2.valid ? gi2.decoded.Height() : 0);
+							}
+							// Les pixels sont DEJA decodes par le chargeur (NKImage, RGBA8) :
+							// on les televerse tels quels au lieu de relire les fichiers.
+							// C'est aussi ce qui prouve que la chaine du chargeur marche de
+							// bout en bout, et pas seulement que les JPEG existent sur le disque.
+							auto televerse = [&](int32 img, bool srgb, const char *nom) -> NkTexHandle {
+								NkTexHandle h;
+								if (img < 0 || img >= (int32)fbx.images.Size() || !fbx.images[(uint32)img].valid) return h;
+								NkImage &src = fbx.images[(uint32)img].decoded;
+								renderer::NkTextureCreateDesc td;
+								td.pixels = src.Pixels();
+								td.width = (uint32)src.Width();
+								td.height = (uint32)src.Height();
+								td.depth = 1;
+								td.format = NkGPUFormat::NK_RGBA8_UNORM;
+								td.srgb = srgb;
+								td.genMips = true;
+								td.debugName = nom;
+								if (auto *tl = ctx.renderer->GetTextures()) h = tl->Create(td);
+								return h;
+							};
+							// Quel materiau porte la carrosserie ? celui du plus gros sous-mesh
+							// rendu -- pas un nom devine.
+							int32 matCarross = -1;
+							uint32 meilleur = 0;
+							for (uint32 s2 = 0; s2 < (uint32)fbx.subMeshes.Size(); ++s2) {
+								const int32 m2 = (s2 < (uint32)fbx.subMeshMaterial.Size()) ? fbx.subMeshMaterial[s2] : -1;
+								if (m2 < 0) continue;
+								if (fbx.subMeshes[s2].indexCount > meilleur) {
+									meilleur = fbx.subMeshes[s2].indexCount;
+									matCarross = m2;
+								}
+							}
+							NkTexHandle texC, texN;
+							if (matCarross >= 0) {
+								texC = televerse(fbx.materials[(uint32)matCarross].baseColorImage, true, "Voiture_Couleur");
+								texN = televerse(fbx.materials[(uint32)matCarross].normalImage, false, "Voiture_Normales");
+							}
+							if (auto *mats = ctx.renderer->GetMaterials()) {
+								if (renderer::NkMaterialInstance *inst = mats->CreateInstance(mats->DefaultPBR())) {
+									if (texC.IsValid()) inst->SetAlbedoMap(texC);
+									// ⚠️ LA CARTE DE NORMALES EST OPT-IN, ET VOICI POURQUOI.
+									// Mesure du 13/09 : avec elle, la carrosserie se couvre de
+									// marbrures ; sans elle (meme texture de couleur, memes
+									// tangentes), l'image est propre. La mutation a isole la
+									// cause, on ne l'a pas devinee.
+									// La raison est structurelle et elle se chiffre : `NkVertex3D`
+									// porte `tangent` en NkVec3f et AUCUN SIGNE DE BITANGENTE (son
+									// propre commentaire dit « .w en vec4 si besoin »). Le nuanceur
+									// doit donc supposer une main unique pour B = N x T. Or ce
+									// modele a des ilots UV MIROIR (le compte est au journal) :
+									// sur ces triangles-la, la bitangente est de la mauvaise main
+									// et l'eclairage s'inverse. Une voiture est justement l'actif
+									// miroir par excellence -- une moitie reutilise les UV de
+									// l'autre.
+									// Livrer une image marbree en silence serait pire que de ne
+									// pas poser la carte : NK_VEHICLE_NORMALMAP=1 la remet pour qui
+									// veut la voir.
+									const bool avecNormales = [] {
+										const char *e = std::getenv("NK_VEHICLE_NORMALMAP");
+										return e && e[0] == '1';
+									}();
+									if (texN.IsValid() && avecNormales) inst->SetNormalMap(texN, 1.f);
+									// ⚠️ CE QUE LE FICHIER NE DIT PAS, et que je pose en le disant :
+									// le FBX porte du PHONG, pas du PBR. Il n'y a AUCUNE metalite
+									// dedans -- Phong n'en a pas la notion. Je pose donc metal = 0
+									// (dielectrique, c'est ce que Phong veut dire) et je DERIVE la
+									// rugosite de l'exposant de brillance mesure (9,6078) par la
+									// conversion usuelle rugosite = sqrt(2/(n+2)) = 0,415. Ces deux
+									// nombres sont des CHOIX, pas des lectures : ils sont ecrits ici
+									// et imprimes au journal.
+									inst->SetMetallic(0.f)->SetRoughness(0.415f);
+									st->vehMat = inst->GetHandle();
+								}
+							}
+							std::fprintf(stderr,
+										 "[VEHICULE COULEUR] carrosserie = materiau %d ; texture couleur valide=%d, normales "
+										 "valide=%d ; materiau d'instance valide=%d\n"
+										 "[VEHICULE COULEUR] POSE (le FBX est du Phong, il n'a pas de metalite) : metal 0,000 "
+										 "choisi, rugosite 0,415 DERIVEE de l'exposant de brillance 9,6078 par sqrt(2/(n+2))\n"
+										 "[VEHICULE COULEUR] ilots UV : %u triangles DIRECTS, %u MIROIR (%.1f %%) -> NkVertex3D n'a "
+										 "aucun signe de bitangente, donc la carte de normales marbre ces %.1f %% ; elle est "
+										 "OPT-IN (NK_VEHICLE_NORMALMAP=1), la couleur reste posee\n",
+										 matCarross, (int)texC.IsValid(), (int)texN.IsValid(), (int)st->vehMat.IsValid(),
+										 (unsigned)triDirect, (unsigned)triMiroir,
+										 (triDirect + triMiroir) ? 100.f * (float32)triMiroir / (float32)(triDirect + triMiroir) : 0.f,
+										 (triDirect + triMiroir) ? 100.f * (float32)triMiroir / (float32)(triDirect + triMiroir) : 0.f);
 							std::fprintf(stderr,
 										 "[VEHICULE MODELE] %s : %u sous-mesh, %u ignores (materiau « box » = proxy de rig)\n"
 										 "[VEHICULE MODELE] boite ASSEMBLEE de la caisse (unites fichier) = %.3f x %.3f x %.3f, centre (%.3f, %.3f, %.3f)\n"
@@ -5587,6 +5744,7 @@ static NkTexHandle CreateLanternCubeCookie(NkTextureLibrary *texLib, NkIDevice *
 												: NkMat4f::TRS(b->position, b->orientation, {1.8f, 1.0f, 4.4f});
 					vc.aabb = {b->position - NkVec3f{4.f, 4.f, 4.f}, b->position + NkVec3f{4.f, 4.f, 4.f}};
 					vc.tint = st->vehModel ? NkVec3f{1.f, 1.f, 1.f} : NkVec3f{0.85f, 0.15f, 0.1f};
+					if (st->vehModel && st->vehMat.IsValid()) vc.material = st->vehMat;
 					vc.metallic = 0.6f;
 					vc.roughness = 0.35f;
 					r3d->Submit(vc);
@@ -5610,6 +5768,13 @@ static NkTexHandle CreateLanternCubeCookie(NkTextureLibrary *texLib, NkIDevice *
 							wc.transform = NkMat4f::TRS(c, b->orientation * qs * qr, {1.f, 1.f, 1.f});
 							wc.aabb = {c - NkVec3f{1.5f, 1.5f, 1.5f}, c + NkVec3f{1.5f, 1.5f, 1.5f}};
 							wc.tint = {1.f, 1.f, 1.f};
+							// Les roues partagent le materiau de la carrosserie : mesure du
+							// fichier -- les quatre roues rendues portent « Futuristic_Car.001 »,
+							// le MEME materiau que la caisse. Une seule exception dans tout le
+							// modele, le vitrage (Cube.013, « _glass », opacite 0,135) : il est
+							// cuit dans le groupe caisse, donc il recoit lui aussi la couleur de
+							// carrosserie, et sa transparence n'est PAS cablee. C'est dit.
+							if (st->vehMat.IsValid()) wc.material = st->vehMat;
 						} else {
 							wc.transform = NkMat4f::TRS(w.worldPos, b->orientation, {rPhys * 2.f, rPhys * 2.f, rPhys * 2.f});
 							wc.aabb = {w.worldPos - NkVec3f{1.5f, 1.5f, 1.5f}, w.worldPos + NkVec3f{1.5f, 1.5f, 1.5f}};
