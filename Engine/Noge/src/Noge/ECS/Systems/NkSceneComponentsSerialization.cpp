@@ -142,6 +142,84 @@ namespace nkentseu {
 				return true;
 			}
 
+
+			// ── NkCameraComponent ─────────────────────────────────────────────
+			// On ecrit les PARAMETRES, jamais les matrices : `viewMatrix`,
+			// `projMatrix` et `viewProjMatrix` sont RECALCULEES a chaque image par
+			// `NkRenderSystem::UpdateActiveCamera` depuis la transformation et ces
+			// parametres. Les sauver serait sauver un resultat — et `aspect`
+			// dependant de la taille de la vue, une matrice relue contredirait la
+			// fenetre des le premier redimensionnement.
+			bool EcrireCamera(const NkWorld &w, NkEntityId id, NkArchive &out) {
+				const NkCameraComponent *c = const_cast<NkWorld &>(w).Get<NkCameraComponent>(id);
+				if (!c)
+					return false;
+				out.SetInt64("projection", (nk_int64)(c->projection == NkCameraProjection::Perspective ? 0 : 1));
+				out.SetFloat32("fovDeg", c->fovDeg);
+				out.SetFloat32("nearClip", c->nearClip);
+				out.SetFloat32("farClip", c->farClip);
+				out.SetFloat32("orthoSize", c->orthoSize);
+				out.SetInt64("priority", (nk_int64)c->priority);
+				// `aspect` N'EST PAS SAUVE : il appartient a la VUE, pas a la scene.
+				// NkRenderSystem le recoit du viewport a chaque image.
+				return true;
+			}
+
+			bool LireCamera(NkWorld &w, NkEntityId id, const NkArchive &in) {
+				NkCameraComponent c;
+				nk_int64 i64 = 0;
+				if (in.GetInt64("projection", i64))
+					c.projection = (i64 == 0) ? NkCameraProjection::Perspective : NkCameraProjection::Orthographic;
+				float32 v = 0.f;
+				if (in.GetFloat32("fovDeg", v)) c.fovDeg = v;
+				if (in.GetFloat32("nearClip", v)) c.nearClip = v;
+				if (in.GetFloat32("farClip", v)) c.farClip = v;
+				if (in.GetFloat32("orthoSize", v)) c.orthoSize = v;
+				if (in.GetInt64("priority", i64)) c.priority = (nk_int32)i64;
+				w.Add<NkCameraComponent>(id, c);
+				return true;
+			}
+
+			// ── NkLightComponent ──────────────────────────────────────────────
+			// La DIRECTION n'est pas ici : `NkRenderSystem::CollectLights` la prend
+			// de `tf.GetWorldForward()`. Une direction sauvee a part pourrait
+			// contredire la transformation — deux verites pour une orientation,
+			// c'est exactement le defaut qui m'a coute un viewport vide.
+			bool EcrireLumiere(const NkWorld &w, NkEntityId id, NkArchive &out) {
+				const NkLightComponent *l = const_cast<NkWorld &>(w).Get<NkLightComponent>(id);
+				if (!l)
+					return false;
+				out.SetInt64("type", (nk_int64)l->type);
+				out.SetFloat32("cr", l->color.r);
+				out.SetFloat32("cg", l->color.g);
+				out.SetFloat32("cb", l->color.b);
+				out.SetFloat32("ca", l->color.a);
+				out.SetFloat32("intensity", l->intensity);
+				out.SetFloat32("range", l->range);
+				out.SetFloat32("innerAngle", l->innerAngle);
+				out.SetFloat32("outerAngle", l->outerAngle);
+				out.SetInt64("castShadow", l->castShadow ? 1 : 0);
+				return true;
+			}
+
+			bool LireLumiere(NkWorld &w, NkEntityId id, const NkArchive &in) {
+				NkLightComponent l;
+				nk_int64 i64 = 0;
+				if (in.GetInt64("type", i64)) l.type = (NkLightType)i64;
+				float32 v = 0.f;
+				if (in.GetFloat32("cr", v)) l.color.r = v;
+				if (in.GetFloat32("cg", v)) l.color.g = v;
+				if (in.GetFloat32("cb", v)) l.color.b = v;
+				if (in.GetFloat32("ca", v)) l.color.a = v;
+				if (in.GetFloat32("intensity", v)) l.intensity = v;
+				if (in.GetFloat32("range", v)) l.range = v;
+				if (in.GetFloat32("innerAngle", v)) l.innerAngle = v;
+				if (in.GetFloat32("outerAngle", v)) l.outerAngle = v;
+				if (in.GetInt64("castShadow", i64)) l.castShadow = (i64 != 0);
+				w.Add<NkLightComponent>(id, l);
+				return true;
+			}
+
 		} // namespace
 
 		void RegisterNogeSceneComponents() noexcept {
@@ -154,6 +232,10 @@ namespace nkentseu {
 			ecs::NkSceneSerializer::RegisterComponentSerializer("NkMeshComponent", &EcrireMesh, &LireMesh);
 			ecs::NkSceneSerializer::RegisterComponentSerializer("NkMaterialComponent", &EcrireMateriau,
 														  &LireMateriau);
+			ecs::NkSceneSerializer::RegisterComponentSerializer("NkCameraComponent", &EcrireCamera,
+														  &LireCamera);
+			ecs::NkSceneSerializer::RegisterComponentSerializer("NkLightComponent", &EcrireLumiere,
+														  &LireLumiere);
 		}
 
 	} // namespace noge
