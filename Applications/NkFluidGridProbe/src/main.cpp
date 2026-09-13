@@ -62,6 +62,7 @@ void ControleOrdreSuperieur();	// (h2) les trois contrôles de la course complè
 void EnqueteFumeeQuiPese();		  // (i) l'ENQUÊTE, AUCUN verdict (NK_FLUID_MAC=9)
 void EnqueteComptageAnalytique(); // (j1) le comptage À LA MAIN (NK_FLUID_MAC=a)
 void EnqueteComptageChaleur();	  // (k1) le MÊME comptage, sur la CHALEUR (NK_FLUID_MAC=b)
+void EnqueteEchelleDebit();		  // (p2) l'échelle de débit, re-réglage de (e) (NK_FLUID_MAC=c)
 void PalierVolutes(bool complet); // (n1)(n3)(n2a) toujours ; (n2b) sous NK_FLUID_VOLUTES=1 (PLAN_VOLUTES.md)
 void ImagesDuConfinement(float32 epsilon);
 float32 EpsilonConfinement();
@@ -725,6 +726,20 @@ int main(int argc, char **argv) {
 	// préconditions le permettent, lues dans le code et nommées dans le plan (§ 13).
 	// Il ajoute (k0), le contrôle qui MANQUAIT à (j1) : la source injecte-t-elle
 	// exactement ce que je compte, AVANT tout transport ?
+	// NK_FLUID_MAC=c : (p2) L'ÉCHELLE DE DÉBIT. Elle ne juge pas un schéma, elle
+	// CHOISIT un réglage — et ses deux seuls verdicts sont des GARDES : à débit nul
+	// Tmax revient exactement à l'ambiante, et la courbe est monotone (sans quoi le
+	// débit ne serait pas le levier, et la règle de choix porterait sur du vide).
+	// ⚠️ UN SEUL LEVIER, le DÉBIT : tirer sur la grandeur qu'on mesure reviendrait à
+	// écrire la réponse.
+	if (mac != nullptr && mac[0] == 'c') {
+		EnqueteEchelleDebit();
+		printf("\n=============================================================\n");
+		printf("BILAN (mode NK_FLUID_MAC=c, (p2) L ECHELLE DE DEBIT) : %d controles, %d ROUGES\n", gChecks,
+			   gFailures);
+		printf("=============================================================\n");
+		return gFailures == 0 ? 0 : 1;
+	}
 	if (mac != nullptr && mac[0] == 'b') {
 		EnqueteComptageChaleur();
 		printf("\n=============================================================\n");

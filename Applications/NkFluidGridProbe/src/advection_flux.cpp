@@ -432,6 +432,28 @@ static ResultatPrix SceneMasse(bool flux, NkFluidFluxLimiter lim = NkFluidFluxLi
 	return r;
 }
 
+// ⚠️⚠️ LES DÉBITS D'INJECTION DE LA SCÈNE (e), NOMMÉS UNE SEULE FOIS.
+// DETTE PAYÉE LE 13/09 (§ 15 du plan) : ces deux nombres vivaient EN DUR dans la
+// scène ET dans les deux comptages analytiques (j1) et (k1). En changer un sans
+// l'autre aurait fait MENTIR le compteur EN SILENCE — et il aurait VERDI, puisque
+// sa référence aurait suivi son erreur. C'est le pire mode de panne d'un banc :
+// l'instrument et la chose mesurée qui dérivent ENSEMBLE.
+// La scène les lit, le comptage à la main les lit : ils ne peuvent plus diverger.
+static const float64 kSceneEDebitMasse = 6.0; // unités de densité par seconde
+// ⚠️ RE-RÉGLÉ le 13/09 par (p2) : 900 -> 7200 K/s (x8). La règle était écrite AVANT
+// la course — « le PLUS PETIT débit dont Tmax tombe dans [1350 ; 1650] K » — et
+// l'échelle mesurée donne 1212,0 K à x6 (hors bande) et 1406,1 K à x8 (dedans).
+// La cible 1500 K vient de la zone de flamme continue d'un feu de nappe
+// d'hydrocarbure (Drysdale) ; voir § 15 de PLAN_ORDRE_SUPERIEUR.md.
+// ⚠️ LE LEVIER EST LE DÉBIT D'INJECTION, JAMAIS UN FACTEUR SUR T : tirer sur la
+// grandeur qu'on mesure reviendrait à écrire la réponse.
+static const float64 kSceneEDebitChaleur = 7200.0; // K par seconde
+// La valeur d'AVANT le re-réglage, gardée pour que l'échelle de (p2) reste
+// REJOUABLE à l'identique : une échelle calée sur la valeur retenue mesurerait
+// autre chose à chaque re-réglage, et la course publiée cesserait d'être
+// comparable à celle d'hier.
+static const float64 kDebitAvantReglage = 900.0;
+
 // ── SCÈNE E : celle de (e) — LA SEULE où le sous-cyclage MORD vraiment ──────
 // vmax y monte à 7,782 m/s : à dt = 1/60 et h = 0,02, CFL vaut ~6,5.
 //
@@ -447,7 +469,15 @@ static ResultatPrix SceneMasse(bool flux, NkFluidFluxLimiter lim = NkFluidFluxLi
 static ResultatPrix SceneDixSecondes(bool flux, float32 cibleCFL = 0.f,
 									 NkFluidFluxLimiter lim = NkFluidFluxLimiter::Ordre1, float32 alpha = -1.f,
 									 bool injectionUnique = false, float32 dissipDensite = -1.f,
-									 float32 dissipTemp = -1.f) {
+									 float32 dissipTemp = -1.f, float64 debitChaleur = -1.0,
+									 float64 debitMasse = -1.0) {
+	// < 0 : le débit NOMMÉ de la scène. >= 0 : la valeur imposée, y compris ZÉRO —
+	// c'est le contrôle négatif de (p2), et il doit pouvoir demander exactement 0.
+	const float64 debitT = (debitChaleur >= 0.0) ? debitChaleur : kSceneEDebitChaleur;
+	// Le débit de MASSE, lui, sert à ISOLER la cause du rouge de (p2-) : sans masse
+	// injectée il n'y a pas de poussée, donc pas d'écoulement, donc pas de
+	// divergence résiduelle — et le seul suspect restant serait l'arithmétique.
+	const float64 debitM = (debitMasse >= 0.0) ? debitMasse : kSceneEDebitMasse;
 	ResultatPrix r;
 	NkFluidGridParams p;
 	p.boundsMin = {-0.25f, 0.f, -0.25f};
@@ -473,7 +503,8 @@ static ResultatPrix SceneDixSecondes(bool flux, float32 cibleCFL = 0.f,
 	float64 ensSum = 0.0, vortSum = 0.0, msSum = 0.0;
 	for (uint32 s = 0; s < 600; ++s) {
 		if (!injectionUnique || s == 0)
-			g.EmitSphere({0.f, 0.05f, 0.f}, 0.05f, 6.f * dt, 900.f * dt, 0.f);
+			g.EmitSphere({0.f, 0.05f, 0.f}, 0.05f, (float32)(debitM * (float64)dt),
+						 (float32)(debitT * (float64)dt), 0.f);
 		g.Step(dt);
 		RelevePas(g, r, ensSum, vortSum, msSum);
 		// La masse APRÈS chaque pas, pour (j1b) : « constante au dernier chiffre »
@@ -1313,7 +1344,10 @@ void EnqueteComptageAnalytique() {
 	const NkVec3f src = {0.f, 0.05f, 0.f};
 	const float32 rayon = 0.05f;
 	const float64 dt = 1.0 / 60.0;
-	const float64 debit = 6.0;
+	// ⚠️ LE DÉBIT VIENT DE LA CONSTANTE NOMMÉE, PAS D'UN LITTÉRAL RECOPIÉ.
+	// C'est la dette payée en (p2) : un comptage qui recopie le débit de la scène
+	// suit ses changements EN SILENCE et verdit contre une référence fausse.
+	const float64 debit = kSceneEDebitMasse;
 	const uint32 pas = 600;
 
 	const ComptageAnalytique a = CompterALaMain(bmin, bmax, h, src, rayon, debit, dt, pas, 0.2, false);
@@ -1421,6 +1455,126 @@ void EnqueteComptageAnalytique() {
 }
 
 // =============================================================================
+// (p2) L'ÉCHELLE DE DÉBIT — re-régler la scène (e) vers une CIBLE PHYSIQUE.
+// Pré-enregistré au § 15 du plan (commit 14d9d2731), AVANT ce code.
+//
+// ⚠️ CE N'EST PAS UN TÉMOIN DE SCHÉMA : cette course CHOISIT un réglage. Elle ne
+// rend que deux verdicts, et ce sont des GARDES — le contrôle négatif (débit nul)
+// et la monotonie.
+//
+// ⚠️ UN SEUL LEVIER : LE DÉBIT D'INJECTION. Pas de facteur cosmétique sur T, pas
+// de `beta`, pas de dissipation. Re-régler une scène en tirant sur la grandeur
+// qu'on MESURE reviendrait à écrire la réponse au lieu de la mesurer.
+// =============================================================================
+static const float64 kCibleTmax = 1500.0, kCibleTmaxBas = 1350.0, kCibleTmaxHaut = 1650.0;
+
+void EnqueteEchelleDebit() {
+	printf("\n=== (p2) RE-RÉGLER LA SCÈNE (e) VERS UNE CIBLE PHYSIQUE ===\n");
+	printf("    ⚠️ HONNÊTETÉ DE VOCABULAIRE : la scène (e) n'est PAS une flamme. Aucun\n");
+	printf("    carburant, burnRate = 0. C'est un PANACHE DE FUMÉE CHAUDE, et son Tmax est la\n");
+	printf("    température de la SOURCE, pas d'une combustion.\n");
+	printf("    CIBLE, ÉCRITE AVANT (§ 15) : Tmax = 1500 K, bande [1350 ; 1650].\n");
+	printf("    SOURCE : zone de flamme continue d'un feu de nappe d'hydrocarbure, 1200-1500 K\n");
+	printf("    (Drysdale, An Introduction to Fire Dynamics) ; McCaffrey 1979 donne un plateau\n");
+	printf("    de 1100-1200 K sur l'axe. Le dépôt porte déjà l'ordre de grandeur : le\n");
+	printf("    commentaire de ConstruirePanache calcule un équilibre à ~1760 K.\n");
+	printf("    PRÉDICTION : linéairement il faudrait x4,417 (de 571,7 K vers 1500 K), mais le\n");
+	printf("    COUPLAGE l'interdit — plus de chaleur donne plus de poussée, donc plus de\n");
+	printf("    transport. Je prédis entre x6 et x12.\n");
+	char buf[600];
+
+	const float64 facteurs[8] = {0.0, 1.0, 2.0, 4.0, 6.0, 8.0, 12.0, 16.0};
+	float64 tmax[8] = {0, 0, 0, 0, 0, 0, 0, 0};
+	printf("\n      facteur   débit (K/s)     Tmax      vmax   CFL max  sous-pas   ms/pas\n");
+	for (uint32 i = 0; i < 8; ++i) {
+		// L'échelle part de la valeur d'AVANT le re-réglage, pas de la valeur retenue :
+		// sinon la course d'aujourd'hui ne serait plus comparable à celle d'hier.
+		const float64 d = kDebitAvantReglage * facteurs[i];
+		const ResultatPrix r =
+			SceneDixSecondes(true, 0.f, NkFluidFluxLimiter::VanLeer, -1.f, false, -1.f, -1.f, d);
+		tmax[i] = (float64)r.tmax;
+		printf("      x%5.1f   %9.1f   %8.1f   %6.3f   %7.3f  %8u   %6.1f%s\n", facteurs[i], d, (double)r.tmax,
+			   (double)r.vmax, (double)r.cflMax, r.sousPasMax, (double)r.msParPas,
+			   r.capHit ? "  (BORNE)" : "");
+		fflush(stdout);
+	}
+
+	// ── CONTRÔLE NÉGATIF : débit nul -> l'ambiante, EXACTEMENT ─────────────
+	// ⚠️ CE CONTRÔLE EST ROUGE, ET IL A TROUVÉ QUELQUE CHOSE. Le seuil n'est PAS
+	// déplacé : il reste l'égalité exacte, écrite au § 15 avant la course.
+	snprintf(buf, sizeof(buf),
+			 "à débit thermique NUL, Tmax = %.4f K (attendu 300,0000 EXACTEMENT : rien n'injecte, et la "
+			 "dissipation ne fait que rappeler vers l'ambiante). Si ce chiffre bouge, une source de "
+			 "chaleur existe que je n'ai pas nommée — voir le contrôle d'ISOLEMENT juste en dessous",
+			 tmax[0]);
+	ProbeCheck(tmax[0] == 300.0, "(p2-) NÉGATIF : à débit nul, Tmax revient EXACTEMENT à l'ambiante", buf);
+
+	// ── ISOLEMENT : d'où vient la chaleur que personne n'a injectée ? ──────
+	// ⚠️ DEUX SUSPECTS, ET ILS SE SÉPARENT PAR UNE SEULE COURSE.
+	//  (a) L'ADVECTION EN FORME CONSERVATIVE. Le flux transporte T comme une
+	//      DENSITÉ : le bilan d'une cellule vaut -T * (div u) * dt. Si `div u`
+	//      etait nul, T ne bougerait pas ; il ne l'est qu'à 1e-5 près, donc un
+	//      écoulement SUFFIT à créer de la chaleur qui n'a pas de source.
+	//      ⚠️ C'est EXACTEMENT la réserve écrite au § 13 du plan AVANT (k1) :
+	//      « ce qu'elle conserve n'est le bon objet que dans la mesure où div u
+	//      est nul ». Elle était théorique ; elle devient un nombre.
+	//  (b) L'ARITHMÉTIQUE seule (quantification du float32 autour de 300 K).
+	// La course d'isolement coupe AUSSI le débit de MASSE : sans masse, pas de
+	// poussée, donc AUCUN écoulement — (a) devient impossible. Si Tmax redevient
+	// alors exactement 300, la cause est (a) et elle est NOMMÉE, pas supposée.
+	{
+		const ResultatPrix rep = SceneDixSecondes(true, 0.f, NkFluidFluxLimiter::VanLeer, -1.f, false, -1.f,
+												 -1.f, 0.0, 0.0);
+		snprintf(buf, sizeof(buf),
+				 "AUCUNE injection du tout (ni chaleur ni masse) : vmax = %.4f m/s et Tmax = %.4f K. Avec "
+				 "une source de masse, le même montage rendait %.4f K. Si celui-ci rend 300,0000 exactement, "
+				 "la chaleur de (p2-) vient de l'ADVECTION EN FORME CONSERVATIVE d'un champ dont la "
+				 "divergence n'est nulle qu'à 1e-5 près — la réserve écrite au § 13 AVANT (k1) —, et non de "
+				 "l'arithmétique",
+				 (double)rep.vmax, (double)rep.tmax, tmax[0]);
+		ProbeCheck(rep.tmax == 300.0, "(p2i) ISOLEMENT : sans ÉCOULEMENT, Tmax reste EXACTEMENT l'ambiante",
+				   buf);
+	}
+
+	// ── GARDE : la courbe est-elle MONOTONE ? ──────────────────────────────
+	// Un débit qui ne déplacerait pas Tmax signifierait que je ne tourne pas le bon
+	// bouton — et toute la règle de choix reposerait sur du vide.
+	bool monotone = true;
+	for (uint32 i = 1; i < 8; ++i)
+		if (tmax[i] <= tmax[i - 1])
+			monotone = false;
+	snprintf(buf, sizeof(buf),
+			 "Tmax croît strictement le long de l'échelle : %.1f -> %.1f -> %.1f -> %.1f -> %.1f -> %.1f -> "
+			 "%.1f -> %.1f K. Un débit qui ne déplacerait pas Tmax signifierait que le levier n'est pas le "
+			 "bon, et la règle de choix porterait sur du vide",
+			 tmax[0], tmax[1], tmax[2], tmax[3], tmax[4], tmax[5], tmax[6], tmax[7]);
+	ProbeCheck(monotone, "(p2) GARDE : le DÉBIT est bien le levier — la courbe est MONOTONE", buf);
+
+	// ── LA RÈGLE, appliquée MÉCANIQUEMENT ─────────────────────────────────
+	int32 retenu = -1;
+	for (uint32 i = 0; i < 8; ++i)
+		if (tmax[i] >= kCibleTmaxBas && tmax[i] <= kCibleTmaxHaut) {
+			retenu = (int32)i;
+			break;
+		}
+	printf("\n    RÈGLE (écrite avant) : le PLUS PETIT débit dont Tmax tombe dans [%.0f ; %.0f].\n",
+		   kCibleTmaxBas, kCibleTmaxHaut);
+	if (retenu >= 0) {
+		printf("    ==> RETENU : x%.1f, soit %.1f K/s, Tmax = %.1f K (cible %.0f).\n", facteurs[retenu],
+			   kDebitAvantReglage * facteurs[retenu], tmax[retenu], kCibleTmax);
+		printf("    Ma prédiction annonçait x6 à x12 : %s.\n",
+			   (facteurs[retenu] >= 6.0 && facteurs[retenu] <= 12.0) ? "elle tient" : "ELLE EST RÉFUTÉE");
+	} else {
+		printf("    ==> AUCUN palier ne tombe dans la bande. La cible serait HORS D'ATTEINTE par ce\n");
+		printf("    levier sur cette échelle, et je ne changerais NI la cible NI la règle : je\n");
+		printf("    publie la courbe. Un seuil déplacé après la mesure ne juge plus rien.\n");
+	}
+	printf("    ⚠️ Ce mode ne MODIFIE rien : il DÉSIGNE. Le débit retenu s'écrit ensuite dans la\n");
+	printf("    constante nommée kSceneEDebitChaleur, en UN SEUL endroit, que (j1) et (k1)\n");
+	printf("    relisent — c'est ce qui les empêche de dériver avec la scène qu'ils jugent.\n");
+}
+
+// =============================================================================
 // (k1) LE COMPTAGE DE LA CHALEUR — pré-enregistré au § 13 du plan (commit du
 // plan SEUL, avant cette ligne). Mode NK_FLUID_MAC=b.
 //
@@ -1467,7 +1621,9 @@ void EnqueteComptageChaleur() {
 	const NkVec3f src = {0.f, 0.05f, 0.f};
 	const float32 rayon = 0.05f;
 	const float64 dt = 1.0 / 60.0;
-	const float64 debitT = 900.0, debitM = 6.0;
+	// Mêmes constantes nommées que la scène — voir (p2) : l'instrument et la chose
+	// mesurée ne doivent pas pouvoir dériver ensemble.
+	const float64 debitT = kSceneEDebitChaleur, debitM = kSceneEDebitMasse;
 	const uint32 pas = 600;
 
 	const ComptageAnalytique aT = CompterALaMain(bmin, bmax, h, src, rayon, debitT, dt, pas, 0.5, false);
