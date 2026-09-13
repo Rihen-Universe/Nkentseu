@@ -1,3 +1,4 @@
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // =============================================================================
 // NkMaterial.cpp  — NKRenderer v4.0
 // =============================================================================
@@ -496,6 +497,24 @@ namespace nkentseu {
 			if (mInstance)
 				mInstance->mParallaxScale = scale < 0.f ? 0.f : scale;
 			return this;
+		}
+
+		// ── Contribution d'EAU : une propriete, pas un type de materiau ───────
+		// Le pincement vit dans NkMaterialInstance::SetWaterReflect, UNE seule
+		// fois : deux pincements d'une meme grandeur finissent par diverger, et
+		// c'est celui qu'on ne relit jamais qui se met a mentir.
+		NkMaterial *NkMaterial::SetWaterReflect(float32 strength, float32 rough) {
+			if (mInstance)
+				mInstance->SetWaterReflect(strength, rough);
+			return this;
+		}
+
+		float32 NkMaterial::GetWaterReflect() const {
+			return mInstance ? mInstance->GetWaterReflect() : 0.f;
+		}
+
+		float32 NkMaterial::GetWaterReflectRough() const {
+			return mInstance ? mInstance->GetWaterReflectRough() : 0.f;
 		}
 
 		NkMaterial *NkMaterial::SetTransShadowMode(uint32 mode) {

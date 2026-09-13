@@ -1,4 +1,5 @@
 #pragma once
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // =============================================================================
 // NkMaterial.h  — NKRenderer v4.0  (Materials/)
 //
@@ -189,6 +190,26 @@ namespace nkentseu {
 				NkMaterial *SetTransShadowMode(uint32 mode);
 				uint32 GetTransShadowMode() const;
 				float32 GetParallaxScale() const;
+
+				// ── Contribution d'EAU (2026-09-13) ───────────────────────────────
+				// ⚠️ CE N'EST PAS UN TYPE DE MATERIAU, et c'est la raison d'etre de
+				// cette methode. `NkMaterialType` contient deja `NK_WATER` ; ce type
+				// n'a jamais servi parce que le registre des gabarits ne
+				// l'enregistre pas. Une famille FERMEE oublie toujours le dernier
+				// arrive. Ici l'eau est une PROPRIETE : n'importe quel materiau --
+				// PBR, Toon, Unlit, un gabarit maison -- peut la recevoir, sans
+				// changer de type et sans nuanceur dedie.
+				//   strength : force du reflet du ciel [0,1]. 0 = eteint, l'image
+				//              est celle d'avant AU BIT.
+				//   rough    : rugosite du reflet [0,1]. Un nuanceur qui ne declare
+				//              aucune cubemap prefiltree l'ignore, et le dit.
+				// Ce que ca AJOUTE : le reflet du ciel pondere par le Fresnel de
+				// l'eau (F0 = 0,02) -- ce que la mesure du 13/09 a designe comme
+				// « ce qui tient le pixel de l'eau ». Ni refraction, ni houle : la
+				// houle reste geometrique (NkWaterEval, processeur).
+				NkMaterial *SetWaterReflect(float32 strength, float32 rough = 0.f);
+				float32 GetWaterReflect() const;
+				float32 GetWaterReflectRough() const;
 
 				// ── État ──────────────────────────────────────────────────────────
 				bool IsValid() const;

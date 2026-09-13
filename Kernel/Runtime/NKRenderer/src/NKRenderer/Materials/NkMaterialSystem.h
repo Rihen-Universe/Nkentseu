@@ -1,4 +1,5 @@
 #pragma once
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // =============================================================================
 // NkMaterialSystem.h  — NKRenderer v4.0  (Materials/)
 // Template + instance, catalogue PBR/NPR/Debug/Custom.
@@ -364,6 +365,39 @@ namespace nkentseu {
 				//   voile litBase (1 = look historique, 0 = reflet pur).
 				NkMaterialInstance *SetReflFloorBlend(float32 blend);
 
+				// ── CONTRIBUTION D'EAU (2026-09-13) ──────────────────────────
+				// ⚠️ UNE CONTRIBUTION, PAS UN TYPE — et c'est toute la raison
+				// d'etre de ces deux lignes. `NkMaterialType` est une famille
+				// FERMEE : elle contient deja NK_WATER, et ce type n'a jamais
+				// servi a rien parce que `RegisterBuiltins` ne l'enregistre pas.
+				// Le commentaire de ce registre raconte la meme maladie pour
+				// ToonInk et Emissive. Un type de plus ne repare pas ca : il en
+				// ajoute un de plus a oublier.
+				//
+				// Ici l'eau est une PROPRIETE que N'IMPORTE QUELLE instance
+				// porte, quel que soit le gabarit dont elle descend -- comme le
+				// triplanaire (`mTriplanarTileSize`) et le relief
+				// (`mParallaxScale`), qui ne sont le privilege d'aucun type.
+				//   strength [0,1] : force du reflet du ciel. 0 = ETEINT, et
+				//                    l'image rendue est celle d'avant AU BIT.
+				//   rough    [0,1] : rugosite du reflet (niveau de prefiltre).
+				//                    Les nuanceurs qui ne declarent aucune
+				//                    cubemap prefiltree l'ignorent -- et le
+				//                    disent dans leur propre source.
+				//
+				// Le canal est `NkRender3D`, qui recopie ces deux reels dans la
+				// RESERVE du bloc OBJET (set=1, `wetParams.z/.w`) : aucun
+				// binding neuf, aucun octet de plus, aucun layout touche.
+				NkMaterialInstance *SetWaterReflect(float32 strength, float32 rough = 0.f);
+
+				float32 GetWaterReflect() const {
+					return mWaterReflect;
+				}
+
+				float32 GetWaterReflectRough() const {
+					return mWaterReflectRough;
+				}
+
 				// M.1 v0 : Layered material setters
 				NkMaterialInstance *SetLayerBase(const NkPBRParams &p);
 				NkMaterialInstance *SetLayerTop(const NkPBRParams &p);
@@ -509,6 +543,16 @@ namespace nkentseu {
 				// triplanarParams.w de l'ObjBlock — aucun layout UBO ne change.
 				// La carte de hauteur, elle, passe par SetTexture("height", t).
 				float32 mParallaxScale = 0.0f;
+
+				// CONTRIBUTION D'EAU (2026-09-13) : reflet du ciel + Fresnel,
+				// posable sur une instance de N'IMPORTE QUEL gabarit. Voyage
+				// dans la reserve wetParams.z/.w de l'ObjBlock — le mouillage
+				// avait laisse ces deux reels libres et l'avait ECRIT
+				// (« .z, .w = reserve, et ce mot est verifie : rien ne les
+				// lit »). Aucun layout UBO ne change, aucun binding neuf.
+				// A zero : identite exacte.
+				float32 mWaterReflect = 0.0f;
+				float32 mWaterReflectRough = 0.0f;
 
 				struct Param {
 						Param() : name(), kind(Kind::F), f(0.f), tex() {
