@@ -1,3 +1,4 @@
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // =============================================================================
 // Nogee/Shell/NogeeShell.cpp — coquille d'editeur optionnelle (cf. .h)
 // =============================================================================
@@ -9,6 +10,7 @@
 #include "Nogee/Panels/DetailsPanel.h"
 #include "Nogee/Panels/ContentBrowserPanel.h"
 #include "Nogee/Panels/ViewportPanel.h"
+#include "Nogee/Viewport/NogeeViewport3D.h" // facade OPAQUE : aucun type NKRenderer ici
 #include "Nogee/Editor/NkSelectionManager.h"
 #include "Nogee/Editor/CommandHistory.h"
 #include "Nogee/Editor/AssetManager.h"
@@ -35,6 +37,54 @@ namespace nkentseu {
 
 			ConsolePanelGui g_console;
 			NkEditorShell *g_shell = nullptr;
+
+			// ── SONDE DU VIEWPORT (--viewport-*) ──────────────────────────────
+			// Trois interrupteurs, et ils servent tous a MESURER, pas a montrer :
+			//  • sansMesh / inactif : les deux negatifs de (n1). L'entite TEMOIN
+			//    existe dans les trois cas, a la meme place de l'arbre ; seul le
+			//    composant mesh (ou NkInactive) change. C'est ce qui fait que la
+			//    comparaison de pixels mesure LE MESH et pas la mise en page.
+			//  • orbite : deux poses de camera pour (n2).
+			//  • fermerApres : aucune fenetre laissee ouverte par une mesure.
+			struct ViewportProbe {
+					bool sansMesh = false;
+					bool inactif = false;
+					bool orbiteSet = false;
+					float32 yaw = 0.f;
+					int32 fermerApres = 0; ///< 0 = jamais
+					int32 frames = 0;
+					bool controle = false; ///< --viewport-controle : cube soumis a la main
+					char capture[480] = {};
+					int32 captureImage = 90;
+			};
+
+			ViewportProbe g_vp;
+
+			// ── LE CROCHET pre-UI ─────────────────────────────────────────────
+			// Appele par NkEditorRHIRenderer::BeginFrame (l.182), frame device
+			// OUVERTE et passe backbuffer PAS ENCORE commencee : c'est le seul
+			// moment ou l'on peut rendre dans une cible hors ecran sans imbriquer
+			// deux passes. Lambda sans capture obligatoire (pointeur de fonction).
+			void ViewportPreUI(NkICommandBuffer *cmd, void *user) {
+				auto *r = static_cast<nkgui::NkEditorRHIRenderer *>(user);
+				NogeeViewport3DFrame(cmd);
+				NogeeViewport3DRegisterInto(&r->GetBackend());
+
+				// La fermeture automatique vit ICI parce que c'est le seul crochet
+				// qui passe a CHAQUE image : l'overlay, lui, est deja pris par les
+				// sondes d'occultation et de glisser-deposer (une sonde par
+				// execution, le shell n'a qu'un overlay).
+				if (g_vp.fermerApres > 0) {
+					++g_vp.frames;
+					if (g_vp.frames == g_vp.fermerApres && g_shell) {
+						logger.Info("[SONDE-VP] VERDICT image {0} : mesh soumis={1} (sansMesh={2} inactif={3}) — "
+									"fermeture\n",
+									g_vp.frames, NogeeViewport3DDrawCount(), g_vp.sansMesh ? 1 : 0,
+									g_vp.inactif ? 1 : 0);
+						g_shell->RequestClose();
+					}
+				}
+			}
 
 			// ── SONDE D'OCCULTATION ───────────────────────────────────────────
 			// Pourquoi une sonde et pas un clic : une mesure doit etre
@@ -689,6 +739,14 @@ namespace nkentseu {
 
 			g_shell = shell.Get();
 
+			// ── LA VUE 3D PARTAGE LE DEVICE DE L'EDITEUR ─────────────────────
+			// UNE fenetre = UNE pile GPU : le depot l'interdit autrement, et une
+			// relecture CPU par image serait hors de question. C'est exactement le
+			// montage de NkAnimaEditor (main.cpp l.109-110) et de NK3DModeler
+			// (main.cpp l.625-626).
+			NogeeViewport3DSetDevice(rhi.GetDevice());
+			rhi.SetPreUI(&ViewportPreUI, &rhi);
+
 			// Le panneau PORTE (NKGui). Son jumeau NKUI reste intact et sert le
 			// chemin par defaut ; les deux partagent NkConsoleModel.
 			shell->AddPanel(&g_console);
@@ -730,6 +788,57 @@ namespace nkentseu {
 					sWorld.Add<ecs::NkTransform>(ids[i]);
 				}
 				logger.Info("[Nogee/Shell] Monde ECS : 3 entites TEMOIN_* creees\n");
+			}
+
+			// ── LA PREMIERE IMAGE DU MOTEUR (2026-09-13) ─────────────────────
+			// Le monde est lie AVANT le montage de la pile : la camera d'editeur
+			// est une entite, il lui faut un monde ou naitre. `Init` force le
+			// montage tout de suite au lieu d'attendre la premiere frame — sans
+			// quoi la poignee du cube n'existerait pas encore quand on cree
+			// l'entite TEMOIN juste dessous.
+			NogeeViewport3DBindWorld(&sWorld);
+			const bool vp3dOk = NogeeViewport3DInit();
+			if (!vp3dOk)
+				logger.Error("[Nogee/Shell] viewport 3D indisponible — le panneau le dira a l'ecran\n");
+
+			// L'ENTITE QUE RODOLF DOIT VOIR. Elle passe par `SpawnNode`, donc elle
+			// est dans l'Outliner comme n'importe quelle autre ; ce qui change,
+			// c'est qu'elle est AUSSI a l'ecran. Elle porte les quatre composants
+			// que `NkRenderSystem::SubmitMeshes` exige — et le quatrieme,
+			// `NkMaterialComponent`, est precisement celui qui manquait au depot
+			// d'un asset (cf. ViewportPanel.cpp).
+			if (vp3dOk) {
+				const nk_uint64 cube = NogeeViewport3DCubeMeshHandle();
+				const ecs::NkEntityId id = sScene.SpawnNode("TEMOIN_Cube");
+				sWorld.Add<ecs::NkName>(id, ecs::NkName("TEMOIN_Cube"));
+				ecs::NkTransform tf;
+				tf.SetLocalScale(1.2f);
+				sWorld.Add<ecs::NkTransform>(id, tf);
+				// NEGATIF (n1) « entite sans mesh » : meme entite, meme place dans
+				// l'arbre, pas de NkMeshComponent. La difference de pixels ne peut
+				// donc venir que du mesh.
+				if (!g_vp.sansMesh) {
+					ecs::NkMeshComponent mc;
+					mc.meshHandle = cube; // primitive GPU : aucun fichier a importer
+					sWorld.Add<ecs::NkMeshComponent>(id, mc);
+					sWorld.Add<ecs::NkMaterialComponent>(id, ecs::NkMaterialComponent{});
+				}
+				// NEGATIF (n1) « desactivee » : les composants sont la, le systeme
+				// l'ecarte (NkRenderSystem.cpp l.145).
+				if (g_vp.inactif)
+					sWorld.Add<ecs::NkInactive>(id);
+				if (g_vp.orbiteSet)
+					NogeeViewport3DSetOrbit(g_vp.yaw, 22.f);
+				if (g_vp.controle)
+					NogeeViewport3DControle(true);
+				if (g_vp.capture[0] != '\0')
+					NogeeViewport3DCaptureAt(g_vp.captureImage, g_vp.capture);
+				char msg[240];
+				std::snprintf(msg, sizeof(msg),
+							  "[Nogee/Shell] TEMOIN_Cube : mesh=%llu sansMesh=%d inactif=%d — eligibles=%d\n",
+							  (unsigned long long)cube, g_vp.sansMesh ? 1 : 0, g_vp.inactif ? 1 : 0,
+							  (int)NogeeViewport3DDrawCount());
+				logger.Info(msg);
 			}
 
 			// Assets + projet : racine = projet de demarrage s'il existe, sinon
@@ -870,6 +979,35 @@ namespace nkentseu {
 
 		void NogeeShellEnableDragDropProbe() noexcept {
 			g_drag.enabled = true;
+		}
+
+		void NogeeShellViewportSansMesh() noexcept {
+			g_vp.sansMesh = true;
+		}
+
+		void NogeeShellViewportInactif() noexcept {
+			g_vp.inactif = true;
+		}
+
+		void NogeeShellViewportControle() noexcept {
+			g_vp.controle = true;
+		}
+
+		void NogeeShellViewportOrbite(float32 yawDeg) noexcept {
+			g_vp.orbiteSet = true;
+			g_vp.yaw = yawDeg;
+		}
+
+		void NogeeShellViewportFermerApres(int32 frames) noexcept {
+			g_vp.fermerApres = frames;
+		}
+
+		void NogeeShellViewportCapture(const char *chemin, int32 numeroImage) noexcept {
+			if (!chemin || !chemin[0])
+				return;
+			std::snprintf(g_vp.capture, sizeof(g_vp.capture), "%s", chemin);
+			if (numeroImage > 0)
+				g_vp.captureImage = numeroImage;
 		}
 
 	} // namespace noge
