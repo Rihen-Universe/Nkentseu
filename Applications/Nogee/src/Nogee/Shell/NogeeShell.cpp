@@ -1168,7 +1168,14 @@ namespace nkentseu {
 				// donc venir que du mesh.
 				if (!g_vp.sansMesh) {
 					ecs::NkMeshComponent mc;
-					mc.meshHandle = cube; // primitive GPU : aucun fichier a importer
+					// ⚠️ UN CHEMIN, PLUS UNE POIGNEE NUE. Une poignee ne vaut que dans
+					// CE processus : une scene sauvegardee la perdait, et l'entite
+					// relue restait ELIGIBLE sans jamais etre SOUMISE — dans l'arbre,
+					// invisible, muette. C'est ce qui a produit la capture de Rodolf.
+					// `primitive://cube` est resolu par NkMeshSystem::Import, donc la
+					// primitive se decrit comme n'importe quel maillage et survit.
+					mc.meshPath = NkString("primitive://cube");
+					(void)cube; // la poignee n'est plus posee a la main : l'import la donne
 					sWorld.Add<ecs::NkMeshComponent>(id, mc);
 					sWorld.Add<ecs::NkMaterialComponent>(id, ecs::NkMaterialComponent{});
 				}

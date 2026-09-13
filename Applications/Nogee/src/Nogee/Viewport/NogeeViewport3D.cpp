@@ -148,7 +148,10 @@ namespace nkentseu {
 						// survit pas a une sauvegarde, et le voir ecrit evite de le
 						// confondre avec un maillage importe.
 						const ecs::NkName *nm = w.Get<ecs::NkName>(id);
-						const char *src = m.meshPath.Empty() ? "primitive" : m.meshPath.CStr();
+						const char *src = m.meshPath.Empty() ? "AUCUN CHEMIN" : m.meshPath.CStr();
+						// Un maillage introuvable ne doit pas se lire comme un objet
+						// ordinaire : le marqueur se NOMME dans la ligne.
+						bool manquant = false;
 						// LA POIGNEE ET LE NOMBRE DE TRIANGLES, par entite. Deux pistes
 						// s'eliminent avec ces deux chiffres : si deux entites portent la
 						// MEME poignee, la bibliotheque a reutilise un emplacement ; si une
@@ -159,12 +162,15 @@ namespace nkentseu {
 						int tri = -1;
 						if (NkMeshSystem *ms = g.r3 ? g.r3->GetMeshSystem() : nullptr) {
 							NkMeshHandle h{m.meshHandle};
-							if (h.IsValid())
+							if (h.IsValid()) {
 								tri = (int)(ms->GetIndexCount(h) / 3u);
+								manquant = ms->IsMissingMarker(h);
+							}
 						}
 						const int ecrit = std::snprintf(noms + pos, tailleNoms - pos,
-														"%s%s[maillage %s, poignee %llu, %d triangle(s)]",
+														"%s%s[maillage %s%s, poignee %llu, %d triangle(s)]",
 														pos ? ", " : "", nm ? nm->value : "(sans nom)", src,
+												manquant ? " *** MAILLAGE MANQUANT ***" : "",
 														poignee, tri);
 						if (ecrit > 0)
 							pos += (size_t)ecrit;
