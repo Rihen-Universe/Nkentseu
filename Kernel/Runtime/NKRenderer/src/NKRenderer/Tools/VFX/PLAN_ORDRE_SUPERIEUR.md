@@ -690,3 +690,165 @@ Le § 11 prévoyait quoi conclure **si le conservatif ne collait pas non plus** 
 toute la chaîne de Q10 serait tombée. Elle ne tombe pas. **L'avoir écrit avant
 reste ce qui rend ce vert lisible** — un critère qui ne pouvait pas échouer n'aurait
 rien jugé.
+
+---
+
+## 13. PRÉ-ENREGISTREMENT DE (k1) — LE COMPTAGE DE LA CHALEUR
+
+**Écrit le 13/09, AVANT de coder le mode `b` et AVANT de le lancer.**
+
+### Pourquoi, et ce n'est pas la symétrie
+
+La masse prouve que le semi-lagrangien **fabrique de la matière**. Mais l'arbitrage
+que Rodolf doit rendre porte sur `Tmax`, donc sur la **chaleur**. Tant que le
+facteur **8,7** reste une déduction, *« la référence porte 8,7 fois trop de
+chaleur »* est une **inférence sur le nombre qui décide**, alors que le `3,9e-07` a
+été obtenu sur l'autre.
+
+### ⚠️ D'ABORD LA QUESTION QU'ON M'A POSÉE : la chaleur EST-ELLE conservative ici ?
+
+Il m'est demandé de **dire non plutôt que de forcer un modèle**. Je réponds
+**oui**, et je nomme les **trois préconditions** qui le rendent vrai — lues dans le
+code, pas supposées. **Si l'une tombe, le modèle tombe avec elle.**
+
+1. **L'advection conserve `somme T`.** Le schéma en flux est un télescopage sur les
+   faces **intérieures** ; les faces de paroi ne sont jamais parcourues. Donc
+   `somme T` sur l'intérieur est conservée **exactement**, et comme le nombre de
+   cellules intérieures est constant, `H = somme (T − T_amb) · h³` l'est aussi.
+2. **La dissipation est une MULTIPLICATION sur `H`, pas sur `T`.** Le code écrit
+   `T <- T_amb + (T − T_amb) · f` : c'est exactement `H <- H · f`, avec
+   `f = exp(−(temperatureDissipation + coolingRate) · dt)`. C'est ce qui rend la
+   même récurrence qu'en (j1) applicable — et ce n'est **pas** une coïncidence de
+   forme, c'est la définition d'un rappel exponentiel vers l'ambiante.
+3. **La combustion est ÉTEINTE sur la scène (e).** `Combust` sort immédiatement si
+   `burnRate <= 0`, et la scène ne le règle pas (défaut `0`). C'est le **seul**
+   autre endroit du solveur qui écrit dans `mTemperature`. La flottabilité **LIT**
+   `T` et écrit dans la **vitesse** ; la projection ne touche pas `T`.
+
+Et `Reset()` met `T = T_amb` **partout**, donc `H` part de **zéro** — ce que je ne
+suppose pas : **je le mesure** (voir (k0)).
+
+> ⚠️ **LA RÉSERVE, et elle est réelle.** Advecter `T` en forme **conservative**
+> (`dT/dt + div(u·T) = 0`) n'est physiquement juste que parce que la projection rend
+> `div u` quasi nul ; la forme physique est `dT/dt + u·grad T = 0`. La
+> **conservation discrète de `somme T` est exacte quoi qu'il arrive** — c'est un
+> télescopage — mais **ce qu'elle conserve n'est le bon objet que dans la mesure où
+> `div u` est nul**, et le témoin (b) en donne la taille : `0,000026 %`. Je compte
+> donc une quantité que le schéma conserve exactement, **en sachant que son sens
+> physique repose sur un autre témoin que le mien.**
+
+### LE NOMBRE, calculé à la main AVANT la course
+
+Même récurrence qu'en (j1) — **la même fonction**, avec d'autres constantes, et
+c'est précisément parce que les trois préconditions ci-dessus sont vraies :
+
+```
+EmitSphere  ->  H <- H + A_T          A_T = N * debitT * dt * h³
+Step        ->  advection (conserve), puis H <- H * f_T
+```
+
+Scène (e) : `N = 81` cellules (le **même** dénombrement qu'en (j1), refait),
+`débitT = 900 K`, `dt = 1/60`, `h = 0,02`, 600 pas,
+`temperatureDissipation = 0,5`, `coolingRate = 0`.
+
+```
+A_T     = 81 * 900 * (1/60) * (0,02)³ = 9,720e-03   par pas
+f_T     = exp(-0,5/60)                = 0,99170129
+f_T^600 = exp(-5)                     = 0,00673795
+H_600   = 9,720e-03 * 0,99170129 * (1 - 0,00673795) / (1 - 0,99170129)
+```
+
+> ### ⟹ **H attendue = 1,15372 K·m³** — écrite ICI, avant la course.
+
+⚠️ **Comme en (j1), la mesure n'est pas aveugle** : l'enquête (i) a déjà relevé
+`1,1537` sur le solveur. Ce que (k1) apporte n'est pas la surprise d'un chiffre,
+c'est que ce chiffre **existe deux fois, par deux chemins qui ne se parlent pas**.
+
+### Les critères, écrits AVANT
+
+    (k0)  la SOURCE injecte exactement ce que je compte
+          apres UN EmitSphere et AUCUN pas : H = 9,720e-03 et M = 6,480e-05
+          -> separe « la source injecte ce que je crois » de « le transport conserve »
+    (k1)  le CONSERVATIF colle a l analytique     ecart relatif < 1e-3
+          prediction : entre 1e-6 et 1e-4, donc PLUS LACHE que le 3,9e-07 de (j1)
+    (k1)  le SEMI-LAGRANGIEN s en ecarte          facteur > 5
+    (k1b) NEGATIF : injection UNIQUE, dissipation thermique COUPEE
+          -> H CONSTANTE sur 600 pas, egale a A_T = 9,720e-03, NON NULLE
+    (k1c) MUTATION : debit thermique attendu fausse de +1 %  -> (k1) DOIT rougir
+
+### ⚠️ POURQUOI JE PRÉDIS PLUS LÂCHE QU'EN (j1) — un MÉCANISME, pas une prudence
+
+La densité est stockée autour de **zéro**, où le `float32` est d'une finesse
+extrême. La température est stockée autour de **300 K**, et la grandeur qui compte
+est `T − 300`. Or près de 300, le quantum du `float32` vaut **`3,05e-05` K** : pour
+une cellule à `T = 300,001`, l'excès `0,001` porte déjà **1,5 % d'erreur
+relative** — et le solveur refait cette soustraction-recomposition **600 fois**
+(`T <- T_amb + (T − T_amb)·f`).
+
+**C'est une perte de chaleur par QUANTIFICATION, dans le solveur lui-même**, que le
+champ de masse ne subit pas. Je m'attends donc à un écart plus grand qu'en (j1) —
+et **si je me trompe encore en étant trop pessimiste**, ce sera la deuxième fois de
+suite, et il faudra en tirer que ce banc est plus précis que je ne le crois.
+
+**Le seuil reste `1e-3`**, le même qu'en (j1) : la séparation d'avec le
+semi-lagrangien est un facteur **8,7**, soit **770 %** — trois ordres de grandeur de
+marge même au seuil.
+
+**Pourquoi (k1b) n'est pas un `0 = 0`** : couper la source donnerait `H = 0`
+partout, un témoin nul. Une injection **unique**, dissipation thermique **coupée**,
+laisse un nombre **non nul et exact** (`9,720e-03`) que `H` doit tenir
+**rigoureusement constant** pendant 600 pas — et je borne **toute la course**, pas
+la seule valeur finale.
+
+### ⚠️ CE QUE JE CONCLURAIS SI LE CONSERVATIF COLLAIT SUR LA MASSE MAIS PAS SUR LA CHALEUR
+
+Écrit **avant** la mesure, pour ne pas l'expliquer après.
+
+**Ce ne pourrait PAS être le transport.** `mDensity` et `mTemperature` passent par
+**le même `AdvectScalar`**, avec le même schéma et le même `bnd = 0` : un
+télescopage qui conserve l'un conserve l'autre. Un écart sur la chaleur seule
+**accuserait donc mes trois préconditions**, dans cet ordre :
+
+1. **la combustion** serait active malgré `burnRate = 0` — le contrôle (k0) et un
+   relevé de `TotalFuel` le diraient ;
+2. **la dissipation** ne serait pas le rappel multiplicatif que j'ai lu — je
+   relirais le bloc, et la relecture serait la mesure ;
+3. **un quatrième écrivain de `mTemperature`** existerait, que je n'ai pas trouvé
+   en cherchant. C'est l'hypothèse la plus intéressante, et la plus probable si les
+   deux premières tombent.
+
+Et si aucune des trois ne rend compte de l'écart, alors **la chaleur n'est pas une
+quantité conservée de ce schéma**, le facteur **8,7 reste une déduction**, et le lot
+devient : *délimiter ce qui se compte, et dire ce que `Tmax` mesure vraiment.*
+**Je publierais cela comme le résultat**, pas comme un incident — et ce serait un
+résultat plus lourd que le vert que je vise.
+
+### ⚠️ LA DÉLIMITATION, VRAIE MÊME SI (k1) EST VERT
+
+Elle doit être écrite **maintenant**, parce qu'un vert ne l'effacerait pas.
+
+> **`Tmax` n'est PAS la chaleur.** `H` est une **intégrale**, `Tmax` un **maximum
+> ponctuel**. Aucun schéma ne conserve un maximum ponctuel, et **aucun calcul à la
+> main ne peut prédire `Tmax`** : il dépend de la manière dont la chaleur est
+> **répartie**, pas seulement de sa quantité.
+
+Conséquence, et elle borne exactement ce que ce lot peut prétendre :
+
+- (k1) mesure **le dénominateur** de l'argument de Q10 — *la référence porte-t-elle
+  vraiment 8,7 fois trop de chaleur ?* — et **rien d'autre** ;
+- (k1) **ne dit pas** ce que `Tmax` « devrait » valoir, ni que `571,7 K` est la
+  bonne valeur. Il dit que `1749,4 K` est atteint **avec 8,7 fois trop de chaleur**,
+  donc qu'il ne peut pas servir de cible ;
+- **ce que `Tmax` mesure vraiment**, sur cette scène : la température de la cellule
+  la plus chaude, c'est-à-dire **la concentration de la chaleur au voisinage
+  immédiat de la source**, là où le semi-lagrangien recopie la cellule source dans
+  plusieurs cellules aval. C'est une grandeur de **répartition**, gouvernée par le
+  schéma **et** par le réglage de la source — et c'est pourquoi la question
+  « re-régler la scène (e) » est la bonne question suivante, et qu'elle appartient à
+  Rodolf.
+
+### Ce que (k1) n'allume pas
+
+`advectFluxConservative` reste `false`, `advectFluxLimiter` reste `Ordre1`. Les
+contrôles vivent dans le mode `b`, **hors de la course complète** (trois scènes de
+600 pas), comme (j1) : le compte de la course complète reste **87 / 7**.
