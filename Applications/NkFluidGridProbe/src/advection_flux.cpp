@@ -301,6 +301,10 @@ struct ResultatPrix {
 		// alors la différence est une CONCENTRATION, pas une perte. Sans cette
 		// seconde grandeur, on ne saurait pas laquelle des deux on regarde.
 		float32 masseFinale = 0.f, chaleurTotale = 0.f;
+		// ⚠️ AJOUT DU 13/09, pour le CONTRÔLE NÉGATIF (j1b). « La masse est
+		// constante » ne se lit PAS sur la valeur finale : une masse qui monte puis
+		// redescend rendrait exactement la même. On borne donc la course entière.
+		float32 masseMin = 1.0e30f, masseMax = -1.0e30f;
 };
 
 // La chaleur au-dessus de l'ambiante, intégrée sur l'INTÉRIEUR (K·m^3).
@@ -434,8 +438,12 @@ static ResultatPrix SceneMasse(bool flux, NkFluidFluxLimiter lim = NkFluidFluxLi
 // dans CES unités, pas à 1,0.
 // `alpha` : < 0 laisse le défaut de la scène (0,3). 0 COUPE le poids de la fumée
 // — c'est le seul paramètre que fait varier l'enquête (i) du § 9 du plan.
+// `injectionUnique` : n'émet QU'AU PREMIER pas. `dissipDensite` : < 0 laisse le
+// défaut de la scène (0,2). Les deux servent au contrôle négatif (j1b), où
+// l'attendu analytique devient EXACT au lieu d'approché.
 static ResultatPrix SceneDixSecondes(bool flux, float32 cibleCFL = 0.f,
-									 NkFluidFluxLimiter lim = NkFluidFluxLimiter::Ordre1, float32 alpha = -1.f) {
+									 NkFluidFluxLimiter lim = NkFluidFluxLimiter::Ordre1, float32 alpha = -1.f,
+									 bool injectionUnique = false, float32 dissipDensite = -1.f) {
 	ResultatPrix r;
 	NkFluidGridParams p;
 	p.boundsMin = {-0.25f, 0.f, -0.25f};
@@ -448,6 +456,8 @@ static ResultatPrix SceneDixSecondes(bool flux, float32 cibleCFL = 0.f,
 	p.advectFluxLimiter = lim;
 	if (alpha >= 0.f)
 		p.buoyancyAlpha = alpha;
+	if (dissipDensite >= 0.f)
+		p.densityDissipation = dissipDensite;
 	if (cibleCFL > 0.f)
 		p.advectCFLTarget = cibleCFL;
 	NkFluidGrid g;
@@ -456,9 +466,17 @@ static ResultatPrix SceneDixSecondes(bool flux, float32 cibleCFL = 0.f,
 	const float32 dt = 1.f / 60.f;
 	float64 ensSum = 0.0, vortSum = 0.0, msSum = 0.0;
 	for (uint32 s = 0; s < 600; ++s) {
-		g.EmitSphere({0.f, 0.05f, 0.f}, 0.05f, 6.f * dt, 900.f * dt, 0.f);
+		if (!injectionUnique || s == 0)
+			g.EmitSphere({0.f, 0.05f, 0.f}, 0.05f, 6.f * dt, 900.f * dt, 0.f);
 		g.Step(dt);
 		RelevePas(g, r, ensSum, vortSum, msSum);
+		// La masse APRÈS chaque pas, pour (j1b) : « constante au dernier chiffre »
+		// ne se lit pas sur la valeur finale, il faut la borne sur TOUTE la course.
+		const float32 m = g.Stats().mass;
+		if (m < r.masseMin)
+			r.masseMin = m;
+		if (m > r.masseMax)
+			r.masseMax = m;
 	}
 	r.enstrophieMoy = (float32)(ensSum / 600.0);
 	r.msParPas = (float32)(msSum / 600.0);
@@ -1191,6 +1209,204 @@ void EnqueteOrdreSuperieur() {
 	printf("    CONDITIONNELLEMENT stable, le sous-cyclage reste EXIGÉ, et\n");
 	printf("    `advectFluxConservative` reste ÉTEINT PAR DÉFAUT : l'allumer est une décision\n");
 	printf("    de Rodolf, et elle attend ce chiffre.\n");
+}
+
+// =============================================================================
+// (j1) LE COMPTAGE ANALYTIQUE — pré-enregistré au § 11 du plan, AVANT de coder.
+//
+// ⚠️⚠️ LA RÈGLE DE CE LOT, ET ELLE EST TOUT LE LOT :
+//      LE NOMBRE ATTENDU NE SE DEMANDE JAMAIS AU SOLVEUR QU'ON JUGE.
+// Cette fonction ne touche AUCUN objet de `NkFluidGrid`. Elle reçoit les
+// paramètres de la SCÈNE — ceux qu'un lecteur peut lire dans `SceneDixSecondes` —
+// et refait le calcul depuis zéro : la taille de grille, le dénombrement des
+// cellules de la sphère, la masse injectée par pas, et la récurrence.
+//
+// LA RÉCURRENCE, plutôt qu'une formule fermée, et c'est délibéré : elle est le
+// MODÈLE, pas son résumé. L'ordre exact d'un tour de boucle, lu dans `Step()` :
+//      EmitSphere  ->  M <- M + A
+//      Step        ->  advection (le flux CONSERVE), puis M <- M * f
+// Une formule fermée cacherait cet ordre ; la récurrence l'expose, et c'est
+// justement l'ordre qui est la seule chose qu'on puisse se tromper à écrire.
+// =============================================================================
+struct ComptageAnalytique {
+		uint32 nx = 0, ny = 0, nz = 0, cellules = 0;
+		float64 masseParPas = 0.0, facteur = 1.0, masse = 0.0;
+};
+
+static ComptageAnalytique CompterALaMain(NkVec3f bmin, NkVec3f bmax, float32 h, NkVec3f centre, float32 rayon,
+										 float64 debit, float64 dt, uint32 pas, float64 dissipation,
+										 bool injectionUnique) {
+	ComptageAnalytique c;
+	// La grille, RECOMPTÉE — même règle que `NkFluidGrid::Init`, réécrite ici.
+	c.nx = (uint32)NkMax(1.f, NkCeil((bmax.x - bmin.x) / h));
+	c.ny = (uint32)NkMax(1.f, NkCeil((bmax.y - bmin.y) / h));
+	c.nz = (uint32)NkMax(1.f, NkCeil((bmax.z - bmin.z) / h));
+
+	// Le dénombrement, REFAIT : même prédicat que `EmitSphere`, centre de cellule
+	// dans la sphère, et SEULEMENT l'intérieur (1..n), jamais les fantômes.
+	const float32 r2 = rayon * rayon;
+	for (uint32 k = 1; k <= c.nz; ++k)
+		for (uint32 j = 1; j <= c.ny; ++j)
+			for (uint32 i = 1; i <= c.nx; ++i) {
+				const float32 cx = bmin.x + ((float32)i - 0.5f) * h;
+				const float32 cy = bmin.y + ((float32)j - 0.5f) * h;
+				const float32 cz = bmin.z + ((float32)k - 0.5f) * h;
+				const float32 dx = cx - centre.x, dy = cy - centre.y, dz = cz - centre.z;
+				if (dx * dx + dy * dy + dz * dz <= r2)
+					++c.cellules;
+			}
+
+	const float64 h3 = (float64)h * (float64)h * (float64)h;
+	c.masseParPas = (float64)c.cellules * debit * dt * h3;
+	c.facteur = (dissipation > 0.0) ? NkExp(-dissipation * dt) : 1.0;
+
+	// LA RÉCURRENCE, pas à pas, dans l'ordre du solveur.
+	float64 m = 0.0;
+	for (uint32 s = 0; s < pas; ++s) {
+		if (!injectionUnique || s == 0)
+			m += c.masseParPas;
+		m *= c.facteur;
+	}
+	c.masse = m;
+	return c;
+}
+
+static float64 EcartRelatif(float64 mesure, float64 attendu) {
+	if (attendu == 0.0)
+		return (mesure == 0.0) ? 0.0 : 1.0e30;
+	const float64 d = (mesure - attendu) / attendu;
+	return (d < 0.0) ? -d : d;
+}
+
+static const float64 kSeuilEcartAnalytique = 1.0e-3; // (j1), § 11 du plan
+static const float64 kFacteurSemiLagMin = 5.0;		 // (j1), § 11 du plan
+
+void EnqueteComptageAnalytique() {
+	printf("\n=== (j1) LE COMPTAGE ANALYTIQUE DE LA MASSE INJECTÉE ===\n");
+	printf("    ⚠️ LE NOMBRE ATTENDU N'EST PAS DEMANDÉ AU SOLVEUR QU'ON JUGE. Il est\n");
+	printf("    recalculé ici, depuis les paramètres de scène : taille de grille par\n");
+	printf("    ceil((max-min)/h), dénombrement des cellules de la sphère par le même\n");
+	printf("    prédicat géométrique, puis la RÉCURRENCE pas à pas — injection, puis\n");
+	printf("    dissipation — dans l'ordre exact lu dans Step().\n");
+	printf("    ÉCRIT AVANT LA COURSE (PLAN_ORDRE_SUPERIEUR.md § 11) :\n");
+	printf("      N = 81 cellules, A = 6,480e-05 par pas, M attendue = 0,016781\n");
+	printf("      (j1) conservatif : écart relatif < 1e-3 ; semi-lagrangien : facteur > 5\n");
+	printf("    ⚠️ SI LE CONSERVATIF NE COLLE PAS NON PLUS, toute la chaîne de Q10 tombe,\n");
+	printf("    et c'est MON comptage que je vérifie d'abord — un instrument neuf qui\n");
+	printf("    contredit deux mesures anciennes est plus souvent faux que les deux.\n");
+	char buf[640];
+
+	const NkVec3f bmin = {-0.25f, 0.f, -0.25f};
+	const NkVec3f bmax = {0.25f, 1.f, 0.25f};
+	const float32 h = 0.02f;
+	const NkVec3f src = {0.f, 0.05f, 0.f};
+	const float32 rayon = 0.05f;
+	const float64 dt = 1.0 / 60.0;
+	const float64 debit = 6.0;
+	const uint32 pas = 600;
+
+	const ComptageAnalytique a = CompterALaMain(bmin, bmax, h, src, rayon, debit, dt, pas, 0.2, false);
+	printf("\n    COMPTAGE À LA MAIN : grille %u x %u x %u ; %u cellules dans la sphère ;\n", a.nx, a.ny, a.nz,
+		   a.cellules);
+	printf("    A = %.6e par pas ; f = exp(-0,2/60) = %.9f ; M attendue = %.9f\n", a.masseParPas, a.facteur,
+		   a.masse);
+
+	// ── LES COURSES ────────────────────────────────────────────────────────
+	const ResultatPrix semi = SceneDixSecondes(false);
+	const ResultatPrix o1 = SceneDixSecondes(true, 0.f, NkFluidFluxLimiter::Ordre1);
+	const ResultatPrix vl = SceneDixSecondes(true, 0.f, NkFluidFluxLimiter::VanLeer);
+
+	// ⚠️ GARDE : le comptage à la main porte-t-il sur LA MÊME GRILLE ? Si non, il
+	// serait faux tout en ayant l'air juste — et rien dans les chiffres ne le
+	// dirait. On le demande au solveur parce que c'est la seule chose qu'on ait le
+	// droit de lui demander : la FORME de son domaine, jamais la RÉPONSE.
+	{
+		NkFluidGridParams p;
+		p.boundsMin = bmin;
+		p.boundsMax = bmax;
+		p.cellSize = h;
+		NkFluidGrid g;
+		const bool ok = g.Init(p);
+		const bool memeGrille = ok && g.Nx() == a.nx && g.Ny() == a.ny && g.Nz() == a.nz;
+		snprintf(buf, sizeof(buf),
+				 "à la main %u x %u x %u ; le solveur %u x %u x %u. Un comptage exact sur la MAUVAISE "
+				 "grille rend un nombre faux qui a l'air juste, et aucun des chiffres suivants ne le "
+				 "dirait",
+				 a.nx, a.ny, a.nz, ok ? g.Nx() : 0u, ok ? g.Ny() : 0u, ok ? g.Nz() : 0u);
+		ProbeCheck(memeGrille, "(j1) GARDE : la grille RECOMPTÉE est celle du solveur", buf);
+	}
+
+	const float64 eSemi = EcartRelatif((float64)semi.masseFinale, a.masse);
+	const float64 eO1 = EcartRelatif((float64)o1.masseFinale, a.masse);
+	const float64 eVL = EcartRelatif((float64)vl.masseFinale, a.masse);
+	const float64 fSemi = (a.masse > 0.0) ? (float64)semi.masseFinale / a.masse : 0.0;
+
+	printf("\n      schéma              masse finale    écart relatif à l'analytique   facteur\n");
+	printf("      ANALYTIQUE (main)    %.9f    —                              1,000\n", a.masse);
+	printf("      FLUX ordre 1         %.9f    %.3e                      %.3f\n", (double)o1.masseFinale, eO1,
+		   (a.masse > 0.0) ? (double)o1.masseFinale / a.masse : 0.0);
+	printf("      FLUX van Leer        %.9f    %.3e                      %.3f\n", (double)vl.masseFinale, eVL,
+		   (a.masse > 0.0) ? (double)vl.masseFinale / a.masse : 0.0);
+	printf("      SEMI-LAGRANGIEN      %.9f    %.3e                      %.3f\n", (double)semi.masseFinale, eSemi,
+		   fSemi);
+	fflush(stdout);
+
+	snprintf(buf, sizeof(buf),
+			 "van Leer %.9f contre %.9f calculée À LA MAIN : écart relatif %.3e (seuil 1e-3, écrit AVANT) ; "
+			 "l'ordre 1 %.3e. Le nombre attendu ne vient PAS du solveur — il vient de %u cellules, d'un "
+			 "débit et d'une récurrence de %u pas",
+			 (double)vl.masseFinale, a.masse, eVL, eO1, a.cellules, pas);
+	ProbeCheck(eVL < kSeuilEcartAnalytique && eO1 < kSeuilEcartAnalytique,
+			   "(j1) LE CONSERVATIF colle à la masse calculée À LA MAIN", buf);
+
+	snprintf(buf, sizeof(buf),
+			 "le semi-lagrangien finit à %.9f pour une masse injectée de %.9f : facteur %.3f (exigé > %.1f). "
+			 "Il ne PERD pas de la matière ici — il en FABRIQUE, et c'est désormais MESURÉ contre un nombre "
+			 "calculé hors de lui, non plus déduit",
+			 (double)semi.masseFinale, a.masse, fSemi, kFacteurSemiLagMin);
+	ProbeCheck(fSemi > kFacteurSemiLagMin, "(j1) LE SEMI-LAGRANGIEN s'en écarte d'un facteur > 5", buf);
+
+	// ── (j1b) CONTRÔLE NÉGATIF : injection UNIQUE, dissipation COUPÉE ──────
+	// ⚠️ CE N'EST PAS « débit = 0 ». Couper l'injection donnerait 0 = 0, un témoin
+	// NUL — exactement le piège que ce banc traque depuis (f1b). Une injection
+	// unique garde un nombre NON NUL à atteindre, et sans dissipation l'attendu
+	// devient EXACT au lieu d'approché : la masse doit rester RIGOUREUSEMENT
+	// constante pendant 600 pas.
+	{
+		const ComptageAnalytique b = CompterALaMain(bmin, bmax, h, src, rayon, debit, dt, pas, 0.0, true);
+		const ResultatPrix u = SceneDixSecondes(true, 0.f, NkFluidFluxLimiter::VanLeer, -1.f, true, 0.f);
+		const float64 eU = EcartRelatif((float64)u.masseFinale, b.masse);
+		const float64 amplitude =
+			(u.masseMax > 0.f) ? (float64)(u.masseMax - u.masseMin) / (float64)u.masseMax : 1.0e30;
+		snprintf(buf, sizeof(buf),
+				 "une SEULE injection (%.9f attendue, NON NULLE — ce n'est pas « débit = 0 », qui donnerait "
+				 "0 = 0 et ne prouverait rien), dissipation coupée, 600 pas : masse finale %.9f, écart %.3e ; "
+				 "amplitude sur TOUTE la course (max-min)/max = %.3e — une masse qui monte puis redescend "
+				 "rendrait la même valeur finale, c'est pourquoi on borne la course entière",
+				 b.masse, (double)u.masseFinale, eU, amplitude);
+		ProbeCheck(eU < kSeuilEcartAnalytique && amplitude < kSeuilEcartAnalytique,
+				   "(j1b) NÉGATIF : injection unique sans dissipation -> masse CONSTANTE et EXACTE", buf);
+	}
+
+	// ── (j1c) MUTATION : on FAUSSE le débit attendu, le compteur DOIT rougir ──
+	// Un compteur qui ne sait pas rougir n'a jamais rien prouvé en verdissant.
+	{
+		const ComptageAnalytique faux =
+			CompterALaMain(bmin, bmax, h, src, rayon, debit * 1.01, dt, pas, 0.2, false);
+		const float64 eFaux = EcartRelatif((float64)vl.masseFinale, faux.masse);
+		snprintf(buf, sizeof(buf),
+				 "débit attendu faussé de +1 %% (%.1f au lieu de %.1f) : M attendue passe de %.9f à %.9f, et "
+				 "l'écart du conservatif passe de %.3e à %.3e — soit AU-DESSUS du seuil 1e-3. Le compteur "
+				 "REFUSE bien une masse fausse de 1 %%, donc son vert de (j1) n'est pas un vert de complaisance",
+				 debit * 1.01, debit, a.masse, faux.masse, eVL, eFaux);
+		ProbeCheck(eFaux >= kSeuilEcartAnalytique, "(j1c) MUTATION : un débit faussé de +1 % fait ROUGIR (j1)",
+				   buf);
+	}
+
+	printf("\n    ⚠️ CE QUE (j1) NE MESURE PAS : la CHALEUR. Le facteur 8,7 de l'enquête (i)\n");
+	printf("    n'est pas recompté ici — la température subit un rappel vers l'ambiante,\n");
+	printf("    T <- T_amb + (T - T_amb)*f, ce qui en fait un SECOND modèle à écrire.\n");
+	printf("    Et rien n'est allumé : advectFluxConservative reste FAUX, le limiteur Ordre1.\n");
 }
 
 // =============================================================================

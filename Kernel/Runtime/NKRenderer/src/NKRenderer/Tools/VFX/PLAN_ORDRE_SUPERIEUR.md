@@ -507,3 +507,186 @@ est un artefact ne rend pas 571,7 K joli à l'écran : cela déplace la question
 « quel schéma d'advection » vers « quelle source, quel `beta`, quelle dissipation
 de température » — un réglage de scène, pas un défaut de solveur. **Cette
 décision-là appartient à Rodolf**, et je ne la prends pas.
+
+---
+
+## 11. PRÉ-ENREGISTREMENT DE (j1) — LE COMPTAGE ANALYTIQUE
+
+**Écrit le 13/09, AVANT de coder le mode 10 et AVANT de le lancer.** C'est la
+mesure dont j'ai moi-même écrit au § 10 qu'elle **manquait** : sans elle, « le
+semi-lagrangien fabrique » reste une déduction.
+
+### ⚠️ LA RÈGLE DE CE LOT, ET ELLE EST TOUT LE LOT
+
+> **Le nombre attendu ne se demande JAMAIS au solveur qu'on juge.** Il se calcule
+> **À LA MAIN**, dans le banc, depuis les paramètres d'injection et de scène.
+
+Le banc recompte donc lui-même `Nx, Ny, Nz` par `ceil((max − min)/h)`, et
+**recompte lui-même** les cellules de la sphère source en refaisant le test
+géométrique. Il ne lit du solveur **que la masse qu'il juge**.
+
+⚠️ **Et il GARDE ce recomptage** : si ses `Nx, Ny, Nz` ne sont pas ceux de la
+grille, le calcul à la main porterait sur une **autre grille** et le verdict serait
+faux tout en ayant l'air juste. Ce contrôle rougit explicitement.
+
+### Le modèle, écrit avant d'être codé
+
+Ordre réel d'un tour de boucle, **lu dans `Step()`** (`NkFluidGrid.cpp`) :
+
+```
+EmitSphere      ->  M <- M + A          (avant Step, entre deux pas)
+Step : advection                         (le schéma en flux CONSERVE M)
+       dissipation  ->  M <- M * f       f = exp(-densityDissipation * dt)
+```
+
+d'où, après `n` pas :
+
+```
+        n                              1 - f^n
+M_n =   S  A * f^(n-k+1)   =   A * f * ---------
+       k=1                              1 - f
+```
+
+avec `A = N_cellules * débit * dt * h³`, la masse injectée à chaque pas.
+
+**L'advection ne peut pas en retirer** : les faces de paroi ne sont jamais
+parcourues, et `TotalMass` ne somme que l'**intérieur** — vérifié dans le code,
+pas supposé.
+
+### LE NOMBRE, calculé à la main AVANT la course
+
+Scène (e) : boîte `0,5 × 1 × 0,5 m`, `h = 0,02` → `25 × 50 × 25` ; sphère source
+centrée `(0 ; 0,05 ; 0)`, rayon `0,05` ; débit `6` ; `dt = 1/60` ; 600 pas ;
+`densityDissipation = 0,2`.
+
+Les centres de cellule tombent sur des multiples de `h` autour du centre de la
+sphère, donc le test `dx² + dy² + dz² <= r²` devient, en unités de `h` :
+`a² + b² + c² <= 6,25` avec `a, b, c` entiers — soit `<= 6`. Le dénombrement des
+triplets entiers donne :
+
+```
+somme 0 : 1 · somme 1 : 6 · somme 2 : 12 · somme 3 : 8
+somme 4 : 6 · somme 5 : 24 · somme 6 : 24        ->  N = 81 cellules
+```
+
+⚠️ **Aucune ambiguïté de virgule flottante** : le dernier accepté vaut
+`6 h² = 0,0024` et le premier refusé `7 h² = 0,0028`, contre un seuil de `0,0025`.
+Le test n'est pas sur un fil.
+
+```
+A     = 81 * 6 * (1/60) * (0,02)³ = 6,48e-05
+f     = exp(-0,2/60)              = 0,9966722
+f^600 = exp(-2)                   = 0,1353353
+M_600 = 6,48e-05 * 0,9966722 * (1 - 0,1353353) / (1 - 0,9966722)
+```
+
+> ### ⟹ **M attendue = 0,016781** — et je l'écris ICI, avant la course.
+
+⚠️ **Cette mesure n'est PAS aveugle, et le dire fait partie du travail** : la
+valeur `0,016781` a déjà été relevée sur le solveur par l'enquête (i). Ce que (j1)
+apporte n'est donc pas la surprise d'un chiffre, c'est que ce chiffre **existe
+maintenant deux fois, par deux chemins qui ne se parlent pas** — une arithmétique
+de papier et une course. Le calcul ci-dessus a été fait **avant** d'écrire une
+ligne du mode 10, et il tombe sur la valeur mesurée ; c'est cette coïncidence-là
+qui est le résultat, et elle serait invérifiable si le nombre n'était pas écrit
+d'avance.
+
+### Les critères, écrits AVANT
+
+    (j1)  le CONSERVATIF colle a l analytique     ecart relatif < 1e-3
+          prediction : quelques 1e-5
+    (j1)  le SEMI-LAGRANGIEN s en ecarte          facteur > 5
+    (j1b) NEGATIF : une injection UNIQUE, sans dissipation
+          -> masse CONSTANTE sur 600 pas, ecart a l analytique NUL
+    (j1c) MUTATION : debit attendu fausse de +1 %  -> (j1) DOIT rougir
+
+**D'où vient le seuil `1e-3`, et pourquoi il n'est pas plus serré :** le solveur
+travaille en `float32` et multiplie 600 fois par un `f` lui-même arrondi en
+`float32`, alors que le comptage à la main utilise la double précision. Le biais
+systématique de cet écart de `f` se compose sur 600 pas — de l'ordre de quelques
+`1e-5`. Un seuil de `1e-6` ne mesurerait plus la conservation mais la différence
+de précision entre deux façons d'écrire la même exponentielle. **Et la marge reste
+de quatre ordres de grandeur** face à l'écart du semi-lagrangien (un facteur 15,
+soit 1 400 %).
+
+**Pourquoi (j1b) n'est PAS « débit = 0 ».** Couper l'injection donnerait
+`0 = 0` : un **témoin nul**, exactement le piège que ce banc traque depuis (f1b).
+L'injection **unique** garde un nombre **non nul** à atteindre, et la dissipation
+coupée rend l'attendu **exact** au lieu d'approché — la masse doit alors rester
+**rigoureusement constante** pendant 600 pas.
+
+### ⚠️ CE QUE JE CONCLURAIS SI LE CONSERVATIF NE COLLAIT PAS NON PLUS
+
+Écrit **avant** la mesure, pour ne pas être tenté de l'expliquer après :
+
+> **Si l'écart du conservatif dépasse lui aussi `1e-3`, alors AUCUNE des deux
+> courses ne porte la bonne quantité de matière, et TOUTE la chaîne de déduction
+> de Q10 tombe** — y compris la phrase « la référence porte 8,7 fois trop de
+> chaleur », qui redeviendrait une hypothèse.
+
+Dans ce cas je ne cherche pas un coupable dans le solveur : je vérifie **d'abord
+mon propre comptage** (l'ordre injection/dissipation, le dénombrement `N = 81`,
+l'unité de `TotalMass`), parce qu'un instrument neuf qui contredit deux mesures
+anciennes est **plus souvent faux** que les deux mesures. **Et je le publierais
+comme un résultat, pas comme un incident.**
+
+### Ce que (j1) ne fait pas
+
+Il ne mesure **que la masse de fumée**. Le facteur 8,7 sur la **chaleur** n'est pas
+recompté ici : la température subit un rappel vers l'ambiante
+(`T <- T_amb + (T - T_amb)*f`) et une combustion éteinte sur cette scène, ce qui en
+fait un second modèle — à écrire séparément si Rodolf le demande.
+Et il **n'allume rien** : `advectFluxConservative` reste `false`,
+`advectFluxLimiter` reste `Ordre1`.
+
+---
+
+## 12. LE RÉSULTAT DE (j1) — LA DÉDUCTION EST DEVENUE UN FAIT
+
+**Mode `NK_FLUID_MAC=a`, 5 contrôles, 0 ROUGE.**
+
+```
+COMPTAGE À LA MAIN : grille 25 x 50 x 25 ; 81 cellules dans la sphère ;
+A = 6,480000e-05 par pas ; f = exp(-0,2/60) = 0,996672216 ; M = 0,016781081
+
+schéma              masse finale    écart relatif à l'analytique   facteur
+ANALYTIQUE (main)    0,016781081    —                              1,000
+FLUX ordre 1         0,016781075    3,855e-07                      1,000
+FLUX van Leer        0,016781075    3,855e-07                      1,000
+SEMI-LAGRANGIEN      0,256143659    1,426e+01                     15,264
+```
+
+**Le dénombrement de papier — 81 — est celui que le banc retrouve. Le nombre écrit
+d'avance — 0,016781 — est celui que le solveur conservatif rend, à
+`3,9e-07` près.** Sept ordres de grandeur séparent les deux schémas de leur
+référence commune.
+
+> **Le semi-lagrangien ne PERD pas de la matière sur cette scène : il en
+> FABRIQUE.** Ce n'est plus une déduction, c'est un écart mesuré contre un nombre
+> calculé **hors de lui**.
+
+Les trois gardes tiennent : la **grille recomptée** est celle du solveur
+(`25 × 50 × 25`) ; le **négatif non nul** (injection unique, dissipation coupée)
+rend `0,000064800` attendu contre `0,000064800` mesuré, avec une amplitude sur
+toute la course de **`0,000e+00` exactement** ; et la **mutation** à `+1 %` de
+débit fait passer l'écart de `3,855e-07` à `9,901e-03` — **le compteur sait
+rougir.**
+
+### Ma prédiction rate, et pour la première fois dans l'autre sens
+
+J'attendais « quelques `1e-5` », en raisonnant sur le `float32` du solveur composé
+sur 600 pas contre la double précision du comptage. Mesuré : **`3,9e-07`**, deux
+ordres de grandeur mieux. Après trois sous-estimations d'ampleur (Q4, Q5, Q6) puis
+une **surestimation** franche en (h1), c'est la première fois que je me trompe en
+étant **trop pessimiste sur la précision**.
+
+Le seuil `1e-3` **n'est pas déplacé** — il reste celui du § 11. Je note seulement
+qu'il était quatre ordres de grandeur plus large que nécessaire, et que je l'aurais
+su en regardant (f1), qui rendait déjà `0,000e+00` exact.
+
+### Le cas que j'avais écrit d'avance n'a pas eu lieu
+
+Le § 11 prévoyait quoi conclure **si le conservatif ne collait pas non plus** :
+toute la chaîne de Q10 serait tombée. Elle ne tombe pas. **L'avoir écrit avant
+reste ce qui rend ce vert lisible** — un critère qui ne pouvait pas échouer n'aurait
+rien jugé.
