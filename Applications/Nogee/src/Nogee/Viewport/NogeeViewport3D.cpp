@@ -91,6 +91,8 @@ namespace nkentseu {
 					// ── Temoins ───────────────────────────────────────────────
 					int32 frames = 0;
 					int32 eligible = 0; ///< entites qui satisfont la requete de SubmitMeshes
+					uint32 dcGraphe = 0;  ///< appels de dessin ENREGISTRES pendant graph->Execute
+					uint32 triGraphe = 0; ///< triangles enregistres pendant graph->Execute
 					float64 lastNs = 0.0;
 
 					NkMeshHandle cube{};
@@ -258,7 +260,59 @@ namespace nkentseu {
 				// fera worldMatrix, et NkRenderSystem qui en fera view/proj. On ne
 				// court-circuite rien.
 				tf->SetLocalPosition(eye);
-				tf->SetLocalRotation(NkQuatf::LookAt(eye, g.target, NkVec3f{0.f, 1.f, 0.f}));
+
+				// ⚠️ NE PAS PASSER PAR NkQuatf::LookAt ICI, ET C'EST MESURE.
+				// Avec `SetLocalRotation(NkQuatf::LookAt(eye, cible, up))`, la
+				// camera regardait A L'OPPOSE de la scene : avant REELLE
+				// (0.83, 0.36, 0.43) contre avant ATTENDUE (-0.53, -0.37, -0.76),
+				// produit scalaire -0.901. Ce n'est meme pas une simple negation —
+				// les deux ne sont pas colineaires : `LookAt` aligne son repere
+				// selon une convention CAMERA, et `NkTransform::GetWorldForward()`
+				// (NkTransform.h l.86-88) lit `-colonne2` de la matrice monde. Les
+				// deux ne se repondent pas.
+				// Consequence en cascade, et rien ne la signalait :
+				// `NkRenderSystem::UpdateActiveCamera` (l.79-84) construit sa cible
+				// par `pos + GetWorldForward()` -> la camera vise le vide -> le
+				// frustum ecarte TOUT dans `NkRender3D::Submit` (l.1704-1707) ->
+				// `mOpaque` est vide quand `Flush` s'execute -> aucun pixel.
+				//
+				// On construit donc le repere DANS LA CONVENTION QUI SERA LUE :
+				// colonne 2 = -avant (puisque GetWorldForward rend -colonne2), puis
+				// right et up par produits vectoriels. Le passage matrice ->
+				// quaternion est la conversion GENERALE (trace-based, Mike Day),
+				// pas la reconstruction par LookAt que NkQuat.h l.579-581 declare
+				// justement FAUSSE hors cas camera.
+				NkVec3f avant{g.target.x - eye.x, g.target.y - eye.y, g.target.z - eye.z};
+				{
+					const float32 n = std::sqrt(avant.x * avant.x + avant.y * avant.y + avant.z * avant.z);
+					if (n > 1e-6f) {
+						avant.x /= n;
+						avant.y /= n;
+						avant.z /= n;
+					} else {
+						avant = {0.f, 0.f, -1.f};
+					}
+				}
+				const NkVec3f mondeUp{0.f, 1.f, 0.f};
+				const NkVec3f axeZ{-avant.x, -avant.y, -avant.z}; // colonne 2
+				NkVec3f axeX = mondeUp.Cross(axeZ);
+				{
+					const float32 n = std::sqrt(axeX.x * axeX.x + axeX.y * axeX.y + axeX.z * axeX.z);
+					if (n > 1e-6f) {
+						axeX.x /= n;
+						axeX.y /= n;
+						axeX.z /= n;
+					} else {
+						axeX = {1.f, 0.f, 0.f}; // visee verticale : right arbitraire mais defini
+					}
+				}
+				const NkVec3f axeY = axeZ.Cross(axeX);
+				NkMat4f repere = NkMat4f::Identity();
+				repere.right = {axeX.x, axeX.y, axeX.z, 0.f};
+				repere.up = {axeY.x, axeY.y, axeY.z, 0.f};
+				repere.forward = {axeZ.x, axeZ.y, axeZ.z, 0.f};
+				repere.position = {0.f, 0.f, 0.f, 1.f};
+				tf->SetLocalRotation(NkQuatf(repere));
 				cam->aspect = (float32)g.rtW / (float32)(g.rtH > 0 ? g.rtH : 1);
 			}
 
@@ -384,8 +438,22 @@ namespace nkentseu {
 
 			// 4. Le graphe ouvre ses passes, appelle Flush dans la passe Geometry,
 			//    et ecrit le resultat final dans notre cible.
+			//
+			// ── LE SEUL COMPTEUR VIVANT DE CET HOTE ──────────────────────────
+			// `NkRendererStats.drawCalls` est MUET ici : il est ecrit par
+			// `EndFrame()` (NkRendererImpl.cpp l.1588-1595), que l'editeur
+			// n'appelle jamais — il rend 0 en permanence, et s'en servir comme
+			// temoin reviendrait a mesurer son propre silence. Le compteur du
+			// COMMAND BUFFER, lui, est incremente par le tampon a chaque appel de
+			// dessin (NkICommandBuffer.h l.188-201) : c'est le seul point par ou
+			// TOUT dessin passe. On le lit AVANT et APRES, et la difference dit si
+			// la chaine a dessine quoi que ce soit — et combien.
+			const uint32 dcAvant = cmd->Stats().drawCalls;
+			const uint32 triAvant = cmd->Stats().triangles;
 			if (auto *graph = g.r3->GetRenderGraph())
 				graph->Execute(cmd);
+			g.dcGraphe = cmd->Stats().drawCalls - dcAvant;
+			g.triGraphe = cmd->Stats().triangles - triAvant;
 
 			++g.frames;
 			// Un temoin PERIODIQUE, pas un par image : sans lui, un viewport
@@ -396,15 +464,43 @@ namespace nkentseu {
 				// deux ensemble separent « rien a dessiner » de « dessine et
 				// invisible » — que rien d'autre ne distingue a l'ecran.
 				const NkRendererStats &st = g.r3->GetStats();
+				// LE compteur qui separe « rien soumis » de « soumis puis ecarte » :
+				// `NkRender3D::Submit` (NkRender3D.cpp l.1703-1707) incremente
+				// opaqueSubmitted, teste `mCtx.camera.IsAABBVisible(dc.aabb)` et
+				// SORT avant d'empiler. Un objet ecarte la n'atteint jamais mOpaque,
+				// donc jamais Flush, donc jamais un pixel — et rien ne le dit.
+				const NkRender3D::NkCullStats &cs = r3d->GetCullStats();
 				const ecs::NkTransform *ctf =
 					g.camId.IsValid() ? g.world->Get<ecs::NkTransform>(g.camId) : nullptr;
 				const NkVec3f eye = ctf ? ctf->GetWorldPosition() : NkVec3f{0.f, 0.f, 0.f};
-				char m[420];
+				// OU REGARDE-T-ELLE VRAIMENT ? `NkRenderSystem::UpdateActiveCamera`
+				// (l.79-84) construit sa cible par `pos + tf.GetWorldForward()`. Si
+				// cette avant pointe a l'OPPOSE de la scene, la camera regarde le
+				// vide : tout est ecarte par le frustum, et rien, nulle part, ne le
+				// dit. On l'imprime a cote de l'avant ATTENDUE (vers la cible
+				// d'orbite) au lieu de la deduire.
+				const NkVec3f fwd = ctf ? ctf->GetWorldForward() : NkVec3f{0.f, 0.f, 0.f};
+				NkVec3f att{g.target.x - eye.x, g.target.y - eye.y, g.target.z - eye.z};
+				{
+					const float32 n = std::sqrt(att.x * att.x + att.y * att.y + att.z * att.z);
+					if (n > 1e-6f) {
+						att.x /= n;
+						att.y /= n;
+						att.z /= n;
+					}
+				}
+				const float32 accord = fwd.x * att.x + fwd.y * att.y + fwd.z * att.z;
+				char m[640];
 				std::snprintf(m, sizeof(m),
-							  "[Nogee/Viewport3D] image %d : cible %ux%u | ECS eligibles=%d | GPU drawCalls=%u "
-							  "triangles=%u culled=%u lumieres=%u | camera (%.2f,%.2f,%.2f) lacet %.0f\n",
-							  (int)g.frames, g.rtW, g.rtH, (int)g.eligible, st.drawCalls, st.triangles, st.culled,
-							  st.lightsActive, (double)eye.x, (double)eye.y, (double)eye.z, (double)g.yawDeg);
+							  "[Nogee/Viewport3D] image %d : cible %ux%u (aspect %.3f) | ECS eligibles=%d | "
+							  "SUBMIT soumis=%u ECARTES_PAR_LE_FRUSTUM=%u | GRAPHE dessins=%u triangles=%u | "
+							  "(muet : stats.drawCalls=%u) | camera (%.2f,%.2f,%.2f) avant (%.2f,%.2f,%.2f) "
+							  "attendue (%.2f,%.2f,%.2f) ACCORD=%.3f\n",
+							  (int)g.frames, g.rtW, g.rtH,
+							  (double)g.rtW / (double)(g.rtH > 0 ? g.rtH : 1), (int)g.eligible, cs.opaqueSubmitted,
+							  cs.opaqueCulled, g.dcGraphe, g.triGraphe, st.drawCalls, (double)eye.x, (double)eye.y,
+							  (double)eye.z, (double)fwd.x, (double)fwd.y, (double)fwd.z, (double)att.x,
+							  (double)att.y, (double)att.z, (double)accord);
 				logger.Info(m);
 			}
 		}
