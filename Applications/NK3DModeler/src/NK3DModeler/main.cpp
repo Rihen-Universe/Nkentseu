@@ -1,4 +1,5 @@
 // =============================================================================
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // main.cpp — Point d'entree de NK3DModeler.
 //
 // L'INTERFACE EST PEINTE DIRECTEMENT, sans passer par NkEditorShell.
@@ -52,6 +53,10 @@
 // ECRAN D'ACCUEIL + socle PROJET (.nk3dm) : l'accueil est peint tant qu'aucun
 // projet n'est ouvert, et il porte l'execution differee des actions projet.
 #include "NK3DModeler/Shell/NkModelerWelcome.h"
+// LA PREMIERE SONDE DE L'APPLICATION (`--probe=geom`) : l'aller-retour de la
+// geometrie par le disque, sans fenetre. Elle n'a besoin d'aucun des en-tetes
+// ci-dessus -- c'est voulu, et c'est ce qui la rend rejouable partout.
+#include "NK3DModeler/Project/NkModelerGeomProbe.h"
 #include "NKEvent/NkMouseEvent.h"
 #include "NKEvent/NkDropEvent.h" // NkDropFileEvent : fichiers laches depuis l'explorateur
 // Captures (« Capturer la vue » / « Tutoriel ») : dossier + numerotation +
@@ -488,7 +493,17 @@ namespace {
 } // namespace
 
 int nkmain(const NkEntryState &entry) {
-	(void)entry;
+	// ── LA SONDE, AVANT TOUT LE RESTE ───────────────────────────────────────
+	// `--probe=geom` : l'aller-retour de la geometrie par le disque, SANS
+	// fenetre, sans GPU, sans hote 3D. Elle est ici, en toute premiere ligne,
+	// pour une raison : plus bas on ouvre une fenetre et on cree un device, et
+	// une sonde qui a besoin de ca n'est plus une sonde -- c'est l'application.
+	// Elle imprime ses criteres, son volet negatif, son verdict, et sort.
+	for (usize a = 0; a < entry.args.Size(); ++a) {
+		const NkString &arg = entry.args[a];
+		if (arg == NkString("--probe=geom"))
+			return nk3d::NkGeomProbeRun();
+	}
 
 	// ── THEMES ──────────────────────────────────────────────────────────────
 	NkModelerRoles roles;
@@ -2831,6 +2846,27 @@ int nkmain(const NkEntryState &entry) {
 			st.projRecent = agentOpenRecent;
 			st.projPending = 7;
 			agentOpenRecent = -1;
+		}
+		// NK_PROJECT=<chemin .nk3dm> : ouvre CE projet, et le CREE s'il n'existe
+		// pas encore. Pose a cote de NK_OPEN_RECENT et pour la meme raison,
+		// mais par le CHEMIN : mesurer un aller-retour de persistance demande un
+		// projet a soi, et passer par la liste des recents obligerait a ecrire
+		// dans le fichier de recents de quelqu'un d'autre pour s'y ranger.
+		// Meme attente que ci-dessus : l'hote 3D doit etre ne, c'est lui qui
+		// porte les noeuds que la restitution recree.
+		{
+			static bool sProjDone = false;
+			if (!sProjDone && agentFrame >= 3 && demo::Demo3DHostReady() &&
+				st.projPending == 0) {
+				if (const char *v = std::getenv("NK_PROJECT")) {
+					sProjDone = true;
+					if (*v) {
+						std::snprintf(st.projOpenPath, sizeof(st.projOpenPath), "%s", v);
+						st.projPending = 9;
+					}
+				} else
+					sProjDone = true;
+			}
 		}
 		// ── NK_SEL_NODES="frame,n1,n2,n3..." : SELECTION MULTIPLE DE NOEUDS ──
 		// Crochet d'agent pose pour le defaut n.3 de Rodolf (18/08). Il n'existait
