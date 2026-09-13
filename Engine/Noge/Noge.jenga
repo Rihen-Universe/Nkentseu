@@ -62,6 +62,11 @@ with project("Noge"):
         "%{NKRL.location}/src",        # NKRL/NkGridWorld.h (NkAgentComponent/NkAgentSystem)
         "%{NKAgent.location}/src",     # NKAgent/NkAgent.h (pont ECS -> IA de gameplay)
         "%{NKSerialization.location}/src",  # NKSerialization/NkSerializer.h (NkSceneSerializer)
+        # 2026-09-13 : NKECS/Reflect/NkReflectBridge.h inclut NKReflection/NkType.h.
+        # Le chemin manquait : NKECS l'exporte pour ses consommateurs directs, pas
+        # pour Noge ni pour ses tests. Sans cette ligne, tout fichier de Noge qui
+        # touche au pont de reflexion Phase 4 ne compile pas.
+        "%{NKReflection.location}/src",     # NKReflection/NkType.h (pont NkReflectBridge)
         "%{NKFileSystem.location}/src",     # NKFileSystem/NkFile.h (NkSceneSerializer)
         "%{NKFont.location}/src",
         "%{NKImage.location}/src",
@@ -202,7 +207,10 @@ with project("Noge"):
             # FIX 2026-07-23 : "Nkentseu" ne correspond a aucun projet du workspace
             # (le lib produit par ce module s'appelle "Noge", cf. project("Noge")
             # plus haut) — jenga test echouait au link avant ce correctif.
-            _TEST_LINKS = ["Noge", "NKCanvas", "NKWindow", "NKTime"]
+            # NKReflection ajoute le 2026-09-13 : test_prefab_roundtrip.cpp
+            # appelle NkRegisterComponentReflection<T>(), qui instancie des
+            # NkClass / NkProperty / NkType de NKReflection.
+            _TEST_LINKS = ["Noge", "NKCanvas", "NKWindow", "NKTime", "NKReflection"]
             if _USE_NKGLAD:
                 _TEST_LINKS.append("NKGlad")
             links(_TEST_LINKS)
