@@ -80,6 +80,10 @@ namespace nkentseu {
 		// journalise l'empreinte APRES. On compare les deux textes.
 		// `--viewport-modifier` est le NEGATIF : il perturbe une transformation
 		// apres lecture, et la comparaison DOIT alors echouer.
+		// `--viewport-echarde=<f.obj>` : cree, A L'ORIGINE, l'entite qu'un
+		// glisser-deposer produirait — memes composants, transformation par
+		// defaut. Sert a reproduire le defaut de Q12 sans simuler un geste.
+		void NogeeShellViewportEcharde(const char *chemin) noexcept;
 		void NogeeShellViewportSauver(const char *chemin) noexcept;
 		void NogeeShellViewportCharger(const char *chemin) noexcept;
 		void NogeeShellViewportModifier() noexcept;

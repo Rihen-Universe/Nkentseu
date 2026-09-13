@@ -57,6 +57,7 @@ namespace nkentseu {
 					float32 yaw = 0.f;
 					int32 fermerApres = 0; ///< 0 = jamais
 					int32 frames = 0;
+					char echarde[400] = {};  ///< --viewport-echarde=<f.obj> : reproduction Q12
 					char sauver[400] = {};   ///< --viewport-sauver=<f>
 					char charger[400] = {};  ///< --viewport-charger=<f>
 					bool modifier = false;   ///< NEGATIF : perturbe une transformation apres lecture
@@ -1307,6 +1308,24 @@ namespace nkentseu {
 				logger.Info(ok ? "[SCENE] ecriture : OK\n" : "[SCENE] ecriture : ECHEC\n");
 			}
 
+			// ── REPRODUCTION Q12 : L'ECHARDE, LA OU UN DEPOT LA MET ──────────
+			// On refait ce que `ViewportPanel::SpawnMeshFromAsset` produit : les
+			// QUATRE memes composants, et surtout une NkTransform PAR DEFAUT —
+			// donc a l'ORIGINE, la ou est deja le cube. Ma mesure precedente
+			// placait l'entite a (1.5, -0.25, 2.75) : les deux se voyaient, et
+			// c'est pour cela que je n'avais rien reproduit. La superposition
+			// n'est pas un detail du decor, c'est peut-etre LA condition.
+			if (g_vp.echarde[0] != '\0') {
+				const ecs::NkEntityId e = sScene.SpawnNode("ECHARDE");
+				sWorld.Add<ecs::NkName>(e, ecs::NkName("ECHARDE"));
+				sWorld.Add<ecs::NkTransform>(e);
+				ecs::NkMeshComponent mce;
+				mce.meshPath = NkString(g_vp.echarde);
+				sWorld.Add<ecs::NkMeshComponent>(e, mce);
+				sWorld.Add<ecs::NkMaterialComponent>(e, ecs::NkMaterialComponent{});
+				logger.Info("[Q12] entite ECHARDE creee a l'ORIGINE, comme un depot la poserait\n");
+			}
+
 			// Assets + projet : racine = projet de demarrage s'il existe, sinon
 			// le repertoire courant (defaut raisonnable, ANNONCE — la spec est
 			// silencieuse sur la racine hors projet).
@@ -1332,6 +1351,16 @@ namespace nkentseu {
 			// au verdict — la mesure ne depend d'aucun fichier a poser a la main.
 			if (g_drag.enabled) {
 				std::snprintf(g_drag.temoinObj, sizeof(g_drag.temoinObj), "%s/TEMOIN_sonde.obj", projectDir);
+				// ⚠️ MENAGE D'ABORD, ECRITURE ENSUITE (ajoute le 13/09).
+				// Cette sonde DOIT ecrire dans le repertoire projet — le Content
+				// Browser n'offre que ce qu'il y trouve, c'est sa conception. Ce
+				// qu'elle peut faire, c'est ne jamais laisser un temoin d'une
+				// execution INTERROMPUE : elle l'efface au verdict, mais un arret
+				// avant le verdict le laissait en place. Un maillage d'essai oublie
+				// dans un espace de travail finit par etre pris pour un asset du
+				// projet — c'est arrive aujourd'hui, avec un `.obj` d'UN triangle
+				// qu'une autre de mes sondes avait laisse la (cf. echanges, Q10).
+				std::remove(g_drag.temoinObj);
 				if (std::FILE *f = std::fopen(g_drag.temoinObj, "wb")) {
 					std::fputs("# TEMOIN de la sonde --dragdrop-test (efface au verdict)\n"
 							   "v 0 0 0\nv 1 0 0\nv 0 1 0\nf 1 2 3\n",
@@ -1461,6 +1490,11 @@ namespace nkentseu {
 
 		void NogeeShellViewportInactif() noexcept {
 			g_vp.inactif = true;
+		}
+
+		void NogeeShellViewportEcharde(const char *chemin) noexcept {
+			if (chemin && chemin[0])
+				std::snprintf(g_vp.echarde, sizeof(g_vp.echarde), "%s", chemin);
 		}
 
 		void NogeeShellViewportSauver(const char *chemin) noexcept {
