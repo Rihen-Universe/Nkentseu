@@ -409,8 +409,33 @@ namespace nkentseu {
 			void RecalcDuration() noexcept;
 
 			// ── Sérialisation ────────────────────────────────────────────────
+			// Format `.nkseq` : binaire, séquentiel, versionné. En-tête de 24
+			// octets (magie "NKSQ", version, taille du corps, empreinte FNV-1a du
+			// corps), puis les champs dans l'ordre de déclaration.
+			//
+			// ⚠️ **Les octets, jamais du texte.** `NkFile::WriteAllText` écrit en
+			// CRLF et `ReadAllText` renormalise : l'écart est masqué des DEUX
+			// côtés à la fois, si bien qu'un aller-retour « réussi » peut porter
+			// un fichier différent. `SaveToFile` passe donc par `WriteAllBytes`,
+			// et toute mesure de conformité doit passer par `ReadAllBytes`.
+			//
+			// L'empreinte du corps n'est pas décorative : la magie protège
+			// l'en-tête, la taille protège la troncature, mais **seule l'empreinte
+			// voit un octet abîmé au milieu** — sans elle il donnerait une clé
+			// décalée et la séquence serait lue « avec succès ».
+			//
+			// N'écrit PAS les drapeaux `selected` : c'est un état d'interface, pas
+			// du contenu. L'aller-retour reste identique octet à octet, puisque
+			// `LoadFromFile` construit des objets où `selected` vaut `false` et
+			// que `SaveToFile` réécrit `false`.
 			[[nodiscard]] bool SaveToFile(const char *path) const noexcept;
 			[[nodiscard]] bool LoadFromFile(const char *path) noexcept;
 	};
+
+	// Raison du dernier refus de `SaveToFile` / `LoadFromFile`, en clair. Un
+	// `false` nu oblige l'appelant à deviner, et il devine mal : « fichier abime »
+	// et « version de format inconnue » n'appellent pas la même réaction. Chaîne
+	// statique, valide jusqu'au prochain appel, jamais nulle.
+	[[nodiscard]] const char *NkSequenceDernierRefus() noexcept;
 
 } // namespace nkentseu
