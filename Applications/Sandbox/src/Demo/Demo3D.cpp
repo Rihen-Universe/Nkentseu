@@ -169,6 +169,12 @@ namespace nkentseu {
 				// TOUTES les pentes -- la taille du sol suit le BANC, pas l'habitude.
 				NkVec3f vehHoldP0{};
 				bool vehHoldArme = false, vehHoldDit = false;
+				// ── BANC 7 : LES COLLISIONS (2026-09-13) ────────────────────────────
+				float32 vehMurZ = 0.f, vehMurEp = 0.5f; // centre et demi-epaisseur du mur
+				bool vehChocVu = false, vehChocDit = false;
+				float32 vehChocT = 0.f, vehChocV = 0.f, vehPenMax = 0.f;
+				float32 vehHMin = 1e30f, vehHMax = -1e30f, vehOmChoc = 0.f;
+				uint32 vehSolPerdu = 0;
 				bool vehKickFait = false;
 				// sonde TISSU (NK_CLOTH_PROBE=1, 2026-09-05) : une nappe XPBD lachee sur une sphere, dans le vent
 				nkentseu::physics::NkCloth *cloth = nullptr;
@@ -2587,12 +2593,52 @@ static NkTexHandle CreateLanternCubeCookie(NkTextureLibrary *texLib, NkIDevice *
 				formeSol.orientation = sol.orientation;
 				st->vehWorld->CreateBody(sol, formeSol);
 				st->vehDemiSol = demiSol; // la condition d'essai se releve, elle ne se suppose pas
+				// ── LE MUR (banc 7) ─────────────────────────────────────────────
+				// Cree ICI, depuis la demo, par CreateBody : NKPhysics et NKCollision
+				// ne sont pas touches. NK_VEHICLE_MUR=<z> (0 = pas de mur, c'est le
+				// volet negatif), NK_VEHICLE_MUREP=<demi-epaisseur>.
+				if (const char *mz = std::getenv("NK_VEHICLE_MUR"); mz && mz[0]) st->vehMurZ = (float32)std::atof(mz);
+				if (const char *me = std::getenv("NK_VEHICLE_MUREP"); me && me[0]) st->vehMurEp = (float32)std::atof(me);
+				if (st->vehMurZ != 0.f) {
+					NkBodyDef mur;
+					mur.type = NkBodyType::STATIC;
+					mur.position = {-4.f, 2.f, st->vehMurZ}; // meme x que startPos, declare plus bas
+					mur.orientation = NkQuatf::Identity();
+					collision::NkShape fm = collision::NkShape::Box3D(mur.position, {10.f, 2.f, st->vehMurEp});
+					fm.orientation = mur.orientation;
+					st->vehWorld->CreateBody(mur, fm);
+					// ⚠️ LA CONDITION D'ESSAI SE VERIFIE, elle ne se suppose pas : un
+					// rayon horizontal doit trouver la face avant la ou on la croit, avec
+					// la normale qu'on croit. C'est exactement ce qui a demasque la pente
+					// qui n'existait pas.
+					collision::NkRay3D rm;
+					rm.origin = {-4.f, 1.f, st->vehMurZ - 20.f};
+					rm.dir = {0.f, 0.f, 1.f};
+					rm.maxT = 30.f;
+					NkBodyId hbm = NK_INVALID_BODY;
+					collision::NkRayHit3D hm;
+					const bool tm = st->vehWorld->Raycast(rm, hbm, hm, 0xFFFFFFFFu);
+					// ⚠️ L'ATTENDU SE CALCULE. Il etait ecrit « 19,5000 » EN DUR, et il est
+					// devenu faux des que le mur a change d'epaisseur -- le controle affichait
+					// « t=19,9000 (attendu 19,5000) » sur un montage parfaitement correct.
+					// Un attendu constant dans un message se perime sans prevenir, et c'est
+					// la meme famille que la serie coherente qui ne mesure pas ce qu'on croit :
+					// le controle doit se deduire de la condition d'essai, pas la repeter.
+					const float32 tAttendu = 20.f - st->vehMurEp;
+					std::fprintf(stderr,
+								 "[VEHICULE MUR] centre z=%.2f, demi-epaisseur %.3f m -> face avant attendue a "
+								 "z=%.3f\n"
+								 "[VEHICULE MUR] CONTROLE : touche=%d t=%.4f (attendu %.4f) point=(%.3f, %.3f, %.3f) "
+								 "normale=(%.4f, %.4f, %.4f) (attendue 0, 0, -1)\n",
+								 st->vehMurZ, st->vehMurEp, st->vehMurZ - st->vehMurEp, (int)tm, tm ? hm.t : -1.f,
+								 tAttendu, hm.point.x, hm.point.y, hm.point.z, hm.normal.x, hm.normal.y, hm.normal.z);
+				}
 				std::fprintf(stderr, "[VEHICULE PISTE] sol %.0f x %.0f m (demi-taille %.0f m)\n", 2.f * demiSol,
 							 2.f * demiSol, demiSol);
 				st->veh = new NkVehicle(*st->vehWorld);
 				st->vehBanc = [] {
 					const char *e = std::getenv("NK_VEHICLE_SCENARIO");
-					return (e && e[0] >= '1' && e[0] <= '6') ? (uint32)(e[0] - '0') : 0u;
+					return (e && e[0] >= '1' && e[0] <= '7') ? (uint32)(e[0] - '0') : 0u;
 				}();
 				st->vehScenario = st->vehBanc != 0u;
 				if (const char *cf = std::getenv("NK_VEHICLE_CAM"); cf && cf[0] == '0')
@@ -5409,6 +5455,64 @@ static NkTexHandle CreateLanternCubeCookie(NkTextureLibrary *texLib, NkIDevice *
 										 st->vehClock, v, v * 3.6f, (v - st->vehVprec) / dtp);
 							st->vehVprec = v;
 							st->vehTprec = st->vehClock;
+						}
+					} else if (st->vehBanc == 7u) {
+						// ══ BANC 7 : LE CHOC ══════════════════════════════════════
+						// On monte a la vitesse cible, puis GAZ COUPES 15 m avant le mur :
+						// le choc est PUR, aucune poussee ne le masque.
+						const float32 v = st->veh->ForwardSpeed();
+						const float32 reste = st->vehMurZ - b0->position.z;
+						// ⚠️ LA DISTANCE DE ROUE LIBRE SUIT LA VITESSE, pas une constante.
+						// A 15 m fixes, la voiture visant 5 m/s s'ARRETAIT avant le mur :
+						// gaz coupes, le frein moteur (0,10 x engineForce x 2 = 942 N) plus
+						// le roulement donnent 0,93 m/s2, et 5 m/s ne survivent pas a 15 m.
+						// Une seconde de roue libre, donc une distance egale a la vitesse.
+						const bool approche = (st->vehMurZ != 0.f) && (reste < (v > 3.f ? v : 3.f));
+						steer = 0.f;
+						if (approche) { thr = 0.f; brk = 0.f; }
+						else {
+							const float32 err = st->vehCible - v;
+							thr = err > 0.f ? (err * 0.5f > 1.f ? 1.f : err * 0.5f) : 0.f;
+							brk = 0.f;
+						}
+						// La penetration : face avant du chassis moins face avant du mur.
+						const float32 penet = (b0->position.z + 2.200f) - (st->vehMurZ - st->vehMurEp);
+						if (st->vehMurZ != 0.f && !st->vehChocVu && penet > 0.f) {
+							st->vehChocVu = true;
+							st->vehChocT = st->vehClock;
+							st->vehChocV = v;
+						}
+						if (st->vehChocVu) {
+							if (penet > st->vehPenMax) st->vehPenMax = penet;
+							st->vehHMin = b0->position.y < st->vehHMin ? b0->position.y : st->vehHMin;
+							st->vehHMax = b0->position.y > st->vehHMax ? b0->position.y : st->vehHMax;
+							const float32 om = std::sqrt(b0->angularVelocity.Dot(b0->angularVelocity));
+							if (om > st->vehOmChoc) st->vehOmChoc = om;
+							uint32 au = 0;
+							for (uint32 wc = 0; wc < st->veh->WheelCount(); ++wc)
+								if (st->veh->Wheel(wc).grounded) ++au;
+							if (au < 4u) ++st->vehSolPerdu;
+							if (!st->vehChocDit && (st->vehClock - st->vehChocT) >= 2.f) {
+								st->vehChocDit = true;
+								std::fprintf(stderr,
+											 "[VEHICULE CHOC] contact a t=%.3f s, vitesse d'impact **%.4f m/s** ; "
+											 "2 s plus tard : vitesse **%+.5f m/s**, penetration courante %.5f m, "
+											 "MAXIMALE **%.5f m**\n"
+											 "[VEHICULE CHOC] apres choc : hauteur %.4f a %.4f m (repos 0,735), "
+											 "|omega| max **%.5f rad/s**, images sans les 4 roues au sol : %u\n",
+											 st->vehChocT, st->vehChocV, st->veh->ForwardSpeed(), penet, st->vehPenMax,
+											 st->vehHMin, st->vehHMax, st->vehOmChoc, (unsigned)st->vehSolPerdu);
+							}
+						}
+						// VOLET NEGATIF : sans mur, on releve les MEMES grandeurs au meme
+						// endroit, pour montrer qu'elles restent plates.
+						if (st->vehMurZ == 0.f && !st->vehChocDit && b0->position.z > 125.f) {
+							st->vehChocDit = true;
+							std::fprintf(stderr,
+										 "[VEHICULE CHOC] SANS MUR : z=%.2f franchi, vitesse %.4f m/s (aucune "
+										 "deceleration), hauteur %.4f m, |omega| %.5f rad/s\n",
+										 b0->position.z, v, b0->position.y,
+										 std::sqrt(b0->angularVelocity.Dot(b0->angularVelocity)));
 						}
 					} else if (st->vehBanc == 6u) {
 						// ══ BANC 6 : TENUE AU FREIN, A L'ARRET, EN PENTE ══════════
