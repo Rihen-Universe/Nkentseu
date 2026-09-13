@@ -1,5 +1,6 @@
 #pragma once
 // =============================================================================
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // World/NkWorld.h — Interface publique du système ECS NkWorld (v3 Clean)
 // =============================================================================
 /**
@@ -277,6 +278,53 @@ namespace nkentseu {
 				 */
 				template <typename T> void Set(NkEntityId id, const T &value) noexcept;
 
+				// ── Composants SANS le type concret (type-erased) ───────────
+				// AJOUT 2026-09-13 — « la brique ».
+				//
+				// Pourquoi : jusqu'ici, attacher un composant EXIGEAIT le type
+				// concret a la compilation (Add<T> est un patron). Tout code qui
+				// ne connait qu'un NkComponentId + des octets — prefab relu d'un
+				// fichier, scene deserialisee, editeur, script — savait LIRE un
+				// composant et ne savait pas le RECONSTRUIRE.
+				//
+				// Ces quatre entrees n'ajoutent AUCUNE donnee par type : elles
+				// se servent du ComponentMeta que NkTypeRegistry remplit deja
+				// (size, align, defaultConstruct, destruct, copyConstruct). Le
+				// cout par type est donc de ZERO octet.
+				//
+				// Contrat commun : un `cid` NON enregistre est REFUSE proprement
+				// (retour faux / nullptr) — jamais d'ecriture sauvage, jamais de
+				// pool construite sans metadonnees.
+
+				/**
+				 * @brief Attache a `id` le composant `cid` sans connaitre son type.
+				 * @param src Octets a copier. Si nullptr, le composant est
+				 *            construit par defaut.
+				 * @return true si le composant est present sur l'entite apres
+				 *         l'appel ; false si `cid` n'est pas enregistre ou si
+				 *         l'entite n'est pas vivante (rien n'est alors ecrit).
+				 * @note Equivalent type-erase de Add<T>(id, value).
+				 */
+				bool AddRaw(NkEntityId id, NkComponentId cid, const void *src = nullptr) noexcept;
+
+				/**
+				 * @brief Adresse du composant `cid` porte par `id`.
+				 * @return nullptr si absent, si `cid` est invalide, ou si le
+				 *         composant est un tag (taille nulle : rien a pointer).
+				 */
+				[[nodiscard]] void *GetRaw(NkEntityId id, NkComponentId cid) noexcept;
+
+				[[nodiscard]] const void *GetRaw(NkEntityId id, NkComponentId cid) const noexcept;
+
+				/** @brief Vrai si `id` porte le composant `cid`. */
+				[[nodiscard]] bool HasRaw(NkEntityId id, NkComponentId cid) const noexcept;
+
+				/**
+				 * @brief Retire le composant `cid` de `id`.
+				 * @return true si le composant etait present et a ete retire.
+				 */
+				bool RemoveRaw(NkEntityId id, NkComponentId cid) noexcept;
+
 				// ── Système de requêtes (Queries) ───────────────────────────
 				/**
 				 * @brief Crée une requête filtrant les entités par composants requis.
@@ -335,6 +383,11 @@ namespace nkentseu {
 				template <typename T, typename TVal> T &AddImpl(NkEntityId id, TVal &&value) noexcept;
 
 				void RemoveImpl(NkEntityId id, NkComponentId cid) noexcept;
+
+				// Ecrit `src` dans le slot (arch, row) du composant decrit par
+				// `meta`, sans connaitre son type. Helper prive de AddRaw.
+				static void WriteRawInto(NkArchetype &arch, uint32 row, const ComponentMeta &meta,
+										 const void *src) noexcept;
 
 				NkComponentMask SingleMask(NkComponentId cid) noexcept {
 					NkComponentMask m;
