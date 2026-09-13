@@ -99,6 +99,26 @@ namespace nkentseu {
 				// pour 30° sur la voiture du dépôt). Un plafond à 2·maxSteer empêche
 				// l'absurde quand le rayon demandé descend sous la demi-voie.
 				float32 ackermann = 1.f; // 0 = roues parallèles (avant le 13/09), 1 = géométrie exacte
+				// ── BALAYAGE ALTERNÉ (2026-09-13) ────────────────────────
+				// `NkApplyImpulseAtPoint` modifie le corps IMMÉDIATEMENT : la roue i+1
+				// calcule son glissement sur un état déjà corrigé par la roue i. Le couple
+				// gauche/droite n'est donc pas traité symétriquement, et il reste à chaque
+				// sous-pas une impulsion de lacet résiduelle dont le signe est celui de
+				// « quelle roue est passée la première ». Elle s'accumule : braquage NUL,
+				// la voiture finissait à 700 m de côté pour 3 500 m parcourus.
+				// Mesuré le 13/09 — lacet à t = 20 s, plein gaz, braquage nul :
+				//    30 Hz 0,011559 | 60 Hz 0,003476 | 120 Hz 0,001448 | 240 Hz 0,000668
+				// soit un rapport qui converge vers ~2,1 quand h est divisé par deux : la
+				// dérive est en O(h) et TEND VERS ZÉRO quand h tend vers zéro. Il n'existe
+				// donc AUCUN couple réel — c'est un artefact du solveur séquentiel. Et
+				// l'ordre en donne le signe : balayage inversé → cap −7,854° au lieu de
+				// +7,854°, au chiffre près.
+				// Le correctif alterne le sens du balayage à chaque sous-pas : le biais du
+				// pas n est compensé par le biais opposé du pas n+1. On ne passe PAS en
+				// Jacobi (calculer les quatre impulsions sur le même état) : cela change
+				// la nature du solveur et perd la stabilité que le Gauss-Seidel donne
+				// gratuitement. L'alternance ne touche qu'à l'ordre.
+				bool alternateSweep = true; // false = l'ordre fixe d'avant le 13/09
 				float32 engineBrake = 0.10f;		// fraction de engineForce, par roue MOTRICE, gaz
 													// relâchés (|throttle| < 0,05). 0 = aucun frein moteur.
 				float32 freezeSpeed = 0.05f;	// m/s : sous ce glissement, on annule sec
@@ -145,6 +165,7 @@ namespace nkentseu {
 				float32 mTrack = 0.f;			// voie avant, dérivée des ancres (Ackermann)
 				float32 mSteer = 0.f, mThrottle = 0.f, mBrake = 0.f;
 				bool mTuned = false;
+				uint32 mSweep = 0; // parité du sous-pas (balayage alterné)
 		};
 
 	} // namespace physics
