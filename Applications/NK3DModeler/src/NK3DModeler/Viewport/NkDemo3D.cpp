@@ -1,4 +1,5 @@
 // =============================================================================
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // NkDemo3D.cpp — PORTAGE INTEGRAL de renderdemo --demo=2 (Demo3D.cpp copie
 // verbatim). Les adaptations sont balisees « PORTAGE NK3DModeler » : souris
 // traduite fenetre->vue, gardes d'entree, frame rejouee (l'editeur possede
@@ -1443,6 +1444,20 @@ namespace nkentseu {
 				float32 editObjMetallic = 0.f;
 				float32 editObjRoughness = 0.7f;
 				int32 editSelMask = 1;			  // bits : 1=VERTEX 2=EDGE 4=FACE (touches 1/2/3 ; Shift+ = combiner)
+				// ── UN CLIC A DES COORDONNEES ECRITES (13/09) ────────────────────────
+				// Le pick d'element est le seul geste du mode Edition qui n'etait
+				// mesurable QUE par la souris : tout le reste a deja sa porte (les
+				// operations, le mode, la selection par indices). Ces quatre champs
+				// arment UN pick a des coordonnees DONNEES, consomme exactement la ou le
+				// clic est consomme -- meme condition, meme code, meme election.
+				// ⚠️ Ce n'est PAS une injection d'evenement : aucun message souris n'est
+				// fabrique, aucune position de curseur n'est ecrite. Seules les deux
+				// coordonnees que le clic aurait fournies viennent d'ailleurs. C'est ce
+				// qui permet de PROUVER que les trois modes designent trois choses
+				// differentes au meme endroit, sans toucher a la souris de personne.
+				bool editPickPending = false;
+				float32 editPickX = 0.f, editPickY = 0.f;
+				bool editPickShift = false, editPickAlt = false;
 				int32 editActiveVert = -1;		  // sommet ACTIF (dernier sélectionné) = rendu BLANC façon Blender
 				// ── ÉLÉMENT ACTIF EN ARÊTE ET EN FACE ───────────────────────────────
 				// Blender distingue TROIS états, pas deux : non sélectionné (noir),
@@ -6939,6 +6954,14 @@ namespace nkentseu {
 							st->editDissolvePending = 1; // Dissolve contextuel
 						} else if (isOp(op, "makeface") || isOp(op, "face")) {
 							st->editMakeFacePending = true; // F : face (n-gon) depuis la selection
+						} else if (isOp(op, "merge") || isOp(op, "fusion")) {
+							// LA SOUDURE (M) ETAIT LA SEULE DES OPERATIONS DU MENU QUE CE
+							// PILOTE NE POUVAIT PAS DECLENCHER. Elle a sa touche, son
+							// entree de menu et sa fonction de facade ; il lui manquait
+							// cette ligne pour etre MESURABLE. On n'ajoute pas une
+							// operation : on ouvre la porte de celle qui existe, dans le
+							// meme entonnoir (`editMergePending` -> Demo3D_ApplyCmd).
+							st->editMergePending = true;
 						} else if (op[0] == 'e' || op[0] == 'E')
 							st->editExtrudePending = true; // Extrude
 						else if (op[0] == 's' || op[0] == 'S')
@@ -9147,16 +9170,25 @@ namespace nkentseu {
 
 				// Pick sur la BASE (editRest/editIdx = editHE), même sous modificateurs -> on
 				// sélectionne/édite la cage de base et le résultat modifié se recalcule.
-				if (clickNow && !grabbedHandle && !st->knifeArmed && !zoneToolConsumed) {
+				// UN PICK ARME (coordonnees ecrites) entre par LA MEME PORTE que le clic.
+				// Il n'y a pas de second chemin de selection : c'est la seule facon de
+				// pouvoir dire qu'une mesure prouve ce que fait le clic de Rodolf.
+				const bool pickArme = st->editPickPending;
+				if (pickArme)
+					st->editPickPending = false; // consomme une fois, comme un clic
+				if ((clickNow || pickArme) && !grabbedHandle && !st->knifeArmed && !zoneToolConsumed) {
 					st->editOverlayDirty = true; // la sélection va changer -> reconstruire l'overlay
-					const float32 mx = gin.mouseX, my = gin.mouseY;
+					const float32 mx = pickArme ? st->editPickX : gin.mouseX;
+					const float32 my = pickArme ? st->editPickY : gin.mouseY;
+					const bool shiftEff = pickArme ? st->editPickShift : gin.shiftDown;
+					const bool altEff = pickArme ? st->editPickAlt : altDown;
 					// TOGGLE façon Blender : on mémorise l'état AVANT le nettoyage pour savoir
 					// si l'élément cliqué était DÉJÀ sélectionné -> dans ce cas le clic le
 					// DÉSÉLECTIONNE (au lieu de le re-sélectionner). Shift+clic = toggle sans
 					// vider le reste de la sélection.
 					NkVector<uint8> prevSel = st->vertSel;
 					auto wasSel = [&](uint32 i) { return i < (uint32)prevSel.Size() && prevSel[i] != 0; };
-					if (!gin.shiftDown)
+					if (!shiftEff)
 						for (int32 i = 0; i < nv; i++)
 							st->vertSel[i] = 0;
 					// Rayon curseur -> profondeurs d'ENTRÉE (near) et de SORTIE (far) dans le
@@ -9353,7 +9385,7 @@ namespace nkentseu {
 					// l'anneau de faces. Shift+Alt+clic ajoute à la sélection existante.
 					// Ce parcours n'est possible que grâce à la SOUDURE topologique.
 					bool loopDone = false;
-					if (altDown && (bestEa >= 0 || bestFt >= 0)) {
+					if (altEff && (bestEa >= 0 || bestFt >= 0)) {
 						uint32 la = 0, lb = 0;
 						bool faceLoop = false, ok = false;
 						if (bestEa >= 0) { // une arête est sous le curseur -> edge loop
@@ -9373,7 +9405,7 @@ namespace nkentseu {
 							}
 						}
 						if (ok) {
-							Demo3D_SelectLoop(st, la, lb, faceLoop, gin.shiftDown);
+							Demo3D_SelectLoop(st, la, lb, faceLoop, shiftEff);
 							loopDone = true;
 						}
 					}
@@ -15217,6 +15249,57 @@ namespace nkentseu {
 			auto *st = HostSt();
 			return st ? st->editSelMask : 1;
 		}
+		// ── LE CLIC A DES COORDONNEES ECRITES ────────────────────────────────
+		// Arme UN pick a (x, y) en pixels de la VUE (pas de la fenetre), consomme
+		// a la frame suivante par la meme condition que le clic reel. Rend faux si
+		// l'on n'est pas en mode Edition : un pick d'element hors edition n'a pas
+		// de sens et se taire serait pire que refuser.
+		bool Demo3DHostEditPickAt(float32 x, float32 y, bool shift, bool alt) {
+			auto *st = HostSt();
+			if (!st || !st->editMode)
+				return false;
+			st->editPickX = x;
+			st->editPickY = y;
+			st->editPickShift = shift;
+			st->editPickAlt = alt;
+			st->editPickPending = true;
+			return true;
+		}
+		// TAILLE DE LA VUE, en pixels. Elle existait dans l'hote et n'etait lisible
+		// de nulle part : impossible d'ecrire des coordonnees de clic sans la
+		// deviner, et une coordonnee devinee ne prouve rien.
+		void Demo3DHostViewSize(uint32 *w, uint32 *h) {
+			if (w)
+				*w = hst.ctx.width;
+			if (h)
+				*h = hst.ctx.height;
+		}
+		// CE QUE LE CLIC A DESIGNE. Les trois references de Blender, lues telles
+		// que la vue les a posees : le sommet actif, l'arete active (par ses deux
+		// sommets) et la face active. -1 = rien. C'est ce quadruplet qui permet de
+		// dire qu'un MEME point designe TROIS choses differentes selon le mode.
+		bool Demo3DHostEditActive(int32 *vert, int32 *edgeA, int32 *edgeB, int32 *face) {
+			auto *st = HostSt();
+			if (vert)
+				*vert = -1;
+			if (edgeA)
+				*edgeA = -1;
+			if (edgeB)
+				*edgeB = -1;
+			if (face)
+				*face = -1;
+			if (!st || !st->editMode)
+				return false;
+			if (vert)
+				*vert = st->editActiveVert;
+			if (edgeA)
+				*edgeA = st->editActiveEdgeA;
+			if (edgeB)
+				*edgeB = st->editActiveEdgeB;
+			if (face)
+				*face = (int32)st->editActiveFace;
+			return true;
+		}
 		void Demo3DHostSetZoneTool(int32 shape) {
 			// shape : -1 = desarme, 0 = rectangle, 1 = cercle, 2 = lasso — le
 			// selTool de la demo (1 rect / 2 lasso / 3 cercle) se re-arme apres
@@ -15881,6 +15964,86 @@ namespace nkentseu {
 			// exact d'un maillage ferme (V - E + F = 2 -> E = V + F - 2).
 			*edges = (nv > 0 && *tris > 0) ? (nv + *tris - 2) : 0;
 			return nv > 0;
+		}
+		// ── LA GEOMETRIE ELLE-MEME (13/09) ──────────────────────────────────
+		// Le pendant ECRIVABLE de Demo3DHostMeshCounts : les compteurs disaient
+		// combien de sommets, ceux-ci donnent les sommets. Sans eux, le `.nkmesh`
+		// ne pouvait ecrire que des noeuds, des origines et des noms -- et le
+		// travail de modelisation se perdait a la fermeture.
+		uint32 Demo3DHostVertexBytes() { return (uint32)sizeof(renderer::NkVertex3D); }
+		bool Demo3DHostMeshData(int32 node, const void **verts, uint32 *vcount,
+								const uint32 **indices, uint32 *icount) {
+			if (verts)
+				*verts = nullptr;
+			if (indices)
+				*indices = nullptr;
+			if (vcount)
+				*vcount = 0u;
+			if (icount)
+				*icount = 0u;
+			if (node < kNkvpFirstUser || node >= kNkvpMaxNodes)
+				return false;
+			const int32 u = node - kNkvpFirstUser;
+			const NkMeshHandle h = nkvpUserMesh[u];
+			if (!h.IsValid())
+				return false; // primitive du catalogue : ses parametres suffisent
+			auto *ms = hst.ctx.renderer ? hst.ctx.renderer->GetMeshSystem() : nullptr;
+			if (!ms)
+				return false;
+			if (!ms->HasCPUData(h)) {
+				// MEME REGLE QUE HostMakeGeometryOwn : sans copie CPU la geometrie
+				// n'est pas relisible, et on le DIT. Un fichier ecrit en silence
+				// sans ses sommets serait le defaut qu'on vient de fermer.
+				logger.Warn("[Demo3D] Noeud {0} : maillage sans copie CPU (keepCPU) -- "
+							"ses sommets ne peuvent pas etre enregistres.\n",
+							node);
+				return false;
+			}
+			const uint32 vc = ms->GetVertexCount(h);
+			if (vc == 0u)
+				return false;
+			if (verts)
+				*verts = ms->GetVertices(h);
+			if (vcount)
+				*vcount = vc;
+			if (indices)
+				*indices = ms->GetIndices(h);
+			if (icount)
+				*icount = ms->GetIndexCount(h);
+			return verts == nullptr || *verts != nullptr;
+		}
+		bool Demo3DHostSetMeshData(int32 node, const void *verts, uint32 vcount,
+								   const uint32 *indices, uint32 icount) {
+			if (node < kNkvpFirstUser || node >= kNkvpMaxNodes || !verts || vcount == 0u)
+				return false;
+			auto *ms = hst.ctx.renderer ? hst.ctx.renderer->GetMeshSystem() : nullptr;
+			if (!ms)
+				return false;
+			renderer::NkMeshDesc d = renderer::NkMeshDesc::Simple(
+				renderer::NkVertexLayout::Default3D(), verts, vcount, indices, icount);
+			// keepCPU EXPLICITE, comme a l'import : sans copie CPU, le maillage qu'on
+			// vient de relire ne pourrait plus etre REecrit au prochain
+			// enregistrement -- la persistance se perdrait au deuxieme tour.
+			d.keepCPU = true;
+			d.debugName = "Demo3D_GeometrieRelue";
+			const NkMeshHandle h = ms->Create(d);
+			if (!h.IsValid())
+				return false;
+			const int32 u = node - kNkvpFirstUser;
+			// L'ANCIEN EST RENDU APRES la reussite du neuf : liberer d'abord
+			// laisserait le noeud sans maillage si la creation echouait.
+			if (nkvpUserMesh[u].IsValid())
+				ms->Release(nkvpUserMesh[u]);
+			nkvpUserMesh[u] = h;
+			// LE FIL DE FER EST PERIME : il met en cache les aretes PAR OBJET, et
+			// la topologie vient de changer. Meme raison qu'a la sortie du mode
+			// edition (Demo3D_SyncFromHE) -- sans cela le fil de fer montrerait la
+			// topologie d'avant la relecture.
+			if (auto *st = HostSt()) {
+				st->wireDirty = true;
+				(void)st;
+			}
+			return true;
 		}
 		bool Demo3DHostNodeOrigin(int32 node, float32 *out3) {
 			// L'ORIGINE d'un noeud est son point de pivot : c'est autour d'elle

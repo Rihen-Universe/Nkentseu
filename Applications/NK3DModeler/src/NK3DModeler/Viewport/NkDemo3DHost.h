@@ -1,5 +1,6 @@
 #pragma once
 // -----------------------------------------------------------------------------
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // @File    NkDemo3DHost.h
 // @Brief   Facade OPAQUE de la vue 3D portee de renderdemo --demo=2.
 // @License Proprietary - All Rights Reserved (see LICENSE)
@@ -274,6 +275,20 @@ namespace nkentseu {
 		bool Demo3DHostInEditMode();
 		void Demo3DHostSetEditSelMask(int32 mask); // bits 1 sommet, 2 arete, 4 face
 		int32 Demo3DHostEditSelMask();
+		// ── LE CLIC A DES COORDONNEES ECRITES (13/09) ────────────────────────
+		// Arme UN pick d'element a (x, y) en pixels de la VUE. Il est consomme a
+		// la frame suivante par la MEME condition et le MEME code que le clic de
+		// la souris -- il n'existe pas de second chemin de selection. Sert a
+		// prouver, sans toucher a la souris de personne, que les trois modes
+		// designent trois choses differentes au meme endroit. Faux hors Edition.
+		bool Demo3DHostEditPickAt(float32 x, float32 y, bool shift, bool alt);
+		// Taille de la VUE en pixels : sans elle, une coordonnee de clic se devine,
+		// et une coordonnee devinee ne prouve rien.
+		void Demo3DHostViewSize(uint32 *w, uint32 *h);
+		// Ce que le dernier pick a designe : sommet actif, arete active (par ses
+		// deux sommets) et face active. -1 = rien. Les trois references de
+		// Blender, lues telles que la vue les a posees.
+		bool Demo3DHostEditActive(int32 *vert, int32 *edgeA, int32 *edgeB, int32 *face);
 		void Demo3DHostSetZoneTool(int32 shape); // -1 off, 0 rectangle, 1 cercle, 2 lasso
 		void Demo3DHostSetCursorTool(bool on);
 		void Demo3DHostSetGridFlags(bool grid, bool minor, bool major, bool axes);
@@ -577,6 +592,31 @@ namespace nkentseu {
 		// matiere -- les enfants sont recules d'autant.
 		// Compteurs REELS de la geometrie d'un noeud (sommets, aretes, triangles).
 		bool Demo3DHostMeshCounts(int32 node, int32 *verts, int32 *edges, int32 *tris);
+		// ── LA GEOMETRIE ELLE-MEME, LUE ET POSEE (13/09) ────────────────────
+		// Ce que la persistance n'avait pas : de quoi ECRIRE les sommets d'un
+		// noeud dans son fichier, et les LUI RENDRE a la relecture. Les compteurs
+		// ci-dessus disaient combien ; ceux-ci disent quoi.
+		//
+		// Octets d'un sommet (sizeof(NkVertex3D)). Le pas est ECRIT dans le
+		// fichier et relu avant tout decodage : un bloc binaire dont on devine la
+		// forme est la pire des relectures.
+		uint32 Demo3DHostVertexBytes();
+		// Pointeurs vers la COPIE CPU du maillage propre du noeud. Faux -- et ce
+		// n'est PAS une erreur -- quand le noeud n'a pas de maillage a lui : une
+		// primitive du catalogue se regenere de ses parametres, elle n'a rien a
+		// ecrire. Faux AUSSI, et cette fois ca se dit, quand le maillage existe
+		// sans copie CPU (keepCPU) : on ne relit pas le GPU.
+		// Les pointeurs rendus appartiennent au systeme de maillages et ne valent
+		// que jusqu'a la prochaine operation sur ce noeud -- l'appelant encode
+		// tout de suite, il ne les garde pas.
+		bool Demo3DHostMeshData(int32 node, const void **verts, uint32 *vcount,
+								const uint32 **indices, uint32 *icount);
+		// REMPLACE la geometrie du noeud par celle-ci (copie CPU conservee). Le
+		// meme geste que l'import (Demo3DHostCreateMeshNode) mais sur un noeud qui
+		// EXISTE DEJA : la relecture a besoin des deux, parce qu'un noeud nait de
+		// sa nature avant qu'on sache s'il portait des sommets.
+		bool Demo3DHostSetMeshData(int32 node, const void *verts, uint32 vcount,
+								   const uint32 *indices, uint32 icount);
 		bool Demo3DHostNodeOrigin(int32 node, float32 *out3);
 		void Demo3DHostSetNodeOrigin(int32 node, const float32 *p3);
 		bool Demo3DHostMeshesCenter(int32 node, float32 *out3);
