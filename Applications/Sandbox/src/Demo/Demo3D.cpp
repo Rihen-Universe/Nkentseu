@@ -81,6 +81,12 @@ namespace nkentseu {
 				NkMeshHandle oceanMesh;
 				NkVector<renderer::NkVertex3D> oceanVerts;
 				NkVector<uint32> oceanIdx;
+				// Le jacobien horizontal de chaque sommet, rendu par le producteur. La
+				// hauteur se relit sur le sommet ; le jacobien NON -- sans lui, juger
+				// l'ecume obligerait a RECONSTRUIRE la houle dans la sonde, donc a
+				// mesurer une deuxieme implementation au lieu de celle qui peint.
+				NkVector<float32> oceanJac;
+				bool oceanShade = true; // NK_OCEAN_SHADE=0 : retour a la couleur constante de Q18
 				float32 oceanTime = 0.f;
 				uint32 oceanSlotCentre = 0u;  // (rows/2)(cols+1) + cols/2 : le sommet suivi image par image
 				float32 oceanAmpDemandee = 0.f; // somme des amplitudes des trains, pour juger l'amplitude mesuree
@@ -2485,6 +2491,13 @@ static NkTexHandle CreateLanternCubeCookie(NkTextureLibrary *texLib, NkIDevice *
 				if (const char *e = std::getenv("NK_OCEAN_AMP"); e && e[0]) ampK = (float32)std::atof(e);
 				if (const char *e = std::getenv("NK_OCEAN_STEEP"); e && e[0]) steepK = (float32)std::atof(e);
 				if (const char *e = std::getenv("NK_OCEAN_ROUGH"); e && e[0]) st->oceanRough = (float32)std::atof(e);
+				// ── LA COULEUR PAR SOMMET (2026-09-13) : NkWaterShade + NkWaterFoam ──
+				// Les deux fonctions existent depuis le 06/09 SANS UN SEUL APPELANT.
+				// NK_OCEAN_SHADE=0 rend exactement l'image de Q18 (couleur constante
+				// blanche x teinte petrole) : c'est le bras « sans couleur » de (c3).
+				if (const char *e = std::getenv("NK_OCEAN_SHADE"); e && e[0] == '0') st->oceanShade = false;
+				st->oceanP.shade = st->oceanShade;
+				if (const char *e = std::getenv("NK_OCEAN_DEPTH"); e && e[0]) st->oceanP.bottomDepth = (float32)std::atof(e);
 				// Trois trains de Gerstner : une houle longue, une mer de vent, une ride.
 				math::NkWaterParams &w = st->oceanP.waves;
 				w.waveCount = 3u;
@@ -2507,6 +2520,7 @@ static NkTexHandle CreateLanternCubeCookie(NkTextureLibrary *texLib, NkIDevice *
 				const uint32 ni = vfx::NkWaterIndexCount(g);
 				st->oceanVerts.Resize(nv);
 				st->oceanIdx.Resize(ni);
+				st->oceanJac.Resize(nv);
 				const uint32 ecritsI = vfx::NkWaterBuildIndices(g, st->oceanIdx.Data(), ni);
 				if (const char *e = std::getenv("NK_OCEAN_FLIP"); e && e[0] == '1')
 					for (uint32 t = 0; t + 2u < ecritsI; t += 3u) {
@@ -2534,6 +2548,11 @@ static NkTexHandle CreateLanternCubeCookie(NkTextureLibrary *texLib, NkIDevice *
 							 g.cols, g.rows, nv, attenduV, ni, attenduI, ecritsI, g.baseY, g.displacementMax, (int)g.rangeCamera,
 							 w.waves[0].amplitude, w.waves[1].amplitude, w.waves[2].amplitude, st->oceanAmpDemandee,
 							 w.waves[0].steepness, w.waves[1].steepness, w.waves[2].steepness, (int)st->oceanMesh.IsValid());
+				const math::NkWaterOptics &o = st->oceanP.optics;
+				std::fprintf(stderr, "[OCEAN COULEUR] shade=%d | FOND PLAT INVENTE (le producteur n'a pas de terrain) : %.2f m sous le plan, albedo (%.2f %.2f %.2f) | absorption (%.3f %.3f %.3f) m^-1, couleur profonde (%.2f %.2f %.2f) | ecume : rivage < %.2f m, cretes > %.2f m, deferlement J < %.2f\n",
+							 (int)st->oceanP.shade, st->oceanP.bottomDepth, st->oceanP.bottomColor.x, st->oceanP.bottomColor.y,
+							 st->oceanP.bottomColor.z, o.absorption.x, o.absorption.y, o.absorption.z, o.deepColor.x, o.deepColor.y,
+							 o.deepColor.z, o.shoreDepth, o.crestHeight, o.breakJacobian);
 			}
 			// ── SONDE VETEMENTS SUR MANNEQUIN (2026-09-05), sous NK_MANNEQUIN_PROBE=1 seulement ─────
 			// Le corps (glTF / FBX skinne), ses capsules, ses vetements : Demo3DMannequin.cpp.
@@ -4994,7 +5013,8 @@ static NkTexHandle CreateLanternCubeCookie(NkTextureLibrary *texLib, NkIDevice *
 				NkChrono chrono;
 				uint32 manquants = 0u;
 				const uint32 nv = vfx::NkWaterBuildVertices(cam.GetProj(), cam.GetView(), cam.GetPosition(), st->oceanP,
-															st->oceanVerts.Data(), (uint32)st->oceanVerts.Size(), &manquants);
+															st->oceanVerts.Data(), (uint32)st->oceanVerts.Size(), &manquants,
+															st->oceanJac.Data());
 				const float64 msO = chrono.Elapsed().milliseconds;
 				st->oceanMsSum += msO;
 				++st->oceanMsN;
@@ -5032,11 +5052,99 @@ static NkTexHandle CreateLanternCubeCookie(NkTextureLibrary *texLib, NkIDevice *
 					NkDrawCall3D oc;
 					oc.mesh = st->oceanMesh;
 					oc.aabb = {omin, omax};
-					oc.tint = {0.05f, 0.28f, 0.42f}; // couleur PLATE : ni reflet, ni ecume peinte, ni Beer-Lambert
+					// ⚠️ LA TEINTE DEVIENT BLANCHE QUAND LA COULEUR PAR SOMMET EXISTE, et
+					// ce n'est pas un gout : le nuanceur PBR fait `vColor = aColor * tint`
+					// puis `albedo = texture * vColor` (pbr.vert / pbr.frag). Garder la
+					// teinte petrole MULTIPLIERAIT Beer-Lambert par elle -- on peindrait
+					// deux fois la meme intention, et la couleur mesuree ne serait plus
+					// celle qui arrive a l'ecran. Sans couleur par sommet, on garde
+					// exactement la teinte de Q18.
+					oc.tint = st->oceanShade ? NkVec3f{1.f, 1.f, 1.f} : NkVec3f{0.05f, 0.28f, 0.42f};
 					oc.metallic = 0.f;
 					oc.roughness = st->oceanRough; // NK_OCEAN_ROUGH : instrument de rugosite
 					oc.castShadow = false;
 					r3d->Submit(oc);
+					// ── RELEVE DE COULEUR (une seule image : l'image 60) ─────────────
+					// (c1) la couleur varie-t-elle avec la geometrie, et dans quel sens ?
+					// (c2) l'ecume est-elle sur les CRETES, ou repartie au hasard ?
+					// Tout est recalcule DEPUIS les memes fonctions que le producteur, et
+					// compare a ce qui est REELLEMENT empaquete dans le sommet : une sonde
+					// qui recopierait la composition finirait par en mesurer une autre.
+					if (ctx.frame == 60u && st->ocean) {
+						const math::NkWaterOptics &opt = st->oceanP.optics;
+						// Les memes optiques SANS la source rivage ni la source cretes :
+						// il ne reste que le DEFERLEMENT (le jacobien). C'est la source
+						// que le negatif de (c2) nomme, et NkWaterFoam l'isole tout seul
+						// (ses deux autres branches sont gardees par `> 1e-6f`).
+						math::NkWaterOptics optJ = opt;
+						optJ.shoreDepth = 0.f;
+						optJ.crestHeight = 0.f;
+						const float32 baseY = st->oceanP.grid.baseY;
+						const uint32 c0 = st->oceanVerts[0].color;
+						uint32 differents = 0u, ecumeux = 0u, ecumeuxJ = 0u, desaccords = 0u;
+						float64 sL = 0.0, sL2 = 0.0, sY = 0.0, sY2 = 0.0, sLY = 0.0;	  // (c1b) couleur FINALE
+						float64 sS = 0.0, sS2 = 0.0, sSY = 0.0;						  // (c1a) Beer-Lambert SEUL
+						float64 hEcume = 0.0, hAutres = 0.0;
+						float32 lMin = 1e30f, lMax = -1e30f, jMin = 1e30f, jMax = -1e30f, fMax = 0.f;
+						for (uint32 i = 0; i < nv; ++i) {
+							const uint32 col = st->oceanVerts[i].color;
+							if (col != c0)
+								++differents;
+							// Depaquetage : l'octet de poids FAIBLE est le rouge (cf.
+							// NkWaterPackColor, miroir de NkMeshSystem.cpp:356).
+							const float32 r = (float32)(col & 0xFFu) / 255.f;
+							const float32 g2 = (float32)((col >> 8) & 0xFFu) / 255.f;
+							const float32 b2 = (float32)((col >> 16) & 0xFFu) / 255.f;
+							const float32 lum = 0.2126f * r + 0.7152f * g2 + 0.0722f * b2;
+							const float32 waveY = st->oceanVerts[i].pos.y - baseY;
+							const float32 jac = st->oceanJac[i];
+							const float32 depth = math::NkWaterDepth(baseY + waveY, baseY - st->oceanP.bottomDepth);
+							const NkVec3f eau = math::NkWaterShade(opt, st->oceanP.bottomColor, depth);
+							const float32 lumShade = 0.2126f * eau.x + 0.7152f * eau.y + 0.0722f * eau.z;
+							const float32 f = math::NkWaterFoam(opt, depth, waveY, jac);
+							const float32 fJ = math::NkWaterFoam(optJ, depth, waveY, jac);
+							// CONTROLE DE COHERENCE : la couleur que je MESURE est-elle
+							// celle qui est PEINTE ? Tolerance 2/255, le quantum de
+							// l'empaquetage.
+							const uint32 attendu = vfx::NkWaterPackColor(vfx::NkWaterSurfaceColor(st->oceanP, waveY, jac));
+							if (st->oceanShade) {
+								const int32 dr = (int32)(attendu & 0xFFu) - (int32)(col & 0xFFu);
+								const int32 dg = (int32)((attendu >> 8) & 0xFFu) - (int32)((col >> 8) & 0xFFu);
+								const int32 db = (int32)((attendu >> 16) & 0xFFu) - (int32)((col >> 16) & 0xFFu);
+								if (dr > 2 || dr < -2 || dg > 2 || dg < -2 || db > 2 || db < -2)
+									++desaccords;
+							}
+							if (f > 0.f) { ++ecumeux; hEcume += waveY; } else { hAutres += waveY; }
+							if (fJ > 0.f)
+								++ecumeuxJ;
+							if (f > fMax) fMax = f;
+							if (lum < lMin) lMin = lum;
+							if (lum > lMax) lMax = lum;
+							if (jac < jMin) jMin = jac;
+							if (jac > jMax) jMax = jac;
+							sL += lum; sL2 += (float64)lum * lum;
+							sS += lumShade; sS2 += (float64)lumShade * lumShade;
+							sY += waveY; sY2 += (float64)waveY * waveY;
+							sLY += (float64)lum * waveY;
+							sSY += (float64)lumShade * waveY;
+						}
+						const float64 n = (float64)nv;
+						auto correl = [n](float64 sa, float64 sa2, float64 sb, float64 sb2, float64 sab) -> float64 {
+							const float64 va = sa2 / n - (sa / n) * (sa / n);
+							const float64 vb = sb2 / n - (sb / n) * (sb / n);
+							if (va <= 0.0 || vb <= 0.0)
+								return 0.0; // une des deux ne varie pas : il n'y a pas de correlation a rendre
+							return (sab / n - (sa / n) * (sb / n)) / NkSqrt((float32)(va * vb));
+						};
+						const float64 ecartL = NkSqrt((float32)NkMax(0.0, sL2 / n - (sL / n) * (sL / n)));
+						std::fprintf(stderr, "[OCEAN COULEUR] image 60, %u sommets | couleurs differentes du sommet 0 : %u | clarte moyenne %.4f, ecart-type %.6f, min %.4f max %.4f | desaccords peinture/mesure : %u\n",
+									 nv, differents, (float32)(sL / n), (float32)ecartL, lMin, lMax, desaccords);
+						std::fprintf(stderr, "[OCEAN COULEUR] (c1a) correlation (y - plan) x clarte de Beer-Lambert SEUL : %+.4f | (c1b) meme correlation sur la couleur FINALE (ecume comprise) : %+.4f\n",
+									 (float32)correl(sY, sY2, sS, sS2, sSY), (float32)correl(sY, sY2, sL, sL2, sLY));
+						std::fprintf(stderr, "[OCEAN COULEUR] (c2) ecume : %u sommets ecumeux sur %u (max %.3f) | hauteur moyenne des ecumeux %+.4f m contre %+.4f m pour les autres | source DEFERLEMENT seule : %u sommets | jacobien [%.4f, %.4f]\n",
+									 ecumeux, nv, fMax, (float32)(ecumeux ? hEcume / (float64)ecumeux : 0.0),
+									 (float32)((nv - ecumeux) ? hAutres / (float64)(nv - ecumeux) : 0.0), ecumeuxJ, jMin, jMax);
+					}
 					if ((ctx.frame % 30u) == 0u)
 						std::fprintf(stderr, "[OCEAN PROBE] image %u t=%.2f s : %u sommets, ecart max au plan %.4f m (amplitudes demandees %.3f m), grille %.3f ms/image (moyenne %.3f sur %u), empreinte [%.1f %.1f]x[%.1f %.1f] m\n",
 									 (unsigned)ctx.frame, st->oceanTime, nv, ecartImage, st->oceanAmpDemandee, (float32)msO,
