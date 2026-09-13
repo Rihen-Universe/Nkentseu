@@ -3252,9 +3252,10 @@ pas d'un bit), les images existent sur le disque (et à durée nulle il n'y en a
 aucune, pas une seule vide), deux images de la suite diffèrent (et si le temps
 est figé, elles sont identiques).
 
-    BILAN MESURE : 27 verts, 0 rouges
+    BILAN MESURE : 36 verts, 0 rouges
        f1-f4  48 images peintes par le PROCESSEUR   (aucun GPU requis)
-       f5     48 images rendues par le GPU          (NkOffscreenTarget, sans fenetre)
+       f5     48 images EFFACEES par le GPU         (NkOffscreenTarget, sans fenetre)
+       f6     48 images DESSINEES par le GPU        (nuanceur NkSL + geometrie)
 
 > ⚠️ **Les deux chemins, et ce que chacun prouve.** `f1-f4` peignent les pixels
 > **par le processeur** : un fond fixe et un carré dont la position est lue dans le
@@ -3264,13 +3265,57 @@ est figé, elles sont identiques).
 > seul, et celui du processeur tourne sur une machine sans carte graphique (où `f5`
 > est alors **ignoré, ni vert ni rouge**).
 >
-> **Ce que `f5` ne fait PAS encore** : le GPU **efface** la cible avec une couleur
-> dérivée de la pose, il **ne dessine aucune géométrie**. C'est délibéré :
-> `Applications/NkOffscreenProbe` a établi que l'effacement suffit à prouver qu'une
-> passe s'exécute et se relit, **sur les quatre dorsaux**. Ajouter un maillage
-> mêlerait deux questions — *le séquenceur pilote-t-il le rendu ?* et *le pipeline
-> compile-t-il ?* — et un rouge ne dirait plus laquelle des deux a cédé. La
-> géométrie est l'étape suivante.
+> **`f6` fait entrer le pipeline en jeu** (2026-09-13) : un nuanceur NkSL compilé,
+> une géométrie transmise, un tirage. Le GPU **dessine** un quad dont le centre
+> vient de la pose, au lieu d'effacer. `f5` est conservé à côté : il n'exerce que
+> la passe et la relecture, et sert de repli quand le pipeline est en cause.
+>
+> **Le critère de `f6` n'est pas l'empreinte, c'est la SURFACE COUVERTE.** Un objet
+> qui se déplace ne couvre pas toujours le même nombre de pixels ; une simple
+> différence d'empreintes ne distinguerait pas « la géométrie a bougé » de « la
+> couleur a changé ». Attendu écrit avant la mesure, et tombé **au pixel près** :
+>
+>     quad de demi-côté 0,25 NDC sur 320x180 -> 80 x 45 = 3600 px entier dans le cadre
+>                                             -> ~1800 px quand il sort à moitié
+>     mesure : img1 = 1800   img24 = 3600   img48 = 2115   min 1800  max 3600
+>
+> ### ⚠️ UN COMPTEUR DE PIXELS SE PROUVE SUR ZÉRO AVANT TOUT LE RESTE
+>
+> `f6` commence par rendre **la même scène sans l'objet** et exige **0 pixel EXACT
+> sur 57 600**. Si ce contrôle rougit, le banc s'arrête et l'écrit : *le compteur
+> mesure autre chose que l'objet, tout critère bâti dessus serait faux*. Un autre
+> chantier a mesuré le même jour un compteur qui rendait **40 pixels sans aucune
+> cible** — la teinte cherchée tombait dans l'anticrénelage des glyphes.
+>
+> Deux conditions rendent l'attendu **calculable** plutôt qu'approchant : le fond
+> est **magenta pur**, une couleur que l'objet blanc ne produit jamais (un fond noir
+> se confondrait avec un objet noir) ; et la cible est en **UNORM, pas en sRGB**,
+> sans quoi l'effacement `(1, 0, 1)` ne reviendrait pas en `(255, 0, 255)`.
+>
+> **Vérification indépendante** : `Applications/NkSequenceCheck/docs/
+> verif_pixels_independant.py` redécode les PNG **du disque** (zlib, défiltrage des
+> cinq types, aucun code partagé avec le banc, qui lit le tampon GPU en mémoire) et
+> retrouve 1800 / 3600 / 2115. Deux compteurs qui ne partagent ni la source ni le
+> code ne peuvent pas se tromper ensemble.
+>
+> **Ce que `f6` ne fait pas** : un quad, pas un maillage importé ; aucune matrice
+> (les sommets sont calculés au processeur) ; aucune lumière, aucune texture. Un
+> **seul dorsal** (OpenGL) — comparer des images entre dorsaux comparerait aussi la
+> divergence sRGB ci-dessous, qui n'est pas tranchée.
+>
+> ### ⚠️ DIVERGENCE sRGB ENTRE DORSAUX — mesurée le 2026-09-13, NON TRANCHÉE
+>
+> `Applications/NkOffscreenProbe` établit que **les quatre dorsaux créent un device
+> sans fenêtre et rendent** (16 verts / 16). Il établit aussi ceci, même cible
+> `NK_RGBA8_SRGB`, même effacement `(0,20 ; 0,60 ; 0,90)` :
+>
+>     OpenGL              rgba( 51, 153, 229)  = lin x 255
+>     Vulkan/DX11/DX12    rgba(124, 203, 243)  = sRGB(lin) x 255
+>
+> Au chiffre près, sur deux formules exactes. **La même scène rendue sur GL et sur
+> DX ne donne pas les mêmes pixels** — donc tout banc qui compare des images entre
+> dorsaux compare aussi cet écart sans le savoir. Arbitrage de Rodolf, pas corrigé
+> ici.
 
 > ### ⚠️ `using namespace ecs;` REND NKRHI INCOMPILABLE — mesuré le 2026-09-13
 >
