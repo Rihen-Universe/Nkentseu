@@ -1788,6 +1788,29 @@ namespace nkentseu {
 		// Sequence par frame (RebuildRenderGraph, branche cfg.deferred) :
 		//   DeferredGeom -> DeferredLight -> ForwardRest.
 		// =====================================================================
+		// ═══════════════════════════════════════════════════════════════════════
+		//  LE MOUILLAGE : UN SEUL PINCEMENT, POUR TOUS LES CHEMINS
+		// ═══════════════════════════════════════════════════════════════════════
+		// Le drawcall parle en mouillage / porosite / pellicule ; le bloc uniforme
+		// ne transporte que les DEUX PRODUITS dont la formule de Lagarde depend
+		// (« Water drop 3b ») -- c'est un resultat algebrique, pas un raccourci.
+		//
+		// ⚠️ CETTE FONCTION EXISTE PARCE QUE LE CALCUL ETAIT ECRIT TROIS FOIS DE
+		// SUITE, A L'IDENTIQUE, juste en dessous -- sous un commentaire qui
+		// affirmait « le pincement est ici, UNE SEULE FOIS ». Deux de ces trois
+		// ecritures ne servaient a rien (elles ecrasaient la meme valeur), et le
+		// commentaire disait deja ce qu'il aurait fallu faire. C'est la forme
+		// exacte du doublon d'intention : plusieurs endroits qui remplissent la
+		// meme structure finissent par ne plus dire la meme chose.
+		//
+		// Un seul endroit, donc, et c'est ici -- du cote ou un temoin peut le
+		// lire, jamais dans le nuanceur.
+		static NkVec4f NkWetParamsFromDrawCall(const NkDrawCall3D &dc) {
+			const float32 w = NkClamp(dc.wetness, 0.f, 1.f);
+			return NkVec4f{w * NkClamp(dc.wetPorosity, 0.f, 1.f),
+						   w * NkClamp(dc.waterLayer, 0.f, 1.f), 0.f, 0.f};
+		}
+
 		void NkRender3D::FlushDeferredGeometry(NkICommandBuffer *cmd) {
 			if (!mInScene || !cmd)
 				return;
@@ -1870,33 +1893,10 @@ namespace nkentseu {
 				ob.metallic = dc.metallic;
 				ob.roughness = dc.roughness;
 				ob.aoStrength = dc.aoStrength;
-				// MOUILLAGE : le drawcall parle en mouillage/porosite/pellicule ;
-				// le bloc uniforme ne transporte que les DEUX produits dont la
-				// formule depend. Le pincement est ici, une seule fois, du cote
-				// ou l'on peut le prouver -- pas dans le nuanceur.
-				{
-					const float32 w = NkClamp(dc.wetness, 0.f, 1.f);
-					ob.wetParams = NkVec4f{w * NkClamp(dc.wetPorosity, 0.f, 1.f),
-										   w * NkClamp(dc.waterLayer, 0.f, 1.f), 0.f, 0.f};
-				}
-				// MOUILLAGE : le drawcall parle en mouillage/porosite/pellicule ;
-				// le bloc uniforme ne transporte que les DEUX produits dont la
-				// formule depend. Le pincement est ici, une seule fois, du cote
-				// ou l'on peut le prouver -- pas dans le nuanceur.
-				{
-					const float32 w = NkClamp(dc.wetness, 0.f, 1.f);
-					ob.wetParams = NkVec4f{w * NkClamp(dc.wetPorosity, 0.f, 1.f),
-										   w * NkClamp(dc.waterLayer, 0.f, 1.f), 0.f, 0.f};
-				}
-				// MOUILLAGE : le drawcall parle en mouillage/porosite/pellicule ;
-				// le bloc uniforme ne transporte que les DEUX produits dont la
-				// formule depend. Le pincement est ici, une seule fois, du cote
-				// ou l'on peut le prouver -- pas dans le nuanceur.
-				{
-					const float32 w = NkClamp(dc.wetness, 0.f, 1.f);
-					ob.wetParams = NkVec4f{w * NkClamp(dc.wetPorosity, 0.f, 1.f),
-										   w * NkClamp(dc.waterLayer, 0.f, 1.f), 0.f, 0.f};
-				}
+				// MOUILLAGE : un seul appel, un seul pincement (cf. NkWetParamsFromDrawCall).
+				// Ce bloc etait ecrit TROIS FOIS de suite a l'identique ; deux de ces
+				// trois ecritures ecrasaient la meme valeur.
+				ob.wetParams = NkWetParamsFromDrawCall(dc);
 				ob.emissiveStrength = 0.f;				 // emissive via materiau (v1)
 				ob.normalStrength = matInst ? 1.f : 0.f; // normal map si materiau
 				// Meme alimentation que le chemin forward : les deux chemins doivent
@@ -3211,19 +3211,27 @@ namespace nkentseu {
 				// `NK_WATER`, que le registre des gabarits n'enregistre pas et
 				// que personne n'a jamais charge.
 				//
-				// ⚠️ `.x` ET `.y` RESTENT A ZERO SUR CE CHEMIN, ET CE N'EST PAS
-				// MON CHOIX : le MOUILLAGE (2026-09-06) n'est alimente que dans
-				// `FlushDeferredGeometry`. Sur le chemin AVANT -- celui-ci, le
-				// defaut -- `ob` est initialise a zero et personne n'y ecrit
-				// `dc.wetness` : regler le mouillage d'un objet n'a aucun effet
-				// hors differe. Le defaut est ANTERIEUR a ce bloc, il n'est pas
-				// de mon lot, et je l'ecris ici plutot que de le corriger en
-				// passant : le corriger changerait l'image de toute scene qui
-				// pose deja un mouillage, sans qu'un temoin l'ait annonce.
+				// ── ET LE MOUILLAGE, `.x` / `.y` (correctif du 13/09) ────────
+				// 🔴 IL MANQUAIT ICI DEPUIS LE 06/09, ET LE FIL ETAIT COUPE AU
+				// MILIEU. `dc.wetness` existe, `pbr.frag` LIT `uObj.wetParams.x`
+				// et `.y` -- mais ce chemin-ci, le chemin AVANT, celui qui peint
+				// par defaut, n'ecrivait jamais rien entre les deux. Le seul
+				// remplissage vivait dans `FlushDeferredGeometry`, dont le
+				// nuanceur (`deferredgeom.frag.nksl`) ne DECLARE meme pas le
+				// champ : le producteur et le consommateur etaient sur deux
+				// chemins differents, et le mouillage n'atteignait aucun pixel,
+				// nulle part.
+				//
+				// ⚠️ ZERO RESTE L'IDENTITE EXACTE : `dc.wetness` vaut 0 par
+				// defaut, donc toute scene qui ne demande rien rend l'image
+				// d'avant, au bit. Ce n'est pas un changement d'apparence, c'est
+				// un fil qu'on raccorde.
 				{
 					const float32 wRefl = matInst ? matInst->mWaterReflect : 0.f;
 					const float32 wRog = matInst ? matInst->mWaterReflectRough : 0.f;
-					ob.wetParams = NkVec4f{0.f, 0.f, wRefl, wRog};
+					ob.wetParams = NkWetParamsFromDrawCall(dc);
+					ob.wetParams.z = wRefl;
+					ob.wetParams.w = wRog;
 				}
 
 				NkBufferHandle ubo = mUBOObjectPool[mFrameSlot][mObjectDrawIdx];
@@ -3391,6 +3399,13 @@ namespace nkentseu {
 					ob.triplanarParams =
 						NkVec4f{tile, mpu > 0.f ? mpu : 1.f, tile > 0.f ? 1.f : 0.f, par};
 				}
+				// MOUILLAGE : ce chemin binde `mPBRBlendPipeline`, qui porte le MEME
+				// nuanceur que l'opaque (`mPBRShader`). Le consommateur y lit donc
+				// `.x` et `.y` exactement pareil, et il ne recevait rien lui non plus.
+				// Un materiau qui porte sa propre fusion (le Verre) garde son pipeline
+				// et son propre nuanceur : s'il ne declare pas le champ, il l'ignore --
+				// et le dira dans sa source, comme le Toon.
+				ob.wetParams = NkWetParamsFromDrawCall(dc);
 				NkBufferHandle ubo = mUBOObjectPool[mFrameSlot][mObjectDrawIdx];
 				NkDescSetHandle os = mObjectSetPool[mFrameSlot][mObjectDrawIdx];
 				if (ubo.IsValid())
