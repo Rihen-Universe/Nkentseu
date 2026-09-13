@@ -27,6 +27,7 @@
 #include "NKLogger/NkLog.h"
 #include <cstdio>
 #include <cstring>
+#include "NKTime/NkChrono.h"
 #include <cmath>
 
 namespace nkentseu {
@@ -54,6 +55,8 @@ namespace nkentseu {
 					float32 yaw = 0.f;
 					int32 fermerApres = 0; ///< 0 = jamais
 					int32 frames = 0;
+					bool selection = false; ///< --viewport-selection : quel objet sous ce pixel
+					nk_uint64 idTemoin = 0ull;  ///< TEMOIN_Cube empaquete, pour reconnaitre la reponse
 					bool pointage = false; ///< --viewport-pointage : aller-retour du rayon
 					bool controle = false; ///< --viewport-controle : cube soumis a la main
 					char capture[480] = {};
@@ -203,6 +206,124 @@ namespace nkentseu {
 							  "negatif : pire cas %.2f px (exige >= 5.00)\n",
 							  (int)okAR, (double)pireAR, (double)pireNeg);
 				logger.Info(v);
+			}
+
+			// ── SONDE DE SELECTION (--viewport-selection) ─────────────────────
+			// ⚠️ AUCUNE INJECTION DE CLIC. On APPELLE `NogeeViewport3DPick` avec
+			// des coordonnees ECRITES. Rodolf cliquera.
+			//
+			// SEUILS ET CRITERES POSES AVANT LA MESURE :
+			//   centre de la vue  -> designe TEMOIN_Cube, distance dans [5,0 ; 5,4]
+			//                        (camera a 6,0 de l'origine, demi-cube 0,6 :
+			//                         la face avant est attendue vers 5,21)
+			//                        et precision = 1 (triangle, pas boite)
+			//   les 4 coins       -> NE DESIGNENT PERSONNE
+			//   --viewport-inactif    -> le centre ne designe personne
+			//   --viewport-sans-mesh  -> le centre ne designe personne
+			// Le second clic au meme endroit rend LE MEME objet : le plus proche
+			// gagne, rien ne cycle (choix le plus simple ; le cycle est une
+			// question posee a Rodolf, pas une decision prise ici).
+			if (g_vp.selection && NogeeViewport3DReady() && vw > 1.f && vh > 1.f) {
+				g_vp.selection = false;
+				logger.Info("[SONDE-SEL] vue {0}x{1} — seuils POSES AVANT : centre = TEMOIN_Cube, "
+							"distance dans [5.00 ; 5.40], precision=1 ; les 4 coins = personne\n",
+							(int32)vw, (int32)vh);
+
+				const float32 pts[5][2] = {{vw * 0.5f, vh * 0.5f},
+										   {0.5f, 0.5f},
+										   {vw - 1.5f, 0.5f},
+										   {0.5f, vh - 1.5f},
+										   {vw - 1.5f, vh - 1.5f}};
+				const char *noms[5] = {"centre", "coin haut-gauche", "coin haut-droit",
+									   "coin bas-gauche", "coin bas-droit"};
+				bool centreOk = false, coinsOk = true;
+
+				for (int32 i = 0; i < 5; ++i) {
+					nk_uint64 ent = 0ull;
+					float32 dist = 0.f;
+					int32 prec = -1;
+					const bool touche = NogeeViewport3DPick(pts[i][0], pts[i][1], &ent, &dist, &prec);
+					const bool estTemoin = touche && ent == g_vp.idTemoin && g_vp.idTemoin != 0ull;
+					char m[300];
+					std::snprintf(m, sizeof(m),
+								  "[SONDE-SEL]   %-17s vue(%.1f,%.1f) -> %s  entite=%llu (temoin=%d) "
+								  "distance=%.4f precision=%s\n",
+								  noms[i], (double)pts[i][0], (double)pts[i][1],
+								  touche ? "TOUCHE " : "personne", (unsigned long long)ent, estTemoin ? 1 : 0,
+								  (double)dist, prec == 1 ? "triangle" : (prec == 0 ? "boite" : "-"));
+					logger.Info(m);
+
+					if (i == 0)
+						centreOk = estTemoin && prec == 1 && dist >= 5.00f && dist <= 5.40f;
+					else if (touche)
+						coinsOk = false; // un coin qui designe quelqu'un est un faux positif
+				}
+
+				// LE SECOND CLIC AU MEME ENDROIT : il doit rendre LE MEME objet.
+				// Sans ce controle, « rien ne cycle » serait une intention, pas un
+				// fait — une selection qui derive d'un appel a l'autre passerait
+				// inapercue jusqu'a ce qu'un utilisateur s'en plaigne.
+				nk_uint64 e1 = 0ull, e2 = 0ull;
+				float32 d1 = 0.f, d2 = 0.f;
+				int32 p1 = 0, p2 = 0;
+				NogeeViewport3DPick(vw * 0.5f, vh * 0.5f, &e1, &d1, &p1);
+				NogeeViewport3DPick(vw * 0.5f, vh * 0.5f, &e2, &d2, &p2);
+				const bool stable = (e1 == e2) && (d1 == d2);
+
+				// ⚠️ LE VERDICT DIT CE QU'IL ATTENDAIT, pas seulement ce qu'il a vu.
+				// Premiere version : elle imprimait « centre=ECHEC » dans les runs
+				// NEGATIFS — ou ne rien designer est precisement le resultat VOULU.
+				// Un temoin qui se lit a l'envers est de la meme famille qu'un banc
+				// qui echoue pour une mauvaise raison : il fait conclure faux a
+				// quelqu'un qui le lira vite, dans six mois.
+				const bool attenduTouche = !g_vp.inactif && !g_vp.sansMesh;
+				const bool centreConforme = (centreOk == attenduTouche);
+				char v[360];
+				std::snprintf(v, sizeof(v),
+							  "[SONDE-SEL] VERDICT : attendu au centre = %s -> %s | coins = %s | "
+							  "second appel identique = %s  (inactif=%d sansMesh=%d)\n",
+							  attenduTouche ? "TEMOIN_Cube" : "PERSONNE (negatif)",
+							  centreConforme ? "CONFORME" : "NON CONFORME",
+							  coinsOk ? "personne, CONFORME" : "NON CONFORME (faux positif)",
+							  stable ? "CONFORME" : "NON CONFORME", g_vp.inactif ? 1 : 0,
+							  g_vp.sansMesh ? 1 : 0);
+				logger.Info(v);
+
+				// ── OU LE CPU CESSE-T-IL DE SUFFIRE ? On le MESURE ────────────
+				// Deux couts SEPARES, parce qu'ils ne grandissent pas avec la meme
+				// chose : un tir au CENTRE traverse la boite PUIS les 12 triangles
+				// du cube ; un tir dans un COIN est rejete par la boite seule. La
+				// difference divisee par 12 donne le cout d'un triangle, le tir de
+				// coin donne le cout d'une entite ecartee.
+				// Budget pose ICI : 2 ms par clic — un huitieme d'une image a 60 Hz,
+				// donc invisible pour la main qui clique.
+				{
+					const int32 N = 4000;
+					nk_uint64 e = 0ull;
+					float32 dd = 0.f;
+					int32 pp = 0;
+					const float64 t0 = NkChrono::Now().nanoseconds;
+					for (int32 k = 0; k < N; ++k)
+						NogeeViewport3DPick(vw * 0.5f, vh * 0.5f, &e, &dd, &pp);
+					const float64 t1 = NkChrono::Now().nanoseconds;
+					for (int32 k = 0; k < N; ++k)
+						NogeeViewport3DPick(0.5f, 0.5f, &e, &dd, &pp);
+					const float64 t2 = NkChrono::Now().nanoseconds;
+
+					const float64 usTouche = (t1 - t0) / 1000.0 / (float64)N;
+					const float64 usRejet = (t2 - t1) / 1000.0 / (float64)N;
+					const float64 usParTri = (usTouche - usRejet) / 12.0;
+					const float64 budgetUs = 2000.0; // 2 ms
+					char b[440];
+					std::snprintf(b, sizeof(b),
+								  "[SONDE-SEL] COUT (moyenne sur %d tirs) : touche %.3f us/tir, rejet par boite "
+								  "%.3f us/tir -> ~%.4f us par triangle. Budget pose : 2.000 ms par clic => "
+								  "plafond ~%.0f triangles touches, ou ~%.0f entites ecartees par boite.\n",
+								  (int)N, usTouche, usRejet, usParTri,
+								  usParTri > 1e-9 ? (budgetUs / usParTri) : 0.0,
+								  usRejet > 1e-9 ? (budgetUs / usRejet) : 0.0);
+					logger.Info(b);
+				}
 			}
 
 				// La fermeture automatique vit ICI parce que c'est le seul crochet
@@ -964,6 +1085,7 @@ namespace nkentseu {
 					sWorld.Add<ecs::NkInactive>(id);
 				if (g_vp.orbiteSet)
 					NogeeViewport3DSetOrbit(g_vp.yaw, 22.f);
+				g_vp.idTemoin = id.Pack(); // la sonde de selection reconnait sa reponse
 				if (g_vp.controle)
 					NogeeViewport3DControle(true);
 				if (g_vp.capture[0] != '\0')
@@ -1122,6 +1244,10 @@ namespace nkentseu {
 
 		void NogeeShellViewportInactif() noexcept {
 			g_vp.inactif = true;
+		}
+
+		void NogeeShellViewportSelection() noexcept {
+			g_vp.selection = true;
 		}
 
 		void NogeeShellViewportPointage() noexcept {

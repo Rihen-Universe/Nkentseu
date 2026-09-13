@@ -110,6 +110,32 @@ namespace nkentseu {
 		// suffit a le definir, puisque son origine est la position de la camera.
 		bool NogeeViewport3DRayFromView(float32 vx, float32 vy, float32 origine[3], float32 direction[3]);
 
+		// ── SELECTION : QUEL OBJET SOUS CE PIXEL ─────────────────────────────
+		// Parcours ECS sur le CPU, AABB puis triangles, le plus proche gagne.
+		// Arbitrage de Rodolf (13/09) : le CPU d'abord — le tampon d'identifiants
+		// GPU ajoute une passe et une relecture, donc un cout en images par
+		// seconde, pour une exactitude au pixel dont un editeur n'a pas besoin
+		// tant que les scenes sont petites. Et c'est REVERSIBLE : cette interface
+		// ne changera pas le jour ou le tampon arrivera.
+		//
+		// Ne sont candidates que les entites REELLEMENT DESSINEES — meme predicat
+		// que `NkRenderSystem::SubmitMeshes` : NkTransform + NkMeshComponent +
+		// NkMaterialComponent, sans NkInactive, `visible` vrai. On ne selectionne
+		// pas ce qu'on ne voit pas.
+		//
+		// `precision` dit COMMENT la reponse a ete obtenue, parce que les deux ne
+		// se valent pas et que l'appelant a le droit de le savoir :
+		//     1 = triangle exact       0 = boite englobante seule
+		// ⚠️ Un mesh passe par `NkMeshSystem::Import` n'a PAS de copie CPU
+		// (`keepCPU` reste faux — NkMeshSystem.h l.96-100) : un asset glisse depuis
+		// le Content Browser se selectionne donc A LA BOITE, pas au triangle.
+		// C'est mesure, pas suppose.
+		//
+		// Rend faux si rien n'est touche. `entite` recoit un NkEntityId empaquete
+		// (`NkEntityId::Pack()`), 0 si aucune.
+		bool NogeeViewport3DPick(float32 vx, float32 vy, nk_uint64 *entite, float32 *distance,
+								 int32 *precision);
+
 		// ── Camera d'orbite (critere n2 : la camera commande la vue) ──────────
 		void NogeeViewport3DOrbit(float32 dYawDeg, float32 dPitchDeg, float32 dZoom);
 		void NogeeViewport3DSetOrbit(float32 yawDeg, float32 pitchDeg);
