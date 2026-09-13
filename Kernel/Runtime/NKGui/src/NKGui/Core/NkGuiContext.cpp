@@ -236,6 +236,23 @@ namespace nkentseu {
 			return h > 1.f ? h : 1.f;
 		}
 
+		// ── HAUTEUR REELLEMENT A L'ECRAN (cf. .h) ────────────────────────────
+		// La zone visible est celle du cadre defilant courant — `area` du sommet
+		// de `childStack`. Hors cadre defilant, la region de layout EST la zone
+		// visible, et les deux fonctions coincident : c'est voulu, l'appelant n'a
+		// pas a savoir s'il est dans un cadre ou non.
+		NkRect NkGuiContext::VisibleRect() const noexcept {
+			if (childDepth > 0)
+				return childStack[childDepth - 1].area;
+			return layout.region;
+		}
+
+		float32 NkGuiContext::VisibleHeight() const noexcept {
+			const NkRect vis = VisibleRect();
+			const float32 h = (vis.y + vis.h - layout.padding) - layout.cursor.y;
+			return h > 1.f ? h : 1.f;
+		}
+
 		float32 NkGuiContext::ItemHeight() const noexcept {
 			const float32 lh = (font && font->Valid()) ? font->LineHeight() : 16.f;
 			return lh + 2.f * theme.framePadY;

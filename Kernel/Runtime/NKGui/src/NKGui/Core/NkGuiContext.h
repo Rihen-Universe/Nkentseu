@@ -580,6 +580,28 @@ namespace nkentseu {
 				float32 AvailHeight() const noexcept;				///< hauteur restante sous le curseur (région)
 				float32 ItemHeight() const noexcept;				///< hauteur standard d'un widget
 
+				// ── HAUTEUR REELLEMENT A L'ECRAN (2026-09-13) ────────────────────
+				// ⚠️ `AvailHeight()` rend la hauteur restante dans la REGION DE
+				// LAYOUT. Dans un cadre defilant, cette region vaut deliberement
+				// 1.0e6 (NkGuiWidgets.cpp l.3801) : le contenu d'un panneau
+				// defilant n'est PAS borne par ce qu'on en voit, c'est le rognage
+				// qui borne. `AvailHeight()` y rend donc ~999936, et c'est CORRECT
+				// pour du contenu qui coule.
+				//
+				// Mais rien ne permettait de demander l'autre chose : « combien
+				// est reellement visible ». Un panneau qui dimensionne une CIBLE DE
+				// RENDU sur `AvailHeight()` demande une texture de 999936 pixels de
+				// haut — mesure du 13/09 sur le viewport de Nogee : 5,6 Go
+				// consommes avant l'arret, et un cadrage absurde une fois borne.
+				// Le manque etait ici, pas chez l'appelant.
+				//
+				// `VisibleRect()` rend la zone VISIBLE du cadre defilant courant
+				// (hors barres), ou la region de layout si l'on n'est pas dans un
+				// cadre. `VisibleHeight()` est le pendant borne d'`AvailHeight()` :
+				// meme calcul, mais depuis le bas VISIBLE.
+				NkRect VisibleRect() const noexcept;
+				float32 VisibleHeight() const noexcept;
+
 				float32 S(float32 px) const noexcept {
 					return px * scale;
 				} ///< px logiques → px écran (DPI)
