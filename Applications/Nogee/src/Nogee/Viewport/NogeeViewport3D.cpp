@@ -1,0 +1,472 @@
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
+// =============================================================================
+// Nogee/Viewport/NogeeViewport3D.cpp — SEULE unite de Nogee a inclure NKRenderer
+// =============================================================================
+// Calibre sur le controle positif le plus proche : `NkAnimaEditor/AnimBridge.cpp`
+// (meme NkEditorShell, meme NkEditorRHIRenderer, meme crochet preUI). Ce qui
+// change ici, et c'est tout le lot : la scene n'est pas construite a la main,
+// elle est LUE DANS LE MONDE ECS par `NkRenderSystem`.
+//
+// TROIS CHOSES QU'IL FAUT REJOUER A LA MAIN, parce que l'editeur possede la
+// frame device et que `NkRenderer::BeginFrame()` n'est donc jamais appele :
+//   1. `r3d->ResetFrame()` — une fois par frame, avant toute passe ;
+//   2. `GetMaterialCollection()->Upload()` — sinon les materiaux GPU sont vides ;
+//   3. `graph->Execute(cmd)` a la place de `Present()`.
+// C'est exactement la liste qu'`AnimBridge.cpp` l.885-887 et l.1039-1040 tient.
+//
+// ⚠️ ET SURTOUT PAS `Flush` A LA MAIN. `NkRender3D::Flush(cmd)` (NkRender3D.cpp
+// l.2046) enregistre des draws en supposant une passe DEJA ouverte, et met
+// `mInScene = false` ; c'est le RenderGraph qui l'appelle, depuis sa passe
+// Geometry (`NkRendererImpl.cpp` l.925). Or `NkRenderSystem::Execute` l.53
+// l'appelait lui-meme : la scene etait consommee AVANT le graphe, et la passe
+// Geometry ressortait a sa premiere ligne. D'ou `SetOwnsFlush(false)` ci-dessous
+// — le plus petit changement de contrat qui ouvre ce chemin, et celui que les
+// deux hotes qui marchent respectent deja de fait.
+// =============================================================================
+
+#include "Nogee/Viewport/NogeeViewport3D.h"
+
+#include "NKRenderer/NkRenderer.h"
+#include "NKRenderer/Core/NkRendererConfig.h"
+#include "NKRenderer/Core/NkCamera.h"
+#include "NKRenderer/Core/NkSceneContext.h"
+#include "NKRenderer/Core/NkRenderGraph.h"
+#include "NKRenderer/Tools/Render3D/NkRender3D.h"
+#include "NKRenderer/Tools/Offscreen/NkOffscreenTarget.h"
+#include "NKRenderer/Mesh/NkMeshSystem.h"
+#include "NKRenderer/Materials/NkMaterialCollection.h"
+#include "NKRHI/Core/NkIDevice.h"
+#include "NKRHI/Commands/NkICommandBuffer.h"
+#include "NKGui/NkGuiRHIBackend.h"
+
+#include "NKECS/World/NkWorld.h"
+#include "Noge/ECS/Components/Core/NkCoreComponents.h"
+#include "Noge/ECS/Components/Rendering/NkRenderComponents.h"
+#include "Noge/ECS/Systems/NkTransformSystem.h"
+#include "Noge/ECS/Systems/NkRenderSystem.h"
+
+#include "NKTime/NkChrono.h"
+#include "NKLogger/NkLog.h"
+#include <cmath>
+#include <cstdio>
+
+namespace nkentseu {
+	namespace noge {
+
+		using namespace nkentseu::renderer;
+		using namespace nkentseu::math;
+
+		namespace {
+
+			struct Vp3D {
+					// ── Monte par l'hote ──────────────────────────────────────
+					NkIDevice *sharedDev = nullptr;
+					ecs::NkWorld *world = nullptr;
+
+					// ── Pile de rendu (creee paresseusement) ──────────────────
+					bool tried = false;
+					bool ok = false;
+					NkRenderer *r3 = nullptr;
+					NkOffscreenTarget *rt = nullptr;
+					uint32 rtW = 1280, rtH = 720;
+					uint32 wantW = 1280, wantH = 720;
+
+					// ── Les deux systemes ECS, possedes ici ───────────────────
+					// Ils sont sans etat partage : les instancier hors scheduler
+					// est le meme geste que `NkEngineLayer` fait avec le sien.
+					NkTransformSystem transforms;
+					NkRenderSystem render;
+
+					// ── Camera d'orbite (entite ECS SANS NkSceneNode) ─────────
+					// Sans NkSceneNode elle n'entre pas dans la requete de
+					// l'Outliner (`WorldOutlinerPanel.cpp` l.82) : le viewport a
+					// sa camera, l'arbre de scene ne change pas d'une ligne.
+					ecs::NkEntityId camId{};
+					ecs::NkEntityId sunId{};
+					float32 yawDeg = 35.f;
+					float32 pitchDeg = 22.f;
+					float32 dist = 6.f;
+					NkVec3f target{0.f, 0.f, 0.f};
+
+					// ── Temoins ───────────────────────────────────────────────
+					int32 frames = 0;
+					int32 eligible = 0; ///< entites qui satisfont la requete de SubmitMeshes
+					float64 lastNs = 0.0;
+
+					NkMeshHandle cube{};
+
+					// Controle positif interne (--viewport-controle) : un cube soumis
+					// a la main, qui partage toutes les causes du cube ECS sauf le
+					// pont ECS lui-meme.
+					bool controle = false;
+
+					// Capture differee : on ecrit l'image N APRES qu'elle a ete rendue.
+					char capPath[512] = {};
+					int32 capFrame = -1;
+			};
+
+			Vp3D g;
+
+			// Le meme predicat que `NkRenderSystem::SubmitMeshes` (NkRenderSystem.cpp
+			// l.142-148), recompte ICI. Deux raisons : un temoin qui vient du meme
+			// endroit que la chose mesuree ne prouve rien, et les statistiques du
+			// renderer sont figees par `EndFrame()` — que l'editeur ne nous donne pas.
+			int32 CountEligible(ecs::NkWorld &w) {
+				int32 n = 0;
+				w.Query<ecs::NkTransform, ecs::NkMeshComponent, ecs::NkMaterialComponent>().ForEach(
+					[&](ecs::NkEntityId id, const ecs::NkTransform &, const ecs::NkMeshComponent &m,
+						const ecs::NkMaterialComponent &) {
+						if (w.Has<ecs::NkInactive>(id))
+							return;
+						if (!m.visible)
+							return;
+						++n;
+					});
+				return n;
+			}
+
+			bool Init3D() {
+				if (g.tried)
+					return g.ok;
+				g.tried = true;
+				if (!g.sharedDev || !g.sharedDev->IsValid()) {
+					logger.Error("[Nogee/Viewport3D] device partage absent — "
+								 "NogeeViewport3DSetDevice n'a pas ete appele\n");
+					return false;
+				}
+
+				// UNE pile GPU par fenetre : on PARTAGE le device de l'editeur.
+				NkRendererConfig cfg = NkRendererConfig::ForGame(g.sharedDev->GetApi(), g.wantW, g.wantH);
+				cfg.Enable(NK_SS_OFFSCREEN);
+				cfg.Enable(NK_SS_POST_PROCESS);
+				cfg.shadow.cascadeCount = 1;
+				cfg.postProcess.toneMapping = true;
+				cfg.postProcess.aces = true;
+				cfg.postProcess.gamma = 2.2f;
+				cfg.postProcess.bloom = false;
+				cfg.postProcess.ssao = false;
+				cfg.voxelAOEnabled = false;
+				// Ambiant procedural : sans lui, toutes les faces qui ne regardent
+				// pas la directionnelle sont NOIRES, et un cube noir sur fond sombre
+				// ne se distingue pas d'un viewport vide. C'est la meme raison, et le
+				// meme reglage, que dans AnimBridge (« cle de la visibilite »).
+				cfg.ibl.useHDR = false;
+				cfg.ibl.iblStrength = 1.2f;
+				g.r3 = NkRenderer::Create(g.sharedDev, cfg);
+				if (!g.r3) {
+					logger.Error("[Nogee/Viewport3D] NkRenderer::Create a echoue\n");
+					return false;
+				}
+
+				NkOffscreenDesc od;
+				od.width = g.wantW;
+				od.height = g.wantH;
+				od.hdr = false;
+				od.colorFmt = NkGPUFormat::NK_RGBA8_UNORM;
+				od.hasDepth = true;
+				od.readable = true;
+				// `Capture()` l'exige (NkOffscreenTarget.h l.33-36). C'est notre seul
+				// instrument de mesure : relire la cible, pas l'ecran.
+				od.readback = true;
+				od.name = "NogeeViewport";
+				g.rt = g.r3->CreateOffscreen(od);
+				if (!g.rt || !g.rt->IsValid()) {
+					logger.Error("[Nogee/Viewport3D] cible hors ecran : echec\n");
+					return false;
+				}
+				g.rtW = g.wantW;
+				g.rtH = g.wantH;
+				// ⚠️ MESURE DU 13/09, ET ELLE COUTE UN ECRAN ENTIER : sans cette
+				// ligne, le render graph dimensionne TOUTES ses cibles transitoires
+				// sur la SWAPCHAIN (1600x900, la fenetre de Nogee) alors que la
+				// cible finale, la notre, fait 1280x720. OpenGL refuse l'assemblage
+				// — « Framebuffer incomplete: 0x8CD6 » (INCOMPLETE_ATTACHMENT), 14
+				// fois, puis GL_INVALID_FRAMEBUFFER_OPERATION a chaque glClear et
+				// chaque glDrawArrays. Rien ne se dessine, et aucune couche au-dessus
+				// ne dit pourquoi. NkAnimaEditor n'a jamais paye ce defaut parce que
+				// sa fenetre fait 1280x720, exactement la taille de sa cible : le
+				// controle positif etait d'accord par COINCIDENCE.
+				g.r3->SetRenderSizeOverride(g.wantW, g.wantH);
+				// La sortie du render graph (normalement la swapchain) est redirigee
+				// vers notre cible : le pipeline COMPLET (ombres, eclairage, IBL,
+				// tonemap) rend dans le viewport, et l'interface l'echantillonne.
+				if (auto *texLib = g.r3->GetTextures())
+					g.r3->SetFinalColorTarget(texLib->GetRHIHandle(g.rt->GetColorResult()));
+
+				if (auto *meshSys = g.r3->GetMeshSystem())
+					g.cube = meshSys->GetCube();
+
+				// Le pont ECS -> NKRenderer, tel quel. Le command buffer change a
+				// chaque frame : il est repose dans NogeeViewport3DFrame.
+				g.render.Init(g.r3, nullptr);
+				// ⚠️ Le contrat ouvert pour ce chemin : l'hote flushe (via le graphe).
+				g.render.SetOwnsFlush(false);
+				g.render.SetAmbientIntensity(0.45f);
+
+				g.ok = true;
+				logger.Info("[Nogee/Viewport3D] pile prete : renderer + cible {0}x{1} + NkRenderSystem\n",
+							g.rtW, g.rtH);
+				return true;
+			}
+
+			// La camera et le soleil sont des ENTITES : c'est la seule maniere
+			// d'alimenter `NkRenderSystem` sans lui inventer une porte de service.
+			void EnsureCameraEntity() {
+				if (!g.world)
+					return;
+				if (!g.camId.IsValid()) {
+					g.camId = g.world->CreateEntity();
+					ecs::NkCameraComponent cam;
+					cam.fovDeg = 50.f;
+					cam.nearClip = 0.05f;
+					cam.farClip = 500.f;
+					cam.priority = 100; // la vue de l'editeur passe devant toute camera de jeu
+					g.world->Add<ecs::NkCameraComponent>(g.camId, cam);
+					g.world->Add<ecs::NkTransform>(g.camId);
+					logger.Info("[Nogee/Viewport3D] camera d'editeur creee (entite ECS sans NkSceneNode : "
+								"INVISIBLE dans l'Outliner, par construction)\n");
+				}
+				if (!g.sunId.IsValid()) {
+					g.sunId = g.world->CreateEntity();
+					ecs::NkLightComponent sun;
+					sun.type = ecs::NkLightType::Directional;
+					sun.intensity = 3.0f;
+					sun.castShadow = true;
+					g.world->Add<ecs::NkLightComponent>(g.sunId, sun);
+					ecs::NkTransform tf;
+					tf.SetLocalRotationEuler(-50.f, 30.f, 0.f);
+					g.world->Add<ecs::NkTransform>(g.sunId, tf);
+				}
+			}
+
+			void UpdateCameraEntity() {
+				if (!g.world || !g.camId.IsValid())
+					return;
+				auto *tf = g.world->Get<ecs::NkTransform>(g.camId);
+				auto *cam = g.world->Get<ecs::NkCameraComponent>(g.camId);
+				if (!tf || !cam)
+					return;
+
+				const float32 kDeg2Rad = 3.14159265358979f / 180.f;
+				const float32 y = g.yawDeg * kDeg2Rad;
+				const float32 p = g.pitchDeg * kDeg2Rad;
+				const float32 cp = std::cos(p), sp = std::sin(p);
+				const NkVec3f eye{g.target.x + std::sin(y) * cp * g.dist, g.target.y + sp * g.dist,
+								  g.target.z + std::cos(y) * cp * g.dist};
+
+				// Position + orientation LOCALES : c'est NkTransformSystem qui en
+				// fera worldMatrix, et NkRenderSystem qui en fera view/proj. On ne
+				// court-circuite rien.
+				tf->SetLocalPosition(eye);
+				tf->SetLocalRotation(NkQuatf::LookAt(eye, g.target, NkVec3f{0.f, 1.f, 0.f}));
+				cam->aspect = (float32)g.rtW / (float32)(g.rtH > 0 ? g.rtH : 1);
+			}
+
+		} // namespace
+
+		// =====================================================================
+		// Facade
+		// =====================================================================
+		void NogeeViewport3DSetDevice(void *device) {
+			g.sharedDev = (NkIDevice *)device;
+		}
+
+		void NogeeViewport3DBindWorld(void *world) {
+			g.world = (ecs::NkWorld *)world;
+		}
+
+		bool NogeeViewport3DInit() {
+			if (!Init3D())
+				return false;
+			EnsureCameraEntity();
+			return true;
+		}
+
+		bool NogeeViewport3DReady() {
+			return g.ok && g.rt != nullptr;
+		}
+
+		nk_uint64 NogeeViewport3DCubeMeshHandle() {
+			return g.cube.IsValid() ? g.cube.id : 0ull;
+		}
+
+		void NogeeViewport3DResize(uint32 w, uint32 h) {
+			// Deuxieme garde, et elle est deliberee : l'appelant borne deja, mais
+			// une cible de rendu absurde ne se rate pas proprement — elle rend un
+			// framebuffer incomplet et un ecran vide sans message. On refuse ici.
+			if (w < 16u)
+				w = 16u;
+			if (h < 16u)
+				h = 16u;
+			if (w > 4096u)
+				w = 4096u;
+			if (h > 4096u)
+				h = 4096u;
+			g.wantW = w;
+			g.wantH = h;
+			if (!g.ok || !g.rt || (w == g.rtW && h == g.rtH))
+				return;
+			if (g.rt->Resize(w, h)) {
+				g.rtW = w;
+				g.rtH = h;
+				g.r3->SetRenderSizeOverride(w, h);
+				if (auto *texLib = g.r3->GetTextures())
+					g.r3->SetFinalColorTarget(texLib->GetRHIHandle(g.rt->GetColorResult()));
+			}
+		}
+
+		void NogeeViewport3DFrame(void *cmdv) {
+			if (!Init3D() || !cmdv || !g.world)
+				return;
+			NkICommandBuffer *cmd = (NkICommandBuffer *)cmdv;
+			NkRender3D *r3d = g.r3->GetRender3D();
+			if (!r3d)
+				return;
+			EnsureCameraEntity();
+
+			// ── CAPTURE, EN DEUX TEMPS, et c'est oblige ──────────────────────
+			// On rend a l'image N, on relit a l'image N+1 : une relecture doit
+			// porter sur une image TERMINEE. Meme discipline que les vignettes de
+			// materiau de NK3DModeler.
+			if (g.capPath[0] != '\0' && g.capFrame >= 0 && g.frames >= g.capFrame) {
+				const bool ok = g.rt->Capture(g.capPath);
+				char m[640];
+				std::snprintf(m, sizeof(m),
+							  "[Nogee/Viewport3D] CAPTURE image %d -> '%s' : %s (cible %ux%u, mesh eligibles=%d)\n",
+							  (int)g.frames, g.capPath, ok ? "ecrite" : "ECHEC", g.rtW, g.rtH, (int)g.eligible);
+				logger.Info(m);
+				g.capPath[0] = '\0';
+			}
+
+			const float64 nowNs = NkChrono::Now().nanoseconds;
+			float32 dt = g.lastNs > 0.0 ? (float32)((nowNs - g.lastNs) / 1.0e9) : (1.f / 60.f);
+			g.lastNs = nowNs;
+			if (dt <= 0.f || dt > 0.25f)
+				dt = 1.f / 60.f;
+
+			// 1. Setup par frame que NkRenderer::BeginFrame ferait (cf. en-tete).
+			// ⚠️ TROISIEME chose, et elle manquait : les reconstructions du render
+			// graph sont DIFFEREES (NkRendererImpl.cpp l.1518, « reconstruire en
+			// pleine frame est le piege du resize »), et c'est BeginFrame qui les
+			// vide. Un hote qui possede sa frame ne l'appelle jamais : un
+			// SetRenderSizeOverride ou un changement de passes reste alors EN
+			// ATTENTE pour toujours, et le graphe tourne avec des cibles d'une
+			// autre taille. A l'aplomb de la frame, comme l'original.
+			g.r3->FlushGraphRebuilds();
+			r3d->ResetFrame();
+			if (auto *mc = g.r3->GetMaterialCollection())
+				mc->Upload();
+
+			// 2. La camera d'orbite -> l'entite camera ; puis les matrices monde.
+			UpdateCameraEntity();
+			g.transforms.Execute(*g.world, dt);
+
+			// 3. Le pont ECS : BeginScene + Submit. PAS de Flush (SetOwnsFlush(false)).
+			g.eligible = CountEligible(*g.world);
+			g.render.SetCommandBuffer(cmd);
+			g.render.Execute(*g.world, dt);
+
+			// ── CONTROLE POSITIF INTERNE (--viewport-controle) ────────────────
+			// Un cube soumis A LA MAIN, ici, entre le BeginScene du pont ECS (qui
+			// n'a pas flushe : SetOwnsFlush(false)) et le graphe. S'il apparait et
+			// que le cube ECS n'apparait pas, le defaut est dans le pont ECS ; si
+			// aucun des deux n'apparait, il est dans le montage de l'hote. Sans ce
+			// partage, un viewport uniforme ne designe aucun coupable.
+			if (g.controle && g.cube.IsValid()) {
+				NkDrawCall3D dc;
+				dc.mesh = g.cube;
+				dc.transform = NkMat4f::Translate(NkVec3f{2.5f, 0.f, 0.f});
+				dc.tint = {1.f, 0.35f, 0.05f}; // orange Rihen : impossible a confondre
+				dc.roughness = 0.6f;
+				dc.aabb = NkAABB{{1.5f, -1.f, -1.f}, {3.5f, 1.f, 1.f}};
+				r3d->Submit(dc);
+			}
+
+			// 4. Le graphe ouvre ses passes, appelle Flush dans la passe Geometry,
+			//    et ecrit le resultat final dans notre cible.
+			if (auto *graph = g.r3->GetRenderGraph())
+				graph->Execute(cmd);
+
+			++g.frames;
+			// Un temoin PERIODIQUE, pas un par image : sans lui, un viewport
+			// silencieux et un viewport mort se ressemblent dans le journal.
+			if (g.frames == 1 || g.frames % 60 == 0) {
+				// Les statistiques du RENDERER, pas les miennes : `eligible` dit ce
+				// que le monde ECS offre, `drawCalls` dit ce que le GPU a recu. Les
+				// deux ensemble separent « rien a dessiner » de « dessine et
+				// invisible » — que rien d'autre ne distingue a l'ecran.
+				const NkRendererStats &st = g.r3->GetStats();
+				const ecs::NkTransform *ctf =
+					g.camId.IsValid() ? g.world->Get<ecs::NkTransform>(g.camId) : nullptr;
+				const NkVec3f eye = ctf ? ctf->GetWorldPosition() : NkVec3f{0.f, 0.f, 0.f};
+				char m[420];
+				std::snprintf(m, sizeof(m),
+							  "[Nogee/Viewport3D] image %d : cible %ux%u | ECS eligibles=%d | GPU drawCalls=%u "
+							  "triangles=%u culled=%u lumieres=%u | camera (%.2f,%.2f,%.2f) lacet %.0f\n",
+							  (int)g.frames, g.rtW, g.rtH, (int)g.eligible, st.drawCalls, st.triangles, st.culled,
+							  st.lightsActive, (double)eye.x, (double)eye.y, (double)eye.z, (double)g.yawDeg);
+				logger.Info(m);
+			}
+		}
+
+		void NogeeViewport3DRegisterInto(void *guiBackend) {
+			if (!g.ok || !g.rt || !guiBackend)
+				return;
+			auto *b = (nkentseu::nkgui::NkGuiRHIBackend *)guiBackend;
+			auto *texLib = g.r3->GetTextures();
+			if (!texLib)
+				return;
+			b->RegisterTexture(kNogeeViewportTexId, texLib->GetRHIHandle(g.rt->GetColorResult()));
+		}
+
+		void NogeeViewport3DOrbit(float32 dYawDeg, float32 dPitchDeg, float32 dZoom) {
+			g.yawDeg += dYawDeg;
+			g.pitchDeg += dPitchDeg;
+			if (g.pitchDeg > 85.f)
+				g.pitchDeg = 85.f;
+			if (g.pitchDeg < -85.f)
+				g.pitchDeg = -85.f;
+			g.dist *= (1.f + dZoom);
+			if (g.dist < 0.5f)
+				g.dist = 0.5f;
+			if (g.dist > 500.f)
+				g.dist = 500.f;
+		}
+
+		void NogeeViewport3DSetOrbit(float32 yawDeg, float32 pitchDeg) {
+			g.yawDeg = yawDeg;
+			g.pitchDeg = pitchDeg;
+			if (g.pitchDeg > 85.f)
+				g.pitchDeg = 85.f;
+			if (g.pitchDeg < -85.f)
+				g.pitchDeg = -85.f;
+		}
+
+		void NogeeViewport3DGetOrbit(float32 *yawDeg, float32 *pitchDeg) {
+			if (yawDeg)
+				*yawDeg = g.yawDeg;
+			if (pitchDeg)
+				*pitchDeg = g.pitchDeg;
+		}
+
+		void NogeeViewport3DControle(bool on) {
+			g.controle = on;
+		}
+
+		void NogeeViewport3DCaptureAt(int32 numeroImage, const char *chemin) {
+			if (!chemin || !chemin[0])
+				return;
+			std::snprintf(g.capPath, sizeof(g.capPath), "%s", chemin);
+			g.capFrame = numeroImage < 1 ? 1 : numeroImage;
+		}
+
+		int32 NogeeViewport3DDrawCount() {
+			return g.eligible;
+		}
+
+		int32 NogeeViewport3DFrameCount() {
+			return g.frames;
+		}
+
+	} // namespace noge
+} // namespace nkentseu
