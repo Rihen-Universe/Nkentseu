@@ -5112,6 +5112,38 @@ static NkTexHandle CreateLanternCubeCookie(NkTextureLibrary *texLib, NkIDevice *
 				dc.tint = effTint({0.12f, 0.12f, 0.13f});
 				dc.metallic = 0.f;
 				dc.roughness = 0.92f;
+				// ── SONDE MOUILLAGE (NK_WET, 2026-09-13) ─────────────────────────
+				// ⚠️ CECI EST UN INSTRUMENT, PAS LE CORRECTIF. Le correctif est dans
+				// `NkRender3D` : le chemin AVANT n'alimentait pas `ob.wetParams` alors
+				// que `pbr.frag` le lit. Mais il fallait bien quelqu'un pour DEMANDER
+				// un mouillage, puisque la mesure du 13/09 dit qu'AUCUNE application du
+				// depot ne regle `dc.wetness` -- ni une demo, ni le moteur. Le champ
+				// existait, son consommateur existait, et personne entre les deux.
+				//   NK_WET=<0..1>        saturation de la surface (absent = rien, au bit)
+				//   NK_WET_POROSITY=<f>  porosite (defaut 1 ; 0 = LE CONTROLE NEGATIF)
+				//   NK_WET_LAYER=<f>     pellicule d'eau (defaut 0)
+				// Le SOL est choisi parce qu'il est large, immobile et opaque : un
+				// changement s'y lit sur des centaines de milliers de pixels au lieu
+				// de quelques centaines.
+				if (const char *e = std::getenv("NK_WET"); e && e[0]) {
+					dc.wetness = (float32)std::atof(e);
+					dc.wetPorosity = 1.f;
+					dc.waterLayer = 0.f;
+					if (const char *p = std::getenv("NK_WET_POROSITY"); p && p[0])
+						dc.wetPorosity = (float32)std::atof(p);
+					if (const char *l = std::getenv("NK_WET_LAYER"); l && l[0])
+						dc.waterLayer = (float32)std::atof(l);
+					static bool ditUneFois = false;
+					if (!ditUneFois) {
+						ditUneFois = true;
+						std::fprintf(stderr,
+									 "[MOUILLAGE] sol : wetness=%.3f porosite=%.3f pellicule=%.3f"
+									 " -> wetK=%.3f waterK=%.3f (Lagarde : albedo x(1-0,8 wetK),"
+									 " rugosite x(1-0,4 wetK) -- plus SOMBRE et plus BRILLANT)\n",
+									 dc.wetness, dc.wetPorosity, dc.waterLayer,
+									 dc.wetness * dc.wetPorosity, dc.wetness * dc.waterLayer);
+					}
+				}
 				r3d->Submit(dc);
 				// sonde VEHICULE : chassis (cube) + 4 roues (spheres), transformes du monde physique
 				if (st->veh && st->vehWorld) {
