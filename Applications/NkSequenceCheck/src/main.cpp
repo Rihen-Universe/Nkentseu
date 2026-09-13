@@ -61,6 +61,7 @@
 #include "NKMemory/NKMemory.h"
 
 #include <cstdio>
+#include <cstdlib> // system() : f7 relance CE MEME exe pour obtenir un processus NEUF
 
 #if defined(_WIN32)
 #	include <windows.h>
@@ -87,6 +88,17 @@ namespace {
 	bool Proche(float32 a, float32 b, float32 tol) {
 		const float32 d = (a > b) ? (a - b) : (b - a);
 		return d <= tol;
+	}
+
+	// `s` commence-t-il par `p` ? Sans <cstring>, comme le reste du depot.
+	bool Prefixe(const char *s, const char *p) {
+		uint32 i = 0;
+		while (p[i] != '\0') {
+			if (s[i] != p[i])
+				return false;
+			i++;
+		}
+		return true;
 	}
 
 	// ── L'empreinte d'un fichier ─────────────────────────────────────────────
@@ -992,15 +1004,236 @@ void main() {
 		nkentseu::NkDeviceFactory::Destroy(dev);
 	}
 
+	// =========================================================================
+	// f7 — LA SEQUENCE S'ENREGISTRE ET SE RELIT (format .nkseq)
+	// =========================================================================
+	// Le critere n'est pas « le fichier se relit sans planter » : c'est
+	// ecrire -> relire DANS UN PROCESSUS NEUF -> reecrire -> les deux fichiers
+	// identiques OCTET A OCTET. Un aller-retour dans le meme processus prouve
+	// beaucoup moins : la memoire encore chaude masque les champs oublies.
+	//
+	// ⚠️ LA MESURE PASSE PAR `ReadAllBytes`, JAMAIS PAR UN ALLER-RETOUR TEXTE.
+	// `NkFile::WriteAllText` ecrit en CRLF et `ReadAllText` renormalise : l'ecart
+	// est masque des DEUX cotes a la fois, si bien qu'une comparaison de chaines
+	// declare « identiques » deux fichiers qui ne le sont pas. Un chantier voisin
+	// a vu deux journaux annoncer 1159 et 1110 octets pour le meme fichier.
+	//
+	// Et le critere qui separe « j'ai relu des donnees » de « j'ai relu une
+	// SEQUENCE » : la sequence relue doit rendre LES 48 MEMES IMAGES, empreintes
+	// comprises. Des nombres qui reviennent ne prouvent pas qu'ils sont a leur
+	// place.
+
+	// Une sequence RICHE : tout ce que le format pretend porter, y compris ce que
+	// le reste du banc n'emploie pas (clips, plans camera, marqueurs, piste NLA,
+	// renderOutput non par defaut). Un format ne se teste pas sur le
+	// sous-ensemble qu'on utilise.
+	void EnrichirPourSerialisation(Scene &sc) {
+		nkentseu::NkClipOnTrack &cl = sc.seq.tracks[0].AddClip(0x0123456789ABCDEFull, 0.25f, 1.5f);
+		cl.blendIn = 0.1f;
+		cl.blendOut = 0.2f;
+		cl.loop = true;
+
+		sc.seq.cameraTrack.AddShot(sc.sujet, 0.f, 1.f, nkentseu::NkCutType::Cut);
+		sc.seq.cameraTrack.AddShot(sc.sujet, 1.f, 1.f, nkentseu::NkCutType::Blend);
+		sc.seq.cameraTrack.shots[1].blendDuration = 0.33f;
+
+		sc.seq.AddMarker(0.5f, "debut du plan", nkentseu::NkMarker::Type::Scene);
+		sc.seq.AddMarker(1.75f, "fin", nkentseu::NkMarker::Type::Note);
+		sc.seq.AddNLATrack(sc.sujet, "nla");
+
+		sc.seq.renderOutput.width = 320;
+		sc.seq.renderOutput.height = 180;
+		sc.seq.renderOutput.fps = 24.f;
+		sc.seq.renderOutput.startTime = 0.f;
+		sc.seq.renderOutput.endTime = 2.f;
+		sc.seq.renderOutput.outputDirectory = "un/dossier/quelconque";
+		sc.seq.renderOutput.jpegQuality = 77;
+		sc.seq.renderOutput.motionBlurSamples = 9;
+		sc.seq.renderOutput.renderDOF = true;
+		sc.seq.renderOutput.renderSSAO = false;
+	}
+
+	// Le mode « processus neuf ». Il relit, reecrit, rend les 48 images — et RIEN
+	// d'autre : aucun autre critere, aucune scene batie en memoire. C'est ce qui
+	// en fait une preuve : tout ce qu'il produit vient du FICHIER.
+	int ModeRelecture(const char *entree, const char *sortie, const char *dossierImages) {
+		nkentseu::NkSequence seq;
+		if (!seq.LoadFromFile(entree)) {
+			std::printf("[relecture] REFUS : %s\n", nkentseu::NkSequenceDernierRefus());
+			return 2;
+		}
+		if (sortie != nullptr && !seq.SaveToFile(sortie)) {
+			std::printf("[relecture] reecriture refusee : %s\n", nkentseu::NkSequenceDernierRefus());
+			return 3;
+		}
+		if (dossierImages != nullptr) {
+			nkentseu::NkDirectory::CreateRecursive(dossierImages);
+			PorteScene porte;
+			Scene &sc = *porte;
+			// Le monde est NEUF. On y cree une entite et on verifie qu'elle porte
+			// le MEME identifiant que celui ecrit dans la sequence : sinon la
+			// piste viserait une entite inexistante, Evaluate ne toucherait rien,
+			// les 48 images seraient identiques, et l'echec ressemblerait a un
+			// probleme de rendu alors qu'il serait un probleme d'identite.
+			const nkentseu::NkEntityId e = sc.world.CreateEntity();
+			sc.world.Add<nkentseu::ecs::NkTransform>(e, nkentseu::ecs::NkTransform{});
+			if (seq.tracks.Size() > 0 && seq.tracks[0].entity != e) {
+				std::printf("[relecture] entite relue (%u:%u) != entite neuve (%u:%u)\n",
+							(unsigned)seq.tracks[0].entity.index, (unsigned)seq.tracks[0].entity.gen, (unsigned)e.index,
+							(unsigned)e.gen);
+				return 4;
+			}
+			const int n = RendreSequence(seq.renderOutput.endTime > 0.f ? seq : seq, sc.world, dossierImages, false);
+			std::printf("[relecture] %d images rendues depuis le fichier\n", n);
+			if (n != 48)
+				return 5;
+		}
+		std::printf("[relecture] OK\n");
+		return 0;
+	}
+
+	// Compare deux fichiers OCTET A OCTET. Rend -1 s'ils font la meme taille et
+	// le meme contenu ; sinon l'indice du premier ecart, ou -2 si une taille
+	// differe (et alors `tailleA`/`tailleB` le disent).
+	int PremierEcart(const char *a, const char *b, nkentseu::uint64 &tailleA, nkentseu::uint64 &tailleB) {
+		nkentseu::NkVector<nkentseu::uint8> da = nkentseu::NkFile::ReadAllBytes(a);
+		nkentseu::NkVector<nkentseu::uint8> db = nkentseu::NkFile::ReadAllBytes(b);
+		tailleA = (nkentseu::uint64)da.Size();
+		tailleB = (nkentseu::uint64)db.Size();
+		if (tailleA != tailleB)
+			return -2;
+		for (nkentseu::uint32 i = 0; i < da.Size(); ++i)
+			if (da[i] != db[i])
+				return (int)i;
+		return -1;
+	}
+
+	void F7_LaSequenceSEnregistre(const char *exe) {
+		std::printf("\nf7 — LA SEQUENCE S'ENREGISTRE ET SE RELIT (format .nkseq)\n");
+		std::printf("  attendu ECRIT AVANT LA MESURE :\n");
+		std::printf("     ecrire A -> relire A DANS UN PROCESSUS NEUF -> reecrire B\n");
+		std::printf("     A et B identiques OCTET A OCTET, mesures par ReadAllBytes\n");
+		std::printf("     (jamais par ReadAllText : WriteAllText ecrit en CRLF et ReadAllText\n");
+		std::printf("      renormalise, l'ecart serait masque des DEUX cotes a la fois)\n");
+		std::printf("     la sequence relue rend LES 48 MEMES IMAGES, empreintes comprises\n");
+		std::printf("     negatif : un octet abime AU MILIEU -> refus NOMME, jamais une\n");
+		std::printf("               sequence a moitie lue\n\n");
+
+		char d[400];
+		const char *fA = "seq_A.nkseq";
+		const char *fB = "seq_B.nkseq";
+		const char *fC = "seq_C_abime.nkseq";
+		const char *dImg = "Sortie_NkSequenceCheck_relue";
+
+		PorteScene porte;
+		Scene &sc = *porte;
+		BatirScene(sc);
+		EnrichirPourSerialisation(sc);
+		sc.seq.RecalcDuration();
+
+		const bool ecrit = sc.seq.SaveToFile(fA);
+		const nkentseu::nk_int64 tA = nkentseu::NkFile::GetFileSize(fA);
+		std::snprintf(d, sizeof(d), "%lld octets%s%s", (long long)tA, ecrit ? "" : " — refus : ",
+					  ecrit ? "" : nkentseu::NkSequenceDernierRefus());
+		Verdict("f7 la sequence s'ecrit sur le disque", ecrit && tA > 24, d);
+		if (!ecrit)
+			return;
+
+		// ── LE PROCESSUS NEUF ────────────────────────────────────────────────
+		char cmd[1200];
+		std::snprintf(cmd, sizeof(cmd), "\"\"%s\" --relire=%s --reecrire=%s --images=%s\" > relecture.log 2>&1", exe,
+					  fA, fB, dImg);
+		const int codeRelecture = std::system(cmd);
+		std::snprintf(d, sizeof(d), "code %d (0 attendu) — voir relecture.log", codeRelecture);
+		Verdict("f7 un PROCESSUS NEUF relit le fichier et le reecrit", codeRelecture == 0, d);
+
+		nkentseu::uint64 ta = 0, tb = 0;
+		const int ecart = PremierEcart(fA, fB, ta, tb);
+		std::snprintf(d, sizeof(d), "A %llu o, B %llu o, %s", (unsigned long long)ta, (unsigned long long)tb,
+					  ecart == -1 ? "aucun ecart" : (ecart == -2 ? "TAILLES DIFFERENTES" : "ecart au milieu"));
+		Verdict("f7 A et B identiques OCTET A OCTET (ReadAllBytes)", ecart == -1 && ta > 24, d);
+		if (ecart >= 0)
+			std::printf("       premier octet different a l'offset %d\n", ecart);
+
+		// ── LE CRITERE QUI COMPTE : les memes 48 images ──────────────────────
+		char r1[512], r24[512], o1[512], o24[512];
+		std::snprintf(r1, sizeof(r1), "%s/frame_0001.png", dImg);
+		std::snprintf(r24, sizeof(r24), "%s/frame_0024.png", dImg);
+		std::snprintf(o1, sizeof(o1), "Sortie_NkSequenceCheck/frame_0001.png");
+		std::snprintf(o24, sizeof(o24), "Sortie_NkSequenceCheck/frame_0024.png");
+		nkentseu::uint64 hr1 = 0, hr24 = 0, ho1 = 0, ho24 = 0, z = 0;
+		const bool lus = EmpreinteFichier(r1, hr1, z) && EmpreinteFichier(r24, hr24, z) &&
+						 EmpreinteFichier(o1, ho1, z) && EmpreinteFichier(o24, ho24, z);
+		std::snprintf(d, sizeof(d), "relue 0x%016llx / 0x%016llx  contre  memoire 0x%016llx / 0x%016llx",
+					  (unsigned long long)hr1, (unsigned long long)hr24, (unsigned long long)ho1,
+					  (unsigned long long)ho24);
+		Verdict("f7 la sequence RELUE rend LES MEMES 48 images", lus && hr1 == ho1 && hr24 == ho24, d);
+
+		// ── LE NEGATIF : un octet abime AU MILIEU ────────────────────────────
+		// Au milieu, jamais dans l'en-tete : abimer la magie prouverait seulement
+		// qu'on sait lire quatre octets. Le seul controle capable de voir un
+		// octet change au coeur des donnees est l'empreinte du corps.
+		nkentseu::NkVector<nkentseu::uint8> corps = nkentseu::NkFile::ReadAllBytes(fA);
+		bool negatifPose = false;
+		if (corps.Size() > 40) {
+			const nkentseu::uint32 milieu = corps.Size() / 2u;
+			corps[milieu] = (nkentseu::uint8)(corps[milieu] ^ 0xFFu);
+			negatifPose = nkentseu::NkFile::WriteAllBytes(fC, corps);
+		}
+		std::snprintf(cmd, sizeof(cmd), "\"\"%s\" --relire=%s\" > relecture_negatif.log 2>&1", exe, fC);
+		const int codeNeg = negatifPose ? std::system(cmd) : -1;
+		std::snprintf(d, sizeof(d), "octet %u inverse, code %d (2 attendu = refus)",
+					  (unsigned)(corps.Size() / 2u), codeNeg);
+		Verdict("f7 NEGATIF : un octet abime AU MILIEU -> refus", negatifPose && codeNeg == 2, d);
+
+		// Le refus doit etre NOMME, pas un `false` nu.
+		nkentseu::NkSequence abimee;
+		const bool refuse = !abimee.LoadFromFile(fC);
+		const char *raison = nkentseu::NkSequenceDernierRefus();
+		std::snprintf(d, sizeof(d), "raison : \"%s\"", raison);
+		Verdict("f7 le refus est NOMME, pas un faux nu", refuse && raison[0] != '\0', d);
+
+		// Et il ne laisse pas une sequence a moitie lue : `abimee` doit etre restee
+		// vierge. Un chargement qui viderait les pistes avant d'echouer laisserait
+		// l'appelant sans rien a quoi revenir.
+		std::snprintf(d, sizeof(d), "%u piste(s), %u marqueur(s) apres le refus", (unsigned)abimee.tracks.Size(),
+					  (unsigned)abimee.markers.Size());
+		Verdict("f7 le refus ne laisse PAS une sequence a moitie lue", abimee.tracks.Empty() && abimee.markers.Empty(),
+				d);
+	}
+
 } // namespace
 
-int main() {
+int main(int argc, char **argv) {
 #if defined(_WIN32)
 	// GARDE : cette fenetre n'est pas le produit. Elle doit le dire dans son
 	// titre, pour qu'une capture prise par erreur ne puisse pas etre confondue
 	// avec l'application de Rodolf.
 	SetConsoleTitleA("*** SONDE DE MESURE - CETTE FENETRE N'EST PAS LE PRODUIT ***");
 #endif
+
+	// ── LE MODE « PROCESSUS NEUF » DE f7 ─────────────────────────────────────
+	// Lu AVANT toute autre chose : ce mode ne doit rien faire d'autre que relire
+	// un fichier, le reecrire, et rendre ses images. S'il executait la moindre
+	// partie du banc, il pourrait reconstruire en memoire ce qu'il pretend avoir
+	// relu du disque — et la preuve s'effondrerait sans bruit.
+	//
+	// Les drapeaux sont lus dans argv : AUCUNE injection de souris ni de clavier,
+	// jamais. Meme dispositif que `ExportCli` de NkAnimaEditor.
+	{
+		const char *rel = nullptr, *reecrire = nullptr, *images = nullptr;
+		for (int i = 1; i < argc; ++i) {
+			const char *a = argv[i];
+			if (Prefixe(a, "--relire="))
+				rel = a + 9;
+			else if (Prefixe(a, "--reecrire="))
+				reecrire = a + 11;
+			else if (Prefixe(a, "--images="))
+				images = a + 9;
+		}
+		if (rel != nullptr)
+			return ModeRelecture(rel, reecrire, images);
+	}
 	std::printf("=============================================================================\n");
 	std::printf(" *** SONDE DE MESURE - CETTE FENETRE N'EST PAS LE PRODUIT ***\n");
 	std::printf(" NkSequenceCheck — le sequenceur de Noge : des cles entrent, des images sortent\n");
@@ -1031,6 +1264,7 @@ int main() {
 	F3F4_LesImagesSurLeDisque();
 	F5_LesImagesViennentDuGpu();
 	F6_LeGpuDessine();
+	F7_LaSequenceSEnregistre(argv[0]);
 
 	std::printf("\n-----------------------------------------------------------------------------\n");
 	std::printf(" BILAN : %d verts, %d rouges\n", gPass, gFail);
