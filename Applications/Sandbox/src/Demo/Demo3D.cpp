@@ -2607,6 +2607,55 @@ static NkTexHandle CreateLanternCubeCookie(NkTextureLibrary *texLib, NkIDevice *
 									 (int)(pipeEau.id == pipePBR.id));
 					}
 				}
+				// ── NK_WATER_MAT : LA CONTRIBUTION D'EAU SUR UN MATERIAU QUELCONQUE ──
+				// (2026-09-13, contrainte de Rodolf : « tout doit avoir la possibilite
+				// d'etre branche sur un material, peu importe le type de material ».)
+				//
+				// L'eau n'est PAS un gabarit de plus a cote de PBR / Toon / Unlit :
+				// c'est une PROPRIETE qu'une instance de n'importe quel gabarit porte
+				// (`NkMaterialInstance::SetWaterReflect`). On le prouve en la posant
+				// sur DEUX TYPES DIFFERENTS, sur la meme geometrie et la meme pose :
+				//   NK_WATER_MAT=1  -> instance du gabarit PBR par defaut
+				//   NK_WATER_MAT=2  -> instance du gabarit TOON par defaut
+				//   NK_WATER_REFLECT=<f>  force du reflet   (defaut 0,6 ; 0 = LE NEGATIF)
+				//   NK_WATER_ROUGH=<f>    rugosite du reflet (defaut 0,05)
+				//
+				// ⚠️ LE NEGATIF EST `NK_WATER_REFLECT=0` AVEC LE MEME MATERIAU, PAS
+				// « sans materiau » : poser une instance change deja l'image (mesure
+				// de la nuit, 191/765), donc comparer « avec contribution » a « sans
+				// materiau » melangerait deux causes. A force nulle, la contribution
+				// est l'identite exacte et l'image doit revenir AU BIT.
+				//
+				// ⚠️ Et le pipeline du gabarit est imprime : la nuit du 13/09 a
+				// montre qu'un pipeline VALIDE ET DISTINCT ne prouve pas qu'il peint.
+				// Ce nombre ne conclut donc rien ; seule la MUTATION du nuanceur
+				// tranche. Il est la pour dire QUEL programme aurait du peindre.
+				if (const char *e = std::getenv("NK_WATER_MAT"); e && (e[0] == '1' || e[0] == '2')) {
+					float32 wRefl = 0.6f, wRog = 0.05f;
+					if (const char *v = std::getenv("NK_WATER_REFLECT"); v && v[0])
+						wRefl = (float32)std::atof(v);
+					if (const char *v = std::getenv("NK_WATER_ROUGH"); v && v[0])
+						wRog = (float32)std::atof(v);
+					if (auto *mats = ctx.renderer->GetMaterials()) {
+						const bool toon = (e[0] == '2');
+						const NkMatHandle tpl = toon ? mats->DefaultToon() : mats->DefaultPBR();
+						const NkPipelineHandle pipe = mats->GetPipeline(tpl);
+						const NkPipelineHandle pipePBR = mats->GetPipeline(mats->DefaultPBR());
+						const NkString *nom = mats->GetTemplateName(tpl);
+						if (auto *inst = mats->CreateInstance(tpl)) {
+							inst->SetWaterReflect(wRefl, wRog);
+							st->oceanMat = inst->GetHandle();
+							std::fprintf(stderr,
+										 "[EAU MATERIAU] contribution posee sur une instance du gabarit '%s' (type=%d) : "
+										 "reflet %.3f, rugosite %.3f (relus %.3f / %.3f) | pipeline du gabarit valide=%d "
+										 "(id=%llu), pipeline PBR id=%llu, IDENTIQUES=%d | instance valide=%d\n",
+										 nom ? nom->CStr() : "?", (int)mats->GetTemplateType(tpl), wRefl, wRog,
+										 inst->GetWaterReflect(), inst->GetWaterReflectRough(), (int)pipe.IsValid(),
+										 (unsigned long long)pipe.id, (unsigned long long)pipePBR.id,
+										 (int)(pipe.id == pipePBR.id), (int)st->oceanMat.IsValid());
+						}
+					}
+				}
 				const math::NkWaterOptics &o = st->oceanP.optics;
 				std::fprintf(stderr, "[OCEAN COULEUR] shade=%d | FOND PLAT INVENTE (le producteur n'a pas de terrain) : %.2f m sous le plan, albedo (%.2f %.2f %.2f) | absorption (%.3f %.3f %.3f) m^-1, couleur profonde (%.2f %.2f %.2f) | ecume : rivage < %.2f m, cretes > %.2f m, deferlement J < %.2f\n",
 							 (int)st->oceanP.shade, st->oceanP.bottomDepth, st->oceanP.bottomColor.x, st->oceanP.bottomColor.y,
