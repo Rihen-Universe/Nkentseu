@@ -11,7 +11,7 @@ namespace nkentseu {
 		uint32 NkWaterBuildVertices(const math::NkMat4f &proj, const math::NkMat4f &view,
 									const math::NkVec3f &eye, const NkWaterMeshParams &p,
 									renderer::NkVertex3D *out, uint32 capacity,
-									uint32 *missing) noexcept {
+									uint32 *missing, float32 *jacobianOut) noexcept {
 			if (missing != nullptr)
 				*missing = 0u;
 
@@ -60,7 +60,15 @@ namespace nkentseu {
 					v.uv = math::NkVec2f{(float32)i / (float32)p.grid.cols,
 										 (float32)j / (float32)p.grid.rows};
 					v.uv2 = v.uv;
-					v.color = p.color;
+					// ⚠️ LA COULEUR EST LA SEULE CHOSE QUE `shade` TOUCHE. La position,
+					// la normale, la tangente et les UV ci-dessus sont écrites AVANT et
+					// ne dépendent d'aucun paramètre de couleur : la géométrie de la
+					// nuit précédente reste identique au bit, quoi qu'on règle ici.
+					v.color = p.shade
+								  ? NkWaterPackColor(NkWaterSurfaceColor(p, w.position.y, w.jacobianXZ))
+								  : p.color;
+					if (jacobianOut != nullptr)
+						jacobianOut[slot] = w.jacobianXZ;
 				}
 			}
 
