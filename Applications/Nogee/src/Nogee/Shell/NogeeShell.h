@@ -70,6 +70,11 @@ namespace nkentseu {
 		// Se combine avec --viewport-inactif et --viewport-sans-mesh, qui sont
 		// ses deux negatifs : dans les deux cas le centre ne doit designer
 		// personne.
+		// `--viewport-selectionne` : selectionne TEMOIN_Cube au montage, pour que
+		// la mise en evidence soit MESURABLE en pixels sans qu'aucun clic ne soit
+		// simule. Sans ce drapeau, la selection initiale du shell porte sur une
+		// entite SANS mesh : rien ne doit alors s'entourer.
+		void NogeeShellViewportSelectionne() noexcept;
 		void NogeeShellViewportSelection() noexcept;
 		void NogeeShellViewportPointage() noexcept;
 		void NogeeShellViewportControle() noexcept;

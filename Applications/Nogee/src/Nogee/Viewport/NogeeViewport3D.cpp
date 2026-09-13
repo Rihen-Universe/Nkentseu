@@ -44,6 +44,7 @@
 #include "Noge/ECS/Components/Rendering/NkRenderComponents.h"
 #include "Noge/ECS/Systems/NkTransformSystem.h"
 #include "Noge/ECS/Systems/NkRenderSystem.h"
+#include "Nogee/Editor/NkSelectionManager.h" // LA selection de l'editeur, pas une copie
 
 #include "NKTime/NkChrono.h"
 #include "NKLogger/NkLog.h"
@@ -62,6 +63,8 @@ namespace nkentseu {
 					// ── Monte par l'hote ──────────────────────────────────────
 					NkIDevice *sharedDev = nullptr;
 					ecs::NkWorld *world = nullptr;
+					// LE meme objet que l'Outliner et Details lisent. Jamais une copie.
+					NkSelectionManager *selection = nullptr;
 
 					// ── Pile de rendu (creee paresseusement) ──────────────────
 					bool tried = false;
@@ -90,6 +93,7 @@ namespace nkentseu {
 
 					// ── Temoins ───────────────────────────────────────────────
 					int32 frames = 0;
+					int32 selSoumises = 0; ///< entites REELLEMENT soumises au lisere
 					int32 eligible = 0; ///< entites qui satisfont la requete de SubmitMeshes
 					uint32 dcGraphe = 0;  ///< appels de dessin ENREGISTRES pendant graph->Execute
 					uint32 triGraphe = 0; ///< triangles enregistres pendant graph->Execute
@@ -322,6 +326,10 @@ namespace nkentseu {
 			g.world = (ecs::NkWorld *)world;
 		}
 
+		void NogeeViewport3DBindSelection(void *selectionManager) {
+			g.selection = (NkSelectionManager *)selectionManager;
+		}
+
 		bool NogeeViewport3DInit() {
 			if (!Init3D())
 				return false;
@@ -413,6 +421,50 @@ namespace nkentseu {
 			g.render.SetCommandBuffer(cmd);
 			g.render.Execute(*g.world, dt);
 
+			// ── LA SELECTION SE VOIT, ET SANS UNE PASSE DE PLUS ───────────────
+			// MESURE, et c'est ce qui a decide du procede : les passes
+			// `SelectionMask` et `SelectionOutline` sont DEJA dans le graphe et
+			// s'executent DEJA a chaque image (releve dans le journal :
+			// « pass 'SelectionMask' enabled=true hasExecute=true »). Elles ne
+			// peignent rien tant que rien ne leur est soumis — le masque est vide
+			// (NkRender3D.h l.958-961). Les alimenter n'ajoute donc AUCUNE passe :
+			// le cout est deja paye, on cesse simplement de le gaspiller.
+			// L'autre procede envisage — reteinter l'objet — aurait coute zero lui
+			// aussi, mais il CHANGE la couleur de l'objet : on ne verrait plus sa
+			// matiere. Le lisere entoure sans repeindre. A cout egal, il informe
+			// plus et ment moins.
+			//
+			// On lit `g.selection`, l'objet que l'Outliner et Details lisent aussi.
+			// La file est videe par `BeginScene` : il faut donc resoumettre a
+			// chaque image, ce que ce bloc fait.
+			g.selSoumises = 0;
+			if (g.selection && g.selection->HasSelection()) {
+				NkMeshSystem *ms = g.r3->GetMeshSystem();
+				const ecs::NkEntityId primaire = g.selection->Primary();
+				for (const ecs::NkEntityId id : g.selection->All()) {
+					if (!id.IsValid() || !g.world->IsAlive(id))
+						continue;
+					// MEME PREDICAT que le rendu : on n'entoure que ce qui est
+					// dessine. Entourer un objet invisible dessinerait un lisere
+					// autour de rien.
+					if (g.world->Has<ecs::NkInactive>(id))
+						continue;
+					const ecs::NkTransform *tf = g.world->Get<ecs::NkTransform>(id);
+					const ecs::NkMeshComponent *mc = g.world->Get<ecs::NkMeshComponent>(id);
+					if (!tf || !mc || !mc->visible)
+						continue;
+					NkMeshHandle h{mc->meshHandle};
+					if (!h.IsValid() || !ms)
+						continue;
+					NkDrawCall3D dc;
+					dc.mesh = h;
+					dc.transform = tf->worldMatrix;
+					dc.aabb = ms->GetBounds(h);
+					r3d->SubmitSelection(dc, id == primaire);
+					++g.selSoumises;
+				}
+			}
+
 			// ── CONTROLE POSITIF INTERNE (--viewport-controle) ────────────────
 			// Un cube soumis A LA MAIN, ici, entre le BeginScene du pont ECS (qui
 			// n'a pas flushe : SetOwnsFlush(false)) et le graphe. S'il apparait et
@@ -486,11 +538,13 @@ namespace nkentseu {
 				char m[640];
 				std::snprintf(m, sizeof(m),
 							  "[Nogee/Viewport3D] image %d : cible %ux%u (aspect %.3f) | ECS eligibles=%d | "
+							  "LISERE soumis=%d | "
 							  "SUBMIT soumis=%u ECARTES_PAR_LE_FRUSTUM=%u | GRAPHE dessins=%u triangles=%u | "
 							  "(muet : stats.drawCalls=%u) | camera (%.2f,%.2f,%.2f) avant (%.2f,%.2f,%.2f) "
 							  "attendue (%.2f,%.2f,%.2f) ACCORD=%.3f\n",
 							  (int)g.frames, g.rtW, g.rtH,
-							  (double)g.rtW / (double)(g.rtH > 0 ? g.rtH : 1), (int)g.eligible, cs.opaqueSubmitted,
+							  (double)g.rtW / (double)(g.rtH > 0 ? g.rtH : 1), (int)g.eligible, (int)g.selSoumises,
+							  cs.opaqueSubmitted,
 							  cs.opaqueCulled, g.dcGraphe, g.triGraphe, st.drawCalls, (double)eye.x, (double)eye.y,
 							  (double)eye.z, (double)fwd.x, (double)fwd.y, (double)fwd.z, (double)att.x,
 							  (double)att.y, (double)att.z, (double)accord);

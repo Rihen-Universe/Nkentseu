@@ -55,6 +55,7 @@ namespace nkentseu {
 					float32 yaw = 0.f;
 					int32 fermerApres = 0; ///< 0 = jamais
 					int32 frames = 0;
+					bool selectionne = false; ///< --viewport-selectionne : selectionne le temoin
 					bool selection = false; ///< --viewport-selection : quel objet sous ce pixel
 					nk_uint64 idTemoin = 0ull;  ///< TEMOIN_Cube empaquete, pour reconnaitre la reponse
 					bool pointage = false; ///< --viewport-pointage : aller-retour du rayon
@@ -1053,6 +1054,9 @@ namespace nkentseu {
 			// quoi la poignee du cube n'existerait pas encore quand on cree
 			// l'entite TEMOIN juste dessous.
 			NogeeViewport3DBindWorld(&sWorld);
+			// LA selection de l'editeur, celle que l'Outliner et Details lisent deja.
+			// Un objet, trois lecteurs : la vue ne peut pas diverger de l'arbre.
+			NogeeViewport3DBindSelection(&sSel);
 			const bool vp3dOk = NogeeViewport3DInit();
 			if (!vp3dOk)
 				logger.Error("[Nogee/Shell] viewport 3D indisponible — le panneau le dira a l'ecran\n");
@@ -1085,7 +1089,9 @@ namespace nkentseu {
 					sWorld.Add<ecs::NkInactive>(id);
 				if (g_vp.orbiteSet)
 					NogeeViewport3DSetOrbit(g_vp.yaw, 22.f);
-				g_vp.idTemoin = id.Pack(); // la sonde de selection reconnait sa reponse
+				g_vp.idTemoin = id.Pack();
+				if (g_vp.selectionne)
+					sSel.Select(id); // mise en evidence mesurable, sans clic // la sonde de selection reconnait sa reponse
 				if (g_vp.controle)
 					NogeeViewport3DControle(true);
 				if (g_vp.capture[0] != '\0')
@@ -1168,7 +1174,15 @@ namespace nkentseu {
 						if (roots.Empty() && n.name[0] != '\0')
 							roots.PushBack(id);
 					});
-				if (!roots.Empty())
+				// ⚠️ NE PAS ECRASER UNE SELECTION DELIBEREE. Ce bloc s'execute APRES
+				// la creation de TEMOIN_Cube : sans cette garde, il remplacait en
+				// silence la selection posee par `--viewport-selectionne` par la
+				// premiere racine — une entite SANS mesh. Le lisere n'avait donc rien
+				// a entourer et la mesure rendait « identique au bit » : un zero
+				// parfaitement exact, pour une raison qui n'avait rien a voir avec le
+				// rendu. Meme famille que la sonde qui tirait avant que le panneau
+				// ait depose son rectangle.
+				if (!roots.Empty() && !sSel.HasSelection())
 					sSel.Select(roots[0]);
 			}
 
@@ -1244,6 +1258,10 @@ namespace nkentseu {
 
 		void NogeeShellViewportInactif() noexcept {
 			g_vp.inactif = true;
+		}
+
+		void NogeeShellViewportSelectionne() noexcept {
+			g_vp.selectionne = true;
 		}
 
 		void NogeeShellViewportSelection() noexcept {

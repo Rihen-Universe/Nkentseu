@@ -91,6 +91,8 @@ int nkmain(const nkentseu::NkEntryState &state) {
 			NogeeShellViewportSansMesh(); // negatif (n1) : entite sans mesh
 		else if (a == "--viewport-inactif")
 			NogeeShellViewportInactif(); // negatif (n1) : entite desactivee
+		else if (a == "--viewport-selectionne")
+			NogeeShellViewportSelectionne(); // met en evidence le temoin
 		else if (a == "--viewport-selection")
 			NogeeShellViewportSelection(); // quel objet sous ce pixel
 		else if (a == "--viewport-pointage")
