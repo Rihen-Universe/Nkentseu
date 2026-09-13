@@ -157,3 +157,20 @@ with project("NKECS"):
                 "NKMath",
                 "NKPlatform",
             ])
+        # Troisieme sous-suite (2026-09-13) : temoin de l'attache type-erasee
+        # (NkWorld::AddRaw / GetRaw / HasRaw / RemoveRaw — « la brique »).
+        with test("RawAttach"):
+            testfiles(["tests/test_raw_attach.cpp"])
+            testownmain()
+            links([
+                "NKECS",
+                "NKReflection",
+                "NKSerialization",
+                "NKThreading",
+                "NKContainers",
+                "NKCore",
+                "NKMemory",
+                "NKLogger",
+                "NKMath",
+                "NKPlatform",
+            ])
