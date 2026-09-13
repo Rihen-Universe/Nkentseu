@@ -59,7 +59,8 @@ void EnqueteRuptureFine();	// (g1) la rupture ENCADRÉE par dichotomie (NK_FLUID
 void EnqueteCibleSousCyclage(); // (g2)+(g3) la courbe, la cible, le NOUVEAU prix (NK_FLUID_MAC=7)
 void EnqueteOrdreSuperieur();	// (h1)+(h3) l'ORDRE SUPÉRIEUR : le prix repayé ? (NK_FLUID_MAC=8)
 void ControleOrdreSuperieur();	// (h2) les trois contrôles de la course complète
-void EnqueteFumeeQuiPese();		// (i) l'ENQUÊTE, AUCUN verdict (NK_FLUID_MAC=9)
+void EnqueteFumeeQuiPese();		  // (i) l'ENQUÊTE, AUCUN verdict (NK_FLUID_MAC=9)
+void EnqueteComptageAnalytique(); // (j1) le comptage À LA MAIN (NK_FLUID_MAC=a)
 void PalierVolutes(bool complet); // (n1)(n3)(n2a) toujours ; (n2b) sous NK_FLUID_VOLUTES=1 (PLAN_VOLUTES.md)
 void ImagesDuConfinement(float32 epsilon);
 float32 EpsilonConfinement();
@@ -708,6 +709,20 @@ int main(int argc, char **argv) {
 	if (mac != nullptr && mac[0] == '9') {
 		EnqueteFumeeQuiPese();
 		return 0;
+	}
+	// NK_FLUID_MAC=a : (j1) LE COMPTAGE ANALYTIQUE. Il transforme en FAIT la
+	// déduction de l'enquête (i) : la masse attendue est recalculée À LA MAIN,
+	// depuis les paramètres d'injection, et JAMAIS demandée au solveur qu'elle
+	// juge. Quatre contrôles, dont une MUTATION qui doit faire rougir le compteur
+	// — un compteur qui ne sait pas rougir n'a jamais rien prouvé en verdissant.
+	// (La lettre, pas un chiffre : `mac[0] == '1'` attraperait « 10 ».)
+	if (mac != nullptr && mac[0] == 'a') {
+		EnqueteComptageAnalytique();
+		printf("\n=============================================================\n");
+		printf("BILAN (mode NK_FLUID_MAC=a, (j1) LE COMPTAGE ANALYTIQUE) : %d controles, %d ROUGES\n", gChecks,
+			   gFailures);
+		printf("=============================================================\n");
+		return gFailures == 0 ? 0 : 1;
 	}
 	if (mac != nullptr && (mac[0] == '1' || mac[0] == '2')) {
 		ControlesPositifs();
