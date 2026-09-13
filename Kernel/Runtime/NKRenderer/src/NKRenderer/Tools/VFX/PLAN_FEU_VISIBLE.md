@@ -147,3 +147,171 @@ et il faudra dire que c'est un lot à part entière.
 **0 `[ERR]`**, et **le volume se VOIT bouger** — mesuré par le pourcentage de pixels
 qui diffèrent entre deux images, comparé à la gigue mesurée de la scène.
 **Négatif** : sans `NK_FIRE_PROBE=1`, `Draw` et `Tris` **identiques**.
+
+---
+
+## (r) LES DEUX MESURES QUI MANQUAIENT — pré-enregistrement
+
+**Écrit le 13/09 au soir, AVANT de coder le mode.** Ce sont les deux mesures que
+**j'ai moi-même exigées** avant de recommander : *« sans ces deux-là, recommander ①
+serait un pari, pas une conclusion. »*
+
+### Ce qui est mesurable ici, et ce qui ne l'est pas
+
+| | mesurable dans le banc ? |
+|---|---|
+| marche de rayon **avec** et **sans** ombres | **oui** — CPU pur |
+| coût CPU de la mise en tampon d'une image RGBA8 | **oui** — c'est une recopie |
+| **téléversement GPU** (map/unmap, DMA) | **NON** : le banc n'ouvre **aucun device** |
+
+⚠️ **Je ne prétendrai donc pas mesurer le téléversement GPU.** Je mesure sa part
+CPU et je **borne** l'autre par l'arithmétique du volume de données, en la disant
+**borne** et non mesure. *Un banc qui n'a pas de GPU ne doit pas publier un chiffre
+de GPU.*
+
+### Les critères, écrits AVANT
+
+    (r1) la marche SANS ombres, aux memes definitions
+         les ombres pesent 4 440 358 echantillons contre 1 501 910 primaires,
+         soit 74,7 % du travail -> le cout doit tomber vers 25,3 %
+         PREDICTION a 480x360 : 604,1 x 0,253 = 153 ms, bande 140 a 190
+    (r2) 1280x720 MESURE, pour remplacer mon extrapolation de ~3,2 s
+         PREDICTION avec ombres : 3 220 ms (bande 2 800 a 3 700)
+         PREDICTION sans ombres :   815 ms (bande   700 a   950)
+    (r3) le cout CPU par image du tampon RGBA8 (1280x720x4 = 3 686 400 octets)
+         PREDICTION : < 2 ms a TOUTE definition, donc au moins 100 fois moins
+         cher que la marche -- le transfert n est PAS le probleme
+    (r4) le cout de SIMULATION sur la grille du RENDU (25 x 80 x 25 = 50 000
+         cellules), qui est ce qu une fenetre paierait a chaque image
+
+### ⚠️ MA PRÉDICTION DE FOND — elle inverse le tableau une SECONDE fois
+
+Ce matin, la mesure a inversé l'avertissement reçu : ce n'était pas le transfert
+qui coûtait, c'était **le rendu**, cinq fois la simulation.
+
+> **Je prédis que la seconde inversion est de sens opposé** : aux définitions où le
+> rendu devient abordable (240 × 180 sans ombres, ~36 ms attendus), **c'est la
+> SIMULATION qui domine** — ~150 à 250 ms sur 50 000 cellules, soit 4 à 7 fois le
+> rendu.
+
+**Conséquence si elle tient** : le chemin GPU (②) **ne sauverait pas l'affaire**,
+puisqu'il n'accélère que le rendu. Le levier serait **la taille de la grille** ou
+**une simulation GPU** — un autre lot, et il faudra le dire.
+
+**VOLET NÉGATIF** : si le rendu sans ombres reste plus cher que la simulation à
+toutes les définitions, ma prédiction est **fausse** et c'est **le rendu** qu'il
+faut porter sur GPU. Les deux issues sont utiles ; une seule est vraie.
+
+### Ce que ce lot décidera
+
+**Si aucun chemin ne descend sous ~200 ms par image**, je le dis **avec les
+chiffres** au lieu d'écrire une démo qui rame : *une vérité chiffrée vaut mieux
+qu'une image saccadée.*
+
+---
+
+## (r) LE RÉSULTAT — ET LA DÉCISION : (q3) N'EST PAS ÉCRIT
+
+**Mode `NK_FLUID_MAC=d`.** Grille du rendu, 25 × 80 × 25 = 50 000 cellules,
+panache **établi** (255 pas), `epsilon = 8`, Release, un seul fil.
+
+```
+definition     AVEC ombres    SANS ombres   rapport   recopie RGBA8   octets
+ 240 x  180       251,5 ms        38,2 ms    0,152       0,309 ms     172 800
+ 480 x  360       958,2 ms       162,7 ms    0,170       1,102 ms     691 200
+ 960 x  720      3667,5 ms       669,3 ms    0,182       4,987 ms   2 764 800
+1280 x  720      3969,6 ms       729,0 ms    0,184       7,868 ms   3 686 400
+
+SIMULATION sur la MEME grille, panache etabli : 244,3 ms par pas
+
+TEMPS D IMAGE du chemin CPU (sim + marche sans ombres + recopie) :
+   240 x 180 :  282,8 ms  =  244,3 +  38,2 + 0,309   ->  3,54 images/s
+   480 x 360 :  408,1 ms  =  244,3 + 162,7 + 1,102   ->  2,45 images/s
+   960 x 720 :  918,6 ms  =  244,3 + 669,3 + 4,987   ->  1,09 images/s
+  1280 x 720 :  981,2 ms  =  244,3 + 729,0 + 7,868   ->  1,02 images/s
+```
+
+### ⚠️ MON INSTRUMENT ÉTAIT FAUX, ET C'EST LA PREMIÈRE CHOSE À DIRE
+
+Premier jet de (r3) : la recopie mesurée à **42,686 ms** pour 3,7 Mo, soit
+**86 Mo/s**. J'écrivais la boucle avec `dst[k] = img[k]`, donc **par l'accesseur de
+`NkVector`** : *je ne mesurais pas un transfert, je mesurais mon propre accesseur.*
+Corrigé par pointeurs bruts — ce que fait un vrai téléversement : **7,868 ms**,
+soit **5,4 fois moins**.
+
+⚠️ **Et même corrigé, il reste pessimiste** : 469 Mo/s pour une boucle octet par
+octet, là où un `memcpy` réel atteint plusieurs Go/s. **Le vrai rapport est donc
+AU-DESSUS de celui que je publie.**
+
+### (r3) est ROUGE, et le seuil n'est PAS déplacé
+
+`93×` mesuré contre **`100×`** exigé. Il échoue **de 7 %**. Je ne le bouge pas.
+Mais la conclusion qu'il testait — *le transfert n'est pas le problème* — **tient
+quand même**, et pour une raison qui se dit : le rouge vient de ce que **mon
+instrument surestime encore la recopie**, pas de ce que le transfert coûterait.
+
+### (r4) VERT — et c'est le chiffre qui décide
+
+**Rapport simulation / marche à 240 × 180 : `6,40`.** Ma prédiction de fond
+annonçait **4 à 7** : elle tient.
+
+> **Porter le rendu sur GPU ne sauverait pas l'affaire.** Si la marche devenait
+> **gratuite**, le temps d'image passerait de `282,8` à `244,6 ms` — de **3,54 à
+> 4,09 images/s**, soit **+15 %**. On optimiserait ce qui ne coûte pas.
+
+### ⚠️ UNE PRÉDICTION JUSTE POUR DEUX RAISONS FAUSSES QUI SE COMPENSENT
+
+(r1) à 480 × 360 : prédit **153 ms**, bande 140-190, mesuré **162,7** — dans la
+bande. **Mais le calcul était faux deux fois** : je partais d'une base de
+`604,1 ms` (c'est `958,2`) et d'une fraction d'ombres de `0,253` (c'est `0,170`).
+`604,1 × 0,253 = 153` et `958,2 × 0,170 = 163` : **les deux erreurs se
+compensent**. *Une prédiction juste par compensation n'est pas une prédiction
+validée*, et le dire vaut mieux que d'encaisser le point.
+
+### Ce que la course complète permet d'ISOLER, et que ce mode seul ne pouvait pas
+
+À `epsilon = 0`, même scène, **avant** et **après** la bascule conservative :
+
+```
+480 x 360 avec ombres    604,1 ms  ->  495,5 ms     (-18 %)
+echantillons d ombre    4 440 358  ->  2 569 360    (-42 %)
+echantillons primaires  1 501 910  ->  1 511 118    (inchanges)
+```
+
+**La bascule a rendu le rendu MOINS cher**, pas plus : le panache est plus lisse,
+donc les rayons atteignent la coupure de transmittance plus tôt. **Le facteur 3,7
+entre `958,2` et `495,5` est donc le CONFINEMENT DE VORTICITÉ, pas le schéma.**
+Deux choses avaient changé ; sans la course complète je n'aurais pas pu attribuer.
+
+⚠️ **Variance de machine à nommer** : la même mesure de simulation a donné
+**413,9 ms** puis **244,3 ms** — la première course tournait pendant deux `jenga`
+d'un autre arbre. **Je publie les deux.** Un temps sans sa charge n'est pas un
+nombre.
+
+### ==> LA DÉCISION : je n'écris PAS (q3)
+
+**Aucun des deux chemins ne donne une image montrable**, et le GPU n'y changerait
+rien :
+
+| | temps d'image | images/s |
+|---|---|---|
+| chemin ① CPU, 240 × 180 | 282,8 ms | **3,54** |
+| chemin ② GPU (marche **gratuite**, hypothèse haute) | 244,6 ms | **4,09** |
+
+**Le levier n'est ni le rendu ni le transfert : c'est la TAILLE DE LA GRILLE.**
+À `244,3 ms` pour 50 000 cellules, soit **4,9 µs par cellule** :
+
+    ~20 000 cellules  ->  ~98 ms de simulation  ->  ~7 images/s avec la marche
+    ~6 000 cellules   ->  ~29 ms                ->  ~25 images/s
+
+⚠️ **Extrapolation LINÉAIRE, et le solveur de pression ne l'honorera pas
+forcément** : son nombre de balayages dépend du champ, pas seulement du compte de
+cellules. C'est une piste chiffrée, **pas une mesure**.
+
+Une grille de 6 000 cellules, c'est `18 × 18 × 18`. **Trop grossier pour montrer un
+panache** — le chantier des volutes a mesuré que les structures font 4-5 cm sur une
+source de 12 cm. **Il y a donc un vrai conflit entre « ça bouge en temps réel » et
+« on voit des volutes », et il n'est pas résolu par un choix de renderer.**
+
+**Ce qu'il faudrait, et c'est un lot à part entière** : porter la **SIMULATION** sur
+GPU (le solveur de pression en premier), pas le rendu.
