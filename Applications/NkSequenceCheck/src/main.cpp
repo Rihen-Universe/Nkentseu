@@ -51,6 +51,7 @@
 #include "NKRenderer/Core/NkTextureLibrary.h"
 #include "NKRenderer/Shader/NkShaderLibrary.h"
 #include "NKRenderer/Tools/Offscreen/NkOffscreenTarget.h"
+#include "NKAnima/Clip/NkClipRegistry.h" // f8 : rendre clipHandle resoluble
 
 #include "Noge/Sequencer/NkSequencer.h"
 #include "Noge/ECS/Components/Core/NkTransform.h"
@@ -1041,6 +1042,13 @@ void main() {
 		sc.seq.AddMarker(1.75f, "fin", nkentseu::NkMarker::Type::Note);
 		sc.seq.AddNLATrack(sc.sujet, "nla");
 
+		// Une piste Animation qui porte une VRAIE poignee de registre. Le handle
+		// ecrit ici (2, la deuxieme poignee d'un registre neuf) doit resoudre
+		// clipB dans un processus neuf qui reenregistre les clips dans le meme
+		// ordre. C'est ce que le mode --clips verifie.
+		sc.seq.AddTrack(sc.sujet, nkentseu::NkTrackType::Animation, "anim");
+		sc.seq.tracks[1].AddClip(2ull, 0.f, 2.f);
+
 		sc.seq.renderOutput.width = 320;
 		sc.seq.renderOutput.height = 180;
 		sc.seq.renderOutput.fps = 24.f;
@@ -1056,11 +1064,46 @@ void main() {
 	// Le mode « processus neuf ». Il relit, reecrit, rend les 48 images — et RIEN
 	// d'autre : aucun autre critere, aucune scene batie en memoire. C'est ce qui
 	// en fait une preuve : tout ce qu'il produit vient du FICHIER.
-	int ModeRelecture(const char *entree, const char *sortie, const char *dossierImages) {
+	int ModeRelecture(const char *entree, const char *sortie, const char *dossierImages,
+					  bool voletClips) {
 		nkentseu::NkSequence seq;
 		if (!seq.LoadFromFile(entree)) {
 			std::printf("[relecture] REFUS : %s\n", nkentseu::NkSequenceDernierRefus());
 			return 2;
+		}
+
+		// ── LE CRITERE DU REGISTRE, DANS UN PROCESSUS NEUF ───────────────
+		// Le registre est VIDE au demarrage : les poignees ne sont stables d'une
+		// execution a l'autre que si les clips sont REENREGISTRES DANS LE MEME
+		// ORDRE. C'est le meme contrat que celui de l'entite ECS verifie plus bas,
+		// et il se verifie de la meme facon : en comparant, pas en esperant.
+		if (voletClips) {
+			nkentseu::anim::NkAnimationClip a, b;
+			a.name = "clipA";
+			a.duration = 1.f;
+			b.name = "clipB";
+			b.duration = 2.f;
+			nkentseu::anim::NkClipRegistry reg;
+			reg.Register(&a); // MEME ORDRE qu'a l'ecriture
+			const nkentseu::nk_uint64 hB = reg.Register(&b);
+
+			const nkentseu::NkTrack *anim = nullptr;
+			for (nkentseu::uint32 i = 0; i < seq.tracks.Size(); ++i)
+				if (seq.tracks[i].type == nkentseu::NkTrackType::Animation)
+					anim = &seq.tracks[i];
+			if (anim == nullptr || anim->clips.Empty()) {
+				std::printf("[relecture] aucune piste Animation portant un clip" "\n");
+				return 6;
+			}
+			const nkentseu::nk_uint64 h = anim->clips[0].clipHandle;
+			const nkentseu::anim::NkAnimationClip *resolu = reg.Resolve(h);
+			std::printf("[relecture] poignee relue = %llu (attendue %llu), resout %s" "\n",
+						(unsigned long long)h, (unsigned long long)hB,
+						resolu ? resolu->name.CStr() : reg.DernierRefus());
+			// On exige LE BON CLIP, pas « un clip » : resoudre le voisin serait le
+			// pire des succes.
+			if (h != hB || resolu == nullptr || resolu != &b)
+				return 7;
 		}
 		if (sortie != nullptr && !seq.SaveToFile(sortie)) {
 			std::printf("[relecture] reecriture refusee : %s\n", nkentseu::NkSequenceDernierRefus());
@@ -1141,11 +1184,12 @@ void main() {
 
 		// ── LE PROCESSUS NEUF ────────────────────────────────────────────────
 		char cmd[1200];
-		std::snprintf(cmd, sizeof(cmd), "\"\"%s\" --relire=%s --reecrire=%s --images=%s\" > relecture.log 2>&1", exe,
-					  fA, fB, dImg);
+		std::snprintf(cmd, sizeof(cmd),
+					  "\"\"%s\" --relire=%s --reecrire=%s --images=%s --clips\" > relecture.log 2>&1",
+					  exe, fA, fB, dImg);
 		const int codeRelecture = std::system(cmd);
 		std::snprintf(d, sizeof(d), "code %d (0 attendu) — voir relecture.log", codeRelecture);
-		Verdict("f7 un PROCESSUS NEUF relit le fichier et le reecrit", codeRelecture == 0, d);
+		Verdict("f7 processus NEUF : relit, reecrit, rend, ET resout la poignee", codeRelecture == 0, d);
 
 		nkentseu::uint64 ta = 0, tb = 0;
 		const int ecart = PremierEcart(fA, fB, ta, tb);
@@ -1202,6 +1246,85 @@ void main() {
 				d);
 	}
 
+	// =========================================================================
+	// f8 — LE REGISTRE REND `clipHandle` RESOLUBLE
+	// =========================================================================
+	// Avant ce soir, `NkClipOnTrack::clipHandle` etait un nombre qui ne se
+	// resolvait NULLE PART : aucune fonction du depot ne le transformait en
+	// `NkAnimationClip *`. Une poignee qui ne se resout pas est une promesse
+	// ecrite et jamais tenue.
+	//
+	// Les trois negatifs comptent autant que le positif, et le TROISIEME protege
+	// du pire echec possible : une poignee retiree qui resoudrait le clip d'un
+	// VOISIN — silencieux, plausible, et faux.
+	void F8_LeRegistreResout() {
+		std::printf("\nf8 — LE REGISTRE REND `clipHandle` RESOLUBLE\n");
+		std::printf("  attendu ECRIT AVANT LA MESURE :\n");
+		std::printf("     enregistrer clipA puis clipB -> deux poignees DIFFERENTES, non nulles\n");
+		std::printf("     Resolve(hA) rend &clipA ; Resolve(hB) rend &clipB\n");
+		std::printf("     negatif 1 : poignee 0 (valeur par defaut d'une piste vide) -> rien\n");
+		std::printf("     negatif 2 : poignee jamais enregistree -> rien, refus nomme\n");
+		std::printf("     negatif 3 : poignee RETIREE -> rien, refus nomme, et SURTOUT PAS le\n");
+		std::printf("                 clip voisin (le numero n'est jamais recycle)\n\n");
+
+		char d[300];
+		nkentseu::anim::NkAnimationClip a, b;
+		a.name = "clipA";
+		a.duration = 1.f;
+		a.fps = 24.f;
+		b.name = "clipB";
+		b.duration = 2.f;
+		b.fps = 30.f;
+
+		nkentseu::anim::NkClipRegistry reg;
+		const nkentseu::nk_uint64 hA = reg.Register(&a);
+		const nkentseu::nk_uint64 hB = reg.Register(&b);
+		std::snprintf(d, sizeof(d), "hA = %llu, hB = %llu", (unsigned long long)hA, (unsigned long long)hB);
+		Verdict("f8 deux enregistrements, deux poignees non nulles", hA != 0ull && hB != 0ull && hA != hB, d);
+
+		const bool bonA = (reg.Resolve(hA) == &a);
+		const bool bonB = (reg.Resolve(hB) == &b);
+		std::snprintf(d, sizeof(d), "Resolve(hA)==&clipA : %s | Resolve(hB)==&clipB : %s", bonA ? "oui" : "NON",
+					  bonB ? "oui" : "NON");
+		Verdict("f8 chaque poignee resout SON clip", bonA && bonB, d);
+
+		// ── NEGATIF 1 : la poignee 0 ─────────────────────────────────────────
+		// C'est la valeur PAR DEFAUT de `NkClipOnTrack::clipHandle`. Une piste
+		// qu'on n'a pas remplie ne doit pas tomber sur le premier clip venu.
+		const bool z = (reg.Resolve(0ull) == nullptr);
+		std::snprintf(d, sizeof(d), "refus : \"%s\"", reg.DernierRefus());
+		Verdict("f8 NEGATIF : poignee 0 -> rien, et c'est nomme", z && reg.DernierRefus()[0] != '\0', d);
+
+		// ── NEGATIF 2 : jamais enregistree ───────────────────────────────────
+		const bool inc = (reg.Resolve(999999ull) == nullptr);
+		std::snprintf(d, sizeof(d), "refus : \"%s\"", reg.DernierRefus());
+		Verdict("f8 NEGATIF : poignee inconnue -> rien, et c'est nomme", inc && reg.DernierRefus()[0] != '\0', d);
+
+		// ── NEGATIF 3 : RETIREE, et surtout PAS un voisin ────────────────────
+		reg.Unregister(hA);
+		const nkentseu::anim::NkAnimationClip *apres = reg.Resolve(hA);
+		const char *raison = reg.DernierRefus();
+		std::snprintf(d, sizeof(d), "rend %s, refus \"%s\"",
+					  apres == nullptr ? "nullptr" : (apres == &b ? "LE VOISIN (grave)" : "UN CLIP"), raison);
+		Verdict("f8 NEGATIF : poignee retiree -> rien, PAS le voisin", apres == nullptr && raison[0] != '\0', d);
+
+		// Retirer l'une ne doit pas deplacer l'autre. Un registre qui compacterait
+		// son tableau en recalculant les indices casserait ca sans le dire.
+		std::snprintf(d, sizeof(d), "Resolve(hB) apres retrait de hA : %s",
+					  reg.Resolve(hB) == &b ? "toujours &clipB" : "CHANGE");
+		Verdict("f8 retirer une poignee n'en deplace aucune autre", reg.Resolve(hB) == &b, d);
+
+		// ── Le registre NE POSSEDE RIEN ──────────────────────────────────────
+		// `Clear()` vide les designations ; les clips sont toujours la, intacts.
+		// Si quelqu'un ajoute un jour une duree de vie ici, ce critere tombera —
+		// c'est precisement son role.
+		reg.Clear();
+		const bool clipIntact = (a.duration == 1.f && b.duration == 2.f);
+		std::snprintf(d, sizeof(d), "apres Clear : %u entree(s) ; clipA.duration=%.1f clipB.duration=%.1f",
+					  (unsigned)reg.Count(), (double)a.duration, (double)b.duration);
+		Verdict("f8 le registre DESIGNE, il ne possede pas", reg.Count() == 0u && clipIntact, d);
+	}
+
 } // namespace
 
 int main(int argc, char **argv) {
@@ -1231,8 +1354,12 @@ int main(int argc, char **argv) {
 			else if (Prefixe(a, "--images="))
 				images = a + 9;
 		}
+		bool voletClips = false;
+		for (int i = 1; i < argc; ++i)
+			if (Prefixe(argv[i], "--clips"))
+				voletClips = true;
 		if (rel != nullptr)
-			return ModeRelecture(rel, reecrire, images);
+			return ModeRelecture(rel, reecrire, images, voletClips);
 	}
 	std::printf("=============================================================================\n");
 	std::printf(" *** SONDE DE MESURE - CETTE FENETRE N'EST PAS LE PRODUIT ***\n");
@@ -1265,6 +1392,7 @@ int main(int argc, char **argv) {
 	F5_LesImagesViennentDuGpu();
 	F6_LeGpuDessine();
 	F7_LaSequenceSEnregistre(argv[0]);
+	F8_LeRegistreResout();
 
 	std::printf("\n-----------------------------------------------------------------------------\n");
 	std::printf(" BILAN : %d verts, %d rouges\n", gPass, gFail);
