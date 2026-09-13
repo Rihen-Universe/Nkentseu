@@ -50,11 +50,89 @@ namespace nkentseu {
 				math::NkProjectedGridParams grid;
 				math::NkWaterParams waves;
 				float32 time = 0.f;
-				// RGBA8 empaqueté, CONSTANT : l'eau ne porte pas de couleur par sommet.
-				// Le format `Default3D` en réclame une, on la remplit sans prétendre
-				// qu'elle signifie quelque chose.
+				// RGBA8 empaqueté, CONSTANT : la couleur donnée à chaque sommet quand
+				// `shade` est faux. Le format `Default3D` en réclame une, on la remplit
+				// sans prétendre qu'elle signifie quelque chose.
 				uint32 color = 0xFFFFFFFFu;
+
+				// ── LA COULEUR PAR SOMMET (2026-09-13) ──────────────────────────────
+				// `NkWaterShade` et `NkWaterFoam` vivent dans NKMath depuis le 06/09
+				// SANS UN SEUL APPELANT. Les appeler ICI, par sommet, est le seul
+				// endroit où la chaîne existe déjà : le producteur tient la hauteur, le
+				// jacobien et le plan de repos, et le format de sommet porte déjà une
+				// couleur. Aucun nuanceur neuf, aucune texture, aucun Gerstner GPU.
+				//
+				// ⚠️ DÉFAUT À FAUX, ET C'EST LE SENS D'ERREUR CHOISI. Un appelant écrit
+				// avant ce jour — les témoins (p1)/(p2), la sonde ECS, `NkWaterSystem` —
+				// reçoit EXACTEMENT le `color` constant d'avant, AU BIT. Un paramètre
+				// ajouté sans défaut neutre changerait en silence ce que mesurent des
+				// témoins écrits pour autre chose : c'est la faute que le champ
+				// `wetness` de `NkDrawCall3D` avait déjà évitée de la même façon.
+				bool shade = false;
+				math::NkWaterOptics optics;
+
+				// 🔴 CE QUE LE PRODUCTEUR N'A PAS, ET QU'ON NE FABRIQUE PAS EN DOUCE.
+				// `NkWaterShade` veut une PROFONDEUR, donc un TERRAIN — et il n'y a
+				// aucun terrain ici, ni raison d'en avoir un : `NkWaterSurface.h` dit que
+				// le fond est FOURNI (carte de hauteur, `Heightfield` de NKCollision, ou
+				// fonction). On pose donc un FOND PLAT, et voici ce que ça rend faux :
+				//   * la profondeur ne varie qu'avec la HOULE, jamais avec le relief ;
+				//   * il n'y a donc ni haut-fond, ni plage — et la PREMIÈRE des trois
+				//     sources de `NkWaterFoam` (l'écume de rivage) ne se lèvera jamais
+				//     tant qu'un vrai fond n'est pas branché ;
+				//   * le cambrement des vagues à l'approche du rivage — la question
+				//     d'origine de Rodolf le 05/09 — reste hors d'atteinte pour la même
+				//     raison, et `depthOverride` de `NkWaterEval` reste inutilisé.
+				// 3 m n'est pas choisi à l'œil : c'est la profondeur que l'en-tête de
+				// `NkWaterSurface.h` prend lui-même en exemple (« à 3 m il reste 36 % du
+				// rouge et 98,7 % du bleu »), donc celle où l'effet est déjà chiffré.
+				float32 bottomDepth = 3.f;
+				// L'albédo du fond, même statut : le producteur ne peut pas le connaître.
+				// Sable clair, parce qu'un fond sombre rendrait Beer-Lambert
+				// indistinguable de `deepColor` — on ne verrait plus ce qu'on mesure.
+				math::NkVec3f bottomColor = {0.45f, 0.40f, 0.30f};
+				// La couleur vers laquelle l'écume BLANCHIT. `NkWaterFoam` rend une
+				// valeur 0..1 et RIEN d'autre ; en faire une couleur est le travail du
+				// consommateur, et c'est exactement ce qu'un nuanceur ferait.
+				math::NkVec3f foamColor = {0.92f, 0.95f, 0.97f};
 		};
+
+		// Empaquetage de la couleur de sommet pour `NkVertexLayout::Default3D`, dont
+		// l'attribut COLOR est `NK_U8x4_NORM` lu sur un `uint32` : sur machine petit-
+		// boutienne, l'octet de poids FAIBLE est le ROUGE.
+		// ⚠️ Ce n'est pas 0xRRGGBBAA. La forme ci-dessous est celle de
+		// `NkMeshSystem.cpp:356` (`PackRGBA`), qui est la source de vérité de ce
+		// format ; l'écrire à l'envers donnerait du bleu pour du rouge, en silence.
+		NK_FORCE_INLINE uint32 NkWaterPackColor(const math::NkVec3f &c, float32 a = 1.f) noexcept {
+			const float32 r = math::NkClamp(c.x, 0.f, 1.f);
+			const float32 g = math::NkClamp(c.y, 0.f, 1.f);
+			const float32 b = math::NkClamp(c.z, 0.f, 1.f);
+			const float32 al = math::NkClamp(a, 0.f, 1.f);
+			return ((uint32)(al * 255.f + 0.5f) << 24) | ((uint32)(b * 255.f + 0.5f) << 16) |
+				   ((uint32)(g * 255.f + 0.5f) << 8) | (uint32)(r * 255.f + 0.5f);
+		}
+
+		// La couleur d'un point de surface : Beer-Lambert sur le fond, PUIS l'écume
+		// qui blanchit. Exposée plutôt qu'enfouie dans la boucle pour qu'un
+		// instrument puisse refaire le calcul et le comparer à ce qui est PEINT —
+		// une sonde qui recopierait la composition finirait par en mesurer une autre.
+		NK_FORCE_INLINE math::NkVec3f NkWaterSurfaceColor(const NkWaterMeshParams &p, float32 waveY,
+														  float32 jacobianXZ,
+														  float32 *foamOut = nullptr) noexcept {
+			// `NkWaterEval` rend une hauteur AUTOUR DE ZÉRO ; la surface absolue est
+			// `baseY + waveY`, et le fond plat est `baseY - bottomDepth`. La
+			// soustraction passe par `NkWaterDepth` et non par une expression écrite
+			// ici : une seconde copie divergerait un jour.
+			const float32 depth =
+				math::NkWaterDepth(p.grid.baseY + waveY, p.grid.baseY - p.bottomDepth);
+			const math::NkVec3f eau = math::NkWaterShade(p.optics, p.bottomColor, depth);
+			// `NkWaterFoam` prend la hauteur AUTOUR DE ZÉRO : `crestHeight` est une
+			// hauteur de crête au-dessus du repos, pas une altitude absolue.
+			const float32 f = math::NkWaterFoam(p.optics, depth, waveY, jacobianXZ);
+			if (foamOut != nullptr)
+				*foamOut = f;
+			return eau + (p.foamColor - eau) * f;
+		}
 
 		// Combien de sommets et d'indices seront écrits. Calculés depuis la grille
 		// SEULE : un appelant dimensionne ses tampons AVANT d'appeler, sans device
@@ -81,10 +159,18 @@ namespace nkentseu {
 		// `missing`, s'il est fourni, reçoit le nombre de sommets manquants. C'est
 		// ce qui distingue « rien à dessiner » de « la grille a des trous » — deux
 		// causes qu'un zéro tout seul confondrait.
+		//
+		// `jacobianOut`, s'il est fourni, reçoit le JACOBIEN HORIZONTAL de chaque
+		// sommet (même capacité que `out`). Il est exposé pour la raison qui a fait
+		// exposer `ndcEgare` dans la grille : un instrument doit pouvoir refaire le
+		// classement de son côté. La hauteur se relit sur le sommet, le jacobien NON
+		// — sans lui, une sonde qui veut juger l'écume devrait RECONSTRUIRE la houle,
+		// c'est-à-dire mesurer une deuxième implémentation au lieu de celle-ci.
 		uint32 NkWaterBuildVertices(const math::NkMat4f &proj, const math::NkMat4f &view,
 									const math::NkVec3f &eye, const NkWaterMeshParams &p,
 									renderer::NkVertex3D *out, uint32 capacity,
-									uint32 *missing = nullptr) noexcept;
+									uint32 *missing = nullptr,
+									float32 *jacobianOut = nullptr) noexcept;
 
 	} // namespace vfx
 } // namespace nkentseu
