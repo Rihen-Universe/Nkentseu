@@ -1528,10 +1528,16 @@ namespace nkentseu {
 			NK_PHASE(msAdvVitesse);
 
 			// ⚠️ CE PARCOURS-CI EST DE L'INSTRUMENTATION, pas de la physique : la
-			// divergence AVANT projection ne sert qu'aux temoins. On l'accumule donc
-			// dans `msMesures`, comme les deux qui suivent la projection.
-			MeasureDivergence(mStats.divBeforeMean, mStats.divBeforeMax, false);
-			NK_PHASE(msMesures);
+			// divergence AVANT projection ne sert qu'aux temoins. Il s'ETEINT donc sur
+			// le chemin temps reel — `MeasureDivergence` est `const`, la couper ne
+			// touche AUCUN champ. Le zero pose ici ne dit pas « divergence nulle », il
+			// dit « pas mesuree » : c'est `temoinsEteints` qui le distingue.
+			mStats.temoinsEteints = !mParams.temoinsMesure;
+			if (mParams.temoinsMesure)
+				MeasureDivergence(mStats.divBeforeMean, mStats.divBeforeMax, false);
+			else
+				mStats.divBeforeMean = mStats.divBeforeMax = 0.f;
+			NK_PHASE(msMesuresEteintes);
 
 			if (mParams.projectionEnabled)
 				Project(dt);
@@ -1542,11 +1548,16 @@ namespace nkentseu {
 			}
 			NK_PHASE(msProjection);
 
-			MeasureDivergence(mStats.divAfterMean, mStats.divAfterMax, false);
-			MeasureDivergence(mStats.divAfterMeanStrict, mStats.divAfterMaxStrict, true);
+			if (mParams.temoinsMesure) {
+				MeasureDivergence(mStats.divAfterMean, mStats.divAfterMax, false);
+				MeasureDivergence(mStats.divAfterMeanStrict, mStats.divAfterMaxStrict, true);
+			} else {
+				mStats.divAfterMean = mStats.divAfterMax = 0.f;
+				mStats.divAfterMeanStrict = mStats.divAfterMaxStrict = 0.f;
+			}
 			{
 				const int64 nk_t = ::nkentseu::NkChrono::Now().nanoseconds;
-				mStats.msMesures += (float32)((float64)(nk_t - jal) / 1.0e6);
+				mStats.msMesuresEteintes += (float32)((float64)(nk_t - jal) / 1.0e6);
 				jal = nk_t;
 			}
 
@@ -1610,19 +1621,14 @@ namespace nkentseu {
 
 			NK_PHASE(msDissipation);
 
+			// ⚠️ `MeasureVelocity` RESTE, MEME TEMOINS ETEINTS, et son nom ment : ce
+			// n'est PAS une mesure. Quand une cellule depasse `maxSpeed`, elle
+			// MULTIPLIE les six vitesses de face par `lim/s` — c'est un FILET DE
+			// SECURITE, donc de la PHYSIQUE. La couper changerait le champ, pas
+			// seulement le rapport. Elle porte aussi le comptage des NaN.
 			MeasureVelocity();
-			// SECONDE passe de vorticite : la premiere servait le confinement et decrivait
-			// le champ AVANT advection et projection. Ce que l'appelant lit dans les stats
-			// doit decrire le champ QU'IL VOIT, pas un etat intermediaire — sinon
-			// `Enstrophy()` repondrait a une autre question que celle qu'on croit poser.
-			ComputeVorticity();
-			mStats.divRatio = (mStats.velocityMean > 1.0e-9f) ? (mStats.divAfterMean / mStats.velocityMean) : 0.f;
-			mStats.divRatioStrict =
-				(mStats.velocityMeanStrict > 1.0e-9f) ? (mStats.divAfterMeanStrict / mStats.velocityMeanStrict) : 0.f;
-			mStats.mass = TotalMass();
-			mStats.heat = TotalHeat();
-			mStats.fuel = TotalFuel();
-
+			// Le balayage de Tmax reste lui aussi : le bandeau temps reel l'affiche, et
+			// c'est un seul parcours sans arithmetique.
 			float32 tmax = 0.f;
 			for (uint32 k = 1; k <= mNz; ++k)
 				for (uint32 j = 1; j <= mNy; ++j)
@@ -1632,16 +1638,35 @@ namespace nkentseu {
 							tmax = t;
 					}
 			mStats.maxTemperature = tmax;
-
-			// Tout ce qui precede depuis `msDissipation` est de l'INSTRUMENTATION :
-			// MeasureVelocity, la SECONDE vorticite, les trois reductions totales et
-			// le balayage de Tmax. Un moteur qui n'a pas besoin de ces temoins ne
-			// paierait pas cette part — c'est pourquoi elle est comptee a part.
 			{
 				const int64 nk_t = ::nkentseu::NkChrono::Now().nanoseconds;
-				mStats.msMesures += (float32)((float64)(nk_t - jal) / 1.0e6);
+				mStats.msMesuresGardees = (float32)((float64)(nk_t - jal) / 1.0e6);
 				jal = nk_t;
 			}
+
+			if (mParams.temoinsMesure) {
+				// SECONDE passe de vorticite : la premiere servait le confinement et decrivait
+				// le champ AVANT advection et projection. Ce que l'appelant lit dans les stats
+				// doit decrire le champ QU'IL VOIT, pas un etat intermediaire — sinon
+				// `Enstrophy()` repondrait a une autre question que celle qu'on croit poser.
+				ComputeVorticity();
+				mStats.divRatio = (mStats.velocityMean > 1.0e-9f) ? (mStats.divAfterMean / mStats.velocityMean) : 0.f;
+				mStats.divRatioStrict = (mStats.velocityMeanStrict > 1.0e-9f)
+											? (mStats.divAfterMeanStrict / mStats.velocityMeanStrict)
+											: 0.f;
+				mStats.mass = TotalMass();
+				mStats.heat = TotalHeat();
+				mStats.fuel = TotalFuel();
+			} else {
+				mStats.divRatio = mStats.divRatioStrict = 0.f;
+				mStats.mass = mStats.heat = mStats.fuel = 0.f;
+			}
+			{
+				const int64 nk_t = ::nkentseu::NkChrono::Now().nanoseconds;
+				mStats.msMesuresEteintes += (float32)((float64)(nk_t - jal) / 1.0e6);
+				jal = nk_t;
+			}
+			mStats.msMesures = mStats.msMesuresEteintes + mStats.msMesuresGardees;
 
 			mStats.msPhysique = mStats.msCombustion + mStats.msFlottabilite + mStats.msVorticite1 +
 								mStats.msConfinement + mStats.msVent + mStats.msAdvVitesse + mStats.msProjection +
