@@ -175,6 +175,14 @@ namespace nkentseu {
 				float32 vehChocT = 0.f, vehChocV = 0.f, vehPenMax = 0.f;
 				float32 vehHMin = 1e30f, vehHMax = -1e30f, vehOmChoc = 0.f;
 				uint32 vehSolPerdu = 0;
+				// ── BANC 8 : LA TRAINEE EN VIRAGE (2026-09-13) ──────────────────────
+				// Combien de vitesse coute un virage, a poussee NULLE ? On compare la
+				// deceleration en roue libre EN LIGNE DROITE et EN COURBE, a la meme
+				// vitesse. La difference EST la trainee de virage.
+				bool vehTvArme = false, vehTvDit = false;
+				float32 vehTvV0 = 0.f;
+				float64 vehTvALat = 0.0, vehTvSlip = 0.0;
+				uint32 vehTvN = 0;
 				bool vehKickFait = false;
 				// sonde TISSU (NK_CLOTH_PROBE=1, 2026-09-05) : une nappe XPBD lachee sur une sphere, dans le vent
 				nkentseu::physics::NkCloth *cloth = nullptr;
@@ -2638,7 +2646,7 @@ static NkTexHandle CreateLanternCubeCookie(NkTextureLibrary *texLib, NkIDevice *
 				st->veh = new NkVehicle(*st->vehWorld);
 				st->vehBanc = [] {
 					const char *e = std::getenv("NK_VEHICLE_SCENARIO");
-					return (e && e[0] >= '1' && e[0] <= '7') ? (uint32)(e[0] - '0') : 0u;
+					return (e && e[0] >= '1' && e[0] <= '8') ? (uint32)(e[0] - '0') : 0u;
 				}();
 				st->vehScenario = st->vehBanc != 0u;
 				if (const char *cf = std::getenv("NK_VEHICLE_CAM"); cf && cf[0] == '0')
@@ -5455,6 +5463,37 @@ static NkTexHandle CreateLanternCubeCookie(NkTextureLibrary *texLib, NkIDevice *
 										 st->vehClock, v, v * 3.6f, (v - st->vehVprec) / dtp);
 							st->vehVprec = v;
 							st->vehTprec = st->vehClock;
+						}
+					} else if (st->vehBanc == 8u) {
+						// ══ BANC 8 : TRAINEE EN VIRAGE ════════════════════════════
+						// 0-10 s : montee en vitesse, ligne droite. A 10 s : gaz coupes
+						// ET braquage applique. On mesure la deceleration sur 4 s.
+						const float32 v = st->veh->ForwardSpeed();
+						if (st->vehClock < 10.f) {
+							const float32 err = st->vehCible - v;
+							thr = err > 0.f ? (err * 0.5f > 1.f ? 1.f : err * 0.5f) : 0.f;
+							brk = err < 0.f ? (-err * 0.5f > 1.f ? 1.f : -err * 0.5f) : 0.f;
+							steer = 0.f;
+						} else {
+							thr = 0.f;
+							brk = 0.f;
+							steer = st->vehSteerFixe;
+							if (!st->vehTvArme) { st->vehTvArme = true; st->vehTvV0 = v; }
+							const float32 om = std::fabs(b0->angularVelocity.y);
+							st->vehTvALat += (float64)(v * om);
+							for (uint32 wt = 0; wt < st->veh->WheelCount(); ++wt)
+								st->vehTvSlip += (float64)std::fabs(st->veh->Wheel(wt).slipLat);
+							++st->vehTvN;
+							if (!st->vehTvDit && st->vehClock >= 14.f) {
+								st->vehTvDit = true;
+								std::fprintf(stderr,
+											 "[VEHICULE TRAINEE] braquage %.2f : v %.4f -> %.4f m/s en 4 s, "
+											 "deceleration **%.5f m/s2** ; a_lat moyenne %.4f m/s2 ; glissement "
+											 "lateral moyen par roue %.6f m/s\n",
+											 st->vehSteerFixe, st->vehTvV0, v, (st->vehTvV0 - v) / 4.f,
+											 (float32)(st->vehTvALat / (float64)st->vehTvN),
+											 (float32)(st->vehTvSlip / (float64)(st->vehTvN * 4u)));
+							}
 						}
 					} else if (st->vehBanc == 7u) {
 						// ══ BANC 7 : LE CHOC ══════════════════════════════════════
