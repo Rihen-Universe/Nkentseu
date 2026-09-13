@@ -159,8 +159,16 @@ namespace nkentseu {
 				float32 vehRoulisMax = 0.f;
 				// ── BANC 5 : LES PENTES (2026-09-13) ────────────────────────────────
 				float32 vehPente = 0.f;       // radians, > 0 = ca monte vers +Z
+				float32 vehDemiSol = 0.f;     // demi-taille du sol REELLEMENT posee
 				float32 vehPz0 = 0.f, vehPv0 = 0.f, vehPt0 = 0.f;
 				uint32 vehPhaseP = 0;
+				// ── BANC 6 : LE FREIN TIENT-IL EN PENTE ? (2026-09-13) ──────────────
+				// Banc DEDIE, parce que le banc 5 commence par 15 s de plein gaz : sur
+				// un sol court la voiture en sortait, et sur un sol long l'OBB incline
+				// l'ejecte. Ici elle ne bouge (presque) pas, donc 200 m suffisent a
+				// TOUTES les pentes -- la taille du sol suit le BANC, pas l'habitude.
+				NkVec3f vehHoldP0{};
+				bool vehHoldArme = false, vehHoldDit = false;
 				bool vehKickFait = false;
 				// sonde TISSU (NK_CLOTH_PROBE=1, 2026-09-05) : une nappe XPBD lachee sur une sphere, dans le vent
 				nkentseu::physics::NkCloth *cloth = nullptr;
@@ -2420,12 +2428,13 @@ static NkTexHandle CreateLanternCubeCookie(NkTextureLibrary *texLib, NkIDevice *
 				collision::NkShape formeSol = collision::NkShape::Box3D(sol.position, {demiSol, 0.5f, demiSol});
 				formeSol.orientation = sol.orientation;
 				st->vehWorld->CreateBody(sol, formeSol);
+				st->vehDemiSol = demiSol; // la condition d'essai se releve, elle ne se suppose pas
 				std::fprintf(stderr, "[VEHICULE PISTE] sol %.0f x %.0f m (demi-taille %.0f m)\n", 2.f * demiSol,
 							 2.f * demiSol, demiSol);
 				st->veh = new NkVehicle(*st->vehWorld);
 				st->vehBanc = [] {
 					const char *e = std::getenv("NK_VEHICLE_SCENARIO");
-					return (e && e[0] >= '1' && e[0] <= '5') ? (uint32)(e[0] - '0') : 0u;
+					return (e && e[0] >= '1' && e[0] <= '6') ? (uint32)(e[0] - '0') : 0u;
 				}();
 				st->vehScenario = st->vehBanc != 0u;
 				if (const char *cf = std::getenv("NK_VEHICLE_CAM"); cf && cf[0] == '0')
@@ -2895,6 +2904,10 @@ static NkTexHandle CreateLanternCubeCookie(NkTextureLibrary *texLib, NkIDevice *
 				// la derive d'avant (cap +7,854 deg, lacet +0,004234 rad/s a t = 40 s).
 				const bool sansAlternance = [] { const char *e = std::getenv("NK_VEHICLE_NOALT"); return e && e[0] == '1'; }();
 				if (sansAlternance) st->veh->Tuning().alternateSweep = false;
+				// NK_VEHICLE_NOSTATIC=1 : la mutation du frottement statique -- la retenue
+				// revise la vitesse du DEBUT du pas, comme avant le correctif.
+				if (const char *ns = std::getenv("NK_VEHICLE_NOSTATIC"); ns && ns[0] == '1')
+					st->veh->Tuning().staticFriction = false;
 				if (const char *kk = std::getenv("NK_VEHICLE_KICK"); kk && kk[0]) st->vehKick = (float32)std::atof(kk);
 				if (const char *vc = std::getenv("NK_VEHICLE_VCIBLE"); vc && vc[0]) st->vehCible = (float32)std::atof(vc);
 				if (const char *sf = std::getenv("NK_VEHICLE_STEER"); sf && sf[0]) st->vehSteerFixe = (float32)std::atof(sf);
@@ -5238,6 +5251,36 @@ static NkTexHandle CreateLanternCubeCookie(NkTextureLibrary *texLib, NkIDevice *
 										 st->vehClock, v, v * 3.6f, (v - st->vehVprec) / dtp);
 							st->vehVprec = v;
 							st->vehTprec = st->vehClock;
+						}
+					} else if (st->vehBanc == 6u) {
+						// ══ BANC 6 : TENUE AU FREIN, A L'ARRET, EN PENTE ══════════
+						// Frein a fond du debut a la fin. On laisse 3 s a la suspension
+						// pour s'asseoir, puis on mesure le DEPLACEMENT sur 10 s.
+						steer = 0.f;
+						thr = 0.f;
+						brk = 1.f;
+						if (!st->vehHoldArme && st->vehClock >= 3.f) {
+							st->vehHoldArme = true;
+							st->vehHoldP0 = b0->position;
+						}
+						if (st->vehHoldArme && !st->vehHoldDit && st->vehClock >= 13.f) {
+							st->vehHoldDit = true;
+							const NkVec3f d = b0->position - st->vehHoldP0;
+							const float32 le = std::sqrt(d.Dot(d));
+							// La CONDITION D'ESSAI se releve, elle aussi : pente reellement
+							// vue par les roues, et demi-taille du sol reellement posee.
+							uint32 auSolH = 0;
+							NkVec3f nH = {0.f, 0.f, 0.f};
+							for (uint32 wh = 0; wh < st->veh->WheelCount(); ++wh)
+								if (st->veh->Wheel(wh).grounded) { nH = nH + st->veh->Wheel(wh).contactNormal; ++auSolH; }
+							if (auSolH) nH = nH * (1.f / (float32)auSolH);
+							std::fprintf(stderr,
+										 "[VEHICULE FREIN] pente consigne %.3f deg / LUE %.3f deg ; demi-sol %.0f m ; "
+										 "%u roues au sol\n"
+										 "[VEHICULE FREIN] frein a fond, 10 s a l'arret : deplacement **%.6f m** "
+										 "(%.4f mm/s), vitesse finale %+.6f m/s\n",
+										 st->vehPente * 57.29578f, std::atan2(-nH.z, nH.y) * 57.29578f, st->vehDemiSol,
+										 auSolH, le, 1000.f * le / 10.f, st->veh->ForwardSpeed());
 						}
 					} else if (st->vehBanc == 5u) {
 						// ══ BANC 5 : LES PENTES ═══════════════════════════════════
