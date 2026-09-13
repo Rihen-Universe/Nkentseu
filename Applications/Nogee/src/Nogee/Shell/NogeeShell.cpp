@@ -83,10 +83,25 @@ namespace nkentseu {
 					const ecs::NkTransform *tf = monde.Get<ecs::NkTransform>(id);
 					const ecs::NkMeshComponent *mc = monde.Get<ecs::NkMeshComponent>(id);
 					const ecs::NkMaterialComponent *ma = monde.Get<ecs::NkMaterialComponent>(id);
+					const ecs::NkCameraComponent *ca = monde.Get<ecs::NkCameraComponent>(id);
+					const ecs::NkLightComponent *lu = monde.Get<ecs::NkLightComponent>(id);
+					// LE PARENT PAR SON NOM, jamais par son identifiant : l'identifiant
+					// CHANGE d'un processus a l'autre, le nom non. Comparer des
+					// identifiants ferait echouer un aller-retour pourtant parfait.
+					const char *nomParent = "(racine)";
+					if (const ecs::NkParent *pa = monde.Get<ecs::NkParent>(id)) {
+						if (pa->entity.IsValid()) {
+							if (const ecs::NkName *np = monde.Get<ecs::NkName>(pa->entity))
+								nomParent = np->value;
+							else
+								nomParent = "(parent sans nom)";
+						}
+					}
 					char m[700];
 					std::snprintf(m, sizeof(m),
 								  "[EMPREINTE-%s] nom=%s pos=%.6f,%.6f,%.6f rot=%.6f,%.6f,%.6f,%.6f "
-								  "ech=%.6f,%.6f,%.6f mesh=%s visible=%d slots=%d\n",
+								  "ech=%.6f,%.6f,%.6f mesh=%s visible=%d slots=%d parent=%s "
+								  "cam=%d/%.4f/%.4f/%.4f/%d lum=%d/%.4f/%.4f/%.4f/%.4f/%d\n",
 								  etiquette, nom.value, tf ? (double)tf->localPosition.x : 0.0,
 								  tf ? (double)tf->localPosition.y : 0.0, tf ? (double)tf->localPosition.z : 0.0,
 								  tf ? (double)tf->localRotation.x : 0.0, tf ? (double)tf->localRotation.y : 0.0,
@@ -94,7 +109,13 @@ namespace nkentseu {
 								  tf ? (double)tf->localScale.x : 0.0, tf ? (double)tf->localScale.y : 0.0,
 								  tf ? (double)tf->localScale.z : 0.0,
 								  mc ? (mc->meshPath.Empty() ? "(vide)" : mc->meshPath.CStr()) : "(aucun)",
-								  mc ? (mc->visible ? 1 : 0) : -1, ma ? (int)ma->slotCount : -1);
+								  mc ? (mc->visible ? 1 : 0) : -1, ma ? (int)ma->slotCount : -1, nomParent,
+								  ca ? (int)ca->projection : -1, ca ? (double)ca->fovDeg : 0.0,
+								  ca ? (double)ca->nearClip : 0.0, ca ? (double)ca->farClip : 0.0,
+								  ca ? (int)ca->priority : -1, lu ? (int)lu->type : -1,
+								  lu ? (double)lu->color.r : 0.0, lu ? (double)lu->color.g : 0.0,
+								  lu ? (double)lu->color.b : 0.0, lu ? (double)lu->intensity : 0.0,
+								  lu ? (lu->castShadow ? 1 : 0) : -1);
 					logger.Info(m);
 					++n;
 				});
@@ -1187,7 +1208,25 @@ namespace nkentseu {
 				// Je ne simule PAS le geste souris : je construis l'entite qu'il
 				// produit. Le geste, lui, est deja couvert par --dragdrop-test.
 				{
-					const char *obj = "TEMOIN_depot.obj";
+					// ⚠️ LE MAILLAGE D'ESSAI S'ECRIT A COTE DU FICHIER DE SCENE,
+					// PLUS JAMAIS DANS LE REPERTOIRE DE TRAVAIL.
+					// Ce qu'a coute l'ancienne version, le 13/09 : un `.obj` de 67
+					// octets — UN SEUL TRIANGLE — laisse a la racine du depot. Le
+					// Content Browser de Nogee s'enracine sur le repertoire courant :
+					// mon dechet lui a donc ete PROPOSE comme un asset, et le glisser
+					// dans la vue peint exactement ce qu'il contient — une echarde
+					// blanche degeneree. Un banc qui ecrit dans l'espace de travail de
+					// quelqu'un d'autre finit par etre pris pour le produit.
+					char objBuf[480];
+					{
+						std::snprintf(objBuf, sizeof(objBuf), "%s", g_vp.sauver);
+						char *fin = objBuf;
+						for (char *c = objBuf; *c; ++c)
+							if (*c == '/' || *c == '\\')
+								fin = c + 1;
+						std::snprintf(fin, sizeof(objBuf) - (size_t)(fin - objBuf), "TEMOIN_depot.obj");
+					}
+					const char *obj = objBuf;
 					if (std::FILE *f = std::fopen(obj, "wb")) {
 						std::fputs("# maillage temoin de la sauvegarde\nv 0 0 0\nv 1 0 0\nv 0 1 0\nf 1 2 3\n", f);
 						std::fclose(f);
@@ -1203,6 +1242,64 @@ namespace nkentseu {
 					mcd.meshPath = NkString(obj);
 					sWorld.Add<ecs::NkMeshComponent>(d, mcd);
 					sWorld.Add<ecs::NkMaterialComponent>(d, ecs::NkMaterialComponent{});
+				}
+				// ── HIERARCHIE A TROIS NIVEAUX, ECRITE ENFANT AVANT PARENT ────
+				// L'ecriture parcourt les ARCHETYPES, donc l'ordre de CREATION.
+				// On cree donc le PETIT-ENFANT en premier et la racine en dernier :
+				// le fichier porte l'enfant AVANT son parent, ce qui est le cas que
+				// la relecture doit savoir traiter. Si les deux passes ne servaient
+				// a rien, c'est ici que ca se verrait.
+				{
+					const ecs::NkEntityId n3 = sScene.SpawnNode("H3_PetitEnfant");
+					const ecs::NkEntityId n2 = sScene.SpawnNode("H2_Enfant");
+					const ecs::NkEntityId n1 = sScene.SpawnNode("H1_Racine");
+					sWorld.Add<ecs::NkName>(n3, ecs::NkName("H3_PetitEnfant"));
+					sWorld.Add<ecs::NkName>(n2, ecs::NkName("H2_Enfant"));
+					sWorld.Add<ecs::NkName>(n1, ecs::NkName("H1_Racine"));
+					ecs::NkTransform t3, t2, t1;
+					t3.SetLocalPosition(0.125f, 0.25f, 0.375f);
+					t2.SetLocalPosition(-1.5f, 0.75f, 0.f);
+					t1.SetLocalPosition(3.25f, 0.f, -2.5f);
+					sWorld.Add<ecs::NkTransform>(n3, t3);
+					sWorld.Add<ecs::NkTransform>(n2, t2);
+					sWorld.Add<ecs::NkTransform>(n1, t1);
+					sScene.SetParent(n2, n1);
+					sScene.SetParent(n3, n2);
+				}
+
+				// ── UNE CAMERA DE SCENE ET UNE LUMIERE, NOMMEES ───────────────
+				// La camera d'EDITEUR n'est volontairement pas sauvee : elle n'a
+				// pas de NkName, et l'ecriture ne parcourt que les entites nommees.
+				// C'est juste : le point de vue de l'editeur n'est pas le contenu
+				// de la scene. Celle-ci, en revanche, est du contenu — et sa
+				// priorite 200 depasse les 100 de l'editeur, donc c'est ELLE qui
+				// fait l'image : la comparaison de pixels porte donc bien sur la
+				// pose relue.
+				{
+					const ecs::NkEntityId cam = sScene.SpawnNode("CAM_Temoin");
+					sWorld.Add<ecs::NkName>(cam, ecs::NkName("CAM_Temoin"));
+					ecs::NkTransform tc;
+					tc.SetLocalPosition(4.5f, 3.25f, 5.75f);
+					tc.SetLocalRotation(math::NkQuatf::FromForwardUp(
+						math::NkVec3f{-4.5f, -3.25f, -5.75f}, math::NkVec3f{0.f, 1.f, 0.f}));
+					sWorld.Add<ecs::NkTransform>(cam, tc);
+					ecs::NkCameraComponent cc;
+					cc.fovDeg = 42.5f;
+					cc.nearClip = 0.125f;
+					cc.farClip = 250.f;
+					cc.priority = 200;
+					sWorld.Add<ecs::NkCameraComponent>(cam, cc);
+					const ecs::NkEntityId lum = sScene.SpawnNode("LUM_Temoin");
+					sWorld.Add<ecs::NkName>(lum, ecs::NkName("LUM_Temoin"));
+					ecs::NkTransform tl;
+					tl.SetLocalRotationEuler(-55.f, 25.f, 0.f);
+					sWorld.Add<ecs::NkTransform>(lum, tl);
+					ecs::NkLightComponent ll;
+					ll.type = ecs::NkLightType::Directional;
+					ll.intensity = 2.75f;
+					ll.color = ecs::NkColor4{0.95f, 0.85f, 0.7f, 1.f};
+					ll.castShadow = true;
+					sWorld.Add<ecs::NkLightComponent>(lum, ll);
 				}
 				EmpreinteScene(sWorld, "AVANT");
 				ecs::NkSceneSerializer s;

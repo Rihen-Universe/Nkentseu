@@ -106,6 +106,21 @@ namespace nkentseu {
 			out.SetInt64("id_index", (nk_int64)id.index);
 			out.SetInt64("id_gen", (nk_int64)id.gen);
 
+			// ── LA HIERARCHIE N'EST PAS UN COMPOSANT COMME LES AUTRES ────
+			// Elle porte une REFERENCE D'ENTITE, et une reference ne se relit
+			// pas comme un nombre : l'identifiant qu'on ecrit ici ne sera pas
+			// celui que le monde attribuera a la relecture. On ecrit donc
+			// l'identifiant SAUVEGARDE du parent, et la relecture le traduit
+			// (deuxieme passe, cf. LoadFromArchive). `NkChildren` n'est PAS
+			// ecrit : il derive de NkParent, et `SetParent` le reconstruit.
+			// Sauver les deux, c'est se donner deux verites a contredire.
+			if (const NkParent *p = const_cast<NkWorld &>(world).Get<NkParent>(id)) {
+				if (p->entity.IsValid()) {
+					out.SetInt64("parent_index", (nk_int64)p->entity.index);
+					out.SetInt64("parent_gen", (nk_int64)p->entity.gen);
+				}
+			}
+
 			auto &reg = Registry::Get();
 			nk_uint32 written = 0;
 
@@ -145,19 +160,58 @@ namespace nkentseu {
 			nk_int64 entityCount = 0;
 			archive.GetInt64("entityCount", entityCount);
 
+			// ── DEUX PASSES, ET C'EST LA HIERARCHIE QUI L'EXIGE ──────────
+			// Deux dangers, un seul remede. (1) L'ORDRE : rien ne garantit
+			// qu'un parent soit ecrit avant son enfant — l'ecriture parcourt
+			// les archetypes, pas l'arbre. (2) LES IDENTIFIANTS : celui qu'on
+			// relit n'est pas celui que le monde attribue, qui depend des
+			// entites deja vivantes.
+			// Passe 1 : creer TOUTES les entites et noter sauvegarde -> neuf.
+			// Passe 2 : rattacher, en traduisant par cette table. Un enfant
+			// ecrit avant son parent se rattache donc sans difficulte : a la
+			// passe 2, tout le monde existe.
+			struct Corresp {
+					nk_int64 vieuxIndex = 0, vieuxGen = 0;
+					NkEntityId neuf{};
+					nk_int64 parentIndex = -1, parentGen = -1;
+			};
+			NkVector<Corresp> table;
+
 			for (nk_int64 i = 0; i < entityCount; ++i) {
 				NkString key = NkFormat("entity_{}", i);
 				NkArchive entityArc;
 				if (!archive.GetObject(key.CStr(), entityArc))
 					continue;
-				DeserializeEntity(scene, entityArc);
+				Corresp c;
+				entityArc.GetInt64("id_index", c.vieuxIndex);
+				entityArc.GetInt64("id_gen", c.vieuxGen);
+				entityArc.GetInt64("parent_index", c.parentIndex);
+				entityArc.GetInt64("parent_gen", c.parentGen);
+				c.neuf = DeserializeEntityId(scene, entityArc);
+				if (c.neuf.IsValid())
+					table.PushBack(c);
 			}
 
-			logger.Infof("[NkSceneSerializer] {} entités chargées depuis archive\n", entityCount);
+			nk_uint32 rattachees = 0;
+			for (nk_uint32 a = 0; a < (nk_uint32)table.Size(); ++a) {
+				if (table[a].parentIndex < 0)
+					continue; // racine : pas de parent a traduire
+				for (nk_uint32 b = 0; b < (nk_uint32)table.Size(); ++b) {
+					if (table[b].vieuxIndex == table[a].parentIndex &&
+						table[b].vieuxGen == table[a].parentGen) {
+						scene.SetParent(table[a].neuf, table[b].neuf);
+						++rattachees;
+						break;
+					}
+				}
+			}
+
+			logger.Infof("[NkSceneSerializer] {} entites chargees, {} rattachees a un parent\n",
+							 (nk_int64)table.Size(), (nk_int64)rattachees);
 			return true;
 		}
 
-		bool NkSceneSerializer::DeserializeEntity(NkSceneGraph &scene, const NkArchive &arc) const noexcept {
+		NkEntityId NkSceneSerializer::DeserializeEntityId(NkSceneGraph &scene, const NkArchive &arc) const noexcept {
 			nk_int64 idx = 0, gen = 0;
 			arc.GetInt64("id_index", idx);
 			arc.GetInt64("id_gen", gen);
@@ -191,7 +245,7 @@ namespace nkentseu {
 				cs.deserialize(scene.World(), id, compArc);
 			}
 
-			return true;
+			return id;
 		}
 
 	} // namespace ecs

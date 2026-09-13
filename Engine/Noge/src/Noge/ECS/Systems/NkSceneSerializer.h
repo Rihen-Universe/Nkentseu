@@ -36,6 +36,7 @@
 #include "Noge/ECS/NkEcsUtil.h"			  // NkStrEqual
 #include "NKSerialization/NkSerializer.h" // NkArchive, NkSerializationFormat, Serialize/Deserialize
 #include "NKContainers/String/NkString.h"
+#include "NKContainers/Sequential/NkVector.h"
 
 namespace nkentseu {
 	namespace ecs {
@@ -125,7 +126,9 @@ namespace nkentseu {
 
 				bool SerializeEntity(NkEntityId id, const NkWorld &world, NkArchive &entityArchive) const noexcept;
 
-				bool DeserializeEntity(NkSceneGraph &scene, const NkArchive &entityArchive) const noexcept;
+				// Rend l'identifiant NEUF de l'entite creee : la deuxieme passe en a
+				// besoin pour traduire les references de parent.
+				NkEntityId DeserializeEntityId(NkSceneGraph &scene, const NkArchive &entityArchive) const noexcept;
 
 				// Registre global (singleton partagé)
 				struct Registry {
