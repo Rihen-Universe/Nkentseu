@@ -59,6 +59,7 @@ void EnqueteRuptureFine();	// (g1) la rupture ENCADRÉE par dichotomie (NK_FLUID
 void EnqueteCibleSousCyclage(); // (g2)+(g3) la courbe, la cible, le NOUVEAU prix (NK_FLUID_MAC=7)
 void EnqueteOrdreSuperieur();	// (h1)+(h3) l'ORDRE SUPÉRIEUR : le prix repayé ? (NK_FLUID_MAC=8)
 void ControleOrdreSuperieur();	// (h2) les trois contrôles de la course complète
+void EnqueteFumeeQuiPese();		// (i) l'ENQUÊTE, AUCUN verdict (NK_FLUID_MAC=9)
 void PalierVolutes(bool complet); // (n1)(n3)(n2a) toujours ; (n2b) sous NK_FLUID_VOLUTES=1 (PLAN_VOLUTES.md)
 void ImagesDuConfinement(float32 epsilon);
 float32 EpsilonConfinement();
@@ -697,6 +698,16 @@ int main(int argc, char **argv) {
 			   gFailures);
 		printf("=============================================================\n");
 		return gFailures == 0 ? 0 : 1;
+	}
+	// NK_FLUID_MAC=9 : l'ENQUÊTE (i), LA FUMÉE QUI PÈSE. ⚠️ CE N'EST PAS UN TÉMOIN
+	// et elle ne rend AUCUN verdict — comme les enquêtes de la bascule et (g2).
+	// (h1) a éliminé l'ordre du schéma scalaire comme cause du prix : même un
+	// Lax-Wendroff NU, sans aucune diffusion au premier ordre, plafonne à 0,4030.
+	// Cette enquête va voir du côté du PREMIER terme de l'équation (8) de Fedkiw —
+	// celui qui fait PESER la fumée, et dont le semi-lagrangien perd 43 %.
+	if (mac != nullptr && mac[0] == '9') {
+		EnqueteFumeeQuiPese();
+		return 0;
 	}
 	if (mac != nullptr && (mac[0] == '1' || mac[0] == '2')) {
 		ControlesPositifs();

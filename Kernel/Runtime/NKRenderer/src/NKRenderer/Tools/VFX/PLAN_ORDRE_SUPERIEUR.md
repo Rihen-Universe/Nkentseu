@@ -340,3 +340,170 @@ code ; il dit seulement que le seuil était faux.
 **Aucun seuil de ce fichier ne sera déplacé après une mesure.** S'il devait l'être,
 ce serait écrit comme un déplacement, avec sa raison, et la mesure d'avant
 resterait publiée.
+
+---
+
+## 8. APRÈS LA MESURE — (h1) EST ROUGE, ET IL FAUT DIRE CE QU'IL ÉLIMINE
+
+**Ajouté le 13/09 APRÈS la course de mode 8, et signalé comme tel.** Ce § ne
+déplace aucun seuil du § 4 : il enregistre un résultat et **ouvre une enquête
+nouvelle, qui rendra son propre pré-enregistrement avant de tourner.**
+
+    schema             CFL max  sous-pas   vmax    Tmax    Tmax/ref   ms/pas
+    SEMI-LAG (ref)       7,067      1     7,782   1749,4   1,000       104,5
+    ordre 1              2,452      3     2,919    550,5   0,3147       84,7
+    minmod               2,749      4     3,170    564,8   0,3229      106,6
+    van Leer             2,806      4     3,222    571,7   0,3268      107,4
+    superbee             2,904      4     3,292    580,6   0,3319      103,6
+    SANS limiteur        2,754      4     3,189    704,9   0,4030      103,5
+
+**Ma prédiction (0,55-0,85) est RÉFUTÉE, et de loin.** Le gain de van Leer sur
+l'ordre 1 est de **3,8 % relatif** — la perte passe de `/3,18` à `/3,06`.
+
+### Ce que le témoin négatif rend décisif
+
+Le schéma **SANS limiteur** n'a **aucune diffusion numérique au premier ordre** —
+c'est un Lax-Wendroff nu. Il plafonne à **0,4030**. Et ce plafond est lui-même
+**une borne supérieure GONFLÉE** : sa densité minimale vaut `−2,428`, il fabrique
+donc des valeurs hors de l'intervalle des données **dans les deux sens**, y compris
+des **maximums qui n'existent pas**.
+
+> **Conclusion mesurée : aucun schéma d'advection scalaire BORNÉ, à aucun ordre,
+> n'atteint 0,50 sur cette scène.** Le prix ne vient donc **pas** de l'ordre du
+> schéma scalaire. Le témoin que j'avais codé pour garder le détecteur est celui
+> qui a tranché la question du lot.
+
+Une **deuxième hypothèse tombe**, après celle du réglage de sous-cyclage éliminée
+par (g2). Un lot qui ferme une piste vaut mieux qu'un lot qui la laisse ouverte —
+mais il faut alors dire **où regarder ensuite**.
+
+---
+
+## 9. PRÉ-ENREGISTREMENT DE L'ENQUÊTE (i) — LA FUMÉE QUI PÈSE
+
+**Écrit AVANT de coder le mode 9 et AVANT de le lancer.** ⚠️ **Ce n'est pas un
+témoin : cette enquête ne rend AUCUN verdict**, comme `EnqueteBascule` et (g2).
+Elle fait varier **un** paramètre pour départager deux causes ; une question posée
+à un seul réglage ne peut pas trancher entre elles.
+
+### L'hypothèse (H), et d'où elle vient
+
+L'équation (8) de Fedkiw, Stam & Jensen 2001 porte **deux** termes :
+
+```
+f = − alpha · s · ŷ  +  beta · (T − T_ambiante) · ŷ
+     ^^^^^^^^^^^^^^
+     la FUMÉE PÈSE
+```
+
+Sur la scène (e), `buoyancyAlpha = 0,3` : le terme de fumée est **actif**. Or le
+semi-lagrangien **perd 43,1 % de la masse de fumée** (mesuré en (f2)). Il perd
+donc aussi **43 % du poids qui retient le panache**, monte plus vite
+(`vmax 7,782` contre `3,2`), et concentre davantage sa chaleur.
+
+**(H) : une part du gouffre sur `Tmax` ne serait pas un défaut du schéma
+conservatif, mais la conséquence PHYSIQUEMENT JUSTE de garder la fumée que le
+semi-lagrangien perd.** Si c'est vrai, le « prix » n'était pas entièrement un
+prix : c'était en partie une **correction**.
+
+### Le montage
+
+Scène (e) inchangée par ailleurs, **quatre bras dans la MÊME course** :
+`alpha = 0,3` (le défaut) et `alpha = 0` (le poids de la fumée coupé), croisés
+avec semi-lagrangien et van Leer. Trois grandeurs par bras : `Tmax`, la **masse
+de fumée finale**, et la **chaleur totale** `somme (T − T_amb)·h³`.
+
+### Ce que j'attends, écrit avant de le voir
+
+| si | alors |
+|---|---|
+| **(H) vraie** | à `alpha = 0`, `Tmax/ref` monte **nettement au-dessus de 0,3268** — je dis **> 0,50** |
+| **(H) fausse** | `Tmax/ref` reste à **0,33 ± 0,03**, et la cause est ailleurs |
+
+**VOLET NÉGATIF, obligatoire** : si les deux `Tmax` **absolus** bougent beaucoup
+alors que leur **RAPPORT** ne bouge pas, `alpha` n'est **pas** la cause — j'aurais
+seulement changé la scène. C'est le rapport qui répond, pas les valeurs.
+
+⚠️ **La chaleur totale est le second instrument, et il peut me contredire
+proprement** : si les deux schémas portent **la même chaleur totale** avec des
+`Tmax` dans un rapport de 3, alors la différence est une pure **concentration** —
+et ni `alpha`, ni l'ordre du schéma n'en seraient la cause, mais la manière dont
+le semi-lagrangien **empile** la chaleur là où il ne conserve rien.
+
+⚠️ **Vu ma série de trois sous-estimations puis d'une surestimation franche en
+(h1), je n'accorde à ma propre attente que la valeur d'une cible à réfuter.**
+
+---
+
+## 10. LE RÉSULTAT DE (i) — (H) EST RÉFUTÉE, ET LE SECOND INSTRUMENT RÉPOND
+
+    alpha   schéma            vmax      Tmax    Tmax/ref   masse fin.   chaleur (K.m^3)
+     0,30   SEMI-LAGRANGIEN   7,782    1749,4   1,000 ref    0,256144      10,0607
+     0,30   FLUX van Leer     3,222     571,7   0,3268       0,016781       1,1537
+     0,00   SEMI-LAGRANGIEN   8,231    1721,5   1,000 ref    0,271373      10,5842
+     0,00   FLUX van Leer     3,307     566,0   0,3287       0,016781       1,1537
+
+**(H) est RÉFUTÉE proprement** : couper le poids de la fumée déplace le rapport de
+`0,3268` à `0,3287` — **0,6 %**. Le volet négatif que j'avais écrit est exactement
+ce qui s'est produit : les `Tmax` absolus bougent un peu, **le rapport ne bouge
+pas**. `alpha` n'est pas la cause.
+
+### ⚠️ MAIS LA COLONNE « CHALEUR » DIT AUTRE CHOSE, ET C'EST LA VRAIE RÉPONSE
+
+> **Le semi-lagrangien finit la course avec 15,3 fois plus de FUMÉE et 8,7 fois
+> plus de CHALEUR que le schéma conservatif.**
+
+Et la chaîne qui l'établit ne repose sur aucune supposition :
+
+1. **La masse finale du schéma en flux est IDENTIQUE à six décimales pour
+   `alpha = 0,30` et `alpha = 0,00`** (`0,016781`), alors que le champ de vitesse,
+   lui, change (`vmax 3,222 → 3,307`). C'est la **signature d'une conservation
+   exacte** : la masse totale ne vaut plus que *ce qui est injecté moins ce qui est
+   dissipé*, deux quantités que l'écoulement ne touche pas.
+2. **Celle du semi-lagrangien, elle, DÉPEND de l'écoulement** : `0,256144` contre
+   `0,271373`, soit 5,9 % d'écart pour un seul paramètre changé.
+3. Or sur cette scène les deux schémas reçoivent **la même injection**
+   (`EmitSphere`, même position, même débit, même nombre de pas) et subissent **la
+   même dissipation** (multiplicative, appliquée au champ entier). Le total correct
+   est donc celui du schéma conservatif — **par construction, et (f1)/(h2) le
+   prouvent à `0,000e+00` de dérive**.
+
+**Conséquence : les 15,3× et les 8,7× ne sont pas de la matière que le schéma en
+flux PERD. C'est de la matière que le semi-lagrangien FABRIQUE.** C'est le défaut
+connu du semi-lagrangien près d'une source ré-injectée : quand l'écoulement
+diverge, plusieurs cellules remontent leur trajectoire vers la *même* cellule
+source et en prennent chacune une copie pleine.
+
+### Ce que cela fait à la lecture de (h1)
+
+`Tmax/ref = 0,3268` ne dit pas « le schéma conservatif a perdu le détail ». Il dit
+**« la référence porte 8,7 fois trop de chaleur »**.
+
+Et le rapport des deux rapports le montre :
+
+```
+chaleur : le semi-lagrangien en porte  8,72 fois plus
+Tmax    : il n'atteint qu'un pic       3,06 fois plus haut
+          ————————————————————————————————————————————
+à chaleur ÉGALE, le schéma conservatif est 2,85 fois PLUS CONCENTRÉ
+```
+
+> **Le « prix » mesuré le 12/09 n'était pas une perte de détail. C'était le
+> retrait d'une chaleur qui n'aurait jamais dû exister.** Et c'est pour cela
+> qu'aucun schéma d'advection, à aucun ordre, ne pouvait le racheter : il n'y
+> avait rien à racheter.
+
+### ⚠️ CE QUI N'EST PAS ENCORE MESURÉ, et je le dis plutôt que de l'omettre
+
+La chaîne ci-dessus est une **déduction corroborée**, pas une mesure directe. La
+mesure qui la transformerait en fait est simple et **n'est pas faite** : compter
+analytiquement la masse injectée (`n cellules × débit × dt × h³`, sommée sur 600
+pas, multipliée par le facteur de dissipation) et la comparer aux **deux** totaux.
+Si elle tombe sur `0,016781`, la création par le semi-lagrangien est **mesurée** et
+non plus déduite.
+
+⚠️ Et **`Tmax` reste ce qui gouverne la couleur du corps noir**. Dire que 1749,4 K
+est un artefact ne rend pas 571,7 K joli à l'écran : cela déplace la question de
+« quel schéma d'advection » vers « quelle source, quel `beta`, quelle dissipation
+de température » — un réglage de scène, pas un défaut de solveur. **Cette
+décision-là appartient à Rodolf**, et je ne la prends pas.

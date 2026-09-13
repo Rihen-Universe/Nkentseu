@@ -295,7 +295,25 @@ struct ResultatPrix {
 		// monotone — un zéro qui ne serait jamais autre chose ne prouverait rien,
 		// et c'est le mode `Aucun` qui prouve qu'il sait l'être.
 		float32 densiteMin = 0.f;
+		// ⚠️ AJOUT DU 13/09, pour l'ENQUÊTE (i). La masse de fumée FINALE et la
+		// CHALEUR TOTALE, somme (T − T_ambiante)·h^3 sur l'intérieur. Deux schémas
+		// dont les Tmax sont dans un rapport de 3 peuvent porter la MÊME chaleur :
+		// alors la différence est une CONCENTRATION, pas une perte. Sans cette
+		// seconde grandeur, on ne saurait pas laquelle des deux on regarde.
+		float32 masseFinale = 0.f, chaleurTotale = 0.f;
 };
+
+// La chaleur au-dessus de l'ambiante, intégrée sur l'INTÉRIEUR (K·m^3).
+static float32 ChaleurTotale(const NkFluidGrid &g, float32 ambiante) {
+	const float32 *T = g.Temperature();
+	const float32 h3 = g.CellSize() * g.CellSize() * g.CellSize();
+	float64 s = 0.0;
+	for (uint32 k = 1; k <= g.Nz(); ++k)
+		for (uint32 j = 1; j <= g.Ny(); ++j)
+			for (uint32 i = 1; i <= g.Nx(); ++i)
+				s += (float64)(T[g.Idx(i, j, k)] - ambiante);
+	return (float32)(s * (float64)h3);
+}
 
 // La densité la plus basse de l'INTÉRIEUR. Les fantômes sont exclus : ils sont
 // une recopie du bord, pas un état du fluide.
@@ -414,8 +432,10 @@ static ResultatPrix SceneMasse(bool flux, NkFluidFluxLimiter lim = NkFluidFluxLi
 // DU BANC, PAS DANS CELLES DE LA THÉORIE — voir la définition portée par
 // `NkFluidGridParams::advectCFLTarget`. La rupture mesurée en (g1) est à 1,2433
 // dans CES unités, pas à 1,0.
+// `alpha` : < 0 laisse le défaut de la scène (0,3). 0 COUPE le poids de la fumée
+// — c'est le seul paramètre que fait varier l'enquête (i) du § 9 du plan.
 static ResultatPrix SceneDixSecondes(bool flux, float32 cibleCFL = 0.f,
-									 NkFluidFluxLimiter lim = NkFluidFluxLimiter::Ordre1) {
+									 NkFluidFluxLimiter lim = NkFluidFluxLimiter::Ordre1, float32 alpha = -1.f) {
 	ResultatPrix r;
 	NkFluidGridParams p;
 	p.boundsMin = {-0.25f, 0.f, -0.25f};
@@ -426,6 +446,8 @@ static ResultatPrix SceneDixSecondes(bool flux, float32 cibleCFL = 0.f,
 	p.buoyancyAlpha = 0.3f;
 	p.advectFluxConservative = flux;
 	p.advectFluxLimiter = lim;
+	if (alpha >= 0.f)
+		p.buoyancyAlpha = alpha;
 	if (cibleCFL > 0.f)
 		p.advectCFLTarget = cibleCFL;
 	NkFluidGrid g;
@@ -441,6 +463,8 @@ static ResultatPrix SceneDixSecondes(bool flux, float32 cibleCFL = 0.f,
 	r.enstrophieMoy = (float32)(ensSum / 600.0);
 	r.msParPas = (float32)(msSum / 600.0);
 	r.densiteMin = DensiteMinimale(g);
+	r.masseFinale = g.TotalMass();
+	r.chaleurTotale = ChaleurTotale(g, p.ambientTemperature);
 	NkVec3f c;
 	if (g.DensityCentroid(c))
 		r.hauteurBary = c.y;
@@ -1167,6 +1191,65 @@ void EnqueteOrdreSuperieur() {
 	printf("    CONDITIONNELLEMENT stable, le sous-cyclage reste EXIGÉ, et\n");
 	printf("    `advectFluxConservative` reste ÉTEINT PAR DÉFAUT : l'allumer est une décision\n");
 	printf("    de Rodolf, et elle attend ce chiffre.\n");
+}
+
+// =============================================================================
+// ENQUÊTE (i) — LA FUMÉE QUI PÈSE. Mode NK_FLUID_MAC=9.
+// Pré-enregistrée au § 9 de PLAN_ORDRE_SUPERIEUR.md, AVANT d'être codée.
+//
+// ⚠️ CE N'EST PAS UN TÉMOIN, ET ELLE NE REND AUCUN VERDICT — comme
+// `EnqueteBascule` et (g2). Elle fait varier UN paramètre pour départager deux
+// causes : une question posée à un seul réglage ne peut pas trancher entre elles.
+//
+// L'équation (8) de Fedkiw, Stam & Jensen 2001 porte DEUX termes :
+//     f = − alpha·s·ŷ  +  beta·(T − T_ambiante)·ŷ
+//          ^^^^^^^^^^ la FUMÉE PÈSE
+// Sur la scène (e), alpha = 0,3 : ce terme est ACTIF. Or le semi-lagrangien perd
+// 43,1 % de la masse de fumée — donc 43 % du poids qui retient le panache.
+// (H) : une part du gouffre sur Tmax ne serait pas un défaut du schéma
+// conservatif, mais la conséquence PHYSIQUEMENT JUSTE de garder ce qu'il faut
+// garder. Si c'est vrai, le « prix » était en partie une CORRECTION.
+// =============================================================================
+void EnqueteFumeeQuiPese() {
+	printf("\n=== (i) ENQUÊTE : LA FUMÉE QUI PÈSE — AUCUN VERDICT RENDU ===\n");
+	printf("    Fedkiw, Stam & Jensen 2001, eq. (8) : f = -alpha*s*y + beta*(T-T_amb)*y.\n");
+	printf("    Le PREMIER terme fait PESER la fumée, et le semi-lagrangien en PERD 43,1 %%.\n");
+	printf("    ATTENDU, ÉCRIT AVANT (PLAN_ORDRE_SUPERIEUR.md § 9) :\n");
+	printf("      (H) vraie  -> à alpha = 0, Tmax/ref monte NETTEMENT au-dessus de 0,3268 (je dis > 0,50)\n");
+	printf("      (H) fausse -> Tmax/ref reste à 0,33 +/- 0,03, et la cause est ailleurs\n");
+	printf("    ⚠️ VOLET NÉGATIF : si les deux Tmax ABSOLUS bougent beaucoup pendant que leur\n");
+	printf("    RAPPORT ne bouge pas, alpha n'est PAS la cause — j'aurais juste changé la scène.\n");
+	printf("    C'est le RAPPORT qui répond, jamais les valeurs.\n");
+	printf("    ⚠️ La CHALEUR TOTALE est le second instrument, et il peut me contredire : deux\n");
+	printf("    schémas qui portent la MÊME chaleur avec des Tmax dans un rapport de 3 ne\n");
+	printf("    diffèrent que par la CONCENTRATION — ni alpha, ni l'ordre du schéma.\n");
+
+	const float32 alphas[2] = {0.3f, 0.f};
+	printf("\n      alpha   schéma            vmax      Tmax    Tmax/ref   masse fin.   chaleur (K.m^3)   ms/pas\n");
+	float32 rap[2] = {0.f, 0.f};
+	for (uint32 a = 0; a < 2; ++a) {
+		const ResultatPrix s = SceneDixSecondes(false, 0.f, NkFluidFluxLimiter::Ordre1, alphas[a]);
+		const ResultatPrix f = SceneDixSecondes(true, 0.f, NkFluidFluxLimiter::VanLeer, alphas[a]);
+		rap[a] = (s.tmax > 0.f) ? f.tmax / s.tmax : 0.f;
+		printf("      %5.2f   SEMI-LAGRANGIEN  %6.3f  %8.1f   %7s   %10.6f   %13.4f   %6.1f\n",
+			   (double)alphas[a], (double)s.vmax, (double)s.tmax, "1,000 ref", (double)s.masseFinale,
+			   (double)s.chaleurTotale, (double)s.msParPas);
+		printf("      %5.2f   FLUX van Leer    %6.3f  %8.1f   %7.4f   %10.6f   %13.4f   %6.1f\n",
+			   (double)alphas[a], (double)f.vmax, (double)f.tmax, (double)rap[a], (double)f.masseFinale,
+			   (double)f.chaleurTotale, (double)f.msParPas);
+		fflush(stdout);
+	}
+	printf("\n    LE RAPPORT, qui est la SEULE grandeur qui réponde :\n");
+	printf("      alpha = 0,30 (le défaut de la scène) : Tmax/ref = %.4f\n", (double)rap[0]);
+	printf("      alpha = 0,00 (le poids de la fumée COUPÉ) : Tmax/ref = %.4f\n", (double)rap[1]);
+	if (rap[1] > 0.50f)
+		printf("      -> (H) est SOUTENUE : couper le poids de la fumée REND le détail.\n");
+	else if (rap[1] > rap[0] + 0.03f)
+		printf("      -> (H) est SOUTENUE EN PARTIE : le rapport monte, sans atteindre 0,50.\n");
+	else
+		printf("      -> (H) est RÉFUTÉE : le rapport ne bouge pas, alpha n'est PAS la cause.\n");
+	printf("    ⚠️ Aucune de ces lignes n'est un verdict. C'est une enquête, et elle DÉSIGNE\n");
+	printf("    où regarder ; elle ne clôt rien et ne change aucun défaut du solveur.\n");
 }
 
 // =============================================================================
