@@ -140,6 +140,10 @@ namespace nkentseu {
 				// une position est un integrale, elle ne dit pas si le couple est
 				// constant (croissance lineaire du lacet) ou amplifie (exponentielle).
 				float32 vehLacetPrec = 0.f, vehLacetT = 0.f;
+				float32 vehRatioMax = 0.f;   // pire |slipLat / slipLatPre| du balayage
+				uint32 vehRatioN = 0, vehDepasse = 0; // echantillons, et ceux qui ont DEPASSE
+				float32 vehKick = 0.f;
+				bool vehKickFait = false;
 				// sonde TISSU (NK_CLOTH_PROBE=1, 2026-09-05) : une nappe XPBD lachee sur une sphere, dans le vent
 				nkentseu::physics::NkCloth *cloth = nullptr;
 				nkentseu::math::NkUniformForceField clothWind;
@@ -2339,6 +2343,14 @@ static NkTexHandle CreateLanternCubeCookie(NkTextureLibrary *texLib, NkIDevice *
 					if (f > 1.f) cfgVeh.fixedTimeStep = 1.f / f;
 					cfgVeh.maxSubSteps = 64; // sinon un pas plus fin est tronque par le garde-fou
 				}
+				// NK_VEHICLE_SUBSTEPS=<n> : sous-pas INTERNES par Step. Le vehicule ne voit
+				// que h = fixedTimeStep / subSteps : deux chemins menent au meme h, et
+				// c est ce qui permet de demander si le vrai parametre est la FREQUENCE
+				// d Advance ou le PAS vu par le vehicule.
+				if (const char *ss = std::getenv("NK_VEHICLE_SUBSTEPS"); ss && ss[0]) {
+					const int32 n = (int32)std::atoi(ss);
+					if (n > 1) cfgVeh.subSteps = n;
+				}
 				st->vehWorld = new NkPhysicsWorld(cfgVeh);
 				st->vehWorld->SetGravity({0.f, -9.81f, 0.f});
 				NkBodyDef sol;
@@ -2824,6 +2836,7 @@ static NkTexHandle CreateLanternCubeCookie(NkTextureLibrary *texLib, NkIDevice *
 				// la derive d'avant (cap +7,854 deg, lacet +0,004234 rad/s a t = 40 s).
 				const bool sansAlternance = [] { const char *e = std::getenv("NK_VEHICLE_NOALT"); return e && e[0] == '1'; }();
 				if (sansAlternance) st->veh->Tuning().alternateSweep = false;
+				if (const char *kk = std::getenv("NK_VEHICLE_KICK"); kk && kk[0]) st->vehKick = (float32)std::atof(kk);
 				// NK_VEHICLE_SYM=1 : ancres forcees EXACTEMENT symetriques (meme |x| par
 				// essieu, signes opposes). Isole les 1,5 um d'asymetrie que la cuisson du
 				// FBX laisse, TOUT LE RESTE identique -- ce que NK_VEHICLE_NOMODEL ne fait
@@ -5269,6 +5282,30 @@ static NkTexHandle CreateLanternCubeCookie(NkTextureLibrary *texLib, NkIDevice *
 									 dtc, st->vehCoastV0, v1, dtc, (st->vehCoastV0 - v1) / dtc, aPredite,
 									 aPredite > 1e-6f ? 100.f * (((st->vehCoastV0 - v1) / dtc) / aPredite - 1.f) : 0.f);
 					}
+					// ── LE COUP DE POUCE (NK_VEHICLE_KICK) ────────────────────────
+					// Un lacet CONNU, injecte UNE FOIS a t = 20,0 s. C est la seule facon
+					// de separer le germe de l amplificateur : meme germe a plusieurs pas,
+					// et on regarde s il decroit ou s il croit. Ce n est pas une touche
+					// simulee -- c est une condition initiale ecrite, comme le reste du
+					// scenario.
+					if (st->vehKick != 0.f && !st->vehKickFait && st->vehClock >= 20.f) {
+						st->vehKickFait = true;
+						auto *bk = st->vehWorld->GetBody(st->veh->Chassis());
+						bk->angularVelocity.y += st->vehKick;
+						std::fprintf(stderr, "[VEHICULE COUP] t=%.2f s : lacet %+.6f rad/s injecte une fois\n",
+									 st->vehClock, st->vehKick);
+					}
+					// LE RAPPORT DU BALAYAGE : ce qui RESTE sur ce qui ENTRAIT. On
+					// n echantillonne qu au-dessus de la vitesse plancher (0,05 m/s),
+					// sinon le gel du residuel fausserait le rapport.
+					for (uint32 wr = 0; wr < st->veh->WheelCount(); ++wr) {
+						const auto &wd2 = st->veh->Wheel(wr);
+						if (!wd2.grounded || std::fabs(wd2.slipLatPre) <= 0.05f) continue;
+						const float32 r = wd2.slipLat / wd2.slipLatPre;
+						++st->vehRatioN;
+						if (r < 0.f) ++st->vehDepasse;
+						if (std::fabs(r) > st->vehRatioMax) st->vehRatioMax = std::fabs(r);
+					}
 					st->vehSteer = steer;
 					st->vehThrottle = thr;
 					st->vehBrake = brk;
@@ -5350,6 +5387,17 @@ static NkTexHandle CreateLanternCubeCookie(NkTextureLibrary *texLib, NkIDevice *
 											 std::atan2(fw.x, fw.z) * 57.29578f, bb->angularVelocity.y, bb->position.x,
 											 bb->position.z, bb->position.x + 4.f, bb->position.z + 3.f,
 											 bb->position.z > 1.f ? 100.f * (bb->position.x + 4.f) / (bb->position.z + 3.f) : 0.f);
+							}
+							{
+								const auto &cfgv = st->vehWorld->Config();
+								const float32 hVeh = cfgv.fixedTimeStep / (float32)(cfgv.subSteps > 1 ? cfgv.subSteps : 1);
+								std::fprintf(stderr,
+											 "[VEHICULE BALAYAGE] pas fixe %.5f s / %d sous-pas -> h vu par le vehicule "
+											 "%.5f s (%.1f Hz) ; rapport |residuel / entrant| MAX %.4f sur %u echantillons ; "
+											 "depassements (signe inverse) %u (%.2f %%)\n",
+											 cfgv.fixedTimeStep, cfgv.subSteps, hVeh, hVeh > 1e-9f ? 1.f / hVeh : 0.f,
+											 st->vehRatioMax, (unsigned)st->vehRatioN, (unsigned)st->vehDepasse,
+											 st->vehRatioN ? 100.f * (float32)st->vehDepasse / (float32)st->vehRatioN : 0.f);
 							}
 							std::fprintf(stderr,
 										 "[VEHICULE DECOLLAGE] VERDICT : premiere perte de contact t=%.2f s v=%.3f m/s ; "
