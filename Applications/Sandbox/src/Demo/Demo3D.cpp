@@ -143,6 +143,18 @@ namespace nkentseu {
 				float32 vehRatioMax = 0.f;   // pire |slipLat / slipLatPre| du balayage
 				uint32 vehRatioN = 0, vehDepasse = 0; // echantillons, et ceux qui ont DEPASSE
 				float32 vehKick = 0.f;
+				// ── BANC 4 : LA TENUE EN COURBE (2026-09-13) ────────────────────────
+				// Un virage a vitesse CONSTANTE, rayon mesure contre rayon geometrique,
+				// et le point ou ca decroche. Tout se lit sur NkWheel, qui expose deja
+				// la charge (suspForce) et le glissement lateral : rien a ajouter a
+				// NKPhysics pour repondre.
+				float32 vehCible = 8.f, vehSteerFixe = 0.30f;
+				float64 vehOmSum = 0.0, vehVirVSum = 0.0, vehALatSum = 0.0;
+				float64 vehNextSum = 0.0, vehNintSum = 0.0;   // charges exterieure / interieure
+				float64 vehSlipAVSum = 0.0, vehSlipARSum = 0.0;
+				uint32 vehVirN = 0;
+				float32 vehOmMax = 0.f;
+				float32 vehVx0 = 1e30f, vehVx1 = -1e30f, vehVz0 = 1e30f, vehVz1 = -1e30f;
 				bool vehKickFait = false;
 				// sonde TISSU (NK_CLOTH_PROBE=1, 2026-09-05) : une nappe XPBD lachee sur une sphere, dans le vent
 				nkentseu::physics::NkCloth *cloth = nullptr;
@@ -2375,7 +2387,7 @@ static NkTexHandle CreateLanternCubeCookie(NkTextureLibrary *texLib, NkIDevice *
 				st->veh = new NkVehicle(*st->vehWorld);
 				st->vehBanc = [] {
 					const char *e = std::getenv("NK_VEHICLE_SCENARIO");
-					return (e && e[0] >= '1' && e[0] <= '3') ? (uint32)(e[0] - '0') : 0u;
+					return (e && e[0] >= '1' && e[0] <= '4') ? (uint32)(e[0] - '0') : 0u;
 				}();
 				st->vehScenario = st->vehBanc != 0u;
 				if (const char *cf = std::getenv("NK_VEHICLE_CAM"); cf && cf[0] == '0')
@@ -2837,6 +2849,8 @@ static NkTexHandle CreateLanternCubeCookie(NkTextureLibrary *texLib, NkIDevice *
 				const bool sansAlternance = [] { const char *e = std::getenv("NK_VEHICLE_NOALT"); return e && e[0] == '1'; }();
 				if (sansAlternance) st->veh->Tuning().alternateSweep = false;
 				if (const char *kk = std::getenv("NK_VEHICLE_KICK"); kk && kk[0]) st->vehKick = (float32)std::atof(kk);
+				if (const char *vc = std::getenv("NK_VEHICLE_VCIBLE"); vc && vc[0]) st->vehCible = (float32)std::atof(vc);
+				if (const char *sf = std::getenv("NK_VEHICLE_STEER"); sf && sf[0]) st->vehSteerFixe = (float32)std::atof(sf);
 				// NK_VEHICLE_SYM=1 : ancres forcees EXACTEMENT symetriques (meme |x| par
 				// essieu, signes opposes). Isole les 1,5 um d'asymetrie que la cuisson du
 				// FBX laisse, TOUT LE RESTE identique -- ce que NK_VEHICLE_NOMODEL ne fait
@@ -5178,6 +5192,41 @@ static NkTexHandle CreateLanternCubeCookie(NkTextureLibrary *texLib, NkIDevice *
 							st->vehVprec = v;
 							st->vehTprec = st->vehClock;
 						}
+					} else if (st->vehBanc == 4u) {
+						// ══ BANC 4 : VIRAGE A VITESSE CONSTANTE ═══════════════════
+						// 0-8 s : ligne droite, montee en vitesse. Ensuite : braquage
+						// CONSTANT, vitesse tenue par un regulateur PROPORTIONNEL ECRIT.
+						// Ce n'est pas une touche simulee : c'est une consigne calculee,
+						// comme les phases datees des autres bancs.
+						const float32 v = st->veh->ForwardSpeed();
+						const float32 err = st->vehCible - v;
+						thr = err > 0.f ? (err * 0.5f > 1.f ? 1.f : err * 0.5f) : 0.f;
+						brk = err < 0.f ? (-err * 0.5f > 1.f ? 1.f : -err * 0.5f) : 0.f;
+						steer = (st->vehClock >= 8.f) ? st->vehSteerFixe : 0.f;
+						if (st->vehClock >= 16.f) { // regime etabli
+							const float32 om = b0->angularVelocity.y;
+							st->vehOmSum += (float64)std::fabs(om);
+							st->vehVirVSum += (float64)v;
+							st->vehALatSum += (float64)(v * std::fabs(om)); // a_lat = v * omega
+							if (std::fabs(om) > st->vehOmMax) st->vehOmMax = std::fabs(om);
+							// Charges : en virage a DROITE (braquage > 0) l'exterieur est
+							// le cote GAUCHE, donc localPos.x < 0.
+							for (uint32 wv = 0; wv < st->veh->WheelCount(); ++wv) {
+								const auto &wq = st->veh->Wheel(wv);
+								const bool exterieur = (wq.localPos.x * st->vehSteerFixe) < 0.f;
+								if (exterieur) st->vehNextSum += (float64)wq.suspForce;
+								else st->vehNintSum += (float64)wq.suspForce;
+								if (wq.flags & nkentseu::physics::NkWheel::kSteered)
+									st->vehSlipAVSum += (float64)std::fabs(wq.slipLat);
+								else st->vehSlipARSum += (float64)std::fabs(wq.slipLat);
+							}
+							const NkVec3f pv = b0->position;
+							st->vehVx0 = pv.x < st->vehVx0 ? pv.x : st->vehVx0;
+							st->vehVx1 = pv.x > st->vehVx1 ? pv.x : st->vehVx1;
+							st->vehVz0 = pv.z < st->vehVz0 ? pv.z : st->vehVz0;
+							st->vehVz1 = pv.z > st->vehVz1 ? pv.z : st->vehVz1;
+							++st->vehVirN;
+						}
 					} else if (st->vehBanc == 3u) {
 						// ══ BANC 3 : LA MANOEUVRE SERREE (Ackermann) ══════════════
 						// 4 s pour prendre ~3 m/s, puis braquage a fond. On releve la
@@ -5405,6 +5454,41 @@ static NkTexHandle CreateLanternCubeCookie(NkTextureLibrary *texLib, NkIDevice *
 										 "(%.1f km/h) atteinte a t=%.2f s\n",
 										 st->vehPerteT, st->vehPerteV, st->vehDecolT, st->vehDecolV, st->vehVmaxSol,
 										 st->vehVmaxSol * 3.6f, st->vehVmaxSolT);
+						}
+						if (st->vehBanc == 4u && st->vehVirN) {
+							const float32 n = (float32)st->vehVirN;
+							const float32 om = (float32)(st->vehOmSum / (float64)st->vehVirN);
+							const float32 vm = (float32)(st->vehVirVSum / (float64)st->vehVirN);
+							const float32 aLat = (float32)(st->vehALatSum / (float64)st->vehVirN);
+							const float32 rOm = (om > 1e-6f) ? vm / om : 0.f;
+							const float32 dx = st->vehVx1 - st->vehVx0, dz = st->vehVz1 - st->vehVz0;
+							const float32 rBoite = 0.25f * (dx + dz);
+							const float32 delta = st->vehSteerFixe * st->veh->Tuning().maxSteerDeg / 57.29578f;
+							const float32 rGeo = (std::fabs(delta) > 1e-4f) ? 3.226f / std::tan(std::fabs(delta)) : 0.f;
+							const float32 aMax = st->veh->Tuning().mu * 9.81f;
+							const float32 next = (float32)(st->vehNextSum / (float64)st->vehVirN) * 0.5f; // 2 roues
+							const float32 nint = (float32)(st->vehNintSum / (float64)st->vehVirN) * 0.5f;
+							const float32 dTheo = 1200.f * aLat * 0.735f / 1.830f;
+							std::fprintf(stderr,
+										 "[VEHICULE VIRAGE] consigne : braquage %.2f (delta %.2f deg), vitesse cible %.2f m/s ; "
+										 "%u releves\n"
+										 "[VEHICULE VIRAGE] vitesse tenue %.3f m/s ; lacet moyen %.5f rad/s (max %.5f)\n"
+										 "[VEHICULE VIRAGE] RAYON : v/omega = %.3f m | boite = %.3f m | geometrique = %.3f m "
+										 "-> mesure/geometrique = %.4f (les deux estimations different de %.2f %%)\n"
+										 "[VEHICULE VIRAGE] ACCELERATION LATERALE %.4f m/s2 pour un plafond mu*g = %.4f m/s2 "
+										 "-> %.1f %% du budget ; vitesse limite sqrt(mu*g*R) = %.3f m/s\n"
+										 "[VEHICULE VIRAGE] CHARGES : exterieur %.1f N / interieur %.1f N -> ecart %.1f N, "
+										 "theorie m*a*h/voie = %.1f N (ecart %+.1f %%)\n"
+										 "[VEHICULE VIRAGE] GLISSEMENT RESIDUEL : avant %.5f m/s, arriere %.5f m/s -> %s\n",
+										 st->vehSteerFixe, delta * 57.29578f, st->vehCible, (unsigned)st->vehVirN, vm, om,
+										 st->vehOmMax, rOm, rBoite, rGeo, rGeo > 1e-3f ? rOm / rGeo : 0.f,
+										 rOm > 1e-3f ? 100.f * std::fabs(rBoite - rOm) / rOm : 0.f, aLat, aMax,
+										 aMax > 1e-6f ? 100.f * aLat / aMax : 0.f, std::sqrt(aMax * rOm), next, nint,
+										 next - nint, dTheo, dTheo > 1e-3f ? 100.f * ((next - nint) / dTheo - 1.f) : 0.f,
+										 (float32)(st->vehSlipAVSum / (float64)(st->vehVirN * 2u)),
+										 (float32)(st->vehSlipARSum / (float64)(st->vehVirN * 2u)),
+										 (st->vehSlipAVSum > st->vehSlipARSum * 1.2) ? "SOUS-VIRAGE"
+										 : (st->vehSlipARSum > st->vehSlipAVSum * 1.2) ? "SURVIRAGE" : "neutre");
 						}
 						if (st->vehBanc == 3u) {
 							const float32 dx = st->vehCx1 - st->vehCx0, dz = st->vehCz1 - st->vehCz0;
