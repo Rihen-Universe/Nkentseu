@@ -1157,7 +1157,9 @@ namespace nkentseu {
 				if (g_vp.orbiteSet)
 					NogeeViewport3DSetOrbit(g_vp.yaw, 22.f);
 				g_vp.idTemoin = id.Pack();
-				if (g_vp.selectionne)
+				// Le cube n'est preselectionne que s'il n'y a PAS d'echarde : quand il y
+				// en a une, c'est ELLE qu'on veut mesurer, et SEULE.
+				if (g_vp.selectionne && g_vp.echarde[0] == '\0')
 					sSel.Select(id); // mise en evidence mesurable, sans clic // la sonde de selection reconnait sa reponse
 				if (g_vp.controle)
 					NogeeViewport3DControle(true);
@@ -1323,6 +1325,16 @@ namespace nkentseu {
 				mce.meshPath = NkString(g_vp.echarde);
 				sWorld.Add<ecs::NkMeshComponent>(e, mce);
 				sWorld.Add<ecs::NkMaterialComponent>(e, ecs::NkMaterialComponent{});
+				// ── CE QU'UN VRAI DEPOT FAIT EN PLUS : IL SELECTIONNE ─────────
+				// `ViewportPanel::SpawnMeshFromAsset` se termine par `mSel->Select(id)`.
+				// C'est la DERNIERE difference entre le geste de Rodolf et mon essai,
+				// et elle n'est pas anodine : la selection alimente les passes de
+				// masque et de contour, et un lisere sur une primitive d'UN SEUL
+				// triangle n'a jamais ete mesure.
+				if (g_vp.selectionne) {
+					sSel.Select(e);
+					logger.Info("[Q13] ECHARDE SELECTIONNEE - comme apres un depot\n");
+				}
 				logger.Info("[Q12] entite ECHARDE creee a l'ORIGINE, comme un depot la poserait\n");
 			}
 
