@@ -155,6 +155,12 @@ namespace nkentseu {
 				uint32 vehVirN = 0;
 				float32 vehOmMax = 0.f;
 				float32 vehVx0 = 1e30f, vehVx1 = -1e30f, vehVz0 = 1e30f, vehVz1 = -1e30f;
+				float64 vehRoulisSum = 0.0; // dette de Q6 : l'angle de roulis, mesure et non suppose
+				float32 vehRoulisMax = 0.f;
+				// ── BANC 5 : LES PENTES (2026-09-13) ────────────────────────────────
+				float32 vehPente = 0.f;       // radians, > 0 = ca monte vers +Z
+				float32 vehPz0 = 0.f, vehPv0 = 0.f, vehPt0 = 0.f;
+				uint32 vehPhaseP = 0;
 				bool vehKickFait = false;
 				// sonde TISSU (NK_CLOTH_PROBE=1, 2026-09-05) : une nappe XPBD lachee sur une sphere, dans le vent
 				nkentseu::physics::NkCloth *cloth = nullptr;
@@ -2379,15 +2385,47 @@ static NkTexHandle CreateLanternCubeCookie(NkTextureLibrary *texLib, NkIDevice *
 				// 90 s a ~114 m/s demandent ~10 km ; on en met 20.
 				const float32 demiSol = [] {
 					const char *e = std::getenv("NK_VEHICLE_SCENARIO");
-					return (e && e[0] == '2') ? 20000.f : 200.f;
+					// ⚠️ Le banc 5 (pentes) roule EN LIGNE DROITE lui aussi : 15 s de plein
+					// gaz couvrent 203 m, donc il sortait d'un sol de 400 m exactement
+					// comme le banc 2 avant Q3 -- et ses phases « roue libre » mesuraient
+					// une CHUTE a 70 m/s. Le piege que j'avais nomme, retombe dedans sur
+					// un banc NEUF : la taille du sol suit le BANC, pas l'habitude.
+					// NK_VEHICLE_SOL=<demi-taille> : pour demander si un OBB GEANT est en
+					// cause quand la voiture est projetee a 15 km au premier contact.
+					if (const char *so = std::getenv("NK_VEHICLE_SOL"); so && so[0]) return (float32)std::atof(so);
+					return (e && (e[0] == '2' || e[0] == '5')) ? 20000.f : 200.f;
 				}();
-				st->vehWorld->CreateBody(sol, collision::NkShape::Box3D({0.f, -0.5f, 0.f}, {demiSol, 0.5f, demiSol}));
+				// NK_VEHICLE_PENTE=<degres> : le sol s'incline. Le contrat de CreateBody
+				// veut la forme en repere MONDE et la pose la tourne ensuite ; la normale
+				// du plan devient (0, cos, -sin) pour une rotation de -theta autour de X,
+				// donc +Z MONTE. On descend la caisse d'une demi-epaisseur LE LONG DE SA
+				// NORMALE pour que la face superieure passe exactement par l'origine.
+				if (const char *pe = std::getenv("NK_VEHICLE_PENTE"); pe && pe[0])
+					st->vehPente = (float32)std::atof(pe) / 57.29578f;
+				if (std::fabs(st->vehPente) > 1e-5f) {
+					const float32 c = std::cos(st->vehPente), sn = std::sin(st->vehPente);
+					sol.orientation = NkQuatf(NkAngle::FromRad(-st->vehPente), NkVec3f{1.f, 0.f, 0.f});
+					sol.position = {0.f, -0.5f * c, 0.5f * sn};
+				}
+				// ⚠️ LA FORME MONDE DOIT PORTER LA ROTATION ELLE-MEME.
+				// `CreateBody` recoit la forme en repere MONDE et en deduit la forme de
+				// REPOS en la ramenant par l'inverse de la pose ; a la simulation elle la
+				// retransforme (`s.orientation = q * rest.orientation`). Donner une forme
+				// SANS orientation avec un corps ORIENTE fait donc s'annuler les deux : le
+				// sol restait axe sur les axes, normale de contact (0, 1, 0), pente LUE
+				// 0,000 deg pour une consigne de 10. Le raycast, lui, honore bien
+				// l'orientation (NkRayOBB3D) -- le defaut etait dans MON appel, pas dans
+				// NKCollision. C'est le controle de normale qui l'a dit ; sans lui j'aurais
+				// publie des « mesures de pente » prises sur un sol plat.
+				collision::NkShape formeSol = collision::NkShape::Box3D(sol.position, {demiSol, 0.5f, demiSol});
+				formeSol.orientation = sol.orientation;
+				st->vehWorld->CreateBody(sol, formeSol);
 				std::fprintf(stderr, "[VEHICULE PISTE] sol %.0f x %.0f m (demi-taille %.0f m)\n", 2.f * demiSol,
 							 2.f * demiSol, demiSol);
 				st->veh = new NkVehicle(*st->vehWorld);
 				st->vehBanc = [] {
 					const char *e = std::getenv("NK_VEHICLE_SCENARIO");
-					return (e && e[0] >= '1' && e[0] <= '4') ? (uint32)(e[0] - '0') : 0u;
+					return (e && e[0] >= '1' && e[0] <= '5') ? (uint32)(e[0] - '0') : 0u;
 				}();
 				st->vehScenario = st->vehBanc != 0u;
 				if (const char *cf = std::getenv("NK_VEHICLE_CAM"); cf && cf[0] == '0')
@@ -2819,6 +2857,15 @@ static NkTexHandle CreateLanternCubeCookie(NkTextureLibrary *texLib, NkIDevice *
 								 ancre[0].x, ancre[1].x, sAR, ancre[2].x, ancre[3].x, sAV, dAR, dAV,
 								 ordreMiroir ? "MIROIR (gauche d'abord)" : "normal (droite d'abord)",
 								 geoMiroir ? "MIROITEE (x negatifs)" : "normale");
+				}
+				// Sur une pente, la caisse doit AUSSI etre inclinee : posee a plat elle
+				// tomberait du nez et rebondirait, et on mesurerait le rebond au lieu de
+				// la pente. SetChassisBox impose l'identite, on corrige juste apres.
+				if (std::fabs(st->vehPente) > 1e-5f) {
+					if (auto *bp = st->vehWorld->GetBody(st->veh->Chassis())) {
+						bp->orientation = NkQuatf(NkAngle::FromRad(-st->vehPente), NkVec3f{1.f, 0.f, 0.f});
+						bp->position = {startPos.x, startPos.y, startPos.z};
+					}
 				}
 				if (poseDepuisModele)
 					st->veh->Tuning().wheelRadius = st->vehPhysR;
@@ -5192,6 +5239,57 @@ static NkTexHandle CreateLanternCubeCookie(NkTextureLibrary *texLib, NkIDevice *
 							st->vehVprec = v;
 							st->vehTprec = st->vehClock;
 						}
+					} else if (st->vehBanc == 5u) {
+						// ══ BANC 5 : LES PENTES ═══════════════════════════════════
+						// Trois phases datees, aucune touche simulee :
+						//   0-15 s  plein gaz : MONTE-T-ELLE, et a quelle vitesse
+						//  15-25 s  RIEN : recule-t-elle, et de combien par seconde
+						//  25-35 s  FREIN A FOND : tient-elle, ou reptation
+						const float32 v = st->veh->ForwardSpeed();
+						// Quatre phases : la 3e existe pour que la 2e RENDE son verdict, et
+						// pour mesurer le recul DEPUIS L ARRET (le seul qui compte pour un
+						// demarrage en cote) plutot que depuis une vitesse residuelle.
+						uint32 ph = st->vehClock < 15.f ? 0u
+									: (st->vehClock < 25.f ? 1u : (st->vehClock < 35.f ? 2u : 3u));
+						steer = 0.f;
+						thr = (ph == 0u) ? 1.f : 0.f;
+						brk = (ph == 2u) ? 1.f : 0.f;
+						if (ph != st->vehPhaseP) {
+							static const char *kNom[4] = {"PLEIN GAZ", "RIEN (roue libre)", "FREIN A FOND",
+														  "RIEN, DEPUIS L ARRET"};
+							const float32 dz = b0->position.z - st->vehPz0;
+							std::fprintf(stderr,
+										 "[VEHICULE PENTE] fin de « %s » a t=%.2f s : v=%+.4f m/s, deplacement le long de "
+										 "la pente %+.4f m, vitesse moyenne %+.4f m/s\n",
+										 kNom[st->vehPhaseP], st->vehClock, v, dz / std::cos(st->vehPente),
+										 (st->vehClock - st->vehPt0) > 0.01f
+											 ? (dz / std::cos(st->vehPente)) / (st->vehClock - st->vehPt0)
+											 : 0.f);
+							st->vehPhaseP = ph;
+							st->vehPz0 = b0->position.z;
+							st->vehPv0 = v;
+							st->vehPt0 = st->vehClock;
+							// LA PENTE SE PROUVE PAR LA NORMALE DE CONTACT, pas par la
+							// variable qu'on a posee : sur theta degres elle doit valoir
+							// (0, cos, -sin). Sans ce controle, un sol reste plat en
+							// silence et tous les chiffres seraient ceux du plat.
+							{
+								uint32 auSolP = 0;
+								NkVec3f nMoy = {0.f, 0.f, 0.f};
+								for (uint32 wp = 0; wp < st->veh->WheelCount(); ++wp)
+									if (st->veh->Wheel(wp).grounded) {
+										nMoy = nMoy + st->veh->Wheel(wp).contactNormal;
+										++auSolP;
+									}
+								if (auSolP) nMoy = nMoy * (1.f / (float32)auSolP);
+								std::fprintf(stderr,
+											 "[VEHICULE PENTE] controle : %u roues au sol, normale de contact "
+											 "(%.4f, %.4f, %.4f) -> pente LUE %.3f deg, consigne %.3f deg\n",
+											 auSolP, nMoy.x, nMoy.y, nMoy.z,
+											 std::atan2(-nMoy.z, nMoy.y) * 57.29578f, st->vehPente * 57.29578f);
+							}
+							std::fprintf(stderr, "[VEHICULE PENTE] debut de « %s »\n", kNom[ph]);
+						}
 					} else if (st->vehBanc == 4u) {
 						// ══ BANC 4 : VIRAGE A VITESSE CONSTANTE ═══════════════════
 						// 0-8 s : ligne droite, montee en vitesse. Ensuite : braquage
@@ -5225,6 +5323,15 @@ static NkTexHandle CreateLanternCubeCookie(NkTextureLibrary *texLib, NkIDevice *
 							st->vehVx1 = pv.x > st->vehVx1 ? pv.x : st->vehVx1;
 							st->vehVz0 = pv.z < st->vehVz0 ? pv.z : st->vehVz0;
 							st->vehVz1 = pv.z > st->vehVz1 ? pv.z : st->vehVz1;
+							// LE ROULIS (dette de Q6). L'angle de roulis est l'inclinaison
+							// de l'axe DROIT du chassis par rapport a l'horizontale : si la
+							// caisse penche vers l'exterieur, cet axe pique. asin(right.y).
+							const float32 roulis = std::asin(b0->orientation.Right().y < -1.f
+																 ? -1.f
+																 : (b0->orientation.Right().y > 1.f ? 1.f
+																								   : b0->orientation.Right().y));
+							st->vehRoulisSum += (float64)std::fabs(roulis);
+							if (std::fabs(roulis) > st->vehRoulisMax) st->vehRoulisMax = std::fabs(roulis);
 							++st->vehVirN;
 						}
 					} else if (st->vehBanc == 3u) {
@@ -5489,6 +5596,20 @@ static NkTexHandle CreateLanternCubeCookie(NkTextureLibrary *texLib, NkIDevice *
 										 (float32)(st->vehSlipARSum / (float64)(st->vehVirN * 2u)),
 										 (st->vehSlipAVSum > st->vehSlipARSum * 1.2) ? "SOUS-VIRAGE"
 										 : (st->vehSlipARSum > st->vehSlipAVSum * 1.2) ? "SURVIRAGE" : "neutre");
+							// LE ROULIS : la dette de Q6. Le deport du centre de masse vaut
+							// h_cg * sin(roulis) ; le surcroit de transfert qu'il explique
+							// vaut m*g*deport/voie. On le compare a l'ecart observe.
+							const float32 roulisMoy = (float32)(st->vehRoulisSum / (float64)st->vehVirN);
+							const float32 deport = 0.735f * std::sin(roulisMoy);
+							const float32 dRoulis = 1200.f * 9.81f * deport / 1.830f;
+							std::fprintf(stderr,
+										 "[VEHICULE VIRAGE] ROULIS : %.4f deg moyen (max %.4f) -> deport du centre de masse "
+										 "%.5f m -> transfert supplementaire explique %.1f N, contre %.1f N d'ecart "
+										 "observe (%.0f %% de l'ecart)\n",
+										 roulisMoy * 57.29578f, st->vehRoulisMax * 57.29578f, deport, dRoulis,
+										 (next - nint) - dTheo,
+										 std::fabs((next - nint) - dTheo) > 1e-3f ? 100.f * dRoulis / ((next - nint) - dTheo)
+																				 : 0.f);
 						}
 						if (st->vehBanc == 3u) {
 							const float32 dx = st->vehCx1 - st->vehCx0, dz = st->vehCz1 - st->vehCz0;
