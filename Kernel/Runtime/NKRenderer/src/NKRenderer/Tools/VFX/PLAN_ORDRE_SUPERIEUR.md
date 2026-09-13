@@ -1057,3 +1057,105 @@ Changer l'un sans l'autre ferait **mentir le compteur en silence**, et il
 verdirait. Le débit devient donc **une constante nommée**, lue par la scène **et**
 par le comptage. C'est la seule façon que le calcul à la main ne puisse pas dériver
 de la scène qu'il juge.
+
+---
+
+## 16. LE RÉSULTAT DE (p) — MON ANNONCE TIENT SUR LES CHIFFRES, ET RATE SUR LA FRAGILITÉ
+
+### (p2) L'échelle, et la règle appliquée mécaniquement
+
+```
+facteur  débit K/s     Tmax     vmax  CFL max  sous-pas  ms/pas
+x 0.0          0.0    300.1    0.200    0.312         1    79.5
+x 1.0        900.0    571.7    3.222    2.806         4   107.5
+x 2.0       1800.0    733.6    4.158    3.573         4   113.3
+x 4.0       3600.0    992.3    5.293    4.676         6   139.6
+x 6.0       5400.0   1212.0    6.078    5.331         6   130.7
+x 8.0       7200.0   1406.1    6.694    5.882         7   148.9
+x12.0      10800.0   1770.5    7.677    6.661         8   160.5
+x16.0      14400.0   2090.4    8.443    7.281         9   180.4
+```
+
+`×6` rend `1212,0 K` (hors bande), `×8` rend `1406,1 K` (dedans). **RETENU : ×8,
+soit 7200 K/s.** La prédiction annonçait `×6` à `×12` : **elle tient**. Le linéaire
+aurait dit `×4,417` ; l'écart est le couplage poussée/transport, annoncé.
+
+### ⚠️ (p2-) LE CONTRÔLE NÉGATIF EST ROUGE, ET IL A TROUVÉ QUELQUE CHOSE
+
+À débit thermique **nul**, `Tmax = 300,1328 K` au lieu de `300,0000`. **Le seuil
+n'est pas déplacé.** Et le contrôle d'isolement tranche la cause :
+
+```
+avec source de masse (donc un écoulement)   vmax 0,200   Tmax 300,1328
+AUCUNE injection (donc AUCUN écoulement)    vmax 0,0000   Tmax 300,0000  EXACT
+```
+
+> **C'est la réserve écrite au § 13 AVANT (k1), et elle cesse d'être théorique.**
+> Le flux transporte `T` **comme une densité** : le bilan d'une cellule vaut
+> `−T·(div u)·dt`. Comme `div u` n'est nul qu'à `1e-5` près, **un écoulement suffit
+> à créer de la chaleur que personne n'a injectée** — ici `0,13 K`, soit `0,044 %`
+> de l'ambiante.
+
+⚠️ **Cela ne contredit PAS (k1)**, et la cohérence est instructive : le terme
+parasite est de **signe variable** et se compense presque dans l'intégrale, donc
+`H` reste juste à `1,6e-06` — pendant que `Tmax`, qui est un **maximum ponctuel**,
+en garde la trace. **C'est la démonstration expérimentale de la délimitation du
+§ 13 : `Tmax` n'est pas la chaleur.**
+
+### (p3) La masse et la chaleur restent exactes après re-réglage
+
+```
+CHALEUR, scène re-réglée (7200 K/s) :
+ANALYTIQUE (main)     9,229761858    —
+FLUX ordre 1          9,229775429    1,470e-06
+FLUX van Leer         9,229776382    1,574e-06
+SEMI-LAGRANGIEN      46,925403595    4,084e+00   x 5,084
+```
+
+Le comptage à la main **a suivi la scène** : c'est la dette de la constante nommée,
+payée et vérifiée.
+
+⚠️ **ET UN SEUIL QUI PASSE DE JUSTESSE, que je signale plutôt que d'en profiter** :
+le facteur du semi-lagrangien tombe de **8,720 à 5,084**, pour un seuil écrit à
+**5,0**. Il passe, mais de peu — et il aurait échoué à un débit plus élevé. **Je ne
+le déplace pas** ; je dis qu'il a été écrit pour l'ancienne scène et qu'il est
+désormais **marginal**. Observation associée, sans prétendre l'expliquer : plus la
+source est chaude, **moins** le semi-lagrangien fabrique proportionnellement.
+
+### ⚠️ (p1) LE COMPTE : 87 contrôles, 7 ROUGES — ET MON ANALYSE ÉTAIT FAUSSE
+
+**Ce qui tient :**
+
+| annoncé | mesuré |
+|---|---|
+| (a) masse → VERT | **VERT** (`+0,0000 %`) |
+| (v3) masse → VERT | **VERT** |
+| enstrophie `1,458000` inchangée | **`1,458000`** |
+| (d) `<= 0,081 cellule` | **`0,019`** |
+| (w2) `2,00 ± 0,02` | **`2,0015`** |
+| bande de ROUGES `5 à 7` | **7** |
+
+**Ce qui ne tient pas, et c'est le résultat à publier.** J'avais écrit : *« si un
+témoin que je n'ai pas nommé change de couleur, mon analyse était fausse ».*
+**Deux** ont changé, et **aucun des deux que j'avais nommés n'a bougé** :
+
+| témoin | ce que j'avais dit | ce qui s'est passé |
+|---|---|---|
+| **(2.1)** contraste | **à risque** | VERT, centre `223,14` |
+| **(3.5)** corps noir | **à risque** | VERT, `6 152 px` émissifs |
+| **(v6)** concentration | *non nommé* | **ROUGE** : `A 4,339 -> B 4,169`, `x 0,961` (seuil `1,050`) |
+| **GARDE de (a)** paroi | *non nommé* | **ROUGE** : masse paroi `2,130e-05` (seuil `1,512e-07`) |
+
+**Et la GARDE de (a) est un quatrième témoin HORS DE SON RÉGIME**, après (c1),
+(v4) et (2.1). Sa raison d'être était de vérifier que le vert de (a) n'était pas
+obtenu parce que le semi-lagrangien **détruisait** la fumée au contact de la paroi
+(mesuré `−100 %` le 05/09). Avec le schéma en flux, **aucun flux ne traverse une
+paroi** : toucher le mur est devenu **inoffensif**, et (a) lui-même le prouve en
+étant vert. Le garde protège donc contre un danger que le correctif a supprimé.
+**Je ne le touche pas** — je le nomme, et la décision revient à Rodolf.
+
+**(v6), lui, est un vrai résultat négatif** : avec un transport conservatif, le
+confinement de vorticité **ne concentre plus** la vorticité sur cette scène
+(`×0,961` au lieu de `×1,156`). Avec (v1) (`×0,49`, seuil `×2,00`), cela fait
+**deux témoins du confinement qui disent qu'il ne fait plus son travail** — et
+c'est un chantier, pas un détail.
