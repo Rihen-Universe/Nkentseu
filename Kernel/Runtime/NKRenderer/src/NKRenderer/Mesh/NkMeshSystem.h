@@ -146,6 +146,39 @@ namespace nkentseu {
 				NkMeshHandle GetCone(uint32 segs = 32);
 				NkMeshHandle GetCapsule(uint32 segs = 32);
 
+				// ── DEUX FAMILLES DE MAILLAGE QU'ON NE PEUT PAS CHARGER ──────────
+				// Decision de Rodolf (2026-09-13) : elles n'appellent pas la meme
+				// reponse, et le moteur les traitait pareil.
+				//
+				// FAMILLE 1, ce qui vient de L'UTILISATEUR (fichier absent, illisible,
+				// format non gere) : ca se SIGNALE. Pas de substitution muette.
+				// FAMILLE 2, ce qui vient de NOUS (un etat interne incoherent) : ca se
+				// REPARE. Le cas connu : une primitive perdait son identite a la
+				// sauvegarde, parce qu'elle n'est portee que par une poignee de
+				// processus, sans chemin. Une scene relue rendait donc un objet
+				// ELIGIBLE et JAMAIS SOUMIS — present dans l'arbre, invisible a
+				// l'ecran, et muet. D'ou ce schema de chemin reserve :
+				//     primitive://cube   primitive://sphere   primitive://plane ...
+				// `Import` le reconnait, donc une primitive se decrit par un CHEMIN
+				// et survit a tout aller-retour, sans que le format de scene ait a
+				// connaitre la notion de primitive.
+				static constexpr const char *kPrimitiveScheme = "primitive://";
+				// Rend la primitive nommee, ou une poignee invalide si le nom est
+				// inconnu (on ne devine pas : un nom inconnu est une erreur, pas un cube).
+				NkMeshHandle GetPrimitiveByName(const NkString &nom);
+				// Le chemin reserve d'une poignee SI c'est une primitive, nullptr sinon.
+				// Sert a l'ecriture : un hote peut demander « comment nommer ceci ».
+				const char *PrimitiveUriOf(NkMeshHandle h) const;
+
+				// ── LE MARQUEUR « MAILLAGE MANQUANT » (famille 1) ────────────────
+				// Un TETRAEDRE, jamais un cube : il doit etre impossible de le
+				// confondre avec un objet legitime. Le repli d'origine rendait
+				// `GetCube()`, ce qui faisait ressembler un asset casse a une scene
+				// normale. On garde le MERITE du repli — ne jamais planter sur un
+				// asset casse — en lui retirant son silence.
+				NkMeshHandle GetMissingMarker();
+				bool IsMissingMarker(NkMeshHandle h) const;
+
 				// Generateurs PARAMETRIQUES (menu Ajouter du modeleur) : un mesh
 				// NEUF par appel, l'appelant garde le handle. Solides FERMES.
 				NkMeshHandle CreateSphereMesh(uint32 stacks, uint32 slices);
@@ -195,6 +228,7 @@ namespace nkentseu {
 
 				// Cached primitives
 				NkMeshHandle mCube, mSphere, mIcosphere, mPlane, mQuad, mCylinder, mCone, mCapsule;
+				NkMeshHandle mMissingMarker; ///< tetraedre du maillage introuvable
 				bool mPrimitivesBuilt = false;
 
 				void BuildPrimitives();
