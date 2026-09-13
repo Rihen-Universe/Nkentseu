@@ -101,39 +101,28 @@ namespace nkentseu {
 		void ViewportPanel::OnUI(editorkit::NkEditorFrameContext &ec) {
 			NkGuiContext &ctx = ec.Ui();
 
-			Text(ctx, NogeeViewport3DReady()
-						  ? "Viewport — scene ECS rendue par NkRenderSystem (cible hors ecran partagee)."
-						  : "Viewport — rendu de scene indisponible : pile GPU non montee (voir le journal).");
-			if (mLastDropPath[0] != '\0') {
-				char line[300];
-				std::snprintf(line, sizeof(line), "Dernier asset recu : %s (%s)", mLastDropPath,
-							  mSpawnCount > 0 ? "entite instanciee, voir l'Outliner" : "livre, journal");
-				Text(ctx, line);
-			} else {
-				Text(ctx, mWorld ? "Glisser un MESH du Content Browser ici : il devient une entite (Outliner)."
-								 : "Glisser une carte du Content Browser ici : la livraison est journalisee.");
-			}
-
-			// ── La zone de depot occupe tout le reste, soumise comme un VRAI
-			// widget (ButtonBehavior pose lastItemId/lastItemRect — c'est ce que
-			// BeginDropTarget consomme). ───────────────────────────────────────
-			// ⚠️ PAS `AvailHeight()`, ET LA RAISON EST DANS LE KIT, PAS ICI.
-			// `AvailHeight()` rend la hauteur restante dans la REGION DE LAYOUT ;
-			// dans un cadre defilant celle-ci vaut DELIBEREMENT 1.0e6
-			// (NkGuiWidgets.cpp l.3801), parce que le contenu d'un panneau
-			// defilant n'est pas borne par ce qu'on en voit — c'est le rognage qui
-			// borne. Elle rendait donc 999936, ce qui est CORRECT pour du contenu
-			// qui coule et absurde pour dimensionner une cible de rendu.
-			// Ce qui MANQUAIT, c'etait la question inverse — « combien est
-			// reellement visible » — et personne ne pouvait la poser. Elle existe
-			// depuis aujourd'hui dans NKGui (`VisibleHeight`), ou elle sert a tous
-			// les panneaux, pas au seul viewport.
-			float32 h = ctx.VisibleHeight();
-			if (h < 40.f)
-				h = 40.f;
-			const NkRect zone = ctx.NextItemRect(-1.f, h);
+			// ── LA VUE EST LA ZONE DE REFERENCE, PAS UN ELEMENT DANS UN FLUX ──
+			// Calibre sur NK3DModeler (NkModelerUI.h, NkLayout::Compute) : chez lui
+			// tous les panneaux prennent une fraction bornee par un minimum, et
+			// `view` recoit LE RESTE — `view = {leftW, y, W - leftW - rightW, midH}`.
+			// La vue n'est pas un panneau parmi d'autres : c'est elle qui herite de
+			// l'espace que les autres n'ont pas reclame.
+			//
+			// Ici, la part du dock revient au shell ; ce que ce panneau controle,
+			// c'est ce qu'il fait de SON corps. Il le prend ENTIER (`VisibleRect`)
+			// au lieu d'empiler deux lignes de texte puis de prendre le reste —
+			// deux lignes qui coutaient ~52 px de hauteur d'image, mesure ci-dessous.
+			// Le texte n'est pas perdu : il redescend EN INCRUSTATION dans la vue,
+			// comme NK3DModeler dessine son ATH par-dessus sa scene. Une information
+			// n'a pas besoin de prendre de la place pour etre lisible.
+			const NkRect zone = ctx.VisibleRect();
 			const NkGuiId zoneId = ctx.GetId("vp_dropzone");
 			ctx.ButtonBehavior(zoneId, zone);
+			// La cible du glisser-deposer est le RECT REEL de la vue : le curseur de
+			// flux, lui, n'a plus servi a la poser. On le fait donc avancer a la
+			// main, sinon les elements suivants (l'incrustation) s'empileraient en
+			// haut du panneau au lieu de suivre la vue.
+			ctx.layout.prevItem = zone;
 
 			// Couleurs par JETONS de theme, jamais en dur (directive planches) :
 			// fond le plus sombre du theme pour une zone en retrait, texte grise.
@@ -153,6 +142,13 @@ namespace nkentseu {
 			const float32 vh = zone.h > 4096.f ? 4096.f : zone.h;
 			if (vw > 1.f && vh > 1.f)
 				NogeeViewport3DResize(static_cast<uint32>(vw), static_cast<uint32>(vh));
+			// L'ORIGINE DE LA VUE, DEPOSEE et non devinee. Sans elle, la souris
+			// arrive en coordonnees FENETRE alors que l'image vit dans ce
+			// rectangle-ci : un clic « au centre du cube » viserait un autre pixel,
+			// d'autant plus loin que les panneaux de gauche sont larges. Meme geste
+			// que NK3DModeler (`Demo3DHostSetView`, main.cpp l.1432).
+			NogeeViewport3DSetView(zone.x, zone.y, zone.w, zone.h,
+								   ctx.ItemHoverable(zone, zoneId));
 			const bool has3D = NogeeViewport3DReady();
 			if (has3D) {
 				ctx.DL().AddImage(kNogeeViewportTexId, zone, nkgui::NkVec2{0.f, 1.f}, nkgui::NkVec2{1.f, 0.f},
@@ -167,13 +163,26 @@ namespace nkentseu {
 				// NkRenderSystem peut soumettre, recompte par le pont avec le MEME
 				// predicat. Un viewport qui montre du noir et « 0 » ne ment pas ;
 				// un viewport qui montre du noir sans chiffre, si.
-				char t[160];
+				char t[220];
 				float32 yaw = 0.f, pitch = 0.f;
 				NogeeViewport3DGetOrbit(&yaw, &pitch);
-				std::snprintf(t, sizeof(t), "scene ECS : %d mesh soumis | camera %.0f/%.0f | image %d",
-							  (int)NogeeViewport3DDrawCount(), (double)yaw, (double)pitch,
-							  (int)NogeeViewport3DFrameCount());
+				std::snprintf(t, sizeof(t), "scene ECS : %d mesh soumis | camera %.0f/%.0f | vue %dx%d | image %d",
+							  (int)NogeeViewport3DDrawCount(), (double)yaw, (double)pitch, (int)zone.w,
+							  (int)zone.h, (int)NogeeViewport3DFrameCount());
 				TextAt(ctx, {zone.x + 10.f, zone.y + zone.h - 20.f}, t, ctx.theme.textDisabled);
+
+				// ── L'ATH, EN INCRUSTATION : il informe sans couter de surface ──
+				// C'est le geste de NK3DModeler, qui dessine ses reperes PAR-DESSUS
+				// sa scene plutot qu'au-dessus d'elle. Les deux lignes qui vivaient
+				// avant la vue lui prenaient ~52 px de hauteur ; ici elles n'en
+				// prennent aucune.
+				TextAt(ctx, {zone.x + 10.f, zone.y + 8.f},
+					   mLastDropPath[0] != '\0'
+						   ? (mSpawnCount > 0 ? "asset recu : entite instanciee (voir l'Outliner)"
+											  : "asset recu : livre et journalise")
+						   : (mWorld ? "Glisser un MESH du Content Browser dans la vue : il devient une entite."
+									 : "Glisser une carte du Content Browser dans la vue."),
+					   ctx.theme.textDisabled);
 			}
 
 			if (BeginDropTarget(ctx)) {

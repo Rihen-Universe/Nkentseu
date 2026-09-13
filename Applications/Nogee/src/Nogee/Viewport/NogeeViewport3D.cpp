@@ -95,6 +95,12 @@ namespace nkentseu {
 					uint32 triGraphe = 0; ///< triangles enregistres pendant graph->Execute
 					float64 lastNs = 0.0;
 
+					// Rectangle ECRAN de la vue, depose par le panneau chaque image.
+					// Sert a traduire la souris fenetre -> souris vue ; personne ne le
+					// devine, c'est le panneau qui le MESURE.
+					float32 vueX = 0.f, vueY = 0.f, vueW = 0.f, vueH = 0.f;
+					bool vueSurvol = false;
+
 					NkMeshHandle cube{};
 
 					// Controle positif interne (--viewport-controle) : un cube soumis
@@ -500,6 +506,26 @@ namespace nkentseu {
 			if (!texLib)
 				return;
 			b->RegisterTexture(kNogeeViewportTexId, texLib->GetRHIHandle(g.rt->GetColorResult()));
+		}
+
+		void NogeeViewport3DSetView(float32 offX, float32 offY, float32 w, float32 h, bool survol) {
+			g.vueX = offX;
+			g.vueY = offY;
+			g.vueW = w;
+			g.vueH = h;
+			g.vueSurvol = survol;
+		}
+
+		bool NogeeViewport3DMouseToView(float32 winX, float32 winY, float32 *outX, float32 *outY) {
+			const float32 x = winX - g.vueX;
+			const float32 y = winY - g.vueY;
+			if (outX)
+				*outX = x;
+			if (outY)
+				*outY = y;
+			// Le dedans est STRICT : un point sur le bord droit ou bas appartient
+			// deja au pixel suivant, qui n'est plus la vue.
+			return (g.vueW > 0.f && g.vueH > 0.f) && x >= 0.f && y >= 0.f && x < g.vueW && y < g.vueH;
 		}
 
 		void NogeeViewport3DOrbit(float32 dYawDeg, float32 dPitchDeg, float32 dZoom) {

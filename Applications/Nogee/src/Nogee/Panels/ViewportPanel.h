@@ -61,6 +61,15 @@ namespace nkentseu {
 
 				void OnUI(editorkit::NkEditorFrameContext &ec) override;
 
+				// Une vue 3D n'a PAS de contenu plus grand qu'elle : elle se
+				// redimensionne. Elle ne defile donc pas, et la gouttiere d'un
+				// ascenseur mangerait la surface de l'image — ce qui, pour un
+				// viewport, est exactement ce qu'on cherche a eviter.
+				// Cf. le drapeau du kit, NkEditorPanel::RemplitSonCorps.
+				bool RemplitSonCorps() const noexcept override {
+					return true;
+				}
+
 				// ── SONDE drag-drop (--dragdrop-test) ─────────────────────────────
 				void EnableProbe(bool on) noexcept {
 					mProbeEnabled = on;
