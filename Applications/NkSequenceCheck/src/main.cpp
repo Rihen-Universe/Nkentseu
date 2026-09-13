@@ -26,12 +26,38 @@
 //
 // Aucune fenêtre, aucune souris, aucun clavier : que des appels de fonctions.
 // =============================================================================
+// ⚠️ L'ORDRE DE CES INCLUSIONS N'EST PAS UN DETAIL DE STYLE — IL EST OBLIGATOIRE.
+//
+// `NkSequencer.h:50` ouvre `using namespace ecs;`. Tout en-tete compile APRES lui
+// voit donc `nkentseu::ecs::*` comme s'il etait dans `nkentseu`. Or Noge declare
+// `ecs::NkRect2D` (NkRenderComponents.h:68) et NKRHI declare `NkRect2D`
+// (NkTypes.h:455, un alias de `math::NkIntRect`). Resultat mesure le 2026-09-13,
+// en mettant Noge en premier :
+//
+//   NKRHI/Core/NkTypes.h:457:20: error: reference to 'NkRect2D' is ambiguous
+//     using NkScissor = NkRect2D;
+//     candidate : nkentseu::NkRect2D        (NkTypes.h:455)
+//     candidate : nkentseu::ecs::NkRect2D   (NkRenderComponents.h:68)
+//   NKRHI/Commands/NkICommandBuffer.h:46: idem, sur BeginRenderPass lui-meme
+//
+// LE DEFAUT N'EST PAS DANS CE FICHIER : c'est NKRHI qui cesse de compiler, dans
+// ses propres en-tetes, parce qu'un en-tete de Noge a ete lu avant lui. Un
+// en-tete public qui ouvre un `using namespace` empoisonne tout ce qui le suit.
+//
+// Mettre NKRHI et NKRenderer EN PREMIER est un CONTOURNEMENT, pas une correction.
+// La correction est de retirer `using namespace ecs;` de `NkSequencer.h` — elle
+// touche tout Noge, elle appartient a Rodolf, et elle est signalee au canal.
+#include "NKRHI/Core/NkDeviceFactory.h"
+#include "NKRenderer/Core/NkTextureLibrary.h"
+#include "NKRenderer/Tools/Offscreen/NkOffscreenTarget.h"
+
 #include "Noge/Sequencer/NkSequencer.h"
 #include "Noge/ECS/Components/Core/NkTransform.h"
 #include "NKECS/World/NkWorld.h"
 #include "NKMedia/Video/NkImageSequenceWriter.h"
 #include "NKFileSystem/NkFile.h"
 #include "NKFileSystem/NkDirectory.h"
+#include "NKMemory/NKMemory.h"
 
 #include <cstdio>
 
@@ -493,6 +519,164 @@ namespace {
 		Verdict("NEGATIF : sequence figee -> empreintes EGALES", lg1 && lg24 && f1h == f24h, d);
 	}
 
+	// =========================================================================
+	// f5 — LES MEMES 48 IMAGES, MAIS PEINTES PAR LE GPU
+	// =========================================================================
+	// Ce bloc ne remplace pas f3/f4, il se pose A COTE : deux chemins qui donnent
+	// le meme verdict valent mieux qu'un seul, et le chemin processeur tourne sur
+	// une machine sans carte graphique.
+	//
+	// ⚠️ CE QUE LE GPU FAIT ICI, EXACTEMENT : il EFFACE la cible avec une couleur
+	// DERIVEE DE LA POSE evaluee. Il ne dessine aucune geometrie, et c'est
+	// delibere — `NkOffscreenProbe` a etabli que l'effacement suffit a prouver
+	// qu'une passe s'execute et se relit, sur les quatre dorsaux. Ajouter un
+	// maillage melerait deux questions (le sequenceur pilote-t-il le rendu ? le
+	// pipeline compile-t-il ?) et un rouge ne dirait plus laquelle des deux a
+	// cede. La geometrie est l'etape suivante, pas celle-ci.
+	//
+	// Le chainage prouve reste entier, et il passe cette fois par la carte :
+	//   cles -> NkSequence::Evaluate -> pose ECS -> couleur -> GPU
+	//        -> ReadbackPixels -> NkImageSequenceWriter -> gpu_NNNN.png
+	void F5_LesImagesViennentDuGpu() {
+		std::printf("\nf5 — LES MEMES IMAGES, PEINTES PAR LE GPU (chemin hors ecran)\n");
+		std::printf("  attendu ECRIT AVANT LA MESURE :\n");
+		std::printf("     un NkIDevice SANS surface, une NkOffscreenTarget 320x180 avec readback\n");
+		std::printf("     48 fichiers gpu_0001.png .. gpu_0048.png, le premier PNG valide\n");
+		std::printf("     empreinte(gpu_0001) != empreinte(gpu_0024)\n");
+		std::printf("     negatif : sequence figee -> les deux empreintes EGALES\n");
+		std::printf("  Le GPU EFFACE avec une couleur derivee de la pose ; il ne dessine aucune\n");
+		std::printf("  geometrie. C'est le pilote temporel qu'on mesure, pas le pipeline.\n\n");
+
+		nkentseu::NkDeviceInitInfo di;
+		di.api = nkentseu::NkGraphicsApi::NK_GFX_API_OPENGL;
+		di.context.software.threading = true;
+		nkentseu::NkIDevice *dev = nkentseu::NkDeviceFactory::Create(di);
+		if (dev == nullptr || !dev->IsValid()) {
+			// ── NI VERT NI ROUGE ─────────────────────────────────────────────
+			// Une machine sans carte graphique ne doit pas faire rougir un banc
+			// qui mesure un sequenceur. On le dit, on ne compte pas, et le bilan
+			// reste lisible.
+			std::printf("  [IGN] aucun peripherique graphique — f5 n'est ni vert ni rouge.\n");
+			std::printf("        (le chemin processeur a deja rendu son verdict ci-dessus)\n");
+			if (dev)
+				nkentseu::NkDeviceFactory::Destroy(dev);
+			return;
+		}
+
+		char d[300];
+		nkentseu::renderer::NkTextureLibrary texlib;
+		if ((nkentseu::int32)texlib.Init(dev) < 0) {
+			Verdict("f5 la bibliotheque de textures s'initialise", false, "Init refuse");
+			nkentseu::NkDeviceFactory::Destroy(dev);
+			return;
+		}
+
+		nkentseu::renderer::NkOffscreenDesc od;
+		od.width = 320;
+		od.height = 180;
+		od.hasDepth = true;
+		od.readable = true;
+		od.readback = true;
+		od.name = "SequenceFilm";
+
+		nkentseu::renderer::NkOffscreenTarget cible;
+		if (!cible.Init(dev, &texlib, od) || !cible.IsValid()) {
+			Verdict("f5 la cible hors ecran s'initialise", false, "Init refuse");
+			texlib.Shutdown();
+			nkentseu::NkDeviceFactory::Destroy(dev);
+			return;
+		}
+		Verdict("f5 device + cible hors ecran, sans fenetre", true, "OpenGL, 320x180, readback");
+
+		const char *dossier = "Sortie_NkSequenceCheck_gpu";
+		const char *dossierFige = "Sortie_NkSequenceCheck_gpu_fige";
+		nkentseu::NkDirectory::CreateRecursive(dossier);
+		nkentseu::NkDirectory::CreateRecursive(dossierFige);
+
+		const usize octets = (usize)od.width * od.height * 4u;
+		uint8 *px = (uint8 *)nkentseu::memory::NkAlloc(octets);
+		if (px == nullptr) {
+			Verdict("f5 tampon de relecture", false, "allocation refusee");
+			cible.Shutdown();
+			texlib.Shutdown();
+			nkentseu::NkDeviceFactory::Destroy(dev);
+			return;
+		}
+
+		int ecrites[2] = {0, 0};
+		for (int passe = 0; passe < 2; ++passe) {
+			const bool fige = (passe == 1);
+			PorteScene porte;
+			Scene &sc = *porte;
+			BatirScene(sc);
+
+			nkentseu::media::NkImageSequenceWriter sw;
+			if (!sw.Open(fige ? dossierFige : dossier, "gpu", (nkentseu::int32)od.width, (nkentseu::int32)od.height,
+						 nkentseu::media::NkImageSeqFormat::PNG, 4))
+				break;
+
+			for (int i = 0; i < 48; ++i) {
+				const float32 t = fige ? 0.f : ((float32)i / 24.f);
+				sc.seq.Evaluate(t, sc.world);
+				const nkentseu::ecs::NkTransform *tr =
+					sc.world.Get<nkentseu::ecs::NkTransform>(sc.seq.tracks[0].entity);
+				const nkentseu::math::NkVec3f p =
+					tr ? tr->localPosition : nkentseu::math::NkVec3f(0.f, 0.f, 0.f);
+				// LA COULEUR EST LA POSE. x dans [-3,+3] -> rouge, y dans [0,2] ->
+				// vert. Lue dans le monde ECS APRES Evaluate, jamais recalculee a
+				// cote : meme verrou que le carre du chemin processeur. Sans ce
+				// lien, f5 passerait au vert sans rien prouver.
+				const float32 r = (p.x + 3.f) / 6.f;
+				const float32 g = p.y / 2.f;
+				nkentseu::NkICommandBuffer *cmd = dev->CreateCommandBuffer();
+				if (cmd == nullptr || !cmd->Begin())
+					break;
+				cible.BeginCapture(cmd, true, nkentseu::math::NkVec4f(r, g, 0.35f, 1.f), true);
+				cible.EndCapture(cmd);
+				cmd->End();
+				dev->Submit(&cmd, 1);
+				dev->WaitIdle();
+				if (!cible.ReadbackPixels(px, od.width * 4u))
+					break;
+				if (sw.WriteFrame(px, nkentseu::media::NkVideoInputFormat::RGBA32))
+					ecrites[passe]++;
+			}
+			sw.Close();
+		}
+
+		std::snprintf(d, sizeof(d), "attendu 48  ecrites %d", ecrites[0]);
+		Verdict("f5 48 images rendues par le GPU", ecrites[0] == 48, d);
+
+		const int surDisque = CompterFichiers(dossier, "gpu", 60);
+		std::snprintf(d, sizeof(d), "attendu 48  trouvees %d", surDisque);
+		Verdict("f5 48 fichiers NON VIDES sur le disque", surDisque == 48, d);
+
+		char c1[512], c24[512];
+		std::snprintf(c1, sizeof(c1), "%s/gpu_0001.png", dossier);
+		std::snprintf(c24, sizeof(c24), "%s/gpu_0024.png", dossier);
+		Verdict("f5 gpu_0001.png porte la signature PNG", EstUnPNG(c1), "8 octets d'en-tete");
+
+		nkentseu::uint64 h1 = 0, h24 = 0, t1 = 0, t24 = 0;
+		const bool lu = EmpreinteFichier(c1, h1, t1) && EmpreinteFichier(c24, h24, t24);
+		std::snprintf(d, sizeof(d), "0x%016llx (%llu o) vs 0x%016llx (%llu o)", (unsigned long long)h1,
+					  (unsigned long long)t1, (unsigned long long)h24, (unsigned long long)t24);
+		Verdict("f5 gpu_0001 DIFFERE de gpu_0024", lu && h1 != h24, d);
+
+		char g1[512], g24[512];
+		std::snprintf(g1, sizeof(g1), "%s/gpu_0001.png", dossierFige);
+		std::snprintf(g24, sizeof(g24), "%s/gpu_0024.png", dossierFige);
+		nkentseu::uint64 f1h = 0, f24h = 0, f1t = 0, f24t = 0;
+		const bool lug = EmpreinteFichier(g1, f1h, f1t) && EmpreinteFichier(g24, f24h, f24t);
+		std::snprintf(d, sizeof(d), "%d images figees, 0x%016llx vs 0x%016llx", ecrites[1], (unsigned long long)f1h,
+					  (unsigned long long)f24h);
+		Verdict("f5 NEGATIF : sequence figee -> empreintes EGALES", lug && f1h == f24h, d);
+
+		nkentseu::memory::NkFree(px);
+		cible.Shutdown();
+		texlib.Shutdown();
+		nkentseu::NkDeviceFactory::Destroy(dev);
+	}
+
 } // namespace
 
 int main() {
@@ -506,9 +690,16 @@ int main() {
 	std::printf(" *** SONDE DE MESURE - CETTE FENETRE N'EST PAS LE PRODUIT ***\n");
 	std::printf(" NkSequenceCheck — le sequenceur de Noge : des cles entrent, des images sortent\n");
 	std::printf("-----------------------------------------------------------------------------\n");
-	std::printf(" Les pixels sont PEINTS PAR LE PROCESSEUR, pas rendus par NKRenderer.\n");
-	std::printf(" Ce banc prouve le PILOTE TEMPOREL (cles -> pose ECS -> pixels -> fichiers),\n");
-	std::printf(" pas le moteur de rendu. Le rendu hors ecran est une question separee.\n");
+	std::printf(" DEUX CHEMINS, VOLONTAIREMENT GARDES COTE A COTE :\n");
+	std::printf("   f1-f4 : les pixels sont PEINTS PAR LE PROCESSEUR. Aucun GPU requis — ce\n");
+	std::printf("           chemin tourne sur une machine sans carte graphique.\n");
+	std::printf("   f5    : les MEMES images, effacees par le GPU via NkOffscreenTarget, sans\n");
+	std::printf("           fenetre. Si aucun peripherique n'est disponible, f5 est IGNORE —\n");
+	std::printf("           ni vert ni rouge, et le bilan le dit.\n");
+	std::printf(" Dans les deux cas la couleur/position vient de la POSE lue dans le monde ECS\n");
+	std::printf(" APRES Evaluate. Sans ce lien, les criteres passeraient au vert sans rien\n");
+	std::printf(" prouver. Aucun des deux chemins ne dessine de geometrie : c'est le PILOTE\n");
+	std::printf(" TEMPOREL qu'on mesure, pas le pipeline de rendu.\n");
 	std::printf("=============================================================================\n");
 
 	// La taille qui a fait deborder la pile, MESUREE et affichee. La premiere
@@ -523,6 +714,7 @@ int main() {
 	F1_ClesEtRelecture();
 	F2_LeTempsChangeLaPose();
 	F3F4_LesImagesSurLeDisque();
+	F5_LesImagesViennentDuGpu();
 
 	std::printf("\n-----------------------------------------------------------------------------\n");
 	std::printf(" BILAN : %d verts, %d rouges\n", gPass, gFail);

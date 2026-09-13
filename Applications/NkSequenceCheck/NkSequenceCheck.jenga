@@ -44,7 +44,16 @@ with project("NkSequenceCheck"):
          "NKAudio", "NKNetwork", "NKSerialization", "NKFileSystem",
          "NKMedia", "NKFont", "NKImage", "NKStream", "NKGlad",
          "NKECS", "NKUI", "NKEvent", "NKWindow", "NKMath", "NKTime", "NKLogger",
-         "NKContainers", "NKMemory", "NKCore", "NKPlatform", "NKThreading"],
+         "NKContainers", "NKMemory", "NKCore", "NKPlatform", "NKThreading",
+         # ⚠️ AJOUTES POUR f5, ET PREVUS AVANT DE CONSTRUIRE. Tant que le banc
+         # n'appelait AUCUN symbole de NKRenderer, le linker ne tirait pas
+         # NkGLSLCompiler.obj hors de NKSL.lib, et ces deux-la etaient inutiles :
+         # 43/43 passait sans eux. Des que f5 utilise NkOffscreenTarget, l'objet
+         # est tire et reclame glslang. Le journal, lui, accuse d'abord libstdc++
+         # sur trente ecrans (« duplicate section ... has different size ») avant
+         # de nommer la vraie cause tout en bas. Mesure sur NkOffscreenProbe le
+         # 2026-09-13 : Status FAILURE 23/24 -- et code de sortie 0.
+         "NKGLSlang", "NKSPIRVCross"],
         extra_includes=["src", "%{Noge.location}/src"]
                        + ([VULKAN_INCLUDE] if VULKAN_INCLUDE else []),
     )
