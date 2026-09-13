@@ -258,6 +258,41 @@ namespace nkentseu {
 				}
 				if (mVoxelAO && mRender3D)
 					mRender3D->SetVoxelAO(mVoxelAO.Get());
+
+				// ── LES REFLETS SUIVENT LE CHARGEMENT DU CIEL (2026-09-13) ──────
+				// Decision de Rodolf, et elle repare un defaut MESURE : `mIBLUseEnv`
+				// etait faux par defaut et son unique appelant de tout le depot etait
+				// NK3DModeler. Demo4 et Demo5 recevaient `piazza_bologni_1k.hdr`
+				// precisement pour que « les spheres metalliques refletent
+				// l'environnement » -- l'HDRI se chargeait, se convoluait, se mettait
+				// en cache, et n'etait JAMAIS echantillonnee. Mesure du 13/09 : deux
+				// HDR aussi opposes qu'une cour ensoleillee et un loft sombre
+				// rendaient une image IDENTIQUE AU BIT.
+				//
+				// ⚠️ C'EST LE CHARGEMENT QUI DECIDE, PAS L'INTENTION. On ne lit pas
+				// `mCfg.ibl.useHDR` (une demande, qui peut echouer et retomber sur le
+				// degrade) mais `HasImageEnvironment()` (un fait). Et surtout PAS la
+				// validite des cubemaps : le ciel procedural de repli est toujours
+				// genere, donc elle repondrait « oui » en permanence -- c'est ce
+				// raisonnement-la qui avait ete ecarte a l'origine, a juste titre.
+				//
+				// 🚪 LA SORTIE DE SECOURS S'APPELLE **`NK_IBL_ENV=0`**. Elle force
+				// l'ambiance uniforme malgre un ciel charge, et c'est la seule facon
+				// de retrouver l'image d'avant sans toucher au code. Elle vit ici et
+				// non dans la configuration parce qu'elle sert a COMPARER deux
+				// courses du MEME binaire. L'appel public
+				// `NkRender3D::SetIBLUseEnv(false)` reste disponible a tout moment
+				// apres l'initialisation pour une application qui veut decider
+				// elle-meme.
+				if (mRender3D && mEnvironment) {
+					const bool charge = mEnvironment->HasImageEnvironment();
+					const char *secours = getenv("NK_IBL_ENV");
+					const bool force0 = (secours != nullptr && secours[0] == '0');
+					mRender3D->SetIBLUseEnv(charge && !force0);
+					logger.Info("[NkRendererImpl] ambiance depuis l'environnement : {0} "
+								"(ciel en image charge = {1}, NK_IBL_ENV=0 = {2})\n",
+								(charge && !force0) ? "OUI" : "non", charge ? 1 : 0, force0 ? 1 : 0);
+				}
 			}
 
 			if (mCfg.Has(NK_SS_TEXT)) {
