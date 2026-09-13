@@ -1807,3 +1807,10 @@ with workspace("Nkentseu", location="."):
     # contient pas son outil.
     with include("Applications/UnkenyEditor/UnkenyEditor.jenga"):
         pass
+
+    # Banc du sequenceur de Noge : des cles entrent, des images PNG numerotees
+    # sortent. Sans fenetre et sans GPU -- les pixels sont peints par le
+    # processeur. Il prouve le pilote temporel (cles -> pose ECS -> fichiers),
+    # PAS le moteur de rendu, qui est une question separee.
+    with include("Applications/NkSequenceCheck/NkSequenceCheck.jenga"):
+        pass
