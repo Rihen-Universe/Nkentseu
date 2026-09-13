@@ -52,6 +52,7 @@
 #include "NKRenderer/Shader/NkShaderLibrary.h"
 #include "NKRenderer/Tools/Offscreen/NkOffscreenTarget.h"
 #include "NKAnima/Clip/NkClipRegistry.h" // f8 : rendre clipHandle resoluble
+#include "Noge/ECS/Components/Rendering/NkCamera.h" // f9 : la piste camera
 
 #include "Noge/Sequencer/NkSequencer.h"
 #include "Noge/ECS/Components/Core/NkTransform.h"
@@ -1325,6 +1326,335 @@ void main() {
 		Verdict("f8 le registre DESIGNE, il ne possede pas", reg.Count() == 0u && clipIntact, d);
 	}
 
+	// =========================================================================
+	// f9 — LA CAMERA : ce qui fait qu'une suite d'images devient un FILM
+	// =========================================================================
+	// Trois criteres, et le deuxieme est celui qui compte :
+	//
+	//   (c1) une piste deplace la camera au cours de la sequence
+	//   (c2) ET CA SE VOIT dans les 48 images — l'objet, lui, NE BOUGE PAS
+	//   (c3) un plan (NkCameraShot) en remplace un autre A L'INSTANT DIT
+	//
+	// ⚠️ (c2) EXISTE PARCE QUE (c1) NE PROUVE RIEN TOUT SEUL. Qu'une valeur de
+	// position change dans un composant ECS ne dit pas que le rendu l'a suivie —
+	// c'est le meme piege que « le pipeline est valide donc il peint ». On exige
+	// donc que la SURFACE COUVERTE par l'objet varie alors que l'objet est
+	// immobile : seul un deplacement de camera peut produire ca.
+	//
+	// ── LA PROJECTION, ET POURQUOI ELLE EST ORTHOGRAPHIQUE ───────────────────
+	// Une camera orthographique donne un attendu CALCULABLE a la main :
+	//
+	//     ndc.x = (monde.x - cam.x) / (orthoSize * aspect)
+	//     ndc.y = (monde.y - cam.y) / orthoSize
+	//
+	// Une perspective exigerait une tolerance, et une tolerance cache exactement
+	// ce qu'on cherche. La perspective viendra avec une vraie scene ; ici on
+	// mesure si la camera pilote le rendu, pas si la projection est jolie.
+	//
+	// Surface attendue, objet de demi-cote 1 unite monde, cible 320x180 :
+	//     demi-largeur NDC = 1 / (ortho * aspect)   -> x 160 px  (2 NDC = 320 px)
+	//     demi-hauteur NDC = 1 / ortho              -> x  90 px  (2 NDC = 180 px)
+	//   ortho = 2, aspect = 320/180 = 1,7778 -> 45 x 45 px de demi -> 90 x 90 = 8100 px
+	//   ortho = 1                             -> 90 x 90 px de demi -> 180 x 180 = 32400 px
+	//                                            (borne par la hauteur de la cible)
+
+	struct CamOrtho {
+			float32 x = 0.f, y = 0.f;
+			float32 ortho = 2.f;
+			float32 aspect = 320.f / 180.f;
+	};
+
+	void F9_LaCamera() {
+		std::printf("\nf9 — LA CAMERA : une suite d'images devient un FILM\n");
+		std::printf("  attendu ECRIT AVANT LA MESURE :\n");
+		std::printf("     objet FIXE : quad de demi-cote 1 unite monde, centre en (0, 0)\n");
+		std::printf("     cam1 : orthoSize 2, x anime de 0 a 4 en 1 s -> l'objet sort par la gauche\n");
+		std::printf("     cam2 : orthoSize 1, x = 0 (plan large -> l'objet remplit l'ecran)\n");
+		std::printf("     plans : cam1 de 0 a 1 s, cam2 de 1 a 2 s -> COUPE a t = 1 s\n");
+		std::printf("     c1 : x(cam1) a t=0 -> 0,000 ; a t=1 s -> 4,000 ; ecart 4,000\n");
+		std::printf("     c2 : surface img1 = 8100 px (90x90) ; img24 < 4000 ; l'objet IMMOBILE\n");
+		std::printf("     c3 : la coupe tombe entre img24 (t=0,958 s) et img25 (t=1,000 s)\n");
+		std::printf("          img25 = 32400 px (180x180) -> ecart FRANC, pas « quelque part »\n");
+		std::printf("     negatifs : sequence figee -> camera identique AU BIT, surface CONSTANTE\n");
+		std::printf("     CONTROLE d'abord : la scene SANS objet compte EXACTEMENT 0\n\n");
+
+		nkentseu::NkDeviceInitInfo di;
+		di.api = nkentseu::NkGraphicsApi::NK_GFX_API_OPENGL;
+		di.context.software.threading = true;
+		nkentseu::NkIDevice *dev = nkentseu::NkDeviceFactory::Create(di);
+		if (dev == nullptr || !dev->IsValid()) {
+			std::printf("  [IGN] aucun peripherique graphique — f9 n'est ni vert ni rouge.\n");
+			if (dev)
+				nkentseu::NkDeviceFactory::Destroy(dev);
+			return;
+		}
+
+		char d[320];
+		const uint32 W = 320, H = 180;
+		nkentseu::renderer::NkTextureLibrary texlib;
+		nkentseu::renderer::NkShaderLibrary shaders;
+		nkentseu::renderer::NkOffscreenTarget cible;
+		bool monte = ((nkentseu::int32)texlib.Init(dev, nullptr) >= 0) &&
+					 shaders.Init(dev, dev->GetApi(), /*useNkSL=*/true);
+
+		nkentseu::renderer::NkOffscreenDesc od;
+		od.width = W;
+		od.height = H;
+		od.hasDepth = false;
+		od.colorFmt = nkentseu::NkGPUFormat::NK_RGBA8_UNORM;
+		od.readable = true;
+		od.readback = true;
+		od.name = "SequenceCamera";
+		monte = monte && cible.Init(dev, &texlib, od) && cible.IsValid();
+
+		nkentseu::NkBufferHandle vbo;
+		nkentseu::NkPipelineHandle pipe;
+		if (monte) {
+			vbo = dev->CreateBuffer(nkentseu::NkBufferDesc::VertexDynamic(6 * sizeof(SommetQuad)));
+			nkentseu::NkShaderHandle prog =
+				shaders.CompileVF(nkentseu::NkString(kVS), nkentseu::NkString(kFS), nkentseu::NkString("CameraQuad"));
+			nkentseu::NkShaderHandle rhi = shaders.GetRHIHandle(prog);
+			if (vbo.IsValid() && rhi.IsValid()) {
+				nkentseu::NkGraphicsPipelineDesc pd;
+				pd.shader = rhi;
+				pd.vertexLayout.AddBinding(0, (uint32)sizeof(SommetQuad))
+					.AddAttribute(0, 0, nkentseu::NkGPUFormat::NK_RGB32_FLOAT, 0, "POSITION", 0);
+				pd.rasterizer.cullMode = nkentseu::NkCullMode::NK_NONE;
+				pd.depthStencil = nkentseu::NkDepthStencilDesc::NoDepth();
+				pd.renderPass = cible.GetRP();
+				pd.debugName = "CameraQuad";
+				pipe = dev->CreateGraphicsPipeline(pd);
+			}
+		}
+		if (!monte || !pipe.IsValid()) {
+			Verdict("f9 device + nuanceurs + cible + pipeline", false, "montage refuse");
+			cible.Shutdown();
+			shaders.Shutdown();
+			texlib.Shutdown();
+			nkentseu::NkDeviceFactory::Destroy(dev);
+			return;
+		}
+		Verdict("f9 device + nuanceurs + cible + pipeline", true, "OpenGL, 320x180, UNORM");
+
+		uint8 *px = (uint8 *)nkentseu::memory::NkAlloc((usize)W * H * 4u);
+		if (px == nullptr) {
+			Verdict("f9 tampon de relecture", false, "allocation refusee");
+			dev->DestroyPipeline(pipe);
+			cible.Shutdown();
+			shaders.Shutdown();
+			texlib.Shutdown();
+			nkentseu::NkDeviceFactory::Destroy(dev);
+			return;
+		}
+
+		// L'objet est FIXE dans le monde. Seule la camera bouge — c'est toute la
+		// difference entre f6 et f9, et c'est ce qui rend (c2) concluant.
+		const float32 objX = 0.f, objY = 0.f, objDemi = 1.f;
+
+		auto RendreVue = [&](const CamOrtho &cam, bool avecObjet) -> bool {
+			if (avecObjet) {
+				const float32 hx = objDemi / (cam.ortho * cam.aspect);
+				const float32 hy = objDemi / cam.ortho;
+				const float32 cx = (objX - cam.x) / (cam.ortho * cam.aspect);
+				const float32 cy = (objY - cam.y) / cam.ortho;
+				const SommetQuad s[6] = {
+					{{cx - hx, cy - hy, 0.f}}, {{cx + hx, cy - hy, 0.f}}, {{cx + hx, cy + hy, 0.f}},
+					{{cx - hx, cy - hy, 0.f}}, {{cx + hx, cy + hy, 0.f}}, {{cx - hx, cy + hy, 0.f}},
+				};
+				dev->WriteBuffer(vbo, s, sizeof(s));
+			}
+			nkentseu::NkICommandBuffer *cmd = dev->CreateCommandBuffer();
+			if (cmd == nullptr || !cmd->Begin())
+				return false;
+			cible.BeginCapture(cmd, true, nkentseu::math::NkVec4f(1.f, 0.f, 1.f, 1.f), false);
+			if (avecObjet) {
+				cmd->BindGraphicsPipeline(pipe);
+				cmd->BindVertexBuffer(0, vbo);
+				cmd->Draw(6);
+			}
+			cible.EndCapture(cmd);
+			cmd->End();
+			dev->Submit(&cmd, 1);
+			dev->WaitIdle();
+			for (usize i = 0; i < (usize)W * H * 4u; ++i)
+				px[i] = 0;
+			return cible.ReadbackPixels(px, W * 4u);
+		};
+
+		// ── LE CONTROLE, REFAIT POUR CETTE SERIE ─────────────────────────────
+		// La scene a change, le bruit de fond aussi : un zero prouve pour f6 ne
+		// vaut pas pour f9.
+		CamOrtho vide;
+		const bool luVide = RendreVue(vide, false);
+		const uint32 nVide = luVide ? ComptePixelsObjet(px, W, H) : 0xFFFFFFFFu;
+		std::snprintf(d, sizeof(d), "attendu 0 EXACT  mesure %u sur %u", (unsigned)nVide, (unsigned)(W * H));
+		Verdict("f9 CONTROLE : la scene SANS objet compte 0", luVide && nVide == 0u, d);
+		if (!luVide || nVide != 0u) {
+			std::printf("       ⚠️ LE COMPTEUR MESURE AUTRE CHOSE. On s'arrete ici.\n");
+			nkentseu::memory::NkFree(px);
+			dev->DestroyPipeline(pipe);
+			cible.Shutdown();
+			shaders.Shutdown();
+			texlib.Shutdown();
+			nkentseu::NkDeviceFactory::Destroy(dev);
+			return;
+		}
+
+		// ── LA SCENE : deux cameras, une piste qui deplace la premiere ───────
+		PorteScene porte;
+		Scene &sc = *porte;
+		const nkentseu::NkEntityId cam1 = sc.world.CreateEntity();
+		sc.world.Add<nkentseu::ecs::NkTransform>(cam1, nkentseu::ecs::NkTransform{});
+		nkentseu::ecs::NkCamera c1{};
+		c1.orthographicSize = 2.f;
+		c1.aspectRatio = (float32)W / (float32)H;
+		sc.world.Add<nkentseu::ecs::NkCamera>(cam1, c1);
+
+		const nkentseu::NkEntityId cam2 = sc.world.CreateEntity();
+		sc.world.Add<nkentseu::ecs::NkTransform>(cam2, nkentseu::ecs::NkTransform{});
+		nkentseu::ecs::NkCamera c2{};
+		c2.orthographicSize = 1.f; // plan LARGE : l'objet remplit l'ecran
+		c2.aspectRatio = (float32)W / (float32)H;
+		sc.world.Add<nkentseu::ecs::NkCamera>(cam2, c2);
+
+		// La piste qui DEPLACE cam1. C'est une piste Transform ordinaire : le
+		// mouvement d'une camera n'est pas un mecanisme a part, et c'est tant
+		// mieux — `NkCameraTrack` dit QUELLE camera regarde, pas OU elle va.
+		sc.seq.name = "PlanSequence";
+		sc.seq.fps = 24.f;
+		sc.seq.AddTrack(cam1, nkentseu::NkTrackType::Transform, "cam1");
+		sc.seq.tracks[0].AddChannel("localPosition.x");
+		sc.seq.tracks[0].channels[0].AddKey(0.f, 0.f, nkentseu::NkInterpolation::Linear);
+		sc.seq.tracks[0].channels[0].AddKey(1.f, 4.f, nkentseu::NkInterpolation::Linear);
+		sc.seq.tracks[0].channels[0].AddKey(2.f, 4.f, nkentseu::NkInterpolation::Linear);
+
+		sc.seq.cameraTrack.AddShot(cam1, 0.f, 1.f, nkentseu::NkCutType::Cut);
+		sc.seq.cameraTrack.AddShot(cam2, 1.f, 1.f, nkentseu::NkCutType::Cut);
+		sc.seq.RecalcDuration();
+
+		// ── (c1) LA CAMERA BOUGE ─────────────────────────────────────────────
+		sc.seq.Evaluate(0.f, sc.world);
+		const nkentseu::ecs::NkTransform *t1 = sc.world.Get<nkentseu::ecs::NkTransform>(cam1);
+		const float32 x0 = t1 ? t1->localPosition.x : -999.f;
+		sc.seq.Evaluate(1.f, sc.world);
+		const float32 x1 = t1 ? t1->localPosition.x : -999.f;
+		std::snprintf(d, sizeof(d), "attendu 0,000 -> 4,000  mesure %.3f -> %.3f", (double)x0, (double)x1);
+		Verdict("f9 (c1) la piste DEPLACE la camera", Proche(x0, 0.f, 1e-4f) && Proche(x1, 4.f, 1e-4f), d);
+
+		// Negatif de (c1) : a vitesse nulle, la camera ne bouge pas d'un bit.
+		nkentseu::NkPlaybackCtrl ctrl;
+		ctrl.time = 0.6f;
+		ctrl.speed = 0.f;
+		ctrl.Play();
+		sc.seq.Evaluate(ctrl.time, sc.world);
+		const nkentseu::math::NkVec3f avant = t1->localPosition;
+		for (int i = 0; i < 24; ++i)
+			ctrl.Update(1.f / 24.f, sc.seq.duration);
+		sc.seq.Evaluate(ctrl.time, sc.world);
+		const nkentseu::math::NkVec3f apres = t1->localPosition;
+		std::snprintf(d, sizeof(d), "t reste %.6f, x reste %.6f", (double)ctrl.time, (double)apres.x);
+		Verdict("f9 (c1) NEGATIF : figee -> camera identique AU BIT",
+				avant.x == apres.x && avant.y == apres.y && avant.z == apres.z, d);
+
+		// ── (c2) et (c3) : les 48 images ─────────────────────────────────────
+		const char *dossier = "Sortie_NkSequenceCheck_cam";
+		const char *dossierFige = "Sortie_NkSequenceCheck_cam_fige";
+		nkentseu::NkDirectory::CreateRecursive(dossier);
+		nkentseu::NkDirectory::CreateRecursive(dossierFige);
+
+		uint32 surface[2][48] = {{0}, {0}};
+		float32 objVu[48] = {0.f};
+		int ecrites[2] = {0, 0};
+		for (int passe = 0; passe < 2; ++passe) {
+			const bool fige = (passe == 1);
+			nkentseu::media::NkImageSequenceWriter sw;
+			if (!sw.Open(fige ? dossierFige : dossier, "cam", (nkentseu::int32)W, (nkentseu::int32)H,
+						 nkentseu::media::NkImageSeqFormat::PNG, 4))
+				break;
+			for (int i = 0; i < 48; ++i) {
+				const float32 t = fige ? 0.f : ((float32)i / 24.f);
+				sc.seq.Evaluate(t, sc.world);
+				// La camera ACTIVE vient de la piste camera — c'est elle qui
+				// decide du plan, et `GetActiveCameraAt` etait deja ecrit.
+				const nkentseu::NkEntityId active = sc.seq.GetActiveCameraAt(t);
+				const nkentseu::ecs::NkTransform *ct = sc.world.Get<nkentseu::ecs::NkTransform>(active);
+				const nkentseu::ecs::NkCamera *cc = sc.world.Get<nkentseu::ecs::NkCamera>(active);
+				CamOrtho cam;
+				if (ct && cc) {
+					cam.x = ct->localPosition.x;
+					cam.y = ct->localPosition.y;
+					cam.ortho = cc->orthographicSize;
+					cam.aspect = cc->aspectRatio;
+				}
+				if (!RendreVue(cam, true))
+					break;
+				surface[passe][i] = ComptePixelsObjet(px, W, H);
+				if (!fige)
+					objVu[i] = objX; // l'objet ne bouge JAMAIS : on le verifie plus bas
+				if (sw.WriteFrame(px, nkentseu::media::NkVideoInputFormat::RGBA32))
+					ecrites[passe]++;
+			}
+			sw.Close();
+		}
+
+		std::snprintf(d, sizeof(d), "attendu 48  ecrites %d", ecrites[0]);
+		Verdict("f9 48 images rendues", ecrites[0] == 48, d);
+
+		// L'objet n'a pas bouge d'un pouce : sans ce rappel, (c2) pourrait etre
+		// vert parce que l'OBJET s'est deplace, et on n'aurait rien prouve sur la
+		// camera.
+		bool objImmobile = true;
+		for (int i = 1; i < 48; ++i)
+			if (objVu[i] != objVu[0])
+				objImmobile = false;
+		std::snprintf(d, sizeof(d), "position monde de l'objet : %.3f, constante sur 48 images",
+					  (double)objVu[0]);
+		Verdict("f9 (c2) l'objet, lui, n'a PAS bouge", objImmobile, d);
+
+		std::snprintf(d, sizeof(d), "attendu 8100 (90x90)  mesure %u", (unsigned)surface[0][0]);
+		Verdict("f9 (c2) img1 : l'attendu calcule d'avance tombe", surface[0][0] >= 7900u && surface[0][0] <= 8300u,
+				d);
+
+		std::snprintf(d, sizeof(d), "img1 %u -> img24 %u (attendu < 4000)", (unsigned)surface[0][0],
+					  (unsigned)surface[0][23]);
+		Verdict("f9 (c2) la camera BOUGE ET LE RENDU SUIT", surface[0][23] < 4000u && surface[0][23] < surface[0][0],
+				d);
+
+		// ── (c3) LA COUPE TOMBE A L'IMAGE CALCULEE D'AVANCE ──────────────────
+		// t = i/24 ; le plan 2 commence a t = 1 s, donc au premier i tel que
+		// i/24 >= 1, c'est-a-dire i = 24 — le fichier cam_0025 (numerotation
+		// 1-based). La coupe tombe donc ENTRE cam_0024 et cam_0025, et nulle part
+		// ailleurs.
+		std::snprintf(d, sizeof(d), "img24 %u | img25 %u | img26 %u", (unsigned)surface[0][23],
+					  (unsigned)surface[0][24], (unsigned)surface[0][25]);
+		Verdict("f9 (c3) img25 saute au plan large (attendu ~32400)",
+				surface[0][24] > 30000u && surface[0][24] <= 32400u, d);
+
+		const uint32 avantCoupe = (surface[0][23] > surface[0][22]) ? (surface[0][23] - surface[0][22])
+																	: (surface[0][22] - surface[0][23]);
+		const uint32 aLaCoupe = (surface[0][24] > surface[0][23]) ? (surface[0][24] - surface[0][23])
+																  : (surface[0][23] - surface[0][24]);
+		std::snprintf(d, sizeof(d), "saut a la coupe %u px, contre %u px entre deux images voisines",
+					  (unsigned)aLaCoupe, (unsigned)avantCoupe);
+		Verdict("f9 (c3) la coupe est FRANCHE, pas « quelque part »", aLaCoupe > 10u * (avantCoupe + 1u), d);
+
+		// ── LES NEGATIFS de (c2) et (c3) ─────────────────────────────────────
+		bool surfaceConstante = true;
+		for (int i = 1; i < 48; ++i)
+			if (surface[1][i] != surface[1][0])
+				surfaceConstante = false;
+		std::snprintf(d, sizeof(d), "%d images figees, surface constante a %u", ecrites[1],
+					  (unsigned)surface[1][0]);
+		Verdict("f9 NEGATIF : camera figee + objet fige -> surface CONSTANTE", surfaceConstante, d);
+
+		nkentseu::memory::NkFree(px);
+		dev->DestroyPipeline(pipe);
+		cible.Shutdown();
+		shaders.Shutdown();
+		texlib.Shutdown();
+		nkentseu::NkDeviceFactory::Destroy(dev);
+	}
+
 } // namespace
 
 int main(int argc, char **argv) {
@@ -1393,6 +1723,7 @@ int main(int argc, char **argv) {
 	F6_LeGpuDessine();
 	F7_LaSequenceSEnregistre(argv[0]);
 	F8_LeRegistreResout();
+	F9_LaCamera();
 
 	std::printf("\n-----------------------------------------------------------------------------\n");
 	std::printf(" BILAN : %d verts, %d rouges\n", gPass, gFail);
