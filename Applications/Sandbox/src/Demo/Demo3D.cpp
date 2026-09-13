@@ -87,6 +87,10 @@ namespace nkentseu {
 				// mesurer une deuxieme implementation au lieu de celle qui peint.
 				NkVector<float32> oceanJac;
 				bool oceanShade = true; // NK_OCEAN_SHADE=0 : retour a la couleur constante de Q18
+				// NK_OCEAN_SHADER=1 : le nuanceur d'eau de Resources/NKRenderer/Shaders/Water/,
+				// branche par le chemin SUPPORTE (gabarit de materiau + hint de dossier).
+				NkMatInstHandle oceanMat;
+				bool oceanShaderDemande = false;
 				float32 oceanTime = 0.f;
 				uint32 oceanSlotCentre = 0u;  // (rows/2)(cols+1) + cols/2 : le sommet suivi image par image
 				float32 oceanAmpDemandee = 0.f; // somme des amplitudes des trains, pour juger l'amplitude mesuree
@@ -2548,6 +2552,61 @@ static NkTexHandle CreateLanternCubeCookie(NkTextureLibrary *texLib, NkIDevice *
 							 g.cols, g.rows, nv, attenduV, ni, attenduI, ecritsI, g.baseY, g.displacementMax, (int)g.rangeCamera,
 							 w.waves[0].amplitude, w.waves[1].amplitude, w.waves[2].amplitude, st->oceanAmpDemandee,
 							 w.waves[0].steepness, w.waves[1].steepness, w.waves[2].steepness, (int)st->oceanMesh.IsValid());
+				// ── NK_OCEAN_SHADER=1 : LE NUANCEUR D'EAU SE COMPILE-T-IL ENCORE ? ──
+				// Resources/NKRenderer/Shaders/Water/ existe depuis NKRenderer v4.0 et
+				// n'a AUCUN appelant. Avant de rever de le brancher, on MESURE : on
+				// demande a la bibliotheque de le charger, et on dit ce qu'elle rend.
+				// Aucun dessin, aucune liaison : c'est une sonde de CHARGEMENT.
+				if (const char *e = std::getenv("NK_OCEAN_SHADER"); e && e[0] == '1') {
+					st->oceanShaderDemande = true;
+					if (auto *sl = ctx.renderer->GetShaders()) {
+						// Type QUALIFIE : l'en-tete de la bibliotheque previent que
+						// `NkShaderHandle` non qualifie se resout selon l'ordre d'include.
+						const ::nkentseu::NkShaderHandle hw = sl->LoadOrCompileVF("Water", "", "");
+						std::fprintf(stderr, "[OCEAN NUANCEUR] LoadOrCompileVF(\"Water\") -> valide=%d (id=%llu)\n",
+									 (int)hw.IsValid(), (unsigned long long)hw.id);
+					} else {
+						std::fprintf(stderr, "[OCEAN NUANCEUR] ce renderer n'expose aucune bibliotheque de nuanceurs\n");
+					}
+					// ── LE BRANCHEMENT, PAR LE CHEMIN QUI EXISTE DEJA ────────────────
+					// `NkRender3D` choisit son pipeline ainsi : si le drawcall porte un
+					// materiau valide, le pipeline du GABARIT de ce materiau REMPLACE le
+					// pipeline PBR (NkRender3D.cpp:3128). Et `CompilePipeline` lit un
+					// HINT de dossier de nuanceur range dans `vertSrcGL`, `fragSrcGL`
+					// restant vide (NkMaterialSystem.cpp:752). Rien a ecrire dans le
+					// renderer : le chemin est celui des gabarits d'origine.
+					//
+					// ⚠️ POURQUOI PERSONNE NE LE CHARGE : `RegisterBuiltins` enregistre
+					// PBR, Toon, ToonInk, Emissive, Unlit, Skin, Hair, Anime... et PAS
+					// Water. Le commentaire juste au-dessus de ces lignes decrit deja la
+					// meme maladie pour ToonInk et Emissive : « leurs shaders existaient,
+					// le registre les oubliait ». On enregistre donc ICI, dans la sonde,
+					// plutot que de toucher un registre partage avec d'autres chantiers.
+					if (auto *mats = ctx.renderer->GetMaterials()) {
+						renderer::NkMaterialTemplateDesc d;
+						d.type = renderer::NkMaterialType::NK_PBR_METALLIC;
+						d.name = "Ocean_Water";
+						d.queue = renderer::NkRenderQueue::NK_OPAQUE;
+						d.cullMode = renderer::NkCullMode::NK_NONE;
+						d.vertSrcGL = "Water"; // le HINT : Resources/NKRenderer/Shaders/Water/
+						const NkMatHandle tpl = mats->RegisterTemplate(d);
+						if (auto *inst = mats->CreateInstance(tpl))
+							st->oceanMat = inst->GetHandle();
+						// ⚠️ LA QUESTION QUI TRANCHE, ET ELLE SE POSE ICI PLUTOT QU'A L'OEIL :
+						// `NkRender3D` ne remplace le pipeline PBR que si `GetPipeline` du
+						// gabarit rend un pipeline VALIDE. S'il rend l'invalide, le
+						// drawcall reste peint par le PBR -- un repli SILENCIEUX, qu'aucune
+						// image ne signale. On compare donc le pipeline du gabarit d'eau a
+						// celui du PBR par defaut : egaux ou invalide = ce n'est pas le
+						// nuanceur d'eau qui peint.
+						const NkPipelineHandle pipeEau = mats->GetPipeline(tpl);
+						const NkPipelineHandle pipePBR = mats->GetPipeline(mats->DefaultPBR());
+						std::fprintf(stderr, "[OCEAN NUANCEUR] gabarit 'Ocean_Water' (hint dossier=Water) : gabarit valide=%d, instance valide=%d | pipeline eau valide=%d (id=%llu), pipeline PBR valide=%d (id=%llu), IDENTIQUES=%d\n",
+									 (int)tpl.IsValid(), (int)st->oceanMat.IsValid(), (int)pipeEau.IsValid(),
+									 (unsigned long long)pipeEau.id, (int)pipePBR.IsValid(), (unsigned long long)pipePBR.id,
+									 (int)(pipeEau.id == pipePBR.id));
+					}
+				}
 				const math::NkWaterOptics &o = st->oceanP.optics;
 				std::fprintf(stderr, "[OCEAN COULEUR] shade=%d | FOND PLAT INVENTE (le producteur n'a pas de terrain) : %.2f m sous le plan, albedo (%.2f %.2f %.2f) | absorption (%.3f %.3f %.3f) m^-1, couleur profonde (%.2f %.2f %.2f) | ecume : rivage < %.2f m, cretes > %.2f m, deferlement J < %.2f\n",
 							 (int)st->oceanP.shade, st->oceanP.bottomDepth, st->oceanP.bottomColor.x, st->oceanP.bottomColor.y,
@@ -5052,6 +5111,10 @@ static NkTexHandle CreateLanternCubeCookie(NkTextureLibrary *texLib, NkIDevice *
 					NkDrawCall3D oc;
 					oc.mesh = st->oceanMesh;
 					oc.aabb = {omin, omax};
+					// NK_OCEAN_SHADER=1 : le pipeline du gabarit REMPLACE le PBR pour ce
+					// seul drawcall. Sans la variable, `oceanMat` reste invalide et la
+					// ligne est un non-evenement : l'image d'aujourd'hui est gardee.
+					oc.material = st->oceanMat;
 					// ⚠️ LA TEINTE DEVIENT BLANCHE QUAND LA COULEUR PAR SOMMET EXISTE, et
 					// ce n'est pas un gout : le nuanceur PBR fait `vColor = aColor * tint`
 					// puis `albedo = texture * vColor` (pbr.vert / pbr.frag). Garder la
