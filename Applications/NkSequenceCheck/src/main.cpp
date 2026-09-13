@@ -49,6 +49,7 @@
 // touche tout Noge, elle appartient a Rodolf, et elle est signalee au canal.
 #include "NKRHI/Core/NkDeviceFactory.h"
 #include "NKRenderer/Core/NkTextureLibrary.h"
+#include "NKRenderer/Shader/NkShaderLibrary.h"
 #include "NKRenderer/Tools/Offscreen/NkOffscreenTarget.h"
 
 #include "Noge/Sequencer/NkSequencer.h"
@@ -677,6 +678,320 @@ namespace {
 		nkentseu::NkDeviceFactory::Destroy(dev);
 	}
 
+	// =========================================================================
+	// f6 — LE GPU DESSINE UN MAILLAGE, il n'efface plus seulement
+	// =========================================================================
+	// C'est la premiere fois que ces 48 images prouvent quelque chose du PIPELINE
+	// de rendu : un nuanceur compile, une geometrie est transmise, un tirage a
+	// lieu. f5 n'exercait que la passe et la relecture.
+	//
+	// LA GEOMETRIE : un quad (deux triangles) dont le CENTRE vient de la pose.
+	// Ses sommets sont reecrits a chaque image dans un tampon DYNAMIQUE — pas
+	// d'uniforme, pas de matrice, pas de descripteur : moins de pieces, donc un
+	// rouge qui designe une seule cause.
+	//
+	// ⚠️ LE PIEGE DU COMPTEUR DE PIXELS, ET COMMENT IL EST DESAMORCE.
+	// Un autre chantier a mesure ce soir un compteur qui rendait 40 pixels SANS
+	// AUCUNE CIBLE a l'ecran : la teinte cherchee tombait dans l'anticrenelage
+	// des glyphes. Trois parades ici, et la troisieme est la seule qui vaille :
+	//   1. le fond est MAGENTA pur, une couleur que l'objet (blanc) ne produit
+	//      jamais — motif repris de NkMatGraphDemo, ou un fond noir se serait
+	//      confondu avec « le graphe a rendu du noir » ;
+	//   2. la cible est en UNORM et non en sRGB, donc l'effacement (1, 0, 1)
+	//      revient exactement en (255, 0, 255) — un attendu calculable, pas un
+	//      « ca ressemble » ;
+	//   3. ON COMPTE D'ABORD SUR LA SCENE SANS L'OBJET, et on exige ZERO. Sans
+	//      ce controle, un compteur qui compterait n'importe quoi passerait tous
+	//      les autres criteres.
+	//
+	// Un seul dorsal (OpenGL) : la divergence sRGB mesuree par NkOffscreenProbe
+	// entre OpenGL et les trois autres n'est pas tranchee, et comparer des images
+	// entre dorsaux comparerait aussi cet ecart-la sans le dire.
+
+	// Un sommet : sa position EST deja en espace de clip.
+	struct SommetQuad {
+			float32 pos[3];
+	};
+
+	// ⚠️ UN SEUL ATTRIBUT, ET IL S'APPELLE `aPos`. Le generateur HLSL deduit la
+	// SEMANTIQUE d'un attribut de son NOM DE VARIABLE : « apos » donne POSITION.
+	// Un autre nom retomberait sur TEXCOORD<location>, le layout C++ ne
+	// correspondrait plus au nuanceur, et RIEN ne le dirait. (Regle etablie par
+	// NkMatGraphDemo, reprise telle quelle.)
+	const char *const kVS = R"NKSL(
+@location(0) in vec3 aPos;
+
+@stage(vertex)
+@entry
+void main() {
+    gl_Position = vec4(aPos, 1.0);
+}
+)NKSL";
+
+	const char *const kFS = R"NKSL(
+@location(0) out vec4 fragColor;
+
+@stage(fragment)
+@entry
+void main() {
+    fragColor = vec4(1.0, 1.0, 1.0, 1.0);
+}
+)NKSL";
+
+	// Compte les pixels qui NE SONT PAS le fond magenta exact.
+	uint32 ComptePixelsObjet(const uint8 *px, uint32 w, uint32 h) {
+		uint32 n = 0;
+		for (usize i = 0; i < (usize)w * h; ++i) {
+			const uint8 r = px[i * 4 + 0], g = px[i * 4 + 1], b = px[i * 4 + 2];
+			if (!(r == 255 && g == 0 && b == 255))
+				n++;
+		}
+		return n;
+	}
+
+	void F6_LeGpuDessine() {
+		std::printf("\nf6 — LE GPU DESSINE UN MAILLAGE (le pipeline entre en jeu)\n");
+		std::printf("  attendu ECRIT AVANT LA MESURE :\n");
+		std::printf("     quad de demi-cote 0,25 en NDC sur une cible 320x180 en UNORM\n");
+		std::printf("       -> 0,5 x 320/2 = 80 px de large, 0,5 x 180/2 = 45 px de haut = 3600 px\n");
+		std::printf("     centre pilote par la pose : cx = x/3 va de -1 a +1, le quad sort donc\n");
+		std::printf("       a moitie du cadre aux deux extremites -> environ 1800 px\n");
+		std::printf("     CONTROLE D'ABORD : la meme scene SANS l'objet doit compter EXACTEMENT 0\n");
+		std::printf("     48 images, compte au milieu > compte au debut, et min != max\n");
+		std::printf("     negatif : sequence figee -> images identiques ET compte CONSTANT\n");
+		std::printf("  Un seul dorsal (OpenGL) : la divergence sRGB entre dorsaux n'est pas\n");
+		std::printf("  tranchee, comparer des images entre eux comparerait aussi cet ecart.\n\n");
+
+		nkentseu::NkDeviceInitInfo di;
+		di.api = nkentseu::NkGraphicsApi::NK_GFX_API_OPENGL;
+		di.context.software.threading = true;
+		nkentseu::NkIDevice *dev = nkentseu::NkDeviceFactory::Create(di);
+		if (dev == nullptr || !dev->IsValid()) {
+			std::printf("  [IGN] aucun peripherique graphique — f6 n'est ni vert ni rouge.\n");
+			if (dev)
+				nkentseu::NkDeviceFactory::Destroy(dev);
+			return;
+		}
+
+		char d[300];
+		const uint32 W = 320, H = 180;
+		nkentseu::renderer::NkTextureLibrary texlib;
+		nkentseu::renderer::NkShaderLibrary shaders;
+		nkentseu::renderer::NkOffscreenTarget cible;
+		bool monte = ((nkentseu::int32)texlib.Init(dev, nullptr) >= 0) &&
+					 shaders.Init(dev, dev->GetApi(), /*useNkSL=*/true);
+
+		nkentseu::renderer::NkOffscreenDesc od;
+		od.width = W;
+		od.height = H;
+		// PAS DE PROFONDEUR : un quad, rien a trier. Une passe sans attachement de
+		// profondeur evite d'avoir a accorder l'etat du pipeline avec la passe.
+		od.hasDepth = false;
+		// ⚠️ UNORM, PAS sRGB : sans cela le magenta d'effacement ne reviendrait pas
+		// en (255, 0, 255) et le compteur n'aurait plus d'attendu calculable.
+		od.colorFmt = nkentseu::NkGPUFormat::NK_RGBA8_UNORM;
+		od.readable = true;
+		od.readback = true;
+		od.name = "SequenceGeometrie";
+		monte = monte && cible.Init(dev, &texlib, od) && cible.IsValid();
+		if (!monte) {
+			Verdict("f6 device + nuanceurs + cible", false, "montage refuse");
+			cible.Shutdown();
+			shaders.Shutdown();
+			texlib.Shutdown();
+			nkentseu::NkDeviceFactory::Destroy(dev);
+			return;
+		}
+
+		nkentseu::NkBufferHandle vbo = dev->CreateBuffer(nkentseu::NkBufferDesc::VertexDynamic(6 * sizeof(SommetQuad)));
+		nkentseu::NkShaderHandle prog = shaders.CompileVF(nkentseu::NkString(kVS), nkentseu::NkString(kFS),
+														 nkentseu::NkString("SequenceQuad"));
+		nkentseu::NkShaderHandle rhi = shaders.GetRHIHandle(prog);
+		if (!vbo.IsValid() || !rhi.IsValid()) {
+			Verdict("f6 le nuanceur NkSL compile et la geometrie se cree", false,
+					!rhi.IsValid() ? "CompileVF refuse" : "tampon de sommets refuse");
+			cible.Shutdown();
+			shaders.Shutdown();
+			texlib.Shutdown();
+			nkentseu::NkDeviceFactory::Destroy(dev);
+			return;
+		}
+		Verdict("f6 le nuanceur NkSL compile et la geometrie se cree", true, "vertex + fragment, tampon dynamique");
+
+		nkentseu::NkGraphicsPipelineDesc pd;
+		pd.shader = rhi;
+		pd.vertexLayout.AddBinding(0, (uint32)sizeof(SommetQuad))
+			.AddAttribute(0, 0, nkentseu::NkGPUFormat::NK_RGB32_FLOAT, 0, "POSITION", 0);
+		// Aucun cull : un enroulement mal oriente rendrait une image UNIFORME sans
+		// le moindre message, et le compteur tomberait a zero pour une raison qui
+		// n'a rien a voir avec la sequence.
+		pd.rasterizer.cullMode = nkentseu::NkCullMode::NK_NONE;
+		pd.depthStencil = nkentseu::NkDepthStencilDesc::NoDepth();
+		pd.renderPass = cible.GetRP();
+		pd.debugName = "SequenceQuad";
+		nkentseu::NkPipelineHandle pipe = dev->CreateGraphicsPipeline(pd);
+		if (!pipe.IsValid()) {
+			Verdict("f6 le pipeline graphique se cree", false, "CreateGraphicsPipeline refuse");
+			cible.Shutdown();
+			shaders.Shutdown();
+			texlib.Shutdown();
+			nkentseu::NkDeviceFactory::Destroy(dev);
+			return;
+		}
+		Verdict("f6 le pipeline graphique se cree", true, "sans cull, sans profondeur, UNORM");
+
+		const usize octets = (usize)W * H * 4u;
+		uint8 *px = (uint8 *)nkentseu::memory::NkAlloc(octets);
+		if (px == nullptr) {
+			Verdict("f6 tampon de relecture", false, "allocation refusee");
+			dev->DestroyPipeline(pipe);
+			cible.Shutdown();
+			shaders.Shutdown();
+			texlib.Shutdown();
+			nkentseu::NkDeviceFactory::Destroy(dev);
+			return;
+		}
+
+		// Rend une image. `avecObjet == false` = la scene SANS le quad.
+		auto RendreUne = [&](float32 cx, float32 cy, bool avecObjet) -> bool {
+			if (avecObjet) {
+				const float32 k = 0.25f;
+				const SommetQuad s[6] = {
+					{{cx - k, cy - k, 0.f}}, {{cx + k, cy - k, 0.f}}, {{cx + k, cy + k, 0.f}},
+					{{cx - k, cy - k, 0.f}}, {{cx + k, cy + k, 0.f}}, {{cx - k, cy + k, 0.f}},
+				};
+				dev->WriteBuffer(vbo, s, sizeof(s));
+			}
+			nkentseu::NkICommandBuffer *cmd = dev->CreateCommandBuffer();
+			if (cmd == nullptr || !cmd->Begin())
+				return false;
+			// Fond MAGENTA, jamais noir : la couleur de repli doit etre une couleur
+			// que l'objet ne peut pas produire.
+			cible.BeginCapture(cmd, true, nkentseu::math::NkVec4f(1.f, 0.f, 1.f, 1.f), false);
+			if (avecObjet) {
+				cmd->BindGraphicsPipeline(pipe);
+				cmd->BindVertexBuffer(0, vbo);
+				cmd->Draw(6);
+			}
+			cible.EndCapture(cmd);
+			cmd->End();
+			dev->Submit(&cmd, 1);
+			dev->WaitIdle();
+			for (usize i = 0; i < octets; ++i)
+				px[i] = 0;
+			return cible.ReadbackPixels(px, W * 4u);
+		};
+
+		// ── LE CONTROLE, AVANT TOUT LE RESTE ─────────────────────────────────
+		// « Compte tes pixels sur un cas ou tu connais la reponse d'avance. »
+		// Ici la reponse est ZERO, et elle est exigee EXACTE — pas « faible ».
+		const bool luVide = RendreUne(0.f, 0.f, false);
+		const uint32 nVide = luVide ? ComptePixelsObjet(px, W, H) : 0xFFFFFFFFu;
+		std::snprintf(d, sizeof(d), "attendu 0 EXACT  mesure %u sur %u pixels", (unsigned)nVide, (unsigned)(W * H));
+		Verdict("f6 CONTROLE : la scene SANS objet compte 0", luVide && nVide == 0u, d);
+		if (!luVide || nVide != 0u) {
+			std::printf("       ⚠️ LE COMPTEUR MESURE AUTRE CHOSE QUE L'OBJET. Tout critere\n"
+						"          bati dessus serait faux. On s'arrete ici.\n");
+			nkentseu::memory::NkFree(px);
+			dev->DestroyPipeline(pipe);
+			cible.Shutdown();
+			shaders.Shutdown();
+			texlib.Shutdown();
+			nkentseu::NkDeviceFactory::Destroy(dev);
+			return;
+		}
+
+		// ── Les 48 images, puis les 48 du volet negatif ──────────────────────
+		const char *dossier = "Sortie_NkSequenceCheck_geo";
+		const char *dossierFige = "Sortie_NkSequenceCheck_geo_fige";
+		nkentseu::NkDirectory::CreateRecursive(dossier);
+		nkentseu::NkDirectory::CreateRecursive(dossierFige);
+
+		uint32 compte[2][48] = {{0}, {0}};
+		int ecrites[2] = {0, 0};
+		for (int passe = 0; passe < 2; ++passe) {
+			const bool fige = (passe == 1);
+			PorteScene porte;
+			Scene &sc = *porte;
+			BatirScene(sc);
+			nkentseu::media::NkImageSequenceWriter sw;
+			if (!sw.Open(fige ? dossierFige : dossier, "geo", (nkentseu::int32)W, (nkentseu::int32)H,
+						 nkentseu::media::NkImageSeqFormat::PNG, 4))
+				break;
+			for (int i = 0; i < 48; ++i) {
+				const float32 t = fige ? 0.f : ((float32)i / 24.f);
+				sc.seq.Evaluate(t, sc.world);
+				const nkentseu::ecs::NkTransform *tr =
+					sc.world.Get<nkentseu::ecs::NkTransform>(sc.seq.tracks[0].entity);
+				const nkentseu::math::NkVec3f p =
+					tr ? tr->localPosition : nkentseu::math::NkVec3f(0.f, 0.f, 0.f);
+				// LA GEOMETRIE EST LA POSE, lue dans le monde ECS apres Evaluate.
+				if (!RendreUne(p.x / 3.f, p.y / 2.f - 0.5f, true))
+					break;
+				compte[passe][i] = ComptePixelsObjet(px, W, H);
+				if (sw.WriteFrame(px, nkentseu::media::NkVideoInputFormat::RGBA32))
+					ecrites[passe]++;
+			}
+			sw.Close();
+		}
+
+		std::snprintf(d, sizeof(d), "attendu 48  ecrites %d", ecrites[0]);
+		Verdict("f6 48 images dessinees par le GPU", ecrites[0] == 48, d);
+
+		// Le compte doit VARIER : un objet qui bouge ne couvre pas toujours la
+		// meme surface. C'est ce critere, et non la difference d'empreintes, qui
+		// distingue « la geometrie a bouge » de « la couleur a change ».
+		uint32 mini = 0xFFFFFFFFu, maxi = 0;
+		for (int i = 0; i < 48; ++i) {
+			if (compte[0][i] < mini)
+				mini = compte[0][i];
+			if (compte[0][i] > maxi)
+				maxi = compte[0][i];
+		}
+		std::snprintf(d, sizeof(d), "img1 %u | img24 %u | img48 %u | min %u max %u", (unsigned)compte[0][0],
+					  (unsigned)compte[0][23], (unsigned)compte[0][47], (unsigned)mini, (unsigned)maxi);
+		Verdict("f6 la surface couverte VARIE au cours de la sequence", maxi > mini, d);
+
+		std::snprintf(d, sizeof(d), "attendu ~3600 au milieu, ~1800 aux bords  mesure max %u min %u", (unsigned)maxi,
+					  (unsigned)mini);
+		Verdict("f6 les comptes tombent dans l'attendu ecrit d'avance", maxi >= 3000u && maxi <= 4200u &&
+																			mini >= 1300u && mini <= 2400u,
+				d);
+
+		std::snprintf(d, sizeof(d), "img24 %u > img1 %u", (unsigned)compte[0][23], (unsigned)compte[0][0]);
+		Verdict("f6 le quad est PLUS visible au milieu qu'au depart", compte[0][23] > compte[0][0], d);
+
+		char c1[512], c24[512];
+		std::snprintf(c1, sizeof(c1), "%s/geo_0001.png", dossier);
+		std::snprintf(c24, sizeof(c24), "%s/geo_0024.png", dossier);
+		nkentseu::uint64 h1 = 0, h24 = 0, t1 = 0, t24 = 0;
+		const bool lu = EmpreinteFichier(c1, h1, t1) && EmpreinteFichier(c24, h24, t24);
+		std::snprintf(d, sizeof(d), "0x%016llx vs 0x%016llx", (unsigned long long)h1, (unsigned long long)h24);
+		Verdict("f6 geo_0001 DIFFERE de geo_0024", lu && h1 != h24, d);
+
+		// ── LE NEGATIF : images identiques ET compte constant ────────────────
+		bool compteConstant = true;
+		for (int i = 1; i < 48; ++i)
+			if (compte[1][i] != compte[1][0])
+				compteConstant = false;
+		char g1[512], g24[512];
+		std::snprintf(g1, sizeof(g1), "%s/geo_0001.png", dossierFige);
+		std::snprintf(g24, sizeof(g24), "%s/geo_0024.png", dossierFige);
+		nkentseu::uint64 f1h = 0, f24h = 0, f1t = 0, f24t = 0;
+		const bool lug = EmpreinteFichier(g1, f1h, f1t) && EmpreinteFichier(g24, f24h, f24t);
+		std::snprintf(d, sizeof(d), "empreintes %s, compte fige %u constant=%s",
+					  (lug && f1h == f24h) ? "EGALES" : "DIFFERENTES", (unsigned)compte[1][0],
+					  compteConstant ? "oui" : "NON");
+		Verdict("f6 NEGATIF : figee -> images identiques ET compte constant", lug && f1h == f24h && compteConstant, d);
+
+		nkentseu::memory::NkFree(px);
+		dev->DestroyPipeline(pipe);
+		cible.Shutdown();
+		shaders.Shutdown();
+		texlib.Shutdown();
+		nkentseu::NkDeviceFactory::Destroy(dev);
+	}
+
 } // namespace
 
 int main() {
@@ -715,6 +1030,7 @@ int main() {
 	F2_LeTempsChangeLaPose();
 	F3F4_LesImagesSurLeDisque();
 	F5_LesImagesViennentDuGpu();
+	F6_LeGpuDessine();
 
 	std::printf("\n-----------------------------------------------------------------------------\n");
 	std::printf(" BILAN : %d verts, %d rouges\n", gPass, gFail);
