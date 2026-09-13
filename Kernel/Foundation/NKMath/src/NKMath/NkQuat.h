@@ -435,6 +435,38 @@ namespace nkentseu {
 				static NkQuatT LookAt(const NkVec3T<T> &eyePosition, const NkVec3T<T> &targetPosition,
 									  const NkVec3T<T> &referenceUp) noexcept;
 
+				// ── ORIENTATION DONT « L'AVANT » EST CELUI QUE LE MOTEUR RELIT ──
+				// (2026-09-13, chantier « premiere image de Noge ».)
+				//
+				// POURQUOI CETTE FABRIQUE EXISTE A COTE DE LookAt. Le moteur lit
+				// l'avant d'un objet comme `-colonne2` de sa matrice monde
+				// (`NkTransform::GetWorldForward()`, NkTransform.h l.86-88 ; la
+				// colonne 2 est `NkMat4T::forward`). Or `LookAt` aligne le +Z MONDE
+				// (0,0,1) SUR la direction demandee : sa colonne 2 vaut donc
+				// +direction, et l'avant relu vaut -direction. Poser une orientation
+				// par `LookAt` puis la relire par `GetWorldForward` fait regarder
+				// l'objet A L'OPPOSE, en silence.
+				//
+				// MESURE qui a coute un ecran entier : camera en (3.19, 2.25, 4.56)
+				// visant l'origine, avant attendue (-0.53, -0.37, -0.76), avant
+				// relue (0.83, 0.36, 0.43), produit scalaire -0.901. Le frustum
+				// ecartait alors 100 % des objets dans `NkRender3D::Submit`
+				// (l.1704-1707), donc rien n'atteignait la file, donc aucun pixel --
+				// et le viewport rendait un aplat parfaitement propre.
+				//
+				// ET -0.901 N'EST PAS -1 : les deux ne sont meme pas colineaires.
+				// `LookAt` compose sa correction d'up dans le repere D'AVANT la
+				// premiere rotation, ce qui deplace aussi l'avant : elle ne tient
+				// donc pas son propre contrat ecrit. Cf. `tests/test_camera_axis.cpp`,
+				// qui EPINGLE ce chiffre au lieu de le laisser se redecouvrir.
+				//
+				// CETTE fabrique-ci garantit UNE chose, et c'est celle qu'on relit :
+				//     -colonne2(resultat) == forward.Normalized()
+				// `referenceUp` n'est qu'une reference : il est re-orthogonalise. Une
+				// visee verticale (forward colineaire a up) reste DEFINIE — le right
+				// est alors choisi arbitrairement, mais de facon deterministe.
+				static NkQuatT FromForwardUp(const NkVec3T<T> &forward, const NkVec3T<T> &referenceUp) noexcept;
+
 				// Quaternion de réflexion par rapport à un plan de normale donnée
 				// Utile pour les miroirs, les rebonds, les effets de symétrie
 				static NkQuatT Reflection(const NkVec3T<T> &planeNormal) noexcept;
@@ -1176,6 +1208,56 @@ namespace nkentseu {
 		NkQuatT<T> NkQuatT<T>::LookAt(const NkVec3T<T> &eyePosition, const NkVec3T<T> &targetPosition,
 									  const NkVec3T<T> &referenceUp) noexcept {
 			return LookAt(targetPosition - eyePosition, referenceUp);
+		}
+
+		// -----------------------------------------------------------------
+		// Fabrique : FromForwardUp (l'avant TEL QUE LE MOTEUR LE RELIT)
+		// -----------------------------------------------------------------
+		// Contrat, et il n'y en a qu'un : `-colonne2(resultat) == forward`.
+		// C'est exactement ce que rend `NkTransform::GetWorldForward()`.
+		//
+		// On construit le repere DANS LA CONVENTION QUI SERA LUE plutot que de
+		// composer deux rotations : colonne2 = -avant, puis right et up par
+		// produits vectoriels. La conversion repere -> quaternion est la
+		// conversion GENERALE (trace-based, Mike Day) du constructeur
+		// `NkQuatT(const NkMat4T&)` -- celle-la meme dont le commentaire l.579-581
+		// explique qu'elle a REMPLACE une reconstruction par `LookAt(forward, up)`
+		// parce que cette derniere donnait des quaternions FAUX hors cas camera.
+		// -----------------------------------------------------------------
+		template <typename T>
+		NkQuatT<T> NkQuatT<T>::FromForwardUp(const NkVec3T<T> &forward, const NkVec3T<T> &referenceUp) noexcept {
+			// Epsilon LOCAL et explicite : ni `NkAbs` (c'est une macro que
+			// NkFunctions.h #undef) ni `NkVectorEpsilon` ne sont surs a cette
+			// hauteur du fichier. Un seuil ecrit ici se lit et ne se deplace pas.
+			const T kEps = T(1e-12);
+
+			NkVec3T<T> f = forward.Normalized();
+			if (f.LenSq() < kEps)
+				f = NkVec3T<T>{T(0), T(0), T(-1)}; // avant degenere : convention OpenGL, -Z
+			NkVec3T<T> up = referenceUp.Normalized();
+			if (up.LenSq() < kEps)
+				up = NkVec3T<T>{T(0), T(1), T(0)};
+
+			const NkVec3T<T> axeZ = -f; // colonne 2, PUISQUE l'avant relu est -colonne2
+			NkVec3T<T> axeX = up.Cross(axeZ);
+			if (axeX.LenSq() < T(1e-8)) {
+				// Visee verticale : `up` et l'avant sont colineaires, le produit
+				// vectoriel s'annule et le repere serait indefini. On prend un up
+				// de secours NON colineaire — deterministe, jamais aleatoire.
+				const bool presqueVertical = (axeZ.y > T(0.9)) || (axeZ.y < T(-0.9));
+				const NkVec3T<T> secours =
+					presqueVertical ? NkVec3T<T>{T(0), T(0), T(1)} : NkVec3T<T>{T(0), T(1), T(0)};
+				axeX = secours.Cross(axeZ);
+			}
+			axeX = axeX.Normalized();
+			const NkVec3T<T> axeY = axeZ.Cross(axeX);
+
+			NkMat4T<T> repere = NkMat4T<T>::Identity();
+			repere.right = NkVec4T<T>{axeX.x, axeX.y, axeX.z, T(0)};
+			repere.up = NkVec4T<T>{axeY.x, axeY.y, axeY.z, T(0)};
+			repere.forward = NkVec4T<T>{axeZ.x, axeZ.y, axeZ.z, T(0)};
+			repere.position = NkVec4T<T>{T(0), T(0), T(0), T(1)};
+			return NkQuatT<T>(repere);
 		}
 
 		// -----------------------------------------------------------------
