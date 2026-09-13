@@ -831,9 +831,30 @@ namespace nkentseu {
 		// (i, j) est à l'indice j·(cols+1) + i, et le compte d'indices vaut
 		// cols·rows·6 — c'est-à-dire 2·(nx−1)·(ny−1)·3 avec nx = cols+1.
 		//
-		// L'ENROULEMENT est constant : les deux triangles (v00, v10, v11) et
-		// (v00, v11, v01) tournent dans le même sens en espace paramètre. Ce n'est
-		// pas à croire sur parole — le témoin (u1) le mesure sur chaque triangle.
+		// L'ENROULEMENT est constant : les deux triangles tournent dans le même sens
+		// en espace paramètre. Ce n'est pas à croire sur parole — le témoin le mesure
+		// sur chaque triangle.
+		//
+		// 🔴 ET IL A ÉTÉ FAUX, DANS UN SENS QUE LA COHÉRENCE NE POUVAIT PAS VOIR.
+		// Le pavage écrivait (v00, v10, v11) puis (v00, v11, v01) : cohérent, aucun
+		// triangle à contresens, le banc vert — et la normale géométrique de CHAQUE
+		// triangle pointait VERS LE BAS une fois l'eau posée dans le monde. Le rendu
+		// voyait donc des faces ARRIÈRE, et l'éclairage deux faces de `pbr.frag`
+		// (`if (!gl_FrontFacing) N = -N;`) retournait la normale : l'océan a été
+		// éclairé PAR DESSOUS depuis sa première image (2026-09-13, mesuré par une
+		// sonde binaire : `-N.y > 0,5` vrai sur 99,9 % de la bande d'eau).
+		//
+		// POURQUOI LE BANC NE POUVAIT PAS L'ATTRAPER, et c'est la leçon :
+		// son aire signée se prend en espace PARAMÈTRE (i, j), où elle est entière et
+		// exacte. Mais (i, j) n'est PAS le monde — j suit l'axe Y du NDC, et le sens
+		// de cet axe une fois déprojeté sur le plan d'eau ne se lit pas dans la
+		// combinatoire. Un critère de COHÉRENCE est satisfait aussi bien à l'endroit
+		// qu'à l'envers. Le témoin (n1e) mesure désormais le SENS, avec une caméra.
+		//
+		// L'ordre ci-dessous — (v00, v11, v10) puis (v00, v01, v11) — est celui qui
+		// met la normale géométrique VERS LE HAUT, donc face à une caméra placée
+		// au-dessus de l'eau. C'est le seul juste : une surface d'eau se regarde par
+		// le dessus.
 
 		// Combien d'indices le pavage écrira pour cols × rows CELLULES.
 		NK_FORCE_INLINE uint32 NkProjectedGridIndexCount(uint32 cols, uint32 rows) noexcept {
@@ -856,12 +877,15 @@ namespace nkentseu {
 					const uint32 v10 = v00 + 1u;
 					const uint32 v01 = v00 + nx;
 					const uint32 v11 = v01 + 1u;
+					// ⚠️ CET ORDRE EST UN CORRECTIF DATÉ (2026-09-13), pas un goût :
+					// l'ordre d'avant mettait la normale géométrique vers le BAS.
+					// Le lire à l'envers remet l'océan face contre terre.
 					out[n++] = v00;
+					out[n++] = v11;
 					out[n++] = v10;
-					out[n++] = v11;
 					out[n++] = v00;
-					out[n++] = v11;
 					out[n++] = v01;
+					out[n++] = v11;
 				}
 			}
 			return n;
