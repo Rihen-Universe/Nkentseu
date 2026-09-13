@@ -163,4 +163,39 @@ namespace nkanima {
 	// Libellé du régime courant, à afficher à côté de la sphère. Jamais nul.
 	const char *AnimCOMRegimeLabel();
 
+	// ── Équilibre : ce que l'éditeur CALCULE, rendu lisible (2026-09-13) ──────
+	// Le viewport peint une sphère et un polygone ; une sphère bien placée
+	// RESSEMBLE à une sphère mal placée, et l'œil ne sait pas dire de combien.
+	// Cette structure vient de la MÊME source que le dessin : le rendu appelle
+	// `AnimComputeBalance` puis se contente de tracer ce qu'elle rend.
+	struct NkAnimBalanceReport {
+			int32 jointCount = 0;
+			int32 regime = -1;		// 0 = masse uniforme, 1 = anthropométrique
+			int32 footCount = 0;	// joints d'appui reconnus PAR LEUR NOM
+			int32 contactCount = 0; // ceux qui touchent réellement le sol
+			int32 supportCount = 0; // sommets du polygone de support construit
+			int32 verdict = -1;		// -1 indéterminé, 0 déséquilibré, 1 équilibré
+			float32 margin = 0.f;	// marge signée COM→bord, en mètres (>0 dedans)
+			float32 comUniform[3] = {0, 0, 0}; // barycentre géométrique
+			float32 comCurrent[3] = {0, 0, 0}; // COM du régime courant
+			float32 poseMin[3] = {0, 0, 0};	   // bornes du maillage posé à t=0
+			float32 poseMax[3] = {0, 0, 0};
+			int32 upAxis = 1;				// 0=X 1=Y 2=Z, mesuré au chargement
+			float32 floorLevel = 0.f;		// coordonnée du sol sur cet axe
+			float32 contactThreshold = 0.f; // tolérance de contact, en mètres
+			float32 footHalfSize = 0.f;		// demi-côté de l'empreinte d'un appui
+	};
+	bool AnimComputeBalance(NkAnimBalanceReport &out);
+	// Demi-côté de l'empreinte d'un appui, en fraction de la taille du personnage
+	// (défaut 0,025 ≈ la LARGEUR d'un pied ; la longueur vient déjà des contacts
+	// cheville/orteil). À 0, le polygone se réduit aux points de contact bruts —
+	// c'est ainsi qu'on mesure ce que l'empreinte change au lieu de le supposer.
+	void AnimSetFootPrintFraction(float32 f);
+
+	// Penche le TORSE (premier joint dont le nom évoque le tronc) de `radians`
+	// autour de l'axe Z monde, sans toucher aux jambes : c'est ainsi qu'on fabrique
+	// une pose franchement déséquilibrée sans main sur la souris.
+	// Renvoie l'indice du joint penché, ou -1 si aucun tronc nommé.
+	int32 AnimLeanTorso(float32 radians);
+
 } // namespace nkanima

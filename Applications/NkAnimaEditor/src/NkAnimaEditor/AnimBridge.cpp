@@ -74,6 +74,10 @@ namespace nkanima {
 				// ── Debug COM (M3.1/M3.2/M3.3) : tampons réutilisés, zéro alloc/frame ──
 				bool showCom = false;
 				nkentseu::anim::NkPoseMass poseMass;
+				// Masse uniforme gardée EN PLUS du régime courant : c'est le témoin de
+				// l'écart (« de combien le COM bouge quand on passe à l'anthropométrie »),
+				// et sans elle la réponse serait une impression.
+				nkentseu::anim::NkPoseMass poseMassUniform;
 				NkVector<NkVec3f> comPos;	  // positions monde des joints (scratch)
 				NkVector<int32> comParent;	  // ignoré, exigé par AnimGetSkeleton
 				int32 comRegime = 0;		  // 0 = uniforme (pas de noms), 1 = anthropométrique
@@ -102,6 +106,21 @@ namespace nkanima {
 				NkVec3f center3d = {0, 0, 0};
 				float32 radius3d = 2.f;
 				float32 camYaw = 0.6f, camPitch = 0.12f, camZoom = 1.f;
+
+				// ── Repère du SOL (2026-09-13) ───────────────────────────────────
+				// Mesurés au CHARGEMENT (CPU, sans GPU), sur le maillage skinné posé à
+				// t=0 : c'est la seule source qui dise où le personnage touche le sol.
+				// L'axe HAUT est celui de plus grande étendue — un humanoïde est plus
+				// haut que large, et tous les rigs ne sont pas Y-haut : CesiumMan est
+				// Z-haut, un sol +Y y serait un mur.
+				NkVec3f poseMin = {0, 0, 0}, poseMax = {0, 0, 0};
+				int32 upAxis = 1;		  // 0=X 1=Y 2=Z
+				float32 floorLevel = 0.f; // coordonnée du sol sur l'axe haut
+				bool boundsOk = false;
+				// Demi-côté de l'empreinte d'un appui, en fraction de la taille du
+				// personnage. Réglable pour qu'on puisse MESURER ce qu'il coûte : à 0,
+				// le polygone se réduit aux points de contact bruts.
+				float32 footPrintFraction = 0.025f;
 
 				// ── Ragdoll physique (couplage NKPhysics) ───────────────────────
 				nkentseu::physics::NkPhysicsWorld physWorld{nkentseu::physics::NkPhysicsConfig{{0.f, -9.81f, 0.f}}};
@@ -146,6 +165,46 @@ namespace nkanima {
 				if (!placed[j])
 					g.topo.PushBack(j);
 		}
+		// Bornes du maillage SKINNÉ posé à t=0 (le même calcul que le cadrage caméra
+		// de Init3D, sorti de lui pour être disponible SANS GPU). C'est ce qui donne
+		// le sol : le bas du personnage debout dans sa pose de départ.
+		bool ComputePosedBoundsT0(NkVec3f &mn, NkVec3f &mx) {
+			const auto &svs = g.gltf.skinnedVertices;
+			if (svs.Empty())
+				return false;
+			g.player.Update(0.f);
+			const NkVector<NkMat4f> &bones0 = g.player.GetState().boneMatrices;
+			float32 mnx = 1e9f, mny = 1e9f, mnz = 1e9f, mxx = -1e9f, mxy = -1e9f, mxz = -1e9f;
+			for (uint32 vi = 0; vi < (uint32)svs.Size(); ++vi) {
+				const auto &v = svs[vi];
+				NkMat4f m;
+				for (int e = 0; e < 16; e++)
+					m.data[e] = 0.f;
+				float32 wsum = 0.f;
+				for (int b = 0; b < 4; b++) {
+					int j = (int)(v.boneIdx[b] + 0.5f);
+					float32 w = v.boneWeight[b];
+					if (j >= 0 && j < (int)bones0.Size() && w > 0.f) {
+						for (int e = 0; e < 16; e++)
+							m.data[e] += w * bones0[(uint32)j].data[e];
+						wsum += w;
+					}
+				}
+				if (wsum < 1e-4f)
+					m = NkMat4f::Identity();
+				NkVec4f wp = m * NkVec4f{v.pos.x, v.pos.y, v.pos.z, 1.f};
+				mnx = fmin(mnx, wp.x);
+				mny = fmin(mny, wp.y);
+				mnz = fmin(mnz, wp.z);
+				mxx = fmax(mxx, wp.x);
+				mxy = fmax(mxy, wp.y);
+				mxz = fmax(mxz, wp.z);
+			}
+			mn = {mnx, mny, mnz};
+			mx = {mxx, mxy, mxz};
+			return true;
+		}
+
 	} // namespace
 
 	bool AnimInit(const char *modelPath) {
@@ -176,6 +235,17 @@ namespace nkanima {
 									  // allume le COM au lancement (captures
 									  // témoins reproductibles, sans clic).
 				BuildSkeletonAux();
+				// Repère du sol, mesuré une fois, sans GPU (cf. Doc::poseMin).
+				g.boundsOk = ComputePosedBoundsT0(g.poseMin, g.poseMax);
+				if (g.boundsOk) {
+					const float32 ex = g.poseMax.x - g.poseMin.x, ey = g.poseMax.y - g.poseMin.y,
+								  ez = g.poseMax.z - g.poseMin.z;
+					g.upAxis = (ey >= ex && ey >= ez) ? 1 : ((ez >= ex) ? 2 : 0);
+					const float32 mn[3] = {g.poseMin.x, g.poseMin.y, g.poseMin.z};
+					g.floorLevel = mn[g.upAxis];
+					logger.Info("[AnimBridge] sol : axe haut={0} (0=X 1=Y 2=Z) niveau={1} — etendues ({2},{3},{4})\n",
+								g.upAxis, g.floorLevel, ex, ey, ez);
+				}
 				// Chemin d'enregistrement par défaut : le nom du modèle, sans dossier ni
 				// extension, suffixé `.nkanim`, dans le dossier de travail. Il n'y a pas
 				// encore de sélecteur au CHARGEMENT, donc ce défaut doit être LISIBLE et
@@ -996,11 +1066,10 @@ namespace nkanima {
 	// Le nom d'un joint évoque-t-il un pied ? Mêmes mots-clés que la famille
 	// « foot » de MassWeightForName (NkPoseMass.cpp), même insensibilité à la
 	// casse — HasKw y est interne, on réécrit l'équivalent localement.
-	static bool NomEvoquePied(const nkentseu::NkString &nm) {
-		static const char *kws[] = {"foot", "ankle", "toe"};
+	static bool NomContientUn(const nkentseu::NkString &nm, const char *const *kws, int32 nkw) {
 		const char *hay = nm.Data();
 		const nkentseu::int64 n = (nkentseu::int64)nm.Size();
-		for (int32 k = 0; k < 3; ++k) {
+		for (int32 k = 0; k < nkw; ++k) {
 			const char *kw = kws[k];
 			nkentseu::int64 klen = 0;
 			while (kw[klen] != '\0')
@@ -1020,6 +1089,19 @@ namespace nkanima {
 			}
 		}
 		return false;
+	}
+
+	static bool NomEvoquePied(const nkentseu::NkString &nm) {
+		static const char *kws[] = {"foot", "ankle", "toe"};
+		return NomContientUn(nm, kws, 3);
+	}
+
+	// Le TRONC, pour fabriquer une pose penchée sans toucher aux jambes : dans un
+	// rig standard les jambes pendent du bassin, pas de la colonne — faire pivoter
+	// la colonne penche le buste et laisse les pieds où ils sont.
+	static bool NomEvoqueTronc(const nkentseu::NkString &nm) {
+		static const char *kws[] = {"spine", "chest", "torso", "abdomen", "thorax", "trunk"};
+		return NomContientUn(nm, kws, 6);
 	}
 
 	// Rend la pose courante dans l'offscreen via le cmd FOURNI (celui de l'éditeur).
@@ -1125,54 +1207,9 @@ namespace nkanima {
 		// nommé `gl.position` — aucune indexation d'octets, donc indépendant de la
 		// convention de stockage des matrices.
 		if (g.showCom) {
-			AnimGetSkeleton(g.comPos, g.comParent);
-			const int32 n = (int32)g.comPos.Size();
-			if (n > 0) {
-				// Calibrage : au premier passage et à chaque changement de compte.
-				// Régime ANTHROPOMÉTRIQUE si le clip porte les noms de joints
-				// (glTF "name", bakés depuis 2026-08-17), UNIFORME sinon — et le
-				// libellé à l'écran suit le régime réel (AnimCOMRegimeLabel).
-				if (g.comJointCount != n) {
-					g.comJointCount = n;
-					const bool hasNames = ((int32)g.clip.jointNames.Size() == n);
-					if (hasNames) {
-						g.poseMass.SetAnthropometric(g.clip.jointNames);
-						g.comRegime = 1;
-					} else {
-						g.poseMass.SetUniform(n);
-						g.comRegime = 0;
-					}
-					// Appuis : joints dont le nom évoque un pied — mêmes mots-clés
-					// que la famille "foot" de MassWeightForName (NkPoseMass).
-					g.comFeet.Clear();
-					if (hasNames)
-						for (int32 j = 0; j < n; ++j)
-							if (NomEvoquePied(g.clip.jointNames[(uint32)j]))
-								g.comFeet.PushBack((uint32)j);
-				}
-				const NkVec3f com = g.poseMass.ComputeCOMFromPositions(g.comPos.Data(), n);
-
-				// Verdict d'équilibre — UNIQUEMENT si des appuis sont détectables.
-				// Sol de l'éditeur : le même plan que celui dessiné plus haut.
-				g.comVerdict = -1;
-				g.comSupport.Clear();
-				if (!g.comFeet.Empty()) {
-					const float32 floorY = g.center3d.y - g.radius3d * 0.5f;
-					const NkVec3f planePoint{g.center3d.x, floorY, g.center3d.z};
-					const NkVec3f planeNormal{0.f, 1.f, 0.f};
-					const float32 threshold = 0.04f * (g.radius3d > 0.f ? g.radius3d : 1.f);
-					g.comFeetPos.Clear();
-					for (uint32 k = 0; k < (uint32)g.comFeet.Size(); ++k)
-						g.comFeetPos.PushBack(g.comPos[g.comFeet[k]]);
-					const int32 nc = nkentseu::anim::NkContactDetector::DetectSupportPoints(
-						g.comFeetPos.Data(), (int32)g.comFeetPos.Size(), planePoint, planeNormal, threshold,
-						g.comSupport);
-					if (nc > 0) {
-						const auto bal = nkentseu::anim::NkBalance::EvaluateStatic(
-							com, g.comSupport.Data(), (int32)g.comSupport.Size(), planeNormal);
-						g.comVerdict = bal.balanced ? 1 : 0;
-					}
-				}
+			NkAnimBalanceReport rep;
+			if (AnimComputeBalance(rep)) {
+				const NkVec3f com{rep.comCurrent[0], rep.comCurrent[1], rep.comCurrent[2]};
 
 				// Couleur : verte/rouge SEULEMENT sur verdict fondé (appuis réels au
 				// sol) ; NEUTRE sinon — une sphère colorée ressemble à un verdict,
@@ -1214,6 +1251,188 @@ namespace nkanima {
 		NkTexHandle src = g.toneTex.IsValid() ? g.toneTex : g.rt->GetColorResult();
 		// Pont NKRenderer (NkTexHandle) -> NKRHI (NkTextureHandle).
 		b->RegisterTexture(texId, texLib->GetRHIHandle(src));
+	}
+
+	// ── Équilibre : LA source unique du COM, des appuis et du verdict ────────
+	// Le rendu ne calcule plus rien : il appelle ceci et trace ce qui en sort. La
+	// sonde sans fenêtre appelle la MÊME fonction — sinon elle mesurerait autre
+	// chose que ce que Rodolf voit.
+	bool AnimComputeBalance(NkAnimBalanceReport &out) {
+		out = NkAnimBalanceReport{};
+		if (!g.loaded)
+			return false;
+		AnimGetSkeleton(g.comPos, g.comParent);
+		const int32 n = (int32)g.comPos.Size();
+		if (n <= 0)
+			return false;
+
+		// Calibrage : au premier passage et à chaque changement de compte. Régime
+		// ANTHROPOMÉTRIQUE si le clip porte les noms de joints — ce qui, depuis le
+		// passage du format en v3 (2026-09-13), reste vrai après un aller-retour
+		// fichier ; en v2 les noms disparaissaient et le régime retombait uniforme.
+		if (g.comJointCount != n) {
+			g.comJointCount = n;
+			const bool hasNames = ((int32)g.clip.jointNames.Size() == n);
+			if (hasNames) {
+				g.poseMass.SetAnthropometric(g.clip.jointNames);
+				// ⚠️ AVOIR des noms ne suffit pas : encore faut-il qu'ils VEUILLENT
+				// dire quelque chose. Mesuré le 2026-09-13 sur BrainStem — 18 joints,
+				// tous nommés par une chaîne VIDE : `SetAnthropometric` leur donne à
+				// tous la masse résiduelle, le COM est alors identique au barycentre
+				// AU BIT, et le libellé « anthropométrique » aurait menti tout seul.
+				// Le régime réel se lit donc dans les MASSES obtenues, pas dans
+				// l'intention : si elles sont toutes égales, c'est uniforme.
+				bool toutesEgales = true;
+				for (int32 j = 1; j < (int32)g.poseMass.jointMass.Size() && toutesEgales; ++j)
+					if (g.poseMass.jointMass[(uint32)j] != g.poseMass.jointMass[0])
+						toutesEgales = false;
+				g.comRegime = toutesEgales ? 0 : 1;
+			} else {
+				g.poseMass.SetUniform(n);
+				g.comRegime = 0;
+			}
+			g.poseMassUniform.SetUniform(n); // toujours calculé : c'est le TÉMOIN de l'écart
+			// Appuis : joints dont le nom évoque un pied — mêmes mots-clés que la
+			// famille "foot" de MassWeightForName (NkPoseMass).
+			g.comFeet.Clear();
+			if (hasNames)
+				for (int32 j = 0; j < n; ++j)
+					if (NomEvoquePied(g.clip.jointNames[(uint32)j]))
+						g.comFeet.PushBack((uint32)j);
+			logger.Info("[AnimBridge] equilibre : {0} joints, regime={1}, {2} appuis nommes\n", n, g.comRegime,
+						(uint32)g.comFeet.Size());
+		}
+
+		const NkVec3f com = g.poseMass.ComputeCOMFromPositions(g.comPos.Data(), n);
+		const NkVec3f comU = g.poseMassUniform.ComputeCOMFromPositions(g.comPos.Data(), n);
+
+		out.jointCount = n;
+		out.regime = g.comRegime;
+		out.footCount = (int32)g.comFeet.Size();
+		out.comCurrent[0] = com.x;
+		out.comCurrent[1] = com.y;
+		out.comCurrent[2] = com.z;
+		out.comUniform[0] = comU.x;
+		out.comUniform[1] = comU.y;
+		out.comUniform[2] = comU.z;
+		out.poseMin[0] = g.poseMin.x;
+		out.poseMin[1] = g.poseMin.y;
+		out.poseMin[2] = g.poseMin.z;
+		out.poseMax[0] = g.poseMax.x;
+		out.poseMax[1] = g.poseMax.y;
+		out.poseMax[2] = g.poseMax.z;
+		out.upAxis = g.upAxis;
+		out.floorLevel = g.floorLevel;
+
+		g.comVerdict = -1;
+		g.comSupport.Clear();
+		if (g.comFeet.Empty() || !g.boundsOk) {
+			// Rien de nommé, ou pas de repère de sol : AUCUN verdict. C'est le cas de
+			// CesiumMan, dont les joints s'appellent « leg_joint_L_5 » : le pied est
+			// là, son NOM ne le dit pas.
+			out.verdict = -1;
+			return true;
+		}
+
+		// Repère du sol mesuré au chargement (cf. Doc::poseMin) — et non plus le plan
+		// décoratif du viewport, qui flottait à `centre - rayon/2` et n'avait aucune
+		// raison de passer sous les pieds.
+		const float32 height = (g.upAxis == 0)	 ? (g.poseMax.x - g.poseMin.x)
+							   : (g.upAxis == 1) ? (g.poseMax.y - g.poseMin.y)
+												 : (g.poseMax.z - g.poseMin.z);
+		const NkVec3f planeNormal = (g.upAxis == 0) ? NkVec3f{1.f, 0.f, 0.f}
+									: (g.upAxis == 1)
+										? NkVec3f{0.f, 1.f, 0.f}
+										: NkVec3f{0.f, 0.f, 1.f};
+		NkVec3f planePoint{(g.poseMin.x + g.poseMax.x) * 0.5f, (g.poseMin.y + g.poseMax.y) * 0.5f,
+						   (g.poseMin.z + g.poseMax.z) * 0.5f};
+		if (g.upAxis == 0)
+			planePoint.x = g.floorLevel;
+		else if (g.upAxis == 1)
+			planePoint.y = g.floorLevel;
+		else
+			planePoint.z = g.floorLevel;
+		// Tolérance de contact : 5 % de la taille du personnage. Un pied pose à deux
+		// centimètres du sol sur un humain d'1,60 m touche encore ; à vingt, non.
+		const float32 threshold = 0.05f * (height > 1e-3f ? height : 1.f);
+		out.contactThreshold = threshold;
+
+		g.comFeetPos.Clear();
+		for (uint32 k = 0; k < (uint32)g.comFeet.Size(); ++k)
+			g.comFeetPos.PushBack(g.comPos[g.comFeet[k]]);
+		NkVector<NkVec3f> contacts;
+		const int32 nc = nkentseu::anim::NkContactDetector::DetectSupportPoints(
+			g.comFeetPos.Data(), (int32)g.comFeetPos.Size(), planePoint, planeNormal, threshold, contacts);
+		out.contactCount = nc;
+		if (nc <= 0) {
+			out.verdict = -1; // en l'air : aucun appui, donc rien à juger
+			return true;
+		}
+
+		// ── LE POLYGONE DE SUPPORT ────────────────────────────────────────────
+		// Deux points de contact ne font qu'un SEGMENT : le COM n'y tombe
+		// jamais, et le verdict serait « déséquilibré » pour toute pose debout —
+		// un témoin qui répond toujours la même chose. `NkBalance.h` le dit en
+		// tête : il faut les COINS de chaque appui. On donne donc à chaque contact
+		// une empreinte carrée dans le plan du sol.
+		// ⚠️ Carrée, et non à la forme d'un pied : l'orientation du pied demanderait
+		// une direction « avant » que les NOMS de joints ne donnent pas. C'est donc
+		// une approximation ISOTROPE, et elle est dite ici plutôt que supposée.
+		// ⚠️ ET SA TAILLE COMPTE : à 6 % de la taille du personnage (mesure du
+		// 2026-09-13 : 10,9 cm de demi-côté sur un rig d'1,81 m) le carré fait la
+		// LONGUEUR d'un pied dans les DEUX directions, ce qui invente de la stabilité
+		// latérale. La longueur est déjà portée par les contacts eux-mêmes (cheville,
+		// base d'orteil, bout d'orteil) : l'empreinte ne doit donner que la LARGEUR,
+		// soit ~9 cm sur un adulte -> 2,5 % de la taille en demi-côté.
+		const float32 half = g.footPrintFraction * (height > 1e-3f ? height : 1.f);
+		out.footHalfSize = half;
+		const int32 a0 = (g.upAxis + 1) % 3, a1 = (g.upAxis + 2) % 3;
+		for (int32 i = 0; i < nc; ++i) {
+			const NkVec3f p = contacts[(uint32)i];
+			if (half <= 0.f) { // empreinte désactivée : les contacts bruts, pour mesurer ce qu'elle change
+				g.comSupport.PushBack(p);
+				continue;
+			}
+			for (int32 s = 0; s < 4; ++s) {
+				const float32 du = (s == 0 || s == 3) ? -half : half;
+				const float32 dv = (s < 2) ? -half : half;
+				float32 c[3] = {p.x, p.y, p.z};
+				c[a0] += du;
+				c[a1] += dv;
+				g.comSupport.PushBack(NkVec3f{c[0], c[1], c[2]});
+			}
+		}
+		out.supportCount = (int32)g.comSupport.Size();
+
+		const auto bal = nkentseu::anim::NkBalance::EvaluateStatic(com, g.comSupport.Data(),
+																  (int32)g.comSupport.Size(), planeNormal);
+		g.comVerdict = bal.balanced ? 1 : 0;
+		out.verdict = g.comVerdict;
+		out.margin = bal.margin;
+		return true;
+	}
+
+	void AnimSetFootPrintFraction(float32 f) {
+		g.footPrintFraction = (f >= 0.f) ? f : 0.f;
+		g.comJointCount = 0; // force le recalibrage : la taille d'empreinte change le polygone
+	}
+
+	int32 AnimLeanTorso(float32 radians) {
+		if (!g.loaded)
+			return -1;
+		const int32 n = (int32)g.clip.jointNames.Size();
+		int32 cible = -1;
+		for (int32 j = 0; j < n && cible < 0; ++j)
+			if (NomEvoqueTronc(g.clip.jointNames[(uint32)j]))
+				cible = j;
+		if (cible < 0)
+			return -1;
+		if (!g.editMode)
+			AnimBeginPoseEdit();
+		AnimRotateJoint(cible, radians);
+		logger.Info("[AnimBridge] torse penche : joint {0} ('{1}') de {2} rad\n", cible,
+					g.clip.jointNames[(uint32)cible].CStr(), radians);
+		return cible;
 	}
 
 	// ── Debug COM (M3.1) ─────────────────────────────────────────────────────
