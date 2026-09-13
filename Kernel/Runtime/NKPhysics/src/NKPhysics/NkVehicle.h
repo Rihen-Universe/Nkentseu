@@ -55,6 +55,30 @@ namespace nkentseu {
 													// proportionnelle à la CHARGE : elle croît au transfert
 													// et vaut zéro roue en l'air, sans une ligne de plus.
 													// Pneu sur asphalte : 0,010 à 0,015.
+				// ── LA TRAINÉE AÉRODYNAMIQUE (2026-09-13) ─────────────────────
+				// Mesuré avant de l'écrire : plein gaz 90,7 s, la voiture passait
+				// 1 097 km/h en gagnant encore 1,64 m/s². L'asymptote sans traînée
+				// vaut (2·engineForce − C_rr·mg) / (0,02·m) = 385 m/s = 1 386 km/h.
+				// ⚠️ DIFFÉRENCE DE NATURE avec le roulement et le frein moteur : ceux-là
+				// passent par la gomme, donc le cercle de friction les borne. L'air
+				// pousse la CAISSE : la traînée s'applique au centre de masse, HORS du
+				// cercle, et elle agit aussi roues en l'air.
+				float32 dragCd = 0.30f;			// coefficient de traînée (voiture moderne)
+				float32 airDensity = 1.225f;	// kg/m³, air au niveau de la mer
+				float32 frontalArea = 0.f;		// m² — 0 = dérivé : 4·demiX·demiY, le RECTANGLE
+												// englobant du châssis. La vraie aire frontale d'une
+												// voiture vaut ~85 % de ce rectangle : ce défaut
+												// SURESTIME d'environ 15 %. C'est dit plutôt que
+												// corrigé par un 0,85 sorti de nulle part.
+				// ── ACKERMANN (2026-09-13, conception §4 « une ligne ») ─────────
+				// Les quatre roues doivent tourner autour du MÊME centre : la roue
+				// intérieure braque PLUS que l'extérieure. L'empattement et la voie sont
+				// DÉRIVÉS des ancres (Autotune), jamais saisis.
+				// ⚠️ CE CHAMP CHANGE LE SENS DE maxSteerDeg : celui-ci devient l'angle de
+				// la roue VIRTUELLE du centre, et la roue intérieure le DÉPASSE (34,19°
+				// pour 30° sur la voiture du dépôt). Un plafond à 2·maxSteer empêche
+				// l'absurde quand le rayon demandé descend sous la demi-voie.
+				float32 ackermann = 1.f; // 0 = roues parallèles (avant le 13/09), 1 = géométrie exacte
 				float32 engineBrake = 0.10f;		// fraction de engineForce, par roue MOTRICE, gaz
 													// relâchés (|throttle| < 0,05). 0 = aucun frein moteur.
 				float32 freezeSpeed = 0.05f;	// m/s : sous ce glissement, on annule sec
@@ -96,6 +120,9 @@ namespace nkentseu {
 				float32 mMass = 0.f;
 				NkVector<NkWheel> mWheels;
 				NkVehicleTuning mTuning;
+				NkVec3f mHalf{};				// demi-tailles du châssis (aire frontale dérivée)
+				float32 mWheelBase = 0.f;		// empattement, dérivé des ancres (Ackermann)
+				float32 mTrack = 0.f;			// voie avant, dérivée des ancres (Ackermann)
 				float32 mSteer = 0.f, mThrottle = 0.f, mBrake = 0.f;
 				bool mTuned = false;
 		};
