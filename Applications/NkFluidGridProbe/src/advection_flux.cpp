@@ -288,7 +288,29 @@ struct ResultatPrix {
 		float32 cflMax = 0.f, msParPas = 0.f, vmax = 0.f, tmax = 0.f;
 		uint32 sousPasMax = 1, nan = 0, cellulesStrictes = 0;
 		bool capHit = false, rayonValide = false;
+		// ⚠️ AJOUT DU 13/09, pour l'ORDRE SUPÉRIEUR. La densité MINIMALE est le seul
+		// détecteur qui sépare « conservatif » de « juste » : un schéma d'ordre 2
+		// non limité conserve la masse EXACTEMENT tout en fabriquant des valeurs
+		// NÉGATIVES (Godunov). Elle vaut 0,000e+00 EXACTEMENT sur tout schéma
+		// monotone — un zéro qui ne serait jamais autre chose ne prouverait rien,
+		// et c'est le mode `Aucun` qui prouve qu'il sait l'être.
+		float32 densiteMin = 0.f;
 };
+
+// La densité la plus basse de l'INTÉRIEUR. Les fantômes sont exclus : ils sont
+// une recopie du bord, pas un état du fluide.
+static float32 DensiteMinimale(const NkFluidGrid &g) {
+	const float32 *d = g.Density();
+	float32 mn = 1.0e30f;
+	for (uint32 k = 1; k <= g.Nz(); ++k)
+		for (uint32 j = 1; j <= g.Ny(); ++j)
+			for (uint32 i = 1; i <= g.Nx(); ++i) {
+				const float32 v = d[g.Idx(i, j, k)];
+				if (v < mn)
+					mn = v;
+			}
+	return mn;
+}
 
 // Les compteurs communs à toutes les scènes, relevés à chaque pas.
 static void RelevePas(const NkFluidGrid &g, ResultatPrix &r, float64 &ensSum, float64 &vortSum, float64 &msSum) {
@@ -311,7 +333,8 @@ static void RelevePas(const NkFluidGrid &g, ResultatPrix &r, float64 &ensSum, fl
 // ── SCÈNE P : le panache établi. C'est ICI que le détail se paie. ───────────
 // Montage identique à la course A du palier ④ (source continue, epsilon = 0),
 // pour que les chiffres soient comparables aux références du 12/09.
-static ResultatPrix ScenePanache(bool flux, uint32 pas) {
+static ResultatPrix ScenePanache(bool flux, uint32 pas,
+								 NkFluidFluxLimiter lim = NkFluidFluxLimiter::Ordre1) {
 	ResultatPrix r;
 	NkFluidGridParams p;
 	p.boundsMin = {-0.35f, 0.f, -0.35f};
@@ -322,6 +345,7 @@ static ResultatPrix ScenePanache(bool flux, uint32 pas) {
 	p.densityDissipation = 0.f;
 	p.temperatureDissipation = 0.f;
 	p.advectFluxConservative = flux;
+	p.advectFluxLimiter = lim;
 	NkFluidGrid g;
 	if (!g.Init(p))
 		return r;
@@ -351,7 +375,7 @@ static ResultatPrix ScenePanache(bool flux, uint32 pas) {
 }
 
 // ── SCÈNE A : la MASSE, le but du lot. Bulle posée, aucune source. ──────────
-static ResultatPrix SceneMasse(bool flux) {
+static ResultatPrix SceneMasse(bool flux, NkFluidFluxLimiter lim = NkFluidFluxLimiter::Ordre1) {
 	ResultatPrix r;
 	NkFluidGridParams p;
 	p.boundsMin = {-0.3f, 0.f, -0.3f};
@@ -362,6 +386,7 @@ static ResultatPrix SceneMasse(bool flux) {
 	p.pressureIterations = 600;
 	p.pressureTolerance = 1.0e-5f;
 	p.advectFluxConservative = flux;
+	p.advectFluxLimiter = lim;
 	NkFluidGrid g;
 	if (!g.Init(p))
 		return r;
@@ -378,6 +403,7 @@ static ResultatPrix SceneMasse(bool flux) {
 	}
 	r.msParPas = (float32)(msSum / 500.0);
 	r.deriveMasse = (m0 > 0.f) ? (g.TotalMass() - m0) / m0 : 1.f;
+	r.densiteMin = DensiteMinimale(g);
 	return r;
 }
 
@@ -388,7 +414,8 @@ static ResultatPrix SceneMasse(bool flux) {
 // DU BANC, PAS DANS CELLES DE LA THÉORIE — voir la définition portée par
 // `NkFluidGridParams::advectCFLTarget`. La rupture mesurée en (g1) est à 1,2433
 // dans CES unités, pas à 1,0.
-static ResultatPrix SceneDixSecondes(bool flux, float32 cibleCFL = 0.f) {
+static ResultatPrix SceneDixSecondes(bool flux, float32 cibleCFL = 0.f,
+									 NkFluidFluxLimiter lim = NkFluidFluxLimiter::Ordre1) {
 	ResultatPrix r;
 	NkFluidGridParams p;
 	p.boundsMin = {-0.25f, 0.f, -0.25f};
@@ -398,6 +425,7 @@ static ResultatPrix SceneDixSecondes(bool flux, float32 cibleCFL = 0.f) {
 	p.temperatureDissipation = 0.5f;
 	p.buoyancyAlpha = 0.3f;
 	p.advectFluxConservative = flux;
+	p.advectFluxLimiter = lim;
 	if (cibleCFL > 0.f)
 		p.advectCFLTarget = cibleCFL;
 	NkFluidGrid g;
@@ -412,6 +440,7 @@ static ResultatPrix SceneDixSecondes(bool flux, float32 cibleCFL = 0.f) {
 	}
 	r.enstrophieMoy = (float32)(ensSum / 600.0);
 	r.msParPas = (float32)(msSum / 600.0);
+	r.densiteMin = DensiteMinimale(g);
 	NkVec3f c;
 	if (g.DensityCentroid(c))
 		r.hauteurBary = c.y;
@@ -451,7 +480,8 @@ struct EtatStabilite {
 		bool casse = false;
 };
 
-static EtatStabilite CourseStabilite(float32 dt, uint32 maxSousPas, uint32 pas) {
+static EtatStabilite CourseStabilite(float32 dt, uint32 maxSousPas, uint32 pas,
+									 NkFluidFluxLimiter lim = NkFluidFluxLimiter::Ordre1) {
 	EtatStabilite e;
 	NkFluidGridParams p;
 	p.boundsMin = {0.f, 0.f, 0.f};
@@ -462,6 +492,7 @@ static EtatStabilite CourseStabilite(float32 dt, uint32 maxSousPas, uint32 pas) 
 	p.densityDissipation = 0.f;
 	p.temperatureDissipation = 0.f;
 	p.advectFluxConservative = true;
+	p.advectFluxLimiter = lim;
 	p.advectMaxSubsteps = maxSousPas; // 1 = FILET COUPÉ
 	NkFluidGrid g;
 	if (!g.Init(p))
@@ -833,6 +864,312 @@ void EnqueteLePrix() {
 }
 
 // =============================================================================
+// (h) L'ORDRE SUPÉRIEUR — van Leer 1979, Sweby 1984.
+// Pré-enregistré dans PLAN_ORDRE_SUPERIEUR.md le 13/09, AVANT toute mesure.
+//
+// ⚠️ LA QUESTION N'EST PAS « la masse se conserve-t-elle ». Elle se conservera,
+// et le limiteur n'y est POUR RIEN : le flux antidiffusif est retranché à une
+// cellule et ajouté à l'autre, exactement comme celui d'ordre 1. Le schéma SANS
+// limiteur — qui est FAUX — la conservera tout aussi exactement.
+// La question est : LE DÉTAIL REVIENT-IL, et le schéma reste-t-il BORNÉ.
+// =============================================================================
+static const char *NomLimiteur(NkFluidFluxLimiter lim) {
+	switch (lim) {
+		case NkFluidFluxLimiter::Ordre1: return "ordre 1 (donor-cell)";
+		case NkFluidFluxLimiter::Aucun: return "SANS limiteur (temoin -)";
+		case NkFluidFluxLimiter::MinMod: return "minmod";
+		case NkFluidFluxLimiter::VanLeer: return "van Leer";
+		case NkFluidFluxLimiter::Superbee: return "superbee";
+	}
+	return "?";
+}
+
+struct EtatConservation {
+		float32 derive = 1.f, bouge = 0.f, dMin = 0.f;
+		bool ok = false;
+};
+
+// Le montage de (f1), À L'IDENTIQUE, avec le limiteur en paramètre : fonction de
+// courant, divergence MAC identiquement nulle, parois fermées, AUCUNE source,
+// aucune dissipation. Une masse qui varie ne peut venir que du SCHÉMA.
+static EtatConservation CourseConservation(NkFluidFluxLimiter lim) {
+	EtatConservation e;
+	NkFluidGridParams p;
+	p.boundsMin = {0.f, 0.f, 0.f};
+	p.boundsMax = {0.4f, 0.4f, 0.4f};
+	p.cellSize = 0.02f;
+	p.projectionEnabled = false;
+	p.buoyancyEnabled = false;
+	p.densityDissipation = 0.f;
+	p.temperatureDissipation = 0.f;
+	p.advectFluxConservative = true;
+	p.advectFluxLimiter = lim;
+	NkFluidGrid g;
+	if (!g.Init(p))
+		return e;
+	g.EmitSphere({0.2f, 0.2f, 0.2f}, 0.06f, 1.f, 0.f, 0.f);
+	const float32 m0 = g.TotalMass();
+	const uint32 total = g.Stats().cellsTotal;
+	NkVector<float32> dInit;
+	dInit.Resize(total, 0.f);
+	{
+		const float32 *d0 = g.Density();
+		for (uint32 i = 0; i < total; ++i)
+			dInit[i] = d0[i];
+	}
+	const float32 dt = 1.f / 120.f;
+	for (uint32 s = 0; s < 200; ++s) {
+		PoserChampSansDivergence(g, p);
+		g.Step(dt);
+	}
+	const float32 m1 = g.TotalMass();
+	e.derive = (m0 > 0.f) ? ProbeAbs(m1 - m0) / m0 : 1.f;
+	float64 l1 = 0.0;
+	const float32 *dfin = g.Density();
+	for (uint32 k = 1; k <= g.Nz(); ++k)
+		for (uint32 j = 1; j <= g.Ny(); ++j)
+			for (uint32 i = 1; i <= g.Nx(); ++i) {
+				const uint32 id = g.Idx(i, j, k);
+				l1 += (float64)ProbeAbs(dfin[id] - dInit[id]);
+			}
+	const float32 h3 = g.CellSize() * g.CellSize() * g.CellSize();
+	e.bouge = (m0 > 0.f) ? (float32)(l1 * (float64)h3) / m0 : 0.f;
+	e.dMin = DensiteMinimale(g);
+	e.ok = true;
+	return e;
+}
+
+// ── (h2) LES TROIS CONTRÔLES DE LA COURSE COMPLÈTE ─────────────────────────
+// Ils sont les MOINS CHERS du lot (20^3 cellules, 200 pas) : s'ils sont rouges,
+// (h1) et (h3) ne veulent rien dire. Ils AJOUTENT 3 contrôles au compte du banc,
+// annoncés d'avance dans le plan — le nombre de ROUGES, lui, ne doit pas bouger.
+void ControleOrdreSuperieur() {
+	printf("\n--- (h) ORDRE SUPÉRIEUR : le flux ANTIDIFFUSIF limité (van Leer 1979) ---\n");
+	printf("    Montage de (f1), À L'IDENTIQUE, avec le limiteur en paramètre.\n");
+	printf("    ⚠️ LA CONSERVATION NE JUGE PAS LA JUSTESSE : le flux antidiffusif est\n");
+	printf("    retranché à une cellule et ajouté à l'autre, donc elle ne dépend PAS du\n");
+	printf("    limiteur. C'est la DENSITÉ NÉGATIVE qui sépare « conservatif » de « juste ».\n");
+	char buf[520];
+
+	const EtatConservation vl = CourseConservation(NkFluidFluxLimiter::VanLeer);
+	const EtatConservation au = CourseConservation(NkFluidFluxLimiter::Aucun);
+
+	printf("      schéma                     dérive de masse   variation L1   densité min\n");
+	printf("      van Leer (limité)            %.3e        %7.2f %%    %+.3e\n", (double)vl.derive,
+		   (double)(vl.bouge * 100.f), (double)vl.dMin);
+	printf("      SANS limiteur (témoin -)     %.3e        %7.2f %%    %+.3e\n", (double)au.derive,
+		   (double)(au.bouge * 100.f), (double)au.dMin);
+
+	snprintf(buf, sizeof(buf),
+			 "dérive relative %.3e sur 200 pas (seuil %.0e, celui de (f1), jamais déplacé) — le flux "
+			 "antidiffusif est posé SUR LA FACE et compté deux fois avec des signes opposés, donc la "
+			 "conservation ne dépend pas du limiteur",
+			 (double)vl.derive, (double)kSeuilDerive);
+	ProbeCheck(vl.ok && vl.derive < kSeuilDerive, "(h2) la masse tient AUSSI à l'ordre supérieur", buf);
+
+	snprintf(buf, sizeof(buf),
+			 "variation L1 = %.2f %% de la masse initiale (exigé > 5 %%) — sans cette garde, « la masse "
+			 "se conserve » serait TRIVIALEMENT vrai d'un schéma qui ne transporte RIEN, et ce montage "
+			 "l'aggrave : la bulle est posée au point STATIONNAIRE de la fonction de courant",
+			 (double)(vl.bouge * 100.f));
+	ProbeCheck(vl.ok && vl.bouge > 0.05f, "(h2b) CONTRÔLE POSITIF : le champ a réellement été TRANSPORTÉ",
+			   buf);
+
+	// ⚠️ CE CONTRÔLE EST LE SEUL QUI JUGE LE LIMITEUR, et il est DOUBLE : le schéma
+	// non limité doit passer SOUS ZÉRO, et le schéma limité doit rester AU MOINS
+	// CENT FOIS plus près de zéro. Un seul des deux versants ne prouverait rien —
+	// « densité min = 0 » est vrai de tout schéma monotone, y compris d'un schéma
+	// qui ne ferait rien.
+	// ⚠️ POURQUOI UN RAPPORT ET NON UN ZÉRO ABSOLU, et c'est écrit AVANT la mesure :
+	// ce schéma est MULTIDIMENSIONNEL NON SPLITTÉ. La propriété TVD de van Leer est
+	// un résultat 1D ; en 3D sans transport de coin, de MINUSCULES sous-dépassements
+	// restent possibles même avec limiteur. Exiger zéro exact serait exiger une
+	// propriété que le schéma ne PRÉTEND PAS avoir, et un rouge obtenu ainsi ne
+	// dirait rien du limiteur. Le rapport, lui, teste ce qui est réellement en jeu :
+	// le limiteur réduit-il le sous-dépassement d'un ORDRE DE GRANDEUR ou non.
+	snprintf(buf, sizeof(buf),
+			 "SANS limiteur : densité min %+.3e (doit passer SOUS zéro — Godunov : aucun schéma linéaire "
+			 "d'ordre > 1 n'est monotone) ; AVEC van Leer : %+.3e, exigé au moins 100 fois plus près de "
+			 "zéro (rapport, pas seuil absolu : le schéma est multi-D non splitté, la TVD de van Leer est "
+			 "un résultat 1D). Et les DEUX conservent la masse : %.3e contre %.3e — c'est la preuve que "
+			 "(h2) ne juge PAS la justesse",
+			 (double)au.dMin, (double)vl.dMin, (double)au.derive, (double)vl.derive);
+	ProbeCheck(vl.ok && au.ok && au.dMin < -1.0e-6f && vl.dMin > au.dMin * 0.01f,
+			   "(h2c) LE LIMITEUR SERT : sans lui la densité passe sous zéro, avec lui 100x moins", buf);
+}
+
+// =============================================================================
+// (h1) LE DÉTAIL REVIENT-IL, et (h3) LA STABILITÉ RECULE-T-ELLE.
+// Mode NK_FLUID_MAC=8. Seuils écrits dans PLAN_ORDRE_SUPERIEUR.md § 4.
+// =============================================================================
+static const float32 kSeuilTmaxRatio = 0.50f;  // (h1), repris de Q6 du 12/09
+static const float32 kSeuilRuptureH3 = 0.90f;  // (h3), la cible de (g3)
+
+void EnqueteOrdreSuperieur() {
+	printf("\n=== (h) L'ORDRE SUPÉRIEUR — le PRIX du premier ordre, repayé ou non ===\n");
+	printf("    DÉCISION DE RODOLF (13/09) : ne pas subir l'arbitrage masse/détail, mais le\n");
+	printf("    SUPPRIMER. (g2) avait éliminé le réglage : faire varier la cible de 0,40 à\n");
+	printf("    1,20 ne déplace Tmax que de 2,1 %%. Le prix vient du PREMIER ORDRE LUI-MÊME.\n");
+	printf("    PRÉDICTION ÉCRITE AVANT LA COURSE (PLAN_ORDRE_SUPERIEUR.md § 4) :\n");
+	printf("      Tmax/ref entre 0,55 et 0,85 (aujourd'hui 0,3147 = 1/3,18) ; seuil 0,50.\n");
+	printf("      ⚠️ La fourchette est ÉLARGIE EXPRÈS : Q4, Q5 et Q6 ont produit TROIS\n");
+	printf("      sous-estimations d'ampleur de suite. Le sens était bon, la fourchette\n");
+	printf("      trop étroite à chaque fois.\n");
+	printf("      ⚠️ Tmax/ref = 1 N'EST PAS L'OBJECTIF : la référence semi-lagrangienne perd\n");
+	printf("      43,1 %% de la masse, son Tmax est en partie l'artefact d'une concentration\n");
+	printf("      non conservative. Elle dit D'OÙ L'ON PART, pas où il faut arriver.\n");
+	char buf[600];
+
+	// ── (h1) LE PRIX, scène (e), TOUS LES BRAS DANS LA MÊME COURSE ─────────
+	printf("\n--- (h1) LE DÉTAIL : scène (e), 600 pas, h = 0,02 m, dt = 1/60 s, cible CFL 0,90 ---\n");
+	const ResultatPrix ref = SceneDixSecondes(false);
+	printf("      schéma                     CFL max  sous-pas    vmax      Tmax    Tmax/ref   dens.min   ms/pas\n");
+	printf("      SEMI-LAGRANGIEN (réf.)     %7.3f  %8u  %6.3f  %8.1f   %7s   %+.3e  %6.1f\n",
+		   (double)ref.cflMax, ref.sousPasMax, (double)ref.vmax, (double)ref.tmax, "1,000 ref",
+		   (double)ref.densiteMin, (double)ref.msParPas);
+	fflush(stdout);
+
+	const NkFluidFluxLimiter bras[5] = {NkFluidFluxLimiter::Ordre1, NkFluidFluxLimiter::MinMod,
+										NkFluidFluxLimiter::VanLeer, NkFluidFluxLimiter::Superbee,
+										NkFluidFluxLimiter::Aucun};
+	ResultatPrix res[5];
+	float32 ratio[5] = {0.f, 0.f, 0.f, 0.f, 0.f};
+	for (uint32 b = 0; b < 5; ++b) {
+		res[b] = SceneDixSecondes(true, 0.f, bras[b]);
+		ratio[b] = (ref.tmax > 0.f) ? res[b].tmax / ref.tmax : 0.f;
+		printf("      %-26s %7.3f  %8u  %6.3f  %8.1f   %7.4f   %+.3e  %6.1f%s\n", NomLimiteur(bras[b]),
+			   (double)res[b].cflMax, res[b].sousPasMax, (double)res[b].vmax, (double)res[b].tmax,
+			   (double)ratio[b], (double)res[b].densiteMin, (double)res[b].msParPas,
+			   res[b].capHit ? "  (BORNE)" : "");
+		fflush(stdout);
+	}
+
+	// ⚠️ LE VOLET NÉGATIF DE (h1), ET IL PASSE EN PREMIER : si le chemin par défaut
+	// a bougé, (h1) n'est pas LISIBLE, quelle que soit la valeur du limiteur.
+	// Les chiffres comparés sont ceux PUBLIÉS le 12/09 (Q6 et Q9), à leur précision
+	// publiée — 550,5 K, CFL 2,452, 3 sous-pas.
+	const ResultatPrix &o1 = res[0];
+	const bool defautIntact =
+		(ProbeAbs(o1.tmax - 550.5f) < 0.05f) && (ProbeAbs(o1.cflMax - 2.452f) < 0.001f) && (o1.sousPasMax == 3u);
+	snprintf(buf, sizeof(buf),
+			 "ordre 1 rend Tmax %.1f K (publié 550,5), CFL max %.3f (publié 2,452), %u sous-pas (publié 3). "
+			 "`AdvectFluxUnePasse` n'a pas été touchée d'une ligne : la bit-identité du défaut se LIT DANS "
+			 "LE DIFF, ce contrôle ne fait que la confirmer par la mesure",
+			 (double)o1.tmax, (double)o1.cflMax, o1.sousPasMax);
+	ProbeCheck(defautIntact, "(h1-) VOLET NÉGATIF : le schéma DÉSACTIVÉ rend les chiffres du 12/09", buf);
+
+	// Le bras jugé est van Leer : c'est le limiteur que le plan désigne AVANT la
+	// mesure, pas celui qui obtient le meilleur chiffre. minmod et superbee sont
+	// publiés pour situer van Leer, et ne rendent AUCUN verdict.
+	snprintf(buf, sizeof(buf),
+			 "Tmax/ref = %.4f avec van Leer, contre %.4f à l'ordre 1 (seuil 0,50, écrit AVANT et repris "
+			 "de Q6 du 12/09 ; prédit 0,55-0,85). minmod %.4f, superbee %.4f — publiés pour SITUER van "
+			 "Leer, aucun verdict. La perte passe de /%.2f à /%.2f",
+			 (double)ratio[2], (double)ratio[0], (double)ratio[1], (double)ratio[3],
+			 (ratio[0] > 0.f) ? (double)(1.f / ratio[0]) : 0.0, (ratio[2] > 0.f) ? (double)(1.f / ratio[2]) : 0.0);
+	ProbeCheck(ratio[2] >= kSeuilTmaxRatio, "(h1) LE DÉTAIL REVIENT : Tmax/ref >= 0,50 avec van Leer", buf);
+
+	// Le témoin négatif du détecteur, sur CETTE scène-ci : le schéma non limité
+	// doit fabriquer une densité négative là où les schémas bornés rendent
+	// exactement zéro. Sans lui, « densité min = 0,000e+00 » ne prouverait rien.
+	snprintf(buf, sizeof(buf),
+			 "SANS limiteur : densité min %+.3e sur la scène (e) ; van Leer %+.3e (exigé au moins 100 fois "
+			 "plus près de zéro — un RAPPORT, pas un seuil absolu : le schéma est multi-D non splitté et "
+			 "la TVD de van Leer est un résultat 1D) ; ordre 1 %+.3e. Un témoin qui rend exactement zéro "
+			 "doit prouver qu'il peut rendre autre chose — c'est le schéma non limité qui le prouve, et "
+			 "c'est sa seule raison d'exister dans ce code",
+			 (double)res[4].densiteMin, (double)res[2].densiteMin, (double)res[0].densiteMin);
+	ProbeCheck(res[4].densiteMin < -1.0e-6f && res[2].densiteMin > res[4].densiteMin * 0.01f,
+			   "(h1b) LE DÉTECTEUR SAIT RENDRE AUTRE CHOSE QUE ZÉRO", buf);
+
+	// ── (h3) LA STABILITÉ — mesurée, pas supposée ──────────────────────────
+	printf("\n--- (h3) LA STABILITÉ : la rupture BOUGE-T-ELLE ? ---\n");
+	printf("    Ordre 1 : rupture ENCADRÉE entre CFL 1,2433 et 1,2436 (g1), dans les UNITÉS DU\n");
+	printf("    BANC — MaxCFL prend le max des deux faces par axe, il SURESTIME. Filet COUPÉ\n");
+	printf("    (advectMaxSubsteps = 1), détecteur = DENSITÉ NÉGATIVE (le schéma reste\n");
+	printf("    conservatif même instable, donc la masse ne peut pas juger).\n");
+	printf("    PRÉDICTION : van Leer rompt entre 1,0 et 1,25 ; seuil de réussite 0,90 (la cible\n");
+	printf("    de sous-cyclage de (g3)) — sous elle, le sous-cyclage ne garantirait plus rien.\n");
+
+	// ⚠️ L'ENCADREMENT DE DÉPART DE (g1) N'EST PAS REPRIS SUR PAROLE : un schéma
+	// d'ordre supérieur PEUT casser dès 1/10 s, et une dichotomie lancée sur un
+	// faux encadrement convergerait proprement vers un nombre FAUX. On ÉLARGIT donc
+	// les bornes jusqu'à en avoir de vraies, au lieu de supposer celles de (g1).
+	float32 dtSain = 1.f / 10.f, dtCasse = 1.f / 8.f;
+	EtatStabilite bas = CourseStabilite(dtSain, 1u, 100u, NkFluidFluxLimiter::VanLeer);
+	uint32 elargi = 0;
+	while (bas.casse && elargi < 8u) {
+		dtSain *= 0.5f;
+		bas = CourseStabilite(dtSain, 1u, 100u, NkFluidFluxLimiter::VanLeer);
+		++elargi;
+	}
+	EtatStabilite haut = CourseStabilite(dtCasse, 1u, 100u, NkFluidFluxLimiter::VanLeer);
+	uint32 elargiH = 0;
+	while (!haut.casse && elargiH < 8u) {
+		dtCasse *= 2.f;
+		haut = CourseStabilite(dtCasse, 1u, 100u, NkFluidFluxLimiter::VanLeer);
+		++elargiH;
+	}
+	snprintf(buf, sizeof(buf),
+			 "borne basse dt = 1/%.2f s : CFL %.4f, densité min %+.3e -> %s (élargie %u fois) ; borne "
+			 "haute dt = 1/%.2f s : CFL %.4f, densité min %+.3e -> %s (élargie %u fois). L'encadrement de "
+			 "(g1) n'est PAS repris sur parole : un schéma d'ordre supérieur peut casser plus tôt",
+			 (double)(1.f / dtSain), (double)bas.cflMax, (double)bas.dMin, bas.casse ? "CASSE" : "sain", elargi,
+			 (double)(1.f / dtCasse), (double)haut.cflMax, (double)haut.dMin, haut.casse ? "CASSE" : "sain",
+			 elargiH);
+	ProbeCheck(!bas.casse && haut.casse, "(h3) GARDE : l'encadrement de départ EST un encadrement", buf);
+	if (bas.casse || !haut.casse) {
+		ProbeCheck(false, "(h3) LA STABILITÉ NE RECULE PAS : rupture >= 0,90",
+				   "l'encadrement de départ est INVALIDE : la dichotomie n'a PAS tourné. Ce contrôle "
+				   "ROUGIT explicitement plutôt que de laisser un bilan vert sans dichotomie — c'est la "
+				   "faute exacte payée en (g1) le 12/09");
+		return;
+	}
+
+	float32 cflSain = bas.cflMax, cflCasse = haut.cflMax;
+	printf("      iter   dt (s)        CFL      densite min    verdict    encadrement CFL\n");
+	const uint32 kIter = 10;
+	for (uint32 it = 0; it < kIter; ++it) {
+		const float32 dtm = 0.5f * (dtSain + dtCasse);
+		const EtatStabilite e = CourseStabilite(dtm, 1u, 100u, NkFluidFluxLimiter::VanLeer);
+		if (e.casse) {
+			dtCasse = dtm;
+			cflCasse = e.cflMax;
+		} else {
+			dtSain = dtm;
+			cflSain = e.cflMax;
+		}
+		printf("      %2u    %.6f   %8.4f   %+.3e    %-7s   [%.4f ; %.4f]\n", it + 1, (double)dtm,
+			   (double)e.cflMax, (double)e.dMin, e.casse ? "CASSE" : "sain", (double)cflSain, (double)cflCasse);
+		fflush(stdout);
+	}
+	snprintf(buf, sizeof(buf),
+			 "van Leer : rupture ENTRE CFL %.4f (dernier SAIN) et %.4f (premier CASSE), largeur %.5f après "
+			 "%u dichotomies — contre [1,2433 ; 1,2436] à l'ordre 1. Seuil 0,90, la cible de sous-cyclage "
+			 "de (g3) : sous elle, le sous-cyclage ne garantirait plus rien et la cible devrait bouger",
+			 (double)cflSain, (double)cflCasse, (double)(cflCasse - cflSain), kIter);
+	ProbeCheck(cflSain >= kSeuilRuptureH3, "(h3) LA STABILITÉ NE RECULE PAS : rupture >= 0,90", buf);
+
+	// Volet négatif de (h3) : le schéma NON limité doit casser PLUS TÔT.
+	const EtatStabilite sansLim = CourseStabilite(dtSain, 1u, 100u, NkFluidFluxLimiter::Aucun);
+	snprintf(buf, sizeof(buf),
+			 "au dt que van Leer traverse SAIN (1/%.2f s, CFL %.4f), le schéma SANS limiteur rend une "
+			 "densité min de %+.3e -> %s. S'il ne cassait pas, mon détecteur ne verrait pas ce qu'il "
+			 "prétend voir, et (h3) ne vaudrait rien",
+			 (double)(1.f / dtSain), (double)sansLim.cflMax, (double)sansLim.dMin,
+			 sansLim.casse ? "CASSE" : "sain");
+	ProbeCheck(sansLim.casse, "(h3-) VOLET NÉGATIF : sans limiteur, le même dt CASSE", buf);
+
+	printf("\n    ⚠️ CE QUE CE LOT NE FAIT PAS, et je le dis plutôt que de l'omettre :\n");
+	printf("    la QUANTITÉ DE MOUVEMENT n'est pas conservée — seuls les SCALAIRES passent par\n");
+	printf("    le flux, la VITESSE reste semi-lagrangienne. La chaîne température -> poussée ->\n");
+	printf("    vitesse traverse donc toujours un champ non conservatif. Le schéma reste\n");
+	printf("    CONDITIONNELLEMENT stable, le sous-cyclage reste EXIGÉ, et\n");
+	printf("    `advectFluxConservative` reste ÉTEINT PAR DÉFAUT : l'allumer est une décision\n");
+	printf("    de Rodolf, et elle attend ce chiffre.\n");
+}
+
+// =============================================================================
 void PalierAdvectionFlux() {
 	printf("\n=== (f) ADVECTION CONSERVATIVE EN FLUX — Lentine, Aanjaneya & Fedkiw, SCA 2011 ===\n");
 	printf("    (f1) juge le schéma en FLUX. Sur le MÊME montage et dans la MÊME course, le\n");
@@ -844,4 +1181,5 @@ void PalierAdvectionFlux() {
 	printf("    Voir PLAN_ADVECTION_FLUX.md, § 1.\n");
 
 	ControleConservation();
+	ControleOrdreSuperieur();
 }

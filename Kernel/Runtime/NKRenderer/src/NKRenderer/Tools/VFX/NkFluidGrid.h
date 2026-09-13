@@ -86,6 +86,45 @@ namespace nkentseu {
 	namespace renderer {
 
 		// =====================================================================
+		// LIMITEUR DE FLUX — l'ORDRE SUPÉRIEUR de l'advection conservative.
+		// Van LEER, « Towards the Ultimate Conservative Difference Scheme V »,
+		// JCP 32, 1979 ; SWEBY, SIAM J. Numer. Anal. 21(5), 1984.
+		// Pré-enregistrement complet : PLAN_ORDRE_SUPERIEUR.md.
+		//
+		// Le donor-cell d'ordre 1 DIFFUSE, de D = (u·h/2)(1 − CFL). Mesuré le
+		// 12/09 : ce prix vaut `Tmax / 3,18` sur la scène (e), et il ne vient
+		// PAS d'un réglage — faire varier la cible de sous-cyclage de 0,40 à
+		// 1,20 ne déplace Tmax que de 2,1 %. On ajoute donc sur CHAQUE FACE un
+		// second flux, dit ANTIDIFFUSIF, qui annule l'erreur en O(h) :
+		//     F = F_donor + 0.5·|c|·(1 − |c|)·psi(r)·(phi[i] − phi[i-1])
+		// avec `c` le Courant LOCAL de la face et `r` le rapport du gradient
+		// AMONT au gradient local. `psi = 1` redonne exactement Lax-Wendroff.
+		//
+		// ⚠️ SANS limiteur, l'ordre 2 OSCILLE et fabrique des densités
+		// NÉGATIVES — c'est le théorème de Godunov, pas un défaut de portage.
+		// `Aucun` est donc gardé et CODÉ EXPRÈS comme TÉMOIN NÉGATIF du banc :
+		// il conserve la masse AUSSI EXACTEMENT que les autres tout en étant
+		// faux, et c'est lui qui prouve que le détecteur de densité négative
+		// sait rendre autre chose que zéro.
+		enum class NkFluidFluxLimiter : uint8 {
+				// L'EXISTANT, et le DÉFAUT : donor-cell nu. Ce mode n'emprunte
+				// même pas le code d'ordre supérieur — il appelle la fonction
+				// d'origine, INTACTE, pour que « les chiffres d'aujourd'hui au
+				// bit » se lise dans le diff avant d'être mesuré.
+				Ordre1 = 0,
+				// Lax-Wendroff NU. ⚠️ TÉMOIN NÉGATIF, jamais un réglage.
+				Aucun = 1,
+				// Le plus prudent : min(|d|, |du|). Diffuse plus que van Leer.
+				MinMod = 2,
+				// Van Leer 1979 — lisse, différentiable, le choix par défaut de
+				// la littérature quand il faut en choisir un seul.
+				VanLeer = 3,
+				// Roe 1986 — le plus raide des limiteurs TVD ; il raidit les
+				// fronts, au risque de les « escaliériser ».
+				Superbee = 4
+		};
+
+		// =====================================================================
 		// Paramètres — la résolution vient de cellSize, pas d'un compte de cellules
 		// =====================================================================
 		struct NkFluidGridParams {
@@ -161,6 +200,16 @@ namespace nkentseu {
 				// Pre-enregistrement complet : PLAN_ADVECTION_FLUX.md.
 				// Eteint par defaut tant que son PRIX n'est pas mesure (§ 2 du plan).
 				bool advectFluxConservative = false;
+				// ORDRE DU SCHEMA EN FLUX. DEFAUT `Ordre1` = le donor-cell nu,
+				// c'est-a-dire EXACTEMENT le code et les chiffres du 12/09 : ce
+				// mode appelle `AdvectFluxUnePasse`, qui n'a pas ete touchee
+				// d'une ligne. Les autres valeurs passent par
+				// `AdvectFluxUnePasseLimitee`. Voir PLAN_ORDRE_SUPERIEUR.md,
+				// § 2 : la bit-identite du defaut est une propriete de
+				// CONSTRUCTION, lisible dans le diff, pas une intention.
+				// ⚠️ Ce parametre n'a d'effet QUE si `advectFluxConservative`
+				// est vrai -- un limiteur de flux n'a pas de sens sans flux.
+				NkFluidFluxLimiter advectFluxLimiter = NkFluidFluxLimiter::Ordre1;
 				// ⚠️ LA STABILITE CHANGE DE NATURE. Le semi-lagrangien est
 				// INCONDITIONNELLEMENT stable ; un flux explicite ne l'est pas. La
 				// condition est celle de Courant-Friedrichs-Lewy, sous sa forme 3D
@@ -466,6 +515,12 @@ namespace nkentseu {
 				// UN sous-pas de donor-cell : un flux par FACE, retranche a l'amont
 				// et ajoute a l'aval, tous calcules depuis `src`.
 				void AdvectFluxUnePasse(NkVector<float32> &dst, const NkVector<float32> &src, float32 dt, int32 bnd);
+				// UN sous-pas d'ORDRE SUPERIEUR : le meme flux donor-cell, PLUS un
+				// flux ANTIDIFFUSIF limite sur la meme face. Fonction SEPAREE, pour
+				// que `AdvectFluxUnePasse` reste intacte au bit. Voir
+				// PLAN_ORDRE_SUPERIEUR.md, § 2 et § 3.
+				void AdvectFluxUnePasseLimitee(NkVector<float32> &dst, const NkVector<float32> &src, float32 dt,
+											   int32 bnd);
 				// L'advection en flux complete, SOUS-CYCLEE pour respecter le CFL.
 				void AdvectScalarFlux(NkVector<float32> &dst, const NkVector<float32> &src, float32 dt, int32 bnd);
 				void AdvectVelocity(float32 dt);
