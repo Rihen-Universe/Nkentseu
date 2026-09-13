@@ -568,7 +568,20 @@ int nkmain(const NkEntryState &state) {
 
 	// ── Fenetre ──────────────────────────────────────────────────────────────
 	NkWindowConfig wcfg;
+	// ⚠️ LE TITRE DIT A QUI EST LA FENÊTRE (2026-09-13).
+	// Coût mesuré de l'ambiguïté : Rodolf a photographié la fenêtre d'un agent en
+	// croyant voir le produit, et une heure d'enquête est partie sur un défaut qui
+	// n'existait pas. Une fenêtre de sonde doit donc se DÉNONCER elle-même, dans son
+	// titre, là où une capture d'écran le montre.
+	// NK_WINDOW_TAG=<texte> préfixe le titre ; toute sonde qui ouvre une fenêtre doit
+	// la poser. La sonde VÉHICULE la pose d'office : elle n'ouvre jamais de fenêtre
+	// qui puisse passer pour le produit.
 	wcfg.title = NkFormat("NkRenderer demo : {0}", demo.name);
+	if (const char *tag = getenv("NK_WINDOW_TAG"); tag && tag[0])
+		wcfg.title = NkFormat("{0} -- {1}", tag, wcfg.title);
+	else if (const char *vp = getenv("NK_VEHICLE_PROBE"); vp && vp[0] == '1')
+		wcfg.title = NkFormat("*** SONDE DE MESURE - CETTE FENETRE N'EST PAS LE PRODUIT *** -- {0}",
+							  wcfg.title);
 	wcfg.width = 1280;
 	wcfg.height = 720;
 	// NK_WIN_W / NK_WIN_H : fenetre petite pour une sonde (2026-09-04)
