@@ -33,6 +33,7 @@
 #include "NKLogger/NkLog.h"
 #include <cstdlib>
 #include <cmath>
+#include <cstdio> // snprintf : composition du libellé d'équilibre (texte d'interface)
 
 namespace nkanima {
 
@@ -121,6 +122,10 @@ namespace nkanima {
 				// personnage. Réglable pour qu'on puisse MESURER ce qu'il coûte : à 0,
 				// le polygone se réduit aux points de contact bruts.
 				float32 footPrintFraction = 0.025f;
+				// Dernier rapport d'équilibre calculé : c'est lui que le LIBELLÉ affiche,
+				// pour que le texte et la sphère ne puissent pas se contredire.
+				NkAnimBalanceReport lastReport;
+				bool lastReportOk = false;
 
 				// ── Ragdoll physique (couplage NKPhysics) ───────────────────────
 				nkentseu::physics::NkPhysicsWorld physWorld{nkentseu::physics::NkPhysicsConfig{{0.f, -9.81f, 0.f}}};
@@ -1175,7 +1180,14 @@ namespace nkanima {
 		r3d->BeginScene(sctx);
 
 		if (auto *meshSys = g.r3->GetMeshSystem()) { // sol
-			float32 floorY = g.center3d.y - g.radius3d * 0.5f;
+			// ⚠️ Le sol DESSINÉ doit être celui qui SERT. Il flottait à
+			// `centre - rayon/2`, sans rapport avec les pieds : le polygone d'appuis,
+			// lui, est construit sur le sol MESURÉ. Deux sols auraient donné une image
+			// où l'empreinte flotte au-dessus ou s'enfonce sous le plancher, et
+			// personne n'aurait su lequel croire. (Le maillage de plan du kit est
+			// horizontal XZ : on ne l'aligne donc que pour un modèle Y-haut, qui est
+			// le cas des trois rigs mesurés ; sinon on garde l'ancien placement.)
+			float32 floorY = (g.boundsOk && g.upAxis == 1) ? g.floorLevel : (g.center3d.y - g.radius3d * 0.5f);
 			float32 s = fmax(2.f, g.radius3d);
 			NkDrawCall3D dc;
 			dc.mesh = meshSys->GetPlane();
@@ -1214,10 +1226,16 @@ namespace nkanima {
 				// Couleur : verte/rouge SEULEMENT sur verdict fondé (appuis réels au
 				// sol) ; NEUTRE sinon — une sphère colorée ressemble à un verdict,
 				// elle n'a le droit d'en être un que s'il a été calculé.
+				// TROIS états, pas deux : l'indéterminé de CesiumMan doit se
+				// distinguer d'un verdict. Vert = équilibré, rouge = déséquilibré,
+				// GRIS BLEUTÉ = rien jugé — une couleur franche pour dire « je ne sais
+				// pas », qu'on ne confonde ni avec le vert ni avec le blanc du décor.
 				const NkVec4f col = (g.comVerdict == 1)	  ? NkVec4f{0.15f, 1.0f, 0.25f, 1.f}
 									: (g.comVerdict == 0) ? NkVec4f{1.0f, 0.20f, 0.20f, 1.f}
-														  : NkVec4f{0.92f, 0.92f, 0.92f, 1.f};
-				r3d->DrawDebugSphere(com, 0.05f, col);
+														  : NkVec4f{0.65f, 0.72f, 0.85f, 1.f};
+				const float32 rSphere = 0.02f * (rep.poseMax[rep.upAxis] - rep.poseMin[rep.upAxis]);
+				r3d->DrawDebugSphere(com, rSphere > 1e-4f ? rSphere : 0.05f, col);
+
 				// Polygone de support (jaune) quand il existe : arêtes + coins.
 				const int32 sc = (int32)g.comSupport.Size();
 				for (int32 i = 0; i < sc; ++i) {
@@ -1226,6 +1244,24 @@ namespace nkanima {
 					if (sc > 1)
 						r3d->DrawDebugLine(a, b, NkVec4f{1.0f, 0.85f, 0.15f, 1.f}, 0.f, true);
 					r3d->DrawDebugSphere(a, 0.02f, NkVec4f{1.0f, 0.85f, 0.15f, 1.f});
+				}
+
+				// ── LE FIL À PLOMB (2026-09-13) ────────────────────────────────
+				// Le verdict dit « le COM tombe-t-il DANS le polygone ». Sans montrer
+				// OÙ il tombe, la couleur de la sphère est à croire sur parole : on
+				// trace donc la projection du COM au sol, de la couleur du verdict, et
+				// le fil vertical qui l'y relie. Dedans ou dehors se voit alors sans
+				// rien mesurer — et un verdict faux devient VISIBLE, ce qui est le but.
+				if (sc > 0) {
+					NkVec3f proj = com;
+					if (rep.upAxis == 0)
+						proj.x = rep.floorLevel;
+					else if (rep.upAxis == 1)
+						proj.y = rep.floorLevel;
+					else
+						proj.z = rep.floorLevel;
+					r3d->DrawDebugLine(com, proj, col, 0.f, true);
+					r3d->DrawDebugSphere(proj, (rSphere > 1e-4f ? rSphere : 0.05f) * 0.7f, col);
 				}
 			}
 		}
@@ -1331,6 +1367,8 @@ namespace nkanima {
 			// CesiumMan, dont les joints s'appellent « leg_joint_L_5 » : le pied est
 			// là, son NOM ne le dit pas.
 			out.verdict = -1;
+			g.lastReport = out;
+			g.lastReportOk = true;
 			return true;
 		}
 
@@ -1366,6 +1404,8 @@ namespace nkanima {
 		out.contactCount = nc;
 		if (nc <= 0) {
 			out.verdict = -1; // en l'air : aucun appui, donc rien à juger
+			g.lastReport = out;
+			g.lastReportOk = true;
 			return true;
 		}
 
@@ -1409,6 +1449,8 @@ namespace nkanima {
 		g.comVerdict = bal.balanced ? 1 : 0;
 		out.verdict = g.comVerdict;
 		out.margin = bal.margin;
+		g.lastReport = out;
+		g.lastReportOk = true;
 		return true;
 	}
 
@@ -1445,19 +1487,35 @@ namespace nkanima {
 	}
 
 	const char *AnimCOMRegimeLabel() {
-		// Le régime est nommé à l'écran parce qu'il est INDISCERNABLE autrement :
-		// un COM uniforme tombe vers le milieu du torse et ressemble à un COM
-		// anthropométrique. Depuis le 2026-08-17 les noms de joints arrivent du
-		// glTF (NkGLTFNode.name -> clip.jointNames) : le libellé suit le régime
-		// RÉEL, et le verdict n'est affiché que s'il a été calculé sur des appuis.
-		if (g.comRegime == 1) {
-			if (g.comVerdict == 1)
-				return "COM anthropometrique — EQUILIBRE (COM au-dessus des appuis)";
-			if (g.comVerdict == 0)
-				return "COM anthropometrique — DESEQUILIBRE (COM hors du polygone d appuis)";
-			return "COM anthropometrique — equilibre indetermine : aucun appui au sol";
+		// Le régime est nommé à l'écran parce qu'il est INDISCERNABLE autrement : un
+		// COM uniforme tombe vers le milieu du torse et RESSEMBLE à un COM
+		// anthropométrique. Le libellé est composé depuis le DERNIER RAPPORT calculé —
+		// le même objet que la sphère colorée — pour que le texte et l'image ne
+		// puissent pas se contredire ; et il porte la MARGE en centimètres, parce
+		// qu'« au-dessus des appuis » ne dit pas de combien.
+		static char buf[224];
+		if (!g.lastReportOk) {
+			return "COM : pas encore calcule (affichage COM eteint ?)";
 		}
-		return "COM uniforme (approximatif) — equilibre indetermine : aucun appui detecte";
+		const NkAnimBalanceReport &r = g.lastReport;
+		const char *regime = (r.regime == 1) ? "COM anthropometrique"
+							 : (r.regime == 0)
+								 ? "COM uniforme (noms de joints absents, vides ou non reconnus)"
+								 : "COM (regime inconnu)";
+		if (r.verdict == 1)
+			std::snprintf(buf, sizeof(buf), "%s — EQUILIBRE — marge +%.1f cm (%d appuis, %d sommets)", regime,
+						  (double)(r.margin * 100.f), r.contactCount, r.supportCount);
+		else if (r.verdict == 0)
+			std::snprintf(buf, sizeof(buf), "%s — DESEQUILIBRE — marge %.1f cm (%d appuis, %d sommets)", regime,
+						  (double)(r.margin * 100.f), r.contactCount, r.supportCount);
+		else if (r.footCount == 0)
+			std::snprintf(buf, sizeof(buf), "%s — INDETERMINE : aucun joint d appui NOMME (foot/ankle/toe) dans ce rig",
+						  regime);
+		else
+			std::snprintf(buf, sizeof(buf),
+						  "%s — INDETERMINE : %d appuis nommes, aucun ne touche le sol (tolerance %.1f cm)", regime,
+						  r.footCount, (double)(r.contactThreshold * 100.f));
+		return buf;
 	}
 
 } // namespace nkanima
