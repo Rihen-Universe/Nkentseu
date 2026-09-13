@@ -1,4 +1,5 @@
 #pragma once
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // =============================================================================
 // NkModelerInput.h — l'etat de l'application et le survol/clic sur les zones.
 //
@@ -1114,8 +1115,13 @@ namespace nkentseu {
 				//   1 ouvrir la boite Nouveau · 2 Ouvrir... · 3 Enregistrer
 				//   4 Enregistrer sous... · 5 Parcourir (dossier de la boite)
 				//   6 Creer (validation de la boite) · 7 ouvrir un recent
+				//   9 ouvrir (ou creer) un projet DESIGNE PAR SON CHEMIN
 				int32 projPending = 0;
 				int32 projRecent = -1; ///< indice du recent a ouvrir (action 7)
+				/// Chemin ABSOLU du .nk3dm de l'action 9. Il vit ici, a cote de
+				/// projRecent, parce que c'est la meme chose sous une autre
+				/// designation : ce qu'on demande a ouvrir apres la frame.
+				char projOpenPath[512] = {};
 				// « Enregistrer et quitter » : la sauvegarde a lieu apres la frame,
 				// la fermeture doit donc attendre qu'elle ait reussi.
 				bool quitAfterSave = false;
