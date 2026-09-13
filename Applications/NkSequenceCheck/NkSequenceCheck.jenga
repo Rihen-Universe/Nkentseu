@@ -1,0 +1,62 @@
+"""NkSequenceCheck — le banc du sequenceur de Noge : des cles entrent, des images sortent.
+
+AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
+
+APPLICATION CONSOLE et non `tests/`, pour la raison deja mesuree par
+NkMatGraphCheck : `jenga test --project X` rend « Unit-test execution is disabled
+by workspace policy ». Un banc sous `tests/` compile et ne s'execute JAMAIS ; une
+preuve doit donc etre un executable.
+
+CE QU'IL PROUVE : le PILOTE TEMPOREL du sequenceur (NkSequencer.cpp), c'est-a-dire
+la chaine cles -> NkSequence::Evaluate -> pose ECS -> pixels -> fichiers PNG
+numerotes. Les pixels sont peints par le PROCESSEUR ; NKRenderer n'est pas
+sollicite. Le rendu hors ecran (NkOffscreenTarget) est une question separee, et
+elle ne doit pas se melanger a celle-ci : un banc qui exigerait un peripherique
+ne tournerait pas sur une machine sans GPU, et un echec de device se lirait comme
+un echec du sequenceur.
+
+DEPENDANCES : Noge porte NkSequencer.cpp, donc tout ce dont Noge a besoin doit
+etre lie (linker mono-passe : les dependants AVANT leurs dependances). NKMedia y
+est ajoute pour NkImageSequenceWriter, et il vient AVANT NKImage puisqu'il le
+consomme.
+"""
+from Jenga import *
+from jengaconfig import *
+
+
+with project("NkSequenceCheck"):
+    consoleapp()
+    language("C++")
+    cppdialect("C++17")
+    location(".")
+    files(["src/main.cpp"])
+
+    # ⚠️ LE FORMATAGE EST UNE ERREUR, PAS UN AVERTISSEMENT.
+    # Regle reprise telle quelle de NkMatGraphCheck.jenga : un printf a qui il
+    # manque un argument lit de la memoire indeterminee et affiche un nombre
+    # CREDIBLE. Un banc dont toute la valeur tient dans les nombres qu'il imprime
+    # ne peut pas se permettre ce defaut-la, et il ne s'annonce par rien d'autre.
+    cxxflags(["-Werror=format", "-Werror=format-insufficient-args", "-Werror=format-extra-args"])
+
+    nkentseudependson(
+        ["Noge", "NKVFX", "NKRenderer", "NKRHI", "NKSL", "NKAnima", "NKCanvas",
+         "NKCollision", "NKPhysics", "NKNavigation", "NKRL", "NKAgent", "NKTensor",
+         "NKAudio", "NKNetwork", "NKSerialization", "NKFileSystem",
+         "NKMedia", "NKFont", "NKImage", "NKStream", "NKGlad",
+         "NKECS", "NKUI", "NKEvent", "NKWindow", "NKMath", "NKTime", "NKLogger",
+         "NKContainers", "NKMemory", "NKCore", "NKPlatform", "NKThreading"],
+        extra_includes=["src", "%{Noge.location}/src"]
+                       + ([VULKAN_INCLUDE] if VULKAN_INCLUDE else []),
+    )
+
+    objdir("%{wks.location}/Build/Obj/%{cfg.buildcfg}-%{cfg.system}/%{prj.name}")
+    targetdir("%{wks.location}/Build/Bin/%{cfg.buildcfg}-%{cfg.system}/%{prj.name}")
+
+    with filter("system:Windows && !options:windows-runtime=uwp && !system:XboxSeries && !system:XboxOne"):
+        usetoolchain(TC_WINDOWS)
+        defines(["WIN32_LEAN_AND_MEAN", "_UNICODE", "UNICODE"])
+        if VULKAN_LIB:
+            libdirs([VULKAN_LIB])
+        links(["user32", "gdi32", "opengl32", "dwmapi", "shell32",
+               "d3d11", "d3d12", "dxgi", "dxguid", "d3dcompiler", "uuid", "ole32",
+               "ws2_32", "winmm", "ole32", "avrt"])
