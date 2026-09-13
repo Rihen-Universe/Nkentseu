@@ -1,3 +1,4 @@
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // =============================================================================
 // main.cpp  — Renderdemo entry point (NkRenderer v5.0)
 //
@@ -202,6 +203,36 @@ namespace nkentseu {
 							c.shadow.cascadeCount = 0;
 							c.hdr = false;
 						}
+					// ── NK_OCEAN_SKY=1 : UN CIEL A REFLETER (2026-09-13) ─────────
+					// La sonde ocean a mesure `hasEnv = 0` : AUCUN monde n'est charge
+					// dans cette demo. La contribution d'eau reflechissait donc une
+					// ambiance UNIFORME -- le mecanisme etait prouve, le contenu
+					// manquait. Rien d'invente ici : exactement la configuration IBL
+					// que Demo4 (`case 3`) utilise deja, avec le meme fichier.
+					// ⚠️ Derriere une variable, et ETEINTE par defaut : l'image
+					// d'aujourd'hui doit revenir AU BIT sans elle, sans quoi tous les
+					// chiffres des nuits precedentes deviendraient incomparables.
+					// ⚠️ DEUX CIELS, ET CE N'EST PAS UN LUXE : c'est le seul temoin qui
+					// distingue un REFLET d'une TEINTE. Tourner la camera change TOUTE
+					// l'image et ne tranche donc rien (mesure du 13/09 : le lacet
+					// deplace la signature de la contribution avec ET sans ciel).
+					// Changer le CIEL en gardant la meme camera, la meme houle et le
+					// meme instant, lui, ne peut changer que ce qui vient du ciel.
+					//   NK_OCEAN_SKY=1 -> piazza_bologni (cour ensoleillee, ciel clair)
+					//   NK_OCEAN_SKY=2 -> newport_loft   (loft SOMBRE, fenetres vives)
+					// Deux environnements aussi opposes que possible dans ce qui est
+					// deja dans le depot.
+					if (const char *e = std::getenv("NK_OCEAN_SKY"); e && (e[0] == '1' || e[0] == '2')) {
+						c.ibl.useHDR = true;
+						c.ibl.hdrPath = (e[0] == '2')
+											? "Resources/NKRenderer/Textures/Vracs/HDR/newport_loft.hdr"
+											: "Resources/NKRenderer/Textures/Vracs/HDR/piazza_bologni_1k.hdr";
+						c.ibl.iblStrength = 1.0f;
+						// Le ciel VISIBLE, pas seulement present dans l'IBL : sans lui
+						// on ne pourrait pas dire si le reflet porte le ciel ou une
+						// teinte -- il n'y aurait rien a quoi comparer a l'ecran.
+						c.ibl.drawSkybox = true;
+					}
 					return c;
 				}
 				case 3: {
