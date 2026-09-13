@@ -5144,7 +5144,88 @@ static NkTexHandle CreateLanternCubeCookie(NkTextureLibrary *texLib, NkIDevice *
 									 dc.wetness * dc.wetPorosity, dc.wetness * dc.waterLayer);
 					}
 				}
-				r3d->Submit(dc);
+				// ── NK_WET_SPLIT : SEC ET MOUILLE DANS LA MEME IMAGE ─────────────
+				// ⚠️ C'EST LA DEMANDE DE RODOLF, ET ELLE EST JUSTE : « il faut les deux
+				// cote a cote ». Deux fenetres se comparent DE MEMOIRE, et un
+				// assombrissement ne se juge pas de memoire. Le mouillage se reglant
+				// par DRAWCALL et le sol etant UN seul drawcall, il etait mouille en
+				// entier ou sec en entier : il n'y avait rien a comparer.
+				//   NK_WET_SPLIT=1  RAMPE    : sec a un bord, trempe a l'autre
+				//                              -> montre le DEGRADE
+				//   NK_WET_SPLIT=2  DAMIER   : une tuile sur deux
+				//                              -> montre la FRONTIERE NETTE
+				// Ce ne sont pas la meme preuve, d'ou les deux.
+				//   NK_WET_SPLIT_N=<n>  cote de la grille de tuiles, DEFAUT 8 (64 tuiles)
+				//
+				// ⚠️ JOINTIVES SANS FENTE NI CHEVAUCHEMENT, et ce n'est pas un vœu : les
+				// deux bords d'une meme frontiere sont calcules par la MEME expression
+				// `-0,5 + k/N`, donc ils valent le meme flottant au bit. Une fente se
+				// verrait comme une ligne sombre et passerait pour un defaut de
+				// mouillage -- le pire des faux temoins. L'ecart est MESURE et imprime.
+				const char *eSplit = std::getenv("NK_WET_SPLIT");
+				const bool split = (eSplit && (eSplit[0] == '1' || eSplit[0] == '2'));
+				if (!split) {
+					r3d->Submit(dc); // sans la variable : UN seul drawcall, image d'avant AU BIT
+				} else {
+					uint32 nTuiles = 8u; // DEFAUT, dit ici et nulle part ailleurs
+					if (const char *n = std::getenv("NK_WET_SPLIT_N"); n && n[0]) {
+						const int32 v = std::atoi(n);
+						if (v >= 2 && v <= 64)
+							nTuiles = (uint32)v;
+					}
+					const bool damier = (eSplit[0] == '2');
+					// La porosite et la pellicule suivent NK_WET_* si posees ; c'est la
+					// SATURATION qui varie d'une tuile a l'autre, rien d'autre.
+					float32 poro = 1.f, pell = 0.f;
+					if (const char *p = std::getenv("NK_WET_POROSITY"); p && p[0])
+						poro = (float32)std::atof(p);
+					if (const char *l = std::getenv("NK_WET_LAYER"); l && l[0])
+						pell = (float32)std::atof(l);
+					const NkMat4f base = dc.transform;
+					float32 fenteMax = 0.f;
+					for (uint32 j = 0; j < nTuiles; ++j) {
+						for (uint32 i = 0; i < nTuiles; ++i) {
+							// Bords de la tuile, dans le repere du quad unite [-0,5 ; +0,5].
+							const float32 x0 = -0.5f + (float32)i / (float32)nTuiles;
+							const float32 x1 = -0.5f + (float32)(i + 1u) / (float32)nTuiles;
+							const float32 z0 = -0.5f + (float32)j / (float32)nTuiles;
+							const float32 z1 = -0.5f + (float32)(j + 1u) / (float32)nTuiles;
+							// Le bord DROIT de la tuile i et le bord GAUCHE de la tuile
+							// i+1 sortent de la meme expression : l'ecart doit etre nul.
+							if (i + 1u < nTuiles) {
+								const float32 suivant = -0.5f + (float32)(i + 1u) / (float32)nTuiles;
+								const float32 d = suivant > x1 ? suivant - x1 : x1 - suivant;
+								if (d > fenteMax)
+									fenteMax = d;
+							}
+							NkDrawCall3D t = dc;
+							// Translation * Echelle, sans rotation : `TRS` exigerait un type
+							// de rotation expose (.ToMat4()), et une identite de plus ne
+							// ferait qu'ajouter une multiplication et une occasion d'erreur.
+							t.transform = base * NkMat4f::Translation({0.5f * (x0 + x1), 0.f, 0.5f * (z0 + z1)}) *
+										  NkMat4f::Scale({x1 - x0, 1.f, z1 - z0});
+							// AABB conservatrice : celle du sol entier. Une AABB par tuile
+							// ferait gagner du tri de visibilite et risquerait un ecart de
+							// bord ; ici on ne veut pas d'ecart, on veut une preuve.
+							t.wetness = damier ? (float32)((i + j) & 1u)
+											   : ((nTuiles > 1u) ? (float32)i / (float32)(nTuiles - 1u) : 0.f);
+							t.wetPorosity = poro;
+							t.waterLayer = pell;
+							r3d->Submit(t);
+						}
+					}
+					static bool ditSplit = false;
+					if (!ditSplit) {
+						ditSplit = true;
+						std::fprintf(stderr,
+									 "[MOUILLAGE] SPLIT %s : %u x %u = %u tuiles (le sol passe de 1 a %u"
+									 " drawcalls, soit +%u) | saturation de %.3f a %.3f | porosite %.3f,"
+									 " pellicule %.3f | FENTE MAXIMALE entre tuiles voisines : %.9f\n",
+									 damier ? "DAMIER" : "RAMPE", nTuiles, nTuiles, nTuiles * nTuiles,
+									 nTuiles * nTuiles, nTuiles * nTuiles - 1u, 0.f, 1.f, poro, pell,
+									 (double)fenteMax);
+					}
+				}
 				// sonde VEHICULE : chassis (cube) + 4 roues (spheres), transformes du monde physique
 				if (st->veh && st->vehWorld) {
 					const auto *b = st->vehWorld->GetBody(st->veh->Chassis());
