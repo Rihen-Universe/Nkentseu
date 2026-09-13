@@ -71,6 +71,21 @@ namespace nkentseu {
 		// Publie la cible aupres du backend NKGui sous kNogeeViewportTexId.
 		void NogeeViewport3DRegisterInto(void *guiBackend); // NkGuiRHIBackend*
 
+		// ── ORIGINE DE LA VUE DANS LA FENETRE ────────────────────────────────
+		// Ce que NK3DModeler fait a chaque image (main.cpp l.1426-1433,
+		// `Demo3DHostSetView`) et sans quoi le pointage vise un autre pixel que
+		// celui qu'on voit : la souris arrive en coordonnees FENETRE, l'image vit
+		// dans le rectangle de la vue. Tant que l'ecart n'est pas retranche, un
+		// clic « au centre du cube » tombe a cote — d'autant plus loin que les
+		// panneaux de gauche sont larges.
+		//
+		// Le panneau depose son rectangle a chaque image ; le pont le garde pour
+		// qui en aura besoin (picking, gizmos, navigation). ⚠️ AUCUNE entree n'est
+		// consommee ici : ce lot POSE la traduction, il ne fait pas le pointage.
+		void NogeeViewport3DSetView(float32 offX, float32 offY, float32 w, float32 h, bool survol);
+		// Souris FENETRE -> souris VUE. Faux si le point tombe hors de la vue.
+		bool NogeeViewport3DMouseToView(float32 winX, float32 winY, float32 *outX, float32 *outY);
+
 		// ── Camera d'orbite (critere n2 : la camera commande la vue) ──────────
 		void NogeeViewport3DOrbit(float32 dYawDeg, float32 dPitchDeg, float32 dZoom);
 		void NogeeViewport3DSetOrbit(float32 yawDeg, float32 pitchDeg);
