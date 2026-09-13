@@ -3252,16 +3252,48 @@ pas d'un bit), les images existent sur le disque (et à durée nulle il n'y en a
 aucune, pas une seule vide), deux images de la suite diffèrent (et si le temps
 est figé, elles sont identiques).
 
-    BILAN MESURE : 21 verts, 0 rouges, 48 images ecrites
+    BILAN MESURE : 27 verts, 0 rouges
+       f1-f4  48 images peintes par le PROCESSEUR   (aucun GPU requis)
+       f5     48 images rendues par le GPU          (NkOffscreenTarget, sans fenetre)
 
-> ⚠️ **Ce que ce banc ne prouve pas.** Les pixels sont **peints par le
-> processeur** — un fond fixe et un carré dont la position est lue dans le monde
-> ECS *après* `Evaluate`. Ce n'est pas une preuve de `NKRenderer` : c'est une
-> preuve du **pilote temporel**, qui est ce qui manquait. Le rendu hors écran
-> (`NkOffscreenTarget::ReadbackPixels` / `Capture`, qui existent et tournent déjà
-> dans NK3DModeler) est une **question séparée**, volontairement non mélangée à
-> celle-ci : un banc qui exigerait un périphérique ne tournerait pas sur une
-> machine sans GPU, et un échec de device se lirait comme un échec du séquenceur.
+> ⚠️ **Les deux chemins, et ce que chacun prouve.** `f1-f4` peignent les pixels
+> **par le processeur** : un fond fixe et un carré dont la position est lue dans le
+> monde ECS *après* `Evaluate`. `f5` fait rendre les **mêmes 48 images par le GPU**,
+> via `NkOffscreenTarget` sur un `NkIDevice` **créé sans surface**. Les deux sont
+> gardés côte à côte — deux chemins qui donnent le même verdict valent mieux qu'un
+> seul, et celui du processeur tourne sur une machine sans carte graphique (où `f5`
+> est alors **ignoré, ni vert ni rouge**).
+>
+> **Ce que `f5` ne fait PAS encore** : le GPU **efface** la cible avec une couleur
+> dérivée de la pose, il **ne dessine aucune géométrie**. C'est délibéré :
+> `Applications/NkOffscreenProbe` a établi que l'effacement suffit à prouver qu'une
+> passe s'exécute et se relit, **sur les quatre dorsaux**. Ajouter un maillage
+> mêlerait deux questions — *le séquenceur pilote-t-il le rendu ?* et *le pipeline
+> compile-t-il ?* — et un rouge ne dirait plus laquelle des deux a cédé. La
+> géométrie est l'étape suivante.
+
+> ### ⚠️ `using namespace ecs;` REND NKRHI INCOMPILABLE — mesuré le 2026-09-13
+>
+> Ce n'est pas une gêne de style. **Inclure `Noge/Sequencer/NkSequencer.h` avant un
+> en-tête de NKRHI casse la compilation de NKRHI, dans ses propres fichiers** :
+>
+>     NKRHI/Core/NkTypes.h:457:20: error: reference to 'NkRect2D' is ambiguous
+>       457 |   using NkScissor = NkRect2D;
+>       candidat : nkentseu::NkRect2D        NkTypes.h:455 (alias de math::NkIntRect)
+>       candidat : nkentseu::ecs::NkRect2D   NkRenderComponents.h:68
+>     NKRHI/Commands/NkICommandBuffer.h:46 : idem, sur BeginRenderPass lui-même.
+>
+> Quatre erreurs, **aucune dans le fichier fautif** : `NkSequenceCheck/src/main.cpp`
+> n'écrit jamais `NkRect2D`. Un en-tête public qui ouvre un `using namespace`
+> empoisonne tout ce qui le suit, **y compris des modules qui ignorent Noge**.
+>
+> Contournement en place (inclure NKRHI/NKRenderer **avant** Noge), documenté au-dessus
+> des `#include` du banc avec ses numéros de ligne, pour que personne ne réordonne
+> « pour faire propre ». **Ce n'est pas la correction** : celle-ci est de retirer la
+> ligne 50 de `NkSequencer.h`, elle touche tout Noge, et elle appartient à Rodolf.
+> Troisième occurrence de ce défaut en une seule soirée, dans trois fichiers
+> différents (corps de `NkSequencer.cpp` — `NkKeyframe` ; un autre chantier ; ici —
+> `NkRect2D`).
 
 **Dette ouverte, non payée ici.** (a) `using namespace ecs;` dans un en-tête
 public impose ses collisions à tout ce qui l'inclut ; le retirer touche tout Noge
