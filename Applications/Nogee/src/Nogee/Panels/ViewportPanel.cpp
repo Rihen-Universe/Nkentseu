@@ -1,9 +1,15 @@
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // =============================================================================
-// Nogee/Panels/ViewportPanel.cpp — zone centrale, cible du glisser-deposer §9
-// (cf. .h : ce panneau N'EST PAS un viewport, et il le dit a l'ecran).
+// Nogee/Panels/ViewportPanel.cpp — LA VUE DE SCENE (et la cible du glisser §9)
+// =============================================================================
+// 2026-09-13 : ce panneau EST devenu un viewport. La scene ECS est rendue hors
+// ecran par `NogeeViewport3D` (seule unite a voir NKRenderer) et posee ici en
+// une image. Le panneau, lui, ne rend toujours RIEN par lui-meme : il declare la
+// taille qu'il veut voir et pose la texture — un panneau decrit, il ne rend pas.
 // =============================================================================
 #include "ViewportPanel.h"
-#include "Nogee/Editor/AssetManager.h" // NkAssetType + DetectType (neutre)
+#include "Nogee/Viewport/NogeeViewport3D.h" // facade OPAQUE (aucun type NKRenderer)
+#include "Nogee/Editor/AssetManager.h"		// NkAssetType + DetectType (neutre)
 #include "Noge/ECS/Components/Core/NkCoreComponents.h"
 #include "Noge/ECS/Components/Rendering/NkRenderComponents.h" // NkMeshComponent
 #include "NKGui/NKGui.h"
@@ -68,6 +74,16 @@ namespace nkentseu {
 			ecs::NkMeshComponent mesh;
 			mesh.meshPath = NkString(full);
 			mWorld->Add<ecs::NkMeshComponent>(id, mesh);
+			// ⚠️ SANS CE COMPOSANT L'ENTITE N'EST JAMAIS DESSINEE, et personne ne
+			// le disait. `NkRenderSystem::SubmitMeshes` (NkRenderSystem.cpp l.142)
+			// interroge `Query<NkTransform, NkMeshComponent, NkMaterialComponent>` :
+			// un mesh sans materiau n'entre pas dans la requete — il n'est meme pas
+			// IMPORTE, puisque l'import paresseux est dans le corps du ForEach.
+			// L'entite apparaissait donc dans l'Outliner et jamais a l'ecran, ce qui
+			// est exactement le mur de ce chantier. Slot 0 vide = materiau par
+			// defaut du renderer, ce qui est le bon comportement au depot d'un mesh
+			// nu (Unity/Unreal font pareil).
+			mWorld->Add<ecs::NkMaterialComponent>(id, ecs::NkMaterialComponent{});
 			if (mSel)
 				mSel->Select(id);
 
@@ -85,7 +101,9 @@ namespace nkentseu {
 		void ViewportPanel::OnUI(editorkit::NkEditorFrameContext &ec) {
 			NkGuiContext &ctx = ec.Ui();
 
-			Text(ctx, "Viewport — rendu de scene : pas encore cable (ROADMAP §10sexies).");
+			Text(ctx, NogeeViewport3DReady()
+						  ? "Viewport — scene ECS rendue par NkRenderSystem (cible hors ecran partagee)."
+						  : "Viewport — rendu de scene indisponible : pile GPU non montee (voir le journal).");
 			if (mLastDropPath[0] != '\0') {
 				char line[300];
 				std::snprintf(line, sizeof(line), "Dernier asset recu : %s (%s)", mLastDropPath,
@@ -109,9 +127,44 @@ namespace nkentseu {
 			// Couleurs par JETONS de theme, jamais en dur (directive planches) :
 			// fond le plus sombre du theme pour une zone en retrait, texte grise.
 			ctx.DL().AddRectFilled(zone, ctx.theme.bgPrimary);
+
+			// ── LA SCENE ECS, POSEE ICI ──────────────────────────────────────
+			// La taille voulue est DECLAREE (le pont ne refait sa cible que si
+			// elle change vraiment) ; le rendu, lui, a eu lieu bien avant, dans le
+			// crochet preUI, frame device ouverte et passe backbuffer pas encore
+			// commencee. UV Y inverse : les cibles de rendu ont leur origine en
+			// bas a gauche (meme geste que NkAnimaEditor/Panels.h l.212).
+			// ⚠️ MESURE DU 13/09 : `ctx.AvailHeight()` rend ici 999936 — la zone de
+			// depot s'en accommodait (un rect trop haut est simplement rogne), mais
+			// une CIBLE DE RENDU de 1138x999936 ne s'alloue pas. Le defaut est dans
+			// la hauteur disponible, pas dans le viewport ; on le BORNE ici, on le
+			// dit, et on ne fait pas semblant de l'avoir corrige.
+			const float32 vw = zone.w > 4096.f ? 4096.f : zone.w;
+			const float32 vh = zone.h > 4096.f ? 4096.f : zone.h;
+			if (vw > 1.f && vh > 1.f)
+				NogeeViewport3DResize(static_cast<uint32>(vw), static_cast<uint32>(vh));
+			const bool has3D = NogeeViewport3DReady();
+			if (has3D) {
+				ctx.DL().AddImage(kNogeeViewportTexId, zone, nkgui::NkVec2{0.f, 1.f}, nkgui::NkVec2{1.f, 0.f},
+								  nkgui::NkColor{255, 255, 255, 255});
+			}
 			ctx.DL().AddRect(zone, ctx.theme.border, 1.f);
-			TextAt(ctx, {zone.x + 12.f, zone.y + 10.f}, "zone de depot (type \"asset\")",
-				   ctx.theme.textDisabled);
+			if (!has3D) {
+				TextAt(ctx, {zone.x + 12.f, zone.y + 10.f}, "zone de depot (type \"asset\")",
+					   ctx.theme.textDisabled);
+			} else {
+				// Temoin numerique LISIBLE A L'ECRAN : le nombre d'entites que
+				// NkRenderSystem peut soumettre, recompte par le pont avec le MEME
+				// predicat. Un viewport qui montre du noir et « 0 » ne ment pas ;
+				// un viewport qui montre du noir sans chiffre, si.
+				char t[160];
+				float32 yaw = 0.f, pitch = 0.f;
+				NogeeViewport3DGetOrbit(&yaw, &pitch);
+				std::snprintf(t, sizeof(t), "scene ECS : %d mesh soumis | camera %.0f/%.0f | image %d",
+							  (int)NogeeViewport3DDrawCount(), (double)yaw, (double)pitch,
+							  (int)NogeeViewport3DFrameCount());
+				TextAt(ctx, {zone.x + 10.f, zone.y + zone.h - 20.f}, t, ctx.theme.textDisabled);
+			}
 
 			if (BeginDropTarget(ctx)) {
 				int32 sz = 0;
