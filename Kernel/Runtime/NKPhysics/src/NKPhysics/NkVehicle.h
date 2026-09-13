@@ -56,9 +56,29 @@ namespace nkentseu {
 													// et vaut zéro roue en l'air, sans une ligne de plus.
 													// Pneu sur asphalte : 0,010 à 0,015.
 				// ── LA TRAINÉE AÉRODYNAMIQUE (2026-09-13) ─────────────────────
-				// Mesuré avant de l'écrire : plein gaz 90,7 s, la voiture passait
-				// 1 097 km/h en gagnant encore 1,64 m/s². L'asymptote sans traînée
-				// vaut (2·engineForce − C_rr·mg) / (0,02·m) = 385 m/s = 1 386 km/h.
+				// ⚠️ CE COMMENTAIRE A ÉTÉ CORRIGÉ LE JOUR MÊME. Il affirmait d'abord
+				// que toute la force moteur passe et que l'asymptote sans traînée vaut
+				// 385 m/s. LES DEUX SONT FAUX, et la manière dont ils l'étaient vaut
+				// d'être garde ici.
+				//
+				// Le chiffre venait d'un banc « plein gaz 90 s » posé sur un sol de
+				// 400 × 400 m. La voiture atteignait le bord à t = 14,96 s et TOMBAIT
+				// DANS LE VIDE : au verdict, 0 roue sur 4 touchait le sol et la somme
+				// des forces de suspension valait 0,0 N. Le « palier » mesuré était la
+				// vitesse limite d'un corps en CHUTE, et la force motrice qu'on en
+				// déduisait (9 458 N ≈ 2·engineForce à 0,4 %) était une coïncidence.
+				// *Un chiffre qui confirme trop bien l'hypothèse qu'on avait déjà est
+				// le premier à vérifier.* Ce qui l'a détrompé n'est pas la vitesse,
+				// c'est le compte des roues au sol.
+				//
+				// Remesuré sur un sol de 40 km, 4 roues au sol de bout en bout :
+				//   • mu = 0,4000 → traction plafonnée à mu·ΣFsusp(motrices) = 2 354 N
+				//     statique, quand 2·engineForce en demande 9 418 : la voiture est
+				//     LIMITÉE PAR L'ADHÉRENCE et ne délivre que ~27 % de son moteur ;
+				//   • avec le transfert de charge vers l'arrière, 2 505 N → vitesse de
+				//     pointe prédite 50,73 m/s, MESURÉE 50,575 m/s (− 0,3 %).
+				// Sans traînée, la même voiture dépasse 82 m/s (296 km/h) et monte
+				// encore : c'est bien elle qui borne la vitesse de pointe.
 				// ⚠️ DIFFÉRENCE DE NATURE avec le roulement et le frein moteur : ceux-là
 				// passent par la gomme, donc le cercle de friction les borne. L'air
 				// pousse la CAISSE : la traînée s'applique au centre de masse, HORS du
