@@ -321,6 +321,10 @@ namespace nkentseu {
 				// Format compact versionné (header NKAN + tracks d'os). Pas de JSON :
 				// l'anim = beaucoup de keyframes (floats) -> binaire = compact + chargement
 				// rapide sans parsing. Sert l'app NkAnima ET le moteur de jeu (rejouer un clip).
+				// v3 depuis le 2026-09-13 : la section squelette porte AUSSI `jointNames`.
+				// Avant, l'aller-retour les perdait en silence et le clip relu retombait en
+				// masse uniforme. Mesure et conséquences : en tête du bloc de sérialisation
+				// dans NkAnimation.cpp.
 				bool SaveBinary(const NkString &path) const;
 				bool LoadBinary(const NkString &path);
 
