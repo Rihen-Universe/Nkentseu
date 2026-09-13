@@ -184,3 +184,72 @@ d'atomiques GPU en NkSL (`NkGpuAtomicWitness`).
 **Aucun seuil de ce fichier ne sera déplacé après une mesure.** S'il devait l'être,
 ce serait écrit comme un déplacement, avec sa raison, et la mesure d'avant
 resterait publiée.
+
+---
+
+## 7. PRÉ-ENREGISTREMENT DÉTAILLÉ DE (s0) — écrit AVANT d'instrumenter
+
+**Écrit le 13/09 au soir, AVANT la moindre ligne d'instrumentation**, après avoir
+seulement **lu** `Step()`.
+
+### Les phases, relevées dans le code et rangées en DEUX familles
+
+C'est ce rangement qui portera le résultat, et il est fait **avant** de mesurer.
+
+**① PHYSIQUE — ce qu'un moteur paierait vraiment :**
+
+```
+Combust · AddBuoyancy · ComputeVorticity (1re) · AddVorticityConfinement
+AddWind · AdvectVelocity · PROJECT · MaxCFL + sous-cyclage
+AdvectScalar x3 (densite, temperature, carburant) · dissipation
+```
+
+**② INSTRUMENTATION — ce que le banc paie pour SE JUGER :**
+
+```
+MeasureDivergence x3  (avant, apres, apres STRICT)
+MeasureVelocity · ComputeVorticity (2e, refaite « pour l appelant »)
+TotalMass + TotalHeat + TotalFuel + le balayage de Tmax
+```
+
+> ⚠️ **CETTE SECONDE FAMILLE EST UNE HYPOTHÈSE DANGEREUSE, ET IL FAUT LA NOMMER
+> MAINTENANT.** `Step()` contient **trois** parcours de divergence, **deux** calculs
+> de vorticité et **quatre** réductions sur toute la grille. **Si elle pèse lourd,
+> alors les `244,3 ms` publiés comme « coût de simulation » sont EN PARTIE le coût
+> du solveur qui SE MESURE LUI-MÊME** — et un moteur qui n'a pas besoin de ces
+> témoins ne paierait pas ce prix. **Cela changerait la lecture de tout le lot B**,
+> y compris le rapport `6,40`.
+
+### Ma prédiction, calculée depuis le mécanisme
+
+La course complète mesure **`268,3` balayages SOR par pas** (`omega 1,9005`). Sur
+50 000 cellules, cela fait **~13,4 millions** de mises à jour par pas, là où
+l'instrumentation fait ~10 parcours, soit **~0,5 million** : un rapport de **27
+pour 1** en nombre d'accès.
+
+    projection                 50 a 75 %   <- ma prediction principale
+    advection des scalaires    15 a 30 %   (3 champs, sous-cyclee, van Leer)
+    instrumentation             3 a 10 %
+    tout le reste             moins de 10 %
+
+### LA GARDE, et elle peut invalider la mesure entière
+
+    (s0g) la SOMME des parts doit valoir le TOTAL a 2 % pres
+          sinon une phase m echappe, ou mes chronos mesurent autre chose que ce
+          qu ils nomment -- et AUCUN pourcentage ne serait lisible
+
+⚠️ **Et une garde de perturbation** : ajouter ~15 lectures d'horloge par pas doit
+rester invisible devant `244 ms`. Si le total s'écarte de plus de 2 % de celui
+mesuré **avant** instrumentation, **c'est l'instrument qui change ce qu'il
+mesure**, et je le dirai.
+
+### ⚠️ MA PROPRE RÈGLE, QUE JE M'INTERDIS DE NÉGOCIER
+
+> **Si la projection pèse moins de 50 % du pas, je CHANGE DE CIBLE et je le dis** —
+> même si cela contredit tout ce que nous supposons depuis ce matin, **y compris le
+> titre de ce plan**.
+
+Et le cas le plus gênant est déjà écrit : **si l'instrumentation pèse lourd, le
+premier gain n'est pas un portage GPU du tout** — c'est de ne plus faire tourner
+trois mesures de divergence dans un moteur qui n'en a pas besoin. **Ce serait un
+résultat qui rend ce lot inutile, et il vaut mieux le savoir avant d'investir.**
