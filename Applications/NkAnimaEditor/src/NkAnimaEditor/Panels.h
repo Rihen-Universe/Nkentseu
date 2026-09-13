@@ -1,11 +1,14 @@
 #pragma once
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // =============================================================================
 // Panels.h — Panneaux NkAnimaEditor : Timeline + Preview squelette 2D.
 // N'inclut QUE l'Editor Kit + AnimBridge (types foundation) -> pas de conflit
 // NKRenderer/NKCanvas. Toute l'anim passe par les fonctions nkanima::Anim*.
 // =============================================================================
 #include "NKEditorKit/NkEditorKit.h"
+#include "NKEditorKit/NkFilePickerNav.h" // LE sélecteur de fichiers du kit (Enregistrer sous)
 #include "AnimBridge.h"
+#include "Commands.h" // LES fonctions que les boutons appellent
 #include <cmath>
 #include <cstdio>
 
@@ -39,6 +42,19 @@ namespace nkanima {
 				bool bUn = ec.Button("Annuler");
 				ctx.SameLine();
 				bool bRe = ec.Button("Refaire");
+				ctx.SameLine();
+				// ── LE GESTE DE RODOLF (2026-09-13) ─────────────────────────────
+				// L'export n'existait qu'en ligne de commande ; il edite a la souris.
+				// Ces deux boutons appellent EXACTEMENT les fonctions enregistrees
+				// comme commandes du shell (Ctrl+S / Ctrl+Maj+S) : un seul chemin.
+				bool bSave = ec.Button("Enregistrer");
+				ctx.SameLine();
+				bool bSaveAs = ec.Button("Enregistrer sous...");
+				if (bSave)
+					CmdSave(nullptr);
+				if (bSaveAs)
+					mPicker.OuvrirNav(nkentseu::editorkit::NkFilePickerState::PK_SaveFile, ".", ".nkanim",
+									  AnimSavePath(), nullptr, 0);
 				if (bPlay)
 					AnimSetPlaying(!AnimIsPlaying());
 				if (bIns)
@@ -133,11 +149,31 @@ namespace nkanima {
 					mScrubbing = false;
 					mDragKey = -1.f;
 				}
+
+				// ── « Enregistrer sous... » : LE sélecteur du kit, en une ligne ──
+				// Le kit le fournit déjà (NkDrawSelecteur, NkFilePickerNav.h) : on
+				// ne dessine pas un sélecteur de plus. Et la CONFIRMATION ne fait
+				// rien de spécial — elle appelle CmdSaveAsConfirmed, la fonction que
+				// le mode sans fenêtre appelle aussi.
+				// ⚠️ Ce que je ne peux PAS prouver sans main : que la fenêtre du
+				// sélecteur s'ouvre et se dessine correctement. Aucun clic n'est
+				// simulé ici ; ce sera l'œil de Rodolf. Ce qui EST prouvé sans lui,
+				// c'est que la branche de confirmation écrit le bon fichier.
+				if (mPicker.pickerOpen)
+					nkentseu::editorkit::NkDrawSelecteur(ctx, mPicker, mTheme);
+				if (mPicker.pickerConfirmed) {
+					mPicker.pickerConfirmed = false;
+					CmdSaveAsConfirmed(mPicker.pickerResultPath);
+				}
+				if (mPicker.pickerCancelled)
+					mPicker.pickerCancelled = false;
 			}
 
 		private:
 			bool mScrubbing = false, mDragging = false;
 			float32 mDragKey = -1.f;
+			nkentseu::editorkit::NkFilePickerNavState mPicker;
+			nkentseu::editorkit::NkTheme mTheme = nkentseu::editorkit::NkTheme::Dark();
 	};
 
 	// ── Preview : squelette 2D à la pose courante ────────────────────────────────

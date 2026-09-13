@@ -9,6 +9,7 @@
 #include "NKEditorKit/NkEditorKit.h"
 #include "NKMemory/NkUniquePtr.h"
 #include "AnimBridge.h"
+#include "Commands.h"  // CmdSave : LA fonction du bouton ET de la commande Ctrl+S
 #include "ExportCli.h" // mode sans fenetre : --export= / --verify= (2026-09-13)
 #include "Panels.h"
 #include "NkEditorRHIRenderer.h" // UI sur NKRHI/NKRenderer (pas NKCanvas)
@@ -141,6 +142,11 @@ int nkmain(const NkEntryState &state) {
 	shell->AddPanel(&preview);
 	shell->AddPanel(&timeline);
 
+	// « Fichier: Enregistrer » — même découpe que NKCode (main.cpp l.341) : la
+	// commande du shell et le bouton de la barre d'outils appellent LA MÊME
+	// fonction. L'« Enregistrer sous » vit dans le panneau parce que c'est lui qui
+	// possède le sélecteur du kit (un dialogue se dessine, une commande non).
+	shell->RegisterCommand("Fichier: Enregistrer", &nkanima::CmdSave, nullptr, "Ctrl+S");
 	shell->RegisterCommand("Edition: Inserer cle", &CmdInsert, nullptr, "I");
 	shell->RegisterCommand("Edition: Annuler", &CmdUndo, nullptr, "Ctrl+Z");
 	shell->RegisterCommand("Edition: Refaire", &CmdRedo, nullptr, "Ctrl+Y");
