@@ -198,18 +198,37 @@ namespace nkentseu {
 				// ⚠️ EXIGE la grille DECALEE : un flux vit sur une FACE, et sur une
 				// grille colocalisee il n'existait aucun endroit ou le poser.
 				// Pre-enregistrement complet : PLAN_ADVECTION_FLUX.md.
-				// Eteint par defaut tant que son PRIX n'est pas mesure (§ 2 du plan).
-				bool advectFluxConservative = false;
-				// ORDRE DU SCHEMA EN FLUX. DEFAUT `Ordre1` = le donor-cell nu,
-				// c'est-a-dire EXACTEMENT le code et les chiffres du 12/09 : ce
-				// mode appelle `AdvectFluxUnePasse`, qui n'a pas ete touchee
-				// d'une ligne. Les autres valeurs passent par
-				// `AdvectFluxUnePasseLimitee`. Voir PLAN_ORDRE_SUPERIEUR.md,
-				// § 2 : la bit-identite du defaut est une propriete de
-				// CONSTRUCTION, lisible dans le diff, pas une intention.
+				// ⚠️ ALLUME PAR DEFAUT LE 2026-09-13, et ce n'est pas un gout : DEUX
+				// COMPTAGES A LA MAIN, faits HORS du solveur, disent que ce schema
+				// porte EXACTEMENT ce qu'on lui injecte, la ou le semi-lagrangien
+				// FABRIQUE de la matiere et de la chaleur.
+				//   masse   : flux 3,9e-07 d'ecart | semi-lagrangien x 15,264   (j1)
+				//   chaleur : flux 1,4e-06 d'ecart | semi-lagrangien x  8,720   (k1)
+				// Le << prix >> mesure le 12/09 (Tmax / 3,18) n'etait donc PAS une
+				// perte de detail : c'etait le RETRAIT d'une chaleur qu'aucune source
+				// n'avait fournie. Il n'y avait rien a racheter -- et c'est pourquoi
+				// aucun schema d'ordre superieur ne pouvait le faire (h1).
+				// Le vrai cout est le TEMPS : +27 % sur le donor-cell, soit a peu pres
+				// ce que coutait deja le semi-lagrangien (107,4 contre 104,5 ms/pas).
+				bool advectFluxConservative = true;
+				// ORDRE DU SCHEMA EN FLUX. `Ordre1` = le donor-cell nu, qui appelle
+				// `AdvectFluxUnePasse` -- fonction jamais touchee, de sorte que la
+				// bit-identite de ce mode avec les chiffres du 12/09 se LIT DANS LE
+				// DIFF. Les autres valeurs passent par `AdvectFluxUnePasseLimitee`.
+				// ⚠️ DEFAUT PASSE A `VanLeer` LE 2026-09-13. C'etait le choix ECRIT
+				// DANS LE PLAN AVANT de connaitre les chiffres, et il n'a pas ete
+				// revise apres : superbee rend 1,6 % de Tmax en plus pour 3,5 % de
+				// temps en moins, mais un choix qu'on revise apres la mesure n'est
+				// plus un choix pre-enregistre.
+				// ⚠️ CE QUE LE LIMITEUR N'A PAS FAIT, et il faut le savoir en lisant
+				// ce defaut : il ne rachete PAS le detail. Tmax/ref passe de 0,3147 a
+				// 0,3268, soit 3,8 %. Meme un Lax-Wendroff NU, sans aucune diffusion
+				// au premier ordre, plafonne a 0,4030. Il est ici pour la MONOTONIE
+				// -- sans limiteur, l'ordre 2 fabrique des densites negatives
+				// (Godunov) : mesure -2,576e-01 contre +0,000e+00 avec.
 				// ⚠️ Ce parametre n'a d'effet QUE si `advectFluxConservative`
 				// est vrai -- un limiteur de flux n'a pas de sens sans flux.
-				NkFluidFluxLimiter advectFluxLimiter = NkFluidFluxLimiter::Ordre1;
+				NkFluidFluxLimiter advectFluxLimiter = NkFluidFluxLimiter::VanLeer;
 				// ⚠️ LA STABILITE CHANGE DE NATURE. Le semi-lagrangien est
 				// INCONDITIONNELLEMENT stable ; un flux explicite ne l'est pas. La
 				// condition est celle de Courant-Friedrichs-Lewy, sous sa forme 3D
