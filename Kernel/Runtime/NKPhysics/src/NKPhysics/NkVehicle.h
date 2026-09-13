@@ -30,6 +30,14 @@ namespace nkentseu {
 				NkVec3f contactPoint{}, contactNormal{};
 				float32 suspForce = 0.f;   // N, dernière valeur
 				float32 slipLat = 0.f, slipLong = 0.f; // m/s résiduels APRÈS impulsion
+				// Le glissement latéral AVANT l'impulsion (2026-09-13). `slipLat` dit ce
+				// qui RESTE ; sans ce qui y ENTRAIT, on ne peut pas savoir si le balayage
+				// converge, sous-corrige, ou DÉPASSE sa cible. Le rapport des deux est la
+				// seule manière de répondre à « une impulsion qui vise l'annulation exacte
+				// peut-elle dépasser quand le pas est grand ? » -- question qui ne se pose
+				// que parce qu'il y a QUATRE contraintes appliquées en séquence, alors que
+				// la conception §3c raisonne, elle, sur une seule.
+				float32 slipLatPre = 0.f; // m/s, lu AVANT l'impulsion (diagnostic)
 		};
 
 		struct NkVehicleTuning {
