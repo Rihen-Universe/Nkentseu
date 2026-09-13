@@ -2881,9 +2881,16 @@ void NkEditorShell::MaximizeWindow() noexcept {
 				// La grande barre externe se debranche par SetDockScrollbarVisible
 				// (molette conservee — les panneaux de NkUIDesign portent leurs
 				// propres ascenseurs par section).
+				// Un panneau qui REMPLIT SON CORPS (vue 3D, canevas, apercu) n'a
+				// jamais de contenu plus grand que lui : il se redimensionne. Son
+				// ascenseur serait une contradiction, et la gouttiere que la barre
+				// reserve mangerait la surface de l'image. Il perd donc la barre,
+				// quelle que soit la preference globale du dock.
+				// Cf. NkEditorPanel::RemplitSonCorps.
+				const bool sansBarre = !mDockScrollbars || p->RemplitSonCorps();
 				if (Begin(mUI, p->Title(), p->OpenPtr(),
-						  mDockScrollbars ? nkgui::NkGuiWindowFlags::None
-										  : nkgui::NkGuiWindowFlags::NoScrollbar)) {
+						  sansBarre ? nkgui::NkGuiWindowFlags::NoScrollbar
+									: nkgui::NkGuiWindowFlags::None)) {
 					// Une fenêtre FLOTTANTE recouvre la souris et ce n'est pas la nôtre ->
 					// souris neutralisée pendant OnUI : le code custom des panneaux (éditeur,
 					// arbres) lit l'input en direct et recevrait sinon clics/molette À TRAVERS
