@@ -1,4 +1,5 @@
 #pragma once
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // =============================================================================
 // NkVehicle.h — véhicule à roues par RAYCAST, mis à jour DANS le pas fixe.
 //
@@ -42,6 +43,20 @@ namespace nkentseu {
 				float32 maxSteerDeg = 30.f;
 				float32 steerRateDegPerSec = 180.f; // lissage d'une consigne créneau
 				float32 mu = 0.f;				// 0 = friction dynamique du matériau châssis
+				// ── LE RELACHEMENT (2026-09-13) ───────────────────────────
+				// Mesuré le 13/09 dans renderdemo : gaz relâchés, la voiture passait de
+				// 6,318 à 5,951 m/s en 3 s. Or 6,318·exp(-0,02·3) = 5,950 : la SEULE
+				// décélération était le `linearDamping` du corps. Autrement dit le
+				// véhicule n'avait NI résistance au roulement NI frein moteur, et roulait
+				// 300 m au point mort. Les deux sont des impulsions LONGITUDINALES,
+				// donc elles passent par le cercle de friction comme tout le reste :
+				// sur la glace elles ne peuvent pas freiner plus que mu ne le permet.
+				float32 rollingResistance = 0.015f; // C_rr, sans dimension. Force = C_rr·Fsusp, donc
+													// proportionnelle à la CHARGE : elle croît au transfert
+													// et vaut zéro roue en l'air, sans une ligne de plus.
+													// Pneu sur asphalte : 0,010 à 0,015.
+				float32 engineBrake = 0.10f;		// fraction de engineForce, par roue MOTRICE, gaz
+													// relâchés (|throttle| < 0,05). 0 = aucun frein moteur.
 				float32 freezeSpeed = 0.05f;	// m/s : sous ce glissement, on annule sec
 		};
 
