@@ -147,8 +147,29 @@ namespace nkentseu {
 			// rectangle-ci : un clic « au centre du cube » viserait un autre pixel,
 			// d'autant plus loin que les panneaux de gauche sont larges. Meme geste
 			// que NK3DModeler (`Demo3DHostSetView`, main.cpp l.1432).
-			NogeeViewport3DSetView(zone.x, zone.y, zone.w, zone.h,
-								   ctx.ItemHoverable(zone, zoneId));
+			const bool survole = ctx.ItemHoverable(zone, zoneId);
+			NogeeViewport3DSetView(zone.x, zone.y, zone.w, zone.h, survole);
+
+			// ── LE CLIC DE RODOLF DESIGNE UN OBJET ────────────────────────────
+			// On LIT un vrai clic ; on n'en fabrique aucun. La chaine est celle
+			// que la sonde a mesuree : souris fenetre -> vue -> rayon -> objet.
+			// La selection va dans `mSel`, LE NkSelectionManager que l'Outliner et
+			// Details lisent deja — pas une seconde qui finirait par diverger.
+			// Un clic dans le vide DESELECTIONNE : c'est le geste attendu partout,
+			// et cela rend le negatif observable a l'ecran.
+			if (survole && ctx.input.mouseClicked[0] && mSel) {
+				float32 sx = 0.f, sy = 0.f;
+				if (NogeeViewport3DMouseToView(ctx.input.mousePos.x, ctx.input.mousePos.y, &sx, &sy)) {
+					nk_uint64 touche = 0ull;
+					float32 dist = 0.f;
+					int32 prec = 0;
+					if (NogeeViewport3DPick(sx, sy, &touche, &dist, &prec) && touche != 0ull)
+						mSel->Select(ecs::NkEntityId::Unpack(touche));
+					else
+						mSel->Clear();
+				}
+			}
+
 			const bool has3D = NogeeViewport3DReady();
 			if (has3D) {
 				ctx.DL().AddImage(kNogeeViewportTexId, zone, nkgui::NkVec2{0.f, 1.f}, nkgui::NkVec2{1.f, 0.f},

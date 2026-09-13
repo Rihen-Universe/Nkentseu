@@ -47,6 +47,16 @@ namespace nkentseu {
 		// Le monde ECS a dessiner (ecs::NkWorld*). Sans lui, tout est no-op.
 		void NogeeViewport3DBindWorld(void *world);
 
+		// ── LA SELECTION DE L'EDITEUR, ET PAS UNE SECONDE ────────────────────
+		// On lie le `NkSelectionManager` QUE L'OUTLINER ET DETAILS LISENT DEJA
+		// (NogeeShell.cpp : `sOutliner.Bind(..., &sSel, ...)`,
+		// `sDetails.Bind(..., &sSel, ...)`, `sViewport.Bind(..., &sSel, ...)`).
+		// Un objet, trois lecteurs : la vue ne PEUT PAS diverger de l'arbre,
+		// parce qu'il n'y a rien dont diverger. Se garder ici une copie locale de
+		// « l'entite selectionnee » aurait cree exactement la seconde source
+		// qu'une selection partagee doit eviter.
+		void NogeeViewport3DBindSelection(void *selectionManager); // NkSelectionManager*
+
 		// Force le montage de la pile (renderer + cible + camera) MAINTENANT, au
 		// lieu d'attendre la premiere frame. L'hote en a besoin : c'est le seul
 		// moyen d'obtenir la poignee du cube avant de creer l'entite TEMOIN.
