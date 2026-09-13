@@ -1,5 +1,6 @@
 #pragma once
 // =============================================================================
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // Nkentseu/ECS/Prefab/NkPrefab.h — Système de Prefabs (STL-free)
 // =============================================================================
 /**
@@ -29,6 +30,7 @@
 #include "Noge/ECS/Entities/NkGameObject.h"
 #include "NKContainers/Sequential/NkVector.h"
 #include "NKContainers/String/NkString.h"
+#include "NKContainers/String/NkFormat.h" // NkFormat — NkPrefabInstance::SetOverride
 #include "NKContainers/Associative/NkUnorderedMap.h"
 #include "NKMath/NKMath.h"
 
@@ -199,10 +201,31 @@ namespace nkentseu {
 				: rootEntity(root), prefabPath(path ? path : ""), instanceName(name ? name : "") {
 			}
 
-			template <typename T> bool SetOverride(const char *fieldName, const T & /*value*/) noexcept {
+			/**
+			 * @brief Enregistre une surcharge d'instance.
+			 * @param fieldName Chemin complet « NomType.NomChamp » — c'est la clé
+			 *        documentée de `overrides`, et l'appelant est le seul à
+			 *        connaître le type porteur (la signature ne le donne pas).
+			 * @param value Valeur surchargée, convertie en texte.
+			 *
+			 * 2026-09-13 : le corps ne faisait QUE lever `isOverridden` et jetait
+			 * `value` — la carte `overrides` restait vide, donc RevertOverride()
+			 * n'avait jamais rien à effacer et l'éditeur n'avait rien à relire.
+			 * La surcharge est maintenant réellement écrite.
+			 *
+			 * ⚠️ Limite dite : une surcharge est un état d'INSTANCE (runtime).
+			 * `NkPrefab::Serialize()` sérialise le TEMPLATE, pas les instances :
+			 * ces surcharges ne survivent donc pas à l'écriture du .prefab. Les
+			 * persister demande de rendre `NkPrefabInstance` lui-même
+			 * sérialisable, ce que la réflexion actuelle ne sait pas faire (ses
+			 * champs sont des NkString et des NkUnorderedMap).
+			 */
+			template <typename T> bool SetOverride(const char *fieldName, const T &value) noexcept {
+				if (fieldName == nullptr || *fieldName == '\0') {
+					return false;
+				}
+				overrides[NkString(fieldName)] = NkFormat("{0}", value);
 				isOverridden = true;
-				// TODO: sérialiser value → JSON
-				(void)fieldName;
 				return true;
 			}
 
