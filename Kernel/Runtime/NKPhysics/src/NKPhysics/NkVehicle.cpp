@@ -45,6 +45,7 @@ namespace nkentseu {
 			const float32 vol = 8.f * half.x * half.y * half.z;
 			d.material.density = massKg / (vol > 1e-6f ? vol : 1e-6f);
 			mMass = massKg;
+			mHalf = half; // l'aire frontale s'en déduit (traînée)
 			// forme en repère MONDE (contrat CreateBody)
 			mChassis = mWorld.CreateBody(d, collision::NkShape::Box3D(worldPos, half));
 			mTuned = false;
@@ -97,6 +98,25 @@ namespace nkentseu {
 				if (mTuning.mu <= 0.f)
 					mTuning.mu = 0.8f;
 			}
+			// Empattement et voie, DÉRIVÉS des ancres — l'auteur décrit une voiture
+			// (où sont les roues), pas une géométrie de direction. Ackermann s'en sert.
+			{
+				float32 zF = 0.f, zR = 0.f, xF = 0.f;
+				uint32 nF = 0, nR = 0;
+				for (uint32 i = 0; i < WheelCount(); ++i) {
+					const NkWheel &w = mWheels[(NkVector<NkWheel>::SizeType)i];
+					if (w.flags & NkWheel::kSteered) {
+						zF += w.localPos.z;
+						xF += std::fabs(w.localPos.x);
+						++nF;
+					} else {
+						zR += w.localPos.z;
+						++nR;
+					}
+				}
+				mWheelBase = (nF && nR) ? (zF / (float32)nF - zR / (float32)nR) : 0.f;
+				mTrack = nF ? (2.f * xF / (float32)nF) : 0.f;
+			}
 			mTuned = true;
 		}
 
@@ -122,12 +142,49 @@ namespace nkentseu {
 			const float32 rayLen = mTuning.restLength + mTuning.wheelRadius;
 			const float32 weightPerWheel = mMass * kG / (float32)WheelCount();
 
+			// ── TRAÎNÉE AÉRODYNAMIQUE (2026-09-13) ─────────────────────────
+			// F = ½·ρ·Cd·A·v², opposée à la vitesse, appliquée AU CENTRE DE MASSE et
+			// UNE SEULE FOIS par sous-pas — ce n'est pas une force de roue. Elle ne
+			// passe donc PAS par le cercle de friction (l'air ne pousse pas la gomme)
+			// et elle agit aussi roues en l'air. Sans elle, mesure du 13/09 : plein
+			// gaz 90,7 s → 1 097 km/h, et ça montait encore de 1,64 m/s².
+			if (mTuning.dragCd > 0.f && mTuning.airDensity > 0.f) {
+				const float32 sp = Len(b->linearVelocity);
+				if (sp > 1e-3f) {
+					const float32 area = (mTuning.frontalArea > 0.f) ? mTuning.frontalArea : (4.f * mHalf.x * mHalf.y);
+					const float32 F = 0.5f * mTuning.airDensity * mTuning.dragCd * area * sp * sp;
+					b->ApplyForce(b->linearVelocity * (-F / sp));
+				}
+			}
+
 			for (uint32 i = 0; i < WheelCount(); ++i) {
 				NkWheel &w = mWheels[(NkVector<NkWheel>::SizeType)i];
 
 				// ── braquage : lissé vers la consigne (un créneau sur l'axe de
 				//    frottement fait sauter la voiture) ─────────────────────
-				const float32 target = (w.flags & NkWheel::kSteered) ? mSteer * maxSteer : 0.f;
+				// ── ACKERMANN (2026-09-13) ── la roue INTÉRIEURE braque PLUS. Sans lui,
+				// les deux roues avant sont parallèles : elles demandent deux rayons
+				// différents, se contredisent, et la voiture « racle » (conception §4).
+				// R = L/tan(δ) ; intérieure : atan(L/(R−T/2)), extérieure : atan(L/(R+T/2)).
+				float32 target = 0.f;
+				if (w.flags & NkWheel::kSteered) {
+					const float32 base = mSteer * maxSteer; // la roue VIRTUELLE du centre
+					target = base;
+					if (mTuning.ackermann > 0.f && mWheelBase > 1e-3f && std::fabs(base) > 1e-4f) {
+						const float32 R = mWheelBase / std::tan(std::fabs(base));
+						// intérieure = du côté vers lequel on tourne (steer > 0 → vers la droite,
+						// cf. wheelFwd = fwd·cos + right·sin), donc localPos.x de même signe.
+						const bool interieure = (w.localPos.x * base) > 0.f;
+						const float32 Ri = interieure ? (R - mTrack * 0.5f) : (R + mTrack * 0.5f);
+						const float32 geo = (Ri > 1e-3f) ? std::atan(mWheelBase / Ri) : (kPi * 0.5f);
+						const float32 signe = (base > 0.f) ? 1.f : -1.f;
+						// mélange : 0 = parallèle (le comportement d'avant), 1 = géométrie exacte.
+						target = base + mTuning.ackermann * (signe * geo - base);
+						// plafond de sûreté : quand R passe sous T/2, la géométrie exige un
+						// angle qui tend vers 90°. Aucune direction ne fait ça.
+						target = Clamp(target, -2.f * maxSteer, 2.f * maxSteer);
+					}
+				}
 				w.steerAngle += Clamp(target - w.steerAngle, -steerStep, steerStep);
 
 				// ── a. contact : un rayon vers le bas, en ignorant les châssis ──
