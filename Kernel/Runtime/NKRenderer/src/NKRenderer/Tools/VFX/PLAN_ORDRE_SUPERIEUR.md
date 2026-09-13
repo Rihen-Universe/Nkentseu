@@ -929,3 +929,131 @@ que `1749,4 K` est atteint **avec 8,72 fois la chaleur injectée**, donc que ce
 nombre **ne peut pas servir de cible**. Ce que `Tmax` mesure ici est la
 **concentration** de la chaleur au voisinage de la source — une grandeur de
 **répartition**, gouvernée par le schéma *et* par le réglage de la scène.
+
+---
+
+## 15. PRÉ-ENREGISTREMENT DE (p) — ALLUMER, PUIS RE-RÉGLER LA SCÈNE
+
+**Écrit le 13/09 après-midi, AVANT de changer la moindre valeur par défaut.**
+
+### (p1) Ce qui change, et ce qui ne doit pas
+
+Deux valeurs par défaut dans `NkFluidGridParams`, **et rien d'autre** :
+
+```
+advectFluxConservative   false  ->  true
+advectFluxLimiter        Ordre1 ->  VanLeer
+```
+
+**Aucun mode du banc n'est affecté**, et c'est vérifiable : (f1), (f2), (f3), (g1),
+(g2), (h), (i), (j1) et (k1) posent **explicitement** ces deux champs sur leurs
+grilles. Seuls les paliers qui laissent les défauts — masse/divergence, vorticité,
+vent, ECS, volutes, rendu — basculent. **C'est exactement le but.**
+
+### ⚠️ CE QUI ÉTAIT CALÉ SUR LA CHALEUR INVENTÉE — nommé AVANT de courir
+
+C'est la partie qui m'est demandée, et la seule qui puisse me contredire.
+
+**Certains de basculer au VERT, par mécanisme et non par espoir :**
+
+| témoin | aujourd'hui | pourquoi il DOIT basculer |
+|---|---|---|
+| **(a)** masse, boîte close | ROUGE, `-43,1032 %` | le flux conserve **par construction** ; (f1), (j1) et (k1) le prouvent à `1e-7` |
+| **(v3)** la masse n'empire pas | ROUGE, A `-27,9 %` / B `-41,8 %` | les deux dérives tombent à ~0, donc `B - A` ~ 0 point, sous les 5 exigés |
+
+**Certain de NE PAS bouger, et c'est le contrôle de ma propre annonce :**
+
+| ancrage | valeur | pourquoi il est immunisé |
+|---|---|---|
+| enstrophie | **1,458000** | contrôle **positif** sur une rotation solide **SANS AUCUN scalaire** : aucun champ advecté n'y entre |
+
+**Attendus qui VONT bouger** — ils étaient mesurés sur un champ de vitesse nourri
+par la chaleur inventée :
+
+- **(d) `0,081 cellule`** et **(w1)/(w2) `1,9961`** : le centroïde d'un schéma
+  **conservatif** en vitesse uniforme avance à **exactement `u`**. Je prédis donc
+  qu'ils restent **VERTS**, `(d)` à `<= 0,081` et `(w2)` à `2,00 ± 0,02`, avec des
+  déplacements absolus différents ;
+- **(b) `0,000026 %`** : la poussée change, donc le champ de vitesse change. Reste
+  vert, **valeur différente** ;
+- **(c2)** et **(e)** : restent verts, avec `vmax` qui tombe de `7,782` à ~`3,2`.
+
+**Les DEUX que je désigne comme à RISQUE de devenir ROUGES :**
+
+1. **(2.1) le contraste de la colonne**, aujourd'hui **SATURÉ** (bords à `0,00`).
+   Le donor-cell **diffuse** : si la fumée atteint les bords de l'image, le rapport
+   chute et peut passer sous `1,5` ;
+2. **(3.5) la couleur du corps noir**, aujourd'hui `Tmax 1836 K` sur la scène de
+   combustion. Si `Tmax` y tombe comme il est tombé sur (e), l'émission s'effondre
+   et le compte de pixels émissifs avec elle.
+
+**Mon annonce chiffrée : 7 ROUGES -> 5**, bande honnête **5 à 7** selon que les deux
+à risque basculent. **Si un témoin que je n'ai pas nommé change de couleur, mon
+analyse était fausse**, et c'est ce résultat-là qu'il faudra publier.
+
+⚠️ **Je ne toucherai PAS à la colorimétrie du corps noir pour rattraper l'image.**
+Si la flamme est sombre à 1500 K, c'est une question d'exposition ou de rendu —
+**je le dirai, je ne le compenserai pas.**
+
+### (p2) LA CIBLE PHYSIQUE, et sa source, écrites AVANT la première course
+
+⚠️ **D'abord une honnêteté de vocabulaire** : la scène (e) **n'est pas une
+flamme**. Elle n'a **aucun carburant** (`burnRate = 0`, `fuel = 0`) : c'est un
+**panache de fumée chaude** entretenu par une source de chaleur. Son `Tmax` est la
+température de la **source**, pas une température de combustion. La scène qui
+brûle vraiment est celle du palier ③ (`ConstruirePanache(avecFeu = true)`, avec
+`burnRate = 9` et `heatPerFuel = 900`).
+
+Cela dit, la cible demandée est celle d'un feu, et elle est légitime : (e) est la
+scène sur laquelle tout le chantier a mesuré.
+
+> ### CIBLE : `Tmax = 1500 K`, bande d'acceptation **[1350 ; 1650] K** (± 10 %)
+
+**Source** : la zone de flamme continue d'un feu de nappe d'hydrocarbure se situe
+vers **1200-1500 K** (Drysdale, *An Introduction to Fire Dynamics*) ; les mesures
+de McCaffrey (1979) sur l'axe d'un panache de feu donnent un plateau de l'ordre de
+**1100-1200 K** dans la zone continue. Je prends **1500 K**, haut de cette plage et
+milieu de la bande `1200-1900 K` que le lot nomme. **Le dépôt porte déjà cet ordre
+de grandeur** : le commentaire de `ConstruirePanache(avecFeu)` calcule un équilibre
+à ~1760 K et le qualifie d'« ordre de grandeur d'une VRAIE flamme ».
+
+### La RÈGLE de réglage, écrite avant d'en connaître le résultat
+
+**Je n'agis que sur le DÉBIT D'INJECTION** (`EmitSphere`, le terme `K/s`), **jamais
+sur un facteur cosmétique appliqué à `T`**, jamais sur `beta`, jamais sur la
+dissipation.
+
+    echelle geometrique sur le debit thermique, a partir des 900 K/s actuels :
+        x1  x2  x4  x6  x8  x12  x16
+    REGLE : on retient le PLUS PETIT debit dont le Tmax tombe dans [1350 ; 1650] K.
+    Si aucun n y tombe, on publie la courbe et on dit que la cible est hors
+    d atteinte par ce levier -- on n en change pas.
+
+**Pourquoi le plus petit** : un débit plus grand que nécessaire monte le CFL, donc
+le nombre de sous-pas, donc le coût — et rien d'autre.
+
+### Ma prédiction, calculée depuis le mécanisme
+
+Linéairement, atteindre `1500 K` depuis `571,7 K` demanderait
+`(1500 − 300) / (571,7 − 300) = 4,417`. **Mais le couplage l'interdit** : plus de
+chaleur donne plus de poussée, donc plus de vitesse, donc plus de transport —
+`Tmax` croît **moins vite que le débit**.
+
+> **Je prédis un facteur entre 6 et 12**, donc la ligne retenue sera `×8` ou `×12`.
+
+**VOLET NÉGATIF, obligatoire** : à **débit thermique nul**, `Tmax` doit valoir
+**exactement l'ambiante, 300,0 K** — rien n'injecte, et la dissipation ne fait que
+rappeler vers l'ambiante. Et la ladder doit être **strictement monotone** : un
+débit qui ne déplace pas `Tmax` signifierait que je ne tourne pas le bon bouton.
+
+### (p3) La masse et la chaleur restent exactes APRÈS re-réglage
+
+(j1) et (k1) rejoués **sur la scène neuve**, mêmes seuils (`< 1e-3`), sans les
+déplacer.
+
+⚠️ **ET UNE DETTE QUE JE PAIE DANS CE LOT** : le débit vit aujourd'hui **en dur à
+deux endroits** — dans `SceneDixSecondes` et dans les deux comptages analytiques.
+Changer l'un sans l'autre ferait **mentir le compteur en silence**, et il
+verdirait. Le débit devient donc **une constante nommée**, lue par la scène **et**
+par le comptage. C'est la seule façon que le calcul à la main ne puisse pas dériver
+de la scène qu'il juge.
