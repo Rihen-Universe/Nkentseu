@@ -86,6 +86,30 @@ namespace nkentseu {
 		// Souris FENETRE -> souris VUE. Faux si le point tombe hors de la vue.
 		bool NogeeViewport3DMouseToView(float32 winX, float32 winY, float32 *outX, float32 *outY);
 
+		// ── LE POINTEUR VISE LE MEME PIXEL QUE L'IMAGE ───────────────────────
+		// Les deux sens de la meme transformation, et ils DOIVENT se repondre.
+		// Toutes deux travaillent en coordonnees VUE (pixels, origine en haut a
+		// gauche de la vue) : c'est `NogeeViewport3DMouseToView` qui amene la
+		// souris fenetre jusque-la.
+		//
+		// ⚠️ Elles lisent les matrices de l'ENTITE CAMERA (`viewProjMatrix`, ecrite
+		// par `NkRenderSystem::UpdateActiveCamera`), c'est-a-dire CELLES QUI ONT
+		// SERVI A DESSINER l'image. Un rayon calcule depuis un second jeu de
+		// matrices « equivalent » serait auto-coherent et pourtant faux a l'ecran :
+		// c'est exactement le genre de temoin qui ne temoigne de rien.
+
+		// Rectangle ECRAN de la vue, tel que le panneau l'a MESURE et depose.
+		void NogeeViewport3DViewRect(float32 *x, float32 *y, float32 *w, float32 *h);
+
+		// Point MONDE -> pixel de la VUE. Faux si le point est derriere la camera.
+		bool NogeeViewport3DProjectToView(const float32 monde[3], float32 *vx, float32 *vy);
+
+		// Pixel de la VUE -> rayon MONDE (origine + direction normalisee).
+		// La profondeur NDC choisie est 0, valide dans les DEUX conventions
+		// (-1..1 d'OpenGL comme 0..1 de Direct3D) : n'importe quel point du rayon
+		// suffit a le definir, puisque son origine est la position de la camera.
+		bool NogeeViewport3DRayFromView(float32 vx, float32 vy, float32 origine[3], float32 direction[3]);
+
 		// ── Camera d'orbite (critere n2 : la camera commande la vue) ──────────
 		void NogeeViewport3DOrbit(float32 dYawDeg, float32 dPitchDeg, float32 dZoom);
 		void NogeeViewport3DSetOrbit(float32 yawDeg, float32 pitchDeg);

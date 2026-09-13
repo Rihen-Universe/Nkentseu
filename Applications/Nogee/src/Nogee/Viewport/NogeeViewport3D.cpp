@@ -508,12 +508,98 @@ namespace nkentseu {
 			b->RegisterTexture(kNogeeViewportTexId, texLib->GetRHIHandle(g.rt->GetColorResult()));
 		}
 
+		// ── LES MATRICES QUI ONT DESSINE L'IMAGE, ET PAS D'AUTRES ────────────
+		// On lit l'entite camera, ou `NkRenderSystem::UpdateActiveCamera` a ecrit
+		// `viewProjMatrix` pendant CETTE image. Recalculer ici un view/proj
+		// « equivalent » donnerait un aller-retour parfaitement vert et un rayon
+		// faux a l'ecran : le temoin mesurerait sa propre arithmetique.
+		namespace {
+			bool CameraDeLImage(NkMat4f *viewProj, NkVec3f *position) {
+				if (!g.world || !g.camId.IsValid())
+					return false;
+				const ecs::NkCameraComponent *cam = g.world->Get<ecs::NkCameraComponent>(g.camId);
+				const ecs::NkTransform *tf = g.world->Get<ecs::NkTransform>(g.camId);
+				if (!cam || !tf)
+					return false;
+				if (viewProj)
+					*viewProj = cam->viewProjMatrix;
+				if (position)
+					*position = tf->GetWorldPosition();
+				return true;
+			}
+		} // namespace
+
+		bool NogeeViewport3DProjectToView(const float32 monde[3], float32 *vx, float32 *vy) {
+			NkMat4f vp;
+			if (!monde || g.vueW <= 0.f || g.vueH <= 0.f || !CameraDeLImage(&vp, nullptr))
+				return false;
+			const NkVec4f clip = vp * NkVec4f{monde[0], monde[1], monde[2], 1.f};
+			// w <= 0 : le point est DERRIERE le plan de la camera. Diviser rendrait
+			// une position d'ecran plausible et fausse — le symetrique exact du
+			// defaut de camera d'hier. On refuse plutot que de rendre un chiffre.
+			if (clip.w <= 1e-6f)
+				return false;
+			const float32 ndcX = clip.x / clip.w;
+			const float32 ndcY = clip.y / clip.w;
+			if (vx)
+				*vx = (ndcX * 0.5f + 0.5f) * g.vueW;
+			// Y INVERSE : le NDC monte, les pixels d'ecran descendent.
+			if (vy)
+				*vy = (1.f - (ndcY * 0.5f + 0.5f)) * g.vueH;
+			return true;
+		}
+
+		bool NogeeViewport3DRayFromView(float32 vx, float32 vy, float32 origine[3], float32 direction[3]) {
+			NkMat4f vp;
+			NkVec3f pos;
+			if (g.vueW <= 0.f || g.vueH <= 0.f || !CameraDeLImage(&vp, &pos))
+				return false;
+			const NkMat4f inv = vp.Inverse();
+			const float32 ndcX = 2.f * (vx / g.vueW) - 1.f;
+			const float32 ndcY = 1.f - 2.f * (vy / g.vueH); // meme inversion, en sens inverse
+			NkVec4f p = inv * NkVec4f{ndcX, ndcY, 0.f, 1.f};
+			if (p.w > -1e-9f && p.w < 1e-9f)
+				return false;
+			p.x /= p.w;
+			p.y /= p.w;
+			p.z /= p.w;
+			NkVec3f d{p.x - pos.x, p.y - pos.y, p.z - pos.z};
+			const float32 n = std::sqrt(d.x * d.x + d.y * d.y + d.z * d.z);
+			if (n < 1e-9f)
+				return false;
+			d.x /= n;
+			d.y /= n;
+			d.z /= n;
+			if (origine) {
+				origine[0] = pos.x;
+				origine[1] = pos.y;
+				origine[2] = pos.z;
+			}
+			if (direction) {
+				direction[0] = d.x;
+				direction[1] = d.y;
+				direction[2] = d.z;
+			}
+			return true;
+		}
+
 		void NogeeViewport3DSetView(float32 offX, float32 offY, float32 w, float32 h, bool survol) {
 			g.vueX = offX;
 			g.vueY = offY;
 			g.vueW = w;
 			g.vueH = h;
 			g.vueSurvol = survol;
+		}
+
+		void NogeeViewport3DViewRect(float32 *x, float32 *y, float32 *w, float32 *h) {
+			if (x)
+				*x = g.vueX;
+			if (y)
+				*y = g.vueY;
+			if (w)
+				*w = g.vueW;
+			if (h)
+				*h = g.vueH;
 		}
 
 		bool NogeeViewport3DMouseToView(float32 winX, float32 winY, float32 *outX, float32 *outY) {
