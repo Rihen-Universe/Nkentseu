@@ -114,11 +114,39 @@ def positions(g):
     return [struct.unpack_from("<3f", g["v"], k * s) for k in range(n)]
 
 
+def detail(x, y):
+    """QUI a bouge, et DE COMBIEN -- un ecart maximal ne dit pas si UN sommet a
+    bouge ou si tous ont bouge un peu, et c'est precisement la question quand on
+    deplace une selection. Compte les sommets identiques A L'OCTET (pas a une
+    tolerance : un sommet qu'on n'a pas touche ne doit pas avoir bouge du tout)."""
+    s, n = x["stride"], x["nv"]
+    bouges = []
+    identiques = 0
+    for k in range(n):
+        oa = x["v"][k * s:k * s + 12]
+        ob = y["v"][k * s:k * s + 12]
+        if oa == ob:
+            identiques += 1
+            continue
+        pa = struct.unpack("<3f", oa)
+        pb = struct.unpack("<3f", ob)
+        bouges.append((k, tuple(round(pb[i] - pa[i], 6) for i in range(3))))
+    print("    positions identiques A L'OCTET : %d / %d" % (identiques, n))
+    if bouges:
+        print("    sommets deplaces : %d -> %s"
+              % (len(bouges), ", ".join("#%d %s" % (k, d) for k, d in bouges[:12])))
+        if len(bouges) > 12:
+            print("    ... et %d autres" % (len(bouges) - 12))
+    else:
+        print("    sommets deplaces : AUCUN")
+
+
 def main():
     a, b = sys.argv[1], sys.argv[2]
     bouge = -1
     if "--bouge" in sys.argv:
         bouge = int(sys.argv[sys.argv.index("--bouge") + 1])
+    detaille = "--detail" in sys.argv
     ga, gb = geoms(a), geoms(b)
     print("A %s : %d bloc(s) de geometrie" % (a, len(ga)))
     print("B %s : %d bloc(s) de geometrie" % (b, len(gb)))
@@ -149,6 +177,8 @@ def main():
                  x["codage"], y["codage"], worst,
                  "oui" if idxok else "NON", "oui" if octets else "non",
                  "VERT" if ok else "ROUGE"))
+        if detaille and okc:
+            detail(x, y)
         if not ok:
             rouges += 1
     print("VERDICT : %s (%d bloc(s) rouge(s))" % ("VERT" if rouges == 0 else "ROUGE", rouges))
