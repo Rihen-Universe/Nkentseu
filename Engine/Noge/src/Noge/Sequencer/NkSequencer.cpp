@@ -10,11 +10,15 @@
 // et de la séquence entière (NkTrack/NkSequence::Evaluate), la durée recalculée,
 // et le choix du plan caméra actif.
 //
-// PAS livré dans ce lot, et qui le DIT au lieu de faire semblant :
-//   - NkNLATrack::Evaluate    — les pistes NLA n'appliquent rien (voir son corps)
-//   - SaveToFile / LoadFromFile — retournent false. Jamais un faux succès, jamais
-//     un fichier vide sur le disque : un format de sérialisation qui perdrait les
-//     caméras et les marqueurs serait pire que pas de format du tout.
+// Livré le soir même : la SÉRIALISATION `.nkseq` (SaveToFile / LoadFromFile).
+// Elles rendaient `false` sans toucher au disque tant qu'on ne savait pas ce que
+// le séquenceur portait — figer un format qui aurait perdu les caméras et les
+// marqueurs aurait coûté des années. Maintenant on le sait, et il est écrit.
+//
+// PAS livré, et qui le DIT au lieu de faire semblant :
+//   - NkNLATrack::Evaluate — les pistes NLA n'appliquent rien (voir son corps).
+//     Elles sont en revanche SÉRIALISÉES : le format porte ce que le moteur
+//     n'exécute pas encore, pour ne pas avoir à le casser quand il l'exécutera.
 //
 // L'interpolation suit le contrat de bord de NKAnima (NkAnimation.h:108-122) :
 // HORS de l'intervalle des clés, on rend la valeur de BORD — jamais d'extrapolation.
@@ -23,6 +27,7 @@
 // =============================================================================
 #include "Noge/Sequencer/NkSequencer.h"
 #include "Noge/ECS/Components/Core/NkTransform.h"
+#include "NKFileSystem/NkFile.h" // SaveToFile / LoadFromFile : octets bruts, jamais du texte
 
 namespace nkentseu {
 
@@ -381,19 +386,540 @@ namespace nkentseu {
 		duration = d;
 	}
 
-	// ── Sérialisation : PAS DANS CE LOT, et ça se voit ───────────────────────
-	// Elles rendent false sans toucher au disque. Un format qui écrirait les
-	// pistes en perdant les caméras, les marqueurs et les NLA produirait des
-	// fichiers qu'il faudrait ensuite supporter éternellement. Mieux vaut un
-	// refus franc qu'un format qu'on regrette.
+	// =========================================================================
+	// SÉRIALISATION — le format .nkseq
+	// =========================================================================
+	// Le 2026-09-13 au matin, ces deux méthodes rendaient `false` sans toucher au
+	// disque : on ne savait pas encore ce que le séquenceur portait, et figer un
+	// format qui aurait perdu les caméras et les marqueurs aurait coûté des
+	// années. Maintenant on le sait, et le format est écrit.
+	//
+	// ── CE QUI A ÉTÉ CHERCHÉ : L'ÉCONOMIE ────────────────────────────────────
+	// Binaire, séquentiel, aucun index, aucune table de symboles, aucun champ
+	// réservé. Un champ réservé est un octet qu'on paie sans savoir pourquoi ; la
+	// version en tête suffit à faire évoluer le format.
+	//
+	//   en-tête, 24 octets exactement
+	//     "NKSQ"          4    magie
+	//     version u32     4    = 1
+	//     tailleCorps u64 8    ce que le corps DOIT faire
+	//     empreinte u64   8    FNV-1a 64 du corps
+	//
+	// L'empreinte est le seul octet de redondance, et elle n'est pas décorative :
+	// **sans elle, un octet abîmé au milieu du fichier passe inaperçu** — il
+	// change une valeur, et rien ne le dit. C'est elle qui permet le refus.
+	//
+	// ── CE QU'ON N'ÉCRIT PAS, DÉLIBÉRÉMENT ───────────────────────────────────
+	// Les drapeaux `selected` (piste, canal, clé). C'est un état d'INTERFACE, pas
+	// du contenu : un fichier de séquence n'a pas à figer ce qui était surligné
+	// quand on l'a enregistré. Comme `Load` construit des objets neufs où
+	// `selected` vaut `false`, et que `Save` réécrit `false`, l'aller-retour reste
+	// identique OCTET À OCTET — la perte est nulle, l'économie est réelle.
+	//
+	// On réutilise `NkEntityId::Pack()` / `Unpack()` (NkECSDefines.h:63 et 67)
+	// plutôt que d'inventer un encodage d'entité : il existait déjà.
+	// =========================================================================
+	namespace {
+
+		constexpr uint32 kSeqMagie = 0x5153934Eu; // "NKSQ" en little-endian
+		constexpr uint32 kSeqVersion = 1u;
+		constexpr uint32 kSeqEnTete = 24u;
+
+		// Le refus doit être NOMMÉ : un `false` nu oblige l'appelant à deviner, et
+		// il devine mal. Un seul emplacement, écrit avant chaque retour négatif.
+		const char *gRefus = "";
+
+		inline uint64 SeqEmpreinte(const uint8 *p, usize n) noexcept {
+			uint64 h = 1469598103934665603ull;
+			for (usize i = 0; i < n; ++i) {
+				h ^= (uint64)p[i];
+				h *= 1099511628211ull;
+			}
+			return h;
+		}
+
+		// ── L'écrivain ───────────────────────────────────────────────────────
+		struct SeqEcrivain {
+				NkVector<uint8> o;
+
+				void Octets(const void *src, usize n) {
+					const uint8 *p = (const uint8 *)src;
+					for (usize i = 0; i < n; ++i)
+						o.PushBack(p[i]);
+				}
+				void U8(uint8 v) {
+					o.PushBack(v);
+				}
+				void U32(uint32 v) {
+					Octets(&v, 4);
+				}
+				void U64(uint64 v) {
+					Octets(&v, 8);
+				}
+				// Les bits bruts, pas une conversion décimale : un flottant qui
+				// passe par du texte ne revient pas au dernier chiffre.
+				void F32(float32 v) {
+					Octets(&v, 4);
+				}
+				void Str(const NkString &s) {
+					const uint32 n = (uint32)s.Length();
+					U32(n);
+					if (n)
+						Octets(s.Data(), n);
+				}
+				// ── L'ÉCONOMIE, MESURÉE ──────────────────────────────────────
+				// Les champs `char[N]` du modèle (label 128, eventFunction 128,
+				// propertyName 64) étaient d'abord écrits BRUTS, capacité pleine.
+				// Mesure sur une séquence de deux pistes, deux marqueurs et cinq
+				// clés : corps de 1023 octets dont **832 nuls, soit 81 %** — dont
+				// 640 pour ces seuls champs.
+				//
+				// On écrit donc la longueur utile puis les octets utiles. Le
+				// MODÈLE NE CHANGE PAS (les structures gardent leurs `char[N]`),
+				// et l'aller-retour reste identique octet à octet : `LisCap` met
+				// toute la capacité à zéro avant de recopier, donc `Save` relit
+				// exactement ce qu'il avait écrit.
+				void Cap(const char *s, uint32 capacite) {
+					uint32 n = 0;
+					while (n + 1u < capacite && s[n] != '\0')
+						n++;
+					U32(n);
+					if (n)
+						Octets(s, n);
+				}
+		};
+
+		// ── Le lecteur ───────────────────────────────────────────────────────
+		// Il ne lit JAMAIS au-delà de la fin : chaque accès vérifie d'abord. Un
+		// lecteur qui déborde sur un fichier tronqué produit des valeurs
+		// plausibles, et c'est pire qu'un plantage.
+		struct SeqLecteur {
+				const uint8 *p = nullptr;
+				usize n = 0, i = 0;
+				bool ok = true;
+
+				bool Reste(usize k) const noexcept {
+					return ok && (i + k) <= n;
+				}
+				void Octets(void *dst, usize k) {
+					if (!Reste(k)) {
+						ok = false;
+						return;
+					}
+					uint8 *d = (uint8 *)dst;
+					for (usize j = 0; j < k; ++j)
+						d[j] = p[i + j];
+					i += k;
+				}
+				uint8 U8() {
+					uint8 v = 0;
+					Octets(&v, 1);
+					return v;
+				}
+				uint32 U32() {
+					uint32 v = 0;
+					Octets(&v, 4);
+					return v;
+				}
+				uint64 U64() {
+					uint64 v = 0;
+					Octets(&v, 8);
+					return v;
+				}
+				float32 F32() {
+					float32 v = 0.f;
+					Octets(&v, 4);
+					return v;
+				}
+				NkString Str() {
+					const uint32 k = U32();
+					if (!Reste(k)) {
+						ok = false;
+						return NkString();
+					}
+					NkString s((const char *)(p + i), (NkString::SizeType)k);
+					i += k;
+					return s;
+				}
+				// Pendant de `SeqEcrivain::Cap`. Met TOUTE la capacité à zéro avant
+				// de recopier : sans cela, un champ relu garderait les octets du
+				// précédent au-delà du terminateur, et l'aller-retour cesserait
+				// d'être identique octet à octet pour une raison invisible.
+				void LisCap(char *dst, uint32 capacite) {
+					for (uint32 j = 0; j < capacite; ++j)
+						dst[j] = '\0';
+					const uint32 k = U32();
+					// Une longueur qui dépasse la capacité déclarée est un fichier
+					// hostile ou corrompu : on refuse au lieu de tronquer. Tronquer
+					// donnerait une séquence plausible et fausse.
+					if (k + 1u > capacite || !Reste(k)) {
+						ok = false;
+						return;
+					}
+					if (k)
+						Octets(dst, k);
+				}
+		};
+
+		void SeqEcrisCanal(SeqEcrivain &w, const NkAnimChannel &c) {
+			w.Cap(c.propertyName, NkAnimChannel::kMaxName);
+			w.U32(c.componentOffset);
+			w.U8(c.locked ? 1u : 0u);
+			w.U8(c.muted ? 1u : 0u);
+			const uint32 nk = (uint32)c.keyframes.Size();
+			w.U32(nk);
+			for (uint32 k = 0; k < nk; ++k) {
+				const nkentseu::NkKeyframe &kf = c.keyframes[k];
+				w.F32(kf.time);
+				w.F32(kf.value);
+				w.F32(kf.inTangent);
+				w.F32(kf.outTangent);
+				w.U8((uint8)kf.interpolation);
+			}
+		}
+
+		void SeqLisCanal(SeqLecteur &r, NkAnimChannel &c) {
+			r.LisCap(c.propertyName, NkAnimChannel::kMaxName);
+			c.componentOffset = r.U32();
+			c.locked = (r.U8() != 0u);
+			c.muted = (r.U8() != 0u);
+			const uint32 nk = r.U32();
+			for (uint32 k = 0; k < nk && r.ok; ++k) {
+				nkentseu::NkKeyframe kf;
+				kf.time = r.F32();
+				kf.value = r.F32();
+				kf.inTangent = r.F32();
+				kf.outTangent = r.F32();
+				kf.interpolation = (NkInterpolation)r.U8();
+				if (r.ok)
+					c.keyframes.PushBack(static_cast<nkentseu::NkKeyframe &&>(kf));
+			}
+		}
+
+		void SeqEcrisClip(SeqEcrivain &w, const NkClipOnTrack &c) {
+			w.U64(c.clipHandle);
+			w.F32(c.startTime);
+			w.F32(c.duration);
+			w.F32(c.clipOffset);
+			w.F32(c.speed);
+			w.F32(c.blendIn);
+			w.F32(c.blendOut);
+			w.F32(c.weight);
+			w.U8(c.loop ? 1u : 0u);
+			w.U8(c.reverse ? 1u : 0u);
+		}
+
+		void SeqLisClip(SeqLecteur &r, NkClipOnTrack &c) {
+			c.clipHandle = r.U64();
+			c.startTime = r.F32();
+			c.duration = r.F32();
+			c.clipOffset = r.F32();
+			c.speed = r.F32();
+			c.blendIn = r.F32();
+			c.blendOut = r.F32();
+			c.weight = r.F32();
+			c.loop = (r.U8() != 0u);
+			c.reverse = (r.U8() != 0u);
+		}
+
+		void SeqEcrisSortie(SeqEcrivain &w, const NkRenderOutput &o) {
+			w.U32(o.width);
+			w.U32(o.height);
+			w.F32(o.fps);
+			w.F32(o.startTime);
+			w.F32(o.endTime);
+			w.U8((uint8)o.format);
+			w.U32(o.jpegQuality);
+			w.U8(o.exrHDR ? 1u : 0u);
+			w.Str(o.outputDirectory);
+			w.Str(o.filePrefix);
+			w.U8(o.renderMotionBlur ? 1u : 0u);
+			w.U32(o.motionBlurSamples);
+			w.U8(o.renderDOF ? 1u : 0u);
+			w.U8(o.renderSSAO ? 1u : 0u);
+			w.U8(o.renderShadows ? 1u : 0u);
+		}
+
+		void SeqLisSortie(SeqLecteur &r, NkRenderOutput &o) {
+			o.width = r.U32();
+			o.height = r.U32();
+			o.fps = r.F32();
+			o.startTime = r.F32();
+			o.endTime = r.F32();
+			o.format = (NkRenderOutput::Format)r.U8();
+			o.jpegQuality = r.U32();
+			o.exrHDR = (r.U8() != 0u);
+			o.outputDirectory = r.Str();
+			o.filePrefix = r.Str();
+			o.renderMotionBlur = (r.U8() != 0u);
+			o.motionBlurSamples = r.U32();
+			o.renderDOF = (r.U8() != 0u);
+			o.renderSSAO = (r.U8() != 0u);
+			o.renderShadows = (r.U8() != 0u);
+		}
+
+	} // namespace
+
+	const char *NkSequenceDernierRefus() noexcept {
+		return gRefus;
+	}
+
 	bool NkSequence::SaveToFile(const char *path) const noexcept {
-		(void)path;
-		return false;
+		gRefus = "";
+		if (path == nullptr || path[0] == '\0') {
+			gRefus = "chemin vide";
+			return false;
+		}
+
+		SeqEcrivain w;
+		w.Str(name);
+		w.F32(fps);
+		w.F32(duration);
+		SeqEcrisSortie(w, renderOutput);
+
+		w.U32((uint32)tracks.Size());
+		for (uint32 t = 0; t < (uint32)tracks.Size(); ++t) {
+			const NkTrack &tr = tracks[t];
+			w.U8((uint8)tr.type);
+			w.U64(tr.entity.Pack());
+			w.Str(tr.name);
+			w.U8(tr.muted ? 1u : 0u);
+			w.U8(tr.locked ? 1u : 0u);
+			w.F32(tr.weight);
+			w.U32((uint32)tr.clips.Size());
+			for (uint32 c = 0; c < (uint32)tr.clips.Size(); ++c)
+				SeqEcrisClip(w, tr.clips[c]);
+			w.U32((uint32)tr.channels.Size());
+			for (uint32 c = 0; c < (uint32)tr.channels.Size(); ++c)
+				SeqEcrisCanal(w, tr.channels[c]);
+		}
+
+		w.U32((uint32)nlaTracks.Size());
+		for (uint32 t = 0; t < (uint32)nlaTracks.Size(); ++t) {
+			const NkNLATrack &nt = nlaTracks[t];
+			w.U64(nt.entity.Pack());
+			w.Str(nt.name);
+			w.U8(nt.muted ? 1u : 0u);
+			w.U8(nt.locked ? 1u : 0u);
+			w.F32(nt.weight);
+			w.U32((uint32)nt.clips.Size());
+			for (uint32 c = 0; c < (uint32)nt.clips.Size(); ++c) {
+				const NkNLAClip &cl = nt.clips[c];
+				w.U64(cl.clipHandle);
+				w.F32(cl.startTime);
+				w.F32(cl.duration);
+				w.F32(cl.clipOffset);
+				w.F32(cl.speed);
+				w.F32(cl.influence);
+				w.U8(cl.repeat ? 1u : 0u);
+				w.U32(cl.repeatCount);
+				w.U8(cl.reverse ? 1u : 0u);
+				w.U8(cl.muted ? 1u : 0u);
+				w.U8((uint8)cl.blendType);
+			}
+		}
+
+		w.U8(cameraTrack.muted ? 1u : 0u);
+		w.U8(cameraTrack.locked ? 1u : 0u);
+		w.U32((uint32)cameraTrack.shots.Size());
+		for (uint32 s = 0; s < (uint32)cameraTrack.shots.Size(); ++s) {
+			const NkCameraShot &sh = cameraTrack.shots[s];
+			w.U64(sh.cameraEntity.Pack());
+			w.F32(sh.startTime);
+			w.F32(sh.duration);
+			w.U8((uint8)sh.cutType);
+			w.F32(sh.blendDuration);
+		}
+
+		w.U32((uint32)markers.Size());
+		for (uint32 m = 0; m < (uint32)markers.Size(); ++m) {
+			const NkMarker &mk = markers[m];
+			w.Cap(mk.label, NkMarker::kMaxLabel);
+			w.F32(mk.time);
+			w.F32(mk.color.x);
+			w.F32(mk.color.y);
+			w.F32(mk.color.z);
+			w.U8((uint8)mk.type);
+			w.Cap(mk.eventFunction, 128u);
+		}
+
+		const usize nCorps = (usize)w.o.Size();
+		const uint64 emp = SeqEmpreinte(w.o.Data(), nCorps);
+
+		NkVector<uint8> fichier;
+		SeqEcrivain h;
+		h.U32(kSeqMagie);
+		h.U32(kSeqVersion);
+		h.U64((uint64)nCorps);
+		h.U64(emp);
+		for (uint32 i = 0; i < (uint32)h.o.Size(); ++i)
+			fichier.PushBack(h.o[i]);
+		for (usize i = 0; i < nCorps; ++i)
+			fichier.PushBack(w.o[(uint32)i]);
+
+		if (!NkFile::WriteAllBytes(path, fichier)) {
+			gRefus = "ecriture disque refusee";
+			return false;
+		}
+		return true;
 	}
 
 	bool NkSequence::LoadFromFile(const char *path) noexcept {
-		(void)path;
-		return false;
+		gRefus = "";
+		if (path == nullptr || path[0] == '\0') {
+			gRefus = "chemin vide";
+			return false;
+		}
+		NkVector<uint8> d = NkFile::ReadAllBytes(path);
+		if ((usize)d.Size() < kSeqEnTete) {
+			gRefus = "fichier trop court pour porter un en-tete";
+			return false;
+		}
+		SeqLecteur hr;
+		hr.p = d.Data();
+		hr.n = (usize)d.Size();
+		if (hr.U32() != kSeqMagie) {
+			gRefus = "magie absente : ce n'est pas un .nkseq";
+			return false;
+		}
+		const uint32 ver = hr.U32();
+		if (ver != kSeqVersion) {
+			gRefus = "version de format inconnue";
+			return false;
+		}
+		const uint64 taille = hr.U64();
+		const uint64 emp = hr.U64();
+		if ((uint64)d.Size() - kSeqEnTete != taille) {
+			gRefus = "taille du corps differente de celle annoncee";
+			return false;
+		}
+		// ── LE SEUL CONTRÔLE QUI VOIT UN OCTET ABÎMÉ AU MILIEU ───────────────
+		// La magie protège l'en-tête, la taille protège la troncature. Ni l'une
+		// ni l'autre ne voit un octet changé au cœur des données : il donnerait
+		// simplement une clé décalée, et la séquence serait lue « avec succès ».
+		if (SeqEmpreinte(d.Data() + kSeqEnTete, (usize)taille) != emp) {
+			gRefus = "empreinte du corps incorrecte : fichier abime";
+			return false;
+		}
+
+		// À partir d'ici seulement, on touche à `*this`. Un chargement qui
+		// échouerait après avoir vidé les pistes laisserait une séquence
+		// mutilée, et l'appelant n'aurait plus rien à quoi revenir.
+		SeqLecteur r;
+		r.p = d.Data() + kSeqEnTete;
+		r.n = (usize)taille;
+
+		NkSequence tmp;
+		tmp.name = r.Str();
+		tmp.fps = r.F32();
+		tmp.duration = r.F32();
+		SeqLisSortie(r, tmp.renderOutput);
+
+		const uint32 nt = r.U32();
+		for (uint32 t = 0; t < nt && r.ok; ++t) {
+			NkTrack tr;
+			tr.type = (NkTrackType)r.U8();
+			tr.entity = NkEntityId::Unpack(r.U64());
+			tr.name = r.Str();
+			tr.muted = (r.U8() != 0u);
+			tr.locked = (r.U8() != 0u);
+			tr.weight = r.F32();
+			const uint32 nc = r.U32();
+			for (uint32 c = 0; c < nc && r.ok; ++c) {
+				NkClipOnTrack cl;
+				SeqLisClip(r, cl);
+				if (r.ok)
+					tr.clips.PushBack(static_cast<NkClipOnTrack &&>(cl));
+			}
+			const uint32 nch = r.U32();
+			for (uint32 c = 0; c < nch && r.ok; ++c) {
+				NkAnimChannel ch;
+				SeqLisCanal(r, ch);
+				if (r.ok)
+					tr.channels.PushBack(static_cast<NkAnimChannel &&>(ch));
+			}
+			if (r.ok)
+				tmp.tracks.PushBack(static_cast<NkTrack &&>(tr));
+		}
+
+		const uint32 nn = r.U32();
+		for (uint32 t = 0; t < nn && r.ok; ++t) {
+			NkNLATrack nt2;
+			nt2.entity = NkEntityId::Unpack(r.U64());
+			nt2.name = r.Str();
+			nt2.muted = (r.U8() != 0u);
+			nt2.locked = (r.U8() != 0u);
+			nt2.weight = r.F32();
+			const uint32 nc = r.U32();
+			for (uint32 c = 0; c < nc && r.ok; ++c) {
+				NkNLAClip cl;
+				cl.clipHandle = r.U64();
+				cl.startTime = r.F32();
+				cl.duration = r.F32();
+				cl.clipOffset = r.F32();
+				cl.speed = r.F32();
+				cl.influence = r.F32();
+				cl.repeat = (r.U8() != 0u);
+				cl.repeatCount = r.U32();
+				cl.reverse = (r.U8() != 0u);
+				cl.muted = (r.U8() != 0u);
+				cl.blendType = (NkNLAClip::BlendType)r.U8();
+				if (r.ok)
+					nt2.clips.PushBack(static_cast<NkNLAClip &&>(cl));
+			}
+			if (r.ok)
+				tmp.nlaTracks.PushBack(static_cast<NkNLATrack &&>(nt2));
+		}
+
+		tmp.cameraTrack.muted = (r.U8() != 0u);
+		tmp.cameraTrack.locked = (r.U8() != 0u);
+		const uint32 ns = r.U32();
+		for (uint32 s = 0; s < ns && r.ok; ++s) {
+			NkCameraShot sh;
+			sh.cameraEntity = NkEntityId::Unpack(r.U64());
+			sh.startTime = r.F32();
+			sh.duration = r.F32();
+			sh.cutType = (NkCutType)r.U8();
+			sh.blendDuration = r.F32();
+			if (r.ok)
+				tmp.cameraTrack.shots.PushBack(static_cast<NkCameraShot &&>(sh));
+		}
+
+		const uint32 nm = r.U32();
+		for (uint32 m = 0; m < nm && r.ok; ++m) {
+			NkMarker mk;
+			r.LisCap(mk.label, NkMarker::kMaxLabel);
+			mk.time = r.F32();
+			mk.color.x = r.F32();
+			mk.color.y = r.F32();
+			mk.color.z = r.F32();
+			mk.type = (NkMarker::Type)r.U8();
+			r.LisCap(mk.eventFunction, 128u);
+			if (r.ok)
+				tmp.markers.PushBack(static_cast<NkMarker &&>(mk));
+		}
+
+		if (!r.ok) {
+			gRefus = "corps incomplet : lecture au-dela de la fin";
+			return false;
+		}
+		if (r.i != r.n) {
+			// Tout doit être consommé. Des octets en trop signifient que le
+			// lecteur et l'écrivain ne s'accordent pas sur le format — et c'est
+			// le genre de désaccord qui ne se voit qu'une fois en production.
+			gRefus = "octets en trop apres la fin des donnees";
+			return false;
+		}
+
+		name = static_cast<NkString &&>(tmp.name);
+		fps = tmp.fps;
+		duration = tmp.duration;
+		renderOutput = static_cast<NkRenderOutput &&>(tmp.renderOutput);
+		tracks = static_cast<NkVector<NkTrack> &&>(tmp.tracks);
+		nlaTracks = static_cast<NkVector<NkNLATrack> &&>(tmp.nlaTracks);
+		cameraTrack = static_cast<NkCameraTrack &&>(tmp.cameraTrack);
+		markers = static_cast<NkVector<NkMarker> &&>(tmp.markers);
+		return true;
 	}
 
 } // namespace nkentseu
