@@ -65,6 +65,12 @@ namespace nkentseu {
 		// AUCUNE injection d'entree : la sonde APPELLE la traduction avec des
 		// coordonnees ecrites. Centre + les quatre coins, avec son negatif
 		// (origine decalee de 7 px), seuils poses AVANT la mesure.
+		// `--viewport-selection` : quel objet sous ce pixel. AUCUNE injection de
+		// clic — la sonde APPELLE la selection avec des coordonnees ecrites.
+		// Se combine avec --viewport-inactif et --viewport-sans-mesh, qui sont
+		// ses deux negatifs : dans les deux cas le centre ne doit designer
+		// personne.
+		void NogeeShellViewportSelection() noexcept;
 		void NogeeShellViewportPointage() noexcept;
 		void NogeeShellViewportControle() noexcept;
 		// (n2) : la pose de camera de depart, en degres de lacet.

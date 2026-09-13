@@ -591,6 +591,220 @@ namespace nkentseu {
 			g.vueSurvol = survol;
 		}
 
+		// ── SELECTION : LES DEUX TESTS GEOMETRIQUES ──────────────────────────
+		namespace {
+
+			// Rayon / boite alignee, methode des dalles. Rend la distance d'ENTREE
+			// (0 si l'origine est deja dedans) ; faux si le rayon la manque ou si
+			// elle est entierement derriere.
+			bool RayonContreBoite(const NkVec3f &o, const NkVec3f &d, const NkVec3f &bmin, const NkVec3f &bmax,
+								  float32 *tEntree) {
+				float32 t0 = 0.f, t1 = 1e30f;
+				const float32 od[3] = {o.x, o.y, o.z};
+				const float32 dd[3] = {d.x, d.y, d.z};
+				const float32 mn[3] = {bmin.x, bmin.y, bmin.z};
+				const float32 mx[3] = {bmax.x, bmax.y, bmax.z};
+				for (int32 i = 0; i < 3; ++i) {
+					// Rayon parallele a cette paire de plans : dedans ou jamais.
+					if (dd[i] > -1e-9f && dd[i] < 1e-9f) {
+						if (od[i] < mn[i] || od[i] > mx[i])
+							return false;
+						continue;
+					}
+					const float32 inv = 1.f / dd[i];
+					float32 ta = (mn[i] - od[i]) * inv;
+					float32 tb = (mx[i] - od[i]) * inv;
+					if (ta > tb) {
+						const float32 tmp = ta;
+						ta = tb;
+						tb = tmp;
+					}
+					if (ta > t0)
+						t0 = ta;
+					if (tb < t1)
+						t1 = tb;
+					if (t0 > t1)
+						return false;
+				}
+				if (tEntree)
+					*tEntree = t0;
+				return true;
+			}
+
+			// Rayon / triangle, Moller-Trumbore. Faces des DEUX cotes : dans un
+			// editeur on selectionne aussi ce qu'on regarde par l'interieur.
+			bool RayonContreTriangle(const NkVec3f &o, const NkVec3f &d, const NkVec3f &a, const NkVec3f &b,
+									 const NkVec3f &c, float32 *tOut) {
+				const NkVec3f e1{b.x - a.x, b.y - a.y, b.z - a.z};
+				const NkVec3f e2{c.x - a.x, c.y - a.y, c.z - a.z};
+				const NkVec3f p = d.Cross(e2);
+				const float32 det = e1.Dot(p);
+				if (det > -1e-9f && det < 1e-9f)
+					return false; // rayon dans le plan du triangle
+				const float32 invDet = 1.f / det;
+				const NkVec3f s{o.x - a.x, o.y - a.y, o.z - a.z};
+				const float32 u = s.Dot(p) * invDet;
+				if (u < 0.f || u > 1.f)
+					return false;
+				const NkVec3f q = s.Cross(e1);
+				const float32 v = d.Dot(q) * invDet;
+				if (v < 0.f || u + v > 1.f)
+					return false;
+				const float32 t = e2.Dot(q) * invDet;
+				if (t <= 1e-5f)
+					return false; // derriere l'origine du rayon
+				if (tOut)
+					*tOut = t;
+				return true;
+			}
+
+			// Boite MONDE d'une entite. ⚠️ On transforme les HUIT COINS par la
+			// matrice monde, au lieu d'ajouter la position comme le fait
+			// `NkRenderSystem::SubmitMeshes` (l.160-163). Sa version ignore la
+			// rotation et l'echelle : elle suffit a un culling prudent — une boite
+			// trop petite ne fait que garder un objet de trop — mais elle designerait
+			// le mauvais objet au pointage. Le culling a le droit d'etre approximatif,
+			// la selection n'a pas ce droit.
+			void BoiteMonde(const NkAABB &locale, const NkMat4f &monde, NkVec3f *bmin, NkVec3f *bmax) {
+				NkVec3f mn{1e30f, 1e30f, 1e30f}, mx{-1e30f, -1e30f, -1e30f};
+				for (int32 i = 0; i < 8; ++i) {
+					const NkVec3f coin{(i & 1) ? locale.max.x : locale.min.x, (i & 2) ? locale.max.y : locale.min.y,
+									   (i & 4) ? locale.max.z : locale.min.z};
+					const NkVec3f p = monde * coin;
+					if (p.x < mn.x) mn.x = p.x;
+					if (p.y < mn.y) mn.y = p.y;
+					if (p.z < mn.z) mn.z = p.z;
+					if (p.x > mx.x) mx.x = p.x;
+					if (p.y > mx.y) mx.y = p.y;
+					if (p.z > mx.z) mx.z = p.z;
+				}
+				*bmin = mn;
+				*bmax = mx;
+			}
+
+		} // namespace
+
+		bool NogeeViewport3DPick(float32 vx, float32 vy, nk_uint64 *entite, float32 *distance, int32 *precision) {
+			if (entite)
+				*entite = 0ull;
+			if (distance)
+				*distance = 0.f;
+			if (precision)
+				*precision = 0;
+			if (!g.world || !g.ok)
+				return false;
+			float32 ro[3], rd[3];
+			if (!NogeeViewport3DRayFromView(vx, vy, ro, rd))
+				return false;
+			NkMeshSystem *meshSys = g.r3 ? g.r3->GetMeshSystem() : nullptr;
+			if (!meshSys)
+				return false;
+
+			const NkVec3f o{ro[0], ro[1], ro[2]};
+			const NkVec3f d{rd[0], rd[1], rd[2]};
+
+			ecs::NkEntityId gagnante{};
+			float32 meilleure = 1e30f;
+			int32 precisionGagnante = 0;
+
+			// MEME PREDICAT que SubmitMeshes : on ne selectionne que ce qui est
+			// dessine. Un objet invisible qui repondrait au clic serait un fantome.
+			g.world->Query<ecs::NkTransform, ecs::NkMeshComponent, ecs::NkMaterialComponent>().ForEach(
+				[&](ecs::NkEntityId id, const ecs::NkTransform &tf, const ecs::NkMeshComponent &mc,
+					const ecs::NkMaterialComponent &) {
+					if (g.world->Has<ecs::NkInactive>(id))
+						return;
+					if (!mc.visible)
+						return;
+					NkMeshHandle h{mc.meshHandle};
+					if (!h.IsValid())
+						return;
+
+					NkVec3f bmin, bmax;
+					BoiteMonde(meshSys->GetBounds(h), tf.worldMatrix, &bmin, &bmax);
+					float32 tBoite = 0.f;
+					if (!RayonContreBoite(o, d, bmin, bmax, &tBoite))
+						return;
+					// Deja battu par un objet plus proche : inutile d'aller au triangle.
+					if (tBoite >= meilleure)
+						return;
+
+					// ── AFFINAGE AU TRIANGLE, quand la geometrie CPU existe ──
+					// On amene le RAYON dans l'espace local plutot que les sommets
+					// dans le monde : une inversion de matrice contre N transformations.
+					float32 tMeilleurLocal = 1e30f;
+					bool touche = false;
+					if (meshSys->HasCPUData(h)) {
+						const uint8 *verts = (const uint8 *)meshSys->GetVertices(h);
+						const uint32 *idx = meshSys->GetIndices(h);
+						const uint32 nIdx = meshSys->GetIndexCount(h);
+						const uint32 stride = meshSys->GetVertexStride(h);
+						if (verts && idx && nIdx >= 3 && stride >= sizeof(float32) * 3) {
+							const NkMat4f versLocal = tf.worldMatrix.Inverse();
+							// Un POINT se transforme avec la translation, une DIRECTION
+							// non : on transforme deux points et on soustrait. C'est le
+							// piege classique, et il ne se voit que sur un objet
+							// deplace loin de l'origine.
+							const NkVec3f oL = versLocal * o;
+							const NkVec3f o2L = versLocal * NkVec3f{o.x + d.x, o.y + d.y, o.z + d.z};
+							NkVec3f dL{o2L.x - oL.x, o2L.y - oL.y, o2L.z - oL.z};
+							const float32 nL = std::sqrt(dL.x * dL.x + dL.y * dL.y + dL.z * dL.z);
+							if (nL > 1e-9f) {
+								const float32 echelle = 1.f / nL; // t local -> t monde
+								dL.x /= nL;
+								dL.y /= nL;
+								dL.z /= nL;
+								for (uint32 i = 0; i + 2 < nIdx; i += 3) {
+									const float32 *pa = (const float32 *)(verts + (size_t)idx[i] * stride);
+									const float32 *pb = (const float32 *)(verts + (size_t)idx[i + 1] * stride);
+									const float32 *pc = (const float32 *)(verts + (size_t)idx[i + 2] * stride);
+									float32 tt = 0.f;
+									if (RayonContreTriangle(oL, dL, NkVec3f{pa[0], pa[1], pa[2]},
+															NkVec3f{pb[0], pb[1], pb[2]},
+															NkVec3f{pc[0], pc[1], pc[2]}, &tt)) {
+										const float32 tMonde = tt * echelle;
+										if (tMonde < tMeilleurLocal) {
+											tMeilleurLocal = tMonde;
+											touche = true;
+										}
+									}
+								}
+							}
+						}
+					}
+
+					// Le triangle a tranche : soit il touche (distance exacte), soit
+					// il ne touche PAS et l'objet est ecarte — la boite l'avait dit a
+					// tort. Sans geometrie CPU, la boite fait foi et on le DIT.
+					float32 tRetenu;
+					int32 prec;
+					if (meshSys->HasCPUData(h)) {
+						if (!touche)
+							return;
+						tRetenu = tMeilleurLocal;
+						prec = 1;
+					} else {
+						tRetenu = tBoite;
+						prec = 0;
+					}
+					if (tRetenu < meilleure) {
+						meilleure = tRetenu;
+						gagnante = id;
+						precisionGagnante = prec;
+					}
+				});
+
+			if (!gagnante.IsValid())
+				return false;
+			if (entite)
+				*entite = gagnante.Pack();
+			if (distance)
+				*distance = meilleure;
+			if (precision)
+				*precision = precisionGagnante;
+			return true;
+		}
+
 		void NogeeViewport3DViewRect(float32 *x, float32 *y, float32 *w, float32 *h) {
 			if (x)
 				*x = g.vueX;
