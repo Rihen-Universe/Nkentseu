@@ -3252,10 +3252,13 @@ pas d'un bit), les images existent sur le disque (et à durée nulle il n'y en a
 aucune, pas une seule vide), deux images de la suite diffèrent (et si le temps
 est figé, elles sont identiques).
 
-    BILAN MESURE : 36 verts, 0 rouges
+    BILAN MESURE : 61 verts, 0 rouges
        f1-f4  48 images peintes par le PROCESSEUR   (aucun GPU requis)
        f5     48 images EFFACEES par le GPU         (NkOffscreenTarget, sans fenetre)
        f6     48 images DESSINEES par le GPU        (nuanceur NkSL + geometrie)
+       f7     la sequence s'ecrit et se relit       (.nkseq, octet a octet, processus neuf)
+       f8     le registre resout clipHandle         (NKAnima/Clip/NkClipRegistry.h)
+       f9     la camera bouge ET le rendu suit      (8100 -> 2880 -> 32400 px)
 
 > ⚠️ **Les deux chemins, et ce que chacun prouve.** `f1-f4` peignent les pixels
 > **par le processeur** : un fond fixe et un carré dont la position est lue dans le
@@ -3303,6 +3306,60 @@ est figé, elles sont identiques).
 > **seul dorsal** (OpenGL) — comparer des images entre dorsaux comparerait aussi la
 > divergence sRGB ci-dessous, qui n'est pas tranchée.
 >
+> ### 🎥 LA CAMÉRA — et une simplification à NE PAS défaire
+>
+> **Déplacer une caméra n'est pas un mécanisme à part.** C'est une piste
+> `NkTrackType::Transform` **ordinaire** posée sur l'entité caméra.
+> `NkCameraTrack` / `NkCameraShot` disent **quelle** caméra regarde — jamais **où**
+> elle va. `NkSequence::GetActiveCameraAt(t)`, écrit le matin sans aucun appelant,
+> a trouvé le sien le soir même.
+>
+> ⚠️ **Si quelqu'un ajoute un jour un canal d'animation dans `NkCameraTrack`, il
+> aura écrit un second mécanisme pour ce qu'une piste `Transform` fait déjà.**
+> C'est écrit ici pour que ce ne soit pas fait par distraction.
+>
+> Mesures de `f9` (banc `NkSequenceCheck`), attendus calculés à la main **avant** :
+>
+>     objet FIXE, demi-côté 1 unité ; cible 320x180 ; caméra ORTHOGRAPHIQUE
+>       ndc.x = (monde.x - cam.x) / (orthoSize x aspect)   ndc.y = (monde.y - cam.y) / orthoSize
+>       ortho = 2 -> 90 x 90 =  8 100 px        ortho = 1 -> 180 x 180 = 32 400 px
+>
+>     (c1) la piste déplace la caméra    0,000 -> 4,000 exactement
+>     (c2) et le rendu suit              img1 8100 -> img24 2880, objet IMMOBILE
+>     (c3) la coupe tombe à l'image 25   saut de 29 520 px contre 720 entre voisines
+>
+> **Orthographique par choix, pas par facilité** : une perspective aurait exigé une
+> tolérance, et une tolérance cache exactement ce qu'on cherche. 8100 et 32400 sont
+> tombés **au pixel près**.
+>
+> **`(c2)` vérifie que l'objet n'a PAS bougé.** Sans ce rappel, le critère serait vert
+> si l'objet s'était déplacé — on aurait prouvé quelque chose, mais pas que la
+> caméra pilote le rendu.
+
+> ### 📋 CE QUE LE SÉQUENCEUR NE FAIT PAS — au 2026-09-13, nommé un par un
+>
+> `NkTrack::Evaluate` traite **trois** des treize `NkTrackType`. Les **dix autres
+> sortent sans rien toucher** :
+>
+> | agit | inerte |
+> |---|---|
+> | `Transform` · `Property` → `NkTransform` | `Camera` · `Audio` · `Event` · `FacialAnim` |
+> | `Animation` → clip via registre + `SeekTo`/`Update(0)` | `BlendShape` · `Light` · `PostProcess` |
+> | | `Particle` · `Visibility` · `NLA` |
+>
+> *(`Camera` est inerte en tant que TYPE DE PISTE : le mouvement de caméra passe par
+> une piste `Transform`, voir ci-dessus. La piste `Camera` ne fait rien, et n'a
+> pour l'instant rien à faire.)*
+>
+> **Et la piste `Animation` écrit `position` / `rotation` / `scale` — PAS les
+> matrices d'os.** Le composant `ecs::NkSkeleton` **existe** (88 octets, partagé par
+> `NkSharedPtr`, fabrique en pose de repos) ; ce qui manque est un **système** qui
+> écrive sa `pose` depuis `NkAnimationState::boneMatrices` — environ 30 lignes, et
+> qui touche `Noge/ECS/`. À ouvrir quand ce domaine sera libre.
+>
+> `NkNLATrack::Evaluate` n'applique rien mais **est sérialisé** : le format porte ce
+> que le moteur n'exécute pas encore, pour ne pas avoir à le casser plus tard.
+
 > ### ⚠️ DIVERGENCE sRGB ENTRE DORSAUX — mesurée le 2026-09-13, NON TRANCHÉE
 >
 > `Applications/NkOffscreenProbe` établit que **les quatre dorsaux créent un device
