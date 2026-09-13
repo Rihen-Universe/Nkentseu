@@ -148,6 +148,30 @@ namespace nkentseu {
 			// crees avec material invalide ; l'appelant assigne ses materiaux.
 			(void)importMat;
 
+			// ── FAMILLE 2 D'ABORD : CE QUI VIENT DE NOUS ────────────────────
+			// Un chemin `primitive://<nom>` ne designe pas un fichier : c'est la
+			// facon dont une primitive se NOMME pour survivre a une sauvegarde.
+			// Sans ce schema, une primitive n'a qu'une poignee de processus, elle
+			// perd son identite au premier aller-retour, et l'entite qui la portait
+			// devient ELIGIBLE-ET-JAMAIS-SOUMISE : dans l'arbre, invisible, muette.
+			{
+				const size_t lgScheme = std::strlen(kPrimitiveScheme);
+				if ((size_t)path.Size() > lgScheme && path.StartsWith(kPrimitiveScheme)) {
+					NkString nom = path.SubStr((NkString::SizeType)lgScheme);
+					NkMeshHandle h = GetPrimitiveByName(nom);
+					if (h.IsValid())
+						return h;
+					// Nom de primitive inconnu : c'est un etat interne incoherent,
+					// donc FAMILLE 2, et il faut le dire comme tel.
+					logger.Errorf("[NkMeshSystem] MAILLAGE MANQUANT (origine : NOTRE etat interne) — "
+								  "primitive inconnue '%s'. Le nom vient d'une scene ecrite par le moteur, "
+								  "pas de l'utilisateur : c'est un defaut a corriger, pas un fichier a "
+								  "remplacer. Marqueur MAILLAGE_MANQUANT rendu a la place.\n",
+								  nom.CStr());
+					return GetMissingMarker();
+				}
+			}
+
 			// Detection de format par extension (insensible a la casse).
 			NkString lower = path;
 			for (uint32 i = 0; i < (uint32)lower.Size(); ++i) {
@@ -175,8 +199,14 @@ namespace nkentseu {
 			else if (lower.EndsWith(".usda") || lower.EndsWith(".usd"))
 				ok = LoadUSDA(path, data);
 			else {
-				logger.Warnf("[NkMeshSystem] Import : format non gere '%s' (fallback cube)\n", path.CStr());
-				return GetCube();
+				// FAMILLE 1 : ce qui vient de l'utilisateur. On SIGNALE, on ne
+				// remplace pas en douce par un cube — un asset casse avait l'air
+				// d'une scene normale, et rien ne permettait de s'en apercevoir.
+				logger.Errorf("[NkMeshSystem] MAILLAGE MANQUANT (origine : LE FICHIER de l'utilisateur) — "
+							  "format non gere : '%s'. Marqueur MAILLAGE_MANQUANT rendu a la place ; "
+							  "l'entite reste dans la scene et se voit.\n",
+							  path.CStr());
+				return GetMissingMarker();
 			}
 
 			if (ok) {
@@ -193,8 +223,12 @@ namespace nkentseu {
 				// les buffers CPU dans le GPU (CreateBuffer initialData).
 				return Create(d);
 			}
-			logger.Warnf("[NkMeshSystem] Import echoue (fallback cube) : %s\n", path.CStr());
-			return GetCube();
+			// FAMILLE 1 : fichier absent ou illisible. Meme regle.
+			logger.Errorf("[NkMeshSystem] MAILLAGE MANQUANT (origine : LE FICHIER de l'utilisateur) — "
+						  "chargement impossible : '%s' (absent, illisible ou corrompu). "
+						  "Marqueur MAILLAGE_MANQUANT rendu a la place.\n",
+						  path.CStr());
+			return GetMissingMarker();
 		}
 
 		bool NkMeshSystem::UpdateVertices(NkMeshHandle h, const void *data, uint32 count) {
@@ -692,6 +726,88 @@ namespace nkentseu {
 		}
 
 		// ── Getters primitives ────────────────────────────────────────────────────
+		// ── LE SCHEMA DES PRIMITIVES ─────────────────────────────────────────
+		NkMeshHandle NkMeshSystem::GetPrimitiveByName(const NkString &nom) {
+			BuildPrimitives();
+			if (nom == "cube")
+				return mCube;
+			if (nom == "sphere")
+				return mSphere;
+			if (nom == "icosphere")
+				return mIcosphere;
+			if (nom == "plane")
+				return mPlane;
+			if (nom == "quad")
+				return mQuad;
+			if (nom == "cylinder")
+				return mCylinder;
+			if (nom == "cone")
+				return mCone;
+			if (nom == "capsule")
+				return mCapsule;
+			// Nom inconnu : on NE DEVINE PAS. Rendre un cube ici reviendrait a
+			// recreer le defaut qu'on est en train de corriger.
+			return NkMeshHandle{};
+		}
+
+		const char *NkMeshSystem::PrimitiveUriOf(NkMeshHandle h) const {
+			if (!h.IsValid())
+				return nullptr;
+			if (h.id == mCube.id)
+				return "primitive://cube";
+			if (h.id == mSphere.id)
+				return "primitive://sphere";
+			if (h.id == mIcosphere.id)
+				return "primitive://icosphere";
+			if (h.id == mPlane.id)
+				return "primitive://plane";
+			if (h.id == mQuad.id)
+				return "primitive://quad";
+			if (h.id == mCylinder.id)
+				return "primitive://cylinder";
+			if (h.id == mCone.id)
+				return "primitive://cone";
+			if (h.id == mCapsule.id)
+				return "primitive://capsule";
+			return nullptr;
+		}
+
+		// ── LE MARQUEUR DU MAILLAGE INTROUVABLE ──────────────────────────────
+		// Un tetraedre regulier : quatre faces, aucune chance de le prendre pour
+		// un cube, une sphere ou quoi que ce soit qu'un utilisateur aurait pose.
+		NkMeshHandle NkMeshSystem::GetMissingMarker() {
+			if (mMissingMarker.IsValid())
+				return mMissingMarker;
+			const float32 s = 0.5f;
+			NkVertex3D v[12];
+			const NkVec3f p[4] = {{0.f, s, 0.f}, {-s, -s * 0.6f, s}, {s, -s * 0.6f, s}, {0.f, -s * 0.6f, -s}};
+			const int32 f[12] = {0, 1, 2, 0, 2, 3, 0, 3, 1, 1, 3, 2};
+			for (int32 i = 0; i < 12; ++i) {
+				v[i] = NkVertex3D{};
+				v[i].pos = p[f[i]];
+				v[i].normal = p[f[i]].Normalized();
+				v[i].color = 0xFF00FFFFu; // magenta : la couleur conventionnelle du manquant
+			}
+			uint32 idx[12];
+			for (uint32 i = 0; i < 12; ++i)
+				idx[i] = i;
+			NkMeshDesc d;
+			d.layout = NkVertexLayout::Default3D();
+			d.vertices = v;
+			d.vertexCount = 12;
+			d.indices = idx;
+			d.indexCount = 12;
+			d.keepCPU = true;
+			d.bounds = NkAABB{{-s, -s, -s}, {s, s, s}};
+			d.debugName = "MAILLAGE_MANQUANT";
+			mMissingMarker = Create(d);
+			return mMissingMarker;
+		}
+
+		bool NkMeshSystem::IsMissingMarker(NkMeshHandle h) const {
+			return h.IsValid() && mMissingMarker.IsValid() && h.id == mMissingMarker.id;
+		}
+
 		NkMeshHandle NkMeshSystem::GetCube() {
 			BuildPrimitives();
 			return mCube;
