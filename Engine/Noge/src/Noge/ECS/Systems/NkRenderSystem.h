@@ -1,4 +1,5 @@
 #pragma once
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // =============================================================================
 // Nkentseu/Renderer/NkRenderSystem.h
 // =============================================================================
@@ -65,6 +66,30 @@ namespace nkentseu {
 				mCmd = cmd;
 			}
 
+			// ── QUI FLUSHE ? (2026-09-13, chantier « premiere image de Noge ») ──
+			// MESURE, pas supposition : `NkRender3D::Flush(cmd)` enregistre des
+			// draws en supposant une passe DEJA ouverte, et met `mInScene = false`
+			// (NkRender3D.cpp l.2046-2047). Dans le pipeline normal, c'est le
+			// RenderGraph qui l'appelle, depuis sa passe Geometry
+			// (`NkRendererImpl.cpp` l.925 : `geom.Execute([](cmd){ Flush(cmd); })`).
+			//
+			// Un hote qui possede sa propre frame device — un EDITEUR qui rend la
+			// scene dans une cible hors ecran, comme Nogee, NkAnimaEditor ou
+			// NK3DModeler — appelle `Execute()` puis `graph->Execute(cmd)`. Si
+			// `Execute` a deja flushe, la passe Geometry ressort a sa premiere
+			// ligne et L'ECRAN RESTE VIDE, sans la moindre erreur.
+			//
+			// `true` (defaut) = comportement d'avant, aucun appelant existant ne
+			// bouge. `false` = `Execute` s'arrete apres les `Submit` et laisse
+			// l'hote declencher le graphe.
+			void SetOwnsFlush(bool v) noexcept {
+				mOwnsFlush = v;
+			}
+
+			[[nodiscard]] bool OwnsFlush() const noexcept {
+				return mOwnsFlush;
+			}
+
 			void SetAmbientIntensity(float32 v) noexcept {
 				mAmbientIntensity = v;
 			}
@@ -120,6 +145,7 @@ namespace nkentseu {
 			NkICommandBuffer *mCmd = nullptr;
 			nk_uint64 mEnvMapHandle = 0;
 			float32 mAmbientIntensity = 0.2f;
+			bool mOwnsFlush = true; ///< cf. SetOwnsFlush : defaut = comportement d'avant
 
 			renderer::NkSceneContext mSceneCtx;
 			NkVector<renderer::NkDrawCall3D> mOpaqueCalls;
