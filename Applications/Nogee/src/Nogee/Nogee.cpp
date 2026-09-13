@@ -91,6 +91,8 @@ int nkmain(const nkentseu::NkEntryState &state) {
 			NogeeShellViewportSansMesh(); // negatif (n1) : entite sans mesh
 		else if (a == "--viewport-inactif")
 			NogeeShellViewportInactif(); // negatif (n1) : entite desactivee
+		else if (a == "--viewport-pointage")
+			NogeeShellViewportPointage(); // aller-retour pointeur -> rayon
 		else if (a == "--viewport-controle")
 			NogeeShellViewportControle(); // controle positif interne
 		else if (std::strncmp(a.CStr(), "--viewport-orbite=", 18) == 0)

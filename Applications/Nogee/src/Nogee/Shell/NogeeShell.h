@@ -61,6 +61,11 @@ namespace nkentseu {
 		// ECS, dans la meme scene et sur le meme chemin. Il partage toutes les
 		// causes du cube ECS sauf le pont ECS : c'est ce partage qui permet de
 		// designer un coupable quand le viewport est uniforme.
+		// `--viewport-pointage` : aller-retour de la traduction pointeur -> rayon.
+		// AUCUNE injection d'entree : la sonde APPELLE la traduction avec des
+		// coordonnees ecrites. Centre + les quatre coins, avec son negatif
+		// (origine decalee de 7 px), seuils poses AVANT la mesure.
+		void NogeeShellViewportPointage() noexcept;
 		void NogeeShellViewportControle() noexcept;
 		// (n2) : la pose de camera de depart, en degres de lacet.
 		void NogeeShellViewportOrbite(float32 yawDeg) noexcept;

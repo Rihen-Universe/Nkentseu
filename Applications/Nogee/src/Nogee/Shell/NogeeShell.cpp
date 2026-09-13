@@ -27,6 +27,7 @@
 #include "NKLogger/NkLog.h"
 #include <cstdio>
 #include <cstring>
+#include <cmath>
 
 namespace nkentseu {
 	namespace noge {
@@ -53,6 +54,7 @@ namespace nkentseu {
 					float32 yaw = 0.f;
 					int32 fermerApres = 0; ///< 0 = jamais
 					int32 frames = 0;
+					bool pointage = false; ///< --viewport-pointage : aller-retour du rayon
 					bool controle = false; ///< --viewport-controle : cube soumis a la main
 					char capture[480] = {};
 					int32 captureImage = 90;
@@ -69,6 +71,139 @@ namespace nkentseu {
 				auto *r = static_cast<nkgui::NkEditorRHIRenderer *>(user);
 				NogeeViewport3DFrame(cmd);
 				NogeeViewport3DRegisterInto(&r->GetBackend());
+
+			// ── SONDE DE POINTAGE (--viewport-pointage) ───────────────────────
+			// ⚠️ AUCUNE INJECTION D'ENTREE. Pas un clic simule, pas un evenement
+			// souris fabrique : on APPELLE la traduction avec des coordonnees
+			// ECRITES. Rodolf cliquera ; ce banc mesure la transformation.
+			//
+			// LE CRITERE EST UN ALLER-RETOUR, et ses seuils sont poses AVANT la
+			// mesure :
+			//   aller-retour       <= 0,5 px  (sous-pixel : « le meme pixel »)
+			//   negatif a 7 px     >= 5,0 px  d'erreur, sinon le temoin est muet
+			//
+			// LA CHAINE COMPLETE, celle qui compte, part de la FENETRE :
+			//   point fenetre -> MouseToView -> pixel de vue -> RayFromView ->
+			//   rayon -> point du monde a t=6 -> ProjectToView -> pixel de vue ->
+			//   + origine de la vue -> point fenetre
+			// L'origine de la vue entre donc DANS la boucle : c'est elle que le
+			// negatif attaque.
+			//
+			// LES QUATRE COINS COMPTENT AUTANT QUE LE CENTRE : une erreur
+			// d'origine se voit aux bords et se cache au milieu — exactement comme
+			// le centrage du cube restait bon par symetrie.
+			// ⚠️ ATTENDRE QUE LE PANNEAU AIT DEPOSE SON RECTANGLE. La pile est
+			// « prete » des le montage, mais le crochet preUI passe AVANT le premier
+			// OnUI : au premier tour la vue mesure encore 0x0, et la sonde a rendu
+			// « 5 fois PAS DE RAYON » — un verdict qui avait l'air d'un echec du
+			// pointage alors qu'il n'y avait rien a pointer. On exige donc une vue
+			// REELLE, et le negatif ne peut plus sortir sa valeur sentinelle.
+			float32 vx0 = 0.f, vy0 = 0.f, vw = 0.f, vh = 0.f;
+			NogeeViewport3DViewRect(&vx0, &vy0, &vw, &vh);
+			if (g_vp.pointage && NogeeViewport3DReady() && vw > 1.f && vh > 1.f) {
+				g_vp.pointage = false; // une seule fois, quand la vue a sa taille
+				logger.Info("[SONDE-PT] vue {0}x{1} a ({2},{3}) — seuils POSES AVANT : "
+							"aller-retour <= 0.50 px, negatif (decalage 7 px) >= 5.00 px\n",
+							(int32)vw, (int32)vh, (int32)vx0, (int32)vy0);
+
+				// Centre + les quatre coins, rentres d'un pixel (le bord droit et le
+				// bord bas appartiennent deja au pixel suivant).
+				const float32 pts[5][2] = {{vw * 0.5f, vh * 0.5f},
+										   {0.5f, 0.5f},
+										   {vw - 1.5f, 0.5f},
+										   {0.5f, vh - 1.5f},
+										   {vw - 1.5f, vh - 1.5f}};
+				const char *noms[5] = {"centre", "coin haut-gauche", "coin haut-droit",
+									   "coin bas-gauche", "coin bas-droit"};
+				float32 pireAR = 0.f, pireNeg = 1e9f;
+				int32 okAR = 0;
+
+				for (int32 i = 0; i < 5; ++i) {
+					// On PART d'un point fenetre, comme une vraie souris.
+					const float32 winX = vx0 + pts[i][0];
+					const float32 winY = vy0 + pts[i][1];
+
+					float32 vx = 0.f, vy = 0.f;
+					const bool dedans = NogeeViewport3DMouseToView(winX, winY, &vx, &vy);
+
+					float32 o[3] = {0, 0, 0}, d[3] = {0, 0, 0};
+					if (!NogeeViewport3DRayFromView(vx, vy, o, d)) {
+						logger.Info("[SONDE-PT]   {0} : PAS DE RAYON\n", noms[i]);
+						continue;
+					}
+					// Un point du monde SUR le rayon, a une profondeur de scene
+					// plausible. S'il retombe sur son pixel, la transformation est
+					// inversible ET orientee dans le bon sens.
+					const float32 t = 6.f;
+					const float32 P[3] = {o[0] + d[0] * t, o[1] + d[1] * t, o[2] + d[2] * t};
+
+					float32 rx = 0.f, ry = 0.f;
+					if (!NogeeViewport3DProjectToView(P, &rx, &ry)) {
+						logger.Info("[SONDE-PT]   {0} : PAS DE PROJECTION\n", noms[i]);
+						continue;
+					}
+					const float32 ex = (vx0 + rx) - winX;
+					const float32 ey = (vy0 + ry) - winY;
+					const float32 err = std::sqrt(ex * ex + ey * ey);
+					if (err > pireAR)
+						pireAR = err;
+					if (err <= 0.5f)
+						++okAR;
+
+					// LE NEGATIF, sur le MEME point : on refait la traduction
+					// fenetre -> vue avec une origine decalee de 7 px, ce qui est
+					// exactement le defaut qu'on cherche a empecher. Si l'erreur ne
+					// grandit pas, c'est que le banc ne mesure pas l'origine.
+					const float32 vxFaux = winX - (vx0 + 7.f);
+					const float32 vyFaux = winY - (vy0 + 7.f);
+					float32 o2[3], d2[3];
+					float32 errNeg = -1.f;
+					if (NogeeViewport3DRayFromView(vxFaux, vyFaux, o2, d2)) {
+						const float32 P2[3] = {o2[0] + d2[0] * t, o2[1] + d2[1] * t, o2[2] + d2[2] * t};
+						float32 nx = 0.f, ny = 0.f;
+						if (NogeeViewport3DProjectToView(P2, &nx, &ny)) {
+							const float32 fx = (vx0 + nx) - winX;
+							const float32 fy = (vy0 + ny) - winY;
+							errNeg = std::sqrt(fx * fx + fy * fy);
+							if (errNeg < pireNeg)
+								pireNeg = errNeg;
+						}
+					}
+
+					char m[320];
+					std::snprintf(m, sizeof(m),
+								  "[SONDE-PT]   %-17s fenetre(%.1f,%.1f) dedans=%d vue(%.1f,%.1f) "
+								  "rayon d=(%.3f,%.3f,%.3f) | ALLER-RETOUR %.4f px | NEGATIF %.2f px\n",
+								  noms[i], (double)winX, (double)winY, dedans ? 1 : 0, (double)vx, (double)vy,
+								  (double)d[0], (double)d[1], (double)d[2], (double)err, (double)errNeg);
+					logger.Info(m);
+				}
+
+				// LA CORROBORATION AVEC L'IMAGE REELLEMENT DESSINEE. L'aller-retour
+				// seul est auto-coherent : il serait vert meme avec un second jeu de
+				// matrices faux. On projette donc le centre du cube ECS (l'origine du
+				// monde) et on le compare a la position ou le cube se voit VRAIMENT
+				// dans la capture. Seuil pose AVANT : <= 8 px — le centroide d'un cube
+				// en perspective n'est pas exactement la projection de son centre,
+				// puisque les faces visibles le tirent d'un cote.
+				const float32 origineMonde[3] = {0.f, 0.f, 0.f};
+				float32 cx = 0.f, cy = 0.f;
+				if (NogeeViewport3DProjectToView(origineMonde, &cx, &cy)) {
+					char m[240];
+					std::snprintf(m, sizeof(m),
+								  "[SONDE-PT] CORROBORATION : centre du monde projete en vue(%.1f,%.1f) ; "
+								  "centre de la vue (%.1f,%.1f) ; seuil pose AVANT : <= 8 px\n",
+								  (double)cx, (double)cy, (double)(vw * 0.5f), (double)(vh * 0.5f));
+					logger.Info(m);
+				}
+
+				char v[220];
+				std::snprintf(v, sizeof(v),
+							  "[SONDE-PT] VERDICT : %d/5 points sous 0.50 px (pire %.4f px) ; "
+							  "negatif : pire cas %.2f px (exige >= 5.00)\n",
+							  (int)okAR, (double)pireAR, (double)pireNeg);
+				logger.Info(v);
+			}
 
 				// La fermeture automatique vit ICI parce que c'est le seul crochet
 				// qui passe a CHAQUE image : l'overlay, lui, est deja pris par les
@@ -987,6 +1122,10 @@ namespace nkentseu {
 
 		void NogeeShellViewportInactif() noexcept {
 			g_vp.inactif = true;
+		}
+
+		void NogeeShellViewportPointage() noexcept {
+			g_vp.pointage = true;
 		}
 
 		void NogeeShellViewportControle() noexcept {
