@@ -2,6 +2,7 @@
 // Nogee/Panels/DetailsPanel.cpp — portage NKUI -> NKGui, vise sur §8 (cf. .h)
 // =============================================================================
 #include "DetailsPanel.h"
+#include "Nogee/Viewport/NogeeViewport3D.h" // LA QUESTION : ce maillage est-il introuvable ?
 #include "NKGui/NKGui.h"
 #include "Noge/ECS/NkEcsUtil.h"
 #include "Noge/ECS/Components/Core/NkCoreComponents.h"
@@ -152,6 +153,14 @@ namespace nkentseu {
 				InputText(ctx, "##dp_name", n->value, static_cast<int32>(ecs::NkName::kMaxLen));
 			else
 				Text(ctx, "(entite sans nom)");
+			// Le panneau qui DECRIT une entite est le premier endroit ou l'on
+			// vient quand elle ne se voit pas. Il doit donc le dire, et dire ou
+			// chercher la raison.
+			if (NogeeViewport3DMaillageManquant(id.Pack())) {
+				Text(ctx, "[!] MAILLAGE INTROUVABLE — cette entite ne peut rien afficher.");
+				Text(ctx, "    Le journal dit de quelle famille vient le probleme");
+				Text(ctx, "    (fichier de l'utilisateur, ou etat interne du moteur).");
+			}
 
 			// ── §8 : recherche de propriete (filtre en direct) ────────────────
 			InputText(ctx, "Rechercher##dp_filter", mFilterBuf, static_cast<int32>(sizeof(mFilterBuf)));
