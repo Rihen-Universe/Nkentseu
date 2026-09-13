@@ -1,3 +1,4 @@
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // =============================================================================
 // main.cpp — NkAnimaEditor : éditeur d'animation (timeline) sur NKEditorKit.
 // L'app ne touche QUE l'Editor Kit + AnimBridge (pas NKRenderer directement, pour
@@ -8,6 +9,7 @@
 #include "NKEditorKit/NkEditorKit.h"
 #include "NKMemory/NkUniquePtr.h"
 #include "AnimBridge.h"
+#include "ExportCli.h" // mode sans fenetre : --export= / --verify= (2026-09-13)
 #include "Panels.h"
 #include "NkEditorRHIRenderer.h" // UI sur NKRHI/NKRenderer (pas NKCanvas)
 
@@ -52,8 +54,21 @@ int nkmain(const NkEntryState &state) {
 	// — c'est ce qui permet de pointer un autre rig (XBot Mixamo…) sans recompiler.
 	NkEditorGfxApi gfx = NkEditorGfxApi::OpenGL;
 	const char *modelPath = "Resources/Models/CesiumMan/CesiumMan.glb";
+	nkanima::NkExportCliArgs cli;
+	// ⚠️ DÉFAUT MESURÉ le 2026-09-13 : `GetArgs()` contient argv[0] — le chemin de
+	// l'EXÉCUTABLE — sur toutes les entrées de NKWindow (NkWindowsDesktop.h l.62 et
+	// suivantes bouclent depuis i=0). Sans le saut ci-dessous, la règle « tout
+	// argument sans tiret est le modèle » prenait `NkAnimaEditor.exe` pour un modèle :
+	// lancé SANS argument, l'éditeur essayait de charger son propre binaire en glTF
+	// (« JSON must start with '{' ») et ne chargeait donc AUCUN personnage. Le défaut
+	// restait invisible tant qu'on passait toujours un chemin explicite.
+	uint32 argIndex = 0;
 	for (const auto &a : state.GetArgs()) {
-		if (a == "-bvk" || a == "--backend=vulkan")
+		if (argIndex++ == 0)
+			continue; // argv[0] : l'exécutable lui-même, jamais un modèle
+		if (nkanima::ExportCliParseArg(a.CStr(), cli))
+			continue; // drapeaux du mode sans fenetre (--export=, --verify=, ...)
+		else if (a == "-bvk" || a == "--backend=vulkan")
 			gfx = NkEditorGfxApi::Vulkan;
 		else if (a == "-bdx11" || a == "--backend=dx11")
 			gfx = NkEditorGfxApi::DX11;
@@ -65,6 +80,16 @@ int nkmain(const NkEntryState &state) {
 			gfx = NkEditorGfxApi::OpenGL;
 		else if (!a.Empty() && a.Data()[0] != '-')
 			modelPath = a.CStr(); // les args vivent dans state : durée de vie OK
+	}
+
+	// ── Mode SANS FENÊTRE (2026-09-13) : éditer, écrire, relire ───────────────
+	// Placé AVANT toute création de shell : aucune fenêtre n'est ouverte, aucun
+	// device graphique n'est créé, et le chemin interactif ci-dessous est intact
+	// quand aucun drapeau d'export n'est passé. Aucune entrée n'est simulée : le
+	// geste d'édition est rejoué par AnimScriptedEdit, pas par un faux clic.
+	if (nkanima::ExportCliWanted(cli)) {
+		cli.modelPath = modelPath;
+		return nkanima::ExportCliRun(cli);
 	}
 
 	auto shell = memory::NkMakeUnique<NkEditorShell>();
