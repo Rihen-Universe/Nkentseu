@@ -27,8 +27,64 @@ import base64
 import json
 import struct
 import sys
+import zlib
 
 EPS = 1e-4
+
+
+def unrle(data, expect):
+    """RLE du bloc : 0x00,compte,valeur = serie ; L,<L octets> = litteraux."""
+    out = bytearray()
+    i = 0
+    n = len(data)
+    while i < n:
+        tag = data[i]
+        i += 1
+        if tag == 0:
+            if i + 1 >= n:
+                raise ValueError("RLE tronque")
+            run, val = data[i], data[i + 1]
+            i += 2
+            out += bytes([val]) * run
+        else:
+            out += data[i:i + tag]
+            i += tag
+    if len(out) != expect:
+        raise ValueError("RLE : %d octets au lieu de %d" % (len(out), expect))
+    return bytes(out)
+
+
+def untranspose(data, stride):
+    if stride <= 1:
+        return data
+    rows = len(data) // stride
+    out = bytearray(len(data))
+    k = 0
+    for c in range(stride):
+        for r in range(rows):
+            out[r * stride + c] = data[k]
+            k += 1
+    for i in range(rows * stride, len(data)):
+        out[i] = data[k]
+        k += 1
+    return bytes(out)
+
+
+def decode(g, key, codage, stride):
+    """Les trois codages du bloc `geometrie`. Un codage inconnu est refuse,
+    jamais devine -- meme regle que le lecteur C++."""
+    raw = base64.b64decode(g[key])
+    brut = g.get(key + "Brut", 0)
+    if codage in ("", "brut", None):
+        return raw
+    if codage == "transpose-rle":
+        return untranspose(unrle(raw, brut), stride)
+    if codage == "transpose-deflate":
+        d = zlib.decompress(raw)
+        if len(d) != brut:
+            raise ValueError("deflate : %d octets au lieu de %d" % (len(d), brut))
+        return untranspose(d, stride)
+    raise ValueError("codage inconnu : %r" % codage)
 
 
 def geoms(path):
@@ -38,13 +94,15 @@ def geoms(path):
         g = n.get("geometrie")
         if not g:
             continue
-        v = base64.b64decode(g["v"])
-        i = base64.b64decode(g.get("i", "")) if g.get("i") else b""
+        st = g["octetsParSommet"]
+        v = decode(g, "v", g.get("codage", "brut"), st)
+        i = decode(g, "i", g.get("codageIndices", "brut"), 4) if g.get("i") else b""
         out.append({
             "nom": n.get("nom", ""),
-            "stride": g["octetsParSommet"],
+            "stride": st,
             "nv": g["sommets"],
             "ni": g["indices"],
+            "codage": g.get("codage", "brut"),
             "v": v,
             "i": i,
         })
@@ -85,8 +143,10 @@ def main():
         octets = (x["v"] == y["v"])
         ok = okc and idxok and 0.0 <= worst < EPS
         print("  bloc %d (%s) : sommets %d -> %d | indices %d -> %d | "
-              "ecart max %.9f | indices identiques %s | octets identiques %s | %s"
-              % (k, x["nom"], x["nv"], y["nv"], x["ni"], y["ni"], worst,
+              "codage %s -> %s | ecart max %.9f | indices identiques %s | "
+              "octets identiques %s | %s"
+              % (k, x["nom"], x["nv"], y["nv"], x["ni"], y["ni"],
+                 x["codage"], y["codage"], worst,
                  "oui" if idxok else "NON", "oui" if octets else "non",
                  "VERT" if ok else "ROUGE"))
         if not ok:
