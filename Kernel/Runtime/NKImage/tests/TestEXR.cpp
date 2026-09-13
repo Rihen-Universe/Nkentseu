@@ -1,8 +1,12 @@
-/**
- * @File   TestEXR.cpp
- * @Brief  Test EXR codec : charge un fichier EXR reel et imprime stats.
- *         (Code de validation, gardé pour reference future.)
- */
+// =============================================================================
+// @File    TestEXR.cpp
+// @Brief   Banc du codec EXR : charge un fichier EXR reel et imprime ses stats.
+// @Author  TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
+// @License Proprietary - All Rights Reserved (see LICENSE)
+//
+// Le `main` a demenage dans TestMain.cpp le 2026-09-05 : la suite en accueille
+// desormais un second banc (SVG), et Jenga refuse deux `main` sous testownmain().
+// =============================================================================
 #include "NKImage/NKImage.h"
 #include "NKImage/Codecs/HDR/NkHDRCodec.h"
 #include <cstdio>
@@ -11,8 +15,8 @@
 
 using namespace nkentseu;
 
-int main(int argc, char **argv) {
-	const char *path = (argc > 1) ? argv[1] : "Resources/Textures/HDR/piazza_bologni_1k.exr";
+int TestEXR_Run() {
+	const char *path = "Resources/Textures/HDR/piazza_bologni_1k.exr";
 
 	std::printf("[TestEXR] Chargement %s ...\n", path);
 	NkImage img;

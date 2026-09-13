@@ -1,7 +1,7 @@
 // -----------------------------------------------------------------------------
 // FICHIER: Core\NKContainers\src\NKContainers\String\NkString.cpp
 // DESCRIPTION: Implémentation de la classe NkString avec Small String Optimization (SSO)
-// AUTEUR: Rihen
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // DATE: 2026-02-07
 // VERSION: 1.0.0
 // -----------------------------------------------------------------------------
@@ -22,6 +22,7 @@
 // Inclusions standard pour le formatage printf-style
 // -------------------------------------------------------------------------
 #include <cstdarg>
+#include "NKCore/Text/NkSnprintf.h"
 
 // -------------------------------------------------------------------------
 // Namespace principal du projet
@@ -1504,12 +1505,12 @@ namespace nkentseu {
 			return result;
 		va_list args_copy;
 		va_copy(args_copy, args);
-		int size = std::vsnprintf(nullptr, 0, format, args_copy);
+		int size = NkVsnprintf(nullptr, 0, format, args_copy);
 		va_end(args_copy);
 		if (size <= 0)
 			return result;
 		result.Reserve(static_cast<SizeType>(size));
-		std::vsnprintf(result.GetData(), static_cast<size_t>(size) + 1, format, args);
+		NkVsnprintf(result.GetData(), static_cast<size_t>(size) + 1, format, args);
 		result.mLength = static_cast<SizeType>(size);
 		return result;
 	}

@@ -1,4 +1,5 @@
 // -----------------------------------------------------------------------------
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // @File    NkUIRenderer.cpp
 // @Brief   NkUICPURenderer — rastériseur logiciel, rendu hors ligne.
 // @Author  TEUGUIA TADJUIDJE Rodolf Séderis
@@ -20,6 +21,7 @@
  */
 
 #include "NKUI/NkUIRenderer.h"
+#include "NKCore/Text/NkSnprintf.h"
 #include <cstring>
 #include <cmath>
 
@@ -291,7 +293,7 @@ namespace nkentseu {
 
 			// Écrit un fichier PPM P6 (toujours disponible sans dépendance)
 			char ppmPath[256];
-			::snprintf(ppmPath, sizeof(ppmPath), "%s.ppm", path);
+			nkentseu::NkSnprintf(ppmPath, sizeof(ppmPath), "%s.ppm", path);
 			FILE *f = ::fopen(ppmPath, "wb");
 			if (!f) {
 				return false;

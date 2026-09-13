@@ -1,0 +1,68 @@
+// ENGENDRE par NkMatCompileToNkSL -- ne pas editer a la main.
+// Le graphe est la source ; ce fichier en est la trace lisible.
+//
+// Un « shader » est approxime a la EEVEE : quatre locales scalaires ou
+// vectorielles (albedo, metallic, roughness, emission), et non une closure.
+// NkSL n'accepte pas de variable locale de type struct utilisateur -- c'est
+// pour cette raison, pas par gout, que les composantes sont separees.
+
+@location(0) in vec3 vWorldPos;
+@location(1) in vec3 vNormal;
+@location(2) in vec2 vUV;
+@location(3) in vec4 vColor;
+
+@location(0) out vec4 fragColor;
+@location(1) out vec4 fragAux;
+
+@binding(set=0, binding=0)
+uniform CameraUBO {
+    mat4  view;
+    mat4  proj;
+    mat4  viewProj;
+    mat4  invViewProj;
+    vec4  camPos;
+    vec4  camDir;
+    vec2  viewport;
+    float time;
+    float deltaTime;
+    float iblStrength;
+} uCam;
+
+@binding(set=2, binding=8)
+uniform NkGraphParams {
+    vec3  teinte;
+} nkParams;
+
+@stage(fragment)
+@entry
+void main() {
+    vec3 nkGeomN = normalize(vNormal);
+
+    // mat.principled #2 -- Principled BSDF
+    vec3 n2_albedo = vec3(0.0);
+    float n2_metallic = 0.0;
+    float n2_roughness = 0.5;
+    vec3 n2_emission = nkParams.teinte;
+    vec3 n2_normal = nkGeomN;
+
+    // mat.sortie #1 -- Material Output
+    vec3 surfAlbedo = n2_albedo;
+    float surfMetallic = n2_metallic;
+    float surfRoughness = n2_roughness;
+    vec3 surfEmission = n2_emission;
+    vec3 surfNormal = n2_normal;
+
+    vec3 N3 = normalize(surfNormal);
+    vec3 L  = normalize(vec3(-0.3, 1.0, 0.4));
+    vec3 V  = normalize(uCam.camPos.xyz - vWorldPos);
+    vec3 H  = normalize(L + V);
+    float NdotL = max(dot(N3, L), 0.0);
+    float NdotH = max(dot(N3, H), 0.0);
+    float specExp = mix(128.0, 2.0, surfRoughness);
+    float spec = pow(NdotH, specExp);
+    vec3 specColor = mix(vec3(1.0), surfAlbedo, surfMetallic);
+    vec3 diffuse = surfAlbedo * (NdotL + 0.18);
+    vec3 specular = specColor * spec * (surfMetallic * 0.7 + 0.3);
+    fragColor = vec4(diffuse + specular + surfEmission, 1.0);
+    fragAux = vec4(0.0, 0.0, 0.0, 0.0);
+}

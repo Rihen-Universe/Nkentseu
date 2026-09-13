@@ -1,7 +1,9 @@
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 #include <Unitest/Unitest.h>
 #include <Unitest/TestMacro.h>
 
 #include "NKThreading/NkMutex.h"
+#include "NKThreading/NkScopedLock.h" // NkScopedLock -> NkScopedLockMutex, la garde que NkConditionVariable::Wait attend (2026-09-04)
 #include "NKThreading/NkConditionVariable.h"
 #include "NKThreading/NkThread.h"
 
@@ -23,13 +25,13 @@ TEST_CASE(NKThreadingSmoke, ConditionVariableSignal) {
 
 	bool ready = false;
 
-	NkThread worker([&]() {
-		NkScopedLock lock(mutex);
+	NkThread worker([&](void *) {
+		NkScopedLockMutex lock(mutex);
 		ready = true;
 		cv.NotifyOne();
 	});
 
-	NkScopedLock lock(mutex);
+	NkScopedLockMutex lock(mutex);
 	while (!ready) {
 		const auto woke = cv.WaitFor(lock, 50);
 		(void)woke;

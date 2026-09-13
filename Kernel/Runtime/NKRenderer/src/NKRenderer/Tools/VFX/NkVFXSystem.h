@@ -1,10 +1,14 @@
 #pragma once
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // =============================================================================
 // NkVFXSystem.h  — NKRenderer v4.0  (Tools/VFX/)
 // Particules CPU/GPU, trails, decals projetés, lens flares.
 // =============================================================================
 #include "NKRenderer/Core/NkRendererTypes.h"
 #include "NKRenderer/Core/NkTextureLibrary.h"
+#include "NkParticleStore.h"
+#include "NkForceField.h"
+#include "NkFluidVolumeStore.h" // les volumes de fluide eulerien (fumee/feu) -- CPU pur, aucun device
 #include "NKRHI/Commands/NkICommandBuffer.h"
 #include "NKContainers/Associative/NkHashMap.h"
 
@@ -12,6 +16,7 @@ namespace nkentseu {
 	namespace renderer {
 
 		class NkMeshSystem;
+		class NkShaderLibrary;
 
 		// =========================================================================
 		// Descripteur d'émetteur
@@ -24,7 +29,12 @@ namespace nkentseu {
 			DISK,
 			EDGE,
 		};
-		enum class NkSimMode : uint8 { CPU, GPU };
+		// Cible de simulation PAR EMETTEUR (Rodolf, 04/09) : AUTO = GPU si le device a le
+		// compute, sinon CPU dit au journal. Remplace NkSimMode/simMode, declare le
+		// 10/05 et jamais lu ni ecrit par personne (grep : deux lignes, les siennes).
+		// Le stockage GPU n'est PAS livre (plan (B), DECISIONS) : GPU/AUTO-avec-compute
+		// retombent sur le CPU et le DISENT, une fois par emetteur.
+		enum class NkSimTarget : uint8 { AUTO, CPU, GPU };
 
 		struct NkEmitterDesc {
 				NkEmitterShape shape = NkEmitterShape::POINT;
@@ -47,7 +57,10 @@ namespace nkentseu {
 				float32 velocityRand = 1.f;		 // 0=précis, 1=aléatoire
 				NkTexHandle texture;
 				NkBlendMode blend = NkBlendMode::NK_ADDITIVE;
-				NkSimMode simMode = NkSimMode::CPU;
+				NkSimTarget simTarget = NkSimTarget::AUTO;
+				NkIParticleSolver *solver = nullptr; // nul = gravite ; sinon ses forces (SPH) sur le stockage CPU
+				NkForceField field;					 // le VENT (newtons), lu par les quatre chemins (2026-09-05)
+				float32 particleMass = 1.f;			 // kg, EXPLICITE : la force du vent est divisée par elle (le SPH ignore ce champ : Mass() calibrée)
 				uint32 maxParticles = 1000;
 				bool worldSpace = true;
 				bool loop = true;
@@ -113,7 +126,8 @@ namespace nkentseu {
 				NkVFXSystem() = default;
 				~NkVFXSystem();
 
-				bool Init(NkIDevice *device, NkTextureLibrary *texLib, NkMeshSystem *mesh);
+				bool Init(NkIDevice *device, NkTextureLibrary *texLib, NkMeshSystem *mesh,
+						  NkShaderLibrary *shaderLib);
 				void Shutdown();
 
 				// ── Émetteurs ─────────────────────────────────────────────────────────
@@ -122,6 +136,9 @@ namespace nkentseu {
 				void SetEmitterPos(NkEmitterId id, NkVec3f pos);
 				void SetEmitterEnabled(NkEmitterId id, bool on);
 				void Burst(NkEmitterId id, uint32 count = 0);
+				// Naissances decidees par l'appelant (reseau d'un bloc de fluide, temoins) :
+				// poussees tout de suite au stockage. Additif (2026-09-04).
+				void SpawnBirths(NkEmitterId id, const NkParticleBirth *births, uint32 n);
 				NkEmitterDesc *GetEmitterDesc(NkEmitterId id);
 
 				// ── Trails ────────────────────────────────────────────────────────────
@@ -134,11 +151,37 @@ namespace nkentseu {
 				NkDecalId SpawnDecal(const NkDecalDesc &desc);
 				void DestroyDecal(NkDecalId &id);
 
+				// ── Volumes de FLUIDE (fumee/feu, grille eulerienne) ─────────────────
+				// Le systeme VFX POSSEDE le registre et l'avance dans son Update -- un
+				// seul appelant de StepAll par image. Le pont ECS (Noge) ne fait que
+				// DECLARER et POSITIONNER les volumes, comme NkParticleSystem laisse
+				// l'Update au renderer.
+				// ⚠️ Le registre est CPU PUR : il ne touche aucun device. C'est ce qui
+				// permet a un banc sans GPU d'eprouver StepAll, la fonction meme que
+				// l'Update ci-dessous appelle.
+				NkFluidVolumeStore &FluidVolumes() {
+					return mFluids;
+				}
+				const NkFluidVolumeStore &FluidVolumes() const {
+					return mFluids;
+				}
+
 				// ── Update & Render ───────────────────────────────────────────────────
 				void Update(float32 dt, const NkCamera3DData &cam);
 				void Render(NkICommandBuffer *cmd, const NkCamera3DData &cam);
 
 				// ── Stats ──────────────────────────────────────────────────────────────
+				// LA MESURE (2026-09-04) : ou passent les millisecondes CPU d une image de
+				// particules -- naissance (recherche d un emplacement libre), integration
+				// (vie, vitesse, position, couleur), construction des sommets, envoi au GPU,
+				// emission des commandes. Quatre chiffres, pas une impression.
+				struct NkVFXProfile {
+						float32 spawnMs = 0.f, simMs = 0.f, buildMs = 0.f, uploadMs = 0.f, drawMs = 0.f;
+						uint32 alive = 0, spawned = 0, uploadBytes = 0;
+				};
+				const NkVFXProfile &Profile() const {
+					return mProfile;
+				}
 				uint32 GetActiveParticleCount() const {
 					return mTotalParticles;
 				}
@@ -149,21 +192,17 @@ namespace nkentseu {
 
 			private:
 				// ── Particule (CPU) ───────────────────────────────────────────────────
-				struct Particle {
-						NkVec3f pos, vel;
-						NkVec4f color;
-						float32 size, life, maxLife, rotation, rotSpeed;
-						bool alive = false;
-				};
-
 				struct Emitter {
 						NkEmitterId id;
 						NkEmitterDesc desc;
-						NkVector<Particle> particles;
 						float32 spawnAccum = 0.f;
 						bool enabled = true;
-						NkBufferHandle vbo; // GPU billboard VBO
-						uint32 aliveCount = 0;
+						NkDescSetHandle texSet; // la texture de l'emetteur (ou le repli), binding 1 (2026-09-04)
+						// L'ETAT vit derriere l'interface (2026-09-04, plan (B)) : CPU SoA aujourd'hui,
+						// GPU SSBO quand il sera livre. Le dessin ne lit que InstanceBuffer()/DrawCount().
+						NkIParticleStore *store = nullptr;
+						NkSimTarget resolved = NkSimTarget::CPU; // ce que AUTO a donne, dit une fois
+						NkVector<NkParticleBirth> births; // les naissances de l'image, poussees d'un coup
 				};
 
 				struct TrailPoint {
@@ -185,16 +224,30 @@ namespace nkentseu {
 				};
 
 				NkIDevice *mDevice = nullptr;
+				NkShaderLibrary *mShaderLib = nullptr; // shader des particules (2026-09-04)
 				NkTextureLibrary *mTexLib = nullptr;
 				NkMeshSystem *mMesh = nullptr;
 
+				NkFluidVolumeStore mFluids; // les volumes de fumee/feu (2026-09-06)
 				NkVector<Emitter *> mEmitters;
 				NkVector<Trail *> mTrails;
 				NkVector<Decal *> mDecals;
 				uint64 mNextId = 1;
 				uint32 mTotalParticles = 0;
 
-				NkPipelineHandle mPipeParticle;
+				// Un pipeline par famille de melange (2026-09-04) : NkEmitterDesc::blend
+				// etait declare et jamais lu -- tout partait en Additive. Trois familles
+				// que NkBlendDesc sait fabriquer : [0] Additive, [1] Alpha, [2] Opaque.
+				NkPipelineHandle mPipeParticle[3];
+				// Borne 2 (2026-09-04) : NkEmitterDesc::texture etait declaree et jamais lue.
+				// Un layout {binding 1 : image+sampler} partage par les trois pipelines, un
+				// descripteur par emetteur, et un repli (disque doux blanc 32x32) DIT une fois.
+				NkDescSetHandle mTexLayout;
+				NkVFXProfile mProfile;
+				NkBufferHandle mQuadVB; // les six coins du quad, statiques, binding 0 -- partages par tous les emetteurs (2026-09-04)
+				NkTexHandle mFallbackTex;
+				NkPipelineHandle PipelineFor(NkBlendMode mode);
+				bool mBlendFallbackDit[8] = {};
 				NkPipelineHandle mPipeTrail;
 				NkPipelineHandle mPipeDecal;
 

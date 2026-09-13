@@ -421,7 +421,7 @@ touche que le backend Vulkan.
 - **Modules au-dessus qui en dépendent** :
   - `NKRenderer` — consommateur principal, 10 démos cross-API
   - `NKUI` — rendu widgets (utilise `NkICommandBuffer` + `NkIDevice`)
-  - `NKAnimation` — morph targets en compute (utilise `NkComputeContext`)
+  - `NKAnima` — morph targets en compute (utilise `NkComputeContext`)
   - `NKImage` ↔ NKRHI — pipeline texture (loaders → upload GPU)
   - `Engine` / `Noge` (PV3DE, Noge éditeur) — consommateurs indirects
     via NKRenderer

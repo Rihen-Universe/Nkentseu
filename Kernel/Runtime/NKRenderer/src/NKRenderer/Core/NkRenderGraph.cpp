@@ -1,9 +1,10 @@
 // =============================================================================
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // NkRenderGraph.cpp  — NKRenderer v5.0
 // =============================================================================
 #include "NkRenderGraph.h"
+#include "NKCore/Text/NkSnprintf.h"
 #include "NKLogger/NkLog.h"
-#include <cstdio>
 #include <cstring>
 
 namespace nkentseu {
@@ -789,14 +790,14 @@ namespace nkentseu {
 			float32 totalGpu = 0.f, totalCpu = 0.f;
 			for (auto *p : mSorted) {
 				char buf[160];
-				snprintf(buf, sizeof(buf), "  %-24s : GPU %.3f ms  CPU %.3f ms\n", p->name.CStr(), p->gpuTimeMs,
+				nkentseu::NkSnprintf(buf, sizeof(buf), "  %-24s : GPU %.3f ms  CPU %.3f ms\n", p->name.CStr(), p->gpuTimeMs,
 						 p->cpuTimeMs);
 				out += buf;
 				totalGpu += p->gpuTimeMs;
 				totalCpu += p->cpuTimeMs;
 			}
 			char total[128];
-			snprintf(total, sizeof(total),
+			nkentseu::NkSnprintf(total, sizeof(total),
 					 "  ----------------------------------------\n"
 					 "  TOTAL                    : GPU %.3f ms  CPU %.3f ms\n",
 					 totalGpu, totalCpu);

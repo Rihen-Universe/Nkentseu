@@ -27,6 +27,23 @@ layout(location=3) in vec4 vColor;
 
 layout(location=0) out vec4 fragColor;
 
+// Carte de MASQUE des couches (22 aout), binding 9 du set materiau. Le helper
+// NkPickMaskTex ci-dessous etend NkPickMask sans TOUCHER a NkLayerBlend.glsli :
+// ce fichier d'inclusion est partage avec Layered v0, et il ne peut pas declarer
+// un sampler sans imposer son binding a tous ses inclueurs.
+layout(set=2, binding=9) uniform sampler2D tMask;
+
+float NkPickMaskTex(int source, vec4 c, vec2 uv, float k, float layerAlbedoA) {
+    if (source >= 8) {
+        vec4 m = texture(tMask, uv);
+        if (source == 8)  return clamp(m.r, 0.0, 1.0);
+        if (source == 9)  return clamp(m.g, 0.0, 1.0);
+        if (source == 10) return clamp(m.b, 0.0, 1.0);
+        if (source == 11) return clamp(m.a, 0.0, 1.0);
+    }
+    return NkPickMask(source, c, uv, k, layerAlbedoA);
+}
+
 layout(std140, set=0, binding=0) uniform CameraUBO {
     mat4  view, proj, viewProj, invViewProj;
     vec4  camPos, camDir; vec2 viewport; float time, deltaTime;
@@ -85,7 +102,7 @@ void main() {
         if (i >= N) break;
         int src = (i < 4) ? maskSources0_at(i) : maskSources1_at(i - 4);
         float k = maskConstants_at(i);
-        float mask = NkPickMask(src, vColor, vUV, k, uMat.layers[i].albedo.a);
+        float mask = NkPickMaskTex(src, vColor, vUV, k, uMat.layers[i].albedo.a);
         acc = NkLayerBlend(acc, uMat.layers[i], mask);
     }
 

@@ -1,0 +1,49 @@
+# AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
+"""NkFluidGridProbe — les cinq temoins de la GRILLE de fumee (Stam 1999), sans GPU.
+
+Banc CPU pur : masse conservee, divergence nulle apres projection, flottabilite
+comparee a Boussinesq/Archimede, transport semi-lagrangien au bon endroit, 10 s
+sans NaN -- plus les deux MUTATIONS (projection coupee, advection coupee) qui
+doivent faire rougir (b) et (d), et les controles positifs des instruments.
+
+Le solveur `NkFluidGrid.cpp` vit dans NKRenderer (Tools/VFX, a cote du DFSPH).
+Il est COMPILE DIRECTEMENT ici : il ne depend que de NKMath / NKContainers /
+NKMemory / NKTime, donc le banc n'a pas besoin de lier NKRenderer ni d'ouvrir un
+device -- une course de temoins ne doit pas dependre d'un GPU.
+"""
+from Jenga import *
+from jengaconfig import *
+import os
+
+
+with project("NkFluidGridProbe"):
+    consoleapp()
+    language("C++")
+    cppdialect("C++17")
+    location(".")
+    files([
+        "src/main.cpp",
+        "src/rendu.cpp",
+        "src/vorticite.cpp",
+        "src/branchement.cpp",
+        "src/grille_mac.cpp",
+        "src/advection_flux.cpp",
+        "src/volutes.cpp",
+        "%{wks.location}/Kernel/Runtime/NKRenderer/src/NKRenderer/Tools/VFX/NkFluidGrid.cpp",
+        "%{wks.location}/Kernel/Runtime/NKRenderer/src/NKRenderer/Tools/VFX/NkFluidGridRaymarch.cpp",
+        "%{wks.location}/Kernel/Runtime/NKRenderer/src/NKRenderer/Tools/VFX/NkFluidVolumeStore.cpp",
+    ])
+
+    nkentseudependson(
+        ["NKImage", "NKFileSystem", "NKMath", "NKTime", "NKStream", "NKLogger",
+         "NKContainers", "NKMemory", "NKCore", "NKPlatform", "NKThreading"],
+        extra_includes=["src", "%{wks.location}/Kernel/Runtime/NKRenderer/src"],
+    )
+
+    objdir("%{wks.location}/Build/Obj/%{cfg.buildcfg}-%{cfg.system}/%{prj.name}")
+    targetdir("%{wks.location}/Build/Bin/%{cfg.buildcfg}-%{cfg.system}/%{prj.name}")
+
+    with filter("system:Windows && !options:windows-runtime=uwp && !system:XboxSeries && !system:XboxOne"):
+        usetoolchain(TC_WINDOWS)
+        defines(["WIN32_LEAN_AND_MEAN", "_UNICODE", "UNICODE"])
+        links(["user32", "gdi32", "shell32", "uuid", "ole32"])

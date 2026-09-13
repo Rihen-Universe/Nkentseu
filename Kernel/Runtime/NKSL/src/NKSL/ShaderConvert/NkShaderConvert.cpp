@@ -1,8 +1,10 @@
 // =============================================================================
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // NkShaderConvert.cpp
 // Implémentation de NkShaderFileResolver, NkShaderConverter, NkShaderCache.
 // =============================================================================
 #include "NKSL/ShaderConvert/NkShaderConvert.h"
+#include "NKCore/Text/NkSnprintf.h"
 #include "NKFileSystem/NkFile.h" // I/O via NKFileSystem (pas de fopen CRT dans NKRHI)
 
 #include <cstdio>
@@ -788,7 +790,7 @@ namespace nkentseu {
 	// et le `dir + buf` du retour.
 	NkString NkShaderCache::KeyToPath(uint64 key) const noexcept {
 		char buf[32];
-		snprintf(buf, sizeof(buf), "%016llx.nksc", (unsigned long long)key);
+		nkentseu::NkSnprintf(buf, sizeof(buf), "%016llx.nksc", (unsigned long long)key);
 		NkString out = mCacheDir;
 		const usize n = out.Size();
 		if (n > 0) {

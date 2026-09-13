@@ -8,6 +8,31 @@
 *.bat text eol=crlf
 *.cmd text eol=crlf
 
+# Corpus .nkgui : TOUJOURS LF, et ce n est pas une preference de style.
+# Ces fichiers sont des REFERENCES dont le contenu exact fait foi : leur
+# README documente des positions EN OCTETS. Sous `text=auto`, un checkout
+# Windows les rendrait en CRLF et ces positions deviendraient fausses selon la
+# machine. Le lecteur, lui, encaisse les deux. C est la REFERENCE qu on fige,
+# pas le lecteur qu on protege.
+#
+# ⚠️ ET LE PRIX DE CE GEL EST MESURE (2026-08-27) : le corpus est AVEUGLE au
+#    terminateur de ligne. Une mutation qui perd le \r d un fichier CRLF laisse
+#    les 20 fichiers exactement au meme releve -- 15/20 et 9/9, inchanges.
+#    Seuls les controles 24j (CRLF) et 24k (fins de ligne MIXTES) du banc
+#    NKUIDesign le voient. Un corpus fige mesure ce qu on a fige : ce qui est
+#    fige ici doit donc etre mesure ailleurs, et il l est.
+*.nkgui text eol=lf
+
+# Shaders NkSL : TOUJOURS LF -- donnees lues OCTET POUR OCTET par le
+# compilateur de shaders. Mesure du 2026-09-02 : les 131 .nksl etaient
+# i/lf w/crlf sous `text=auto` -- l index en LF, chaque poste de travail
+# Windows en CRLF, et AUCUNE regle ne fixait l ecart. C est la seule famille
+# de defauts qui traverse une revue entiere par construction : aucun diff ne
+# la montre, la copie de l auteur est deja juste. Decision de Rodolf
+# (02/09, deleguee au coordinateur) : normalisation DELIBEREE, avec preuve
+# apres -- plutot que de la subir un jour par accident.
+*.nksl text eol=lf
+
 # Binaires courants (jamais de conversion).
 *.png binary
 *.jpg binary
@@ -20,3 +45,16 @@
 *.apk binary
 *.exe binary
 *.pdf binary
+
+# ── Apporte par feat/verificateur (27/08) ──────────────────────────────────
+# Fixtures de bancs : fins de ligne FIGEES en LF.
+# Une entree de test doit etre identique octet pour octet partout, sinon le
+# banc mesure la machine. Sans cette ligne, `* text=auto` + core.autocrlf=true
+# rendaient tree.obj / rock.obj en CRLF a la sortie de caisse, alors qu'AUCUN
+# des deux lecteurs OBJ (NkOBJLoader.cpp, NkOBJIO.cpp) ne mentionne le CR.
+*.obj text eol=lf
+# Les fichiers de classement des verificateurs sont lus caractere pour
+# caractere par des scripts ; un CRLF injecte par la normalisation y serait
+# invisible dans tout diff. Voir VERIFICATEUR.md, « une regle de normalisation
+# peut defaire une correction sans toucher au code corrige ».
+*.list text eol=lf

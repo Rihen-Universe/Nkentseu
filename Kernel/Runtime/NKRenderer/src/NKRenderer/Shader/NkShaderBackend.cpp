@@ -1,8 +1,10 @@
 // =============================================================================
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // NkShaderBackend.cpp  — NKRenderer v4.0
 // Compilation shaders par backend + transpiler NkSL → GLSL/HLSL/MSL.
 // =============================================================================
 #include "NkShaderBackend.h"
+#include "NKCore/Text/NkSnprintf.h"
 #include "NKLogger/NkLog.h"
 #include "NKMemory/NkAllocator.h"
 
@@ -318,7 +320,7 @@ namespace nkentseu {
 #else
 				system("mkdir -p Build/debug_gl");
 #endif
-				snprintf(dbgPath, sizeof(dbgPath), "Build/debug_gl/%03d_%s.gl.glsl", sDbgIdx++, stageName);
+				nkentseu::NkSnprintf(dbgPath, sizeof(dbgPath), "Build/debug_gl/%03d_%s.gl.glsl", sDbgIdx++, stageName);
 				FILE *df = fopen(dbgPath, "wb");
 				if (df) {
 					fwrite(glslGL.CStr(), 1, glslGL.Size(), df);

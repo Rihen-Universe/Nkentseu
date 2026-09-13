@@ -1,0 +1,197 @@
+# config/bancs.list — CLASSEMENT DES PROJETS D'Applications/ (2026-08-22)
+# =============================================================================
+# CE FICHIER EST LA DONNEE DU VERIFICATEUR. Le marquage « ceci est un banc » ne
+# se devine pas : il s'ecrit ici. Aucune heuristique de nom n'est utilisee —
+# « les projets finissant par Test » raterait le premier banc nomme autrement,
+# EN SILENCE, et c'est la quatrieme fois que ce depot paie « chercher un nom
+# n'est pas chercher un usage ».
+#
+# LA GARDE EST TOTALE, ET C'EST TOUT L'INTERET.
+#   `./verif_bancs.sh` mesure les projets reellement declares sous
+#   Applications/ (les `with project("...")` des .jenga) et exige que CHACUN
+#   ait une ligne ici. Un projet sans ligne fait ECHOUER le verificateur.
+#   Repondre « ce n'est pas un banc » est une reponse valide ; ne rien
+#   repondre n'en est pas une. C'est ainsi qu'un banc neuf ne peut pas
+#   apparaitre sans que personne ne le voie.
+#   Une ligne dont le projet n'existe pas dans CET arbre est une information
+#   (branche en avance), jamais un echec.
+#
+# FORMAT — un projet par ligne, champs separes par « | » :
+#
+#   <projet> | <classe> | <mode> | <arguments> | <verdict> | <note>
+#
+#   classe :
+#     banc         construit et lance par le verificateur
+#     pas-banc     ignore (mais CLASSE, donc vu)
+#     banc-arrete  banc connu, volontairement hors du workspace ; le
+#                  verificateur le NOMME a chaque passage sans le construire.
+#                  Un banc arrete qu'on ne mentionne plus est un banc oublie.
+#
+#   mode :
+#     rapide       lance par `./verif_bancs.sh` (mode par defaut)
+#     complet      lance seulement par `./verif_bancs.sh --mode complet`
+#
+#   arguments : passes tels quels a l'executable (decoupage par espaces).
+#
+#   verdict — comment on decide que ce banc va bien :
+#     code                     le code de sortie fait foi
+#     code+absence:<motif>     code 0 ET aucune ligne ne correspond au motif
+#     code+presence:<motif>    code 0 ET au moins une ligne correspond
+#     code+ignore:<n>          TROIS ETATS. code 0 = OK ; code <n> = IGNORE ;
+#                              tout autre code = ECHEC. A declarer sur tout banc
+#                              qui exige quelque chose que la machine peut ne pas
+#                              avoir (un GPU, un pilote, un peripherique).
+#                              ⚠️ IGNORE N'EST PAS VERT. Le banc n'a RIEN mesure ;
+#                              le compter OK ferait croire la question reglee, ce
+#                              qui est exactement le mensonge que ce chantier
+#                              traque. Le verificateur le compte a part et le NOMME
+#                              sur sa ligne de verdict.
+#                              ⚠️ Et il n'est pas ECHEC non plus : une machine sans
+#                              carte n'est le bug de personne. Accuser la ferait
+#                              desactiver le banc en une semaine.
+#                              Le nombre <n> est une DONNEE de cette ligne, pas une
+#                              constante devinee par l'outil : sans cela, le banc et
+#                              le verificateur auraient un accord tacite.
+#     sans-verdict             LE BANC NE SAIT PAS DIRE S'IL VA BIEN. Il est
+#                              lance et journalise, et compte INDETERMINE —
+#                              jamais vert. Prendre le code de sortie d'un tel
+#                              banc pour un verdict, ce serait rejouer « un
+#                              repli qui preserve success n'est pas un repli ».
+#
+# NOTE SUR `non-examine` : les projets portant cette note sont classes
+# `pas-banc` PAR DEFAUT pour rendre la garde totale des le premier jour. Ce
+# n'est PAS un jugement : personne ne les a regardes un par un. Le jour ou
+# l'un d'eux est un banc, on change sa ligne. Le mot est la pour qu'on ne
+# confonde pas un remplissage avec un examen.
+# =============================================================================
+
+# --- BANCS ------------------------------------------------------------------
+NKEditMeshHarness    | banc        | rapide  |                        | code         | batteries EditMesh ; main rend gFail (0 = tout passe)
+NKMatTypeResetTest   | banc        | rapide  |                        | code         | reset du type de materiau par table (99b62b18) ; rend gFail == 0 ? 0 : 1. Son controle de couverture rend rouge tout champ de NkVpMatParams ajoute sans entree dans la table.
+NKSmoothMeshTest     | banc        | rapide  |                        | code         | Surface Nets ; rend fail == 0 ? 0 : 1
+NKUIDesign           | banc        | rapide  | --roundtrip-controles  | code         | temoins de bruit de l aller-retour .nkgui ; teste AVANT toute creation de fenetre
+NkAssetIODemo        | banc        | rapide  |                        | code         | Noge/IO ; lit Resources/Models depuis la racine du depot. Ses deux fixtures (tree.obj, rock/rock.obj) sont VERSEES au depot le 22/08 malgre .gitignore (git add -f) : un lecteur OBJ dont aucun test ne tourne ailleurs que sur la machine de Rodolf n'est pas teste.
+NkEditableMeshDemo   | banc        | rapide  |                        | code         | preuve Noge/Modeling ; rend gFailCount == 0 ? 0 : 1
+NkFBXParityDemo      | banc        | complet |                        | code         | parite FBX / glTF. Passe en mode complet le 22/08 : exige Resources/Models/CesiumMan/CesiumMan.fbx, ABSENT du depot ET de la copie de travail de Rodolf (seul le .glb existe) — gros fichier, sujet a part. XBot/YBot sont deja sautes proprement par le banc.
+NkGpuProbe           | banc        | complet |                        | code         | compute NKRHI HEADLESS : demande un vrai peripherique GPU
+NkMatInventaireTest  | banc-arrete |         |                        |              | banc ARRETE le 17/08 (cc6aba5b) : include commente Nkentseu.jenga:1220, echouait au lien PAR CONSTRUCTION. Se re-enregistre quand Demo3DHost devient une bibliotheque.
+NkMsaaContractCheck  | banc        | rapide  |                        | code+presence:16 combinaisons | [27/08 - FORME DE VERDICT EXERCEE] Passe de code a code+presence: parce que rien ne gardait l EXHAUSTIVITE : si quelqu un ramenait les 16 combinaisons a trois exemples, les cas passeraient encore et le code de sortie resterait 0. Le banc ne serait plus exhaustif et personne ne le verrait. Non redondant avec le code de sortie -- c est justement ce que le code de sortie ne peut pas dire. le CONTRAT d'echantillonnage MSAA : demander 3 ou 7 echantillons doit etre REFUSABLE avant d'atteindre un backend, parce que NkVulkanDevice::ToVkSamples() a un `default:` qui rend VK_SAMPLE_COUNT_1_BIT -- 3, 32 et 64 deviennent 1 sans erreur ni journal. CPU pur, aucun peripherique : il tourne dans un arbre neuf, chez tout agent, sur une machine sans carte. La moitie GPU est desormais couverte par NkMsaaDeviceCheck (mode complet), qui a MESURE le 23/08 que DX11 accepte 3, 7, 16, 32 et 64 en ramenant SampleDesc.Count a 1 en silence (NkDirectX11Device.cpp:969-977). Ce banc-ci reste donc le contrat seul, et le dit sur sa derniere ligne ; ToVkSamples lui-meme n'est toujours pas mesure. Rend gFail == 0 ? 0 : 1. 
+NkMsaaDeviceCheck    | banc        | complet |                        | code+ignore:77 | la MOITIE GPU du contrat d'echantillonnage. Pour 1,2,3,4,7,8,16,32,64 il confronte caps.SupportsSamples(s) a CreateTexture(samples=s).IsValid() sur un vrai peripherique headless. ATTENTION -- DX11, DX12 et OpenGL sont une CHAINE DE REPLI, pas un balayage : le banc s arrete au PREMIER peripherique qui s ouvre (break, main.cpp:167). Sur une machine ou DX11 s ouvre, DX12 et OpenGL ne sont JAMAIS mesures ; mesure du 23/08 : seul DX11 a ete confronte, 9 confrontations, 4 OK / 5 FAIL. Les deux directions d'erreur sont NOMMEES separement : « le contrat REFUSE, la carte ACCEPTE » est le mensonge vise (degradation silencieuse) ; « le contrat PROMET, la carte REFUSE » est un contrat trop optimiste. Un TEMOIN a 1 echantillon tourne AVANT toute accusation : s'il est refuse, le banc rend IGNORE et se tait, au lieu de produire huit accusations pour zero mesure. Rend 77 (IGNORE) si aucun peripherique n'a pu etre cree : ni OK, ni ECHEC.
+NkMsaaVulkanCheck   | banc        | complet |                        | code+ignore:77 | ToVkSamples() EXERCE, et non plus deduit. NkMsaaDeviceCheck s arrete au PREMIER backend qui s ouvre (chaine de repli, pas balayage) : sur cette machine c est DX11, et le chemin Vulkan n avait jamais tourne -- l origine ecrite de toute l affaire restait une lecture. Ce banc-ci n a AUCUN repli : il ouvre Vulkan ou il rend 77 (IGNORE). Un repli reproduirait le defaut exact qui a empeche la mesure. Meme confrontation que NkMsaaDeviceCheck sur 1,2,3,4,7,8,16,32,64 (caps.SupportsSamples(s) contre CreateTexture(samples=s).IsValid()), temoin a 1 echantillon AVANT toute accusation, deux directions d erreur nommees separement. En plus : un DISCRIMINANT imprime comme INFORMATION et jamais comme verdict (il repose sur la monotonie du masque framebufferColorSampleCounts, que Vulkan ne garantit pas -- la supposition est nommee dans la sortie). Ce que le banc NE mesure PAS et le dit : il ne relit pas le VkImage cree, donc "la texture porte 1 echantillon au lieu de 32" reste une LECTURE du code (NkVulkanDevice.cpp:2787, appele ligne 1271), etiquetee [LECTURE] dans la sortie.
+NkIblEnabledCheck    | banc        | complet |                        | code+ignore:77 | B4 des 25 capacites A-DATER, et le banc SANS LEQUEL LE CORRECTIF SERAIT UN CHEMIN MORT. cfg.ibl.enabled etait declare, documente, et n avait AUCUNE lecture dans le depot ; les onze autres champs de NkIBLConfig sont lus par NkRendererImpl::InitEnvironment(), lui seul ne l etait pas. Le correctif est UN if (NkRendererImpl.cpp:363). Mais la mesure du 27/08 disait aussi ZERO ecriture de ibl.enabled dans tout l arbre : un if que personne n emprunte est du code dont on ne sait pas s il est juste. Ce banc l emprunte. Il mesure enabled=false -> GetEnvironment() == nullptr, avec un TEMOIN qui passe AVANT (enabled=true -> environnement present) : sinon le cas mesure rendrait nullptr pour une raison etrangere au drapeau et le banc crierait victoire sur un montage casse. API LUE sur le device, jamais supposee. LIMITE DITE : il mesure l ALLOCATION du sous-systeme, pas l absence de contribution IBL dans l image. Rend 77 (IGNORE) sans peripherique.
+NkDebugOverlayCheck  | banc        | complet |                        | code+ignore:77 | C1 des 25 capacites A-DATER, tranchee par Rodolf le 27/08 : lecture (A) -- debugOverlay IMPLIQUE le sous-systeme d overlay. Le banc mesure un AVANT/APRES sur GetOverlay(), NK_SS_OVERLAY etant ABSENT des sous-systemes dans les deux cas : false -> nullptr (le TEMOIN), true -> overlay alloue (la MESURE). ⚠️ IL NE REGARDE AUCUN MESSAGE, ET C EST LE POINT : en cablant C1 j ai failli ecrire un logger.Warn, qui aurait suffi a faire sortir le champ de la liste des candidats de D2 -- « lu » -- SANS RIEN HONORER. Le drapeau doit avoir un EFFET, pas une trace. Le TEMOIN passe AVANT et il est indispensable : si l overlay etait alloue de toute facon, la mesure ne mesurerait rien du drapeau. LIMITE DITE : il mesure l ALLOCATION, pas ce qui est DESSINE -- DrawStats est appele par 18 sites applicatifs et le renderer ne dessine jamais le panneau, ce qui est precisement pourquoi la lecture (B) a ete ecartee (double panneau chez NK3DModeler). Rend 77 (IGNORE) sans peripherique.
+NkSLCheck            | banc        | rapide  |                        | code+absence:success=0 | [27/08 - FORME DE VERDICT EXERCEE] Passe de code a code+absence: sur le marqueur de son PROPRE defaut historique : il rendait 0 INCONDITIONNELLEMENT avec success=0 dans sa sortie. Le code de sortie a ete corrige le 22/08, mais rien ne garde contre la rechute. Mesure du 27/08 : success=0 apparait 0 fois aujourd hui. 8 conversions NkSL + le PBR FS en GL et Vulkan. Rendait 0 inconditionnellement avec success=0 dans sa sortie ; corrige le 22/08 : compte ses echecs, rend 1. Etait sans-verdict jusque-la. 
+NkSLComputeCheck     | banc        | rapide  |                        | code         | compute NkSL 6 cibles ; rend g_fail
+
+# --- NON EXAMINES (classes pas-banc par defaut, voir l'entete) ---------------
+ConquerorLab         | pas-banc    |         |                        |              | non-examine
+ConquerorProto       | pas-banc    |         |                        |              | non-examine
+ImGuiRef             | pas-banc    |         |                        |              | non-examine
+Model                | pas-banc    |         |                        |              | non-examine
+Mou                  | pas-banc    |         |                        |              | non-examine
+NK3DModeler          | pas-banc    |         |                        |              | non-examine
+NKARDemo             | pas-banc    |         |                        |              | non-examine
+NKASRTest            | pas-banc    |         |                        |              | non-examine
+NKAgentLLMTest       | pas-banc    |         |                        |              | non-examine
+NKAgentTest          | pas-banc    |         |                        |              | non-examine
+NKAutogradTest       | pas-banc    |         |                        |              | non-examine
+NKBpeTest            | pas-banc    |         |                        |              | non-examine
+NKCivilizationScaleTest | pas-banc    |         |                        |              | non-examine
+NKCivilizationSocialTest | pas-banc    |         |                        |              | non-examine
+NKCivilizationTest   | pas-banc    |         |                        |              | non-examine
+NKCode               | pas-banc    |         |                        |              | non-examine
+NKConvBenchTest      | pas-banc    |         |                        |              | non-examine
+NKConvResidentBench  | pas-banc    |         |                        |              | non-examine
+NKConvTest           | pas-banc    |         |                        |              | non-examine
+NKConvVAETest        | pas-banc    |         |                        |              | non-examine
+NKDataTest           | pas-banc    |         |                        |              | non-examine
+NKDiffusionTest      | pas-banc    |         |                        |              | non-examine
+NKEditorKitDemo      | pas-banc    |         |                        |              | non-examine
+NKEditorKitTest      | pas-banc    |         |                        |              | non-examine
+NKEmbodiedTest       | pas-banc    |         |                        |              | non-examine
+NKEvolveNNTest       | pas-banc    |         |                        |              | non-examine
+NKEvolveTest         | pas-banc    |         |                        |              | non-examine
+NKFp16Test           | pas-banc    |         |                        |              | non-examine
+NKGGUFInspectTest    | pas-banc    |         |                        |              | non-examine
+NKGen3DTest          | pas-banc    |         |                        |              | non-examine
+NKGenMeshTest        | pas-banc    |         |                        |              | non-examine
+NKGenTest            | pas-banc    |         |                        |              | non-examine
+NKGptTrain           | pas-banc    |         |                        |              | non-examine
+NKGpuBenchTest       | pas-banc    |         |                        |              | non-examine
+NKGuiDemo            | pas-banc    |         |                        |              | non-examine
+NKGuiDrawTest        | pas-banc    |         |                        |              | non-examine
+NKIlyana             | pas-banc    |         |                        |              | non-examine
+NKImageCodecTest     | pas-banc    |         |                        |              | non-examine
+NKInferTest          | pas-banc    |         |                        |              | non-examine
+NKLLMInferTest       | pas-banc    |         |                        |              | non-examine
+NKLlamaBlockTest     | pas-banc    |         |                        |              | non-examine
+NKMediaTest          | pas-banc    |         |                        |              | non-examine
+NKMeshAITest         | pas-banc    |         |                        |              | non-examine
+NKMeshRenderTest     | pas-banc    |         |                        |              | non-examine
+NKMlpResidentBench   | pas-banc    |         |                        |              | non-examine
+NKMnistCnnGpuTrain   | pas-banc    |         |                        |              | non-examine
+NKMnistConvVAETest   | pas-banc    |         |                        |              | non-examine
+NKMnistGpuTrain      | pas-banc    |         |                        |              | non-examine
+NKMnistVAETest       | pas-banc    |         |                        |              | non-examine
+NKNNTest             | pas-banc    |         |                        |              | non-examine
+NKObjectGenTest      | pas-banc    |         |                        |              | non-examine
+NKOpusRef            | pas-banc    |         |                        |              | non-examine
+NKPA                 | pas-banc    |         |                        |              | non-examine
+NKQ4MatmulTest       | pas-banc    |         |                        |              | non-examine
+NKQwen2Ask           | pas-banc    |         |                        |              | non-examine
+NKQwen2BackwardTest  | pas-banc    |         |                        |              | non-examine
+NKQwen2Chat          | pas-banc    |         |                        |              | non-examine
+NKQwen2GpuTest       | pas-banc    |         |                        |              | non-examine
+NKQwen2SftGpuTest    | pas-banc    |         |                        |              | non-examine
+NKQwen2SftTest       | pas-banc    |         |                        |              | non-examine
+NKQwen2Train         | pas-banc    |         |                        |              | non-examine
+NKQwenTokenizerTest  | pas-banc    |         |                        |              | non-examine
+NKRLTest             | pas-banc    |         |                        |              | non-examine
+NKRebasinTest        | pas-banc    |         |                        |              | non-examine
+NKRebasinTransformer | pas-banc    |         |                        |              | non-examine
+NKRnnCtcTest         | pas-banc    |         |                        |              | non-examine
+NKSpeechFeatureDemo  | pas-banc    |         |                        |              | non-examine
+NKSpeechTest         | pas-banc    |         |                        |              | non-examine
+NKTTSTrain           | pas-banc    |         |                        |              | non-examine
+NKTensorDemo         | pas-banc    |         |                        |              | non-examine
+NKTrainTest          | pas-banc    |         |                        |              | non-examine
+NKTransformerTest    | pas-banc    |         |                        |              | non-examine
+NKVAETest            | pas-banc    |         |                        |              | non-examine
+NKVideoTest          | pas-banc    |         |                        |              | non-examine
+NKViewportDemo       | pas-banc    |         |                        |              | non-examine
+NKVoxelGenTest       | pas-banc    |         |                        |              | non-examine
+NKXRDemo             | pas-banc    |         |                        |              | non-examine
+NkAgentEcsDemo       | pas-banc    |         |                        |              | non-examine
+NkAnimPhysTest       | pas-banc    |         |                        |              | non-examine
+NkAnimaEditor        | pas-banc    |         |                        |              | non-examine
+NkAudioDemo          | pas-banc    |         |                        |              | non-examine
+NkAudioECSDemo       | pas-banc    |         |                        |              | non-examine
+NkAudioPlayer        | pas-banc    |         |                        |              | non-examine
+NkCameraDemos        | pas-banc    |         |                        |              | non-examine
+NkComputeNkSL        | pas-banc    |         |                        |              | non-examine
+NkFileWorkerTest     | pas-banc    |         |                        |              | non-examine
+NkHotReloadDemo      | pas-banc    |         |                        |              | non-examine
+NkImageDemo          | pas-banc    |         |                        |              | non-examine
+NkImeTest            | pas-banc    |         |                        |              | non-examine
+NkLocomotionDemo     | pas-banc    |         |                        |              | non-examine
+NkMicRecord          | pas-banc    |         |                        |              | non-examine
+NkNavCoreDemo        | pas-banc    |         |                        |              | non-examine
+NkNavDemo            | pas-banc    |         |                        |              | non-examine
+NkNetWorldDemo       | pas-banc    |         |                        |              | non-examine
+NkPdfProbe           | pas-banc    |         |                        |              | non-examine
+NkPdfRasterTest      | pas-banc    |         |                        |              | non-examine
+NkPdfRenderProbe     | pas-banc    |         |                        |              | non-examine
+NkRef                | pas-banc    |         |                        |              | non-examine
+NkSVGImportDemo      | pas-banc    |         |                        |              | non-examine
+NkTensorGpuTest      | pas-banc    |         |                        |              | non-examine
+NkUIHudDemo          | pas-banc    |         |                        |              | non-examine
+NkVideoPlayer        | pas-banc    |         |                        |              | non-examine
+NkVideoReadTest      | pas-banc    |         |                        |              | non-examine
+NkVoiceLoopDemo      | pas-banc    |         |                        |              | non-examine
+Nkoung               | pas-banc    |         |                        |              | non-examine
+Nogee                | pas-banc    |         |                        |              | non-examine
+PV3DE                | pas-banc    |         |                        |              | non-examine
+Pong                 | pas-banc    |         |                        |              | non-examine
+RihenDefi            | pas-banc    |         |                        |              | non-examine
+Songoo               | pas-banc    |         |                        |              | non-examine
+demorw               | pas-banc    |         |                        |              | non-examine

@@ -1,3 +1,4 @@
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // =============================================================================
 // Demo3D.cpp  — Demo 2
 //
@@ -10,6 +11,16 @@
 // Demontre le path complet : NkScene/Lights/DrawCalls -> Render3D::Submit
 //                            -> RenderGraph -> Flush.
 // =============================================================================
+#include "NKRenderer/Tools/VFX/NkVFXSystem.h" // sonde VFX
+#include "NKRenderer/Tools/VFX/NkSPHSolver.h" // sonde fluide SPH (2026-09-04)
+#include "NKPhysics/NkVehicle.h"          // sonde VEHICULE (NK_VEHICLE_PROBE=1)
+#include "NKPhysics/NkCloth.h"            // sonde TISSU XPBD (NK_CLOTH_PROBE=1, 2026-09-05)
+#include "NKVFX/NkWaterMeshBuilder.h"     // sonde OCEAN (NK_OCEAN_PROBE=1, 2026-09-13)
+#include "Demo3DMannequin.h"              // sonde VETEMENTS SUR MANNEQUIN (NK_MANNEQUIN_PROBE=1, 2026-09-05)
+#include <cstdlib>
+#include <cstring>
+#include "NKRenderer/Tools/VFX/NkGpuAtomicWitness.h" // temoin des atomiques NkSL (2026-09-05)
+#include <cstdio>
 #include "DemoCommon.h"
 #include "NKWindow/Core/NkWESystem.h" // NkEvents()
 #include "NKEvent/NkEventSystem.h"
@@ -35,9 +46,73 @@ namespace nkentseu {
 	namespace demo {
 
 		struct Demo3DState {
+	NkSPHSolver *sphSolver = nullptr; // sonde SPH (2026-09-04)
+	uint32 sphCount = 0; uint32 sphScene = 0; float32 sphH0 = 0.f, sphX0 = 0.f, sphTime = 0.f; float32 sphN2 = 1.f; // n^2 = hauteur/largeur de la colonne (M&M)
+	float32 sphRhoSum = 0.f; uint32 sphRhoN = 0; float32 sphVmaxAll = 0.f; bool sphNaN = false;
+	float32 sphMMSum = 0.f, sphMMSumD = 0.f, sphMMMax = 0.f; uint32 sphMMN = 0; bool sphMMDone = false; float32 sphCSum = 0.f, sphCMax = 0.f; // critere Martin & Moyce + cible Cebron
 				NkMeshHandle meshSphere;
 				NkMeshHandle meshPlane;
 				NkMeshHandle meshCube;
+				// sonde VEHICULE (NK_VEHICLE_PROBE=1) : un monde physique et une voiture
+				nkentseu::physics::NkPhysicsWorld *vehWorld = nullptr;
+				nkentseu::physics::NkVehicle *veh = nullptr;
+				float32 vehClock = 0.f;
+				// sonde TISSU (NK_CLOTH_PROBE=1, 2026-09-05) : une nappe XPBD lachee sur une sphere, dans le vent
+				nkentseu::physics::NkCloth *cloth = nullptr;
+				nkentseu::math::NkUniformForceField clothWind;
+				NkMeshHandle clothMesh;
+				NkVector<renderer::NkVertex3D> clothVerts;
+				NkVector<uint32> clothIdx;
+				NkVector<NkVec3f> clothNormals;
+				float32 clothTime = 0.f;
+				float64 clothMsSum = 0.0;
+				uint32 clothMsN = 0;
+				uint32 clothBuildsSum = 0; // listes de paires reconstruites, cumul sur les images du relevé
+				NkVec3f clothSphereC = {0.f, 0.f, 0.f};
+				float32 clothSphereR = 0.f;
+				// ── SONDE OCEAN (NK_OCEAN_PROBE=1, 2026-09-13) ──────────────────────
+				// La grille projetee de NKVFX (NkProjectedGridBuild + NkProjectedGridVertex
+				// + le pavage NkProjectedGridIndices), deplacee par la houle de Gerstner
+				// (NkWaterEval), dessinee comme un MAILLAGE DYNAMIQUE : exactement le
+				// chemin que le tissu emprunte deja (NkMeshSystem::UpdateVertices). Rien
+				// n'est invente ici -- aucun nuanceur neuf, aucun Gerstner GPU, aucun ECS.
+				bool ocean = false;
+				vfx::NkWaterMeshParams oceanP;
+				NkMeshHandle oceanMesh;
+				NkVector<renderer::NkVertex3D> oceanVerts;
+				NkVector<uint32> oceanIdx;
+				// Le jacobien horizontal de chaque sommet, rendu par le producteur. La
+				// hauteur se relit sur le sommet ; le jacobien NON -- sans lui, juger
+				// l'ecume obligerait a RECONSTRUIRE la houle dans la sonde, donc a
+				// mesurer une deuxieme implementation au lieu de celle qui peint.
+				NkVector<float32> oceanJac;
+				bool oceanShade = true; // NK_OCEAN_SHADE=0 : retour a la couleur constante de Q18
+				// NK_OCEAN_SHADER=1 : le nuanceur d'eau de Resources/NKRenderer/Shaders/Water/,
+				// branche par le chemin SUPPORTE (gabarit de materiau + hint de dossier).
+				NkMatInstHandle oceanMat;
+				bool oceanShaderDemande = false;
+				float32 oceanTime = 0.f;
+				uint32 oceanSlotCentre = 0u;  // (rows/2)(cols+1) + cols/2 : le sommet suivi image par image
+				float32 oceanAmpDemandee = 0.f; // somme des amplitudes des trains, pour juger l'amplitude mesuree
+				// Rugosite PBR de la surface (NK_OCEAN_ROUGH). 0,5 et pas 0,18 : MESURE du
+				// 13/09, deux captures a la meme pose -- a 0,18 le speculaire d'une surface
+				// presque horizontale mange l'albedo et l'eau sort GRISE, indiscernable du
+				// sol. Ce n'est donc pas un gout, c'est le seul reglage mesure ou la
+				// couleur demandee se voit.
+				float32 oceanRough = 0.5f;
+				// Mesures cumulees sur la course (le bilan est imprime au Shutdown).
+				uint32 oceanFrames = 0u;	 // images ou la grille a RENDU des sommets
+				uint32 oceanRefus = 0u;		 // images ou elle a REFUSE (zero sommet)
+				uint32 oceanManquants = 0u;	 // pire nombre de sommets manquants vu
+				float32 oceanEcartMax = 0.f; // max |y - baseY| sur tous les sommets, toutes les images
+				// Sommet CENTRAL suivi image par image : sa variance verticale est la mesure
+				// de « ca bouge VRAIMENT ». A amplitude nulle elle vaut zero AU BIT.
+				float64 oceanYSum = 0.0, oceanYSum2 = 0.0;
+				float64 oceanMsSum = 0.0;
+				uint32 oceanMsN = 0u;
+				// sonde VETEMENTS SUR MANNEQUIN (NK_MANNEQUIN_PROBE=1, 2026-09-05) : Demo3DMannequin.cpp
+				Demo3DMannequinProbe *mannequin = nullptr;
+				NkMeshHandle meshCylinderHat;
 				// ── NK_GI_TEST : mur mobile pour éprouver le GI à un rebond ──────
 				// Bornes de base du mur ; `giWallOffset` s'y ajoute et le GI est
 				// recalculé à chaque déplacement — c'est la démonstration que
@@ -1998,7 +2073,12 @@ namespace nkentseu {
 		// E.6b : cubemap procedurale 128x128x6 pour point light.
 		// Chaque face = pattern "X" : 2 bandes diagonales lumineuses sur fond noir.
 		// Tres contraste pour etre clairement visible meme avec autres lumieres.
-		static NkTexHandle CreateLanternCubeCookie(NkTextureLibrary *texLib, NkIDevice *dev) {
+				static const char *NkFormatMs(float32 ms) {
+			static char b[32];
+			std::snprintf(b, sizeof(b), "%.3f", ms);
+			return b;
+		}
+static NkTexHandle CreateLanternCubeCookie(NkTextureLibrary *texLib, NkIDevice *dev) {
 			const uint32 S = 128;
 			NkTextureCreateDesc d;
 			d.width = S;
@@ -2152,6 +2232,487 @@ namespace nkentseu {
 			ctx.userData = st;
 
 			auto *meshSys = ctx.renderer->GetMeshSystem();
+
+			// ── SONDE VFX (2026-09-03) — « est-ce que les particules RENDENT ? » ──
+			// Six appelants reels de NkVFXSystem, ZERO demo active qui emette (les 4
+			// CreateEmitter du depot sont dans Demo06_10.cpp.legacy, retire le 08/05).
+			// Le code existe et il est appele -- ca ne prouve pas une image. Cette
+			// sonde en fabrique une, sous NK_VFX_PROBE=1 seulement : aucun effet
+			// pour quiconque ne pose pas la variable. Pas de texture : le champ
+			// NkEmitterDesc::texture n est lu nulle part dans NkVFXSystem.cpp (mesure).
+			// ── SONDE VEHICULE (2026-09-04) — Rodolf veut VOIR la voiture rouler ──
+			// Sous NK_VEHICLE_PROBE=1 seulement. La surface, telle que la conception
+			// l'ecrit : un monde, un sol, une voiture, quatre roues, SetInput.
+			if (const char *vp = std::getenv("NK_VEHICLE_PROBE"); vp && vp[0] == '1') {
+				using namespace nkentseu::physics;
+				st->vehWorld = new NkPhysicsWorld();
+				st->vehWorld->SetGravity({0.f, -9.81f, 0.f});
+				NkBodyDef sol;
+				sol.type = NkBodyType::STATIC;
+				sol.position = {0.f, -0.5f, 0.f};
+				sol.orientation = NkQuatf::Identity();
+				st->vehWorld->CreateBody(sol, collision::NkShape::Box3D({0.f, -0.5f, 0.f}, {200.f, 0.5f, 200.f}));
+				st->veh = new NkVehicle(*st->vehWorld);
+				st->veh->SetChassisBox({-4.f, 1.15f, -3.f}, {0.9f, 0.5f, 2.2f}, 1200.f);
+				st->veh->AddWheel({-0.8f, -0.5f, 1.3f}, NkWheel::kSteered);
+				st->veh->AddWheel({0.8f, -0.5f, 1.3f}, NkWheel::kSteered);
+				st->veh->AddWheel({-0.8f, -0.5f, -1.3f}, NkWheel::kPowered);
+				st->veh->AddWheel({0.8f, -0.5f, -1.3f}, NkWheel::kPowered);
+				std::fprintf(stderr, "[VEHICULE PROBE] voiture creee (chassis id=%u)\n", (unsigned)st->veh->Chassis());
+			}
+			// LE VENT (2026-09-05) : NK_VFX_WIND / NK_SPH_WIND = uniform|vortex|turb|curl:strength[:frequence]
+			auto parseWind = [](const char *s, NkForceField &f) {
+				if (!s || !s[0]) return;
+				if (s[0] == 'u') f.type = NkForceFieldType::UNIFORM;
+				else if (s[0] == 'v') f.type = NkForceFieldType::VORTEX;
+				else if (s[0] == 't') f.type = NkForceFieldType::TURBULENCE;
+				else if (s[0] == 'c') f.type = NkForceFieldType::CURL;
+				const char *c1 = std::strchr(s, ':');
+				if (c1) { f.strength = (float32)std::atof(c1 + 1); const char *c2 = std::strchr(c1 + 1, ':'); if (c2) f.frequency = (float32)std::atof(c2 + 1); }
+				f.direction = (f.type == NkForceFieldType::VORTEX) ? NkVec3f{0.f, 1.5f, 0.f} : NkVec3f{1.f, 0.f, 0.f};
+				f.axis = {0.f, 1.f, 0.f};
+				f.radius = 0.5f;
+			};
+			// NK_ATOMIC_TEST=1 : les atomiques sur tampon de NkSL, comptes sur le device courant (2026-09-05)
+			if (const char *at = std::getenv("NK_ATOMIC_TEST"); at && at[0] == '1') {
+				const uint32 N = 1048576u;
+				for (int mut = 0; mut < 2; ++mut) {
+					const NkGpuAtomicResult r = NkGpuAtomicWitness(ctx.renderer->GetDevice(), N, mut == 1);
+					if (!r.ran)
+						std::fprintf(stderr, "[ATOMIQUE TEMOIN] %s : n'a pas tourne (%s)\n", mut ? "mutation (+=)" : "atomicAdd", r.why);
+					else if (mut == 0)
+						std::fprintf(stderr, "[ATOMIQUE TEMOIN] atomicAdd depuis %u invocations : %u ; atomicMax : %u -> %s\n", N, r.add, r.max,
+									 (r.add == N && r.max == N - 1) ? "OK (compte exact)" : "ECHEC");
+					else
+						std::fprintf(stderr, "[ATOMIQUE TEMOIN] mutation (+= ordinaire) depuis %u invocations : %u ; max %u -> %s\n", N, r.add, r.max,
+									 (r.add != N) ? "ROUGE comme attendu (le banc discrimine)" : "ECHEC DU BANC : le compte est juste sans atomique");
+				}
+			}
+			// NK_WIND_TEST=1 : la divergence discrete du bruit de curl contre celle de la turbulence (controle negatif)
+			if (const char *wt = std::getenv("NK_WIND_TEST"); wt && wt[0] == '1') {
+				for (int kind = 0; kind < 2; ++kind) {
+					NkForceField f;
+					f.type = kind == 0 ? NkForceFieldType::CURL : NkForceFieldType::TURBULENCE;
+					f.strength = 1.f; f.frequency = 2.f; f.seed = 3.f;
+					double sumDiv = 0.0, sumA = 0.0; const float32 e = 0.002f; uint32 nsamp = 0;
+					for (int i = 0; i < 10; ++i) for (int j = 0; j < 10; ++j) for (int k = 0; k < 10; ++k) {
+						const NkVec3f p = {-2.f + 0.4f * i + 0.137f, -2.f + 0.4f * j + 0.071f, -2.f + 0.4f * k + 0.211f};
+						const NkVec3f ax1 = NkEvalForceField(f, {p.x + e, p.y, p.z}, 0.f), ax0 = NkEvalForceField(f, {p.x - e, p.y, p.z}, 0.f);
+						const NkVec3f ay1 = NkEvalForceField(f, {p.x, p.y + e, p.z}, 0.f), ay0 = NkEvalForceField(f, {p.x, p.y - e, p.z}, 0.f);
+						const NkVec3f az1 = NkEvalForceField(f, {p.x, p.y, p.z + e}, 0.f), az0 = NkEvalForceField(f, {p.x, p.y, p.z - e}, 0.f);
+						const float32 div = ((ax1.x - ax0.x) + (ay1.y - ay0.y) + (az1.z - az0.z)) / (2.f * e);
+						const NkVec3f a = NkEvalForceField(f, p, 0.f);
+						sumDiv += fabs(div); sumA += sqrt(a.x * a.x + a.y * a.y + a.z * a.z); ++nsamp;
+					}
+					const double divMoy = sumDiv / nsamp, aMoy = sumA / nsamp;
+					std::fprintf(stderr, "[VENT TEMOIN] %s : |div| moyen %.4f / (|a| moyen %.4f x frequence %g) = %.4f -> %s\n",
+								 kind == 0 ? "bruit de curl" : "turbulence (controle)", divMoy, aMoy, f.frequency, divMoy / (aMoy * f.frequency),
+								 kind == 0 ? (divMoy / (aMoy * f.frequency) < 0.05 ? "OK (< 5 %, divergence nulle)" : "ECHEC") : "(attendu : de l'ordre de 1)");
+				}
+			}
+			// ── SONDE FLUIDE SPH (2026-09-04), sous NK_SPH_PROBE=1 seulement ─────────────
+			// NK_SPH_SCENE=repos|dam|conserve (defaut dam). Un emetteur sans debit, un bloc
+			// de naissances sur un reseau (h/2), le solveur SPH comme `desc.solver`.
+			// NK_SPH_NOPRESSURE=1 : la mutation (pression coupee) -- le temoin repos DOIT rougir.
+			// NK_SPH_N=<cote> : cote du bloc en particules (defaut 20 -> 8 000 en dam, 4 000 en repos).
+			if (const char *sp = std::getenv("NK_SPH_PROBE"); sp && sp[0] == '1') {
+				if (NkVFXSystem *vfx = ctx.renderer->GetVFX()) {
+					static NkSPHSolver sSph;
+					const char *scene = std::getenv("NK_SPH_SCENE");
+					const bool repos = scene && scene[0] == 'r';
+					const bool conserve = scene && scene[0] == 'c';
+					uint32 cote = 20;
+					if (const char *n = std::getenv("NK_SPH_N"); n && n[0]) cote = (uint32)std::atoi(n);
+					if (cote < 2) cote = 2;
+					sSph.params.h = 0.1f;
+					if (const char *hh = std::getenv("NK_SPH_H"); hh && hh[0]) sSph.params.h = (float32)std::atof(hh); // resolution (instrument, pas scene) : d = h/2
+					if (const char *sm = std::getenv("NK_SPH_SURF"); sm && sm[0]) sSph.params.surfaceMode = (uint32)std::atoi(sm); // 1 dure, 0 aucune, 2 douce
+					if (const char *av = std::getenv("NK_SPH_ALPHA"); av && av[0]) sSph.params.artViscosity = (float32)std::atof(av); // Monaghan
+					if (const char *wf = std::getenv("NK_SPH_WALL"); wf && wf[0]) sSph.params.wallFriction = (float32)std::atof(wf); // 0 glisse, 1 non-glissement partiel
+					if (const char *nu = std::getenv("NK_SPH_NU"); nu && nu[0]) sSph.params.kinematicViscosity = (float32)std::atof(nu); // Morris, m2/s
+					if (const char *ws = std::getenv("NK_SPH_WARM"); ws && ws[0]) sSph.params.warmStart = (ws[0] == '1'); // demarrage a chaud des kappa
+					if (const char *wsc = std::getenv("NK_SPH_WARMSCALE"); wsc && wsc[0]) sSph.params.warmStartScale = (float32)std::atof(wsc); // amortissement de la poussee a chaud
+					sSph.params.maxSpeed = 8.f; // filet de securite, dit s'il mord
+					if (const char *mv = std::getenv("NK_SPH_MAXSPEED"); mv && mv[0]) sSph.params.maxSpeed = (float32)std::atof(mv); // instrument : vmax reel sans le filet
+					// NK_SPH_N2=<n^2> : hauteur/largeur de la colonne (defaut 1 = carree, la scene) ; 2 = la geometrie de
+					// Martin & Moyce dont la table est ecrite plus bas (canal 3D, parois laterales = fantomes des six faces).
+					float32 n2 = 1.f;
+					if (const char *nn = std::getenv("NK_SPH_N2"); nn && nn[0]) n2 = (float32)std::atof(nn);
+					if (n2 < 0.25f) n2 = 0.25f;
+					if (const char *np = std::getenv("NK_SPH_NOPRESSURE"); np && np[0] == '1') sSph.pressureEnabled = false;
+					if (const char *kk = std::getenv("NK_SPH_K"); kk && kk[0]) sSph.params.stiffness = (float32)std::atof(kk); // raideur de l'equation d'etat (c = sqrt(k))
+					if (const char *mu = std::getenv("NK_SPH_MU"); mu && mu[0]) sSph.params.viscosity = (float32)std::atof(mu);
+					if (const char *ms = std::getenv("NK_SPH_MAXSUB"); ms && ms[0]) sSph.params.maxSubSteps = (uint32)std::atoi(ms);
+					if (const char *g0 = std::getenv("NK_SPH_G0"); g0 && g0[0] == '1') sSph.params.gravity = {0.f, 0.f, 0.f}; // reseau parfait sans gravite : rien ne doit bouger
+					const float32 d = sSph.params.h * 0.5f; // espacement du reseau
+					NkVec3f bmin, bmax, blockMin, blockMax;
+					if (repos || conserve) {
+						// boite de la largeur du bloc : la surface libre reste plate, la densite doit revenir a rho0
+						const float32 w = (float32)cote * d;
+						bmin = {-w * 0.5f, -1.f, -w * 0.5f};
+						bmax = {w * 0.5f, 1.5f, w * 0.5f};
+						// NK_SPH_DROP=1 : le bloc part 0,3 m au-dessus du sol (chute) ; sinon il est POSE dessus
+						// (mesure du 04/09 : separer « le repos tient » de « l'impact casse »).
+						const char *drop = std::getenv("NK_SPH_DROP");
+						const float32 y0 = -1.f + ((drop && drop[0] == '1') ? 0.3f : 0.f);
+						blockMin = {-w * 0.5f, y0, -w * 0.5f};
+						blockMax = {w * 0.5f, y0 + (float32)(cote / 2) * d, w * 0.5f};
+					} else {
+						// rupture de barrage : bloc de largeur a = cote*d, hauteur n2*a, dans le tiers gauche d'une
+						// boite 3x plus longue (n2 = 1 : la scene, inchangee ; n2 = 2 : instrument NK_SPH_N2)
+						const float32 w = (float32)cote * d;
+						bmin = {-1.5f * w, -1.f, -w * 0.5f};
+						bmax = {1.5f * w, -1.f + (n2 + 1.5f) * w, w * 0.5f};
+						blockMin = {-1.5f * w, -1.f, -w * 0.5f};
+						blockMax = {-0.5f * w, -1.f + n2 * w, w * 0.5f};
+					}
+					sSph.params.boundsMin = bmin;
+					sSph.params.boundsMax = bmax;
+					NkVector<NkParticleBirth> births;
+					const uint32 nb = NkSPHSolver::FillBlock(births, blockMin, blockMax, d);
+					NkEmitterDesc fd;
+					fd.position = {0.f, 0.f, 0.f};
+					fd.ratePerSec = 0.f;
+					fd.maxParticles = nb + 16;
+					fd.sizeStart = fd.sizeEnd = d * 1.6f;
+					fd.colorStart = fd.colorEnd = {0.25f, 0.55f, 1.f, 0.9f};
+					fd.blend = NkBlendMode::NK_ALPHA;
+					fd.gravity = {0.f, 0.f, 0.f}; // la gravite est celle du solveur
+					fd.solver = &sSph;
+					parseWind(std::getenv("NK_SPH_WIND"), fd.field);
+					// NK_SPH_TARGET=cpu|gpu : la cible du fluide (defaut AUTO = GPU si compute, 2026-09-05)
+					if (const char *tg = std::getenv("NK_SPH_TARGET"); tg && tg[0])
+						fd.simTarget = (tg[0] == 'g') ? NkSimTarget::GPU : (tg[0] == 'c') ? NkSimTarget::CPU : NkSimTarget::AUTO;
+					NkEmitterId fid = vfx->CreateEmitter(fd);
+					vfx->SpawnBirths(fid, births.Data(), (uint32)births.Size());
+					std::fprintf(stderr, "[SPH PROBE] scene=%s particules=%u h=%g d=%g masse=%g rho0=%g k=%g mu=%g nu=%g chaud=%d (s=%g) n2=%g vmaxfilet=%g pression=%d boite=[%g,%g,%g]-[%g,%g,%g]\n",
+								 repos ? "repos" : (conserve ? "conserve" : "dam"), nb, sSph.params.h, d, sSph.params.Mass(), sSph.params.restDensity,
+								 sSph.params.stiffness, sSph.params.viscosity, sSph.params.kinematicViscosity, (int)sSph.params.warmStart, sSph.params.warmStartScale, n2, sSph.params.maxSpeed, (int)sSph.pressureEnabled, bmin.x, bmin.y, bmin.z, bmax.x, bmax.y, bmax.z);
+					st->sphSolver = &sSph;
+					st->sphCount = nb;
+					st->sphH0 = blockMax.y - blockMin.y;
+					st->sphN2 = n2;
+					st->sphX0 = blockMax.x;
+					st->sphScene = repos ? 1 : (conserve ? 2 : 0);
+				}
+			}
+			// ── SONDE TISSU XPBD (2026-09-05), sous NK_CLOTH_PROBE=1 seulement ─────────────
+			// Une nappe NK_CLOTH_N x NK_CLOTH_N (defaut 32) de 1 m, lachee sur une sphere posee au
+			// sol, dans un vent uniforme (NK_CLOTH_WIND = force en N par particule, projetee sur la
+			// normale ; defaut 0,4 m g). Auto-collision active (NK_CLOTH_SELF=0 pour la couper).
+			// Pas FIXE 1/60 ; le cout du pas est mesure (NkChrono) et dit toutes les 60 images :
+			// c'est la courbe 32 / 128 / 256. Le tissu est dessine comme un MAILLAGE dynamique
+			// (NkMeshSystem::UpdateVertices), pas comme des particules : c'est un maillage.
+			if (const char *cp = std::getenv("NK_CLOTH_PROBE"); cp && cp[0] == '1') {
+				using namespace nkentseu::physics;
+				uint32 n = 32;
+				if (const char *e = std::getenv("NK_CLOTH_N"); e && e[0]) n = (uint32)std::atoi(e);
+				if (n < 2) n = 2;
+				auto *cl = new NkCloth();
+				// nappe de 2,4 m sur une sphere R = 0,8 m : a 1 m / 0,35 m la scene tenait dans un
+				// vingtieme du cadre (mesure sur la premiere capture). La physique ne change pas
+				// d'echelle (memes temoins dans NKPhysics_Tests, a 1 m).
+				const float32 side = 2.4f, sp = side / (float32)(n - 1);
+				st->clothSphereR = 0.8f;
+				st->clothSphereC = {0.f, 1.9f, 0.f}; // EN L AIR : au sol, la scene est cachee DANS le cube central de la demo (mesure : capture vide)
+				cl->BuildGrid(n, n, {-0.5f * side, st->clothSphereC.y + st->clothSphereR + 0.2f, -0.5f * side}, {sp, 0.f, 0.f},
+							  {0.f, 0.f, sp}, 0.2f * side * side);
+				cl->params.thickness = 0.4f * sp;
+				cl->params.friction = 0.3f;
+				cl->params.damping = 1.f;
+				cl->params.selfCollision = true;
+				if (const char *sc = std::getenv("NK_CLOTH_SELF"); sc && sc[0] == '0') cl->params.selfCollision = false;
+				if (const char *mk = std::getenv("NK_CLOTH_MARGINK"); mk && mk[0]) cl->params.selfMarginK = (float32)std::atof(mk); // instrument : marge k vmax dt
+				if (const char *e = std::getenv("NK_CLOTH_SUB"); e && e[0]) cl->params.substeps = (uint32)std::atoi(e);		// instrument : sous-pas
+				if (const char *e = std::getenv("NK_CLOTH_IT"); e && e[0]) cl->params.iterations = (uint32)std::atoi(e);	// instrument : iterations
+				if (const char *e = std::getenv("NK_CLOTH_SELFIT"); e && e[0] == '0') cl->params.selfEveryIteration = false; // paires : une fois par sous-pas
+				cl->params.clock = [] { return NkChrono::Now().seconds; }; // le profil par phase (NKPhysics n'a pas d'horloge)
+				cl->params.forceOnNormal = true; // une voile : le vent ne pousse que de face
+				const float32 mP = 0.2f * side * side / (float32)(n * n);
+				float32 wind = 0.4f * mP * 9.81f;
+				if (const char *w = std::getenv("NK_CLOTH_WIND"); w && w[0]) wind = (float32)std::atof(w);
+				st->clothWind.force = {wind, 0.f, 0.f};
+				cl->forceField = &st->clothWind;
+				cl->colliders.PushBack(collision::NkShape::Sphere(st->clothSphereC, st->clothSphereR));
+				cl->colliders.PushBack(collision::NkShape::Plane3D({0.f, 0.f, 0.f}, {0.f, 1.f, 0.f}));
+				cl->Triangles(st->clothIdx);
+				st->clothVerts.Resize(n * n);
+				for (uint32 i = 0; i < n * n; ++i) {
+					renderer::NkVertex3D &v = st->clothVerts[i];
+					v.pos = cl->Positions()[i];
+					v.normal = {0.f, 1.f, 0.f};
+					v.tangent = {1.f, 0.f, 0.f};
+					v.uv = {(float32)(i % n) / (float32)(n - 1), (float32)(i / n) / (float32)(n - 1)};
+					v.uv2 = v.uv;
+					v.color = 0xFFFFFFFFu;
+				}
+				renderer::NkMeshDesc md = renderer::NkMeshDesc::Simple(renderer::NkVertexLayout::Default3D(), st->clothVerts.Data(),
+																	  n * n, st->clothIdx.Data(), (uint32)st->clothIdx.Size());
+				md.dynamic = true;
+				md.debugName = "Demo3D_Tissu";
+				st->clothMesh = meshSys->Create(md);
+				st->cloth = cl;
+				std::fprintf(stderr, "[TISSU PROBE] nappe %ux%u (%u particules, %u triangles) epaisseur %.1f mm, vent %.4g N/particule (m g = %.4g), sphere R=%.2f, auto-collision=%d, sous-pas %u x %u, mesh valide=%d\n",
+							 n, n, n * n, (uint32)st->clothIdx.Size() / 3u, 1000.f * cl->params.thickness, wind, mP * 9.81f, st->clothSphereR,
+							 (int)cl->params.selfCollision, cl->params.substeps, cl->params.iterations, (int)st->clothMesh.IsValid());
+			}
+			// ── SONDE OCEAN (2026-09-13), sous NK_OCEAN_PROBE=1 seulement ─────────────────
+			// LA PREMIERE IMAGE DE L'OCEAN. La chaine est minimale et n'invente rien :
+			//     NkProjectedGridBuild -> NkProjectedGridVertex -> deplacement CPU par
+			//     NkWaterEval ; NkProjectedGridIndices (le pavage) -> UpdateVertices.
+			// Le tissu fait deja exactement ce chemin-la : c'est le controle positif de
+			// « cable ». Pas de Gerstner GPU, pas de nuanceur neuf, pas d'ECS.
+			//
+			// Variables (toutes optionnelles) :
+			//   NK_OCEAN_N=<n>        resolution de la grille EN ECRAN (defaut 64 -> 65x65 sommets)
+			//   NK_OCEAN_BASEY=<m>    altitude du plan de repos (defaut 0.6 : au-dessus du sol
+			//                         opaque de la demo (y=0) MEME DANS LES CREUX, -0,52 m)
+			//   NK_OCEAN_ROUGH=<r>    rugosite PBR (defaut 0.5 ; a 0.18 l'eau sort grise)
+			//   NK_OCEAN_DISP=<m>     demi-epaisseur de la tranche que la houle peut occuper
+			//   NK_OCEAN_AMP=<k>      facteur sur les amplitudes (0 = LE CONTROLE NEGATIF de (o2))
+			//   NK_OCEAN_STEEP=<k>    facteur sur la cambrure Q
+			//   NK_OCEAN_RANGECAM=0   coupe la camera de portee -> la grille RETROUVE son domaine
+			//                         et REFUSE quand l'oeil n'est pas au-dessus de la tranche
+			//   NK_OCEAN_FLIP=1       inverse l'enroulement des triangles (instrument de face avant)
+			if (const char *op = std::getenv("NK_OCEAN_PROBE"); op && op[0] == '1') {
+				st->ocean = true;
+				math::NkProjectedGridParams &g = st->oceanP.grid;
+				uint32 n = 64u;
+				if (const char *e = std::getenv("NK_OCEAN_N"); e && e[0]) n = (uint32)std::atoi(e);
+				if (n < 1u) n = 1u;
+				g.cols = n;
+				g.rows = n;
+				// 0,6 m et pas 0,25 : le sol opaque de la demo est a y = 0, et les creux
+				// descendent de 0,52 m sous le plan de repos. A 0,25 le sol RESSORT dans
+				// les creux -- mesure faite, capture a l'appui : des plaques grises au
+				// milieu de l'eau, qu'on prendrait pour un defaut de maillage.
+				g.baseY = 0.6f;
+				if (const char *e = std::getenv("NK_OCEAN_BASEY"); e && e[0]) g.baseY = (float32)std::atof(e);
+				g.displacementMax = 1.f; // MAJORE la somme des amplitudes ci-dessous (0,52 m)
+				if (const char *e = std::getenv("NK_OCEAN_DISP"); e && e[0]) g.displacementMax = (float32)std::atof(e);
+				if (const char *e = std::getenv("NK_OCEAN_RANGECAM"); e && e[0] == '0') g.rangeCamera = false;
+				float32 ampK = 1.f, steepK = 1.f;
+				if (const char *e = std::getenv("NK_OCEAN_AMP"); e && e[0]) ampK = (float32)std::atof(e);
+				if (const char *e = std::getenv("NK_OCEAN_STEEP"); e && e[0]) steepK = (float32)std::atof(e);
+				if (const char *e = std::getenv("NK_OCEAN_ROUGH"); e && e[0]) st->oceanRough = (float32)std::atof(e);
+				// ── LA COULEUR PAR SOMMET (2026-09-13) : NkWaterShade + NkWaterFoam ──
+				// Les deux fonctions existent depuis le 06/09 SANS UN SEUL APPELANT.
+				// NK_OCEAN_SHADE=0 rend exactement l'image de Q18 (couleur constante
+				// blanche x teinte petrole) : c'est le bras « sans couleur » de (c3).
+				if (const char *e = std::getenv("NK_OCEAN_SHADE"); e && e[0] == '0') st->oceanShade = false;
+				st->oceanP.shade = st->oceanShade;
+				if (const char *e = std::getenv("NK_OCEAN_DEPTH"); e && e[0]) st->oceanP.bottomDepth = (float32)std::atof(e);
+				// Trois trains de Gerstner : une houle longue, une mer de vent, une ride.
+				math::NkWaterParams &w = st->oceanP.waves;
+				w.waveCount = 3u;
+				w.depth = 0.f; // eau profonde : c = sqrt(g / k)
+				w.waves[0].amplitude = 0.30f * ampK; w.waves[0].wavelength = 12.0f;
+				w.waves[0].direction = {1.f, 0.f};        w.waves[0].steepness = 0.55f * steepK; w.waves[0].phase = 0.f;
+				w.waves[1].amplitude = 0.15f * ampK; w.waves[1].wavelength = 5.0f;
+				w.waves[1].direction = {0.7071f, 0.7071f}; w.waves[1].steepness = 0.50f * steepK; w.waves[1].phase = 1.3f;
+				w.waves[2].amplitude = 0.07f * ampK; w.waves[2].wavelength = 2.2f;
+				w.waves[2].direction = {-0.4061f, 0.9138f}; w.waves[2].steepness = 0.40f * steepK; w.waves[2].phase = 2.6f;
+				st->oceanAmpDemandee = w.waves[0].amplitude + w.waves[1].amplitude + w.waves[2].amplitude;
+				st->oceanP.color = 0xFFFFFFFFu;
+				st->oceanSlotCentre = (g.rows / 2u) * (g.cols + 1u) + g.cols / 2u;
+				// (o1) LES DEUX COMPTES SONT CALCULES A LA MAIN ICI, et non demandes a la
+				// bibliotheque qu'ils sont censes juger : (cols+1)(rows+1) sommets pour
+				// cols x rows cellules, 6 indices par cellule.
+				const uint32 attenduV = (n + 1u) * (n + 1u);
+				const uint32 attenduI = 6u * n * n;
+				const uint32 nv = vfx::NkWaterVertexCount(g);
+				const uint32 ni = vfx::NkWaterIndexCount(g);
+				st->oceanVerts.Resize(nv);
+				st->oceanIdx.Resize(ni);
+				st->oceanJac.Resize(nv);
+				const uint32 ecritsI = vfx::NkWaterBuildIndices(g, st->oceanIdx.Data(), ni);
+				if (const char *e = std::getenv("NK_OCEAN_FLIP"); e && e[0] == '1')
+					for (uint32 t = 0; t + 2u < ecritsI; t += 3u) {
+						const uint32 tmp = st->oceanIdx[t + 1u];
+						st->oceanIdx[t + 1u] = st->oceanIdx[t + 2u];
+						st->oceanIdx[t + 2u] = tmp;
+					}
+				// Sommets de depart : le plan de repos. Le maillage doit exister AVANT la
+				// premiere camera ; il est entierement reecrit a chaque image.
+				for (uint32 i = 0; i < nv; ++i) {
+					renderer::NkVertex3D &v = st->oceanVerts[i];
+					v.pos = {0.f, g.baseY, 0.f};
+					v.normal = {0.f, 1.f, 0.f};
+					v.tangent = {1.f, 0.f, 0.f};
+					v.uv = {0.f, 0.f};
+					v.uv2 = v.uv;
+					v.color = 0xFFFFFFFFu;
+				}
+				renderer::NkMeshDesc md = renderer::NkMeshDesc::Simple(renderer::NkVertexLayout::Default3D(), st->oceanVerts.Data(),
+																	   nv, st->oceanIdx.Data(), ecritsI);
+				md.dynamic = true;
+				md.debugName = "Demo3D_Ocean";
+				st->oceanMesh = meshSys->Create(md);
+				std::fprintf(stderr, "[OCEAN PROBE] grille %ux%u : sommets %u (attendu a la main %u), indices %u (attendu a la main %u, ecrits %u) | plan y=%.3f, tranche +-%.2f m, cameraPortee=%d | 3 trains, amplitudes %.3f+%.3f+%.3f = %.3f m, cambrures %.3f/%.3f/%.3f | mesh valide=%d\n",
+							 g.cols, g.rows, nv, attenduV, ni, attenduI, ecritsI, g.baseY, g.displacementMax, (int)g.rangeCamera,
+							 w.waves[0].amplitude, w.waves[1].amplitude, w.waves[2].amplitude, st->oceanAmpDemandee,
+							 w.waves[0].steepness, w.waves[1].steepness, w.waves[2].steepness, (int)st->oceanMesh.IsValid());
+				// ── NK_OCEAN_SHADER=1 : LE NUANCEUR D'EAU SE COMPILE-T-IL ENCORE ? ──
+				// Resources/NKRenderer/Shaders/Water/ existe depuis NKRenderer v4.0 et
+				// n'a AUCUN appelant. Avant de rever de le brancher, on MESURE : on
+				// demande a la bibliotheque de le charger, et on dit ce qu'elle rend.
+				// Aucun dessin, aucune liaison : c'est une sonde de CHARGEMENT.
+				if (const char *e = std::getenv("NK_OCEAN_SHADER"); e && e[0] == '1') {
+					st->oceanShaderDemande = true;
+					if (auto *sl = ctx.renderer->GetShaders()) {
+						// Type QUALIFIE : l'en-tete de la bibliotheque previent que
+						// `NkShaderHandle` non qualifie se resout selon l'ordre d'include.
+						const ::nkentseu::NkShaderHandle hw = sl->LoadOrCompileVF("Water", "", "");
+						std::fprintf(stderr, "[OCEAN NUANCEUR] LoadOrCompileVF(\"Water\") -> valide=%d (id=%llu)\n",
+									 (int)hw.IsValid(), (unsigned long long)hw.id);
+					} else {
+						std::fprintf(stderr, "[OCEAN NUANCEUR] ce renderer n'expose aucune bibliotheque de nuanceurs\n");
+					}
+					// ── LE BRANCHEMENT, PAR LE CHEMIN QUI EXISTE DEJA ────────────────
+					// `NkRender3D` choisit son pipeline ainsi : si le drawcall porte un
+					// materiau valide, le pipeline du GABARIT de ce materiau REMPLACE le
+					// pipeline PBR (NkRender3D.cpp:3128). Et `CompilePipeline` lit un
+					// HINT de dossier de nuanceur range dans `vertSrcGL`, `fragSrcGL`
+					// restant vide (NkMaterialSystem.cpp:752). Rien a ecrire dans le
+					// renderer : le chemin est celui des gabarits d'origine.
+					//
+					// ⚠️ POURQUOI PERSONNE NE LE CHARGE : `RegisterBuiltins` enregistre
+					// PBR, Toon, ToonInk, Emissive, Unlit, Skin, Hair, Anime... et PAS
+					// Water. Le commentaire juste au-dessus de ces lignes decrit deja la
+					// meme maladie pour ToonInk et Emissive : « leurs shaders existaient,
+					// le registre les oubliait ». On enregistre donc ICI, dans la sonde,
+					// plutot que de toucher un registre partage avec d'autres chantiers.
+					if (auto *mats = ctx.renderer->GetMaterials()) {
+						renderer::NkMaterialTemplateDesc d;
+						d.type = renderer::NkMaterialType::NK_PBR_METALLIC;
+						d.name = "Ocean_Water";
+						d.queue = renderer::NkRenderQueue::NK_OPAQUE;
+						d.cullMode = renderer::NkCullMode::NK_NONE;
+						d.vertSrcGL = "Water"; // le HINT : Resources/NKRenderer/Shaders/Water/
+						const NkMatHandle tpl = mats->RegisterTemplate(d);
+						if (auto *inst = mats->CreateInstance(tpl))
+							st->oceanMat = inst->GetHandle();
+						// ⚠️ LA QUESTION QUI TRANCHE, ET ELLE SE POSE ICI PLUTOT QU'A L'OEIL :
+						// `NkRender3D` ne remplace le pipeline PBR que si `GetPipeline` du
+						// gabarit rend un pipeline VALIDE. S'il rend l'invalide, le
+						// drawcall reste peint par le PBR -- un repli SILENCIEUX, qu'aucune
+						// image ne signale. On compare donc le pipeline du gabarit d'eau a
+						// celui du PBR par defaut : egaux ou invalide = ce n'est pas le
+						// nuanceur d'eau qui peint.
+						const NkPipelineHandle pipeEau = mats->GetPipeline(tpl);
+						const NkPipelineHandle pipePBR = mats->GetPipeline(mats->DefaultPBR());
+						std::fprintf(stderr, "[OCEAN NUANCEUR] gabarit 'Ocean_Water' (hint dossier=Water) : gabarit valide=%d, instance valide=%d | pipeline eau valide=%d (id=%llu), pipeline PBR valide=%d (id=%llu), IDENTIQUES=%d\n",
+									 (int)tpl.IsValid(), (int)st->oceanMat.IsValid(), (int)pipeEau.IsValid(),
+									 (unsigned long long)pipeEau.id, (int)pipePBR.IsValid(), (unsigned long long)pipePBR.id,
+									 (int)(pipeEau.id == pipePBR.id));
+					}
+				}
+				const math::NkWaterOptics &o = st->oceanP.optics;
+				std::fprintf(stderr, "[OCEAN COULEUR] shade=%d | FOND PLAT INVENTE (le producteur n'a pas de terrain) : %.2f m sous le plan, albedo (%.2f %.2f %.2f) | absorption (%.3f %.3f %.3f) m^-1, couleur profonde (%.2f %.2f %.2f) | ecume : rivage < %.2f m, cretes > %.2f m, deferlement J < %.2f\n",
+							 (int)st->oceanP.shade, st->oceanP.bottomDepth, st->oceanP.bottomColor.x, st->oceanP.bottomColor.y,
+							 st->oceanP.bottomColor.z, o.absorption.x, o.absorption.y, o.absorption.z, o.deepColor.x, o.deepColor.y,
+							 o.deepColor.z, o.shoreDepth, o.crestHeight, o.breakJacobian);
+			}
+			// ── SONDE VETEMENTS SUR MANNEQUIN (2026-09-05), sous NK_MANNEQUIN_PROBE=1 seulement ─────
+			// Le corps (glTF / FBX skinne), ses capsules, ses vetements : Demo3DMannequin.cpp.
+			st->mannequin = Demo3DMannequinInit(meshSys);
+			if (st->mannequin)
+				st->meshCylinderHat = meshSys->GetCylinder();
+			if (const char *probe = std::getenv("NK_VFX_PROBE"); probe && probe[0] == '1') {
+				if (NkVFXSystem *vfx = ctx.renderer->GetVFX()) {
+					NkEmitterDesc d;
+					d.position = {0.f, 1.5f, 0.f};
+					d.ratePerSec = 400.f;
+					d.lifeMin = 1.f; d.lifeMax = 2.f;
+					d.speedMin = 1.5f; d.speedMax = 3.f;
+					d.sizeStart = 0.25f; d.sizeEnd = 0.f;
+					d.colorStart = {1.f, 0.6f, 0.1f, 1.f};
+					d.colorEnd = {1.f, 0.1f, 0.f, 0.f};
+					d.gravity = {0.f, 0.8f, 0.f};
+					d.velocityDir = {0.f, 1.f, 0.f};
+					d.velocityRand = 0.6f;
+					d.maxParticles = 1000;
+					parseWind(std::getenv("NK_VFX_WIND"), d.field);
+					if (const char *pm = std::getenv("NK_VFX_MASS"); pm && pm[0]) d.particleMass = (float32)std::atof(pm); // kg : le vent (newtons) / masse
+					// NK_VFX_TARGET=cpu|gpu : la cible de simulation demandee (defaut AUTO = GPU si compute) (2026-09-05).
+					if (const char *tg = std::getenv("NK_VFX_TARGET"); tg && tg[0])
+						d.simTarget = (tg[0] == 'g') ? NkSimTarget::GPU : (tg[0] == 'c') ? NkSimTarget::CPU : NkSimTarget::AUTO;
+					// NK_VFX_DETERMINISTE=1 : fontaine SANS hasard (direction fixe, vitesse fixe, vie fixe ; la rotation
+					// reste tiree mais le disque de repli est symetrique) -- deux cibles doivent donner la meme image (2026-09-05).
+					if (const char *dm = std::getenv("NK_VFX_DETERMINISTE"); dm && dm[0] == '1') {
+						d.velocityRand = 0.f;
+						d.velocityDir = {0.35f, 1.f, 0.f};
+						d.speedMin = d.speedMax = 2.f;
+						d.lifeMin = d.lifeMax = 1.5f;
+						d.gravity = {0.f, -3.f, 0.f};
+					}
+					// NK_VFX_BLEND=additive|alpha|opaque : le melange declare (2026-09-04).
+					if (const char *bm = std::getenv("NK_VFX_BLEND"); bm && bm[0]) {
+						if (bm[0] == 'a' && bm[1] == 'l')
+							d.blend = NkBlendMode::NK_ALPHA;
+						else if (bm[0] == 'o')
+							d.blend = NkBlendMode::NK_OPAQUE;
+						else if (bm[0] == 'm')
+							d.blend = NkBlendMode::NK_MULTIPLY; // pas de fabrique : le repli doit se DIRE
+						else
+							d.blend = NkBlendMode::NK_ADDITIVE;
+						std::fprintf(stderr, "[VFX PROBE] blend demande : %s -> mode %u\n", bm, (unsigned)d.blend);
+					}
+					// Borne 2 (2026-09-04). NK_VFX_TEXTURE=damier : un damier 2x2 (magenta / vert,
+					// 64x64 texels pour rester net en filtrage lineaire) -- les quatre quadrants
+					// doivent se lire sur la particule. NK_VFX_ONE=1 : UNE particule immobile et
+					// grande, face camera. NK_VFX_COUNT=N : N particules vivantes en regime etabli
+					// (courbe du cout).
+					if (const char *tx = std::getenv("NK_VFX_TEXTURE"); tx && tx[0] == 'd') {
+						if (NkTextureLibrary *tl = ctx.renderer->GetTextures()) {
+							const uint32 S = 64;
+							static uint8 px[64 * 64 * 4];
+							for (uint32 y = 0; y < S; ++y)
+								for (uint32 x = 0; x < S; ++x) {
+									const bool magenta = ((x < S / 2) == (y < S / 2));
+									uint8 *p = &px[(y * S + x) * 4];
+									p[0] = magenta ? 255 : 0;
+									p[1] = magenta ? 0 : 255;
+									p[2] = magenta ? 255 : 0;
+									p[3] = 255;
+								}
+							NkTextureCreateDesc td;
+							td.pixels = px;
+							td.width = S;
+							td.height = S;
+							td.debugName = "VfxProbeDamier";
+							d.texture = tl->Create(td);
+							std::fprintf(stderr, "[VFX PROBE] texture damier 2x2 (64x64) posee sur l'emetteur\n");
+						}
+					}
+					if (const char *one = std::getenv("NK_VFX_ONE"); one && one[0] == '1') {
+						d.ratePerSec = 60.f; // nait des la premiere image ; maxParticles = 1 borne a UNE
+						d.position = {-1.3f, 0.9f, 0.f}; // a gauche et bas : hors du panneau HUD translucide qui recouvrait le quadrant haut-droit
+						d.lifeMin = d.lifeMax = 1000.f;
+						d.speedMin = d.speedMax = 0.f;
+						d.sizeStart = d.sizeEnd = 1.5f;
+						d.gravity = {0.f, 0.f, 0.f};
+						d.velocityRand = 0.f;
+						d.colorStart = d.colorEnd = {1.f, 1.f, 1.f, 1.f};
+						d.maxParticles = 1;
+					}
+					if (const char *cnt = std::getenv("NK_VFX_COUNT"); cnt && cnt[0]) {
+						const uint32 n = (uint32)std::atoi(cnt);
+						d.maxParticles = n;
+						d.ratePerSec = (float32)n; // n vivantes en ~1 s, vie 1-2 s : regime etabli ~ n
+						if (const char *sz = std::getenv("NK_VFX_SIZE"); sz && sz[0]) { // taille bornee : mesurer sans surdessin
+							d.sizeStart = (float32)std::atof(sz);
+							d.sizeEnd = d.sizeStart;
+						}
+						d.lifeMin = 1.f;
+						d.lifeMax = 2.f;
+					}
+					NkEmitterId eid = vfx->CreateEmitter(d);
+					std::fprintf(stderr, "[VFX PROBE] emetteur cree id=%llu (vfx=%p)\n", (unsigned long long)eid.id, (void *)vfx);
+				} else {
+					std::fprintf(stderr, "[VFX PROBE] GetVFX() == nullptr : sous-systeme VFX non alloue\n");
+				}
+			}
 			st->meshSphere = meshSys->GetSphere();
 			st->meshPlane = meshSys->GetPlane();
 			st->meshCube = meshSys->GetCube();
@@ -3902,6 +4463,215 @@ namespace nkentseu {
 			camData.farPlane = 100.f;
 			NkCamera3D cam(camData);
 
+			// ── SONDE VFX : tick (2026-09-03) ────────────────────────────────
+			// Mesure : NkRendererImpl cree le VFX (InitVFX) et le DESSINE (passe
+			// 'VFX' du graphe), mais n'appelle JAMAIS NkVFXSystem::Update(dt, cam).
+			// Ni Noge (NkParticleSystem : « l'animation est faite par le pipeline
+			// NKRenderer » -- faux), ni aucune demo active. aliveCount reste a 0,
+			// la passe saute chaque emetteur : zero particule a l'image, sur les
+			// deux backends. Le legacy Demo06_VFX faisait ce tick lui-meme.
+			// Cette sonde le fait, pour PROUVER que le dessin marche des que la
+			// simulation avance. Sous NK_VFX_PROBE=1 seulement.
+			{
+				static const bool kProbe = [] {
+					const char *e = std::getenv("NK_VFX_PROBE");
+					return e && e[0] == '1';
+				}();
+				static const unsigned maxFramesProbe = [] { // pour le verdict SPH a la derniere image
+					const char *e = std::getenv("NK_MAXFRAMES");
+					return e ? (unsigned)std::atoi(e) : 0u;
+				}();
+				// sonde VEHICULE : plein gaz 1 s apres le depart, braquage doux ensuite
+				if (st->veh && st->vehWorld) {
+					st->vehClock += dt;
+					st->veh->SetInput(0.f, 1.f, 0.f); // ligne droite, plein gaz : on veut la VOIR rouler
+					st->vehWorld->Advance(dt); // la voiture avance DEDANS, au pas fixe
+					if ((ctx.frame % 60u) == 0u) {
+						const auto *b = st->vehWorld->GetBody(st->veh->Chassis());
+						std::fprintf(stderr, "[VEHICULE PROBE] frame %u t=%.2fs : pos=(%.2f, %.2f, %.2f) v=%.2f m/s roues au sol=%d%d%d%d\n",
+									 (unsigned)ctx.frame, st->vehClock, b->position.x, b->position.y, b->position.z, st->veh->ForwardSpeed(),
+									 (int)st->veh->Wheel(0).grounded, (int)st->veh->Wheel(1).grounded,
+									 (int)st->veh->Wheel(2).grounded, (int)st->veh->Wheel(3).grounded);
+					}
+				}
+				// sonde TISSU : pas FIXE 1/60, cout du pas mesure, sommets renvoyes au maillage
+				if (st->cloth && st->clothMesh.IsValid()) {
+					const float32 fdt = 1.f / 60.f;
+					NkChrono chrono;
+					st->cloth->Step(fdt, st->clothTime);
+					const float64 ms = chrono.Elapsed().milliseconds;
+					st->clothTime += fdt;
+					st->clothMsSum += ms;
+					++st->clothMsN;
+					st->clothBuildsSum += st->cloth->Stats().selfBuilds;
+					st->cloth->ComputeNormals(st->clothNormals);
+					const NkVec3f *X = st->cloth->Positions();
+					const NkVec3f *N = st->clothNormals.Data();
+					const uint32 cn = st->cloth->ParticleCount();
+					renderer::NkVertex3D *V = st->clothVerts.Data();
+					for (uint32 i = 0; i < cn; ++i) {
+						V[i].pos = X[i];
+						V[i].normal = N[i];
+					}
+					if (auto *ms3 = ctx.renderer->GetMeshSystem())
+						ms3->UpdateVertices(st->clothMesh, V, cn);
+					if ((ctx.frame % 60u) == 0u) {
+						const auto &cs = st->cloth->Stats();
+						std::fprintf(stderr, "[TISSU PROBE] image %u t=%.2f s : %u particules, pas %.2f ms (moyenne %.2f ms sur %u images), etirement max %.2f %%, penetration %.3f mm, contacts %u, auto-contacts %u (paires %u, listes %.2f/image en moyenne, k=%.2f), dmin %.1f mm, vmax %.2f m/s, sous-pas %u x %u\n",
+									 (unsigned)ctx.frame, st->clothTime, cs.particles, (float32)ms, (float32)(st->clothMsSum / (float64)st->clothMsN),
+									 st->clothMsN, 100.f * cs.maxStretch, 1000.f * cs.maxPenetration, cs.contacts, cs.selfContacts, cs.selfPairs,
+									 (float32)st->clothBuildsSum / (float32)st->clothMsN, st->cloth->params.selfMarginK, 1000.f * cs.minSelfDistance,
+									 cs.maxSpeed, cs.substeps, cs.iterations);
+						const auto &pf = st->cloth->Profile();
+						std::fprintf(stderr, "[TISSU PROFIL] total %.2f ms = prediction %.2f | structurelles %.2f | cisaillement %.2f | flexion %.2f | colliders %.2f | auto : listes %.2f + resolution %.2f | vitesses %.2f | mesure %.2f (flexion %.3g m/N, paires par iteration=%d)\n",
+									 pf.total, pf.predict, pf.structural, pf.shear, pf.bend, pf.colliders, pf.selfBuild, pf.selfSolve, pf.velocities,
+									 pf.measure, st->cloth->params.bendCompliance, (int)st->cloth->params.selfEveryIteration);
+						st->clothMsSum = 0.0;
+						st->clothMsN = 0;
+						st->clothBuildsSum = 0;
+					}
+				}
+				// sonde MANNEQUIN : pas FIXE 1/60, squelette -> peau -> capsules -> vetements, mesures
+				if (st->mannequin)
+					Demo3DMannequinUpdate(st->mannequin, ctx.renderer->GetMeshSystem(), ctx.frame);
+				// sonde SPH : pas FIXE 1/60 (reproductible), verdicts chiffres a la derniere image
+				if (st->sphSolver)
+					if (NkVFXSystem *vfx = ctx.renderer->GetVFX()) {
+						const float32 fdt = 1.f / 60.f;
+						if (!kProbe)
+							vfx->Update(fdt, camData);
+						st->sphTime += fdt;
+						const NkSPHStats &ss = st->sphSolver->Stats();
+						if (ss.densityMean != ss.densityMean || ss.maxSpeed != ss.maxSpeed) st->sphNaN = true;
+						if (ss.maxSpeed > st->sphVmaxAll) st->sphVmaxAll = ss.maxSpeed;
+						if (st->sphTime > 2.f) { st->sphRhoSum += ss.densityMean; ++st->sphRhoN; }
+						const float32 rho0 = st->sphSolver->params.restDensity;
+						if ((ctx.frame % 30u) == 0u || ctx.frame < 8u) // les premieres images une a une : c'est la qu'un demarrage a chaud se juge
+							std::fprintf(stderr, "[SPH PROBE] frame %u t=%.2fs : vivantes %u  rho/rho0 moy %.3f (min %.3f max %.3f)  vmax %.2f m/s  bornees %u  sous-pas %u (visq %u)  front x=%.3f  y[%.3f..%.3f]  sol rho/rho0 %.3f  fantomes %u  agglutinees %u  iter dens %.1f / div %.1f  resid dens %.3f %% / div %.3f %%  bornes-iter %u  chaud %u (resid brut avant %.2f %% apres %.2f %%, min %.3f)  sync %u  %.2f ms\n",
+										 (unsigned)ctx.frame, st->sphTime, ss.alive, ss.densityMean / rho0, ss.densityMin / rho0, ss.densityMax / rho0, ss.maxSpeed,
+										 ss.speedClamped, ss.subSteps, ss.subStepsViscous, ss.maxX, ss.minY, ss.maxY, ss.densityFloorMean / rho0, ss.boundary, ss.clumped, ss.iterDensity, ss.iterDivergence, ss.residualDensity * 100.f, ss.residualDivergence * 100.f, ss.iterCapHits, ss.warmStarts, ss.warmResidualBefore * 100.f, ss.warmResidualAfter * 100.f, ss.warmMinRatio, ss.syncs, ss.ms);
+						// PROFIL GPU PAR PASSE (NK_SPH_PROFILE=1) : ms GPU par sorte de noyau, attente CPU des relectures a part.
+						if (ss.gpuProfile && (ctx.frame % 30u) == 0u) {
+							static const char *kPass[16] = {"naiss", "count", "fill", "scatter", "dens", "kappa", "correct", "chaud", "memo", "nonp", "apply", "reduce", "integ", "stats", "voisin", "?"};
+							float32 tot = 0.f;
+							std::fprintf(stderr, "[SPH PROFIL] frame %u :", (unsigned)ctx.frame);
+							for (uint32 k = 0; k < 15u; ++k) {
+								if (ss.gpuPassN[k] == 0) continue;
+								tot += ss.gpuPassMs[k];
+								std::fprintf(stderr, " %s %.2f (%u)", kPass[k], ss.gpuPassMs[k], ss.gpuPassN[k]);
+							}
+							std::fprintf(stderr, " | GPU total %.2f ms | attente CPU des relectures %.2f ms | image CPU %.2f ms\n", tot, ss.cpuWaitMs, ss.ms);
+						}
+						// RUPTURE DE BARRAGE -- critere adimensionnel de Martin & Moyce (1952), Part IV,
+						// Phil. Trans. R. Soc. A 244(882) 312-324. Table telle que reproduite dans Lethe
+						// (chaos-polymtl/lethe, examples/multiphysics/dam-break/dam-break-2d.py, colonne
+						// 3,5 x 7 soit n^2 = hauteur/largeur = 2) : Z = x/a en fonction de T = t sqrt(2 g / a).
+						// Martin & Moyce adimensionnent par T = t sqrt(n^2 g / a) ; pour NOTRE colonne carree
+						// (n^2 = 1) cela donne T = t sqrt(g / a). La table n^2 = 1 n'a pas ete trouvee en
+						// source ouverte (Cebron & Sigrist, arXiv:1002.3213, fig. 4, ne donne qu'une courbe) :
+						// on applique la table n^2 = 2 sous l'adimensionnement de M&M, et on le DIT.
+						// Lethe ajoute +0,175 a T de sa simulation (retard de la vanne dans l'experience) :
+						// les deux lectures (sans et avec ce decalage) sont imprimees.
+						// Le front mesure est le front DENSE (rho >= 0,5 rho0), pas l'eclat isole devant.
+						// Ritter (2 sqrt(g h0) t, vitesse asymptotique, lit sec) etait un faux critere.
+						if (st->sphScene == 0) {
+							static const float32 kT[14] = {0.f, 0.41f, 0.84f, 1.19f, 1.43f, 1.63f, 1.82f, 1.97f, 2.2f, 2.32f, 2.5f, 2.64f, 2.82f, 2.96f};
+							static const float32 kZ[14] = {1.f, 1.11f, 1.23f, 1.44f, 1.67f, 1.89f, 2.11f, 2.33f, 2.56f, 2.78f, 3.f, 3.22f, 3.44f, 3.67f};
+							// CIBLE SPH 2D (Cébron & Sigrist, arXiv:1002.3213, fig. 4, colonne CARRÉE, T = t sqrt(g/H)) :
+							// courbe « Numerical [9] » (Colagrossi & Landrini 2003) / SPHYSICS2, LUE À L'ŒIL sur la figure
+							// (± 0,05 sur Z) -- pas une table : le dire. C'est la cible à 15 % pour un SPH de même famille.
+							static const float32 kTc[6] = {0.f, 0.5f, 1.0f, 1.5f, 2.0f, 2.3f};
+							static const float32 kZc[6] = {1.f, 1.15f, 1.55f, 2.2f, 2.95f, 3.5f};
+							auto zCebron = [&](float32 Tq) -> float32 {
+								if (Tq < 0.f || Tq > kTc[5]) return -1.f;
+								for (int q = 1; q < 6; ++q)
+									if (Tq <= kTc[q]) return kZc[q - 1] + (kZc[q] - kZc[q - 1]) * (Tq - kTc[q - 1]) / (kTc[q] - kTc[q - 1]);
+								return kZc[5];
+							};
+							auto zTable = [&](float32 Tq) -> float32 { // interpolation lineaire, -1 hors table
+								if (Tq < 0.f || Tq > kT[13]) return -1.f;
+								for (int q = 1; q < 14; ++q)
+									if (Tq <= kT[q]) return kZ[q - 1] + (kZ[q] - kZ[q - 1]) * (Tq - kT[q - 1]) / (kT[q] - kT[q - 1]);
+								return kZ[13];
+							};
+							const float32 n2 = st->sphN2;		   // hauteur / largeur de la colonne (1 = scene carree ; 2 = geometrie de la table)
+							const float32 a = st->sphH0 / n2; // largeur de la colonne
+							const float32 Tad = st->sphTime * sqrtf(n2 * 9.8f / a);
+							const float32 Zmes = 1.f + (ss.frontDenseX - st->sphX0) / a;
+							const float32 Zexp = zTable(Tad), ZexpD = zTable(Tad + 0.175f);
+							const bool wall = ss.frontDenseX >= st->sphSolver->params.boundsMax.x - 0.5f * st->sphSolver->params.h;
+							if ((ctx.frame % 3u) == 0u && Zexp > 0.f && !wall && !st->sphMMDone) {
+								const float32 Zc = (n2 == 1.f) ? zCebron(Tad) : -1.f; // n^2 = 1 seulement : T = t sqrt(g/a), comme la figure
+								const float32 ec = Zc > 0.f ? fabsf((Zmes - 1.f) - (Zc - 1.f)) / (Zc - 1.f > 1e-3f ? Zc - 1.f : 1e-3f) : -1.f;
+								const float32 e0 = fabsf((Zmes - 1.f) - (Zexp - 1.f)) / (Zexp - 1.f > 1e-3f ? Zexp - 1.f : 1e-3f);
+								const float32 e1 = ZexpD > 0.f ? fabsf((Zmes - 1.f) - (ZexpD - 1.f)) / (ZexpD - 1.f) : -1.f;
+								std::fprintf(stderr, "[SPH TEMOIN] dam break M&M t=%.3fs T=%.2f : Z mesure %.3f (front dense %.3f m, eclat %.3f m) | table Z=%.3f ecart %.0f %% | avec +0,175 : Z=%.3f ecart %.0f %% | Cebron 2D Z=%.3f ecart %.0f %%\n",
+											 st->sphTime, Tad, Zmes, ss.frontDenseX - st->sphX0, ss.maxX - st->sphX0, Zexp, e0 * 100.f, ZexpD, e1 * 100.f, Zc, ec * 100.f);
+								if (Tad >= 0.6f) { // en dessous, (Zexp - 1) est trop petit pour qu'un ecart relatif ait un sens
+									st->sphMMSum += e0; st->sphMMSumD += (e1 >= 0.f ? e1 : e0); ++st->sphMMN; if (ec >= 0.f) { st->sphCSum += ec; if (ec > st->sphCMax) st->sphCMax = ec; }
+									if (e0 > st->sphMMMax) st->sphMMMax = e0;
+								}
+							}
+							if ((wall || Zexp < 0.f) && !st->sphMMDone && st->sphMMN > 0) {
+								st->sphMMDone = true;
+								const float32 moy = st->sphMMSum / (float32)st->sphMMN, moyD = st->sphMMSumD / (float32)st->sphMMN;
+								std::fprintf(stderr, "[SPH TEMOIN] dam break M&M (n2=%g%s), verdict sur %u points (T >= 0,6, jusqu'au mur) : ecart moyen %.0f %% (max %.0f %%) ; avec +0,175 : %.0f %% -> %s\n",
+											 n2, n2 == 2.f ? ", la geometrie de la table" : ", table n2=2 appliquee sous l'adimensionnement de M&M", st->sphMMN, moy * 100.f, st->sphMMMax * 100.f, moyD * 100.f, (moy <= 0.30f || moyD <= 0.30f) ? "OK (+-30 %, experience 3D avec frottement : tolerance dite)" : "ECHEC (>30 %)"); // 30 % (lot du 04/09) : M&M est une EXPERIENCE 3D avec frottement ; la comparaison n'est legitime que sur sa geometrie (NK_SPH_N2=2, mesure : 9 % brut)
+											const float32 moyC = st->sphCSum / (float32)st->sphMMN;
+											if (n2 == 1.f)
+												std::fprintf(stderr, "[SPH TEMOIN] dam break Cebron 2D (cible SPH, lue fig. 4) : ecart moyen %.0f %% (max %.0f %%) sur Z-1 -> %s\n", moyC * 100.f, st->sphCMax * 100.f, moyC <= 0.15f ? "OK (+-15 %)" : "ECHEC (>15 %)");
+											else
+												std::fprintf(stderr, "[SPH TEMOIN] dam break Cebron 2D : non compare (la figure est une colonne carree, n2=%g ici)\n", n2);
+							}
+						}
+						if (maxFramesProbe && ctx.frame + 1 == maxFramesProbe) {
+							const float32 rhoMoy = st->sphRhoN ? st->sphRhoSum / (float32)st->sphRhoN : 0.f;
+							const bool okN = ss.alive == st->sphCount;
+							const bool okRho = fabsf(rhoMoy / rho0 - 1.f) <= 0.05f;
+							const bool okStab = !st->sphNaN && st->sphVmaxAll < st->sphSolver->params.maxSpeed;
+							std::fprintf(stderr, "[SPH TEMOIN] conservation : vivantes %u / %u, masse %.4f kg -> %s\n", ss.alive, st->sphCount,
+										 ss.alive * st->sphSolver->params.Mass(), okN ? "OK" : "ECHEC");
+							if (st->sphScene == 1) {
+								std::fprintf(stderr, "[SPH TEMOIN] repos : rho/rho0 moyen apres 2 s = %.3f (surface y=%.3f) -> %s\n", rhoMoy / rho0, ss.maxY,
+											 okRho ? "OK (+-5 %)" : "ECHEC (hors +-5 %)");
+								const bool okSol = fabsf(ss.densityFloorMean / rho0 - 1.f) <= 0.05f;
+								std::fprintf(stderr, "[SPH TEMOIN] repos, couche du sol : rho/rho0 = %.3f -> %s\n", ss.densityFloorMean / rho0, okSol ? "OK (+-5 %)" : "ECHEC (hors +-5 %)");
+								std::fprintf(stderr, "[SPH TEMOIN] repos calme : vmax a la fin = %.3f m/s -> %s\n", ss.maxSpeed, ss.maxSpeed < 0.1f ? "OK (< 0,1)" : "ECHEC (>= 0,1)");
+							}
+							std::fprintf(stderr, "[SPH TEMOIN] stabilite : %.2f s simulees, vmax global %.2f m/s, NaN=%d -> %s\n", st->sphTime, st->sphVmaxAll,
+										 (int)st->sphNaN, okStab ? "OK" : "ECHEC");
+						}
+					}
+				if (kProbe)
+					if (NkVFXSystem *vfx = ctx.renderer->GetVFX()) {
+						// NK_FIXED_DT=1 : pas fixe 1/60 s (2026-09-05) -- deux cibles CPU/GPU comparees au MEME instant
+						// physique ; au dt reel, deux courses ne sont jamais a la meme image (mesure : 225 contre 144 i/s).
+						static const bool kFixedDt = [] {
+							const char *e = std::getenv("NK_FIXED_DT");
+							return e && e[0] == '1';
+						}();
+						vfx->Update(kFixedDt ? (1.f / 60.f) : dt, camData);
+						// sonde VFX : compte -- toutes les 30 images
+						if ((ctx.frame % 30u) == 0u)
+							std::fprintf(stderr, "[VFX PROBE] frame %u : dt=%g total particules vivantes=%u  cam=(%g,%g,%g)->(%g,%g,%g)\n",
+										 (unsigned)ctx.frame, dt, (unsigned)vfx->GetActiveParticleCount(),
+										 camData.position.x, camData.position.y, camData.position.z,
+										 camData.target.x, camData.target.y, camData.target.z);
+						if ((ctx.frame % 30u) == 0u)
+							std::fprintf(stderr, "[VFX PROBE] frame %u : GPU %s ms  CPU %.3f ms  (chrono GPU %s)\n", (unsigned)ctx.frame,
+										ctx.renderer->GetStats().gpuTimeValid ? NkFormatMs(ctx.renderer->GetStats().gpuTimeMs) : "--", ctx.renderer->GetStats().cpuTimeMs,
+										ctx.renderer->GetStats().gpuTimeValid ? "mesure" : "ABSENT");
+						if ((ctx.frame % 30u) == 0u) {
+							const NkVFXSystem::NkVFXProfile &pr = vfx->Profile();
+							const NkRendererStats &st = ctx.renderer->GetStats();
+							std::fprintf(stderr,
+										 "[VFX PROFILE] frame %u : CPU naissance %.3f  integration %.3f  sommets %.3f  envoi %.3f (%u Ko)  commandes %.3f ms | GPU passe VFX %s ms | vivantes %u, nees %u\n",
+										 (unsigned)ctx.frame, pr.spawnMs, pr.simMs, pr.buildMs, pr.uploadMs, pr.uploadBytes / 1024u, pr.drawMs,
+										 st.gpuVfxValid ? NkFormatMs(st.gpuVfxMs) : "--", pr.alive, pr.spawned);
+						}
+					}
+			}
+
 			const float32 wheelRaw = (float32)st->wheelAccum;
 			st->wheelAccum = 0.0;
 
@@ -4263,7 +5033,223 @@ namespace nkentseu {
 				dc.metallic = 0.f;
 				dc.roughness = 0.92f;
 				r3d->Submit(dc);
+				// sonde VEHICULE : chassis (cube) + 4 roues (spheres), transformes du monde physique
+				if (st->veh && st->vehWorld) {
+					const auto *b = st->vehWorld->GetBody(st->veh->Chassis());
+					NkDrawCall3D vc;
+					vc.mesh = st->meshCube;
+					vc.transform = NkMat4f::TRS(b->position, b->orientation, {1.8f, 1.0f, 4.4f});
+					vc.aabb = {b->position - NkVec3f{3.f, 3.f, 3.f}, b->position + NkVec3f{3.f, 3.f, 3.f}};
+					vc.tint = {0.85f, 0.15f, 0.1f};
+					vc.metallic = 0.6f;
+					vc.roughness = 0.35f;
+					r3d->Submit(vc);
+					for (uint32 wi = 0; wi < st->veh->WheelCount(); ++wi) {
+						const auto &w = st->veh->Wheel(wi);
+						NkDrawCall3D wc;
+						wc.mesh = st->meshSphere;
+						const float32 rr = st->veh->Tuning().wheelRadius;
+						wc.transform = NkMat4f::TRS(w.worldPos, b->orientation, {rr * 2.f, rr * 2.f, rr * 2.f});
+						wc.aabb = {w.worldPos - NkVec3f{1.f, 1.f, 1.f}, w.worldPos + NkVec3f{1.f, 1.f, 1.f}};
+						wc.tint = w.grounded ? NkVec3f{0.1f, 0.1f, 0.1f} : NkVec3f{0.9f, 0.9f, 0.1f};
+						wc.metallic = 0.f;
+						wc.roughness = 0.9f;
+						r3d->Submit(wc);
+					}
+				}
 			}
+
+			// ── SONDE OCEAN : la grille est reconstruite POUR CETTE camera, la houle
+			//    deplace ses sommets, et le maillage dynamique part au dessin.
+			//    C'est ICI et pas dans la phase d'update : la grille projetee depend de
+			//    la camera de CETTE image, et la camera n'est definitive qu'apres les
+			//    controleurs (editorCam.Apply ci-dessus). La construire plus tot ferait
+			//    suivre l'eau avec une image de retard -- ce qu'on ne verrait qu'en
+			//    mouvement, donc jamais sur une capture.
+			if (st->ocean && st->oceanMesh.IsValid()) {
+				const float32 fdt = 1.f / 60.f; // pas FIXE : deux courses donnent la MEME image
+				st->oceanP.time = st->oceanTime;
+				NkChrono chrono;
+				uint32 manquants = 0u;
+				const uint32 nv = vfx::NkWaterBuildVertices(cam.GetProj(), cam.GetView(), cam.GetPosition(), st->oceanP,
+															st->oceanVerts.Data(), (uint32)st->oceanVerts.Size(), &manquants,
+															st->oceanJac.Data());
+				const float64 msO = chrono.Elapsed().milliseconds;
+				st->oceanMsSum += msO;
+				++st->oceanMsN;
+				st->oceanTime += fdt;
+				if (manquants > st->oceanManquants)
+					st->oceanManquants = manquants;
+				if (nv == 0u) {
+					// LE REFUS SE DIT. Zero sommet a deux causes que le producteur separe :
+					// la grille n'est pas visible (hors du champ, hors domaine sans camera de
+					// portee) ou elle a des TROUS -- `manquants` tranche.
+					++st->oceanRefus;
+					if (st->oceanRefus == 1u)
+						std::fprintf(stderr, "[OCEAN PROBE] image %u : la grille REFUSE (sommets manquants %u) -- rien n'est dessine\n",
+									 (unsigned)ctx.frame, manquants);
+				} else {
+					++st->oceanFrames;
+					NkVec3f omin{1e30f, 1e30f, 1e30f}, omax{-1e30f, -1e30f, -1e30f};
+					float32 ecartImage = 0.f;
+					for (uint32 i = 0; i < nv; ++i) {
+						const NkVec3f &p = st->oceanVerts[i].pos;
+						omin.x = NkMin(omin.x, p.x); omin.y = NkMin(omin.y, p.y); omin.z = NkMin(omin.z, p.z);
+						omax.x = NkMax(omax.x, p.x); omax.y = NkMax(omax.y, p.y); omax.z = NkMax(omax.z, p.z);
+						const float32 d = p.y - st->oceanP.grid.baseY;
+						const float32 ad = d < 0.f ? -d : d;
+						if (ad > ecartImage)
+							ecartImage = ad;
+					}
+					if (ecartImage > st->oceanEcartMax)
+						st->oceanEcartMax = ecartImage;
+					const float64 yc = (float64)st->oceanVerts[st->oceanSlotCentre < nv ? st->oceanSlotCentre : 0u].pos.y;
+					st->oceanYSum += yc;
+					st->oceanYSum2 += yc * yc;
+					if (auto *ms3 = ctx.renderer->GetMeshSystem())
+						ms3->UpdateVertices(st->oceanMesh, st->oceanVerts.Data(), nv);
+					NkDrawCall3D oc;
+					oc.mesh = st->oceanMesh;
+					oc.aabb = {omin, omax};
+					// NK_OCEAN_SHADER=1 : le pipeline du gabarit REMPLACE le PBR pour ce
+					// seul drawcall. Sans la variable, `oceanMat` reste invalide et la
+					// ligne est un non-evenement : l'image d'aujourd'hui est gardee.
+					oc.material = st->oceanMat;
+					// ⚠️ LA TEINTE DEVIENT BLANCHE QUAND LA COULEUR PAR SOMMET EXISTE, et
+					// ce n'est pas un gout : le nuanceur PBR fait `vColor = aColor * tint`
+					// puis `albedo = texture * vColor` (pbr.vert / pbr.frag). Garder la
+					// teinte petrole MULTIPLIERAIT Beer-Lambert par elle -- on peindrait
+					// deux fois la meme intention, et la couleur mesuree ne serait plus
+					// celle qui arrive a l'ecran. Sans couleur par sommet, on garde
+					// exactement la teinte de Q18.
+					oc.tint = st->oceanShade ? NkVec3f{1.f, 1.f, 1.f} : NkVec3f{0.05f, 0.28f, 0.42f};
+					oc.metallic = 0.f;
+					oc.roughness = st->oceanRough; // NK_OCEAN_ROUGH : instrument de rugosite
+					oc.castShadow = false;
+					r3d->Submit(oc);
+					// ── RELEVE DE COULEUR (une seule image : l'image 60) ─────────────
+					// (c1) la couleur varie-t-elle avec la geometrie, et dans quel sens ?
+					// (c2) l'ecume est-elle sur les CRETES, ou repartie au hasard ?
+					// Tout est recalcule DEPUIS les memes fonctions que le producteur, et
+					// compare a ce qui est REELLEMENT empaquete dans le sommet : une sonde
+					// qui recopierait la composition finirait par en mesurer une autre.
+					if (ctx.frame == 60u && st->ocean) {
+						const math::NkWaterOptics &opt = st->oceanP.optics;
+						// Les memes optiques SANS la source rivage ni la source cretes :
+						// il ne reste que le DEFERLEMENT (le jacobien). C'est la source
+						// que le negatif de (c2) nomme, et NkWaterFoam l'isole tout seul
+						// (ses deux autres branches sont gardees par `> 1e-6f`).
+						math::NkWaterOptics optJ = opt;
+						optJ.shoreDepth = 0.f;
+						optJ.crestHeight = 0.f;
+						const float32 baseY = st->oceanP.grid.baseY;
+						const uint32 c0 = st->oceanVerts[0].color;
+						uint32 differents = 0u, ecumeux = 0u, ecumeuxJ = 0u, desaccords = 0u;
+						float64 sL = 0.0, sL2 = 0.0, sY = 0.0, sY2 = 0.0, sLY = 0.0;	  // (c1b) couleur FINALE
+						float64 sS = 0.0, sS2 = 0.0, sSY = 0.0;						  // (c1a) Beer-Lambert SEUL
+						float64 hEcume = 0.0, hAutres = 0.0;
+						float32 lMin = 1e30f, lMax = -1e30f, jMin = 1e30f, jMax = -1e30f, fMax = 0.f;
+						for (uint32 i = 0; i < nv; ++i) {
+							const uint32 col = st->oceanVerts[i].color;
+							if (col != c0)
+								++differents;
+							// Depaquetage : l'octet de poids FAIBLE est le rouge (cf.
+							// NkWaterPackColor, miroir de NkMeshSystem.cpp:356).
+							const float32 r = (float32)(col & 0xFFu) / 255.f;
+							const float32 g2 = (float32)((col >> 8) & 0xFFu) / 255.f;
+							const float32 b2 = (float32)((col >> 16) & 0xFFu) / 255.f;
+							const float32 lum = 0.2126f * r + 0.7152f * g2 + 0.0722f * b2;
+							const float32 waveY = st->oceanVerts[i].pos.y - baseY;
+							const float32 jac = st->oceanJac[i];
+							const float32 depth = math::NkWaterDepth(baseY + waveY, baseY - st->oceanP.bottomDepth);
+							const NkVec3f eau = math::NkWaterShade(opt, st->oceanP.bottomColor, depth);
+							const float32 lumShade = 0.2126f * eau.x + 0.7152f * eau.y + 0.0722f * eau.z;
+							const float32 f = math::NkWaterFoam(opt, depth, waveY, jac);
+							const float32 fJ = math::NkWaterFoam(optJ, depth, waveY, jac);
+							// CONTROLE DE COHERENCE : la couleur que je MESURE est-elle
+							// celle qui est PEINTE ? Tolerance 2/255, le quantum de
+							// l'empaquetage.
+							const uint32 attendu = vfx::NkWaterPackColor(vfx::NkWaterSurfaceColor(st->oceanP, waveY, jac));
+							if (st->oceanShade) {
+								const int32 dr = (int32)(attendu & 0xFFu) - (int32)(col & 0xFFu);
+								const int32 dg = (int32)((attendu >> 8) & 0xFFu) - (int32)((col >> 8) & 0xFFu);
+								const int32 db = (int32)((attendu >> 16) & 0xFFu) - (int32)((col >> 16) & 0xFFu);
+								if (dr > 2 || dr < -2 || dg > 2 || dg < -2 || db > 2 || db < -2)
+									++desaccords;
+							}
+							if (f > 0.f) { ++ecumeux; hEcume += waveY; } else { hAutres += waveY; }
+							if (fJ > 0.f)
+								++ecumeuxJ;
+							if (f > fMax) fMax = f;
+							if (lum < lMin) lMin = lum;
+							if (lum > lMax) lMax = lum;
+							if (jac < jMin) jMin = jac;
+							if (jac > jMax) jMax = jac;
+							sL += lum; sL2 += (float64)lum * lum;
+							sS += lumShade; sS2 += (float64)lumShade * lumShade;
+							sY += waveY; sY2 += (float64)waveY * waveY;
+							sLY += (float64)lum * waveY;
+							sSY += (float64)lumShade * waveY;
+						}
+						const float64 n = (float64)nv;
+						auto correl = [n](float64 sa, float64 sa2, float64 sb, float64 sb2, float64 sab) -> float64 {
+							const float64 va = sa2 / n - (sa / n) * (sa / n);
+							const float64 vb = sb2 / n - (sb / n) * (sb / n);
+							if (va <= 0.0 || vb <= 0.0)
+								return 0.0; // une des deux ne varie pas : il n'y a pas de correlation a rendre
+							return (sab / n - (sa / n) * (sb / n)) / NkSqrt((float32)(va * vb));
+						};
+						const float64 ecartL = NkSqrt((float32)NkMax(0.0, sL2 / n - (sL / n) * (sL / n)));
+						std::fprintf(stderr, "[OCEAN COULEUR] image 60, %u sommets | couleurs differentes du sommet 0 : %u | clarte moyenne %.4f, ecart-type %.6f, min %.4f max %.4f | desaccords peinture/mesure : %u\n",
+									 nv, differents, (float32)(sL / n), (float32)ecartL, lMin, lMax, desaccords);
+						std::fprintf(stderr, "[OCEAN COULEUR] (c1a) correlation (y - plan) x clarte de Beer-Lambert SEUL : %+.4f | (c1b) meme correlation sur la couleur FINALE (ecume comprise) : %+.4f\n",
+									 (float32)correl(sY, sY2, sS, sS2, sSY), (float32)correl(sY, sY2, sL, sL2, sLY));
+						std::fprintf(stderr, "[OCEAN COULEUR] (c2) ecume : %u sommets ecumeux sur %u (max %.3f) | hauteur moyenne des ecumeux %+.4f m contre %+.4f m pour les autres | source DEFERLEMENT seule : %u sommets | jacobien [%.4f, %.4f]\n",
+									 ecumeux, nv, fMax, (float32)(ecumeux ? hEcume / (float64)ecumeux : 0.0),
+									 (float32)((nv - ecumeux) ? hAutres / (float64)(nv - ecumeux) : 0.0), ecumeuxJ, jMin, jMax);
+					}
+					if ((ctx.frame % 30u) == 0u)
+						std::fprintf(stderr, "[OCEAN PROBE] image %u t=%.2f s : %u sommets, ecart max au plan %.4f m (amplitudes demandees %.3f m), grille %.3f ms/image (moyenne %.3f sur %u), empreinte [%.1f %.1f]x[%.1f %.1f] m\n",
+									 (unsigned)ctx.frame, st->oceanTime, nv, ecartImage, st->oceanAmpDemandee, (float32)msO,
+									 (float32)(st->oceanMsSum / (float64)st->oceanMsN), st->oceanMsN, omin.x, omax.x, omin.z, omax.z);
+				}
+			}
+
+			// sonde TISSU : la nappe (maillage dynamique, orange Rihen) et la sphere (petrole Rihen)
+			if (st->cloth && st->clothMesh.IsValid()) {
+				const NkVec3f *X = st->cloth->Positions();
+				NkVec3f amin{1e30f, 1e30f, 1e30f}, amax{-1e30f, -1e30f, -1e30f};
+				for (uint32 i = 0; i < st->cloth->ParticleCount(); ++i) {
+					amin.x = NkMin(amin.x, X[i].x); amin.y = NkMin(amin.y, X[i].y); amin.z = NkMin(amin.z, X[i].z);
+					amax.x = NkMax(amax.x, X[i].x); amax.y = NkMax(amax.y, X[i].y); amax.z = NkMax(amax.z, X[i].z);
+				}
+				NkDrawCall3D tc;
+				tc.mesh = st->clothMesh;
+				tc.aabb = {amin - NkVec3f{0.05f, 0.05f, 0.05f}, amax + NkVec3f{0.05f, 0.05f, 0.05f}};
+				tc.tint = {0.97f, 0.60f, 0.16f}; // orange Rihen #F79A28
+				tc.metallic = 0.f;
+				tc.roughness = 0.9f;
+				r3d->Submit(tc);
+				NkDrawCall3D sc;
+				sc.mesh = st->meshSphere;
+				const float32 R = st->clothSphereR;
+				sc.transform = NkMat4f::TRS(st->clothSphereC, NkQuatf::Identity(), {2.f * R, 2.f * R, 2.f * R});
+				sc.aabb = {st->clothSphereC - NkVec3f{R, R, R}, st->clothSphereC + NkVec3f{R, R, R}};
+				sc.tint = {0.04f, 0.33f, 0.37f}; // petrole Rihen #0A555F
+				sc.metallic = 0.f;
+				sc.roughness = 0.6f;
+				r3d->Submit(sc);
+				static bool sDit = false;
+				if (!sDit) {
+					sDit = true;
+					std::fprintf(stderr, "[TISSU PROBE] dessin soumis : nappe aabb [%.2f %.2f %.2f]-[%.2f %.2f %.2f], sphere en (%.2f %.2f %.2f)\n",
+								 amin.x, amin.y, amin.z, amax.x, amax.y, amax.z, st->clothSphereC.x, st->clothSphereC.y, st->clothSphereC.z);
+				}
+			}
+
+			// sonde MANNEQUIN : corps (petrole), vetements, chapeau
+			if (st->mannequin)
+				Demo3DMannequinDraw(st->mannequin, r3d, st->meshCylinderHat);
 
 			// ── NK_GI_TEST : le mur rouge, RENDU à la position qui sert au GI ────
 			// Même AABB que l'occluder injecté (source unique kGIWallMin/Max +
@@ -6892,6 +7878,20 @@ namespace nkentseu {
 		}
 
 		void Demo3D_Shutdown(DemoCtx &ctx) {
+			// sonde MANNEQUIN : le bilan (maximums sur la course) avant de rendre l etat
+			if (auto *stm = static_cast<Demo3DState *>(ctx.userData))
+				Demo3DMannequinReport(stm->mannequin);
+			// sonde OCEAN : le bilan de la course. La VARIANCE VERTICALE du sommet
+			// central est le verdict de (o2) « ca bouge VRAIMENT » ; a amplitude nulle
+			// elle vaut zero AU BIT, et l'ecart au plan de repos aussi.
+			if (auto *sto = static_cast<Demo3DState *>(ctx.userData); sto && sto->ocean) {
+				const float64 nF = (float64)(sto->oceanFrames ? sto->oceanFrames : 1u);
+				const float64 moy = sto->oceanYSum / nF;
+				const float64 var = sto->oceanYSum2 / nF - moy * moy;
+				std::fprintf(stderr, "[OCEAN PROBE] BILAN : %u images dessinees, %u refus, pire manquants %u | ecart max |y - plan| = %.9f m (amplitudes demandees %.3f m) | sommet central : moyenne %.6f m, variance verticale %.9e m2 | %.3f ms/image sur %u images\n",
+							 sto->oceanFrames, sto->oceanRefus, sto->oceanManquants, sto->oceanEcartMax, sto->oceanAmpDemandee,
+							 moy, var, (float32)(sto->oceanMsN ? sto->oceanMsSum / (float64)sto->oceanMsN : 0.0), sto->oceanMsN);
+			}
 			auto *st = (Demo3DState *)ctx.userData;
 			if (st && st->maskedMat)
 				NkMaterial::Destroy(st->maskedMat);

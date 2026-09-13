@@ -5,7 +5,7 @@
 
 #include "NKFont/NkFont.h"
 #include "NKFont/Core/NkFontParser.h"
-#include "NKFont/NkEarcut.h"
+#include "NKMath/NkEarcut.h"
 #include <math.h>
 
 #include "NKLogger/NkLog.h"

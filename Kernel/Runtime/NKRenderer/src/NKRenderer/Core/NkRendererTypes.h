@@ -1,4 +1,5 @@
 #pragma once
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // =============================================================================
 // NkRendererTypes.h  — NKRenderer v5.0  (Core/)
 //
@@ -166,6 +167,19 @@ namespace nkentseu {
 				float32 size;
 				float32 rotation;
 		};
+
+		// Enregistrement PAR PARTICULE (2026-09-04) : le quad est expanse sur le GPU
+		// par instanciation (le coin vient d'un tampon statique de six sommets), le
+		// CPU n'ecrit plus six NkVertexParticle de 32 o mais UN enregistrement de 24 o.
+		// Ordre des champs = ordre des attributs du binding par instance de
+		// NkVFXSystem (POSITION 0, TEXCOORD1 12, COLOR 16, TEXCOORD2 20).
+		struct NkParticleInstance {
+				NkVec3f pos;	  // 0  : centre monde
+				float32 size;	  // 12 : cote du billboard (m)
+				uint32 color;	  // 16 : RGBA8
+				float32 rotation; // 20 : radians
+		};
+		static_assert(sizeof(NkParticleInstance) == 24, "NkParticleInstance : 24 octets, le layout du VFX en depend");
 
 		// =====================================================================
 		// SECTION D — Geometrie (AABB, sphere, plan, frustum)
@@ -579,6 +593,25 @@ namespace nkentseu {
 				// reglage serait muet — blanc par defaut, l'appelant peut la teinter
 				// (typiquement avec l'albedo).
 				NkVec3f subsurfaceColor = {1.f, 1.f, 1.f};
+				// MOUILLAGE (2026-09-06) — meme motif que clearcoat le 09/08 : la
+				// formule existait deja cote CPU (`math::NkApplyWetness`, dans
+				// NKMath/NkWetnessMap.h) et RIEN ne l'alimentait par drawcall, donc
+				// rien ne la rendait. Reference : Sebastien Lagarde, « Water drop 3b
+				// — Physically based wet surfaces » (2013). L'effet entier tient en :
+				//   albedo   x= 1 - 0.8 * (wetness * wetPorosity)
+				//   rugosite x= 1 - 0.4 * (wetness * wetPorosity)
+				//   F0        -> glisse vers 0.0206 (eau, n = 1.33), selon
+				//                wetness * waterLayer
+				// DEFAUTS : la surface est SECHE, et a sec la formule est l'IDENTITE
+				// EXACTE — un drawcall qui ignore ces champs rend exactement l'image
+				// d'avant. C'est le sens d'erreur choisi.
+				float32 wetness = 0.f;	   // [0,1] saturation de la surface
+				float32 wetPorosity = 1.f; // [0,1] 0 = verre poli, 1 = sable/beton
+				// Hors Lagarde, et il le dit lui-meme : il juge le changement d'indice
+				// de refraction « pas assez visible en jeu » et ne pose pas de F0
+				// d'eau. Ce champ est donc a 0 par defaut (Lagarde pur) ; le monter
+				// ajoute une pellicule d'eau franche (flaque, ruissellement).
+				float32 waterLayer = 0.f; // [0,1]
 				NkAABB aabb; // world-space, pour culling
 				bool castShadow = true;
 				bool receiveShadow = true;
@@ -667,6 +700,9 @@ namespace nkentseu {
 				uint32 lightsActive = 0; // lights affecting visible geometry
 				uint32 shadowCasters = 0;
 				float32 gpuTimeMs = 0.f;
+				bool gpuTimeValid = false; // faux tant qu'aucune requete GPU n'a repondu : le HUD dit « -- », pas 0.00 (2026-09-04)
+				float32 gpuVfxMs = 0.f; // la seule passe VFX, entre ses deux marqueurs (chrono 1)
+				bool gpuVfxValid = false;
 				float32 cpuTimeMs = 0.f;
 				float32 cullTimeMs = 0.f;
 				float32 shadowTimeMs = 0.f;

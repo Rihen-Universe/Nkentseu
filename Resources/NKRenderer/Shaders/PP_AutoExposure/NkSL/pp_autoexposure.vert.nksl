@@ -13,6 +13,16 @@
 
 layout(push_constant) uniform PC {
     vec4 p0;   // (dtSeconds, adaptSpeed, minLuma, maxLuma)
+    // p1 n'est LUE QUE par le fragment. Elle est neanmoins declaree ici, et
+    // elle DOIT l'etre : GLSL ES 3.00 (WebGL2) refuse au link deux tailles de
+    // tableau differentes pour le meme uniforme entre deux etages --
+    // « Array sizes of uniform '_PushConstants' differ between VERTEX and
+    // FRAGMENT shaders ». Le generateur transforme ce bloc en
+    // `uniform vec4 _PushConstants[N]` : N valait 1 ici et 2 dans le fragment.
+    // GL bureau tolerait, ES refuse. Mesure du 2026-09-02 : c'etait la SEULE
+    // erreur du journal web, et le SEUL couple du depot ou les deux etages
+    // declarent le bloc avec des tailles differentes (audit des 41 couples).
+    vec4 p1;   // (bloomStrength, hasBloom, _, _) — inutilisee par le VS
 } pc;
 
 @stage(vertex)

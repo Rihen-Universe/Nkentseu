@@ -1,15 +1,16 @@
 ﻿// =============================================================================
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // NkOpenGLContext.cpp â€” Production Ready
 // Loader OpenGL externe possible (NK_NO_GLAD2 recommandé pour NKCanvas).
 // =============================================================================
 #include "NkOpenGLContext.h"
+#include "NKCore/Text/NkSnprintf.h"
 #include "NKWindow/Core/NkWindow.h" // Adaptez selon votre include NkWindow
 
 #include "NKPlatform/NkPlatformDetect.h"
 #include "NKLogger/NkLog.h"
 #include "NKMemory/NkAllocator.h"
 
-#include <cstdio>
 #include <cstdlib>
 #include <cstring>
 
@@ -1496,11 +1497,11 @@ namespace nkentseu {
 						{"haut-droite", w - 1 - mx, h - 1 - my},
 					};
 					char ligne[256];
-					int n = std::snprintf(ligne, sizeof(ligne), "[NkGL sonde] %dx%d :", w, h);
+					int n = nkentseu::NkSnprintf(ligne, sizeof(ligne), "[NkGL sonde] %dx%d :", w, h);
 					for (const Point &p : pts) {
 						unsigned char px[4] = {0, 0, 0, 0};
 						glReadPixels(p.x, p.y, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, px);
-						n += std::snprintf(ligne + n, sizeof(ligne) - (size_t)n, " %s=%02X%02X%02X/%02X", p.nom, px[0],
+						n += nkentseu::NkSnprintf(ligne + n, sizeof(ligne) - (size_t)n, " %s=%02X%02X%02X/%02X", p.nom, px[0],
 										   px[1], px[2], px[3]);
 					}
 					logger.Infof("%s\n", ligne);

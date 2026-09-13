@@ -169,6 +169,26 @@ namespace nkentseu {
 			NK_LAYER_MASK_UV_Y = 5,
 			NK_LAYER_MASK_CONSTANT = 6,
 			NK_LAYER_MASK_LAYER_ALPHA = 7,
+			// ── MASQUE PAR TEXTURE (2026-08-22) ──────────────────────────────
+			// C'est le cas le PLUS COURANT chez Blender, et il manquait : les
+			// huit sources ci-dessus sont toutes procedurales ou par sommet.
+			// La carte se pose par `SetLayerV1MaskMap(t)` (alias de
+			// SetTexture("mask", t)) et se lit au binding 9 du set materiau.
+			//
+			// Quatre canaux = quatre masques dans UNE seule texture : c'est
+			// ainsi qu'on empile huit couches sans huit chargements. Une couche
+			// designe son canal, pas sa texture.
+			//
+			// ⚠️ Sans carte posee, le repli est le BLANC 1x1 — donc un masque a
+			// 1.0, donc la couche RECOUVRE tout. Ce n'est pas le neutre qu'on
+			// attendrait, et c'est voulu : le repli d'un slot MULTIPLIE est le
+			// blanc partout ailleurs dans ce fichier, et une couche qu'on a
+			// explicitement reglee sur « masque par texture » sans fournir de
+			// texture est une erreur d'auteur — mieux vaut qu'elle se VOIE.
+			NK_LAYER_MASK_TEX_R = 8,
+			NK_LAYER_MASK_TEX_G = 9,
+			NK_LAYER_MASK_TEX_B = 10,
+			NK_LAYER_MASK_TEX_A = 11,
 		};
 
 		// Total : 8*32 + 4*16 + 16 = 336 bytes. Bien sous 16 KiB UBO limit.
@@ -198,6 +218,46 @@ namespace nkentseu {
 				float32 matcapStrength = 0.f; // 0=aucun, 1=full matcap (binding=4)
 				float32 _pad[1] = {};
 		};
+
+		// ═════════════════════════════════════════════════════════════════════
+		//  LES GARDES DE TAILLE DES BLOCS UNIFORMES
+		// ═════════════════════════════════════════════════════════════════════
+		//
+		// ⚠️ CE QU ELLES FONT, ET SURTOUT CE QU ELLES NE FONT PAS.
+		//
+		// Elles ne verifient PAS que la disposition est juste. Un bloc peut avoir
+		// la bonne taille et ranger ses membres au mauvais endroit -- c est
+		// exactement la faute mesuree le 22/08/2026 sur le bloc engendre par le
+		// graphe de materiaux, ou `std140` placait un `vec3` a 16 pendant que HLSL
+		// le placait a 4, pour une taille identique des deux cotes.
+		//
+		// Ce qu elles rendent IMPOSSIBLE, c est la derive SILENCIEUSE : ajouter,
+		// retirer ou retyper un membre casse la COMPILATION. Il faut alors un
+		// geste conscient pour remettre le nombre a jour, et ce geste est
+		// l occasion de se demander si le shader d en face a bouge aussi.
+		//
+		// C est pour cela qu elles valent mieux qu un banc : elles cassent la
+		// CONSTRUCTION, pas un controle qu il faut penser a lancer. La discipline
+		// manuelle de ce fichier -- aucun membre `NkVec3f`, les vecteurs en
+		// `NkVec4f`, les reels par groupes de quatre -- a tenu jusqu ici PARCE
+		// QU ELLE ETAIT TENUE, pas parce qu elle etait garantie. Un `NkVec3f`
+		// ajoute un jour de fatigue passerait sans un mot, et le pixel resterait
+		// plausible.
+		//
+		// 📌 La vraie regle -- « tout membre vectoriel a un multiple de 16 »,
+		// verifiee par la REFLEXION plutot que par une liste de nombres -- est
+		// concue dans le ROADMAP de NKRenderer. Une liste se perime, une regle
+		// non. Ceci est la parade du jour, pas la parade definitive.
+		//
+		// Chaque nombre ci-dessous est aussi ecrit dans un commentaire de la
+		// structure correspondante. Ce n est PAS une redondance : le commentaire
+		// explique, l assertion contraint. Un commentaire seul ment des la
+		// premiere modification.
+		static_assert(sizeof(NkPBRParams) == 96, "NkPBRParams a change de taille : le UBO du shader PBR doit suivre");
+		static_assert(sizeof(NkPBRLayer) == 32, "NkPBRLayer a change de taille : layeredv1.frag doit suivre");
+		static_assert(sizeof(NkLayeredParams) == 208, "NkLayeredParams a change de taille : layered.frag doit suivre");
+		static_assert(sizeof(NkLayeredV1Params) == 336, "NkLayeredV1Params a change de taille : layeredv1.frag doit suivre");
+		static_assert(sizeof(NkToonParams) == 96, "NkToonParams a change de taille : toon.frag doit suivre");
 
 		// =========================================================================
 		// Descripteur template
@@ -314,6 +374,9 @@ namespace nkentseu {
 				NkMaterialInstance *SetLayeredV1(const NkLayeredV1Params &l);
 				NkMaterialInstance *SetLayerV1(int32 idx, const NkPBRLayer &layer);
 				NkMaterialInstance *SetLayerV1Mask(int32 idx, NkLayerMaskSource src, float32 k = 0.f);
+				// Carte de masque partagee par toutes les couches qui choisissent
+				// une source NK_LAYER_MASK_TEX_*. Un seul slot, quatre canaux.
+				NkMaterialInstance *SetLayerV1MaskMap(NkTexHandle t);
 				NkMaterialInstance *SetLayerV1Count(int32 n);
 
 				NkMatHandle GetTemplate() const {

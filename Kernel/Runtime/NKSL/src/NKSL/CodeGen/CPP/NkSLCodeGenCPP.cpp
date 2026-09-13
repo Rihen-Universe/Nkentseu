@@ -1,4 +1,5 @@
 // =============================================================================
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // NkSLCodeGenCPP.cpp
 // Génération C++ (software rasterizer) depuis l'AST NkSL.
 //
@@ -11,7 +12,7 @@
 // Les intrinsèques GLSL sont mappées vers des fonctions NkMath.
 // =============================================================================
 #include "NKSL/CodeGen/NkSLCodeGen.h"
-#include <cstdio>
+#include "NKCore/Text/NkSnprintf.h"
 
 namespace nkentseu {
 
@@ -85,7 +86,7 @@ namespace nkentseu {
 		NkString s = BaseTypeToCPP(t->baseType);
 		if (t->arraySize > 0) {
 			char buf[64];
-			snprintf(buf, sizeof(buf), "std::array<%s, %u>", s.CStr(), t->arraySize);
+			nkentseu::NkSnprintf(buf, sizeof(buf), "std::array<%s, %u>", s.CStr(), t->arraySize);
 			return NkString(buf);
 		}
 		return s;
@@ -513,16 +514,16 @@ namespace nkentseu {
 		char buf[64];
 		switch (lit->baseType) {
 			case NkSLBaseType::NK_INT:
-				snprintf(buf, sizeof(buf), "%lld", (long long)lit->intVal);
+				nkentseu::NkSnprintf(buf, sizeof(buf), "%lld", (long long)lit->intVal);
 				return buf;
 			case NkSLBaseType::NK_UINT:
-				snprintf(buf, sizeof(buf), "%lluu", (unsigned long long)lit->uintVal);
+				nkentseu::NkSnprintf(buf, sizeof(buf), "%lluu", (unsigned long long)lit->uintVal);
 				return buf;
 			case NkSLBaseType::NK_FLOAT:
-				snprintf(buf, sizeof(buf), "%.8gf", lit->floatVal);
+				nkentseu::NkSnprintf(buf, sizeof(buf), "%.8gf", lit->floatVal);
 				return buf;
 			case NkSLBaseType::NK_DOUBLE:
-				snprintf(buf, sizeof(buf), "%.16g", lit->floatVal);
+				nkentseu::NkSnprintf(buf, sizeof(buf), "%.16g", lit->floatVal);
 				return buf;
 			case NkSLBaseType::NK_BOOL:
 				return lit->boolVal ? "true" : "false";

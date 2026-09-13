@@ -32,7 +32,7 @@
 //       inputBuffer += event.GetUtf8();  // Caractère Unicode correctement encodé
 //   }
 //
-// Auteur : Rihen
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // Date : 2024-2026
 // License : Proprietary - All Rights Reserved (see LICENSE)
 // =============================================================================
@@ -49,6 +49,7 @@
 // Toutes les dépendances utilisent les modules NK* du framework.
 
 #include "NKEvent/NkEvent.h"				   // Classe de base NkEvent + macros
+#include "NKCore/Text/NkSnprintf.h"
 #include "NKEvent/NkEventApi.h"				   // Macros d'export NKENTSEU_EVENT_API
 #include "NKContainers/String/NkStringUtils.h" // Conversion types → NkString
 #include <cstring>							   // Pour strlen, memcpy si nécessaire
@@ -1277,7 +1278,7 @@ namespace nkentseu {
 			/// @note Utilise snprintf pour un formatage sécurisé et portable
 			static NKENTSEU_EVENT_API_INLINE NkString ToHex(uint32 v) {
 				char buf[9]; // 8 chiffres hex + null terminator
-				std::snprintf(buf, sizeof(buf), "%04X", v);
+				nkentseu::NkSnprintf(buf, sizeof(buf), "%04X", v);
 				return buf;
 			}
 	};

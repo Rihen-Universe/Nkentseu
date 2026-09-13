@@ -1,8 +1,10 @@
 // =============================================================================
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // NkRHI_Device_DX12.cpp — Backend DirectX 12
 // =============================================================================
 #ifdef NK_RHI_DX12_ENABLED
 #include "NkDirectX12Device.h"
+#include "NKCore/Text/NkSnprintf.h"
 #include "NkDirectX12CommandBuffer.h"
 #include "NKRHI/Core/NkGpuPolicy.h"
 #include "NKContainers/Functional/NkFunction.h"
@@ -2744,7 +2746,7 @@ namespace nkentseu {
 							else
 								sDumpedColored = true;
 							char path[256];
-							snprintf(path, sizeof(path), "logs/bb_live_%s_f%llu.bmp", doColored ? "COLORED" : "flat",
+							nkentseu::NkSnprintf(path, sizeof(path), "logs/bb_live_%s_f%llu.bmp", doColored ? "COLORED" : "flat",
 									 (unsigned long long)mFrameNumber);
 							FILE *f = fopen(path, "wb");
 							if (f) {

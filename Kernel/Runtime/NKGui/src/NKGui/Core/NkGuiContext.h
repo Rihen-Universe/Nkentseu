@@ -10,6 +10,7 @@
 #include "NKGui/Core/NkGuiTypes.h"
 #include "NKGui/Core/NkGuiInput.h"
 #include "NKGui/Core/NkGuiDrawList.h"
+#include "NKGui/Core/NkGuiIntrospect.h"
 
 namespace nkentseu {
 	namespace nkgui {
@@ -68,6 +69,15 @@ namespace nkentseu {
 				float32 borderThickness = 1.f; ///< epaisseur par defaut d'un contour
 				float32 framePadX = 10.f; ///< padding horizontal interne d'un widget
 				float32 framePadY = 6.f;  ///< padding vertical interne d'un widget
+
+				// ── Convention d'onglet ACTIF (ajout 2026-08-31, OPT-IN) ─────────
+				// Faux (defaut) : actif = `panel` sur barre `tabBar` — l'historique,
+				// et NKCode ne bouge pas d'un octet. Vrai : actif = `bgPrimary` sur
+				// barre `panel` (convention V2 des maquettes Banani de NkUIDesign :
+				// l'onglet actif rejoint le FOND de la zone document). En FIN de
+				// struct, apres les champs enumeres par NkGuiThemeTokens — les
+				// offsets de la table ne bougent pas.
+				bool tabActiveIsWindowBg = false;
 		};
 
 		// ── DESCRIPTION DES JETONS (pour un futur NKUIEditor) ──────────────────
@@ -159,6 +169,11 @@ namespace nkentseu {
 				float32 scrollX = 0.f;
 				float32 scrollY = 0.f;
 				bool horizontal = false;
+				/// Cadre défilable SANS barre visible (NkGuiWindowFlags::NoScrollbar) :
+				/// molette et bornage restent, seuls piste/flèches/pouce ne se
+				/// dessinent pas — pour un panneau qui porte ses propres ascenseurs
+				/// et où la grande barre externe faisait doublon (NkUIDesign, 01/09).
+				bool sansBarre = false;
 				NkGuiLayout savedLayout;
 		};
 
@@ -514,6 +529,15 @@ namespace nkentseu {
 				using NkGuiStyleFn = bool (*)(NkGuiContext &, const NkGuiStyleItem &, void *);
 				NkGuiStyleFn styleFn = nullptr;
 				void *styleUser = nullptr;
+
+				// ── INTROSPECTION : ce que cette trame a dessiné ──────────────────
+				// Silencieuse par défaut (`actif = false`) : sans activation, les
+				// widgets se contentent d'un test de booléen et rien n'est écrit.
+				// Le relevé est un ENREGISTREMENT de trame, pas un état persistant —
+				// NKGui ne retient aucun arbre de contrôles (mesure du 2026-08-28).
+				// Vidé au BeginFrame, lisible après EndFrame.
+				// Critère d'acceptation : Kernel/Runtime/NKGui/INTROSPECTION.md
+				NkGuiIntrospect introspect;
 
 				// Rafale (repeat) — défauts globaux, surchargeables par bouton.
 				float32 repeatDelay = 0.25f; ///< délai initial avant rafale (s)

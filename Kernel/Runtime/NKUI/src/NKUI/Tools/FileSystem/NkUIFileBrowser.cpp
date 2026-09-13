@@ -1,8 +1,10 @@
 /*
+ * AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
  * NkUIFileBrowser_v3.cpp
  * FileBrowser v3 + ContentBrowser — implémentation complète.
  */
 #include "NkUIFileBrowser.h"
+#include "NKCore/Text/NkSnprintf.h"
 #include <cstring>
 #include <cstdio>
 #include <cctype>
@@ -114,7 +116,7 @@ namespace nkentseu {
 				if (!path || !path[0] || ::strcmp(path, "Computer") == 0)
 					return 0;
 				char pat[520];
-				::snprintf(pat, sizeof(pat), "%s\\*", path);
+				nkentseu::NkSnprintf(pat, sizeof(pat), "%s\\*", path);
 				WIN32_FIND_DATAA fd;
 				HANDLE h = ::FindFirstFileA(pat, &fd);
 				if (h == INVALID_HANDLE_VALUE)
@@ -127,7 +129,7 @@ namespace nkentseu {
 						continue;
 					NkUIFileEntry &e = out[n++];
 					::strncpy(e.name, fd.cFileName, 255);
-					::snprintf(e.path, 511, "%s\\%s", path, fd.cFileName);
+					nkentseu::NkSnprintf(e.path, 511, "%s\\%s", path, fd.cFileName);
 					e.type = (fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) ? NkUIFileType::NK_FT_DIRECTORY
 																			  : NkUIFileType::NK_FT_FILE;
 					e.isHidden = (fd.dwFileAttributes & FILE_ATTRIBUTE_HIDDEN) != 0;
@@ -157,7 +159,7 @@ namespace nkentseu {
 						continue;
 					NkUIFileEntry &e = out[n++];
 					::strncpy(e.name, de->d_name, 255);
-					::snprintf(e.path, 511, "%s/%s", path, de->d_name);
+					nkentseu::NkSnprintf(e.path, 511, "%s/%s", path, de->d_name);
 					struct stat st{};
 					::stat(e.path, &st);
 					e.type = S_ISDIR(st.st_mode)   ? NkUIFileType::NK_FT_DIRECTORY
@@ -262,24 +264,24 @@ namespace nkentseu {
 
 		void NkUIFileBrowser::FormatSize(uint64 b, char *out, int32 sz) noexcept {
 			if (b < 1024ull)
-				::snprintf(out, sz, "%u B", (uint32)b);
+				nkentseu::NkSnprintf(out, sz, "%u B", (uint32)b);
 			else if (b < 1024ull * 1024)
-				::snprintf(out, sz, "%.1f Ko", b / 1024.);
+				nkentseu::NkSnprintf(out, sz, "%.1f Ko", b / 1024.);
 			else if (b < 1024ull * 1024 * 1024)
-				::snprintf(out, sz, "%.1f Mo", b / (1024. * 1024));
+				nkentseu::NkSnprintf(out, sz, "%.1f Mo", b / (1024. * 1024));
 			else
-				::snprintf(out, sz, "%.2f Go", b / (1024. * 1024 * 1024));
+				nkentseu::NkSnprintf(out, sz, "%.2f Go", b / (1024. * 1024 * 1024));
 		}
 
 		void NkUIFileBrowser::FormatDate(uint64 ts, char *out, int32 sz) noexcept {
 			if (!ts) {
-				::snprintf(out, sz, "\xe2\x80\x94");
+				nkentseu::NkSnprintf(out, sz, "\xe2\x80\x94");
 				return;
 			}
 			time_t t = static_cast<time_t>(ts);
 			struct tm *tm_ = ::localtime(&t);
 			if (!tm_) {
-				::snprintf(out, sz, "?");
+				nkentseu::NkSnprintf(out, sz, "?");
 				return;
 			}
 			::strftime(out, static_cast<size_t>(sz), "%d/%m/%Y %H:%M", tm_);
@@ -405,8 +407,8 @@ namespace nkentseu {
 					if (!(drives & (1 << (d - 'A'))))
 						continue;
 					NkUIFileEntry &e = s.entries[n++];
-					::snprintf(e.name, sizeof(e.name), "%c:", d);
-					::snprintf(e.path, sizeof(e.path), "%c:\\", d);
+					nkentseu::NkSnprintf(e.name, sizeof(e.name), "%c:", d);
+					nkentseu::NkSnprintf(e.path, sizeof(e.path), "%c:\\", d);
 					e.type = NkUIFileType::NK_FT_DIRECTORY;
 					e.size = 0;
 					e.modifiedTime = 0;
@@ -464,7 +466,7 @@ namespace nkentseu {
 			const char *home = ::getenv("USERPROFILE");
 			if (home) {
 				char dl[MAX_PATH];
-				::snprintf(dl, MAX_PATH, "%s\\Downloads", home);
+				nkentseu::NkSnprintf(dl, MAX_PATH, "%s\\Downloads", home);
 				AddBookmark(cfg, "Téléchargements", dl, true);
 			}
 			AddBookmark(cfg, "Ordinateur", "Computer", true);
@@ -476,16 +478,16 @@ namespace nkentseu {
 			}
 			char p2[512];
 			AddBookmark(cfg, "Accueil", home, true);
-			::snprintf(p2, 512, "%s/Bureau", home);
+			nkentseu::NkSnprintf(p2, 512, "%s/Bureau", home);
 			AddBookmark(cfg, "Bureau", p2, true);
-			::snprintf(p2, 512, "%s/Documents", home);
+			nkentseu::NkSnprintf(p2, 512, "%s/Documents", home);
 			AddBookmark(cfg, "Documents", p2, true);
-			::snprintf(p2, 512, "%s/Images", home);
+			nkentseu::NkSnprintf(p2, 512, "%s/Images", home);
 			AddBookmark(cfg, "Images", p2, true);
 			// Note: "Téléchargements" en UTF-8 natif
 			// ::snprintf(p2,512,"%s/T\xc3\xa9l\xc3\xa9chargements",home);
 			// AddBookmark(cfg,"T\xc3\xa9l\xc3\xa9chargements",p2,true);
-			::snprintf(p2, 512, "%s/T\303\251l\303\251chargements", home);
+			nkentseu::NkSnprintf(p2, 512, "%s/T\303\251l\303\251chargements", home);
 			AddBookmark(cfg, "T\303\251l\303\251chargements", p2, true);
 			AddBookmark(cfg, "/", "/", true);
 #endif
@@ -1332,9 +1334,9 @@ namespace nkentseu {
 							char np[512];
 							if (sl) {
 								*sl = '\0';
-								::snprintf(np, sizeof(np), "%s/%s", par, state.renameBuffer);
+								nkentseu::NkSnprintf(np, sizeof(np), "%s/%s", par, state.renameBuffer);
 							} else
-								::snprintf(np, sizeof(np), "%s", state.renameBuffer);
+								nkentseu::NkSnprintf(np, sizeof(np), "%s", state.renameBuffer);
 							if (prov.move(e.path, np, prov.userData)) {
 								::strncpy(result.path, e.path, 511);
 								::strncpy(result.target, np, 511);
@@ -1446,7 +1448,7 @@ namespace nkentseu {
 				if (!ctx.input.mouseDown[0]) {
 					const NkUIFileEntry &src = state.entries[state.dndSourceIdx];
 					char dst[512];
-					::snprintf(dst, sizeof(dst), "%s/%s", e.path, src.name);
+					nkentseu::NkSnprintf(dst, sizeof(dst), "%s/%s", e.path, src.name);
 					if (prov.move && prov.move(src.path, dst, prov.userData)) {
 						::strncpy(result.path, src.path, 511);
 						::strncpy(result.target, dst, 511);
@@ -1502,7 +1504,7 @@ namespace nkentseu {
 					if (cp == '\r' || cp == '\n') {
 						if (buf[0]) {
 							char np[512];
-							::snprintf(np, sizeof(np), "%s/%s", state.currentPath, buf);
+							nkentseu::NkSnprintf(np, sizeof(np), "%s/%s", state.currentPath, buf);
 							if (isDir && prov.mkdir_ && prov.mkdir_(np, prov.userData)) {
 								::strncpy(result.path, np, 511);
 								result.event = NkUIFileBrowserEvent::NK_FB_CREATE_DIR;
@@ -1908,14 +1910,14 @@ namespace nkentseu {
 				if (e.type != NkUIFileType::NK_FT_DIRECTORY) {
 					char sz[32];
 					FormatSize(e.size, sz, 32);
-					::snprintf(info, sizeof(info), "%s  (%s)", e.name, sz);
+					nkentseu::NkSnprintf(info, sizeof(info), "%s  (%s)", e.name, sz);
 				} else
-					::snprintf(info, sizeof(info), "%s", e.name);
+					nkentseu::NkSnprintf(info, sizeof(info), "%s", e.name);
 			} else if (state.numSelected > 1)
-				::snprintf(info, sizeof(info), "%d \xc3\xa9l\xc3\xa9ments s\xc3\xa9lectionn\xc3\xa9s",
+				nkentseu::NkSnprintf(info, sizeof(info), "%d \xc3\xa9l\xc3\xa9ments s\xc3\xa9lectionn\xc3\xa9s",
 						   state.numSelected);
 			else
-				::snprintf(info, sizeof(info), "%d \xc3\xa9l\xc3\xa9ments", state.numEntries);
+				nkentseu::NkSnprintf(info, sizeof(info), "%d \xc3\xa9l\xc3\xa9ments", state.numEntries);
 
 			font.RenderText(dl, {r.x + ph, bly}, info, ctx.theme.colors.textSecondary, r.w - ph * 2.f, false);
 
@@ -1963,7 +1965,7 @@ namespace nkentseu {
 				if (ctx.input.inputChars[k] == '\r' || ctx.input.inputChars[k] == '\n')
 					if (state.saveFilenameBuffer[0]) {
 						char full[512];
-						::snprintf(full, sizeof(full), "%s/%s", state.currentPath, state.saveFilenameBuffer);
+						nkentseu::NkSnprintf(full, sizeof(full), "%s/%s", state.currentPath, state.saveFilenameBuffer);
 						::strncpy(result.path, full, 511);
 						result.event = NkUIFileBrowserEvent::NK_FB_SAVE_CONFIRMED;
 					}
@@ -2020,7 +2022,7 @@ namespace nkentseu {
 				if (hov && ctx.ConsumeMouseClick(0)) {
 					if (cfg.mode == NkUIFBMode::NK_FBM_SAVE && state.saveFilenameBuffer[0]) {
 						char full[512];
-						::snprintf(full, sizeof(full), "%s/%s", state.currentPath, state.saveFilenameBuffer);
+						nkentseu::NkSnprintf(full, sizeof(full), "%s/%s", state.currentPath, state.saveFilenameBuffer);
 						::strncpy(result.path, full, 511);
 						result.event = NkUIFileBrowserEvent::NK_FB_SAVE_CONFIRMED;
 					} else if (cfg.mode == NkUIFBMode::NK_FBM_SELECT_DIR) {

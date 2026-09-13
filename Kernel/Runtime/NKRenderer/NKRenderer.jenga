@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
+# AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 """
 NKRenderer - Runtime renderer module (multi-API ready, C++17)
 ==============================================================
@@ -24,14 +25,13 @@ with project("NKRenderer"):
     # Dependances (mode lib) : kindexport(NKENTSEU_RENDERER) + src/pch + includedirs +
     # dependson + defines _STATIC_LIB auto (dont NKENTSEU_SERIALIZATION_STATIC_LIB,
     # NKSerialization etant une dep). NKRHI/pch + Vulkan SDK en extra (specifiques).
-    # NKAnimPhysics : NkPoseDebugDraw DESSINE le resultat du solveur d equilibre
-    # (COM, polygone de support, fil d aplomb). Le renderer est ici CONSOMMATEUR
-    # du substrat, jamais son hote -- cf. bloc de decision "substrats animation"
-    # (CLAUDE.md du repertoire parent) et l extraction du 2026-08-14.
+    # NKAnima : NkPoseDebugDraw DESSINE le resultat du solveur d equilibre (COM,
+    # polygone de support, fil d aplomb) -- ex-NKAnimPhysics, rentre dans NKAnima
+    # le 2026-09-04. Le renderer est CONSOMMATEUR du substrat, jamais son hote.
     rendererDeps = ["NKMath", "NKTime", "NKLogger", "NKEvent", "NKWindow", "NKContainers",
                     "NKMemory", "NKCore", "NKPlatform", "NKThreading", "NKRHI", "NKSL",
                     "NKFont", "NKImage", "NKStream", "NKFileSystem", "NKSerialization", "NKReflection",
-                    "NKAnimPhysics", "NKAnimation"]
+                    "NKAnima"]
     if USE_NKGLAD:
         rendererDeps.append("NKGlad")
     rendererDefines = [
@@ -162,10 +162,42 @@ with project("NKRenderer"):
     with filter("(system:Linux || system:macOS || (system:Windows && !options:windows-runtime=uwp && !system:XboxSeries && !system:XboxOne)) && !system:Android && !system:iOS && !system:Web"):
         with test():
             testfiles(["tests/**.cpp"])
-            _TEST_LINKS = ["NKRenderer", "NKCanvas", "NKWindow", "NKTime"]
+            # La suite fournit son main() (test_eau_sph.cpp, temoins §6.6) : pas
+            # d AutoMain Unitest. Mot propre de Jenga 2.6, comme NKPhysics.
+            testownmain()
+            # LA LISTE DE LIENS ETAIT INCOMPLETE, et personne ne l avait vu : cette
+            # suite n a jamais ete construite (elle n etait pas dans la liste `allow`
+            # de dutc/dute, et le dossier tests/ n existait pas). Premiere
+            # construction le 2026-09-06 : NKRenderer seul laisse 200 references non
+            # resolues (NkShaderConvert -> glslang / SPIRV-Cross, NkImage, NkFont...).
+            # La liste ci-dessous est celle de DemoRW (Applications/DemoRW/demorw.jenga),
+            # qui lie le meme renderer et fonctionne : meme ORDRE, parce que le linker
+            # GNU est mono-passe et resout vers l aval.
+            # ⚠️ NKVFX est place AVANT NKRenderer, et ce n'est pas cosmetique : il y
+            # REFERE, et le linker mono-passe resout vers l aval. Le mettre apres
+            # donnerait un echec de lien -- et le registre config/modules.jenga ne
+            # sauverait pas la mise : il n emet que des defines, les listes de liens
+            # sont MANUELLES. C est ce qui a fait echouer les 4 Tuto0x pendant un mois.
+            _TEST_LINKS = [
+                "NKVFX",
+                "NKRenderer", "NKCanvas", "NKAnima", "NKEvent", "NKWindow", "NKLogger",
+                "NKMath", "NKTime", "NKStream", "NKFileSystem",
+                "NKContainers", "NKMemory", "NKCore", "NKPlatform", "NKThreading",
+                "NKRHI", "NKSL", "NKSerialization", "NKReflection", "NKImage", "NKFont",
+            ]
             if USE_NKGLAD:
                 _TEST_LINKS.append("NKGlad")
+            _TEST_LINKS.extend(["NKGLSlang", "NKSPIRVCross"])
             links(_TEST_LINKS)
+            dependson(_TEST_LINKS)
+            # ⚠️ LIER N EST PAS INCLURE -- et c est ce qui a fait echouer la premiere
+            # construction de ce lot. `links()`/`dependson()` ne transportent AUCUN
+            # chemin d en-tete : sans la ligne ci-dessous, l include de NKVFX est
+            # introuvable alors meme que la bibliotheque est construite et liee.
+            # NKVFX ne peut PAS entrer dans `rendererDeps` : il depend de NKRenderer,
+            # l y mettre ferait un cycle. Meme forme que NKSerialization.jenga:95,
+            # ou une sous-suite reclame un module dont le projet ne depend pas.
+            includedirs(["%{NKVFX.location}/src"])
             with filter("system:Linux && options:linux-backend=wayland"):
                 defines(WAYLAND_DEFINES)
                 links(WAYLAND_TEST_LINKS)

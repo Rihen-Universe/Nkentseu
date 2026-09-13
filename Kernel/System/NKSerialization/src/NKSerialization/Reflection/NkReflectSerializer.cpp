@@ -477,6 +477,20 @@ namespace nkentseu {
 		// ses bases, de sorte que toutes les proprietes (heritees comprises)
 		// soient serialisees. La deduplication par nom est assuree en amont par
 		// NkClass::AddProperty.
+		// ⚠️ VERITE DU RETOUR. Jusqu'au 2026-08-22, cette fonction rendait `true`
+		// INCONDITIONNELLEMENT, en ayant silencieusement omis toute propriete
+		// qu'elle ne savait pas ecrire. Mesure qui l'a etabli (banc C5) : un
+		// `const char *` du kit (un NOM DE METRIQUE) disparaissait de l'archive,
+		// `SerializeObject` rendait `true`, et la relecture donnait une chaine
+		// vide sans le moindre signal -- une taille qui designait la metrique
+		// « largeur_palette » se resolvait au NOMBRE.
+		//
+		// Regle du depot : **un repli qui preserve `success` n'est pas un repli,
+		// c'est un mensonge.** On ECRIT TOUT CE QU'ON PEUT -- une archive
+		// partielle vaut mieux que rien, et l'appelant peut l'inspecter -- mais
+		// on rend `false` des qu'une seule propriete a ete perdue.
+		nk_bool ok = true;
+
 		for (const NkClass *current = cls; current != nullptr; current = current->GetBaseClass()) {
 			const nk_usize count = current->GetPropertyCount();
 			for (nk_usize i = 0; i < count; ++i) {
@@ -486,7 +500,8 @@ namespace nkentseu {
 				}
 
 				// Exclusion des proprietes transientes et statiques (les
-				// statiques ne sont pas liees a l'instance).
+				// statiques ne sont pas liees a l'instance). Ce ne sont PAS des
+				// pertes : leur absence est voulue et documentee.
 				if (prop->IsTransient() || prop->IsStatic()) {
 					continue;
 				}
@@ -496,35 +511,44 @@ namespace nkentseu {
 
 				// Cas conteneur reflechi (NkVector<...>) : tableau de scalaires.
 				if (prop->IsContainer()) {
-					if (WriteContainerProperty(prop, instance, ar)) {
-						continue;
+					if (!WriteContainerProperty(prop, instance, ar)) {
+						ok = false; // conteneur perdu : ne PAS le taire
 					}
-					// Conteneur d'objets non gere : ignore en P3.
 					continue;
 				}
 
 				// Cas objet imbrique reflechi : NK_CLASS avec NkClass associe.
 				if (cat == NkTypeCategory::NK_CLASS) {
 					const NkClass *subCls = type.GetClass();
-					if (subCls) {
-						const void *subInstance = prop->GetValuePtr(instance);
-						NkArchive subAr;
-						if (SerializeReflected(subCls, subInstance, subAr)) {
-							ar.SetObject(prop->GetName(), subAr);
-						}
+					if (!subCls) {
+						// NK_CLASS sans NkClass associe : le type n'est pas
+						// reflechi, la propriete est PERDUE. C'est un fait, pas
+						// un detail d'implementation.
+						ok = false;
+						continue;
 					}
-					// NK_CLASS sans NkClass associe (non reflechi) : ignore P2.
+					const void *subInstance = prop->GetValuePtr(instance);
+					NkArchive subAr;
+					// On pose le sous-objet MEME s'il est partiel : ce qui a pu
+					// etre ecrit est ecrit, et l'echec remonte par `ok`.
+					if (!SerializeReflected(subCls, subInstance, subAr)) {
+						ok = false;
+					}
+					ar.SetObject(prop->GetName(), subAr);
 					continue;
 				}
 
-				// Cas scalaires/string/enum.
-				WriteScalarProperty(prop, instance, ar);
-				// Categorie non geree (pointeur/vecteur/...) : silencieusement
-				// ignoree en Phase 2 (repoussee Phase 3).
+				// Cas scalaires/string/enum. Une categorie non geree
+				// (NK_POINTER, dont `const char *`) tombe ici et rend `false` :
+				// c'est la dette des pointeurs, desormais VISIBLE au lieu d'etre
+				// silencieuse.
+				if (!WriteScalarProperty(prop, instance, ar)) {
+					ok = false;
+				}
 			}
 		}
 
-		return true;
+		return ok;
 	}
 
 	// -------------------------------------------------------------------------
@@ -535,6 +559,16 @@ namespace nkentseu {
 			return false;
 		}
 
+		// ⚠️ VERITE DU RETOUR, cote lecture -- et la regle N'EST PAS la meme qu'en
+		// ecriture. Une cle ABSENTE de l'archive est LEGITIME : champ optionnel,
+		// document ecrit par une version anterieure, valeur laissee au defaut.
+		// La traiter en erreur casserait la compatibilite ascendante.
+		//
+		// Ce qui n'est PAS legitime, c'est une cle PRESENTE que le lecteur ne
+		// sait pas relire : la donnee est dans le fichier, elle n'arrive pas
+		// dans l'objet, et personne n'en est averti.
+		nk_bool ok = true;
+
 		for (const NkClass *current = cls; current != nullptr; current = current->GetBaseClass()) {
 			const nk_usize count = current->GetPropertyCount();
 			for (nk_usize i = 0; i < count; ++i) {
@@ -543,39 +577,58 @@ namespace nkentseu {
 					continue;
 				}
 
-				// Transient/static/read-only : non ecrites.
+				// Transient/static/read-only : non ecrites. Absence voulue.
 				if (prop->IsTransient() || prop->IsStatic() || prop->IsReadOnly()) {
 					continue;
 				}
+
+				// La cle n'est pas dans l'archive : cas NORMAL, on passe.
+				const nk_bool present = ar.Has(prop->GetName());
 
 				const NkType &type = prop->GetType();
 				const NkTypeCategory cat = type.GetCategory();
 
 				// Conteneur reflechi (NkVector<...>).
 				if (prop->IsContainer()) {
-					ReadContainerProperty(prop, instance, ar);
+					if (!ReadContainerProperty(prop, instance, ar) && present) {
+						ok = false; // presente mais illisible : perte
+					}
 					continue;
 				}
 
 				// Objet imbrique reflechi.
 				if (cat == NkTypeCategory::NK_CLASS) {
 					const NkClass *subCls = type.GetClass();
-					if (subCls) {
-						NkArchive subAr;
-						if (ar.GetObject(prop->GetName(), subAr)) {
-							void *subInstance = prop->GetValuePtr(instance);
-							DeserializeReflected(subCls, subInstance, subAr);
+					if (!subCls) {
+						// Type non reflechi : si la cle est la, on ne sait pas
+						// la relire et la donnee reste dans le fichier.
+						if (present) {
+							ok = false;
 						}
+						continue;
+					}
+					NkArchive subAr;
+					if (ar.GetObject(prop->GetName(), subAr)) {
+						void *subInstance = prop->GetValuePtr(instance);
+						if (!DeserializeReflected(subCls, subInstance, subAr)) {
+							ok = false;
+						}
+					} else if (present) {
+						// La cle existe mais n'est pas un objet : incoherence.
+						ok = false;
 					}
 					continue;
 				}
 
-				// Scalaires/string/enum.
-				ReadScalarProperty(prop, instance, ar);
+				// Scalaires/string/enum. Une categorie non geree (NK_POINTER)
+				// echoue ici ; on ne la signale que si la cle etait presente.
+				if (!ReadScalarProperty(prop, instance, ar) && present) {
+					ok = false;
+				}
 			}
 		}
 
-		return true;
+		return ok;
 	}
 
 } // namespace nkentseu

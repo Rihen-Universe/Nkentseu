@@ -1,4 +1,5 @@
 // =============================================================================
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // NKLogger/NkLoggerFormatter.cpp
 // Implémentation du formateur de messages de log basé sur des patterns.
 //
@@ -16,12 +17,12 @@
 // =============================================================================
 
 #include "pch.h"
+#include "NKCore/Text/NkSnprintf.h"
 
 #include "NKLogger/NkLoggerFormatter.h"
 #include "NKLogger/NkLogLevel.h"
 #include "NKLogger/NkLogMessage.h"
 
-#include <cstdio>
 #include <ctime>
 
 // -------------------------------------------------------------------------
@@ -42,7 +43,7 @@ namespace {
 	inline void NkAppendUInt32(nkentseu::NkString &result, nkentseu::uint32 value) {
 		char buffer[16]; // Suffisant pour uint32 max (4294967295) + null terminator
 
-		const int length = ::snprintf(buffer, sizeof(buffer), "%u", static_cast<unsigned int>(value));
+		const int length = nkentseu::NkSnprintf(buffer, sizeof(buffer), "%u", static_cast<unsigned int>(value));
 
 		if (length > 0) {
 			result.Append(buffer, static_cast<nkentseu::usize>(length));
@@ -477,7 +478,7 @@ namespace nkentseu {
 		// Buffer temporaire pour la conversion snprintf
 		char buffer[32]; // Suffisant pour int32 + signe + null
 
-		const int length = ::snprintf(buffer, sizeof(buffer), "%d", value);
+		const int length = nkentseu::NkSnprintf(buffer, sizeof(buffer), "%d", value);
 
 		// Gestion d'erreur snprintf : retourner chaîne vide
 		if (length <= 0) {

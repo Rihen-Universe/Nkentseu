@@ -686,7 +686,51 @@ GUIDE_GIT_MULTI_AGENTS.md
 
 # NKCode runtime + WIP local (jamais suivis)
 /.nkcode/
-/Captures/
+
+# /Captures/ : IGNORE PAR DEFAUT, avec une ALLOWLIST NOMMEE.
+#
+# LA REGLE, et elle tient en une phrase (2026-09-02, decision de Rodolf) :
+#   UNE IMAGE QUI FAIT FOI DANS UN DOCUMENT EST VERSIONNEE.
+#   UNE IMAGE DE TRAVAIL NE L EST PAS.
+#
+# Pourquoi pas `!/Captures/` tout court : le dossier porte 950 fichiers de
+# rendus intermediaires, essais et artefacts. Les versionner en bloc alourdirait
+# l historique pour toujours, et un historique ne se degonfle pas. Mais l inverse
+# coutait aussi : la carte des 7 plateformes de Engine/Noge/DECISIONS_RODOLF.md
+# s appuyait sur des images HORS DEPOT -- un verdict dont la preuve peut
+# disparaitre d un coup de menage.
+#
+# Donc : liste EXPLICITE, fichier par fichier (motif seulement pour la famille
+# plateforme_*, qui est fermee et nommee). 9 fichiers, 2 292 069 octets mesures.
+# Pour en ajouter une : elle doit d abord etre CITEE par un document versionne.
+# Detail et justification par image : Captures/LISEZMOI.md
+#
+# ⚠️ Mecanique gitignore : on ne peut pas de-ignorer un fichier si son DOSSIER
+# est ignore -- git ne descend pas dedans. D ou `/Captures/*` (le contenu) et non
+# `/Captures/` (le dossier), et la meme paire pour le sous-dossier model_loaders.
+/Captures/*
+!/Captures/LISEZMOI.md
+!/Captures/plateforme_*
+!/Captures/nk_android_demo3d.png
+!/Captures/nk_harmony_renderdemo.jpeg
+!/Captures/nk_web_headless.png
+!/Captures/noge_vehicule_*
+!/Captures/noge_particules_*
+!/Captures/noge_fluide_*
+!/Captures/model_loaders/
+/Captures/model_loaders/*
+!/Captures/model_loaders/fbx_FuturisticCar.png
+!/Captures/model_loaders/usda_cube.png
+!/Captures/noge_tissu_drape_2026-09-05.png
+!/Captures/noge_vetements_marche_2026-09-05.png
+!/Captures/fumee_colonne_2026-09-05.png
+!/Captures/feu_degrade_2026-09-05.png
+!/Captures/fumee_jet_sans_confinement_2026-09-07.png
+!/Captures/fumee_panache_confinement_2026-09-07.png
+!/Captures/noge_eau_eclaboussure_impact_2026-09-06.png
+!/Captures/noge_eau_mouillage_avant_apres_2026-09-06.png
+!/Captures/fumee_panache_h1cm_2026-09-12.png
+
 Applications/NKCode/important/*.pdf
 Applications/NKCode/data/fonts/NotoEmoji-Regular.ttf
 
@@ -761,3 +805,24 @@ Kernel/h264_test.mp4
 Kernel/vp9inter_out.yuv
 Kernel/nkvideoreader_selftest.avi
 Kernel/logs/
+
+# Sorties de la SONDE et des bancs de NkUIDesign. Ce sont des RESULTATS, ecrits
+# dans le repertoire COURANT a chaque execution : les versionner ferait un diff
+# a chaque lancement, et surtout un rapport perime ressemble exactement a un
+# rapport frais (piege deja paye le 19/08 -- d ou l horodatage de compilation
+# qu ils portent desormais).
+# Artefact depose a la racine par le banc NKUIDesign a chaque execution
+# (--roundtrip-controles). Le verificateur le lance a chaque passe : sans cette
+# ligne, tout agent voit un fichier non suivi apparaitre sans savoir d ou il vient.
+nkuidesign_probe.txt
+nkuidesign_roundtrip.txt
+nkuidesign_roundtrip_controles.txt
+nkuidesign_validation.txt
+nkuidesign_releve_ui.txt
+nkuidesign_releve_menus.txt
+
+# Bancs materiaux/graphe : les captures PNG et les journaux bruts sont des
+# SORTIES rejouables (scripts/matgraph_temoin_demos.sh les regenere). Seules les
+# signatures .sig se versionnent -- ce sont elles qu on compare.
+mesures_matgraph/**/*.png
+mesures_matgraph/**/*.log

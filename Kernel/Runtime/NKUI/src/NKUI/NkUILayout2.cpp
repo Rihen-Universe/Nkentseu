@@ -1,4 +1,5 @@
 /**
+ * AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
  * @File    NkUILayout2.cpp
  * @Brief   SaveLayout/LoadLayout, ColorPicker complet, NKFont intégration,
  *          NkUIOpenGLRenderer.
@@ -11,6 +12,7 @@
  * Change this file when: OpenGL backend artifacts or text/texture issues appear.
  */
 #include "NKUI/NkUILayout2.h"
+#include "NKCore/Text/NkSnprintf.h"
 #include "NKUI/NkUIWidgets.h"
 #include <cstring>
 #include <cstdlib>
@@ -60,12 +62,12 @@ namespace nkentseu {
 			};
 			auto F = [&](float32 v) {
 				char tmp[32];
-				::snprintf(tmp, sizeof(tmp), "%.2f", v);
+				nkentseu::NkSnprintf(tmp, sizeof(tmp), "%.2f", v);
 				W(tmp);
 			};
 			auto I = [&](int32 v) {
 				char tmp[32];
-				::snprintf(tmp, sizeof(tmp), "%d", v);
+				nkentseu::NkSnprintf(tmp, sizeof(tmp), "%d", v);
 				W(tmp);
 			};
 			auto B = [&](bool v) { W(v ? "true" : "false"); };
@@ -192,7 +194,7 @@ namespace nkentseu {
 			// Parser JSON minimal — cherche les clés connues
 			auto findStr = [](const char *js, const char *key, char *out, int32 maxOut) -> const char * {
 				char kk[64];
-				::snprintf(kk, sizeof(kk), "\"%s\"", key);
+				nkentseu::NkSnprintf(kk, sizeof(kk), "\"%s\"", key);
 				const char *p = ::strstr(js, kk);
 				if (!p)
 					return nullptr;
@@ -210,7 +212,7 @@ namespace nkentseu {
 			};
 			auto findFloat = [](const char *js, const char *key, float32 &out) -> const char * {
 				char kk[64];
-				::snprintf(kk, sizeof(kk), "\"%s\"", key);
+				nkentseu::NkSnprintf(kk, sizeof(kk), "\"%s\"", key);
 				const char *p = ::strstr(js, kk);
 				if (!p)
 					return nullptr;
@@ -223,7 +225,7 @@ namespace nkentseu {
 			};
 			auto findBool = [](const char *js, const char *key, bool &out) -> const char * {
 				char kk[64];
-				::snprintf(kk, sizeof(kk), "\"%s\"", key);
+				nkentseu::NkSnprintf(kk, sizeof(kk), "\"%s\"", key);
 				const char *p = ::strstr(js, kk);
 				if (!p)
 					return nullptr;
@@ -528,7 +530,7 @@ namespace nkentseu {
 			}
 
 			// Input hex
-			::snprintf(st->hexBuf, sizeof(st->hexBuf), "#%02X%02X%02X%02X", newColor.r, newColor.g, newColor.b,
+			nkentseu::NkSnprintf(st->hexBuf, sizeof(st->hexBuf), "#%02X%02X%02X%02X", newColor.r, newColor.g, newColor.b,
 					   newColor.a);
 			NkUI::InputText(ctx, ls, dl, font, "##hex", st->hexBuf, sizeof(st->hexBuf), totalW);
 			// Parse hex si modifié

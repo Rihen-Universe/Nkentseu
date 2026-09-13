@@ -1,4 +1,5 @@
 #pragma once
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // =============================================================================
 // NkRHI_Device_GL.h — Implémentation OpenGL du NkIDevice
 // Supporte OpenGL 4.3+ (compute, SSBO, DSA)
@@ -27,6 +28,14 @@ namespace nkentseu {
 	class NkOpenGLDevice;
 
 	GLuint NkOpenglGetBufferID(NkOpenGLDevice *dev, uint64 id);
+
+	// Interrupteur du diagnostic verbeux par-liaison (BindVB / BindIB).
+	// DEFAUT : ETEINT. Allumer avec NK_WEB_DIAG=1.
+	// ⚠️ Mesure du 2026-09-02 : laisse actif, il produit 12 411 lignes et
+	// 1,8 Mo de journal par execution headless -- il ralentit la page et
+	// FAUSSE TOUTE MESURE DE PERFORMANCE WEB. Un diagnostic qui ne s'eteint
+	// pas cesse d'etre un instrument et devient un biais.
+	bool NkWebDiagEnabled() noexcept;
 	GLuint NkOpenglGetTextureID(NkOpenGLDevice *dev, uint64 id);
 	GLuint NkOpenglGetFBOID(NkOpenGLDevice *dev, uint64 id);
 	GLuint NkOpenglGetSamplerID(NkOpenGLDevice *dev, uint64 id);
@@ -154,6 +163,17 @@ namespace nkentseu {
 			bool BeginFrame(NkFrameContext &frame) override;
 			void EndFrame(NkFrameContext &frame) override;
 
+			// ── Chrono GPU (2026-09-04) : glQueryCounter(GL_TIMESTAMP), anneau de 4 frames ──
+			// GetTimestampResults rend la frame la plus ancienne DISPONIBLE sans bloquer ;
+			// sans glQueryCounter (WebGL2 / GLES), il rend faux et le dit une fois.
+			void BeginTimestampQuery(uint32 index) override;
+			void EndTimestampQuery(uint32 index) override;
+			bool GetTimestampResults(uint64 *outNs, uint32 count) override;
+			bool GetTimestampResult(uint32 index, uint64 &t0, uint64 &t1) override;
+			float32 GetTimestampPeriodNs() override {
+				return 1.f; // GL_TIMESTAMP est deja en nanosecondes
+			}
+
 			uint32 GetFrameIndex() const override {
 				return mFrameIndex;
 			}
@@ -180,6 +200,12 @@ namespace nkentseu {
 			}
 
 		private:
+			static constexpr uint32 kTsRing = 8;  // 8 : jusqu'a 8 paires d'un meme chrono entre deux lectures (profil SPH)
+			static constexpr uint32 kTsIdx = 32; // 0 = la frame, 1 = la passe VFX (2026-09-04) ; 4.. = le profil du SPH par passe (2026-09-05)
+			uint32 mTsQuery[kTsIdx][kTsRing][2] = {};
+			bool mTsIssued[kTsIdx][kTsRing] = {};
+			uint32 mTsSlot[kTsIdx] = {};
+			bool mTsAbsentDit = false;
 			friend GLuint NkOpenglGetBufferID(NkOpenGLDevice *dev, uint64 id);
 			friend GLuint NkOpenglGetTextureID(NkOpenGLDevice *dev, uint64 id);
 			friend GLuint NkOpenglGetFBOID(NkOpenGLDevice *dev, uint64 id);
@@ -317,6 +343,9 @@ namespace nkentseu {
 			NkDeviceInitInfo mInit{};
 			NkDeviceCaps mCaps{};
 			bool mIsValid = false;
+			// GL_FRAMEBUFFER_SRGB a un interrupteur (bureau, ou ES avec EXT_sRGB_write_control) ;
+			// sinon BeginFrame ne le touche pas (WebGL2 : GL_INVALID_ENUM a chaque image, 2026-09-04).
+			bool mHasFramebufferSrgbControl = true;
 			uint32 mWidth = 0, mHeight = 0;
 			uint32 mFrameIndex = 0;
 			uint64 mFrameNumber = 0;

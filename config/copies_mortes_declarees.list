@@ -1,0 +1,57 @@
+# config/copies_mortes_declarees.list — LES MORTS QUI N ONT PAS LE BON NOM (2026-08-27)
+# =============================================================================
+# POURQUOI CE FICHIER EXISTE
+#
+#   preuve_copies_mortes.sh porte « LA PREUVE, PAS LA LISTE » dans son titre, et
+#   c est vrai de sa PREUVE : « aucune citation hors commentaire, aucun joker ».
+#   Ce n est pas vrai de sa POPULATION. Elle est choisie a la ligne 61 par un
+#   motif de NOM :
+#       re.search(r" copy( \d+)?\.(h|hpp|cpp|inl|c)$", f)
+#
+#   ⚠️ DONC L OUTIL QUI PROUVE LES USAGES MORTS CHOISIT SES CANDIDATS PAR LEUR
+#   NOM. C est « chercher un nom n est pas chercher un usage » — la faute la plus
+#   tenace de ce depot — logee dans l outil ecrit pour la traquer.
+#
+#   Mesure du 27/08 : Applications/Sandbox/src/DemoNkentseu/Base06/PBRGame.cpp
+#   est mort par la MEME preuve (aucune cible .jenga, aucun joker) et INVISIBLE a
+#   l outil parce qu il porte un nom normal. Il appelle en plus cinq methodes
+#   d overlay dont AUCUNE n existe dans NkOverlayRenderer.h : du code mort ecrit
+#   contre une API qui n a jamais existe.
+#
+# CE QUE CE FICHIER EST, ET CE QU IL N EST PAS
+#   il est        une EXTENSION DE POPULATION : « regarde aussi ceux-la ».
+#   il n est PAS  une liste de verdicts. La preuve reste celle du script, et un
+#                 fichier declare ici peut tres bien ressortir « vivant ».
+#   ⚠️ Il ne remplace pas la vraie parade, qui serait d abandonner le motif de nom
+#   et de prouver TOUS les fichiers suivis d Applications/. Cout non mesure ;
+#   proposition, pas correction.
+#
+# FORMAT — un chemin par ligne, puis « | » et la raison de l avoir declare.
+# =============================================================================
+
+# TRAITE LE 27/08 : PBRGame.cpp a ete prouve mort par cette declaration, puis
+# SUPPRIME avec les 38 autres. Sa ligne est retiree de la population -- l outil
+# la signalait « DECLARE MAIS NON SUIVI PAR GIT », ce qui est exactement ce que
+# ce signalement existe pour dire. La declaration a servi et elle est close.
+# (contenu : aucune cible .jenga ; appelait cinq methodes d overlay dont aucune
+#  n existait dans NkOverlayRenderer.h -- du code mort ecrit contre une API qui
+#  n a jamais existe.)
+
+# =============================================================================
+# POPULATION-VIDE-ATTENDUE = oui
+# =============================================================================
+#   Declare le 2026-08-27, apres le nettoyage decide par Rodolf.
+#   Les 39 fichiers prouves morts ont ete supprimes, et « Applications/Pong copy/ »
+#   avec eux : plus AUCUN fichier ne correspond au motif ni a la liste declaree.
+#   L outil examine donc ZERO fichier.
+#
+#   ⚠️ SANS CETTE DECLARATION IL REND 2, ET C EST VOULU. « 0 mort sur 0 examine »
+#   se lit « tout est propre » et veut dire « je n ai rien regarde ». L outil ne
+#   peut pas distinguer « tout a ete nettoye » de « le selecteur est casse » :
+#   c est a un humain de le dire, et cette ligne est cette parole.
+#
+#   ⚠️ CE QUE CETTE DECLARATION NE COUVRE PAS : elle accepte le VIDE, elle ne
+#   prouve pas que le selecteur fonctionne. Le jour ou une copie neuve apparaitra,
+#   c est le motif qui devra la voir -- et rien ici ne le verifie.
+#   RETIRER CETTE LIGNE des qu un fichier reapparait dans la population.
+# =============================================================================

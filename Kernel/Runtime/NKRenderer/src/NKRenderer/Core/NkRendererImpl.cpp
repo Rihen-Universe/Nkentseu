@@ -1,7 +1,10 @@
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // =============================================================================
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // NkRendererImpl.cpp  — NKRenderer v5.0
 // =============================================================================
 #include "NkRendererImpl.h"
+#include "NKCore/Text/NkSnprintf.h"
 #include "NKRenderer/Tools/Reflection/NkPlanarReflectionSystem.h"
 #include "NKRenderer/Tools/VoxelAO/NkVoxelAOSystem.h"
 #include "NKRenderer/Materials/NkMaterialCollection.h"
@@ -70,6 +73,31 @@ namespace nkentseu {
 				return false;
 			}
 			logger.Info("[NkRendererImpl] Initialize start (api={0})\n", (int)mCfg.api);
+			// ── C1 : `debugOverlay` IMPLIQUE le sous-systeme d overlay (2026-08-27) ──
+			// ARBITRAGE DE RODOLF, lecture (A) sur trois proposees.
+			// Le champ etait declare, documente, et n avait AUCUNE lecture : le poser
+			// a true ne faisait rien. L allocation de NkOverlayRenderer etait pilotee
+			// par le seul drapeau de sous-systeme NK_SS_OVERLAY.
+			//
+			// POURQUOI (A) ET PAS (B) « le renderer DESSINE le panneau ». Mesure du
+			// 27/08 : DrawStats est appele par 18 sites, TOUS dans les applications,
+			// et le renderer ne dessine JAMAIS le panneau lui-meme. ForEditor() a un
+			// seul appelant, NK3DModeler, qui dessine DEJA ses stats
+			// (NkDemo3D.cpp:10755). (B) lui aurait donne DEUX panneaux superposes.
+			// Le panneau appartient a l application, pas au moteur.
+			//
+			// ⚠️ ET IL FALLAIT UN EFFET, PAS UNE TRACE. Un logger.Warn « debugOverlay
+			// demande sans NK_SS_OVERLAY » aurait suffi a faire sortir ce champ de la
+			// liste des candidats du detecteur -- « lu » -- SANS RIEN HONORER. La
+			// ligne ci-dessous CHANGE CE QUE LE RENDERER ALLOUE, et le banc
+			// NkDebugOverlayCheck le mesure par un avant/apres sur GetOverlay() :
+			// sans NK_SS_OVERLAY, le drapeau a false rend nullptr et le drapeau a
+			// true rend un overlay. Un effet, pas une trace.
+			if (mCfg.debugOverlay && !mCfg.Has(NK_SS_OVERLAY)) {
+				mCfg.subsystems = mCfg.subsystems | NK_SS_OVERLAY;
+				logger.Info("[NkRendererImpl] cfg.debugOverlay=true : NK_SS_OVERLAY ajoute "
+							"aux sous-systemes (l overlay sera alloue).\n");
+			}
 
 			// ── CORRECTIF course CPU/GPU (2026-07-28) : la PROFONDEUR DES RINGS DOIT
 			//    ÊTRE CELLE DU DEVICE, pas une valeur de config indépendante. ────────
@@ -361,6 +389,22 @@ namespace nkentseu {
 		}
 
 		bool NkRendererImpl::InitEnvironment() {
+			// ── B4 : le drapeau que personne ne lisait (2026-08-27) ───────────────
+			// NkIBLConfig::enabled etait declare, documente, et n avait AUCUNE
+			// lecture dans tout le depot : les ONZE autres champs de NkIBLConfig
+			// sont lus juste en dessous, lui seul ne l etait pas. Regler
+			// cfg.ibl.enabled = false ne faisait rien -- l IBL se construisait quand
+			// meme, avec ses convolutions et ses cubemaps.
+			// Verifie avant d ecrire cette ligne : les trois dereferencements de
+			// mEnv dans NkRender3D.cpp sont TOUS gardes (:388, :450, :2496), et
+			// GetEnvironment() rend deja un pointeur qui peut etre nul (:614).
+			// Rendre `true` et non `false` est deliberé : « IBL desactive » n est pas
+			// un echec d initialisation, c est le resultat demande.
+			if (!mCfg.ibl.enabled) {
+				logger.Info("[NkRendererImpl] IBL desactive par cfg.ibl.enabled=false : "
+							"NkEnvironmentSystem NON alloue.\n");
+				return true;
+			}
 			if (mEnvironment)
 				return true;
 			mEnvironment.Reset(AllocOwned<NkEnvironmentSystem>());
@@ -435,7 +479,7 @@ namespace nkentseu {
 			if (mVFX)
 				return true;
 			mVFX.Reset(AllocOwned<NkVFXSystem>());
-			if (!mVFX->Init(mDevice, mTextures.Get(), mMeshSystem.Get())) {
+			if (!mVFX->Init(mDevice, mTextures.Get(), mMeshSystem.Get(), mShaders.Get())) {
 				mVFX.Reset();
 				NkRSetLastError(NkRResult::NK_ERR_UNKNOWN, "NkVFXSystem::Init failed");
 				return false;
@@ -887,8 +931,20 @@ namespace nkentseu {
 					.Reads(mainDepth)
 					.SetColor(0, mainColor, NkLoadOp::NK_LOAD)
 					.Execute([this](NkICommandBuffer *cmd) {
-						// VFX flush integre par le sous-systeme VFX
-						(void)cmd;
+						// 2026-09-04 : ce corps etait `(void)cmd;` sous un commentaire
+						// qui affirmait « VFX flush integre par le sous-systeme VFX ».
+						// Il ne l'etait pas : NkVFXSystem::Render n'avait AUCUN
+						// appelant dans le depot. La passe etait declaree, activee,
+						// executee -- et ne dessinait rien. Declare, pas livre.
+						// La camera n'est pas utilisee par le rendu des particules :
+						// le vertex shader lit uCam (CameraUBO, set=0) et en tire
+						// right/up. On passe donc une donnee neutre plutot que de
+						// stocker une camera que personne ne lirait.
+						if (mVFX) {
+							cmd->WriteTimestamp(2); // chrono 1 (passe VFX) : marqueurs ENREGISTRES, rejoues avec les dessins
+							mVFX->Render(cmd, NkCamera3DData{});
+							cmd->WriteTimestamp(3);
+						}
 					});
 			}
 
@@ -967,7 +1023,7 @@ namespace nkentseu {
 					uint32 bw = mCfg.width / div ? mCfg.width / div : 1;
 					uint32 bh = mCfg.height / div ? mCfg.height / div : 1;
 					char name[32];
-					snprintf(name, sizeof(name), "BloomMip%d", i);
+					nkentseu::NkSnprintf(name, sizeof(name), "BloomMip%d", i);
 					bloomMip[i] =
 						g.CreateTransient(name, NkTextureDesc::RenderTarget(bw, bh, NkGPUFormat::NK_RGBA16_FLOAT));
 				}
@@ -983,7 +1039,7 @@ namespace nkentseu {
 				// porte l'ancrage sur le blanc affiche et la sortie de circularite.
 				for (int i = 0; i < kBloomMipsRG; i++) {
 					char passName[32];
-					snprintf(passName, sizeof(passName), "Bloom_Down_%d", i);
+					nkentseu::NkSnprintf(passName, sizeof(passName), "Bloom_Down_%d", i);
 					auto &dp = g.AddPass(passName, NkPassType::NK_POST_PROCESS);
 					NkGraphResId src = (i == 0) ? mainColor : bloomMip[i - 1];
 					dp.Reads(src);
@@ -1011,7 +1067,7 @@ namespace nkentseu {
 				// Ordre : Bloom_Up_4 (mip5->mip4), ..., Bloom_Up_0 (mip1->mip0).
 				for (int i = kBloomMipsRG - 2; i >= 0; i--) {
 					char passName[32];
-					snprintf(passName, sizeof(passName), "Bloom_Up_%d", i);
+					nkentseu::NkSnprintf(passName, sizeof(passName), "Bloom_Up_%d", i);
 					auto &up = g.AddPass(passName, NkPassType::NK_POST_PROCESS);
 					up.Reads(bloomMip[i + 1]);
 					// NK_LOAD pour preserver le downsample de la mip courante
@@ -1448,6 +1504,7 @@ namespace nkentseu {
 
 			if (!mDevice->BeginFrame(mFrameCtx))
 				return false;
+			mDevice->BeginTimestampQuery(0); // chrono GPU : horodatage de debut de frame (2026-09-04)
 
 			// Sélection « outline silhouette » : (dés)activer l'option ajoute/retire les
 			// passes SelectionMask + SelectionOutline du graph -> rebuild à l'aplomb de
@@ -1504,7 +1561,22 @@ namespace nkentseu {
 							  "Corriger l'appelant : Present() PUIS EndFrame(). "
 							  "Cf. wiki/Runtime/NKRenderer/Frame-Contract.md\n");
 			}
-			mDevice->EndFrame(mFrameCtx);
+			mDevice->EndFrame(mFrameCtx); // relit le tampon de commandes : c'est LA que le GPU dessine
+			mDevice->EndTimestampQuery(0); // horodatage de fin APRES la relecture -- avant, il tombait avant les dessins et mesurait l'attente de la frame precedente
+			// Chrono GPU (2026-09-04) : le device rend les deux horodatages d'une frame
+			// DEJA terminee (une frame de latence, pas d'attente). Tant qu'aucun backend ne
+			// repond, gpuTimeValid reste faux et le HUD dit « -- ».
+			{
+				uint64 ns[4] = {0, 0, 0, 0};
+				if (mDevice->GetTimestampResults(ns, 4) && ns[1] >= ns[0]) {
+					mStats.gpuTimeMs = (float32)((float64)(ns[1] - ns[0]) * (float64)mDevice->GetTimestampPeriodNs() / 1.0e6);
+					mStats.gpuTimeValid = true;
+					if (ns[3] >= ns[2] && ns[2] != 0) {
+						mStats.gpuVfxMs = (float32)((float64)(ns[3] - ns[2]) * (float64)mDevice->GetTimestampPeriodNs() / 1.0e6);
+						mStats.gpuVfxValid = true;
+					}
+				}
+			}
 			// ── LA FRAME EST COMPLETE : on fige ses statistiques ────────────
 			// Ces compteurs etaient AFFICHES depuis toujours (overlay
 			// « Draw/Tris/Batches ») mais jamais alimentes -- le cadran

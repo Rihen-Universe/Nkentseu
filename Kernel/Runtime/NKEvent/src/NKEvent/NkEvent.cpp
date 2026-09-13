@@ -1,4 +1,5 @@
 #include "pch.h"
+#include "NKCore/Text/NkSnprintf.h"
 // =============================================================================
 // NKEvent/NkEvent.cpp
 // Implémentation des classes et utilitaires du système d'événements Nkentseu.
@@ -14,7 +15,7 @@
 //   - Fonctions ToString optimisées pour le débogage sans allocation excessive
 //   - Implémentations virtuelles par défaut pour NkEvent (pattern Template Method)
 //
-// Auteur : Rihen
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // Date : 2024-2026
 // License : Proprietary - All Rights Reserved (see LICENSE)
 // =============================================================================
@@ -626,10 +627,10 @@ namespace nkentseu {
 		char windowBuffer[32];
 
 		// Formatage sécurisé du timestamp en millisecondes (uint64 → string)
-		::snprintf(tsBuffer, sizeof(tsBuffer), "%llu", static_cast<unsigned long long>(mTimestamp));
+		nkentseu::NkSnprintf(tsBuffer, sizeof(tsBuffer), "%llu", static_cast<unsigned long long>(mTimestamp));
 
 		// Formatage sécurisé de l'identifiant de fenêtre (uint64 → string)
-		::snprintf(windowBuffer, sizeof(windowBuffer), "%llu", static_cast<unsigned long long>(mWindowID));
+		nkentseu::NkSnprintf(windowBuffer, sizeof(windowBuffer), "%llu", static_cast<unsigned long long>(mWindowID));
 
 		// Construction progressive de la chaîne de sortie via NkString
 		// Évite les allocations multiples grâce à la capacité pré-allouée de NkString

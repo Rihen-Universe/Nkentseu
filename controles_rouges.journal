@@ -1,0 +1,58 @@
+2026-08-24 | cap/detection-D1 | ce-capacites @ 9e42c907 | [vu]   D1 nomme NkIDevice::GetNkCapFantomeLevel
+2026-08-24 | cap/detection-D2 | ce-capacites @ 9e42c907 | [vu]   D2 nomme NkDeviceCaps::nkCapFantome
+2026-08-24 | cap/candidat-non-classe | ce-capacites @ 9e42c907 | [vu]   code 4 (echec de classement)
+2026-08-24 | cap/classement-interdit | ce-capacites @ 9e42c907 | [vu]   l'outil dit CLASSEMENT INTERDIT, pas seulement « non classe »
+2026-08-24 | cap/date-vide-reste-rouge | ce-capacites @ 9e42c907 | [vu]   « dette-datee » a date VIDE reste rouge (un oubli n'est pas une dette datee)
+2026-08-24 | cap/cliquet-rompu | ce-capacites @ 9e42c907 | [vu]   l'outil dit CLIQUET ROMPU, et nomme le plafond
+2026-08-24 | cap/cliquet-absent | ce-capacites @ 9e42c907 | [vu]   sans directive de plafond : ECHEC D'INSTRUMENT (code 2), pas un vert
+2026-08-24 | cap/retour-au-vert-en-classant | ce-capacites @ 9e42c907 | [vu]   code 0 : on revient au vert en CLASSANT, pas en desactivant
+2026-08-24 | msaa/contrat-suit-les-drapeaux | msaa-contrat @ 9e42c907 | [FAIL] SupportsSamples(2/4/8/16) == le drapeau correspondant, 16 sur 16
+2026-08-24 | msaa/contrat-borne-exprimable | msaa-contrat @ 9e42c907 | [FAIL] NK_S32 et NK_S64 refuses sur les 16 combinaisons (exprimables, jamais honorables)
+2026-08-24 | msaa/contrat-non-puissance-de-2 | msaa-contrat @ 9e42c907 | [FAIL] 10 valeurs impossibles refusees sur les 16 combinaisons (dont 3 et 7)
+2026-08-24 | msaa/contrat-max-samples | msaa-contrat @ 9e42c907 | [FAIL] MaxSamples() honorable, et rien au-dessus ne l'est (16 combinaisons)
+2026-08-24 | bancs/ignore-troisieme-etat | ignore-gpu @ 9e42c907 | [OK]   verdict du banc : IGNORE
+2026-08-24 | bancs/ignore-code-declare | ignore-gpu @ 9e42c907 | [OK]   code de sortie du banc : 77
+2026-08-24 | bancs/ignore-compte | ignore-gpu @ 9e42c907 | [OK]   compte sur la ligne de verdict : present
+2026-08-24 | bancs/ignore-section | ignore-gpu @ 9e42c907 | [OK]   section IGNORES : presente
+2026-08-24 | bancs/ignore-avertissement | ignore-gpu @ 9e42c907 | [OK]   avertissement sous le verdict : present
+2026-08-24 | bancs/ignore-raison-lue-A | ignore-gpu @ 9e42c907 | [OK]   raison propre au defaut A : trouvee
+2026-08-24 | bancs/ignore-raison-lue-B | ignore-gpu @ 9e42c907 | [OK]   raison propre au defaut B : trouvee
+2026-08-24 | bancs/garde-projet-non-classe | ce-bancs @ 9e42c907 | [vu] code de sortie 3 (echec de classement)
+2026-08-24 | bancs/projet-nomme | ce-bancs @ 9e42c907 | [vu] le projet NOMME dans le rapport
+2026-08-24 | bancs/construction-echouee | ce-bancs @ 9e42c907 | construction echouee (jenga code 1) : ║                                 Compilation Error: main.cpp                                  ║
+2026-08-24 | bancs/ancien-binaire-non-lance | ce-bancs @ 9e42c907 | [vu] L'ANCIEN BINAIRE N'A PAS TOURNE (journal d'execution inchange)
+2026-08-24 | bancs/execution-echouee | ce-bancs @ 9e42c907 | [vu] le CODE DU BANC rapporte tel quel : 3
+2026-08-24 | bancs/cause-citee-construction | ce-bancs @ 9e42c907 | [vu] la premiere ligne significative du compilateur (exigence 5)
+2026-08-24 | bancs/cause-citee-execution | ce-bancs @ 9e42c907 | [vu] la premiere ligne significative de la SORTIE DU BANC (exigence 5)
+2026-08-24 | bancs/retour-au-vert | ce-bancs @ 9e42c907 | [vu] retour au code 0
+2026-08-24 | ctl/cliquet-rompu | ce-controles @ 5a787e9f | [vu] l'outil dit CLIQUET ROMPU
+2026-08-24 | ctl/controle-neuf-nomme | ce-controles @ 5a787e9f | [vu] le controle fantome est NOMME, pas seulement compte
+2026-08-24 | ctl/motif-introuvable-nul | ce-controles @ 5a787e9f | [vu] aucune ligne de journal pour un motif introuvable
+2026-08-24 | ctl/cliquet-absent | ce-controles @ 5a787e9f | [vu] code 2 : ECHEC D'INSTRUMENT, jamais un vert
+2026-08-24 | bancs/ignore-troisieme-etat | ignore-gpu @ b95c3a53 | [OK]   verdict du banc : IGNORE
+2026-08-24 | bancs/ignore-code-declare | ignore-gpu @ b95c3a53 | [OK]   code de sortie du banc : 77
+2026-08-24 | bancs/ignore-compte | ignore-gpu @ b95c3a53 | [OK]   compte sur la ligne de verdict : present
+2026-08-24 | bancs/ignore-section | ignore-gpu @ b95c3a53 | [OK]   section IGNORES : presente
+2026-08-24 | bancs/ignore-avertissement | ignore-gpu @ b95c3a53 | [OK]   avertissement sous le verdict : present
+2026-08-24 | bancs/ignore-raison-lue-A | ignore-gpu @ b95c3a53 | [OK]   raison propre au defaut A : trouvee
+2026-08-24 | bancs/ignore-raison-lue-B | ignore-gpu @ b95c3a53 | [OK]   raison propre au defaut B : trouvee
+2026-08-24 | msaa/contrat-suit-les-drapeaux | msaa-contrat @ b95c3a53 | [FAIL] SupportsSamples(2/4/8/16) == le drapeau correspondant, 16 sur 16
+2026-08-24 | msaa/contrat-borne-exprimable | msaa-contrat @ b95c3a53 | [FAIL] NK_S32 et NK_S64 refuses sur les 16 combinaisons (exprimables, jamais honorables)
+2026-08-24 | msaa/contrat-non-puissance-de-2 | msaa-contrat @ b95c3a53 | [FAIL] 10 valeurs impossibles refusees sur les 16 combinaisons (dont 3 et 7)
+2026-08-24 | msaa/contrat-max-samples | msaa-contrat @ b95c3a53 | [FAIL] MaxSamples() honorable, et rien au-dessus ne l'est (16 combinaisons)
+2026-08-24 | chem/occurrence-non-classee | ce-chemins @ c2f48157 | [vu] l outil dit NON CLASSE
+2026-08-24 | chem/fichier-nomme | ce-chemins @ c2f48157 | [vu] le fichier est NOMME, pas seulement compte
+2026-08-24 | chem/chemin-cite | ce-chemins @ c2f48157 | [vu] le CHEMIN exact est cite
+2026-08-24 | chem/tolere-sans-note | ce-chemins @ c2f48157 | [vu] l outil dit TOLERE SANS NOTE
+2026-08-24 | chem/retour-au-vert-en-classant | ce-chemins @ c2f48157 | [vu] code 0 : on revient au vert en CLASSANT, pas en desactivant
+2026-08-24 | chem/tolerance-comptee | ce-chemins @ c2f48157 | [vu] le compte des tolerees est dit, la tolerance ne disparait pas du rapport
+2026-08-24 | chem/interdit-reste-rouge | ce-chemins @ c2f48157 | [vu] code 6 : « interdit » reste ROUGE, ce n est pas une case pour classer sans reparer
+2026-08-24 | chem/canari-perdu | ce-chemins @ c2f48157 | [vu] code 2 : ECHEC D INSTRUMENT, et surtout PAS un vert
+2026-08-24 | chem/plancher-lecture | ce-chemins @ c2f48157 | [vu] code 2 : un outil qui ne lit presque plus rien ne conclut pas
+2026-08-27 | cap/temoin-D1 | temoins-cap @ 3d7697bd | [vu] le temoin D1 est NOMME
+2026-08-27 | cap/temoin-D2 | temoins-cap @ 3d7697bd | [vu] le temoin D2 est NOMME
+2026-08-27 | cap/disparition-sans-reponse | disparition @ 003b18d0 | [vu] code 4 : une dette disparue sans reponse fait ROUGIR
+2026-08-27 | cap/disparition-symbole-nomme | disparition @ 003b18d0 | [vu] le symbole est NOMME
+2026-08-27 | cap/disparition-causes-dites | disparition @ 003b18d0 | [vu] la cause dangereuse est nommee (lecture creuse)
+2026-08-27 | cap/disparition-silence-legitime | disparition @ 003b18d0 | [vu] code 0 : une suppression de code ne fait PAS rougir
+2026-08-27 | cap/disparition-deja-tranchee | disparition @ 003b18d0 | [vu] code 0 : une disparition deja tranchee ne rougit pas

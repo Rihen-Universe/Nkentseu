@@ -8,7 +8,7 @@
 //  - Thread-safety via NkSpinLock avec acquisition/release explicites
 //  - Overhead minimal : allocation directe via ::malloc pour les entrées
 //
-// Auteur : Rihen
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // Date : 2024-2026
 // License : Proprietary - All Rights Reserved (see LICENSE)
 // =============================================================================
@@ -17,6 +17,7 @@
 // PRÉ-COMPILED HEADER - TOUJOURS EN PREMIER
 // -------------------------------------------------------------------------
 #include "pch.h"
+#include "NKCore/Text/NkSnprintf.h"
 
 // -------------------------------------------------------------------------
 // EN-TÊTES DU MODULE
@@ -210,22 +211,22 @@ namespace nkentseu {
 					// Formatage de la taille en unités humaines
 					char sizeBuf[32];
 					if (info.size >= (1024 * 1024)) {
-						snprintf(sizeBuf, sizeof(sizeBuf), "%.2f MB",
+						nkentseu::NkSnprintf(sizeBuf, sizeof(sizeBuf), "%.2f MB",
 								 static_cast<float>(info.size) / (1024.0f * 1024.0f));
 					} else if (info.size >= 1024) {
-						snprintf(sizeBuf, sizeof(sizeBuf), "%.2f KB", static_cast<float>(info.size) / 1024.0f);
+						nkentseu::NkSnprintf(sizeBuf, sizeof(sizeBuf), "%.2f KB", static_cast<float>(info.size) / 1024.0f);
 					} else {
-						snprintf(sizeBuf, sizeof(sizeBuf), "%llu B", static_cast<unsigned long long>(info.size));
+						nkentseu::NkSnprintf(sizeBuf, sizeof(sizeBuf), "%llu B", static_cast<unsigned long long>(info.size));
 					}
 
 					// Formatage de l'emplacement
 					char locationBuf[64];
 					if (info.file && info.function) {
-						snprintf(locationBuf, sizeof(locationBuf), "%s:%d (%s)", info.file, info.line, info.function);
+						nkentseu::NkSnprintf(locationBuf, sizeof(locationBuf), "%s:%d (%s)", info.file, info.line, info.function);
 					} else if (info.file) {
-						snprintf(locationBuf, sizeof(locationBuf), "%s:%d", info.file, info.line);
+						nkentseu::NkSnprintf(locationBuf, sizeof(locationBuf), "%s:%d", info.file, info.line);
 					} else {
-						snprintf(locationBuf, sizeof(locationBuf), "<unknown>");
+						nkentseu::NkSnprintf(locationBuf, sizeof(locationBuf), "<unknown>");
 					}
 
 					NK_FOUNDATION_LOG_INFO("%-12p | %-10s | %-6u | %-30s | %s", info.userPtr, sizeBuf,

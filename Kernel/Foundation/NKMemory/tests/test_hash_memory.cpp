@@ -1,3 +1,4 @@
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 #include <Unitest/Unitest.h>
 #include <Unitest/TestMacro.h>
 
@@ -56,7 +57,9 @@ TEST_CASE(NKMemoryHash, PointerHashMapLookupAndUpdate) {
 	}
 
 	nk_int32 overrideValue = 1337;
-	ASSERT_TRUE(map.Insert(&keys[42], &overrideValue));
+	// Contrat documente (NkHash.h:447) : Insert sur une cle EXISTANTE met a jour et rend
+	// FALSE. Le test affirmait l inverse -- test faux, suivi sur le contrat (2026-09-04).
+	ASSERT_FALSE(map.Insert(&keys[42], &overrideValue));
 
 	void *found = map.Find(&keys[42]);
 	ASSERT_TRUE(found == &overrideValue);

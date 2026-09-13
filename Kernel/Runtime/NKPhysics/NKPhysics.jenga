@@ -1,3 +1,4 @@
+# AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
@@ -72,4 +73,5 @@ with project("NKPhysics"):
     with filter("(system:Linux || system:macOS || (system:Windows && !options:windows-runtime=uwp && !system:XboxSeries && !system:XboxOne)) && !system:Android && !system:iOS && !system:Web"):
         with test():
             testfiles(["tests/**.cpp"])
+            testownmain()  # la suite fournit son main() -- le mot propre de Jenga 2.6 (2026-09-04)
             links(["NKPhysics", "NKCollision", "NKContainers", "NKCore", "NKMemory", "NKLogger", "NKMath", "NKPlatform"])

@@ -1,4 +1,5 @@
 // =============================================================================
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // NkEnvironmentSystem.cpp  — NKRenderer v5.0
 //
 // D.2d : IBL prefiltering CPU au startup avec cache disque.
@@ -10,6 +11,7 @@
 // Invalidation automatique si les parametres sky ou les tailles changent (hash FNV-32).
 // =============================================================================
 #include "NkEnvironmentSystem.h"
+#include "NKCore/Text/NkSnprintf.h"
 #include "NKThreading/NkThreadPool.h"
 #include "NKLogger/NkLog.h"
 #include "NKFileSystem/NkPath.h"
@@ -101,7 +103,7 @@ namespace nkentseu {
 
 		static NkPath IBLCachePath(const char *dir, uint32 hash) {
 			char buf[64];
-			snprintf(buf, sizeof(buf), "nk_ibl_%08x.bin", hash);
+			nkentseu::NkSnprintf(buf, sizeof(buf), "nk_ibl_%08x.bin", hash);
 			NkPath cacheDir;
 			if (dir && dir[0]) {
 				cacheDir = NkPath(dir) / "ibl";

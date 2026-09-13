@@ -56,6 +56,28 @@ if git diff --cached --name-only | grep -q '\.jenga$'; then
   fi
 fi
 
+# GARDE DE LA LISTE DES BANCS (2026-08-22, chantier verificateur).
+# « Un banc s'ignore en ne le lancant pas — et on ne le lance pas le jour ou on
+# est presse, c'est-a-dire exactement le jour ou on casse quelque chose. »
+# La parade est en deux temps, et c'est delibere :
+#   - ICI, a chaque commit touchant un .jenga ou config/bancs.list : SEULEMENT
+#     l'inventaire (`--liste`, ~4 s, ne construit rien). Il refuse le commit si
+#     un projet d'Applications/ n'est pas classe. C'est ce qui rend impossible
+#     l'apparition d'un banc que personne n'aurait declare.
+#   - A LA MAIN, quand on veut la verite complete : `./verif_bancs.sh`, qui
+#     construit et lance. Trop long pour un commit — le mettre ici le ferait
+#     contourner, et on aurait reconstruit le probleme qu'il devait resoudre.
+if git diff --cached --name-only | grep -qE '\.jenga$|^config/bancs\.list$'; then
+  if [ -f "$ROOT/verif_bancs.sh" ]; then
+    bash "$ROOT/verif_bancs.sh" --liste || {
+      echo "[gitcommit] GARDE BANCS : commit refuse (voir ci-dessus)." >&2
+      echo "[gitcommit] Classe le ou les projets dans config/bancs.list." >&2
+      echo "[gitcommit] L'index reste stage ; corrige puis relance." >&2
+      exit 1
+    }
+  fi
+fi
+
 # Construit les options d'identite seulement si on veut la forcer.
 ID_OPTS=()
 [ -n "$GIT_NAME" ]  && ID_OPTS+=(-c "user.name=$GIT_NAME")

@@ -197,59 +197,33 @@ namespace nkentseu {
 		// Standard descriptor-set layouts
 		// =====================================================================
 		bool NkResources::CreateStandardLayouts() {
-			// Frame (set=0)
-			//   binding 0 : camera UBO
-			//   binding 1 : lights UBO (forward)
-			//   binding 2 : lights SSBO (forward+ light list)
-			//   binding 3 : clusters SSBO
-			//   binding 4 : shadow atlas (sampled image)
-			//   binding 5 : IBL irradiance (cubemap)
-			//   binding 6 : IBL specular prefiltered (cubemap)
-			//   binding 7 : BRDF LUT (2D)
-			{
-				NkDescriptorSetLayoutDesc d;
-				d.Add(NK_BIND_CAMERA_UBO, NkDescriptorType::NK_UNIFORM_BUFFER, NkShaderStage::NK_ALL_GRAPHICS)
-					.Add(NK_BIND_LIGHTS_UBO, NkDescriptorType::NK_UNIFORM_BUFFER, NkShaderStage::NK_FRAGMENT)
-					.Add(NK_BIND_LIGHTS_SSBO, NkDescriptorType::NK_STORAGE_BUFFER, NkShaderStage::NK_FRAGMENT)
-					.Add(NK_BIND_CLUSTERS_SSBO, NkDescriptorType::NK_STORAGE_BUFFER, NkShaderStage::NK_FRAGMENT)
-					.Add(NK_BIND_SHADOW_ATLAS, NkDescriptorType::NK_COMBINED_IMAGE_SAMPLER, NkShaderStage::NK_FRAGMENT)
-					.Add(NK_BIND_IBL_IRRADIANCE, NkDescriptorType::NK_COMBINED_IMAGE_SAMPLER,
-						 NkShaderStage::NK_FRAGMENT)
-					.Add(NK_BIND_IBL_SPECULAR, NkDescriptorType::NK_COMBINED_IMAGE_SAMPLER, NkShaderStage::NK_FRAGMENT)
-					.Add(NK_BIND_BRDF_LUT, NkDescriptorType::NK_COMBINED_IMAGE_SAMPLER, NkShaderStage::NK_FRAGMENT);
-				mFrameLayout = mDevice->CreateDescriptorSetLayout(d);
+			// LA TABLE EST LA SOURCE, PAS LE COMMENTAIRE (2026-08-22).
+			//
+			// Avant : quatre blocs de .Add() enchaines, chacun precede d'un commentaire
+			// « set=N ». Le set n'existait donc dans AUCUNE declaration, et personne —
+			// ni outil, ni compilateur — ne pouvait confronter ce qu'on lie ici a ce que
+			// les shaders echantillonnent. Un commentaire ne peut pas se tromper ; il
+			// peut seulement etre faux sans que rien ne le dise.
+			//
+			// Maintenant : NkResources.h::kStandardBindings porte (set, binding, type,
+			// etage), et cette fonction la PARCOURT. La table n'est donc pas une
+			// seconde verite a maintenir a cote du code : c'est la seule. Si elle ment,
+			// les layouts mentent avec elle.
+			//
+			// Equivalence avec l'ancienne version : verifiee mecaniquement (meme suite
+			// de (set, binding, type, etage), dans le meme ordre) avant de remplacer.
+			// Ce n'est PAS une preuve d'execution : aucun GPU n'a tourne ici.
+			NkDescriptorSetLayoutDesc descs[4];
+			for (uint32 i = 0; i < kStandardBindingCount; ++i) {
+				const NkStandardBinding &b = kStandardBindings[i];
+				descs[(uint32)b.set].Add(b.binding, b.type, b.stages);
 			}
-			// Object (set=1)
-			//   binding 0 : object UBO (model + normal matrix + tint + flags)
-			//   binding 1 : bones SSBO (skinning)
-			//   binding 2 : instance SSBO (instanced draws)
-			{
-				NkDescriptorSetLayoutDesc d;
-				d.Add(NK_BIND_OBJECT_UBO, NkDescriptorType::NK_UNIFORM_BUFFER, NkShaderStage::NK_ALL_GRAPHICS)
-					.Add(NK_BIND_BONES_SSBO, NkDescriptorType::NK_STORAGE_BUFFER, NkShaderStage::NK_VERTEX)
-					.Add(NK_BIND_INSTANCE_SSBO, NkDescriptorType::NK_STORAGE_BUFFER, NkShaderStage::NK_VERTEX);
-				mObjectLayout = mDevice->CreateDescriptorSetLayout(d);
-			}
-			// Material (set=2)
-			//   binding 0 : PBR params UBO
-			//   binding 1..5 : albedo / normal / ORM / emissive / AO
-			{
-				NkDescriptorSetLayoutDesc d;
-				d.Add(NK_BIND_PBR_PARAMS, NkDescriptorType::NK_UNIFORM_BUFFER, NkShaderStage::NK_FRAGMENT)
-					.Add(NK_BIND_TEX_ALBEDO, NkDescriptorType::NK_COMBINED_IMAGE_SAMPLER, NkShaderStage::NK_FRAGMENT)
-					.Add(NK_BIND_TEX_NORMAL, NkDescriptorType::NK_COMBINED_IMAGE_SAMPLER, NkShaderStage::NK_FRAGMENT)
-					.Add(NK_BIND_TEX_ORM, NkDescriptorType::NK_COMBINED_IMAGE_SAMPLER, NkShaderStage::NK_FRAGMENT)
-					.Add(NK_BIND_TEX_EMISSIVE, NkDescriptorType::NK_COMBINED_IMAGE_SAMPLER, NkShaderStage::NK_FRAGMENT)
-					.Add(NK_BIND_TEX_AO, NkDescriptorType::NK_COMBINED_IMAGE_SAMPLER, NkShaderStage::NK_FRAGMENT);
-				mMaterialLayout = mDevice->CreateDescriptorSetLayout(d);
-			}
-			// PostProcess (set=3)
-			//   binding 0 : input image (full-screen pass)
-			{
-				NkDescriptorSetLayoutDesc d;
-				d.Add(0, NkDescriptorType::NK_COMBINED_IMAGE_SAMPLER, NkShaderStage::NK_FRAGMENT);
-				mPostProcessLayout = mDevice->CreateDescriptorSetLayout(d);
-			}
+
+			mFrameLayout = mDevice->CreateDescriptorSetLayout(descs[(uint32)NK_SET_FRAME]);
+			mObjectLayout = mDevice->CreateDescriptorSetLayout(descs[(uint32)NK_SET_OBJECT]);
+			mMaterialLayout = mDevice->CreateDescriptorSetLayout(descs[(uint32)NK_SET_MATERIAL]);
+			mPostProcessLayout = mDevice->CreateDescriptorSetLayout(descs[(uint32)NK_SET_POSTPROCESS]);
+
 			return mFrameLayout.IsValid() && mObjectLayout.IsValid() && mMaterialLayout.IsValid() &&
 				   mPostProcessLayout.IsValid();
 		}

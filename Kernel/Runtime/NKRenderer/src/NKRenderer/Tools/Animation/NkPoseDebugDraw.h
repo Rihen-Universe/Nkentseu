@@ -18,7 +18,7 @@
 
 #include "NKCore/NkTypes.h"
 #include "NKMath/NKMath.h"
-#include "NKAnimPhysics/NkPoseMass.h"
+#include "NKAnima/Physics/NkPoseMass.h"
 
 namespace nkentseu {
 	namespace renderer {
@@ -40,7 +40,7 @@ namespace nkentseu {
 				// Dessine le debug M3 pour une pose. `jointWorld` = positions monde des joints (count),
 				// `mass` = modèle de masse associé, `supportPts` = coins d'appui au sol (supportCount).
 				// `comVelocity` (option, pour la flèche de bascule) = vitesse monde du COM.
-				static void Draw(NkRender3D &r3d, const math::NkVec3f *jointWorld, int32 count, const animphys::NkPoseMass &mass,
+				static void Draw(NkRender3D &r3d, const math::NkVec3f *jointWorld, int32 count, const anim::NkPoseMass &mass,
 								 const math::NkVec3f *supportPts, int32 supportCount,
 								 const math::NkVec3f &groundNormal = math::NkVec3f{0.f, 1.f, 0.f},
 								 const NkPoseDebugVizOptions &opt = NkPoseDebugVizOptions{},

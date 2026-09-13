@@ -1,4 +1,5 @@
 #pragma once
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // =============================================================================
 // NkGuiCanvasBackend.h — rend un nkgui::NkGuiDrawList via NKCanvas (NkIRenderer2D).
 // Backend RÉUTILISABLE (lib) : le cœur NKGui reste render-agnostique ; ce pont
@@ -158,6 +159,28 @@ namespace nkentseu {
 															  static_cast<int32>(y1 - y0)});
 						}
 
+						// 2026-09-04 : le mode de melange de la commande -> l'etat du dorsal
+						switch (dc.blend) {
+							case nkgui::NkGuiBlend::Multiply:
+								mRenderer->SetBlendMode(renderer::NkBlendMode::NK_MULTIPLY);
+								break;
+							case nkgui::NkGuiBlend::Screen:
+								mRenderer->SetBlendMode(renderer::NkBlendMode::NK_SCREEN);
+								break;
+							case nkgui::NkGuiBlend::Darken:
+								mRenderer->SetBlendMode(renderer::NkBlendMode::NK_DARKEN);
+								break;
+							case nkgui::NkGuiBlend::Lighten:
+								mRenderer->SetBlendMode(renderer::NkBlendMode::NK_LIGHTEN);
+								break;
+							case nkgui::NkGuiBlend::PlusLighter:
+								mRenderer->SetBlendMode(renderer::NkBlendMode::NK_PLUS_LIGHTER);
+								break;
+							default:
+								mRenderer->SetBlendMode(renderer::NkBlendMode::NK_ALPHA);
+								break;
+						}
+
 						renderer::NkTexture *tex = nullptr;
 						if (dc.type == nkgui::NkGuiDrawCmdType::TexturedTriangles) {
 							for (uint32 fi = 0; fi < mFonts.Size(); ++fi)
@@ -192,6 +215,7 @@ namespace nkentseu {
 						if (hasClip)
 							mRenderer->PopClip();
 					}
+					mRenderer->SetBlendMode(renderer::NkBlendMode::NK_ALPHA); // ce qui suit repart en alpha
 				}
 
 			private:

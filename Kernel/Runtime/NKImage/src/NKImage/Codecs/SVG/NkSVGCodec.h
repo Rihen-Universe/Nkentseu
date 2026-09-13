@@ -18,26 +18,57 @@
 //   - Beziers cubiques/quadratiques avec subdivision adaptative
 //   - Arc elliptique converti en Beziers
 //
-// Elements supportes : <svg> <g> <path> <rect> <circle> <ellipse> <line>
+// Elements supportes : <svg> <g> <path> <rect> (rx/ry) <circle> <ellipse> <line>
 //                      <polyline> <polygon> <linearGradient> <radialGradient> <stop>
 // Attributs styles  : fill, stroke, stroke-width, opacity, fill-opacity,
 //                     stroke-opacity, fill-rule, transform,
+//                     stroke-dasharray + stroke-dashoffset,
 //                     stroke-linecap (butt/round/square),
 //                     stroke-linejoin (miter/round/bevel), stroke-miterlimit
 // Gradients         : linear + radial, stops (offset/stop-color/stop-opacity),
 //                     gradientUnits (objectBoundingBox + userSpaceOnUse),
-//                     gradientTransform, spreadMethod (pad/reflect/repeat),
-//                     fill/stroke="url(#id)", href (stops herites)
+//                     gradientTransform DANS LES DEUX modes d'unites,
+//                     spreadMethod (pad/reflect/repeat), fx/fy (le FOYER d'un
+//                     radial), fill/stroke="url(#id)", href (arrets ET
+//                     geometrie, unites, matrice, etalement herites)
 // Couleurs          : #RGB, #RRGGBB, #RRGGBBAA, rgb(), rgba(), nom CSS (148 noms)
 //
-// Pas supporte (Phase 3 +) : <text>, <use>, <defs><style> (classes CSS),
-// patterns, masks, clipPath, filters.
+// <image>           : href RELATIF au fichier .svg (cf. LoadFromMemory(baseDir))
+//                     ou « data:image/...;base64,... » (tout format connu de
+//                     NKImage) ; preserveAspectRatio meet / slice / none ;
+//                     opacity ; transform du groupe parent, rotation comprise
 //
-// Auteur : Rihen (reecriture 2026-05-19), inspire de NanoSVG par Mikko Mononen.
+// <text>/<tspan>    : SI une source de glyphes est injectee (voir
+//                     NkSVGCodec::SetDefaultGlyphSource) -- sinon saute et DIT.
+//                     x, y (LIGNE DE BASE), font-family (repli DIT),
+//                     font-size (= le CADRATIN em, comme la norme), font-weight
+//                     (>= 600 : graisse SIMULEE par un trait, dit), fill,
+//                     fill-opacity, text-anchor start/middle/end, xml:space.
+//                     Rendu par les CONTOURS de NKFont, jamais par un atlas :
+//                     un SVG se re-rasterise a toute taille et porte des
+//                     matrices qui tournent.
+//
+// <filter>          : <feDropShadow> (dx, dy, stdDeviation, flood-color,
+//                     flood-opacity) sur un <g filter="url(#id)"> -- le groupe
+//                     est rendu dans un calque, son ALPHA floute (gaussienne
+//                     separable), decale, teinte, puis pose DESSOUS. Les autres
+//                     primitives fe* sont NOMMEES et sautees.
+// Opacite / fusion  : opacity, fill-opacity et stroke-opacity COMPOSEES ;
+//                     mix-blend-mode multiply et screen peints, les autres
+//                     nommes et rendus en normal.
+//
+// Pas supporte : <use>, <symbol>, <defs><style> (classes CSS), patterns,
+//                masks, clipPath, les primitives de filtre autres que
+//                feDropShadow. TOUT CE QUI EST SAUTE SE DIT une fois
+//                (journal + SkippedCount() / SkippedAt()).
+//
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
+// Reecriture 2026-05-19, inspiree de NanoSVG par Mikko Mononen.
 // =============================================================================
 
 #include "NKImage/Core/NkImage.h"
 #include "NKContainers/Sequential/NkVector.h"
+#include "NKCore/Text/NkIGlyphSource.h"
 
 namespace nkentseu {
 
@@ -76,6 +107,13 @@ namespace nkentseu {
 			}
 	};
 
+	// ── LE MODE DE FUSION (mix-blend-mode) ────────────────────────────────────
+	// Seuls `multiply` et `screen` sont PEINTS : le rasteriseur lit deja le pixel
+	// de destination pour composer, donc ils ne coutent rien de plus. Les autres
+	// (overlay, difference, hue...) demanderaient une passe par groupe isole ;
+	// ils sont NOMMES au decodage et rendus en « normal », jamais taus.
+	enum class NkSVGBlend : uint8 { Normal = 0, Multiply, Screen };
+
 	// ── Terminaisons / jointures de trait (stroke-linecap / stroke-linejoin) ──
 	enum class NkSVGLineCap : uint8 { Butt = 0, Round, Square };
 	enum class NkSVGLineJoin : uint8 { Miter = 0, Round, Bevel };
@@ -93,6 +131,16 @@ namespace nkentseu {
 			NkSVGLineCap strokeLineCap = NkSVGLineCap::Butt;	 ///< stroke-linecap
 			NkSVGLineJoin strokeLineJoin = NkSVGLineJoin::Miter; ///< stroke-linejoin
 			float32 strokeMiterLimit = 4.f;						 ///< stroke-miterlimit
+			NkSVGBlend blend = NkSVGBlend::Normal;				 ///< mix-blend-mode
+
+			// ── stroke-dasharray / stroke-dashoffset ─────────────────────────
+			//    Huit longueurs suffisent : au-dela, le motif n'est plus lisible a
+			//    l'oeil, et la norme n'impose aucune limite qu'on puisse honorer.
+			//    Le depassement est DIT, pas tronque en silence.
+			static constexpr int32 kMaxDashes = 8;
+			float32 dashes[kMaxDashes] = {};
+			int32 nDashes = 0;		 ///< 0 = trait continu
+			float32 dashOffset = 0.f;
 	};
 
 	// ── Matrice affine 2D (a,b,c,d,e,f) = [a c e; b d f; 0 0 1] ──────────────
@@ -203,6 +251,18 @@ namespace nkentseu {
 			/// Parse depuis un buffer en memoire. Caller doit appeler ->Free().
 			static NkSVGImage *LoadFromMemory(const uint8 *data, usize size) noexcept;
 
+			/// Idem, en disant le DOSSIER d'ou le SVG vient : c'est par rapport a lui
+			/// qu'un `<image href="...">` relatif est resolu. nullptr = inconnu (le
+			/// chemin relatif partira alors du repertoire courant, et c'est dit).
+			static NkSVGImage *LoadFromMemory(const uint8 *data, usize size, const char *baseDir) noexcept;
+
+			/// Idem, avec LA SOURCE DE GLYPHES a utiliser pour les `<text>`.
+			/// nullptr = pas de texte : il est saute ET DIT (SkippedAt), jamais rendu
+			/// vide en silence. NKImage ne connait aucune police ; c'est NKFont qui
+			/// fournit une source (`NkFontGlyphSource`), et l'application qui choisit.
+			static NkSVGImage *LoadFromMemory(const uint8 *data, usize size, const char *baseDir,
+											  NkIGlyphSource *glyphes) noexcept;
+
 			/// Rasterise les shapes a la resolution (outW, outH). Si outW=0 ou
 			/// outH=0, calcule la taille manquante en preservant l'aspect ratio.
 			/// Retourne une NkImage RGBA32 PAR VALEUR (liberee par son destructeur) ;
@@ -215,6 +275,15 @@ namespace nkentseu {
 
 			/// Nombre de shapes parsees (paths/rect/circle/ellipse/line/polygon).
 			int32 ShapeCount() const noexcept;
+
+			/// Nombre de choses DISTINCTES que le decodage a sautees (elements non
+			/// geres, attributs non honores). Chacune a aussi ete journalisee, une
+			/// seule fois. Zero = tout ce que portait le fichier a ete lu.
+			int32 SkippedCount() const noexcept;
+
+			/// Nom de la i-eme chose sautee (« use », « stroke-dasharray »...).
+			/// Le pointeur vit aussi longtemps que ce NkSVGImage. nullptr hors bornes.
+			const char *SkippedAt(int32 idx) const noexcept;
 
 			/// Vue read-only sur la i-eme shape. Pour usage 3D / mesh / collision.
 			NkSVGShapeView GetShape(int32 idx) const noexcept;
@@ -253,8 +322,24 @@ namespace nkentseu {
 			/// @return        NkImage RGBA32 rendue PAR VALEUR ; INVALIDE en cas d'echec.
 			static NkImage Decode(const uint8 *data, usize size, int32 outW = 0, int32 outH = 0) noexcept;
 
+			/// Decode en disant le dossier du SVG (href relatifs) et la source de
+			/// glyphes (`<text>`). Les deux peuvent etre nuls -- ce qui manque est dit.
+			static NkImage Decode(const uint8 *data, usize size, int32 outW, int32 outH, const char *baseDir,
+								  NkIGlyphSource *glyphes) noexcept;
+
 			/// Lit un fichier .svg disque et le rasterise.
 			static NkImage DecodeFromFile(const char *path, int32 outW = 0, int32 outH = 0) noexcept;
+
+			// ── LA SOURCE DE GLYPHES PAR DEFAUT ───────────────────────────────
+			//  NKImage NE DEPEND PAS DE NKFont : un consommateur qui ne veut que
+			//  decoder un PNG ne doit pas payer les polices embarquees (Bare, le Web).
+			//  L'application qui veut du texte SVG l'injecte, en une ligne, au
+			//  demarrage :
+			//      static NkFontGlyphSource glyphes;              // NKFont
+			//      NkSVGCodec::SetDefaultGlyphSource(&glyphes);
+			//  Sans elle, tout `<text>` est saute et NOMME.
+			static void SetDefaultGlyphSource(NkIGlyphSource *source) noexcept;
+			static NkIGlyphSource *GetDefaultGlyphSource() noexcept;
 
 			/// Encode une NkImage en SVG : enrobe l'image comme <image href="data:png;base64,...">
 			/// dans un <svg> de la meme taille. **Pas une vectorisation** -- conserve

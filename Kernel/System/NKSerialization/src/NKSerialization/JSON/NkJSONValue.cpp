@@ -1,4 +1,5 @@
 // =============================================================================
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // NKSerialization/JSON/NkJSONValue.cpp
 // Implémentation des utilitaires d'échappement/déchappement JSON.
 //
@@ -14,8 +15,9 @@
 // =============================================================================
 
 #include "NKSerialization/JSON/NkJSONValue.h"
+#include "NKCore/Text/NkSnprintf.h"
 
-#include <cstdio> // snprintf (toolchain HarmonyOS : pas d'inclusion transitive)
+#include <cstdio> // nkentseu::NkSnprintf (toolchain HarmonyOS : pas d'inclusion transitive)
 
 namespace nkentseu {
 
@@ -73,7 +75,7 @@ namespace nkentseu {
 				default:
 					if (static_cast<unsigned char>(c) < 0x20u) {
 						char buf[8];
-						snprintf(buf, sizeof(buf), "\\u%04X", static_cast<unsigned>(c));
+						nkentseu::NkSnprintf(buf, sizeof(buf), "\\u%04X", static_cast<unsigned>(c));
 						out.Append(buf);
 					} else {
 						out.Append(c);

@@ -1,4 +1,5 @@
 // =============================================================================
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // NKTime/NkTimeConstants.h
 // Constantes de conversion temporelle — source de vérité unique du module NKTime.
 //
@@ -30,6 +31,7 @@
 // des tailles de types sur toutes les plateformes supportées.
 
 #include "NKCore/NkTypes.h"
+#include "NKCore/Text/NkSnprintf.h"
 
 // -------------------------------------------------------------------------
 // SECTION 2 : NAMESPACE PRINCIPAL NKENTSEU
@@ -190,7 +192,6 @@ namespace nkentseu {
 // -----------------------------------------------------------------------------
 /*
 	#include "NKTime/NkTimeConstants.h"
-	#include <cstdio>
 
 	void FormatTimestamp(int64 totalNanoseconds) {
 		using namespace nkentseu::time;
@@ -212,7 +213,7 @@ namespace nkentseu {
 
 		// Affichage formaté
 		char buffer[64];
-		std::snprintf(buffer, sizeof(buffer),
+		nkentseu::NkSnprintf(buffer, sizeof(buffer),
 					  "%02d:%02d:%02d.%03d.%06d",
 					  hrs, mins, secs, millis, nanos);
 		// buffer contient maintenant "HH:MM:SS.mmm.nnnnnn"

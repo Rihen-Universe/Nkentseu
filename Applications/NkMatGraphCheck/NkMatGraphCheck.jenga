@@ -1,0 +1,64 @@
+"""NkMatGraphCheck — banc console du graphe de materiaux (couche 3 sur NKGraph).
+
+APPLICATION et non `tests/` : mesure le 2026-08-21, `jenga test --project X` rend
+« Unit-test execution is disabled by workspace policy ». Les bancs sous `tests/`
+compilent et ne s'executent JAMAIS ; une preuve doit donc etre un executable.
+
+DEPENDANCES VOLONTAIREMENT MINCES, sur le modele exact de NkSLCheck : NKSL plus
+la Foundation, rien de plus. Ni NKRenderer, ni NKRHI, ni NKWindow. Un graphe est
+une structure de donnees et le NkSL emis se verifie par le vrai compilateur, qui
+n'a besoin d'aucun device — c'est ce que NkSLCheck prouve deja. Le banc construit
+en quelques secondes au lieu de deux minutes, et tourne sur une machine sans GPU.
+
+NkNodeGraph (Kernel/Runtime/NKGraph) et NkMatGraphTypes.h sont des EN-TETES PURS :
+ils s'ajoutent par `extra_includes`, sans cible a lier. Meme dispositif que
+NKEditMeshHarness pour NkShortcutTable.
+"""
+from Jenga import *
+from jengaconfig import *
+
+with project("NkMatGraphCheck"):
+    consoleapp()
+    language("C++")
+    cppdialect("C++17")
+    location(".")
+    files(["src/main.cpp"])
+
+    # ⚠️ LE FORMATAGE EST UNE ERREUR, PAS UN AVERTISSEMENT (2026-08-22).
+    #
+    # Fait mesure par l agent NK3DModeler : un printf reclamait sept %u et n en
+    # recevait que six. Le septieme lisait de la memoire indeterminee et
+    # affichait « nonmanif=18 » sur un cube parfaitement manifold. Rien ne
+    # plante, rien n arrete la construction -- et LE NOMBRE EST CREDIBLE.
+    #
+    # C est la seule forme de defaut connue de ce depot qui FABRIQUE DU FAUX
+    # SAVOIR au lieu d en cacher : un chiffre faux entre dans un rapport, puis
+    # dans une decision. Un banc dont toute la valeur tient dans les nombres
+    # qu il imprime ne peut pas se permettre un avertissement qui defile.
+    #
+    # Controle positif effectue avant d ajouter ce drapeau : un « %u » de trop
+    # injecte volontairement remonte bien « more '%' conversions than data
+    # arguments ». La chaine de construction VOIT le defaut ; ce drapeau lui
+    # fait ARRETER dessus.
+    cxxflags(["-Werror=format", "-Werror=format-insufficient-args", "-Werror=format-extra-args"])
+
+    _DEPS = ["NKSL", "NKMath", "NKLogger", "NKContainers", "NKMemory",
+             "NKCore", "NKPlatform", "NKThreading", "NKGLSlang", "NKSPIRVCross"]
+    nkentseudependson(
+        _DEPS,
+        extra_includes=[
+            "src",
+            "%{wks.location}/Externals",
+            # Le coeur du graphe (couche 1) et la semantique materiau (couche 3)
+            # sont des en-tetes purs : chemin d'inclusion, aucune liaison.
+            "%{wks.location}/Kernel/Runtime/NKGraph/src",
+            "%{wks.location}/Kernel/Runtime/NKRenderer/src",
+        ],
+    )
+
+    objdir("%{wks.location}/Build/Obj/%{cfg.buildcfg}-%{cfg.system}/%{prj.name}")
+    targetdir("%{wks.location}/Build/Bin/%{cfg.buildcfg}-%{cfg.system}/%{prj.name}")
+
+    with filter("system:Windows && !options:windows-runtime=uwp && !system:XboxSeries && !system:XboxOne"):
+        usetoolchain(TC_WINDOWS)
+        defines(["WIN32_LEAN_AND_MEAN"])

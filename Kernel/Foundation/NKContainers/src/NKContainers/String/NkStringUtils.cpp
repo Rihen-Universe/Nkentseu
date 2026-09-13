@@ -1,7 +1,7 @@
 // -----------------------------------------------------------------------------
 // FICHIER: Core\NKContainers\src\NKContainers\String\NkStringUtils.cpp
 // DESCRIPTION: Implémentation des utilitaires de manipulation de chaînes
-// AUTEUR: Rihen
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // DATE: 2026-02-07
 // VERSION: 1.0.0
 // -----------------------------------------------------------------------------
@@ -10,6 +10,7 @@
 // Inclusion de l'en-tête correspondant
 // -------------------------------------------------------------------------
 #include "NkStringUtils.h"
+#include "NKCore/Text/NkSnprintf.h"
 
 // -------------------------------------------------------------------------
 // Inclusions des modules d'encodage ASCII
@@ -19,7 +20,6 @@
 // -------------------------------------------------------------------------
 // Inclusions standard pour les opérations C-style
 // -------------------------------------------------------------------------
-#include <cstdio>
 #include <cstdlib>
 #include <ctime>
 
@@ -501,26 +501,26 @@ namespace nkentseu {
 
 		NkString NkToHex(int32 value, bool prefix) {
 			char buffer[32];
-			int len = std::snprintf(buffer, sizeof(buffer), prefix ? "0x%08X" : "%08X", value);
+			int len = nkentseu::NkSnprintf(buffer, sizeof(buffer), prefix ? "0x%08X" : "%08X", value);
 			return NkString(buffer, static_cast<usize>(len));
 		}
 
 		NkString NkToHex(int64 value, bool prefix) {
 			char buffer[32];
-			int len = std::snprintf(buffer, sizeof(buffer), prefix ? "0x%016llX" : "%016llX",
+			int len = nkentseu::NkSnprintf(buffer, sizeof(buffer), prefix ? "0x%016llX" : "%016llX",
 									static_cast<unsigned long long>(value));
 			return NkString(buffer, static_cast<usize>(len));
 		}
 
 		NkString NkToHex(uint32 value, bool prefix) {
 			char buffer[32];
-			int len = std::snprintf(buffer, sizeof(buffer), prefix ? "0x%08X" : "%08X", value);
+			int len = nkentseu::NkSnprintf(buffer, sizeof(buffer), prefix ? "0x%08X" : "%08X", value);
 			return NkString(buffer, static_cast<usize>(len));
 		}
 
 		NkString NkToHex(uint64 value, bool prefix) {
 			char buffer[32];
-			int len = std::snprintf(buffer, sizeof(buffer), prefix ? "0x%016llX" : "%016llX",
+			int len = nkentseu::NkSnprintf(buffer, sizeof(buffer), prefix ? "0x%016llX" : "%016llX",
 									static_cast<unsigned long long>(value));
 			return NkString(buffer, static_cast<usize>(len));
 		}
@@ -1565,7 +1565,7 @@ namespace nkentseu {
 							result.Append(str[i]);
 						} else {
 							char buffer[5];
-							std::snprintf(buffer, sizeof(buffer), "\\%03o", static_cast<unsigned char>(str[i]));
+							nkentseu::NkSnprintf(buffer, sizeof(buffer), "\\%03o", static_cast<unsigned char>(str[i]));
 							result.Append(buffer);
 						}
 						break;
@@ -2101,7 +2101,7 @@ namespace nkentseu {
 			uint32 part3 = NkRandomNextU32();
 			uint32 part4 = NkRandomNextU32();
 			char buffer[37];
-			std::snprintf(buffer, sizeof(buffer), "%08X-%04X-%04X-%04X-%08X%04X", part1, (part2 >> 16) & 0xFFFF,
+			nkentseu::NkSnprintf(buffer, sizeof(buffer), "%08X-%04X-%04X-%04X-%08X%04X", part1, (part2 >> 16) & 0xFFFF,
 						  part2 & 0xFFFF, (part3 >> 16) & 0xFFFF, part3 & 0xFFFF, part4);
 			return NkString(buffer);
 		}

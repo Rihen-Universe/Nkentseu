@@ -1,11 +1,12 @@
 // =============================================================================
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // NkSLFeatures.cpp
 // Implémentation des générateurs pour les features avancées NkSL.
 // =============================================================================
 #include "NKSL/Core/NkSLFeatures.h"
+#include "NKCore/Text/NkSnprintf.h"
 #include "NKSL/Compiler/NkSLCompiler.h"
 #include "NKContainers/String/NkFormat.h" // NkFormat (était fourni par le PCH NKRHI)
-#include <cstdio>
 
 namespace nkentseu {
 
@@ -32,13 +33,13 @@ namespace nkentseu {
 
 		// Attributs du mesh shader
 		char buf[256];
-		snprintf(buf, sizeof(buf),
+		nkentseu::NkSnprintf(buf, sizeof(buf),
 				 "[NumThreads(%u, %u, %u)]\n"
 				 "[OutputTopology(\"%s\")]\n",
 				 layout.groupSizeX, layout.groupSizeY, layout.groupSizeZ, layout.topology.CStr());
 		out += NkString(buf);
 
-		snprintf(buf, sizeof(buf),
+		nkentseu::NkSnprintf(buf, sizeof(buf),
 				 "void main(\n"
 				 "    uint  gtid : SV_GroupThreadID,\n"
 				 "    uint  gid  : SV_GroupID,\n"
@@ -48,7 +49,7 @@ namespace nkentseu {
 				 layout.maxVertices, layout.maxPrimitives, layout.maxPrimitives);
 		out += NkString(buf);
 		out += "{\n";
-		snprintf(buf, sizeof(buf), "    SetMeshOutputCounts(%u, %u);\n", layout.maxVertices, layout.maxPrimitives);
+		nkentseu::NkSnprintf(buf, sizeof(buf), "    SetMeshOutputCounts(%u, %u);\n", layout.maxVertices, layout.maxPrimitives);
 		out += NkString(buf);
 
 		// Corps généré depuis la source NkSL
@@ -84,12 +85,12 @@ namespace nkentseu {
 
 		// Type mesh
 		char buf[256];
-		snprintf(buf, sizeof(buf), "using NkMesh = metal::mesh<MeshVertex, MeshPrimitive, %u, %u, topology::%s>;\n\n",
+		nkentseu::NkSnprintf(buf, sizeof(buf), "using NkMesh = metal::mesh<MeshVertex, MeshPrimitive, %u, %u, topology::%s>;\n\n",
 				 layout.maxVertices, layout.maxPrimitives, layout.topology == "triangle" ? "triangle" : "line");
 		out += NkString(buf);
 
 		// Entry point
-		snprintf(buf, sizeof(buf),
+		nkentseu::NkSnprintf(buf, sizeof(buf),
 				 "[[mesh, max_total_threads_per_mesh_grid(%u)]]\n"
 				 "void main_entry(\n"
 				 "    NkMesh mesh_out,\n"
@@ -119,7 +120,7 @@ namespace nkentseu {
 
 		out += "struct HS_PatchData {\n";
 		char buf[256];
-		snprintf(buf, sizeof(buf),
+		nkentseu::NkSnprintf(buf, sizeof(buf),
 				 "    float edges[%u]  : SV_TessFactor;\n"
 				 "    float inside[%u] : SV_InsideTessFactor;\n",
 				 numEdges, numInside);
@@ -133,18 +134,18 @@ namespace nkentseu {
 		out += "{\n";
 		out += "    HS_PatchData pd;\n";
 		for (uint32 i = 0; i < numEdges; i++) {
-			snprintf(buf, sizeof(buf), "    pd.edges[%u] = %.1ff;\n", i, layout.defaultTessFactor);
+			nkentseu::NkSnprintf(buf, sizeof(buf), "    pd.edges[%u] = %.1ff;\n", i, layout.defaultTessFactor);
 			out += NkString(buf);
 		}
 		for (uint32 i = 0; i < numInside; i++) {
-			snprintf(buf, sizeof(buf), "    pd.inside[%u] = %.1ff;\n", i, layout.defaultTessFactor);
+			nkentseu::NkSnprintf(buf, sizeof(buf), "    pd.inside[%u] = %.1ff;\n", i, layout.defaultTessFactor);
 			out += NkString(buf);
 		}
 		out += "    return pd;\n";
 		out += "}\n\n";
 
 		// Hull shader main
-		snprintf(buf, sizeof(buf),
+		nkentseu::NkSnprintf(buf, sizeof(buf),
 				 "[domain(\"%s\")]\n"
 				 "[partitioning(\"%s\")]\n"
 				 "[outputtopology(\"%s\")]\n"
@@ -175,13 +176,13 @@ namespace nkentseu {
 		out += "// Generated NkSL Domain Shader (HLSL)\n\n";
 
 		char buf[256];
-		snprintf(buf, sizeof(buf), "[domain(\"%s\")]\n", layout.domain.CStr());
+		nkentseu::NkSnprintf(buf, sizeof(buf), "[domain(\"%s\")]\n", layout.domain.CStr());
 		out += NkString(buf);
 
 		NkString uvwType = (layout.domain == "tri") ? "float3" : "float2";
 		out += "VS_Output main(\n";
 		out += "    HS_PatchData patchData,\n";
-		snprintf(buf, sizeof(buf), "    %s domainLoc : SV_DomainLocation,\n", uvwType.CStr());
+		nkentseu::NkSnprintf(buf, sizeof(buf), "    %s domainLoc : SV_DomainLocation,\n", uvwType.CStr());
 		out += NkString(buf);
 		out += "    const OutputPatch<VS_Output, " + NkFormat("{0}", layout.outputControlPoints) + "> patch)\n";
 		out += "{\n";
@@ -315,7 +316,7 @@ namespace nkentseu {
 		out += "using namespace metal;\n\n";
 
 		char buf[256];
-		snprintf(buf, sizeof(buf),
+		nkentseu::NkSnprintf(buf, sizeof(buf),
 				 "struct NkBindlessResources {\n"
 				 "    array<texture2d<float>,   %u> textures  [[id(0)]];\n"
 				 "    array<texture3d<float>,   %u> textures3D[[id(1)]];\n"

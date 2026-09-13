@@ -1,3 +1,4 @@
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // =============================================================================
 // NkOpenGLRenderer2D.cpp — OpenGL 4.3 / GLES 3.0 implementation
 // =============================================================================
@@ -153,6 +154,7 @@ static void LoadGL33Procs() {
 	LOAD(glVertexAttribPointer);
 	LOAD(glActiveTexture);
 	LOAD(glBlendFuncSeparate);
+	nkGlBlendEquation = (decltype(nkGlBlendEquation))get("glBlendEquation"); // 2026-09-04 : MIN / MAX
 	LOAD(glUniform1f);
 	LOAD(glUniform2f);
 	LOAD(glUniform3f);
@@ -196,6 +198,20 @@ static void LoadGL33Procs() {
 #include <GL/glext.h>
 #endif
 #endif
+
+// 2026-09-04 : glBlendEquation (GL 1.4 / GLES 2) pour Darken (MIN) et Lighten (MAX).
+// Un pointeur a la portee du fichier, resolu a l'initialisation sur chaque chemin ;
+// nullptr = le pilote ne l'a pas, et ces deux modes retombent en alpha, dit.
+#ifndef GL_FUNC_ADD
+#define GL_FUNC_ADD 0x8006
+#endif
+#ifndef GL_MIN
+#define GL_MIN 0x8007
+#endif
+#ifndef GL_MAX
+#define GL_MAX 0x8008
+#endif
+static void(APIENTRY *nkGlBlendEquation)(GLenum) = nullptr;
 
 // GL constants manquants sous certains environnements
 #ifndef GL_CLAMP_TO_EDGE
@@ -340,6 +356,9 @@ namespace nkentseu {
 				}
 			}
 #endif
+#endif
+#if !(defined(NKENTSEU_PLATFORM_WINDOWS) && !__has_include("glad/gl.h") && !__has_include("NKGlad/glad/gl.h"))
+			nkGlBlendEquation = glBlendEquation; // glad ou GLES : le symbole existe ; 2026-09-04
 #endif
 
 			if (!CompileShader())
@@ -601,10 +620,30 @@ namespace nkentseu {
 			logger.Infof("[NkGL2D] blend %d -> %d\n", (int)mLastBlend, (int)mode);
 #endif
 			mLastBlend = mode;
+			// l'equation revient a ADD pour tout mode qui n'est pas MIN / MAX (un Darken
+			// laisse GL_MIN derriere lui sinon)
+			if (nkGlBlendEquation)
+				nkGlBlendEquation(mode == NkBlendMode::NK_DARKEN ? GL_MIN : (mode == NkBlendMode::NK_LIGHTEN ? GL_MAX : GL_FUNC_ADD));
 			switch (mode) {
 				case NkBlendMode::NK_ALPHA:
 					glEnable(GL_BLEND);
 					glBlendFuncSeparate(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
+					break;
+				case NkBlendMode::NK_SCREEN:
+					glEnable(GL_BLEND);
+					glBlendFuncSeparate(GL_ONE, GL_ONE_MINUS_SRC_COLOR, GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
+					break;
+				case NkBlendMode::NK_DARKEN:
+				case NkBlendMode::NK_LIGHTEN:
+					glEnable(GL_BLEND);
+					if (nkGlBlendEquation)
+						glBlendFuncSeparate(GL_ONE, GL_ONE, GL_ONE, GL_ONE_MINUS_SRC_ALPHA); // MIN / MAX ignorent les facteurs
+					else
+						glBlendFuncSeparate(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, GL_ONE, GL_ONE_MINUS_SRC_ALPHA); // repli alpha, dit
+					break;
+				case NkBlendMode::NK_PLUS_LIGHTER:
+					glEnable(GL_BLEND);
+					glBlendFuncSeparate(GL_ONE, GL_ONE, GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
 					break;
 				case NkBlendMode::NK_ADD:
 					glEnable(GL_BLEND);

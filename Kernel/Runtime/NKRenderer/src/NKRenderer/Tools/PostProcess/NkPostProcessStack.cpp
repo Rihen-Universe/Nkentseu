@@ -1,4 +1,5 @@
 // =============================================================================
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // NkPostProcessStack.cpp  — NKRenderer v5.0
 // Post-processing : ACES tonemap (D.4b), FXAA 3.11, dual-Kawase bloom, SSAO.
 //
@@ -9,6 +10,7 @@
 // les active.
 // =============================================================================
 #include "NkPostProcessStack.h"
+#include "NKCore/Text/NkSnprintf.h"
 #include "NKRenderer/Core/NkTextureLibrary.h"
 #include "NKRenderer/Core/NkResources.h"
 #include "NKRenderer/Mesh/NkMeshSystem.h"
@@ -681,7 +683,7 @@ void main() {
 				rtd.hdr = true;	   // RGBA16F : preserve HDR pour les bright spots
 				rtd.depth = false; // pas besoin de depth pour les passes bloom
 				char nameBuf[32];
-				snprintf(nameBuf, sizeof(nameBuf), "BloomMip%d", i);
+				nkentseu::NkSnprintf(nameBuf, sizeof(nameBuf), "BloomMip%d", i);
 				rtd.name = NkString(nameBuf);
 				// Note : Init() libere le RT precedent si re-init (utile pour OnResize)
 				if (mBloomRT[i].IsValid())

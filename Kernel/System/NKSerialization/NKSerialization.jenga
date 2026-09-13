@@ -76,5 +76,27 @@ with project("NKSerialization"):
 
     # Tests unitaires/stress (desktop uniquement)
     with filter("(system:Linux || system:macOS || (system:Windows && !options:windows-runtime=uwp && !system:XboxSeries && !system:XboxOne)) && !system:Android && !system:iOS || system:Web"):
-        with test():
-            testfiles(["tests/**.cpp"])
+        # Six fichiers, six main() : une sous-suite par fichier (Jenga 2.6, 2026-09-04).
+        with test("Smoke"):
+            testfiles(["tests/test_smoke.cpp"])
+            testownmain()
+        # Jenga 2.6.1 : test() rend le projet -> une sous-suite par fichier a main() (2026-09-04).
+        with test("ReflectSerializer"):
+            testfiles(["tests/test_reflect_serializer.cpp"])
+            testownmain()
+        with test("ReflectPhase3"):
+            testfiles(["tests/test_reflect_phase3.cpp"])
+            testownmain()
+        with test("ReflectPhase5"):
+            testfiles(["tests/test_reflect_phase5.cpp"])
+            testownmain()
+            # NkMathReflect.h (NKReflection) inclut NKMath/NkVec.h que NKSerialization ne depend pas : le
+            # test le dit, la sous-suite l ajoute (2026-09-04).
+            includedirs(["%{NKMath.location}/src"])  # absolu, meme sous filtre (Jenga 2.6.2 : le filtre sautait l expansion, pas la sous-suite)
+            links(["NKMath"])
+        with test("ReflectObjContainer"):
+            testfiles(["tests/test_reflect_objcontainer.cpp"])
+            testownmain()
+        with test("Bench"):
+            testfiles(["tests/benchmark_smoke.cpp"])
+            testownmain()

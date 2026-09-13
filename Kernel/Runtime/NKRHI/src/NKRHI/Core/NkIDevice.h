@@ -55,6 +55,17 @@ namespace nkentseu {
 			uint32 maxComputeSharedMemory = 32768;
 			uint32 maxDescriptorSets = 4;
 			uint32 maxSamplerAnisotropy = 16;
+			// Combien d'echantillonneurs l'etage FRAGMENT peut adresser.
+			// AJOUTE LE 2026-09-02, et c'est le champ qui manquait : cette
+			// structure portait 16 limites, aucune n'etait celle-ci -- donc le
+			// moteur ne POUVAIT PAS s'adapter a la seule limite qui ait casse une
+			// cible (PBR : 17 demandes, WebGL2 en accorde 16, ecran vide).
+			// Une capacite qu'on n'interroge pas ne peut porter aucune doublure.
+			// Defaut = 16 : ce n'est pas un zero par defaut, c'est une valeur
+			// DECIDEE -- le minimum garanti par WebGL2/GLES 3.0. Un backend qui
+			// echoue a repondre laisse donc la valeur la plus CONTRAIGNANTE, pas
+			// la plus optimiste.
+			uint32 maxFragmentTextureUnits = 16;
 			uint32 minUniformBufferAlign = 256;
 			uint32 minStorageBufferAlign = 16;
 			uint64 vramBytes = 0;
@@ -93,6 +104,62 @@ namespace nkentseu {
 			bool msaa4x = false;
 			bool msaa8x = false;
 			bool msaa16x = false;
+
+			// =====================================================================
+			// LE CONTRAT D'ECHANTILLONNAGE — deux questions, et elles sont DISTINCTES
+			// =====================================================================
+			// EXPRIMABLE : la valeur existe dans l'enum NkSampleCount.
+			// HONORABLE  : ce peripherique sait reellement la rendre.
+			//
+			// Les confondre est un mensonge a echeance, et il est DEJA la :
+			//   - NkSampleCount declare NK_S32 et NK_S64. Ils sont EXPRIMABLES.
+			//     AUCUN backend ne les honore.
+			//   - NkVulkanDevice::ToVkSamples() est un switch dont le default: rend
+			//     VK_SAMPLE_COUNT_1_BIT. Demander 32, 64 — ou 3 par un cast depuis un
+			//     entier de configuration, ce que permet NkRendererConfig::msaaSamples —
+			//     donne donc UN echantillon : sans erreur, sans journal, sans retour.
+			//     L'appelant croit avoir du MSAA et n'en a pas. C'est exactement
+			//     « un repli qui preserve success n'est pas un repli, c'est un mensonge ».
+			//
+			// Cette fonction rend la question DICIBLE avant quelle atteigne un backend.
+			// Elle ne corrige pas ToVkSamples — elle permet de ne jamais l'appeler avec
+			// une valeur quil va trahir en silence.
+			//
+			// ⚠️ C'est une REGLE, pas une liste : « puissance de deux » et « le drapeau
+			// correspondant » se verifient par calcul. Le banc NkMsaaContractCheck
+			// enumere les 16 combinaisons de drapeaux, donc un drapeau ajoute sans
+			// case correspondant est DIT, il ne passe pas.
+			bool SupportsSamples(NkSampleCount s) const {
+				// UNE SEULE REGLE, EXPRIMEE UNE SEULE FOIS.
+				// ⚠️ La premiere version portait EN PLUS une garde explicite
+				// « n est-il une puissance de deux ? ». Elle etait REDONDANTE : le
+				// default: ci-dessous refuse deja 0, 3, 5, 6, 7, 32, 64, 100...
+				// MESURE : retirer cette garde ne faisait tomber AUCUN cas du banc
+				// NkMsaaContractCheck — ni en build incremental, ni en table rase.
+				// Deux protections pour le meme cas rendent le banc incapable de dire
+				// LAQUELLE tient, et laissent une des deux etre du code que rien ne
+				// peut prouver juste.
+				switch (static_cast<uint32>(s)) {
+					case 1: return true; // pas de MSAA : toujours honorable
+					case 2: return msaa2x;
+					case 4: return msaa4x;
+					case 8: return msaa8x;
+					case 16: return msaa16x;
+					// 0, 3, 5, 7... : inexprimables. 32, 64 : exprimables, jamais honorables.
+					default: return false;
+				}
+			}
+
+			// Le plus grand nombre d'echantillons que ce peripherique honore.
+			// ⚠️ Etait recopie a la main dans GetContextInfo() : une seule source
+			// desormais, sinon les deux divergent le jour ou un drapeau s'ajoute.
+			uint32 MaxSamples() const {
+				if (msaa16x) return 16u;
+				if (msaa8x) return 8u;
+				if (msaa4x) return 4u;
+				if (msaa2x) return 2u;
+				return 1u;
+			}
 	};
 
 	// =============================================================================
@@ -153,8 +220,7 @@ namespace nkentseu {
 				info.vramMB = static_cast<uint32>(caps.vramBytes / (1024ull * 1024ull));
 				info.computeSupported = caps.computeShaders;
 				info.maxTextureSize = caps.maxTextureDim2D;
-				info.maxMSAASamples =
-					caps.msaa16x ? 16u : (caps.msaa8x ? 8u : (caps.msaa4x ? 4u : (caps.msaa2x ? 2u : 1u)));
+				info.maxMSAASamples = caps.MaxSamples();
 				info.windowWidth = GetSwapchainWidth();
 				info.windowHeight = GetSwapchainHeight();
 				return info;
@@ -505,6 +571,18 @@ namespace nkentseu {
 			virtual void BindBindlessHeap(NkICommandBuffer *cmd, NkBindlessHeapHandle heap) {
 				(void)cmd;
 				(void)heap;
+			}
+
+			// ── AJOUTS EN FIN DE CLASSE (2026-09-05) : une virtuelle inseree au milieu decale toutes les
+			// entrees de vtable suivantes, et un objet compile contre l'ancien en-tete (build concurrent
+			// d'un autre agent dans le meme Build/) appelle alors un pointeur nul -- mesure : SIGSEGV en #0 0x0.
+			// Un chrono PAR INDEX (profil du SPH par passe) : rend le plus ancien resultat disponible de ce
+			// chrono et le consomme ; faux s'il n'y en a pas (ne bloque jamais).
+			virtual bool GetTimestampResult(uint32 index, uint64 &t0, uint64 &t1) {
+				(void)index;
+				(void)t0;
+				(void)t1;
+				return false;
 			}
 	};
 

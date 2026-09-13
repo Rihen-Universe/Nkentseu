@@ -1,3 +1,4 @@
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 #include <Unitest/Unitest.h>
 #include <Unitest/TestMacro.h>
 
@@ -21,6 +22,9 @@ TEST_CASE(NKmathmoke, VectorAndRectTypes) {
 	ASSERT_NEAR(3.0f, v3.x, 0.0001f);
 	ASSERT_NEAR(8.0f, v3.y, 0.0001f);
 
+	// Apport de feat/noge-feu conserve (mesure le 2026-09-12) : NkRectI est le
+	// MEME type que NkRect2i -- deux alias de NkRectT<int32> (NkRectangle.h:298
+	// et :304). Les deux reparations etaient justes ; on garde celle de main.
 	// NkRect2i, et non NkRect : les rectangles ont ete renommes par taille et par
 	// type, et ce test n'avait pas suivi. Il ne compilait donc plus, et il emportait
 	// TOUTE la suite NKMath_Tests avec lui, en silence. Repare le 2026-09-05.

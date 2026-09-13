@@ -1,4 +1,5 @@
 #pragma once
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // =============================================================================
 // NkVulkanRenderer2D.h — Vulkan 2D renderer backend
 // Uses push constants for the projection matrix (no UBO needed for 2D).
@@ -93,6 +94,11 @@ namespace nkentseu {
 				VkPipeline mPipeAdd = VK_NULL_HANDLE;
 				VkPipeline mPipeMul = VK_NULL_HANDLE;
 				VkPipeline mPipeNone = VK_NULL_HANDLE;
+				// 2026-09-04 : Screen, Darken (MIN), Lighten (MAX), Plus Lighter -- exacts
+				VkPipeline mPipeScreen = VK_NULL_HANDLE;
+				VkPipeline mPipeDarken = VK_NULL_HANDLE;
+				VkPipeline mPipeLighten = VK_NULL_HANDLE;
+				VkPipeline mPipePlus = VK_NULL_HANDLE;
 
 				// Vertex / index buffers (host-visible, persistent map), utilisés en
 				// RING par frame : chaque SubmitBatches écrit à un offset qui AVANCE

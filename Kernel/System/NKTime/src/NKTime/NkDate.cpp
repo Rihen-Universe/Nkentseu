@@ -1,4 +1,5 @@
 // =============================================================================
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // NKTime/NkDate.cpp
 // Implémentation de la classe NkDate.
 //
@@ -22,10 +23,10 @@
 // 4. Headers système
 
 #include "pch.h"
+#include "NKCore/Text/NkSnprintf.h"
 #include "NKTime/NkDate.h"
 #include "NKCore/Assert/NkAssert.h"
 
-#include <cstdio>
 #include <ctime>
 
 // -------------------------------------------------------------------------
@@ -194,7 +195,7 @@ namespace nkentseu {
 		// Formatage ISO 8601 avec zéros de remplissage :
 		// %04d : année sur 4 chiffres (ex: 2024)
 		// %02d : mois/jour sur 2 chiffres (ex: 01, 09, 31)
-		::snprintf(buf, sizeof(buf), "%04d-%02d-%02d", year, month, day);
+		nkentseu::NkSnprintf(buf, sizeof(buf), "%04d-%02d-%02d", year, month, day);
 
 		// Construction de la chaîne NKEntseu depuis le buffer C
 		return NkString(buf);

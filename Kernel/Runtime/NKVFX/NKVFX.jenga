@@ -1,0 +1,63 @@
+# AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
+from Jenga import *
+from jengaconfig import *
+
+# =============================================================================
+# NKVFX — LES EFFETS : eau, éclaboussures, particules, fluides (2026-09-12).
+#
+# ── POURQUOI CE MODULE EXISTE ────────────────────────────────────────────────
+# Un effet a besoin de DESSINER et, tôt ou tard, de RENCONTRER une géométrie :
+# une éclaboussure frappe un sol, une particule rebondit, l'eau touche un
+# terrain. Or, mesuré sur les .jenga :
+#     NKRenderer  -> ... NKMath, NKAnima       (PAS de NKCollision, PAS de NKPhysics)
+#     NKCollision -> Foundation + NKMath
+#     NKPhysics   -> ... + NKCollision         (ni l'une ni l'autre ne connaît NKRenderer)
+# Autrement dit : AUJOURD'HUI, UN EFFET QUI A BESOIN DE COLLISION N'A PAS DE
+# MAISON. NKVFX est ce toit commun, et `NKVFX -> {NKRenderer, NKCollision,
+# NKPhysics}` est acyclique — aucune de ces trois ne remonte vers lui.
+#
+# ── ⚠️ POURQUOI IL NE DÉPEND AUJOURD'HUI QUE DE NKRenderer ───────────────────
+# Le premier effet qui y vit, le producteur d'eau, est de la GÉOMÉTRIE PURE : il
+# lui faut `NkVertex3D`, donc NKRenderer, et rien de plus. NKCollision et
+# NKPhysics ne sont PAS déclarées, et ce n'est pas un oubli.
+#
+# Une dépendance déclarée que personne n'honore force TOUS les consommateurs à
+# lier pour rien — c'est le motif « déclaré mais pas honoré » retourné, et il se
+# paie à chaque application. On les ajoutera le jour où un effet les exigera
+# vraiment, et ce jour-là la ligne aura une raison qu'on pourra montrer.
+#
+# ── CE QUI N'EST PAS FAIT, ET QUI EST NOMMÉ ──────────────────────────────────
+# `NKRenderer/src/NKRenderer/Tools/VFX/` contient déjà 14 fichiers (NkSPHSolver,
+# NkParticleStore, NkSplashEmitter, NkVFXSystem...) qui auraient leur place ici.
+# ILS N'ONT PAS ÉTÉ MIGRÉS, délibérément : plusieurs sont édités en ce moment par
+# un autre chantier, et déplacer des fichiers sous un chantier vivant fabrique
+# des conflits de fusion. La migration est un lot à part, quand ils seront au
+# repos.
+# =============================================================================
+
+with project("NKVFX"):
+    language("C++")
+    cppdialect("C++17")
+    location(".")
+
+    # NKTime : reclame par NkVfxLiveness.h (NkChrono), le controle de vie qui
+    # separe « ca s'enregistre » de « ca s'execute ». Ajoute le jour ou un fichier
+    # l'a exige, pas avant -- c'est la regle de ce module.
+    nkentseudependson(
+        ["NKPlatform", "NKCore", "NKMemory", "NKContainers", "NKLogger", "NKMath", "NKTime",
+         "NKRenderer"],
+        selfexport="NKVFX",
+        extra_includes=["src"],
+    )
+
+    files(["src/**.cpp"])
+
+    objdir("%{wks.location}/Build/Obj/%{cfg.buildcfg}-%{cfg.system}/%{prj.name}")
+    targetdir("%{wks.location}/Build/Lib/%{cfg.buildcfg}-%{cfg.system}")
+
+    with filter("system:Windows && !options:windows-runtime=uwp && !system:XboxSeries && !system:XboxOne"):
+        usetoolchain(TC_WINDOWS)
+        defines(["WIN32_LEAN_AND_MEAN", "_UNICODE", "UNICODE"])
+
+    with filter("system:Linux"):
+        links(["pthread"])

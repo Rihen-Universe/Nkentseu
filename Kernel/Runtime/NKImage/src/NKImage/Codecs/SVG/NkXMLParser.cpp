@@ -1,10 +1,12 @@
 /**
+ * AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
  * @File    NkXMLParser.cpp
  * @Brief   Parser XML complet — tokenizer récursif + DOM.
  * @Author  TEUGUIA TADJUIDJE Rodolf Séderis
  * @License Proprietary - All Rights Reserved (see LICENSE)
  */
 #include "NKImage/Codecs/SVG/NkXMLParser.h"
+#include "NKCore/Text/NkSnprintf.h"
 #include <cstring>
 #include "NKMemory/NkAllocator.h"
 #include "NKMemory/NkFunction.h"
@@ -140,7 +142,7 @@ namespace nkentseu {
 		if (c.pos >= c.size || c.data[c.pos] != static_cast<uint8>(ch)) {
 			if (!c.error) {
 				c.error = true;
-				::snprintf(c.errorMsg, sizeof(c.errorMsg), "Expected '%c' at line %d (got '%c')", ch, c.line,
+				nkentseu::NkSnprintf(c.errorMsg, sizeof(c.errorMsg), "Expected '%c' at line %d (got '%c')", ch, c.line,
 						   c.pos < c.size ? (char)c.data[c.pos] : '?');
 				c.doc->errorLine = c.line;
 			}

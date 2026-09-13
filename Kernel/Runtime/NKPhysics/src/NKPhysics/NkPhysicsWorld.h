@@ -35,6 +35,10 @@ namespace nkentseu {
 				explicit NkPhysicsWorld(const NkPhysicsConfig &cfg = {}) noexcept;
 
 				// Crée un corps (def + forme de collision) ; renvoie son id. [spec M0]
+				// ⚠️ `shape` est en repère MONDE (déjà placée à def.position) : la forme de
+				// repos LOCALE en est dérivée par l'inverse de la pose. Une forme centrée
+				// à l'origine pour un corps créé ailleurs naît DÉCALÉE — et entre en
+				// contact avec tout ce qui a fait la même erreur (mesuré le 2026-09-03).
 				NkBodyId CreateBody(const NkBodyDef &def, const collision::NkShape &shape);
 				void DestroyBody(NkBodyId id);
 				NkRigidBody *GetBody(NkBodyId id) noexcept;
@@ -113,6 +117,12 @@ namespace nkentseu {
 										uint32 layerMask = 0xFFFFFFFFu) const; // somme(r×m·v + I·ω)
 
 				// Réglages.
+				// ── Véhicules (2026-09-03) : mis à jour DANS le sous-pas fixe ─────
+				// Le jeu n'appelle jamais leur Step : il appelle Advance(dt), et le
+				// monde fait avancer les véhicules au pas fixe, AVANT l'intégration.
+				void RegisterVehicle(class NkVehicle *v) noexcept;
+				void UnregisterVehicle(class NkVehicle *v) noexcept;
+
 				void SetGravity(const NkVec3f &g) noexcept {
 					mConfig.gravity = g;
 				}
@@ -148,6 +158,7 @@ namespace nkentseu {
 				void UpdateSleep(float32 dt);	// M6 : endormir les corps immobiles
 				void SolveJoints(float32 dt);	// M7 : contraintes d'articulation
 				void Substep(float32 h);		// M12 : un pas de simulation atomique
+				NkVector<class NkVehicle *> mVehicles; // roues : forces DANS le pas fixe
 				void ProcessTriggers();			// M13 : mappe les events collision -> triggers
 
 				NkPhysicsConfig mConfig;

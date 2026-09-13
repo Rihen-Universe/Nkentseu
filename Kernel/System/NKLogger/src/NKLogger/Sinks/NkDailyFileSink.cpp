@@ -1,4 +1,5 @@
 // =============================================================================
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // NKLogger/Sinks/NkDailyFileSink.cpp
 // Implémentation du sink avec rotation automatique quotidienne.
 //
@@ -16,6 +17,7 @@
 // =============================================================================
 
 #include "pch.h"
+#include "NKCore/Text/NkSnprintf.h"
 
 #include "NKLogger/Sinks/NkDailyFileSink.h"
 #include "NKLogger/NkLogMessage.h"
@@ -600,7 +602,7 @@ namespace nkentseu {
 		char suffixBuffer[32];
 
 		// Formatage sûr de la date en suffixe décimal
-		const int written = ::snprintf(suffixBuffer, sizeof(suffixBuffer), ".%04d%02d%02d",
+		const int written = nkentseu::NkSnprintf(suffixBuffer, sizeof(suffixBuffer), ".%04d%02d%02d",
 									   date.tm_year + 1900, // tm_year est offset depuis 1900
 									   date.tm_mon + 1,		// tm_mon est 0-based (0 = janvier)
 									   date.tm_mday);

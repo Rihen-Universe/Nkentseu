@@ -1,7 +1,9 @@
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 #include <Unitest/TestMacro.h>
 #include <Unitest/Unitest.h>
 
 #include "NKThreading/NkMutex.h"
+#include "NKThreading/NkScopedLock.h" // NkScopedLock -> NkScopedLockMutex, la garde que NkConditionVariable::Wait attend (2026-09-04)
 #include "NKThreading/NkSemaphore.h"
 #include "NKThreading/NkThread.h"
 #include "NKThreading/NkThreadPool.h"
@@ -23,7 +25,7 @@ TEST_CASE(NKThreadingSemaphore, TimedAcquire) {
 
 	ASSERT_FALSE(semaphore.TryAcquireFor(5u));
 
-	NkThread releaser([&semaphore]() { (void)semaphore.Release(1u); });
+	NkThread releaser([&semaphore](void *) { (void)semaphore.Release(1u); });
 
 	ASSERT_TRUE(semaphore.TryAcquireFor(250u));
 	releaser.Join();
@@ -38,19 +40,19 @@ TEST_CASE(NKThreadingThreadPool, EnqueueJoinAndCounters) {
 
 	for (nkentseu::nk_uint32 i = 0u; i < taskCount; ++i) {
 		pool.Enqueue([&counterMutex, &counter]() {
-			NkScopedLock lock(counterMutex);
+			NkScopedLockMutex lock(counterMutex);
 			++counter;
 		});
 	}
 
 	pool.EnqueuePriority([&counterMutex, &counter]() {
-		NkScopedLock lock(counterMutex);
+		NkScopedLockMutex lock(counterMutex);
 		++counter;
 	});
 
 	pool.EnqueueAffinity(
 		[&counterMutex, &counter]() {
-			NkScopedLock lock(counterMutex);
+			NkScopedLockMutex lock(counterMutex);
 			++counter;
 		},
 		0u);

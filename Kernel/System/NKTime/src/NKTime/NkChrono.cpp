@@ -1,4 +1,5 @@
 // =============================================================================
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // NKTime/NkChrono.cpp
 // Implémentation de NkChrono et NkElapsedTime::ToString.
 //
@@ -28,6 +29,7 @@
 // 4. Headers système conditionnels selon la plateforme
 
 #include "pch.h"
+#include "NKCore/Text/NkSnprintf.h"
 #include "NKTime/NkChrono.h"
 #include "NKPlatform/NkPlatformDetect.h"
 
@@ -479,16 +481,16 @@ namespace nkentseu {
 		// Utilisation des champs précalculés de NkElapsedTime : zéro calcul à l'accès
 		if (seconds >= 1.0) {
 			// Durées >= 1 seconde : affichage en secondes avec 3 décimales
-			::snprintf(buf, sizeof(buf), "%.3f s", seconds);
+			nkentseu::NkSnprintf(buf, sizeof(buf), "%.3f s", seconds);
 		} else if (milliseconds >= 1.0) {
 			// Durées >= 1 ms : affichage en millisecondes avec 3 décimales
-			::snprintf(buf, sizeof(buf), "%.3f ms", milliseconds);
+			nkentseu::NkSnprintf(buf, sizeof(buf), "%.3f ms", milliseconds);
 		} else if (microseconds >= 1.0) {
 			// Durées >= 1 µs : affichage en microsecondes avec 3 décimales
-			::snprintf(buf, sizeof(buf), "%.3f us", microseconds);
+			nkentseu::NkSnprintf(buf, sizeof(buf), "%.3f us", microseconds);
 		} else {
 			// Durées < 1 µs : affichage en nanosecondes avec 3 décimales
-			::snprintf(buf, sizeof(buf), "%.3f ns", nanoseconds);
+			nkentseu::NkSnprintf(buf, sizeof(buf), "%.3f ns", nanoseconds);
 		}
 
 		// Construction de la chaîne NKEntseu depuis le buffer C

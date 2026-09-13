@@ -1,4 +1,5 @@
 // =============================================================================
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // NKLogger/NkLog.cpp
 // Implémentation du logger singleton par défaut avec API fluide.
 //
@@ -16,6 +17,7 @@
 // =============================================================================
 
 #include "pch.h"
+#include "NKCore/Text/NkSnprintf.h"
 
 #include "NKLogger/NkLog.h"
 #include "NKLogger/NkLogLevel.h"
@@ -151,7 +153,7 @@ namespace nkentseu {
 #endif
 
 			char buffer[kRunLogNameCapacity] = {0};
-			::snprintf(buffer, sizeof(buffer), "%s/%s%04d-%02d-%02d_%02d%02d%02d_%lu%s",
+			nkentseu::NkSnprintf(buffer, sizeof(buffer), "%s/%s%04d-%02d-%02d_%02d%02d%02d_%lu%s",
 					   kRunLogDirectory, kRunLogPrefix, local.tm_year + 1900, local.tm_mon + 1,
 					   local.tm_mday, local.tm_hour, local.tm_min, local.tm_sec,
 					   NkCurrentProcessId(), kRunLogSuffix);
@@ -206,7 +208,7 @@ namespace nkentseu {
 #if defined(_WIN32)
 			// Windows : parcours via FindFirstFile/FindNextFile
 			char pattern[kRunLogNameCapacity] = {0};
-			::snprintf(pattern, sizeof(pattern), "%s\\%s*%s", kRunLogDirectory, kRunLogPrefix,
+			nkentseu::NkSnprintf(pattern, sizeof(pattern), "%s\\%s*%s", kRunLogDirectory, kRunLogPrefix,
 					   kRunLogSuffix);
 
 			WIN32_FIND_DATAA findData{};
@@ -233,7 +235,7 @@ namespace nkentseu {
 				// Retenir le plus ancien rencontre jusqu'ici
 				if (outOldest != nullptr && outSize > 0 &&
 					(outOldest[0] == '\0' || ::strcmp(findData.cFileName, outOldest) < 0)) {
-					::snprintf(outOldest, outSize, "%s", findData.cFileName);
+					nkentseu::NkSnprintf(outOldest, outSize, "%s", findData.cFileName);
 				}
 
 			} while (::FindNextFileA(handle, &findData) != 0);
@@ -259,7 +261,7 @@ namespace nkentseu {
 				// Retenir le plus ancien rencontre jusqu'ici
 				if (outOldest != nullptr && outSize > 0 &&
 					(outOldest[0] == '\0' || ::strcmp(entry->d_name, outOldest) < 0)) {
-					::snprintf(outOldest, outSize, "%s", entry->d_name);
+					nkentseu::NkSnprintf(outOldest, outSize, "%s", entry->d_name);
 				}
 			}
 
@@ -305,7 +307,7 @@ namespace nkentseu {
 				}
 
 				char fullPath[kRunLogNameCapacity * 2] = {0};
-				::snprintf(fullPath, sizeof(fullPath), "%s/%s", kRunLogDirectory, oldest);
+				nkentseu::NkSnprintf(fullPath, sizeof(fullPath), "%s/%s", kRunLogDirectory, oldest);
 
 				// Echec (fichier verrouille par un autre processus, permissions)
 				// : on n'insiste pas. Un journal en trop ne casse rien ; une
