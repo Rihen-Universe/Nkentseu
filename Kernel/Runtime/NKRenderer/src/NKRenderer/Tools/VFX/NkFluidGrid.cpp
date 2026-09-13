@@ -384,6 +384,167 @@ namespace nkentseu {
 			SetBoundary(bnd, dst);
 		}
 
+		// =====================================================================
+		// LE LIMITEUR — il rend `psi(r) · d`, JAMAIS `psi(r)` seul.
+		//
+		// ⚠️ C'EST VOLONTAIRE, ET C'EST CE QUI SUPPRIME LA DIVISION. Le rapport
+		// r = du/d a un dénominateur qui s'annule DÈS QUE deux cellules voisines
+		// portent la même valeur — ce qui, sur une grille de fumée majoritairement
+		// vide, est le cas le PLUS FRÉQUENT, pas un cas limite. Rendre le produit
+		// permet de l'écrire en forme homogène, sans epsilon arbitraire :
+		//
+		//     van Leer :  (du·|d| + |du|·d) / (|d| + |du|)
+		//
+		// et cette forme S'ANNULE EXACTEMENT quand `du` et `d` sont de signes
+		// opposés — c'est-à-dire à un EXTREMUM : du·(−d) + du·d = 0. Le schéma y
+		// retombe sur le donor-cell, ce qui le rend borné. Aucune comparaison à un
+		// epsilon n'intervient : c'est l'arithmétique elle-même qui décide.
+		//
+		// `d`  = phi[aval] − phi[amont] : le gradient EN TRAVERS de la face.
+		// `du` = le gradient AMONT, celui de la paire de cellules d'où vient le
+		//        fluide. C'est lui qui dit si le profil est lisse (même sens) ou
+		//        s'il passe par un extremum (sens opposés).
+		// =====================================================================
+		static float32 NkFluxLimite(NkFluidFluxLimiter lim, float32 d, float32 du) {
+			switch (lim) {
+				case NkFluidFluxLimiter::Aucun:
+					// psi = 1 : Lax-Wendroff NU. ⚠️ TÉMOIN NÉGATIF du banc — il
+					// oscille et fabrique des densités négatives (Godunov), tout en
+					// conservant la masse exactement. C'est sa raison d'être.
+					return d;
+				case NkFluidFluxLimiter::MinMod: {
+					if (du * d <= 0.f)
+						return 0.f;
+					const float32 m = NkMin(NkAbs(d), NkAbs(du));
+					return (d > 0.f) ? m : -m;
+				}
+				case NkFluidFluxLimiter::VanLeer: {
+					const float32 ad = NkAbs(d), adu = NkAbs(du);
+					const float32 den = ad + adu;
+					if (den <= 0.f)
+						return 0.f;
+					return (du * ad + adu * d) / den;
+				}
+				case NkFluidFluxLimiter::Superbee: {
+					if (du * d <= 0.f)
+						return 0.f;
+					const float32 ad = NkAbs(d), adu = NkAbs(du);
+					const float32 m = NkMax(NkMin(2.f * adu, ad), NkMin(adu, 2.f * ad));
+					return (d > 0.f) ? m : -m;
+				}
+				default:
+					// `Ordre1` n'arrive jamais ici : il n'emprunte pas cette fonction.
+					return 0.f;
+			}
+		}
+
+		// =====================================================================
+		// UN SOUS-PAS D'ORDRE SUPÉRIEUR — van Leer 1979, Sweby 1984.
+		// Pré-enregistrement : PLAN_ORDRE_SUPERIEUR.md.
+		//
+		// ⚠️ FONCTION SÉPARÉE, ET C'EST LE CŒUR DE LA GARANTIE. `AdvectFluxUnePasse`
+		// n'est pas touchée d'une ligne : le chemin par défaut rend donc les chiffres
+		// du 12/09 AU BIT, et cette propriété se LIT DANS LE DIFF au lieu de reposer
+		// sur une mesure. Un `if` placé dans la boucle intérieure aurait laissé le
+		// compilateur réordonner l'arithmétique, et « bit-identique » aurait cessé
+		// d'être vérifiable autrement qu'en croisant les doigts.
+		//
+		// LE SCHÉMA, sur la face qui sépare les cellules `i-1` et `i` :
+		//     c  = u · dt / h                       (Courant LOCAL de CETTE face)
+		//     F  = u·dt/h·phi_donneur                              (donor-cell)
+		//        + 0.5·|c|·(1 − |c|)·psi(r)·(phi[i] − phi[i-1])   (antidiffusif)
+		//
+		// Le second terme avec psi = 1 EST exactement le flux de Lax-Wendroff. La
+		// démonstration tient en deux lignes, et elle vaut d'être écrite parce que
+		// les deux branches (u > 0 et u < 0) donnent LA MÊME expression :
+		//     u > 0 :  F_LW − F_donor = +0.5·c·(1 − c)·d
+		//     u < 0 :  F_LW − F_donor = −0.5·c·(1 + c)·d
+		// et comme |c| = c dans le premier cas, −c dans le second, les deux valent
+		// 0.5·|c|·(1 − |c|)·d. C'est ce qui permet de l'écrire UNE fois.
+		//
+		// ⚠️ LA MASSE RESTE CONSERVÉE PAR CONSTRUCTION, ET PSI N'Y EST POUR RIEN.
+		// Le flux antidiffusif est retranché à une cellule et ajouté à l'autre,
+		// comme celui d'ordre 1, et les faces de PAROI ne sont jamais parcourues.
+		// CONSÉQUENCE À DIRE, pas à cacher : le mode `Aucun`, qui est FAUX,
+		// conservera la masse AUSSI EXACTEMENT que van Leer. « La masse tient » ne
+		// juge donc PAS la justesse de ce lot — c'est la densité négative qui juge.
+		//
+		// ⚠️ AUX PAROIS, LE SCHÉMA RETOMBE À L'ORDRE 1, ET C'EST VOULU.
+		// `SetBoundary(0, …)` remplit les fantômes par RECOPIE du voisin intérieur,
+		// donc à la première face intérieure `du = phi[1] − phi[0] = 0`, donc
+		// `psi·d = 0`. Un ordre 2 qui extrapolerait au-delà de la paroi inventerait
+		// de la matière que la paroi a justement pour rôle d'arrêter.
+		//
+		// ⚠️ HORS DE SA CONDITION, (1 − |c|) DEVIENT NÉGATIF, et le terme change de
+		// signe au lieu de s'éteindre. Ce n'est PAS bridé ici, délibérément : le
+		// sous-cyclage est ce qui garde |c| sous la cible, et la course (h3) coupe
+		// ce filet EXPRÈS pour mesurer la condition NUE. Un garde-fou posé ici
+		// rendrait cette mesure impossible en faisant croire à une stabilité qui
+		// n'appartiendrait plus au schéma.
+		// =====================================================================
+		void NkFluidGrid::AdvectFluxUnePasseLimitee(NkVector<float32> &dst, const NkVector<float32> &src, float32 dt,
+													int32 bnd) {
+			const float32 dt0 = dt / mParams.cellSize; // pas en CELLULES
+			const uint32 sy = mNx + 2;
+			const uint32 sz = (mNx + 2) * (mNy + 2);
+			const NkFluidFluxLimiter lim = mParams.advectFluxLimiter;
+
+			for (uint32 i = 0; i < mCount; ++i)
+				dst[i] = src[i];
+
+			// Faces x INTERNES : la face i sépare les cellules i-1 et i.
+			// Le pochoir est plus LARGE que celui de l'ordre 1 — il lit i-2 et i+1.
+			// Les deux existent : la grille porte une couche de fantômes sur chaque
+			// face, et `SetBoundary` l'a remplie avant d'entrer ici.
+			for (uint32 k = 1; k <= mNz; ++k)
+				for (uint32 j = 1; j <= mNy; ++j)
+					for (uint32 i = 2; i <= mNx; ++i) {
+						const uint32 id = Idx(i, j, k);
+						const float32 u = mU[id];
+						const float32 c = u * dt0;
+						const float32 ac = NkAbs(c);
+						const float32 phi = (u > 0.f) ? src[id - 1] : src[id];
+						const float32 d = src[id] - src[id - 1];
+						const float32 du = (u > 0.f) ? (src[id - 1] - src[id - 2]) : (src[id + 1] - src[id]);
+						const float32 F = c * phi + 0.5f * ac * (1.f - ac) * NkFluxLimite(lim, d, du);
+						dst[id - 1] -= F;
+						dst[id] += F;
+					}
+			// Faces y INTERNES
+			for (uint32 k = 1; k <= mNz; ++k)
+				for (uint32 j = 2; j <= mNy; ++j)
+					for (uint32 i = 1; i <= mNx; ++i) {
+						const uint32 id = Idx(i, j, k);
+						const float32 v = mV[id];
+						const float32 c = v * dt0;
+						const float32 ac = NkAbs(c);
+						const float32 phi = (v > 0.f) ? src[id - sy] : src[id];
+						const float32 d = src[id] - src[id - sy];
+						const float32 du =
+							(v > 0.f) ? (src[id - sy] - src[id - 2 * sy]) : (src[id + sy] - src[id]);
+						const float32 F = c * phi + 0.5f * ac * (1.f - ac) * NkFluxLimite(lim, d, du);
+						dst[id - sy] -= F;
+						dst[id] += F;
+					}
+			// Faces z INTERNES
+			for (uint32 k = 2; k <= mNz; ++k)
+				for (uint32 j = 1; j <= mNy; ++j)
+					for (uint32 i = 1; i <= mNx; ++i) {
+						const uint32 id = Idx(i, j, k);
+						const float32 w = mW[id];
+						const float32 c = w * dt0;
+						const float32 ac = NkAbs(c);
+						const float32 phi = (w > 0.f) ? src[id - sz] : src[id];
+						const float32 d = src[id] - src[id - sz];
+						const float32 du =
+							(w > 0.f) ? (src[id - sz] - src[id - 2 * sz]) : (src[id + sz] - src[id]);
+						const float32 F = c * phi + 0.5f * ac * (1.f - ac) * NkFluxLimite(lim, d, du);
+						dst[id - sz] -= F;
+						dst[id] += F;
+					}
+			SetBoundary(bnd, dst);
+		}
+
 		// Le nombre de Courant MAXIMAL vu sur l'intérieur, pour le pas `dt`.
 		// Sur grille décalée la condition porte sur les vitesses de FACE : on prend,
 		// par axe, la plus grande des deux faces de la cellule, et on somme les trois
@@ -428,17 +589,34 @@ namespace nkentseu {
 		// ⚠️ SEULS LES SCALAIRES sont sous-cyclés, et on NE RE-PROJETTE PAS entre les
 		// sous-pas : la vitesse ne change pas dans l'intervalle, la projection n'a
 		// donc rien à refaire — et c'est ce qui garde le coût borné.
+		//
+		// ⚠️ L'AIGUILLAGE D'ORDRE EST ICI, ET IL EST SEUL. `Ordre1` appelle la
+		// fonction d'origine, INTACTE : c'est ce qui rend la bit-identité du défaut
+		// vérifiable par `git diff` avant d'être vérifiée par une mesure.
+		// Le sous-cyclage, lui, est le MÊME pour les deux ordres — un schéma
+		// d'ordre supérieur reste conditionnellement stable, et la condition ne
+		// s'assouplit pas parce que le schéma est plus précis.
 		void NkFluidGrid::AdvectScalarFlux(NkVector<float32> &dst, const NkVector<float32> &src, float32 dt,
 										   int32 bnd) {
 			const uint32 n = (mStats.advectSubsteps > 0) ? mStats.advectSubsteps : 1u;
+			const bool ordre1 = (mParams.advectFluxLimiter == NkFluidFluxLimiter::Ordre1);
 			if (n == 1) {
-				AdvectFluxUnePasse(dst, src, dt, bnd);
+				if (ordre1)
+					AdvectFluxUnePasse(dst, src, dt, bnd);
+				else
+					AdvectFluxUnePasseLimitee(dst, src, dt, bnd);
 				return;
 			}
 			const float32 dts = dt / (float32)n;
-			AdvectFluxUnePasse(dst, src, dts, bnd);
+			if (ordre1)
+				AdvectFluxUnePasse(dst, src, dts, bnd);
+			else
+				AdvectFluxUnePasseLimitee(dst, src, dts, bnd);
 			for (uint32 s = 1; s < n; ++s) {
-				AdvectFluxUnePasse(mScratchA, dst, dts, bnd);
+				if (ordre1)
+					AdvectFluxUnePasse(mScratchA, dst, dts, bnd);
+				else
+					AdvectFluxUnePasseLimitee(mScratchA, dst, dts, bnd);
 				for (uint32 i = 0; i < mCount; ++i)
 					dst[i] = mScratchA[i];
 			}

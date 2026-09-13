@@ -57,6 +57,8 @@ void EnqueteLePrix();		// (f2) LE PRIX du donor-cell (NK_FLUID_MAC=4)
 void EnqueteStabilite();	// (f3) LA STABILITÉ, filet coupé (NK_FLUID_MAC=5)
 void EnqueteRuptureFine();	// (g1) la rupture ENCADRÉE par dichotomie (NK_FLUID_MAC=6)
 void EnqueteCibleSousCyclage(); // (g2)+(g3) la courbe, la cible, le NOUVEAU prix (NK_FLUID_MAC=7)
+void EnqueteOrdreSuperieur();	// (h1)+(h3) l'ORDRE SUPÉRIEUR : le prix repayé ? (NK_FLUID_MAC=8)
+void ControleOrdreSuperieur();	// (h2) les trois contrôles de la course complète
 void PalierVolutes(bool complet); // (n1)(n3)(n2a) toujours ; (n2b) sous NK_FLUID_VOLUTES=1 (PLAN_VOLUTES.md)
 void ImagesDuConfinement(float32 epsilon);
 float32 EpsilonConfinement();
@@ -678,6 +680,21 @@ int main(int argc, char **argv) {
 		EnqueteCibleSousCyclage();
 		printf("\n=============================================================\n");
 		printf("BILAN (mode NK_FLUID_MAC=7, (g2)+(g3) LA CIBLE) : %d controles, %d ROUGES\n", gChecks, gFailures);
+		printf("=============================================================\n");
+		return gFailures == 0 ? 0 : 1;
+	}
+	// NK_FLUID_MAC=8 : (h1) le DÉTAIL qui revient, et (h3) la stabilité qui bouge ou
+	// non — l'ÉTAPE 6, ouverte par la décision de Rodolf du 13/09 : ne pas SUBIR
+	// l'arbitrage masse/détail mais le SUPPRIMER. Le lot se juge sur UN rapport,
+	// Tmax / Tmax(référence), avec son seuil écrit AVANT (0,50, repris de Q6).
+	// ⚠️ Le mode fait tourner SIX bras de la scène (e) dans la MÊME course, dont le
+	// schéma SANS limiteur : il est FAUX exprès, c'est le témoin qui prouve que le
+	// détecteur de densité négative sait rendre autre chose que zéro.
+	if (mac != nullptr && mac[0] == '8') {
+		EnqueteOrdreSuperieur();
+		printf("\n=============================================================\n");
+		printf("BILAN (mode NK_FLUID_MAC=8, (h) L'ORDRE SUPERIEUR) : %d controles, %d ROUGES\n", gChecks,
+			   gFailures);
 		printf("=============================================================\n");
 		return gFailures == 0 ? 0 : 1;
 	}
