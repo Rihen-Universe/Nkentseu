@@ -7776,6 +7776,18 @@ static NkTexHandle CreateLanternCubeCookie(NkTextureLibrary *texLib, NkIDevice *
 						p.buoyancyAlpha = 0.25f;
 						p.pressureTolerance = 1.0e-4f;
 						p.vorticityConfinement = 8.f;
+						// ⚠️⚠️ TEMOINS DE MESURE ETEINTS — chemin TEMPS REEL.
+						// Regle posee le 13/09, et la FORMULATION compte plus que la
+						// decision : dans le BANC ils restent TOUJOURS allumes, SANS
+						// interrupteur (un juge qui peut fermer les yeux ne juge plus) ;
+						// ICI ils sont ETEINTS, et c'est l'EXTINCTION qui s'annonce —
+						// dans le bandeau ET dans le journal, jamais l'allumage. Un
+						// reglage qu'il faut penser a ARMER se fait oublier ; un bandeau
+						// qui dit « temoins eteints » se voit.
+						// ⚠️ CE QUI RESTE MALGRE TOUT : `MeasureVelocity`, parce que ce
+						// n'est PAS une mesure — elle borne les vitesses a maxSpeed,
+						// donc c'est un filet de securite, donc de la physique.
+						p.temoinsMesure = false;
 						if (sFeu.Init(p)) {
 							sCellules = sFeu.Nx() * sFeu.Ny() * sFeu.Nz();
 							NkTextureCreateDesc td;
@@ -7849,6 +7861,14 @@ static NkTexHandle CreateLanternCubeCookie(NkTextureLibrary *texLib, NkIDevice *
 										  "[NK_FIRE_PROBE] Tmax %.0f K  |  pixels qui bougent : %.3f %%  "
 										  "(NK_FIRE_FREEZE=1 doit rendre 0,000)  |  marche CPU, ombres coupees",
 										  (double)sFeu.Stats().maxTemperature, (double)sBouge);
+						// ⚠️ C'EST L'EXTINCTION QUI S'ANNONCE, PAS L'ALLUMAGE. Cette
+						// ligne se lit meme quand personne ne la cherche — alors qu'un
+						// reglage qu'il faut penser a armer se fait oublier.
+						overlay->DrawText({20.f, 135.f},
+										  "[NK_FIRE_PROBE] TEMOINS DE MESURE ETEINTS : %s  |  divergence, "
+										  "enstrophie, masse et chaleur NON MESUREES ici (le banc, lui, les "
+										  "garde TOUJOURS allumes)",
+										  sFeu.Stats().temoinsEteints ? "OUI" : "NON — ils tournent encore");
 
 						// ⚠️ LE MEME CHIFFRE DANS LE JOURNAL, ET CE N'EST PAS UN DOUBLON.
 						// Le bandeau ne se lit qu'a l'ecran : une course headless rendrait
@@ -7863,10 +7883,11 @@ static NkTexHandle CreateLanternCubeCookie(NkTextureLibrary *texLib, NkIDevice *
 						if ((ctx.frame % 30u) == 0u)
 							std::fprintf(stderr,
 										 "[NK_FIRE_PROBE] frame %u | %u cellules | %.2f img/s | sim %.1f ms + "
-										 "marche %.1f ms = %.1f ms | Tmax %.0f K | pixels qui bougent %.3f %%\n",
+										 "marche %.1f ms = %.1f ms | Tmax %.0f K | pixels qui bougent %.3f %% | "
+										 "TEMOINS ETEINTS : %s\n",
 										 (unsigned)ctx.frame, sCellules, (msImage > 0.f) ? 1000.f / msImage : 0.f,
 										 sMsSim, sMsMarche, msImage, (double)sFeu.Stats().maxTemperature,
-										 (double)sBouge);
+										 (double)sBouge, sFeu.Stats().temoinsEteints ? "OUI" : "NON");
 					}
 				}
 				// Phase H : indication visuelle du chargement texture file-based.
