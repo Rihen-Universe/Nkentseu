@@ -8,6 +8,13 @@
 #include "NKECS/Reflect/NkReflect.h"
 #include "Noge/ECS/Components/SceneComponent/NkSceneComponent.h" // NkSceneComponent
 #include "NKContainers/String/NkFormat.h"						 // NkFormat
+// Pont de (de)serialisation type-erase : ComponentMeta.serialize / .deserialize,
+// branches par NkRegisterComponentReflection<T>() (Phase 4). C'est le chemin
+// VIVANT ; celui de reflect::NkTypeInfo ne l'est pas — voir la note dans
+// Instantiate().
+#include "NKSerialization/NkArchive.h"
+#include "NKSerialization/JSON/NkJSONReader.h"
+#include "NKSerialization/JSON/NkJSONWriter.h"
 #include <cstdio>
 #include <cstring>
 
@@ -16,63 +23,13 @@ namespace nkentseu {
 	using namespace ecs;
 
 	// ============================================================================
-	// Helpers de sérialisation JSON (minimaliste, sans dépendance externe)
+	// 2026-09-13 — les trois ecrivains JSON maison ont ete RETIRES
 	// ============================================================================
-
-	// Écrit une chaîne JSON échappée dans un buffer
-	static void WriteJsonString(char *buf, uint32 &offset, uint32 bufSize, const char *str) noexcept {
-		if (!str)
-			str = "";
-		buf[offset++] = '"';
-		for (uint32 i = 0; str[i] && offset < bufSize - 2; ++i) {
-			switch (str[i]) {
-				case '"':
-					buf[offset++] = '\\';
-					buf[offset++] = '"';
-					break;
-				case '\\':
-					buf[offset++] = '\\';
-					buf[offset++] = '\\';
-					break;
-				case '\n':
-					buf[offset++] = '\\';
-					buf[offset++] = 'n';
-					break;
-				case '\r':
-					buf[offset++] = '\\';
-					buf[offset++] = 'r';
-					break;
-				case '\t':
-					buf[offset++] = '\\';
-					buf[offset++] = 't';
-					break;
-				default:
-					buf[offset++] = str[i];
-					break;
-			}
-		}
-		buf[offset++] = '"';
-	}
-
-	// Écrit un float avec précision contrôlée
-	static void WriteJsonFloat(char *buf, uint32 &offset, uint32 bufSize, float32 val) noexcept {
-		char temp[64];
-		int len = nkentseu::NkSnprintf(temp, sizeof(temp), "%.6g", static_cast<double>(val));
-		for (int i = 0; i < len && offset < bufSize - 1; ++i) {
-			buf[offset++] = temp[i];
-		}
-	}
-
-	// Écrit un Vec3 en JSON
-	static void WriteJsonVec3(char *buf, uint32 &offset, uint32 bufSize, const NkVec3 &v) noexcept {
-		buf[offset++] = '[';
-		WriteJsonFloat(buf, offset, bufSize, v.x);
-		buf[offset++] = ',';
-		WriteJsonFloat(buf, offset, bufSize, v.y);
-		buf[offset++] = ',';
-		WriteJsonFloat(buf, offset, bufSize, v.z);
-		buf[offset++] = ']';
-	}
+	// WriteJsonString / WriteJsonFloat / WriteJsonVec3 poussaient des octets a la
+	// main. Deux d'entre eux n'honoraient PAS bufSize sur les noms de cles : un
+	// prefab un peu gros debordait le tampon de l'appelant en silence. Serialize()
+	// passe desormais par NkArchive + NkJSONWriter, qui echappent et bornent pour
+	// nous, et plus personne n'appelait ces trois fonctions.
 
 	// ============================================================================
 	// NkPrefab::Instantiate — Création d'une instance dans le monde
@@ -89,40 +46,58 @@ namespace nkentseu {
 		world.Add<NkBehaviourHost>(rootId);
 
 		// 2. Application des composants définis dans le prefab
+		//
+		// 2026-09-13 — LE TODO A DISPARU AVEC SA CAUSE.
+		//
+		// L'ancien code cherchait le type dans `reflect::NkReflectRegistry` et
+		// testait `info->deserialize`. Ce test était TOUJOURS FAUX : la macro
+		// `NK_REFLECT_END` ne remplit jamais `NkTypeInfo::serialize` ni
+		// `::deserialize` (elle ne pose que componentId/name/size/align/fields).
+		// Le corps du `if` — celui qui portait le TODO — n'était donc même pas
+		// atteint : ni malloc, ni désérialisation, ni attache. Deux trous
+		// superposés, et c'est le premier qui masquait le second.
+		//
+		// Le chemin vivant est celui de la Phase 4 : les hooks type-erasés que
+		// `NkRegisterComponentReflection<T>()` branche dans `ecs::ComponentMeta`.
+		// Et l'attache manquante est désormais `NkWorld::AddRaw`.
+		//
+		// L'ordre compte : on attache D'ABORD (le composant est alors construit
+		// par défaut dans son archétype), puis on le remplit EN PLACE. Aucun
+		// malloc, donc aucune fuite possible dans le cas d'échec — le bug que
+		// l'ancien commentaire décrivait ne peut plus exister.
 		for (const auto &[typeName, data] : components) {
-			// Recherche du type via le registre de réflexion
-			const reflect::NkTypeInfo *info = reflect::NkReflectRegistry::Global().GetByName(typeName.CStr());
-			if (info && info->deserialize) {
-				// Allocation temporaire pour désérialiser
-				void *buffer = std::malloc(info->size);
-				if (buffer) {
-					std::memset(buffer, 0, info->size);
-					if (info->deserialize(buffer, data.jsonValue.CStr())) {
-						// TODO [dispatcher générique manquant] : le composant est désérialisé
-						// avec succès dans `buffer` mais n'est PAS attaché à `rootId`. NkWorld::Add<T>()
-						// est un template qui exige le type concret à la compilation ; NkTypeInfo (voir
-						// NKECS/Reflect/NkReflect.h) n'expose aucun pointeur de fonction type-erased du
-						// genre `void(*)(NkWorld&, NkEntityId, const void*)` permettant d'insérer un
-						// composant à partir d'un NkComponentId + buffer brut, et NkWorld n'a pas non
-						// plus d'API `AddRaw(id, componentId, data)`. Pour compléter ce chemin il faut :
-						//   1. ajouter un tel champ (ex. `AddInstanceFn addInstance`) à NkTypeInfo,
-						//   2. le générer/enregistrer dans NK_REFLECT_END() (ou NK_COMPONENT) pour
-						//      chaque type réflexif,
-						//   3. l'appeler ici : info->addInstance(world, rootId, buffer);
-						// Tant que ce n'est pas fait, les composants d'un prefab ne sont PAS appliqués
-						// à l'entité instanciée (seuls NkName/NkTag/NkTransform/... ajoutés plus haut le
-						// sont). Ne pas supprimer ce commentaire sans avoir réellement câblé l'ajout.
-					}
-					// Le buffer est toujours libéré, que la désérialisation ait réussi ou non :
-					// avant ce correctif, le cas d'échec fuyait `buffer` (std::free() n'était
-					// appelé que dans le bloc de succès). NB : ni defaultCtor ni dtor ne sont
-					// invoqués ici (comportement préexistant) — `deserialize()` est supposé
-					// remplir directement la mémoire brute ; ne pas ajouter d'appel à info->dtor
-					// sans s'assurer d'abord que info->defaultCtor est appelé avant deserialize,
-					// sous peine de détruire un objet jamais construit pour les types non-POD.
-					std::free(buffer);
-				}
+			// Nom écrit dans le fichier -> identifiant de composant.
+			const NkComponentId cid = NkTypeRegistry::Global().FindIdByName(typeName.CStr());
+			if (cid == kInvalidComponentId) {
+				// Type absent du processus : personne n'a touché NkIdOf<T>() ni
+				// NK_COMPONENT(T) dans ce binaire. On saute — jamais d'attache
+				// à l'aveugle.
+				continue;
 			}
+
+			const ComponentMeta *meta = NkTypeRegistry::Global().Get(cid);
+			if (meta == nullptr) {
+				continue;
+			}
+
+			// Attache type-erasée : c'est « la brique » (NKECS, 2026-09-13).
+			if (!world.AddRaw(rootId, cid, nullptr)) {
+				continue;
+			}
+
+			// Un tag n'a pas de slot : il est attaché, il n'y a rien à remplir.
+			void *dst = world.GetRaw(rootId, cid);
+			if (dst == nullptr || meta->deserialize == nullptr) {
+				continue;
+			}
+
+			// JSON du prefab -> archive -> composant, en place.
+			NkArchive ar;
+			NkString parseErr;
+			if (!NkJSONReader::ReadArchive(NkStringView(data.jsonValue.CStr()), ar, &parseErr)) {
+				continue;
+			}
+			meta->deserialize(dst, ar);
 		}
 
 		// 3. Construction du GameObject
@@ -171,6 +146,52 @@ namespace nkentseu {
 	}
 
 	// ============================================================================
+	// NkPrefab::SerializeComponent — LE CORPS QUI N'EXISTAIT NULLE PART
+	// ============================================================================
+	// Declaree (NkPrefab.h) et appelee (WithComponent<T>), cette fonction n'avait
+	// AUCUN corps dans tout le depot. Rien ne rougissait, parce que rien
+	// n'appelait WithComponent<T> : une fonction sans corps ne casse le lien que
+	// le jour ou quelqu'un s'en sert. Le banc de ce chantier s'en sert.
+	//
+	// Symetrique exact du chemin de lecture d'Instantiate : hooks type-erases du
+	// ComponentMeta -> NkArchive -> JSON.
+	bool NkPrefab::SerializeComponent(void *data, NkComponentId cid, char *outJson, uint32 bufSize) noexcept {
+		if (data == nullptr || outJson == nullptr || bufSize == 0u) {
+			return false;
+		}
+		outJson[0] = '\0';
+
+		const ComponentMeta *meta = NkTypeRegistry::Global().Get(cid);
+		if (meta == nullptr || meta->serialize == nullptr) {
+			// Le composant n'a pas de reflexion branchee : appeler
+			// ecs::reflect::NkRegisterComponentReflection<T>() au demarrage.
+			// On refuse plutot que d'ecrire un objet vide qui se relirait en
+			// silence comme un composant a zero.
+			return false;
+		}
+
+		NkArchive ar;
+		meta->serialize(data, ar);
+
+		NkString json;
+		if (!NkJSONWriter::WriteArchive(ar, json, false)) {
+			return false;
+		}
+
+		const nk_usize len = static_cast<nk_usize>(json.Size());
+		if (len + 1u > static_cast<nk_usize>(bufSize)) {
+			// Refus propre : une troncature silencieuse produirait un JSON
+			// invalide que la relecture rejetterait bien plus loin, sans dire
+			// pourquoi.
+			return false;
+		}
+
+		std::memcpy(outJson, json.CStr(), len);
+		outJson[len] = '\0';
+		return true;
+	}
+
+	// ============================================================================
 	// NkPrefab::InstantiateBatch — Création de multiples instances
 	// ============================================================================
 
@@ -190,208 +211,156 @@ namespace nkentseu {
 		if (!buffer || bufSize < 64) {
 			return false;
 		}
+		buffer[0] = '\0';
 
-		uint32 offset = 0;
-		buffer[offset++] = '{';
-
-		// Métadonnées
-		buffer[offset++] = '"';
-		std::memcpy(buffer + offset, "name", 4);
-		offset += 4;
-		buffer[offset++] = '"';
-		buffer[offset++] = ':';
-		WriteJsonString(buffer, offset, bufSize, name.CStr());
-		buffer[offset++] = ',';
-
-		buffer[offset++] = '"';
-		std::memcpy(buffer + offset, "path", 4);
-		offset += 4;
-		buffer[offset++] = '"';
-		buffer[offset++] = ':';
-		WriteJsonString(buffer, offset, bufSize, path.CStr());
-		buffer[offset++] = ',';
-
-		buffer[offset++] = '"';
-		std::memcpy(buffer + offset, "version", 7);
-		offset += 7;
-		buffer[offset++] = '"';
-		buffer[offset++] = ':';
-		WriteJsonString(buffer, offset, bufSize, version.CStr());
-		buffer[offset++] = ',';
-
-		// Composants
-		buffer[offset++] = '"';
-		std::memcpy(buffer + offset, "components", 10);
-		offset += 10;
-		buffer[offset++] = '"';
-		buffer[offset++] = ':';
-		buffer[offset++] = '{';
-		bool firstComp = true;
-		for (const auto &[typeName, data] : components) {
-			if (!firstComp) {
-				buffer[offset++] = ',';
-			}
-			firstComp = false;
-			WriteJsonString(buffer, offset, bufSize, typeName.CStr());
-			buffer[offset++] = ':';
-			buffer[offset++] = '{';
-			buffer[offset++] = '"';
-			std::memcpy(buffer + offset, "json", 4);
-			offset += 4;
-			buffer[offset++] = '"';
-			buffer[offset++] = ':';
-			WriteJsonString(buffer, offset, bufSize, data.jsonValue.CStr());
-			if (data.isOverridden) {
-				buffer[offset++] = ',';
-				buffer[offset++] = '"';
-				std::memcpy(buffer + offset, "overridden", 10);
-				offset += 10;
-				buffer[offset++] = '"';
-				buffer[offset++] = ':';
-				buffer[offset++] = 't';
-				buffer[offset++] = 'r';
-				buffer[offset++] = 'u';
-				buffer[offset++] = 'e';
-			}
-			buffer[offset++] = '}';
-		}
-		buffer[offset++] = '}';
-		buffer[offset++] = ',';
-
-		// Enfants
-		buffer[offset++] = '"';
-		std::memcpy(buffer + offset, "children", 8);
-		offset += 8;
-		buffer[offset++] = '"';
-		buffer[offset++] = ':';
-		buffer[offset++] = '[';
-		bool firstChild = true;
-		for (const auto &child : children) {
-			if (!firstChild) {
-				buffer[offset++] = ',';
-			}
-			firstChild = false;
-			buffer[offset++] = '{';
-			WriteJsonString(buffer, offset, bufSize, "name");
-			buffer[offset++] = ':';
-			WriteJsonString(buffer, offset, bufSize, child.name.CStr());
-			buffer[offset++] = ',';
-			if (!child.prefabPath.Empty()) {
-				WriteJsonString(buffer, offset, bufSize, "prefabPath");
-				buffer[offset++] = ':';
-				WriteJsonString(buffer, offset, bufSize, child.prefabPath.CStr());
-				buffer[offset++] = ',';
-			}
-			WriteJsonString(buffer, offset, bufSize, "localPosition");
-			buffer[offset++] = ':';
-			WriteJsonVec3(buffer, offset, bufSize, child.localPosition);
-			buffer[offset++] = ',';
-			WriteJsonString(buffer, offset, bufSize, "isActive");
-			buffer[offset++] = ':';
-			buffer[offset++] = child.isActive ? 't' : 'f';
-			buffer[offset++] = child.isActive ? 'r' : 'a';
-			buffer[offset++] = child.isActive ? 'u' : 'l';
-			buffer[offset++] = child.isActive ? 'e' : 's';
-			buffer[offset++] = '}';
-		}
-		buffer[offset++] = ']';
-
-		// Blueprint optionnel
+		NkArchive ar;
+		ar.SetString("name", NkStringView(name.CStr()));
+		ar.SetString("path", NkStringView(path.CStr()));
+		ar.SetString("version", NkStringView(version.CStr()));
+		ar.SetUInt64("guid", guid);
+		ar.SetUInt64("tagBits", tagBits);
+		ar.SetUInt32("layer", layer);
 		if (!blueprintPath.Empty()) {
-			buffer[offset++] = ',';
-			WriteJsonString(buffer, offset, bufSize, "blueprintPath");
-			buffer[offset++] = ':';
-			WriteJsonString(buffer, offset, bufSize, blueprintPath.CStr());
+			ar.SetString("blueprintPath", NkStringView(blueprintPath.CStr()));
 		}
 
-		buffer[offset++] = '}';
-		if (offset < bufSize) {
-			buffer[offset] = '\0';
-		} else {
-			buffer[bufSize - 1] = '\0';
+		// ── Composants ──────────────────────────────────────────────────
+		NkArchive comps;
+		for (const auto &[typeName, data] : components) {
+			NkArchive one;
+			one.SetString("json", NkStringView(data.jsonValue.CStr()));
+			one.SetBool("overridden", data.isOverridden);
+			comps.SetObject(NkStringView(typeName.CStr()), one);
 		}
+		ar.SetObject("components", comps);
+
+		// ── Enfants ─────────────────────────────────────────────────────
+		NkVector<NkArchive> kids;
+		for (const auto &child : children) {
+			NkArchive k;
+			k.SetString("name", NkStringView(child.name.CStr()));
+			if (!child.prefabPath.Empty()) {
+				k.SetString("prefabPath", NkStringView(child.prefabPath.CStr()));
+			}
+			k.SetFloat32("px", child.localPosition.x);
+			k.SetFloat32("py", child.localPosition.y);
+			k.SetFloat32("pz", child.localPosition.z);
+			k.SetFloat32("sx", child.localScale.x);
+			k.SetFloat32("sy", child.localScale.y);
+			k.SetFloat32("sz", child.localScale.z);
+			k.SetBool("isActive", child.isActive);
+			kids.PushBack(k);
+		}
+		if (!kids.Empty()) {
+			ar.SetObjectArray("children", kids);
+		}
+
+		NkString json;
+		if (!NkJSONWriter::WriteArchive(ar, json, false)) {
+			return false;
+		}
+
+		const nk_usize len = static_cast<nk_usize>(json.Size());
+		if (len + 1u > static_cast<nk_usize>(bufSize)) {
+			// Refus propre plutot que troncature : l'ancienne version ecrivait
+			// octet par octet SANS verifier bufSize sur les cles, et un prefab
+			// un peu gros debordait le tampon de l'appelant en silence.
+			return false;
+		}
+		std::memcpy(buffer, json.CStr(), len);
+		buffer[len] = '\0';
 		return true;
 	}
 
 	// ============================================================================
 	// NkPrefab::Deserialize — Désérialisation depuis JSON
 	// ============================================================================
+	// 2026-09-13 — CE QUI MANQUAIT ICI ETAIT AUSSI GRAVE QUE LE TODO DE LA
+	// LIGNE 101 : l'ancienne version extrayait name/path/version/blueprintPath
+	// a coups de strstr et NE LISAIT NI LES COMPOSANTS NI LES ENFANTS. Un prefab
+	// ecrit puis relu revenait donc VIDE de composants — l'aller-retour ne
+	// pouvait pas marcher meme une fois l'attache reparee. Reecrit sur
+	// NkArchive + NkJSONReader, comme la note de NkJsonSerialization.h le
+	// demandait.
 
 	bool NkPrefab::Deserialize(const char *json) noexcept {
 		if (!json) {
 			return false;
 		}
 
-		// Parser JSON minimaliste (en production : utiliser RapidJSON / nlohmann)
-		// Ici : extraction basique des champs principaux
+		NkArchive ar;
+		NkString parseErr;
+		if (!NkJSONReader::ReadArchive(NkStringView(json), ar, &parseErr)) {
+			return false;
+		}
 
-		// Extraire "name"
-		const char *nameStart = std::strstr(json, "\"name\"");
-		if (nameStart) {
-			const char *valStart = std::strchr(nameStart, ':');
-			if (valStart) {
-				valStart = std::strchr(valStart, '"');
-				if (valStart) {
-					++valStart;
-					const char *valEnd = std::strchr(valStart, '"');
-					if (valEnd) {
-						name = NkString(valStart, static_cast<NkString::SizeType>(valEnd - valStart));
-					}
+		ar.GetString("name", name);
+		ar.GetString("path", path);
+		ar.GetString("version", version);
+
+		nk_uint64 g = 0u;
+		if (ar.GetUInt64("guid", g) && g != 0u) {
+			guid = g;
+		} else if (!path.Empty()) {
+			guid = ecs::detail::FNV1a(path.CStr());
+		}
+
+		nk_uint64 tb = 0u;
+		if (ar.GetUInt64("tagBits", tb)) {
+			tagBits = tb;
+		}
+		nk_uint32 ly = 0u;
+		if (ar.GetUInt32("layer", ly)) {
+			layer = ly;
+		}
+		ar.GetString("blueprintPath", blueprintPath);
+
+		// ── Composants ──────────────────────────────────────────────────
+		components.Clear();
+		NkArchive comps;
+		if (ar.GetObject("components", comps)) {
+			const NkVector<NkArchiveEntry> &entries = comps.Entries();
+			for (nk_usize i = 0; i < entries.Size(); ++i) {
+				const NkString &typeName = entries[i].key;
+				NkArchive one;
+				if (!comps.GetObject(NkStringView(typeName.CStr()), one)) {
+					continue;
 				}
+				NkString js;
+				one.GetString("json", js);
+				nk_bool overridden = false;
+				one.GetBool("overridden", overridden);
+
+				NkPrefabComponentData data(typeName.CStr(), js.CStr());
+				data.isOverridden = (overridden != false);
+				components[typeName] = data;
 			}
 		}
 
-		// Extraire "path"
-		const char *pathStart = std::strstr(json, "\"path\"");
-		if (pathStart) {
-			const char *valStart = std::strchr(pathStart, ':');
-			if (valStart) {
-				valStart = std::strchr(valStart, '"');
-				if (valStart) {
-					++valStart;
-					const char *valEnd = std::strchr(valStart, '"');
-					if (valEnd) {
-						path = NkString(valStart, static_cast<NkString::SizeType>(valEnd - valStart));
-						guid = ecs::detail::FNV1a(path.CStr());
-					}
+		// ── Enfants ─────────────────────────────────────────────────────
+		children.Clear();
+		NkVector<NkArchive> kids;
+		if (ar.GetObjectArray("children", kids)) {
+			for (nk_usize i = 0; i < kids.Size(); ++i) {
+				NkArchive &k = kids[i];
+				NkPrefabChild child;
+				NkString n;
+				k.GetString("name", n);
+				child.name = n;
+				k.GetString("prefabPath", child.prefabPath);
+				k.GetFloat32("px", child.localPosition.x);
+				k.GetFloat32("py", child.localPosition.y);
+				k.GetFloat32("pz", child.localPosition.z);
+				k.GetFloat32("sx", child.localScale.x);
+				k.GetFloat32("sy", child.localScale.y);
+				k.GetFloat32("sz", child.localScale.z);
+				nk_bool active = true;
+				if (k.GetBool("isActive", active)) {
+					child.isActive = (active != false);
 				}
+				children.PushBack(child);
 			}
 		}
-
-		// Extraire "version"
-		const char *verStart = std::strstr(json, "\"version\"");
-		if (verStart) {
-			const char *valStart = std::strchr(verStart, ':');
-			if (valStart) {
-				valStart = std::strchr(valStart, '"');
-				if (valStart) {
-					++valStart;
-					const char *valEnd = std::strchr(valStart, '"');
-					if (valEnd) {
-						version = NkString(valStart, static_cast<NkString::SizeType>(valEnd - valStart));
-					}
-				}
-			}
-		}
-
-		// Extraire "blueprintPath"
-		const char *bpStart = std::strstr(json, "\"blueprintPath\"");
-		if (bpStart) {
-			const char *valStart = std::strchr(bpStart, ':');
-			if (valStart) {
-				valStart = std::strchr(valStart, '"');
-				if (valStart) {
-					++valStart;
-					const char *valEnd = std::strchr(valStart, '"');
-					if (valEnd) {
-						blueprintPath = NkString(valStart, static_cast<NkString::SizeType>(valEnd - valStart));
-					}
-				}
-			}
-		}
-
-		// Note : En production, parser "components" et "children" avec un vrai parser JSON
-		// et utiliser NkReflect pour désérialiser chaque composant.
 
 		return true;
 	}
