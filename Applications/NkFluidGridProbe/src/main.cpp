@@ -63,6 +63,7 @@ void EnqueteFumeeQuiPese();		  // (i) l'ENQUÊTE, AUCUN verdict (NK_FLUID_MAC=9)
 void EnqueteComptageAnalytique(); // (j1) le comptage À LA MAIN (NK_FLUID_MAC=a)
 void EnqueteComptageChaleur();	  // (k1) le MÊME comptage, sur la CHALEUR (NK_FLUID_MAC=b)
 void EnqueteEchelleDebit();		  // (p2) l'échelle de débit, re-réglage de (e) (NK_FLUID_MAC=c)
+void EnqueteCoutAffichage();	  // (r) marche avec/sans ombres + le transfert (NK_FLUID_MAC=d)
 void PalierVolutes(bool complet); // (n1)(n3)(n2a) toujours ; (n2b) sous NK_FLUID_VOLUTES=1 (PLAN_VOLUTES.md)
 void ImagesDuConfinement(float32 epsilon);
 float32 EpsilonConfinement();
@@ -732,6 +733,20 @@ int main(int argc, char **argv) {
 	// débit ne serait pas le levier, et la règle de choix porterait sur du vide).
 	// ⚠️ UN SEUL LEVIER, le DÉBIT : tirer sur la grandeur qu'on mesure reviendrait à
 	// écrire la réponse.
+	// NK_FLUID_MAC=d : (r) LE COÛT D'UN AFFICHAGE. Les deux mesures que j'ai
+	// moi-même exigées avant de recommander un chemin — la marche SANS ombres, et
+	// le transfert chiffré À PART. ⚠️ Le TÉLÉVERSEMENT GPU n'y est PAS mesuré : le
+	// banc n'ouvre aucun device. Sa part CPU l'est, le reste est BORNÉ et dit tel.
+	// ⚠️ Les deux verdicts sont des RAPPORTS, jamais des seuils en millisecondes :
+	// un seuil dépendrait de la machine, un rapport désigne le chemin à écrire.
+	if (mac != nullptr && mac[0] == 'd') {
+		EnqueteCoutAffichage();
+		printf("\n=============================================================\n");
+		printf("BILAN (mode NK_FLUID_MAC=d, (r) LE COUT D AFFICHAGE) : %d controles, %d ROUGES\n", gChecks,
+			   gFailures);
+		printf("=============================================================\n");
+		return gFailures == 0 ? 0 : 1;
+	}
 	if (mac != nullptr && mac[0] == 'c') {
 		EnqueteEchelleDebit();
 		printf("\n=============================================================\n");

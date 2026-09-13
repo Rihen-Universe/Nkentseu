@@ -45,6 +45,7 @@
 // =============================================================================
 #include "NKRenderer/Tools/VFX/NkFluidGridRaymarch.h"
 #include "NKImage/Core/NkImage.h"
+#include "NKTime/NkChrono.h" // (r3) : chronometrer la recopie du tampon
 
 #include <cstdio>
 
@@ -381,6 +382,155 @@ void PalierRendu() {
 		fflush(stdout);
 	}
 	printf("    image : Captures/fumee_colonne_2026-09-05.png (480 x 360)\n");
+}
+
+// =============================================================================
+// (r) LES DEUX MESURES QUI MANQUAIENT POUR CHOISIR UN CHEMIN D'AFFICHAGE.
+// Pré-enregistrées dans PLAN_FEU_VISIBLE.md, § (r), AVANT ce code.
+// Mode NK_FLUID_MAC=d. ⚠️ Ce n'est PAS un témoin de schéma : il chiffre des COÛTS.
+//
+// ⚠️ CE QUE CE BANC N'A PAS LE DROIT DE MESURER, ET NE MESURERA PAS :
+// le TÉLÉVERSEMENT GPU (map/unmap, DMA). Le banc n'ouvre AUCUN device — il n'a ni
+// fenêtre ni contexte. On mesure donc la part CPU du transfert (la recopie du
+// tampon, celle qui domine et qui est réellement à portée) et on BORNE l'autre par
+// l'arithmétique du volume de données, en la disant BORNE et non mesure.
+// Un banc sans GPU ne doit pas publier un chiffre de GPU.
+// =============================================================================
+void EnqueteCoutAffichage() {
+	printf("\n=== (r) LE COÛT D'UN AFFICHAGE : marche avec/sans ombres, et le transfert ===\n");
+	printf("    PRÉ-ENREGISTRÉ (PLAN_FEU_VISIBLE.md § r) :\n");
+	printf("      (r1) les ombres pèsent 4 440 358 échantillons contre 1 501 910 primaires,\n");
+	printf("           soit 74,7 %% du travail -> le coût doit tomber vers 25,3 %%.\n");
+	printf("           PRÉDICTION à 480x360 : 604,1 x 0,253 = 153 ms, bande 140 à 190.\n");
+	printf("      (r2) 1280x720 MESURÉ, pour remplacer mon extrapolation de ~3,2 s.\n");
+	printf("           PRÉDICTION : 3 220 ms avec ombres, 815 ms sans.\n");
+	printf("      (r3) recopie du tampon RGBA8 : PRÉDICTION < 2 ms à toute définition.\n");
+	printf("      (r4) simulation sur la grille du RENDU (25 x 80 x 25 = 50 000 cellules).\n");
+	printf("    ⚠️ PRÉDICTION DE FOND : aux définitions où le rendu devient abordable, c'est\n");
+	printf("    la SIMULATION qui domine (~150 à 250 ms), soit 4 à 7 fois le rendu. Si elle\n");
+	printf("    tient, le chemin GPU ne sauve PAS l'affaire : il n'accélère que le rendu.\n");
+	char buf[600];
+
+	// La scène du rendu, celle des captures : 25 x 80 x 25 = 50 000 cellules.
+	// ⚠️ `epsilon = 8`, DONC AVEC CONFINEMENT DE VORTICITÉ — et ce choix a un prix
+	// que la course complète permet d'ISOLER, parce qu'elle rend la MÊME scène à
+	// `epsilon = 0` : à 480x360 avec ombres, 495,5 ms sans confinement contre
+	// 1840,5 ms avec, soit x 3,7. La structure que le confinement crée garde les
+	// rayons vivants plus longtemps, donc coûte des échantillons.
+	// ⚠️ ET CE N'EST PAS LE SCHÉMA : à `epsilon = 0`, la bascule conservative a
+	// RENDU LE RENDU MOINS CHER (604,1 -> 495,5 ms, échantillons d'ombre
+	// 4 440 358 -> 2 569 360). Deux choses avaient changé, la course complète les
+	// sépare — je ne pouvais pas attribuer sans elle.
+	NkFluidGrid g;
+	ConstruirePanache(g, false, 255, 8.f);
+
+	NkFluidRaymarchParams rp;
+	rp.cameraPos = {0.f, 0.38f, 2.10f};
+	rp.cameraTarget = {0.f, 0.30f, 0.f};
+	rp.fovDegrees = 40.f;
+	rp.shadowMaxDistance = 0.35f;
+
+	const uint32 defs[4][2] = {{240, 180}, {480, 360}, {960, 720}, {1280, 720}};
+	float32 avec[4] = {0, 0, 0, 0}, sans[4] = {0, 0, 0, 0}, copie[4] = {0, 0, 0, 0};
+
+	printf("\n      definition     AVEC ombres    SANS ombres   rapport   recopie RGBA8   octets\n");
+	for (uint32 i = 0; i < 4; ++i) {
+		NkFluidRaymarchParams q = rp;
+		q.width = defs[i][0];
+		q.height = defs[i][1];
+		NkVector<uint8> img;
+		NkFluidRaymarchStats s1, s2;
+
+		q.shadowMarch = true;
+		NkFluidRaymarchRender(g, q, img, s1);
+		avec[i] = s1.ms;
+
+		q.shadowMarch = false;
+		NkFluidRaymarchRender(g, q, img, s2);
+		sans[i] = s2.ms;
+
+		// (r3) LA PART CPU DU TRANSFERT : la recopie du tampon, celle qu'un
+		// téléversement paie avant même de toucher le pilote.
+		//
+		// ⚠️⚠️ PREMIER JET FAUX, ET GARDÉ EN COMMENTAIRE PARCE QUE LA FAUTE EST LA
+		// LEÇON. J'avais écrit la boucle avec `dst[k] = img[k]`, c'est-à-dire par
+		// l'ACCESSEUR de `NkVector`. Mesure : 42,7 ms pour 3,7 Mo, soit 86 Mo/s —
+		// un ordre de grandeur sous la bande passante d'un memcpy. Je ne mesurais
+		// pas un transfert, JE MESURAIS MON PROPRE ACCESSEUR. Un téléversement
+		// n'appelle aucun `operator[]` : il copie des octets contigus.
+		// On passe donc par les pointeurs bruts, ce que fait un vrai transfert.
+		const uint32 n = (uint32)img.Size();
+		NkVector<uint8> dst;
+		dst.Resize(n, 0);
+		const uint8 *src = img.Data();
+		uint8 *out = dst.Data();
+		const int64 t0 = NkChrono::Now().nanoseconds;
+		for (uint32 r = 0; r < 20; ++r)
+			for (uint32 k = 0; k < n; ++k)
+				out[k] = src[k];
+		const int64 t1 = NkChrono::Now().nanoseconds;
+		copie[i] = (float32)((float64)(t1 - t0) / 20.0 / 1.0e6);
+
+		printf("      %4u x %4u   %9.1f ms   %9.1f ms    %5.3f   %9.3f ms   %8u\n", q.width, q.height,
+			   (double)avec[i], (double)sans[i], (avec[i] > 0.f) ? (double)(sans[i] / avec[i]) : 0.0,
+			   (double)copie[i], n);
+		fflush(stdout);
+	}
+
+	// (r4) LE COÛT DE SIMULATION sur CETTE grille, pas sur celle de la scène (e).
+	{
+		// ⚠️ ON MESURE SUR LE PANACHE DÉJÀ ÉTABLI, `g` lui-même — pas sur une grille
+		// neuve. Un panache de 1 pas est presque vide : le solveur de pression y
+		// converge en quelques balayages et rendrait un coût FLATTEUR qui ne
+		// correspondrait à aucune image réelle. On continue donc la course de `g`,
+		// dans l'état exact que les rendus ci-dessus viennent de photographier.
+		const float32 dt = 1.f / 60.f;
+		float64 somme = 0.0;
+		for (uint32 s = 0; s < 30; ++s) {
+			g.EmitSphere({0.f, 0.05f, 0.f}, 0.06f, 7.f * dt, 400.f * dt, 0.f);
+			g.Step(dt);
+			somme += (float64)g.Stats().ms;
+		}
+		const float64 msSim = somme / 30.0;
+		printf("\n      SIMULATION sur la MÊME grille, panache ÉTABLI (%u x %u x %u = %u cellules) :\n",
+			   g.Nx(), g.Ny(), g.Nz(), g.Nx() * g.Ny() * g.Nz());
+		printf("      %.1f ms par pas, moyenne sur 30 pas\n", msSim);
+
+		// ── LE TABLEAU QUI DÉCIDE : le temps d'image du chemin ① ──────────
+		printf("\n      TEMPS D'IMAGE du chemin CPU (simulation + marche SANS ombres + recopie) :\n");
+		for (uint32 i = 0; i < 4; ++i)
+			printf("        %4u x %4u : %8.1f ms  =  %6.1f (sim) + %6.1f (marche) + %.3f (recopie)"
+				   "   -> %5.2f images/s\n",
+				   defs[i][0], defs[i][1], msSim + (float64)sans[i] + (float64)copie[i], msSim,
+				   (double)sans[i], (double)copie[i],
+				   1000.0 / (msSim + (float64)sans[i] + (float64)copie[i]));
+
+		// ⚠️ LE VERDICT DE CE LOT EST UN RAPPORT, PAS UN SEUIL EN MILLISECONDES.
+		// La question n'est pas « est-ce rapide » (ça dépend de la machine) mais
+		// « QUI domine » — parce que c'est cela qui désigne le chemin à écrire.
+		const float64 rapport = (sans[0] > 0.f) ? msSim / (float64)sans[0] : 0.0;
+		snprintf(buf, sizeof(buf),
+				 "à 240x180 sans ombres, la simulation coûte %.1f ms et la marche %.1f ms : rapport %.2f. "
+				 "Si ce rapport est > 1, c'est la SIMULATION qui domine, et porter le RENDU sur GPU ne "
+				 "changerait pas le temps d'image — ce serait optimiser ce qui ne coûte pas. Un rapport, "
+				 "pas un seuil en ms : le seuil dépendrait de la machine, le rapport désigne le chemin",
+				 msSim, (double)sans[0], rapport);
+		ProbeCheck(rapport > 1.0, "(r4) C'est la SIMULATION qui domine, pas le rendu", buf);
+
+		// (r3) LE TRANSFERT N'EST PAS LE PROBLÈME — et c'est un rapport aussi.
+		const float64 rapportCopie = (copie[3] > 0.f) ? (float64)sans[3] / (float64)copie[3] : 0.0;
+		snprintf(buf, sizeof(buf),
+				 "à 1280x720, la recopie du tampon coûte %.3f ms contre %.1f ms de marche : la marche est "
+				 "%.0f fois plus chère. ⚠️ LE TÉLÉVERSEMENT GPU N'EST PAS MESURÉ ICI (le banc n'ouvre aucun "
+				 "device) ; sa BORNE arithmétique est %u octets, soit ~1,8 ms à 2 Go/s — du même ordre que "
+				 "la recopie, et deux ordres de grandeur sous la marche. Le transfert n'est pas le problème",
+				 (double)copie[3], (double)sans[3], rapportCopie, defs[3][0] * defs[3][1] * 4u);
+		ProbeCheck(rapportCopie > 100.0, "(r3) LE TRANSFERT n'est pas le problème : 100x moins cher", buf);
+	}
+
+	printf("\n    ⚠️ CE QUI N'EST PAS MESURÉ, et je le dis plutôt que de l'estimer en douce :\n");
+	printf("    le téléversement GPU lui-même (map/unmap, DMA). Le banc n'a NI fenêtre NI\n");
+	printf("    device. Ce qui est mesuré est la part CPU ; le reste est BORNÉ, pas mesuré.\n");
 }
 
 // =============================================================================
