@@ -134,6 +134,12 @@ namespace nkentseu {
 				uint32 vehPerteMasque = 0u;
 				float32 vehDecolT = -1.f, vehDecolV = 0.f;
 				float32 vehVmaxSol = 0.f, vehVmaxSolT = 0.f;
+				// ── LA DERIVE EN LIGNE DROITE (2026-09-13) ──────────────────────────
+				// Braquage NUL, et la voiture finit a 700 m de cote pour 3 500 parcourus.
+				// On mesure le CAP et la VITESSE DE LACET, pas seulement la position :
+				// une position est un integrale, elle ne dit pas si le couple est
+				// constant (croissance lineaire du lacet) ou amplifie (exponentielle).
+				float32 vehLacetPrec = 0.f, vehLacetT = 0.f;
 				// sonde TISSU (NK_CLOTH_PROBE=1, 2026-09-05) : une nappe XPBD lachee sur une sphere, dans le vent
 				nkentseu::physics::NkCloth *cloth = nullptr;
 				nkentseu::math::NkUniformForceField clothWind;
@@ -2322,7 +2328,18 @@ static NkTexHandle CreateLanternCubeCookie(NkTextureLibrary *texLib, NkIDevice *
 			// l'ecrit : un monde, un sol, une voiture, quatre roues, SetInput.
 			if (const char *vp = std::getenv("NK_VEHICLE_PROBE"); vp && vp[0] == '1') {
 				using namespace nkentseu::physics;
-				st->vehWorld = new NkPhysicsWorld();
+				// NK_VEHICLE_HZ=<n> : le PAS FIXE du monde (defaut 60). C'est le seul
+				// moyen de distinguer une erreur d'integration d'un couple reel : a
+				// duree PHYSIQUE egale, un couple reel donne la meme derive, une
+				// accumulation numerique non. Le constructeur prend deja la config --
+				// rien a ajouter a NKPhysics pour poser la question.
+				NkPhysicsConfig cfgVeh;
+				if (const char *hz = std::getenv("NK_VEHICLE_HZ"); hz && hz[0]) {
+					const float32 f = (float32)std::atof(hz);
+					if (f > 1.f) cfgVeh.fixedTimeStep = 1.f / f;
+					cfgVeh.maxSubSteps = 64; // sinon un pas plus fin est tronque par le garde-fou
+				}
+				st->vehWorld = new NkPhysicsWorld(cfgVeh);
 				st->vehWorld->SetGravity({0.f, -9.81f, 0.f});
 				NkBodyDef sol;
 				sol.type = NkBodyType::STATIC;
@@ -2732,8 +2749,53 @@ static NkTexHandle CreateLanternCubeCookie(NkTextureLibrary *texLib, NkIDevice *
 					}
 				}
 				st->veh->SetChassisBox(startPos, halfEx, 1200.f);
-				for (uint32 w = 0; w < 4u; ++w)
-					st->veh->AddWheel(ancre[w], steered[w] ? NkWheel::kSteered : NkWheel::kPowered);
+				// ⚠️ L'ORDRE D'AJOUT EST UN INSTRUMENT (2026-09-13). NkApplyImpulseAtPoint
+				// modifie le corps IMMEDIATEMENT : la boucle des roues est un balayage
+				// Gauss-Seidel, et la roue i+1 calcule son glissement sur l'etat deja
+				// change par la roue i. L'ordre par defaut fait agir la roue DROITE de
+				// chaque essieu en premier -- une asymetrie gauche/droite systematique.
+				// NK_VEHICLE_MIRROR=1 inverse l'ordre SANS toucher aux positions : si la
+				// derive change de SIGNE, c'est le balayage. Aucune autre cause ne peut
+				// produire cette signature-la.
+				const bool symForcee = [] { const char *e = std::getenv("NK_VEHICLE_SYM"); return e && e[0] == '1'; }();
+				if (symForcee) {
+					const float32 xAR = 0.5f * (std::fabs(ancre[0].x) + std::fabs(ancre[1].x));
+					const float32 xAV = 0.5f * (std::fabs(ancre[2].x) + std::fabs(ancre[3].x));
+					const float32 zAR = 0.5f * (ancre[0].z + ancre[1].z), zAV = 0.5f * (ancre[2].z + ancre[3].z);
+					ancre[0] = {xAR, ancre[0].y, zAR};
+					ancre[1] = {-xAR, ancre[1].y, zAR};
+					ancre[2] = {xAV, ancre[2].y, zAV};
+					ancre[3] = {-xAV, ancre[3].y, zAV};
+				}
+				const bool ordreMiroir = [] { const char *e = std::getenv("NK_VEHICLE_MIRROR"); return e && e[0] == '1'; }();
+				// NK_VEHICLE_GEOMIRROR=1 : la CONTRE-EPREUVE. On miroite la GEOMETRIE
+				// (negation des x) en gardant l'ordre. Si la derive s'inverse aussi
+				// la-dedans, alors ce n'est pas l'ordre qui commande.
+				const bool geoMiroir = [] { const char *e = std::getenv("NK_VEHICLE_GEOMIRROR"); return e && e[0] == '1'; }();
+				static const uint32 kOrdreDroite[4] = {0u, 1u, 2u, 3u};
+				static const uint32 kOrdreGauche[4] = {1u, 0u, 3u, 2u};
+				const uint32 *ordre = ordreMiroir ? kOrdreGauche : kOrdreDroite;
+				for (uint32 k = 0; k < 4u; ++k) {
+					const uint32 w = ordre[k];
+					NkVec3f a = ancre[w];
+					if (geoMiroir) a.x = -a.x;
+					st->veh->AddWheel(a, steered[w] ? NkWheel::kSteered : NkWheel::kPowered);
+				}
+				// LES ANCRES EN PLEINE PRECISION. A trois decimales elles paraissent
+				// symetriques ; 1e-4 m d'ecart gauche/droite est deja un germe de lacet
+				// permanent, et elles sont DERIVEES de boites englobantes de maillage,
+				// donc rien ne garantit la symetrie au bit pres.
+				{
+					const float32 sAR = ancre[0].x + ancre[1].x, sAV = ancre[2].x + ancre[3].x;
+					const float32 dAR = ancre[0].z - ancre[1].z, dAV = ancre[2].z - ancre[3].z;
+					std::fprintf(stderr,
+								 "[VEHICULE SYMETRIE] ancres en pleine precision :\n"
+								 "   AR %.9g / %.9g (somme des x = %.3e)   AV %.9g / %.9g (somme des x = %.3e)\n"
+								 "   ecart de z par essieu : AR %.3e, AV %.3e ; ordre = %s ; geometrie = %s\n",
+								 ancre[0].x, ancre[1].x, sAR, ancre[2].x, ancre[3].x, sAV, dAR, dAV,
+								 ordreMiroir ? "MIROIR (gauche d'abord)" : "normal (droite d'abord)",
+								 geoMiroir ? "MIROITEE (x negatifs)" : "normale");
+				}
 				if (poseDepuisModele)
 					st->veh->Tuning().wheelRadius = st->vehPhysR;
 				else
@@ -2758,6 +2820,14 @@ static NkTexHandle CreateLanternCubeCookie(NkTextureLibrary *texLib, NkIDevice *
 				const bool sansAckermann = [] { const char *e = std::getenv("NK_VEHICLE_NOACKERMANN"); return e && e[0] == '1'; }();
 				if (sansTrainee) st->veh->Tuning().dragCd = 0.f;
 				if (sansAckermann) st->veh->Tuning().ackermann = 0.f;
+				// NK_VEHICLE_NOALT=1 : la mutation du balayage alterne -- on doit RETROUVER
+				// la derive d'avant (cap +7,854 deg, lacet +0,004234 rad/s a t = 40 s).
+				const bool sansAlternance = [] { const char *e = std::getenv("NK_VEHICLE_NOALT"); return e && e[0] == '1'; }();
+				if (sansAlternance) st->veh->Tuning().alternateSweep = false;
+				// NK_VEHICLE_SYM=1 : ancres forcees EXACTEMENT symetriques (meme |x| par
+				// essieu, signes opposes). Isole les 1,5 um d'asymetrie que la cuisson du
+				// FBX laisse, TOUT LE RESTE identique -- ce que NK_VEHICLE_NOMODEL ne fait
+				// pas, puisqu'il change aussi la caisse, les rayons et l'empattement.
 				std::fprintf(stderr,
 							 "[VEHICULE RELACHEMENT] resistance au roulement C_rr = %.4f, frein moteur = %.3f x engineForce "
 							 "par roue motrice%s\n"
@@ -5080,6 +5150,15 @@ static NkTexHandle CreateLanternCubeCookie(NkTextureLibrary *texLib, NkIDevice *
 						if (st->vehClock - st->vehTprec >= 5.f) {
 							const float32 v = st->veh->ForwardSpeed();
 							const float32 dtp = st->vehClock - st->vehTprec;
+							// CAP et VITESSE DE LACET : le cap vient de l'axe avant du
+							// chassis projete a plat ; la vitesse de lacet est lue
+							// directement sur le corps, pas derivee du cap.
+							const NkVec3f fw = b0->orientation.Forward();
+							const float32 cap = std::atan2(fw.x, fw.z) * 57.29578f;
+							std::fprintf(stderr,
+										 "[VEHICULE DERIVE] t=%6.1f s : cap %+8.3f deg, lacet %+.6f rad/s, "
+										 "x = %+10.3f m, z = %+10.3f m\n",
+										 st->vehClock, cap, b0->angularVelocity.y, b0->position.x, b0->position.z);
 							std::fprintf(stderr,
 										 "[VEHICULE POINTE] t=%6.1f s : v = %7.3f m/s (%6.1f km/h), dv/dt = %+.4f m/s2\n",
 										 st->vehClock, v, v * 3.6f, (v - st->vehVprec) / dtp);
@@ -5262,6 +5341,16 @@ static NkTexHandle CreateLanternCubeCookie(NkTextureLibrary *texLib, NkIDevice *
 										 vnorm, v, v > 1e-3f ? 100.f * (vnorm / v - 1.f) : 0.f, (unsigned)auSol, sumFs,
 										 1200.f * 9.81f, Faero, Froul, Famort, Faero + Froul + Famort, 2.f * tg.engineForce,
 										 tg.engineForce > 1e-3f ? 100.f * ((Faero + Froul + Famort) / (2.f * tg.engineForce) - 1.f) : 0.f);
+							{
+								const NkVec3f fw = bb->orientation.Forward();
+								std::fprintf(stderr,
+											 "[VEHICULE DERIVE] VERDICT : cap final %+.4f deg, lacet final %+.6f rad/s, "
+											 "position (%.3f, %.3f) -> ecart lateral %.3f m pour %.3f m parcourus "
+											 "(%.4f %%)\n",
+											 std::atan2(fw.x, fw.z) * 57.29578f, bb->angularVelocity.y, bb->position.x,
+											 bb->position.z, bb->position.x + 4.f, bb->position.z + 3.f,
+											 bb->position.z > 1.f ? 100.f * (bb->position.x + 4.f) / (bb->position.z + 3.f) : 0.f);
+							}
 							std::fprintf(stderr,
 										 "[VEHICULE DECOLLAGE] VERDICT : premiere perte de contact t=%.2f s v=%.3f m/s ; "
 										 "contact nul t=%.2f s v=%.3f m/s ; VITESSE MAX LES QUATRE ROUES AU SOL = %.3f m/s "
