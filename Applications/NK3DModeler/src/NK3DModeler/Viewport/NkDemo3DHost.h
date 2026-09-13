@@ -275,6 +275,20 @@ namespace nkentseu {
 		bool Demo3DHostInEditMode();
 		void Demo3DHostSetEditSelMask(int32 mask); // bits 1 sommet, 2 arete, 4 face
 		int32 Demo3DHostEditSelMask();
+		// ── LE CLIC A DES COORDONNEES ECRITES (13/09) ────────────────────────
+		// Arme UN pick d'element a (x, y) en pixels de la VUE. Il est consomme a
+		// la frame suivante par la MEME condition et le MEME code que le clic de
+		// la souris -- il n'existe pas de second chemin de selection. Sert a
+		// prouver, sans toucher a la souris de personne, que les trois modes
+		// designent trois choses differentes au meme endroit. Faux hors Edition.
+		bool Demo3DHostEditPickAt(float32 x, float32 y, bool shift, bool alt);
+		// Taille de la VUE en pixels : sans elle, une coordonnee de clic se devine,
+		// et une coordonnee devinee ne prouve rien.
+		void Demo3DHostViewSize(uint32 *w, uint32 *h);
+		// Ce que le dernier pick a designe : sommet actif, arete active (par ses
+		// deux sommets) et face active. -1 = rien. Les trois references de
+		// Blender, lues telles que la vue les a posees.
+		bool Demo3DHostEditActive(int32 *vert, int32 *edgeA, int32 *edgeB, int32 *face);
 		void Demo3DHostSetZoneTool(int32 shape); // -1 off, 0 rectangle, 1 cercle, 2 lasso
 		void Demo3DHostSetCursorTool(bool on);
 		void Demo3DHostSetGridFlags(bool grid, bool minor, bool major, bool axes);

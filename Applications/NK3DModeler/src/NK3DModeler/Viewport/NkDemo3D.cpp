@@ -1444,6 +1444,20 @@ namespace nkentseu {
 				float32 editObjMetallic = 0.f;
 				float32 editObjRoughness = 0.7f;
 				int32 editSelMask = 1;			  // bits : 1=VERTEX 2=EDGE 4=FACE (touches 1/2/3 ; Shift+ = combiner)
+				// ── UN CLIC A DES COORDONNEES ECRITES (13/09) ────────────────────────
+				// Le pick d'element est le seul geste du mode Edition qui n'etait
+				// mesurable QUE par la souris : tout le reste a deja sa porte (les
+				// operations, le mode, la selection par indices). Ces quatre champs
+				// arment UN pick a des coordonnees DONNEES, consomme exactement la ou le
+				// clic est consomme -- meme condition, meme code, meme election.
+				// ⚠️ Ce n'est PAS une injection d'evenement : aucun message souris n'est
+				// fabrique, aucune position de curseur n'est ecrite. Seules les deux
+				// coordonnees que le clic aurait fournies viennent d'ailleurs. C'est ce
+				// qui permet de PROUVER que les trois modes designent trois choses
+				// differentes au meme endroit, sans toucher a la souris de personne.
+				bool editPickPending = false;
+				float32 editPickX = 0.f, editPickY = 0.f;
+				bool editPickShift = false, editPickAlt = false;
 				int32 editActiveVert = -1;		  // sommet ACTIF (dernier sélectionné) = rendu BLANC façon Blender
 				// ── ÉLÉMENT ACTIF EN ARÊTE ET EN FACE ───────────────────────────────
 				// Blender distingue TROIS états, pas deux : non sélectionné (noir),
@@ -6940,6 +6954,14 @@ namespace nkentseu {
 							st->editDissolvePending = 1; // Dissolve contextuel
 						} else if (isOp(op, "makeface") || isOp(op, "face")) {
 							st->editMakeFacePending = true; // F : face (n-gon) depuis la selection
+						} else if (isOp(op, "merge") || isOp(op, "fusion")) {
+							// LA SOUDURE (M) ETAIT LA SEULE DES OPERATIONS DU MENU QUE CE
+							// PILOTE NE POUVAIT PAS DECLENCHER. Elle a sa touche, son
+							// entree de menu et sa fonction de facade ; il lui manquait
+							// cette ligne pour etre MESURABLE. On n'ajoute pas une
+							// operation : on ouvre la porte de celle qui existe, dans le
+							// meme entonnoir (`editMergePending` -> Demo3D_ApplyCmd).
+							st->editMergePending = true;
 						} else if (op[0] == 'e' || op[0] == 'E')
 							st->editExtrudePending = true; // Extrude
 						else if (op[0] == 's' || op[0] == 'S')
@@ -9148,16 +9170,25 @@ namespace nkentseu {
 
 				// Pick sur la BASE (editRest/editIdx = editHE), même sous modificateurs -> on
 				// sélectionne/édite la cage de base et le résultat modifié se recalcule.
-				if (clickNow && !grabbedHandle && !st->knifeArmed && !zoneToolConsumed) {
+				// UN PICK ARME (coordonnees ecrites) entre par LA MEME PORTE que le clic.
+				// Il n'y a pas de second chemin de selection : c'est la seule facon de
+				// pouvoir dire qu'une mesure prouve ce que fait le clic de Rodolf.
+				const bool pickArme = st->editPickPending;
+				if (pickArme)
+					st->editPickPending = false; // consomme une fois, comme un clic
+				if ((clickNow || pickArme) && !grabbedHandle && !st->knifeArmed && !zoneToolConsumed) {
 					st->editOverlayDirty = true; // la sélection va changer -> reconstruire l'overlay
-					const float32 mx = gin.mouseX, my = gin.mouseY;
+					const float32 mx = pickArme ? st->editPickX : gin.mouseX;
+					const float32 my = pickArme ? st->editPickY : gin.mouseY;
+					const bool shiftEff = pickArme ? st->editPickShift : gin.shiftDown;
+					const bool altEff = pickArme ? st->editPickAlt : altDown;
 					// TOGGLE façon Blender : on mémorise l'état AVANT le nettoyage pour savoir
 					// si l'élément cliqué était DÉJÀ sélectionné -> dans ce cas le clic le
 					// DÉSÉLECTIONNE (au lieu de le re-sélectionner). Shift+clic = toggle sans
 					// vider le reste de la sélection.
 					NkVector<uint8> prevSel = st->vertSel;
 					auto wasSel = [&](uint32 i) { return i < (uint32)prevSel.Size() && prevSel[i] != 0; };
-					if (!gin.shiftDown)
+					if (!shiftEff)
 						for (int32 i = 0; i < nv; i++)
 							st->vertSel[i] = 0;
 					// Rayon curseur -> profondeurs d'ENTRÉE (near) et de SORTIE (far) dans le
@@ -9354,7 +9385,7 @@ namespace nkentseu {
 					// l'anneau de faces. Shift+Alt+clic ajoute à la sélection existante.
 					// Ce parcours n'est possible que grâce à la SOUDURE topologique.
 					bool loopDone = false;
-					if (altDown && (bestEa >= 0 || bestFt >= 0)) {
+					if (altEff && (bestEa >= 0 || bestFt >= 0)) {
 						uint32 la = 0, lb = 0;
 						bool faceLoop = false, ok = false;
 						if (bestEa >= 0) { // une arête est sous le curseur -> edge loop
@@ -9374,7 +9405,7 @@ namespace nkentseu {
 							}
 						}
 						if (ok) {
-							Demo3D_SelectLoop(st, la, lb, faceLoop, gin.shiftDown);
+							Demo3D_SelectLoop(st, la, lb, faceLoop, shiftEff);
 							loopDone = true;
 						}
 					}
@@ -15217,6 +15248,57 @@ namespace nkentseu {
 		int32 Demo3DHostEditSelMask() {
 			auto *st = HostSt();
 			return st ? st->editSelMask : 1;
+		}
+		// ── LE CLIC A DES COORDONNEES ECRITES ────────────────────────────────
+		// Arme UN pick a (x, y) en pixels de la VUE (pas de la fenetre), consomme
+		// a la frame suivante par la meme condition que le clic reel. Rend faux si
+		// l'on n'est pas en mode Edition : un pick d'element hors edition n'a pas
+		// de sens et se taire serait pire que refuser.
+		bool Demo3DHostEditPickAt(float32 x, float32 y, bool shift, bool alt) {
+			auto *st = HostSt();
+			if (!st || !st->editMode)
+				return false;
+			st->editPickX = x;
+			st->editPickY = y;
+			st->editPickShift = shift;
+			st->editPickAlt = alt;
+			st->editPickPending = true;
+			return true;
+		}
+		// TAILLE DE LA VUE, en pixels. Elle existait dans l'hote et n'etait lisible
+		// de nulle part : impossible d'ecrire des coordonnees de clic sans la
+		// deviner, et une coordonnee devinee ne prouve rien.
+		void Demo3DHostViewSize(uint32 *w, uint32 *h) {
+			if (w)
+				*w = hst.ctx.width;
+			if (h)
+				*h = hst.ctx.height;
+		}
+		// CE QUE LE CLIC A DESIGNE. Les trois references de Blender, lues telles
+		// que la vue les a posees : le sommet actif, l'arete active (par ses deux
+		// sommets) et la face active. -1 = rien. C'est ce quadruplet qui permet de
+		// dire qu'un MEME point designe TROIS choses differentes selon le mode.
+		bool Demo3DHostEditActive(int32 *vert, int32 *edgeA, int32 *edgeB, int32 *face) {
+			auto *st = HostSt();
+			if (vert)
+				*vert = -1;
+			if (edgeA)
+				*edgeA = -1;
+			if (edgeB)
+				*edgeB = -1;
+			if (face)
+				*face = -1;
+			if (!st || !st->editMode)
+				return false;
+			if (vert)
+				*vert = st->editActiveVert;
+			if (edgeA)
+				*edgeA = st->editActiveEdgeA;
+			if (edgeB)
+				*edgeB = st->editActiveEdgeB;
+			if (face)
+				*face = (int32)st->editActiveFace;
+			return true;
 		}
 		void Demo3DHostSetZoneTool(int32 shape) {
 			// shape : -1 = desarme, 0 = rectangle, 1 = cercle, 2 = lasso — le
