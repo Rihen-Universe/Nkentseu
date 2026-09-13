@@ -23,6 +23,7 @@
 #include "NKRenderer/Tools/Render3D/NkRender3D.h"
 #include "NKAnima/Clip/NkAnimation.h"
 #include "NKAnima/Edit/NkAnimationEditor.h"
+#include "NKFileSystem/NkDirectory.h" // creation du dossier de sortie du .nkanim
 #include "NKLogger/NkLog.h"
 #include <cmath>
 #include <cstdlib>
@@ -151,7 +152,15 @@ namespace nkentseu {
 				if (BakeClipFromGLTF(data, animIdx, 30.f, baked)) {
 					st->jointCount = (uint32)baked.boneTracks.Size();
 					st->frameCount = (st->jointCount > 0) ? baked.boneTracks[0].KeyCount() : 0;
-					st->nkanimPath = NkString("Build/Bin/Debug-Windows/renderdemo/cesiumman_walk.nkanim");
+					// ⚠️ DEFAUT CORRIGE le 2026-09-13. Ce chemin etait
+					// « Build/Bin/Debug-Windows/renderdemo/... » EN DUR : en Release ce
+					// dossier n'existe pas, l'ecriture echouait, et la demo annoncait
+					// « round-trip : bake=1 save=0 reload=0 match=0 » — c'est-a-dire que
+					// le seul temoin du format .nkanim etait ETEINT dans la configuration
+					// ou Rodolf lance ses demos. Il ne disait pas faux : il ne disait rien.
+					// Dossier neutre, cree s'il manque (Build/ est deja ignore par git).
+					nkentseu::NkDirectory::CreateRecursive("Build/Tmp");
+					st->nkanimPath = NkString("Build/Tmp/cesiumman_walk.nkanim");
 					bool saved = baked.SaveBinary(st->nkanimPath);
 					bool loaded = saved && st->clip.LoadBinary(st->nkanimPath);
 					st->roundTripOK =
