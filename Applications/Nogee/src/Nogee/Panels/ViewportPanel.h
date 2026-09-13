@@ -1,15 +1,26 @@
 #pragma once
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // =============================================================================
 // Nogee/Panels/ViewportPanel.h — la zone centrale, cible du glisser-deposer §9
 // =============================================================================
 // CE QUE CE PANNEAU EST : le MINIMUM qui donne une cible au glisser d'assets
 // (§9 « glisser une carte vers le viewport ») et occupe la zone CENTRE du dock.
 //
-// CE QU'IL N'EST PAS : un viewport. Le rendu de scene n'existe pas encore sur
-// ce chemin — c'est MESURE, pas suppose : `ViewportLayer::RenderScene()` et
-// `RenderGizmos()` etaient des TODO en toutes lettres quand la coupe NKUI a ete
-// faite (commit 16732511, ROADMAP §10sexies), le viewport NKUI ne rendait RIEN.
-// Ce panneau le DIT a l'ecran plutot que de le simuler.
+// CE QU'IL EST DEVENU (2026-09-13) : un VRAI viewport. La scene ECS est rendue
+// hors ecran par `Nogee/Viewport/NogeeViewport3D` — `NkRenderSystem` alimente
+// `NkRender3D`, le render graph ecrit dans une cible partagee, et ce panneau
+// POSE la texture (`AddImage`). Il ne rend toujours rien lui-meme : il declare
+// la taille qu'il veut voir et affiche un temoin numerique (mesh soumis, pose de
+// camera, numero d'image), pour qu'un ecran noir reste distinguable d'un
+// viewport mort.
+//
+// CE QU'IL N'EST TOUJOURS PAS : gizmos, selection a la souris, edition dans la
+// vue. Hors lot, et ce panneau ne pretend pas le contraire.
+//
+// L'ETAT D'AVANT, garde parce qu'il explique le mur : le rendu de scene
+// n'existait sur AUCUN chemin fenetre. `ViewportLayer::RenderScene()` et
+// `RenderGizmos()` etaient des TODO en toutes lettres (commit 16732511, ROADMAP
+// §10sexies), et ce fichier-la n'est meme plus instancie depuis la coupe NKUI.
 //
 // La livraison d'un asset est un JOURNAL (`MESURE : charge livree`) + un
 // affichage du dernier chemin recu — ET, depuis le PALIER A (2026-08-17,
