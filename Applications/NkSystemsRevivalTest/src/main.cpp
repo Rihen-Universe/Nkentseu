@@ -465,6 +465,38 @@ int main() {
 	}
 
 	// =========================================================================
+	// NKMATH -- TransformVector : UNE INSTANCIATION, pour que la panne revienne ICI
+	//
+	// Elle etait DECLAREE rendant un NkVec3T et son corps rendait
+	// `(*this) * NkVec4T(v, 0)`, un NkVec4T (NkMat.h:994 avant correctif). Erreur
+	// de type franche -- mais dans un MODELE : le corps d une fonction template
+	// n est verifie qu a l instanciation, et personne ne l instanciait. Trois
+	// sites l avaient contournee en recopiant chacun sa version, sans la reparer
+	// (NkGLTFLoader.cpp:179, Demo3DMannequin.cpp:86, la sonde VEHICULE de Demo3D).
+	// Corrigee le 13/09. Ce bloc EST le correctif durable : sans une instanciation
+	// quelque part, la reparation serait invisible et se reperdrait.
+	// =========================================================================
+	{
+		using namespace nkentseu::math;
+		const NkVec3f t = {10.f, -4.f, 7.f};
+		const NkMat4f m = NkMat4f::TRS(t, NkQuatf(NkAngle::FromRad(1.57079633f), NkVec3f{0.f, 1.f, 0.f}),
+									   NkVec3f{1.f, 1.f, 1.f});
+		const NkVec3f dir = m.TransformVector(NkVec3f{0.f, 0.f, 1.f}); // <- L INSTANCIATION
+		const NkVec3f pt = m.TransformPoint(NkVec3f{0.f, 0.f, 1.f});
+		Check(std::fabs(dir.x - 1.f) < 1e-4f && std::fabs(dir.y) < 1e-4f && std::fabs(dir.z) < 1e-4f,
+			  "NKMATH TransformVector : +Z tourne de 90 deg autour de Y donne +X");
+		// LE VOLET QUI DISCRIMINE : une DIRECTION ignore la translation. Si quelqu un
+		// reparait un jour TransformVector en la deleguant a TransformPoint, la ligne
+		// ci-dessus resterait VERTE et celle-ci rougirait. Sans elle, ce banc ne
+		// mesurerait que « ca compile », pas « ca fait la bonne chose ».
+		Check(std::fabs((pt.x - dir.x) - t.x) < 1e-4f && std::fabs((pt.y - dir.y) - t.y) < 1e-4f &&
+				  std::fabs((pt.z - dir.z) - t.z) < 1e-4f,
+			  "NKMATH TransformVector : elle IGNORE la translation (point - direction = translation exacte)");
+		std::printf("  [nkmath] TransformVector(+Z) = (%.4f, %.4f, %.4f) ; TransformPoint(+Z) = (%.4f, %.4f, %.4f)\n",
+					dir.x, dir.y, dir.z, pt.x, pt.y, pt.z);
+	}
+
+	// =========================================================================
 	// BANC VEHICULE -- comportement, headless, sans GPU. Conception :
 	// Engine/Noge/CONCEPTION_VEHICULE.md §6. Assertions en RELATION, pas en
 	// borne ; et une CONTRE-EPREUVE : mu = 0.01 doit faire patiner ET rougir
