@@ -120,10 +120,21 @@ namespace nkentseu {
 		//            par clé : [time(f32)] [mat(16*f32)] [interp(u8)]
 		// (Section os uniquement en v1 — le header versionné permet d'ajouter
 		//  morph/transform/material plus tard sans casser les fichiers.)
+		//
+		// v3 (2026-09-13) : + les NOMS DE JOINTS, en queue de la section squelette.
+		// Ils manquaient, et ce n'était pas anodin : `jointNames` alimente le régime
+		// anthropométrique du centre de masse (NkPoseMass::SetAnthropometric) et la
+		// détection des appuis par nom côté NkAnimaEditor. Un aller-retour en v2
+		// rendait donc un clip qui RESSEMBLE à l'original mais dont le COM retombe en
+		// masse uniforme — une perte silencieuse. Mesurée le 2026-09-13 sur CesiumMan :
+		// 1 179 lignes d'empreinte identiques AU BIT, et une seule différente —
+		// `jointNames=19` à l'écriture, `jointNames=0` à la relecture.
+		// ⚠️ Conséquence assumée : un binaire compilé AVANT ce jour refuse un fichier
+		// v3 (« version non supportee »). L'inverse tient : ce lecteur lit v1 et v2.
 		// =====================================================================
 		namespace {
 			constexpr uint32 kNkAnimMagic = 0x4E414B4E; // 'NKAN' (little-endian)
-			constexpr uint32 kNkAnimVersion = 2;		// v2 : + section squelette (mode local)
+			constexpr uint32 kNkAnimVersion = 3;		// v3 : + noms de joints
 
 			struct ByteWriter {
 					NkVector<nk_uint8> buf;
@@ -264,6 +275,11 @@ namespace nkentseu {
 			w.u32((uint32)jointTopo.Size());
 			for (uint32 j = 0; j < (uint32)jointTopo.Size(); ++j)
 				w.u32(jointTopo[j]);
+			// Noms de joints (v3) : en QUEUE, donc purement additif — un lecteur v2
+			// s'arrêtait exactement ici et lisait le reste sans rien savoir d'eux.
+			w.u32((uint32)jointNames.Size());
+			for (uint32 j = 0; j < (uint32)jointNames.Size(); ++j)
+				w.str(jointNames[j]);
 			if (!NkFile::WriteAllBytes(path.CStr(), w.buf)) {
 				logger.Errorf("[NkAnimClip] SaveBinary echec : %s\n", path.CStr());
 				return false;
@@ -314,6 +330,7 @@ namespace nkentseu {
 			jointParent.Clear();
 			jointInverseBind.Clear();
 			jointTopo.Clear();
+			jointNames.Clear();
 			if (ver >= 2) {
 				skeletalLocal = (r.u8() != 0);
 				uint32 np = r.u32();
@@ -328,6 +345,15 @@ namespace nkentseu {
 				jointTopo.Resize(nt);
 				for (uint32 j = 0; j < nt; ++j)
 					jointTopo[j] = r.u32();
+			}
+			// Noms de joints (v3+). Un fichier v1/v2 n'en porte pas : `jointNames`
+			// reste VIDE, et les consommateurs retombent sur la masse uniforme —
+			// comme avant, en le disant (cf. AnimCOMRegimeLabel).
+			if (ver >= 3) {
+				uint32 nn = r.u32();
+				jointNames.Resize(nn);
+				for (uint32 j = 0; j < nn; ++j)
+					jointNames[j] = r.str();
 			}
 			if (!r.ok) {
 				logger.Errorf("[NkAnimClip] LoadBinary tronque : %s\n", path.CStr());
