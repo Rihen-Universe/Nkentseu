@@ -49,6 +49,10 @@ namespace nkanima {
 	// (En mode édition, renvoie la pose de TRAVAIL éditée.)
 	uint32 AnimJointCount();
 	void AnimGetSkeleton(NkVector<NkVec3f> &outPos, NkVector<int32> &outParent);
+	// La MÊME pose, mais entière : 16 flottants (matrice MONDE) par joint, donc les
+	// rotations et pas seulement les positions. Sert à comparer deux poses au bit
+	// (une rotation pure d'un os ne déplace pas sa propre position).
+	void AnimGetPoseMatrices(NkVector<float32> &out);
 
 	// ── Ragdoll physique (couplage NKPhysics) ─────────────────────────────────
 	// Active/désactive la simulation : ON capture la pose courante, construit un
@@ -91,6 +95,15 @@ namespace nkanima {
 	// y touchera, l'écrivain devra suivre. (La perte des `jointNames`, elle, a été
 	// mesurée le 2026-09-13 et corrigée : le format est passé en v3.)
 	bool AnimExportClip(const char *path); // .nkanim du clip courant ; false si rien
+
+	// ── Le geste de RODOLF : « Enregistrer » (2026-09-13) ─────────────────────
+	// Un chemin que seule une machine emprunte n'est pas livré : `--export` ne
+	// changeait rien pour quelqu'un qui édite à la souris. Ces trois fonctions sont
+	// ce que le BOUTON appelle, et elles passent par le MÊME AnimExportClip que la
+	// ligne de commande — aucun chemin parallèle, donc rien à faire coïncider.
+	const char *AnimSavePath();				// chemin d'enregistrement courant, jamais nul
+	void AnimSetSavePath(const char *path); // « Enregistrer sous » confirmé
+	bool AnimSave();						// écrit le clip courant à ce chemin
 
 	// Édition SCRIPTÉE, sans la moindre injection d'entrée (ni souris ni clavier) :
 	// pour chaque k, place le curseur à t = duration*(k+1)/(count+1), entre en

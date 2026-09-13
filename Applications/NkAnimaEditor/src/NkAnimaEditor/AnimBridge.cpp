@@ -61,6 +61,10 @@ namespace nkanima {
 				anim::NkAnimationEditor editor;
 				bool loaded = false;
 				bool playing = true;
+				// Chemin d'enregistrement courant (« Enregistrer »). Posé au chargement
+				// à partir du nom du modèle, et ANNONCÉ dans le journal : personne ne
+				// doit avoir à deviner où part son travail.
+				nkentseu::NkString savePath;
 				// édition de pose (§2 Pose Mode)
 				NkVector<NkMat4f> bindGlobal; // inverse(inverseBind) par joint
 				NkVector<uint32> topo;		  // ordre topo (parent avant enfant)
@@ -172,8 +176,33 @@ namespace nkanima {
 									  // allume le COM au lancement (captures
 									  // témoins reproductibles, sans clic).
 				BuildSkeletonAux();
-				logger.Info("[AnimBridge] '{0}' : {1} os, dur={2}s, {3} cles\n", modelPath,
-							(uint32)g.clip.boneTracks.Size(), g.clip.duration, g.editor.PoseKeyCount());
+				// Chemin d'enregistrement par défaut : le nom du modèle, sans dossier ni
+				// extension, suffixé `.nkanim`, dans le dossier de travail. Il n'y a pas
+				// encore de sélecteur au CHARGEMENT, donc ce défaut doit être LISIBLE et
+				// dit tout haut — un fichier écrit à un endroit que l'utilisateur ignore
+				// est un fichier perdu.
+				{
+					nkentseu::NkString mp{modelPath};
+					uint32 deb = 0, fin = (uint32)mp.Size();
+					for (uint32 i = 0; i < (uint32)mp.Size(); ++i)
+						if (mp[i] == '/' || mp[i] == '\\')
+							deb = i + 1;
+					for (uint32 i = fin; i > deb; --i)
+						if (mp[i - 1] == '.') {
+							fin = i - 1;
+							break;
+						}
+					nkentseu::NkString base;
+					for (uint32 i = deb; i < fin; ++i)
+						base += mp[i];
+					if (base.Empty())
+						base = nkentseu::NkString("anim");
+					base += ".nkanim";
+					g.savePath = base;
+				}
+				logger.Info("[AnimBridge] '{0}' : {1} os, dur={2}s, {3} cles — Enregistrer ecrira '{4}'\n", modelPath,
+							(uint32)g.clip.boneTracks.Size(), g.clip.duration, g.editor.PoseKeyCount(),
+							g.savePath.CStr());
 				// Self-test IK-drag (NK_POSE_TEST) : tire un os feuille et vérifie qu'il
 				// se rapproche de la cible.
 				if (getenv("NK_POSE_TEST")) {
@@ -322,6 +351,17 @@ namespace nkanima {
 		g.playing = false;
 		g.player.Pause();
 		g.player.SeekTo(t);
+		// ⚠️ DEFAUT MESURE le 2026-09-13 : sans cette ligne, DEPLACER LE CURSEUR NE
+		// CHANGEAIT PAS LA POSE AFFICHEE. `SeekTo` ne fait que poser `mTime` ; c'est
+		// `Update` qui évalue le clip, et `AnimUpdate` — le seul appel par image
+		// (Panels.h l.30) — ne rafraîchit QUE si la lecture est en cours. Or `AnimSeek`
+		// met justement en pause. Tout ce qui affiche la pose (viewport 3D, squelette
+		// 2D, COM) lit `player.GetState()` : après un scrub, tout montrait le dernier
+		// instant JOUÉ. Mesure : entre un scrub à 0,5 s et un scrub à 1,5 s, les 19
+		// lignes d'os de l'empreinte étaient IDENTIQUES AU BIT.
+		// `Update(0)` évalue à `mTime` même en pause (il ne fait avancer le temps que
+		// si `mPlaying`) — c'est ce que fait déjà le self-test NK_POSE_TEST.
+		g.player.Update(0.f);
 		g.editor.SetCursor(t);
 	}
 
@@ -402,6 +442,24 @@ namespace nkanima {
 				gl = (j < (uint32)skin.Size()) ? (skin[j] * g.bindGlobal[j]) : NkMat4f::Identity();
 			outPos[j] = {gl.position.x, gl.position.y, gl.position.z};
 			outParent[j] = (j < (uint32)g.clip.jointParent.Size()) ? g.clip.jointParent[j] : -1;
+		}
+	}
+
+	void AnimGetPoseMatrices(NkVector<float32> &out) {
+		out.Clear();
+		if (!g.loaded)
+			return;
+		const uint32 jc = (uint32)g.clip.jointInverseBind.Size();
+		out.Resize(jc * 16u);
+		const auto &skin = g.player.GetState().boneMatrices;
+		for (uint32 j = 0; j < jc; ++j) {
+			NkMat4f gl;
+			if (g.editMode && j < (uint32)g.worldEdit.Size())
+				gl = g.worldEdit[j];
+			else
+				gl = (j < (uint32)skin.Size()) ? (skin[j] * g.bindGlobal[j]) : NkMat4f::Identity();
+			for (uint32 e = 0; e < 16u; ++e)
+				out[j * 16u + e] = gl.data[e];
 		}
 	}
 
@@ -665,6 +723,27 @@ namespace nkanima {
 		return (const void *)&g.clip;
 	}
 
+	const char *AnimSavePath() {
+		return g.savePath.Empty() ? "anim.nkanim" : g.savePath.CStr();
+	}
+
+	void AnimSetSavePath(const char *path) {
+		if (path && *path) {
+			g.savePath = nkentseu::NkString(path);
+			logger.Info("[AnimBridge] chemin d'enregistrement : {0}\n", g.savePath.CStr());
+		}
+	}
+
+	// LA fonction que le bouton « Enregistrer » appelle. Elle ne fait RIEN de plus
+	// que la ligne de commande : le même AnimExportClip, au chemin courant. Deux
+	// écrivains auraient demandé qu'on fasse coïncider deux codes ; il n'y en a qu'un.
+	bool AnimSave() {
+		const bool ok = AnimExportClip(AnimSavePath());
+		if (!ok)
+			logger.Errorf("[AnimBridge] Enregistrer : echec sur %s\n", AnimSavePath());
+		return ok;
+	}
+
 	uint32 AnimScriptedEdit(uint32 count, float32 amp) {
 		if (!g.loaded || count == 0)
 			return 0;
@@ -693,8 +772,7 @@ namespace nkanima {
 		uint32 changed = 0;
 		for (uint32 k = 0; k < count; ++k) {
 			const float32 t = dur * (float32)(k + 1) / (float32)(count + 1);
-			AnimSeek(t);					   // curseur + player en pause, comme un scrub
-			g.player.Update(0.f);			   // rafraîchit l'état À t même en pause (cf. NK_POSE_TEST)
+			AnimSeek(t); // curseur + player en pause + évaluation à t, comme un scrub
 			const float32 tc = g.editor.GetCursor(); // temps APRÈS snap : c'est lui qui fait foi
 			AnimBeginPoseEdit();			   // capture la pose de travail
 			const int32 j = movable[(uint32)(k % (uint32)movable.Size())];
