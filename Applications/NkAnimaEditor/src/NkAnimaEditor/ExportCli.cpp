@@ -450,6 +450,12 @@ namespace nkanima {
 			b += " marge_cm=";
 			DecF(b, r.margin * 100.f, 2);
 			b += '\n';
+			// LE TEXTE QUE RODOLF LIRA, tel quel. Le dessin ne se prouve pas sans son
+			// oeil ; la phrase affichee sous le viewport, si — elle est composee du
+			// MEME rapport que la sphere coloree, et la voici, mot pour mot.
+			b += "libelle= ";
+			b += AnimCOMRegimeLabel();
+			b += '\n';
 			// Les NOMS qui ont ete reconnus comme appuis : sans eux, « 0 appui » ne
 			// dit pas si le rig n'a pas de pieds ou si nos mots-cles les ont ratés.
 			const NkAnimationClip *cl = (const NkAnimationClip *)AnimClipHandle();
