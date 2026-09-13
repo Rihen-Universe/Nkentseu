@@ -1814,3 +1814,9 @@ with workspace("Nkentseu", location="."):
     # PAS le moteur de rendu, qui est une question separee.
     with include("Applications/NkSequenceCheck/NkSequenceCheck.jenga"):
         pass
+
+    # Sonde : un NkIDevice se cree-t-il SANS FENETRE, et la couleur relue est-elle
+    # celle qu on a demandee ? Deux effacements differents doivent donner deux
+    # relectures differentes -- sinon c est l instrument qui ment, pas le dorsal.
+    with include("Applications/NkOffscreenProbe/NkOffscreenProbe.jenga"):
+        pass
