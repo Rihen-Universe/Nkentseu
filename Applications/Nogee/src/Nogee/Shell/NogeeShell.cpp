@@ -1042,7 +1042,29 @@ namespace nkentseu {
 			static nkgui::NkEditorRHIRenderer rhi;
 
 			NkEditorShellConfig scfg;
-			scfg.title = "Noge Editor — coquille NKEditorKit (--ui=rhi)";
+			// ── UNE FENETRE DE SONDE DOIT LE DIRE SUR SON FRONT ──────────────
+			// Ce qu'a coute son absence, le 13/09 a 17:49:26 : Rodolf a photographie
+			// UNE DE MES FENETRES DE MESURE en croyant photographier le produit. Elle
+			// s'intitulait « Noge Editor », comme lui ; elle affichait une scene
+			// rechargee ou le cube n'avait plus de maillage — donc une echarde seule
+			// sur fond uni. Nous avons cherche un defaut de moteur pendant deux
+			// echanges. Le journal le disait, mais PERSONNE NE LIT UN JOURNAL quand
+			// une fenetre a l'air d'etre le produit.
+			//
+			// La regle, et elle ne souffre pas d'exception : une sonde qui OUVRE UNE
+			// FENETRE doit etre reconnaissable SANS rien lire d'autre que cette
+			// fenetre. Le titre est le seul endroit qu'on regarde toujours.
+			const bool sondeActive = g_probe.enabled || g_drag.enabled || g_vp.selection ||
+									  g_vp.pointage || g_vp.controle || g_vp.selectionne || g_vp.sansMesh ||
+									  g_vp.inactif || g_vp.orbiteSet || g_vp.fermerApres > 0 ||
+									  g_vp.echarde[0] != '\0' || g_vp.sauver[0] != '\0' ||
+									  g_vp.charger[0] != '\0' || g_vp.capture[0] != '\0';
+			scfg.title = sondeActive
+							 ? "*** SONDE DE MESURE - CETTE FENETRE N'EST PAS LE PRODUIT ***"
+							 : "Noge Editor";
+			if (sondeActive)
+				logger.Info("[Nogee/Shell] SONDE ACTIVE : la fenetre porte un titre d'avertissement. "
+							"Ce qui s'y affiche est une scene d'essai, pas l'etat du produit.\n");
 			scfg.width = 1600;
 			scfg.height = 900;
 			scfg.graphicsApi = NkEditorGfxApi::OpenGL;
