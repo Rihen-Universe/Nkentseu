@@ -364,6 +364,30 @@ namespace nkentseu {
 				uint32 nanCount = 0;	 // NaN/Inf trouvés (0 attendu)
 				float32 ms = 0.f;
 
+				// ── (s0) LA VENTILATION DU PAS, par phase, en millisecondes ──────
+				// Ajoutee le 2026-09-13 pour repondre a UNE question : quelle part du
+				// pas est la PROJECTION ? Sans elle, annoncer un gain de portage GPU
+				// serait de la foi -- AMDAHL : un facteur 10 sur une phase qui pese
+				// 60 % ne donne que 2,17 sur le total.
+				// ⚠️ LES PHASES SONT RANGEES EN DEUX FAMILLES, et le rangement est le
+				// resultat : `msMesures` compte ce que le solveur depense a SE JUGER
+				// (trois parcours de divergence, deux vorticites, quatre reductions).
+				// Un moteur qui n'a pas besoin de ces temoins ne paierait pas ce prix.
+				// ⚠️ GARDE : msPhysique + msMesures doit valoir `ms` a 2 % pres. Sinon
+				// une phase echappe au comptage et AUCUN pourcentage n'est lisible.
+				float32 msCombustion = 0.f;	  // Combust
+				float32 msFlottabilite = 0.f; // AddBuoyancy
+				float32 msVorticite1 = 0.f;	  // ComputeVorticity, celle que le confinement LIT
+				float32 msConfinement = 0.f;  // AddVorticityConfinement
+				float32 msVent = 0.f;		  // AddWind
+				float32 msAdvVitesse = 0.f;	  // AdvectVelocity (semi-lagrangienne)
+				float32 msProjection = 0.f;	  // Project — LA CIBLE PRESUMEE du portage
+				float32 msCFL = 0.f;		  // MaxCFL + choix du nombre de sous-pas
+				float32 msAdvScalaires = 0.f; // AdvectScalar x3 (densite, temperature, carburant)
+				float32 msDissipation = 0.f;  // les trois rappels multiplicatifs
+				float32 msMesures = 0.f;	  // TOUTE la famille INSTRUMENTATION
+				float32 msPhysique = 0.f;	  // somme de la famille PHYSIQUE
+
 				// ADVECTION EN FLUX : le nombre de Courant reellement vu au dernier
 				// pas, et le nombre de SOUS-PAS qu'il a fallu pour rester sous la
 				// condition. Ces deux chiffres se PUBLIENT : nomme, le sous-cyclage

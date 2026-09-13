@@ -253,3 +253,109 @@ Et le cas le plus gênant est déjà écrit : **si l'instrumentation pèse lourd
 premier gain n'est pas un portage GPU du tout** — c'est de ne plus faire tourner
 trois mesures de divergence dans un moteur qui n'en a pas besoin. **Ce serait un
 résultat qui rend ce lot inutile, et il vaut mieux le savoir avant d'investir.**
+
+---
+
+## 8. LE RÉSULTAT DE (s0) — LE TITRE DE CE PLAN EST RÉFUTÉ
+
+**Mode `NK_FLUID_MAC=e`.** Grille `25 x 80 x 25 = 50 000` cellules, panache établi,
+30 pas, Release, un fil.
+
+```
+phase                            ms / pas      part
+PROJECTION (solveur pression)       85,09    38,76 %
+advection des scalaires (x3)        34,60    15,76 %
+advection de la VITESSE             63,80    29,06 %
+vorticite (1re, pour le confin.)     7,77     3,54 %
+confinement de vorticite             4,35     1,98 %
+flottabilite                         1,19     0,54 %
+combustion                           0,00     0,00 %
+vent                                 0,00     0,00 %
+CFL + sous-cyclage                   3,53     1,61 %
+dissipation                          0,54     0,25 %
+-----------------------------------------------------
+PHYSIQUE (somme)                   200,87    91,51 %
+INSTRUMENTATION (le banc)           18,64     8,49 %
+TOTAL mesure                       219,51   100,00 %
+```
+
+### ⟹ LA RÈGLE S'APPLIQUE, ET ELLE TUE LE TITRE
+
+**La projection pèse `38,76 %`, donc MOINS de 50 %.** La règle du § 7 était écrite
+avant, et je ne la négocie pas :
+
+> **« LE SOLVEUR DE PRESSION D'ABORD » EST RÉFUTÉ PAR LA MESURE.**
+> AMDAHL sur le chiffre mesuré : un facteur 10 sur la projection **seule** donne
+> `1 / (0,6124 + 0,03876) = ` **`1,54x`** sur le pas complet. Loin des `8x`
+> qu'exige (s1).
+
+### Ma prédiction est réfutée, et je sais pourquoi
+
+Je prédisais **50 à 75 %** pour la projection. Deux erreurs, toutes deux
+nommables :
+
+1. **J'ai pris le nombre de balayages SOR de la MAUVAISE SCÈNE.** Les `268,3` que
+   je citais viennent du palier masse/divergence ; **cette scène-ci en fait `96`**
+   au dernier pas. Mon calcul de `13,4 M` mises à jour était donc presque trois
+   fois trop grand. *Un chiffre repris d'une autre course n'est pas une mesure de
+   celle-ci.*
+2. **Je n'avais pas listé l'advection de la VITESSE comme candidate** — je l'avais
+   noyée dans « tout le reste, moins de 10 % ». Elle pèse **`29,06 %`**. Le
+   semi-lagrangien y paie, par composante et par cellule, un rebours RK2 **et deux
+   interpolations trilinéaires** ; trois composantes sur 50 000 cellules, cela se
+   voit.
+
+**Les deux autres parts sont dans leurs bandes** : advection des scalaires
+`15,76 %` (prédit 15-30), instrumentation `8,49 %` (prédit 3-10).
+
+### ⚠️ MA GARDE (s0g) EST VERTE, ET ELLE EST PLUS FAIBLE QUE JE NE L'AI ÉCRITE
+
+Écart `0,0000`. Mais **ce vert est presque trivial, et il faut le dire** : les
+jalons se **chaînent**, donc la somme des parts partitionne l'intervalle **par
+construction**. Cette garde ne peut attraper qu'un trou entre le premier et le
+dernier jalon — **elle ne peut PAS attraper une phase mal étiquetée**, dont le
+temps serait simplement attribué au mauvais nom.
+
+**Ce qu'elle prouve réellement** : aucune fraction du pas n'échappe au comptage.
+**Ce qu'elle ne prouve pas** : que chaque nom porte bien le temps qu'il annonce.
+Pour cela il faudrait muter une phase (la doubler, et voir sa part doubler) —
+**ce n'est pas fait**, et je le dis plutôt que de laisser ce vert valoir plus qu'il
+ne vaut.
+
+### ⚠️ LA GARDE DE PERTURBATION EST NOYÉE DANS LA CHARGE MACHINE
+
+Je voulais vérifier que l'instrumentation ne déplace pas le total de plus de 2 %.
+**Je ne peux pas** : la même mesure, **avant** instrumentation, avait déjà donné
+`413,9` puis `244,3 ms` selon la charge — et elle donne `219,51` maintenant.
+**L'écart de charge (70 %) écrase l'effet cherché (2 %).** Je ne conclus donc rien
+sur la perturbation, au lieu d'attribuer à mon instrument une baisse qui vient de
+la machine.
+
+### ==> LA NOUVELLE CIBLE, calculée depuis la mesure
+
+    x10 sur la projection SEULE            -> 1,54x    (insuffisant)
+    x10 sur les DEUX advections (44,82 %)  -> 1,67x    (insuffisant)
+    x10 sur TOUTE la physique (91,51 %)    -> 5,88x    (encore insuffisant)
+    x20 sur toute la physique              -> 7,66x    (tout juste sous 8x)
+
+> **Aucun portage PARTIEL n'atteint les `8x`.** Il faut le **pas complet**, et même
+> ainsi `x10` ne suffit pas.
+
+### ⚠️ ET LE VERROU QUE PERSONNE N'AVAIT VU : L'INSTRUMENTATION
+
+Pour `8x`, il faut un pas de `219,51 / 8 = 27,44 ms`. Or **l'instrumentation seule
+coûte `18,64 ms`**.
+
+> **Si elle reste sur CPU, elle consomme `68 %` du budget total à elle seule**, et
+> il ne resterait que `8,8 ms` pour TOUTE la physique — soit un facteur `22,8`
+> exigé sur elle. **Les `8x` sont inatteignables tant que les trois mesures de
+> divergence, les deux vorticités et les quatre réductions tournent à chaque pas.**
+
+**C'est le résultat le plus actionnable du lot, et il ne coûte aucun GPU** : un
+moteur n'a pas besoin de ces témoins à chaque image. Les rendre **optionnels**
+(un drapeau de `NkFluidGridParams`) rendrait `18,64 ms` immédiatement, soit
+**`1,09x`** — petit seul, mais **il débloque le plafond** au-dessus.
+
+⚠️ **Je ne le fais PAS dans ce lot** : le banc a besoin de ces témoins, et les
+rendre optionnels veut dire décider **qui** les allume. C'est une décision, pas une
+optimisation, et elle appartient à Rodolf.
