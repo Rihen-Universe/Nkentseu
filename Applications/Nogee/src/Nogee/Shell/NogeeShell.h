@@ -49,5 +49,29 @@ namespace nkentseu {
 		// les deux sont passes. A appeler AVANT RunNogeeEditorShell.
 		void NogeeShellEnableDragDropProbe() noexcept;
 
+		// ── SONDE DU VIEWPORT (2026-09-13) ───────────────────────────────────
+		// Les deux NEGATIFS de (n1) : l'entite TEMOIN_Cube existe dans les trois
+		// cas, a la meme place de l'arbre de scene. `--viewport-sans-mesh` lui
+		// retire son NkMeshComponent, `--viewport-inactif` lui ajoute NkInactive.
+		// Une difference de pixels entre un cas et l'autre ne peut donc venir que
+		// du mesh, jamais de la mise en page.
+		void NogeeShellViewportSansMesh() noexcept;
+		void NogeeShellViewportInactif() noexcept;
+		// `--viewport-controle` : ajoute un cube soumis A LA MAIN a cote du cube
+		// ECS, dans la meme scene et sur le meme chemin. Il partage toutes les
+		// causes du cube ECS sauf le pont ECS : c'est ce partage qui permet de
+		// designer un coupable quand le viewport est uniforme.
+		void NogeeShellViewportControle() noexcept;
+		// (n2) : la pose de camera de depart, en degres de lacet.
+		void NogeeShellViewportOrbite(float32 yawDeg) noexcept;
+		// Ferme la fenetre apres N images. Une mesure ne laisse pas de fenetre
+		// derriere elle, et personne ne peut cliquer dans un run automatise.
+		void NogeeShellViewportFermerApres(int32 frames) noexcept;
+		// Ecrit la N-ieme image RENDUE du viewport dans un fichier. Ce n'est pas
+		// une capture d'ecran : la cible hors ecran est relue, donc le fichier ne
+		// contient QUE la scene — c'est ce qui rend deux executions comparables
+		// pixel a pixel.
+		void NogeeShellViewportCapture(const char *chemin, int32 numeroImage = 90) noexcept;
+
 	} // namespace noge
 } // namespace nkentseu

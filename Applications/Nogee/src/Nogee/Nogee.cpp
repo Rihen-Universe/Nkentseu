@@ -1,3 +1,4 @@
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // =============================================================================
 // Nogee.cpp — point d'entrée de l'éditeur Nogee
 // =============================================================================
@@ -12,6 +13,8 @@
 #include "NKWindow/NKMain.h"
 #include "NKSL/ShaderConvert/NkShaderConvert.h"
 #include "NKLogger/NkLog.h"
+#include <cstring>
+#include <cstdlib>
 // ⚠️ COUPE NKUI (2026-08-17, decision de Rodolf : « retirer NKUI des
 // dependances des autres applications ») : `NogeeApp.h` n'est plus inclus — il
 // tire UILayer, donc NKUI. Le chemin legacy (NogeApp + LayerStack + UILayer)
@@ -70,6 +73,10 @@ int nkmain(const nkentseu::NkEntryState &state) {
 	// parite est mesuree (temoin dans les deux sens) : la coquille devient le
 	// seul chemin. `--ui=rhi` reste accepte (sans effet) ; `NogeeUiBackend`
 	// documente la migration dans UkConfig.h.
+	// La capture se pose APRES la boucle : son chemin et son numero d'image
+	// arrivent par deux arguments distincts, dans un ordre qu'on ne choisit pas.
+	const char *vpCapture = nullptr;
+	int32 vpImage = 90;
 	for (const auto &a : state.GetArgs()) {
 		if (a == "--occlusion-test")
 			NogeeShellEnableOcclusionProbe(false); // palette Ctrl+P
@@ -79,7 +86,24 @@ int nkmain(const nkentseu::NkEntryState &state) {
 			NogeeShellReproduceConquerorLabCondition(); // condition ConquerorLab
 		else if (a == "--dragdrop-test")
 			NogeeShellEnableDragDropProbe(); // sonde glisser-deposer §7/§9
+		// ── SONDE DU VIEWPORT (2026-09-13) ───────────────────────────────────
+		else if (a == "--viewport-sans-mesh")
+			NogeeShellViewportSansMesh(); // negatif (n1) : entite sans mesh
+		else if (a == "--viewport-inactif")
+			NogeeShellViewportInactif(); // negatif (n1) : entite desactivee
+		else if (a == "--viewport-controle")
+			NogeeShellViewportControle(); // controle positif interne
+		else if (std::strncmp(a.CStr(), "--viewport-orbite=", 18) == 0)
+			NogeeShellViewportOrbite((float32)std::atof(a.CStr() + 18)); // (n2)
+		else if (std::strncmp(a.CStr(), "--viewport-fermer=", 18) == 0)
+			NogeeShellViewportFermerApres((int32)std::atoi(a.CStr() + 18));
+		else if (std::strncmp(a.CStr(), "--viewport-capture=", 19) == 0)
+			vpCapture = a.CStr() + 19; // les args vivent dans `state` : duree de vie OK
+		else if (std::strncmp(a.CStr(), "--viewport-image=", 17) == 0)
+			vpImage = (int32)std::atoi(a.CStr() + 17);
 	}
+	if (vpCapture)
+		NogeeShellViewportCapture(vpCapture, vpImage);
 	logger.Info("[Nogee] montage de la coquille NkEditorShell (chemin unique depuis la coupe NKUI)\n");
 	return RunNogeeEditorShell(ukConfig);
 }
