@@ -1,4 +1,5 @@
 // =============================================================================
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // NkDemo3D.cpp — PORTAGE INTEGRAL de renderdemo --demo=2 (Demo3D.cpp copie
 // verbatim). Les adaptations sont balisees « PORTAGE NK3DModeler » : souris
 // traduite fenetre->vue, gardes d'entree, frame rejouee (l'editeur possede
@@ -15881,6 +15882,86 @@ namespace nkentseu {
 			// exact d'un maillage ferme (V - E + F = 2 -> E = V + F - 2).
 			*edges = (nv > 0 && *tris > 0) ? (nv + *tris - 2) : 0;
 			return nv > 0;
+		}
+		// ── LA GEOMETRIE ELLE-MEME (13/09) ──────────────────────────────────
+		// Le pendant ECRIVABLE de Demo3DHostMeshCounts : les compteurs disaient
+		// combien de sommets, ceux-ci donnent les sommets. Sans eux, le `.nkmesh`
+		// ne pouvait ecrire que des noeuds, des origines et des noms -- et le
+		// travail de modelisation se perdait a la fermeture.
+		uint32 Demo3DHostVertexBytes() { return (uint32)sizeof(renderer::NkVertex3D); }
+		bool Demo3DHostMeshData(int32 node, const void **verts, uint32 *vcount,
+								const uint32 **indices, uint32 *icount) {
+			if (verts)
+				*verts = nullptr;
+			if (indices)
+				*indices = nullptr;
+			if (vcount)
+				*vcount = 0u;
+			if (icount)
+				*icount = 0u;
+			if (node < kNkvpFirstUser || node >= kNkvpMaxNodes)
+				return false;
+			const int32 u = node - kNkvpFirstUser;
+			const NkMeshHandle h = nkvpUserMesh[u];
+			if (!h.IsValid())
+				return false; // primitive du catalogue : ses parametres suffisent
+			auto *ms = hst.ctx.renderer ? hst.ctx.renderer->GetMeshSystem() : nullptr;
+			if (!ms)
+				return false;
+			if (!ms->HasCPUData(h)) {
+				// MEME REGLE QUE HostMakeGeometryOwn : sans copie CPU la geometrie
+				// n'est pas relisible, et on le DIT. Un fichier ecrit en silence
+				// sans ses sommets serait le defaut qu'on vient de fermer.
+				logger.Warn("[Demo3D] Noeud {0} : maillage sans copie CPU (keepCPU) -- "
+							"ses sommets ne peuvent pas etre enregistres.\n",
+							node);
+				return false;
+			}
+			const uint32 vc = ms->GetVertexCount(h);
+			if (vc == 0u)
+				return false;
+			if (verts)
+				*verts = ms->GetVertices(h);
+			if (vcount)
+				*vcount = vc;
+			if (indices)
+				*indices = ms->GetIndices(h);
+			if (icount)
+				*icount = ms->GetIndexCount(h);
+			return verts == nullptr || *verts != nullptr;
+		}
+		bool Demo3DHostSetMeshData(int32 node, const void *verts, uint32 vcount,
+								   const uint32 *indices, uint32 icount) {
+			if (node < kNkvpFirstUser || node >= kNkvpMaxNodes || !verts || vcount == 0u)
+				return false;
+			auto *ms = hst.ctx.renderer ? hst.ctx.renderer->GetMeshSystem() : nullptr;
+			if (!ms)
+				return false;
+			renderer::NkMeshDesc d = renderer::NkMeshDesc::Simple(
+				renderer::NkVertexLayout::Default3D(), verts, vcount, indices, icount);
+			// keepCPU EXPLICITE, comme a l'import : sans copie CPU, le maillage qu'on
+			// vient de relire ne pourrait plus etre REecrit au prochain
+			// enregistrement -- la persistance se perdrait au deuxieme tour.
+			d.keepCPU = true;
+			d.debugName = "Demo3D_GeometrieRelue";
+			const NkMeshHandle h = ms->Create(d);
+			if (!h.IsValid())
+				return false;
+			const int32 u = node - kNkvpFirstUser;
+			// L'ANCIEN EST RENDU APRES la reussite du neuf : liberer d'abord
+			// laisserait le noeud sans maillage si la creation echouait.
+			if (nkvpUserMesh[u].IsValid())
+				ms->Release(nkvpUserMesh[u]);
+			nkvpUserMesh[u] = h;
+			// LE FIL DE FER EST PERIME : il met en cache les aretes PAR OBJET, et
+			// la topologie vient de changer. Meme raison qu'a la sortie du mode
+			// edition (Demo3D_SyncFromHE) -- sans cela le fil de fer montrerait la
+			// topologie d'avant la relecture.
+			if (auto *st = HostSt()) {
+				st->wireDirty = true;
+				(void)st;
+			}
+			return true;
 		}
 		bool Demo3DHostNodeOrigin(int32 node, float32 *out3) {
 			// L'ORIGINE d'un noeud est son point de pivot : c'est autour d'elle
