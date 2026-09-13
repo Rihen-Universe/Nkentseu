@@ -1,3 +1,4 @@
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // toon.frag.nksl — NKRenderer — Toon/Cel-shading Fragment (VRAI dialecte NkSL).
 @location(0) in vec3 vWorldPos;
 @location(1) in vec3 vNormal;
@@ -23,6 +24,18 @@ uniform ObjectUBO {
     vec4  subsurfaceColor;
     vec4  shadowOverrides;
     vec4  triplanarParams;
+    // ⚠️ CE MEMBRE EXISTE COTE C++ DEPUIS LE MOUILLAGE (2026-09-06) ET CE
+    // NUANCEUR NE LE DECLARAIT PAS : le bloc s'arretait un vec4 trop tot. Il
+    // est DECLARE DANS LES DEUX ETAGES (toon.vert et toon.frag) -- un bloc
+    // uniforme partage dont les deux declarations different est refuse par le
+    // lien GL, ou pire, lu de travers.
+    //   .x .y = mouillage (non lu ici)
+    //   .z = force du reflet du ciel   -- la CONTRIBUTION D'EAU
+    //   .w = rugosite du reflet        -- NON HONOREE ICI, et c'est dit :
+    //        ce nuanceur ne declare aucune cubemap prefiltree, il n'a donc
+    //        aucun niveau a choisir. Un parametre ignore en silence est pire
+    //        qu'un parametre absent ; celui-ci est ignore A VOIX HAUTE.
+    vec4  wetParams;
 } uObj;
 
 @binding(set=0, binding=2)
@@ -166,6 +179,24 @@ void main() {
         vec2 mcUV   = viewN.xy * 0.5 + 0.5;
         vec3 mc     = texture(tMatcap, mcUV).rgb;
         total += mc * uToon.matcapStrength;
+    }
+
+    // ── CONTRIBUTION D'EAU (2026-09-13) — LA MEME, SUR UN AUTRE TYPE ────────
+    // C'est ici que se joue la contrainte de Rodolf : l'eau n'est PAS un type
+    // de materiau, c'est une contribution que n'importe quel gabarit peut
+    // recevoir. Le meme champ du meme bloc OBJET, lu par un nuanceur qui n'a
+    // rien de commun avec le PBR. A .z = 0, identite exacte.
+    //
+    // LE CIEL, ICI, EST UNIFORME : ce nuanceur ne declare ni `iblColor` ni
+    // cubemap prefiltree, seulement `uCam.iblStrength`. La contribution est
+    // donc la MEME FORME (Fresnel de l'eau x ciel) avec une source de ciel
+    // plus pauvre -- et c'est ca, un etage composable : chaque hote l'honore
+    // avec ce qu'il a, sans qu'on lui impose des bindings.
+    float wRefl = clamp(uObj.wetParams.z, 0.0, 1.0);
+    if (wRefl > 0.0) {
+        float wC = 1.0 - clamp(NdotV, 0.0, 1.0);
+        float wF = 0.02 + 0.98 * wC * wC * wC * wC * wC;
+        total += wRefl * wF * vec3(uCam.iblStrength);
     }
 
     fragColor = vec4(total, albedo.a);

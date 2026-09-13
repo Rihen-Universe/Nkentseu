@@ -1,4 +1,5 @@
 // AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // pbr.frag.nksl — NKRenderer — PBR Fragment (VRAI dialecte NkSL)
 // Traduit de PBR/VK/pbr.frag.vk.glsl. PBR Metallic-Roughness + IBL + CSM shadows +
 // Clearcoat + SSS + triplanar. Blocs UBO développés une-décl-par-ligne (vs virgules).
@@ -895,6 +896,43 @@ void main() {
     vec3 emissive = uMat.emissive.rgb * texture(tEmissive, uvP).rgb * uMat.emissiveStrength;
 
     vec3 color = amb + Lo + ccContrib + emissive;
+
+    // ── CONTRIBUTION D'EAU (2026-09-13) — UNE CONTRIBUTION, PAS UN TYPE ──────
+    // Elle voyage par la RESERVE que le mouillage avait laissee dans le bloc
+    // OBJET (set=1), pas par un bloc de materiau : c'est ce qui la rend
+    // branchable sur N'IMPORTE QUEL gabarit -- PBR, Toon, Unlit -- au lieu d'en
+    // faire une famille fermee de plus. Le nuanceur d'eau v4.0 est mort de
+    // l'autre facon : il etait un TYPE, `RegisterBuiltins` l'a oublie, et
+    // personne ne l'a jamais charge.
+    //   .z = force du reflet du ciel [0,1]
+    //   .w = rugosite du reflet      [0,1] -> niveau de prefiltre
+    // A .z = 0 c'est l'IDENTITE EXACTE (rien n'est ajoute), pas une
+    // approximation : un objet qui ne porte pas la contribution rend le meme
+    // pixel qu'avant, au bit.
+    //
+    // POURQUOI LE FRESNEL ET LE REFLET, ET RIEN D'AUTRE : la mesure du 13/09
+    // a montre qu'un albedo multiplie par 1,6 ne deplace l'image que de 0,19 %
+    // -- le pixel de l'eau n'est PAS tenu par le terme diffus. C'est le
+    // speculaire rasant qui le tient, et c'est lui seul qu'on ajoute.
+    //
+    // F0 = 0,02 : c'est la reflectance normale de l'eau (n = 1,33). Au rasage
+    // Schlick la porte a 1 -- c'est le blanchiment de l'horizon, le signal
+    // visuel qui dit « eau » avant toute texture.
+    //
+    // LE CIEL VIENT DE L'AMBIANCE EXISTANTE, aucune cubemap dediee, aucun
+    // binding neuf : meme repli que le vernis quelques lignes plus haut
+    // (`prefCC`) -- ambiance UNIFORME quand aucun monde n'est charge, prefiltre
+    // sinon. Sans ce repli, la contribution ne ferait RIEN dans une scene sans
+    // HDRI, exactement le defaut que le vernis a deja paye.
+    float wRefl = clamp(uObj.wetParams.z, 0.0, 1.0);
+    if (wRefl > 0.0) {
+        float wRog = clamp(uObj.wetParams.w, 0.0, 1.0);
+        vec3  wSky = mix(vec3(uCam.iblStrength) * uCam.iblColor.rgb,
+                         textureLod(tEnvPrefilter, R, wRog * 4.0).rgb, hasEnv);
+        vec3  wF   = F_Schlick(max(dot(N, V), 0.0), vec3(0.02));
+        color += wRefl * wF * wSky;
+    }
+
     // Mode SOLID / UNLIT (façon Blender Solid & Wireframe) : couleur plate = albedo*tint,
     // révélée par un "phare caméra" (N·V) pour voir la FORME, SANS lumières de scène /
     // ombres / IBL. Facteur borné (<1) -> reste sous le seuil de bloom (pas de halo).
