@@ -305,6 +305,9 @@ struct ResultatPrix {
 		// constante » ne se lit PAS sur la valeur finale : une masse qui monte puis
 		// redescend rendrait exactement la même. On borne donc la course entière.
 		float32 masseMin = 1.0e30f, masseMax = -1.0e30f;
+		// Même raison pour la CHALEUR, en (k1b) : « H est constante » se lit sur la
+		// course ENTIÈRE, jamais sur la seule valeur finale.
+		float32 chaleurMin = 1.0e30f, chaleurMax = -1.0e30f;
 };
 
 // La chaleur au-dessus de l'ambiante, intégrée sur l'INTÉRIEUR (K·m^3).
@@ -443,7 +446,8 @@ static ResultatPrix SceneMasse(bool flux, NkFluidFluxLimiter lim = NkFluidFluxLi
 // l'attendu analytique devient EXACT au lieu d'approché.
 static ResultatPrix SceneDixSecondes(bool flux, float32 cibleCFL = 0.f,
 									 NkFluidFluxLimiter lim = NkFluidFluxLimiter::Ordre1, float32 alpha = -1.f,
-									 bool injectionUnique = false, float32 dissipDensite = -1.f) {
+									 bool injectionUnique = false, float32 dissipDensite = -1.f,
+									 float32 dissipTemp = -1.f) {
 	ResultatPrix r;
 	NkFluidGridParams p;
 	p.boundsMin = {-0.25f, 0.f, -0.25f};
@@ -458,6 +462,8 @@ static ResultatPrix SceneDixSecondes(bool flux, float32 cibleCFL = 0.f,
 		p.buoyancyAlpha = alpha;
 	if (dissipDensite >= 0.f)
 		p.densityDissipation = dissipDensite;
+	if (dissipTemp >= 0.f)
+		p.temperatureDissipation = dissipTemp;
 	if (cibleCFL > 0.f)
 		p.advectCFLTarget = cibleCFL;
 	NkFluidGrid g;
@@ -477,6 +483,11 @@ static ResultatPrix SceneDixSecondes(bool flux, float32 cibleCFL = 0.f,
 			r.masseMin = m;
 		if (m > r.masseMax)
 			r.masseMax = m;
+		const float32 q = g.Stats().heat;
+		if (q < r.chaleurMin)
+			r.chaleurMin = q;
+		if (q > r.chaleurMax)
+			r.chaleurMax = q;
 	}
 	r.enstrophieMoy = (float32)(ensSum / 600.0);
 	r.msParPas = (float32)(msSum / 600.0);
@@ -1407,6 +1418,172 @@ void EnqueteComptageAnalytique() {
 	printf("    n'est pas recompté ici — la température subit un rappel vers l'ambiante,\n");
 	printf("    T <- T_amb + (T - T_amb)*f, ce qui en fait un SECOND modèle à écrire.\n");
 	printf("    Et rien n'est allumé : advectFluxConservative reste FAUX, le limiteur Ordre1.\n");
+}
+
+// =============================================================================
+// (k1) LE COMPTAGE DE LA CHALEUR — pré-enregistré au § 13 du plan (commit du
+// plan SEUL, avant cette ligne). Mode NK_FLUID_MAC=b.
+//
+// ⚠️ POURQUOI LA MÊME FONCTION `CompterALaMain` SERT AUX DEUX, et ce n'est pas
+// une commodité : la chaleur au-dessus de l'ambiante OBÉIT À LA MÊME RÉCURRENCE
+// que la masse, pour trois raisons lues dans le code et non supposées.
+//   1. l'advection en flux est un TÉLESCOPAGE sur les faces INTÉRIEURES, donc
+//      elle conserve `somme T` exactement ; le nombre de cellules intérieures
+//      étant constant, elle conserve aussi H = somme (T - T_amb) * h^3 ;
+//   2. la dissipation thermique s'écrit `T <- T_amb + (T - T_amb) * f`, ce qui
+//      EST `H <- H * f` — un rappel exponentiel, pas une multiplication sur T ;
+//   3. `Combust` sort immédiatement si `burnRate <= 0` (défaut, et la scène (e)
+//      ne le règle pas). C'est le SEUL autre écrivain de `mTemperature` : la
+//      flottabilité LIT T et écrit dans la VITESSE, la projection ne touche
+//      pas T.
+// Si l'une de ces trois tombe, le modèle tombe avec elle — et le § 13 dit d'avance
+// ce qu'on en conclurait.
+//
+// ⚠️ LA RÉSERVE : advecter T en forme CONSERVATIVE n'est physiquement juste que
+// parce que la projection rend `div u` quasi nul. La conservation DISCRÈTE de
+// `somme T` est exacte quoi qu'il arrive (télescopage), mais ce qu'elle conserve
+// n'est le bon objet que dans la mesure où (b) est vert — `0,000026 %`.
+// =============================================================================
+void EnqueteComptageChaleur() {
+	printf("\n=== (k1) LE COMPTAGE ANALYTIQUE DE LA CHALEUR ===\n");
+	printf("    La masse prouve que le semi-lagrangien FABRIQUE de la matière. Mais\n");
+	printf("    l'arbitrage porte sur Tmax, donc sur la CHALEUR : tant que le facteur 8,7\n");
+	printf("    reste une déduction, il reste une inférence sur le nombre qui DÉCIDE.\n");
+	printf("    ÉCRIT AVANT LA COURSE (PLAN_ORDRE_SUPERIEUR.md § 13) :\n");
+	printf("      A_T = 9,720e-03 par pas ; f_T = exp(-0,5/60) ; H attendue = 1,15372 K.m^3\n");
+	printf("      (k1) conservatif : écart < 1e-3 ; prédiction 1e-6 à 1e-4, donc PLUS LÂCHE\n");
+	printf("      qu'en (j1) — la température vit autour de 300 K, où le quantum du float32\n");
+	printf("      vaut 3,05e-05 K, et le solveur refait T <- T_amb + (T-T_amb)*f 600 fois.\n");
+	printf("      C'est une perte par QUANTIFICATION que le champ de masse ne subit pas.\n");
+	printf("    ⚠️ DÉLIMITATION, vraie MÊME SI ce lot verdit : Tmax n'est PAS la chaleur.\n");
+	printf("    H est une INTÉGRALE, Tmax un MAXIMUM PONCTUEL, qu'aucun schéma ne conserve\n");
+	printf("    et qu'aucun calcul à la main ne peut prédire. Ce lot mesure LE DÉNOMINATEUR\n");
+	printf("    de l'argument de Q10, et rien d'autre.\n");
+	char buf[640];
+
+	const NkVec3f bmin = {-0.25f, 0.f, -0.25f};
+	const NkVec3f bmax = {0.25f, 1.f, 0.25f};
+	const float32 h = 0.02f;
+	const NkVec3f src = {0.f, 0.05f, 0.f};
+	const float32 rayon = 0.05f;
+	const float64 dt = 1.0 / 60.0;
+	const float64 debitT = 900.0, debitM = 6.0;
+	const uint32 pas = 600;
+
+	const ComptageAnalytique aT = CompterALaMain(bmin, bmax, h, src, rayon, debitT, dt, pas, 0.5, false);
+	printf("\n    COMPTAGE À LA MAIN : %u cellules ; A_T = %.6e par pas ;\n", aT.cellules, aT.masseParPas);
+	printf("    f_T = exp(-0,5/60) = %.9f ; H attendue = %.9f K.m^3\n", aT.facteur, aT.masse);
+
+	// ── (k0) LA SOURCE INJECTE-T-ELLE CE QUE JE COMPTE ? ────────────────────
+	// ⚠️ CE CONTRÔLE MANQUAIT À (j1), et il sépare deux choses que (j1) jugeait
+	// ensemble : « la source injecte ce que je crois » et « le transport conserve ».
+	// UN EmitSphere, AUCUN pas : il ne reste que l'injection. Les deux attendus sont
+	// NON NULS et EXACTS, donc ce n'est pas un témoin nul.
+	{
+		const ComptageAnalytique un = CompterALaMain(bmin, bmax, h, src, rayon, debitT, dt, 1u, 0.0, true);
+		const ComptageAnalytique unM = CompterALaMain(bmin, bmax, h, src, rayon, debitM, dt, 1u, 0.0, true);
+		NkFluidGridParams p;
+		p.boundsMin = bmin;
+		p.boundsMax = bmax;
+		p.cellSize = h;
+		NkFluidGrid g;
+		const bool ok = g.Init(p);
+		float64 h0 = -1.0, hApres = -1.0, mApres = -1.0;
+		if (ok) {
+			h0 = (float64)ChaleurTotale(g, p.ambientTemperature); // AVANT toute émission
+			g.EmitSphere(src, rayon, (float32)(debitM * dt), (float32)(debitT * dt), 0.f);
+			hApres = (float64)ChaleurTotale(g, p.ambientTemperature);
+			mApres = (float64)g.TotalMass();
+		}
+		const float64 eH = EcartRelatif(hApres, un.masse);
+		const float64 eM = EcartRelatif(mApres, unM.masse);
+		snprintf(buf, sizeof(buf),
+				 "grille neuve : H = %.3e (Reset met T = T_amb partout, donc zéro — mesuré, pas supposé). "
+				 "Après UN EmitSphere et AUCUN pas : H = %.9f contre %.9f attendue (écart %.3e) et M = "
+				 "%.9f contre %.9f (écart %.3e). Ce contrôle SÉPARE « la source injecte ce que je crois » "
+				 "de « le transport conserve » — (j1) les jugeait ensemble",
+				 h0, hApres, un.masse, eH, mApres, unM.masse, eM);
+		ProbeCheck(ok && h0 == 0.0 && eH < kSeuilEcartAnalytique && eM < kSeuilEcartAnalytique,
+				   "(k0) LA SOURCE injecte EXACTEMENT ce que je compte à la main", buf);
+	}
+
+	// ── LES COURSES ────────────────────────────────────────────────────────
+	const ResultatPrix semi = SceneDixSecondes(false);
+	const ResultatPrix vl = SceneDixSecondes(true, 0.f, NkFluidFluxLimiter::VanLeer);
+	const ResultatPrix o1 = SceneDixSecondes(true, 0.f, NkFluidFluxLimiter::Ordre1);
+
+	const float64 eSemi = EcartRelatif((float64)semi.chaleurTotale, aT.masse);
+	const float64 eO1 = EcartRelatif((float64)o1.chaleurTotale, aT.masse);
+	const float64 eVL = EcartRelatif((float64)vl.chaleurTotale, aT.masse);
+	const float64 fSemi = (aT.masse > 0.0) ? (float64)semi.chaleurTotale / aT.masse : 0.0;
+
+	printf("\n      schéma              chaleur (K.m^3)   écart relatif à l'analytique   facteur    Tmax\n");
+	printf("      ANALYTIQUE (main)     %.9f     —                              1,000       —\n", aT.masse);
+	printf("      FLUX ordre 1          %.9f     %.3e                      %.3f   %7.1f\n",
+		   (double)o1.chaleurTotale, eO1, (aT.masse > 0.0) ? (double)o1.chaleurTotale / aT.masse : 0.0,
+		   (double)o1.tmax);
+	printf("      FLUX van Leer         %.9f     %.3e                      %.3f   %7.1f\n",
+		   (double)vl.chaleurTotale, eVL, (aT.masse > 0.0) ? (double)vl.chaleurTotale / aT.masse : 0.0,
+		   (double)vl.tmax);
+	printf("      SEMI-LAGRANGIEN       %.9f     %.3e                      %.3f   %7.1f\n",
+		   (double)semi.chaleurTotale, eSemi, fSemi, (double)semi.tmax);
+	fflush(stdout);
+
+	snprintf(buf, sizeof(buf),
+			 "van Leer %.9f contre %.9f calculée À LA MAIN : écart relatif %.3e (seuil 1e-3, écrit AVANT ; "
+			 "prédit 1e-6 à 1e-4) ; l'ordre 1 %.3e. Le nombre attendu ne vient PAS du solveur — il vient de "
+			 "%u cellules, d'un débit thermique et d'une récurrence de %u pas",
+			 (double)vl.chaleurTotale, aT.masse, eVL, eO1, aT.cellules, pas);
+	ProbeCheck(eVL < kSeuilEcartAnalytique && eO1 < kSeuilEcartAnalytique,
+			   "(k1) LE CONSERVATIF colle à la CHALEUR calculée À LA MAIN", buf);
+
+	snprintf(buf, sizeof(buf),
+			 "le semi-lagrangien finit avec %.9f K.m^3 pour une chaleur injectée de %.9f : facteur %.3f "
+			 "(exigé > %.1f). Le 8,7 de l'enquête (i) cesse d'être une déduction : la RÉFÉRENCE de (h1) "
+			 "porte bien une chaleur qu'aucune source n'a fournie, et c'est mesuré contre un nombre calculé "
+			 "hors du solveur",
+			 (double)semi.chaleurTotale, aT.masse, fSemi, kFacteurSemiLagMin);
+	ProbeCheck(fSemi > kFacteurSemiLagMin, "(k1) LE SEMI-LAGRANGIEN porte une chaleur d'un facteur > 5", buf);
+
+	// ── (k1b) NÉGATIF : injection UNIQUE, dissipation thermique COUPÉE ─────
+	{
+		const ComptageAnalytique b = CompterALaMain(bmin, bmax, h, src, rayon, debitT, dt, pas, 0.0, true);
+		const ResultatPrix u = SceneDixSecondes(true, 0.f, NkFluidFluxLimiter::VanLeer, -1.f, true, -1.f, 0.f);
+		const float64 eU = EcartRelatif((float64)u.chaleurTotale, b.masse);
+		const float64 amplitude =
+			(u.chaleurMax > 0.f) ? (float64)(u.chaleurMax - u.chaleurMin) / (float64)u.chaleurMax : 1.0e30;
+		snprintf(buf, sizeof(buf),
+				 "une SEULE injection (%.9f K.m^3 attendue, NON NULLE — couper la source donnerait 0 = 0 et "
+				 "ne prouverait rien), dissipation thermique coupée, 600 pas : H finale %.9f, écart %.3e ; "
+				 "amplitude sur TOUTE la course (max-min)/max = %.3e. L'advection a tourné pendant 600 pas "
+				 "et n'a NI créé NI détruit de chaleur",
+				 b.masse, (double)u.chaleurTotale, eU, amplitude);
+		ProbeCheck(eU < kSeuilEcartAnalytique && amplitude < kSeuilEcartAnalytique,
+				   "(k1b) NÉGATIF : injection unique sans dissipation -> H CONSTANTE et EXACTE", buf);
+	}
+
+	// ── (k1c) MUTATION : on FAUSSE le débit thermique attendu ──────────────
+	{
+		const ComptageAnalytique faux =
+			CompterALaMain(bmin, bmax, h, src, rayon, debitT * 1.01, dt, pas, 0.5, false);
+		const float64 eFaux = EcartRelatif((float64)vl.chaleurTotale, faux.masse);
+		snprintf(buf, sizeof(buf),
+				 "débit thermique attendu faussé de +1 %% (%.1f K au lieu de %.1f) : H attendue passe de %.9f "
+				 "à %.9f, et l'écart du conservatif de %.3e à %.3e — AU-DESSUS du seuil 1e-3. Le compteur "
+				 "REFUSE une chaleur fausse de 1 %%, donc son vert n'est pas un vert de complaisance",
+				 debitT * 1.01, debitT, aT.masse, faux.masse, eVL, eFaux);
+		ProbeCheck(eFaux >= kSeuilEcartAnalytique, "(k1c) MUTATION : un débit thermique faussé de +1 % fait ROUGIR",
+				   buf);
+	}
+
+	printf("\n    ⚠️ CE QUE CE LOT NE DIT PAS, et c'est vrai même s'il est tout vert :\n");
+	printf("    il ne dit PAS ce que Tmax « devrait » valoir, ni que 571,7 K est la bonne\n");
+	printf("    valeur. Il dit que 1749,4 K est atteint AVEC une chaleur que personne n'a\n");
+	printf("    injectée — donc que ce nombre ne peut pas servir de CIBLE. Ce que Tmax mesure\n");
+	printf("    vraiment ici, c'est la CONCENTRATION de la chaleur au voisinage immédiat de la\n");
+	printf("    source : une grandeur de RÉPARTITION, gouvernée par le schéma ET par le\n");
+	printf("    réglage de la scène. Re-régler la scène (e) est la question suivante, et elle\n");
+	printf("    appartient à Rodolf. Rien n'est allumé : advectFluxConservative reste FAUX.\n");
 }
 
 // =============================================================================

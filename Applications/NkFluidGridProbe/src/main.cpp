@@ -61,6 +61,7 @@ void EnqueteOrdreSuperieur();	// (h1)+(h3) l'ORDRE SUPÉRIEUR : le prix repayé 
 void ControleOrdreSuperieur();	// (h2) les trois contrôles de la course complète
 void EnqueteFumeeQuiPese();		  // (i) l'ENQUÊTE, AUCUN verdict (NK_FLUID_MAC=9)
 void EnqueteComptageAnalytique(); // (j1) le comptage À LA MAIN (NK_FLUID_MAC=a)
+void EnqueteComptageChaleur();	  // (k1) le MÊME comptage, sur la CHALEUR (NK_FLUID_MAC=b)
 void PalierVolutes(bool complet); // (n1)(n3)(n2a) toujours ; (n2b) sous NK_FLUID_VOLUTES=1 (PLAN_VOLUTES.md)
 void ImagesDuConfinement(float32 epsilon);
 float32 EpsilonConfinement();
@@ -716,6 +717,21 @@ int main(int argc, char **argv) {
 	// juge. Quatre contrôles, dont une MUTATION qui doit faire rougir le compteur
 	// — un compteur qui ne sait pas rougir n'a jamais rien prouvé en verdissant.
 	// (La lettre, pas un chiffre : `mac[0] == '1'` attraperait « 10 ».)
+	// NK_FLUID_MAC=b : (k1) LE MÊME COMPTAGE, SUR LA CHALEUR. La masse prouve que
+	// le semi-lagrangien fabrique de la MATIÈRE ; mais l'arbitrage de Rodolf porte
+	// sur Tmax, donc sur la CHALEUR — tant que le facteur 8,7 reste une déduction,
+	// il reste une inférence sur le nombre qui DÉCIDE.
+	// ⚠️ Ce mode s'autorise la MÊME fonction de comptage que (j1) parce que trois
+	// préconditions le permettent, lues dans le code et nommées dans le plan (§ 13).
+	// Il ajoute (k0), le contrôle qui MANQUAIT à (j1) : la source injecte-t-elle
+	// exactement ce que je compte, AVANT tout transport ?
+	if (mac != nullptr && mac[0] == 'b') {
+		EnqueteComptageChaleur();
+		printf("\n=============================================================\n");
+		printf("BILAN (mode NK_FLUID_MAC=b, (k1) LA CHALEUR) : %d controles, %d ROUGES\n", gChecks, gFailures);
+		printf("=============================================================\n");
+		return gFailures == 0 ? 0 : 1;
+	}
 	if (mac != nullptr && mac[0] == 'a') {
 		EnqueteComptageAnalytique();
 		printf("\n=============================================================\n");
