@@ -1811,6 +1811,124 @@ int nkmain(const NkEntryState &entry) {
 			}
 		}
 
+		// NK_EDIT_PICK="x,y[,frame][,shift][,alt]" : UN CLIC D'ELEMENT A DES
+		// COORDONNEES ECRITES, en pixels de la VUE. Il passe par la MEME porte que
+		// le clic de la souris (`Demo3DHostEditPickAt` arme, la vue consomme au
+		// meme endroit) -- aucun evenement souris n'est fabrique, aucune position
+		// de curseur n'est ecrite.
+		// ⚠️ POURQUOI CE CROCHET EXISTE : le pick d'element etait le SEUL geste du
+		// mode Edition qu'aucune porte ne pouvait declencher. Le mode, les
+		// operations, la selection par indices en avaient une ; designer un sommet
+		// a un endroit donne, non. Sans lui, « les trois modes designent trois
+		// choses differentes au meme clic » ne pouvait pas se mesurer du tout.
+		// La ligne imprimee est le quadruplet de Blender : sommet actif, arete
+		// active (deux sommets), face active, et le compte de la selection.
+		{
+			static bool sPickDone = false;
+			if (const char *pk = std::getenv("NK_EDIT_PICK")) {
+				float32 px = 0.f, py = 0.f;
+				int32 fr = 40;
+				int32 shf = 0, alt = 0;
+				{
+					const char *c = pk;
+					px = (float32)std::atof(c);
+					auto suivant = [](const char *&p) -> bool {
+						while (*p && *p != ',')
+							++p;
+						if (*p != ',')
+							return false;
+						++p;
+						return true;
+					};
+					if (suivant(c)) {
+						py = (float32)std::atof(c);
+						if (suivant(c)) {
+							fr = (int32)std::atoi(c);
+							if (suivant(c)) {
+								shf = std::atoi(c);
+								if (suivant(c))
+									alt = std::atoi(c);
+							}
+						}
+					}
+				}
+				if (!sPickDone && agentFrame >= fr && demo::Demo3DHostInEditMode()) {
+					sPickDone = true;
+					// UNE COORDONNEE ENTRE 0 ET 1 EST UNE FRACTION DE LA VUE, et c'est
+					// dit : la taille de la vue depend de la fenetre et des panneaux, et
+					// ecrire « 512 » dans un banc qui tournera ailleurs, c'est ecrire un
+					// point qui tombera a cote. Au-dessus de 1, c'est un pixel.
+					uint32 vw = 0, vh = 0;
+					demo::Demo3DHostViewSize(&vw, &vh);
+					if (px > 0.f && px <= 1.f)
+						px *= (float32)vw;
+					if (py > 0.f && py <= 1.f)
+						py *= (float32)vh;
+					const bool arme = demo::Demo3DHostEditPickAt(px, py, shf != 0, alt != 0);
+					std::printf("[nk3d] NK_EDIT_PICK (%.1f,%.1f) vue=%ux%u mode=%d arme=%d\n",
+								(double)px, (double)py, vw, vh,
+								(int)demo::Demo3DHostEditSelMask(), arme ? 1 : 0);
+				}
+				// Le RESULTAT se lit une frame APRES l'armement : le pick est
+				// consomme dans la vue, pas ici. Lire tout de suite rendrait
+				// l'etat d'AVANT le clic -- la faute deja payee sur les modes.
+				static int32 sPickLu = -1;
+				if (sPickDone && sPickLu < 0 && agentFrame >= fr + 2) {
+					sPickLu = agentFrame;
+					int32 v = -1, ea = -1, eb = -1, f = -1;
+					const bool ok = demo::Demo3DHostEditActive(&v, &ea, &eb, &f);
+					std::printf("[nk3d] PICK RESULTAT mode=%d : sommet=%d arete=(%d,%d) face=%d "
+								"selection=%d (lu=%d)\n",
+								(int)demo::Demo3DHostEditSelMask(), (int)v, (int)ea, (int)eb, (int)f,
+								(int)demo::Demo3DHostEditSelCount(), ok ? 1 : 0);
+				}
+			} else {
+				sPickDone = true;
+			}
+		}
+
+		// NK_EDIT_REPORT="<frame>[,<frame2>]" : l'etat du mode Edition a UNE ou DEUX
+		// frames donnees -- comptes reels, selection, masque, ET disponibilite de
+		// l'annulation. Deux frames parce qu'une operation se juge par un AVANT et
+		// un APRES, et qu'un seul relevé ne dit jamais ce qui a change.
+		// ⚠️ `annuler`/`refaire` sont dans la meme ligne que les comptes A DESSEIN :
+		// un mode edition sans annulation est un piege, pas un outil -- et la seule
+		// facon de le savoir est de le lire au meme moment que le reste.
+		{
+			static bool sRep1 = false, sRep2 = false;
+			if (const char *rp = std::getenv("NK_EDIT_REPORT")) {
+				int32 f1 = 50, f2 = -1;
+				f1 = (int32)std::atoi(rp);
+				{
+					const char *c = rp;
+					while (*c && *c != ',')
+						++c;
+					if (*c == ',')
+						f2 = (int32)std::atoi(c + 1);
+				}
+				auto ecrire = [&](int32 quand) {
+					uint32 vv = 0, ve = 0, vf = 0, vt = 0;
+					const bool ok = demo::Demo3DHostStats(&vv, &ve, &vf, &vt);
+					std::printf("[nk3d] EDIT RAPPORT frame=%d : v=%u e=%u f=%u t=%u | selection=%d "
+								"| masque=%d | annuler=%d refaire=%d (lu=%d)\n",
+								(int)quand, vv, ve, vf, vt, (int)demo::Demo3DHostEditSelCount(),
+								(int)demo::Demo3DHostEditSelMask(),
+								demo::Demo3DHostEditCanUndo() ? 1 : 0,
+								demo::Demo3DHostEditCanRedo() ? 1 : 0, ok ? 1 : 0);
+				};
+				if (!sRep1 && f1 > 0 && agentFrame >= f1) {
+					sRep1 = true;
+					ecrire(agentFrame);
+				}
+				if (!sRep2 && f2 > 0 && agentFrame >= f2) {
+					sRep2 = true;
+					ecrire(agentFrame);
+				}
+			} else {
+				sRep1 = sRep2 = true;
+			}
+		}
+
 		{
 			static bool sMarkDone = false;
 			if (const char *em2 = std::getenv("NK_EDGE_MARK")) {
