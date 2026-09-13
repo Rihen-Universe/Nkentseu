@@ -565,6 +565,12 @@ int main() {
 			const NkVec3f p1 = world.GetBody(car->Chassis())->position;
 			avanceRef = p1.z - p0.z;
 			Check(avanceRef > 5.f, "VEHICULE avance : plein gaz 3 s -> plus de 5 m dans l'axe");
+			// LE CHIFFRE, pas seulement le verdict : une assertion « > 5 m » reste verte
+			// pendant que la valeur derive. Le relachement ajoute le 13/09 (resistance au
+			// roulement + frein moteur) RETIRE de l'avance sans faire rougir ce Check ;
+			// sans cette ligne, personne ne verrait de combien.
+			std::printf("  [vehicule] plein gaz 3 s : avance %.3f m, derive %.4f m, v = %.4f m/s\n",
+						avanceRef, p1.x - p0.x, car->ForwardSpeed());
 			Check(std::fabs(p1.x - p0.x) < 0.2f, "VEHICULE avance : derive laterale < 0,2 m (adherence laterale presente)");
 			Check(car->ForwardSpeed() > 0.f, "VEHICULE avance : la vitesse est signee dans le sens de l'axe");
 			// 3) ELLE S'ARRETE : frein plein, 3 s -> immobile et le reste.
@@ -588,6 +594,8 @@ int main() {
 			car->SetInput(0.f, 1.f, 0.f);
 			for (int i = 0; i < 180; ++i) world.Step(h);
 			const float32 avance = world.GetBody(car->Chassis())->position.z - p0.z;
+			std::printf("  [vehicule] contre-epreuve mu = 0,01 : avance %.3f m, soit %.1f %% de l'avance normale\n",
+						avance, avanceRef > 1e-6f ? 100.f * avance / avanceRef : 0.f);
 			Check(avance < 0.25f * avanceRef,
 				  "CONTRE-EPREUVE : avec mu = 0,01 la voiture PATINE (moins du quart de l'avance normale) -- le frottement est bien mesure");
 			delete car;
