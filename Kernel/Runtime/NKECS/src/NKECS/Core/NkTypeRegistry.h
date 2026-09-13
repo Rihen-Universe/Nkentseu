@@ -1,4 +1,5 @@
 // =============================================================================
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // Core/NkTypeRegistry.h
 // Registre central de tous les types de components.
 //
@@ -313,6 +314,35 @@ namespace nkentseu {
 				// ---------------------------------------------------------------------
 				[[nodiscard]] uint32 Count() const noexcept {
 					return mNumRegistered;
+				}
+
+				// ---------------------------------------------------------------------
+				// AJOUT 2026-09-13 — le chemin du RETOUR : nom -> identifiant.
+				//
+				// TypeName<T>() savait deja aller du type vers le nom ; c'est ce nom
+				// que les prefabs et les scenes ecrivent dans leurs fichiers. Rien
+				// ne savait faire le trajet inverse, donc un fichier relu ne pouvait
+				// pas retrouver le NkComponentId de ce qu'il decrivait.
+				//
+				// ⚠️ Limite honnete : un type dont AUCUNE unite de compilation du
+				// processus n'a touche NkIdOf<T>() / NK_COMPONENT(T) n'est pas dans
+				// le registre — la recherche rend alors kInvalidComponentId. Ce
+				// n'est pas un bug : c'est l'enregistrement paresseux assume par
+				// le module. Comparaison exacte, sensible a la casse.
+				// ---------------------------------------------------------------------
+				[[nodiscard]] NkComponentId FindIdByName(const char *name) const noexcept {
+					if (name == nullptr) {
+						return kInvalidComponentId;
+					}
+					for (uint32 i = 0; i < mNumRegistered; ++i) {
+						if (mMetas[i].id == kInvalidComponentId || mMetas[i].name == nullptr) {
+							continue;
+						}
+						if (std::strcmp(mMetas[i].name, name) == 0) {
+							return mMetas[i].id;
+						}
+					}
+					return kInvalidComponentId;
 				}
 
 				// ---------------------------------------------------------------------
