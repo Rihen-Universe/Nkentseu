@@ -117,7 +117,18 @@ namespace nkentseu {
 			// ── La zone de depot occupe tout le reste, soumise comme un VRAI
 			// widget (ButtonBehavior pose lastItemId/lastItemRect — c'est ce que
 			// BeginDropTarget consomme). ───────────────────────────────────────
-			float32 h = ctx.AvailHeight();
+			// ⚠️ PAS `AvailHeight()`, ET LA RAISON EST DANS LE KIT, PAS ICI.
+			// `AvailHeight()` rend la hauteur restante dans la REGION DE LAYOUT ;
+			// dans un cadre defilant celle-ci vaut DELIBEREMENT 1.0e6
+			// (NkGuiWidgets.cpp l.3801), parce que le contenu d'un panneau
+			// defilant n'est pas borne par ce qu'on en voit — c'est le rognage qui
+			// borne. Elle rendait donc 999936, ce qui est CORRECT pour du contenu
+			// qui coule et absurde pour dimensionner une cible de rendu.
+			// Ce qui MANQUAIT, c'etait la question inverse — « combien est
+			// reellement visible » — et personne ne pouvait la poser. Elle existe
+			// depuis aujourd'hui dans NKGui (`VisibleHeight`), ou elle sert a tous
+			// les panneaux, pas au seul viewport.
+			float32 h = ctx.VisibleHeight();
 			if (h < 40.f)
 				h = 40.f;
 			const NkRect zone = ctx.NextItemRect(-1.f, h);
@@ -134,11 +145,10 @@ namespace nkentseu {
 			// crochet preUI, frame device ouverte et passe backbuffer pas encore
 			// commencee. UV Y inverse : les cibles de rendu ont leur origine en
 			// bas a gauche (meme geste que NkAnimaEditor/Panels.h l.212).
-			// ⚠️ MESURE DU 13/09 : `ctx.AvailHeight()` rend ici 999936 — la zone de
-			// depot s'en accommodait (un rect trop haut est simplement rogne), mais
-			// une CIBLE DE RENDU de 1138x999936 ne s'alloue pas. Le defaut est dans
-			// la hauteur disponible, pas dans le viewport ; on le BORNE ici, on le
-			// dit, et on ne fait pas semblant de l'avoir corrige.
+			// La borne a 4096 RESTE, et ce n'est pas une ceinture de trop : une
+			// cible de rendu est la seule chose ici dont une taille aberrante coute
+			// des gigaoctets (5,6 Go mesures le 13/09 avant arret). Une garde qui
+			// ne sert jamais est une garde qui n'a rien coute.
 			const float32 vw = zone.w > 4096.f ? 4096.f : zone.w;
 			const float32 vh = zone.h > 4096.f ? 4096.f : zone.h;
 			if (vw > 1.f && vh > 1.f)

@@ -293,26 +293,13 @@ namespace nkentseu {
 						avant = {0.f, 0.f, -1.f};
 					}
 				}
-				const NkVec3f mondeUp{0.f, 1.f, 0.f};
-				const NkVec3f axeZ{-avant.x, -avant.y, -avant.z}; // colonne 2
-				NkVec3f axeX = mondeUp.Cross(axeZ);
-				{
-					const float32 n = std::sqrt(axeX.x * axeX.x + axeX.y * axeX.y + axeX.z * axeX.z);
-					if (n > 1e-6f) {
-						axeX.x /= n;
-						axeX.y /= n;
-						axeX.z /= n;
-					} else {
-						axeX = {1.f, 0.f, 0.f}; // visee verticale : right arbitraire mais defini
-					}
-				}
-				const NkVec3f axeY = axeZ.Cross(axeX);
-				NkMat4f repere = NkMat4f::Identity();
-				repere.right = {axeX.x, axeX.y, axeX.z, 0.f};
-				repere.up = {axeY.x, axeY.y, axeY.z, 0.f};
-				repere.forward = {axeZ.x, axeZ.y, axeZ.z, 0.f};
-				repere.position = {0.f, 0.f, 0.f, 1.f};
-				tf->SetLocalRotation(NkQuatf(repere));
+				// La construction du repere a ete HISSEE DANS NKMATH le meme jour :
+				// le piege n'est pas propre a Nogee, et une copie locale en aurait
+				// fait un correctif par site. `NkQuatf::FromForwardUp` garantit la
+				// seule chose qu'on relit — `-colonne2 == avant` — et elle est
+				// gardee par `NKMath/tests/test_camera_axis.cpp`, banc vu ROUGE
+				// (avec LookAt) puis vert. Une seule implementation, surveillee.
+				tf->SetLocalRotation(NkQuatf::FromForwardUp(avant, NkVec3f{0.f, 1.f, 0.f}));
 				cam->aspect = (float32)g.rtW / (float32)(g.rtH > 0 ? g.rtH : 1);
 			}
 
