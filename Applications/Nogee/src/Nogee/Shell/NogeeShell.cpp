@@ -20,6 +20,8 @@
 #include "Noge/ECS/Scene/NkSceneGraph.h"
 #include "Noge/ECS/Components/Core/NkCoreComponents.h"
 #include "Noge/ECS/Components/Rendering/NkRenderComponents.h" // NkMeshComponent (temoin palier A)
+#include "Noge/ECS/Systems/NkSceneSerializer.h"            // .nkscene : le format du moteur
+#include "Noge/ECS/Systems/NkSceneComponentsSerialization.h" // et les composants qui savent s ecrire
 
 #include "NKEditorKit/NkEditorKit.h"
 #include "NKGui/NkEditorRHIRenderer.h" // Integrations/NKGui (impl generalisee)
@@ -55,6 +57,9 @@ namespace nkentseu {
 					float32 yaw = 0.f;
 					int32 fermerApres = 0; ///< 0 = jamais
 					int32 frames = 0;
+					char sauver[400] = {};   ///< --viewport-sauver=<f>
+					char charger[400] = {};  ///< --viewport-charger=<f>
+					bool modifier = false;   ///< NEGATIF : perturbe une transformation apres lecture
 					bool selectionne = false; ///< --viewport-selectionne : selectionne le temoin
 					bool selection = false; ///< --viewport-selection : quel objet sous ce pixel
 					nk_uint64 idTemoin = 0ull;  ///< TEMOIN_Cube empaquete, pour reconnaitre la reponse
@@ -65,6 +70,38 @@ namespace nkentseu {
 			};
 
 			ViewportProbe g_vp;
+
+			// ── EMPREINTE DE LA SCENE : les NOMBRES, pas une impression ───────
+			// Une ligne par entite nommee, avec tout ce qui doit survivre. C'est
+			// CE texte qu'on compare entre deux PROCESSUS — pas une capture, pas
+			// un ressenti. `%.6f` : assez de decimales pour qu'un arrondi de
+			// serialisation se voie, au lieu de se cacher derriere un affichage
+			// trop court.
+			static void EmpreinteScene(ecs::NkWorld &monde, const char *etiquette) {
+				int32 n = 0;
+				monde.Query<ecs::NkName>().ForEach([&](ecs::NkEntityId id, ecs::NkName &nom) {
+					const ecs::NkTransform *tf = monde.Get<ecs::NkTransform>(id);
+					const ecs::NkMeshComponent *mc = monde.Get<ecs::NkMeshComponent>(id);
+					const ecs::NkMaterialComponent *ma = monde.Get<ecs::NkMaterialComponent>(id);
+					char m[700];
+					std::snprintf(m, sizeof(m),
+								  "[EMPREINTE-%s] nom=%s pos=%.6f,%.6f,%.6f rot=%.6f,%.6f,%.6f,%.6f "
+								  "ech=%.6f,%.6f,%.6f mesh=%s visible=%d slots=%d\n",
+								  etiquette, nom.value, tf ? (double)tf->localPosition.x : 0.0,
+								  tf ? (double)tf->localPosition.y : 0.0, tf ? (double)tf->localPosition.z : 0.0,
+								  tf ? (double)tf->localRotation.x : 0.0, tf ? (double)tf->localRotation.y : 0.0,
+								  tf ? (double)tf->localRotation.z : 0.0, tf ? (double)tf->localRotation.w : 0.0,
+								  tf ? (double)tf->localScale.x : 0.0, tf ? (double)tf->localScale.y : 0.0,
+								  tf ? (double)tf->localScale.z : 0.0,
+								  mc ? (mc->meshPath.Empty() ? "(vide)" : mc->meshPath.CStr()) : "(aucun)",
+								  mc ? (mc->visible ? 1 : 0) : -1, ma ? (int)ma->slotCount : -1);
+					logger.Info(m);
+					++n;
+				});
+				char f[160];
+				std::snprintf(f, sizeof(f), "[EMPREINTE-%s] TOTAL entites nommees = %d\n", etiquette, n);
+				logger.Info(f);
+			}
 
 			// ── LE CROCHET pre-UI ─────────────────────────────────────────────
 			// Appele par NkEditorRHIRenderer::BeginFrame (l.182), frame device
@@ -1027,6 +1064,14 @@ namespace nkentseu {
 			// Les memes entites TEMOIN que le chemin NKUI — et le meme
 			// complement explicite : SpawnNode et NkGameObjectFactory posent des
 			// composants DISJOINTS (cf. carnet), aucun des deux ne suffit.
+			// ⚠️ OUVRIR UNE SCENE N'AJOUTE PAS A LA SCENE PAR DEFAUT.
+			// `NkSceneSerializer::Load` FUSIONNE : son en-tete le dit (« Les entites
+			// existantes dans la scene sont preservees »). Sans cette garde, ouvrir
+			// un fichier de 5 entites dans un editeur qui en cree 4 au demarrage en
+			// donnait 9, dont quatre en double — MESURE, et c'est ce que la premiere
+			// comparaison d'empreintes a montre. Le contenu etait juste, le COMPTE
+			// ne l'etait pas.
+			if (g_vp.charger[0] == '\0')
 			{
 				const ecs::NkEntityId racine = sScene.SpawnNode("TEMOIN_Racine");
 				const ecs::NkEntityId enfantA = sScene.SpawnNode("TEMOIN_Enfant_A");
@@ -1067,7 +1112,7 @@ namespace nkentseu {
 			// que `NkRenderSystem::SubmitMeshes` exige — et le quatrieme,
 			// `NkMaterialComponent`, est precisement celui qui manquait au depot
 			// d'un asset (cf. ViewportPanel.cpp).
-			if (vp3dOk) {
+			if (vp3dOk && g_vp.charger[0] == '\0') {
 				const nk_uint64 cube = NogeeViewport3DCubeMeshHandle();
 				const ecs::NkEntityId id = sScene.SpawnNode("TEMOIN_Cube");
 				sWorld.Add<ecs::NkName>(id, ecs::NkName("TEMOIN_Cube"));
@@ -1102,6 +1147,67 @@ namespace nkentseu {
 							  (unsigned long long)cube, g_vp.sansMesh ? 1 : 0, g_vp.inactif ? 1 : 0,
 							  (int)NogeeViewport3DDrawCount());
 				logger.Info(msg);
+			}
+
+			// ── LA SCENE SURVIT-ELLE ? ────────────────────────────────────────
+			// Le serialiseur du MOTEUR (.nkscene, Noge/ECS/Systems), pas un
+			// format invente pour l'editeur : deux hotes qui ecrivent deux
+			// formats de scene finissent par diverger.
+			// Les composants doivent etre ENREGISTRES avant tout Save ou Load :
+			// sans cela le registre est vide et l'archive ne porte que des
+			// identifiants d'entites — c'est exactement ce qui se passait avant
+			// ce lot, et `Save` rendait `true` quand meme.
+			RegisterNogeSceneComponents();
+			if (g_vp.charger[0] != '\0') {
+				ecs::NkSceneSerializer s;
+				const bool ok = s.Load(sScene, g_vp.charger);
+				logger.Info(ok ? "[SCENE] lecture : OK\n" : "[SCENE] lecture : ECHEC\n");
+				// NEGATIF : on perturbe UNE transformation APRES la lecture. Si
+				// l'empreinte reste identique malgre cela, c'est qu'elle ne
+				// regarde pas les transformations — et l'aller-retour ne prouve
+				// rien. Le negatif doit FAIRE ECHOUER la comparaison.
+				if (g_vp.modifier) {
+					bool fait = false;
+					sWorld.Query<ecs::NkName, ecs::NkTransform>().ForEach(
+						[&](ecs::NkEntityId, ecs::NkName &, ecs::NkTransform &tf) {
+							if (fait)
+								return;
+							tf.localPosition.x += 0.25f;
+							fait = true;
+						});
+					logger.Info("[SCENE] NEGATIF : une transformation perturbee de +0.25 en x\n");
+				}
+				EmpreinteScene(sWorld, "APRES");
+			}
+			if (g_vp.sauver[0] != '\0') {
+				// ── LE CAS QUI COMPTE POUR RODOLF : UN ASSET DEPOSE ───────────
+				// On cree l'entite avec EXACTEMENT les quatre composants que pose
+				// `ViewportPanel::SpawnMeshFromAsset` au glisser-deposer, et le meme
+				// `meshPath`. C'est donc le meme objet a serialiser qu'un vrai depot.
+				// Je ne simule PAS le geste souris : je construis l'entite qu'il
+				// produit. Le geste, lui, est deja couvert par --dragdrop-test.
+				{
+					const char *obj = "TEMOIN_depot.obj";
+					if (std::FILE *f = std::fopen(obj, "wb")) {
+						std::fputs("# maillage temoin de la sauvegarde\nv 0 0 0\nv 1 0 0\nv 0 1 0\nf 1 2 3\n", f);
+						std::fclose(f);
+					}
+					const ecs::NkEntityId d = sScene.SpawnNode("TEMOIN_Depot");
+					sWorld.Add<ecs::NkName>(d, ecs::NkName("TEMOIN_Depot"));
+					ecs::NkTransform tfd;
+					// Des valeurs qu'un arrondi de serialisation trahirait.
+					tfd.SetLocalPosition(1.5f, -0.25f, 2.75f);
+					tfd.SetLocalScale(0.5f);
+					sWorld.Add<ecs::NkTransform>(d, tfd);
+					ecs::NkMeshComponent mcd;
+					mcd.meshPath = NkString(obj);
+					sWorld.Add<ecs::NkMeshComponent>(d, mcd);
+					sWorld.Add<ecs::NkMaterialComponent>(d, ecs::NkMaterialComponent{});
+				}
+				EmpreinteScene(sWorld, "AVANT");
+				ecs::NkSceneSerializer s;
+				const bool ok = s.Save(sScene, g_vp.sauver);
+				logger.Info(ok ? "[SCENE] ecriture : OK\n" : "[SCENE] ecriture : ECHEC\n");
 			}
 
 			// Assets + projet : racine = projet de demarrage s'il existe, sinon
@@ -1258,6 +1364,20 @@ namespace nkentseu {
 
 		void NogeeShellViewportInactif() noexcept {
 			g_vp.inactif = true;
+		}
+
+		void NogeeShellViewportSauver(const char *chemin) noexcept {
+			if (chemin && chemin[0])
+				std::snprintf(g_vp.sauver, sizeof(g_vp.sauver), "%s", chemin);
+		}
+
+		void NogeeShellViewportCharger(const char *chemin) noexcept {
+			if (chemin && chemin[0])
+				std::snprintf(g_vp.charger, sizeof(g_vp.charger), "%s", chemin);
+		}
+
+		void NogeeShellViewportModifier() noexcept {
+			g_vp.modifier = true;
 		}
 
 		void NogeeShellViewportSelectionne() noexcept {

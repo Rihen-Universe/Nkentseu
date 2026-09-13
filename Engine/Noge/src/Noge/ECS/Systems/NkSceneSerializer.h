@@ -47,14 +47,22 @@ namespace nkentseu {
 		// NkSceneSerializer::RegisterComponentSerializer<T>().
 		// Si non enregistré, le composant est ignoré à la sérialisation.
 		struct NkComponentSerializer {
-				using SerializeFn = bool (*)(const void *comp, NkArchive &out);
-				using DeserializeFn = bool (*)(void *comp, const NkArchive &in);
-				using AddFn = void (*)(NkWorld &world, NkEntityId id);
+				// CONTRAT CHANGE LE 2026-09-13, et c'est ce qui rend ce serialiseur
+				// UTILISABLE. L'ancienne signature prenait un `void *comp` -- le
+				// pointeur du composant -- et le corps ne pouvait pas l'obtenir :
+				// `NkWorld` n'expose AUCUN acces type-efface (pas de GetRaw(id,
+				// typeId)). Le TODO qui le reclamait ne pouvait donc pas etre leve
+				// sans ajouter l'effacement de type a NKECS, un module fondation.
+				// On passe desormais le MONDE et l'ENTITE : chaque serialiseur fait
+				// son propre `world.Get<T>(id)`, typé, sans effacement. Le format
+				// du fichier ne change pas d'un octet.
+				using SerializeFn = bool (*)(const NkWorld &world, NkEntityId id, NkArchive &out);
+				using DeserializeFn = bool (*)(NkWorld &world, NkEntityId id, const NkArchive &in);
 
+				// DOIT etre un litteral : le registre garde le POINTEUR, pas la chaine.
 				const char *typeName = nullptr;
 				SerializeFn serialize = nullptr;
 				DeserializeFn deserialize = nullptr;
-				AddFn addDefault = nullptr; // crée le composant par défaut
 		};
 
 		// =====================================================================
@@ -76,15 +84,13 @@ namespace nkentseu {
 				static void RegisterComponentSerializer(const NkComponentSerializer &cs) noexcept;
 
 				// Template helper — auto-enregistrement via NK_SERIALIZE_COMPONENT macro
-				template <typename T>
-				static void RegisterComponentSerializer(const char *name, NkComponentSerializer::SerializeFn sfn,
-														NkComponentSerializer::DeserializeFn dfn,
-														NkComponentSerializer::AddFn addFn) noexcept {
+				static void RegisterComponentSerializer(const char *name,
+												NkComponentSerializer::SerializeFn sfn,
+												NkComponentSerializer::DeserializeFn dfn) noexcept {
 					NkComponentSerializer cs;
 					cs.typeName = name;
 					cs.serialize = sfn;
 					cs.deserialize = dfn;
-					cs.addDefault = addFn;
 					RegisterComponentSerializer(cs);
 				}
 
