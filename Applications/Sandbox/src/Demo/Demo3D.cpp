@@ -2669,30 +2669,24 @@ static NkTexHandle CreateLanternCubeCookie(NkTextureLibrary *texLib, NkIDevice *
 						}
 					}
 				}
-				// ── NK_OCEAN_SKY : DIRE AU RENDU QU'UN MONDE EXISTE ─────────────────
-				// 🔴 CHARGER LE HDR NE SUFFIT PAS, ET C'EST UN DEFAUT MESURE LE 13/09.
-				// `main.cpp` pose `cfg.ibl.useHDR` + `hdrPath` ; l'environnement se
-				// charge, se convolue et se met en cache -- le journal le dit, et les
-				// deux HDR donnent bien deux fichiers de cache distincts. Mais le
-				// drapeau que le NUANCEUR lit, `uCam.iblColor.w`, vaut
-				// `mIBLUseEnv && mEnv && irradiance valide` (NkRender3D.cpp:2550), et
-				// `mIBLUseEnv` est FAUX par defaut : son unique appelant dans tout le
-				// depot est NK3DModeler. Sans cet appel, `hasEnv` reste 0, le nuanceur
-				// PBR prend son repli d'ambiance UNIFORME et n'echantillonne JAMAIS les
-				// cubemaps -- mesure : deux HDR aussi opposes que piazza_bologni et
-				// newport_loft rendaient une image IDENTIQUE AU BIT.
-				// ⚠️ Et le rafraichissement des liaisons n'est pas decoratif : les jeux
-				// de descripteurs pointent encore sur les anciennes cubemaps.
-				if (const char *e = std::getenv("NK_OCEAN_SKY"); e && (e[0] == '1' || e[0] == '2')) {
-					if (auto *r3dSky = ctx.renderer->GetRender3D()) {
-						r3dSky->SetIBLUseEnv(true);
-						r3dSky->RefreshEnvironmentBindings();
-						std::fprintf(stderr,
-									 "[EAU CIEL] SetIBLUseEnv(true) + RefreshEnvironmentBindings :"
-									 " le nuanceur peut enfin voir qu'un monde est charge (hasEnv)."
-									 " Sans cet appel, le HDR est convolu et JAMAIS echantillonne.\n");
-					}
-				}
+				// ── LE CIEL : LA SONDE NE L'ARME PLUS, ELLE LE LIT ──────────────────
+				// ⚠️ ELLE POSAIT `SetIBLUseEnv(true)` ELLE-MEME, ET C'ETAIT UNE FAUTE DE
+				// PORTEE. Je reparais chez moi un defaut qui frappait tout le monde :
+				// `mIBLUseEnv` etait faux par defaut, son unique appelant du depot etait
+				// NK3DModeler, et Demo4 comme Demo5 chargeaient une HDRI sans rien en
+				// refleter -- l'environnement se convoluait, se mettait en cache, et
+				// n'etait JAMAIS echantillonne (deux HDR opposes rendaient une image
+				// IDENTIQUE AU BIT). Rodolf a tranche : les reflets suivent le
+				// CHARGEMENT du ciel, et le lien vit desormais dans `NkRendererImpl`,
+				// pour toutes les scenes a la fois.
+				// Ce qui reste ici est un TEMOIN : il DIT ce que le rendu a decide, et
+				// il rougirait si le lien disparaissait. Sortie de secours : NK_IBL_ENV=0.
+				if (auto *r3dSky = ctx.renderer->GetRender3D())
+					std::fprintf(stderr,
+								 "[EAU CIEL] ambiance depuis l'environnement = %d (LU, pas arme :"
+								 " le lien vit dans NkRendererImpl depuis le 13/09 ; sortie de"
+								 " secours NK_IBL_ENV=0)\n",
+								 (int)r3dSky->GetIBLUseEnv());
 				const math::NkWaterOptics &o = st->oceanP.optics;
 				std::fprintf(stderr, "[OCEAN COULEUR] shade=%d | FOND PLAT INVENTE (le producteur n'a pas de terrain) : %.2f m sous le plan, albedo (%.2f %.2f %.2f) | absorption (%.3f %.3f %.3f) m^-1, couleur profonde (%.2f %.2f %.2f) | ecume : rivage < %.2f m, cretes > %.2f m, deferlement J < %.2f\n",
 							 (int)st->oceanP.shade, st->oceanP.bottomDepth, st->oceanP.bottomColor.x, st->oceanP.bottomColor.y,
