@@ -110,6 +110,16 @@ namespace nkentseu {
 				float64 oceanYSum = 0.0, oceanYSum2 = 0.0;
 				float64 oceanMsSum = 0.0;
 				uint32 oceanMsN = 0u;
+				// (o4) L'ORIENTATION DES FACES, mesuree sur TOUTES les images (2026-09-13).
+				// Le pire compte vu de triangles qui tournent le DOS a la camera, et de
+				// normales geometriques vers le BAS. Ces deux nombres doivent etre ZERO :
+				// ils valaient 8192 sur 8192 jusqu'au correctif d'enroulement, et
+				// l'ocean etait alors eclaire par dessous sans que rien ne le dise.
+				// Mesure sur le CPU, depuis les sommets REELLEMENT envoyes au GPU : une
+				// sonde de nuanceur passe par le tonemap et ne sait pas rendre un compte.
+				uint32 oceanTriDos = 0u;	// pire nombre de triangles de dos
+				uint32 oceanTriBas = 0u;	// pire nombre de normales vers le bas
+				uint32 oceanTriTotal = 0u;	// triangles examines (pour que le zero ait une echelle)
 				// sonde VETEMENTS SUR MANNEQUIN (NK_MANNEQUIN_PROBE=1, 2026-09-05) : Demo3DMannequin.cpp
 				Demo3DMannequinProbe *mannequin = nullptr;
 				NkMeshHandle meshCylinderHat;
@@ -2473,7 +2483,7 @@ static NkTexHandle CreateLanternCubeCookie(NkTextureLibrary *texLib, NkIDevice *
 			//   NK_OCEAN_STEEP=<k>    facteur sur la cambrure Q
 			//   NK_OCEAN_RANGECAM=0   coupe la camera de portee -> la grille RETROUVE son domaine
 			//                         et REFUSE quand l'oeil n'est pas au-dessus de la tranche
-			//   NK_OCEAN_FLIP=1       inverse l'enroulement des triangles (instrument de face avant)
+			//   (NK_OCEAN_FLIP a disparu le 13/09 : l'enroulement est corrige a la source)
 			if (const char *op = std::getenv("NK_OCEAN_PROBE"); op && op[0] == '1') {
 				st->ocean = true;
 				math::NkProjectedGridParams &g = st->oceanP.grid;
@@ -2526,12 +2536,15 @@ static NkTexHandle CreateLanternCubeCookie(NkTextureLibrary *texLib, NkIDevice *
 				st->oceanIdx.Resize(ni);
 				st->oceanJac.Resize(nv);
 				const uint32 ecritsI = vfx::NkWaterBuildIndices(g, st->oceanIdx.Data(), ni);
-				if (const char *e = std::getenv("NK_OCEAN_FLIP"); e && e[0] == '1')
-					for (uint32 t = 0; t + 2u < ecritsI; t += 3u) {
-						const uint32 tmp = st->oceanIdx[t + 1u];
-						st->oceanIdx[t + 1u] = st->oceanIdx[t + 2u];
-						st->oceanIdx[t + 2u] = tmp;
-					}
+				// ⚠️ `NK_OCEAN_FLIP` A DISPARU LE 13/09, ET CE N'EST PAS UN RANGEMENT.
+				// C'etait un interrupteur entre deux enroulements, comme s'il y avait
+				// un choix. Il n'y en avait pas : l'une des deux positions mettait la
+				// normale de l'ocean VERS LE BAS, le rendu y voyait des faces arriere,
+				// et l'eclairage deux faces de pbr.frag retournait la normale -- l'eau
+				// etait eclairee PAR DESSOUS. Le pavage est corrige a la SOURCE
+				// (`NkProjectedGridIndices`), donc l'option n'a plus d'objet : un
+				// interrupteur dont une position est fausse est un piege qui attend.
+				// Le temoin (o4) ci-dessous MESURE ce que l'option laissait choisir.
 				// Sommets de depart : le plan de repos. Le maillage doit exister AVANT la
 				// premiere camera ; il est entierement reecrit a chaque image.
 				for (uint32 i = 0; i < nv; ++i) {
@@ -2654,6 +2667,30 @@ static NkTexHandle CreateLanternCubeCookie(NkTextureLibrary *texLib, NkIDevice *
 										 (unsigned long long)pipe.id, (unsigned long long)pipePBR.id,
 										 (int)(pipe.id == pipePBR.id), (int)st->oceanMat.IsValid());
 						}
+					}
+				}
+				// ── NK_OCEAN_SKY : DIRE AU RENDU QU'UN MONDE EXISTE ─────────────────
+				// 🔴 CHARGER LE HDR NE SUFFIT PAS, ET C'EST UN DEFAUT MESURE LE 13/09.
+				// `main.cpp` pose `cfg.ibl.useHDR` + `hdrPath` ; l'environnement se
+				// charge, se convolue et se met en cache -- le journal le dit, et les
+				// deux HDR donnent bien deux fichiers de cache distincts. Mais le
+				// drapeau que le NUANCEUR lit, `uCam.iblColor.w`, vaut
+				// `mIBLUseEnv && mEnv && irradiance valide` (NkRender3D.cpp:2550), et
+				// `mIBLUseEnv` est FAUX par defaut : son unique appelant dans tout le
+				// depot est NK3DModeler. Sans cet appel, `hasEnv` reste 0, le nuanceur
+				// PBR prend son repli d'ambiance UNIFORME et n'echantillonne JAMAIS les
+				// cubemaps -- mesure : deux HDR aussi opposes que piazza_bologni et
+				// newport_loft rendaient une image IDENTIQUE AU BIT.
+				// ⚠️ Et le rafraichissement des liaisons n'est pas decoratif : les jeux
+				// de descripteurs pointent encore sur les anciennes cubemaps.
+				if (const char *e = std::getenv("NK_OCEAN_SKY"); e && (e[0] == '1' || e[0] == '2')) {
+					if (auto *r3dSky = ctx.renderer->GetRender3D()) {
+						r3dSky->SetIBLUseEnv(true);
+						r3dSky->RefreshEnvironmentBindings();
+						std::fprintf(stderr,
+									 "[EAU CIEL] SetIBLUseEnv(true) + RefreshEnvironmentBindings :"
+									 " le nuanceur peut enfin voir qu'un monde est charge (hasEnv)."
+									 " Sans cet appel, le HDR est convolu et JAMAIS echantillonne.\n");
 					}
 				}
 				const math::NkWaterOptics &o = st->oceanP.optics;
@@ -5155,6 +5192,47 @@ static NkTexHandle CreateLanternCubeCookie(NkTextureLibrary *texLib, NkIDevice *
 					const float64 yc = (float64)st->oceanVerts[st->oceanSlotCentre < nv ? st->oceanSlotCentre : 0u].pos.y;
 					st->oceanYSum += yc;
 					st->oceanYSum2 += yc * yc;
+					// ── (o4) L'ORIENTATION DES FACES, sur les sommets REELLEMENT envoyes ──
+					// Pour chaque triangle : le produit vectoriel des deux aretes -- la
+					// grandeur dont le rasteriseur derive la face -- et son signe face a
+					// l'oeil. Les deux comptes doivent rester a ZERO ; ils valaient TOUT
+					// jusqu'au correctif d'enroulement du 13/09.
+					// ⚠️ On mesure l'ENROULEMENT, pas `v.normal` : c'est lui qui decide de
+					// la face, pas l'attribut. Les deux peuvent se contredire -- c'est
+					// exactement ce qui s'est passe, et `pbr.frag` retournait alors
+					// l'attribut (`if (!gl_FrontFacing) N = -N;`).
+					// ⚠️ LE SIGNE ATTENDU VIENT DU DEPOT, PAS D'UN RAISONNEMENT : la nappe
+					// de `NkMeshSystem::CreatePlaneMesh` commentee « visible d'EN HAUT »
+					// donne (e1 x e2).y NEGATIF. C'est la convention effective du moteur,
+					// sa projection renversant l'enroulement vu a l'ecran.
+					{
+						uint32 dos = 0u, bas = 0u, tris = 0u;
+						const NkVec3f oeil = cam.GetPosition();
+						for (uint32 t = 0; t + 2u < (uint32)st->oceanIdx.Size(); t += 3u) {
+							const uint32 ia = st->oceanIdx[t], ib = st->oceanIdx[t + 1u],
+										 ic = st->oceanIdx[t + 2u];
+							if (ia >= nv || ib >= nv || ic >= nv)
+								continue;
+							const NkVec3f &pa = st->oceanVerts[ia].pos;
+							const NkVec3f e1 = st->oceanVerts[ib].pos - pa;
+							const NkVec3f e2 = st->oceanVerts[ic].pos - pa;
+							const NkVec3f nrm{e1.y * e2.z - e1.z * e2.y, e1.z * e2.x - e1.x * e2.z,
+											  e1.x * e2.y - e1.y * e2.x};
+							const NkVec3f g3 =
+								(pa + st->oceanVerts[ib].pos + st->oceanVerts[ic].pos) * (1.f / 3.f);
+							const NkVec3f versOeil = oeil - g3;
+							if (nrm.y > 0.f) // le signe de la face ARRIERE vue du dessus
+								++bas;
+							if (nrm.x * versOeil.x + nrm.y * versOeil.y + nrm.z * versOeil.z > 0.f)
+								++dos;
+							++tris;
+						}
+						if (dos > st->oceanTriDos)
+							st->oceanTriDos = dos;
+						if (bas > st->oceanTriBas)
+							st->oceanTriBas = bas;
+						st->oceanTriTotal = tris;
+					}
 					if (auto *ms3 = ctx.renderer->GetMeshSystem())
 						ms3->UpdateVertices(st->oceanMesh, st->oceanVerts.Data(), nv);
 					NkDrawCall3D oc;
@@ -7937,6 +8015,14 @@ static NkTexHandle CreateLanternCubeCookie(NkTextureLibrary *texLib, NkIDevice *
 				const float64 nF = (float64)(sto->oceanFrames ? sto->oceanFrames : 1u);
 				const float64 moy = sto->oceanYSum / nF;
 				const float64 var = sto->oceanYSum2 / nF - moy * moy;
+				std::fprintf(stderr,
+							 "[OCEAN PROBE] (o4) ORIENTATION, pire cas sur toutes les images : %u triangles"
+							 " montrant leur face ARRIERE a la camera, %u a l'envers du sens vertical,"
+							 " sur %u triangles. Le SECOND doit valoir ZERO toujours (il valait TOUT"
+							 " avant le correctif d'enroulement du 13/09) ; le PREMIER vaut zero sur un"
+							 " plan plat (NK_OCEAN_AMP=0, mesure) et compte ensuite les DOS DE VAGUES"
+							 " du champ lointain -- de la geometrie reelle, pas un defaut de pavage\n",
+							 sto->oceanTriDos, sto->oceanTriBas, sto->oceanTriTotal);
 				std::fprintf(stderr, "[OCEAN PROBE] BILAN : %u images dessinees, %u refus, pire manquants %u | ecart max |y - plan| = %.9f m (amplitudes demandees %.3f m) | sommet central : moyenne %.6f m, variance verticale %.9e m2 | %.3f ms/image sur %u images\n",
 							 sto->oceanFrames, sto->oceanRefus, sto->oceanManquants, sto->oceanEcartMax, sto->oceanAmpDemandee,
 							 moy, var, (float32)(sto->oceanMsN ? sto->oceanMsSum / (float64)sto->oceanMsN : 0.0), sto->oceanMsN);
