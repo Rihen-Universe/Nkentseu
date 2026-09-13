@@ -110,6 +110,11 @@ namespace nkentseu {
 				float32 vehDtMax = 0.f;
 				uint32 vehDtN = 0;
 				bool vehVerdict = false;
+				// LE RELACHEMENT (2026-09-13) : de quoi mesurer la DECELERATION a l'instant
+				// ou les gaz sont lachés, et pas seulement la vitesse 3 s plus tard.
+				float32 vehCoastV0 = 0.f, vehCoastT0 = -1.f;
+				bool vehCoastDit = false;
+				bool vehNoCoast = false; // NK_VEHICLE_NOCOAST=1 : la mutation
 				// sonde TISSU (NK_CLOTH_PROBE=1, 2026-09-05) : une nappe XPBD lachee sur une sphere, dans le vent
 				nkentseu::physics::NkCloth *cloth = nullptr;
 				nkentseu::math::NkUniformForceField clothWind;
@@ -2540,6 +2545,21 @@ static NkTexHandle CreateLanternCubeCookie(NkTextureLibrary *texLib, NkIDevice *
 					st->veh->Tuning().wheelRadius = st->vehPhysR;
 				else
 					st->vehPhysR = st->veh->Tuning().wheelRadius;
+				// NK_VEHICLE_NOCOAST=1 : LA MUTATION du relachement -- on remet a zero la
+				// resistance au roulement ET le frein moteur, et on doit RETROUVER
+				// exactement l'ancien comportement (la seule deceleration redevient le
+				// linearDamping du corps, v(3 s) = v0 * exp(-0,02 * 3)). Si la mutation ne
+				// rend pas l'ancien chiffre, le code ajoute fait autre chose en plus.
+				st->vehNoCoast = [] { const char *e = std::getenv("NK_VEHICLE_NOCOAST"); return e && e[0] == '1'; }();
+				if (st->vehNoCoast) {
+					st->veh->Tuning().rollingResistance = 0.f;
+					st->veh->Tuning().engineBrake = 0.f;
+				}
+				std::fprintf(stderr,
+							 "[VEHICULE RELACHEMENT] resistance au roulement C_rr = %.4f, frein moteur = %.3f x engineForce "
+							 "par roue motrice%s\n",
+							 st->veh->Tuning().rollingResistance, st->veh->Tuning().engineBrake,
+							 st->vehNoCoast ? " -- NK_VEHICLE_NOCOAST=1, MUTATION : les deux a zero" : "");
 				std::fprintf(stderr,
 							 "[VEHICULE PROBE] voiture creee (chassis id=%u) ; corps = %s ; pilotage = %s\n"
 							 "[VEHICULE PROBE] CLAVIER : Haut = accelerer, Bas = marche arriere, Gauche/Droite = braquer, Espace = frein, H = conduite/editeur\n",
@@ -4826,6 +4846,11 @@ static NkTexHandle CreateLanternCubeCookie(NkTextureLibrary *texLib, NkIDevice *
 							st->vehPhase = p;
 							st->vehMarkPos = b0->position;
 							st->vehMarkRight = b0->orientation.Right();
+							if (p == 2u) { // « RIEN » : on date le relachement pour mesurer a(v0)
+								st->vehCoastV0 = st->veh->ForwardSpeed();
+								st->vehCoastT0 = st->vehClock;
+								st->vehCoastDit = false;
+							}
 							std::fprintf(stderr, "[VEHICULE SCENARIO] t=%.2fs debut de « %s » -> SetInput(%.1f, %.1f, %.1f)\n",
 										 st->vehClock, kScn[p].quoi, kScn[p].s, kScn[p].a, kScn[p].f);
 						}
@@ -4840,6 +4865,23 @@ static NkTexHandle CreateLanternCubeCookie(NkTextureLibrary *texLib, NkIDevice *
 						if (NkInput.IsKeyDown(NkKey::NK_UP)) thr += 1.f;
 						if (NkInput.IsKeyDown(NkKey::NK_DOWN)) thr -= 1.f;
 						if (NkInput.IsKeyDown(NkKey::NK_SPACE)) brk = 1.f;
+					}
+					// a(v0) : difference finie sur 0,25 s apres le relachement. Le chiffre
+					// que la formule PREDIT, pas une borne. Predit avant la mesure :
+					// C_rr*g + 2*k_fm*engineForce/m + d_lin*v0 = 0,1472 + 0,7848 + 0,1264
+					//                                          = 1,0584 m/s2.
+					if (st->vehCoastT0 >= 0.f && !st->vehCoastDit && (st->vehClock - st->vehCoastT0) >= 0.25f) {
+						st->vehCoastDit = true;
+						const float32 dtc = st->vehClock - st->vehCoastT0;
+						const float32 v1 = st->veh->ForwardSpeed();
+						const float32 eF = st->veh->Tuning().engineForce;
+						const float32 aPredite = st->veh->Tuning().rollingResistance * 9.81f +
+												 2.f * st->veh->Tuning().engineBrake * eF / 1200.f + 0.02f * st->vehCoastV0;
+						std::fprintf(stderr,
+									 "[VEHICULE RELACHEMENT] a(v0) mesuree sur %.3f s : (%.4f - %.4f) / %.3f = %.4f m/s2 ; "
+									 "predite %.4f m/s2 ; ecart %+.1f %%\n",
+									 dtc, st->vehCoastV0, v1, dtc, (st->vehCoastV0 - v1) / dtc, aPredite,
+									 aPredite > 1e-6f ? 100.f * (((st->vehCoastV0 - v1) / dtc) / aPredite - 1.f) : 0.f);
 					}
 					st->vehSteer = steer;
 					st->vehThrottle = thr;
