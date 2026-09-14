@@ -363,6 +363,22 @@ namespace nkentseu {
 		// prouver, sans toucher a la souris de personne, que les trois modes
 		// designent trois choses differentes au meme endroit. Faux hors Edition.
 		bool Demo3DHostEditPickAt(float32 x, float32 y, bool shift, bool alt);
+		// LE MEME PICK PAR INDEX DE FACE N-GON. Deux crochets, deux usages : les
+		// pixels reproduisent le chemin de Rodolf, l'index sert aux bancs -- viser
+		// en pixels n'est pas deterministe, et un essai qui rate faute d'avoir vise
+		// juste est indiscernable d'un essai qui rate parce que le code est faux.
+		bool Demo3DHostEditPickFace(int32 face, bool shift);
+		// Le jumeau pour le sous-mode SOMMET : indice BRUT d'un coin de la cage.
+		bool Demo3DHostEditPickVert(int32 vert, bool shift);
+		uint32 Demo3DHostEditVertCount();
+		bool Demo3DHostEditVertPos(int32 vert, float32 *x, float32 *y, float32 *z);
+		// De quoi choisir cet index sans le deviner : combien de faces, et ou.
+		uint32 Demo3DHostEditFaceCount();
+		bool Demo3DHostEditFaceInfo(int32 face, uint32 *nverts, float32 *cx, float32 *cy,
+					float32 *cz);
+		// Boite englobante MONDE de la selection + nombre de sommets bruts retenus.
+		bool Demo3DHostEditSelBounds(uint32 *nsel, float32 *cx, float32 *cy, float32 *cz,
+					float32 *rayon);
 		// Taille de la VUE en pixels : sans elle, une coordonnee de clic se devine,
 		// et une coordonnee devinee ne prouve rien.
 		void Demo3DHostViewSize(uint32 *w, uint32 *h);

@@ -2269,6 +2269,94 @@ int nkmain(const NkEntryState &entry) {
 			}
 		}
 
+		// NK_EDIT_PICK_VERT="v1[,v2][,maj][,frame]" : le meme, par indice de SOMMET
+		// brut. Les deux partagent ce bloc : deux blocs jumeaux seraient deux
+		// instruments a tenir d'accord.
+		// NK_EDIT_PICK_FACE="f1[,f2][,maj][,frame]" : UN OU DEUX CLICS DE FACE
+		// DESIGNES PAR LEUR INDEX. Le crochet par pixels (NK_EDIT_PICK) reste : il
+		// reproduit le chemin de Rodolf. Celui-ci sert aux bancs, parce que viser
+		// en pixels n'est pas deterministe et qu'un essai qui rate faute d'avoir
+		// vise juste est indiscernable d'un essai qui rate parce que le code est
+		// faux. Les deux passent par la MEME porte et la MEME election.
+		// f2 >= 0 -> SECOND clic, trois frames plus tard, avec Maj si maj=1 : c'est
+		// le negatif obligatoire du Maj+clic (maj=0 doit laisser UNE face).
+		{
+			static bool sPf1 = false, sPf2 = false;
+			static int32 sPfLu = -1;
+			// UN SEUL SITE D'IMPRESSION POUR LES DEUX : deux blocs jumeaux, c'est
+			// deux instruments a garder d'accord, et le jour ou l'un des deux
+			// oublie un critere on ne le voit pas.
+			const char *pfF = std::getenv("NK_EDIT_PICK_FACE");
+			const char *pfV = std::getenv("NK_EDIT_PICK_VERT");
+			const bool parSommet = (pfF == nullptr && pfV != nullptr);
+			if (const char *pf = (pfF ? pfF : pfV)) {
+				int32 v[4] = {0, -1, 0, 40};
+				{
+					int32 k = 0;
+					for (const char *q = pf; k < 4 && *q;) {
+						v[k++] = (int32)std::atoi(q);
+						while (*q && *q != ',')
+							++q;
+						if (*q == ',')
+							++q;
+					}
+				}
+				const int32 fr = v[3];
+				if (!sPf1 && agentFrame >= fr && demo::Demo3DHostInEditMode()) {
+					sPf1 = true;
+					// L'INVENTAIRE DES FACES D'ABORD : un index choisi sans savoir ou
+					// sont les faces est un index devine, et on n'aurait rien gagne.
+					const uint32 nf = parSommet ? demo::Demo3DHostEditVertCount()
+										: demo::Demo3DHostEditFaceCount();
+					for (uint32 f = 0; f < nf && f < 64u; ++f) {
+						uint32 nv = 0;
+						float32 cx = 0.f, cy = 0.f, cz = 0.f;
+						if (parSommet) {
+							if (demo::Demo3DHostEditVertPos((int32)f, &cx, &cy, &cz))
+								std::printf("[nk3d-sommet] #%u : (%.4f, %.4f, %.4f)\n", f, (double)cx,
+												(double)cy, (double)cz);
+						} else if (demo::Demo3DHostEditFaceInfo((int32)f, &nv, &cx, &cy, &cz)) {
+							std::printf("[nk3d-face] #%u : %u sommets · centre (%.4f, %.4f, %.4f)\n",
+											f, nv, (double)cx, (double)cy, (double)cz);
+						}
+					}
+					const bool a1 = parSommet ? demo::Demo3DHostEditPickVert(v[0], false)
+										: demo::Demo3DHostEditPickFace(v[0], false);
+					std::printf("[nk3d-pickf] frame=%d clic 1 %s=%d maj=0 -> arme=%d (total=%u)\n",
+									(int)agentFrame, parSommet ? "sommet" : "face", (int)v[0], a1 ? 1 : 0, nf);
+					std::fflush(stdout);
+				}
+				if (sPf1 && !sPf2 && agentFrame >= fr + 3) {
+					sPf2 = true;
+					if (v[1] >= 0) {
+						const bool a2 = parSommet ? demo::Demo3DHostEditPickVert(v[1], v[2] != 0)
+											: demo::Demo3DHostEditPickFace(v[1], v[2] != 0);
+						std::printf("[nk3d-pickf] frame=%d clic 2 %s=%d maj=%d -> arme=%d\n",
+										(int)agentFrame, parSommet ? "sommet" : "face", (int)v[1], (int)v[2],
+										a2 ? 1 : 0);
+						std::fflush(stdout);
+					}
+				}
+				// Le resultat se lit APRES la frame qui consomme : le pick est consomme
+				// dans la vue, pas ici. Lire tout de suite rendrait l'etat d'AVANT.
+				if (sPf2 && sPfLu < 0 && agentFrame >= fr + 6) {
+					sPfLu = agentFrame;
+					int32 av = -1, ea = -1, eb = -1, fa = -1;
+					demo::Demo3DHostEditActive(&av, &ea, &eb, &fa);
+					uint32 ns = 0;
+					float32 bx = 0.f, by = 0.f, bz = 0.f, br = 0.f;
+					const bool okb = demo::Demo3DHostEditSelBounds(&ns, &bx, &by, &bz, &br);
+					std::printf("[nk3d-pickf] RESULTAT masque=%d : selection=%d · face active=%d"
+										" · sommets bruts=%u · boite centre (%.4f, %.4f, %.4f) rayon %.6f (lu=%d)\n",
+									(int)demo::Demo3DHostEditSelMask(), (int)demo::Demo3DHostEditSelCount(),
+									(int)fa, ns, (double)bx, (double)by, (double)bz, (double)br, okb ? 1 : 0);
+					std::fflush(stdout);
+				}
+			} else {
+				sPf1 = sPf2 = true;
+			}
+		}
+
 		// NK_EDIT_REPORT="<frame>[,<frame2>]" : l'etat du mode Edition a UNE ou DEUX
 		// frames donnees -- comptes reels, selection, masque, ET disponibilite de
 		// l'annulation. Deux frames parce qu'une operation se juge par un AVANT et
