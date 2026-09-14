@@ -61,6 +61,7 @@
 #include "NKLogger/NkLog.h"
 
 #include <math.h>
+#include <stdio.h> // fwrite / fflush : voir `Dire` ci-dessous
 #include <string.h>
 
 // `NkShaderStage` existe DEUX FOIS : celui du RHI (`NkTypes.h:412`,
@@ -80,16 +81,53 @@ static uint32 gCas = 0;
 static uint32 gEchecs = 0;
 static uint32 gIgnores = 0;
 
+// ─────────────────────────────────────────────────────────────────────────────
+//  `Dire` — LE VERDICT DOIT SORTIR LA OU ON REGARDE
+//
+//  ⚠️ MESURE, PAS SUPPOSITION (14/09). Ce banc ecrivait **0 octet sur stdout ET
+//  0 octet sur stderr** : `cmd /c ".\NkTerrainCheck.exe > out.txt 2> err.txt"`
+//  laisse les deux fichiers VIDES. Le journal de NKLogger annonce pourtant
+//  « sinks console et fichier ajoutes par defaut » (NkLog.h:361) -- quel que
+//  soit le chemin qu'emprunte son puits console, il ne traverse pas les poignees
+//  redirigees. Resultat : Rodolf lance l'executable, ne voit RIEN, et le verdict
+//  n'existe que dans `logs/app.log`, c'est-a-dire ailleurs que la ou il regarde.
+//  C'est la meme famille que « un outil qui filtre sans le dire » : rien n'est
+//  faux, tout est invisible.
+//
+//  ⚠️ ET CE N'EST PAS UN RETOUR AU printf. La regle de Rodolf -- « ne pas
+//  utiliser directement printf, le systeme definit des loggers » -- vise la
+//  mecanique VARIADIQUE NON TYPEE : sept `%u` pour six arguments donnent un
+//  septieme nombre plausible lu sur la pile. Ici le formatage reste
+//  POSITIONNEL (`NkFormat`, arguments captures PAR LEUR TYPE) ; `fwrite` ne
+//  recoit qu'une chaine DEJA FORMEE, sans aucune chaine de format. Le defaut
+//  que la regle interdit est irrepresentable par ce chemin.
+//
+//  Le journal reste ecrit : `logs/app.log` garde la trace, la console porte le
+//  verdict. Les deux disent la meme chose, formee une seule fois.
+// ─────────────────────────────────────────────────────────────────────────────
+template <typename... Args>
+static void Dire(const char *format, Args... args) {
+	const NkString ligne = NkFormat(format, args...);
+	const char *c = ligne.CStr();
+	logger.Info("{0}", ligne);
+	if (c != nullptr)
+		fwrite(c, 1, strlen(c), stdout);
+	fputc('\n', stdout);
+	// Vide a chaque ligne : un banc qui meurt en cours de route doit laisser
+	// derriere lui tout ce qu'il a deja dit, pas un tampon perdu.
+	fflush(stdout);
+}
+
 static void Cas(const char *nom, bool ok, const NkString &detail) {
 	++gCas;
 	if (!ok)
 		++gEchecs;
-	logger.Info("  [{0}] {1:<34} | {2}", NkString(ok ? "OK   " : "ROUGE"), NkString(nom), detail);
+	Dire("  [{0}] {1:<34} | {2}", NkString(ok ? "OK   " : "ROUGE"), NkString(nom), detail);
 }
 
 static void Ignore(const char *nom, const NkString &raison) {
 	++gIgnores;
-	logger.Info("  [IGN ] {0:<34} | {1}", NkString(nom), raison);
+	Dire("  [IGN ] {0:<34} | {1}", NkString(nom), raison);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -771,18 +809,18 @@ int main(int argc, char **argv) {
 			else if (strcmp(m, "vide") == 0)
 				gMutation = Mutation::VIDE;
 			else {
-				logger.Info("mutation inconnue : {0}", NkString(m));
+				Dire("mutation inconnue : {0}", NkString(m));
 				return 2;
 			}
 		}
 	}
 
-	logger.Info("== NkTerrainCheck -- une image de hauteurs devient-elle un terrain ? ==");
-	logger.Info("   mutation en cours : {0}", NkString(NomMutation(gMutation)));
-	logger.Info("");
+	Dire("== NkTerrainCheck -- une image de hauteurs devient-elle un terrain ? ==");
+	Dire("   mutation en cours : {0}", NkString(NomMutation(gMutation)));
+	Dire("");
 
 	// ── (t0) LA CONDITION D'ESSAI ───────────────────────────────────────
-	logger.Info("-- (t0) les images d'essai : fabriquees, ECRITES, RELUES, confrontees --");
+	Dire("-- (t0) les images d'essai : fabriquees, ECRITES, RELUES, confrontees --");
 	NkImage imgA, imgB, imgC, imgD, imgE;
 	bool condOk = true;
 	condOk &= PoserImage("nkterrain_A_pente_9x9.png", 9, 9, LoiPenteX, imgA);
@@ -791,13 +829,13 @@ int main(int argc, char **argv) {
 	condOk &= PoserImage("nkterrain_D_noire_5x5.png", 5, 5, LoiNoire, imgD);
 	condOk &= PoserImage("nkterrain_E_unpixel_1x1.png", 1, 1, LoiNoire, imgE);
 	if (!condOk) {
-		logger.Info("");
-		logger.Info("-- LA CONDITION D'ESSAI N'EST PAS SAINE. Tout critere en aval mesurerait");
-		logger.Info("   autre chose que ce qu'il annonce. Le banc s'arrete ici, et c'est un ECHEC.");
-		logger.Info("== {0} cas, {1} rouges ==", gCas, gEchecs);
+		Dire("");
+		Dire("-- LA CONDITION D'ESSAI N'EST PAS SAINE. Tout critere en aval mesurerait");
+		Dire("   autre chose que ce qu'il annonce. Le banc s'arrete ici, et c'est un ECHEC.");
+		Dire("== {0} cas, {1} rouges ==", gCas, gEchecs);
 		return 1;
 	}
-	logger.Info("");
+	Dire("");
 
 	// ── Les parametres, ecrits une fois : tous les attendus en DERIVENT ──
 	// hauteurParNiveau = 1/32 : puissance de deux, donc toute hauteur attendue
@@ -809,7 +847,7 @@ int main(int argc, char **argv) {
 	p.hauteurParNiveau = 1.f / 32.f;
 
 	// ── (t1) NEGATIF : 1x1 -> refus nomme ───────────────────────────────
-	logger.Info("-- (t1) negatif : une image 1x1 --");
+	Dire("-- (t1) negatif : une image 1x1 --");
 	{
 		NkEditMesh vide;
 		const NkTerrainStatut st = NkTerrainDepuisHeightMap(imgE, p, vide);
@@ -817,10 +855,10 @@ int main(int argc, char **argv) {
 			NkFormat("statut={0} (attendu NK_IMAGE_TROP_PETITE) . maillage laisse a {1} sommets (attendu 0)",
 					 NkString(NkTerrainStatutNom(st)), vide.VertCount()));
 	}
-	logger.Info("");
+	Dire("");
 
 	// ── A : le plan incline exact ───────────────────────────────────────
-	logger.Info("-- A : plan incline exact 9x9, niveau = i*16, pas 1/32 -> hauteur = i*0.5 --");
+	Dire("-- A : plan incline exact 9x9, niveau = i*16, pas 1/32 -> hauteur = i*0.5 --");
 	ResultatTerrain rA;
 	if (ConstruireEtVerifier("A", imgA, p, rA)) {
 		AppliquerMutation(rA.mesh, rA.N, rA.M, p.hauteurMin);
@@ -831,10 +869,10 @@ int main(int argc, char **argv) {
 		//   n = (-s, 1, 0) / sqrt(1 + s*s) = (-0.4472135955, 0.8944271910, 0)
 		VerifierNormales("A", rA, -0.4472135955f, 0.8944271910f, 0.f, /*exigerBitExact=*/false);
 	}
-	logger.Info("");
+	Dire("");
 
 	// ── B : la marche ───────────────────────────────────────────────────
-	logger.Info("-- B : marche 6x10, niveau = 0 si j<4 sinon 255 --");
+	Dire("-- B : marche 6x10, niveau = 0 si j<4 sinon 255 --");
 	ResultatTerrain rB;
 	if (ConstruireEtVerifier("B", imgB, p, rB)) {
 		AppliquerMutation(rB.mesh, rB.N, rB.M, p.hauteurMin);
@@ -854,20 +892,20 @@ int main(int argc, char **argv) {
 					 "hauteur haute={2}",
 					 bas, haut, hHaut));
 	}
-	logger.Info("");
+	Dire("");
 
 	// ── C : tous les pixels differents — le temoin d'ORDRE ──────────────
-	logger.Info("-- C : 6x10, niveau = j*6+i, 60 valeurs TOUTES DIFFERENTES (temoin d'ordre) --");
+	Dire("-- C : 6x10, niveau = j*6+i, 60 valeurs TOUTES DIFFERENTES (temoin d'ordre) --");
 	ResultatTerrain rC;
 	if (ConstruireEtVerifier("C", imgC, p, rC)) {
 		AppliquerMutation(rC.mesh, rC.N, rC.M, p.hauteurMin);
 		VerifierGeometrie("C", rC, p);
 		VerifierHauteurs("C", rC, p, /*exigerBitExact=*/true);
 	}
-	logger.Info("");
+	Dire("");
 
 	// ── D : NEGATIF, image noire -> terrain plat, 0 au bit ──────────────
-	logger.Info("-- D : NEGATIF, image noire 5x5 -> terrain PARFAITEMENT plat --");
+	Dire("-- D : NEGATIF, image noire 5x5 -> terrain PARFAITEMENT plat --");
 	ResultatTerrain rD;
 	if (ConstruireEtVerifier("D", imgD, p, rD)) {
 		AppliquerMutation(rD.mesh, rD.N, rD.M, p.hauteurMin);
@@ -875,10 +913,10 @@ int main(int argc, char **argv) {
 		VerifierHauteurs("D", rD, p, /*exigerBitExact=*/true);
 		VerifierNormales("D", rD, 0.f, 1.f, 0.f, /*exigerBitExact=*/true);
 	}
-	logger.Info("");
+	Dire("");
 
 	// ── (t4) CA SE VOIT ─────────────────────────────────────────────────
-	logger.Info("-- (t4) ca se voit : rendu hors-ecran, comptage des pixels non-fond --");
+	Dire("-- (t4) ca se voit : rendu hors-ecran, comptage des pixels non-fond --");
 	Scene sc;
 	if (!sc.Monter()) {
 		Ignore("(t4) montage hors-ecran",
@@ -999,10 +1037,13 @@ int main(int argc, char **argv) {
 		sc.Demonter();
 	}
 
-	logger.Info("");
-	logger.Info("== {0} cas executes, {1} ROUGES, {2} ignores . mutation={3} ==", gCas, gEchecs, gIgnores,
+	Dire("");
+	Dire("== {0} cas executes, {1} ROUGES, {2} ignores . mutation={3} ==", gCas, gEchecs, gIgnores,
 				NkString(NomMutation(gMutation)));
 	if (gIgnores > 0u)
-		logger.Info("   ⚠ un IGNORE n'est pas un vert : la question n'a pas ete posee.");
+		// ASCII pur : le puits console ne transporte pas l'UTF-8 (mesure -- les
+		// tirets cadratins sortaient « - » et les guillemets « ? »). Mieux vaut
+		// ecrire ce qui sera lu que laisser des caracteres se perdre en chemin.
+		Dire("   /!\\ un IGNORE n'est pas un vert : la question n'a pas ete posee.");
 	return gEchecs == 0u ? 0 : 1;
 }
