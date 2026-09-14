@@ -9,6 +9,7 @@
 #include "NKGui/NKGui.h"
 #include "NKLogger/NkLog.h"
 #include <cstdio>
+#include <cstdlib> // getenv : mesure (h3) de la geometrie, sous variable d'environnement
 #include <cstring>
 
 namespace nkentseu {
@@ -105,6 +106,34 @@ namespace nkentseu {
 			const NkRect zone = ctx.NextItemRect(-1.f, h);
 			const NkGuiId zoneId = ctx.GetId("vp_dropzone");
 			ctx.ButtonBehavior(zoneId, zone);
+
+			// ── MESURE (h3) : la geometrie de cette zone, dite UNE FOIS ─────────
+			// Le canal chrome demande que « la vue 3D garde sa taille » apres
+			// l'habillage de la coquille. Elle n'etait mesurable nulle part : le
+			// journal applicatif ne porte ni taille de panneau ni compteur de
+			// passes. On l'imprime donc ICI, a la source, sous variable
+			// d'environnement pour ne rien changer a l'usage normal.
+			//
+			// ⚠️ ET CE N'EST PAS UNE VUE 3D : ce panneau ecrit lui-meme « rendu de
+			//    scene : pas encore cable (ROADMAP §10sexies) ». Ce qu'on mesure
+			//    est la ZONE DE DEPOT. Le dire evite qu'un chiffre juste porte un
+			//    nom faux.
+			// ⚠️ PAS A LA PREMIERE IMAGE. La toute premiere mesure a rendu
+			//    « 1x999936 a (10,54) » -- une hauteur impossible pour une fenetre
+			//    de 900 px. A la premiere frame la region de layout n'est pas
+			//    encore posee, et `AvailHeight()` rend une valeur qui ne veut rien
+			//    dire. Un chiffre hors-borne n'est pas a interpreter, il est a
+			//    jeter : on imprime donc plusieurs images d'affilee, ce qui montre
+			//    AUSSI la stabilisation au lieu de la supposer.
+			if (std::getenv("NOGEE_MESURE_VP")) {
+				static int32 img = 0;
+				++img;
+				if (img >= 30 && img <= 34) {
+					std::printf("[CHROME] image %d : zone de depot du Viewport %.0fx%.0f a (%.0f,%.0f)\n",
+								img, (double)zone.w, (double)zone.h, (double)zone.x, (double)zone.y);
+					std::fflush(stdout);
+				}
+			}
 
 			// Couleurs par JETONS de theme, jamais en dur (directive planches) :
 			// fond le plus sombre du theme pour une zone en retrait, texte grise.
