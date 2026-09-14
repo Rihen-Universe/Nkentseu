@@ -922,6 +922,15 @@ namespace nkentseu {
 			// vues a basculer les desactive et le dock recupere la place »).
 			shell->SetActivityBars(false, false);
 
+			// ── L'INDICATEUR DE ZOOM N'A RIEN A FAIRE ICI ───────────────────
+			// La capture le montrait : « Zoom 107% » au pied de Nogee. C'est le
+			// zoom de la POLICE DE CODE du shell (`ActiveCodeSize`), utile a
+			// NKCode et a personne d'autre -- l'en-tete du kit le dit lui-meme :
+			// « une application sans editeur de code le masque ». Nogee n'en a
+			// pas. NK3DModeler, lui, met a droite l'etat de sa scene ; la place
+			// est donc rendue a ce qui la merite.
+			shell->SetFooterZoomIndicator(false);
+
 			const bool sansHabillage = std::getenv("NOGEE_SANS_HABILLAGE") != nullptr;
 			if (!sansHabillage)
 				shell->SetHeaderLayout(30.f, 34.f, 0.f);
@@ -1029,9 +1038,10 @@ namespace nkentseu {
 			g_probe.noMaskBody = true;
 		}
 
-		void NogeeShellEnablePanneauxSonde(bool redim) noexcept {
+		void NogeeShellEnablePanneauxSonde(bool redim, bool pose) noexcept {
 			NkPanneauxSonde().active = true;
 			NkPanneauxSonde().redim = redim;
+			NkPanneauxSonde().pose = pose;
 		}
 
 		void NogeeShellEnableDragDropProbe() noexcept {
