@@ -6459,14 +6459,90 @@ namespace nkentseu {
 						if (gTools) {
 							const NkRect iR = NkGroupInner(rowR);
 							yy += NkGroupPad();
-							// LU DANS LA TABLE. L'ancienne version etait cinq chaines
-							// constantes, et n'annoncait que six commandes sur quatorze --
-							// « couteau » et « subdiviser » partageant meme une ligne, ce
-							// qui rendait leur couple de touches illisible.
-							int32 nEdT = 0;
-							const NkPropEditCmd *kEdT = NkPropEditCmds(nEdT);
-							for (int32 t6 = 0; t6 < nEdT; ++t6)
-								NkPropCmdRow(p, sc, iR.x, yy, kEdT[t6].libelle, kEdT[t6].cle);
+							// ── UN BLOC PAR OPERATION, TOUS PLIES AU DEMARRAGE ──────
+							// La demande de Rodolf, mot pour mot : « chaque bloc a sa
+							// propre propriete, tous les blocs sont fermes par defaut ».
+							// Les QUATORZE operations viennent de `NkMeshMenuTable` --
+							// la MEME table que le menu contextuel, pas une seconde
+							// liste : deux listes ecrites separement finissent toujours
+							// par diverger, et celles de ce panneau l'avaient deja fait.
+							//
+							// ⚠ LE BLOC N'EST PAS VIDE ET N'INVENTE RIEN. Il porte la
+							// touche (lue dans la table des raccourcis) et les reglages
+							// PERSISTANTS de l'operation, qui existent dans l'etat et que
+							// `Demo3D_ModalCmd` lit vraiment au moment d'agir. Une
+							// operation qui n'a pas de reglage le DIT, au lieu d'afficher
+							// un champ qui ne servirait a rien.
+							{
+								int32 nOps = 0;
+								const NkMeshMenuEntry *ops = NkMeshMenuTable(nOps);
+								const int32 nPar = demo::Demo3DHostOpParamCount();
+								for (int32 o6 = 0; o6 < nOps; ++o6) {
+									char kb[48];
+									snprintf(kb, sizeof(kb), "prop.g.op.%d", (int)ops[o6].cmd);
+									// `bit` ne sert plus (l'etat est indexe par la cle) :
+									// on passe 0. `true` = PLIE PAR DEFAUT.
+									const bool ouvert = PaintPropGroup(p, hit, st, rowR, yy, kb,
+																	   ops[o6].label, 0u, true);
+									const float32 opTop = yy;
+									if (!ouvert)
+										continue;
+									yy += NkGroupPad();
+									const NkRect iO = NkGroupInner(rowR);
+									NkPropCmdRow(p, sc, iO.x, yy, "Raccourci", ops[o6].command);
+									int32 poses = 0;
+									for (int32 q = 0; q < nPar; ++q) {
+										int32 pc = -1, pt = 0;
+										const char *pl = nullptr;
+										float32 lo = 0.f, hi = 0.f, pv = 0.f;
+										if (!demo::Demo3DHostOpParamInfo(q, &pc, &pl, &pt, &lo, &hi))
+											continue;
+										if (pc != (int32)ops[o6].cmd)
+											continue;
+										if (!demo::Demo3DHostOpParamGet(q, &pv))
+											continue;
+										++poses;
+										p.TextV(iO.x, yy, kRowH, pl ? pl : "?", NkRole::TextMuted);
+										char pk[64];
+										snprintf(pk, sizeof(pk), "prop.op.%d.%d", (int)ops[o6].cmd,
+												 (int)q);
+										const NkRect pr{iO.x + iO.w - S(96.f), yy + S(3.f), S(92.f),
+														kRowH - S(6.f)};
+										if (pt == 0) {
+											// BOOLEEN : le kit n'a AUCUNE case a cocher --
+											// verifie avant d'en dessiner une. On emprunte le
+											// bouton du panneau, dont le libelle DIT l'etat,
+											// plutot que d'ajouter un widget de plus.
+											const bool bv = (pv >= 0.5f);
+											if (NkPropButton(p, hit, pk, yy, bv ? "Oui" : "Non",
+															 pr.x, pr.w))
+												demo::Demo3DHostOpParamSet(q, bv ? 0.f : 1.f);
+										} else {
+											float32 fv = pv;
+											// Le pas suit le TYPE : 1 pour un entier, sinon
+											// un centieme. Un pas unique aurait rendu les
+											// entiers inatteignables ou les reels grossiers.
+											if (DragFloat(p, hit, ws, in, pk, pr, fv,
+														  pt == 1 ? 1.f : 0.01f, NkRole::AccentUi,
+														  pt == 1 ? "%.0f" : "%.3f"))
+												demo::Demo3DHostOpParamSet(q, fv);
+										}
+										yy += kRowH;
+									}
+									if (poses == 0) {
+										// LE DIRE plutot que de laisser un bloc vide : un
+										// bloc vide se lit comme un reglage qui n'a pas
+										// charge, et on l'ouvre deux fois pour verifier.
+										p.TextV(iO.x, yy, kRowH,
+												"Reglages pendant l'operation (souris, molette)",
+												NkRole::TextMuted);
+										yy += kRowH;
+									}
+									yy += NkGroupPad();
+									PaintGroupBlock(p, rowR, opTop, yy);
+									yy += NkPropGroupGap();
+								}
+							}
 							yy += NkGroupPad();
 							PaintGroupBlock(p, rowR, gToolsTop, yy);
 						}

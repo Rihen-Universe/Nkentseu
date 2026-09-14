@@ -259,6 +259,32 @@ namespace nkentseu {
 		// refuse. Rendent faux si aucune operation ne tourne.
 		bool Demo3DHostModalSetVal(float32 v);
 		bool Demo3DHostModalSetSeg(int32 n);
+
+		// ── LES REGLAGES PERSISTANTS DES OPERATIONS DE MAILLAGE ─────────────
+		// Ils EXISTENT (`Demo3DState::extrudeIndividual`, `insetDepth`,
+		// `bevelSegments`, `spinAxis`...) et sont LUS par `Demo3D_ModalCmd` au
+		// moment ou l'operation s'applique. Ce qui leur manquait est un lecteur :
+		// aucun ne se reglait nulle part, alors que Blender les expose tous.
+		//
+		// ⚠ CE SONT DES REGLAGES PERSISTANTS, PAS LES PARAMETRES D'UNE MODALE EN
+		// COURS. Les deux familles ne se confondent pas : `modalVal` / `modalSeg`
+		// vivent le temps d'un geste (cf. Demo3DHostModalInfo), ceux-ci survivent
+		// entre deux operations, comme les « Operator Presets » de Blender.
+		//
+		// Facade INDEXEE plutot qu'une paire get/set par champ : neuf paires
+		// auraient fait dix-huit fonctions a declarer, a implementer et a cabler
+		// une par une dans la vue -- et la dixieme propriete aurait recommence.
+		//   cmd  : l'operation a laquelle le parametre appartient (valeur de
+		//          NkMeshCmd), pour que la vue range chaque reglage dans SON bloc
+		//   type : 0 = booleen, 1 = entier, 2 = reel
+		// Les valeurs passent en `float32` quel que soit le type : un seul chemin,
+		// et la conversion se fait a UN seul endroit (l'implementation), pas chez
+		// chaque appelant.
+		int32 Demo3DHostOpParamCount();
+		bool Demo3DHostOpParamInfo(int32 i, int32 *cmd, const char **libelle, int32 *type,
+								   float32 *vmin, float32 *vmax);
+		bool Demo3DHostOpParamGet(int32 i, float32 *val);
+		bool Demo3DHostOpParamSet(int32 i, float32 val);
 		// SELECTEUR D'OUTIL demande au clavier (Espace / Maj+Espace) : rend true UNE
 		// fois puis se rearme. Le viseur possede le clavier, le shell possede le
 		// composant de menu -- ce drapeau est le seul point de contact.
