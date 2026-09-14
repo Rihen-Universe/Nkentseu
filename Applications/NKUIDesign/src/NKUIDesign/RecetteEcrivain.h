@@ -199,6 +199,54 @@ namespace nkuidesign {
 			return NkFile::WriteAllBytes(chemin, octets);
 		}
 
+		/// Combien de fois `motif` apparait dans `texte`. Sert a compter des cles
+		/// ECRITES dans le fichier -- on mesure ce qui est sur le disque, pas ce que le
+		/// code croit avoir ecrit.
+		inline uint32 Occurrences(const NkString &texte, const char *motif) {
+			if (!motif || !*motif || texte.Empty()) {
+				return 0u;
+			}
+			uint32 n = 0;
+			const char *d = texte.Data();
+			const uint32 tt = (uint32)texte.Size();
+			uint32 lm = 0;
+			while (motif[lm]) {
+				++lm;
+			}
+			if (lm == 0u || lm > tt) {
+				return 0u;
+			}
+			for (uint32 i = 0; i + lm <= tt; ++i) {
+				uint32 k = 0;
+				while (k < lm && d[i + k] == motif[k]) {
+					++k;
+				}
+				if (k == lm) {
+					++n;
+				}
+			}
+			return n;
+		}
+
+		/// LA NATURE DU PLACEMENT D'UN DOCUMENT, comptee sur le document CHARGE.
+		/// C'est la mesure qui tranche (f1) : un document dont aucun noeud n'emploie un
+		/// agencement en FLUX ne peut pas etre reproduit par un moteur qui n'empile que
+		/// des flux -- et ce n'est alors pas l'ecrivain qui est en faute.
+		inline void CompterAgencements(const NkUIDocument &d, uint32 &absolus, uint32 &flux,
+															uint32 &total) {
+			absolus = flux = total = 0;
+			for (uint32 i = 0; i < (uint32)d.nodes.Size(); ++i) {
+				++total;
+				const NkLayoutKind k = d.nodes[i].layout.kind;
+				if (k == NkLayoutKind::Row || k == NkLayoutKind::Column || k == NkLayoutKind::Grid) {
+					++flux;
+				} else {
+					// None, Free, Anchor : la position est LUE, pas calculee par un flux.
+					++absolus;
+				}
+			}
+		}
+
 		// =====================================================================
 		//  LA RECETTE
 		// =====================================================================
@@ -498,6 +546,202 @@ namespace nkuidesign {
 				printf("  [ .. ] (e3c) releve du compteur de pixels, aligne sur la zone\n         %s\n", d);
 			}
 
+			// -----------------------------------------------------------------
+			// (f3) LE VALIDATEUR, DANS LA RECETTE -- plus jamais un geste a la main
+			// -----------------------------------------------------------------
+			// 🔴 C'EST MA PROPRE LECON, RENDUE PERMANENTE. Ma premiere version se
+			//    MONTAIT parfaitement et etait refusee 81 fois par `--valider` : le
+			//    MONTEUR est plus permissif que le FORMAT. Verifier a la main, c'est
+			//    verifier tant qu'on y pense. Le critere vit donc ICI.
+			printf("\n-- (f3) le fichier produit passe le VALIDATEUR du depot\n");
+			{
+				NkArchive relu;
+				NkGuiDiag err;
+				NkVector<NkGuiDiag> diags;
+				guifmt::NkGValidateResult vr;
+				const bool lu = NkGuiArchive::Read(texte.Data(), (uint32)texte.Size(), relu, err);
+				if (lu) {
+					vr = guifmt::NkGValidate(relu, diags);
+				}
+				char d[400];
+				if (!lu) {
+					snprintf(d, sizeof(d), "le fichier ne se relit meme pas : %s", err.message.Data());
+				} else if (vr.errors == 0u && vr.warnings == 0u) {
+					snprintf(d, sizeof(d), "0 erreur, 0 avertissement sur %u diagnostic(s) emis",
+								(uint32)diags.Size());
+				} else {
+					snprintf(d, sizeof(d), "%u erreur(s), %u avertissement(s) ; 1re : %s",
+								vr.errors, vr.warnings,
+								diags.Empty() ? "(aucune listee)" : diags[0].message.Data());
+				}
+				Check(lu && vr.errors == 0u && vr.warnings == 0u,
+					  "(f3a) le fichier produit : 0 erreur de validation", d);
+			}
+			{
+				// NEGATIF : un role hors catalogue DOIT etre signale. Sans lui, (f3a)
+				// pourrait etre vert parce que le validateur ne valide rien.
+				NkString faux("nkgui 0.3\nwidgets {\n  Bidule \"x\" { truc = 1 }\n}\n");
+				NkArchive a;
+				NkGuiDiag e;
+				NkVector<NkGuiDiag> dg;
+				guifmt::NkGValidateResult vr;
+				const bool lu = NkGuiArchive::Read(faux.Data(), (uint32)faux.Size(), a, e);
+				if (lu) {
+					vr = guifmt::NkGValidate(a, dg);
+				}
+				char d[300];
+				snprintf(d, sizeof(d), "role inconnu `Bidule` -> lu=%d, %u erreur(s) ; 1re : %s",
+							lu ? 1 : 0, vr.errors,
+							dg.Empty() ? "(aucune)" : dg[0].code.Data());
+				Check(lu && vr.errors > 0u,
+					  "(f3b) NEGATIF : un role hors catalogue EST signale", d);
+			}
+
+			// -----------------------------------------------------------------
+			// (f2) `size` ET `weight` NE PARTENT PLUS EN SILENCE
+			// -----------------------------------------------------------------
+			printf("\n-- (f2) le corps et la graisse sont ECRITS, et comptes contre le document\n");
+			{
+				// Les attendus sont DERIVES du document charge. Un nombre recopie se
+				// perimerait a la premiere retouche de la maquette et crierait rouge sur
+				// un ecrivain correct.
+				uint32 avecCorps = 0, avecGraisse = 0;
+				for (uint32 i = 0; i < (uint32)doc.nodes.Size(); ++i) {
+					if (doc.nodes[i].fontPx != 0.f) {
+						++avecCorps;
+					}
+					if (doc.nodes[i].fontWeight != 0.f) {
+						++avecGraisse;
+					}
+				}
+				// 🔴 `size` NOMME DEUX CHOSES DANS LE FORMAT, et mon premier compteur
+				//    les additionnait : `Window.size = (w, h)` est une GEOMETRIE,
+				//    `appearance.size = 12` est un CORPS DE POLICE. Le releve annoncait
+				//    39 pour 18 attendus -- 22 geometries plus 17 corps. Le compteur
+				//    etait faux, pas l'ecrivain. On retranche la forme parenthesee.
+				const uint32 ecritsCorps =
+					Occurrences(texte, "size = ") - Occurrences(texte, "size = (");
+				const uint32 ecritsGraisse = Occurrences(texte, "weight = ");
+				char d[400];
+				snprintf(d, sizeof(d),
+							"document : %u noeud(s) a corps, %u a graisse ; fichier : %u `size = `, "
+							"%u `weight = `",
+							avecCorps, avecGraisse, ecritsCorps, ecritsGraisse);
+				Check(ecritsCorps == avecCorps && ecritsGraisse == avecGraisse,
+					  "(f2a) autant de `size`/`weight` ecrits que le document en porte", d);
+			}
+			{
+				// NEGATIF D'ADDITIVITE : sans corps ni graisse, la cle n'existe pas. Une
+				// cle ecrite « a zero » ferait grossir tout fichier d'avant.
+				NkUIDocument nu;
+				nu.NewDocument("Toile", NkAuthor::Humain);
+				const int32 pg = nu.AddChild(0, "", NkAuthor::Humain);
+				nu.nodes[(uint32)pg].shape = NkString("text");
+				nu.nodes[(uint32)pg].text = NkString("sans corps");
+				NkLayoutResult l2;
+				NkComputeLayout(nu, NkPaintRect{0.f, 0.f, 400.f, 300.f}, l2);
+				guifmt::NkEcritRapport r3;
+				const NkString t2 = guifmt::NkDocumentVersTexte(nu, l2, r3);
+				const uint32 c2 = Occurrences(t2, "size = "), g2 = Occurrences(t2, "weight = ");
+				char d[300];
+				snprintf(d, sizeof(d), "document sans corps ni graisse -> %u `size`, %u `weight` "
+							"(attendu 0 et 0), fichier de %u octet(s)",
+							c2, g2, (uint32)t2.Size());
+				Check(c2 == 0u && g2 == 0u && t2.Size() > 0u,
+					  "(f2b) NEGATIF : sans corps ni graisse, AUCUNE cle ajoutee", d);
+			}
+
+			// -----------------------------------------------------------------
+			// (f1) LA CAUSE DU PLACEMENT -- etablie AVANT tout correctif
+			// -----------------------------------------------------------------
+			printf("\n-- (f1) pourquoi les feuilles descendent en pile : la CAUSE, mesuree\n");
+			{
+				uint32 absolus = 0, flux = 0, total = 0;
+				CompterAgencements(doc, absolus, flux, total);
+				char d[400];
+				snprintf(d, sizeof(d),
+							"le document place %u noeud(s) sur %u en ABSOLU (None/Free/Anchor) et "
+							"%u en FLUX (Row/Column/Grid)",
+							absolus, total, flux);
+				// Ce n'est pas un critere de qualite : c'est un CONSTAT chiffre. Il est
+				// pose en critere pour qu'il rougisse le jour ou la maquette changera de
+				// nature -- ce jour-la, la conclusion de (f1) devra etre refaite.
+				Check(flux == 0u, "(f1a) le document de l'editeur est a placement ABSOLU, sans aucun flux", d);
+			}
+			{
+				// TEMOIN DE CONTROLE, et c'est lui qui distingue « le monteur est casse »
+				// de « les deux modeles ne disent pas la meme chose ». Un fichier du
+				// corpus ECRIT EN FLUX doit, lui, s'empiler correctement : des y
+				// STRICTEMENT croissants d'un item au suivant.
+				static const char *kFlux[] = {
+					"Applications/NKUIDesign/exemples/valides/01_panneau_reglages.nkgui",
+					"../../../../Applications/NKUIDesign/exemples/valides/01_panneau_reglages.nkgui"};
+				NkVector<uint8> octets;
+				for (uint32 i = 0; i < 2u && octets.Empty(); ++i) {
+					octets = NkFile::ReadAllBytes(kFlux[i]);
+				}
+				NkGuiMonteRapport fr;
+				NkVector<uint8> fp;
+				NkGuiDiag fe;
+				uint32 ft = 0;
+				const bool ok = !octets.Empty()
+								&& MonterEtPeindre((const char *)octets.Data(), (uint32)octets.Size(),
+												  600, 700, &police, fr, fp, fe, ft);
+				// 🔴 LE TEMOIN COMPTAIT UN CHEVAUCHEMENT LA OU IL Y A UNE LIGNE. Mon
+				//    premier releve rendait 7 croissants sur 8 feuilles et rougissait un
+				//    montage correct : les deux derniers boutons de `01_panneau_reglages`
+				//    vivent dans une `HBox "actions"` et PARTAGENT donc leur y. L'auteur
+				//    du monteur avait ecrit l'avertissement mot pour mot au-dessus du
+				//    champ `axeHorizontal` -- et j'ai quand meme mesure sans le lire.
+				//    Sur un axe horizontal, c'est X qui doit croitre, pas Y.
+				// 🔴 DEUXIEME VERSION DE CE TEMOIN, ET LA PREMIERE ETAIT ENCORE FAUSSE.
+				//    J'avais bien separe les deux axes -- Y en colonne, X en ligne --
+				//    mais je mettais a jour LES DEUX precedents a chaque item. Le
+				//    PREMIER bouton d'une `HBox` comparait donc son x a celui du dernier
+				//    item de la COLONNE au-dessus, qui commence au meme bord : 7 sur 8.
+				//    Chaque item se compare au precedent DE SON AXE, et une ligne
+				//    REMET A ZERO son propre precedent (une nouvelle ligne repart du
+				//    bord). La regle vient du contrat du monteur -- « deux widgets d'une
+				//    HBox partagent leur y » -- pas du resultat que je voulais obtenir.
+				uint32 feuilles = 0, croissants = 0, yDistincts = 0;
+				float32 yPrecV = -1.f, xPrecH = -1.f, yVu = -1e9f;
+				for (uint32 i = 0; i < (uint32)fr.items.Size(); ++i) {
+					if (fr.items[i].conteneur) {
+						continue;
+					}
+					++feuilles;
+					const NkRect &r = fr.items[i].rect;
+					bool ok;
+					if (fr.items[i].axeHorizontal) {
+						ok = (r.x > xPrecH);
+						xPrecH = r.x;
+					} else {
+						ok = (r.y > yPrecV);
+						yPrecV = r.y;
+						xPrecH = -1.f; // une nouvelle rangee repart du bord
+					}
+					if (ok) {
+						++croissants;
+					}
+					if (r.y > yVu + 0.5f || r.y < yVu - 0.5f) {
+						++yDistincts;
+						yVu = r.y;
+					}
+				}
+				char d[400];
+				snprintf(d, sizeof(d),
+							"corpus EN FLUX : %u widget(s) monte(s), %u feuille(s), %u places dans le "
+							"sens de leur boite (Y en colonne, X en ligne), %u hauteur(s) distincte(s) "
+							"-- le monteur empile correctement ce qui est ECRIT en flux",
+							fr.montes, feuilles, croissants, yDistincts);
+				// `yDistincts > 1` est le FALSIFICATEUR : si le monteur empilait tout au
+				// meme endroit -- le symptome meme qu'on etudie en (f1) -- il n'y aurait
+				// qu'une hauteur, et ce temoin ne pourrait pas etre vert par accident.
+				Check(ok && fr.montes > 0u && feuilles > 0u && croissants == feuilles
+						&& yDistincts > 1u,
+					  "(f1b) TEMOIN : un document ecrit EN FLUX se monte correctement", d);
+			}
+
 			printf("\n=== %d / %d ===\n", g_ok, g_ok + g_ko);
 			printf("    fichier produit : %s\n", sortie);
 			if (rap.rolesHorsCatalogue > 0u) {
@@ -505,6 +749,17 @@ namespace nkuidesign {
 				for (uint32 i = 0; i < (uint32)rap.nomsHorsCatalogue.Size(); ++i) {
 					printf("      - %s\n", rap.nomsHorsCatalogue[i].Data());
 				}
+			}
+			if (rap.encresPerdues > 0u) {
+				printf("    %u noeud(s) ont un FOND et une ENCRE ; une `appearance` n'a qu'un\n"
+						   "    `fill`. Le fond est ecrit, l'encre du texte ne l'est pas -- comptee\n"
+						   "    ici plutot que perdue en silence.\n",
+						   rap.encresPerdues);
+			}
+			if (rap.textesAbsorbes > 0u) {
+				printf("    %u texte(s) absorbe(s) en `label` (avec leur corps et leur graisse) :\n"
+						   "    en .nkgui un bouton porte son mot en propriete, pas en enfant.\n",
+						   rap.textesAbsorbes);
 			}
 			if (rap.transfoAbandonnees > 0u) {
 				printf("    %u noeud(s) portent une transformation que le format .nkgui ne sait\n"
