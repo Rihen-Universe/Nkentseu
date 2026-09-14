@@ -14836,6 +14836,75 @@ namespace nkentseu {
 		// L'ANGLE EST CONSERVE : on ne change que le centre et la distance. Un
 		// « cadrer tout » qui replacerait aussi la camera ferait perdre le point
 		// de vue choisi, et l'utilisateur devrait le retrouver a chaque fois.
+		// ── CADRER SERRE SUR LE MAILLAGE EDITE, OU SUR SA SELECTION ─────────
+		// POURQUOI CET OUTIL EXISTE. Trois fois de suite une preuve visuelle a
+		// echoue pour la MEME raison : le cube occupe quelques dizaines de pixels
+		// dans la vue par defaut, son surlignage se confond avec les poignees du
+		// gizmo posees dessus, et `Demo3DHostFrameAll` -- qui cadre la SCENE --
+		// ELOIGNE encore la camera au lieu de la rapprocher. Ce n'etait pas un
+		// defaut de methode : c'est un instrument qui manquait.
+		//
+		// ⚠ LE CADRAGE EST DERIVE DE LA BOITE ENGLOBANTE, jamais une position de
+		// camera en dur : celle-ci se perimerait au premier changement de scene, et
+		// donnerait alors une image nette et hors sujet.
+		//
+		// ⚠ ET IL CADRE CE QU'ON LUI DEMANDE. `selectionSeule` restreint la boite
+		// aux sommets RETENUS : cadrer l'objet entier quand on veut voir UNE face
+		// rendrait une image parfaitement nette du mauvais sujet -- le piege de la
+		// semaine, applique a un instrument d'image. Sans selection, il retombe sur
+		// le maillage entier et le DIT.
+		//
+		// Rend faux hors edition, ou si le maillage est vide : l'appelant doit
+		// savoir que la vue n'a pas bouge, et non croire a un cadrage rate.
+		bool Demo3DHostFrameEdit(bool selectionSeule) {
+			auto *st = HostSt();
+			if (!st || !st->editMode || st->editLive.Empty())
+				return false;
+			NkVec3f mn{1e30f, 1e30f, 1e30f}, mx{-1e30f, -1e30f, -1e30f};
+			uint32 pris = 0;
+			const uint32 nv = (uint32)st->editLive.Size();
+			for (uint32 i = 0; i < nv; ++i) {
+				if (selectionSeule &&
+					(i >= (uint32)st->vertSel.Size() || !st->vertSel[i]))
+					continue;
+				// EN ESPACE MONDE : le maillage vit en local, la camera en monde.
+				// Oublier l'ancre cadrerait l'origine du monde sur un objet pose
+				// ailleurs -- et l'image serait vide sans que rien ne le dise.
+				const NkVec3f p = st->editAnchor * st->editLive[i].pos;
+				if (p.x < mn.x) mn.x = p.x;
+				if (p.y < mn.y) mn.y = p.y;
+				if (p.z < mn.z) mn.z = p.z;
+				if (p.x > mx.x) mx.x = p.x;
+				if (p.y > mx.y) mx.y = p.y;
+				if (p.z > mx.z) mx.z = p.z;
+				++pris;
+			}
+			if (pris == 0) {
+				// Selection vide : on cadre le maillage ENTIER plutot que rien, et
+				// on le dit. Un cadrage muet sur une boite vide viserait l'origine.
+				if (selectionSeule)
+					return Demo3DHostFrameEdit(false);
+				return false;
+			}
+			const NkVec3f centre{(mn.x + mx.x) * 0.5f, (mn.y + mx.y) * 0.5f,
+								 (mn.z + mx.z) * 0.5f};
+			const float32 ex = mx.x - centre.x, ey = mx.y - centre.y, ez = mx.z - centre.z;
+			float32 rayon = sqrtf(ex * ex + ey * ey + ez * ez);
+			if (rayon < 0.05f)
+				rayon = 0.05f; // un sommet SEUL a un rayon nul : on ne divise pas par lui
+			// MEME FORMULE QUE `Demo3DHostFrameAll`, avec une marge plus SERREE
+			// (1,05 au lieu de 1,25) : c'est tout l'objet de ce cadrage-ci.
+			const float32 fovY = 45.f * 3.14159265f / 180.f;
+			float32 d = (rayon * 1.05f) / tanf(fovY * 0.5f);
+			if (d < 0.15f)
+				d = 0.15f;
+			st->editorCam.SetCenter(centre, d, st->editorCam.GetYaw(), st->editorCam.GetPitch());
+			logger.Info("[Demo3D] CADRER EDITION ({0}) : {1} sommets, centre=({2}, {3}, {4}) rayon={5} distance={6}\n",
+						selectionSeule ? "selection" : "maillage entier", pris, centre.x, centre.y,
+						centre.z, rayon, d);
+			return true;
+		}
+
 		void Demo3DHostFrameAll() {
 			auto *st = HostSt();
 			if (!st)

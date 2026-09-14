@@ -317,6 +317,14 @@ namespace nkentseu {
 
 		// Cadrer la vue sur toute la scene (centre + distance ; l'angle est garde).
 		void Demo3DHostFrameAll();
+		// Cadrer SERRE sur le maillage edite, ou sur sa seule SELECTION.
+		// `Demo3DHostFrameAll` cadre la SCENE et ELOIGNE donc la camera d'un objet
+		// unique : trois preuves visuelles ont echoue pour cette raison.
+		// La boite est DERIVEE des sommets vivants, en espace monde (ancre
+		// comprise) -- jamais une position de camera en dur.
+		// Selection vide -> retombe sur le maillage entier, et le journalise.
+		// Rend faux hors edition ou sur un maillage vide.
+		bool Demo3DHostFrameEdit(bool selectionSeule);
 
 		// Transformation de l'objet ACTIF, quel que soit son espace d'indices
 		// (objet de demo ou noeud utilisateur). Le shell n'a pas a choisir.
