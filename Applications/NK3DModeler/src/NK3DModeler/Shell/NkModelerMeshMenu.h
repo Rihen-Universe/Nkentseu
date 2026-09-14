@@ -5,7 +5,7 @@
 //          PLUSIEURS chemins : barre de menu, menu contextuel (clic droit),
 //          clavier. Sensible au sous-mode sommet / arete / face, comme les trois
 //          « Context Menu » distincts de Blender.
-// @Author  Rihen
+// @Author  TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // @License Proprietary - All Rights Reserved (see LICENSE)
 //
 // POURQUOI CE FICHIER EXISTE
@@ -29,7 +29,14 @@
 //   repartiteur. Copier ce fichier et changer la table doit suffire.
 // -----------------------------------------------------------------------------
 
-#include "NKEditorKit/NkEditorContextMenu.h"
+// ⚠ CE FICHIER N'INCLUT PAS `NkEditorContextMenu.h`, ET C'EST VOULU.
+// Il n'en utilisait RIEN -- `NkCtxMenuDraw` est appele par la VUE, pas ici -- mais
+// l'include tirait NKGui tout entier. Consequence concrete : la construction de
+// cette liste, qui est du CALCUL PUR, ne pouvait pas etre mesuree hors fenetre.
+// C'est le meme mur qui avait fait extraire `NkVpEditTarget.h` de NkDemo3D.cpp.
+// Le seul consommateur, `NkModelerViewport.h`, inclut deja le kit par
+// `NkModelerInput.h` (sa ligne 13, AVANT la ligne 20 qui prend ce fichier-ci) :
+// rien ne manque de son cote. Le banc, lui, s'appelle NKMeshMenuTest.
 #include "NKEditorKit/NkShortcutTable.h"
 #include "NK3DModeler/Viewport/NkDemo3DHost.h"
 
