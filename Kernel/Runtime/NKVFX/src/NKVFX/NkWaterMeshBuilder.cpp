@@ -40,8 +40,13 @@ namespace nkentseu {
 					// La houle COMPOSE : la grille rend le plan de repos, `NkWaterEval`
 					// déplace le point et rend sa normale et sa tangente analytiques.
 					// Aucune des deux n'est refabriquée ici.
+					// ⚠️ `p.disturbance` est passé ICI et nulle part ailleurs : le creux
+					// d'une carène et la trace d'un corps sont AJOUTÉS par l'évaluateur,
+					// donc la position, la normale ET la tangente les portent. Les
+					// recomposer après coup ne corrigerait que la hauteur, et
+					// l'éclairage lirait une surface plate au fond du creux.
 					const math::NkWaterPoint w =
-						math::NkWaterEval(p.waves, base.x, base.z, p.time);
+						math::NkWaterEval(p.waves, base.x, base.z, p.time, -1.f, p.disturbance);
 
 					renderer::NkVertex3D &v = out[slot];
 					// ⚠️ LA COMPOSITION EN HAUTEUR EST ICI, ET ELLE N'EST PAS OPTIONNELLE.
