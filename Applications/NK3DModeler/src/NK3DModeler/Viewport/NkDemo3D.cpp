@@ -2435,6 +2435,22 @@ namespace nkentseu {
 			// pas sélectionnée ET la copie retenue peut appartenir à une face qui tourne le
 			// dos à la caméra -> le marqueur orange serait masqué et « rien n'aurait l'air
 			// sélectionné ». On étend donc la sélection à tous les sommets coïncidents.
+			// ⚠ LA PROPAGATION N'A DE ROLE QU'EN SOUS-MODE SOMMET, et c'est ce qui
+			// manquait. Elle existe parce qu'un clic n'attrape qu'UNE des trois
+			// copies coincidentes d'un coin : sans elle, une selection de SOMMET
+			// serait invisible deux fois sur trois.
+			//
+			// Mais en FACE et en ARETE, l'intention ne porte pas sur des positions.
+			// Le moteur le dit lui-meme (`NkEditMesh.cpp:1233`) : « en mode face,
+			// c'est `sel` de la FACE qui porte l'intention, pas celui de ses coins ».
+			// Propager y transformait un clic sur UNE face en DOUZE sommets repartis
+			// sur cinq faces -- « ca selectionne le cube entier » (Rodolf, mesure).
+			//
+			// ⚠ ET CETTE REGLE SURVIVRA au modele d'identite : quand un sommet sera
+			// une entite unique, « la selection de face porte sur la face » restera
+			// vraie. Ce n'est donc PAS un contournement de la soudure, c'est le
+			// comportement correct qui n'avait jamais ete branche. La propagation,
+			// elle, disparaitra d'elle-meme -- elle seule est la dette.
 			st->editHE.PropagateSelectionToCoincident();
 		}
 
@@ -15771,7 +15787,49 @@ namespace nkentseu {
 			auto *st = HostSt();
 			if (!st || !st->editMode)
 				return 0;
+			// ⚠ ON COMPTE CE QUE LE SOUS-MODE DESIGNE, et c'est (b10) autant que (b2).
+			// Ce compteur rendait TOUJOURS des sommets : sur un cube en sous-mode
+			// SOMMET il affichait 12, c'est-a-dire le nombre des ARETES -- un chiffre
+			// juste pour une question que personne ne posait. En mode FACE il faut
+			// des FACES, en mode ARETE des ARETES : sinon « 12 selectionnes » ne dit
+			// pas de quoi il parle, et on cesse de croire tous les autres chiffres.
+			// Priorite identique a celle du menu : FACE, puis ARETE, puis SOMMET.
 			int32 n = 0;
+			if (st->editSelMask & 4) {
+				const uint32 nf = st->editHE.FaceCount();
+				NkVector<uint32> fv;
+				for (uint32 f = 0; f < nf; ++f) {
+					if (!st->editHE.faces[f].alive)
+						continue;
+					fv.Clear();
+					st->editHE.GetFaceVerts((renderer::NkEmId)f, fv);
+					if (fv.Empty())
+						continue;
+					// Une face compte si TOUS ses sommets sont retenus : c'est ce qui
+					// distingue « la face est selectionnee » de « elle est effleuree
+					// par la selection d'une voisine ».
+					bool tous = true;
+					for (uint32 k = 0; k < (uint32)fv.Size() && tous; ++k)
+						if (fv[k] >= (uint32)st->vertSel.Size() || !st->vertSel[fv[k]])
+							tous = false;
+					if (tous)
+						++n;
+				}
+				return n;
+			}
+			if (st->editSelMask & 2) {
+				const uint32 ne = (uint32)st->editHE.edges.Size();
+				for (uint32 e = 0; e < ne; ++e) {
+					const auto &ed = st->editHE.edges[e];
+					if (!ed.alive)
+						continue;
+					if ((uint32)ed.v0 < (uint32)st->vertSel.Size() &&
+						(uint32)ed.v1 < (uint32)st->vertSel.Size() && st->vertSel[ed.v0] &&
+						st->vertSel[ed.v1])
+						++n;
+				}
+				return n;
+			}
 			for (uint32 i = 0; i < (uint32)st->vertSel.Size(); ++i)
 				if (st->vertSel[i])
 					++n;
