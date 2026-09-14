@@ -1716,6 +1716,14 @@ int nkmain(const NkEntryState &entry) {
 				// -1 : le PREMIER SOMMET SELECTIONNE, pas le sommet 0 -- lire un sommet
 				// que le geste ne concerne pas ferait conclure a tort que rien ne bouge.
 				const bool vOk = demo::Demo3DHostEditVertPos(-1, vl, vw);
+				// LA VALEUR DE L'OPERATION MODALE, a cote de la position du sommet.
+				// C'est ce couple qui separe les DEUX causes possibles du « rien ne
+				// bouge » : la modale ne calcule pas (valeur figee), ou elle calcule
+				// et n'applique pas (valeur qui monte, sommet immobile).
+				int32 mop2 = 0, mseg2 = 1;
+				const char *mn2 = nullptr, *mlv2 = nullptr, *mls2 = nullptr;
+				float32 mval2 = 0.f;
+				const bool mOk2 = demo::Demo3DHostModalInfo(&mop2, &mn2, &mlv2, &mval2, &mls2, &mseg2);
 				std::printf("[nk3d-diag] f=%4d shell.mode=%d(edit=%d) viseur.edit=%d "
 							"refus=%d masque=%d selection=%d modale=%d "
 							"noeuds=%d v=%u a=%u f=%u\n",
@@ -1737,6 +1745,11 @@ int nkmain(const NkEntryState &entry) {
 								"monde=(%.4f %.4f %.4f)\n",
 								(int)agentFrame, (double)vl[0], (double)vl[1], (double)vl[2],
 								(double)vw[0], (double)vw[1], (double)vw[2]);
+				}
+				if (mOk2) {
+					std::printf("[nk3d-mod ] f=%4d op=%d (%s) %s=%.4f %s=%d\n",
+								(int)agentFrame, (int)mop2, mn2 ? mn2 : "?", mlv2 ? mlv2 : "?",
+								(double)mval2, mls2 ? mls2 : "(pas de segments)", (int)mseg2);
 				}
 				std::fflush(stdout);
 			}

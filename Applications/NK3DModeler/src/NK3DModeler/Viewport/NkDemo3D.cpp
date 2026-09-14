@@ -3903,6 +3903,19 @@ namespace nkentseu {
 					G.SetRotationOf(i, st->modalGzRot[i]);
 					G.SetScaleOf(i, st->modalGzScale[i]);
 				}
+				// ⚠ LES SOMMETS AUSSI, ET C'EST UNE REGRESSION TROUVEE PAR SON
+				// NEGATIF. Depuis que la modale de transformation applique le
+				// deplacement EN CONTINU au maillage d'edition, restaurer le seul
+				// gizmo ne suffit plus : `editLive` garde la derniere position
+				// calculee, et l'image suivante ne la republie pas (la modale est
+				// finie, sa garde est retombee). Le journal disait « transformation
+				// restauree : comparaison bit a bit = IDENTIQUE » -- et il disait
+				// vrai, pour le gizmo. Le maillage, lui, restait deplace.
+				// Un Echap qui laisse la geometrie bougee est pire que pas d'Echap.
+				// `editRest` est l'autorite tant que rien n'est confirme : on y
+				// revient, sans toucher a la topologie (elle n'a pas change).
+				if (st->editMode && st->editLive.Size() == st->editRest.Size())
+					st->editLive = st->editRest;
 				return;
 			}
 			st->editHE = st->modalSnap;
@@ -9686,7 +9699,14 @@ namespace nkentseu {
 				// POINT DE PIVOT courant (façon Blender). ApplyAbout() recompose le décalage
 				// utilisateur (translation + rotation + échelle) autour d'un point MONDE
 				// arbitraire -> un seul chemin pour les 5 modes.
-				if ((st->editGizmo.IsDragging() || st->editForceXform) && selCnt > 0) {
+				// REJUGE LE 14/09 AVEC UN VRAI GESTE. Ce correctif avait ete retire
+				// parce qu'il ne deplacait aucune mesure -- mais la mesure de rejet
+				// avait ete faite avec NK_MODAL_VAL, qui pose la valeur au lancement
+				// et que le pilotage souris ECRASE a l'image suivante. Le geste etait
+				// donc inexistant, et le correctif jugé sur rien.
+				const bool modaleXform = (st->modalOp >= 9 && st->modalOp <= 11);
+				if ((st->editGizmo.IsDragging() || st->editForceXform || modaleXform) &&
+					selCnt > 0) {
 					// ORIGINES INDIVIDUELLES : chaque FACE entièrement sélectionnée est
 					// transformée autour de SON PROPRE barycentre. Un sommet partagé par
 					// plusieurs faces sélectionnées prend la MOYENNE de leurs centres (cas
