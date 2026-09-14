@@ -439,23 +439,30 @@ namespace {
 		// croirait l'alignement casse alors que c'est la carte qui deborde.
 		m.thumbSize = 56.f;
 		m.entries.Clear();
-		for (int32 i = 0; i < st.browserCount && i < 32; ++i) {
-			if (st.browserKind[i] == 255)
+		// ⚠️ LE `&& i < 32` A DISPARU, ET C'EST LE POINT (2026-09-14).
+		//    Ce site lisait encore les dix tableaux paralleles que le refactor
+		//    du 05/09 a remplaces par un vecteur (NkModelerInput.h:144-156). La
+		//    fusion dans `transit` a garde l'appelant ancien et la structure
+		//    neuve : refus de compilation. Le migrer en RECOPIANT la borne 32
+		//    aurait remis EN SILENCE le plafond que le refactor existait pour
+		//    supprimer -- le projet de Rodolf en avait exactement 32.
+		for (int32 i = 0; i < st.BrowserCount(); ++i) {
+			const NkBrowserCard &c = st.Card(i);
+			if (c.kind == 255)
 				continue; // carte supprimee
 			NkAssetEntry e;
-			e.name = NkString(st.browserNames[i]);
-			e.isFolder = (st.browserKind[i] == 1);
+			e.name = NkString(c.name);
+			e.isFolder = (c.kind == 1);
 			// Legende du CONSOMMATEUR (NkModelerUI.h) : 0 graphe · 1 dossier ·
 			// 2 materiau · 3 texture · 4 dataset IA · 5 scene · 6 model.
 			static const char *const kKind[7] = {"Graphe", "Dossier", "Materiau",
 												 "Texture", "Dataset", "Scene", "Model"};
-			e.kindLabel = (st.browserKind[i] < 7) ? kKind[st.browserKind[i]] : "";
+			e.kindLabel = (c.kind < 7) ? kKind[c.kind] : "";
 			static const NkRole kKindRole[7] = {NkRole::AccentUi, NkRole::TextMuted,
 												NkRole::TypeMat, NkRole::TypeTex,
 												NkRole::AccentUi, NkRole::TypeAnim,
 												NkRole::TypeMesh};
-			e.kindRole = (uint16)((st.browserKind[i] < 7) ? kKindRole[st.browserKind[i]]
-														  : NkRole::TextMuted);
+			e.kindRole = (uint16)((c.kind < 7) ? kKindRole[c.kind] : NkRole::TextMuted);
 			e.userTag = (uint32)i;
 			m.entries.PushBack(e);
 		}
