@@ -6417,6 +6417,73 @@ namespace nkentseu {
 				int32 cmd;			///< valeur de NkMeshCmd
 				const char *noms;	///< ce qui manque, tel que Blender le nomme
 		};
+		// ── COMBIEN DE LIGNES ONT ETE COUPEES ? ─────────────────────────────
+		// ⚠ AUCUN DE MES CRITERES NE REGARDAIT LA LARGEUR DU TEXTE, et c'est une
+		// IMAGE qui a trouve le defaut : « A venir (Blender) : Shape / Profile,
+		// Clamp, Wi… ». Une ligne coupee est pire qu'une ligne absente -- elle
+		// promet une information et la retire. Ce compteur existe pour que la
+		// prochaine coupure se mesure au lieu de s'apercevoir.
+		// Il se lit sous NK_PROP_DIAG=1 ; il vaut 0 quand tout tient.
+		inline int32 &NkPropTronquees() {
+			static int32 n = 0;
+			return n;
+		}
+
+		// ── UNE LIGNE QUI NE TIENT PAS SE REPLIE ────────────────────────────
+		// Deux issues etaient acceptables : replier, ou mettre le texte entier dans
+		// l'infobulle. J'AI CHOISI DE REPLIER, et la raison est le but de la ligne :
+		// rendre l'absence visible SANS avoir a chercher. Une infobulle exige un
+		// survol -- donc de savoir qu'il y a quelque chose a survoler, ce qui est
+		// exactement l'information qui manquait. Elle aurait remplace une troncature
+		// par une absence conditionnelle.
+		//
+		// La coupure se fait sur les VIRGULES : ce sont les noms de Blender, et
+		// couper au milieu de « Quad Corner Type » rendrait la ligne inutile -- la
+		// raison meme pour laquelle je refuse de les abreger.
+		// Repli de derniere extremite : un seul nom plus large que la colonne est
+		// ecrit tel quel et COMPTE comme tronque. Mieux vaut un compteur qui
+		// l'avoue qu'une boucle qui ne termine pas.
+		inline void NkPropLigneRepliee(NkModelerPainter &p, float32 x, float32 largeur,
+									   const char *texte, float32 &yy) {
+			if (!texte || !*texte)
+				return;
+			const char *d = texte;
+			char tampon[256];
+			while (*d) {
+				uint32 n = 0;
+				int32 coupe = -1; // derniere virgule qui tenait encore
+				while (d[n] && n + 1 < sizeof(tampon)) {
+					tampon[n] = d[n];
+					tampon[n + 1] = 0;
+					if (p.TextW(tampon) > largeur) {
+						tampon[n] = 0;
+						break;
+					}
+					if (d[n] == ',')
+						coupe = (int32)n;
+					++n;
+				}
+				if (!d[n]) { // tout le reste tient
+					p.TextV(x, yy, kRowH, d, NkRole::TextMuted);
+					yy += kRowH;
+					return;
+				}
+				if (coupe < 0) {
+					// Aucun point de coupure : on ecrit et on l'AVOUE.
+					p.TextV(x, yy, kRowH, d, NkRole::TextMuted);
+					yy += kRowH;
+					++NkPropTronquees();
+					return;
+				}
+				tampon[coupe + 1] = 0;
+				p.TextV(x, yy, kRowH, tampon, NkRole::TextMuted);
+				yy += kRowH;
+				d += coupe + 1;
+				while (*d == ' ')
+					++d;
+			}
+		}
+
 		inline const NkPropAbsente *NkPropAbsentes(int32 &n) {
 			static const NkPropAbsente k[] = {
 				{1, "Boundary, Even, Relative"},
@@ -6582,8 +6649,11 @@ namespace nkentseu {
 											char ab[192];
 											snprintf(ab, sizeof(ab), "A venir (Blender) : %s",
 													 abs[a7].noms);
-											p.TextV(iO.x, yy, kRowH, ab, NkRole::TextMuted);
-											yy += kRowH;
+											// La largeur DISPONIBLE, pas une constante : le
+											// panneau se redimensionne, et un nombre en dur
+											// se serait perime au premier glissement de
+											// separateur.
+											NkPropLigneRepliee(p, iO.x, iO.w, ab, yy);
 										}
 									}
 									yy += NkGroupPad();
