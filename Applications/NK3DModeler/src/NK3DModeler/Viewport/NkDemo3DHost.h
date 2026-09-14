@@ -216,6 +216,8 @@ namespace nkentseu {
 		bool Demo3DHostModalActive();
 		// La contrainte de la modale en cours : axe (-1 libre), plan (Maj), local.
 		bool Demo3DHostModalConstraint(int32 *axe, bool *plan, bool *local);
+		// Valide la modale en cours par la porte du clic gauche (modalConfirmPending).
+		bool Demo3DHostModalConfirmAsk();
 		// ── CE QUE L'OPERATION EN COURS A COMME PARAMETRES ──────────────────
 		// Ils EXISTENT et se pilotent deja : `modalVal` a la souris, `modalSeg` a
 		// la molette, et l'apercu se recalcule a chaque changement. Ce qui leur

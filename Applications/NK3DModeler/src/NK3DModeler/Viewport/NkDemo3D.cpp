@@ -1627,6 +1627,10 @@ namespace nkentseu {
 				int32 modalStartPending = 0;      // demande de lancement (callback clavier -> frame)
 				bool modalCancelPending = false;  // Echap / clic droit
 				bool modalConfirmPending = false; // Entree / Espace (CONFIRM du keymap Blender)
+				// Instantane d'editHE pris au LANCEMENT d'une transformation en edition (photo
+				// gizmo). C'est le pre-etat que la validation inscrit dans l'historique ; sans
+				// lui, un Ctrl+Z apres G n'avait rien a rendre.
+				bool modalXformSnapValid = false;
 				renderer::NkEditMesh modalSnap;   // etat AVANT l'operation (source de tout apercu)
 				NkVector<uint8> modalSelSnap;     // selection AVANT l'operation
 				float32 modalVal = 0.f;           // parametre CONTINU pilote a la SOURIS
@@ -4006,6 +4010,13 @@ namespace nkentseu {
 					st->modalGzRot[i] = G.RotationOf(i);
 					st->modalGzScale[i] = G.ScaleOf(i);
 				}
+				// EN EDITION, LE MAILLAGE AUSSI : c'est le pre-etat que la validation inscrira
+				// dans l'historique. La selection est poussee avant, comme au debut d'un glisser.
+				if (st->editMode) {
+					Demo3D_PushSel(st);
+					st->modalSnap = st->editHE;
+					st->modalXformSnapValid = true;
+				}
 				return;
 			}
 			st->modalSnap = st->editHE;
@@ -4229,6 +4240,59 @@ namespace nkentseu {
 		// CONFIRMATION (clic gauche) : on repart du snapshot et on rejoue l'operation par
 		// le chemin NORMAL (Demo3D_ApplyCmd) -> UN SEUL undo et UNE SEULE commande
 		// journalisee pour toute la manipulation modale.
+		// ── ECRIRE UNE TRANSFORMATION DANS L'AUTORITE ─────────────────────────────
+		// UNE seule ecriture pour les deux gestes qui deplacent des sommets par le
+		// gizmo : la fin d'un GLISSER et la VALIDATION d'une modale G/R/S. Les deux
+		// posent la transformation dans `editLive` (l'affichage) ; seule cette fonction
+		// la fait entrer dans `editHE`, l'historique et le journal.
+		// POURQUOI ELLE EXISTE. La validation modale se contentait de `modalOp = 0` :
+		// mesure du 14/09, un G valide deplacait `editLive` mais laissait `editHE` intact
+		// (empreinte inchangee, annuler=0), et l'extrusion suivante -- reconstruite
+		// depuis `editHE` -- EFFACAIT le deplacement. Le glisser du gizmo faisait deja
+		// le bon travail : on l'extrait, on ne le recopie pas.
+		// `preSnap` : l'etat d'avant le geste, inscrit dans l'historique ; nullptr =
+		// ecrire sans inscrire (geste sans effet).
+		static void Demo3D_EditXformBake(Demo3DState *st, renderer::NkMeshSystem *ms,
+							const renderer::NkEditMesh *preSnap) {
+			const int32 nv = (int32)NkMin((uint32)st->editRest.Size(), (uint32)st->editLive.Size());
+			const uint32 hv = st->editHE.VertCount();
+			for (int32 i = 0; i < nv; i++) {
+				st->editRest[i] = st->editLive[i];
+				if ((uint32)i < hv)
+					st->editHE.verts[i].pos = st->editLive[i].pos;
+			}
+			st->editHE.RecomputeNormals();
+			for (int32 i = 0; i < nv && (uint32)i < hv; i++)
+				st->editRest[i].normal = st->editHE.verts[i].normal;
+			st->editLive = st->editRest;
+			// Mesh d'affichage 1:1 : update rapide. Sinon (modificateurs / coins dedoubles
+			// par l'ombrage FLAT) : regenerer -> le resultat affiche se recale sur la base.
+			if (st->editDisplay1to1) {
+				if (ms)
+					ms->UpdateVertices(st->editMesh, st->editLive.Data(), (uint32)nv);
+			} else if (ms) {
+				Demo3D_SyncFromHE(st, ms);
+			}
+			st->editGizmo.ResetSelected();
+			st->editOverlayDirty = true;
+			// Historique (pre-etat) ET commande Move (donnee rejouable : delta par sommet).
+			if (preSnap) {
+				st->editHistory.Commit(*preSnap);
+				renderer::NkMeshEditCommand mc;
+				mc.op = renderer::NkMeshEditOp::Move;
+				const uint32 bv = preSnap->VertCount();
+				for (uint32 i = 0; i < hv && i < bv; ++i) {
+					NkVec3f dd = st->editHE.verts[i].pos - preSnap->verts[i].pos;
+					if (dd.x != 0.f || dd.y != 0.f || dd.z != 0.f) {
+						mc.selection.PushBack(i);
+						mc.moveDeltas.PushBack(dd);
+					}
+				}
+				if (mc.selection.Size() > 0)
+					st->editRecorder.Push(mc);
+			}
+		}
+
 		static void Demo3D_ModalConfirm(Demo3DState *st, renderer::NkMeshSystem *ms) {
 			if (st->modalOp == 0)
 				return;
@@ -4244,6 +4308,12 @@ namespace nkentseu {
 				const renderer::NkGizmo3D &G = Demo3D_ModalGizmoActif(st);
 				const int32 ci = st->editMode ? 0 : (G.ActiveIndex() >= 0 ? G.ActiveIndex() : 0);
 				const NkVec3f t = G.TranslateOf(ci);
+				// VALIDER, C'EST ECRIRE. En edition, la transformation vit dans `editLive` depuis
+				// l'apercu ; on la fait entrer dans editHE, l'historique et le journal, par la
+				// MEME fonction que la fin d'un glisser du gizmo. Sans effet : on n'inscrit rien.
+				if (st->editMode && st->modalEditAuLancement)
+					Demo3D_EditXformBake(st, ms, (eff && st->modalXformSnapValid) ? &st->modalSnap : nullptr);
+				st->modalXformSnapValid = false;
 				st->modalOp = 0;
 				st->modalPhoto = Demo3DState::kPhotoMaillage;
 				st->editOverlayDirty = true;
@@ -4287,6 +4357,11 @@ namespace nkentseu {
 			if (st->modalPhoto == Demo3DState::kPhotoGizmo) {
 				st->modalOp = 0;
 				Demo3D_ModalPhotoRendre(st);
+				// L'INSTANTANE NE VAUT PLUS : rien ne sera inscrit. ⚠ Cette invalidation etait
+				// d'abord dans Demo3D_ModalPhotoRendre -- que l'APERCU appelle a chaque image
+				// (Demo3D_ModalGizmoAppliquer repart de la photo). Mesure : la validation
+				// recevait un instantane toujours invalide, et n'inscrivait rien (annuler=0).
+				st->modalXformSnapValid = false;
 				const bool exact = Demo3D_ModalGizmoIdentiqueAPhoto(st);
 				st->modalPhoto = Demo3DState::kPhotoMaillage;
 				st->editOverlayDirty = true;
@@ -5100,6 +5175,14 @@ namespace nkentseu {
 					if (e->GetButton() == NkMouseButton::NK_MB_RIGHT &&
 						!(NkInput.IsKeyDown(NkKey::NK_LSHIFT) || NkInput.IsKeyDown(NkKey::NK_RSHIFT)))
 						st->modalCancelPending = true;
+					// CLIC GAUCHE = VALIDER (keymap modal de Blender : CONFIRM = LEFTMOUSE). Ce
+					// rappel faisait `return` avant de poser quoi que ce soit : `clickNow` venait de
+					// `pickPending`, jamais pose pendant une modale, donc le clic ne validait pas. On
+					// pose le drapeau d'Entree et d'Espace -- une porte, consommee dans les deux modes
+					// par Demo3D_ModalFinish -- et surtout PAS `pickPending`, qui ferait aussi
+					// selectionner sous le curseur au moment de valider.
+					if (e->GetButton() == NkMouseButton::NK_MB_LEFT)
+						st->modalConfirmPending = true;
 					return; // ni pick, ni curseur 3D, ni outil : l'op possede la souris
 				}
 				// PORTAGE NK3DModeler : l'outil CURSEUR de la barre fait du clic
@@ -9962,49 +10045,11 @@ namespace nkentseu {
 						meshSysF->UpdateVertices(st->editMesh, st->editLive.Data(), (uint32)nv);
 					st->editOverlayDirty = true; // positions changées -> overlay suit le mesh
 				}
-				// Fin de drag -> baker les positions dans l'AUTORITÉ editHE + RECALCUL des
-				// normales (la surface a changé -> l'éclairage suit). Topologie inchangée
-				// -> pas de re-triangulation, juste positions+normales.
+				// Fin de drag -> ECRIRE la transformation dans l'autorite editHE, par la MEME
+				// fonction que la validation d'une transformation modale (Demo3D_EditXformBake).
 				if (st->editWasDragging && !st->editGizmo.IsDragging()) {
-					const uint32 hv = st->editHE.VertCount();
-					for (int32 i = 0; i < nv; i++) {
-						st->editRest[i] = st->editLive[i];
-						if ((uint32)i < hv)
-							st->editHE.verts[i].pos = st->editLive[i].pos;
-					}
-					st->editHE.RecomputeNormals();
-					for (int32 i = 0; i < nv && (uint32)i < hv; i++)
-						st->editRest[i].normal = st->editHE.verts[i].normal;
-					st->editLive = st->editRest;
-					// Mesh d'affichage 1:1 : update rapide. Sinon (modificateurs / coins dédoublés
-					// par l'ombrage FLAT) : régénérer -> le résultat affiché se recale sur les
-					// nouvelles positions de la base.
-					if (st->editDisplay1to1) {
-						if (meshSysF)
-							meshSysF->UpdateVertices(st->editMesh, st->editLive.Data(), (uint32)nv);
-					} else if (meshSysF) {
-						Demo3D_SyncFromHE(st, meshSysF);
-					}
-					st->editGizmo.ResetSelected();
-					st->editOverlayDirty = true;
-					// Enregistre le déplacement dans l'historique (pré-état snapshoté au début)
-					// ET comme commande Move (donnée rejouable : delta par sommet déplacé).
-					if (st->editDragSnapValid) {
-						st->editHistory.Commit(st->editDragSnap);
-						renderer::NkMeshEditCommand mc;
-						mc.op = renderer::NkMeshEditOp::Move;
-						const uint32 hv = st->editHE.VertCount(), bv = st->editDragSnap.VertCount();
-						for (uint32 i = 0; i < hv && i < bv; ++i) {
-							NkVec3f d = st->editHE.verts[i].pos - st->editDragSnap.verts[i].pos;
-							if (d.x != 0.f || d.y != 0.f || d.z != 0.f) {
-								mc.selection.PushBack(i);
-								mc.moveDeltas.PushBack(d);
-							}
-						}
-						if (mc.selection.Size() > 0)
-							st->editRecorder.Push(mc);
-						st->editDragSnapValid = false;
-					}
+					Demo3D_EditXformBake(st, meshSysF, st->editDragSnapValid ? &st->editDragSnap : nullptr);
+					st->editDragSnapValid = false;
 				}
 				st->editWasDragging = st->editGizmo.IsDragging();
 
@@ -15663,6 +15708,15 @@ namespace nkentseu {
 		// CE QUE LA MODALE A COMPRIS DES TOUCHES D'AXE : l'axe (-1 = libre), le plan
 		// (Maj : tous les axes SAUF celui-la) et le repere local (second appui). Faux
 		// quand aucune modale ne tourne. Lecteur seul : il ne pose rien.
+		// VALIDER LA MODALE EN COURS PAR LA PORTE DU CLIC GAUCHE : le drapeau que pose le
+		// rappel souris (et Entree), consomme par Demo3D_ModalFinish. Faux sans modale.
+		bool Demo3DHostModalConfirmAsk() {
+			auto *st = HostSt();
+			if (!st || st->modalOp == 0)
+				return false;
+			st->modalConfirmPending = true;
+			return true;
+		}
 		bool Demo3DHostModalConstraint(int32 *axe, bool *plan, bool *local) {
 			auto *st = HostSt();
 			if (!st || st->modalOp == 0)

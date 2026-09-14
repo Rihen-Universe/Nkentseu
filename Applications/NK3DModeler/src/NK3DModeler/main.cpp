@@ -2584,6 +2584,23 @@ int nkmain(const NkEntryState &entry) {
 				demo::Demo3DHostNodesTrace();
 		}
 
+		// NK_MODAL_VALIDER=<frame> : valide la modale en cours par la porte du CLIC
+		// GAUCHE (Demo3DHostModalConfirmAsk -> modalConfirmPending), a une frame choisie.
+		// La validation automatique (NK_MODAL_CONFIRM) passe par la meme fonction de
+		// validation, mais pas par ce drapeau : ce crochet mesure la porte du clic.
+		{
+			static bool sMvDone = false;
+			if (const char *mv = std::getenv("NK_MODAL_VALIDER")) {
+				const int32 fr = (int32)std::atoi(mv);
+				if (!sMvDone && agentFrame >= fr) {
+					sMvDone = true;
+					const bool ok = demo::Demo3DHostModalConfirmAsk();
+					std::printf("[nk3d-axe ] f=%4d validation par la porte du clic -> %d\n", (int)agentFrame, ok ? 1 : 0);
+					std::fflush(stdout);
+				}
+			}
+		}
+
 		// NK_MODAL_START="move|rotate|scale[,frame]" : lance la VRAIE modale, celle du
 		// viseur, par `Demo3DHostEditModal` -- la meme porte que la touche G/R/S du
 		// viseur (modalStartPending). L'action ModalMove du shell, elle, arme la vue
