@@ -1288,7 +1288,46 @@ namespace nkentseu {
 									  mUI.theme.border, 1.f);
 
 				const NkRect dedans = {d.x, d.y + titreH, d.w, d.h - titreH};
-				if (p) {
+
+				// 🔴 UN TIROIR NE MONTRE PAS UN PANNEAU DEJA ANCRE (mesure du 14/09).
+				//    `DrawPanels` dessine tous les panneaux OUVERTS ; ce tiroir passe
+				//    juste apres. Un panneau ouvert ET vise par une pastille voyait donc
+				//    son `OnUI` appele DEUX FOIS dans la MEME image, avec le meme etat
+				//    et la meme souris.
+				//
+				//    CE QUE CA DONNE A L'ECRAN, et c'est une capture, pas une crainte :
+				//    la pastille « Apercu » de NkUIDesign ouvrait un SECOND exemplaire de
+				//    la toile -- avec sa propre barre d'outils -- dans une colonne de
+				//    320 px, et la toile ANCREE perdait sa planche au passage. Deux
+				//    exemplaires vivants du meme panneau se disputaient un seul etat de
+				//    vue ; le second, calcule pour une colonne etroite, ecrasait le
+				//    premier.
+				//
+				//    ⚠️ ET C'EST MON PROPRE LOT QUI L'A OUVERT. Hier j'ai corrige la cle
+				//       « Test » -> « Apercu » parce que le tiroir affichait « Aucun
+				//       panneau enregistre sous ce titre » en rouge. La cle etait bien
+				//       fausse -- mais la reparer a remplace un message inoffensif par un
+				//       panneau casse. *Reparer une cle ne dit rien de ce qu'elle
+				//       designe.*
+				//
+				//    ⚠️ POURQUOI UN MESSAGE ET PAS UNE PASTILLE RETIREE : §13 reserve les
+				//       rails aux panneaux SECONDAIRES, et le choix de ce qui va sur un
+				//       rail appartient a l'APPLICATION, pas a la coquille. La coquille
+				//       refuse le double dessin -- qu'elle seule peut voir -- et NOMME la
+				//       raison. Une pastille qui disparaitrait ferait croire que le plan
+				//       a change ; celle-ci dit ou trouver le panneau.
+				if (p && p->IsOpen()) {
+					if (mUI.font && mUI.font->Valid()) {
+						mUI.dlOverlay.AddText(mUI.font->Face(), mUI.font->TexId(),
+											  {dedans.x + 10.f, dedans.y + 24.f},
+											  "Ce panneau est deja ancre dans la disposition.",
+											  mUI.theme.textMuted);
+						mUI.dlOverlay.AddText(mUI.font->Face(), mUI.font->TexId(),
+											  {dedans.x + 10.f, dedans.y + 24.f + mUI.font->LineHeight() + 4.f},
+											  "Le dessiner ici en ferait un second exemplaire.",
+											  mUI.theme.textMuted);
+					}
+				} else if (p) {
 					// ⚠️ LE TIROIR DESSINE UN PANNEAU EXISTANT, il n en invente pas
 					//    un second. C est ce qui rendra l etat 3 (l ancrer) presque
 					//    gratuit : le meme objet, ancre au lieu d etre pose ici.
@@ -2888,8 +2927,47 @@ void NkEditorShell::MaximizeWindow() noexcept {
 					// souris neutralisée pendant OnUI : le code custom des panneaux (éditeur,
 					// arbres) lit l'input en direct et recevrait sinon clics/molette À TRAVERS
 					// la fenêtre du dessus — et lui volerait son drag de barre de titre.
+					//
+					// 🔴 ET LE MEME MASQUAGE POUR LES SURFACES FLOTTANTES DU KIT (14/09).
+					//    RODOLF : « le panneau apercu laisse traverser les evenement ca doit
+					//    etre pareil pour les pastille de droit sur leur panneau ».
+					//
+					//    MESURE, repetable 2 fois sur 2, tiroir de rail BAS ouvert :
+					//      - le pixel (700,700) est OPAQUE, couleur du tiroir #0d1117 ;
+					//      - un clic a CE point change 1 302 pixels a y 81..603, x 525..860,
+					//        c'est-a-dire le contour de selection de la planche AU-DESSUS
+					//        du tiroir ;
+					//      - et c'est EXACTEMENT le meme effet, au pixel, qu'un clic pose
+					//        directement sur la toile a (700,300).
+					//    Le clic traversait donc un panneau opaque.
+					//
+					//    ⚠️ LA CAUSE N'EST PAS UNE SURFACE QUI NE RECLAME PAS. Le recensement
+					//       du 06/09 (`NkEditorSurface.h`) a converti les dix surfaces du kit,
+					//       tiroir de rail compris : `DrawRailDrawers` construit bien une
+					//       `NkSurfaceFlottante` sur `corps`, couche Menu. La reclamation est
+					//       CORRECTE. Ce qui manquait est le SYMETRIQUE : le routeur
+					//       d'occlusion ne sert que ceux qui l'INTERROGENT, et les panneaux
+					//       hotes lisent `ctx.input` en direct. Leur seule garde etait
+					//       `ctx.popupDepth == 0` -- or une `NkSurfaceFlottante` n'est NI une
+					//       fenetre NKGui (donc `hoveredWindowId` ne bouge pas) NI un popup
+					//       (donc `popupDepth` reste a zero). Les deux gardes existantes
+					//       regardaient a cote.
+					//
+					//    ⚠️ ET C'EST BIEN `PointReachable` QU'IL FAUT APPELER, pas un
+					//       rectangle ecrit ici : la surface a deja declare SA geometrie et SA
+					//       couche. Recopier le rectangle du tiroir dans la coquille en ferait
+					//       une seconde verite, qui divergerait a la premiere surface ajoutee.
+					//
+					//    ⚠️ RECLAMER TROP EST UN DEFAUT AU MEME TITRE QUE RECLAMER TROP PEU
+					//       (`NkEditorSurface.h`). Ce masquage ne mord QUE si une surface d'une
+					//       couche STRICTEMENT superieure a celle en cours recouvre le point :
+					//       pendant les panneaux ancres la couche vaut 0, donc rien ne change
+					//       tant qu'aucune surface n'est ouverte -- et une infobulle, qui ne
+					//       declare aucune surface, ne rend rien inerte.
+					const bool sousUneSurface = !mUI.PointReachable(mUI.input.mousePos);
 					const bool shielded =
-						mUI.hoveredWindowId != NKGUI_ID_NONE && mUI.hoveredWindowId != mUI.curWindowId;
+						(mUI.hoveredWindowId != NKGUI_ID_NONE && mUI.hoveredWindowId != mUI.curWindowId)
+						|| sousUneSurface;
 					nkgui::NkGuiInput saved;
 					if (shielded) {
 						saved = mUI.input;
