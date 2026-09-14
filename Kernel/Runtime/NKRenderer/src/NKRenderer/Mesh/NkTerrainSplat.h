@@ -52,6 +52,20 @@
 // trace de pneu qui creuse — est un tout autre chantier, bien plus gros. Ici le
 // sable est une COUCHE, c'est-à-dire une couleur pondérée sur une surface qui ne
 // bouge pas. Que personne ne croie l'autre livré.
+//
+// 🔄 MISE À JOUR DU 2026-09-14 — CET AUTRE CHANTIER EST ÉCRIT.
+// La phrase ci-dessus était vraie à l'heure où elle a été posée. La laisser
+// seule ferait de ce paragraphe exactement ce qu'il dénonce trois écrans plus
+// haut — un commentaire qui ment sur le code — simplement dans l'autre sens.
+// `NkTerrainSable.{h,cpp}` porte le champ de hauteur déformable et la relaxation
+// à l'angle de repos ; banc `NkSableCheck`, 35 critères, 0 rouge.
+// **Les deux ne se remplacent pas, et CELUI-CI RENSEIGNE L'AUTRE** : c'est le
+// poids de `NK_TERRAIN_ROCHE` produit ici qui interdit le creusement là-bas
+// (`NkSableDeformabiliteDepuisPoids` : `déformabilité = 1 - w[ROCHE]`).
+// ⚠️ Et c'est bien la couche **2**. Un lot de travail a demandé « la roche,
+// couche 0 dominante » : coder cet énoncé aurait rendu l'HERBE indéformable et
+// la ROCHE molle, avec un banc tout vert. L'énumération ci-dessous fait foi, et
+// elle ne vient pas de nous — elle vient des prises du nuanceur GL.
 // =============================================================================
 #pragma once
 
