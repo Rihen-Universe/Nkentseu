@@ -47,6 +47,39 @@ using namespace nkentseu::nkgui;
 namespace nkentseu {
 	namespace editorkit {
 
+		bool &NkShellPanneauxActif() noexcept {
+			static bool a = false;
+			return a;
+		}
+		struct NkShellPanRelve {
+				const char *nom[16] = {nullptr};
+				float64 ms[16] = {0.0};
+				int32 n = 0;
+		};
+		NkShellPanRelve &NkShellPanneaux() noexcept {
+			static NkShellPanRelve r;
+			return r;
+		}
+		/// ⚠️ ON COMPARE LES POINTEURS DE TITRE, PAS LES CHAINES. Les titres sont des
+		///    litteraux qui vivent aussi longtemps que le programme et ne changent
+		///    pas ; comparer caractere par caractere a chaque panneau de chaque image
+		///    ajouterait, dans un releve qui mesure le cout des panneaux, un cout de
+		///    plus -- l'instrument fausserait sa propre mesure.
+		void NkShellPanneauNoter(const char *nom, float64 ms) noexcept {
+			NkShellPanRelve &r = NkShellPanneaux();
+			for (int32 i = 0; i < r.n; ++i)
+				if (r.nom[i] == nom) {
+					r.ms[i] += ms;
+					return;
+				}
+			if (r.n < 16) {
+				r.nom[r.n] = nom;
+				r.ms[r.n] = ms;
+				++r.n;
+			}
+		}
+
+
 		namespace {
 			void CopyStr(char *dst, const char *src, usize cap) noexcept {
 				if (!dst || cap == 0)
@@ -902,9 +935,31 @@ namespace nkentseu {
 				const char *v = getenv("NK_PHASES");
 				return v && v[0] && v[0] != '0';
 			}();
+			NkShellPanneauxActif() = tracePhases;
+			// ── UN CRAN PLUS BAS : QUEL PANNEAU MANGE LES 88 % ────────────────
+			// Le releve par phase disait « PANNEAUX 88,00 % » et s'arretait la.
+			// Une phase qui pese deja l'essentiel n'a besoin que d'un incident pour
+			// tout arreter : savoir LEQUEL des panneaux la remplit est la moitie
+			// manquante. Meme discipline que le releve par phase -- rien n'est lu
+			// quand c'est eteint.
+			static float64 sPanCumul[16] = {0.0};
+			static const char *sPanNom[16] = {nullptr};
+			static int32 sPanN = 0;
 			static float64 sPhaseCumul[24] = {0.0};
 			static const char *sPhaseNom[24] = {nullptr};
 			static int32 sPhaseN = 0;
+			// 🔴 LE DENOMINATEUR, ET IL MANQUAIT. Mon premier releve imprimait
+			//    « PANNEAUX 88,00 % du temps », et le coordinateur l'a lu -- a juste
+			//    titre -- comme « 88 % de l'image ». C'est FAUX : c'est 88 % du temps
+			//    QUE CES PHASES MESURENT, lequel ne fait qu'une fraction de l'image.
+			//    Le reste -- presentation, echange de tampons, attente du GPU -- vit
+			//    hors de ces bornes et n'etait compte nulle part.
+			//    *Un pourcentage sans son denominateur oriente celui qui le lit.*
+			//    On mesure donc aussi la PERIODE de l'image : le mur entre deux
+			//    departs. C'est le seul chiffre qui dise ce que 88 % vaut vraiment.
+			static float64 sPeriodeMoyenne = 0.0;
+			static nkentseu::NkChrono sDepartPrec;
+			static bool sPeriodeAmorcee = false;
 			static float64 sImageMoyenne = 0.0;
 			static int32 sImages = 0;
 			static int32 sCris = 0;
@@ -1101,6 +1156,15 @@ namespace nkentseu {
 			if (tracePhases) {
 				const float64 totalMs = horlogeImage.Elapsed().ToSeconds() * 1000.0;
 				++sImages;
+				// La PERIODE : depuis le depart de l'image PRECEDENTE. La premiere
+				// n'en a pas -- elle amorce, elle ne compte pas.
+				if (sPeriodeAmorcee) {
+					const float64 per = sDepartPrec.Elapsed().ToSeconds() * 1000.0;
+					sPeriodeMoyenne = (sPeriodeMoyenne * (float64)(sImages - 2) + per)
+									  / (float64)(sImages - 1 > 0 ? sImages - 1 : 1);
+				}
+				sDepartPrec = nkentseu::NkChrono();
+				sPeriodeAmorcee = true;
 				// ⚠️ LA MOYENNE SE CONSTRUIT AVANT DE SERVIR DE SEUIL. Les dix
 				//    premieres images ne jugent rien : ce sont elles qui posent le
 				//    zero. Sans ce delai, la premiere image -- toujours la plus
@@ -1123,15 +1187,37 @@ namespace nkentseu {
 				// Le releve cumule, a la demande : NK_PHASES=2 l'imprime tous les 300.
 				const char *v = getenv("NK_PHASES");
 				if (v && v[0] == '2' && (sImages % 300) == 0) {
-					printf("[phases] cumul sur %d images (moyenne %.2f ms/image) :\n",
-						   sImages, sImageMoyenne);
+					printf("[phases] cumul sur %d images\n"
+						   "[phases]   periode reelle d'une image : %.2f ms  "
+						   "(%.0f images/s)\n"
+						   "[phases]   dont MESURE par ces phases : %.2f ms  "
+						   "= %.1f %% de l'image\n"
+						   "[phases]   le reste (%.2f ms) est HORS de ces bornes : "
+						   "presentation, echange de tampons, attente du GPU\n",
+						   sImages, sPeriodeMoyenne,
+						   sPeriodeMoyenne > 0.0 ? 1000.0 / sPeriodeMoyenne : 0.0,
+						   sImageMoyenne,
+						   sPeriodeMoyenne > 0.0 ? 100.0 * sImageMoyenne / sPeriodeMoyenne : 0.0,
+						   sPeriodeMoyenne - sImageMoyenne > 0.0 ? sPeriodeMoyenne - sImageMoyenne
+																 : 0.0);
 					for (int32 i = 0; i < sPhaseN; ++i)
-						printf("[phases]     %-24s %8.2f ms au total  (%5.2f %% du temps)\n",
+						printf("[phases]     %-24s %8.2f ms au total  (%5.2f %% du temps MESURE)\n",
 							   sPhaseNom[i] ? sPhaseNom[i] : "?", sPhaseCumul[i],
 							   100.0 * sPhaseCumul[i]
 								   / (sImageMoyenne * (float64)sImages > 0.0
 										  ? sImageMoyenne * (float64)sImages
 										  : 1.0));
+					{
+						NkShellPanRelve &pr = NkShellPanneaux();
+						float64 tot = 0.0;
+						for (int32 i = 0; i < pr.n; ++i)
+							tot += pr.ms[i];
+						printf("[phases]   dont, DANS les panneaux (%.2f ms au total) :\n", tot);
+						for (int32 i = 0; i < pr.n; ++i)
+							printf("[phases]       %-22s %8.2f ms  (%5.2f %% des panneaux)\n",
+								   pr.nom[i] ? pr.nom[i] : "?", pr.ms[i],
+								   100.0 * pr.ms[i] / (tot > 0.0 ? tot : 1.0));
+					}
 					fflush(stdout);
 				}
 			}
@@ -3001,6 +3087,10 @@ void NkEditorShell::MaximizeWindow() noexcept {
 		}
 
 		// ── Panneaux (le docking est gere DANS Begin) ────────────────────────────
+		// ── LE RELEVE PAR PANNEAU, partage entre `Run` (qui l'imprime) et
+		//    `DrawPanels` (qui le remplit). Une paire de fonctions plutot que deux
+		//    copies de statics : deux copies auraient diverge au premier panneau
+		//    ajoute, et le total n'aurait plus fait 100 %.
 		void NkEditorShell::DrawPanels(NkEditorFrameContext &ec) noexcept {
 			const float32 menuH = mUI.ItemHeight();
 			for (int32 i = 0; i < mNumPanels; ++i) {
@@ -3073,7 +3163,12 @@ void NkEditorShell::MaximizeWindow() noexcept {
 						}
 						mUI.input.wheel = mUI.input.wheelH = 0.f;
 					}
-					p->OnUI(ec);
+					if (NkShellPanneauxActif()) {
+						nkentseu::NkChrono h;
+						p->OnUI(ec);
+						NkShellPanneauNoter(p->Title(), h.Elapsed().ToSeconds() * 1000.0);
+					} else
+						p->OnUI(ec);
 					if (shielded)
 						mUI.input = saved;
 					EndWindow(mUI);
