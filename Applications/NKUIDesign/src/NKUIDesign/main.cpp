@@ -80,6 +80,7 @@
 #include "RecetteEdition.h"	 // --recette-edition : le contrat universel d'edition, par site
 #include "RecetteProprietes.h" // --recette-proprietes : les listes de proprietes, par le geste
 #include "TemoinRendu.h"	 // --temoin-rendu : le flux de commandes du peintre, diffable
+#include "RecetteEcrivain.h" // --recette-ecrivain : NKUIDesign ECRIT un .nkgui, le monteur le remonte
 
 
 
@@ -8516,6 +8517,11 @@ int nkmain(const NkEntryState &state) {
 		// le GESTE : une vraie souris qui vise la poubelle, sans fenetre ni GPU.
 		if (NkComponentDecl::StrEq(a, "--recette-proprietes"))
 			return nkuidesign::NkRecetteProprietes();
+		// `--recette-ecrivain` : NKUIDesign ECRIT un `.nkgui`, le monteur le remonte,
+		// et les deux releves de rectangles se comparent PAR IDENTIFIANT -- sans
+		// fenetre ni GPU (les deux rendus passent par le rasteriseur logiciel).
+		if (NkComponentDecl::StrEq(a, "--recette-ecrivain"))
+			return nkuidesign::ecrivain::RecetteEcrivain();
 		// Le TEMOIN DE RENDU : le flux de commandes du peintre, ecrit tel quel.
 		// Il se DIFFE -- une refonte d apparence se juge sur ce qui bouge.
 		if (NkComponentDecl::StrEq(a, "--temoin-rendu"))
