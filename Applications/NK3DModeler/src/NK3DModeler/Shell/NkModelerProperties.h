@@ -543,15 +543,28 @@ namespace nkentseu {
 				y += br.h;
 			}
 		}
+		// ⚠ `bit` N'EST PLUS LU, ET IL EST GARDE EXPRES.
+		// L'etat de pliage est desormais indexe par `key`, deja unique (le registre
+		// de survol et le menu de groupe l'exigeaient de toute facon). Garder le
+		// parametre evite de toucher les 27 appels DANS LE MEME LOT que le
+		// changement de mecanisme — deux modifications melangees se relisent mal, et
+		// un appel mal recopie serait passe inapercu. Il doit disparaitre au lot
+		// suivant, une fois celui-ci mesure.
+		//
+		// `plieParDefaut` est le troisieme etat : « jamais touche » n'est pas
+		// « deplie ». C'est ce qui permet a un bloc de naitre PLIE sans ecraser le
+		// choix de l'utilisateur des qu'il l'a exprime.
 		inline bool PaintPropGroup(NkModelerPainter &p, NkHitRegistry &hit, NkModelerState &st,
 								   const NkRect &r, float32 &y, const char *key,
-								   const char *title, uint32 bit) {
+								   const char *title, uint32 bit,
+								   bool plieParDefaut = false) {
+			(void)bit;
 			const NkRect hr{r.x, y, r.w, kRowH};
 			const bool over = hit.Add(key, hr);
 			p.Fill(hr, NkRole::PanelHeader);
 			if (over)
 				p.Fill({hr.x, hr.y + hr.h - S(2.f), hr.w, S(2.f)}, NkRole::AccentUi);
-			const bool folded = (st.grpFold & bit) != 0u;
+			const bool folded = st.grpFold.EstPlie(key, plieParDefaut);
 			p.IconV(r.x + S(4.f), y, kRowH,
 					folded ? NkIcon::ChevronRight : NkIcon::ChevronDown, NkRole::Text, 11.f);
 			p.TextV(r.x + S(20.f), y, kRowH, title);
@@ -584,7 +597,7 @@ namespace nkentseu {
 				// Le CHEVRON ne doit pas plier quand on visait le menu : la zone
 				// du menu est declaree APRES, elle gagne donc le survol.
 				if (hit.Clicked(key) && !ovM)
-					st.grpFold ^= bit;
+					st.grpFold.Basculer(key, plieParDefaut);
 			}
 			y += kRowH;
 			return !folded;
