@@ -336,6 +336,37 @@ namespace nkentseu {
 		// deux sommets) et face active. -1 = rien. Les trois references de
 		// Blender, lues telles que la vue les a posees.
 		bool Demo3DHostEditActive(int32 *vert, int32 *edgeA, int32 *edgeB, int32 *face);
+		// ── POURQUOI CES TROIS LECTEURS EXISTENT ────────────────────────────
+		// Aucun ne CHANGE quoi que ce soit. Ils existent parce que deux questions
+		// de Rodolf -- « le deplacement ne se voit pas en temps reel » et
+		// « l'aimantation marche-t-elle en edition ? » -- n'etaient mesurables par
+		// AUCUN banc : rien ne permettait de lire la position d'un sommet edite,
+		// ni l'etat d'affichage, ni le pivot. Une interaction qu'aucun banc ne peut
+		// observer ne sera jamais testee.
+
+		// LE MAILLAGE AFFICHE SUIT-IL LA CAGE PENDANT LE GLISSEMENT ?
+		// `unPourUn` faux = le solide n'est PAS rafraichi pendant le drag, il se
+		// recale au relachement (`NkDemo3D.cpp`, l'update rapide est garde par ce
+		// drapeau). C'est la cause exacte du « il faut relacher pour voir ».
+		// `dispCount` est le nombre de sommets du maillage AFFICHE (triangulation
+		// ombree, qui dedouble les coins en FLAT), `restCount` celui de la cage
+		// editable. Les deux different des qu'un coin est dedouble -- et c'est le
+		// cas d'un cube en ombrage plat.
+		bool Demo3DHostEditDisplayInfo(bool *unPourUn, uint32 *dispCount, uint32 *restCount,
+									   bool *aDesModificateurs);
+		// POSITION D'UN SOMMET DU MAILLAGE EN COURS D'EDITION.
+		// `local` = dans l'espace du maillage ; `monde` = apres l'ancre de l'objet.
+		// Il faut les DEUX : l'aimantation raisonne en MONDE (la grille y vit), le
+		// maillage se stocke en LOCAL, et confondre les deux fait conclure a un
+		// defaut d'aimantation sur un objet simplement deplace.
+		// Lit `editLive`, donc l'etat VIVANT -- celui qu'on voit pendant le geste,
+		// pas celui d'apres le relachement.
+		bool Demo3DHostEditVertPos(int32 vert, float32 *local3, float32 *monde3);
+		// L'AIMANTATION DU GIZMO D'EDITION, et la grandeur sur laquelle elle porte.
+		// `pivot3` est rendu parce que c'est LUI que l'aimantation quantifie, et non
+		// les sommets : sans le lire, on ne peut pas distinguer « elle ne marche
+		// pas » de « elle marche sur la mauvaise grandeur ».
+		bool Demo3DHostEditSnapInfo(bool *actif, float32 *pas, bool *absolue, float32 *pivot3);
 		void Demo3DHostSetZoneTool(int32 shape); // -1 off, 0 rectangle, 1 cercle, 2 lasso
 		void Demo3DHostSetCursorTool(bool on);
 		void Demo3DHostSetGridFlags(bool grid, bool minor, bool major, bool axes);
