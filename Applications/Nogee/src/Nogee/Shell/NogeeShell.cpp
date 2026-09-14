@@ -1,3 +1,8 @@
+// -----------------------------------------------------------------------------
+// @File    NogeeShell.cpp
+// @Author  TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
+// @License Proprietary - All Rights Reserved (see LICENSE)
+// -----------------------------------------------------------------------------
 // =============================================================================
 // Nogee/Shell/NogeeShell.cpp — coquille d'editeur optionnelle (cf. .h)
 // =============================================================================
@@ -13,6 +18,8 @@
 #include "Nogee/Editor/CommandHistory.h"
 #include "Nogee/Editor/AssetManager.h"
 #include "Nogee/Editor/ProjectManager.h"
+#include "Nogee/Shell/NkPanneauxSonde.h" // mesure de la DISPOSITION (--panneaux-sonde)
+#include "Nogee/Shell/NogeeChrome.h"      // menus, outils, barre d'etat
 
 #include "NKECS/World/NkWorld.h"
 #include "Noge/ECS/Scene/NkSceneGraph.h"
@@ -24,6 +31,7 @@
 #include "NKMemory/NkUniquePtr.h"
 #include "NKLogger/NkLog.h"
 #include <cstdio>
+#include <cstdlib> // getenv : choix du theme pour la MESURE (defaut = Dark, celui du modeleur)
 #include <cstring>
 
 namespace nkentseu {
@@ -230,6 +238,18 @@ namespace nkentseu {
 					if (g_shell)
 						g_shell->RequestClose();
 				}
+			}
+
+			// ── SONDE DE DISPOSITION (--panneaux-sonde) ──────────────────────
+			// Les titres viennent des `AddPanel` ci-dessous, dans le meme ordre.
+			// Ils sont ecrits UNE fois ici parce que le shell n'expose pas sa
+			// liste ; toute divergence se verrait immediatement (« NON ANCRE »).
+			const char *const kTitresPanneaux[] = {"Viewport", "World Outliner", "Details",
+												   "Content Browser", "Console"};
+
+			void PanneauxOverlay(NkEditorFrameContext &ec, void *user) {
+				NkPanneauxSondeMesurer(ec, static_cast<NkEditorShell *>(user), kTitresPanneaux,
+									   (int32)(sizeof(kTitresPanneaux) / sizeof(kTitresPanneaux[0])));
 			}
 
 			void CmdQuit(void *u) {
@@ -662,6 +682,28 @@ namespace nkentseu {
 				}
 			}
 
+			// ── L'OVERLAY UNIQUE ─────────────────────────────────────────────
+			// Le shell n'a qu'UN overlay, et c'est le seul point appele une fois
+			// par image apres que le dock a calcule ses rectangles. Deux besoins s'y
+			// presentent : poser les fractions (qui exigent la geometrie de l'image
+			// precedente) et faire tourner la sonde demandee.
+			//
+			// ⚠️ UNE SONDE PAR EXECUTION, la regle ne bouge pas : l'aiguillage est
+			//    EXCLUSIF. Melanger deux protocoles melangerait leurs mesures.
+			//    Les fractions, elles, ne mesurent rien -- elles reglent.
+			int32 g_passesFractions = 4;
+
+			void NogeeOverlay(NkEditorFrameContext &ec, void *user) {
+				NkEditorShell *shell = static_cast<NkEditorShell *>(user);
+				chrome::AjusterFractions(shell, g_passesFractions);
+				if (g_drag.enabled)
+					DragOverlay(ec, nullptr);
+				else if (NkPanneauxSonde().active)
+					PanneauxOverlay(ec, user);
+				else
+					ProbeOverlay(ec, nullptr);
+			}
+
 		} // namespace
 
 		int RunNogeeEditorShell(NogeAppConfig &cfg) noexcept {
@@ -676,7 +718,9 @@ namespace nkentseu {
 			static nkgui::NkEditorRHIRenderer rhi;
 
 			NkEditorShellConfig scfg;
-			scfg.title = "Noge Editor — coquille NKEditorKit (--ui=rhi)";
+			scfg.title = NkPanneauxSonde().active
+							 ? NkPanneauxSondeTitre()
+							 : "Noge Editor — coquille NKEditorKit (--ui=rhi)";
 			scfg.width = 1600;
 			scfg.height = 900;
 			scfg.graphicsApi = NkEditorGfxApi::OpenGL;
@@ -689,11 +733,6 @@ namespace nkentseu {
 
 			g_shell = shell.Get();
 
-			// Le panneau PORTE (NKGui). Son jumeau NKUI reste intact et sert le
-			// chemin par defaut ; les deux partagent NkConsoleModel.
-			shell->AddPanel(&g_console);
-			if (g_probe.enabled)
-				shell->AddPanel(&g_probePanel);
 
 			// ── MONDE ECS + SYSTEMES EDITEUR COTE SHELL (2026-08-17) ─────────
 			// Le geste du commit 1d8a100f, rejoue ici : sans monde, les panneaux
@@ -775,10 +814,26 @@ namespace nkentseu {
 			// une entite (Outliner/Details) — le monde et la racine projet.
 			sViewport.Bind(&sWorld, &sScene, &sSel, projectDir);
 
+			// ── L'ORDRE D'ENREGISTREMENT EST L'ORDRE D'ANCRAGE ───────────────
+			// `BootstrapDocking` ancre le CENTRE d'abord, puis les autres dans
+			// l'ordre des `AddPanel` -- et chaque panneau de bord ENVELOPPE toute
+			// la racine (NkGuiWidgets.cpp:3560-3577). Le dernier ancre est donc
+			// celui qui traverse la fenetre de bord a bord.
+			//
+			// Chez NK3DModeler, le navigateur de contenu est PLEINE LARGEUR : il
+			// passe SOUS les trois colonnes (`browser = {0, y, W, browserH}`,
+			// NkLayout::Compute). La Console etait ici enregistree EN PREMIER, donc
+			// ancree la plus profond : la bande du bas se retrouvait coincee entre
+			// l'arbre et l'inspecteur (mesure : x=276,99 et w=967,89 au lieu de 0 et
+			// W). Les deux panneaux du bas passent donc APRES les deux lateraux.
+			// Rien d'autre ne change : ce sont les memes appels, dans un autre ordre.
 			shell->AddPanel(&sViewport);
 			shell->AddPanel(&sOutliner);
 			shell->AddPanel(&sDetails);
 			shell->AddPanel(&sContent);
+			shell->AddPanel(&g_console);
+			if (g_probe.enabled)
+				shell->AddPanel(&g_probePanel);
 
 			// Cablage de la sonde drag-drop (--dragdrop-test) : les panneaux
 			// mesurent leur geometrie reelle, la sonde la consomme.
@@ -822,18 +877,168 @@ namespace nkentseu {
 				logger.Info("[SONDE] condition ConquerorLab reproduite : SetMaskBodyOnPopup(false)\n");
 			}
 
+			// ═══════════════════════════════════════════════════════════════════
+			//  L'HABILLAGE DE LA COQUILLE — ON APPELLE, ON NE REDESSINE PAS
+			// ═══════════════════════════════════════════════════════════════════
+			//  Demande de Rodolf : « l'interface de noge editor doit etre la copie
+			//  exacte de celle de nk3dmodeler [...] tous les elements sont deja
+			//  dans nk3dmodeler donc juste copier et adapter ».
+			//
+			//  MESURE PREALABLE (canal chrome, lot 1) : Nogee montait le shell NU
+			//  -- AddPanel, RegisterCommand, SetOverlay, et RIEN d'autre. Aucun
+			//  `Set*` de chrome, aucun `ApplyTheme`. Il heritait donc du costume
+			//  VSCode par defaut du kit. Une bonne part de « la meme interface »
+			//  ne demande pas d'ecrire du chrome : elle demande d'APPELER ce que
+			//  la coquille sait deja faire.
+			//
+			//  LES DEUX COTES VIENNENT DE `NkLayout::Compute` (NkModelerUI.h), lue
+			//  ligne a ligne :  menuH = S(30.f)  et  toolH = S(34.f).
+			//
+			//  ⚠️ ET CES PIXELS SONT HONORES -- ce n'est pas une promesse de
+			//     commentaire, c'est une mesure : sonde NkChromeProbe, dix
+			//     passages, 28 demandes -> 28 px occupes, 56 -> 56 ; a l'echelle
+			//     1,25 le calcul historique passe a 47,50 tandis que la valeur
+			//     imposee reste a 28,00. `SetHeaderLayout` ne passe pas par `S()`.
+			//
+			//  Le LOGO reste a 0 : le bloc carre de la maquette n'existe pas chez
+			//  Nogee, et en poser un fabriquerait un reglage que personne n'a
+			//  demande.
+			//  ⚠️ `NOGEE_SANS_HABILLAGE=1` SAUTE LES DEUX APPELS. Ce n'est pas une
+			//     option de produit, c'est LE NEGATIF : sans eux, la bande doit
+			//     reprendre sa valeur d'avant (37 px mesures) et la couleur son
+			//     ancienne valeur. Le garder dans le MEME binaire evite de
+			//     comparer deux constructions -- deux binaires qui different par
+			//     autre chose que ce qu'on croit, c'est ainsi qu'on mesure une
+			//     pente de 10 degres sur un sol plat.
+			// ── E10 : LES DEUX BANDES D'ACTIVITE, RENDUES AU DOCK ───────────
+			// MESURE (sonde --panneaux-sonde, releve a zero) : `corps.x = 48` et
+			// `W - corps.x - corps.w = 48`. Le shell reserve `S(48)` de chaque
+			// cote (NkEditorShell.cpp:841-843) des que `mActivityBarLeft/Right`
+			// sont vrais -- et ils le sont par defaut. Nogee n'y pose AUCUNE
+			// icone : aucun `SetActivityIcons` dans tout ce montage. Ce sont donc
+			// 96 px sur 1600, six pour cent de la largeur, occupes par deux bandes
+			// vides. NK3DModeler n'a rien de tel : sa hierarchie commence a x=0.
+			// La porte existe et elle est ecrite pour ce cas exact (« une app sans
+			// vues a basculer les desactive et le dock recupere la place »).
+			shell->SetActivityBars(false, false);
+
+			// ── L'INDICATEUR DE ZOOM N'A RIEN A FAIRE ICI ───────────────────
+			// La capture le montrait : « Zoom 107% » au pied de Nogee. C'est le
+			// zoom de la POLICE DE CODE du shell (`ActiveCodeSize`), utile a
+			// NKCode et a personne d'autre -- l'en-tete du kit le dit lui-meme :
+			// « une application sans editeur de code le masque ». Nogee n'en a
+			// pas. NK3DModeler, lui, met a droite l'etat de sa scene ; la place
+			// est donc rendue a ce qui la merite.
+			shell->SetFooterZoomIndicator(false);
+
+			const bool sansHabillage = std::getenv("NOGEE_SANS_HABILLAGE") != nullptr;
+			if (!sansHabillage)
+				shell->SetHeaderLayout(30.f, 34.f, 0.f);
+
+			// Le theme : `ApplyTheme` n'etait appele NULLE PART chez Nogee. C'est
+			// le point de synchronisation des deux objets theme (roles editeur ->
+			// jetons de dessin) ; sans lui, une partie du dessin lit un theme que
+			// personne n'a pose. NK3DModeler part de `NkTheme::Dark()`
+			// (NkModelerTheme.h:111) : Nogee part du meme endroit.
+			//
+			// `NOGEE_THEME=light` sert la MESURE (deux themes doivent donner deux
+			// couleurs) ; sans la variable, le comportement est Dark, celui du
+			// modeleur.
+			{
+				const char *th = std::getenv("NOGEE_THEME");
+				const bool clair = th && (th[0] == 'l' || th[0] == 'L');
+				// ⚠️ LA COULEUR EST IMPRIMEE AVANT ET APRES, et c'est ce qui rend
+				//    la mesure DERIVEE : l'attendu des pixels n'est pas un nombre
+				//    recopie d'un commentaire (`NkTheme.h:54` annonce « #2B2B2B »
+				//    pour PanelHeader -- un nombre dans un commentaire est une
+				//    mesure non datee), c'est la valeur que le programme porte.
+				const nkgui::NkColor av = shell->Ui().theme.header;
+				if (!sansHabillage)
+					shell->ApplyTheme(clair ? NkTheme::Light() : NkTheme::Dark());
+				const nkgui::NkColor ap = shell->Ui().theme.header;
+				std::printf("[CHROME] theme=%s  header avant=(%d,%d,%d)  apres=(%d,%d,%d)\n",
+							clair ? "Light" : "Dark", (int)av.r, (int)av.g, (int)av.b, (int)ap.r,
+							(int)ap.g, (int)ap.b);
+				std::printf("[CHROME] titleBarH=%.2f  ItemHeight=%.2f  scale=%.4f\n",
+							shell->Ui().titleBarH, shell->Ui().ItemHeight(), shell->Ui().scale);
+				std::fflush(stdout);
+			}
+
+			// ═══════════════════════════════════════════════════════════════════
+			//  LES TROIS BARRES — SEPT MENUS, TROIS OUTILS, UN PIED QUI DIT L'ETAT
+			// ═══════════════════════════════════════════════════════════════════
+			//  `SetToolbar` n'est pas une decoration : c'est LUI qui fait exister
+			//  la bande de 34 px demandee plus haut par `SetHeaderLayout`
+			//  (`toolbarH = (mToolbarFn && !fullScreen) ? bandH : 0.f`). Sans ce
+			//  hook, la cote etait demandee et n'occupait aucun pixel — mesure a
+			//  l'appui : la sonde rendait `outils=0.00`.
+			//
+			//  ⚠️ MEME NEGATIF QUE L'HABILLAGE. `NOGEE_SANS_HABILLAGE=1` saute
+			//     AUSSI ces deux poses : la bande d'outils doit alors retomber a
+			//     0 px et les compteurs de la sonde a 0. Dans le MEME binaire,
+			//     pour ne pas comparer deux constructions qui pourraient differer
+			//     par autre chose que ce qu'on croit.
+			static NogeeChromeCtx sChrome;
+			sChrome.shell = shell.Get();
+			sChrome.projet = &sProject;
+			sChrome.histo = &sHist;
+			sChrome.selection = &sSel;
+			sChrome.monde = &sWorld;
+			sChrome.scene = &sScene;
+			if (!sansHabillage) {
+				shell->SetMenuBar(&chrome::BarreDeMenus, &sChrome);
+				shell->SetToolbar(&chrome::BarreDOutils, &sChrome);
+				// ═══════════════════════════════════════════════════════════
+				//  LA BANDE D'ONGLETS (o1) ET LE PIED A 28 PX (o3)
+				// ═══════════════════════════════════════════════════════════
+				//  ⚠️ DEUX APPELS, ZERO DESSIN. La bande vient du composant
+				//     partage `tab_strip` du kit — le MEME code que
+				//     NK3DModeler appelle. Le prouver plutot que le dire :
+				//     changer un nombre dans `NkTabStripModel.h` doit
+				//     deplacer les onglets des DEUX applications ; s'il n'y
+				//     en a qu'une qui bouge, le partage est une fiction.
+				//
+				//  ⚠️ `SetTabStrip` RESERVE, il ne decore pas — meme mecanique
+				//     que `SetToolbar` : tant que le modele est nul, la bande
+				//     vaut 0 px. Le poser est donc CE QUI LA FAIT EXISTER.
+				//     C'est la lecon mesuree du lot precedent (`outils=0.00`
+				//     alors que la cote etait deja demandee).
+				chrome::MettreAJourOnglets(sChrome);
+				NkEditorTabStripCallbacks cbOnglets;
+				cbOnglets.user = &sChrome;
+				// ⚠️ AUCUN CROCHET N'EST POSE, ET C'EST DIT PLUTOT QUE TU.
+				//    Nogee n'a aujourd'hui ni ouverture ni fermeture de scene
+				//    par onglet : poser un `onClose` qui ne ferme rien serait
+				//    « un evenement declare qui ne part jamais », et poser un
+				//    `onAdd` qui fabrique une scene vide serait promettre un
+				//    geste que le reste de l'application ne sait pas tenir.
+				//    La SELECTION, elle, agit deja : le composant ecrit
+				//    `active`, la bande le montre.
+				shell->SetTabStrip(&chrome::OngletsModele(), cbOnglets);
+
+				// (o3) LES 28 PX DU MODELEUR. La coquille figeait 22 ; la
+				// valeur est desormais un parametre dont le defaut (0) rend
+				// les 22 historiques. NKCode, NKUIDesign, UnkenyEditor et
+				// ConquerorLab n'appellent pas cette porte : ils ne bougent
+				// pas d'un pixel. Cote mesuree : `NkLayout::Compute`,
+				// `statusH = S(28.f)`.
+				shell->SetStatusBarHeight(28.f);
+			}
+
 			shell->RegisterCommand("Application: Quitter", &CmdQuit, shell.Get(), "Ctrl+Q");
 			// UNE sonde par execution (le shell n'a qu'un overlay, et melanger
 			// deux protocoles melangerait leurs mesures) : drag-drop si demandee,
 			// sinon occultation.
+			// UN seul overlay : il pose les fractions a chaque image utile, puis
+			// aiguille vers la sonde demandee (aiguillage exclusif, cf. plus haut).
+			shell->SetOverlay(&NogeeOverlay, shell.Get());
 			if (g_drag.enabled) {
-				shell->SetOverlay(&DragOverlay, nullptr);
 				if (g_probe.enabled)
 					logger.Info("[SONDE] --occlusion-test IGNORE : --dragdrop-test est deja actif "
 								"(une sonde par execution)\n");
 				logger.Info("[SONDE-DD] activee : glisser-deposer §7/§9 pilote par frames\n");
-			} else {
-				shell->SetOverlay(&ProbeOverlay, nullptr);
+			} else if (NkPanneauxSonde().active) {
+				logger.Info("[PANNEAUX] sonde de disposition activee : fenetre OUVERTE (titre de sonde)\n");
 			}
 
 			if (g_probe.enabled && !g_drag.enabled)
@@ -866,6 +1071,12 @@ namespace nkentseu {
 
 		void NogeeShellReproduceConquerorLabCondition() noexcept {
 			g_probe.noMaskBody = true;
+		}
+
+		void NogeeShellEnablePanneauxSonde(bool redim, bool pose) noexcept {
+			NkPanneauxSonde().active = true;
+			NkPanneauxSonde().redim = redim;
+			NkPanneauxSonde().pose = pose;
 		}
 
 		void NogeeShellEnableDragDropProbe() noexcept {

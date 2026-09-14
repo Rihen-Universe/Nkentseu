@@ -171,6 +171,11 @@ namespace nkentseu {
 			public:
 				NkVector<NkPaintCmd> cmds;
 
+				/// (j2) QUI SUIS-JE — cf. `NkPaintRepliInerte`.
+				const char *NomDuPeintre() const noexcept override {
+					return "NkRecordingPaint";
+				}
+
 				void Reset() {
 					cmds.Clear();
 					mClipDepth = 0;
