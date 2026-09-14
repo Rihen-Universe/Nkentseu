@@ -192,6 +192,13 @@ namespace nkentseu {
 				NkGuiComponentPaint(nkgui::NkGuiContext &ctx, const NkTheme &theme) noexcept
 					: mCtx(ctx), mTheme(theme) {}
 
+				/// (j2) QUI SUIS-JE — le message de repli inerte nomme le peintre,
+				/// pas seulement la primitive : « X n'implemente pas Y » dit ou
+				/// aller, « Y n'est pas implementee » laisse chercher.
+				const char *NomDuPeintre() const noexcept override {
+					return "NkGuiComponentPaint";
+				}
+
 				// ── Theme et metrologie ─────────────────────────────────────────
 				uint32 ColorOf(uint16 role) const override {
 					return mTheme.Get(role);

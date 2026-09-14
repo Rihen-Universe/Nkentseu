@@ -829,13 +829,29 @@ namespace nkentseu {
 			mUI.titleBarH = titleH;								   // l'ecran de demarrage doit commencer en dessous
 			const float32 bandH = (mHeaderBandH > 0.f) ? mHeaderBandH : mUI.S(46.f);
 			const float32 toolbarH = (mToolbarFn && !fullScreen) ? bandH : 0.f;
+			// ⚠️ (o1, 2026-09-14) LA BANDE D'ONGLETS RESERVE, ELLE NE DECORE PAS —
+			//    meme regle que `SetToolbar` juste au-dessus, et pour la meme raison
+			//    mesuree : tant que personne ne pose de modele, elle vaut ZERO pixel
+			//    et aucune application existante ne bouge. La hauteur vient de la
+			//    DECLARATION du composant (`band_h` = 28, la cote du modeleur), ou
+			//    de l'instance de reglages si l'application en a pose une — jamais
+			//    d'un litteral de ce fichier.
+			const float32 tabsH =
+				(mTabsModel && !fullScreen) ? mUI.S(NkTabMetric(mTabsStyle, "band_h")) : 0.f;
 			// Le bloc logo CHEVAUCHE les deux bandes : les bandes commencent a sa
 			// droite, jamais au bord de la fenetre.
 			const float32 logoW = (mHeaderLogo > 0.f && !fullScreen) ? mHeaderLogo : 0.f;
 			// La bande basse n'est reservee que si quelqu'un l'affiche : la barre
 			// d'etat du shell (visible) ou le hook de l'application.
+			// ⚠️ (o3, 2026-09-14) LES 22 PIXELS NE SONT PLUS EN DUR. Le modeleur en
+			//    a 28 (`NkLayout::Compute`), la coquille figeait 22 : une
+			//    application qui veut « la meme interface que NK3DModeler » ne
+			//    pouvait pas l'obtenir. `mStatusBarH == 0` = les 22 historiques,
+			//    donc AUCUN des cinq consommateurs ne bouge tant qu'il n'appelle
+			//    pas `SetStatusBarHeight`. Cf. le bloc de `NkEditorShell.h`.
+			const float32 statusPx = (mStatusBarH > 0.f) ? mStatusBarH : 22.f;
 			const float32 footerH =
-				(fullScreen || (!mStatusBarVisible && !mStatusBarFn)) ? 0.f : mUI.S(22.f);
+				(fullScreen || (!mStatusBarVisible && !mStatusBarFn)) ? 0.f : mUI.S(statusPx);
 			// Largeur des bandes d'icones, PAR COTE : une app sans « vues » a
 			// basculer les desactive (SetActivityBars) et le dock recupere la place.
 			const float32 activityW = mUI.S(48.f);
@@ -881,9 +897,17 @@ namespace nkentseu {
 			phase("depart de l'image");
 			DrawTitleBar(ec, {logoW, 0.f, W - logoW, titleH});
 			phase("barre de titre");
+			// ⚠️ L'ORDRE DES TROIS BANDES EST CELUI DU MODELEUR, ET IL EST MESURE :
+			//    `NkLayout::Compute` pose menu(30) / ONGLETS(28) / outils(34), dans
+			//    cet ordre. Mettre les onglets sous la barre d'outils aurait donne
+			//    les memes hauteurs et une autre interface — « une cote qui se
+			//    rapproche n'est pas une interface qui ressemble ».
+			if (mTabsModel && !fullScreen)
+				DrawTabStrip({logoW, titleH, W - logoW, tabsH});
+			phase("bande d'onglets");
 			// Barre d'outils Visual Studio (config/plateforme cible + Build/Run + emulateur).
 			if (mToolbarFn && !fullScreen)
-				DrawToolbar(ec, {logoW, titleH, W - logoW, toolbarH});
+				DrawToolbar(ec, {logoW, titleH + tabsH, W - logoW, toolbarH});
 			phase("barre d'outils");
 			// ⚠️ LE BLOC LOGO EST DESSINE APRES LES DEUX BANDES, et c est la seule
 			//    facon de le faire CHEVAUCHER : il est plus haut que la premiere
@@ -891,7 +915,7 @@ namespace nkentseu {
 			if (logoW > 0.f)
 				DrawHeaderLogo(ec, {0.f, 0.f, logoW, logoW});
 
-			const float32 bodyTop = titleH + toolbarH;
+			const float32 bodyTop = titleH + tabsH + toolbarH;
 			const float32 bodyH = H - bodyTop - footerH;
 
 			// MODALE : quand Preferences est ouvert, le corps (panneaux/editeur)
@@ -1610,6 +1634,15 @@ namespace nkentseu {
 		//    qu un APPELANT parmi d autres. **Deux appelants d une conversion ne
 		//    font pas deux autorites.**
 		void NkEditorShell::ApplyTheme(const NkTheme &t) noexcept {
+			// ⚠️ LA COQUILLE GARDE DESORMAIS LE THEME DU KIT, et ce n'est pas un
+			//    confort : `NkGuiComponentPaint` — le peintre par lequel passent
+			//    TOUS les composants partages — resout ses roles dans un
+			//    `editorkit::NkTheme`, pas dans le `NkGuiTheme` du dessin. Sans ce
+			//    membre, la bande d'onglets de la coquille aurait lu un theme par
+			//    defaut pendant que le reste de la fenetre suivait celui de
+			//    l'application : exactement le defaut « deux objets theme, chacun
+			//    cru par une partie du dessin » decrit en tete de `NkEditorShell.h`.
+			mKitTheme = t;
 			NkThemeVersGui(mUI, t);
 		}
 
@@ -1946,6 +1979,99 @@ namespace nkentseu {
 			mUI.layout.curLineH = 0.f;
 			mUI.layout.maxX = mUI.layout.cursor.x;
 			mToolbarFn(ec, mToolbarUser);
+		}
+
+		// ═══════════════════════════════════════════════════════════════════════
+		//  (o1) LA BANDE D'ONGLETS — LA COQUILLE POSE, ELLE NE REDESSINE PAS
+		// ═══════════════════════════════════════════════════════════════════════
+		//  ⚠️ IL N'Y A PAS UNE SEULE PRIMITIVE DE DESSIN D'ONGLET DANS CETTE
+		//     FONCTION, ET C'EST LE POINT. Tout ce qu'elle fait : convertir
+		//     l'entree NKGui en `NkComponentInput`, deriver les roles, appeler
+		//     `NkDrawTabStrip`, router ce qu'il rapporte. Le jour ou l'on change
+		//     un nombre dans `NkTabStripModel.h`, Nogee ET NK3DModeler changent —
+		//     c'est le temoin que le canal exige, et il n'est verifiable que si
+		//     cette fonction reste vide de geometrie.
+		void NkEditorShell::DrawTabStrip(const NkRect &rect) noexcept {
+			if (!mTabsModel || rect.w <= 0.f || rect.h <= 0.f)
+				return;
+
+			// LE STYLE : celui que l'application a pose, sinon les roles du kit.
+			// ⚠️ On ne met AUCUNE couleur en dur ici — un litteral serait une
+			//    couleur de plus parmi les 426 que ce depot a deja mesurees chez
+			//    les consommateurs de NKGui, et un onglet qui resterait sombre en
+			//    theme clair.
+			NkTabStripStyle s = mTabsStyle;
+			if (!mTabsStyleSet) {
+				s.bandBg = (uint16)NkRole::PanelBg;
+				s.border = (uint16)NkRole::Border;
+				s.tabBg = (uint16)NkRole::InputBg;
+				s.tabHoverBg = (uint16)NkRole::PanelBg;
+				s.tabActiveBg = (uint16)NkRole::PanelHeader;
+				s.text = (uint16)NkRole::Text;
+				s.textMuted = (uint16)NkRole::TextMuted;
+				s.accent = (uint16)NkRole::AccentUi;
+			}
+
+			NkComponentInput ci;
+			// L'ECHELLE VIENT DE LA SURFACE (arbitrage du 18/08) : `mUI.scale` est
+			// l'instance PAR FENETRE, pas une globale de processus.
+			ci.surfaceScale = mUI.scale;
+			ci.mouseX = mUI.input.mousePos.x;
+			ci.mouseY = mUI.input.mousePos.y;
+			ci.wheel = mUI.input.wheel;
+			ci.mouseDown = mUI.input.mouseDown[0];
+			ci.mousePressed = mUI.input.mouseClicked[0];
+			ci.mouseReleased = mUI.input.mouseReleased[0];
+			ci.doubleClick = mUI.input.mouseDoubleClicked[0];
+			ci.rightPressed = mUI.input.mouseClicked[1];
+			ci.ctrl = mUI.input.ctrlDown;
+			ci.shift = mUI.input.shiftDown;
+			ci.alt = mUI.input.altDown;
+
+			// ── (o3) LA BANDE NE SE LAISSE PAS CLIQUER A TRAVERS UN MENU ─────
+			// ⚠️ MESURE : cette fonction est appelee AVANT le masquage d'entree du
+			//    corps (l.906 contre l.923-945). Elle recevait donc `mUI.input`
+			//    non filtre -- et un menu de la barre de titre se deroule
+			//    exactement par-dessus elle (le titre finit ou la bande commence).
+			//    Un clic destine a « Fichier > Ouvrir » pouvait activer l'onglet
+			//    du dessous, voire le fermer si la croix tombait sous le pointeur.
+			//
+			// ⚠️ MEME PORTE QUE LES PANNEAUX, PAS UNE SECONDE. `PointReachable`
+			//    rend faux quand une surface d'une couche STRICTEMENT superieure a
+			//    `curInputLayer` recouvre le point. Pendant le chrome,
+			//    `curInputLayer` vaut 0 : tout menu, combo ou modale declare
+			//    au-dessus masque donc la bande, et rien d'autre ne change.
+			//
+			// ⚠️ ON NEUTRALISE LES GESTES, PAS LA POSITION. Le survol reste calcule
+			//    (la bande continue de rapporter `hoveredId`), mais aucun clic ne
+			//    part. Effacer aussi la position ferait CLIGNOTER le survol a
+			//    l'ouverture d'un menu -- un mouvement que personne n'a demande.
+			if (!mUI.PointReachable(mUI.input.mousePos)) {
+				ci.mousePressed = false;
+				ci.mouseReleased = false;
+				ci.mouseDown = false;
+				ci.doubleClick = false;
+				ci.rightPressed = false;
+				ci.wheel = 0.f;
+			}
+
+			NkGuiComponentPaint peintre(mUI, mKitTheme);
+			NkTabStripHooks hooks;
+			mTabsResult = NkDrawTabStrip(peintre, ci, {rect.x, rect.y, rect.w, rect.h}, *mTabsModel,
+										 s, hooks);
+
+			// ── LES GESTES SONT ROUTES, JAMAIS EXECUTES ICI ─────────────────────
+			// La coquille ne sait pas ce qu'un onglet represente : une scene ? un
+			// fichier ? un projet ? Elle ne peut donc ni le fermer, ni decider s'il
+			// faut demander quelque chose avant. Meme partage que `SetToolbar`.
+			if (mTabsResult.selectionChanged && mTabsCb.onSelect)
+				mTabsCb.onSelect(mTabsCb.user, mTabsModel->active);
+			if (mTabsResult.closeRequested && mTabsCb.onClose)
+				mTabsCb.onClose(mTabsCb.user, mTabsResult.closeId);
+			if (mTabsResult.addRequested && mTabsCb.onAdd)
+				mTabsCb.onAdd(mTabsCb.user);
+			if (mTabsResult.contextMenu && mTabsCb.onContextMenu)
+				mTabsCb.onContextMenu(mTabsCb.user, mTabsResult.contextId);
 		}
 
 		// ── Bords de redimensionnement (fenetre sans bordure) ─────────────────────

@@ -324,6 +324,33 @@ namespace nkentseu {
 					mDl.AddRectFilledMultiColor(r, tl, tr, br, bl);
 				}
 
+				// ── LES TROIS PORTES DU 2026-09-14 (canal onglets, o1) ──────────
+				// ⚠️ ELLES N'AJOUTENT AUCUNE CAPACITE : `mDl` savait deja tout faire.
+				//    Ce qui manquait, c'est qu'un ADAPTATEUR puisse y acceder --
+				//    `NkModelerComponentPaint` ne voit que ce peintre, pas la liste.
+				//    Sans elles, `NkComponentPaint::PolygonHex`, `::ImagePolygone` et
+				//    `::PushBlend` tombaient sur leur repli inerte chez cet hote, et
+				//    le faisaient EN SILENCE jusqu'au 14/09.
+				/// Polygone CONVEXE plein. ⚠️ Non convexe : le resultat est faux et ce
+				/// n'est pas verifie -- c'est le contrat de `AddConvexPolyFilled`, on
+				/// ne le maquille pas.
+				void PolyFilled(const NkVec2 *pts, int32 n, const NkColor &c) {
+					mDl.AddConvexPolyFilled(pts, n, c);
+				}
+				/// Polygone CONVEXE texture, un uv PAR SOMMET. `tint` MULTIPLIE
+				/// l'echantillon (son alpha porte l'opacite).
+				void ImagePolygon(uint32 texId, const NkVec2 *pts, const NkVec2 *uvs, int32 n,
+								  const NkColor &tint) {
+					mDl.AddImagePolygon(texId, pts, uvs, n, tint);
+				}
+				/// Mode de melange du GPU, empile. Le `Pop` doit suivre.
+				void PushBlend(nkgui::NkGuiBlend b) {
+					mDl.PushBlend(b);
+				}
+				void PopBlend() {
+					mDl.PopBlend();
+				}
+
 				void Disc(float32 cx, float32 cy, float32 radius, NkRole role) {
 					mDl.AddCircleFilled({cx, cy}, radius, C(role));
 				}

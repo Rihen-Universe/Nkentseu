@@ -8,6 +8,7 @@
 #include "AnimBridge.h"
 #include <cmath>
 #include <cstdio>
+#include <cstdlib> // getenv : mesure (a3) de la geometrie, sous variable d'environnement
 
 namespace nkanima {
 
@@ -204,6 +205,27 @@ namespace nkanima {
 					ec.Text(AnimCOMRegimeLabel());
 
 				const NkRect area = ctx.NextItemRect(560.f, 420.f);
+
+				// ── MESURE (a3) : la geometrie du viewport, sur PLUSIEURS images ─
+				// Le canal chrome demande que rien d'autre ne bouge apres
+				// l'habillage de la coquille ; le journal applicatif ne porte
+				// aucune taille de panneau. On l'imprime donc ici, a la source.
+				//
+				// ⚠️ JAMAIS LA PREMIERE IMAGE. Chez Nogee, la meme mesure prise a
+				//    la premiere frame a rendu 999936 px de haut pour une fenetre
+				//    de 900 : la region de layout n'y est pas encore posee. Cinq
+				//    images d'affilee MONTRENT la stabilisation au lieu de la
+				//    supposer.
+				if (std::getenv("NKANIMA_MESURE_VP")) {
+					static int32 img = 0;
+					++img;
+					if (img >= 30 && img <= 34) {
+						std::printf("[CHROME] image %d : viewport %.0fx%.0f a (%.0f,%.0f)\n", img,
+									(double)area.w, (double)area.h, (double)area.x, (double)area.y);
+						std::fflush(stdout);
+					}
+				}
+
 				auto &dl = ctx.DL();
 				dl.AddRectFilled(area, NkColor{18, 18, 21, 255}, 4.f);
 				// Viewport 3D : texture offscreen NKRenderer (device partagé). UV Y inversé
