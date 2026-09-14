@@ -17,6 +17,7 @@
 //    (2) cet en-tete tire NKCanvas (l.16-18), absent des includes du kit, et le
 //    compilateur le refuse : fatal error 'NKCanvas/Core/NkContextDesc.h' not found.
 #include "NKEditorKit/NkEditorSurface.h" // ④ LA porte unique pour peindre au-dessus
+#include "NKEditorKit/NkEditorModal.h"	 // (R17) NkNiveauModalDeLImage : le niveau rendu par regle
 #include "NKEditorKit/NkEditorTooltip.h"		// NkTooltip : infobulle des voyants du footer
 #include <cstdio>								// snprintf (indicateur de zoom barre d'etat)
 
@@ -953,6 +954,46 @@ namespace nkentseu {
 
 			mUI.BeginFrame(dt);
 
+			// ═══ (R17) DEUX REGLES DE DEBUT D'IMAGE, AVANT LE PREMIER ECRIVAIN ═══════
+			// Le 31/08, trois sources de NKUIDesign ont pose `appModal = true` sans jamais
+			// le remettre : corps masque pour toujours, barre de titre vivante (sonde des
+			// portes, R16). Les desarmer une par une serait la quatrieme fois qu'un etat
+			// qu'il faut penser a desarmer se fait oublier. On change donc la NATURE des
+			// deux etats : ils se DECLARENT a chaque image, comme `ReserverSaisie`.
+			// ⚠️ Mutations de banc (NK_PORTES_MUTATION), lues une fois ; sans la variable,
+			//    rien ne change : `appmodal` retire la regle A, `sansprec` casse sa lecture
+			//    (plus aucune modale ne masquerait), `niveau` retire la regle O.
+			{
+				static const int32 kMutation = []() {
+					const char *v = getenv("NK_PORTES_MUTATION");
+					if (!v)
+						return 0;
+					if (v[0] == 'a')
+						return 1; // appmodal
+					if (v[0] == 's')
+						return 2; // sansprec
+					if (v[0] == 'n')
+						return 3; // niveau
+					return 0;
+				}();
+				// REGLE A : `appModal` est une declaration PAR IMAGE. Ce que l'image
+				// precedente a declare (overlay compris) est garde pour la lecture ; le
+				// drapeau repart a faux et chaque source OUVERTE le redeclare. Une source
+				// qui n'est plus dessinee ne declare plus rien : il n'y a rien a desarmer.
+				mAppModalPrec = (kMutation == 2) ? false : mUI.appModal;
+				if (kMutation != 1)
+					mUI.appModal = false;
+				// REGLE O : le niveau de popup pris par une modale du kit ne survit pas a
+				// une image ou elle ne s'est pas dessinee (cf. NkEditorModal.h).
+				NkNiveauModal &nm = NkNiveauModalDeLImage();
+				if (nm.id != 0 && !nm.vu) {
+					if (kMutation != 3 && mUI.popupDepth > 0 && mUI.popupStack[0] == nm.id)
+						mUI.popupDepth = 0;
+					nm.id = 0;
+				}
+				nm.vu = false;
+			}
+
 			const float32 W = static_cast<float32>(mUI.viewW);
 			const float32 H = static_cast<float32>(mUI.viewH);
 			mUI.dl.AddRectFilled({0.f, 0.f, W, H}, mUI.theme.bgPrimary);
@@ -1196,7 +1237,10 @@ namespace nkentseu {
 			//    C'est ce qui fait entrer ici les dialogues dessines par l'APPLICATION dans le
 			//    crochet d'overlay -- le selecteur de fichier, en particulier : ils arrivent
 			//    apres les panneaux, donc ni `appModal` ni `overPopup` ne les voyaient.
-			const bool modal = mShowPrefs || mUI.appModal || overPopup || mCtxOpen || mUI.input.saisieReserveePrec;
+			// (R17) `appModal` LU : declare CETTE image avant la lecture (ex. NKCode, rappel
+			// de menu) OU par l'image precedente (ex. NKUIDesign, sources d'overlay).
+			const bool appModalLu = mUI.appModal || mAppModalPrec;
+			const bool modal = mShowPrefs || appModalLu || overPopup || mCtxOpen || mUI.input.saisieReserveePrec;
 			// (R16) LES PORTES, lues ICI : apres la barre de titre (qui a vu l'entree
 			// reelle), avant le masquage. Chaque bit est l'un des termes de `modal`
 			// ci-dessus, plus S (le masquage PARTIEL par panneau de DrawPanels).
@@ -1204,7 +1248,7 @@ namespace nkentseu {
 				int32 portes = 0;
 				if (mShowPrefs)
 					portes |= kPortePreferences;
-				if (mUI.appModal)
+				if (appModalLu)
 					portes |= kPorteAppModal;
 				if (overPopup)
 					portes |= kPortePopup;
@@ -1221,7 +1265,7 @@ namespace nkentseu {
 			nkgui::NkGuiInput savedInput;
 			if (modal) {
 				savedInput = mUI.input;
-				mPopupMasked = overPopup && !mShowPrefs && !mUI.appModal; // cf. dockHeaderFn
+				mPopupMasked = overPopup && !mShowPrefs && !appModalLu; // cf. dockHeaderFn
 				mRealInput = savedInput;
 				mUI.input.mousePos = {-100000.f, -100000.f};
 				for (int32 i = 0; i < 3; ++i) {

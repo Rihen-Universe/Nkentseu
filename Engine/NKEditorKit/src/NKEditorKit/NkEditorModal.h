@@ -38,6 +38,39 @@ namespace nkentseu {
 		// boutons). `buttons[count-1]` est la convention "Annuler" (retourne aussi
 		// quand l'utilisateur clique en dehors du dialogue ou appuie sur Echap).
 		// Retourne l'index du bouton clique cette frame, -1 si rien encore.
+
+		// ═══════════════════════════════════════════════════════════════════════
+		//  (R17) LE NIVEAU DE POPUP D'UNE MODALE NE VIT QUE TANT QU'ELLE SE DESSINE
+		// ═══════════════════════════════════════════════════════════════════════
+		//  NkModalDraw et NkModalFrameDraw PRENNENT le niveau 0 (popupDepth = 1) et s'y
+		//  nomment. Elles le rendaient a LEUR fermeture (croix, Echap, clic dehors) --
+		//  mais une application qui ferme par l'ETAT (`m.open = false` sur Annuler ou
+		//  Exporter…) ne rappelle plus la modale, et personne ne rendait le niveau :
+		//  une zone morte INVISIBLE a l'emplacement de l'ancien dialogue (sonde des
+		//  portes, course export-etat, 14/09 : porte O, popupDepth 1).
+		//  LA REGLE : chaque image ou elle se dessine en tenant le niveau, la modale se
+		//  DECLARE ici ; au debut de l'image suivante, la coquille rend le niveau que
+		//  plus personne n'a declare. Il n'y a rien a desarmer, par aucun appelant.
+		//  ⚠️ POURQUOI PAS DANS NKGui, POUR TOUS LES POPUPS : un popup ordinaire peut
+		//     etre OUVERT a une image et DESSINE a la suivante ; une expiration
+		//     generique le fermerait aussitot. Seules les modales du kit s'identifient
+		//     et se redessinent a chaque image.
+		struct NkNiveauModal {
+				NkGuiId id = 0;	  ///< identite de la modale qui tient le niveau 0
+				bool vu = false; ///< s'est-elle dessinee depuis le dernier debut d'image ?
+		};
+		inline NkNiveauModal &NkNiveauModalDeLImage() noexcept {
+			static NkNiveauModal n;
+			return n;
+		}
+		inline void NkDeclarerNiveauModal(NkGuiContext &ctx) noexcept {
+			if (ctx.popupDepth > 0) {
+				NkNiveauModal &n = NkNiveauModalDeLImage();
+				n.id = ctx.popupStack[0];
+				n.vu = true;
+			}
+		}
+
 		inline int32 NkModalDraw(NkGuiContext &ctx, NkModal &m, const char *title, const char *message,
 								  const char *const *buttons, int32 count) {
 			if (!m.open || count <= 0)
@@ -209,6 +242,8 @@ namespace nkentseu {
 			// plus tot dans la frame, de reagir au meme clic entretemps.
 			ctx.popupRects[0] = box;
 			ctx.popupAnchor = box;
+			if (ctx.popupDepth > 0 && ctx.popupStack[0] == ctx.GetId(title))
+				NkDeclarerNiveauModal(ctx); // (R17) le niveau vit tant que la modale se dessine
 			// Routeur d'occlusion : declare la surface modale pour la frame suivante
 			// (les hit-tests de couche < 100 sous ce rect echoueront d'eux-memes).
 			ctx.PushOcclusion(box, 100);
@@ -424,6 +459,8 @@ namespace nkentseu {
 				}
 				ctx.popupRects[0] = box;
 				ctx.popupAnchor = box;
+				if (ctx.popupDepth > 0 && ctx.popupStack[0] == ctx.GetId(title))
+					NkDeclarerNiveauModal(ctx); // (R17) le niveau vit tant que la modale se dessine
 				ctx.PushOcclusion(box, 100);
 			}
 

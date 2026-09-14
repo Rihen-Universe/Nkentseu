@@ -7652,6 +7652,10 @@ static nkentseu::int32 NkSourceOuverte(const char *src, NkEditorShell *sh, nkgui
 	return -1;
 }
 
+static const char *src_ou_vide(nkentseu::int32 etape, nkentseu::int32 n, const char s[][32]) {
+	return (etape >= 0 && etape < n) ? s[etape] : "";
+}
+
 static void PortesTick(NkEditorFrameContext &ec, void *user) {
 	using namespace nkentseu;
 	NkEditorShell *sh = static_cast<NkEditorShell *>(user);
@@ -7694,6 +7698,14 @@ static void PortesTick(NkEditorFrameContext &ec, void *user) {
 	static int32 verts = 0, rouges = 0, nonJugees = 0;
 	static int32 portesOuvert = 0, profondeurOuvert = 0;
 	static bool departPropre = false, ouvertureConfirmee = false;
+	// (R17) LE NEGATIF QUI COMPTE. Un correctif qui ne masque plus rien passerait « les
+	// portes se rouvrent » ET « la mutation rougit ». Il est donc exige qu'une source
+	// MODALE ouverte masque le corps ENTIER (P|A|C|R) a chaque image de 3 a 9 apres son
+	// ouverture. Les popups ordinaires (menu Fichier, couleur) n'y sont pas soumis : ils
+	// ne masquent que sous la souris (O).
+	static int32 ouvertSansMasque = 0;
+	const bool sourceModale = strcmp(src_ou_vide(etape, nSources, sources), "menu-fichier") != 0
+							  && strcmp(src_ou_vide(etape, nSources, sources), "couleur") != 0;
 	char noms[64];
 
 	if (etape >= nSources) {
@@ -7713,6 +7725,7 @@ static void PortesTick(NkEditorFrameContext &ec, void *user) {
 		ctx.input.mousePos = souris;
 		const int32 p0 = sh->PortesDuCorps();
 		departPropre = (p0 & NkEditorShell::kPortesCorpsEntier) == 0 && ctx.popupDepth == 0;
+		ouvertSansMasque = 0;
 		printf("[sonde-portes] --- %s : image %d ; DEPART portes %s, popupDepth %d%s\n", src, gImagesReelles,
 			   NkNomsPortesSonde(p0, noms, (int32)sizeof(noms)), ctx.popupDepth,
 			   departPropre ? "" : "  <<< DEPART NON PROPRE : cette etape ne sera pas jugee");
@@ -7761,6 +7774,17 @@ static void PortesTick(NkEditorFrameContext &ec, void *user) {
 	}
 	if (t == 4 && ctx.popupDepth > 0 && ctx.popupRects[0].w > 0.f)
 		souris = {ctx.popupRects[0].x + ctx.popupRects[0].w * 0.5f, ctx.popupRects[0].y + ctx.popupRects[0].h * 0.5f};
+	if (t >= 3 && t <= 9 && sourceModale && NkSourceOuverte(src, sh, ctx) != 0) {
+		const int32 pm = sh->PortesDuCorps();
+		const int32 corpsEntier = NkEditorShell::kPortePreferences | NkEditorShell::kPorteAppModal
+								  | NkEditorShell::kPorteMenuCtx | NkEditorShell::kPorteSaisie;
+		if ((pm & corpsEntier) == 0) {
+			if (ouvertSansMasque == 0)
+				printf("[sonde-portes]     !!! image +%d : source MODALE ouverte et le corps N'EST PAS masque (portes %s)\n",
+					   t, NkNomsPortesSonde(pm, noms, (int32)sizeof(noms)));
+			++ouvertSansMasque;
+		}
+	}
 	if (t == 8) {
 		portesOuvert = sh->PortesDuCorps();
 		profondeurOuvert = ctx.popupDepth;
@@ -7815,7 +7839,13 @@ static void PortesTick(NkEditorFrameContext &ec, void *user) {
 		const int32 so = NkSourceOuverte(src, sh, ctx);
 		const int32 fermees = p & NkEditorShell::kPortesCorpsEntier;
 		const char *verdict;
-		if (!departPropre || !ouvertureConfirmee) {
+		if (!departPropre) {
+			verdict = "NON JUGEE";
+			++nonJugees;
+		} else if (ouvertSansMasque > 0) {
+			verdict = "ROUGE : une MODALE ouverte n'a pas masque le corps (images +3..+9)";
+			++rouges;
+		} else if (!ouvertureConfirmee) {
 			verdict = "NON JUGEE";
 			++nonJugees;
 		} else if (so == 1) {
