@@ -2106,6 +2106,33 @@ int nkmain(const NkEntryState &entry) {
 			}
 		}
 
+		// NK_FRAME_EDIT="[sel][,frame]" : CADRE SERRE sur le maillage edite.
+		// sel=1 -> sur la seule SELECTION ; sinon sur le maillage entier.
+		// Sans ce crochet, la vue ne bouge pas -- c'est le negatif du cadrage.
+		{
+			static bool sFrameDone = false;
+			if (const char *fe = std::getenv("NK_FRAME_EDIT")) {
+				int32 v[2] = {0, 100};
+				int32 k = 0;
+				for (const char *q = fe; k < 2 && *q;) {
+					v[k++] = (int32)std::atoi(q);
+					while (*q && *q != ',')
+						++q;
+					if (*q == ',')
+						++q;
+				}
+				if (!sFrameDone && agentFrame >= v[1]) {
+					sFrameDone = true;
+					const bool ok = demo::Demo3DHostFrameEdit(v[0] != 0);
+					std::printf("[nk3d-cadre] frame=%d selection_seule=%d -> %s\n",
+								(int)agentFrame, (int)v[0], ok ? "cadre" : "REFUSE");
+					std::fflush(stdout);
+				}
+			} else {
+				sFrameDone = true;
+			}
+		}
+
 		// NK_OP_PARAM="index,valeur[,frame]" : pose un REGLAGE PERSISTANT d'operation
 		// par la MEME porte que le champ du panneau (`Demo3DHostOpParamSet`), donc
 		// avec le meme clamp. Sert a prouver ce que le canal exige : « changer la
