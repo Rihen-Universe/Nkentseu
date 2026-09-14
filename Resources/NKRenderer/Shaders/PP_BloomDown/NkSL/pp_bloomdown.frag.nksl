@@ -1,4 +1,5 @@
 // pp_bloomdown.frag.nksl — NKRenderer — Bloom Downsample 13-tap (VRAI dialecte NkSL).
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 @location(0) in  vec2 vUV;
 @location(0) out vec4 oColor;
 
@@ -10,12 +11,29 @@ layout(push_constant) uniform PC {
     float yFlipUV;
 } pc;
 
+// SEUIL A GENOU (Jimenez 2014, celui de Blender, Unity et Unreal).
+//
+// L'ANCIENNE formule etait `soft = (br - thr)^2 / (4 thr)`, sans borne, et
+// `contrib = max(soft, br - thr)`. Sa branche quadratique ne servait a rien sous
+// 5 seuils (toujours sous la lineaire) et AMPLIFIAIT au-dela : contribution > 1
+// des ~5,8 seuils, x2,10 a 10 seuils, x4,38 a 20 seuils par unite de (S - seuil),
+// mesure sur le banc (vue 6, Q193). C'est une des deux causes de « l'eponge ».
+//
+// Ici la rampe quadratique est BORNEE a la zone de transition
+// [thr - genou, thr + genou] : rq = clamp(br - thr + genou, 0, 2 genou)^2 / (4 genou).
+//   * sous thr - genou : 0 exact ;
+//   * dans la zone : quadratique, continue, au plus genou/4 au-dessus de la
+//     droite max(br - thr, 0) (soit genou/4 AU seuil meme -- c'est ce qu'un genou
+//     EST : l'allumage ne claque plus a pleine largeur au franchissement) ;
+//   * au-dessus de thr + genou : lineaire, exactement br - thr, jamais plus.
+// genou = 0,5 x seuil, l'adoucissement par defaut de Blender et d'Unity.
 vec3 SoftThreshold(vec3 c, float thr) {
     if (thr <= 0.001) return c;
-    float br   = max(c.r, max(c.g, c.b));
-    float soft = max(br - thr, 0.0);
-    soft       = soft * soft / (4.0 * thr + 1e-4);
-    float contrib = max(soft, br - thr) / max(br, 1e-4);
+    float br    = max(c.r, max(c.g, c.b));
+    float genou = 0.5 * thr;
+    float rq    = clamp(br - thr + genou, 0.0, 2.0 * genou);
+    rq          = rq * rq / (4.0 * genou + 1e-4);
+    float contrib = max(rq, br - thr) / max(br, 1e-4);
     return c * contrib;
 }
 

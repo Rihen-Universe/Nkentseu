@@ -2,6 +2,7 @@
 // =============================================================================
 // NkRender2D.h  — NKRenderer v4.0  (Tools/Render2D/)
 // Sprites, shapes, 9-slice, clip stack, batching automatique.
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // =============================================================================
 #include "NKRenderer/Core/NkRendererTypes.h"
 #include "NKRenderer/Core/NkTextureLibrary.h"
@@ -129,6 +130,28 @@ namespace nkentseu {
 
 				// ── Sprites ────────────────────────────────────────────────────────────
 				void DrawSprite(NkRectF dst, NkTexHandle tex, NkVec4f tint = {1, 1, 1, 1}, NkRectF uv = {0, 0, 1, 1});
+
+				// DESSINE UNE CIBLE HORS ECRAN, et non une texture ordinaire.
+				//
+				// ⚠️ POURQUOI CETTE ENTREE EXISTE. Le contenu d'une cible hors ecran
+				// n'a pas la meme orientation selon le dorsal qui l'a ecrite : sur
+				// OpenGL la premiere rangee stockee est celle du BAS. Les RELECTEURS
+				// appliquent cette convention depuis toujours (NkOffscreenTarget.h,
+				// NkOffscreenStoredIsBottomUp) ; les ECHANTILLONNEURS l'ignoraient.
+				// Mesure absolue, banc d'ombre sous NK_BANC_HORSECRAN, une marque
+				// opaque posee en haut a gauche puis echantillonnee par DrawSprite :
+				//     opengl  marque a y=695.5 sur 720   RETOURNEE
+				//     dx11    marque a y= 23.5           droite
+				//     dx12    marque a y= 23.5           droite
+				//
+				// Ce n'est donc pas une compensation neuve : c'est la convention du
+				// relecteur portee a son second consommateur. La regle est lue ICI,
+				// une fois, et l'appelant n'a rien a retenir -- il dit seulement
+				// qu'il dessine une CIBLE, ce que lui seul sait.
+				//
+				// ⚠️ NE PAS L'UTILISER pour une texture chargee d'un fichier : elle
+				// est deja haut-bas sur tous les dorsaux, et ceci la retournerait.
+				void DrawOffscreen(NkRectF dst, NkTexHandle tex, NkVec4f tint = {1, 1, 1, 1});
 				void DrawSpriteRotated(NkRectF dst, NkTexHandle tex, float32 angleDeg, NkVec2f pivot = {0.5f, 0.5f},
 									   NkVec4f tint = {1, 1, 1, 1}, NkRectF uv = {0, 0, 1, 1});
 				void DrawNineSlice(NkRectF dst, NkTexHandle tex, float32 left, float32 top, float32 right,

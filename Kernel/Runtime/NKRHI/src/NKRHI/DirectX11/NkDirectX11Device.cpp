@@ -1,4 +1,5 @@
 // =============================================================================
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // NkRHI_Device_DX11.cpp — Backend DirectX 11.1
 // =============================================================================
 #ifdef NK_RHI_DX11_ENABLED
@@ -14,7 +15,13 @@
 #include <d3d11sdklayers.h>
 
 #define NK_DX11_LOG(...) logger_src.Infof("[NkRHI_DX11] " __VA_ARGS__)
-#define NK_DX11_ERR(...) logger_src.Infof("[NkRHI_DX11][ERR] " __VA_ARGS__)
+// 🔴 UNE ERREUR SE JOURNALISE AU NIVEAU ERREUR. Jusqu'au 2026-09-07 cette
+// macro appelait `Infof` : le `[ERR]` n'etait que du TEXTE dans le message,
+// invisible a tout filtre de niveau. Mesure ce jour-la : les CINQ dorsaux du
+// RHI faisaient pareil, pour 126 sites d'erreur au total, aucun au bon
+// niveau. C'est ainsi qu'un shader refuse par le pilote a pu vivre invisible
+// assez longtemps pour que Rodolf regle un parametre mort.
+#define NK_DX11_ERR(...) logger_src.Errorf("[NkRHI_DX11][ERR] " __VA_ARGS__)
 #define NK_DX11_CHECK(hr, msg)                                                                                         \
 	do {                                                                                                               \
 		if (FAILED(hr)) {                                                                                              \
@@ -892,10 +899,11 @@ namespace nkentseu {
 			D3D11_SUBRESOURCE_DATA i3{};
 			D3D11_SUBRESOURCE_DATA *pI3 = nullptr;
 			if (desc.initialData) {
-				uint32 bpp = NkFormatBytesPerPixel(desc.format);
 				i3.pSysMem = desc.initialData;
-				i3.SysMemPitch = desc.rowPitch > 0 ? desc.rowPitch : desc.width * bpp;
-				i3.SysMemSlicePitch = i3.SysMemPitch * desc.height; // pas entre 2 tranches Z
+				// Blocs compris : `width * octets-par-pixel` rendait 0 sur BC/ETC2/ASTC.
+				i3.SysMemPitch = desc.rowPitch > 0 ? desc.rowPitch : NkFormatRowPitch(desc.format, desc.width);
+				i3.SysMemSlicePitch =
+					i3.SysMemPitch * NkFormatRowCount(desc.format, desc.height); // pas entre 2 tranches Z
 				pI3 = &i3;
 			}
 			ID3D11Texture3D *vtex = nullptr;
@@ -986,10 +994,9 @@ namespace nkentseu {
 		D3D11_SUBRESOURCE_DATA *pInit = nullptr;
 		// En mode genMips, NE PAS passer de données au create (upload + GenerateMips après).
 		if (desc.initialData && !genMips) {
-			uint32 bpp = NkFormatBytesPerPixel(desc.format);
 			initData.pSysMem = desc.initialData;
-			initData.SysMemPitch = desc.rowPitch > 0 ? desc.rowPitch : desc.width * bpp;
-			initData.SysMemSlicePitch = initData.SysMemPitch * desc.height;
+			initData.SysMemPitch = desc.rowPitch > 0 ? desc.rowPitch : NkFormatRowPitch(desc.format, desc.width);
+			initData.SysMemSlicePitch = initData.SysMemPitch * NkFormatRowCount(desc.format, desc.height);
 			pInit = &initData;
 		}
 
@@ -1041,10 +1048,18 @@ namespace nkentseu {
 
 		// genMips : uploader le mip 0 puis générer la chaîne de mips sur le GPU.
 		if (genMips && t.srv) {
-			uint32 bpp = NkFormatBytesPerPixel(desc.format);
-			uint32 pitch = desc.rowPitch > 0 ? desc.rowPitch : desc.width * bpp;
-			mContext->UpdateSubresource(tex, 0, nullptr, desc.initialData, pitch, pitch * desc.height);
-			mContext->GenerateMips(t.srv);
+			uint32 pitch = desc.rowPitch > 0 ? desc.rowPitch : NkFormatRowPitch(desc.format, desc.width);
+			mContext->UpdateSubresource(tex, 0, nullptr, desc.initialData, pitch,
+										pitch * NkFormatRowCount(desc.format, desc.height));
+			// ⚠️ `GenerateMips` ne fonctionne PAS sur un format par blocs : le
+			// materiel ne sait pas filtrer des blocs compresses. Un actif cuit
+			// porte ses mips, il ne passe donc jamais par ici — et si un appelant
+			// le demandait quand meme, il faut qu'il le sache.
+			if (NkFormatIsBlockCompressed(desc.format))
+				logger.Warnf("[NkRHI_DX11] GenerateMips sur un format par blocs : ignore (les mips d'un "
+							 "actif compresse se CUISENT, le GPU ne peut pas les generer)\n");
+			else
+				mContext->GenerateMips(t.srv);
 		}
 
 		uint64 hid = NextId();
@@ -1076,7 +1091,7 @@ namespace nkentseu {
 		if (!it)
 			return false;
 		auto &desc = it->desc;
-		uint32 pitch = rp > 0 ? rp : desc.width * NkFormatBytesPerPixel(desc.format);
+		uint32 pitch = rp > 0 ? rp : NkFormatRowPitch(desc.format, desc.width);
 		// Resource() = tex 2D OU tex3d (volume). SlicePitch = pitch*height (plan/tranche Z).
 		mContext->UpdateSubresource(it->Resource(), 0, nullptr, p, pitch, pitch * desc.height);
 		return true;
@@ -1088,7 +1103,7 @@ namespace nkentseu {
 		if (!it)
 			return false;
 		auto &desc = it->desc;
-		uint32 pitch = rp > 0 ? rp : w * NkFormatBytesPerPixel(desc.format);
+		uint32 pitch = rp > 0 ? rp : NkFormatRowPitch(desc.format, w);
 		D3D11_BOX box{x, y, z, x + w, y + h, z + d2};
 		uint32 sub = D3D11CalcSubresource(mip, layer, desc.mipLevels ? desc.mipLevels : 1);
 		mContext->UpdateSubresource(it->Resource(), sub, &box, p, pitch, pitch * h); // Resource() = 2D ou 3D
@@ -1206,8 +1221,39 @@ namespace nkentseu {
 					if (err) {
 						NK_DX11_ERR("Shader error: %s\n", (char *)err->GetBufferPointer());
 						err->Release();
+						err = nullptr;
 					}
-					continue;
+					NK_DX11_ERR("CreateShader ABANDONNE (stage %u, hr=0x%X) : aucun handle ne sera rendu.\n",
+								(unsigned)s.stage, (unsigned)hr);
+					// 🔴 ON ABANDONNE LE SHADER ENTIER. Ici se tenait un `continue`,
+					// et c'est lui qui a coute le plus cher de la semaine : l'etage
+					// refuse etait SAUTE, la boucle continuait, et la fonction rendait
+					// un handle PARFAITEMENT VALIDE pour un shader ampute. Le pipeline
+					// se declarait ensuite `pipeline_valid=1`.
+					//
+					// Ce que ca a produit, mesure le 2026-09-07 : `shadowalpha.frag`
+					// refuse par le pilote (`error X3004: undeclared identifier
+					// 'gl_fragcoord'`), donc l'ombre proportionnelle MORTE sur DX11 —
+					// un objet a 12 % d'opacite y projetait une ombre pleine — et
+					// Rodolf reglait un parametre inerte sans que rien ne l'en avertisse.
+					// Le defaut de generation s'est corrige en cinquante lignes ; ce
+					// `continue` est la raison pour laquelle personne ne l'avait vu.
+					//
+					// ⚠️ DX11 etait le SEUL des quatre dorsaux a faire ca : OpenGL,
+					// Vulkan et DX12 rendent tous `{}` sur echec de compilation. Ce
+					// n'est donc pas un changement de contrat, c'est un alignement sur
+					// le contrat que les trois autres respectaient deja.
+					//
+					// On libere ce que les etages precedents ont deja cree, sinon
+					// l'abandon fuit des objets COM que plus personne ne detient.
+					NK_DX11_SAFE(sh.vs);
+					NK_DX11_SAFE(sh.ps);
+					NK_DX11_SAFE(sh.cs);
+					NK_DX11_SAFE(sh.gs);
+					NK_DX11_SAFE(sh.vsBlob);
+					if (code)
+						code->Release();
+					return {};
 				}
 				// Sauver le DXBC compilé (réutilisé aux prochains runs).
 				NkShaderConvertResult toCache;
@@ -1325,7 +1371,18 @@ namespace nkentseu {
 		rd.CullMode = d.rasterizer.cullMode == NkCullMode::NK_NONE	  ? D3D11_CULL_NONE
 					  : d.rasterizer.cullMode == NkCullMode::NK_FRONT ? D3D11_CULL_FRONT
 																	  : D3D11_CULL_BACK;
-		rd.FrontCounterClockwise = d.rasterizer.frontFace == NkFrontFace::NK_CCW;
+		// ⚠️ RECALIBRAGE D'ENROULEMENT (essai groupe 1), CALQUE SUR CELUI DE VULKAN.
+		// Le sens d'enroulement se determine sur l'AIRE SIGNEE en coordonnees de
+		// framebuffer. Negativer Y en sortie du nuanceur de sommets en inverse le
+		// signe -- exactement comme le viewport a hauteur negative de Vulkan, qui
+		// est deja compense ici (NkVulkanDevice.cpp:1735, meme raison, meme place).
+		// DX portait donc la MEME inversion, mais IMPLICITE, dans la negation du
+		// generateur. La negation retiree, elle doit devenir EXPLICITE, sinon DX
+		// cesse d'enrouler comme GL -- qui, lui, negate toujours.
+		// Ce n'est PAS une compensation neuve : c'est la meme convention que Vulkan
+		// declare deja, rendue visible sur le dorsal qui la portait en cachette.
+
+		rd.FrontCounterClockwise = d.rasterizer.frontFace != NkFrontFace::NK_CCW;
 		rd.DepthClipEnable = d.rasterizer.depthClip;
 		rd.ScissorEnable = d.rasterizer.scissorTest;
 		rd.MultisampleEnable = d.rasterizer.multisampleEnable;
@@ -1833,14 +1890,41 @@ namespace nkentseu {
 				return DXGI_FORMAT_D32_FLOAT;
 			case NkGPUFormat::NK_D24_UNORM_S8_UINT:
 				return DXGI_FORMAT_D24_UNORM_S8_UINT;
+			// 🔴 LES HUIT FORMATS PAR BLOCS, PAS QUATRE. Le RHI en declare HUIT
+			// (`NkTypes.h:131-138`) ; ce commutateur n'en mappait que quatre, et
+			// les quatre variantes SRGB/SNORM tombaient au `default:` — c'est-a-dire
+			// sur `DXGI_FORMAT_R8G8B8A8_UNORM`, un format NON COMPRESSE de 4 octets
+			// par pixel.
+			//
+			// CE QUE CA PRODUISAIT, mesure le 2026-09-07 : une carte BC1 sRGB de
+			// 4096 etait creee comme RGBA8, puis `UpdateSubresource` recevait ses
+			// 8 Mo de blocs avec un pas de 8192 — le pilote lisait alors
+			// 8192 x 4096 = 33 Mo dans un tampon de 8 Mo. SIGSEGV dans
+			// `nvwgf2umx.dll`, a chaque relecture d'un actif cuit
+			// (`--demo=TexturesPBR`, tous les lancements apres le premier).
+			//
+			// ⚠️ ET C'EST LE MEME DEFAUT QUE `ToGLInternalFormat` AVAIT, corrige
+			// il y a deux jours : `NK_BC1_RGB_SRGB` y tombait sur `GL_RGBA8` et
+			// produisait 25 erreurs GL. **Le trou existait dans les DEUX dorsaux ;
+			// seul celui d'OpenGL avait ete vu.** Quand un defaut de correspondance
+			// de formats est trouve dans un dorsal, il se cherche dans tous les
+			// autres le jour meme — c'est ce que je n'avais pas fait.
 			case NkGPUFormat::NK_BC1_RGB_UNORM:
 				return DXGI_FORMAT_BC1_UNORM;
+			case NkGPUFormat::NK_BC1_RGB_SRGB:
+				return DXGI_FORMAT_BC1_UNORM_SRGB;
 			case NkGPUFormat::NK_BC3_UNORM:
 				return DXGI_FORMAT_BC3_UNORM;
+			case NkGPUFormat::NK_BC3_SRGB:
+				return DXGI_FORMAT_BC3_UNORM_SRGB;
 			case NkGPUFormat::NK_BC5_UNORM:
 				return DXGI_FORMAT_BC5_UNORM;
+			case NkGPUFormat::NK_BC5_SNORM:
+				return DXGI_FORMAT_BC5_SNORM;
 			case NkGPUFormat::NK_BC7_UNORM:
 				return DXGI_FORMAT_BC7_UNORM;
+			case NkGPUFormat::NK_BC7_SRGB:
+				return DXGI_FORMAT_BC7_UNORM_SRGB;
 			case NkGPUFormat::NK_R11G11B10_FLOAT:
 				return DXGI_FORMAT_R11G11B10_FLOAT;
 			default:

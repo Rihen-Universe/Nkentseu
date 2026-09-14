@@ -413,6 +413,26 @@ namespace nkentseu {
 			NkImage Resize(int32 nw, int32 nh, NkResizeFilter f = NkResizeFilter::NK_BILINEAR) const noexcept;
 
 			/**
+			 * Reduit l'image d'un facteur EXACTEMENT 2 par moyenne de blocs 2x2.
+			 * Rend la nouvelle image PAR VALEUR ; *this n'est pas modifiee.
+			 *
+			 * C'est le niveau de mipmap suivant, et pas un `Resize(w/2, h/2)` :
+			 * `Resize` interpole en bilineaire (deux echantillons par axe), ce qui
+			 * n'est PAS la moyenne des quatre pixels d'origine. Un niveau de mipmap
+			 * se juge sur cette moyenne — c'est aussi ce que produit le GPU quand il
+			 * genere la chaine lui-meme, donc precalculer avec ce filtre ne change
+			 * pas l'image, seulement le moment ou elle est calculee.
+			 *
+			 * Dimensions impaires : la regle usuelle des mipmaps, `max(1, n / 2)`.
+			 * La colonne (ou la ligne) surnumeraire est repliee sur la derniere,
+			 * ce qui evite d'oublier le bord.
+			 *
+			 * @return L'image reduite, ou une image INVALIDE si *this l'est ou si
+			 *         elle mesure deja 1x1 (il n'y a pas de niveau suivant).
+			 */
+			NkImage ReduceHalf() const noexcept;
+
+			/**
 			 * Copie (blit) l'image `src` entière dans *this à la position (dstX, dstY).
 			 * Les deux images doivent avoir le même format pixel.
 			 * Les débordements sont clippés silencieusement.

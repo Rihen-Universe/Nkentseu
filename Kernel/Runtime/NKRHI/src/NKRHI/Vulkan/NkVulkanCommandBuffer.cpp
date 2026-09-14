@@ -1,4 +1,5 @@
 // =============================================================================
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // NkVulkanCommandBuffer.cpp
 // =============================================================================
 #ifdef NK_RHI_VK_ENABLED
@@ -158,16 +159,58 @@ namespace nkentseu {
 	}
 
 	// ── Pipeline ──────────────────────────────────────────────────────────────────
+	//
+	// 🔴 UN PIPELINE INTROUVABLE NE SE LIE PAS. Jusqu'au 2026-09-07, ces deux
+	// fonctions passaient le resultat de `GetVkPipeline(p.id)` a
+	// `vkCmdBindPipeline` SANS LE REGARDER : sur un handle inconnu, la valeur est
+	// `VK_NULL_HANDLE`, et lier un pipeline nul est un COMPORTEMENT INDEFINI en
+	// Vulkan. Ce n'etait pas theorique — `NkVFXSystem::RenderDecals` lie
+	// `mPipeDecal`, qui nait invalide (aucun shader ne lui est assigne), et il le
+	// fait AVANT meme de verifier qu'il y a un decal a dessiner.
+	//
+	// Portee mesuree avant de toucher au socle, sur les quatre dorsaux et les cinq
+	// points d'entree `Bind*` : DX12 les garde tous les cinq, DX11 trois sur cinq,
+	// **Vulkan et OpenGL aucun**. C'est donc un alignement sur le contrat que DX12
+	// tient deja, pas une invention.
+	//
+	// ⚠️ LE REFUS SE DIT UNE FOIS, PAS A CHAQUE IMAGE. Ces fonctions sont dans le
+	// chemin le plus chaud du moteur — une ligne de journal par tirage coute des
+	// centaines de fois un `printf` et noierait le journal qu'on essaie de rendre
+	// lisible. Un temoin qui se declenche une fois nomme le defaut ; repete
+	// soixante fois par seconde, il l'enterre.
 	void NkVulkanCommandBuffer::BindGraphicsPipeline(NkPipelineHandle p) {
+		const VkPipeline vkp = mDev->GetVkPipeline(p.id);
+		if (vkp == VK_NULL_HANDLE) {
+			static bool dit = false;
+			if (!dit) {
+				dit = true;
+				logger.Errorf("[NkRHI_VK][ERR] BindGraphicsPipeline : pipeline id=%llu INTROUVABLE — non lie. "
+						  "Lier VK_NULL_HANDLE est un comportement indefini ; le tirage qui suit "
+						  "ne dessinera rien. (dit une seule fois)\n",
+						  (unsigned long long)p.id);
+			}
+			return;
+		}
 		mBoundLayout = mDev->GetVkPipelineLayout(p.id);
 		mIsCompute = false;
-		vkCmdBindPipeline(mCmdBuf, VK_PIPELINE_BIND_POINT_GRAPHICS, mDev->GetVkPipeline(p.id));
+		vkCmdBindPipeline(mCmdBuf, VK_PIPELINE_BIND_POINT_GRAPHICS, vkp);
 	}
 
 	void NkVulkanCommandBuffer::BindComputePipeline(NkPipelineHandle p) {
+		const VkPipeline vkp = mDev->GetVkPipeline(p.id);
+		if (vkp == VK_NULL_HANDLE) {
+			static bool dit = false;
+			if (!dit) {
+				dit = true;
+				logger.Errorf("[NkRHI_VK][ERR] BindComputePipeline : pipeline id=%llu INTROUVABLE — non lie. "
+						  "(dit une seule fois)\n",
+						  (unsigned long long)p.id);
+			}
+			return;
+		}
 		mBoundLayout = mDev->GetVkPipelineLayout(p.id);
 		mIsCompute = true;
-		vkCmdBindPipeline(mCmdBuf, VK_PIPELINE_BIND_POINT_COMPUTE, mDev->GetVkPipeline(p.id));
+		vkCmdBindPipeline(mCmdBuf, VK_PIPELINE_BIND_POINT_COMPUTE, vkp);
 	}
 
 	void NkVulkanCommandBuffer::BindDescriptorSet(NkDescSetHandle set, uint32 idx, uint32 *off, uint32 cnt) {

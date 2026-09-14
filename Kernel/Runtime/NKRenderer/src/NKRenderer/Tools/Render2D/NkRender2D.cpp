@@ -1,7 +1,9 @@
 // =============================================================================
 // NkRender2D.cpp  — NKRenderer v5.0
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // =============================================================================
 #include "NkRender2D.h"
+#include "NKRenderer/Tools/Offscreen/NkOffscreenTarget.h" // NkOffscreenStoredIsBottomUp
 #include "NKRenderer/Shader/NkShaderLibrary.h"
 #include "NKLogger/NkLog.h"
 #include <cmath>
@@ -943,6 +945,15 @@ void main() {
 			float32 x0 = dst.x, y0 = dst.y, x1 = dst.x + dst.w, y1 = dst.y + dst.h;
 			float32 u0 = uv.x, v0 = uv.y, u1 = uv.x + uv.w, v1 = uv.y + uv.h;
 			PushQuad({x0, y0}, {x1, y0}, {x1, y1}, {x0, y1}, {u0, v0}, {u1, v0}, {u1, v1}, {u0, v1}, tint, tex);
+		}
+
+		void NkRender2D::DrawOffscreen(NkRectF dst, NkTexHandle tex, NkVec4f tint) {
+			// La regle vit dans NkOffscreenTarget.h et se lit ICI, pas chez
+			// l'appelant : c'est ce qui empeche la derive de recommencer.
+			const bool basHaut =
+				mDevice && NkOffscreenStoredIsBottomUp(mDevice->GetApi());
+			// On echange les bornes de V, rien d'autre.
+			DrawSprite(dst, tex, tint, basHaut ? NkRectF{0.f, 1.f, 1.f, -1.f} : NkRectF{0.f, 0.f, 1.f, 1.f});
 		}
 
 		void NkRender2D::DrawSpriteRotated(NkRectF dst, NkTexHandle tex, float32 angleDeg, NkVec2f pivot, NkVec4f tint,

@@ -1,6 +1,7 @@
 // =============================================================================
 // AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // NkSLCodeGenHLSL.cpp
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // Génération HLSL SM5+ depuis l'AST NkSL.
 //
 // Différences majeures GLSL→HLSL :
@@ -19,6 +20,21 @@
 namespace nkentseu {
 
 	// Scan récursif pour détecter si gl_FragDepth est écrit dans le corps d'un shader
+	// ⚠️ LA MEME REGLE QUE `BuiltinToHLSL`, ET C'EST TOUT L'ENJEU. La REFERENCE
+	// (`output._Depth`) et la DECLARATION (`float _Depth : SV_Depth;`) sont
+	// decidees a deux endroits ; si les deux ne reconnaissent pas `gl_FragDepth`
+	// DE LA MEME FACON, le generateur emet un identifiant que rien ne definit.
+	// `BuiltinToHLSL` minuscule avant de comparer ; ce scan-ci comparait la casse
+	// exacte. Mesure du 07/09 sur ShadowLinear, meme shader le meme jour :
+	//    DX11 -> struct PS_Output { float _Depth : SV_Depth; };
+	//    DX12 -> struct NkOutput { };            <- vide, et `output._Depth` ecrit
+	// dxc et fxc refusent tous deux, pour la meme raison.
+	static bool NkSL_EstFragDepth(const NkString &n) {
+		NkString c(n);
+		c.ToLower();
+		return c == "gl_fragdepth";
+	}
+
 	static bool ScanWritesDepth(NkSLNode *node) {
 		if (!node)
 			return false;
@@ -26,7 +42,7 @@ namespace nkentseu {
 			auto *a = static_cast<NkSLAssignNode *>(node);
 			if (a->lhs && a->lhs->kind == NkSLNodeKind::NK_EXPR_IDENT) {
 				auto *id = static_cast<NkSLIdentNode *>(a->lhs);
-				if (id->name == "gl_FragDepth")
+				if (NkSL_EstFragDepth(id->name))
 					return true;
 			}
 		}
@@ -317,23 +333,49 @@ namespace nkentseu {
 	}
 
 	NkString NkSLCodeGenHLSL::BuiltinToHLSL(const NkString &name, NkSLStage stage) {
-		if (name == "gl_Position")
+		// 🔴 COMPARAISON INSENSIBLE A LA CASSE, et ce n'est pas une precaution de
+		// style : le lexer traite `gl_FragCoord` comme un MOT-CLE
+		// (`NK_KW_BUILTIN_FRAGCOORD`, NkSLLexer.cpp:144) et la casse canonique se
+		// perd avant d'arriver ici. Ecrite en camelCase, cette table ne pouvait
+		// pas matcher `gl_fragcoord` : le generateur emettait alors l'identifiant
+		// NU, une variable que HLSL ne connait pas.
+		//
+		// MESURE DU 2026-09-07 -- la chaine complete, du panneau au pilote :
+		//   1. `shadowalpha.frag` sortait `NkBayer4(gl_fragcoord.xy)` ;
+		//   2. D3D le refuse : `error X3004: undeclared identifier 'gl_fragcoord'` ;
+		//   3. la creation de pipeline annoncait quand meme
+		//      `shader_valid=1 pipeline_valid=1`, deux millisecondes plus tard ;
+		//   4. l'ombre proportionnelle etait donc MORTE sur DX11 -- un objet a
+		//      12 % d'opacite y projetait une ombre PLEINE ;
+		//   5. Rodolf reglait « Opacite 0,12 » dans son panneau, et rien ne bougeait.
+		// Portee mesuree avant de toucher au socle : sur les 171 shaders du cache,
+		// UN SEUL emettait une variable integree nue -- celui-la.
+		//
+		// ⚠️ `SemanticFor`, dans ce meme fichier, compare DEJA ses noms en
+		// minuscules par une table `nameLower` : l'insensibilite a la casse est
+		// l'idiome du fichier, pas une invention de passage.
+		//
+		// ⚠️ Et on rend `name` TEL QUEL a la fin, jamais sa version minuscule :
+		// tout ce qui n'est pas une variable integree doit ressortir intact.
+		NkString n(name);
+		n.ToLower();
+		if (n == "gl_position")
 			return "output._Position"; // struct field = _Position
-		if (name == "gl_FragCoord")
+		if (n == "gl_fragcoord")
 			return "input._Position";
-		if (name == "gl_FragDepth")
+		if (n == "gl_fragdepth")
 			return "output._Depth";
-		if (name == "gl_VertexID")
+		if (n == "gl_vertexid")
 			return "input._VertexID";
-		if (name == "gl_InstanceID")
+		if (n == "gl_instanceid")
 			return "input._InstanceID";
-		if (name == "gl_FrontFacing")
+		if (n == "gl_frontfacing")
 			return "input.IsFrontFace";
-		if (name == "gl_LocalInvocationID")
+		if (n == "gl_localinvocationid")
 			return "GroupThreadID";
-		if (name == "gl_GlobalInvocationID")
+		if (n == "gl_globalinvocationid")
 			return "DispatchThreadID";
-		if (name == "gl_WorkGroupID")
+		if (n == "gl_workgroupid")
 			return "GroupID";
 		return name;
 	}
@@ -675,8 +717,18 @@ namespace nkentseu {
 				bool purePC = hasPush && !hasUBO;
 				bool depthOnly = !hasVaryingOut;
 				bool noFlip = mOpts && mOpts->disableAutoYFlip; // pragma @gl-no-flip-y
-				if (hasInputs && !purePC && !depthOnly && !noFlip)
-					EmitLine("output._Position.y = -output._Position.y;");
+				// ⚠️ LA NEGATION EST RETIREE. Mesure du 07/09, temoin cube a position
+				// connue : avec elle, opengl 169.9 juste et dx11 549.1 RETOURNE ;
+				// sans elle, l'inverse, miroir exact a 1 px. Sur DX elle etait donc
+				// appliquee la ou il ne fallait pas. Le flip GLSL (`glFlipYPosition`)
+				// RESTE : l'origine du framebuffer OpenGL est bien en bas.
+				// ⚠️ ELLE INVERSAIT AUSSI L'ENROULEMENT. Voir le recalibrage explicite
+				// dans NkDirectX11Device / NkDirectX12Device : sans lui, l'ombre DX
+				// tombait a 221.48 avec 6 426 px au lieu de 439.57 avec 25 322.
+				(void)hasInputs;
+				(void)purePC;
+				(void)depthOnly;
+				(void)noFlip;
 			}
 			if (hasOutput)
 				EmitLine("return output;");
