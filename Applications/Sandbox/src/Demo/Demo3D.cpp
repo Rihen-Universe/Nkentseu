@@ -5611,6 +5611,13 @@ static NkTexHandle CreateLanternCubeCookie(NkTextureLibrary *texLib, NkIDevice *
 											 "%+.4f**\n",
 											 wq2, wd3.steerAngle * 57.29578f, wd3.steerFwd.x, wd3.steerFwd.y,
 											 wd3.steerFwd.z, vuFwd.x, vuFwd.y, vuFwd.z, wd3.steerFwd.Dot(vuFwd));
+								// LE CRITERE QUI FERME LES DEUX DEFAUTS D UN COUP : la roue penche
+								// du MEME cote que la voiture part, dans l axe de l IMAGE. Deux
+								// grandeurs, un seul signe attendu.
+								std::fprintf(stderr,
+											 "[VEHICULE ROUE]   roue penche sur l axe droit CAMERA : %+.4f "
+											 "(la voiture part du meme signe)\n",
+											 wd3.steerFwd.Dot(st->vehGCamRight));
 							}
 							// Trois lectures du MEME deplacement, dans trois reperes :
 							//  - le monde (x brut)
