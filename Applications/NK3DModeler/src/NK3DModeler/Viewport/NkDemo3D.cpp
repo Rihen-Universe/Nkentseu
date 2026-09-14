@@ -1493,6 +1493,25 @@ namespace nkentseu {
 				// bascule est consommee a la frame suivante) : c'est la DUREE qui fait
 				// l'echec, pas l'ecart lui-meme.
 				int32 editRefusedFrames = 0;
+				// ── GLISSEMENT SYNTHETIQUE D'ELEMENTS (NK_EDIT_DRAG) ────────────
+				// Le deplacement d'un sommet / arete / face n'etait exercable par
+				// AUCUN banc : il faut attraper une poignee a la souris. Consequence
+				// mesuree le 14/09 : « le deplacement ne se voit pas en temps reel »
+				// ne pouvait etre ni reproduit ni refute autrement qu'en lisant le
+				// code. Une interaction qu'aucun banc ne peut exercer ne sera jamais
+				// testee, et chaque mesure future coutera le meme prix.
+				// Ces champs sont l'etat du geste ; l'injection elle-meme se fait
+				// dans `gin`, LE MEME champ que la souris remplit -- un crochet qui
+				// court-circuiterait `NkGizmo3D::Update` mesurerait autre chose.
+				bool editDragOn = false;
+				int32 editDragFrame0 = 0, editDragFrames = 8, editDragK = -1;
+				float32 editDragDX = 0.f, editDragDY = 0.f;
+				// POSITION ACCUMULEE du curseur synthetique. Indispensable : `gin` est
+				// REMPLI A NEUF a chaque image depuis la souris reelle, donc un
+				// `gin.mouseX += dx` repartait chaque fois de la position du vrai
+				// curseur -- qui est hors de la vue quand personne ne la touche. Le
+				// gizmo voyait alors un curseur qui saute d'un bord a l'autre.
+				float32 editDragX = 0.f, editDragY = 0.f;
 				bool editWasDragging = false;	  // pour baker le delta en fin de drag
 				bool editOverlayDirty = true;	  // reconstruire les buffers overlay (cage/points/faces)
 				bool editExtrudePending = false;  // E : extrude région (traité côté frame)
@@ -9092,8 +9111,113 @@ namespace nkentseu {
 					else if (NkInput.IsKeyDown(NkKey::NK_Z))
 						gin.lockAxis = 2;
 				}
+				// ── NK_EDIT_DRAG="dx,dy[,images[,frame0]]" ──────────────────────
+				// ATTRAPE LA POIGNEE CENTRALE du gizmo d'edition et tire de (dx, dy)
+				// pixels, en `images` etapes. La poignee centrale (op 0, mask 7,
+				// kind 2 dans BuildHandles) est un DEPLACEMENT LIBRE DANS LE PLAN
+				// ECRAN, et elle se trouve AU PIVOT : c'est la seule dont on connaisse
+				// la position sans reimplementer la mise en page du gizmo.
+				//
+				// ⚠ ON PASSE PAR `gin`, ET C'EST TOUT L'INTERET. Le geste emprunte
+				// ensuite exactement le chemin du vrai clic : DoPick attrape la
+				// poignee, mDragging passe a vrai, et le bloc qui descend la
+				// transformation dans `editLive` s'execute sous sa garde habituelle.
+				// Un crochet qui poserait directement la translation du gizmo
+				// prouverait que le gizmo sait bouger -- pas que le GESTE marche.
+				//
+				// Aucune API systeme n'est touchee : rien n'est ecrit dans la souris
+				// de la machine, seulement dans une structure de cette frame.
+				if (st->editMode) {
+					static bool sDragLu = false;
+					if (!sDragLu) {
+						sDragLu = true;
+						if (const char *dg = getenv("NK_EDIT_DRAG")) {
+							float32 v[4] = {0.f, 0.f, 8.f, 100.f};
+							int32 k = 0;
+							for (const char *q = dg; k < 4 && *q;) {
+								v[k++] = (float32)atof(q);
+								while (*q && *q != ',')
+									++q;
+								if (*q == ',')
+									++q;
+							}
+							st->editDragDX = v[0];
+							st->editDragDY = v[1];
+							st->editDragFrames = (int32)v[2] > 0 ? (int32)v[2] : 8;
+							st->editDragFrame0 = (int32)v[3];
+							st->editDragOn = true;
+							st->editDragK = -1;
+							logger.Info("[Demo3D] NK_EDIT_DRAG arme : d=({0},{1}) px en {2} images, a partir de la frame {3}\n",
+										st->editDragDX, st->editDragDY, st->editDragFrames,
+										st->editDragFrame0);
+						}
+					}
+					if (st->editDragOn) {
+						++st->editDragK;
+						const int32 k = st->editDragK - st->editDragFrame0;
+						if (k == 0) {
+							// PREMIERE IMAGE : viser le pivot et APPUYER. C'est ce que
+							// fait un utilisateur qui pose son curseur sur le gizmo.
+							float32 px = 0.f, py = 0.f;
+							if (project(st->editGizmo.GetPivot(), px, py)) {
+								st->editDragX = px;
+								st->editDragY = py;
+								gin.mouseX = px;
+								gin.mouseY = py;
+								gin.leftPressed = true;
+								gin.leftDown = true;
+								logger.Info("[Demo3D] NK_EDIT_DRAG appui a ({0}, {1}) px de vue\n", px, py);
+							} else {
+								// Pivot HORS CHAMP : on ne fait pas semblant d'avoir
+								// attrape quoi que ce soit. Le banc verra que rien n'a
+								// bouge, et il aura raison.
+								logger.Info("[Demo3D] NK_EDIT_DRAG : pivot non projetable, geste ABANDONNE\n");
+								st->editDragOn = false;
+							}
+						} else if (k > 0 && k <= st->editDragFrames) {
+							const float32 fx = st->editDragDX / (float32)st->editDragFrames;
+							const float32 fy = st->editDragDY / (float32)st->editDragFrames;
+							st->editDragX += fx;
+							st->editDragY += fy;
+							gin.mouseX = st->editDragX;
+							gin.mouseY = st->editDragY;
+							gin.mouseDX = fx;
+							gin.mouseDY = fy;
+							gin.leftDown = true;
+						} else if (k == st->editDragFrames + 1) {
+							// RELACHEMENT : c'est lui qui declenche le bake dans
+							// l'autorite. Sans cette image, on mesurerait un geste
+							// suspendu et on croirait a une perte.
+							gin.leftDown = false;
+							st->editDragOn = false;
+							logger.Info("[Demo3D] NK_EDIT_DRAG relache\n");
+						}
+					}
+				}
 				const bool wasDrag = st->editGizmo.IsDragging();
 				st->editGizmo.Update(vt, gcount, gin);
+				// Trace du glissement synthetique : « la poignee a-t-elle ete
+				// attrapee ? » se distingue de « elle l'a ete et rien n'a bouge ».
+				if (st->editDragOn) {
+					// LA POSITION DU SOMMET, A CHAQUE IMAGE DU GESTE. Un releve tous
+					// les 30 images tombe entre le debut et la fin et ne dit rien de
+					// ce qui se passe PENDANT -- or c'est exactement la question de
+					// Rodolf. On lit le premier sommet SELECTIONNE.
+					float32 dbg[3] = {0.f, 0.f, 0.f};
+					int32 vv = -1;
+					for (uint32 i = 0; i < (uint32)st->vertSel.Size(); ++i)
+						if (st->vertSel[i]) { vv = (int32)i; break; }
+					if (vv >= 0 && (uint32)vv < (uint32)st->editLive.Size()) {
+						dbg[0] = st->editLive[(uint32)vv].pos.x;
+						dbg[1] = st->editLive[(uint32)vv].pos.y;
+						dbg[2] = st->editLive[(uint32)vv].pos.z;
+					}
+					logger.Info("[Demo3D] NK_EDIT_DRAG k={8} sommet={9} pos=({10}, {11}, {12}) souris=({1},{2}) d=({3},{4}) down={5} drag={6} selCnt={7}\n",
+								st->editDragK - st->editDragFrame0, gin.mouseX, gin.mouseY,
+								gin.mouseDX, gin.mouseDY, gin.leftDown ? 1 : 0,
+								st->editGizmo.IsDragging() ? 1 : 0, selCnt,
+								st->editDragK - st->editDragFrame0, vv, dbg[0], dbg[1], dbg[2]);
+				}
 				const bool grabbedHandle = (!wasDrag && st->editGizmo.IsDragging());
 
 				// Clic qui n'a PAS attrapé une poignée -> pick VERTEX/EDGE/FACE en espace écran.
@@ -15337,7 +15461,25 @@ namespace nkentseu {
 		}
 		bool Demo3DHostEditVertPos(int32 vert, float32 *local3, float32 *monde3) {
 			auto *st = HostSt();
-			if (!st || !st->editMode || vert < 0 || (uint32)vert >= (uint32)st->editLive.Size())
+			if (!st || !st->editMode)
+				return false;
+			// ⚠ vert = -1 : LE PREMIER SOMMET SELECTIONNE, et c'est le mode a
+			// employer pour mesurer un deplacement. Un cube a 24 coins dont 12
+			// selectionnes a l'entree en edition : lire le sommet 0 peut donc
+			// mesurer un sommet QUE LE GESTE NE CONCERNE PAS, et conclure « rien ne
+			// bouge » sur un deplacement parfaitement applique. L'instrument doit
+			// viser ce que l'operation vise.
+			if (vert < 0) {
+				vert = -1;
+				for (uint32 i = 0; i < (uint32)st->vertSel.Size(); ++i)
+					if (st->vertSel[i]) {
+						vert = (int32)i;
+						break;
+					}
+				if (vert < 0)
+					return false; // rien de selectionne : il n'y a rien a viser
+			}
+			if ((uint32)vert >= (uint32)st->editLive.Size())
 				return false;
 			// `editLive` et NON `editRest` : c'est l'etat qu'on VOIT pendant le
 			// geste. Lire editRest rendrait la position d'avant le glissement et
