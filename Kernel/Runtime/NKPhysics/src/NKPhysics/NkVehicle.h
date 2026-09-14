@@ -193,6 +193,22 @@ namespace nkentseu {
 				float32 engineBrake = 0.10f;		// fraction de engineForce, par roue MOTRICE, gaz
 													// relâchés (|throttle| < 0,05). 0 = aucun frein moteur.
 				float32 freezeSpeed = 0.05f;	// m/s : sous ce glissement, on annule sec
+				// ── L'AMORTISSEMENT DU CHÂSSIS (2026-09-14) ───────────────────────
+				// ⚠️ Ce frottement était écrit EN DUR dans `SetChassisBox`
+				// (`d.linearDamping = 0.02f`) : c'était le SEUL réglage du véhicule
+				// absent de cette structure. Mesuré le 14/09 sur le banc 10, à 90 km/h :
+				//
+				//     amortissement 608,1 N  |  aéro 321,1 N  |  roulement 176,6 N
+				//
+				// soit **55 % de tout ce qui retient la voiture, et 1,9 fois l'air**.
+				// Un frottement invisible, plus fort que l'aérodynamique, que personne
+				// ne pouvait régler. Ce n'est pas un modèle de voiture : c'est un
+				// amortisseur NUMÉRIQUE, et il doit pouvoir se dire.
+				//
+				// ⚠️ LA VALEUR PAR DÉFAUT NE BOUGE PAS — 0.02f, exactement ce qui était
+				// écrit en dur. EXPOSER N'EST PAS CHANGER : le comportement du produit
+				// est identique au bit tant que personne n'y touche.
+				float32 linearDamping = 0.02f; // 1/s — v *= 1/(1 + linearDamping·dt)
 		};
 
 		class NkVehicle {
