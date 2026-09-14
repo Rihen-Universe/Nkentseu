@@ -26,6 +26,17 @@ namespace nkentseu {
 				bool grounded = false;
 				float32 compression = 0.f; // 0 = détendue, 1 = butée
 				float32 steerAngle = 0.f;  // radians, courant (lissé)
+				// ⚠️ LA DIRECTION DE POINTAGE DE LA ROUE, EN MONDE (2026-09-14).
+				// `steerAngle` est un SCALAIRE : il ne dit pas autour de quel axe ni dans
+				// quel sens. Le rendu le ré-dérivait donc avec un axe ÉCRIT EN DUR
+				// (`{0,1,0}`), c'est-à-dire une DEUXIÈME vérité à côté de celle de la
+				// physique. Les deux ne coïncidaient que tant que `NkQuat::Right()`
+				// rendait +X ; la contradiction corrigée à sa source, elles ont divergé —
+				// les roues penchaient à droite quand la voiture tournait à gauche.
+				// Ce champ EST la direction que la physique utilise, et le rendu la LIT
+				// au lieu de la recalculer. Une seule vérité pour la roue qui tourne et
+				// la roue qu'on voit. Écrit même roue en l'air.
+				NkVec3f steerFwd{};
 				NkVec3f worldPos{};		// centre de la roue, monde
 				NkVec3f contactPoint{}, contactNormal{};
 				float32 suspForce = 0.f;   // N, dernière valeur
