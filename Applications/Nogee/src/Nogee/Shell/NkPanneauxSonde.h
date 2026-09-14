@@ -78,6 +78,15 @@ namespace nkentseu {
 				/// la fonction que le geste de la souris appelle -- aucune injection
 				/// d'entree, la garde tient.
 				bool redim = false;
+				/// `--panneaux-pose` : apres la mesure, la fenetre RESTE ouverte le
+				/// temps d'etre photographiee -- la meme image que les nombres qui
+				/// viennent d'etre imprimes, ce qui est la seule facon de calibrer
+				/// l'instrument de capture sur un cas dont on connait la reponse.
+				/// ⚠️ GARDE-FOU : elle se referme SEULE au bout de `frameFinPose`.
+				/// Une fenetre d'agent laissee ouverte sur le bureau de Rodolf est
+				/// exactement ce qu'on s'interdit.
+				bool pose = false;
+				int32 frameFinPose = 0;
 				int32 phase = 0;	  ///< 0 = avant, 1 = apres le redimensionnement
 				int32 frameApres = 0; ///< image ou la seconde mesure sera prise
 		};

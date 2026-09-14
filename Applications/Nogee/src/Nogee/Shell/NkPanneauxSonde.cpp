@@ -17,8 +17,18 @@ namespace nkentseu {
 		void NkPanneauxSondeMesurer(NkEditorFrameContext &ec, NkEditorShell *shell,
 									const char *const *titres, int32 nTitres) noexcept {
 			NkPanneauxSondeEtat &s = NkPanneauxSonde();
-			if (!s.active || s.reported || !shell)
+			if (!s.active || !shell)
 				return;
+			// En pose, on a deja rendu son verdict mais la fenetre vit encore :
+			// on compte les images jusqu'au garde-fou, puis on ferme.
+			if (s.reported) {
+				if (s.pose && ++s.frame >= s.frameFinPose) {
+					std::printf("[PANNEAUX] fin de pose : fenetre FERMEE par la sonde\n");
+					std::fflush(stdout);
+					shell->RequestClose();
+				}
+				return;
+			}
 			nkgui::NkGuiContext &ui = ec.Ui();
 			++s.frame;
 			// Phase 0 : la mesure de reference. Phase 1 : la meme, apres que la
@@ -108,6 +118,15 @@ namespace nkentseu {
 			}
 
 			s.reported = true;
+			if (s.pose) {
+				// ~4000 images : quelques secondes, assez pour une photo, trop peu
+				// pour qu'une fenetre oubliee traine.
+				s.frameFinPose = s.frame + 4000;
+				std::printf("[PANNEAUX] POSE : la fenetre reste ouverte jusqu'a l'image %d\n",
+							s.frameFinPose);
+				std::fflush(stdout);
+				return;
+			}
 			shell->RequestClose();
 		}
 
