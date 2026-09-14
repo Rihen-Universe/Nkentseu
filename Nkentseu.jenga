@@ -1628,6 +1628,14 @@ with workspace("Nkentseu", location="."):
         pass
 
 
+    # SONDE DE MESURE (canal chrome, mesure b1) -- PAS UN PRODUIT.
+    # Mesure si `NkEditorShell::SetHeaderLayout` honore ses pixels.
+    # AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
+    with include("Applications/NkChromeProbe/NkChromeProbe.jenga"):
+
+        pass
+
+
 
     # Banc SANS FENETRE de NKEditorKit : resolution des roles de theme (le
     # magenta du 18/08) et vocabulaire du backend graphique (Metal compris).
