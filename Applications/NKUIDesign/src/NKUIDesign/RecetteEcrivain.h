@@ -35,22 +35,50 @@
 // =============================================================================
 //  L'ATTENDU DE (e3), ECRIT ICI POUR QU'ON NE LE REECRIVE PAS APRES LA MESURE
 // =============================================================================
-//  Les deux images DIFFERERONT, et voici les trois familles predites, chacune
-//  avec la ligne qui la cause :
+//  Les deux images DIFFERERONT. Trois familles avaient ete predites ; DEUX ont
+//  change de statut depuis, et le dire vaut mieux que de laisser une prediction
+//  perimee passer pour une mesure.
 //
-//   1. LA COULEUR. `NkGuiMonteur.h:144` ecarte `appearance` / `fill` / `stroke` ;
-//      le seul aplat peint est `PanelBackground(ctx, r)` (l.519), qui prend la
-//      couleur du THEME NKGui. Le monteur ne lit AUCUNE couleur du document.
-//   2. LE PLACEMENT DES FEUILLES. Le monteur place au CURSEUR. Seuls `Window` et
-//      `Panel` honorent `pos`/`size` (`RegionCourante`, l.518 et l.802). Les
-//      conteneurs tomberont donc au bon endroit ; les feuilles descendront en
-//      pile.
-//   3. LA POLICE. L'editeur peint `police_px` / `graisse` par noeud ; le monteur
-//      n'a qu'une police.
+//  🔴 AUCUN NUMERO DE LIGNE DANS CE BLOC. La version d'avant citait
+//     `NkGuiMonteur.h:144`, `l.519`, `l.518 et l.802` -- et les trois sont
+//     fausses aujourd'hui : mon lot du placement a decale le fichier, la fusion
+//     de `feat/nkgui-interaction` l'a decale encore. Un attendu qui pointe une
+//     LIGNE se perime a la premiere retouche ; on nomme donc le MECANISME.
 //
-//  Si la mesure montre une QUATRIEME famille, c'est une trouvaille et elle est
-//  nommee. Si elle en montre MOINS de trois, l'instrument ne mesure pas ce que
-//  je crois, et c'est dit aussi.
+//   1. LA COULEUR -- ⚠️ LA CAUSE A CHANGE, PAS L'EFFET. La prediction disait
+//      « le monteur ne lit AUCUNE couleur du document ». **Ce n'est plus vrai**
+//      du monteur : `feat/nkgui-interaction` lui a donne `ctx.styleFn`, et le
+//      crochet de `NkGuiInteraction` peint bel et bien la couleur que le
+//      FICHIER declare pour l'etat courant (139 criteres l'attestent chez lui).
+//      Ce qui reste vrai, c'est la phrase plus etroite : **ce banc-ci monte
+//      SANS crochet** -- il appelle `Monter(ctx, doc, etat, rap)`, donc
+//      `hooks = nullptr` -- et un montage sans crochet ne consulte aucune
+//      couleur du document. La famille subsiste ICI ; la capacite, elle,
+//      n'est plus absente du moteur.
+//      ⚠️ Brancher le crochet dans ce banc ferait entrer `NkGuiInteraction.h`
+//         dans NKUIDesign. C'est une decision de dependance, elle n'est pas
+//         prise ici.
+//   2. LE PLACEMENT DES FEUILLES -- ✅ **FERMEE**, et c'est le lot du placement
+//      qui l'a fermee. Elle disait « les feuilles descendront en pile ».
+//      Mesure du 2026-09-14 apres coup : **40 ecrits, 40 apparies, 40 AU MEME
+//      ENDROIT a 1 px, aucun ecart de place** (c'etait 22 sur 40 le matin).
+//      Cette famille ne cause plus aucune difference. La laisser ecrite comme
+//      une prediction active aurait fait croire qu'elle explique encore
+//      l'ecart de (e3c) : elle ne l'explique plus du tout.
+//   3. LA POLICE -- inchangee. L'editeur peint `police_px` / `graisse` par
+//      noeud ; le monteur n'a qu'une police.
+//
+//  ⚠️ ET CE QUE (e3c) DIT MAINTENANT, QUI EST INSTRUCTIF : le compteur de
+//     pixels annonce toujours **100 %** de pixels differents alors que la
+//     famille 2 est fermee. Autrement dit la couleur et la police suffisent, a
+//     elles seules, a faire differer chaque pixel -- et **le compteur de pixels
+//     est incapable de voir que le placement a ete repare**. C'est exactement
+//     pourquoi la mesure qui fait foi est (e3b), la comparaison des deux
+//     releves PAR IDENTIFIANT, et non ce pourcentage.
+//
+//  Si la mesure montre une famille de plus, c'est une trouvaille et elle est
+//  nommee. Si elle en montre moins, l'instrument ne mesure pas ce que je crois,
+//  et c'est dit aussi.
 //
 // ⚠️ AUCUNE FENETRE N'EST OUVERTE et aucune entree n'est injectee. Les deux
 //    rendus passent par `NkGuiDrawListRaster`, le rasteriseur LOGICIEL : il n'y

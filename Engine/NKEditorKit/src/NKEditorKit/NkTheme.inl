@@ -41,6 +41,10 @@ namespace nkentseu {
 					"doc_text",
 					"doc_field_bg",
 					"doc_muted",
+					// Ajout du 14/09. La cle suit la famille deja etablie par
+					// `status_ok` / `status_err` : c'est le troisieme membre de la
+					// meme triade, pas une invention a cote.
+					"status_warn",
 				};
 				return kNames;
 			}
@@ -109,6 +113,20 @@ namespace nkentseu {
 					{NkRole::ElemSelected, NkRole::ViewportTop, false},
 					{NkRole::ElemActive, NkRole::ViewportTop, false},
 					{NkRole::AccentSel, NkRole::PanelBg, false},
+					// ── LES TROIS STATUTS (ajout 14/09) ─────────────────────────
+					// Sur `PanelHeader` et non `PanelBg` : c'est le fond REEL de la
+					// pastille (`NkModelerToast.h` : `p.Fill(r, NkRole::PanelHeader)`),
+					// et une paire mesuree contre un fond ou la couleur ne se peint
+					// jamais est un controle qui ne controle rien.
+					//
+					// ⚠️ CES TROIS LIGNES SONT LE GARDE-FOU DU CORRECTIF DU 14/09,
+					//    et elles sont ecrites pour TOMBER : posees sur l'etat
+					//    d'AVANT, elles font echouer `Validate()` sur le theme
+					//    CLAIR (#3FB950 -> 2,11 et #F85149 -> 2,79, seuil 3,0).
+					//    C'est la mutation par critere : le banc sait dire non.
+					{NkRole::StatusOk, NkRole::PanelHeader, false},
+					{NkRole::StatusWarn, NkRole::PanelHeader, false},
+					{NkRole::StatusErr, NkRole::PanelHeader, false},
 					// PAS de paire {ElemIdle, ViewportTop}, et c'est deliberé apres
 					// mesure : je l'avais ajoutee sans reflechir, elle sortait a 1,10.
 					// Un element NON selectionne doit RECULER par construction --
@@ -135,6 +153,37 @@ namespace nkentseu {
 				if (themedetail::StrEqZ(n[i], name))
 					return (NkRole)i;
 			return NkRole::Count;
+		}
+
+		// ── LA TABLE DE REPLI ───────────────────────────────────────────────────
+		// Ecrite en `switch` plutot qu'en tableau indexe, et pour une raison : un
+		// tableau de `NkRole::Count` entrees devrait etre tenu a jour a chaque role
+		// ajoute, et un role ajoute sans sa ligne prendrait l'entree zero
+		// (`WindowBg`) -- un repli FAUX et muet, exactement le defaut qu'on repare.
+		// Le `switch` rend `Count` par defaut : « aucun repli », donc magenta,
+		// donc visible. L'oubli crie au lieu de se fondre.
+		//
+		// ⚠️ CHAQUE LIGNE RECOPIE LE COMMENTAIRE « Repli : X » DEJA ECRIT dans
+		//    NkTheme.h. Aucune n'est inventee ici : si les deux divergent un jour,
+		//    c'est CETTE table qui s'execute, et c'est l'en-tete qu'il faut
+		//    corriger.
+		inline NkRole NkRoleRepli(NkRole r) {
+			switch (r) {
+				case NkRole::ButtonBg:	  return NkRole::InputBg;
+				case NkRole::TabBarBg:	  return NkRole::WindowBg;
+				case NkRole::CanvasBg:	  return NkRole::PanelBg;
+				case NkRole::CanvasDot:	  return NkRole::Border;
+				case NkRole::StatusOk:	  return NkRole::AccentUi;
+				case NkRole::StatusErr:	  return NkRole::AccentSel;
+				case NkRole::StatusWarn:  return NkRole::AccentSel;
+				case NkRole::AccentAI:	  return NkRole::AccentUi;
+				case NkRole::SnapLine:	  return NkRole::AccentSel;
+				case NkRole::ArtboardBg:  return NkRole::CanvasBg; // chaine : -> PanelBg
+				case NkRole::DocText:	  return NkRole::Text;
+				case NkRole::DocFieldBg:  return NkRole::InputBg;
+				case NkRole::DocMuted:	  return NkRole::DocText;  // chaine : -> Text
+				default:				  return NkRole::Count;	   // obligatoire
+			}
 		}
 
 		// ── REGISTRE DES ROLES D'APPLICATION ────────────────────────────────────
@@ -239,9 +288,15 @@ namespace nkentseu {
 			return v;
 		}
 
+		inline NkVector<NkRoleAudit::Entry> &NkRoleAudit::Replis() {
+			static NkVector<Entry> v;
+			return v;
+		}
+
 		inline void NkRoleAudit::Reset() {
 			Faults().Clear();
 			Rescued().Clear();
+			Replis().Clear();
 		}
 
 		inline uint32 NkRoleAudit::FaultCount() {
@@ -250,6 +305,39 @@ namespace nkentseu {
 
 		inline uint32 NkRoleAudit::RescuedCount() {
 			return (uint32)Rescued().Size();
+		}
+
+		inline uint32 NkRoleAudit::RepliCount() {
+			return (uint32)Replis().Size();
+		}
+
+		// L'ANNONCE DU REPLI DE COULEUR. Sa propre phrase : celle de `Note` parle
+		// d'un nom mal ecrit dans un composant, ce qui serait faux ici et enverrait
+		// corriger au mauvais endroit.
+		inline void NkRoleAudit::NoteRepli(const char *role, const char *repli) {
+			NkVector<Entry> &into = Replis();
+			for (uint32 i = 0; i < (uint32)into.Size(); ++i)
+				if (themedetail::StrEqZ(into[i].name.CStr(), role))
+					return; // une seule entree par role, quel que soit le nombre d'images
+			Entry e;
+			e.name = NkString(role ? role : "");
+			e.canon = NkString(repli ? repli : "");
+			into.PushBack(e);
+
+			const themedetail::AuditSinkSlot &slot = themedetail::AuditSink();
+			if (!slot.fn)
+				return;
+			char line[256];
+			if (repli && *repli)
+				nkentseu::NkSnprintf(line, sizeof(line),
+						 "role « %s » absent de ce theme -> peint avec « %s » ; "
+						 "AJOUTER LA LIGNE AU FICHIER DE THEME",
+						 role ? role : "(nul)", repli);
+			else
+				nkentseu::NkSnprintf(line, sizeof(line),
+						 "role « %s » absent de ce theme ET SANS REPLI -> magenta",
+						 role ? role : "(nul)");
+			slot.fn(slot.user, line);
 		}
 
 		inline void NkRoleAudit::SetSink(NkRoleAuditSink fn, void *user) {
@@ -378,9 +466,41 @@ namespace nkentseu {
 			return NkRoleRegistry::Find(name);
 		}
 
+		// ── LE REPLI, SUIVI ET ANNONCE ──────────────────────────────────────────
+		// BORNE A QUATRE SAUTS. La table forme aujourd'hui des chaines de deux au
+		// plus (`DocMuted` -> `DocText` -> `Text`), mais une table est une donnee :
+		// quelqu'un y ecrira un cycle. Une boucle non bornee rendrait ce jour-la un
+		// gel, c'est-a-dire le pire symptome possible -- on ne saurait meme pas que
+		// c'est le theme. Bornee, elle rend le magenta, qui se lit en une seconde.
+		inline NkThemeColor NkTheme::Replier(NkRole r) const {
+			NkRole cur = r;
+			for (int32 saut = 0; saut < 4; ++saut) {
+				const NkRole next = NkRoleRepli(cur);
+				if (next == NkRole::Count || next == cur)
+					break; // aucun repli declare : le role est obligatoire
+				const NkThemeColor c = mColors[(uint16)next];
+				if (c != NkThemeNonDefini) {
+					NkRoleAudit::NoteRepli(NkRoleName(r), NkRoleName(next));
+					return c;
+				}
+				cur = next;
+			}
+			// Ni valeur, ni repli utilisable : le magenta, ET son nom. C'est ce que
+			// le magenta seul ne disait pas (cf. le 18/08, NkUIDesign).
+			NkRoleAudit::NoteRepli(NkRoleName(r), "");
+			return 0xFF00FFFFu;
+		}
+
 		inline NkThemeColor NkTheme::Get(uint16 id) const {
+			// ⚠️ IL PASSE PAR LA SURCHARGE `NkRole`, ET C'EST LE POINT DU
+			//    CORRECTIF DU 14/09 : c'est CE chemin-ci que prennent les 46
+			//    lectures par nom (`NkResolveRole("doc_field_bg")` ...), et c'est
+			//    lui qui rendait la sentinelle transparente sans un mot. Ecrire
+			//    `return mColors[id]` ici reintroduirait le repli muet pour la
+			//    quasi-totalite des sites -- la correction serait invisible dans le
+			//    banc, qui appelle surtout la surcharge typee.
 			if (id < (uint16)NkRole::Count)
-				return mColors[id];
+				return Get((NkRole)id);
 			const uint16 k = (uint16)(id - (uint16)NkRole::Count);
 			// Magenta de « role oublie » si le theme est plus ancien que le registre :
 			// ca doit sauter aux yeux, pas se fondre en noir.
@@ -455,9 +575,56 @@ namespace nkentseu {
 		//    le sien, plus bas. La lecture « la toile V2 est claire meme en
 		//    editeur sombre » etait la generalisation abusive d'UN ecran de la
 		//    maquette — sa main prime sur l'export.
+		// ⚠️ MAJ 2026-09-14 : `StatusOk`/`StatusErr` NE SONT PLUS ICI NON PLUS, et
+		//    pour EXACTEMENT la raison qui avait deja sorti `CanvasBg`/`CanvasDot`
+		//    le 31/08 -- une couleur POSEE UNE SEULE FOIS pour les deux themes est
+		//    juste dans l'un et fausse dans l'autre.
+		//
+		//    LA MESURE, contre le seuil que ce fichier se donne lui-meme
+		//    (`themedetail::kGfxRatio` = 3,0), sur le fond ou ces couleurs se
+		//    peignent reellement (`PanelHeader`, le fond des pastilles) :
+		//
+		//      couleur unique       sur PanelHeader sombre   sur PanelHeader clair
+		//      #3FB950 (StatusOk)            6,81                   2,11  ✗
+		//      #F85149 (StatusErr)           5,16                   2,79  ✗
+		//
+		//    2,11 et 2,79, c'est SOUS le seuil : en theme clair, le liseré « REUSSI »
+		//    et le liseré « REFUSE » s'effacaient dans leur propre pastille. C'est
+		//    le defaut deja paye une fois par `ElemSelected` (2,35, corrige plus
+		//    bas dans `Light()`), et une deuxieme fois ici sans que personne ne
+		//    l'ait mesure.
+		//
+		//    Les valeurs claires ne sont PAS inventees : ce sont celles de GitHub
+		//    Light Pro, la source declaree des deux themes de Rihen, en face des
+		//    valeurs Dark deja presentes -- success.fg #1A7F37 (4,22), danger.fg
+		//    #CF222E (4,45), attention.fg #9A6700 (4,05). Toutes au-dessus de 3,0.
+		//
+		//    ⚠️ LA LIGNE QUI SEPARE CE QUI RESTE ICI DE CE QUI EST PARTI, parce
+		//       qu'elle n'est pas arbitraire : ce qui se peint sur la SURFACE DE
+		//       L'EDITEUR suit le theme (les trois statuts) ; ce qui se peint sur
+		//       le DOCUMENT (`DocText`, `DocFieldBg`, `DocMuted`, `ArtboardBg`) ne
+		//       le suit pas, parce que le cadre est blanc quel que soit le theme.
+		//
+		//    ⚠️ CE QUE JE LAISSE FAUX, EN LE DISANT, plutot que de l'emporter dans
+		//       un lot ou personne ne l'a demande. `AccentAI` et `SnapLine` restent
+		//       ici, poses une seule fois pour les deux themes -- et ils ont LE MEME
+		//       DEFAUT que les statuts, mesure :
+		//         #A371F7 (AccentAI) : 5,16 sombre / 2,79 clair  ✗
+		//         #FF4FD8 (SnapLine) : 6,06 sombre / 2,37 clair  ✗
+		//       J'avais d'abord ecrit ici « elles tiennent sur les deux fonds
+		//       (4,03 / 3,55) » -- c'etait FAUX, et je ne l'ai su qu'en calculant
+		//       au lieu de supposer. Elles ne tiennent pas.
+		//       Pourquoi elles ne bougent pas quand meme : ce sont des SIGNATURES DE
+		//       PRODUIT (le violet de l'IA, le rose de magnetisme), pas des couleurs
+		//       de lisibilite, et les assombrir est une decision d'identite
+		//       graphique -- elle revient a Rodolf, pas a un lot d'alerte.
+		//       CONDITION DE RETRAIT DE CE PARAGRAPHE : le jour ou ces deux roles
+		//       recoivent leur valeur Light Pro, ces deux lignes partent dans
+		//       `Dark()`/`Light()` comme les statuts, et deux paires entrent dans
+		//       `ContrastPairs`. Tant que ce n'est pas fait, aucune paire ne les
+		//       mesure -- volontairement : un validateur qui crie sans que personne
+		//       ne puisse corriger se fait ignorer (cf. `ElemIdle` plus haut).
 		inline void NkThemePoserRolesBanani(NkTheme &t) {
-			t.Set(NkRole::StatusOk, NkTheme::FromHex("#3fb950"));
-			t.Set(NkRole::StatusErr, NkTheme::FromHex("#f85149"));
 			t.Set(NkRole::AccentAI, NkTheme::FromHex("#a371f7"));
 			t.Set(NkRole::SnapLine, NkTheme::FromHex("#ff4fd8"));
 			t.Set(NkRole::ArtboardBg, NkTheme::FromHex("#ffffff"));
@@ -528,6 +695,16 @@ namespace nkentseu {
 			S(NkRole::GridLine, "#FFFFFF14");
 
 			S(NkRole::TypeFolder, "#E3B341"); // ambre de dossier, version GitHub
+
+			// ── LES TROIS STATUTS, VERSION SOMBRE (GitHub Dark Pro) ─────────────
+			// Valeurs INCHANGEES pour les deux premiers -- ce theme-ci etait deja
+			// juste ; seul le clair etait faux. Le troisieme, `StatusWarn`, est
+			// l'ajout du 14/09 : c'est `attention.fg`, la meme valeur que
+			// ConquerorLab ecrivait deja en dur dans `NkcPalette::Warn()`.
+			S(NkRole::StatusOk, "#3FB950");	  // success.fg  -- 6,81 sur PanelHeader
+			S(NkRole::StatusWarn, "#D29922"); // attention.fg -- 6,85
+			S(NkRole::StatusErr, "#F85149");  // danger.fg   -- 5,16
+
 			NkThemePoserRolesBanani(t);
 			// La toile SUIT LE THEME (Rodolf, 31/08) : en sombre, le meme fond
 			// que la vue Behavior (#0d1117) — pas la toile claire de l'ecran V2.
@@ -586,6 +763,17 @@ namespace nkentseu {
 			S(NkRole::GridLine, "#00000014");
 			// Assombri : #F0B429 sur fond blanc passe inapercu.
 			S(NkRole::TypeFolder, "#A87400");
+			// ── LES TROIS STATUTS, VERSION CLAIRE (GitHub Light Pro) ────────────
+			// ⚠️ SEUL ENDROIT DE CE LOT QUI CHANGE UN RENDU EXISTANT, et il le
+			//    change parce qu'il etait MESURE FAUX : #3FB950 rendait 2,11 et
+			//    #F85149 rendait 2,79 sur `PanelHeader` clair, sous le seuil de
+			//    3,0 que ce fichier s'impose. Assombries a leurs valeurs Light Pro,
+			//    elles remontent au-dessus. Le liseré d'une pastille « REUSSI » ou
+			//    « REFUSE » redevient visible en theme clair.
+			S(NkRole::StatusOk, "#1A7F37");	  // success.fg  -- 4,22 (etait 2,11)
+			S(NkRole::StatusWarn, "#9A6700"); // attention.fg -- 4,05
+			S(NkRole::StatusErr, "#CF222E");  // danger.fg   -- 4,45 (etait 2,79)
+
 			NkThemePoserRolesBanani(t);
 			// La toile claire de la maquette V2 appartient au THEME CLAIR
 			// (Rodolf, 31/08) : #f5f7fb, points #d4dce8 — les valeurs Banani.
@@ -618,6 +806,10 @@ namespace nkentseu {
 			mColors[(uint16)NkRole::DocText] = NkThemeNonDefini;
 			mColors[(uint16)NkRole::DocFieldBg] = NkThemeNonDefini;
 			mColors[(uint16)NkRole::DocMuted] = NkThemeNonDefini;
+			// L'avertissement du 14/09, meme regime facultatif-avec-repli : un
+			// theme enregistre avant lui ne porte pas la ligne `status_warn`, et
+			// il doit alors tomber sur l'ambre -- annonce -- au lieu de disparaitre.
+			mColors[(uint16)NkRole::StatusWarn] = NkThemeNonDefini;
 			mName = NkString("Sombre");
 		}
 

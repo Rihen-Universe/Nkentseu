@@ -122,16 +122,20 @@ namespace nkentseu {
 		//    fichiers .nk3dm / .nkscene ecrivent des INDICES de noeud ; deplacer
 		//    le debut d'une plage rendrait illisible tout projet deja enregistre.
 		//    Seul kNkvpMaxNodes se releve, et les deux autres bornes le suivent.
-		static constexpr int32 kNkvpMaxNodes = 352; // 256 objets utilisateur
-		static constexpr int32 kNkvpFirstEmpty = 90;
-		static constexpr int32 kNkvpFirstUser = 96;
+		// ⚠️ kNkvpMaxNodes / kNkvpFirstUser / kNkvpMaxUser sont DEFINIS
+		//    DANS NkVpEditTarget.h (inclus plus haut), et SEULEMENT la. Les
+		//    redefinir ici -- ce que la fusion du 14/09 avait laisse faire --
+		//    ne compile pas, et aurait sinon fait diverger le plafond d'import.
+		static constexpr int32 kNkvpFirstEmpty = kNkvpEmptyBase;
 		/// Plage EMPTY + UTILISATEUR (transforms propres, gizmo, quaternions).
 		static constexpr int32 kNkvpMaxEmpty = kNkvpMaxNodes - kNkvpFirstEmpty;
 		/// LE PLAFOND D'IMPORT, et c'est bien celui-la. Mesure du 2026-09-06 :
 		/// depuis l'etat reel du projet AgentTest de Rodolf (26 emplacements deja
 		/// pris), le 39e import consecutif est refuse -- << la scene n'a plus
 		/// d'emplacement de noeud libre >>. 26 + 38 = 64.
-		static constexpr int32 kNkvpMaxUser = kNkvpMaxNodes - kNkvpFirstUser;
+		/// (kNkvpMaxUser est desormais derive dans NkVpEditTarget.h. La mesure
+		///  ci-dessus vaut pour kNkvpMaxNodes = 160 ; il vaut 352 depuis, donc
+		///  le plafond est 256 et non plus 64.)
 		static bool nkvpObjHidden[kNkvpMaxNodes] = {};
 		static bool nkvpObjLocked[kNkvpMaxNodes] = {};
 		// DRAPEAUX DU MODEL, distincts de ceux de la scene (regle de Rihen) :
