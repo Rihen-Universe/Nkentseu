@@ -181,6 +181,13 @@ namespace nkentseu {
 				// vitesse. La difference EST la trainee de virage.
 				bool vehTvArme = false, vehTvDit = false;
 				float32 vehTvV0 = 0.f;
+				// ── BANC 9 : DE LA TOUCHE A L'IMAGE (2026-09-14) ────────────────────
+				// L'axe DROIT de la CAMERA : c'est lui qui definit « a droite » pour
+				// Rodolf, puisque c'est ce qu'il voit. On le releve a l'instant du
+				// braquage, et on y projette le deplacement.
+				NkVec3f vehCamRight{}, vehG0{}, vehGFwd{}, vehGRight{}, vehGCamRight{};
+				bool vehGArme = false, vehGDit = false;
+				float32 vehGSteer = 0.f;
 				float64 vehTvALat = 0.0, vehTvSlip = 0.0, vehTvDrag = 0.0;
 				uint32 vehTvN = 0;
 				bool vehKickFait = false;
@@ -2375,6 +2382,21 @@ static NkTexHandle CreateLanternCubeCookie(NkTextureLibrary *texLib, NkIDevice *
 			return (float32)std::atof(net);
 		}
 
+		// ═══════════════════════════════════════════════════════════════════
+		//  LA TABLE TOUCHE -> CONSIGNE (2026-09-14)
+		//
+		//  Rodolf a pilote et signale que GAUCHE et DROITE sont inversees. Aucun
+		//  de mes huit bancs ne pouvait l'attraper : ils partent TOUS d'une
+		//  consigne de braquage DEJA SIGNEE, jamais de la touche. La chaine
+		//  physique est juste et elle est branchee a l'envers a son premier
+		//  maillon.
+		//
+		//  Ces deux constantes sont ce maillon. Le clavier les ecrit, le banc 9
+		//  les relit -- il ne SIMULE aucune touche, il lit la meme table.
+		// ═══════════════════════════════════════════════════════════════════
+		static constexpr float32 kSteerGauche = -1.f;
+		static constexpr float32 kSteerDroite = +1.f;
+
 		bool Demo3D_Init(DemoCtx &ctx) {
 			auto *st = new Demo3DState();
 			ctx.userData = st;
@@ -2667,7 +2689,7 @@ static NkTexHandle CreateLanternCubeCookie(NkTextureLibrary *texLib, NkIDevice *
 				st->veh = new NkVehicle(*st->vehWorld);
 				st->vehBanc = [] {
 					const char *e = std::getenv("NK_VEHICLE_SCENARIO");
-					return (e && e[0] >= '1' && e[0] <= '8') ? (uint32)(e[0] - '0') : 0u;
+					return (e && e[0] >= '1' && e[0] <= '9') ? (uint32)(e[0] - '0') : 0u;
 				}();
 				st->vehScenario = st->vehBanc != 0u;
 				if (const char *cf = std::getenv("NK_VEHICLE_CAM"); cf && cf[0] == '0')
@@ -3155,6 +3177,12 @@ static NkTexHandle CreateLanternCubeCookie(NkTextureLibrary *texLib, NkIDevice *
 					st->veh->Tuning().mu = NkEnvFloat("NK_VEHICLE_MU", 0.f);
 				if (const char *kk = std::getenv("NK_VEHICLE_KICK"); kk && kk[0]) st->vehKick = NkEnvFloat("NK_VEHICLE_KICK", 0.f);
 				if (const char *vc = std::getenv("NK_VEHICLE_VCIBLE"); vc && vc[0]) st->vehCible = NkEnvFloat("NK_VEHICLE_VCIBLE", 8.f);
+				if (const char *tc = std::getenv("NK_VEHICLE_TOUCHE"); tc && tc[0])
+					// 'n' = NEUTRE : le volet negatif de (g1). Aucune consigne, donc aucun
+					// lacet et aucun deplacement lateral -- sinon le banc mesurerait la
+					// derive residuelle en croyant mesurer une touche.
+					st->vehGSteer = (tc[0] == 'n' || tc[0] == 'N') ? 0.f
+									: ((tc[0] == 'g' || tc[0] == 'G') ? kSteerGauche : kSteerDroite);
 				if (const char *sf = std::getenv("NK_VEHICLE_STEER"); sf && sf[0]) st->vehSteerFixe = NkEnvFloat("NK_VEHICLE_STEER", 0.30f);
 				// NK_VEHICLE_SYM=1 : ancres forcees EXACTEMENT symetriques (meme |x| par
 				// essieu, signes opposes). Isole les 1,5 um d'asymetrie que la cuisson du
@@ -5497,6 +5525,51 @@ static NkTexHandle CreateLanternCubeCookie(NkTextureLibrary *texLib, NkIDevice *
 							st->vehVprec = v;
 							st->vehTprec = st->vehClock;
 						}
+					} else if (st->vehBanc == 9u) {
+						// ══ BANC 9 : LA TOUCHE FAIT-ELLE TOURNER DU BON COTE ? ════
+						// NK_VEHICLE_TOUCHE=gauche|droite. Le banc applique la consigne
+						// que CETTE TOUCHE produit, en relisant la table partagee avec le
+						// clavier. Aucune touche n'est pressee ni simulee.
+						const float32 v = st->veh->ForwardSpeed();
+						const float32 err = 8.f - v;
+						thr = err > 0.f ? (err * 0.5f > 1.f ? 1.f : err * 0.5f) : 0.f;
+						brk = 0.f;
+						steer = (st->vehClock >= 8.f) ? st->vehGSteer : 0.f;
+						if (!st->vehGArme && st->vehClock >= 8.f) {
+							st->vehGArme = true;
+							st->vehG0 = b0->position;
+							st->vehGFwd = b0->orientation.Forward();
+							st->vehGRight = b0->orientation.Right();
+							// ⚠️ L'AXE DE LA CAMERA SE FIGE A L'INSTANT DU BRAQUAGE.
+							// La camera de poursuite TOURNE AVEC LA VOITURE : projeter le
+							// deplacement sur son axe FINAL rend « gauche -> a gauche » pour
+							// les deux touches, parce que l'axe a suivi le mouvement qu'on
+							// voulait mesurer. Un temoin qui tourne avec ce qu'il observe ne
+							// temoigne de rien. On fige donc l'axe au depart.
+							st->vehGCamRight = st->vehCamRight;
+						}
+						if (st->vehGArme && !st->vehGDit && st->vehClock >= 10.f) {
+							st->vehGDit = true;
+							const NkVec3f d = b0->position - st->vehG0;
+							// Trois lectures du MEME deplacement, dans trois reperes :
+							//  - le monde (x brut)
+							//  - l'axe « droit » du CHASSIS (NkQuatf::Right)
+							//  - l'axe « droit » de la CAMERA (cross(forward, up)) : c'est
+							//    CELUI-LA qui dit ce que Rodolf voit.
+							std::fprintf(stderr,
+										 "[VEHICULE TOUCHE] %s -> consigne %+.2f : lacet %+.6f rad/s\n"
+										 "[VEHICULE TOUCHE]   deplacement (%.4f, %.4f, %.4f) en 2 s\n"
+										 "[VEHICULE TOUCHE]   projete sur Right() du CHASSIS  = %+.4f m\n"
+										 "[VEHICULE TOUCHE]   projete sur GetRight() CAMERA   = %+.4f m  <- ce que Rodolf VOIT\n"
+										 "[VEHICULE TOUCHE]   axes : chassis Right (%.3f, %.3f, %.3f) | camera Right "
+										 "(%.3f, %.3f, %.3f) | produit scalaire %+.4f\n",
+										 st->vehGSteer < 0.f ? "GAUCHE" : (st->vehGSteer > 0.f ? "DROITE" : "NEUTRE"),
+										 st->vehGSteer,
+										 b0->angularVelocity.y, d.x, d.y, d.z, d.Dot(st->vehGRight),
+										 d.Dot(st->vehGCamRight), st->vehGRight.x, st->vehGRight.y, st->vehGRight.z,
+										 st->vehGCamRight.x, st->vehGCamRight.y, st->vehGCamRight.z,
+										 st->vehGRight.Dot(st->vehGCamRight));
+						}
 					} else if (st->vehBanc == 8u) {
 						// ══ BANC 8 : TRAINEE EN VIRAGE ════════════════════════════
 						// 0-10 s : montee en vitesse, ligne droite. A 10 s : gaz coupes
@@ -5697,11 +5770,18 @@ static NkTexHandle CreateLanternCubeCookie(NkTextureLibrary *texLib, NkIDevice *
 							st->vehVirVSum += (float64)v;
 							st->vehALatSum += (float64)(v * std::fabs(om)); // a_lat = v * omega
 							if (std::fabs(om) > st->vehOmMax) st->vehOmMax = std::fabs(om);
-							// Charges : en virage a DROITE (braquage > 0) l'exterieur est
-							// le cote GAUCHE, donc localPos.x < 0.
+							// ⚠️ ETIQUETTE CORRIGEE LE 14/09, ET C EST LE BANC QUI ETAIT FAUX,
+							// PAS LA MESURE. Avant la correction de repere, braquage > 0
+							// tournait vers +X, que la camera rend a GAUCHE : j'avais donc
+							// ecrit « virage a DROITE » sur un virage a gauche, et designe
+							// l'exterieur par localPos.x < 0. Le repere corrige, braquage > 0
+							// tourne vers -X (droite de l'image), et l'exterieur est le cote
+							// +X. Les NOMBRES publies restent bons -- charge, rayon, a_lat ne
+							// dependent pas du sens -- seuls les MOTS gauche/droite etaient
+							// inverses. Controle : l'exterieur doit rester le PLUS CHARGE.
 							for (uint32 wv = 0; wv < st->veh->WheelCount(); ++wv) {
 								const auto &wq = st->veh->Wheel(wv);
-								const bool exterieur = (wq.localPos.x * st->vehSteerFixe) < 0.f;
+								const bool exterieur = (wq.localPos.x * st->vehSteerFixe) > 0.f;
 								if (exterieur) st->vehNextSum += (float64)wq.suspForce;
 								else st->vehNintSum += (float64)wq.suspForce;
 								if (wq.flags & nkentseu::physics::NkWheel::kSteered)
@@ -5805,8 +5885,8 @@ static NkTexHandle CreateLanternCubeCookie(NkTextureLibrary *texLib, NkIDevice *
 					} else if (st->vehDrive) {
 						// LE CLAVIER — fleches + espace. Pas de ZQSD/WASD : ces touches
 						// appartiennent deja a la camera fly et au gizmo de l'editeur.
-						if (NkInput.IsKeyDown(NkKey::NK_LEFT)) steer -= 1.f;
-						if (NkInput.IsKeyDown(NkKey::NK_RIGHT)) steer += 1.f;
+						if (NkInput.IsKeyDown(NkKey::NK_LEFT)) steer += kSteerGauche;
+						if (NkInput.IsKeyDown(NkKey::NK_RIGHT)) steer += kSteerDroite;
 						if (NkInput.IsKeyDown(NkKey::NK_UP)) thr += 1.f;
 						if (NkInput.IsKeyDown(NkKey::NK_DOWN)) thr -= 1.f;
 						if (NkInput.IsKeyDown(NkKey::NK_SPACE)) brk = 1.f;
@@ -6385,6 +6465,7 @@ static NkTexHandle CreateLanternCubeCookie(NkTextureLibrary *texLib, NkIDevice *
 					}
 					cam.SetPosition(st->vehCamPos);
 					cam.SetTarget(st->vehCamTgt);
+					st->vehCamRight = cam.GetRight(); // l'axe droit de l'IMAGE
 					cam.SetOrtho(false);
 					// ── LES DEUX CHIFFRES DE v2, releves ICI (la camera est definitive) ──
 					// 1) la voiture reste-t-elle dans le rectangle central de l'image ?
