@@ -1740,6 +1740,19 @@ int nkmain(const NkEntryState &entry) {
 								snapOn ? 1 : 0, (double)snapPas, snapAbs ? 1 : 0,
 								(double)piv[0], (double)piv[1], (double)piv[2]);
 				}
+				// L'EMPREINTE DES POSITIONS, insensible a la selection. Le lecteur
+				// « premier sommet SELECTIONNE » change de cible des que la selection
+				// change -- apres un SelectAll il ne designe plus le meme sommet, et
+				// comparer ses coordonnees avant/apres ne mesure alors rien.
+				{
+					uint64 pe = 0;
+					uint32 pv = 0, pf = 0;
+					if (demo::Demo3DHostEditFingerprint(nullptr, &pv, &pf, nullptr, &pe)) {
+						std::printf("[nk3d-emp ] f=%4d positions=%016llx v=%u f=%u\n",
+									(int)agentFrame, (unsigned long long)pe, pv, pf);
+						std::fflush(stdout);
+					}
+				}
 				if (vOk) {
 					std::printf("[nk3d-vert] f=%4d sommet0 local=(%.4f %.4f %.4f) "
 								"monde=(%.4f %.4f %.4f)\n",
