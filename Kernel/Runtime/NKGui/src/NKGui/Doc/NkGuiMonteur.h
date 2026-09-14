@@ -160,6 +160,18 @@ namespace nkentseu {
 				/// partagent leur `y` : sans cette information, tout releve
 				/// d'empilement vertical les compte comme un chevauchement.
 				bool axeHorizontal = false;
+				/// ⚠️ LA VALEUR REELLEMENT MONTEE, et elle existe parce qu'un
+				///    releve de POSITIONS ne suffit pas. Le curseur de
+				///    `01_panneau_reglages` a affiche 0.00 pour un fichier qui
+				///    ecrit `min = 0.5` : la poignee, elle, etait au MEME pixel
+				///    dans les deux cas (`SliderFloat` borne `tt` a [0,1], donc
+				///    0.0 et 0.5 tombent tous deux a l'extremite gauche).
+				///    **Un critere en pixels seul n'aurait pas pu rougir.**
+				float32 valeur = 0.f;
+				bool aValeur = false;
+				/// Vrai si un champ de saisie est VIDE -- donc si ce qu'on voit
+				/// dedans est une invite, et non une saisie.
+				bool champVide = false;
 		};
 
 		/// Le releve d'un montage. Tout y est compte et nomme : un banc qui n'a
@@ -493,6 +505,9 @@ namespace nkentseu {
 					const char *lbl = id.CStr();
 					NkGuiMonteEtat::Entree *e = etat.Get(NkStringView(CleEtat(w)));
 					bool aDessine = true;
+					float32 valeurMontee = 0.f;
+					bool aValeurMontee = false;
+					bool champVideMonte = false;
 
 					switch (role) {
 						// ── CONTENEURS ───────────────────────────────────────
@@ -601,6 +616,8 @@ namespace nkentseu {
 								if (e->f > vmax)
 									e->f = vmax;
 								(void)SliderFloat(ctx, lbl, e->f, vmin, vmax);
+								valeurMontee = e->f;
+								aValeurMontee = true;
 							} else {
 								aDessine = false;
 							}
@@ -624,6 +641,38 @@ namespace nkentseu {
 									e->initialise = true;
 								}
 								(void)InputText(ctx, lbl, e->texte, (int32)sizeof(e->texte));
+								champVideMonte = (e->texte[0] == '\0');
+								aValeurMontee = false;
+								// ⚠️ L'INVITE EST PEINTE, DANS LA COULEUR DU TEXTE
+								//    GRISE. La premiere version la copiait dans le
+								//    tampon -- l'image montrait « Filtrer... » comme
+								//    si quelqu'un l'avait tape, ce qui est le plus
+								//    trompeur des trois defauts : rien ne distinguait
+								//    une invite d'une valeur reelle. La deuxieme ne la
+								//    peignait plus du tout, et perdait ce que le
+								//    fichier ecrit. Elle se peint donc PAR-DESSUS le
+								//    champ vide, avec `theme.textDisabled` -- la
+								//    couleur qui dit « ceci n'est pas votre saisie ».
+								//    `InputText` n'ayant pas de placeholder, c'est le
+								//    monteur qui le pose ; le jour ou NKGui en portera
+								//    un, ces lignes s'en vont.
+								if (champVideMonte && ctx.font && ctx.font->Valid()) {
+									const NkString ph = NkGTexte(w, "placeholder", "");
+									if (ph.Size() > 0) {
+										// Le champ occupe la rangee MOINS le libelle,
+										// exactement comme `InputTextEx` le calcule.
+										const NkRect rang = ctx.layout.prevItem;
+										const float32 largeurLbl =
+											(lbl && LabelEnd(lbl) != lbl)
+												? ctx.font->MeasureWidth(lbl, LabelEnd(lbl)) + 14.f
+												: 0.f;
+										const float32 lh = ctx.font->LineHeight();
+										const NkVec2 coin{rang.x + 6.f,
+														  rang.y + (rang.h - lh) * 0.5f};
+										(void)largeurLbl;
+										(void)TextAt(ctx, coin, ph.CStr(), ctx.theme.textDisabled);
+									}
+								}
 							} else {
 								aDessine = false;
 							}
@@ -689,6 +738,12 @@ namespace nkentseu {
 					if (aDessine)
 						++rap.montes;
 					Noter(rap, id, t, ctx.layout.prevItem, prof, false, horizontal);
+					if (rap.items.Size() > 0) {
+						NkGuiMonteItem &dernier = rap.items[(uint32)rap.items.Size() - 1u];
+						dernier.valeur = valeurMontee;
+						dernier.aValeur = aValeurMontee;
+						dernier.champVide = champVideMonte;
+					}
 					// Un widget feuille peut porter une apparence : elle se compte.
 					CompterApparences(w, rap);
 				}
