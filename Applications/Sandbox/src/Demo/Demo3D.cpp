@@ -2397,6 +2397,44 @@ static NkTexHandle CreateLanternCubeCookie(NkTextureLibrary *texLib, NkIDevice *
 		static constexpr float32 kSteerGauche = -1.f;
 		static constexpr float32 kSteerDroite = +1.f;
 
+		// ═══════════════════════════════════════════════════════════════════
+		//  LA TRANSFORMATION DE LA ROUE -- UN SEUL ENDROIT, UNE SEULE VERITE
+		//
+		//  Rodolf a vu les roues pencher a droite pendant que la voiture tournait
+		//  a gauche. Ce n'etait PAS une compensation a retirer : le rendu
+		//  RE-DERIVAIT la direction de la roue a partir du scalaire `steerAngle`
+		//  autour d'un axe ECRIT EN DUR ({0,1,0}), tandis que la physique la
+		//  derivait de `right`. Deux verites pour la meme chose ; elles ne
+		//  coincidaient que tant que `NkQuat::Right()` rendait +X.
+		//  Mesure : produit scalaire des deux directions = **+0,6027** a 26,65 deg
+		//  et **+0,3743** a 34,19 deg -- soit cos(2*angle), la signature exacte
+		//  d'un miroir.
+		//
+		//  ⚠️ ON N'A PAS AJOUTE DE SIGNE MOINS. La roue se construit depuis
+		//  `w.steerFwd`, la direction que la PHYSIQUE utilise, sans angle et sans
+		//  axe : il n'y a plus de second chemin ou une convention puisse diverger.
+		//  Le banc lit CETTE fonction, pas une copie.
+		// ═══════════════════════════════════════════════════════════════════
+		static NkMat4f Demo3D_TransfoRoue(const NkVec3f &centre, const NkVec3f &steerFwd, const NkVec3f &up,
+										  float32 roulement) {
+			auto norme = [](const NkVec3f &v) {
+				const float32 l = std::sqrt(v.Dot(v));
+				return (l > 1e-8f) ? v * (1.f / l) : NkVec3f{0.f, 0.f, 1.f};
+			};
+			const NkVec3f eZ = norme(steerFwd);			  // avant de la roue = celui de la physique
+			const NkVec3f eX = norme(up.Cross(eZ));		  // essieu (le maillage a son axe sur X)
+			const NkVec3f eY = norme(eZ.Cross(eX));		  // re-orthonormalise
+			const float32 cs = std::cos(roulement), sn = std::sin(roulement);
+			const NkVec3f cY = eY * cs + eZ * sn;		  // roulement AUTOUR DE L'ESSIEU
+			const NkVec3f cZ = eZ * cs - eY * sn;
+			NkMat4f M = NkMat4f::Identity();
+			M[0][0] = eX.x; M[0][1] = eX.y; M[0][2] = eX.z;
+			M[1][0] = cY.x; M[1][1] = cY.y; M[1][2] = cY.z;
+			M[2][0] = cZ.x; M[2][1] = cZ.y; M[2][2] = cZ.z;
+			M[3][0] = centre.x; M[3][1] = centre.y; M[3][2] = centre.z;
+			return M;
+		}
+
 		bool Demo3D_Init(DemoCtx &ctx) {
 			auto *st = new Demo3DState();
 			ctx.userData = st;
@@ -5551,6 +5589,29 @@ static NkTexHandle CreateLanternCubeCookie(NkTextureLibrary *texLib, NkIDevice *
 						if (st->vehGArme && !st->vehGDit && st->vehClock >= 10.f) {
 							st->vehGDit = true;
 							const NkVec3f d = b0->position - st->vehG0;
+							// ── (r1) LES DEUX CHEMINS, COMPARES ────────────────────
+							// La PHYSIQUE pointe la roue selon `steerFwd`. Le RENDU la
+							// pointait en re-derivant l'angle autour d'un axe ECRIT EN DUR
+							// ({0,1,0}). Si les deux chemins disent la meme chose, leur
+							// produit scalaire vaut +1. Sinon le rendu est une SECONDE
+							// verite, et c'est la faute -- pas un signe a inverser.
+							for (uint32 wq2 = 0; wq2 < st->veh->WheelCount(); ++wq2) {
+								const auto &wd3 = st->veh->Wheel(wq2);
+								if (!(wd3.flags & nkentseu::physics::NkWheel::kSteered)) continue;
+								// Le banc lit LA MEME fonction que le dessin, et en extrait la
+								// colonne 2 (l'avant de la roue). S'il recopiait la construction,
+								// il redeviendrait une seconde verite -- celle qu'on vient de
+								// supprimer.
+								const NkMat4f Mv = Demo3D_TransfoRoue(wd3.worldPos, wd3.steerFwd,
+																	  b0->orientation.Up(), 0.f);
+								const NkVec3f vuFwd = {Mv[2][0], Mv[2][1], Mv[2][2]};
+								std::fprintf(stderr,
+											 "[VEHICULE ROUE] roue %u : angle %+.2f deg ; physique steerFwd "
+											 "(%.4f, %.4f, %.4f) ; rendu (%.4f, %.4f, %.4f) ; **produit scalaire "
+											 "%+.4f**\n",
+											 wq2, wd3.steerAngle * 57.29578f, wd3.steerFwd.x, wd3.steerFwd.y,
+											 wd3.steerFwd.z, vuFwd.x, vuFwd.y, vuFwd.z, wd3.steerFwd.Dot(vuFwd));
+							}
 							// Trois lectures du MEME deplacement, dans trois reperes :
 							//  - le monde (x brut)
 							//  - l'axe « droit » du CHASSIS (NkQuatf::Right)
@@ -5781,7 +5842,11 @@ static NkTexHandle CreateLanternCubeCookie(NkTextureLibrary *texLib, NkIDevice *
 							// inverses. Controle : l'exterieur doit rester le PLUS CHARGE.
 							for (uint32 wv = 0; wv < st->veh->WheelCount(); ++wv) {
 								const auto &wq = st->veh->Wheel(wv);
-								const bool exterieur = (wq.localPos.x * st->vehSteerFixe) > 0.f;
+								// Derive du MEME vecteur que la physique (cf. banc 3) : l'exterieur
+								// est le cote OPPOSE a celui vers lequel on braque. Ecrit ainsi, il
+								// n'y a plus de signe a retourner si la convention change.
+								const NkVec3f rLoc4 = b0->orientation.Conjugate() * b0->orientation.Right();
+								const bool exterieur = (wq.localPos.Dot(rLoc4) * st->vehSteerFixe) < 0.f;
 								if (exterieur) st->vehNextSum += (float64)wq.suspForce;
 								else st->vehNintSum += (float64)wq.suspForce;
 								if (wq.flags & nkentseu::physics::NkWheel::kSteered)
@@ -5833,7 +5898,15 @@ static NkTexHandle CreateLanternCubeCookie(NkTextureLibrary *texLib, NkIDevice *
 								for (uint32 w4 = 0; w4 < st->veh->WheelCount(); ++w4) {
 									const auto &wd = st->veh->Wheel(w4);
 									if (!(wd.flags & nkentseu::physics::NkWheel::kSteered)) continue;
-									if (wd.localPos.x > 0.f) aD = wd.steerAngle;
+									// ⚠️ LIBELLE CORRIGE LE 14/09. Ce test disait « localPos.x > 0
+									// donc DROITE » : vrai tant que Right() rendait +X. La
+									// contradiction retiree a sa source, le cote +X est la GAUCHE,
+									// et le banc annoncait chaque roue sous le nom de l'autre.
+									// On derive le cote du MEME vecteur que la physique, ramene en
+									// local : aucun signe ecrit, et la ligne suit si la convention
+									// rebouge. (Les NOMBRES etaient bons ; seuls les MOTS mentaient.)
+									const NkVec3f rLoc = b0->orientation.Conjugate() * b0->orientation.Right();
+									if (wd.localPos.Dot(rLoc) > 0.f) aD = wd.steerAngle;
 									else aG = wd.steerAngle;
 								}
 								std::fprintf(stderr,
@@ -6773,11 +6846,9 @@ static NkTexHandle CreateLanternCubeCookie(NkTextureLibrary *texLib, NkIDevice *
 							// DESSINEE touche exactement le point de contact calcule.
 							const NkVec3f up = b->orientation.Up();
 							const NkVec3f c = w.worldPos - up * (rPhys - st->vehWheelVisR[wi]);
-							// braquage autour de l'axe haut du chassis, roulement autour de
-							// son axe droit : l'ordre compte (on braque, PUIS on roule).
-							const NkQuatf qs(NkAngle::FromRad(w.steerAngle), NkVec3f{0.f, 1.f, 0.f});
-							const NkQuatf qr(NkAngle::FromRad(st->vehSpin[wi]), NkVec3f{1.f, 0.f, 0.f});
-							wc.transform = NkMat4f::TRS(c, b->orientation * qs * qr, {1.f, 1.f, 1.f});
+							// La roue pointe la ou la PHYSIQUE la pointe : `w.steerFwd`.
+							// Aucun angle re-derive, aucun axe ecrit en dur, aucun signe.
+							wc.transform = Demo3D_TransfoRoue(c, w.steerFwd, up, st->vehSpin[wi]);
 							wc.aabb = {c - NkVec3f{1.5f, 1.5f, 1.5f}, c + NkVec3f{1.5f, 1.5f, 1.5f}};
 							wc.tint = {1.f, 1.f, 1.f};
 							// Les roues partagent le materiau de la carrosserie : mesure du
