@@ -6400,6 +6400,39 @@ namespace nkentseu {
 			return k;
 		}
 
+		// ── CE QUE BLENDER A ET QUE NOUS N'AVONS PAS ────────────────────────
+		// ⚠ NOMMER UNE ABSENCE N'EST PAS AFFICHER UN DECOR, et la difference tient
+		// a un mot : ces lignes disent « a venir », elles n'offrent AUCUN champ, et
+		// rien ne laisse croire qu'on peut les regler. Le decor qu'on a passe trois
+		// lots a retirer, lui, montrait des valeurs FAUSSES comme si elles etaient
+		// vraies.
+		// Une absence nommee se cherche une fois ; une absence muette se cherche a
+		// chaque fois qu'on ouvre le bloc.
+		//
+		// La liste vient de la table du canal (R2), etablie en lisant les
+		// operateurs de Blender ET `NkEditMesh.h` cote par cote -- pas de memoire.
+		// Les operations qui n'ont RIEN d'absent n'apparaissent pas ici : elles ont
+		// deja tout ce que Blender expose.
+		struct NkPropAbsente {
+				int32 cmd;			///< valeur de NkMeshCmd
+				const char *noms;	///< ce qui manque, tel que Blender le nomme
+		};
+		inline const NkPropAbsente *NkPropAbsentes(int32 &n) {
+			static const NkPropAbsente k[] = {
+				{1, "Boundary, Even, Relative"},
+				{2, "Shape / Profile, Clamp, Width Type"},
+				{3, "Smoothness, Fractal, Quad Corner Type"},
+				{4, "Smoothness, Falloff"},
+				{8, "Auto Merge, Flip Normals"},
+				{9, "Fill, Clear Inner, Clear Outer, Axis Threshold"},
+				{11, "Offset Even"},
+				{12, "Face Area Threshold, Tear Boundary"},
+				{13, "Only Edges & Faces, Only Faces"},
+			};
+			n = (int32)(sizeof(k) / sizeof(k[0]));
+			return k;
+		}
+
 		inline void PaintPropMode(NkModelerPainter &p, NkHitRegistry &hit, NkModelerState &st,
 									NkWidgetState &ws, const nkgui::NkGuiInput &in,
 									NkComboPending &combo, nkgui::NkGuiContext *guiCtx,
@@ -6537,6 +6570,21 @@ namespace nkentseu {
 												"Reglages pendant l'operation (souris, molette)",
 												NkRole::TextMuted);
 										yy += kRowH;
+									}
+									// CE QUI MANQUE, NOMME. Aucun champ n'est offert : la
+									// ligne dit « a venir » et s'arrete la.
+									{
+										int32 nAbs = 0;
+										const NkPropAbsente *abs = NkPropAbsentes(nAbs);
+										for (int32 a7 = 0; a7 < nAbs; ++a7) {
+											if (abs[a7].cmd != (int32)ops[o6].cmd)
+												continue;
+											char ab[192];
+											snprintf(ab, sizeof(ab), "A venir (Blender) : %s",
+													 abs[a7].noms);
+											p.TextV(iO.x, yy, kRowH, ab, NkRole::TextMuted);
+											yy += kRowH;
+										}
 									}
 									yy += NkGroupPad();
 									PaintGroupBlock(p, rowR, opTop, yy);
