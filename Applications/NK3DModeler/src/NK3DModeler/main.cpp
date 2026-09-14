@@ -558,7 +558,15 @@ int nkmain(const NkEntryState &entry) {
 	// SANS CADRE OS : la maquette porte ses propres boutons de fenetre dans la
 	// barre de menus. Garder le cadre natif donnerait deux barres de titre.
 	NkWindowConfig wc;
-	wc.title = "NK3DModeler";
+	// ⚠ NK_SONDE=1 : CETTE FENETRE N'EST PAS LE PRODUIT, et elle doit le dire.
+	// Rodolf a deja photographie la fenetre d'un agent en croyant regarder
+	// l'application. Le titre est le seul endroit qu'on regarde -- et comme la
+	// fenetre est SANS CADRE (`wc.frame = false`), le titre OS ne se voit qu'en
+	// barre des taches et en Alt+Tab : la barre dessinee le redit, cf. plus bas.
+	// Muet par defaut : sans la variable, rien ne change.
+	const bool sonde = (std::getenv("NK_SONDE") != nullptr);
+	wc.title = sonde ? "*** SONDE DE MESURE - CETTE FENETRE N'EST PAS LE PRODUIT ***"
+					 : "NK3DModeler";
 	wc.width = 1600;
 	wc.height = 900;
 	wc.minWidth = 1100;
@@ -1639,6 +1647,27 @@ int nkmain(const NkEntryState &entry) {
 		// aurait laisse Sculpture et Sculpture 2.5D indiscernables a l'arrivee,
 		// alors qu'elles n'ont pas les memes exigences de topologie.
 		demo::Demo3DHostSetMode((int32)st.mode);
+		// ── NK_EDIT_DIAG=1 : LES DEUX MODES SONT-ILS D'ACCORD ? ─────────────
+		// `st.mode` est l'etat du SHELL ; `Demo3DHostInEditMode()` celui du
+		// VISEUR. Ils peuvent diverger indefiniment : `Demo3DHostSetMode` n'impose
+		// rien, il arme une bascule qui ECHOUE si aucun objet n'est selectionne.
+		// Rien, nulle part, ne mesurait cet ecart -- on ne pouvait donc pas
+		// distinguer « le mode edition ne marche pas » de « le mode edition n'a
+		// jamais commence ». Une ligne toutes les 30 images, pas une par image.
+		{
+			static const bool trDiag = (std::getenv("NK_EDIT_DIAG") != nullptr);
+			if (trDiag && (agentFrame % 30) == 0) {
+				const int32 refus = demo::Demo3DHostEditRefusedFrames();
+				std::printf("[nk3d-diag] f=%4d shell.mode=%d(edit=%d) viseur.edit=%d "
+							"refus=%d masque=%d selection=%d modale=%d\n",
+							(int)agentFrame, (int)st.mode, (st.mode != NkMode::Object) ? 1 : 0,
+							demo::Demo3DHostInEditMode() ? 1 : 0, (int)refus,
+							(int)demo::Demo3DHostEditSelMask(),
+							(int)demo::Demo3DHostEditSelCount(),
+							demo::Demo3DHostModalActive() ? 1 : 0);
+				std::fflush(stdout);
+			}
+		}
 		// Le sous-mode de la vue devient le masque de selection. Un seul bit ici :
 		// les trois boutons sont exclusifs. Les combiner (Maj+1/2/3 chez Blender)
 		// viendra avec les raccourcis clavier.
@@ -2508,9 +2537,12 @@ int nkmain(const NkEntryState &entry) {
 
 		// LE NOM DU PROJET, PAS UN LIBELLE FIGE. « MonProjet » etait un exemple de
 		// maquette ; la barre dit desormais ce qui est reellement ouvert.
+		// Sous NK_SONDE, le nom du projet cede la place a l'avertissement : c'est
+		// le texte CENTRAL de la barre, donc celui qu'une capture d'ecran montre.
 		PaintMenuBarI(p, lay.menu,
-					  proj.open && !proj.name.Empty() ? proj.name.CStr() : "Aucun projet", st,
-					  hit);
+					  sonde ? "*** SONDE DE MESURE - CETTE FENETRE N'EST PAS LE PRODUIT ***"
+							: (proj.open && !proj.name.Empty() ? proj.name.CStr() : "Aucun projet"),
+					  st, hit);
 		PaintTabsI(p, lay.tabs, st, hit, ws, ui.input);
 		PaintToolbar(p, lay.tool, st, hit, ws, combo);
 		// Un panneau MASQUE n'est pas peint en taille nulle : il n'est pas peint du

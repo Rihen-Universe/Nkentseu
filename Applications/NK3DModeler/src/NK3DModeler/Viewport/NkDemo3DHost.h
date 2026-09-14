@@ -212,6 +212,53 @@ namespace nkentseu {
 		// (il ANNULE l'operation) : le menu contextuel ne doit surtout pas s'ouvrir
 		// par-dessus, sinon un seul clic ferait les deux.
 		bool Demo3DHostModalActive();
+		// ── CE QUE L'OPERATION EN COURS A COMME PARAMETRES ──────────────────
+		// Ils EXISTENT et se pilotent deja : `modalVal` a la souris, `modalSeg` a
+		// la molette, et l'apercu se recalcule a chaque changement. Ce qui leur
+		// manquait, c'est un LECTEUR : le panneau de la vue peignait « Distance
+		// 0,25 » et « Decalage 0,00 » en CHAINES CONSTANTES, sans jamais demander
+		// la valeur reelle. Cette facade est ce lecteur, et rien de plus : elle ne
+		// REGLE rien, elle DIT.
+		//
+		// Les libelles sont pris sur le champ que le parametre alimente vraiment
+		// dans `Demo3D_ModalCmd` (extrude.offset, bevel.segments, loopcut.cuts...),
+		// jamais choisis ici : un libelle invente aurait menti des la deuxieme
+		// commande.
+		//
+		// Rend FAUX quand aucune operation ne tourne -- il n'y a alors rien a
+		// afficher, et un panneau qui reste visible en permanence finit par
+		// decrire une operation qui n'a pas eu lieu. Tous les pointeurs de sortie
+		// sont facultatifs.
+		//   op       : 1 biseau arete, 2 biseau sommet, 3 inserer, 4 loop cut,
+		//              5 spin, 6 extruder, 7 spheriser, 8 gonfler/retrecir,
+		//              9/10/11 deplacer / tourner / redimensionner
+		//   valLabel : libelle du parametre CONTINU (souris) -- jamais nul si vrai
+		//   segLabel : libelle du parametre ENTIER (molette), ou nullptr quand
+		//              l'operation n'en a pas. Ne rien afficher vaut mieux
+		//              qu'afficher un reglage qui ne ferait rien.
+		bool Demo3DHostModalInfo(int32 *op, const char **nom, const char **valLabel, float32 *val,
+								 const char **segLabel, int32 *seg);
+		// ── L'EDITION A-T-ELLE ETE DEMANDEE SANS POUVOIR COMMENCER ? ────────
+		// `Demo3DHostSetMode` ne POSE pas le mode : il arme une bascule que la
+		// frame consomme, et cette bascule ECHOUE quand aucun objet n'est
+		// selectionne (`NkDemo3D.cpp`, « Selectionne un objet (clic) avant TAB »).
+		// Le shell, lui, ne relit jamais : il garde `st.mode = Edit` et rearme la
+		// bascule a CHAQUE image. L'utilisateur voit alors une interface d'edition
+		// sur un viseur qui n'y est pas -- et le seul message existant part dans un
+		// JOURNAL que personne ne lit.
+		// Rend le nombre d'images consecutives passees dans cet etat ; 0 quand tout
+		// va bien. C'est un COMPTEUR et non un booleen parce qu'une image ou deux
+		// d'ecart sont NORMALES (la bascule est consommee a la frame suivante) :
+		// seul un ecart qui DURE est un echec.
+		int32 Demo3DHostEditRefusedFrames();
+		// REGLER un parametre de l'operation en cours -- la demande « pas de
+		// propriete ». Le parametre se pilotait deja a la souris et a la molette ;
+		// il ne se TAPAIT nulle part. Les bornes sont celles du pilotage souris
+		// (`Demo3D_ModalClampVal` / `...Seg`, extraites pour etre partagees) : un
+		// second jeu de bornes aurait laisse entrer par le champ ce que la souris
+		// refuse. Rendent faux si aucune operation ne tourne.
+		bool Demo3DHostModalSetVal(float32 v);
+		bool Demo3DHostModalSetSeg(int32 n);
 		// SELECTEUR D'OUTIL demande au clavier (Espace / Maj+Espace) : rend true UNE
 		// fois puis se rearme. Le viseur possede le clavier, le shell possede le
 		// composant de menu -- ce drapeau est le seul point de contact.
