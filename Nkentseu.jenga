@@ -1811,3 +1811,16 @@ with workspace("Nkentseu", location="."):
     # Le four a textures : outil en ligne de commande, sans GPU ni fenetre.
     with include("Tools/NkTexBake/NkTexBake.jenga"):
         pass
+
+    # Banc du sequenceur de Noge : des cles entrent, des images PNG numerotees
+    # sortent. Sans fenetre et sans GPU -- les pixels sont peints par le
+    # processeur. Il prouve le pilote temporel (cles -> pose ECS -> fichiers),
+    # PAS le moteur de rendu, qui est une question separee.
+    with include("Applications/NkSequenceCheck/NkSequenceCheck.jenga"):
+        pass
+
+    # Sonde : un NkIDevice se cree-t-il SANS FENETRE, et la couleur relue est-elle
+    # celle qu on a demandee ? Deux effacements differents doivent donner deux
+    # relectures differentes -- sinon c est l instrument qui ment, pas le dorsal.
+    with include("Applications/NkOffscreenProbe/NkOffscreenProbe.jenga"):
+        pass

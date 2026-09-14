@@ -1,0 +1,73 @@
+"""NkOffscreenProbe — un peripherique RHI se cree-t-il SANS FENETRE, et rend-il ?
+
+AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
+
+Elle repond a la question que `NkSequenceCheck` a volontairement laissee de cote :
+ses 48 PNG sont peints par le processeur. Pour que les images viennent du VRAI
+rendu, il faut d'abord savoir si un `NkIDevice` se cree sans surface et si une
+passe s'execute et se relit. `NkOffscreenTarget` et le mode headless de NKRHI
+tournent aujourd'hui, mais dans des applications QUI ONT UNE FENETRE.
+
+LE CRITERE QUI COMPTE EST m4 : deux effacements DIFFERENTS doivent donner deux
+relectures DIFFERENTES. Une image non noire ne prouve rien -- `NkOffscreenTarget::
+Init` efface deja la cible a sa creation (et pour une bonne raison : une cible
+neuve contient de la memoire GPU recyclee). Si deux couleurs opposees ramenent la
+meme chose, ce n'est pas le dorsal qui echoue, c'est l'instrument qui ment.
+
+⚠️ Elle N'OUVRE aucune fenetre visible. Sur OpenGL seulement, NKRHI cree lui-meme
+une fenetre CACHEE de 1x1 (NkOpenglDevice.cpp:388-399) parce que GL exige une
+surface pour son contexte ; elle est detruite au Shutdown. C'est ecrit dans la
+sortie du programme, pas seulement ici.
+
+Dependances : les memes que NkSequenceCheck moins Noge et NKMedia -- cette sonde
+ne connait ni sequenceur ni ecriture d'images. Elle ne repond qu'a une question,
+et une sonde qui en tire plus que necessaire echoue pour des raisons etrangeres a
+ce qu'elle mesure.
+"""
+from Jenga import *
+from jengaconfig import *
+
+
+with project("NkOffscreenProbe"):
+    consoleapp()
+    language("C++")
+    cppdialect("C++17")
+    location(".")
+    files(["src/main.cpp"])
+
+    # Meme raison que NkMatGraphCheck et NkSequenceCheck : un printf a qui il
+    # manque un argument affiche un nombre CREDIBLE. Une sonde dont tout le
+    # verdict tient dans quatre octets rgba ne peut pas se le permettre.
+    cxxflags(["-Werror=format", "-Werror=format-insufficient-args", "-Werror=format-extra-args"])
+
+    # ⚠️ NKGLSlang et NKSPIRVCross sont en FIN DE LISTE, et ils ne sont pas
+    # facultatifs. Sans eux, l'edition de liens rend d'abord TRENTE ecrans de
+    # « C:/msys64/ucrt64/lib\libstdc++.a(bad_alloc.o): duplicate section ... has
+    # different size » -- et la vraie cause n'apparait qu'apres, tout en bas :
+    #
+    #     NKSL.lib(NkGLSLCompiler.obj): undefined reference to
+    #     `glslang::InitializeProcess()'
+    #
+    # Le bruit accuse libstdc++ ; le defaut est une dependance absente. Lire un
+    # journal de liaison par le HAUT mene donc a soupconner la chaine d'outils.
+    # Meme famille que le piege PATH/libstdc++ deja paye sur ce depot : l'erreur
+    # nomme rarement sa cause. Ordre respecte : le linker est mono-passe, les
+    # dependants viennent AVANT leurs dependances.
+    nkentseudependson(
+        ["NKRenderer", "NKRHI", "NKSL", "NKFileSystem", "NKFont", "NKImage",
+         "NKStream", "NKGlad", "NKEvent", "NKWindow", "NKMath", "NKTime",
+         "NKLogger", "NKContainers", "NKMemory", "NKCore", "NKPlatform",
+         "NKThreading", "NKGLSlang", "NKSPIRVCross"],
+        extra_includes=["src"] + ([VULKAN_INCLUDE] if VULKAN_INCLUDE else []),
+    )
+
+    objdir("%{wks.location}/Build/Obj/%{cfg.buildcfg}-%{cfg.system}/%{prj.name}")
+    targetdir("%{wks.location}/Build/Bin/%{cfg.buildcfg}-%{cfg.system}/%{prj.name}")
+
+    with filter("system:Windows && !options:windows-runtime=uwp && !system:XboxSeries && !system:XboxOne"):
+        usetoolchain(TC_WINDOWS)
+        defines(["WIN32_LEAN_AND_MEAN", "_UNICODE", "UNICODE"])
+        if VULKAN_LIB:
+            libdirs([VULKAN_LIB])
+        links(["user32", "gdi32", "opengl32", "dwmapi", "shell32",
+               "d3d11", "d3d12", "dxgi", "dxguid", "d3dcompiler", "uuid", "ole32"])
