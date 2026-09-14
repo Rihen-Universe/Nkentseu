@@ -2354,6 +2354,27 @@ static NkTexHandle CreateLanternCubeCookie(NkTextureLibrary *texLib, NkIDevice *
 			return "?";
 		}
 
+		// ⚠️ UN RÉGLAGE QUI NE PREND PAS, EN SILENCE (mesuré le 2026-09-14).
+		// Sur un Windows **fr-FR**, `$env:NK_VEHICLE_MU = 0.90` en PowerShell écrit
+		// la chaîne « 0,9 » — avec une VIRGULE, parce que l'affectation d'un NOMBRE
+		// passe par la culture courante. `std::atof("0,9")` s'arrête au séparateur et
+		// rend **0.0** : la variable ne fait rien, et rien ne le dit.
+		// Constaté en lançant la commande que j'allais documenter : `mu` restait à
+		// 0,4000 et le braquage à 0,00 alors que la ligne semblait juste.
+		// On accepte donc la virgule. `$env:VAR = "0.90"` (guillemets) marchait déjà.
+		// Et chaque banc ÉCHO sa valeur : un réglage qui ne prend pas doit SE VOIR.
+		static float32 NkEnvFloat(const char *nom, float32 defaut) {
+			const char *v = std::getenv(nom);
+			if (!v || !v[0])
+				return defaut;
+			char net[64];
+			uint32 k = 0;
+			for (; v[k] && k < 63u; ++k)
+				net[k] = (v[k] == ',') ? '.' : v[k];
+			net[k] = '\0';
+			return (float32)std::atof(net);
+		}
+
 		bool Demo3D_Init(DemoCtx &ctx) {
 			auto *st = new Demo3DState();
 			ctx.userData = st;
@@ -2537,7 +2558,7 @@ static NkTexHandle CreateLanternCubeCookie(NkTextureLibrary *texLib, NkIDevice *
 				// rien a ajouter a NKPhysics pour poser la question.
 				NkPhysicsConfig cfgVeh;
 				if (const char *hz = std::getenv("NK_VEHICLE_HZ"); hz && hz[0]) {
-					const float32 f = (float32)std::atof(hz);
+					const float32 f = NkEnvFloat("NK_VEHICLE_HZ", 60.f);
 					if (f > 1.f) cfgVeh.fixedTimeStep = 1.f / f;
 					cfgVeh.maxSubSteps = 64; // sinon un pas plus fin est tronque par le garde-fou
 				}
@@ -2572,7 +2593,7 @@ static NkTexHandle CreateLanternCubeCookie(NkTextureLibrary *texLib, NkIDevice *
 					// un banc NEUF : la taille du sol suit le BANC, pas l'habitude.
 					// NK_VEHICLE_SOL=<demi-taille> : pour demander si un OBB GEANT est en
 					// cause quand la voiture est projetee a 15 km au premier contact.
-					if (const char *so = std::getenv("NK_VEHICLE_SOL"); so && so[0]) return (float32)std::atof(so);
+					if (const char *so = std::getenv("NK_VEHICLE_SOL"); so && so[0]) return NkEnvFloat("NK_VEHICLE_SOL", 200.f);
 					return (e && (e[0] == '2' || e[0] == '5')) ? 20000.f : 200.f;
 				}();
 				// NK_VEHICLE_PENTE=<degres> : le sol s'incline. Le contrat de CreateBody
@@ -2581,7 +2602,7 @@ static NkTexHandle CreateLanternCubeCookie(NkTextureLibrary *texLib, NkIDevice *
 				// donc +Z MONTE. On descend la caisse d'une demi-epaisseur LE LONG DE SA
 				// NORMALE pour que la face superieure passe exactement par l'origine.
 				if (const char *pe = std::getenv("NK_VEHICLE_PENTE"); pe && pe[0])
-					st->vehPente = (float32)std::atof(pe) / 57.29578f;
+					st->vehPente = NkEnvFloat("NK_VEHICLE_PENTE", 0.f) / 57.29578f;
 				if (std::fabs(st->vehPente) > 1e-5f) {
 					const float32 c = std::cos(st->vehPente), sn = std::sin(st->vehPente);
 					sol.orientation = NkQuatf(NkAngle::FromRad(-st->vehPente), NkVec3f{1.f, 0.f, 0.f});
@@ -2605,8 +2626,8 @@ static NkTexHandle CreateLanternCubeCookie(NkTextureLibrary *texLib, NkIDevice *
 				// Cree ICI, depuis la demo, par CreateBody : NKPhysics et NKCollision
 				// ne sont pas touches. NK_VEHICLE_MUR=<z> (0 = pas de mur, c'est le
 				// volet negatif), NK_VEHICLE_MUREP=<demi-epaisseur>.
-				if (const char *mz = std::getenv("NK_VEHICLE_MUR"); mz && mz[0]) st->vehMurZ = (float32)std::atof(mz);
-				if (const char *me = std::getenv("NK_VEHICLE_MUREP"); me && me[0]) st->vehMurEp = (float32)std::atof(me);
+				if (const char *mz = std::getenv("NK_VEHICLE_MUR"); mz && mz[0]) st->vehMurZ = NkEnvFloat("NK_VEHICLE_MUR", 0.f);
+				if (const char *me = std::getenv("NK_VEHICLE_MUREP"); me && me[0]) st->vehMurEp = NkEnvFloat("NK_VEHICLE_MUREP", 0.5f);
 				if (st->vehMurZ != 0.f) {
 					NkBodyDef mur;
 					mur.type = NkBodyType::STATIC;
@@ -3131,10 +3152,10 @@ static NkTexHandle CreateLanternCubeCookie(NkTextureLibrary *texLib, NkIDevice *
 				// de trancher. Elle doit etre posee AVANT le premier sous-pas : Autotune
 				// ne derive mu du materiau que s'il vaut encore zero.
 				if (const char *mu = std::getenv("NK_VEHICLE_MU"); mu && mu[0])
-					st->veh->Tuning().mu = (float32)std::atof(mu);
-				if (const char *kk = std::getenv("NK_VEHICLE_KICK"); kk && kk[0]) st->vehKick = (float32)std::atof(kk);
-				if (const char *vc = std::getenv("NK_VEHICLE_VCIBLE"); vc && vc[0]) st->vehCible = (float32)std::atof(vc);
-				if (const char *sf = std::getenv("NK_VEHICLE_STEER"); sf && sf[0]) st->vehSteerFixe = (float32)std::atof(sf);
+					st->veh->Tuning().mu = NkEnvFloat("NK_VEHICLE_MU", 0.f);
+				if (const char *kk = std::getenv("NK_VEHICLE_KICK"); kk && kk[0]) st->vehKick = NkEnvFloat("NK_VEHICLE_KICK", 0.f);
+				if (const char *vc = std::getenv("NK_VEHICLE_VCIBLE"); vc && vc[0]) st->vehCible = NkEnvFloat("NK_VEHICLE_VCIBLE", 8.f);
+				if (const char *sf = std::getenv("NK_VEHICLE_STEER"); sf && sf[0]) st->vehSteerFixe = NkEnvFloat("NK_VEHICLE_STEER", 0.30f);
 				// NK_VEHICLE_SYM=1 : ancres forcees EXACTEMENT symetriques (meme |x| par
 				// essieu, signes opposes). Isole les 1,5 um d'asymetrie que la cuisson du
 				// FBX laisse, TOUT LE RESTE identique -- ce que NK_VEHICLE_NOMODEL ne fait
