@@ -52,6 +52,7 @@
 
 #include "NKRenderer/Core/NkTextureLibrary.h"
 #include "NKRenderer/Mesh/NkTerrainHeightMap.h"
+#include "NKRenderer/Mesh/NkTerrainSplat.h"
 #include "NKRenderer/Shader/NkShaderLibrary.h"
 #include "NKRenderer/Tools/Offscreen/NkOffscreenTarget.h"
 
@@ -142,6 +143,9 @@ enum class Mutation : uint8 {
 	TRANSPOSE,		 ///< (i,j)<-(j,i) -> grille CARREE seulement (donc A, pas B ni C)
 	LIGNES_INVERSEES, ///< j <- M-1-j  -> le retournement de lignes, LE risque de convention
 	VIDE,			 ///< rien soumis  -> t4 doit rendre 0
+	// ── mutations du lot SPLATMAP, appliquees aux POIDS et non au maillage ──
+	POIDS_DESEQUILIBRES, ///< wRoche x 1.5 -> (p1) DOIT rougir, et l'oeil ne verrait rien
+	SPLAT_COUCHE0,		 ///< tout sur la couche 0 -> (p2) et (p3) rougissent, (p1) reste VERT
 };
 
 static Mutation gMutation = Mutation::AUCUNE;
@@ -160,8 +164,61 @@ static const char *NomMutation(Mutation m) {
 			return "lignes-inversees";
 		case Mutation::VIDE:
 			return "vide";
+		case Mutation::POIDS_DESEQUILIBRES:
+			return "poids-desequilibres";
+		case Mutation::SPLAT_COUCHE0:
+			return "splat-couche0";
 	}
 	return "?";
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  ⚠️ UNE CAPTURE D'UNE EXECUTION MUTEE NE DOIT PAS PORTER LE NOM DE LA VRAIE.
+//
+//  Defaut mesure le 14/09, et il a failli me tromper MOI : apres avoir lance les
+//  mutations, j'ai ouvert `nkterrain_A_splat_oblique.png` et vu un aplat
+//  uniforme -- alors que le banc venait d'y compter 367 couleurs. Les deux ne
+//  pouvaient pas etre vrais ensemble. L'image n'etait pas celle du terrain :
+//  c'etait celle de `--mutation=splat-couche0`, qui ecrit LE MEME fichier.
+//
+//  Je venais d'ecrire dans le canal « Rodolf, regarde ces captures ». Il aurait
+//  pu regarder l'image d'une mutation en croyant voir le produit. C'est
+//  exactement « une sonde qui se fait passer pour le produit », en version
+//  fichier : le nom est le seul endroit qu'on regarde.
+//
+//  Regle : seule une execution SANS mutation ecrit `nkterrain_*.png`. Toute
+//  execution mutee prefixe son nom par `MUTE_<mutation>_`.
+// ─────────────────────────────────────────────────────────────────────────────
+static NkString CheminCapture(const char *base) {
+	if (gMutation == Mutation::AUCUNE)
+		return NkString(base);
+	return NkFormat("MUTE_{0}_{1}", NkString(NomMutation(gMutation)), NkString(base));
+}
+
+// Mutation des POIDS. Separee de celle du maillage : ce sont deux productions
+// differentes, et une mutation qui toucherait les deux ne dirait pas laquelle
+// des deux gardes a mordu.
+static void AppliquerMutationPoids(NkVector<NkTerrainPoids> &poids) {
+	if (gMutation == Mutation::POIDS_DESEQUILIBRES) {
+		// La somme cesse de valoir 1 partout ou wRoche > 0. Choisi exprès pour
+		// etre INVISIBLE a l'oeil : sur le plan incline wRoche vaut 0.017413,
+		// donc l'ecart de somme attendu est 0.5 x 0.017413 = 0.0087. Un
+		// desequilibre qu'aucune image ne montrerait doit quand meme rougir.
+		for (uint32 k = 0; k < (uint32)poids.Size(); ++k)
+			poids[k].w[NK_TERRAIN_ROCHE] *= 1.5f;
+		return;
+	}
+	if (gMutation == Mutation::SPLAT_COUCHE0) {
+		// Tout sur l'herbe. La somme vaut TOUJOURS 1 : (p1) doit rester VERT,
+		// et c'est le but -- une mutation qui ferait tout rougir ne dirait rien
+		// sur ce que chaque critere garde.
+		for (uint32 k = 0; k < (uint32)poids.Size(); ++k) {
+			poids[k].w[0] = 1.f;
+			poids[k].w[1] = 0.f;
+			poids[k].w[2] = 0.f;
+			poids[k].w[3] = 0.f;
+		}
+	}
 }
 
 // Applique la mutation courante au maillage. N et M sont necessaires a
@@ -480,6 +537,52 @@ static void VerifierNormales(const char *nom, const ResultatTerrain &r, float32 
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+//  (p1)(p2) LA SPLATMAP — quatre couches, leurs poids somment a 1, la PENTE
+//  choisit la couche.
+// ─────────────────────────────────────────────────────────────────────────────
+static const char *const kNomCouche[4] = {"herbe", "terre", "roche", "neige"};
+
+// (p1) : la somme vaut 1.
+//
+// ⚠️ MON EPSILON EST 1e-6, ET LE VOICI JUSTIFIE. Chaque poids est dans [0,1] ;
+// la chaine de production compte trois multiplications et trois soustractions ;
+// l'epsilon machine du float32 vaut 1,19e-7. Un arrondi ne peut donc pas
+// depasser ~6 eps = 7,2e-7. 1e-6 est juste au-dessus : tout ecart plus grand
+// n'est PAS de l'arrondi, c'est un defaut. Plus laxiste laisserait passer un
+// vrai desequilibre ; plus serre rougirait sur du bruit.
+static const double kEpsSomme = 1e-6;
+
+static void VerifierSommePoids(const char *nom, const NkVector<NkTerrainPoids> &poids) {
+	double pire = 0.0;
+	uint32 pireK = 0, negatifs = 0;
+	for (uint32 k = 0; k < (uint32)poids.Size(); ++k) {
+		const double s = (double)poids[k].Somme();
+		const double e = s > 1.0 ? s - 1.0 : 1.0 - s;
+		if (e > pire) {
+			pire = e;
+			pireK = k;
+		}
+		for (uint32 c = 0; c < 4u; ++c)
+			if (poids[k].w[c] < 0.f)
+				++negatifs;
+	}
+	// DEUX grandeurs redondantes qui doivent s'accorder : la somme, et l'absence
+	// de poids negatif. Un poids negatif compense par un autre donnerait une
+	// somme parfaite et un melange faux.
+	Cas(NkFormat("{0} / p1 SOMME = 1", NkString(nom)).CStr(), pire <= kEpsSomme && negatifs == 0u,
+		NkFormat("ecart max a 1 = {0} au sommet #{1} (exigence <= 1e-6, justifiee) . poids negatifs = "
+				 "{2} (attendu 0) . sommets = {3}",
+				 (float32)pire, pireK, negatifs, (uint32)poids.Size()));
+}
+
+// (p2) : compte les sommets par couche dominante.
+static void CompterDominantes(const NkVector<NkTerrainPoids> &poids, uint32 out[4]) {
+	out[0] = out[1] = out[2] = out[3] = 0u;
+	for (uint32 k = 0; k < (uint32)poids.Size(); ++k)
+		++out[poids[k].Dominante()];
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 //  (t4) CA SE VOIT — et le compteur prouve son zero d'abord.
 // ─────────────────────────────────────────────────────────────────────────────
 static const char *const kVertexNkSL = R"NKSL(
@@ -522,9 +625,83 @@ void main() {
 }
 )NKSL";
 
+// ── (p3) LE NUANCEUR DE SPLATMAP DU BANC ────────────────────────────────────
+// Il melange QUATRE APLATS ponderes par les quatre poids. Aucune texture : ce
+// lot mesure le MELANGE, pas l'echantillonnage.
+//
+// ⚠️ CE NUANCEUR N'EST PAS CELUI DE PRODUCTION, ET C'EST MESURE.
+// `Resources/NKRenderer/Shaders/Terrain/` n'a de splatmap que sur GL et VK
+// (recensement de `tSplatmap` : GL x2, VK x2, DX11 x0, DX12 x0, MSL x0). Ce banc
+// tourne sur DX11 -- ou le fichier « terrain.frag.dx11.hlsl » est le fragment PBR
+// generique portant un nom de terrain, avec la ligne « // Splatmap 4-layer »
+// posee au-dessus d'une boucle de lumieres qui ne melange rien. Il n'y a donc
+// RIEN a brancher ici. Ce que (p3) prouve : les poids produits se melangent et
+// se voient. Ce qu'il ne prouve PAS : que le nuanceur de production peint.
+// Confondre les deux serait le temoin aveugle retire hier de la capture oblique.
+static const char *const kVertexSplatNkSL = R"NKSL(
+@location(0) in vec3 aPos;
+@location(1) in vec3 aNormal;
+// ⚠️ LE NOM `aColor` EST IMPOSE, LE CONTENU EST AUTRE CHOSE. Le generateur HLSL
+// deduit la semantique du NOM DE VARIABLE (kSemanticRules,
+// NkSLCodeGenHLSLStructs.cpp:38) : seul « color » / « acolor » donne COLOR. Un
+// `aPoids` retomberait sur TEXCOORD<location> et le layout C++ cesserait de
+// correspondre SANS AUCUN MESSAGE. Ce vec4 porte les quatre POIDS de couche,
+// dans l'ordre (herbe, terre, roche, neige).
+@location(2) in vec4 aColor;
+
+@location(0) out vec3 vNormal;
+@location(1) out vec4 vColor;
+
+@stage(vertex)
+@entry
+void main() {
+    vNormal     = aNormal;
+    vColor      = aColor;
+    gl_Position = vec4(aPos, 1.0);
+}
+)NKSL";
+
+static const char *const kFragmentSplatNkSL = R"NKSL(
+@binding(set=0, binding=0) uniform NkTerrainUBO { vec4 lumiere; } U;
+
+@location(0) in vec3 vNormal;
+@location(1) in vec4 vColor;
+@location(0) out vec4 fragColor;
+
+@stage(fragment)
+@entry
+void main() {
+    // Les quatre aplats. NON TRANCHE : ce sont les yeux de Rodolf.
+    // ⚠️ LA SEULE CONTRAINTE EST MESURABLE, PAS ESTHETIQUE : le canal VERT de
+    // chacun vaut au moins 0.25. Aucune combinaison convexe de quatre couleurs
+    // a vert >= 0.25 ne peut avoir vert = 0, donc aucun pixel de terrain ne peut
+    // valoir (255, 0, 255) -- le fond magenta. Le compteur devient EXACT au lieu
+    // de probable. Le banc VERIFIE cette contrainte cote C++ au lieu de la
+    // supposer ici.
+    vec3 cHerbe = vec3(0.20, 0.55, 0.20);
+    vec3 cTerre = vec3(0.55, 0.40, 0.22);
+    vec3 cRoche = vec3(0.50, 0.50, 0.52);
+    vec3 cNeige = vec3(0.90, 0.92, 0.95);
+
+    vec3 albedo = cHerbe * vColor.x + cTerre * vColor.y
+                + cRoche * vColor.z + cNeige * vColor.w;
+
+    vec3  L = normalize(U.lumiere.xyz);
+    float d = max(dot(normalize(vNormal), L), 0.0);
+    fragColor = vec4(albedo * (0.25 + 0.75 * d), 1.0);
+}
+)NKSL";
+
 struct SommetRendu {
 		float32 pos[3];
 		float32 nrm[3];
+};
+
+// Le sommet de (p3) : position de clip, normale, et les QUATRE POIDS.
+struct SommetSplat {
+		float32 pos[3];
+		float32 nrm[3];
+		float32 w[4];
 };
 
 struct UboLumiere {
@@ -540,10 +717,15 @@ struct Scene {
 		NkDescSetHandle setLayout;
 		NkDescSetHandle set;
 		NkPipelineHandle pipe;
+		NkPipelineHandle pipeSplat;
 		uint32 largeur = 256, hauteur = 256;
 
 		bool Monter();
 		void Demonter();
+		// (p3) : meme cible, meme fond, meme zero deja prouve ; seuls le layout
+		// de sommet et le nuanceur changent.
+		bool RendreSplat(const SommetSplat *sommets, uint32 nbSommets, const uint32 *indices,
+						 uint32 nbIndices, uint32 &outNonFond, uint32 &outCouleurs, const char *capture);
 		// `sommets == nullptr` => AUCUN trace. C'est la preuve du zero.
 		// `outNuances`, quand il est fourni, recoit le nombre de VALEURS DE VERT
 		// DISTINCTES parmi les pixels non-fond. C'est ce qui distingue « le
@@ -623,7 +805,87 @@ bool Scene::Monter() {
 	pd.descriptorSetLayouts.PushBack(setLayout);
 	pd.debugName = "NkTerrainCheck";
 	pipe = device->CreateGraphicsPipeline(pd);
-	return pipe.IsValid();
+	if (!pipe.IsValid())
+		return false;
+
+	// ── (p3) le second pipeline : memes etats, autre layout, autre nuanceur ──
+	::nkentseu::NkShaderHandle progS =
+		shaders.CompileVF(NkString(kVertexSplatNkSL), NkString(kFragmentSplatNkSL), NkString("nkterrainsplat"));
+	::nkentseu::NkShaderHandle rhiS = shaders.GetRHIHandle(progS);
+	if (!rhiS.IsValid())
+		return false;
+	NkGraphicsPipelineDesc ps;
+	ps.shader = rhiS;
+	ps.vertexLayout.AddBinding(0, (uint32)sizeof(SommetSplat))
+		.AddAttribute(0, 0, NkGPUFormat::NK_RGB32_FLOAT, 0, "POSITION", 0)
+		.AddAttribute(1, 0, NkGPUFormat::NK_RGB32_FLOAT, 12, "NORMAL", 0)
+		.AddAttribute(2, 0, NkGPUFormat::NK_RGBA32_FLOAT, 24, "COLOR", 0);
+	ps.rasterizer.cullMode = NkCullMode::NK_NONE;
+	ps.depthStencil = NkDepthStencilDesc::Default();
+	ps.renderPass = cible.GetRP();
+	ps.descriptorSetLayouts.PushBack(setLayout);
+	ps.debugName = "NkTerrainCheckSplat";
+	pipeSplat = device->CreateGraphicsPipeline(ps);
+	return pipeSplat.IsValid();
+}
+
+bool Scene::RendreSplat(const SommetSplat *sommets, uint32 nbSommets, const uint32 *indices,
+						uint32 nbIndices, uint32 &outNonFond, uint32 &outCouleurs, const char *capture) {
+	outNonFond = 0;
+	outCouleurs = 0;
+	if (sommets == nullptr || nbSommets == 0u || indices == nullptr || nbIndices == 0u)
+		return false;
+	NkBufferHandle vbo = device->CreateBuffer(NkBufferDesc::Vertex((uint64)nbSommets * sizeof(SommetSplat), sommets));
+	NkBufferHandle ibo = device->CreateBuffer(NkBufferDesc::Index((uint64)nbIndices * sizeof(uint32), indices));
+	if (!vbo.IsValid() || !ibo.IsValid())
+		return false;
+
+	NkICommandBuffer *cmd = device->CreateCommandBuffer();
+	if (!cmd || !cmd->Begin())
+		return false;
+	cible.BeginCapture(cmd, true, NkVec4f{1.f, 0.f, 1.f, 1.f}, true);
+	cmd->BindGraphicsPipeline(pipeSplat);
+	cmd->BindDescriptorSet(set, 0);
+	cmd->BindVertexBuffer(0, vbo);
+	cmd->BindIndexBuffer(ibo, NkIndexFormat::NK_UINT32);
+	cmd->DrawIndexed(nbIndices);
+	cible.EndCapture(cmd);
+	cmd->End();
+	device->Submit(&cmd, 1);
+	device->WaitIdle();
+
+	NkVector<uint8> px;
+	px.Resize(largeur * hauteur * 4u);
+	if (!cible.ReadbackPixels(px.Data()))
+		return false;
+
+	// ── COMPTER LES COULEURS DISTINCTES ─────────────────────────────────
+	// Pas seulement les nuances de vert : ici les quatre aplats different sur
+	// les TROIS canaux, et deux couches peuvent partager un vert. On compte donc
+	// des triplets. Table de 2^24 bits = 2 Mo, allouee une fois : un tri serait
+	// plus lent et une table de hachage plus longue a ecrire qu'a relire.
+	NkVector<uint8> vus;
+	vus.Resize(1u << 21); // 2^24 bits / 8
+	for (uint32 k = 0; k < (uint32)vus.Size(); ++k)
+		vus[k] = 0u;
+	for (uint32 k = 0; k < largeur * hauteur; ++k) {
+		const uint8 r = px[k * 4u + 0u], g = px[k * 4u + 1u], b = px[k * 4u + 2u];
+		if (r == 255u && g == 0u && b == 255u)
+			continue;
+		++outNonFond;
+		const uint32 cle = ((uint32)r << 16) | ((uint32)g << 8) | (uint32)b;
+		const uint32 octet = cle >> 3, bit = 1u << (cle & 7u);
+		if ((vus[octet] & bit) == 0u) {
+			vus[octet] = (uint8)(vus[octet] | bit);
+			++outCouleurs;
+		}
+	}
+
+	if (capture != nullptr)
+		cible.Capture(CheminCapture(capture).CStr());
+	device->DestroyBuffer(vbo);
+	device->DestroyBuffer(ibo);
+	return true;
 }
 
 void Scene::Demonter() {
@@ -696,7 +958,7 @@ bool Scene::RendreEtCompter(const SommetRendu *sommets, uint32 nbSommets, const 
 	// tant que personne ne la lit » -- un temoin par capture est structurellement
 	// aveugle a toute une classe de defauts. Le verdict, lui, est le comptage.
 	if (capture != nullptr)
-		cible.Capture(capture);
+		cible.Capture(CheminCapture(capture).CStr());
 
 	if (trace) {
 		device->DestroyBuffer(vbo);
@@ -806,6 +1068,10 @@ int main(int argc, char **argv) {
 				gMutation = Mutation::TRANSPOSE;
 			else if (strcmp(m, "lignes-inversees") == 0)
 				gMutation = Mutation::LIGNES_INVERSEES;
+			else if (strcmp(m, "poids-desequilibres") == 0)
+				gMutation = Mutation::POIDS_DESEQUILIBRES;
+			else if (strcmp(m, "splat-couche0") == 0)
+				gMutation = Mutation::SPLAT_COUCHE0;
 			else if (strcmp(m, "vide") == 0)
 				gMutation = Mutation::VIDE;
 			else {
@@ -912,6 +1178,121 @@ int main(int argc, char **argv) {
 		VerifierGeometrie("D", rD, p);
 		VerifierHauteurs("D", rD, p, /*exigerBitExact=*/true);
 		VerifierNormales("D", rD, 0.f, 1.f, 0.f, /*exigerBitExact=*/true);
+	}
+	Dire("");
+
+	// ═══════════════════════════════════════════════════════════════════
+	//  LOT SPLATMAP — (p1) la somme vaut 1 . (p2) LA PENTE choisit la couche
+	// ═══════════════════════════════════════════════════════════════════
+	Dire("-- (p1)(p2) splatmap : quatre couches, la PENTE choisit --");
+	Dire("   couches adoptees du nuanceur qui fait foi (GL frag l.9-12) :");
+	Dire("   0=herbe(Grass) 1=terre(Dirt) 2=roche(Rock) 3=neige(Snow) -- NON TRANCHE");
+	NkTerrainSplatParams sp;
+	NkVector<NkTerrainPoids> poidsA, poidsD;
+
+	if (rA.construit) {
+		const NkTerrainStatut st = NkTerrainPoidsDuMaillage(rA.mesh, sp, poidsA);
+		if (st != NkTerrainStatut::NK_OK) {
+			Cas("A / p1 production", false, NkFormat("statut={0}", NkString(NkTerrainStatutNom(st))));
+		} else {
+			AppliquerMutationPoids(poidsA);
+			VerifierSommePoids("A", poidsA);
+
+			// ── (p2) LA REPONSE, ECRITE DANS LE CANAL AVANT LA MESURE ───
+			// Sur le plan incline exact la pente vaut 26,5651 deg PARTOUT
+			// (atan(0,5), mesure du lot precedent). Avec penteRoche0 = 25 et
+			// penteRoche1 = 45 :
+			//     t = (26,5651 - 25) / 20 = 0,078255
+			//     s = t^2 (3 - 2t)        = 0,017413
+			// LA ROCHE NE DOMINE NULLE PART : 26,57 deg est sous le debut de
+			// transition. C'est la reponse a la question posee, et elle etait
+			// calculable sans machine.
+			//
+			// ⚠️ CES NOMBRES SONT ECRITS EN DUR, ET JE SAIS CE QUE CA COUTE :
+			// un attendu en dur se perime si les seuils changent. C'est ASSUME
+			// ICI parce que ce cas ne mesure pas « la loi est coherente avec
+			// elle-meme » -- ca, ce serait une tautologie -- mais « la loi fait
+			// CE QUE J'AI PREDIT ». Une prediction derivee a l'execution ne
+			// serait plus une prediction. Si quelqu'un change les seuils, ce
+			// cas DOIT rougir : c'est son travail.
+			const float32 kRocheAttendu = 0.017413f;
+			float32 rocheMin = 2.f, rocheMax = -1.f;
+			for (uint32 k = 0; k < (uint32)poidsA.Size(); ++k) {
+				const float32 wr = poidsA[k].w[NK_TERRAIN_ROCHE];
+				if (wr < rocheMin)
+					rocheMin = wr;
+				if (wr > rocheMax)
+					rocheMax = wr;
+			}
+			const float32 ecartRoche = (rocheMax - rocheMin);
+			const float32 ecartPredit =
+				(rocheMax > kRocheAttendu ? rocheMax - kRocheAttendu : kRocheAttendu - rocheMax);
+			Cas("A / p2 la pente donne wRoche", ecartRoche < 1e-6f && ecartPredit < 1e-5f,
+				NkFormat("wRoche identique sur les 81 sommets (etendue={0}, attendu 0 : un plan a UNE "
+						 "pente) . valeur={1} . predite a la main = {2} . ecart={3}",
+						 ecartRoche, rocheMax, kRocheAttendu, ecartPredit));
+
+			uint32 dom[4];
+			CompterDominantes(poidsA, dom);
+			// Predit colonne par colonne dans le canal : 2 colonnes terre,
+			// 5 herbe, 2 neige, 0 roche -> 18 / 45 / 18 / 0 sommets.
+			Cas("A / p2 dominantes predites", dom[0] == 45u && dom[1] == 18u && dom[2] == 0u && dom[3] == 18u,
+				NkFormat("herbe={0} (attendu 45) . terre={1} (18) . roche={2} (0) . neige={3} (18)", dom[0],
+						 dom[1], dom[2], dom[3]));
+		}
+	}
+
+	if (rD.construit) {
+		const NkTerrainStatut st = NkTerrainPoidsDuMaillage(rD.mesh, sp, poidsD);
+		if (st != NkTerrainStatut::NK_OK) {
+			Cas("D / p1 production", false, NkFormat("statut={0}", NkString(NkTerrainStatutNom(st))));
+		} else {
+			AppliquerMutationPoids(poidsD);
+			VerifierSommePoids("D", poidsD);
+			// ── (p2) NEGATIF : terrain parfaitement plat ────────────────
+			// Toutes les normales sont exactement (0,1,0) -> angle 0 -> s = 0.
+			// Et l'etendue de hauteur est nulle -> cas degenere -> fTerre = 1.
+			// UNE seule couche domine partout, la MEME, avec un poids de 1 AU BIT.
+			uint32 domD[4];
+			CompterDominantes(poidsD, domD);
+			uint32 exacts = 0;
+			for (uint32 k = 0; k < (uint32)poidsD.Size(); ++k)
+				if (poidsD[k].w[NK_TERRAIN_TERRE] == 1.f && poidsD[k].w[NK_TERRAIN_HERBE] == 0.f &&
+					poidsD[k].w[NK_TERRAIN_ROCHE] == 0.f && poidsD[k].w[NK_TERRAIN_NEIGE] == 0.f)
+					++exacts;
+			Cas("D / p2 NEGATIF une seule couche", domD[NK_TERRAIN_TERRE] == (uint32)poidsD.Size() &&
+													  exacts == (uint32)poidsD.Size(),
+				NkFormat("dominantes herbe={0} terre={1} roche={2} neige={3} . sommets a (0,1,0,0) AU BIT "
+						 "= {4}/{5}",
+						 domD[0], domD[1], domD[2], domD[3], exacts, (uint32)poidsD.Size()));
+		}
+	}
+
+	// La splatmap au format que le nuanceur declare, et l'erreur de
+	// quantification MESUREE au lieu d'etre supposee.
+	if (!poidsA.Empty()) {
+		NkImage splat;
+		uint32 pire255 = 0;
+		const NkTerrainStatut st =
+			NkTerrainSplatmapDepuisPoids(poidsA.Data(), rA.N, rA.M, splat, &pire255);
+		const bool ok = (st == NkTerrainStatut::NK_OK) && splat.IsValid() && splat.Width() == (int32)rA.N;
+		// Meme regle que les captures : la splatmap d'une execution mutee ne
+		// porte pas le nom de la vraie. Elle passe par `SavePNG` et non par
+		// `NkOffscreenTarget::Capture`, donc il lui faut son propre renvoi --
+		// une regle qui ne couvre pas tous ses chemins ne couvre rien.
+		if (ok)
+			splat.SavePNG(CheminCapture("nkterrain_A_splatmap.png").CStr());
+		// ⚠️ L'ATTENDU N'EST PAS ZERO, ET C'EST UNE PROPRIETE DU FORMAT.
+		// Quatre arrondis independants vers l'entier le plus proche ne somment
+		// plus a 255 au bit : l'ecart maximal possible est 2 (chaque canal
+		// derive d'au plus 0,5). C'est exactement pourquoi le nuanceur
+		// renormalise a la lecture (GL frag l.20-21) et pourquoi (p1) se mesure
+		// sur les poids FLOTTANTS, en amont.
+		Cas("A / p1 splatmap RGBA8", ok && pire255 <= 2u,
+			NkFormat("statut={0} . ecart max de somme a 255 = {1} (attendu <= 2 : quatre arrondis a 0,5 "
+					 "pres ; ce n'est PAS un defaut de la loi, c'est le format) . capture "
+					 "nkterrain_A_splatmap.png",
+					 NkString(NkTerrainStatutNom(st)), pire255));
 	}
 	Dire("");
 
@@ -1029,6 +1410,99 @@ int main(int argc, char **argv) {
 								 vusB, nuancesB));
 				} else {
 					Ignore("(t4) B oblique", NkString("l'image B n'a pas produit de maillage."));
+				}
+
+				// ═══ (p3) LA SPLATMAP SE VOIT ═══════════════════════════
+				// Le zero du compteur est DEJA prouve ci-dessus, sur la meme
+				// cible, le meme effacement magenta et le meme format UNORM.
+				// Ce qui change ici : le layout de sommet et le nuanceur.
+				Dire("");
+				Dire("-- (p3) la splatmap se voit : quatre aplats melanges par les poids --");
+
+				// ⚠️ LA CONTRAINTE DE PALETTE EST VERIFIEE, PAS SUPPOSEE.
+				// Les quatre aplats du nuanceur ont tous un canal VERT >= 0.25.
+				// Aucune combinaison convexe de quatre couleurs a vert >= 0.25
+				// ne peut avoir vert = 0 : aucun pixel de terrain ne peut donc
+				// valoir le fond (255, 0, 255), et le compteur est EXACT au lieu
+				// d'etre probable. La table est recopiee du nuanceur ; si les
+				// deux divergeaient, ce cas rougirait -- c'est son role.
+				{
+					const float32 vertsPalette[4] = {0.55f, 0.40f, 0.50f, 0.92f};
+					float32 vMin = 1.f;
+					for (uint32 k = 0; k < 4u; ++k)
+						if (vertsPalette[k] < vMin)
+							vMin = vertsPalette[k];
+					Cas("(p3) palette : vert minimal > 0.25", vMin > 0.25f,
+						NkFormat("vert minimal des quatre aplats = {0} . c'est ce qui rend impossible "
+								 "qu'un pixel de terrain vaille le fond magenta (vert = 0)",
+								 vMin));
+				}
+
+				if (!poidsA.Empty()) {
+					NkVector<SommetSplat> ss;
+					ss.Resize((uint32)so.Size());
+					for (uint32 k = 0; k < (uint32)so.Size(); ++k) {
+						ss[k].pos[0] = so[k].pos[0];
+						ss[k].pos[1] = so[k].pos[1];
+						ss[k].pos[2] = so[k].pos[2];
+						ss[k].nrm[0] = so[k].nrm[0];
+						ss[k].nrm[1] = so[k].nrm[1];
+						ss[k].nrm[2] = so[k].nrm[2];
+						// Contrat 1:1 de Triangulate : so[k] vient de tv[k],
+						// qui vient de mesh.verts[k], qui est le pixel k.
+						for (uint32 c = 0; c < 4u; ++c)
+							ss[k].w[c] = poidsA[k].w[c];
+					}
+					uint32 vusS = 0, couleursS = 0;
+					const bool luS = sc.RendreSplat(ss.Data(), (uint32)ss.Size(), ti.Data(),
+													(uint32)ti.Size(), vusS, couleursS,
+													"nkterrain_A_splat_oblique.png");
+					// ⚠️ ATTENDU >= 3, ET IL EST DERIVE, PAS REGLE. Sur le plan
+					// incline l'eclairage est CONSTANT (une seule normale) :
+					// toute variation de couleur vient donc de la splatmap
+					// SEULE. Et la prediction ecrite dans le canal dit que trois
+					// couches dominent le long de la pente -- terre, herbe,
+					// neige. Moins de trois couleurs signifierait que le melange
+					// n'arrive pas au pixel.
+					Cas("(p3) A : le melange se voit", luS && vusS > 0u && couleursS >= 3u,
+						NkFormat("pixels non-fond = {0} . couleurs distinctes = {1} (attendu >= 3 : "
+								 "l'eclairage est constant sur un plan exact, donc toute variation vient "
+								 "de la splatmap seule) . capture nkterrain_A_splat_oblique.png",
+								 vusS, couleursS));
+				} else {
+					Ignore("(p3) A", NkString("aucun poids produit : rien a melanger."));
+				}
+
+				if (rD.construit && !poidsD.Empty()) {
+					NkVector<NkVertex3D> tvD;
+					NkVector<uint32> tiD;
+					NkVector<NkEmId> tfD;
+					rD.mesh.Triangulate(tvD, tiD, tfD);
+					NkVector<SommetRendu> soD;
+					Projeter(tvD, oblique, soD);
+					NkVector<SommetSplat> ssD;
+					ssD.Resize((uint32)soD.Size());
+					for (uint32 k = 0; k < (uint32)soD.Size(); ++k) {
+						ssD[k].pos[0] = soD[k].pos[0];
+						ssD[k].pos[1] = soD[k].pos[1];
+						ssD[k].pos[2] = soD[k].pos[2];
+						ssD[k].nrm[0] = soD[k].nrm[0];
+						ssD[k].nrm[1] = soD[k].nrm[1];
+						ssD[k].nrm[2] = soD[k].nrm[2];
+						for (uint32 c = 0; c < 4u; ++c)
+							ssD[k].w[c] = poidsD[k].w[c];
+					}
+					uint32 vusD = 0, couleursD = 0;
+					const bool luD = sc.RendreSplat(ssD.Data(), (uint32)ssD.Size(), tiD.Data(),
+													(uint32)tiD.Size(), vusD, couleursD,
+													"nkterrain_D_splat_plat.png");
+					// NEGATIF de (p3) : une seule couche, une seule normale ->
+					// EXACTEMENT une couleur. Si ce cas rendait plus d'une
+					// couleur, le melange inventerait quelque chose.
+					Cas("(p3) D NEGATIF : exactement 1 couleur", luD && vusD > 0u && couleursD == 1u,
+						NkFormat("pixels non-fond = {0} . couleurs distinctes = {1} (attendu 1 : une seule "
+								 "couche, une seule normale)",
+								 vusD, couleursD));
 				}
 			}
 		} else if (!rA.construit) {
