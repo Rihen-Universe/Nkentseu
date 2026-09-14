@@ -13,11 +13,15 @@
 // =============================================================================
 #include "NKRenderer/Tools/VFX/NkVFXSystem.h" // sonde VFX
 #include "NKRenderer/Tools/VFX/NkSPHSolver.h" // sonde fluide SPH (2026-09-04)
-#include "NKPhysics/NkVehicle.h"
-#include "Noge/Physics/NkVehicleTuningIO.h" // NK_VEHICLE_CONFIG (2026-09-14)          // sonde VEHICULE (NK_VEHICLE_PROBE=1)
+#include "NKRenderer/Tools/VFX/NkFluidGrid.h"		  // sonde FEU sur grille (NK_FIRE_PROBE=1, 2026-09-13)
+#include "NKRenderer/Tools/VFX/NkFluidGridRaymarch.h" // idem : la marche de rayon CPU
+#include "NKPhysics/NkVehicle.h"          // sonde VEHICULE (NK_VEHICLE_PROBE=1)
+#include "Noge/Physics/NkVehicleTuningIO.h" // NK_VEHICLE_CONFIG (2026-09-14)
 #include "NKRenderer/Mesh/NkFBXLoader.h"   // le VRAI corps de la voiture (2026-09-13)
 #include "NKPhysics/NkCloth.h"            // sonde TISSU XPBD (NK_CLOTH_PROBE=1, 2026-09-05)
 #include "NKVFX/NkWaterMeshBuilder.h"     // sonde OCEAN (NK_OCEAN_PROBE=1, 2026-09-13)
+#include "NKMath/NkWaterDisturbance.h"    // COUPLAGE corps <-> eau (2026-09-14)
+#include "NKMath/NkBuoyancy.h"            // Archimede : l eau agit sur le corps
 #include "Demo3DMannequin.h"              // sonde VETEMENTS SUR MANNEQUIN (NK_MANNEQUIN_PROBE=1, 2026-09-05)
 #include <cstdlib>
 #include <cstring>
@@ -264,6 +268,35 @@ namespace nkentseu {
 				float64 oceanYSum = 0.0, oceanYSum2 = 0.0;
 				float64 oceanMsSum = 0.0;
 				uint32 oceanMsN = 0u;
+				// ── COUPLAGE CORPS <-> EAU (NK_OCEAN_CORPS, 2026-09-14) ──────────────
+				// Rodolf, DEUX fois : « quand c'est calme on ne ressent pas l'impact du
+				// cube en mouvement sur l'eau, pareil pour les spheres quand l'ocean est
+				// en mouvement ». Les deux sens sont ici, et ils partagent UN SEUL etat :
+				// `oceanChamp` est donne au producteur (donc il se VOIT) ET interroge par
+				// la flottabilite (donc les spheres le sentent). Deux champs, et un corps
+				// flotterait a cote de sa propre trace.
+				// Defaut ACTIF : `NK_OCEAN_PROBE=1` est deja un choix explicite, et une
+				// sonde d'ocean qui ne montre pas le defaut signale ne sert a rien.
+				// `NK_OCEAN_CORPS=0` la rend a son etat d'avant (perturbation nulle ->
+				// surface analytique AU BIT).
+				bool oceanCorps = true;
+				math::NkWaterDisturbance oceanChamp;
+				math::NkWaterWake oceanSillage;	  // le CUBE qui glisse
+				math::NkWaterWakeParams oceanWake;
+				NkVec3f oceanCubePos = {0.f, 0.f, 0.f};
+				float32 oceanCubeDemi = 0.7f;	  // demi-cote du cube
+				float32 oceanCubeVol = 1.4f;	  // m3 deplaces (choix : ~la moitie du cube)
+				static const uint32 kOceanFlot = 3u;
+				NkVec3f oceanFlotP[3];
+				NkVec3f oceanFlotV[3];
+				float32 oceanFlotR[3] = {0.6f, 0.45f, 0.8f};
+				float32 oceanFlotM[3] = {0.f, 0.f, 0.f};
+				math::NkWaterWake oceanFlotSillage[3];
+				math::NkBuoyancyParams oceanBuoy;
+				// Mesures du couplage, imprimees au Shutdown.
+				float32 oceanCreuxMax = 0.f;	 // |perturbation| la plus grande vue
+				float32 oceanFlotEcartMax = 0.f; // |y_corps - (surface + equilibre)| max
+                uint32 oceanRidesTotal = 0u;
 				// sonde VETEMENTS SUR MANNEQUIN (NK_MANNEQUIN_PROBE=1, 2026-09-05) : Demo3DMannequin.cpp
 				Demo3DMannequinProbe *mannequin = nullptr;
 				NkMeshHandle meshCylinderHat;
@@ -3703,6 +3736,66 @@ static NkTexHandle CreateLanternCubeCookie(NkTextureLibrary *texLib, NkIDevice *
 									 (unsigned long long)pipeEau.id, (int)pipePBR.IsValid(), (unsigned long long)pipePBR.id,
 									 (int)(pipeEau.id == pipePBR.id));
 					}
+				}
+				// ── COUPLAGE CORPS <-> EAU (2026-09-14) ──────────────────────────
+				if (const char *e = std::getenv("NK_OCEAN_CORPS"); e && e[0] == '0')
+					st->oceanCorps = false;
+				if (st->oceanCorps) {
+					st->oceanChamp.Reserve(256u);
+					st->oceanWake.gain = 1.f;
+					st->oceanWake.damping = 0.7f;
+					st->oceanWake.spread = 0.5f;
+					st->oceanWake.stepDistance = 0.6f;
+					st->oceanBuoy.waterDensity = 1000.f;
+					st->oceanBuoy.gravity = math::NK_GRAVITE_NORMALE;
+					// LE CUBE part a gauche du plan de repos et glisse vers la droite.
+					st->oceanCubePos = {-9.f, st->oceanP.grid.baseY, 0.f};
+					st->oceanSillage.Reset(NkVec2f{st->oceanCubePos.x, st->oceanCubePos.z});
+					// LES TROIS SPHERES, moins denses que l'eau : elles doivent MONTER et
+					// suivre la houle. Elles sont lachees AU-DESSUS du plan pour qu'on les
+					// voie tomber, rebondir et se stabiliser -- pas posees a la main sur
+					// leur propre reponse.
+					const float32 rhoCorps[3] = {350.f, 500.f, 250.f};
+					const float32 px[3] = {2.5f, 5.0f, -2.0f};
+					const float32 pz[3] = {2.0f, -3.0f, -5.5f};
+					// L'amortissement de rayonnement : DERIVE, pas choisi. zeta = 0,25 sur
+					// la plus grosse sphere (raideur k = rho g pi a^2, a = rayon de
+					// flottaison a l'equilibre). Un seul lambda pour les trois : elles ont
+					// des rayons voisins, et le dire vaut mieux qu'en fabriquer trois.
+					float32 cEqRef = 0.f;
+					const float32 rRef = st->oceanFlotR[2];
+					const float32 vRef = 4.f / 3.f * 3.1415926535f * rRef * rRef * rRef;
+					const float32 mRef = rhoCorps[2] * vRef;
+					math::NkBuoyancyEquilibriumSphere(rRef, mRef, 1000.f, cEqRef);
+					const float32 aRef = math::NkSphereWaterlineRadius(rRef, cEqRef);
+					const float32 kRef = 1000.f * math::NK_GRAVITE_NORMALE * 3.1415926535f * aRef * aRef;
+					st->oceanBuoy.linearDamping = 2.f * 0.25f * math::NkSqrt(kRef * mRef);
+					for (uint32 i = 0; i < Demo3DState::kOceanFlot; ++i) {
+						const float32 r = st->oceanFlotR[i];
+						const float32 v = 4.f / 3.f * 3.1415926535f * r * r * r;
+						st->oceanFlotM[i] = rhoCorps[i] * v;
+						st->oceanFlotP[i] = {px[i], st->oceanP.grid.baseY + 2.5f, pz[i]};
+						st->oceanFlotV[i] = {0.f, 0.f, 0.f};
+						st->oceanFlotSillage[i].Reset(NkVec2f{px[i], pz[i]});
+					}
+					st->oceanP.disturbance = &st->oceanChamp; // <-- LE CABLE QUI MANQUAIT
+					std::fprintf(stderr,
+								 "[OCEAN CORPS] couplage ACTIF (NK_OCEAN_CORPS=0 pour l'eteindre) : "
+								 "1 cube (demi-cote %.2f m, V deplace %.2f m3) qui glisse de x=-9 a "
+								 "x=+9 et LAISSE UNE TRACE ; 3 spheres (r %.2f/%.2f/%.2f m, rho "
+								 "%.0f/%.0f/%.0f kg/m3) lachees a +2,5 m qui doivent TOMBER, "
+								 "remonter et SUIVRE la houle | amortissement derive lambda = %.1f "
+								 "N.s/m (zeta 0,25 sur la plus grosse) | sillage : gain %.2f, "
+								 "amortissement %.2f /s, etalement %.2f m/s, un lacher tous les "
+								 "%.2f m\n",
+								 st->oceanCubeDemi, st->oceanCubeVol, st->oceanFlotR[0],
+								 st->oceanFlotR[1], st->oceanFlotR[2], rhoCorps[0], rhoCorps[1],
+								 rhoCorps[2], st->oceanBuoy.linearDamping, st->oceanWake.gain,
+								 st->oceanWake.damping, st->oceanWake.spread,
+								 st->oceanWake.stepDistance);
+				} else {
+					std::fprintf(stderr, "[OCEAN CORPS] couplage ETEINT (NK_OCEAN_CORPS=0) : la "
+										 "surface vaut la valeur analytique AU BIT\n");
 				}
 				const math::NkWaterOptics &o = st->oceanP.optics;
 				std::fprintf(stderr, "[OCEAN COULEUR] shade=%d | FOND PLAT INVENTE (le producteur n'a pas de terrain) : %.2f m sous le plan, albedo (%.2f %.2f %.2f) | absorption (%.3f %.3f %.3f) m^-1, couleur profonde (%.2f %.2f %.2f) | ecume : rivage < %.2f m, cretes > %.2f m, deferlement J < %.2f\n",
@@ -7175,6 +7268,70 @@ static NkTexHandle CreateLanternCubeCookie(NkTextureLibrary *texLib, NkIDevice *
 			if (st->ocean && st->oceanMesh.IsValid()) {
 				const float32 fdt = 1.f / 60.f; // pas FIXE : deux courses donnent la MEME image
 				st->oceanP.time = st->oceanTime;
+				// ── LE COUPLAGE, AVANT LA CONSTRUCTION DES SOMMETS ───────────────────
+				// L'ORDRE EST UN PARAMETRE DE RESULTAT : les corps bougent, ils
+				// deposent leur carene et leurs rides, ET ENSUITE la grille lit la
+				// surface. Faire l'inverse peindrait l'eau d'avant le mouvement --
+				// une image de retard, qu'on ne verrait qu'en mouvement, donc jamais
+				// sur une capture.
+				if (st->oceanCorps) {
+					const float32 baseY = st->oceanP.grid.baseY;
+					// LE CUBE : trajet aller-retour entre x = -9 et x = +9, a 2,5 m/s.
+					// Il est KINEMATIQUE (on impose sa position) : ce qu'on veut montrer
+					// est son effet SUR l'eau, pas sa propre dynamique.
+					{
+						const float32 vitesse = 2.5f, demiCourse = 9.f;
+						const float32 periode = 4.f * demiCourse / vitesse;
+						float32 u = st->oceanTime - periode * (float32)(int32)(st->oceanTime / periode);
+						const float32 quart = periode * 0.25f;
+						float32 x;
+						if (u < 2.f * quart)
+							x = -demiCourse + vitesse * u;
+						else
+							x = demiCourse - vitesse * (u - 2.f * quart);
+						st->oceanCubePos = {x, baseY + st->oceanCubeDemi * 0.35f, 0.f};
+						st->oceanRidesTotal += st->oceanSillage.Update(
+							st->oceanChamp, 1u, NkVec2f{x, 0.f}, 2.2f * st->oceanCubeDemi,
+							st->oceanCubeVol, st->oceanTime, st->oceanWake);
+					}
+					// LES SPHERES : Archimede + poids, integration semi-implicite au pas
+					// FIXE de l'image. Chacune est EXCLUE de sa propre perturbation
+					// (owner 2+i) : sans ca elle s'enfonce dans le bassin qu'elle creuse,
+					// et la boucle est silencieuse -- temoins (f3)/(f3n) de
+					// test_eau_couplage.cpp.
+					for (uint32 i = 0; i < Demo3DState::kOceanFlot; ++i) {
+						const uint32 owner = 2u + i;
+						const float32 r = st->oceanFlotR[i];
+						const math::NkBuoyancyResult br = math::NkBuoyancySphere(
+							st->oceanBuoy, st->oceanP.waves, st->oceanFlotP[i], r,
+							st->oceanFlotV[i], st->oceanTime, &st->oceanChamp, baseY, owner);
+						const NkVec3f poids = {0.f, -st->oceanFlotM[i] * st->oceanBuoy.gravity, 0.f};
+						const NkVec3f acc = (br.force + poids) * (1.f / st->oceanFlotM[i]);
+						st->oceanFlotV[i] = st->oceanFlotV[i] + acc * fdt;
+						st->oceanFlotP[i] = st->oceanFlotP[i] + st->oceanFlotV[i] * fdt;
+						// Sa carene : le rayon de flottaison courant, etale x3 (le meme
+						// choix que le banc, et il est nomme la-bas comme reglage).
+						const float32 cote = br.surfaceY - st->oceanFlotP[i].y;
+						const float32 aFlot = math::NkSphereWaterlineRadius(r, cote);
+						if (br.immersedVolume > 0.f && aFlot > 1e-3f) {
+							st->oceanFlotSillage[i].Update(
+								st->oceanChamp, owner,
+								NkVec2f{st->oceanFlotP[i].x, st->oceanFlotP[i].z}, 3.f * aFlot,
+								br.immersedVolume, st->oceanTime, st->oceanWake);
+						} else {
+							st->oceanChamp.RemoveHull(owner); // sortie de l'eau : plus de carene
+						}
+						const float32 ec = st->oceanFlotP[i].y - br.surfaceY;
+						const float32 aec = ec < 0.f ? -ec : ec;
+						if (aec > st->oceanFlotEcartMax)
+							st->oceanFlotEcartMax = aec;
+					}
+					st->oceanChamp.Prune(st->oceanTime);
+					const float32 creux = st->oceanChamp.Height(st->oceanCubePos.x, 0.f, st->oceanTime);
+					const float32 acreux = creux < 0.f ? -creux : creux;
+					if (acreux > st->oceanCreuxMax)
+						st->oceanCreuxMax = acreux;
+				}
 				NkChrono chrono;
 				uint32 manquants = 0u;
 				const uint32 nv = vfx::NkWaterBuildVertices(cam.GetProj(), cam.GetView(), cam.GetPosition(), st->oceanP,
@@ -7233,6 +7390,33 @@ static NkTexHandle CreateLanternCubeCookie(NkTextureLibrary *texLib, NkIDevice *
 					oc.roughness = st->oceanRough; // NK_OCEAN_ROUGH : instrument de rugosite
 					oc.castShadow = false;
 					r3d->Submit(oc);
+					// ── LES CORPS QUI INFLUENCENT CETTE EAU ──────────────────────────
+					if (st->oceanCorps) {
+						NkDrawCall3D cc;
+						cc.mesh = st->meshCube;
+						const float32 d = st->oceanCubeDemi;
+						cc.transform = NkMat4f::TRS(st->oceanCubePos, NkQuatf::Identity(),
+													{2.f * d, 2.f * d, 2.f * d});
+						cc.aabb = {st->oceanCubePos - NkVec3f{d, d, d},
+								   st->oceanCubePos + NkVec3f{d, d, d}};
+						cc.tint = {0.97f, 0.60f, 0.16f}; // orange Rihen : le corps ACTIF
+						cc.metallic = 0.f;
+						cc.roughness = 0.5f;
+						r3d->Submit(cc);
+						for (uint32 i = 0; i < Demo3DState::kOceanFlot; ++i) {
+							NkDrawCall3D fc;
+							fc.mesh = st->meshSphere;
+							const float32 r = st->oceanFlotR[i];
+							fc.transform = NkMat4f::TRS(st->oceanFlotP[i], NkQuatf::Identity(),
+														{2.f * r, 2.f * r, 2.f * r});
+							fc.aabb = {st->oceanFlotP[i] - NkVec3f{r, r, r},
+									   st->oceanFlotP[i] + NkVec3f{r, r, r}};
+							fc.tint = {0.04f, 0.33f, 0.37f}; // petrole Rihen : les FLOTTEURS
+							fc.metallic = 0.f;
+							fc.roughness = 0.4f;
+							r3d->Submit(fc);
+						}
+					}
 					// ── RELEVE DE COULEUR (une seule image : l'image 60) ─────────────
 					// (c1) la couleur varie-t-elle avec la geometrie, et dans quel sens ?
 					// (c2) l'ecume est-elle sur les CRETES, ou repartie au hasard ?
@@ -9827,6 +10011,173 @@ static NkTexHandle CreateLanternCubeCookie(NkTextureLibrary *texLib, NkIDevice *
 				}
 				overlay->DrawText({20.f, 55.f}, "FPS approx: %.1f  |  dt: %.2f ms", dt > 1e-4f ? 1.f / dt : 0.f,
 								  dt * 1000.f);
+
+				// ── SONDE FEU SUR GRILLE (2026-09-13), sous NK_FIRE_PROBE=1 seulement ────
+				// Le feu SIMULE — combustion, corps noir, grille MAC, advection en flux —
+				// n'avait AUCUN hote fenetre : il ne produisait que des PNG. C'est ce qui
+				// a fait dire a Rodolf, devant NK_VFX_PROBE (une fontaine de particules
+				// qui n'utilise PAS ce solveur), que « on n'a pas l'impression que c'est
+				// le feu ». Il avait raison, et aucun parametre ne l'aurait change.
+				//
+				// ⚠️⚠️ CE QUE CETTE SONDE COUTE EST AFFICHE A COTE DE CE QU'ELLE MONTRE,
+				// et ce n'est pas une politesse : la mesure (NK_FLUID_MAC=d) dit que la
+				// SIMULATION domine la marche de rayon d'un facteur 6,40 a 240x180, et
+				// qu'une image coute ~283 ms. On montre donc ~3,5 images/s, sur un
+				// phenomene lent, AVEC le chiffre ecrit dans le bandeau. Une verite lente
+				// vaut mieux qu'une absence — mais elle doit se dire lente.
+				// ⚠️ Porter la MARCHE sur GPU ne sauverait rien : si elle devenait
+				// gratuite, on passerait de 3,54 a 4,09 images/s (+15 %). Le levier est
+				// la SIMULATION, ou la taille de la grille (NK_FIRE_CELL).
+				//
+				// Chemin : marche de rayon CPU -> NkTextureLibrary::Update -> ShowTexture.
+				// Les trois briques existaient ; rien n'a ete ajoute au moteur.
+				if (const char *fp = std::getenv("NK_FIRE_PROBE"); fp && fp[0] == '1') {
+					static renderer::NkFluidGrid sFeu;
+					static NkVector<uint8> sImg, sImgPrec;
+					static NkTexHandle sTex{};
+					static bool sPret = false;
+					static uint32 sCellules = 0;
+					static float32 sMsSim = 0.f, sMsMarche = 0.f, sBouge = 0.f;
+					const uint32 FW = 240, FH = 180; // la definition que la mesure designe
+
+					NkTextureLibrary *texLib = ctx.renderer->GetTextures();
+					if (!sPret && texLib != nullptr) {
+						renderer::NkFluidGridParams p;
+						p.boundsMin = {-0.2f, 0.f, -0.2f};
+						p.boundsMax = {0.2f, 0.8f, 0.2f};
+						// NK_FIRE_CELL : le SEUL levier qui change vraiment le temps d'image.
+						// Plus grand = moins de cellules = plus fluide et moins detaille. Le
+						// conflit est reel et mesure : les structures font 4-5 cm sur une
+						// source de 12 cm, donc une grille assez grossiere pour tourner vite
+						// n'a plus de volutes a montrer. Le bouton est offert, pas cache.
+						p.cellSize = 0.0125f;
+						if (const char *cc = std::getenv("NK_FIRE_CELL"); cc && cc[0])
+							p.cellSize = (float32)std::atof(cc);
+						// Les reglages de combustion de ConstruirePanache(avecFeu), ceux dont
+						// le commentaire calcule l'equilibre a ~1760 K.
+						p.burnRate = 9.f;
+						p.heatPerFuel = 900.f;
+						p.sootPerFuel = 1.0f;
+						p.coolingRate = 2.5f;
+						p.temperatureDissipation = 0.f;
+						p.densityDissipation = 0.5f;
+						p.buoyancyAlpha = 0.25f;
+						p.pressureTolerance = 1.0e-4f;
+						p.vorticityConfinement = 8.f;
+						// ⚠️⚠️ TEMOINS DE MESURE ETEINTS — chemin TEMPS REEL.
+						// Regle posee le 13/09, et la FORMULATION compte plus que la
+						// decision : dans le BANC ils restent TOUJOURS allumes, SANS
+						// interrupteur (un juge qui peut fermer les yeux ne juge plus) ;
+						// ICI ils sont ETEINTS, et c'est l'EXTINCTION qui s'annonce —
+						// dans le bandeau ET dans le journal, jamais l'allumage. Un
+						// reglage qu'il faut penser a ARMER se fait oublier ; un bandeau
+						// qui dit « temoins eteints » se voit.
+						// ⚠️ CE QUI RESTE MALGRE TOUT : `MeasureVelocity`, parce que ce
+						// n'est PAS une mesure — elle borne les vitesses a maxSpeed,
+						// donc c'est un filet de securite, donc de la physique.
+						p.temoinsMesure = false;
+						if (sFeu.Init(p)) {
+							sCellules = sFeu.Nx() * sFeu.Ny() * sFeu.Nz();
+							NkTextureCreateDesc td;
+							td.width = FW;
+							td.height = FH;
+							td.format = NkGPUFormat::NK_RGBA8_UNORM;
+							td.debugName = "NK_FIRE_PROBE";
+							sTex = texLib->Create(td);
+							sPret = sTex.IsValid();
+						}
+					}
+
+					if (sPret) {
+						const float32 fdt = 1.f / 60.f; // pas FIXE : le temps d'image varie
+						// NK_FIRE_FREEZE=1 : on ne fait plus AVANCER la simulation. C'est le
+						// controle negatif du critere « ca bouge » — la marche etant
+						// deterministe et sans GPU, un champ fige doit rendre deux images
+						// IDENTIQUES AU BIT, donc 0,000 % de pixels differents. Sans lui,
+						// « X % de pixels bougent » n'aurait aucun zero de reference.
+						const char *fz = std::getenv("NK_FIRE_FREEZE");
+						if (!(fz && fz[0] == '1')) {
+							sFeu.EmitSphere({0.f, 0.06f, 0.f}, 0.06f, 0.05f * fdt, 0.f, 5.f * fdt);
+							sFeu.Step(fdt);
+							sMsSim = sFeu.Stats().ms;
+						}
+
+						renderer::NkFluidRaymarchParams rp;
+						rp.width = FW;
+						rp.height = FH;
+						rp.cameraPos = {0.f, 0.30f, 1.20f};
+						rp.cameraTarget = {0.f, 0.25f, 0.f};
+						rp.fovDegrees = 40.f;
+						// ⚠️ OMBRES COUPEES, et c'est une DECISION MESUREE : la marche
+						// d'ombre pese ~75 a 85 % des echantillons (mesure : le cout tombe
+						// a 0,152 du total a 240x180). C'est le premier levier, et il
+						// existait deja dans les parametres.
+						rp.shadowMarch = false;
+						rp.emission = true; // sinon on ne voit que de la fumee grise
+						renderer::NkFluidRaymarchStats rs;
+						renderer::NkFluidRaymarchRender(sFeu, rp, sImg, rs);
+						sMsMarche = rs.ms;
+
+						// « Le volume se VOIT bouger » : le pourcentage de pixels qui
+						// DIFFERENT de l'image precedente. Compare au zero exact que rend
+						// NK_FIRE_FREEZE=1, c'est une mesure, pas une impression.
+						if (sImgPrec.Size() == sImg.Size() && sImg.Size() > 0) {
+							const uint32 n = (uint32)sImg.Size();
+							const uint8 *a = sImg.Data();
+							const uint8 *b = sImgPrec.Data();
+							uint32 diff = 0;
+							for (uint32 k = 0; k < n; k += 4)
+								if (a[k] != b[k] || a[k + 1] != b[k + 1] || a[k + 2] != b[k + 2])
+									++diff;
+							sBouge = (float32)diff * 400.f / (float32)n; // 100 * diff / (n/4)
+						}
+						sImgPrec = sImg;
+
+						texLib->Update(sTex, sImg.Data(), FW * 4u);
+						// En haut a droite, a l'echelle 2 : assez grand pour se voir, assez
+						// petit pour ne pas cacher la demo.
+						const float32 dw = (float32)FW * 2.f, dh = (float32)FH * 2.f;
+						overlay->ShowTexture(sTex, {(float32)ctx.width - dw - 20.f, 20.f, dw, dh});
+
+						const float32 msImage = sMsSim + sMsMarche;
+						overlay->DrawText({20.f, 95.f},
+										  "[NK_FIRE_PROBE] FEU SUR GRILLE %u x %u x %u = %u cellules  |  "
+										  "%.2f images/s  |  sim %.1f ms + marche %.1f ms = %.1f ms",
+										  sFeu.Nx(), sFeu.Ny(), sFeu.Nz(), sCellules,
+										  (msImage > 0.f) ? 1000.f / msImage : 0.f, sMsSim, sMsMarche, msImage);
+						overlay->DrawText({20.f, 115.f},
+										  "[NK_FIRE_PROBE] Tmax %.0f K  |  pixels qui bougent : %.3f %%  "
+										  "(NK_FIRE_FREEZE=1 doit rendre 0,000)  |  marche CPU, ombres coupees",
+										  (double)sFeu.Stats().maxTemperature, (double)sBouge);
+						// ⚠️ C'EST L'EXTINCTION QUI S'ANNONCE, PAS L'ALLUMAGE. Cette
+						// ligne se lit meme quand personne ne la cherche — alors qu'un
+						// reglage qu'il faut penser a armer se fait oublier.
+						overlay->DrawText({20.f, 135.f},
+										  "[NK_FIRE_PROBE] TEMOINS DE MESURE ETEINTS : %s  |  divergence, "
+										  "enstrophie, masse et chaleur NON MESUREES ici (le banc, lui, les "
+										  "garde TOUJOURS allumes)",
+										  sFeu.Stats().temoinsEteints ? "OUI" : "NON — ils tournent encore");
+
+						// ⚠️ LE MEME CHIFFRE DANS LE JOURNAL, ET CE N'EST PAS UN DOUBLON.
+						// Le bandeau ne se lit qu'a l'ecran : une course headless rendrait
+						// « code 0, zero erreur » SANS QU'AUCUNE LIGNE NE PROUVE que ce bloc
+						// a seulement tourne. C'est exactement la faute que ce depot a deja
+						// payee — `nk_harmony_renderdemo.jpeg` a fait classer HarmonyOS en
+						// echec a tort parce que la capture montrait la DEMO 0, qui n'avait
+						// jamais exerce la 3D. Je l'ai reproduite ce soir : ma premiere
+						// course rendait code 0 et 0 erreur... sur Demo 0, sans jamais
+						// atteindre cette ligne. Un verdict doit laisser une trace LISIBLE
+						// hors de l'ecran.
+						if ((ctx.frame % 30u) == 0u)
+							std::fprintf(stderr,
+										 "[NK_FIRE_PROBE] frame %u | %u cellules | %.2f img/s | sim %.1f ms + "
+										 "marche %.1f ms = %.1f ms | Tmax %.0f K | pixels qui bougent %.3f %% | "
+										 "TEMOINS ETEINTS : %s\n",
+										 (unsigned)ctx.frame, sCellules, (msImage > 0.f) ? 1000.f / msImage : 0.f,
+										 sMsSim, sMsMarche, msImage, (double)sFeu.Stats().maxTemperature,
+										 (double)sBouge, sFeu.Stats().temoinsEteints ? "OUI" : "NON");
+					}
+				}
 				// Phase H : indication visuelle du chargement texture file-based.
 				overlay->DrawText({20.f, 75.f}, "[Phase H] Texture file-based : %s",
 								  st->phaseHLoadOk ? "test_pattern.png LOAD OK" : "fallback procedural");

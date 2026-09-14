@@ -266,6 +266,105 @@ namespace nkentseu {
 	}
 
 	// =============================================================================
+	// Correspondance TYPE <-> EXTENSION — le POINT DE PASSAGE UNIQUE
+	//
+	// `CONVENTIONS_FICHIERS.md` (Rihen, 5 aout 2026) : « une extension par nature
+	// d'asset, toutes de structure identique — l'extension est un INDICE,
+	// l'en-tete reste la VERITE », et « la correspondance vit a un seul endroit,
+	// dans NKSerialization ». Ces deux fonctions SONT cet endroit.
+	//
+	// ⚠️ NE JAMAIS RECOPIER CETTE TABLE AILLEURS. Une seconde copie diverge au
+	// premier ajout — le depot a deja paye ce prix trois fois (les combos de la
+	// sortie, `kVidExt` fige a 3, `kHdrNames` reste a six entrees).
+	//
+	// Un lecteur qui ouvre un `.nkmat` dont l'en-tete annonce une texture SUIT
+	// L'EN-TETE et journalise la discordance ; jamais l'inverse. Un fichier
+	// renomme a la main reste donc lisible et se signale — il ne corrompt rien.
+	// =============================================================================
+	// Rend l'extension SANS le point : Material -> "nkmat".
+	inline const char *NkAssetExtensionFor(NkAssetType t) noexcept {
+		switch (t) {
+			case NkAssetType::StaticMesh:
+				return "nkmesh";
+			case NkAssetType::SkeletalMesh:
+				return "nkskel";
+			case NkAssetType::Texture2D:
+				return "nktex";
+			case NkAssetType::TextureCube:
+				return "nktexc";
+			case NkAssetType::Material:
+				return "nkmat";
+			case NkAssetType::MaterialInstance:
+				return "nkmati";
+			case NkAssetType::Sound:
+				return "nksnd";
+			case NkAssetType::Animation:
+				return "nkanim";
+			case NkAssetType::Blueprint:
+				return "nkbp";
+			case NkAssetType::DataTable:
+				return "nkdata";
+			case NkAssetType::Map:
+				return "nkmap";
+			case NkAssetType::World:
+				return "nkworld";
+			case NkAssetType::Prefab:
+				return "nkprefab";
+			case NkAssetType::Font:
+				return "nkfont";
+			case NkAssetType::Shader:
+				return "nkshader";
+			case NkAssetType::Script:
+				return "nkscript";
+			case NkAssetType::Custom:
+			default:
+				// `.nkasset` reste la nature « non standard » — et reste accepte
+				// EN LECTURE pour tout le reste (compatibilite avec l'existant).
+				return "nkasset";
+		}
+	}
+
+	// Accepte "nkmat", ".nkmat" et "NKMAT". Rend `Custom` pour "nkasset" (c'est
+	// sa nature) et `Unknown` pour tout le reste — l'appelant retombe alors sur
+	// l'en-tete, qui est la verite.
+	inline NkAssetType NkAssetTypeFromExtension(const char *ext) noexcept {
+		if (!ext)
+			return NkAssetType::Unknown;
+		if (*ext == '.')
+			++ext;
+		char bas[16] = {};
+		nk_size n = 0;
+		for (; n < 15u && ext[n]; ++n) {
+			const char c = ext[n];
+			bas[n] = (c >= 'A' && c <= 'Z') ? char(c - 'A' + 'a') : c;
+		}
+		if (ext[n] != '\0')
+			return NkAssetType::Unknown; // trop long pour etre une de nos extensions
+		bas[n] = '\0';
+
+		struct Paire {
+				const char *ext;
+				NkAssetType type;
+		};
+		// Une seule liste, parcourue dans les deux sens de la table ci-dessus.
+		static const Paire kTable[] = {
+			{"nkmesh", NkAssetType::StaticMesh},	   {"nkskel", NkAssetType::SkeletalMesh},
+			{"nktex", NkAssetType::Texture2D},		   {"nktexc", NkAssetType::TextureCube},
+			{"nkmat", NkAssetType::Material},		   {"nkmati", NkAssetType::MaterialInstance},
+			{"nksnd", NkAssetType::Sound},			   {"nkanim", NkAssetType::Animation},
+			{"nkbp", NkAssetType::Blueprint},		   {"nkdata", NkAssetType::DataTable},
+			{"nkmap", NkAssetType::Map},			   {"nkworld", NkAssetType::World},
+			{"nkprefab", NkAssetType::Prefab},		   {"nkfont", NkAssetType::Font},
+			{"nkshader", NkAssetType::Shader},		   {"nkscript", NkAssetType::Script},
+			{"nkasset", NkAssetType::Custom},
+		};
+		for (const Paire &p : kTable)
+			if (strcmp(bas, p.ext) == 0)
+				return p.type;
+		return NkAssetType::Unknown;
+	}
+
+	// =============================================================================
 	// NkAssetDependency — Référence vers un autre asset
 	// =============================================================================
 	struct NkAssetDependency {

@@ -1,4 +1,18 @@
 // pp_bloomup.frag.nksl — NKRenderer — Bloom Upsample 3x3 tent (VRAI dialecte NkSL).
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
+//
+// LA REMONTEE MELANGE, ELLE N'ADDITIONNE PLUS (Jimenez 2014). Le pipeline
+// PP_BloomUp est en melange classique NkBlendDesc::Alpha()
+// (SRC_ALPHA / ONE_MINUS_SRC_ALPHA) : avec oColor = (col, s), la cible devient
+// col * s + courant * (1 - s), soit lerp(niveau courant, remontee du niveau
+// grossier, s). Les six niveaux se ponderent (1-s, s(1-s), ..., s^5 : somme 1) au
+// lieu de s'empiler : l'energie du halo revient a celle de la passe brillante
+// (x bloomStrength au tonemap) -- avant, six niveaux additionnes donnaient x8,9
+// mesure (Q193), la seconde cause de « l'eponge ». `pc.strength` est ce poids s
+// (0,7 : l'eparpillement d'Unity ; NK_BLOOM_SCATTER l'override).
+// ⚠️ NE PAS premultiplier ici : (col * s, s) sous SRC_ALPHA donne un poids s^2,
+// et l'energie tombe a 0,58 de la passe brillante a s = 0,7 (mesure du 12/09,
+// exacte aux deux bouts s = 0 et s = 1 et fausse entre les deux).
 @location(0) in  vec2 vUV;
 @location(0) out vec4 oColor;
 
@@ -27,5 +41,6 @@ void main() {
         texture(uSrc, vUV + t * vec2( 1.0, -1.0)).rgb * 1.0;
     col *= 1.0 / 16.0;
 
-    oColor = vec4(col * pc.strength, 1.0);
+    // (col, s) -> col * s + courant * (1 - s) sous SRC_ALPHA / ONE_MINUS_SRC_ALPHA.
+    oColor = vec4(col, pc.strength);
 }

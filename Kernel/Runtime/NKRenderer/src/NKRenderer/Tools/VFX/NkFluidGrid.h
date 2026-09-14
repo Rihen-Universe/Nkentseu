@@ -86,6 +86,45 @@ namespace nkentseu {
 	namespace renderer {
 
 		// =====================================================================
+		// LIMITEUR DE FLUX — l'ORDRE SUPÉRIEUR de l'advection conservative.
+		// Van LEER, « Towards the Ultimate Conservative Difference Scheme V »,
+		// JCP 32, 1979 ; SWEBY, SIAM J. Numer. Anal. 21(5), 1984.
+		// Pré-enregistrement complet : PLAN_ORDRE_SUPERIEUR.md.
+		//
+		// Le donor-cell d'ordre 1 DIFFUSE, de D = (u·h/2)(1 − CFL). Mesuré le
+		// 12/09 : ce prix vaut `Tmax / 3,18` sur la scène (e), et il ne vient
+		// PAS d'un réglage — faire varier la cible de sous-cyclage de 0,40 à
+		// 1,20 ne déplace Tmax que de 2,1 %. On ajoute donc sur CHAQUE FACE un
+		// second flux, dit ANTIDIFFUSIF, qui annule l'erreur en O(h) :
+		//     F = F_donor + 0.5·|c|·(1 − |c|)·psi(r)·(phi[i] − phi[i-1])
+		// avec `c` le Courant LOCAL de la face et `r` le rapport du gradient
+		// AMONT au gradient local. `psi = 1` redonne exactement Lax-Wendroff.
+		//
+		// ⚠️ SANS limiteur, l'ordre 2 OSCILLE et fabrique des densités
+		// NÉGATIVES — c'est le théorème de Godunov, pas un défaut de portage.
+		// `Aucun` est donc gardé et CODÉ EXPRÈS comme TÉMOIN NÉGATIF du banc :
+		// il conserve la masse AUSSI EXACTEMENT que les autres tout en étant
+		// faux, et c'est lui qui prouve que le détecteur de densité négative
+		// sait rendre autre chose que zéro.
+		enum class NkFluidFluxLimiter : uint8 {
+				// L'EXISTANT, et le DÉFAUT : donor-cell nu. Ce mode n'emprunte
+				// même pas le code d'ordre supérieur — il appelle la fonction
+				// d'origine, INTACTE, pour que « les chiffres d'aujourd'hui au
+				// bit » se lise dans le diff avant d'être mesuré.
+				Ordre1 = 0,
+				// Lax-Wendroff NU. ⚠️ TÉMOIN NÉGATIF, jamais un réglage.
+				Aucun = 1,
+				// Le plus prudent : min(|d|, |du|). Diffuse plus que van Leer.
+				MinMod = 2,
+				// Van Leer 1979 — lisse, différentiable, le choix par défaut de
+				// la littérature quand il faut en choisir un seul.
+				VanLeer = 3,
+				// Roe 1986 — le plus raide des limiteurs TVD ; il raidit les
+				// fronts, au risque de les « escaliériser ».
+				Superbee = 4
+		};
+
+		// =====================================================================
 		// Paramètres — la résolution vient de cellSize, pas d'un compte de cellules
 		// =====================================================================
 		struct NkFluidGridParams {
@@ -159,8 +198,37 @@ namespace nkentseu {
 				// ⚠️ EXIGE la grille DECALEE : un flux vit sur une FACE, et sur une
 				// grille colocalisee il n'existait aucun endroit ou le poser.
 				// Pre-enregistrement complet : PLAN_ADVECTION_FLUX.md.
-				// Eteint par defaut tant que son PRIX n'est pas mesure (§ 2 du plan).
-				bool advectFluxConservative = false;
+				// ⚠️ ALLUME PAR DEFAUT LE 2026-09-13, et ce n'est pas un gout : DEUX
+				// COMPTAGES A LA MAIN, faits HORS du solveur, disent que ce schema
+				// porte EXACTEMENT ce qu'on lui injecte, la ou le semi-lagrangien
+				// FABRIQUE de la matiere et de la chaleur.
+				//   masse   : flux 3,9e-07 d'ecart | semi-lagrangien x 15,264   (j1)
+				//   chaleur : flux 1,4e-06 d'ecart | semi-lagrangien x  8,720   (k1)
+				// Le << prix >> mesure le 12/09 (Tmax / 3,18) n'etait donc PAS une
+				// perte de detail : c'etait le RETRAIT d'une chaleur qu'aucune source
+				// n'avait fournie. Il n'y avait rien a racheter -- et c'est pourquoi
+				// aucun schema d'ordre superieur ne pouvait le faire (h1).
+				// Le vrai cout est le TEMPS : +27 % sur le donor-cell, soit a peu pres
+				// ce que coutait deja le semi-lagrangien (107,4 contre 104,5 ms/pas).
+				bool advectFluxConservative = true;
+				// ORDRE DU SCHEMA EN FLUX. `Ordre1` = le donor-cell nu, qui appelle
+				// `AdvectFluxUnePasse` -- fonction jamais touchee, de sorte que la
+				// bit-identite de ce mode avec les chiffres du 12/09 se LIT DANS LE
+				// DIFF. Les autres valeurs passent par `AdvectFluxUnePasseLimitee`.
+				// ⚠️ DEFAUT PASSE A `VanLeer` LE 2026-09-13. C'etait le choix ECRIT
+				// DANS LE PLAN AVANT de connaitre les chiffres, et il n'a pas ete
+				// revise apres : superbee rend 1,6 % de Tmax en plus pour 3,5 % de
+				// temps en moins, mais un choix qu'on revise apres la mesure n'est
+				// plus un choix pre-enregistre.
+				// ⚠️ CE QUE LE LIMITEUR N'A PAS FAIT, et il faut le savoir en lisant
+				// ce defaut : il ne rachete PAS le detail. Tmax/ref passe de 0,3147 a
+				// 0,3268, soit 3,8 %. Meme un Lax-Wendroff NU, sans aucune diffusion
+				// au premier ordre, plafonne a 0,4030. Il est ici pour la MONOTONIE
+				// -- sans limiteur, l'ordre 2 fabrique des densites negatives
+				// (Godunov) : mesure -2,576e-01 contre +0,000e+00 avec.
+				// ⚠️ Ce parametre n'a d'effet QUE si `advectFluxConservative`
+				// est vrai -- un limiteur de flux n'a pas de sens sans flux.
+				NkFluidFluxLimiter advectFluxLimiter = NkFluidFluxLimiter::VanLeer;
 				// ⚠️ LA STABILITE CHANGE DE NATURE. Le semi-lagrangien est
 				// INCONDITIONNELLEMENT stable ; un flux explicite ne l'est pas. La
 				// condition est celle de Courant-Friedrichs-Lewy, sous sa forme 3D
@@ -222,6 +290,35 @@ namespace nkentseu {
 
 				// ── INTERRUPTEURS DE MUTATION (les témoins DOIVENT rougir) ──────────
 				bool projectionEnabled = true; // faux -> témoin (b) divergence rouge
+				// ⚠️⚠️ LES TEMOINS DE MESURE. DEFAUT : ALLUMES, et ce defaut est la
+				// regle, pas une commodite. Decide par Rodolf via le coordinateur le
+				// 2026-09-13, et la FORMULATION compte plus que la decision :
+				//
+				//   DANS LE BANC, ils restent TOUJOURS allumes, SANS INTERRUPTEUR —
+				//   c'est lui le juge, et UN JUGE QUI PEUT FERMER LES YEUX NE JUGE
+				//   PLUS. Aucun mode du banc ne touche ce champ, et aucune variable
+				//   d'environnement ne l'expose.
+				//
+				//   SUR LE CHEMIN TEMPS REEL (NK_FIRE_PROBE et tout ce qui vise
+				//   l'affichage), ils sont ETEINTS — et c'est l'EXTINCTION qui
+				//   s'annonce, dans le bandeau ET dans le journal, jamais l'allumage.
+				//   Un reglage qu'il faut penser a ARMER se fait oublier ; un bandeau
+				//   qui dit « temoins eteints » se voit.
+				//
+				// CE QUI S'ETEINT : les trois MeasureDivergence, la SECONDE
+				// ComputeVorticity (celle refaite « pour l'appelant »), et les trois
+				// reductions TotalMass / TotalHeat / TotalFuel. Toutes sont `const` ou
+				// sans effet sur le pas suivant : les couper ne change AUCUN champ.
+				//
+				// ⚠️ CE QUI NE S'ETEINT PAS, ET POURQUOI — mesure du 13/09 :
+				// `MeasureVelocity` N'EST PAS UNE MESURE. Son nom ment : quand une
+				// cellule depasse `maxSpeed`, elle MULTIPLIE les six vitesses de face
+				// par `lim/s`. C'est un FILET DE SECURITE, donc de la physique. La
+				// couper changerait le champ, pas seulement le rapport. Elle porte
+				// aussi le comptage des NaN, qu'un chemin temps reel a tout interet a
+				// garder. Le balayage de Tmax reste lui aussi : le bandeau l'affiche,
+				// et c'est un seul parcours sans arithmetique.
+				bool temoinsMesure = true;
 				bool advectionEnabled = true;  // faux -> témoin (d) transport rouge
 				bool buoyancyEnabled = true;   // faux -> témoin (c) rouge
 
@@ -295,6 +392,40 @@ namespace nkentseu {
 				uint32 speedClamped = 0; // cellules bornées par maxSpeed (0 attendu)
 				uint32 nanCount = 0;	 // NaN/Inf trouvés (0 attendu)
 				float32 ms = 0.f;
+
+				// ── (s0) LA VENTILATION DU PAS, par phase, en millisecondes ──────
+				// Ajoutee le 2026-09-13 pour repondre a UNE question : quelle part du
+				// pas est la PROJECTION ? Sans elle, annoncer un gain de portage GPU
+				// serait de la foi -- AMDAHL : un facteur 10 sur une phase qui pese
+				// 60 % ne donne que 2,17 sur le total.
+				// ⚠️ LES PHASES SONT RANGEES EN DEUX FAMILLES, et le rangement est le
+				// resultat : `msMesures` compte ce que le solveur depense a SE JUGER
+				// (trois parcours de divergence, deux vorticites, quatre reductions).
+				// Un moteur qui n'a pas besoin de ces temoins ne paierait pas ce prix.
+				// ⚠️ GARDE : msPhysique + msMesures doit valoir `ms` a 2 % pres. Sinon
+				// une phase echappe au comptage et AUCUN pourcentage n'est lisible.
+				float32 msCombustion = 0.f;	  // Combust
+				float32 msFlottabilite = 0.f; // AddBuoyancy
+				float32 msVorticite1 = 0.f;	  // ComputeVorticity, celle que le confinement LIT
+				float32 msConfinement = 0.f;  // AddVorticityConfinement
+				float32 msVent = 0.f;		  // AddWind
+				float32 msAdvVitesse = 0.f;	  // AdvectVelocity (semi-lagrangienne)
+				float32 msProjection = 0.f;	  // Project — LA CIBLE PRESUMEE du portage
+				float32 msCFL = 0.f;		  // MaxCFL + choix du nombre de sous-pas
+				float32 msAdvScalaires = 0.f; // AdvectScalar x3 (densite, temperature, carburant)
+				float32 msDissipation = 0.f;  // les trois rappels multiplicatifs
+				// L'INSTRUMENTATION, en DEUX parts — parce que toute ne peut pas
+				// s'eteindre, et qu'annoncer « 18,64 ms d'economie » sans ce partage
+				// serait promettre ce qu'on ne peut pas rendre.
+				float32 msMesuresEteintes = 0.f; // ce que le temps reel PEUT couper
+				float32 msMesuresGardees = 0.f;	 // ce qu'il doit garder (voir plus bas)
+				float32 msMesures = 0.f;		 // la somme des deux
+				float32 msPhysique = 0.f;		 // somme de la famille PHYSIQUE
+				// Vrai quand les temoins coupables ont ete SAUTES a ce pas. Les stats
+				// qu'ils alimentent valent alors ZERO — et ce zero ne dit pas « mesure
+				// a zero », il dit « PAS MESURE ». C'est pour cela que ce drapeau
+				// existe : un zero sans drapeau serait un mensonge silencieux.
+				bool temoinsEteints = false;
 
 				// ADVECTION EN FLUX : le nombre de Courant reellement vu au dernier
 				// pas, et le nombre de SOUS-PAS qu'il a fallu pour rester sous la
@@ -466,6 +597,12 @@ namespace nkentseu {
 				// UN sous-pas de donor-cell : un flux par FACE, retranche a l'amont
 				// et ajoute a l'aval, tous calcules depuis `src`.
 				void AdvectFluxUnePasse(NkVector<float32> &dst, const NkVector<float32> &src, float32 dt, int32 bnd);
+				// UN sous-pas d'ORDRE SUPERIEUR : le meme flux donor-cell, PLUS un
+				// flux ANTIDIFFUSIF limite sur la meme face. Fonction SEPAREE, pour
+				// que `AdvectFluxUnePasse` reste intacte au bit. Voir
+				// PLAN_ORDRE_SUPERIEUR.md, § 2 et § 3.
+				void AdvectFluxUnePasseLimitee(NkVector<float32> &dst, const NkVector<float32> &src, float32 dt,
+											   int32 bnd);
 				// L'advection en flux complete, SOUS-CYCLEE pour respecter le CFL.
 				void AdvectScalarFlux(NkVector<float32> &dst, const NkVector<float32> &src, float32 dt, int32 bnd);
 				void AdvectVelocity(float32 dt);

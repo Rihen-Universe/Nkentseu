@@ -1,4 +1,9 @@
 #pragma once
+// -----------------------------------------------------------------------------
+// @File    NkModelerScreens.h
+// @Author  TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
+// @License Proprietary - All Rights Reserved (see LICENSE)
+// -----------------------------------------------------------------------------
 // =============================================================================
 // NkModelerScreens.h â€” les zones de l'ecran A, peintes une par une.
 //
@@ -20,6 +25,11 @@
 #include "NK3DModeler/Shell/NkModelerWidgets.h"
 #include "NK3DModeler/Shell/NkModelerTables.h" // metriques, listes, catalogues
 #include "NK3DModeler/Shell/NkModelerCommon.h"
+// (o1) LA BANDE D'ONGLETS PARTAGEE : le composant du kit et son adaptateur de
+// peintre. Le modeleur n'utilise PAS `NkEditorShell` -- c'est `NkComponentPaint`
+// qui fait le pont, pas la coquille.
+#include "NKEditorKit/Components/NkTabStripModel.h"
+#include "NK3DModeler/Shell/NkModelerComponentPaint.h"
 #include "NK3DModeler/Shell/NkModelerViewport.h" // la vue 3D et ses surcouches
 #include "NK3DModeler/Shell/NkModelerFileDialog.h" // choix d emplacement + nom
 // DECLARATION ANTICIPEE : NkModelerAssets.h est inclus APRES cet en-tete,
@@ -71,6 +81,9 @@ namespace nkentseu {
 			for (int32 i = 0; i < 7; ++i) {
 				const float32 w = p.TextW(kMenus[i]) + S(18.f);
 				const NkRect mr{x - S(9.f), r.y + S(6.f), w, r.h - S(12.f)};
+				// La geometrie part dans l'etat : la couche des surcouches la
+				// relit pour redeclarer ces memes zones avec l'entree REELLE.
+				st.menuBarRects[i] = mr;
 				const bool over = hit.Add(kMenuKeys[i], mr);
 				// Un menu OUVERT reste marque meme si la souris est partie : sinon on ne
 				// saurait plus quel menu a produit la liste affichee.
@@ -79,8 +92,13 @@ namespace nkentseu {
 				else
 					HoverFill(p, mr, over);
 				p.TextV(x, r.y, r.h, kMenus[i], st.openMenu == i ? NkRole::TextOnAccent : NkRole::Text);
-				if (hit.Clicked(kMenuKeys[i]))
-					st.openMenu = (st.openMenu == i) ? -1 : i; // deuxieme clic = referme
+				// ⚠️ LE CLIC N'EST PLUS TRAITE ICI QUAND UN MENU EST DEROULE : a
+				// cet instant l'entree des panneaux est vide (main.cpp), donc
+				// `hit.Clicked` serait toujours faux et le silence passerait pour
+				// « le bouton ne marche pas ». `NkMenuBarClics`, appelee dans la
+				// couche 50 avec l'entree reelle, s'en charge.
+				if (st.openMenu < 0 && hit.Clicked(kMenuKeys[i]))
+					st.openMenu = i;
 				x += w;
 			}
 
@@ -149,7 +167,7 @@ namespace nkentseu {
 		inline void NkHierComposeName(NkModelerState &st, const char *base0, int32 newNode);
 		inline int32 NkModelFirstMesh(NkModelerState &st, int32 root) {
 			const int32 m = demo::Demo3DHostEnsureModelMesh(root);
-			if (m >= 0 && m < 176 && st.customNames[m][0] == 0)
+			if (m >= 0 && m < NkModelerState::kMaxNodeNames && st.customNames[m][0] == 0)
 				NkHierComposeName(st, "Mesh", m);
 			return m;
 		}
@@ -212,13 +230,13 @@ namespace nkentseu {
 				return -1;
 			if (st.sceneTabKind[st.activeTab] != 0) {
 				const int32 a = st.sceneTabAsset[st.activeTab] - 1;
-				return (a >= 0 && a < st.browserCount) ? a : -1;
+				return (a >= 0 && a < st.BrowserCount()) ? a : -1;
 			}
 			const int32 d = st.TabDoc(st.activeTab);
 			if (d < 0)
 				return -1;
 			const int32 c = st.docCard[d] - 1;
-			return (c >= 0 && c < st.browserCount) ? c : -1;
+			return (c >= 0 && c < st.BrowserCount()) ? c : -1;
 		}
 
 		inline void NkStoreSceneView(NkModelerState &st, int32 tab) {
@@ -314,22 +332,20 @@ namespace nkentseu {
 				if (!st.docUsed[d] || st.docTransient[d])
 					continue;
 				int32 e = st.docCard[d] - 1;
-				if (e < 0 || e >= st.browserCount || st.browserKind[e] != 5 ||
-					st.browserDoc[e] != d + 1) {
-					if (st.browserCount >= NkModelerState::kMaxBrowser)
-						continue; // navigateur plein : la scene reste sans carte
-					e = st.browserCount++;
-					st.browserKind[e] = 5;
+				if (e < 0 || e >= st.BrowserCount() || st.Card(e).kind != 5 ||
+					st.Card(e).doc != d + 1) {
+					e = st.CardAdd();
+					st.Card(e).kind = 5;
 					// A la RACINE : previsible tant que le selecteur de dossier
 					// personnalise n'existe pas (chantier suivant) ; la carte se
 					// range ensuite par glisser-deposer comme les autres.
-					st.browserParent[e] = -1;
-					st.browserSrcNode[e] = 0;
-					st.browserSub[e] = 0;
-					st.browserDoc[e] = d + 1;
+					st.Card(e).parent = -1;
+					st.Card(e).srcNode = 0;
+					st.Card(e).sub = 0;
+					st.Card(e).doc = d + 1;
 					st.docCard[d] = e + 1;
 				}
-				NkWidgetState::Copy(st.browserNames[e], st.docName[d], 31u);
+				NkWidgetState::Copy(st.Card(e).name, st.docName[d], 31u);
 			}
 		}
 		// ── ACTIVER UN ONGLET ───────────────────────────────────────────────────
@@ -426,15 +442,15 @@ namespace nkentseu {
 			// la fermeture : tout ce qu'on y faisait etait perdu, position comprise
 			// (constate par Rihen). Un editeur qui n'edite rien est pire que pas
 			// d'editeur du tout.
-			if (st.docIsoNode[d] == 0 && ek == 6 && ai >= 0 && ai < st.browserCount) {
-				int32 src = st.browserSrcNode[ai] - 1;
+			if (st.docIsoNode[d] == 0 && ek == 6 && ai >= 0 && ai < st.BrowserCount()) {
+				int32 src = st.Card(ai).srcNode - 1;
 				if (src < 0) {
 					// Carte creee par « + Model » : elle n'a pas encore de corps.
 					// Il nait ICI et devient LE corps de la carte -- sinon chaque
 					// ouverture repartait d'un cube neuf.
 					src = demo::Demo3DHostAddNode(2, 0);
 					if (src >= 0)
-						st.browserSrcNode[ai] = src + 1;
+						st.Card(ai).srcNode = src + 1;
 				}
 				if (src >= 0) {
 					demo::Demo3DHostArchiveTree(src, false);
@@ -463,114 +479,340 @@ namespace nkentseu {
 			// qu'une maquette qui ferait croire qu'on edite quelque chose.
 			st.editPreviewNode = 0;
 		}
+		// ═══════════════════════════════════════════════════════════════════════
+		//  LA BANDE D'ONGLETS — DESORMAIS CELLE DU KIT (2026-09-14)
+		// ═══════════════════════════════════════════════════════════════════════
+		//  ⚠️ CE QUI A CHANGE, ET POURQUOI CE N'EST PAS UN DEMENAGEMENT.
+		//     Les 130 lignes precedentes melangeaient DEUX choses : le dessin
+		//     d'une bande d'onglets (partageable) et la gestion des DOCUMENTS du
+		//     modeleur (`NkActivateTab`, `NkCloseSceneTab`, `NkBrowserSyncScenes`,
+		//     `DocAlloc`, la numerotation « Scene_N ») — 74 lignes sur 130.
+		//     Deplacer le bloc entier dans le kit y aurait fait entrer la notion
+		//     de scene, d'asset et de projet de CETTE application.
+		//
+		//     Donc : le DESSIN descend dans `NKEditorKit/Components/NkTabStrip*`,
+		//     et tout ce que les gestes DECLENCHENT reste ici, intact. Cette
+		//     fonction est devenue un ADAPTATEUR — elle remplit un modele, appelle,
+		//     et applique ce qu'on lui rapporte.
+		//
+		//  ⚠️ LE MEME CODE QUE NOGEE, ET C'EST VERIFIABLE : `NkDrawTabStrip` est
+		//     appele ici par `NkModelerComponentPaint` et chez la coquille par
+		//     `NkGuiComponentPaint`. Changer une metrique dans `NkTabStripModel.h`
+		//     doit deplacer les onglets des DEUX. Si une seule bouge, le partage
+		//     est une fiction — c'est le temoin exige au canal.
+		//
+		//  CE QUE LE MODELEUR GAGNE AU PASSAGE, et il faut le dire pour qu'on ne
+		//  le prenne pas pour une regression du recopiage :
+		//    • le LISERE ACCENT de l'onglet actif (§6 : deux signaux, pas un) ;
+		//    • la pastille « non enregistre » et la croix cessent d'etre imbriquees
+		//      — le defaut « avec une seule scene, aucune modification n'etait
+		//      jamais signalee » (Rihen) ne peut plus revenir : il est structurel ;
+		//    • la fermeture ne coupe plus la boucle de dessin en son milieu
+		//      (`break` sur « la liste a change ») : le composant RAPPORTE, on agit
+		//      apres.
+		//
+		//  CE QUI N'A PAS CHANGE, VOLONTAIREMENT : le renommage en place. Le
+		//  composant n'a pas le clavier (`NkComponentInput` n'en porte pas) ; il
+		//  rend le rectangle du libelle, et `EditableText` se pose dessus, ici,
+		//  exactement comme avant. C'est le meme contournement que le renommage de
+		//  l'arbre, pas un nouveau.
+		// ═══════════════════════════════════════════════════════════════════════
+		//  SONDE DU PEINTRE (`NK3D_SONDE_PEINTRE=1`) — canal onglets, (o1)
+		// ═══════════════════════════════════════════════════════════════════════
+		//  ⚠️ POURQUOI UNE IMAGE, ET PAS UN COMPTEUR. Le recensement
+		//     (`recense_primitives.py`) dit qu'une primitive est « implementee »
+		//     des qu'elle porte `override`. **Une primitive routee vers la
+		//     MAUVAISE fonction compile et se declare presente de la meme
+		//     facon.** Le seul juge est donc le pixel.
+		//
+		//  ⚠️ ELLE DESSINE PAR L'ADAPTATEUR, PAS PAR LE PEINTRE. L'argument est un
+		//     `NkComponentPaint &` : c'est exactement le chemin qu'emprunte un
+		//     composant partage. Passer par `NkModelerPainter` directement aurait
+		//     prouve que la LISTE DE DESSIN sait dessiner -- ce qu'on savait deja,
+		//     et pas ce qui manquait.
+		//
+		//  CHAQUE BOITE A UNE COULEUR DE FOND UNIQUE, et c'est ce qui rend la
+		//  mesure independante des coordonnees : le script cherche la couleur,
+		//  trouve la boite, et mesure dedans. Aucun nombre de pixels n'est
+		//  recopie d'un cote a l'autre -- et la capture du modeleur est 1,2 fois
+		//  plus grande que son espace logique (mesure du 14/09), donc toute
+		//  coordonnee recopiee serait fausse.
+		//
+		//    BLEU PUR    (0,0,255)   -> PolygonHex : un TRIANGLE rouge pur
+		//    VERT PUR    (0,255,0)   -> PushBlend  : deux gris qui se recouvrent
+		//    MAGENTA PUR (255,0,255) -> ImagePolygone : un quad texture
+		inline void PaintSondePeintre(NkModelerPainter &p, const NkRect &zone) {
+			using namespace nkentseu::editorkit;
+			NkModelerComponentPaint pc(p);
+			NkComponentPaint &a = pc; // ⚠️ par l'INTERFACE, comme un composant
+
+			const float32 c = 120.f, m = 12.f;
+			const float32 y0 = zone.y + m;
+
+			// ── A. PolygonHex : UN TRIANGLE, et sa forme est la preuve ──────────
+			// ⚠️ LE TEST N'EST PAS « y a-t-il du rouge ». Un routage vers un
+			//    remplissage de RECTANGLE donnerait aussi du rouge. Le script
+			//    verifie que les largeurs de rangees VARIENT -- un triangle, pas
+			//    un pave.
+			{
+				const NkRect b{zone.x + m, y0, c, c};
+				p.Fill(b, NkColor{0, 0, 255, 255});
+				const float32 tri[6] = {b.x + c * 0.5f, b.y + c * 0.12f,
+										b.x + c * 0.90f, b.y + c * 0.88f,
+										b.x + c * 0.10f, b.y + c * 0.88f};
+				a.PolygonHex(tri, 3, 0xFF0000FFu); // rouge pur, alpha plein
+			}
+
+			// ── B. PushBlend : le RECOUVREMENT est la preuve ────────────────────
+			// Deux gris (100) opaques qui se chevauchent. Sans melange, le second
+			// ECRASE le premier : le recouvrement vaut 100. En PlusLighter, il
+			// s'ADDITIONNE : ~200. Un `PushBlend` inerte rend donc 100, et c'est
+			// un nombre, pas une impression.
+			{
+				const NkRect b{zone.x + m * 2.f + c, y0, c, c};
+				p.Fill(b, NkColor{0, 255, 0, 255});
+				a.PushBlend(NkComponentPaint::NkPaintBlend::PlusLighter);
+				p.Fill({b.x + c * 0.10f, b.y + c * 0.25f, c * 0.50f, c * 0.50f},
+					   NkColor{100, 100, 100, 255});
+				p.Fill({b.x + c * 0.40f, b.y + c * 0.25f, c * 0.50f, c * 0.50f},
+					   NkColor{100, 100, 100, 255});
+				a.PopBlend();
+			}
+
+			// ── C. ImagePolygone : la NON-UNIFORMITE est la preuve ──────────────
+			// La texture est l'ATLAS DE LA POLICE : une vraie texture, deja
+			// chargee, dont le contenu n'est pas uniforme. Un routage qui peindrait
+			// un aplat donnerait une region d'UNE seule valeur ; le script exige
+			// qu'elle en porte plusieurs.
+			// ⚠️ `image == 0` rend faux par contrat -- on n'appelle donc que si la
+			//    police a bien une texture, sinon on n'aurait pas mesure la
+			//    primitive mais son garde-fou.
+			{
+				const NkRect b{zone.x + m * 3.f + c * 2.f, y0, c, c};
+				p.Fill(b, NkColor{255, 0, 255, 255});
+				const NkGuiFont *f = p.FontPtr();
+				const uint32 tex = (f && f->Valid()) ? f->TexId() : 0u;
+				const float32 q[8] = {b.x + c * 0.10f, b.y + c * 0.10f,
+									  b.x + c * 0.90f, b.y + c * 0.10f,
+									  b.x + c * 0.90f, b.y + c * 0.90f,
+									  b.x + c * 0.10f, b.y + c * 0.90f};
+				const float32 uv[8] = {0.f, 0.f, 0.35f, 0.f, 0.35f, 0.35f, 0.f, 0.35f};
+				const bool ok = a.ImagePolygone(q, uv, 4, tex, 100.f);
+				std::printf("[sonde-peintre] ImagePolygone : texture=%u -> %s\n", tex,
+							ok ? "DESSINEE" : "REFUSEE");
+			}
+
+			std::printf("[sonde-peintre] boites de 120 px : PolygonHex(bleu) "
+						"PushBlend(vert) ImagePolygone(magenta)\n");
+			std::fflush(stdout);
+		}
+
 		inline void PaintTabsI(NkModelerPainter &p, const NkRect &r, NkModelerState &st,
 							   NkHitRegistry &hit, NkWidgetState &ws, const nkgui::NkGuiInput &in) {
-			p.Fill(r, NkRole::PanelBg);
-			p.HLine(r.x, r.y + r.h - 1.f, r.w);
-			float32 x = S(10.f);
-			const float32 h = r.h - 2.f;
-			char key[32];
+			using namespace nkentseu::editorkit;
+
+			// ── 1. LE MODELE : ce que le modeleur a, dit dans le vocabulaire du kit
+			static NkTabStripModel m;
+			m.tabs.Clear();
 			for (int32 i = 0; i < st.sceneCount; ++i) {
 				const int32 di = st.TabDoc(i);
 				if (di < 0)
 					continue; // onglet sans document : anomalie, on ne peint rien
-				const float32 tw = p.TextW(st.docName[di]) + S(44.f);
-				const NkRect tr{x, r.y + 2.f, tw, h};
-				snprintf(key, sizeof(key), "tab.%d", i);
-				const bool over = hit.Add(key, tr);
-				const bool on = (i == st.activeTab);
-				p.Fill(tr, on ? NkRole::PanelHeader : (over ? NkRole::PanelBg : NkRole::InputBg), 3.f);
-				if (st.sceneTabKind[i] != 0) {
-					// Liseret de NATURE : distinguer d'un oeil les onglets EDITEUR
-					// des scenes. La couleur vient du MEME point de passage que les
-					// cartes du navigateur -- c'est la meme nature vue a deux
-					// endroits, elle ne doit pas pouvoir en avoir deux couleurs.
-					const uint8 k2 = (uint8)(st.sceneTabKind[i] - 1);
-					const int32 aT = st.sceneTabAsset[i] - 1;
-					const uint8 sT = (aT >= 0 && aT < st.browserCount) ? st.browserSub[aT] : 0;
-					p.Fill({tr.x, tr.y, tr.w, 2.f}, NkAssetColor(p, k2, sT)); // en HAUT (Rihen)
-				}
-				snprintf(key, sizeof(key), "tab.name.%d", i);
-				if (EditableText(p, hit, ws, in, key, {x + S(10.f), r.y, tw - S(32.f), r.h},
-								 st.docName[di], on ? NkRole::Text : NkRole::TextMuted,
-								 st.docName[di], 32u)) {
-					// RENOMMER L'ONGLET RENOMME SA CARTE, TOUT DE SUITE. Le nom ne
-					// se propageait qu'a l'enregistrement (via NkBrowserSyncScenes),
-					// si bien que le navigateur affichait l'ancien nom entre-temps
-					// (constate par Rihen). Symetrique du renommage depuis la carte :
-					// chaque sens agit A LA VALIDATION, jamais en continu -- une
-					// recopie a chaque frame ferait qu'un cote ecraserait l'autre.
-					const int32 e9 = st.docCard[di] - 1;
-					if (st.sceneTabKind[i] == 0 && e9 >= 0 && e9 < st.browserCount &&
-						st.browserKind[e9] == 5)
-						NkWidgetState::Copy(st.browserNames[e9], st.docName[di], 31u);
-				}
-				// PASTILLE ET CROIX PARTAGENT LE MEME EMPLACEMENT, mais leurs
-				// conditions different -- et c'est important : la pastille « non
-				// enregistre » vaut pour TOUTE scene, y compris la DERNIERE, alors
-				// que la croix n'apparait que s'il reste plus d'une scene (fermer
-				// la derniere laisserait l'application sans document). L'ancienne
-				// imbrication mettait la pastille SOUS la condition de la croix :
-				// avec une seule scene -- le cas le plus courant -- aucune
-				// modification n'etait jamais signalee (constate par Rihen).
-				{
-					snprintf(key, sizeof(key), "tab.close.%d", i);
-					const NkRect cr{x + tw - S(24.f), r.y + 2.f, S(20.f), h};
-					const bool canClose = st.sceneCount > 1;
-					const bool overClose = canClose && hit.Add(key, cr);
-					// MARQUEUR « NON ENREGISTRE » (Rihen) : une PASTILLE prend la
-					// place de la croix tant que la souris n'est pas dessus. MEME
-					// emplacement, donc la largeur de l'onglet ne bouge pas quand une
-					// scene devient modifiee -- des onglets qui changent de taille a
-					// la premiere frappe rendraient la barre illisible. Au survol la
-					// croix revient : on ferme sans avoir a viser ailleurs.
-					if (st.docDirty[di] && !overClose) {
-						const float32 d = S(7.f);
-						p.Fill({cr.x + (cr.w - d) * 0.5f, cr.y + (cr.h - d) * 0.5f, d, d},
-							   on ? NkRole::Text : NkRole::TextMuted, d * 0.5f);
-					} else if (canClose) {
-						HoverFill(p, cr, overClose, 2.f);
-						p.IconV(x + tw - S(20.f), r.y, r.h, NkIcon::WinClose, NkRole::TextMuted,
-								10.f);
-					}
-					if (canClose && hit.Clicked(key)) {
-						// LA CROIX FERME, SANS RIEN DEMANDER. Il n'y a plus rien a
-						// proteger : le document reste dans le projet et sa carte dans
-						// le navigateur. L'ancienne boite « Fermer sans enregistrer »
-						// disait vrai a l'epoque ou l'onglet ETAIT la scene ; la
-						// garder maintenant ferait redouter une perte qui n'existe
-						// plus. La pastille reste : elle dit que le PROJET n'est pas
-						// enregistre, ce qui est toujours exact.
-						NkCloseSceneTab(st, i);
-						break; // la liste a change
-					}
-				}
-				snprintf(key, sizeof(key), "tab.%d", i);
-				{
-					// Le clic sur le NOM bascule AUSSI l'onglet : la zone du nom
-					// recouvre celle de l'onglet et lui VOLAIT le survol --
-					// selectionner une scene exigeait de viser les bords (Rihen).
-					char nk2[32];
-					snprintf(nk2, sizeof(nk2), "tab.name.%d", i);
-					if (hit.Clicked(key) || (!ws.IsEditing(nk2) && hit.Clicked(nk2)))
-						NkActivateTab(st, i);
-				}
-				x += tw + 3.f;
-				// MARQUEUR DE SEPARATION entre en-tetes d'onglets (regle de
-				// Rihen) : sans lui, deux scenes cote a cote se confondaient.
-				if (i + 1 < st.sceneCount) {
-					p.VLine(x + 1.f, r.y + S(6.f), h - S(8.f));
-					x += S(5.f);
+				NkTabItem t;
+				// L'IDENTITE est l'INDICE D'ONGLET + 1 (0 est reserve par le contrat
+				// du composant). ⚠️ Pas le nom : il change au renommage, qui se fait
+				// DANS l'onglet. Pas l'indice de document : deux onglets peuvent
+				// montrer le meme document.
+				t.id = (nk_uint64)(i + 1);
+				t.label = NkString(st.docName[di]);
+				t.modified = st.docDirty[di];
+				// Fermer la DERNIERE laisserait l'application sans document.
+				t.closable = st.sceneCount > 1;
+				m.tabs.PushBack(t);
+			}
+			// ⚠️ LE LISERET DE NATURE PASSE PAR LE CROCHET, ET C'EST DELIBERE.
+			//    `NkTabItem::kindRole` attend un ROLE de theme ; la couleur de
+			//    nature du modeleur, elle, sort de `NkAssetColor(p, kind, sub)` —
+			//    une TABLE qui melange roles communs et roles propres, pas un role.
+			//    Lui faire tenir dans un `uint16` aurait demande soit d'inventer un
+			//    role par nature dans le kit (qui ne connait pas les natures d'asset
+			//    d'une application), soit de perdre la couleur. Le crochet
+			//    `tab_overlay` existe pour exactement ce cas : l'application dessine
+			//    ce que le composant ne peut pas connaitre.
+			//
+			//    ⚠️ ET C'EST CE QUI EMPECHE UNE REGRESSION : sans lui, les onglets
+			//       d'EDITEUR cesseraient de se distinguer des scenes d'un coup
+			//       d'oeil. « Demenager demande de prouver que l'original ne change
+			//       pas de comportement » — ce crochet est cette preuve, en code.
+			if (st.activeTab >= 0 && st.activeTab < st.sceneCount)
+				m.active = (nk_uint64)(st.activeTab + 1);
+
+			// ── 2. LE STYLE : les roles du modeleur, aucun litteral ─────────────
+			NkTabStripStyle s;
+			s.bandBg = (uint16)NkRole::PanelBg;
+			s.border = (uint16)NkRole::Border;
+			s.tabBg = (uint16)NkRole::InputBg;
+			s.tabHoverBg = (uint16)NkRole::PanelBg;
+			s.tabActiveBg = (uint16)NkRole::PanelHeader;
+			s.text = (uint16)NkRole::Text;
+			s.textMuted = (uint16)NkRole::TextMuted;
+			s.accent = (uint16)NkRole::AccentUi;
+
+			// ── 3. L'ENTREE ─────────────────────────────────────────────────────
+			NkComponentInput ci;
+			ci.surfaceScale = gUiScale; // les composants multiplient leurs metriques par elle
+			ci.mouseX = in.mousePos.x;
+			ci.mouseY = in.mousePos.y;
+			ci.wheel = in.wheel;
+			ci.mouseDown = in.mouseDown[0];
+			ci.mousePressed = in.mouseClicked[0];
+			ci.mouseReleased = in.mouseReleased[0];
+			ci.doubleClick = in.mouseDoubleClicked[0];
+			ci.rightPressed = in.mouseClicked[1];
+			ci.ctrl = in.ctrlDown;
+			ci.shift = in.shiftDown;
+
+			// ⚠️ LA SAISIE EN COURS GELE LE CLIC DU COMPOSANT. Sans cela, le clic
+			//    qui pose le curseur dans le champ de renommage serait AUSSI lu par
+			//    la bande comme « active cet onglet ». C'est le symetrique du
+			//    defaut que l'ancienne version avait dans l'autre sens (« la zone du
+			//    nom recouvre celle de l'onglet et lui VOLAIT le survol »).
+			char kEdit[32];
+			bool enSaisie = false;
+			for (int32 i = 0; i < st.sceneCount && !enSaisie; ++i) {
+				snprintf(kEdit, sizeof(kEdit), "tab.name.%d", i);
+				if (ws.IsEditing(kEdit))
+					enSaisie = true;
+			}
+			if (enSaisie) {
+				ci.mousePressed = false;
+				ci.rightPressed = false;
+			}
+
+			// ── 4. L'APPEL — LE code, celui que Nogee appelle aussi ─────────────
+			NkModelerComponentPaint peintre(p);
+
+			// Le crochet du liseret de nature. La hauteur vient de la METRIQUE du
+			// composant, pas d'un `2.f` reecrit ici : si `kind_bar_h` change, ce
+			// trait change avec lui.
+			// ⚠️ LE MODELE VOYAGE AVEC, ET CE N'EST PAS DU ZELE : l'`index` que le
+			//    crochet recoit est celui du MODELE, pas celui de `st.sceneTab*`.
+			//    Les deux different des qu'un onglet est saute (`TabDoc < 0`, le cas
+			//    d'anomalie juste au-dessus). Lire `sceneTabKind[index]` aurait
+			//    marche sur tous mes essais — ou rien n'est saute — et peint la
+			//    couleur d'une AUTRE nature le jour ou quelque chose l'est. On passe
+			//    donc par l'IDENTITE, seule chose que le composant promet de rendre.
+			struct Nature {
+					NkModelerState *st;
+					NkModelerPainter *p;
+					const NkTabStripModel *m;
+					float32 h;
+			} nature{&st, &p, &m, NkTabMetric(s, "kind_bar_h") * gUiScale};
+
+			NkTabStripHooks hooks;
+			hooks.user = &nature;
+			hooks.tabOverlay = [](void *user, NkComponentPaint &pc, int32 index, float32 x,
+								  float32 y, float32 w, float32 h) {
+				(void)h;
+				Nature *n = (Nature *)user;
+				NkModelerState &s2 = *n->st;
+				if (index < 0 || index >= (int32)n->m->tabs.Size())
+					return;
+				const int32 onglet = (int32)(n->m->tabs[(usize)index].id - 1);
+				if (onglet < 0 || onglet >= s2.sceneCount || s2.sceneTabKind[onglet] == 0)
+					return;
+				// La couleur vient du MEME point de passage que les cartes du
+				// navigateur — c'est la meme nature vue a deux endroits, elle ne
+				// doit pas pouvoir en avoir deux couleurs.
+				const uint8 k2 = (uint8)(s2.sceneTabKind[onglet] - 1);
+				const int32 aT = s2.sceneTabAsset[onglet] - 1;
+				const uint8 sT = (aT >= 0 && aT < s2.BrowserCount()) ? s2.Card(aT).sub : 0;
+				const NkColor c = NkAssetColor(*n->p, k2, sT);
+				// ⚠️ 0xRRGGBBAA — l'empaquetage du theme, celui que `FillColor`
+				//    attend. L'ecrire a l'envers donne un onglet bleu la ou il
+				//    devait etre orange, sans qu'aucun compilateur ne bronche.
+				const uint32 rgba = ((uint32)c.r << 24) | ((uint32)c.g << 16) |
+									((uint32)c.b << 8) | (uint32)c.a;
+				pc.FillColor({x, y, w, n->h}, rgba, 0.f); // en HAUT (Rihen)
+			};
+
+			const NkTabStripResult res =
+				NkDrawTabStrip(peintre, ci, {r.x, r.y, r.w, r.h}, m, s, hooks);
+
+			// ── LA GEOMETRIE, IMPRIMEE SUR DEMANDE ──────────────────────────────
+			// `NK3D_ONGLETS_TRACE=1`. Le composant RAPPORTE ses rectangles : les
+			// deduire d'une capture serait supposer, et j'ai deja paye ca une fois
+			// sur ce lot. Sans la variable, rien ne change.
+			if (std::getenv("NK3D_ONGLETS_TRACE") != nullptr) {
+				static uint32 sTick = 0;
+				if (++sTick % 60u == 1u) {
+					std::printf("[nk3d-onglets] echelle=%.4f  tab_pad_x(metrique)=%.2f  "
+								"n=%u\n",
+								(double)gUiScale, (double)NkTabMetric(s, "tab_pad_x"),
+								(unsigned)res.tabs.Size());
+					for (usize q = 0; q < res.tabs.Size(); ++q)
+						std::printf("[nk3d-onglet] %u  x=%.2f y=%.2f w=%.2f h=%.2f\n",
+									(unsigned)q, (double)res.tabs[q].x, (double)res.tabs[q].y,
+									(double)res.tabs[q].w, (double)res.tabs[q].h);
+					std::fflush(stdout);
 				}
 			}
-			const NkRect ar{x + S(4.f), r.y + 2.f, S(24.f), h};
-			HoverFill(p, ar, hit.Add("tab.add", ar));
-			p.IconV(x + S(8.f), r.y, r.h, NkIcon::Add, NkRole::Text, 12.f);
-			if (hit.Clicked("tab.add") && st.sceneCount < 8) {
+
+			// ── 5. LE RENOMMAGE EN PLACE, PAR-DESSUS ────────────────────────────
+			// Le composant ne renomme pas : il RAPPORTE ou il a pose le libelle.
+			for (usize k = 0; k < res.tabs.Size(); ++k) {
+				const NkTabRect &g = res.tabs[k];
+				const int32 i = (int32)(g.id - 1);
+				if (i < 0 || i >= st.sceneCount)
+					continue;
+				const int32 di = st.TabDoc(i);
+				if (di < 0)
+					continue;
+				const bool on = (i == st.activeTab);
+				char key[32];
+				snprintf(key, sizeof(key), "tab.name.%d", i);
+				if (EditableText(p, hit, ws, in, key, {g.labelX, r.y, g.labelW, r.h},
+								 st.docName[di], on ? NkRole::Text : NkRole::TextMuted,
+								 st.docName[di], 32u)) {
+					// RENOMMER L'ONGLET RENOMME SA CARTE, TOUT DE SUITE. Le nom ne se
+					// propageait qu'a l'enregistrement (via NkBrowserSyncScenes), si
+					// bien que le navigateur affichait l'ancien nom entre-temps
+					// (constate par Rihen). Chaque sens agit A LA VALIDATION, jamais
+					// en continu — une recopie a chaque image ferait qu'un cote
+					// ecraserait l'autre.
+					const int32 e9 = st.docCard[di] - 1;
+					if (st.sceneTabKind[i] == 0 && e9 >= 0 && e9 < st.BrowserCount() &&
+						st.Card(e9).kind == 5)
+						NkWidgetState::Copy(st.Card(e9).name, st.docName[di], 31u);
+				}
+			}
+
+			// ── 6. CE QUE LES GESTES DECLENCHENT — la part qui reste au modeleur ─
+			// ⚠️ APRES LE DESSIN, JAMAIS PENDANT. L'ancienne version fermait au
+			//    milieu de sa boucle et sortait par `break` (« la liste a change ») :
+			//    les onglets suivants n'etaient alors pas peints de l'image. Ici la
+			//    liste ne peut plus changer pendant qu'on la parcourt.
+			if (res.closeRequested) {
+				const int32 i = (int32)(res.closeId - 1);
+				if (i >= 0 && i < st.sceneCount && st.sceneCount > 1) {
+					// LA CROIX FERME, SANS RIEN DEMANDER. Il n'y a plus rien a
+					// proteger : le document reste dans le projet et sa carte dans le
+					// navigateur. L'ancienne boite « Fermer sans enregistrer » disait
+					// vrai a l'epoque ou l'onglet ETAIT la scene ; la garder
+					// maintenant ferait redouter une perte qui n'existe plus.
+					NkCloseSceneTab(st, i);
+				}
+			} else if (res.selectionChanged) {
+				const int32 i = (int32)(m.active - 1);
+				if (i >= 0 && i < st.sceneCount)
+					NkActivateTab(st, i);
+			}
+
+			if (res.addRequested && st.sceneCount < 8) {
 				// UN NOUVEAU DOCUMENT, puis une vue dessus. Le nom par defaut est
 				// NUMEROTE d'apres le nombre de documents et non d'onglets : numeroter
 				// par onglet redonnait « Scene_2 » a une scene creee apres en avoir
-				// ferme une -- deux scenes homonymes dans le meme projet.
+				// ferme une — deux scenes homonymes dans le meme projet.
 				const int32 nd = st.DocAlloc();
 				if (nd >= 0) {
 					int32 used = 0;
@@ -578,8 +820,8 @@ namespace nkentseu {
 						if (st.docUsed[q] && !st.docTransient[q])
 							++used;
 					snprintf(st.docName[nd], 32, "Scene_%d", (int)used);
-					// Une scene NEUVE nait VIERGE : les objets de la demo
-					// appartiennent a la premiere scene.
+					// Une scene NEUVE nait VIERGE : les objets de la demo appartiennent
+					// a la premiere scene.
 					st.docBlank[nd] = true;
 					st.docScene[nd] = (uint8)st.sceneIdNext++;
 					const int32 nt = st.sceneCount++;
@@ -1082,11 +1324,11 @@ namespace nkentseu {
 				else
 					snprintf(out, cap, "%s_%02d", base, n7);
 				bool taken = false;
-				for (int32 j7 = 0; j7 < st.browserCount; ++j7) {
-					if (st.browserNames[j7] == out)
+				for (int32 j7 = 0; j7 < st.BrowserCount(); ++j7) {
+					if (st.Card(j7).name == out)
 						continue; // soi-meme (nom en cours d'ecriture)
-					if (st.browserKind[j7] == kind && st.browserParent[j7] == parent &&
-						strcmp(st.browserNames[j7], out) == 0) {
+					if (st.Card(j7).kind == kind && st.Card(j7).parent == parent &&
+						strcmp(st.Card(j7).name, out) == 0) {
 						taken = true;
 						break;
 					}
@@ -1098,10 +1340,10 @@ namespace nkentseu {
 		// Homonyme de MEME NATURE dans un dossier (hors src et supprimes).
 		inline int32 NkBrowFindSame(NkModelerState &st, int32 dest, uint8 kind,
 									const char *name, int32 excl) {
-			for (int32 j8 = 0; j8 < st.browserCount; ++j8)
-				if (j8 != excl && st.browserKind[j8] == kind &&
-					st.browserParent[j8] == dest &&
-					strcmp(st.browserNames[j8], name) == 0)
+			for (int32 j8 = 0; j8 < st.BrowserCount(); ++j8)
+				if (j8 != excl && st.Card(j8).kind == kind &&
+					st.Card(j8).parent == dest &&
+					strcmp(st.Card(j8).name, name) == 0)
 					return j8;
 			return -1;
 		}
@@ -1110,11 +1352,11 @@ namespace nkentseu {
 		inline NkString NkBrowFolderRel(const NkModelerState &st, int32 card) {
 			NkString parts[8];
 			int32 n = 0, cur = card;
-			for (int32 g = 0; g < 8 && cur >= 0 && cur < st.browserCount; ++g) {
-				if (st.browserKind[cur] != 1)
+			for (int32 g = 0; g < 8 && cur >= 0 && cur < st.BrowserCount(); ++g) {
+				if (st.Card(cur).kind != 1)
 					break;
-				parts[n++] = st.browserNames[cur];
-				cur = st.browserParent[cur];
+				parts[n++] = st.Card(cur).name;
+				cur = st.Card(cur).parent;
 			}
 			NkString out;
 			for (int32 i = n - 1; i >= 0; --i) {
@@ -1146,21 +1388,21 @@ namespace nkentseu {
 			// LES DOSSIERS D'ABORD, toujours -- meme en ordre decroissant. Un
 			// dossier n'est pas un element de la liste, c'est le chemin vers la
 			// suite ; le renvoyer en bas oblige a le chercher.
-			const bool fa = st.browserKind[a] == 1, fb = st.browserKind[b] == 1;
+			const bool fa = st.Card(a).kind == 1, fb = st.Card(b).kind == 1;
 			if (fa != fb)
 				return fa;
 			int32 c = 0;
 			if (st.browSort == 1) { // TYPE, puis nom a type egal
-				c = (int32)st.browserKind[a] - (int32)st.browserKind[b];
+				c = (int32)st.Card(a).kind - (int32)st.Card(b).kind;
 				if (c == 0)
-					c = NkBrowNameCmp(st.browserNames[a], st.browserNames[b]);
+					c = NkBrowNameCmp(st.Card(a).name, st.Card(b).name);
 			} else if (st.browSort == 2) { // DATE, puis nom a date egale
-				const nk_int64 ta = st.browserTime[a], tb = st.browserTime[b];
+				const nk_int64 ta = st.Card(a).time, tb = st.Card(b).time;
 				c = (ta < tb) ? -1 : ((ta > tb) ? 1 : 0);
 				if (c == 0)
-					c = NkBrowNameCmp(st.browserNames[a], st.browserNames[b]);
+					c = NkBrowNameCmp(st.Card(a).name, st.Card(b).name);
 			} else {
-				c = NkBrowNameCmp(st.browserNames[a], st.browserNames[b]);
+				c = NkBrowNameCmp(st.Card(a).name, st.Card(b).name);
 			}
 			// Le SENS ne s'applique qu'au critere, jamais a la regle des dossiers.
 			return st.browSortDesc ? (c > 0) : (c < 0);
@@ -1171,15 +1413,15 @@ namespace nkentseu {
 		/// couterait plus en lecture qu'il ne rapporterait en cycles.
 		inline int32 NkBrowVisible(const NkModelerState &st, int32 *out, int32 cap) {
 			int32 n = 0;
-			for (int32 i = 0; i < st.browserCount && n < cap; ++i) {
-				if (st.browserKind[i] == 255 || st.browserParent[i] != st.browserFolder)
+			for (int32 i = 0; i < st.BrowserCount() && n < cap; ++i) {
+				if (st.Card(i).kind == 255 || st.Card(i).parent != st.browserFolder)
 					continue;
 				// Filtre par TYPE. Les DOSSIERS restent toujours visibles : ils sont
 				// le chemin vers le reste, pas un resultat de recherche.
-				if (st.browFilter != 0u && st.browserKind[i] != 1 &&
-					(st.browFilter & (1u << st.browserKind[i])) == 0u)
+				if (st.browFilter != 0u && st.Card(i).kind != 1 &&
+					(st.browFilter & (1u << st.Card(i).kind)) == 0u)
 					continue;
-				if (!NkNameMatches(st.browserNames[i], st.searchBrowser))
+				if (!NkNameMatches(st.Card(i).name, st.searchBrowser))
 					continue;
 				int32 k = n++;
 				while (k > 0 && NkBrowBefore(st, i, out[k - 1])) {
@@ -1202,16 +1444,16 @@ namespace nkentseu {
 				// LE FICHIER SUIT LA CARTE (Rihen). Il part en CORBEILLE, pas au
 				// neant : une suppression de trop doit pouvoir se rattraper -- meme
 				// exigence que « fermer un onglet ne supprime rien ».
-				if (st.browserFile[s2][0]) {
-					st.DelPendPush(st.browserFile[s2]);
-					st.browserFile[s2][0] = 0;
-				} else if (st.browserKind[s2] == 1) {
+				if (st.Card(s2).file[0]) {
+					st.DelPendPush(st.Card(s2).file);
+					st.Card(s2).file[0] = 0;
+				} else if (st.Card(s2).kind == 1) {
 					// Un DOSSIER n'a pas de fichier : c'est son repertoire qui part.
 					st.DelPendPush(NkBrowFolderRel(st, s2).CStr());
 				}
-				st.browserKind[s2] = 255;
-				for (int32 j4 = 0; j4 < st.browserCount; ++j4)
-					if (st.browserParent[j4] == s2 && st.browserKind[j4] != 255 && sp2 < 63)
+				st.Card(s2).kind = 255;
+				for (int32 j4 = 0; j4 < st.BrowserCount(); ++j4)
+					if (st.Card(j4).parent == s2 && st.Card(j4).kind != 255 && sp2 < 63)
 						stk[sp2++] = j4;
 			}
 			if (st.browserFolder == root2)
@@ -1230,17 +1472,15 @@ namespace nkentseu {
 				--sp2;
 				const int32 s2 = stk[sp2][0];
 				const int32 p2 = stk[sp2][1];
-				if (st.browserCount >= NkModelerState::kMaxBrowser)
-					break;
-				const int32 k4 = st.browserCount++;
-				st.browserKind[k4] = st.browserKind[s2];
-				st.browserParent[k4] = p2;
-				st.browserSrcNode[k4] = st.browserSrcNode[s2];
-				NkBrowUniqueName(st, st.browserKind[s2], p2, st.browserNames[s2],
-								 st.browserNames[k4], 32);
-				if (st.browserKind[s2] == 1)
+				const int32 k4 = st.CardAdd();
+				st.Card(k4).kind = st.Card(s2).kind;
+				st.Card(k4).parent = p2;
+				st.Card(k4).srcNode = st.Card(s2).srcNode;
+				NkBrowUniqueName(st, st.Card(s2).kind, p2, st.Card(s2).name,
+								 st.Card(k4).name, 32);
+				if (st.Card(s2).kind == 1)
 					for (int32 j4 = 0; j4 < k4; ++j4)
-						if (st.browserParent[j4] == s2 && st.browserKind[j4] != 255 &&
+						if (st.Card(j4).parent == s2 && st.Card(j4).kind != 255 &&
 							sp2 < 63) {
 							stk[sp2][0] = j4;
 							stk[sp2][1] = k4;
@@ -1251,17 +1491,17 @@ namespace nkentseu {
 		// DEPLACER en REMPLACANT : dossier homonyme = FUSION recursive (le
 		// contenu migre et l'identite se reverifie a chaque niveau -- Windows).
 		inline void NkBrowMoveReplace(NkModelerState &st, int32 src, int32 dest) {
-			const int32 dup = NkBrowFindSame(st, dest, st.browserKind[src],
-											 st.browserNames[src], src);
+			const int32 dup = NkBrowFindSame(st, dest, st.Card(src).kind,
+											 st.Card(src).name, src);
 			if (dup < 0) {
-				st.browserParent[src] = dest;
+				st.Card(src).parent = dest;
 				return;
 			}
-			if (st.browserKind[src] == 1) {
-				for (int32 c8 = 0; c8 < st.browserCount; ++c8)
-					if (st.browserKind[c8] != 255 && st.browserParent[c8] == src)
+			if (st.Card(src).kind == 1) {
+				for (int32 c8 = 0; c8 < st.BrowserCount(); ++c8)
+					if (st.Card(c8).kind != 255 && st.Card(c8).parent == src)
 						NkBrowMoveReplace(st, c8, dup);
-				st.browserKind[src] = 255; // la coquille vide disparait
+				st.Card(src).kind = 255; // la coquille vide disparait
 				if (st.browserFolder == src)
 					st.browserFolder = dup;
 			} else {
@@ -1278,31 +1518,29 @@ namespace nkentseu {
 		// Remplacement EXPLICITE d'un seul element (choix du dialogue).
 		inline void NkBrowReplaceOne(NkModelerState &st, int32 src, int32 dest,
 									 bool isCopy) {
-			const int32 dup = NkBrowFindSame(st, dest, st.browserKind[src],
-											 st.browserNames[src], src);
+			const int32 dup = NkBrowFindSame(st, dest, st.Card(src).kind,
+											 st.Card(src).name, src);
 			if (dup >= 0)
 				NkBrowDelRec(st, dup);
 			if (isCopy)
 				NkBrowCopyRecU(st, src, dest);
 			else
-				st.browserParent[src] = dest;
+				st.Card(src).parent = dest;
 		}
 		inline int32 NkBrowCopyOne(NkModelerState &st, int32 src, int32 par) {
-			if (st.browserCount >= NkModelerState::kMaxBrowser)
-				return -1;
-			const int32 k4 = st.browserCount++;
-			st.browserKind[k4] = st.browserKind[src];
-			st.browserParent[k4] = par;
-			st.browserSrcNode[k4] = st.browserSrcNode[src];
-			snprintf(st.browserNames[k4], 32, "%s", st.browserNames[src]);
+			const int32 k4 = st.CardAdd();
+			st.Card(k4).kind = st.Card(src).kind;
+			st.Card(k4).parent = par;
+			st.Card(k4).srcNode = st.Card(src).srcNode;
+			snprintf(st.Card(k4).name, 32, "%s", st.Card(src).name);
 			return k4;
 		}
 		inline void NkBrowCopyReplace(NkModelerState &st, int32 src, int32 dest) {
-			const int32 dup = NkBrowFindSame(st, dest, st.browserKind[src],
-											 st.browserNames[src], src);
-			if (dup >= 0 && st.browserKind[src] == 1) {
-				for (int32 c8 = 0; c8 < st.browserCount; ++c8)
-					if (st.browserKind[c8] != 255 && st.browserParent[c8] == src)
+			const int32 dup = NkBrowFindSame(st, dest, st.Card(src).kind,
+											 st.Card(src).name, src);
+			if (dup >= 0 && st.Card(src).kind == 1) {
+				for (int32 c8 = 0; c8 < st.BrowserCount(); ++c8)
+					if (st.Card(c8).kind != 255 && st.Card(c8).parent == src)
 						NkBrowCopyReplace(st, c8, dup);
 				return;
 			}
@@ -1317,27 +1555,27 @@ namespace nkentseu {
 				return;
 			}
 			const int32 nk8 = NkBrowCopyOne(st, src, dest);
-			if (nk8 >= 0 && st.browserKind[src] == 1)
-				for (int32 c8 = 0; c8 < st.browserCount; ++c8)
-					if (c8 != nk8 && st.browserKind[c8] != 255 &&
-						st.browserParent[c8] == src)
+			if (nk8 >= 0 && st.Card(src).kind == 1)
+				for (int32 c8 = 0; c8 < st.BrowserCount(); ++c8)
+					if (c8 != nk8 && st.Card(c8).kind != 255 &&
+						st.Card(c8).parent == src)
 						NkBrowCopyReplace(st, c8, nk8);
 		}
 		// DEMANDE de transfert : sans homonyme on agit ; sinon le DIALOGUE
 		// Renommer / Remplacer / Arreter tranche (regle de Rihen).
 		inline void NkBrowRequestTransfer(NkModelerState &st, int32 src, int32 dest,
 										  bool isCopy, float32 mx, float32 my) {
-			if (src < 0 || st.browserKind[src] == 255)
+			if (src < 0 || st.Card(src).kind == 255)
 				return;
-			if (!isCopy && st.browserParent[src] == dest)
+			if (!isCopy && st.Card(src).parent == dest)
 				return; // deja la
-			const int32 dup = NkBrowFindSame(st, dest, st.browserKind[src],
-											 st.browserNames[src], src);
+			const int32 dup = NkBrowFindSame(st, dest, st.Card(src).kind,
+											 st.Card(src).name, src);
 			if (dup < 0) {
 				if (isCopy)
 					NkBrowCopyRecU(st, src, dest);
 				else
-					st.browserParent[src] = dest;
+					st.Card(src).parent = dest;
 				return;
 			}
 			st.browConfSrc = src;

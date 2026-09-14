@@ -1,4 +1,5 @@
 // =============================================================================
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // NkRHI_Device_VK.cpp — Backend Vulkan du NkIDevice
 // =============================================================================
 #ifdef NK_RHI_VK_ENABLED
@@ -28,7 +29,13 @@
 #endif
 
 #define NK_VK_LOG(...) logger_src.Infof("[NkRHI_VK] " __VA_ARGS__)
-#define NK_VK_ERR(...) logger_src.Infof("[NkRHI_VK][ERR] " __VA_ARGS__)
+// 🔴 UNE ERREUR SE JOURNALISE AU NIVEAU ERREUR. Jusqu'au 2026-09-07 cette
+// macro appelait `Infof` : le `[ERR]` n'etait que du TEXTE dans le message,
+// invisible a tout filtre de niveau. Mesure ce jour-la : les CINQ dorsaux du
+// RHI faisaient pareil, pour 126 sites d'erreur au total, aucun au bon
+// niveau. C'est ainsi qu'un shader refuse par le pilote a pu vivre invisible
+// assez longtemps pour que Rodolf regle un parametre mort.
+#define NK_VK_ERR(...) logger_src.Errorf("[NkRHI_VK][ERR] " __VA_ARGS__)
 #define NK_VK_CHECK(r)                                                                                                 \
 	do {                                                                                                               \
 		VkResult _r = (r);                                                                                             \
@@ -1332,8 +1339,13 @@ namespace nkentseu {
 		// deja pris (NkMutex non recursif : appeler CreateBuffer/DestroyBuffer
 		// publics ici causerait un deadlock).
 		if (desc.initialData) {
-			uint32 rowPitch = desc.rowPitch > 0 ? desc.rowPitch : desc.width * NkFormatBytesPerPixel(desc.format);
-			uint64 imgSz = rowPitch * desc.height;
+			// Arithmetique de BLOCS : `width * octets-par-pixel` rendait 0 sur
+			// tout format compresse (2026-09-05). `NkFormatRowPitch` compte des
+			// rangees de blocs quand il le faut, et `NkFormatRowCount` dit
+			// combien il y en a — une texture 4x4 en BC1 fait UNE rangee, pas
+			// quatre.
+			uint32 rowPitch = desc.rowPitch > 0 ? desc.rowPitch : NkFormatRowPitch(desc.format, desc.width);
+			uint64 imgSz = (uint64)rowPitch * NkFormatRowCount(desc.format, desc.height);
 			NkBufferDesc sd = NkBufferDesc::Staging(imgSz);
 			bool stagingNeedsAsyncUpload = false;
 			auto stageH = CreateBufferUnlocked(sd, &stagingNeedsAsyncUpload);
@@ -1459,9 +1471,10 @@ namespace nkentseu {
 		if (!it)
 			return false;
 		auto &desc = it->desc;
-		uint32 bpp = NkFormatBytesPerPixel(desc.format);
-		uint32 rp = rowPitch > 0 ? rowPitch : w * bpp;
-		uint64 sz = (uint64)rp * h * d2;
+		// Blocs compris : sur un format compresse, `rp` est une rangee de blocs
+		// et `NkFormatRowCount(h)` en donne le nombre.
+		uint32 rp = rowPitch > 0 ? rowPitch : NkFormatRowPitch(desc.format, w);
+		uint64 sz = (uint64)rp * NkFormatRowCount(desc.format, h) * d2;
 		NkBufferDesc sd = NkBufferDesc::Staging(sz);
 		auto stageH = CreateBuffer(sd);
 		auto &stage = mBuffers[stageH.id];
@@ -2648,10 +2661,19 @@ namespace nkentseu {
 				return VK_FORMAT_BC1_RGB_UNORM_BLOCK;
 			case NkGPUFormat::NK_BC1_RGB_SRGB:
 				return VK_FORMAT_BC1_RGB_SRGB_BLOCK;
+			// ⚠️ Completes le 2026-09-07 : `NK_BC3_SRGB` et `NK_BC5_SNORM` tombaient
+			// au `default:`, donc sur un format NON COMPRESSE. Le meme trou a fait
+			// planter le pilote DX11 (33 Mo lus dans un tampon de 8) et produit 25
+			// erreurs sur OpenGL. Trouve en cherchant le defaut dans TOUS les
+			// dorsaux le jour ou il a ete corrige dans un seul.
 			case NkGPUFormat::NK_BC3_UNORM:
 				return VK_FORMAT_BC3_UNORM_BLOCK;
+			case NkGPUFormat::NK_BC3_SRGB:
+				return VK_FORMAT_BC3_SRGB_BLOCK;
 			case NkGPUFormat::NK_BC5_UNORM:
 				return VK_FORMAT_BC5_UNORM_BLOCK;
+			case NkGPUFormat::NK_BC5_SNORM:
+				return VK_FORMAT_BC5_SNORM_BLOCK;
 			case NkGPUFormat::NK_BC7_UNORM:
 				return VK_FORMAT_BC7_UNORM_BLOCK;
 			case NkGPUFormat::NK_BC7_SRGB:

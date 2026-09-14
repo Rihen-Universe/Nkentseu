@@ -1,4 +1,5 @@
 // =============================================================================
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // NkShaderLibrary.cpp  — NKRenderer v4.0
 // =============================================================================
 #include "NkShaderLibrary.h"
@@ -192,7 +193,17 @@ namespace nkentseu {
 		// SOURCE .nksl, pas du code généré — donc sans ce salt, un fix de codegen
 		// (même HLSL régénéré) sert l'ancien résultat bugué depuis le cache disque
 		// jusqu'à purge manuelle. Bumper invalide automatiquement tous les .nksc.
-		static const char *kShaderGenVersion = "g4";
+		//
+		// g4 -> g5 (2026-09-13) : BuiltinToHLSL compare désormais sans la casse
+		// (NkSLCodeGenHLSL.cpp et NkSLCodeGenHLSLDX12.cpp) — sans ce palier, le
+		// correctif reste INVISIBLE. Mesuré sur la machine de Rodolf, cache intact
+		// entre les deux : correctif seul, palier g4 → `error X3004: undeclared
+		// identifier 'gl_fragcoord'` TOUJOURS présente au démarrage de NK3DModeler
+		// (183 .nksc en cache, dont un qui contient littéralement le HLSL cassé) ;
+		// correctif + palier g5 → zéro erreur de nuanceur. Le commentaire ci-dessus
+		// annonçait exactement ça depuis le début ; il n'avait simplement jamais été
+		// suivi par le commit qui en avait besoin.
+		static const char *kShaderGenVersion = "g5";
 
 		static const char *ApiCacheTag(NkGraphicsApi api) {
 			switch (api) {

@@ -144,7 +144,23 @@ namespace nkentseu {
 				pd.depthStencil.depthWriteEnable = false;
 				pd.blend = NkBlendDesc::Alpha();
 				pd.debugName = "TrailMesh";
+				// 🔴 AUCUN `pd.shader` N'EST POSE ICI, ET CE N'EST PAS UN OUBLI DE
+				// CE COMMIT : le bloc voisin des billboards fait `pd.shader =
+				// particleShader` (l. 110), celui-ci et le suivant ne le font pas.
+				// Le pipeline nait donc INVALIDE, et il est pourtant lie au dessin
+				// (l. ~592). C'est la face d'execution du defaut deja grave dans le
+				// `CLAUDE.md` parent le 2026-09-03 : « aucun des trois pipelines VFX
+				// n'a de shader — Draw part sans programme ».
+				//
+				// Le refus se DIT ici, la ou le geste est fait, et pas seulement
+				// dans le RHI : Vulkan le journalisait (« shader handle id=0
+				// introuvable ») pendant que DX11 rendait `{}` en SILENCE. Meme
+				// trou, un seul dorsal parlait.
 				mPipeTrail = mDevice->CreateGraphicsPipeline(pd);
+				if (!mPipeTrail.IsValid())
+					logger.Errorf("[NkVFXSystem] pipeline 'TrailMesh' INVALIDE (shader_valid=%d) -- "
+								  "aucune trainee ne se dessinera. Aucun shader ne lui est assigne.\n",
+								  pd.shader.IsValid() ? 1 : 0);
 			}
 			{
 				NkGraphicsPipelineDesc pd;
@@ -154,7 +170,12 @@ namespace nkentseu {
 				pd.depthStencil.depthWriteEnable = false;
 				pd.blend = NkBlendDesc::Alpha();
 				pd.debugName = "Decal";
+				// Meme trou que « TrailMesh » ci-dessus : aucun shader assigne.
 				mPipeDecal = mDevice->CreateGraphicsPipeline(pd);
+				if (!mPipeDecal.IsValid())
+					logger.Errorf("[NkVFXSystem] pipeline 'Decal' INVALIDE (shader_valid=%d) -- "
+								  "aucun decal ne se dessinera. Aucun shader ne lui est assigne.\n",
+								  pd.shader.IsValid() ? 1 : 0);
 			}
 
 			return true;

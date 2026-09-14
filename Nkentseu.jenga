@@ -449,9 +449,9 @@ with workspace("Nkentseu", location="."):
 
 
 
-    dutc(enable=True, allow=["NKCore_Tests", "NKMath_Tests", "NKContainers_Tests", "NKMemory_Tests", "NKPhysics_Tests", "NKFileSystem_Tests", "NKStream_Tests", "NKReflection_Tests", "NKWindow_Tests", "NKCamera_Tests", "NKCollision_Tests", "NKImage_Tests", "NKPlatform_Tests", "NKLogger_Tests", "NKTime_Tests", "Noge_Tests", "NKThreading_Tests", "NKAnima_Tests", "NKSerialization_Smoke_Tests", "NKECS_EntitySerialization_Tests", "NKXR_Xr_Tests", "NKAudio_Audio_Tests", "NKSerialization_ReflectSerializer_Tests", "NKSerialization_ReflectPhase3_Tests", "NKSerialization_ReflectObjContainer_Tests", "NKSerialization_Bench_Tests", "NKECS_ReflectBridge_Tests", "NKXR_Ar_Tests", "NKSerialization_ReflectPhase5_Tests", "NKRenderer_Tests"])  # reouverture module par module (2026-09-04, Rodolf : « on suit ta recommandation »)
+    dutc(enable=True, allow=["NKCore_Tests", "NKMath_Tests", "NKContainers_Tests", "NKMemory_Tests", "NKPhysics_Tests", "NKFileSystem_Tests", "NKStream_Tests", "NKReflection_Tests", "NKWindow_Tests", "NKCamera_Tests", "NKCollision_Tests", "NKImage_Tests", "NKPlatform_Tests", "NKLogger_Tests", "NKTime_Tests", "Noge_Tests", "NKThreading_Tests", "NKAnima_Tests", "NKSerialization_Smoke_Tests", "NKECS_EntitySerialization_Tests", "NKXR_Xr_Tests", "NKAudio_Audio_Tests", "NKSerialization_ReflectSerializer_Tests", "NKSerialization_ReflectPhase3_Tests", "NKSerialization_ReflectObjContainer_Tests", "NKSerialization_Bench_Tests", "NKECS_ReflectBridge_Tests", "NKXR_Ar_Tests", "NKSerialization_ReflectPhase5_Tests", "NKRenderer_Tests", "NKImage_TextureBake_Tests", "NKRenderer_TextureAsset_Tests"])  # reouverture module par module (2026-09-04, Rodolf : « on suit ta recommandation »)
 
-    dute(enable=True, allow=["NKCore_Tests", "NKMath_Tests", "NKContainers_Tests", "NKMemory_Tests", "NKPhysics_Tests", "NKFileSystem_Tests", "NKStream_Tests", "NKReflection_Tests", "NKWindow_Tests", "NKCamera_Tests", "NKCollision_Tests", "NKImage_Tests", "NKPlatform_Tests", "NKLogger_Tests", "NKTime_Tests", "Noge_Tests", "NKThreading_Tests", "NKAnima_Tests", "NKSerialization_Smoke_Tests", "NKECS_EntitySerialization_Tests", "NKXR_Xr_Tests", "NKAudio_Audio_Tests", "NKSerialization_ReflectSerializer_Tests", "NKSerialization_ReflectPhase3_Tests", "NKSerialization_ReflectObjContainer_Tests", "NKSerialization_Bench_Tests", "NKECS_ReflectBridge_Tests", "NKXR_Ar_Tests", "NKSerialization_ReflectPhase5_Tests", "NKRenderer_Tests"])
+    dute(enable=True, allow=["NKCore_Tests", "NKMath_Tests", "NKContainers_Tests", "NKMemory_Tests", "NKPhysics_Tests", "NKFileSystem_Tests", "NKStream_Tests", "NKReflection_Tests", "NKWindow_Tests", "NKCamera_Tests", "NKCollision_Tests", "NKImage_Tests", "NKPlatform_Tests", "NKLogger_Tests", "NKTime_Tests", "Noge_Tests", "NKThreading_Tests", "NKAnima_Tests", "NKSerialization_Smoke_Tests", "NKECS_EntitySerialization_Tests", "NKXR_Xr_Tests", "NKAudio_Audio_Tests", "NKSerialization_ReflectSerializer_Tests", "NKSerialization_ReflectPhase3_Tests", "NKSerialization_ReflectObjContainer_Tests", "NKSerialization_Bench_Tests", "NKECS_ReflectBridge_Tests", "NKXR_Ar_Tests", "NKSerialization_ReflectPhase5_Tests", "NKRenderer_Tests", "NKImage_TextureBake_Tests", "NKRenderer_TextureAsset_Tests"])
 
 
 
@@ -1252,6 +1252,12 @@ with workspace("Nkentseu", location="."):
 
         pass
 
+    with include("Applications/NKUVUnwrapTest/NKUVUnwrapTest.jenga"):
+        pass
+    with include("Applications/NKGeniaTemoin/NKGeniaTemoin.jenga"):
+
+        pass
+
     with include("Applications/NkAnimaTest/NkAnimaTest.jenga"):
 
         pass
@@ -1365,6 +1371,16 @@ with workspace("Nkentseu", location="."):
 
 
     with include("Applications/NKQwen2Chat/NKQwen2Chat.jenga"):
+
+        pass
+
+
+    # NKDesignLLM : l'autre cote du contrat de NkUIDesign -- une invite dans un
+    # FICHIER, une reponse dans un FICHIER. L'application de design ne le connait
+    # pas : elle connait un gabarit de ligne de commande a deux trous. C'est
+    # l'equivalent exact du pont GENIA du modeleur, et c'est ce qui permettra a
+    # un modele entraine chez Rihen de le remplacer sans qu'une ligne bouge.
+    with include("Applications/NKDesignLLM/NKDesignLLM.jenga"):
 
         pass
 
@@ -1546,6 +1562,24 @@ with workspace("Nkentseu", location="."):
 
 
 
+    with include("Applications/NKMeshMenuTest/NKMeshMenuTest.jenga"):
+
+        pass
+
+
+
+    with include("Applications/NKFoldTest/NKFoldTest.jenga"):
+
+        pass
+
+
+
+    with include("Applications/NKNormalesTest/NKNormalesTest.jenga"):
+
+        pass
+
+
+
     with include("Applications/NKMeshRenderTest/NKMeshRenderTest.jenga"):
 
         pass
@@ -1574,6 +1608,30 @@ with workspace("Nkentseu", location="."):
 
 
     with include("Applications/NkMatGraphDemo/NkMatGraphDemo.jenga"):
+
+        pass
+
+
+
+    # NkTerrainCheck -- une image de hauteurs devient un terrain dont chaque sommet
+
+    # est a la hauteur que l image dit. Meme chaine de liaison que NkMatGraphDemo
+
+    # (l autre banc hors-ecran qui tire NKRenderer) : enregistre juste apres lui.
+
+    with include("Applications/NkTerrainCheck/NkTerrainCheck.jenga"):
+
+        pass
+
+
+
+    # NkSableCheck -- une roue passe, le sol garde-t-il son orniere ? et le tas
+
+    # s effondre-t-il au-dela de son angle de repos ? Meme chaine que NkTerrainCheck
+
+    # (NkTerrainSable vit dans le meme module) : enregistre juste apres lui.
+
+    with include("Applications/NkSableCheck/NkSableCheck.jenga"):
 
         pass
 
@@ -1608,6 +1666,23 @@ with workspace("Nkentseu", location="."):
 
 
     with include("Applications/NKEditorKitDemo/NKEditorKitDemo.jenga"):
+
+        pass
+
+
+    # SONDE DE MESURE (canal chrome, mesure b1) -- PAS UN PRODUIT.
+    # Mesure si `NkEditorShell::SetHeaderLayout` honore ses pixels.
+    # AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
+    with include("Applications/NkChromeProbe/NkChromeProbe.jenga"):
+
+        pass
+
+
+
+    # SONDE DE MESURE (canal onglets : o1 la bande partagee, o2 les accents).
+    # PAS UN PRODUIT -- sa fenetre le dit dans son titre et elle se ferme seule.
+    # AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
+    with include("Applications/NkOngletSonde/NkOngletSonde.jenga"):
 
         pass
 
@@ -1653,6 +1728,18 @@ with workspace("Nkentseu", location="."):
 
 
     with include("Applications/NKGuiDrawTest/NKGuiDrawTest.jenga"):
+
+        pass
+
+
+
+    with include("Applications/NKGuiMonteTest/NKGuiMonteTest.jenga"):
+
+        pass
+
+
+
+    with include("Applications/NKGuiInteractTest/NKGuiInteractTest.jenga"):
 
         pass
 
@@ -1806,4 +1893,21 @@ with workspace("Nkentseu", location="."):
     # L'editeur d'Unkeny. Il vit ici, pas dans Engine : un moteur ne
     # contient pas son outil.
     with include("Applications/UnkenyEditor/UnkenyEditor.jenga"):
+        pass
+
+    # Le four a textures : outil en ligne de commande, sans GPU ni fenetre.
+    with include("Tools/NkTexBake/NkTexBake.jenga"):
+        pass
+
+    # Banc du sequenceur de Noge : des cles entrent, des images PNG numerotees
+    # sortent. Sans fenetre et sans GPU -- les pixels sont peints par le
+    # processeur. Il prouve le pilote temporel (cles -> pose ECS -> fichiers),
+    # PAS le moteur de rendu, qui est une question separee.
+    with include("Applications/NkSequenceCheck/NkSequenceCheck.jenga"):
+        pass
+
+    # Sonde : un NkIDevice se cree-t-il SANS FENETRE, et la couleur relue est-elle
+    # celle qu on a demandee ? Deux effacements differents doivent donner deux
+    # relectures differentes -- sinon c est l instrument qui ment, pas le dorsal.
+    with include("Applications/NkOffscreenProbe/NkOffscreenProbe.jenga"):
         pass

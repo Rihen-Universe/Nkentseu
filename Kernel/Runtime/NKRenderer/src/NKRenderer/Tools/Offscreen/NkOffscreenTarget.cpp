@@ -1,5 +1,6 @@
 // =============================================================================
 // NkOffscreenTarget.cpp  — NKRenderer v4.0
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // =============================================================================
 #include "NkOffscreenTarget.h"
 #include "NKRenderer/Core/NkTextureLibrary.h"
@@ -174,7 +175,10 @@ namespace nkentseu {
 			// OpenGL : origine framebuffer en BAS-gauche → le readback livre les
 			// lignes bottom-up ; on les inverse pour une image top-down (comme
 			// les autres backends et les formats de fichier image).
-			const bool flipY = mDevice->GetApi() == ::nkentseu::NkGraphicsApi::NK_GFX_API_OPENGL;
+			// LA REGLE EST ECRITE UNE FOIS, dans NkOffscreenTarget.h. Elle etait
+			// ici en dur, et une seconde fois dans NkFrameCapture -- deux copies
+			// qu'un troisieme consommateur (l'affichage) ne pouvait pas trouver.
+			const bool flipY = NkOffscreenStoredIsBottomUp(mDevice->GetApi());
 			// DX12 écrit ses lignes au pitch ALIGNÉ 256 dans le staging (exigence
 			// D3D12) ; les autres backends écrivent tight (width*4).
 			const bool isDX12 = mDevice->GetApi() == ::nkentseu::NkGraphicsApi::NK_GFX_API_DX12;
