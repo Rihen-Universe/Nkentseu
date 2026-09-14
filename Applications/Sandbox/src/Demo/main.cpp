@@ -1,4 +1,5 @@
 // =============================================================================
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // main.cpp  — Renderdemo entry point (NkRenderer v5.0)
 //
 // Usage :
@@ -16,6 +17,7 @@
 // =============================================================================
 #include "DemoCommon.h"
 #include <cstdlib> // getenv (diag opt-in NK_VK_VALIDATION)
+#include <cstring> // strncmp (leviers d'agent dans le titre de la fenetre)
 #if defined(NKENTSEU_PLATFORM_ANDROID)
 #include <sys/system_properties.h> // selection de la demo via debug.nk.demo
 #endif
@@ -110,8 +112,14 @@ namespace nkentseu {
 		void DemoNKGen_Frame(DemoCtx &, float32);
 		void DemoNKGen_Shutdown(DemoCtx &);
 		bool DemoStream_Init(DemoCtx &);
+		bool DemoTexturesPBR_Init(DemoCtx &);
+		void DemoTexturesPBR_Frame(DemoCtx &, float32);
+		void DemoTexturesPBR_Shutdown(DemoCtx &);
 		void DemoStream_Frame(DemoCtx &, float32);
 		void DemoStream_Shutdown(DemoCtx &);
+		bool DemoBancOmbre_Init(DemoCtx &);
+		void DemoBancOmbre_Frame(DemoCtx &, float32);
+		void DemoBancOmbre_Shutdown(DemoCtx &);
 
 		static const DemoEntry kDemos[] = {
 			{"Subsystems", "Runtime enable/disable des sous-systemes", DemoSubsystems_Init, DemoSubsystems_Frame,
@@ -170,6 +178,20 @@ namespace nkentseu {
 			// par distance, worker async, eviction LRU, budget serre + HUD stats).
 			{"Stream", "DemoStream : streaming reel (textures stream-in/out par distance, eviction LRU)",
 			 DemoStream_Init, DemoStream_Frame, DemoStream_Shutdown},
+			// DemoTexturesPBR : la scene qui charge VRAIMENT des textures — dix
+			// cartes reelles (PBR 2048 + modele 4096). Elle existe pour la mesure :
+			// `--demo=2` n'en charge qu'une de 256x256, et un format d'actif mesure
+			// sur elle aurait rendu « gain negligeable » — juste sur le mauvais sujet.
+			{"TexturesPBR", "DemoTexturesPBR : 10 cartes reelles, mesure du chargement (NK_TEX_CACHE=0 pour le avant)",
+			 DemoTexturesPBR_Init, DemoTexturesPBR_Frame, DemoTexturesPBR_Shutdown},
+			// DemoBancOmbre : la scene qui existe POUR LA MESURE, pas pour la
+			// demonstration — une dalle plate, un occultant, une source, et tout
+			// pilote par l'environnement. Elle sert a armer et desarmer soi-meme
+			// le tramage d'ombre transparente (NK_BANC_OMBRE_MODE) a opacite
+			// egale, et a mesurer le profil du ciel (NK_BANC_VUE=1). Camera FIXE :
+			// deux captures qui ne cadrent pas la meme chose ne se comparent pas.
+			{"BancOmbre", "DemoBancOmbre : dalle + occultant, ombre transparente et ciel pilotes par NK_BANC_*",
+			 DemoBancOmbre_Init, DemoBancOmbre_Frame, DemoBancOmbre_Shutdown},
 		};
 		static constexpr uint32 kDemoCount = (uint32)(sizeof(kDemos) / sizeof(kDemos[0]));
 
@@ -395,6 +417,49 @@ namespace nkentseu {
 					c.ibl.iblStrength = 0.85f;
 					return c;
 				}
+				case 20: {
+					// DemoBancOmbre : config de MESURE, pas de demonstration. Tout
+					// ce qui ajoute du bruit par pixel pour une AUTRE raison que
+					// l'ombre est eteint — sinon le banc mesurerait la somme de
+					// deux causes et n'en separerait aucune.
+					auto c = NkRendererConfig::ForGame(api, w, h);
+					c.shadow.cascadeCount = 1; // une seule cascade : pas de transition qui scintille
+					c.postProcess.ssao = false; // l'occlusion ambiante a son propre grain
+					c.postProcess.ssr = false;
+					c.postProcess.bloom = false; // un bloom etalerait le sel et le ferait fondre
+					c.postProcess.fxaa = false; // ⚠️ un anticrenelage EFFACERAIT ce qu'on vient mesurer
+					// ⚠️ VRAI, ET C'EST OBLIGATOIRE. Je l'avais mis a FAUX en pensant
+					// que `SetSkyboxEnabled(true)` de la demo suffirait. Mesure :
+					// le ciel sortait en APLAT gris uniforme (214/213/212 sur tout
+					// le champ) — le drapeau de config gouverne la CREATION du
+					// pipeline, l'appel de la demo ne fait que lever un booleen sur
+					// un pipeline qui n'existe pas. Un appel accepte n'est pas un
+					// appel honore, et c'est le banc du ciel qui l'a paye.
+					c.ibl.drawSkybox = true;
+					// NK_BANC_IBL : la FORCE de l'ambiante IBL. Elle ne vient pas de la
+					// scene mais de la CONFIG, donc de la CREATION du renderer -- c'est
+					// pour cela qu'elle se regle ici et pas dans la demo. Defaut du
+					// moteur : 0.05. Le viseur du modeleur met 1.1, soit 22 fois plus.
+					// NK_BANC_BLOOM : arme le HALO. Eteint par defaut -- le banc du grain
+					// l'exige eteint, un halo etalerait le sel qu'on y mesure. Le seuil
+					// descend a 0.5 avec lui : au seuil moteur (1.0) une scene de mesure,
+					// volontairement peu exposee, ne depasse jamais rien et le temoin
+					// serait MUET -- vert sans avoir rien regarde.
+					{
+						const char *bv = getenv("NK_BANC_BLOOM");
+						if (bv && bv[0] && bv[0] != '0') {
+							c.postProcess.bloom = true;
+							c.postProcess.bloomThreshold = 0.5f;
+						}
+					}
+
+					{
+						const char *iv = getenv("NK_BANC_IBL"); // <cstdlib>, deja inclus l. 19
+						if (iv && iv[0])
+							c.ibl.iblStrength = (float32)atof(iv);
+					}
+					return c;
+				}
 				default:
 					return NkRendererConfig::ForGame(api, w, h);
 			}
@@ -419,10 +484,57 @@ int nkmain(const NkEntryState &state) {
 #ifndef NK_DEFAULT_DEMO
 	#define NK_DEFAULT_DEMO 0
 #endif
-	NkGraphicsApi api = ParseBackend(state.GetArgs());
+	// Dorsal : un mot inconnu est REFUSE EN LE NOMMANT, avant toute fenetre (cf.
+	// ParseBackend, DemoCommon.h). Il retombait en silence sur OpenGL.
+	NkGraphicsApi api = NkGraphicsApi::NK_GFX_API_OPENGL;
+	{
+		NkString backendBad;
+		if (!ParseBackend(state.GetArgs(), api, backendBad)) {
+			logger.Errorf("[main] dorsal graphique inconnu : '%s'\n", backendBad.CStr());
+			logger.Errorf("[main] choix : %s (casse ignoree)\n", NkDemoBackendChoices());
+			logger.Errorf("[main] REFUS -- on ne retombe pas en silence sur OpenGL.\n");
+			std::printf("[main] dorsal graphique inconnu : '%s' -- choix : %s -- REFUS, code 2\n", backendBad.CStr(),
+						NkDemoBackendChoices());
+			std::fflush(stdout);
+			return 2;
+		}
+	}
 	bool demoArgMalformed = false;
 	NkString demoArgOffending;
-	int demoIx = ParseDemo(state.GetArgs(), NK_DEFAULT_DEMO, &demoArgMalformed, &demoArgOffending);
+	NkString demoArgName;
+	int demoIx = ParseDemo(state.GetArgs(), NK_DEFAULT_DEMO, &demoArgMalformed, &demoArgOffending, &demoArgName);
+	// ── `--demo=<NOM>` : resolu ICI, le seul endroit qui connaisse la table ───
+	// Un indice est une POSITION que les fusions deplacent ; un nom appartient a
+	// la demo. Mesure du 2026-09-07 : le banc d'ombre et un autre banc se sont
+	// retrouves sur le MEME indice apres fusion — si la compilation n'avait pas
+	// morde, le banc aurait mesure sous les reglages de l'autre, et rien dans ses
+	// chiffres n'aurait permis de le soupconner.
+	// Comparaison insensible a la casse : une commande tapee a la main ne doit pas
+	// echouer sur une majuscule.
+	if (!demoArgName.Empty()) {
+		int trouve = -1;
+		NkString cible(demoArgName);
+		cible.ToLower();
+		for (uint32 i = 0; i < kDemoCount; ++i) {
+			NkString n(kDemos[i].name);
+			n.ToLower();
+			if (n == cible) {
+				trouve = (int)i;
+				break;
+			}
+		}
+		if (trouve >= 0) {
+			demoIx = trouve;
+			logger.Infof("[main] demo '%s' resolue a l'indice %d par son NOM (l'indice bouge, le nom non)\n",
+						 kDemos[trouve].name, trouve);
+		} else {
+			// Un nom inconnu se REFUSE en le nommant, comme un indice malforme :
+			// retomber sur la demo par defaut ferait croire a l'utilisateur qu'il a
+			// obtenu ce qu'il demandait. Le bloc de refus plus bas liste les demos.
+			demoArgMalformed = true;
+			demoArgOffending = demoArgName;
+		}
+	}
 #if defined(NKENTSEU_PLATFORM_ANDROID)
 	// Assets APK : les shaders sont packages par jenga (androidassets, cf.
 	// RendererSandbox.jenga) RELATIVEMENT a Resources/NKRenderer/Shaders/ ->
@@ -512,6 +624,15 @@ int nkmain(const NkEntryState &state) {
 #endif
 	// Alias : --demo=N -> index N-1 pour les demos numerotees (Demo4 -> 3, Demo5 -> 4).
 	// Coherence avec le nom de fichier plutot que l'index zero-based.
+	//
+	// 🔴 LA TABLE D'ALIAS NE S'APPLIQUE PAS A UN NOM RESOLU, et ce garde-fou n'est
+	// pas theorique : sans lui, `--demo=TexturesPBR` resolvait a l'indice 19, puis
+	// `if (demoIx == 19)`... non — pire, une demo resolue a l'indice 20 serait
+	// retombee sur 19 par l'alias juste en dessous. Le nom aurait alors lance UNE
+	// AUTRE DEMO que celle demandee, en silence : exactement le faux vert que
+	// `--demo=<nom>` existe pour empecher. Un nom designe une entree de la table ;
+	// il n'a rien a faire dans une correspondance ecrite pour des numeros.
+	if (demoArgName.Empty()) {
 	if (demoIx == 4)
 		demoIx = 3;
 	if (demoIx == 5)
@@ -544,6 +665,11 @@ int nkmain(const NkEntryState &state) {
 		demoIx = 17; // DemoNKGen      -> kDemos[17]
 	if (demoIx == 19)
 		demoIx = 18; // DemoStream     -> kDemos[18]
+	if (demoIx == 20)
+		demoIx = 19; // DemoTexturesPBR -> kDemos[19]
+	if (demoIx == 21)
+		demoIx = 20; // DemoBancOmbre   -> kDemos[20]
+	} // fin du bloc d'alias : ignore quand la demo a ete designee par son NOM
 	if (demoIx < 0 || (uint32)demoIx >= kDemoCount)
 		demoIx = 0;
 	// ── REFUS QUI PARLE ──────────────────────────────────────────────────
@@ -616,6 +742,54 @@ int nkmain(const NkEntryState &state) {
 		logger.Errorf("[main] NkDeviceFactory::Create failed\n");
 		window.Close();
 		return 2;
+	}
+
+	// ── TITRE : LE DORSAL RETENU, PAS LE DORSAL DEMANDE (demande de Rodolf, 11/09) ──
+	// Il teste l'inversion A L'OEIL sur quatre dorsaux : il doit savoir lequel il
+	// regarde sans lire la console -- c'est ce qui avait brouille sa journee du 06/09.
+	// Le titre pose a la creation de la fenetre (plus haut) ne connait que la DEMANDE :
+	// la fenetre existe avant le device. On le repose donc ICI, avec l'API que le
+	// device DECLARE. Repli verifie le 11/09 : NkDeviceFactory::Create n'en a aucun
+	// (un echec sort en code 2, ci-dessus) ; mais ParseBackend rendait OpenGL EN
+	// SILENCE pour un --backend= non reconnu (« d3d11 », « DX11 ») -- le cas exact ou
+	// un titre tire de la demande aurait menti. Corrige dans le meme lot (refus nomme,
+	// code 2) ; le titre reste tire du device, qui est la seule source qui ne ment pas.
+	// Les leviers d'agent actifs suivent, abreges : deux captures qui ne different que
+	// par un levier doivent se distinguer au titre.
+	{
+		// ── NK_SONDE=1 : CETTE FENETRE N'EST PAS LE PRODUIT (2026-09-14) ──────
+		// Rodolf a photographie la fenetre d'un agent en croyant regarder le
+		// produit. Le titre est le seul endroit qu'on lise sans y penser : un agent
+		// qui ouvre une fenetre pour MESURER pose ce drapeau, et la fenetre le dit
+		// elle-meme. Absent, rien ne change : le titre est celui d'avant, au
+		// caractere pres.
+		NkString titre;
+		if (const char *sonde = getenv("NK_SONDE"); sonde && sonde[0] && sonde[0] != '0')
+			titre += "*** SONDE DE MESURE - CETTE FENETRE N'EST PAS LE PRODUIT *** ";
+		titre += NkFormat("NkRenderer demo : {0} — {1}", demo.name, NkGraphicsApiName(device->GetApi()));
+		static const char *const kLeviers[] = {"NK_BANC_POST",		"NK_BANC_RESIZE",	  "NK_BANC_SURTAILLE",
+											   "NK_BANC_HORSECRAN", "NK_AGENT_ONRESIZE", "NK_DEFERRED"};
+		NkString leviers;
+		for (const char *nom : kLeviers) {
+			const char *v = getenv(nom);
+			if (!v || !v[0])
+				continue;
+			const char *court = nom + 3; // sans « NK_ »
+			if (std::strncmp(court, "BANC_", 5) == 0)
+				court += 5;
+			if (!leviers.Empty())
+				leviers += " ";
+			leviers += court;
+			leviers += "=";
+			leviers += v;
+		}
+		if (!leviers.Empty()) {
+			titre += " [";
+			titre += leviers;
+			titre += "]";
+		}
+		window.SetTitle(titre);
+		logger.Infof("[main] titre : %s\n", titre.CStr());
 	}
 
 	// ── Renderer ─────────────────────────────────────────────────────────────

@@ -752,6 +752,26 @@ namespace nkentseu {
 					m.renameCommit = true;
 			}
 
+			// ── CONTRAT UNIVERSEL D'EDITION (Rodolf, 31/08) : LE CLIC AILLEURS ──
+			// Un clic HORS de la rangee editee VALIDE la saisie, puis le clic fait
+			// son effet normal (selection, pli, autre panneau — il n'est pas
+			// mange). C'est le composant qui juge, car lui seul connait le
+			// rectangle de la rangee : l'hote qui comparait le clic a la ZONE
+			// ENTIERE de l'arbre laissait un clic sur une AUTRE rangee sans effet
+			// — mesure du 01/09 : « plus possible de desactiver l'edition ».
+			// Le commit leve ici est traite au debut de l'image SUIVANTE (le bloc
+			// « la part de l'hote » ci-dessus) : la selection de ce clic part a
+			// cette image, l'ecriture du label a la prochaine — les deux partent.
+			// ⚠️ `renameEatClick` mange UN clic : celui qui vient d'ouvrir la
+			//    saisie par programme (le [+] de Pages) — hors de la rangee par
+			//    construction, il validerait la saisie a l'image de sa naissance.
+			if (m.renaming != 0 && in.mousePressed) {
+				if (m.renameEatClick)
+					m.renameEatClick = false;
+				else if (!renamedRowSeen || !renamedRow.Contains(in.mouseX, in.mouseY))
+					m.renameCommit = true;
+			}
+
 			// ── LES DECISIONS, TOUTES ICI ───────────────────────────────────────
 			// Un seul bloc, apres le parcours. C'est aussi ce qui fait tenir la
 			// condition C2 : la logique de selection existe A UN SEUL ENDROIT, et

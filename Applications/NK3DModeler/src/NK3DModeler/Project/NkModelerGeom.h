@@ -1,534 +1,526 @@
 #pragma once
-// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
+// -----------------------------------------------------------------------------
+// @File    NkModelerGeom.h
+// @Author  TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
+// @License Proprietary - All Rights Reserved (see LICENSE)
+// -----------------------------------------------------------------------------
 // =============================================================================
-// NkModelerGeom.h — LA GEOMETRIE DANS LE FICHIER : sommets et indices.
+// NkModelerGeom.h — LA GEOMETRIE DES OBJETS IMPORTES, ECRITE A COTE DE SON ASSET.
 //
-// LE DEFAUT QUE CE FICHIER FERME. Le `.nkmesh` et le `.nkscene` ecrivaient les
-// noeuds, leurs origines, leurs noms, leurs materiaux et les PARAMETRES DE
-// CREATION des primitives -- jamais les SOMMETS. Un maillage revenait donc
-// regenere depuis ses parametres : une sphere retrouvait sa sphere, mais tout
-// ce qui avait ete deplace, extrude ou importe etait perdu a la fermeture.
-// C'est la dette nommee dans l'en-tete de NkModelerScene.h (« CE QUI N'EST PAS
-// ENCORE SAUVEGARDE », deux premieres lignes).
+// 🔴 POURQUOI CE FICHIER EXISTE — LE DEFAUT DES CUBES BLANCS (Rodolf, 06/09).
+//   « Les models que j'avais charges precedemment, une fois rouvert le projet,
+//   elles sont devenues des cubes. »
 //
-// ON N'INVENTE PAS UN FORMAT DE PLUS. Le depot n'a AUCUN ecrivain de maillage
-// (NkOBJIO::Export et NkGLTFExporter le DISENT eux-memes dans leur en-tete :
-// non implementes), et NkEditableMesh ne sait pas se serialiser. La geometrie
-// entre donc dans le conteneur qui existe deja -- l'archive du `.nkmesh` /
-// `.nkscene` -- sous une cle `geometrie` par noeud, a cote de `creation`.
+//   La cause, LUE DANS LE FICHIER de Rodolf et pas devinee : un objet importe
+//   naissait par `Demo3DHostCreateMeshNode`, qui l'alloue en NATURE 2 -- la
+//   famille CUBE -- et lui donne sa geometrie dans `nkvpUserMesh`. Le format
+//   ecrivait la nature, le sous-type, la transform, les materiaux... et RIEN de
+//   la geometrie. A la relecture, `Demo3DHostAddNode(2, 0)` recreait donc un
+//   cube parfaitement valide. Le dessin etait juste ; c'est l'attribut qui
+//   manquait, et il manquait ENTIEREMENT : ni sommets, ni chemin vers le
+//   fichier d'origine. Rien a rattraper.
 //
-// POURQUOI DU BASE64 ET PAS UN TABLEAU DE FLOTTANTS
-//   1. EXACTITUDE. Les octets du sommet sont recopies tels quels : l'aller
-//      -retour est BIT A BIT, pas « a 1e-4 pres ». Un tableau de flottants
-//      passe par une ecriture decimale, et c'est la que les positions
-//      derivent -- exactement ce qu'un modeleur ne doit pas faire au travail
-//      de quelqu'un.
-//   2. TAILLE. Un sommet fait 56 octets ; en base64 il en coute 76. Ecrit en
-//      JSON, le meme sommet demanderait entre 150 et 200 caracteres.
-//   Le prix est assume : le bloc n'est pas lisible a l'oeil. Les COMPTES, eux,
-//   le sont (`sommets`, `indices`, `octetsParSommet`), et c'est ce qu'on lit
-//   quand on ouvre un fichier pour comprendre ce qu'il porte.
+//   Verifiable dans son projet : `AgentTest/042082ea....nkmesh`, 833 octets pour
+//   un mannequin de 249 906 sommets. Le fichier ne porte pas un seul sommet.
 //
-// LE PAS DU SOMMET EST ECRIT DANS LE FICHIER, et relu avant de decoder. Le jour
-// ou NkVertex3D gagnera un champ, les fichiers d'avant ne seront pas lus DE
-// TRAVERS : ils seront refuses avec leur pas, ce qui se voit. Un bloc binaire
-// dont on devine la forme est la pire des relectures.
+// ── POURQUOI UN FICHIER BINAIRE A COTE, ET PAS DU JSON DANS L'ASSET ─────────
+//   250 000 sommets en JSON, c'est ~40 Mo de texte pour 12 Mo de donnees, une
+//   relecture par analyse lexicale, et un `.nkmesh` qu'un humain ne peut plus
+//   ouvrir pour comprendre ce qu'il contient. Le `.nkmesh` reste LISIBLE et
+//   court -- il decrit la structure ; son `.nkgeo` frere porte la matiere.
+//   Meme partage que le `.nkmat` et sa texture : le petit fichier designe, le
+//   gros contient.
 //
-// ORDRE DES OCTETS : celui de la machine. Les huit plateformes du depot sont
-// petit-boutistes ; le jour ou l'une ne le sera plus, c'est le pas ET un
-// marqueur d'ordre qu'il faudra ecrire. Dit ici pour que ce ne soit pas une
-// surprise.
+// ── CE QUI EST ECRIT, ET CE QUI NE L'EST PAS ────────────────────────────────
+//   Ecrit : la geometrie des noeuds qui portent LEUR PROPRE maillage avec une
+//   copie CPU -- c'est exactement l'ensemble des objets importes, et des
+//   maillages internes d'un model.
+//   Pas ecrit : les primitives du menu (sphere, cylindre, cone, plan, cube).
+//   Elles se REGENERENT depuis leur nature et leurs parametres de creation ;
+//   les ecrire couterait des megaoctets par projet pour reproduire ce que trois
+//   entiers disent deja.
 //
-// AUCUNE DEPENDANCE AU RENDU NI A L'HOTE 3D : ce fichier ne connait que des
-// octets, un pas, et une archive. C'est ce qui permet a la sonde `--probe=geom`
-// de l'eprouver SANS FENETRE ET SANS GPU.
+//   ⚠️ LE FILTRE EST `Demo3DHostMeshParams`, PAS `Demo3DHostNodeGeometry`.
+//   Une sphere, un cylindre, un cone et un plan portent bel et bien LEUR PROPRE
+//   maillage, avec sa copie CPU -- `HostRegenUserMesh` le leur fabrique --, donc
+//   `Demo3DHostNodeGeometry` rend VRAI pour eux. Seul le cube nu n'a pas de
+//   maillage a lui. La bonne question n'est pas « ce noeud a-t-il un maillage »
+//   mais « ce maillage se REGENERE-t-il », et c'est le bloc « creation » qui y
+//   repond -- le meme test des deux cotes, une seule reponse.
+//
+// ── LE RANG, PAS LE NUMERO DE NOEUD ─────────────────────────────────────────
+//   Une entree designe son noeud par son RANG dans le tableau « noeuds » de
+//   l'asset frere -- la meme convention que la parente et les materiaux. Les
+//   emplacements de noeud se recyclent d'une session a l'autre : s'y fier
+//   rendrait la geometrie a un autre objet, ce qui est pire que de la perdre.
+//
+// ── L'ORDRE DES OCTETS ET LE PAS DE SOMMET ──────────────────────────────────
+//   Ecriture NATIVE, sans conversion. Ce format n'est pas un format d'echange :
+//   il vit A COTE d'un projet, sur la machine qui l'a ecrit. Le PAS DE SOMMET
+//   est ecrit dans chaque entree, et la relecture REFUSE un pas different du
+//   layout courant plutot que de reinterpreter les octets -- une geometrie
+//   fausse sans message serait pire que le cube, parce qu'un cube se voit.
+//   Le jour ou un projet doit voyager entre machines d'endianness differentes,
+//   c'est ici que la conversion se pose, et la version du format monte.
+//   Dette NOMMEE, pas subie.
 // =============================================================================
+
+#include "NK3DModeler/Project/NkModelerScene.h" // NkScToAbs / NkScNorm
 
 #include "NKContainers/Sequential/NkVector.h"
-#include "NKContainers/String/Encoding/NkBase64.h"
 #include "NKContainers/String/NkString.h"
-#include "NKCore/NkTypes.h"
-#include "NKSerialization/NkArchive.h"
-// LE COMPRESSEUR DU DEPOT. Il vit dans NKImage parce que le PNG en avait besoin
-// le premier -- ce n'est pas une dependance au rendu, c'est du CPU pur, et la
-// sonde `--probe=geom` s'en sert sans fenetre comme du reste.
-#include "NKImage/NKImage.h"
-#include "NKMemory/NKMemory.h"
+#include "NKFileSystem/NkFile.h"
+#include "NKFileSystem/NkDirectory.h"
+#include "NKLogger/NkLog.h"
 
-#include <cstdio>
-
-#ifdef GetObject
-#undef GetObject
-#endif
+#include <cstring>
 
 namespace nkentseu {
 	namespace nk3d {
 
-		// Version du bloc `geometrie`, distincte de celle du fichier d'asset : la
-		// forme d'un sommet bougera a son rythme.
-		//
-		// 1 -> 2 (13/09, soir) : les octets peuvent etre TRANSPOSES ET COMPRESSES.
-		// Un fichier de version 1 reste lu tel quel -- la compatibilite descendante
-		// prouvee ce matin ne se perd pas au lot suivant --, et un bloc de version 2
-		// DIT son codage (`codage`) au lieu de le faire deviner.
-		static const int32 kGeomBlockVersion = 2;
+		/// Version du format de geometrie, DISTINCTE de celle de l'asset : le
+		/// jour ou le layout de sommet change, c'est ce nombre qui monte, et un
+		/// `.nkmesh` inchange n'a pas a etre reecrit pour autant.
+		static const uint32 kGeoFormatVersion = 1;
+		static const uint32 kGeoHeaderBytes = 16;
+		static const uint32 kGeoEntryBytes = 16;
 
-		// =====================================================================
-		// LA COMPRESSION, ET POURQUOI CELLE-LA
-		// =====================================================================
-		// MESURE D'ABORD, CHOIX ENSUITE. Trois maillages REELS du depot, rapport sur
-		// les octets bruts du sommet (plus c'est grand, mieux c'est) :
-		//
-		//                                 cube .ply   rock .obj   canard .gltf
-		//                                   8 som.    165 som.     5 676 som.
-		//   base64 seul (ce qu'on faisait)   x0,75      x0,75        x0,75  (+33 %)
-		//   NkDeflate::Compress              x3,86      x2,02        x1,22
-		//   transposition + RLE              x2,52      x1,47        x1,48
-		//   transposition + NkDeflate        x3,96      x1,90        x1,63
-		//   (reference : zlib -6 = x3,86 / x2,25 / x1,37)
-		//
-		// ⚠️ CE QUE J'AI FAILLI ECRIRE, ET POURQUOI JE NE L'AI PAS ECRIT.
-		// L'en-tete de `NkDeflate` (NKImage.h) annonce « stored blocks (BTYPE=00)
-		// [...] sans compression reelle ». Sur cette foi, j'ai d'abord conclu que le
-		// depot n'avait aucun compresseur -- et j'allais en ecrire un de plus a cote
-		// d'un compresseur qui marche. Le `.cpp` dit l'inverse de son en-tete
-		// (NkImage.cpp l. 1152 : « UN bloc Huffman FIXE (BTYPE=01) + LZ77 ») et la
-		// MESURE tranche : x3,86 sur le petit cube. LA DOCUMENTATION EST UN
-		// INSTRUMENT, et celui-la mentait. Corrige dans le meme lot.
-		//
-		// POURQUOI TRANSPOSER AVANT DE COMPRESSER. Sur un sommet de 56 octets, 12 a
-		// 38 COLONNES D'OCTETS sont CONSTANTES sur tout le maillage (uv2 a zero,
-		// couleur identique, exposants de flottants voisins). Groupees par colonne
-		// elles deviennent de longues series ; melangees dans l'ordre des sommets,
-		// elles ne le sont jamais. Le gain est net sur le gros maillage (x1,22 ->
-		// x1,63) et nul a legerement negatif sur les petits -- d'ou le choix
-		// ci-dessous.
-		//
-		// TROIS CODAGES, ET ON ECRIT LE PLUS PETIT. `brut`, `transpose-rle`,
-		// `transpose-deflate` : les trois sont calcules, le plus court gagne, et le
-		// fichier DIT lequel. Aucun n'est retenu s'il ne bat pas le brut : un codage
-		// qui grossit le fichier serait une complication payee pour rien. Le RLE
-		// reste parce qu'il n'a AUCUN en-tete la ou zlib en coute six -- sur un
-		// maillage de quelques dizaines d'octets, six octets se voient.
-		//
-		// UN OCTET ABIME EST DETECTE, JAMAIS RELU EN SILENCE. Deux gardes, et il
-		// faut passer les DEUX : la taille decodee doit retomber exactement sur
-		// `octetsBruts`, et l'empreinte FNV-1a 64 bits des octets BRUTS doit
-		// retomber sur `somme`. La premiere attrape une troncature ou une longueur
-		// de serie abimee ; la seconde attrape un octet retourne qui laisserait la
-		// longueur intacte.
-		// =====================================================================
-
-		/// Empreinte FNV-1a 64 bits. Choisie parce qu'elle tient en six lignes et
-		/// n'a besoin d'aucune table : ce n'est pas une signature, c'est un
-		/// detecteur d'abimage.
-		inline uint64 NkGeomFnv1a(const uint8 *p, usize n) {
-			uint64 h = 14695981039346656037ull;
-			for (usize i = 0; i < n; ++i) {
-				h ^= (uint64)p[i];
-				h *= 1099511628211ull;
-			}
-			return h;
+		/// Chemin du `.nkgeo` frere d'un asset : meme dossier, meme nom, autre
+		/// extension. Un asset renomme ou deplace emporte donc sa geometrie par
+		/// le meme geste -- il n'y a pas de second chemin a tenir a jour.
+		inline NkString NkGeoRelFor(const NkString &assetRel) {
+			if (assetRel.Empty())
+				return NkString();
+			const NkString::SizeType dot = assetRel.RFind('.');
+			const NkString::SizeType sl = assetRel.RFind('/');
+			NkString out;
+			if (dot != NkString::npos && (sl == NkString::npos || dot > sl))
+				out = NkString(assetRel.CStr(), dot);
+			else
+				out = assetRel;
+			out += ".nkgeo";
+			return out;
 		}
 
-		/// Regroupe les octets PAR COLONNE : tous les octets 0 des sommets, puis
-		/// tous les octets 1... C'est le « shuffle » des formats scientifiques, et
-		/// c'est ce qui transforme une colonne constante en une longue serie.
-		/// La queue (si `n` n'est pas un multiple du pas) est recopiee telle quelle
-		/// a la fin -- elle ne devrait pas exister, mais un codage qui perd des
-		/// octets dans un cas qu'il croit impossible est un codage qui ment.
-		inline void NkGeomTranspose(const uint8 *in, usize n, uint32 stride, NkVector<uint8> &out) {
-			out.Clear();
-			out.Resize(n);
-			if (stride == 0u) {
-				for (usize i = 0; i < n; ++i)
-					out[i] = in[i];
+		// ── ECRITURE ────────────────────────────────────────────────────────────
+		/// Un tampon qu'on remplit noeud par noeud pendant la capture, puis qu'on
+		/// verse en une fois. Ecrire au fil de l'eau ouvrirait le fichier avant de
+		/// savoir s'il aura un seul octet a porter.
+		struct NkGeoBuilder {
+				NkVector<uint8> body;
+				uint32 count = 0;
+				uint64 bytes = 0; ///< pour le journal : ce que la geometrie coute
+		};
+
+		/// Un bloc d'octets s'ajoute par UN agrandissement et UNE recopie. Un
+		/// `PushBack` par octet ferait douze millions d'appels pour un mannequin,
+		/// et le cout ne se verrait qu'a l'enregistrement -- au pire moment.
+		inline void NkGeoPutBytes(NkVector<uint8> &out, const void *src, usize n) {
+			if (!src || n == 0)
 				return;
-			}
-			const usize rows = n / stride;
-			usize k = 0;
-			for (uint32 c = 0; c < stride; ++c)
-				for (usize r = 0; r < rows; ++r)
-					out[k++] = in[r * stride + c];
-			for (usize i = rows * stride; i < n; ++i)
-				out[k++] = in[i];
+			const usize base = out.Size();
+			out.Resize(base + n);
+			std::memcpy(out.Data() + base, src, n);
 		}
 
-		/// L'inverse exact.
-		inline void NkGeomUntranspose(const uint8 *in, usize n, uint32 stride, NkVector<uint8> &out) {
-			out.Clear();
-			out.Resize(n);
-			if (stride == 0u) {
-				for (usize i = 0; i < n; ++i)
-					out[i] = in[i];
+		inline void NkGeoPutU32(NkVector<uint8> &out, uint32 v) {
+			NkGeoPutBytes(out, &v, sizeof(v));
+		}
+
+		/// Ajoute la geometrie d'un noeud, sous son RANG dans l'asset frere.
+		inline void NkGeoAdd(NkGeoBuilder &g, int32 rank, const void *verts, uint32 vcount,
+							 uint32 stride, const uint32 *indices, uint32 icount) {
+			if (rank < 0 || !verts || !indices || vcount == 0 || icount == 0 || stride == 0)
 				return;
-			}
-			const usize rows = n / stride;
-			usize k = 0;
-			for (uint32 c = 0; c < stride; ++c)
-				for (usize r = 0; r < rows; ++r)
-					out[r * stride + c] = in[k++];
-			for (usize i = rows * stride; i < n; ++i)
-				out[i] = in[k++];
+			NkGeoPutU32(g.body, (uint32)rank);
+			NkGeoPutU32(g.body, vcount);
+			NkGeoPutU32(g.body, stride);
+			NkGeoPutU32(g.body, icount);
+			NkGeoPutBytes(g.body, verts, (usize)vcount * (usize)stride);
+			NkGeoPutBytes(g.body, indices, (usize)icount * sizeof(uint32));
+			++g.count;
+			g.bytes += (uint64)vcount * (uint64)stride + (uint64)icount * 4u;
 		}
 
-		/// RLE a deux formes, sans ambiguite possible :
-		///   0x00, compte(1..255), valeur   -> une SERIE
-		///   L(1..255), L octets            -> des LITTERAUX
-		/// Une serie n'est ecrite qu'a partir de trois octets identiques : en
-		/// dessous, elle couterait plus cher que les litteraux.
-		inline void NkGeomRle(const uint8 *in, usize n, NkVector<uint8> &out) {
-			out.Clear();
-			usize i = 0;
-			while (i < n) {
-				usize j = i;
-				while (j + 1u < n && in[j + 1u] == in[i] && (j - i) < 254u)
-					++j;
-				const usize run = j - i + 1u;
-				if (run >= 3u) {
-					out.PushBack(0u);
-					out.PushBack((uint8)run);
-					out.PushBack(in[i]);
-					i = j + 1u;
-					continue;
-				}
-				usize k = i;
-				usize lit = 0;
-				while (k < n && lit < 254u) {
-					if (k + 2u < n && in[k] == in[k + 1u] && in[k] == in[k + 2u])
-						break;
-					++k;
-					++lit;
-				}
-				out.PushBack((uint8)lit);
-				for (usize m = i; m < k; ++m)
-					out.PushBack(in[m]);
-				i = k;
+		/// Verse le tampon dans `root/rel`. Un tampon VIDE ne laisse pas un
+		/// fichier vide derriere lui : il EFFACE le `.nkgeo` precedent, sinon un
+		/// asset dont on a supprime le dernier import garderait sa geometrie
+		/// morte et la rendrait a un rang qui designe autre chose.
+		inline bool NkGeoWrite(const NkString &root, const NkString &rel, const NkGeoBuilder &g,
+							   NkString *err) {
+			const NkString abs = NkScToAbs(root, rel.CStr());
+			if (abs.Empty())
+				return true;
+			if (g.count == 0) {
+				if (NkFile::Exists(abs.CStr()))
+					(void)NkFile::Delete(abs.CStr());
+				return true;
 			}
-		}
-
-		/// Decodage BORNE. Rend faux des que le flux demande plus que `expect` ou
-		/// s'arrete trop tot : un decodeur qui ecrit au-dela de ce qu'on lui a
-		/// promis est la faille, pas la performance.
-		inline bool NkGeomUnrle(const uint8 *in, usize n, usize expect, NkVector<uint8> &out) {
-			out.Clear();
-			out.Reserve(expect);
-			usize i = 0;
-			usize ecrits = 0;
-			while (i < n) {
-				const uint8 tag = in[i++];
-				if (tag == 0u) {
-					if (i + 1u >= n)
-						return false;
-					const usize run = (usize)in[i++];
-					const uint8 v = in[i++];
-					if (run == 0u || ecrits + run > expect)
-						return false;
-					for (usize k = 0; k < run; ++k)
-						out.PushBack(v);
-					ecrits += run;
-				} else {
-					const usize lit = (usize)tag;
-					if (i + lit > n || ecrits + lit > expect)
-						return false;
-					for (usize k = 0; k < lit; ++k)
-						out.PushBack(in[i + k]);
-					i += lit;
-					ecrits += lit;
-				}
-			}
-			return ecrits == expect;
-		}
-
-		// ── LE VRAI DEFLATE, ET LA DOCUMENTATION QUI DISAIT LE CONTRAIRE ─────
-		// ⚠️ `NkImage.h` annonce que `NkDeflate::Compress` ecrit des « stored blocks
-		// (BTYPE=00) [...] sans compression reelle ». C'EST FAUX depuis longtemps :
-		// le `.cpp` (NkImage.cpp l. 1152) ecrit « UN bloc Huffman FIXE (BTYPE=01) +
-		// LZ77 », et la mesure le confirme. J'ai failli conclure « le depot n'a pas
-		// de compresseur » sur la foi de cet en-tete, ce qui aurait fait ecrire un
-		// compresseur de plus a cote d'un compresseur qui marche. LA DOC EST UN
-		// INSTRUMENT, et celui-la mentait -- corrige dans le meme lot.
-		//
-		// LES TROIS CODAGES, ET POURQUOI ON LES GARDE TOUS
-		//   brut               : les octets tels quels (fichiers d'hier, et le repli)
-		//   transpose-rle      : sans dependance, sans en-tete -- il gagne sur les
-		//                        tout petits maillages ou l'en-tete zlib (6 octets)
-		//                        pese autant que le gain
-		//   transpose-deflate  : transposition PUIS NkDeflate -- le meilleur des
-		//                        trois sur la donnee reelle
-		// On les calcule tous et ON ECRIT LE PLUS PETIT. Le fichier DIT lequel ; un
-		// lecteur ne devine jamais.
-		inline bool NkGeomDeflate(const uint8 *in, usize n, NkVector<uint8> &out) {
-			out.Clear();
-			uint8 *comp = nullptr;
-			usize compSz = 0;
-			if (!NkDeflate::Compress(in, n, comp, compSz, 6) || !comp || compSz == 0u) {
-				if (comp)
-					memory::NkFree(comp);
-				return false;
-			}
-			out.Resize(compSz);
-			for (usize i = 0; i < compSz; ++i)
-				out[i] = comp[i];
-			memory::NkFree(comp);
-			return true;
-		}
-
-		inline bool NkGeomInflate(const uint8 *in, usize n, usize expect, NkVector<uint8> &out) {
-			out.Clear();
-			if (expect == 0u)
-				return false;
-			out.Resize(expect);
-			usize written = 0;
-			if (!NkDeflate::Decompress(in, n, out.Data(), expect, written) || written != expect) {
-				out.Clear();
-				return false;
-			}
-			return true;
-		}
-
-		/// Ecrit un tampon d'octets sous `key`, compresse SI ET SEULEMENT SI ca gagne.
-		/// Pose a cote : `<key>Brut` (taille avant codage) et `<key>Somme` (empreinte
-		/// des octets BRUTS, en hexadecimal). Rend vrai si le codage compresse a ete
-		/// retenu -- l'appelant en a besoin pour ecrire `codage`.
-		inline const char *NkGeomPack(NkArchive &g, const char *key, const uint8 *raw, usize n,
-									  uint32 stride) {
-			char kb[48], ks[48];
-			snprintf(kb, sizeof(kb), "%sBrut", key);
-			snprintf(ks, sizeof(ks), "%sSomme", key);
-			g.SetInt64(kb, (nk_int64)n);
-			{
-				char hex[24];
-				snprintf(hex, sizeof(hex), "%016llx",
-						 (unsigned long long)NkGeomFnv1a(raw, n));
-				g.SetString(ks, hex);
-			}
-			NkVector<uint8> tr, rl, df;
-			NkGeomTranspose(raw, n, stride, tr);
-			NkGeomRle(tr.Data(), tr.Size(), rl);
-			const bool okDf = NkGeomDeflate(tr.Data(), tr.Size(), df);
-			// LE PLUS PETIT GAGNE, et le codage DOIT gagner sur le brut : un codage
-			// qui grossit le fichier serait une complication payee pour rien.
-			// Comparaison sur les octets AVANT base64 -- les trois chemins paient
-			// ensuite le meme +33 %.
-			const usize szRl = rl.Size();
-			const usize szDf = okDf ? df.Size() : n + 1u;
-			if (szDf < n && szDf <= szRl) {
-				g.SetString(key, encoding::base64::NkEncode(df.Data(), df.Size()).CStr());
-				return "transpose-deflate";
-			}
-			if (szRl < n) {
-				g.SetString(key, encoding::base64::NkEncode(rl.Data(), rl.Size()).CStr());
-				return "transpose-rle";
-			}
-			g.SetString(key, encoding::base64::NkEncode(raw, n).CStr());
-			return "brut";
-		}
-
-		/// L'inverse. `compresse` vient du `codage` du bloc, jamais d'une devinette.
-		/// Trois refus possibles, chacun avec sa raison : base64 illisible, longueur
-		/// qui ne retombe pas, empreinte qui ne retombe pas.
-		enum NkGeomCodage { NK_GEOM_BRUT = 0, NK_GEOM_RLE = 1, NK_GEOM_DEFLATE = 2 };
-
-		inline bool NkGeomUnpack(const NkArchive &g, const char *key, int32 codage, uint32 stride,
-								 NkVector<uint8> &out, NkString *why) {
-			out.Clear();
-			char kb[48], ks[48];
-			snprintf(kb, sizeof(kb), "%sBrut", key);
-			snprintf(ks, sizeof(ks), "%sSomme", key);
-			nk_int64 brut = 0;
-			(void)g.GetInt64(kb, brut);
-			NkString b64;
-			if (!g.GetString(key, b64) || b64.Empty()) {
-				if (why)
-					*why = "bloc sans donnees encodees";
-				return false;
-			}
-			usize n = 0;
-			const NkStringView vv(b64.CStr(), b64.Size());
-			if (!encoding::base64::NkDecode(vv, nullptr, &n) || n == 0u) {
-				if (why)
-					*why = "donnees encodees illisibles";
-				return false;
-			}
-			NkVector<uint8> flux;
-			flux.Resize(n);
-			if (!encoding::base64::NkDecode(vv, flux.Data(), &n)) {
-				if (why)
-					*why = "decodage base64 refuse";
-				return false;
-			}
-			if (codage != NK_GEOM_BRUT) {
-				if (brut <= 0) {
-					if (why)
-						*why = "codage compresse sans taille brute";
-					return false;
-				}
-				NkVector<uint8> tr;
-				if (codage == NK_GEOM_RLE) {
-					if (!NkGeomUnrle(flux.Data(), flux.Size(), (usize)brut, tr)) {
-						if (why)
-							*why = "flux RLE abime : la longueur ne retombe pas";
-						return false;
-					}
-				} else {
-					if (!NkGeomInflate(flux.Data(), flux.Size(), (usize)brut, tr)) {
-						if (why)
-							*why = "flux deflate abime : decompression refusee";
+			const NkString::SizeType s = abs.RFind('/');
+			if (s != NkString::npos) {
+				const NkString dir(abs.CStr(), s);
+				if (!dir.Empty() && !NkDirectory::Exists(dir.CStr())) {
+					(void)NkDirectory::CreateRecursive(dir.CStr());
+					// ⚠️ ON RELIT L'EFFET, ON NE CROIT PAS LE RETOUR. Mesure du
+					// 06/09, temoin jetable hors depot : quand un FICHIER occupe le
+					// nom du dossier, `NkDirectory::CreateRecursive` rend VRAI --
+					// `CreateDirectoryA` echoue avec ERROR_ALREADY_EXISTS et
+					// `NkDirectory::Create` lit ce code comme une idempotence
+					// (NkDirectory.cpp:88). Un garde adosse a ce retour ne peut donc
+					// JAMAIS mordre : c'est un garde decoratif. Celui-ci demande au
+					// disque si le dossier est la, et c'est la seule question qui
+					// decide de la suite.
+					if (!NkDirectory::Exists(dir.CStr())) {
+						if (err)
+							*err = NkString("dossier impossible a creer : ") + dir;
 						return false;
 					}
 				}
-				NkGeomUntranspose(tr.Data(), tr.Size(), stride, out);
-			} else {
-				out = flux;
 			}
-			if (brut > 0 && out.Size() != (usize)brut) {
-				out.Clear();
-				if (why)
-					*why = "taille decodee differente de la taille annoncee";
+			NkVector<uint8> file;
+			file.Reserve(g.body.Size() + (usize)kGeoHeaderBytes);
+			const uint8 magic[8] = {'N', 'K', 'G', 'E', 'O', '1', 0, 0};
+			NkGeoPutBytes(file, magic, sizeof(magic));
+			NkGeoPutU32(file, kGeoFormatVersion);
+			NkGeoPutU32(file, g.count);
+			NkGeoPutBytes(file, g.body.Data(), g.body.Size());
+			if (!NkFile::WriteAllBytes(abs.CStr(), file)) {
+				if (err)
+					*err = NkString("ecriture impossible : ") + abs;
 				return false;
-			}
-			// L'EMPREINTE EN DERNIER, et elle est la garde qui attrape ce que la
-			// longueur laisse passer : un octet retourne ne change aucune taille.
-			NkString sum;
-			if (g.GetString(ks, sum) && !sum.Empty()) {
-				char hex[24];
-				snprintf(hex, sizeof(hex), "%016llx",
-						 (unsigned long long)NkGeomFnv1a(out.Data(), out.Size()));
-				if (!(sum == NkString(hex))) {
-					out.Clear();
-					if (why)
-						*why = "empreinte des octets differente de celle du fichier";
-					return false;
-				}
 			}
 			return true;
 		}
 
-		/// Ecrit la geometrie d'un noeud dans `nd` sous la cle « geometrie ».
-		/// Rend faux -- et n'ecrit RIEN -- si les donnees sont vides ou le pas nul :
-		/// une cle `geometrie` presente doit toujours porter des sommets, sinon la
-		/// relecture ne saurait pas distinguer « pas de geometrie » de « geometrie
-		/// vide », et l'une des deux est un travail perdu.
-		inline bool NkGeomWrite(NkArchive &nd, const void *verts, uint32 vcount, uint32 vstride,
-								const uint32 *indices, uint32 icount) {
-			if (!verts || vcount == 0u || vstride == 0u)
-				return false;
-			NkArchive g;
-			g.SetInt32("version", kGeomBlockVersion);
-			g.SetInt32("octetsParSommet", (int32)vstride);
-			g.SetInt32("sommets", (int32)vcount);
-			g.SetInt32("indices", (int32)icount);
-			const char *cv = NkGeomPack(g, "v", (const uint8 *)verts,
-										(usize)vcount * (usize)vstride, vstride);
-			const char *ci = "brut";
-			if (indices && icount > 0u)
-				ci = NkGeomPack(g, "i", (const uint8 *)indices,
-								(usize)icount * sizeof(uint32), (uint32)sizeof(uint32));
-			// LE CODAGE EST ECRIT, PAR TAMPON, EN TOUTES LETTRES. Un lecteur ne doit
-			// jamais avoir a deduire d'une taille si les octets sont compresses :
-			// c'est ainsi qu'on lit un flux de travers en croyant l'avoir compris.
-			g.SetString("codage", cv);
-			g.SetString("codageIndices", ci);
-			nd.SetObject("geometrie", g);
-			return true;
+		// ── LECTURE ─────────────────────────────────────────────────────────────
+		/// Le fichier entier en memoire, plus la table de ses entrees. On lit tout
+		/// d'un coup parce que la restauration touche TOUS les rangs d'un asset :
+		/// rouvrir le fichier par noeud coutrait un aller-retour disque par objet.
+		struct NkGeoEntry {
+				uint32 rank = 0;
+				uint32 vcount = 0;
+				uint32 stride = 0;
+				uint32 icount = 0;
+				usize vOff = 0; ///< offset des sommets DANS `bytes`
+				usize iOff = 0; ///< offset des indices DANS `bytes`
+		};
+
+		struct NkGeoFile {
+				NkVector<uint8> bytes;
+				NkVector<NkGeoEntry> entries;
+				bool present = false; ///< le fichier existe et s'est laisse lire
+		};
+
+		inline uint32 NkGeoGetU32(const NkVector<uint8> &b, usize off) {
+			uint32 v = 0;
+			if (off + 4u <= b.Size())
+				std::memcpy(&v, b.Data() + off, sizeof(v));
+			return v;
 		}
 
-		/// Relit la geometrie d'un noeud. Rend faux si la cle est absente (le cas
-		/// NORMAL d'un fichier ecrit avant ce bloc, et celui d'une primitive qui se
-		/// regenere de ses parametres), ou si ce qu'elle porte ne se recoupe pas :
-		/// pas different, comptes qui ne retombent pas sur les octets decodes.
-		/// `why`, s'il est fourni, recoit la raison -- un refus silencieux ferait
-		/// disparaitre un maillage sans un mot.
-		inline bool NkGeomRead(const NkArchive &nd, uint32 vstride, NkVector<uint8> &verts,
-							   uint32 *vcount, NkVector<uint32> &indices, NkString *why = nullptr) {
-			verts.Clear();
-			indices.Clear();
-			if (vcount)
-				*vcount = 0u;
-			NkArchive g;
-			if (!nd.GetObject("geometrie", g))
-				return false; // pas de geometrie dans ce noeud : ce n'est pas une erreur
-			nk_int32 stride = 0, nv = 0, ni = 0;
-			(void)g.GetInt32("octetsParSommet", stride);
-			(void)g.GetInt32("sommets", nv);
-			(void)g.GetInt32("indices", ni);
-			if (stride <= 0 || nv <= 0) {
-				if (why)
-					*why = "bloc geometrie sans pas ni sommets";
+		/// Charge `root/rel`. Un fichier ABSENT n'est pas une erreur (l'asset n'a
+		/// peut-etre aucune geometrie propre) : `present` reste faux et l'appelant
+		/// decide. Un fichier PRESENT MAIS ILLISIBLE, lui, est dit -- c'est le cas
+		/// ou du travail a ete perdu, et il ne doit pas se confondre avec l'autre.
+		inline bool NkGeoRead(const NkString &root, const NkString &rel, NkGeoFile &out) {
+			out.entries.Clear();
+			out.present = false;
+			const NkString abs = NkScToAbs(root, rel.CStr());
+			if (abs.Empty() || !NkFile::Exists(abs.CStr()))
+				return false;
+			out.bytes = NkFile::ReadAllBytes(abs.CStr());
+			if (out.bytes.Size() < (usize)kGeoHeaderBytes) {
+				NkLog::Instance().Warnf("[geom] « %s » ILLISIBLE : %u octets, l'en-tete en demande %u.",
+										rel.CStr(), (unsigned)out.bytes.Size(),
+										(unsigned)kGeoHeaderBytes);
 				return false;
 			}
-			if ((uint32)stride != vstride) {
-				// REFUS NET, jamais une lecture approchee : un sommet decode avec le
-				// mauvais pas donne une geometrie plausible et fausse.
-				if (why) {
-					char b[96];
-					snprintf(b, sizeof(b), "sommet de %d octets, cette version en attend %u",
-							 (int)stride, (unsigned)vstride);
-					*why = b;
+			const uint8 *p = out.bytes.Data();
+			if (p[0] != 'N' || p[1] != 'K' || p[2] != 'G' || p[3] != 'E' || p[4] != 'O' ||
+				p[5] != '1') {
+				NkLog::Instance().Warnf("[geom] « %s » ILLISIBLE : ce n'est pas un fichier NKGEO.",
+										rel.CStr());
+				return false;
+			}
+			const uint32 ver = NkGeoGetU32(out.bytes, 8);
+			if (ver > kGeoFormatVersion) {
+				NkLog::Instance().Warnf("[geom] « %s » ecrit par une version plus recente "
+										"(format %u, connu %u) : NON LU.",
+										rel.CStr(), (unsigned)ver, (unsigned)kGeoFormatVersion);
+				return false;
+			}
+			const uint32 n = NkGeoGetU32(out.bytes, 12);
+			usize off = (usize)kGeoHeaderBytes;
+			for (uint32 k = 0; k < n; ++k) {
+				if (off + (usize)kGeoEntryBytes > out.bytes.Size()) {
+					NkLog::Instance().Warnf("[geom] « %s » TRONQUE a l'entree %u/%u : les objets "
+											"suivants n'ont plus leur maillage.",
+											rel.CStr(), (unsigned)k, (unsigned)n);
+					break;
 				}
-				return false;
+				NkGeoEntry e;
+				e.rank = NkGeoGetU32(out.bytes, off + 0u);
+				e.vcount = NkGeoGetU32(out.bytes, off + 4u);
+				e.stride = NkGeoGetU32(out.bytes, off + 8u);
+				e.icount = NkGeoGetU32(out.bytes, off + 12u);
+				off += (usize)kGeoEntryBytes;
+				const usize vb = (usize)e.vcount * (usize)e.stride;
+				const usize ib = (usize)e.icount * sizeof(uint32);
+				if (e.vcount == 0 || e.stride == 0 || e.icount == 0 ||
+					off + vb + ib > out.bytes.Size()) {
+					NkLog::Instance().Warnf("[geom] « %s » TRONQUE a l'entree %u/%u (rang %u) : "
+											"les objets suivants n'ont plus leur maillage.",
+											rel.CStr(), (unsigned)k, (unsigned)n,
+											(unsigned)e.rank);
+					break;
+				}
+				e.vOff = off;
+				e.iOff = off + vb;
+				off += vb + ib;
+				out.entries.PushBack(e);
 			}
-			// ── LE CODAGE VIENT DU FICHIER, JAMAIS D'UNE DEVINETTE ──────────────
-			// Un bloc de version 1 (ecrit ce matin) ne porte PAS la cle `codage` :
-			// son absence vaut « brut », et c'est exactement ce qu'il est. La
-			// compatibilite descendante ne tient pas a une intention, elle tient a
-			// ce defaut-la, ecrit ici.
-			NkString cod, codI;
-			(void)g.GetString("codage", cod);
-			(void)g.GetString("codageIndices", codI);
-			auto codeDe = [](const NkString &s) -> int32 {
-				if (s.Empty() || s == NkString("brut"))
-					return NK_GEOM_BRUT;
-				if (s == NkString("transpose-rle"))
-					return NK_GEOM_RLE;
-				if (s == NkString("transpose-deflate"))
-					return NK_GEOM_DEFLATE;
-				return -1; // inconnu : on REFUSE, on ne devine pas
+			out.present = true;
+			return !out.entries.Empty();
+		}
+
+		/// L'entree d'un rang, ou nullptr. Les indices sont RECOPIES par
+		/// l'appelant s'il en a besoin alignes ; les sommets se lisent en place
+		/// (le systeme de maillages les memcpy).
+		inline const NkGeoEntry *NkGeoFind(const NkGeoFile &f, int32 rank) {
+			if (rank < 0)
+				return nullptr;
+			for (usize i = 0; i < f.entries.Size(); ++i)
+				if (f.entries[i].rank == (uint32)rank)
+					return &f.entries[i];
+			return nullptr;
+		}
+
+		// ═══════════════════════════════════════════════════════════════════
+		// LA SONDE DU FORMAT — sans fenetre, sans GPU, sans un clic
+		// ═══════════════════════════════════════════════════════════════════
+		// `NK3DModeler.exe --sonde-geo` la lance et rend 0 si tout est VERT.
+		//
+		// POURQUOI ELLE EST ICI ET PAS AILLEURS : elle eprouve exactement le
+		// fichier qui la porte. Une sonde dans un autre fichier se met a decrire
+		// ce qu'elle croit du format ; celle-ci ne peut pas diverger de lui.
+		//
+		// ⚠️ CE QU'ELLE NE COUVRE PAS, ET IL FAUT LE LIRE AVANT DE S'Y FIER :
+		// elle eprouve la COUCHE FICHIER (ecriture, relecture, refus des
+		// fichiers abimes). Elle ne touche NI le systeme de maillages NI la
+		// sauvegarde du projet : ceux-la demandent un device, donc une fenetre,
+		// donc des gestes. Un aller-retour REEL -- importer, enregistrer,
+		// fermer, rouvrir -- reste un test HUMAIN. Cette sonde peut etre verte
+		// pendant que la chaine complete est cassee ; elle dit que le format
+		// tient, pas que le modeleur s'en sert.
+		//
+		// CHAQUE LIGNE A ETE VUE ROUGE SOUS SA MUTATION : les quatre controles
+		// 2 a 5 abiment le fichier a la main (nombre magique, version, coupure)
+		// et exigent un REFUS. Retirer le controle correspondant dans NkGeoRead
+		// les fait passer au rouge -- c'est ce qui les rend autre chose qu'un
+		// commentaire.
+		//
+		// ⚠️ ET CE QUE LE (8) NE COUVRE PAS, IL FAUT LE DIRE AVEC LUI : il prouve
+		// que `NkGeoWrite` REFUSE et NOMME sa raison quand l'ecriture est
+		// impossible. Il ne prouve RIEN de la remontee de ce refus jusqu'au
+		// bandeau -- NkAsNodesCapture -> NkProjectWriteCard -> « Import
+		// PARTIEL ». Cette chaine-la traverse l'hote 3D, donc un device, donc une
+		// fenetre : elle reste un test HUMAIN, et il faut un dossier de projet en
+		// lecture seule (ou un disque plein) pour la voir mordre.
+		inline int32 NkGeoSonde(const NkString &dir) {
+			NkString root = dir.Empty() ? NkString(".") : dir;
+			NkString rap;
+			int32 rouges = 0;
+			auto dire = [&](const char *nom, bool vert, const char *detail) {
+				char l[512];
+				snprintf(l, sizeof(l), "%s  %-42s  %s\n", vert ? "VERT " : "ROUGE", nom,
+						 detail ? detail : "");
+				rap += l;
+				if (!vert)
+					++rouges;
 			};
-			const int32 cv = codeDe(cod);
-			const int32 ci = codeDe(codI);
-			if (cv < 0 || ci < 0) {
-				if (why)
-					*why = NkString("codage inconnu : ") + (cv < 0 ? cod : codI);
-				return false;
+
+			// Deux entrees : une minuscule, une assez grosse pour sortir de tout
+			// tampon d'essai. Les rangs 0 et 7 ne se suivent pas : un lecteur qui
+			// confondrait le rang et la position dans la table passerait le
+			// premier controle et echouerait ici.
+			const uint32 stride = 48u;
+			const uint32 vcA = 3u, icA = 6u;
+			const uint32 vcB = 5000u, icB = 30000u;
+			NkVector<uint8> vA, vB;
+			NkVector<uint32> iA, iB;
+			vA.Resize((usize)vcA * stride);
+			for (usize i = 0; i < vA.Size(); ++i)
+				vA[i] = (uint8)((i * 37u + 11u) & 0xFFu);
+			vB.Resize((usize)vcB * stride);
+			for (usize i = 0; i < vB.Size(); ++i)
+				vB[i] = (uint8)((i * 131u + 7u) & 0xFFu);
+			iA.Resize((usize)icA);
+			for (usize i = 0; i < iA.Size(); ++i)
+				iA[i] = (uint32)(i * 3u);
+			iB.Resize((usize)icB);
+			for (usize i = 0; i < iB.Size(); ++i)
+				iB[i] = (uint32)(i % vcB);
+
+			NkGeoBuilder g;
+			NkGeoAdd(g, 0, vA.Data(), vcA, stride, iA.Data(), icA);
+			NkGeoAdd(g, 7, vB.Data(), vcB, stride, iB.Data(), icB);
+			const NkString rel = "sonde_geo.nkgeo";
+			NkString err;
+
+			// (1) ALLER-RETOUR : ce qui sort est OCTET POUR OCTET ce qui entre.
+			{
+				const bool ecrit = NkGeoWrite(root, rel, g, &err);
+				NkGeoFile f;
+				const bool lu = ecrit && NkGeoRead(root, rel, f);
+				bool ok = lu && f.entries.Size() == 2u;
+				const NkGeoEntry *eA = ok ? NkGeoFind(f, 0) : nullptr;
+				const NkGeoEntry *eB = ok ? NkGeoFind(f, 7) : nullptr;
+				ok = ok && eA && eB && eA->vcount == vcA && eA->icount == icA &&
+					 eA->stride == stride && eB->vcount == vcB && eB->icount == icB;
+				if (ok)
+					ok = std::memcmp(f.bytes.Data() + eA->vOff, vA.Data(), vA.Size()) == 0 &&
+						 std::memcmp(f.bytes.Data() + eA->iOff, iA.Data(),
+									 (usize)icA * sizeof(uint32)) == 0 &&
+						 std::memcmp(f.bytes.Data() + eB->vOff, vB.Data(), vB.Size()) == 0 &&
+						 std::memcmp(f.bytes.Data() + eB->iOff, iB.Data(),
+									 (usize)icB * sizeof(uint32)) == 0;
+				char d[160];
+				snprintf(d, sizeof(d), "2 entrees (rangs 0 et 7), %u + %u sommets, octet pour octet",
+						 (unsigned)vcA, (unsigned)vcB);
+				dire("(1) aller-retour ecriture/relecture", ok, d);
 			}
-			if (!NkGeomUnpack(g, "v", cv, (uint32)stride, verts, why)) {
-				verts.Clear();
-				return false;
+
+			const NkString abs = NkScToAbs(root, rel.CStr());
+			NkVector<uint8> sain = NkFile::ReadAllBytes(abs.CStr());
+
+			// (2) MUTATION : le nombre magique. Un fichier qui n'est pas un
+			// NKGEO doit etre REFUSE, jamais lu de travers.
+			{
+				NkVector<uint8> m = sain;
+				if (m.Size() > 2u)
+					m[2] = (uint8)'X';
+				(void)NkFile::WriteAllBytes(abs.CStr(), m);
+				NkGeoFile f;
+				const bool lu = NkGeoRead(root, rel, f);
+				dire("(2) mutation du nombre magique", !lu, "refuse et journalise ILLISIBLE");
 			}
-			if (verts.Size() != (usize)nv * (usize)stride) {
-				verts.Clear();
-				if (why)
-					*why = "sommets : le compte annonce ne correspond pas aux octets";
-				return false;
+
+			// (3) MUTATION : une version FUTURE. Lire un format qu'on ne connait
+			// pas donnerait une geometrie fausse sans erreur.
+			{
+				NkVector<uint8> m = sain;
+				const uint32 futur = kGeoFormatVersion + 99u;
+				if (m.Size() >= 12u)
+					std::memcpy(m.Data() + 8, &futur, sizeof(futur));
+				(void)NkFile::WriteAllBytes(abs.CStr(), m);
+				NkGeoFile f;
+				const bool lu = NkGeoRead(root, rel, f);
+				dire("(3) mutation de la version (plus recente)", !lu, "refuse, non lu");
 			}
-			if (ni > 0) {
-				NkVector<uint8> raw;
-				if (!NkGeomUnpack(g, "i", ci, (uint32)sizeof(uint32), raw, why)) {
-					verts.Clear();
-					return false;
-				}
-				if (raw.Size() != (usize)ni * sizeof(uint32)) {
-					verts.Clear();
-					if (why)
-						*why = "indices : le compte annonce ne correspond pas aux octets";
-					return false;
-				}
-				indices.Resize((usize)ni);
-				for (usize k = 0; k < (usize)ni; ++k) {
-					uint32 val = 0u;
-					// Recopie OCTET PAR OCTET : le tampon decode n'a aucune garantie
-					// d'alignement, et un `reinterpret_cast<uint32*>` dessus serait un
-					// acces non aligne -- defini nulle part, et lent la ou il marche.
-					for (usize b = 0; b < sizeof(uint32); ++b)
-						val |= (uint32)raw[k * sizeof(uint32) + b] << (8u * (uint32)b);
-					indices[k] = val;
-				}
+
+			// (4) MUTATION : le fichier est COUPE au milieu de la seconde
+			// entree. La premiere reste bonne : on garde ce qui est entier et on
+			// DIT ce qui manque -- perdre les deux serait aussi faux que de
+			// rendre la seconde a moitie.
+			{
+				NkVector<uint8> m;
+				const usize coupe = sain.Size() - (usize)vcB * stride / 2u;
+				m.Resize(coupe);
+				std::memcpy(m.Data(), sain.Data(), coupe);
+				(void)NkFile::WriteAllBytes(abs.CStr(), m);
+				NkGeoFile f;
+				const bool lu = NkGeoRead(root, rel, f);
+				const bool ok = lu && f.entries.Size() == 1u && f.entries[0].rank == 0u;
+				dire("(4) mutation : fichier coupe en deux", ok,
+					 "garde l'entree entiere, TRONQUE pour l'autre");
 			}
-			if (vcount)
-				*vcount = (uint32)nv;
-			return true;
+
+			// (5) MUTATION : le fichier ne fait plus la taille de son en-tete.
+			{
+				NkVector<uint8> m;
+				m.Resize(5u);
+				(void)NkFile::WriteAllBytes(abs.CStr(), m);
+				NkGeoFile f;
+				const bool lu = NkGeoRead(root, rel, f);
+				dire("(5) mutation : plus court que l'en-tete", !lu, "refuse");
+			}
+
+			// (6) UN TAMPON VIDE EFFACE le fichier precedent. Sans cela, un
+			// asset dont on retire le dernier import garderait une geometrie
+			// morte, rendue a un rang qui designe autre chose.
+			{
+				NkGeoBuilder vide;
+				const bool ecrit = NkGeoWrite(root, rel, vide, &err);
+				const bool parti = !NkFile::Exists(abs.CStr());
+				dire("(6) tampon vide : le .nkgeo precedent part", ecrit && parti,
+					 "aucun fichier vide laisse derriere");
+			}
+
+			// (7) LE NOM DU FRERE : meme dossier, meme nom, autre extension.
+			{
+				const bool ok = NkGeoRelFor("Dossier/Model.nkmesh") == NkString("Dossier/Model.nkgeo") &&
+								NkGeoRelFor("Scene1.nkscene") == NkString("Scene1.nkgeo") &&
+								NkGeoRelFor("Dos.sier/Sans") == NkString("Dos.sier/Sans.nkgeo");
+				dire("(7) nom du .nkgeo frere", ok, "extension remplacee, point du dossier epargne");
+			}
+
+			// (8) UNE ECRITURE IMPOSSIBLE REND FAUX ET DIT POURQUOI.
+			// C'est le controle qui manquait, et c'est celui qui compte le plus
+			// pour Rodolf : tant que `NkGeoWrite` peut echouer sans que personne
+			// ne le sache, un import annonce « reussi » sur une matiere qui n'est
+			// nulle part. Le cas se FABRIQUE, parce que le disque de la machine
+			// n'est ni plein ni en lecture seule : on pose un FICHIER la ou le
+			// dossier devrait etre, et on demande d'ecrire dedans.
+			// ⚠️ CE QUI A ETE MESURE, ET CE QUI NE L'A PAS ETE. Les deux formes de
+			// la garde de dossier ont ete eprouvees sur ce cas exact par un temoin
+			// jetable hors depot (06/09, controle positif inclus) :
+			//     controle positif (ecrire ailleurs) = 1
+			//     garde ANCIENNE  (« !CreateRecursive ») mord = 0   <- DECORATIVE
+			//     garde NOUVELLE  (relit le disque)     mord = 1
+			//     WriteAllBytes sous le barrage              = 0
+			// ET LE CAS (8) A ETE VU ROUGE SOUS SA PROPRE MUTATION : en remettant
+			// la garde de dossier a sa forme decorative (`if (false)` sur la
+			// relecture du disque), l'ecriture echoue quand meme un cran plus bas,
+			// mais le message accuse le FICHIER -- le mot « dossier » disparait, le
+			// cas tombe, et `--sonde-geo` rend 1. C'est pour ca que ce cas exige le
+			// mot et pas seulement l'echec : « ca a rendu faux » ne departageait
+			// pas les deux versions de la garde.
+			{
+				const NkString barrageRel = "sonde_geo_barrage";
+				const NkString barrageAbs = NkScToAbs(root, barrageRel.CStr());
+				NkVector<uint8> unOctet;
+				unOctet.PushBack((uint8)'x');
+				(void)NkFile::WriteAllBytes(barrageAbs.CStr(), unOctet);
+				NkString err8;
+				const NkString cible = barrageRel + "/impossible.nkgeo";
+				const bool ecrit = NkGeoWrite(root, cible, g, &err8);
+				// LE REFUS DOIT NOMMER SA CAUSE, PAS SON SYMPTOME. Exiger seulement
+				// « ca a rendu faux » ne departagerait rien : avec la garde de
+				// dossier decorative, l'ecriture echouait quand meme un cran plus
+				// bas et le message accusait le FICHIER alors que le fautif est le
+				// DOSSIER. Le mot « dossier » est donc ce qui distingue les deux
+				// versions -- et c'est aussi ce qui dit a Rodolf quoi corriger.
+				const bool ok = !ecrit && err8.Find("dossier") != NkString::npos;
+				(void)NkFile::Delete(barrageAbs.CStr());
+				dire("(8) ecriture impossible : refus NOMME", ok,
+					 ok ? err8.CStr() : "a rendu VRAI ou n'a pas dit pourquoi");
+			}
+
+			char tete[512];
+			snprintf(tete, sizeof(tete),
+					 "SONDE GEOMETRIE — NkModelerGeom.h, format %u\n"
+					 "Regime : COUCHE FICHIER seule. Ni maillage, ni GPU, ni sauvegarde de\n"
+					 "projet — ceux-la demandent une fenetre, donc des gestes humains.\n"
+					 "-----------------------------------------------------------------\n",
+					 (unsigned)kGeoFormatVersion);
+			NkString sortie = NkString(tete) + rap;
+			char pied[128];
+			snprintf(pied, sizeof(pied), "-----------------------------------------------------------------\n%s (%d rouge(s))\n",
+					 rouges == 0 ? "TOUT VERT" : "ECHEC", rouges);
+			sortie += pied;
+			(void)NkFile::WriteAllText(NkScToAbs(root, "sonde_geo.txt").CStr(), sortie.CStr());
+			NkLog::Instance().Warnf("[sonde-geo]\n%s", sortie.CStr());
+			return rouges == 0 ? 0 : 1;
 		}
 
 	} // namespace nk3d

@@ -1,5 +1,9 @@
 #pragma once
-// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
+// -----------------------------------------------------------------------------
+// @File    NkModelerScene.h
+// @Author  TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
+// @License Proprietary - All Rights Reserved (see LICENSE)
+// -----------------------------------------------------------------------------
 // =============================================================================
 // NkModelerScene.h — SERIALISATION DE LA SCENE dans le .nk3dm.
 //
@@ -59,16 +63,15 @@
 // ── CE QUI N'EST PAS ENCORE SAUVEGARDE ───────────────────────────────────────
 //   Dit ici ET a l'ecran d'accueil, parce qu'un silence ferait perdre du
 //   travail :
-//   * la GEOMETRIE EDITEE et la GEOMETRIE IMPORTEE : PLUS D'ACTUALITE depuis
-//     le 13/09 -- elles sont enregistrees. Tout noeud qui porte SON PROPRE
-//     maillage (importe, ou sorti du mode Edition) ecrit ses sommets et ses
-//     indices dans son fichier sous la cle `geometrie` (cf. NkModelerGeom.h),
-//     et les retrouve a la relecture. Une primitive du catalogue, elle,
-//     n'ecrit toujours que ses PARAMETRES de creation : elle se refabrique a
-//     l'identique, et recopier ses sommets couterait sans rien apporter. Ce
-//     qui reste vrai : un fichier ecrit AVANT cette date n'a pas le bloc, et
-//     ses noeuds reviennent donc en primitives de leur nature -- il le DIT en
-//     ne portant pas la cle, ce qui se lit ;
+//   * la GEOMETRIE EDITEE (sommets deplaces en mode Edition) : un maillage est
+//     regenere depuis ses parametres de creation, pas relu ;
+//   * la GEOMETRIE IMPORTEE : DETTE LEVEE le 06/09. Elle a coute du travail a
+//     Rodolf -- « les models que j'avais charges precedemment, une fois
+//     rouvert le projet, elles sont devenues des cubes ». Les sommets vivent
+//     desormais dans le `.nkgeo` frere de l'asset (NkModelerGeom.h) ; ce
+//     fichier-ci n'est PLUS le chemin d'ecriture des noeuds (NkAsNodesCapture
+//     l'est), il ne sert qu'a RELIRE les projets de format 1 et 2, qui n'ont
+//     pas de geometrie a relire ;
 //   * les MODIFICATEURS (la pile n'a pas encore de modele de donnees) ;
 //   * les objets de la SCENE DE DEMONSTRATION (noeuds 0..95) : ils
 //     reapparaissent tels qu'a l'ouverture, seul leur masquage par scene
@@ -437,7 +440,7 @@ namespace nkentseu {
 				NkArchive nd;
 				nd.SetInt32("nature", kind);
 				nd.SetInt32("sousType", sub);
-				nd.SetString("nom", (n < 176) ? st.customNames[n] : "");
+				nd.SetString("nom", (n < NkModelerState::kMaxNodeNames) ? st.customNames[n] : "");
 				// UNE ARCHIVE N'EST DANS AUCUNE SCENE : c'est un asset du
 				// navigateur, pas un objet pose quelque part. Lui donner un
 				// document la ferait apparaitre dans cette scene a la relecture.
@@ -565,29 +568,29 @@ namespace nkentseu {
 			// pas encore avec ce qu'elle porte -- c'est le chantier « persister
 			// tous les types de fichiers », par type et dans les deux modes.
 			NkVector<int32> browRank; // indice de carte -> rang dans le fichier
-			for (int32 b = 0; b < st.browserCount; ++b)
+			for (int32 b = 0; b < st.BrowserCount(); ++b)
 				browRank.PushBack(-1);
 			{
 				int32 next = 0;
-				for (int32 b = 0; b < st.browserCount; ++b)
-					if (st.browserKind[b] != 255)
+				for (int32 b = 0; b < st.BrowserCount(); ++b)
+					if (st.Card(b).kind != 255)
 						browRank[(usize)b] = next++;
 			}
 			NkVector<NkArchive> brow;
-			for (int32 b = 0; b < st.browserCount; ++b) {
-				if (st.browserKind[b] == 255)
+			for (int32 b = 0; b < st.BrowserCount(); ++b) {
+				if (st.Card(b).kind == 255)
 					continue; // carte supprimee : un trou, pas une carte
 				NkArchive c;
-				c.SetInt32("nature", (int32)st.browserKind[b]);
-				c.SetString("nom", st.browserNames[b]);
-				const int32 pp = st.browserParent[b];
+				c.SetInt32("nature", (int32)st.Card(b).kind);
+				c.SetString("nom", st.Card(b).name);
+				const int32 pp = st.Card(b).parent;
 				c.SetInt32("parent",
-						   (pp >= 0 && pp < st.browserCount) ? browRank[(usize)pp] : -1);
-				c.SetInt32("sousType", (int32)st.browserSub[b]);
-				const int32 dc = st.browserDoc[b] - 1;
+						   (pp >= 0 && pp < st.BrowserCount()) ? browRank[(usize)pp] : -1);
+				c.SetInt32("sousType", (int32)st.Card(b).sub);
+				const int32 dc = st.Card(b).doc - 1;
 				c.SetInt32("document",
 						   (dc >= 0 && dc < NkModelerState::kMaxDocs) ? docRank[(usize)dc] : -1);
-				const int32 sn = st.browserSrcNode[b] - 1;
+				const int32 sn = st.Card(b).srcNode - 1;
 				c.SetInt32("noeudSource",
 						   (sn >= 0 && sn < nodeMax) ? rankOf[(usize)sn] : -1);
 				brow.PushBack(c);
@@ -611,7 +614,7 @@ namespace nkentseu {
 				v.SetInt32("nature", (int32)st.sceneTabKind[t]);
 				const int32 ai = st.sceneTabAsset[t] - 1;
 				v.SetInt32("asset",
-						   (ai >= 0 && ai < st.browserCount) ? browRank[(usize)ai] : -1);
+						   (ai >= 0 && ai < st.BrowserCount()) ? browRank[(usize)ai] : -1);
 				views.PushBack(v);
 			}
 			out.SetObjectArray("vues", views);
@@ -681,25 +684,16 @@ namespace nkentseu {
 			for (int32 n = 0; n < nodeMax; ++n)
 				if (demo::Demo3DHostUserKind(n) != 0 && !demo::Demo3DHostNodeDeleted(n))
 					demo::Demo3DHostDeleteNode(n, false);
-			for (int32 n = 96; n < nodeMax && n < 176; ++n)
+			for (int32 n = 96; n < nodeMax && n < NkModelerState::kMaxNodeNames; ++n)
 				st.customNames[n][0] = 0;
 			demo::Demo3DHostProjMatClear();
 			// LE NAVIGATEUR ET LES DOCUMENTS SONT VIDES AUSSI : ouvrir un projet
 			// par-dessus un autre laissait sinon les cartes du precedent, qui
 			// pointaient sur des scenes qui n'existaient plus.
-			st.browserCount = 0;
+			st.cards.Clear();
 			st.browserFolder = -1;
 			st.browClip = -1;
 			st.browMenuIdx = -1;
-			for (int32 b = 0; b < NkModelerState::kMaxBrowser; ++b) {
-				st.browserKind[b] = 255;
-				st.browserNames[b][0] = 0;
-				st.browserParent[b] = -1;
-				st.browserSub[b] = 0;
-				st.browserSrcNode[b] = 0;
-				st.browserDoc[b] = 0;
-				st.browserOriginDirty[b] = false; // transient : jamais serialise
-			}
 			for (int32 d = 0; d < NkModelerState::kMaxDocs; ++d)
 				st.DocFree(d);
 
@@ -723,6 +717,27 @@ namespace nkentseu {
 				const int32 kind = NkScInt(nd, "nature", 0);
 				const int32 sub = NkScInt(nd, "sousType", 0);
 				if (kind < 1 || kind > 10) {
+					// 🔴 CE NOEUD DISPARAIT, ET IL FAUT LE DIRE PAR SON NOM.
+					//
+					// ⚠️ CORRECTION DU 06/09 — CE COMMENTAIRE DISAIT UN FAUX, ET LE
+					// FAUX A COUTE DU TRAVAIL. Il affirmait que « nature == 0 est la
+					// marque d'un objet IMPORTE ». Verifie a la source :
+					// `Demo3DHostCreateMeshNode` appelle `HostAllocUser(2)` -- un
+					// objet importe porte la nature 2, la famille CUBE. Le fichier de
+					// Rodolf le confirme, ses imports y sont ecrits « nature: 2 ».
+					// Cette garde ne les a donc JAMAIS vus : ils passaient dessous,
+					// `Demo3DHostAddNode(2, 0)` recreait un cube parfaitement valide,
+					// et personne n'etait prevenu. C'est le defaut des cubes blancs.
+					//
+					// La garde reste utile pour ce qu'elle couvre REELLEMENT : une
+					// nature hors 1..10, c'est-a-dire un fichier abime ou ecrit par
+					// une version qu'on ne connait pas. Le cas des imports est
+					// desormais traite la ou il vit -- NkAsNodesRestore, par le
+					// drapeau « geometriePropre » et le `.nkgeo` frere.
+					NkLog::Instance().Warnf(
+						"[scene] objet « %s » NON RECREE : nature=%d, hors des natures connues 1..10 "
+						"(fichier abime, ou ecrit par une version inconnue).",
+						NkScStr(nd, "nom").CStr(), (int)kind);
 					nodeOf.PushBack(-1);
 					++nodeMiss;
 					continue;
@@ -753,11 +768,15 @@ namespace nkentseu {
 				const int32 n = demo::Demo3DHostAddNode(kind, sub);
 				nodeOf.PushBack(n);
 				if (n < 0) {
-					++nodeMiss; // plus d'emplacement libre
+					// Meme regle : nomme, pas compte en silence.
+					NkLog::Instance().Warnf("[scene] objet « %s » NON RECREE : plus d'emplacement libre dans la "
+											"scene",
+											NkScStr(nd, "nom").CStr());
+					++nodeMiss;
 					continue;
 				}
 				const NkString nm = NkScStr(nd, "nom");
-				if (n < 176)
+				if (n < NkModelerState::kMaxNodeNames)
 					NkScPut(st.customNames[n], (uint32)sizeof(st.customNames[0]), nm.CStr());
 				// L'hote garde une copie du nom : c'est lui qui nomme les fichiers
 				// produits par la sortie.
@@ -963,20 +982,16 @@ namespace nkentseu {
 			(void)in.GetObjectArray("navigateur", brow);
 			NkVector<int32> browOf; // rang fichier -> indice de carte
 			for (usize b = 0; b < brow.Size(); ++b) {
-				if (st.browserCount >= NkModelerState::kMaxBrowser) {
-					browOf.PushBack(-1);
-					continue;
-				}
-				const int32 c = st.browserCount++;
+				const int32 c = st.CardAdd();
 				browOf.PushBack(c);
 				const NkArchive &e = brow[b];
-				st.browserKind[c] = (uint8)(NkScInt(e, "nature", 1) & 0xFF);
-				NkScPut(st.browserNames[c], (uint32)sizeof(st.browserNames[0]),
+				st.Card(c).kind = (uint8)(NkScInt(e, "nature", 1) & 0xFF);
+				NkScPut(st.Card(c).name, (uint32)NkModelerState::kCardNameCap,
 						NkScStr(e, "nom").CStr());
-				st.browserSub[c] = (uint8)(NkScInt(e, "sousType", 0) & 0xFF);
-				st.browserParent[c] = -1; // resolu en seconde passe
-				st.browserDoc[c] = 0;
-				st.browserSrcNode[c] = 0;
+				st.Card(c).sub = (uint8)(NkScInt(e, "sousType", 0) & 0xFF);
+				st.Card(c).parent = -1; // resolu en seconde passe
+				st.Card(c).doc = 0;
+				st.Card(c).srcNode = 0;
 			}
 			// SECONDE PASSE : parent, document et noeud source. Un parent peut
 			// etre ecrit APRES son enfant -- le resoudre au vol echouerait une
@@ -988,16 +1003,16 @@ namespace nkentseu {
 				const NkArchive &e = brow[b];
 				const int32 pr = NkScInt(e, "parent", -1);
 				if (pr >= 0 && (usize)pr < browOf.Size() && browOf[(usize)pr] >= 0)
-					st.browserParent[c] = browOf[(usize)pr];
+					st.Card(c).parent = browOf[(usize)pr];
 				const int32 dr = NkScInt(e, "document", -1);
 				if (dr >= 0 && (usize)dr < docOf.Size() && docOf[(usize)dr] >= 0) {
 					const int32 d = docOf[(usize)dr];
-					st.browserDoc[c] = d + 1;
+					st.Card(c).doc = d + 1;
 					st.docCard[d] = c + 1;
 				}
 				const int32 sr = NkScInt(e, "noeudSource", -1);
 				if (sr >= 0 && (usize)sr < nodeOf.Size() && nodeOf[(usize)sr] >= 0)
-					st.browserSrcNode[c] = nodeOf[(usize)sr] + 1;
+					st.Card(c).srcNode = nodeOf[(usize)sr] + 1;
 			}
 			// Toute scene sans carte en recoit une : c'est la seule facon de la
 			// rouvrir apres avoir ferme son onglet.
@@ -1072,6 +1087,9 @@ namespace nkentseu {
 							 "sans model rendu(s) visible(s)",
 							 (int)texMiss, (int)nodeMiss, (int)rescued, (int)orphanMesh);
 					*err = msg;
+					// Le compte part aussi au JOURNAL : `err` remonte a un appelant
+					// qui peut l'ignorer, le journal reste.
+					NkLog::Instance().Warnf("[scene] %s", msg);
 				}
 			}
 			return true;

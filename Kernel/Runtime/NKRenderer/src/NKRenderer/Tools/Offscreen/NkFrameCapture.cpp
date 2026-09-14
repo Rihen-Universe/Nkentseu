@@ -1,8 +1,10 @@
 // =============================================================================
 // NkFrameCapture.cpp — capture de frames asynchrone (ring staging + fences).
 // Voir NkFrameCapture.h pour l'architecture. Zéro WaitIdle, zéro stall.
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // =============================================================================
 #include "NkFrameCapture.h"
+#include "NkOffscreenTarget.h" // NkOffscreenStoredIsBottomUp : la regle, ecrite une fois
 
 #include "NKRHI/Commands/NkICommandBuffer.h"
 #include "NKLogger/NkLog.h"
@@ -125,7 +127,9 @@ namespace nkentseu {
 				return false;
 
 			// Copie staging → scratch top-down (flip Y sur OpenGL).
-			const bool flipY = mDevice->GetApi() == ::nkentseu::NkGraphicsApi::NK_GFX_API_OPENGL;
+			// Meme regle, meme source : NkOffscreenTarget.h. C'etait la seconde
+			// copie en dur.
+			const bool flipY = NkOffscreenStoredIsBottomUp(mDevice->GetApi());
 			const uint32 rowBytes = mDesc.width * 4u;
 			NkMappedMemory mapped = mDevice->MapBuffer(oldest->staging);
 			if (mapped.IsValid()) {

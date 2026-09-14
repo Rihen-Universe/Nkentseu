@@ -1,8 +1,15 @@
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // =============================================================================
 // NkTextureLibrary.cpp  — NKRenderer v5.0
 // =============================================================================
 #include "NkTextureLibrary.h"
 #include "NkResources.h"
+#include "NkTextureAsset.h"
+#include "NkTextureCache.h"
+#include "NKFileSystem/NkFile.h"
+#include "NKTime/NkChrono.h"
+
+#include <cstdlib> // getenv : NK_TEX_FORMAT
 #include "NKImage/NKImage.h"
 #include "NKLogger/NkLog.h"
 #include "NKMemory/NkAllocator.h"
@@ -95,7 +102,7 @@ namespace nkentseu {
 
 		NkTexHandle NkTextureLibrary::WrapRHI(NkTextureHandle rhi, NkSamplerHandle sampler, uint32 w, uint32 h,
 											  uint32 mips, const NkString &dbgName, bool ownsSampler,
-											  bool ownsTexture) {
+											  bool ownsTexture, NkGPUFormat dbgFormat) {
 			if (!rhi.IsValid())
 				return NkTexHandle::Null();
 			NkTexHandle out = AllocHandle();
@@ -109,10 +116,24 @@ namespace nkentseu {
 			e.refCount = 1;
 			e.ownsTexture = ownsTexture;
 			e.ownsSampler = ownsSampler;
-			e.bytes = EstimateBytes(w, h, mips, 4);
+			e.bytes = (dbgFormat == NkGPUFormat::NK_UNDEFINED) ? EstimateBytes(w, h, mips, 4)
+															   : OctetsChaine(dbgFormat, w, h, mips);
 			mTotalBytes += e.bytes;
 			mTextures.Insert(out.id, e);
 			return out;
+		}
+
+		uint64 NkTextureLibrary::OctetsChaine(NkGPUFormat format, uint32 w, uint32 h, uint32 mips, uint32 layers) {
+			uint64 total = 0;
+			uint32 cw = w, ch = h;
+			for (uint32 m = 0; m < mips; m++) {
+				total += NkFormatImageSize(format, cw, ch);
+				if (cw > 1)
+					cw >>= 1;
+				if (ch > 1)
+					ch >>= 1;
+			}
+			return total * layers;
 		}
 
 		uint64 NkTextureLibrary::EstimateBytes(uint32 w, uint32 h, uint32 mips, uint32 bpp, uint32 layers) {
@@ -352,6 +373,17 @@ namespace nkentseu {
 		// =====================================================================
 		// Public Load API
 		// =====================================================================
+		// Taille d'un fichier, pour que « combien de Mo lus » soit un chiffre et
+		// pas une estimation.
+		static nk_uint64 TailleFichierOctets(const NkString &chemin) noexcept {
+			NkFile f;
+			if (!f.Open(chemin.CStr(), NkFileMode::NK_READ_BINARY))
+				return 0u;
+			const nk_uint64 n = nk_uint64(f.Size());
+			f.Close();
+			return n;
+		}
+
 		NkTexHandle NkTextureLibrary::Load(const NkString &path, const NkLoadOptions &opts) {
 			if (path.Empty()) {
 				NkRSetLastError(NkRResult::NK_ERR_IO, "NkTextureLibrary::Load empty path");
@@ -367,7 +399,79 @@ namespace nkentseu {
 				}
 			}
 
+			// -- CUISSON PARESSEUSE --------------------------------------
+			// L'actif cuit est un DERIVE : il vit dans `Build/Cache/Assets/`,
+			// nomme par l'empreinte du CONTENU de la source melangee aux options
+			// de cuisson. Source modifiee ou option changee -> autre nom -> autre
+			// fichier -> recuisson. Il n'existe donc pas d'etat « actif perime » :
+			// un actif perime n'est pas invalide, il est introuvable.
+			NkTexOvenReglages reglagesCuisson = ReglagesDepuisOptions(opts);
+			// NK_TEX_FORMAT=raw : forcer le BRUT partout. Le defaut est AUTO (le
+			// four regarde l'image et decide) ; cet interrupteur existe pour
+			// comparer, et pour le jour ou une compression abimerait quelque chose
+			// qu'on n'a pas su detecter.
+			{
+				static const bool s_brutForce = [] {
+					const char *v = std::getenv("NK_TEX_FORMAT");
+					return v && v[0] == 'r' && v[1] == 'a' && v[2] == 'w';
+				}();
+				if (s_brutForce)
+					reglagesCuisson.compression = NKTEXFMT_INCONNU;
+			}
+
+			// 🔴 CE QUE LE DORSAL ACCEPTE, DEMANDE AU DORSAL.
+			// `NkDeviceCaps::textureCompressionBC` existe depuis toujours et
+			// personne ne le lisait — c'etait l'une des trois capacites annoncees
+			// que ce lot reprochait au depot. Sans cette lecture, le moteur cuit
+			// en BC1 pour un dorsal qui refuse les blocs (le logiciel), obtient un
+			// handle nul, retombe sur le codec, et RECOMMENCE au lancement
+			// suivant : un cache qui ne sert jamais et qui coute a chaque fois.
+			if (reglagesCuisson.compression == NKTEXFMT_AUTO && mDevice && !mDevice->GetCaps().textureCompressionBC) {
+				static bool s_dit = false;
+				if (!s_dit) {
+					s_dit = true;
+					logger.Info("[NkTextureCache] ce dorsal n'annonce pas la compression BC : les actifs seront "
+								"cuits en BRUT. Ce message ne sera pas repete.\n");
+				}
+				reglagesCuisson.compression = NKTEXFMT_INCONNU;
+			}
+
+			nk_uint64 empreinte = 0u;
+			NkString cheminCuit;
+			if (NkTextureCache::Actif()) {
+				empreinte = NkTextureCache::Empreinte(path.CStr(), reglagesCuisson);
+				if (empreinte != 0u) {
+					cheminCuit = NkTextureCache::Chemin(empreinte);
+					if (NkTextureCache::Existe(cheminCuit)) {
+						// LECTURE = tout ce que fait `LoadBaked` MOINS ce que
+						// `CreateFromBaked` a compte comme televersement pendant
+						// CET appel. Sans la soustraction, les deux postes se
+						// compteraient deux fois et leur somme ne voudrait rien
+						// dire.
+						const float64 televAvant = NkTextureCache::MsTeleversement();
+						NkChrono chronoCuit;
+						NkTexHandle cuit = NkTextureAssetIO::LoadBaked(cheminCuit, this, &opts);
+						const float64 totalCuit = chronoCuit.Elapsed().ToMilliseconds();
+						const float64 televPendant = NkTextureCache::MsTeleversement() - televAvant;
+						NkTextureCache::AjouterMsLecture(totalCuit - televPendant, TailleFichierOctets(cheminCuit));
+						if (cuit.IsValid()) {
+							NkTextureCache::CompterTouche();
+							mPathCache.Insert(path, cuit);
+							if (auto *e = mTextures.Find(cuit.id))
+								e->path = path;
+							return cuit;
+						}
+						// L'actif existe mais ne se lit pas : on le DIT et on
+						// decode. Un cache abime qui rendrait la texture d'erreur
+						// serait pire que pas de cache du tout.
+						logger.Warn("[NkTextureLibrary] actif cuit illisible, retour au codec : {0}\n",
+									cheminCuit.CStr());
+					}
+				}
+			}
+
 			NkImageData img{};
+			NkChrono chronoDecodage;
 			if (!LoadWithNKImage(path, img)) {
 				// Message de log plus clair (path inclus). Le fallback est le
 				// magenta marker qui rend immediatement visible le probleme.
@@ -376,9 +480,16 @@ namespace nkentseu {
 				return mError;
 			}
 
+			// Le decodage inclut la lecture du fichier source : `NkImage::Load`
+			// fait les deux, et les separer demanderait d'ouvrir le codec. On le
+			// DIT plutot que de laisser croire a un decodage pur.
+			NkTextureCache::AjouterMsDecodage(chronoDecodage.Elapsed().ToMilliseconds());
+			NkTextureCache::AjouterMsLecture(0.0, TailleFichierOctets(path));
+
 			NkSamplerHandle samp = PickSampler(opts);
 			const char *dbg = opts.debugName ? opts.debugName : path.CStr();
 
+			NkChrono chronoUpload;
 			NkTexHandle out;
 			if (img.isHDR) {
 				// HDR : srgb force a false (les float HDR sont deja lineaires).
@@ -386,6 +497,12 @@ namespace nkentseu {
 			} else {
 				out = UploadColorTexture(img.pixels, img.width, img.height, opts.srgb, opts.genMipmaps, samp, dbg);
 			}
+			NkTextureCache::AjouterMsTeleversement(chronoUpload.Elapsed().ToMilliseconds());
+			// Le manque se paie UNE fois : on cuit MAINTENANT, depuis les pixels
+			// deja decodes — jamais un second decodage — puis on libere.
+			if (out.IsValid() && empreinte != 0u && !cheminCuit.Empty())
+				CuireDansLeCache(path, cheminCuit, img, reglagesCuisson);
+
 			FreeImageData(img);
 
 			if (out.IsValid()) {
@@ -470,6 +587,155 @@ namespace nkentseu {
 				mResources && mResources->IsReady() ? mResources->GetSamplerLinearRepeat() : NkSamplerHandle{};
 			return WrapRHI(rhi, samp, desc.width, desc.height, d.mipLevels, desc.debugName ? desc.debugName : "Manual",
 						   false);
+		}
+
+		// =====================================================================
+		// Cuisson d'un manque de cache
+		// =====================================================================
+		void NkTextureLibrary::CuireDansLeCache(const NkString &source, const NkString &cheminCuit,
+												const NkImageData &img, const NkTexOvenReglages &reglages) {
+			// `LoadWithNKImage` rend TOUJOURS du RGBA dense : RGBA8 en LDR, RGBA128F
+			// en HDR. Le four n'a donc pas a redecouvrir le format.
+			const nk_uint8 *pixels =
+				img.isHDR ? reinterpret_cast<const nk_uint8 *>(img.hdrPixels) : static_cast<const nk_uint8 *>(img.pixels);
+			const NkImagePixelFormat fmt =
+				img.isHDR ? NkImagePixelFormat::NK_RGBA128F : NkImagePixelFormat::NK_RGBA32;
+			if (!pixels || img.width == 0 || img.height == 0) {
+				NkTextureCache::CompterRefus();
+				return;
+			}
+
+			// En HDR le chemin de televersement d'aujourd'hui ne pose qu'un seul
+			// niveau (`UploadHDRTexture`, mipLevels = 1) : l'actif doit dire la MEME
+			// chose, sinon le cache changerait le rendu au lieu de l'accelerer.
+			NkTexOvenReglages r = reglages;
+			if (img.isHDR) {
+				r.sRGB = false;
+				r.genererMips = false;
+			}
+
+			NkVector<nk_uint8> payload;
+			NkString err;
+			if (!NkTextureOven::CuireDepuisPixels(pixels, img.width, img.height, fmt, 0u, r, payload, &err)) {
+				static bool s_ditRefus = false;
+				if (!s_ditRefus) {
+					s_ditRefus = true;
+					logger.Warn("[NkTextureCache] « {0} » n'est pas cuisinable ({1}) : cette famille restera decodee a "
+								"chaque chargement. Ce message ne sera pas repete.\n",
+								source.CStr(), err.CStr());
+				}
+				NkTextureCache::CompterRefus();
+				return;
+			}
+			NkTextureCache::NoterDecision(NkTextureOven::DerniereDecision());
+			if (NkTextureCache::Ecrire(cheminCuit, payload.Data(), payload.Size(), source)) {
+				NkTextureCache::CompterManque();
+				// UNE LIGNE PAR CUISSON : c'est ce qui manquait. Sans elle, la
+				// premiere course est lente et personne ne sait pourquoi.
+				logger.Info("[NkTextureCache] cuit : {0} -> {1} ({2}, {3} Mo)\n", source.CStr(),
+							NkTextureOven::DerniereDecision().CStr(), cheminCuit.CStr(),
+							double(payload.Size()) / 1048576.0);
+			} else {
+				NkTextureCache::CompterRefus();
+			}
+		}
+
+		// =====================================================================
+		// Actif deja cuit — televersement sans decodage
+		// =====================================================================
+		NkGPUFormat NkTextureLibrary::FormatGpuDepuisCode(uint32 code) {
+			switch (code) {
+				case NKTEXFMT_R8_UNORM:
+					return NkGPUFormat::NK_R8_UNORM;
+				case NKTEXFMT_RG8_UNORM:
+					return NkGPUFormat::NK_RG8_UNORM;
+				case NKTEXFMT_RGBA8_UNORM:
+					return NkGPUFormat::NK_RGBA8_UNORM;
+				case NKTEXFMT_RGBA8_SRGB:
+					return NkGPUFormat::NK_RGBA8_SRGB;
+				case NKTEXFMT_RGB32_FLOAT:
+					return NkGPUFormat::NK_RGB32_FLOAT;
+				case NKTEXFMT_RGBA32_FLOAT:
+					return NkGPUFormat::NK_RGBA32_FLOAT;
+				// Formats par blocs LIVRES : le RHI sait les televerser depuis le
+				// 2026-09-05 (arithmetique de blocs dans les quatre dorsaux).
+				case NKTEXFMT_BC1_RGB_UNORM:
+					return NkGPUFormat::NK_BC1_RGB_UNORM;
+				case NKTEXFMT_BC1_RGB_SRGB:
+					return NkGPUFormat::NK_BC1_RGB_SRGB;
+				default:
+					// Y compris NKTEXFMT_RGB8_* (aucun format GPU a 3 octets) et
+					// TOUS les codes par blocs : `NkFormatBytesPerPixel` rend 0
+					// pour eux, donc le pas de ligne et la taille de televersement
+					// seraient nuls. Le refus est ici, pas plus loin.
+					return NkGPUFormat::NK_UNDEFINED;
+			}
+		}
+
+		NkTexHandle NkTextureLibrary::CreateFromBaked(const NkTexVue &vue, const NkLoadOptions &opts) {
+			if (!mDevice)
+				return NkTexHandle::Null();
+			if (vue.levels.Size() == 0 || vue.width == 0 || vue.height == 0) {
+				logger.Error("[NkTextureLibrary] actif cuit vide\n");
+				return NkTexHandle::Null();
+			}
+
+			const NkGPUFormat fmt = FormatGpuDepuisCode(vue.formatCode);
+			if (fmt == NkGPUFormat::NK_UNDEFINED) {
+				logger.Error("[NkTextureLibrary] actif cuit : format {0} non televersable par ce RHI\n",
+							 NkTexFormatNom(vue.formatCode));
+				return NkTexHandle::Null();
+			}
+
+			const uint32 mips = vue.mipCount > 0 ? vue.mipCount : 1u;
+			const bool cube = vue.EstCubemap();
+
+			NkTextureDesc d;
+			d.type = cube ? NkTextureType::NK_CUBE : NkTextureType::NK_TEX2D;
+			d.format = fmt;
+			d.width = vue.width;
+			d.height = vue.height;
+			d.depth = 1;
+			d.arrayLayers = cube ? 6u : vue.arrayLayers;
+			d.mipLevels = mips;
+			d.bindFlags = NkBindFlags::NK_SHADER_RESOURCE;
+			d.usage = NkResourceUsage::NK_DEFAULT;
+			d.initialData = nullptr; // VOIR l'en-tete : surtout pas les pixels ici
+			d.rowPitch = vue.levels[0].rowPitch;
+			d.debugName = opts.debugName ? opts.debugName : "BakedTexture";
+
+			NkTextureHandle rhi = mDevice->CreateTexture(d);
+			if (!rhi.IsValid())
+				return NkTexHandle::Null();
+
+			// Chaque niveau, tel quel. L'ordre du fichier est mip 0..N-1 pour la
+			// couche 0, puis la couche 1, etc.
+			NkChrono chronoEcriture;
+			uint64 octets = 0;
+			for (nk_size i = 0; i < vue.levels.Size(); ++i) {
+				const NkTexNiveauVue &n = vue.levels[i];
+				const uint32 mip = uint32(i % nk_size(mips));
+				const uint32 couche = uint32(i / nk_size(mips));
+				if (!mDevice->WriteTextureRegion(rhi, n.data, 0, 0, 0, n.width, n.height, 1, mip, couche,
+												 n.rowPitch)) {
+					logger.Error("[NkTextureLibrary] actif cuit : televersement du niveau {0} refuse\n", mip);
+					mDevice->DestroyTexture(rhi);
+					return NkTexHandle::Null();
+				}
+				octets += n.size;
+			}
+
+			NkTextureCache::AjouterMsTeleversement(chronoEcriture.Elapsed().ToMilliseconds());
+
+			NkLoadOptions o = opts;
+			o.useClampEdge = (vue.addressMode == NKTEXADDR_CLAMP);
+			NkSamplerHandle samp = PickSampler(o);
+			NkTexHandle out = WrapRHI(rhi, samp, vue.width, vue.height, mips, d.debugName, false, true, fmt);
+			if (out.IsValid()) {
+				logger.Info("[NkTextureLibrary] actif cuit televerse SANS decodage : {0}x{1}, {2} niveaux, {3} o\n",
+							vue.width, vue.height, mips, (unsigned long long)octets);
+			}
+			return out;
 		}
 
 		NkTexHandle NkTextureLibrary::CreateRenderTarget(uint32 w, uint32 h, NkGPUFormat format, bool depth,

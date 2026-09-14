@@ -20,6 +20,21 @@
 namespace nkentseu {
 
 	// Scan récursif pour détecter si gl_FragDepth est écrit dans le corps d'un shader
+	// ⚠️ LA MEME REGLE QUE `BuiltinToHLSL`, ET C'EST TOUT L'ENJEU. La REFERENCE
+	// (`output._Depth`) et la DECLARATION (`float _Depth : SV_Depth;`) sont
+	// decidees a deux endroits ; si les deux ne reconnaissent pas `gl_FragDepth`
+	// DE LA MEME FACON, le generateur emet un identifiant que rien ne definit.
+	// `BuiltinToHLSL` minuscule avant de comparer ; ce scan-ci comparait la casse
+	// exacte. Mesure du 07/09 sur ShadowLinear, meme shader le meme jour :
+	//    DX11 -> struct PS_Output { float _Depth : SV_Depth; };
+	//    DX12 -> struct NkOutput { };            <- vide, et `output._Depth` ecrit
+	// dxc et fxc refusent tous deux, pour la meme raison.
+	static bool NkSL_EstFragDepth(const NkString &n) {
+		NkString c(n);
+		c.ToLower();
+		return c == "gl_fragdepth";
+	}
+
 	static bool ScanWritesDepth(NkSLNode *node) {
 		if (!node)
 			return false;
@@ -27,7 +42,7 @@ namespace nkentseu {
 			auto *a = static_cast<NkSLAssignNode *>(node);
 			if (a->lhs && a->lhs->kind == NkSLNodeKind::NK_EXPR_IDENT) {
 				auto *id = static_cast<NkSLIdentNode *>(a->lhs);
-				if (id->name == "gl_FragDepth")
+				if (NkSL_EstFragDepth(id->name))
 					return true;
 			}
 		}
@@ -702,8 +717,18 @@ namespace nkentseu {
 				bool purePC = hasPush && !hasUBO;
 				bool depthOnly = !hasVaryingOut;
 				bool noFlip = mOpts && mOpts->disableAutoYFlip; // pragma @gl-no-flip-y
-				if (hasInputs && !purePC && !depthOnly && !noFlip)
-					EmitLine("output._Position.y = -output._Position.y;");
+				// ⚠️ LA NEGATION EST RETIREE. Mesure du 07/09, temoin cube a position
+				// connue : avec elle, opengl 169.9 juste et dx11 549.1 RETOURNE ;
+				// sans elle, l'inverse, miroir exact a 1 px. Sur DX elle etait donc
+				// appliquee la ou il ne fallait pas. Le flip GLSL (`glFlipYPosition`)
+				// RESTE : l'origine du framebuffer OpenGL est bien en bas.
+				// ⚠️ ELLE INVERSAIT AUSSI L'ENROULEMENT. Voir le recalibrage explicite
+				// dans NkDirectX11Device / NkDirectX12Device : sans lui, l'ombre DX
+				// tombait a 221.48 avec 6 426 px au lieu de 439.57 avec 25 322.
+				(void)hasInputs;
+				(void)purePC;
+				(void)depthOnly;
+				(void)noFlip;
 			}
 			if (hasOutput)
 				EmitLine("return output;");

@@ -122,9 +122,66 @@ namespace nkentseu {
 			}
 #endif
 
-			// Accesseurs gÃ©nÃ©riques
+			// ═══════════════════════════════════════════════════════════════════
+			//  LES ARGUMENTS — ET CE QUE `[0]` CONTIENT VRAIMENT
+			// ═══════════════════════════════════════════════════════════════════
+			//  ⚠️ `args[0]` N'EST JAMAIS UN ARGUMENT UTILISATEUR. C'est l'IDENTITE
+			//     du programme, comme `argv[0]` en C. Une boucle de lecture
+			//     d'arguments commence donc a 1.
+			//
+			//  ⚠️ ET SA VALEUR CHANGE SELON LA PLATEFORME — c'est la partie qui ne
+			//     se devine pas depuis un bureau Windows :
+			//
+			//       desktop et web   le CHEMIN DE L'EXECUTABLE (Windows, XLib,
+			//                        XCB, Wayland, Cocoa, Emscripten, Noob, UWP,
+			//                        Xbox, UIKit, WatchOS : tous bouclent sur
+			//                        `argv` depuis `i = 0`)
+			//       Android          le NOM DE PAQUET       (NkAndroid.h)
+			//       HarmonyOS        `NK_APP_NAME`          (NkHarmonyOS.h)
+			//
+			//     Sur Android et HarmonyOS, `args` ne contient QUE cet element :
+			//     il n'y a aucun argument utilisateur. **Retirer `[0]` a la source
+			//     y viderait donc la seule information transmise** — c'est
+			//     pourquoi la boucle des points d'entree ne doit pas etre
+			//     « corrigee ».
+			//
+			//  POURQUOI CE BLOC EXISTE (mesure du 2026-09-14). Cet accesseur
+			//  n'avait aucun commentaire. **21 sites du depot ecrivent `i = 1`
+			//  sans que rien ne le leur dise** ; 7 autres n'y echappent que parce
+			//  qu'ils comparent a des litteraux exacts ; et **un s'est trompe** —
+			//  NkAnimaEditor prenait le chemin de son propre executable pour un
+			//  modele 3D, et n'a donc jamais charge son rig. Quand N sites font le
+			//  meme geste defensif, ce geste EST un contrat : il doit s'ecrire la
+			//  ou il se lit.
+			//
+			//  ⚠️ NE CHANGE PAS ce que rend `GetArgs()` : 21 sites en dependent
+			//     dans sa forme actuelle. Pour du code neuf, prefere `UserArgs()`.
 			const NkVector<NkString> &GetArgs() const {
 				return args;
+			}
+
+			/// Les arguments UTILISATEUR seuls — `args` sans son premier element.
+			///
+			/// A preferer a `GetArgs()` dans tout code neuf : la boucle s'ecrit
+			/// alors depuis 0 sans piege, et l'oubli du saut devient impossible.
+			///
+			/// ⚠️ SUR ANDROID ET HARMONYOS, CETTE LISTE EST VIDE — et c'est JUSTE :
+			///    ces plateformes ne transmettent aucun argument, leur unique
+			///    element etant le nom du paquet ou de l'application. Un appelant
+			///    qui a besoin de ce nom le demande a `GetAppName()`, jamais a
+			///    `args[0]`.
+			///
+			/// Rend une COPIE : garder une seconde vue par reference obligerait
+			/// `NkEntryState` a stocker deux vecteurs, dont un qui ne servirait
+			/// qu'aux appelants qui n'existent pas encore.
+			NkVector<NkString> UserArgs() const {
+				NkVector<NkString> out;
+				if (args.Size() <= 1)
+					return out;
+				out.Reserve(args.Size() - 1);
+				for (usize i = 1; i < args.Size(); ++i)
+					out.PushBack(args[i]);
+				return out;
 			}
 
 			const NkString &GetAppName() const {

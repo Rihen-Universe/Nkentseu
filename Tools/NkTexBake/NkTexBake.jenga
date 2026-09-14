@@ -1,0 +1,45 @@
+# AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
+"""NkTexBake — le four a textures.
+
+Prend une image (PNG, JPEG, BMP, TGA, HDR, QOI, WebP...) et produit un actif
+`.nktex` : pixels deja dans la disposition que le GPU accepte, mipmaps
+precalculees. Le moteur le televerse alors sans decoder.
+
+Outil de LIGNE DE COMMANDE, sans GPU ni fenetre : il ne depend que de NKImage
+(decodage + reduction 2x) et de NKSerialization (le conteneur d'actif et la
+forme du payload). C'est voulu — un four qui aurait besoin du renderer ne
+pourrait pas tourner dans une chaine de construction.
+"""
+from Jenga import *
+from jengaconfig import *
+
+with project("NkTexBake"):
+    consoleapp()
+    language("C++")
+    cppdialect("C++17")
+    location(".")
+    files(["src/main.cpp"])
+
+    nkentseudependson(
+        ["NKImage", "NKSerialization", "NKReflection", "NKFileSystem", "NKStream",
+         "NKLogger", "NKThreading", "NKMath", "NKContainers", "NKMemory",
+         "NKCore", "NKPlatform"],
+        extra_includes=["src"],
+    )
+
+    objdir("%{wks.location}/Build/Obj/%{cfg.buildcfg}-%{cfg.system}/%{prj.name}")
+    targetdir("%{wks.location}/Build/Bin/%{cfg.buildcfg}-%{cfg.system}/%{prj.name}")
+
+    with filter("system:Windows && !options:windows-runtime=uwp && !system:XboxSeries && !system:XboxOne"):
+        usetoolchain(TC_WINDOWS)
+        defines(["WIN32_LEAN_AND_MEAN", "_UNICODE", "UNICODE"])
+
+    with filter("config:Debug"):
+        defines(["_DEBUG", "DEBUG"])
+        optimize("Off")
+        symbols(True)
+
+    with filter("config:Release"):
+        defines(["NDEBUG"])
+        optimize("Speed")
+        symbols(False)

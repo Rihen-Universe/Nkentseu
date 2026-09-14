@@ -272,7 +272,7 @@ ratio `.h`/`.cpp` n'est pas une mesure de complétude. Ce qui suit l'est.
 |---|---|---|
 | Facial | 790 | 0 |
 | Anim2D | 468 | 0 |
-| Sequencer | 416 | 0 |
+| Sequencer | 416 | **451** (2026-09-13) |
 | Viewport | 378 | 0 |
 | Physics | 346 | 0 |
 | Selection | 310 | 0 |
@@ -3191,8 +3191,220 @@ débloquante (ce que chaque item permet de faire ensuite) :
     (application des composants, actuellement stub), nettoyer les doublons
     morts (`Core/NkEngineLayer.h`, `Rendering/NkRenderer.h`,
     `Physics/NkPhysicsComponents.h`).
-11. ⬜ **`Sequencer/NkSequencer.h`** — structures de données/évaluation de
-    timeline pures (le rendu des tracks caméra/lumière est Phase C).
+11. ✅ **`Sequencer/NkSequencer.{h,cpp}`** — **fait le 2026-09-13** (`NkSequencer.cpp`, 451 l.).
+    Les 16 méthodes déclarées sans corps en ont un ; les 16 autres étaient déjà
+    inline. Le banc `Applications/NkSequenceCheck` le prouve **sans fenêtre et
+    sans GPU** : une séquence de 2 s à 24 i/s produit des PNG numérotés sur le
+    disque, et deux images de la suite diffèrent.
+    ⚠️ **Ce qui n'est PAS fait, et qui le dit dans le code** : les pistes NLA
+    n'appliquent rien (la pile de poses n'existe pas), `SaveToFile`/`LoadFromFile`
+    rendent `false` sans toucher au disque, et **onze des treize `NkTrackType`**
+    sortent de `NkTrack::Evaluate` sans rien modifier — seuls `Transform` et
+    `Property` agissent. Le rendu des pistes caméra/lumière reste Phase C.
+
+
+---
+
+# 🎬 LE SÉQUENCEUR A UN CORPS — 2026-09-13
+
+> **Provenance de tous les chiffres de ce bloc** : arbre `Nkentseu-film`, branche
+> `feat/sequenceur-film`, partie de `9c3fad332` (= `transit` = `origin/main`,
+> vérifié par `rev-parse`) · Windows · `jenga build --config Release`.
+> **Verdict lu dans le `Status:` du journal, jamais dans le code de sortie.**
+
+**Ce qui a changé.** `Sequencer/NkSequencer.h` (416 l.) était une spécification
+sans corps depuis son écriture. Mesure du 2026-09-13 : **16 méthodes déclarées
+sans corps, 16 définies inline** — et surtout **aucun `#include` dans tout le
+dépôt** : il n'était jamais passé dans un compilateur. Un commentaire de
+`NkEcsUtil.h:21` affirmait pourtant qu'il était utilisé.
+
+**Le piège, à retenir pour tout le reste de Noge.** L'en-tête **compile nu**
+(0 erreur). Son corps, lui, ne compilait pas : `using namespace ecs;`
+(`NkSequencer.h:50`) fait entrer un second `NkKeyframe`
+(`Noge/ECS/Components/Animation/NkAnimation.h:185`), le nom devient ambigu, la
+définition perd son statut de membre, et le champ `time` retombe alors sur
+`::time` de la libc — le compilateur finit par parler de `time_t`. L'en-tête ne
+s'en apercevait pas parce qu'il se qualifie lui-même **une seule fois**, l.116.
+
+> **Un en-tête qui compile n'annonce pas que son corps compilera.** Les autres
+> sous-systèmes « spec seule » de ce document (`Facial` 790 l., `Anim2D` 468 l.,
+> `Viewport` 378 l., `Selection` 310 l.…) sont dans la même situation : leur
+> « ça compile » ne vaut que pour l'en-tête.
+
+**Ce qui est livré.** `NkSequencer.cpp`, 451 l. Interpolation (`Constant`,
+`Linear`, `Bezier`/`Auto` par Hermite, trois `Ease`), canaux de clés triés en
+permanence, **contrat de bord** aligné sur `NKAnima` (hors intervalle → valeur de
+bord, jamais d'extrapolation), fondus de clips, plan caméra actif, avance du temps
+avec bouclage **par modulo** (une remise à `loopStart` ferait dériver la cadence),
+évaluation d'une piste `Transform` vers `NkTransform` avec `worldDirty` posé.
+
+**Ce qui n'est PAS livré, et qui refuse de faire semblant.** `NkNLATrack::Evaluate`
+n'applique rien. `SaveToFile`/`LoadFromFile` rendent `false` **sans toucher au
+disque** : un format qui perdrait caméras et marqueurs serait à supporter pour
+toujours. Onze `NkTrackType` sur treize sortent sans rien modifier. Les trois sont
+nommés dans le code, à l'endroit exact.
+
+**La preuve.** `Applications/NkSequenceCheck` — application console, **aucune
+fenêtre, aucun GPU, aucune souris, aucun clavier**. Quatre critères, chacun avec
+son attendu écrit avant la mesure **et son négatif** : les clés se relisent (et
+ne s'extrapolent pas), le temps change la pose (et à vitesse nulle elle ne bouge
+pas d'un bit), les images existent sur le disque (et à durée nulle il n'y en a
+aucune, pas une seule vide), deux images de la suite diffèrent (et si le temps
+est figé, elles sont identiques).
+
+    BILAN MESURE : 61 verts, 0 rouges
+       f1-f4  48 images peintes par le PROCESSEUR   (aucun GPU requis)
+       f5     48 images EFFACEES par le GPU         (NkOffscreenTarget, sans fenetre)
+       f6     48 images DESSINEES par le GPU        (nuanceur NkSL + geometrie)
+       f7     la sequence s'ecrit et se relit       (.nkseq, octet a octet, processus neuf)
+       f8     le registre resout clipHandle         (NKAnima/Clip/NkClipRegistry.h)
+       f9     la camera bouge ET le rendu suit      (8100 -> 2880 -> 32400 px)
+
+> ⚠️ **Les deux chemins, et ce que chacun prouve.** `f1-f4` peignent les pixels
+> **par le processeur** : un fond fixe et un carré dont la position est lue dans le
+> monde ECS *après* `Evaluate`. `f5` fait rendre les **mêmes 48 images par le GPU**,
+> via `NkOffscreenTarget` sur un `NkIDevice` **créé sans surface**. Les deux sont
+> gardés côte à côte — deux chemins qui donnent le même verdict valent mieux qu'un
+> seul, et celui du processeur tourne sur une machine sans carte graphique (où `f5`
+> est alors **ignoré, ni vert ni rouge**).
+>
+> **`f6` fait entrer le pipeline en jeu** (2026-09-13) : un nuanceur NkSL compilé,
+> une géométrie transmise, un tirage. Le GPU **dessine** un quad dont le centre
+> vient de la pose, au lieu d'effacer. `f5` est conservé à côté : il n'exerce que
+> la passe et la relecture, et sert de repli quand le pipeline est en cause.
+>
+> **Le critère de `f6` n'est pas l'empreinte, c'est la SURFACE COUVERTE.** Un objet
+> qui se déplace ne couvre pas toujours le même nombre de pixels ; une simple
+> différence d'empreintes ne distinguerait pas « la géométrie a bougé » de « la
+> couleur a changé ». Attendu écrit avant la mesure, et tombé **au pixel près** :
+>
+>     quad de demi-côté 0,25 NDC sur 320x180 -> 80 x 45 = 3600 px entier dans le cadre
+>                                             -> ~1800 px quand il sort à moitié
+>     mesure : img1 = 1800   img24 = 3600   img48 = 2115   min 1800  max 3600
+>
+> ### ⚠️ UN COMPTEUR DE PIXELS SE PROUVE SUR ZÉRO AVANT TOUT LE RESTE
+>
+> `f6` commence par rendre **la même scène sans l'objet** et exige **0 pixel EXACT
+> sur 57 600**. Si ce contrôle rougit, le banc s'arrête et l'écrit : *le compteur
+> mesure autre chose que l'objet, tout critère bâti dessus serait faux*. Un autre
+> chantier a mesuré le même jour un compteur qui rendait **40 pixels sans aucune
+> cible** — la teinte cherchée tombait dans l'anticrénelage des glyphes.
+>
+> Deux conditions rendent l'attendu **calculable** plutôt qu'approchant : le fond
+> est **magenta pur**, une couleur que l'objet blanc ne produit jamais (un fond noir
+> se confondrait avec un objet noir) ; et la cible est en **UNORM, pas en sRGB**,
+> sans quoi l'effacement `(1, 0, 1)` ne reviendrait pas en `(255, 0, 255)`.
+>
+> **Vérification indépendante** : `Applications/NkSequenceCheck/docs/
+> verif_pixels_independant.py` redécode les PNG **du disque** (zlib, défiltrage des
+> cinq types, aucun code partagé avec le banc, qui lit le tampon GPU en mémoire) et
+> retrouve 1800 / 3600 / 2115. Deux compteurs qui ne partagent ni la source ni le
+> code ne peuvent pas se tromper ensemble.
+>
+> **Ce que `f6` ne fait pas** : un quad, pas un maillage importé ; aucune matrice
+> (les sommets sont calculés au processeur) ; aucune lumière, aucune texture. Un
+> **seul dorsal** (OpenGL) — comparer des images entre dorsaux comparerait aussi la
+> divergence sRGB ci-dessous, qui n'est pas tranchée.
+>
+> ### 🎥 LA CAMÉRA — et une simplification à NE PAS défaire
+>
+> **Déplacer une caméra n'est pas un mécanisme à part.** C'est une piste
+> `NkTrackType::Transform` **ordinaire** posée sur l'entité caméra.
+> `NkCameraTrack` / `NkCameraShot` disent **quelle** caméra regarde — jamais **où**
+> elle va. `NkSequence::GetActiveCameraAt(t)`, écrit le matin sans aucun appelant,
+> a trouvé le sien le soir même.
+>
+> ⚠️ **Si quelqu'un ajoute un jour un canal d'animation dans `NkCameraTrack`, il
+> aura écrit un second mécanisme pour ce qu'une piste `Transform` fait déjà.**
+> C'est écrit ici pour que ce ne soit pas fait par distraction.
+>
+> Mesures de `f9` (banc `NkSequenceCheck`), attendus calculés à la main **avant** :
+>
+>     objet FIXE, demi-côté 1 unité ; cible 320x180 ; caméra ORTHOGRAPHIQUE
+>       ndc.x = (monde.x - cam.x) / (orthoSize x aspect)   ndc.y = (monde.y - cam.y) / orthoSize
+>       ortho = 2 -> 90 x 90 =  8 100 px        ortho = 1 -> 180 x 180 = 32 400 px
+>
+>     (c1) la piste déplace la caméra    0,000 -> 4,000 exactement
+>     (c2) et le rendu suit              img1 8100 -> img24 2880, objet IMMOBILE
+>     (c3) la coupe tombe à l'image 25   saut de 29 520 px contre 720 entre voisines
+>
+> **Orthographique par choix, pas par facilité** : une perspective aurait exigé une
+> tolérance, et une tolérance cache exactement ce qu'on cherche. 8100 et 32400 sont
+> tombés **au pixel près**.
+>
+> **`(c2)` vérifie que l'objet n'a PAS bougé.** Sans ce rappel, le critère serait vert
+> si l'objet s'était déplacé — on aurait prouvé quelque chose, mais pas que la
+> caméra pilote le rendu.
+
+> ### 📋 CE QUE LE SÉQUENCEUR NE FAIT PAS — au 2026-09-13, nommé un par un
+>
+> `NkTrack::Evaluate` traite **trois** des treize `NkTrackType`. Les **dix autres
+> sortent sans rien toucher** :
+>
+> | agit | inerte |
+> |---|---|
+> | `Transform` · `Property` → `NkTransform` | `Camera` · `Audio` · `Event` · `FacialAnim` |
+> | `Animation` → clip via registre + `SeekTo`/`Update(0)` | `BlendShape` · `Light` · `PostProcess` |
+> | | `Particle` · `Visibility` · `NLA` |
+>
+> *(`Camera` est inerte en tant que TYPE DE PISTE : le mouvement de caméra passe par
+> une piste `Transform`, voir ci-dessus. La piste `Camera` ne fait rien, et n'a
+> pour l'instant rien à faire.)*
+>
+> **Et la piste `Animation` écrit `position` / `rotation` / `scale` — PAS les
+> matrices d'os.** Le composant `ecs::NkSkeleton` **existe** (88 octets, partagé par
+> `NkSharedPtr`, fabrique en pose de repos) ; ce qui manque est un **système** qui
+> écrive sa `pose` depuis `NkAnimationState::boneMatrices` — environ 30 lignes, et
+> qui touche `Noge/ECS/`. À ouvrir quand ce domaine sera libre.
+>
+> `NkNLATrack::Evaluate` n'applique rien mais **est sérialisé** : le format porte ce
+> que le moteur n'exécute pas encore, pour ne pas avoir à le casser plus tard.
+
+> ### ⚠️ DIVERGENCE sRGB ENTRE DORSAUX — mesurée le 2026-09-13, NON TRANCHÉE
+>
+> `Applications/NkOffscreenProbe` établit que **les quatre dorsaux créent un device
+> sans fenêtre et rendent** (16 verts / 16). Il établit aussi ceci, même cible
+> `NK_RGBA8_SRGB`, même effacement `(0,20 ; 0,60 ; 0,90)` :
+>
+>     OpenGL              rgba( 51, 153, 229)  = lin x 255
+>     Vulkan/DX11/DX12    rgba(124, 203, 243)  = sRGB(lin) x 255
+>
+> Au chiffre près, sur deux formules exactes. **La même scène rendue sur GL et sur
+> DX ne donne pas les mêmes pixels** — donc tout banc qui compare des images entre
+> dorsaux compare aussi cet écart sans le savoir. Arbitrage de Rodolf, pas corrigé
+> ici.
+
+> ### ⚠️ `using namespace ecs;` REND NKRHI INCOMPILABLE — mesuré le 2026-09-13
+>
+> Ce n'est pas une gêne de style. **Inclure `Noge/Sequencer/NkSequencer.h` avant un
+> en-tête de NKRHI casse la compilation de NKRHI, dans ses propres fichiers** :
+>
+>     NKRHI/Core/NkTypes.h:457:20: error: reference to 'NkRect2D' is ambiguous
+>       457 |   using NkScissor = NkRect2D;
+>       candidat : nkentseu::NkRect2D        NkTypes.h:455 (alias de math::NkIntRect)
+>       candidat : nkentseu::ecs::NkRect2D   NkRenderComponents.h:68
+>     NKRHI/Commands/NkICommandBuffer.h:46 : idem, sur BeginRenderPass lui-même.
+>
+> Quatre erreurs, **aucune dans le fichier fautif** : `NkSequenceCheck/src/main.cpp`
+> n'écrit jamais `NkRect2D`. Un en-tête public qui ouvre un `using namespace`
+> empoisonne tout ce qui le suit, **y compris des modules qui ignorent Noge**.
+>
+> Contournement en place (inclure NKRHI/NKRenderer **avant** Noge), documenté au-dessus
+> des `#include` du banc avec ses numéros de ligne, pour que personne ne réordonne
+> « pour faire propre ». **Ce n'est pas la correction** : celle-ci est de retirer la
+> ligne 50 de `NkSequencer.h`, elle touche tout Noge, et elle appartient à Rodolf.
+> Troisième occurrence de ce défaut en une seule soirée, dans trois fichiers
+> différents (corps de `NkSequencer.cpp` — `NkKeyframe` ; un autre chantier ; ici —
+> `NkRect2D`).
+
+**Dette ouverte, non payée ici.** (a) `using namespace ecs;` dans un en-tête
+public impose ses collisions à tout ce qui l'inclut ; le retirer touche tout Noge
+et se mesure à part. (b) `AddTrack`, `AddChannel`, `AddClip`, `AddShot` et
+`AddMarker` rendent **une référence dans un `NkVector` qui vient de grossir** : le
+bloc USAGE de l'en-tête (l.25-32) enseigne un motif qui devient un pointeur fou dès
+la deuxième piste. Le banc adresse tout **par indice**.
+
+---
 
 ## Phase B — GPU léger (une fois un peu de marge disponible)
 

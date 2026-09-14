@@ -195,6 +195,14 @@ namespace nkentseu {
 				return nullptr;
 			}
 
+			// Combien de televersements COMPRESSES le pilote a refuses depuis le
+			// debut. Existe pour qu'un banc puisse EXIGER zero : le 2026-09-05, 25
+			// refus sont passes inaperçus parce que rien ne les comptait.
+			// Compte les erreurs vues par le post-callback de GLAD sur un appel
+			// dont le nom contient « Compressed ». Defini dans le .cpp : le
+			// compteur est global (le callback de GLAD n'a pas de contexte).
+			[[nodiscard]] uint32 GetCompressedUploadErrors() const override;
+
 			void *GetNativeCommandQueue() const override {
 				return nullptr;
 			}
