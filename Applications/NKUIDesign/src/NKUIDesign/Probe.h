@@ -20076,22 +20076,39 @@ namespace nkuidesign {
 			//    reponse. On en pose un, on relance, et on exige quand meme le
 			//    refus -- sans cette garde, le dorsal rendrait la meme reponse
 			//    indefiniment et personne ne le verrait.
+			// ⚠️ CE TROISIEME CAS PASSAIT POUR LA MAUVAISE RAISON, ET JE L'AI VU
+			//    EN PREPARANT SA MUTATION, PAS EN LE VOYANT VERT. Version d'avant :
+			//    « on pose une vieille sortie, on relance, on exige le refus ».
+			//    Mais le programme n'existe pas : `Lancer` echoue AVANT qu'on
+			//    regarde le fichier, donc le refus serait venu meme si
+			//    l'effacement n'existait pas. Un temoin vert qui ne temoigne de
+			//    rien -- exactement le defaut du 12/09.
+			//
+			//    Ce qu'il faut mesurer, c'est L'EFFACEMENT LUI-MEME : apres
+			//    l'appel, le fichier perime NE DOIT PLUS ETRE LA. C'est la seule
+			//    assertion qui rougit si on retire la ligne d'effacement.
 			nkentseu::NkFile::WriteAllText("sonde_sortie.txt", "une vieille reponse");
+			const bool vieuxPose = nkentseu::NkFile::Exists("sonde_sortie.txt");
 			NkDesignReply rp3;
 			const bool refusVieux = !proc.Complete(rq, rp3) && rp3.text.Length() == 0;
+			const bool vieuxEfface = !nkentseu::NkFile::Exists("sonde_sortie.txt");
 			const bool inviteEcrite = nkentseu::NkFile::Exists("sonde_invite.txt");
 			snprintf(buf, sizeof(buf),
-					 "sans gabarit : %s | programme absent : %s | vieille sortie : %s | "
-					 "l'invite a bien ete ecrite : %s",
+					 "sans gabarit : %s | programme absent : %s | vieille sortie : posee=%s, "
+					 "refus=%s, EFFACEE=%s | l'invite a bien ete ecrite : %s",
 					 refusVide ? "refus nomme" : "PAS DE REFUS",
 					 refusAbsent ? "refus nomme" : "PAS DE REFUS",
+					 vieuxPose ? "oui" : "NON",
 					 refusVieux ? "refus nomme" : "REPONSE FANTOME",
+					 vieuxEfface ? "oui" : "NON -- LA GARDE NE MORD PAS",
 					 inviteEcrite ? "oui" : "non");
 			check("177. LE DORSAL PAR PROCESSUS REFUSE AU LIEU DE MENTIR : sans gabarit, avec un "
 				  "programme absent, et -- le cas qui compte -- quand un fichier de sortie "
 				  "PERIME traine. Il l'efface avant de lancer, donc « le fichier existe apres » "
 				  "veut dire « CE lancement l'a ecrit »",
-				  refusVide && refusAbsent && refusVieux && inviteEcrite, buf);
+				  refusVide && refusAbsent && vieuxPose && refusVieux && vieuxEfface
+					  && inviteEcrite,
+				  buf);
 			nkentseu::NkFile::Delete("sonde_invite.txt");
 			nkentseu::NkFile::Delete("sonde_sortie.txt");
 
