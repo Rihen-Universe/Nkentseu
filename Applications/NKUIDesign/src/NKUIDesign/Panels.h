@@ -592,6 +592,34 @@ namespace nkuidesign {
 			//     chemin qui passe a CHAQUE image quoi qu'il arrive. Ici, c'est
 			//     `DrawMenuBar` -- le seul rappel que la coquille appelle a chaque
 			//     image sans condition.
+			// ═══════════════════════════════════════════════════════════════
+			//  (k2) LA GARDE DU DOUBLE DESSIN — un compteur, pas un commentaire
+			// ═══════════════════════════════════════════════════════════════
+			//  Le 14/09, ma correction de la cle « Test » -> « Apercu » a ouvert
+			//  un trou : le tiroir dessinait un panneau DEJA ancre, donc `OnUI`
+			//  tournait DEUX FOIS par image avec le meme etat, et la toile ancree
+			//  perdait sa planche. La coquille refuse desormais ce double dessin.
+			//
+			//  ⚠️ MAIS UN CORRECTIF SANS TEMOIN SE FAIT ROUVRIR. La prochaine
+			//     personne qui voudra « montrer l'apercu dans un tiroir » refera
+			//     exactement le meme geste, et rien ne le lui dira. Ce compteur
+			//     est la pour rougir a ce moment-la.
+			//
+			//  ⚠️ ET C'EST UN COMPTEUR D'EXECUTION, PAS UNE LECTURE DE SOURCE.
+			//     « un appel existe » n'est pas « il s'execute » : un temoin qui
+			//     lirait `NkEditorShell.cpp` a la recherche du refus resterait vert
+			//     le jour ou quelqu'un le contourne par un autre chemin.
+			uint32 dessinsToile = 0;	///< remis a zero a chaque image, incremente par PreviewPanel
+			uint32 dessinsToileMax = 0; ///< le pire vu depuis le debut de la course
+
+			/// A appeler UNE FOIS PAR IMAGE, avant les panneaux. Range le compte de
+			/// l'image precedente et repart a zero.
+			void RangerCompteDessins() {
+				if (dessinsToile > dessinsToileMax)
+					dessinsToileMax = dessinsToile;
+				dessinsToile = 0;
+			}
+
 			NkEnvoiAsync envoi;
 			/// La derniere phrase a montrer dans le panneau IA. Elle vit ici parce
 			/// que la recolte, elle aussi, a lieu hors du panneau.
@@ -3486,6 +3514,9 @@ namespace nkuidesign {
 
 			void OnUI(NkEditorFrameContext &ec) override {
 				auto &ctx = ec.Ui();
+				// (k2) LA GARDE : si ce compte depasse 1 dans une image, deux
+				// exemplaires vivants de la toile se disputent un seul etat de vue.
+				++mSt->dessinsToile;
 				designkit::releve::Zone(ctx, "apercu");
 				// ── L'INSTRUMENT DE FLUIDITE (mandat de nuit, 01/09) ─────────
 				// « fluide » se MESURE, pas se ressent : le cout de CETTE image

@@ -56,6 +56,49 @@
 //     arrive apres coup dans la conversation suivante » : la reponse n'est pas
 //     ignoree plus tard, elle n'est **jamais posee**.
 //
+// =============================================================================
+//  DECISION DE CONCEPTION DU 2026-09-14 — PAS DE FLUX DE JETONS DANS LE CONTRAT
+// =============================================================================
+//  ⚠️ CE N'EST PAS UNE LIMITE SUBIE, C'EST UN CHOIX, ET IL EST DATE. Une
+//     contrainte qu'on s'impose sans l'expliquer finit par etre prise pour un
+//     oubli, et le premier qui passe la « repare ».
+//
+//  CE QU'ON REFUSE : ajouter a `NkIDesignBackend` un rappel de progression, du
+//  genre `void (*surJeton)(const char*, void*)`.
+//
+//  POURQUOI : le contrat est ce qui rend le modele REMPLACABLE. Rodolf a pose la
+//  trajectoire pour les deux generateurs — « rassure-toi qu'il va a la longue
+//  permettre d'entrainer un modele plus puissant [...] et ca doit etre pareil
+//  pour le design UI ». Cote 3D, le modeleur ne connait qu'un contrat de
+//  processus externe et ignore tout de TripoSR : le jour ou un modele entraine
+//  chez Rihen le remplace, pas une ligne ne bouge. Un rappel de jetons serait
+//  une capacite propre aux moteurs QUI SAVENT DIFFUSER. Le dorsal FICHIER ne
+//  sait pas ; le dorsal PAR PROCESSUS, qui rend un fichier a la fin, ne sait pas
+//  non plus. Deux des trois dorsaux existants devraient donc mentir — appeler le
+//  rappel une seule fois, a la fin, avec tout le texte — et un dorsal qui ment
+//  sur une capacite est exactement la porte par laquelle le remplacement
+//  devient impossible.
+//
+//  CE QU'IL FAUDRAIT CHANGER LE JOUR OU RODOLF VEUT LE FLUX — les trois pieces,
+//  dans cet ordre, et aucune n'est ici :
+//    1. **LE CONTRAT** : un champ FACULTATIF dans `NkDesignRequest`, pas un
+//       parametre de `Complete`. Un dorsal qui l'ignore reste conforme ; un
+//       dorsal qui le remplit diffuse. C'est la seule forme qui n'oblige personne.
+//    2. **LE TRANSPORT** : le rappel serait appele DEPUIS LE FIL DE GENERATION.
+//       Il ne peut donc pas toucher la conversation. Il ecrirait dans un champ de
+//       `NkTacheIA` — et ce champ aurait alors DEUX lecteurs pour un ecrivain,
+//       donc il faudrait soit un verrou, soit un tampon a double page. **La regle
+//       de partage ci-dessus changerait**, et c'est le vrai cout : ce n'est pas
+//       une ligne, c'est une discipline de plus.
+//    3. **LE PRODUCTEUR** : `NKDesignLLM` rend un fichier a la fin. Pour
+//       diffuser, il devrait ecrire au fur et a mesure et l'appelant relire —
+//       c'est-a-dire un second contrat, sur le contenu du fichier cette fois.
+//
+//  CE QU'ON PERD EN ATTENDANT, dit sans le minimiser : sur une generation reelle
+//  (818 ms par jeton mesures le 14/09), l'utilisateur attend des minutes devant
+//  un compteur de secondes au lieu de voir le texte arriver. C'est desagreable.
+//  Ce n'est pas bloquant — la fenetre vit, et on peut annuler.
+//
 //  ⚠️ CE QUI N'EST PAS LA, ET QUI EST NOMME : **LE FLUX DES JETONS**.
 //     `NkIDesignBackend::Complete(requete, reponse)` rend le texte ENTIER, d'un
 //     bloc. Afficher les jetons au fur et a mesure demanderait un rappel de
