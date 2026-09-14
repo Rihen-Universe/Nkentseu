@@ -429,6 +429,18 @@ namespace nkentseu {
 		// ce cas le banc doit le SAVOIR, et non mesurer un non-evenement.
 		bool Demo3DHostEditUndoAsk();
 		bool Demo3DHostEditRedoAsk();
+
+		// ── LA CONTRAINTE D'AXE DE LA MODALE EN COURS ───────────────────────
+		// Le shell posait l'axe par `Viewport3DModalAxis`, qui ecrit dans la vue
+		// DORMANTE. La modale reelle vit ici, et ne le voyait jamais.
+		// `plan` = la variante Maj de Blender : on EXCLUT l'axe au lieu de s'y
+		// tenir (Maj+X = tous les axes sauf X).
+		// Un seul comportement : cette facade appelle `Demo3D_ModalPoseAxe`, la
+		// MEME fonction que la touche du viseur -- y compris son cycle
+		// global -> local -> aucune contrainte, qu'un second chemin aurait perdu.
+		// Rend faux si aucune modale ne tourne : l'appelant doit alors garder le
+		// role normal de la touche, et non le rendre muet.
+		bool Demo3DHostModalAxis(int32 axe, bool plan);
 		void Demo3DHostSetZoneTool(int32 shape); // -1 off, 0 rectangle, 1 cercle, 2 lasso
 		void Demo3DHostSetCursorTool(bool on);
 		void Demo3DHostSetGridFlags(bool grid, bool minor, bool major, bool axes);
