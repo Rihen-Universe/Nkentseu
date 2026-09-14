@@ -988,6 +988,41 @@ namespace nkentseu {
 			if (!sansHabillage) {
 				shell->SetMenuBar(&chrome::BarreDeMenus, &sChrome);
 				shell->SetToolbar(&chrome::BarreDOutils, &sChrome);
+				// ═══════════════════════════════════════════════════════════
+				//  LA BANDE D'ONGLETS (o1) ET LE PIED A 28 PX (o3)
+				// ═══════════════════════════════════════════════════════════
+				//  ⚠️ DEUX APPELS, ZERO DESSIN. La bande vient du composant
+				//     partage `tab_strip` du kit — le MEME code que
+				//     NK3DModeler appelle. Le prouver plutot que le dire :
+				//     changer un nombre dans `NkTabStripModel.h` doit
+				//     deplacer les onglets des DEUX applications ; s'il n'y
+				//     en a qu'une qui bouge, le partage est une fiction.
+				//
+				//  ⚠️ `SetTabStrip` RESERVE, il ne decore pas — meme mecanique
+				//     que `SetToolbar` : tant que le modele est nul, la bande
+				//     vaut 0 px. Le poser est donc CE QUI LA FAIT EXISTER.
+				//     C'est la lecon mesuree du lot precedent (`outils=0.00`
+				//     alors que la cote etait deja demandee).
+				chrome::MettreAJourOnglets(sChrome);
+				NkEditorTabStripCallbacks cbOnglets;
+				cbOnglets.user = &sChrome;
+				// ⚠️ AUCUN CROCHET N'EST POSE, ET C'EST DIT PLUTOT QUE TU.
+				//    Nogee n'a aujourd'hui ni ouverture ni fermeture de scene
+				//    par onglet : poser un `onClose` qui ne ferme rien serait
+				//    « un evenement declare qui ne part jamais », et poser un
+				//    `onAdd` qui fabrique une scene vide serait promettre un
+				//    geste que le reste de l'application ne sait pas tenir.
+				//    La SELECTION, elle, agit deja : le composant ecrit
+				//    `active`, la bande le montre.
+				shell->SetTabStrip(&chrome::OngletsModele(), cbOnglets);
+
+				// (o3) LES 28 PX DU MODELEUR. La coquille figeait 22 ; la
+				// valeur est desormais un parametre dont le defaut (0) rend
+				// les 22 historiques. NKCode, NKUIDesign, UnkenyEditor et
+				// ConquerorLab n'appellent pas cette porte : ils ne bougent
+				// pas d'un pixel. Cote mesuree : `NkLayout::Compute`,
+				// `statusH = S(28.f)`.
+				shell->SetStatusBarHeight(28.f);
 			}
 
 			shell->RegisterCommand("Application: Quitter", &CmdQuit, shell.Get(), "Ctrl+Q");

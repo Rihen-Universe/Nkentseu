@@ -19,7 +19,11 @@
 // TOUT EST DERIVE, RIEN N'EST RECOPIE
 //   titleH   = ui.titleBarH                    (pose par le shell a chaque frame)
 //   corps    = ui.dockSpaceRect                (le rect passe a DockSpace)
-//   toolbarH = corps.y - titleH                <- et non « 34 », le nombre demande
+//   tabsH    = S(band_h) du composant `tab_strip`, si une bande est posee
+//   toolbarH = corps.y - titleH - tabsH         <- et non « 34 », le nombre demande
+//              ⚠️ LES DEUX BANDES SE SOUSTRAIENT : sans `- tabsH`, « outils »
+//              vaudrait 62 (28 + 34) et le verdict crierait rouge sur une
+//              disposition correcte.
 //   footerH  = H - (corps.y + corps.h)
 //   rect d'un panneau = ui.dockNodes[PanelDockNode(titre)].rect
 //   C'est ce qui permet de distinguer « la bande est demandee » de « la bande
