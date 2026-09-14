@@ -1,6 +1,7 @@
 #pragma once
 // -----------------------------------------------------------------------------
 // @File    NkGuiContext.h
+// @Author  TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // @Brief   Contexte NKGui — état par instance (IDs, thème, input, draw list,
 //          machine à états d'interaction). Phase 2.
 // @License Proprietary - All Rights Reserved (see LICENSE)
@@ -339,8 +340,13 @@ namespace nkentseu {
 
 				// Modale applicative : l'app (ex. NKCode) leve ce flag tant qu'un dialogue
 				// modal (creation de projet, proprietes...) est ouvert. Le shell masque
-				// alors l'input du corps (panneaux) au profit de l'overlay. App-gere
-				// (mis a true a l'ouverture, false a la fermeture) — le shell ne le reset pas.
+				// alors l'input du corps (panneaux) au profit de l'overlay.
+				// ⚠️ (R17, 14/09) DECLARATION PAR IMAGE : NkEditorShell le remet a faux en
+				//    debut d'image et lit aussi la declaration de l'image precedente. A
+				//    reposer a CHAQUE image tant que le dialogue est ouvert. L'ancien contrat
+				//    (« mis a true a l'ouverture, false a la fermeture -- le shell ne le reset
+				//    pas ») a laisse trois sources de NKUIDesign masquer le corps pour toujours.
+				//    NKGui lui-meme ne lit pas ce drapeau.
 				bool appModal = false;
 
 				// Ecran plein cadre applicatif : quand leve, le shell remplace le corps

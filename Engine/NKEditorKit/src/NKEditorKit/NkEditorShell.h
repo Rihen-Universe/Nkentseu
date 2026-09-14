@@ -203,6 +203,25 @@ namespace nkentseu {
 					return mCtxOpen;
 				}
 
+				// ── (R16) LES PORTES DU CORPS ─────────────────────────────────────
+				// Ce qui prive le CORPS d'entree pendant que la barre de titre -- dessinee
+				// AVANT le masquage -- la garde. Calcule a chaque image dans RenderFrame ;
+				// journal par TRANSITION sous NK_PORTES=1.
+				// ⚠️ P A O C R masquent le corps ENTIER (condition `modal`) ; S ne masque
+				//    que le panneau dont le point est recouvert.
+				static constexpr int32 kPortePreferences = 1; ///< P : mShowPrefs
+				static constexpr int32 kPorteAppModal = 2;	  ///< A : ctx.appModal (APP-gere, le shell ne le remet pas)
+				static constexpr int32 kPortePopup = 4;		  ///< O : souris dans popupRects[i < popupDepth]
+				static constexpr int32 kPorteMenuCtx = 8;	  ///< C : menu contextuel du shell
+				static constexpr int32 kPorteSaisie = 16;	  ///< R : saisie reservee par l'image precedente
+				static constexpr int32 kPorteSurface = 32;	  ///< S : point sous une surface (partiel)
+				static constexpr int32 kPortesCorpsEntier = 31;
+				int32 PortesDuCorps() const noexcept {
+					return mPortesCorps;
+				}
+				/// Imprime (sous NK_PORTES=1) le masquage EN COURS et le pire masquage continu.
+				void JournalPortesBilan(const char *etiquette) const noexcept;
+
 				// ── SÉLECTEUR de FICHIER/DOSSIER GÉNÉRIQUE (modal, réutilisable) ────
 
 				// ── Géométrie de fenêtre (launcher) : fichier global taille/pos/maximisé ──
@@ -580,6 +599,9 @@ namespace nkentseu {
 				// rend ses dialogues modaux (creation de projet, proprietes...). Quand
 				// ctx.appModal est leve, le shell masque l'input du corps. L'input du popup
 				// est restaure avant l'appel (comme la fenetre Preferences).
+				// ⚠️ (R17) `appModal` SE DECLARE A CHAQUE IMAGE, tant que le dialogue est
+				//    ouvert : le shell le remet a faux en debut d'image et lit aussi ce que
+				//    l'image precedente a declare. Le poser une fois ne tient plus.
 				void SetOverlay(NkEditorAppMenuFn fn, void *user = nullptr) noexcept {
 					mOverlayFn = fn;
 					mOverlayUser = user;
@@ -1027,6 +1049,8 @@ namespace nkentseu {
 				// qu'apres un vrai glissement (seuil) -> un simple clic ne deplace jamais.
 				bool mTitleDragArmed = false;
 				float32 mDragStartX = 0.f, mDragStartY = 0.f;
+				int32 mPortesCorps = 0; ///< (R16) cf. PortesDuCorps
+				bool mAppModalPrec = false; ///< (R17) `appModal` declare par l'image precedente
 		};
 
 	} // namespace editorkit
