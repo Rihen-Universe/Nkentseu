@@ -2,7 +2,7 @@
 // -----------------------------------------------------------------------------
 // @File    DesignAI.h
 // @Brief   LA PLACE DE L'IA — elle passe par la MEME PORTE que la main.
-// @Author  Rihen
+// @Author  TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // @License Proprietary - All Rights Reserved (see LICENSE)
 //
 // =============================================================================
@@ -73,6 +73,16 @@
 // -----------------------------------------------------------------------------
 
 #include "NKFileSystem/NkFile.h"
+
+#include <cstdio>
+#include <cstdlib>
+#include <cstring>
+#ifdef _WIN32
+	#ifndef WIN32_LEAN_AND_MEAN
+		#define WIN32_LEAN_AND_MEAN
+	#endif
+	#include <windows.h>
+#endif
 
 #include "Layout.h"
 
@@ -145,6 +155,193 @@ namespace nkuidesign {
 			}
 			const char *Name() const override {
 				return "fichier";
+			}
+	};
+
+	// -- BACKEND PAR PROCESSUS EXTERNE ---------------------------------------
+	// ATTENTION : C'EST LA MEME FORME QUE LE PONT 3D DU MODELEUR, ET C'EST VOULU.
+	//    `NK3DModeler/Genia/NkGenerateur.h` ne connait ni TripoSR ni PyTorch :
+	//    il connait un GABARIT de ligne de commande a deux trous, `{image}` et
+	//    `{out}`, et une regle -- « code 0 et le fichier existe, ou un refus
+	//    nomme ». Le jour ou un modele entraine chez Rihen remplace TripoSR,
+	//    pas une ligne du modeleur ne bouge.
+	//
+	//    Rodolf a demande EXPLICITEMENT la meme propriete pour le design :
+	//    « et ca doit etre pareil pour le design UI ». Ce dorsal-ci ne connait
+	//    donc ni Qwen, ni Ollama, ni GGUF, ni HTTP : deux trous, `{invite}` et
+	//    `{sortie}`, et la meme regle.
+	//
+	// ET IL Y A UNE SECONDE RAISON, MESUREE CELLE-LA (14/09) : le moteur local
+	//    occupe **4 444 Mo de VRAM sur une carte de 8 Go**. L'en-tete de
+	//    `Applications/NKQwen2Chat` porte la mesure de Rodolf du 9 aout : deux
+	//    instances sur cette carte, « le pilote Vulkan ACCEPTE quand meme
+	//    l'allocation en debordant sur la memoire systeme. Aucun appel n'echoue
+	//    [...] mais le calcul lit n'importe quoi, et la generation sort
+	//    !!!!!!! ». NkUIDesign est elle-meme une application GPU : charger le
+	//    modele DANS son processus, ce serait signer cet echec-qui-se-presente-
+	//    en-vert. Le processus externe le charge, repond, et meurt.
+	//
+	//    DETTE DECLAREE, la meme que le pont 3D : l'attente est SYNCHRONE. Le
+	//    chargement du modele mesure 12,6 s, la generation 597 ms par token.
+	//    Une conversation (quelques dizaines de tokens) se compte en secondes ;
+	//    un document complet se compterait en minutes, et ce fichier ne le cache
+	//    pas.
+	class NkDesignBackendProcessus final : public NkIDesignBackend {
+		public:
+			/// Le gabarit, deux trous : `{invite}` (le fichier qu'on ecrit) et
+			/// `{sortie}` (le fichier qu'on attend).
+			NkString gabarit;
+			NkString nom = NkString("processus");
+			NkString invitePath = NkString("nkuidesign_invite.txt");
+			NkString sortiePath = NkString("nkuidesign_sortie.txt");
+			int32 dernierCode = -1; ///< code de sortie du dernier lancement
+
+			bool Complete(const NkDesignRequest &req, NkDesignReply &out) override {
+				out.success = false;
+				out.text = NkString("");
+				if (gabarit.Length() == 0) {
+					out.error = NkString("REFUS : aucune commande de generation (NK_DESIGN_CMD vide)");
+					return false;
+				}
+				// L'invite COMPLETE, assemblee par la MEME fonction que le dorsal
+				// fichier : deux assemblages auraient diverge au premier champ
+				// ajoute a NkDesignRequest, et une reponse rejouee a la main
+				// n'aurait plus correspondu a celle du processus.
+				NkString full;
+				EcrireRequete(req, full);
+				if (!nkentseu::NkFile::WriteAllText(invitePath.Data(), full.Data())) {
+					out.error = NkString("REFUS : impossible d'ecrire l'invite dans ");
+					out.error.Append(invitePath);
+					return false;
+				}
+				// EFFACER LA SORTIE AVANT. Sans ca, un fichier laisse par un
+				// lancement precedent ferait passer un echec pour une reussite --
+				// et rendrait la MEME reponse indefiniment. C'est la garde du pont
+				// 3D, reprise telle quelle.
+				if (nkentseu::NkFile::Exists(sortiePath.Data()))
+					nkentseu::NkFile::Delete(sortiePath.Data());
+
+				NkString cmd = gabarit;
+				Remplir(cmd, "{invite}", invitePath.Data());
+				Remplir(cmd, "{sortie}", sortiePath.Data());
+				dernierCode = -1;
+				if (!Lancer(cmd.Data(), dernierCode)) {
+					out.error = NkString("REFUS : le processus n'a pas pu etre lance : ");
+					out.error.Append(cmd);
+					return false;
+				}
+				if (!nkentseu::NkFile::Exists(sortiePath.Data())) {
+					char b[112];
+					snprintf(b, sizeof(b),
+							 "REFUS : le generateur a rendu %d et n'a pas ecrit ",
+							 (int)dernierCode);
+					out.error = NkString(b);
+					out.error.Append(sortiePath);
+					return false;
+				}
+				out.text = nkentseu::NkFile::ReadAllText(sortiePath.Data());
+				out.success = out.text.Length() > 0;
+				if (!out.success)
+					out.error = NkString("REFUS : le fichier de sortie est vide");
+				return out.success;
+			}
+
+			bool IsAvailable() const override {
+				return gabarit.Length() > 0;
+			}
+			const char *Name() const override {
+				return nom.Data() ? nom.Data() : "processus";
+			}
+
+			/// L'assemblage de la requete, PARTAGE avec le dorsal fichier.
+			static void EcrireRequete(const NkDesignRequest &req, NkString &full) {
+				full = NkString("");
+				full.Append(req.prompt);
+				if (req.catalog.Length() > 0) {
+					full.Append("\n\n--- composants declares ---\n");
+					full.Append(req.catalog);
+				}
+				if (req.currentDoc.Length() > 0) {
+					full.Append("\n--- document courant ---\n");
+					full.Append(req.currentDoc);
+				}
+			}
+
+			/// Remplace CHAQUE occurrence de `trou` par `val`.
+			static void Remplir(NkString &s, const char *trou, const char *val) {
+				const NkString::SizeType lt = (NkString::SizeType)StrLen(trou);
+				NkString::SizeType pos = 0;
+				for (;;) {
+					NkString::SizeType i = s.Find(trou, pos);
+					if (i == NkString::npos)
+						break;
+					s.Replace(i, lt, val ? val : "");
+					pos = i + (NkString::SizeType)StrLen(val);
+				}
+			}
+
+			/// LE DORSAL PAR DEFAUT, configure depuis l'environnement, une fois.
+			/// C'est le SEUL endroit qui sait quel generateur tourne -- le
+			/// panneau, lui, n'affiche que `Name()`.
+			static NkDesignBackendProcessus &ParDefaut() {
+				static NkDesignBackendProcessus g;
+				static bool init = false;
+				if (!init) {
+					init = true;
+					if (const char *c = getenv("NK_DESIGN_CMD")) {
+						g.gabarit = NkString(c);
+					} else if (const char *e = getenv("NK_DESIGN_EXE")) {
+						g.gabarit = NkString("\"");
+						g.gabarit.Append(e);
+						g.gabarit.Append("\" --invite \"{invite}\" --sortie \"{sortie}\"");
+					}
+					if (const char *n = getenv("NK_DESIGN_NOM"))
+						g.nom = NkString(n);
+				}
+				return g;
+			}
+
+		private:
+			static nkentseu::usize StrLen(const char *s) {
+				nkentseu::usize n = 0;
+				while (s && s[n])
+					++n;
+				return n;
+			}
+			/// Lance la ligne et ATTEND sa fin. Rend faux si le lancement lui-meme
+			/// echoue ; `code` recoit le code de sortie du processus.
+			static bool Lancer(const char *ligne, int32 &code) {
+#ifdef _WIN32
+				const int n = MultiByteToWideChar(CP_UTF8, 0, ligne, -1, nullptr, 0);
+				if (n <= 0)
+					return false;
+				wchar_t *w = new wchar_t[(nkentseu::usize)n];
+				MultiByteToWideChar(CP_UTF8, 0, ligne, -1, w, n);
+				STARTUPINFOW si;
+				PROCESS_INFORMATION pi;
+				memset(&si, 0, sizeof(si));
+				si.cb = sizeof(si);
+				memset(&pi, 0, sizeof(pi));
+				// CREATE_NO_WINDOW : pas de console qui surgit devant l'editeur.
+				const BOOL ok = CreateProcessW(nullptr, w, nullptr, nullptr, FALSE,
+											   CREATE_NO_WINDOW, nullptr, nullptr, &si, &pi);
+				delete[] w;
+				if (!ok)
+					return false;
+				WaitForSingleObject(pi.hProcess, INFINITE);
+				DWORD ec = (DWORD)-1;
+				GetExitCodeProcess(pi.hProcess, &ec);
+				CloseHandle(pi.hThread);
+				CloseHandle(pi.hProcess);
+				code = (int32)ec;
+				return true;
+#else
+				const int r = system(ligne);
+				if (r == -1)
+					return false;
+				code = (int32)r;
+				return true;
+#endif
 			}
 	};
 
@@ -236,8 +433,37 @@ namespace nkuidesign {
 			/// des deux cotes de l'aller-retour.
 			NkPaintRect replaySurface = {0.f, 0.f, 1200.f, 800.f};
 
+			// -- LA SPECIFICATION, ET C'EST TOUT CE QUE CE FICHIER EN SAIT ----
+			// Rodolf : « definir un document de specification LIE A CE DESIGN est
+			// important ». La liaison ne demande aucune structure nouvelle : le
+			// format porte deja `origine` sur CHAQUE noeud, et `GraftFrom` la
+			// remplit avec ce qu'on lui donne. Il suffit donc de lui donner le NOM
+			// de la specification au lieu du nom du dorsal.
+			//
+			// ATTENTION : DEUX CHAMPS, ET LEUR SEPARATION EST LE POINT.
+			//   `specTexte`   entre dans l'INVITE  -> il change ce qui est demande
+			//   `specOrigine` entre dans la PROVENANCE -> il change ce qu'on
+			//                 pourra RETROUVER plus tard
+			// Les confondre aurait fait porter aux noeuds un paragraphe entier au
+			// lieu d'un nom, et aurait rendu `origine` illisible dans le fichier.
+			//
+			// Vides tous les deux = le comportement d'avant, au bit pres : la
+			// provenance retombe sur `Backend()->Name()`. Aucun appelant existant
+			// ne bouge -- les essais 29/30 de la sonde en dependent.
+			NkString specTexte;	  ///< les exigences, telles qu'elles partent au dorsal
+			NkString specOrigine; ///< le NOM de la specification, pour `origine`
+
 			void SetBackend(NkIDesignBackend *b) {
 				mBackend = b;
+			}
+			/// La provenance a inscrire : le nom de la specification si on en a
+			/// une, sinon le nom du dorsal. UNE seule fonction -- deux copies de
+			/// cette regle auraient diverge, et une greffe aurait porte une
+			/// origine pendant que l'autre en portait une autre.
+			const char *OrigineCourante() const {
+				if (specOrigine.Length() > 0)
+					return specOrigine.Data();
+				return mBackend ? mBackend->Name() : "";
 			}
 			NkIDesignBackend *Backend() const {
 				return mBackend;
@@ -314,6 +540,19 @@ namespace nkuidesign {
 				out.Append("N'emploie que des composants du catalogue ci-dessous.\n");
 			}
 
+			/// L'invite COMPLETE : le format, puis la specification si on en a
+			/// une. Elle est POSEE APRES le format, jamais avant : le format est
+			/// la contrainte dure (une reponse qui ne le suit pas est rejetee par
+			/// le rejeu), la specification est le contenu.
+			void BatirInviteComplete(const char *userAsk, NkString &out) const {
+				BuildPrompt(userAsk, out);
+				if (specTexte.Length() > 0) {
+					out.Append("\n--- specification a respecter ---\n");
+					out.Append(specTexte);
+					out.Append("\n");
+				}
+			}
+
 			// ═══════════════════════════════════════════════════════════════════
 			//  DEMANDER, PUIS POSER
 			// ═══════════════════════════════════════════════════════════════════
@@ -331,7 +570,7 @@ namespace nkuidesign {
 					return res;
 				}
 				NkDesignRequest req;
-				BuildPrompt(userAsk, req.prompt);
+				BatirInviteComplete(userAsk, req.prompt);
 				BuildCatalog(req.catalog);
 				doc.Save(req.currentDoc);
 
@@ -342,7 +581,7 @@ namespace nkuidesign {
 					return res;
 				}
 				mLastReply = reply.text;
-				return Apply(reply.text.Data(), doc, targetParent, mBackend->Name());
+				return Apply(reply.text.Data(), doc, targetParent, OrigineCourante());
 			}
 
 			/// Poser une reponse deja obtenue. Separee de `Ask` pour une raison
@@ -387,7 +626,7 @@ namespace nkuidesign {
 					return res;
 				}
 				NkDesignRequest req;
-				BuildPrompt(userAsk, req.prompt);
+				BatirInviteComplete(userAsk, req.prompt);
 				BuildCatalog(req.catalog);
 				doc.Save(req.currentDoc);
 
@@ -401,7 +640,7 @@ namespace nkuidesign {
 				if (!ValidateReply(reply.text.Data(), mPending, res))
 					return res;
 				mHasPending = true;
-				mPendingOrigin = NkString(mBackend->Name());
+				mPendingOrigin = NkString(OrigineCourante());
 				res.verdict = NkAIVerdict::Acceptee;
 				return res;
 			}

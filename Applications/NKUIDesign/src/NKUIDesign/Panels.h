@@ -74,6 +74,7 @@
 #include "GlisserPalette.h" // le glisser depuis la palette : la DECISION, pas le dessin
 #include "Transfo.h" // rotation et miroirs : le MEME calcul pour le dessin et le clic
 #include "DesignAI.h"
+#include "DesignChat.h" // la conversation + le document de specification
 #include "NkGuiValidate.h" // guifmt::NkGEtats — LA table fermee des six etats
 #include "Renderers.h"
 #include "NKImage/NKImage.h" // le cache d'images du document (12 codecs)
@@ -554,6 +555,22 @@ namespace nkuidesign {
 
 			NkDesignAI ai;
 			NkFileBackend fileBackend;
+
+			// -- DISCUTER AVANT DE DESSINER -----------------------------------
+			// Rodolf : « on doit pouvoir discuter avec lui AVANT de commencer a
+			// designer, car definir un document de specification lie a ce design
+			// est important ».
+			//
+			// ATTENTION : LA CONVERSATION NE TIENT AUCUN DOCUMENT, et c'est ce
+			//    qui rend « discuter ne dessine pas » vrai PAR CONSTRUCTION
+			//    plutot que par vigilance. Elle est ici, a cote du document, pas
+			//    dedans ; le seul pont entre les deux est `ai.specOrigine`, qui
+			//    est un NOM.
+			NkDesignConversation conversation;
+			NkSpecification spec;
+			char chatBuf[512] = {0};	 ///< le message en cours de frappe
+			char specNomBuf[64] = {0};	 ///< le nom du fichier de specification
+			char specSujetBuf[128] = {0}; ///< le sujet de la conversation
 
 			/// ⚠️ UNE SEULE SELECTION POUR LES TROIS PANNEAUX. Document 3 §11.5 :
 			///    « deux notions de "ce qui est sélectionné" finiraient par
@@ -1194,7 +1211,27 @@ namespace nkuidesign {
 				//    l'application (`NkDesignResolveRole`). Tant que chaque hote
 				//    posait la sienne, la sonde a pu en poser une autre -- un
 				//    hachage permissif -- et mesurer autre chose que l'ecran.
-				ai.SetBackend(&fileBackend);
+				// -- LE DORSAL : JAMAIS CABLE EN DUR -----------------------
+				// Le dorsal PAR PROCESSUS s'impose des qu'un gabarit existe dans
+				// l'environnement (NK_DESIGN_CMD, ou NK_DESIGN_EXE pour la forme
+				// courte). Sinon on retombe sur le dorsal FICHIER, qui marche
+				// depuis toujours et sans modele : on ecrit l'invite, on colle la
+				// reponse.
+				//
+				// ATTENTION : LE PANNEAU N'AFFICHE QUE `Name()`. Aucun morceau de
+				//    l'interface ne nomme Qwen, Ollama ni un fichier .gguf ; le
+				//    jour ou un modele entraine chez Rihen prend la place, il
+				//    suffit que le gabarit pointe ailleurs -- pas une ligne
+				//    d'application ne bouge. C'est la propriete que Rodolf a
+				//    demandee pour les DEUX generateurs, et c'est deja celle du
+				//    pont GENIA du modeleur.
+				{
+					NkDesignBackendProcessus &proc = NkDesignBackendProcessus::ParDefaut();
+					if (proc.IsAvailable())
+						ai.SetBackend(&proc);
+					else
+						ai.SetBackend(&fileBackend);
+				}
 
 				if (!LoadDoc()) {
 					BuildStarterDocument();
@@ -9185,6 +9222,115 @@ namespace nkuidesign {
 						x += w + 6.f;
 					}
 				}
+				// ═══════════════════════════════════════════════════════════
+				//  DISCUTER — AVANT DE DESSINER
+				// ═══════════════════════════════════════════════════════════
+				//  ⚠️ CETTE SECTION NE TOUCHE PAS AU DOCUMENT. Pas une ligne
+				//     d'ici n'ecrit dans `mSt->doc` : `NkDesignConversation` n'a
+				//     meme pas de quoi le faire — elle ne recoit aucun document.
+				//     C'est ce qui rend « discuter ne dessine pas » vrai PAR
+				//     CONSTRUCTION, et non par vigilance : la meme discipline que
+				//     `Propose`, qui travaille dans un document DE COTE.
+				//
+				//  ⚠️ ET C'EST SYNCHRONE. Avec le dorsal FICHIER, « Envoyer » rend
+				//     la main tout de suite. Avec un dorsal PAR PROCESSUS qui
+				//     charge un modele local, la mesure du 14/09 donne 12,6 s de
+				//     chargement + ~0,6 s par mot : la fenetre ne repond pas
+				//     pendant ce temps. Dette declaree, la meme que le pont GENIA
+				//     du modeleur ; la mise sur un fil viendra quand la chaine
+				//     aura prouve qu'elle tient.
+				ec.Separator();
+				{
+					const NkRect r = ctx.NextItemRect(-1.f, 20.f);
+					costume::TexteGras(dl, F.px11, r.x + costume::PadPanneau,
+									   costume::CentrerY(F.px11, r.y, 20.f), "Discussion",
+									   ctx.theme.text, 0.5f);
+				}
+				Libelle(ctx, "Sujet — ce qu'on veut concevoir");
+				InputText(ctx, "Sujet", mSt->specSujetBuf, (int32)sizeof(mSt->specSujetBuf));
+				mSt->conversation.sujet = NkString(mSt->specSujetBuf);
+
+				// LES TOURS DE PAROLE, bornes : un tiroir de 320 px ne montre pas
+				// trente tours, et laisser filer pousserait l'invite hors de
+				// portee. Ce qui est coupe est DIT (« N tour(s) plus haut »), pas
+				// escamote.
+				{
+					const uint32 nTours = mSt->conversation.Count();
+					const uint32 kMontres = 8u;
+					const uint32 debut = nTours > kMontres ? nTours - kMontres : 0u;
+					if (nTours == 0u) {
+						ctx.BeginDisabled();
+						ec.Text("(aucun echange — posez une question)");
+						ctx.EndDisabled();
+					}
+					if (debut > 0u) {
+						char bt[64];
+						snprintf(bt, sizeof(bt), "… %u tour(s) plus haut", debut);
+						ctx.BeginDisabled();
+						ec.Text(bt);
+						ctx.EndDisabled();
+					}
+					for (uint32 it = debut; it < nTours; ++it) {
+						const NkDesignTour &t = mSt->conversation.Tours()[it];
+						const bool moi = t.qui == NkQui::Moi;
+						const NkRect rq = ctx.NextItemRect(-1.f, 16.f);
+						costume::TexteGras(dl, F.px10, rq.x + costume::PadPanneau,
+										   costume::CentrerY(F.px10, rq.y, 16.f),
+										   moi ? "moi" : "IA",
+										   moi ? ctx.theme.textMuted : ctx.theme.accent, 0.4f);
+						// AVEC RETOUR A LA LIGNE : une reponse de modele fait
+						// plusieurs phrases, et `Text` seul la couperait au bord
+						// sans le dire.
+						nkgui::TextWrapped(ctx, t.texte.Data() ? t.texte.Data() : "");
+					}
+				}
+
+				Libelle(ctx, "Message");
+				InputText(ctx, "Message", mSt->chatBuf, (int32)sizeof(mSt->chatBuf));
+				if (ec.Button("Envoyer"))
+					Discuter();
+				if (mSt->conversation.Count() > 0 && ec.Button("Effacer la discussion")) {
+					mSt->conversation.Effacer();
+					mLast = NkString("Discussion effacee — le document n'a pas bouge.");
+				}
+
+				// ═══════════════════════════════════════════════════════════
+				//  LE DOCUMENT DE SPECIFICATION
+				// ═══════════════════════════════════════════════════════════
+				//  ⚠️ IL EXISTE SANS AUCUN MODELE. « Ecrire » fabrique les
+				//     exigences MECANIQUEMENT : ce sont les tours de l'HUMAIN,
+				//     c'est-a-dire ce qu'il a dit vouloir. « Affiner » ne fait que
+				//     les reformuler avec le dorsal, et n'ecrase RIEN s'il echoue.
+				//     Une specification qui n'existerait qu'avec un modele
+				//     disponible ne serait pas un document : ce serait une sortie.
+				ec.Separator();
+				Libelle(ctx, "Nom de la specification");
+				InputText(ctx, "Nom de la spec", mSt->specNomBuf,
+						  (int32)sizeof(mSt->specNomBuf));
+				if (ec.Button("Ecrire la specification"))
+					EcrireSpec();
+				if (!mSt->spec.Vide()) {
+					char bs[224];
+					snprintf(bs, sizeof(bs), "Specification « %s » : %u exigence(s)",
+							 mSt->spec.nom.Data() ? mSt->spec.nom.Data() : "",
+							 mSt->spec.CountExigences());
+					ec.Text(bs);
+					if (ec.Button("Affiner les exigences (dorsal)"))
+						AffinerSpec();
+					// LA LIAISON AU DESIGN, ET ELLE SE VOIT A L'ECRAN :
+					snprintf(bs, sizeof(bs), "Le design engendre portera  origine = %s",
+							 mSt->ai.OrigineCourante());
+					ctx.BeginDisabled();
+					ec.Text(bs);
+					ctx.EndDisabled();
+					if (ec.Button("Detacher la specification")) {
+						mSt->ai.specTexte = NkString("");
+						mSt->ai.specOrigine = NkString("");
+						mLast = NkString("Specification detachee — les prochaines greffes "
+										 "porteront de nouveau le nom du dorsal.");
+					}
+				}
+
 				// ── LA CARTE « RELEVÉ DE CHANGEMENTS » ───────────────────────
 				if (mSt->ai.HasProposal()) {
 					const uint32 nprop = mSt->ai.Proposal().NodeCount();
@@ -9257,6 +9403,7 @@ namespace nkuidesign {
 								   costume::CentrerY(F.px10, rp.y, 20.f), "Sélection",
 								   ctx.theme.textMuted);
 				}
+				Libelle(ctx, "Demande — ce qu'on veut voir engendre");
 				InputText(ctx, "Demande", mSt->promptBuf, (int32)sizeof(mSt->promptBuf));
 				if (ec.Button("Proposer (aperçu)"))
 					Proposer();
@@ -9269,6 +9416,98 @@ namespace nkuidesign {
 			}
 
 		private:
+			// ⚠️ LE LIBELLE D'UN CHAMP NE SE VOYAIT PAS, ET C'EST MESURE, PAS
+			//    SUPPOSE : la capture du 14/09 montre TROIS boites vides a la
+			//    suite dans le tiroir. `InputText` de NKGui pose son libelle A
+			//    DROITE du champ ; dans un tiroir de 320 px, la region de
+			//    defilement est plus large que la fenetre, et le libelle part
+			//    hors champ -- exactement le defaut deja paye par la carte
+			//    « Releve de changements » le 31/08 (« LARGEUR VISIBLE, PAS
+			//    LARGEUR DE REGION »). Le champ « Demande », plus ancien, en
+			//    souffrait deja sans que personne le dise.
+			//
+			//    On pose donc le libelle AU-DESSUS, a la largeur visible. Ce
+			//    n'est pas un widget de plus : c'est une ligne de texte, et elle
+			//    vit dans UNE fonction -- quatre copies auraient diverge au
+			//    premier changement de police.
+			void Libelle(nkgui::NkGuiContext &ctx, const char *texte) {
+				auto &F = costume::Fontes();
+				const NkRect r = ctx.NextItemRect(-1.f, 15.f);
+				costume::Texte(ctx.DL(), F.px10, r.x + costume::PadPanneau,
+							   costume::CentrerY(F.px10, r.y, 15.f), texte,
+							   ctx.theme.textMuted);
+			}
+
+			// -- DISCUTER. Aucun document en parametre : voir NkDesignConversation.
+			void Discuter() {
+				NkString err;
+				if (mSt->conversation.Envoyer(mSt->ai.Backend(), mSt->chatBuf, err)) {
+					mSt->chatBuf[0] = 0; // le message est parti : le champ se vide
+					mLast = NkString("Reponse recue. Le document n'a pas bouge.");
+				} else {
+					// ATTENTION : LE TOUR HUMAIN RESTE. Retirer ce que
+					// l'utilisateur vient de taper parce que le modele n'a pas
+					// repondu lui ferait perdre sa phrase. Et le refus est NOMME,
+					// jamais un silence ni un tour IA vide.
+					char b[320];
+					snprintf(b, sizeof(b), "REFUS — %s",
+							 err.Length() > 0 ? err.Data() : "raison non nommee");
+					mLast = NkString(b);
+				}
+			}
+
+			// -- ECRIRE LA SPECIFICATION. Mecanique, sans dorsal.
+			void EcrireSpec() {
+				if (mSt->conversation.Vide()) {
+					mLast = NkString("Aucune discussion : il n'y a rien a specifier — "
+									 "et aucun fichier n'est ecrit.");
+					return;
+				}
+				if (!mSt->specNomBuf[0])
+					snprintf(mSt->specNomBuf, sizeof(mSt->specNomBuf), "spec");
+				NkSpecification::DepuisConversation(mSt->conversation, mSt->specNomBuf,
+													mSt->spec);
+				NkString texte;
+				mSt->spec.Ecrire(texte);
+				char chemin[192];
+				snprintf(chemin, sizeof(chemin), "nkuidesign_%s.nkuispec", mSt->specNomBuf);
+				const bool ecrit = nkentseu::NkFile::WriteAllText(chemin, texte.Data());
+				// LE LIEN. Deux champs, deux roles : `specTexte` entre dans
+				// l'invite, `specOrigine` entre dans la provenance de chaque
+				// noeud engendre. Les confondre aurait fait porter aux noeuds un
+				// paragraphe entier au lieu d'un nom.
+				mSt->spec.PourLeGenerateur(mSt->ai.specTexte);
+				mSt->ai.specOrigine = mSt->spec.nom;
+				char b[352];
+				snprintf(b, sizeof(b),
+						 ecrit ? "Specification ecrite : %s (%u exigence(s)). Le design "
+								 "engendre portera origine = %s."
+							   : "ECHEC d'ecriture de %s (%u exigence(s)) — origine = %s "
+								 "posee quand meme en memoire.",
+						 chemin, mSt->spec.CountExigences(),
+						 mSt->spec.nom.Data() ? mSt->spec.nom.Data() : "");
+				mLast = NkString(b);
+			}
+
+			// -- AFFINER. N'ecrase les exigences QUE si le dorsal en rend.
+			void AffinerSpec() {
+				NkString pourquoi;
+				if (NkSpecification::Affiner(mSt->conversation, mSt->ai.Backend(), mSt->spec,
+											 pourquoi)) {
+					mSt->spec.PourLeGenerateur(mSt->ai.specTexte);
+					char b[160];
+					snprintf(b, sizeof(b), "Exigences affinees : %u.",
+							 mSt->spec.CountExigences());
+					mLast = NkString(b);
+				} else {
+					char b[320];
+					snprintf(b, sizeof(b),
+							 "AFFINAGE REFUSE — %s. Les exigences n'ont pas bouge.",
+							 pourquoi.Length() > 0 ? pourquoi.Data() : "raison non nommee");
+					mLast = NkString(b);
+				}
+			}
+
 			void Proposer() {
 				const NkAIResult r = mSt->ai.Propose(mSt->promptBuf, mSt->doc);
 				if (r.Accepted()) {
