@@ -52,6 +52,13 @@ namespace nkentseu {
 			public:
 				explicit NkModelerComponentPaint(NkModelerPainter &p) noexcept : mP(p) {}
 
+				/// (j2) QUI SUIS-JE — le message de repli inerte nomme le peintre,
+				/// pas seulement la primitive : « X n'implemente pas Y » dit ou
+				/// aller, « Y n'est pas implementee » laisse chercher.
+				const char *NomDuPeintre() const noexcept override {
+					return "NkModelerComponentPaint";
+				}
+
 				// ── Theme et metrologie ─────────────────────────────────────────
 				uint32 ColorOf(uint16 role) const override {
 					return mP.PackedColor(role); // deja empaquete : la forme du theme
