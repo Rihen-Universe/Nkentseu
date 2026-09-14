@@ -487,6 +487,9 @@ namespace nkentseu {
 				// rend ses dialogues modaux (creation de projet, proprietes...). Quand
 				// ctx.appModal est leve, le shell masque l'input du corps. L'input du popup
 				// est restaure avant l'appel (comme la fenetre Preferences).
+				// ⚠️ (R17) `appModal` SE DECLARE A CHAQUE IMAGE, tant que le dialogue est
+				//    ouvert : le shell le remet a faux en debut d'image et lit aussi ce que
+				//    l'image precedente a declare. Le poser une fois ne tient plus.
 				void SetOverlay(NkEditorAppMenuFn fn, void *user = nullptr) noexcept {
 					mOverlayFn = fn;
 					mOverlayUser = user;
@@ -917,6 +920,7 @@ namespace nkentseu {
 				bool mTitleDragArmed = false;
 				float32 mDragStartX = 0.f, mDragStartY = 0.f;
 				int32 mPortesCorps = 0; ///< (R16) cf. PortesDuCorps
+				bool mAppModalPrec = false; ///< (R17) `appModal` declare par l'image precedente
 		};
 
 	} // namespace editorkit
