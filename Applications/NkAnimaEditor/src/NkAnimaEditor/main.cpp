@@ -54,7 +54,22 @@ int nkmain(const NkEntryState &state) {
 	// — c'est ce qui permet de pointer un autre rig (XBot Mixamo…) sans recompiler.
 	NkEditorGfxApi gfx = NkEditorGfxApi::OpenGL;
 	const char *modelPath = "Resources/Models/CesiumMan/CesiumMan.glb";
-	for (const auto &a : state.GetArgs()) {
+	// ⚠️ ON SAUTE args[0] : C'EST L'IDENTITE DU PROGRAMME, PAS UN ARGUMENT.
+	//    Sans ce saut, la clause « tout argument sans tiret est un chemin de
+	//    modele » ci-dessous capturait le CHEMIN DE L'EXECUTABLE, et l'editeur
+	//    tentait de charger son propre .exe comme fichier glTF. Le defaut
+	//    CesiumMan n'etait donc JAMAIS atteint, et le viewport 3D restait vide
+	//    a chaque lancement -- avec pour seule trace un [WRN] NkGLTFLoader et un
+	//    [ERR] AnimBridge, qu'on pouvait prendre pour « pas encore implante ».
+	//
+	//    Mesure du 2026-09-14 : 21 sites du depot sautent ce premier element a la
+	//    main, 7 y sont immunises parce qu'ils ne comparent qu'a des litteraux
+	//    exacts, et CELUI-CI etait le seul a se tromper. `NkAudioPlayer` a le
+	//    meme besoin -- un chemin de fichier libre -- et part de 1 lui aussi
+	//    (main.cpp:105).
+	const NkVector<NkString> &args = state.GetArgs();
+	for (usize i = 1; i < args.Size(); ++i) {
+		const NkString &a = args[i];
 		if (a == "-bvk" || a == "--backend=vulkan")
 			gfx = NkEditorGfxApi::Vulkan;
 		else if (a == "-bdx11" || a == "--backend=dx11")
