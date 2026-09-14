@@ -3123,6 +3123,15 @@ static NkTexHandle CreateLanternCubeCookie(NkTextureLibrary *texLib, NkIDevice *
 				// NK_VEHICLE_NODRAGVIR=1 : la mutation de la trainee de virage.
 				if (const char *nv = std::getenv("NK_VEHICLE_NODRAGVIR"); nv && nv[0] == '1')
 					st->veh->Tuning().corneringDrag = 0.f;
+				// ⚠️ NK_VEHICLE_MU=<valeur> : LE FROTTEMENT, POUR L'ESSAI SEULEMENT.
+				// Le defaut du produit reste celui qu'Autotune derive du materiau du
+				// CHASSIS -- 0,4000 -- et je ne le deplace pas : la tenue de route est
+				// ce que Rodolf SENT, c'est sa decision, pas la mienne.
+				// Cette variable existe pour qu'il puisse comparer les deux mondes avant
+				// de trancher. Elle doit etre posee AVANT le premier sous-pas : Autotune
+				// ne derive mu du materiau que s'il vaut encore zero.
+				if (const char *mu = std::getenv("NK_VEHICLE_MU"); mu && mu[0])
+					st->veh->Tuning().mu = (float32)std::atof(mu);
 				if (const char *kk = std::getenv("NK_VEHICLE_KICK"); kk && kk[0]) st->vehKick = (float32)std::atof(kk);
 				if (const char *vc = std::getenv("NK_VEHICLE_VCIBLE"); vc && vc[0]) st->vehCible = (float32)std::atof(vc);
 				if (const char *sf = std::getenv("NK_VEHICLE_STEER"); sf && sf[0]) st->vehSteerFixe = (float32)std::atof(sf);
