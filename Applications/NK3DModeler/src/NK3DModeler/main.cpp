@@ -1952,6 +1952,32 @@ int nkmain(const NkEntryState &entry) {
 			}
 		}
 
+		// NK_FOLD_OPEN="<cmd>[,<cmd>...]" : DEPLIE des blocs d'operation au demarrage.
+		// ⚠ CE N'EST PAS UN CHEMIN D'ARMEMENT D'UN ETAT DU PRODUIT, c'est une
+		// commande d'INSPECTION : elle pose le meme etat que le clic sur le
+		// chevron, par la meme porte (`NkFoldTable::Poser`). Sans elle, le contenu
+		// d'un bloc n'est verifiable a l'image par personne -- puisqu'ils naissent
+		// TOUS plies, ce qui est precisement ce que Rodolf a demande.
+		{
+			static bool sFoldDone = false;
+			if (const char *fo = std::getenv("NK_FOLD_OPEN")) {
+				if (!sFoldDone) {
+					sFoldDone = true;
+					for (const char *q = fo; *q;) {
+						char kb[48];
+						snprintf(kb, sizeof(kb), "prop.g.op.%d", (int)std::atoi(q));
+						st.grpFold.Poser(kb, false); // false = DEPLIE
+						while (*q && *q != ',')
+							++q;
+						if (*q == ',')
+							++q;
+					}
+				}
+			} else {
+				sFoldDone = true;
+			}
+		}
+
 		// NK_OP_PARAM="index,valeur[,frame]" : pose un REGLAGE PERSISTANT d'operation
 		// par la MEME porte que le champ du panneau (`Demo3DHostOpParamSet`), donc
 		// avec le meme clamp. Sert a prouver ce que le canal exige : « changer la
