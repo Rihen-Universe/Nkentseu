@@ -1583,6 +1583,18 @@ with workspace("Nkentseu", location="."):
 
 
 
+    # NkTerrainCheck -- une image de hauteurs devient un terrain dont chaque sommet
+
+    # est a la hauteur que l image dit. Meme chaine de liaison que NkMatGraphDemo
+
+    # (l autre banc hors-ecran qui tire NKRenderer) : enregistre juste apres lui.
+
+    with include("Applications/NkTerrainCheck/NkTerrainCheck.jenga"):
+
+        pass
+
+
+
     with include("Applications/NKPA/NKPA.jenga"):
 
         pass
