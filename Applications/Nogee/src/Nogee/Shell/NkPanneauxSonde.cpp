@@ -58,8 +58,8 @@ namespace nkentseu {
 
 			// ── LES COMPTEURS, RELEVES APRES QUE LES BARRES ONT DESSINE ─────
 			const NkPanneauxCompteurs &c = NkPanneauxCpt();
-			std::printf("[PANNEAUX] menus=%d entrees=%d largeur_menus=%.2f\n", c.menus, c.entrees,
-						static_cast<double>(c.largeurMenus));
+			std::printf("[PANNEAUX] menus=%d entrees=%d dessinees=%d largeur_menus=%.2f\n", c.menus,
+						c.entrees, c.entreesDessinees, static_cast<double>(c.largeurMenus));
 			std::printf("[PANNEAUX] outils=%d largeur_outils=%.2f\n", c.outils,
 						static_cast<double>(c.largeurOutils));
 
