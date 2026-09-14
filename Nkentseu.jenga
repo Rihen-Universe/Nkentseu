@@ -1252,6 +1252,10 @@ with workspace("Nkentseu", location="."):
 
         pass
 
+    with include("Applications/NKUVUnwrapTest/NKUVUnwrapTest.jenga"):
+
+        pass
+
     with include("Applications/NkAnimaTest/NkAnimaTest.jenga"):
 
         pass
@@ -1579,6 +1583,18 @@ with workspace("Nkentseu", location="."):
 
 
 
+    # NkTerrainCheck -- une image de hauteurs devient un terrain dont chaque sommet
+
+    # est a la hauteur que l image dit. Meme chaine de liaison que NkMatGraphDemo
+
+    # (l autre banc hors-ecran qui tire NKRenderer) : enregistre juste apres lui.
+
+    with include("Applications/NkTerrainCheck/NkTerrainCheck.jenga"):
+
+        pass
+
+
+
     with include("Applications/NKPA/NKPA.jenga"):
 
         pass
@@ -1810,4 +1826,17 @@ with workspace("Nkentseu", location="."):
 
     # Le four a textures : outil en ligne de commande, sans GPU ni fenetre.
     with include("Tools/NkTexBake/NkTexBake.jenga"):
+        pass
+
+    # Banc du sequenceur de Noge : des cles entrent, des images PNG numerotees
+    # sortent. Sans fenetre et sans GPU -- les pixels sont peints par le
+    # processeur. Il prouve le pilote temporel (cles -> pose ECS -> fichiers),
+    # PAS le moteur de rendu, qui est une question separee.
+    with include("Applications/NkSequenceCheck/NkSequenceCheck.jenga"):
+        pass
+
+    # Sonde : un NkIDevice se cree-t-il SANS FENETRE, et la couleur relue est-elle
+    # celle qu on a demandee ? Deux effacements differents doivent donner deux
+    # relectures differentes -- sinon c est l instrument qui ment, pas le dorsal.
+    with include("Applications/NkOffscreenProbe/NkOffscreenProbe.jenga"):
         pass

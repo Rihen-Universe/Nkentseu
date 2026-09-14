@@ -46,6 +46,17 @@
 #include "Noge/ECS/Components/Rendering/NkRenderComponents.h"
 
 namespace nkentseu {
+	// ── Déclaration ANTICIPÉE, pas une inclusion ─────────────────────────────
+	// `anim::NkClipRegistry` (NKAnima/Clip/NkClipRegistry.h) est ce qui rend
+	// `NkClipOnTrack::clipHandle` résoluble. On le DÉCLARE au lieu de l'inclure :
+	// cet en-tête public ne tire donc rien de NKAnima, et aucun nom nouveau
+	// n'entre en collision avec ceux que le `using namespace ecs;` ci-dessous
+	// fait déjà rentrer — ce dépôt en a payé trois en une seule soirée
+	// (`NkKeyframe`, `NkRect2D`, et une troisième sur un autre chantier).
+	namespace anim {
+		class NkClipRegistry;
+	}
+
 	using namespace math;
 	using namespace ecs;
 
@@ -194,8 +205,15 @@ namespace nkentseu {
 
 			/**
 			 * @brief Évalue la piste à un instant donné et applique à world.
+			 *
+			 * `clips` est le registre qui résout `NkClipOnTrack::clipHandle`. Il
+			 * est FACULTATIF : sans lui, une piste `Animation` n'applique rien —
+			 * elle ne peut pas inventer le clip qu'elle désigne. Tous les
+			 * appelants antérieurs continuent donc de compiler et se comportent
+			 * exactement comme avant.
 			 */
-			void Evaluate(float32 time, NkWorld &world) const noexcept;
+			void Evaluate(float32 time, NkWorld &world,
+						  const anim::NkClipRegistry *clips = nullptr) const noexcept;
 	};
 
 	// =========================================================================
@@ -395,8 +413,12 @@ namespace nkentseu {
 			/**
 			 * @brief Évalue toutes les pistes à l'instant donné.
 			 * Applique les transformations, animations, lumières... dans world.
+			 *
+			 * `clips` (facultatif) est transmis tel quel aux pistes : c'est lui
+			 * qui permet à une piste `Animation` de résoudre son clip.
 			 */
-			void Evaluate(float32 time, NkWorld &world) const noexcept;
+			void Evaluate(float32 time, NkWorld &world,
+						  const anim::NkClipRegistry *clips = nullptr) const noexcept;
 
 			/**
 			 * @brief Retourne le plan de caméra actif à l'instant donné.
@@ -409,8 +431,33 @@ namespace nkentseu {
 			void RecalcDuration() noexcept;
 
 			// ── Sérialisation ────────────────────────────────────────────────
+			// Format `.nkseq` : binaire, séquentiel, versionné. En-tête de 24
+			// octets (magie "NKSQ", version, taille du corps, empreinte FNV-1a du
+			// corps), puis les champs dans l'ordre de déclaration.
+			//
+			// ⚠️ **Les octets, jamais du texte.** `NkFile::WriteAllText` écrit en
+			// CRLF et `ReadAllText` renormalise : l'écart est masqué des DEUX
+			// côtés à la fois, si bien qu'un aller-retour « réussi » peut porter
+			// un fichier différent. `SaveToFile` passe donc par `WriteAllBytes`,
+			// et toute mesure de conformité doit passer par `ReadAllBytes`.
+			//
+			// L'empreinte du corps n'est pas décorative : la magie protège
+			// l'en-tête, la taille protège la troncature, mais **seule l'empreinte
+			// voit un octet abîmé au milieu** — sans elle il donnerait une clé
+			// décalée et la séquence serait lue « avec succès ».
+			//
+			// N'écrit PAS les drapeaux `selected` : c'est un état d'interface, pas
+			// du contenu. L'aller-retour reste identique octet à octet, puisque
+			// `LoadFromFile` construit des objets où `selected` vaut `false` et
+			// que `SaveToFile` réécrit `false`.
 			[[nodiscard]] bool SaveToFile(const char *path) const noexcept;
 			[[nodiscard]] bool LoadFromFile(const char *path) noexcept;
 	};
+
+	// Raison du dernier refus de `SaveToFile` / `LoadFromFile`, en clair. Un
+	// `false` nu oblige l'appelant à deviner, et il devine mal : « fichier abime »
+	// et « version de format inconnue » n'appellent pas la même réaction. Chaîne
+	// statique, valide jusqu'au prochain appel, jamais nulle.
+	[[nodiscard]] const char *NkSequenceDernierRefus() noexcept;
 
 } // namespace nkentseu
