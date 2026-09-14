@@ -47,7 +47,7 @@ with project("NKGuiMonteTest"):
     # NKRHI, pas de NKCanvas.
     nkentseudependson(
         ["NKGui", "NKSerialization", "NKReflection", "NKFileSystem", "NKFont",
-         "NKImage", "NKEvent", "NKMath", "NKLogger", "NKContainers", "NKMemory",
+         "NKImage", "NKStream", "NKEvent", "NKMath", "NKLogger", "NKContainers", "NKMemory",
          "NKCore", "NKPlatform", "NKThreading"],
         extra_includes=["src", "../NKUIDesign/src"],
     )

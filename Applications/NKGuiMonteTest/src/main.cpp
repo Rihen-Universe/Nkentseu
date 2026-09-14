@@ -26,6 +26,9 @@
 #include "NKGui/Core/NkGuiFont.h"
 #include "NKGui/Doc/NkGuiMonteur.h"
 #include "NKGui/Widgets/NkGuiWidgets.h"
+#include "NKMemory/NkAllocator.h"
+#include "NKImage/Codecs/PNG/NkPNGCodec.h"
+#include "NKImage/Core/NkImage.h"
 #include "NKSerialization/NkGui/NkGuiArchive.h"
 #include "NKUIDesign/NkGuiValidate.h"
 
@@ -205,7 +208,38 @@ static bool g_fontOk = false;
 
 static const uint32 kFond = 0x101418FFu;
 
-static Montage MonterTexte(const char *src, uint32 len, int32 w, int32 h) {
+// Dossier de sortie des images (option `--png=`), vide = on n'ecrit rien.
+static const char *g_pngDir = nullptr;
+
+// Ecrit la cible rasterisee en PNG. Le tampon rendu par `Encode` est alloue par
+// NkAlloc : il se libere par `nkentseu::memory::NkFree`, jamais par free() --
+// c'est un `c0000374` connu du depot.
+static bool EcrirePng(const NkGuiDrawListRaster &r, const char *chemin) {
+	NkImage img = NkImage::Alloc(r.Largeur(), r.Hauteur(), NkImagePixelFormat::NK_RGBA32);
+	if (!img.Pixels())
+		return false;
+	const uint8 *src = r.Pixels();
+	uint8 *dst = img.Pixels();
+	const usize n = (usize)r.Largeur() * (usize)r.Hauteur() * 4u;
+	for (usize i = 0; i < n; ++i)
+		dst[i] = src[i];
+
+	uint8 *out = nullptr;
+	usize taille = 0;
+	if (!NkPNGCodec::Encode(img, out, taille) || !out)
+		return false;
+	FILE *h = fopen(chemin, "wb");
+	bool ok = false;
+	if (h) {
+		ok = (fwrite(out, 1, (size_t)taille, h) == (size_t)taille);
+		fclose(h);
+	}
+	nkentseu::memory::NkFree(out);
+	return ok;
+}
+
+static Montage MonterTexte(const char *src, uint32 len, int32 w, int32 h,
+						   const char *nomPng = nullptr) {
 	Montage m;
 	NkArchive doc;
 	if (!NkGuiArchive::Read(src, len, doc, m.err))
@@ -237,17 +271,26 @@ static Montage MonterTexte(const char *src, uint32 len, int32 w, int32 h) {
 		// dur et jamais devine sur un coin -- voir CouleurDominante.
 		m.contenu = ComptePixelsContenu(ras, kFond, CouleurDominante(ras));
 		m.empreinte = Empreinte(ras);
+		if (g_pngDir && nomPng) {
+			char sortie[1024];
+			Joindre(sortie, sizeof(sortie), g_pngDir, nomPng);
+			if (EcrirePng(ras, sortie))
+				printf("        image ecrite : %s\n", sortie);
+			else
+				printf("        ECHEC d'ecriture : %s\n", sortie);
+		}
 	}
 	return m;
 }
 
-static Montage MonterFichier(const char *chemin, int32 w, int32 h) {
+static Montage MonterFichier(const char *chemin, int32 w, int32 h,
+							 const char *nomPng = nullptr) {
 	Fichier f = Lire(chemin);
 	if (!f.ok) {
 		Montage m;
 		return m;
 	}
-	Montage m = MonterTexte(f.data, f.taille, w, h);
+	Montage m = MonterTexte(f.data, f.taille, w, h, nomPng);
 	Liberer(f);
 	return m;
 }
@@ -258,14 +301,23 @@ struct Attendu {
 		uint32 widgets;
 		uint32 behaviors;
 		uint32 animations;
+		uint32 apparences;	///< blocs `appearance`, toutes graphies confondues
+		uint32 etatsHorsRepos; ///< ceux qui ne sont ni `appearance` nu ni `(Normal)`
 };
 
 static const Attendu kValides[] = {
-	{"01_panneau_reglages.nkgui", 11u, 0u, 0u},		  {"02_bloc_sur_une_ligne.nkgui", 8u, 0u, 0u},
-	{"03_virgule_vecteur_couleur.nkgui", 4u, 0u, 0u}, {"04_echappements_utf8.nkgui", 4u, 0u, 0u},
-	{"05_animation_comportement.nkgui", 2u, 1u, 1u},  {"06_version_0_2_alias.nkgui", 1u, 0u, 0u},
-	{"07_apparence.nkgui", 1u, 0u, 0u},				  {"08_indentation_mixte.nkgui", 1u, 1u, 0u},
-	{"09_indentation_a_la_main.nkgui", 2u, 1u, 0u},	  {"10_etats_apparence.nkgui", 3u, 0u, 0u},
+	{"01_panneau_reglages.nkgui", 11u, 0u, 0u, 0u, 0u},
+	{"02_bloc_sur_une_ligne.nkgui", 8u, 0u, 0u, 0u, 0u},
+	{"03_virgule_vecteur_couleur.nkgui", 4u, 0u, 0u, 0u, 0u},
+	{"04_echappements_utf8.nkgui", 4u, 0u, 0u, 0u, 0u},
+	{"05_animation_comportement.nkgui", 2u, 1u, 1u, 0u, 0u},
+	{"06_version_0_2_alias.nkgui", 1u, 0u, 0u, 0u, 0u},
+	// 07 : `appearance` nu + (Hover) + (Disabled) -- le nu EST le repos.
+	{"07_apparence.nkgui", 1u, 0u, 0u, 3u, 2u},
+	{"08_indentation_mixte.nkgui", 1u, 1u, 0u, 0u, 0u},
+	{"09_indentation_a_la_main.nkgui", 2u, 1u, 0u, 0u, 0u},
+	// 10 : valider 5, annuler 2 (dont (Normal) = repos), recherche 1.
+	{"10_etats_apparence.nkgui", 3u, 0u, 0u, 8u, 6u},
 };
 static const uint32 kNbValides = 10u;
 
@@ -283,7 +335,15 @@ static const char *kSignalesValidation[] = {
 static const uint32 kNbSignalesValidation = 6u;
 
 int main(int argc, char **argv) {
-	const char *racine = (argc > 1) ? argv[1] : "Applications/NKUIDesign/exemples";
+	const char *racine = "Applications/NKUIDesign/exemples";
+	for (int32 a = 1; a < (int32)argc; ++a) {
+		// `--png=<dossier>` : ecrire une image par fichier monte. OPT-IN.
+		if (argv[a][0] == '-' && argv[a][1] == '-' && argv[a][2] == 'p' && argv[a][3] == 'n'
+			&& argv[a][4] == 'g' && argv[a][5] == '=')
+			g_pngDir = argv[a] + 6;
+		else if (argv[a][0] != '-')
+			racine = argv[a];
+	}
 	printf("=== NKGuiMonteTest : le format .nkgui MONTE et DESSINE (sans fenetre, sans GPU) ===\n");
 	printf("    corpus : %s\n", racine);
 
@@ -332,6 +392,7 @@ int main(int argc, char **argv) {
 	// =====================================================================
 	printf("\n-- (m1) les dix valides s'analysent, et le compte est celui du fichier\n");
 	uint32 totW = 0, totB = 0, totA = 0, totMontes = 0;
+	uint32 totApp = 0, totEtats = 0, totInconnus = 0;
 	for (uint32 i = 0; i < kNbValides; ++i) {
 		Joindre(dossier, sizeof(dossier), racine, "/valides/");
 		Joindre(chemin, sizeof(chemin), dossier, kValides[i].nom);
@@ -345,15 +406,29 @@ int main(int argc, char **argv) {
 		CheckEq(m.rap.widgets, kValides[i].widgets, "   widgets");
 		CheckEq(m.rap.behaviors, kValides[i].behaviors, "   behaviors");
 		CheckEq(m.rap.animations, kValides[i].animations, "   animations");
+		CheckEq(m.rap.apparencesLues, kValides[i].apparences, "   blocs d'apparence");
+		CheckEq(m.rap.etatsNonAppliques, kValides[i].etatsHorsRepos,
+				"   etats hors repos (lus, comptes, JAMAIS peints)");
+		// ⚠️ CE CONTROLE-CI EXISTE PARCE QU'UNE MUTATION A SURVECU. Faire compter
+		//    les blocs `appearance` comme des widgets ne faisait rougir personne :
+		//    ils tombaient dans `rolesInconnus`, un compteur que le banc ne lisait
+		//    nulle part. Un compteur que personne ne regarde ne garde rien.
+		CheckEq(m.rap.rolesInconnus, 0u, "   aucun role hors vocabulaire");
 		totW += m.rap.widgets;
 		totB += m.rap.behaviors;
 		totA += m.rap.animations;
 		totMontes += m.rap.montes;
+		totApp += m.rap.apparencesLues;
+		totEtats += m.rap.etatsNonAppliques;
+		totInconnus += m.rap.rolesInconnus;
 	}
 	printf("\n   TOTAL corpus valide\n");
 	CheckEq(totW, 37u, "   37 widgets sur les dix fichiers");
 	CheckEq(totB, 3u, "   3 behaviors");
 	CheckEq(totA, 1u, "   1 animation");
+	CheckEq(totApp, 11u, "   11 blocs d'apparence (07 en porte 3, 10 en porte 8)");
+	CheckEq(totEtats, 8u, "   8 etats hors repos, lus et comptes, aucun peint");
+	CheckEq(totInconnus, 0u, "   zero role hors vocabulaire sur tout le corpus");
 
 	// NEGATIF de (m1) : un fichier VIDE (l'en-tete seul) est un document VALIDE
 	// a zero widget -- pas un plantage, pas un refus.
@@ -488,7 +563,9 @@ int main(int argc, char **argv) {
 		for (uint32 i = 0; i < kNbValides; ++i) {
 			Joindre(dossier, sizeof(dossier), racine, "/valides/");
 			Joindre(chemin, sizeof(chemin), dossier, kValides[i].nom);
-			const Montage m = MonterFichier(chemin, 400, 600);
+			char nomPng[256];
+			Joindre(nomPng, sizeof(nomPng), kValides[i].nom, ".png");
+			const Montage m = MonterFichier(chemin, 400, 600, nomPng);
 			if (m.lu && m.contenu > 0u)
 				++dessinent;
 			texManquantes += m.texInconnues;
@@ -597,6 +674,54 @@ int main(int argc, char **argv) {
 		printf("        rangees empilees : %u, chevauchements : %u\n", empilees, chevauchements);
 		Check(empilees > 0u, "   les rangees s'empilent dans l'ordre du fichier");
 		CheckEq(chevauchements, 0u, "   et AUCUNE ne chevauche la precedente");
+
+		// ── (a) LA LOI D'EMPILEMENT, ENONCEE EN ENTIER ────────────────────────
+		// y(i+1) - (y(i) + h(i)) == gap, pour toutes les rangees consecutives de
+		// la colonne -- pas seulement pour la premiere paire. Le `gap` vient du
+		// fichier (lu ci-dessus), la profondeur vient du rapport : rien en dur.
+		{
+			uint32 paires = 0, conformes = 0;
+			const NkGuiMonteItem *prec = nullptr;
+			for (uint32 i = 0; i < (uint32)m01.rap.items.Size(); ++i) {
+				const NkGuiMonteItem &it = m01.rap.items[i];
+				if (it.conteneur || it.axeHorizontal || it.rect.h < 0.f)
+					continue;
+				if (prec && prec->profondeur == it.profondeur) {
+					++paires;
+					const float32 ecart = it.rect.y - (prec->rect.y + prec->rect.h);
+					if (Abs(ecart - 8.f) < 0.01f)
+						++conformes;
+					else
+						printf("        rangee '%s' : ecart %.2f (attendu 8.00 = le gap du fichier)\n",
+							   it.id.CStr(), (double)ecart);
+				}
+				prec = &it;
+			}
+			printf("        loi d'empilement : %u paires conformes sur %u\n", conformes, paires);
+			Check(paires > 0u, "   la colonne a des rangees consecutives a comparer");
+			CheckEq(conformes, paires, "   TOUTES respectent y(i+1) = y(i) + h(i) + gap");
+		}
+
+		// ── (b) LE SPACER PREND LA TAILLE ECRITE ──────────────────────────────
+		// `Spacer "vide" { size = 12 }`. La mutation M7 (le monteur ignore `size`)
+		// ne faisait rougir personne avant ce controle.
+		{
+			bool trouve = false;
+			float32 hauteur = -1.f;
+			for (uint32 i = 0; i < (uint32)m01.rap.items.Size(); ++i) {
+				const NkGuiMonteItem &it = m01.rap.items[i];
+				if (it.role.Compare(NkString("Spacer")) == 0) {
+					trouve = true;
+					hauteur = it.rect.h;
+					break;
+				}
+			}
+			Check(trouve, "   le Spacer du fichier est bien monte");
+			printf("        Spacer 'vide' : hauteur %.2f (le fichier ecrit size = 12)\n",
+				   (double)hauteur);
+			Check(trouve && Abs(hauteur - 12.f) < 0.01f,
+				  "   et il prend EXACTEMENT les 12 px ecrits dans le fichier");
+		}
 
 		// LA MUTATION DEMANDEE : une seule valeur change dans le fichier
 		// (`gap = 8` -> `gap = 0`), et la mesure doit BOUGER de la quantite
