@@ -1,0 +1,68 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""NKGuiMonteTest — le banc qui fait MONTER le format `.nkgui`.
+
+AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
+
+Il lit les vingt-et-un fichiers du corpus ecrit a la main
+(`Applications/NKUIDesign/exemples/`), monte les dix valides en widgets NKGui
+reels, les RASTERISE hors ecran, et exige que les onze fautifs soient refuses --
+chacun par la BONNE famille : `refuses_a_la_lecture/` doit echouer a l'analyse,
+`signales_par_la_validation/` doit s'analyser ET etre signale.
+
+AUCUNE FENETRE. Le rendu passe par `NkGuiDrawListRaster`, le rasteriseur logiciel
+de NKGui : ni fenetre, ni device, ni GPU. Exercable pendant qu'une campagne
+occupe la carte, et rien a ouvrir ni a cliquer sur la machine.
+
+POURQUOI `NKSerialization` EST DECLARE ICI ET PAS DANS `NKGui.jenga` :
+`NkGuiMonteur.h` est un EN-TETE SEUL, non compile. `NKGui` ne depend pas de
+NKSerialization, et lui ajouter cette dependance tirerait NKReflection et
+NKFileSystem chez TOUS ses consommateurs -- la faute que NKEditorKit a corrigee
+le 2026-09-01 en retirant NKCanvas de son jenga. C'est donc l'application qui
+declare, comme le kit le fait deja pour NkEditorCanvasRenderer.
+
+POURQUOI `Applications/NKUIDesign/src` EST EN INCLUDE ET PAS EN DEPENDANCE :
+`NkGuiValidate.h` (1115 lignes) est header-only et n'inclut RIEN de NKUIDesign --
+quatre includes, tous vers NKSerialization, NKContainers et NKCore. Il est donc
+lisible tel quel. Aucun octet de NKUIDesign n'est modifie, et aucune cible de
+NKUIDesign n'est construite : la validation n'est pas a reecrire, elle est a
+reutiliser.
+
+Application console et non `unittest()` : l'execution des tests unitaires est
+DESACTIVEE par la politique du workspace (`disableunittestexecution`) -- un test
+Unitest compilerait sans jamais tourner. Meme raison que NKGuiDrawTest.
+"""
+from Jenga import *
+from jengaconfig import *
+
+
+with project("NKGuiMonteTest"):
+    consoleapp()
+    language("C++")
+    cppdialect("C++17")
+    location(".")
+    files(["src/main.cpp"])
+
+    # NKGui + le lecteur du format. Rien de graphique : pas de NKWindow, pas de
+    # NKRHI, pas de NKCanvas.
+    nkentseudependson(
+        ["NKGui", "NKSerialization", "NKReflection", "NKFileSystem", "NKFont",
+         "NKImage", "NKEvent", "NKMath", "NKLogger", "NKContainers", "NKMemory",
+         "NKCore", "NKPlatform", "NKThreading"],
+        extra_includes=["src", "../NKUIDesign/src"],
+    )
+
+    objdir("%{wks.location}/Build/Obj/%{cfg.buildcfg}-%{cfg.system}/%{prj.name}")
+    targetdir("%{wks.location}/Build/Bin/%{cfg.buildcfg}-%{cfg.system}/%{prj.name}")
+
+    with filter("system:Windows"):
+        defines(["WIN32_LEAN_AND_MEAN", "_UNICODE", "UNICODE"])
+
+    with filter("config:Debug"):
+        defines(["_DEBUG", "DEBUG"])
+        optimize("Off")
+        symbols(True)
+    with filter("config:Release"):
+        defines(["NDEBUG"])
+        optimize("Speed")
+        symbols(False)
