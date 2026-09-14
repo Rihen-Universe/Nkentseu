@@ -300,6 +300,25 @@ namespace nkentseu {
 						Jret = Jstop;
 					Jlong += (vLongFin > 0.f ? -Jret : Jret);
 				}
+				// ── TRAÎNÉE INDUITE DE VIRAGE (2026-09-14) ─────────────────
+				// F_drag = c · F_lat² / Fs (voir NkVehicle.h). Calculée sur le Jlat
+				// AVANT le cercle, puis versée dans Jlong AVANT lui aussi : la traînée
+				// induite est une force de PNEU, elle appartient donc au même budget
+				// d'adhérence. À la limite, la demander revient à en retirer au latéral
+				// — ce qui est vrai d'une vraie voiture.
+				// Plafonnée par « de quoi l'arrêter, pas plus » : elle ne peut donc ni
+				// inverser la marche, ni fabriquer de l'énergie.
+				if (mTuning.corneringDrag > 0.f && Fs > 1e-3f) {
+					const float32 Flat = std::fabs(w.latForceFilt);
+					float32 Jd = mTuning.corneringDrag * (Flat * Flat / Fs) * h;
+					const float32 JdStop = std::fabs(vLongFin) * mLong;
+					if (Jd > JdStop)
+						Jd = JdStop;
+					Jlong += (vLongFin > 0.f ? -Jd : Jd);
+					w.dragLat = Jd / h; // N, lu par les bancs
+				} else
+					w.dragLat = 0.f;
+
 				// LE CERCLE DE FRICTION — la borne unique qui donne le survirage
 				const float32 Jmax = mTuning.mu * Fs * h;
 				const float32 Jn = std::sqrt(Jlat * Jlat + Jlong * Jlong);
@@ -307,6 +326,23 @@ namespace nkentseu {
 					const float32 s = Jmax / Jn;
 					Jlat *= s;
 					Jlong *= s;
+				}
+				// ⚠️ LA TRAÎNÉE SE CALCULE SUR LA FORCE RÉELLE, PAS SUR LA DEMANDE.
+				// Première version : le filtre lisait Jlat AVANT le cercle de friction.
+				// Or `Jlat = -vLat·mLat` est l'impulsion qui annule le glissement en UN
+				// sous-pas : divisée par h elle vaut des dizaines de milliers de newtons
+				// (18 000 N pour 0,5 m/s de glissement), ce qui n'est pas une force de
+				// pneu mais une grandeur impulsionnelle. Élevée au carré, elle demandait
+				// **8,36 m/s²** de traînée là où la loi en prédit 0,078 — cent fois trop,
+				// et seul le plafond « de quoi l'arrêter » empêchait l'absurde.
+				// Le filtre lit donc désormais l'impulsion APRÈS le cercle : celle que la
+				// gomme a vraiment pu passer, bornée par mu·Fs. La traînée de ce sous-pas
+				// sert au suivant — il n'y a donc aucune circularité, et le lissage sur
+				// 0,1 s rend ce décalage d'un pas invisible.
+				{
+					const float32 tau = mTuning.corneringDragTau > 1e-4f ? mTuning.corneringDragTau : 1e-4f;
+					const float32 aF = 1.f - std::exp(-h / tau);
+					w.latForceFilt += ((Jlat / h) - w.latForceFilt) * aF;
 				}
 				NkApplyImpulseAtPoint(*b, lat * Jlat + wheelFwd * Jlong, hit.point);
 
