@@ -5,6 +5,8 @@
     * Porte de Integrations/NKUI/NkUIRHIBackend.cpp (meme pipeline/buffers/upload/
     * scissor/conversion). Adapte a NkGuiDrawList : UNE liste, clipRect par commande.
     * Allocations CPU temporaires via NKMemory (regle dure : zero new/delete brut).
+    *
+    * AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 */
 
 #include "NKGui/NkGuiRHIBackend.h"
@@ -18,12 +20,37 @@
 namespace nkentseu {
     namespace nkgui {
 
+        // ── LES DEUX NUMEROS DE LIAISON, DECIDES ICI ET NULLE PART AILLEURS ──
+        //
+        // ⚠️ POURQUOI CES MACROS EXISTENT. Ces numeros vivaient en SEPT copies :
+        // une par nuanceur ecrit a la main (GL, VK, DX11, DX12) et deux dans les
+        // ecritures de descripteurs du C++. Rien ne les tenait ensemble. DX12
+        // avait derive : il declarait register(b0) pour le bloc de constantes et
+        // t1/s1 pour la texture, quand le C++ liait 1 et 0. Consequence mesuree :
+        // uViewport non recu -> zeros -> v.pos / 0 -> NaN -> plus rien n'est
+        // rasterise ; et texture non liee -> echantillon nul -> i.col * 0 -> noir.
+        // TOUTE L'APPLICATION ETAIT NOIRE SUR DX12, interface comprise, sans une
+        // seule erreur -- ni du pilote, ni du RHI, ni du journal.
+        //
+        // ⚠️ ET LES DEUX DEFAUTS SE MASQUAIENT L'UN L'AUTRE : lever le premier
+        // seul laissait l'ecran noir, ce qui l'innocentait a tort. Il a fallu les
+        // lever TOUS LES DEUX pour voir quoi que ce soit.
+        //
+        // Les ecrire une fois et les faire lire par les nuanceurs empeche la
+        // derive de recommencer sur un autre registre.
+#define NKGUI_BINDING_TEX 0
+#define NKGUI_BINDING_UBO 1
+#define NKGUI_STR2(x) #x
+#define NKGUI_STR(x) NKGUI_STR2(x)
+
         static constexpr const char* kVertGLSL = R"GLSL(
 #version 460 core
 layout(location=0) in vec2  aPos;
 layout(location=1) in vec2  aUV;
 layout(location=2) in uint  aColor;
-layout(std140, binding=1) uniform ViewportBlock {
+)GLSL"
+"layout(std140, binding=" NKGUI_STR(NKGUI_BINDING_UBO) ") uniform ViewportBlock {"
+R"GLSL(
     vec2 uViewport;
     vec2 _pad;
 };
@@ -47,7 +74,9 @@ void main() {
 in  vec2 vUV;
 in  vec4 vColor;
 layout(location=0) out vec4 fragColor;
-layout(binding=0) uniform sampler2D uTex;
+)GLSL"
+"layout(binding=" NKGUI_STR(NKGUI_BINDING_TEX) ") uniform sampler2D uTex;"
+R"GLSL(
 void main() {
     vec4 tc = vec4(1.0);
     if (vUV.x >= 0.0 && vUV.y >= 0.0) {
@@ -62,7 +91,9 @@ void main() {
 layout(location=0) in vec2  aPos;
 layout(location=1) in vec2  aUV;
 layout(location=2) in uint  aColor;
-layout(set=0, binding=1, std140) uniform ViewportBlock {
+)GLSL"
+"layout(set=0, binding=" NKGUI_STR(NKGUI_BINDING_UBO) ", std140) uniform ViewportBlock {"
+R"GLSL(
     vec2 uViewport;
     vec2 _pad;
 } vpb;
@@ -86,20 +117,42 @@ void main() {
 layout(location=0) in  vec2 vUV;
 layout(location=1) in  vec4 vColor;
 layout(location=0) out vec4 fragColor;
-layout(set=0, binding=0) uniform sampler2D uTex;
+)GLSL"
+"layout(set=0, binding=" NKGUI_STR(NKGUI_BINDING_TEX) ") uniform sampler2D uTex;"
+R"GLSL(
 void main() {
     vec4 tc = vec4(1.0);
     if (vUV.x >= 0.0 && vUV.y >= 0.0) {
         tc = texture(uTex, vUV);
     }
-    vec4 color = vColor * tc;
-    color.rgb = pow(color.rgb, vec3(2.2));
-    fragColor = color;
+    // ⚠️ LE `pow(color.rgb, 2.2)` QUI ETAIT ICI EST RETIRE (2026-09-08).
+    // Il n'existait QUE sur ce dorsal, dans un nuanceur ecrit a la main, et il
+    // rendait toute l'interface de Vulkan visiblement plus sombre que celle des
+    // trois autres. MESURE avant retrait, capture de la fenetre du modeleur :
+    //     opengl 54,57   dx11 53,72   vulkan 24,00
+    //     opengl^2,2 = 22,63   dx11^2,2 = 22,31   -> ecart a vulkan 0,5 %
+    // La prediction, posee AVANT verification, tombe : ce pow expliquait tout
+    // l'ecart, a un demi pour cent pres.
+    //
+    // ET IL EST ORPHELIN, VERIFIE PLUTOT QUE SUPPOSE. Un tel pre-encodage ne se
+    // justifierait que si la chaine d'echange etait sRGB -- le materiel
+    // encoderait alors a l'ecriture et il faudrait pre-lineariser. Les quatre
+    // presentent dans le MEME format, non sRGB :
+    //     DX11  DXGI_FORMAT_B8G8R8A8_UNORM   (code en dur)
+    //     DX12  DXGI_FORMAT_B8G8R8A8_UNORM   (code en dur)
+    //     GL    GL_FRAMEBUFFER_SRGB DESACTIVE (le format demande n'est pas sRGB)
+    //     VK    VK_FORMAT_B8G8R8A8_UNORM = 44 (MESURE a l'execution, pas deduit
+    //           du format demande : le repli `fmts[0]` aurait pu donner autre chose)
+    // Il ne compensait donc rien. Ce n'est pas une convention vraie qu'on
+    // deplace, c'est une compensation qui part.
+    fragColor = vColor * tc;
 }
 )GLSL";
 
         static constexpr const char* kVertHlslDx11 = R"HLSL(
-cbuffer Constants : register(b1) { float2 uViewport; float2 _pad; };
+)HLSL"
+"cbuffer Constants : register(b" NKGUI_STR(NKGUI_BINDING_UBO) ") { float2 uViewport; float2 _pad; };"
+R"HLSL(
 struct VSIn  { float2 pos:POSITION; float2 uv:TEXCOORD0; uint col:COLOR; };
 struct VSOut { float4 pos:SV_Position; float2 uv:TEXCOORD0; float4 col:COLOR; };
 VSOut VSMain(VSIn v) {
@@ -118,8 +171,10 @@ VSOut VSMain(VSIn v) {
 )HLSL";
 
         static constexpr const char* kFragHlslDx11 = R"HLSL(
-Texture2D    uTex     : register(t0);
-SamplerState uSampler : register(s0);
+)HLSL"
+"Texture2D    uTex     : register(t" NKGUI_STR(NKGUI_BINDING_TEX) ");"
+"SamplerState uSampler : register(s" NKGUI_STR(NKGUI_BINDING_TEX) ");"
+R"HLSL(
 struct PSIn { float4 pos:SV_Position; float2 uv:TEXCOORD0; float4 col:COLOR; };
 float4 PSMain(PSIn i) : SV_Target {
     float4 tc = float4(1.0, 1.0, 1.0, 1.0);
@@ -131,7 +186,9 @@ float4 PSMain(PSIn i) : SV_Target {
 )HLSL";
 
         static constexpr const char* kVertHlslDx12 = R"HLSL(
-cbuffer Constants : register(b0) { float2 uViewport; float2 _pad; };
+)HLSL"
+"cbuffer Constants : register(b" NKGUI_STR(NKGUI_BINDING_UBO) ") { float2 uViewport; float2 _pad; };"
+R"HLSL(
 struct VSIn  { float2 pos:POSITION; float2 uv:TEXCOORD0; uint col:COLOR; };
 struct VSOut { float4 pos:SV_Position; float2 uv:TEXCOORD0; float4 col:COLOR; };
 VSOut VSMain(VSIn v) {
@@ -150,8 +207,10 @@ VSOut VSMain(VSIn v) {
 )HLSL";
 
         static constexpr const char* kFragHlslDx12 = R"HLSL(
-Texture2D    uTex     : register(t1);
-SamplerState uSampler : register(s1);
+)HLSL"
+"Texture2D    uTex     : register(t" NKGUI_STR(NKGUI_BINDING_TEX) ");"
+"SamplerState uSampler : register(s" NKGUI_STR(NKGUI_BINDING_TEX) ");"
+R"HLSL(
 struct PSIn { float4 pos:SV_Position; float2 uv:TEXCOORD0; float4 col:COLOR; };
 float4 PSMain(PSIn i) : SV_Target {
     float4 tc = float4(1.0, 1.0, 1.0, 1.0);
@@ -329,9 +388,37 @@ float4 PSMain(PSIn i) : SV_Target {
                 // SPIR-V PRÉ-COMPILÉ (kVertVk/kFragVk) : la compilation glslang au
                 // runtime corrompt le heap sous clang-mingw (crash Vulkan). (void) sur
                 // CompileVkSpirv pour garder la fonction référencée.
-                (void)&CompileVkSpirv;
-                shaderDesc.AddSPIRV(NkShaderStage::NK_VERTEX,   kNkGuiVkVertSpv, sizeof(kNkGuiVkVertSpv));
-                shaderDesc.AddSPIRV(NkShaderStage::NK_FRAGMENT, kNkGuiVkFragSpv, sizeof(kNkGuiVkFragSpv));
+                // ⚠️ ON COMPILE MAINTENANT LA SOURCE, ET C'EST OBLIGE : le SPIR-V
+                // pre-compile porte encore le `pow` dans ses octets. Editer
+                // `kFragVk` sans recompiler n'aurait RIEN change -- une source
+                // corrigee et un binaire perime auraient donne un correctif
+                // invisible, exactement le piege du cache de nuanceurs.
+                //
+                // Le commentaire d'origine attribuait un plantage a glslang au
+                // runtime. Cette attribution est SUSPECTE (le meme symptome a ete
+                // impute au lanceur et au PATH ailleurs dans ce depot) mais elle
+                // n'etait pas verifiee ici. On la met a l'epreuve, et le repli
+                // sur le binaire pre-compile reste en place si la compilation
+                // echoue -- une regression silencieuse serait pire que le pow.
+                auto vs = CompileVkSpirv(kVertVk, NkShaderStage::NK_VERTEX, "NkGui_VS");
+                auto fs = CompileVkSpirv(kFragVk, NkShaderStage::NK_FRAGMENT, "NkGui_FS");
+                // Le SPIR-V vit dans `binary` (mots uint32 emballes en octets), et on
+                // verifie le NOMBRE MAGIQUE : un binaire tronque ou vide passerait
+                // sinon pour valide et le pilote refuserait le pipeline sans dire
+                // pourquoi.
+                const bool vsOk = vs.success && vs.SpirvWordCount() > 0 &&
+                                  vs.SpirvWords()[0] == 0x07230203u;
+                const bool fsOk = fs.success && fs.SpirvWordCount() > 0 &&
+                                  fs.SpirvWords()[0] == 0x07230203u;
+                if (vsOk && fsOk) {
+                    shaderDesc.AddSPIRV(NkShaderStage::NK_VERTEX, vs.SpirvWords(), vs.binary.Size());
+                    shaderDesc.AddSPIRV(NkShaderStage::NK_FRAGMENT, fs.SpirvWords(), fs.binary.Size());
+                } else {
+                    logger.Errorf("[NkGuiRHIBackend] compilation SPIR-V refusee, repli sur le "
+                                  "binaire pre-compile -- L'INTERFACE RESTERA SOMBRE\n");
+                    shaderDesc.AddSPIRV(NkShaderStage::NK_VERTEX,   kNkGuiVkVertSpv, sizeof(kNkGuiVkVertSpv));
+                    shaderDesc.AddSPIRV(NkShaderStage::NK_FRAGMENT, kNkGuiVkFragSpv, sizeof(kNkGuiVkFragSpv));
+                }
             }
             mShader = mDevice->CreateShader(shaderDesc);
             if (!mShader.IsValid()) return false;
@@ -395,11 +482,11 @@ float4 PSMain(PSIn i) : SV_Target {
             NkDescSetHandle set = mDevice->AllocateDescriptorSet(mLayout);
             if (!set.IsValid()) return false;
             NkDescriptorWrite writes[2] = {};
-            writes[0].set = set; writes[0].binding = 0;
+            writes[0].set = set; writes[0].binding = NKGUI_BINDING_TEX;
             writes[0].type = NkDescriptorType::NK_COMBINED_IMAGE_SAMPLER;
             writes[0].texture = texture; writes[0].sampler = mSampler;
             writes[0].textureLayout = NkResourceState::NK_SHADER_READ;
-            writes[1].set = set; writes[1].binding = 1;
+            writes[1].set = set; writes[1].binding = NKGUI_BINDING_UBO;
             writes[1].type = NkDescriptorType::NK_UNIFORM_BUFFER;
             writes[1].buffer = mUBO; writes[1].bufferOffset = 0; writes[1].bufferRange = 16;
             mDevice->UpdateDescriptorSets(writes, 2);

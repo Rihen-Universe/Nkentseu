@@ -2984,4 +2984,63 @@ namespace nkentseu {
 		return dst;
 	}
 
+	// =========================================================================
+	// ReduceHalf — le niveau de mipmap suivant, par moyenne de blocs 2x2
+	// =========================================================================
+	NkImage NkImage::ReduceHalf() const noexcept {
+		NkImage dst;
+		if (!IsValid())
+			return dst;
+		if (mWidth <= 1 && mHeight <= 1)
+			return dst; // pas de niveau suivant
+
+		const int32 nw = (mWidth > 1) ? (mWidth / 2) : 1;
+		const int32 nh = (mHeight > 1) ? (mHeight / 2) : 1;
+
+		dst = Alloc(nw, nh, mFormat);
+		if (!dst.IsValid())
+			return dst;
+		dst.mSrcFmt = mSrcFmt;
+
+		const int32 ch = ChannelsOf(mFormat);
+		const bool flottant = (mFormat == NkImagePixelFormat::NK_RGBA128F || mFormat == NkImagePixelFormat::NK_RGB96F);
+
+		for (int32 y = 0; y < nh; ++y) {
+			// Les deux lignes sources du bloc. Sur une hauteur impaire la
+			// seconde est repliee sur la derniere ligne existante.
+			const int32 y0 = (mHeight > 1) ? (y * 2) : 0;
+			const int32 y1 = (y0 + 1 < mHeight) ? (y0 + 1) : y0;
+			const uint8 *r0 = RowPtr(y0);
+			const uint8 *r1 = RowPtr(y1);
+			uint8 *rd = dst.RowPtr(y);
+
+			for (int32 x = 0; x < nw; ++x) {
+				const int32 x0 = (mWidth > 1) ? (x * 2) : 0;
+				const int32 x1 = (x0 + 1 < mWidth) ? (x0 + 1) : x0;
+
+				if (flottant) {
+					const float32 *a = reinterpret_cast<const float32 *>(r0) + usize(x0) * ch;
+					const float32 *b = reinterpret_cast<const float32 *>(r0) + usize(x1) * ch;
+					const float32 *c = reinterpret_cast<const float32 *>(r1) + usize(x0) * ch;
+					const float32 *d = reinterpret_cast<const float32 *>(r1) + usize(x1) * ch;
+					float32 *o = reinterpret_cast<float32 *>(rd) + usize(x) * ch;
+					for (int32 k = 0; k < ch; ++k)
+						o[k] = (a[k] + b[k] + c[k] + d[k]) * 0.25f;
+				} else {
+					const uint8 *a = r0 + usize(x0) * ch;
+					const uint8 *b = r0 + usize(x1) * ch;
+					const uint8 *c = r1 + usize(x0) * ch;
+					const uint8 *d = r1 + usize(x1) * ch;
+					uint8 *o = rd + usize(x) * ch;
+					for (int32 k = 0; k < ch; ++k) {
+						// Arrondi au plus proche : + 2 avant la division par 4.
+						const uint32 s = uint32(a[k]) + uint32(b[k]) + uint32(c[k]) + uint32(d[k]) + 2u;
+						o[k] = uint8(s / 4u);
+					}
+				}
+			}
+		}
+		return dst;
+	}
+
 } // namespace nkentseu

@@ -160,6 +160,134 @@ namespace nkentseu {
 			   f == NkGPUFormat::NK_ASTC_4X4_SRGB || f == NkGPUFormat::NK_ETC2_RGB_UNORM; // approximation
 	}
 
+	// =============================================================================
+	// ARITHMETIQUE DES FORMATS — blocs compris
+	//
+	// 🔴 LE DEFAUT QUE CES FONCTIONS REPARENT, mesure le 2026-09-05.
+	// `NkFormatBytesPerPixel` rendait 0 pour BC1, BC3, BC5, BC7, ETC2 et ASTC —
+	// ils tombaient dans son `default`. Or les quatre dorsaux s'en servaient pour
+	// calculer le pas de ligne : `rowPitch = width * NkFormatBytesPerPixel(fmt)`
+	// (NkVulkanDevice.cpp:1317 et ses freres). Un BC7 donnait donc
+	// `rowPitch = 0`, puis `imgSz = 0` : un televersement de zero octet, sans
+	// erreur. Trois capacites (`textureCompressionBC/ETC2/ASTC`) etaient
+	// annoncees `true` et personne ne les lisait — declare, pas livre.
+	//
+	// ⚠️ ET VOICI POURQUOI `NkFormatBytesPerPixel` REND ENCORE 0 SUR CES FORMATS,
+	// DELIBEREMENT : **un octet-par-pixel ne peut pas exister pour un format par
+	// blocs.** BC1 code 16 pixels dans 8 octets — ça fait un demi-octet par
+	// pixel, qui n'est pas representable en entier. Lui faire rendre 1 « pour
+	// arrondir » recreerait le meme defaut en pire (une taille trop grande, donc
+	// une lecture hors des donnees). La fonction REFUSE, et les deux fonctions
+	// ci-dessous sont celles que les dorsaux doivent appeler :
+	//
+	//     NkFormatRowPitch(f, w)      octets d'UNE RANGEE (de blocs si bloc)
+	//     NkFormatImageSize(f, w, h)  octets de l'image entiere
+	//
+	// Les deux traitent les formats lineaires ET les formats par blocs. Un
+	// appelant qui multiplie encore par `NkFormatBytesPerPixel` se trahit sur un
+	// format compresse en rendant 0 — bruyamment, puisque plus rien n'est
+	// televerse.
+	// =============================================================================
+
+	inline bool NkFormatIsBlockCompressed(NkGPUFormat f) {
+		switch (f) {
+			case NkGPUFormat::NK_BC1_RGB_UNORM:
+			case NkGPUFormat::NK_BC1_RGB_SRGB:
+			case NkGPUFormat::NK_BC3_UNORM:
+			case NkGPUFormat::NK_BC3_SRGB:
+			case NkGPUFormat::NK_BC5_UNORM:
+			case NkGPUFormat::NK_BC5_SNORM:
+			case NkGPUFormat::NK_BC7_UNORM:
+			case NkGPUFormat::NK_BC7_SRGB:
+			case NkGPUFormat::NK_ETC2_RGB_UNORM:
+			case NkGPUFormat::NK_ETC2_RGBA_UNORM:
+			case NkGPUFormat::NK_ASTC_4X4_UNORM:
+			case NkGPUFormat::NK_ASTC_4X4_SRGB:
+				return true;
+			default:
+				return false;
+		}
+	}
+
+	// Dimensions du bloc. Tous les formats ci-dessus sont en 4x4 ; la fonction
+	// existe quand meme parce qu'ASTC a d'autres tailles (5x5, 8x8...) et que le
+	// jour ou on les ajoutera, c'est ICI que ça se passera, pas dans un dorsal.
+	inline void NkFormatBlockDim(NkGPUFormat f, uint32 &bw, uint32 &bh) {
+		if (NkFormatIsBlockCompressed(f)) {
+			bw = 4u;
+			bh = 4u;
+		} else {
+			bw = 1u;
+			bh = 1u;
+		}
+	}
+
+	// Octets d'UN bloc. Pour un format lineaire, c'est l'octet-par-pixel.
+	inline uint32 NkFormatBytesPerBlock(NkGPUFormat f) {
+		switch (f) {
+			// 8 octets pour 16 pixels
+			case NkGPUFormat::NK_BC1_RGB_UNORM:
+			case NkGPUFormat::NK_BC1_RGB_SRGB:
+			case NkGPUFormat::NK_ETC2_RGB_UNORM:
+				return 8u;
+			// 16 octets pour 16 pixels
+			case NkGPUFormat::NK_BC3_UNORM:
+			case NkGPUFormat::NK_BC3_SRGB:
+			case NkGPUFormat::NK_BC5_UNORM:
+			case NkGPUFormat::NK_BC5_SNORM:
+			case NkGPUFormat::NK_BC7_UNORM:
+			case NkGPUFormat::NK_BC7_SRGB:
+			case NkGPUFormat::NK_ETC2_RGBA_UNORM:
+			case NkGPUFormat::NK_ASTC_4X4_UNORM:
+			case NkGPUFormat::NK_ASTC_4X4_SRGB:
+				return 16u;
+			default:
+				return 0u; // rempli plus bas par l'octet-par-pixel
+		}
+	}
+
+	inline uint32 NkFormatBytesPerPixel(NkGPUFormat f);
+
+	// Pas de ligne : octets d'une rangee de pixels, ou d'une rangee de BLOCS.
+	// C'est la fonction que les dorsaux doivent appeler.
+	inline uint32 NkFormatRowPitch(NkGPUFormat f, uint32 width) {
+		if (NkFormatIsBlockCompressed(f)) {
+			uint32 bw = 4u, bh = 4u;
+			NkFormatBlockDim(f, bw, bh);
+			const uint32 blocsX = (width + bw - 1u) / bw; // arrondi AU BLOC SUPERIEUR
+			return blocsX * NkFormatBytesPerBlock(f);
+		}
+		return width * NkFormatBytesPerPixel(f);
+	}
+
+	// Taille totale d'un niveau. Pour un format par blocs, la HAUTEUR aussi
+	// s'arrondit au bloc superieur : une texture 6x6 en BC1 occupe 2x2 blocs,
+	// pas 2x1,5.
+	inline uint64 NkFormatImageSize(NkGPUFormat f, uint32 width, uint32 height) {
+		if (NkFormatIsBlockCompressed(f)) {
+			uint32 bw = 4u, bh = 4u;
+			NkFormatBlockDim(f, bw, bh);
+			const uint64 blocsX = (width + bw - 1u) / bw;
+			const uint64 blocsY = (height + bh - 1u) / bh;
+			return blocsX * blocsY * NkFormatBytesPerBlock(f);
+		}
+		return uint64(NkFormatRowPitch(f, width)) * uint64(height);
+	}
+
+	// Nombre de RANGEES a copier pour un niveau : des rangees de blocs quand le
+	// format est compresse. Un dorsal qui boucle sur `height` au lieu de ça
+	// ecrirait quatre fois trop.
+	inline uint32 NkFormatRowCount(NkGPUFormat f, uint32 height) {
+		if (NkFormatIsBlockCompressed(f)) {
+			uint32 bw = 4u, bh = 4u;
+			NkFormatBlockDim(f, bw, bh);
+			return (height + bh - 1u) / bh;
+		}
+		return height;
+	}
+
+	// ⚠️ REND 0 POUR TOUT FORMAT PAR BLOCS, ET C'EST VOULU — voir le pave
+	// ci-dessus. Utiliser `NkFormatRowPitch` / `NkFormatImageSize`.
 	inline uint32 NkFormatBytesPerPixel(NkGPUFormat f) {
 		switch (f) {
 			case NkGPUFormat::NK_R8_UNORM:
