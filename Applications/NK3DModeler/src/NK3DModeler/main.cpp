@@ -1684,13 +1684,58 @@ int nkmain(const NkEntryState &entry) {
 			static const bool trDiag = (std::getenv("NK_EDIT_DIAG") != nullptr);
 			if (trDiag && (agentFrame % 30) == 0) {
 				const int32 refus = demo::Demo3DHostEditRefusedFrames();
+				// COMBIEN D'OBJETS DE L'UTILISATEUR VIVENT, et quelle geometrie porte
+				// le maillage courant. Les deux repondent a « ajouter en edition
+				// cree-t-il un objet a part ou entre-t-il dans le maillage ? » -- et
+				// il faut les DEUX : un seul des deux compteurs laisserait la
+				// question ouverte.
+				// ⚠ `Demo3DHostObjectCount` ne convient pas : il rend une CONSTANTE
+				// (les objets de demonstration), pas les nœuds de l'utilisateur.
+				int32 vivants = 0;
+				const int32 nTot = demo::Demo3DHostNodeCount();
+				for (int32 q = 0; q < nTot; ++q)
+					if (demo::Demo3DHostUserKind(q) != 0 && !demo::Demo3DHostNodeDeleted(q))
+						++vivants;
+				uint32 gv = 0, ge = 0, gf = 0, gt = 0;
+				(void)demo::Demo3DHostStats(&gv, &ge, &gf, &gt);
+				// L'AFFICHAGE SUIT-IL LA CAGE, et l'aimantation est-elle armee ?
+				// Les deux repondent a des questions de Rodolf qu'aucun banc ne
+				// pouvait poser : « le deplacement ne se voit pas en temps reel »
+				// et « le snap marche-t-il en edition ? ».
+				bool un11 = false, mods = false, snapOn = false, snapAbs = false;
+				uint32 dvc = 0, rvc = 0;
+				float32 snapPas = 0.f, piv[3] = {0.f, 0.f, 0.f};
+				const bool dispOk =
+					demo::Demo3DHostEditDisplayInfo(&un11, &dvc, &rvc, &mods);
+				const bool snapOk = demo::Demo3DHostEditSnapInfo(&snapOn, &snapPas, &snapAbs, piv);
+				// LA POSITION D'UN SOMMET, LUE PENDANT LE GESTE. C'est la seule
+				// facon de distinguer « l'operation n'est pas appliquee » de
+				// « elle est appliquee mais rien ne la repeint ». Le sommet 0
+				// suffit : on mesure une VARIATION, pas une valeur absolue.
+				float32 vl[3] = {0.f, 0.f, 0.f}, vw[3] = {0.f, 0.f, 0.f};
+				const bool vOk = demo::Demo3DHostEditVertPos(0, vl, vw);
 				std::printf("[nk3d-diag] f=%4d shell.mode=%d(edit=%d) viseur.edit=%d "
-							"refus=%d masque=%d selection=%d modale=%d\n",
+							"refus=%d masque=%d selection=%d modale=%d "
+							"noeuds=%d v=%u a=%u f=%u\n",
 							(int)agentFrame, (int)st.mode, (st.mode != NkMode::Object) ? 1 : 0,
 							demo::Demo3DHostInEditMode() ? 1 : 0, (int)refus,
 							(int)demo::Demo3DHostEditSelMask(),
 							(int)demo::Demo3DHostEditSelCount(),
-							demo::Demo3DHostModalActive() ? 1 : 0);
+							demo::Demo3DHostModalActive() ? 1 : 0,
+							(int)vivants, gv, ge, gf);
+				if (dispOk || snapOk) {
+					std::printf("[nk3d-vue ] f=%4d affiche1pour1=%d (disp=%u cage=%u mods=%d) "
+								"| snap actif=%d pas=%.3f absolu=%d pivot=(%.3f %.3f %.3f)\n",
+								(int)agentFrame, un11 ? 1 : 0, dvc, rvc, mods ? 1 : 0,
+								snapOn ? 1 : 0, (double)snapPas, snapAbs ? 1 : 0,
+								(double)piv[0], (double)piv[1], (double)piv[2]);
+				}
+				if (vOk) {
+					std::printf("[nk3d-vert] f=%4d sommet0 local=(%.4f %.4f %.4f) "
+								"monde=(%.4f %.4f %.4f)\n",
+								(int)agentFrame, (double)vl[0], (double)vl[1], (double)vl[2],
+								(double)vw[0], (double)vw[1], (double)vw[2]);
+				}
 				std::fflush(stdout);
 			}
 		}
@@ -1840,6 +1885,55 @@ int nkmain(const NkEntryState &entry) {
 				}
 			} else {
 				sStatsDone = true;
+			}
+		}
+
+		// NK_ADD_NODE2=<kind>[,sub[,frame]] : UN SECOND AJOUT, par le MEME chemin
+		// que NK_ADD_NODE (`Demo3DHostAddNode`, celui du menu Ajouter).
+		// POURQUOI IL FAUT UN SECOND. `NK_ADD_NODE` ne tire qu'une fois (son
+		// `sAddDone` est unique), et il tire AVANT l'entree en edition. La question
+		// de Rodolf -- « ajouter un element EN MODE EDITION, sous-maillage ou objet
+		// a part ? » -- porte precisement sur un ajout qui arrive APRES. Sans ce
+		// second levier, elle n'est mesurable par AUCUN banc : il faudrait cliquer.
+		{
+			static bool sAdd2Done = false;
+			if (const char *an = std::getenv("NK_ADD_NODE2")) {
+				int32 v[3] = {2, 0, 100};
+				int32 k = 0;
+				for (const char *p2 = an; k < 3 && *p2;) {
+					v[k++] = (int32)std::atoi(p2);
+					while (*p2 && *p2 != ',')
+						++p2;
+					if (*p2 == ',')
+						++p2;
+				}
+				if (!sAdd2Done && agentFrame >= v[2]) {
+					sAdd2Done = true;
+					// On NOTE l'etat AVANT : « combien d'objets, quelle geometrie ».
+					// Une mesure prise seulement APRES ne dirait pas de combien ca a
+					// change, et c'est la variation qui repond a la question.
+					int32 av = 0;
+					const int32 nT2 = demo::Demo3DHostNodeCount();
+					for (int32 q = 0; q < nT2; ++q)
+						if (demo::Demo3DHostUserKind(q) != 0 && !demo::Demo3DHostNodeDeleted(q))
+							++av;
+					uint32 v0 = 0, e0 = 0, f0 = 0, t0 = 0;
+					(void)demo::Demo3DHostStats(&v0, &e0, &f0, &t0);
+					const int32 nd = demo::Demo3DHostAddNode(v[0], v[1]);
+					int32 ap = 0;
+					for (int32 q = 0; q < nT2; ++q)
+						if (demo::Demo3DHostUserKind(q) != 0 && !demo::Demo3DHostNodeDeleted(q))
+							++ap;
+					uint32 v1 = 0, e1 = 0, f1 = 0, t1 = 0;
+					(void)demo::Demo3DHostStats(&v1, &e1, &f1, &t1);
+					std::printf("[nk3d-add2] frame=%d edition=%d -> noeud %d | noeuds %d->%d "
+								"| maillage v %u->%u  a %u->%u  f %u->%u\n",
+								(int)agentFrame, demo::Demo3DHostInEditMode() ? 1 : 0, (int)nd,
+								(int)av, (int)ap, v0, v1, e0, e1, f0, f1);
+					std::fflush(stdout);
+				}
+			} else {
+				sAdd2Done = true;
 			}
 		}
 

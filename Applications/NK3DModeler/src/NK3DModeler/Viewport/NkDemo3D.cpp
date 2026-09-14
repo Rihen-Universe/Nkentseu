@@ -15324,6 +15324,45 @@ namespace nkentseu {
 			auto *st = HostSt();
 			return st ? st->editRefusedFrames : 0;
 		}
+		bool Demo3DHostEditDisplayInfo(bool *unPourUn, uint32 *dispCount, uint32 *restCount,
+									   bool *aDesModificateurs) {
+			auto *st = HostSt();
+			if (!st || !st->editMode)
+				return false;
+			if (unPourUn) *unPourUn = st->editDisplay1to1;
+			if (dispCount) *dispCount = st->editDisplayVC;
+			if (restCount) *restCount = (uint32)st->editRest.Size();
+			if (aDesModificateurs) *aDesModificateurs = !st->editModifiers.Empty();
+			return true;
+		}
+		bool Demo3DHostEditVertPos(int32 vert, float32 *local3, float32 *monde3) {
+			auto *st = HostSt();
+			if (!st || !st->editMode || vert < 0 || (uint32)vert >= (uint32)st->editLive.Size())
+				return false;
+			// `editLive` et NON `editRest` : c'est l'etat qu'on VOIT pendant le
+			// geste. Lire editRest rendrait la position d'avant le glissement et
+			// ferait conclure « rien ne bouge » alors que le calcul, lui, avance.
+			const NkVec3f p = st->editLive[(uint32)vert].pos;
+			if (local3) { local3[0] = p.x; local3[1] = p.y; local3[2] = p.z; }
+			if (monde3) {
+				const NkVec3f w = st->editAnchor * p;
+				monde3[0] = w.x; monde3[1] = w.y; monde3[2] = w.z;
+			}
+			return true;
+		}
+		bool Demo3DHostEditSnapInfo(bool *actif, float32 *pas, bool *absolue, float32 *pivot3) {
+			auto *st = HostSt();
+			if (!st || !st->editMode)
+				return false;
+			if (actif) *actif = st->editGizmo.IsSnapEnabled();
+			if (pas) *pas = st->editGizmo.SnapTranslate();
+			if (absolue) *absolue = st->editGizmo.IsSnapAbsolute();
+			if (pivot3) {
+				const NkVec3f pv = st->editGizmo.GetPivot();
+				pivot3[0] = pv.x; pivot3[1] = pv.y; pivot3[2] = pv.z;
+			}
+			return true;
+		}
 		// ── REGLER UN PARAMETRE DEPUIS LE PANNEAU ───────────────────────────
 		// Le parametre se pilotait deja : a la souris (continu) et a la molette
 		// (entier). Ce qui manquait, c'est de pouvoir le TAPER -- la demande de
