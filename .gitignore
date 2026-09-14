@@ -1,5 +1,6 @@
 # Created by https://www.toptal.com/developers/gitignore/api/c++,vs,visualstudio,visualstudiocode,lua,batch,powershell
 # Edit at https://www.toptal.com/developers/gitignore?templates=c++,vs,visualstudio,visualstudiocode,lua,batch,powershell
+# AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 
 ### Claude Code (contexte local, non versionné) ###
 CLAUDE.md
@@ -730,6 +731,14 @@ GUIDE_GIT_MULTI_AGENTS.md
 !/Captures/noge_eau_eclaboussure_impact_2026-09-06.png
 !/Captures/noge_eau_mouillage_avant_apres_2026-09-06.png
 !/Captures/fumee_panache_h1cm_2026-09-12.png
+# Les QUATRE REGENEREES du 13/09, apres la bascule MAC et l advection en flux.
+# Une par une, jamais un motif : `fumee_*` aurait re-autorise 950 images de
+# travail d un coup, ce que la regle du LISEZMOI interdit explicitement.
+# Les quatre anciennes RESTENT, datees, comme etat d AVANT.
+!/Captures/feu_degrade_2026-09-13.png
+!/Captures/fumee_colonne_2026-09-13.png
+!/Captures/fumee_jet_sans_confinement_2026-09-13.png
+!/Captures/fumee_panache_confinement_2026-09-13.png
 
 Applications/NKCode/important/*.pdf
 Applications/NKCode/data/fonts/NotoEmoji-Regular.ttf
