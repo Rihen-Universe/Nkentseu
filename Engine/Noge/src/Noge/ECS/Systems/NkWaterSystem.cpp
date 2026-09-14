@@ -62,6 +62,10 @@ namespace nkentseu {
 				p.grid = w.grid;
 				p.grid.baseY = origin.y; // le plan de repos EST la position de l'entité
 				p.waves = w.waves;
+				// La perturbation TRAVERSE ce locataire sans qu'il la comprenne : il
+				// ne sait pas ce qu'est une carene, il transporte le pointeur que
+				// l'auteur de la scene a pose. C'est exactement son role.
+				p.disturbance = w.disturbance;
 				p.time = w.time;
 				p.color = w.color;
 

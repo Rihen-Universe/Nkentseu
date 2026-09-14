@@ -127,6 +127,20 @@ namespace nkentseu {
 					st.pickerAction = 2; // 2 = importer un fichier 3D
 				}
 				x += bw2 + 8.f;
+				// GENIA -- « Generer » : une IMAGE entre, un objet EDITABLE sort,
+				// par le generateur externe puis par LE MEME import que le bouton
+				// d'a cote (NkGeniaImporterImage -> NkImportFiles). Le bouton est
+				// LU (hit.Clicked) des sa naissance -- pas de « brw.imp » bis.
+				const float32 bw3 = 18.f + p.TextW("Generer") + 10.f;
+				const NkRect br3{x - 4.f, r.y + 3.f, bw3, topH - 6.f};
+				HoverFill(p, br3, hit.Add("brw.genia", br3), 2.f);
+				p.IconV(x, r.y, topH, NkIcon::Add, NkRole::Text, 13.f);
+				p.TextV(x + 18.f, r.y, topH, "Generer");
+				if (hit.Clicked("brw.genia")) {
+					NkPickerOuvrirImage(st);
+					st.pickerAction = 3; // 3 = generer un objet depuis une image (GENIA)
+				}
+				x += bw3 + 8.f;
 			}
 			p.VLine(x, r.y + 6.f, topH - 12.f);
 			x += 10.f;

@@ -54,6 +54,7 @@
 #include "NK3DModeler/Shell/NkModelerComponentPaint.h"
 #include "NKEditorKit/Components/NkTreeViewModel.h"
 #include "NKEditorKit/Components/NkContentBrowserModel.h"
+#include "NK3DModeler/Genia/NkGeniaImport.h"     // GENIA : image -> generateur externe -> import (bouton Generer)
 #include "NK3DModeler/Shell/NkModelerMenus.h"   // menus deroulants
 // ECRAN D'ACCUEIL + socle PROJET (.nk3dm) : l'accueil est peint tant qu'aucun
 // projet n'est ouvert, et il porte l'execution differee des actions projet.
@@ -150,7 +151,16 @@ namespace {
 		if (hbmp) {
 			HGDIOBJ old = SelectObject(hdcMem, hbmp);
 			ok = PrintWindow(hwnd, hdcMem, 2 /*PW_RENDERFULLCONTENT*/) != 0;
-			if (!ok)
+			// ⚠️ LE REPLI BitBlt EST INTERDIT SOUS SONDE, et ce n'est pas une
+			//    precaution de style. `PrintWindow(PW_RENDERFULLCONTENT)` demande a
+			//    LA FENETRE de se redessiner : il ne peut rendre que SON contenu,
+			//    meme recouverte. `BitBlt(..., CAPTUREBLT)` lit l'ECRAN a
+			//    l'emplacement de la fenetre : si quoi que ce soit passe par dessus,
+			//    l'image contient l'ecran de quelqu'un d'autre. Une sonde n'a pas le
+			//    droit de produire cette image-la, meme par accident.
+			//    HORS sonde le repli reste : pour un utilisateur, une capture
+			//    degradee vaut mieux qu'une capture absente.
+			if (!ok && !std::getenv("NK_TOAST_PROBE"))
 				ok = BitBlt(hdcMem, 0, 0, w, h, hdcWin, 0, 0, SRCCOPY | CAPTUREBLT) != 0;
 			if (ok && bits) {
 				ok = out.Create((uint32)w, (uint32)h, math::NkColor(0, 0, 0, 255), 4);
@@ -206,7 +216,16 @@ namespace {
 		if (hbmp) {
 			HGDIOBJ old = SelectObject(hdcMem, hbmp);
 			ok = PrintWindow(hwnd, hdcMem, 2 /*PW_RENDERFULLCONTENT*/) != 0;
-			if (!ok)
+			// ⚠️ LE REPLI BitBlt EST INTERDIT SOUS SONDE, et ce n'est pas une
+			//    precaution de style. `PrintWindow(PW_RENDERFULLCONTENT)` demande a
+			//    LA FENETRE de se redessiner : il ne peut rendre que SON contenu,
+			//    meme recouverte. `BitBlt(..., CAPTUREBLT)` lit l'ECRAN a
+			//    l'emplacement de la fenetre : si quoi que ce soit passe par dessus,
+			//    l'image contient l'ecran de quelqu'un d'autre. Une sonde n'a pas le
+			//    droit de produire cette image-la, meme par accident.
+			//    HORS sonde le repli reste : pour un utilisateur, une capture
+			//    degradee vaut mieux qu'une capture absente.
+			if (!ok && !std::getenv("NK_TOAST_PROBE"))
 				ok = BitBlt(hdcMem, 0, 0, w, h, hdcWin, 0, 0, SRCCOPY | CAPTUREBLT) != 0;
 			if (ok && bits) {
 				NkImage img;
@@ -439,23 +458,30 @@ namespace {
 		// croirait l'alignement casse alors que c'est la carte qui deborde.
 		m.thumbSize = 56.f;
 		m.entries.Clear();
-		for (int32 i = 0; i < st.browserCount && i < 32; ++i) {
-			if (st.browserKind[i] == 255)
+		// ⚠️ LE `&& i < 32` A DISPARU, ET C'EST LE POINT (2026-09-14).
+		//    Ce site lisait encore les dix tableaux paralleles que le refactor
+		//    du 05/09 a remplaces par un vecteur (NkModelerInput.h:144-156). La
+		//    fusion dans `transit` a garde l'appelant ancien et la structure
+		//    neuve : refus de compilation. Le migrer en RECOPIANT la borne 32
+		//    aurait remis EN SILENCE le plafond que le refactor existait pour
+		//    supprimer -- le projet de Rodolf en avait exactement 32.
+		for (int32 i = 0; i < st.BrowserCount(); ++i) {
+			const NkBrowserCard &c = st.Card(i);
+			if (c.kind == 255)
 				continue; // carte supprimee
 			NkAssetEntry e;
-			e.name = NkString(st.browserNames[i]);
-			e.isFolder = (st.browserKind[i] == 1);
+			e.name = NkString(c.name);
+			e.isFolder = (c.kind == 1);
 			// Legende du CONSOMMATEUR (NkModelerUI.h) : 0 graphe · 1 dossier ·
 			// 2 materiau · 3 texture · 4 dataset IA · 5 scene · 6 model.
 			static const char *const kKind[7] = {"Graphe", "Dossier", "Materiau",
 												 "Texture", "Dataset", "Scene", "Model"};
-			e.kindLabel = (st.browserKind[i] < 7) ? kKind[st.browserKind[i]] : "";
+			e.kindLabel = (c.kind < 7) ? kKind[c.kind] : "";
 			static const NkRole kKindRole[7] = {NkRole::AccentUi, NkRole::TextMuted,
 												NkRole::TypeMat, NkRole::TypeTex,
 												NkRole::AccentUi, NkRole::TypeAnim,
 												NkRole::TypeMesh};
-			e.kindRole = (uint16)((st.browserKind[i] < 7) ? kKindRole[st.browserKind[i]]
-														  : NkRole::TextMuted);
+			e.kindRole = (uint16)((c.kind < 7) ? kKindRole[c.kind] : NkRole::TextMuted);
 			e.userTag = (uint32)i;
 			m.entries.PushBack(e);
 		}
@@ -635,6 +661,13 @@ int nkmain(const NkEntryState &entry) {
 	// montrent, meme si la fenetre est sans cadre. Le bandeau de l'application le
 	// porte AUSSI (cf. `PaintStatus`), et c'est LUI que Rodolf voit a l'ecran.
 	wc.title = NkString("NK3DModeler ") + NkString(NkEditorGfxApiName(gfxApi));
+	// ⚠️ NK_TOAST_PROBE : SONDE DE MESURE DES ROLES D'ALERTE (14/09). Le titre
+	//    est change AVANT toute chose -- une capture de sonde qu'on prendrait
+	//    pour une capture du produit est un defaut deja paye ici, et le titre
+	//    est le seul endroit qu'on regarde pour les distinguer.
+	if (std::getenv("NK_TOAST_PROBE"))
+		wc.title = NkString("*** SONDE DE MESURE *** roles d'alerte -- ") +
+				   NkString(NkEditorGfxApiName(gfxApi));
 	wc.width = 1600;
 	wc.height = 900;
 	wc.minWidth = 1100;
@@ -2824,6 +2857,12 @@ int nkmain(const NkEntryState &entry) {
 				const char *un[1] = {st.picker.pickerResultPath};
 				(void)nk3d::NkImportFiles(st, un, 1);
 			}
+			// 3 = GENERER UN OBJET DEPUIS UNE IMAGE (bouton « Generer », GENIA).
+			// Le generateur est un PROCESSUS EXTERNE derriere NkIGenerateur ; le
+			// glTF qu'il ecrit passe par LA MEME chaine que l'import (ci-dessus).
+			// Aucune logique de generation ici : on enchaine, c'est tout.
+			if (st.pickerAction == 3 && st.picker.pickerResultPath[0])
+				(void)nk3d::NkGeniaImporterImage(st, st.picker.pickerResultPath);
 			st.pickerAction = 0;
 			st.matNewPending = false;
 			// Le mode « nouveau materiau » du selecteur se desarme TOUT SEUL,
@@ -3232,6 +3271,31 @@ int nkmain(const NkEntryState &entry) {
 				std::printf("[nk3d] NK_AGENT_SCENE : ciel Rayleigh+Mie pose (hote pret)\n");
 			}
 		}
+		// ── SONDE NK_TOAST_PROBE ────────────────────────────────────────────
+		// Les trois verdicts, un de chaque, poses juste avant le declic. Pas au
+		// demarrage : un succes ne dure que six secondes et serait deja mort.
+		// Aucune injection d'entree -- on appelle la MEME fonction que le code
+		// produit (`NkToastPush`), donc la meme table de couleurs.
+		// ⚠️ REPOSEES A CHAQUE IMAGE, ET NON UNE FOIS A UNE IMAGE NOMMEE. La
+		//    premiere version testait `agentFrame == agentShotFrame - 2` : elle a
+		//    donne une capture VIDE une fois sur deux, et j'ai failli conclure
+		//    « le theme clair ne peint pas ses pastilles ». Un indice d'image
+		//    n'est pas un rendez-vous fiable, et une pastille a duree de vie
+		//    (6 s / 12 s) peut mourir entre la pose et le declic. Reposees a
+		//    chaque image, la sonde ne depend plus d'aucun timing -- et le
+		//    compteur imprime dit ce qu'il y avait DANS LA PILE au declic, pour
+		//    qu'une capture vide se lise comme une capture vide et non comme un
+		//    verdict sur le theme.
+		if (std::getenv("NK_TOAST_PROBE") && agentShotFrame > 0 &&
+			agentFrame >= agentShotFrame - 2) {
+			NkToasts().count = 0;
+			NkToastPush(NkToastKind::Succes, "SONDE : succes");
+			NkToastPush(NkToastKind::Partiel, "SONDE : avertissement");
+			NkToastPush(NkToastKind::Refus, "SONDE : refus");
+			if (agentFrame == agentShotFrame)
+				std::printf("[sonde/toast] au declic : %d pastille(s) dans la pile\n",
+							(int)NkToasts().count);
+		}
 		if (agentShotFrame > 0 && agentFrame == agentShotFrame)
 			st.capturePending = 2; // « tutoriel » : toute la fenetre
 		// NK_AGENT_POST="tonemap,bloom,ssao,fxaa" : eteint des passes de
@@ -3440,6 +3504,52 @@ int nkmain(const NkEntryState &entry) {
 			if (sPickFrame > 0 && agentFrame == sPickFrame) {
 				nk3d::NkPickerOuvrirImport(st);
 				st.pickerAction = 2;
+			}
+		}
+		// NK_GENIA_IMAGE=<chemin> : la generation + import par le MEME chemin que
+		// la confirmation du picker « Generer » (nk3d::NkGeniaImporterImage) --
+		// pour rejouer sans main. Appliquee UNE fois, hote pret, frame 10, comme
+		// NK_IMPORT_FILE. PERIMETRE, dit ici : couvre generateur -> glTF ->
+		// charge -> decoupe -> creation -> archivage ; ne couvre NI le bouton
+		// NI le picker -- une relecture a la main reste necessaire pour eux.
+		// NK_GENIA_PROJET=<dossier parent> : CREE un projet JETABLE
+		// `<parent>/GeniaTemoin/` a la frame 3, hote pret, par LE MEME appel que
+		// la boite « Nouveau projet » (NkProjectCreate, NkModelerWelcome.h cas 6),
+		// puis rejoue `opened()` SANS `rec.Touch` : un temoin ne s'inscrit pas dans
+		// les recents de Rodolf, et n'ecrit jamais dans un de ses projets --
+		// c'est pourquoi NK_OPEN_RECENT n'est pas utilise ici. L'import refuse
+		// sans projet (NkImportCreate) : sans ce crochet, NK_GENIA_IMAGE ne
+		// mesurerait que ce refus.
+		{
+			static bool sGeniaProjDone = false;
+			if (!sGeniaProjDone && agentFrame >= 3 && demo::Demo3DHostReady()) {
+				sGeniaProjDone = true;
+				if (const char *v = std::getenv("NK_GENIA_PROJET")) {
+					NkString errP;
+					const bool dejaOuvert = proj.open;
+					const bool okP = !dejaOuvert && nk3d::NkProjectCreate(v, "GeniaTemoin", proj, &errP);
+					if (okP) {
+						st.welcome = false;
+						st.newProjOpen = false;
+						st.projError[0] = 0;
+						nk3d::NkClearDirty(st);
+					}
+					nkentseu::NkLog::Instance().Infof("[genia] MESURE projet jetable : '%s/GeniaTemoin' -> %s%s", v,
+													  okP ? "cree" : "REFUSE : ",
+													  okP ? "" : (dejaOuvert ? "un projet est deja ouvert" : errP.CStr()));
+				}
+			}
+		}
+		{
+			static bool sAgentGeniaDone = false;
+			if (!sAgentGeniaDone && agentFrame >= 10 && demo::Demo3DHostReady()) {
+				sAgentGeniaDone = true;
+				if (const char *v = std::getenv("NK_GENIA_IMAGE")) {
+					const int32 avant = st.BrowserCount();
+					const bool ok = nk3d::NkGeniaImporterImage(st, v);
+					nkentseu::NkLog::Instance().Infof("[genia] MESURE crochet : '%s' -> %s, %d carte(s) nee(s)", v,
+													  ok ? "importe" : "REFUSE", st.BrowserCount() - avant);
+				}
 			}
 		}
 		{
@@ -3873,17 +3983,26 @@ int nkmain(const NkEntryState &entry) {
 				// nom et la numerotation sont ceux de la sortie : une seule
 				// destination configuree dans l'application, une seule
 				// convention.
+				// SONDE : destination EXPLICITE, hors du dossier de sortie de Rodolf --
+				// une image de sonde rangee parmi ses rendus finirait par etre prise
+				// pour l'un d'eux.
+				const char *probeOut = std::getenv("NK_TOAST_PROBE");
 				const bool okPath2 =
-					demo::Demo3DHostReady()
-						? demo::Demo3DHostOutNextPath(capPath, (int32)sizeof(capPath), 2)
-						: NkNextCapturePath("tutoriel", capPath, (int32)sizeof(capPath));
+					(probeOut && probeOut[0] && probeOut[0] != '1')
+						? (snprintf(capPath, sizeof(capPath), "%s", probeOut) > 0)
+						: demo::Demo3DHostReady()
+							? demo::Demo3DHostOutNextPath(capPath, (int32)sizeof(capPath), 2)
+							: NkNextCapturePath("tutoriel", capPath, (int32)sizeof(capPath));
 				if (okPath2) {
 					const bool okCap = NkCaptureWholeWindow(window, capPath);
 					// MEME RESOLUTION DE SORTIE que le rendu : la fenetre est
 					// photographiee a sa taille -- c'est sa nature -- puis
 					// ramenee au format demande. Sans cela, « tutoriel » etait
 					// le seul des trois a ignorer les reglages (Rihen).
-					if (okCap && demo::Demo3DHostReady()) {
+					// SONDE : PAS DE REDIMENSIONNEMENT. Un bicubique melange les pixels
+					// voisins -- la couleur mesuree ne serait plus celle qui a ete
+					// peinte, mais une moyenne. On mesure l'image telle qu'elle sort.
+					if (okCap && !std::getenv("NK_TOAST_PROBE") && demo::Demo3DHostReady()) {
 						int32 ew = 0, eh = 0;
 						demo::Demo3DHostOutEffectiveSize(&ew, &eh);
 						NkImage shot;

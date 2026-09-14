@@ -756,6 +756,12 @@ namespace nkentseu {
 			// apres la correction, il naitrait vert et personne ne saurait jamais
 			// s'il sait rougir. Celui-ci echoue AUJOURD'HUI sur la 1re ligne.
 			if (getenv("NK_IMPORT_CHECK")) {
+				// `navPlein` n'existe plus, et ce n'est pas un oubli : le navigateur
+				// n'a PLUS de plafond depuis que ses cartes vivent dans un vecteur.
+				// La colonne reste dans le journal -- a `false` et nommee -- pour que
+				// les releves d'avant et d'apres restent comparables ; retirer la
+				// colonne aurait efface la trace de la borne disparue.
+				const bool navPlein = false; // le vecteur de cartes ne se remplit plus
 				const bool atteignable = (cartes > 0) || (modelsNes > 0 && !navPlein && !plein);
 				const bool ecritures = (cartes == 0) || (fichiers == cartes);
 				NkLog::Instance().Infof("[import] CONTROLE REGLE -- ce qui est produit "

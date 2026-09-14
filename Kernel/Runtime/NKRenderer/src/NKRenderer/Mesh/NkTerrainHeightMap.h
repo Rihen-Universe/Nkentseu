@@ -32,6 +32,19 @@
 // `Shaders/Terrain/` (23 dossiers de nuanceurs, celui-là n'a ni gabarit de
 // matériau dans `NkMaterialSystem` ni aucun appelant dans tout le dépôt) annonce
 // « splatmap 4-layer PBR » et son corps de fragment est un talon.
+//
+// 🔄 MISE À JOUR DU 2026-09-14 — DEUX DE CETTE LISTE SONT DEVENUS FAUX, ET C'EST
+// ÉCRIT ICI PARCE QU'UNE LISTE PÉRIMÉE EST DU FAUX SAVOIR ARMÉ : quelqu'un la
+// lira et conclura que la chose n'existe pas — c'est exactement le reproche que
+// ce fichier fait, douze lignes plus haut, au commentaire « Splatmap 4-layer »
+// posé au-dessus d'un code qui ne mélange rien.
+//   · « mélange de textures par pente » -> ÉCRIT : `NkTerrainSplat.{h,cpp}`.
+//   · « sable, terre déformable »       -> ÉCRIT : `NkTerrainSable.{h,cpp}`, un
+//     champ de hauteur déformable avec relaxation à l'angle de repos (banc
+//     `NkSableCheck`, 35 critères, 0 rouge). Il n'écrit JAMAIS dans ce
+//     fichier-ci : la hauteur dite par l'image reste la hauteur dite par
+//     l'image, et la déformation vit à côté — mesuré AU BIT.
+// Restent non écrits : niveaux de détail, pavage GPU, quadtree, érosion.
 // =============================================================================
 #pragma once
 
