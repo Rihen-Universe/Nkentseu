@@ -61,6 +61,7 @@
 #include "DesignAI.h"
 #include "DesignChat.h" // 170-178 : la conversation et la specification
 #include "Historique.h" // 179 : la promesse « une seule operation annulable »
+#include "DesignChatAsync.h" // 180-182 : le fil de generation
 #include "Icons.h"
 #include "Renderers.h"
 #include "ExportSVG.h" // sondes 81-82 : l'export PNG (pixels) et SVG (re-rasterise)
@@ -20230,6 +20231,122 @@ namespace nkuidesign {
 				  poussesAuRepos == 0u && pose.Accepted() && poussesApres == 1u
 					  && !SameText(avant.Data(), apresPose.Data()) && apercuInerte
 					  && retourExact && rejetInerte,
+				  buf);
+		}
+
+
+		// ═══════════════════════════════════════════════════════════════════
+		//  180-182 — (g3) LE FIL DE GENERATION
+		// ═══════════════════════════════════════════════════════════════════
+		//  ⚠️ CE QUE CES ESSAIS NE PROUVENT PAS, ET IL FAUT LE DIRE AVEC EUX :
+		//     ils ne prouvent PAS l'absence de course de donnees. Une course ne
+		//     se reproduit pas a la demande ; un banc vert ne dirait rien. Ce qui
+		//     tient la correction est la REGLE ecrite en tete de `DesignChatAsync.h`
+		//     -- un seul ecrivain par champ, et `etat` en barriere release/acquire --
+		//     pas ces trois essais. Ils mesurent ce qui EST mesurable : le compte,
+		//     la propriete, et l'inertie apres annulation.
+		{
+			// -- 180. LE ZERO, AVANT TOUT LE RESTE --------------------------
+			// Une poignee au repos : aucune tache, aucune image comptee, et
+			// `Recolter` qui ne rend jamais vrai. Sans ce zero, « N images
+			// pendant l'attente » serait un nombre sans plancher.
+			NkEnvoiAsync repos;
+			NkString t0, e0;
+			bool r0 = false;
+			uint32 recoltesAuRepos = 0;
+			for (uint32 i = 0; i < 50u; ++i)
+				if (repos.Recolter(t0, e0, r0))
+					++recoltesAuRepos;
+			snprintf(buf, sizeof(buf), "%u recolte(s) en 50 passages, %u image(s) comptee(s)",
+					 recoltesAuRepos, repos.Images());
+			check("180. LE ZERO DE LA POIGNEE : au repos, 50 passages ne recoltent RIEN et ne "
+				  "comptent AUCUNE image. Un compteur qui monterait sans tache rendrait faux "
+				  "tous les chiffres du banc",
+				  recoltesAuRepos == 0u && repos.Images() == 0u && !repos.EnCours(), buf);
+
+			// -- 181. UNE TACHE SE RECOLTE UNE FOIS, ET UNE SEULE ------------
+			// Le dorsal lent DORT 120 ms : assez pour que la poignee tourne
+			// plusieurs fois, assez peu pour ne pas allonger la sonde.
+			NkDorsalLent lent;
+			lent.millisecondes = 120;
+			lent.reponse = NkString("une reponse de banc");
+			NkEnvoiAsync poignee;
+			NkString pourquoi;
+			const bool lance = poignee.Lancer(&lent, NkString("peu importe"), pourquoi);
+			NkString txt, err;
+			bool ok = false;
+			uint32 recoltes = 0, tours = 0;
+			while (tours < 20000u) {
+				++tours;
+				if (poignee.Recolter(txt, err, ok)) {
+					++recoltes;
+					break;
+				}
+				nkentseu::NkChrono::Sleep((nkentseu::int64)1);
+			}
+			// et APRES : plus jamais.
+			uint32 apres = 0;
+			for (uint32 i = 0; i < 50u; ++i)
+				if (poignee.Recolter(txt, err, ok))
+					++apres;
+			const bool refuseDeux = !poignee.Lancer(nullptr, NkString("x"), pourquoi);
+			snprintf(buf, sizeof(buf),
+					 "lance=%d ; %u recolte(s) apres %u tour(s) ; %u image(s) comptee(s) ; "
+					 "%u recolte(s) de plus ensuite ; reponse=\"%s\"",
+					 lance ? 1 : 0, recoltes, tours, poignee.Images(), apres,
+					 txt.Data() ? txt.Data() : "");
+			check("181. UNE TACHE SE RECOLTE UNE FOIS ET UNE SEULE, et la poignee a compte les "
+				  "passages de l'attente -- c'est ce compteur, et rien d'autre, qui prouve que "
+				  "l'appelant a continue de tourner pendant la generation",
+				  lance && recoltes == 1u && ok && apres == 0u && poignee.Images() > 1u
+					  && SameText(txt.Data(), "une reponse de banc") && refuseDeux,
+				  buf);
+
+			// -- 182. ANNULER : LA REPONSE N'EST JAMAIS POSEE ---------------
+			// ⚠️ LE CAS QUI COMPTE, et c'est celui que Q8 nomme : « pas de
+			//    reponse qui arrive apres coup dans la conversation suivante ».
+			//    On annule AVANT que le dorsal ait fini, puis on laisse le fil
+			//    aller jusqu'au bout, puis on repasse 200 fois. Rien ne doit
+			//    remonter.
+			NkDorsalLent lent2;
+			lent2.millisecondes = 150;
+			lent2.reponse = NkString("CETTE REPONSE NE DOIT JAMAIS APPARAITRE");
+			NkEnvoiAsync p2;
+			const bool lance2 = p2.Lancer(&lent2, NkString("x"), pourquoi);
+			p2.Annuler();
+			const bool libreToutDeSuite = !p2.EnCours();
+			// on laisse le travailleur finir SA generation : il ne peut pas etre
+			// interrompu, c'est tout l'objet de la propriete partagee.
+			nkentseu::NkChrono::Sleep((nkentseu::int64)400);
+			uint32 remontees = 0;
+			for (uint32 i = 0; i < 200u; ++i)
+				if (p2.Recolter(txt, err, ok))
+					++remontees;
+			// et la poignee est REUTILISABLE tout de suite apres une annulation
+			NkDorsalLent lent3;
+			lent3.millisecondes = 1;
+			lent3.reponse = NkString("apres annulation");
+			const bool relance = p2.Lancer(&lent3, NkString("x"), pourquoi);
+			uint32 t3 = 0;
+			bool recolte3 = false;
+			while (t3 < 20000u && !recolte3) {
+				++t3;
+				recolte3 = p2.Recolter(txt, err, ok);
+				if (!recolte3)
+					nkentseu::NkChrono::Sleep((nkentseu::int64)1);
+			}
+			snprintf(buf, sizeof(buf),
+					 "lance=%d, libre aussitot=%d, %u remontee(s) apres 400 ms et 200 passages, "
+					 "relance=%d et sa reponse = \"%s\"",
+					 lance2 ? 1 : 0, libreToutDeSuite, remontees, relance ? 1 : 0,
+					 txt.Data() ? txt.Data() : "");
+			check("182. ANNULER : LA REPONSE N'EST JAMAIS POSEE. On annule, le travailleur finit "
+				  "quand meme sa generation (il ne peut pas etre interrompu), et 200 passages "
+				  "plus tard RIEN n'a remonte. Ce n'est pas une reponse ignoree plus tard : la "
+				  "poignee a lache sa part de la tache, il n'existe plus aucun chemin. Et la "
+				  "poignee se relance aussitot",
+				  lance2 && libreToutDeSuite && remontees == 0u && relance && recolte3
+					  && SameText(txt.Data(), "apres annulation"),
 				  buf);
 		}
 
