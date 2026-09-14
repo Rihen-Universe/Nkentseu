@@ -184,7 +184,13 @@ static bool AucuneEntreeProgrammee();
 /// REPOSER au lieu de l'ecraser.
 static bool gSourisSondePosee = false;
 static float32 gSourisSondeX = 0.f, gSourisSondeY = 0.f;
-static constexpr int32 kCaptureFramePrete = 8;
+// ⚠️ PLUS UNE CONSTANTE : un geste dure. Mesure du 14/09 -- un glisser de la
+//    Bibliotheque vers la toile demande des dizaines d'images, et la capture
+//    fermait la fenetre bien avant. Le banc rendait alors « 0 pixel a
+//    change » : une reponse verte a une question jamais posee, la meme
+//    famille que `--clic` ecrase par le tick de capture. `--capture-frame=<n>`
+//    repousse la photo ; le defaut reste 8, donc aucune mise en scene ne bouge.
+static int32 kCaptureFramePrete = 8;
 /// --selectionner=<libellé> : le nœud à sélectionner AVANT la photo.
 ///
 /// ⚠️ NÉ D'UNE PREUVE EN CREUX (E6 du doc 17, payée le jour même) : un
@@ -8601,6 +8607,12 @@ int nkmain(const NkEntryState &state) {
 			// rouge tiré du MÊME banc.
 			if (arg.StartsWith("--aimant=")) {
 				gDesign.aimantActif = (atof(a + 9) != 0.0);
+				continue;
+			}
+			if (arg.StartsWith("--capture-frame=")) {
+				const int32 v = (int32)atof(a + 16);
+				if (v > 0)
+					kCaptureFramePrete = v;
 				continue;
 			}
 			if (arg.StartsWith("--titre-sonde")) {
