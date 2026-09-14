@@ -1753,6 +1753,16 @@ int nkmain(const NkEntryState &entry) {
 						std::fflush(stdout);
 					}
 				}
+				// LES DEUX SOURCES DE L'ETAT MODAL, cote a cote. Le shell decide si X
+				// est un AXE ou une SUPPRESSION en lisant `Viewport3DModalKind()`,
+				// qui est l'etat de la vue DORMANTE. La modale reelle, elle, vit
+				// dans le viseur. Si les deux divergent, X supprime pendant un G.
+				std::printf("[nk3d-mod2] f=%4d viseur.modale=%d   vue_dormante.modalKind=%d   inModal_effectif=%d\n",
+							(int)agentFrame, demo::Demo3DHostModalActive() ? 1 : 0,
+							(int)nk3d::Viewport3DModalKind(),
+							(demo::Demo3DHostModalActive() ||
+							 nk3d::Viewport3DModalKind() != nk3d::kVpXformNone) ? 1 : 0);
+				std::fflush(stdout);
 				if (vOk) {
 					std::printf("[nk3d-vert] f=%4d sommet0 local=(%.4f %.4f %.4f) "
 								"monde=(%.4f %.4f %.4f)\n",
@@ -2613,7 +2623,18 @@ int nkmain(const NkEntryState &entry) {
 			const NkVpAction a = st.pendingAction;
 			st.pendingAction = NkVpAction::None;
 			const bool edit = (st.mode != NkMode::Object);
-			const bool inModal = (nk3d::Viewport3DModalKind() != nk3d::kVpXformNone);
+			// ⚠ L'AUTORITE VIVANTE, ET NON LA VUE DORMANTE. `Viewport3DModalKind()`
+			// est l'etat de `NkViewport3D`, que le viseur n'alimente pas : mesure du
+			// 14/09, modale lancee par le viseur -> viseur.modale=1 et
+			// vue_dormante.modalKind=0. `inModal` etait donc FAUX pendant une vraie
+			// transformation, et X tombait dans la branche « supprimer » au lieu de
+			// contraindre l'axe. C'est la plainte de Rodolf, mot pour mot : « les
+			// raccourcis semblent bloques par l'action x qui permet de supprimer ».
+			// On garde l'ancienne source en OU : le chemin du shell arme encore la
+			// vue dormante (Viewport3DBeginModal), et la retirer ici casserait les
+			// modales lancees par ce chemin-la.
+			const bool inModal = demo::Demo3DHostModalActive() ||
+								 (nk3d::Viewport3DModalKind() != nk3d::kVpXformNone);
 			const float32 mxv = ui.input.mousePos.x - lay.view.x;
 			const float32 myv = ui.input.mousePos.y - lay.view.y;
 			switch (a) {
@@ -2670,7 +2691,10 @@ int nkmain(const NkEntryState &entry) {
 					// HORS MODALE, X garde son role de suppression : une touche ne
 					// doit pas devenir muette parce qu'un autre mode existe.
 					if (inModal) {
-						nk3d::Viewport3DModalAxis(0);
+						// La modale VIVANTE d'abord ; la vue dormante reste le repli
+						// pour les modales lancees par le chemin du shell.
+						if (!demo::Demo3DHostModalAxis(0, false))
+							nk3d::Viewport3DModalAxis(0);
 					} else if (edit) {
 						if (demo::Demo3DHostEditDelete())
 							NkMarkDirty(st);
@@ -2690,11 +2714,17 @@ int nkmain(const NkEntryState &entry) {
 					break;
 				case NkVpAction::ModalAxisY:
 					if (inModal)
-						nk3d::Viewport3DModalAxis(1);
+						// La modale VIVANTE d'abord ; la vue dormante reste le repli
+						// pour les modales lancees par le chemin du shell.
+						if (!demo::Demo3DHostModalAxis(1, false))
+							nk3d::Viewport3DModalAxis(1);
 					break;
 				case NkVpAction::ModalAxisZ:
 					if (inModal)
-						nk3d::Viewport3DModalAxis(2);
+						// La modale VIVANTE d'abord ; la vue dormante reste le repli
+						// pour les modales lancees par le chemin du shell.
+						if (!demo::Demo3DHostModalAxis(2, false))
+							nk3d::Viewport3DModalAxis(2);
 					break;
 				case NkVpAction::ModalConfirm:
 					if (inModal)

@@ -15519,6 +15519,13 @@ namespace nkentseu {
 			st->editUndoPending = true; // LA MEME PORTE QUE Ctrl+Z
 			return true;
 		}
+		bool Demo3DHostModalAxis(int32 axe, bool plan) {
+			auto *st = HostSt();
+			if (!st || st->modalOp == 0 || axe < 0 || axe > 2)
+				return false;
+			Demo3D_ModalPoseAxe(st, axe, plan); // LA MEME fonction que la touche
+			return true;
+		}
 		bool Demo3DHostEditRedoAsk() {
 			auto *st = HostSt();
 			if (!st || !st->editMode || !st->editHistory.CanRedo())
