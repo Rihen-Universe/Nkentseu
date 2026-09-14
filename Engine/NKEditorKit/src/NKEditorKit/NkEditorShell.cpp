@@ -1989,6 +1989,33 @@ namespace nkentseu {
 			ci.shift = mUI.input.shiftDown;
 			ci.alt = mUI.input.altDown;
 
+			// ── (o3) LA BANDE NE SE LAISSE PAS CLIQUER A TRAVERS UN MENU ─────
+			// ⚠️ MESURE : cette fonction est appelee AVANT le masquage d'entree du
+			//    corps (l.906 contre l.923-945). Elle recevait donc `mUI.input`
+			//    non filtre -- et un menu de la barre de titre se deroule
+			//    exactement par-dessus elle (le titre finit ou la bande commence).
+			//    Un clic destine a « Fichier > Ouvrir » pouvait activer l'onglet
+			//    du dessous, voire le fermer si la croix tombait sous le pointeur.
+			//
+			// ⚠️ MEME PORTE QUE LES PANNEAUX, PAS UNE SECONDE. `PointReachable`
+			//    rend faux quand une surface d'une couche STRICTEMENT superieure a
+			//    `curInputLayer` recouvre le point. Pendant le chrome,
+			//    `curInputLayer` vaut 0 : tout menu, combo ou modale declare
+			//    au-dessus masque donc la bande, et rien d'autre ne change.
+			//
+			// ⚠️ ON NEUTRALISE LES GESTES, PAS LA POSITION. Le survol reste calcule
+			//    (la bande continue de rapporter `hoveredId`), mais aucun clic ne
+			//    part. Effacer aussi la position ferait CLIGNOTER le survol a
+			//    l'ouverture d'un menu -- un mouvement que personne n'a demande.
+			if (!mUI.PointReachable(mUI.input.mousePos)) {
+				ci.mousePressed = false;
+				ci.mouseReleased = false;
+				ci.mouseDown = false;
+				ci.doubleClick = false;
+				ci.rightPressed = false;
+				ci.wheel = 0.f;
+			}
+
 			NkGuiComponentPaint peintre(mUI, mKitTheme);
 			NkTabStripHooks hooks;
 			mTabsResult = NkDrawTabStrip(peintre, ci, {rect.x, rect.y, rect.w, rect.h}, *mTabsModel,

@@ -85,6 +85,8 @@
 // peint : le banc lit le flux, il ne croit pas un resultat rapporte.
 #include "NKEditorKit/Components/NkTabStripModel.h"
 #include "NKEditorKit/Components/NkRecordingPaint.h"
+// (o3) la porte du chrome : les couches de surfaces et PointReachable
+#include "NKEditorKit/NkEditorSurface.h"
 
 #include <stdio.h>
 
@@ -619,6 +621,145 @@ namespace tabprobe {
 } // namespace tabprobe
 
 // =============================================================================
+//  FAMILLE 19 — (o3) LA PORTE DU CHROME : un menu par-dessus la bande d'onglets
+// =============================================================================
+//  LE DEFAUT MESURE. `NkEditorShell::DrawTabStrip` est appelee ligne 906 ; le
+//  masquage d'entree du corps vit lignes 923-945, donc APRES. La bande recevait
+//  `mUI.input` NON FILTRE. Et la geometrie ne laisse pas de doute : un menu de
+//  la barre de titre (y 0..30) se deroule vers le BAS, par-dessus la bande
+//  (y 30..58). Un clic destine a « Fichier > Ouvrir » pouvait activer l'onglet
+//  du dessous -- ou le FERMER, si la croix tombait sous le pointeur.
+//
+//  ⚠️ MEME FAMILLE que le defaut signale par Rodolf sur un panneau et traite le
+//     meme matin dans `DrawPanels`. Meme cause (un site qui lit la souris sans
+//     demander si le point est atteignable), donc MEME PORTE : `PointReachable`.
+//     On n'en ecrit pas une seconde.
+//
+//  CE QUE CETTE FAMILLE PROUVE, ET CE QU'ELLE NE PROUVE PAS
+//    * elle prouve que le COMPOSANT agit sur n'importe quel clic qu'on lui
+//      donne -- donc que le filtrage ne peut venir que de l'hote ;
+//    * elle prouve que la PORTE repond correctement : une surface declaree
+//      au-dessus rend le point inatteignable, et rien d'autre ne change ;
+//    * elle prouve que la COMPOSITION des deux (l'expression exacte posee dans
+//      `DrawTabStrip`) supprime le clic fantome et garde le clic legitime.
+//    * ⚠️ Elle ne fait PAS tourner `NkEditorShell` : la coquille veut une
+//      fenetre. Que l'expression soit bien CELLE-LA dans `DrawTabStrip` est
+//      verifie par lecture, pas par ce banc. C'est dit plutot que tu.
+namespace porteprobe {
+
+	using namespace nkentseu::editorkit;
+	using nkentseu::nkgui::NkGuiContext;
+
+	/// La bande d'essai et un clic AU CENTRE DU PREMIER ONGLET.
+	inline void Poser(NkTabStripModel &m) {
+		m.tabs.Clear();
+		NkTabItem a;
+		a.id = 1;
+		a.label = nkentseu::NkString("Scene");
+		m.tabs.PushBack(a);
+		NkTabItem b;
+		b.id = 2;
+		b.label = nkentseu::NkString("Eclairage");
+		m.tabs.PushBack(b);
+		m.active = 2; // l'ACTIF est le second : un clic sur le premier doit changer
+	}
+
+	inline NkTabStripStyle Style() {
+		NkTabStripStyle s;
+		s.bandBg = 1; s.border = 2; s.tabBg = 3; s.tabHoverBg = 4;
+		s.tabActiveBg = 5; s.text = 6; s.textMuted = 7; s.accent = 8;
+		return s;
+	}
+
+	inline void Sonder(uint32 &ok, uint32 &total) {
+		const NkPaintRect bande{0.f, 30.f, 900.f, 28.f};
+		// Un point DANS le premier onglet : x = 10 (marge) + un peu.
+		const float32 px = 40.f, py = 42.f;
+
+		auto clic = [&](bool atteignable) {
+			NkComponentInput in;
+			in.mouseX = px;
+			in.mouseY = py;
+			in.mousePressed = true;
+			// ⚠️ C'EST L'EXPRESSION EXACTE POSEE DANS `DrawTabStrip`. Si elle
+			//    change la-bas, ce banc cesse de mesurer ce qu'il croit -- d'ou le
+			//    commentaire, faute de pouvoir la partager sans tirer NKGui ici.
+			if (!atteignable) {
+				in.mousePressed = false;
+				in.mouseReleased = false;
+				in.mouseDown = false;
+				in.doubleClick = false;
+				in.rightPressed = false;
+				in.wheel = 0.f;
+			}
+			return in;
+		};
+
+		// ── 19.a LE COMPOSANT AGIT SUR TOUT CLIC QU'ON LUI DONNE ────────────
+		// Positif : sans filtrage, le clic active l'onglet 1. C'est la preuve que
+		// le composant ne se protege PAS lui-meme -- et il ne le doit pas : il ne
+		// sait rien des surfaces qui le recouvrent.
+		{
+			NkTabStripModel m; Poser(m);
+			NkRecordingPaint p;
+			const NkTabStripResult r = NkDrawTabStrip(p, clic(true), bande, m, Style(), NkTabStripHooks{});
+			++total;
+			if (r.selectionChanged && m.active == 1) ++ok;
+			else printf("  [FAIL] 19.a un clic non filtre aurait du activer l'onglet 1 (actif=%u)\n",
+						(unsigned)m.active);
+		}
+
+		// ── 19.b LE CLIC FANTOME EST SUPPRIME ───────────────────────────────
+		{
+			NkTabStripModel m; Poser(m);
+			NkRecordingPaint p;
+			const NkTabStripResult r = NkDrawTabStrip(p, clic(false), bande, m, Style(), NkTabStripHooks{});
+			++total;
+			if (!r.selectionChanged && m.active == 2) ++ok;
+			else printf("  [FAIL] 19.b le clic sous une surface a quand meme agi (actif=%u)\n",
+						(unsigned)m.active);
+		}
+
+		// ── 19.c LA PORTE DU KIT REPOND JUSTE ───────────────────────────────
+		// On declare une surface de couche SUPERIEURE par-dessus la bande, et on
+		// interroge `PointReachable` -- la vraie, celle que la coquille appelle.
+		{
+			static NkGuiContext ctx;
+			ctx.occlCount = 0;
+			ctx.curInputLayer = 0; // la couche du CHROME
+			// un menu deroulant : il couvre la bande
+			ctx.occlRects[0] = nkentseu::nkgui::NkRect{0.f, 28.f, 200.f, 160.f};
+			ctx.occlLayers[0] = (int32)NkCouche::Menu;
+			ctx.occlCount = 1;
+			const bool sousLeMenu = !ctx.PointReachable({px, py});
+			const bool aCote = ctx.PointReachable({700.f, 42.f}); // meme bande, hors du menu
+			++total;
+			if (sousLeMenu && aCote) ++ok;
+			else printf("  [FAIL] 19.c la porte repond mal (sous le menu=%d, a cote=%d ; "
+						"attendu 1 et 1)\n", sousLeMenu ? 1 : 0, aCote ? 1 : 0);
+		}
+
+		// ── 19.d NEGATIF : SANS MENU, RIEN NE CHANGE ────────────────────────
+		// Sans cet essai, « le clic ne passe plus » pourrait vouloir dire « plus
+		// aucun clic ne passe », et la bande serait devenue inerte.
+		{
+			static NkGuiContext ctx;
+			ctx.occlCount = 0;
+			ctx.curInputLayer = 0;
+			const bool libre = ctx.PointReachable({px, py});
+			NkTabStripModel m; Poser(m);
+			NkRecordingPaint p;
+			const NkTabStripResult r = NkDrawTabStrip(p, clic(libre), bande, m, Style(), NkTabStripHooks{});
+			++total;
+			if (libre && r.selectionChanged && m.active == 1) ++ok;
+			else printf("  [FAIL] 19.d NEGATIF : aucune surface declaree et le clic ne passe pas "
+						"(atteignable=%d, actif=%u)\n", libre ? 1 : 0, (unsigned)m.active);
+		}
+	}
+
+} // namespace porteprobe
+
+// =============================================================================
 int main(int argc, char **argv) {
 	(void)argc;
 	(void)argv;
@@ -645,6 +786,15 @@ int main(int argc, char **argv) {
 		printf("  famille 15 : %u/%u\n", ok15, total15);
 		gPassed += ok15;
 		gFailed += (total15 - ok15);
+	}
+	// Famille 19 — (o3) la porte du chrome : un menu par-dessus la bande.
+	{
+		printf("\n--- Famille 19 : la porte du chrome ---\n");
+		uint32 ok19 = 0, total19 = 0;
+		porteprobe::Sonder(ok19, total19);
+		printf("  famille 19 : %u/%u\n", ok19, total19);
+		gPassed += ok19;
+		gFailed += (total19 - ok19);
 	}
 
 	printf("\n---------------------------------------------\n");
