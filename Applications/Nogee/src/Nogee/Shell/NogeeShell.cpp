@@ -24,6 +24,7 @@
 #include "NKMemory/NkUniquePtr.h"
 #include "NKLogger/NkLog.h"
 #include <cstdio>
+#include <cstdlib> // getenv : choix du theme pour la MESURE (defaut = Dark, celui du modeleur)
 #include <cstring>
 
 namespace nkentseu {
@@ -820,6 +821,72 @@ namespace nkentseu {
 			if (g_probe.noMaskBody) {
 				shell->SetMaskBodyOnPopup(false);
 				logger.Info("[SONDE] condition ConquerorLab reproduite : SetMaskBodyOnPopup(false)\n");
+			}
+
+			// ═══════════════════════════════════════════════════════════════════
+			//  L'HABILLAGE DE LA COQUILLE — ON APPELLE, ON NE REDESSINE PAS
+			// ═══════════════════════════════════════════════════════════════════
+			//  Demande de Rodolf : « l'interface de noge editor doit etre la copie
+			//  exacte de celle de nk3dmodeler [...] tous les elements sont deja
+			//  dans nk3dmodeler donc juste copier et adapter ».
+			//
+			//  MESURE PREALABLE (canal chrome, lot 1) : Nogee montait le shell NU
+			//  -- AddPanel, RegisterCommand, SetOverlay, et RIEN d'autre. Aucun
+			//  `Set*` de chrome, aucun `ApplyTheme`. Il heritait donc du costume
+			//  VSCode par defaut du kit. Une bonne part de « la meme interface »
+			//  ne demande pas d'ecrire du chrome : elle demande d'APPELER ce que
+			//  la coquille sait deja faire.
+			//
+			//  LES DEUX COTES VIENNENT DE `NkLayout::Compute` (NkModelerUI.h), lue
+			//  ligne a ligne :  menuH = S(30.f)  et  toolH = S(34.f).
+			//
+			//  ⚠️ ET CES PIXELS SONT HONORES -- ce n'est pas une promesse de
+			//     commentaire, c'est une mesure : sonde NkChromeProbe, dix
+			//     passages, 28 demandes -> 28 px occupes, 56 -> 56 ; a l'echelle
+			//     1,25 le calcul historique passe a 47,50 tandis que la valeur
+			//     imposee reste a 28,00. `SetHeaderLayout` ne passe pas par `S()`.
+			//
+			//  Le LOGO reste a 0 : le bloc carre de la maquette n'existe pas chez
+			//  Nogee, et en poser un fabriquerait un reglage que personne n'a
+			//  demande.
+			//  ⚠️ `NOGEE_SANS_HABILLAGE=1` SAUTE LES DEUX APPELS. Ce n'est pas une
+			//     option de produit, c'est LE NEGATIF : sans eux, la bande doit
+			//     reprendre sa valeur d'avant (37 px mesures) et la couleur son
+			//     ancienne valeur. Le garder dans le MEME binaire evite de
+			//     comparer deux constructions -- deux binaires qui different par
+			//     autre chose que ce qu'on croit, c'est ainsi qu'on mesure une
+			//     pente de 10 degres sur un sol plat.
+			const bool sansHabillage = std::getenv("NOGEE_SANS_HABILLAGE") != nullptr;
+			if (!sansHabillage)
+				shell->SetHeaderLayout(30.f, 34.f, 0.f);
+
+			// Le theme : `ApplyTheme` n'etait appele NULLE PART chez Nogee. C'est
+			// le point de synchronisation des deux objets theme (roles editeur ->
+			// jetons de dessin) ; sans lui, une partie du dessin lit un theme que
+			// personne n'a pose. NK3DModeler part de `NkTheme::Dark()`
+			// (NkModelerTheme.h:111) : Nogee part du meme endroit.
+			//
+			// `NOGEE_THEME=light` sert la MESURE (deux themes doivent donner deux
+			// couleurs) ; sans la variable, le comportement est Dark, celui du
+			// modeleur.
+			{
+				const char *th = std::getenv("NOGEE_THEME");
+				const bool clair = th && (th[0] == 'l' || th[0] == 'L');
+				// ⚠️ LA COULEUR EST IMPRIMEE AVANT ET APRES, et c'est ce qui rend
+				//    la mesure DERIVEE : l'attendu des pixels n'est pas un nombre
+				//    recopie d'un commentaire (`NkTheme.h:54` annonce « #2B2B2B »
+				//    pour PanelHeader -- un nombre dans un commentaire est une
+				//    mesure non datee), c'est la valeur que le programme porte.
+				const nkgui::NkColor av = shell->Ui().theme.header;
+				if (!sansHabillage)
+					shell->ApplyTheme(clair ? NkTheme::Light() : NkTheme::Dark());
+				const nkgui::NkColor ap = shell->Ui().theme.header;
+				std::printf("[CHROME] theme=%s  header avant=(%d,%d,%d)  apres=(%d,%d,%d)\n",
+							clair ? "Light" : "Dark", (int)av.r, (int)av.g, (int)av.b, (int)ap.r,
+							(int)ap.g, (int)ap.b);
+				std::printf("[CHROME] titleBarH=%.2f  ItemHeight=%.2f  scale=%.4f\n",
+							shell->Ui().titleBarH, shell->Ui().ItemHeight(), shell->Ui().scale);
+				std::fflush(stdout);
 			}
 
 			shell->RegisterCommand("Application: Quitter", &CmdQuit, shell.Get(), "Ctrl+Q");
