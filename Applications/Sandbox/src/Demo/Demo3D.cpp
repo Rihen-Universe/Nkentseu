@@ -3301,6 +3301,16 @@ static NkTexHandle CreateLanternCubeCookie(NkTextureLibrary *texLib, NkIDevice *
 				// Cette variable existe pour qu'il puisse comparer les deux mondes avant
 				// de trancher. Elle doit etre posee AVANT le premier sous-pas : Autotune
 				// ne derive mu du materiau que s'il vaut encore zero.
+				// NK_VEHICLE_MUCHASSIS=1 : LA MUTATION du 14/09. On redérive mu du
+				// materiau du CHASSIS, c est-a-dire 0,40, c est-a-dire le monde d avant
+				// la correction de grandeur. Si elle ne retrouve pas les chiffres
+				// d avant, le lot fait autre chose que ce qu il annonce.
+				if (const char *mc = std::getenv("NK_VEHICLE_MUCHASSIS"); mc && mc[0] == '1')
+					st->veh->Tuning().muFromChassis = true;
+				// NK_VEHICLE_PNEU=<valeur> : le frottement du PNEU, celui qui sert quand
+				// mu vaut 0. C est la grandeur juste ; NK_VEHICLE_MU reste au-dessus.
+				if (const char *tf = std::getenv("NK_VEHICLE_PNEU"); tf && tf[0])
+					st->veh->Tuning().tyreFriction = NkEnvFloat("NK_VEHICLE_PNEU", 0.90f);
 				if (const char *mu = std::getenv("NK_VEHICLE_MU"); mu && mu[0])
 					st->veh->Tuning().mu = NkEnvFloat("NK_VEHICLE_MU", 0.f);
 				if (const char *kk = std::getenv("NK_VEHICLE_KICK"); kk && kk[0]) st->vehKick = NkEnvFloat("NK_VEHICLE_KICK", 0.f);
@@ -5598,11 +5608,11 @@ static NkTexHandle CreateLanternCubeCookie(NkTextureLibrary *texLib, NkIDevice *
 					if (st->vehDtN == 30u) { // apres plusieurs sous-pas fixes : Autotune a tourne
 						const auto &tA = st->veh->Tuning();
 						std::fprintf(stderr,
-									 "[VEHICULE AUTOTUNE] mu = %.4f, engineForce = %.1f N/roue motrice, brakeForce = %.1f "
+									 "[VEHICULE AUTOTUNE] mu = %.4f (PNEU ; tyreFriction = %.4f), engineForce = %.1f N/roue motrice, brakeForce = %.1f "
 									 "N/roue, raideur = %.1f N/m, amortissement = %.1f N.s/m\n"
 									 "[VEHICULE AUTOTUNE] traction MAXIMALE = mu x somme(Fsusp des motrices) = %.4f x %.1f "
 									 "= %.1f N, contre 2 x engineForce = %.1f N demandes -> la voiture est %s\n",
-									 tA.mu, tA.engineForce, tA.brakeForce, tA.stiffness, tA.damping, tA.mu, 1200.f * 9.81f * 0.5f,
+									 tA.mu, tA.tyreFriction, tA.engineForce, tA.brakeForce, tA.stiffness, tA.damping, tA.mu, 1200.f * 9.81f * 0.5f,
 									 tA.mu * 1200.f * 9.81f * 0.5f, 2.f * tA.engineForce,
 									 (tA.mu * 1200.f * 9.81f * 0.5f < 2.f * tA.engineForce) ? "LIMITEE PAR L'ADHERENCE"
 																							: "limitee par le moteur");

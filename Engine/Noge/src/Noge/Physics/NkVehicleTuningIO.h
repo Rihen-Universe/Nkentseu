@@ -81,12 +81,21 @@ namespace noge {
 			// LA GARDE CI-DESSOUS REND CET OUBLI IMPOSSIBLE : `sizeof` change dès
 			// qu'un champ entre dans la structure, et la compilation s'arrête.
 			// Une garde qui ne coûte rien à l'exécution et qui parle au bon moment.
-			// 22 champs : 20 `float32` (80 octets) + 2 `bool` qui se rangent dans
-			// les 4 octets de bourrage avant le champ suivant. Total 84.
+			// 24 champs : 21 `float32` (84 octets) + 3 `bool` rangés dans les
+			// 4 octets de bourrage qui suivent. Total 88.
+			// (14/09, second service de cette garde : `tyreFriction` et
+			// `muFromChassis` sont entrés dans NkTuning et la compilation s'est
+			// arrêtée ici tant que la table ne les portait pas. C'est exactement
+			// ce pour quoi elle existe — la liste recopiée ne peut plus s'oublier.)
 			// ⚠️ Cette garde a deja servi le jour meme ou elle a ete ecrite : j'avais
 			// ecrit 88 de tete, et la compilation m'a arrete. C'est exactement le
 			// service attendu -- elle parle AVANT que le champ soit perdu, pas apres.
-			static_assert(sizeof(nkentseu::physics::NkVehicleTuning) == 84u,
+			// ⚠️ LA TAILLE NE SE DEVINE PAS, elle se LIT. Je l'ai calculee de tete
+			// deux fois et je me suis trompe deux fois (88 puis 84, puis 88 encore) :
+			// le bourrage autour des `bool` ne suit pas l'intuition. Le banc IMPRIME
+			// donc `sizeof` a chaque execution -- le prochain qui ajoute un champ n'a
+			// plus a le calculer, il le lit.
+			static_assert(sizeof(nkentseu::physics::NkVehicleTuning) == 92u,
 						  "NkVehicleTuning a change de taille : un champ a ete ajoute ou retire. "
 						  "Mets la table de NkVehicleTuningIO.h a jour (ECRITURE **et** LECTURE), "
 						  "puis corrige cette taille. Sans ca, le champ ne serait jamais sauvegarde.");
@@ -106,6 +115,8 @@ namespace noge {
 				ar.SetFloat32("ackermann", tuning.ackermann);
 				// adhérence
 				ar.SetFloat32("mu", tuning.mu);
+				ar.SetFloat32("tyreFriction", tuning.tyreFriction);
+				ar.SetBool("muFromChassis", tuning.muFromChassis);
 				ar.SetFloat32("freezeSpeed", tuning.freezeSpeed);
 				ar.SetBool("staticFriction", tuning.staticFriction);
 				ar.SetBool("alternateSweep", tuning.alternateSweep);
@@ -138,6 +149,8 @@ namespace noge {
 				LisFloat(ar, "steerRateDegPerSec", tuning.steerRateDegPerSec);
 				LisFloat(ar, "ackermann", tuning.ackermann);
 				LisFloat(ar, "mu", tuning.mu);
+				LisFloat(ar, "tyreFriction", tuning.tyreFriction);
+				LisBool(ar, "muFromChassis", tuning.muFromChassis);
 				LisFloat(ar, "freezeSpeed", tuning.freezeSpeed);
 				LisBool(ar, "staticFriction", tuning.staticFriction);
 				LisBool(ar, "alternateSweep", tuning.alternateSweep);
@@ -180,11 +193,11 @@ namespace noge {
 	/// Le réglage « simulation ». CHAQUE écart au défaut est justifié par une
 	/// mesure du 14/09 (banc 10 de `renderdemo`, sonde NK_VEHICLE_PROBE) :
 	///
-	///   mu 0,40 -> 0,90   `mu` par défaut est la friction dynamique du matériau
-	///                     du CHÂSSIS, pas d'un pneu : 0,37 g de tenue contre 0,9
-	///                     pour une routière. Mesuré : accélération x2,7 à 5 m/s
-	///                     et x3,5 à 25 m/s, 0->90 km/h de 14,45 s à 4,91 s,
-	///                     freinage de 71,72 m à 35,15 m. C'est LE réglage.
+	/// ⚠️ MIS A JOUR LE 14/09 : `mu` N'EST PLUS UN ECART. Rodolf a tranché
+	/// (« je dirais configurable meme si 0.90 me convient »), la grandeur a été
+	/// corrigée à sa source, et 0,90 est devenu LE DEFAUT DU PRODUIT. Ce fichier
+	/// le pose encore explicitement — pour qu'il se lise sans connaître le défaut —
+	/// mais il ne change plus rien : ce n'est plus lui qui fait la différence.
 	///
 	///   linearDamping     0,02 -> 0,005. À 90 km/h les 0,02 pèsent 608 N, soit
 	///                     55 % de tout ce qui retient la voiture et 1,9 fois
