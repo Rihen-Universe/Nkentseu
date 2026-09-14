@@ -2,7 +2,7 @@
 // -----------------------------------------------------------------------------
 // @File    NkEditorShell.h
 // @Brief   Coquille d'application d'editeur : fenetre + docking + panneaux.
-// @Author  Rihen
+// @Author  TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // @License Proprietary - All Rights Reserved (see LICENSE)
 //
 // NkEditorShell est la base reutilisable des editeurs Nkentseu (NKCode = IDE,
@@ -34,6 +34,8 @@
 #include "NKEditorKit/NkFontPrefs.h"
 #include "NKEditorKit/NkIEditorRenderer.h" // backend de rendu pluggable
 #include "NKEditorKit/NkEditorContextMenu.h" // NkCtxMenu : sous-menu du menu contextuel shell
+#include "NKEditorKit/Components/NkTabStripModel.h" // (o1) la bande d'onglets PARTAGEE
+#include "NKEditorKit/Components/NkGuiComponentPaint.h" // son peintre, cote NKGui
 
 namespace nkentseu {
 	namespace editorkit {
@@ -61,6 +63,25 @@ namespace nkentseu {
 		// Menu applicatif optionnel : appele a l'interieur de la barre de menus,
 		// apres « Fenetre », pour que l'app ajoute ses propres menus.
 		using NkEditorAppMenuFn = void (*)(NkEditorFrameContext &ec, void *user);
+
+		// ⚠️ AU NIVEAU DU NAMESPACE, PAS DANS LA CLASSE — et c'est le compilateur
+		//    qui l'a impose, pas un gout : une struct imbriquee dont les champs ont
+		//    des initialisateurs par defaut ne peut pas servir de TYPE a un membre
+		//    ni a un argument par defaut DANS la definition de la classe qui la
+		//    contient (« default member initializer needed within definition of
+		//    enclosing class »). Le type est le meme, seul son domicile change.
+		struct NkEditorTabStripCallbacks {
+				void *user = nullptr;
+				/// L'onglet actif a change — `modele->active` est DEJA a jour.
+				void (*onSelect)(void *user, nk_uint64 id) = nullptr;
+				/// Fermeture DEMANDEE. La coquille ne ferme rien : elle ne
+				/// sait pas s'il faut demander quelque chose avant.
+				void (*onClose)(void *user, nk_uint64 id) = nullptr;
+				/// Le `+`.
+				void (*onAdd)(void *user) = nullptr;
+				/// Clic droit ; `id` vaut 0 sur le fond de la bande.
+				void (*onContextMenu)(void *user, nk_uint64 id) = nullptr;
+		};
 
 		class NKEDITORKIT_API NkEditorShell {
 			public:
@@ -186,6 +207,17 @@ namespace nkentseu {
 
 				// ── Géométrie de fenêtre (launcher) : fichier global taille/pos/maximisé ──
 				void MaximizeWindow() noexcept;
+
+				/// LA FENETRE, pour les sondes qui doivent photographier LEUR PROPRE
+				/// surface. ⚠️ Additif et en LECTURE : la coquille garde la
+				/// propriete de la fenetre, personne d'autre ne la cree ni ne la
+				/// detruit. Exposee parce que le relecteur de backbuffer
+				/// (`CaptureNext`) n'existe que sur le dorsal NKCanvas/DX11 : une
+				/// application qui rend par NKRHI -- Nogee, NkAnimaEditor -- n'a
+				/// aucun autre moyen de rendre compte de ce qu'elle affiche.
+				NkWindow &Window() noexcept {
+					return mWindow;
+				}
 				void SaveWindowGeom(const char *path) noexcept;	 ///< écrit win=/maximized= (position écran)
 				bool LoadWindowGeom(const char *path) noexcept;	 ///< applique si le fichier existe ; false sinon
 
@@ -464,6 +496,86 @@ namespace nkentseu {
 					mToolbarUser = user;
 				}
 
+				// ═══════════════════════════════════════════════════════════════
+				//  LA BANDE D'ONGLETS (2026-09-14) — le manque que Rodolf a
+				//  demande de combler « dans le system », pas dans Nogee seul.
+				// ═══════════════════════════════════════════════════════════════
+				//  ⚠️ LA COQUILLE NE DESSINE PAS D'ONGLET ELLE-MEME. Elle POSE le
+				//     composant partage `tab_strip` (`Components/NkTabStripModel.h`)
+				//     — le meme que NK3DModeler appelle par son propre peintre. Si
+				//     elle en redessinait une version a elle, on aurait cinq copies
+				//     au lieu de quatre, et « les onglets de Nogee et ceux du
+				//     modeleur viennent du meme code » serait faux.
+				//
+				//  ⚠️ ADDITIF, ET IL RESERVE PLUTOT QU'IL NE DECORE. Tant que
+				//     `mTabsModel` est nul, la bande n'occupe AUCUN pixel et aucune
+				//     application existante ne bouge d'une ligne. C'est la lecon de
+				//     `SetToolbar`, deja payee par le lot precedent : une hauteur
+				//     posee par `SetHeaderLayout` ne devient des pixels que quand
+				//     quelqu'un remplit la bande (`outils=0.00` mesure alors que
+				//     `SetHeaderLayout(30, 34, 0)` etait deja appele).
+				//
+				//  ⚠️ LA HAUTEUR VIENT DE LA DECLARATION DU COMPOSANT (`band_h`,
+				//     28 px — la cote mesuree chez le modeleur), PAS d'un litteral
+				//     de ce fichier.
+				//
+				//  LE MODELE APPARTIENT A L'APPLICATION, et c'est delibere : la
+				//  coquille ne sait pas ce qu'un onglet represente (une scene, un
+				//  fichier, un projet). Elle en dessine la bande et RAPPORTE les
+				//  gestes ; ce qu'ils declenchent reste chez l'hote.
+
+				/// Pose (ou retire, `nullptr`) la bande d'onglets. Le modele doit
+				/// survivre a l'appel : la coquille le LIT a chaque image et y ecrit
+				/// `active`, elle n'en prend pas copie.
+				void SetTabStrip(NkTabStripModel *modele,
+								 const NkEditorTabStripCallbacks &cb = {}) noexcept {
+					mTabsModel = modele;
+					mTabsCb = cb;
+				}
+
+				/// Le style de la bande (roles de theme, variante, instance de
+				/// reglages). Optionnel : sans appel, la coquille derive les roles de
+				/// son propre catalogue de themes.
+				void SetTabStripStyle(const NkTabStripStyle &s) noexcept {
+					mTabsStyle = s;
+					mTabsStyleSet = true;
+				}
+
+				/// Ce que la bande a rapporte a la derniere image (geometrie de
+				/// chaque onglet, debordement, infobulle survolee). Lu par une SONDE,
+				/// et par un hote qui veut poser quelque chose en face d'un onglet.
+				const NkTabStripResult &TabStripResult() const noexcept {
+					return mTabsResult;
+				}
+
+				// ═══════════════════════════════════════════════════════════════
+				//  LA HAUTEUR DE LA BARRE D'ETAT (2026-09-14) — (o3)
+				// ═══════════════════════════════════════════════════════════════
+				//  ⚠️ LE FAIT MESURE : la coquille fige `mUI.S(22.f)` ; le modeleur
+				//     en a 28 (`NkLayout::Compute`, `statusH = S(28.f)`). Une
+				//     application qui veut « la meme interface que NK3DModeler » ne
+				//     peut donc pas l'obtenir — et remplacer 22 par 28 dans la
+				//     coquille deplacerait le pied de CINQ consommateurs, dont
+				//     NKCode, visiblement et sans que personne l'ait demande.
+				//
+				//  Donc : ni l'un ni l'autre en dur. **Un parametre, defaut 0 =
+				//  les 22 historiques.** Nogee pose 28 et rejoint le modeleur ;
+				//  NKCode, NKUIDesign, UnkenyEditor et ConquerorLab ne bougent pas
+				//  d'un pixel parce qu'ils n'appellent pas cette porte. Le choix
+				//  « faut-il passer NKCode a 28 ? » reste ENTIER et revient a
+				//  Rodolf — ce reglage le rend exprimable, il ne le tranche pas.
+				//
+				//  ⚠️ ET IL PASSE PAR `S()`, contrairement a `SetHeaderLayout`. Ce
+				//     n'est pas une incoherence : `SetHeaderLayout` porte des cotes
+				//     de MAQUETTE (« quand la maquette dit 28, la capture doit
+				//     rendre 28 ») ; ici on remplace une valeur qui passait DEJA par
+				//     `S()`, et la changer de regime ferait bouger la barre d'etat
+				//     sur les ecrans a fort DPI — une regression invisible chez
+				//     Rodolf, qui est a 96 dpi.
+				void SetStatusBarHeight(float32 px) noexcept {
+					mStatusBarH = px;
+				}
+
 				// Overlay applicatif (dessine APRES les panneaux, sur dlOverlay) : l'app y
 				// rend ses dialogues modaux (creation de projet, proprietes...). Quand
 				// ctx.appModal est leve, le shell masque l'input du corps. L'input du popup
@@ -722,6 +834,9 @@ namespace nkentseu {
 				void DrawActivityBar(const nkgui::NkRect &bar) noexcept;
 				void DrawActivityBarRight(const nkgui::NkRect &bar) noexcept; ///< barre IA (cote droit)
 				void DrawStatusBar(float32 footerH) noexcept;
+				/// (o1) Peint la bande d'onglets PARTAGEE et route ses gestes. Ne
+				/// dessine rien si aucun modele n'est pose.
+				void DrawTabStrip(const nkgui::NkRect &rect) noexcept;
 
 				// === Redimensionnement / deplacement : hand-off NATIF (BeginResize/BeginDragMove).
 				// Le hand-off bloque (boucle modale OS) -> on le DIFFERE en fin de boucle Run()
@@ -799,6 +914,21 @@ namespace nkentseu {
 				void *mMenuBarUser = nullptr;
 				NkEditorAppMenuFn mFileMenuFn = nullptr;
 				void *mFileMenuUser = nullptr;
+// ── (o1) LA BANDE D'ONGLETS PARTAGEE ────────────────────────────
+				// Le modele APPARTIENT a l'application : un pointeur, jamais une
+				// copie. La coquille y ecrit `active` et lit le reste.
+				NkTabStripModel *mTabsModel = nullptr;
+				NkEditorTabStripCallbacks mTabsCb{};
+				NkTabStripStyle mTabsStyle{};
+				bool mTabsStyleSet = false;
+				NkTabStripResult mTabsResult{};
+				/// Le theme du KIT (roles), tenu a jour par `ApplyTheme`. Distinct du
+				/// `NkGuiTheme` de `mUI` : c'est celui que `NkGuiComponentPaint`
+				/// interroge pour resoudre les roles des composants partages.
+				NkTheme mKitTheme = NkTheme::Dark();
+				// ── (o3) LA HAUTEUR DE LA BARRE D'ETAT ──────────────────────────
+				// 0 = les 22 historiques. Cf. `SetStatusBarHeight`.
+				float32 mStatusBarH = 0.f;
 				NkEditorAppMenuFn mToolbarFn = nullptr;
 				void *mToolbarUser = nullptr;
 				NkEditorAppMenuFn mOverlayFn = nullptr;

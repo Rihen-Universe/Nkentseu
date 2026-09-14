@@ -1,5 +1,9 @@
 #pragma once
-// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
+// -----------------------------------------------------------------------------
+// @File    NkModelerAssets.h
+// @Author  TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
+// @License Proprietary - All Rights Reserved (see LICENSE)
+// -----------------------------------------------------------------------------
 // =============================================================================
 // NkModelerAssets.h — UN FICHIER PAR ASSET, sur le disque.
 //
@@ -42,10 +46,8 @@
 // =============================================================================
 
 #include "NK3DModeler/Project/NkModelerScene.h" // helpers NkSc* + lecteur HERITE
-// LA GEOMETRIE DANS LE FICHIER. Un en-tete a part, sans hote 3D ni rendu : la
-// sonde `--probe=geom` l'eprouve sans fenetre, ce qui serait impossible si le
-// codec vivait ici, au milieu des appels a la vue 3D.
-#include "NK3DModeler/Project/NkModelerGeom.h"
+#include "NK3DModeler/Project/NkModelerGeom.h"  // la geometrie propre, a cote de l'asset
+#include "NK3DModeler/Shell/NkModelerToast.h"   // un maillage perdu se DIT a l'ecran
 
 #include "NKFileSystem/NkFile.h"
 #include "NKFileSystem/NkDirectory.h"
@@ -74,7 +76,14 @@ namespace nkentseu {
 		// Version de format des FICHIERS D'ASSET, distincte de celle du projet :
 		// un materiau evoluera a son rythme, et lier les deux obligerait a
 		// invalider l'un pour l'autre.
-		static const int32 kAssetFormatVersion = 1;
+		// 2 (06/09) : l'asset ecrit desormais la GEOMETRIE PROPRE de ses noeuds
+		// dans son `.nkgeo` frere, et pose « geometriePropre » sur ceux qui en
+		// ont une. Un fichier de FORMAT 1 n'en portait aucune -- ses objets
+		// importes revenaient en cubes sans un mot, et c'est le defaut que
+		// Rodolf a rapporte le 06/09. La relecture le DIT au lieu de le taire :
+		// la version sert exactement a ca, distinguer « ce fichier n'a pas de
+		// geometrie » de « ce fichier n'en avait pas la place ».
+		static const int32 kAssetFormatVersion = 2;
 		// Version de la DISPOSITION du projet. 3 = un fichier par asset. Les
 		// formats 1 et 2 (tout dans le .nk3dm) restent lisibles : ils sont relus
 		// par NkSceneRestore, puis reecrits en fichiers separes a l'enregistrement
@@ -128,11 +137,11 @@ namespace nkentseu {
 			NkString parts[8];
 			int32 n = 0;
 			int32 cur = folder;
-			for (int32 g = 0; g < 8 && cur >= 0 && cur < st.browserCount; ++g) {
-				if (st.browserKind[cur] != 1)
+			for (int32 g = 0; g < 8 && cur >= 0 && cur < st.BrowserCount(); ++g) {
+				if (st.Card(cur).kind != 1)
 					break; // seul un DOSSIER fait un niveau de chemin
-				parts[n++] = st.browserNames[cur];
-				cur = st.browserParent[cur];
+				parts[n++] = st.Card(cur).name;
+				cur = st.Card(cur).parent;
 			}
 			NkString out;
 			for (int32 i = n - 1; i >= 0; --i) {
@@ -160,11 +169,11 @@ namespace nkentseu {
 		}
 
 		inline NkString NkAsRelFor(const NkModelerState &st, int32 card) {
-			const char *ext = NkAsExtFor(st.browserKind[card]);
+			const char *ext = NkAsExtFor(st.Card(card).kind);
 			if (!ext)
 				return NkString();
-			NkString rel = NkAsFolderPath(st, st.browserParent[card]);
-			rel += NkAsSafeName(st.browserNames[card]);
+			NkString rel = NkAsFolderPath(st, st.Card(card).parent);
+			rel += NkAsSafeName(st.Card(card).name);
 			rel += '.';
 			rel += ext;
 			return rel;
@@ -221,29 +230,29 @@ namespace nkentseu {
 				if (!demo::Demo3DHostProjMatInfo(m, nm, (uint32)sizeof(nm), alb, &rough, &metal))
 					continue;
 				bool has = false;
-				for (int32 b = 0; b < st.browserCount && !has; ++b)
-					has = (st.browserKind[b] == 2 && st.browserMat[b] == m + 1);
-				if (has || st.browserCount >= NkModelerState::kMaxBrowser)
+				for (int32 b = 0; b < st.BrowserCount() && !has; ++b)
+					has = (st.Card(b).kind == 2 && st.Card(b).mat == m + 1);
+				if (has)
 					continue;
-				const int32 c = st.browserCount++;
-				st.browserKind[c] = 2;
-				st.browserParent[c] = -1;
-				st.browserSub[c] = 0;
-				st.browserDoc[c] = 0;
-				st.browserSrcNode[c] = 0;
-				st.browserMat[c] = m + 1;
-				st.browserFile[c][0] = 0;
-				NkScPut(st.browserNames[c], (uint32)sizeof(st.browserNames[0]), nm);
+				const int32 c = st.CardAdd();
+				st.Card(c).kind = 2;
+				st.Card(c).parent = -1;
+				st.Card(c).sub = 0;
+				st.Card(c).doc = 0;
+				st.Card(c).srcNode = 0;
+				st.Card(c).mat = m + 1;
+				st.Card(c).file[0] = 0;
+				NkScPut(st.Card(c).name, (uint32)NkModelerState::kCardNameCap, nm);
 			}
 			// 2. chaque carte a son emplacement
-			for (int32 b = 0; b < st.browserCount; ++b) {
-				if (st.browserKind[b] != 2 || st.browserMat[b] > 0)
+			for (int32 b = 0; b < st.BrowserCount(); ++b) {
+				if (st.Card(b).kind != 2 || st.Card(b).mat > 0)
 					continue;
 				const int32 slot = demo::Demo3DHostProjMatCreate();
 				if (slot < 0)
 					continue; // plus d'emplacement : la carte reste sans matiere
-				st.browserMat[b] = slot + 1;
-				demo::Demo3DHostProjMatSetName(slot, st.browserNames[b]);
+				st.Card(b).mat = slot + 1;
+				demo::Demo3DHostProjMatSetName(slot, st.Card(b).name);
 			}
 		}
 
@@ -253,19 +262,19 @@ namespace nkentseu {
 		inline NkString NkAsMatPath(const NkModelerState &st, int32 slot) {
 			if (slot < 0)
 				return NkString();
-			for (int32 b = 0; b < st.browserCount; ++b)
-				if (st.browserKind[b] == 2 && st.browserMat[b] == slot + 1)
+			for (int32 b = 0; b < st.BrowserCount(); ++b)
+				if (st.Card(b).kind == 2 && st.Card(b).mat == slot + 1)
 					return NkAsRelFor(st, b);
 			return NkString();
 		}
 		inline int32 NkAsMatSlot(const NkModelerState &st, const NkString &rel) {
 			if (rel.Empty())
 				return -1;
-			for (int32 b = 0; b < st.browserCount; ++b) {
-				if (st.browserKind[b] != 2 || st.browserMat[b] <= 0)
+			for (int32 b = 0; b < st.BrowserCount(); ++b) {
+				if (st.Card(b).kind != 2 || st.Card(b).mat <= 0)
 					continue;
-				if (NkString(st.browserFile[b]) == rel || NkAsRelFor(st, b) == rel)
-					return st.browserMat[b] - 1;
+				if (NkString(st.Card(b).file) == rel || NkAsRelFor(st, b) == rel)
+					return st.Card(b).mat - 1;
 			}
 			return -1;
 		}
@@ -421,7 +430,11 @@ namespace nkentseu {
 				const NkString bn = NkScStr(in, "mixAvec");
 				if (!bn.Empty()) {
 					int32 bSlot = -1;
-					for (int32 k = 0; k < 64 && bSlot < 0; ++k) {
+					// LA BORNE VIENT DE L'HOTE, jamais d'un 64 en clair : elle a
+					// ete relevee le 06/09 et un litteral oublie ici aurait
+					// rendu introuvables les materiaux au-dela, en silence.
+					const int32 kMax = demo::Demo3DHostProjMatMax();
+					for (int32 k = 0; k < kMax && bSlot < 0; ++k) {
 						char nm2[64];
 						if (demo::Demo3DHostProjMatInfo(k, nm2, sizeof(nm2), nullptr,
 														nullptr, nullptr) &&
@@ -466,8 +479,24 @@ namespace nkentseu {
 		// designer un noeud d'un autre fichier : c'est ce qui rend la fuite de
 		// donnees impossible plutot que corrigee.
 		// ─────────────────────────────────────────────────────────────────────────
-		inline void NkAsNodesCapture(NkArchive &out, const NkString &root,
-									 const NkModelerState &st, const NkVector<int32> &live) {
+		/// `rel` est le chemin de l'asset qu'on ecrit : c'est lui qui NOMME le
+		/// `.nkgeo` frere. Le passer plutot que de le recalculer garde UN seul
+		/// endroit ou le nom d'un asset se decide (NkAsRelFor) -- un second
+		/// calcul finirait par diverger, et la geometrie irait a cote du fichier.
+		///
+		/// 🔴 REND FAUX QUAND LA GEOMETRIE N'A PAS PU ETRE ECRITE (Rodolf, 06/09).
+		/// Avant, l'echec du `.nkgeo` ne remontait a personne : le `.nkmesh`
+		/// s'ecrivait, `NkProjectWriteCard` rendait VRAI, et le bandeau annoncait
+		/// « Import reussi : 1 fichier(s) .nkmesh ecrit(s) ». C'etait exact du
+		/// `.nkmesh` -- 1,6 Ko de structure -- et faux de ce qui compte : les 9 Mo
+		/// de matiere n'etaient pas sur le disque. Le disque plein est precisement
+		/// le cas ou le petit fichier passe et le gros non.
+		/// `geoErr` recoit la RAISON, pour que l'appelant la nomme au lieu de dire
+		/// « echec ».
+		inline bool NkAsNodesCapture(NkArchive &out, const NkString &root, const NkString &rel,
+									 const NkModelerState &st, const NkVector<int32> &live,
+									 NkString *geoErr = nullptr) {
+			NkGeoBuilder geo;
 			const int32 nodeMax = demo::Demo3DHostNodeCount();
 			NkVector<int32> rankOf;
 			for (int32 n = 0; n < nodeMax; ++n)
@@ -483,7 +512,7 @@ namespace nkentseu {
 				NkArchive nd;
 				nd.SetInt32("nature", kind);
 				nd.SetInt32("sousType", sub);
-				nd.SetString("nom", (n < 176) ? st.customNames[n] : "");
+				nd.SetString("nom", (n < NkModelerState::kMaxNodeNames) ? st.customNames[n] : "");
 				// PARENTE par RANG DANS CE FICHIER. Un parent hors du fichier (un
 				// objet de la scene de demonstration) garde son numero brut : ceux-la
 				// sont fixes, ils ne se recyclent pas.
@@ -536,26 +565,47 @@ namespace nkentseu {
 				// « Ajuster la creation » n'aurait plus rien a montrer.
 				int32 segs = 0, rings = 0;
 				float32 aux = 0.f;
-				if (demo::Demo3DHostMeshParams(n, &segs, &rings, &aux)) {
+				const bool regenerable = demo::Demo3DHostMeshParams(n, &segs, &rings, &aux);
+				if (regenerable) {
 					NkArchive cr;
 					cr.SetInt32("segments", segs);
 					cr.SetInt32("anneaux", rings);
 					cr.SetFloat32("aux", aux);
 					nd.SetObject("creation", cr);
 				}
-				// ── LA GEOMETRIE (13/09) ────────────────────────────────────
-				// « creation » ci-dessus dit comment REFABRIQUER une primitive ;
-				// il ne dit rien de ce qu'on lui a FAIT. Des qu'un noeud porte son
-				// propre maillage -- importe, ou sorti du mode edition -- ce sont
-				// SES sommets qui font foi, et c'est eux qu'on ecrit. Un noeud qui
-				// n'a pas de maillage propre n'ecrit rien : ses parametres suffisent
-				// et un bloc vide couterait sans rien dire.
-				{
-					const void *vp = nullptr;
-					const uint32 *ip = nullptr;
-					uint32 vc = 0u, ic = 0u;
-					if (demo::Demo3DHostMeshData(n, &vp, &vc, &ip, &ic))
-						(void)NkGeomWrite(nd, vp, vc, demo::Demo3DHostVertexBytes(), ip, ic);
+				// ── SA GEOMETRIE PROPRE — LE CORRECTIF DES CUBES BLANCS ─────
+				// Un objet IMPORTE nait par Demo3DHostCreateMeshNode, qui
+				// l'alloue en NATURE 2 (famille cube) et met sa geometrie dans
+				// son maillage. Jusqu'au 06/09 le fichier n'ecrivait que la
+				// nature -- et la nature dit cube. Rodolf a perdu du travail par
+				// ce silence : ses models revenaient en cubes blancs.
+				//
+				// LE FILTRE EST « CE MAILLAGE SE REGENERE-T-IL ? », et c'est
+				// `Demo3DHostMeshParams` qui le dit -- le MEME test que celui qui
+				// vient d'ecrire le bloc « creation », deux lignes plus haut, pour
+				// qu'il n'y ait pas deux reponses a la meme question.
+				//
+				// ⚠️ Ne PAS s'en remettre a `Demo3DHostNodeGeometry` seul : une
+				// sphere, un cylindre, un cone et un plan portent eux aussi leur
+				// propre maillage (`HostRegenUserMesh` le leur fabrique), avec sa
+				// copie CPU. Il rend donc VRAI pour eux, et les ecrire couterait
+				// des megaoctets par projet pour reproduire ce que trois entiers
+				// disent deja. Seul le cube nu n'a pas de maillage a lui.
+				if (!regenerable) {
+					const void *gv = nullptr;
+					const uint32 *gi = nullptr;
+					uint32 gvc = 0, gst = 0, gic = 0;
+					if (demo::Demo3DHostNodeGeometry(n, &gv, &gvc, &gst, &gi, &gic)) {
+						NkGeoAdd(geo, (int32)k, gv, gvc, gst, gi, gic);
+						// DIT DANS L'ASSET AUSSI, pas seulement dans le binaire :
+						// c'est ce drapeau qui permet a la relecture de savoir
+						// qu'un maillage MANQUE au lieu de rendre un cube sans un
+						// mot. Les comptes sont la pour l'oeil humain qui ouvre le
+						// fichier -- ils ne sont jamais relus comme une verite.
+						nd.SetBool("geometriePropre", true);
+						nd.SetInt32("sommets", (int32)gvc);
+						nd.SetInt32("indices", (int32)gic);
+					}
 				}
 				if (kind == 5) { // LUMIERE — le TYPE est le sous-type, deja ecrit
 					NkArchive li;
@@ -616,7 +666,35 @@ namespace nkentseu {
 				nodes.PushBack(nd);
 			}
 			out.SetObjectArray("noeuds", nodes);
-			(void)root;
+			// LE .nkgeo PART AVEC SON ASSET, par le meme geste : les deux
+			// fichiers datent ainsi du meme enregistrement. Un tampon VIDE
+			// efface le precedent -- sinon un asset dont on a retire le dernier
+			// import garderait une geometrie morte, rendue a un rang qui
+			// designe desormais autre chose.
+			{
+				NkString gerr;
+				const NkString grel = NkGeoRelFor(rel);
+				if (!NkGeoWrite(root, grel, geo, &gerr)) {
+					NkLog::Instance().Warnf(
+						"[geom] « %s » NON ECRIT : %s. Les objets importes de cet asset ne "
+						"survivront pas a la reouverture.",
+						grel.CStr(), gerr.CStr());
+					// PAS DE TOAST ICI. L'echec remonte desormais par le retour, et
+					// c'est le GESTE qui le dit -- le bandeau d'import, ou le
+					// message d'« Enregistrer ». Un toast pose ici en ferait DEUX
+					// pour une seule cause, et le second serait celui qu'on lit.
+					if (geoErr) {
+						*geoErr = NkString("« ") + grel + " » : " + gerr;
+					}
+					return false;
+				}
+				if (geo.count > 0) {
+					NkLog::Instance().Warnf("[geom] « %s » : %u maillage(s) ecrit(s), %llu octets.",
+											grel.CStr(), (unsigned)geo.count,
+											(unsigned long long)geo.bytes);
+				}
+			}
+			return true;
 		}
 
 		/// Recree les noeuds d'un fichier DANS LA SCENE HOTE ACTIVE. L'appelant a
@@ -654,10 +732,27 @@ namespace nkentseu {
 		}
 
 		inline void NkAsNodesRestore(const NkArchive &in, const NkString &root,
-									 NkModelerState &st, bool archive, int32 *nodeMiss,
-									 NkVector<int32> *outNodes, int32 *orphanFix = nullptr) {
+									 const NkString &rel, NkModelerState &st, bool archive,
+									 int32 *nodeMiss, NkVector<int32> *outNodes,
+									 int32 *orphanFix = nullptr, int32 *geoOldOut = nullptr) {
 			NkVector<NkArchive> nodes;
 			(void)in.GetObjectArray("noeuds", nodes);
+			// ── LA GEOMETRIE PROPRE DE CET ASSET (06/09) ────────────────────
+			// Chargee UNE fois pour tout le fichier : la restauration touche
+			// tous les rangs, et rouvrir le binaire par noeud couterait un
+			// aller-retour disque par objet.
+			NkGeoFile geo;
+			const NkString grel = NkGeoRelFor(rel);
+			(void)NkGeoRead(root, grel, geo);
+			// LE FORMAT DE L'ASSET fait foi sur ce qu'il POUVAIT contenir. Un
+			// fichier de format 1 n'ecrivait aucune geometrie : ses objets
+			// importes ne sont pas perdus par accident, ils n'ont jamais ete
+			// ecrits. Ce n'est pas la meme phrase a l'ecran, et l'utilisateur a
+			// droit a la bonne.
+			const int32 asFmt = NkScInt(in, "format", 1);
+			int32 geoMiss = 0;	 ///< annonces dans le fichier, introuvables
+			int32 geoOld = 0;	 ///< primitives nues d'un fichier d'avant le 06/09
+			char geoPremier[32] = {};
 			NkVector<int32> nodeOf;
 			for (usize i = 0; i < nodes.Size(); ++i) {
 				const NkArchive &nd = nodes[i];
@@ -677,7 +772,7 @@ namespace nkentseu {
 					continue;
 				}
 				const NkString nm = NkScStr(nd, "nom");
-				if (n < 176)
+				if (n < NkModelerState::kMaxNodeNames)
 					NkScPut(st.customNames[n], (uint32)sizeof(st.customNames[0]), nm.CStr());
 				// L'hote garde une copie du nom : c'est lui qui nomme les fichiers
 				// produits par la sortie.
@@ -687,41 +782,65 @@ namespace nkentseu {
 					demo::Demo3DHostSetMeshParams(n, NkScInt(cr, "segments", 32),
 												  NkScInt(cr, "anneaux", 16),
 												  NkScFloat(cr, "aux", 0.15f));
-				// ── LA GEOMETRIE, APRES les parametres de creation ──────────
-				// L'ORDRE EST LA REGLE, pas un detail : poser les parametres
-				// REGENERE le maillage de la primitive. Rendre les sommets avant
-				// eux, c'est les voir effaces par la sphere qu'on vient de
-				// redemander. Les sommets du fichier passent donc EN DERNIER, et
-				// ce sont eux qui font foi.
-				{
-					NkVector<uint8> gv;
-					NkVector<uint32> gi;
-					uint32 gvc = 0u;
-					NkString gwhy;
-					if (NkGeomRead(nd, demo::Demo3DHostVertexBytes(), gv, &gvc, gi, &gwhy)) {
-						if (!demo::Demo3DHostSetMeshData(n, gv.Data(), gvc, gi.Data(),
-														 (uint32)gi.Size()))
-							NkLog::Instance().Warn(
-								"[geometrie] noeud {0} : {1} sommets relus, mais la vue 3D "
-								"les a refuses",
-								n, (int32)gvc);
-					} else if (!gwhy.Empty()) {
-						// UN REFUS SE DIT. Une cle absente est normale (primitive,
-						// ou fichier ecrit avant ce bloc) et ne remplit pas `gwhy` ;
-						// tout le reste est un maillage qu'on ne rend PAS, et le
-						// taire ferait disparaitre du travail sans un mot.
-						NkLog::Instance().Warn("[geometrie] noeud {0} non restauree : {1}", n,
-											   gwhy.CStr());
-						if (nodeMiss)
-							++*nodeMiss;
+				// ── SA GEOMETRIE PROPRE, REPOSEE ─────────────────────────────
+				// APRES les parametres de creation : `SetMeshParams` regenere le
+				// maillage parametrique, et le faire APRES ecraserait ce qu'on
+				// vient de relire.
+				bool geoPerdue = false;
+				if (NkScBool(nd, "geometriePropre", false)) {
+					bool ok = false;
+					if (const NkGeoEntry *ge = NkGeoFind(geo, (int32)i)) {
+						// Les indices sont RECOPIES : leur offset dans le fichier
+						// n'est aligne que par construction, et un jour ou une
+						// entree changera de taille il ne le serait plus. Le cout
+						// est un tampon temporaire, le gain est qu'aucune
+						// plateforme stricte ne se reveille en plantant.
+						NkVector<uint32> idx;
+						idx.Resize((usize)ge->icount);
+						std::memcpy(idx.Data(), geo.bytes.Data() + ge->iOff,
+									(usize)ge->icount * sizeof(uint32));
+						ok = demo::Demo3DHostSetNodeGeometry(n, geo.bytes.Data() + ge->vOff,
+															 ge->vcount, ge->stride, idx.Data(),
+															 ge->icount);
 					}
+					if (!ok) {
+						// 🔴 UN CUBE BLANC QUI MENT EST PIRE QU'UN OBJET QUI SE
+						// SIGNALE (Rodolf, 06/09). L'asset ANNONCE une geometrie
+						// que le `.nkgeo` ne rend pas : le noeud existe, sa
+						// transform est juste, mais sa matiere n'est pas la. On
+						// ne le laisse surtout pas prendre l'apparence d'un objet
+						// valide -- il est MASQUE et son nom porte un « ! ».
+						geoPerdue = true;
+						++geoMiss;
+						if (!geoPremier[0])
+							snprintf(geoPremier, sizeof(geoPremier), "%s", nm.CStr());
+					}
+				} else if (asFmt < 2 && kind >= 1 && kind <= 3 && !nd.GetObject("creation", cr)) {
+					// UN FICHIER D'AVANT LE 06/09. Il n'ecrivait aucune geometrie,
+					// donc on ne peut PAS savoir si ce noeud etait un cube du menu
+					// ou un model importe : les deux s'ecrivaient a l'identique.
+					// On ne l'affirme donc pas -- on le COMPTE, et le message dit
+					// « si l'un d'eux etait importe ». La verite qu'on n'a pas ne
+					// se remplace pas par celle qui arrange.
+					++geoOld;
 				}
 				float32 pos[3], rot[3], scl[3];
 				NkScGetVec3(nd, "position", pos, 0.f, 0.f, 0.f);
 				NkScGetVec3(nd, "rotation", rot, 0.f, 0.f, 0.f);
 				NkScGetVec3(nd, "echelle", scl, 1.f, 1.f, 1.f);
 				demo::Demo3DHostSetEmptyTransform(n, pos, rot, scl);
-				demo::Demo3DHostSetObjectHidden(n, NkScBool(nd, "masque", false));
+				if (geoPerdue) {
+					// Le nom d'un noeud tient en 24 caracteres : le marqueur est
+					// donc un PREFIXE d'un caractere, pas une phrase. La phrase
+					// est dans le message a l'ecran, qui a la place de la dire.
+					char marque[32];
+					snprintf(marque, sizeof(marque), "!%s", nm.CStr());
+					if (n < NkModelerState::kMaxNodeNames)
+						NkScPut(st.customNames[n], (uint32)sizeof(st.customNames[0]), marque);
+					demo::Demo3DHostSetNodeLabel(n, marque);
+				}
+				demo::Demo3DHostSetObjectHidden(n, geoPerdue ||
+													   NkScBool(nd, "masque", false));
 				demo::Demo3DHostSetObjectLocked(n, NkScBool(nd, "verrouille", false));
 				demo::Demo3DHostSetNodeNoRender(n, NkScBool(nd, "horsRendu", false));
 				demo::Demo3DHostSetNodeXmitMask(n, NkScInt(nd, "transmission", 7));
@@ -823,9 +942,37 @@ namespace nkentseu {
 				for (usize i = 0; i < nodeOf.Size(); ++i)
 					if (nodeOf[i] >= 0)
 						demo::Demo3DHostSetNodeArchived(nodeOf[i], true);
+			// ── CE QUI MANQUE SE DIT A L'ECRAN, PAS DANS UN JOURNAL ─────────
+			// Le 06/09, Rodolf a perdu du travail parce que le defaut etait
+			// SILENCIEUX. Un journal que personne n'ouvre en travaillant ne
+			// previent de rien : c'est la lecon deja ecrite en tete de
+			// NkModelerToast.h, appliquee ici.
+			if (geoMiss > 0) {
+				char t[kToastTexte];
+				snprintf(t, sizeof(t),
+						 "MAILLAGE NON RELU : %d objet(s) de « %s » annoncent une geometrie que "
+						 "« %s » ne porte pas (le premier : « %s »). Ils sont MASQUES et prefixes "
+						 "d'un « ! » pour ne pas passer pour des objets valides. Reimportez-les.",
+						 geoMiss, rel.CStr(), grel.CStr(), geoPremier);
+				NkToastPush(NkToastKind::Refus, t);
+				NkLog::Instance().Warnf("[geom] %s", t);
+			}
+			// ── L'ANCIEN FORMAT SE DIT UNE FOIS POUR LE PROJET, PAS PAR ASSET ─
+			// Le projet de Rodolf porte une dizaine de `.nkmesh`. Un message par
+			// asset en produirait dix, la pile n'en garde que six, et le message
+			// qui compte serait noye dans ses propres copies -- c'est-a-dire le
+			// meme defaut que le silence, par l'autre bout. Le COMPTE remonte,
+			// l'appelant dit la phrase une fois.
+			if (geoOld > 0) {
+				if (geoOldOut)
+					*geoOldOut += geoOld;
+				NkLog::Instance().Warnf(
+					"[geom] « %s » est de format %d : %d objet(s) reviennent en primitive, "
+					"sans geometrie ecrite.",
+					rel.CStr(), (int)asFmt, geoOld);
+			}
 			if (outNodes)
 				*outNodes = nodeOf;
-			(void)root;
 		}
 
 		// ─────────────────────────────────────────────────────────────────────────
@@ -1181,8 +1328,11 @@ namespace nkentseu {
 			}
 		}
 
-		inline void NkAsSceneCapture(NkArchive &o, const NkString &root, NkModelerState &st,
-									 int32 d) {
+		/// Rend FAUX si la geometrie de la scene n'a pas pu etre ecrite (cf.
+		/// NkAsNodesCapture) : l'archive `o` reste complete et utilisable, seule
+		/// la matiere manque sur le disque.
+		inline bool NkAsSceneCapture(NkArchive &o, const NkString &root, const NkString &rel,
+									 NkModelerState &st, int32 d, NkString *geoErr = nullptr) {
 			NkAsHeader(o, "scene");
 			o.SetString("nom", st.docName[d]);
 			o.SetBool("vierge", st.docBlank[d]);
@@ -1239,12 +1389,13 @@ namespace nkentseu {
 					continue;
 				live.PushBack(n);
 			}
-			NkAsNodesCapture(o, root, st, live);
+			return NkAsNodesCapture(o, root, rel, st, live, geoErr);
 		}
 
 		inline void NkAsSceneRestore(const NkArchive &in, const NkString &root,
-									 NkModelerState &st, int32 d, int32 *nodeMiss,
-									 int32 *orphanFix) {
+									 const NkString &rel, NkModelerState &st, int32 d,
+									 int32 *nodeMiss, int32 *orphanFix,
+									 int32 *geoOldOut = nullptr) {
 			NkString nm = NkScStr(in, "nom");
 			if (!nm.Empty())
 				NkScPut(st.docName[d], (uint32)sizeof(st.docName[0]), nm.CStr());
@@ -1271,7 +1422,7 @@ namespace nkentseu {
 					snap.SetObject("sortie", t);
 				st.docRendu[d] = snap;
 			}
-			NkAsNodesRestore(in, root, st, false, nodeMiss, nullptr, orphanFix);
+			NkAsNodesRestore(in, root, rel, st, false, nodeMiss, nullptr, orphanFix, geoOldOut);
 		}
 
 		/// MINIATURE REELLE de la scene ACTIVE (regle de Rihen, 8 aout : la
@@ -1318,13 +1469,16 @@ namespace nkentseu {
 		// ─────────────────────────────────────────────────────────────────────────
 		// UN MODEL — .nkmesh
 		// ─────────────────────────────────────────────────────────────────────────
-		inline void NkAsModelCapture(NkArchive &o, const NkString &root, NkModelerState &st,
-									 int32 card) {
+		/// Rend FAUX si la geometrie du model n'a pas pu etre ecrite (cf.
+		/// NkAsNodesCapture). C'est le cas qui compte : un model EST de la
+		/// geometrie importee, et son `.nkmesh` seul ne dit que sa structure.
+		inline bool NkAsModelCapture(NkArchive &o, const NkString &root, const NkString &rel,
+									 NkModelerState &st, int32 card, NkString *geoErr = nullptr) {
 			NkAsHeader(o, "model");
-			o.SetString("nom", st.browserNames[card]);
-			const int32 srcN = st.browserSrcNode[card] - 1;
+			o.SetString("nom", st.Card(card).name);
+			const int32 srcN = st.Card(card).srcNode - 1;
 			if (srcN < 0)
-				return; // carte sans corps : le fichier dit son nom, pas plus
+				return true; // carte sans corps : le fichier dit son nom, pas plus
 			// LA RACINE ET SES MAILLAGES. Le parcours d'appartenance vit dans
 			// l'hote (HostIsInnerMeshOf, partage avec le deplacement de document) :
 			// le refaire ici finirait par ne plus emporter les memes noeuds.
@@ -1337,19 +1491,20 @@ namespace nkentseu {
 				if (demo::Demo3DHostNodeInnerMeshOf(n, srcN))
 					live.PushBack(n);
 			}
-			NkAsNodesCapture(o, root, st, live);
+			return NkAsNodesCapture(o, root, rel, st, live, geoErr);
 		}
 
 		inline void NkAsModelRestore(const NkArchive &in, const NkString &root,
-									 NkModelerState &st, int32 card, int32 *nodeMiss) {
+									 const NkString &rel, NkModelerState &st, int32 card,
+									 int32 *nodeMiss, int32 *geoOldOut = nullptr) {
 			// UN MODEL N'EST DANS AUCUNE SCENE. Il nait dans la scene hote 0 parce
 			// qu'il faut bien un numero, puis il est ARCHIVE : invisible, hors
 			// hierarchie, et donc incapable d'apparaitre dans une scene. C'est ce
 			// qui manquait quand tout vivait dans un seul fichier.
 			demo::Demo3DHostSetActiveScene(0);
 			NkVector<int32> made;
-			NkAsNodesRestore(in, root, st, true, nodeMiss, &made);
-			st.browserSrcNode[card] = made.Empty() || made[0] < 0 ? 0 : made[0] + 1;
+			NkAsNodesRestore(in, root, rel, st, true, nodeMiss, &made, nullptr, geoOldOut);
+			st.Card(card).srcNode = made.Empty() || made[0] < 0 ? 0 : made[0] + 1;
 		}
 
 		// ─────────────────────────────────────────────────────────────────────────
@@ -1366,33 +1521,33 @@ namespace nkentseu {
 			// Les liens internes (dossier parent) restent des RANGS DANS LE FICHIER,
 			// jamais des indices de session : les emplacements se recyclent.
 			NkVector<int32> rank;
-			for (int32 b = 0; b < st.browserCount; ++b)
+			for (int32 b = 0; b < st.BrowserCount(); ++b)
 				rank.PushBack(-1);
 			{
 				int32 next = 0;
-				for (int32 b = 0; b < st.browserCount; ++b)
-					if (st.browserKind[b] != 255)
+				for (int32 b = 0; b < st.BrowserCount(); ++b)
+					if (st.Card(b).kind != 255)
 						rank[(usize)b] = next++;
 			}
 			NkVector<NkArchive> cards;
 			NkVector<int32> docRank; // document -> rang de SA carte
 			for (int32 d = 0; d < NkModelerState::kMaxDocs; ++d)
 				docRank.PushBack(-1);
-			for (int32 b = 0; b < st.browserCount; ++b) {
-				if (st.browserKind[b] == 255)
+			for (int32 b = 0; b < st.BrowserCount(); ++b) {
+				if (st.Card(b).kind == 255)
 					continue; // carte supprimee : un trou, pas une carte
 				NkArchive c;
-				c.SetInt32("nature", (int32)st.browserKind[b]);
-				c.SetString("nom", st.browserNames[b]);
-				const int32 pp = st.browserParent[b];
-				c.SetInt32("parent", (pp >= 0 && pp < st.browserCount) ? rank[(usize)pp] : -1);
-				c.SetInt32("sousType", (int32)st.browserSub[b]);
+				c.SetInt32("nature", (int32)st.Card(b).kind);
+				c.SetString("nom", st.Card(b).name);
+				const int32 pp = st.Card(b).parent;
+				c.SetInt32("parent", (pp >= 0 && pp < st.BrowserCount()) ? rank[(usize)pp] : -1);
+				c.SetInt32("sousType", (int32)st.Card(b).sub);
 				// LE LIEN VERS SON FICHIER. Une carte sans fichier (texture, graphe,
 				// dataset) ecrit une chaine vide : elle existe, elle n'a pas encore
 				// de contenu, et le fichier le DIT plutot que de le taire.
-				c.SetString("fichier", st.browserFile[b]);
+				c.SetString("fichier", st.Card(b).file);
 				cards.PushBack(c);
-				const int32 dd = st.browserDoc[b] - 1;
+				const int32 dd = st.Card(b).doc - 1;
 				if (dd >= 0 && dd < NkModelerState::kMaxDocs)
 					docRank[(usize)dd] = rank[(usize)b];
 			}
@@ -1430,24 +1585,41 @@ namespace nkentseu {
 		/// sauvegarde, jamais par un second ecrivain). Rend vrai si la carte n'a
 		/// rien a ecrire (nature sans fichier, document absent) : « rien a faire »
 		/// n'est pas un echec. Rend faux, avec `err`, si l'ecriture echoue.
+		///
+		/// 🔴 ET « L'ECRITURE » COMPTE LES DEUX FICHIERS (Rodolf, 06/09). Une carte
+		/// de model, c'est un `.nkmesh` de structure ET un `.nkgeo` de matiere. Le
+		/// premier fait 1,6 Ko, le second 9 Mo pour un mannequin de 150 000
+		/// sommets : sur un disque plein, le petit passe et le gros non. Tant que
+		/// seul `NkAsWrite` decidait du verdict, cette carte-la rendait VRAI, et le
+		/// bandeau disait « Import reussi » sur un objet dont la matiere n'etait
+		/// nulle part. C'est le defaut des cubes blancs sous un autre nom -- du
+		/// visible qui n'est pas persistant --, et il n'est ferme que si l'echec du
+		/// `.nkgeo` fait rougir le geste.
 		inline bool NkProjectWriteCard(const NkString &root, NkModelerState &st, int32 b,
 									   NkString *err) {
-			const uint8 k = st.browserKind[b];
+			const uint8 k = st.Card(b).kind;
 			if (k == 255 || !NkAsExtFor(k))
 				return true;
 			const NkString rel = NkAsRelFor(st, b);
 			if (rel.Empty())
 				return true;
 			NkArchive a;
+			// LA CAPTURE ECRIT DEJA LE `.nkgeo` : son verdict est retenu ici et
+			// rendu a la FIN, apres que le `.nkmesh` soit parti. On ecrit quand
+			// meme la structure -- elle porte `geometriePropre: true`, et c'est ce
+			// drapeau qui fera DIRE a la reouverture quel objet a perdu sa matiere,
+			// au lieu de rendre un cube muet.
+			bool geoOk = true;
+			NkString geoErr;
 			if (k == 5) {
-				const int32 d = st.browserDoc[b] - 1;
+				const int32 d = st.Card(b).doc - 1;
 				if (d < 0 || d >= NkModelerState::kMaxDocs || !st.docUsed[d])
 					return true;
-				NkAsSceneCapture(a, root, st, d);
+				geoOk = NkAsSceneCapture(a, root, rel, st, d, &geoErr);
 			} else if (k == 6) {
-				NkAsModelCapture(a, root, st, b);
+				geoOk = NkAsModelCapture(a, root, rel, st, b, &geoErr);
 			} else {
-				const int32 m = st.browserMat[b] - 1;
+				const int32 m = st.Card(b).mat - 1;
 				if (m < 0)
 					return true;
 				NkAsMatCapture(a, root, m);
@@ -1457,8 +1629,11 @@ namespace nkentseu {
 			// L'ORIGINE CORRIGEE EST SUR LE DISQUE : la carte se desarme.
 			// APRES l'ecriture reussie, jamais avant -- un desarmement sur une
 			// ecriture echouee perdrait la correction sans un message.
-			if (k == 6)
-				st.browserOriginDirty[b] = false;
+			// ⚠️ ET PAS QUAND LA GEOMETRIE MANQUE : le drapeau est ce qui fera
+			// reprendre cette carte au prochain « Enregistrer ». Le desarmer sur un
+			// fichier a moitie ecrit condamnerait la matiere a ne jamais partir.
+			if (k == 6 && geoOk)
+				st.Card(b).originDirty = false;
 			// ── LA VIGNETTE D'UN MATERIAU SE PREND ICI ──────────────────
 			// « Les cartes recoivent le resultat correct, sous forme de
 			// capture a la sauvegarde » (Rihen, 13 aout) : le fichier et son
@@ -1466,23 +1641,35 @@ namespace nkentseu {
 			// une DEMANDE, pas un rendu -- la capture a besoin d'une frame,
 			// et nous ne sommes pas dans le rendu ici.
 			if (k == 2) {
-				const int32 m = st.browserMat[b] - 1;
+				const int32 m = st.Card(b).mat - 1;
 				if (m >= 0)
 					demo::Demo3DHostMatThumbRequest(m, nullptr);
 			}
 			// RENOMMEE OU DEPLACEE : l'ancien fichier est retire. Sans cela le
 			// dossier du projet accumulerait des orphelins que plus rien ne
 			// designe -- et qu'on prendrait, plus tard, pour du travail perdu.
-			const NkString old(st.browserFile[b]);
+			const NkString old(st.Card(b).file);
 			if (!old.Empty() && !(old == rel))
 				(void)NkFile::Delete(NkScToAbs(root, old.CStr()).CStr());
-			NkScPut(st.browserFile[b], (uint32)sizeof(st.browserFile[0]), rel.CStr());
+			NkScPut(st.Card(b).file, (uint32)NkModelerState::kCardFileCap, rel.CStr());
 			// La DATE sert au classement du navigateur. Relevee ICI, a
 			// l'ecriture, plutot qu'interrogee a la peinture : trente-deux
 			// appels au systeme de fichiers par image couteraient plus cher que
 			// tout le navigateur.
-			st.browserTime[b] =
+			st.Card(b).time =
 				NkFileSystem::GetLastWriteTime(NkScToAbs(root, rel.CStr()).CStr());
+			// LA COMPTABILITE DE LA CARTE EST FAITE MEME QUAND LA MATIERE MANQUE :
+			// le `.nkmesh` EST sur le disque, a `rel`, et pretendre le contraire
+			// laisserait un orphelin derriere le prochain renommage. Le verdict,
+			// lui, est FAUX -- et il l'est en dernier, une fois l'etat coherent.
+			if (!geoOk) {
+				if (err)
+					*err = NkString("geometrie NON ecrite : ") + geoErr +
+						   ". La structure de « " + rel +
+						   " » est sur le disque, sa matiere NON : ces objets "
+						   "reviendront en primitive, et la reouverture le dira.";
+				return false;
+			}
 			return true;
 		}
 
@@ -1519,24 +1706,24 @@ namespace nkentseu {
 					st.docUnitScale[dA] = st.unitScale;
 				}
 			}
-			for (int32 b = 0; b < st.browserCount; ++b) {
-				const uint8 k = st.browserKind[b];
+			for (int32 b = 0; b < st.BrowserCount(); ++b) {
+				const uint8 k = st.Card(b).kind;
 				if (k == 255 || !NkAsExtFor(k))
 					continue;
 				// « Enregistrer » ecrit CE QU'ON REGARDE (regle de Rihen), plus deux
 				// exemptions : les MATERIAUX (deja la), et les MODELS DONT L'ORIGINE
-				// A ETE CORRIGEE EN MEMOIRE au depot (browserOriginDirty -- decision
+				// A ETE CORRIGEE EN MEMOIRE au depot (Card(i).originDirty -- decision
 				// de Rihen, 17/08 : l'origine stockee dans le `.nkmesh` est la
 				// reference du pipeline d'export ; FBX repositionnera l'objet pour
 				// que son origine soit a (0,0,0), donc une origine fausse dans le
 				// fichier produirait un export decale). L'utilisateur ne peut pas
 				// « regarder » cette correction : elle est faite par le systeme, et
 				// c'est precisement pour ca qu'elle suit l'exemption, pas la regle.
-				// La garde `browserSrcNode > 0` protege d'un drapeau devenu orphelin
+				// La garde `Card(i).srcNode > 0` protege d'un drapeau devenu orphelin
 				// sur un emplacement recycle : huit sites remettent srcNode a zero,
 				// et le drapeau ne se justifie que tant que l'archive existe.
 				if (onlyCard >= 0 && b != onlyCard && k != 2 &&
-					!(k == 6 && st.browserOriginDirty[b] && st.browserSrcNode[b] > 0))
+					!(k == 6 && st.Card(b).originDirty && st.Card(b).srcNode > 0))
 					continue; // « Enregistrer » : ce fichier-ci, et les exemptions
 				// LE CORPS EST NkProjectWriteCard : le meme pour « Enregistrer » et
 				// pour l'import -- un seul ecrivain de carte dans tout le modeleur.
@@ -1569,24 +1756,13 @@ namespace nkentseu {
 			for (int32 n = 0; n < nodeMax; ++n)
 				if (demo::Demo3DHostUserKind(n) != 0 && !demo::Demo3DHostNodeDeleted(n))
 					demo::Demo3DHostDeleteNode(n, false);
-			for (int32 n = 96; n < nodeMax && n < 176; ++n)
+			for (int32 n = 96; n < nodeMax && n < NkModelerState::kMaxNodeNames; ++n)
 				st.customNames[n][0] = 0;
 			demo::Demo3DHostProjMatClear();
-			st.browserCount = 0;
+			st.cards.Clear();
 			st.browserFolder = -1;
 			st.browClip = -1;
 			st.browMenuIdx = -1;
-			for (int32 b = 0; b < NkModelerState::kMaxBrowser; ++b) {
-				st.browserKind[b] = 255;
-				st.browserNames[b][0] = 0;
-				st.browserParent[b] = -1;
-				st.browserSub[b] = 0;
-				st.browserSrcNode[b] = 0;
-				st.browserDoc[b] = 0;
-				st.browserMat[b] = 0;
-				st.browserFile[b][0] = 0;
-				st.browserOriginDirty[b] = false; // transient : jamais serialise
-			}
 			for (int32 d = 0; d < NkModelerState::kMaxDocs; ++d)
 				st.DocFree(d);
 			st.sceneIdNext = 1;
@@ -1598,17 +1774,13 @@ namespace nkentseu {
 			(void)in.GetObjectArray("navigateur", cards);
 			NkVector<int32> cardOf;
 			for (usize i = 0; i < cards.Size(); ++i) {
-				if (st.browserCount >= NkModelerState::kMaxBrowser) {
-					cardOf.PushBack(-1);
-					continue;
-				}
-				const int32 c = st.browserCount++;
+				const int32 c = st.CardAdd();
 				cardOf.PushBack(c);
-				st.browserKind[c] = (uint8)(NkScInt(cards[i], "nature", 1) & 0xFF);
-				NkScPut(st.browserNames[c], (uint32)sizeof(st.browserNames[0]),
+				st.Card(c).kind = (uint8)(NkScInt(cards[i], "nature", 1) & 0xFF);
+				NkScPut(st.Card(c).name, (uint32)NkModelerState::kCardNameCap,
 						NkScStr(cards[i], "nom").CStr());
-				st.browserSub[c] = (uint8)(NkScInt(cards[i], "sousType", 0) & 0xFF);
-				NkScPut(st.browserFile[c], (uint32)sizeof(st.browserFile[0]),
+				st.Card(c).sub = (uint8)(NkScInt(cards[i], "sousType", 0) & 0xFF);
+				NkScPut(st.Card(c).file, (uint32)NkModelerState::kCardFileCap,
 						NkScStr(cards[i], "fichier").CStr());
 			}
 			// Parent en SECONDE PASSE : un dossier peut etre ecrit apres son contenu.
@@ -1617,23 +1789,27 @@ namespace nkentseu {
 					continue;
 				const int32 pr = NkScInt(cards[i], "parent", -1);
 				if (pr >= 0 && (usize)pr < cardOf.Size() && cardOf[(usize)pr] >= 0)
-					st.browserParent[cardOf[i]] = cardOf[(usize)pr];
+					st.Card(cardOf[i]).parent = cardOf[(usize)pr];
 			}
 
 			int32 texMiss = 0, nodeMiss = 0, fileMiss = 0, orphanFix = 0;
+			// Objets d'un fichier ANTERIEUR au 06/09 qui reviennent en primitive
+			// faute de geometrie ecrite. Accumule sur TOUT le projet : voir
+			// NkAsNodesRestore pour la raison de ne pas le dire asset par asset.
+			int32 geoOld = 0;
 
 			// ── LES MATERIAUX D'ABORD : les noeuds s'y assignent par chemin ──
-			for (int32 b = 0; b < st.browserCount; ++b) {
-				if (st.browserKind[b] != 2)
+			for (int32 b = 0; b < st.BrowserCount(); ++b) {
+				if (st.Card(b).kind != 2)
 					continue;
 				const int32 slot = demo::Demo3DHostProjMatCreate();
 				if (slot < 0)
 					continue;
-				st.browserMat[b] = slot + 1;
-				demo::Demo3DHostProjMatSetName(slot, st.browserNames[b]);
+				st.Card(b).mat = slot + 1;
+				demo::Demo3DHostProjMatSetName(slot, st.Card(b).name);
 				NkArchive a;
-				if (!st.browserFile[b][0] || !NkAsRead(root, st.browserFile[b], a)) {
-					if (st.browserFile[b][0])
+				if (!st.Card(b).file[0] || !NkAsRead(root, st.Card(b).file, a)) {
+					if (st.Card(b).file[0])
 						++fileMiss;
 					continue;
 				}
@@ -1645,12 +1821,12 @@ namespace nkentseu {
 			}
 
 			// ── LES MODELS : archives, dans aucune scene ──
-			for (int32 b = 0; b < st.browserCount; ++b) {
-				if (st.browserKind[b] != 6)
+			for (int32 b = 0; b < st.BrowserCount(); ++b) {
+				if (st.Card(b).kind != 6)
 					continue;
 				NkArchive a;
-				if (!st.browserFile[b][0] || !NkAsRead(root, st.browserFile[b], a)) {
-					if (st.browserFile[b][0])
+				if (!st.Card(b).file[0] || !NkAsRead(root, st.Card(b).file, a)) {
+					if (st.Card(b).file[0])
 						++fileMiss;
 					continue;
 				}
@@ -1658,26 +1834,26 @@ namespace nkentseu {
 					++fileMiss;
 					continue;
 				}
-				NkAsModelRestore(a, root, st, b, &nodeMiss);
+				NkAsModelRestore(a, root, NkString(st.Card(b).file), st, b, &nodeMiss, &geoOld);
 			}
 
 			// ── LES SCENES : chacune son document, chacune ses noeuds ──
-			for (int32 b = 0; b < st.browserCount; ++b) {
-				if (st.browserKind[b] != 5)
+			for (int32 b = 0; b < st.BrowserCount(); ++b) {
+				if (st.Card(b).kind != 5)
 					continue;
 				const int32 d = st.DocAlloc();
 				if (d < 0)
 					continue;
-				st.browserDoc[b] = d + 1;
+				st.Card(b).doc = d + 1;
 				st.docCard[d] = b + 1;
 				// LE NUMERO DE SCENE HOTE EST ATTRIBUE ICI, il n'est plus dans le
 				// fichier : rien ne peut donc plus le rendre faux. C'etait le champ
 				// par lequel les donnees fuyaient d'un type a l'autre.
 				st.docScene[d] = (uint8)(st.sceneIdNext++ & 0xFF);
-				NkScPut(st.docName[d], (uint32)sizeof(st.docName[0]), st.browserNames[b]);
+				NkScPut(st.docName[d], (uint32)sizeof(st.docName[0]), st.Card(b).name);
 				NkArchive a;
-				if (!st.browserFile[b][0] || !NkAsRead(root, st.browserFile[b], a)) {
-					if (st.browserFile[b][0])
+				if (!st.Card(b).file[0] || !NkAsRead(root, st.Card(b).file, a)) {
+					if (st.Card(b).file[0])
 						++fileMiss;
 					continue;
 				}
@@ -1685,7 +1861,25 @@ namespace nkentseu {
 					++fileMiss;
 					continue;
 				}
-				NkAsSceneRestore(a, root, st, d, &nodeMiss, &orphanFix);
+				NkAsSceneRestore(a, root, NkString(st.Card(b).file), st, d, &nodeMiss,
+								 &orphanFix, &geoOld);
+			}
+
+			// ── LE PROJET EST D'AVANT LE 06/09 : DIT UNE FOIS, ET AU CONDITIONNEL
+			// On ne PEUT PAS savoir lequel de ces objets etait un import : un cube
+			// du menu et un modele importe s'ecrivaient a l'identique dans le
+			// format 1. La verite qu'on n'a pas ne se remplace pas par celle qui
+			// arrange -- le message dit « si l'un d'eux », et rien de plus.
+			if (geoOld > 0) {
+				char t[kToastTexte];
+				snprintf(t, sizeof(t),
+						 "Ce projet a ete enregistre AVANT le 06/09, quand le format n'ecrivait "
+						 "pas la geometrie. %d objet(s) reviennent en primitive : si l'un d'eux "
+						 "etait un modele IMPORTE, son maillage n'est pas dans le fichier -- "
+						 "reimportez-le, puis enregistrez (a partir de la, il est ecrit).",
+						 geoOld);
+				NkToastPush(NkToastKind::Partiel, t);
+				NkLog::Instance().Warnf("[geom] %s", t);
 			}
 
 			// UN PROJET A TOUJOURS AU MOINS UNE SCENE : sans document, l'application
@@ -1710,7 +1904,7 @@ namespace nkentseu {
 				const int32 cr = NkScInt(views[v], "carte", -1);
 				if (cr < 0 || (usize)cr >= cardOf.Size() || cardOf[(usize)cr] < 0)
 					continue;
-				const int32 d = st.browserDoc[cardOf[(usize)cr]] - 1;
+				const int32 d = st.Card(cardOf[(usize)cr]).doc - 1;
 				if (d < 0 || d >= NkModelerState::kMaxDocs || !st.docUsed[d])
 					continue;
 				st.sceneTabDoc[cnt] = d;
@@ -1787,8 +1981,8 @@ namespace nkentseu {
 
 		/// Carte portant ce chemin relatif, ou -1.
 		inline int32 NkAsCardForFile(const NkModelerState &st, const NkString &rel) {
-			for (int32 b = 0; b < st.browserCount; ++b)
-				if (st.browserKind[b] != 255 && NkString(st.browserFile[b]) == rel)
+			for (int32 b = 0; b < st.BrowserCount(); ++b)
+				if (st.Card(b).kind != 255 && NkString(st.Card(b).file) == rel)
 					return b;
 			return -1;
 		}
@@ -1808,22 +2002,20 @@ namespace nkentseu {
 				if (part.Empty())
 					continue;
 				int32 found = -1;
-				for (int32 b = 0; b < st.browserCount && found < 0; ++b)
-					if (st.browserKind[b] == 1 && st.browserParent[b] == parent &&
-						NkString(st.browserNames[b]) == part)
+				for (int32 b = 0; b < st.BrowserCount() && found < 0; ++b)
+					if (st.Card(b).kind == 1 && st.Card(b).parent == parent &&
+						NkString(st.Card(b).name) == part)
 						found = b;
 				if (found < 0) {
-					if (st.browserCount >= NkModelerState::kMaxBrowser)
-						return parent;
-					found = st.browserCount++;
-					st.browserKind[found] = 1;
-					st.browserParent[found] = parent;
-					st.browserSub[found] = 0;
-					st.browserDoc[found] = 0;
-					st.browserMat[found] = 0;
-					st.browserSrcNode[found] = 0;
-					st.browserFile[found][0] = 0;
-					NkScPut(st.browserNames[found], (uint32)sizeof(st.browserNames[0]),
+					found = st.CardAdd();
+					st.Card(found).kind = 1;
+					st.Card(found).parent = parent;
+					st.Card(found).sub = 0;
+					st.Card(found).doc = 0;
+					st.Card(found).mat = 0;
+					st.Card(found).srcNode = 0;
+					st.Card(found).file[0] = 0;
+					NkScPut(st.Card(found).name, (uint32)NkModelerState::kCardNameCap,
 							part.CStr());
 				}
 				parent = found;
@@ -1886,9 +2078,9 @@ namespace nkentseu {
 		/// n'a plus rien a montrer, et la laisser ouverte ferait reecrire le fichier
 		/// au prochain enregistrement, donc annulerait la suppression.
 		inline void NkAsDropCard(NkModelerState &st, int32 b) {
-			const uint8 k = st.browserKind[b];
+			const uint8 k = st.Card(b).kind;
 			if (k == 5) {
-				const int32 d = st.browserDoc[b] - 1;
+				const int32 d = st.Card(b).doc - 1;
 				if (d >= 0 && d < NkModelerState::kMaxDocs && st.docUsed[d]) {
 					for (int32 t = st.sceneCount - 1; t >= 0; --t)
 						if (st.TabDoc(t) == d)
@@ -1903,7 +2095,7 @@ namespace nkentseu {
 					st.DocFree(d);
 				}
 			} else if (k == 6) {
-				const int32 n = st.browserSrcNode[b] - 1;
+				const int32 n = st.Card(b).srcNode - 1;
 				if (n >= 0) {
 					for (int32 t = st.sceneCount - 1; t >= 0; --t) {
 						const int32 dt = st.TabDoc(t);
@@ -1913,8 +2105,8 @@ namespace nkentseu {
 					demo::Demo3DHostDeleteNode(n, true);
 				}
 			}
-			st.browserKind[b] = 255;
-			st.browserFile[b][0] = 0;
+			st.Card(b).kind = 255;
+			st.Card(b).file[0] = 0;
 			if (st.browserFolder == b)
 				st.browserFolder = -1;
 			if (st.selectedAsset == b)
@@ -1940,23 +2132,21 @@ namespace nkentseu {
 				kind = 2;
 			else
 				return false;
-			if (st.browserCount >= NkModelerState::kMaxBrowser)
-				return false;
 			// Le dossier de l'arbre suit le dossier du disque.
 			NkString dirRel;
 			const NkString::SizeType s = rel.RFind('/');
 			if (s != NkString::npos)
 				dirRel = NkString(rel.CStr(), s + 1u);
 			const int32 parent = NkAsEnsureFolder(st, dirRel);
-			const int32 b = st.browserCount++;
-			st.browserKind[b] = kind;
-			st.browserParent[b] = parent;
-			st.browserSub[b] = 0;
-			st.browserDoc[b] = 0;
-			st.browserMat[b] = 0;
-			st.browserSrcNode[b] = 0;
-			NkScPut(st.browserFile[b], (uint32)sizeof(st.browserFile[0]), rel.CStr());
-			st.browserTime[b] =
+			const int32 b = st.CardAdd();
+			st.Card(b).kind = kind;
+			st.Card(b).parent = parent;
+			st.Card(b).sub = 0;
+			st.Card(b).doc = 0;
+			st.Card(b).mat = 0;
+			st.Card(b).srcNode = 0;
+			NkScPut(st.Card(b).file, (uint32)NkModelerState::kCardFileCap, rel.CStr());
+			st.Card(b).time =
 				NkFileSystem::GetLastWriteTime(NkScToAbs(root, rel.CStr()).CStr());
 			// Le nom vient du FICHIER : c'est lui qui fait foi maintenant.
 			{
@@ -1968,7 +2158,7 @@ namespace nkentseu {
 				if (d != NkString::npos)
 					base = NkString(base.CStr(), d);
 				NkString nm = NkScStr(a, "nom");
-				NkScPut(st.browserNames[b], (uint32)sizeof(st.browserNames[0]),
+				NkScPut(st.Card(b).name, (uint32)NkModelerState::kCardNameCap,
 						nm.Empty() ? base.CStr() : nm.CStr());
 			}
 			int32 miss = 0, orph = 0, texMiss = 0;
@@ -1976,19 +2166,19 @@ namespace nkentseu {
 				const int32 slot = demo::Demo3DHostProjMatCreate();
 				if (slot < 0)
 					return false;
-				st.browserMat[b] = slot + 1;
+				st.Card(b).mat = slot + 1;
 				NkAsMatRestore(a, root, slot, &texMiss);
 			} else if (kind == 6) {
-				NkAsModelRestore(a, root, st, b, &miss);
+				NkAsModelRestore(a, root, rel, st, b, &miss);
 			} else {
 				const int32 d = st.DocAlloc();
 				if (d < 0)
 					return false;
-				st.browserDoc[b] = d + 1;
+				st.Card(b).doc = d + 1;
 				st.docCard[d] = b + 1;
 				st.docScene[d] = (uint8)(st.sceneIdNext++ & 0xFF);
-				NkScPut(st.docName[d], (uint32)sizeof(st.docName[0]), st.browserNames[b]);
-				NkAsSceneRestore(a, root, st, d, &miss, &orph);
+				NkScPut(st.docName[d], (uint32)sizeof(st.docName[0]), st.Card(b).name);
+				NkAsSceneRestore(a, root, rel, st, d, &miss, &orph);
 			}
 			return true;
 		}
@@ -2036,9 +2226,9 @@ namespace nkentseu {
 					// qu'il ait cree la carte ou simplement retrouve l'existante :
 					// compter son succes ferait croire a un changement A CHAQUE
 					// balayage, et le projet se declarerait modifie en permanence.
-					const int32 avant = st.browserCount;
+					const int32 avant = st.BrowserCount();
 					(void)NkAsEnsureFolder(st, rel);
-					if (st.browserCount != avant)
+					if (st.BrowserCount() != avant)
 						++changes;
 				}
 			}
@@ -2053,11 +2243,11 @@ namespace nkentseu {
 			// Seules les cartes qui ONT DEJA ete ecrites sont concernees : une
 			// carte creee a l'instant et pas encore enregistree n'a pas de fichier,
 			// et la faire disparaitre serait effacer un travail tout neuf.
-			for (int32 b = 0; b < st.browserCount; ++b) {
-				if (st.browserKind[b] == 255 || !st.browserFile[b][0])
+			for (int32 b = 0; b < st.BrowserCount(); ++b) {
+				if (st.Card(b).kind == 255 || !st.Card(b).file[0])
 					continue;
 				bool alive = false;
-				const NkString rel(st.browserFile[b]);
+				const NkString rel(st.Card(b).file);
 				for (usize i = 0; i < found.Size() && !alive; ++i)
 					alive = (found[i] == rel);
 				if (alive)

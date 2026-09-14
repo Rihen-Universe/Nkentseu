@@ -44,6 +44,11 @@
 //    Famille 2 — les jetons REELS des composants declares, par le registre
 //    Famille 3 — le repli franc : compte ET nomme
 //    Famille 4 — le vocabulaire de backend graphique, Metal compris
+//    Famille 15 — les roles d'ALERTE et le repli DECLARE (14/09). Numerotee 15
+//       et non 6 a dessein : le sous-banc du selecteur (familles 5 a 14, dans
+//       `NkFilePickerNavProbe.h`) imprime deja des essais « 6a » a « 6l ». Deux
+//       « 6k » differents dans un meme rapport, c'est un instrument qui ment --
+//       on lit le mauvais verdict sans s'en apercevoir.
 //  Pour ajouter un essai : ecrire un `Check(...)` dans la famille concernee.
 //  Pour ajouter une famille : ecrire `static void FamilleN()` et l'appeler dans
 //  `main`. Rien d'autre a toucher.
@@ -68,6 +73,22 @@
 //  |   vrai -> 4e et 4f rouges                           |          |      |
 //  | APRES correctif, sans mutation                      | 28/28    |  0   |
 //
+//  RELEVE DU 2026-09-14, famille 15 (roles d'alerte). Meme discipline : les deux
+//  mutations sont posees DANS LE KIT, pas dans le banc.
+//
+//  | etat mesure                                        | resultat | code |
+//  |----------------------------------------------------|----------|------|
+//  | MUTATION A : `NkTheme::Get` rend la sentinelle telle| 108/113  |  1   |
+//  |   quelle (`return c;` au lieu de `Replier(r)`) --   |          |      |
+//  |   c'est LITTERALEMENT l'etat d'avant le 14/09.      |          |      |
+//  |   Rouges : 15i, 15j, 15k, 15l, 15m                  |          |      |
+//  | MUTATION B : `Light()` repose les trois statuts aux | 111/113  |  1   |
+//  |   valeurs Dark (une seule couleur pour les deux     |          |      |
+//  |   themes, l'etat d'avant lui aussi).                |          |      |
+//  |   Rouges : 15c, 15g -- et 15g NOMME la paire :      |          |      |
+//  |   « status_warn sur panel_header = 2.10 (exige 3.00)|          |      |
+//  | APRES correctif, sans mutation                      | 113/113  |  0   |
+//
 //  Pour rejouer une mutation : la poser a la main dans le kit, reconstruire,
 //  relancer. C'est deux minutes, et c'est la seule chose qui distingue un banc
 //  d'un decor.
@@ -81,6 +102,12 @@
 // (`NkFilePickerNavProbe.h`) : c'est le kit qu'il mesure, et une fusion doit
 // l'emporter avec le correctif qu'il garde. Ici, une ligne d'appel.
 #include "NKEditorKit/NkFilePickerNavProbe.h"
+// (o1) LA BANDE D'ONGLETS PARTAGEE et le peintre qui ENREGISTRE ce qui est
+// peint : le banc lit le flux, il ne croit pas un resultat rapporte.
+#include "NKEditorKit/Components/NkTabStripModel.h"
+#include "NKEditorKit/Components/NkRecordingPaint.h"
+// (o3) la porte du chrome : les couches de surfaces et PointReachable
+#include "NKEditorKit/NkEditorSurface.h"
 
 #include <stdio.h>
 
@@ -386,6 +413,503 @@ static void Famille4_BackendGraphique() {
 }
 
 // =============================================================================
+//  FAMILLE 15 — LES ROLES D'ALERTE, ET LE REPLI QUI NE SE TAIT PLUS (14/09)
+// =============================================================================
+//  DEUX CHOSES, et elles ne se prouvent pas de la meme facon.
+//
+//  A. LE ROLE. `StatusWarn` existe, porte une couleur DIFFERENTE dans les deux
+//     themes, et ne se confond ni avec l'erreur, ni avec l'ambre de selection
+//     3D. Le negatif est ecrit AVANT : un role qui n'existe pas doit etre
+//     REFUSE par son nom, jamais rendu noir (6f).
+//
+//  B. LE REPLI. Un theme charge depuis un FICHIER qui ne porte pas la ligne
+//     `status_warn` ne doit PAS peindre transparent : il doit prendre la
+//     couleur du role de repli ET LE DIRE dans `NkRoleAudit::Replis()`. C'est
+//     l'essai 15i, et c'est le seul du lot qui mesure le defaut d'origine --
+//     avant le correctif il sortait 0x00000000 sans une ligne de trace.
+//
+//  ⚠️ CE QUE CETTE FAMILLE NE MESURE PAS : que la couleur arrive a l'ecran.
+//     Aucun banc sans fenetre ne peut le dire. C'est la sonde `NK_THEME_PROBE`
+//     de NK3DModeler qui le tient, au pixel, et son releve est dans le canal.
+static void Famille15_RolesAlerte() {
+	printf("\n[Famille 6] roles d'alerte et repli declare\n");
+
+	const NkTheme d = NkTheme::Dark();
+	const NkTheme l = NkTheme::Light();
+
+	// 6a — le role existe, et se nomme comme les deux autres de sa triade.
+	Check("15a", Same(NkRoleName(NkRole::StatusWarn), "status_warn"),
+		  "StatusWarn porte la cle `status_warn`, famille de status_ok/status_err");
+
+	// 6b — il resout PAR NOM, le chemin que prennent 46 des 51 lectures.
+	Check("15b", NkResolveRole("status_warn") == (uint16)NkRole::StatusWarn,
+		  "`status_warn` resout par nom sur le bon identifiant");
+
+	// 6c — ATTENDU DERIVE, pas constate : chaque statut doit DIFFERER entre les
+	// deux themes. Ecrit avant la mesure, et il tombait avant le correctif --
+	// StatusOk et StatusErr etaient poses UNE SEULE FOIS pour les deux.
+	const bool tousDifferents =
+		d.Get(NkRole::StatusOk) != l.Get(NkRole::StatusOk) &&
+		d.Get(NkRole::StatusWarn) != l.Get(NkRole::StatusWarn) &&
+		d.Get(NkRole::StatusErr) != l.Get(NkRole::StatusErr);
+	Check("15c", tousDifferents,
+		  "les TROIS statuts rendent une couleur differente en sombre et en clair");
+
+	// 6e — et ils different ENTRE EUX dans chaque theme. Sans ce controle, un
+	// correctif qui poserait la meme couleur partout passerait 6d.
+	const bool distinctsEntreEux =
+		d.Get(NkRole::StatusOk) != d.Get(NkRole::StatusWarn) &&
+		d.Get(NkRole::StatusWarn) != d.Get(NkRole::StatusErr) &&
+		l.Get(NkRole::StatusOk) != l.Get(NkRole::StatusWarn) &&
+		l.Get(NkRole::StatusWarn) != l.Get(NkRole::StatusErr);
+	Check("15d", distinctsEntreEux,
+		  "les trois statuts sont distincts entre eux, dans CHAQUE theme");
+
+	// 6f — L'AVERTISSEMENT N'EST PAS L'AMBRE DE SELECTION 3D. C'est la regle
+	// 10bis.2, et c'est precisement ce que le site emprunteur violait.
+	Check("15e",
+		  d.Get(NkRole::StatusWarn) != d.Get(NkRole::AccentSel) &&
+			  l.Get(NkRole::StatusWarn) != l.Get(NkRole::AccentSel),
+		  "StatusWarn != AccentSel : l'alerte n'emprunte plus la selection 3D");
+
+	// 6g — LE CONTRASTE, contre le seuil que le kit s'impose lui-meme. Les trois
+	// paires sont dans `ContrastPairs` : `Validate` echoue si l'une tombe.
+	NkThemeIssue pireD, pireL;
+	Check("15f", d.Validate(&pireD) == 0,
+		  "theme SOMBRE : aucune paire sous son seuil (les 3 statuts compris)");
+	Check("15g", l.Validate(&pireL) == 0,
+		  "theme CLAIR : aucune paire sous son seuil -- c'est lui qui tombait");
+	if (l.Validate(nullptr) != 0)
+		printf("         pire paire claire : %s sur %s = %.2f (exige %.2f)\n",
+			   NkRoleName(pireL.fg), NkRoleName(pireL.bg), (double)pireL.ratio,
+			   (double)pireL.required);
+
+	// ── B. LE REPLI ─────────────────────────────────────────────────────────
+	// Un theme de FICHIER ecrit avant le 14/09 : il ne porte pas `status_warn`.
+	// On le fabrique ici a la main -- c'est le cas reel, pas une hypothese.
+	NkRoleAudit::Reset();
+	NkTheme ancien;                       // tout magenta, sentinelles posees
+	ancien.Set(NkRole::AccentSel, 0xF2980EFFu); // le repli, lui, est pose
+	Check("15h", ancien.GetBrut(NkRole::StatusWarn) == NkThemeNonDefini,
+		  "controle de depart : dans ce theme, status_warn n'a PAS ete pose");
+
+	const NkThemeColor peint = ancien.Get(NkRole::StatusWarn);
+	// 6k — LE DEFAUT D'ORIGINE, exactement. Avant le correctif, `Get` rendait la
+	// sentinelle : 0x00000000, un noir a alpha nul. Le role disparaissait.
+	Check("15i", peint != NkThemeNonDefini,
+		  "un role non pose ne rend PLUS la sentinelle transparente");
+	Check("15j", peint == 0xF2980EFFu,
+		  "il rend la couleur de son repli declare (AccentSel), pas du noir");
+
+	// 6m — ET IL LE DIT. Un repli muet est interdit : c'est la regle, et sans
+	// cet essai le correctif serait « une couleur de plus », pas une politique.
+	Check("15k", NkRoleAudit::RepliCount() == 1,
+		  "le repli est ANNONCE : une entree dans NkRoleAudit::Replis()");
+	const bool nomme = NkRoleAudit::RepliCount() == 1 &&
+					   Same(NkRoleAudit::Replis()[0].name.CStr(), "status_warn") &&
+					   Same(NkRoleAudit::Replis()[0].canon.CStr(), "accent_sel");
+	Check("15l", nomme, "l'annonce NOMME le role absent ET celui dont il a pris la couleur");
+
+	// 6o — DEDUPLICATION. Le dessin lit le role a chaque image ; sans elle, la
+	// liste grossirait de 60 entrees par seconde et la fuite se presenterait
+	// comme un ralentissement, jamais comme un defaut de theme.
+	for (int32 i = 0; i < 200; ++i)
+		(void)ancien.Get(NkRole::StatusWarn);
+	Check("15m", NkRoleAudit::RepliCount() == 1,
+		  "200 lectures de plus n'ajoutent pas une seule entree (deduplication)");
+
+	// 6p — CONTROLE NEGATIF DU REPLI. Un role OBLIGATOIRE n'a pas de repli : il
+	// doit crier en magenta, pas emprunter la couleur du voisin. Sans cet essai,
+	// une table qui replierait TOUT passerait 6l sans rien prouver.
+	Check("15n", NkRoleRepli(NkRole::Text) == NkRole::Count &&
+					NkRoleRepli(NkRole::WindowBg) == NkRole::Count,
+		  "controle negatif : Text et WindowBg n'ont AUCUN repli -- ils sont dus");
+
+	// 6q — et le repli ne se declenche pas quand la couleur EST posee. Sans lui,
+	// un `Get` qui replierait toujours passerait 6l et 6m.
+	NkRoleAudit::Reset();
+	(void)d.Get(NkRole::StatusWarn);
+	(void)d.Get(NkRole::StatusErr);
+	(void)d.Get(NkRole::DocMuted);
+	Check("15o", NkRoleAudit::RepliCount() == 0,
+		  "controle negatif : sur un theme complet, AUCUN repli n'est annonce");
+	NkRoleAudit::Reset();
+}
+
+//  ⚠️ NUMEROTATION : 16 et 19, avec un TROU en 17-18. La famille 15 est
+//     celle du chantier THEME (`Famille15_RolesAlerte`) ; la mienne s'est
+//     decalee a la fusion du 14/09 -- deux familles sous le meme numero
+//     rendraient les journaux illisibles. Le trou est deliberе : renumeroter
+//     19 perimerait un message de commit et des renvois de canal pour une
+//     contiguite qui n'apporte rien.
+//  FAMILLE 16 — LA BANDE D'ONGLETS PARTAGEE (canal `onglets.questions.md`, o1)
+// =============================================================================
+//  CE QU'ELLE PROUVE, ET CE QU'ELLE NE PROUVE PAS.
+//
+//  Rodolf a demande que la bande d'onglets soit COMBLEE DANS LA COQUILLE, pas
+//  recopiee chez Nogee. L'attendu derive du canal est ecrit noir sur blanc :
+//  « les onglets de Nogee et ceux du modeleur doivent venir du MEME code. Le
+//  prouver autrement qu'en le disant : une mutation dans la coquille doit
+//  changer les deux, ou le partage est une fiction. »
+//
+//  ⚠️ CE BANC NE PEUT PAS LANCER LES DEUX APPLICATIONS. Il prouve la propriete
+//     qui rend l'affirmation vraie : **la geometrie de la bande ne depend que
+//     du peintre et de la table de metriques partagee.** Deux hotes qui
+//     appellent `NkDrawTabStrip` avec les memes mesures de texte obtiennent la
+//     MEME bande, et une mutation de la metrique les deplace tous les deux.
+//
+//  ⚠️ ET CE QU'IL NE PROUVE PAS EST DIT : il ne montre aucun pixel. Le temoin
+//     visuel de la bande existe ailleurs (`NkOngletSonde`, captures
+//     `sonde_onglets/captures/`), et il est pris avec le peintre NKGui de la
+//     coquille — pas avec celui de NK3DModeler, dont l'application ne compile
+//     pas sur cette branche pour des raisons ANTERIEURES a ce lot (merge
+//     `e249d7151` ; 12 erreurs dans `main.cpp`, `NkModelerImport.h` et
+//     `NkDemo3D.cpp`, aucune dans un fichier de ce lot). Cf. le canal.
+namespace tabprobe {
+
+	using namespace nkentseu::editorkit;
+
+	/// ⚠️ UN SECOND PEINTRE, ET IL DIFFERE DE L'AUTRE LA OU CA COMPTE. Deux
+	///    instances de la meme classe ne prouveraient rien : elles partagent
+	///    jusqu'aux defauts. Celui-ci REMPLACE la mesure de texte — c'est la
+	///    seule entree par laquelle un hote peut faire varier la largeur d'un
+	///    onglet. S'il produisait la meme bande que l'autre, ce serait le signe
+	///    que la largeur NE depend PAS du texte, donc que le composant ignore
+	///    son peintre.
+	class PeintreLarge final : public NkRecordingPaint {
+		public:
+			float32 TextWidth(const char *s) const override {
+				usize n = 0;
+				while (s && s[n])
+					++n;
+				return (float32)n * 12.f; // 12 px/caractere au lieu de 7
+			}
+	};
+
+	/// Les rectangles d'onglets EMIS, dans l'ordre. On lit le flux plutot que le
+	/// resultat rendu : un composant pourrait rapporter une geometrie et en
+	/// peindre une autre — c'est exactement le defaut « declarer n'est pas
+	/// livrer » que ce depot a paye. Ici on mesure CE QUI EST PEINT.
+	inline void RectsPeints(const NkRecordingPaint &p, NkVector<float32> &xs,
+							NkVector<float32> &ws) {
+		xs.Clear();
+		ws.Clear();
+		for (usize i = 0; i < p.cmds.Size(); ++i) {
+			const NkPaintCmd &c = p.cmds[i];
+			// Les fonds d'onglets : des `Fill` arrondis. Le fond de BANDE, lui,
+			// n'est pas arrondi -- c'est ce qui les distingue sans compter sur
+			// un ordre d'emission.
+			if (c.op == NkPaintOp::Fill && c.rounding > 0.f && c.h > 0.f) {
+				xs.PushBack(c.x);
+				ws.PushBack(c.w);
+			}
+		}
+	}
+
+	inline void Modele(NkTabStripModel &m) {
+		m.tabs.Clear();
+		NkTabItem a;
+		a.id = 1;
+		a.label = NkString("Scene");
+		m.tabs.PushBack(a);
+		NkTabItem b;
+		b.id = 2;
+		b.label = NkString("Eclairage");
+		m.tabs.PushBack(b);
+		m.active = 1;
+	}
+
+	inline NkTabStripStyle Style(const NkComponentInstance *inst) {
+		NkTabStripStyle s;
+		s.bandBg = 1;
+		s.border = 2;
+		s.tabBg = 3;
+		s.tabHoverBg = 4;
+		s.tabActiveBg = 5;
+		s.text = 6;
+		s.textMuted = 7;
+		s.accent = 8;
+		s.values = inst;
+		return s;
+	}
+
+	/// Rend le nombre d'essais reussis et le total.
+	inline void Sonder(uint32 &ok, uint32 &total) {
+		NkComponentInput in; // souris HORS de la bande : aucun survol, aucun clic
+		in.mouseX = -1000.f;
+		in.mouseY = -1000.f;
+		const NkPaintRect rect{0.f, 0.f, 900.f, 28.f};
+
+		NkVector<float32> xs1, ws1, xs2, ws2, xs3, ws3;
+
+		// ── (a) LE MEME CODE, DEUX PEINTRES : la bande suit son peintre ──────
+		NkTabStripModel m1;
+		Modele(m1);
+		NkRecordingPaint p1;
+		NkDrawTabStrip(p1, in, rect, m1, Style(nullptr), NkTabStripHooks{});
+		RectsPeints(p1, xs1, ws1);
+
+		NkTabStripModel m2;
+		Modele(m2);
+		PeintreLarge p2;
+		NkDrawTabStrip(p2, in, rect, m2, Style(nullptr), NkTabStripHooks{});
+		RectsPeints(p2, xs2, ws2);
+
+		++total;
+		if (xs1.Size() == 2 && xs2.Size() == 2) {
+			++ok;
+		} else {
+			printf("  [FAIL] 16.a la bande n'a pas emis DEUX onglets (%u et %u)\n",
+				   (unsigned)xs1.Size(), (unsigned)xs2.Size());
+		}
+
+		// ⚠️ L'ATTENDU EST DERIVE, PAS ECRIT. La largeur d'un onglet vaut
+		//    `TextWidth(libelle) + tab_pad_x`. On la recalcule a partir des
+		//    parametres du banc (5 et 9 caracteres, 7 puis 12 px) et de la
+		//    metrique LUE dans la declaration — jamais d'un nombre recopie ici,
+		//    qui se perimerait le jour ou Rodolf change `tab_pad_x`.
+		const float32 pad = NkTabStripDecl().Metric("tab_pad_x");
+		++total;
+		if (xs1.Size() == 2 && ws1[0] > 0.f) {
+			const float32 attendu0 = 5.f * 7.f + pad;  // "Scene"
+			const float32 attendu1 = 9.f * 7.f + pad;  // "Eclairage"
+			const bool bon = (ws1[0] > attendu0 - 0.01f && ws1[0] < attendu0 + 0.01f) &&
+							 (ws1[1] > attendu1 - 0.01f && ws1[1] < attendu1 + 0.01f);
+			if (bon)
+				++ok;
+			else
+				printf("  [FAIL] 16.b largeurs %0.2f/%0.2f, attendu %0.2f/%0.2f\n", ws1[0], ws1[1],
+					   attendu0, attendu1);
+		} else {
+			printf("  [FAIL] 16.b pas de rectangle a mesurer\n");
+		}
+
+		// ⚠️ LE NEGATIF : le SECOND peintre doit donner d'AUTRES largeurs. S'il
+		//    donnait les memes, le composant n'ecouterait pas son peintre — et
+		//    l'essai (a) serait vert pour une raison qui n'a rien a voir.
+		++total;
+		if (xs1.Size() == 2 && xs2.Size() == 2) {
+			const bool differe = (ws2[0] > ws1[0] + 1.f) && (ws2[1] > ws1[1] + 1.f);
+			if (differe)
+				++ok;
+			else
+				printf("  [FAIL] 16.c NEGATIF : deux peintres differents rendent la meme bande "
+					   "(%0.2f vs %0.2f) -- le composant ignore son peintre\n",
+					   ws1[0], ws2[0]);
+		} else {
+			++total; // rien a comparer : on ne credite pas
+		}
+
+		// ── (d) LA MUTATION PARTAGEE : elle deplace TOUT hote ────────────────
+		// C'est la reponse a « une mutation dans la coquille doit changer les
+		// deux ». On mute la metrique PARTAGEE et on verifie que la bande du
+		// premier peintre bouge de la difference EXACTE.
+		NkComponentInstance inst;
+		inst.Bind(NkTabStripDecl());
+		const float32 padMute = pad + 36.f;
+		inst.SetMetric("tab_pad_x", padMute);
+
+		NkTabStripModel m3;
+		Modele(m3);
+		NkRecordingPaint p3;
+		NkDrawTabStrip(p3, in, rect, m3, Style(&inst), NkTabStripHooks{});
+		RectsPeints(p3, xs3, ws3);
+
+		++total;
+		if (xs1.Size() == 2 && xs3.Size() == 2) {
+			const float32 d0 = ws3[0] - ws1[0];
+			const float32 d1 = ws3[1] - ws1[1];
+			const bool bon = (d0 > 35.99f && d0 < 36.01f) && (d1 > 35.99f && d1 < 36.01f);
+			if (bon)
+				++ok;
+			else
+				printf("  [FAIL] 16.d la mutation partagee decale de %0.2f/%0.2f, attendu 36/36\n",
+					   d0, d1);
+		} else {
+			printf("  [FAIL] 16.d pas de rectangle a comparer\n");
+		}
+
+		// ⚠️ LE NEGATIF DE LA MUTATION : une metrique que la bande N'UTILISE PAS
+		//    ne doit RIEN changer. Sans cet essai, « la mutation a change la
+		//    bande » pourrait vouloir dire « toute mutation la change », ce qui
+		//    serait un composant qui se redessine au hasard, pas un composant
+		//    qui honore ses parametres.
+		NkComponentInstance inertie;
+		inertie.Bind(NkTabStripDecl());
+		inertie.SetMetric("seg_min_w", 999.f); // variante Segmente seulement
+		NkTabStripModel m4;
+		Modele(m4);
+		NkRecordingPaint p4;
+		NkDrawTabStrip(p4, in, rect, m4, Style(&inertie), NkTabStripHooks{});
+		NkVector<float32> xs4, ws4;
+		RectsPeints(p4, xs4, ws4);
+		++total;
+		if (xs1.Size() == xs4.Size() && xs4.Size() == 2) {
+			const bool inchange = (ws4[0] > ws1[0] - 0.01f && ws4[0] < ws1[0] + 0.01f) &&
+								  (ws4[1] > ws1[1] - 0.01f && ws4[1] < ws1[1] + 0.01f);
+			if (inchange)
+				++ok;
+			else
+				printf("  [FAIL] 16.e NEGATIF : une metrique INUTILISEE par la variante "
+					   "Documents a quand meme deplace la bande (%0.2f -> %0.2f)\n",
+					   ws1[0], ws4[0]);
+		} else {
+			printf("  [FAIL] 16.e comptes d'onglets differents\n");
+		}
+
+		// ── (f) LE CLIP EST EQUILIBRE ───────────────────────────────────────
+		// Un `PushClip` sans son `PopClip` laisse tout ce qui suit rogne a la
+		// bande — un defaut qui ne se voit pas dans la bande elle-meme, mais
+		// dans le panneau d'a cote.
+		++total;
+		if (p1.ClipBalanced())
+			++ok;
+		else
+			printf("  [FAIL] 16.f PushClip / PopClip desequilibres\n");
+	}
+
+} // namespace tabprobe
+
+// =============================================================================
+//  FAMILLE 19 — (o3) LA PORTE DU CHROME : un menu par-dessus la bande d'onglets
+// =============================================================================
+//  LE DEFAUT MESURE. `NkEditorShell::DrawTabStrip` est appelee ligne 906 ; le
+//  masquage d'entree du corps vit lignes 923-945, donc APRES. La bande recevait
+//  `mUI.input` NON FILTRE. Et la geometrie ne laisse pas de doute : un menu de
+//  la barre de titre (y 0..30) se deroule vers le BAS, par-dessus la bande
+//  (y 30..58). Un clic destine a « Fichier > Ouvrir » pouvait activer l'onglet
+//  du dessous -- ou le FERMER, si la croix tombait sous le pointeur.
+//
+//  ⚠️ MEME FAMILLE que le defaut signale par Rodolf sur un panneau et traite le
+//     meme matin dans `DrawPanels`. Meme cause (un site qui lit la souris sans
+//     demander si le point est atteignable), donc MEME PORTE : `PointReachable`.
+//     On n'en ecrit pas une seconde.
+//
+//  CE QUE CETTE FAMILLE PROUVE, ET CE QU'ELLE NE PROUVE PAS
+//    * elle prouve que le COMPOSANT agit sur n'importe quel clic qu'on lui
+//      donne -- donc que le filtrage ne peut venir que de l'hote ;
+//    * elle prouve que la PORTE repond correctement : une surface declaree
+//      au-dessus rend le point inatteignable, et rien d'autre ne change ;
+//    * elle prouve que la COMPOSITION des deux (l'expression exacte posee dans
+//      `DrawTabStrip`) supprime le clic fantome et garde le clic legitime.
+//    * ⚠️ Elle ne fait PAS tourner `NkEditorShell` : la coquille veut une
+//      fenetre. Que l'expression soit bien CELLE-LA dans `DrawTabStrip` est
+//      verifie par lecture, pas par ce banc. C'est dit plutot que tu.
+namespace porteprobe {
+
+	using namespace nkentseu::editorkit;
+	using nkentseu::nkgui::NkGuiContext;
+
+	/// La bande d'essai et un clic AU CENTRE DU PREMIER ONGLET.
+	inline void Poser(NkTabStripModel &m) {
+		m.tabs.Clear();
+		NkTabItem a;
+		a.id = 1;
+		a.label = nkentseu::NkString("Scene");
+		m.tabs.PushBack(a);
+		NkTabItem b;
+		b.id = 2;
+		b.label = nkentseu::NkString("Eclairage");
+		m.tabs.PushBack(b);
+		m.active = 2; // l'ACTIF est le second : un clic sur le premier doit changer
+	}
+
+	inline NkTabStripStyle Style() {
+		NkTabStripStyle s;
+		s.bandBg = 1; s.border = 2; s.tabBg = 3; s.tabHoverBg = 4;
+		s.tabActiveBg = 5; s.text = 6; s.textMuted = 7; s.accent = 8;
+		return s;
+	}
+
+	inline void Sonder(uint32 &ok, uint32 &total) {
+		const NkPaintRect bande{0.f, 30.f, 900.f, 28.f};
+		// Un point DANS le premier onglet : x = 10 (marge) + un peu.
+		const float32 px = 40.f, py = 42.f;
+
+		auto clic = [&](bool atteignable) {
+			NkComponentInput in;
+			in.mouseX = px;
+			in.mouseY = py;
+			in.mousePressed = true;
+			// ⚠️ C'EST L'EXPRESSION EXACTE POSEE DANS `DrawTabStrip`. Si elle
+			//    change la-bas, ce banc cesse de mesurer ce qu'il croit -- d'ou le
+			//    commentaire, faute de pouvoir la partager sans tirer NKGui ici.
+			if (!atteignable) {
+				in.mousePressed = false;
+				in.mouseReleased = false;
+				in.mouseDown = false;
+				in.doubleClick = false;
+				in.rightPressed = false;
+				in.wheel = 0.f;
+			}
+			return in;
+		};
+
+		// ── 19.a LE COMPOSANT AGIT SUR TOUT CLIC QU'ON LUI DONNE ────────────
+		// Positif : sans filtrage, le clic active l'onglet 1. C'est la preuve que
+		// le composant ne se protege PAS lui-meme -- et il ne le doit pas : il ne
+		// sait rien des surfaces qui le recouvrent.
+		{
+			NkTabStripModel m; Poser(m);
+			NkRecordingPaint p;
+			const NkTabStripResult r = NkDrawTabStrip(p, clic(true), bande, m, Style(), NkTabStripHooks{});
+			++total;
+			if (r.selectionChanged && m.active == 1) ++ok;
+			else printf("  [FAIL] 19.a un clic non filtre aurait du activer l'onglet 1 (actif=%u)\n",
+						(unsigned)m.active);
+		}
+
+		// ── 19.b LE CLIC FANTOME EST SUPPRIME ───────────────────────────────
+		{
+			NkTabStripModel m; Poser(m);
+			NkRecordingPaint p;
+			const NkTabStripResult r = NkDrawTabStrip(p, clic(false), bande, m, Style(), NkTabStripHooks{});
+			++total;
+			if (!r.selectionChanged && m.active == 2) ++ok;
+			else printf("  [FAIL] 19.b le clic sous une surface a quand meme agi (actif=%u)\n",
+						(unsigned)m.active);
+		}
+
+		// ── 19.c LA PORTE DU KIT REPOND JUSTE ───────────────────────────────
+		// On declare une surface de couche SUPERIEURE par-dessus la bande, et on
+		// interroge `PointReachable` -- la vraie, celle que la coquille appelle.
+		{
+			static NkGuiContext ctx;
+			ctx.occlCount = 0;
+			ctx.curInputLayer = 0; // la couche du CHROME
+			// un menu deroulant : il couvre la bande
+			ctx.occlRects[0] = nkentseu::nkgui::NkRect{0.f, 28.f, 200.f, 160.f};
+			ctx.occlLayers[0] = (int32)NkCouche::Menu;
+			ctx.occlCount = 1;
+			const bool sousLeMenu = !ctx.PointReachable({px, py});
+			const bool aCote = ctx.PointReachable({700.f, 42.f}); // meme bande, hors du menu
+			++total;
+			if (sousLeMenu && aCote) ++ok;
+			else printf("  [FAIL] 19.c la porte repond mal (sous le menu=%d, a cote=%d ; "
+						"attendu 1 et 1)\n", sousLeMenu ? 1 : 0, aCote ? 1 : 0);
+		}
+
+		// ── 19.d NEGATIF : SANS MENU, RIEN NE CHANGE ────────────────────────
+		// Sans cet essai, « le clic ne passe plus » pourrait vouloir dire « plus
+		// aucun clic ne passe », et la bande serait devenue inerte.
+		{
+			static NkGuiContext ctx;
+			ctx.occlCount = 0;
+			ctx.curInputLayer = 0;
+			const bool libre = ctx.PointReachable({px, py});
+			NkTabStripModel m; Poser(m);
+			NkRecordingPaint p;
+			const NkTabStripResult r = NkDrawTabStrip(p, clic(libre), bande, m, Style(), NkTabStripHooks{});
+			++total;
+			if (libre && r.selectionChanged && m.active == 1) ++ok;
+			else printf("  [FAIL] 19.d NEGATIF : aucune surface declaree et le clic ne passe pas "
+						"(atteignable=%d, actif=%u)\n", libre ? 1 : 0, (unsigned)m.active);
+		}
+	}
+
+} // namespace porteprobe
+
+// =============================================================================
 int main(int argc, char **argv) {
 	(void)argc;
 	(void)argv;
@@ -395,12 +919,33 @@ int main(int argc, char **argv) {
 	Famille2_JetonsReels();
 	Famille3_RepliFranc();
 	Famille4_BackendGraphique();
+	Famille15_RolesAlerte();
 	// Famille 5 — le rail du selecteur. Elle tient son propre compte et rend un
 	// BILAN : on additionne les deux nombres, sinon deux echecs vaudraient un.
 	{
 		const navprobe::Bilan b5 = navprobe::Sonder();
 		gPassed += (uint32)b5.ok;
 		gFailed += (uint32)(b5.total - b5.ok);
+	}
+	// Famille 16 — la bande d'onglets PARTAGEE (canal onglets, o1). Meme forme de
+	// bilan que la 5 : on additionne les deux nombres, sinon deux echecs
+	// vaudraient un.
+	{
+		printf("\n--- Famille 16 : la bande d'onglets partagee ---\n");
+		uint32 ok16 = 0, total16 = 0;
+		tabprobe::Sonder(ok16, total16);
+		printf("  famille 16 : %u/%u\n", ok16, total16);
+		gPassed += ok16;
+		gFailed += (total16 - ok16);
+	}
+	// Famille 19 — (o3) la porte du chrome : un menu par-dessus la bande.
+	{
+		printf("\n--- Famille 19 : la porte du chrome ---\n");
+		uint32 ok19 = 0, total19 = 0;
+		porteprobe::Sonder(ok19, total19);
+		printf("  famille 19 : %u/%u\n", ok19, total19);
+		gPassed += ok19;
+		gFailed += (total19 - ok19);
 	}
 
 	printf("\n---------------------------------------------\n");

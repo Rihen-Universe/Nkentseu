@@ -128,8 +128,38 @@
 //     PAS ici, et ne le pourra jamais dans un champ de hauteur (§0) ; ce qui est
 //     mesuré est le REPLI de l'application horizontale, par `jacobianXZ`.
 // =============================================================================
+// ── ⚠️ AJOUT DU 2026-09-14 : LA PERTURBATION, ET SON SENS D'ERREUR ──────────
+// Rodolf, DEUX fois : « quand c'est calme on ne ressent pas l'impact du cube en
+// mouvement sur l'eau ». La cause est écrite plus haut sans qu'on l'ait lue
+// comme un défaut : ce fichier est une FONCTION de (x, z, t), et un corps ne
+// peut pas influencer une formule. L'état manquant est dans
+// `NkWaterDisturbance.h` ; il entre ICI, et NULLE PART AILLEURS.
+//
+// POURQUOI ICI ET PAS DANS LE PRODUCTEUR DE MAILLAGE. `NkWaterBuildVertices` est
+// le SEUL site qui peigne l'eau (mesuré : `git grep NkWaterEval` rend le
+// producteur, la sonde de Demo3D et deux bancs). Si la perturbation s'ajoutait
+// là-bas, la physique interrogerait une surface et le GPU en dessinerait une
+// autre — un corps flotterait à côté de sa propre trace. Une seule source.
+//
+// 🔴 LE DÉFAUT EST `nullptr`, ET LE CONTRAT EST « AU BIT ». Sans perturbation,
+// pas une addition ne s'exécute : chaque contribution est testée `!= 0.f` avant
+// d'être ajoutée. Ce n'est pas de la superstition — `y + 0.0f` vaut `+0.0f`
+// quand `y` vaut `-0.0f`, donc « ajouter zéro » n'est PAS l'identité en
+// flottant. Les appelants d'avant ce jour (le producteur, `NkWaterSystem`, la
+// sonde océan, `test_ocean_grille.cpp`) rendent EXACTEMENT ce qu'ils rendaient.
+// C'est la précaution que `NkWaterFoam(..., jacobian = 1.f)` et
+// `NkWaterMeshParams::shade = false` ont déjà prise dans ces mêmes fichiers.
+//
+// CE QUE LA PERTURBATION NE TOUCHE PAS, ET C'EST DÉLIBÉRÉ : elle n'ajoute qu'à
+// la HAUTEUR et aux deux pentes verticales. `jacobianXZ` ne lit que les
+// composantes x et z des tangentes — il est donc INCHANGÉ, et avec lui l'écume
+// de déferlement et la préimage `NkWaterInverseXZ`, qui n'ont aucune raison de
+// dépendre d'un objet posé sur l'eau. `normalFast` (la forme de GPU Gems, gardée
+// pour la comparaison du témoin (o2)) n'est PAS corrigée non plus : elle mesure
+// l'écart d'une approximation de la HOULE, et la polluer la rendrait muette.
 #include "NKMath/NkFunctions.h"
 #include "NKMath/NkVec.h"
+#include "NKMath/NkWaterDisturbance.h"
 
 namespace nkentseu {
 	namespace math {
@@ -207,7 +237,8 @@ namespace nkentseu {
 		// La surface en (x, z) à l'instant t. `depthOverride` (>= 0) remplace
 		// params.depth : c'est par lui que le rivage fait ralentir les vagues.
 		inline NkWaterPoint NkWaterEval(const NkWaterParams &p, float32 x, float32 z, float32 t,
-										float32 depthOverride = -1.f) noexcept {
+										float32 depthOverride = -1.f,
+										const NkWaterDisturbance *disturbance = nullptr) noexcept {
 			NkWaterPoint o;
 			o.position = {x, 0.f, z};
 			const float32 h = depthOverride >= 0.f ? depthOverride : p.depth;
@@ -243,6 +274,21 @@ namespace nkentseu {
 				fx -= dx * Ak * C;
 				fz -= dz * Ak * C;
 				fy -= Q * Ak * S;
+			}
+			// ── LA PERTURBATION (2026-09-14) ────────────────────────────────────
+			// Ajoutée APRÈS la somme de Gerstner et AVANT la normale : elle change
+			// la hauteur ET la pente, donc l'éclairage suit le creux au lieu de
+			// laisser un trou plat. Chaque addition est gardée par `!= 0.f` : sans
+			// perturbation, ou hors du support compact des sources, RIEN ne s'exécute
+			// et le résultat est celui d'avant AU BIT (cf. l'en-tête).
+			if (disturbance != nullptr) {
+				const NkWaterDisturbanceSample d = disturbance->Sample(x, z, t);
+				if (d.height != 0.f)
+					o.position.y += d.height;
+				if (d.dydx != 0.f)
+					dPdx.y += d.dydx;
+				if (d.dydz != 0.f)
+					dPdz.y += d.dydz;
 			}
 			// LE JACOBIEN HORIZONTAL, pris sur les tangentes qu'on vient de dériver :
 			//     | dP.x/dx   dP.x/dz |     | dPdx.x   dPdz.x |
@@ -349,8 +395,9 @@ namespace nkentseu {
 
 		// La hauteur seule (les témoins de dispersion suivent une crête là-dessus).
 		NK_FORCE_INLINE float32 NkWaterHeight(const NkWaterParams &p, float32 x, float32 z, float32 t,
-											  float32 depthOverride = -1.f) noexcept {
-			return NkWaterEval(p, x, z, t, depthOverride).position.y;
+											  float32 depthOverride = -1.f,
+											  const NkWaterDisturbance *disturbance = nullptr) noexcept {
+			return NkWaterEval(p, x, z, t, depthOverride, disturbance).position.y;
 		}
 
 		// =====================================================================

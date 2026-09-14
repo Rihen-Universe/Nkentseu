@@ -10,6 +10,8 @@
 #include "AnimBridge.h"
 #include "Panels.h"
 #include "NkEditorRHIRenderer.h" // UI sur NKRHI/NKRenderer (pas NKCanvas)
+#include <cstdio>  // traces de la MESURE (canal chrome) : couleur et geometrie reelles
+#include <cstdlib> // getenv : negatif et choix de theme, dans le MEME binaire
 
 using namespace nkentseu;
 using namespace nkentseu::editorkit;
@@ -52,7 +54,22 @@ int nkmain(const NkEntryState &state) {
 	// — c'est ce qui permet de pointer un autre rig (XBot Mixamo…) sans recompiler.
 	NkEditorGfxApi gfx = NkEditorGfxApi::OpenGL;
 	const char *modelPath = "Resources/Models/CesiumMan/CesiumMan.glb";
-	for (const auto &a : state.GetArgs()) {
+	// ⚠️ ON SAUTE args[0] : C'EST L'IDENTITE DU PROGRAMME, PAS UN ARGUMENT.
+	//    Sans ce saut, la clause « tout argument sans tiret est un chemin de
+	//    modele » ci-dessous capturait le CHEMIN DE L'EXECUTABLE, et l'editeur
+	//    tentait de charger son propre .exe comme fichier glTF. Le defaut
+	//    CesiumMan n'etait donc JAMAIS atteint, et le viewport 3D restait vide
+	//    a chaque lancement -- avec pour seule trace un [WRN] NkGLTFLoader et un
+	//    [ERR] AnimBridge, qu'on pouvait prendre pour « pas encore implante ».
+	//
+	//    Mesure du 2026-09-14 : 21 sites du depot sautent ce premier element a la
+	//    main, 7 y sont immunises parce qu'ils ne comparent qu'a des litteraux
+	//    exacts, et CELUI-CI etait le seul a se tromper. `NkAudioPlayer` a le
+	//    meme besoin -- un chemin de fichier libre -- et part de 1 lui aussi
+	//    (main.cpp:105).
+	const NkVector<NkString> &args = state.GetArgs();
+	for (usize i = 1; i < args.Size(); ++i) {
+		const NkString &a = args[i];
 		if (a == "-bvk" || a == "--backend=vulkan")
 			gfx = NkEditorGfxApi::Vulkan;
 		else if (a == "-bdx11" || a == "--backend=dx11")
@@ -103,6 +120,65 @@ int nkmain(const NkEntryState &state) {
 		t.framePadX = 12.f;
 		t.framePadY = 7.f;
 		shell->Ui().theme = t;
+	}
+
+	// ═══════════════════════════════════════════════════════════════════════
+	//  L'HABILLAGE DE LA COQUILLE — ON APPELLE, ON NE REDESSINE PAS
+	// ═══════════════════════════════════════════════════════════════════════
+	//  Demande de Rodolf : NkAnimaEditor doit porter « exactement la meme
+	//  interface » que NK3DModeler. Mesure prealable (canal chrome, lot 1) :
+	//  cette application montait la coquille NUE -- AddPanel x2,
+	//  RegisterCommand x4, et AUCUN des ~30 points d'extension de chrome.
+	//
+	//  LA COTE VIENT DE LA SOURCE, PAS D'UNE AUTRE APPLICATION :
+	//  `NkModelerUI.h:113`, `NkLayout::Compute` -> `menuH = S(30.f)`
+	//  (et `toolH = S(34.f)` en ligne 119).
+	//
+	//  ⚠️ LE SECOND PARAMETRE EST INERTE ICI, ET IL FAUT LE DIRE. La coquille
+	//     ne reserve la bande d'outils que si l'application pose un
+	//     `SetToolbar` : `toolbarH = (mToolbarFn && !fullScreen) ? bandH : 0.f`
+	//     (NkEditorShell.cpp:831). NkAnimaEditor n'en pose pas. On passe donc
+	//     34 pour rester fidele a la maquette le jour ou une barre d'outils
+	//     arrivera -- mais aujourd'hui ce 34 ne peint rien, et l'ecrire sans le
+	//     dire serait « declarer sans livrer ».
+	//
+	//  ⚠️ `NKANIMA_SANS_HABILLAGE=1` saute les deux appels : c'est LE NEGATIF,
+	//     et il vit dans le MEME binaire. Comparer deux constructions aurait
+	//     compare deux binaires differant peut-etre par autre chose.
+	const bool sansHabillage = std::getenv("NKANIMA_SANS_HABILLAGE") != nullptr;
+	if (!sansHabillage)
+		shell->SetHeaderLayout(30.f, 34.f, 0.f);
+
+	// ── LE THEME : DEUX CANDIDATS, ET C'EST RODOLF QUI TRANCHE ──────────────
+	//  Le bloc ci-dessus pose un theme EN DUR (accent cyan #00d4ff, cf.
+	//  interface.md §1). Il n'est PAS supprime : un theme en dur qu'on retire
+	//  sans le dire, c'est une apparence qui change sans que personne sache
+	//  pourquoi.
+	//
+	//  `ApplyTheme` est le point de synchronisation des deux objets theme
+	//  (roles editeur -> jetons de dessin). NK3DModeler part de
+	//  `NkTheme::Dark()` (NkModelerTheme.h:111) ; « exactement la meme
+	//  interface » exige donc la meme source. Applique APRES le bloc en dur, il
+	//  le remplace.
+	//
+	//  `NKANIMA_THEME=dur` rend le comportement d'avant, pour que les deux
+	//  soient comparables cote a cote.
+	{
+		const char *th = std::getenv("NKANIMA_THEME");
+		const bool garderDur = th && (th[0] == 'd' || th[0] == 'D');
+		const bool clair = th && (th[0] == 'l' || th[0] == 'L');
+		const nkgui::NkColor av = shell->Ui().theme.header;
+		if (!sansHabillage && !garderDur)
+			shell->ApplyTheme(clair ? NkTheme::Light() : NkTheme::Dark());
+		const nkgui::NkColor ap = shell->Ui().theme.header;
+		std::printf("[CHROME] theme=%s  header avant=(%d,%d,%d)  apres=(%d,%d,%d)  "
+					"framePadY=%.1f\n",
+					sansHabillage ? "SANS-HABILLAGE" : (garderDur ? "en dur" : (clair ? "Light" : "Dark")),
+					(int)av.r, (int)av.g, (int)av.b, (int)ap.r, (int)ap.g, (int)ap.b,
+					(double)shell->Ui().theme.framePadY);
+		std::printf("[CHROME] ItemHeight=%.2f  scale=%.4f\n", (double)shell->Ui().ItemHeight(),
+					(double)shell->Ui().scale);
+		std::fflush(stdout);
 	}
 
 	nkanima::AnimInit(modelPath);

@@ -1,3 +1,8 @@
+// -----------------------------------------------------------------------------
+// @File    Nogee.cpp
+// @Author  TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
+// @License Proprietary - All Rights Reserved (see LICENSE)
+// -----------------------------------------------------------------------------
 // =============================================================================
 // Nogee.cpp — point d'entrée de l'éditeur Nogee
 // =============================================================================
@@ -79,6 +84,12 @@ int nkmain(const nkentseu::NkEntryState &state) {
 			NogeeShellReproduceConquerorLabCondition(); // condition ConquerorLab
 		else if (a == "--dragdrop-test")
 			NogeeShellEnableDragDropProbe(); // sonde glisser-deposer §7/§9
+		else if (a == "--panneaux-sonde")
+			NogeeShellEnablePanneauxSonde(); // MESURE de la disposition (bandes + rects)
+		else if (a == "--panneaux-sonde-redim")
+			NogeeShellEnablePanneauxSonde(true); // ... puis on change la taille et on remesure
+		else if (a == "--panneaux-pose")
+			NogeeShellEnablePanneauxSonde(false, true); // ... puis on laisse poser pour la photo
 	}
 	logger.Info("[Nogee] montage de la coquille NkEditorShell (chemin unique depuis la coupe NKUI)\n");
 	return RunNogeeEditorShell(ukConfig);
