@@ -1746,6 +1746,12 @@ int nkmain(const NkEntryState &entry) {
 								(int)agentFrame, (double)vl[0], (double)vl[1], (double)vl[2],
 								(double)vw[0], (double)vw[1], (double)vw[2]);
 				}
+				// LE CRITERE QUI MANQUAIT : combien de lignes du panneau ont ete
+				// coupees faute de largeur. Il vaut 0 quand tout tient. C'est une
+				// image qui a trouve la premiere troncature ; celui-ci est la pour
+				// que la prochaine se MESURE.
+				std::printf("[nk3d-txt ] f=%4d lignes tronquees = %d\n",
+							(int)agentFrame, (int)nk3d::NkPropTronquees());
 				if (mOk2) {
 					std::printf("[nk3d-mod ] f=%4d op=%d (%s) %s=%.4f %s=%d\n",
 								(int)agentFrame, (int)mop2, mn2 ? mn2 : "?", mlv2 ? mlv2 : "?",
