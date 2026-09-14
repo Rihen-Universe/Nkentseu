@@ -229,6 +229,9 @@ static bool gSceneFusion = false;
 static nkentseu::int64 gMesureAsyncMs = -1;
 static bool gMesureAsyncSync = false;
 static nkentseu::int64 gMesureFpsMs = -1;
+/// (k2) --mesure-double=<images> : combien de fois la toile est-elle dessinee
+/// dans UNE image ? Le seul chiffre acceptable est 1.
+static nkentseu::int64 gMesureDoubleImages = -1;
 // 🔴 DEUX COMPTEURS QUI NE COMPTENT PAS LA MEME CHOSE -- mesure du 14/09.
 //    `mAppMenuFn` (ou vit ce tick) est appele DEUX FOIS par image par la
 //    coquille ; `mMenuBarFn` (ou vit la recolte) UNE fois. Compter la reference
@@ -266,6 +269,19 @@ static void MesureTick(NkEditorShell *sh) {
 		if (sec * 1000.0 >= (float64)gMesureFpsMs) {
 			printf("[mesure-fps] repos : %d images en %.3f s -> %.1f images/s\n",
 				   gImagesReelles, sec, (float64)gImagesReelles / (sec > 0.0 ? sec : 1.0));
+			fflush(stdout);
+			sh->RequestClose();
+		}
+		return;
+	}
+	// (k2) LE COMPTE DE DESSINS DE LA TOILE. On laisse passer `n` images puis on
+	// rend le PIRE vu. Attendu : 1. A 2, deux exemplaires vivants du meme panneau
+	// se disputent un seul etat de vue -- le defaut du 14/09, rouvert.
+	if (gMesureDoubleImages >= 0) {
+		if (gImagesReelles >= (int32)gMesureDoubleImages) {
+			printf("[mesure-double] la toile est dessinee au plus %u fois dans une image "
+				   "(sur %d images ; attendu 1)\n",
+				   gDesign.dessinsToileMax, gImagesReelles);
 			fflush(stdout);
 			sh->RequestClose();
 		}
@@ -7555,6 +7571,7 @@ static void DrawMenuBar(NkEditorFrameContext &ec, void *) {
 	//    *Une tache de fond ne se recolte pas dans le dessin de ce qui l'affiche.*
 	gDesign.RecolterIA();
 	++gImagesReelles; // UNE fois par image : la seule cadence de reference
+	gDesign.RangerCompteDessins(); // (k2) idem : une fois par image, avant les panneaux
 	auto &ctx = ec.Ui();
 	using namespace nkentseu::nkgui;
 
@@ -8631,6 +8648,10 @@ int nkmain(const NkEntryState &state) {
 				gMesureFpsMs = (nkentseu::int64)atof(a + 13);
 				continue;
 			}
+			if (arg.StartsWith("--mesure-double=")) {
+				gMesureDoubleImages = (nkentseu::int64)atof(a + 16);
+				continue;
+			}
 			if (arg.StartsWith("--toile-seule")) {
 				gToileSeule = true;
 				continue;
@@ -9430,7 +9451,7 @@ int nkmain(const NkEntryState &state) {
 	// tête de fichier. Hors capture, aucun callback : rien ne change.
 	if (gCapturePath[0])
 		shell->SetAppMenu(&CaptureTick, shell.Get());
-	else if (gMesureAsyncMs >= 0 || gMesureFpsMs >= 0)
+	else if (gMesureAsyncMs >= 0 || gMesureFpsMs >= 0 || gMesureDoubleImages >= 0)
 		shell->SetAppMenu(
 			[](NkEditorFrameContext &, void *u) { MesureTick(static_cast<NkEditorShell *>(u)); },
 			shell.Get());
