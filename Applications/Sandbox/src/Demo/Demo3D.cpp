@@ -13,7 +13,8 @@
 // =============================================================================
 #include "NKRenderer/Tools/VFX/NkVFXSystem.h" // sonde VFX
 #include "NKRenderer/Tools/VFX/NkSPHSolver.h" // sonde fluide SPH (2026-09-04)
-#include "NKPhysics/NkVehicle.h"          // sonde VEHICULE (NK_VEHICLE_PROBE=1)
+#include "NKPhysics/NkVehicle.h"
+#include "Noge/Physics/NkVehicleTuningIO.h" // NK_VEHICLE_CONFIG (2026-09-14)          // sonde VEHICULE (NK_VEHICLE_PROBE=1)
 #include "NKRenderer/Mesh/NkFBXLoader.h"   // le VRAI corps de la voiture (2026-09-13)
 #include "NKPhysics/NkCloth.h"            // sonde TISSU XPBD (NK_CLOTH_PROBE=1, 2026-09-05)
 #include "NKVFX/NkWaterMeshBuilder.h"     // sonde OCEAN (NK_OCEAN_PROBE=1, 2026-09-13)
@@ -3234,6 +3235,30 @@ static NkTexHandle CreateLanternCubeCookie(NkTextureLibrary *texLib, NkIDevice *
 						bp->position = {startPos.x, startPos.y, startPos.z};
 					}
 				}
+				// NK_VEHICLE_CONFIG=<fichier.json> : LE REGLAGE VIENT D UN FICHIER.
+				// Pose AVANT NK_VEHICLE_MU pour qu une variable d environnement puisse
+				// encore surcharger un fichier -- le plus explicite gagne. Un fichier
+				// absent ou illisible ne change RIEN et le dit : le defaut du produit
+				// reste le defaut du produit.
+				if (const char *cfg = std::getenv("NK_VEHICLE_CONFIG"); cfg && cfg[0]) {
+					const bool okCfg = noge::LoadVehicleTuning(cfg, st->veh->Tuning());
+					std::fprintf(stderr,
+								 "[VEHICULE CONFIG] « %s » : %s ; apres chargement mu = %.4f, linearDamping = %.6f, "
+								 "aire frontale = %.4f, engineForce = %.1f\n",
+								 cfg, okCfg ? "CHARGE" : "**NON CHARGE** (introuvable ou illisible) -- defauts conserves",
+								 st->veh->Tuning().mu, st->veh->Tuning().linearDamping,
+								 st->veh->Tuning().frontalArea, st->veh->Tuning().engineForce);
+				}
+				// ⚠️ LE FICHIER SE CHARGE **AVANT** CE QUE LA DEMO DERIVE DU MODELE.
+				// Mesure du 14/09 : charge APRES, le fichier « jeu » -- qui ne contient
+				// pourtant QUE les defauts -- faisait tomber l acceleration de
+				// 1,9260 a 0,2282 m/s2. Cause : `wheelRadius` vaut 0,35 par defaut,
+				// mais la demo le DERIVE du FBX a 0,476 ; le fichier ecrasait la mesure
+				// par le defaut et les roues rapetissaient.
+				// Ce qu une mesure REELLE peut etablir gagne donc sur ce qu un fichier
+				// DECLARE, et la ligne ci-dessous, qui vient apres, fait autorite.
+				// (Mon critere (k3) etait VERT pendant ce temps : il comparait les
+				// STRUCTURES, pas le comportement. Une garde verte grace au defaut.)
 				if (poseDepuisModele)
 					st->veh->Tuning().wheelRadius = st->vehPhysR;
 				else
