@@ -186,6 +186,24 @@ namespace nkentseu {
 				uint32 rolesInconnus = 0;	   ///< hors vocabulaire du document 7
 				uint32 apparencesLues = 0;	   ///< blocs `appearance` rencontres
 				uint32 etatsNonAppliques = 0;  ///< `appearance(Hover)` et consorts
+				// ── LE PLACEMENT PAR WIDGET (2026-09-14) ─────────────────────
+				// `pos` est l'interrupteur : un widget qui l'ecrit est POSE.
+				uint32 poses = 0;			 ///< widgets qui ecrivent `pos`
+				uint32 posesHonores = 0;	 ///< ceux dont le rectangle monte EST celui-la
+				/// ⚠️ UN RECTANGLE POSE MAIS NON CONSOMME. `SetNextItemRect` ne vaut
+				///    que pour le PROCHAIN widget auto-place ; un role qui ne passe
+				///    pas par `NextItemRect` le laisserait ARME pour le suivant. On
+				///    le desarme et on le COMPTE, plutot que de contaminer le voisin.
+				uint32 posesNonConsommes = 0;
+				uint32 modales = 0;			 ///< `Window { modal = true }` rencontres
+				/// Les drapeaux d'INTERACTION (`NoMove`, `NoResize`, `NoClose`,
+				/// `NoScrollbar`) : ce monteur monte l'etat AU REPOS, il n'a aucune
+				/// interaction a empecher. Comptes, jamais fait semblant.
+				uint32 flagsNonAppliques = 0;
+				// ── LA SECTION `geometry` (document 2 §1 et §3) ───────────────
+				uint32 formes = 0;			 ///< blocs `shape` rencontres
+				uint32 formesPeintes = 0;	 ///< celles dont la nature sait se peindre
+				uint32 formesNonPeintes = 0; ///< `path`, `frame`, `image` sans texture
 				NkVector<NkGuiMonteItem> items;
 				NkVector<NkString> nomsSections;
 		};
@@ -390,6 +408,126 @@ namespace nkentseu {
 		}
 
 		// =====================================================================
+		//  LE PLACEMENT EST UNE PROPRIETE DU CONTENEUR -- tranche le 2026-09-14
+		// =====================================================================
+		//
+		//  Rodolf : « on dois pouvoir avoir du placement absolut comme non absolut
+		//  ca va dependre de l'utilisateur », puis « au vu de son parent, un
+		//  conteneur ne pourra jamais porter les deux. »
+		//
+		//  D'ou la regle, et elle tient en une ligne : **un conteneur declare
+		//  `placement = absolute`, et alors SES enfants directs portent `pos`.**
+		//  Sans cette declaration, le conteneur est en FLUX -- le defaut, inchange.
+		//
+		//  ⚠️ LE MECANISME EXISTAIT DEJA, ET IL N'A PAS ETE ECRIT POUR CECI.
+		//     `NkGuiContext::SetNextItemRect` est la depuis le 2026-08-18, pour
+		//     NK3DModeler : « un rectangle POSE pour le PROCHAIN widget seulement,
+		//     consomme par NextItemRect ». Le FORMAT n'avait pas le mot ; NKGui
+		//     avait deja la porte. On ne construit donc pas un second placement.
+		//
+		//  ⚠️ LES COORDONNEES SONT RELATIVES A LA REGION DU CONTENEUR. C'est ce
+		//     qui fait qu'un dialogue pose EMPORTE son contenu quand on le deplace.
+		//     A la racine, la region est la vue : les coordonnees y sont donc celles
+		//     de l'ecran, et `03_virgule_vecteur_couleur` ne bouge pas d'un pixel.
+		
+		/// Vrai si ce bloc declare `placement = absolute`. Le defaut est le FLUX.
+		inline bool NkGuiEstAbsolu(const NkArchive &b) noexcept {
+			const NkArchiveNode *n = b.FindNode(NkStringView("placement"));
+			if (!n)
+				return false;
+			NkStringView v = n->Lexeme();
+			// L'etiquette peut s'ecrire nue ou entre guillemets : le schema dit 'e'.
+			if (v.Size() >= 2u && v.Data()[0] == '\"')
+				return NkGMotEgal(NkStringView(v.Data() + 1, (uint32)v.Size() - 2u), "absolute");
+			return NkGMotEgal(v, "absolute");
+		}
+		
+		/// Le placement ECRIT par un widget, exprime dans la region `reg` qui le
+		/// contient. Rend faux quand il n'y a pas de `pos` -- c'est-a-dire dans
+		/// l'immense majorite des cas, et c'est le defaut.
+		///
+		/// ⚠️ LA TAILLE PAR DEFAUT N'EST PAS INVENTEE : c'est celle que le flux
+		///    aurait donnee (la largeur restante, `ItemHeight()` en hauteur). `pos`
+		///    seul deplace donc un widget SANS le redimensionner, ce qui est
+		///    exactement ce qu'on attend de « pose au point (x, y) ».
+		struct NkGuiPlacement {
+			bool pose = false;
+			bool aTaille = false;
+			NkRect rect{0.f, 0.f, 0.f, 0.f};
+		};
+		
+		inline NkGuiPlacement NkGuiLirePlacement(const NkArchive &w, const NkRect &reg,
+						float32 hauteurRangee, bool conteneur) noexcept {
+			NkGuiPlacement pl;
+			const NkArchiveNode *np = w.FindNode(NkStringView("pos"));
+			if (!np)
+				return pl;
+			float32 v[4];
+			if (NkGNombresDansLexeme(np->Lexeme(), v, 4u) < 2u)
+				return pl; // `pos = 3` n'est pas un point : la validation le dit deja
+			pl.pose = true;
+			pl.rect.x = reg.x + v[0];
+			pl.rect.y = reg.y + v[1];
+			pl.rect.w = conteneur ? (reg.w - v[0]) : 0.f;
+			pl.rect.h = conteneur ? (reg.h - v[1]) : hauteurRangee;
+			const NkArchiveNode *ns = w.FindNode(NkStringView("size"));
+			if (ns && NkGNombresDansLexeme(ns->Lexeme(), v, 4u) >= 2u) {
+				pl.aTaille = true;
+				pl.rect.w = v[0];
+				pl.rect.h = v[1];
+			}
+			return pl;
+		}
+		
+		/// Vrai si le lexeme de `flags` contient CE drapeau. On travaille sur le
+		/// TEXTE : `flags = NoTitleBar | NoMove` est un JETON NU, le lecteur ne
+		/// construit aucune liste (il le dit lui-meme), donc c'est au CONSOMMATEUR
+		/// de l'analyser -- exactement comme `items` et `values` plus haut.
+		inline bool NkGuiDrapeau(const NkArchive &b, const char *nom) noexcept {
+			const NkArchiveNode *n = b.FindNode(NkStringView("flags"));
+			if (!n)
+				return false;
+			const NkStringView lex = n->Lexeme();
+			uint32 l = 0;
+			while (nom[l])
+				++l;
+			if (l == 0u || (uint32)lex.Size() < l)
+				return false;
+			for (uint32 i = 0; i + l <= (uint32)lex.Size(); ++i) {
+				uint32 k = 0;
+				while (k < l && lex.Data()[i + k] == nom[k])
+					++k;
+				if (k != l)
+					continue;
+				// ⚠️ ET IL FAUT VERIFIER LA FRONTIERE : sans elle, `NoMove` serait
+				//    trouve dans un hypothetique `NoMoveX`. Un drapeau est un
+				//    identifiant ENTIER, pas une sous-chaine.
+				const char c = (i + l < (uint32)lex.Size()) ? lex.Data()[i + l] : ' ';
+				const bool suite = (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z')
+								 || (c >= '0' && c <= '9') || c == '_';
+				if (!suite)
+					return true;
+			}
+			return false;
+		}
+		
+		/// Une couleur `#RRGGBB` / `#RRGGBBAA` du format, en `NkColor`.
+		/// ⚠️ PAS DE PARSEUR MAISON : `NkColorF::FromHex` existe dans NKMath et
+		///    traite les deux longueurs. En reecrire un ici aurait donne deux
+		///    lectures d'une meme couleur, qui finissent par diverger.
+		inline bool NkGuiCouleur(NkStringView lex, NkColor &out) noexcept {
+			const uint32 n = (uint32)lex.Size();
+			if ((n != 7u && n != 9u) || lex.Data()[0] != '#')
+				return false;
+			char buf[10];
+			for (uint32 i = 0; i < n; ++i)
+				buf[i] = lex.Data()[i];
+			buf[n] = '\0';
+			out = math::NkColorF::FromHex(buf).ToColor();
+			return true;
+		}
+		
+		// =====================================================================
 		//  LE MONTEUR
 		// =====================================================================
 		class NkGuiMonteur {
@@ -417,6 +555,17 @@ namespace nkentseu {
 					const NkArchiveNode *corps = NkGMonteCorps(doc);
 					if (!corps)
 						return;
+					// ⚠️ LES CALQUES D'ABORD, QUEL QUE SOIT L'ORDRE DU FICHIER. Le
+					//    document 2 §1 appelle `geometry` « les calques du canvas » : un
+					//    calque qui passerait devant les widgets ne serait plus un calque.
+					//    Une PASSE SEPAREE le garantit ; le peindre dans la boucle d'apres
+					//    aurait rendu l'ordre de peinture dependant de l'ordre d'ecriture.
+					for (uint32 i = 0; i < (uint32)corps->array.Size(); ++i) {
+						if (!corps->array[i].IsObject() || !corps->array[i].object)
+							continue;
+						if (NkGMotEgal(NkGuiArchive::TypeOf(*corps->array[i].object), "geometry"))
+							MonterGeometrie(ctx, *corps->array[i].object, rap);
+					}
 					for (uint32 i = 0; i < (uint32)corps->array.Size(); ++i) {
 						if (!corps->array[i].IsObject() || !corps->array[i].object)
 							continue;
@@ -434,12 +583,80 @@ namespace nkentseu {
 						}
 						if (!NkGMotEgal(nom, "widgets"))
 							continue;  // geometry, controller, callback, fonts, include
-						MonterCorps(ctx, sec, etat, rap, 0u, false);
+						// La racine de `widgets` est ABSOLUE par nature : rien ne la contient,
+						// donc aucun conteneur ne peut y declarer son mode -- et le corpus
+						// l'atteste (`03` pose son `Window` a la racine depuis le premier jour).
+						MonterCorps(ctx, sec, etat, rap, 0u, false, /*parentAbsolu=*/true);
 					}
 				}
 
 			private:
 				// ── phase 1 ──────────────────────────────────────────────────
+				// ── LES CALQUES (`geometry`) ─────────────────────────
+				// Une forme ne touche NI le curseur NI la region : elle n'est dans aucun
+				// flux, elle EST son rectangle. C'est ce qui la distingue d'un widget
+				// pose -- un widget garde un role, un etat, un evenement ; un calque n'en
+				// a aucun (document 3, a propos de `geometry` : « ce qui en ferait un
+				// calque et non un widget, donc sans role, sans etat, sans evenement »).
+				static void MonterGeometrie(NkGuiContext &ctx, const NkArchive &sec,
+									NkGuiMonteRapport &rap) noexcept {
+					const NkArchiveNode *c = NkGMonteCorps(sec);
+					if (!c)
+						return;
+					for (uint32 k = 0; k < (uint32)c->array.Size(); ++k) {
+						if (!c->array[k].IsObject() || !c->array[k].object)
+							continue;
+						const NkArchive &fo = *c->array[k].object;
+						if (!NkGMotEgal(NkGuiArchive::TypeOf(fo), "shape"))
+							continue; // la validation le signale ; le monteur ne devine pas
+						++rap.formes;
+						float32 v[4];
+						NkRect r{0.f, 0.f, 0.f, 0.f};
+						const NkArchiveNode *np = fo.FindNode(NkStringView("pos"));
+						const NkArchiveNode *ns = fo.FindNode(NkStringView("size"));
+						if (np && NkGNombresDansLexeme(np->Lexeme(), v, 4u) >= 2u) {
+							r.x = v[0];
+							r.y = v[1];
+						}
+						if (ns && NkGNombresDansLexeme(ns->Lexeme(), v, 4u) >= 2u) {
+							r.w = v[0];
+							r.h = v[1];
+						}
+						const NkString nature = NkGTexte(fo, "kind", "rect");
+						const NkString id(NkGuiArchive::IdOf(fo));
+						// La couleur : un JETON NU `#RRGGBB`. Faute de couleur ecrite, on prend
+						// l'encre du THEME -- jamais un noir invente, invisible sur fond sombre.
+						NkColor col = ctx.theme.text;
+						const NkArchiveNode *nc = fo.FindNode(NkStringView("color"));
+						if (nc)
+							(void)NkGuiCouleur(nc->Lexeme(), col);
+						bool peinte = true;
+						if (NkGMotEgal(NkStringView(nature), "rect")) {
+							ctx.DL().AddRectFilled(r, col, NkGNombre(fo, "radius", 0.f));
+						} else if (NkGMotEgal(NkStringView(nature), "ellipse")) {
+							ctx.DL().AddEllipseFilled({r.x + r.w * 0.5f, r.y + r.h * 0.5f}, r.w * 0.5f,
+											   r.h * 0.5f, col);
+						} else if (NkGMotEgal(NkStringView(nature), "text")) {
+							const NkString txt = NkGTexte(fo, "text", "");
+							if (txt.Size() > 0 && ctx.font && ctx.font->Valid())
+								ctx.DL().AddText(ctx.font->Face(), ctx.font->TexId(),
+												 {r.x, r.y + ctx.font->Ascent()}, txt.CStr(), col);
+							else
+								peinte = false;
+						} else {
+							// `image`, `path`, `frame` : la nature est CONNUE du format et ce
+							// monteur ne sait pas la peindre (une image demande une texture, un
+							// trace demande ses points). Comptee, jamais devinee.
+							peinte = false;
+						}
+						if (peinte)
+							++rap.formesPeintes;
+						else
+							++rap.formesNonPeintes;
+						Noter(rap, id, NkStringView("shape"), r, 0u, false, false);
+					}
+				}
+				
 				static void PreparerCorps(const NkArchive &bloc, NkGuiMonteEtat &etat) noexcept {
 					const NkArchiveNode *c = NkGMonteCorps(bloc);
 					if (!c)
@@ -468,19 +685,21 @@ namespace nkentseu {
 
 				// ── phase 2 ──────────────────────────────────────────────────
 				static void MonterCorps(NkGuiContext &ctx, const NkArchive &bloc, NkGuiMonteEtat &etat,
-										NkGuiMonteRapport &rap, uint32 prof, bool horizontal) noexcept {
+									NkGuiMonteRapport &rap, uint32 prof, bool horizontal,
+									bool parentAbsolu) noexcept {
 					const NkArchiveNode *c = NkGMonteCorps(bloc);
 					if (!c)
 						return;
 					for (uint32 k = 0; k < (uint32)c->array.Size(); ++k) {
 						if (!c->array[k].IsObject() || !c->array[k].object)
 							continue;
-						MonterBloc(ctx, *c->array[k].object, etat, rap, prof, horizontal);
+						MonterBloc(ctx, *c->array[k].object, etat, rap, prof, horizontal, parentAbsolu);
 					}
 				}
 
 				static void MonterBloc(NkGuiContext &ctx, const NkArchive &w, NkGuiMonteEtat &etat,
-									   NkGuiMonteRapport &rap, uint32 prof, bool horizontal) noexcept {
+								   NkGuiMonteRapport &rap, uint32 prof, bool horizontal,
+								   bool parentAbsolu) noexcept {
 					const NkStringView t = NkGuiArchive::TypeOf(w);
 
 					// L'apparence n'est pas un widget : on la compte, on ne la monte pas.
@@ -500,7 +719,33 @@ namespace nkentseu {
 						return;
 					}
 					++rap.widgets;
-
+					
+					// ── LE PLACEMENT ─────────────────────────────────
+					// `pos` n'est LU que si le parent est absolu. Sous un conteneur en flux,
+					// des coordonnees ne sont pas ignorees en silence : le VALIDATEUR les
+					// refuse (`E-PLACEMENT`). Le monteur n'a pas a deviner ce que le format
+					// interdit -- il monte ce qui est juste.
+					const bool estConteneur = (role == NkGuiRole::Window || role == NkGuiRole::Panel
+										  || role == NkGuiRole::Group || role == NkGuiRole::VBox
+										  || role == NkGuiRole::HBox);
+					NkGuiPlacement pl;
+					if (parentAbsolu)
+						pl = NkGuiLirePlacement(w, ctx.layout.region, ctx.ItemHeight(), estConteneur);
+					if (pl.pose)
+						++rap.poses;
+					// Ce que CE conteneur impose a SES enfants -- independant de ce que son
+					// propre parent lui impose. Confondre les deux rendrait l'absolu contagieux
+					// vers le bas, et un dialogue pose enfermerait toute sa descendance dans un
+					// mode qu'elle n'a pas demande.
+					const bool enfantsAbsolus = NkGuiEstAbsolu(w);
+					// ⚠️ UNE FEUILLE POSEE PASSE PAR LA PORTE QUE NKGUI A DEJA.
+					//    `SetNextItemRect` vaut pour LE PROCHAIN widget auto-place, et le
+					//    curseur ne bouge pas. Un conteneur, lui, ouvre une REGION (plus bas) :
+					//    ce n'est pas le meme geste, parce qu'un conteneur doit emporter ses
+					//    enfants avec lui.
+					if (pl.pose && !estConteneur)
+						ctx.SetNextItemRect(pl.rect);
+					
 					const NkString id(NkGuiArchive::IdOf(w));
 					const char *lbl = id.CStr();
 					NkGuiMonteEtat::Entree *e = etat.Get(NkStringView(CleEtat(w)));
@@ -513,9 +758,45 @@ namespace nkentseu {
 						// ── CONTENEURS ───────────────────────────────────────
 						case NkGuiRole::Window:
 						case NkGuiRole::Panel: {
-							// Le fond, puis le contenu DANS LE FLUX. `BeginPanel`
-							// n'est pas ouvert ici : voir l'en-tete du fichier.
-							NkRect r = RegionCourante(ctx, w);
+							// Le fond, puis le contenu. `BeginPanel` n'est pas ouvert ici : voir
+							// l'en-tete du fichier.
+							NkRect r = pl.pose ? pl.rect : RegionCourante(ctx, w);
+							// ⚠️ UN CONTENEUR ABSOLU QUI VIT DANS UN FLUX PART DU CURSEUR, pas du
+							//    bord de la region. Sans cette ligne il reprendrait TOUTE la region
+							//    de son parent et se peindrait par-dessus ses freres deja poses --
+							//    un chevauchement que personne n'a demande. Il ne peut pas, lui,
+							//    porter de `pos` : son parent est en flux, et le validateur le
+							//    refuse. Le curseur est donc la seule chose qui dise ou il commence.
+							if (!pl.pose && enfantsAbsolus) {
+								r.w = ctx.layout.region.w - (ctx.layout.cursor.x - ctx.layout.region.x);
+								r.h = ctx.layout.region.h - (ctx.layout.cursor.y - ctx.layout.region.y);
+								r.x = ctx.layout.cursor.x;
+								r.y = ctx.layout.cursor.y;
+							}
+							// ⚠️ LE VOILE D'UNE MODALE, PEINT AVANT LE FOND.
+							//    `modal` etait DECLARE par le format (doc 7 §3.6) et lu par PERSONNE :
+							//    ni le monteur, ni le validateur au-dela du type. Une propriete que
+							//    rien ne lit est une promesse que le fichier fait et que l'outil ne
+							//    tient pas. C'est aussi la reponse a « boite de dialogue » : ce n'est
+							//    pas un role a inventer, c'est `Window { modal = true }`, que le
+							//    document 7 §4 avait deja tranche (« la modalite est une PROPRIETE »).
+							//    ⚠️ LA COULEUR EST CELLE QUE LE KIT A DEJA CHOISIE pour ses dialogues
+							//       (`NkEditorModal.h` : `NkColor{0, 0, 0, 120}`). En prendre une autre
+							//       aurait donne deux voiles differents pour la meme idee.
+							if (NkGBooleen(w, "modal", false)) {
+								++rap.modales;
+								ctx.DL().AddRectFilled(ctx.layout.region, NkColor{0, 0, 0, 120});
+							}
+							// Les drapeaux d'INTERACTION : ce monteur monte l'etat AU REPOS, il n'a
+							// aucun deplacement ni redimensionnement a empecher. Ils sont COMPTES,
+							// jamais fait semblant d'appliquer.
+							{
+								static const char *kInteraction[] = {"NoMove", "NoResize", "NoClose",
+												  "NoCollapse", "NoScrollbar"};
+								for (uint32 fi = 0; fi < 5u; ++fi)
+									if (NkGuiDrapeau(w, kInteraction[fi]))
+										++rap.flagsNonAppliques;
+							}
 							PanelBackground(ctx, r);
 							// ⚠️ LE `title` DU FICHIER ETAIT PERDU. Le monteur n'ouvre
 							//    pas `BeginPanel` (voir l'en-tete du fichier), mais ne
@@ -523,21 +804,68 @@ namespace nkentseu {
 							//    ce que le document ecrit. Il est peint a la main, au
 							//    meme endroit qu'une barre de titre.
 							const NkString titre = NkGTexte(w, "title", "");
-							if (titre.Size() > 0 && ctx.font && ctx.font->Valid()) {
-								const NkVec2 coin{r.x + ctx.layout.padding,
-												  r.y + ctx.layout.padding * 0.5f};
+							// ⚠️ `NoTitleBar` EST LE SEUL DRAPEAU QUI CHANGE QUELQUE CHOSE ICI,
+							//    parce que c'est le seul qui parle de ce qui se PEINT. Les quatre
+							//    autres parlent de GESTES, et ce monteur n'en a aucun.
+							const bool sansTitre = NkGuiDrapeau(w, "NoTitleBar");
+							const bool aTitre = !sansTitre && titre.Size() > 0 && ctx.font && ctx.font->Valid();
+							if (aTitre) {
+								const NkVec2 coin{r.x + ctx.layout.padding, r.y + ctx.layout.padding * 0.5f};
 								(void)TextAt(ctx, coin, titre.CStr());
-								ctx.layout.cursor.y += ctx.ItemHeight();
 							}
 							Noter(rap, id, t, r, prof, true, horizontal);
-							MonterCorps(ctx, w, etat, rap, prof + 1u, false);
+							// ── OUVRIR UNE REGION, OU NON ─────────────────────────
+							// ⚠️ STRICTEMENT ADDITIF, ET C'EST CETTE CONDITION QUI LE GARANTIT. Un
+							//    conteneur qui n'est ni POSE ni ABSOLU se comporte EXACTEMENT comme
+							//    avant : le contenu reste dans le flux du parent, le titre pousse le
+							//    curseur exterieur. C'est ce qui laisse les dix `.nkgui` valides du
+							//    corpus rendre le meme pixel qu'hier -- mesure, pas espere.
+							//
+							// ⚠️ ET `BeginLayout` N'A PAS DE PILE. On sauve `ctx.layout` par valeur et
+							//    on le repose : c'est exactement ce que NKGui fait deja pour ses popups
+							//    (`popupSaved[PopupMax]`, un `NkGuiLayout` par niveau). On reprend son
+							//    procede plutot que d'en inventer un second.
+							const bool ouvrirRegion = pl.pose || enfantsAbsolus;
+							if (ouvrirRegion) {
+								const NkGuiLayout sauve = ctx.layout;
+								ctx.BeginLayout(r);
+								if (aTitre)
+									ctx.layout.cursor.y += ctx.ItemHeight();
+								MonterCorps(ctx, w, etat, rap, prof + 1u, false, enfantsAbsolus);
+								ctx.layout = sauve;
+							} else {
+								if (aTitre)
+									ctx.layout.cursor.y += ctx.ItemHeight();
+								MonterCorps(ctx, w, etat, rap, prof + 1u, false, enfantsAbsolus);
+							}
 							++rap.montes;
 							return;
 						}
 						case NkGuiRole::Group: {
+							// ⚠️ UN `Group` PEUT DECLARER `placement = absolute` -- c'est l'un des
+							//    trois conteneurs NEUTRES (avec `Window` et `Panel`). Une `VBox` ne le
+							//    peut pas : son NOM dit deja son agencement.
+							if (pl.pose || enfantsAbsolus) {
+								NkRect r = pl.pose ? pl.rect : ctx.layout.region;
+								if (!pl.pose) {
+									// Meme raison que pour `Window`/`Panel` : un groupe absolu pose
+									// dans un flux part du curseur, jamais du bord de la region.
+									r.w -= (ctx.layout.cursor.x - r.x);
+									r.h -= (ctx.layout.cursor.y - r.y);
+									r.x = ctx.layout.cursor.x;
+									r.y = ctx.layout.cursor.y;
+								}
+								const NkGuiLayout sauve = ctx.layout;
+								ctx.BeginLayout(r);
+								MonterCorps(ctx, w, etat, rap, prof + 1u, horizontal, enfantsAbsolus);
+								ctx.layout = sauve;
+								Noter(rap, id, t, r, prof, true, horizontal);
+								++rap.montes;
+								return;
+							}
 							const NkVec2 c0 = ctx.layout.cursor;
 							BeginGroup(ctx);
-							MonterCorps(ctx, w, etat, rap, prof + 1u, horizontal);
+							MonterCorps(ctx, w, etat, rap, prof + 1u, horizontal, false);
 							EndGroup(ctx);
 							Noter(rap, id, t, BlocConsomme(ctx, c0), prof, true, horizontal);
 							++rap.montes;
@@ -545,9 +873,25 @@ namespace nkentseu {
 						}
 						case NkGuiRole::VBox: {
 							const float32 gap = NkGA(w, "gap") ? NkGNombre(w, "gap", -1.f) : -1.f;
+							// ⚠️ UNE BOITE SE POSE, MAIS NE DECLARE PAS `placement`. Son NOM dit
+							//    deja son agencement, et le validateur refuse `placement` sur elle
+							//    (propriete hors schema). Elle se pose quand SON parent est absolu,
+							//    et ses enfants a elle restent en FLUX : c'est exactement la toolbox
+							//    de Rodolf -- posee dans une fenetre, boutons alignes tout seuls.
+							if (pl.pose) {
+								const NkGuiLayout sauve = ctx.layout;
+								ctx.BeginLayout(pl.rect);
+								BeginVBox(ctx, gap);
+								MonterCorps(ctx, w, etat, rap, prof + 1u, false, false);
+								EndVBox(ctx);
+								ctx.layout = sauve;
+								Noter(rap, id, t, pl.rect, prof, true, horizontal);
+								++rap.montes;
+								return;
+							}
 							const NkVec2 c0 = ctx.layout.cursor;
 							BeginVBox(ctx, gap);
-							MonterCorps(ctx, w, etat, rap, prof + 1u, false);
+							MonterCorps(ctx, w, etat, rap, prof + 1u, false, false);
 							EndVBox(ctx);
 							Noter(rap, id, t, BlocConsomme(ctx, c0), prof, true, horizontal);
 							++rap.montes;
@@ -555,9 +899,25 @@ namespace nkentseu {
 						}
 						case NkGuiRole::HBox: {
 							const float32 gap = NkGA(w, "gap") ? NkGNombre(w, "gap", -1.f) : -1.f;
+							// ⚠️ UNE BOITE SE POSE, MAIS NE DECLARE PAS `placement`. Son NOM dit
+							//    deja son agencement, et le validateur refuse `placement` sur elle
+							//    (propriete hors schema). Elle se pose quand SON parent est absolu,
+							//    et ses enfants a elle restent en FLUX : c'est exactement la toolbox
+							//    de Rodolf -- posee dans une fenetre, boutons alignes tout seuls.
+							if (pl.pose) {
+								const NkGuiLayout sauve = ctx.layout;
+								ctx.BeginLayout(pl.rect);
+								BeginHBox(ctx, gap);
+								MonterCorps(ctx, w, etat, rap, prof + 1u, true, false);
+								EndHBox(ctx);
+								ctx.layout = sauve;
+								Noter(rap, id, t, pl.rect, prof, true, horizontal);
+								++rap.montes;
+								return;
+							}
 							const NkVec2 c0 = ctx.layout.cursor;
 							BeginHBox(ctx, gap);
-							MonterCorps(ctx, w, etat, rap, prof + 1u, true);
+							MonterCorps(ctx, w, etat, rap, prof + 1u, true, false);
 							EndHBox(ctx);
 							Noter(rap, id, t, BlocConsomme(ctx, c0), prof, true, horizontal);
 							++rap.montes;
@@ -735,6 +1095,23 @@ namespace nkentseu {
 							break;
 					}
 
+					// ⚠️ UN RECTANGLE POSE QUI N'A PAS ETE CONSOMME EST DESARME ICI.
+					//    `SetNextItemRect` vaut pour le prochain widget AUTO-PLACE ; un role
+					//    qui ne passe pas par `NextItemRect` le laisserait arme pour le
+					//    SUIVANT, qui partirait aux coordonnees d'un autre. On le retire et on
+					//    le COMPTE : un placement qui n'a pas pris doit se voir dans le releve,
+					//    pas contaminer son voisin.
+					if (pl.pose && !estConteneur) {
+						if (ctx.nextItemRectSet) {
+							ctx.nextItemRectSet = false;
+							++rap.posesNonConsommes;
+						} else {
+							const NkRect &pv = ctx.layout.prevItem;
+							const float32 dx = pv.x - pl.rect.x, dy = pv.y - pl.rect.y;
+							if ((dx > -0.5f && dx < 0.5f) && (dy > -0.5f && dy < 0.5f))
+								++rap.posesHonores;
+						}
+					}
 					if (aDessine)
 						++rap.montes;
 					Noter(rap, id, t, ctx.layout.prevItem, prof, false, horizontal);

@@ -42,6 +42,11 @@
 //   W-ETAT-DOUBLE   le meme etat declare deux fois sur un widget  Avertissement
 //   W-FOCUS-ANNEAU  un anneau (`stroke`) pose sur `Focus` plutot
 //                   que sur `FocusVisible`                       Avertissement
+//   E-PLACEMENT     des coordonnees sous un conteneur en FLUX, ou un mode
+//                   de placement hors de { flow, absolute }       Bloquant
+//   E-FORME-INCONNUE un bloc de `geometry` qui n'est pas une `shape`,
+//                   ou une nature hors de la liste fermee du
+//                   §4.2, ou un bloc a l'interieur d'une forme  Bloquant
 //
 //
 // =============================================================================
@@ -78,7 +83,7 @@
 //         information utile ne coute rien, « c'est un echange » est une facon de
 //         ne pas la porter.
 //
-// Auteur   : Rihen
+// Auteur   : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // Copyright: (c) 2024-2026 Rihen. Tous droits reserves.
 // =============================================================================
 
@@ -182,11 +187,34 @@ namespace nkuidesign {
 		/// catalogue doublerait a chaque capacite ajoutee ». `tooltip` et
 		/// `enabled` sont donc admis sur TOUT role -- et le corpus les emploie
 		/// exactement comme ca (116 `tooltip`, 6 `enabled`).
+		///
+		/// 🔴 ET `pos` / `size` LES ONT REJOINTES LE 2026-09-14, PAR LA MEME REGLE.
+		///    Rodolf : « on dois pouvoir avoir du placement absolut comme non
+		///    absolut ca va dependre de l'utilisateur et pour certain widget
+		///    utiliser. » **« pour certain widget »** : le placement se declare
+		///    donc SUR LE WIDGET et non par role -- sinon il faudrait `ButtonPose`,
+		///    `TextPose`, et le catalogue doublerait, exactement ce que le §4
+		///    interdit. La capacite existait deja dans le format, mais sur UN SEUL
+		///    role (`Window`) : elle n'est pas inventee ici, elle est generalisee.
+		///
+		/// ⚠️ `pos` EST L'INTERRUPTEUR, ET `size` NE L'EST PAS. Un widget qui ecrit
+		///    `pos` est POSE ; `size` seul reste le `size` DU ROLE. La difference
+		///    n'est pas cosmetique : `Spacer "vide" { size = 12 }` existe dans le
+		///    corpus (01_panneau_reglages l.41) et vaut UN nombre, pas un Vec2. Le
+		///    schema du ROLE est consulte AVANT les universelles (voir
+		///    `NkGValidateProps`), donc `Spacer.size` gagne et le fichier reste
+		///    valide -- c'est mesure par le controle (g1g), pas suppose.
+		///
+		/// ⚠️ ET `pWindow` NE LES DECLARE PLUS. Elles y etaient ; les laisser
+		///    aurait fait DEUX declarations de la meme propriete, dont une seule
+		///    serait exercee. Une propriete garantie deux fois est une propriete
+		///    dont l'echec est masque.
 		inline const NkGSchemaProp *NkGUniversalProps(uint32 &count) {
 			static const NkGSchemaProp kUniversal[] = {
-				{"tooltip", 's'}, {"enabled", 'b'}, {"visible", 'b'}, {"id", 's'},
+				{"tooltip", 's'}, {"enabled", 'b'}, {"visible", 'b'},
+				{"id", 's'},      {"pos", 'v'},     {"size", 'v'},
 			};
-			count = 4;
+			count = 6;
 			return kUniversal;
 		}
 
@@ -245,10 +273,22 @@ namespace nkuidesign {
 			static const NkGSchemaProp pExpander[] = {{"label", 's'}, {"expanded", 'b'}};
 			static const NkGSchemaProp pDockSpace[] = {
 				{"overViewport", 'b'}, {"topMargin", 'n'}};
-			static const NkGSchemaProp pWindow[] = {{"title", 's'}, {"pos", 'v'},
-													{"size", 'v'},	{"flags", 'i'},
-													{"modal", 'b'}};
-			static const NkGSchemaProp pPanel[] = {{"title", 's'}};
+			// ⚠️ `pos` ET `size` ONT QUITTE CETTE LIGNE LE 2026-09-14 -- elles sont
+			//    devenues UNIVERSELLES (`NkGUniversalProps`). `Window` ne perd rien :
+			//    il les recoit par la porte transversale, comme tous les autres roles.
+			//    Les y laisser en plus aurait fait deux declarations pour une seule
+			//    propriete -- et la seconde n'aurait jamais ete exercee.
+			static const NkGSchemaProp pWindow[] = {{"title", 's'}, {"flags", 'i'},
+													{"modal", 'b'}, {"placement", 'e'}};
+			static const NkGSchemaProp pPanel[] = {{"title", 's'}, {"placement", 'e'}};
+			// ⚠️ `placement` N'EST DECLARE QUE SUR LES TROIS CONTENEURS NEUTRES --
+			//    `Window`, `Panel`, `Group`. Les autres NOMMENT DEJA leur agencement :
+			//    une `VBox` empile, une `Grid` quadrille, un `Flow` enroule. Leur
+			//    accorder `placement = absolute` serait leur faire dire le contraire de
+			//    leur nom -- et la faute tombe TOUTE SEULE par le mecanisme qui existe
+			//    deja : `VBox { placement = absolute }` est une propriete hors schema,
+			//    donc `E-TYPE`. Aucun garde special a ecrire.
+			static const NkGSchemaProp pGroup[] = {{"placement", 'e'}};
 			static const NkGSchemaProp pBox[] = {
 				{"gap", 'n'}, {"align", 'e'}, {"justify", 'e'}};
 			static const NkGSchemaProp pGrid[] = {
@@ -289,9 +329,9 @@ namespace nkuidesign {
 				{"ContextMenu", pNone, 0},
 				{"Expander", pExpander, 2},
 				{"DockSpace", pDockSpace, 2},
-				{"Window", pWindow, 5},
-				{"Panel", pPanel, 1},
-				{"Group", pNone, 0},
+				{"Window", pWindow, 4},
+				{"Panel", pPanel, 2},
+				{"Group", pGroup, 1},
 				{"VBox", pBox, 3},
 				{"HBox", pBox, 3},
 				{"Row", pBox, 3},
@@ -463,6 +503,125 @@ namespace nkuidesign {
 			return false;
 		}
 
+		// =====================================================================
+		//  LE PLACEMENT EST UNE PROPRIETE DU CONTENEUR -- tranche le 2026-09-14
+		// =====================================================================
+		//
+		//  Rodolf : « au vu de son parent, un conteneur ne pourra jamais porter
+		//  les deux. » Les enfants directs d'un conteneur sont donc TOUS en flux,
+		//  ou TOUS poses. Un widget est pose PARCE QUE SON PARENT est absolu.
+		//
+		//  🔴 ET CETTE REGLE N'EST PAS NEUVE : ELLE EST ECRITE DANS LE MODELE DE
+		//     L'EDITEUR DEPUIS LE 2026-08-18. `NkUINode::posX` porte, mot pour mot :
+		//     « LA POSITION SUR LA TOILE -- et elle ne vaut QUE quand le PARENT est
+		//     en `Free` [...] Les deux natures cohabitent donc **par le parent** :
+		//     un noeud sous `Column` est calcule, un noeud sous `Free` est pose. »
+		//     C'est la phrase de Rodolf, un mois plus tot, dans le document.
+		//     **Le concept existait ; il lui manquait un nom dans le format.**
+		//
+		//  ⚠️ LA RACINE DE `widgets` EST ABSOLUE PAR NATURE, et il FALLAIT le
+		//     trancher : rien ne la contient, donc aucun conteneur ne peut declarer
+		//     son mode. Une fenetre de premier plan se pose dans la vue -- et le
+		//     corpus l'atteste deja (`03_virgule_vecteur_couleur` ecrit
+		//     `Window "apercu" { pos = (120, 80) }` a la racine). Decider l'inverse
+		//     aurait rendu INVALIDE un fichier valide depuis le premier jour.
+		//
+		//  ⚠️ ET LES COORDONNEES SONT RELATIVES AU CONTENEUR, pas a la vue. C'est
+		//     ce qui fait qu'une boite de dialogue posee EMPORTE son contenu quand
+		//     on la deplace -- sans quoi « une boite de dialogue se POSE » ne
+		//     voudrait rien dire. A la racine, le conteneur est la vue : les
+		//     coordonnees y sont donc celles de l'ecran, et `03` ne bouge pas.
+		
+		/// Les deux modes, et la liste est FERMEE. Deux valeurs, deux comportements :
+		/// un mode de plus qui ferait la meme chose qu'un autre serait une etiquette,
+		/// pas un mode.
+		inline bool NkGPlacementConnu(const NkString &v) {
+			return v.Compare("flow") == 0 || v.Compare("absolute") == 0;
+		}
+		
+		/// La valeur d'une etiquette, guillemets retires s'il y en a. Le schema dit
+		/// 'e' -- identifiant OU chaine -- donc les deux graphies se lisent, et une
+		/// seule fonction doit savoir laquelle a ete ecrite.
+		inline NkString NkGEtiquette(const NkArchiveNode &n) {
+			NkString v(n.Lexeme());
+			if (v.Size() >= 2u && v.Data()[0] == '\"') {
+				return NkString(v.Data() + 1, (uint32)v.Size() - 2u);
+			}
+			return v;
+		}
+		
+		/// Vrai si CE bloc declare `placement = absolute`. Le defaut est le FLUX : un
+		/// fichier qui ne connait pas ce mot se comporte exactement comme avant.
+		inline bool NkGEstAbsolu(const NkArchive &bloc) {
+			const NkArchiveNode *n = bloc.FindNode(NkStringView("placement"));
+			return n != nullptr && NkGEtiquette(*n).Compare("absolute") == 0;
+		}
+		
+		// =====================================================================
+		//  LA SECTION `geometry` -- UN NOM QUI AVAIT DEJA SA GRAMMAIRE
+		// =====================================================================
+		//
+		//  🔴 J'AI FAILLI ECRIRE « `geometry` est un nom sans definition ». C'EST
+		//     FAUX, ET LE DOCUMENT LE DIT DEPUIS LE DEBUT. Le document 2 §3 lui
+		//     donne une GRAMMAIRE :
+		//         geometry_sec := "geometry" '{' shape* '}'
+		//         shape        := "shape" String '{' shape_prop* '}'
+		//         shape_prop   := Identifier '=' value
+		//     et le document 2 §1 lui donne un SENS : « formes visuelles brutes
+		//     (calques du canvas) ». Ce qui manquait n'etait donc pas le nom :
+		//     c'etait le SCHEMA DE PROPRIETES, et le montage. **On implemente une
+		//     decision ecrite, on n'en prend pas une nouvelle.**
+		//
+		//  ⚠️ ET `geometry` NE PLACE PAS LES WIDGETS -- deux raisons, aucune de moi :
+		//     1. le document 3 a deja ecarte PAR ECRIT l'idee d'une section a cote
+		//        qui decrirait un objet des `widgets` (« deux sections a tenir
+		//        synchronisees pour un meme objet, c'est la garantie qu'elles
+		//        divergeront ») ;
+		//     2. Rodolf a tranche que le placement se declare « pour certain
+		//        widget » -- donc SUR le widget (voir `NkGUniversalProps`).
+		//     `geometry` recoit donc le sens du document : des FORMES, chacune avec
+		//     son propre rectangle absolu, DERRIERE les widgets.
+		//
+		//  ⚠️ CHAQUE PROPRIETE VIENT D'UN CHAMP QUI EXISTE, aucune n'est inventee :
+		//     `kind` reprend `ShapeNode.kind` (specification §4.2) -- exactement les
+		//     mots que `NkUINode::shape` emploie sur le disque de Rodolf ; `pos`,
+		//     `size`, `color`, `radius`, `text` reprennent `posX/posY`,
+		//     `width/height`, `fill`, `radius`, `text` du meme noeud.
+		//
+		//  ⚠️ UNE FORME N'A QUE DES PROPRIETES. `shape_prop := Identifier '=' value`
+		//     ne laisse aucune place a un bloc. Le taire rendrait
+		//     `shape "x" { fill { } }` legal, c'est-a-dire un second vocabulaire
+		//     d'apparence a cote de celui du document 9.
+		
+		inline const NkGSchemaProp *NkGFormeProps(uint32 &count) {
+			static const NkGSchemaProp kProps[] = {
+				{"kind", 'e'},   {"pos", 'v'},  {"size", 'v'},
+				{"color", 'c'},  {"radius", 'n'}, {"text", 's'},
+			};
+			count = 6;
+			return kProps;
+		}
+		
+		/// LES SIX NATURES, et la liste est FERMEE (specification §4.2,
+		/// `ShapeNode.kind := rect | ellipse | text | image | path | frame`). C'est
+		/// ce qui permet de refuser `trapeze` sans le confondre avec un role.
+		inline const char *const *NkGNatures(uint32 &count) {
+			static const char *k[] = {"rect", "ellipse", "text", "image", "path", "frame"};
+			count = 6;
+			return k;
+		}
+		
+		inline bool NkGNatureConnue(const NkString &n) {
+			uint32 c = 0;
+			const char *const *t = NkGNatures(c);
+			for (uint32 i = 0; i < c; ++i) {
+				if (n.Compare(t[i]) == 0) {
+					return true;
+				}
+			}
+			return false;
+		}
+		
 		// =====================================================================
 		//  LA VALIDATION
 		// =====================================================================
@@ -938,6 +1097,64 @@ namespace nkuidesign {
 			}
 		}
 
+		/// Valide UNE forme de la section `geometry`.
+		///
+		/// ⚠️ IL NE RAPPELLE PAS `NkGValidateNode`, ET C'EST LA GRAMMAIRE QUI LE DIT.
+		///    Une forme est un CALQUE, pas un widget : elle n'a ni role, ni etat, ni
+		///    evenement (document 3, a propos de `geometry` : « ce qui en ferait un
+		///    calque et non un widget »). Aiguiller vers la validation de widget
+		///    « au cas ou » aurait rendu `shape "x" { Button "b" { } }` legal.
+		///
+		/// ⚠️ ET IL PASSE PAR `NkGValidateProps`, LA MEME PORTE QUE LES WIDGETS ET
+		///    L'APPARENCE. Recopier la boucle aurait donne une TROISIEME copie d'un
+		///    mecanisme -- et la mutation V6 du 2026-08-23 a deja puni ca une fois :
+		///    deux copies se desynchronisent en silence. `universels` vaut nullptr :
+		///    `tooltip` et `enabled` sont des capacites du WIDGET (doc 7 §4), un
+		///    calque n'a rien a survoler.
+		/// ⚠️ PAS DE PARAMETRE `ligne` ICI, CONTRAIREMENT AUX WIDGETS. Une forme
+		///    n'emet aucun diagnostic sur ELLE-MEME : tout ce qu'on lui reproche est
+		///    une propriete ou un bloc, et ces deux-la portent leur propre ligne. Un
+		///    parametre qu'on passerait « au cas ou » serait un parametre que
+		///    personne ne mesure.
+		inline void NkGValidateForme(const NkArchive &bloc, const NkString &parent,
+				 NkVector<nkentseu::NkGuiDiag> &out) {
+			const NkString chemin = NkGCheminEnfant(parent, bloc);
+			uint32 n = 0;
+			const NkGSchemaProp *props = NkGFormeProps(n);
+			NkGValidateProps(bloc, chemin, props, n, nullptr, 0, NkString("shape"), out);
+			
+			// LA NATURE, contre la liste fermee. Jugee APRES les proprietes : une
+			// nature inconnue ne rend pas le reste de la forme invisible, et on doit
+			// pouvoir corriger la faute qu'on signale.
+			const NkArchiveNode *k = bloc.FindNode(NkStringView("kind"));
+			if (k) {
+				const NkString v(k->Lexeme());
+				if (!NkGNatureConnue(v)) {
+					NkString m(chemin);
+					m.Append(" . kind : nature inconnue -- '");
+					m.Append(v);
+					m.Append("'. Les natures sont rect, ellipse, text, image, path, frame "
+						"(specification §4.2)");
+					NkGPushDiag(out, "E-FORME-INCONNUE", m, k->SourceLine());
+				}
+			}
+			
+			// Un bloc DANS une forme : la grammaire ne le prevoit pas.
+			const NkArchiveNode *corps = NkGCorps(bloc);
+			if (!corps) {
+				return;
+			}
+			for (uint32 i = 0; i < (uint32)corps->array.Size(); ++i) {
+				if (!corps->array[i].IsObject() || !corps->array[i].object) {
+					continue;
+				}
+				NkString m(NkGCheminEnfant(chemin, *corps->array[i].object));
+				m.Append(" : une forme de `geometry` ne contient que des proprietes "
+					"(document 2 §3 : shape_prop := Identifier '=' value)");
+				NkGPushDiag(out, "E-FORME-INCONNUE", m, corps->array[i].SourceLine());
+			}
+		}
+		
 		/// ⚠️ LA LIGNE D'UN BLOC VIT SUR LE NOEUD QUI LE PORTE, pas dans l'archive
 		///    du bloc. Un bloc est un element du `$body` de son parent : c'est cet
 		///    element qui a une trivia, donc une ligne. L'archive interieure, elle,
@@ -945,9 +1162,38 @@ namespace nkuidesign {
 		///    l'oublier redonnerait des diagnostics a la ligne 0 sans que rien ne
 		///    tombe, puisque le message reste juste.
 		inline void NkGValidateNode(const NkArchive &noeud, const NkString &parent,
-									nk_int32 ligne, NkVector<nkentseu::NkGuiDiag> &out) {
+									nk_int32 ligne, NkVector<nkentseu::NkGuiDiag> &out,
+									bool parentAbsolu) {
 			const NkString role(NkGuiArchive::TypeOf(noeud));
 			const NkString chemin = NkGCheminEnfant(parent, noeud);
+			
+			// ── LE PLACEMENT, JUGE CONTRE LE PARENT ──────────────────
+			// ⚠️ CE REFUS EST LA CONTREPARTIE DE LA REGLE DE RODOLF. Si des
+			//    coordonnees sous un conteneur en flux etaient simplement IGNOREES,
+			//    l'utilisateur les ecrirait, ne verrait rien bouger, et chercherait la
+			//    faute partout sauf la. Une capacite qui ne s'applique pas doit le DIRE
+			//    a l'endroit ou on l'ecrit.
+			if (!parentAbsolu && noeud.FindNode(NkStringView("pos")) != nullptr) {
+				NkString m(chemin);
+				m.Append(" . pos : des coordonnees sous un conteneur EN FLUX. Le "
+						"placement est une propriete du CONTENEUR : ecrivez "
+						"`placement = absolute` sur le parent, ou retirez `pos`");
+				NkGPushDiag(out, "E-PLACEMENT", m, ligne);
+			}
+			{
+				const NkArchiveNode *pm = noeud.FindNode(NkStringView("placement"));
+				if (pm && !NkGPlacementConnu(NkGEtiquette(*pm))) {
+					NkString m(chemin);
+					m.Append(" . placement : mode inconnu -- '");
+					m.Append(NkGEtiquette(*pm));
+					m.Append("'. Les deux modes sont `flow` (le defaut) et `absolute`");
+					NkGPushDiag(out, "E-PLACEMENT", m, pm->SourceLine());
+				}
+			}
+			// Ce que CE noeud impose a SES enfants -- independant de ce que son propre
+			// parent lui impose. Les deux questions sont distinctes, et les confondre
+			// rendrait l'absolu contagieux vers le bas.
+			const bool enfantsAbsolus = NkGEstAbsolu(noeud);
 
 			const NkGSchemaRole *def = NkGFindRole(role);
 			if (!def) {
@@ -1049,7 +1295,8 @@ namespace nkuidesign {
 					NkGValidateApparence(enfant, chemin, corps->array[c].SourceLine(), out);
 					continue;
 				}
-				NkGValidateNode(enfant, chemin, corps->array[c].SourceLine(), out);
+				NkGValidateNode(enfant, chemin, corps->array[c].SourceLine(), out,
+								enfantsAbsolus);
 			}
 		}
 
@@ -1084,6 +1331,33 @@ namespace nkuidesign {
 									corps->array[i].SourceLine());
 						continue;
 					}
+					// LA SECTION `geometry` : des FORMES, et rien d'autre.
+					if (nom.Compare("geometry") == 0) {
+						const NkArchiveNode *formes = NkGCorps(sec);
+						if (!formes) {
+							continue;
+						}
+						for (uint32 f = 0; f < (uint32)formes->array.Size(); ++f) {
+							if (!formes->array[f].IsObject() || !formes->array[f].object) {
+								continue; // une tranche brute : passee, comme partout ailleurs
+							}
+							const NkArchive &fo = *formes->array[f].object;
+							const NkString t(NkGuiArchive::TypeOf(fo));
+							if (t.Compare("shape") != 0) {
+								// ⚠️ UN CODE A LUI, PAS `E-ROLE-INCONNU`. Se plaindre du
+								//    vocabulaire des ROLES ici serait refaire, en plus
+								//    discret, le faux positif d'apparence du 23/08 : ce
+								//    n'est pas cette table-la qu'on consulte.
+								NkString m(NkGCheminEnfant(NkString(nom), fo));
+								m.Append(" : une section `geometry` ne contient que des blocs "
+									"`shape` (document 2 §3)");
+								NkGPushDiag(out, "E-FORME-INCONNUE", m, formes->array[f].SourceLine());
+								continue;
+							}
+							NkGValidateForme(fo, NkString(nom), out);
+						}
+						continue;
+					}
 					if (nom.Compare("widgets") != 0) {
 						continue;
 					}
@@ -1094,7 +1368,8 @@ namespace nkuidesign {
 					for (uint32 k = 0; k < (uint32)racines->array.Size(); ++k) {
 						if (racines->array[k].IsObject() && racines->array[k].object) {
 							NkGValidateNode(*racines->array[k].object, NkString("widgets"),
-											racines->array[k].SourceLine(), out);
+											racines->array[k].SourceLine(), out,
+											/*parentAbsolu=*/true);
 						}
 					}
 				}

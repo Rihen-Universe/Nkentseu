@@ -642,7 +642,16 @@ namespace nkuidesign {
 				NkComputeLayout(nu, NkPaintRect{0.f, 0.f, 400.f, 300.f}, l2);
 				guifmt::NkEcritRapport r3;
 				const NkString t2 = guifmt::NkDocumentVersTexte(nu, l2, r3);
-				const uint32 c2 = Occurrences(t2, "size = "), g2 = Occurrences(t2, "weight = ");
+				// 🔴 ET CE COMPTEUR-CI A REFAIT LA FAUTE DE (f2a), UN LOT PLUS TARD.
+				//    `size` nomme DEUX choses : `appearance.size` est un CORPS DE POLICE,
+				//    `size = (w, h)` est une GEOMETRIE. (f2a) retranchait deja la forme
+				//    parenthesee ; (f2b) ne le faisait pas, parce qu'au moment ou il a ete
+				//    ecrit AUCUN noeud ne portait de geometrie. Le jour ou le pont s'est mis
+				//    a poser tout le monde, ce negatif a crie au rouge sur un ecrivain
+				//    correct. **Le compteur etait faux, pas le code mesure** -- et c'est la
+				//    deuxieme fois que ce meme mot le provoque.
+				const uint32 c2 = Occurrences(t2, "size = ") - Occurrences(t2, "size = (");
+				const uint32 g2 = Occurrences(t2, "weight = ");
 				char d[300];
 				snprintf(d, sizeof(d), "document sans corps ni graisse -> %u `size`, %u `weight` "
 							"(attendu 0 et 0), fichier de %u octet(s)",
