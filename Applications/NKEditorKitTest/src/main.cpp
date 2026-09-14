@@ -81,6 +81,10 @@
 // (`NkFilePickerNavProbe.h`) : c'est le kit qu'il mesure, et une fusion doit
 // l'emporter avec le correctif qu'il garde. Ici, une ligne d'appel.
 #include "NKEditorKit/NkFilePickerNavProbe.h"
+// (o1) LA BANDE D'ONGLETS PARTAGEE et le peintre qui ENREGISTRE ce qui est
+// peint : le banc lit le flux, il ne croit pas un resultat rapporte.
+#include "NKEditorKit/Components/NkTabStripModel.h"
+#include "NKEditorKit/Components/NkRecordingPaint.h"
 
 #include <stdio.h>
 
@@ -386,6 +390,235 @@ static void Famille4_BackendGraphique() {
 }
 
 // =============================================================================
+//  FAMILLE 15 — LA BANDE D'ONGLETS PARTAGEE (canal `onglets.questions.md`, o1)
+// =============================================================================
+//  CE QU'ELLE PROUVE, ET CE QU'ELLE NE PROUVE PAS.
+//
+//  Rodolf a demande que la bande d'onglets soit COMBLEE DANS LA COQUILLE, pas
+//  recopiee chez Nogee. L'attendu derive du canal est ecrit noir sur blanc :
+//  « les onglets de Nogee et ceux du modeleur doivent venir du MEME code. Le
+//  prouver autrement qu'en le disant : une mutation dans la coquille doit
+//  changer les deux, ou le partage est une fiction. »
+//
+//  ⚠️ CE BANC NE PEUT PAS LANCER LES DEUX APPLICATIONS. Il prouve la propriete
+//     qui rend l'affirmation vraie : **la geometrie de la bande ne depend que
+//     du peintre et de la table de metriques partagee.** Deux hotes qui
+//     appellent `NkDrawTabStrip` avec les memes mesures de texte obtiennent la
+//     MEME bande, et une mutation de la metrique les deplace tous les deux.
+//
+//  ⚠️ ET CE QU'IL NE PROUVE PAS EST DIT : il ne montre aucun pixel. Le temoin
+//     visuel de la bande existe ailleurs (`NkOngletSonde`, captures
+//     `sonde_onglets/captures/`), et il est pris avec le peintre NKGui de la
+//     coquille — pas avec celui de NK3DModeler, dont l'application ne compile
+//     pas sur cette branche pour des raisons ANTERIEURES a ce lot (merge
+//     `e249d7151` ; 12 erreurs dans `main.cpp`, `NkModelerImport.h` et
+//     `NkDemo3D.cpp`, aucune dans un fichier de ce lot). Cf. le canal.
+namespace tabprobe {
+
+	using namespace nkentseu::editorkit;
+
+	/// ⚠️ UN SECOND PEINTRE, ET IL DIFFERE DE L'AUTRE LA OU CA COMPTE. Deux
+	///    instances de la meme classe ne prouveraient rien : elles partagent
+	///    jusqu'aux defauts. Celui-ci REMPLACE la mesure de texte — c'est la
+	///    seule entree par laquelle un hote peut faire varier la largeur d'un
+	///    onglet. S'il produisait la meme bande que l'autre, ce serait le signe
+	///    que la largeur NE depend PAS du texte, donc que le composant ignore
+	///    son peintre.
+	class PeintreLarge final : public NkRecordingPaint {
+		public:
+			float32 TextWidth(const char *s) const override {
+				usize n = 0;
+				while (s && s[n])
+					++n;
+				return (float32)n * 12.f; // 12 px/caractere au lieu de 7
+			}
+	};
+
+	/// Les rectangles d'onglets EMIS, dans l'ordre. On lit le flux plutot que le
+	/// resultat rendu : un composant pourrait rapporter une geometrie et en
+	/// peindre une autre — c'est exactement le defaut « declarer n'est pas
+	/// livrer » que ce depot a paye. Ici on mesure CE QUI EST PEINT.
+	inline void RectsPeints(const NkRecordingPaint &p, NkVector<float32> &xs,
+							NkVector<float32> &ws) {
+		xs.Clear();
+		ws.Clear();
+		for (usize i = 0; i < p.cmds.Size(); ++i) {
+			const NkPaintCmd &c = p.cmds[i];
+			// Les fonds d'onglets : des `Fill` arrondis. Le fond de BANDE, lui,
+			// n'est pas arrondi -- c'est ce qui les distingue sans compter sur
+			// un ordre d'emission.
+			if (c.op == NkPaintOp::Fill && c.rounding > 0.f && c.h > 0.f) {
+				xs.PushBack(c.x);
+				ws.PushBack(c.w);
+			}
+		}
+	}
+
+	inline void Modele(NkTabStripModel &m) {
+		m.tabs.Clear();
+		NkTabItem a;
+		a.id = 1;
+		a.label = NkString("Scene");
+		m.tabs.PushBack(a);
+		NkTabItem b;
+		b.id = 2;
+		b.label = NkString("Eclairage");
+		m.tabs.PushBack(b);
+		m.active = 1;
+	}
+
+	inline NkTabStripStyle Style(const NkComponentInstance *inst) {
+		NkTabStripStyle s;
+		s.bandBg = 1;
+		s.border = 2;
+		s.tabBg = 3;
+		s.tabHoverBg = 4;
+		s.tabActiveBg = 5;
+		s.text = 6;
+		s.textMuted = 7;
+		s.accent = 8;
+		s.values = inst;
+		return s;
+	}
+
+	/// Rend le nombre d'essais reussis et le total.
+	inline void Sonder(uint32 &ok, uint32 &total) {
+		NkComponentInput in; // souris HORS de la bande : aucun survol, aucun clic
+		in.mouseX = -1000.f;
+		in.mouseY = -1000.f;
+		const NkPaintRect rect{0.f, 0.f, 900.f, 28.f};
+
+		NkVector<float32> xs1, ws1, xs2, ws2, xs3, ws3;
+
+		// ── (a) LE MEME CODE, DEUX PEINTRES : la bande suit son peintre ──────
+		NkTabStripModel m1;
+		Modele(m1);
+		NkRecordingPaint p1;
+		NkDrawTabStrip(p1, in, rect, m1, Style(nullptr), NkTabStripHooks{});
+		RectsPeints(p1, xs1, ws1);
+
+		NkTabStripModel m2;
+		Modele(m2);
+		PeintreLarge p2;
+		NkDrawTabStrip(p2, in, rect, m2, Style(nullptr), NkTabStripHooks{});
+		RectsPeints(p2, xs2, ws2);
+
+		++total;
+		if (xs1.Size() == 2 && xs2.Size() == 2) {
+			++ok;
+		} else {
+			printf("  [FAIL] 15.a la bande n'a pas emis DEUX onglets (%u et %u)\n",
+				   (unsigned)xs1.Size(), (unsigned)xs2.Size());
+		}
+
+		// ⚠️ L'ATTENDU EST DERIVE, PAS ECRIT. La largeur d'un onglet vaut
+		//    `TextWidth(libelle) + tab_pad_x`. On la recalcule a partir des
+		//    parametres du banc (5 et 9 caracteres, 7 puis 12 px) et de la
+		//    metrique LUE dans la declaration — jamais d'un nombre recopie ici,
+		//    qui se perimerait le jour ou Rodolf change `tab_pad_x`.
+		const float32 pad = NkTabStripDecl().Metric("tab_pad_x");
+		++total;
+		if (xs1.Size() == 2 && ws1[0] > 0.f) {
+			const float32 attendu0 = 5.f * 7.f + pad;  // "Scene"
+			const float32 attendu1 = 9.f * 7.f + pad;  // "Eclairage"
+			const bool bon = (ws1[0] > attendu0 - 0.01f && ws1[0] < attendu0 + 0.01f) &&
+							 (ws1[1] > attendu1 - 0.01f && ws1[1] < attendu1 + 0.01f);
+			if (bon)
+				++ok;
+			else
+				printf("  [FAIL] 15.b largeurs %0.2f/%0.2f, attendu %0.2f/%0.2f\n", ws1[0], ws1[1],
+					   attendu0, attendu1);
+		} else {
+			printf("  [FAIL] 15.b pas de rectangle a mesurer\n");
+		}
+
+		// ⚠️ LE NEGATIF : le SECOND peintre doit donner d'AUTRES largeurs. S'il
+		//    donnait les memes, le composant n'ecouterait pas son peintre — et
+		//    l'essai (a) serait vert pour une raison qui n'a rien a voir.
+		++total;
+		if (xs1.Size() == 2 && xs2.Size() == 2) {
+			const bool differe = (ws2[0] > ws1[0] + 1.f) && (ws2[1] > ws1[1] + 1.f);
+			if (differe)
+				++ok;
+			else
+				printf("  [FAIL] 15.c NEGATIF : deux peintres differents rendent la meme bande "
+					   "(%0.2f vs %0.2f) -- le composant ignore son peintre\n",
+					   ws1[0], ws2[0]);
+		} else {
+			++total; // rien a comparer : on ne credite pas
+		}
+
+		// ── (d) LA MUTATION PARTAGEE : elle deplace TOUT hote ────────────────
+		// C'est la reponse a « une mutation dans la coquille doit changer les
+		// deux ». On mute la metrique PARTAGEE et on verifie que la bande du
+		// premier peintre bouge de la difference EXACTE.
+		NkComponentInstance inst;
+		inst.Bind(NkTabStripDecl());
+		const float32 padMute = pad + 36.f;
+		inst.SetMetric("tab_pad_x", padMute);
+
+		NkTabStripModel m3;
+		Modele(m3);
+		NkRecordingPaint p3;
+		NkDrawTabStrip(p3, in, rect, m3, Style(&inst), NkTabStripHooks{});
+		RectsPeints(p3, xs3, ws3);
+
+		++total;
+		if (xs1.Size() == 2 && xs3.Size() == 2) {
+			const float32 d0 = ws3[0] - ws1[0];
+			const float32 d1 = ws3[1] - ws1[1];
+			const bool bon = (d0 > 35.99f && d0 < 36.01f) && (d1 > 35.99f && d1 < 36.01f);
+			if (bon)
+				++ok;
+			else
+				printf("  [FAIL] 15.d la mutation partagee decale de %0.2f/%0.2f, attendu 36/36\n",
+					   d0, d1);
+		} else {
+			printf("  [FAIL] 15.d pas de rectangle a comparer\n");
+		}
+
+		// ⚠️ LE NEGATIF DE LA MUTATION : une metrique que la bande N'UTILISE PAS
+		//    ne doit RIEN changer. Sans cet essai, « la mutation a change la
+		//    bande » pourrait vouloir dire « toute mutation la change », ce qui
+		//    serait un composant qui se redessine au hasard, pas un composant
+		//    qui honore ses parametres.
+		NkComponentInstance inertie;
+		inertie.Bind(NkTabStripDecl());
+		inertie.SetMetric("seg_min_w", 999.f); // variante Segmente seulement
+		NkTabStripModel m4;
+		Modele(m4);
+		NkRecordingPaint p4;
+		NkDrawTabStrip(p4, in, rect, m4, Style(&inertie), NkTabStripHooks{});
+		NkVector<float32> xs4, ws4;
+		RectsPeints(p4, xs4, ws4);
+		++total;
+		if (xs1.Size() == xs4.Size() && xs4.Size() == 2) {
+			const bool inchange = (ws4[0] > ws1[0] - 0.01f && ws4[0] < ws1[0] + 0.01f) &&
+								  (ws4[1] > ws1[1] - 0.01f && ws4[1] < ws1[1] + 0.01f);
+			if (inchange)
+				++ok;
+			else
+				printf("  [FAIL] 15.e NEGATIF : une metrique INUTILISEE par la variante "
+					   "Documents a quand meme deplace la bande (%0.2f -> %0.2f)\n",
+					   ws1[0], ws4[0]);
+		} else {
+			printf("  [FAIL] 15.e comptes d'onglets differents\n");
+		}
+
+		// ── (f) LE CLIP EST EQUILIBRE ───────────────────────────────────────
+		// Un `PushClip` sans son `PopClip` laisse tout ce qui suit rogne a la
+		// bande — un defaut qui ne se voit pas dans la bande elle-meme, mais
+		// dans le panneau d'a cote.
+		++total;
+		if (p1.ClipBalanced())
+			++ok;
+		else
+			printf("  [FAIL] 15.f PushClip / PopClip desequilibres\n");
+	}
+
+} // namespace tabprobe
+
+// =============================================================================
 int main(int argc, char **argv) {
 	(void)argc;
 	(void)argv;
@@ -401,6 +634,17 @@ int main(int argc, char **argv) {
 		const navprobe::Bilan b5 = navprobe::Sonder();
 		gPassed += (uint32)b5.ok;
 		gFailed += (uint32)(b5.total - b5.ok);
+	}
+	// Famille 15 — la bande d'onglets PARTAGEE (canal onglets, o1). Meme forme de
+	// bilan que la 5 : on additionne les deux nombres, sinon deux echecs
+	// vaudraient un.
+	{
+		printf("\n--- Famille 15 : la bande d'onglets partagee ---\n");
+		uint32 ok15 = 0, total15 = 0;
+		tabprobe::Sonder(ok15, total15);
+		printf("  famille 15 : %u/%u\n", ok15, total15);
+		gPassed += ok15;
+		gFailed += (total15 - ok15);
 	}
 
 	printf("\n---------------------------------------------\n");

@@ -53,7 +53,20 @@ namespace nkentseu {
 			// interne au shell, et non un nombre que l'application a demande.
 			const nkgui::NkRect corps = ui.dockSpaceRect;
 			const float32 titleH = ui.titleBarH;
-			const float32 toolbarH = corps.y - titleH;
+			// ⚠️ DEUX BANDES VIVENT DESORMAIS ENTRE LE TITRE ET LE CORPS, et les
+			//    confondre serait une mesure qui ment. `corps.y - titleH` rendait
+			//    « outils » tant que la barre d'outils etait seule ; depuis que la
+			//    bande d'onglets partagee existe (canal onglets, o1), la meme
+			//    soustraction rend 28 + 34 = 62 et l'imprimerait sous le nom
+			//    « outils ». La hauteur des onglets est donc LUE a sa source -- la
+			//    metrique `band_h` du composant partage -- et retranchee.
+			//    ⚠️ ET ELLE EST LUE, PAS RECOPIEE : le jour ou Rodolf change
+			//       `band_h`, cette sonde suit sans qu'on y touche.
+			const float32 tabsH =
+				shell->TabStripResult().tabs.Empty() && !shell->TabStripResult().usedW
+					? 0.f
+					: ui.S(editorkit::NkTabStripDecl().Metric("band_h"));
+			const float32 toolbarH = corps.y - titleH - tabsH;
 			const float32 footerH = H - (corps.y + corps.h);
 			const float32 railG = corps.x;
 			const float32 railD = W - (corps.x + corps.w);
@@ -66,8 +79,9 @@ namespace nkentseu {
 			std::printf("[PANNEAUX] corps x=%.2f y=%.2f w=%.2f h=%.2f\n",
 						static_cast<double>(corps.x), static_cast<double>(corps.y),
 						static_cast<double>(corps.w), static_cast<double>(corps.h));
-			std::printf("[PANNEAUX] bande titre=%.2f outils=%.2f etat=%.2f  rail_g=%.2f rail_d=%.2f\n",
-						static_cast<double>(titleH), static_cast<double>(toolbarH),
+			std::printf("[PANNEAUX] bande titre=%.2f onglets=%.2f outils=%.2f etat=%.2f  rail_g=%.2f rail_d=%.2f\n",
+						static_cast<double>(titleH), static_cast<double>(tabsH),
+						static_cast<double>(toolbarH),
 						static_cast<double>(footerH), static_cast<double>(railG),
 						static_cast<double>(railD));
 

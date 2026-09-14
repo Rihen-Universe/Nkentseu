@@ -80,6 +80,10 @@ namespace nkentseu {
 			/// Declaree avant la barre de menus, qui l'appelle (cf. le bloc a la
 			/// fin de `BarreDeMenus`). Definie plus bas, avec les deux autres.
 			inline void MettreAJourBarreDEtat(NogeeChromeCtx &c) noexcept;
+			/// Meme raison d'emplacement que la barre d'etat : la bande d'onglets
+			/// est PEINTE par la coquille, mais son MODELE appartient a Nogee et
+			/// doit refleter l'image courante.
+			inline void MettreAJourOnglets(NogeeChromeCtx &c) noexcept;
 
 			/// Selection de TOUS les noeuds de scene. Ecrit ici parce que
 			/// `NkSelectionManager` ne connait pas le monde : il gere une liste
@@ -415,6 +419,7 @@ namespace nkentseu {
 				//    image sans condition. Poser le pied d'ici garantit qu'il ne se
 				//    fige jamais sur l'etat d'une image passee.
 				MettreAJourBarreDEtat(c);
+				MettreAJourOnglets(c);
 			}
 
 			// ── LA BARRE D'OUTILS ────────────────────────────────────────────
@@ -521,6 +526,82 @@ namespace nkentseu {
 				std::snprintf(droite, sizeof(droite), "Entités %d — sélection : %u",
 							  nEntites, static_cast<unsigned>(nSel));
 				c.shell->SetFooter(gauche, droite);
+			}
+
+			// ═══════════════════════════════════════════════════════════════
+			//  LA BANDE D'ONGLETS — APPELEE, PAS REDESSINEE
+			// ═══════════════════════════════════════════════════════════════
+			//  ⚠️ IL N'Y A PAS UNE LIGNE DE DESSIN ICI, et c'est exactement ce que
+			//     « ameliore le system » voulait dire. Le lot precedent avait
+			//     signale que la bande d'onglets n'avait AUCUN equivalent dans la
+			//     coquille ; la reponse n'etait pas de la peindre chez Nogee — ca
+			//     aurait fait une CINQUIEME copie (le recensement est en tete de
+			//     `NkTabStripModel.h` : quatre, 764 lignes, zero partage). La
+			//     reponse est le composant `tab_strip`, descendu dans le kit, que
+			//     NK3DModeler appelle par son peintre et la coquille par le sien.
+			//
+			//  ⚠️ CE QUI EST MONTRE EST CE QUI EXISTE. Nogee n'a pas de systeme de
+			//     documents multiples : son projet porte une LISTE DE SCENES
+			//     (`NkProjectConfig::scenes`). C'est elle qui nourrit la bande. Un
+			//     projet sans scene enregistree montre UN onglet — la scene
+			//     courante, non enregistree, marquee par le point. Fabriquer trois
+			//     onglets de demonstration aurait donne une plus belle capture et
+			//     une interface qui ment ; le depot a deja paye ce defaut-la (« une
+			//     sonde qui se fait passer pour le produit »).
+			//
+			//  ⚠️ LES LIBELLES PORTENT LEURS ACCENTS. La cause de leur absence dans
+			//     le depot a ete MESUREE (o2) et c'est un vieux choix, pas une
+			//     limite technique : la plage de glyphes par defaut de l'atlas est
+			//     `{0x0020, 0x00FF}` — elle CONTIENT e-aigu, a-grave, c-cedille et
+			//     les guillemets francais. Cf. le canal `onglets.questions.md`.
+			inline NkTabStripModel &OngletsModele() noexcept {
+				static NkTabStripModel m;
+				return m;
+			}
+
+			inline void MettreAJourOnglets(NogeeChromeCtx &c) noexcept {
+				NkTabStripModel &m = OngletsModele();
+				m.tabs.Clear();
+
+				const bool modifie = c.projet && c.projet->IsModified();
+				if (c.projet && c.projet->IsOpen() && !c.projet->Config().scenes.Empty()) {
+					const NkVector<NkString> &sc = c.projet->Config().scenes;
+					for (usize i = 0; i < sc.Size(); ++i) {
+						NkTabItem t;
+						// L'IDENTITE est l'INDICE+1, jamais le libelle : un chemin de
+						// scene change au renommage, l'onglet ne doit pas changer
+						// d'identite pour autant (contrat du composant).
+						t.id = (nk_uint64)(i + 1);
+						t.label = sc[i];
+						t.infobulle = sc[i];
+						// ⚠️ LE POINT « NON ENREGISTRE » VAUT POUR LE PROJET, et on ne
+						//    pretend pas mieux : Nogee ne sait pas encore dire QUELLE
+						//    scene est sale. Le marquer sur l'onglet actif seulement
+						//    serait une precision inventee.
+						t.modified = modifie;
+						// Fermer la derniere laisserait l'application sans document —
+						// meme regle que le modeleur, et elle vient de lui.
+						t.closable = sc.Size() > 1;
+						m.tabs.PushBack(t);
+					}
+				} else {
+					NkTabItem t;
+					t.id = 1;
+					t.label = NkString("Scène sans titre");
+					t.modified = modifie;
+					t.closable = false;
+					m.tabs.PushBack(t);
+				}
+
+				// L'onglet actif doit rester VALIDE : une scene fermee ailleurs
+				// laisserait `active` pointer sur une identite disparue, et la bande
+				// n'en surlignerait plus aucune.
+				bool trouve = false;
+				for (usize i = 0; i < m.tabs.Size(); ++i)
+					if (m.tabs[i].id == m.active)
+						trouve = true;
+				if (!trouve && !m.tabs.Empty())
+					m.active = m.tabs[0].id;
 			}
 
 		} // namespace chrome
