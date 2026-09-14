@@ -9074,22 +9074,34 @@ namespace nkuidesign {
 		public:
 			explicit AIPanel(DesignState *st)
 				: NkEditorPanel("IA", NkEditorDockSide::NK_BOTTOM), mSt(st) {
-				// ⚠️ REPLIÉ PAR DÉFAUT, ET LA MESURE DIT POURQUOI CE N'EST QU'UN
-				//    DEMI-CORRECTIF. Le plan (§4) veut en bas un « rail de pastilles,
-				//    ancré discret » ; §13 décrit le mécanisme complet (rails de
-				//    28 px, pastilles à quatre états). Mesure faite dans
-				//    `NkEditorShell.h` : **ce mécanisme n'existe pas** — la coquille
-				//    ne porte ni rail ni pastille, seulement des « voyants » de pied
-				//    de fenêtre. La réponse à « pastille laissée ouverte, ou panneau
-				//    pas encore converti ? » est donc la SECONDE : rien n'a été
-				//    converti, parce qu'il n'y a pas encore de rail où le poser.
-				//    ⚠️ Et ce panneau n'irait de toute façon pas là : §13.1 place
-				//       « Chat IA » sur le rail DROIT, le rail bas portant
-				//       Console/Validation et Preview/Test.
-				//    En attendant, il est FERMÉ au démarrage : la toile récupère le
-				//    cinquième de fenêtre qu'il occupait, et il reste atteignable par
-				//    `Affichage > Panneaux` et par `IA > Ouvrir le chat IA`. Une
-				//    capacité qui se replie n'est pas une capacité perdue.
+				// ⚠️ CE COMMENTAIRE DISAIT LE CONTRAIRE DE CE QUI EST, ET IL A INDUIT
+				//    EN ERREUR. Il affirmait que « la coquille ne porte ni rail ni
+				//    pastille » et que « rien n'a ete converti, parce qu'il n'y a pas
+				//    encore de rail ou le poser ». C'etait vrai le jour ou il a ete
+				//    ecrit ; ca ne l'est plus, et personne n'est revenu le corriger.
+				//
+				//    MESURE DU 14/09, captures a l'appui :
+				//      - le kit PORTE le rail : `NkEditorShell.h` §13, struct
+				//        `NkEditorRailItem`, `SetRail`, `OuvrirTiroir`, `kRailMax=8`,
+				//        `DrawRail` et `DrawRailDrawers` (tiroir de 320 px en overlay,
+				//        voile `theme.scrim`, une seule pastille depliee par rail) ;
+				//      - NkUIDesign POSE deja sa pastille : `main.cpp`, `kRailDroite[1]
+				//        = {"IA", "Chat IA", ...}` avec l'etoile violette AccentAI ;
+				//      - `--tiroir=d:1` ouvre CE panneau : sur les 28 colonnes de
+				//        droite, 40 pixels violets contre 0 sans le rail ; dans le
+				//        rectangle du tiroir, 153 pixels verts (la pilule LOCAL)
+				//        contre 0, et AUCUN pixel rouge ajoute — c'est-a-dire pas de
+				//        « Aucun panneau enregistre sous ce titre ».
+				//
+				//    DONC : `SetOpen(false)` N'EST PLUS UN DEMI-CORRECTIF, c'est le
+				//    comportement voulu. §13.1 place « Chat IA » sur le rail DROIT :
+				//    le panneau ne s'ANCRE pas au demarrage, il se DEPLIE en tiroir
+				//    par sa pastille. `TrouverPanneau` resout par le TITRE seul, sans
+				//    regarder ni le cote d'ancrage ni l'etat ouvert/ferme — le
+				//    `NK_BOTTOM` ci-dessus ne contrarie donc pas le rail droit ; il ne
+				//    decrit que l'ancrage qu'aurait ce panneau si on l'ancrait.
+				//    Il reste aussi atteignable par `Affichage > Panneaux` et par
+				//    `IA > Ouvrir le chat IA`.
 				SetOpen(false);
 			}
 

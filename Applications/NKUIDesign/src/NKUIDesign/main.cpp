@@ -9115,7 +9115,14 @@ int nkmain(const NkEntryState &state) {
 			 nkuidesign::costume::IcEtoile(ui.dl, r.x + (r.w - 14.f) * 0.5f,
 										   r.y + (r.h - 14.f) * 0.5f, violet);
 		 }},
-		{"Test", "Aperçu / Test — exécuter l'interface dessinée", "T",
+		// 🔴 LA CLE ETAIT « Test », ET AUCUN PANNEAU NE S'APPELLE AINSI. Mesure du
+		//    14/09 : `--tiroir=d:2` ouvrait un tiroir portant « Aucun panneau
+		//    enregistre sous ce titre. » en rouge (466 px de #f85149 contre 72 de
+		//    fond partout ailleurs). Le panneau existe : c'est `PreviewPanel`,
+		//    `NkEditorPanel("Aperçu", NK_CENTER)` (Panels.h). Le titre EST la cle --
+		//    l'avertissement etait deja ecrit vingt lignes plus haut, et il a quand
+		//    meme ete paye deux fois (« Hierarchie » contre « Hiérarchie », puis ici).
+		{"Aperçu", "Aperçu / Test — exécuter l'interface dessinée", "T",
 		 [](nkgui::NkGuiContext &ui, const nkgui::NkRect &r, bool, bool, void *) {
 			 nkuidesign::costume::IcOeilVague(ui.dl, r.x + (r.w - 14.f) * 0.5f,
 											  r.y + (r.h - 14.f) * 0.5f, ui.theme.textMuted);
@@ -9135,7 +9142,8 @@ int nkmain(const NkEntryState &state) {
 										nkuidesign::costume::CentrerY(Fontes().px11, r.y, r.h),
 										"Console", ui.theme.textMuted);
 		 }},
-		{"Test", "Aperçu / Test — exécuter l'interface dessinée", "T",
+		// Meme cle, meme correctif que sur le rail droit : « Aperçu », pas « Test ».
+		{"Aperçu", "Aperçu / Test — exécuter l'interface dessinée", "T",
 		 [](nkgui::NkGuiContext &ui, const nkgui::NkRect &r, bool, bool, void *) {
 			 nkuidesign::costume::IcOeil(ui.dl, r.x + 8.f, r.y + (r.h - 12.f) * 0.5f,
 										 ui.theme.textMuted);
