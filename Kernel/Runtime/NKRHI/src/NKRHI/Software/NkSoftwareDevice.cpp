@@ -888,6 +888,15 @@ namespace nkentseu {
 		if (isColorRT && NkFormatBytesPerPixel(desc.format) > 4u)
 			t.desc.format = NkGPUFormat::NK_RGBA32_FLOAT;
 
+		// 🔴 Le rasteriseur logiciel ne sait pas ECHANTILLONNER un bloc compresse
+		// (il lit un pixel a une adresse, il ne decode pas BC1). Sans ce refus,
+		// `Bpp()` rendrait 0 et la texture serait allouee VIDE : aucune erreur,
+		// un rendu noir. Un refus dit vaut mieux qu'un zero silencieux.
+		if (NkFormatIsBlockCompressed(t.desc.format)) {
+			logger.Warnf("[NkRHI_SW] format par blocs non supporte par le dorsal logiciel : texture refusee "
+						 "(utiliser un dorsal materiel)\n");
+			return {};
+		}
 		uint32 bpp = NkFormatBytesPerPixel(t.desc.format);
 		// FIX heap-overflow (NKRenderer sur software) : le rasterizer et les clears écrivent
 		// toujours 4 octets/pixel. Un format inconnu (NkFormatBytesPerPixel → 0) donnait une

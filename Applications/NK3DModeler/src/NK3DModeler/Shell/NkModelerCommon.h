@@ -83,8 +83,8 @@ namespace nkentseu {
 			const int32 kFirstEmpty = 90;
 			const int32 selLight = demo::Demo3DHostSelectedLight();
 			int32 nNoeuds = demo::Demo3DHostNodeCount();
-			if (nNoeuds > 160)
-				nNoeuds = 160; // les tables de noms et de pliage couvrent 160 noeuds
+			if (nNoeuds > NkModelerState::kMaxNodeNames)
+				nNoeuds = NkModelerState::kMaxNodeNames; // la table de noms, relevee a 352 par transit
 			for (int32 n = 0; n < nNoeuds; ++n) {
 				if (NkHierNodeSkip(n))
 					continue;
@@ -102,7 +102,11 @@ namespace nkentseu {
 		}
 
 		inline void NkHierNodeName(NkModelerState &st, int32 node, char *out, uint32 cap) {
-			if (node >= 0 && node < 160 && st.customNames[node][0]) {
+			// ⚠ BORNE DE LA TABLE, PAS UN NOMBRE : `customNames` a kMaxNodeNames entrees (352
+			// depuis que transit a releve kNkvpMaxNodes). Un `< 160` ecrit en dur ici etait passe
+			// SANS conflit a la fusion du 14/09 : les noms des noeuds 160..351 ne s'affichaient
+			// jamais. Meme correction dans NkSceneCounts, qui ne les comptait plus.
+			if (node >= 0 && node < NkModelerState::kMaxNodeNames && st.customNames[node][0]) {
 				snprintf(out, cap, "%s", st.customNames[node]);
 				return;
 			}
@@ -265,9 +269,9 @@ namespace nkentseu {
 				// l'origine stockee est la reference du pipeline d'export).
 				// AUCUNE ecriture disque ici : le depot ne touche jamais au disque.
 				if (demo::Demo3DHostRecenterModel(st.dropSrcNode - 1)) {
-					for (int32 b9 = 0; b9 < st.browserCount; ++b9)
-						if (st.browserSrcNode[b9] == st.dropSrcNode) {
-							st.browserOriginDirty[b9] = true;
+					for (int32 b9 = 0; b9 < st.BrowserCount(); ++b9)
+						if (st.Card(b9).srcNode == st.dropSrcNode) {
+							st.Card(b9).originDirty = true;
 							break;
 						}
 				}
@@ -299,6 +303,55 @@ namespace nkentseu {
 				default: why = "Cet element ne se depose pas sur un objet"; break;
 			}
 			snprintf(st.hierNote, sizeof(st.hierNote), "%s", why);
+		}
+
+		// ── OUVRIR LE SELECTEUR POUR UN IMPORT 3D ─────────────────────
+		//
+		// UNE seule fonction pour les DEUX portes du meme geste (le bouton
+		// « Importer » du navigateur et l'entree de son menu contextuel) : deux
+		// listes de filtres finiraient par diverger, et c'est deja la raison
+		// pour laquelle le menu contextuel recopiait l'ouverture du bouton.
+		//
+		// LES FILTRES SONT NOMMES (API ⑥ du selecteur du kit). Avant, le picker
+		// n'avait qu'un filtre MONO-extension (`pickerFileExt`) : il ne savait
+		// pas dire « les sept formats 3D ». On ouvrait donc SANS filtre, et
+		// l'utilisateur choisissait dans la liste complete du disque -- puis se
+		// faisait refuser a la confirmation. Un filtre qui ne sait pas exprimer
+		// le besoin ne se contourne pas, il se remplace.
+		//
+		// PAS DE CONFINEMENT AU PROJET : un fichier 3D a importer vient de
+		// l'exterieur (Telechargements, un autre disque). Le depart reste la
+		// racine du projet -- un point de depart connu, pas une prison.
+		inline void NkPickerOuvrirImport(NkModelerState &st) {
+			st.picker.OpenPickerBase(editorkit::NkFilePickerState::PK_File,
+									 st.projectRoot.CStr(), nullptr, 0, nullptr);
+			st.picker.filtres.Clear(); // jamais deux fois la meme liste
+			st.picker.filtreActif = 0;
+			// Le premier groupe est l'ACTIF : c'est celui qu'on vient chercher.
+			// La liste des sept est celle que `NkImportLoad` sait REELLEMENT
+			// lire -- pas une liste d'intentions ; si un chargeur part, ce
+			// filtre doit partir avec lui.
+			st.picker.AjouterFiltre("Modeles 3D", "glb;gltf;fbx;obj;usda;dae;ply;stl");
+			st.picker.AjouterFiltre("glTF (.glb .gltf)", "glb;gltf");
+			st.picker.AjouterFiltre("FBX (.fbx)", "fbx");
+			st.picker.AjouterFiltre("Wavefront (.obj)", "obj");
+			st.picker.AjouterFiltre("USD ASCII (.usda)", "usda");
+			st.picker.AjouterFiltre("Nuages et impression (.ply .stl)", "ply;stl");
+			st.picker.AjouterFiltre("Textures", "png;jpg;jpeg;tga;bmp;hdr;exr;dds;ktx");
+			st.picker.AjouterFiltre("Tous les fichiers", "*");
+		}
+
+		// GENIA -- le selecteur de l'IMAGE a generer (bouton « Generer » du
+		// navigateur). Meme regle que l'import : pas de confinement au projet,
+		// depart a la racine. Les extensions sont celles que le generateur
+		// (Tools/Genia/genia_triposr.py, via Pillow) lit REELLEMENT.
+		inline void NkPickerOuvrirImage(NkModelerState &st) {
+			st.picker.OpenPickerBase(editorkit::NkFilePickerState::PK_File,
+									 st.projectRoot.CStr(), nullptr, 0, nullptr);
+			st.picker.filtres.Clear();
+			st.picker.filtreActif = 0;
+			st.picker.AjouterFiltre("Images (.png .jpg .jpeg .webp .bmp)", "png;jpg;jpeg;webp;bmp");
+			st.picker.AjouterFiltre("Tous les fichiers", "*");
 		}
 
 	} // namespace nk3d

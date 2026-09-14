@@ -130,7 +130,13 @@ static void NkWebGladPostCallback(void *, const char *name, GLADapiproc, int len
 #endif
 
 #define NK_GL_LOG(...) logger_src.Infof("[NkRHI_GL] " __VA_ARGS__)
-#define NK_GL_ERR(...) logger_src.Infof("[NkRHI_GL][ERR] " __VA_ARGS__)
+// 🔴 UNE ERREUR SE JOURNALISE AU NIVEAU ERREUR. Jusqu'au 2026-09-07 cette
+// macro appelait `Infof` : le `[ERR]` n'etait que du TEXTE dans le message,
+// invisible a tout filtre de niveau. Mesure ce jour-la : les CINQ dorsaux du
+// RHI faisaient pareil, pour 126 sites d'erreur au total, aucun au bon
+// niveau. C'est ainsi qu'un shader refuse par le pilote a pu vivre invisible
+// assez longtemps pour que Rodolf regle un parametre mort.
+#define NK_GL_ERR(...) logger_src.Errorf("[NkRHI_GL][ERR] " __VA_ARGS__)
 #define NK_GL_CHECK()                                                                                                  \
 	do {                                                                                                               \
 		GLenum e = glGetError();                                                                                       \
@@ -139,6 +145,34 @@ static void NkWebGladPostCallback(void *, const char *name, GLADapiproc, int len
 	} while (0)
 
 namespace nkentseu {
+
+	// ── COMPTEURS D'ERREURS OPENGL ──────────────────────────────────────────
+	// Globaux parce que le callback de GLAD est une fonction C sans contexte.
+	// `gTotales` compte tout ; `gCompressees` ne compte que les televersements de
+	// texture compressee — c'est celui qu'un banc exige a zero.
+	static uint32 gNkGlErreursTotales = 0;
+	static uint32 gNkGlErreursCompressees = 0;
+
+	uint32 NkOpenGLDevice::GetCompressedUploadErrors() const {
+		return gNkGlErreursCompressees;
+	}
+
+	static void NkGladPostCallback(void *ret, const char *nom, GLADapiproc proc, int nArgs, ...) {
+		(void)ret;
+		(void)proc;
+		(void)nArgs;
+		const GLenum e = glad_glGetError();
+		if (e == GL_NO_ERROR)
+			return;
+		++gNkGlErreursTotales;
+		if (nom && strstr(nom, "Compressed") != nullptr)
+			++gNkGlErreursCompressees;
+		// Au JOURNAL, pas sur stderr : les 25 lignes du 2026-09-05 sont parties
+		// dans un terminal que personne ne relisait.
+		NkLog::Instance().Errorf("[NkRHI_GL] erreur %u (0x%04X) dans %s", (unsigned)e, (unsigned)e,
+								 nom ? nom : "?");
+	}
+
 
 	bool NkWebDiagEnabled() noexcept {
 		// Lu UNE fois : le diagnostic est sur un chemin chaud (chaque liaison
@@ -1229,7 +1263,33 @@ namespace nkentseu {
 #if defined(NK_OPENGL_ES)
 		mCaps.textureCompressionBC = false;
 #else
-		mCaps.textureCompressionBC = true;
+		// 🔴 LES ERREURS DU PILOTE VONT AU JOURNAL, ET SE COMPTENT.
+		// Par defaut, GLAD ecrit « GLAD: ERROR 1280 in ... » sur stderr et
+		// CONSOMME l'erreur dans son post-callback. Deux consequences payees le
+		// 2026-09-05 : les 25 refus de televersement compresse n'ont atteint aucun
+		// journal, et un `glGetError()` place apres GLAD rendait toujours
+		// `GL_NO_ERROR` — un compteur qui ne pouvait pas voir. On prend donc la
+		// place du callback.
+		gladSetGLPostCallback(&NkGladPostCallback);
+
+		// 🔴 ON LA LIT, ON NE LA SUPPOSE PAS. `true` en dur etait une promesse
+		// faite au code : le moteur choisit BC1, et le televersement le refuse.
+		// S3TC est presque partout sur bureau — « presque » n'est pas « toujours »,
+		// et le jour ou ce n'est pas la, il vaut mieux cuire en brut que remplir
+		// l'ecran d'erreurs. Meme regle que pour le dorsal logiciel.
+		{
+			bool s3tc = false;
+			GLint nExt = 0;
+			glGetIntegerv(GL_NUM_EXTENSIONS, &nExt);
+			for (GLint i = 0; i < nExt && !s3tc; ++i) {
+				const char *e = (const char *)glGetStringi(GL_EXTENSIONS, (GLuint)i);
+				if (e && (strstr(e, "texture_compression_s3tc") != nullptr))
+					s3tc = true;
+			}
+			mCaps.textureCompressionBC = s3tc;
+			if (!s3tc)
+				NK_GL_ERR("EXT_texture_compression_s3tc absente : les actifs seront cuits en BRUT\n");
+		}
 #endif
 
 		// MSAA support
@@ -1580,9 +1640,44 @@ namespace nkentseu {
 				break;
 		}
 
-		if (desc.initialData) {
+		// Un format par blocs sans equivalent OpenGL a fait rendre 0 a
+		// `ToGLInternalFormat` : refuser ICI, avant d'allouer, plutot que
+		// d'envoyer des sous-blocs a une texture RGBA8.
+		if (NkFormatIsBlockCompressed(desc.format) && internal == 0) {
+			NK_GL_ERR("texture par blocs refusee : aucun format interne OpenGL pour l'enum %d\n",
+					  (int)desc.format);
+			++gNkGlErreursCompressees;
+			return {};
+		}
+
+		if (desc.initialData && NkFormatIsBlockCompressed(desc.format)) {
+			// ⚠️ UN FORMAT PAR BLOCS NE PASSE PAS PAR `glTexSubImage`. Le pilote
+			// y lirait les octets compresses comme des pixels bruts : aucune
+			// erreur, une image fausse. C'est `glCompressedTexSubImage`, et il
+			// veut la TAILLE EN OCTETS du niveau, pas un pas de ligne.
+			const GLsizei taille = (GLsizei)NkFormatImageSize(desc.format, desc.width, desc.height);
+#if defined(NK_OPENGL_ES)
+			glBindTexture(target, id);
+			glCompressedTexSubImage2D(target, 0, 0, 0, desc.width, desc.height, internal, taille, desc.initialData);
+#else
+			glCompressedTextureSubImage2D(id, 0, 0, 0, desc.width, desc.height, internal, taille, desc.initialData);
+#endif
+			// 🔴 LU, PAS SUPPOSE. Un televersement compresse qui echoue ne rend
+			// rien : la texture reste noire et le chiffre de chargement, lui,
+			// s'ameliore. C'est exactement ce qui est arrive le 2026-09-05 —
+			// 25 erreurs a l'ecran de Rodolf, aucune dans le journal.
+			// Le verdict est compte par le post-callback de GLAD (voir
+			// `NkGladPostCallback`) : un `glGetError()` ici rendrait toujours
+			// GL_NO_ERROR, puisque GLAD vient de vider la file.
+			// Pas de `glGenerateMipmap` ici : le materiel ne sait pas filtrer des
+			// blocs compresses. Un actif compresse PORTE ses mips ; s'il n'en a
+			// pas, il n'en aura pas.
+			if (mips > 1)
+				NK_GL_ERR("mips demandes sur un format par blocs : ils doivent etre CUITS, le GPU ne peut pas les "
+						  "generer\n");
+		} else if (desc.initialData) {
 			GLenum base = ToGLBaseFormat(desc.format), type2 = ToGLType(desc.format);
-			uint32 rp = desc.rowPitch > 0 ? desc.rowPitch : desc.width * NkFormatBytesPerPixel(desc.format);
+			uint32 rp = desc.rowPitch > 0 ? desc.rowPitch : NkFormatRowPitch(desc.format, desc.width);
 			const uint32 bpp = NkFormatBytesPerPixel(desc.format);
 			glPixelStorei(GL_UNPACK_ROW_LENGTH, rp / (bpp > 0 ? bpp : 1u));
 #if defined(NK_OPENGL_ES)
@@ -1643,6 +1738,42 @@ namespace nkentseu {
 		if (!texture || !pixels)
 			return false;
 		const NkTextureDesc &desc = texture->desc;
+		// ── Formats par blocs : chemin COMPRESSE, et il sort d'ici ──────────
+		// `glTexSubImage` prendrait les octets compresses pour des pixels : pas
+		// d'erreur, une image fausse. Et l'offset/la taille se comptent en
+		// BLOCS, d'ou `NkFormatImageSize` plutot qu'un pas de ligne.
+		if (NkFormatIsBlockCompressed(desc.format)) {
+			const GLenum interne = ToGLInternalFormat(desc.format);
+			if (interne == 0) {
+				NK_GL_ERR("niveau %u refuse : aucun format interne OpenGL pour l'enum %d\n", (unsigned)mip,
+						  (int)desc.format);
+				++gNkGlErreursCompressees;
+				return false;
+			}
+			const GLsizei taille = (GLsizei)NkFormatImageSize(desc.format, w, h);
+#if defined(NK_OPENGL_ES)
+			glBindTexture(texture->target, texture->id);
+			if (desc.type == NkTextureType::NK_CUBE)
+				glCompressedTexSubImage2D(GLenum(GL_TEXTURE_CUBE_MAP_POSITIVE_X + layer), (GLint)mip, (GLint)x,
+										  (GLint)y, (GLsizei)w, (GLsizei)h, interne, taille, pixels);
+			else
+				glCompressedTexSubImage2D(texture->target, (GLint)mip, (GLint)x, (GLint)y, (GLsizei)w, (GLsizei)h,
+										  interne, taille, pixels);
+			glBindTexture(texture->target, 0);
+#else
+			if (desc.type == NkTextureType::NK_CUBE || desc.arrayLayers > 1)
+				glCompressedTextureSubImage3D(texture->id, (GLint)mip, (GLint)x, (GLint)y, (GLint)layer, (GLsizei)w,
+											  (GLsizei)h, 1, interne, taille, pixels);
+			else
+				glCompressedTextureSubImage2D(texture->id, (GLint)mip, (GLint)x, (GLint)y, (GLsizei)w, (GLsizei)h,
+											  interne, taille, pixels);
+#endif
+			// Le verdict du pilote, LU. Sans ça, un niveau refuse laisse la
+			// texture noire et personne ne l'apprend avant de regarder l'ecran.
+			// Idem : c'est le post-callback de GLAD qui voit et compte.
+			return true;
+		}
+
 		GLenum base = ToGLBaseFormat(desc.format), type2 = ToGLType(desc.format);
 		uint32 bpp = NkFormatBytesPerPixel(desc.format);
 		uint32 rp2 = rowPitch > 0 ? rowPitch : w * bpp;
@@ -3395,17 +3526,44 @@ namespace nkentseu {
 				return GL_DEPTH24_STENCIL8;
 			case NkGPUFormat::NK_D32_FLOAT_S8_UINT:
 				return GL_DEPTH32F_STENCIL8;
+			// ⚠️ LES VARIANTES sRGB MANQUAIENT, ET C'EST CE QUI A COUTE 25 ERREURS
+			// GL_INVALID_ENUM sur la machine de Rodolf le 2026-09-05. Sans elles,
+			// `NK_BC1_RGB_SRGB` tombait dans le `default` -> `GL_RGBA8` : la
+			// texture etait ALLOUEE non compressee, puis on lui envoyait un
+			// sous-bloc compresse. Le pilote refusait, 25 fois (12 + 13 mips des
+			// deux cartes couleur), et l'image restait noire.
 			case NkGPUFormat::NK_BC1_RGB_UNORM:
 				return GL_COMPRESSED_RGB_S3TC_DXT1_EXT;
+			case NkGPUFormat::NK_BC1_RGB_SRGB:
+				return GL_COMPRESSED_SRGB_S3TC_DXT1_EXT;
 			case NkGPUFormat::NK_BC3_UNORM:
 				return GL_COMPRESSED_RGBA_S3TC_DXT5_EXT;
+			case NkGPUFormat::NK_BC3_SRGB:
+				return GL_COMPRESSED_SRGB_ALPHA_S3TC_DXT5_EXT;
 			case NkGPUFormat::NK_BC5_UNORM:
 				return GL_COMPRESSED_RG_RGTC2;
+			case NkGPUFormat::NK_BC5_SNORM:
+				return GL_COMPRESSED_SIGNED_RG_RGTC2;
 			case NkGPUFormat::NK_BC7_UNORM:
 				return GL_COMPRESSED_RGBA_BPTC_UNORM;
+			case NkGPUFormat::NK_BC7_SRGB:
+				return GL_COMPRESSED_SRGB_ALPHA_BPTC_UNORM;
 			case NkGPUFormat::NK_R11G11B10_FLOAT:
 				return GL_R11F_G11F_B10F;
 			default:
+				// 🔴 LA GARDE. Le defaut `GL_RGBA8` est raisonnable pour un format
+				// lineaire inconnu — il l'est CATASTROPHIQUEMENT pour un format par
+				// blocs : la texture s'alloue non compressee et chaque
+				// televersement compresse rend GL_INVALID_ENUM, en silence a
+				// l'ecran. C'est ce qui est arrive le 2026-09-05. Le prochain
+				// format bloc ajoute a `NkGPUFormat` sans sa ligne ici sera DIT,
+				// pas subi 25 fois.
+				if (NkFormatIsBlockCompressed(f)) {
+					NK_GL_ERR("format par blocs sans equivalent OpenGL (enum %d) : la texture ne peut pas etre "
+							  "allouee compressee\n",
+							  (int)f);
+					return 0; // 0 n'est pas un format valide : l'appelant DOIT refuser
+				}
 				return GL_RGBA8;
 		}
 	}

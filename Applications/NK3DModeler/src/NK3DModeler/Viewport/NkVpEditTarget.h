@@ -1,4 +1,5 @@
 #pragma once
+// @Author  TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // =============================================================================
 // NkVpEditTarget.h — QUEL OBJET LE MODE EDITION PREND-IL ?
 // =============================================================================
@@ -28,9 +29,18 @@ namespace nkentseu {
 		//   [0, kNumObj)                        objets de DEMONSTRATION (st->gizmo)
 		//   [kNkvpEmptyBase, kNkvpFirstUser)    empties de parentage
 		//   [kNkvpFirstUser, +kNkvpMaxUser)     objets de L'UTILISATEUR
+		// ⚠️ LE PLAFOND VIT ICI, ET NULLE PART AILLEURS (2026-09-14).
+		//    La fusion dans `transit` avait laisse ces constantes definies DEUX
+		//    fois -- ici et dans NkDemo3D.cpp, qui inclut cet en-tete -- avec des
+		//    valeurs qui DIVERGEAIENT : 352-96 = 256 la-bas, 64 ici. Le symptome
+		//    visible etait un refus de compilation. S'il avait compile, le
+		//    plafond d'import serait retombe a 64 EN SILENCE -- et c'est la le
+		//    vrai danger : supprimer << le doublon >> au hasard annule une
+		//    amelioration voulue. Definition unique ici, derivation explicite.
+		static constexpr int32 kNkvpMaxNodes = 352; // 256 objets utilisateur
 		static constexpr int32 kNkvpEmptyBase = 90;
 		static constexpr int32 kNkvpFirstUser = 96;
-		static constexpr int32 kNkvpMaxUser = 64;
+		static constexpr int32 kNkvpMaxUser = kNkvpMaxNodes - kNkvpFirstUser;
 
 		// Natures d'un slot utilisateur (menu Ajouter) : 0 libre, 1 sphere,
 		// 2 cube, 3 plan, 4 empty, 5 lumiere, 6 texte, 7 courbe, 8 surface,

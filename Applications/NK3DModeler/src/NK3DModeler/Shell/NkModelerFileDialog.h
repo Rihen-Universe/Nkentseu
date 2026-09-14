@@ -1,4 +1,9 @@
 #pragma once
+// -----------------------------------------------------------------------------
+// @File    NkModelerFileDialog.h
+// @Author  TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
+// @License Proprietary - All Rights Reserved (see LICENSE)
+// -----------------------------------------------------------------------------
 // =============================================================================
 // NkModelerFileDialog.h — NK3DModeler (Shell/)
 //
@@ -23,7 +28,7 @@
 #include "NK3DModeler/Shell/NkModelerInput.h"
 #include "NK3DModeler/Shell/NkModelerWidgets.h"
 // L'unicite d'un nom de materiau se verifie sur les emplacements eux-memes, pas
-// sur les cartes du navigateur (plafonnees a kMaxBrowser). Voir plus bas.
+// sur les cartes du navigateur. Voir plus bas.
 #include "NK3DModeler/Viewport/NkDemo3DHost.h"
 
 namespace nkentseu {
@@ -36,7 +41,7 @@ namespace nkentseu {
 				/// s'affiche a cote du champ. Vide = l'appelant gere lui-meme.
 				const char *forcedExt = nullptr;
 				/// Montrer aussi les FICHIERS de ces natures (masque sur
-				/// browserKind). 0 = les dossiers seuls, ce qui suffit a choisir
+				/// Card(i).kind). 0 = les dossiers seuls, ce qui suffit a choisir
 				/// un emplacement.
 				uint32 kindFilter = 0u;
 				const char *suggested = "";
@@ -139,8 +144,8 @@ namespace nkentseu {
 					  3.f);
 			p.IconV(ub.x + S(5.f), ub.y, ub.h, NkIcon::ArrowUp,
 					canUp ? NkRole::Text : NkRole::Border, 11.f);
-			if (canUp && hit.Clicked("fdlg.up") && d.folder < st.browserCount)
-				d.folder = st.browserParent[d.folder];
+			if (canUp && hit.Clicked("fdlg.up") && d.folder < st.BrowserCount())
+				d.folder = st.Card(d.folder).parent;
 			{
 				// FIL D'ARIANE construit ICI, sans passer par les assets : ce
 				// dialogue ne doit dependre que de l'etat, sinon il ne serait plus
@@ -149,11 +154,11 @@ namespace nkentseu {
 				const char *parts[8] = {};
 				int32 np = 0;
 				int32 cur = d.folder;
-				for (int32 g = 0; g < 8 && cur >= 0 && cur < st.browserCount; ++g) {
-					if (st.browserKind[cur] != 1)
+				for (int32 g = 0; g < 8 && cur >= 0 && cur < st.BrowserCount(); ++g) {
+					if (st.Card(cur).kind != 1)
 						break; // seul un DOSSIER fait un niveau
-					parts[np++] = st.browserNames[cur];
-					cur = st.browserParent[cur];
+					parts[np++] = st.Card(cur).name;
+					cur = st.Card(cur).parent;
 				}
 				char chemin[256];
 				usize used = (usize)snprintf(chemin, sizeof(chemin), "Projet/");
@@ -174,13 +179,13 @@ namespace nkentseu {
 			const float32 lineH = S(20.f);
 			float32 ly = lb.y + S(2.f) - d.scrollY;
 			int32 nShown = 0;
-			for (int32 b = 0; b < st.browserCount; ++b) {
+			for (int32 b = 0; b < st.BrowserCount(); ++b) {
 				// kind 1 = DOSSIER. Les fichiers ne s'affichent que si l'appelant
 				// les demande : choisir un emplacement n'a pas besoin de les voir.
-				const bool isFolder = (st.browserKind[b] == 1);
+				const bool isFolder = (st.Card(b).kind == 1);
 				const bool passe =
-					isFolder || (desc.kindFilter && (desc.kindFilter & (1u << st.browserKind[b])));
-				if (!passe || st.browserParent[b] != d.folder)
+					isFolder || (desc.kindFilter && (desc.kindFilter & (1u << st.Card(b).kind)));
+				if (!passe || st.Card(b).parent != d.folder)
 					continue;
 				++nShown;
 				if (ly + lineH >= lb.y && ly <= lb.y + lb.h) {
@@ -197,13 +202,13 @@ namespace nkentseu {
 					p.IconV(ir.x + S(4.f), ly, lineH,
 							isFolder ? NkIcon::Folder : NkIcon::Material, NkRole::TextMuted,
 							11.f);
-					p.TextV(ir.x + S(22.f), ly, lineH, st.browserNames[b], NkRole::Text);
+					p.TextV(ir.x + S(22.f), ly, lineH, st.Card(b).name, NkRole::Text);
 					// Un dossier s'OUVRE ; un fichier donne son nom au champ.
 					if (hit.Clicked(lk)) {
 						if (isFolder)
 							d.folder = b;
 						else
-							snprintf(d.name, sizeof(d.name), "%s", st.browserNames[b]);
+							snprintf(d.name, sizeof(d.name), "%s", st.Card(b).name);
 					}
 				}
 				ly += lineH;
@@ -248,15 +253,15 @@ namespace nkentseu {
 									 d.newFolderName[0] ? NkRole::Text : NkRole::TextMuted,
 									 d.newFolderName, 63u)) {
 						// Le dossier NAIT DANS LE NIVEAU COURANT, jamais ailleurs.
-						if (d.newFolderName[0] && st.browserCount < NkModelerState::kMaxBrowser) {
-							const int32 c = st.browserCount++;
-							st.browserKind[c] = 1;
-							st.browserParent[c] = d.folder;
-							st.browserSub[c] = 0;
-							st.browserDoc[c] = 0;
-							st.browserMat[c] = 0;
-							st.browserFile[c][0] = 0;
-							snprintf(st.browserNames[c], sizeof(st.browserNames[0]), "%s",
+						if (d.newFolderName[0]) {
+							const int32 c = st.CardAdd();
+							st.Card(c).kind = 1;
+							st.Card(c).parent = d.folder;
+							st.Card(c).sub = 0;
+							st.Card(c).doc = 0;
+							st.Card(c).mat = 0;
+							st.Card(c).file[0] = 0;
+							snprintf(st.Card(c).name, NkModelerState::kCardNameCap, "%s",
 									 d.newFolderName);
 							d.folder = c; // on entre dedans : c'est ce qu'on attend
 							d.newFolderName[0] = 0;
@@ -291,16 +296,15 @@ namespace nkentseu {
 			// dossier laissait creer un second « Materiau » alors qu'il existait
 			// deja ailleurs (constate le 12 aout).
 			bool libre = (d.name[0] != 0);
-			for (int32 b = 0; b < st.browserCount && libre; ++b) {
-				if (st.browserParent[b] != d.folder)
+			for (int32 b = 0; b < st.BrowserCount() && libre; ++b) {
+				if (st.Card(b).parent != d.folder)
 					continue;
-				if (strcmp(st.browserNames[b], d.name) == 0)
+				if (strcmp(st.Card(b).name, d.name) == 0)
 					libre = false;
 			}
-			// Les cartes ne sont PAS l'index du projet : `kMaxBrowser` en plafonne
-			// le nombre, et au-dela `NkBrowserSyncMats` renonce a en creer. Un
-			// materiau existant peut donc n'avoir aucune carte — c'est ce qui a
-			// laisse naitre un second « Materiau » le 12 aout. Pour une nature dont
+			// Les cartes ne sont PAS l'index du projet : un materiau existant peut
+			// n'avoir aucune carte — c'est ce qui a laisse naitre un second
+			// « Materiau » le 12 aout. Pour une nature dont
 			// le nom est unique dans TOUT le projet, on interroge donc la source de
 			// verite (les emplacements eux-memes), jamais leur affichage.
 			// UN NOM DE MATERIAU DEJA PRIS N'ETEINT PLUS LE BOUTON. Il sera numerote

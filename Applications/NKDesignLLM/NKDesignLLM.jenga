@@ -1,0 +1,72 @@
+"""NKDesignLLM — l'autre cote du contrat de NkUIDesign.
+
+AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
+
+Une invite dans un FICHIER, une reponse dans un FICHIER, et rien d'autre ne
+traverse :
+
+    NKDesignLLM --invite <fichier> --sortie <fichier>
+      -> code 0 et le fichier de sortie existe   : c'est la reponse
+      -> code != 0 et « REFUS : ... » sur stderr : et rien n'est ecrit
+
+C'est l'equivalent EXACT, cote design, du pont GENIA du modeleur
+(`python <generateur> --image {image} --out {out}`). NkUIDesign ne connait pas
+ce programme : elle connait un gabarit de ligne de commande a deux trous. Le
+jour ou un modele entraine chez Rihen le remplace, pas une ligne de
+l'application ne bouge.
+
+Processus SEPARE et non bibliotheque : le 7B quantifie occupe 4 444 Mo sur une
+carte de 8 Go, et NkUIDesign est elle-meme une application GPU. Deux instances
+sur cette carte ne produisent aucune erreur -- seulement du charabia.
+
+Dependances calquees sur NKQwen2Chat, qui emprunte le meme chemin de calcul.
+Backend verrouille sur Vulkan (output.weight = 447 Mo > 128 Mo garantis par
+ressource en D3D11).
+"""
+from Jenga import *
+from jengaconfig import *
+import os
+
+
+_GLSLANG_LIBS_WINDOWS = [
+    "glslang", "SPIRV", "MachineIndependent", "GenericCodeGen",
+    "glslang-default-resource-limits",
+]
+_IS_MINGW = "mingw" in TC_WINDOWS.lower()
+
+with project("NKDesignLLM"):
+    consoleapp()
+    language("C++")
+    cppdialect("C++17")
+    location(".")
+    files(["src/main.cpp"])
+
+    nkentseudependson(
+        ["NKInfer", "NKFileSystem", "NKTensor", "NKAutograd",
+         "NKRHI", "NKSL", "NKWindow", "NKGlad", "NKMath", "NKTime", "NKStream",
+         "NKLogger", "NKContainers", "NKMemory", "NKCore", "NKPlatform",
+         "NKThreading", "NKGLSlang", "NKSPIRVCross"],
+        extra_includes=["src", "%{NKGlad.location}/include"]
+                       + ([VULKAN_INCLUDE] if VULKAN_INCLUDE else []),
+        extra_defines=[f"NKENTSEU_ENABLE_VULKAN_BACKEND={1 if WANT_VULKAN else 0}"],
+    )
+
+    objdir("%{wks.location}/Build/Obj/%{cfg.buildcfg}-%{cfg.system}/%{prj.name}")
+    targetdir("%{wks.location}/Build/Bin/%{cfg.buildcfg}-%{cfg.system}/%{prj.name}")
+
+    with filter("system:Windows && !options:windows-runtime=uwp && !system:XboxSeries && !system:XboxOne"):
+        usetoolchain(TC_WINDOWS)
+        defines(["WIN32_LEAN_AND_MEAN", "_UNICODE", "UNICODE"])
+        if VULKAN_LIB:
+            libdirs([VULKAN_LIB])
+        _WIN_LINKS = [
+            "NKGLSlang", "NKSPIRVCross",
+            "user32", "gdi32", "opengl32", "dwmapi", "shell32",
+            "uuid", "ole32", "dxguid",
+            "d3d11", "d3d12", "dxgi", "d3dcompiler",
+        ]
+        if WANT_VULKAN:
+            _WIN_LINKS.append("vulkan-1")
+            if not _IS_MINGW:
+                _WIN_LINKS.extend(_GLSLANG_LIBS_WINDOWS)
+        links(_WIN_LINKS)

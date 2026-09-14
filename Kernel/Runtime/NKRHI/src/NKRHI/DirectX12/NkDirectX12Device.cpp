@@ -31,7 +31,13 @@
 #endif
 
 #define NK_DX12_LOG(...) logger_src.Infof("[NkRHI_DX12] " __VA_ARGS__)
-#define NK_DX12_ERR(...) logger_src.Infof("[NkRHI_DX12][ERR] " __VA_ARGS__)
+// 🔴 UNE ERREUR SE JOURNALISE AU NIVEAU ERREUR. Jusqu'au 2026-09-07 cette
+// macro appelait `Infof` : le `[ERR]` n'etait que du TEXTE dans le message,
+// invisible a tout filtre de niveau. Mesure ce jour-la : les CINQ dorsaux du
+// RHI faisaient pareil, pour 126 sites d'erreur au total, aucun au bon
+// niveau. C'est ainsi qu'un shader refuse par le pilote a pu vivre invisible
+// assez longtemps pour que Rodolf regle un parametre mort.
+#define NK_DX12_ERR(...) logger_src.Errorf("[NkRHI_DX12][ERR] " __VA_ARGS__)
 #define NK_DX12_CHECK(hr, msg)                                                                                         \
 	do {                                                                                                               \
 		if (FAILED(hr)) {                                                                                              \
@@ -1292,8 +1298,59 @@ namespace nkentseu {
 		auto it = mTextures.Find(t.id);
 		if (!it)
 			return false;
-		uint32 bpp = NkFormatBytesPerPixel(it->desc.format);
-		uint32 rp = rowPitch > 0 ? rowPitch : w * bpp;
+		// -- LE COMPTE DE RANGEES SE COMPTE EN BLOCS, PAS EN PIXELS ----------------
+		// `NkTypes.h:176` l'ecrit depuis toujours : un octet-par-pixel n'existe pas
+		// pour un format par blocs, et les dorsaux doivent passer par
+		// `NkFormatRowPitch` / `NkFormatImageSize`. OpenGL branche sur
+		// `NkFormatIsBlockCompressed`, DX11 et Vulkan appellent `NkFormatRowPitch` ;
+		// **DX12 etait le seul des quatre a n'avoir jamais recu le traitement par
+		// blocs**. Le pas de ligne, lui, arrivait juste (l'appelant passe son vrai
+		// `rowPitch`) : c'est le NOMBRE DE RANGEES qui etait faux. La boucle tournait
+		// `h` fois -- en PIXELS -- alors qu'une image BC n'a que `(h+3)/4` rangees de
+		// BLOCS. Elle lisait donc QUATRE FOIS la taille du tampon source, hors des
+		// donnees : plantage dans `memmove`, avant la premiere image, et **sans une
+		// seule ligne d'erreur** puisqu'il n'y a rien a journaliser dans une lecture
+		// hors bornes. Mesure du 2026-09-07, pile sur la scene de Rodolf :
+		//     memmove <- WriteTextureRegion <- CreateFromBaked <- LoadBaked
+		// Ne se declenche qu'avec une texture CUITE COMPRESSEE -- ce que le banc ne
+		// charge pas, et ce que son projet charge.
+		//
+		// ⚠️ LES DEUX UNITES NE SE MELANGENT PAS, et c'est le piege de cet endroit :
+		// `rowCount` et les pas comptent en RANGEES DE BLOCS ; le `Footprint`
+		// ci-dessous declare `{w, h}` en TEXELS (c'est ce que D3D12 attend pour un
+		// format BC, avec RowPitch en octets d'une rangee de blocs). Corriger un cote
+		// sans l'autre redonne un plantage ou une image decalee.
+		const bool blocs = NkFormatIsBlockCompressed(it->desc.format);
+		uint32 bw = 1, bh = 1;
+		if (blocs) {
+			NkFormatBlockDim(it->desc.format, bw, bh);
+			if (bw == 0)
+				bw = 1;
+			if (bh == 0)
+				bh = 1;
+		}
+		// -- ET LA REGION SE DECLARE ALIGNEE SUR LE BLOC ---------------------------
+		// Un bloc BC couvre 4x4 texels **meme quand le mip est plus petit** : un mip
+		// 2x2 est physiquement UN bloc. D3D12 l'exige, et sa couche de validation le
+		// dit mot pour mot (NK_DX12_DEBUG=1, mesure du 2026-09-07) :
+		//   « CopyTextureRegion: The coordinates in pSrcBox are not aligned properly.
+		//     When the format is BC1_TYPELESS, left & right must be a multiple of 4
+		//     and top & bottom must be a multiple of 4. left is 0, right is 2, top is
+		//     0, and bottom is 2. »
+		// `CreateFromBaked` televerse TOUS les niveaux : il arrive fatalement aux 2x2
+		// et 1x1. Les suites — command list non fermee, RemoveDevice, Signal — n'en
+		// sont que les consequences.
+		//
+		// ⚠️ CE N'EST PAS LA MEME FAUTE QUE LE COMPTE DE RANGEES ci-dessus, et les
+		// deux se ressemblent assez pour qu'on corrige l'une en croyant fermer
+		// l'autre : la premiere lisait hors du tampon SOURCE (plantage CPU dans
+		// memmove), celle-ci declare au GPU une region que le format interdit
+		// (plantage dans D3D12Core, pendant la copie). Il fallait les deux.
+		const uint32 wAlign = blocs ? (((w + bw - 1) / bw) * bw) : w;
+		const uint32 hAlign = blocs ? (((h + bh - 1) / bh) * bh) : h;
+		uint32 rp = rowPitch > 0 ? rowPitch : NkFormatRowPitch(it->desc.format, w);
+		// Rangees a recopier : de BLOCS si le format est par blocs, de pixels sinon.
+		const uint32 rowCount = blocs ? ((h + bh - 1) / bh) : h;
 		// RowPitch du placed-footprint aligné sur 256 (D3D12_TEXTURE_DATA_PITCH_ALIGNMENT),
 		// sinon CopyTextureRegion -> faute GPU -> "Removing Device".
 		const uint32 kPitchAlign = 256u;
@@ -1302,14 +1359,14 @@ namespace nkentseu {
 		// footprint, D3D12 deduit le slice pitch de RowPitch x Height — les tranches
 		// doivent donc etre contigues a ce pas, pas au pas source.
 		const uint32 depthCount = d2 > 0 ? d2 : 1;
-		const uint64 alignedSlicePitch = (uint64)alignedRowPitch * h;
-		const uint64 srcSlicePitch = (uint64)rp * h;
+		const uint64 alignedSlicePitch = (uint64)alignedRowPitch * rowCount;
+		const uint64 srcSlicePitch = (uint64)rp * rowCount;
 		uint64 sz = alignedSlicePitch * depthCount;
 		NkBufferDesc sd = NkBufferDesc::Staging(sz);
 		auto stageH = CreateBuffer(sd);
 		auto &stage = mBuffers[stageH.id];
 		for (uint32 slice = 0; slice < depthCount; ++slice) {
-			for (uint32 row = 0; row < h; ++row) {
+			for (uint32 row = 0; row < rowCount; ++row) {
 				memcpy((uint8 *)stage.mapped + slice * alignedSlicePitch + (uint64)row * alignedRowPitch,
 					   (const uint8 *)pixels + slice * srcSlicePitch + (uint64)row * rp, (size_t)rp);
 			}
@@ -1337,10 +1394,12 @@ namespace nkentseu {
 			src.pResource = stage.resource.Get();
 			src.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
 			src.PlacedFootprint.Offset = 0;
-			src.PlacedFootprint.Footprint = {it->format, w, h, depthCount, alignedRowPitch};
+			src.PlacedFootprint.Footprint = {it->format, wAlign, hAlign, depthCount, alignedRowPitch};
 			// Le staging ne contient que la région w×h×d (0-based) ; le décalage
-			// destination (x,y,z) est passé à CopyTextureRegion.
-			D3D12_BOX box{0, 0, 0, w, h, depthCount};
+			// destination (x,y,z) est passé à CopyTextureRegion. Pour un format par
+			// blocs, `wAlign`/`hAlign` arrondissent au bloc supérieur — sans quoi un
+			// mip plus petit qu'un bloc décrit une région que le format interdit.
+			D3D12_BOX box{0, 0, 0, wAlign, hAlign, depthCount};
 			cmd->CopyTextureRegion(&dst, x, y, z, &src, &box);
 			TransitionResource(cmd, it->resource.Get(), D3D12_RESOURCE_STATE_COPY_DEST, prevState);
 		});
@@ -1736,7 +1795,18 @@ namespace nkentseu {
 		psd.RasterizerState.CullMode = d.rasterizer.cullMode == NkCullMode::NK_NONE	   ? D3D12_CULL_MODE_NONE
 									   : d.rasterizer.cullMode == NkCullMode::NK_FRONT ? D3D12_CULL_MODE_FRONT
 																					   : D3D12_CULL_MODE_BACK;
-		psd.RasterizerState.FrontCounterClockwise = d.rasterizer.frontFace == NkFrontFace::NK_CCW;
+		// ⚠️ RECALIBRAGE D'ENROULEMENT (essai groupe 1), CALQUE SUR CELUI DE VULKAN.
+		// Le sens d'enroulement se determine sur l'AIRE SIGNEE en coordonnees de
+		// framebuffer. Negativer Y en sortie du nuanceur de sommets en inverse le
+		// signe -- exactement comme le viewport a hauteur negative de Vulkan, qui
+		// est deja compense ici (NkVulkanDevice.cpp:1735, meme raison, meme place).
+		// DX portait donc la MEME inversion, mais IMPLICITE, dans la negation du
+		// generateur. La negation retiree, elle doit devenir EXPLICITE, sinon DX
+		// cesse d'enrouler comme GL -- qui, lui, negate toujours.
+		// Ce n'est PAS une compensation neuve : c'est la meme convention que Vulkan
+		// declare deja, rendue visible sur le dorsal qui la portait en cachette.
+
+		psd.RasterizerState.FrontCounterClockwise = d.rasterizer.frontFace != NkFrontFace::NK_CCW;
 		psd.RasterizerState.DepthClipEnable = d.rasterizer.depthClip;
 		psd.RasterizerState.DepthBias = (INT)d.rasterizer.depthBiasConst;
 		psd.RasterizerState.SlopeScaledDepthBias = d.rasterizer.depthBiasSlope;
@@ -3175,10 +3245,19 @@ namespace nkentseu {
 				return DXGI_FORMAT_BC1_UNORM;
 			case NkGPUFormat::NK_BC1_RGB_SRGB:
 				return DXGI_FORMAT_BC1_UNORM_SRGB;
+			// ⚠️ Completes le 2026-09-07 : `NK_BC3_SRGB` et `NK_BC5_SNORM` tombaient
+			// au `default:`, donc sur un format NON COMPRESSE. Le meme trou a fait
+			// planter le pilote DX11 (33 Mo lus dans un tampon de 8) et produit 25
+			// erreurs sur OpenGL. Trouve en cherchant le defaut dans TOUS les
+			// dorsaux le jour ou il a ete corrige dans un seul.
 			case NkGPUFormat::NK_BC3_UNORM:
 				return DXGI_FORMAT_BC3_UNORM;
+			case NkGPUFormat::NK_BC3_SRGB:
+				return DXGI_FORMAT_BC3_UNORM_SRGB;
 			case NkGPUFormat::NK_BC5_UNORM:
 				return DXGI_FORMAT_BC5_UNORM;
+			case NkGPUFormat::NK_BC5_SNORM:
+				return DXGI_FORMAT_BC5_SNORM;
 			case NkGPUFormat::NK_BC7_UNORM:
 				return DXGI_FORMAT_BC7_UNORM;
 			case NkGPUFormat::NK_BC7_SRGB:

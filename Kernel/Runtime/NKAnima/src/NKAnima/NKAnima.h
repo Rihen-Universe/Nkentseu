@@ -14,7 +14,9 @@
 // — jamais un chemin de racine. C'est le grep qui le prouve.
 //
 //   Skeleton/  la structure de squelette du moteur (topologie + repos, monde)
-//   Clip/      les clips : clés, pistes, échantillonnage, mélange, HFSM
+//   Clip/      les clips : clés, pistes, échantillonnage, mélange, HFSM, et le
+//              REGISTRE qui rend un `clipHandle` résoluble (il désigne, il ne
+//              possède pas — les applications gardent leurs clips)
 //   Retarget/  rejouer un clip d'un squelette sur un autre
 //   Motion/    la couche trajectoire (spline + suivi)
 //   Physics/   la physique de POSE : masse, équilibre, appuis, auto-pose (ex-NKAnimPhysics)
@@ -23,6 +25,7 @@
 
 #include "NKAnima/Skeleton/NkSkeletonDef.h"
 #include "NKAnima/Clip/NkAnimation.h"
+#include "NKAnima/Clip/NkClipRegistry.h"
 #include "NKAnima/Retarget/NkAnimRetarget.h"
 #include "NKAnima/Motion/NkMotionPath.h"
 #include "NKAnima/Physics/NkPoseMass.h"

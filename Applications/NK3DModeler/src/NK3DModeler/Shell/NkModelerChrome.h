@@ -318,6 +318,21 @@ namespace nkentseu {
 		}
 
 		// â”€â”€ BARRE D'ETAT â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+		// ── LE DORSAL GRAPHIQUE RETENU, DIT A L'ECRAN ───────────────────────
+		// ⚠️ LA FENETRE EST SANS CADRE (`wc.frame = false`) : son TITRE n'est
+		// affiche par personne. Poser le dorsal dans `wc.title` aurait ete un
+		// reglage declare et invisible -- exactement le defaut qu'on combat.
+		// Il se lit donc dans la barre d'etat, que l'application peint elle-meme.
+		// (Le titre le porte AUSSI : la barre des taches et les outils systeme le
+		// montrent, eux.)
+		// Ecrit UNE FOIS au demarrage par `main`, avant toute creation de
+		// contexte ; lu a chaque image. Une fonction, pas une variable globale :
+		// une seule instance quel que soit le nombre d'unites de compilation.
+		inline const char *&NkDorsalRetenu() {
+			static const char *d = "?";
+			return d;
+		}
+
 		inline void PaintStatus(NkModelerPainter &p, NkHitRegistry &hit, const NkRect &r,
 								NkModelerState &st) {
 			// ── LA BARRE D'ETAT LIT L'HOTE ─────────────────────────────────────────
@@ -377,6 +392,19 @@ namespace nkentseu {
 					snprintf(stats, sizeof(stats), "%s%s", NkModeName(st.mode), ips);
 					snprintf(statsCourt, sizeof(statsCourt), "%s", NkModeName(st.mode));
 				}
+			}
+			// LE DORSAL GRAPHIQUE, AJOUTE PAR transit : la fenetre est sans cadre, son titre
+			// n'est lu par personne, et la barre d'etat est le seul endroit ou il se voit.
+			// Fusion du 14/09 : les deux intentions sont gardees -- les nombres LUS a leur
+			// source (feat/modeleur-edition-ui) ET le dorsal retenu (transit), dans le texte
+			// complet comme dans la version courte.
+			{
+				char base[192];
+				snprintf(base, sizeof(base), "%s", stats);
+				snprintf(stats, sizeof(stats), "%s - dorsal : %s", base, NkDorsalRetenu());
+				char baseCourt[96];
+				snprintf(baseCourt, sizeof(baseCourt), "%s", statsCourt);
+				snprintf(statsCourt, sizeof(statsCourt), "%s - %s", baseCourt, NkDorsalRetenu());
 			}
 			p.Fill(r, NkRole::PanelHeader);
 			p.HLine(r.x, r.y, r.w);
