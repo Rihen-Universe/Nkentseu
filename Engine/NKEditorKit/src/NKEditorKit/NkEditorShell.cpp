@@ -47,6 +47,14 @@ using namespace nkentseu::nkgui;
 namespace nkentseu {
 	namespace editorkit {
 
+		// ── LE TEMPS PASSE DANS LA BOUCLE D'EVENEMENTS, mesure dans `Run` et lu
+		//    par `RenderFrame`. Il vit hors de `RenderFrame`, donc hors de portee du
+		//    releve par phases -- et c'est justement ce qu'on cherchait a couvrir.
+		float64 &NkShellMsEvenements() noexcept {
+			static float64 ms = 0.0;
+			return ms;
+		}
+
 		bool &NkShellPanneauxActif() noexcept {
 			static bool a = false;
 			return a;
@@ -751,8 +759,17 @@ namespace nkentseu {
 		int NkEditorShell::Run() noexcept {
 			NkEvents().SetSizeMoveFrameCallback(&SizeMoveFrameThunk, this); // anti-stretch pendant le resize natif
 			while (mRunning && mWindow.IsOpen()) {
-				while (NkEvent *ev = NkEvents().PollEvent()) {
-					(void)ev;
+				// ⚠️ MESURE MEME QUAND LE RELEVE EST ETEINT, et c'est deliberе : un
+				//    `NkChrono` coute deux lectures d'horloge par image, contre des
+				//    centaines de `MeasureWidth` pour le releve de texte. Le rendre
+				//    conditionnel demanderait de lire `getenv` ici ou de porter un
+				//    drapeau de plus, pour economiser ce que l'on mesure justement.
+				{
+					nkentseu::NkChrono hEv;
+					while (NkEvent *ev = NkEvents().PollEvent()) {
+						(void)ev;
+					}
+					NkShellMsEvenements() = hEv.Elapsed().ToSeconds() * 1000.0;
 				}
 				if (!mRunning)
 					break;
@@ -958,6 +975,8 @@ namespace nkentseu {
 			//    On mesure donc aussi la PERIODE de l'image : le mur entre deux
 			//    departs. C'est le seul chiffre qui dise ce que 88 % vaut vraiment.
 			static float64 sPeriodeMoyenne = 0.0;
+			static float64 sPeriodeCarres = 0.0; ///< pour l'ecart-type : voir plus bas
+			static int32 sPeriodes = 0;
 			static nkentseu::NkChrono sDepartPrec;
 			static bool sPeriodeAmorcee = false;
 			static float64 sImageMoyenne = 0.0;
@@ -989,6 +1008,21 @@ namespace nkentseu {
 						a >= 0 && a < 5 ? kN[a] : "?", b >= 0 && b < 5 ? kN[b] : "?");
 				curseurPrec = mUI.wantCursor;
 			};
+			// ⚠️ LA PREMIERE PHASE EST CELLE QUI S'EST PASSEE AVANT NOUS. La boucle
+			//    d'evenements tourne dans `Run`, donc entre deux appels a
+			//    `RenderFrame` : sans elle, la somme ne pourrait pas refermer la
+			//    periode, et une attente dans le traitement d'un message OS -- le
+			//    candidat le plus credible pour un fil bloque -- resterait invisible.
+			if (tracePhases && nPhases < 24) {
+				phaseMs[nPhases] = NkShellMsEvenements();
+				if (nPhases >= sPhaseN) {
+					sPhaseNom[nPhases] = "evenements OS (hors image)";
+					sPhaseN = nPhases + 1;
+				}
+				sPhaseCumul[nPhases] += phaseMs[nPhases];
+				++nPhases;
+				horlogePhase = nkentseu::NkChrono();
+			}
 			phase("depart de l'image");
 			DrawTitleBar(ec, {logoW, 0.f, W - logoW, titleH});
 			phase("barre de titre");
@@ -1152,16 +1186,79 @@ namespace nkentseu {
 			if (mOverlayFn)
 				mOverlayFn(ec, mOverlayUser); // dialogues modaux de l'app (creation/proprietes)
 			phase("OVERLAY (pipette)");
+
+			// Bordure de NOTRE fenetre (l'OS n'en dessine plus) — sauf si maximisee.
+			if (!mWindow.IsMaximized())
+				mUI.dlOverlay.AddRect({0.f, 0.f, W, H}, {48, 54, 61, 255}, 1.f); // bord #30363d
+
+			mUI.EndFrame();
+			phase("fin NKGui (tri, fusion)");
+
+			// ══ TRACE — `NK_TRACE_PIPETTE=1` : LE DERNIER MOT SUR LE CURSEUR ═════
+			// ⚠️ C'est ICI que l'OS apprend quel curseur afficher : tout ce qui a ete
+			//    ecrit avant, par n'importe quel site, aboutit a cette ligne. Une trace
+			//    posee plus haut dirait ce qu'on a VOULU ; celle-ci dit ce qui EST.
+			//    On n'imprime que les CHANGEMENTS -- sinon soixante lignes par seconde.
+			{
+				static const bool traceCurseur = []() {
+					const char *v = getenv("NK_TRACE_PIPETTE");
+					return v && v[0] && v[0] != '0';
+				}();
+				static int32 dernier = -1;
+				if (traceCurseur && (int32)mUI.wantCursor != dernier) {
+					dernier = (int32)mUI.wantCursor;
+					static const char *const kNoms[] = {"fleche", "texte", "main", "REDIM <->",
+													   "redim haut-bas"};
+					printf("[pipette] >>> L'OS RECOIT : %s\n",
+						   dernier >= 0 && dernier < 5 ? kNoms[dernier] : "?");
+				}
+			}
+			mWindow.SetCursor(MapCursor(mUI.wantCursor));
+			phase("curseur OS");
+
+			mRenderer->BeginFrame();
+			phase("rendu : ouverture");
+			mRenderer->SubmitDrawList(mUI.dl, sz.x, sz.y);
+			mRenderer->SubmitDrawList(mUI.dlOverlay, sz.x, sz.y);
+			phase("rendu : soumission");
+			mRenderer->EndFrame();
+			// ⚠️ C'EST ICI QUE VIT LA PRESENTATION, et c'est la phase la plus
+			//    trompeuse du releve. Un gros chiffre ici veut dire DEUX choses
+			//    opposees :
+			//      - « tout va bien, on attend l'ecran » : la synchronisation
+			//        verticale rend la main au rythme du moniteur, et la periode se
+			//        pose sur un multiple de son intervalle ;
+			//      - « quelque chose bloque en amont » : le pilote attend la fin
+			//        d'un travail soumis avant, et la periode n'a plus de rapport
+			//        avec le moniteur.
+			//    **Le releve les distingue par la STABILITE de la periode**, pas par
+			//    la taille du chiffre : il imprime l'ecart-type. Une attente d'ecran
+			//    est reguliere ; un blocage ne l'est pas. Sans cette seconde mesure,
+			//    « 93 % en presentation » n'aurait aucun sens -- c'est exactement la
+			//    lecture qui m'a manque ce matin sur les 88 %.
+			phase("PRESENTATION (attente ecran)");
 			// ── LE VERDICT DE L'IMAGE (NK_PHASES=1) ─────────────────────────────
 			if (tracePhases) {
-				const float64 totalMs = horlogeImage.Elapsed().ToSeconds() * 1000.0;
+				// ⚠️ LE TOTAL SE SOMME DES PHASES, IL NE SE LIT PLUS SUR UNE HORLOGE
+				//    DE DEBUT. `horlogeImage` demarrait au haut de `RenderFrame` et
+				//    etait lue AVANT la queue de l'image : elle rendait 0,44 ms quand
+				//    la seule soumission en pesait sept. C'est la MEME faute que les
+				//    88 % -- un total qui ne couvre pas ce qu'il pretend totaliser --
+				//    refaite un cran plus bas, quelques heures apres l'avoir corrigee.
+				//    Sommer les phases garantit que le total EST la decomposition.
+				float64 totalMs = 0.0;
+				for (int32 i = 0; i < nPhases; ++i)
+					totalMs += phaseMs[i];
+				(void)horlogeImage;
 				++sImages;
 				// La PERIODE : depuis le depart de l'image PRECEDENTE. La premiere
 				// n'en a pas -- elle amorce, elle ne compte pas.
 				if (sPeriodeAmorcee) {
 					const float64 per = sDepartPrec.Elapsed().ToSeconds() * 1000.0;
-					sPeriodeMoyenne = (sPeriodeMoyenne * (float64)(sImages - 2) + per)
-									  / (float64)(sImages - 1 > 0 ? sImages - 1 : 1);
+					++sPeriodes;
+					sPeriodeMoyenne = (sPeriodeMoyenne * (float64)(sPeriodes - 1) + per)
+									  / (float64)sPeriodes;
+					sPeriodeCarres += per * per;
 				}
 				sDepartPrec = nkentseu::NkChrono();
 				sPeriodeAmorcee = true;
@@ -1187,26 +1284,63 @@ namespace nkentseu {
 				// Le releve cumule, a la demande : NK_PHASES=2 l'imprime tous les 300.
 				const char *v = getenv("NK_PHASES");
 				if (v && v[0] == '2' && (sImages % 300) == 0) {
+					const float64 totalPeriodes = sPeriodeMoyenne * (float64)sPeriodes;
 					printf("[phases] cumul sur %d images\n"
 						   "[phases]   periode reelle d'une image : %.2f ms  "
 						   "(%.0f images/s)\n"
-						   "[phases]   dont MESURE par ces phases : %.2f ms  "
+						   "[phases]   travail moyen decompose          : %.2f ms  "
 						   "= %.1f %% de l'image\n"
-						   "[phases]   le reste (%.2f ms) est HORS de ces bornes : "
-						   "presentation, echange de tampons, attente du GPU\n",
+						   "[phases]   non attribue (%.2f ms) : ce qui reste APRES la "
+						   "derniere phase et AVANT le prochain releve d'evenements\n",
 						   sImages, sPeriodeMoyenne,
 						   sPeriodeMoyenne > 0.0 ? 1000.0 / sPeriodeMoyenne : 0.0,
 						   sImageMoyenne,
 						   sPeriodeMoyenne > 0.0 ? 100.0 * sImageMoyenne / sPeriodeMoyenne : 0.0,
 						   sPeriodeMoyenne - sImageMoyenne > 0.0 ? sPeriodeMoyenne - sImageMoyenne
 																 : 0.0);
+					// ── LA FERMETURE, ET L'ECART-TYPE ─────────────────────────
+					// ⚠️ LA SOMME DOIT REFERMER LA PERIODE. Une decomposition qui ne
+					//    se boucle pas sur son total mesure autre chose que ce
+					//    qu'elle annonce -- c'est la discipline appliquee aux
+					//    panneaux, remontee d'un cran.
+					{
+						float64 somme = 0.0;
+						for (int32 i = 0; i < sPhaseN; ++i)
+							somme += sPhaseCumul[i];
+						const float64 attendu = sPeriodeMoyenne * (float64)sPeriodes;
+						const float64 ecart =
+							attendu > 0.0 ? 100.0 * (attendu - somme) / attendu : 0.0;
+						const float64 moy = sPeriodeMoyenne;
+						const float64 var =
+							sPeriodes > 1 ? (sPeriodeCarres / (float64)sPeriodes) - moy * moy : 0.0;
+						float64 et = var > 0.0 ? var : 0.0;
+						// racine, sans <cmath> : Newton, dix tours suffisent largement
+						if (et > 0.0) {
+							float64 r = et;
+							for (int32 k = 0; k < 12; ++k)
+								r = 0.5 * (r + et / r);
+							et = r;
+						}
+						printf("[phases]   FERMETURE : somme des phases %.2f ms contre "
+							   "%.2f ms de periodes -- il manque %.1f %%\n"
+							   "[phases]   STABILITE : ecart-type de la periode %.2f ms "
+							   "(%.1f %% de la moyenne) -- %s\n",
+							   somme, attendu, ecart, et,
+							   moy > 0.0 ? 100.0 * et / moy : 0.0,
+							   moy > 0.0 && et < 0.15 * moy
+								   ? "REGULIERE : compatible avec une attente d'ecran"
+								   : "IRREGULIERE : ce n'est pas un rythme de moniteur");
+					}
 					for (int32 i = 0; i < sPhaseN; ++i)
-						printf("[phases]     %-24s %8.2f ms au total  (%5.2f %% du temps MESURE)\n",
+						// ⚠️ LE DENOMINATEUR EST LA PERIODE, pas le temps mesure : c'est
+						//    la seule facon que « 91 % » veuille dire « 91 % de ce que
+						//    l'utilisateur attend ». Avec l'ancien denominateur, la
+						//    soumission affichait 1 651 % -- un nombre impossible, qui
+						//    au moins se denoncait ; un nombre plausible n'aurait rien
+						//    denonce du tout.
+						printf("[phases]     %-28s %9.2f ms au total  (%5.2f %% de l'image)\n",
 							   sPhaseNom[i] ? sPhaseNom[i] : "?", sPhaseCumul[i],
-							   100.0 * sPhaseCumul[i]
-								   / (sImageMoyenne * (float64)sImages > 0.0
-										  ? sImageMoyenne * (float64)sImages
-										  : 1.0));
+							   100.0 * sPhaseCumul[i] / (totalPeriodes > 0.0 ? totalPeriodes : 1.0));
 					{
 						NkShellPanRelve &pr = NkShellPanneaux();
 						float64 tot = 0.0;
@@ -1222,37 +1356,6 @@ namespace nkentseu {
 				}
 			}
 
-			// Bordure de NOTRE fenetre (l'OS n'en dessine plus) — sauf si maximisee.
-			if (!mWindow.IsMaximized())
-				mUI.dlOverlay.AddRect({0.f, 0.f, W, H}, {48, 54, 61, 255}, 1.f); // bord #30363d
-
-			mUI.EndFrame();
-
-			// ══ TRACE — `NK_TRACE_PIPETTE=1` : LE DERNIER MOT SUR LE CURSEUR ═════
-			// ⚠️ C'est ICI que l'OS apprend quel curseur afficher : tout ce qui a ete
-			//    ecrit avant, par n'importe quel site, aboutit a cette ligne. Une trace
-			//    posee plus haut dirait ce qu'on a VOULU ; celle-ci dit ce qui EST.
-			//    On n'imprime que les CHANGEMENTS -- sinon soixante lignes par seconde.
-			{
-				static const bool traceCurseur = []() {
-					const char *v = getenv("NK_TRACE_PIPETTE");
-					return v && v[0] && v[0] != '0';
-				}();
-				static int32 dernier = -1;
-				if (traceCurseur && (int32)mUI.wantCursor != dernier) {
-					dernier = (int32)mUI.wantCursor;
-					static const char *const kNoms[] = {"fleche", "texte", "main", "REDIM <->",
-													   "redim haut-bas"};
-					printf("[pipette] >>> L'OS RECOIT : %s\n",
-						   dernier >= 0 && dernier < 5 ? kNoms[dernier] : "?");
-				}
-			}
-			mWindow.SetCursor(MapCursor(mUI.wantCursor));
-
-			mRenderer->BeginFrame();
-			mRenderer->SubmitDrawList(mUI.dl, sz.x, sz.y);
-			mRenderer->SubmitDrawList(mUI.dlOverlay, sz.x, sz.y);
-			mRenderer->EndFrame();
 		}
 
 		// ── Activity bar (bande verticale d'icones a gauche, facon VSCode) ────────
