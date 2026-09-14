@@ -68,6 +68,10 @@ void EnqueteVentilationPas();	  // (s0) la ventilation du pas par phase (NK_FLUI
 void PalierVolutes(bool complet); // (n1)(n3)(n2a) toujours ; (n2b) sous NK_FLUID_VOLUTES=1 (PLAN_VOLUTES.md)
 void ImagesDuConfinement(float32 epsilon);
 float32 EpsilonConfinement();
+// LA FUMEE SANS LE FEU (fumee.cpp) -- (f1) la masse, (f2) la montee, (f3) rien
+// ne brule, (f4) ca se voit ; chacun avec son NEGATIF, plus LE PRIX par image.
+// Mode court : NK_FUMEE=1 -- seul ce palier tourne.
+void PalierFumee();
 
 static void Check(bool ok, const char *nom, const char *detail) {
 	++gChecks;
@@ -292,11 +296,65 @@ static void MasseEtDivergence(bool mutationProjectionCoupee) {
 	const float32 ratioMoyen = (float32)(ratioSum / (float64)pas);
 
 	char buf[400];
-	// GARDE : le temoin (a) n'a de sens que si la fumee n'a jamais touche la paroi.
-	snprintf(buf, sizeof(buf), "masse paroi max %.3e (seuil %.3e), premier contact au pas %u (0 = jamais)",
-			 (double)paroiMax, (double)seuilParoi, premierContact);
-	if (!mutationProjectionCoupee)
-		Check(premierContact == 0, "GARDE de (a) : la fumee n'a jamais touche la paroi", buf);
+	// =====================================================================
+	// GARDE de (a) — CE QU'ELLE SURVEILLE A CHANGE LE 2026-09-14, et il faut
+	// lire pourquoi avant de croire l'un ou l'autre de ses deux verdicts.
+	//
+	// CE QU'ELLE DISAIT : « la fumee n'a jamais touche la paroi ». Ce n'etait
+	// PAS la propriete qu'on veut ; c'etait une CONDITION SUFFISANTE pour
+	// l'obtenir sous le schema d'alors. La propriete voulue est : « la derive
+	// mesuree par (a) vient du VOLUME, pas de la paroi ». Sous l'advection
+	// semi-lagrangienne, une cellule de bord advecte son contenu vers la couche
+	// fantome ou rien ne le recupere : la paroi DETRUIT franchement de la masse
+	// (mesure du 05/09 : -100 % en 500 pas avec une vitesse dirigee vers la
+	// paroi). Exiger qu'on n'y touche jamais etait donc legitime.
+	//
+	// ⚠️ MAIS ELLE ETAIT VERTE A CAUSE DU DEFAUT QU'ELLE ETAIT CENSEE ECARTER.
+	// Mesure du 14/09, les deux courses cote a cote :
+	//     semi-lagrangien : masse paroi max 5,978e-08, premier contact au pas 0
+	//                       (jamais) -- et (a) ROUGE a -43,1032 %
+	//     flux conservatif : masse paroi max 2,130e-05, contact au pas 359
+	//                       -- et (a) VERT a 0,0000 %
+	// La fumee « n'atteignait jamais la paroi » PARCE QU'ELLE S'EVAPORAIT EN
+	// CHEMIN. La garde etait verte pour la raison meme qu'elle devait exclure.
+	//
+	// CE QU'ELLE SURVEILLE MAINTENANT, quand le schema est CONSERVATIF :
+	// `AdvectFluxUnePasse` ne parcourt AUCUNE face de paroi (les boucles vont de
+	// 2 a N sur les faces internes), donc une paroi ne peut NI prendre NI
+	// fabriquer : le contact est inoffensif pour (a). Ce qui affaiblirait (a),
+	// desormais, c'est l'INVERSE — que la fumee n'atteigne JAMAIS la paroi, car
+	// le cas difficile ne serait alors pas exerce du tout. La garde change donc
+	// de sens avec le schema, et **ce n'est pas une commodite** : c'est que la
+	// menace, elle, a change de camp.
+	//
+	// ⚠️ ELLE N'ASSERTE PAS QUE LA MASSE TIENT : c'est le travail de (a), deux
+	// lignes plus bas, et une propriete garantie deux fois est une propriete
+	// dont l'echec se masque. Elle PUBLIE la derive a cote du contact pour qu'on
+	// lise les deux ensemble, mais elle ne la juge pas.
+	//
+	// L'ancienne branche est GARDEE telle quelle : si quelqu'un remet
+	// `advectFluxConservative` a faux, la paroi redevient un gouffre et la garde
+	// reprend son ancien travail, au mot pres.
+	// =====================================================================
+	if (!mutationProjectionCoupee) {
+		if (!p.advectFluxConservative) {
+			snprintf(buf, sizeof(buf),
+					 "masse paroi max %.3e (seuil %.3e), premier contact au pas %u (0 = jamais) -- schema "
+					 "SEMI-LAGRANGIEN : une cellule de bord advecte vers la couche fantome, ou rien ne la "
+					 "recupere, donc un contact DETRUIT de la masse et (a) mesurerait la paroi",
+					 (double)paroiMax, (double)seuilParoi, premierContact);
+			Check(premierContact == 0, "GARDE de (a) : la fumee n'a jamais touche la paroi", buf);
+		} else {
+			snprintf(buf, sizeof(buf),
+					 "masse paroi max %.3e (seuil de contact %.3e), premier contact au pas %u sur %u -- et la "
+					 "masse totale derive de %.4f %% MALGRE ce sejour contre la paroi (chiffre publie, juge par "
+					 "(a) et non ici). Schema en FLUX : aucune face de paroi n'est parcourue, une paroi ne peut "
+					 "ni prendre ni fabriquer ; ce qui affaiblirait (a) serait de ne JAMAIS l'atteindre",
+					 (double)paroiMax, (double)seuilParoi, premierContact, pas, (double)(derive * 100.f));
+			Check(premierContact != 0, "GARDE de (a) : la fumee ATTEINT la paroi -- le cas difficile est exerce",
+				  buf);
+		}
+	}
 
 	snprintf(buf, sizeof(buf), "masse %.9f -> %.9f, derive %.4f %% sur %u pas (critere < 1 %%)", (double)masse0,
 			 (double)masse1, (double)(derive * 100.f), pas);
@@ -595,6 +653,19 @@ int main(int argc, char **argv) {
 	printf("2001, eq. (8). Banc CPU, aucun GPU, aucune fenêtre.\n");
 	printf("=============================================================\n");
 
+	// Mode FUMEE : seul le palier de la fumee sans le feu tourne. Il ne remplace
+	// pas la course complete et ne rend aucun verdict sur le reste du solveur --
+	// il repond a UNE question : un panache monte-t-il sans que rien ne brule.
+	const char *fumee = ::nkentseu::env::GetEnvVar("NK_FUMEE");
+	if (fumee != nullptr && fumee[0] == '1') {
+		PalierFumee();
+		printf("\n=============================================================\n");
+		printf("BILAN (mode NK_FUMEE=1, LA FUMEE SANS LE FEU) : %d controles, %d ROUGES\n", gChecks,
+			   gFailures);
+		printf("=============================================================\n");
+		return gFailures == 0 ? 0 : 1;
+	}
+
 	// Mode BALAYAGE : seul le tableau qui CHOISIT epsilon tourne. C'est une
 	// enquete de parametre, pas un temoin -- elle ne rend aucun verdict.
 	const char *sweep = ::nkentseu::env::GetEnvVar("NK_FLUID_SWEEP");
@@ -835,6 +906,7 @@ int main(int argc, char **argv) {
 	Transport(false);
 	DixSecondes();
 	PalierRendu();
+	PalierFumee(); // la fumee sans le feu, AVANT le feu : c'est l'ordre du canal
 	PalierFeu();
 	PalierVorticite();
 	PalierBranchement();
