@@ -173,6 +173,18 @@ namespace nkentseu {
 						nkentseu::float64 balayage = 0.0;	  ///< la passe lo/hi
 						nkentseu::float64 recopie = 0.0;	  ///< la passe de soustraction
 						nkentseu::float64 popclip = 0.0;	  ///< PopClip, un appel au dorsal
+						// ⚠️ DEUX COMPTEURS SANS CODE COMMUN, et c'est voulu.
+						//    `setclips`/`popclips` comptent ce que CE fichier DEMANDE au
+						//    dorsal ; `drawCalls` (NkRenderStats2D) compte ce que le
+						//    DORSAL a reellement soumis au GPU. Si le correctif divise le
+						//    premier sans toucher au second, il n'a rien change la ou ca
+						//    coute -- un compteur seul l'aurait dit vert.
+						//    ⚠️ Et `drawCalls` compte des GROUPES, pas des vidages : un
+						//       vidage porte un groupe par changement de texture. Il ne
+						//       tombera donc pas forcement autant que les rognages -- on
+						//       le lit pour ce qu'il est.
+						nkentseu::int64 setclips = 0, popclips = 0;
+						nkentseu::uint32 drawCallsDepart = 0;
 				};
 				static NkReleveSubmit &Releve() {
 					static NkReleveSubmit r;
@@ -197,8 +209,13 @@ namespace nkentseu {
 						rel.fin = v && v[0] == '2';
 					}
 					NkChrono hTotal, hPoste;
-					if (rel.actif)
+					if (rel.actif) {
 						++rel.appels;
+						// L'amorce AVANT les vidages de ce premier appel : le delta
+						// couvre alors exactement les appels comptes.
+						if (rel.appels == 1)
+							rel.drawCallsDepart = mRenderer->GetStats().drawCalls;
+					}
 
 					if (rel.actif) {
 						const uint32 capAvant = mScratch.Capacity();
@@ -249,6 +266,8 @@ namespace nkentseu {
 								rel.rebasage += hPoste.Elapsed().ToSeconds() * 1000.0;
 								hPoste = NkChrono();
 							}
+							if (rel.actif)
+								++rel.setclips;
 							mRenderer->SetClip(math::NkRect2i{static_cast<int32>(x0), static_cast<int32>(y0),
 															  static_cast<int32>(x1 - x0),
 															  static_cast<int32>(y1 - y0)});
@@ -388,6 +407,8 @@ namespace nkentseu {
 						//    titre que `SetClip` -- le compter avec le rebasage etait une
 						//    erreur d'etiquette, pas de chronometre.
 						if (hasClip) {
+							if (rel.actif)
+								++rel.popclips;
 							mRenderer->PopClip();
 							if (rel.fin) {
 								rel.popclip += hPoste.Elapsed().ToSeconds() * 1000.0;
@@ -423,6 +444,19 @@ namespace nkentseu {
 								   100.0 * (rel.pilote + rel.popclip) / (rel.total > 0.0 ? rel.total : 1.0),
 								   somme, rel.total,
 								   rel.total > 0.0 ? 100.0 * (rel.total - somme) / rel.total : 0.0);
+							{
+								const nkentseu::uint32 dcNow = mRenderer->GetStats().drawCalls;
+								const nkentseu::float64 images = (nkentseu::float64)rel.appels / 2.0;
+								printf("[submit]   ROGNAGES demandes au dorsal : SetClip %lld | PopClip %lld "
+									   "(= %.0f + %.0f par image)\n"
+									   "[submit]   drawCalls SOUMIS (NkRenderStats2D, compteur independant) : "
+									   "%u (= %.0f par image)\n",
+									   (long long)rel.setclips, (long long)rel.popclips,
+									   images > 0.0 ? (nkentseu::float64)rel.setclips / images : 0.0,
+									   images > 0.0 ? (nkentseu::float64)rel.popclips / images : 0.0,
+									   (unsigned)(dcNow - rel.drawCallsDepart),
+									   images > 0.0 ? (nkentseu::float64)(dcNow - rel.drawCallsDepart) / images : 0.0);
+							}
 							printf("[submit]   COMPTES (pas des durees) :\n"
 								   "[submit]     reallocations mIdxTmp : %lld   mScratch : %lld\n"
 								   "[submit]     derniere realloc a l'appel n°%lld sur %d\n"
