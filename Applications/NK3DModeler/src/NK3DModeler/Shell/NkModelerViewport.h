@@ -1799,10 +1799,31 @@ namespace nkentseu {
 				float32 cx = tx + S(4.f);
 				const NkIcon kSub[3] = {NkIcon::Dot, NkIcon::Ruler, NkIcon::Square};
 				static const char *const kKeys[3] = {"vp.sub.0", "vp.sub.1", "vp.sub.2"};
+				// ── TROIS ICONES QUI NE DISAIENT NI LEUR NOM NI LEUR TOUCHE ─────
+				// Rodolf : « pas de pastille pour facilement choisir avant de passer
+				// aux raccourcis QUE JE NE SAIS PAS SI ELLES EXISTENT ». Les pastilles
+				// etaient bien la ; ce qu'elles ne faisaient pas, c'est se NOMMER.
+				// Un point, une regle et un carre ne disent pas « sommet, arete,
+				// face » a qui ne le sait pas deja.
+				// ⚠ LA TOUCHE EST LUE DANS LA TABLE, jamais recopiee : si la cle n'y
+				// est pas, l'infobulle ne porte que le nom -- pas une touche inventee.
+				static const char *const kNoms[3] = {"Sommets", "Aretes", "Faces"};
+				static const char *const kCmds[3] = {"edit.sous_mode_sommet",
+													 "edit.sous_mode_arete",
+													 "edit.sous_mode_face"};
 				const int32 mask = demo::Demo3DHostEditSelMask();
 				for (int32 i = 0; i < 3; ++i) {
 					const NkRect br{cx, barY + 2.f, btn, barH - 4.f};
 					const bool over = hit.Add(kKeys[i], br);
+					{
+						char tip[96], keys[32];
+						if (sc.FormatFor(kCmds[i], keys, sizeof(keys)))
+							snprintf(tip, sizeof(tip), "%s  (%s)  ·  Maj+clic combine", kNoms[i],
+									 keys);
+						else
+							snprintf(tip, sizeof(tip), "%s  ·  Maj+clic combine", kNoms[i]);
+						NkHelp(over, tip);
+					}
 					const bool on = (mask & (1 << i)) != 0;
 					if (on)
 						p.Fill(br, NkRole::AccentUi, 3.f);

@@ -109,11 +109,18 @@ namespace nkentseu {
 				// AUCUN raccourci par defaut. D'ou `""`. Le depot employait deja ce
 				// nom pour le modificateur equivalent.
 				{NkMeshCmd::SeparerAretes, "Separer les aretes", "", NK_MM_EDGE, true},
-				// Spin et Bisect : sans touche, comme chez Blender (outil de barre
-				// laterale et entree de menu). Leur absence de raccourci n'est pas
-				// un oubli, c'est la conformite.
+				// Spin : sans touche. Verifie dans NOTRE viseur et pas seulement chez
+				// Blender -- il ne s'atteint que par le pilote d'agent. Son absence
+				// de raccourci n'est pas un oubli.
+				// ⚠ BISECT, LUI, EN A UNE, et ce commentaire disait le contraire.
+				// Il s'appuyait sur Blender (`mesh.bisect` sans touche par defaut) :
+				// exact, mais portant sur le mauvais objet. `NkDemo3D.cpp:5741` traite
+				// `K` et arme le couteau. La touche existait, fonctionnait, et AUCUN
+				// menu ne l'annoncait -- exactement ce que ce fichier existe pour
+				// empecher. La cle est desormais declaree, et le raccourci s'affiche
+				// tout seul puisqu'il est LU dans la table.
 				{NkMeshCmd::Spin, "Spin (revolution)", "", NK_MM_ALL, true},
-				{NkMeshCmd::Bisect, "Couper (bisect)", "", NK_MM_ALL, false},
+				{NkMeshCmd::Bisect, "Couper (bisect)", "edit.bisect", NK_MM_ALL, false},
 				{NkMeshCmd::Spheriser, "Spheriser", "edit.spheriser", NK_MM_ALL, true},
 				{NkMeshCmd::Gonfler, "Gonfler / retrecir", "edit.gonfler", NK_MM_ALL, true},
 				{NkMeshCmd::Dissoudre, "Dissoudre", "edit.dissoudre", NK_MM_ALL, true},

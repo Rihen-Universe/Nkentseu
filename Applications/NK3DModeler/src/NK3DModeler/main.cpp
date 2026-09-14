@@ -290,6 +290,32 @@ namespace {
 		// donc la verite : pas d'entree = pas de touche, et le menu n'affiche
 		// aucun raccourci a cote d'eux.
 
+		// ── DEUX FAMILLES DE TOUCHES QUI EXISTENT ET QUE LA TABLE IGNORAIT ──
+		// Trouvees en verifiant une contradiction, pas en cherchant a completer :
+		// le panneau Proprietes annonce « K -- couteau » alors que la table declare
+		// `Bisect` SANS touche. L'une des deux ment. Mesure, en ouvrant le fichier :
+		// `NkDemo3D.cpp:5741` traite bien `NkKey::NK_K` et arme le couteau. C'est
+		// donc la TABLE qui etait incomplete, et le panneau qui disait vrai.
+		//
+		// ⚠ POURQUOI ELLE L'ETAIT, ET CE QUE CA APPREND. Le commentaire qui justifie
+		// l'absence s'appuie sur Blender, ou `mesh.bisect` n'a pas de touche par
+		// defaut -- verification exacte, mais portant sur LE MAUVAIS OBJET. Notre
+		// viseur n'est pas Blender : c'est lui qu'il fallait ouvrir. Un raccourci qui
+		// fonctionne et qu'aucun menu n'annonce est precisement la maladie que ce
+		// fichier soigne. Spin et « separer les aretes », eux, n'ont vraiment aucune
+		// touche (verifie de la meme facon : ils ne s'atteignent que par le pilote
+		// d'agent `NK_VP_ACTION`) -- ils restent donc sans entree, et le menu
+		// continue de n'afficher aucun raccourci a cote d'eux.
+		t.Bind("edit.bisect", "Couper (bisect)", NkKey::NK_K, 0, NK_SCTX_EDIT);
+		// LES SOUS-MODES. Ils sont traites dans `NkDemo3D.cpp:5356-5377`, garde par
+		// l'etat REEL du viseur : 1/2/3 posent le mode seul, Maj+1/2/3 combinent.
+		// Sans ces trois entrees, la pastille de sous-mode ne pouvait porter aucune
+		// infobulle honnete -- et Rodolf avait raison de ne pas savoir si ces
+		// raccourcis existaient : rien dans l'application ne le disait.
+		t.Bind("edit.sous_mode_sommet", "Sous-mode Sommets", NkKey::NK_NUM1, 0, NK_SCTX_EDIT);
+		t.Bind("edit.sous_mode_arete", "Sous-mode Aretes", NkKey::NK_NUM2, 0, NK_SCTX_EDIT);
+		t.Bind("edit.sous_mode_face", "Sous-mode Faces", NkKey::NK_NUM3, 0, NK_SCTX_EDIT);
+
 		t.Bind("app.palette", "Rechercher une commande", NkKey::NK_F3, 0, NK_SCTX_GLOBAL);
 		t.Bind("app.panneau_outils", "Panneau d'outils", NkKey::NK_T, 0, NK_SCTX_GLOBAL);
 		t.Bind("app.annuler", "Annuler", NkKey::NK_Z, NK_SC_CTRL, NK_SCTX_GLOBAL);
@@ -2304,14 +2330,26 @@ int nkmain(const NkEntryState &entry) {
 				case NkVpAction::ToggleEdit:
 					st.mode = edit ? NkMode::Object : NkMode::Edit;
 					break;
+				// ⚠ CES TROIS CAS N'ONT JAMAIS RIEN FAIT, ET C'EST LE CORRECTIF.
+				// Ils posaient `st.subMode`, un MIROIR que la boucle REECRIT a chaque
+				// image depuis le viseur (« Sous-mode : refleter le masque reel »,
+				// plus haut dans ce fichier). La valeur ecrite ici etait donc ecrasee
+				// a l'image suivante : un raccourci qui ecrit dans un miroir n'est pas
+				// un raccourci.
+				//
+				// C'ETAIT UN SECOND CHEMIN vers le meme etat -- le motif que TAB a
+				// deja paye dans `NkDemo3D.cpp` (« TAB N'EST PLUS TRAITE ICI, ET
+				// C'EST LE CORRECTIF »). Le viseur tient deja 1/2/3, garde par son
+				// etat REEL, et lui seul sait faire Maj+1/2/3 = COMBINER.
+				//
+				// ⚠ ET ON NE LES REBRANCHE SURTOUT PAS vers `Demo3DHostSetEditSelMask` :
+				// les deux rappels recoivent la MEME touche. Sur Maj+1, le viseur ferait
+				// son XOR et ce cas-ci ecraserait par le bit seul -- la combinaison
+				// serait perdue, et le defaut n'apparaitrait QUE modificateur enfonce.
+				// On retire le doublon, on ne le repare pas.
 				case NkVpAction::SubModeVertex:
-					st.subMode = NkSubMode::Vertex;
-					break;
 				case NkVpAction::SubModeEdge:
-					st.subMode = NkSubMode::Edge;
-					break;
 				case NkVpAction::SubModeFace:
-					st.subMode = NkSubMode::Face;
 					break;
 				case NkVpAction::SelectAll:
 					demo::Demo3DHostSelectAll(true);
@@ -2577,7 +2615,11 @@ int nkmain(const NkEntryState &entry) {
 				// Le contexte passe AU PANNEAU : sa scrollbar est celle de
 				// NKEditorKit (la meme que l'editeur de code), qui dessine
 				// directement dans le contexte.
-				PaintPropertiesUnified(p, rightR, st, hit, ws, ui.input, combo, &ui);
+				// LA TABLE DESCEND JUSQU'AU PANNEAU. Sans elle, ses deux listes de
+				// raccourcis etaient des chaines recopiees a la main -- ce que
+				// `NkModelerMeshMenu.h` interdit par ecrit : « une chaine recopiee
+				// peut mentir sans que rien ne le signale ».
+				PaintPropertiesUnified(p, rightR, st, hit, ws, ui.input, combo, &ui, &shortcuts);
 			}
 		}
 		if (st.showBrowser) {

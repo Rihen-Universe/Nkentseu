@@ -15,10 +15,10 @@
 //
 //          Extrait de NkModelerScreens.h pendant la refonte d'interface --
 //          « subdiviser les gros fichiers » (Rihen, 13 aout 2026).
-// @Author  Rihen
+// @Author  TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // @License Proprietary - All Rights Reserved (see LICENSE)
 // -----------------------------------------------------------------------------
-#include "NK3DModeler/Shell/NkModelerUI.h"
+#include "NKEditorKit/NkShortcutTable.h"#include "NK3DModeler/Shell/NkModelerUI.h"
 #include "NK3DModeler/Shell/NkModelerInput.h"
 #include "NK3DModeler/Shell/NkModelerWidgets.h"
 #include "NK3DModeler/Shell/NkModelerTables.h"
@@ -6337,10 +6337,60 @@ namespace nkentseu {
 		// Unique a chaque mode (Objet, Edition, Sculpture...). Ses fonctions
 		// arrivent PROGRESSIVEMENT par categories -- regle de Rihen : un onglet
 		// nait avec ses outils, pas vide.
+		// ── UNE LIGNE « COMMANDE -- TOUCHE », LUE ET JAMAIS RECOPIEE ────────
+		// Les deux listes de ce panneau etaient des chaines constantes. C'est
+		// exactement ce que `NkModelerMeshMenu.h` interdit par ecrit : « une chaine
+		// recopiee peut mentir sans que rien ne le signale ». Elles ont d'ailleurs
+		// deja diverge -- elles annoncaient `K` pour le couteau quand la table
+		// declarait bisect sans touche (c'est la table qui avait tort, mais le
+		// prochain ecart ne tombera pas forcement du bon cote).
+		//
+		// ⚠ SANS TOUCHE, ON N'ECRIT QUE LE LIBELLE. Un libelle de raccourci est une
+		// promesse ecrite a l'ecran, et une promesse fausse est pire que pas de
+		// libelle. Si la table ne connait pas la commande, la ligne existe quand
+		// meme -- la commande, elle, existe -- mais elle n'annonce aucune touche.
+		inline void NkPropCmdRow(NkModelerPainter &p, const editorkit::NkShortcutTable *sc,
+								 float32 x, float32 &yy, const char *libelle, const char *cle) {
+			char ligne[128];
+			char keys[32];
+			if (sc && cle && *cle && sc->FormatFor(cle, keys, sizeof(keys)))
+				snprintf(ligne, sizeof(ligne), "%s  --  %s", libelle, keys);
+			else
+				snprintf(ligne, sizeof(ligne), "%s", libelle);
+			p.TextV(x, yy, kRowH, ligne, NkRole::TextMuted);
+			yy += kRowH;
+		}
+
+		// Les commandes d'edition annoncees par le panneau, avec LEUR CLE de table.
+		// La liste des libelles et celle des cles ne peuvent plus diverger : c'est
+		// le meme tableau. Les cles sont celles de `NkModelerMeshMenu.h`, pour que
+		// le menu contextuel et ce panneau disent la meme chose.
+		struct NkPropEditCmd {
+				const char *libelle;
+				const char *cle;
+		};
+		inline const NkPropEditCmd *NkPropEditCmds(int32 &n) {
+			static const NkPropEditCmd k[] = {
+				{"extruder", "edit.extruder"},
+				{"inserer une face", "edit.inserer"},
+				{"biseauter", "edit.biseauter"},
+				{"boucle de coupe", "edit.loop_cut"},
+				{"subdiviser", "edit.subdiviser"},
+				{"couteau (bisect)", "edit.bisect"},
+				{"fusionner", "edit.fusionner"},
+				{"creer une face", "edit.creer_face"},
+				{"dissoudre", "edit.dissoudre"},
+				{"supprimer", "edit.supprimer"},
+			};
+			n = (int32)(sizeof(k) / sizeof(k[0]));
+			return k;
+		}
+
 		inline void PaintPropMode(NkModelerPainter &p, NkHitRegistry &hit, NkModelerState &st,
 									NkWidgetState &ws, const nkgui::NkGuiInput &in,
 									NkComboPending &combo, nkgui::NkGuiContext *guiCtx,
-									const NkRect &r, const NkRect &rr, float32 &yy) {
+									const NkRect &r, const NkRect &rr, float32 &yy,
+									const editorkit::NkShortcutTable *sc = nullptr) {
 			auto Button = [&](const char *k2, float32 yB, const char *label, float32 x,
 							  float32 w) -> bool {
 				return NkPropButton(p, hit, k2, yB, label, x, w);
@@ -6375,8 +6425,15 @@ namespace nkentseu {
 									 (m2 & 4) ? "Faces" : "");
 							p.TextV(iR.x, yy, kRowH, buf, NkRole::TextMuted);
 							yy += kRowH;
-							p.TextV(iR.x, yy, kRowH, "1 / 2 / 3 pour changer",
-									NkRole::TextMuted);
+							// « 1 / 2 / 3 pour changer » etait vrai, mais ECRIT A LA MAIN :
+							// rebinder une touche l'aurait rendu faux en silence. Les trois
+							// entrees existent desormais dans la table (elles n'y etaient
+							// pas, alors que le viseur les traite depuis toujours -- c'est
+							// pour ca que Rodolf ne pouvait pas savoir si elles existaient).
+							NkPropCmdRow(p, sc, iR.x, yy, "Sommets", "edit.sous_mode_sommet");
+							NkPropCmdRow(p, sc, iR.x, yy, "Aretes", "edit.sous_mode_arete");
+							NkPropCmdRow(p, sc, iR.x, yy, "Faces", "edit.sous_mode_face");
+							yy -= kRowH; // la ligne suivante rajoute kRowH : on ne compte pas deux fois
 							yy += kRowH + NkGroupPad();
 							PaintGroupBlock(p, rowR, gSelTop, yy);
 						}
@@ -6388,14 +6445,14 @@ namespace nkentseu {
 						if (gTools) {
 							const NkRect iR = NkGroupInner(rowR);
 							yy += NkGroupPad();
-							static const char *const kEdT[5] = {
-								"E  --  extruder", "I  --  inserer une face",
-								"Ctrl+B  --  biseauter", "Ctrl+R  --  boucle de coupe",
-								"K  --  couteau   W  --  subdiviser"};
-							for (int32 t6 = 0; t6 < 5; ++t6) {
-								p.TextV(iR.x, yy, kRowH, kEdT[t6], NkRole::TextMuted);
-								yy += kRowH;
-							}
+							// LU DANS LA TABLE. L'ancienne version etait cinq chaines
+							// constantes, et n'annoncait que six commandes sur quatorze --
+							// « couteau » et « subdiviser » partageant meme une ligne, ce
+							// qui rendait leur couple de touches illisible.
+							int32 nEdT = 0;
+							const NkPropEditCmd *kEdT = NkPropEditCmds(nEdT);
+							for (int32 t6 = 0; t6 < nEdT; ++t6)
+								NkPropCmdRow(p, sc, iR.x, yy, kEdT[t6].libelle, kEdT[t6].cle);
 							yy += NkGroupPad();
 							PaintGroupBlock(p, rowR, gToolsTop, yy);
 						}
@@ -6442,7 +6499,8 @@ namespace nkentseu {
 		inline void PaintPropTool(NkModelerPainter &p, NkHitRegistry &hit, NkModelerState &st,
 									NkWidgetState &ws, const nkgui::NkGuiInput &in,
 									NkComboPending &combo, nkgui::NkGuiContext *guiCtx,
-									const NkRect &r, const NkRect &rr, float32 &yy) {
+									const NkRect &r, const NkRect &rr, float32 &yy,
+									const editorkit::NkShortcutTable *sc = nullptr) {
 			auto Button = [&](const char *k2, float32 yB, const char *label, float32 x,
 							  float32 w) -> bool {
 				return NkPropButton(p, hit, k2, yB, label, x, w);
@@ -6653,12 +6711,15 @@ namespace nkentseu {
 								 (m2 & 2) ? "Aretes " : "", (m2 & 4) ? "Faces" : "");
 						p.TextV(r.x + kPad, yy, kRowH, buf, NkRole::TextMuted);
 						yy += kRowH;
-						p.TextV(r.x + kPad, yy, kRowH, "E extruder   I inserer   Ctrl+B biseauter",
-								NkRole::TextMuted);
-						yy += kRowH;
-						p.TextV(r.x + kPad, yy, kRowH, "Ctrl+R boucle   W subdiviser   K couteau",
-								NkRole::TextMuted);
-						yy += kRowH;
+						// MEME SOURCE que le groupe « Outils » ci-dessus : deux listes
+						// ecrites separement finissent toujours par diverger, et celles-ci
+						// n'annoncaient deja pas les memes commandes.
+						{
+							int32 nE2 = 0;
+							const NkPropEditCmd *kE2 = NkPropEditCmds(nE2);
+							for (int32 t7 = 0; t7 < nE2; ++t7)
+								NkPropCmdRow(p, sc, r.x + kPad, yy, kE2[t7].libelle, kE2[t7].cle);
+						}
 						yy += NkGroupPad();
 						PaintGroupBlock(p, rowR, grpEdTop, yy);
 						}
@@ -6940,7 +7001,8 @@ namespace nkentseu {
 		inline void PaintPropertiesUnified(NkModelerPainter &p, const NkRect &rFull,
 										   NkModelerState &st, NkHitRegistry &hit, NkWidgetState &ws,
 										   const nkgui::NkGuiInput &in, NkComboPending &combo,
-										   nkgui::NkGuiContext *guiCtx = nullptr) {
+										   nkgui::NkGuiContext *guiCtx = nullptr,
+										   const editorkit::NkShortcutTable *sc = nullptr) {
 			p.Fill(rFull, NkRole::PanelBg);
 			p.VLine(rFull.x, rFull.y, rFull.h);
 			// ── LA LISTE OUVERTE D'UN COMBO BLOQUE CE PANNEAU ───────────────
@@ -7315,13 +7377,13 @@ namespace nkentseu {
 				} else if (sec == 3) {
 					PaintPropModifier(p, hit, st, ws, in, combo, guiCtx, r, rr, yy);
 				} else if (sec == 5) {
-					PaintPropTool(p, hit, st, ws, in, combo, guiCtx, r, rr, yy);
+					PaintPropTool(p, hit, st, ws, in, combo, guiCtx, r, rr, yy, sc);
 				} else if (sec == 4) {
 					PaintPropMaterial(p, hit, st, ws, in, combo, guiCtx, r, rr, yy);
 				} else if (sec == 6) {
 					PaintPropOutput(p, hit, st, ws, in, combo, guiCtx, r, rr, yy);
 				} else if (sec == 7) {
-					PaintPropMode(p, hit, st, ws, in, combo, guiCtx, r, rr, yy);
+					PaintPropMode(p, hit, st, ws, in, combo, guiCtx, r, rr, yy, sc);
 				}
 
 				// La hauteur du contenu sert desormais a la SEULE barre generale :
