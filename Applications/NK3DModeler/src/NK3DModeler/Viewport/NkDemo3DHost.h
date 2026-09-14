@@ -57,6 +57,8 @@ namespace nkentseu {
 		constexpr uint32 kNkMatPreviewTexId = 5000u;
 
 		void Demo3DHostFrame(void *cmd);
+		// Secondes par image du viseur, lissees ; 0 avant la premiere image.
+		float32 Demo3DHostFrameSeconds();
 		/// Rend l'apercu du materiau `slot` a `w` x `h`, dans le command buffer de
 		/// l'editeur — donc AVANT la passe backbuffer, une passe de rendu ne
 		/// pouvant pas en contenir une autre. Une seule image par frame : celle

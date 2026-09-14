@@ -8,7 +8,7 @@
 //
 //          Extrait de NkModelerScreens.h pendant la refonte d'interface --
 //          « subdiviser les gros fichiers » (Rihen, 13 aout 2026).
-// @Author  Rihen
+// @Author  TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // @License Proprietary - All Rights Reserved (see LICENSE)
 // -----------------------------------------------------------------------------
 #include "NK3DModeler/Shell/NkModelerUI.h"
@@ -1125,15 +1125,12 @@ namespace nkentseu {
 			// SOUS UN MENU, ce panneau ne repond plus : les menus sont peints
 			// APRES lui, donc son clic etait deja parti (voir UiBlocks).
 			const bool uiBlk = st.UiBlocks(hit.Mouse().x, hit.Mouse().y);
-			int32 aliveCount = 0, selCount = 0;
-			for (int32 n2 = 0; n2 < kFirstEmpty2; ++n2) {
-				if (NkHierNodeSkip(n2))
-					continue;
-				++aliveCount;
-				if (n2 < kNumObj2 ? demo::Demo3DHostObjectSelected(n2)
-								  : (selLight == n2 - kFirstLight))
-					++selCount;
-			}
+			// LE DECOMPTE VIENT DE NkSceneCounts, la meme fonction que la barre d'etat.
+			// Cette boucle s'arretait au noeud 90 : les empties et les objets crees par
+			// l'utilisateur n'etaient pas comptes (« 0 objet(s) » sous quatre lignes).
+			int32 aliveCount = 0, selCount = 0, seulSel = -1;
+			NkSceneCounts(st, aliveCount, selCount, seulSel);
+			(void)seulSel;
 			char nameBuf[48];
 			int32 dropHover = -1; // ligne survolee par le glisser (cible), -1 sinon
 			// ── MAJ+CLIC = PLAGE (Rihen, 10 aout) : tout ce qui s'affiche entre

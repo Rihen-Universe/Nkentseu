@@ -12237,6 +12237,11 @@ namespace nkentseu {
 					bool ok = false;
 					const char *err = nullptr;
 					float64 lastNs = 0.0;
+					// CADENCE REELLE, LISSEE. La barre d'etat ecrivait « 60 ips » en dur ; la
+					// seule mesure vraie etait ce `dt`, deja calcule ici pour la demo. On l'expose
+					// lisse (moyenne exponentielle, 1/10) : une valeur instantanee danserait a
+					// chaque image et ne se lirait pas. Une horloge, pas deux.
+					float32 dtLisse = 0.f;
 			};
 			NkDemo3DHostState hst;
 			constexpr uint32 kHostTexId = 4096u;
@@ -13796,6 +13801,12 @@ namespace nkentseu {
 		bool Demo3DHostRecTutoStop(bool keep) {
 			return HostRecStopOn(nkvpRecTuto, keep);
 		}
+		// Secondes par image, lissees -- 0 tant que le viseur n'a pas tourne. C'est
+		// le `dt` de Demo3DHostFrame, pas une seconde horloge : afficher une cadence
+		// mesuree ailleurs que la ou l'on rend reviendrait a mesurer autre chose.
+		float32 Demo3DHostFrameSeconds() {
+			return hst.dtLisse;
+		}
 		bool Demo3DHostRecTutoActive() {
 			return nkvpRecTuto.on;
 		}
@@ -14073,6 +14084,7 @@ namespace nkentseu {
 			hst.lastNs = nowNs;
 			if (dt <= 0.f || dt > 0.25f)
 				dt = 1.f / 60.f;
+			hst.dtLisse = (hst.dtLisse <= 0.f) ? dt : hst.dtLisse + (dt - hst.dtLisse) * 0.1f;
 			hst.ctx.totalTime += dt;
 			hst.ctx.frame++;
 			HostParentEnsureInit(); // la parente sert DANS la frame (visibilite)
