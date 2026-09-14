@@ -96,6 +96,91 @@ namespace nkentseu {
 					});
 			}
 
+			// ── LES FRACTIONS DU MODELEUR ────────────────────────────────────
+			// NK3DModeler donne a ses zones une fraction de la FENETRE :
+			// `fLeft = 0.16f`, `fRight = 0.29f`, `fBrowser = 0.22f`
+			// (`NkLayout::Compute`, NkModelerUI.h). Le dock de NKGui, lui, ne
+			// connait que des ratios de SPLIT : chaque panneau de bord enveloppe la
+			// racine avec `ratio = 0.22` en dur (NkGuiWidgets.cpp:3578), et les
+			// ratios se composent -- 0,22 d'un parent qui vaut deja 0,78 de la
+			// fenetre ne fait pas 0,22 de la fenetre.
+			//
+			// On ne recopie donc PAS un ratio : on resout, a l'execution, celui qui
+			// donne la fraction voulue compte tenu du rectangle REEL du split
+			// parent. C'est la meme mecanique que `NkEditorShell::SetRegionMode`
+			// (l.2204), qui ajuste deja `split.ratio` par le noeud d'un panneau
+			// nomme : la porte existe, elle n'est simplement pas publique.
+			//
+			// ⚠️ CES TROIS NOMBRES SONT DES PARAMETRES DE PRODUIT, PAS DES ATTENDUS
+			//    DE MESURE. Le banc `verdict_disposition.py` les relit dans
+			//    `NkModelerUI.h` a chaque execution et compare : le jour ou Rodolf
+			//    change une fraction du modeleur, c'est le banc qui le dira, pas un
+			//    commentaire qui vieillit en silence.
+			inline constexpr float32 kFracGauche = 0.16f;  ///< NkLayout::Compute, fLeft
+			inline constexpr float32 kFracDroite = 0.29f;  ///< NkLayout::Compute, fRight
+			inline constexpr float32 kFracBas = 0.22f;	   ///< NkLayout::Compute, fBrowser
+
+			/// Pose le ratio du split PARENT de la feuille qui porte `titre`, pour
+			/// que ce panneau occupe `ciblePx` dans la direction demandee.
+			/// `largeur = true` : on regle une LARGEUR (split gauche|droite).
+			/// Rend faux si la geometrie n'est pas encore connue -- et ne devine
+			/// rien dans ce cas : un ratio calcule sur un rectangle nul serait un
+			/// nombre parfaitement coherent avec lui-meme et faux.
+			inline bool PoserFraction(NkEditorShell *shell, const char *titre, float32 ciblePx,
+									  bool largeur) noexcept {
+				if (!shell || ciblePx <= 0.f)
+					return false;
+				const int32 feuille = shell->PanelDockNode(titre);
+				auto &noeuds = shell->Ui().dockNodes;
+				if (feuille < 0 || feuille >= static_cast<int32>(noeuds.Size()))
+					return false;
+				const int32 parent = noeuds[feuille].parent;
+				if (parent < 0 || parent >= static_cast<int32>(noeuds.Size()))
+					return false;
+				nkgui::NkGuiDockNode &split = noeuds[parent];
+				if (split.kind != 1)
+					return false;
+				// `vertical` = split gauche|droite (NkGuiTypes.h:355). Un panneau du
+				// bas a un parent HORIZONTAL : refuser ici evite de regler une
+				// hauteur en croyant regler une largeur.
+				if (split.vertical != largeur)
+					return false;
+				const float32 taille = largeur ? split.rect.w : split.rect.h;
+				if (taille < 2.f)
+					return false; // rect pas encore calcule : on repassera
+				float32 f = ciblePx / taille;
+				if (f < 0.05f)
+					f = 0.05f;
+				if (f > 0.95f)
+					f = 0.95f;
+				split.ratio = (split.child0 == feuille) ? f : (1.f - f);
+				return true;
+			}
+
+			/// Applique les trois fractions. Appelee sur les PREMIERES images, pas
+			/// une seule fois : changer le ratio d'un split ne met a jour le
+			/// rectangle de ses enfants qu'a l'image suivante, et les trois splits
+			/// sont imbriques. On va donc du plus EXTERNE au plus INTERNE (bas,
+			/// puis droite, puis gauche -- l'inverse de l'ordre d'ancrage), et on
+			/// repasse jusqu'a ce que la geometrie se soit propagee.
+			///
+			/// Ensuite on s'arrete : continuer empecherait Rodolf de deplacer un
+			/// separateur a la souris, ce qui serait remplacer un defaut par un pire.
+			inline void AjusterFractions(NkEditorShell *shell, int32 &passesRestantes) noexcept {
+				if (!shell || passesRestantes <= 0)
+					return;
+				nkgui::NkGuiContext &ui = shell->Ui();
+				const float32 W = static_cast<float32>(ui.viewW);
+				const float32 H = static_cast<float32>(ui.viewH);
+				if (W < 2.f || H < 2.f)
+					return;
+				const bool bas = PoserFraction(shell, "Content Browser", kFracBas * H, false);
+				const bool droite = PoserFraction(shell, "Details", kFracDroite * W, true);
+				const bool gauche = PoserFraction(shell, "World Outliner", kFracGauche * W, true);
+				if (bas && droite && gauche)
+					--passesRestantes;
+			}
+
 			// ── LA BARRE DE MENUS ────────────────────────────────────────────
 			// Structure reprise de `NkMenus()` (NK3DModeler/Shell/NkModelerBrowser.h) :
 			// Fichier, Edition, Fenetre, Outils, Selection, Objet, Aide — dans cet

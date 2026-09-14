@@ -682,6 +682,28 @@ namespace nkentseu {
 				}
 			}
 
+			// ── L'OVERLAY UNIQUE ─────────────────────────────────────────────
+			// Le shell n'a qu'UN overlay, et c'est le seul point appele une fois
+			// par image apres que le dock a calcule ses rectangles. Deux besoins s'y
+			// presentent : poser les fractions (qui exigent la geometrie de l'image
+			// precedente) et faire tourner la sonde demandee.
+			//
+			// ⚠️ UNE SONDE PAR EXECUTION, la regle ne bouge pas : l'aiguillage est
+			//    EXCLUSIF. Melanger deux protocoles melangerait leurs mesures.
+			//    Les fractions, elles, ne mesurent rien -- elles reglent.
+			int32 g_passesFractions = 4;
+
+			void NogeeOverlay(NkEditorFrameContext &ec, void *user) {
+				NkEditorShell *shell = static_cast<NkEditorShell *>(user);
+				chrome::AjusterFractions(shell, g_passesFractions);
+				if (g_drag.enabled)
+					DragOverlay(ec, nullptr);
+				else if (NkPanneauxSonde().active)
+					PanneauxOverlay(ec, user);
+				else
+					ProbeOverlay(ec, nullptr);
+			}
+
 		} // namespace
 
 		int RunNogeeEditorShell(NogeAppConfig &cfg) noexcept {
@@ -711,11 +733,6 @@ namespace nkentseu {
 
 			g_shell = shell.Get();
 
-			// Le panneau PORTE (NKGui). Son jumeau NKUI reste intact et sert le
-			// chemin par defaut ; les deux partagent NkConsoleModel.
-			shell->AddPanel(&g_console);
-			if (g_probe.enabled)
-				shell->AddPanel(&g_probePanel);
 
 			// ── MONDE ECS + SYSTEMES EDITEUR COTE SHELL (2026-08-17) ─────────
 			// Le geste du commit 1d8a100f, rejoue ici : sans monde, les panneaux
@@ -797,10 +814,26 @@ namespace nkentseu {
 			// une entite (Outliner/Details) — le monde et la racine projet.
 			sViewport.Bind(&sWorld, &sScene, &sSel, projectDir);
 
+			// ── L'ORDRE D'ENREGISTREMENT EST L'ORDRE D'ANCRAGE ───────────────
+			// `BootstrapDocking` ancre le CENTRE d'abord, puis les autres dans
+			// l'ordre des `AddPanel` -- et chaque panneau de bord ENVELOPPE toute
+			// la racine (NkGuiWidgets.cpp:3560-3577). Le dernier ancre est donc
+			// celui qui traverse la fenetre de bord a bord.
+			//
+			// Chez NK3DModeler, le navigateur de contenu est PLEINE LARGEUR : il
+			// passe SOUS les trois colonnes (`browser = {0, y, W, browserH}`,
+			// NkLayout::Compute). La Console etait ici enregistree EN PREMIER, donc
+			// ancree la plus profond : la bande du bas se retrouvait coincee entre
+			// l'arbre et l'inspecteur (mesure : x=276,99 et w=967,89 au lieu de 0 et
+			// W). Les deux panneaux du bas passent donc APRES les deux lateraux.
+			// Rien d'autre ne change : ce sont les memes appels, dans un autre ordre.
 			shell->AddPanel(&sViewport);
 			shell->AddPanel(&sOutliner);
 			shell->AddPanel(&sDetails);
 			shell->AddPanel(&sContent);
+			shell->AddPanel(&g_console);
+			if (g_probe.enabled)
+				shell->AddPanel(&g_probePanel);
 
 			// Cablage de la sonde drag-drop (--dragdrop-test) : les panneaux
 			// mesurent leur geometrie reelle, la sonde la consomme.
@@ -952,17 +985,16 @@ namespace nkentseu {
 			// UNE sonde par execution (le shell n'a qu'un overlay, et melanger
 			// deux protocoles melangerait leurs mesures) : drag-drop si demandee,
 			// sinon occultation.
+			// UN seul overlay : il pose les fractions a chaque image utile, puis
+			// aiguille vers la sonde demandee (aiguillage exclusif, cf. plus haut).
+			shell->SetOverlay(&NogeeOverlay, shell.Get());
 			if (g_drag.enabled) {
-				shell->SetOverlay(&DragOverlay, nullptr);
 				if (g_probe.enabled)
 					logger.Info("[SONDE] --occlusion-test IGNORE : --dragdrop-test est deja actif "
 								"(une sonde par execution)\n");
 				logger.Info("[SONDE-DD] activee : glisser-deposer §7/§9 pilote par frames\n");
 			} else if (NkPanneauxSonde().active) {
-				shell->SetOverlay(&PanneauxOverlay, shell.Get());
 				logger.Info("[PANNEAUX] sonde de disposition activee : fenetre OUVERTE (titre de sonde)\n");
-			} else {
-				shell->SetOverlay(&ProbeOverlay, nullptr);
 			}
 
 			if (g_probe.enabled && !g_drag.enabled)
@@ -997,8 +1029,9 @@ namespace nkentseu {
 			g_probe.noMaskBody = true;
 		}
 
-		void NogeeShellEnablePanneauxSonde() noexcept {
+		void NogeeShellEnablePanneauxSonde(bool redim) noexcept {
 			NkPanneauxSonde().active = true;
+			NkPanneauxSonde().redim = redim;
 		}
 
 		void NogeeShellEnableDragDropProbe() noexcept {

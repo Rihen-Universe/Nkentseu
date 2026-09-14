@@ -86,6 +86,8 @@ int nkmain(const nkentseu::NkEntryState &state) {
 			NogeeShellEnableDragDropProbe(); // sonde glisser-deposer §7/§9
 		else if (a == "--panneaux-sonde")
 			NogeeShellEnablePanneauxSonde(); // MESURE de la disposition (bandes + rects)
+		else if (a == "--panneaux-sonde-redim")
+			NogeeShellEnablePanneauxSonde(true); // ... puis on change la taille et on remesure
 	}
 	logger.Info("[Nogee] montage de la coquille NkEditorShell (chemin unique depuis la coupe NKUI)\n");
 	return RunNogeeEditorShell(ukConfig);

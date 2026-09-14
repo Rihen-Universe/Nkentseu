@@ -67,6 +67,19 @@ namespace nkentseu {
 				/// ET que les polices soient chargees ; assez tot pour ne pas faire
 				/// attendre. `BootstrapDocking` agit a la premiere frame de dessin.
 				int32 frameMesure = 60;
+				/// `--panneaux-sonde-redim` : apres la premiere mesure, la fenetre
+				/// CHANGE DE TAILLE et on remesure. C'est le NEGATIF de la
+				/// disposition : une zone posee en pixels garderait sa taille et sa
+				/// FRACTION bougerait ; une zone en fraction garde sa fraction et
+				/// ses pixels bougent. Les deux mesures se lisent ensemble, jamais
+				/// separement.
+				///
+				/// Le redimensionnement passe par `NkEditorShell::Resize`, c'est-a-dire
+				/// la fonction que le geste de la souris appelle -- aucune injection
+				/// d'entree, la garde tient.
+				bool redim = false;
+				int32 phase = 0;	  ///< 0 = avant, 1 = apres le redimensionnement
+				int32 frameApres = 0; ///< image ou la seconde mesure sera prise
 		};
 
 		/// Compteurs EMIS PAR L'APPLICATION pendant qu'elle dessine ses barres.
@@ -80,6 +93,13 @@ namespace nkentseu {
 				float32 largeurMenus = 0.f; ///< px consommes par la barre de menus (preuve de dessin)
 				float32 largeurOutils = 0.f;
 		};
+
+		/// Facteurs du redimensionnement d'essai. Volontairement NON ronds :
+		/// 1600 x 0,75 = 1200 et 900 x 0,78 = 702 ne partagent aucun diviseur
+		/// commode avec les fractions mesurees, donc une coincidence numerique
+		/// ne peut pas faire passer le negatif pour vert.
+		inline constexpr float32 kRedimW = 0.75f;
+		inline constexpr float32 kRedimH = 0.78f;
 
 		inline NkPanneauxSondeEtat &NkPanneauxSonde() noexcept {
 			static NkPanneauxSondeEtat s;
