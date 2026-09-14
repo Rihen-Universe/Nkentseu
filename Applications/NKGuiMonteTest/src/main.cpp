@@ -166,6 +166,69 @@ static uint32 ComptePixelsContenu(const NkGuiDrawListRaster &r, uint32 fond, uin
 	return n;
 }
 
+// Le centre de gravite en X des pixels d'une bande horizontale qui ne sont ni
+// le fond ni l'aplat -- sert a LOCALISER en pixels la poignee d'un curseur.
+// Rend -1 quand la bande est vide.
+static float32 CentreXBande(const NkGuiDrawListRaster &r, int32 y0, int32 y1, int32 x0, int32 x1,
+							uint32 fond, uint32 aplat) {
+	float64 somme = 0.0;
+	uint32 n = 0;
+	for (int32 y = y0; y < y1; ++y)
+		for (int32 x = x0; x < x1; ++x) {
+			const uint32 p = r.Pixel(x, y);
+			if (p != fond && p != aplat) {
+				somme += (float64)x;
+				++n;
+			}
+		}
+	return n == 0u ? -1.f : (float32)(somme / (float64)n);
+}
+
+// Le centre en X des pixels d'une COULEUR PRECISE. Mesurer une poignee sur toute
+// une bande la noie dans le rail : c'est sa couleur qui la designe, pas sa zone.
+static float32 CentreXCouleur(const NkGuiDrawListRaster &r, uint32 couleur, uint32 *outN) {
+	float64 somme = 0.0;
+	uint32 n = 0;
+	for (int32 y = 0; y < r.Hauteur(); ++y)
+		for (int32 x = 0; x < r.Largeur(); ++x)
+			if (r.Pixel(x, y) == couleur) {
+				somme += (float64)x;
+				++n;
+			}
+	if (outN)
+		*outN = n;
+	return n == 0u ? -1.f : (float32)(somme / (float64)n);
+}
+
+static float32 Luminance(uint32 rgba) {
+	const float32 rr = (float32)((rgba >> 24) & 0xFFu);
+	const float32 gg = (float32)((rgba >> 16) & 0xFFu);
+	const float32 bb = (float32)((rgba >> 8) & 0xFFu);
+	return 0.2126f * rr + 0.7152f * gg + 0.0722f * bb;
+}
+
+// La luminance MAXIMALE parmi les pixels qui ne sont ni le fond ni l'aplat. Le
+// coeur d'un glyphe atteint la couleur pleine du texte : ce maximum est donc la
+// couleur avec laquelle le texte a ete PEINT, antialiasing mis de cote.
+static float32 LuminanceMaxContenu(const NkGuiDrawListRaster &r, uint32 fond, uint32 aplat,
+								   int32 x0 = 0, int32 x1 = 0) {
+	float32 best = -1.f;
+	if (x1 <= x0) {
+		x0 = 0;
+		x1 = r.Largeur();
+	}
+	for (int32 y = 0; y < r.Hauteur(); ++y)
+		for (int32 x = x0; x < x1 && x < r.Largeur(); ++x) {
+			const uint32 p = r.Pixel(x, y);
+			if (p == fond || p == aplat)
+				continue;
+			const float32 l = Luminance(p);
+			if (l > best)
+				best = l;
+		}
+	return best;
+}
+
 // Empreinte d'une image : deux images identiques AU BIT ont la meme, et deux
 // images qui different en ont une differente (somme de controle FNV-1a 32 bits).
 static uint32 Empreinte(const NkGuiDrawListRaster &r) {
@@ -177,6 +240,27 @@ static uint32 Empreinte(const NkGuiDrawListRaster &r) {
 		h *= 16777619u;
 	}
 	return h;
+}
+
+// Les bornes du premier `Slider` du document. L'attendu de (i1) se LIT dans le
+// fichier : un `0.5` recopie dans le banc se perimerait a la premiere retouche.
+static void TrouverBornesSlider(const NkArchive &bloc, float32 &vmin, float32 &vmax) {
+	const NkArchiveNode *c = NkGMonteCorps(bloc);
+	if (!c)
+		return;
+	for (uint32 i = 0; i < (uint32)c->array.Size(); ++i) {
+		if (!c->array[i].IsObject() || !c->array[i].object)
+			continue;
+		const NkArchive &n = *c->array[i].object;
+		if (NkGMotEgal(NkGuiArchive::TypeOf(n), "Slider")) {
+			vmin = NkGNombre(n, "min", -1.f);
+			vmax = NkGNombre(n, "max", -1.f);
+			return;
+		}
+		TrouverBornesSlider(n, vmin, vmax);
+		if (vmin >= 0.f)
+			return;
+	}
 }
 
 static float32 Abs(float32 v) {
@@ -192,7 +276,19 @@ struct Montage {
 		uint32 contenu = 0;	   ///< pixels qui ne sont NI le fond NI l'aplat de panneau
 		uint32 empreinte = 0;
 		uint32 texInconnues = 0; ///< commandes texturees dont la texture manquait
+		float32 bandeCentreX = -1.f; ///< centre en X des pixels d'une bande (option)
+		float32 poigneeX = -1.f;	 ///< centre en X des pixels de la couleur ciblee
+		uint32 poigneeN = 0;		 ///< combien de pixels portaient cette couleur
+		float32 lumMaxContenu = -1.f; ///< luminance du texte reellement peint
 };
+
+// Bande a mesurer (option posee par l'appelant juste avant un montage).
+static bool g_mesureBande = false;
+static int32 g_bandeY0 = 0, g_bandeY1 = 0, g_bandeX0 = 0, g_bandeX1 = 0;
+/// Couleur a localiser (0 = aucune). Posee juste avant un montage.
+static uint32 g_couleurCible = 0u;
+/// Bande horizontale ou mesurer la luminance du texte (x1 <= x0 = toute l'image).
+static int32 g_lumX0 = 0, g_lumX1 = 0;
 
 // ── LA POLICE, et pourquoi ce banc en charge une ──────────────────────────────
 // Sans police, `Text()` place son rectangle mais ne peint AUCUN glyphe : le
@@ -271,6 +367,16 @@ static Montage MonterTexte(const char *src, uint32 len, int32 w, int32 h,
 		// dur et jamais devine sur un coin -- voir CouleurDominante.
 		m.contenu = ComptePixelsContenu(ras, kFond, CouleurDominante(ras));
 		m.empreinte = Empreinte(ras);
+		if (g_mesureBande) {
+			m.bandeCentreX = CentreXBande(ras, g_bandeY0, g_bandeY1, g_bandeX0, g_bandeX1, kFond,
+										  CouleurDominante(ras));
+		}
+		if (g_couleurCible != 0u)
+			m.poigneeX = CentreXCouleur(ras, g_couleurCible, &m.poigneeN);
+		// ⚠️ La luminance se mesure DANS LA ZONE DEMANDEE quand il y en a une :
+		//    un champ de saisie peint AUSSI son libelle, toujours en couleur
+		//    normale, et un maximum pris sur toute l'image tombe dessus.
+		m.lumMaxContenu = LuminanceMaxContenu(ras, kFond, CouleurDominante(ras), g_lumX0, g_lumX1);
 		if (g_pngDir && nomPng) {
 			char sortie[1024];
 			Joindre(sortie, sizeof(sortie), g_pngDir, nomPng);
@@ -784,6 +890,194 @@ int main(int argc, char **argv) {
 	}
 
 	// =====================================================================
+	// =====================================================================
+	// (i1)(i2)(i3) LES TROIS INFIDELITES TROUVEES PAR LES IMAGES
+	//
+	// Elles n'ont ete vues par AUCUN des 138 criteres precedents. Chacune recoit
+	// ici le critere qui l'aurait attrapee, et chacun a ete verifie ROUGE sur le
+	// code d'avant (campagne de mutations i1/i2/i3).
+	// =====================================================================
+	printf("\n-- (i1) le curseur part de la valeur du fichier, DANS ses bornes\n");
+	{
+		// Le fichier ecrit `min = 0.5, max = 3.0` et AUCUNE `value`. La valeur
+		// montee doit donc etre 0.5 -- la borne basse ECRITE -- et non 0.
+		float32 vue = -1.f;
+		bool trouve = false;
+		for (uint32 i = 0; i < (uint32)m01.rap.items.Size(); ++i) {
+			const NkGuiMonteItem &it = m01.rap.items[i];
+			if (it.role.Compare(NkString("Slider")) == 0 && it.aValeur) {
+				vue = it.valeur;
+				trouve = true;
+				break;
+			}
+		}
+		Check(trouve, "   le curseur du fichier est monte et porte une valeur");
+		// L'attendu est LU dans le fichier, pas recopie ici.
+		float32 vmin = -1.f, vmax = -1.f;
+		{
+			Joindre(dossier, sizeof(dossier), racine, "/valides/");
+			Joindre(chemin, sizeof(chemin), dossier, "01_panneau_reglages.nkgui");
+			Fichier f = Lire(chemin);
+			if (f.ok) {
+				NkArchive doc;
+				NkGuiDiag err;
+				if (NkGuiArchive::Read(f.data, f.taille, doc, err))
+					TrouverBornesSlider(doc, vmin, vmax);
+				Liberer(f);
+			}
+		}
+		printf("        bornes LUES dans le fichier : [%.2f, %.2f] ; valeur montee : %.2f\n",
+			   (double)vmin, (double)vmax, (double)vue);
+		Check(vmin >= 0.f && vmax > vmin, "   les bornes se lisent dans le fichier");
+		Check(trouve && vue >= vmin - 0.001f && vue <= vmax + 0.001f,
+			  "   la valeur montee est DANS les bornes ecrites");
+		Check(trouve && Abs(vue - vmin) < 0.001f,
+			  "   sans `value`, elle vaut EXACTEMENT la borne basse du fichier");
+
+		// ⚠️ ET LA MESURE EN PIXELS, QUI NE SUFFIT PAS -- c'est dit, pas cache.
+		//    `SliderFloat` borne t = (v - min)/(max - min) a [0,1] : 0.0 et 0.5
+		//    tombent tous deux a l'extremite gauche du rail. Une mesure de la
+		//    poignee sur CE fichier rend le meme pixel avant et apres le
+		//    correctif. Elle est donc faite sur un document ou elle SEPARE.
+		{
+			const char *doc1 =
+				"nkgui 0.3\nwidgets {\n  Slider \"s\" { min = 0, max = 10, value = 5 }\n}\n";
+			const char *doc2 =
+				"nkgui 0.3\nwidgets {\n  Slider \"s\" { min = 0, max = 10, value = 2.5 }\n}\n";
+			uint32 n1 = 0, n2 = 0;
+			while (doc1[n1]) ++n1;
+			while (doc2[n2]) ++n2;
+
+			// ⚠️ LA POIGNEE SE REPERE PAR SA COULEUR, PAS PAR SA ZONE. Un premier
+			//    releve prenait le centre de gravite de toute la bande -- rail,
+			//    remplissage et libelle compris -- et la poignee y pesait si peu
+			//    que 25 % de course ne deplacait le chiffre que de 2,91 px. Le
+			//    critere passait, et il serait passe aussi pour 1 px. La couleur
+			//    de la poignee au repos est `theme.buttonHover` ; on la prend au
+			//    theme, on ne la recopie pas.
+			NkGuiContext ref;
+			const NkColor cp = ref.theme.buttonHover;
+			g_couleurCible = ((uint32)cp.r << 24) | ((uint32)cp.g << 16) | ((uint32)cp.b << 8)
+							 | (uint32)cp.a;
+			const Montage a = MonterTexte(doc1, n1, 400, 200);
+			const Montage b = MonterTexte(doc2, n2, 400, 200);
+			g_couleurCible = 0u;
+
+			printf("        poignee : value=5 -> X %.2f (%u px) ;  value=2.5 -> X %.2f (%u px)\n",
+				   (double)a.poigneeX, a.poigneeN, (double)b.poigneeX, b.poigneeN);
+			Check(a.lu && b.lu, "   les deux documents de mesure se lisent");
+			Check(a.poigneeN > 0u && b.poigneeN > 0u,
+				  "   la poignee est localisable par sa couleur dans les deux");
+
+			// L'ECART ATTENDU EST DERIVE, pas recopie : la course vaut
+			// `track.w = max(largeur * 0.55, 40)` et les deux documents ecrivent
+			// `min = 0, max = 10` avec `value` 5 puis 2.5, soit un quart de course.
+			const float32 largeurItem = 400.f - 2.f * ref.layout.padding;
+			const float32 trackW = (largeurItem * 0.55f > 40.f) ? largeurItem * 0.55f : 40.f;
+			const float32 attendu = trackW * 0.25f;
+			const float32 mesure = a.poigneeX - b.poigneeX;
+			printf("        ecart mesure %.2f px, attendu ~%.2f (quart de course sur %.1f)\n",
+				   (double)mesure, (double)attendu, (double)trackW);
+			Check(mesure > 0.f, "   NEGATIF : une valeur plus basse met la poignee A GAUCHE");
+			Check(Abs(mesure - attendu) < 6.f,
+				  "   et elle se deplace de la FRACTION DE COURSE attendue, pas d'un pixel");
+		}
+	}
+
+	printf("\n-- (i2) un `placeholder` ne se peint PAS comme une saisie\n");
+	{
+		// Le plus trompeur des trois : rien ne distinguait une invite d'une
+		// valeur reelle. Le critere compare les COULEURS peintes.
+		const char *invite =
+			"nkgui 0.3\nwidgets {\n  TextField \"t\" { placeholder = \"Filtrer...\" }\n}\n";
+		const char *saisie =
+			"nkgui 0.3\nwidgets {\n  TextField \"t\" { value = \"Filtrer...\" }\n}\n";
+		uint32 n1 = 0, n2 = 0;
+		while (invite[n1]) ++n1;
+		while (saisie[n2]) ++n2;
+		// La bande du CHAMP : le texte commence a `field.x + 6`, c'est-a-dire au
+		// padding de la region plus le padding interne du champ. On s'arrete bien
+		// avant le libelle, qui est peint APRES la fin du champ.
+		NkGuiContext refZ;
+		g_lumX0 = (int32)refZ.layout.padding;
+		g_lumX1 = g_lumX0 + 140;
+		const Montage a = MonterTexte(invite, n1, 400, 120);
+		const Montage b = MonterTexte(saisie, n2, 400, 120);
+		g_lumX0 = 0;
+		g_lumX1 = 0;
+		printf("        bande de mesure : x de %d a %d (le champ, PAS son libelle)\n",
+			   (int32)refZ.layout.padding, (int32)refZ.layout.padding + 140);
+		Check(a.lu && b.lu, "   les deux documents se lisent");
+		Check(a.contenu > 0u, "   l'invite du fichier EST peinte (elle n'est pas perdue)");
+		// MEME texte, MEMES pixels de fond : si les deux images sont identiques,
+		// c'est que l'invite est peinte comme une saisie -- le defaut d'origine.
+		Check(a.empreinte != b.empreinte,
+			  "   et elle ne se peint PAS comme une saisie (images differentes)");
+		// ⚠️ « IMAGES DIFFERENTES » NE DIT PAS POURQUOI. Le releve le montre
+		//    crument : l'invite et la saisie peignent EXACTEMENT le meme nombre
+		//    de pixels, au meme endroit. **Seule la couleur change**, et c'est
+		//    justement ce qu'il faut mesurer. La luminance du texte peint doit
+		//    valoir celle de `textDisabled` pour l'invite, celle de `theme.text`
+		//    pour la saisie -- les deux prises AU THEME.
+		NkGuiContext ref2;
+		const float32 lumGrise = Luminance(((uint32)ref2.theme.textDisabled.r << 24)
+										   | ((uint32)ref2.theme.textDisabled.g << 16)
+										   | ((uint32)ref2.theme.textDisabled.b << 8) | 255u);
+		const float32 lumNormale = Luminance(((uint32)ref2.theme.text.r << 24)
+											 | ((uint32)ref2.theme.text.g << 16)
+											 | ((uint32)ref2.theme.text.b << 8) | 255u);
+		printf("        invite : %u px, luminance %.1f  |  saisie : %u px, luminance %.1f\n",
+			   a.contenu, (double)a.lumMaxContenu, b.contenu, (double)b.lumMaxContenu);
+		printf("        theme : textDisabled %.1f, text %.1f\n", (double)lumGrise,
+			   (double)lumNormale);
+		Check(lumNormale > lumGrise, "   le theme distingue bien les deux couleurs");
+		Check(a.lumMaxContenu < b.lumMaxContenu,
+			  "   l'invite est peinte PLUS SOMBRE que la saisie");
+		Check(Abs(a.lumMaxContenu - lumGrise) < Abs(a.lumMaxContenu - lumNormale),
+			  "   et sa couleur est celle du texte GRISE, pas celle d'une saisie");
+		Check(Abs(b.lumMaxContenu - lumNormale) < Abs(b.lumMaxContenu - lumGrise),
+			  "   NEGATIF : la vraie saisie, elle, porte la couleur du texte normal");
+		// Le champ est declare VIDE : ce qu'on voit dedans est une invite.
+		bool videVu = false, pleinVu = false;
+		for (uint32 i = 0; i < (uint32)a.rap.items.Size(); ++i)
+			if (a.rap.items[i].role.Compare(NkString("TextField")) == 0)
+				videVu = a.rap.items[i].champVide;
+		for (uint32 i = 0; i < (uint32)b.rap.items.Size(); ++i)
+			if (b.rap.items[i].role.Compare(NkString("TextField")) == 0)
+				pleinVu = !b.rap.items[i].champVide;
+		Check(videVu, "   le champ a invite est declare VIDE");
+		Check(pleinVu, "   NEGATIF : le champ a `value` est declare NON vide");
+	}
+
+	printf("\n-- (i3) le `title` du Panel est peint\n");
+	{
+		// Attendu : le titre ajoute des pixels. Negatif : `title` vide -> retour
+		// au compte d'avant, AU BIT.
+		const char *avec =
+			"nkgui 0.3\nwidgets {\n  Panel \"p\" { title = \"Reglages\" }\n}\n";
+		const char *sans =
+			"nkgui 0.3\nwidgets {\n  Panel \"p\" { title = \"\" }\n}\n";
+		uint32 n1 = 0, n2 = 0;
+		while (avec[n1]) ++n1;
+		while (sans[n2]) ++n2;
+		const Montage a = MonterTexte(avec, n1, 400, 200);
+		const Montage b = MonterTexte(sans, n2, 400, 200);
+		Check(a.lu && b.lu, "   les deux documents se lisent");
+		printf("        contenu : avec titre %u px ;  sans titre %u px\n", a.contenu,
+			   b.contenu);
+		Check(a.contenu > b.contenu, "   le titre AJOUTE des pixels de texte");
+		Check(a.empreinte != b.empreinte, "   et l'image change");
+		// NEGATIF au bit : un `title` vide rend EXACTEMENT l'image d'un Panel sans
+		// `title` du tout. Un monteur qui reserverait la place du titre meme vide
+		// rougirait ici.
+		const char *aucun = "nkgui 0.3\nwidgets {\n  Panel \"p\" { }\n}\n";
+		uint32 n3 = 0;
+		while (aucun[n3]) ++n3;
+		const Montage c = MonterTexte(aucun, n3, 400, 200);
+		CheckEq(b.empreinte, c.empreinte,
+				"   NEGATIF : `title` vide == pas de `title`, AU BIT");
+	}
+
 	printf("\n=== %d / %d ===\n", g_pass, g_pass + g_fail);
 	if (g_fail > 0)
 		printf("    %d ECHEC(S)\n", g_fail);
