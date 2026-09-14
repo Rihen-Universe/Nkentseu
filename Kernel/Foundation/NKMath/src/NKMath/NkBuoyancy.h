@@ -145,7 +145,8 @@ namespace nkentseu {
 												 const NkVec3f &center, float32 radius,
 												 const NkVec3f &velocity, float32 time,
 												 const NkWaterDisturbance *disturbance = nullptr,
-												 float32 baseY = 0.f) noexcept {
+												 float32 baseY = 0.f,
+												 uint32 excludeOwner = 0u) noexcept {
 			NkBuoyancyResult o;
 			o.totalVolume = 4.1887902f * radius * radius * radius;
 			// ⚠️ La surface est évaluée à l'aplomb du CENTRE (x, z) du corps, sur le
@@ -155,7 +156,22 @@ namespace nkentseu {
 			// repos. `NkWaterInverseXZ` sait inverser ce déplacement ; l'appeler à
 			// chaque pas pour chaque corps coûterait jusqu'à 24 évaluations de houle,
 			// et l'écart est du second ordre en cambrure. Non fait, et dit.
-			const NkWaterPoint w = NkWaterEval(waves, center.x, center.z, time, -1.f, disturbance);
+			// ⚠️ `excludeOwner` EST LE CORPS LUI-MEME, et l'omettre est un vrai defaut :
+			// il trouverait le bassin qu'il a creuse, en deduirait moins d'eau, donc
+			// moins de poussee, donc il descendrait -- ce qui creuserait davantage. La
+			// boucle est silencieuse : le corps « coule un peu », et on accuse sa masse.
+			// Le temoin (f3) la mesure, avec son negatif (exclusion coupee -> il coule).
+			// La houle, elle, est evaluee normalement : elle n'est pas de son fait.
+			NkWaterPoint w;
+			if (disturbance != nullptr && excludeOwner != 0u) {
+				w = NkWaterEval(waves, center.x, center.z, time, -1.f, nullptr);
+				const NkWaterDisturbanceSample d =
+					disturbance->Sample(center.x, center.z, time, excludeOwner);
+				if (d.height != 0.f)
+					w.position.y += d.height;
+			} else {
+				w = NkWaterEval(waves, center.x, center.z, time, -1.f, disturbance);
+			}
 			o.surfaceY = baseY + w.position.y;
 			o.normal = w.normal;
 
