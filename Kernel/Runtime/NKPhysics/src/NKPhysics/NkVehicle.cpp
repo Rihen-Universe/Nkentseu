@@ -99,9 +99,20 @@ namespace nkentseu {
 			// et c'est précisément la sorte de défaut qui ne dit rien.
 			if (NkRigidBody *bd = mWorld.GetBody(mChassis))
 				bd->linearDamping = mTuning.linearDamping;
+			// ── D'OÙ VIENT `mu` (corrigé le 14/09) ──────────────────────────
+			// Avant : du matériau du CHÂSSIS. Le châssis ne touche pas le sol ; ce
+			// qui tient la route, c'est la gomme. La grandeur était fausse, pas
+			// seulement sa valeur — et le repli à 0,8 le disait déjà tout haut.
+			// Un `mu` posé explicitement (appel direct ou fichier de configuration)
+			// gagne toujours : c'est le plus explicite qui décide.
 			if (mTuning.mu <= 0.f) {
-				const NkRigidBody *b = mWorld.GetBody(mChassis);
-				mTuning.mu = b ? b->material.dynamicFriction : 0.8f;
+				if (mTuning.muFromChassis) {
+					// LA MUTATION : le monde d'avant, atteignable et mesurable.
+					const NkRigidBody *b = mWorld.GetBody(mChassis);
+					mTuning.mu = b ? b->material.dynamicFriction : 0.8f;
+				} else {
+					mTuning.mu = mTuning.tyreFriction;
+				}
 				if (mTuning.mu <= 0.f)
 					mTuning.mu = 0.8f;
 			}

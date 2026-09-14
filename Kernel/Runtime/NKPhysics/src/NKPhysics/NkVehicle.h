@@ -66,7 +66,34 @@ namespace nkentseu {
 				float32 brakeForce = 0.f;		// N par roue — 0 = dérivé (1.2 g)
 				float32 maxSteerDeg = 30.f;
 				float32 steerRateDegPerSec = 180.f; // lissage d'une consigne créneau
-				float32 mu = 0.f;				// 0 = friction dynamique du matériau châssis
+				// ⚠️ 0 = DÉRIVÉ DU PNEU (2026-09-14). Cette ligne disait « 0 = friction
+				// dynamique du matériau CHÂSSIS », et c'était la mauvaise GRANDEUR, pas
+				// une valeur mal choisie : le contact qui décide de la tenue de route
+				// est PNEU ↔ ROUTE, et le châssis ne touche jamais le sol — s'il le
+				// touche, c'est un accident.
+				// Ce que la mesure a montré : `SetChassisBox` ne pose que la DENSITÉ du
+				// matériau. Les 0,40 ne venaient donc de personne — c'est le défaut de
+				// `NkPhysicsMaterial::dynamicFriction`, jamais choisi pour une voiture.
+				// Et le repli, lui, valait déjà 0,8 : le code savait quelle grandeur il
+				// lui fallait, il ne la demandait simplement pas.
+				float32 mu = 0.f;				// 0 = dérivé de tyreFriction ci-dessous
+				// LE FROTTEMENT DU PNEU SUR LA ROUTE. Défaut 0,90 : valeur d'une
+				// gomme de routière sur bitume sec, et le choix de Rodolf
+				// (« je dirais configurable meme si 0.90 me convient »).
+				// Mesuré le 14/09 : accélération x2,7 à 5 m/s, 0->90 km/h de 14,45 s à
+				// 4,91 s, freinage de 71,72 m à 35,15 m.
+				// ⚠️ CE N'EST PAS ENCORE LE MODÈLE COMPLET, et je le dis ici plutôt que
+				// de le laisser croire : `NkPhysicsMaterial` + `NkMixFriction(a, b)`
+				// existent déjà et combinent DEUX surfaces ; le modèle exact serait
+				// `NkMixFriction(pneu, matériau du sol touché par le rayon)`, donc un mu
+				// PAR ROUE ET PAR CONTACT — la glace et le bitume cesseraient d'être le
+				// même sol. Ce pas-là change le comportement sur TOUS les sols : il
+				// attend une décision, pas une initiative.
+				float32 tyreFriction = 0.90f;	// mu du pneu ; sert quand mu vaut 0
+				// LE MONDE D'AVANT, pour pouvoir le remesurer (comme `alternateSweep` et
+				// `staticFriction`). true = on redérive mu du matériau du CHÂSSIS,
+				// c'est-à-dire 0,40, c'est-à-dire le comportement d'avant le 14/09.
+				bool muFromChassis = false;
 				// ── LE RELACHEMENT (2026-09-13) ───────────────────────────
 				// Mesuré le 13/09 dans renderdemo : gaz relâchés, la voiture passait de
 				// 6,318 à 5,951 m/s en 3 s. Or 6,318·exp(-0,02·3) = 5,950 : la SEULE
