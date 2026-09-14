@@ -1,4 +1,5 @@
 #pragma once
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // =============================================================================
 // NkVehicle.h — véhicule à roues par RAYCAST, mis à jour DANS le pas fixe.
 //
@@ -25,10 +26,34 @@ namespace nkentseu {
 				bool grounded = false;
 				float32 compression = 0.f; // 0 = détendue, 1 = butée
 				float32 steerAngle = 0.f;  // radians, courant (lissé)
+				// ⚠️ LA DIRECTION DE POINTAGE DE LA ROUE, EN MONDE (2026-09-14).
+				// `steerAngle` est un SCALAIRE : il ne dit pas autour de quel axe ni dans
+				// quel sens. Le rendu le ré-dérivait donc avec un axe ÉCRIT EN DUR
+				// (`{0,1,0}`), c'est-à-dire une DEUXIÈME vérité à côté de celle de la
+				// physique. Les deux ne coïncidaient que tant que `NkQuat::Right()`
+				// rendait +X ; la contradiction corrigée à sa source, elles ont divergé —
+				// les roues penchaient à droite quand la voiture tournait à gauche.
+				// Ce champ EST la direction que la physique utilise, et le rendu la LIT
+				// au lieu de la recalculer. Une seule vérité pour la roue qui tourne et
+				// la roue qu'on voit. Écrit même roue en l'air.
+				NkVec3f steerFwd{};
 				NkVec3f worldPos{};		// centre de la roue, monde
 				NkVec3f contactPoint{}, contactNormal{};
 				float32 suspForce = 0.f;   // N, dernière valeur
 				float32 slipLat = 0.f, slipLong = 0.f; // m/s résiduels APRÈS impulsion
+				// Le glissement latéral AVANT l'impulsion (2026-09-13). `slipLat` dit ce
+				// qui RESTE ; sans ce qui y ENTRAIT, on ne peut pas savoir si le balayage
+				// converge, sous-corrige, ou DÉPASSE sa cible. Le rapport des deux est la
+				// seule manière de répondre à « une impulsion qui vise l'annulation exacte
+				// peut-elle dépasser quand le pas est grand ? » -- question qui ne se pose
+				// que parce qu'il y a QUATRE contraintes appliquées en séquence, alors que
+				// la conception §3c raisonne, elle, sur une seule.
+				float32 slipLatPre = 0.f; // m/s, lu AVANT l'impulsion (diagnostic)
+				float32 dragLat = 0.f;   // N, traînée induite de virage de CETTE roue
+				// Force latérale SIGNÉE et LISSÉE de cette roue (N). Voir NkVehicle.h,
+				// bloc traînée de virage : la traînée va comme le CARRÉ de la force, et
+				// le carré d'un signal qui oscille autour de zéro ne vaut PAS zéro.
+				float32 latForceFilt = 0.f;
 		};
 
 		struct NkVehicleTuning {
@@ -41,8 +66,176 @@ namespace nkentseu {
 				float32 brakeForce = 0.f;		// N par roue — 0 = dérivé (1.2 g)
 				float32 maxSteerDeg = 30.f;
 				float32 steerRateDegPerSec = 180.f; // lissage d'une consigne créneau
-				float32 mu = 0.f;				// 0 = friction dynamique du matériau châssis
+				// ⚠️ 0 = DÉRIVÉ DU PNEU (2026-09-14). Cette ligne disait « 0 = friction
+				// dynamique du matériau CHÂSSIS », et c'était la mauvaise GRANDEUR, pas
+				// une valeur mal choisie : le contact qui décide de la tenue de route
+				// est PNEU ↔ ROUTE, et le châssis ne touche jamais le sol — s'il le
+				// touche, c'est un accident.
+				// Ce que la mesure a montré : `SetChassisBox` ne pose que la DENSITÉ du
+				// matériau. Les 0,40 ne venaient donc de personne — c'est le défaut de
+				// `NkPhysicsMaterial::dynamicFriction`, jamais choisi pour une voiture.
+				// Et le repli, lui, valait déjà 0,8 : le code savait quelle grandeur il
+				// lui fallait, il ne la demandait simplement pas.
+				float32 mu = 0.f;				// 0 = dérivé de tyreFriction ci-dessous
+				// LE FROTTEMENT DU PNEU SUR LA ROUTE. Défaut 0,90 : valeur d'une
+				// gomme de routière sur bitume sec, et le choix de Rodolf
+				// (« je dirais configurable meme si 0.90 me convient »).
+				// Mesuré le 14/09 : accélération x2,7 à 5 m/s, 0->90 km/h de 14,45 s à
+				// 4,91 s, freinage de 71,72 m à 35,15 m.
+				// ⚠️ CE N'EST PAS ENCORE LE MODÈLE COMPLET, et je le dis ici plutôt que
+				// de le laisser croire : `NkPhysicsMaterial` + `NkMixFriction(a, b)`
+				// existent déjà et combinent DEUX surfaces ; le modèle exact serait
+				// `NkMixFriction(pneu, matériau du sol touché par le rayon)`, donc un mu
+				// PAR ROUE ET PAR CONTACT — la glace et le bitume cesseraient d'être le
+				// même sol. Ce pas-là change le comportement sur TOUS les sols : il
+				// attend une décision, pas une initiative.
+				float32 tyreFriction = 0.90f;	// mu du pneu ; sert quand mu vaut 0
+				// LE MONDE D'AVANT, pour pouvoir le remesurer (comme `alternateSweep` et
+				// `staticFriction`). true = on redérive mu du matériau du CHÂSSIS,
+				// c'est-à-dire 0,40, c'est-à-dire le comportement d'avant le 14/09.
+				bool muFromChassis = false;
+				// ── LE RELACHEMENT (2026-09-13) ───────────────────────────
+				// Mesuré le 13/09 dans renderdemo : gaz relâchés, la voiture passait de
+				// 6,318 à 5,951 m/s en 3 s. Or 6,318·exp(-0,02·3) = 5,950 : la SEULE
+				// décélération était le `linearDamping` du corps. Autrement dit le
+				// véhicule n'avait NI résistance au roulement NI frein moteur, et roulait
+				// 300 m au point mort. Les deux sont des impulsions LONGITUDINALES,
+				// donc elles passent par le cercle de friction comme tout le reste :
+				// sur la glace elles ne peuvent pas freiner plus que mu ne le permet.
+				float32 rollingResistance = 0.015f; // C_rr, sans dimension. Force = C_rr·Fsusp, donc
+													// proportionnelle à la CHARGE : elle croît au transfert
+													// et vaut zéro roue en l'air, sans une ligne de plus.
+													// Pneu sur asphalte : 0,010 à 0,015.
+				// ── LA TRAINÉE AÉRODYNAMIQUE (2026-09-13) ─────────────────────
+				// ⚠️ CE COMMENTAIRE A ÉTÉ CORRIGÉ LE JOUR MÊME. Il affirmait d'abord
+				// que toute la force moteur passe et que l'asymptote sans traînée vaut
+				// 385 m/s. LES DEUX SONT FAUX, et la manière dont ils l'étaient vaut
+				// d'être garde ici.
+				//
+				// Le chiffre venait d'un banc « plein gaz 90 s » posé sur un sol de
+				// 400 × 400 m. La voiture atteignait le bord à t = 14,96 s et TOMBAIT
+				// DANS LE VIDE : au verdict, 0 roue sur 4 touchait le sol et la somme
+				// des forces de suspension valait 0,0 N. Le « palier » mesuré était la
+				// vitesse limite d'un corps en CHUTE, et la force motrice qu'on en
+				// déduisait (9 458 N ≈ 2·engineForce à 0,4 %) était une coïncidence.
+				// *Un chiffre qui confirme trop bien l'hypothèse qu'on avait déjà est
+				// le premier à vérifier.* Ce qui l'a détrompé n'est pas la vitesse,
+				// c'est le compte des roues au sol.
+				//
+				// Remesuré sur un sol de 40 km, 4 roues au sol de bout en bout :
+				//   • mu = 0,4000 → traction plafonnée à mu·ΣFsusp(motrices) = 2 354 N
+				//     statique, quand 2·engineForce en demande 9 418 : la voiture est
+				//     LIMITÉE PAR L'ADHÉRENCE et ne délivre que ~27 % de son moteur ;
+				//   • avec le transfert de charge vers l'arrière, 2 505 N → vitesse de
+				//     pointe prédite 50,73 m/s, MESURÉE 50,575 m/s (− 0,3 %).
+				// Sans traînée, la même voiture dépasse 82 m/s (296 km/h) et monte
+				// encore : c'est bien elle qui borne la vitesse de pointe.
+				// ⚠️ DIFFÉRENCE DE NATURE avec le roulement et le frein moteur : ceux-là
+				// passent par la gomme, donc le cercle de friction les borne. L'air
+				// pousse la CAISSE : la traînée s'applique au centre de masse, HORS du
+				// cercle, et elle agit aussi roues en l'air.
+				float32 dragCd = 0.30f;			// coefficient de traînée (voiture moderne)
+				float32 airDensity = 1.225f;	// kg/m³, air au niveau de la mer
+				float32 frontalArea = 0.f;		// m² — 0 = dérivé : 4·demiX·demiY, le RECTANGLE
+												// englobant du châssis. La vraie aire frontale d'une
+												// voiture vaut ~85 % de ce rectangle : ce défaut
+												// SURESTIME d'environ 15 %. C'est dit plutôt que
+												// corrigé par un 0,85 sorti de nulle part.
+				// ── ACKERMANN (2026-09-13, conception §4 « une ligne ») ─────────
+				// Les quatre roues doivent tourner autour du MÊME centre : la roue
+				// intérieure braque PLUS que l'extérieure. L'empattement et la voie sont
+				// DÉRIVÉS des ancres (Autotune), jamais saisis.
+				// ⚠️ CE CHAMP CHANGE LE SENS DE maxSteerDeg : celui-ci devient l'angle de
+				// la roue VIRTUELLE du centre, et la roue intérieure le DÉPASSE (34,19°
+				// pour 30° sur la voiture du dépôt). Un plafond à 2·maxSteer empêche
+				// l'absurde quand le rayon demandé descend sous la demi-voie.
+				float32 ackermann = 1.f; // 0 = roues parallèles (avant le 13/09), 1 = géométrie exacte
+				// ── BALAYAGE ALTERNÉ (2026-09-13) ────────────────────────
+				// `NkApplyImpulseAtPoint` modifie le corps IMMÉDIATEMENT : la roue i+1
+				// calcule son glissement sur un état déjà corrigé par la roue i. Le couple
+				// gauche/droite n'est donc pas traité symétriquement, et il reste à chaque
+				// sous-pas une impulsion de lacet résiduelle dont le signe est celui de
+				// « quelle roue est passée la première ». Elle s'accumule : braquage NUL,
+				// la voiture finissait à 700 m de côté pour 3 500 m parcourus.
+				// Mesuré le 13/09 — lacet à t = 20 s, plein gaz, braquage nul :
+				//    30 Hz 0,011559 | 60 Hz 0,003476 | 120 Hz 0,001448 | 240 Hz 0,000668
+				// soit un rapport qui converge vers ~2,1 quand h est divisé par deux : la
+				// dérive est en O(h) et TEND VERS ZÉRO quand h tend vers zéro. Il n'existe
+				// donc AUCUN couple réel — c'est un artefact du solveur séquentiel. Et
+				// l'ordre en donne le signe : balayage inversé → cap −7,854° au lieu de
+				// +7,854°, au chiffre près.
+				// Le correctif alterne le sens du balayage à chaque sous-pas : le biais du
+				// pas n est compensé par le biais opposé du pas n+1. On ne passe PAS en
+				// Jacobi (calculer les quatre impulsions sur le même état) : cela change
+				// la nature du solveur et perd la stabilité que le Gauss-Seidel donne
+				// gratuitement. L'alternance ne touche qu'à l'ordre.
+				bool alternateSweep = true; // false = l'ordre fixe d'avant le 13/09
+				// false = la retenue vise la vitesse du DÉBUT du pas (le comportement
+				// d'avant le 13/09, qui laissait la voiture fluer en pente frein serré).
+				bool staticFriction = true;
+				// ── TRAÎNÉE DE VIRAGE (2026-09-14) ──────────────────────
+				// Mesuré : sous saturation un virage coûtait **0,6 %** de vitesse, et
+				// au-delà la voiture en courbe décélérait 13 % de MOINS qu'en ligne
+				// droite. Autrement dit : on ne pouvait pas racler de la vitesse dans
+				// un virage, et négocier une courbe ne coûtait jamais rien.
+				//
+				// Ce zéro n'était PAS un oubli : l'impulsion latérale annule le
+				// glissement EXACTEMENT (0,000000 m/s mesuré), et une force sans
+				// glissement ne travaille pas. Il n'y avait rien à dissiper.
+				// Ce qui manquait est ailleurs, et c'est physique : **un vrai pneu a
+				// besoin d'un ANGLE DE DÉRIVE pour produire sa force latérale.** La
+				// force est perpendiculaire au plan de la roue, la vitesse fait un
+				// angle alpha avec ce plan, donc la force a une composante OPPOSÉE À LA
+				// VITESSE. C'est la traînée INDUITE, et elle existe même sans glisser.
+				//
+				//   modèle linéaire : alpha = F_lat / C_alpha, C_alpha = k·Fs
+				//   F_drag = F_lat·alpha = **c · F_lat² / Fs**,  c = 1/k
+				//
+				// À l'échelle du véhicule, si la charge répartit la force latérale, cela
+				// se résume à **a_drag = c · a_lat² / g** — quadratique en accélération
+				// latérale, indépendant de la vitesse ET de la masse.
+				//
+				// ⚠️ LE ZÉRO EST STRUCTUREL : F_lat = 0 donne F_drag = 0 par un produit
+				// par zéro, pas par un seuil. En ligne droite le comportement est donc
+				// inchangé AU BIT, et ce n'est pas une observation mais une garantie.
+				//
+				// Défaut 0,083 = 1/12 : C_alpha/F_z vaut 10 à 15 par radian sur un pneu
+				// de tourisme. 0 = aucune traînée (le comportement d'avant le 14/09).
+				float32 corneringDrag = 0.083f;
+				// ⚠️ POURQUOI UN LISSAGE, ET POURQUOI IL N'EST PAS UN RÉGLAGE DE CONFORT.
+				// Première version : la traînée lisait |Jlat|/h, l'impulsion du sous-pas.
+				// Mon propre volet négatif l'a refusée — en LIGNE DROITE la décélération
+				// passait de 1,16076 à 1,16158 m/s² au lieu de rester identique au bit.
+				// Cause : la force latérale par roue OSCILLE autour de zéro (corrections
+				// de suspension, léger lacet résiduel), et **la moyenne d'un carré n'est
+				// pas le carré de la moyenne** : une traînée en F² transforme du bruit de
+				// signe alterné en frottement permanent. 480 fois ce que la loi prédit.
+				// On lisse donc la force latérale SIGNÉE avant de l'élever au carré : le
+				// bruit à moyenne nulle s'annule, la force de virage soutenue survit.
+				// C'est aussi ce que la physique dit : l'angle de dérive répond à la
+				// force SOUTENUE, pas à une correction d'un sous-pas.
+				// 0,1 s : vingt fois le sous-pas (assez pour moyenner), et vingt fois
+				// moins qu'un virage (assez pour le suivre).
+				float32 corneringDragTau = 0.1f; // s
+				float32 engineBrake = 0.10f;		// fraction de engineForce, par roue MOTRICE, gaz
+													// relâchés (|throttle| < 0,05). 0 = aucun frein moteur.
 				float32 freezeSpeed = 0.05f;	// m/s : sous ce glissement, on annule sec
+				// ── L'AMORTISSEMENT DU CHÂSSIS (2026-09-14) ───────────────────────
+				// ⚠️ Ce frottement était écrit EN DUR dans `SetChassisBox`
+				// (`d.linearDamping = 0.02f`) : c'était le SEUL réglage du véhicule
+				// absent de cette structure. Mesuré le 14/09 sur le banc 10, à 90 km/h :
+				//
+				//     amortissement 608,1 N  |  aéro 321,1 N  |  roulement 176,6 N
+				//
+				// soit **55 % de tout ce qui retient la voiture, et 1,9 fois l'air**.
+				// Un frottement invisible, plus fort que l'aérodynamique, que personne
+				// ne pouvait régler. Ce n'est pas un modèle de voiture : c'est un
+				// amortisseur NUMÉRIQUE, et il doit pouvoir se dire.
+				//
+				// ⚠️ LA VALEUR PAR DÉFAUT NE BOUGE PAS — 0.02f, exactement ce qui était
+				// écrit en dur. EXPOSER N'EST PAS CHANGER : le comportement du produit
+				// est identique au bit tant que personne n'y touche.
+				float32 linearDamping = 0.02f; // 1/s — v *= 1/(1 + linearDamping·dt)
 		};
 
 		class NkVehicle {
@@ -81,8 +274,12 @@ namespace nkentseu {
 				float32 mMass = 0.f;
 				NkVector<NkWheel> mWheels;
 				NkVehicleTuning mTuning;
+				NkVec3f mHalf{};				// demi-tailles du châssis (aire frontale dérivée)
+				float32 mWheelBase = 0.f;		// empattement, dérivé des ancres (Ackermann)
+				float32 mTrack = 0.f;			// voie avant, dérivée des ancres (Ackermann)
 				float32 mSteer = 0.f, mThrottle = 0.f, mBrake = 0.f;
 				bool mTuned = false;
+				uint32 mSweep = 0; // parité du sous-pas (balayage alterné)
 		};
 
 	} // namespace physics

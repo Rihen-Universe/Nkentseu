@@ -140,6 +140,12 @@ with project("NKImage"):
     with filter("(system:Linux || system:macOS || (system:Windows && !options:windows-runtime=uwp && !system:XboxSeries && !system:XboxOne)) && !system:Android && !system:iOS && !system:Web"):
         with test():
             testfiles(["tests/**.cpp"])
+            # ── FUSION DE feat/format-actif (2026-09-13) ──────────────────────────────
+            # Le glob ci-dessus ramasse TOUT tests/. La sous-suite nommee « TextureBake »
+            # ci-dessous a son PROPRE main() : sans cette exclusion, la suite sans nom en
+            # lierait DEUX. Mesure sur l arbre fusionne : tests/ porte exactement deux
+            # main(), TestMain.cpp et test_texture_bake.cpp.
+            excludefiles(["tests/test_texture_bake.cpp"])
             # ── FUSION DE feat/svg-codec DANS transit (2026-09-12) : la question de R7 est RESOLUE ──
             # transit gardait excludefiles(TestEXR) parce que TestEXR.cpp portait son propre main().
             # MESURE sur l'arbre fusionne : TestEXR.cpp n'a PLUS de main() -- le commit 86d16f49a
@@ -156,6 +162,29 @@ with project("NKImage"):
             links([
                 "NKImage",
                 "NKFont",
+                "NKMemory",
+                "NKCore",
+            ])
+
+        with test("TextureBake"):
+            testfiles(["tests/test_texture_bake.cpp"])
+            testownmain()
+            # NKTime n'est pas une dependance de NKImage : le banc a besoin du
+            # chronometre, la sous-suite l'ajoute pour elle seule.
+            includedirs(["%{NKTime.location}/src", "%{NKSerialization.location}/src"])
+            # Ni NKTime ni NKSerialization ne sont des dependances de NKImage :
+            # le banc en a besoin, la sous-suite les ajoute pour elle seule.
+            dependson(["NKTime", "NKSerialization"])
+            links([
+                "NKImage",
+                "NKSerialization",
+                "NKReflection",
+                "NKFileSystem",
+                "NKLogger",
+                "NKThreading",
+                "NKContainers",
+                "NKPlatform",
+                "NKTime",
                 "NKMemory",
                 "NKCore",
             ])

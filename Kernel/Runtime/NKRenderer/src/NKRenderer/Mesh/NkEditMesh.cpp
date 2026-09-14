@@ -1,6 +1,6 @@
 // =============================================================================
-// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // NkEditMesh.cpp — NKRenderer — maillage éditable demi-arête (n-gon)
+// @Author  TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // =============================================================================
 #include "NkEditMesh.h"
 #include "NKContainers/Associative/NkHashMap.h"
@@ -5084,7 +5084,27 @@ namespace nkentseu {
 		// LinkTwins n'apparie plus les demi-arêtes de part et d'autre (positions
 		// différentes) : la déchirure est réelle et les twins restent cohérents.
 		// =====================================================================
+		// ── LES DEUX PORTES ─────────────────────────────────────────────────────
+		// Elles ne different que par la designation des aretes a couper. Le corps,
+		// lui, n'existe qu'en un exemplaire (`SplitImpl`, juste en dessous) : une
+		// seconde decoupe de ventilateur ecrite a cote de celle-ci divergerait, et
+		// l'en-tete de ce fichier l'interdit explicitement.
 		bool NkEditMesh::SplitSelectedEdges(const NkEdgeSplitParams &p) {
+			// Chemin HISTORIQUE, inchange : `edgeList == nullptr` fait deduire les
+			// aretes de la selection de sommets, et `keepGeometry == false` laisse la
+			// regle d'ecart existante jouer telle quelle.
+			return SplitImpl(p, nullptr, 0u, false, nullptr);
+		}
+
+		bool NkEditMesh::SplitEdges(const NkEmId *edges, uint32 count, bool keepGeometry,
+									uint32 *outDuplicated) {
+			if (outDuplicated) *outDuplicated = 0u;
+			if (edges == nullptr || count == 0u) return false;
+			return SplitImpl(NkEdgeSplitParams{}, edges, count, keepGeometry, outDuplicated);
+		}
+
+		bool NkEditMesh::SplitImpl(const NkEdgeSplitParams &p, const NkEmId *edgeList, uint32 edgeCount,
+								   bool keepGeometry, uint32 *outDuplicated) {
 			NkVector<NkVertex3D> wv;
 			NkVector<uint32> wfs, wfv;
 			NkVector<uint8> wsel;
@@ -5135,21 +5155,55 @@ namespace nkentseu {
 			touched.Resize(NV);
 			for (uint32 i = 0; i < NV; ++i)
 				touched[i] = 0;
-			for (uint32 h = 0; h < HC; ++h) {
-				if (!W.hedges[h].alive || W.hedges[h].twin == NK_EM_INVALID)
-					continue; // arête de BORD : déjà ouverte
-				const uint32 a = W.hedges[h].origin, b = dstOf((NkEmId)h);
-				if (a == b || a >= NV || b >= NV || !W.verts[a].sel || !W.verts[b].sel)
-					continue;
-				selE.InsertOrAssign(ekey(a, b), (uint8)1);
-				touched[a] = 1;
-				touched[b] = 1;
+			// ── DESIGNATION DES ARETES A COUPER — LE SEUL POINT OU LES DEUX PORTES
+			//    DIFFERENT. Tout ce qui suit ne lit plus que `selE` et `touched`.
+			if (edgeList == nullptr) {
+				// PORTE HISTORIQUE, mot pour mot ce qu'elle etait : une arete est
+				// coupee si SES DEUX EXTREMITES sont selectionnees.
+				for (uint32 h = 0; h < HC; ++h) {
+					if (!W.hedges[h].alive || W.hedges[h].twin == NK_EM_INVALID)
+						continue; // arête de BORD : déjà ouverte
+					const uint32 a = W.hedges[h].origin, b = dstOf((NkEmId)h);
+					if (a == b || a >= NV || b >= NV || !W.verts[a].sel || !W.verts[b].sel)
+						continue;
+					selE.InsertOrAssign(ekey(a, b), (uint8)1);
+					touched[a] = 1;
+					touched[b] = 1;
+				}
+			} else {
+				// PORTE DES COUTURES : les aretes sont DESIGNEES. Leurs extremites sont
+				// des indices de `this->verts` ; `wmap` les traduit vers l'indexation
+				// SOUDEE de W, la seule ou `ekey` a un sens. (`wmap` est indexe comme
+				// `verts` : ToPolygons fait `ov.Resize(verts.Size())` puis `ov[i] = ...`,
+				// verifie, pas suppose.)
+				for (uint32 i = 0; i < edgeCount; ++i) {
+					const NkEmId e = edgeList[i];
+					if (e >= (NkEmId)edges.Size() || !edges[e].alive) continue;
+					const uint32 v0 = edges[e].v0, v1 = edges[e].v1;
+					if (v0 >= (uint32)wmap.Size() || v1 >= (uint32)wmap.Size()) continue;
+					const uint32 a = wmap[v0], b = wmap[v1];
+					if (a == b || a >= NV || b >= NV) continue;
+					selE.InsertOrAssign(ekey(a, b), (uint8)1);
+					touched[a] = 1;
+					touched[b] = 1;
+				}
 			}
 			if (selE.Empty())
 				return false;
 			float32 gap = p.gap;
 			if (gap <= 0.f)
 				gap = EM_BBoxDiag(wv) * 0.01f;
+			// ⚠ APRES la regle existante, et deliberement : `gap <= 0` signifie ici
+			// « ecart AUTOMATIQUE de 1 % de la diagonale », pas « ecart nul » — une
+			// convention qui contredit celle du meme fichier (NkExtrudeParams : « < 0
+			// => AUTO, == 0 => la geometrie nait EXACTEMENT sur l'originale »). On ne
+			// corrige PAS ce defaut ici : un defaut qui change de sens casse
+			// silencieusement ses appelants. On le contourne, on le documente, et il
+			// est signale pour arbitrage.
+			// Une de-soudure de couture est TOPOLOGIQUE : deplacer les positions
+			// deformerait le modele qu'on cherche seulement a deplier.
+			if (keepGeometry)
+				gap = 0.f;
 
 			NkVector<NkVertex3D> np = wv;
 			NkVector<uint8> nsel;
@@ -5239,10 +5293,19 @@ namespace nkentseu {
 						gIdx[q] = (int32)np.Size();
 						np.PushBack(wv[v]);
 						nsel.PushBack(1); // les morceaux DÉTACHÉS deviennent la sélection
+						if (outDuplicated) *outDuplicated += 1u;
 					}
-					for (uint32 q = 0; q < (uint32)gIdx.Size(); ++q) {
-						const uint32 id = (uint32)gIdx[q];
-						np[id].pos = np[id].pos + EM_Norm(gN[q]) * (gap * 0.5f);
+					// ⚠ ON SAUTE LE DEPLACEMENT, ON NE LE MULTIPLIE PAS PAR ZERO.
+					// `pos + EM_Norm(gN[q]) * 0.f` semble inoffensif, mais `gN[q]` peut
+					// etre le vecteur NUL (normales de groupe qui s'annulent) : sa
+					// normalisation donnerait un NaN, et NaN * 0 reste NaN. La geometrie
+					// serait alors detruite par la ligne censee ne rien faire — et le
+					// controle « identique au bit » aurait eu raison de rougir.
+					if (!keepGeometry) {
+						for (uint32 q = 0; q < (uint32)gIdx.Size(); ++q) {
+							const uint32 id = (uint32)gIdx[q];
+							np[id].pos = np[id].pos + EM_Norm(gN[q]) * (gap * 0.5f);
+						}
 					}
 				}
 				for (uint32 q = 0; q < (uint32)fanH.Size(); ++q)

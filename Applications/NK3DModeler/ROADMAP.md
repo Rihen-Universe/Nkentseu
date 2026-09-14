@@ -3668,3 +3668,457 @@ les faces, pas seulement combien.
   present sur `main` sans mes changements**, appartient a NKImage/NkRef.
 - `NkSLCheck` lit ses shaders par chemin relatif et fait `return 0`
   inconditionnellement : son code de sortie ne signale jamais rien.
+
+
+---
+
+## 🗂️ DÉCISION DE RODOLF (2026-09-05) — LE SÉLECTEUR DE FICHIERS DE NkUIDesign DEVIENT L'OUTIL PAR DÉFAUT, PARTOUT
+
+**Ordre de Rodolf, relayé par le coordinateur** : le sélecteur de fichiers écrit
+pour NkUIDesign devient **l'outil par défaut de toutes les applications** —
+NK3DModeler compris — pour **créer un dossier, choisir un dossier, ouvrir,
+enregistrer**.
+
+**Où il vit** : `NKEditorKit`, commit `bc623a358` de l'agent NkUIDesign, arbre
+`Nkentseu-noge`. Il n'est pas encore dans cette branche.
+
+**Ce qu'il faut faire, le jour où il sera fusionné** : brancher NK3DModeler
+dessus et **retirer** `Shell/NkModelerFileDialog.h`. ⚠️ **Ne rien dupliquer** —
+c'est précisément la faute que le dépôt a déjà payée : *« un troisième sélecteur
+de dossier écrit dans NK3DModeler un mois plus tard, non pas contre la règle,
+mais sans pouvoir la voir »*. Celui-ci serait le quatrième.
+
+**Pourquoi c'est noté ici et pas fait** : le composant n'existe pas dans cet
+arbre. Écrire un adaptateur contre une interface qu'on n'a pas lue produirait
+exactement le doublon que la décision veut supprimer — *écrire contre une
+signature supposée compile, et c'est le problème*.
+
+**Le déclencheur** : la fusion de `bc623a358` dans la branche de travail de
+NK3DModeler. Propriétaire : celui qui reprend le modeleur après cette fusion.
+
+---
+
+## ✅ FAIT LE 2026-09-05 (nuit) — LE SÉLECTEUR EST BRANCHÉ, ET CE QU'IL RESTE À FAIRE
+
+L'entrée ci-dessus est **close, sauf un point**. Mesure : les huit fichiers dont
+le sélecteur dépend (`NkFilePickerNav.h`, `Components/NkSilhouettes.h`,
+`NkContentBrowserDraw.cpp`, `NkContentBrowserModel.h`, `NkTreeViewDraw.cpp`,
+`NkTreeViewModel.h`, `NKFileSystem/NkDirectory.{h,cpp}`) sont **inchangés dans
+cette branche depuis la base de fusion** — la reprise est donc une avance pure,
+pas une divergence.
+
+**Pris tels quels à `feat/noge-inventaire@14f83fbbb`**, sans un caractère de
+modification. ⚠️ **La duplication est nommée pour être résolue mécaniquement** :
+le jour de la fusion, ces huit chemins se résolvent par `git checkout --theirs`
+— l'arbre `Nkentseu-noge` est l'amont, celui-ci n'en est qu'un instantané.
+
+**Branchement** : `NkModelerPicker` descend désormais de `NkFilePickerNavState`
+(qui dérive de `NkFilePickerState` : toutes ses surcharges restent valides).
+`main.cpp` appelle `editorkit::NkDrawSelecteur(ui, st.picker, theme)`.
+`NkPickerOuvrirImport` (dans `NkModelerCommon.h`) pose les **filtres nommés** de
+l'import — Modèles 3D · glTF · FBX · Wavefront · USD ASCII · Nuages et
+impression · Textures · Tous les fichiers — et sert **les deux portes** du même
+geste (bouton « Importer » et menu contextuel), pour qu'elles ne divergent pas.
+
+### ⛔ CE QUI N'EST PAS FAIT, ET POURQUOI — l'assistant « Nouveau matériau »
+
+`NkDrawSelecteur` n'appelle que `PickerTitle()` et `PickerConfirmLabel()`. Il
+n'appelle **ni** `PickerExtraHeight`, **ni** `PickerBottomReserve`, **ni**
+`PickerConfirmEnabled`, **ni** `PickerClearExtraFocus` — les quatre points par
+lesquels `NkModelerPicker` greffe l'assistant de création de matériau (le champ
+de nom et le combo de type). Y basculer ce mode-là aurait fait **disparaître
+l'assistant en silence** : *un refactor se juge sur ce qu'il ne change pas*.
+
+Le mode `matNewMode` garde donc l'**ancien** dessin. Ce ne sont pas deux
+sélecteurs de plus : ce sont les deux qui existaient déjà, et le neuf est
+devenu le défaut.
+
+**Le déclencheur** : `NkDrawFilePickerNav` apprend une **région supplémentaire**
+(hauteur demandée par l'état, dessinée par un rappel de l'hôte, réserve du bas
+qui la couvre). Le jour où le kit la porte, ce `if` disparaît et
+`Shell/NkModelerFileDialog.h` part avec lui. **Propriétaire** : l'agent qui tient
+NKEditorKit. **À demander dans `echanges/`, pas à écrire ici.**
+
+### 🍞 AUTRE DETTE NOMMÉE — les messages à l'écran vivent dans l'application
+
+`Shell/NkModelerToast.h` (le résultat d'une action, peint dans la couche
+overlay) **devrait vivre dans NKEditorKit**, avec les modales et les infobulles :
+toute application de la maison a le même besoin. Mesure faite ce soir : **ni
+NKEditorKit ni NKGui ne portent la moindre notion de notification** (aucun
+`toast`, `notification`, `bandeau`) — il n'y avait donc rien à réutiliser. Et la
+surface de dessin du kit (`NkEditorContext`) n'est pas celle que NK3DModeler
+emploie pour son overlay (`NkModelerPainter` sur `ui.dlOverlay`).
+**Déclencheur** : la fusion, puis un portage dans le kit avec les deux surfaces
+en tête. **Propriétaire** : l'agent NKEditorKit.
+
+---
+
+## 📥 IMPORT — lot du 2026-09-06 (S48 de Rodolf), ce qui est fait et ce qui reste
+
+**Fait, avec ses chiffres** (commits `f106d95d3`, `711d0c265`, `bac456c0a`) :
+
+- Le **refus « import impossible dans un MODEL » est retiré**. Il protégeait une
+  perte silencieuse jamais écrite : `NkScWriteScene` rend `-1` pour toute scène
+  hôte d'un document TRANSITOIRE, donc l'archive née depuis un onglet de model
+  n'aurait jamais été enregistrée. L'import force désormais une scène **durable**
+  (`NkImpArchiveScene`) puis rend la scène active telle qu'elle était.
+- Le nom vient du **fichier**. `NkGLTFLoader` écrivait `"primitive"` en repli
+  quand `meshes[].name` est absent ; le champ reste vide et l'appelant choisit.
+- **Matériaux et textures importés** : un `.nkmat` + sa carte par matériau du
+  fichier, un PNG par image décodée, les quatre canaux posés, `subMeshMaterial`
+  respecté. Le bandeau annonce les comptes **même à zéro**.
+- **Plafond d'import : 38 → 230** (témoin `NK_IMPORT_REPEAT` sur le projet réel).
+  `kNkvpMaxUser` et `kNkvpMaxProjMats` passent de 64 à 256, et les bornes
+  écrites en clair à une trentaine d'endroits (160, 70, 64, 176) sont nommées.
+- **`NkImportFiles(paths, count)`** : le bouton et le lâcher OS passent par la
+  même porte de liste.
+
+**Dettes NOMMÉES, non faites :**
+
+| dette | mesure | propriétaire |
+|---|---|---|
+| **Matériau orphelin** quand la création du nœud échoue par saturation : le `.nkmat` et sa carte sont déjà écrits | vu dans le témoin : `MESURE materiau : colormap_39 … carte=110` suivi de `Import PARTIEL : 0 model(s)` | NK3DModeler |
+| **Déduplication des matériaux** : 40 pièces Kenney partagent un atlas → 40 matériaux identiques et 40 écritures du même PNG | `colormap`, `colormap_02`, `colormap_03` sur 3 fichiers | arbitrage produit, à remonter |
+| **Carte de texture (`kind == 3`)** : `NkAsExtFor(3)` rend `nullptr` et `NkProjectRescan` ne balaye que `*.nkscene`/`*.nkmesh`/`*.nkmat` — une carte texture portant un `file` serait **supprimée au balayage suivant** | lecture de `NkModelerAssets.h:1943` | NK3DModeler, avant la « séparation en cartes distinctes » |
+| **Le plafond de 256 n'est pas l'infini** : le coût n'est pas la mémoire (~770 o/nœud) mais ~10 balayages `O(kNkvpMaxNodes)` par image et un `NkGizmoTarget etg[kNkvpMaxEmpty]` sur la **pile** à chaque image | 21 Ko à 262 ; 82 Ko et ×15 à 1024 | NK3DModeler |
+| **Sélection multiple dans le sélecteur** : `pickerResultPath` est mono-chemin | `NkFilePicker.h:119`, identique dans les deux arbres | agent NKEditorKit |
+
+**Diagnostic reporté, non corrigé — le GRAIN en mode rendu.** Cause nommée sur
+la géométrie du fichier de Rodolf, pas sur l'image : 499 856 triangles pour
+1,19 m (arête médiane = 0,15 % de la hauteur, donc **sous-pixel**), attribut
+**POSITION seul**, et les normales que le chargeur calcule s'écartent de plus de
+**15° entre sommets voisins dans 10,24 % des cas**. C'est du crénelage de
+normale. Le témoin qui tranche demande un geste humain : poser le mannequin ET
+un modèle low-poly dans la même scène, même mode rendu.
+
+---
+
+## 2026-09-06 — LE DÉFAUT DES CUBES BLANCS : la géométrie importée entre enfin dans le fichier
+
+> Rodolf, ce matin : *« les model que j'avais chargés précédemment, une fois
+> rouvert le projet, elles sont devenues des cubes. »* Captures `Captures/vue_001.png`
+> et `vue_002.png` : le mannequin intact, et à côté de lui un gros cube blanc.
+
+### La cause, LUE dans son fichier — et l'hypothèse de départ était trop optimiste
+
+L'hypothèse transmise était « l'objet importé est enregistré comme *cube + une
+référence vers son maillage*, et la référence ne survit pas au cycle ».
+
+**Il n'y avait aucune référence.** Ouvrir `C:\Users\Rihen\NK3DModeler\AgentTest\`
+le montre en trois lignes :
+
+- `042082ea338126d2103db9677bf212b.nkmesh` fait **833 octets** pour un mannequin
+  de **249 906 sommets**. Il porte `nature: 2`, la transform, les matériaux — et
+  **rien d'autre** : ni sommets, ni chemin vers le `.glb` d'origine.
+- `Scene1.nkscene` : mêmes dix nœuds, même absence. Le seul qui survivait est
+  `Sphere UV.009`, une primitive **nature 1 avec son bloc `creation`** — elle se
+  **régénère**, elle n'est pas relue.
+- Côté code, `Demo3DHostCreateMeshNode` appelle `HostAllocUser(2)` : **un objet
+  importé porte la nature 2, la famille CUBE**. À la relecture,
+  `Demo3DHostAddNode(2, 0)` recrée un cube parfaitement valide. Le dessin était
+  juste ; c'est la matière qui manquait, et elle manquait **entièrement**.
+
+### Ce qui rendait le défaut SILENCIEUX, et c'est un enseignement à part
+
+`NkModelerScene.h` portait bien une garde « objet NON RECRÉÉ », posée le 05/09.
+Son commentaire affirmait : *« `nature == 0` est la marque d'un objet IMPORTÉ :
+`Demo3DHostCreateMeshNode` pose `nkvpUserKind = 0` »*. **C'est faux**, et le
+fichier de Rodolf le dit (`"nature": 2`). La garde ne pouvait donc **jamais** se
+déclencher sur un import : elle protégeait un cas qui n'existe pas, pendant que
+le cas réel passait dessous sans un mot.
+
+> Une garde écrite contre une valeur qu'on n'a pas mesurée protège une hypothèse,
+> pas un défaut. Le commentaire est corrigé **à la source**, pas réécrit.
+
+### Ce qui est livré
+
+- **`Project/NkModelerGeom.h`** (neuf) — le format `.nkgeo`, **frère** de chaque
+  asset (`Model.nkmesh` → `Model.nkgeo`). Binaire, écriture native, une entrée
+  par nœud désignée **par son RANG** dans le tableau `noeuds` (même convention
+  que la parenté et les matériaux : les emplacements de nœud se recyclent).
+- **Deux portes dans la façade** — `Demo3DHostNodeGeometry` (lit la copie CPU
+  `keepCPU` d'un nœud qui porte SA géométrie) et `Demo3DHostSetNodeGeometry`
+  (la repose, et **REFUSE en le disant** si le pas de sommet du fichier n'est
+  pas celui du layout courant).
+- **`NkAsNodesCapture` / `NkAsNodesRestore`** écrivent et relisent le `.nkgeo`,
+  et posent `"geometriePropre": true` sur les nœuds concernés.
+  **Le filtre est `Demo3DHostMeshParams`, pas `Demo3DHostNodeGeometry`** — et
+  cette distinction a été une erreur de ma part avant d'être une ligne juste :
+  une sphère, un cylindre, un cône et un plan portent **eux aussi** leur propre
+  maillage (`HostRegenUserMesh` le leur fabrique) avec sa copie CPU, donc
+  `Demo3DHostNodeGeometry` rend **vrai** pour eux. Seul le cube nu n'a pas de
+  maillage à lui. La bonne question n'est pas *« ce nœud a-t-il un maillage »*
+  mais *« ce maillage se **régénère**-t-il »* — c'est le même test que celui qui
+  écrit le bloc `creation`, deux lignes plus haut, pour qu'il n'y ait pas deux
+  réponses à la même question.
+- **Format d'asset 1 → 2.** C'est ce qui permet de distinguer *« ce fichier n'a
+  pas de géométrie »* de *« ce fichier n'en avait pas la place »*.
+- **CE QUI MANQUE SE DIT À L'ÉCRAN** (`NkToastPush`, pas un journal) :
+  - un nœud qui **annonce** une géométrie que le `.nkgeo` ne porte pas est
+    **MASQUÉ** et préfixé d'un `!` — *un cube blanc qui ment est pire qu'un objet
+    qui se signale* ; le message nomme le premier et donne le compte ;
+  - un fichier de **format 1** déclenche un message PARTIEL qui dit ce qu'on
+    sait et **seulement** ce qu'on sait : *« N objet(s) reviennent en primitive :
+    si l'un d'eux était un modèle IMPORTÉ, son maillage n'est pas dans le
+    fichier »*. On ne peut pas trancher — un cube du menu et un import
+    s'écrivaient à l'identique — et on ne le prétend pas.
+
+### La sonde, et son régime
+
+`NK3DModeler.exe --sonde-geo [dossier]` — **sans fenêtre, sans device, sans GPU**
+(elle sort avant la création de la fenêtre), verdict dans `sonde_geo.txt`.
+Sept contrôles, **tout vert**, dont **quatre mutations** : nombre magique
+corrompu, version future, fichier coupé au milieu d'une entrée, fichier plus
+court que son en-tête.
+
+**Vue ROUGE avant d'être verte** : les trois gardes de `NkGeoRead` retirées à la
+main, reconstruction, relance → `ROUGE (2) (3) (4)`, code de sortie 1. Gardes
+remises → `TOUT VERT (0 rouge(s))`, code 0.
+
+> ⚠️ **Régime déclaré** : la sonde éprouve la **couche fichier**. Elle ne touche
+> ni le système de maillages ni la sauvegarde de projet — ceux-là demandent un
+> device, donc une fenêtre, donc des gestes. **Elle peut être verte pendant que
+> la chaîne complète est cassée.** L'aller-retour réel (importer, enregistrer,
+> fermer, rouvrir) reste un **test humain**.
+
+### Dettes NOMMÉES, non faites
+
+| dette | mesure | pourquoi elle n'est pas faite ici |
+|---|---|---|
+| **Aucune déduplication : une géométrie partagée est écrite deux fois.** Un model instancié dans une scène partage le `NkMeshHandle` de son archive (`HostSpawnLike` copie le handle) ; les deux `.nkgeo` en portent une copie complète | pas de mesure sur un projet réel : ce qui est certain est le mécanisme, pas le facteur | c'est un format de dédup (empreinte de contenu, table partagée au projet), pas une ligne — et le mesurer demande le geste humain qu'on n'a pas |
+| **Le partage se PERD à l'aller-retour.** Décision de Rodolf du 16/08 : dupliquer un model **partage** ses maillages. À la relecture, chaque nœud reçoit son propre maillage : la mémoire double et le partage est silencieusement rompu | lecture de `NkAsNodesRestore` | même correctif que la dédup ci-dessus ; les deux tombent ensemble |
+| **Le coût d'écriture n'est pas mesuré.** `sizeof(NkVertex3D)` = 56 o : le mannequin de Rodolf pèse ~14 Mo de sommets + ~6 Mo d'indices par copie | stride lu dans `NkVertexLayout::Default3D()`, comptes lus dans le `.glb` | mesurer le temps d'enregistrement réel demande d'enregistrer son projet — un geste |
+| **La géométrie ÉDITÉE d'une PRIMITIVE reste perdue.** Une sphère dont on a déplacé des sommets garde `MeshParams` vrai : le filtre la déclare régénérable, son `.nkgeo` n'est pas écrit, et `SetMeshParams` la refabrique neuve à la relecture | lecture de `HostRegenUserMesh` / `Demo3DHostMeshParams` | dette ouverte depuis le 17/08, **non aggravée** (c'était déjà le comportement) ; la traiter demande de trancher qui gagne entre les paramètres et les sommets — un arbitrage produit, pas un correctif |
+| **Un fichier de format 1 ne peut pas dire lequel de ses cubes était un import** | aucune donnée dans le fichier | ce n'est pas réparable : la donnée n'a jamais été écrite. Le message le dit au conditionnel |
+
+---
+
+## 2026-09-06 — « Plafond de quoi, et pourquoi avoir un plafond ? » (question de Rodolf)
+
+### La réponse en une phrase
+
+Ce ne sont **ni des cartes, ni des imports** : ce sont les **emplacements de nœud
+de la vue 3D** — `kNkvpMaxNodes = 352`, dont 96 réservés à la scène de
+démonstration, donc **256 objets utilisateur** — un tableau de taille fixe hérité
+du prototype `renderdemo --demo=2`, où la scène était écrite en dur et où la
+question ne se posait pas.
+
+### Pourquoi il en existe un — trois raisons de fait, aucune de fond
+
+1. **39 tableaux statiques** sont indexés par le numéro de nœud (`nkvpObjHidden`,
+   `nkvpParentOf`, `nkvpUserMesh`, `nkvpMatTint`… — déclarations comptées dans
+   `NkDemo3D.cpp`), lus et écrits depuis **976 sites** `nkvpXxx[…]`. Une taille
+   fixe permet `static T tab[N]` : pas d'allocation, pas de durée de vie, pas de
+   pointeur qui se déplace sous ces 976 sites.
+2. **Le numéro de nœud est une valeur de FICHIER.** `parentFixe` écrit un numéro
+   brut, et les plages `0..89` / `90..95` / `96..` sont des conventions gravées
+   dans les projets déjà enregistrés. Faire grandir la **fin** ne casse rien ;
+   déplacer un **début** rend illisible tout `.nkscene` existant.
+3. **Un plafond rend le débordement racontable.** `HostAllocUser` rend `-1` et
+   l'import dit *« la scène n'a plus d'emplacement de nœud libre »*. Sans borne,
+   la même situation serait une écriture hors tableau — silencieuse, puis fatale
+   ailleurs.
+
+### Ce qu'il faudrait pour qu'il n'y en ait plus DU TOUT, et ce que ça coûte
+
+**Étape 1 — une seule table, pas 39.** Un nœud est aujourd'hui éparpillé dans 39
+tableaux parallèles : en ajouter un est un geste, en oublier un est un défaut.
+Regrouper en `struct NkVpNode { … }` + un `NkVector<NkVpNode>` rend la croissance
+gratuite (`PushBack`) et laisse **un seul** endroit à faire grandir.
+*Coût MESURÉ, et il est plus lourd que l'estimation qu'on aurait donnée de tête* :
+**976 sites** `nkvpXxx[…]` deviennent `N(…).xxx`. Mécanique, mais massif — et
+**aucun témoin automatique ne le couvre** : les tests du dépôt sont désactivés
+depuis le 12/03. C'est le vrai prix, pas la frappe.
+
+**Étape 2 — les 29 balayages `for (… < kNkvpMaxNodes; …)`.** Tant qu'ils
+balaient la **capacité**, la retirer les rend infinis. Ils doivent balayer les
+nœuds **vivants** (compteur haut-d'eau, ou liste dense). *Coût* : faible, et
+**indépendant de l'étape 1** — il paie tout de suite, à plafond inchangé.
+
+**Étape 3 — le tableau de PILE.** `renderer::NkGizmoTarget etg[kNkvpMaxEmpty]`
+(NkDemo3D.cpp:9655) : 80 octets × 262 = **~21 Ko de pile à chaque image**. À 1 024
+nœuds il en demanderait 73 Ko ; à 100 000, **~8 Mo** — la pile déborde bien avant
+la mémoire. Il doit devenir un tampon persistant redimensionné.
+
+**Étape 4 — le chemin de montée des fichiers.** Tant qu'on ne déplace que la fin,
+rien à faire. Le jour où l'on veut supprimer les **plages** (0..89 démo,
+90..95 empties), c'est une montée de version du format, pas un `#define`.
+
+**Étape 5 — savoir quel est le plafond SUIVANT.** Retirer celui-ci en laisse un
+autre : `kNkvpMaxProjMats = 256` porte à lui seul **8 tableaux** (dont
+`nkvpMatThumbPix`, des vignettes en RAM). L'utile n'est pas de croire qu'il n'y
+en a plus, c'est de savoir lequel vient après.
+
+### Recommandation
+
+**Ne pas relever le nombre en aveugle une seconde fois.** Faire l'**étape 2**,
+qui est indépendante, mesurable et paie immédiatement ; puis décider de l'étape 1
+comme d'un chantier, avec son témoin, pas comme d'un correctif en passant.
+
+---
+
+## 2026-09-06 — Menu contextuel du navigateur : reconnaissance faite, conversion NON écrite
+
+Rodolf : *« ce menu est hyper mal designé. Écris les menus là comme ceux de
+NkUIDesign. »* — c'est-à-dire `editorkit::NkCtxMenuDraw`.
+
+**Ce que j'ai mesuré, et pourquoi je ne l'ai pas écrit aujourd'hui :**
+
+- Le menu vit dans `PaintSceneMenus` (`Shell/NkModelerHierarchy.h:594`). Il est
+  peint **à la main** : `p.Outline`, `p.TextV`, `HoverFill`, et son entrée passe
+  par `hit.Add` / `hit.Clicked` / `st.UiBlockAdd` — le schéma de l'application.
+- `NkCtxMenuDraw` prend un `nkgui::NkGuiContext &` que `PaintSceneMenus` **ne
+  reçoit pas**. Il est pourtant à portée : `main.cpp:415` tient `nkgui::NkGuiContext ui`
+  et lui passe déjà `ui.input` (`main.cpp:1831`). **Un paramètre de plus suffit** —
+  ce n'est pas le blocage.
+- Le blocage réel est l'**entrée**. Le composant du kit gère lui-même son
+  occlusion (« modal léger » : il consomme le clic quand la souris est dedans),
+  alors que ce menu-ci s'appuie sur `hit` + `UiBlockAdd`. Les brancher tous les
+  deux, c'est **deux chemins pour un même geste** — le défaut exact relevé le
+  05/09 sur NkUIDesign. Il faut choisir, pas superposer.
+- Et le contenu n'est pas une liste plate : trois niveaux (`Créer >`, puis
+  `Graphe >`), ouverts **au survol**, plus un mode `-4` où le même code sert le
+  combo « Créer » de la barre. Le kit porte `hasSub`, mais le **dessin** du
+  sous-menu reste à l'appelant.
+
+**Conclusion honnête** : c'est un chantier de conversion, pas une substitution
+d'appel ; et son résultat ne se vérifie qu'au clic — que je ne fais pas. Une
+conversion à moitié posée dans l'arbre partagé serait pire que pas de conversion.
+Elle est donc **nommée ici, non commencée**, avec les quatre points ci-dessus
+comme point de départ.
+
+---
+
+## 2026-09-06 — « FORCER LA SAUVEGARDE APRÈS IMPORT » : c'était DÉJÀ le cas, prouvé par le journal de Rodolf
+
+Demande de Rodolf (S50) : *« je veux ajouter un truc, forcer sa sauvegarde après
+import si c'est pas le cas. »*
+
+### La réponse est : c'est le cas, et la preuve n'est pas une lecture de code
+
+`logs/app_2026-09-06_134441_12328.log`, session de Rodolf, import d'un `.fbx` de
+150 000 sommets — quatre lignes consécutives, dans cet ordre :
+
+```
+13:45:50.454  [import] MESURE import : '...283e73e448ffcc25a70f4634d74b07c8.fbx'
+                       -> 1 model(s), 1 sous-mesh, 150000 verts, 150000 indices
+13:45:50.454  [import] MESURE materiau : « Material » ... fichier=Material.nkmat
+13:45:50.587  [geom]   « node_0.nkgeo » : 1 maillage(s) ecrit(s), 9000000 octets.
+13:45:50.607  [import] Import reussi : 1 model(s), 1 maillage(s), ...
+```
+
+**Le `.nkgeo` est écrit AVANT le bandeau de succès**, sans qu'aucun
+« Enregistrer » n'ait été demandé. Mécanisme : l'import appelle
+`NkProjectWriteCard` (`NkModelerImport.h:685`) — l'unique écrivain de carte,
+sorti le 17/08 précisément pour que l'import et la sauvegarde empruntent le même
+chemin. Depuis le lot des cubes blancs, ce chemin passe par
+`NkAsModelCapture → NkAsNodesCapture → NkGeoWrite`. **La géométrie a suivi
+l'écrivain sans qu'on ait à la brancher.**
+
+Corollaire de méthode : la question « est-ce déjà fait ? » s'est tranchée dans le
+journal d'une manipulation réelle, pas dans le code. La lecture de code aurait
+donné la même réponse — et elle allait dans le sens qui m'arrangeait, donc elle
+ne suffisait pas.
+
+### Le coût, mesuré (bornes hautes, honnêtes)
+
+| geste | volume | durée |
+|---|---|---|
+| import (chargement FBX exclu) | 9 000 000 o | **≤ 153 ms** (13:45:50.454 → .607) |
+| dont l'écriture du `.nkgeo` seule | 9 000 000 o | **≤ 133 ms** (.454 → .587) |
+| « Enregistrer » du 14:03 | 18 000 000 o | **≤ 309 ms** (14:03:10.953 → :11.262) |
+
+⚠️ Ce sont des **bornes hautes** : l'intervalle contient aussi l'écriture du
+`.nkmat`, la naissance des nœuds et le téléversement du maillage. Le coût réel du
+`.nkgeo` est plus bas. Aucune décision « synchrone ou différé » n'était à
+prendre : c'est **déjà synchrone**, dans un geste que l'utilisateur vient de
+déclencher et qui bloque déjà, et Rodolf ne s'en est jamais plaint.
+
+⚠️ Et le `~20 Mo par copie` que j'avais nommé sans le mesurer est **confirmé
+comme ordre de grandeur** : 56 o/sommet × 150 000 + 4 o × 150 000 = 9,0 Mo
+exactement, et 18 Mo pour deux maillages dans le même asset.
+
+### CE QUI A ÉTÉ ÉCRIT : le bandeau ne pouvait pas dire une mauvaise nouvelle
+
+Rodolf demandait aussi (S50, point 3) : *« que se passe-t-il si l'écriture
+ÉCHOUE ? Un import qui dit "réussi" alors que rien n'est sur le disque serait le
+même défaut sous un autre nom. »* **C'était le cas, et c'est ce lot qui le
+ferme.**
+
+`NkAsNodesCapture` rendait `void` : l'échec du `.nkgeo` n'allait qu'au journal et
+dans un toast. `NkProjectWriteCard` ne jugeait que `NkAsWrite` — donc le
+`.nkmesh`. Sur un disque plein, le **1,6 Ko de structure passe et les 9 Mo de
+matière non** : la carte rendait VRAI, et le bandeau annonçait « Import réussi :
+1 fichier(s) .nkmesh écrit(s) ». Exact du `.nkmesh`, faux de ce qui compte.
+
+Ce qui change :
+
+1. `NkAsNodesCapture` rend `bool` et remplit un `NkString *geoErr` ; le toast
+   `Refus` posé là **disparaît** — deux messages pour une cause, et le second
+   était celui qu'on lit. C'est le **geste** qui parle maintenant.
+2. `NkAsSceneCapture` et `NkAsModelCapture` propagent.
+3. `NkProjectWriteCard` écrit quand même le `.nkmesh` (il porte
+   `geometriePropre: true`, donc la réouverture NOMMERA l'objet privé de sa
+   matière), fait toute sa comptabilité de carte — le fichier EST sur le disque —
+   puis **rend faux en dernier**, avec la raison. `originDirty` **n'est pas
+   désarmé** : la carte est reprise au prochain « Enregistrer ».
+4. Bandeau d'import : « seulement N fichier(s) **COMPLETS** sur M (structure
+   .nkmesh + géométrie .nkgeo) » — parce que « seulement N .nkmesh » aurait menti
+   dans l'autre sens, le `.nkmesh` étant bel et bien écrit. Et le bandeau de
+   succès dit désormais « .nkmesh + .nkgeo écrits — la géométrie est DÉJÀ sur le
+   disque, sans attendre un Enregistrer ».
+
+### 🔴 UNE GARDE QUI NE POUVAIT PAS MORDRE — et le défaut de NKFileSystem derrière
+
+En écrivant le contrôle (8) de la sonde, mesure faite avec un témoin jetable hors
+dépôt (contrôle positif inclus) :
+
+```
+CONTROLE POSITIF (ecrire ailleurs) = 1
+garde ANCIENNE (« !CreateRecursive ») mord = 0   <- DECORATIVE
+garde NOUVELLE (relit le disque)      mord = 1
+WriteAllBytes sous le barrage              = 0
+```
+
+**`NkDirectory::CreateRecursive` rend VRAI quand un FICHIER occupe le nom du
+dossier.** Cause : `NkDirectory::Create` (`NkDirectory.cpp:88`) lit
+`GetLastError() == ERROR_ALREADY_EXISTS` comme une idempotence — or
+`CreateDirectoryA` rend ce code aussi quand ce qui existe déjà est un **fichier**,
+pas un dossier. Toute garde de la forme *« si le dossier n'existe pas et que je
+n'arrive pas à le créer, j'échoue »* est donc **inerte** dans tout le dépôt.
+
+Corrigé **localement** dans `NkGeoWrite` : on tente, puis on **relit le disque**
+(`NkDirectory::Exists`) au lieu de croire le retour. ⚠️ **La cause reste dans
+NKFileSystem, et elle n'est pas à moi** : un `GetFileAttributesA` +
+`FILE_ATTRIBUTE_DIRECTORY` dans `NkDirectory::Create` la fermerait pour tout le
+monde. **Titulaire à désigner** ; déclencheur proposé : un cas de `tests/` de
+NKFileSystem qui pose un fichier-barrage et exige `Create == false`.
+
+### La sonde, et ce qu'elle ne couvre pas
+
+`NK3DModeler.exe --sonde-geo <dossier>` → **8/8 VERT, sortie 0** sur le binaire
+du 06/09 14:08. Nouveau contrôle **(8) « écriture impossible : refus NOMMÉ »** :
+on pose un FICHIER là où le dossier devrait être et on exige un refus qui
+**nomme le dossier**.
+
+**Vu ROUGE sous sa mutation** : la garde remise à sa forme décorative
+(`if (false)` sur la relecture du disque) → l'écriture échoue quand même un cran
+plus bas, mais le message accuse le **fichier**, le mot « dossier » disparaît, le
+cas tombe et la sonde rend **1**. C'est pour ça que ce cas exige le mot et pas
+seulement l'échec : « ça a rendu faux » ne départageait pas les deux versions.
+
+⚠️ **Ce que la sonde ne prouve PAS** : la remontée du refus jusqu'au bandeau
+(`NkAsNodesCapture → NkProjectWriteCard → « Import PARTIEL »`). Cette chaîne
+traverse l'hôte 3D, donc un device, donc une fenêtre. **Elle reste un test
+humain**, et il faut un dossier de projet en lecture seule (ou un disque plein)
+pour la voir mordre.
+
+### Dette NOMMÉE, mesurée dans son journal : la géométrie est écrite DEUX FOIS
+
+À l'import, `node_0.nkgeo` = **1 maillage, 9 000 000 o**. Au « Enregistrer »
+suivant, **2 maillages, 18 000 000 o** — même asset, même géométrie. L'instance
+posée dans la scène est comptée comme maillage interne du model
+(`Demo3DHostNodeInnerMeshOf`), donc recapturée dans le **fichier du model** au
+lieu d'être partagée. C'est la dette « déduplication et partage de maillage perdu
+à l'aller-retour » déjà nommée le 06/09, avec désormais **son chiffre : ×2 sur
+disque pour un seul import**.

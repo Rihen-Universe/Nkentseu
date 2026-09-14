@@ -56,6 +56,26 @@ aucune roadmap. La troisième application de la décision 1 n'a pas une seule li
 de documentation propre. Ce n'est pas une contradiction : c'est un **trou**, et
 c'est probablement plus grave, parce qu'un trou ne se détecte pas à la lecture.
 
+> **✅ COMBLÉ LE 2026-09-13** — `Applications/NKScena/ROADMAP.md` existe désormais,
+> et il ne contient **aucun code** : ni `main.cpp`, ni `.jenga`, ni `src/`. Une
+> coquille aurait remplacé un trou par une dette (c'est ce qu'a coûté
+> `Applications/NkAnima/`, dossier sans une ligne de code ni `.jenga`, retiré
+> depuis).
+>
+> La définition retenue, en une phrase : **NKScena est l'application qui pose le
+> TEMPS sur une scène que d'autres ont construite** — elle n'édite ni maillage ni
+> squelette, elle ouvre une scène Noge, y place des pistes, des clés et des plans
+> caméra sur une timeline, et rend la séquence en fichiers. Elle est au temps ce
+> que NK3DModeler est à la forme et NkAnimaEditor au mouvement d'un personnage.
+> **Sa seule surface propre est la timeline** ; le viewport, le gizmo, l'interface
+> et la lecture de clip sont empruntés.
+>
+> Sa **condition de naissance** y est écrite aussi, et elle n'est pas remplie :
+> qu'une séquence se sauve et se relise. `NkSequence::SaveToFile`/`LoadFromFile`
+> rendent `false` aujourd'hui — délibérément, plutôt que de figer un format qui
+> perdrait caméras et marqueurs. Tant qu'elles rendent `false`, NKScena serait un
+> éditeur dont le travail disparaît à la fermeture.
+
 ### 1.4 Les documents de présentation ignorent les trois applications
 
 **Mesure** (comptage d'occurrences fichier par fichier, vérifié) :

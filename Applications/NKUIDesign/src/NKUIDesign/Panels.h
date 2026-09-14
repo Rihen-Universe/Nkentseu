@@ -74,6 +74,8 @@
 #include "GlisserPalette.h" // le glisser depuis la palette : la DECISION, pas le dessin
 #include "Transfo.h" // rotation et miroirs : le MEME calcul pour le dessin et le clic
 #include "DesignAI.h"
+#include "DesignChat.h" // la conversation + le document de specification
+#include "DesignChatAsync.h" // (g3) le fil de generation, et sa regle de partage
 #include "NkGuiValidate.h" // guifmt::NkGEtats — LA table fermee des six etats
 #include "Renderers.h"
 #include "NKImage/NKImage.h" // le cache d'images du document (12 codecs)
@@ -554,6 +556,107 @@ namespace nkuidesign {
 
 			NkDesignAI ai;
 			NkFileBackend fileBackend;
+
+			// -- DISCUTER AVANT DE DESSINER -----------------------------------
+			// Rodolf : « on doit pouvoir discuter avec lui AVANT de commencer a
+			// designer, car definir un document de specification lie a ce design
+			// est important ».
+			//
+			// ATTENTION : LA CONVERSATION NE TIENT AUCUN DOCUMENT, et c'est ce
+			//    qui rend « discuter ne dessine pas » vrai PAR CONSTRUCTION
+			//    plutot que par vigilance. Elle est ici, a cote du document, pas
+			//    dedans ; le seul pont entre les deux est `ai.specOrigine`, qui
+			//    est un NOM.
+			NkDesignConversation conversation;
+			NkSpecification spec;
+			/// Le dorsal LENT du banc (--mesure-async). Il vit ici et non dans une
+			/// variable locale : le fil de generation le lit APRES le retour de la
+			/// fonction qui l'aurait cree, et un dorsal detruit sous les pieds du
+			/// travailleur serait un defaut qui n'arrive qu'une fois sur dix.
+			NkDorsalLent dorsalLent;
+
+			// ═══════════════════════════════════════════════════════════════
+			//  (g3) LA TACHE DE GENERATION VIT DANS L'ETAT, PAS DANS UN PANNEAU
+			// ═══════════════════════════════════════════════════════════════
+			//  🔴 MESURE DU 14/09, ET ELLE A TUE MA PREMIERE VERSION. J'avais mis
+			//     la recolte dans `AIPanel::OnUI`. Le banc a rendu :
+			//         [mesure-async] ASYNCHRONE : 0 image(s), travail 335,667 s
+			//     Zero. Parce que `OnUI` n'est appele QUE si le panneau est
+			//     dessine -- et l'AIPanel est `SetOpen(false)` : il n'existe a
+			//     l'ecran que quand son tiroir est ouvert. Une generation lancee
+			//     puis un tiroir referme, et la reponse n'arrivait JAMAIS.
+			//
+			//  ⚠️ LA REGLE QUI EN SORT : **une tache de fond ne se recolte pas
+			//     dans le dessin de ce qui l'affiche.** Ce qui vit plus longtemps
+			//     que la vue doit vivre dans l'etat, et etre recolte par un
+			//     chemin qui passe a CHAQUE image quoi qu'il arrive. Ici, c'est
+			//     `DrawMenuBar` -- le seul rappel que la coquille appelle a chaque
+			//     image sans condition.
+			// ═══════════════════════════════════════════════════════════════
+			//  (k2) LA GARDE DU DOUBLE DESSIN — un compteur, pas un commentaire
+			// ═══════════════════════════════════════════════════════════════
+			//  Le 14/09, ma correction de la cle « Test » -> « Apercu » a ouvert
+			//  un trou : le tiroir dessinait un panneau DEJA ancre, donc `OnUI`
+			//  tournait DEUX FOIS par image avec le meme etat, et la toile ancree
+			//  perdait sa planche. La coquille refuse desormais ce double dessin.
+			//
+			//  ⚠️ MAIS UN CORRECTIF SANS TEMOIN SE FAIT ROUVRIR. La prochaine
+			//     personne qui voudra « montrer l'apercu dans un tiroir » refera
+			//     exactement le meme geste, et rien ne le lui dira. Ce compteur
+			//     est la pour rougir a ce moment-la.
+			//
+			//  ⚠️ ET C'EST UN COMPTEUR D'EXECUTION, PAS UNE LECTURE DE SOURCE.
+			//     « un appel existe » n'est pas « il s'execute » : un temoin qui
+			//     lirait `NkEditorShell.cpp` a la recherche du refus resterait vert
+			//     le jour ou quelqu'un le contourne par un autre chemin.
+			uint32 dessinsToile = 0;	///< remis a zero a chaque image, incremente par PreviewPanel
+			uint32 dessinsToileMax = 0; ///< le pire vu depuis le debut de la course
+
+			/// A appeler UNE FOIS PAR IMAGE, avant les panneaux. Range le compte de
+			/// l'image precedente et repart a zero.
+			void RangerCompteDessins() {
+				if (dessinsToile > dessinsToileMax)
+					dessinsToileMax = dessinsToile;
+				dessinsToile = 0;
+			}
+
+			NkEnvoiAsync envoi;
+			/// La derniere phrase a montrer dans le panneau IA. Elle vit ici parce
+			/// que la recolte, elle aussi, a lieu hors du panneau.
+			NkString messageIA;
+
+			/// A APPELER A CHAQUE IMAGE, hors de tout panneau. Rend vrai quand une
+			/// tache vient de s'achever.
+			///
+			/// ⚠️ APRES UNE ANNULATION, CETTE FONCTION NE VOIT RIEN : la poignee a
+			///    lache sa part de la tache et l'a oubliee. La reponse annulee ne
+			///    sera pas « ignoree plus tard » -- elle ne sera JAMAIS posee.
+			bool RecolterIA() {
+				NkString texte, erreur;
+				bool reussi = false;
+				if (!envoi.Recolter(texte, erreur, reussi))
+					return false;
+				if (reussi) {
+					conversation.Ajouter(NkQui::IA, texte.Data());
+					char b[192];
+					snprintf(b, sizeof(b),
+							 "Reponse recue en %.1f s (%u images pendant l'attente). "
+							 "Le document n'a pas bouge.",
+							 envoi.Secondes(), envoi.Images());
+					messageIA = NkString(b);
+				} else {
+					// Aucun tour IA vide : un tour vide ferait croire que la machine
+					// a repondu « rien ».
+					char b[320];
+					snprintf(b, sizeof(b), "REFUS — %s",
+							 erreur.Length() > 0 ? erreur.Data() : "raison non nommee");
+					messageIA = NkString(b);
+				}
+				return true;
+			}
+			char chatBuf[512] = {0};	 ///< le message en cours de frappe
+			char specNomBuf[64] = {0};	 ///< le nom du fichier de specification
+			char specSujetBuf[128] = {0}; ///< le sujet de la conversation
 
 			/// ⚠️ UNE SEULE SELECTION POUR LES TROIS PANNEAUX. Document 3 §11.5 :
 			///    « deux notions de "ce qui est sélectionné" finiraient par
@@ -1194,7 +1297,27 @@ namespace nkuidesign {
 				//    l'application (`NkDesignResolveRole`). Tant que chaque hote
 				//    posait la sienne, la sonde a pu en poser une autre -- un
 				//    hachage permissif -- et mesurer autre chose que l'ecran.
-				ai.SetBackend(&fileBackend);
+				// -- LE DORSAL : JAMAIS CABLE EN DUR -----------------------
+				// Le dorsal PAR PROCESSUS s'impose des qu'un gabarit existe dans
+				// l'environnement (NK_DESIGN_CMD, ou NK_DESIGN_EXE pour la forme
+				// courte). Sinon on retombe sur le dorsal FICHIER, qui marche
+				// depuis toujours et sans modele : on ecrit l'invite, on colle la
+				// reponse.
+				//
+				// ATTENTION : LE PANNEAU N'AFFICHE QUE `Name()`. Aucun morceau de
+				//    l'interface ne nomme Qwen, Ollama ni un fichier .gguf ; le
+				//    jour ou un modele entraine chez Rihen prend la place, il
+				//    suffit que le gabarit pointe ailleurs -- pas une ligne
+				//    d'application ne bouge. C'est la propriete que Rodolf a
+				//    demandee pour les DEUX generateurs, et c'est deja celle du
+				//    pont GENIA du modeleur.
+				{
+					NkDesignBackendProcessus &proc = NkDesignBackendProcessus::ParDefaut();
+					if (proc.IsAvailable())
+						ai.SetBackend(&proc);
+					else
+						ai.SetBackend(&fileBackend);
+				}
 
 				if (!LoadDoc()) {
 					BuildStarterDocument();
@@ -3391,6 +3514,9 @@ namespace nkuidesign {
 
 			void OnUI(NkEditorFrameContext &ec) override {
 				auto &ctx = ec.Ui();
+				// (k2) LA GARDE : si ce compte depasse 1 dans une image, deux
+				// exemplaires vivants de la toile se disputent un seul etat de vue.
+				++mSt->dessinsToile;
 				designkit::releve::Zone(ctx, "apercu");
 				// ── L'INSTRUMENT DE FLUIDITE (mandat de nuit, 01/09) ─────────
 				// « fluide » se MESURE, pas se ressent : le cout de CETTE image
@@ -9074,22 +9200,34 @@ namespace nkuidesign {
 		public:
 			explicit AIPanel(DesignState *st)
 				: NkEditorPanel("IA", NkEditorDockSide::NK_BOTTOM), mSt(st) {
-				// ⚠️ REPLIÉ PAR DÉFAUT, ET LA MESURE DIT POURQUOI CE N'EST QU'UN
-				//    DEMI-CORRECTIF. Le plan (§4) veut en bas un « rail de pastilles,
-				//    ancré discret » ; §13 décrit le mécanisme complet (rails de
-				//    28 px, pastilles à quatre états). Mesure faite dans
-				//    `NkEditorShell.h` : **ce mécanisme n'existe pas** — la coquille
-				//    ne porte ni rail ni pastille, seulement des « voyants » de pied
-				//    de fenêtre. La réponse à « pastille laissée ouverte, ou panneau
-				//    pas encore converti ? » est donc la SECONDE : rien n'a été
-				//    converti, parce qu'il n'y a pas encore de rail où le poser.
-				//    ⚠️ Et ce panneau n'irait de toute façon pas là : §13.1 place
-				//       « Chat IA » sur le rail DROIT, le rail bas portant
-				//       Console/Validation et Preview/Test.
-				//    En attendant, il est FERMÉ au démarrage : la toile récupère le
-				//    cinquième de fenêtre qu'il occupait, et il reste atteignable par
-				//    `Affichage > Panneaux` et par `IA > Ouvrir le chat IA`. Une
-				//    capacité qui se replie n'est pas une capacité perdue.
+				// ⚠️ CE COMMENTAIRE DISAIT LE CONTRAIRE DE CE QUI EST, ET IL A INDUIT
+				//    EN ERREUR. Il affirmait que « la coquille ne porte ni rail ni
+				//    pastille » et que « rien n'a ete converti, parce qu'il n'y a pas
+				//    encore de rail ou le poser ». C'etait vrai le jour ou il a ete
+				//    ecrit ; ca ne l'est plus, et personne n'est revenu le corriger.
+				//
+				//    MESURE DU 14/09, captures a l'appui :
+				//      - le kit PORTE le rail : `NkEditorShell.h` §13, struct
+				//        `NkEditorRailItem`, `SetRail`, `OuvrirTiroir`, `kRailMax=8`,
+				//        `DrawRail` et `DrawRailDrawers` (tiroir de 320 px en overlay,
+				//        voile `theme.scrim`, une seule pastille depliee par rail) ;
+				//      - NkUIDesign POSE deja sa pastille : `main.cpp`, `kRailDroite[1]
+				//        = {"IA", "Chat IA", ...}` avec l'etoile violette AccentAI ;
+				//      - `--tiroir=d:1` ouvre CE panneau : sur les 28 colonnes de
+				//        droite, 40 pixels violets contre 0 sans le rail ; dans le
+				//        rectangle du tiroir, 153 pixels verts (la pilule LOCAL)
+				//        contre 0, et AUCUN pixel rouge ajoute — c'est-a-dire pas de
+				//        « Aucun panneau enregistre sous ce titre ».
+				//
+				//    DONC : `SetOpen(false)` N'EST PLUS UN DEMI-CORRECTIF, c'est le
+				//    comportement voulu. §13.1 place « Chat IA » sur le rail DROIT :
+				//    le panneau ne s'ANCRE pas au demarrage, il se DEPLIE en tiroir
+				//    par sa pastille. `TrouverPanneau` resout par le TITRE seul, sans
+				//    regarder ni le cote d'ancrage ni l'etat ouvert/ferme — le
+				//    `NK_BOTTOM` ci-dessus ne contrarie donc pas le rail droit ; il ne
+				//    decrit que l'ancrage qu'aurait ce panneau si on l'ancrait.
+				//    Il reste aussi atteignable par `Affichage > Panneaux` et par
+				//    `IA > Ouvrir le chat IA`.
 				SetOpen(false);
 			}
 
@@ -9104,6 +9242,17 @@ namespace nkuidesign {
 				auto &ctx = ec.Ui();
 				auto &F = costume::Fontes();
 				auto &dl = ctx.DL();
+				// ⚠️ EN TETE, ET A CHAQUE IMAGE : c'est le seul endroit ou la
+				//    reponse du fil entre dans la conversation. La poser plus bas
+				//    la ferait apparaitre une image plus tard que le compteur qui
+				//    l'annonce.
+				// ⚠️ PLUS DE RECOLTE ICI : elle a lieu dans `DrawMenuBar`, qui passe
+				//    a chaque image meme quand ce panneau n'est pas dessine. On ne
+				//    fait que RELEVER ce que la recolte a ecrit.
+				if (mSt->messageIA.Length() > 0) {
+					mLast = mSt->messageIA;
+					mSt->messageIA = NkString("");
+				}
 				if (mSt->proposerInitial) { // mise en scene : une proposition prete
 					mSt->proposerInitial = false;
 					snprintf(mSt->promptBuf, sizeof(mSt->promptBuf),
@@ -9173,6 +9322,130 @@ namespace nkuidesign {
 						x += w + 6.f;
 					}
 				}
+				// ═══════════════════════════════════════════════════════════
+				//  DISCUTER — AVANT DE DESSINER
+				// ═══════════════════════════════════════════════════════════
+				//  ⚠️ CETTE SECTION NE TOUCHE PAS AU DOCUMENT. Pas une ligne
+				//     d'ici n'ecrit dans `mSt->doc` : `NkDesignConversation` n'a
+				//     meme pas de quoi le faire — elle ne recoit aucun document.
+				//     C'est ce qui rend « discuter ne dessine pas » vrai PAR
+				//     CONSTRUCTION, et non par vigilance : la meme discipline que
+				//     `Propose`, qui travaille dans un document DE COTE.
+				//
+				//  ⚠️ ET C'EST SYNCHRONE. Avec le dorsal FICHIER, « Envoyer » rend
+				//     la main tout de suite. Avec un dorsal PAR PROCESSUS qui
+				//     charge un modele local, la mesure du 14/09 donne 12,6 s de
+				//     chargement + ~0,6 s par mot : la fenetre ne repond pas
+				//     pendant ce temps. Dette declaree, la meme que le pont GENIA
+				//     du modeleur ; la mise sur un fil viendra quand la chaine
+				//     aura prouve qu'elle tient.
+				ec.Separator();
+				{
+					const NkRect r = ctx.NextItemRect(-1.f, 20.f);
+					costume::TexteGras(dl, F.px11, r.x + costume::PadPanneau,
+									   costume::CentrerY(F.px11, r.y, 20.f), "Discussion",
+									   ctx.theme.text, 0.5f);
+				}
+				Libelle(ctx, "Sujet — ce qu'on veut concevoir");
+				InputText(ctx, "Sujet", mSt->specSujetBuf, (int32)sizeof(mSt->specSujetBuf));
+				mSt->conversation.sujet = NkString(mSt->specSujetBuf);
+
+				// LES TOURS DE PAROLE, bornes : un tiroir de 320 px ne montre pas
+				// trente tours, et laisser filer pousserait l'invite hors de
+				// portee. Ce qui est coupe est DIT (« N tour(s) plus haut »), pas
+				// escamote.
+				{
+					const uint32 nTours = mSt->conversation.Count();
+					const uint32 kMontres = 8u;
+					const uint32 debut = nTours > kMontres ? nTours - kMontres : 0u;
+					if (nTours == 0u) {
+						ctx.BeginDisabled();
+						ec.Text("(aucun echange — posez une question)");
+						ctx.EndDisabled();
+					}
+					if (debut > 0u) {
+						char bt[64];
+						snprintf(bt, sizeof(bt), "… %u tour(s) plus haut", debut);
+						ctx.BeginDisabled();
+						ec.Text(bt);
+						ctx.EndDisabled();
+					}
+					for (uint32 it = debut; it < nTours; ++it) {
+						const NkDesignTour &t = mSt->conversation.Tours()[it];
+						const bool moi = t.qui == NkQui::Moi;
+						const NkRect rq = ctx.NextItemRect(-1.f, 16.f);
+						costume::TexteGras(dl, F.px10, rq.x + costume::PadPanneau,
+										   costume::CentrerY(F.px10, rq.y, 16.f),
+										   moi ? "moi" : "IA",
+										   moi ? ctx.theme.textMuted : ctx.theme.accent, 0.4f);
+						// AVEC RETOUR A LA LIGNE : une reponse de modele fait
+						// plusieurs phrases, et `Text` seul la couperait au bord
+						// sans le dire.
+						nkgui::TextWrapped(ctx, t.texte.Data() ? t.texte.Data() : "");
+					}
+				}
+
+				Libelle(ctx, "Message");
+				InputText(ctx, "Message", mSt->chatBuf, (int32)sizeof(mSt->chatBuf));
+				// ⚠️ PENDANT L'ATTENTE, LE BOUTON CHANGE DE SENS. Laisser
+				//    « Envoyer » actif inviterait a lancer une seconde generation
+				//    que le materiel ne peut pas tenir ; le griser sans rien dire
+				//    laisserait croire a un blocage. On dit ce qui se passe, et on
+				//    offre la seule action qui ait un sens : arreter.
+				if (mSt->envoi.EnCours()) {
+					char b[160];
+					snprintf(b, sizeof(b), "Genere… %.1f s  ·  %u images",
+							 mSt->envoi.Secondes(), mSt->envoi.Images());
+					ec.Text(b);
+					if (ec.Button("Annuler la generation")) {
+						mSt->envoi.Annuler();
+						mLast = NkString("Generation annulee — sa reponse ne sera "
+										 "jamais posee dans la discussion.");
+					}
+				} else if (ec.Button("Envoyer"))
+					Discuter();
+				if (mSt->conversation.Count() > 0 && ec.Button("Effacer la discussion")) {
+					mSt->conversation.Effacer();
+					mLast = NkString("Discussion effacee — le document n'a pas bouge.");
+				}
+
+				// ═══════════════════════════════════════════════════════════
+				//  LE DOCUMENT DE SPECIFICATION
+				// ═══════════════════════════════════════════════════════════
+				//  ⚠️ IL EXISTE SANS AUCUN MODELE. « Ecrire » fabrique les
+				//     exigences MECANIQUEMENT : ce sont les tours de l'HUMAIN,
+				//     c'est-a-dire ce qu'il a dit vouloir. « Affiner » ne fait que
+				//     les reformuler avec le dorsal, et n'ecrase RIEN s'il echoue.
+				//     Une specification qui n'existerait qu'avec un modele
+				//     disponible ne serait pas un document : ce serait une sortie.
+				ec.Separator();
+				Libelle(ctx, "Nom de la specification");
+				InputText(ctx, "Nom de la spec", mSt->specNomBuf,
+						  (int32)sizeof(mSt->specNomBuf));
+				if (ec.Button("Ecrire la specification"))
+					EcrireSpec();
+				if (!mSt->spec.Vide()) {
+					char bs[224];
+					snprintf(bs, sizeof(bs), "Specification « %s » : %u exigence(s)",
+							 mSt->spec.nom.Data() ? mSt->spec.nom.Data() : "",
+							 mSt->spec.CountExigences());
+					ec.Text(bs);
+					if (ec.Button("Affiner les exigences (dorsal)"))
+						AffinerSpec();
+					// LA LIAISON AU DESIGN, ET ELLE SE VOIT A L'ECRAN :
+					snprintf(bs, sizeof(bs), "Le design engendre portera  origine = %s",
+							 mSt->ai.OrigineCourante());
+					ctx.BeginDisabled();
+					ec.Text(bs);
+					ctx.EndDisabled();
+					if (ec.Button("Detacher la specification")) {
+						mSt->ai.specTexte = NkString("");
+						mSt->ai.specOrigine = NkString("");
+						mLast = NkString("Specification detachee — les prochaines greffes "
+										 "porteront de nouveau le nom du dorsal.");
+					}
+				}
+
 				// ── LA CARTE « RELEVÉ DE CHANGEMENTS » ───────────────────────
 				if (mSt->ai.HasProposal()) {
 					const uint32 nprop = mSt->ai.Proposal().NodeCount();
@@ -9245,6 +9518,7 @@ namespace nkuidesign {
 								   costume::CentrerY(F.px10, rp.y, 20.f), "Sélection",
 								   ctx.theme.textMuted);
 				}
+				Libelle(ctx, "Demande — ce qu'on veut voir engendre");
 				InputText(ctx, "Demande", mSt->promptBuf, (int32)sizeof(mSt->promptBuf));
 				if (ec.Button("Proposer (aperçu)"))
 					Proposer();
@@ -9257,6 +9531,160 @@ namespace nkuidesign {
 			}
 
 		private:
+			// ⚠️ LE LIBELLE D'UN CHAMP NE SE VOYAIT PAS, ET C'EST MESURE, PAS
+			//    SUPPOSE : la capture du 14/09 montre TROIS boites vides a la
+			//    suite dans le tiroir. `InputText` de NKGui pose son libelle A
+			//    DROITE du champ ; dans un tiroir de 320 px, la region de
+			//    defilement est plus large que la fenetre, et le libelle part
+			//    hors champ -- exactement le defaut deja paye par la carte
+			//    « Releve de changements » le 31/08 (« LARGEUR VISIBLE, PAS
+			//    LARGEUR DE REGION »). Le champ « Demande », plus ancien, en
+			//    souffrait deja sans que personne le dise.
+			//
+			//    On pose donc le libelle AU-DESSUS, a la largeur visible. Ce
+			//    n'est pas un widget de plus : c'est une ligne de texte, et elle
+			//    vit dans UNE fonction -- quatre copies auraient diverge au
+			//    premier changement de police.
+			void Libelle(nkgui::NkGuiContext &ctx, const char *texte) {
+				auto &F = costume::Fontes();
+				const NkRect r = ctx.NextItemRect(-1.f, 15.f);
+				costume::Texte(ctx.DL(), F.px10, r.x + costume::PadPanneau,
+							   costume::CentrerY(F.px10, r.y, 15.f), texte,
+							   ctx.theme.textMuted);
+			}
+
+			// ═══════════════════════════════════════════════════════════════
+			//  DISCUTER — SANS BLOQUER LA FENETRE (g3)
+			// ═══════════════════════════════════════════════════════════════
+			//  ⚠️ LE TOUR HUMAIN EST POSE TOUT DE SUITE, la reponse arrivera plus
+			//     tard. C'est ce qui rend l'attente lisible : l'utilisateur voit
+			//     ce qu'il a envoye pendant que ca calcule, au lieu d'un champ
+			//     vide et d'un curseur d'attente.
+			//  ⚠️ ET L'INVITE EST BATIE MAINTENANT, pas dans le fil. Elle lit la
+			//     conversation, qui appartient a l'interface ; la batir dans le
+			//     travailleur aurait mis la conversation a portee du second fil —
+			//     c'est-a-dire exactement ce que la regle de partage interdit.
+			void Discuter() {
+				if (mSt->envoi.EnCours()) {
+					mLast = NkString("Une generation est deja en cours. « Annuler » "
+									 "la jette ; deux modeles n'entrent pas dans "
+									 "cette carte de toute facon.");
+					return;
+				}
+				if (!mSt->chatBuf[0]) {
+					mLast = NkString("REFUS — rien a envoyer : l'invite est vide.");
+					return;
+				}
+				mSt->conversation.Ajouter(NkQui::Moi, mSt->chatBuf);
+				NkString invite;
+				mSt->conversation.BatirInvite(invite);
+				NkString pourquoi;
+				if (mSt->envoi.Lancer(mSt->ai.Backend(), invite, pourquoi)) {
+					mSt->chatBuf[0] = 0; // le message est parti : le champ se vide
+					mLast = NkString("Generation lancee — la fenetre reste vivante.");
+				} else {
+					// ATTENTION : LE TOUR HUMAIN RESTE. Retirer ce que
+					// l'utilisateur vient de taper parce que le modele n'a pas
+					// repondu lui ferait perdre sa phrase. Et le refus est NOMME,
+					// jamais un silence ni un tour IA vide.
+					char b[320];
+					snprintf(b, sizeof(b), "REFUS — %s",
+							 pourquoi.Length() > 0 ? pourquoi.Data() : "raison non nommee");
+					mLast = NkString(b);
+				}
+			}
+
+			// ── LE BANC (--mesure-async) ────────────────────────────────────
+			// Publiques parce que `main.cpp` tient l'objet et pilote le banc par
+			// image. Elles ne servent a rien d'autre, et elles le disent.
+		public:
+			/// Lance une generation de banc sur le DORSAL LENT. `sync` emprunte
+			/// l'ancien chemin BLOQUANT — c'est le NEGATIF du banc : il doit rendre
+			/// une seule image.
+			void BancAsyncLancer(nkentseu::int64 ms, bool sync) {
+				mSt->dorsalLent.millisecondes = ms;
+				mSt->conversation.Ajouter(NkQui::Moi, "banc");
+				NkString invite;
+				mSt->conversation.BatirInvite(invite);
+				if (sync) {
+					// LE CHEMIN D'AVANT, garde exprimes pour le banc : un appel
+					// bloquant dans le fil de dessin.
+					mBancSyncHorloge = nkentseu::NkChrono();
+					NkDesignRequest req;
+					req.prompt = invite;
+					NkDesignReply rep;
+					mSt->dorsalLent.Complete(req, rep);
+					mBancSyncSecondes = mBancSyncHorloge.Elapsed().ToSeconds();
+					mBancSyncFait = true;
+				} else {
+					NkString pourquoi;
+					mSt->envoi.Lancer(&mSt->dorsalLent, invite, pourquoi);
+				}
+			}
+			bool BancAsyncEnCours() const {
+				return mSt->envoi.EnCours();
+			}
+			nkentseu::uint32 BancAsyncImages() const {
+				return mSt->envoi.Images();
+			}
+			nkentseu::float64 BancAsyncSecondes() const {
+				return mBancSyncFait ? mBancSyncSecondes : mSt->envoi.Secondes();
+			}
+
+		private:
+
+			// -- ECRIRE LA SPECIFICATION. Mecanique, sans dorsal.
+			void EcrireSpec() {
+				if (mSt->conversation.Vide()) {
+					mLast = NkString("Aucune discussion : il n'y a rien a specifier — "
+									 "et aucun fichier n'est ecrit.");
+					return;
+				}
+				if (!mSt->specNomBuf[0])
+					snprintf(mSt->specNomBuf, sizeof(mSt->specNomBuf), "spec");
+				NkSpecification::DepuisConversation(mSt->conversation, mSt->specNomBuf,
+													mSt->spec);
+				NkString texte;
+				mSt->spec.Ecrire(texte);
+				char chemin[192];
+				snprintf(chemin, sizeof(chemin), "nkuidesign_%s.nkuispec", mSt->specNomBuf);
+				const bool ecrit = nkentseu::NkFile::WriteAllText(chemin, texte.Data());
+				// LE LIEN. Deux champs, deux roles : `specTexte` entre dans
+				// l'invite, `specOrigine` entre dans la provenance de chaque
+				// noeud engendre. Les confondre aurait fait porter aux noeuds un
+				// paragraphe entier au lieu d'un nom.
+				mSt->spec.PourLeGenerateur(mSt->ai.specTexte);
+				mSt->ai.specOrigine = mSt->spec.nom;
+				char b[352];
+				snprintf(b, sizeof(b),
+						 ecrit ? "Specification ecrite : %s (%u exigence(s)). Le design "
+								 "engendre portera origine = %s."
+							   : "ECHEC d'ecriture de %s (%u exigence(s)) — origine = %s "
+								 "posee quand meme en memoire.",
+						 chemin, mSt->spec.CountExigences(),
+						 mSt->spec.nom.Data() ? mSt->spec.nom.Data() : "");
+				mLast = NkString(b);
+			}
+
+			// -- AFFINER. N'ecrase les exigences QUE si le dorsal en rend.
+			void AffinerSpec() {
+				NkString pourquoi;
+				if (NkSpecification::Affiner(mSt->conversation, mSt->ai.Backend(), mSt->spec,
+											 pourquoi)) {
+					mSt->spec.PourLeGenerateur(mSt->ai.specTexte);
+					char b[160];
+					snprintf(b, sizeof(b), "Exigences affinees : %u.",
+							 mSt->spec.CountExigences());
+					mLast = NkString(b);
+				} else {
+					char b[320];
+					snprintf(b, sizeof(b),
+							 "AFFINAGE REFUSE — %s. Les exigences n'ont pas bouge.",
+							 pourquoi.Length() > 0 ? pourquoi.Data() : "raison non nommee");
+					mLast = NkString(b);
+				}
+			}
+
 			void Proposer() {
 				const NkAIResult r = mSt->ai.Propose(mSt->promptBuf, mSt->doc);
 				if (r.Accepted()) {
@@ -9329,6 +9757,10 @@ namespace nkuidesign {
 			DesignState *mSt;
 			NkString mLast;
 			NkAIResult mDernierCommit;
+			// le banc synchrone (--mesure-async=<ms>:sync), et rien d'autre
+			nkentseu::NkChrono mBancSyncHorloge;
+			nkentseu::float64 mBancSyncSecondes = 0.0;
+			bool mBancSyncFait = false;
 	};
 
 	// ═══════════════════════════════════════════════════════════════════════════
@@ -9399,9 +9831,40 @@ namespace nkuidesign {
 					if (!d || !d->name)
 						continue;
 					const NkRect r = ctx.NextItemRect(-1.f, 26.f);
+					// 🔴 « la partie bibliotheque ne fonctionne pas » (Rodolf, 14/09) —
+					//    ET IL AVAIT RAISON, mesure a l'appui. Ce panneau DESSINAIT le
+					//    registre reel (les composants, leurs sections, le compte
+					//    d'instances) et **aucune ligne n'etait attrapable** : pas un
+					//    clic, pas un glisser. Son infobulle promettait pourtant
+					//    « Bibliotheque de composants — ACQUERIR ». Un catalogue qu'on
+					//    ne peut que regarder, sous une etiquette qui dit « prendre ».
+					//
+					// ⚠️ ON N'ECRIT PAS UN GESTE : ON APPELLE CELUI QUI EXISTE. La
+					//    palette pose deja ses composants par le glisser de NKGui, et
+					//    `GlisserPalette.h` porte la DECISION (ou tombe le composant,
+					//    dans quel parent, avec quelle aimantation). La toile accepte
+					//    deja `glisser::NkTypeCharge()`. Il ne manquait QUE la source.
+					//
+					// ⚠️ ET C'EST LA FORME A ZONE, pas la forme widget : une ligne
+					//    dessinee a la main n'est pas un widget NKGui, `activeId` ne la
+					//    designera jamais, et `BeginDragSource(ctx)` ne pourrait pas
+					//    demarrer. C'est le meme constat que la hierarchie, paye le
+					//    2026-08-17 — la forme a zone existe depuis, et c'est elle.
+					const bool survolLigne = ctx.InputHits(r);
+					if (survolLigne)
+						dl.AddRectFilled(r, ctx.theme.buttonHover, 3.f);
 					costume::IcPanneau(dl, r.x + 12.f, r.y + 7.f, ctx.theme.textMuted);
 					costume::Texte(dl, F.px11, r.x + 30.f, costume::CentrerY(F.px11, r.y, 26.f),
 								   d->name, ctx.theme.text);
+					{
+						char idz[96];
+						snprintf(idz, sizeof(idz), "biblio.%s.glisser", d->name);
+						if (nkgui::BeginDragSource(ctx, ctx.GetId(idz), r)) {
+							nkgui::SetDragPayload(ctx, glisser::NkTypeCharge(), d->name,
+												  (int32)(strlen(d->name) + 1u), d->name);
+							nkgui::EndDragSource(ctx);
+						}
+					}
 					// le compte d'instances RÉEL dans le document (badge « ×N »)
 					int32 compte = 0;
 					for (uint32 i = 0; i < (uint32)mSt->doc.nodes.Size(); ++i)
@@ -9414,6 +9877,28 @@ namespace nkuidesign {
 											 r.x + 34.f + costume::Largeur(F.px11, d->name),
 											 r.y + 6.f, 14.f, b, ctx.theme.accent);
 					}
+				}
+				// ── CE QUE LA BIBLIOTHEQUE NE SAIT PAS ENCORE FAIRE, ET ELLE LE DIT ──
+				// ⚠️ MESURE DU 14/09, ET ELLE CONTREDIT LE COMMIT QUI L'A PRECEDEE.
+				//    J'ai declare chaque ligne comme SOURCE de glisser (forme a zone,
+				//    charge = le nom declare, type = celui que la toile accepte). Puis
+				//    j'ai mesure le geste complet : glisser une ligne vers la toile
+				//    donne EXACTEMENT la meme image, au pixel, qu'un glisser parti
+				//    d'une zone VIDE du tiroir -- 0 pixel de difference, deux courses
+				//    sur deux. **Le depot n'a pas lieu.** La source est posee, le
+				//    geste ne l'est pas.
+				//    Plutot que d'annoncer un correctif que la mesure dement, la
+				//    bibliotheque DIT ou elle en est. Un catalogue qu'on ne peut que
+				//    regarder sous une etiquette qui promet « acquerir » est un
+				//    mensonge d'interface ; le meme catalogue qui nomme son manque ne
+				//    l'est pas.
+				{
+					const NkRect r = ctx.NextItemRect(-1.f, 34.f);
+					costume::Texte(dl, F.px10, r.x + 12.f, r.y + 4.f,
+								   "Poser un composant sur la toile : pas encore branche.",
+								   ctx.theme.textMuted);
+					costume::Texte(dl, F.px10, r.x + 12.f, r.y + 18.f,
+								   "Passez par la Palette en attendant.", ctx.theme.textMuted);
 				}
 				// ── « Importer un composant… » (pied, inerte et il le dit) ───
 				{

@@ -2749,11 +2749,11 @@ namespace nkentseu {
 						auto swapWithBrowser = [&](int32 sa, int32 sb) {
 							if (!demo::Demo3DHostProjMatSwap(sa, sb))
 								return false;
-							for (int32 c2 = 0; c2 < st.browserCount; ++c2) {
-								if (st.browserMat[c2] == sa + 1)
-									st.browserMat[c2] = sb + 1;
-								else if (st.browserMat[c2] == sb + 1)
-									st.browserMat[c2] = sa + 1;
+							for (int32 c2 = 0; c2 < st.BrowserCount(); ++c2) {
+								if (st.Card(c2).mat == sa + 1)
+									st.Card(c2).mat = sb + 1;
+								else if (st.Card(c2).mat == sb + 1)
+									st.Card(c2).mat = sa + 1;
 							}
 							NkMarkDirty(st);
 							return true;
@@ -4914,7 +4914,7 @@ namespace nkentseu {
 											 (r.x + rr.w - NkPropInset()) - (icoX + S(22.f)),
 											 kRowH - S(4.f)};
 							p.Outline(nmR, NkRole::Border, NkRole::InputBg, 3.f);
-							if (en >= 0 && en < 176)
+							if (en >= 0 && en < NkModelerState::kMaxNodeNames)
 								EditableText(p, hit, ws, in, "props.name",
 											 {nmR.x + S(4.f), yy, nmR.w - S(8.f), kRowH},
 											 buf, NkRole::Text, st.customNames[en], 24u);
@@ -7763,10 +7763,10 @@ namespace nkentseu {
 								(void)demo::Demo3DHostNodeMatAdd(an, ni);
 							// Sa carte, DANS LE DOSSIER CHOISI, puis son fichier.
 							nk3d::NkBrowserSyncMats(st);
-							for (int32 b3 = 0; b3 < st.browserCount; ++b3)
-								if (st.browserKind[b3] == 2 && st.browserMat[b3] == ni + 1) {
-									st.browserParent[b3] = fdlg.resultFolder;
-									snprintf(st.browserNames[b3], sizeof(st.browserNames[0]),
+							for (int32 b3 = 0; b3 < st.BrowserCount(); ++b3)
+								if (st.Card(b3).kind == 2 && st.Card(b3).mat == ni + 1) {
+									st.Card(b3).parent = fdlg.resultFolder;
+									snprintf(st.Card(b3).name, NkModelerState::kCardNameCap,
 											 "%s", fdlg.resultName);
 									if (!st.projectRoot.Empty()) {
 										NkString err3;

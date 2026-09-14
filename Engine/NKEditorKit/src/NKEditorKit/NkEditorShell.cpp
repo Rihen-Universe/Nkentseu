@@ -829,13 +829,29 @@ namespace nkentseu {
 			mUI.titleBarH = titleH;								   // l'ecran de demarrage doit commencer en dessous
 			const float32 bandH = (mHeaderBandH > 0.f) ? mHeaderBandH : mUI.S(46.f);
 			const float32 toolbarH = (mToolbarFn && !fullScreen) ? bandH : 0.f;
+			// ⚠️ (o1, 2026-09-14) LA BANDE D'ONGLETS RESERVE, ELLE NE DECORE PAS —
+			//    meme regle que `SetToolbar` juste au-dessus, et pour la meme raison
+			//    mesuree : tant que personne ne pose de modele, elle vaut ZERO pixel
+			//    et aucune application existante ne bouge. La hauteur vient de la
+			//    DECLARATION du composant (`band_h` = 28, la cote du modeleur), ou
+			//    de l'instance de reglages si l'application en a pose une — jamais
+			//    d'un litteral de ce fichier.
+			const float32 tabsH =
+				(mTabsModel && !fullScreen) ? mUI.S(NkTabMetric(mTabsStyle, "band_h")) : 0.f;
 			// Le bloc logo CHEVAUCHE les deux bandes : les bandes commencent a sa
 			// droite, jamais au bord de la fenetre.
 			const float32 logoW = (mHeaderLogo > 0.f && !fullScreen) ? mHeaderLogo : 0.f;
 			// La bande basse n'est reservee que si quelqu'un l'affiche : la barre
 			// d'etat du shell (visible) ou le hook de l'application.
+			// ⚠️ (o3, 2026-09-14) LES 22 PIXELS NE SONT PLUS EN DUR. Le modeleur en
+			//    a 28 (`NkLayout::Compute`), la coquille figeait 22 : une
+			//    application qui veut « la meme interface que NK3DModeler » ne
+			//    pouvait pas l'obtenir. `mStatusBarH == 0` = les 22 historiques,
+			//    donc AUCUN des cinq consommateurs ne bouge tant qu'il n'appelle
+			//    pas `SetStatusBarHeight`. Cf. le bloc de `NkEditorShell.h`.
+			const float32 statusPx = (mStatusBarH > 0.f) ? mStatusBarH : 22.f;
 			const float32 footerH =
-				(fullScreen || (!mStatusBarVisible && !mStatusBarFn)) ? 0.f : mUI.S(22.f);
+				(fullScreen || (!mStatusBarVisible && !mStatusBarFn)) ? 0.f : mUI.S(statusPx);
 			// Largeur des bandes d'icones, PAR COTE : une app sans « vues » a
 			// basculer les desactive (SetActivityBars) et le dock recupere la place.
 			const float32 activityW = mUI.S(48.f);
@@ -881,9 +897,17 @@ namespace nkentseu {
 			phase("depart de l'image");
 			DrawTitleBar(ec, {logoW, 0.f, W - logoW, titleH});
 			phase("barre de titre");
+			// ⚠️ L'ORDRE DES TROIS BANDES EST CELUI DU MODELEUR, ET IL EST MESURE :
+			//    `NkLayout::Compute` pose menu(30) / ONGLETS(28) / outils(34), dans
+			//    cet ordre. Mettre les onglets sous la barre d'outils aurait donne
+			//    les memes hauteurs et une autre interface — « une cote qui se
+			//    rapproche n'est pas une interface qui ressemble ».
+			if (mTabsModel && !fullScreen)
+				DrawTabStrip({logoW, titleH, W - logoW, tabsH});
+			phase("bande d'onglets");
 			// Barre d'outils Visual Studio (config/plateforme cible + Build/Run + emulateur).
 			if (mToolbarFn && !fullScreen)
-				DrawToolbar(ec, {logoW, titleH, W - logoW, toolbarH});
+				DrawToolbar(ec, {logoW, titleH + tabsH, W - logoW, toolbarH});
 			phase("barre d'outils");
 			// ⚠️ LE BLOC LOGO EST DESSINE APRES LES DEUX BANDES, et c est la seule
 			//    facon de le faire CHEVAUCHER : il est plus haut que la premiere
@@ -891,7 +915,7 @@ namespace nkentseu {
 			if (logoW > 0.f)
 				DrawHeaderLogo(ec, {0.f, 0.f, logoW, logoW});
 
-			const float32 bodyTop = titleH + toolbarH;
+			const float32 bodyTop = titleH + tabsH + toolbarH;
 			const float32 bodyH = H - bodyTop - footerH;
 
 			// MODALE : quand Preferences est ouvert, le corps (panneaux/editeur)
@@ -1288,7 +1312,46 @@ namespace nkentseu {
 									  mUI.theme.border, 1.f);
 
 				const NkRect dedans = {d.x, d.y + titreH, d.w, d.h - titreH};
-				if (p) {
+
+				// 🔴 UN TIROIR NE MONTRE PAS UN PANNEAU DEJA ANCRE (mesure du 14/09).
+				//    `DrawPanels` dessine tous les panneaux OUVERTS ; ce tiroir passe
+				//    juste apres. Un panneau ouvert ET vise par une pastille voyait donc
+				//    son `OnUI` appele DEUX FOIS dans la MEME image, avec le meme etat
+				//    et la meme souris.
+				//
+				//    CE QUE CA DONNE A L'ECRAN, et c'est une capture, pas une crainte :
+				//    la pastille « Apercu » de NkUIDesign ouvrait un SECOND exemplaire de
+				//    la toile -- avec sa propre barre d'outils -- dans une colonne de
+				//    320 px, et la toile ANCREE perdait sa planche au passage. Deux
+				//    exemplaires vivants du meme panneau se disputaient un seul etat de
+				//    vue ; le second, calcule pour une colonne etroite, ecrasait le
+				//    premier.
+				//
+				//    ⚠️ ET C'EST MON PROPRE LOT QUI L'A OUVERT. Hier j'ai corrige la cle
+				//       « Test » -> « Apercu » parce que le tiroir affichait « Aucun
+				//       panneau enregistre sous ce titre » en rouge. La cle etait bien
+				//       fausse -- mais la reparer a remplace un message inoffensif par un
+				//       panneau casse. *Reparer une cle ne dit rien de ce qu'elle
+				//       designe.*
+				//
+				//    ⚠️ POURQUOI UN MESSAGE ET PAS UNE PASTILLE RETIREE : §13 reserve les
+				//       rails aux panneaux SECONDAIRES, et le choix de ce qui va sur un
+				//       rail appartient a l'APPLICATION, pas a la coquille. La coquille
+				//       refuse le double dessin -- qu'elle seule peut voir -- et NOMME la
+				//       raison. Une pastille qui disparaitrait ferait croire que le plan
+				//       a change ; celle-ci dit ou trouver le panneau.
+				if (p && p->IsOpen()) {
+					if (mUI.font && mUI.font->Valid()) {
+						mUI.dlOverlay.AddText(mUI.font->Face(), mUI.font->TexId(),
+											  {dedans.x + 10.f, dedans.y + 24.f},
+											  "Ce panneau est deja ancre dans la disposition.",
+											  mUI.theme.textMuted);
+						mUI.dlOverlay.AddText(mUI.font->Face(), mUI.font->TexId(),
+											  {dedans.x + 10.f, dedans.y + 24.f + mUI.font->LineHeight() + 4.f},
+											  "Le dessiner ici en ferait un second exemplaire.",
+											  mUI.theme.textMuted);
+					}
+				} else if (p) {
 					// ⚠️ LE TIROIR DESSINE UN PANNEAU EXISTANT, il n en invente pas
 					//    un second. C est ce qui rendra l etat 3 (l ancrer) presque
 					//    gratuit : le meme objet, ancre au lieu d etre pose ici.
@@ -1571,6 +1634,15 @@ namespace nkentseu {
 		//    qu un APPELANT parmi d autres. **Deux appelants d une conversion ne
 		//    font pas deux autorites.**
 		void NkEditorShell::ApplyTheme(const NkTheme &t) noexcept {
+			// ⚠️ LA COQUILLE GARDE DESORMAIS LE THEME DU KIT, et ce n'est pas un
+			//    confort : `NkGuiComponentPaint` — le peintre par lequel passent
+			//    TOUS les composants partages — resout ses roles dans un
+			//    `editorkit::NkTheme`, pas dans le `NkGuiTheme` du dessin. Sans ce
+			//    membre, la bande d'onglets de la coquille aurait lu un theme par
+			//    defaut pendant que le reste de la fenetre suivait celui de
+			//    l'application : exactement le defaut « deux objets theme, chacun
+			//    cru par une partie du dessin » decrit en tete de `NkEditorShell.h`.
+			mKitTheme = t;
 			NkThemeVersGui(mUI, t);
 		}
 
@@ -1907,6 +1979,99 @@ namespace nkentseu {
 			mUI.layout.curLineH = 0.f;
 			mUI.layout.maxX = mUI.layout.cursor.x;
 			mToolbarFn(ec, mToolbarUser);
+		}
+
+		// ═══════════════════════════════════════════════════════════════════════
+		//  (o1) LA BANDE D'ONGLETS — LA COQUILLE POSE, ELLE NE REDESSINE PAS
+		// ═══════════════════════════════════════════════════════════════════════
+		//  ⚠️ IL N'Y A PAS UNE SEULE PRIMITIVE DE DESSIN D'ONGLET DANS CETTE
+		//     FONCTION, ET C'EST LE POINT. Tout ce qu'elle fait : convertir
+		//     l'entree NKGui en `NkComponentInput`, deriver les roles, appeler
+		//     `NkDrawTabStrip`, router ce qu'il rapporte. Le jour ou l'on change
+		//     un nombre dans `NkTabStripModel.h`, Nogee ET NK3DModeler changent —
+		//     c'est le temoin que le canal exige, et il n'est verifiable que si
+		//     cette fonction reste vide de geometrie.
+		void NkEditorShell::DrawTabStrip(const NkRect &rect) noexcept {
+			if (!mTabsModel || rect.w <= 0.f || rect.h <= 0.f)
+				return;
+
+			// LE STYLE : celui que l'application a pose, sinon les roles du kit.
+			// ⚠️ On ne met AUCUNE couleur en dur ici — un litteral serait une
+			//    couleur de plus parmi les 426 que ce depot a deja mesurees chez
+			//    les consommateurs de NKGui, et un onglet qui resterait sombre en
+			//    theme clair.
+			NkTabStripStyle s = mTabsStyle;
+			if (!mTabsStyleSet) {
+				s.bandBg = (uint16)NkRole::PanelBg;
+				s.border = (uint16)NkRole::Border;
+				s.tabBg = (uint16)NkRole::InputBg;
+				s.tabHoverBg = (uint16)NkRole::PanelBg;
+				s.tabActiveBg = (uint16)NkRole::PanelHeader;
+				s.text = (uint16)NkRole::Text;
+				s.textMuted = (uint16)NkRole::TextMuted;
+				s.accent = (uint16)NkRole::AccentUi;
+			}
+
+			NkComponentInput ci;
+			// L'ECHELLE VIENT DE LA SURFACE (arbitrage du 18/08) : `mUI.scale` est
+			// l'instance PAR FENETRE, pas une globale de processus.
+			ci.surfaceScale = mUI.scale;
+			ci.mouseX = mUI.input.mousePos.x;
+			ci.mouseY = mUI.input.mousePos.y;
+			ci.wheel = mUI.input.wheel;
+			ci.mouseDown = mUI.input.mouseDown[0];
+			ci.mousePressed = mUI.input.mouseClicked[0];
+			ci.mouseReleased = mUI.input.mouseReleased[0];
+			ci.doubleClick = mUI.input.mouseDoubleClicked[0];
+			ci.rightPressed = mUI.input.mouseClicked[1];
+			ci.ctrl = mUI.input.ctrlDown;
+			ci.shift = mUI.input.shiftDown;
+			ci.alt = mUI.input.altDown;
+
+			// ── (o3) LA BANDE NE SE LAISSE PAS CLIQUER A TRAVERS UN MENU ─────
+			// ⚠️ MESURE : cette fonction est appelee AVANT le masquage d'entree du
+			//    corps (l.906 contre l.923-945). Elle recevait donc `mUI.input`
+			//    non filtre -- et un menu de la barre de titre se deroule
+			//    exactement par-dessus elle (le titre finit ou la bande commence).
+			//    Un clic destine a « Fichier > Ouvrir » pouvait activer l'onglet
+			//    du dessous, voire le fermer si la croix tombait sous le pointeur.
+			//
+			// ⚠️ MEME PORTE QUE LES PANNEAUX, PAS UNE SECONDE. `PointReachable`
+			//    rend faux quand une surface d'une couche STRICTEMENT superieure a
+			//    `curInputLayer` recouvre le point. Pendant le chrome,
+			//    `curInputLayer` vaut 0 : tout menu, combo ou modale declare
+			//    au-dessus masque donc la bande, et rien d'autre ne change.
+			//
+			// ⚠️ ON NEUTRALISE LES GESTES, PAS LA POSITION. Le survol reste calcule
+			//    (la bande continue de rapporter `hoveredId`), mais aucun clic ne
+			//    part. Effacer aussi la position ferait CLIGNOTER le survol a
+			//    l'ouverture d'un menu -- un mouvement que personne n'a demande.
+			if (!mUI.PointReachable(mUI.input.mousePos)) {
+				ci.mousePressed = false;
+				ci.mouseReleased = false;
+				ci.mouseDown = false;
+				ci.doubleClick = false;
+				ci.rightPressed = false;
+				ci.wheel = 0.f;
+			}
+
+			NkGuiComponentPaint peintre(mUI, mKitTheme);
+			NkTabStripHooks hooks;
+			mTabsResult = NkDrawTabStrip(peintre, ci, {rect.x, rect.y, rect.w, rect.h}, *mTabsModel,
+										 s, hooks);
+
+			// ── LES GESTES SONT ROUTES, JAMAIS EXECUTES ICI ─────────────────────
+			// La coquille ne sait pas ce qu'un onglet represente : une scene ? un
+			// fichier ? un projet ? Elle ne peut donc ni le fermer, ni decider s'il
+			// faut demander quelque chose avant. Meme partage que `SetToolbar`.
+			if (mTabsResult.selectionChanged && mTabsCb.onSelect)
+				mTabsCb.onSelect(mTabsCb.user, mTabsModel->active);
+			if (mTabsResult.closeRequested && mTabsCb.onClose)
+				mTabsCb.onClose(mTabsCb.user, mTabsResult.closeId);
+			if (mTabsResult.addRequested && mTabsCb.onAdd)
+				mTabsCb.onAdd(mTabsCb.user);
+			if (mTabsResult.contextMenu && mTabsCb.onContextMenu)
+				mTabsCb.onContextMenu(mTabsCb.user, mTabsResult.contextId);
 		}
 
 		// ── Bords de redimensionnement (fenetre sans bordure) ─────────────────────
@@ -2888,8 +3053,47 @@ void NkEditorShell::MaximizeWindow() noexcept {
 					// souris neutralisée pendant OnUI : le code custom des panneaux (éditeur,
 					// arbres) lit l'input en direct et recevrait sinon clics/molette À TRAVERS
 					// la fenêtre du dessus — et lui volerait son drag de barre de titre.
+					//
+					// 🔴 ET LE MEME MASQUAGE POUR LES SURFACES FLOTTANTES DU KIT (14/09).
+					//    RODOLF : « le panneau apercu laisse traverser les evenement ca doit
+					//    etre pareil pour les pastille de droit sur leur panneau ».
+					//
+					//    MESURE, repetable 2 fois sur 2, tiroir de rail BAS ouvert :
+					//      - le pixel (700,700) est OPAQUE, couleur du tiroir #0d1117 ;
+					//      - un clic a CE point change 1 302 pixels a y 81..603, x 525..860,
+					//        c'est-a-dire le contour de selection de la planche AU-DESSUS
+					//        du tiroir ;
+					//      - et c'est EXACTEMENT le meme effet, au pixel, qu'un clic pose
+					//        directement sur la toile a (700,300).
+					//    Le clic traversait donc un panneau opaque.
+					//
+					//    ⚠️ LA CAUSE N'EST PAS UNE SURFACE QUI NE RECLAME PAS. Le recensement
+					//       du 06/09 (`NkEditorSurface.h`) a converti les dix surfaces du kit,
+					//       tiroir de rail compris : `DrawRailDrawers` construit bien une
+					//       `NkSurfaceFlottante` sur `corps`, couche Menu. La reclamation est
+					//       CORRECTE. Ce qui manquait est le SYMETRIQUE : le routeur
+					//       d'occlusion ne sert que ceux qui l'INTERROGENT, et les panneaux
+					//       hotes lisent `ctx.input` en direct. Leur seule garde etait
+					//       `ctx.popupDepth == 0` -- or une `NkSurfaceFlottante` n'est NI une
+					//       fenetre NKGui (donc `hoveredWindowId` ne bouge pas) NI un popup
+					//       (donc `popupDepth` reste a zero). Les deux gardes existantes
+					//       regardaient a cote.
+					//
+					//    ⚠️ ET C'EST BIEN `PointReachable` QU'IL FAUT APPELER, pas un
+					//       rectangle ecrit ici : la surface a deja declare SA geometrie et SA
+					//       couche. Recopier le rectangle du tiroir dans la coquille en ferait
+					//       une seconde verite, qui divergerait a la premiere surface ajoutee.
+					//
+					//    ⚠️ RECLAMER TROP EST UN DEFAUT AU MEME TITRE QUE RECLAMER TROP PEU
+					//       (`NkEditorSurface.h`). Ce masquage ne mord QUE si une surface d'une
+					//       couche STRICTEMENT superieure a celle en cours recouvre le point :
+					//       pendant les panneaux ancres la couche vaut 0, donc rien ne change
+					//       tant qu'aucune surface n'est ouverte -- et une infobulle, qui ne
+					//       declare aucune surface, ne rend rien inerte.
+					const bool sousUneSurface = !mUI.PointReachable(mUI.input.mousePos);
 					const bool shielded =
-						mUI.hoveredWindowId != NKGUI_ID_NONE && mUI.hoveredWindowId != mUI.curWindowId;
+						(mUI.hoveredWindowId != NKGUI_ID_NONE && mUI.hoveredWindowId != mUI.curWindowId)
+						|| sousUneSurface;
 					nkgui::NkGuiInput saved;
 					if (shielded) {
 						saved = mUI.input;

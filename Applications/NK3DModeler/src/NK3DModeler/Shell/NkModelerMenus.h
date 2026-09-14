@@ -6,7 +6,7 @@
 //
 //          Extrait de NkModelerScreens.h pendant la refonte d'interface --
 //          « subdiviser les gros fichiers » (Rihen, 13 aout 2026).
-// @Author  Rihen
+// @Author  TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // @License Proprietary - All Rights Reserved (see LICENSE)
 // -----------------------------------------------------------------------------
 #include "NK3DModeler/Shell/NkModelerUI.h"
@@ -16,6 +16,7 @@
 #include "NK3DModeler/Shell/NkModelerCommon.h"
 #include "NK3DModeler/Viewport/NkDemo3DHost.h"
 #include "NKEditorKit/NkShortcutTable.h"
+#include "NKRenderer/Core/NkTextureCache.h"
 
 namespace nkentseu {
 	namespace nk3d {
@@ -24,8 +25,35 @@ namespace nkentseu {
 		// â”€â”€ DEROULEMENT D'UN MENU â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 		// Peint APRES tout le reste : un menu doit recouvrir les panneaux, et le
 		// registre de zones donne la priorite a ce qui est declare en dernier.
+		/// REDECLARE les entrees de la barre principale DANS LA COUCHE DES
+		/// SURCOUCHES, et y traite le clic. Sans elle, un menu deroule empechait
+		/// d'en ouvrir un autre : l'entree des panneaux est videe a la source tant
+		/// qu'un menu est ouvert (`saisieReservee`, main.cpp), et la barre est
+		/// peinte avec les panneaux. La GEOMETRIE n'est pas recalculee : elle est
+		/// relue de `st.menuBarRects`, posee par `PaintMenuBarI` a la meme image.
+		inline void NkMenuBarClics(NkModelerState &st, NkHitRegistry &hit) {
+			if (st.openMenu < 0)
+				return;
+			char k[16];
+			for (int32 i = 0; i < NkModelerState::kMenuBarCount; ++i) {
+				const NkRect &mr = st.menuBarRects[i];
+				if (mr.w <= 0.f || mr.h <= 0.f)
+					continue;
+				snprintf(k, sizeof(k), "menu.%d", i);
+				(void)hit.Add(k, mr);
+			}
+			for (int32 i = 0; i < NkModelerState::kMenuBarCount; ++i) {
+				snprintf(k, sizeof(k), "menu.%d", i);
+				if (hit.Clicked(k)) {
+					st.openMenu = (st.openMenu == i) ? -1 : i; // le meme = referme
+					return;
+				}
+			}
+		}
+
 		inline void PaintOpenMenu(NkModelerPainter &p, const NkRect &bar, NkModelerState &st,
 								  NkHitRegistry &hit, const NkShortcutTable &sc) {
+			NkMenuBarClics(st, hit);
 			if (st.openMenu < 0)
 				return;
 			int32 nMenus = 0;
@@ -63,6 +91,16 @@ namespace nkentseu {
 			p.Fill({box.x + 2.f, box.y + 2.f, box.w, box.h}, NkRole::WindowBg, 4.f); // ombre portee
 			p.Outline(box, NkRole::Border, NkRole::PanelHeader, 4.f);
 			hit.Add("menu.panel", box); // avale les clics qui tombent dans le menu
+			// ⚠️ L'EMPRISE, qui manquait. `hit.Add` ne protege QUE ce qui passe par
+			// le registre : le code qui lit l'entree directement (la vue 3D lit
+			// `ui.input`, la molette des listes passe par `WheelIn`) traversait le
+			// menu sans le voir. Les menus CONTEXTUELS declaraient cette emprise
+			// depuis le 14 aout (`NkModelerHierarchy.h`, six sites) ; le menu de la
+			// BARRE PRINCIPALE, jamais -- une lecon ecrite a cote d'un chemin ne
+			// couvre pas le chemin voisin. La barre est incluse : sans elle, la
+			// bande entre l'entree et le panneau reste percee.
+			st.UiBlockAdd({bar.x, bar.y, bar.w, bar.h});
+			st.UiBlockAdd(box);
 
 			float32 y = box.y + S(4.f);
 			for (int32 i = 0; i < m.count; ++i) {
@@ -121,6 +159,21 @@ namespace nkentseu {
 							st.projPending = 4;
 						else if (i == 11)
 							NkRequestClose(st);
+					}
+					// MENU OUTILS (index 3) : les indices sont ceux de kTools.
+					//   0 Rechercher une commande · 2 Retopologier · 3 Decimer...
+					//   5 Recuire les textures · 7 Extensions (sous-menu)
+					else if (st.openMenu == 3) {
+						if (i == 5) {
+							// Vide le cache d'actifs textures. Rien n'est perdu :
+							// un actif cuit est un DERIVE, il se refabrique au
+							// prochain chargement. C'est pour ça qu'il n'y a pas
+							// de confirmation — il n'y a rien a confirmer.
+							// Le message part par le LOGGER, et le journal du
+							// modeleur y est branche (`NkJournalSink`) : pas de
+							// second chemin d'affichage a tenir a jour.
+							(void)renderer::NkTextureCache::Vider();
+						}
 					}
 					st.openMenu = -1;
 				}

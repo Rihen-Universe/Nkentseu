@@ -2,6 +2,8 @@
 // =============================================================================
 // NkSceneContext.h  — NKRenderer v5.0  (Core/)
 //
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
+//
 // Contexte d'une frame de rendu 3D : camera, lumieres, IBL, fog, time.
 // Fourni par l'utilisateur a NkRender3D::BeginScene(ctx).
 //
@@ -36,8 +38,42 @@ namespace nkentseu {
 				// ── Environnement / IBL
 				NkTexHandle envMap; // skybox cubemap (compat NkTextureLibrary)
 				NkIBLHandle ibl;	// jeu prefiltre (irradiance + GGX + BRDF LUT)
+				// ⚠️ CES TROIS CHAMPS NE SONT LUS NULLE PART, ET NE L'ONT JAMAIS ETE.
+				// Mesure du 2026-09-07 : `ambientIntensity` a UNE seule occurrence
+				// dans tout `Kernel/` -- la ligne qui suit. `BeginScene` copie le
+				// contexte (`mCtx = ctx`) et personne ne relit jamais ces valeurs.
+				// Vingt-quatre sites les ECRIVENT et n'obtiennent rien : NkDemo3D
+				// (0.15), NkViewport3D (0.45), NkMatPreview3D (0.22), AnimBridge
+				// (0.4), NKARDemo (0.45), NKXRDemo (0.15) et treize demos.
+				//
+				// CE QUI AGIT REELLEMENT, et qui est deja branche partout ou une
+				// interface le propose :
+				//     NkRender3D::SetIBLStrength(s)   au lieu de ambientIntensity
+				//     NkRender3D::SetIBLColor(c)      au lieu de ambientColor
+				// Les deux sont honores EN VOL (mesure : un appel en cours de vie
+				// rend une image octet pour octet identique au meme reglage pose
+				// par la config). L'ambiante mesuree vaut hdr = 0.615 x iblStrength,
+				// constant a +/-0.7 % sur 80x de plage.
+				//
+				// ⚠️ ON NE LES BRANCHE PAS, ET C'EST DELIBERE. Les honorer dans
+				// `BeginScene` rendrait d'un coup effectifs vingt-quatre reglages
+				// jamais eprouves (jusqu'a douze fois l'ambiante actuelle sur
+				// certaines demos) et, pire, ECRASERAIT A CHAQUE IMAGE le curseur
+				// « Ambiance > Intensite » du panneau -- qui, lui, FONCTIONNE
+				// (NkDemo3D.cpp:6942 repose 0.15 par frame). On casserait le seul
+				// reglage qui marche pour faire vivre celui qui ment.
+				//
+				// `[[deprecated]]` : le compilateur nomme desormais chacun des
+				// vingt-quatre sites. Un mensonge silencieux devient un mensonge
+				// qui se signale, en attendant le lot qui les convertira.
+				[[deprecated("champ jamais lu par le moteur -- utiliser "
+							 "NkRender3D::SetIBLStrength()")]]
 				float32 iblIntensity = 1.f;
+				[[deprecated("champ jamais lu par le moteur -- utiliser "
+							 "NkRender3D::SetIBLStrength()")]]
 				float32 ambientIntensity = 0.15f;
+				[[deprecated("champ jamais lu par le moteur -- utiliser "
+							 "NkRender3D::SetIBLColor()")]]
 				NkVec3f ambientColor = {1.f, 1.f, 1.f};
 
 				// ── Time / Frame

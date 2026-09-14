@@ -1,3 +1,4 @@
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 //
 // NkMat.h
 // =============================================================================
@@ -990,8 +991,19 @@ namespace nkentseu {
 
 				// TransformVector : transforme un vecteur directionnel (w=0)
 				// Ignore la translation, applique uniquement rotation+scale
+				//
+				// ⚠️ REPAREE LE 2026-09-13. Le corps rendait `(*this) * NkVec4T(v, 0)`,
+				// donc un NkVec4T, la ou la signature promet un NkVec3T : erreur de type
+				// franche. Elle a dormi parce que TransformVector est un MODELE -- tant
+				// que personne ne l'INSTANCIE, le corps n'est pas verifie. Trois sites
+				// l'avaient contournee sans la corriger, chacun en recopiant sa propre
+				// version (NkGLTFLoader.cpp:179 « conversion ambigue », Demo3DMannequin.cpp:86
+				// « NE COMPILE PAS », et la sonde VEHICULE de Demo3D). Le correctif est
+				// `.xyz()`, comme TransformPoint juste au-dessus. Une INSTANCIATION vit
+				// desormais dans NkSystemsRevivalTest : sans elle, la panne se reperdrait
+				// au prochain appelant au lieu de rougir ici.
 				NkVec3T<T> TransformVector(const NkVec3T<T> &vector) const noexcept {
-					return (*this) * NkVec4T<T>(vector, T(0));
+					return ((*this) * NkVec4T<T>(vector, T(0))).xyz();
 				}
 
 				// TransformNormal : transforme une normale via inverse-transposée

@@ -5,6 +5,7 @@
 // =============================================================================
 #include "NkRendererImpl.h"
 #include "NKCore/Text/NkSnprintf.h"
+#include <cstring>
 #include "NKRenderer/Tools/Reflection/NkPlanarReflectionSystem.h"
 #include "NKRenderer/Tools/VoxelAO/NkVoxelAOSystem.h"
 #include "NKRenderer/Materials/NkMaterialCollection.h"
@@ -12,6 +13,8 @@
 #include "NKMemory/NkAllocator.h"
 #include "NKTime/NkChrono.h" // cap FPS : pacing haute précision (Now/Sleep)
 #include <cstdlib>			 // getenv (NK_FPS_CAP)
+#include <cstdio>			 // sonde NK_AGENT_TONELDR
+#include "NKImage/Core/NkImage.h" // sonde NK_AGENT_TONELDR : PNG du transient
 
 // Windows : ::Sleep() a une granularité ~15,6 ms par défaut -> le sleep du pacing
 // FPS déborde le spin -> jitter (saccade/clignotement des ombres). timeBeginPeriod(1)
@@ -805,6 +808,16 @@ namespace nkentseu {
 				static float sLast = -1.f;
 				const bool first = (sLast < 0.f);
 				if (first || thr > sLast * 1.01f || thr < sLast * 0.99f) {
+					// NK_RG_SEUIL : la meme ligne, par printf. Le seuil HDR que la passe
+					// brillante recoit se lit dans la MEME course que la capture, pas
+					// dans une formule : `logger.Info` n'atteint pas un stdout redirige.
+					if (getenv("NK_RG_SEUIL")) {
+						std::printf("[seuil-bloom] cfgExpo=%.4f resolved=%.4f valid=%d stale=%d "
+									"aeExposure=%.4f bloomThreshold=%.4f seuilHDR=%.4f\n",
+									mCfg.postProcess.exposure, resolved, valid ? 1 : 0, stale ? 1 : 0, aeExposure,
+									mCfg.postProcess.bloomThreshold, thr);
+						std::fflush(stdout);
+					}
 					logger.Info("[MESURE cas4] autoOn={0} cfgExpo={1} resolved={2} valid={3} "
 								"stale={4} aeExposure={5} seuilBrut={6} bloomThr={7}\n",
 								(mPostProcess && mPostProcess->IsAutoExposureEnabled()) ? 1 : 0,
@@ -1070,8 +1083,9 @@ namespace nkentseu {
 					nkentseu::NkSnprintf(passName, sizeof(passName), "Bloom_Up_%d", i);
 					auto &up = g.AddPass(passName, NkPassType::NK_POST_PROCESS);
 					up.Reads(bloomMip[i + 1]);
-					// NK_LOAD pour preserver le downsample de la mip courante
-					// (la pass upsample blende additif par-dessus).
+					// NK_LOAD pour preserver le downsample de la mip courante : la
+					// passe de remontee le MELANGE avec le niveau grossier remonte
+					// (lerp, poids kNkBloomScatter), elle ne l'additionne plus.
 					up.SetColor(0, bloomMip[i], NkLoadOp::NK_LOAD);
 					uint32 div = 1u << (i + 2); // mip i+1 = W/(2^(i+2))
 					uint32 srcW = mCfg.width / div ? mCfg.width / div : 1;
@@ -1080,7 +1094,26 @@ namespace nkentseu {
 					up.Execute([this, src, srcW, srcH](NkICommandBuffer *cmd) {
 						NkTextureHandle srcTex = mRenderGraph->GetResourceTexture(src);
 						if (mPostProcess && srcTex.IsValid()) {
-							mPostProcess->DrawBloomUpPass(cmd, srcTex, srcW, srcH, 1.0f);
+							// L'EPARPILLEMENT s : poids du niveau grossier dans le lerp de
+							// la remontee (pp_bloomup sort (col, s) sous melange classique
+							// SRC_ALPHA / ONE_MINUS_SRC_ALPHA). 0,7 est la valeur par defaut d'Unity ; 1,0
+							// effacerait le niveau fin, 0 rendrait le halo a sa seule
+							// premiere mip. Les poids des six niveaux somment a 1 quelle
+							// que soit s : l'energie ne depend pas de ce reglage.
+							// NK_BLOOM_SCATTER=<s> l'override (banc : c'est le levier qui
+							// separe « le melange conserve l'energie » de « s vaut 0,7 »).
+							static float sScatter = -1.f;
+							if (sScatter < 0.f) {
+								sScatter = 0.7f;
+								if (const char *v = getenv("NK_BLOOM_SCATTER"))
+									if (v[0])
+										sScatter = (float)atof(v);
+								if (sScatter < 0.f)
+									sScatter = 0.f;
+								if (sScatter > 1.f)
+									sScatter = 1.f;
+							}
+							mPostProcess->DrawBloomUpPass(cmd, srcTex, srcW, srcH, sScatter);
 						}
 					});
 				}
@@ -1383,6 +1416,83 @@ namespace nkentseu {
 					NkGraphResId capturedToneId = toneTexId;
 					fxaa.Execute([this, capturedToneId](NkICommandBuffer *cmd) {
 						NkTextureHandle ldr = mRenderGraph->GetResourceTexture(capturedToneId);
+						// SONDE NK_AGENT_TONELDR : on copie l'ENTREE de FXAA, brute, dans un
+						// tampon de relecture AVANT que FXAA ne la lise. C'est la mesure que
+						// le coordinateur exigeait : « lis l'entree reelle de FXAA, pas ce que
+						// tu deduis de FXAA eteinte ». Trois mesures honnetes se contredisent
+						// sur yFlipUV pour DX ; si l'orientation STOCKEE de ce transient varie
+						// selon le contexte, ce n'est pas une constante par API.
+						// ⚠️ LA RELECTURE VIT ICI, PAS DANS EndFrame : le modeleur rend dans le
+						// tampon de commandes de l'editeur et n'atteint JAMAIS
+						// NkRendererImpl::EndFrame -- mesure : la copie s'armait 110 fois et
+						// aucun PNG ne sortait. A la trame N+1, la copie de la trame N est
+						// soumise depuis longtemps : un WaitIdle ici est sur, et ce chemin-ci
+						// est emprunte par TOUTES les applications qui font tourner FXAA.
+						if (mDbgTonePending && mDbgToneBuf.IsValid() && !mDbgToneDone) {
+							mDbgTonePending = false;
+							mDbgToneDone = true;
+							mDevice->WaitIdle();
+							const bool isDX12 = mDevice->GetApi() == NkGraphicsApi::NK_GFX_API_DX12;
+							const uint32 srcPitch = isDX12 ? ((mDbgToneW * 4u + 255u) & ~255u) : mDbgToneW * 4u;
+							NkMappedMemory mapped = mDevice->MapBuffer(mDbgToneBuf);
+							const char *chemin = std::getenv("NK_AGENT_TONELDR");
+							bool ok = false;
+							if (mapped.IsValid() && chemin && chemin[0]) {
+								NkImage img;
+								if (img.Create(mDbgToneW, mDbgToneH, math::NkColor(0, 0, 0, 255), 4)) {
+									// lignes TELLES QUE STOCKEES : aucun retournement, meme sur OpenGL
+									for (uint32 row = 0; row < mDbgToneH; ++row)
+										memcpy(img.Pixels() + (uint64)row * mDbgToneW * 4u,
+											   (const uint8 *)mapped.ptr + (uint64)row * srcPitch, mDbgToneW * 4u);
+									ok = img.Save(chemin);
+								}
+								mDevice->UnmapBuffer(mDbgToneBuf);
+							}
+							std::printf("[toneldr] transient ToneLDR %ux%u, lignes telles que stockees -> %s : %s\n",
+										mDbgToneW, mDbgToneH, chemin ? chemin : "?", ok ? "ecrit" : "ECHEC");
+							std::fflush(stdout);
+						}
+						// NK_AGENT_TONELDR_TRAME=<n> : n'armer qu'a partir de la trame n. Sans
+						// cette porte, la sonde tirait a la PREMIERE trame de FXAA -- avant que
+						// le modeleur ait pose son ciel (classe bleue mesuree : 0,2 %).
+						static int sToneTrame = -1;
+						if (sToneTrame < 0) {
+							const char *tv = std::getenv("NK_AGENT_TONELDR_TRAME");
+							sToneTrame = tv ? std::atoi(tv) : 0;
+						}
+						// ⚠️ On compte les EXECUTIONS DE CETTE PASSE, pas mFrameCounter : celui-ci
+						// s'incremente dans EndFrame, que le modeleur n'atteint jamais -- avec lui
+						// la porte ne s'ouvrait jamais (mesure : 0 PNG a la trame 60).
+						static int sTonePasses = 0;
+						++sTonePasses;
+						if (ldr.IsValid() && !mDbgToneDone && !mDbgTonePending && sTonePasses >= sToneTrame &&
+							std::getenv("NK_AGENT_TONELDR")) {
+							mDbgToneW = mCfg.width;
+							mDbgToneH = mCfg.height;
+							if (!mDbgToneBuf.IsValid()) {
+								const uint32 alignedPitch = (mDbgToneW * 4u + 255u) & ~255u; // DX12 : 256
+								NkBufferDesc bd;
+								bd.sizeBytes = (uint64)alignedPitch * mDbgToneH;
+								bd.type = NkBufferType::NK_STAGING;
+								bd.usage = NkResourceUsage::NK_READBACK;
+								mDbgToneBuf = mDevice->CreateBuffer(bd);
+							}
+							if (mDbgToneBuf.IsValid()) {
+								cmd->TextureBarrier(ldr, NkResourceState::NK_SHADER_READ, NkResourceState::NK_TRANSFER_SRC);
+								NkBufferTextureCopyRegion region{};
+								region.width = mDbgToneW;
+								region.height = mDbgToneH;
+								region.depth = 1;
+								region.bufferRowPitch = 0;
+								cmd->CopyTextureToBuffer(ldr, mDbgToneBuf, region);
+								cmd->TextureBarrier(ldr, NkResourceState::NK_TRANSFER_SRC, NkResourceState::NK_SHADER_READ);
+								mDbgTonePending = true;
+								// CONTROLE POSITIF D'ARMEMENT : sans cette ligne, « pas de PNG » ne
+								// distingue pas « la passe ne tourne pas » de « EndFrame n'est pas atteint ».
+								std::printf("[toneldr] copie de ToneLDR %ux%u ARMEE dans FXAA_Final\n", mDbgToneW, mDbgToneH);
+								std::fflush(stdout); // tue par timeout, un stdout redirige ne se vide jamais
+							}
+						}
 						if (mPostProcess && ldr.IsValid()) {
 							mPostProcess->ExecuteFXAA(cmd, ldr);
 						}
@@ -1500,6 +1610,53 @@ namespace nkentseu {
 				const uint32 sw = mDevice->GetSwapchainWidth(), sh = mDevice->GetSwapchainHeight();
 				if ((sw != mCfg.width || sh != mCfg.height) && sw > 0 && sh > 0)
 					OnResize(sw, sh);
+			}
+			// SONDE NK_AGENT_ONRESIZE=<render2d|render3d|overlay|post|aucun|rebuild|attente>
+			// [+ _TRAME=<n>, defaut 5] : decompose ApplyRenderSize a taille INCHANGEE.
+			//   render2d|render3d|overlay|post : UN SEUL des quatre OnResize, puis
+			//                                    WaitIdle + RebuildRenderGraph ;
+			//   aucun   : AUCUN OnResize, WaitIdle + RebuildRenderGraph ;
+			//   rebuild : RebuildRenderGraph SEUL ;
+			//   attente : WaitIdle SEUL.
+			// MESURE (banc, +fxaa, cube derive, 11/09) : les SEPT modes retournent dx11 a
+			// l'identique (2970 px, y=549.1), Vulkan droit (169.9) -- ET LE MEME BINAIRE
+			// SANS AUCUN LEVIER AUSSI. Ce levier n'a donc RIEN isole : la reference
+			// « +fxaa sans surtaille, dx11 droit » d'ou il partait avait ete lue sur la
+			// MARQUE 2D, dessinee dans Overlay2D APRES FXAA_Final -- un temoin qui ne
+			// peut pas voir FXAA. Lue sur le cube (qui traverse FXAA), FXAA seule
+			// retourne DX11 et DX12. Garde comme instrument : c'est la seule facon de
+			// decomposer ApplyRenderSize a taille egale. Inerte sans la variable.
+			{
+				static int sQuel = -1; static uint32 sTrame = 5; static bool sFait = false;
+				if (sQuel == -1) {
+					sQuel = 0;
+					if (const char *v = std::getenv("NK_AGENT_ONRESIZE")) {
+						if (std::strcmp(v, "render2d") == 0) sQuel = 1;
+						else if (std::strcmp(v, "render3d") == 0) sQuel = 2;
+						else if (std::strcmp(v, "overlay") == 0) sQuel = 3;
+						else if (std::strcmp(v, "post") == 0) sQuel = 4;
+						else if (std::strcmp(v, "aucun") == 0) sQuel = 5;
+						else if (std::strcmp(v, "rebuild") == 0) sQuel = 6;
+						else if (std::strcmp(v, "attente") == 0) sQuel = 7;
+					}
+					if (const char *t = std::getenv("NK_AGENT_ONRESIZE_TRAME")) sTrame = (uint32)std::atoi(t);
+				}
+				if (sQuel > 0 && !sFait && mFrameCounter >= sTrame) {
+					sFait = true;
+					const uint32 w0 = mCfg.width, h0 = mCfg.height;
+					const char *nom = "aucun";
+					if (sQuel == 1 && mRender2D) { mRender2D->OnResize(w0, h0); nom = "Render2D"; }
+					if (sQuel == 2 && mRender3D) { mRender3D->OnResize(w0, h0); nom = "Render3D"; }
+					if (sQuel == 3 && mOverlay) { mOverlay->OnResize(w0, h0); nom = "Overlay"; }
+					if (sQuel == 4 && mPostProcess) { mPostProcess->OnResize(w0, h0); nom = "PostProcess"; }
+					const bool attend = (sQuel != 6);
+					const bool refait = (sQuel != 7);
+					if (attend && mDevice) mDevice->WaitIdle();
+					if (refait) RebuildRenderGraph();
+					std::printf("[onresize-seul] OnResize=%s (%u, %u) a la trame %u | WaitIdle=%d RebuildRenderGraph=%d\n",
+								sQuel <= 4 ? nom : "aucun", w0, h0, mFrameCounter, attend ? 1 : 0, refait ? 1 : 0);
+					std::fflush(stdout);
+				}
 			}
 
 			if (!mDevice->BeginFrame(mFrameCtx))
