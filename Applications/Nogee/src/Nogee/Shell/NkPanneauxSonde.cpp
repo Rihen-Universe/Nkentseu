@@ -21,7 +21,11 @@ namespace nkentseu {
 				return;
 			nkgui::NkGuiContext &ui = ec.Ui();
 			++s.frame;
-			if (s.frame < s.frameMesure)
+			// Phase 0 : la mesure de reference. Phase 1 : la meme, apres que la
+			// fenetre a change de taille — on laisse passer des images pour que le
+			// dock ait recalcule, sinon on mesurerait la geometrie d'avant.
+			const int32 cible = (s.phase == 0) ? s.frameMesure : s.frameApres;
+			if (s.frame < cible)
 				return;
 
 			const float32 W = static_cast<float32>(ui.viewW);
@@ -44,7 +48,8 @@ namespace nkentseu {
 			const float32 railG = corps.x;
 			const float32 railD = W - (corps.x + corps.w);
 
-			std::printf("[PANNEAUX] --- MESURE frame=%d ---\n", s.frame);
+			std::printf("[PANNEAUX] --- MESURE frame=%d phase=%d (%s) ---\n", s.frame, s.phase,
+						s.phase == 0 ? "taille d'origine" : "APRES redimensionnement");
 			std::printf("[PANNEAUX] fenetre W=%.2f H=%.2f  echelle=%.4f  hauteur_ligne=%.2f\n",
 						static_cast<double>(W), static_cast<double>(H),
 						static_cast<double>(ui.scale), static_cast<double>(ui.ItemHeight()));
@@ -84,8 +89,24 @@ namespace nkentseu {
 							ui.dockNodes[node].winCount);
 			}
 
-			std::printf("[PANNEAUX] --- FIN DE MESURE ---\n");
+			std::printf("[PANNEAUX] --- FIN DE MESURE phase=%d ---\n", s.phase);
 			std::fflush(stdout);
+
+			// ── LE NEGATIF : on change la taille, et on remesure ─────────────
+			if (s.redim && s.phase == 0) {
+				const uint32 nW = static_cast<uint32>(W * kRedimW);
+				const uint32 nH = static_cast<uint32>(H * kRedimH);
+				std::printf("[PANNEAUX] REDIMENSIONNEMENT : %ux%u -> %ux%u (via Resize, "
+							"aucune injection d'entree)\n",
+							static_cast<unsigned>(W), static_cast<unsigned>(H),
+							static_cast<unsigned>(nW), static_cast<unsigned>(nH));
+				std::fflush(stdout);
+				shell->Resize(nW, nH);
+				s.phase = 1;
+				s.frameApres = s.frame + 30; // laisser le dock recalculer
+				return;
+			}
+
 			s.reported = true;
 			shell->RequestClose();
 		}
