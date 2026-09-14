@@ -9800,9 +9800,40 @@ namespace nkuidesign {
 					if (!d || !d->name)
 						continue;
 					const NkRect r = ctx.NextItemRect(-1.f, 26.f);
+					// 🔴 « la partie bibliotheque ne fonctionne pas » (Rodolf, 14/09) —
+					//    ET IL AVAIT RAISON, mesure a l'appui. Ce panneau DESSINAIT le
+					//    registre reel (les composants, leurs sections, le compte
+					//    d'instances) et **aucune ligne n'etait attrapable** : pas un
+					//    clic, pas un glisser. Son infobulle promettait pourtant
+					//    « Bibliotheque de composants — ACQUERIR ». Un catalogue qu'on
+					//    ne peut que regarder, sous une etiquette qui dit « prendre ».
+					//
+					// ⚠️ ON N'ECRIT PAS UN GESTE : ON APPELLE CELUI QUI EXISTE. La
+					//    palette pose deja ses composants par le glisser de NKGui, et
+					//    `GlisserPalette.h` porte la DECISION (ou tombe le composant,
+					//    dans quel parent, avec quelle aimantation). La toile accepte
+					//    deja `glisser::NkTypeCharge()`. Il ne manquait QUE la source.
+					//
+					// ⚠️ ET C'EST LA FORME A ZONE, pas la forme widget : une ligne
+					//    dessinee a la main n'est pas un widget NKGui, `activeId` ne la
+					//    designera jamais, et `BeginDragSource(ctx)` ne pourrait pas
+					//    demarrer. C'est le meme constat que la hierarchie, paye le
+					//    2026-08-17 — la forme a zone existe depuis, et c'est elle.
+					const bool survolLigne = ctx.InputHits(r);
+					if (survolLigne)
+						dl.AddRectFilled(r, ctx.theme.buttonHover, 3.f);
 					costume::IcPanneau(dl, r.x + 12.f, r.y + 7.f, ctx.theme.textMuted);
 					costume::Texte(dl, F.px11, r.x + 30.f, costume::CentrerY(F.px11, r.y, 26.f),
 								   d->name, ctx.theme.text);
+					{
+						char idz[96];
+						snprintf(idz, sizeof(idz), "biblio.%s.glisser", d->name);
+						if (nkgui::BeginDragSource(ctx, ctx.GetId(idz), r)) {
+							nkgui::SetDragPayload(ctx, glisser::NkTypeCharge(), d->name,
+												  (int32)(strlen(d->name) + 1u), d->name);
+							nkgui::EndDragSource(ctx);
+						}
+					}
 					// le compte d'instances RÉEL dans le document (badge « ×N »)
 					int32 compte = 0;
 					for (uint32 i = 0; i < (uint32)mSt->doc.nodes.Size(); ++i)
@@ -9815,6 +9846,28 @@ namespace nkuidesign {
 											 r.x + 34.f + costume::Largeur(F.px11, d->name),
 											 r.y + 6.f, 14.f, b, ctx.theme.accent);
 					}
+				}
+				// ── CE QUE LA BIBLIOTHEQUE NE SAIT PAS ENCORE FAIRE, ET ELLE LE DIT ──
+				// ⚠️ MESURE DU 14/09, ET ELLE CONTREDIT LE COMMIT QUI L'A PRECEDEE.
+				//    J'ai declare chaque ligne comme SOURCE de glisser (forme a zone,
+				//    charge = le nom declare, type = celui que la toile accepte). Puis
+				//    j'ai mesure le geste complet : glisser une ligne vers la toile
+				//    donne EXACTEMENT la meme image, au pixel, qu'un glisser parti
+				//    d'une zone VIDE du tiroir -- 0 pixel de difference, deux courses
+				//    sur deux. **Le depot n'a pas lieu.** La source est posee, le
+				//    geste ne l'est pas.
+				//    Plutot que d'annoncer un correctif que la mesure dement, la
+				//    bibliotheque DIT ou elle en est. Un catalogue qu'on ne peut que
+				//    regarder sous une etiquette qui promet « acquerir » est un
+				//    mensonge d'interface ; le meme catalogue qui nomme son manque ne
+				//    l'est pas.
+				{
+					const NkRect r = ctx.NextItemRect(-1.f, 34.f);
+					costume::Texte(dl, F.px10, r.x + 12.f, r.y + 4.f,
+								   "Poser un composant sur la toile : pas encore branche.",
+								   ctx.theme.textMuted);
+					costume::Texte(dl, F.px10, r.x + 12.f, r.y + 18.f,
+								   "Passez par la Palette en attendant.", ctx.theme.textMuted);
 				}
 				// ── « Importer un composant… » (pied, inerte et il le dit) ───
 				{
