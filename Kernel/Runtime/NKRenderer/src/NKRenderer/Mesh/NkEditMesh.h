@@ -1,5 +1,6 @@
 // =============================================================================
 // NkEditMesh.h — NKRenderer
+// @Author  TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // Maillage éditable en structure DEMI-ARÊTE (half-edge), support des faces à N
 // sommets (n-gons), façon BMesh (Blender) / GMesh (Hoppe). Zero-STL.
 //
@@ -1126,6 +1127,37 @@ namespace nkentseu {
 				//   • l'écart `gap` est obligatoire (cf. NkEdgeSplitParams).
 				bool SplitSelectedEdges(const NkEdgeSplitParams &p = NkEdgeSplitParams{});
 
+				// ── EDGE SPLIT PAR LISTE D'ARETES — LA PORTE DES COUTURES ───────────
+				// MEME decoupe que ci-dessus (meme corps : les deux passent par
+				// `SplitImpl`), mais les aretes sont DESIGNEES au lieu d'etre deduites
+				// d'une selection de sommets.
+				//
+				// POURQUOI CETTE SURCHARGE EXISTE. `SplitSelectedEdges` decoupe l'arete
+				// dont LES DEUX EXTREMITES sont selectionnees. Une couture UV, elle, est
+				// un ensemble d'ARETES, et les deux ne sont pas traduisibles l'un dans
+				// l'autre : sur un cube deplie en croix, les sommets touches par les 7
+				// coutures couvrent presque toutes les aretes — on ne decouperait pas la
+				// croix, on pulveriserait le cube. Mesure, pas supposee.
+				//
+				// `keepGeometry` : AUCUN ecart. Une de-soudure de couture est
+				// TOPOLOGIQUE — les positions ne bougent pas d'un bit, sans quoi deplier
+				// un modele le deformerait. C'est l'inverse du « rip » facon Blender (V),
+				// qui ecarte justement pour montrer la dechirure.
+				// ⚠ A NE PAS CONFONDRE avec `NkEdgeSplitParams::gap = 0`, qui ne signifie
+				// PAS « ecart nul » mais « ecart AUTOMATIQUE de 1 % de la diagonale ».
+				// Cette convention contredit celle du meme fichier (cf. NkExtrudeParams
+				// l.31-36 : « offset < 0 => AUTO ; offset == 0 => la geometrie nait
+				// EXACTEMENT sur l'originale »). Le defaut n'est PAS corrige ici : un
+				// defaut qui change de sens casse silencieusement ses appelants. Il est
+				// signale, et `keepGeometry` le contourne en forcant l'ecart a zero apres
+				// que la regle existante a joue.
+				//
+				// `outDuplicated` recoit le nombre de sommets crees. Zero quand aucune
+				// arete ne separe reellement un ventilateur : c'est un resultat, pas un
+				// echec (cf. la limite de l'arete isolee, ci-dessus).
+				bool SplitEdges(const NkEmId *edges, uint32 count, bool keepGeometry = true,
+								uint32 *outDuplicated = nullptr);
+
 				// ── SPIN / RÉVOLUTION (J) ───────────────────────────────────────────
 				// Le PROFIL tourné = les arêtes dont les deux extrémités sont
 				// sélectionnées (mode relié) ou les faces sélectionnées (mode duplicate).
@@ -1169,6 +1201,21 @@ namespace nkentseu {
 								   const NkMat4f &localToPlaneSpace);
 
 			private:
+				// ── CORPS UNIQUE DE L'EDGE SPLIT ───────────────────────────────────
+				// `SplitSelectedEdges` et `SplitEdges` sont deux PORTES sur la meme
+				// decoupe de ventilateur. Elles ne different que par la facon de designer
+				// les aretes a couper : deduites de la selection de sommets pour la
+				// premiere (`edgeList == nullptr`), donnees telles quelles pour la
+				// seconde.
+				//
+				// UNE SEULE IMPLEMENTATION, ET C'EST UNE REGLE DE CE FICHIER : une
+				// deuxieme decoupe de ventilateur ecrite a cote de celle-ci divergerait,
+				// exactement comme la structure demi-arete concurrente supprimee en
+				// juillet (cf. l'en-tete du fichier). Le chemin historique passe par
+				// `edgeList == nullptr` et reste, ligne pour ligne, ce qu'il etait.
+				bool SplitImpl(const NkEdgeSplitParams &p, const NkEmId *edgeList, uint32 edgeCount,
+							   bool keepGeometry, uint32 *outDuplicated);
+
 				// Lie les jumeaux (twin) via une table de hachage sur (min,max) des sommets.
 				void LinkTwins();
 				// Retire du tableau les faces et demi-aretes mortes. Le chemin par la

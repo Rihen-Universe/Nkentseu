@@ -57,6 +57,14 @@ void EnqueteLePrix();		// (f2) LE PRIX du donor-cell (NK_FLUID_MAC=4)
 void EnqueteStabilite();	// (f3) LA STABILITÉ, filet coupé (NK_FLUID_MAC=5)
 void EnqueteRuptureFine();	// (g1) la rupture ENCADRÉE par dichotomie (NK_FLUID_MAC=6)
 void EnqueteCibleSousCyclage(); // (g2)+(g3) la courbe, la cible, le NOUVEAU prix (NK_FLUID_MAC=7)
+void EnqueteOrdreSuperieur();	// (h1)+(h3) l'ORDRE SUPÉRIEUR : le prix repayé ? (NK_FLUID_MAC=8)
+void ControleOrdreSuperieur();	// (h2) les trois contrôles de la course complète
+void EnqueteFumeeQuiPese();		  // (i) l'ENQUÊTE, AUCUN verdict (NK_FLUID_MAC=9)
+void EnqueteComptageAnalytique(); // (j1) le comptage À LA MAIN (NK_FLUID_MAC=a)
+void EnqueteComptageChaleur();	  // (k1) le MÊME comptage, sur la CHALEUR (NK_FLUID_MAC=b)
+void EnqueteEchelleDebit();		  // (p2) l'échelle de débit, re-réglage de (e) (NK_FLUID_MAC=c)
+void EnqueteCoutAffichage();	  // (r) marche avec/sans ombres + le transfert (NK_FLUID_MAC=d)
+void EnqueteVentilationPas();	  // (s0) la ventilation du pas par phase (NK_FLUID_MAC=e)
 void PalierVolutes(bool complet); // (n1)(n3)(n2a) toujours ; (n2b) sous NK_FLUID_VOLUTES=1 (PLAN_VOLUTES.md)
 void ImagesDuConfinement(float32 epsilon);
 float32 EpsilonConfinement();
@@ -695,6 +703,102 @@ int main(int argc, char **argv) {
 		EnqueteCibleSousCyclage();
 		printf("\n=============================================================\n");
 		printf("BILAN (mode NK_FLUID_MAC=7, (g2)+(g3) LA CIBLE) : %d controles, %d ROUGES\n", gChecks, gFailures);
+		printf("=============================================================\n");
+		return gFailures == 0 ? 0 : 1;
+	}
+	// NK_FLUID_MAC=8 : (h1) le DÉTAIL qui revient, et (h3) la stabilité qui bouge ou
+	// non — l'ÉTAPE 6, ouverte par la décision de Rodolf du 13/09 : ne pas SUBIR
+	// l'arbitrage masse/détail mais le SUPPRIMER. Le lot se juge sur UN rapport,
+	// Tmax / Tmax(référence), avec son seuil écrit AVANT (0,50, repris de Q6).
+	// ⚠️ Le mode fait tourner SIX bras de la scène (e) dans la MÊME course, dont le
+	// schéma SANS limiteur : il est FAUX exprès, c'est le témoin qui prouve que le
+	// détecteur de densité négative sait rendre autre chose que zéro.
+	if (mac != nullptr && mac[0] == '8') {
+		EnqueteOrdreSuperieur();
+		printf("\n=============================================================\n");
+		printf("BILAN (mode NK_FLUID_MAC=8, (h) L'ORDRE SUPERIEUR) : %d controles, %d ROUGES\n", gChecks,
+			   gFailures);
+		printf("=============================================================\n");
+		return gFailures == 0 ? 0 : 1;
+	}
+	// NK_FLUID_MAC=9 : l'ENQUÊTE (i), LA FUMÉE QUI PÈSE. ⚠️ CE N'EST PAS UN TÉMOIN
+	// et elle ne rend AUCUN verdict — comme les enquêtes de la bascule et (g2).
+	// (h1) a éliminé l'ordre du schéma scalaire comme cause du prix : même un
+	// Lax-Wendroff NU, sans aucune diffusion au premier ordre, plafonne à 0,4030.
+	// Cette enquête va voir du côté du PREMIER terme de l'équation (8) de Fedkiw —
+	// celui qui fait PESER la fumée, et dont le semi-lagrangien perd 43 %.
+	if (mac != nullptr && mac[0] == '9') {
+		EnqueteFumeeQuiPese();
+		return 0;
+	}
+	// NK_FLUID_MAC=a : (j1) LE COMPTAGE ANALYTIQUE. Il transforme en FAIT la
+	// déduction de l'enquête (i) : la masse attendue est recalculée À LA MAIN,
+	// depuis les paramètres d'injection, et JAMAIS demandée au solveur qu'elle
+	// juge. Quatre contrôles, dont une MUTATION qui doit faire rougir le compteur
+	// — un compteur qui ne sait pas rougir n'a jamais rien prouvé en verdissant.
+	// (La lettre, pas un chiffre : `mac[0] == '1'` attraperait « 10 ».)
+	// NK_FLUID_MAC=b : (k1) LE MÊME COMPTAGE, SUR LA CHALEUR. La masse prouve que
+	// le semi-lagrangien fabrique de la MATIÈRE ; mais l'arbitrage de Rodolf porte
+	// sur Tmax, donc sur la CHALEUR — tant que le facteur 8,7 reste une déduction,
+	// il reste une inférence sur le nombre qui DÉCIDE.
+	// ⚠️ Ce mode s'autorise la MÊME fonction de comptage que (j1) parce que trois
+	// préconditions le permettent, lues dans le code et nommées dans le plan (§ 13).
+	// Il ajoute (k0), le contrôle qui MANQUAIT à (j1) : la source injecte-t-elle
+	// exactement ce que je compte, AVANT tout transport ?
+	// NK_FLUID_MAC=c : (p2) L'ÉCHELLE DE DÉBIT. Elle ne juge pas un schéma, elle
+	// CHOISIT un réglage — et ses deux seuls verdicts sont des GARDES : à débit nul
+	// Tmax revient exactement à l'ambiante, et la courbe est monotone (sans quoi le
+	// débit ne serait pas le levier, et la règle de choix porterait sur du vide).
+	// ⚠️ UN SEUL LEVIER, le DÉBIT : tirer sur la grandeur qu'on mesure reviendrait à
+	// écrire la réponse.
+	// NK_FLUID_MAC=d : (r) LE COÛT D'UN AFFICHAGE. Les deux mesures que j'ai
+	// moi-même exigées avant de recommander un chemin — la marche SANS ombres, et
+	// le transfert chiffré À PART. ⚠️ Le TÉLÉVERSEMENT GPU n'y est PAS mesuré : le
+	// banc n'ouvre aucun device. Sa part CPU l'est, le reste est BORNÉ et dit tel.
+	// ⚠️ Les deux verdicts sont des RAPPORTS, jamais des seuils en millisecondes :
+	// un seuil dépendrait de la machine, un rapport désigne le chemin à écrire.
+	// NK_FLUID_MAC=e : (s0) LA VENTILATION DU PAS. L'etape 0 du portage GPU, et
+	// elle peut TUER le lot : si la projection pese moins de 50 %, la cible change.
+	// ⚠️ AMDAHL est calcule sur le chiffre MESURE, pas suppose — un facteur 10 sur
+	// une phase qui pese 60 % ne donne que 2,17 sur le total.
+	// ⚠️ Sa garde (s0g) verifie que la somme des parts vaut le total a 2 % pres :
+	// si une phase echappe au comptage, aucun pourcentage n'est lisible.
+	if (mac != nullptr && mac[0] == 'e') {
+		EnqueteVentilationPas();
+		printf("\n=============================================================\n");
+		printf("BILAN (mode NK_FLUID_MAC=e, (s0) LA VENTILATION DU PAS) : %d controles, %d ROUGES\n", gChecks,
+			   gFailures);
+		printf("=============================================================\n");
+		return gFailures == 0 ? 0 : 1;
+	}
+	if (mac != nullptr && mac[0] == 'd') {
+		EnqueteCoutAffichage();
+		printf("\n=============================================================\n");
+		printf("BILAN (mode NK_FLUID_MAC=d, (r) LE COUT D AFFICHAGE) : %d controles, %d ROUGES\n", gChecks,
+			   gFailures);
+		printf("=============================================================\n");
+		return gFailures == 0 ? 0 : 1;
+	}
+	if (mac != nullptr && mac[0] == 'c') {
+		EnqueteEchelleDebit();
+		printf("\n=============================================================\n");
+		printf("BILAN (mode NK_FLUID_MAC=c, (p2) L ECHELLE DE DEBIT) : %d controles, %d ROUGES\n", gChecks,
+			   gFailures);
+		printf("=============================================================\n");
+		return gFailures == 0 ? 0 : 1;
+	}
+	if (mac != nullptr && mac[0] == 'b') {
+		EnqueteComptageChaleur();
+		printf("\n=============================================================\n");
+		printf("BILAN (mode NK_FLUID_MAC=b, (k1) LA CHALEUR) : %d controles, %d ROUGES\n", gChecks, gFailures);
+		printf("=============================================================\n");
+		return gFailures == 0 ? 0 : 1;
+	}
+	if (mac != nullptr && mac[0] == 'a') {
+		EnqueteComptageAnalytique();
+		printf("\n=============================================================\n");
+		printf("BILAN (mode NK_FLUID_MAC=a, (j1) LE COMPTAGE ANALYTIQUE) : %d controles, %d ROUGES\n", gChecks,
+			   gFailures);
 		printf("=============================================================\n");
 		return gFailures == 0 ? 0 : 1;
 	}
