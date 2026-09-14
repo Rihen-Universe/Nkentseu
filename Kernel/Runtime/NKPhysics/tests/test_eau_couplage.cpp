@@ -368,9 +368,10 @@ namespace {
 	};
 
 	void PasFlotteur(Flotteur &f, const NkBuoyancyParams &bp, const NkWaterParams &houle,
-					 const NkWaterDisturbance *champ, float32 t, float32 dt) {
+					 const NkWaterDisturbance *champ, float32 t, float32 dt,
+					 uint32 exclure = 0u) {
 		const NkBuoyancyResult r =
-			NkBuoyancySphere(bp, houle, f.position, f.rayon, f.vitesse, t, champ);
+			NkBuoyancySphere(bp, houle, f.position, f.rayon, f.vitesse, t, champ, 0.f, exclure);
 		const NkVec3f poids = {0.f, -f.masse * bp.gravity, 0.f};
 		const NkVec3f acc = (r.force + poids) * (1.f / f.masse);
 		f.vitesse = f.vitesse + acc * dt;
@@ -605,6 +606,62 @@ namespace {
 				   "(f2n-b) eau calme : le corps reste a une hauteur constante (a 1e-4 m ; PAS au "
 				   "bit, et c'est dit : la force nette a l'equilibre n'est pas exactement nulle en "
 				   "flottant)");
+		}
+
+		// ── (f3) UN CORPS NE S'ENFONCE PAS DANS SON PROPRE CREUX ──────────────
+		// CE DEFAUT N'EXISTAIT PAS AVANT LE CABLAGE DU PRODUIT : tant que le banc
+		// mesurait les deux moities SEPAREMENT, la flottabilite ne voyait aucune
+		// perturbation. Des que le corps creuse l'eau ET interroge cette meme eau,
+		// il trouve SON PROPRE bassin, en deduit moins d'eau, donc moins de poussee,
+		// donc il descend -- ce qui creuse davantage. Une boucle silencieuse : le
+		// corps « coule un peu », et on accuse sa masse.
+		//
+		// L'ATTENDU, ECRIT AVANT : avec exclusion, l'equilibre est le MEME que sans
+		// aucune perturbation (celui de (f1)). SANS exclusion, la surface a son
+		// aplomb est abaissee d'au moins |a| = 3V/(pi R^2), donc il doit descendre
+		// d'au moins la moitie de ca -- une borne lache, volontairement : ce qu'on
+		// veut prouver est le SIGNE et l'ordre, pas une valeur d'equilibre d'une
+		// boucle de reaction.
+		{
+			const float32 R = 3.f * aFlot;
+			const float32 aCentre = -3.f * vAttendu / (3.1415926535f * R * R);
+			NkWaterDisturbance champ;
+			champ.Reserve(8u);
+
+			Flotteur f;
+			f.rayon = rayon;
+			f.masse = masse;
+			f.position = {0.f, yEq, 0.f};
+			float32 t = 0.f;
+			for (uint32 i = 0; i < pas; ++i) {
+				champ.SetHull(1u, NkVec2f{f.position.x, f.position.z}, R, vAttendu);
+				PasFlotteur(f, bp, calme, &champ, t, dt, /*exclure*/ 1u);
+				t += dt;
+			}
+			Flotteur g;
+			g.rayon = rayon;
+			g.masse = masse;
+			g.position = {0.f, yEq, 0.f};
+			NkWaterDisturbance champ2;
+			champ2.Reserve(8u);
+			float32 tg = 0.f;
+			for (uint32 i = 0; i < pas; ++i) {
+				champ2.SetHull(1u, NkVec2f{g.position.x, g.position.z}, R, vAttendu);
+				PasFlotteur(g, bp, calme, &champ2, tg, dt, /*exclure*/ 0u);
+				tg += dt;
+			}
+			std::fprintf(stderr,
+						 "     carene du corps lui-meme : R = %.4f m, creux au centre %.6f m\n"
+						 "     AVEC exclusion  : y = %.6f m (attendu %.6f, l'equilibre de (f1))\n"
+						 "     SANS exclusion  : y = %.6f m -- il s'enfonce dans son propre creux\n",
+						 (double)R, (double)aCentre, (double)f.position.y, (double)yEq,
+						 (double)g.position.y);
+			ECHECK(NkFabs(f.position.y - yEq) < 1e-3f,
+				   "(f3) un corps EXCLU de sa propre perturbation flotte a l'equilibre d'Archimede, "
+				   "exactement comme s'il ne creusait rien");
+			ECHECK(g.position.y < yEq + 0.5f * aCentre,
+				   "(f3n) NEGATIF : SANS l'exclusion il S'ENFONCE dans le bassin qu'il a creuse -- "
+				   "la boucle de reaction existe, et elle serait muette");
 		}
 	}
 

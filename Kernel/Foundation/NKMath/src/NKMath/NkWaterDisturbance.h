@@ -245,8 +245,11 @@ namespace nkentseu {
 				// ── LA RIDE ──────────────────────────────────────────────────────
 				// Le trou que le corps vient de quitter. Rend FAUX quand la file est
 				// pleine, et `Dropped()` monte.
+				// `owner` : le corps qui l'a lachee. Il sert a l'EXCLURE de sa propre
+				// perturbation (cf. `Sample`) ; 0 = personne, la ride agit sur tout le
+				// monde.
 				bool Shed(const NkVec2f &center, float32 radius, float32 volume, float32 time,
-						  float32 damping, float32 spread = 0.f) {
+						  float32 damping, float32 spread = 0.f, uint32 owner = 0u) {
 					if (mCapacity != 0u && (uint32)mSources.Size() >= mCapacity) {
 						++mDropped;
 						return false;
@@ -258,6 +261,7 @@ namespace nkentseu {
 					s.birth = time;
 					s.damping = damping;
 					s.spread = spread;
+					s.owner = owner;
 					s.persistent = false;
 					mSources.PushBack(s);
 					++mShed;
@@ -289,9 +293,26 @@ namespace nkentseu {
 
 				// LA SOMME. Zéro source -> un échantillon EXACTEMENT nul (les trois
 				// champs à +0.0f), ce dont l'évaluateur se sert pour ne rien toucher.
-				NkWaterDisturbanceSample Sample(float32 x, float32 z, float32 time) const noexcept {
+				//
+				// ── 🔴 `excludeOwner`, ET POURQUOI IL EXISTE ────────────────────────
+				// UN CORPS NE S'ENFONCE PAS DANS SON PROPRE CREUX. Sans cette porte, la
+				// flottabilité interroge la surface à l'aplomb du corps, y trouve le
+				// bassin que le corps lui-même y a creusé, en déduit moins d'eau, donc
+				// moins de poussée — et le corps descend, ce qui creuse davantage. Une
+				// boucle de réaction positive, et rien ne l'aurait dite : le corps
+				// aurait simplement « coulé un peu », ce qu'on aurait mis sur le compte
+				// de la masse. Le rendu, lui, n'exclut RIEN (`excludeOwner = 0`) : le
+				// creux doit se VOIR, c'est tout l'objet du lot.
+				// ⚠️ Conséquence assumée : un corps ne sent pas non plus SA PROPRE
+				// trace. Pour ce modèle c'est le comportement voulu ; le jour où deux
+				// corps devront s'influencer, ils le feront — leurs propriétaires
+				// diffèrent.
+				NkWaterDisturbanceSample Sample(float32 x, float32 z, float32 time,
+												uint32 excludeOwner = 0u) const noexcept {
 					NkWaterDisturbanceSample o;
 					for (nk_size i = 0; i < mSources.Size(); ++i) {
+						if (excludeOwner != 0u && mSources[i].owner == excludeOwner)
+							continue;
 						const NkWaterDisturbanceSample s = NkWaterSourceSample(mSources[i], x, z, time);
 						if (s.height != 0.f)
 							o.height += s.height;
@@ -304,8 +325,9 @@ namespace nkentseu {
 				}
 
 				// La hauteur seule, pour un appelant qui n'a que faire des pentes.
-				float32 Height(float32 x, float32 z, float32 time) const noexcept {
-					return Sample(x, z, time).height;
+				float32 Height(float32 x, float32 z, float32 time,
+							   uint32 excludeOwner = 0u) const noexcept {
+					return Sample(x, z, time, excludeOwner).height;
 				}
 
 			private:
@@ -401,7 +423,7 @@ namespace nkentseu {
 					// s'éclaircit quand il accélère — l'inverse de ce qu'on voit.
 					while (mTravel >= p.stepDistance) {
 						mTravel -= p.stepDistance;
-						if (field.Shed(position, radius, vRide, time, p.damping, p.spread))
+						if (field.Shed(position, radius, vRide, time, p.damping, p.spread, owner))
 							++n;
 						else
 							break; // file pleine : elle l'a déjà compté, on n'insiste pas
