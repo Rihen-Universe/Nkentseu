@@ -60,6 +60,10 @@ void EnqueteCibleSousCyclage(); // (g2)+(g3) la courbe, la cible, le NOUVEAU pri
 void PalierVolutes(bool complet); // (n1)(n3)(n2a) toujours ; (n2b) sous NK_FLUID_VOLUTES=1 (PLAN_VOLUTES.md)
 void ImagesDuConfinement(float32 epsilon);
 float32 EpsilonConfinement();
+// LA FUMEE SANS LE FEU (fumee.cpp) -- (f1) la masse, (f2) la montee, (f3) rien
+// ne brule, (f4) ca se voit ; chacun avec son NEGATIF, plus LE PRIX par image.
+// Mode court : NK_FUMEE=1 -- seul ce palier tourne.
+void PalierFumee();
 
 static void Check(bool ok, const char *nom, const char *detail) {
 	++gChecks;
@@ -587,6 +591,19 @@ int main(int argc, char **argv) {
 	printf("2001, eq. (8). Banc CPU, aucun GPU, aucune fenêtre.\n");
 	printf("=============================================================\n");
 
+	// Mode FUMEE : seul le palier de la fumee sans le feu tourne. Il ne remplace
+	// pas la course complete et ne rend aucun verdict sur le reste du solveur --
+	// il repond a UNE question : un panache monte-t-il sans que rien ne brule.
+	const char *fumee = ::nkentseu::env::GetEnvVar("NK_FUMEE");
+	if (fumee != nullptr && fumee[0] == '1') {
+		PalierFumee();
+		printf("\n=============================================================\n");
+		printf("BILAN (mode NK_FUMEE=1, LA FUMEE SANS LE FEU) : %d controles, %d ROUGES\n", gChecks,
+			   gFailures);
+		printf("=============================================================\n");
+		return gFailures == 0 ? 0 : 1;
+	}
+
 	// Mode BALAYAGE : seul le tableau qui CHOISIT epsilon tourne. C'est une
 	// enquete de parametre, pas un temoin -- elle ne rend aucun verdict.
 	const char *sweep = ::nkentseu::env::GetEnvVar("NK_FLUID_SWEEP");
@@ -731,6 +748,7 @@ int main(int argc, char **argv) {
 	Transport(false);
 	DixSecondes();
 	PalierRendu();
+	PalierFumee(); // la fumee sans le feu, AVANT le feu : c'est l'ordre du canal
 	PalierFeu();
 	PalierVorticite();
 	PalierBranchement();
