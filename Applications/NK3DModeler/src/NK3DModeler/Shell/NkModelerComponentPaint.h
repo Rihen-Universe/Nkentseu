@@ -91,6 +91,45 @@ namespace nkentseu {
 					mP.VLine(x, y, h, role);
 				}
 
+				// ── LES DEUX PRIMITIVES QUI TRACENT (2026-09-14) ────────────────
+				// ⚠️ ELLES MANQUAIENT, ET LE MANQUE NE SE VOYAIT PAS DANS UN BANC.
+				//    `Line` et `Ellipse` sont additives a DEFAUT INERTE : la classe
+				//    de base rend `false`, l'appelant peint alors un repli VISIBLE.
+				//    Resultat mesure le 14/09 sur une capture de NK3DModeler : le
+				//    « + » de la bande d'onglets sortait en CARRE BLANC, pendant que
+				//    le banc rendait 104/104 et la geometrie au centieme. Aucun
+				//    critere ne pouvait le voir -- le repli est un comportement
+				//    LEGITIME, pas une erreur.
+				//
+				// ⚠️ ET LE DEFAUT N'EST PAS CELUI DE LA BANDE D'ONGLETS : il frappe
+				//    TOUT composant partage qui trace (croix, chevrons, pastilles,
+				//    courbes). La bande ne l'a que revele, parce qu'elle est le
+				//    premier composant du kit a TRACER chez cet hote.
+				//
+				// Les deux primitives existaient deja chez `NkModelerPainter`
+				// (`Line` par couleur et `Disc`) : rien a inventer, seulement a
+				// router. On passe par la COULEUR plutot que par `NkRole` -- le kit
+				// donne un `uint16` opaque, et `mP.C(role)` est la traduction que
+				// l'adaptateur fait deja partout ailleurs.
+				bool Line(float32 x1, float32 y1, float32 x2, float32 y2, uint16 role,
+						  float32 thickness) override {
+					mP.Line(x1, y1, x2, y2, mP.C(role), thickness);
+					return true;
+				}
+				/// ⚠️ UNE ELLIPSE INSCRITE, APPROCHEE PAR UN DISQUE. `NkModelerPainter`
+				///    ne sait tracer qu'un CERCLE (`Disc`) : on prend le plus petit
+				///    des deux demi-axes. C'est exact pour une boite carree -- le cas
+				///    de tous les usages actuels (pastilles, points d'etat) -- et
+				///    approche pour une boite allongee. Dit plutot que tu : une
+				///    ellipse franchement ovale sortira ronde ici, et le jour ou un
+				///    composant en demandera une, c'est `NkModelerPainter` qu'il
+				///    faudra doter, pas cet adaptateur qu'il faudra ruser.
+				bool Ellipse(const editorkit::NkPaintRect &r, uint16 role) override {
+					const float32 rayon = (r.w < r.h ? r.w : r.h) * 0.5f;
+					mP.Disc(r.x + r.w * 0.5f, r.y + r.h * 0.5f, rayon, mP.C(role));
+					return true;
+				}
+
 				// ── Texte : ALIGNEMENT + ELLIPSE, les deux obligations ──────────
 				// L'ellipse est une obligation du contrat (« une implementation qui
 				// coupe net respecte la signature et trahit le contrat ») ; le

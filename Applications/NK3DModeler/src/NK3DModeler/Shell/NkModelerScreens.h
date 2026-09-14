@@ -648,6 +648,25 @@ namespace nkentseu {
 			const NkTabStripResult res =
 				NkDrawTabStrip(peintre, ci, {r.x, r.y, r.w, r.h}, m, s, hooks);
 
+			// ── LA GEOMETRIE, IMPRIMEE SUR DEMANDE ──────────────────────────────
+			// `NK3D_ONGLETS_TRACE=1`. Le composant RAPPORTE ses rectangles : les
+			// deduire d'une capture serait supposer, et j'ai deja paye ca une fois
+			// sur ce lot. Sans la variable, rien ne change.
+			if (std::getenv("NK3D_ONGLETS_TRACE") != nullptr) {
+				static uint32 sTick = 0;
+				if (++sTick % 60u == 1u) {
+					std::printf("[nk3d-onglets] echelle=%.4f  tab_pad_x(metrique)=%.2f  "
+								"n=%u\n",
+								(double)gUiScale, (double)NkTabMetric(s, "tab_pad_x"),
+								(unsigned)res.tabs.Size());
+					for (usize q = 0; q < res.tabs.Size(); ++q)
+						std::printf("[nk3d-onglet] %u  x=%.2f y=%.2f w=%.2f h=%.2f\n",
+									(unsigned)q, (double)res.tabs[q].x, (double)res.tabs[q].y,
+									(double)res.tabs[q].w, (double)res.tabs[q].h);
+					std::fflush(stdout);
+				}
+			}
+
 			// ── 5. LE RENOMMAGE EN PLACE, PAR-DESSUS ────────────────────────────
 			// Le composant ne renomme pas : il RAPPORTE ou il a pose le libelle.
 			for (usize k = 0; k < res.tabs.Size(); ++k) {
