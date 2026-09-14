@@ -1,3 +1,4 @@
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // =============================================================================
 // NkBatchRenderer2D.cpp — CPU geometry generation + batching logic
 // =============================================================================
@@ -7,6 +8,8 @@
 #include "NKLogger/NkLog.h"
 
 #include <cmath>
+#include <cstdio>
+#include <cstdlib>
 #include <cstring>
 
 #ifndef M_PI
@@ -15,6 +18,64 @@
 
 namespace nkentseu {
 	namespace renderer {
+
+		// ═══════════════════════════════════════════════════════════════════════
+		//  POURQUOI CHAQUE GROUPE S'OUVRE (NK_PHASES=2) — releve MULTI-ETIQUETTE
+		// ═══════════════════════════════════════════════════════════════════════
+		//  NkUIDesign soumet 174 appels de dessin par image pour 175 commandes :
+		//  presque chaque commande est son propre groupe. La question est POURQUOI.
+		//
+		//  ⚠️ LE PIEGE QUE CE RELEVE EVITE : attribuer chaque groupe a SA PREMIERE
+		//     cause. Aujourd'hui, `NkGuiCanvasBackend` depile le rognage apres chaque
+		//     commande, donc chaque groupe s'ouvre sur une liste VIDE. Un releve « par
+		//     premiere cause » mettrait tout dans « rognage » et CACHERAIT l'alternance
+		//     de textures derriere les vidages -- le meme defaut que `PopClip` sans
+		//     marqueur, un cran plus bas : qui est compte d'abord prend tout.
+		//     On note donc TOUT ce qui differe du groupe precedent, et on imprime les
+		//     COMBINAISONS exclusives.
+		//
+		//     bit T (1) : texture differente du groupe precedent
+		//     bit B (2) : mode de melange different
+		//     bit C (4) : rognage different (autre rectangle, ou pose/retire) --
+		//                 reposer le MEME rectangle n'est PAS une raison
+		//     bit V (8) : ouvert sur une liste VIDE, c'est-a-dire apres un vidage
+		//
+		//  ⚠️ DEUX CONTROLES INTERNES :
+		//     - la FERMETURE : groupes ouverts = drawCalls soumis + groupes vides
+		//       retires au vidage. `drawCalls` est le compteur EXISTANT du lot ; le
+		//       mien n'en partage pas le code.
+		//     - la combinaison 0 (liste NON vide et RIEN ne differe) est IMPOSSIBLE :
+		//       `EnsureGroup` n'ouvre un groupe sur une liste non vide QUE si la
+		//       texture ou le melange change. Si elle vaut autre chose que 0, c'est
+		//       l'instrument qui ment.
+		//
+		//  ⚠️ LIMITE DITE : l'etat vit dans ce fichier, pas dans l'instance. Seule la
+		//     PREMIERE instance vue est attribuee ; les groupes des autres instances
+		//     sont comptes a part et imprimes -- s'ils ne valent pas 0, l'attribution
+		//     ne couvre qu'une partie du rendu, et c'est dit.
+		struct NkReleveGroupes {
+				bool decide = false, actif = false;
+				const void *instance = nullptr;
+				int64 images = 0, ouverts = 0, retires = 0, autresInstances = 0;
+				int64 combi[16] = {0};
+				uint32 drawCallsDepart = 0;
+				bool departPose = false;
+				// le groupe PRECEDENT, conserve a travers les vidages
+				bool dernierValide = false;
+				const NkTexture *dernierTex = nullptr;
+				NkBlendMode dernierBlend = NkBlendMode::NK_ALPHA;
+				bool dernierClip = false;
+				NkRect2i dernierRect{};
+		};
+		static NkReleveGroupes &ReleveGroupes() {
+			static NkReleveGroupes r;
+			if (!r.decide) {
+				r.decide = true;
+				const char *v = std::getenv("NK_PHASES");
+				r.actif = v && v[0] == '2';
+			}
+			return r;
+		}
 
 		// =============================================================================
 		NkBatchRenderer2D::NkBatchRenderer2D() {
@@ -50,6 +111,54 @@ namespace nkentseu {
 			Flush();
 			EndBackend();
 			mInFrame = false;
+			NkReleveGroupes &rel = ReleveGroupes();
+			if (rel.actif && rel.instance == this) {
+				if (!rel.departPose) {
+					// L'amorce est posee APRES le premier vidage : on retire ce que ce
+					// premier vidage a soumis des ouverts deja comptes, pour que la
+					// fermeture porte sur la meme fenetre.
+					rel.departPose = true;
+					rel.drawCallsDepart = mStats.drawCalls;
+					rel.ouverts = 0;
+					rel.retires = 0;
+					for (int32 i = 0; i < 16; ++i)
+						rel.combi[i] = 0;
+					return;
+				}
+				++rel.images;
+				if ((rel.images % 300) == 0) {
+					const float64 img = (float64)rel.images;
+					const int64 soumis = (int64)(mStats.drawCalls - rel.drawCallsDepart);
+					static const char *const kNom[16] = {
+						"(rien ne change, liste non vide) IMPOSSIBLE", "T", "B", "T+B", "C", "T+C", "B+C", "T+B+C",
+						"V seul (vidage, AUCUN attribut ne change)", "T (apres vidage)", "B (apres vidage)",
+						"T+B (apres vidage)", "C (apres vidage)", "T+C (apres vidage)", "B+C (apres vidage)",
+						"T+B+C (apres vidage)"};
+					std::printf("[groupes] %lld images ; %lld groupes ouverts (= %.1f par image)\n",
+								(long long)rel.images, (long long)rel.ouverts, (float64)rel.ouverts / img);
+					for (int32 i = 0; i < 16; ++i)
+						if (rel.combi[i] || i == 0)
+							std::printf("[groupes]   %-44s %8lld  (%6.1f par image, %5.1f %%)\n", kNom[i],
+										(long long)rel.combi[i], (float64)rel.combi[i] / img,
+										rel.ouverts ? 100.0 * (float64)rel.combi[i] / (float64)rel.ouverts : 0.0);
+					int64 avecT = 0, avecB = 0, avecC = 0, avecV = 0;
+					for (int32 i = 0; i < 16; ++i) {
+						if (i & 1) avecT += rel.combi[i];
+						if (i & 2) avecB += rel.combi[i];
+						if (i & 4) avecC += rel.combi[i];
+						if (i & 8) avecV += rel.combi[i];
+					}
+					std::printf("[groupes]   (non exclusifs) texture %lld | melange %lld | rognage %lld | apres vidage %lld\n",
+								(long long)avecT, (long long)avecB, (long long)avecC, (long long)avecV);
+					std::printf("[groupes]   FERMETURE : ouverts %lld contre soumis %lld + vides retires %lld = %lld "
+								"-- ecart %lld\n",
+								(long long)rel.ouverts, (long long)soumis, (long long)rel.retires,
+								(long long)(soumis + rel.retires), (long long)(rel.ouverts - soumis - rel.retires));
+					std::printf("[groupes]   autres instances (non attribuees) : %lld\n",
+								(long long)rel.autresInstances);
+					std::fflush(stdout);
+				}
+			}
 		}
 
 		// =============================================================================
@@ -73,6 +182,11 @@ namespace nkentseu {
 				}
 			}
 
+			{
+				NkReleveGroupes &rel = ReleveGroupes();
+				if (rel.actif && rel.instance == this)
+					rel.retires += (int64)(mGroups.Size() - validCount);
+			}
 			if (validCount > 0) {
 				// Applique le clip courant juste avant la soumission : tout le batch
 				// partage ce scissor (un changement de clip a Flush() au prealable).
@@ -375,6 +489,36 @@ namespace nkentseu {
 				needNew = (back.texture != tex || back.blendMode != blend);
 			}
 			if (needNew) {
+				NkReleveGroupes &rel = ReleveGroupes();
+				if (rel.actif) {
+					if (!rel.instance)
+						rel.instance = this;
+					if (rel.instance != this) {
+						++rel.autresInstances;
+					} else {
+						int32 m = mGroups.Empty() ? 8 : 0;
+						if (rel.dernierValide) {
+							if (tex != rel.dernierTex)
+								m |= 1;
+							if (blend != rel.dernierBlend)
+								m |= 2;
+							const bool rectDiffere =
+								mHasClip && rel.dernierClip
+								&& (mClipRect.x != rel.dernierRect.x || mClipRect.y != rel.dernierRect.y
+									|| mClipRect.width != rel.dernierRect.width
+									|| mClipRect.height != rel.dernierRect.height);
+							if (mHasClip != rel.dernierClip || rectDiffere)
+								m |= 4;
+						}
+						++rel.ouverts;
+						++rel.combi[m];
+						rel.dernierValide = true;
+						rel.dernierTex = tex;
+						rel.dernierBlend = blend;
+						rel.dernierClip = mHasClip;
+						rel.dernierRect = mClipRect;
+					}
+				}
 				// Close previous group
 				if (!mGroups.Empty()) {
 					mGroups.Back().indexCount = mIndices.Size() - mGroups.Back().indexStart;

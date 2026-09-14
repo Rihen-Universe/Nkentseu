@@ -1,3 +1,4 @@
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // =============================================================================
 // NkRenderWindow.cpp — Implementation NkRenderTarget pour une NkWindow.
 //
@@ -22,6 +23,8 @@
 #include "NKCanvas/Factory/NkContextFactory.h"
 #include "NKWindow/Core/NkWindow.h"
 #include "NKMemory/NkAllocator.h"
+#include <cstdio>
+#include <cstdlib>
 
 namespace nkentseu {
 	namespace renderer {
@@ -168,6 +171,72 @@ namespace nkentseu {
 			}
 			if (mContext)
 				mContext->Present();
+
+			// ═══════════════════════════════════════════════════════════════════
+			//  LA PORTE DE CAPTURE — `NK_CAPTURE_IMAGE=<n>:<chemin.png>`
+			// ═══════════════════════════════════════════════════════════════════
+			//  POURQUOI ICI : un correctif dans `NkGuiCanvasBackend` touche TOUT
+			//  consommateur de NKCanvas -- le kit d'edition, et trois jeux livres
+			//  (Gemcrush, Mou, Nkoung). Le negatif qui compte est donc qu'une
+			//  application qui n'a RIEN demande rende une image IDENTIQUE AU BIT.
+			//  Aucun de ces jeux n'a de drapeau de capture ; `NKGuiDemo` n'en a qu'un
+			//  sur F12, c'est-a-dire une touche injectee -- interdit. `Display()` est
+			//  la porte par laquelle TOUS passent : la capture s'y pose une fois, et
+			//  pas une ligne d'application ne bouge.
+			//
+			//  ⚠️ ELLE NE SAIT LIRE QUE DX11, et elle le DIT. `Capture` rend `false`
+			//     sur les autres dorsaux (« a venir »). Un echec muet donnerait
+			//     « pas d'image » -- et « pas d'image contre pas d'image » est un
+			//     negatif vert qui ne compare rien. Le refus est donc imprime, nomme.
+			//
+			//  ⚠️ ETEINTE PAR DEFAUT : sans la variable, une lecture d'environnement
+			//     a la premiere image, puis un booleen. Rien d'autre.
+			{
+				static int32 sCible = -2; // -2 = pas encore lu ; -1 = eteint
+				static char sChemin[512] = {0};
+				static int32 sAffichees = 0;
+				if (sCible == -2) {
+					sCible = -1;
+					if (const char *v = std::getenv("NK_CAPTURE_IMAGE")) {
+						const int32 n = (int32)std::atoi(v);
+						const char *d = v;
+						while (*d && *d != ':')
+							++d;
+						if (n > 0 && *d == ':' && d[1]) {
+							std::snprintf(sChemin, sizeof(sChemin), "%s", d + 1);
+							sCible = n;
+							// ⚠️ LA FENETRE SE DENONCE. Une fenetre ouverte pour une mesure porte
+							//    la phrase, sans qu'aucune application ait a le prevoir : un jeu
+							//    n'a pas de drapeau de titre, et Rodolf a deja pris une fenetre
+							//    d'agent pour son application. Le titre est le seul endroit qu'on
+							//    regarde.
+							// ⚠️ CE QUE CA NE COUVRE PAS, dit plutot que suppose : `SetTitle` change
+							//    le titre du SYSTEME (barre de taches, Alt+Tab, cadre natif). Une
+							//    application qui dessine SA propre barre de titre sans cadre natif
+							//    n'affichera pas forcement la phrase dans cette barre-la -- d'ou le
+							//    cadre natif a demander au lancement quand l'application le permet.
+							if (mWindow) {
+								NkString titre("*** SONDE DE MESURE - CETTE FENETRE N'EST PAS LE PRODUIT *** ");
+								titre += mWindow->GetTitle();
+								mWindow->SetTitle(titre);
+							}
+						} else {
+							std::fprintf(stderr, "[capture] REFUS : NK_CAPTURE_IMAGE mal forme"
+												 " (attendu <n>:<chemin.png>) : \"%s\"\n", v);
+						}
+					}
+				}
+				if (sCible > 0 && ++sAffichees == sCible) {
+					const bool ok = Capture(sChemin);
+					if (ok)
+						std::fprintf(stderr, "[capture] image %d ecrite : %s\n", (int)sCible, sChemin);
+					else
+						std::fprintf(stderr, "[capture] REFUS : image %d NON ecrite (%s) -- "
+											 "Capture ne sait lire que le dorsal DX11 : relancer "
+											 "avec le dorsal DX11\n", (int)sCible, sChemin);
+					std::fflush(stderr);
+				}
+			}
 		}
 
 		// =========================================================================
