@@ -1674,6 +1674,12 @@ with workspace("Nkentseu", location="."):
 
 
 
+    with include("Applications/NKGuiMonteTest/NKGuiMonteTest.jenga"):
+
+        pass
+
+
+
     with include("Applications/NKGuiDemo/NKGuiDemo.jenga"):
 
         pass
