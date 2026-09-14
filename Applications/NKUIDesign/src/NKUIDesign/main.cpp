@@ -175,6 +175,15 @@ static NkEditorShell *gShell = nullptr;
 //  ne dessine rien (il n'ajoute aucun menu).
 static char gCapturePath[512] = {0};
 static int32 gCaptureFrame = 0;
+/// Vrai si AUCUN clic, glisser ni cran de molette n'est programme. Defini plus
+/// bas, a cote des tableaux qu'il interroge -- ici seulement declare, parce que
+/// `CaptureTick` s'ecrit avant eux.
+static bool AucuneEntreeProgrammee();
+/// LA POSITION QUE L'INJECTEUR A POSEE POUR CETTE IMAGE. Ecrite par
+/// `InjecterClics`, lue par `CaptureTick` -- qui passe APRES lui et doit donc la
+/// REPOSER au lieu de l'ecraser.
+static bool gSourisSondePosee = false;
+static float32 gSourisSondeX = 0.f, gSourisSondeY = 0.f;
 static constexpr int32 kCaptureFramePrete = 8;
 /// --selectionner=<libellé> : le nœud à sélectionner AVANT la photo.
 ///
@@ -201,7 +210,33 @@ static void CaptureTick(NkEditorFrameContext &ec, void *user) {
 	//    la main de l'utilisateur a laisse sa souris. On neutralise DANS NOTRE
 	//    CONTEXTE (jamais la vraie souris : elle ne nous appartient pas) : la
 	//    position est repoussee hors ecran a chaque frame, avant les panneaux.
-	ec.Ui().input.mousePos = {-10000.f, -10000.f};
+	//
+	// 🔴 MAIS PAS QUAND UNE ENTREE EST PROGRAMMEE — defaut d'INSTRUMENT mesure
+	//    le 14/09. `mAppMenuFn` (ce tick) est appele DEUX FOIS par image par la
+	//    coquille : une fois tres tot (NkEditorShell.cpp l.817) et une fois
+	//    APRES la barre de menus (l.2358). Or c'est la barre de menus qui
+	//    appelle `InjecterClics`. Le second passage ecrasait donc la position
+	//    que le clic venait de poser, a chaque image, sans rien dire.
+	//    Consequence : `--clic` et `--capture` ne pouvaient PAS servir ensemble,
+	//    et une mesure qui les combinait rendait « 0 pixel a change » -- une
+	//    reponse VERTE a une question jamais posee. C'est la famille « un
+	//    negatif incapable de refuter » : sa construction garantissait le
+	//    resultat.
+    // 🔴 ET LA PREMIERE VERSION DE CE CORRECTIF ETAIT FAUSSE, MESUREE FAUSSE :
+	//    elle se contentait de NE PAS neutraliser quand une entree etait
+	//    programmee. Resultat : entre deux ecritures de l'injecteur, la position
+	//    du CURSEUR PHYSIQUE revenait -- la fuite que le commentaire ci-dessus
+	//    decrit depuis le 02/09, rouverte par sa propre correction. Symptome
+	//    mesure : la MEME commande a rendu une fois 4 923 pixels changes hors du
+	//    tiroir (l'outil Texte s'etait arme tout seul) et cinq fois zero. Un
+	//    banc qui n'est pas repetable ne mesure pas ce qu'il croit ; j'ai failli
+	//    rapporter ce 4 923 comme une preuve.
+	//    La regle est donc : **on force la position A CHAQUE IMAGE**, soit celle
+	//    que la sonde a posee, soit hors ecran. Jamais celle de la machine.
+	if (gSourisSondePosee)
+		ec.Ui().input.mousePos = {gSourisSondeX, gSourisSondeY};
+	else
+		ec.Ui().input.mousePos = {-10000.f, -10000.f};
 	if (gCaptureFrame == 1 && gSceneFusion) {
 		// LA SCENE DES MODES DE FUSION : fond #808080, dessus #606060 (#a0a0a0 pour
 		// Lighten, sinon max = le fond) ; attendu au pixel : normal #606060, multiply
@@ -305,6 +340,17 @@ static bool gDocumentModifie = false;
 // Mise en scene « toile seule » (ecrans gros plan de la maquette) :
 // panneaux fermes, rails retires — pose par --toile-seule.
 static bool gToileSeule = false;
+// ⚠️ --titre-sonde : LA FENETRE SE DENONCE.
+//    Le 14/09, une fenetre ouverte par un agent est restee SEPT MINUTES a
+//    l'ecran sous le titre du PRODUIT (le temps d'une generation synchrone).
+//    Rodolf pouvait la prendre pour son application -- c'est arrive une fois
+//    deja dans ce depot, et le titre est le seul endroit qu'on regarde.
+//    Ce drapeau n'est JAMAIS pose par un lancement normal : sans lui, pas un
+//    caractere ne change. Avec lui, le bandeau de titre porte la phrase, et le
+//    rappel du document vient APRES -- un agent ne doit pas avoir a se souvenir
+//    de le faire, il doit avoir a se souvenir de NE PAS le faire.
+static bool gTitreSonde = false;
+static const char *const kTitreSonde = "*** SONDE DE MESURE - CETTE FENETRE N'EST PAS LE PRODUIT *** ";
 // Tiroir de rail a ouvrir au lancement (--tiroir=d:0) : 0 = aucun.
 static char gTiroirCote = 0;
 static char gPanneauInitial[48] = {0};
@@ -7258,9 +7304,30 @@ static struct {
 	float32 x = 0.f, y = 0.f, delta = 0.f;
 	int32 frame = -1;
 } gMolettes[2];
+/// ⚠️ ELLE LIT LES TROIS TABLEAUX, ET LES TROIS BORNES SE LISENT DU TABLEAU.
+///    Une borne ecrite en chiffre ne suit pas ce qu'elle borne -- ce fichier
+///    l'a deja paye deux fois (le remplisseur de `gClics` reste a 4 quand le
+///    tableau est passe a 10, et la borne de `gTouches` dans l'autre sens).
+static bool AucuneEntreeProgrammee() {
+	for (int32 i = 0; i < (int32)(sizeof(gClics) / sizeof(gClics[0])); ++i)
+		if (gClics[i].frame >= 0)
+			return false;
+	for (int32 i = 0; i < (int32)(sizeof(gGlissers) / sizeof(gGlissers[0])); ++i)
+		if (gGlissers[i].frame >= 0)
+			return false;
+	for (int32 i = 0; i < (int32)(sizeof(gMolettes) / sizeof(gMolettes[0])); ++i)
+		if (gMolettes[i].frame >= 0)
+			return false;
+	return true;
+}
+
 static void InjecterClics(nkgui::NkGuiContext &ctx) {
 	static int32 compteur = 0;
 	++compteur;
+	// ⚠️ REMIS A FAUX A CHAQUE IMAGE : une position de sonde qui SURVIVRAIT a son
+	//    clic figerait la souris la pour toujours, et la capture montrerait un
+	//    survol que personne n'a demande.
+	gSourisSondePosee = false;
 	for (int32 i = 0; i < (int32)(sizeof(gClics) / sizeof(gClics[0])); ++i) {
 		if (gClics[i].frame < 0)
 			continue;
@@ -7269,8 +7336,12 @@ static void InjecterClics(nkgui::NkGuiContext &ctx) {
 		// le survol se resout sur hotIdPrev (la trame d'AVANT) : la position
 		// se tient CINQ trames avant le clic, sinon le clic vise un survol
 		// pas encore etabli et manque.
-		if (compteur >= gClics[i].frame - 5)
+		if (compteur >= gClics[i].frame - 5) {
 			ctx.input.mousePos = {gClics[i].x, gClics[i].y};
+			gSourisSondePosee = true;
+			gSourisSondeX = gClics[i].x;
+			gSourisSondeY = gClics[i].y;
+		}
 		if (compteur == gClics[i].frame) {
 			const int32 b = gClics[i].droit ? 1 : 0; // :r = clic DROIT
 			// Les modificateurs se posent AVEC le clic et se retirent avec lui :
@@ -8424,6 +8495,10 @@ int nkmain(const NkEntryState &state) {
 				gDesign.aimantActif = (atof(a + 9) != 0.0);
 				continue;
 			}
+			if (arg.StartsWith("--titre-sonde")) {
+				gTitreSonde = true;
+				continue;
+			}
 			if (arg.StartsWith("--toile-seule")) {
 				gToileSeule = true;
 				continue;
@@ -8691,6 +8766,9 @@ int nkmain(const NkEntryState &state) {
 			puts("  --recette-proprietes    les listes de proprietes exercees par le GESTE");
 			puts("  --temoin-rendu[=<f>]    le flux de commandes du peintre (diffable)");
 			puts("  --capture=<f.png>       ouvre l'app, photographie SA fenetre (frame 8), ferme");
+		puts("  --titre-sonde           le bandeau de titre dit que CETTE FENETRE N'EST PAS");
+		puts("                          LE PRODUIT -- a poser sur TOUTE fenetre ouverte par");
+		puts("                          un agent de mesure");
 			puts("  --selectionner=<nom>    selectionne ce noeud avant la photo (inspecteur PLEIN)");
 			puts("  --recette-gestes        les gestes d'édition Lunacy (copier/grouper/...)");
 			puts("  --recette-snap          l'aimantation (bords, centres, espacements égaux)");
@@ -9065,8 +9143,9 @@ int nkmain(const NkEntryState &state) {
 		dernier = modifie;
 		dernierNom = nkentseu::NkString(nom);
 		gDocumentModifie = modifie; // l'onglet actif porte la meme pastille
-		char plein[176];
-		snprintf(plein, sizeof(plein), "%s%s", modifie ? "\xE2\x97\x8F " : "", nom);
+		char plein[256];
+		snprintf(plein, sizeof(plein), "%s%s%s", gTitreSonde ? kTitreSonde : "",
+				 modifie ? "\xE2\x97\x8F " : "", nom);
 		static_cast<NkEditorShell *>(u)->SetTitleInfo(plein);
 	};
 	gDesign.titreUser = shell.Get();
@@ -9170,7 +9249,17 @@ int nkmain(const NkEntryState &state) {
 	shell->SetToolbar(&DrawProjectTabs, nullptr);
 	// Le titre initial vient du DOCUMENT (le callback `titre` prendra le
 	// relais a la premiere mesure — meme regle : jamais un nom en dur).
-	shell->SetTitleInfo(gDesign.doc.title.Data() ? gDesign.doc.title.Data() : "NkUIDesign");
+	{
+		// ⚠️ LE TITRE INITIAL AUSSI, et pas seulement le rappel : le rappel ne
+		//    s'execute qu'a un CHANGEMENT (il sort tot si le nom et l'etat
+		//    « modifie » n'ont pas bouge). Une fenetre de sonde qui n'edite rien
+		//    ne le declencherait jamais -- elle serait restee sous le titre du
+		//    produit, exactement le defaut qu'on ferme.
+		char titre0[256];
+		snprintf(titre0, sizeof(titre0), "%s%s", gTitreSonde ? kTitreSonde : "",
+				 gDesign.doc.title.Data() ? gDesign.doc.title.Data() : "NkUIDesign");
+		shell->SetTitleInfo(titre0);
+	}
 	shell->RegisterCommand("Document: Enregistrer", &CmdSave, nullptr, "Ctrl+S");
 	// ④ CTRL+E : DECLARE UNE SEULE FOIS, ici. La toile ne le lit pas -- deux declarations
 	//    feraient deux ouvertures, exactement le defaut ① du matin (Ctrl+D).
