@@ -181,7 +181,7 @@ namespace nkentseu {
 				// vitesse. La difference EST la trainee de virage.
 				bool vehTvArme = false, vehTvDit = false;
 				float32 vehTvV0 = 0.f;
-				float64 vehTvALat = 0.0, vehTvSlip = 0.0;
+				float64 vehTvALat = 0.0, vehTvSlip = 0.0, vehTvDrag = 0.0;
 				uint32 vehTvN = 0;
 				bool vehKickFait = false;
 				// sonde TISSU (NK_CLOTH_PROBE=1, 2026-09-05) : une nappe XPBD lachee sur une sphere, dans le vent
@@ -3120,6 +3120,9 @@ static NkTexHandle CreateLanternCubeCookie(NkTextureLibrary *texLib, NkIDevice *
 				// revise la vitesse du DEBUT du pas, comme avant le correctif.
 				if (const char *ns = std::getenv("NK_VEHICLE_NOSTATIC"); ns && ns[0] == '1')
 					st->veh->Tuning().staticFriction = false;
+				// NK_VEHICLE_NODRAGVIR=1 : la mutation de la trainee de virage.
+				if (const char *nv = std::getenv("NK_VEHICLE_NODRAGVIR"); nv && nv[0] == '1')
+					st->veh->Tuning().corneringDrag = 0.f;
 				if (const char *kk = std::getenv("NK_VEHICLE_KICK"); kk && kk[0]) st->vehKick = (float32)std::atof(kk);
 				if (const char *vc = std::getenv("NK_VEHICLE_VCIBLE"); vc && vc[0]) st->vehCible = (float32)std::atof(vc);
 				if (const char *sf = std::getenv("NK_VEHICLE_STEER"); sf && sf[0]) st->vehSteerFixe = (float32)std::atof(sf);
@@ -5481,18 +5484,31 @@ static NkTexHandle CreateLanternCubeCookie(NkTextureLibrary *texLib, NkIDevice *
 							if (!st->vehTvArme) { st->vehTvArme = true; st->vehTvV0 = v; }
 							const float32 om = std::fabs(b0->angularVelocity.y);
 							st->vehTvALat += (float64)(v * om);
-							for (uint32 wt = 0; wt < st->veh->WheelCount(); ++wt)
+							for (uint32 wt = 0; wt < st->veh->WheelCount(); ++wt) {
 								st->vehTvSlip += (float64)std::fabs(st->veh->Wheel(wt).slipLat);
+								// La trainee REELLEMENT appliquee, roue par roue. Ma loi a
+								// l'echelle du vehicule suppose la force laterale repartie
+								// SELON LA CHARGE ; si elle ne l'est pas, somme(F^2/Fs) est
+								// plus grande (Cauchy-Schwarz : le minimum est atteint quand
+								// F est proportionnelle a Fs). On MESURE donc la somme au
+								// lieu de la deduire d'une hypothese de repartition.
+								st->vehTvDrag += (float64)st->veh->Wheel(wt).dragLat;
+							}
 							++st->vehTvN;
 							if (!st->vehTvDit && st->vehClock >= 14.f) {
 								st->vehTvDit = true;
 								std::fprintf(stderr,
 											 "[VEHICULE TRAINEE] braquage %.2f : v %.4f -> %.4f m/s en 4 s, "
 											 "deceleration **%.5f m/s2** ; a_lat moyenne %.4f m/s2 ; glissement "
-											 "lateral moyen par roue %.6f m/s\n",
+											 "lateral moyen par roue %.6f m/s\n"
+											 "[VEHICULE TRAINEE] trainee induite MESUREE : somme(F_drag)/m = **%.5f m/s2** ; "
+											 "loi a l'echelle du vehicule c*a_lat^2/g = %.5f (BORNE INFERIEURE, cf. code)\n",
 											 st->vehSteerFixe, st->vehTvV0, v, (st->vehTvV0 - v) / 4.f,
 											 (float32)(st->vehTvALat / (float64)st->vehTvN),
-											 (float32)(st->vehTvSlip / (float64)(st->vehTvN * 4u)));
+											 (float32)(st->vehTvSlip / (float64)(st->vehTvN * 4u)),
+											 (float32)(st->vehTvDrag / (float64)st->vehTvN) / 1200.f,
+											 0.083f * (float32)(st->vehTvALat / (float64)st->vehTvN) *
+												 (float32)(st->vehTvALat / (float64)st->vehTvN) / 9.81f);
 							}
 						}
 					} else if (st->vehBanc == 7u) {
