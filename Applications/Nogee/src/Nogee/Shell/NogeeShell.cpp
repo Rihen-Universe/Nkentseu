@@ -19,6 +19,7 @@
 #include "Nogee/Editor/AssetManager.h"
 #include "Nogee/Editor/ProjectManager.h"
 #include "Nogee/Shell/NkPanneauxSonde.h" // mesure de la DISPOSITION (--panneaux-sonde)
+#include "Nogee/Shell/NogeeChrome.h"      // menus, outils, barre d'etat
 
 #include "NKECS/World/NkWorld.h"
 #include "Noge/ECS/Scene/NkSceneGraph.h"
@@ -919,6 +920,32 @@ namespace nkentseu {
 				std::printf("[CHROME] titleBarH=%.2f  ItemHeight=%.2f  scale=%.4f\n",
 							shell->Ui().titleBarH, shell->Ui().ItemHeight(), shell->Ui().scale);
 				std::fflush(stdout);
+			}
+
+			// ═══════════════════════════════════════════════════════════════════
+			//  LES TROIS BARRES — SEPT MENUS, TROIS OUTILS, UN PIED QUI DIT L'ETAT
+			// ═══════════════════════════════════════════════════════════════════
+			//  `SetToolbar` n'est pas une decoration : c'est LUI qui fait exister
+			//  la bande de 34 px demandee plus haut par `SetHeaderLayout`
+			//  (`toolbarH = (mToolbarFn && !fullScreen) ? bandH : 0.f`). Sans ce
+			//  hook, la cote etait demandee et n'occupait aucun pixel — mesure a
+			//  l'appui : la sonde rendait `outils=0.00`.
+			//
+			//  ⚠️ MEME NEGATIF QUE L'HABILLAGE. `NOGEE_SANS_HABILLAGE=1` saute
+			//     AUSSI ces deux poses : la bande d'outils doit alors retomber a
+			//     0 px et les compteurs de la sonde a 0. Dans le MEME binaire,
+			//     pour ne pas comparer deux constructions qui pourraient differer
+			//     par autre chose que ce qu'on croit.
+			static NogeeChromeCtx sChrome;
+			sChrome.shell = shell.Get();
+			sChrome.projet = &sProject;
+			sChrome.histo = &sHist;
+			sChrome.selection = &sSel;
+			sChrome.monde = &sWorld;
+			sChrome.scene = &sScene;
+			if (!sansHabillage) {
+				shell->SetMenuBar(&chrome::BarreDeMenus, &sChrome);
+				shell->SetToolbar(&chrome::BarreDOutils, &sChrome);
 			}
 
 			shell->RegisterCommand("Application: Quitter", &CmdQuit, shell.Get(), "Ctrl+Q");

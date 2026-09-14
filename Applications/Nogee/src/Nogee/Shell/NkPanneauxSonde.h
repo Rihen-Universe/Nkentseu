@@ -74,7 +74,8 @@ namespace nkentseu {
 		/// compteur cumulatif sur 60 frames dirait 60 fois trop.
 		struct NkPanneauxCompteurs {
 				int32 menus = 0;	 ///< entrees de la barre de menus (Fichier, Edition...)
-				int32 entrees = 0;	 ///< items libelles, separateurs exclus
+				int32 entrees = 0;	 ///< entrees DECLAREES (separateurs exclus), menu ferme compris
+				int32 entreesDessinees = 0; ///< entrees reellement peintes cette image
 				int32 outils = 0;	 ///< elements de la barre d'outils
 				float32 largeurMenus = 0.f; ///< px consommes par la barre de menus (preuve de dessin)
 				float32 largeurOutils = 0.f;
