@@ -214,6 +214,8 @@ namespace nkentseu {
 		// (il ANNULE l'operation) : le menu contextuel ne doit surtout pas s'ouvrir
 		// par-dessus, sinon un seul clic ferait les deux.
 		bool Demo3DHostModalActive();
+		// La contrainte de la modale en cours : axe (-1 libre), plan (Maj), local.
+		bool Demo3DHostModalConstraint(int32 *axe, bool *plan, bool *local);
 		// ── CE QUE L'OPERATION EN COURS A COMME PARAMETRES ──────────────────
 		// Ils EXISTENT et se pilotent deja : `modalVal` a la souris, `modalSeg` a
 		// la molette, et l'apercu se recalcule a chaque changement. Ce qui leur

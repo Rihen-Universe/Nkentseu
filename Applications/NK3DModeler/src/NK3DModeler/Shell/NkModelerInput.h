@@ -972,6 +972,12 @@ namespace nkentseu {
 				/// dit seulement QUI l a ouvert.
 				bool matNewPending = false;
 				NkVpAction pendingAction = NkVpAction::None;
+				/// LES MODIFICATEURS DE L'APPUI QUI A POSE `pendingAction`. L'action etait
+				/// une simple enumeration : ce qui ne se decide qu'a l'EXECUTION -- les axes
+				/// d'une modale, en tete -- avait perdu Maj entre la touche et le dispatch.
+				/// Ils sont poses par `want()` (clavier) et par les crochets d'action, et
+				/// consommes avec l'action.
+				bool pendingShift = false, pendingCtrl = false, pendingAlt = false;
 				bool editingText = false;
 				bool xray = false;
 				float32 navLastX = 0.f, navLastY = 0.f;
