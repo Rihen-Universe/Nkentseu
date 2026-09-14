@@ -7700,8 +7700,11 @@ static void PortesTick(NkEditorFrameContext &ec, void *user) {
 	static bool departPropre = false, ouvertureConfirmee = false;
 	// (R17) LE NEGATIF QUI COMPTE. Un correctif qui ne masque plus rien passerait « les
 	// portes se rouvrent » ET « la mutation rougit ». Il est donc exige qu'une source
-	// MODALE ouverte masque le corps ENTIER (P|A|C|R) a chaque image de 3 a 9 apres son
-	// ouverture. Les popups ordinaires (menu Fichier, couleur) n'y sont pas soumis : ils
+	// MODALE ouverte masque le corps ENTIER (P|A|C|R) a chaque image de 2 a 9 apres son
+	// ouverture. (R18) +2 et non +3 : la valeur lue au passage t est celle de l'image
+	// N+t-1 ; t=2 lit N+1, la PREMIERE image qu'une source ecrite dans l'overlay (roles,
+	// formats, rapport) doit masquer. L'image N elle-meme (t=1) atteint le corps -- avant
+	// comme apres R17, mesure en R18 -- et n'est donc pas exigee. Les popups ordinaires (menu Fichier, couleur) n'y sont pas soumis : ils
 	// ne masquent que sous la souris (O).
 	static int32 ouvertSansMasque = 0;
 	const bool sourceModale = strcmp(src_ou_vide(etape, nSources, sources), "menu-fichier") != 0
@@ -7774,7 +7777,7 @@ static void PortesTick(NkEditorFrameContext &ec, void *user) {
 	}
 	if (t == 4 && ctx.popupDepth > 0 && ctx.popupRects[0].w > 0.f)
 		souris = {ctx.popupRects[0].x + ctx.popupRects[0].w * 0.5f, ctx.popupRects[0].y + ctx.popupRects[0].h * 0.5f};
-	if (t >= 3 && t <= 9 && sourceModale && NkSourceOuverte(src, sh, ctx) != 0) {
+	if (t >= 2 && t <= 9 && sourceModale && NkSourceOuverte(src, sh, ctx) != 0) {
 		const int32 pm = sh->PortesDuCorps();
 		const int32 corpsEntier = NkEditorShell::kPortePreferences | NkEditorShell::kPorteAppModal
 								  | NkEditorShell::kPorteMenuCtx | NkEditorShell::kPorteSaisie;
@@ -7843,7 +7846,7 @@ static void PortesTick(NkEditorFrameContext &ec, void *user) {
 			verdict = "NON JUGEE";
 			++nonJugees;
 		} else if (ouvertSansMasque > 0) {
-			verdict = "ROUGE : une MODALE ouverte n'a pas masque le corps (images +3..+9)";
+			verdict = "ROUGE : une MODALE ouverte n'a pas masque le corps (images N+1..N+8)";
 			++rouges;
 		} else if (!ouvertureConfirmee) {
 			verdict = "NON JUGEE";
