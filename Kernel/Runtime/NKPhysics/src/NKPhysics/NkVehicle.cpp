@@ -136,7 +136,30 @@ namespace nkentseu {
 
 			const NkVec3f up = b->orientation.Up();
 			const NkVec3f fwd = b->orientation.Forward();
-			const NkVec3f right = b->orientation.Right();
+			// ⚠️ LE REPÈRE : « à droite » VIENT DU PRODUIT VECTORIEL, PAS DE Right().
+			// Rodolf a piloté et signalé que GAUCHE et DROITE étaient inversées. Aucun
+			// des huit bancs ne pouvait l'attraper : ils partent tous d'une consigne
+			// de braquage DÉJÀ SIGNÉE. La chaîne physique est juste et elle était
+			// branchée à l'envers à son premier maillon.
+			//
+			// La cause n'est ni le clavier ni le signe de la consigne, c'est une
+			// INCOHÉRENCE DE CONVENTION dans NKMath (NkQuat.h) :
+			//     Forward() = +Z   Up() = +Y   **Right() = +X**
+			// Or dans un repère DIRECT, un observateur qui regarde +Z avec +Y en haut
+			// a sa droite en **−X**. Et c'est bien ce que dit le rendu :
+			// `NkCamera3D::GetRight()` (NkCamera.cpp:203) calcule `cross(forward, up)`,
+			// donc −X. Mesure du 14/09, banc 9 : le produit scalaire entre l'axe
+			// « droite » du châssis et celui de la caméra vaut **−1,0000** — ils sont
+			// exactement opposés, et c'est la caméra que Rodolf voit.
+			//
+			// On dérive donc l'axe latéral de la MÊME formule que le rendu. Corriger
+			// la lecture du clavier aurait laissé tous les bancs verts et le prochain
+			// contrôleur serait retombé dedans.
+			// ⚠️ La racine est dans NKMath, module PARTAGÉ : `Right()` et `Left()` y
+			// contredisent `Forward()`/`Up()`. Mesuré : **7 occurrences en tout**, dans
+			// ce fichier et Demo3D.cpp. La correction de fond y appartient et elle est
+			// remontée ; je ne touche pas au module partagé sans arbitrage.
+			const NkVec3f right = Norm(fwd.Cross(up));
 			const float32 maxSteer = mTuning.maxSteerDeg * kPi / 180.f;
 			const float32 steerStep = mTuning.steerRateDegPerSec * kPi / 180.f * h;
 			const float32 rayLen = mTuning.restLength + mTuning.wheelRadius;
