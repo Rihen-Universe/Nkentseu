@@ -229,6 +229,53 @@ static float32 LuminanceMaxContenu(const NkGuiDrawListRaster &r, uint32 fond, ui
 	return best;
 }
 
+// Les pixels de TEXTE d'une bande : ceux qui different de la couleur dominante
+// DE CETTE BANDE -- c'est-a-dire du fond du champ, et non du fond de l'image.
+//
+// ⚠️ POURQUOI PAS `ComptePixelsContenu` : il compte les pixels non-fond, et le
+//    texte d'un champ est peint DANS le champ, sur des pixels deja comptes.
+//    Champ nu, champ a invite et champ a saisie rendaient tous 9773 -- un
+//    compteur parfaitement stable, et parfaitement aveugle a ce qu'on mesure.
+static uint32 PixelsTexteBande(const NkGuiDrawListRaster &r, int32 x0, int32 x1) {
+	if (x1 <= x0)
+		return 0u;
+	uint32 couleurs[64];
+	uint32 comptes[64];
+	uint32 nc = 0;
+	for (int32 y = 0; y < r.Hauteur(); ++y)
+		for (int32 x = x0; x < x1 && x < r.Largeur(); ++x) {
+			const uint32 p = r.Pixel(x, y);
+			uint32 i = 0;
+			for (; i < nc; ++i)
+				if (couleurs[i] == p) {
+					++comptes[i];
+					break;
+				}
+			if (i == nc && nc < 64u) {
+				couleurs[nc] = p;
+				comptes[nc] = 1u;
+				++nc;
+			}
+		}
+	uint32 dom = 0, domN = 0, total = 0;
+	for (uint32 i = 0; i < nc; ++i) {
+		total += comptes[i];
+		if (comptes[i] > domN) {
+			domN = comptes[i];
+			dom = couleurs[i];
+		}
+	}
+	(void)dom;
+	(void)total;
+	// Le fond de la bande est la couleur dominante ; tout le reste est du dessin.
+	uint32 n = 0;
+	for (int32 y = 0; y < r.Hauteur(); ++y)
+		for (int32 x = x0; x < x1 && x < r.Largeur(); ++x)
+			if (r.Pixel(x, y) != dom)
+				++n;
+	return n;
+}
+
 // Empreinte d'une image : deux images identiques AU BIT ont la meme, et deux
 // images qui different en ont une differente (somme de controle FNV-1a 32 bits).
 static uint32 Empreinte(const NkGuiDrawListRaster &r) {
@@ -280,6 +327,11 @@ struct Montage {
 		float32 poigneeX = -1.f;	 ///< centre en X des pixels de la couleur ciblee
 		uint32 poigneeN = 0;		 ///< combien de pixels portaient cette couleur
 		float32 lumMaxContenu = -1.f; ///< luminance du texte reellement peint
+		uint32 pixelsTexteBande = 0; ///< pixels de dessin dans la bande demandee
+		/// Copie des pixels, quand l'appelant l'a demandee (`g_garderPixels`).
+		/// Sert aux comparaisons image contre image -- la seule mesure qui voit un
+		/// texte peint SUR un aplat.
+		NkVector<uint8> px;
 };
 
 // Bande a mesurer (option posee par l'appelant juste avant un montage).
@@ -289,6 +341,8 @@ static int32 g_bandeY0 = 0, g_bandeY1 = 0, g_bandeX0 = 0, g_bandeX1 = 0;
 static uint32 g_couleurCible = 0u;
 /// Bande horizontale ou mesurer la luminance du texte (x1 <= x0 = toute l'image).
 static int32 g_lumX0 = 0, g_lumX1 = 0;
+/// Garder une copie des pixels du prochain montage (pour comparer deux images).
+static bool g_garderPixels = false;
 
 // ── LA POLICE, et pourquoi ce banc en charge une ──────────────────────────────
 // Sans police, `Text()` place son rectangle mais ne peint AUCUN glyphe : le
@@ -334,6 +388,20 @@ static bool EcrirePng(const NkGuiDrawListRaster &r, const char *chemin) {
 	return ok;
 }
 
+// Combien de pixels DIFFERENT entre deux montages. Zero quand les deux images
+// sont identiques au bit -- c'est le zero prouvable de ce compteur, et il est
+// verifie juste avant de s'en servir.
+static uint32 PixelsQuiDifferent(const Montage &a, const Montage &b) {
+	if (a.px.Size() == 0u || a.px.Size() != b.px.Size())
+		return 0xFFFFFFFFu; // tailles incomparables : ce n'est pas « aucune difference »
+	uint32 n = 0;
+	for (uint32 i = 0; i + 3u < (uint32)a.px.Size(); i += 4u)
+		if (a.px[i] != b.px[i] || a.px[i + 1u] != b.px[i + 1u] || a.px[i + 2u] != b.px[i + 2u]
+			|| a.px[i + 3u] != b.px[i + 3u])
+			++n;
+	return n;
+}
+
 static Montage MonterTexte(const char *src, uint32 len, int32 w, int32 h,
 						   const char *nomPng = nullptr) {
 	Montage m;
@@ -377,6 +445,15 @@ static Montage MonterTexte(const char *src, uint32 len, int32 w, int32 h,
 		//    un champ de saisie peint AUSSI son libelle, toujours en couleur
 		//    normale, et un maximum pris sur toute l'image tombe dessus.
 		m.lumMaxContenu = LuminanceMaxContenu(ras, kFond, CouleurDominante(ras), g_lumX0, g_lumX1);
+		if (g_lumX1 > g_lumX0)
+			m.pixelsTexteBande = PixelsTexteBande(ras, g_lumX0, g_lumX1);
+		if (g_garderPixels) {
+			const usize nb = (usize)ras.Largeur() * (usize)ras.Hauteur() * 4u;
+			m.px.Resize(nb);
+			const uint8 *sp = ras.Pixels();
+			for (usize i = 0; i < nb; ++i)
+				m.px[(uint32)i] = sp[i];
+		}
 		if (g_pngDir && nomPng) {
 			char sortie[1024];
 			Joindre(sortie, sizeof(sortie), g_pngDir, nomPng);
@@ -1001,14 +1078,51 @@ int main(int argc, char **argv) {
 		NkGuiContext refZ;
 		g_lumX0 = (int32)refZ.layout.padding;
 		g_lumX1 = g_lumX0 + 140;
+		g_garderPixels = true;
 		const Montage a = MonterTexte(invite, n1, 400, 120);
 		const Montage b = MonterTexte(saisie, n2, 400, 120);
-		g_lumX0 = 0;
-		g_lumX1 = 0;
 		printf("        bande de mesure : x de %d a %d (le champ, PAS son libelle)\n",
 			   (int32)refZ.layout.padding, (int32)refZ.layout.padding + 140);
 		Check(a.lu && b.lu, "   les deux documents se lisent");
-		Check(a.contenu > 0u, "   l'invite du fichier EST peinte (elle n'est pas perdue)");
+
+		// ⚠️ LE TIERS TEMOIN, ET IL MANQUAIT. « contenu > 0 » etait satisfait par le
+		//    CADRE du champ : un champ vide en peint deja un. Le critere restait donc
+		//    vert quand l'invite n'etait pas peinte DU TOUT -- la deuxieme forme du
+		//    defaut (mutation i2b). La reference est un champ SANS placeholder ni
+		//    valeur : c'est la seule chose qui dise si l'invite a ete peinte.
+		//    Meme forme que le negatif de (i3), ou `title = ""` sert de reference.
+		const char *nu =
+			"nkgui 0.3\nwidgets {\n  TextField \"t\" { }\n}\n";
+		uint32 n3 = 0;
+		while (nu[n3]) ++n3;
+		g_lumX0 = (int32)refZ.layout.padding;
+		g_lumX1 = g_lumX0 + 140;
+		const Montage z = MonterTexte(nu, n3, 400, 120);
+		// Le meme document, monte une seconde fois : c'est le ZERO du comparateur.
+		const Montage z2 = MonterTexte(nu, n3, 400, 120);
+		g_garderPixels = false;
+		g_lumX0 = 0;
+		g_lumX1 = 0;
+		Check(z.lu && z2.lu, "   le champ nu se lit");
+		// ⚠️ LE ZERO DU COMPARATEUR, PROUVE AVANT DE S'EN SERVIR. Deux montages du
+		//    MEME document ne doivent differer d'aucun pixel. Sans ce controle, un
+		//    comparateur qui rendrait n'importe quoi ferait passer les deux
+		//    suivants pour des preuves.
+		CheckEq(PixelsQuiDifferent(z, z2), 0u, "   ZERO : deux montages du champ nu ne different pas");
+		const uint32 dInvite = PixelsQuiDifferent(z, a);
+		const uint32 dSaisie = PixelsQuiDifferent(z, b);
+		printf("        pixels changes par rapport au champ nu : invite %u | saisie %u\n",
+			   dInvite, dSaisie);
+		// ⚠️ POURQUOI UNE COMPARAISON D'IMAGES ET PAS UN COMPTE. Deux mesures ont
+		//    echoue avant celle-ci, et pour la MEME raison structurelle : elles
+		//    comptaient les pixels differant d'une couleur de reference dans une
+		//    zone. Or le texte d'un champ est peint DANS le champ, sur des pixels
+		//    qui differaient deja de cette reference -- champ nu, invite et saisie
+		//    rendaient tous 9773, puis tous 3770. Repeindre un pixel deja compte
+		//    ne change aucun compte. Seule la comparaison de deux images voit un
+		//    changement de COULEUR au lieu d'un changement de SURFACE.
+		Check(dInvite > 0u, "   l'invite du fichier PEINT quelque chose qu'un champ nu n'a pas");
+		Check(dSaisie > 0u, "   une saisie aussi (contre-epreuve)");
 		// MEME texte, MEMES pixels de fond : si les deux images sont identiques,
 		// c'est que l'invite est peinte comme une saisie -- le defaut d'origine.
 		Check(a.empreinte != b.empreinte,
