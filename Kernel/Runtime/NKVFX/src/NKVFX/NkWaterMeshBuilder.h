@@ -49,6 +49,24 @@ namespace nkentseu {
 		struct NkWaterMeshParams {
 				math::NkProjectedGridParams grid;
 				math::NkWaterParams waves;
+				// ── LA PERTURBATION PAR LES CORPS (2026-09-14) ──────────────────────
+				// EMPRUNTÉE, jamais possédée : l'hôte la tient, ce producteur la LIT.
+				// C'est par ce champ que le creux d'une carène et la trace d'un corps en
+				// mouvement arrivent jusqu'aux SOMMETS — donc jusqu'à l'écran.
+				//
+				// ⚠️ DÉFAUT `nullptr`, ET LE CONTRAT EST « AU BIT ». `NkWaterEval` ne
+				// touche à rien quand ce pointeur est nul (chaque contribution y est
+				// testée `!= 0.f` avant d'être ajoutée, parce que `y + 0.0f` vaut
+				// `+0.0f` quand `y` vaut `-0.0f`). Les appelants d'avant ce jour — la
+				// sonde `NK_OCEAN_PROBE`, `NkWaterSystem`, et `test_ocean_grille.cpp` —
+				// rendent EXACTEMENT ce qu'ils rendaient. C'est la précaution que
+				// `shade = false` a déjà prise ici même.
+				//
+				// ⚠️ ET C'EST LA MÊME QUE CELLE QUE LA PHYSIQUE INTERROGE. Deux
+				// perturbations, et un corps flotterait à côté de sa propre trace :
+				// c'est la raison écrite dans `NkWaterSurface.h` pour laquelle le terme
+				// entre dans l'évaluateur et non ici.
+				const math::NkWaterDisturbance *disturbance = nullptr;
 				float32 time = 0.f;
 				// RGBA8 empaqueté, CONSTANT : la couleur donnée à chaque sommet quand
 				// `shade` est faux. Le format `Default3D` en réclame une, on la remplit

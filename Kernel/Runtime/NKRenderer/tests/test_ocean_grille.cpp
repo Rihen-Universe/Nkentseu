@@ -36,9 +36,11 @@
 #include "NKMath/NkFunctions.h"
 #include "NKMath/NkProjectedGrid.h"
 #include "NKMath/NkWaterSurface.h"
+#include "NKMath/NkWaterDisturbance.h" // la PERTURBATION, temoin (p4)
 #include "NKVFX/NkWaterMeshBuilder.h" // le PRODUCTEUR, eprouve sans fenetre
 #include "NKVFX/NkVfxLiveness.h"	  // le CONTROLE DE VIE : « ca s'execute »
 #include <cstdio>
+#include <cstring> // memcmp : les comparaisons AU BIT du temoin (p4)
 
 using namespace nkentseu;
 using namespace nkentseu::math;
@@ -2421,6 +2423,134 @@ int NkSondeOceanGrille() {
 						 (double)plat.grid.baseY, nv2, ecarts, (double)pireEcart, horsPlan);
 			XCHECK(nv2 == sommetsAttendus && manq2 == 0u && ecarts == 0u && horsPlan == 0u,
 				   "(p2) CONTROLE NEGATIF : a houle nulle le producteur rend le plan de repos AU BIT");
+		}
+
+		// ── (p4) LA PERTURBATION PAR LES CORPS ARRIVE-T-ELLE JUSQU'AUX SOMMETS ?
+		//
+		// C'EST LA QUESTION QUI COMPTE, ET AUCUN TEMOIN DE NKMATH NE LA POSE. La
+		// mecanique du creux est prouvee ailleurs (NKPhysics_Tests, temoins (p1)
+		// a (p4) de test_eau_couplage.cpp) ; ce qui se joue ICI est le CABLAGE :
+		// `NkWaterMeshParams::disturbance` est-il HONORE par le producteur, ou
+		// seulement DECLARE ? C'est le defaut maison paye huit fois, et un
+		// parametre neuf est exactement l'endroit ou il revient.
+		//
+		// L'ATTENDU, ECRIT AVANT : une carene posee au CENTRE de l'etendue creuse
+		// les sommets qui tombent dans son rayon, et EUX SEULS. Donc :
+		//   * au moins un sommet descend, et il descend d'au plus |a| = 3V/(pi R^2) ;
+		//   * les sommets HORS du rayon sont inchanges AU BIT ;
+		//   * leur NORMALE change aussi -- sans quoi le creux serait peint plat
+		//     et l'eclairage ne le montrerait pas.
+		{
+			vfx::NkWaterMeshParams wq = wp;
+			wq.grid.cols = 48u;
+			wq.grid.rows = 48u;
+			const uint32 nSommets = 49u * 49u;
+			static renderer::NkVertex3D sansCorps[49u * 49u];
+			static renderer::NkVertex3D avecCorps[49u * 49u];
+			uint32 mq1 = 0u, mq2 = 0u;
+			const uint32 na = vfx::NkWaterBuildVertices(PROJ(), VUE(pose), pose.oeil, wq,
+													   sansCorps, nSommets, &mq1);
+
+			// La carene : on la pose a l'aplomb du sommet CENTRAL rendu ci-dessus,
+			// pour etre sur qu'elle tombe dans l'etendue visible -- une source posee
+			// a un (x,z) devine pourrait tomber hors grille et le temoin serait vert
+			// sans rien avoir creuse.
+			// ⚠️ ET SON CENTRE EST UNE POSITION DE REPOS, pour la meme raison que le
+			// classement plus bas : `NkWaterEval` recoit (base.x, base.z).
+			const NkProjectedGrid gq = NkProjectedGridBuild(PROJ(), VUE(pose), pose.oeil, wq.grid);
+			NkVec3f centreRepos = {0.f, 0.f, 0.f};
+			const bool centreOk = NkProjectedGridVertex(gq, wq.grid, wq.grid.cols / 2u,
+													   wq.grid.rows / 2u, centreRepos);
+			const float32 cx = centreRepos.x;
+			const float32 cz = centreRepos.z;
+			const float32 R = 6.f, V = 40.f;
+			const float32 aCentre = -3.f * V / (3.1415926535f * R * R);
+			NkWaterDisturbance champ;
+			champ.Reserve(8u);
+			champ.SetHull(1u, NkVec2f{cx, cz}, R, V);
+			wq.disturbance = &champ;
+			const uint32 nb = vfx::NkWaterBuildVertices(PROJ(), VUE(pose), pose.oeil, wq,
+													   avecCorps, nSommets, &mq2);
+
+			// ⚠️ LE CLASSEMENT SE FAIT SUR LA POSITION DE REPOS, PAS SUR CELLE QUI EST
+			// RENDUE — et c'est une correction, pas une precaution. Premiere version :
+			// je comparais `avecCorps[k].pos.x/z` au rayon. Resultat, **6 sommets
+			// « hors rayon » modifies** et (p4d) rouge. Ce n'etait PAS le cablage :
+			// Gerstner deplace AUSSI en x et z, donc un sommet dont la position RENDUE
+			// tombe dehors peut avoir sa position de REPOS dedans — et c'est bien la
+			// position de repos que `NkWaterEval` donne a la perturbation. L'instrument
+			// classait a la mauvaise abscisse, exactement comme le banc qui mesurait
+			// une pente de 10 degres sur un sol plat. On reconstruit donc la grille et
+			// on relit `base`, comme le fait deja le temoin (p2) juste au-dessus.
+			uint32 baisses = 0u, horsRayonChanges = 0u, normalesChangees = 0u, dedans = 0u;
+			float32 pireBaisse = 0.f;
+			for (uint32 j = 0; j <= wq.grid.rows; ++j)
+				for (uint32 i = 0; i <= wq.grid.cols; ++i) {
+					const uint32 k = j * (wq.grid.cols + 1u) + i;
+					if (k >= nb || k >= na)
+						continue;
+					NkVec3f base;
+					if (!NkProjectedGridVertex(gq, wq.grid, i, j, base))
+						continue;
+					const float32 dx = base.x - cx, dz = base.z - cz;
+					const bool dansLeRayon = (dx * dx + dz * dz) < R * R;
+					if (dansLeRayon)
+						++dedans;
+					const float32 dy = avecCorps[k].pos.y - sansCorps[k].pos.y;
+					if (dy < 0.f) {
+						++baisses;
+						if (dy < pireBaisse)
+							pireBaisse = dy;
+					}
+					if (!dansLeRayon &&
+						std::memcmp(&avecCorps[k].pos, &sansCorps[k].pos, sizeof(NkVec3f)) != 0)
+						++horsRayonChanges;
+					if (dansLeRayon &&
+						std::memcmp(&avecCorps[k].normal, &sansCorps[k].normal, sizeof(NkVec3f)) != 0)
+						++normalesChangees;
+				}
+			std::fprintf(stderr,
+						 "     (p4) carene R = %.1f m, V = %.1f m3 posee en (%.2f, %.2f) : "
+						 "%u sommets, %u dans le rayon | %u sommets BAISSENT (pire %.4f m, "
+						 "borne |a| = %.4f m) | %u normales changees dans le rayon | "
+						 "%u sommets HORS rayon modifies (attendu 0)\n",
+						 (double)R, (double)V, (double)cx, (double)cz, nb, dedans, baisses,
+						 (double)pireBaisse, (double)aCentre, normalesChangees, horsRayonChanges);
+			XCHECK(na == nSommets && nb == nSommets && mq1 == 0u && mq2 == 0u && dedans > 0u &&
+					   centreOk,
+				   "(p4a) la condition d'essai tient : deux grilles pleines, et la carene tombe "
+				   "bien DANS l'etendue (sinon le reste serait vert sans rien prouver)");
+			XCHECK(baisses > 0u && pireBaisse >= aCentre * 1.001f,
+				   "(p4b) le producteur HONORE `disturbance` : des sommets DESCENDENT, et pas "
+				   "plus bas que l'amplitude derivee -3V/(pi R^2)");
+			XCHECK(normalesChangees > 0u,
+				   "(p4c) et la NORMALE suit le creux -- sans elle le bassin serait peint plat "
+				   "et l'eclairage n'en montrerait rien");
+			XCHECK(horsRayonChanges == 0u,
+				   "(p4d) NEGATIF : hors du support compact de la carene, les sommets sont "
+				   "INCHANGES AU BIT -- la perturbation ne fuit pas sur toute la nappe");
+
+			// (p4e) LE NEGATIF DU CABLAGE LUI-MEME : une perturbation VIDE doit rendre
+			// la grille d'avant, au bit. Sans lui, (p4b) pourrait etre vert parce que
+			// le producteur creuse TOUJOURS, perturbation ou pas.
+			NkWaterDisturbance vide;
+			vide.Reserve(4u);
+			wq.disturbance = &vide;
+			static renderer::NkVertex3D videCorps[49u * 49u];
+			uint32 mq3 = 0u;
+			const uint32 nc = vfx::NkWaterBuildVertices(PROJ(), VUE(pose), pose.oeil, wq,
+													   videCorps, nSommets, &mq3);
+			uint32 differents = 0u;
+			for (uint32 k = 0; k < nc && k < na; ++k)
+				if (std::memcmp(&videCorps[k], &sansCorps[k], sizeof(renderer::NkVertex3D)) != 0)
+					++differents;
+			std::fprintf(stderr,
+						 "     (p4e) perturbation VIDE : %u sommets, %u differents du cas sans "
+						 "perturbation du tout (attendu 0, sur le SOMMET ENTIER)\n",
+						 nc, differents);
+			XCHECK(nc == nSommets && differents == 0u,
+				   "(p4e) NEGATIF DU CABLAGE : une perturbation VIDE rend la meme grille AU BIT, "
+				   "sommet entier compris (position, normale, tangente, uv, couleur)");
 		}
 	}
 
