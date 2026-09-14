@@ -44,6 +44,11 @@
 //    Famille 2 — les jetons REELS des composants declares, par le registre
 //    Famille 3 — le repli franc : compte ET nomme
 //    Famille 4 — le vocabulaire de backend graphique, Metal compris
+//    Famille 15 — les roles d'ALERTE et le repli DECLARE (14/09). Numerotee 15
+//       et non 6 a dessein : le sous-banc du selecteur (familles 5 a 14, dans
+//       `NkFilePickerNavProbe.h`) imprime deja des essais « 6a » a « 6l ». Deux
+//       « 6k » differents dans un meme rapport, c'est un instrument qui ment --
+//       on lit le mauvais verdict sans s'en apercevoir.
 //  Pour ajouter un essai : ecrire un `Check(...)` dans la famille concernee.
 //  Pour ajouter une famille : ecrire `static void FamilleN()` et l'appeler dans
 //  `main`. Rien d'autre a toucher.
@@ -67,6 +72,22 @@
 //  | MUTATION B : `NkEditorGfxApiSupported` rend toujours| 26/28    |  1   |
 //  |   vrai -> 4e et 4f rouges                           |          |      |
 //  | APRES correctif, sans mutation                      | 28/28    |  0   |
+//
+//  RELEVE DU 2026-09-14, famille 15 (roles d'alerte). Meme discipline : les deux
+//  mutations sont posees DANS LE KIT, pas dans le banc.
+//
+//  | etat mesure                                        | resultat | code |
+//  |----------------------------------------------------|----------|------|
+//  | MUTATION A : `NkTheme::Get` rend la sentinelle telle| 108/113  |  1   |
+//  |   quelle (`return c;` au lieu de `Replier(r)`) --   |          |      |
+//  |   c'est LITTERALEMENT l'etat d'avant le 14/09.      |          |      |
+//  |   Rouges : 15i, 15j, 15k, 15l, 15m                  |          |      |
+//  | MUTATION B : `Light()` repose les trois statuts aux | 111/113  |  1   |
+//  |   valeurs Dark (une seule couleur pour les deux     |          |      |
+//  |   themes, l'etat d'avant lui aussi).                |          |      |
+//  |   Rouges : 15c, 15g -- et 15g NOMME la paire :      |          |      |
+//  |   « status_warn sur panel_header = 2.10 (exige 3.00)|          |      |
+//  | APRES correctif, sans mutation                      | 113/113  |  0   |
 //
 //  Pour rejouer une mutation : la poser a la main dans le kit, reconstruire,
 //  relancer. C'est deux minutes, et c'est la seule chose qui distingue un banc
@@ -386,6 +407,130 @@ static void Famille4_BackendGraphique() {
 }
 
 // =============================================================================
+//  FAMILLE 15 — LES ROLES D'ALERTE, ET LE REPLI QUI NE SE TAIT PLUS (14/09)
+// =============================================================================
+//  DEUX CHOSES, et elles ne se prouvent pas de la meme facon.
+//
+//  A. LE ROLE. `StatusWarn` existe, porte une couleur DIFFERENTE dans les deux
+//     themes, et ne se confond ni avec l'erreur, ni avec l'ambre de selection
+//     3D. Le negatif est ecrit AVANT : un role qui n'existe pas doit etre
+//     REFUSE par son nom, jamais rendu noir (6f).
+//
+//  B. LE REPLI. Un theme charge depuis un FICHIER qui ne porte pas la ligne
+//     `status_warn` ne doit PAS peindre transparent : il doit prendre la
+//     couleur du role de repli ET LE DIRE dans `NkRoleAudit::Replis()`. C'est
+//     l'essai 15i, et c'est le seul du lot qui mesure le defaut d'origine --
+//     avant le correctif il sortait 0x00000000 sans une ligne de trace.
+//
+//  ⚠️ CE QUE CETTE FAMILLE NE MESURE PAS : que la couleur arrive a l'ecran.
+//     Aucun banc sans fenetre ne peut le dire. C'est la sonde `NK_THEME_PROBE`
+//     de NK3DModeler qui le tient, au pixel, et son releve est dans le canal.
+static void Famille15_RolesAlerte() {
+	printf("\n[Famille 6] roles d'alerte et repli declare\n");
+
+	const NkTheme d = NkTheme::Dark();
+	const NkTheme l = NkTheme::Light();
+
+	// 6a — le role existe, et se nomme comme les deux autres de sa triade.
+	Check("15a", Same(NkRoleName(NkRole::StatusWarn), "status_warn"),
+		  "StatusWarn porte la cle `status_warn`, famille de status_ok/status_err");
+
+	// 6b — il resout PAR NOM, le chemin que prennent 46 des 51 lectures.
+	Check("15b", NkResolveRole("status_warn") == (uint16)NkRole::StatusWarn,
+		  "`status_warn` resout par nom sur le bon identifiant");
+
+	// 6c — ATTENDU DERIVE, pas constate : chaque statut doit DIFFERER entre les
+	// deux themes. Ecrit avant la mesure, et il tombait avant le correctif --
+	// StatusOk et StatusErr etaient poses UNE SEULE FOIS pour les deux.
+	const bool tousDifferents =
+		d.Get(NkRole::StatusOk) != l.Get(NkRole::StatusOk) &&
+		d.Get(NkRole::StatusWarn) != l.Get(NkRole::StatusWarn) &&
+		d.Get(NkRole::StatusErr) != l.Get(NkRole::StatusErr);
+	Check("15c", tousDifferents,
+		  "les TROIS statuts rendent une couleur differente en sombre et en clair");
+
+	// 6e — et ils different ENTRE EUX dans chaque theme. Sans ce controle, un
+	// correctif qui poserait la meme couleur partout passerait 6d.
+	const bool distinctsEntreEux =
+		d.Get(NkRole::StatusOk) != d.Get(NkRole::StatusWarn) &&
+		d.Get(NkRole::StatusWarn) != d.Get(NkRole::StatusErr) &&
+		l.Get(NkRole::StatusOk) != l.Get(NkRole::StatusWarn) &&
+		l.Get(NkRole::StatusWarn) != l.Get(NkRole::StatusErr);
+	Check("15d", distinctsEntreEux,
+		  "les trois statuts sont distincts entre eux, dans CHAQUE theme");
+
+	// 6f — L'AVERTISSEMENT N'EST PAS L'AMBRE DE SELECTION 3D. C'est la regle
+	// 10bis.2, et c'est precisement ce que le site emprunteur violait.
+	Check("15e",
+		  d.Get(NkRole::StatusWarn) != d.Get(NkRole::AccentSel) &&
+			  l.Get(NkRole::StatusWarn) != l.Get(NkRole::AccentSel),
+		  "StatusWarn != AccentSel : l'alerte n'emprunte plus la selection 3D");
+
+	// 6g — LE CONTRASTE, contre le seuil que le kit s'impose lui-meme. Les trois
+	// paires sont dans `ContrastPairs` : `Validate` echoue si l'une tombe.
+	NkThemeIssue pireD, pireL;
+	Check("15f", d.Validate(&pireD) == 0,
+		  "theme SOMBRE : aucune paire sous son seuil (les 3 statuts compris)");
+	Check("15g", l.Validate(&pireL) == 0,
+		  "theme CLAIR : aucune paire sous son seuil -- c'est lui qui tombait");
+	if (l.Validate(nullptr) != 0)
+		printf("         pire paire claire : %s sur %s = %.2f (exige %.2f)\n",
+			   NkRoleName(pireL.fg), NkRoleName(pireL.bg), (double)pireL.ratio,
+			   (double)pireL.required);
+
+	// ── B. LE REPLI ─────────────────────────────────────────────────────────
+	// Un theme de FICHIER ecrit avant le 14/09 : il ne porte pas `status_warn`.
+	// On le fabrique ici a la main -- c'est le cas reel, pas une hypothese.
+	NkRoleAudit::Reset();
+	NkTheme ancien;                       // tout magenta, sentinelles posees
+	ancien.Set(NkRole::AccentSel, 0xF2980EFFu); // le repli, lui, est pose
+	Check("15h", ancien.GetBrut(NkRole::StatusWarn) == NkThemeNonDefini,
+		  "controle de depart : dans ce theme, status_warn n'a PAS ete pose");
+
+	const NkThemeColor peint = ancien.Get(NkRole::StatusWarn);
+	// 6k — LE DEFAUT D'ORIGINE, exactement. Avant le correctif, `Get` rendait la
+	// sentinelle : 0x00000000, un noir a alpha nul. Le role disparaissait.
+	Check("15i", peint != NkThemeNonDefini,
+		  "un role non pose ne rend PLUS la sentinelle transparente");
+	Check("15j", peint == 0xF2980EFFu,
+		  "il rend la couleur de son repli declare (AccentSel), pas du noir");
+
+	// 6m — ET IL LE DIT. Un repli muet est interdit : c'est la regle, et sans
+	// cet essai le correctif serait « une couleur de plus », pas une politique.
+	Check("15k", NkRoleAudit::RepliCount() == 1,
+		  "le repli est ANNONCE : une entree dans NkRoleAudit::Replis()");
+	const bool nomme = NkRoleAudit::RepliCount() == 1 &&
+					   Same(NkRoleAudit::Replis()[0].name.CStr(), "status_warn") &&
+					   Same(NkRoleAudit::Replis()[0].canon.CStr(), "accent_sel");
+	Check("15l", nomme, "l'annonce NOMME le role absent ET celui dont il a pris la couleur");
+
+	// 6o — DEDUPLICATION. Le dessin lit le role a chaque image ; sans elle, la
+	// liste grossirait de 60 entrees par seconde et la fuite se presenterait
+	// comme un ralentissement, jamais comme un defaut de theme.
+	for (int32 i = 0; i < 200; ++i)
+		(void)ancien.Get(NkRole::StatusWarn);
+	Check("15m", NkRoleAudit::RepliCount() == 1,
+		  "200 lectures de plus n'ajoutent pas une seule entree (deduplication)");
+
+	// 6p — CONTROLE NEGATIF DU REPLI. Un role OBLIGATOIRE n'a pas de repli : il
+	// doit crier en magenta, pas emprunter la couleur du voisin. Sans cet essai,
+	// une table qui replierait TOUT passerait 6l sans rien prouver.
+	Check("15n", NkRoleRepli(NkRole::Text) == NkRole::Count &&
+					NkRoleRepli(NkRole::WindowBg) == NkRole::Count,
+		  "controle negatif : Text et WindowBg n'ont AUCUN repli -- ils sont dus");
+
+	// 6q — et le repli ne se declenche pas quand la couleur EST posee. Sans lui,
+	// un `Get` qui replierait toujours passerait 6l et 6m.
+	NkRoleAudit::Reset();
+	(void)d.Get(NkRole::StatusWarn);
+	(void)d.Get(NkRole::StatusErr);
+	(void)d.Get(NkRole::DocMuted);
+	Check("15o", NkRoleAudit::RepliCount() == 0,
+		  "controle negatif : sur un theme complet, AUCUN repli n'est annonce");
+	NkRoleAudit::Reset();
+}
+
+// =============================================================================
 int main(int argc, char **argv) {
 	(void)argc;
 	(void)argv;
@@ -395,6 +540,7 @@ int main(int argc, char **argv) {
 	Famille2_JetonsReels();
 	Famille3_RepliFranc();
 	Famille4_BackendGraphique();
+	Famille15_RolesAlerte();
 	// Famille 5 — le rail du selecteur. Elle tient son propre compte et rend un
 	// BILAN : on additionne les deux nombres, sinon deux echecs vaudraient un.
 	{
