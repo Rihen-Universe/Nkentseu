@@ -136,30 +136,14 @@ namespace nkentseu {
 
 			const NkVec3f up = b->orientation.Up();
 			const NkVec3f fwd = b->orientation.Forward();
-			// ⚠️ LE REPÈRE : « à droite » VIENT DU PRODUIT VECTORIEL, PAS DE Right().
-			// Rodolf a piloté et signalé que GAUCHE et DROITE étaient inversées. Aucun
-			// des huit bancs ne pouvait l'attraper : ils partent tous d'une consigne
-			// de braquage DÉJÀ SIGNÉE. La chaîne physique est juste et elle était
-			// branchée à l'envers à son premier maillon.
-			//
-			// La cause n'est ni le clavier ni le signe de la consigne, c'est une
-			// INCOHÉRENCE DE CONVENTION dans NKMath (NkQuat.h) :
-			//     Forward() = +Z   Up() = +Y   **Right() = +X**
-			// Or dans un repère DIRECT, un observateur qui regarde +Z avec +Y en haut
-			// a sa droite en **−X**. Et c'est bien ce que dit le rendu :
-			// `NkCamera3D::GetRight()` (NkCamera.cpp:203) calcule `cross(forward, up)`,
-			// donc −X. Mesure du 14/09, banc 9 : le produit scalaire entre l'axe
-			// « droite » du châssis et celui de la caméra vaut **−1,0000** — ils sont
-			// exactement opposés, et c'est la caméra que Rodolf voit.
-			//
-			// On dérive donc l'axe latéral de la MÊME formule que le rendu. Corriger
-			// la lecture du clavier aurait laissé tous les bancs verts et le prochain
-			// contrôleur serait retombé dedans.
-			// ⚠️ La racine est dans NKMath, module PARTAGÉ : `Right()` et `Left()` y
-			// contredisent `Forward()`/`Up()`. Mesuré : **7 occurrences en tout**, dans
-			// ce fichier et Demo3D.cpp. La correction de fond y appartient et elle est
-			// remontée ; je ne touche pas au module partagé sans arbitrage.
-			const NkVec3f right = Norm(fwd.Cross(up));
+			// L'axe latéral revient à `Right()` : la CONTRADICTION a été corrigée à sa
+			// SOURCE (NkQuat.h, 14/09), où `Right()` rendait `+X` alors que
+			// `Forward() = +Z` et `Up() = +Y` imposent `−X`. Le contournement local
+			// (`Norm(fwd.Cross(up))`) n'a plus lieu d'être, et le véhicule ne porte
+			// plus de compensation : c'était le risque — ce dépôt a déjà payé sept
+			// retournements pour une négation à la source et six compensations
+			// par-dessus. Mesure après retrait : mêmes signes, même ordre de grandeur.
+			const NkVec3f right = b->orientation.Right();
 			const float32 maxSteer = mTuning.maxSteerDeg * kPi / 180.f;
 			const float32 steerStep = mTuning.steerRateDegPerSec * kPi / 180.f * h;
 			const float32 rayLen = mTuning.restLength + mTuning.wheelRadius;
@@ -200,9 +184,18 @@ namespace nkentseu {
 					target = base;
 					if (mTuning.ackermann > 0.f && mWheelBase > 1e-3f && std::fabs(base) > 1e-4f) {
 						const float32 R = mWheelBase / std::tan(std::fabs(base));
-						// intérieure = du côté vers lequel on tourne (steer > 0 → vers la droite,
-						// cf. wheelFwd = fwd·cos + right·sin), donc localPos.x de même signe.
-						const bool interieure = (w.localPos.x * base) > 0.f;
+						// ⚠️ RÉVÉLÉ LE 14/09 par la correction de `NkQuat::Right()`.
+						// Ce test disait `localPos.x * base > 0` — il encodait « positif = vers
+						// +X », vrai tant que `Right()` rendait +X. La contradiction retirée à
+						// sa source, il désignait l'extérieur comme intérieur : l'ANTI-Ackermann,
+						// la roue extérieure braquant PLUS que l'intérieure. Mesuré : 34,19°
+						// sur la roue extérieure contre 26,65° sur l'intérieure, exactement
+						// l'inverse de ce que la conception §4 demande.
+						// On ne remet PAS un signe : le côté intérieur se dérive du MÊME
+						// vecteur `right` que la consigne, ramené en repère local. Si la
+						// convention rebouge un jour, cette ligne suivra toute seule.
+						const NkVec3f rightLocal = b->orientation.Conjugate() * right;
+						const bool interieure = (w.localPos.Dot(rightLocal) * base) > 0.f;
 						const float32 Ri = interieure ? (R - mTrack * 0.5f) : (R + mTrack * 0.5f);
 						const float32 geo = (Ri > 1e-3f) ? std::atan(mWheelBase / Ri) : (kPi * 0.5f);
 						const float32 signe = (base > 0.f) ? 1.f : -1.f;
@@ -214,6 +207,14 @@ namespace nkentseu {
 					}
 				}
 				w.steerAngle += Clamp(target - w.steerAngle, -steerStep, steerStep);
+				// La direction de pointage, EN MONDE, publiée ici et pas ailleurs : c'est
+				// la même expression que `wheelFwd` plus bas, et le rendu la lit au lieu
+				// de la re-dériver avec un axe écrit en dur. Écrite avant le test de
+				// contact pour rester valide roue en l'air.
+				{
+					const float32 cs0 = std::cos(w.steerAngle), sn0 = std::sin(w.steerAngle);
+					w.steerFwd = fwd * cs0 + right * sn0;
+				}
 
 				// ── a. contact : un rayon vers le bas, en ignorant les châssis ──
 				const NkVec3f anchor = b->position + b->orientation * w.localPos;
