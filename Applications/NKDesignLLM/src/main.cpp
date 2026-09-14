@@ -70,7 +70,6 @@
 #include "NKInfer/NkOllamaLocate.h"
 #include "NKInfer/NkQwen2Gpu.h"
 #include "NKInfer/NkQwen2Tokenizer.h"
-#include "NKInfer/NkSampling.h"
 #include "NKFileSystem/NkFile.h"
 #include "NKTensor/NkTensorGpu.h"
 #include "NKTime/NkChrono.h"
@@ -268,29 +267,56 @@ int main(int argc, char **argv) {
 		return Refus("invite trop longue", b);
 	}
 
-	NkChrono clkPre;
-	NkTensor logits;
-	if (!model.Forward(&ids[0], (int32)ids.Size(), logits, nullptr, &err))
-		return Refus("prefill", err.CStr());
-	const float64 preSec = clkPre.Elapsed().ToSeconds();
-
 	// -- La generation, DETERMINISTE -----------------------------------------
+	// ⚠️ ON N'ECRIT PAS SA PROPRE BOUCLE `Forward`, ET C'EST UNE MESURE, PAS UN
+	//    gout. La premiere version de ce fichier pilotait Forward token par
+	//    token, comme NKQwen2Chat. Elle a refuse la PREMIERE invite reelle :
+	//
+	//        REFUS : prefill -- Forward : count doit etre dans [1, maxBatchTokens]
+	//
+	//    L'invite de NkUIDesign fait 4 430 octets (le format + le catalogue
+	//    engendre depuis le registre), soit de l'ordre de 1 200 tokens, et
+	//    `maxBatchTokens` vaut 64. NKQwen2Chat ne rencontre jamais ce mur parce
+	//    qu'on lui tape des questions d'une ligne ; un prompt de generation, lui,
+	//    porte tout le catalogue.
+	//
+	//    `Generate` DECOUPE deja le prefill en tranches de `maxBatchTokens` (c'est
+	//    ecrit dans NkQwen2Gpu.h). Ecrire une seconde fois ce decoupage ici
+	//    aurait fait deux verites a tenir d'accord -- exactement ce que ce depot
+	//    passe son temps a retirer. Et on ne perd rien : ce programme ECRIT UN
+	//    FICHIER, il n'a aucun ecran a remplir au fur et a mesure.
+	//
+	//    temperature <= 0 -> glouton deterministe : deux fois la meme invite
+	//    doivent donner la meme reponse, sinon un rejet n'est pas reproductible.
 	NkChrono clkGen;
 	NkVector<int32> produced;
 	const int32 stopId = tok.ImEndId();
-	int32 n = 0;
-	for (; n < maxNew; ++n) {
-		const int32 next = NkSampleGreedy(logits);
-		if (next < 0 || next == stopId || next == tok.EndOfTextId())
-			break;
-		produced.PushBack(next);
-		if (!model.Forward(&next, 1, logits, nullptr, &err))
-			return Refus("pas de generation", err.CStr());
-	}
+	uint32 rng = 42u;
+	float64 preSec = 0.0, msPerTok = 0.0;
+	if (!model.Generate(ids, maxNew, 0.0f, 0, rng, stopId, produced, &preSec, &msPerTok, &err))
+		return Refus("generation", err.CStr());
 	const float64 genSec = clkGen.Elapsed().ToSeconds();
+	(void)genSec;
 
 	if (produced.Size() == 0)
 		return Refus("le modele n'a produit aucun token");
+
+	// Le token d'arret peut se retrouver DANS la suite produite : il ne doit pas
+	// atterrir dans le texte. On coupe a la premiere occurrence -- et on ne le
+	// fait qu'ici, pas dans le decodage, pour que « combien de tokens produits »
+	// reste le chiffre du modele et pas celui du nettoyage.
+	{
+		NkVector<int32> propre;
+		for (uint32 i = 0; i < (uint32)produced.Size(); ++i) {
+			if (produced[i] == stopId || produced[i] == tok.EndOfTextId())
+				break;
+			propre.PushBack(produced[i]);
+		}
+		if (propre.Size() == 0)
+			return Refus("le modele n'a produit que son token d'arret");
+		produced = propre;
+	}
+	const int32 n = (int32)produced.Size();
 
 	// LE DECODAGE SE FAIT SUR LA SUITE ENTIERE, jamais token par token : le BPE
 	// de Qwen est BYTE-LEVEL, un « e » accentue vaut deux octets qui peuvent
@@ -307,6 +333,6 @@ int main(int argc, char **argv) {
 	// est le fichier. Un appelant qui lirait stdout lirait des mesures.
 	std::fprintf(stderr,
 				 "[NKDesignLLM] %d tokens | chargement %.1f s | prefill %.1f s | %.0f ms/token\n",
-				 (int)n, loadSec, preSec, n > 0 ? genSec * 1000.0 / (float64)n : 0.0);
+				 (int)n, loadSec, preSec, msPerTok);
 	return 0;
 }
