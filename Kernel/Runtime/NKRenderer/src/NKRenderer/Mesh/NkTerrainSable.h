@@ -260,6 +260,16 @@ namespace nkentseu {
 				NkVector<float32> depot;	 ///< déformation ; 0.f exactement = intact
 				NkVector<float32> combine;	 ///< base (+ depot) — c'est CE tableau que le collideur pointe
 
+				// 🔴 `combine` EST UN CACHE, ET LES FONCTIONS DE CE FICHIER SONT
+				// LES SEULES À LE TENIR À JOUR. Écrire directement dans `depot`
+				// sans réécrire `combine` laisse un collideur — qui, lui, pointe
+				// sur `combine` — sur une surface d'hier, SANS AUCUN MESSAGE. Le
+				// banc a dû prendre cette précaution pour ses propres mutations ;
+				// c'est écrit ici pour que personne d'autre ne la redécouvre.
+				// Un appelant qui veut vraiment écrire à la main repasse par
+				// `NkSableHauteurCombinee(base[k], depot[k])` sur chaque cellule
+				// touchée — la même fonction, jamais une addition.
+
 				// ── LA DÉFORMABILITÉ, ET POURQUOI ELLE EST CONTINUE ────────
 				// 1 = sable pur, 0 = roche indéformable. Pas un booléen : la
 				// splatmap donne des poids continus, et un seuil binaire ferait
