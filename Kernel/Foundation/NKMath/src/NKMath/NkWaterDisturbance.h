@@ -334,9 +334,28 @@ namespace nkentseu {
 		// d'aspect quand on change de fréquence de simulation. On lâche tous les
 		// `stepDistance` MÈTRES PARCOURUS, ce qui ne dépend que de la trajectoire.
 		// =====================================================================
+		// 🔴 LA NORMALISATION PAR LE RECOUVREMENT, ET C'EST UNE MESURE QUI L'A IMPOSÉE.
+		// Première version : chaque ride emportait le volume déplacé V ENTIER. Le banc
+		// a mesuré, derrière un corps de 0,5 m à 3 m/s, un creux de **-0,134 m** là où
+		// la carène elle-même ne creuse que **-0,0905 m** au centre — le sillage était
+		// plus profond que le bateau. La cause n'est pas le noyau : c'est que deux
+		// rides consécutives sont lâchées tous les `stepDistance` = 0,5 m alors que
+		// leur rayon vaut R = 1,49 m, donc **six rides se recouvrent** en tout point et
+		// leurs volumes s'additionnent. Le nombre de recouvrantes vaut 2R/stepDistance,
+		// et diviser par lui rend au sillage un volume déplacé de l'ordre de V au lieu
+		// de N fois V :
+		//
+		//        volume de la ride = V * gain * stepDistance / (2 R)
+		//
+		// Ce n'est donc PAS un facteur ajusté à l'oeil après coup : c'est le facteur
+		// qui annule le double comptage, et il disparaît si l'on lâche les rides à
+		// `stepDistance = 2R` (aucun recouvrement). Le témoin (p2d) mesure la borne
+		// qui aurait dû crier dès le premier jour : le sillage ne creuse pas plus que
+		// la carène.
 		struct NkWaterWakeParams {
-				// Fraction du volume déplacé qu'une ride emporte. 1 = la ride contient
-				// tout le trou vacancé. C'est un RÉGLAGE, pas une loi : dit comme tel.
+				// Fraction du trou vacancé qu'une ride emporte, APRÈS normalisation par
+				// le recouvrement. 1 = tout. C'est un RÉGLAGE d'apparence, pas une loi,
+				// et c'est le SEUL de cette structure : dit comme tel.
 				float32 gain = 1.f;
 				float32 damping = 0.8f;	 // 1/s
 				float32 spread = 0.6f;	 // m/s d'étalement
@@ -369,12 +388,20 @@ namespace nkentseu {
 					if (p.stepDistance <= 1e-6f || mTravel < p.stepDistance)
 						return 0u;
 					uint32 n = 0u;
+					// LA NORMALISATION PAR LE RECOUVREMENT (cf. le bloc au-dessus de
+					// `NkWaterWakeParams`) : sans elle, six rides superposées creusent
+					// six fois le volume déplacé et le sillage devient plus profond que
+					// la carène — mesuré, pas redouté. Bornée à 1 : on ne CRÉE jamais
+					// plus de volume qu'un lâcher sans recouvrement.
+					const float32 chevauchement =
+						radius > 1e-6f ? NkMin(1.f, p.stepDistance / (2.f * radius)) : 1.f;
+					const float32 vRide = volume * p.gain * chevauchement;
 					// Une boucle, et non un seul lâcher : un corps très rapide doit
 					// laisser autant de rides qu'il a parcouru de pas, sinon sa trace
 					// s'éclaircit quand il accélère — l'inverse de ce qu'on voit.
 					while (mTravel >= p.stepDistance) {
 						mTravel -= p.stepDistance;
-						if (field.Shed(position, radius, volume * p.gain, time, p.damping, p.spread))
+						if (field.Shed(position, radius, vRide, time, p.damping, p.spread))
 							++n;
 						else
 							break; // file pleine : elle l'a déjà compté, on n'insiste pas
