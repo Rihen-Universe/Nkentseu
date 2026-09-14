@@ -61,7 +61,7 @@ namespace nkentseu {
 		// attendus sont lus dans NkModelerUI.h par le banc, a chaque execution.
 		// Elle n'injecte NI souris NI clavier, et la fenetre porte un titre qui
 		// dit qu'elle n'est pas le produit. A appeler AVANT RunNogeeEditorShell.
-		void NogeeShellEnablePanneauxSonde(bool redim = false) noexcept;
+		void NogeeShellEnablePanneauxSonde(bool redim = false, bool pose = false) noexcept;
 
 	} // namespace noge
 } // namespace nkentseu
