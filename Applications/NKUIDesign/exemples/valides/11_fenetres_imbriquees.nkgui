@@ -1,0 +1,80 @@
+nkgui 0.3
+
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
+
+// LES `Window` IMBRIQUES -- valides par Rodolf le 2026-09-14.
+//
+// La question etait ouverte : le validateur les acceptait, et AUCUN fichier du
+// depot n'en portait. Un vocabulaire accepte par defaut n'est pas un vocabulaire
+// decide -- c'est un vocabulaire que personne n'a regarde. Ce fichier existe
+// pour que ce ne soit plus le cas.
+//
+// Il porte aussi ce que Rodolf a demande dans la meme phrase : une BOITE DE
+// DIALOGUE et une TOOLBOX. Ni l'une ni l'autre n'est un role nouveau --
+//   le dialogue = `Window { modal = true }`. Le document 7 §4 l'avait deja
+//                 tranche : « modalite : PROPRIETE de Window », et la table
+//                 §3.6 declare `modal` depuis le premier jour ;
+//   la toolbox  = une `HBox` de boutons, POSEE dans son conteneur. Le
+//                 document 3 §14ter.4 classe « barre d'outils » en 🔵
+//                 composition, et « tiroir » de meme. Aucune des deux n'est
+//                 une famille de conteneur : ce sont des compositions.
+//
+// ⚠️ LE PLACEMENT EST UNE PROPRIETE DU CONTENEUR. Rodolf : « au vu de son
+//    parent, un conteneur ne pourra jamais porter les deux. » Un conteneur
+//    ecrit `placement = absolute`, et alors SES enfants directs portent `pos`.
+//    Sans cette declaration il est en FLUX, et un enfant qui porterait des
+//    coordonnees est REFUSE (`E-PLACEMENT`) -- pas ignore en silence.
+//
+// ⚠️ LES COORDONNEES SONT RELATIVES AU CONTENEUR. `dedans` est a (110, 150) DE
+//    `dehors`, pas de l'ecran : deplacer `dehors` emporte tout son contenu.
+//    A la racine, le conteneur est la vue -- `dehors` est donc a (40, 40) de
+//    l'ecran.
+//
+// Les deux modes se rencontrent ici sur TROIS niveaux :
+//    `dehors` absolu > `outils` en flux (ses boutons s'alignent seuls)
+//    `dehors` absolu > `dedans` absolu (la fenetre imbriquee)
+
+widgets {
+
+  Window "dehors" {
+    title = "Editeur"
+    placement = absolute
+    pos = (40, 40)
+    size = (520, 380)
+
+    // LA TOOLBOX : POSEE par son parent absolu, mais EN FLUX a l'interieur --
+    // ses trois boutons ne portent aucune coordonnee, la `HBox` les aligne.
+    HBox "outils" {
+      pos = (16, 40)
+      size = (320, 32)
+      gap = 6
+      Button "ouvrir" { label = "Ouvrir" }
+      Button "enregistrer" { label = "Enregistrer" }
+      Button "exporter" { label = "Exporter" }
+    }
+
+    Text "note" {
+      pos = (16, 86)
+      text = "Les deux modes cohabitent, mais jamais dans le meme conteneur."
+    }
+
+    // LA FENETRE IMBRIQUEE -- et c'est la boite de dialogue.
+    Window "dedans" {
+      title = "Confirmer"
+      placement = absolute
+      pos = (110, 150)
+      size = (260, 140)
+      modal = true
+
+      Text "question" {
+        pos = (14, 44)
+        text = "Enregistrer les modifications ?"
+      }
+      Button "valider" {
+        pos = (14, 84)
+        size = (120, 28)
+        label = "Enregistrer"
+      }
+    }
+  }
+}

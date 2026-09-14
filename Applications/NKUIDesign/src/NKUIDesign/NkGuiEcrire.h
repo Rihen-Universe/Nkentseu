@@ -132,6 +132,15 @@ namespace nkuidesign {
 				/// Les couleurs de TEXTE qu'un noeud a fond n'a pas pu ecrire : une
 				/// `appearance` n'a qu'un `fill`. Comptees, jamais tues en silence.
 				uint32 encresPerdues = 0;
+				/// Les noeuds dont la place n'a PAS pu etre ecrite parce que leur parent
+				/// porte un role dont le NOM dit deja l'agencement (`VBox`, `Grid`...).
+				/// Le format interdit `placement` sur ces roles-la -- a juste titre -- donc
+				/// leurs enfants retombent dans le flux. Comptes, jamais tus.
+				uint32 placementsPerdus = 0;
+				/// Les conteneurs auxquels `placement = absolute` a ete ecrit.
+				uint32 conteneursAbsolus = 0;
+				/// Les noeuds dont `pos` a ete ecrit.
+				uint32 posesEcrits = 0;
 				/// Les noms hors catalogue, SANS doublon. **Signaler, jamais migrer** :
 				/// la graphie des roles touche des fichiers deja enregistres, et cette
 				/// decision appartient a Rodolf.
@@ -285,11 +294,22 @@ namespace nkuidesign {
 			if (NkComponentDecl::StrEq(s, "line")) {
 				return "Separator";
 			}
-			// Toute autre forme est un APLAT dont la PLACE fait le dessin. `Window`
-			// est le seul conteneur auquel le format accorde `pos`/`size` (voir
-			// `NkRoleHonorePos`) : l'ecrire `Panel` rendrait le fichier valide ET
-			// perdrait la position de chaque rectangle du document.
-			return "Window";
+			// 🔴 UN APLAT DEVENAIT UNE `Window`, ET C'ETAIT UN CONTOURNEMENT.
+			//    Ce matin, le seul role auquel le format accordait `pos`/`size` etait
+			//    `Window` : tout rectangle du document devait donc en devenir une, et
+			//    le fichier produit portait VINGT-DEUX `Window` pour une maquette qui
+			//    n'a qu'une fenetre. La graphie disait le format, pas le document.
+			//
+			//    Depuis que le placement est une propriete du CONTENEUR, la contrainte
+			//    a disparu : n'importe quel role se pose sous un parent absolu. On
+			//    peut donc ecrire ce que le document DIT :
+			//      `frame`  = l'ARTBOARD de la toile (c'est le mot de `NkUINode::shape`
+			//                 lui-meme) -> `Window`, le conteneur de premier plan ;
+			//      tout autre aplat -> `Panel`, qui peint un fond et porte des fils.
+			if (NkComponentDecl::StrEq(s, "frame")) {
+				return "Window";
+			}
+			return "Panel";
 		}
 
 		// =====================================================================
@@ -372,8 +392,35 @@ namespace nkuidesign {
 		//    aucun `Window` dans un `Window` -- c'est une lecture de la table, pas un
 		//    usage constate, et la question de fond (« le format veut-il un second
 		//    conteneur positionnable ? ») appartient a Rodolf, pas a ce pont.
-		inline bool NkRoleHonorePos(const char *r) {
-			return NkComponentDecl::StrEq(r, "Window");
+		// =====================================================================
+		//  LE PLACEMENT EST UNE PROPRIETE DU CONTENEUR
+		// =====================================================================
+		//
+		// 🔴 CE BLOC REMPLACE `NkRoleHonorePos`, ET IL FAUT DIRE POURQUOI.
+		//    Ma version du 14/09 au matin ecrivait `pos`/`size` sur le seul role
+		//    auquel le format les accordait -- `Window` -- et forcait donc tout
+		//    rectangle du document a devenir une `Window`. Vingt-deux `Window`
+		//    dans un fichier qui n'a qu'une fenetre : la graphie etait un
+		//    CONTOURNEMENT du format, pas une lecture du document.
+		//
+		//    Rodolf a tranche depuis : « au vu de son parent, un conteneur ne
+		//    pourra jamais porter les deux ». Le placement est donc une propriete
+		//    du CONTENEUR (`placement = absolute`), et ses enfants portent alors
+		//    `pos` QUEL QUE SOIT LEUR ROLE. Le contournement disparait.
+		//
+		// ⚠️ ET LES COORDONNEES DEVIENNENT RELATIVES AU PARENT. La disposition
+		//    calculee (`NkLayoutResult`) est en coordonnees de TOILE ; le format,
+		//    lui, place un enfant DANS son conteneur -- sans quoi deplacer un
+		//    dialogue laisserait son contenu sur place. On retranche donc
+		//    l'origine du parent, et c'est la seule arithmetique de ce pont.
+		
+		/// Les trois conteneurs NEUTRES, seuls a pouvoir declarer leur placement.
+		/// Les autres NOMMENT deja leur agencement (`VBox` empile, `Grid`
+		/// quadrille) : le format leur refuse `placement`, et ce pont ne peut donc
+		/// pas poser leurs enfants -- il les COMPTE (`placementsPerdus`).
+		inline bool NkRolePorteUnPlacement(const char *r) {
+			return NkComponentDecl::StrEq(r, "Window") || NkComponentDecl::StrEq(r, "Panel")
+					   || NkComponentDecl::StrEq(r, "Group");
 		}
 
 		/// Un role qui porte son mot en PROPRIETE (`label`) et n'a pas d'enfants.
@@ -448,7 +495,8 @@ namespace nkuidesign {
 		}
 
 		inline void NkEcrireNoeud(const NkUIDocument &doc, const NkLayoutResult &lay, int32 index,
-								  NkArchive &parent, NkEcritRapport &rap) {
+						  NkArchive &parent, NkEcritRapport &rap, float32 parentX,
+						  float32 parentY, bool parentAbsolu) {
 			if (!doc.IsValidIndex(index)) {
 				return;
 			}
@@ -495,26 +543,28 @@ namespace nkuidesign {
 				bloc.SetString(NkStringView("title"), NkStringView(n.text));
 			}
 
-			// ── la geometrie que le monteur sait honorer ─────────────────────
-			{
-				NkEcritItem it;
-				it.id = id;
-				it.role = NkString(role);
-				it.noeud = index;
-				if (lay.Has(index)) {
-					const NkPaintRect &r = lay.At(index);
-					it.x = r.x;
-					it.y = r.y;
-					it.w = r.w;
-					it.h = r.h;
-					it.aRect = true;
-					if (NkRoleHonorePos(role)) {
-						NkPoserVec2(bloc, "pos", r.x, r.y);
-						NkPoserVec2(bloc, "size", r.w, r.h);
+				// ── la geometrie, telle que le format sait la dire ──────────────
+				{
+					NkEcritItem it;
+					it.id = id;
+					it.role = NkString(role);
+					it.noeud = index;
+					if (lay.Has(index)) {
+						const NkPaintRect &r = lay.At(index);
+						it.x = r.x;
+						it.y = r.y;
+						it.w = r.w;
+						it.h = r.h;
+						it.aRect = true;
+						if (parentAbsolu) {
+							// RELATIVES au conteneur : voir le bloc de tete de cette section.
+							NkPoserVec2(bloc, "pos", r.x - parentX, r.y - parentY);
+							NkPoserVec2(bloc, "size", r.w, r.h);
+							++rap.posesEcrits;
+						}
 					}
+					rap.items.PushBack(it);
 				}
-				rap.items.PushBack(it);
-			}
 
 			// ── l'apparence AU REPOS ─────────────────────────────────────────
 			// Ecrite meme si le monteur l'ecarte aujourd'hui : un fichier qui perd
@@ -602,6 +652,31 @@ namespace nkuidesign {
 				return;
 			}
 			++rap.conteneurs;
+			// ── LE MODE DE PLACEMENT DE CE CONTENEUR ────────────────────
+			// Le document de l'editeur place en ABSOLU (`NkLayoutKind` None/Free/
+			// Anchor) ; c'est mesure, pas suppose -- 42 noeuds sur 42, et 226 sur 226
+			// sur les huit `.nkuidoc` du depot. On le DERIVE quand meme du noeud
+			// plutot que de l'ecrire en dur : le jour ou une maquette emploiera un
+			// flux, ce pont le suivra sans qu'on y touche.
+			const NkLayoutKind k = n.layout.kind;
+			const bool docAbsolu = (k != NkLayoutKind::Row && k != NkLayoutKind::Column
+						   && k != NkLayoutKind::Grid);
+			bool enfantsAbsolus = false;
+			if (docAbsolu) {
+				if (NkRolePorteUnPlacement(role)) {
+					NkGuiArchive::SetToken(bloc, NkStringView("placement"), NkStringView("absolute"));
+					enfantsAbsolus = true;
+					++rap.conteneursAbsolus;
+				} else {
+					// ⚠️ LE FORMAT REFUSE `placement` SUR UNE `VBox` -- a juste titre, son
+					//    nom dit deja son agencement. Les enfants retombent donc dans le
+					//    flux, et leur place est PERDUE. On le compte plutot que de la
+					//    perdre en silence, et le releve le dira a chaque execution.
+					++rap.placementsPerdus;
+				}
+			}
+			const float32 ox = lay.Has(index) ? lay.At(index).x : parentX;
+			const float32 oy = lay.Has(index) ? lay.At(index).y : parentY;
 			for (uint32 i = 0; i < (uint32)n.children.Size(); ++i) {
 				const int32 c = n.children[i];
 				if (c == enfantLibelle) {
@@ -618,7 +693,7 @@ namespace nkuidesign {
 					//    porte plus que ce que le montage rend.
 					++rap.filsSousUneFeuille;
 				}
-				NkEcrireNoeud(doc, lay, c, bloc, rap);
+				NkEcrireNoeud(doc, lay, c, bloc, rap, ox, oy, enfantsAbsolus);
 			}
 		}
 
@@ -653,7 +728,10 @@ namespace nkuidesign {
 			}
 			const NkUINode &racine = doc.nodes[0];
 			for (uint32 i = 0; i < (uint32)racine.children.Size(); ++i) {
-				NkEcrireNoeud(doc, lay, racine.children[i], *wn->object, rap);
+			// La racine de `widgets` est ABSOLUE par nature : rien ne la contient.
+			// Ses enfants portent donc des coordonnees d'ECRAN (origine (0, 0)).
+			NkEcrireNoeud(doc, lay, racine.children[i], *wn->object, rap, 0.f, 0.f,
+						  /*parentAbsolu=*/true);
 			}
 			return true;
 		}
