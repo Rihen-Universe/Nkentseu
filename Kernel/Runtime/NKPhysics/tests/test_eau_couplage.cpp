@@ -247,6 +247,27 @@ namespace {
 					 ok ? "ECRITE" : "ECHEC", legende, (double)ymin, (double)ymax);
 	}
 
+	// UNE COUPE le long de z = 0 : deux profils superposes, AVANT (sans corps) et
+	// APRES (avec). C'est la forme la plus lisible du « ca creuse » : une vue de
+	// dessus montre une tache, une coupe montre un CREUX.
+	void ImageProfil(const char *nom, const NkWaterParams &houle, const NkWaterDisturbance *champ,
+					 float32 t, float32 etendue, float32 echelle) {
+		if (gImageDir == nullptr)
+			return;
+		const uint32 n = 900u;
+		float32 *series = (float32 *)std::malloc(sizeof(float32) * 2u * n);
+		if (series == nullptr)
+			return;
+		for (uint32 i = 0; i < n; ++i) {
+			const float32 x = -etendue * 0.5f + etendue * ((float32)i + 0.5f) / (float32)n;
+			series[i] = NkWaterHeight(houle, x, 0.f, t);					// AVANT
+			series[n + i] = NkWaterHeight(houle, x, 0.f, t, -1.f, champ); // APRES
+		}
+		ImageCourbes(nom, series, 2u, n, -1.3f * echelle, 0.5f * echelle,
+					 "petrole = sans le corps (plat), orange = avec le corps");
+		std::free(series);
+	}
+
 	// =====================================================================
 	// (i) L'INSTRUMENT, AVANT LE PREMIER CHIFFRE
 	// =====================================================================
@@ -519,7 +540,10 @@ namespace {
 				const float32 ys = NkWaterHeight(houle, f.position.x, f.position.z, t);
 				if (courbes != nullptr && (i % divisor) == 0u && ecrit < nCourbe) {
 					courbes[ecrit] = ys;
-					courbes[nCourbe + ecrit] = f.position.y;
+					// On retranche le tirant d'eau d'equilibre : sinon les deux courbes
+					// sont decalees d'une constante et l'oeil lit un ecart la ou il n'y a
+					// qu'un enfoncement constant.
+					courbes[nCourbe + ecrit] = f.position.y - yEq;
 					++ecrit;
 				}
 				if (i >= depuis) {
@@ -544,7 +568,7 @@ namespace {
 			if (courbes != nullptr) {
 				ImageCourbes("eau_07_flotteur_suit_la_houle.bmp", courbes, 2u, ecrit,
 							 -amplitude * 1.6f, amplitude * 1.6f,
-							 "petrole = surface, orange = centre du flotteur");
+							 "petrole = surface de l eau, orange = flotteur (moins son tirant d eau)");
 				std::free(courbes);
 			}
 
@@ -660,8 +684,13 @@ namespace {
 					   "forme de la cloche)");
 			}
 
-			ImageDessus("eau_01_calme_sans_corps.bmp", calme, nullptr, 0.f, 8.f, 0.05f);
-			ImageDessus("eau_02_calme_corps_pose.bmp", calme, &champ, 0.f, 8.f, 0.05f);
+			// L ECHELLE EST DERIVEE, PAS CHOISIE A L OEIL : |a| est l amplitude au
+			// centre calculee plus haut. A une echelle plus serree le bassin sature
+			// et on ne voit plus sa FORME, seulement sa tache.
+			const float32 ech = NkFabs(aCentre);
+			ImageDessus("eau_01_calme_sans_corps.bmp", calme, nullptr, 0.f, 8.f, ech);
+			ImageDessus("eau_02_calme_corps_pose.bmp", calme, &champ, 0.f, 8.f, ech);
+			ImageProfil("eau_06_profil_avant_apres.bmp", calme, &champ, 0.f, 8.f, ech);
 		}
 
 		// ── (p1n) LE NEGATIF CAPITAL : SANS CORPS, AU BIT ────────────────────
@@ -742,8 +771,67 @@ namespace {
 			ECHECK(aval < 0.f, "(p2b) DERRIERE lui, a la MEME distance, l'eau est CREUSEE : la trace");
 			ECHECK(laches > 0u && champ.Count() > 0u,
 				   "(p2c) des rides ont vraiment ete lachees, et il en reste");
+			// ── (p2d) LE VOLUME TOTAL DEPLACE, ET CE QU'IL A TROUVE ─────────────
+			// PREMIERE VERSION DE CE TEMOIN, ET ELLE ETAIT MAL POSEE : j'avais
+			// exige que le creux le plus PROFOND de la trace ne depasse pas celui
+			// de la carene. Mesure : -0,120846 m contre -0,090518 m -> ROUGE. Mais
+			// la profondeur locale n'est pas la bonne grandeur : juste sous le
+			// corps, la carene ET la ride qu'il vient de lacher coexistent, et
+			// rien n'interdit a deux creux voisins de se superposer. Ce qui ne doit
+			// PAS deriver, c'est le VOLUME TOTAL deplace par le champ.
+			//
+			// L'ATTENDU, DERIVE : une ride est lachee tous les dt = stepDistance/v
+			// secondes et porte V gain stepDistance/(2R). Leur somme amortie est
+			// une serie geometrique, 1/(1 - exp(-tau dt)) ~ 1/(tau dt), d'ou
+			//       V_rides ~ V gain v / (2 R tau)
+			// et le total, carene comprise,  V (1 + gain v / (2 R tau)).
+			// ⚠️ C'est une APPROXIMATION (le developpement de la serie, et `Prune`
+			// qui retire les plus vieilles) : la fourchette retenue est large et
+			// c'est DIT. Ce qu'elle attrape est un ordre de grandeur -- et la
+			// version sans normalisation du recouvrement donnait
+			// V (1 + v/(tau stepDistance)) = 8,5 V, soit quatre fois cette borne.
+			{
+				const float32 attenduTotal =
+					vDeplace * (1.f + wp.gain * vitesse / (2.f * R * (wp.damping > 1e-6f ? wp.damping : 1.f)));
+				const float32 x0 = -14.f, x1 = 10.f, zDemi = 5.f;
+				const uint32 NX = 1200u, NZ = 500u;
+				const float32 hx = (x1 - x0) / (float32)NX, hz = 2.f * zDemi / (float32)NZ;
+				float64 integrale = 0.0;
+				float32 pireCreux = 0.f;
+				for (uint32 j = 0; j < NZ; ++j) {
+					const float32 z = -zDemi + ((float32)j + 0.5f) * hz;
+					for (uint32 i = 0; i < NX; ++i) {
+						const float32 sx = x0 + ((float32)i + 0.5f) * hx;
+						const float32 h = champ.Height(sx, z, t);
+						integrale += (float64)h * (float64)hx * (float64)hz;
+						// Le minimum sur TOUTE la fenetre. Premiere version : la garde
+						// `z == -zDemi + 0.5f*hz` ne scrutait que la PREMIERE rangee,
+						// donc z = -4,99 m -- a cinq metres de la trace, qui est en
+						// z = 0. Elle rendait 0,000000 m, un chiffre parfaitement
+						// coherent avec lui-meme et qui ne mesurait rien.
+						if (h < pireCreux)
+							pireCreux = h;
+					}
+				}
+				const float32 mesure = (float32)(-integrale);
+				std::fprintf(stderr,
+							 "     ATTENDU AVANT MESURE : volume total deplace ~ V (1 + gain v / "
+							 "(2 R tau)) = %.6f m3 (soit %.2f fois V)\n"
+							 "     MESURE par quadrature %ux%u sur %.0f x %.0f m : %.6f m3, soit "
+							 "%.2f fois V\n"
+							 "     (pour information, PAS un critere : le creux le plus profond de "
+							 "la trace vaut %.6f m contre %.6f m pour la carene seule -- juste "
+							 "sous le corps, la carene et la ride qu'il vient de lacher se "
+							 "superposent, et rien ne l'interdit)\n",
+							 (double)attenduTotal, (double)(attenduTotal / vDeplace), NX, NZ,
+							 (double)(x1 - x0), (double)(2.f * zDemi), (double)mesure,
+							 (double)(mesure / vDeplace), (double)pireCreux, (double)aCentre);
+				ECHECK(mesure > 0.5f * attenduTotal && mesure < 2.f * attenduTotal,
+					   "(p2d) le VOLUME TOTAL deplace par la trace reste de l'ordre derive : la "
+					   "meme eau n'est pas deplacee N fois");
+			}
 
-			ImageDessus("eau_03_calme_sillage.bmp", calme, &champ, t, 24.f, 0.02f);
+			ImageDessus("eau_03_calme_sillage.bmp", calme, &champ, t, 24.f, NkFabs(aCentre));
 			const NkWaterParams houle = HouleSinus(0.25f, 12.f);
 			ImageDessus("eau_04_houle_seule.bmp", houle, nullptr, t, 24.f, 0.30f);
 			ImageDessus("eau_05_houle_et_sillage.bmp", houle, &champ, t, 24.f, 0.30f);
@@ -922,14 +1010,20 @@ namespace {
 			"| `eau_03_calme_sillage.bmp` | le corps **en mouvement** laisse une trace "
 			"DERRIERE lui et rien devant : moitie B, cas dynamique | que ce soit un sillage "
 			"de Kelvin — les rides sont ISOTROPES, le cone a 19deg28' n'est pas modelise |\n"
+			"| `eau_06_profil_avant_apres.bmp` | LA COUPE le long de z=0 : **petrole = sans "
+			"le corps** (parfaitement plat), **orange = avec**. C'est la lecture la plus "
+			"directe du creux | la forme exacte du bassin reel autour d'une carene |\n"
 			"| `eau_04_houle_seule.bmp` | la houle de Gerstner **seule**, inchangee | — |\n"
 			"| `eau_05_houle_et_sillage.bmp` | la trace **s'ajoute** a la houle sans la "
 			"remplacer : compare-la a la 04, meme echelle, meme instant | que la trace "
 			"interagisse avec la houle (elle ne le fait pas : c'est une somme) |\n"
 			"| `eau_07_flotteur_suit_la_houle.bmp` | moitie A : **petrole = la surface**, "
-			"**orange = le centre du flotteur**. Les deux courbes montent et descendent "
-			"ensemble | que le retard soit exact — le temoin (f2) le borne, l'image le "
-			"montre |\n\n"
+			"**orange = le flotteur MOINS son tirant d'eau d'equilibre** (sans cette "
+			"soustraction les deux courbes seraient decalees d'une constante et l'oeil "
+			"lirait un ecart la ou il n'y a qu'un enfoncement). Elles montent et "
+			"descendent ensemble, avec le retard et le leger depassement d'un oscillateur "
+			"excite par sa base | que le retard soit exact — le temoin (f2) le BORNE, "
+			"borne ecrite AVANT la mesure ; l'image, elle, le MONTRE |\n\n"
 			"⚠️ **Ce qui manque encore, et qui est nomme** : aucune de ces images ne sort "
 			"du chemin GPU. Le branchement au producteur de maillage (`NkWaterMeshBuilder`)\n"
 			"et a la sonde ocean de `Demo3D` est l'etape suivante ; tant qu'elle n'est pas\n"
