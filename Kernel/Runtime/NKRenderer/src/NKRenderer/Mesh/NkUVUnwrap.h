@@ -127,6 +127,30 @@ namespace nkentseu {
 			NkVec2f uvMax = {0.f, 0.f};
 		};
 
+		// ── ⚠ UNE DE-SOUDURE SANS ECART EST TOPOLOGIQUEMENT INVISIBLE ──────────
+		// Mesure, pas theorie. Apres `NkEditMesh::SplitEdges(..., keepGeometry = true)`
+		// sur une sphere soudee, les SOMMETS sont bien dedoubles (144 -> 258, soit 114
+		// copies) et `weldedCorners` retombe a 0 — mais le nombre d'ARETES ne bouge pas
+		// (272), et la caracteristique d'Euler reste 0 au lieu de passer a 1.
+		//
+		// La raison : l'identite soudee de `NkEditMesh` est SPATIALE. `RebuildEdges`
+		// rappelle `BuildVertexMerge`, qui refusionne par POSITION — et comme la
+		// de-soudure n'a justement rien deplace, les copies retombent exactement l'une
+		// sur l'autre. Le maillage se recoud tout seul.
+		//
+		// C'est aussi l'explication du `gap` « obligatoire » de `SplitSelectedEdges` :
+		// son ecart de 1 % n'est pas une coquetterie d'affichage, c'est ce qui rend sa
+		// decoupe PERSISTANTE. Une couture UV ne peut pas payer ce prix — deplacer la
+		// geometrie deformerait le modele qu'on veut seulement deplier.
+		//
+		// CONSEQUENCE SUR L'USAGE, ET ELLE N'EST PAS FACULTATIVE : la de-soudure et les
+		// coutures sont COMPLEMENTAIRES, jamais alternatives.
+		//   `SplitEdges` donne a chaque coin son propre `Vert`, donc le DROIT de porter
+		//                une UV distincte — c'est la REPRESENTATION ;
+		//   `seams`      dit au solveur ou ne pas propager la connexite — c'est la
+		//                TOPOLOGIE, et ca reste indispensable APRES la decoupe.
+		// Deplier apres une de-soudure sans repasser les coutures rend un ilot ferme, et
+		// le solveur le refuse a juste titre.
 		struct NkUVUnwrapParams {
 			// Aretes-coutures : indices dans `NkEditMesh::edges`. Les coutures sont
 			// une ENTREE et non un champ de `Edge` : poser un `uint8 seam` dans une
