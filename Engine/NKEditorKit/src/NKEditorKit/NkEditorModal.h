@@ -1,4 +1,5 @@
 #pragma once
+#include <cstdlib>
 // -----------------------------------------------------------------------------
 // @File    NkEditorModal.h
 // @Brief   Dialogue MODAL deplacable (barre de titre + message + boutons), pour
@@ -13,7 +14,7 @@
 //          quasi-totalite des points d'interaction de NKCode
 //          (`ctx.popupDepth == 0` avant d'agir) : la modalite est donc
 //          GLOBALE (tous panneaux) sans aucune modification ailleurs.
-// @Author  Rihen
+// @Author  TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // @License Proprietary - All Rights Reserved (see LICENSE)
 // -----------------------------------------------------------------------------
 #include "NKGui/NKGui.h"
@@ -437,7 +438,17 @@ namespace nkentseu {
 				m.open = false;
 				m.posInit = false;
 				m.dragging = false;
-				ctx.popupDepth = 0;
+				// (R16) MUTATION DE BANC : sous NK_PORTES_MUTATION=modale, cette fermeture
+				// OUBLIE de rendre le niveau de popup. C'est la forme exacte du defaut
+				// cherche (la source se ferme, sa porte non) posee sur une source SAINE :
+				// la sonde des portes doit rougir sur elle, sinon son vert ne prouve rien.
+				// Lue une fois ; sans la variable, rien ne change.
+				static const bool kMutation = []() {
+					const char *v = getenv("NK_PORTES_MUTATION");
+					return v && v[0] == 'm';
+				}();
+				if (!kMutation)
+					ctx.popupDepth = 0;
 			}
 			// Un clic HORS de la boite ne doit rien atteindre derriere. Celui qui
 			// tombe DEDANS reste disponible : c'est l'appelant qui peint le contenu.

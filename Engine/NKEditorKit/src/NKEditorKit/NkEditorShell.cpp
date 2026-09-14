@@ -47,6 +47,108 @@ using namespace nkentseu::nkgui;
 namespace nkentseu {
 	namespace editorkit {
 
+		// ═══════════════════════════════════════════════════════════════════════
+		//  (R16) LE JOURNAL DES PORTES DU CORPS -- NK_PORTES=1
+		// ═══════════════════════════════════════════════════════════════════════
+		//  Rodolf : la barre de titre repond (min/max/fermer), le corps ne recoit
+		//  plus rien. La barre de titre est dessinee AVANT le masquage de RenderFrame :
+		//  ce symptome est EXACTEMENT celui d'une porte de la condition `modal` restee
+		//  fermee. Ce journal nomme, a chaque TRANSITION, la porte responsable.
+		//  ⚠️ PAR TRANSITION, PAS PAR IMAGE : un flot de 60 lignes/s noierait la seule
+		//     ligne qui compte, celle ou une porte se ferme et ne se rouvre plus.
+		//  ⚠️ LA PIRE DUREE EST GARDEE SANS SEUIL, comme la pire image : un seuil
+		//     aurait decide a l'avance ce qui est « long ».
+		struct NkJournalPortes {
+				bool decide = false, actif = false;
+				int64 image = 0;
+				int32 cle = -1;
+				int64 debutEtat = 0;
+				nkentseu::NkChrono horlogeEtat;
+				bool masque = false;
+				int64 debutMasque = 0;
+				nkentseu::NkChrono horlogeMasque;
+				int64 pireImages = 0;
+				float64 pireMs = 0.0;
+		};
+		static NkJournalPortes &JournalPortes() noexcept {
+			static NkJournalPortes j;
+			if (!j.decide) {
+				j.decide = true;
+				const char *v = getenv("NK_PORTES");
+				j.actif = v && v[0] && v[0] != '0';
+			}
+			return j;
+		}
+		static const char *NkNomsPortes(int32 p, char *buf, int32 taille) noexcept {
+			static const char *const kNoms[6] = {"P(preferences)", "A(appModal)", "O(souris sur popup)",
+												 "C(menu ctx shell)", "R(saisie reservee)", "S(sous surface)"};
+			int32 n = 0;
+			buf[0] = 0;
+			for (int32 i = 0; i < 6; ++i)
+				if (p & (1 << i))
+					n += snprintf(buf + n, (size_t)(taille - n > 0 ? taille - n : 0), "%s%s", n ? "+" : "", kNoms[i]);
+			if (!n)
+				snprintf(buf, (size_t)taille, "aucune");
+			return buf;
+		}
+		static void NkNoterPortes(int32 portes, int32 popupDepth, bool actifPose, bool focus, bool dragTitre) noexcept {
+			NkJournalPortes &j = JournalPortes();
+			++j.image;
+			if (!j.actif)
+				return;
+			const bool masque = (portes & 31) != 0;
+			const int32 cle = portes | ((popupDepth > 7 ? 7 : popupDepth) << 8) | ((actifPose ? 1 : 0) << 12) |
+							  ((focus ? 1 : 0) << 13) | ((dragTitre ? 1 : 0) << 14);
+			if (cle == j.cle)
+				return;
+			const int64 tenu = j.image - j.debutEtat;
+			const float64 tenuMs = j.horlogeEtat.Elapsed().ToSeconds() * 1000.0;
+			if (j.masque && !masque) {
+				const int64 im = j.image - j.debutMasque;
+				const float64 ms = j.horlogeMasque.Elapsed().ToSeconds() * 1000.0;
+				if (im > j.pireImages) {
+					j.pireImages = im;
+					j.pireMs = ms;
+				}
+				printf("[portes] image %lld : CORPS ROUVERT apres %lld image(s) masquee(s) (%.1f ms) -- "
+					   "pire masquage continu : %lld images (%.1f ms)\n",
+					   (long long)j.image, (long long)im, ms, (long long)j.pireImages, j.pireMs);
+			}
+			if (!j.masque && masque) {
+				j.debutMasque = j.image;
+				j.horlogeMasque = nkentseu::NkChrono();
+			}
+			char noms[160];
+			printf("[portes] image %lld : %s %s | popupDepth %d | activeId %s | focus texte %s | drag titre %s"
+				   "  (etat precedent tenu %lld image(s), %.1f ms)\n",
+				   (long long)j.image, masque ? "CORPS MASQUE par" : "corps vivant ; portes :",
+				   NkNomsPortes(masque ? (portes & 31) : portes, noms, (int32)sizeof(noms)), popupDepth,
+				   actifPose ? "pose" : "libre", focus ? "oui" : "non", dragTitre ? "arme" : "non",
+				   (long long)tenu, tenuMs);
+			fflush(stdout);
+			j.cle = cle;
+			j.debutEtat = j.image;
+			j.horlogeEtat = nkentseu::NkChrono();
+			j.masque = masque;
+		}
+
+		void NkEditorShell::JournalPortesBilan(const char *etiquette) const noexcept {
+			NkJournalPortes &j = JournalPortes();
+			if (!j.actif)
+				return;
+			char noms[160];
+			if (j.masque)
+				printf("[portes] BILAN %s : corps MASQUE DEPUIS %lld image(s) (%.1f ms) par %s -- "
+					   "pire masquage continu termine : %lld images (%.1f ms)\n",
+					   etiquette ? etiquette : "", (long long)(j.image - j.debutMasque),
+					   j.horlogeMasque.Elapsed().ToSeconds() * 1000.0,
+					   NkNomsPortes(mPortesCorps & 31, noms, (int32)sizeof(noms)), (long long)j.pireImages, j.pireMs);
+			else
+				printf("[portes] BILAN %s : corps vivant -- pire masquage continu termine : %lld images (%.1f ms)\n",
+					   etiquette ? etiquette : "", (long long)j.pireImages, j.pireMs);
+			fflush(stdout);
+		}
+
 		// ── LE TEMPS PASSE DANS LA BOUCLE D'EVENEMENTS, mesure dans `Run` et lu
 		//    par `RenderFrame`. Il vit hors de `RenderFrame`, donc hors de portee du
 		//    releve par phases -- et c'est justement ce qu'on cherchait a couvrir.
@@ -1095,6 +1197,27 @@ namespace nkentseu {
 			//    crochet d'overlay -- le selecteur de fichier, en particulier : ils arrivent
 			//    apres les panneaux, donc ni `appModal` ni `overPopup` ne les voyaient.
 			const bool modal = mShowPrefs || mUI.appModal || overPopup || mCtxOpen || mUI.input.saisieReserveePrec;
+			// (R16) LES PORTES, lues ICI : apres la barre de titre (qui a vu l'entree
+			// reelle), avant le masquage. Chaque bit est l'un des termes de `modal`
+			// ci-dessus, plus S (le masquage PARTIEL par panneau de DrawPanels).
+			{
+				int32 portes = 0;
+				if (mShowPrefs)
+					portes |= kPortePreferences;
+				if (mUI.appModal)
+					portes |= kPorteAppModal;
+				if (overPopup)
+					portes |= kPortePopup;
+				if (mCtxOpen)
+					portes |= kPorteMenuCtx;
+				if (mUI.input.saisieReserveePrec)
+					portes |= kPorteSaisie;
+				if (!mUI.PointReachable(mUI.input.mousePos))
+					portes |= kPorteSurface;
+				mPortesCorps = portes;
+				NkNoterPortes(portes, mUI.popupDepth, mUI.activeId != NKGUI_ID_NONE, mUI.inputId != NKGUI_ID_NONE,
+							  mTitleDragArmed);
+			}
 			nkgui::NkGuiInput savedInput;
 			if (modal) {
 				savedInput = mUI.input;
