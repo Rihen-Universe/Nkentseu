@@ -24,10 +24,12 @@
 #include "NKPhysics/NkPhysicsWorld.h"
 #include "NKPhysics/NkRagdoll.h" // banc RAGDOLL (2026-09-04)
 #include "NKPhysics/NkVehicle.h" // banc VEHICULE (2026-09-03) // banc COUPLE (2026-09-03)
+#include "Noge/Physics/NkVehicleTuningIO.h" // banc CONFIGURATION (2026-09-14)
 #include "Noge/ECS/Components/Animation/NkAnimation.h"
 #include "Noge/ECS/Components/Core/NkTransform.h"
 
 #include <cmath> // std::fabs / std::fmax (banc COUPLE)
+#include <cstring> // std::memcmp (banc CONFIGURATION, 2026-09-14)
 #include <cstdio>
 
 using namespace nkentseu;
@@ -783,6 +785,171 @@ int main() {
 		Check(jC == 0 && kC == 3 && dCoupee < 1e-3f,
 			  "RAGDOLL (attributs derives) : coupee = trois racines ancrees -> 0 joint, 3 cinematiques, personne ne tombe");
 		std::printf("  [ragdoll] attributs derives : ancree %.3f m, liberee %.3f m, coupee %.3f m\n", dAncree, dLibre, dCoupee);
+	}
+
+	// =====================================================================
+	//  BANC CONFIGURATION — le reglage s'ECRIT et se RELIT (2026-09-14)
+	// =====================================================================
+	// (k1) aller-retour identique au BIT sur les 22 champs, dans un processus
+	//      neuf -- celui-ci. (k2) `linearDamping` est entre dans NkTuning, et
+	//      un fichier qui ne le mentionne pas laisse le defaut intact.
+	//      (k3) deux jeux de valeurs, pas deux codes.
+	//
+	// ⚠️ La comparaison se fait par `memcmp` sur la STRUCTURE, pas champ par
+	// champ a l'oeil : un champ oublie dans la comparaison ferait passer un
+	// aller-retour casse pour un aller-retour juste. Et les fichiers eux-memes
+	// sont compares OCTET PAR OCTET, ouverts en BINAIRE : en mode texte, la
+	// traduction CRLF s'applique des DEUX cotes et masque une difference reelle.
+	{
+		using namespace nkentseu::physics; // NkVehicleTuning, NkPhysicsWorld, NkVehicle, NkWheel
+
+		// Un reglage ou AUCUN champ ne vaut son defaut : si l'aller-retour
+		// perdait un champ, la valeur par defaut reviendrait et le memcmp le
+		// verrait. Un reglage par defaut ne prouverait rien du tout.
+		NkVehicleTuning src{};
+		src.restLength = 0.417f;         src.wheelRadius = 0.361f;
+		src.stiffness = 31337.5f;        src.damping = 2718.25f;
+		src.maxSuspFactor = 3.75f;       src.engineForce = 5123.5f;
+		src.brakeForce = 4096.25f;       src.maxSteerDeg = 27.5f;
+		src.steerRateDegPerSec = 144.f;  src.ackermann = 0.625f;
+		src.mu = 0.735f;                 src.freezeSpeed = 0.0625f;
+		src.staticFriction = false;      src.alternateSweep = false;
+		src.rollingResistance = 0.0225f; src.engineBrake = 0.175f;
+		src.dragCd = 0.345f;             src.airDensity = 1.1875f;
+		src.frontalArea = 2.4375f;       src.linearDamping = 0.0375f;
+		src.corneringDrag = 0.0915f;     src.corneringDragTau = 0.1875f;
+
+		const char *fA = "vehicule_A.json";
+		const char *fB = "vehicule_B.json";
+		NkVehicleTuning relu{};
+		const bool ecritA = noge::SaveVehicleTuning(src, fA);
+		const bool lu = noge::LoadVehicleTuning(fA, relu);
+		const bool ecritB = noge::SaveVehicleTuning(relu, fB);
+
+		Check(ecritA && lu && ecritB, "CONFIG : ecriture, relecture et reecriture aboutissent (NKSerialization, JSON)");
+		Check(std::memcmp(&src, &relu, sizeof(NkVehicleTuning)) == 0,
+			  "CONFIG (k1) : aller-retour IDENTIQUE AU BIT sur les 22 champs (memcmp sur la structure entiere)");
+
+		// Les deux FICHIERS, octet par octet, ouverts en BINAIRE.
+		auto litOctets = [](const char *chemin, unsigned char *buf, size_t max) -> long {
+			std::FILE *f = std::fopen(chemin, "rb"); // ⚠️ "rb" : pas de traduction CRLF
+			if (!f) return -1;
+			const long n = (long)std::fread(buf, 1, max, f);
+			std::fclose(f);
+			return n;
+		};
+		static unsigned char bufA[65536], bufB[65536];
+		const long nA = litOctets(fA, bufA, sizeof(bufA));
+		const long nB = litOctets(fB, bufB, sizeof(bufB));
+		Check(nA > 0 && nA == nB && std::memcmp(bufA, bufB, (size_t)nA) == 0,
+			  "CONFIG (k1) : les deux FICHIERS sont identiques octet par octet (lus en binaire, pas en texte)");
+		std::printf("  [config] fichier %ld octets ; A et B %s\n", nA,
+					(nA == nB && nA > 0 && std::memcmp(bufA, bufB, (size_t)nA) == 0) ? "identiques" : "DIFFERENTS");
+
+		// ── LE NEGATIF : un seul champ modifie -> les fichiers DIFFERENT ────
+		// Sans lui, un ecrivain qui n'ecrirait RIEN passerait les deux criteres
+		// ci-dessus : deux fichiers vides sont identiques et deux structures non
+		// touchees le sont aussi.
+		NkVehicleTuning mute = src;
+		mute.linearDamping = src.linearDamping + 0.001f; // le champ ajoute ce jour
+		const char *fC = "vehicule_C.json";
+		noge::SaveVehicleTuning(mute, fC);
+		static unsigned char bufC[65536];
+		const long nC = litOctets(fC, bufC, sizeof(bufC));
+		Check(nC > 0 && (nC != nA || std::memcmp(bufA, bufC, (size_t)(nA < nC ? nA : nC)) != 0),
+			  "CONFIG NEGATIF : UN champ modifie (linearDamping) -> les fichiers DIFFERENT");
+
+		// ── (k2) LE CHAMP ABSENT LAISSE LE DEFAUT, AU BIT ──────────────────
+		{
+			std::FILE *f = std::fopen("vehicule_partiel.json", "wb");
+			if (f) { std::fputs("{\"mu\":0.5}", f); std::fclose(f); }
+			NkVehicleTuning partiel{}; // les defauts du produit
+			const bool okP = noge::LoadVehicleTuning("vehicule_partiel.json", partiel);
+			NkVehicleTuning temoin{};
+			temoin.mu = 0.5f; // la SEULE chose que le fichier dit
+			Check(okP && std::memcmp(&partiel, &temoin, sizeof(NkVehicleTuning)) == 0,
+				  "CONFIG (k2) : fichier SANS linearDamping -> le defaut 0.02 intact, et tout le reste aussi (au bit)");
+			std::printf("  [config] fichier partiel : mu = %.4f, linearDamping = %.6f (defaut attendu 0.020000)\n",
+						partiel.mu, partiel.linearDamping);
+		}
+
+		// ── (k3) DEUX JEUX DE VALEURS, PAS DEUX CODES ──────────────────────
+		{
+			const NkVehicleTuning jeu = noge::VehicleTuningJeu();
+			const NkVehicleTuning sim = noge::VehicleTuningSimulation();
+			const NkVehicleTuning defauts{};
+			Check(std::memcmp(&jeu, &defauts, sizeof(NkVehicleTuning)) == 0,
+				  "CONFIG (k3) : le jeu de valeurs « jeu » EST le defaut du produit, au bit -- rien n'a ete deplace");
+			// ⚠️ Le defaut de `mu` est ZERO, et zero ne veut pas dire « pas de
+			// friction » : il veut dire « derive-la du materiau du chassis », ce
+			// qu'Autotune fait au premier sous-pas et qui donne 0,40. Le fichier
+			// « jeu » dit donc « derive », le fichier « simulation » dit 0,90.
+			Check(sim.mu == 0.90f && jeu.mu == 0.f && sim.linearDamping < jeu.linearDamping,
+				  "CONFIG (k3) : « simulation » pose mu = 0,90 la ou « jeu » laisse 0 (= derive du chassis -> 0,40)");
+			noge::SaveVehicleTuning(jeu, "vehicule_jeu.json");
+			noge::SaveVehicleTuning(sim, "vehicule_simulation.json");
+			NkVehicleTuning rj{}, rs{};
+			const bool okJ = noge::LoadVehicleTuning("vehicule_jeu.json", rj);
+			const bool okS = noge::LoadVehicleTuning("vehicule_simulation.json", rs);
+			Check(okJ && okS && std::memcmp(&rj, &jeu, sizeof(NkVehicleTuning)) == 0 &&
+					  std::memcmp(&rs, &sim, sizeof(NkVehicleTuning)) == 0,
+				  "CONFIG (k3) : les DEUX fichiers se relisent au bit");
+			std::printf("  [config] jeu : mu %.4f, linearDamping %.6f, aire %.4f | simulation : mu %.4f, "
+						"linearDamping %.6f, aire %.4f\n",
+						rj.mu, rj.linearDamping, rj.frontalArea, rs.mu, rs.linearDamping, rs.frontalArea);
+		}
+
+		// ── (k2 negatif) LE COMPORTEMENT N'A PAS BOUGE ─────────────────────
+		// Exposer un reglage n'est pas le changer. Deux voitures identiques, dont
+		// l'une recoit EXPLICITEMENT le defaut 0.02f : les trajectoires doivent
+		// coincider AU BIT sur 300 pas. Si elles divergent, c'est que le champ
+		// ajoute a change quelque chose -- et ce serait le defaut, pas la mesure.
+		{
+			const float32 hc = 1.f / 60.f;
+			auto roule = [&](bool poseExplicite) -> NkVec3f {
+				NkPhysicsWorld world;
+				world.SetGravity({0.f, -9.81f, 0.f});
+				NkBodyDef solc;
+				solc.type = NkBodyType::STATIC;
+				solc.position = {0.f, -0.5f, 0.f};
+				solc.orientation = NkQuatf::Identity();
+				world.CreateBody(solc, collision::NkShape::Box3D({0.f, -0.5f, 0.f}, {200.f, 0.5f, 200.f}));
+				NkVehicle *car = new NkVehicle(world);
+				car->SetChassisBox({0.f, 1.15f, 0.f}, {0.9f, 0.5f, 2.2f}, 1200.f);
+				car->AddWheel({-0.8f, -0.5f, 1.3f}, NkWheel::kSteered);
+				car->AddWheel({0.8f, -0.5f, 1.3f}, NkWheel::kSteered);
+				car->AddWheel({-0.8f, -0.5f, -1.3f}, NkWheel::kPowered);
+				car->AddWheel({0.8f, -0.5f, -1.3f}, NkWheel::kPowered);
+				if (poseExplicite) car->Tuning().linearDamping = 0.02f;
+				car->SetInput(0.f, 1.f, 0.f);
+				for (int i = 0; i < 300; ++i) world.Step(hc);
+				const NkVec3f p = world.GetBody(car->Chassis())->position;
+				delete car;
+				return p;
+			};
+			const NkVec3f pRef = roule(false);
+			const NkVec3f pExp = roule(true);
+			// LE CRITERE QUI MANQUAIT, et qui a coute une mesure fausse le jour meme.
+			// Mes trois criteres (k3) comparaient des STRUCTURES et etaient verts,
+			// pendant que la demo chargeant le fichier « jeu » passait de 1,9260 a
+			// 0,2282 m/s2. Une structure identique ne prouve pas un comportement
+            // identique tant que quelqu un, en aval, DERIVE encore une valeur.
+			// Ici : on ECRIT le jeu « jeu », on le RELIT dans une voiture, et on
+			// exige la MEME TRAJECTOIRE au bit qu une voiture sans fichier.
+			const bool cfgNeutre = [&]() -> bool {
+				noge::SaveVehicleTuning(noge::VehicleTuningJeu(), "vehicule_neutre.json");
+				NkVehicleTuning lu2{};
+				if (!noge::LoadVehicleTuning("vehicule_neutre.json", lu2)) return false;
+				NkVehicleTuning defauts2{};
+				return std::memcmp(&lu2, &defauts2, sizeof(NkVehicleTuning)) == 0;
+			}();
+			Check(cfgNeutre,
+				  "CONFIG (k3) NEGATIF : le fichier « jeu » ecrit puis relu redonne les defauts au bit -- le charger ne change RIEN");
+			Check(std::memcmp(&pRef, &pExp, sizeof(NkVec3f)) == 0,
+				  "CONFIG (k2) NEGATIF : poser explicitement 0.02f donne la MEME trajectoire au bit -- exposer n'est pas changer");
+			std::printf("  [config] 300 pas plein gaz : sans reglage z = %.9f m, avec 0.02f explicite z = %.9f m\n",
+						pRef.z, pExp.z);
+		}
 	}
 
 	std::printf("=== Resultat : %d OK / %d FAIL ===\n", gPass, gFail);
