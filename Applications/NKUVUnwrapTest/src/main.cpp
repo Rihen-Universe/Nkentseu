@@ -751,6 +751,177 @@ int main(int argc, char **argv) {
 		Check("u1/N5b-soudes-sur-zero", ok && res.weldedCorners == 0u, buf);
 	}
 
+	// =========================================================================
+	// (c1..c3) DE-SOUDURE DES COUTURES — NkEditMesh::SplitEdges
+	// Le mur reel : un modele importe SANS UV arrive avec ses sommets SOUDES
+	// (NkOBJLoader:292 fabrique un sommet par combinaison position/UV/normale,
+	// donc une seule cle par position quand il n'y a pas d'UV), et un sommet
+	// soude ne peut pas porter deux UV de part et d'autre d'une couture.
+	// =========================================================================
+
+	// Positions comparees OCTET POUR OCTET. Une comparaison a epsilon laisserait
+	// passer exactement ce qu'on veut interdire : un solveur qui deplace les
+	// sommets « un peu » est deja un solveur qui ment.
+	auto MemePosition = [](const NkVec3f &a, const NkVec3f &b) -> bool {
+		return memcmp(&a, &b, sizeof(NkVec3f)) == 0;
+	};
+
+	// c1 — LA SPHERE SOUDEE SE DEPLIE APRES DE-SOUDURE
+	{
+		NkEditMesh m;
+		MakeSphere(10u, 16u, true, v, idx); // sommets PARTAGES, comme un import sans UV
+		Build(m, v, idx, true);
+
+		// ATTENDUS DERIVES DES COMPTES DU MAILLAGE, jamais recopies :
+		//   arbre couvrant du dual = F-1 aretes, chacune fusionnant 2 paires de coins
+		//   V' = (somme des cotes) - 2(F-1)     E' = (somme des cotes) - (F-1)
+		//   dupliques = V' - V                  Euler = V' - E' + F = 1
+		uint32 F = 0u, sides = 0u;
+		NkVector<NkEmId> fvv;
+		for (uint32 f = 0; f < (uint32)m.faces.Size(); ++f) {
+			if (!m.faces[f].alive) continue;
+			++F;
+			fvv.Clear();
+			m.GetFaceVerts((NkEmId)f, fvv);
+			sides += (uint32)fvv.Size();
+		}
+		const uint32 V0 = (uint32)m.verts.Size();
+		const uint32 tree = (F > 0u) ? (F - 1u) : 0u;
+		const uint32 vAttendu = sides - 2u * tree;
+		const uint32 eAttendu = sides - tree;
+		const uint32 dupAttendu = vAttendu - V0;
+
+		NkVector<NkVec3f> posAvant;
+		for (uint32 i = 0; i < V0; ++i) posAvant.PushBack(m.verts[i].pos);
+
+		const uint32 n = SeamsFromDualSpanningTree(m, seams, 0u);
+
+		// ⚠ ON MEMORISE LES COUTURES PAR POSITION, PAS PAR INDICE.
+		// `SplitEdges` reconstruit le maillage : les indices d'aretes d'apres n'ont
+		// aucun rapport avec ceux d'avant. Les POSITIONS, elles, sont conservees au
+		// bit (c'est tout l'objet de `keepGeometry`), donc elles servent de pont.
+		NkVector<NkVec3f> seamA, seamB;
+		for (uint32 i = 0; i < n; ++i) {
+			const NkEmId e = seams[i];
+			seamA.PushBack(m.verts[m.edges[e].v0].pos);
+			seamB.PushBack(m.verts[m.edges[e].v1].pos);
+		}
+
+		uint32 dup = 0u;
+		const bool split = m.SplitEdges(seams.Data(), n, true, &dup);
+		m.RebuildEdges();
+
+		// ⚠ ET ON REPASSE LES COUTURES AU SOLVEUR. J'avais ecrit ici que la decoupe
+		// suffisait, « les ilots se forment d'eux-memes ». FAUX, et la mesure me l'a
+		// dit : E restait a 272 et Euler a 0. L'identite soudee de NkEditMesh est
+		// SPATIALE — `RebuildEdges` refusionne par position, et une de-soudure qui ne
+		// deplace rien est donc invisible pour elle. Le maillage se recoud.
+		// De-soudure et coutures ne sont pas alternatives : la premiere donne a chaque
+		// coin le DROIT de porter son UV, la seconde dit ou couper la connexite.
+		NkVector<NkEmId> seams2;
+		for (uint32 k = 0; k < (uint32)seamA.Size(); ++k) {
+			for (uint32 e = 0; e < (uint32)m.edges.Size(); ++e) {
+				if (!m.edges[e].alive) continue;
+				const NkVec3f &p0 = m.verts[m.edges[e].v0].pos;
+				const NkVec3f &p1 = m.verts[m.edges[e].v1].pos;
+				const bool direct = (memcmp(&p0, &seamA[k], sizeof(NkVec3f)) == 0) &&
+									(memcmp(&p1, &seamB[k], sizeof(NkVec3f)) == 0);
+				const bool inverse = (memcmp(&p0, &seamB[k], sizeof(NkVec3f)) == 0) &&
+									 (memcmp(&p1, &seamA[k], sizeof(NkVec3f)) == 0);
+				if (direct || inverse) {
+					seams2.PushBack((NkEmId)e);
+					break;
+				}
+			}
+		}
+		NkUVUnwrapParams pr;
+		pr.seams = seams2.Data();
+		pr.seamCount = (uint32)seams2.Size();
+		NkUVResult res;
+		NkVector<NkUVIslandInfo> isl;
+		const bool ok = NkUVUnwrap(m, pr, res, &isl);
+		const int32 euler = (isl.Size() > 0u) ? isl[0].euler : -999;
+		// La CONDITION D'ESSAI est publiee avec le resultat : si l'appariement des
+		// coutures par position en retrouvait moins que `n`, le depliage rougirait
+		// pour une raison qui n'a rien a voir avec le depliage.
+		snprintf(buf, sizeof(buf),
+				 "V %u->%u (att %u)  dup=%u (att %u)  coutures %u->%u  E=%u/%u euler=%d/1 ilots=%u "
+				 "soudes=%u aire max=%.3f",
+				 V0, (uint32)m.verts.Size(), vAttendu, dup, dupAttendu, n, (uint32)seams2.Size(),
+				 (isl.Size() > 0u) ? isl[0].edgeCount : 0u, eAttendu, euler, res.islandCount,
+				 res.weldedCorners, (double)res.distortion.areaMax);
+		Check("c1/sphere-soudee-se-deplie",
+			  split && (uint32)m.verts.Size() == vAttendu && dup == dupAttendu &&
+				  (uint32)seams2.Size() == n && ok && res.islandCount == 1u && euler == 1 &&
+				  res.weldedCorners == 0u && res.distortion.areaMax > 1.f,
+			  buf);
+
+		// c2 — LA DE-SOUDURE N'A DEPLACE AUCUNE POSITION, AU BIT.
+		// Si le `gap` automatique de 1 % avait joue, TOUS les sommets touches
+		// auraient bouge et ce controle rougirait en masse.
+		uint32 inconnues = 0u;
+		for (uint32 i = 0; i < (uint32)m.verts.Size(); ++i) {
+			bool trouve = false;
+			for (uint32 j = 0; j < (uint32)posAvant.Size() && !trouve; ++j)
+				if (MemePosition(m.verts[i].pos, posAvant[j])) trouve = true;
+			if (!trouve) ++inconnues;
+		}
+		snprintf(buf, sizeof(buf), "positions inconnues apres de-soudure : %u (ATTENDU 0, memcmp exact)",
+				 inconnues);
+		Check("c2/de-soudure-ne-bouge-rien", inconnues == 0u, buf);
+	}
+
+	// c1-NEG — AUCUNE COUTURE -> AUCUN SOMMET DUPLIQUE, GEOMETRIE INTACTE.
+	// Par quel mecanisme pourrait-il echouer ? Par le `gap` automatique, et par
+	// une de-soudure qui s'emballerait sur une liste vide. Il surveille donc les
+	// deux facons exactes dont ce lot pouvait mal tourner — il n'est pas impuissant.
+	{
+		NkEditMesh m;
+		MakeSphere(10u, 16u, true, v, idx);
+		Build(m, v, idx, true);
+		const uint32 V0 = (uint32)m.verts.Size();
+		NkVector<NkVec3f> posAvant;
+		for (uint32 i = 0; i < V0; ++i) posAvant.PushBack(m.verts[i].pos);
+
+		uint32 dup = 123456u; // sentinelle : l'appel DOIT la remettre a zero
+		const bool r = m.SplitEdges(seams.Data(), 0u, true, &dup);
+
+		bool identique = ((uint32)m.verts.Size() == V0);
+		for (uint32 i = 0; i < V0 && identique; ++i)
+			if (!MemePosition(m.verts[i].pos, posAvant[i])) identique = false;
+		snprintf(buf, sizeof(buf), "rend %s  dup=%u (ATTENDU 0)  V=%u/%u  identique au bit : %s",
+				 r ? "true" : "false", dup, (uint32)m.verts.Size(), V0, identique ? "oui" : "NON");
+		Check("c1/N-aucune-couture", !r && dup == 0u && identique, buf);
+	}
+
+	// c3 — L'ANCIEN CHEMIN EST INTACT.
+	// `SplitSelectedEdges` doit se comporter comme avant, ECART COMPRIS : c'est un
+	// « rip » facon Blender, il DOIT ecarter. Le contraste avec c2 prouve les deux
+	// d'un coup — meme decoupe, deux politiques d'ecart, chacune tenant son contrat.
+	// Le juge principal reste `editmesh_baseline.txt`, qui doit rester identique au
+	// bit : ce banc-ci ne le remplace pas, il le complete.
+	{
+		NkEditMesh m;
+		MakeCube(v, idx);
+		Build(m, v, idx, true);
+		NkVector<NkVec3f> posAvant;
+		for (uint32 i = 0; i < (uint32)m.verts.Size(); ++i) posAvant.PushBack(m.verts[i].pos);
+		m.SelectAll();
+		const bool r = m.SplitSelectedEdges();
+		m.RebuildEdges();
+		uint32 bouges = 0u;
+		for (uint32 i = 0; i < (uint32)m.verts.Size(); ++i) {
+			bool trouve = false;
+			for (uint32 j = 0; j < (uint32)posAvant.Size() && !trouve; ++j)
+				if (MemePosition(m.verts[i].pos, posAvant[j])) trouve = true;
+			if (!trouve) ++bouges;
+		}
+		snprintf(buf, sizeof(buf),
+				 "rend %s  V=%u  sommets ECARTES=%u (ATTENDU >0 : ecarter est son contrat)",
+				 r ? "true" : "false", (uint32)m.verts.Size(), bouges);
+		Check("c3/ancien-chemin-ecarte", r && bouges > 0u, buf);
+	}
+
 	printf("\n--- %u tests executes, %u echec(s) ---\n", gTests, gFail);
 	printf("(u4) se joue en DEUX PROCESSUS : --u4-ecrire puis --u4-relire\n");
 	return (gFail == 0u) ? 0 : 1;
