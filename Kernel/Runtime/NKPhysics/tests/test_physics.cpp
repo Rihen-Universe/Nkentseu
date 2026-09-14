@@ -22,6 +22,7 @@ static int g_pass = 0, g_fail = 0;
 int RunClothTests(int &pass, int &fail); // test_cloth.cpp
 int RunEauTests(int &pass, int &fail);   // test_eau.cpp (2026-09-06, §6.6)
 int RunGarmentTests(int &pass, int &fail); // test_garment.cpp (vetements sur mannequin, 2026-09-05)
+int RunCouplageTests(int &pass, int &fail); // test_eau_couplage.cpp (2026-09-14, les corps et l eau s influencent)
 
 static bool Near(float32 a, float32 b, float32 eps = 1e-3f) {
 	float32 d = a - b;
@@ -670,6 +671,9 @@ int main() {
 	// L'eau au-dela du fluide (2026-09-06) : eclaboussures (§6.6 palier 1) et
 	// mouillage (paliers 2-3) -- temoins dans test_eau.cpp, memes compteurs.
 	RunEauTests(g_pass, g_fail);
+	// LES CORPS ET L EAU S INFLUENCENT (2026-09-14) : flottabilite (moitie A) et
+	// perturbation de la surface par les corps (moitie B) -- test_eau_couplage.cpp.
+	RunCouplageTests(g_pass, g_fail);
 
 	logger.Info("=== NKPhysics : {0} passes, {1} echecs ===\n", g_pass, g_fail);
 	return g_fail == 0 ? 0 : 1;
