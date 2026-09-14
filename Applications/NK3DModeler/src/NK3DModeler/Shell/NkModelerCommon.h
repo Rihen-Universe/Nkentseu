@@ -9,7 +9,7 @@
 //          revele comme communs -- la vue 3D, la hierarchie et les proprietes
 //          les appellent toutes. Un utilitaire partage a besoin d'un endroit a
 //          lui, sinon il retient le fichier dont on veut le sortir.
-// @Author  Rihen
+// @Author  TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // @License Proprietary - All Rights Reserved (see LICENSE)
 // -----------------------------------------------------------------------------
 #include "NK3DModeler/Shell/NkModelerUI.h"
@@ -64,6 +64,41 @@ namespace nkentseu {
 			if (!demo::Demo3DHostDocIsModel() && demo::Demo3DHostNodeIsMesh(node))
 				return true;
 			return node >= 96 && demo::Demo3DHostUserKind(node) == 0;
+		}
+
+		// ── LE DECOMPTE DES OBJETS : UNE DEFINITION, DEUX TEXTES ──────────────
+		// La barre d'etat ecrivait « Objets 6 » en dur, et le pied de la Hierarchie
+		// arretait sa boucle au noeud 90 : les empties et TOUS les objets crees par
+		// l'utilisateur (noeuds >= 96) n'etaient pas comptes -- d'ou « 0 objet(s) »
+		// sous une liste de quatre noeuds. Deux textes, deux comptes, aucun juste.
+		// Ici : le MEME predicat que les lignes de la liste (NkHierNodeSkip) et la
+		// MEME regle de selection que la ligne (empty, lumiere, objet). Ce qui est
+		// compte est donc ce qui est affiche -- c'est la seule definition verifiable
+		// a l'oeil. `seul` rend le noeud quand exactement un est selectionne, -1 sinon.
+		inline void NkSceneCounts(NkModelerState &st, int32 &alive, int32 &sel, int32 &seul) {
+			alive = 0;
+			sel = 0;
+			seul = -1;
+			const int32 kFirstLight = demo::Demo3DHostObjectCount();
+			const int32 kFirstEmpty = 90;
+			const int32 selLight = demo::Demo3DHostSelectedLight();
+			int32 nNoeuds = demo::Demo3DHostNodeCount();
+			if (nNoeuds > 160)
+				nNoeuds = 160; // les tables de noms et de pliage couvrent 160 noeuds
+			for (int32 n = 0; n < nNoeuds; ++n) {
+				if (NkHierNodeSkip(n))
+					continue;
+				++alive;
+				const bool isEmpty = n >= kFirstEmpty;
+				const bool isLight = n >= kFirstLight && n < kFirstEmpty;
+				const bool s = isEmpty ? (demo::Demo3DHostEmptyNodeSelected(n) || st.activeEmpty == n)
+								: isLight ? (selLight == n - kFirstLight)
+										: demo::Demo3DHostObjectSelected(n);
+				if (s) {
+					++sel;
+					seul = (sel == 1) ? n : -1;
+				}
+			}
 		}
 
 		inline void NkHierNodeName(NkModelerState &st, int32 node, char *out, uint32 cap) {
