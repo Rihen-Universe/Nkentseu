@@ -5675,23 +5675,14 @@ namespace nkentseu {
 					// dans ce fichier : « la touche arrive par DEUX voies ».
 					if (k == NkKey::NK_Z && alt)
 						return;
-					// Ctrl+Z = ANNULER · Ctrl+Shift+Z / Ctrl+Y = RÉTABLIR (historique d'édition).
-					// Traité côté frame (accès meshSys pour resync). Façon Blender.
-					{
-						const bool ctrlZ = NkInput.IsKeyDown(NkKey::NK_LCTRL) || NkInput.IsKeyDown(NkKey::NK_RCTRL);
-						const bool shiftZ = NkInput.IsKeyDown(NkKey::NK_LSHIFT) || NkInput.IsKeyDown(NkKey::NK_RSHIFT);
-						if (ctrlZ && k == NkKey::NK_Z) {
-							if (shiftZ)
-								st->editRedoPending = true;
-							else
-								st->editUndoPending = true;
-							return;
-						}
-						if (ctrlZ && k == NkKey::NK_Y) {
-							st->editRedoPending = true;
-							return;
-						}
-					}
+					// ⚠ Ctrl+Z / Ctrl+Maj+Z / Ctrl+Y NE SONT PLUS TRAITES ICI, ET C'EST LE CORRECTIF.
+					// Ce rappel et le shell recevaient le MEME appui (la diffusion appelle tous les
+					// rappels, sans consommation) : souris sur la vue, un appui annulait DEUX fois --
+					// une fois ici (drapeau consomme a la frame), une fois par le shell (immediat).
+					// Mesure du 14/09 : deux pas d'historique, un appui compose des deux effets -> 2 -> 0.
+					// Le chemin du shell est garde : memes touches, meme fonction (Demo3D_UndoEdit),
+					// et il ne depend pas du survol. Il a recu la seule condition que celui-ci avait :
+					// ne rien annuler pendant une modale.
 					// P : REJOUE le journal des commandes depuis le maillage de base (preuve que
 					// la couche de commandes est scriptable -> modificateurs + données IA).
 					if (k == NkKey::NK_P) {

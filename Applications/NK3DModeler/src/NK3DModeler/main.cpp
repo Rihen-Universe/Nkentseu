@@ -3035,11 +3035,15 @@ int nkmain(const NkEntryState &entry) {
 				// les operations commitent dans celui de la vue VIVANTE. D ou un
 				// Annuler qui marchait au clavier et restait mort a la souris.
 				case NkVpAction::Undo:
-					if (edit && demo::Demo3DHostEditUndo())
+					// UN SEUL CHEMIN D'ANNULATION (celui-ci), et il refuse pendant une modale
+					// comme le faisait celui du viseur, retire : annuler l'historique pendant
+					// qu'un apercu est applique melangerait deux etats. Chez Blender aussi, la
+					// modale possede le clavier et Ctrl+Z n'y annule rien.
+					if (edit && !inModal && demo::Demo3DHostEditUndo())
 						NkMarkDirty(st);
 					break;
 				case NkVpAction::Redo:
-					if (edit && demo::Demo3DHostEditRedo())
+					if (edit && !inModal && demo::Demo3DHostEditRedo())
 						NkMarkDirty(st);
 					break;
 				// ── Vues ────────────────────────────────────────────────────
