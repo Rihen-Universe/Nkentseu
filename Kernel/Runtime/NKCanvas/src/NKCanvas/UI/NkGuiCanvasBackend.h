@@ -185,6 +185,24 @@ namespace nkentseu {
 						//       le lit pour ce qu'il est.
 						nkentseu::int64 setclips = 0, popclips = 0;
 						nkentseu::uint32 drawCallsDepart = 0;
+						// ── LES TRANSITIONS ENTRE COMMANDES CONSECUTIVES ──────────────
+						// Le lot de dessin compte les GROUPES qu'il ouvre ; ici on compte
+						// ce que ce fichier DEMANDE, sans une ligne de code commune. Les
+						// transitions de texture et de rognage doivent EGALER, a l'unite,
+						// les groupes etiquetes T et C par le lot. Le melange peut
+						// differer vers le HAUT : plusieurs modes NKGui retombent sur le
+						// meme mode alpha du dorsal.
+						bool prevValide = false;
+						const nkentseu::renderer::NkTexture *prevTex = nullptr;
+						nkentseu::nkgui::NkGuiBlend prevBlend = nkentseu::nkgui::NkGuiBlend::Alpha;
+						bool prevClip = false;
+						nkentseu::int32 prevX = 0, prevY = 0, prevW = 0, prevH = 0;
+						nkentseu::int64 transT = 0, transB = 0, transC = 0, cmdsExec = 0;
+						// ⚠️ LE PIXEL BLANC ne supprime QUE les transitions ou un cote
+						//    n'a AUCUNE texture (aplat). Une transition entre deux vraies
+						//    textures (atlas <-> image, atlas A <-> atlas B) reste.
+						nkentseu::int64 transTNul = 0, cmdsSansTexture = 0;
+						nkentseu::int64 transTNulRognageIdentique = 0;
 				};
 				static NkReleveSubmit &Releve() {
 					static NkReleveSubmit r;
@@ -251,6 +269,7 @@ namespace nkentseu {
 							continue;
 
 						const bool hasClip = (dc.clipRect.w < 1.0e8f && dc.clipRect.h < 1.0e8f);
+						int32 rcX = 0, rcY = 0, rcW = 0, rcH = 0; // le rognage de CETTE commande
 						if (hasClip) {
 							float32 x0 = dc.clipRect.x < 0.f ? 0.f : dc.clipRect.x;
 							float32 y0 = dc.clipRect.y < 0.f ? 0.f : dc.clipRect.y;
@@ -266,6 +285,10 @@ namespace nkentseu {
 								rel.rebasage += hPoste.Elapsed().ToSeconds() * 1000.0;
 								hPoste = NkChrono();
 							}
+							rcX = static_cast<int32>(x0);
+							rcY = static_cast<int32>(y0);
+							rcW = static_cast<int32>(x1 - x0);
+							rcH = static_cast<int32>(y1 - y0);
 							if (rel.actif)
 								++rel.setclips;
 							mRenderer->SetClip(math::NkRect2i{static_cast<int32>(x0), static_cast<int32>(y0),
@@ -396,6 +419,38 @@ namespace nkentseu {
 							rel.recopie += hPoste.Elapsed().ToSeconds() * 1000.0;
 							hPoste = NkChrono();
 						}
+						if (rel.actif) {
+							if (rel.prevValide) {
+								if (tex != rel.prevTex) {
+									++rel.transT;
+									if (!tex || !rel.prevTex) {
+										++rel.transTNul;
+										// ... et le rognage NE change PAS : la seule
+										// transition que le pixel blanc ET un rognage
+										// non vide ensemble feraient disparaitre.
+										if (hasClip == rel.prevClip
+											&& (!hasClip || (rcX == rel.prevX && rcY == rel.prevY && rcW == rel.prevW && rcH == rel.prevH)))
+											++rel.transTNulRognageIdentique;
+									}
+								}
+								if (dc.blend != rel.prevBlend)
+									++rel.transB;
+								if (hasClip != rel.prevClip
+									|| (hasClip && (rcX != rel.prevX || rcY != rel.prevY || rcW != rel.prevW || rcH != rel.prevH)))
+									++rel.transC;
+							}
+							rel.prevValide = true;
+							rel.prevTex = tex;
+							rel.prevBlend = dc.blend;
+							rel.prevClip = hasClip;
+							rel.prevX = rcX;
+							rel.prevY = rcY;
+							rel.prevW = rcW;
+							rel.prevH = rcH;
+							++rel.cmdsExec;
+							if (!tex)
+								++rel.cmdsSansTexture;
+						}
 						mRenderer->DrawVertices(mScratch.Data() + lo, hi - lo + 1u, mIdxTmp.Data(), dc.idxCount, tex);
 						if (rel.fin) {
 							rel.pilote += hPoste.Elapsed().ToSeconds() * 1000.0;
@@ -456,6 +511,27 @@ namespace nkentseu {
 									   images > 0.0 ? (nkentseu::float64)rel.popclips / images : 0.0,
 									   (unsigned)(dcNow - rel.drawCallsDepart),
 									   images > 0.0 ? (nkentseu::float64)(dcNow - rel.drawCallsDepart) / images : 0.0);
+							}
+							{
+								const nkentseu::float64 imgT = (nkentseu::float64)rel.appels / 2.0;
+								printf("[submit]   TRANSITIONS demandees entre commandes executees (%lld commandes) : "
+									   "texture %lld | melange %lld | rognage %lld  (= %.1f | %.1f | %.1f par image)\n",
+									   (long long)rel.cmdsExec, (long long)rel.transT, (long long)rel.transB,
+									   (long long)rel.transC,
+									   imgT > 0.0 ? (nkentseu::float64)rel.transT / imgT : 0.0,
+									   imgT > 0.0 ? (nkentseu::float64)rel.transB / imgT : 0.0,
+									   imgT > 0.0 ? (nkentseu::float64)rel.transC / imgT : 0.0);
+								printf("[submit]     dont texture AUCUNE <-> une texture : %lld (= %.1f par image) ; "
+									   "entre DEUX vraies textures : %lld (= %.1f par image)\n"
+									   "[submit]     dont AUCUNE <-> texture a rognage IDENTIQUE : %lld (= %.1f par image)\n"
+									   "[submit]     commandes SANS texture (aplats) : %lld sur %lld (= %.1f par image)\n",
+									   (long long)rel.transTNul, imgT > 0.0 ? (nkentseu::float64)rel.transTNul / imgT : 0.0,
+									   (long long)(rel.transT - rel.transTNul),
+									   imgT > 0.0 ? (nkentseu::float64)(rel.transT - rel.transTNul) / imgT : 0.0,
+									   (long long)rel.transTNulRognageIdentique,
+									   imgT > 0.0 ? (nkentseu::float64)rel.transTNulRognageIdentique / imgT : 0.0,
+									   (long long)rel.cmdsSansTexture, (long long)rel.cmdsExec,
+									   imgT > 0.0 ? (nkentseu::float64)rel.cmdsSansTexture / imgT : 0.0);
 							}
 							printf("[submit]   COMPTES (pas des durees) :\n"
 								   "[submit]     reallocations mIdxTmp : %lld   mScratch : %lld\n"
