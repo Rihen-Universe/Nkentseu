@@ -1375,6 +1375,16 @@ with workspace("Nkentseu", location="."):
         pass
 
 
+    # NKDesignLLM : l'autre cote du contrat de NkUIDesign -- une invite dans un
+    # FICHIER, une reponse dans un FICHIER. L'application de design ne le connait
+    # pas : elle connait un gabarit de ligne de commande a deux trous. C'est
+    # l'equivalent exact du pont GENIA du modeleur, et c'est ce qui permettra a
+    # un modele entraine chez Rihen de le remplacer sans qu'une ligne bouge.
+    with include("Applications/NKDesignLLM/NKDesignLLM.jenga"):
+
+        pass
+
+
 
     with include("Applications/NKQwen2SftGpuTest/NKQwen2SftGpuTest.jenga"):
 
