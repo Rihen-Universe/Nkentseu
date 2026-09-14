@@ -10,6 +10,8 @@
   "steerRateDegPerSec": 180,
   "ackermann": 1,
   "mu": 0.89999997615814209,
+  "tyreFriction": 0.89999997615814209,
+  "muFromChassis": false,
   "freezeSpeed": 0.05000000074505806,
   "staticFriction": true,
   "alternateSweep": true,
