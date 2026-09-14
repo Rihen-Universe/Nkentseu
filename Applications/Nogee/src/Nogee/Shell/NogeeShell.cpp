@@ -1,3 +1,8 @@
+// -----------------------------------------------------------------------------
+// @File    NogeeShell.cpp
+// @Author  TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
+// @License Proprietary - All Rights Reserved (see LICENSE)
+// -----------------------------------------------------------------------------
 // =============================================================================
 // Nogee/Shell/NogeeShell.cpp — coquille d'editeur optionnelle (cf. .h)
 // =============================================================================
@@ -13,6 +18,7 @@
 #include "Nogee/Editor/CommandHistory.h"
 #include "Nogee/Editor/AssetManager.h"
 #include "Nogee/Editor/ProjectManager.h"
+#include "Nogee/Shell/NkPanneauxSonde.h" // mesure de la DISPOSITION (--panneaux-sonde)
 
 #include "NKECS/World/NkWorld.h"
 #include "Noge/ECS/Scene/NkSceneGraph.h"
@@ -231,6 +237,18 @@ namespace nkentseu {
 					if (g_shell)
 						g_shell->RequestClose();
 				}
+			}
+
+			// ── SONDE DE DISPOSITION (--panneaux-sonde) ──────────────────────
+			// Les titres viennent des `AddPanel` ci-dessous, dans le meme ordre.
+			// Ils sont ecrits UNE fois ici parce que le shell n'expose pas sa
+			// liste ; toute divergence se verrait immediatement (« NON ANCRE »).
+			const char *const kTitresPanneaux[] = {"Viewport", "World Outliner", "Details",
+												   "Content Browser", "Console"};
+
+			void PanneauxOverlay(NkEditorFrameContext &ec, void *user) {
+				NkPanneauxSondeMesurer(ec, static_cast<NkEditorShell *>(user), kTitresPanneaux,
+									   (int32)(sizeof(kTitresPanneaux) / sizeof(kTitresPanneaux[0])));
 			}
 
 			void CmdQuit(void *u) {
@@ -677,7 +695,9 @@ namespace nkentseu {
 			static nkgui::NkEditorRHIRenderer rhi;
 
 			NkEditorShellConfig scfg;
-			scfg.title = "Noge Editor — coquille NKEditorKit (--ui=rhi)";
+			scfg.title = NkPanneauxSonde().active
+							 ? NkPanneauxSondeTitre()
+							 : "Noge Editor — coquille NKEditorKit (--ui=rhi)";
 			scfg.width = 1600;
 			scfg.height = 900;
 			scfg.graphicsApi = NkEditorGfxApi::OpenGL;
@@ -899,6 +919,9 @@ namespace nkentseu {
 					logger.Info("[SONDE] --occlusion-test IGNORE : --dragdrop-test est deja actif "
 								"(une sonde par execution)\n");
 				logger.Info("[SONDE-DD] activee : glisser-deposer §7/§9 pilote par frames\n");
+			} else if (NkPanneauxSonde().active) {
+				shell->SetOverlay(&PanneauxOverlay, shell.Get());
+				logger.Info("[PANNEAUX] sonde de disposition activee : fenetre OUVERTE (titre de sonde)\n");
 			} else {
 				shell->SetOverlay(&ProbeOverlay, nullptr);
 			}
@@ -933,6 +956,10 @@ namespace nkentseu {
 
 		void NogeeShellReproduceConquerorLabCondition() noexcept {
 			g_probe.noMaskBody = true;
+		}
+
+		void NogeeShellEnablePanneauxSonde() noexcept {
+			NkPanneauxSonde().active = true;
 		}
 
 		void NogeeShellEnableDragDropProbe() noexcept {

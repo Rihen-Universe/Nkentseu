@@ -1,0 +1,94 @@
+// -----------------------------------------------------------------------------
+// @File    NkPanneauxSonde.cpp
+// @Author  TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
+// @License Proprietary - All Rights Reserved (see LICENSE)
+// -----------------------------------------------------------------------------
+// Mesure de la disposition — voir l'en-tete pour ce qu'elle mesure et ce
+// qu'elle refuse de faire (elle ne compare a rien, elle ne pilote rien).
+// -----------------------------------------------------------------------------
+#include "Nogee/Shell/NkPanneauxSonde.h"
+#include "NKEditorKit/NkEditorShell.h"
+
+namespace nkentseu {
+	namespace noge {
+
+		using namespace nkentseu::editorkit;
+
+		void NkPanneauxSondeMesurer(NkEditorFrameContext &ec, NkEditorShell *shell,
+									const char *const *titres, int32 nTitres) noexcept {
+			NkPanneauxSondeEtat &s = NkPanneauxSonde();
+			if (!s.active || s.reported || !shell)
+				return;
+			nkgui::NkGuiContext &ui = ec.Ui();
+			++s.frame;
+			if (s.frame < s.frameMesure)
+				return;
+
+			const float32 W = static_cast<float32>(ui.viewW);
+			const float32 H = static_cast<float32>(ui.viewH);
+			if (W < 2.f || H < 2.f) {
+				// Une fenetre de taille nulle (reduite) rendrait des fractions
+				// infinies. On attend plutot que de publier un nombre faux.
+				return;
+			}
+
+			// ── LES TROIS BANDES, DERIVEES DU CORPS ─────────────────────────
+			// `dockSpaceRect` est le rectangle que le shell a reellement donne au
+			// dock cette frame. Tout ce qui n'est pas dedans est du chrome : c'est
+			// la seule facon de mesurer une bande dont la hauteur est un calcul
+			// interne au shell, et non un nombre que l'application a demande.
+			const nkgui::NkRect corps = ui.dockSpaceRect;
+			const float32 titleH = ui.titleBarH;
+			const float32 toolbarH = corps.y - titleH;
+			const float32 footerH = H - (corps.y + corps.h);
+			const float32 railG = corps.x;
+			const float32 railD = W - (corps.x + corps.w);
+
+			std::printf("[PANNEAUX] --- MESURE frame=%d ---\n", s.frame);
+			std::printf("[PANNEAUX] fenetre W=%.2f H=%.2f  echelle=%.4f  hauteur_ligne=%.2f\n",
+						static_cast<double>(W), static_cast<double>(H),
+						static_cast<double>(ui.scale), static_cast<double>(ui.ItemHeight()));
+			std::printf("[PANNEAUX] corps x=%.2f y=%.2f w=%.2f h=%.2f\n",
+						static_cast<double>(corps.x), static_cast<double>(corps.y),
+						static_cast<double>(corps.w), static_cast<double>(corps.h));
+			std::printf("[PANNEAUX] bande titre=%.2f outils=%.2f etat=%.2f  rail_g=%.2f rail_d=%.2f\n",
+						static_cast<double>(titleH), static_cast<double>(toolbarH),
+						static_cast<double>(footerH), static_cast<double>(railG),
+						static_cast<double>(railD));
+
+			// ── LES COMPTEURS, RELEVES APRES QUE LES BARRES ONT DESSINE ─────
+			const NkPanneauxCompteurs &c = NkPanneauxCpt();
+			std::printf("[PANNEAUX] menus=%d entrees=%d largeur_menus=%.2f\n", c.menus, c.entrees,
+						static_cast<double>(c.largeurMenus));
+			std::printf("[PANNEAUX] outils=%d largeur_outils=%.2f\n", c.outils,
+						static_cast<double>(c.largeurOutils));
+
+			// ── LE RECTANGLE DE CHAQUE PANNEAU ──────────────────────────────
+			// Un panneau qui n'est ancre nulle part rend node=-1 : on l'imprime tel
+			// quel plutot que de le taire. Un panneau absent du tableau est une
+			// information, pas un trou a combler par un zero.
+			for (int32 i = 0; i < nTitres; ++i) {
+				const char *t = titres[i];
+				const int32 node = shell->PanelDockNode(t);
+				if (node < 0 || node >= static_cast<int32>(ui.dockNodes.Size())) {
+					std::printf("[PANNEAUX] panneau \"%s\" node=%d NON ANCRE\n", t, node);
+					continue;
+				}
+				const nkgui::NkRect &r = ui.dockNodes[node].rect;
+				std::printf("[PANNEAUX] panneau \"%s\" node=%d px=(%.2f,%.2f,%.2f,%.2f) "
+							"frac=(%.4f,%.4f,%.4f,%.4f) onglets=%d\n",
+							t, node, static_cast<double>(r.x), static_cast<double>(r.y),
+							static_cast<double>(r.w), static_cast<double>(r.h),
+							static_cast<double>(r.x / W), static_cast<double>(r.y / H),
+							static_cast<double>(r.w / W), static_cast<double>(r.h / H),
+							ui.dockNodes[node].winCount);
+			}
+
+			std::printf("[PANNEAUX] --- FIN DE MESURE ---\n");
+			std::fflush(stdout);
+			s.reported = true;
+			shell->RequestClose();
+		}
+
+	} // namespace noge
+} // namespace nkentseu
