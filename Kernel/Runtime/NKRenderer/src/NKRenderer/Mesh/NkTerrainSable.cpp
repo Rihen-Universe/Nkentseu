@@ -43,6 +43,19 @@ namespace nkentseu {
 			return pas * tanf(rad);
 		}
 
+		float32 NkSablePenteGarantieDeg(const NkTerrainSableParams &p, float32 pas) {
+			if (pas <= 0.f)
+				return 0.f;
+			const float32 dhMax = NkSableDeniveleMax(p, pas);
+			float32 tol = p.toleranceExcesRelative;
+			if (tol < 0.f)
+				tol = 0.f;
+			const float32 dhArret = dhMax * (1.f + tol);
+			// Le cas 90° rend ~FLT_MAX : atan sature à 90°, ce qui est exactement
+			// ce que la garantie vaut alors — aucune pente n'est interdite.
+			return atanf(dhArret / pas) * 180.f / 3.14159265358979323846f;
+		}
+
 		// ─────────────────────────────────────────────────────────────────────
 		//  INITIALISATION
 		// ─────────────────────────────────────────────────────────────────────
@@ -388,9 +401,38 @@ namespace nkentseu {
 					*outPenteMaxDeg = 0.f;
 				return 0u;
 			}
-			const float32 dhMaxX = NkSableDeniveleMax(p, champ.pasX);
-			const float32 dhMaxZ = NkSableDeniveleMax(p, champ.pasZ);
-			const float32 fac = p.facteurRelaxation * 0.5f;
+			// ── LES QUATRE DIRECTIONS, CHACUNE AVEC SA DISTANCE ─────────────
+			// Chaque paire de voisins n'est visitee QU'UNE fois : on ne regarde
+			// que vers la droite et vers le bas. La visiter deux fois doublerait
+			// le transfert sans que rien ne le dise.
+			// La distance DIAGONALE vaut sqrt(pasX^2 + pasZ^2) et le denivele
+			// tolere en decoule : c'est le MEME angle sur une base plus longue.
+			// Reutiliser dhMax du pas droit en diagonale tolererait un angle plus
+			// FAIBLE en diagonale, et le tas deviendrait un octogone -- l'artefact
+			// serait deplace, pas retire.
+			const float32 diag = sqrtf(champ.pasX * champ.pasX + champ.pasZ * champ.pasZ);
+			const int32 dirI[4] = {1, 0, 1, 1};
+			const int32 dirJ[4] = {0, 1, 1, -1};
+			const float32 dirDist[4] = {champ.pasX, champ.pasZ, diag, diag};
+			const uint32 nbDir = p.diagonales ? 4u : 2u;
+			float32 dirDhMax[4], dirDhArret[4];
+			// Les deux seuils d'ARRÊT, distincts des seuils de TRANSFERT. On
+			// transfère dès qu'on dépasse `dhMax` (sinon on convergerait vers la
+			// tolérance au lieu de l'angle), mais on ne déclare « ça bouge encore »
+			// qu'au-delà de `dhArret`. Sans cette distinction la boucle ne termine
+			// JAMAIS : chaque passe ne retire qu'une fraction de l'excès. Mesuré le
+			// 14/09 — 4000 itérations, plafond atteint, 33,0003° au lieu de 33°.
+			float32 tol = p.toleranceExcesRelative;
+			if (tol < 0.f)
+				tol = 0.f;
+			for (uint32 d = 0; d < 4u; ++d) {
+				dirDhMax[d] = NkSableDeniveleMax(p, dirDist[d]);
+				dirDhArret[d] = dirDhMax[d] * (1.f + tol);
+			}
+			// Divise par deux quand les diagonales sont actives : chaque cellule
+			// participe alors a HUIT paires au lieu de quatre, et sans cette
+			// division elle pourrait depasser sa cible et osciller.
+			const float32 fac = p.facteurRelaxation * 0.5f * (p.diagonales ? 0.5f : 1.f);
 
 			const uint32 n = champ.Taille();
 			NkVector<float32> delta;
@@ -408,23 +450,14 @@ namespace nkentseu {
 						const uint32 k = j * champ.N + i;
 						const float32 h = NkSableHauteurCombinee(champ.base[k], champ.depot[k]);
 						const float32 defK = champ.deformabilite[k];
-						// Deux voisins seulement (droite, bas) : chaque paire est
-						// ainsi visitée UNE fois. La visiter deux fois doublerait le
-						// transfert sans que rien ne le dise.
-						for (int32 axe = 0; axe < 2; ++axe) {
-							uint32 k2;
-							float32 dhMax;
-							if (axe == 0) {
-								if (i + 1u >= champ.N)
-									continue;
-								k2 = k + 1u;
-								dhMax = dhMaxX;
-							} else {
-								if (j + 1u >= champ.M)
-									continue;
-								k2 = k + champ.N;
-								dhMax = dhMaxZ;
-							}
+						for (uint32 d = 0; d < nbDir; ++d) {
+							const int32 ii = (int32)i + dirI[d];
+							const int32 jj = (int32)j + dirJ[d];
+							if (ii < 0 || jj < 0 || ii >= (int32)champ.N || jj >= (int32)champ.M)
+								continue;
+							const uint32 k2 = (uint32)jj * champ.N + (uint32)ii;
+							const float32 dhMax = dirDhMax[d];
+							const float32 dhArret = dirDhArret[d];
 							const float32 h2 = NkSableHauteurCombinee(champ.base[k2], champ.depot[k2]);
 							const float32 dh = h2 - h;
 							const float32 a = dh < 0.f ? -dh : dh;
@@ -447,7 +480,11 @@ namespace nkentseu {
 								delta[k] -= transfert;
 								delta[k2] += transfert;
 							}
-							bouge = true;
+							// « Ça bouge encore » se juge sur le seuil d'ARRÊT,
+							// pas sur celui du transfert : c'est cette ligne, et
+							// elle seule, qui fait terminer la boucle.
+							if (a > dhArret)
+								bouge = true;
 						}
 					}
 				}

@@ -146,6 +146,59 @@ namespace nkentseu {
 				// valeur stable usuelle ; elle est exposée pour être mutée.
 				float32 facteurRelaxation = 0.5f;
 
+				// ── LE CRITERE D'ARRET, ET POURQUOI IL EXISTE ──────────────
+				// 🔴 MESURÉ LE 14/09, PREMIÈRE EXÉCUTION DU BANC, ET C'ÉTAIT UN
+				// VRAI DÉFAUT. Sans tolérance, la relaxation NE S'ARRÊTE JAMAIS :
+				// chaque passe ne retire qu'une FRACTION de l'excès, donc l'écart
+				// à `dhMax` décroît géométriquement sans jamais l'atteindre. Le
+				// banc a mesuré 33,0003° après 4000 itérations, plafond atteint —
+				// et c'est le critère « converge = s'arrête AVANT le plafond » qui
+				// l'a dit. Un banc qui se serait contenté de « pente <= 33° + un
+				// peu » aurait rendu vert sur une boucle qui ne termine pas.
+				//
+				// La tolérance est RELATIVE à `dhMax`, jamais absolue : un seuil
+				// en mètres se périmerait dès qu'on change le pas ou l'angle.
+				// Conséquence exposée, et le banc la calcule au lieu de la croire :
+				//     pente finale <= atan(dhMax * (1 + tolérance) / pas)
+				//
+				// ⚠️ CAS LIMITE NOMMÉ : avec `angleReposDeg = 0`, `dhMax` vaut 0 et
+				// la tolérance relative vaut 0 aussi — la relaxation converge alors
+				// asymptotiquement vers une nappe parfaitement plate sans jamais
+				// terminer, et s'arrête au plafond d'itérations. C'est correct
+				// mathématiquement ; ce n'est pas un réglage de production, c'est
+				// le contre-négatif du banc.
+				float32 toleranceExcesRelative = 1e-3f;
+
+				// ── LES DIAGONALES, ET C'EST UNE IMAGE QUI LES A EXIGÉES ───
+				// 🔴 MESURÉ LE 14/09. Avec les QUATRE voisins seuls, la matière
+				// ne peut descendre que selon les axes : un cône posé s'effondre
+				// en **PYRAMIDE CARRÉE**. Tous les nombres du banc étaient verts
+				// — pente finale 33,03°, volume conservé à 1e-6, convergence en
+				// 830 itérations — et aucun d'eux ne pouvait voir la forme. C'est
+				// l'image oblique qui l'a montrée, en une seconde.
+				// « 138 critères verts ne voyaient pas trois infidélités que les
+				// images ont montrées en une minute. » En voici une quatrième.
+				//
+				// Avec les diagonales, la distance entre voisins vaut
+				// sqrt(pasX² + pasZ²) et le dénivelé toléré suit : c'est le MÊME
+				// angle, sur une base plus longue. Une diagonale qui réutiliserait
+				// `dhMax` du pas droit tolèrerait un angle plus FAIBLE en
+				// diagonale, et l'on aurait déplacé l'artefact au lieu de le
+				// réduire.
+				//
+				// ⚠️ CE QUE ÇA CORRIGE, ET CE QUE ÇA NE CORRIGE PAS — mesuré sur
+				// image, pas prédit. Le carré est devenu un OCTOGONE : la symétrie
+				// passe de 4 à 8, elle ne devient pas circulaire. C'est une limite
+				// du VOISINAGE, pas du réglage — une isotropie complète demanderait
+				// un stencil plus large, qui n'est pas écrit. La carte vue de
+				// dessus, elle, est ronde : l'octogone ne se lit que sur les
+				// facettes de l'ombrage oblique. Les deux faits sont vrais, et le
+				// second n'annule pas le premier.
+				//
+				// Laissé réglable pour que l'anisotropie soit MUTABLE : c'est le
+				// seul moyen de prouver que ce champ sert à quelque chose.
+				bool diagonales = true;
+
 				// ── LE BOURRELET, EN FRACTION ET JAMAIS EN UNITÉS ───────────
 				// Rayon extérieur du bourrelet, en multiple de la demi-largeur de
 				// l'empreinte. Une valeur en mètres se périmerait dès qu'on change
@@ -188,6 +241,12 @@ namespace nkentseu {
 		// ne bouge pas. Le garde est donc explicite, dans le .cpp, et il est
 		// nommé ici pour que personne ne le retire en le croyant décoratif.
 		float32 NkSableDeniveleMax(const NkTerrainSableParams &p, float32 pas);
+
+		// La pente que la relaxation GARANTIT, en degrés — c'est-à-dire l'angle de
+		// repos élargi de la tolérance d'arrêt. Exposée pour que le banc calcule
+		// son attendu au lieu de le recopier ; un attendu en dur se périmerait dès
+		// qu'on touche `toleranceExcesRelative` ou le pas.
+		float32 NkSablePenteGarantieDeg(const NkTerrainSableParams &p, float32 pas);
 
 		// ═══════════════════════════════════════════════════════════════════
 		//  LE CHAMP
@@ -353,9 +412,12 @@ namespace nkentseu {
 		// ═══════════════════════════════════════════════════════════════════
 
 		// ── RELAXATION DE L'ANGLE DE REPOS ──────────────────────────────────
-		// Quatre voisins. Pour chaque paire, si |h_haut - h_bas| > dhMax, on
-		// transfère `(excès) * 0.5 * facteurRelaxation * min(def_i, def_j)` du
-		// haut vers le bas.
+		// Huit voisins (quatre droits + quatre diagonaux, voir `diagonales`).
+		// Pour chaque paire, si |h_haut - h_bas| > dhMax(distance), on transfère
+		// `(excès) * 0.5 * facteurRelaxation * min(def_i, def_j)` du haut vers le
+		// bas — le facteur étant divisé par deux quand les diagonales sont
+		// actives, puisque chaque cellule participe alors à huit paires au lieu
+		// de quatre ; sans cette division elle pourrait dépasser et osciller.
 		//
 		// ⚠️ JACOBI, PAS GAUSS-SEIDEL. Les deltas sont accumulés dans un tampon
 		// et appliqués À LA FIN de l'itération. En place, le résultat dépendrait
@@ -366,9 +428,12 @@ namespace nkentseu {
 		// côté et ajoute x de l'autre, donc **le volume est conservé par
 		// construction** — la relaxation ne crée ni ne détruit de sable.
 		//
-		// S'arrête dès qu'une itération ne trouve plus aucun excès. Rend le
-		// NOMBRE D'ITÉRATIONS RÉELLEMENT EXÉCUTÉES : un banc qui lirait 0 saurait
-		// que rien n'a bougé, au lieu de croire à une convergence immédiate.
+		// S'arrête dès qu'une itération ne trouve plus aucun excès AU-DELÀ DE LA
+		// TOLÉRANCE (voir `toleranceExcesRelative`, et le défaut qu'elle corrige).
+		// Rend le NOMBRE D'ITÉRATIONS RÉELLEMENT EXÉCUTÉES : un banc qui lirait 0
+		// saurait que rien n'a bougé, au lieu de croire à une convergence
+		// immédiate ; et un banc qui lit le PLAFOND sait qu'il n'y a PAS eu
+		// convergence, quel que soit le bel angle final.
 		// `outPenteMaxDeg` reçoit la pente maximale APRÈS relaxation.
 		uint32 NkSableRelaxer(NkTerrainSable &champ, const NkTerrainSableParams &p, uint32 iterationsMax,
 							  float32 *outPenteMaxDeg = nullptr);
