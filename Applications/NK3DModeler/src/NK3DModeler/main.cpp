@@ -1713,7 +1713,9 @@ int nkmain(const NkEntryState &entry) {
 				// « elle est appliquee mais rien ne la repeint ». Le sommet 0
 				// suffit : on mesure une VARIATION, pas une valeur absolue.
 				float32 vl[3] = {0.f, 0.f, 0.f}, vw[3] = {0.f, 0.f, 0.f};
-				const bool vOk = demo::Demo3DHostEditVertPos(0, vl, vw);
+				// -1 : le PREMIER SOMMET SELECTIONNE, pas le sommet 0 -- lire un sommet
+				// que le geste ne concerne pas ferait conclure a tort que rien ne bouge.
+				const bool vOk = demo::Demo3DHostEditVertPos(-1, vl, vw);
 				std::printf("[nk3d-diag] f=%4d shell.mode=%d(edit=%d) viseur.edit=%d "
 							"refus=%d masque=%d selection=%d modale=%d "
 							"noeuds=%d v=%u a=%u f=%u\n",
