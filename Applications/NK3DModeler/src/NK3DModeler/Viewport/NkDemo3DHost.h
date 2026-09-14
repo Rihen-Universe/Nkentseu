@@ -230,6 +230,10 @@ namespace nkentseu {
 		bool Demo3DHostModalConstraint(int32 *axe, bool *plan, bool *local);
 		// Valide la modale en cours par la porte du clic gauche (modalConfirmPending).
 		bool Demo3DHostModalConfirmAsk();
+		// Lance G/R/S (9/10/11) par la porte des touches, dans les deux modes.
+		bool Demo3DHostTransformModal(int32 op);
+		// Annule la modale en cours par la porte d'Echap (modalCancelPending).
+		bool Demo3DHostModalCancelAsk();
 		// ── CE QUE L'OPERATION EN COURS A COMME PARAMETRES ──────────────────
 		// Ils EXISTENT et se pilotent deja : `modalVal` a la souris, `modalSeg` a
 		// la molette, et l'apercu se recalcule a chaque changement. Ce qui leur
