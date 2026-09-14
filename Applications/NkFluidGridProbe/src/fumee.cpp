@@ -707,13 +707,18 @@ void PalierFumee() {
 		printf("    RAPPORT feu / fumée sur le MINI : %.2f  (sur la moyenne : %.2f)\n",
 			   (double)(msFeuMin / (r.msSolveurMin > 0.f ? r.msSolveurMin : 1.f)),
 			   (double)((msFeuSomme / (float32)kPasChrono) / (r.msSolveur / (float32)r.pas)));
-		printf("    MARCHE DE RAYON : fumée %.0f ms (%llu échantillons) ; feu %.0f ms (%llu),\n",
-			   (double)stFum.ms, (unsigned long long)stFum.samples, (double)stFeu.ms,
-			   (unsigned long long)stFeu.samples);
-		printf("                      émission ALLUMÉE pour le feu ; %u rayons dont %u coupent\n", stFum.rays,
-			   stFum.raysHit);
-		printf("                      la boîte. UNE seule marche chacun : pas de mini, donc ces\n");
-		printf("                      deux-là portent la charge de la machine en entier.\n");
+		printf("    MARCHE DE RAYON, 480 x 360 : fumée %.0f ms ; feu %.0f ms (émission ALLUMÉE).\n",
+			   (double)stFum.ms, (double)stFeu.ms);
+		printf("                      échantillons : fumée %llu + %llu d'ombre ; feu %llu + %llu.\n",
+			   (unsigned long long)stFum.samples, (unsigned long long)stFum.shadowSamples,
+			   (unsigned long long)stFeu.samples, (unsigned long long)stFeu.shadowSamples);
+		printf("                      %u rayons dont %u coupent la boîte. UNE seule marche chacun :\n",
+			   stFum.rays, stFum.raysHit);
+		printf("                      pas de mini, donc ces deux-là portent la charge en entier.\n");
+		printf("                      ⚠️ LA RÉSOLUTION VOYAGE AVEC LE CHIFFRE. Le balayage du palier\n");
+		printf("                      (2) mesure la MÊME marche à 119,9 ms en 240 x 180, 523,4 ms en\n");
+		printf("                      480 x 360 et 2011,3 ms en 960 x 720 : un temps de marche sans sa\n");
+		printf("                      résolution ne se compare à rien.\n");
 		printf("    Pour mémoire, le mur de la course entière : %.0f ms pour %u pas de fumée\n", (double)r.msMur,
 			   r.pas);
 		printf("    (soit %.1f ms/image source comprise) et %.0f ms pour %u pas de feu.\n",
