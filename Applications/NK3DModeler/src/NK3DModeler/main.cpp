@@ -1172,10 +1172,15 @@ int nkmain(const NkEntryState &entry) {
 				// Le choisir plutot que « selectionner l'outil » n'est pas un detail :
 				// il n'y a aucune poignee a viser, donc rien a rater.
 				case NkKey::NK_G:
-					want(NkVpAction::ModalMove);
+					// Alt+G = EFFACER la translation (rappel du viseur) : ne rien armer ici.
+					if (!alt)
+						want(NkVpAction::ModalMove);
 					break;
 				case NkKey::NK_R:
-					want(ctrl ? NkVpAction::LoopCut : NkVpAction::ModalRotate);
+					if (ctrl)
+						want(NkVpAction::LoopCut);
+					else if (!alt) // Alt+R = effacer la rotation (viseur)
+						want(NkVpAction::ModalRotate);
 					break;
 				case NkKey::NK_S:
 					// Ctrl+S ENREGISTRE -- le reflexe universel passe AVANT le
@@ -1186,7 +1191,7 @@ int nkmain(const NkEntryState &entry) {
 					// Ctrl+S = le FICHIER ACTIF ; Ctrl+Maj+S = TOUT le projet.
 					if (ctrl)
 						st.projPending = shift ? 8 : 3;
-					else
+					else if (!alt) // Alt+S = effacer l'echelle (viseur)
 						want(NkVpAction::ModalScale);
 					break;
 				// ── Operations ──────────────────────────────────────────────
@@ -2938,6 +2943,16 @@ int nkmain(const NkEntryState &entry) {
 						st.pendingAction = NkVpAction::ModalAxisY;
 					else if (est("modalaxisz"))
 						st.pendingAction = NkVpAction::ModalAxisZ;
+					else if (est("modalmove"))
+						st.pendingAction = NkVpAction::ModalMove;
+					else if (est("modalconfirm"))
+						st.pendingAction = NkVpAction::ModalConfirm;
+					else if (est("modalcancel"))
+						st.pendingAction = NkVpAction::ModalCancel;
+					else if (est("dissolve"))
+						st.pendingAction = NkVpAction::Dissolve;
+					else if (est("toggleedit"))
+						st.pendingAction = NkVpAction::ToggleEdit;
 					else
 						puts("[nk3d] NK_VP_ACTION : nom inconnu, aucune action posee");
 				}
@@ -3030,6 +3045,16 @@ int nkmain(const NkEntryState &entry) {
 						st.pendingAction = NkVpAction::ModalAxisY;
 					else if (est("modalaxisz"))
 						st.pendingAction = NkVpAction::ModalAxisZ;
+					else if (est("modalmove"))
+						st.pendingAction = NkVpAction::ModalMove;
+					else if (est("modalconfirm"))
+						st.pendingAction = NkVpAction::ModalConfirm;
+					else if (est("modalcancel"))
+						st.pendingAction = NkVpAction::ModalCancel;
+					else if (est("dissolve"))
+						st.pendingAction = NkVpAction::Dissolve;
+					else if (est("toggleedit"))
+						st.pendingAction = NkVpAction::ToggleEdit;
 					else
 						puts("[nk3d] NK_VP_ACTION2 : nom inconnu, aucune action posee");
 				}
@@ -3059,7 +3084,41 @@ int nkmain(const NkEntryState &entry) {
 								 (nk3d::Viewport3DModalKind() != nk3d::kVpXformNone);
 			const float32 mxv = ui.input.mousePos.x - lay.view.x;
 			const float32 myv = ui.input.mousePos.y - lay.view.y;
+			// ── PENDANT UNE MODALE, LE CLAVIER APPARTIENT A LA MODALE ─────────────
+			// Mesure du 14/09 : pendant un G, le dispatch executait encore Extruder,
+			// Supprimer, Dissoudre, Fusionner, Subdiviser, Loop cut, Inserer, les biseaux,
+			// TAB, A / Alt+A et les outils de zone -- seuls Annuler et Refaire etaient gardes.
+			// Blender les refuse : sa « Transform Modal Map » remplace le keymap.
+			// ⚠ UNE LISTE BLANCHE, PAS ONZE GARDES. Poser `!inModal` sur chaque cas est la
+			// forme qui s'oublie a la prochaine action ajoutee ; ici, ce qui n'est pas cite
+			// est REFUSE par defaut. Passent : les actions de la modale (axes, valider,
+			// annuler) et la navigation de vue, qui ne touchent pas la geometrie.
+			bool permiseEnModale = false;
 			switch (a) {
+				case NkVpAction::ModalAxisX:
+				case NkVpAction::ModalAxisY:
+				case NkVpAction::ModalAxisZ:
+				case NkVpAction::ModalConfirm:
+				case NkVpAction::ModalCancel:
+				case NkVpAction::ViewFront:
+				case NkVpAction::ViewBack:
+				case NkVpAction::ViewRight:
+				case NkVpAction::ViewLeft:
+				case NkVpAction::ViewTop:
+				case NkVpAction::ViewBottom:
+				case NkVpAction::ToggleOrtho:
+				case NkVpAction::FrameAll:
+				case NkVpAction::ToggleXray:
+					permiseEnModale = true;
+					break;
+				default:
+					break;
+			}
+			if (inModal && !permiseEnModale) {
+				std::printf("[nk3d-mod ] action %d REFUSEE pendant une modale\n", (int)a);
+				std::fflush(stdout);
+			}
+			switch ((inModal && !permiseEnModale) ? NkVpAction::None : a) {
 				case NkVpAction::ToggleEdit:
 					st.mode = edit ? NkMode::Object : NkMode::Edit;
 					break;
@@ -3101,13 +3160,21 @@ int nkmain(const NkEntryState &entry) {
 					break;
 				// ── Modales ─────────────────────────────────────────────────
 				case NkVpAction::ModalMove:
-					nk3d::Viewport3DBeginModal(nk3d::kVpXformMove, mxv, myv);
+					// LA MODALE VIVANTE, PAS LA VUE DORMANTE. Ce cas armait `Viewport3DBeginModal`,
+					// qu'aucune image n'affiche : G, souris hors de la vue, ne faisait rien, et la
+					// seule modale vivante naissait par le rappel du viseur, garde par le survol.
+					// Le viseur ne lance plus G/R/S : un appui, un chemin. Repli dormant si l'hote
+					// n'est pas pret.
+					if (!demo::Demo3DHostTransformModal(9))
+						nk3d::Viewport3DBeginModal(nk3d::kVpXformMove, mxv, myv);
 					break;
 				case NkVpAction::ModalRotate:
-					nk3d::Viewport3DBeginModal(nk3d::kVpXformRotate, mxv, myv);
+					if (!demo::Demo3DHostTransformModal(10))
+						nk3d::Viewport3DBeginModal(nk3d::kVpXformRotate, mxv, myv);
 					break;
 				case NkVpAction::ModalScale:
-					nk3d::Viewport3DBeginModal(nk3d::kVpXformScale, mxv, myv);
+					if (!demo::Demo3DHostTransformModal(11))
+						nk3d::Viewport3DBeginModal(nk3d::kVpXformScale, mxv, myv);
 					break;
 				case NkVpAction::ModalAxisX:
 					// ⚠ UN APPUI, UN CHEMIN, ET MAJ AVEC LUI. Mesure du 14/09, avant ce correctif :
@@ -3160,7 +3227,11 @@ int nkmain(const NkEntryState &entry) {
 					break;
 				case NkVpAction::ModalConfirm:
 					if (inModal)
-						nk3d::Viewport3DModalConfirm();
+						// Le drapeau de la modale VIVANTE (celui du clic gauche et de la table modale du
+						// viseur) ; la vue dormante reste le repli. Les deux chemins d'Entree convergent
+						// sur UN drapeau, consomme une fois.
+						if (!demo::Demo3DHostModalConfirmAsk())
+							nk3d::Viewport3DModalConfirm();
 					break;
 				case NkVpAction::ModalCancel:
 					// Echap annule ce qui est en cours, dans l'ordre de priorite :
@@ -3168,7 +3239,8 @@ int nkmain(const NkEntryState &entry) {
 					// armer un rectangle puis appuyer Echap annulerait la mauvaise
 					// chose.
 					if (inModal)
-						nk3d::Viewport3DModalCancel();
+						if (!demo::Demo3DHostModalCancelAsk())
+							nk3d::Viewport3DModalCancel();
 					else if (st.zoneTool >= 0) {
 						st.zoneTool = -1;
 						st.zoneActive = false;
@@ -3264,11 +3336,11 @@ int nkmain(const NkEntryState &entry) {
 					// comme le faisait celui du viseur, retire : annuler l'historique pendant
 					// qu'un apercu est applique melangerait deux etats. Chez Blender aussi, la
 					// modale possede le clavier et Ctrl+Z n'y annule rien.
-					if (edit && !inModal && demo::Demo3DHostEditUndo())
+					if (edit && demo::Demo3DHostEditUndo()) // refus pendant une modale : la PORTE
 						NkMarkDirty(st);
 					break;
 				case NkVpAction::Redo:
-					if (edit && !inModal && demo::Demo3DHostEditRedo())
+					if (edit && demo::Demo3DHostEditRedo()) // refus pendant une modale : la PORTE
 						NkMarkDirty(st);
 					break;
 				// ── Vues ────────────────────────────────────────────────────

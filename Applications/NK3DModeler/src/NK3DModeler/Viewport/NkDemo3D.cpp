@@ -5539,8 +5539,9 @@ namespace nkentseu {
 				// devenait « X LOCAL » (deux poses pour un appui). Les axes vivent desormais au
 				// SEUL chemin du shell, qui ne depend pas du survol et porte Maj avec l'action
 				// (`Demo3DHostModalAxis(axe, majAct)`, meme fonction Demo3D_ModalPoseAxe).
-				// Echap, Entree, Espace, C et la saisie numerique restent ici : le shell les
-				// adresse a la vue DORMANTE, il n'y a donc pas de second chemin vivant pour eux.
+				// Echap, Entree, Espace, C et la saisie numerique restent ici. Pour Entree et Echap,
+				// le shell pose DESORMAIS le meme drapeau (ConfirmAsk / CancelAsk) : deux portes, UN
+				// drapeau, consomme une fois -- a ne pas confondre avec les axes, qui avaient deux effets.
 				if (k == NkKey::NK_C) {
 					st->modalAxis = -1;
 					st->modalAxisLocal = false;
@@ -6336,15 +6337,15 @@ namespace nkentseu {
 				if (k == NkKey::NK_G) {
 					if (alt)
 						G.ClearSelectedTranslate();
-					else
-						st->modalStartPending = 9;
+					// ⚠ G/R/S NE LANCENT PLUS LA MODALE ICI, ET C'EST LE CORRECTIF. Le shell recoit
+					// le meme appui et lance maintenant la modale VIVANTE (Demo3DHostTransformModal),
+					// sans condition de survol ; lancer aussi d'ici ferait deux departs pour un appui,
+					// et un second depart ANNULE le premier (Demo3D_ModalStart). Alt reste ici.
 					return;
 				}
 				if (k == NkKey::NK_R) {
 					if (alt)
 						G.ClearSelectedRotation();
-					else
-						st->modalStartPending = 10;
 					return;
 				}
 				if (k == NkKey::NK_S && !NkInput.IsKeyDown(NkKey::NK_LCTRL) &&
@@ -6353,8 +6354,6 @@ namespace nkentseu {
 					// DEUX voies, le shell et ce rappel : les deux doivent ceder)
 					if (alt)
 						G.ClearSelectedScale();
-					else
-						st->modalStartPending = 11;
 					return;
 				}
 				// ── C : LE QUATRIEME DE LA SERIE, ET IL SUIT SES VOISINS ────────
@@ -11497,6 +11496,19 @@ namespace nkentseu {
 					// Demo3D_ModalPhotoPrendre qui en decide -- pas ce site.
 					// Place AVANT gizmo.Update : l'operation modale possede la souris, et
 					// le clic qui la confirme ne doit pas atteindre une poignee.
+					// ⚠ LA MODALE NAIT AUSSI EN MODE OBJET, ET C'ETAIT UN TROU. `modalStartPending`
+					// n'etait consomme QUE dans le bloc d'edition : G/R/S en mode objet ne lancait rien,
+					// par aucun chemin -- le commentaire « DANS LES DEUX MODES » n'avait jamais ete vrai.
+					// Pire, le drapeau pose en mode objet RESTAIT ARME, et partait tout seul a l'entree
+					// en edition (mesure du 14/09). On consomme ici G/R/S (9..11), qui ont un sens en
+					// objet ; les operations de maillage (1..8), qui n'en ont pas, sont EFFACEES au lieu
+					// de rester en attente.
+					if (!st->editMode && st->modalStartPending != 0) {
+						const int32 mop = st->modalStartPending;
+						st->modalStartPending = 0;
+						if (mop >= 9 && mop <= 11)
+							Demo3D_ModalStart(st, mop, ctx.renderer ? ctx.renderer->GetMeshSystem() : nullptr);
+					}
 					if (st->modalOp != 0 && !st->editMode) {
 						Demo3D_ModalParams(st, modalMDX, modalMDY);
 						(void)Demo3D_ModalFinish(st, ctx.renderer ? ctx.renderer->GetMeshSystem() : nullptr,
@@ -16098,6 +16110,24 @@ namespace nkentseu {
 		// quand aucune modale ne tourne. Lecteur seul : il ne pose rien.
 		// VALIDER LA MODALE EN COURS PAR LA PORTE DU CLIC GAUCHE : le drapeau que pose le
 		// rappel souris (et Entree), consomme par Demo3D_ModalFinish. Faux sans modale.
+		// LANCER G / R / S (9 / 10 / 11) PAR LA PORTE DES TOUCHES : le drapeau que posaient
+		// les touches du viseur, consomme dans les DEUX modes par la frame. C'est le chemin
+		// du shell, qui ne depend pas du survol de la vue.
+		bool Demo3DHostTransformModal(int32 op) {
+			auto *st = HostSt();
+			if (!st || op < 9 || op > 11)
+				return false;
+			st->modalStartPending = op;
+			return true;
+		}
+		// ANNULER LA MODALE EN COURS par le drapeau de Echap et du clic droit. Faux sans modale.
+		bool Demo3DHostModalCancelAsk() {
+			auto *st = HostSt();
+			if (!st || st->modalOp == 0)
+				return false;
+			st->modalCancelPending = true;
+			return true;
+		}
 		bool Demo3DHostModalConfirmAsk() {
 			auto *st = HostSt();
 			if (!st || st->modalOp == 0)
