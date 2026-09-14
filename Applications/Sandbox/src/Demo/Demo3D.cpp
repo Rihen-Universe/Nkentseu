@@ -18,6 +18,8 @@
 #include "NKPhysics/NkVehicle.h"          // sonde VEHICULE (NK_VEHICLE_PROBE=1)
 #include "NKPhysics/NkCloth.h"            // sonde TISSU XPBD (NK_CLOTH_PROBE=1, 2026-09-05)
 #include "NKVFX/NkWaterMeshBuilder.h"     // sonde OCEAN (NK_OCEAN_PROBE=1, 2026-09-13)
+#include "NKMath/NkWaterDisturbance.h"    // COUPLAGE corps <-> eau (2026-09-14)
+#include "NKMath/NkBuoyancy.h"            // Archimede : l eau agit sur le corps
 #include "Demo3DMannequin.h"              // sonde VETEMENTS SUR MANNEQUIN (NK_MANNEQUIN_PROBE=1, 2026-09-05)
 #include <cstdlib>
 #include <cstring>
@@ -112,6 +114,35 @@ namespace nkentseu {
 				float64 oceanYSum = 0.0, oceanYSum2 = 0.0;
 				float64 oceanMsSum = 0.0;
 				uint32 oceanMsN = 0u;
+				// ── COUPLAGE CORPS <-> EAU (NK_OCEAN_CORPS, 2026-09-14) ──────────────
+				// Rodolf, DEUX fois : « quand c'est calme on ne ressent pas l'impact du
+				// cube en mouvement sur l'eau, pareil pour les spheres quand l'ocean est
+				// en mouvement ». Les deux sens sont ici, et ils partagent UN SEUL etat :
+				// `oceanChamp` est donne au producteur (donc il se VOIT) ET interroge par
+				// la flottabilite (donc les spheres le sentent). Deux champs, et un corps
+				// flotterait a cote de sa propre trace.
+				// Defaut ACTIF : `NK_OCEAN_PROBE=1` est deja un choix explicite, et une
+				// sonde d'ocean qui ne montre pas le defaut signale ne sert a rien.
+				// `NK_OCEAN_CORPS=0` la rend a son etat d'avant (perturbation nulle ->
+				// surface analytique AU BIT).
+				bool oceanCorps = true;
+				math::NkWaterDisturbance oceanChamp;
+				math::NkWaterWake oceanSillage;	  // le CUBE qui glisse
+				math::NkWaterWakeParams oceanWake;
+				NkVec3f oceanCubePos = {0.f, 0.f, 0.f};
+				float32 oceanCubeDemi = 0.7f;	  // demi-cote du cube
+				float32 oceanCubeVol = 1.4f;	  // m3 deplaces (choix : ~la moitie du cube)
+				static const uint32 kOceanFlot = 3u;
+				NkVec3f oceanFlotP[3];
+				NkVec3f oceanFlotV[3];
+				float32 oceanFlotR[3] = {0.6f, 0.45f, 0.8f};
+				float32 oceanFlotM[3] = {0.f, 0.f, 0.f};
+				math::NkWaterWake oceanFlotSillage[3];
+				math::NkBuoyancyParams oceanBuoy;
+				// Mesures du couplage, imprimees au Shutdown.
+				float32 oceanCreuxMax = 0.f;	 // |perturbation| la plus grande vue
+				float32 oceanFlotEcartMax = 0.f; // |y_corps - (surface + equilibre)| max
+                uint32 oceanRidesTotal = 0u;
 				// sonde VETEMENTS SUR MANNEQUIN (NK_MANNEQUIN_PROBE=1, 2026-09-05) : Demo3DMannequin.cpp
 				Demo3DMannequinProbe *mannequin = nullptr;
 				NkMeshHandle meshCylinderHat;
@@ -2609,6 +2640,66 @@ static NkTexHandle CreateLanternCubeCookie(NkTextureLibrary *texLib, NkIDevice *
 									 (int)(pipeEau.id == pipePBR.id));
 					}
 				}
+				// ── COUPLAGE CORPS <-> EAU (2026-09-14) ──────────────────────────
+				if (const char *e = std::getenv("NK_OCEAN_CORPS"); e && e[0] == '0')
+					st->oceanCorps = false;
+				if (st->oceanCorps) {
+					st->oceanChamp.Reserve(256u);
+					st->oceanWake.gain = 1.f;
+					st->oceanWake.damping = 0.7f;
+					st->oceanWake.spread = 0.5f;
+					st->oceanWake.stepDistance = 0.6f;
+					st->oceanBuoy.waterDensity = 1000.f;
+					st->oceanBuoy.gravity = math::NK_GRAVITE_NORMALE;
+					// LE CUBE part a gauche du plan de repos et glisse vers la droite.
+					st->oceanCubePos = {-9.f, st->oceanP.grid.baseY, 0.f};
+					st->oceanSillage.Reset(NkVec2f{st->oceanCubePos.x, st->oceanCubePos.z});
+					// LES TROIS SPHERES, moins denses que l'eau : elles doivent MONTER et
+					// suivre la houle. Elles sont lachees AU-DESSUS du plan pour qu'on les
+					// voie tomber, rebondir et se stabiliser -- pas posees a la main sur
+					// leur propre reponse.
+					const float32 rhoCorps[3] = {350.f, 500.f, 250.f};
+					const float32 px[3] = {2.5f, 5.0f, -2.0f};
+					const float32 pz[3] = {2.0f, -3.0f, -5.5f};
+					// L'amortissement de rayonnement : DERIVE, pas choisi. zeta = 0,25 sur
+					// la plus grosse sphere (raideur k = rho g pi a^2, a = rayon de
+					// flottaison a l'equilibre). Un seul lambda pour les trois : elles ont
+					// des rayons voisins, et le dire vaut mieux qu'en fabriquer trois.
+					float32 cEqRef = 0.f;
+					const float32 rRef = st->oceanFlotR[2];
+					const float32 vRef = 4.f / 3.f * 3.1415926535f * rRef * rRef * rRef;
+					const float32 mRef = rhoCorps[2] * vRef;
+					math::NkBuoyancyEquilibriumSphere(rRef, mRef, 1000.f, cEqRef);
+					const float32 aRef = math::NkSphereWaterlineRadius(rRef, cEqRef);
+					const float32 kRef = 1000.f * math::NK_GRAVITE_NORMALE * 3.1415926535f * aRef * aRef;
+					st->oceanBuoy.linearDamping = 2.f * 0.25f * math::NkSqrt(kRef * mRef);
+					for (uint32 i = 0; i < Demo3DState::kOceanFlot; ++i) {
+						const float32 r = st->oceanFlotR[i];
+						const float32 v = 4.f / 3.f * 3.1415926535f * r * r * r;
+						st->oceanFlotM[i] = rhoCorps[i] * v;
+						st->oceanFlotP[i] = {px[i], st->oceanP.grid.baseY + 2.5f, pz[i]};
+						st->oceanFlotV[i] = {0.f, 0.f, 0.f};
+						st->oceanFlotSillage[i].Reset(NkVec2f{px[i], pz[i]});
+					}
+					st->oceanP.disturbance = &st->oceanChamp; // <-- LE CABLE QUI MANQUAIT
+					std::fprintf(stderr,
+								 "[OCEAN CORPS] couplage ACTIF (NK_OCEAN_CORPS=0 pour l'eteindre) : "
+								 "1 cube (demi-cote %.2f m, V deplace %.2f m3) qui glisse de x=-9 a "
+								 "x=+9 et LAISSE UNE TRACE ; 3 spheres (r %.2f/%.2f/%.2f m, rho "
+								 "%.0f/%.0f/%.0f kg/m3) lachees a +2,5 m qui doivent TOMBER, "
+								 "remonter et SUIVRE la houle | amortissement derive lambda = %.1f "
+								 "N.s/m (zeta 0,25 sur la plus grosse) | sillage : gain %.2f, "
+								 "amortissement %.2f /s, etalement %.2f m/s, un lacher tous les "
+								 "%.2f m\n",
+								 st->oceanCubeDemi, st->oceanCubeVol, st->oceanFlotR[0],
+								 st->oceanFlotR[1], st->oceanFlotR[2], rhoCorps[0], rhoCorps[1],
+								 rhoCorps[2], st->oceanBuoy.linearDamping, st->oceanWake.gain,
+								 st->oceanWake.damping, st->oceanWake.spread,
+								 st->oceanWake.stepDistance);
+				} else {
+					std::fprintf(stderr, "[OCEAN CORPS] couplage ETEINT (NK_OCEAN_CORPS=0) : la "
+										 "surface vaut la valeur analytique AU BIT\n");
+				}
 				const math::NkWaterOptics &o = st->oceanP.optics;
 				std::fprintf(stderr, "[OCEAN COULEUR] shade=%d | FOND PLAT INVENTE (le producteur n'a pas de terrain) : %.2f m sous le plan, albedo (%.2f %.2f %.2f) | absorption (%.3f %.3f %.3f) m^-1, couleur profonde (%.2f %.2f %.2f) | ecume : rivage < %.2f m, cretes > %.2f m, deferlement J < %.2f\n",
 							 (int)st->oceanP.shade, st->oceanP.bottomDepth, st->oceanP.bottomColor.x, st->oceanP.bottomColor.y,
@@ -5071,6 +5162,70 @@ static NkTexHandle CreateLanternCubeCookie(NkTextureLibrary *texLib, NkIDevice *
 			if (st->ocean && st->oceanMesh.IsValid()) {
 				const float32 fdt = 1.f / 60.f; // pas FIXE : deux courses donnent la MEME image
 				st->oceanP.time = st->oceanTime;
+				// ── LE COUPLAGE, AVANT LA CONSTRUCTION DES SOMMETS ───────────────────
+				// L'ORDRE EST UN PARAMETRE DE RESULTAT : les corps bougent, ils
+				// deposent leur carene et leurs rides, ET ENSUITE la grille lit la
+				// surface. Faire l'inverse peindrait l'eau d'avant le mouvement --
+				// une image de retard, qu'on ne verrait qu'en mouvement, donc jamais
+				// sur une capture.
+				if (st->oceanCorps) {
+					const float32 baseY = st->oceanP.grid.baseY;
+					// LE CUBE : trajet aller-retour entre x = -9 et x = +9, a 2,5 m/s.
+					// Il est KINEMATIQUE (on impose sa position) : ce qu'on veut montrer
+					// est son effet SUR l'eau, pas sa propre dynamique.
+					{
+						const float32 vitesse = 2.5f, demiCourse = 9.f;
+						const float32 periode = 4.f * demiCourse / vitesse;
+						float32 u = st->oceanTime - periode * (float32)(int32)(st->oceanTime / periode);
+						const float32 quart = periode * 0.25f;
+						float32 x;
+						if (u < 2.f * quart)
+							x = -demiCourse + vitesse * u;
+						else
+							x = demiCourse - vitesse * (u - 2.f * quart);
+						st->oceanCubePos = {x, baseY + st->oceanCubeDemi * 0.35f, 0.f};
+						st->oceanRidesTotal += st->oceanSillage.Update(
+							st->oceanChamp, 1u, NkVec2f{x, 0.f}, 2.2f * st->oceanCubeDemi,
+							st->oceanCubeVol, st->oceanTime, st->oceanWake);
+					}
+					// LES SPHERES : Archimede + poids, integration semi-implicite au pas
+					// FIXE de l'image. Chacune est EXCLUE de sa propre perturbation
+					// (owner 2+i) : sans ca elle s'enfonce dans le bassin qu'elle creuse,
+					// et la boucle est silencieuse -- temoins (f3)/(f3n) de
+					// test_eau_couplage.cpp.
+					for (uint32 i = 0; i < Demo3DState::kOceanFlot; ++i) {
+						const uint32 owner = 2u + i;
+						const float32 r = st->oceanFlotR[i];
+						const math::NkBuoyancyResult br = math::NkBuoyancySphere(
+							st->oceanBuoy, st->oceanP.waves, st->oceanFlotP[i], r,
+							st->oceanFlotV[i], st->oceanTime, &st->oceanChamp, baseY, owner);
+						const NkVec3f poids = {0.f, -st->oceanFlotM[i] * st->oceanBuoy.gravity, 0.f};
+						const NkVec3f acc = (br.force + poids) * (1.f / st->oceanFlotM[i]);
+						st->oceanFlotV[i] = st->oceanFlotV[i] + acc * fdt;
+						st->oceanFlotP[i] = st->oceanFlotP[i] + st->oceanFlotV[i] * fdt;
+						// Sa carene : le rayon de flottaison courant, etale x3 (le meme
+						// choix que le banc, et il est nomme la-bas comme reglage).
+						const float32 cote = br.surfaceY - st->oceanFlotP[i].y;
+						const float32 aFlot = math::NkSphereWaterlineRadius(r, cote);
+						if (br.immersedVolume > 0.f && aFlot > 1e-3f) {
+							st->oceanFlotSillage[i].Update(
+								st->oceanChamp, owner,
+								NkVec2f{st->oceanFlotP[i].x, st->oceanFlotP[i].z}, 3.f * aFlot,
+								br.immersedVolume, st->oceanTime, st->oceanWake);
+						} else {
+							st->oceanChamp.RemoveHull(owner); // sortie de l'eau : plus de carene
+						}
+						const float32 ec = st->oceanFlotP[i].y - br.surfaceY;
+						const float32 aec = ec < 0.f ? -ec : ec;
+						if (aec > st->oceanFlotEcartMax)
+							st->oceanFlotEcartMax = aec;
+					}
+					st->oceanChamp.Prune(st->oceanTime);
+					const float32 creux = st->oceanChamp.Height(st->oceanCubePos.x, 0.f, st->oceanTime);
+					const float32 acreux = creux < 0.f ? -creux : creux;
+					if (acreux > st->oceanCreuxMax)
+						st->oceanCreuxMax = acreux;
+				}
 				NkChrono chrono;
 				uint32 manquants = 0u;
 				const uint32 nv = vfx::NkWaterBuildVertices(cam.GetProj(), cam.GetView(), cam.GetPosition(), st->oceanP,
@@ -5129,6 +5284,33 @@ static NkTexHandle CreateLanternCubeCookie(NkTextureLibrary *texLib, NkIDevice *
 					oc.roughness = st->oceanRough; // NK_OCEAN_ROUGH : instrument de rugosite
 					oc.castShadow = false;
 					r3d->Submit(oc);
+					// ── LES CORPS QUI INFLUENCENT CETTE EAU ──────────────────────────
+					if (st->oceanCorps) {
+						NkDrawCall3D cc;
+						cc.mesh = st->meshCube;
+						const float32 d = st->oceanCubeDemi;
+						cc.transform = NkMat4f::TRS(st->oceanCubePos, NkQuatf::Identity(),
+													{2.f * d, 2.f * d, 2.f * d});
+						cc.aabb = {st->oceanCubePos - NkVec3f{d, d, d},
+								   st->oceanCubePos + NkVec3f{d, d, d}};
+						cc.tint = {0.97f, 0.60f, 0.16f}; // orange Rihen : le corps ACTIF
+						cc.metallic = 0.f;
+						cc.roughness = 0.5f;
+						r3d->Submit(cc);
+						for (uint32 i = 0; i < Demo3DState::kOceanFlot; ++i) {
+							NkDrawCall3D fc;
+							fc.mesh = st->meshSphere;
+							const float32 r = st->oceanFlotR[i];
+							fc.transform = NkMat4f::TRS(st->oceanFlotP[i], NkQuatf::Identity(),
+														{2.f * r, 2.f * r, 2.f * r});
+							fc.aabb = {st->oceanFlotP[i] - NkVec3f{r, r, r},
+									   st->oceanFlotP[i] + NkVec3f{r, r, r}};
+							fc.tint = {0.04f, 0.33f, 0.37f}; // petrole Rihen : les FLOTTEURS
+							fc.metallic = 0.f;
+							fc.roughness = 0.4f;
+							r3d->Submit(fc);
+						}
+					}
 					// ── RELEVE DE COULEUR (une seule image : l'image 60) ─────────────
 					// (c1) la couleur varie-t-elle avec la geometrie, et dans quel sens ?
 					// (c2) l'ecume est-elle sur les CRETES, ou repartie au hasard ?
