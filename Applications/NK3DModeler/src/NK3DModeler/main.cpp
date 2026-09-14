@@ -2864,6 +2864,19 @@ int nkmain(const NkEntryState &entry) {
 			(void)nk3d::NkToastPaint(hit, (float32)W, (float32)H, lay.status.h);
 		}
 
+		// ── SONDE DU PEINTRE (`NK3D_SONDE_PEINTRE=1`) — canal onglets, (o1) ──
+		// ⚠️ EN DERNIER, ET C'EST UNE CORRECTION MESUREE. Posee d'abord dans le
+		//    rectangle du viseur, elle n'apparaissait PAS sur la capture : l'image
+		//    de la vue 3D est composee par-dessus. Ses trois boites etaient
+		//    dessinees et recouvertes -- le journal disait « DESSINEE » et le
+		//    pixel disait non. Meme lecon que le reste de ce chantier : ce qui est
+		//    emis n'est pas ce qui est vu.
+		{
+			static const bool kSondePeintre = (std::getenv("NK3D_SONDE_PEINTRE") != nullptr);
+			if (kSondePeintre)
+				PaintSondePeintre(p, {0.f, lay.tool.y + lay.tool.h, (float32)W, (float32)H});
+		}
+
 		ui.EndFrame();
 
 		// ── ACTIONS PROJET ──────────────────────────────────────────────────

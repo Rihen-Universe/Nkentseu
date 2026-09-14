@@ -516,6 +516,97 @@ namespace nkentseu {
 		//  rend le rectangle du libelle, et `EditableText` se pose dessus, ici,
 		//  exactement comme avant. C'est le meme contournement que le renommage de
 		//  l'arbre, pas un nouveau.
+		// ═══════════════════════════════════════════════════════════════════════
+		//  SONDE DU PEINTRE (`NK3D_SONDE_PEINTRE=1`) — canal onglets, (o1)
+		// ═══════════════════════════════════════════════════════════════════════
+		//  ⚠️ POURQUOI UNE IMAGE, ET PAS UN COMPTEUR. Le recensement
+		//     (`recense_primitives.py`) dit qu'une primitive est « implementee »
+		//     des qu'elle porte `override`. **Une primitive routee vers la
+		//     MAUVAISE fonction compile et se declare presente de la meme
+		//     facon.** Le seul juge est donc le pixel.
+		//
+		//  ⚠️ ELLE DESSINE PAR L'ADAPTATEUR, PAS PAR LE PEINTRE. L'argument est un
+		//     `NkComponentPaint &` : c'est exactement le chemin qu'emprunte un
+		//     composant partage. Passer par `NkModelerPainter` directement aurait
+		//     prouve que la LISTE DE DESSIN sait dessiner -- ce qu'on savait deja,
+		//     et pas ce qui manquait.
+		//
+		//  CHAQUE BOITE A UNE COULEUR DE FOND UNIQUE, et c'est ce qui rend la
+		//  mesure independante des coordonnees : le script cherche la couleur,
+		//  trouve la boite, et mesure dedans. Aucun nombre de pixels n'est
+		//  recopie d'un cote a l'autre -- et la capture du modeleur est 1,2 fois
+		//  plus grande que son espace logique (mesure du 14/09), donc toute
+		//  coordonnee recopiee serait fausse.
+		//
+		//    BLEU PUR    (0,0,255)   -> PolygonHex : un TRIANGLE rouge pur
+		//    VERT PUR    (0,255,0)   -> PushBlend  : deux gris qui se recouvrent
+		//    MAGENTA PUR (255,0,255) -> ImagePolygone : un quad texture
+		inline void PaintSondePeintre(NkModelerPainter &p, const NkRect &zone) {
+			using namespace nkentseu::editorkit;
+			NkModelerComponentPaint pc(p);
+			NkComponentPaint &a = pc; // ⚠️ par l'INTERFACE, comme un composant
+
+			const float32 c = 120.f, m = 12.f;
+			const float32 y0 = zone.y + m;
+
+			// ── A. PolygonHex : UN TRIANGLE, et sa forme est la preuve ──────────
+			// ⚠️ LE TEST N'EST PAS « y a-t-il du rouge ». Un routage vers un
+			//    remplissage de RECTANGLE donnerait aussi du rouge. Le script
+			//    verifie que les largeurs de rangees VARIENT -- un triangle, pas
+			//    un pave.
+			{
+				const NkRect b{zone.x + m, y0, c, c};
+				p.Fill(b, NkColor{0, 0, 255, 255});
+				const float32 tri[6] = {b.x + c * 0.5f, b.y + c * 0.12f,
+										b.x + c * 0.90f, b.y + c * 0.88f,
+										b.x + c * 0.10f, b.y + c * 0.88f};
+				a.PolygonHex(tri, 3, 0xFF0000FFu); // rouge pur, alpha plein
+			}
+
+			// ── B. PushBlend : le RECOUVREMENT est la preuve ────────────────────
+			// Deux gris (100) opaques qui se chevauchent. Sans melange, le second
+			// ECRASE le premier : le recouvrement vaut 100. En PlusLighter, il
+			// s'ADDITIONNE : ~200. Un `PushBlend` inerte rend donc 100, et c'est
+			// un nombre, pas une impression.
+			{
+				const NkRect b{zone.x + m * 2.f + c, y0, c, c};
+				p.Fill(b, NkColor{0, 255, 0, 255});
+				a.PushBlend(NkComponentPaint::NkPaintBlend::PlusLighter);
+				p.Fill({b.x + c * 0.10f, b.y + c * 0.25f, c * 0.50f, c * 0.50f},
+					   NkColor{100, 100, 100, 255});
+				p.Fill({b.x + c * 0.40f, b.y + c * 0.25f, c * 0.50f, c * 0.50f},
+					   NkColor{100, 100, 100, 255});
+				a.PopBlend();
+			}
+
+			// ── C. ImagePolygone : la NON-UNIFORMITE est la preuve ──────────────
+			// La texture est l'ATLAS DE LA POLICE : une vraie texture, deja
+			// chargee, dont le contenu n'est pas uniforme. Un routage qui peindrait
+			// un aplat donnerait une region d'UNE seule valeur ; le script exige
+			// qu'elle en porte plusieurs.
+			// ⚠️ `image == 0` rend faux par contrat -- on n'appelle donc que si la
+			//    police a bien une texture, sinon on n'aurait pas mesure la
+			//    primitive mais son garde-fou.
+			{
+				const NkRect b{zone.x + m * 3.f + c * 2.f, y0, c, c};
+				p.Fill(b, NkColor{255, 0, 255, 255});
+				const NkGuiFont *f = p.FontPtr();
+				const uint32 tex = (f && f->Valid()) ? f->TexId() : 0u;
+				const float32 q[8] = {b.x + c * 0.10f, b.y + c * 0.10f,
+									  b.x + c * 0.90f, b.y + c * 0.10f,
+									  b.x + c * 0.90f, b.y + c * 0.90f,
+									  b.x + c * 0.10f, b.y + c * 0.90f};
+				const float32 uv[8] = {0.f, 0.f, 0.35f, 0.f, 0.35f, 0.35f, 0.f, 0.35f};
+				const bool ok = a.ImagePolygone(q, uv, 4, tex, 100.f);
+				std::printf("[sonde-peintre] ImagePolygone : texture=%u -> %s\n", tex,
+							ok ? "DESSINEE" : "REFUSEE");
+			}
+
+			std::printf("[sonde-peintre] boites de 120 px : PolygonHex(bleu) "
+						"PushBlend(vert) ImagePolygone(magenta)\n");
+			std::fflush(stdout);
+		}
+
 		inline void PaintTabsI(NkModelerPainter &p, const NkRect &r, NkModelerState &st,
 							   NkHitRegistry &hit, NkWidgetState &ws, const nkgui::NkGuiInput &in) {
 			using namespace nkentseu::editorkit;
