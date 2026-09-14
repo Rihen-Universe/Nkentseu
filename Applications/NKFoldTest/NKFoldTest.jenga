@@ -1,0 +1,52 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""NKFoldTest -- chaque groupe de proprietes se plie-t-il SEUL, EN CONSOLE.
+
+AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
+
+L'etat de pliage vivait dans un uint32, un bit par groupe choisi a la main :
+27 groupes pour 16 bits, six bits partages par 17 groupes, et un bit non
+puissance de deux qui en basculait sept d'un coup. Plier « SSAO » pliait aussi
+GI, PostFX, Ombres et Transformation.
+
+La regle a ete sortie du panneau dans NkModelerFold.h pour etre atteignable sans
+fenetre -- meme motif que NkVpEditTarget.h, sorti de NkDemo3D.cpp pour la meme
+raison. Ce banc l'exerce : il ne verifie pas « ca marche » mais la propriete
+« plier l'un ne change aucun des autres », vraie quel que soit le nombre de
+groupes a venir.
+
+NE MESURE PAS : PaintPropGroup, le chevron, le clic, la hauteur du panneau.
+Le negatif « deplie puis replie rend la hauteur de depart » se voit a l'image.
+"""
+from Jenga import *
+from jengaconfig import *
+
+
+with project("NKFoldTest"):
+    consoleapp()
+    language("C++")
+    cppdialect("C++17")
+    location(".")
+    files(["src/main.cpp"])
+
+    # NkModelerFold.h n'inclut que NKCore/NkTypes.h : la dependance est minimale,
+    # et c'est exactement ce qui rend la regle mesurable.
+    nkentseudependson(
+        ["NKCore", "NKPlatform", "NKMemory", "NKContainers", "NKLogger", "NKStream"],
+        extra_includes=["src", "%{wks.location}/Applications/NK3DModeler/src"],
+    )
+
+    objdir("%{wks.location}/Build/Obj/%{cfg.buildcfg}-%{cfg.system}/%{prj.name}")
+    targetdir("%{wks.location}/Build/Bin/%{cfg.buildcfg}-%{cfg.system}/%{prj.name}")
+
+    with filter("system:Windows && !options:windows-runtime=uwp && !system:XboxSeries && !system:XboxOne"):
+        usetoolchain(TC_WINDOWS)
+        defines(["WIN32_LEAN_AND_MEAN", "_UNICODE", "UNICODE"])
+        links(["user32"])
+
+    with filter("system:Linux"):
+        usetoolchain("clang-native")
+        links(["pthread", "m"])
+
+    with filter("system:macOS"):
+        usetoolchain("clang-native")
