@@ -4,6 +4,8 @@
 // traduite fenetre->vue, gardes d'entree, frame rejouee (l'editeur possede
 // le device et le command buffer). L'hote est en fin de fichier.
 // Source : Applications/Sandbox/src/Demo/Demo3D.cpp — Demo 2
+// @Author  TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
+// @License Proprietary - All Rights Reserved (see LICENSE)
 //
 // Demo minimaliste 3D :
 //   - Config ForGame (RENDER3D + RENDER2D + TEXT + SHADOW + POST_PROCESS + OVERLAY)
@@ -109,16 +111,37 @@ namespace nkentseu {
 		// OEIL et CADENAS de la hierarchie : visibilite et verrou PAR OBJET.
 		// La visibilite gate les soumissions de la demo ; le verrou bloque la
 		// selection depuis la hierarchie et l'ecriture de transformation.
-		static bool nkvpObjHidden[160] = {};
-		static bool nkvpObjLocked[160] = {};
+		// ── LES BORNES DE NOEUDS, NOMMEES UNE FOIS ET AU MEME ENDROIT ───────
+		// Elles etaient ecrites EN CLAIR a une trentaine d'endroits (160, 70) et
+		// declarees plus bas, apres leurs premiers utilisateurs. Un plafond ecrit
+		// en clair ne se releve pas : on en oublie un, et le debordement est
+		// silencieux. Rodolf, 2026-09-06 : << pourquoi avoir un plafond d'import,
+		// pourtant on doit pouvoir importer autant qu'on veut ? >>
+		//
+		// ⚠️ CE QUI NE DOIT PAS BOUGER : kNkvpFirstEmpty et kNkvpFirstUser. Les
+		//    fichiers .nk3dm / .nkscene ecrivent des INDICES de noeud ; deplacer
+		//    le debut d'une plage rendrait illisible tout projet deja enregistre.
+		//    Seul kNkvpMaxNodes se releve, et les deux autres bornes le suivent.
+		static constexpr int32 kNkvpMaxNodes = 352; // 256 objets utilisateur
+		static constexpr int32 kNkvpFirstEmpty = 90;
+		static constexpr int32 kNkvpFirstUser = 96;
+		/// Plage EMPTY + UTILISATEUR (transforms propres, gizmo, quaternions).
+		static constexpr int32 kNkvpMaxEmpty = kNkvpMaxNodes - kNkvpFirstEmpty;
+		/// LE PLAFOND D'IMPORT, et c'est bien celui-la. Mesure du 2026-09-06 :
+		/// depuis l'etat reel du projet AgentTest de Rodolf (26 emplacements deja
+		/// pris), le 39e import consecutif est refuse -- << la scene n'a plus
+		/// d'emplacement de noeud libre >>. 26 + 38 = 64.
+		static constexpr int32 kNkvpMaxUser = kNkvpMaxNodes - kNkvpFirstUser;
+		static bool nkvpObjHidden[kNkvpMaxNodes] = {};
+		static bool nkvpObjLocked[kNkvpMaxNodes] = {};
 		// DRAPEAUX DU MODEL, distincts de ceux de la scene (regle de Rihen) :
 		// cacher dans la scene ne doit rien changer dans l'editeur de model,
 		// tandis que cacher DANS le model se voit dans toutes les scenes. Un
 		// seul drapeau par noeud ne peut pas dire les deux -- il en faut un
 		// par contexte, et c'est le document courant qui choisit lequel on
 		// lit et lequel on ecrit.
-		static bool nkvpMeshHidden[160] = {};
-		static bool nkvpMeshLocked[160] = {};
+		static bool nkvpMeshHidden[kNkvpMaxNodes] = {};
+		static bool nkvpMeshLocked[kNkvpMaxNodes] = {};
 		static bool nkvpLightHidden[8] = {};
 		static float32 nkvpFarOverride = 0.f;  // 0 = auto (dist*20+100) ; sinon la
 											   // DISTANCE DE VUE choisie, independante
@@ -147,8 +170,6 @@ namespace nkentseu {
 		// -1 = racine. La transformation d'un parent est REPERCUTEE a son
 		// sous-arbre par le detecteur de frame (HostHierarchyFrame) ; la
 		// selection d'un parent ne selectionne PAS ses enfants.
-		static constexpr int32 kNkvpMaxNodes = 160;
-		static constexpr int32 kNkvpFirstEmpty = 90;
 		static int32 nkvpParentOf[kNkvpMaxNodes];
 		// MASQUE DE TRANSMISSION par parent : bit 1 position, bit 2 rotation,
 		// bit 4 echelle. Une composante eteinte n'est PLUS propagee aux
@@ -175,9 +196,14 @@ namespace nkentseu {
 		// COROLLAIRE, et c'est la regle de fonctionnement du modeleur :
 		// **dans un systeme de transforms absolues, bouger un conteneur exige de
 		// bouger sa matiere.** Voir Demo3DHostSetModelTransform.
-		static float32 nkvpEmptyPos[70][3] = {};
-		static float32 nkvpEmptyRotDeg[70][3] = {};
-		static float32 nkvpEmptyScl[70][3] = {{1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}};
+		static float32 nkvpEmptyPos[kNkvpMaxEmpty][3] = {};
+		static float32 nkvpEmptyRotDeg[kNkvpMaxEmpty][3] = {};
+		// ⚠️ PLUS DE LISTE D'INITIALISATION : elle comptait EXACTEMENT 70
+		//    triplets {1,1,1}. En relevant kNkvpMaxEmpty, les emplacements
+		//    au-dela seraient nes a l'echelle ZERO -- des noeuds invisibles,
+		//    et rien pour le dire. L'echelle est desormais posee dans
+		//    HostParentEnsureInit, qui tourne avant tout usage.
+		static float32 nkvpEmptyScl[kNkvpMaxEmpty][3];
 		// OBJETS UTILISATEUR : nature du slot (0 libre, 1 sphere, 2 cube,
 		// 3 plan, 4 empty).
 		// kNkvpFirstUser / kNkvpMaxUser / kNkvpEmptyBase vivent desormais dans
@@ -200,7 +226,7 @@ namespace nkentseu {
 		// plus proche noeud SELECTIONNE, figee au debut du geste. C'est ce qui
 		// permet de disposer une foret ou d'incurver une rangee de batiments
 		// sans toucher chaque objet un a un.
-		static float32 nkvpPropDistNode[70] = {};
+		static float32 nkvpPropDistNode[kNkvpMaxEmpty] = {};
 		static bool nkvpPropNodeArmed = false;
 		// Pivot du geste, fige lui aussi : rotation et echelle des voisins
 		// tournent autour de LUI, jamais autour de leur propre centre -- c'est
@@ -250,14 +276,14 @@ namespace nkentseu {
 		// il surprend a l'usage. Des qu'on tourne a la souris, les angles sont
 		// relus du quaternion en choisissant l'ecriture la plus proche de la
 		// precedente (HostDecomposeNear).
-		static NkQuatf nkvpEmptyQuat[70];
+		static NkQuatf nkvpEmptyQuat[kNkvpMaxEmpty];
 		static bool nkvpEmptyQuatInit = false;
-		static bool nkvpRotCacheOk[70] = {}; // les angles affiches font-ils foi ?
+		static bool nkvpRotCacheOk[kNkvpMaxEmpty] = {}; // les angles affiches font-ils foi ?
 		static void HostQuatEnsure() {
 			if (nkvpEmptyQuatInit)
 				return;
 			nkvpEmptyQuatInit = true;
-			for (int32 i = 0; i < 70; ++i)
+			for (int32 i = 0; i < kNkvpMaxEmpty; ++i)
 				nkvpEmptyQuat[i] = NkQuatf::Identity();
 		}
 		// ── ECHELLE EXACTE (cisaillement autorise) ──────────────────────────
@@ -270,9 +296,8 @@ namespace nkentseu {
 		// objet tourne. Sans base memorisee (le cas courant), on retombe
 		// exactement sur T * R * S : aucun cout, aucun changement.
 		static bool nkvpShearOpt = false;		   // l'option, pour toute la scene
-		static NkVec3f nkvpEmptySclAx[70][3] = {}; // repere monde de l'echelle
-		static bool nkvpEmptyShear[70] = {};	   // ce noeud en porte-t-il un ?
-		// kNkvpMaxUser : cf. NkVpEditTarget.h
+		static NkVec3f nkvpEmptySclAx[kNkvpMaxEmpty][3] = {}; // repere monde de l'echelle
+		static bool nkvpEmptyShear[kNkvpMaxEmpty] = {};	   // ce noeud en porte-t-il un ?
 		static uint8 nkvpUserKind[kNkvpMaxUser] = {};
 		// Sous-type du noeud utilisateur (style d'empty, variante de courbe/
 		// surface/metaball, primitive demandee) -- porte par le menu Ajouter.
@@ -850,7 +875,7 @@ namespace nkentseu {
 		// et la remontee s'arrete de toute facon a l'ancetre reste dans la scene
 		// (etranger au document).
 		static bool HostLockedOwn(int32 n) {
-			if (n < 0 || n >= 160)
+			if (n < 0 || n >= kNkvpMaxNodes)
 				return false;
 			return nkvpDocIsModel ? nkvpMeshLocked[n] : nkvpObjLocked[n];
 		}
@@ -996,7 +1021,14 @@ namespace nkentseu {
 				/// temps reel. L'option se coche quand on veut la source.
 				bool emiEclaire;
 		};
-		static constexpr int32 kNkvpMaxProjMats = 64;
+		// LE SECOND PLAFOND D'IMPORT, et il liait AVANT celui des noeuds.
+		// Mesure du 06/09, projet AgentTest : avec 256 emplacements de
+		// noeud, le 54e import consecutif perdait deja son MATERIAU (le
+		// modele entrait quand meme, gris) tandis que la geometrie tenait
+		// jusqu'au 231e. Un plafond qui tombe avant l'autre, et qui ne le
+		// disait pas : il le dit maintenant, et il est releve avec lui.
+		// ⚠️ Cout : nkvpNodeMatsP1 est un tableau kNkvpMaxNodes x CE nombre.
+		static constexpr int32 kNkvpMaxProjMats = 256;
 		static NkVpProjMat nkvpProjMats[kNkvpMaxProjMats] = {};
 		/// Emplacement RESERVE au materiau magenta « aucun materiau ». Declare ici,
 		/// avec le registre : la creation, la lecture et le rendu doivent tous le
@@ -1062,7 +1094,9 @@ namespace nkentseu {
 		// ou par espace de vertices », Rihen, 12 aout — et il a raison : un
 		// glTF importe en aligne couramment vingt ou trente). La borne suit
 		// donc celle du projet, et le jour ou l'une monte, l'autre suit.
-		// Cout : 160 noeuds x 64 x 4 o = 40 Ko de statique, negligeable.
+		// Cout : kNkvpMaxNodes x kNkvpMaxProjMats x 4 o de statique --
+		// 40 Ko a 160 noeuds. Il CROIT AVEC LE PLAFOND, et c'est le tableau
+		// le plus cher de la plage : a le relever, c'est lui qu'on paie.
 		//
 		// Un materiau PAR FACE (ou par groupe de sommets) viendra plus tard
 		// par-dessus : chaque face portera l'INDICE de son emplacement dans
@@ -1301,6 +1335,19 @@ namespace nkentseu {
 				// ── Caméras réutilisables du moteur (NkCameraController.h) ──
 				// ÉDITEUR (Blender) : orbit = milieu ; pan = Shift+milieu ; zoom = molette.
 				renderer::NkOrbitCameraController3D editorCam;
+				// ── PIVOT D'ORBITE SANS SELECTION, FIGE A L'APPUI ──────────────
+				// Sans selection, l'orbite tournait autour de `mTarget`, c'est-a-dire
+				// du point vise A LA DISTANCE DE MISE AU POINT COURANTE. Ce n'est
+				// PAS l'origine du monde (Pan et le vol deplacent la cible avec la
+				// camera), mais sa PROFONDEUR est perimee : approcher un objet apres
+				// avoir cadre une grande scene laisse la cible loin DERRIERE lui, et
+				// l'orbite balaye. On vise donc ce que la camera REGARDE VRAIMENT.
+				// ⚠️ FIGE A L'APPUI, jamais recalcule pendant le glissement : un
+				// pivot qui se redefinit a chaque image fait deriver la camera et
+				// rend le geste indosable.
+				NkVec3f orbitPivot = {0.f, 0.f, 0.f};
+				bool orbitPivotValid = false; // un pivot est fige pour ce glissement
+				bool orbitMidPrev = false;	  // molette enfoncee a l'image precedente
 				// SIMULATION (jeu/archviz) : fly/FPS (WASD + regard clic-droit).
 				renderer::NkFlyCameraController3D simCam;
 				bool useSimCam = false;	  // F = bascule éditeur/simulation
@@ -2584,9 +2631,14 @@ namespace nkentseu {
 		// NK_PICK_TRACE=1 : imprime, pour chaque maillage candidat, ou le moteur
 		// PROJETTE son origine, face au pixel clique. Diagnostic de repere.
 		static const bool nkvpPickTrace = getenv("NK_PICK_TRACE") != nullptr;
+		// `fallbackDist` : la distance du DERNIER repli (rien de touche, sol hors
+		// champ). 8 unites pour le lacher du navigateur, qui n'a pas d'echelle
+		// propre ; l'orbite, elle, passe sa distance de mise au point courante --
+		// tourner autour d'un point a 8 unites quand on regarde a 400 serait le
+		// meme defaut sous un autre nom. Le defaut preserve les appelants d'avant.
 		static int32 Demo3D_PickEmptyAt(Demo3DState *st, DemoCtx &ctx, NkVec3f camPos,
 										NkVec3f camTgt, float32 mx, float32 my,
-										float32 *worldOut3) {
+										float32 *worldOut3, float32 fallbackDist = 8.f) {
 			const Demo3D_ScreenProj uproj =
 				Demo3D_ScreenProj::Make(camPos, camTgt, 60.f, (float32)ctx.width, (float32)ctx.height);
 			const NkVec3f fwd2 = (camTgt - camPos).Normalized();
@@ -2729,12 +2781,248 @@ namespace nkentseu {
 						tW = tg;
 				}
 				if (tW > 1e29f)
-					tW = 8.f / (rdW.Len() > 1e-6f ? rdW.Len() : 1.f);
+					tW = fallbackDist / (rdW.Len() > 1e-6f ? rdW.Len() : 1.f);
 				worldOut3[0] = camPos.x + rdW.x * tW;
 				worldOut3[1] = camPos.y + rdW.y * tW;
 				worldOut3[2] = camPos.z + rdW.z * tW;
 			}
 			return bestU;
+		}
+
+		// LE POINT QUE LA CAMERA REGARDE : premier point touche par le rayon du CENTRE
+		// DE L'ECRAN, a defaut le plan du sol, a defaut un point a la distance de mise
+		// au point courante. Une seule ecriture, deux appelants (l'orbite sans
+		// selection et sa sonde) : deux copies auraient fini par repondre deux points
+		// differents sans que personne sache lequel fait foi.
+		static NkVec3f Demo3D_PivotVise(Demo3DState *st, DemoCtx &ctx) {
+			const NkVec3f cP = st->editorCam.GetPosition();
+			const NkVec3f cT = st->editorCam.GetTarget();
+			float32 w3[3] = {cT.x, cT.y, cT.z};
+			Demo3D_PickEmptyAt(st, ctx, cP, cT, (float32)ctx.width * 0.5f, (float32)ctx.height * 0.5f, w3,
+							   st->editorCam.GetDistance());
+			return NkVec3f{w3[0], w3[1], w3[2]};
+		}
+
+		// LA PROFONDEUR DE CE QU'ON REGARDE, posee sur la camera AVANT un pan ou un
+		// zoom. Pan et Zoom se reglent sur la distance a la cible ; apres un cadrage
+		// large puis une approche, cette distance est perimee (cible loin derriere
+		// l'objet) : le pan va 46x trop vite et le zoom avance vers un point qu'on ne
+		// regarde pas. Le MEME pick que l'orbite (Demo3D_PivotVise) donne le point
+		// regarde ; la cible glisse a sa profondeur, la camera ne bouge pas. Ce n'est
+		// PAS la meme ligne que l'orbite : elle, tourne autour du point ; ici, on ne
+		// fait que remettre la distance a l'echelle de ce qu'on voit.
+		static float32 Demo3D_RefocaliserSurLeVise(Demo3DState *st, DemoCtx &ctx) {
+			const NkVec3f C = st->editorCam.GetPosition();
+			const NkVec3f vise = Demo3D_PivotVise(st, ctx);
+			const float32 d = (vise - C).Len();
+			if (d > 1e-3f)
+				st->editorCam.RefocusAt(d);
+			return d;
+		}
+
+		// SONDE NK_AGENT_PAN=<px> [+ _TRAME=<n>, defaut 60 ; _DIST=<unites> ; _ZOOM=<crans>,
+		// defaut 10] : LE TEMOIN DU PAN ET DU ZOOM, sans fenetre ni injection d'entree.
+		// Deux etats depuis la MEME camera : A = profondeur telle quelle ; B = la cible
+		// poussee a _DIST devant sans bouger la camera (la profondeur perimee de Rodolf).
+		// Pour chacun, le geste D'AUJOURD'HUI (refocaliser sur le point regarde, puis
+		// Pan / Zoom) et L'ANCIEN (Pan / Zoom directs), depuis le meme etat. Mesures :
+		//   pan  : K = deplacement ECRAN du point regarde, en px par px de glissement.
+		//          Un RAPPORT, jamais une vitesse : le critere est K_B / K_A = 1 apres
+		//          (le pan ne depend plus de la profondeur de la cible), ~_DIST /
+		//          profondeur avant.
+		//   zoom : distance camera -> point regarde, apres / avant, pour _ZOOM crans de
+		//          zoom avant. Attendu : LE FACTEUR QUE LE CONTROLEUR APPLIQUE A SA
+		//          PROPRE DISTANCE (mZoomStep^crans, borne par mMinDistance), lu dans la
+		//          meme course -- pas une constante supposee : le modeleur regle son pas
+		//          de zoom, et 0,88^10 etait faux. Et le point regarde doit rester
+		//          DEVANT la camera -- l'ancien chemin fonce vers la cible perimee et
+		//          passe au travers de l'objet, meme quand la profondeur est saine.
+		// ⚠️ Elle REMET l'etat de la camera apres mesure, mais SetCenter reecrit aussi
+		// Recenter : une course sous sonde n'est pas une session de travail. Inerte sans
+		// la variable.
+		static void Demo3D_SondePanZoom(Demo3DState *st, DemoCtx &ctx) {
+			static int sPx = -2, sTrame = 60, sZoom = 10;
+			static float32 sDist = 0.f;
+			static uint64 sFrame = 0;
+			if (sPx == -2) {
+				const char *v = std::getenv("NK_AGENT_PAN");
+				sPx = (v && v[0]) ? std::atoi(v) : -1;
+				if (const char *t = std::getenv("NK_AGENT_PAN_TRAME"))
+					sTrame = std::atoi(t);
+				if (const char *d = std::getenv("NK_AGENT_PAN_DIST"))
+					sDist = (float32)std::atof(d);
+				if (const char *z = std::getenv("NK_AGENT_PAN_ZOOM"))
+					sZoom = std::atoi(z);
+			}
+			++sFrame;
+			if (sPx <= 0 || (int32)sFrame != sTrame)
+				return;
+
+			auto &cam = st->editorCam;
+			const NkVec3f T0 = cam.GetTarget();
+			const float32 D0 = cam.GetDistance(), Y0 = cam.GetYaw(), P0 = cam.GetPitch();
+			auto ecran = [&](NkVec3f P, float32 &px, float32 &py) {
+				const Demo3D_ScreenProj pr = Demo3D_ScreenProj::Make(cam.GetPosition(), cam.GetTarget(), 60.f,
+																	 (float32)ctx.width, (float32)ctx.height);
+				return pr(P, px, py);
+			};
+			auto devant = [&](NkVec3f P) {
+				const NkVec3f C = cam.GetPosition();
+				const NkVec3f f = (cam.GetTarget() - C).Normalized();
+				return (P.x - C.x) * f.x + (P.y - C.y) * f.y + (P.z - C.z) * f.z > 0.f;
+			};
+			struct Mesure {
+					float32 kNew, kOld, zNew, zOld, fact;
+			};
+			auto etat = [&](const char *nom, float32 pousse) {
+				cam.SetCenter(T0, D0, Y0, P0);
+				if (pousse > 0.f) {
+					const NkVec3f C = cam.GetPosition();
+					const NkVec3f f = (cam.GetTarget() - C).Normalized();
+					cam.SetCenter(C + f * pousse, pousse, Y0, P0);
+				}
+				const NkVec3f C = cam.GetPosition();
+				const NkVec3f V = Demo3D_PivotVise(st, ctx);
+				const float32 dV = (V - C).Len();
+				const NkVec3f Ts = cam.GetTarget();
+				const float32 Ds = cam.GetDistance(), Ys = cam.GetYaw(), Ps = cam.GetPitch();
+				float32 x0 = 0.f, y0 = 0.f, x1 = 0.f, y1 = 0.f, x2 = 0.f, y2 = 0.f;
+				ecran(V, x0, y0);
+				std::printf("[panzoom] etat %s : cible a %.2f, point regarde a %.2f (ecran %.1f, %.1f)\n", nom, Ds, dV,
+							x0, y0);
+				Mesure m{};
+				// Pan, aujourd'hui : refocaliser puis tirer la scene de sPx px vers la droite.
+				Demo3D_RefocaliserSurLeVise(st, ctx);
+				cam.Pan(-(float32)sPx, 0.f);
+				ecran(V, x1, y1);
+				m.kNew = (x1 - x0) / (float32)sPx;
+				// Pan, avant : le meme glissement sans refocaliser.
+				cam.SetCenter(Ts, Ds, Ys, Ps);
+				cam.Pan(-(float32)sPx, 0.f);
+				ecran(V, x2, y2);
+				m.kOld = (x2 - x0) / (float32)sPx;
+				std::printf("[panzoom]   pan %d px : point regarde deplace de %.1f px (aujourd'hui, K=%.3f) | "
+							"%.1f px (avant, K=%.3f)\n",
+							sPx, x1 - x0, m.kNew, x2 - x0, m.kOld);
+				// Zoom, aujourd'hui.
+				cam.SetCenter(Ts, Ds, Ys, Ps);
+				Demo3D_RefocaliserSurLeVise(st, ctx);
+				for (int32 i = 0; i < sZoom; ++i)
+					cam.Zoom(1.f);
+				m.zNew = (V - cam.GetPosition()).Len() / (dV > 1e-6f ? dV : 1.f);
+				// Le facteur que le controleur a reellement applique a SA distance : apres
+				// refocalisation elle valait dV, donc c'est l'attendu de zNew.
+				m.fact = cam.GetDistance() / (dV > 1e-6f ? dV : 1.f);
+				const bool devNew = devant(V);
+				// Zoom, avant.
+				cam.SetCenter(Ts, Ds, Ys, Ps);
+				for (int32 i = 0; i < sZoom; ++i)
+					cam.Zoom(1.f);
+				m.zOld = (V - cam.GetPosition()).Len() / (dV > 1e-6f ? dV : 1.f);
+				const bool devOld = devant(V);
+				std::printf("[panzoom]   zoom %d crans : distance au point regarde x%.3f, %s (aujourd'hui) | "
+							"x%.3f, %s (avant)\n",
+							sZoom, m.zNew, devNew ? "DEVANT" : "DERRIERE LA CAMERA", m.zOld,
+							devOld ? "DEVANT" : "DERRIERE LA CAMERA");
+				return m;
+			};
+			const Mesure A = etat("A (profondeur telle quelle)", 0.f);
+			const Mesure B = etat("B (cible poussee)", sDist);
+			std::printf("[panzoom] RAPPORT K_B / K_A : aujourd'hui %.3f | avant %.3f   (critere : 1 apres)\n",
+						A.kNew != 0.f ? B.kNew / A.kNew : 0.f, A.kOld != 0.f ? B.kOld / A.kOld : 0.f);
+			std::printf("[panzoom] ZOOM, facteur du controleur x%.3f (A) x%.3f (B) : distance au point regarde "
+						"A aujourd'hui x%.3f, B aujourd'hui x%.3f | A avant x%.3f, B avant x%.3f   (critere : "
+						"aujourd'hui = facteur, et DEVANT)\n",
+						A.fact, B.fact, A.zNew, B.zNew, A.zOld, B.zOld);
+			cam.SetCenter(T0, D0, Y0, P0); // on rend l'etat de depart
+			std::fflush(stdout);
+		}
+
+		// SONDE NK_AGENT_ORBITE=<degres> [+ _TRAME=<n>, defaut 60 ; _LOIN=<unites>] :
+		// LE TEMOIN DU PIVOT D'ORBITE, SANS FENETRE ET SANS INJECTION D'ENTREE.
+		// Elle rejoue le GESTE (le vrai chemin : le pivot vise puis OrbitAroundPivot)
+		// ET l'ancien comportement (Rotate autour de la cible) DEPUIS LE MEME ETAT,
+		// et mesure les deux exigences :
+		//   1. la distance camera-pivot est CONSERVEE par l'orbite ;
+		//   2. le point que la camera regardait reste DANS LE CADRE.
+		// _LOIN eloigne d'abord la camera comme le ferait un vol (la cible suit, la
+		// profondeur reste perimee) : c'est la situation de Rodolf.
+		// ⚠️ Elle REMET l'etat de la camera apres mesure, mais SetCenter reecrit aussi
+		// les valeurs de Recenter : une course sous sonde n'est pas une session de
+		// travail. Inerte sans la variable.
+		static void Demo3D_SondeOrbite(Demo3DState *st, DemoCtx &ctx) {
+			static int sDeg = -2, sTrame = 60;
+			static float32 sLoin = 0.f, sDist = 0.f;
+			static uint64 sFrame = 0;
+			if (sDeg == -2) {
+				const char *v = std::getenv("NK_AGENT_ORBITE");
+				sDeg = (v && v[0]) ? std::atoi(v) : -1;
+				if (const char *t = std::getenv("NK_AGENT_ORBITE_TRAME"))
+					sTrame = std::atoi(t);
+				if (const char *l = std::getenv("NK_AGENT_ORBITE_LOIN"))
+					sLoin = (float32)std::atof(l);
+				if (const char *d = std::getenv("NK_AGENT_ORBITE_DIST"))
+					sDist = (float32)std::atof(d);
+			}
+			++sFrame;
+			if (sDeg <= 0 || (int32)sFrame != sTrame)
+				return;
+
+			auto &cam = st->editorCam;
+			// LA SITUATION DE RODOLF, CONSTRUITE : _DIST pousse la cible a `dist`
+			// DEVANT la camera SANS bouger la camera -- l'etat ou l'on se trouve apres
+			// avoir cadre une grande scene puis s'etre approche : l'objet regarde est
+			// a quelques unites, la cible est loin derriere lui. C'est la PROFONDEUR
+			// PERIMEE, et c'est elle la cause, pas l'origine du monde.
+			// _LOIN eloigne en plus de l'origine (vol : la cible suit la camera), pour
+			// verifier que la position dans le monde, elle, n'y est pour rien.
+			if (sLoin != 0.f)
+				cam.MoveCameraRelative(0.f, 0.f, sLoin);
+			if (sDist > 0.f) {
+				const NkVec3f C = cam.GetPosition();
+				const NkVec3f f = (cam.GetTarget() - C).Normalized();
+				cam.SetCenter(C + f * sDist, sDist, cam.GetYaw(), cam.GetPitch());
+			}
+			const NkVec3f T0 = cam.GetTarget();
+			const float32 D0 = cam.GetDistance(), Y0 = cam.GetYaw(), P0 = cam.GetPitch();
+			const NkVec3f C0 = cam.GetPosition();
+			// Le point REGARDE, mesure une fois : c'est lui qui doit rester visible.
+			const NkVec3f vise = Demo3D_PivotVise(st, ctx);
+			const float32 rad = (float32)sDeg * 3.14159265f / 180.f;
+			const int32 pas = 30;
+			const float32 dx = (rad / 0.005f) / (float32)pas; // 0.005 rad par unite (mRotateSpeed)
+			auto dedans = [&](NkVec3f P) {
+				const Demo3D_ScreenProj pr = Demo3D_ScreenProj::Make(cam.GetPosition(), cam.GetTarget(), 60.f,
+																	 (float32)ctx.width, (float32)ctx.height);
+				float32 px = 0.f, py = 0.f;
+				if (!pr(P, px, py))
+					return false;
+				return px >= 0.f && py >= 0.f && px < (float32)ctx.width && py < (float32)ctx.height;
+			};
+			std::printf("[orbite] depart : camera (%.2f, %.2f, %.2f) cible (%.2f, %.2f, %.2f) distance %.2f\n",
+						C0.x, C0.y, C0.z, T0.x, T0.y, T0.z, D0);
+			std::printf("[orbite] point regarde au centre de l'ecran : (%.2f, %.2f, %.2f), a %.2f de la camera\n",
+						vise.x, vise.y, vise.z, (vise - C0).Len());
+			// ── LE GESTE D'AUJOURD'HUI : orbite autour du point vise ───────────
+			for (int32 i = 0; i < pas; ++i)
+				cam.OrbitAroundPivot(vise, dx, 0.f);
+			const float32 dApres = (cam.GetPosition() - vise).Len();
+			const bool vuApres = dedans(vise);
+			std::printf("[orbite] APRES %d deg autour du point vise : distance au pivot %.3f -> %.3f (ecart %.4f), "
+						"point regarde %s\n",
+						sDeg, (vise - C0).Len(), dApres, dApres - (vise - C0).Len(),
+						vuApres ? "DANS LE CADRE" : "HORS CADRE");
+			// ── L'ANCIEN COMPORTEMENT, DEPUIS LE MEME ETAT : Rotate ────────────
+			cam.SetCenter(T0, D0, Y0, P0);
+			for (int32 i = 0; i < pas; ++i)
+				cam.Rotate(dx, 0.f);
+			const float32 dVieux = (cam.GetPosition() - vise).Len();
+			const bool vuVieux = dedans(vise);
+			std::printf("[orbite] AVANT (Rotate autour de la cible) : distance au pivot %.3f -> %.3f (ecart %.4f), "
+						"point regarde %s\n",
+						(vise - C0).Len(), dVieux, dVieux - (vise - C0).Len(), vuVieux ? "DANS LE CADRE" : "HORS CADRE");
+			cam.SetCenter(T0, D0, Y0, P0); // on rend l'etat de depart
+			std::fflush(stdout);
 		}
 
 		// Test PRECIS des objets de DEMO pour le gizmo : resout le MEME mesh que le
@@ -6389,6 +6677,10 @@ namespace nkentseu {
 
 		void Demo3D_Frame(DemoCtx &ctx, float32 dt) {
 			auto *st = (Demo3DState *)ctx.userData;
+			if (st)
+				Demo3D_SondeOrbite(st, ctx); // inerte sans NK_AGENT_ORBITE
+			if (st)
+				Demo3D_SondePanZoom(st, ctx); // inerte sans NK_AGENT_PAN
 			// Delta souris RÉEL de la frame = (courant - précédent) -> vaut 0 sans mouvement
 			// (contrairement à NkInput.MouseDelta*() périmé). Alimente les 2 gizmos (objet + edit).
 			const float32 curMouseX = ((float32)NkInput.MouseX() - nkvpOffX);
@@ -7363,7 +7655,42 @@ namespace nkentseu {
 						selPivot = st->gizmo.GetPivot();
 						haveSelPivot = true;
 					}
-					if (NkInput.IsMouseDown(NkMouseButton::NK_MB_MIDDLE)) {
+					const bool midDown = NkInput.IsMouseDown(NkMouseButton::NK_MB_MIDDLE);
+					// ── LE PIVOT SANS SELECTION SE FIGE ICI, AU FRONT MONTANT ───────
+					// Defaut signale par Rodolf (11/09) : « la camera tourne autour d'un
+					// point beaucoup trop loin ou hors ecran » quand rien n'est
+					// selectionne. Mesure : l'orbite tournait autour de `mTarget`, que la
+					// camera VISE toujours (Apply -> SetTarget) -- donc pas l'origine du
+					// monde, contrairement a ce qu'on croyait -- mais posee a la DISTANCE
+					// DE MISE AU POINT COURANTE. Approcher un objet apres avoir cadre une
+					// grande scene laisse cette cible loin DERRIERE lui : on tourne alors
+					// autour d'un point qu'on ne voit plus.
+					// On vise donc ce que la camera REGARDE : le premier point touche par
+					// le rayon du CENTRE DE L'ECRAN, a defaut le plan du sol, a defaut un
+					// point a la distance courante -- c'est exactement l'ordre que
+					// `Demo3D_PickEmptyAt` applique deja pour le lacher du navigateur, et
+					// c'est LE MEME pick, pour qu'ils ne puissent pas diverger.
+					// ⚠️ CENTRE DE L'ECRAN, PAS SOUS LE CURSEUR : sous le curseur est plus
+					// fin (Blender le fait) mais deplace le pivot PENDANT le geste. Si
+					// Rodolf le veut, ce sera une preference, pas un remplacement.
+					// ⚠️ ET IL NE SE RECALCULE PAS PENDANT LE GLISSEMENT : un pivot
+					// reevalue a chaque image fait deriver la camera.
+					if (midDown && !st->orbitMidPrev && !shift && !haveSelPivot) {
+						st->orbitPivot = Demo3D_PivotVise(st, ctx);
+						st->orbitPivotValid = true;
+					}
+					// ── LE PAN SE REGLE SUR CE QU'ON REGARDE, au front montant aussi ──
+					// Pan est proportionnel a la distance a la cible ; quand cette
+					// profondeur est perimee (cible loin derriere l'objet), il va 46x
+					// trop vite. On pose la profondeur du point regarde UNE fois, a
+					// l'appui, sans bouger la camera. Avec ou sans selection : la
+					// vitesse d'un « grab » n'a rien a voir avec la selection.
+					if (midDown && !st->orbitMidPrev && shift)
+						Demo3D_RefocaliserSurLeVise(st, ctx);
+					if (!midDown)
+						st->orbitPivotValid = false; // le glissement est fini
+					st->orbitMidPrev = midDown;
+					if (midDown) {
 						if (shift)
 							st->editorCam.Pan(-mdx, -mdy); // "grab" façon Blender : on tire la scène (axes inversés)
 						else {
@@ -7371,10 +7698,13 @@ namespace nkentseu {
 								st->orthoView = false; // orbite libre -> perspective (Blender)
 							// Orbite RIGIDE autour du centroïde de la sélection (position ET
 							// cible tournent ENSEMBLE) : aucun re-visée du pivot -> AUCUN saut
-							// au premier orbit. Sans sélection : orbite normale autour de la
-							// cible courante. Le pan (ci-dessus) reste intact (jamais re-pivoté).
+							// au premier orbit. Le pan (ci-dessus) reste intact (jamais re-pivoté).
+							// Sans sélection : autour du point figé ci-dessus. Le chemin AVEC
+							// sélection est inchangé, au flottant près.
 							if (haveSelPivot)
 								st->editorCam.OrbitAroundPivot(selPivot, mdx, mdy);
+							else if (st->orbitPivotValid)
+								st->editorCam.OrbitAroundPivot(st->orbitPivot, mdx, mdy);
 							else
 								st->editorCam.Rotate(mdx, mdy);
 						}
@@ -7385,6 +7715,10 @@ namespace nkentseu {
 					// (En mode CERCLE de sélection, la molette est réservée au rayon ; pendant
 					// une op MODALE, `wheel` vaut deja 0 — cf. le verrou souris unique.)
 					if (wheel != 0.f && st->selTool != 3) { // l'outil CERCLE capte la molette (rayon)
+						// Chaque cran est un geste : la profondeur du point regarde est
+						// posee AVANT lui. Le zoom avance alors vers ce qu'on voit, et le
+						// pan a la molette a la meme echelle que le pan a la souris.
+						Demo3D_RefocaliserSurLeVise(st, ctx);
 						const float32 step = wheel * 22.f;
 						if (shift)
 							st->editorCam.Pan(0.f, step); // vertical
@@ -10475,9 +10809,9 @@ namespace nkentseu {
 					{
 						st->emptyGizmo.SetCamera(cam.GetPosition(), cam.GetTarget(), 60.f,
 												 (float32)ctx.width, (float32)ctx.height);
-						renderer::NkGizmoTarget etg[70];
+						renderer::NkGizmoTarget etg[kNkvpMaxEmpty];
 						const float32 kD2R = 0.017453292f;
-						for (int32 e = 0; e < 70; ++e) {
+						for (int32 e = 0; e < kNkvpMaxEmpty; ++e) {
 							// BASE (sans les decalages du gizmo : il les porte lui-meme)
 							etg[e].base = HostEmptyXform(e, false);
 							etg[e].localHalf = {0.f, 0.f, 0.f};
@@ -10517,13 +10851,13 @@ namespace nkentseu {
 						// autour du pivot du DEBUT, sinon le centre fuit et les
 						// voisins partent en spirale.
 						nkvpPropPivot = st->emptyGizmo.GetPivot();
-						for (int32 a = 0; a < 70; ++a) {
+						for (int32 a = 0; a < kNkvpMaxEmpty; ++a) {
 							if (st->emptyGizmo.IsSelected(a)) {
 								nkvpPropDistNode[a] = 0.f;
 								continue;
 							}
 							float32 best = 1e30f;
-							for (int32 b = 0; b < 70; ++b) {
+							for (int32 b = 0; b < kNkvpMaxEmpty; ++b) {
 								if (!st->emptyGizmo.IsSelected(b))
 									continue;
 								const float32 dx = nkvpEmptyPos[a][0] - nkvpEmptyPos[b][0];
@@ -10541,7 +10875,7 @@ namespace nkentseu {
 						// dependent du noeud ACTIF, qui change sans que
 						// l'orientation, elle, ne change.
 						HostPushExtFrames(st, st->emptyGizmo.Orientation());
-						st->emptyGizmo.Update(etg, 70, ein);
+						st->emptyGizmo.Update(etg, kNkvpMaxEmpty, ein);
 						if (!ewasDrag && st->emptyGizmo.IsDragging())
 							gin.leftPressed = false; // poignee saisie : le clic est a nous
 						if (st->emptyDragPrev && !st->emptyGizmo.IsDragging()) {
@@ -10569,7 +10903,7 @@ namespace nkentseu {
 								const NkQuatf qg =
 									NkQuatf(st->emptyGizmo.RotationOf(sA)).Normalized();
 								const NkVec3f og = st->emptyGizmo.ScaleOf(sA);
-								for (int32 es = 0; es < 70; ++es) {
+								for (int32 es = 0; es < kNkvpMaxEmpty; ++es) {
 									if (st->emptyGizmo.IsSelected(es))
 										continue;
 									const float32 w =
@@ -10639,12 +10973,12 @@ namespace nkentseu {
 							// partout sauf un ; (c) -> N deltas non nuls, le defaut est plus loin.
 							{
 								int32 nSelDbg = 0;
-								for (int32 es = 0; es < 70; ++es)
+								for (int32 es = 0; es < kNkvpMaxEmpty; ++es)
 									if (st->emptyGizmo.IsSelected(es))
 										++nSelDbg;
 								logger.Info("[Demo3D] MESURE commit gizmo : selectionnes={0} actif={1}\n",
 											nSelDbg, st->emptyGizmo.ActiveIndex());
-								for (int32 es = 0; es < 70; ++es) {
+								for (int32 es = 0; es < kNkvpMaxEmpty; ++es) {
 									if (!st->emptyGizmo.IsSelected(es))
 										continue;
 									const NkVec3f trDbg = st->emptyGizmo.TranslateOf(es);
@@ -10653,7 +10987,7 @@ namespace nkentseu {
 												nkvpEmptyPos[es][0], nkvpEmptyPos[es][1], nkvpEmptyPos[es][2]);
 								}
 							}
-							for (int32 es = 0; es < 70; ++es) {
+							for (int32 es = 0; es < kNkvpMaxEmpty; ++es) {
 								if (!st->emptyGizmo.IsSelected(es))
 									continue;
 								// ON COMMIT LA MATRICE REELLEMENT COMPOSEE, pas les
@@ -10862,7 +11196,7 @@ namespace nkentseu {
 							// innocente ce chemin et renvoie l'enquete en aval.
 							const int32 pickedU0 = bestU;
 							int32 nSelAvPick = 0;
-							for (int32 sc = 0; sc < 70; ++sc)
+							for (int32 sc = 0; sc < kNkvpMaxEmpty; ++sc)
 								if (st->emptyGizmo.IsSelected(sc))
 									++nSelAvPick;
 							const bool pickDejaSel =
@@ -10894,7 +11228,7 @@ namespace nkentseu {
 							}
 							{
 								int32 nSelApPick = 0;
-								for (int32 sc = 0; sc < 70; ++sc)
+								for (int32 sc = 0; sc < kNkvpMaxEmpty; ++sc)
 									if (st->emptyGizmo.IsSelected(sc))
 										++nSelApPick;
 								logger.Info("[Demo3D] MESURE pick vue : xy=({0}, {1}) touche={2} actif={3} deja_selectionne={4} modificateur={5} selectionnes avant={6} apres={7}\n",
@@ -11361,7 +11695,7 @@ namespace nkentseu {
 				// rien : ni croix, ni pyramide, ni poignees
 			} else {
 				const int32 esel = st->emptyGizmo.ActiveIndex();
-				for (int32 e = 0; e < 70; ++e) {
+				for (int32 e = 0; e < kNkvpMaxEmpty; ++e) {
 					// Croix pour les EMPTIES et les MARQUEURS types (texte, courbe,
 					// surface, metaball) ; un maillage a son rendu, une lumiere son
 					// widget, un slot libre n'existe pas.
@@ -11914,7 +12248,18 @@ namespace nkentseu {
 				}
 				// Sans l'override, le graphe rendrait a la taille de la FENETRE
 				// dans une cible a la taille de la VUE.
-				hst.ctx.renderer->SetRenderSizeOverride(hst.wantW, hst.wantH);
+				// NK_AGENT_SANS_SURTAILLE=1 : SAUTE la surtaille de rendu, a la seule fin
+				// de mesurer. Le banc rend juste sur DX avec FXAA a la taille de la
+				// fenetre ; le modeleur rend inverse sur DX avec FXAA SOUS surtaille.
+				// Si sauter la surtaille redresse DX ici, l'interaction surtaille x FXAA
+				// est nommee des deux cotes. Sans la variable, rien ne change.
+				// ⚠️ Sans surtaille, le graphe rend a la taille de la FENETRE dans une
+				// cible a la taille de la VUE : l'image est partielle, mais son
+				// ORIENTATION reste lisible (texte de l'incrustation, ciel).
+				if (std::getenv("NK_AGENT_SANS_SURTAILLE"))
+					std::printf("[nk3d] NK_AGENT_SANS_SURTAILLE : SetRenderSizeOverride SAUTE (mesure)\n");
+				else
+					hst.ctx.renderer->SetRenderSizeOverride(hst.wantW, hst.wantH);
 				if (auto *texLib = hst.ctx.renderer->GetTextures())
 					hst.ctx.renderer->SetFinalColorTarget(texLib->GetRHIHandle(hst.rt->GetColorResult()));
 				nkvpW = (float32)hst.wantW;
@@ -13746,6 +14091,32 @@ namespace nkentseu {
 				}
 		};
 
+		bool Demo3DHostSetPost(bool tonemap, bool bloom, bool ssao, bool fxaa) {
+			if (!hst.ok || !hst.ctx.renderer)
+				return false;
+			// ⚠️ IL Y A DEUX CONFIGURATIONS, ET UNE SEULE EST LUE PAR LE GRAPHE.
+			// NkPostProcessStack::GetConfig() est celle de la PILE ;
+			// NkRenderer::GetConfig().postProcess est celle que le MODELEUR pousse
+			// (voir Demo3DHostSetBloom, qui finit par SetPostConfig). Ecrire dans
+			// la premiere ne change rien a l'image : mesure, en eteignant TOUT --
+			// tonemap compris -- l'ecart moyen valait 0.075 sur vulkan et 0.019 sur
+			// dx11, alors que retirer le tonemap ACES doit bouleverser l'image.
+			// Une sonde qui rend « applique » sans rien changer ne prouve rien.
+			renderer::NkPostConfig c = hst.ctx.renderer->GetConfig().postProcess;
+			c.toneMapping = tonemap;
+			c.bloom = bloom;
+			c.ssao = ssao;
+			c.fxaa = fxaa;
+			hst.ctx.renderer->SetPostConfig(c);
+			return true;
+		}
+
+		bool Demo3DHostTargetBottomUp() {
+			// Meme regle que le relecteur, lue au meme endroit -- pas une copie.
+			return hst.ok && hst.ctx.device &&
+				   renderer::NkOffscreenStoredIsBottomUp(hst.ctx.device->GetApi());
+		}
+
 		void Demo3DHostRegisterInto(void *guiBackend) {
 			if (!hst.ok || !hst.rt || !guiBackend)
 				return;
@@ -13869,6 +14240,11 @@ namespace nkentseu {
 				return;
 			if (slot < 0 || slot >= kNkvpMaxProjMats)
 				return;
+			// ⚠️ LE CHEMIN EST JETE, ET LA DOCUMENTATION DE CETTE FONCTION DIT
+			// L'INVERSE (« demande la CAPTURE de la vignette vers cheminPng »).
+			// Un temoin bati sur cette promesse n'ecrit aucun fichier et ne se
+			// signale pas : c'est ce qui est arrive. Les pixels n'existent que par
+			// Demo3DHostMatThumbTakePixels, cote application.
 			(void)cheminPng; // la vignette ne va plus dans un fichier voisin
 			if (gThumbs.nb >= kThumbMax)
 				return; // file pleine : la vignette attendra le prochain
@@ -14185,8 +14561,16 @@ namespace nkentseu {
 			st->orthoView = false; // orbite libre -> perspective (meme regle que la demo)
 		}
 		void Demo3DHostPan(float32 dx, float32 dy) {
-			if (auto *st = HostSt())
+			if (auto *st = HostSt()) {
+				// La main du gizmo n'a pas de front montant : un geste commence quand
+				// l'appel precedent n'etait pas a la trame d'avant. La profondeur du
+				// point regarde se pose alors UNE fois, comme pour Shift+milieu.
+				static uint32 sTramePrec = 0xFFFFFFFFu;
+				if (hst.ctx.frame != sTramePrec + 1u)
+					Demo3D_RefocaliserSurLeVise(st, hst.ctx);
+				sTramePrec = hst.ctx.frame;
 				st->editorCam.Pan(-dx, -dy); // « grab » facon Blender, comme la demo
+			}
 		}
 		void Demo3DHostZoomWheel(float32 notches) {
 			if (auto *st = HostSt())
@@ -14360,7 +14744,7 @@ namespace nkentseu {
 			// representable, et le garder afficherait un etat que plus rien ne
 			// pourrait modifier ni sauvegarder.
 			if (!on)
-				for (int32 e = 0; e < 70; ++e)
+				for (int32 e = 0; e < kNkvpMaxEmpty; ++e)
 					nkvpEmptyShear[e] = false;
 			logger.Info("[NkDemo3D] Echelle exacte (cisaillement) -> {0}\n",
 						on ? "oui" : "non");
@@ -15318,6 +15702,18 @@ namespace nkentseu {
 		// Les noms sont derives des PLAGES D'INDICES de sa construction -- la
 		// demo n'a pas de champ nom, et inventer un stockage parallele ici se
 		// desynchroniserait ; les plages, elles, sont structurelles.
+		// ⚠️ CE N'EST PAS UN COMPTE D'OBJETS DU DOCUMENT, MALGRE SON NOM. C'est la
+		// TAILLE DE L'ESPACE D'INDICES des objets, et les lumieres commencent
+		// exactement la : la hierarchie pose `kFirstLight = Demo3DHostObjectCount()`
+		// et HostNodeHiddenOwn code en dur `n >= 86 && n < 90` pour elles. Lui faire
+		// rendre un compte reel decalerait toutes les lumieres.
+		//
+		// Le nom m'a trompe : j'ai cru a un defaut, bati un temoin par indices
+		// dessus (NK_AGENT_CUBE), et l'ai vu ne rien mesurer -- la barre d'etat
+		// affichait « Objets 6 » et je concluais que ce 86 mentait. En realite
+		// « Objets 6 » est ECRIT EN DUR dans PaintStatus, tout comme « 60 ips » et
+		// « Sommets 8 - Aretes 12 - Faces 6 » : c'est LA que rien ne correspond au
+		// document. Le defaut est la, pas ici.
 		int32 Demo3DHostObjectCount() {
 			return hst.ok ? Demo3DState::kNumObj : 0;
 		}
@@ -15636,7 +16032,7 @@ namespace nkentseu {
 			// On ecrit le drapeau DU DOCUMENT COURANT : masquer depuis la scene ne
 			// doit rien changer dans l'editeur de model, alors que masquer depuis
 			// le model se voit dans toutes les scenes (regle de Rihen).
-			if (i >= 0 && i < 160) {
+			if (i >= 0 && i < kNkvpMaxNodes) {
 				if (nkvpDocIsModel)
 					nkvpMeshHidden[i] = hidden;
 				else
@@ -15644,7 +16040,7 @@ namespace nkentseu {
 			}
 		}
 		bool Demo3DHostObjectHidden(int32 i) {
-			return (i >= 0 && i < 160) &&
+			return (i >= 0 && i < kNkvpMaxNodes) &&
 				   (nkvpDocIsModel ? nkvpMeshHidden[i] : nkvpObjHidden[i]);
 		}
 		// ETAT EFFECTIF (le sien OU celui d'un ancetre). L'interface DOIT montrer
@@ -15662,7 +16058,7 @@ namespace nkentseu {
 			// Le verrou reste DANS SON CONTEXTE, dans les deux sens : verrouiller
 			// en scene n'entrave pas l'edition du model, et verrouiller dans le
 			// model n'entrave pas la scene -- ca n'y a pas d'importance (Rihen).
-			if (i >= 0 && i < 160) {
+			if (i >= 0 && i < kNkvpMaxNodes) {
 				if (nkvpDocIsModel)
 					nkvpMeshLocked[i] = locked;
 				else
@@ -15670,7 +16066,7 @@ namespace nkentseu {
 			}
 		}
 		bool Demo3DHostObjectLocked(int32 i) {
-			return (i >= 0 && i < 160) && HostLockedOwn(i);
+			return (i >= 0 && i < kNkvpMaxNodes) && HostLockedOwn(i);
 		}
 		void Demo3DHostSetLightHidden(int32 li, bool hidden) {
 			if (li >= 0 && li < 8)
@@ -15681,7 +16077,7 @@ namespace nkentseu {
 		}
 		void Demo3DHostSetAllHidden(bool hidden) {
 			// La SCENE VIERGE d'un nouvel onglet : tout est masque d'un coup.
-			for (int32 i = 0; i < 160; ++i)
+			for (int32 i = 0; i < kNkvpMaxNodes; ++i)
 				nkvpObjHidden[i] = hidden;
 			for (int32 i = 0; i < 8; ++i)
 				nkvpLightHidden[i] = hidden;
@@ -15758,6 +16154,10 @@ namespace nkentseu {
 			if (nkvpParentInit)
 				return;
 			nkvpParentInit = true;
+			// L'ECHELLE NEUTRE de TOUTE la plage empty+utilisateur : elle
+			// venait d'une liste de 70 triplets, qui ne suivait pas la borne.
+			for (int32 e = 0; e < kNkvpMaxEmpty; ++e)
+				nkvpEmptyScl[e][0] = nkvpEmptyScl[e][1] = nkvpEmptyScl[e][2] = 1.f;
 			for (int32 i = 0; i < kNkvpMaxNodes; ++i) {
 				nkvpParentOf[i] = -1;
 				nkvpXmit[i] = 7; // tout se transmet par defaut
@@ -17249,7 +17649,7 @@ namespace nkentseu {
 		//   avec base memorisee : T * (B S Bt) * R -- l'echelle vit dans le
 		//     repere MONDE du geste, ce qui produit le vrai cisaillement.
 		static NkMat4f HostEmptyXform(int32 e, bool withGizmo) {
-			if (e < 0 || e >= 70)
+			if (e < 0 || e >= kNkvpMaxEmpty)
 				return NkMat4f::Identity();
 			auto *st = HostSt();
 			// ── PENDANT UN GESTE, LE GIZMO FAIT FOI ─────────────────────────
@@ -17270,7 +17670,7 @@ namespace nkentseu {
 			// s'incurve, un groupe s'evase.
 			float32 propW = 0.f;
 			if (withGizmo && st && nkvpPropEditOn && nkvpPropNodeArmed &&
-				st->emptyGizmo.IsDragging() && e >= 0 && e < 70 &&
+				st->emptyGizmo.IsDragging() && e >= 0 && e < kNkvpMaxEmpty &&
 				!st->emptyGizmo.IsSelected(e))
 				propW = HostPropFalloff(nkvpPropDistNode[e], nkvpPropEditRadius,
 										nkvpPropEditFalloff);
@@ -17333,11 +17733,11 @@ namespace nkentseu {
 		//     sinon une lecture continue du quaternion).
 		static NkQuatf HostNodeQuat(int32 e) {
 			HostQuatEnsure();
-			return (e >= 0 && e < 70) ? nkvpEmptyQuat[e] : NkQuatf::Identity();
+			return (e >= 0 && e < kNkvpMaxEmpty) ? nkvpEmptyQuat[e] : NkQuatf::Identity();
 		}
 		static void HostSetNodeQuat(int32 e, const NkQuatf &q) {
 			HostQuatEnsure();
-			if (e < 0 || e >= 70)
+			if (e < 0 || e >= kNkvpMaxEmpty)
 				return;
 			nkvpEmptyQuat[e] = q.Normalized();
 			// La rotation vient d'ailleurs que du panneau : les angles saisis ne
@@ -17346,7 +17746,7 @@ namespace nkentseu {
 		}
 		static void HostSetNodeEuler(int32 e, const float32 *deg) {
 			HostQuatEnsure();
-			if (e < 0 || e >= 70)
+			if (e < 0 || e >= kNkvpMaxEmpty)
 				return;
 			const float32 kD2R = 0.017453292f;
 			// MEME ORDRE que la convention du projet (Z*Y*X).
@@ -17360,7 +17760,7 @@ namespace nkentseu {
 		}
 		static void HostNodeEuler(int32 e, float32 *outDeg) {
 			HostQuatEnsure();
-			if (e < 0 || e >= 70) {
+			if (e < 0 || e >= kNkvpMaxEmpty) {
 				outDeg[0] = outDeg[1] = outDeg[2] = 0.f;
 				return;
 			}
@@ -18647,14 +19047,14 @@ namespace nkentseu {
 
 		float32 Demo3DHostCamOrthoScale(int32 node) {
 			const int32 e = node - kNkvpFirstEmpty;
-			if (e < 0 || e >= 70)
+			if (e < 0 || e >= kNkvpMaxEmpty)
 				return 1.f;
 			const float32 s = nkvpEmptyScl[e][1];
 			return s < 0.f ? -s : s;
 		}
 		void Demo3DHostSetCamOrthoScale(int32 node, float32 s) {
 			const int32 e = node - kNkvpFirstEmpty;
-			if (e < 0 || e >= 70)
+			if (e < 0 || e >= kNkvpMaxEmpty)
 				return;
 			if (s < 0.05f)
 				s = 0.05f;
@@ -20274,6 +20674,95 @@ namespace nkentseu {
 			nkvpNodeMatP1[n] = HostEnsureDefaultMat() + 1;
 			HostHierSnapNode(st, n);
 			return n;
+		}
+		// ── LA GEOMETRIE PROPRE, LUE POUR L'ECRITURE DU PROJET (06/09) ─────
+		// Meme perimetre que HostMakeGeometryOwn, et pour la meme raison : un
+		// noeud qui rend une primitive PARTAGEE n'a pas de maillage a lui, il
+		// n'y a rien a lire. Le distinguer ici est ce qui evite d'ecrire des
+		// megaoctets de cube dans chaque projet.
+		bool Demo3DHostNodeGeometry(int32 node, const void **verts, uint32 *vcount,
+									uint32 *stride, const uint32 **indices,
+									uint32 *icount) {
+			if (verts)
+				*verts = nullptr;
+			if (vcount)
+				*vcount = 0;
+			if (stride)
+				*stride = 0;
+			if (indices)
+				*indices = nullptr;
+			if (icount)
+				*icount = 0;
+			if (node < kNkvpFirstUser || node >= kNkvpMaxNodes)
+				return false;
+			auto *ms = hst.ctx.renderer ? hst.ctx.renderer->GetMeshSystem() : nullptr;
+			if (!ms)
+				return false;
+			const NkMeshHandle h = nkvpUserMesh[node - kNkvpFirstUser];
+			if (!h.IsValid())
+				return false; // primitive partagee : rien a lire, et c'est exact
+			if (!ms->HasCPUData(h)) {
+				// DIT, jamais taise : sans copie CPU la geometrie n'est pas
+				// relisible depuis le GPU, et l'objet ne survivra pas au
+				// fichier. Le silence ici serait le defaut qu'on repare.
+				logger.Warn("[Demo3D] Geometrie du noeud {0} NON LISIBLE (pas de copie CPU) : "
+							"elle ne sera pas ecrite dans le projet.\n",
+							node);
+				return false;
+			}
+			const void *v = ms->GetVertices(h);
+			const uint32 *ii = ms->GetIndices(h);
+			const uint32 vc = ms->GetVertexCount(h);
+			const uint32 ic = ms->GetIndexCount(h);
+			const uint32 sd = ms->GetVertexStride(h);
+			if (!v || !ii || vc == 0 || ic == 0 || sd == 0)
+				return false;
+			if (verts)
+				*verts = v;
+			if (vcount)
+				*vcount = vc;
+			if (stride)
+				*stride = sd;
+			if (indices)
+				*indices = ii;
+			if (icount)
+				*icount = ic;
+			return true;
+		}
+		uint32 Demo3DHostVertexStride() {
+			return renderer::NkVertexLayout::Default3D().stride;
+		}
+		bool Demo3DHostSetNodeGeometry(int32 node, const void *verts, uint32 vcount,
+									   uint32 stride, const uint32 *indices,
+									   uint32 icount) {
+			if (node < kNkvpFirstUser || node >= kNkvpMaxNodes)
+				return false;
+			auto *ms = hst.ctx.renderer ? hst.ctx.renderer->GetMeshSystem() : nullptr;
+			if (!ms || !verts || !indices || vcount == 0 || icount == 0)
+				return false;
+			const uint32 want = renderer::NkVertexLayout::Default3D().stride;
+			if (stride != want) {
+				// REFUS DIT. Reinterpreter des octets sous un autre layout
+				// donnerait une geometrie fausse SANS erreur -- pire que le
+				// cube, parce qu'un cube se voit.
+				logger.Warn("[Demo3D] Geometrie du noeud {0} REFUSEE : pas de sommet {1} octets, "
+							"le layout courant en attend {2}.\n",
+							node, stride, want);
+				return false;
+			}
+			renderer::NkMeshDesc d = renderer::NkMeshDesc::Simple(
+				renderer::NkVertexLayout::Default3D(), verts, vcount, indices, icount);
+			// keepCPU EXPLICITE : sinon le maillage relu ne serait plus
+			// reecrivable, et l'enregistrement SUIVANT reperdrait l'objet.
+			d.keepCPU = true;
+			d.debugName = "Demo3D_GeomRelue";
+			const NkMeshHandle h = ms->Create(d);
+			if (!h.IsValid())
+				return false;
+			nkvpUserMesh[node - kNkvpFirstUser] = h;
+			// Le noeud rend desormais SA geometrie : le rendu donne la priorite
+			// a nkvpUserMesh, la primitive de la nature ne se dessine plus.
+			return true;
 		}
 		int32 Demo3DHostTakeShortcuts() {
 			const int32 b = nkvpShortcutBits;

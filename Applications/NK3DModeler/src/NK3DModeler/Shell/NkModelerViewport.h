@@ -6,7 +6,7 @@
 //
 //          Extrait de NkModelerScreens.h pendant la refonte d'interface --
 //          « subdiviser les gros fichiers » (Rihen, 13 aout 2026).
-// @Author  Rihen
+// @Author  TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // @License Proprietary - All Rights Reserved (see LICENSE)
 // -----------------------------------------------------------------------------
 #include "NK3DModeler/Shell/NkModelerUI.h"
@@ -739,9 +739,9 @@ namespace nkentseu {
 				p.TextV(cxE - p.TextW(en) * 0.5f, cyE - S(36.f), kRowH, en,
 						NkRole::Text);
 				const int32 aiE = st.sceneTabAsset[st.activeTab] - 1;
-				if (aiE >= 0 && aiE < st.browserCount)
-					p.TextV(cxE - p.TextW(st.browserNames[aiE]) * 0.5f,
-							cyE - S(12.f), kRowH, st.browserNames[aiE],
+				if (aiE >= 0 && aiE < st.BrowserCount())
+					p.TextV(cxE - p.TextW(st.Card(aiE).name) * 0.5f,
+							cyE - S(12.f), kRowH, st.Card(aiE).name,
 							NkRole::TextMuted);
 				p.TextV(cxE - p.TextW("Interface a definir -- NKGraphe, peinture, "
 									  "procedural a venir") *
@@ -756,7 +756,15 @@ namespace nkentseu {
 			// portee (NkDemo3D.cpp), sous le MEME id 4096. L'ancienne vue est
 			// dormante ; c'est donc l'hote de la demo qui dit Â« pret Â».
 			if (demo::Demo3DHostReady()) {
-				p.Image(nk3d::kViewportTexId, vr);
+				// LE CONTENU DE LA CIBLE EST BAS-HAUT SUR OPENGL. La regle vit dans
+				// NkOffscreenTarget.h et l'hote la lit pour SON dorsal. Les autres
+				// appels a Image() dessinent des vignettes chargees de fichiers,
+				// deja haut-bas : ils ne la prennent pas.
+				// ⚠️ L'APERCU DE MATERIAU (kNkMatPreviewTexId, NkModelerProperties.h)
+				// est une cible hors ecran LUI AUSSI et releve donc de la meme regle.
+				// Il n'est pas touche ici : aucun temoin ne le juge, et je ne corrige
+				// pas ce que je ne peux pas prouver.
+				p.Image(nk3d::kViewportTexId, vr, demo::Demo3DHostTargetBottomUp());
 				st.viewRect = vr; // depot d'assets : importer un clone en scene
 				// ── PASSE-PARTOUT (Rihen) : en vue camera, ce qui deborde du
 				// CADRE de la camera est voile -- couleur/opacite PAR camera
