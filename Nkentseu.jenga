@@ -1637,6 +1637,15 @@ with workspace("Nkentseu", location="."):
 
 
 
+    # SONDE DE MESURE (canal onglets : o1 la bande partagee, o2 les accents).
+    # PAS UN PRODUIT -- sa fenetre le dit dans son titre et elle se ferme seule.
+    # AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
+    with include("Applications/NkOngletSonde/NkOngletSonde.jenga"):
+
+        pass
+
+
+
     # Banc SANS FENETRE de NKEditorKit : resolution des roles de theme (le
     # magenta du 18/08) et vocabulaire du backend graphique (Metal compris).
     # Console, aucun GPU, code de sortie 0/1 -- il peut donc tourner partout.
