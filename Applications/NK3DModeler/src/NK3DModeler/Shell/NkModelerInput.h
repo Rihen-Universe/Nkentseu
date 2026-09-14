@@ -31,7 +31,7 @@
 #include "NK3DModeler/Shell/NkModelerMatTypes.h"
 #include "NKEditorKit/NkEditorModal.h"
 #include "NKEditorKit/NkEditorContextMenu.h" // menu contextuel du kit (grisage natif)
-#include "NKEditorKit/NkShortcutTable.h"
+#include "NK3DModeler/Shell/NkModelerFold.h"#include "NKEditorKit/NkShortcutTable.h"
 #include "NKSerialization/NkArchive.h" // reglages Rendu PAR SCENE (docRendu)
 
 namespace nkentseu {
@@ -386,10 +386,15 @@ namespace nkentseu {
 				bool propMat = false;
 				bool lockLit = false;
 				bool propLit = false;
-				// GROUPES du panneau Modele (Transformation, Dimensions, Relations,
-				// Materiaux...) : un bit par groupe, mis a 1 quand il est REPLIE.
-				// Les elements de nature differente se rangent par groupe (Rihen).
-				uint32 grpFold = 0;
+				// ── GROUPES DU PANNEAU : L'ETAT DE PLIAGE, INDEXE PAR CLE ───
+				// C'ETAIT un `uint32`, un BIT par groupe choisi a la main. Mesure du
+				// 14/09 : 27 groupes pour 16 bits, SIX bits partages par 17 groupes,
+				// et `prop.g.cam` portant le bit 3 — pas une puissance de deux — dont
+				// le XOR en basculait sept d'un coup. Plier « SSAO » pliait aussi GI,
+				// PostFX, Ombres et Transformation : un defaut que Rodolf VOIT.
+				// La regle vit desormais dans `NkModelerFold.h`, hors de ce fichier,
+				// pour etre exercable sans fenetre (banc NKFoldTest, 13 criteres).
+				NkFoldTable grpFold;
 				// ── MENU D'UN GROUPE DE PROPRIETES (facture Unity) ───────────
 				// Chaque bandeau de groupe porte le meme petit menu a droite :
 				// copier / coller / reinitialiser. Un SEUL etat pour toute

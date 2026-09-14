@@ -1552,6 +1552,12 @@ with workspace("Nkentseu", location="."):
 
 
 
+    with include("Applications/NKFoldTest/NKFoldTest.jenga"):
+
+        pass
+
+
+
     with include("Applications/NKMeshRenderTest/NKMeshRenderTest.jenga"):
 
         pass
