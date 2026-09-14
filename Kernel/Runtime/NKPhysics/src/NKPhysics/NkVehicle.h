@@ -38,6 +38,11 @@ namespace nkentseu {
 				// que parce qu'il y a QUATRE contraintes appliquées en séquence, alors que
 				// la conception §3c raisonne, elle, sur une seule.
 				float32 slipLatPre = 0.f; // m/s, lu AVANT l'impulsion (diagnostic)
+				float32 dragLat = 0.f;   // N, traînée induite de virage de CETTE roue
+				// Force latérale SIGNÉE et LISSÉE de cette roue (N). Voir NkVehicle.h,
+				// bloc traînée de virage : la traînée va comme le CARRÉ de la force, et
+				// le carré d'un signal qui oscille autour de zéro ne vaut PAS zéro.
+				float32 latForceFilt = 0.f;
 		};
 
 		struct NkVehicleTuning {
@@ -130,6 +135,50 @@ namespace nkentseu {
 				// false = la retenue vise la vitesse du DÉBUT du pas (le comportement
 				// d'avant le 13/09, qui laissait la voiture fluer en pente frein serré).
 				bool staticFriction = true;
+				// ── TRAÎNÉE DE VIRAGE (2026-09-14) ──────────────────────
+				// Mesuré : sous saturation un virage coûtait **0,6 %** de vitesse, et
+				// au-delà la voiture en courbe décélérait 13 % de MOINS qu'en ligne
+				// droite. Autrement dit : on ne pouvait pas racler de la vitesse dans
+				// un virage, et négocier une courbe ne coûtait jamais rien.
+				//
+				// Ce zéro n'était PAS un oubli : l'impulsion latérale annule le
+				// glissement EXACTEMENT (0,000000 m/s mesuré), et une force sans
+				// glissement ne travaille pas. Il n'y avait rien à dissiper.
+				// Ce qui manquait est ailleurs, et c'est physique : **un vrai pneu a
+				// besoin d'un ANGLE DE DÉRIVE pour produire sa force latérale.** La
+				// force est perpendiculaire au plan de la roue, la vitesse fait un
+				// angle alpha avec ce plan, donc la force a une composante OPPOSÉE À LA
+				// VITESSE. C'est la traînée INDUITE, et elle existe même sans glisser.
+				//
+				//   modèle linéaire : alpha = F_lat / C_alpha, C_alpha = k·Fs
+				//   F_drag = F_lat·alpha = **c · F_lat² / Fs**,  c = 1/k
+				//
+				// À l'échelle du véhicule, si la charge répartit la force latérale, cela
+				// se résume à **a_drag = c · a_lat² / g** — quadratique en accélération
+				// latérale, indépendant de la vitesse ET de la masse.
+				//
+				// ⚠️ LE ZÉRO EST STRUCTUREL : F_lat = 0 donne F_drag = 0 par un produit
+				// par zéro, pas par un seuil. En ligne droite le comportement est donc
+				// inchangé AU BIT, et ce n'est pas une observation mais une garantie.
+				//
+				// Défaut 0,083 = 1/12 : C_alpha/F_z vaut 10 à 15 par radian sur un pneu
+				// de tourisme. 0 = aucune traînée (le comportement d'avant le 14/09).
+				float32 corneringDrag = 0.083f;
+				// ⚠️ POURQUOI UN LISSAGE, ET POURQUOI IL N'EST PAS UN RÉGLAGE DE CONFORT.
+				// Première version : la traînée lisait |Jlat|/h, l'impulsion du sous-pas.
+				// Mon propre volet négatif l'a refusée — en LIGNE DROITE la décélération
+				// passait de 1,16076 à 1,16158 m/s² au lieu de rester identique au bit.
+				// Cause : la force latérale par roue OSCILLE autour de zéro (corrections
+				// de suspension, léger lacet résiduel), et **la moyenne d'un carré n'est
+				// pas le carré de la moyenne** : une traînée en F² transforme du bruit de
+				// signe alterné en frottement permanent. 480 fois ce que la loi prédit.
+				// On lisse donc la force latérale SIGNÉE avant de l'élever au carré : le
+				// bruit à moyenne nulle s'annule, la force de virage soutenue survit.
+				// C'est aussi ce que la physique dit : l'angle de dérive répond à la
+				// force SOUTENUE, pas à une correction d'un sous-pas.
+				// 0,1 s : vingt fois le sous-pas (assez pour moyenner), et vingt fois
+				// moins qu'un virage (assez pour le suivre).
+				float32 corneringDragTau = 0.1f; // s
 				float32 engineBrake = 0.10f;		// fraction de engineForce, par roue MOTRICE, gaz
 													// relâchés (|throttle| < 0,05). 0 = aucun frein moteur.
 				float32 freezeSpeed = 0.05f;	// m/s : sous ce glissement, on annule sec
