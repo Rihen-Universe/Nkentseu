@@ -1,0 +1,73 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""NKNormalesTest -- l'ombrage lisse survit-il ? EN CONSOLE, sans GPU.
+
+AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
+
+`RecomputeNormals` est l'une des vingt-et-une fonctions qui dependent de la
+soudure des sommets coincidents : elle moyenne les normales des faces incidentes
+a l'identite SOUDEE. Sans soudure, chaque coin est seul, la moyenne porte sur une
+seule face, et tout ombrage lisse disparait.
+
+Elle n'avait AUCUN banc. Sa regression se verrait a l'œil, sur une sphere, et
+personne ne regarde une sphere a chaque commit.
+
+BANC DEDIE PLUTOT QU'UNE FAMILLE DE NKEditMeshHarness, et c'est un arbitrage :
+le harnais porte une BASELINE (editmesh_baseline.txt) comparee octet pour octet.
+Y ajouter une famille obligerait a la regenerer, donc a re-valider d'un seul
+geste tout ce qu'elle protege -- exactement ce qu'une baseline sert a empecher.
+Ce banc-ci n'a aucune valeur enregistree : son critere est une PROPRIETE
+geometrique (sur une sphere centree, la normale lissee est colineaire a la
+position), vraie quelle que soit la finesse du maillage.
+
+NE MESURE PAS : l'ombrage a l'ecran (ni GPU ni image), ni l'ombrage FLAT qui
+dedouble les coins a l'affichage et suit un autre chemin.
+"""
+from Jenga import *
+from jengaconfig import *
+
+
+_GLSLANG_LIBS_WINDOWS = [
+    "glslang", "SPIRV", "MachineIndependent", "GenericCodeGen",
+    "glslang-default-resource-limits",
+]
+_IS_MINGW = "mingw" in TC_WINDOWS.lower()
+
+with project("NKNormalesTest"):
+    consoleapp()
+    language("C++")
+    cppdialect("C++17")
+    location(".")
+    files(["src/main.cpp"])
+
+    # NkEditMesh est du CPU pur mais vit dans NKRenderer : on tire sa chaine de
+    # liaison, comme le fait NKEditMeshHarness pour la meme raison.
+    nkentseudependson(
+        ["NKRenderer", "NKRHI", "NKSL", "NKWindow", "NKEvent", "NKFont", "NKImage",
+         "NKFileSystem", "NKSerialization", "NKReflection", "NKGlad", "NKMath", "NKTime",
+         "NKStream", "NKLogger", "NKContainers", "NKMemory", "NKCore", "NKPlatform",
+         "NKThreading", "NKGLSlang", "NKSPIRVCross"],
+        extra_includes=["src", "%{NKGlad.location}/include"]
+                       + ([VULKAN_INCLUDE] if VULKAN_INCLUDE else []),
+        extra_defines=[f"NKENTSEU_ENABLE_VULKAN_BACKEND={1 if WANT_VULKAN else 0}"],
+    )
+
+    objdir("%{wks.location}/Build/Obj/%{cfg.buildcfg}-%{cfg.system}/%{prj.name}")
+    targetdir("%{wks.location}/Build/Bin/%{cfg.buildcfg}-%{cfg.system}/%{prj.name}")
+
+    with filter("system:Windows && !options:windows-runtime=uwp && !system:XboxSeries && !system:XboxOne"):
+        usetoolchain(TC_WINDOWS)
+        defines(["WIN32_LEAN_AND_MEAN", "_UNICODE", "UNICODE"])
+        if VULKAN_LIB:
+            libdirs([VULKAN_LIB])
+        _WIN_LINKS = [
+            "NKGLSlang", "NKSPIRVCross",
+            "user32", "gdi32", "opengl32", "dwmapi", "shell32",
+            "uuid", "ole32", "dxguid",
+            "d3d11", "d3d12", "dxgi", "d3dcompiler",
+        ]
+        if WANT_VULKAN:
+            _WIN_LINKS.append("vulkan-1")
+            if not _IS_MINGW:
+                _WIN_LINKS.extend(_GLSLANG_LIBS_WINDOWS)
+        links(_WIN_LINKS)
