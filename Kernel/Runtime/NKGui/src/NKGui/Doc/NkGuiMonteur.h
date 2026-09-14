@@ -200,6 +200,11 @@ namespace nkentseu {
 						bool b = false;
 						float32 f = 0.f;
 						char texte[256] = {0};
+						/// Vrai une fois la valeur initiale posee depuis le document.
+						/// Sans lui, chaque trame ecraserait ce que l'utilisateur a
+						/// change -- un champ que le document reinitialise sans cesse
+						/// n'est pas editable.
+						bool initialise = false;
 				};
 
 				/// Recense une cle (phase 1). Sans effet si elle existe deja.
@@ -497,6 +502,18 @@ namespace nkentseu {
 							// n'est pas ouvert ici : voir l'en-tete du fichier.
 							NkRect r = RegionCourante(ctx, w);
 							PanelBackground(ctx, r);
+							// ⚠️ LE `title` DU FICHIER ETAIT PERDU. Le monteur n'ouvre
+							//    pas `BeginPanel` (voir l'en-tete du fichier), mais ne
+							//    pas ouvrir un conteneur n'est pas une raison de jeter
+							//    ce que le document ecrit. Il est peint a la main, au
+							//    meme endroit qu'une barre de titre.
+							const NkString titre = NkGTexte(w, "title", "");
+							if (titre.Size() > 0 && ctx.font && ctx.font->Valid()) {
+								const NkVec2 coin{r.x + ctx.layout.padding,
+												  r.y + ctx.layout.padding * 0.5f};
+								(void)TextAt(ctx, coin, titre.CStr());
+								ctx.layout.cursor.y += ctx.ItemHeight();
+							}
 							Noter(rap, id, t, r, prof, true, horizontal);
 							MonterCorps(ctx, w, etat, rap, prof + 1u, false);
 							++rap.montes;
@@ -565,18 +582,46 @@ namespace nkentseu {
 							break;
 						}
 						case NkGuiRole::Slider: {
-							if (e)
-								(void)SliderFloat(ctx, lbl, e->f, NkGNombre(w, "min", 0.f),
-												  NkGNombre(w, "max", 1.f));
-							else
+							if (e) {
+								const float32 vmin = NkGNombre(w, "min", 0.f);
+								const float32 vmax = NkGNombre(w, "max", 1.f);
+								// ⚠️ LA VALEUR INITIALE RESPECTE LES BORNES ECRITES. Vu
+								//    sur l'image rendue : le curseur de
+								//    `01_panneau_reglages` affichait 0.00 alors que le
+								//    fichier ecrit `min = 0.5`. Un montage fidele ne
+								//    peut pas poser une valeur que le document
+								//    interdit -- et `SliderFloat` ne corrige pas une
+								//    valeur d'entree hors bornes, il la dessine.
+								if (!e->initialise) {
+									e->f = NkGNombre(w, "value", vmin);
+									e->initialise = true;
+								}
+								if (e->f < vmin)
+									e->f = vmin;
+								if (e->f > vmax)
+									e->f = vmax;
+								(void)SliderFloat(ctx, lbl, e->f, vmin, vmax);
+							} else {
 								aDessine = false;
+							}
 							break;
 						}
 						case NkGuiRole::TextField: {
 							if (e) {
-								if (e->texte[0] == '\0') {
-									const NkString ph = NkGTexte(w, "placeholder", "");
-									Copier(e->texte, (int32)sizeof(e->texte), ph);
+								// ⚠️ LE `placeholder` N'EST PAS UNE VALEUR. La premiere
+								//    version le copiait dans le tampon : l'image
+								//    montrait « Filtrer... » comme si l'utilisateur
+								//    l'avait tape. Un texte d'invite s'affiche quand le
+								//    champ est VIDE et disparait des qu'on ecrit.
+								//    LIMITE NOMMEE : `InputText` n'a pas de
+								//    placeholder ; le champ part donc vide, et
+								//    l'invite du fichier n'est pas rendue. La
+								//    perdre est moins faux que de la faire passer
+								//    pour une saisie.
+								if (!e->initialise) {
+									const NkString v = NkGTexte(w, "value", "");
+									Copier(e->texte, (int32)sizeof(e->texte), v);
+									e->initialise = true;
 								}
 								(void)InputText(ctx, lbl, e->texte, (int32)sizeof(e->texte));
 							} else {
