@@ -5143,6 +5143,8 @@ namespace nkentseu {
 			//   CANCEL   RIGHTMOUSE · ECHAP
 			//   AXIS_X/Y/Z   X · Y · Z      (2e pression de la MEME touche = LOCAL)
 			//   PLANE_X/Y/Z  Maj+X/Y/Z      (exclut l'axe au lieu de s'y tenir)
+			//   ⚠ AXIS et PLANE sont servis par le DISPATCH DU SHELL (un appui, un chemin) :
+			//   la liste ci-dessus decrit le keymap de Blender, pas ce rappel.
 			//   CONS_OFF     C              (retire la contrainte)
 			//   PRECISION    Maj TENU       (lu en continu dans Demo3D_ModalParams)
 			// ⚠ ESPACE CONFIRME UNE MODALE chez Blender, et notre selecteur d'outil est
@@ -5156,11 +5158,14 @@ namespace nkentseu {
 				if (st->modalOp == 0)
 					return;
 				const NkKey k = e->GetKey();
-				const bool sh = NkInput.IsKeyDown(NkKey::NK_LSHIFT) || NkInput.IsKeyDown(NkKey::NK_RSHIFT);
-				auto poseAxe = [&](int32 ax) { Demo3D_ModalPoseAxe(st, ax, sh); };
-				if (k == NkKey::NK_X) { poseAxe(0); return; }
-				if (k == NkKey::NK_Y) { poseAxe(1); return; }
-				if (k == NkKey::NK_Z) { poseAxe(2); return; }
+				// ⚠ X / Y / Z NE SONT PLUS TRAITES ICI, ET C'EST LE CORRECTIF. Ce rappel et le
+				// dispatch du shell recevaient la MEME touche : mesure du 14/09, un appui Maj+X
+				// posait le plan ici puis le shell l'ecrasait par l'axe seul, et un appui X
+				// devenait « X LOCAL » (deux poses pour un appui). Les axes vivent desormais au
+				// SEUL chemin du shell, qui ne depend pas du survol et porte Maj avec l'action
+				// (`Demo3DHostModalAxis(axe, majAct)`, meme fonction Demo3D_ModalPoseAxe).
+				// Echap, Entree, Espace, C et la saisie numerique restent ici : le shell les
+				// adresse a la vue DORMANTE, il n'y a donc pas de second chemin vivant pour eux.
 				if (k == NkKey::NK_C) {
 					st->modalAxis = -1;
 					st->modalAxisLocal = false;
@@ -15634,7 +15639,9 @@ namespace nkentseu {
 		}
 		bool Demo3DHostEditModal(int32 op) {
 			auto *st = HostSt();
-			if (!st || !st->editMode || op < 1 || op > 8)
+			// 9..11 = deplacer / tourner / redimensionner : la MEME porte que les touches
+			// G/R/S du viseur (modalStartPending), que Demo3D_ModalStart sait deja lancer.
+			if (!st || !st->editMode || op < 1 || op > 11)
 				return false;
 			// On POSE la demande, on ne lance pas : le cadre modal a besoin de la
 			// souris et du systeme de maillage, dont ce rappel d'interface ne
@@ -15660,6 +15667,21 @@ namespace nkentseu {
 			if (!st || !st->toolPickerPending)
 				return false;
 			st->toolPickerPending = false; // CONSOMME : une demande = une ouverture
+			return true;
+		}
+		// CE QUE LA MODALE A COMPRIS DES TOUCHES D'AXE : l'axe (-1 = libre), le plan
+		// (Maj : tous les axes SAUF celui-la) et le repere local (second appui). Faux
+		// quand aucune modale ne tourne. Lecteur seul : il ne pose rien.
+		bool Demo3DHostModalConstraint(int32 *axe, bool *plan, bool *local) {
+			auto *st = HostSt();
+			if (!st || st->modalOp == 0)
+				return false;
+			if (axe)
+				*axe = st->modalAxis;
+			if (plan)
+				*plan = st->modalPlane;
+			if (local)
+				*local = st->modalAxisLocal;
 			return true;
 		}
 		bool Demo3DHostModalActive() {

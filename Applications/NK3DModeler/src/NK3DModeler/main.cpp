@@ -1009,7 +1009,14 @@ int nkmain(const NkEntryState &entry) {
 			// ne doit agir sur un document qu'on n'a pas encore ouvert.
 			if (st.editingText || st.welcome)
 				return;
-			auto want = [&st](NkVpAction a) { st.pendingAction = a; };
+			// L'ACTION EMPORTE LES MODIFICATEURS DE SON APPUI. Sans eux, tout ce qui ne
+			// se decide qu'au dispatch (les axes d'une modale) perdait Maj en route.
+			auto want = [&st, shift, ctrl, alt](NkVpAction a) {
+				st.pendingAction = a;
+				st.pendingShift = shift;
+				st.pendingCtrl = ctrl;
+				st.pendingAlt = alt;
+			};
 
 			switch (k) {
 				// ── Modes ───────────────────────────────────────────────────
@@ -2577,6 +2584,45 @@ int nkmain(const NkEntryState &entry) {
 				demo::Demo3DHostNodesTrace();
 		}
 
+		// NK_MODAL_START="move|rotate|scale[,frame]" : lance la VRAIE modale, celle du
+		// viseur, par `Demo3DHostEditModal` -- la meme porte que la touche G/R/S du
+		// viseur (modalStartPending). L'action ModalMove du shell, elle, arme la vue
+		// DORMANTE : un temoin qui l'emprunterait ne mesurerait rien.
+		// La CONTRAINTE est tracee a chaque changement ([nk3d-axe ]) : c'est elle qui
+		// dit ce que la modale a COMPRIS d'un appui, plan et repere compris.
+		{
+			static bool sMsDone = false;
+			static int32 sAxeVu = -99, sPlanVu = -1, sLocalVu = -1, sActifVu = -1;
+			if (const char *ms = std::getenv("NK_MODAL_START")) {
+				int32 fr = 80;
+				{
+					const char *c = ms;
+					while (*c && *c != ',')
+						++c;
+					if (*c == ',')
+						fr = (int32)std::atoi(c + 1);
+				}
+				if (!sMsDone && agentFrame >= fr && demo::Demo3DHostInEditMode()) {
+					sMsDone = true;
+					const int32 op = (ms[0] == 'r' || ms[0] == 'R') ? 10 : ((ms[0] == 's' || ms[0] == 'S') ? 11 : 9);
+					const bool ok = demo::Demo3DHostEditModal(op);
+					std::printf("[nk3d-axe ] f=%4d lancement modale op=%d -> %d\n", (int)agentFrame, (int)op, ok ? 1 : 0);
+				}
+				int32 ax = -1;
+				bool pl = false, lo = false;
+				const bool actif = demo::Demo3DHostModalConstraint(&ax, &pl, &lo);
+				if ((int32)actif != sActifVu || ax != sAxeVu || (int32)pl != sPlanVu || (int32)lo != sLocalVu) {
+					sActifVu = (int32)actif;
+					sAxeVu = ax;
+					sPlanVu = (int32)pl;
+					sLocalVu = (int32)lo;
+					std::printf("[nk3d-axe ] f=%4d modale=%d axe=%d plan=%d local=%d\n", (int)agentFrame,
+							actif ? 1 : 0, (int)ax, pl ? 1 : 0, lo ? 1 : 0);
+					std::fflush(stdout);
+				}
+			}
+		}
+
 		// NK_VP_ACTION=<nom>[,frame] : declenche une ACTION DU SHELL (NkVpAction),
 		// par le MEME chemin que le clavier et que les futurs boutons.
 		// ATTENTION, C EST TOUTE LA DIFFERENCE QUE CE TEMOIN MESURE : les crochets
@@ -2598,8 +2644,17 @@ int nkmain(const NkEntryState &entry) {
 					fr = (int32)std::atoi(cm + 1);
 				if (!sVpActDone && agentFrame >= fr) {
 					sVpActDone = true;
+					// « maj+<nom> » : l'action porte Maj, exactement comme une touche enfoncee
+					// avec Maj. C'est le seul moyen de faire passer un modificateur par le
+					// chemin du BOUTON sans injecter d'evenement clavier.
+					const bool majHook = (vpa[0] == 'm' || vpa[0] == 'M') && (vpa[1] == 'a' || vpa[1] == 'A') &&
+							(vpa[2] == 'j' || vpa[2] == 'J') && vpa[3] == '+';
+					const char *nomAct = majHook ? vpa + 4 : vpa;
+					st.pendingShift = majHook;
+					st.pendingCtrl = false;
+					st.pendingAlt = false;
 					auto est = [&](const char *n) -> bool {
-						const char *a = vpa;
+						const char *a = nomAct;
 						const char *b = n;
 						while (*b) {
 							char x = *a++, y = *b++;
@@ -2652,6 +2707,12 @@ int nkmain(const NkEntryState &entry) {
 						st.pendingAction = NkVpAction::BevelEdge;
 					else if (est("delete"))
 						st.pendingAction = NkVpAction::Delete;
+					else if (est("modalaxisx"))
+						st.pendingAction = NkVpAction::ModalAxisX;
+					else if (est("modalaxisy"))
+						st.pendingAction = NkVpAction::ModalAxisY;
+					else if (est("modalaxisz"))
+						st.pendingAction = NkVpAction::ModalAxisZ;
 					else
 						puts("[nk3d] NK_VP_ACTION : nom inconnu, aucune action posee");
 				}
@@ -2675,8 +2736,17 @@ int nkmain(const NkEntryState &entry) {
 					fr = (int32)std::atoi(cm + 1);
 				if (!sVpAct2Done && agentFrame >= fr) {
 					sVpAct2Done = true;
+					// « maj+<nom> » : l'action porte Maj, exactement comme une touche enfoncee
+					// avec Maj. C'est le seul moyen de faire passer un modificateur par le
+					// chemin du BOUTON sans injecter d'evenement clavier.
+					const bool majHook = (vpa[0] == 'm' || vpa[0] == 'M') && (vpa[1] == 'a' || vpa[1] == 'A') &&
+							(vpa[2] == 'j' || vpa[2] == 'J') && vpa[3] == '+';
+					const char *nomAct = majHook ? vpa + 4 : vpa;
+					st.pendingShift = majHook;
+					st.pendingCtrl = false;
+					st.pendingAlt = false;
 					auto est = [&](const char *n) -> bool {
-						const char *a = vpa;
+						const char *a = nomAct;
 						const char *b = n;
 						while (*b) {
 							char x = *a++, y = *b++;
@@ -2729,6 +2799,12 @@ int nkmain(const NkEntryState &entry) {
 						st.pendingAction = NkVpAction::BevelEdge;
 					else if (est("delete"))
 						st.pendingAction = NkVpAction::Delete;
+					else if (est("modalaxisx"))
+						st.pendingAction = NkVpAction::ModalAxisX;
+					else if (est("modalaxisy"))
+						st.pendingAction = NkVpAction::ModalAxisY;
+					else if (est("modalaxisz"))
+						st.pendingAction = NkVpAction::ModalAxisZ;
 					else
 						puts("[nk3d] NK_VP_ACTION2 : nom inconnu, aucune action posee");
 				}
@@ -2736,6 +2812,12 @@ int nkmain(const NkEntryState &entry) {
 		}
 		if (st.pendingAction != NkVpAction::None) {
 			const NkVpAction a = st.pendingAction;
+			// LES MODIFICATEURS SONT LUS AVEC L'ACTION, et remis a zero avec elle : un
+			// modificateur qui survivrait a son action se preterait a la suivante.
+			const bool majAct = st.pendingShift;
+			st.pendingShift = false;
+			st.pendingCtrl = false;
+			st.pendingAlt = false;
 			st.pendingAction = NkVpAction::None;
 			const bool edit = (st.mode != NkMode::Object);
 			// ⚠ L'AUTORITE VIVANTE, ET NON LA VUE DORMANTE. `Viewport3DModalKind()`
@@ -2803,12 +2885,22 @@ int nkmain(const NkEntryState &entry) {
 					nk3d::Viewport3DBeginModal(nk3d::kVpXformScale, mxv, myv);
 					break;
 				case NkVpAction::ModalAxisX:
+					// ⚠ UN APPUI, UN CHEMIN, ET MAJ AVEC LUI. Mesure du 14/09, avant ce correctif :
+					// la table modale du viseur ET ce dispatch recevaient la meme touche (la
+					// diffusion d'evenements appelle tous les rappels, sans consommation).
+					//   Maj+X : le viseur posait le PLAN (f=81), ce cas le remplacait par l'axe
+					//           seul (f=91) -- Maj etait perdu, la contrainte redevenait X ;
+					//   X     : le viseur posait X, ce cas le reposait -> LOCAL : un appui comptait
+					//           double.
+					// Les touches d'axe ne vivent plus qu'ICI : ce chemin ne depend pas du survol de
+					// la vue (une modale possede le clavier ou que soit le curseur, comme chez
+					// Blender) et il porte maintenant les modificateurs de l'appui.
 					// HORS MODALE, X garde son role de suppression : une touche ne
 					// doit pas devenir muette parce qu'un autre mode existe.
 					if (inModal) {
 						// La modale VIVANTE d'abord ; la vue dormante reste le repli
 						// pour les modales lancees par le chemin du shell.
-						if (!demo::Demo3DHostModalAxis(0, false))
+						if (!demo::Demo3DHostModalAxis(0, majAct))
 							nk3d::Viewport3DModalAxis(0);
 					} else if (edit) {
 						if (demo::Demo3DHostEditDelete())
@@ -2831,14 +2923,14 @@ int nkmain(const NkEntryState &entry) {
 					if (inModal)
 						// La modale VIVANTE d'abord ; la vue dormante reste le repli
 						// pour les modales lancees par le chemin du shell.
-						if (!demo::Demo3DHostModalAxis(1, false))
+						if (!demo::Demo3DHostModalAxis(1, majAct))
 							nk3d::Viewport3DModalAxis(1);
 					break;
 				case NkVpAction::ModalAxisZ:
 					if (inModal)
 						// La modale VIVANTE d'abord ; la vue dormante reste le repli
 						// pour les modales lancees par le chemin du shell.
-						if (!demo::Demo3DHostModalAxis(2, false))
+						if (!demo::Demo3DHostModalAxis(2, majAct))
 							nk3d::Viewport3DModalAxis(2);
 					break;
 				case NkVpAction::ModalConfirm:
