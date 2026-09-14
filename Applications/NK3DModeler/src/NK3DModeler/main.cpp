@@ -151,7 +151,16 @@ namespace {
 		if (hbmp) {
 			HGDIOBJ old = SelectObject(hdcMem, hbmp);
 			ok = PrintWindow(hwnd, hdcMem, 2 /*PW_RENDERFULLCONTENT*/) != 0;
-			if (!ok)
+			// ⚠️ LE REPLI BitBlt EST INTERDIT SOUS SONDE, et ce n'est pas une
+			//    precaution de style. `PrintWindow(PW_RENDERFULLCONTENT)` demande a
+			//    LA FENETRE de se redessiner : il ne peut rendre que SON contenu,
+			//    meme recouverte. `BitBlt(..., CAPTUREBLT)` lit l'ECRAN a
+			//    l'emplacement de la fenetre : si quoi que ce soit passe par dessus,
+			//    l'image contient l'ecran de quelqu'un d'autre. Une sonde n'a pas le
+			//    droit de produire cette image-la, meme par accident.
+			//    HORS sonde le repli reste : pour un utilisateur, une capture
+			//    degradee vaut mieux qu'une capture absente.
+			if (!ok && !std::getenv("NK_TOAST_PROBE"))
 				ok = BitBlt(hdcMem, 0, 0, w, h, hdcWin, 0, 0, SRCCOPY | CAPTUREBLT) != 0;
 			if (ok && bits) {
 				ok = out.Create((uint32)w, (uint32)h, math::NkColor(0, 0, 0, 255), 4);
@@ -207,7 +216,16 @@ namespace {
 		if (hbmp) {
 			HGDIOBJ old = SelectObject(hdcMem, hbmp);
 			ok = PrintWindow(hwnd, hdcMem, 2 /*PW_RENDERFULLCONTENT*/) != 0;
-			if (!ok)
+			// ⚠️ LE REPLI BitBlt EST INTERDIT SOUS SONDE, et ce n'est pas une
+			//    precaution de style. `PrintWindow(PW_RENDERFULLCONTENT)` demande a
+			//    LA FENETRE de se redessiner : il ne peut rendre que SON contenu,
+			//    meme recouverte. `BitBlt(..., CAPTUREBLT)` lit l'ECRAN a
+			//    l'emplacement de la fenetre : si quoi que ce soit passe par dessus,
+			//    l'image contient l'ecran de quelqu'un d'autre. Une sonde n'a pas le
+			//    droit de produire cette image-la, meme par accident.
+			//    HORS sonde le repli reste : pour un utilisateur, une capture
+			//    degradee vaut mieux qu'une capture absente.
+			if (!ok && !std::getenv("NK_TOAST_PROBE"))
 				ok = BitBlt(hdcMem, 0, 0, w, h, hdcWin, 0, 0, SRCCOPY | CAPTUREBLT) != 0;
 			if (ok && bits) {
 				NkImage img;
@@ -643,6 +661,13 @@ int nkmain(const NkEntryState &entry) {
 	// montrent, meme si la fenetre est sans cadre. Le bandeau de l'application le
 	// porte AUSSI (cf. `PaintStatus`), et c'est LUI que Rodolf voit a l'ecran.
 	wc.title = NkString("NK3DModeler ") + NkString(NkEditorGfxApiName(gfxApi));
+	// ⚠️ NK_TOAST_PROBE : SONDE DE MESURE DES ROLES D'ALERTE (14/09). Le titre
+	//    est change AVANT toute chose -- une capture de sonde qu'on prendrait
+	//    pour une capture du produit est un defaut deja paye ici, et le titre
+	//    est le seul endroit qu'on regarde pour les distinguer.
+	if (std::getenv("NK_TOAST_PROBE"))
+		wc.title = NkString("*** SONDE DE MESURE *** roles d'alerte -- ") +
+				   NkString(NkEditorGfxApiName(gfxApi));
 	wc.width = 1600;
 	wc.height = 900;
 	wc.minWidth = 1100;
@@ -3246,6 +3271,31 @@ int nkmain(const NkEntryState &entry) {
 				std::printf("[nk3d] NK_AGENT_SCENE : ciel Rayleigh+Mie pose (hote pret)\n");
 			}
 		}
+		// ── SONDE NK_TOAST_PROBE ────────────────────────────────────────────
+		// Les trois verdicts, un de chaque, poses juste avant le declic. Pas au
+		// demarrage : un succes ne dure que six secondes et serait deja mort.
+		// Aucune injection d'entree -- on appelle la MEME fonction que le code
+		// produit (`NkToastPush`), donc la meme table de couleurs.
+		// ⚠️ REPOSEES A CHAQUE IMAGE, ET NON UNE FOIS A UNE IMAGE NOMMEE. La
+		//    premiere version testait `agentFrame == agentShotFrame - 2` : elle a
+		//    donne une capture VIDE une fois sur deux, et j'ai failli conclure
+		//    « le theme clair ne peint pas ses pastilles ». Un indice d'image
+		//    n'est pas un rendez-vous fiable, et une pastille a duree de vie
+		//    (6 s / 12 s) peut mourir entre la pose et le declic. Reposees a
+		//    chaque image, la sonde ne depend plus d'aucun timing -- et le
+		//    compteur imprime dit ce qu'il y avait DANS LA PILE au declic, pour
+		//    qu'une capture vide se lise comme une capture vide et non comme un
+		//    verdict sur le theme.
+		if (std::getenv("NK_TOAST_PROBE") && agentShotFrame > 0 &&
+			agentFrame >= agentShotFrame - 2) {
+			NkToasts().count = 0;
+			NkToastPush(NkToastKind::Succes, "SONDE : succes");
+			NkToastPush(NkToastKind::Partiel, "SONDE : avertissement");
+			NkToastPush(NkToastKind::Refus, "SONDE : refus");
+			if (agentFrame == agentShotFrame)
+				std::printf("[sonde/toast] au declic : %d pastille(s) dans la pile\n",
+							(int)NkToasts().count);
+		}
 		if (agentShotFrame > 0 && agentFrame == agentShotFrame)
 			st.capturePending = 2; // « tutoriel » : toute la fenetre
 		// NK_AGENT_POST="tonemap,bloom,ssao,fxaa" : eteint des passes de
@@ -3933,17 +3983,26 @@ int nkmain(const NkEntryState &entry) {
 				// nom et la numerotation sont ceux de la sortie : une seule
 				// destination configuree dans l'application, une seule
 				// convention.
+				// SONDE : destination EXPLICITE, hors du dossier de sortie de Rodolf --
+				// une image de sonde rangee parmi ses rendus finirait par etre prise
+				// pour l'un d'eux.
+				const char *probeOut = std::getenv("NK_TOAST_PROBE");
 				const bool okPath2 =
-					demo::Demo3DHostReady()
-						? demo::Demo3DHostOutNextPath(capPath, (int32)sizeof(capPath), 2)
-						: NkNextCapturePath("tutoriel", capPath, (int32)sizeof(capPath));
+					(probeOut && probeOut[0] && probeOut[0] != '1')
+						? (snprintf(capPath, sizeof(capPath), "%s", probeOut) > 0)
+						: demo::Demo3DHostReady()
+							? demo::Demo3DHostOutNextPath(capPath, (int32)sizeof(capPath), 2)
+							: NkNextCapturePath("tutoriel", capPath, (int32)sizeof(capPath));
 				if (okPath2) {
 					const bool okCap = NkCaptureWholeWindow(window, capPath);
 					// MEME RESOLUTION DE SORTIE que le rendu : la fenetre est
 					// photographiee a sa taille -- c'est sa nature -- puis
 					// ramenee au format demande. Sans cela, « tutoriel » etait
 					// le seul des trois a ignorer les reglages (Rihen).
-					if (okCap && demo::Demo3DHostReady()) {
+					// SONDE : PAS DE REDIMENSIONNEMENT. Un bicubique melange les pixels
+					// voisins -- la couleur mesuree ne serait plus celle qui a ete
+					// peinte, mais une moyenne. On mesure l'image telle qu'elle sort.
+					if (okCap && !std::getenv("NK_TOAST_PROBE") && demo::Demo3DHostReady()) {
 						int32 ew = 0, eh = 0;
 						demo::Demo3DHostOutEffectiveSize(&ew, &eh);
 						NkImage shot;

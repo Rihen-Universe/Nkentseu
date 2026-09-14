@@ -179,8 +179,17 @@ namespace nkentseu {
 				// Trois couleurs, trois verdicts, tirees des ROLES du theme : une
 				// couleur ecrite en dur serait illisible dans l'autre theme, et ce
 				// depot a deja paye ce prix.
+				//
+				// ⚠️ 2026-09-14 — `Partiel` NE PREND PLUS `AccentSel`. Il l'empruntait
+				//    faute d'un role d'avertissement dans le theme ; `AccentSel` est
+				//    l'ambre de la SELECTION 3D (NkTheme.h, 10bis.2 : « le BLEU dit
+				//    l'etat de l'INTERFACE, l'AMBRE dit la selection 3D »). Une
+				//    pastille « PARTIEL » posee par-dessus la vue peignait donc,
+				//    exactement, la couleur reservee a un element selectionne --
+				//    et les deux COEXISTENT a l'ecran. `StatusWarn` existe depuis
+				//    ce jour : trois verdicts, trois roles de la MEME famille.
 				const NkRole accent = (t.kind == NkToastKind::Refus)	 ? NkRole::StatusErr
-									  : (t.kind == NkToastKind::Partiel) ? NkRole::AccentSel
+									  : (t.kind == NkToastKind::Partiel) ? NkRole::StatusWarn
 																		 : NkRole::StatusOk;
 				p.Fill(r, NkRole::PanelHeader, S(6.f));
 				p.OutlineSharp(r, accent);
