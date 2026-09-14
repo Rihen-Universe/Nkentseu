@@ -393,6 +393,42 @@ namespace nkentseu {
 		// les sommets : sans le lire, on ne peut pas distinguer « elle ne marche
 		// pas » de « elle marche sur la mauvaise grandeur ».
 		bool Demo3DHostEditSnapInfo(bool *actif, float32 *pas, bool *absolue, float32 *pivot3);
+
+		// ── L'EMPREINTE DU MAILLAGE EDITE ───────────────────────────────────
+		// « Identique au bit » ne se prouve pas avec des compteurs. La lecon a ete
+		// payee ce matin meme : le journal affirmait « transformation restauree :
+		// comparaison bit a bit = IDENTIQUE » -- vrai pour le GIZMO -- pendant que
+		// le maillage, lui, restait deplace. Deux autorites qui repondent
+		// differemment a la meme question.
+		//
+		// Cette empreinte hache les BITS EXACTS des positions (jamais des valeurs
+		// arrondies : deux flottants qui s'affichent « 0.5000 » peuvent differer)
+		// ET la topologie, parce qu'un maillage peut garder ses positions en
+		// changeant ses faces. Les deux sont necessaires ; ni l'une ni l'autre ne
+		// suffit.
+		//
+		// FNV-1a 64 bits : rien a inventer, et l'ordre des sommets y compte -- ce
+		// qui est voulu, une permutation N'EST PAS une identite pour une pile
+		// d'annulation.
+		// Rend faux hors edition. `verts` et `faces` sortent aussi, pour qu'un
+		// rapport puisse dire OU les deux etats different quand l'empreinte differe.
+		bool Demo3DHostEditFingerprint(uint64 *empreinte, uint32 *verts, uint32 *faces,
+									   uint64 *geoSeule = nullptr,
+									   uint64 *posSeules = nullptr,
+									   uint64 *selSeule = nullptr,
+									   uint64 *topoSeule = nullptr);
+		// ── ANNULER / REFAIRE, PAR LA PORTE DU CLAVIER ──────────────────────
+		// ⚠ ELLES POSENT `editUndoPending` / `editRedoPending`, le MEME drapeau que
+		// Ctrl+Z et Ctrl+Y, consomme au MEME endroit de la frame. Elles n'appellent
+		// PAS `Demo3D_UndoEdit` directement : un crochet qui court-circuiterait la
+		// porte prouverait que la PILE sait restaurer, pas que l'annulation marche.
+		// C'est la difference exacte entre les deux chemins de deplacement mesures
+		// ce matin -- l'un passait par le geste, l'autre non, et ils ne disaient pas
+		// la meme chose.
+		// Rendent faux hors edition, ou quand il n'y a rien a annuler/refaire : dans
+		// ce cas le banc doit le SAVOIR, et non mesurer un non-evenement.
+		bool Demo3DHostEditUndoAsk();
+		bool Demo3DHostEditRedoAsk();
 		void Demo3DHostSetZoneTool(int32 shape); // -1 off, 0 rectangle, 1 cercle, 2 lasso
 		void Demo3DHostSetCursorTool(bool on);
 		void Demo3DHostSetGridFlags(bool grid, bool minor, bool major, bool axes);

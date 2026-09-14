@@ -1984,6 +1984,85 @@ int nkmain(const NkEntryState &entry) {
 			}
 		}
 
+		// NK_UNDO_TEST=<frame> : LE NEGATIF CAPITAL, en un seul lancement.
+		// A la frame f     : releve l'empreinte APRES l'operation
+		// A la frame f+20  : demande l'annulation, par la porte du clavier
+		// A la frame f+40  : releve -- doit egaler l'empreinte D'AVANT l'operation
+		// A la frame f+60  : demande le retablissement
+		// A la frame f+80  : releve -- doit egaler l'empreinte D'APRES
+		// L'empreinte d'AVANT est prise des l'entree en edition, avant toute op.
+		//
+		// ⚠ « Identique au bit » et « memes compteurs » ne sont pas la meme chose.
+		// Ce matin un journal affirmait « comparaison bit a bit = IDENTIQUE » --
+		// pour le gizmo -- pendant que le maillage restait deplace. L'empreinte
+		// hache les BITS des positions, la selection et la topologie.
+		{
+			static int32 sUndoF = -1;
+			static uint64 sAvant = 0, sApres = 0, sAvantGeo = 0, sAvantPos = 0, sAvantSel = 0, sAvantTopo = 0;
+			static bool sAvantPris = false;
+			if (const char *ut = std::getenv("NK_UNDO_TEST")) {
+				if (sUndoF < 0)
+					sUndoF = (int32)std::atoi(ut);
+				uint64 emp = 0, geo = 0, pos = 0, sel = 0, topo = 0;
+				uint32 nv = 0, nf = 0;
+				const bool ok = demo::Demo3DHostEditFingerprint(&emp, &nv, &nf, &geo, &pos, &sel, &topo);
+				if (ok && !sAvantPris) {
+					// LA PREMIERE IMAGE OU L'EDITION EST ACTIVE, et non un numero de
+					// frame choisi : mon premier essai prenait l'empreinte a la
+					// frame 66, APRES que le pilote ait deja applique l'operation.
+					// L'etat  AVANT  etait donc l'etat d'apres, et le negatif
+					// comparait une chose a elle-meme. Cinquieme fois aujourd'hui
+					// qu'un instrument mal place accuse le produit.
+					// L'etat de REFERENCE : en edition, avant toute operation.
+					sAvantPris = true;
+					sAvant = emp;
+					sAvantGeo = geo;
+					sAvantPos = pos;
+					sAvantSel = sel;
+					sAvantTopo = topo;
+					std::printf("[nk3d-undo] AVANT  op : empreinte=%016llx v=%u f=%u\n",
+								(unsigned long long)sAvant, nv, nf);
+					std::fflush(stdout);
+				}
+				if (ok && agentFrame == sUndoF) {
+					sApres = emp;
+					std::printf("[nk3d-undo] APRES  op : empreinte=%016llx v=%u f=%u  (%s)\n",
+								(unsigned long long)sApres, nv, nf,
+								(sApres == sAvant) ? "INCHANGE -- l'op n'a rien fait ?" : "modifie");
+					std::fflush(stdout);
+				}
+				if (agentFrame == sUndoF + 20) {
+					const bool d = demo::Demo3DHostEditUndoAsk();
+					std::printf("[nk3d-undo] annulation demandee : %s\n", d ? "oui" : "REFUSEE");
+					std::fflush(stdout);
+				}
+				if (ok && agentFrame == sUndoF + 40) {
+					std::printf("[nk3d-undo] APRES undo : empreinte=%016llx geo=%016llx v=%u f=%u  -> %s (geo %s)\n",
+								(unsigned long long)emp, (unsigned long long)geo, nv, nf,
+								(emp == sAvant) ? "IDENTIQUE AU BIT a l'etat d'avant"
+												: "DIFFERENT de l'etat d'avant",
+								(geo == sAvantGeo) ? "identique" : "DIFFERENTE");
+					std::printf("[nk3d-undo]   positions %s | selection %s | topologie %s\n",
+								(pos == sAvantPos) ? "identiques" : "DIFFERENTES",
+								(sel == sAvantSel) ? "identique" : "DIFFERENTE",
+								(topo == sAvantTopo) ? "identique" : "DIFFERENTE");
+					std::fflush(stdout);
+				}
+				if (agentFrame == sUndoF + 60) {
+					const bool d = demo::Demo3DHostEditRedoAsk();
+					std::printf("[nk3d-undo] retablissement demande : %s\n", d ? "oui" : "REFUSE");
+					std::fflush(stdout);
+				}
+				if (ok && agentFrame == sUndoF + 80) {
+					std::printf("[nk3d-undo] APRES redo : empreinte=%016llx v=%u f=%u  -> %s\n",
+								(unsigned long long)emp, nv, nf,
+								(emp == sApres) ? "IDENTIQUE AU BIT a l'etat d'apres"
+												: "DIFFERENT de l'etat d'apres");
+					std::fflush(stdout);
+				}
+			}
+		}
+
 		// NK_OP_PARAM="index,valeur[,frame]" : pose un REGLAGE PERSISTANT d'operation
 		// par la MEME porte que le champ du panneau (`Demo3DHostOpParamSet`), donc
 		// avec le meme clamp. Sert a prouver ce que le canal exige : « changer la

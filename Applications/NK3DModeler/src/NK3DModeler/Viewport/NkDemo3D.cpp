@@ -15512,6 +15512,116 @@ namespace nkentseu {
 			}
 			return true;
 		}
+		bool Demo3DHostEditUndoAsk() {
+			auto *st = HostSt();
+			if (!st || !st->editMode || !st->editHistory.CanUndo())
+				return false;
+			st->editUndoPending = true; // LA MEME PORTE QUE Ctrl+Z
+			return true;
+		}
+		bool Demo3DHostEditRedoAsk() {
+			auto *st = HostSt();
+			if (!st || !st->editMode || !st->editHistory.CanRedo())
+				return false;
+			st->editRedoPending = true; // LA MEME PORTE QUE Ctrl+Y
+			return true;
+		}
+		bool Demo3DHostEditFingerprint(uint64 *empreinte, uint32 *verts, uint32 *faces,
+									   uint64 *geoSeule, uint64 *posSeules, uint64 *selSeule,
+								   uint64 *topoSeule) {
+			auto *st = HostSt();
+			if (!st || !st->editMode)
+				return false;
+			// FNV-1a 64 bits. On hache l'AUTORITE (`editHE`), pas `editLive` : c'est
+			// elle que l'annulation restaure, et c'est donc elle qui doit revenir
+			// identique. Hacher le tampon vivant rendrait un vert pendant qu'un
+			// geste est en cours.
+			uint64 h = 14695981039346656037ull;
+			uint64 hGeo = 14695981039346656037ull;
+			uint64 hPos = 14695981039346656037ull;
+			uint64 hSel = 14695981039346656037ull;
+			uint64 hTopo = 14695981039346656037ull;
+			auto mix = [&h](uint32 x) {
+				for (int32 b = 0; b < 4; ++b) {
+					h ^= (uint64)((x >> (b * 8)) & 0xFFu);
+					h *= 1099511628211ull;
+				}
+			};
+			auto mixf = [&mix](float32 f) {
+				// LES BITS, PAS LA VALEUR. Deux flottants qui s'affichent tous deux
+				// « 0.5000 » peuvent differer d'un ulp, et une pile d'annulation qui
+				// les confondrait laisserait passer exactement la derive qu'on
+				// cherche.
+				uint32 u = 0;
+				__builtin_memcpy(&u, &f, 4);
+				mix(u);
+			};
+			const uint32 nv = st->editHE.VertCount();
+			mix(nv);
+			for (uint32 i = 0; i < nv; ++i) {
+				const auto &v = st->editHE.verts[i];
+				mixf(v.pos.x);
+				mixf(v.pos.y);
+				mixf(v.pos.z);
+				// DEUX EMPREINTES, et c'est ce qui permet de DIRE ou est l'ecart :
+				// `hGeo` s'arrete a la geometrie et a la topologie, `h` ajoute la
+				// selection. Une empreinte unique dit « different » sans dire de quoi.
+				hGeo ^= h;
+				hGeo *= 1099511628211ull;
+				// ⚠ `hPos` EST CALCULE INDEPENDAMMENT, et non en cumulant `h`.
+				// Premiere version fausse : elle melangeait `h`, qui contient deja
+				// les drapeaux de selection des sommets PRECEDENTS. J'aurais conclu
+				// « l'ecart est dans les positions » sur un instrument contamine par
+				// la selection -- l'erreur exacte que ce chantier collectionne.
+				{
+					uint32 ub[3] = {0, 0, 0};
+					__builtin_memcpy(&ub[0], &st->editHE.verts[i].pos.x, 4);
+					__builtin_memcpy(&ub[1], &st->editHE.verts[i].pos.y, 4);
+					__builtin_memcpy(&ub[2], &st->editHE.verts[i].pos.z, 4);
+					for (int32 k = 0; k < 3; ++k)
+						for (int32 b = 0; b < 4; ++b) {
+							hPos ^= (uint64)((ub[k] >> (b * 8)) & 0xFFu);
+							hPos *= 1099511628211ull;
+						}
+				}
+				// LA SELECTION ENTRE DANS L'EMPREINTE. Une annulation qui rendrait la
+				// geometrie exacte en perdant la selection ne serait pas une
+				// annulation -- et c'est precisement le defaut que la ligne 179 de
+				// NkEditMesh.cpp fait craindre.
+				mix((uint32)v.sel);
+				// Hash de SELECTION pur, meme raison que hPos : ne pas melanger.
+				hSel ^= (uint64)v.sel;
+				hSel *= 1099511628211ull;
+			}
+			const uint32 nf = st->editHE.FaceCount();
+			mix(nf);
+			// LA TOPOLOGIE AUSSI : un maillage peut garder toutes ses positions en
+			// changeant ses faces. Les compteurs seuls ne le verraient pas.
+			NkVector<renderer::NkVertex3D> tv;
+			NkVector<uint32> ti;
+			NkVector<renderer::NkEmId> tf;
+			st->editHE.Triangulate(tv, ti, tf);
+			mix((uint32)ti.Size());
+			for (uint32 i = 0; i < (uint32)ti.Size(); ++i) {
+				mix(ti[i]);
+				// Hash de TOPOLOGIE pur.
+				for (int32 b = 0; b < 4; ++b) {
+					hTopo ^= (uint64)((ti[i] >> (b * 8)) & 0xFFu);
+					hTopo *= 1099511628211ull;
+				}
+			}
+			// La topologie entre dans les DEUX.
+			hGeo ^= h;
+			hGeo *= 1099511628211ull;
+			if (empreinte) *empreinte = h;
+			if (verts) *verts = nv;
+			if (faces) *faces = nf;
+			if (geoSeule) *geoSeule = hGeo;
+			if (posSeules) *posSeules = hPos;
+			if (selSeule) *selSeule = hSel;
+			if (topoSeule) *topoSeule = hTopo;
+			return true;
+		}
 		bool Demo3DHostEditSnapInfo(bool *actif, float32 *pas, bool *absolue, float32 *pivot3) {
 			auto *st = HostSt();
 			if (!st || !st->editMode)
