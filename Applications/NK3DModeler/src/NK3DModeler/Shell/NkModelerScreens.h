@@ -25,6 +25,11 @@
 #include "NK3DModeler/Shell/NkModelerWidgets.h"
 #include "NK3DModeler/Shell/NkModelerTables.h" // metriques, listes, catalogues
 #include "NK3DModeler/Shell/NkModelerCommon.h"
+// (o1) LA BANDE D'ONGLETS PARTAGEE : le composant du kit et son adaptateur de
+// peintre. Le modeleur n'utilise PAS `NkEditorShell` -- c'est `NkComponentPaint`
+// qui fait le pont, pas la coquille.
+#include "NKEditorKit/Components/NkTabStripModel.h"
+#include "NK3DModeler/Shell/NkModelerComponentPaint.h"
 #include "NK3DModeler/Shell/NkModelerViewport.h" // la vue 3D et ses surcouches
 #include "NK3DModeler/Shell/NkModelerFileDialog.h" // choix d emplacement + nom
 // DECLARATION ANTICIPEE : NkModelerAssets.h est inclus APRES cet en-tete,
@@ -474,114 +479,230 @@ namespace nkentseu {
 			// qu'une maquette qui ferait croire qu'on edite quelque chose.
 			st.editPreviewNode = 0;
 		}
+		// ═══════════════════════════════════════════════════════════════════════
+		//  LA BANDE D'ONGLETS — DESORMAIS CELLE DU KIT (2026-09-14)
+		// ═══════════════════════════════════════════════════════════════════════
+		//  ⚠️ CE QUI A CHANGE, ET POURQUOI CE N'EST PAS UN DEMENAGEMENT.
+		//     Les 130 lignes precedentes melangeaient DEUX choses : le dessin
+		//     d'une bande d'onglets (partageable) et la gestion des DOCUMENTS du
+		//     modeleur (`NkActivateTab`, `NkCloseSceneTab`, `NkBrowserSyncScenes`,
+		//     `DocAlloc`, la numerotation « Scene_N ») — 74 lignes sur 130.
+		//     Deplacer le bloc entier dans le kit y aurait fait entrer la notion
+		//     de scene, d'asset et de projet de CETTE application.
+		//
+		//     Donc : le DESSIN descend dans `NKEditorKit/Components/NkTabStrip*`,
+		//     et tout ce que les gestes DECLENCHENT reste ici, intact. Cette
+		//     fonction est devenue un ADAPTATEUR — elle remplit un modele, appelle,
+		//     et applique ce qu'on lui rapporte.
+		//
+		//  ⚠️ LE MEME CODE QUE NOGEE, ET C'EST VERIFIABLE : `NkDrawTabStrip` est
+		//     appele ici par `NkModelerComponentPaint` et chez la coquille par
+		//     `NkGuiComponentPaint`. Changer une metrique dans `NkTabStripModel.h`
+		//     doit deplacer les onglets des DEUX. Si une seule bouge, le partage
+		//     est une fiction — c'est le temoin exige au canal.
+		//
+		//  CE QUE LE MODELEUR GAGNE AU PASSAGE, et il faut le dire pour qu'on ne
+		//  le prenne pas pour une regression du recopiage :
+		//    • le LISERE ACCENT de l'onglet actif (§6 : deux signaux, pas un) ;
+		//    • la pastille « non enregistre » et la croix cessent d'etre imbriquees
+		//      — le defaut « avec une seule scene, aucune modification n'etait
+		//      jamais signalee » (Rihen) ne peut plus revenir : il est structurel ;
+		//    • la fermeture ne coupe plus la boucle de dessin en son milieu
+		//      (`break` sur « la liste a change ») : le composant RAPPORTE, on agit
+		//      apres.
+		//
+		//  CE QUI N'A PAS CHANGE, VOLONTAIREMENT : le renommage en place. Le
+		//  composant n'a pas le clavier (`NkComponentInput` n'en porte pas) ; il
+		//  rend le rectangle du libelle, et `EditableText` se pose dessus, ici,
+		//  exactement comme avant. C'est le meme contournement que le renommage de
+		//  l'arbre, pas un nouveau.
 		inline void PaintTabsI(NkModelerPainter &p, const NkRect &r, NkModelerState &st,
 							   NkHitRegistry &hit, NkWidgetState &ws, const nkgui::NkGuiInput &in) {
-			p.Fill(r, NkRole::PanelBg);
-			p.HLine(r.x, r.y + r.h - 1.f, r.w);
-			float32 x = S(10.f);
-			const float32 h = r.h - 2.f;
-			char key[32];
+			using namespace nkentseu::editorkit;
+
+			// ── 1. LE MODELE : ce que le modeleur a, dit dans le vocabulaire du kit
+			static NkTabStripModel m;
+			m.tabs.Clear();
 			for (int32 i = 0; i < st.sceneCount; ++i) {
 				const int32 di = st.TabDoc(i);
 				if (di < 0)
 					continue; // onglet sans document : anomalie, on ne peint rien
-				const float32 tw = p.TextW(st.docName[di]) + S(44.f);
-				const NkRect tr{x, r.y + 2.f, tw, h};
-				snprintf(key, sizeof(key), "tab.%d", i);
-				const bool over = hit.Add(key, tr);
+				NkTabItem t;
+				// L'IDENTITE est l'INDICE D'ONGLET + 1 (0 est reserve par le contrat
+				// du composant). ⚠️ Pas le nom : il change au renommage, qui se fait
+				// DANS l'onglet. Pas l'indice de document : deux onglets peuvent
+				// montrer le meme document.
+				t.id = (nk_uint64)(i + 1);
+				t.label = NkString(st.docName[di]);
+				t.modified = st.docDirty[di];
+				// Fermer la DERNIERE laisserait l'application sans document.
+				t.closable = st.sceneCount > 1;
+				m.tabs.PushBack(t);
+			}
+			// ⚠️ LE LISERET DE NATURE PASSE PAR LE CROCHET, ET C'EST DELIBERE.
+			//    `NkTabItem::kindRole` attend un ROLE de theme ; la couleur de
+			//    nature du modeleur, elle, sort de `NkAssetColor(p, kind, sub)` —
+			//    une TABLE qui melange roles communs et roles propres, pas un role.
+			//    Lui faire tenir dans un `uint16` aurait demande soit d'inventer un
+			//    role par nature dans le kit (qui ne connait pas les natures d'asset
+			//    d'une application), soit de perdre la couleur. Le crochet
+			//    `tab_overlay` existe pour exactement ce cas : l'application dessine
+			//    ce que le composant ne peut pas connaitre.
+			//
+			//    ⚠️ ET C'EST CE QUI EMPECHE UNE REGRESSION : sans lui, les onglets
+			//       d'EDITEUR cesseraient de se distinguer des scenes d'un coup
+			//       d'oeil. « Demenager demande de prouver que l'original ne change
+			//       pas de comportement » — ce crochet est cette preuve, en code.
+			if (st.activeTab >= 0 && st.activeTab < st.sceneCount)
+				m.active = (nk_uint64)(st.activeTab + 1);
+
+			// ── 2. LE STYLE : les roles du modeleur, aucun litteral ─────────────
+			NkTabStripStyle s;
+			s.bandBg = (uint16)NkRole::PanelBg;
+			s.border = (uint16)NkRole::Border;
+			s.tabBg = (uint16)NkRole::InputBg;
+			s.tabHoverBg = (uint16)NkRole::PanelBg;
+			s.tabActiveBg = (uint16)NkRole::PanelHeader;
+			s.text = (uint16)NkRole::Text;
+			s.textMuted = (uint16)NkRole::TextMuted;
+			s.accent = (uint16)NkRole::AccentUi;
+
+			// ── 3. L'ENTREE ─────────────────────────────────────────────────────
+			NkComponentInput ci;
+			ci.surfaceScale = gUiScale; // les composants multiplient leurs metriques par elle
+			ci.mouseX = in.mousePos.x;
+			ci.mouseY = in.mousePos.y;
+			ci.wheel = in.wheel;
+			ci.mouseDown = in.mouseDown[0];
+			ci.mousePressed = in.mouseClicked[0];
+			ci.mouseReleased = in.mouseReleased[0];
+			ci.doubleClick = in.mouseDoubleClicked[0];
+			ci.rightPressed = in.mouseClicked[1];
+			ci.ctrl = in.ctrlDown;
+			ci.shift = in.shiftDown;
+
+			// ⚠️ LA SAISIE EN COURS GELE LE CLIC DU COMPOSANT. Sans cela, le clic
+			//    qui pose le curseur dans le champ de renommage serait AUSSI lu par
+			//    la bande comme « active cet onglet ». C'est le symetrique du
+			//    defaut que l'ancienne version avait dans l'autre sens (« la zone du
+			//    nom recouvre celle de l'onglet et lui VOLAIT le survol »).
+			char kEdit[32];
+			bool enSaisie = false;
+			for (int32 i = 0; i < st.sceneCount && !enSaisie; ++i) {
+				snprintf(kEdit, sizeof(kEdit), "tab.name.%d", i);
+				if (ws.IsEditing(kEdit))
+					enSaisie = true;
+			}
+			if (enSaisie) {
+				ci.mousePressed = false;
+				ci.rightPressed = false;
+			}
+
+			// ── 4. L'APPEL — LE code, celui que Nogee appelle aussi ─────────────
+			NkModelerComponentPaint peintre(p);
+
+			// Le crochet du liseret de nature. La hauteur vient de la METRIQUE du
+			// composant, pas d'un `2.f` reecrit ici : si `kind_bar_h` change, ce
+			// trait change avec lui.
+			// ⚠️ LE MODELE VOYAGE AVEC, ET CE N'EST PAS DU ZELE : l'`index` que le
+			//    crochet recoit est celui du MODELE, pas celui de `st.sceneTab*`.
+			//    Les deux different des qu'un onglet est saute (`TabDoc < 0`, le cas
+			//    d'anomalie juste au-dessus). Lire `sceneTabKind[index]` aurait
+			//    marche sur tous mes essais — ou rien n'est saute — et peint la
+			//    couleur d'une AUTRE nature le jour ou quelque chose l'est. On passe
+			//    donc par l'IDENTITE, seule chose que le composant promet de rendre.
+			struct Nature {
+					NkModelerState *st;
+					NkModelerPainter *p;
+					const NkTabStripModel *m;
+					float32 h;
+			} nature{&st, &p, &m, NkTabMetric(s, "kind_bar_h") * gUiScale};
+
+			NkTabStripHooks hooks;
+			hooks.user = &nature;
+			hooks.tabOverlay = [](void *user, NkComponentPaint &pc, int32 index, float32 x,
+								  float32 y, float32 w, float32 h) {
+				(void)h;
+				Nature *n = (Nature *)user;
+				NkModelerState &s2 = *n->st;
+				if (index < 0 || index >= (int32)n->m->tabs.Size())
+					return;
+				const int32 onglet = (int32)(n->m->tabs[(usize)index].id - 1);
+				if (onglet < 0 || onglet >= s2.sceneCount || s2.sceneTabKind[onglet] == 0)
+					return;
+				// La couleur vient du MEME point de passage que les cartes du
+				// navigateur — c'est la meme nature vue a deux endroits, elle ne
+				// doit pas pouvoir en avoir deux couleurs.
+				const uint8 k2 = (uint8)(s2.sceneTabKind[onglet] - 1);
+				const int32 aT = s2.sceneTabAsset[onglet] - 1;
+				const uint8 sT = (aT >= 0 && aT < s2.BrowserCount()) ? s2.Card(aT).sub : 0;
+				const NkColor c = NkAssetColor(*n->p, k2, sT);
+				// ⚠️ 0xRRGGBBAA — l'empaquetage du theme, celui que `FillColor`
+				//    attend. L'ecrire a l'envers donne un onglet bleu la ou il
+				//    devait etre orange, sans qu'aucun compilateur ne bronche.
+				const uint32 rgba = ((uint32)c.r << 24) | ((uint32)c.g << 16) |
+									((uint32)c.b << 8) | (uint32)c.a;
+				pc.FillColor({x, y, w, n->h}, rgba, 0.f); // en HAUT (Rihen)
+			};
+
+			const NkTabStripResult res =
+				NkDrawTabStrip(peintre, ci, {r.x, r.y, r.w, r.h}, m, s, hooks);
+
+			// ── 5. LE RENOMMAGE EN PLACE, PAR-DESSUS ────────────────────────────
+			// Le composant ne renomme pas : il RAPPORTE ou il a pose le libelle.
+			for (usize k = 0; k < res.tabs.Size(); ++k) {
+				const NkTabRect &g = res.tabs[k];
+				const int32 i = (int32)(g.id - 1);
+				if (i < 0 || i >= st.sceneCount)
+					continue;
+				const int32 di = st.TabDoc(i);
+				if (di < 0)
+					continue;
 				const bool on = (i == st.activeTab);
-				p.Fill(tr, on ? NkRole::PanelHeader : (over ? NkRole::PanelBg : NkRole::InputBg), 3.f);
-				if (st.sceneTabKind[i] != 0) {
-					// Liseret de NATURE : distinguer d'un oeil les onglets EDITEUR
-					// des scenes. La couleur vient du MEME point de passage que les
-					// cartes du navigateur -- c'est la meme nature vue a deux
-					// endroits, elle ne doit pas pouvoir en avoir deux couleurs.
-					const uint8 k2 = (uint8)(st.sceneTabKind[i] - 1);
-					const int32 aT = st.sceneTabAsset[i] - 1;
-					const uint8 sT = (aT >= 0 && aT < st.BrowserCount()) ? st.Card(aT).sub : 0;
-					p.Fill({tr.x, tr.y, tr.w, 2.f}, NkAssetColor(p, k2, sT)); // en HAUT (Rihen)
-				}
+				char key[32];
 				snprintf(key, sizeof(key), "tab.name.%d", i);
-				if (EditableText(p, hit, ws, in, key, {x + S(10.f), r.y, tw - S(32.f), r.h},
+				if (EditableText(p, hit, ws, in, key, {g.labelX, r.y, g.labelW, r.h},
 								 st.docName[di], on ? NkRole::Text : NkRole::TextMuted,
 								 st.docName[di], 32u)) {
-					// RENOMMER L'ONGLET RENOMME SA CARTE, TOUT DE SUITE. Le nom ne
-					// se propageait qu'a l'enregistrement (via NkBrowserSyncScenes),
-					// si bien que le navigateur affichait l'ancien nom entre-temps
-					// (constate par Rihen). Symetrique du renommage depuis la carte :
-					// chaque sens agit A LA VALIDATION, jamais en continu -- une
-					// recopie a chaque frame ferait qu'un cote ecraserait l'autre.
+					// RENOMMER L'ONGLET RENOMME SA CARTE, TOUT DE SUITE. Le nom ne se
+					// propageait qu'a l'enregistrement (via NkBrowserSyncScenes), si
+					// bien que le navigateur affichait l'ancien nom entre-temps
+					// (constate par Rihen). Chaque sens agit A LA VALIDATION, jamais
+					// en continu — une recopie a chaque image ferait qu'un cote
+					// ecraserait l'autre.
 					const int32 e9 = st.docCard[di] - 1;
 					if (st.sceneTabKind[i] == 0 && e9 >= 0 && e9 < st.BrowserCount() &&
 						st.Card(e9).kind == 5)
 						NkWidgetState::Copy(st.Card(e9).name, st.docName[di], 31u);
 				}
-				// PASTILLE ET CROIX PARTAGENT LE MEME EMPLACEMENT, mais leurs
-				// conditions different -- et c'est important : la pastille « non
-				// enregistre » vaut pour TOUTE scene, y compris la DERNIERE, alors
-				// que la croix n'apparait que s'il reste plus d'une scene (fermer
-				// la derniere laisserait l'application sans document). L'ancienne
-				// imbrication mettait la pastille SOUS la condition de la croix :
-				// avec une seule scene -- le cas le plus courant -- aucune
-				// modification n'etait jamais signalee (constate par Rihen).
-				{
-					snprintf(key, sizeof(key), "tab.close.%d", i);
-					const NkRect cr{x + tw - S(24.f), r.y + 2.f, S(20.f), h};
-					const bool canClose = st.sceneCount > 1;
-					const bool overClose = canClose && hit.Add(key, cr);
-					// MARQUEUR « NON ENREGISTRE » (Rihen) : une PASTILLE prend la
-					// place de la croix tant que la souris n'est pas dessus. MEME
-					// emplacement, donc la largeur de l'onglet ne bouge pas quand une
-					// scene devient modifiee -- des onglets qui changent de taille a
-					// la premiere frappe rendraient la barre illisible. Au survol la
-					// croix revient : on ferme sans avoir a viser ailleurs.
-					if (st.docDirty[di] && !overClose) {
-						const float32 d = S(7.f);
-						p.Fill({cr.x + (cr.w - d) * 0.5f, cr.y + (cr.h - d) * 0.5f, d, d},
-							   on ? NkRole::Text : NkRole::TextMuted, d * 0.5f);
-					} else if (canClose) {
-						HoverFill(p, cr, overClose, 2.f);
-						p.IconV(x + tw - S(20.f), r.y, r.h, NkIcon::WinClose, NkRole::TextMuted,
-								10.f);
-					}
-					if (canClose && hit.Clicked(key)) {
-						// LA CROIX FERME, SANS RIEN DEMANDER. Il n'y a plus rien a
-						// proteger : le document reste dans le projet et sa carte dans
-						// le navigateur. L'ancienne boite « Fermer sans enregistrer »
-						// disait vrai a l'epoque ou l'onglet ETAIT la scene ; la
-						// garder maintenant ferait redouter une perte qui n'existe
-						// plus. La pastille reste : elle dit que le PROJET n'est pas
-						// enregistre, ce qui est toujours exact.
-						NkCloseSceneTab(st, i);
-						break; // la liste a change
-					}
-				}
-				snprintf(key, sizeof(key), "tab.%d", i);
-				{
-					// Le clic sur le NOM bascule AUSSI l'onglet : la zone du nom
-					// recouvre celle de l'onglet et lui VOLAIT le survol --
-					// selectionner une scene exigeait de viser les bords (Rihen).
-					char nk2[32];
-					snprintf(nk2, sizeof(nk2), "tab.name.%d", i);
-					if (hit.Clicked(key) || (!ws.IsEditing(nk2) && hit.Clicked(nk2)))
-						NkActivateTab(st, i);
-				}
-				x += tw + 3.f;
-				// MARQUEUR DE SEPARATION entre en-tetes d'onglets (regle de
-				// Rihen) : sans lui, deux scenes cote a cote se confondaient.
-				if (i + 1 < st.sceneCount) {
-					p.VLine(x + 1.f, r.y + S(6.f), h - S(8.f));
-					x += S(5.f);
-				}
 			}
-			const NkRect ar{x + S(4.f), r.y + 2.f, S(24.f), h};
-			HoverFill(p, ar, hit.Add("tab.add", ar));
-			p.IconV(x + S(8.f), r.y, r.h, NkIcon::Add, NkRole::Text, 12.f);
-			if (hit.Clicked("tab.add") && st.sceneCount < 8) {
+
+			// ── 6. CE QUE LES GESTES DECLENCHENT — la part qui reste au modeleur ─
+			// ⚠️ APRES LE DESSIN, JAMAIS PENDANT. L'ancienne version fermait au
+			//    milieu de sa boucle et sortait par `break` (« la liste a change ») :
+			//    les onglets suivants n'etaient alors pas peints de l'image. Ici la
+			//    liste ne peut plus changer pendant qu'on la parcourt.
+			if (res.closeRequested) {
+				const int32 i = (int32)(res.closeId - 1);
+				if (i >= 0 && i < st.sceneCount && st.sceneCount > 1) {
+					// LA CROIX FERME, SANS RIEN DEMANDER. Il n'y a plus rien a
+					// proteger : le document reste dans le projet et sa carte dans le
+					// navigateur. L'ancienne boite « Fermer sans enregistrer » disait
+					// vrai a l'epoque ou l'onglet ETAIT la scene ; la garder
+					// maintenant ferait redouter une perte qui n'existe plus.
+					NkCloseSceneTab(st, i);
+				}
+			} else if (res.selectionChanged) {
+				const int32 i = (int32)(m.active - 1);
+				if (i >= 0 && i < st.sceneCount)
+					NkActivateTab(st, i);
+			}
+
+			if (res.addRequested && st.sceneCount < 8) {
 				// UN NOUVEAU DOCUMENT, puis une vue dessus. Le nom par defaut est
 				// NUMEROTE d'apres le nombre de documents et non d'onglets : numeroter
 				// par onglet redonnait « Scene_2 » a une scene creee apres en avoir
-				// ferme une -- deux scenes homonymes dans le meme projet.
+				// ferme une — deux scenes homonymes dans le meme projet.
 				const int32 nd = st.DocAlloc();
 				if (nd >= 0) {
 					int32 used = 0;
@@ -589,8 +710,8 @@ namespace nkentseu {
 						if (st.docUsed[q] && !st.docTransient[q])
 							++used;
 					snprintf(st.docName[nd], 32, "Scene_%d", (int)used);
-					// Une scene NEUVE nait VIERGE : les objets de la demo
-					// appartiennent a la premiere scene.
+					// Une scene NEUVE nait VIERGE : les objets de la demo appartiennent
+					// a la premiere scene.
 					st.docBlank[nd] = true;
 					st.docScene[nd] = (uint8)st.sceneIdNext++;
 					const int32 nt = st.sceneCount++;
