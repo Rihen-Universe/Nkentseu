@@ -2006,7 +2006,20 @@ int nkmain(const NkEntryState &entry) {
 				uint64 emp = 0, geo = 0, pos = 0, sel = 0, topo = 0;
 				uint32 nv = 0, nf = 0;
 				const bool ok = demo::Demo3DHostEditFingerprint(&emp, &nv, &nf, &geo, &pos, &sel, &topo);
-				if (ok && !sAvantPris) {
+				// ⚠ L'ETAT DE REFERENCE SE PREND QUAND IL EST STABLE, pas a la
+				// premiere image d'edition. Mesure du 14/09 : l'empreinte change
+				// encore entre l'entree en edition et la frame 70 -- la selection
+				// n'est pas normalisee tout de suite. Prise trop tot, la reference
+				// n'est l'etat d'AUCUN moment, et le negatif accuse l'annulation
+				// d'un ecart qu'elle n'a pas produit. C'est ce qu'il a fait, et j'ai
+				// publie la conclusion fausse avant de la mesurer.
+				// La stabilite se constate : deux releves consecutifs identiques.
+				static uint64 sPrec = 0;
+				static bool sPrecPris = false;
+				const bool stable = sPrecPris && (emp == sPrec);
+				sPrec = emp;
+				sPrecPris = ok;
+				if (ok && !sAvantPris && stable) {
 					// LA PREMIERE IMAGE OU L'EDITION EST ACTIVE, et non un numero de
 					// frame choisi : mon premier essai prenait l'empreinte a la
 					// frame 66, APRES que le pilote ait deja applique l'operation.
@@ -2020,10 +2033,17 @@ int nkmain(const NkEntryState &entry) {
 					sAvantPos = pos;
 					sAvantSel = sel;
 					sAvantTopo = topo;
-					std::printf("[nk3d-undo] AVANT  op : empreinte=%016llx v=%u f=%u\n",
-								(unsigned long long)sAvant, nv, nf);
+					std::printf("[nk3d-undo] AVANT  op (etat STABLE, f=%d) : empreinte=%016llx v=%u f=%u\n",
+								(int)agentFrame, (unsigned long long)sAvant, nv, nf);
 					std::fflush(stdout);
 				}
+				// QUAND L'ETAT SE STABILISE-T-IL ? Un releve periodique, sans lequel
+				// on ne peut pas distinguer « l'annulation a change quelque chose »
+				// de « l'etat n'etait pas encore stable quand je l'ai photographie ».
+				// C'est la faute que ce releve vient de me faire attraper.
+				if (ok && (agentFrame % 10) == 0 && agentFrame <= sUndoF)
+					std::printf("[nk3d-stab] f=%4d empreinte=%016llx\n",
+								(int)agentFrame, (unsigned long long)emp);
 				if (ok && agentFrame == sUndoF) {
 					sApres = emp;
 					std::printf("[nk3d-undo] APRES  op : empreinte=%016llx v=%u f=%u  (%s)\n",
