@@ -318,15 +318,31 @@ namespace nkentseu {
 		}
 
 		// â”€â”€ BARRE D'ETAT â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+		// ── LE DORSAL GRAPHIQUE RETENU, DIT A L'ECRAN ───────────────────────
+		// ⚠️ LA FENETRE EST SANS CADRE (`wc.frame = false`) : son TITRE n'est
+		// affiche par personne. Poser le dorsal dans `wc.title` aurait ete un
+		// reglage declare et invisible -- exactement le defaut qu'on combat.
+		// Il se lit donc dans la barre d'etat, que l'application peint elle-meme.
+		// (Le titre le porte AUSSI : la barre des taches et les outils systeme le
+		// montrent, eux.)
+		// Ecrit UNE FOIS au demarrage par `main`, avant toute creation de
+		// contexte ; lu a chaque image. Une fonction, pas une variable globale :
+		// une seule instance quel que soit le nombre d'unites de compilation.
+		inline const char *&NkDorsalRetenu() {
+			static const char *d = "?";
+			return d;
+		}
+
 		inline void PaintStatus(NkModelerPainter &p, NkHitRegistry &hit, const NkRect &r,
 								NkModelerState &st) {
 			char stats[128];
 			if (st.mode == NkMode::Object)
-				snprintf(stats, sizeof(stats), "Objets 6 - selectionne : %s - 60 ips",
-						 st.selectedObject == 1 ? "Cube" : "-");
+				snprintf(stats, sizeof(stats), "Objets 6 - selectionne : %s - 60 ips - dorsal : %s",
+						 st.selectedObject == 1 ? "Cube" : "-", NkDorsalRetenu());
 			else
-				snprintf(stats, sizeof(stats), "Sommets 8 - Aretes 12 - Faces 6 - %s - 60 ips",
-						 NkModeName(st.mode));
+				snprintf(stats, sizeof(stats),
+						 "Sommets 8 - Aretes 12 - Faces 6 - %s - 60 ips - dorsal : %s",
+						 NkModeName(st.mode), NkDorsalRetenu());
 			p.Fill(r, NkRole::PanelHeader);
 			p.HLine(r.x, r.y, r.w);
 			float32 x = r.x + kPad;

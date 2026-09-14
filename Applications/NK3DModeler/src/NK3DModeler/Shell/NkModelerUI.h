@@ -1,4 +1,9 @@
 #pragma once
+// -----------------------------------------------------------------------------
+// @File    NkModelerUI.h
+// @Author  TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
+// @License Proprietary - All Rights Reserved (see LICENSE)
+// -----------------------------------------------------------------------------
 // =============================================================================
 // NkModelerUI.h — PEINTURE de l'interface, calquee sur la maquette Banani.
 //
@@ -319,6 +324,33 @@ namespace nkentseu {
 					mDl.AddRectFilledMultiColor(r, tl, tr, br, bl);
 				}
 
+				// ── LES TROIS PORTES DU 2026-09-14 (canal onglets, o1) ──────────
+				// ⚠️ ELLES N'AJOUTENT AUCUNE CAPACITE : `mDl` savait deja tout faire.
+				//    Ce qui manquait, c'est qu'un ADAPTATEUR puisse y acceder --
+				//    `NkModelerComponentPaint` ne voit que ce peintre, pas la liste.
+				//    Sans elles, `NkComponentPaint::PolygonHex`, `::ImagePolygone` et
+				//    `::PushBlend` tombaient sur leur repli inerte chez cet hote, et
+				//    le faisaient EN SILENCE jusqu'au 14/09.
+				/// Polygone CONVEXE plein. ⚠️ Non convexe : le resultat est faux et ce
+				/// n'est pas verifie -- c'est le contrat de `AddConvexPolyFilled`, on
+				/// ne le maquille pas.
+				void PolyFilled(const NkVec2 *pts, int32 n, const NkColor &c) {
+					mDl.AddConvexPolyFilled(pts, n, c);
+				}
+				/// Polygone CONVEXE texture, un uv PAR SOMMET. `tint` MULTIPLIE
+				/// l'echantillon (son alpha porte l'opacite).
+				void ImagePolygon(uint32 texId, const NkVec2 *pts, const NkVec2 *uvs, int32 n,
+								  const NkColor &tint) {
+					mDl.AddImagePolygon(texId, pts, uvs, n, tint);
+				}
+				/// Mode de melange du GPU, empile. Le `Pop` doit suivre.
+				void PushBlend(nkgui::NkGuiBlend b) {
+					mDl.PushBlend(b);
+				}
+				void PopBlend() {
+					mDl.PopBlend();
+				}
+
 				void Disc(float32 cx, float32 cy, float32 radius, NkRole role) {
 					mDl.AddCircleFilled({cx, cy}, radius, C(role));
 				}
@@ -364,6 +396,27 @@ namespace nkentseu {
 				// accidentel, applique apres le tonemap.
 				void Image(uint32 texId, const NkRect &r) {
 					mDl.AddImage(texId, PxRect(r), {0.f, 0.f}, {1.f, 1.f}, NkColor{255, 255, 255, 255});
+				}
+				// MEME IMAGE, CONTENU STOCKE BAS-HAUT. On echange les bornes de V.
+				//
+				// ⚠️ CE N'EST PAS UNE COMPENSATION NEUVE : c'est la convention que
+				// les RELECTEURS d'une cible hors ecran appliquent depuis toujours
+				// (NkOffscreenTarget.h, NkOffscreenStoredIsBottomUp), portee a son
+				// consommateur manquant -- celui qui AFFICHE. Sans elle, la capture
+				// d'un instant et le viseur au meme instant ne montrent pas la meme
+				// image sur OpenGL : l'une est droite, l'autre retournee.
+				//
+				// ⚠️ ET ELLE NE VAUT QUE POUR UNE CIBLE HORS ECRAN. Une icone ou une
+				// vignette chargee d'un fichier est deja haut-bas sur tous les
+				// dorsaux ; lui appliquer ceci la retournerait. C'est pourquoi le
+				// retournement est un PARAMETRE, pose par l'appelant qui sait ce
+				// qu'il dessine, et non une regle appliquee a toutes les images.
+				void Image(uint32 texId, const NkRect &r, bool contenuBasHaut) {
+					if (!contenuBasHaut) {
+						Image(texId, r);
+						return;
+					}
+					mDl.AddImage(texId, PxRect(r), {0.f, 1.f}, {1.f, 0.f}, NkColor{255, 255, 255, 255});
 				}
 
 				// DECOUPE. Tout ce qui est peint entre Clip et Unclip est coupe au
@@ -436,8 +489,21 @@ namespace nkentseu {
 				// seul sur sa ligne et clippe, plutot que de deborder ou de
 				// disparaitre. Renvoie la hauteur consommee, pour que l'appelant
 				// avance son curseur vertical sans avoir a compter les lignes.
+				/// LA HAUTEUR QUE PRENDRAIT `TextWrap`, sans rien peindre. Un appelant
+				/// qui doit dessiner un CADRE autour d'un texte replie a besoin de la
+				/// hauteur AVANT le texte -- et la mesurer avec une seconde boucle
+				/// « qui fait pareil » repliquerait une strategie au lieu de la
+				/// mesurer : deux ruptures de ligne finiraient par diverger. C'est donc
+				/// LE MEME code, avec la peinture eteinte.
+				float32 TextWrapMeasure(float32 w, const char *s, float32 lineGap = 0.f) {
+					return TextWrapImpl(0.f, 0.f, w, s, NkRole::Text, lineGap, false);
+				}
 				float32 TextWrap(float32 x, float32 y, float32 w, const char *s,
 								 NkRole role = NkRole::Text, float32 lineGap = 0.f) {
+					return TextWrapImpl(x, y, w, s, role, lineGap, true);
+				}
+				float32 TextWrapImpl(float32 x, float32 y, float32 w, const char *s,
+									 NkRole role, float32 lineGap, bool peindre) {
 					if (!s || !*s || w <= 1.f)
 						return 0.f;
 					const float32 lh = mFont.LineHeight() + lineGap;
@@ -468,7 +534,8 @@ namespace nkentseu {
 							// Ca ne rentre pas : on ferme la ligne et on repart
 							// avec ce mot, sans son espace de tete.
 							line[len] = 0;
-							Text(x, cy, line, role);
+							if (peindre)
+								Text(x, cy, line, role);
 							cy += lh;
 							len = 0;
 							for (uint32 k = b; k < i; ++k)
@@ -481,7 +548,8 @@ namespace nkentseu {
 					}
 					if (len > 0) {
 						line[len] = 0;
-						Text(x, cy, line, role);
+						if (peindre)
+							Text(x, cy, line, role);
 						cy += lh;
 					}
 					return cy - y;

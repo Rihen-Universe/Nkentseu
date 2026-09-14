@@ -59,6 +59,9 @@
 #include "Canvas.h"
 #include "Backend.h"
 #include "DesignAI.h"
+#include "DesignChat.h" // 170-178 : la conversation et la specification
+#include "Historique.h" // 179 : la promesse « une seule operation annulable »
+#include "DesignChatAsync.h" // 180-182 : le fil de generation
 #include "Icons.h"
 #include "Renderers.h"
 #include "ExportSVG.h" // sondes 81-82 : l'export PNG (pixels) et SVG (re-rasterise)
@@ -19864,6 +19867,489 @@ namespace nkuidesign {
 				  survoleesEffacees == 0u && couplesRompus == 0u && nLignes >= 4u, det);
 			NkDirectory::Delete("sonde_survol", true);
 		}
+
+		// ═══════════════════════════════════════════════════════════════════
+		//  170-178 — DISCUTER AVANT DE DESSINER, ET LE DOCUMENT QUI EN SORT
+		// ═══════════════════════════════════════════════════════════════════
+		//  La demande de Rodolf : « on doit pouvoir discuter avec lui AVANT de
+		//  commencer a designer, car definir un document de specification LIE a
+		//  ce design est important ».
+		//
+		//  Ces essais ne mesurent donc pas « ca compile » : ils mesurent les
+		//  trois proprietes qui font la difference entre une conversation et un
+		//  gadget --
+		//    (a) discuter NE DESSINE PAS, prouve octet pour octet ;
+		//    (b) la specification existe SANS AUCUN MODELE ;
+		//    (c) le design engendre PORTE le nom de la specification.
+		{
+			// -- 127. LE ZERO DU LECTEUR D'EXIGENCES, AVANT TOUT LE RESTE ----
+			// Un compteur se prouve sur zero. Si `LireExigences` rendait des
+			// lignes sur un texte qui n'en contient aucune, tous les chiffres
+			// des essais suivants seraient du bruit.
+			nkentseu::NkVector<NkString> zero;
+			NkSpecification::LireExigences(
+				"Bien sur ! Voici ce que je propose pour votre interface.\n"
+				"Ce sera tres bien.\n", zero);
+			nkentseu::NkVector<NkString> trois;
+			NkSpecification::LireExigences(
+				"- un champ identifiant\n* un champ mot de passe\n3. un bouton\n", trois);
+			snprintf(buf, sizeof(buf), "texte sans liste -> %u ; texte a trois puces -> %u",
+					 (uint32)zero.Size(), (uint32)trois.Size());
+			check("170. LE ZERO DU LECTEUR D'EXIGENCES : un texte sans liste rend 0, et le "
+				  "CONTROLE POSITIF (trois formes de puce : « - », « * », « 3. ») rend 3. Sans "
+				  "ce zero, « la specification a N exigences » ne voudrait rien dire",
+				  zero.Size() == 0u && trois.Size() == 3u, buf);
+
+			// -- 128. L'ALLER-RETOUR DE LA SPECIFICATION, AU BIT -------------
+			// Le format est neuf : il doit se relire. Et le texte d'essai porte
+			// EXACTEMENT les deux caracteres qui cassent un format a une ligne
+			// par element -- un saut de ligne et un antislash. Un aller-retour
+			// teste sur du texte sage ne teste rien.
+			NkDesignConversation conv;
+			conv.sujet = NkString("Ecran de connexion");
+			conv.Ajouter(NkQui::Moi, "je veux un ecran de connexion");
+			conv.Ajouter(NkQui::IA, "Deux lignes\net un antislash \\ au milieu.");
+			conv.Ajouter(NkQui::Moi, "avec un bouton");
+			NkSpecification spec;
+			NkSpecification::DepuisConversation(conv, "spec_essai", spec);
+			NkString ecrit;
+			spec.Ecrire(ecrit);
+			NkSpecification relue;
+			const bool lue = relue.Lire(ecrit.Data());
+			NkString reecrit;
+			relue.Ecrire(reecrit);
+			const bool identique = lue && SameText(ecrit.Data(), reecrit.Data());
+			// et le CONTENU, pas seulement le texte : un format qui perdrait un
+			// tour et le reecrirait pareil passerait la comparaison de texte.
+			const bool contenu = lue && relue.exigences.Size() == 2u
+								 && relue.tours.Size() == 3u
+								 && SameText(relue.tours[1].texte.Data(),
+											 "Deux lignes\net un antislash \\ au milieu.");
+			snprintf(buf, sizeof(buf), "%u exigence(s), %u tour(s) ; aller-retour %s",
+					 (uint32)relue.exigences.Size(), (uint32)relue.tours.Size(),
+					 identique ? "IDENTIQUE" : "DIVERGENT");
+			check("171. LE FORMAT `nkuispec` SE RELIT AU BIT, y compris un tour qui contient un "
+				  "SAUT DE LIGNE et un ANTISLASH -- les deux seuls caracteres qui cassent un "
+				  "format a une ligne par element",
+				  identique && contenu, buf);
+
+			// -- 129. LE NEGATIF : SANS CONVERSATION, AUCUNE EXIGENCE --------
+			NkDesignConversation vide;
+			NkSpecification specVide;
+			NkSpecification::DepuisConversation(vide, "rien", specVide);
+			snprintf(buf, sizeof(buf), "%u exigence(s), %u tour(s)",
+					 specVide.CountExigences(), (uint32)specVide.tours.Size());
+			check("172. LE NEGATIF DE Q4 : sans conversation, la specification ne porte AUCUNE "
+				  "exigence -- elle n'en invente pas une depuis le nom ni depuis le sujet",
+				  specVide.CountExigences() == 0u && specVide.tours.Size() == 0u, buf);
+
+			// -- 130. DISCUTER NE DESSINE PAS -------------------------------
+			// ⚠️ OCTET POUR OCTET. Un « le document n'a pas change » verifie par
+			//    le nombre de noeuds passerait a cote d'une provenance salie.
+			NkUIDocument docChat;
+			BuildProbeDocument(docChat);
+			NkString avantChat;
+			docChat.Save(avantChat);
+			NkCannedBackend bavard;
+			bavard.canned = NkString("Quelles informations demandez-vous a l'utilisateur ?");
+			NkDesignConversation c2;
+			NkString errChat;
+			bool tousEnvoyes = true;
+			for (uint32 t = 0; t < 4u; ++t)
+				tousEnvoyes = c2.Envoyer(&bavard, "et ensuite ?", errChat) && tousEnvoyes;
+			NkSpecification spec2;
+			NkSpecification::DepuisConversation(c2, "spec_bavarde", spec2);
+			NkString apresChat;
+			docChat.Save(apresChat);
+			const bool intactChat = SameText(avantChat.Data(), apresChat.Data());
+			snprintf(buf, sizeof(buf),
+					 "%u tour(s) echanges, %u exigence(s) ; document %s ; appels au dorsal : %d",
+					 c2.Count(), spec2.CountExigences(),
+					 intactChat ? "INTACT (octet pour octet)" : "MODIFIE", (int)bavard.calls);
+			check("173. DISCUTER NE DESSINE PAS : quatre tours de parole, une specification "
+				  "produite, et le document n'a pas bouge d'un octet. Ce n'est pas de la "
+				  "vigilance : NkDesignConversation ne recoit AUCUN document, donc elle n'a pas "
+				  "de quoi en toucher un",
+				  tousEnvoyes && c2.Count() == 8u && spec2.CountExigences() == 4u
+					  && intactChat && bavard.calls == 4,
+				  buf);
+
+			// -- 131. LE REFUS EST NOMME, ET LE TOUR HUMAIN RESTE ------------
+			// Un dorsal muet ne doit ni ajouter un tour IA vide (on croirait que
+			// la machine a repondu « rien »), ni effacer la phrase de l'humain.
+			NkCannedBackend muetChat;
+			muetChat.canned = NkString("");
+			NkDesignConversation c3;
+			NkString errMuet;
+			const bool refuse = !c3.Envoyer(&muetChat, "bonjour", errMuet);
+			NkDesignConversation c4;
+			NkString errSans;
+			const bool refuseSans = !c4.Envoyer(nullptr, "bonjour", errSans);
+			snprintf(buf, sizeof(buf), "muet : %u tour(s), « %s » ; sans dorsal : %u tour(s), « %s »",
+					 c3.Count(), errMuet.Data() ? errMuet.Data() : "",
+					 c4.Count(), errSans.Data() ? errSans.Data() : "");
+			check("174. UN DORSAL MUET EST UN REFUS NOMME, pas un silence : le tour de l'HUMAIN "
+				  "reste (on ne lui prend pas sa phrase) et AUCUN tour IA vide n'est ajoute. "
+				  "Idem sans dorsal du tout",
+				  refuse && c3.Count() == 1u && errMuet.Length() > 0 && refuseSans
+					  && c4.Count() == 1u && errSans.Length() > 0,
+				  buf);
+
+			// -- 132. LA SPECIFICATION SE LIT DANS `origine` DU DESIGN -------
+			// C'est le coeur de la demande : « un document de specification LIE
+			// a ce design ». La liaison est un NOM, et il doit se retrouver sur
+			// chaque noeud engendre.
+			NkUIDocument docLie;
+			BuildProbeDocument(docLie);
+			NkCannedBackend dorsalLie;
+			dorsalLie.canned = NkString(ProbeValidReply());
+			NkDesignAI aiLie;
+			aiLie.SetBackend(&dorsalLie);
+			// LE ZERO D'ABORD : sans specification, l'origine est le nom du
+			// dorsal -- le comportement d'avant, inchange.
+			const NkAIResult sansSpec = aiLie.Ask("un bloc", docLie, 0);
+			const bool origineDorsal =
+				sansSpec.Accepted() && docLie.IsValidIndex(sansSpec.graftedRoot)
+				&& SameText(docLie.nodes[(uint32)sansSpec.graftedRoot].prov.origin.Data(),
+							"conserve");
+			// PUIS la specification attachee.
+			spec.PourLeGenerateur(aiLie.specTexte);
+			aiLie.specOrigine = spec.nom;
+			const NkAIResult avecSpec = aiLie.Ask("un bloc", docLie, 0);
+			bool toutPorte = avecSpec.Accepted();
+			uint32 portes = 0;
+			if (avecSpec.Accepted())
+				for (uint32 i = 0; i < (uint32)docLie.NodeCount(); ++i)
+					if (docLie.nodes[i].prov.author == NkAuthor::IA
+						&& SameText(docLie.nodes[i].prov.origin.Data(), "spec_essai"))
+						++portes;
+			toutPorte = toutPorte && portes == avecSpec.nodesAdded && portes > 0u;
+			snprintf(buf, sizeof(buf),
+					 "sans spec -> origine=« %s » ; avec spec -> %u noeud(s) portent "
+					 "origine=« spec_essai » sur %u poses",
+					 docLie.nodes[(uint32)sansSpec.graftedRoot].prov.origin.Data(), portes,
+					 avecSpec.nodesAdded);
+			check("175. LE DESIGN ENGENDRE PORTE LE NOM DE LA SPECIFICATION. Le zero est mesure "
+				  "d'abord : SANS specification, `origine` vaut le nom du dorsal (« conserve ») "
+				  "-- le comportement d'avant, au bit. AVEC, chaque noeud pose porte le nom de "
+				  "la spec. La tracabilite ne coute aucune structure nouvelle : le champ existait",
+				  origineDorsal && toutPorte, buf);
+
+			// -- 133. LA SPECIFICATION ENTRE DANS L'INVITE -------------------
+			// Deux champs, deux roles : `specTexte` change ce qui est DEMANDE,
+			// `specOrigine` change ce qu'on pourra RETROUVER. Les confondre
+			// aurait fait porter aux noeuds un paragraphe entier.
+			NkString inviteSans, inviteAvec;
+			NkDesignAI aiInv;
+			aiInv.SetBackend(&dorsalLie);
+			aiInv.BatirInviteComplete("un bloc", inviteSans);
+			spec.PourLeGenerateur(aiInv.specTexte);
+			aiInv.BatirInviteComplete("un bloc", inviteAvec);
+			const bool porteExigence =
+				Contains(inviteAvec.Data(), "je veux un ecran de connexion")
+				&& !Contains(inviteSans.Data(), "je veux un ecran de connexion")
+				&& inviteAvec.Length() > inviteSans.Length();
+			snprintf(buf, sizeof(buf), "invite sans spec : %u caracteres ; avec : %u",
+					 (uint32)inviteSans.Length(), (uint32)inviteAvec.Length());
+			check("176. LA SPECIFICATION ENTRE DANS L'INVITE, et pas seulement dans la "
+				  "provenance : l'exigence de l'humain s'y retrouve mot pour mot, et elle "
+				  "n'y etait PAS avant (le negatif)",
+				  porteExigence, buf);
+
+			// -- 134. LE DORSAL PAR PROCESSUS REFUSE, IL NE MENT PAS ---------
+			// Le contrat est « code 0 et le fichier existe, ou un refus nomme ».
+			// Les deux refus qui comptent : aucun gabarit, et un programme qui
+			// n'existe pas. Aucun des deux ne doit rendre une reponse.
+			NkDesignBackendProcessus proc;
+			proc.invitePath = NkString("sonde_invite.txt");
+			proc.sortiePath = NkString("sonde_sortie.txt");
+			NkDesignRequest rq;
+			rq.prompt = NkString("peu importe");
+			NkDesignReply rp;
+			const bool refusVide = !proc.Complete(rq, rp) && rp.error.Length() > 0
+								   && rp.text.Length() == 0 && !proc.IsAvailable();
+			proc.gabarit = NkString("programme_qui_n_existe_pas_du_tout --invite {invite} --sortie {sortie}");
+			NkDesignReply rp2;
+			const bool refusAbsent = !proc.Complete(rq, rp2) && rp2.error.Length() > 0
+									 && rp2.text.Length() == 0 && proc.IsAvailable();
+			// ⚠️ ET LA GARDE QUI COMPTE VRAIMENT : un fichier de sortie laisse
+			//    par un lancement precedent ne doit JAMAIS etre pris pour une
+			//    reponse. On en pose un, on relance, et on exige quand meme le
+			//    refus -- sans cette garde, le dorsal rendrait la meme reponse
+			//    indefiniment et personne ne le verrait.
+			// ⚠️ CE TROISIEME CAS PASSAIT POUR LA MAUVAISE RAISON, ET JE L'AI VU
+			//    EN PREPARANT SA MUTATION, PAS EN LE VOYANT VERT. Version d'avant :
+			//    « on pose une vieille sortie, on relance, on exige le refus ».
+			//    Mais le programme n'existe pas : `Lancer` echoue AVANT qu'on
+			//    regarde le fichier, donc le refus serait venu meme si
+			//    l'effacement n'existait pas. Un temoin vert qui ne temoigne de
+			//    rien -- exactement le defaut du 12/09.
+			//
+			//    Ce qu'il faut mesurer, c'est L'EFFACEMENT LUI-MEME : apres
+			//    l'appel, le fichier perime NE DOIT PLUS ETRE LA. C'est la seule
+			//    assertion qui rougit si on retire la ligne d'effacement.
+			nkentseu::NkFile::WriteAllText("sonde_sortie.txt", "une vieille reponse");
+			const bool vieuxPose = nkentseu::NkFile::Exists("sonde_sortie.txt");
+			NkDesignReply rp3;
+			const bool refusVieux = !proc.Complete(rq, rp3) && rp3.text.Length() == 0;
+			const bool vieuxEfface = !nkentseu::NkFile::Exists("sonde_sortie.txt");
+			const bool inviteEcrite = nkentseu::NkFile::Exists("sonde_invite.txt");
+			snprintf(buf, sizeof(buf),
+					 "sans gabarit : %s | programme absent : %s | vieille sortie : posee=%s, "
+					 "refus=%s, EFFACEE=%s | l'invite a bien ete ecrite : %s",
+					 refusVide ? "refus nomme" : "PAS DE REFUS",
+					 refusAbsent ? "refus nomme" : "PAS DE REFUS",
+					 vieuxPose ? "oui" : "NON",
+					 refusVieux ? "refus nomme" : "REPONSE FANTOME",
+					 vieuxEfface ? "oui" : "NON -- LA GARDE NE MORD PAS",
+					 inviteEcrite ? "oui" : "non");
+			check("177. LE DORSAL PAR PROCESSUS REFUSE AU LIEU DE MENTIR : sans gabarit, avec un "
+				  "programme absent, et -- le cas qui compte -- quand un fichier de sortie "
+				  "PERIME traine. Il l'efface avant de lancer, donc « le fichier existe apres » "
+				  "veut dire « CE lancement l'a ecrit »",
+				  refusVide && refusAbsent && vieuxPose && refusVieux && vieuxEfface
+					  && inviteEcrite,
+				  buf);
+			nkentseu::NkFile::Delete("sonde_invite.txt");
+			nkentseu::NkFile::Delete("sonde_sortie.txt");
+
+			// -- 135. AFFINER N'ECRASE RIEN QUAND LE DORSAL BAVARDE ----------
+			NkSpecification specA;
+			NkSpecification::DepuisConversation(conv, "spec_affinee", specA);
+			const uint32 avantA = specA.CountExigences();
+			NkCannedBackend bavardage;
+			bavardage.canned = NkString("Bien sur ! Voici, avec plaisir.");
+			NkString pourquoi;
+			const bool refuseA = !NkSpecification::Affiner(conv, &bavardage, specA, pourquoi);
+			const uint32 apresA = specA.CountExigences();
+			NkCannedBackend liste;
+			liste.canned = NkString("- champ identifiant\n- champ mot de passe\n- bouton valider\n");
+			NkString pq2;
+			const bool acceptA = NkSpecification::Affiner(conv, &liste, specA, pq2);
+			snprintf(buf, sizeof(buf),
+					 "avant %u ; apres un dorsal bavard %u (« %s ») ; apres une vraie liste %u",
+					 avantA, apresA, pourquoi.Data() ? pourquoi.Data() : "", specA.CountExigences());
+			check("178. AFFINER N'ECRASE RIEN S'IL ECHOUE. Un modele qui repond « Bien sur ! "
+				  "Voici : » sans liste rend un texte NON VIDE et une specification VIDE -- le "
+				  "critere porte donc sur ce qu'on a su LIRE, pas sur ce qu'on a recu. Les "
+				  "exigences d'avant sont intactes ; une vraie liste, elle, passe",
+				  refuseA && apresA == avantA && avantA > 0u && acceptA
+					  && specA.CountExigences() == 3u,
+				  buf);
+		}
+
+
+		// ═══════════════════════════════════════════════════════════════════
+		//  179 — (c4) LA PROMESSE ECRITE A L'ECRAN EST-ELLE VRAIE ?
+		// ═══════════════════════════════════════════════════════════════════
+		//  La carte « Releve de changements » affiche, mot pour mot :
+		//      « S'appliquera en une seule operation annulable. »
+		//  Une promesse ecrite a l'ecran qui ne tient pas est PIRE que pas de
+		//  promesse : elle fait construire dessus. On la mesure donc au lieu de
+		//  la croire.
+		//
+		//  ⚠️ L'HISTORIQUE N'EST PAS PHOTOGRAPHIE A CHAQUE ECRITURE : il est
+		//     OBSERVE (`NkHistorique::Observer`, un pas quand la serialisation
+		//     est STABLE depuis `kStable` passages). Sans fenetre, c'est nous qui
+		//     faisons tourner les passages -- et c'est justement ce qu'il faut
+		//     verifier : que la greffe fait UN pas, pas zero et pas deux.
+		{
+			NkUIDocument docH;
+			BuildProbeDocument(docH);
+			NkString avant;
+			docH.Save(avant);
+
+			NkHistorique hist;
+			hist.Reinitialiser(avant);
+
+			// LE ZERO DE L'OBSERVATEUR, avant tout le reste : au repos, quinze
+			// passages ne doivent pousser AUCUN pas. Sans ce zero, « un seul
+			// pas » ne se distinguerait pas d'un historique qui en pousse a
+			// chaque passage.
+			uint32 poussesAuRepos = 0;
+			for (uint32 i = 0; i < 15u; ++i) {
+				NkString cur;
+				docH.Save(cur);
+				if (hist.Observer(cur))
+					++poussesAuRepos;
+			}
+
+			// LA GREFFE, par l'apercu -- le chemin exact de la carte.
+			NkCannedBackend dorsalH;
+			dorsalH.canned = NkString(ProbeValidReply());
+			NkDesignAI aiH;
+			aiH.SetBackend(&dorsalH);
+			const NkAIResult prop = aiH.Propose("un bloc", docH);
+			NkString pendantApercu;
+			docH.Save(pendantApercu);
+			// GARANTIE 1 DE LA SPEC §6.2 : l'apercu ne touche pas au document.
+			const bool apercuInerte = prop.Accepted() && aiH.HasProposal()
+									  && SameText(avant.Data(), pendantApercu.Data());
+
+			const NkAIResult pose = aiH.CommitProposal(docH, 0);
+			NkString apresPose;
+			docH.Save(apresPose);
+
+			uint32 poussesApres = 0;
+			for (uint32 i = 0; i < 15u; ++i) {
+				NkString cur;
+				docH.Save(cur);
+				if (hist.Observer(cur))
+					++poussesApres;
+			}
+
+			// L'ANNULATION : un seul pas en arriere doit rendre le document
+			// EXACTEMENT celui d'avant. Octet pour octet, pas « a peu pres ».
+			const NkString *retour = hist.Annuler();
+			const bool retourExact = retour && SameText(retour->Data(), avant.Data());
+
+			// LE NEGATIF DE Q4 : « Rejeter -> le document est identique AU BIT ».
+			NkUIDocument docR;
+			BuildProbeDocument(docR);
+			NkString avantR;
+			docR.Save(avantR);
+			NkDesignAI aiR;
+			aiR.SetBackend(&dorsalH);
+			const NkAIResult propR = aiR.Propose("un bloc", docR);
+			aiR.DiscardProposal();
+			NkString apresR;
+			docR.Save(apresR);
+			const bool rejetInerte = propR.Accepted() && !aiR.HasProposal()
+									 && SameText(avantR.Data(), apresR.Data());
+
+			snprintf(buf, sizeof(buf),
+					 "au repos : %u pas pousse(s) en 15 passages | apres la pose : %u | "
+					 "apercu inerte : %s | annulation exacte : %s | rejet inerte : %s",
+					 poussesAuRepos, poussesApres, apercuInerte ? "oui" : "NON",
+					 retourExact ? "oui" : "NON", rejetInerte ? "oui" : "NON");
+			check("179. « S'APPLIQUERA EN UNE SEULE OPERATION ANNULABLE » -- LA PROMESSE DE LA "
+				  "CARTE EST VRAIE, et elle est mesuree, pas crue. Le zero de l'observateur "
+				  "d'abord (15 passages au repos = 0 pas), puis la pose = EXACTEMENT UN pas, "
+				  "puis l'annulation qui rend le document d'avant OCTET POUR OCTET. Plus les "
+				  "deux inerties : l'apercu ne touche a rien (garantie 1 de §6.2) et Rejeter "
+				  "laisse le document identique au bit",
+				  poussesAuRepos == 0u && pose.Accepted() && poussesApres == 1u
+					  && !SameText(avant.Data(), apresPose.Data()) && apercuInerte
+					  && retourExact && rejetInerte,
+				  buf);
+		}
+
+
+		// ═══════════════════════════════════════════════════════════════════
+		//  180-182 — (g3) LE FIL DE GENERATION
+		// ═══════════════════════════════════════════════════════════════════
+		//  ⚠️ CE QUE CES ESSAIS NE PROUVENT PAS, ET IL FAUT LE DIRE AVEC EUX :
+		//     ils ne prouvent PAS l'absence de course de donnees. Une course ne
+		//     se reproduit pas a la demande ; un banc vert ne dirait rien. Ce qui
+		//     tient la correction est la REGLE ecrite en tete de `DesignChatAsync.h`
+		//     -- un seul ecrivain par champ, et `etat` en barriere release/acquire --
+		//     pas ces trois essais. Ils mesurent ce qui EST mesurable : le compte,
+		//     la propriete, et l'inertie apres annulation.
+		{
+			// -- 180. LE ZERO, AVANT TOUT LE RESTE --------------------------
+			// Une poignee au repos : aucune tache, aucune image comptee, et
+			// `Recolter` qui ne rend jamais vrai. Sans ce zero, « N images
+			// pendant l'attente » serait un nombre sans plancher.
+			NkEnvoiAsync repos;
+			NkString t0, e0;
+			bool r0 = false;
+			uint32 recoltesAuRepos = 0;
+			for (uint32 i = 0; i < 50u; ++i)
+				if (repos.Recolter(t0, e0, r0))
+					++recoltesAuRepos;
+			snprintf(buf, sizeof(buf), "%u recolte(s) en 50 passages, %u image(s) comptee(s)",
+					 recoltesAuRepos, repos.Images());
+			check("180. LE ZERO DE LA POIGNEE : au repos, 50 passages ne recoltent RIEN et ne "
+				  "comptent AUCUNE image. Un compteur qui monterait sans tache rendrait faux "
+				  "tous les chiffres du banc",
+				  recoltesAuRepos == 0u && repos.Images() == 0u && !repos.EnCours(), buf);
+
+			// -- 181. UNE TACHE SE RECOLTE UNE FOIS, ET UNE SEULE ------------
+			// Le dorsal lent DORT 120 ms : assez pour que la poignee tourne
+			// plusieurs fois, assez peu pour ne pas allonger la sonde.
+			NkDorsalLent lent;
+			lent.millisecondes = 120;
+			lent.reponse = NkString("une reponse de banc");
+			NkEnvoiAsync poignee;
+			NkString pourquoi;
+			const bool lance = poignee.Lancer(&lent, NkString("peu importe"), pourquoi);
+			NkString txt, err;
+			bool ok = false;
+			uint32 recoltes = 0, tours = 0;
+			while (tours < 20000u) {
+				++tours;
+				if (poignee.Recolter(txt, err, ok)) {
+					++recoltes;
+					break;
+				}
+				nkentseu::NkChrono::Sleep((nkentseu::int64)1);
+			}
+			// et APRES : plus jamais.
+			uint32 apres = 0;
+			for (uint32 i = 0; i < 50u; ++i)
+				if (poignee.Recolter(txt, err, ok))
+					++apres;
+			const bool refuseDeux = !poignee.Lancer(nullptr, NkString("x"), pourquoi);
+			snprintf(buf, sizeof(buf),
+					 "lance=%d ; %u recolte(s) apres %u tour(s) ; %u image(s) comptee(s) ; "
+					 "%u recolte(s) de plus ensuite ; reponse=\"%s\"",
+					 lance ? 1 : 0, recoltes, tours, poignee.Images(), apres,
+					 txt.Data() ? txt.Data() : "");
+			check("181. UNE TACHE SE RECOLTE UNE FOIS ET UNE SEULE, et la poignee a compte les "
+				  "passages de l'attente -- c'est ce compteur, et rien d'autre, qui prouve que "
+				  "l'appelant a continue de tourner pendant la generation",
+				  lance && recoltes == 1u && ok && apres == 0u && poignee.Images() > 1u
+					  && SameText(txt.Data(), "une reponse de banc") && refuseDeux,
+				  buf);
+
+			// -- 182. ANNULER : LA REPONSE N'EST JAMAIS POSEE ---------------
+			// ⚠️ LE CAS QUI COMPTE, et c'est celui que Q8 nomme : « pas de
+			//    reponse qui arrive apres coup dans la conversation suivante ».
+			//    On annule AVANT que le dorsal ait fini, puis on laisse le fil
+			//    aller jusqu'au bout, puis on repasse 200 fois. Rien ne doit
+			//    remonter.
+			NkDorsalLent lent2;
+			lent2.millisecondes = 150;
+			lent2.reponse = NkString("CETTE REPONSE NE DOIT JAMAIS APPARAITRE");
+			NkEnvoiAsync p2;
+			const bool lance2 = p2.Lancer(&lent2, NkString("x"), pourquoi);
+			p2.Annuler();
+			const bool libreToutDeSuite = !p2.EnCours();
+			// on laisse le travailleur finir SA generation : il ne peut pas etre
+			// interrompu, c'est tout l'objet de la propriete partagee.
+			nkentseu::NkChrono::Sleep((nkentseu::int64)400);
+			uint32 remontees = 0;
+			for (uint32 i = 0; i < 200u; ++i)
+				if (p2.Recolter(txt, err, ok))
+					++remontees;
+			// et la poignee est REUTILISABLE tout de suite apres une annulation
+			NkDorsalLent lent3;
+			lent3.millisecondes = 1;
+			lent3.reponse = NkString("apres annulation");
+			const bool relance = p2.Lancer(&lent3, NkString("x"), pourquoi);
+			uint32 t3 = 0;
+			bool recolte3 = false;
+			while (t3 < 20000u && !recolte3) {
+				++t3;
+				recolte3 = p2.Recolter(txt, err, ok);
+				if (!recolte3)
+					nkentseu::NkChrono::Sleep((nkentseu::int64)1);
+			}
+			snprintf(buf, sizeof(buf),
+					 "lance=%d, libre aussitot=%d, %u remontee(s) apres 400 ms et 200 passages, "
+					 "relance=%d et sa reponse = \"%s\"",
+					 lance2 ? 1 : 0, libreToutDeSuite, remontees, relance ? 1 : 0,
+					 txt.Data() ? txt.Data() : "");
+			check("182. ANNULER : LA REPONSE N'EST JAMAIS POSEE. On annule, le travailleur finit "
+				  "quand meme sa generation (il ne peut pas etre interrompu), et 200 passages "
+				  "plus tard RIEN n'a remonte. Ce n'est pas une reponse ignoree plus tard : la "
+				  "poignee a lache sa part de la tache, il n'existe plus aucun chemin. Et la "
+				  "poignee se relance aussitot",
+				  lance2 && libreToutDeSuite && remontees == 0u && relance && recolte3
+					  && SameText(txt.Data(), "apres annulation"),
+				  buf);
+		}
+
 		snprintf(tail, sizeof(tail), "\n=== RESULTAT : %d / %d ===\n", pass, total);
 		rep.Append(tail);
 

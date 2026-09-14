@@ -6,7 +6,7 @@
 //
 //          Extrait de NkModelerScreens.h pendant la refonte d'interface --
 //          « subdiviser les gros fichiers » (Rihen, 13 aout 2026).
-// @Author  Rihen
+// @Author  TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // @License Proprietary - All Rights Reserved (see LICENSE)
 // -----------------------------------------------------------------------------
 #include "NK3DModeler/Shell/NkModelerUI.h"
@@ -739,9 +739,9 @@ namespace nkentseu {
 				p.TextV(cxE - p.TextW(en) * 0.5f, cyE - S(36.f), kRowH, en,
 						NkRole::Text);
 				const int32 aiE = st.sceneTabAsset[st.activeTab] - 1;
-				if (aiE >= 0 && aiE < st.browserCount)
-					p.TextV(cxE - p.TextW(st.browserNames[aiE]) * 0.5f,
-							cyE - S(12.f), kRowH, st.browserNames[aiE],
+				if (aiE >= 0 && aiE < st.BrowserCount())
+					p.TextV(cxE - p.TextW(st.Card(aiE).name) * 0.5f,
+							cyE - S(12.f), kRowH, st.Card(aiE).name,
 							NkRole::TextMuted);
 				p.TextV(cxE - p.TextW("Interface a definir -- NKGraphe, peinture, "
 									  "procedural a venir") *
@@ -756,7 +756,15 @@ namespace nkentseu {
 			// portee (NkDemo3D.cpp), sous le MEME id 4096. L'ancienne vue est
 			// dormante ; c'est donc l'hote de la demo qui dit Â« pret Â».
 			if (demo::Demo3DHostReady()) {
-				p.Image(nk3d::kViewportTexId, vr);
+				// LE CONTENU DE LA CIBLE EST BAS-HAUT SUR OPENGL. La regle vit dans
+				// NkOffscreenTarget.h et l'hote la lit pour SON dorsal. Les autres
+				// appels a Image() dessinent des vignettes chargees de fichiers,
+				// deja haut-bas : ils ne la prennent pas.
+				// ⚠️ L'APERCU DE MATERIAU (kNkMatPreviewTexId, NkModelerProperties.h)
+				// est une cible hors ecran LUI AUSSI et releve donc de la meme regle.
+				// Il n'est pas touche ici : aucun temoin ne le juge, et je ne corrige
+				// pas ce que je ne peux pas prouver.
+				p.Image(nk3d::kViewportTexId, vr, demo::Demo3DHostTargetBottomUp());
 				st.viewRect = vr; // depot d'assets : importer un clone en scene
 				// ── PASSE-PARTOUT (Rihen) : en vue camera, ce qui deborde du
 				// CADRE de la camera est voile -- couleur/opacite PAR camera
@@ -1799,10 +1807,31 @@ namespace nkentseu {
 				float32 cx = tx + S(4.f);
 				const NkIcon kSub[3] = {NkIcon::Dot, NkIcon::Ruler, NkIcon::Square};
 				static const char *const kKeys[3] = {"vp.sub.0", "vp.sub.1", "vp.sub.2"};
+				// ── TROIS ICONES QUI NE DISAIENT NI LEUR NOM NI LEUR TOUCHE ─────
+				// Rodolf : « pas de pastille pour facilement choisir avant de passer
+				// aux raccourcis QUE JE NE SAIS PAS SI ELLES EXISTENT ». Les pastilles
+				// etaient bien la ; ce qu'elles ne faisaient pas, c'est se NOMMER.
+				// Un point, une regle et un carre ne disent pas « sommet, arete,
+				// face » a qui ne le sait pas deja.
+				// ⚠ LA TOUCHE EST LUE DANS LA TABLE, jamais recopiee : si la cle n'y
+				// est pas, l'infobulle ne porte que le nom -- pas une touche inventee.
+				static const char *const kNoms[3] = {"Sommets", "Aretes", "Faces"};
+				static const char *const kCmds[3] = {"edit.sous_mode_sommet",
+													 "edit.sous_mode_arete",
+													 "edit.sous_mode_face"};
 				const int32 mask = demo::Demo3DHostEditSelMask();
 				for (int32 i = 0; i < 3; ++i) {
 					const NkRect br{cx, barY + 2.f, btn, barH - 4.f};
 					const bool over = hit.Add(kKeys[i], br);
+					{
+						char tip[96], keys[32];
+						if (sc.FormatFor(kCmds[i], keys, sizeof(keys)))
+							snprintf(tip, sizeof(tip), "%s  (%s)  ·  Maj+clic combine", kNoms[i],
+									 keys);
+						else
+							snprintf(tip, sizeof(tip), "%s  ·  Maj+clic combine", kNoms[i]);
+						NkHelp(over, tip);
+					}
 					const bool on = (mask & (1 << i)) != 0;
 					if (on)
 						p.Fill(br, NkRole::AccentUi, 3.f);
@@ -1839,23 +1868,102 @@ namespace nkentseu {
 
 			// â”€â”€ PANNEAU DE DERNIERE OPERATION. Il FLOTTE au-dessus de la scene et n'est
 			// pas encastre dans un bord : il appartient a la vue, pas au cadre.
-			if (editMode) {
-				const float32 pw = 214.f, ph = 4.f * kRowH + 6.f;
-				const float32 px = r.x + 12.f, py = r.y + r.h - ph - 80.f;
-				p.Fill({px, py, pw, ph}, NkRole::PanelHeader, 4.f);
-				p.IconV(px + 6.f, py, kRowH, NkIcon::ChevronDown, NkRole::Text, 11.f);
-				p.TextV(px + 22.f, py, kRowH, "Extruder la region");
-				float32 ry = py + kRowH;
-				static const char *const kL[] = {"Distance", "Decalage"};
-				static const char *const kV[] = {"0,25", "0,00"};
-				for (int32 i = 0; i < 2; ++i) {
-					p.TextV(px + kPad, ry, kRowH, kL[i], NkRole::TextMuted);
-					p.Fill({px + 112.f, ry + 3.f, 92.f, 16.f}, NkRole::InputBg, 2.f);
-					p.TextV(px + 118.f, ry, kRowH, kV[i]);
+			// ⚠ CE PANNEAU ETAIT UN DECOR, ET C'EST LE DEFAUT QUE RODOLF A VU.
+			// Il peignait le titre « Extruder la region » et les valeurs « 0,25 » /
+			// « 0,00 » en CHAINES CONSTANTES, sous la seule condition `editMode`.
+			// Trois consequences, toutes mesurees avant d'etre corrigees :
+			//   1. il s'affichait meme quand AUCUNE operation ne tournait ;
+			//   2. il annonçait une extrusion quel que soit ce qu'on faisait ;
+			//   3. `editMode` vaut `st.mode != Object`, donc il s'affichait AUSSI en
+			//      Sculpture, Sculpture 2.5D, Texturing, Patron et TexturePaint.
+			// Ce n'etait donc pas « il manque des proprietes » : les proprietes
+			// EXISTENT (`modalVal` a la souris, `modalSeg` a la molette, apercu
+			// recalcule a chaque changement) et ce panneau en montrait de fausses.
+			// Une valeur fausse est pire qu'une valeur absente : on la croit.
+			//
+			// Il ne s'affiche plus que lorsqu'une operation tourne VRAIMENT, il dit
+			// SON nom, SES parametres, et ceux-ci se reglent -- par les memes bornes
+			// que la souris, et par le widget du modeleur (`DragFloat`), pas par un
+			// champ redessine pour l'occasion.
+			{
+				int32 mop = 0, mseg = 1;
+				const char *mnom = nullptr, *mlv = nullptr, *mls = nullptr;
+				float32 mval = 0.f;
+				if (demo::Demo3DHostModalInfo(&mop, &mnom, &mlv, &mval, &mls, &mseg)) {
+					// La hauteur SUIT le nombre de rangees : une operation sans
+					// parametre entier ne doit pas laisser une rangee vide, qui se
+					// lirait comme un reglage qu'on n'arrive pas a atteindre.
+					const int32 rangees = 1 + (mls ? 1 : 0);
+					const float32 pw = 214.f;
+					const float32 ph = (float32)(rangees + 1) * kRowH + kRowH * 0.9f + 6.f;
+					const float32 px = r.x + 12.f, py = r.y + r.h - ph - 80.f;
+					p.Fill({px, py, pw, ph}, NkRole::PanelHeader, 4.f);
+					p.IconV(px + 6.f, py, kRowH, NkIcon::ChevronDown, NkRole::Text, 11.f);
+					p.TextV(px + 22.f, py, kRowH, mnom ? mnom : "Operation");
+					float32 ry = py + kRowH;
+
+					p.TextV(px + kPad, ry, kRowH, mlv ? mlv : "Valeur", NkRole::TextMuted);
+					float32 v = mval;
+					// PAS DE GLISSEMENT DERIVE D'UN CHIFFRE EN DUR : il vient de la
+					// sensibilite que la modale s'est donnee au lancement
+					// (`modalScale`), la meme que la souris. Un pas fixe ici aurait
+					// rendu le champ 10 fois trop grossier sur un biseau et 10 fois
+					// trop fin sur un spin.
+					if (DragFloat(p, hit, ws, in, "vp.modal.val",
+								  {px + 112.f, ry + 3.f, 92.f, kRowH - 6.f}, v, 0.01f,
+								  NkRole::AccentUi, "%.3f"))
+						demo::Demo3DHostModalSetVal(v);
 					ry += kRowH;
+
+					if (mls) {
+						p.TextV(px + kPad, ry, kRowH, mls, NkRole::TextMuted);
+						// Le kit n'a pas de champ ENTIER : on emprunte le champ
+						// flottant en « %.0f » plutot que d'en dessiner un second.
+						// Le jour ou un DragInt existera, cette ligne le prendra.
+						float32 sgf = (float32)mseg;
+						if (DragFloat(p, hit, ws, in, "vp.modal.seg",
+									  {px + 112.f, ry + 3.f, 92.f, kRowH - 6.f}, sgf, 1.f,
+									  NkRole::AccentUi, "%.0f"))
+							demo::Demo3DHostModalSetSeg((int32)(sgf + (sgf < 0.f ? -0.5f : 0.5f)));
+						ry += kRowH;
+					}
+					// CES DEUX TOUCHES SONT VERIFIEES, pas supposees : `NkDemo3D.cpp`
+					// pose `modalCancelPending` sur ECHAP et `modalConfirmPending` sur
+					// ENTREE / ENTREE-PAVE / ESPACE. Un libelle de raccourci est une
+					// promesse ecrite a l'ecran ; celle-ci est tenue.
+					p.TextV(px + kPad, ry, kRowH * 0.9f, "Entree valide  ·  Echap annule",
+							NkRole::TextMuted);
 				}
-				p.Fill({px + kPad, ry + 5.f, 12.f, 12.f}, NkRole::AccentUi, 2.f);
-				p.TextV(px + kPad + 18.f, ry, kRowH, "Decalage pair", NkRole::TextMuted);
+			}
+
+			// ── L'EDITION A ETE DEMANDEE ET REFUSEE : IL FAUT LE DIRE ────────
+			// `Demo3DHostSetMode` n'impose pas le mode, il arme une bascule, et
+			// cette bascule ECHOUE quand rien n'est selectionne. Le shell, lui, ne
+			// relit jamais : il garde `st.mode = Edit` et rearme a chaque image.
+			// Resultat, et c'est EXACTEMENT ce que Rodolf decrit : une interface
+			// d'edition sur un viseur qui n'y est pas, sans pastille de sous-mode
+			// (elle est gardee par l'etat REEL), et dont les commandes de menu
+			// rendent toutes faux sans rien dire. Le seul message existant partait
+			// dans un journal.
+			//
+			// LE SEUIL N'EST PAS UN CHIFFRE ROND CHOISI AU HASARD : une a deux
+			// images d'ecart sont normales (la bascule est consommee a la frame
+			// suivante). A 10 images, l'ecart a dure ~0,16 s a 60 Hz -- trop long
+			// pour une latence, trop court pour qu'on ait le temps de s'y perdre.
+			//
+			// ⚠ NON TRANCHE -- LA COULEUR. Le theme (`NKEditorKit/NkTheme.h`) n'a
+			// AUCUN role d'avertissement : ni Warning, ni Danger, ni Error. Je
+			// n'en invente pas et je n'ecris aucune couleur en dur. J'emprunte
+			// `AccentUi`, que le theme definit comme « l'etat de l'INTERFACE » --
+			// ce message en est un -- et je laisse Rodolf trancher s'il faut un
+			// role a part.
+			if (editMode && demo::Demo3DHostEditRefusedFrames() > 10) {
+				const char *msg = "Selectionne un objet, puis TAB";
+				const float32 tw = p.TextW(msg);
+				const float32 bw = tw + S(28.f), bh = kRowH + S(6.f);
+				const NkRect br{r.x + (r.w - bw) * 0.5f, r.y + r.h * 0.5f - bh * 0.5f, bw, bh};
+				p.Fill(br, NkRole::AccentUi, 4.f);
+				p.TextV(br.x + S(14.f), br.y, br.h, msg, NkRole::TextOnAccent);
 			}
 
 			// Le raccourci de l'operation courante est LU dans la table via sa CLE DE

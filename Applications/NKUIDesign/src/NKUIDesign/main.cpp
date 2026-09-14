@@ -80,6 +80,8 @@
 #include "RecetteEdition.h"	 // --recette-edition : le contrat universel d'edition, par site
 #include "RecetteProprietes.h" // --recette-proprietes : les listes de proprietes, par le geste
 #include "TemoinRendu.h"	 // --temoin-rendu : le flux de commandes du peintre, diffable
+#include "RecetteEcrivain.h" // --recette-ecrivain : NKUIDesign ECRIT un .nkgui, le monteur le remonte
+#include "RecettePlacement.h" // --recette-placement : poser un widget, et garder le flux intact
 
 
 
@@ -175,7 +177,22 @@ static NkEditorShell *gShell = nullptr;
 //  ne dessine rien (il n'ajoute aucun menu).
 static char gCapturePath[512] = {0};
 static int32 gCaptureFrame = 0;
-static constexpr int32 kCaptureFramePrete = 8;
+/// Vrai si AUCUN clic, glisser ni cran de molette n'est programme. Defini plus
+/// bas, a cote des tableaux qu'il interroge -- ici seulement declare, parce que
+/// `CaptureTick` s'ecrit avant eux.
+static bool AucuneEntreeProgrammee();
+/// LA POSITION QUE L'INJECTEUR A POSEE POUR CETTE IMAGE. Ecrite par
+/// `InjecterClics`, lue par `CaptureTick` -- qui passe APRES lui et doit donc la
+/// REPOSER au lieu de l'ecraser.
+static bool gSourisSondePosee = false;
+static float32 gSourisSondeX = 0.f, gSourisSondeY = 0.f;
+// ⚠️ PLUS UNE CONSTANTE : un geste dure. Mesure du 14/09 -- un glisser de la
+//    Bibliotheque vers la toile demande des dizaines d'images, et la capture
+//    fermait la fenetre bien avant. Le banc rendait alors « 0 pixel a
+//    change » : une reponse verte a une question jamais posee, la meme
+//    famille que `--clic` ecrase par le tick de capture. `--capture-frame=<n>`
+//    repousse la photo ; le defaut reste 8, donc aucune mise en scene ne bouge.
+static int32 kCaptureFramePrete = 8;
 /// --selectionner=<libellé> : le nœud à sélectionner AVANT la photo.
 ///
 /// ⚠️ NÉ D'UNE PREUVE EN CREUX (E6 du doc 17, payée le jour même) : un
@@ -191,6 +208,122 @@ static bool gSceneFusion = false;
 //    mise en scene ecran 9). J'en avais ecrit un doublon avant de chercher —
 //    la porte « chercher avant d'ecrire » vaut aussi pour ses propres ajouts.
 
+// ═══════════════════════════════════════════════════════════════════════════
+//  LE BANC DE L'ASYNCHRONE (g3) — --mesure-async=<ms>[:sync] et --mesure-fps=<ms>
+// ═══════════════════════════════════════════════════════════════════════════
+//  Ce qu'il faut prouver, et pourquoi il faut DEUX chiffres et non un :
+//    - la fenetre VIT pendant la generation -> on compte les IMAGES ;
+//    - le modele n'est PAS ralenti pour ca  -> on compte les SECONDES.
+//  Un seul des deux se truque en abimant l'autre : on peut rendre la fenetre
+//  fluide en decoupant le travail, et on peut rendre le travail rapide en
+//  gelant la fenetre. Les deux ensemble ne se truquent pas.
+//
+//  ⚠️ LE DORSAL DU BANC DORT, il n'appelle aucun modele. C'est voulu : il
+//     reproduit EXACTEMENT ce que fait un fil pendant un appel bloquant (rien,
+//     longtemps), sans occuper la carte sept minutes et sans dependre de ce
+//     qu'un modele repond. Un banc cale sur le vrai modele dependrait de la VRAM
+//     libre, du pilote et de la longueur de l'invite.
+//
+//  ⚠️ `:sync` EST LE NEGATIF, et c'est lui qui donne un sens au chiffre : il
+//     emprunte l'ANCIEN chemin bloquant. S'il ne rendait pas ~1 image, le banc
+//     ne saurait pas distinguer une fenetre vivante d'une fenetre figee, et le
+//     « N images » du chemin asynchrone ne prouverait rien.
+static nkentseu::int64 gMesureAsyncMs = -1;
+static bool gMesureAsyncSync = false;
+static nkentseu::int64 gMesureFpsMs = -1;
+/// (k2) --mesure-double=<images> : combien de fois la toile est-elle dessinee
+/// dans UNE image ? Le seul chiffre acceptable est 1.
+static nkentseu::int64 gMesureDoubleImages = -1;
+// 🔴 DEUX COMPTEURS QUI NE COMPTENT PAS LA MEME CHOSE -- mesure du 14/09.
+//    `mAppMenuFn` (ou vit ce tick) est appele DEUX FOIS par image par la
+//    coquille ; `mMenuBarFn` (ou vit la recolte) UNE fois. Compter la reference
+//    avec l'un et la generation avec l'autre donnait « 278 images/s au repos
+//    contre 140 pendant la generation » -- une chute de moitie entierement
+//    IMAGINAIRE : les deux chemins tournaient a la MEME cadence.
+//    C'est « un compteur dont le zero n'est pas zero » en version double : deux
+//    compteurs de cadences differentes, compares comme s'ils etaient le meme.
+//    UN SEUL compteur d'images desormais, incremente UNE fois par image dans
+//    `DrawMenuBar`, et les deux modes le lisent.
+static int32 gImagesReelles = 0;
+static int32 gMesureImages = 0;
+static bool gMesureLancee = false;
+static nkentseu::NkChrono gMesureHorloge;
+
+/// Le panneau IA, pour que le banc puisse le piloter. Pose au montage.
+static nkuidesign::AIPanel *gPanneauIA = nullptr;
+
+/// LE TICK DU BANC. Il vit dans le meme crochet par image que la capture -- la
+/// coquille n'en offre qu'un, et l'un exclut l'autre (on ne photographie pas une
+/// fenetre qu'on mesure).
+static void MesureTick(NkEditorShell *sh) {
+	++gMesureImages;
+	// --mesure-fps : on ne fait RIEN pendant `ms`, on compte les images. C'est la
+	// REFERENCE : sans elle, « N images pendant la generation » serait un nombre
+	// sans echelle.
+	if (gMesureFpsMs >= 0) {
+		if (!gMesureLancee) {
+			gMesureLancee = true;
+			gImagesReelles = 0;
+			gMesureHorloge = nkentseu::NkChrono();
+			return;
+		}
+		const float64 sec = gMesureHorloge.Elapsed().ToSeconds();
+		if (sec * 1000.0 >= (float64)gMesureFpsMs) {
+			printf("[mesure-fps] repos : %d images en %.3f s -> %.1f images/s\n",
+				   gImagesReelles, sec, (float64)gImagesReelles / (sec > 0.0 ? sec : 1.0));
+			fflush(stdout);
+			sh->RequestClose();
+		}
+		return;
+	}
+	// (k2) LE COMPTE DE DESSINS DE LA TOILE. On laisse passer `n` images puis on
+	// rend le PIRE vu. Attendu : 1. A 2, deux exemplaires vivants du meme panneau
+	// se disputent un seul etat de vue -- le defaut du 14/09, rouvert.
+	if (gMesureDoubleImages >= 0) {
+		if (gImagesReelles >= (int32)gMesureDoubleImages) {
+			printf("[mesure-double] la toile est dessinee au plus %u fois dans une image "
+				   "(sur %d images ; attendu 1)\n",
+				   gDesign.dessinsToileMax, gImagesReelles);
+			fflush(stdout);
+			sh->RequestClose();
+		}
+		return;
+	}
+	if (gMesureAsyncMs < 0 || !gPanneauIA)
+		return;
+	if (!gMesureLancee) {
+		// ⚠️ PAS A LA PREMIERE IMAGE : la coquille remonte les atlas et stabilise
+		//    le dock dans les premieres images. Lancer la-dedans compterait des
+		//    images de demarrage comme des images d'attente.
+		if (gMesureImages < 4)
+			return;
+		gMesureLancee = true;
+		gImagesReelles = 0;
+		gMesureHorloge = nkentseu::NkChrono();
+		gPanneauIA->BancAsyncLancer(gMesureAsyncMs, gMesureAsyncSync);
+		if (gMesureAsyncSync) {
+			// Le chemin bloquant a DEJA rendu la main : tout s'est passe dans
+			// cette seule image. C'est exactement ce que le negatif doit montrer.
+			printf("[mesure-async] SYNCHRONE : %d image(s) pendant l'attente, "
+				   "travail %.3f s (attendu %.3f s)\n",
+				   1, gPanneauIA->BancAsyncSecondes(), (float64)gMesureAsyncMs / 1000.0);
+			fflush(stdout);
+			sh->RequestClose();
+		}
+		return;
+	}
+	if (gPanneauIA->BancAsyncEnCours())
+		return;
+	printf("[mesure-async] ASYNCHRONE : %u image(s) pendant l'attente, "
+		   "travail %.3f s (attendu %.3f s) -> %.1f images/s\n",
+		   gPanneauIA->BancAsyncImages(), gPanneauIA->BancAsyncSecondes(),
+		   (float64)gMesureAsyncMs / 1000.0,
+		   (float64)gPanneauIA->BancAsyncImages()
+			   / (gPanneauIA->BancAsyncSecondes() > 0.0 ? gPanneauIA->BancAsyncSecondes() : 1.0));
+	fflush(stdout);
+	sh->RequestClose();
+}
+
 static void CaptureTick(NkEditorFrameContext &ec, void *user) {
 	NkEditorShell *sh = static_cast<NkEditorShell *>(user);
 	++gCaptureFrame;
@@ -201,7 +334,33 @@ static void CaptureTick(NkEditorFrameContext &ec, void *user) {
 	//    la main de l'utilisateur a laisse sa souris. On neutralise DANS NOTRE
 	//    CONTEXTE (jamais la vraie souris : elle ne nous appartient pas) : la
 	//    position est repoussee hors ecran a chaque frame, avant les panneaux.
-	ec.Ui().input.mousePos = {-10000.f, -10000.f};
+	//
+	// 🔴 MAIS PAS QUAND UNE ENTREE EST PROGRAMMEE — defaut d'INSTRUMENT mesure
+	//    le 14/09. `mAppMenuFn` (ce tick) est appele DEUX FOIS par image par la
+	//    coquille : une fois tres tot (NkEditorShell.cpp l.817) et une fois
+	//    APRES la barre de menus (l.2358). Or c'est la barre de menus qui
+	//    appelle `InjecterClics`. Le second passage ecrasait donc la position
+	//    que le clic venait de poser, a chaque image, sans rien dire.
+	//    Consequence : `--clic` et `--capture` ne pouvaient PAS servir ensemble,
+	//    et une mesure qui les combinait rendait « 0 pixel a change » -- une
+	//    reponse VERTE a une question jamais posee. C'est la famille « un
+	//    negatif incapable de refuter » : sa construction garantissait le
+	//    resultat.
+    // 🔴 ET LA PREMIERE VERSION DE CE CORRECTIF ETAIT FAUSSE, MESUREE FAUSSE :
+	//    elle se contentait de NE PAS neutraliser quand une entree etait
+	//    programmee. Resultat : entre deux ecritures de l'injecteur, la position
+	//    du CURSEUR PHYSIQUE revenait -- la fuite que le commentaire ci-dessus
+	//    decrit depuis le 02/09, rouverte par sa propre correction. Symptome
+	//    mesure : la MEME commande a rendu une fois 4 923 pixels changes hors du
+	//    tiroir (l'outil Texte s'etait arme tout seul) et cinq fois zero. Un
+	//    banc qui n'est pas repetable ne mesure pas ce qu'il croit ; j'ai failli
+	//    rapporter ce 4 923 comme une preuve.
+	//    La regle est donc : **on force la position A CHAQUE IMAGE**, soit celle
+	//    que la sonde a posee, soit hors ecran. Jamais celle de la machine.
+	if (gSourisSondePosee)
+		ec.Ui().input.mousePos = {gSourisSondeX, gSourisSondeY};
+	else
+		ec.Ui().input.mousePos = {-10000.f, -10000.f};
 	if (gCaptureFrame == 1 && gSceneFusion) {
 		// LA SCENE DES MODES DE FUSION : fond #808080, dessus #606060 (#a0a0a0 pour
 		// Lighten, sinon max = le fond) ; attendu au pixel : normal #606060, multiply
@@ -305,6 +464,17 @@ static bool gDocumentModifie = false;
 // Mise en scene « toile seule » (ecrans gros plan de la maquette) :
 // panneaux fermes, rails retires — pose par --toile-seule.
 static bool gToileSeule = false;
+// ⚠️ --titre-sonde : LA FENETRE SE DENONCE.
+//    Le 14/09, une fenetre ouverte par un agent est restee SEPT MINUTES a
+//    l'ecran sous le titre du PRODUIT (le temps d'une generation synchrone).
+//    Rodolf pouvait la prendre pour son application -- c'est arrive une fois
+//    deja dans ce depot, et le titre est le seul endroit qu'on regarde.
+//    Ce drapeau n'est JAMAIS pose par un lancement normal : sans lui, pas un
+//    caractere ne change. Avec lui, le bandeau de titre porte la phrase, et le
+//    rappel du document vient APRES -- un agent ne doit pas avoir a se souvenir
+//    de le faire, il doit avoir a se souvenir de NE PAS le faire.
+static bool gTitreSonde = false;
+static const char *const kTitreSonde = "*** SONDE DE MESURE - CETTE FENETRE N'EST PAS LE PRODUIT *** ";
 // Tiroir de rail a ouvrir au lancement (--tiroir=d:0) : 0 = aucun.
 static char gTiroirCote = 0;
 static char gPanneauInitial[48] = {0};
@@ -7258,9 +7428,30 @@ static struct {
 	float32 x = 0.f, y = 0.f, delta = 0.f;
 	int32 frame = -1;
 } gMolettes[2];
+/// ⚠️ ELLE LIT LES TROIS TABLEAUX, ET LES TROIS BORNES SE LISENT DU TABLEAU.
+///    Une borne ecrite en chiffre ne suit pas ce qu'elle borne -- ce fichier
+///    l'a deja paye deux fois (le remplisseur de `gClics` reste a 4 quand le
+///    tableau est passe a 10, et la borne de `gTouches` dans l'autre sens).
+static bool AucuneEntreeProgrammee() {
+	for (int32 i = 0; i < (int32)(sizeof(gClics) / sizeof(gClics[0])); ++i)
+		if (gClics[i].frame >= 0)
+			return false;
+	for (int32 i = 0; i < (int32)(sizeof(gGlissers) / sizeof(gGlissers[0])); ++i)
+		if (gGlissers[i].frame >= 0)
+			return false;
+	for (int32 i = 0; i < (int32)(sizeof(gMolettes) / sizeof(gMolettes[0])); ++i)
+		if (gMolettes[i].frame >= 0)
+			return false;
+	return true;
+}
+
 static void InjecterClics(nkgui::NkGuiContext &ctx) {
 	static int32 compteur = 0;
 	++compteur;
+	// ⚠️ REMIS A FAUX A CHAQUE IMAGE : une position de sonde qui SURVIVRAIT a son
+	//    clic figerait la souris la pour toujours, et la capture montrerait un
+	//    survol que personne n'a demande.
+	gSourisSondePosee = false;
 	for (int32 i = 0; i < (int32)(sizeof(gClics) / sizeof(gClics[0])); ++i) {
 		if (gClics[i].frame < 0)
 			continue;
@@ -7269,8 +7460,12 @@ static void InjecterClics(nkgui::NkGuiContext &ctx) {
 		// le survol se resout sur hotIdPrev (la trame d'AVANT) : la position
 		// se tient CINQ trames avant le clic, sinon le clic vise un survol
 		// pas encore etabli et manque.
-		if (compteur >= gClics[i].frame - 5)
+		if (compteur >= gClics[i].frame - 5) {
 			ctx.input.mousePos = {gClics[i].x, gClics[i].y};
+			gSourisSondePosee = true;
+			gSourisSondeX = gClics[i].x;
+			gSourisSondeY = gClics[i].y;
+		}
 		if (compteur == gClics[i].frame) {
 			const int32 b = gClics[i].droit ? 1 : 0; // :r = clic DROIT
 			// Les modificateurs se posent AVEC le clic et se retirent avec lui :
@@ -7370,6 +7565,15 @@ static void InjecterClics(nkgui::NkGuiContext &ctx) {
 
 static void DrawMenuBar(NkEditorFrameContext &ec, void *) {
 	InjecterClics(ec.Ui());
+	// ⚠️ LA RECOLTE DE LA GENERATION EST ICI, ET PAS DANS LE PANNEAU IA.
+	//    `DrawMenuBar` est le seul rappel que la coquille appelle a CHAQUE image
+	//    sans condition ; le panneau IA, lui, n'est dessine que quand son tiroir
+	//    est ouvert. Mesure du 14/09 avec la recolte dans le panneau :
+	//    « 0 image(s) pendant l'attente » -- la reponse n'arrivait jamais.
+	//    *Une tache de fond ne se recolte pas dans le dessin de ce qui l'affiche.*
+	gDesign.RecolterIA();
+	++gImagesReelles; // UNE fois par image : la seule cadence de reference
+	gDesign.RangerCompteDessins(); // (k2) idem : une fois par image, avant les panneaux
 	auto &ctx = ec.Ui();
 	using namespace nkentseu::nkgui;
 
@@ -8424,6 +8628,32 @@ int nkmain(const NkEntryState &state) {
 				gDesign.aimantActif = (atof(a + 9) != 0.0);
 				continue;
 			}
+			if (arg.StartsWith("--capture-frame=")) {
+				const int32 v = (int32)atof(a + 16);
+				if (v > 0)
+					kCaptureFramePrete = v;
+				continue;
+			}
+			if (arg.StartsWith("--titre-sonde")) {
+				gTitreSonde = true;
+				continue;
+			}
+			if (arg.StartsWith("--mesure-async=")) {
+				const char *q = a + 15;
+				gMesureAsyncMs = (nkentseu::int64)atof(q);
+				while (*q && *q != ':')
+					++q;
+				gMesureAsyncSync = (*q == ':' && q[1] == 's');
+				continue;
+			}
+			if (arg.StartsWith("--mesure-fps=")) {
+				gMesureFpsMs = (nkentseu::int64)atof(a + 13);
+				continue;
+			}
+			if (arg.StartsWith("--mesure-double=")) {
+				gMesureDoubleImages = (nkentseu::int64)atof(a + 16);
+				continue;
+			}
 			if (arg.StartsWith("--toile-seule")) {
 				gToileSeule = true;
 				continue;
@@ -8516,6 +8746,16 @@ int nkmain(const NkEntryState &state) {
 		// le GESTE : une vraie souris qui vise la poubelle, sans fenetre ni GPU.
 		if (NkComponentDecl::StrEq(a, "--recette-proprietes"))
 			return nkuidesign::NkRecetteProprietes();
+		// `--recette-ecrivain` : NKUIDesign ECRIT un `.nkgui`, le monteur le remonte,
+		// et les deux releves de rectangles se comparent PAR IDENTIFIANT -- sans
+		// fenetre ni GPU (les deux rendus passent par le rasteriseur logiciel).
+		if (NkComponentDecl::StrEq(a, "--recette-ecrivain"))
+			return nkuidesign::ecrivain::RecetteEcrivain();
+		// `--recette-placement` : le PLACEMENT PAR WIDGET (`pos` est l'interrupteur),
+		// les `Window` imbriques, la section `geometry` et le voile d'une modale.
+		// Sans fenetre ni GPU, comme la recette ecrivain.
+		if (NkComponentDecl::StrEq(a, "--recette-placement"))
+			return nkuidesign::placement::RecettePlacement();
 		// Le TEMOIN DE RENDU : le flux de commandes du peintre, ecrit tel quel.
 		// Il se DIFFE -- une refonte d apparence se juge sur ce qui bouge.
 		if (NkComponentDecl::StrEq(a, "--temoin-rendu"))
@@ -8691,6 +8931,9 @@ int nkmain(const NkEntryState &state) {
 			puts("  --recette-proprietes    les listes de proprietes exercees par le GESTE");
 			puts("  --temoin-rendu[=<f>]    le flux de commandes du peintre (diffable)");
 			puts("  --capture=<f.png>       ouvre l'app, photographie SA fenetre (frame 8), ferme");
+		puts("  --titre-sonde           le bandeau de titre dit que CETTE FENETRE N'EST PAS");
+		puts("                          LE PRODUIT -- a poser sur TOUTE fenetre ouverte par");
+		puts("                          un agent de mesure");
 			puts("  --selectionner=<nom>    selectionne ce noeud avant la photo (inspecteur PLEIN)");
 			puts("  --recette-gestes        les gestes d'édition Lunacy (copier/grouper/...)");
 			puts("  --recette-snap          l'aimantation (bords, centres, espacements égaux)");
@@ -8705,6 +8948,7 @@ int nkmain(const NkEntryState &state) {
 			puts("  --roundtrip-controles   les temoins du lecteur/ecrivain");
 			puts("  --pool-controles        les témoins du pool de chaînes");
 			puts("  --valider[=<dossier>]   la validation par role et par type");
+			puts("  --recette-placement     le placement par widget, geometry, Window imbriques");
 			puts("  --dump-ui               publier le relevé de l'interface dessinée");
 			puts("  --releve-menus[=<fichier>] relever la barre de menus SANS fenêtre");
 			puts("  --small                 fenêtre réduite (1024x640)");
@@ -8855,6 +9099,7 @@ int nkmain(const NkEntryState &state) {
 	//    exactement ce qu il ne faut pas.
 	static nkuidesign::PreviewPanel preview(&gDesign);
 	static nkuidesign::AIPanel ai(&gDesign);
+	gPanneauIA = &ai; // le banc --mesure-async le pilote ; rien d'autre ne le lit
 	static nkuidesign::HierarchyPanel hierarchie(&gDesign);
 	static nkuidesign::InspectorPanel inspecteur(&gDesign);
 	// LE RAIL « VARIABLES » (§15.14) : a gauche, onglet a cote de la Hierarchie --
@@ -9065,8 +9310,9 @@ int nkmain(const NkEntryState &state) {
 		dernier = modifie;
 		dernierNom = nkentseu::NkString(nom);
 		gDocumentModifie = modifie; // l'onglet actif porte la meme pastille
-		char plein[176];
-		snprintf(plein, sizeof(plein), "%s%s", modifie ? "\xE2\x97\x8F " : "", nom);
+		char plein[256];
+		snprintf(plein, sizeof(plein), "%s%s%s", gTitreSonde ? kTitreSonde : "",
+				 modifie ? "\xE2\x97\x8F " : "", nom);
 		static_cast<NkEditorShell *>(u)->SetTitleInfo(plein);
 	};
 	gDesign.titreUser = shell.Get();
@@ -9115,7 +9361,14 @@ int nkmain(const NkEntryState &state) {
 			 nkuidesign::costume::IcEtoile(ui.dl, r.x + (r.w - 14.f) * 0.5f,
 										   r.y + (r.h - 14.f) * 0.5f, violet);
 		 }},
-		{"Test", "Aperçu / Test — exécuter l'interface dessinée", "T",
+		// 🔴 LA CLE ETAIT « Test », ET AUCUN PANNEAU NE S'APPELLE AINSI. Mesure du
+		//    14/09 : `--tiroir=d:2` ouvrait un tiroir portant « Aucun panneau
+		//    enregistre sous ce titre. » en rouge (466 px de #f85149 contre 72 de
+		//    fond partout ailleurs). Le panneau existe : c'est `PreviewPanel`,
+		//    `NkEditorPanel("Aperçu", NK_CENTER)` (Panels.h). Le titre EST la cle --
+		//    l'avertissement etait deja ecrit vingt lignes plus haut, et il a quand
+		//    meme ete paye deux fois (« Hierarchie » contre « Hiérarchie », puis ici).
+		{"Aperçu", "Aperçu / Test — exécuter l'interface dessinée", "T",
 		 [](nkgui::NkGuiContext &ui, const nkgui::NkRect &r, bool, bool, void *) {
 			 nkuidesign::costume::IcOeilVague(ui.dl, r.x + (r.w - 14.f) * 0.5f,
 											  r.y + (r.h - 14.f) * 0.5f, ui.theme.textMuted);
@@ -9135,7 +9388,8 @@ int nkmain(const NkEntryState &state) {
 										nkuidesign::costume::CentrerY(Fontes().px11, r.y, r.h),
 										"Console", ui.theme.textMuted);
 		 }},
-		{"Test", "Aperçu / Test — exécuter l'interface dessinée", "T",
+		// Meme cle, meme correctif que sur le rail droit : « Aperçu », pas « Test ».
+		{"Aperçu", "Aperçu / Test — exécuter l'interface dessinée", "T",
 		 [](nkgui::NkGuiContext &ui, const nkgui::NkRect &r, bool, bool, void *) {
 			 nkuidesign::costume::IcOeil(ui.dl, r.x + 8.f, r.y + (r.h - 12.f) * 0.5f,
 										 ui.theme.textMuted);
@@ -9162,7 +9416,17 @@ int nkmain(const NkEntryState &state) {
 	shell->SetToolbar(&DrawProjectTabs, nullptr);
 	// Le titre initial vient du DOCUMENT (le callback `titre` prendra le
 	// relais a la premiere mesure — meme regle : jamais un nom en dur).
-	shell->SetTitleInfo(gDesign.doc.title.Data() ? gDesign.doc.title.Data() : "NkUIDesign");
+	{
+		// ⚠️ LE TITRE INITIAL AUSSI, et pas seulement le rappel : le rappel ne
+		//    s'execute qu'a un CHANGEMENT (il sort tot si le nom et l'etat
+		//    « modifie » n'ont pas bouge). Une fenetre de sonde qui n'edite rien
+		//    ne le declencherait jamais -- elle serait restee sous le titre du
+		//    produit, exactement le defaut qu'on ferme.
+		char titre0[256];
+		snprintf(titre0, sizeof(titre0), "%s%s", gTitreSonde ? kTitreSonde : "",
+				 gDesign.doc.title.Data() ? gDesign.doc.title.Data() : "NkUIDesign");
+		shell->SetTitleInfo(titre0);
+	}
 	shell->RegisterCommand("Document: Enregistrer", &CmdSave, nullptr, "Ctrl+S");
 	// ④ CTRL+E : DECLARE UNE SEULE FOIS, ici. La toile ne le lit pas -- deux declarations
 	//    feraient deux ouvertures, exactement le defaut ① du matin (Ctrl+D).
@@ -9200,6 +9464,10 @@ int nkmain(const NkEntryState &state) {
 	// tête de fichier. Hors capture, aucun callback : rien ne change.
 	if (gCapturePath[0])
 		shell->SetAppMenu(&CaptureTick, shell.Get());
+	else if (gMesureAsyncMs >= 0 || gMesureFpsMs >= 0 || gMesureDoubleImages >= 0)
+		shell->SetAppMenu(
+			[](NkEditorFrameContext &, void *u) { MesureTick(static_cast<NkEditorShell *>(u)); },
+			shell.Get());
 	// ⚠️ DES LETTRES, PAS DES CHIFFRES, ET C'EST UNE CONTRAINTE MESUREE :
 	//    `NkEditorShell::TryRunShortcut` n'accepte qu'un nom de touche de la
 	//    forme exacte « NK_X » (quatre caracteres). Un `Ctrl+1` s'affiche a cote

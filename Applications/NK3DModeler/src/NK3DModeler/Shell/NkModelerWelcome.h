@@ -1,4 +1,5 @@
 #pragma once
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // =============================================================================
 // NkModelerWelcome.h — l'ECRAN D'ACCUEIL (demande de Rihen).
 //
@@ -707,9 +708,14 @@ namespace nkentseu {
 			// ce qui manque vaut mieux qu'un silence : quelqu'un qui sculpte une
 			// heure doit savoir AVANT de fermer que son maillage edite ne sera pas
 			// repris. La liste de reference vit dans NkModelerScene.h.
+			// LA GEOMETRIE EST PASSEE DU COTE « ENREGISTRE » le 13/09. Cette ligne
+			// est le contrat affiche : la laisser dire « pas encore » alors que les
+			// sommets sont ecrits ferait douter d'un travail pourtant sauve, et le
+			// contraire ferait perdre du travail. Elle suit la liste de reference
+			// de NkModelerScene.h, et elle la suit DANS LE MEME COMMIT.
 			p.TextV(pad, H - S(24.f), S(20.f),
-					"Enregistre : objets, materiaux, lumieres, cameras, scenes. Pas encore : "
-					"geometrie editee sommet par sommet, modificateurs.",
+					"Enregistre : objets, GEOMETRIE (sommets et faces), materiaux, lumieres, "
+					"cameras, scenes. Pas encore : modificateurs.",
 					NkRole::TextMuted);
 
 			PaintNewProjectDialog(p, W, H, st, hit, ws, in);
@@ -928,6 +934,66 @@ namespace nkentseu {
 							fail(err);
 					}
 					st.projRecent = -1;
+					break;
+				}
+
+				case 9: { // un projet DESIGNE PAR SON CHEMIN (NK_PROJECT)
+					// LE MEME POINT DE PASSAGE QUE LE DOUBLE-CLIC : NkProjectLoad,
+					// puis `restore`, puis `opened`. Ce qui change n'est pas le
+					// chemin de code, c'est la maniere de DESIGNER le projet -- un
+					// chemin au lieu d'un rang dans la liste des recents.
+					//
+					// ET IL LE CREE S'IL N'EXISTE PAS. Sans cela, mesurer un
+					// aller-retour de persistance exigerait de cliquer « Nouveau »
+					// a la main avant chaque mesure, ce qui rendrait la mesure non
+					// rejouable. La creation passe par NkProjectCreate, exactement
+					// comme le bouton (action 6) : aucun second createur.
+					const NkString path(st.projOpenPath);
+					st.projOpenPath[0] = 0;
+					if (path.Empty())
+						break;
+					if (!NkFile::Exists(path.CStr())) {
+						// Dossier parent et nom se deduisent du chemin demande :
+						// NkProjectCreate fabrique `<parent>/<nom>/<nom>.nk3dm`, on
+						// lui donne donc le grand-parent du fichier et son nom nu.
+						NkString norm = NkScNorm(path.CStr());
+						NkString::SizeType s = norm.RFind('/');
+						NkString dir = (s == NkString::npos) ? NkString(".")
+															 : NkString(norm.CStr(), s);
+						NkString base = (s == NkString::npos)
+											? norm
+											: NkString(norm.CStr() + s + 1,
+													   (NkString::SizeType)(norm.Size() - s - 1));
+						const NkString::SizeType d = base.RFind('.');
+						if (d != NkString::npos)
+							base = NkString(base.CStr(), d);
+						// `<parent>/<nom>/<nom>.nk3dm` : le dossier du projet porte
+						// deja le nom, il faut donc remonter d'un cran.
+						const NkString::SizeType s2 = dir.RFind('/');
+						const NkString grand =
+							(s2 == NkString::npos) ? NkString(".") : NkString(dir.CStr(), s2);
+						if (!NkProjectCreate(grand.CStr(), base.CStr(), proj, &err)) {
+							fail(err);
+							break;
+						}
+						opened();
+						std::printf("[nk3d] NK_PROJECT : projet CREE -> %s\n",
+									proj.file.CStr());
+						break;
+					}
+					NkArchive sc;
+					if (NkProjectLoad(path.CStr(), proj, &err, &sc)) {
+						if (!restore(sc, err) && !err.Empty())
+							fail(err);
+						else {
+							opened();
+							if (!err.Empty())
+								put(st.projError, (uint32)sizeof(st.projError), err.CStr());
+							std::printf("[nk3d] NK_PROJECT : projet OUVERT -> %s\n",
+										proj.file.CStr());
+						}
+					} else
+						fail(err);
 					break;
 				}
 

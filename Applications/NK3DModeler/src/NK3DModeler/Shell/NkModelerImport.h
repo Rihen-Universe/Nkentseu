@@ -23,7 +23,7 @@
 //          origines et leurs noms, pas encore les sommets. Dans LA SESSION,
 //          l'editeur de model travaille sur l'ARCHIVE vivante : la geometrie
 //          y est reelle.
-// @Author  Rihen
+// @Author  TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // @License Proprietary - All Rights Reserved (see LICENSE)
 // -----------------------------------------------------------------------------
 #include "NK3DModeler/Shell/NkModelerScreens.h" // etat + hote + NkBrowUniqueName/NkMarkDirty
@@ -31,11 +31,14 @@
 #include "NKRenderer/Mesh/NkOBJLoader.h"
 #include "NKRenderer/Mesh/NkGLTFLoader.h"
 #include "NKRenderer/Mesh/NkFBXLoader.h"
+
+#include <cstdarg> // va_list : NkImportNote
 #include "NKRenderer/Mesh/NkDAELoader.h"
 #include "NKRenderer/Mesh/NkPLYLoader.h"
 #include "NKRenderer/Mesh/NkSTLLoader.h"
 #include "NKRenderer/Mesh/NkUSDALoader.h"
 #include "NKLogger/NkLog.h"
+#include "NK3DModeler/Shell/NkModelerToast.h" // le resultat SE VOIT, il ne se note pas
 
 namespace nkentseu {
 	namespace nk3d {
@@ -63,6 +66,43 @@ namespace nkentseu {
 					return false;
 			}
 			return true;
+		}
+
+		/// Pose la note du panneau Hierarchie ET l'ecrit au JOURNAL.
+		///
+		/// 🔴 Pourquoi les deux. Le 2026-09-05, Rodolf a rapporte « l'import de
+		/// XBot echoue ». Mesure : `LoadFBX` lit le fichier parfaitement
+		/// (99 796 sommets, 65 articulations, 2 modeles) — c'est
+		/// `NkImportCreate` qui refusait, faute de projet ouvert, en ecrivant
+		/// dans `st.hierNote` et **nulle part ailleurs**. Une note dans un
+		/// panneau qu'on ne regarde pas se confond avec un plantage.
+		///
+		/// `refus` distingue le ton : un refus part en avertissement (il demande
+		/// un geste), un compte-rendu part en information.
+		inline void NkImportNote(NkModelerState &st, NkToastKind kind, const char *fmt, ...) {
+			char buf[248];
+			va_list ap;
+			va_start(ap, fmt);
+			vsnprintf(buf, sizeof(buf), fmt, ap);
+			va_end(ap);
+			snprintf(st.hierNote, sizeof(st.hierNote), "%s", buf);
+			// 🔴 LA TROISIEME DESTINATION, celle qui manquait : L'ECRAN. La note
+			// du panneau et le journal restent (l'une pour le contexte, l'autre
+			// pour la trace), mais aucune des deux n'oblige a regarder.
+			NkToastPush(kind, buf);
+			if (kind == NkToastKind::Succes)
+				NkLog::Instance().Infof("[import] %s", buf);
+			else
+				NkLog::Instance().Warnf("[import] %s", buf);
+		}
+		/// Compatibilite d'appel : `true` = refus, `false` = compte-rendu.
+		inline void NkImportNote(NkModelerState &st, bool refus, const char *fmt, ...) {
+			char buf[248];
+			va_list ap;
+			va_start(ap, fmt);
+			vsnprintf(buf, sizeof(buf), fmt, ap);
+			va_end(ap);
+			NkImportNote(st, refus ? NkToastKind::Refus : NkToastKind::Succes, "%s", buf);
 		}
 
 		/// Charge `path` par LE chargeur que son extension designe. Rend faux si
@@ -159,14 +199,222 @@ namespace nkentseu {
 				snprintf(out, cap, "Import");
 		}
 
+		/// LES MATERIAUX ET LEURS TEXTURES, du fichier vers le projet.
+		///
+		/// 🔴 CE QUE LA MESURE DIT, ET CE QU'ELLE NE DIT PAS (2026-09-06).
+		/// Rodolf : « les import n'importent pas les textures ni les materiaux ».
+		/// C'est vrai, et la question etait de savoir OU ca se perd -- le lecteur
+		/// ne lit pas, ou l'import ne publie pas ? Deux endroits differents.
+		/// Journal de sa session de 08h53 :
+		///
+		///   [NkGLTFLoader] '...042082ea....glb' : 249906 vertices, 1499568
+		///                  indices, 1 submeshes, **0 materials, 0 images**
+		///   [NkFBXLoader]  OK '...cables.fbx' : 1 geometries, 1200 verts,
+		///                  1 sous-meshes, **1 materiaux, 1 textures**, 1 nodes
+		///
+		/// ⚠️ Le mannequin du GLB est gris parce que SON FICHIER NE PORTE AUCUN
+		/// MATERIAU -- verifie dans le JSON du .glb lui-meme : les sections
+		/// `materials`, `images` et `textures` n'existent pas, et la primitive
+		/// n'a que l'attribut POSITION. Sa capture ne prouve donc RIEN sur
+		/// l'import des materiaux, et les cartes `Materiau`, `Materiau.000` a
+		/// `.004` et `Texture` de son navigateur PREEXISTENT a son geste.
+		///
+		/// C'est `cables.fbx` qui tranche : le lecteur LIT bien 1 materiau et
+		/// 1 texture, et l'import n'en publiait AUCUN. Le defaut est donc ici,
+		/// pas dans les chargeurs.
+		///
+		/// CE QUI EST ECRIT : une TEXTURE = un fichier PNG dans le projet (les
+		/// pixels sont deja decodes par le chargeur, embarques comme references)
+		/// -- c'est la regle d'import de CONVENTIONS_FICHIERS.md, « copier en
+		/// gardant l'origine ». Un MATERIAU = un emplacement du projet + sa
+		/// carte + son `.nkmat`, par le meme ecrivain que « Enregistrer ».
+		///
+		/// `slotOf` rend, pour chaque materiau du FICHIER, l'emplacement du
+		/// PROJET (-1 si la creation a echoue : plus d'emplacement libre).
+		inline void NkImportMaterials(NkModelerState &st, const renderer::NkGLTFMeshData &data,
+									  const char *stem, NkVector<int32> &slotOf, int32 *texEcrites,
+									  int32 *matNees) {
+			slotOf.Clear();
+			if (texEcrites)
+				*texEcrites = 0;
+			if (matNees)
+				*matNees = 0;
+			const int32 nMat = (int32)data.materials.Size();
+			if (nMat <= 0)
+				return;
+			// ── 1. LES IMAGES SUR LE DISQUE ─────────────────────────────────
+			// Une par entree de `data.images`, ecrite UNE FOIS meme si trois
+			// canaux la designent. Chemin ABSOLU retenu : c'est ce que l'hote
+			// attend (`Demo3DHostProjMatSetMap`), et la sauvegarde le rend
+			// relatif au projet toute seule (NkScToRel, NkModelerAssets.h:359).
+			NkVector<NkString> imgPath;
+			const int32 nImg = (int32)data.images.Size();
+			const NkString dossier = NkAsFolderPath(st, st.browserFolder);
+			for (int32 i = 0; i < nImg; ++i) {
+				imgPath.PushBack(NkString());
+				if (!data.images[(uint32)i].valid)
+					continue;
+				// Le nom vient du FICHIER quand il en donne un (`uri`, rempli par
+				// le chargeur FBX avec le RelativeFilename), sinon du radical du
+				// modele + le rang -- jamais d'un compteur seul, qui ne dirait
+				// pas de quel import il vient.
+				char base[48];
+				const char *uri = data.images[(uint32)i].uri.CStr();
+				if (uri && uri[0])
+					NkImpStem(uri, base, (uint32)sizeof(base));
+				else
+					snprintf(base, sizeof(base), "%s_tex%d", stem, i);
+				NkString rel = dossier;
+				rel.Append(base);
+				rel.Append(".png");
+				const NkString abs = NkScToAbs(st.projectRoot, rel.CStr());
+				if (data.images[(uint32)i].decoded.SavePNG(abs.CStr())) {
+					imgPath[(uint32)i] = abs;
+					if (texEcrites)
+						++*texEcrites;
+					NkLog::Instance().Infof("[import] MESURE texture : image %d -> '%s' (%ux%u)", i,
+											rel.CStr(),
+											(unsigned)data.images[(uint32)i].decoded.Width(),
+											(unsigned)data.images[(uint32)i].decoded.Height());
+				} else {
+					// ECHEC NOMME, jamais avale : sans cette ligne un materiau
+					// arriverait sans sa texture et on accuserait le materiau.
+					NkLog::Instance().Warnf("[import] texture NON ECRITE : image %d -> '%s'", i,
+											rel.CStr());
+				}
+			}
+			// ── 2. LES MATERIAUX ────────────────────────────────────────────
+			for (int32 m = 0; m < nMat; ++m) {
+				const renderer::NkGLTFMaterial &gm = data.materials[(uint32)m];
+				const int32 slot = demo::Demo3DHostProjMatCreate();
+				slotOf.PushBack(slot);
+				if (slot < 0) {
+					// PLAFOND ATTEINT, et il est NOMME (Rodolf, point ④) : le
+					// projet n'accepte que kNkvpMaxProjMats emplacements.
+					NkImportNote(st, NkToastKind::Partiel,
+								 "Import PARTIEL : le materiau « %s » n'a PAS pu etre cree -- le projet "
+								 "n'a plus d'emplacement de materiau libre. Que faire : supprimez des "
+								 "materiaux inutilises dans le navigateur, puis relancez l'import.",
+								 gm.name.Empty() ? "(sans nom)" : gm.name.CStr());
+					continue;
+				}
+				char nm[32];
+				if (!gm.name.Empty())
+					snprintf(nm, sizeof(nm), "%s", gm.name.CStr());
+				else
+					snprintf(nm, sizeof(nm), "%s_mat%d", stem, m);
+				demo::Demo3DHostProjMatSetName(slot, nm);
+				const float32 alb[3] = {gm.baseColorFactor.x, gm.baseColorFactor.y,
+										gm.baseColorFactor.z};
+				demo::Demo3DHostProjMatSetParams(slot, alb, gm.roughnessFactor, gm.metallicFactor);
+				// L'EMISSION PORTE SA FORCE (KHR_materials_emissive_strength) :
+				// la separer de la teinte est ce que fait le format, et les
+				// melanger ici rendrait 1000 possible sans que rien le dise.
+				{
+					const float32 emi[3] = {gm.emissiveFactor.x * gm.emissiveStrength,
+											gm.emissiveFactor.y * gm.emissiveStrength,
+											gm.emissiveFactor.z * gm.emissiveStrength};
+					demo::Demo3DHostProjMatSetEmissive(slot, emi);
+				}
+				// Opacite : `baseColorFactor.w`, et seulement si le fichier dit
+				// BLEND. En OPAQUE une alpha < 1 ne veut rien dire -- la lire
+				// quand meme rendrait transparents des materiaux qui ne le sont
+				// pas (c'est la famille du champ dont le sens depend d'un autre).
+				{
+					float32 a = 1.f, aniso = 0.f, sheen = 0.f;
+					demo::Demo3DHostProjMatPBRExtra(slot, &a, &aniso, &sheen);
+					demo::Demo3DHostProjMatSetPBRExtra(
+						slot, gm.alphaMode == 2 ? gm.baseColorFactor.w : 1.f, aniso, sheen);
+				}
+				// LES QUATRE CANAUX (cf. NkDemo3DHost.h) : 0 couleur, 1 normale,
+				// 2 ORM, 3 emissif. glTF empaquette deja rugosite/metal en
+				// `metallicRoughnessImage` -- c'est l'ORM du canal 2.
+				const int32 canal[4] = {gm.baseColorImage, gm.normalImage,
+										gm.metallicRoughnessImage, gm.emissiveImage};
+				int32 posees = 0;
+				for (int32 c = 0; c < 4; ++c) {
+					const int32 ii = canal[c];
+					if (ii < 0 || ii >= nImg || imgPath[(uint32)ii].Empty())
+						continue;
+					if (demo::Demo3DHostProjMatSetMap(slot, c, imgPath[(uint32)ii].CStr()))
+						++posees;
+				}
+				if (gm.normalImage >= 0) {
+					float32 nrm = 1.f, emiF = 1.f;
+					demo::Demo3DHostProjMatChanStrength(slot, &nrm, &emiF);
+					demo::Demo3DHostProjMatSetChanStrength(slot, gm.normalScale, emiF);
+				}
+				// LA CARTE, puis le `.nkmat` : la carte porte le chemin, elle
+				// vient donc d'abord (meme ordre que « + Materiau »).
+				const int32 cb = st.CardAdd();
+				st.Card(cb).kind = 2;
+				st.Card(cb).parent = st.browserFolder;
+				st.Card(cb).sub = 0;
+				st.Card(cb).doc = 0;
+				st.Card(cb).srcNode = 0;
+				st.Card(cb).mat = slot + 1;
+				st.Card(cb).file[0] = 0;
+				NkBrowUniqueName(st, 2, st.browserFolder, nm, st.Card(cb).name,
+								 (uint32)NkModelerState::kCardNameCap);
+				// Le nom RETENU est celui de la carte : sans ca, deux imports du
+				// meme fichier donneraient deux cartes distinctes portant le meme
+				// nom cote materiau, et le panneau ne saurait plus les separer.
+				demo::Demo3DHostProjMatSetName(slot, st.Card(cb).name);
+				NkString errM;
+				const bool ecrit = NkProjectWriteCard(st.projectRoot, st, cb, &errM);
+				if (matNees)
+					++*matNees;
+				NkLog::Instance().Infof(
+					"[import] MESURE materiau : « %s » -> emplacement=%d carte=%d albedo=(%f, %f, %f) "
+					"rugosite=%f metal=%f textures posees=%d/4 fichier=%s",
+					st.Card(cb).name, slot, cb, alb[0], alb[1], alb[2], gm.roughnessFactor,
+					gm.metallicFactor, posees, ecrit ? st.Card(cb).file : "(non ecrit)");
+			}
+		}
+
 		/// Nomme un noeud DES DEUX COTES : l'application (customNames, ce que la
 		/// hierarchie affiche et ce que la capture ecrit dans le fichier) et
 		/// l'hote (le label qui nomme les fichiers produits par la sortie). La
 		/// relecture d'un projet fait exactement ces deux gestes.
 		inline void NkImpNodeName(NkModelerState &st, int32 node, const char *nm) {
-			if (node >= 0 && node < 176)
+			if (node >= 0 && node < NkModelerState::kMaxNodeNames)
 				snprintf(st.customNames[node], sizeof(st.customNames[0]), "%s", nm);
 			demo::Demo3DHostSetNodeLabel(node, nm);
+		}
+
+		/// LA SCENE HOTE OU L'IMPORT DEPOSE SES ARCHIVES -- et pourquoi ce n'est
+		/// PAS toujours le document actif.
+		///
+		/// 🔴 MESURE du 2026-09-06, et c'est la vraie cause du refus que Rodolf
+		/// conteste. Un noeud nait dans `nkvpSceneOf = nkvpCurScene`, donc dans
+		/// le document ACTIF (`HostAllocUser`, NkDemo3D.cpp). Or
+		/// `NkScWriteScene` (NkModelerScene.h) rend **-1** -- « ne pas ecrire »
+		/// -- pour toute scene hote qui appartient a un document TRANSITOIRE :
+		/// editeur d'asset ou isolation. Un import lance depuis un onglet de
+		/// MODEL faisait donc naitre son archive dans une scene que
+		/// l'enregistrement JETTE : la carte partait dans le `.nk3dm`, sa
+		/// geometrie non, et le model rouvert aurait ete vide.
+		///
+		/// Le refus etait donc une PROTECTION, jamais ecrite comme telle. Rodolf
+		/// a raison sur la regle -- « l'import est une operation du projet » --
+		/// et le retirer seul aurait installe une perte silencieuse. On corrige
+		/// la cause : l'import depose dans une scene DURABLE, quel que soit
+		/// l'onglet ouvert.
+		///
+		/// Rend -1 si aucun document durable n'existe : l'appelant refuse et le
+		/// dit, il ne devine pas.
+		inline int32 NkImpArchiveScene(const NkModelerState &st) {
+			// Cas courant, et le moins surprenant : l'onglet actif EST une scene.
+			const int32 dA = st.TabDoc(st.activeTab);
+			if (dA >= 0 && !st.docTransient[dA])
+				return (int32)st.docScene[dA];
+			// Sinon la PREMIERE scene durable du projet. Le choix n'a pas
+			// d'effet visible -- l'archive est invisible dans tous les documents
+			// (`nkvpDeleted`) -- il decide seulement du fichier qui la portera.
+			for (int32 d = 0; d < NkModelerState::kMaxDocs; ++d)
+				if (st.docUsed[d] && !st.docTransient[d])
+					return (int32)st.docScene[d];
+			return -1;
 		}
 
 		/// LA CREATION (point 4 de l'eclatement, contrat du 17/08 soir) : chaque
@@ -208,31 +456,62 @@ namespace nkentseu {
 		inline bool NkImportCreate(NkModelerState &st, const renderer::NkGLTFMeshData &data,
 								   const NkVector<NkImportModel> &models, const char *stem,
 								   NkVector<int32> *cardsOut = nullptr) {
-			// Un import cree des MODELS : dans un editeur de model, il n'a pas
-			// de sens (un model ne contient pas de models). Refus NOMME.
-			if (demo::Demo3DHostDocIsModel()) {
-				snprintf(st.hierNote, sizeof(st.hierNote),
-						 "Importer : ouvrez une SCENE (l'import cree des models)");
-				return false;
-			}
 			// Un import ECRIT dans le projet : sans projet ouvert, il n'a nulle
 			// part ou ecrire, et le dire vaut mieux qu'ecrire dans le vide.
 			if (st.projectRoot.Empty()) {
-				snprintf(st.hierNote, sizeof(st.hierNote),
-						 "Importer : ouvrez un PROJET (l'import ecrit des .nkmesh dedans)");
+				NkImportNote(st, NkToastKind::Refus,
+							 "Import impossible : aucun PROJET ouvert. L'import ecrit un .nkmesh par model "
+							 "dans le dossier du projet. Que faire : Fichier > Nouveau projet, ou "
+							 "Fichier > Ouvrir un projet, puis relancez l'import.");
 				return false;
 			}
 			const uint32 vTotal = (uint32)data.vertices.Size();
 			const uint32 iTotal = (uint32)data.indices.Size();
-			if (vTotal == 0 || iTotal == 0)
+			if (vTotal == 0 || iTotal == 0) {
+				// Refusait en SILENCE : ni note, ni journal. Un fichier lu mais
+				// vide est le cas le plus deroutant de tous — tout a « marche »
+				// et rien n'apparait.
+				NkImportNote(st, NkToastKind::Refus,
+							 "Import impossible : le fichier a bien ete LU, mais il ne contient aucune "
+							 "geometrie (%u sommets, %u indices). Que faire : verifiez l'export -- le "
+							 "maillage a peut-etre ete exporte sans ses sommets, ou seule une armature "
+							 "a ete ecrite.",
+							 (unsigned)vTotal, (unsigned)iTotal);
 				return false;
+			}
+			// ── L'IMPORT EST UNE OPERATION DU PROJET, PAS DE L'ONGLET ────────
+			// (Rodolf, 2026-09-06 : « il devrait juste importer et mettre dans
+			// le dossier, il n'y a pas de probleme a importer que ce soit quand
+			// un onglet de model est ouvert ou pas ».)
+			// La scene hote est forcee sur une scene DURABLE le temps de la
+			// creation, puis rendue telle qu'elle etait. Voir NkImpArchiveScene
+			// pour la mesure qui l'exige.
+			const int32 scArchive = NkImpArchiveScene(st);
+			if (scArchive < 0) {
+				NkImportNote(st, NkToastKind::Refus,
+							 "Import impossible : ce projet n'a aucune scene DURABLE ou deposer l'archive "
+							 "(seuls des onglets d'edition sont ouverts). Que faire : Scene > Nouvelle "
+							 "scene, puis relancez l'import.");
+				return false;
+			}
+			const int32 scAvant = demo::Demo3DHostActiveScene();
+			demo::Demo3DHostSetActiveScene(scArchive);
+			// ── LES MATERIAUX ET LES TEXTURES, AVANT LES NOEUDS ─────────────
+			// Avant, parce qu'un noeud doit pouvoir recevoir son emplacement au
+			// moment ou il nait : `Demo3DHostCreateMeshNode` lui pose deja le
+			// materiau par DEFAUT, et repasser dessus apres coup demanderait de
+			// retrouver quel sous-mesh a fait quel noeud -- une seconde table a
+			// tenir d'accord avec la premiere.
+			NkVector<int32> matSlot; // materiau du FICHIER -> emplacement du PROJET
+			int32 texEcrites = 0, matNees = 0;
+			NkImportMaterials(st, data, stem, matSlot, &texEcrites, &matNees);
 			// Table globale -> local d'UNE tranche. Remise a -1 par liste des
 			// entrees touchees (jamais un balayage de tout le buffer par
 			// tranche).
 			NkVector<int32> remap;
 			remap.Resize((usize)vTotal, -1);
 			int32 modelsNes = 0, noeudsNes = 0, cartes = 0, fichiers = 0;
-			bool plein = false, navPlein = false;
+			bool plein = false;
 			NkString errEcr;
 			for (usize mi = 0; mi < models.Size() && !plein; ++mi) {
 				const NkImportModel &mo = models[mi];
@@ -273,7 +552,10 @@ namespace nkentseu {
 					}
 				}
 				if (nVives == 0) {
-					NkLog::Instance().Warnf("[import] model « %s » : aucune geometrie, saute", mnm);
+					NkImportNote(st, NkToastKind::Partiel,
+								 "Import PARTIEL : le model « %s » du fichier a ete SAUTE -- il ne porte "
+								 "aucune geometrie (un empty, ou une armature seule).",
+								 mnm);
 					continue;
 				}
 				// ── la racine, SEULEMENT si le fichier regroupe plusieurs tranches
@@ -331,6 +613,19 @@ namespace nkentseu {
 						break;
 					}
 					NkImpNodeName(st, n, snm);
+					// ── LE MATERIAU DE LA TRANCHE ────────────────────────────
+					// `subMeshMaterial` est PARALLELE a `subMeshes` : c'est le
+					// fichier qui dit quelle matiere va sur quelle tranche, on ne
+					// le devine pas. -1 = la tranche n'en declare aucun, et le
+					// materiau par defaut pose a la naissance reste le bon.
+					{
+						const int32 si = mo.firstSub + s;
+						const int32 fm = (si < (int32)data.subMeshMaterial.Size())
+											 ? data.subMeshMaterial[(uint32)si]
+											 : -1;
+						if (fm >= 0 && fm < (int32)matSlot.Size() && matSlot[(uint32)fm] >= 0)
+							demo::Demo3DHostProjMatAssign(n, matSlot[(uint32)fm]);
+					}
 					if (direct) {
 						// UN OBJET ORDINAIRE, pas un « maillage interne » : le
 						// drapeau IsMesh veut dire « matiere d'un model » -- la
@@ -369,40 +664,44 @@ namespace nkentseu {
 				// ── carte navigateur + ECRITURE du .nkmesh, tout de suite ──
 				int32 k6 = -1;
 				bool ecrit = false;
-				if (st.browserCount < NkModelerState::kMaxBrowser) {
-					k6 = st.browserCount++;
-					st.browserKind[k6] = 6;
-					st.browserParent[k6] = st.browserFolder;
-					st.browserSub[k6] = 0;
-					st.browserDoc[k6] = 0;
-					st.browserMat[k6] = 0;
-					st.browserFile[k6][0] = 0;
-					st.browserSrcNode[k6] = top + 1;
-					NkBrowUniqueName(st, 6, st.browserFolder, mnm, st.browserNames[k6],
-									 (uint32)sizeof(st.browserNames[0]));
-					++cartes;
-					if (cardsOut)
-						cardsOut->PushBack(k6); // l'appelant (lacher OS) instanciera
-					// L'IMPORT ECRIT : le fichier existe des la fin du geste, par le
-					// meme ecrivain que « Enregistrer ». Le drapeau « a ecrire au
-					// prochain enregistrement » ne s'arme que si l'ecriture ECHOUE --
-					// alors la prochaine sauvegarde reprendra la carte, et l'echec
-					// est nomme au lieu de rester muet.
-					ecrit = NkProjectWriteCard(st.projectRoot, st, k6, &errEcr);
-					if (ecrit)
-						++fichiers;
-					else
-						st.browserOriginDirty[k6] = true;
-				} else {
-					navPlein = true;
-				}
+				k6 = st.CardAdd();
+				st.Card(k6).kind = 6;
+				st.Card(k6).parent = st.browserFolder;
+				st.Card(k6).sub = 0;
+				st.Card(k6).doc = 0;
+				st.Card(k6).mat = 0;
+				st.Card(k6).file[0] = 0;
+				st.Card(k6).srcNode = top + 1;
+				NkBrowUniqueName(st, 6, st.browserFolder, mnm, st.Card(k6).name,
+								 (uint32)NkModelerState::kCardNameCap);
+				++cartes;
+				if (cardsOut)
+					cardsOut->PushBack(k6); // l'appelant (lacher OS) instanciera
+				// L'IMPORT ECRIT : le fichier existe des la fin du geste, par le
+				// meme ecrivain que « Enregistrer ». Le drapeau « a ecrire au
+				// prochain enregistrement » ne s'arme que si l'ecriture ECHOUE --
+				// alors la prochaine sauvegarde reprendra la carte, et l'echec
+				// est nomme au lieu de rester muet.
+				ecrit = NkProjectWriteCard(st.projectRoot, st, k6, &errEcr);
+				if (ecrit)
+					++fichiers;
+				else
+					st.Card(k6).originDirty = true;
 				NkLog::Instance().Infof(
 					"[import] MESURE creation : model « %s » noeud=%d %s maillages=%d/%d "
 					"verts=%u indices=%u origine=(%f, %f, %f) carte=%d fichier=%s",
 					mnm, top, direct ? "DIRECT(sans empty)" : "racine+enfants", pieces,
 					mo.subCount, mVerts, mIdx, topPos[0], topPos[1], topPos[2], k6,
-					ecrit ? st.browserFile[k6] : "(non ecrit)");
+					ecrit ? st.Card(k6).file : "(non ecrit)");
 			}
+			// LA SCENE ACTIVE REVIENT TELLE QU'ELLE ETAIT. Elle est rendue ICI et
+			// pas plus haut : tout ce qui precede fait naitre des noeuds, et
+			// `HostAllocUser` lit `nkvpCurScene` a chaque naissance.
+			demo::Demo3DHostSetActiveScene(scAvant);
+			NkLog::Instance().Infof("[import] MESURE scene d'archive : depot=%d actif=%d rendu=%d "
+									"docModel=%d",
+									scArchive, scAvant, demo::Demo3DHostActiveScene(),
+									demo::Demo3DHostDocIsModel() ? 1 : 0);
 			// Le projet a change (cartes dans l'arbre du .nk3dm) : il le sait.
 			if (modelsNes > 0)
 				NkMarkDirty(st);
@@ -416,21 +715,38 @@ namespace nkentseu {
 			// Mettre la cause en TETE la rend lisible quelle que soit la largeur,
 			// et ne coute pas une ligne de mise en page.
 			if (plein)
-				snprintf(st.hierNote, sizeof(st.hierNote),
-						 "PLUS D'EMPLACEMENT - import incomplet (%d model(s), %d maillage(s))",
-						 modelsNes, noeudsNes);
-			else if (navPlein)
-				snprintf(st.hierNote, sizeof(st.hierNote),
-						 "NAVIGATEUR PLEIN (%d max) - rien d'atteignable, %d model(s) perdu(s)",
-						 (int32)NkModelerState::kMaxBrowser, modelsNes);
+				NkImportNote(st, NkToastKind::Partiel,
+							 "Import PARTIEL : %d model(s) et %d maillage(s) sont entres, les suivants ont "
+							 "ete SAUTES -- la scene n'a plus d'emplacement de noeud libre. Que faire : "
+							 "supprimez des objets de la scene, ou importez dans une scene neuve.",
+							 modelsNes, noeudsNes);
+			// ⚠️ « ECRIT » VEUT DIRE LES DEUX FICHIERS -- la structure (`.nkmesh`)
+			// ET la matiere (`.nkgeo`). Une carte dont seule la structure est
+			// partie compte ICI, pas dans le succes : c'est exactement le cas ou
+			// l'objet est a l'ecran et sa geometrie nulle part, et c'est ce que
+			// Rodolf a paye sous le nom de « cubes blancs ». Le bandeau ne dit donc
+			// plus « seulement N .nkmesh » -- il dirait faux dans ce cas-la, le
+			// `.nkmesh` etant bel et bien sur le disque : il dit « complets ».
 			else if (fichiers < cartes)
-				snprintf(st.hierNote, sizeof(st.hierNote),
-						 "ECRITURE ECHOUEE - %d fichier(s) sur %d : %s", fichiers, cartes,
-						 errEcr.Empty() ? "?" : errEcr.CStr());
+				NkImportNote(st, NkToastKind::Partiel,
+							 "Import PARTIEL : %d carte(s) creee(s), mais seulement %d fichier(s) "
+							 "COMPLETS sur %d (structure .nkmesh + geometrie .nkgeo). Raison : %s. "
+							 "Que faire : les cartes incompletes seront reprises au prochain "
+							 "Enregistrer -- verifiez la place libre et les droits du dossier du projet.",
+							 cartes, fichiers, cartes,
+							 errEcr.Empty() ? "non precisee" : errEcr.CStr());
 			else
-				snprintf(st.hierNote, sizeof(st.hierNote),
-						 "Import : %d model(s), %d maillage(s), %d .nkmesh ecrit(s) - glissez la carte vers la scene",
-						 modelsNes, noeudsNes, fichiers);
+				// LE BANDEAU DIT CE QUI EST ENTRE, Y COMPRIS QUAND C'EST ZERO --
+				// et c'est deliberé. « 0 materiau(x) » sur un fichier qui n'en
+				// porte pas est une INFORMATION : c'est exactement ce qui aurait
+				// evite a Rodolf de lire son mannequin gris comme un defaut de
+				// l'import, alors que son .glb ne declare aucun materiau.
+				NkImportNote(st, NkToastKind::Succes,
+							 "Import reussi : %d model(s), %d maillage(s), %d materiau(x), %d texture(s), "
+							 "%d fichier(s) .nkmesh + .nkgeo ecrit(s) dans le projet -- la geometrie est "
+							 "DEJA sur le disque, sans attendre un Enregistrer. Ils sont dans le "
+							 "NAVIGATEUR -- glissez une carte vers la scene pour la poser.",
+							 modelsNes, noeudsNes, matNees, texEcrites, fichiers);
 			// ── LE CONTROLE DE LA REGLE, ecrit PENDANT QU'IL ROUGIT ────────────
 			// Regle de Rodolf elargie : « tout ce qu'un import produit doit etre
 			// editable ». Ecrite ici comme une VERIFICATION et non comme une liste
@@ -440,6 +756,12 @@ namespace nkentseu {
 			// apres la correction, il naitrait vert et personne ne saurait jamais
 			// s'il sait rougir. Celui-ci echoue AUJOURD'HUI sur la 1re ligne.
 			if (getenv("NK_IMPORT_CHECK")) {
+				// `navPlein` n'existe plus, et ce n'est pas un oubli : le navigateur
+				// n'a PLUS de plafond depuis que ses cartes vivent dans un vecteur.
+				// La colonne reste dans le journal -- a `false` et nommee -- pour que
+				// les releves d'avant et d'apres restent comparables ; retirer la
+				// colonne aurait efface la trace de la borne disparue.
+				const bool navPlein = false; // le vecteur de cartes ne se remplit plus
 				const bool atteignable = (cartes > 0) || (modelsNes > 0 && !navPlein && !plein);
 				const bool ecritures = (cartes == 0) || (fichiers == cartes);
 				NkLog::Instance().Infof("[import] CONTROLE REGLE -- ce qui est produit "
@@ -470,8 +792,10 @@ namespace nkentseu {
 			renderer::NkGLTFMeshData data;
 			const char *why = nullptr;
 			if (!NkImportLoad(absPath, data, &why)) {
-				snprintf(st.hierNote, sizeof(st.hierNote), "%s", why);
-				NkLog::Instance().Warnf("[import] '%s' : %s", absPath, why);
+				// `NkImportNote` ecrit DEJA au journal : le second appel faisait
+				// deux lignes pour un seul refus.
+				NkImportNote(st, NkToastKind::Refus, "Import impossible de '%s' : %s", absPath ? absPath : "(null)",
+							 why ? why : "raison inconnue");
 				return false;
 			}
 			NkVector<NkImportModel> models;
@@ -490,6 +814,36 @@ namespace nkentseu {
 			return NkImportCreate(st, data, models, stem, cardsOut);
 		}
 
+		/// L'IMPORT D'UNE LISTE. C'est la forme que Rodolf demande (2026-09-06 :
+		/// « dans le cas de l'import de NK3DModeler je dois pouvoir charger
+		/// plusieurs modeles »), et elle est ecrite MAINTENANT bien que le
+		/// selecteur du kit ne rende encore qu'UN chemin : la selection multiple
+		/// est le chantier de l'agent du kit, pas le mien, et le jour ou elle
+		/// arrive il n'y aura qu'un appelant a changer -- pas la chaine.
+		///
+		/// ⚠️ UN ECHEC N'ARRETE PAS LES SUIVANTS, et c'est deliberé : sur dix
+		/// fichiers laches ensemble, s'arreter au troisieme perdrait les sept
+		/// bons sans le dire. Chaque refus est deja NOMME par `NkImportFile` ;
+		/// on rend ici le COMPTE, et le total part au journal.
+		/// Rend le nombre de fichiers dont l'import a produit au moins un model.
+		inline int32 NkImportFiles(NkModelerState &st, const char *const *paths, int32 count,
+								   NkVector<int32> *cardsOut = nullptr) {
+			if (!paths || count <= 0)
+				return 0;
+			int32 ok = 0;
+			for (int32 i = 0; i < count; ++i) {
+				if (!paths[i] || !paths[i][0])
+					continue;
+				if (NkImportFile(st, paths[i], cardsOut))
+					++ok;
+			}
+			if (count > 1)
+				NkLog::Instance().Infof("[import] MESURE lot : %d fichier(s) demande(s), %d "
+										"aboutis, %d carte(s) au total",
+										count, ok, cardsOut ? (int32)cardsOut->Size() : -1);
+			return ok;
+		}
+
 		/// INSTANCIER dans la scene active les cartes que l'import vient de
 		/// creer -- c'est le geste « systeme -> scene » et « systeme -> hierarchie »
 		/// du contrat (import + instanciation). Chaque carte est dupliquee depuis
@@ -505,14 +859,17 @@ namespace nkentseu {
 			int32 nes = 0, dernier = -1;
 			for (usize i = 0; i < cards.Size(); ++i) {
 				const int32 c = cards[i];
-				if (c < 0 || c >= st.browserCount || st.browserKind[c] != 6 ||
-					st.browserSrcNode[c] <= 0)
+				if (c < 0 || c >= st.BrowserCount() || st.Card(c).kind != 6 ||
+					st.Card(c).srcNode <= 0)
 					continue;
-				const int32 src = st.browserSrcNode[c] - 1;
+				const int32 src = st.Card(c).srcNode - 1;
 				const int32 nn = demo::Demo3DHostDuplicateNode(src);
 				if (nn < 0) {
-					NkLog::Instance().Warnf("[import] instanciation : carte %d « %s » : "
-											"plus d'emplacement", c, st.browserNames[c]);
+					NkImportNote(st, NkToastKind::Partiel,
+								 "Import PARTIEL : la carte « %s » n'a PAS pu etre posee dans la scene -- "
+								 "plus d'emplacement de noeud libre. Elle existe dans le navigateur : "
+								 "videz la scene, puis glissez-la.",
+								 st.Card(c).name);
 					break;
 				}
 				float32 sp[3] = {0.f, 0.f, 0.f}, sr[3] = {0.f, 0.f, 0.f}, ss[3] = {1.f, 1.f, 1.f};
@@ -529,13 +886,13 @@ namespace nkentseu {
 				}
 				// Le double porte le nom de la carte : sans lui, la hierarchie
 				// afficherait « Cube.NNN » pour une roue.
-				if (nn < 176)
-					snprintf(st.customNames[nn], sizeof(st.customNames[0]), "%s", st.browserNames[c]);
+				if (nn < NkModelerState::kMaxNodeNames)
+					snprintf(st.customNames[nn], sizeof(st.customNames[0]), "%s", st.Card(c).name);
 				float32 gp[3] = {0.f, 0.f, 0.f}, gr[3] = {0.f, 0.f, 0.f}, gs[3] = {0.f, 0.f, 0.f};
 				(void)demo::Demo3DHostEmptyTransform(nn, gp, gr, gs);
 				NkLog::Instance().Infof("[import] MESURE instanciation : carte %d « %s » src=%d -> "
 										"noeud=%d model=%d pose=(%f, %f, %f)",
-										c, st.browserNames[c], src, nn,
+										c, st.Card(c).name, src, nn,
 										demo::Demo3DHostNodeIsModel(nn) ? 1 : 0, gp[0], gp[1], gp[2]);
 				dernier = nn;
 				++nes;
@@ -555,10 +912,10 @@ namespace nkentseu {
 			int32 n = 0;
 			for (usize i = 0; i < cards.Size(); ++i) {
 				const int32 c = cards[i];
-				if (c < 0 || c >= st.browserCount || st.browserSrcNode[c] <= 0)
+				if (c < 0 || c >= st.BrowserCount() || st.Card(c).srcNode <= 0)
 					continue;
 				float32 sp[3] = {0.f, 0.f, 0.f}, sr[3], ss[3];
-				if (!demo::Demo3DHostEmptyTransform(st.browserSrcNode[c] - 1, sp, sr, ss))
+				if (!demo::Demo3DHostEmptyTransform(st.Card(c).srcNode - 1, sp, sr, ss))
 					continue;
 				sx += sp[0];
 				sz += sp[2];
@@ -595,11 +952,20 @@ namespace nkentseu {
 									st.osDropCount, at.x, at.y, zone);
 			NkVector<int32> cards;
 			if (zone == 4) {
-				snprintf(st.hierNote, sizeof(st.hierNote),
-						 "Deposez un fichier 3D sur la vue, la hierarchie ou le navigateur");
+				NkImportNote(st, NkToastKind::Refus,
+							 "Fichier lache HORS d'une zone qui l'accepte. Que faire : deposez-le sur la "
+							 "VUE 3D (il se pose sous le curseur), sur la HIERARCHIE (aux coordonnees du "
+							 "fichier) ou sur le NAVIGATEUR (import seul, rien dans la scene).");
 			} else {
-				for (int32 i = 0; i < st.osDropCount; ++i)
-					(void)NkImportFile(st, st.osDropPaths[i], &cards);
+				// LE LACHER PORTE DEJA UNE LISTE : il passe donc par la porte de
+				// liste, comme le bouton. Deux chemins d'import auraient diverge
+				// au premier reglage qu'on ajoute (dialogue d'import, contrat
+				// point 3).
+				const char *ptrs[NkModelerState::kMaxOsDrop];
+				int32 n = 0;
+				for (int32 i = 0; i < st.osDropCount && n < (int32)NkModelerState::kMaxOsDrop; ++i)
+					ptrs[n++] = st.osDropPaths[i];
+				(void)NkImportFiles(st, ptrs, n, &cards);
 			}
 			st.osDropCount = 0;
 			if (cards.Empty())
@@ -608,9 +974,10 @@ namespace nkentseu {
 				return; // navigateur : import seul, c'est le contrat
 			if (zone == 2) {
 				const int32 n = NkImportInstantiate(st, cards, nullptr);
-				snprintf(st.hierNote, sizeof(st.hierNote),
-						 "Import : %d carte(s), %d objet(s) ajoute(s) a la scene (coordonnees du fichier)",
-						 (int32)cards.Size(), n);
+				NkImportNote(st, n > 0 ? NkToastKind::Succes : NkToastKind::Partiel,
+							 "Import reussi : %d carte(s) creee(s), %d objet(s) ajoute(s) a la scene aux "
+							 "coordonnees du fichier.",
+							 (int32)cards.Size(), n);
 				return;
 			}
 			// Vue 3D : le point du monde vient du pick, qui repond a la frame
@@ -648,9 +1015,9 @@ namespace nkentseu {
 				}
 			}
 			const int32 n = NkImportInstantiate(st, cards, off);
-			snprintf(st.hierNote, sizeof(st.hierNote),
-					 "Import : %d carte(s), %d objet(s) poses au point du lacher",
-					 (int32)cards.Size(), n);
+			NkImportNote(st, n > 0 ? NkToastKind::Succes : NkToastKind::Partiel,
+						 "Import reussi : %d carte(s) creee(s), %d objet(s) poses au point du lacher.",
+						 (int32)cards.Size(), n);
 		}
 
 	} // namespace nk3d
