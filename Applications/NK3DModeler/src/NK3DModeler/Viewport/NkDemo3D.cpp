@@ -1458,6 +1458,20 @@ namespace nkentseu {
 				bool editPickPending = false;
 				float32 editPickX = 0.f, editPickY = 0.f;
 				bool editPickShift = false, editPickAlt = false;
+				// ── LE PICK A UN INDEX, PAS SEULEMENT DES PIXELS ─────────────────────
+				// Viser en pixels n'est pas deterministe : sur le meme cube, (560,300)
+				// touche une face et (524,268) ne touche rien. Un essai qui rate parce
+				// qu'on a mal vise est INDISCERNABLE d'un essai qui rate parce que le
+				// code est faux -- et c'est l'instrument, pas le code, qu'on accuse.
+				// Ce champ arme le MEME pick avec le TRIANGLE deja elu : le rayon
+				// curseur n'a plus a l'elire, tout le reste (bascule, face n-gon,
+				// propagation aux coincidents, element actif) reste le code du clic,
+				// ligne pour ligne. -1 = pick par pixels, qui reste le chemin de Rodolf.
+				int32 editPickTri = -1;
+				// Le jumeau du precedent pour le sous-mode SOMMET : en mode Sommet, le
+				// clic de Rodolf elit un SOMMET, pas une face. Forcer une face la ou il
+				// designe un sommet mesurerait un geste que le produit ne fait jamais.
+				int32 editPickVert = -1;
 				int32 editActiveVert = -1;		  // sommet ACTIF (dernier sélectionné) = rendu BLANC façon Blender
 				// ── ÉLÉMENT ACTIF EN ARÊTE ET EN FACE ───────────────────────────────
 				// Blender distingue TROIS états, pas deux : non sélectionné (noir),
@@ -9356,8 +9370,15 @@ namespace nkentseu {
 				// Il n'y a pas de second chemin de selection : c'est la seule facon de
 				// pouvoir dire qu'une mesure prouve ce que fait le clic de Rodolf.
 				const bool pickArme = st->editPickPending;
-				if (pickArme)
+				// L'index est lu ET remis a -1 au MEME instant que le drapeau : s'il
+				// survivait au pick, le clic SUIVANT de Rodolf viserait la face du banc.
+				const int32 pickTri = pickArme ? st->editPickTri : -1;
+				const int32 pickVert = pickArme ? st->editPickVert : -1;
+				if (pickArme) {
 					st->editPickPending = false; // consomme une fois, comme un clic
+					st->editPickTri = -1;
+					st->editPickVert = -1;
+				}
 				if ((clickNow || pickArme) && !grabbedHandle && !st->knifeArmed && !zoneToolConsumed) {
 					st->editOverlayDirty = true; // la sélection va changer -> reconstruire l'overlay
 					const float32 mx = pickArme ? st->editPickX : gin.mouseX;
@@ -9541,7 +9562,25 @@ namespace nkentseu {
 						electCand(bestEa, bestEb);
 					}
 					// FACE : le triangle le plus PROCHE touche par le rayon curseur (nearestTri).
-					const int32 bestFt = (st->editSelMask & 4) ? nearestTri : -1;
+					int32 bestFt = (st->editSelMask & 4) ? nearestTri : -1;
+					// PICK PAR INDEX : le triangle est DONNE, pas elu par le rayon. On
+					// ecrase les trois candidats pour que l'election ci-dessous tombe
+					// forcement sur la branche FACE -- sinon un sommet qui se trouverait
+					// sous le curseur (0,0) l'emporterait par priorite, et le banc
+					// mesurerait un clic de sommet en croyant mesurer un clic de face.
+					// ⚠ LA GARDE DE MASQUE N'EST PAS UNE PRECAUTION : sans elle, un pick de
+					// face arme en sous-mode SOMMET selectionnerait une face la ou le clic
+					// de Rodolf elit un sommet -- l'instrument ferait un geste que le
+					// produit ne fait jamais, et la mesure ne dirait plus rien de lui.
+					if (pickTri >= 0 && (st->editSelMask & 4)) {
+						bestFt = pickTri;
+						bestV = -1;
+						bestEa = bestEb = -1;
+					} else if (pickVert >= 0 && (st->editSelMask & 1)) {
+						bestV = pickVert;
+						bestEa = bestEb = -1;
+						bestFt = -1;
+					}
 					// PREUVE : verdict de l'ANCIENNE regle (« moitie near ») sur l'element elu.
 					if (st->pickDiag) {
 						const float32 depthMid = (tNear < 1e29f) ? 0.5f * (tNear + tFar) : 1e30f;
@@ -15934,6 +15973,168 @@ namespace nkentseu {
 			st->editPickShift = shift;
 			st->editPickAlt = alt;
 			st->editPickPending = true;
+			return true;
+		}
+		// ── LE MEME PICK, DESIGNE PAR UN INDEX ───────────────────────────────
+		// Deux crochets, deux usages : les PIXELS reproduisent l'experience de
+		// Rodolf -- c'est SON chemin, il faut pouvoir le mesurer -- et l'INDEX
+		// sert aux bancs, parce qu'un essai qui rate faute d'avoir vise juste est
+		// indiscernable d'un essai qui rate parce que le code est faux.
+		// L'index est celui de la FACE N-GON (0..FaceCount-1). Le seul travail
+		// propre a ce crochet est de le traduire en triangle, par la fonction qui
+		// fait deja le chemin INVERSE dans le pick : aucune convention neuve.
+		// Tout le reste -- bascule, Shift, sommets de la face, propagation,
+		// element actif -- est le code du clic, et n'est pas duplique ici.
+		bool Demo3DHostEditPickFace(int32 face, bool shift) {
+			auto *st = HostSt();
+			if (!st || !st->editMode)
+				return false;
+			if (face < 0 || (uint32)face >= st->editHE.FaceCount())
+				return false;
+			if (!st->editHE.faces[(uint32)face].alive)
+				return false;
+			int32 tri = -1;
+			for (uint32 t = 0; t + 2 < (uint32)st->editIdx.Size(); t += 3) {
+				if (Demo3D_FaceOfTri(st, t / 3u) == (renderer::NkEmId)face) {
+					tri = (int32)t;
+					break;
+				}
+			}
+			if (tri < 0)
+				return false; // face sans triangle : REFUSER plutot que viser au hasard
+			st->editPickTri = tri;
+			st->editPickX = 0.f;
+			st->editPickY = 0.f;
+			st->editPickShift = shift;
+			st->editPickAlt = false;
+			st->editPickPending = true;
+			return true;
+		}
+		// LE MEME PICK, PAR INDEX DE SOMMET. `vert` est un indice BRUT dans la
+		// cage editee : notre Vert est un COIN (un cube en a 24 pour 8 positions),
+		// donc trois indices differents designent le meme point de l'espace -- et
+		// c'est precisement ce que la mesure du sous-mode Sommet doit montrer.
+		bool Demo3DHostEditPickVert(int32 vert, bool shift) {
+			auto *st = HostSt();
+			if (!st || !st->editMode)
+				return false;
+			if (vert < 0 || (uint32)vert >= (uint32)st->editLive.Size())
+				return false;
+			st->editPickVert = vert;
+			st->editPickTri = -1;
+			st->editPickX = 0.f;
+			st->editPickY = 0.f;
+			st->editPickShift = shift;
+			st->editPickAlt = false;
+			st->editPickPending = true;
+			return true;
+		}
+		// Combien de sommets BRUTS, et ou : de quoi choisir un index sans le
+		// deviner, comme pour les faces. Position en espace OBJET.
+		uint32 Demo3DHostEditVertCount() {
+			auto *st = HostSt();
+			if (!st || !st->editMode)
+				return 0;
+			return (uint32)st->editLive.Size();
+		}
+		bool Demo3DHostEditVertPos(int32 vert, float32 *x, float32 *y, float32 *z) {
+			auto *st = HostSt();
+			if (!st || !st->editMode)
+				return false;
+			if (vert < 0 || (uint32)vert >= (uint32)st->editLive.Size())
+				return false;
+			const NkVec3f p = st->editLive[(uint32)vert].pos;
+			if (x)
+				*x = p.x;
+			if (y)
+				*y = p.y;
+			if (z)
+				*z = p.z;
+			return true;
+		}
+		// COMBIEN DE FACES, ET OU SONT-ELLES. Sans ce lecteur, un index de face se
+		// DEVINE -- et un index devine ramene exactement le probleme que le pick
+		// par index vient de supprimer. Le centre est en espace OBJET.
+		uint32 Demo3DHostEditFaceCount() {
+			auto *st = HostSt();
+			if (!st || !st->editMode)
+				return 0;
+			return st->editHE.FaceCount();
+		}
+		bool Demo3DHostEditFaceInfo(int32 face, uint32 *nverts, float32 *cx, float32 *cy,
+					float32 *cz) {
+			auto *st = HostSt();
+			if (!st || !st->editMode)
+				return false;
+			if (face < 0 || (uint32)face >= st->editHE.FaceCount())
+				return false;
+			if (!st->editHE.faces[(uint32)face].alive)
+				return false;
+			NkVector<uint32> fv;
+			st->editHE.GetFaceVerts((renderer::NkEmId)face, fv);
+			if (fv.Empty())
+				return false;
+			NkVec3f c{0.f, 0.f, 0.f};
+			uint32 pris = 0;
+			for (uint32 k = 0; k < (uint32)fv.Size(); ++k) {
+				if (fv[k] >= (uint32)st->editLive.Size())
+					continue;
+				c = c + st->editLive[fv[k]].pos;
+				++pris;
+			}
+			if (pris == 0)
+				return false;
+			c = c * (1.f / (float32)pris);
+			if (nverts)
+				*nverts = (uint32)fv.Size();
+			if (cx)
+				*cx = c.x;
+			if (cy)
+				*cy = c.y;
+			if (cz)
+				*cz = c.z;
+			return true;
+		}
+		// LA BOITE ENGLOBANTE DE LA SELECTION, en espace MONDE, et le nombre de
+		// sommets BRUTS retenus. Troisieme critere du Maj+clic : le compteur dit
+		// combien de faces, la boite dit LESQUELLES -- deux faces voisines d'un
+		// cube donnent la boite du cube entier, une seule face donne une boite
+		// PLATE et decentree. Le meme parcours que le cadrage, pour que les deux
+		// nombres ne puissent pas se contredire.
+		bool Demo3DHostEditSelBounds(uint32 *nsel, float32 *cx, float32 *cy, float32 *cz,
+					float32 *rayon) {
+			auto *st = HostSt();
+			if (!st || !st->editMode || st->editLive.Empty())
+				return false;
+			NkVec3f mn{1e30f, 1e30f, 1e30f}, mx{-1e30f, -1e30f, -1e30f};
+			uint32 pris = 0;
+			for (uint32 i = 0; i < (uint32)st->editLive.Size(); ++i) {
+				if (i >= (uint32)st->vertSel.Size() || !st->vertSel[i])
+					continue;
+				const NkVec3f p = st->editAnchor * st->editLive[i].pos;
+				if (p.x < mn.x) mn.x = p.x;
+				if (p.y < mn.y) mn.y = p.y;
+				if (p.z < mn.z) mn.z = p.z;
+				if (p.x > mx.x) mx.x = p.x;
+				if (p.y > mx.y) mx.y = p.y;
+				if (p.z > mx.z) mx.z = p.z;
+				++pris;
+			}
+			if (nsel)
+				*nsel = pris;
+			if (pris == 0)
+				return false;
+			const NkVec3f c = (mn + mx) * 0.5f;
+			const float32 ex = (mx.x - mn.x) * 0.5f, ey = (mx.y - mn.y) * 0.5f,
+					ez = (mx.z - mn.z) * 0.5f;
+			if (cx)
+				*cx = c.x;
+			if (cy)
+				*cy = c.y;
+			if (cz)
+				*cz = c.z;
+			if (rayon)
+				*rayon = sqrtf(ex * ex + ey * ey + ez * ez);
 			return true;
 		}
 		// TAILLE DE LA VUE, en pixels. Elle existait dans l'hote et n'etait lisible
