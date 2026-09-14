@@ -129,6 +129,9 @@ namespace nkuidesign {
 				/// Les fils ecrits sous un role que le monteur ne traverse pas.
 				/// Non nul = le fichier porte plus que ce que le montage rend.
 				uint32 filsSousUneFeuille = 0;
+				/// Les couleurs de TEXTE qu'un noeud a fond n'a pas pu ecrire : une
+				/// `appearance` n'a qu'un `fill`. Comptees, jamais tues en silence.
+				uint32 encresPerdues = 0;
 				/// Les noms hors catalogue, SANS doublon. **Signaler, jamais migrer** :
 				/// la graphie des roles touche des fichiers deja enregistres, et cette
 				/// decision appartient a Rodolf.
@@ -519,8 +522,28 @@ namespace nkuidesign {
 			// l'etat de repos -- c'est ce que le format appelle le nu.
 			{
 				const char *fond = n.FondEffectif();
-				const bool aTexte = !n.textColor.Empty();
-				if ((fond && *fond) || aTexte) {
+				// 🔴 LA TYPOGRAPHIE DE L'ENFANT ABSORBE SUIT SON MOT. Mesure du
+				//    2026-09-14 : le document porte 18 noeuds a corps et 11 a graisse,
+				//    le fichier n'en ecrivait que 17 et 10. Le manquant etait le
+				//    `Texte du bouton` -- absorbe en `label`, il emportait avec lui son
+				//    `police_px = 12` et sa `graisse = 600`. En `.nkgui` c'est
+				//    l'apparence du BOUTON qui regit son libelle : la typographie de
+				//    l'enfant remonte donc au parent, sinon elle disparait sans un mot.
+				const NkUINode *typo = &n;
+				if (enfantLibelle >= 0) {
+					const NkUINode &e = doc.nodes[(uint32)enfantLibelle];
+					if (n.fontPx == 0.f && n.fontWeight == 0.f && n.textColor.Empty()) {
+						typo = &e;
+					}
+				}
+				const char *encre = typo->textColor.Empty() ? nullptr : typo->textColor.Data();
+				// ⚠️ LA CONDITION D'EXISTENCE DU BLOC PORTE SUR TOUT CE QU'IL PEUT
+				//    CONTENIR, pas sur la couleur seule. Elle ne portait que sur la
+				//    couleur : un noeud n'ayant qu'un corps ou qu'un rayon perdait les
+				//    deux. Aucun document du depot n'est dans ce cas AUJOURD'HUI -- la
+				//    garde vaut pour le premier qui le sera.
+				if ((fond && *fond) || encre || n.radius != 0.f || typo->fontPx != 0.f
+					|| typo->fontWeight != 0.f) {
 					NkArchiveNode *an =
 						NkGuiArchive::AddBlock(bloc, NkStringView("appearance"), NkStringView(""));
 					if (an && an->object) {
@@ -534,7 +557,18 @@ namespace nkuidesign {
 						// ⚠️ ET IL N'Y A PAS DE `textColor` : l'encre d'un texte est SON
 						//    remplissage. Le meme bloc sert donc aux deux, et c'est le seul
 						//    vocabulaire que le format offre.
-						const char *couleur = (fond && *fond) ? fond : n.textColor.Data();
+						// 🔴 UN NOEUD PEUT AVOIR UN FOND *ET* UNE ENCRE ; UNE `appearance`
+						//    N'A QU'UN `fill`. Le bouton de la maquette est exactement ce
+						//    cas : fond #0969da, libelle #ffffff. Le format ne sait pas dire
+						//    les deux -- `pApparence` n'a ni `textColor` ni `inkColor`, et
+						//    les quatre effets sont `fill`, `stroke`, `shadow`, `blur`.
+						//    On garde le FOND (c'est lui qui porte la forme) et **on compte
+						//    l'encre perdue** : un champ qui disparait sans un mot est la
+						//    pire forme d'echec, et celui-ci disparaissait sans un mot.
+						const char *couleur = (fond && *fond) ? fond : encre;
+						if ((fond && *fond) && encre && !NkComponentDecl::StrEq(fond, encre)) {
+							++rap.encresPerdues;
+						}
 						NkArchiveNode *fn =
 							NkGuiArchive::AddBlock(ap, NkStringView("fill"), NkStringView(""));
 						if (fn && fn->object) {
@@ -546,11 +580,11 @@ namespace nkuidesign {
 						// `size` et `weight` sont declares par le format (pApparence,
 						// NkGuiValidate.h:590) et le document les porte : les laisser de cote
 						// aurait perdu le corps et la graisse sans qu'aucun banc ne le dise.
-						if (n.fontPx != 0.f) {
-							ap.SetFloat32(NkStringView("size"), n.fontPx);
+						if (typo->fontPx != 0.f) {
+							ap.SetFloat32(NkStringView("size"), typo->fontPx);
 						}
-						if (n.fontWeight != 0.f) {
-							ap.SetFloat32(NkStringView("weight"), n.fontWeight);
+						if (typo->fontWeight != 0.f) {
+							ap.SetFloat32(NkStringView("weight"), typo->fontWeight);
 						}
 						++rap.apparencesEcrites;
 					}
