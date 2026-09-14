@@ -1952,6 +1952,43 @@ int nkmain(const NkEntryState &entry) {
 			}
 		}
 
+		// NK_OP_PARAM="index,valeur[,frame]" : pose un REGLAGE PERSISTANT d'operation
+		// par la MEME porte que le champ du panneau (`Demo3DHostOpParamSet`), donc
+		// avec le meme clamp. Sert a prouver ce que le canal exige : « changer la
+		// propriete change la GEOMETRIE » -- sans quoi un champ affiche n'est qu'un
+		// decor mieux habille.
+		{
+			static bool sOpPDone = false;
+			if (const char *op = std::getenv("NK_OP_PARAM")) {
+				float32 v[3] = {0.f, 0.f, 90.f};
+				int32 k = 0;
+				for (const char *q = op; k < 3 && *q;) {
+					v[k++] = (float32)std::atof(q);
+					while (*q && *q != ',')
+						++q;
+					if (*q == ',')
+						++q;
+				}
+				if (!sOpPDone && agentFrame >= (int32)v[2]) {
+					sOpPDone = true;
+					const int32 idx = (int32)v[0];
+					float32 avant = 0.f, apres = 0.f;
+					(void)demo::Demo3DHostOpParamGet(idx, &avant);
+					const bool ok = demo::Demo3DHostOpParamSet(idx, v[1]);
+					(void)demo::Demo3DHostOpParamGet(idx, &apres);
+					const char *lib = nullptr;
+					int32 cmd = -1, typ = 0;
+					(void)demo::Demo3DHostOpParamInfo(idx, &cmd, &lib, &typ, nullptr, nullptr);
+					std::printf("[nk3d-opp ] param %d (%s, cmd=%d) : %.3f -> %.3f (pose=%d)\n",
+								(int)idx, lib ? lib : "?", (int)cmd, (double)avant, (double)apres,
+								ok ? 1 : 0);
+					std::fflush(stdout);
+				}
+			} else {
+				sOpPDone = true;
+			}
+		}
+
 		// NK_EDIT_MODE=<1>[,frame] : le MODE vient du shell, la CIBLE du viseur.
 		// Le crochet cote viseur choisit l'objet a editer ; c'est ici que le mode
 		// est POSE, par la meme porte que l'onglet et que TAB. Sans cela, le

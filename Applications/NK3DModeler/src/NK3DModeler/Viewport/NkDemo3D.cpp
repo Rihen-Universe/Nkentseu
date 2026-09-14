@@ -15548,6 +15548,97 @@ namespace nkentseu {
 			st->modalStartX = st->modalCurX;
 			return true;
 		}
+		// ── LA TABLE DES REGLAGES PERSISTANTS ──────────────────────────────
+		// Chaque ligne DESIGNE un champ reel de Demo3DState. Les bornes sont celles
+		// que le code applique deja ailleurs (`loopCuts` 1..5 par sa touche,
+		// `bevelSegments` 1..16 par la molette) : les recopier ici ne cree pas une
+		// seconde verite, elles sont re-appliquees a l'ecriture par le meme clamp.
+		// `cmd` reprend les valeurs de `nk3d::NkMeshCmd` — 0 Extruder, 1 Inserer,
+		// 2 Biseauter, 3 Subdiviser, 4 LoopCut, 8 Spin.
+		struct HostOpParam {
+				int32 cmd;
+				const char *libelle;
+				int32 type; // 0 bool, 1 entier, 2 reel
+				float32 vmin, vmax;
+		};
+		static const HostOpParam *HostOpParams(int32 &n) {
+			static const HostOpParam kP[] = {
+				{0, "Faces individuelles", 0, 0.f, 1.f},   // extrudeIndividual
+				{1, "Individuel", 0, 0.f, 1.f},            // insetIndividual
+				{1, "Profondeur", 2, -10.f, 10.f},         // insetDepth
+				{2, "Largeur (0 = auto)", 2, 0.f, 10.f},   // bevelOffset
+				{2, "Segments", 1, 1.f, 16.f},             // bevelSegments
+				{3, "Coupes", 1, 1.f, 10.f},               // subdivCuts
+				{4, "Boucles", 1, 1.f, 5.f},               // loopCuts
+				{8, "Axe (0=X 1=Y 2=Z)", 1, 0.f, 2.f},     // spinAxis
+				{8, "Copies isolees", 0, 0.f, 1.f},        // spinDuplicate
+			};
+			n = (int32)(sizeof(kP) / sizeof(kP[0]));
+			return kP;
+		}
+		int32 Demo3DHostOpParamCount() {
+			int32 n = 0;
+			(void)HostOpParams(n);
+			return n;
+		}
+		bool Demo3DHostOpParamInfo(int32 i, int32 *cmd, const char **libelle, int32 *type,
+								   float32 *vmin, float32 *vmax) {
+			int32 n = 0;
+			const HostOpParam *P = HostOpParams(n);
+			if (i < 0 || i >= n)
+				return false;
+			if (cmd) *cmd = P[i].cmd;
+			if (libelle) *libelle = P[i].libelle;
+			if (type) *type = P[i].type;
+			if (vmin) *vmin = P[i].vmin;
+			if (vmax) *vmax = P[i].vmax;
+			return true;
+		}
+		bool Demo3DHostOpParamGet(int32 i, float32 *val) {
+			auto *st = HostSt();
+			if (!st || !val)
+				return false;
+			switch (i) {
+				case 0: *val = st->extrudeIndividual ? 1.f : 0.f; return true;
+				case 1: *val = st->insetIndividual ? 1.f : 0.f; return true;
+				case 2: *val = st->insetDepth; return true;
+				case 3: *val = st->bevelOffset; return true;
+				case 4: *val = (float32)st->bevelSegments; return true;
+				case 5: *val = (float32)st->subdivCuts; return true;
+				case 6: *val = (float32)st->loopCuts; return true;
+				case 7: *val = (float32)st->spinAxis; return true;
+				case 8: *val = st->spinDuplicate ? 1.f : 0.f; return true;
+				default: return false;
+			}
+		}
+		bool Demo3DHostOpParamSet(int32 i, float32 v) {
+			auto *st = HostSt();
+			if (!st)
+				return false;
+			int32 n = 0;
+			const HostOpParam *P = HostOpParams(n);
+			if (i < 0 || i >= n)
+				return false;
+			// LE CLAMP EST ICI ET NULLE PART AILLEURS. Un champ regle par deux
+			// chemins avec deux bornes differentes laisse entrer par l'un ce que
+			// l'autre refuse -- c'est le defaut qu'on vient d'eviter sur les
+			// parametres modaux.
+			if (v < P[i].vmin) v = P[i].vmin;
+			if (v > P[i].vmax) v = P[i].vmax;
+			const int32 e = (int32)(v + (v < 0.f ? -0.5f : 0.5f));
+			switch (i) {
+				case 0: st->extrudeIndividual = (v >= 0.5f); return true;
+				case 1: st->insetIndividual = (v >= 0.5f); return true;
+				case 2: st->insetDepth = v; return true;
+				case 3: st->bevelOffset = v; return true;
+				case 4: st->bevelSegments = e; return true;
+				case 5: st->subdivCuts = e; return true;
+				case 6: st->loopCuts = e; return true;
+				case 7: st->spinAxis = e; return true;
+				case 8: st->spinDuplicate = (v >= 0.5f); return true;
+				default: return false;
+			}
+		}
 		bool Demo3DHostModalSetSeg(int32 n) {
 			auto *st = HostSt();
 			if (!st || st->modalOp == 0)
