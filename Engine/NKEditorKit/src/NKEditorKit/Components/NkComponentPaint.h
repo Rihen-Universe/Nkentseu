@@ -101,6 +101,10 @@
 // -----------------------------------------------------------------------------
 
 #include "NKCore/NkTypes.h"
+// Le repli inerte se NOMME (cf. le bloc plus bas) : il lui faut un flux et un
+// `getenv`. Rien d'autre n'entre ici -- ce fichier ne doit rien savoir de NKGui.
+#include <cstdio>
+#include <cstdlib>
 
 namespace nkentseu {
 	namespace editorkit {
@@ -240,10 +244,71 @@ namespace nkentseu {
 			return o;
 		}
 
+		// ═══════════════════════════════════════════════════════════════════════
+		//  LE REPLI INERTE SE NOMME (2026-09-14) — canal `onglets.questions.md`
+		// ═══════════════════════════════════════════════════════════════════════
+		//  ⚠️ POURQUOI CECI EXISTE, ET CE QUE CA A COUTE DE NE PAS L'AVOIR.
+		//     Huit primitives de cette interface ont un DEFAUT INERTE : la classe
+		//     de base ne dessine rien et rend `false`, l'appelant peint alors un
+		//     repli. C'est voulu -- tout hote ne sait pas tracer une courbe.
+		//
+		//     Mais le defaut etait MUET. `NkModelerComponentPaint` n'implementait
+		//     ni `Line` ni `Ellipse` ; personne ne l'a su pendant des semaines,
+		//     parce qu'aucun critere ne PEUT le voir : le repli est un
+		//     comportement legitime, pas une erreur. Il a fallu une CAPTURE, ou
+		//     le « + » d'une bande d'onglets sortait en carre blanc, pendant que
+		//     le banc rendait 104/104. Pire : le repli de l'arbre pour
+		//     `PolygonHex` est `Line` -- lui-meme inerte chez cet hote. Les
+		//     chevrons de la hierarchie ne dessinaient donc RIEN DU TOUT, et le
+		//     repli du repli etait le silence.
+		//
+		//  ⚠️ ON NE REND PAS LE REPLI FATAL. Un hote a le droit de ne pas savoir.
+		//     On le NOMME, UNE SEULE FOIS par primitive et par processus : un
+		//     message par image noierait la console et serait desarme le jour
+		//     meme. Une ligne, au premier passage, qui dit QUI et QUOI.
+		//
+		//  ⚠️ ET IL EST DESARMABLE : `NK_PAINT_REPLI=0`. Par defaut il PARLE --
+		//     c'est le sens de la regle du depot (« jamais un repli muet ») et
+		//     l'inverse du choix qui nous a coutes ces semaines.
+		inline bool NkPaintRepliVerbeux() noexcept {
+			// Lu UNE FOIS : un getenv par primitive et par image serait un cout
+			// dans le chemin de dessin.
+			static const bool k = []() {
+				const char *v = std::getenv("NK_PAINT_REPLI");
+				return !(v && v[0] == '0');
+			}();
+			return k;
+		}
+
+		/// Nomme un repli inerte. `deja` est le temoin PROPRE au site d'appel :
+		/// un `static bool` par primitive, donc un message par primitive.
+		/// Rend toujours `false`, pour s'ecrire en une ligne : `return
+		/// NkPaintRepliInerte(...)`.
+		inline bool NkPaintRepliInerte(bool &deja, const char *peintre,
+									   const char *primitive) noexcept {
+			if (!deja && NkPaintRepliVerbeux()) {
+				deja = true;
+				std::fprintf(stderr,
+							 "[peintre] REPLI INERTE : `%s` n'implemente pas `%s` — le composant "
+							 "peindra un repli, ou rien.\n",
+							 peintre ? peintre : "peintre anonyme", primitive);
+				std::fflush(stderr);
+			}
+			return false;
+		}
+
 		// ── L'INTERFACE ─────────────────────────────────────────────────────────
 		class NkComponentPaint {
 			public:
 				virtual ~NkComponentPaint() = default;
+
+				/// QUI SUIS-JE — pour que le message de repli nomme le coupable.
+				/// ⚠️ Additif : un peintre qui ne le redefinit pas garde le defaut,
+				///    et le message reste utile (il nomme la PRIMITIVE, qui est la
+				///    moitie qui manquait vraiment).
+				virtual const char *NomDuPeintre() const noexcept {
+					return "peintre anonyme";
+				}
 
 				// ── Theme et metrologie ─────────────────────────────────────────
 				/// Couleur d'un role, empaquetee 0xRRGGBBAA — la forme de `NkTheme`.
@@ -316,7 +381,8 @@ namespace nkentseu {
 				virtual bool Ellipse(const NkPaintRect &r, uint16 role) {
 					(void)r;
 					(void)role;
-					return false;
+					static bool deja = false;
+					return NkPaintRepliInerte(deja, NomDuPeintre(), "Ellipse");
 				}
 				/// Segment de `(x1,y1)` a `(x2,y2)`. Vrai si dessine.
 				virtual bool Line(float32 x1, float32 y1, float32 x2, float32 y2, uint16 role,
@@ -327,7 +393,8 @@ namespace nkentseu {
 					(void)y2;
 					(void)role;
 					(void)thickness;
-					return false;
+					static bool deja = false;
+					return NkPaintRepliInerte(deja, NomDuPeintre(), "Line");
 				}
 
 				// ── AJOUT ADDITIF DU 2026-08-31 (formes Lunacy : triangle,
@@ -340,7 +407,8 @@ namespace nkentseu {
 					(void)xy;
 					(void)count;
 					(void)rgba;
-					return false;
+					static bool deja = false;
+					return NkPaintRepliInerte(deja, NomDuPeintre(), "PolygonHex");
 				}
 
 				// ── AJOUT ADDITIF DU 2026-08-31 (vocabulaire d'apparence §8ter) ──
@@ -381,7 +449,15 @@ namespace nkentseu {
 				///    surcharge pas dessine droit, comme avant. Les deux peintres du
 				///    kit la surchargent : `NkGuiComponentPaint` l'APPLIQUE,
 				///    `NkRecordingPaint` l'ENREGISTRE (le temoin sans ecran la voit).
-				virtual void PushTransform(const NkPaintTransform &t) { (void)t; }
+				virtual void PushTransform(const NkPaintTransform &t) {
+					(void)t;
+					// ⚠️ CELUI-CI EST LE PLUS DANGEREUX DES HUIT : un peintre qui
+					//    l'ignore ne dessine pas « rien », il dessine DROIT ce qui
+					//    devait etre tourne. Le resultat a l'air normal -- c'est le
+					//    defaut le plus difficile a voir, meme sur une image.
+					static bool deja = false;
+					(void)NkPaintRepliInerte(deja, NomDuPeintre(), "PushTransform");
+				}
 				virtual void PopTransform() {}
 
 				// ── LE MODE DE MELANGE (2026-09-04) -- AJOUT ADDITIF ─────────────
@@ -389,7 +465,13 @@ namespace nkentseu {
 				/// celles de `NkGuiBlend`. Un peintre qui ne sait pas melanger ignore
 				/// les deux appels (le defaut) : il peint en alpha, comme avant.
 				enum class NkPaintBlend : uint8 { Alpha = 0, Multiply, Screen, Darken, Lighten, PlusLighter };
-				virtual void PushBlend(NkPaintBlend b) { (void)b; }
+				virtual void PushBlend(NkPaintBlend b) {
+					(void)b;
+					// Meme famille que PushTransform : le dessin sort en alpha au
+					// lieu du mode demande. Rien ne manque a l'ecran, tout est faux.
+					static bool deja = false;
+					(void)NkPaintRepliInerte(deja, NomDuPeintre(), "PushBlend");
+				}
 				virtual void PopBlend() {}
 
 				// ── L'IMAGE (2026-09-05, chaine de l'image de NkUIDesign) ─────────
@@ -408,7 +490,8 @@ namespace nkentseu {
 					(void)count;
 					(void)image;
 					(void)opacite;
-					return false;
+					static bool deja = false;
+					return NkPaintRepliInerte(deja, NomDuPeintre(), "ImagePolygone");
 				}
 				// ── LA TEINTE DU NŒUD (2026-09-12) ──────────────────────────────
 				/// UN MULTIPLICATEUR APPLIQUE A L'EMISSION. Il traverse ce qu'il ne
