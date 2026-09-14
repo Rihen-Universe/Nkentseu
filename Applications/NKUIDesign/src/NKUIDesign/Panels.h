@@ -75,6 +75,7 @@
 #include "Transfo.h" // rotation et miroirs : le MEME calcul pour le dessin et le clic
 #include "DesignAI.h"
 #include "DesignChat.h" // la conversation + le document de specification
+#include "DesignChatAsync.h" // (g3) le fil de generation, et sa regle de partage
 #include "NkGuiValidate.h" // guifmt::NkGEtats — LA table fermee des six etats
 #include "Renderers.h"
 #include "NKImage/NKImage.h" // le cache d'images du document (12 codecs)
@@ -568,6 +569,63 @@ namespace nkuidesign {
 			//    est un NOM.
 			NkDesignConversation conversation;
 			NkSpecification spec;
+			/// Le dorsal LENT du banc (--mesure-async). Il vit ici et non dans une
+			/// variable locale : le fil de generation le lit APRES le retour de la
+			/// fonction qui l'aurait cree, et un dorsal detruit sous les pieds du
+			/// travailleur serait un defaut qui n'arrive qu'une fois sur dix.
+			NkDorsalLent dorsalLent;
+
+			// ═══════════════════════════════════════════════════════════════
+			//  (g3) LA TACHE DE GENERATION VIT DANS L'ETAT, PAS DANS UN PANNEAU
+			// ═══════════════════════════════════════════════════════════════
+			//  🔴 MESURE DU 14/09, ET ELLE A TUE MA PREMIERE VERSION. J'avais mis
+			//     la recolte dans `AIPanel::OnUI`. Le banc a rendu :
+			//         [mesure-async] ASYNCHRONE : 0 image(s), travail 335,667 s
+			//     Zero. Parce que `OnUI` n'est appele QUE si le panneau est
+			//     dessine -- et l'AIPanel est `SetOpen(false)` : il n'existe a
+			//     l'ecran que quand son tiroir est ouvert. Une generation lancee
+			//     puis un tiroir referme, et la reponse n'arrivait JAMAIS.
+			//
+			//  ⚠️ LA REGLE QUI EN SORT : **une tache de fond ne se recolte pas
+			//     dans le dessin de ce qui l'affiche.** Ce qui vit plus longtemps
+			//     que la vue doit vivre dans l'etat, et etre recolte par un
+			//     chemin qui passe a CHAQUE image quoi qu'il arrive. Ici, c'est
+			//     `DrawMenuBar` -- le seul rappel que la coquille appelle a chaque
+			//     image sans condition.
+			NkEnvoiAsync envoi;
+			/// La derniere phrase a montrer dans le panneau IA. Elle vit ici parce
+			/// que la recolte, elle aussi, a lieu hors du panneau.
+			NkString messageIA;
+
+			/// A APPELER A CHAQUE IMAGE, hors de tout panneau. Rend vrai quand une
+			/// tache vient de s'achever.
+			///
+			/// ⚠️ APRES UNE ANNULATION, CETTE FONCTION NE VOIT RIEN : la poignee a
+			///    lache sa part de la tache et l'a oubliee. La reponse annulee ne
+			///    sera pas « ignoree plus tard » -- elle ne sera JAMAIS posee.
+			bool RecolterIA() {
+				NkString texte, erreur;
+				bool reussi = false;
+				if (!envoi.Recolter(texte, erreur, reussi))
+					return false;
+				if (reussi) {
+					conversation.Ajouter(NkQui::IA, texte.Data());
+					char b[192];
+					snprintf(b, sizeof(b),
+							 "Reponse recue en %.1f s (%u images pendant l'attente). "
+							 "Le document n'a pas bouge.",
+							 envoi.Secondes(), envoi.Images());
+					messageIA = NkString(b);
+				} else {
+					// Aucun tour IA vide : un tour vide ferait croire que la machine
+					// a repondu « rien ».
+					char b[320];
+					snprintf(b, sizeof(b), "REFUS — %s",
+							 erreur.Length() > 0 ? erreur.Data() : "raison non nommee");
+					messageIA = NkString(b);
+				}
+				return true;
+			}
 			char chatBuf[512] = {0};	 ///< le message en cours de frappe
 			char specNomBuf[64] = {0};	 ///< le nom du fichier de specification
 			char specSujetBuf[128] = {0}; ///< le sujet de la conversation
@@ -9153,6 +9211,17 @@ namespace nkuidesign {
 				auto &ctx = ec.Ui();
 				auto &F = costume::Fontes();
 				auto &dl = ctx.DL();
+				// ⚠️ EN TETE, ET A CHAQUE IMAGE : c'est le seul endroit ou la
+				//    reponse du fil entre dans la conversation. La poser plus bas
+				//    la ferait apparaitre une image plus tard que le compteur qui
+				//    l'annonce.
+				// ⚠️ PLUS DE RECOLTE ICI : elle a lieu dans `DrawMenuBar`, qui passe
+				//    a chaque image meme quand ce panneau n'est pas dessine. On ne
+				//    fait que RELEVER ce que la recolte a ecrit.
+				if (mSt->messageIA.Length() > 0) {
+					mLast = mSt->messageIA;
+					mSt->messageIA = NkString("");
+				}
 				if (mSt->proposerInitial) { // mise en scene : une proposition prete
 					mSt->proposerInitial = false;
 					snprintf(mSt->promptBuf, sizeof(mSt->promptBuf),
@@ -9287,7 +9356,22 @@ namespace nkuidesign {
 
 				Libelle(ctx, "Message");
 				InputText(ctx, "Message", mSt->chatBuf, (int32)sizeof(mSt->chatBuf));
-				if (ec.Button("Envoyer"))
+				// ⚠️ PENDANT L'ATTENTE, LE BOUTON CHANGE DE SENS. Laisser
+				//    « Envoyer » actif inviterait a lancer une seconde generation
+				//    que le materiel ne peut pas tenir ; le griser sans rien dire
+				//    laisserait croire a un blocage. On dit ce qui se passe, et on
+				//    offre la seule action qui ait un sens : arreter.
+				if (mSt->envoi.EnCours()) {
+					char b[160];
+					snprintf(b, sizeof(b), "Genere… %.1f s  ·  %u images",
+							 mSt->envoi.Secondes(), mSt->envoi.Images());
+					ec.Text(b);
+					if (ec.Button("Annuler la generation")) {
+						mSt->envoi.Annuler();
+						mLast = NkString("Generation annulee — sa reponse ne sera "
+										 "jamais posee dans la discussion.");
+					}
+				} else if (ec.Button("Envoyer"))
 					Discuter();
 				if (mSt->conversation.Count() > 0 && ec.Button("Effacer la discussion")) {
 					mSt->conversation.Effacer();
@@ -9438,12 +9522,35 @@ namespace nkuidesign {
 							   ctx.theme.textMuted);
 			}
 
-			// -- DISCUTER. Aucun document en parametre : voir NkDesignConversation.
+			// ═══════════════════════════════════════════════════════════════
+			//  DISCUTER — SANS BLOQUER LA FENETRE (g3)
+			// ═══════════════════════════════════════════════════════════════
+			//  ⚠️ LE TOUR HUMAIN EST POSE TOUT DE SUITE, la reponse arrivera plus
+			//     tard. C'est ce qui rend l'attente lisible : l'utilisateur voit
+			//     ce qu'il a envoye pendant que ca calcule, au lieu d'un champ
+			//     vide et d'un curseur d'attente.
+			//  ⚠️ ET L'INVITE EST BATIE MAINTENANT, pas dans le fil. Elle lit la
+			//     conversation, qui appartient a l'interface ; la batir dans le
+			//     travailleur aurait mis la conversation a portee du second fil —
+			//     c'est-a-dire exactement ce que la regle de partage interdit.
 			void Discuter() {
-				NkString err;
-				if (mSt->conversation.Envoyer(mSt->ai.Backend(), mSt->chatBuf, err)) {
+				if (mSt->envoi.EnCours()) {
+					mLast = NkString("Une generation est deja en cours. « Annuler » "
+									 "la jette ; deux modeles n'entrent pas dans "
+									 "cette carte de toute facon.");
+					return;
+				}
+				if (!mSt->chatBuf[0]) {
+					mLast = NkString("REFUS — rien a envoyer : l'invite est vide.");
+					return;
+				}
+				mSt->conversation.Ajouter(NkQui::Moi, mSt->chatBuf);
+				NkString invite;
+				mSt->conversation.BatirInvite(invite);
+				NkString pourquoi;
+				if (mSt->envoi.Lancer(mSt->ai.Backend(), invite, pourquoi)) {
 					mSt->chatBuf[0] = 0; // le message est parti : le champ se vide
-					mLast = NkString("Reponse recue. Le document n'a pas bouge.");
+					mLast = NkString("Generation lancee — la fenetre reste vivante.");
 				} else {
 					// ATTENTION : LE TOUR HUMAIN RESTE. Retirer ce que
 					// l'utilisateur vient de taper parce que le modele n'a pas
@@ -9451,10 +9558,49 @@ namespace nkuidesign {
 					// jamais un silence ni un tour IA vide.
 					char b[320];
 					snprintf(b, sizeof(b), "REFUS — %s",
-							 err.Length() > 0 ? err.Data() : "raison non nommee");
+							 pourquoi.Length() > 0 ? pourquoi.Data() : "raison non nommee");
 					mLast = NkString(b);
 				}
 			}
+
+			// ── LE BANC (--mesure-async) ────────────────────────────────────
+			// Publiques parce que `main.cpp` tient l'objet et pilote le banc par
+			// image. Elles ne servent a rien d'autre, et elles le disent.
+		public:
+			/// Lance une generation de banc sur le DORSAL LENT. `sync` emprunte
+			/// l'ancien chemin BLOQUANT — c'est le NEGATIF du banc : il doit rendre
+			/// une seule image.
+			void BancAsyncLancer(nkentseu::int64 ms, bool sync) {
+				mSt->dorsalLent.millisecondes = ms;
+				mSt->conversation.Ajouter(NkQui::Moi, "banc");
+				NkString invite;
+				mSt->conversation.BatirInvite(invite);
+				if (sync) {
+					// LE CHEMIN D'AVANT, garde exprimes pour le banc : un appel
+					// bloquant dans le fil de dessin.
+					mBancSyncHorloge = nkentseu::NkChrono();
+					NkDesignRequest req;
+					req.prompt = invite;
+					NkDesignReply rep;
+					mSt->dorsalLent.Complete(req, rep);
+					mBancSyncSecondes = mBancSyncHorloge.Elapsed().ToSeconds();
+					mBancSyncFait = true;
+				} else {
+					NkString pourquoi;
+					mSt->envoi.Lancer(&mSt->dorsalLent, invite, pourquoi);
+				}
+			}
+			bool BancAsyncEnCours() const {
+				return mSt->envoi.EnCours();
+			}
+			nkentseu::uint32 BancAsyncImages() const {
+				return mSt->envoi.Images();
+			}
+			nkentseu::float64 BancAsyncSecondes() const {
+				return mBancSyncFait ? mBancSyncSecondes : mSt->envoi.Secondes();
+			}
+
+		private:
 
 			// -- ECRIRE LA SPECIFICATION. Mecanique, sans dorsal.
 			void EcrireSpec() {
@@ -9580,6 +9726,10 @@ namespace nkuidesign {
 			DesignState *mSt;
 			NkString mLast;
 			NkAIResult mDernierCommit;
+			// le banc synchrone (--mesure-async=<ms>:sync), et rien d'autre
+			nkentseu::NkChrono mBancSyncHorloge;
+			nkentseu::float64 mBancSyncSecondes = 0.0;
+			bool mBancSyncFait = false;
 	};
 
 	// ═══════════════════════════════════════════════════════════════════════════

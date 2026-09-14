@@ -200,6 +200,106 @@ static bool gSceneFusion = false;
 //    mise en scene ecran 9). J'en avais ecrit un doublon avant de chercher —
 //    la porte « chercher avant d'ecrire » vaut aussi pour ses propres ajouts.
 
+// ═══════════════════════════════════════════════════════════════════════════
+//  LE BANC DE L'ASYNCHRONE (g3) — --mesure-async=<ms>[:sync] et --mesure-fps=<ms>
+// ═══════════════════════════════════════════════════════════════════════════
+//  Ce qu'il faut prouver, et pourquoi il faut DEUX chiffres et non un :
+//    - la fenetre VIT pendant la generation -> on compte les IMAGES ;
+//    - le modele n'est PAS ralenti pour ca  -> on compte les SECONDES.
+//  Un seul des deux se truque en abimant l'autre : on peut rendre la fenetre
+//  fluide en decoupant le travail, et on peut rendre le travail rapide en
+//  gelant la fenetre. Les deux ensemble ne se truquent pas.
+//
+//  ⚠️ LE DORSAL DU BANC DORT, il n'appelle aucun modele. C'est voulu : il
+//     reproduit EXACTEMENT ce que fait un fil pendant un appel bloquant (rien,
+//     longtemps), sans occuper la carte sept minutes et sans dependre de ce
+//     qu'un modele repond. Un banc cale sur le vrai modele dependrait de la VRAM
+//     libre, du pilote et de la longueur de l'invite.
+//
+//  ⚠️ `:sync` EST LE NEGATIF, et c'est lui qui donne un sens au chiffre : il
+//     emprunte l'ANCIEN chemin bloquant. S'il ne rendait pas ~1 image, le banc
+//     ne saurait pas distinguer une fenetre vivante d'une fenetre figee, et le
+//     « N images » du chemin asynchrone ne prouverait rien.
+static nkentseu::int64 gMesureAsyncMs = -1;
+static bool gMesureAsyncSync = false;
+static nkentseu::int64 gMesureFpsMs = -1;
+// 🔴 DEUX COMPTEURS QUI NE COMPTENT PAS LA MEME CHOSE -- mesure du 14/09.
+//    `mAppMenuFn` (ou vit ce tick) est appele DEUX FOIS par image par la
+//    coquille ; `mMenuBarFn` (ou vit la recolte) UNE fois. Compter la reference
+//    avec l'un et la generation avec l'autre donnait « 278 images/s au repos
+//    contre 140 pendant la generation » -- une chute de moitie entierement
+//    IMAGINAIRE : les deux chemins tournaient a la MEME cadence.
+//    C'est « un compteur dont le zero n'est pas zero » en version double : deux
+//    compteurs de cadences differentes, compares comme s'ils etaient le meme.
+//    UN SEUL compteur d'images desormais, incremente UNE fois par image dans
+//    `DrawMenuBar`, et les deux modes le lisent.
+static int32 gImagesReelles = 0;
+static int32 gMesureImages = 0;
+static bool gMesureLancee = false;
+static nkentseu::NkChrono gMesureHorloge;
+
+/// Le panneau IA, pour que le banc puisse le piloter. Pose au montage.
+static nkuidesign::AIPanel *gPanneauIA = nullptr;
+
+/// LE TICK DU BANC. Il vit dans le meme crochet par image que la capture -- la
+/// coquille n'en offre qu'un, et l'un exclut l'autre (on ne photographie pas une
+/// fenetre qu'on mesure).
+static void MesureTick(NkEditorShell *sh) {
+	++gMesureImages;
+	// --mesure-fps : on ne fait RIEN pendant `ms`, on compte les images. C'est la
+	// REFERENCE : sans elle, « N images pendant la generation » serait un nombre
+	// sans echelle.
+	if (gMesureFpsMs >= 0) {
+		if (!gMesureLancee) {
+			gMesureLancee = true;
+			gImagesReelles = 0;
+			gMesureHorloge = nkentseu::NkChrono();
+			return;
+		}
+		const float64 sec = gMesureHorloge.Elapsed().ToSeconds();
+		if (sec * 1000.0 >= (float64)gMesureFpsMs) {
+			printf("[mesure-fps] repos : %d images en %.3f s -> %.1f images/s\n",
+				   gImagesReelles, sec, (float64)gImagesReelles / (sec > 0.0 ? sec : 1.0));
+			fflush(stdout);
+			sh->RequestClose();
+		}
+		return;
+	}
+	if (gMesureAsyncMs < 0 || !gPanneauIA)
+		return;
+	if (!gMesureLancee) {
+		// ⚠️ PAS A LA PREMIERE IMAGE : la coquille remonte les atlas et stabilise
+		//    le dock dans les premieres images. Lancer la-dedans compterait des
+		//    images de demarrage comme des images d'attente.
+		if (gMesureImages < 4)
+			return;
+		gMesureLancee = true;
+		gImagesReelles = 0;
+		gMesureHorloge = nkentseu::NkChrono();
+		gPanneauIA->BancAsyncLancer(gMesureAsyncMs, gMesureAsyncSync);
+		if (gMesureAsyncSync) {
+			// Le chemin bloquant a DEJA rendu la main : tout s'est passe dans
+			// cette seule image. C'est exactement ce que le negatif doit montrer.
+			printf("[mesure-async] SYNCHRONE : %d image(s) pendant l'attente, "
+				   "travail %.3f s (attendu %.3f s)\n",
+				   1, gPanneauIA->BancAsyncSecondes(), (float64)gMesureAsyncMs / 1000.0);
+			fflush(stdout);
+			sh->RequestClose();
+		}
+		return;
+	}
+	if (gPanneauIA->BancAsyncEnCours())
+		return;
+	printf("[mesure-async] ASYNCHRONE : %u image(s) pendant l'attente, "
+		   "travail %.3f s (attendu %.3f s) -> %.1f images/s\n",
+		   gPanneauIA->BancAsyncImages(), gPanneauIA->BancAsyncSecondes(),
+		   (float64)gMesureAsyncMs / 1000.0,
+		   (float64)gPanneauIA->BancAsyncImages()
+			   / (gPanneauIA->BancAsyncSecondes() > 0.0 ? gPanneauIA->BancAsyncSecondes() : 1.0));
+	fflush(stdout);
+	sh->RequestClose();
+}
+
 static void CaptureTick(NkEditorFrameContext &ec, void *user) {
 	NkEditorShell *sh = static_cast<NkEditorShell *>(user);
 	++gCaptureFrame;
@@ -7441,6 +7541,14 @@ static void InjecterClics(nkgui::NkGuiContext &ctx) {
 
 static void DrawMenuBar(NkEditorFrameContext &ec, void *) {
 	InjecterClics(ec.Ui());
+	// ⚠️ LA RECOLTE DE LA GENERATION EST ICI, ET PAS DANS LE PANNEAU IA.
+	//    `DrawMenuBar` est le seul rappel que la coquille appelle a CHAQUE image
+	//    sans condition ; le panneau IA, lui, n'est dessine que quand son tiroir
+	//    est ouvert. Mesure du 14/09 avec la recolte dans le panneau :
+	//    « 0 image(s) pendant l'attente » -- la reponse n'arrivait jamais.
+	//    *Une tache de fond ne se recolte pas dans le dessin de ce qui l'affiche.*
+	gDesign.RecolterIA();
+	++gImagesReelles; // UNE fois par image : la seule cadence de reference
 	auto &ctx = ec.Ui();
 	using namespace nkentseu::nkgui;
 
@@ -8499,6 +8607,18 @@ int nkmain(const NkEntryState &state) {
 				gTitreSonde = true;
 				continue;
 			}
+			if (arg.StartsWith("--mesure-async=")) {
+				const char *q = a + 15;
+				gMesureAsyncMs = (nkentseu::int64)atof(q);
+				while (*q && *q != ':')
+					++q;
+				gMesureAsyncSync = (*q == ':' && q[1] == 's');
+				continue;
+			}
+			if (arg.StartsWith("--mesure-fps=")) {
+				gMesureFpsMs = (nkentseu::int64)atof(a + 13);
+				continue;
+			}
 			if (arg.StartsWith("--toile-seule")) {
 				gToileSeule = true;
 				continue;
@@ -8933,6 +9053,7 @@ int nkmain(const NkEntryState &state) {
 	//    exactement ce qu il ne faut pas.
 	static nkuidesign::PreviewPanel preview(&gDesign);
 	static nkuidesign::AIPanel ai(&gDesign);
+	gPanneauIA = &ai; // le banc --mesure-async le pilote ; rien d'autre ne le lit
 	static nkuidesign::HierarchyPanel hierarchie(&gDesign);
 	static nkuidesign::InspectorPanel inspecteur(&gDesign);
 	// LE RAIL « VARIABLES » (§15.14) : a gauche, onglet a cote de la Hierarchie --
@@ -9297,6 +9418,10 @@ int nkmain(const NkEntryState &state) {
 	// tête de fichier. Hors capture, aucun callback : rien ne change.
 	if (gCapturePath[0])
 		shell->SetAppMenu(&CaptureTick, shell.Get());
+	else if (gMesureAsyncMs >= 0 || gMesureFpsMs >= 0)
+		shell->SetAppMenu(
+			[](NkEditorFrameContext &, void *u) { MesureTick(static_cast<NkEditorShell *>(u)); },
+			shell.Get());
 	// ⚠️ DES LETTRES, PAS DES CHIFFRES, ET C'EST UNE CONTRAINTE MESUREE :
 	//    `NkEditorShell::TryRunShortcut` n'accepte qu'un nom de touche de la
 	//    forme exacte « NK_X » (quatre caracteres). Un `Ctrl+1` s'affiche a cote
