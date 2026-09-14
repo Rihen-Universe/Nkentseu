@@ -1,0 +1,64 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""NKGuiInteractTest — le banc qui fait AGIR le format `.nkgui`.
+
+AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
+
+`NKGuiMonteTest` prouve que le document DESSINE (162 criteres). Celui-ci prouve
+qu'il AGIT : l'etat d'apparence atteint par l'interaction et peint dans la
+couleur que le FICHIER declare, le `Callback` qui atteint l'application avec son
+argument, le langage de comportement evalue, et `bind` relie a une donnee vivante
+dans les deux sens.
+
+⚠️ AUCUNE FENETRE, AUCUNE INJECTION D'ENTREE. Le rendu passe par
+`NkGuiDrawListRaster` (ni fenetre, ni device, ni GPU) et la position du pointeur
+est POSEE dans `ctx.input.mousePos` -- le champ que `Core/NkGuiInput.h` declare
+« brut, pose par l'app ». C'est la fonction que la boucle d'evenements appelle ;
+aucune API systeme n'est touchee.
+
+POURQUOI UN BANC A PART, ET PAS DES CRITERES DE PLUS DANS `NKGuiMonteTest` :
+ses 162 criteres sont la MESURE DE NON-REGRESSION du monteur. Les melanger aux
+miens rendrait impossible de dire, apres un echec, si c'est le montage ou
+l'execution qui a casse. Deux bancs, deux verdicts.
+
+MEMES DEPENDANCES QUE `NKGuiMonteTest`, et pour les memes raisons :
+`NkGuiInteraction.h` est un EN-TETE SEUL comme `NkGuiMonteur.h` -- `NKGui` ne
+gagne aucune dependance vers NKSerialization, c'est l'application qui declare.
+Pas de `NKUIDesign` ici : ce banc n'appelle pas la validation.
+
+Application console et non `unittest()` : l'execution des tests unitaires est
+DESACTIVEE par la politique du workspace (`disableunittestexecution`) -- un test
+Unitest compilerait sans jamais tourner. Meme raison que `NKGuiMonteTest`.
+"""
+from Jenga import *
+from jengaconfig import *
+
+
+with project("NKGuiInteractTest"):
+    consoleapp()
+    language("C++")
+    cppdialect("C++17")
+    location(".")
+    files(["src/main.cpp"])
+
+    nkentseudependson(
+        ["NKGui", "NKSerialization", "NKReflection", "NKFileSystem", "NKFont",
+         "NKImage", "NKStream", "NKEvent", "NKMath", "NKLogger", "NKContainers", "NKMemory",
+         "NKCore", "NKPlatform", "NKThreading"],
+        extra_includes=["src"],
+    )
+
+    objdir("%{wks.location}/Build/Obj/%{cfg.buildcfg}-%{cfg.system}/%{prj.name}")
+    targetdir("%{wks.location}/Build/Bin/%{cfg.buildcfg}-%{cfg.system}/%{prj.name}")
+
+    with filter("system:Windows"):
+        defines(["WIN32_LEAN_AND_MEAN", "_UNICODE", "UNICODE"])
+
+    with filter("config:Debug"):
+        defines(["_DEBUG", "DEBUG"])
+        optimize("Off")
+        symbols(True)
+    with filter("config:Release"):
+        defines(["NDEBUG"])
+        optimize("Speed")
+        symbols(False)
