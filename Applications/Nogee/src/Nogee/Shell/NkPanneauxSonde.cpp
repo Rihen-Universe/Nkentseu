@@ -7,10 +7,78 @@
 // qu'elle refuse de faire (elle ne compare a rien, elle ne pilote rien).
 // -----------------------------------------------------------------------------
 #include "Nogee/Shell/NkPanneauxSonde.h"
+// ── LA CAPTURE DE SA PROPRE FENETRE (canal onglets, 2026-09-14) ─────────────
+// Nogee rend par NKRHI ; `NkIEditorRenderer::CaptureNext` n'est implemente que
+// par le dorsal NKCanvas/DX11 et rend faux ici. La seule facon de rendre compte
+// de ce que Nogee AFFICHE est donc de demander a la fenetre de se dessiner.
+#include "NKImage/NkImage.h"
+#if defined(NKENTSEU_PLATFORM_WINDOWS)
+#include <windows.h>
+#endif
 #include "NKEditorKit/NkEditorShell.h"
 
 namespace nkentseu {
 	namespace noge {
+
+		namespace {
+			/// Photographie la fenetre `hwnd` dans un PNG. Rend faux et n'ecrit
+			/// RIEN si l'OS refuse -- cf. l'en-tete : pas d'image plutot qu'une
+			/// image de trop.
+			bool NkPhotographierSaFenetre(void *hwndOpaque, const char *chemin) {
+#if defined(NKENTSEU_PLATFORM_WINDOWS)
+				HWND hwnd = (HWND)hwndOpaque;
+				if (!hwnd)
+					return false;
+				RECT rc{};
+				if (!GetWindowRect(hwnd, &rc))
+					return false;
+				const int w = rc.right - rc.left, h = rc.bottom - rc.top;
+				if (w <= 0 || h <= 0)
+					return false;
+				HDC hdcWin = GetWindowDC(hwnd);
+				HDC hdcMem = CreateCompatibleDC(hdcWin);
+				BITMAPINFO bi{};
+				bi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
+				bi.bmiHeader.biWidth = w;
+				bi.bmiHeader.biHeight = -h; // negatif = origine en HAUT
+				bi.bmiHeader.biPlanes = 1;
+				bi.bmiHeader.biBitCount = 32;
+				bi.bmiHeader.biCompression = BI_RGB;
+				void *bits = nullptr;
+				HBITMAP hbmp = CreateDIBSection(hdcMem, &bi, DIB_RGB_COLORS, &bits, nullptr, 0);
+				bool ok = false;
+				if (hbmp) {
+					HGDIOBJ vieux = SelectObject(hdcMem, hbmp);
+					// ⚠️ PAS DE REPLI `BitBlt` : lui lirait l'ECRAN.
+					ok = PrintWindow(hwnd, hdcMem, 2 /*PW_RENDERFULLCONTENT*/) != 0;
+					if (ok && bits) {
+						NkImage img;
+						ok = img.Create((uint32)w, (uint32)h, math::NkColor(0, 0, 0, 255), 4);
+						if (ok) {
+							const uint8 *src = (const uint8 *)bits;
+							uint8 *dst = img.Pixels();
+							for (int i = 0; i < w * h; ++i) { // BGRA -> RGBA
+								dst[i * 4 + 0] = src[i * 4 + 2];
+								dst[i * 4 + 1] = src[i * 4 + 1];
+								dst[i * 4 + 2] = src[i * 4 + 0];
+								dst[i * 4 + 3] = 255;
+							}
+							ok = img.Save(chemin);
+						}
+					}
+					SelectObject(hdcMem, vieux);
+					DeleteObject(hbmp);
+				}
+				DeleteDC(hdcMem);
+				ReleaseDC(hwnd, hdcWin);
+				return ok;
+#else
+				(void)hwndOpaque;
+				(void)chemin;
+				return false;
+#endif
+			}
+		} // namespace
 
 		using namespace nkentseu::editorkit;
 
@@ -84,6 +152,22 @@ namespace nkentseu {
 						static_cast<double>(toolbarH),
 						static_cast<double>(footerH), static_cast<double>(railG),
 						static_cast<double>(railD));
+
+			// ── LA PHOTO, AU MEME INSTANT QUE LES NOMBRES ───────────────────
+			// `NOGEE_SONDE_PNG=<chemin>` seulement : sans la variable, rien ne
+			// change. Nogee rend par NKRHI, donc `CaptureNext` du kit rend faux
+			// ici -- c'est la fenetre elle-meme qui se dessine (`PrintWindow`,
+			// jamais l'ecran).
+			if (const char *png = std::getenv("NOGEE_SONDE_PNG")) {
+				if (*png && s.phase == 0) {
+					const NkSurfaceDesc sd = shell->Window().GetSurfaceDesc();
+					const bool ok = NkPhotographierSaFenetre((void *)sd.hwnd, png);
+					// ⚠️ ON N'AFFIRME PAS QUE LA PHOTO EXISTE : on journalise le
+					//    retour, et l'appelant verifiera le FICHIER.
+					std::printf("[PANNEAUX] capture \"%s\" -> %s\n",
+								png, ok ? "ECRITE" : "REFUSEE par l'OS");
+			}
+			}
 
 			// ── LES COMPTEURS, RELEVES APRES QUE LES BARRES ONT DESSINE ─────
 			const NkPanneauxCompteurs &c = NkPanneauxCpt();

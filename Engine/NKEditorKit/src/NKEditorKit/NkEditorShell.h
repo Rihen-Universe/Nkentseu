@@ -207,6 +207,17 @@ namespace nkentseu {
 
 				// ── Géométrie de fenêtre (launcher) : fichier global taille/pos/maximisé ──
 				void MaximizeWindow() noexcept;
+
+				/// LA FENETRE, pour les sondes qui doivent photographier LEUR PROPRE
+				/// surface. ⚠️ Additif et en LECTURE : la coquille garde la
+				/// propriete de la fenetre, personne d'autre ne la cree ni ne la
+				/// detruit. Exposee parce que le relecteur de backbuffer
+				/// (`CaptureNext`) n'existe que sur le dorsal NKCanvas/DX11 : une
+				/// application qui rend par NKRHI -- Nogee, NkAnimaEditor -- n'a
+				/// aucun autre moyen de rendre compte de ce qu'elle affiche.
+				NkWindow &Window() noexcept {
+					return mWindow;
+				}
 				void SaveWindowGeom(const char *path) noexcept;	 ///< écrit win=/maximized= (position écran)
 				bool LoadWindowGeom(const char *path) noexcept;	 ///< applique si le fichier existe ; false sinon
 
