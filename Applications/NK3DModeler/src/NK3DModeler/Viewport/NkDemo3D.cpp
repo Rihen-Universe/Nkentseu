@@ -1425,6 +1425,24 @@ namespace nkentseu {
 				bool editModCyclePending = false;		 // \ : changer de modificateur actif
 				NkVector<renderer::NkEmId> editTriFace;	 // map triangle de rendu -> face n-gon (pick)
 				NkVector<uint8> vertSel;				 // 1 = vertex sélectionné (taille = nb vertices)
+				// ── L'INTENTION DE FACE, ET POURQUOI ELLE NE SE DEDUIT PAS ───────────
+				// La selection de face etait DEDUITE : « une face est selectionnee si
+				// TOUS ses sommets le sont ». Cette regle est juste tant que les sommets
+				// choisis ne couvrent pas l'objet -- et elle s'effondre des qu'ils le
+				// couvrent. Mesure du 14/09 : deux faces OPPOSEES d'un cube, leurs 4+4
+				// positions SONT les 8 coins, donc les 24 copies s'allument, donc TOUTE
+				// face a « tous ses sommets » -- compteur 6 au lieu de 2, et surlignage
+				// du cube entier. C'est la plainte de l'auteur, mot pour mot.
+				// Deux faces VOISINES ne le declenchent pas : c'est pourquoi trois lots
+				// de mesure avaient conclu que le sous-mode Face fonctionnait.
+				//
+				// Desormais la face PORTE son intention. `faceSelSnap` est la photo de
+				// `vertSel` au moment ou l'intention a ete ecrite : si les sommets ont
+				// bouge depuis (boite, lasso, tout selectionner, resultat d'une
+				// operation), l'intention est REDEDUITE -- c'est la remontee de selection
+				// de Blender, et ca evite d'aller invalider a la main cent sites.
+				NkVector<uint8> faceSel;
+				NkVector<uint8> faceSelSnap;
 				NkMat4f editAnchor = NkMat4f::Identity(); // transform monde de l'objet
 				NkMat4f editAnchorInv = NkMat4f::Identity();
 				// AABB LOCALE du mesh de RENDU édité (inclut le résultat des modificateurs).
@@ -2481,6 +2499,72 @@ namespace nkentseu {
 		static void Demo3D_NormalizeSel(Demo3DState *st) {
 			Demo3D_PushSel(st);
 			Demo3D_PullSel(st);
+		}
+
+		// ── LA SELECTION DE FACE : PORTEE, PUIS REDEDUITE SI ON L'A CONTOURNEE ──
+		// Trois fonctions et une seule regle. `Sync` rend l'intention utilisable :
+		// elle la REDEDUIT des sommets si la topologie a change ou si les sommets
+		// ont bouge par un autre chemin, et ne fait rien sinon. `Apply` fait le
+		// trajet inverse (l'intention redescend sur les sommets, propagation
+		// comprise) et prend la photo. `Est` lit.
+		// ⚠ LE SOUS-MODE SOMMET N'EN DEPEND PAS : il ne lit jamais `faceSel`, et la
+		// propagation aux coincidents reste indispensable la -- un clic n'attrape
+		// qu'une des trois copies d'un coin. Soigner la face ne doit pas le casser.
+		static void Demo3D_FaceSelSync(Demo3DState *st) {
+			const uint32 nf = (uint32)st->editHE.faces.Size();
+			const uint32 nv = (uint32)st->vertSel.Size();
+			bool rededuire = ((uint32)st->faceSel.Size() != nf) ||
+					((uint32)st->faceSelSnap.Size() != nv);
+			for (uint32 i = 0; i < nv && !rededuire; ++i)
+				if (st->faceSelSnap[i] != st->vertSel[i])
+					rededuire = true;
+			if (!rededuire)
+				return;
+			st->faceSel.Resize(nf);
+			NkVector<renderer::NkEmId> fv;
+			for (uint32 f = 0; f < nf; ++f) {
+				st->faceSel[f] = 0;
+				if (!st->editHE.faces[f].alive)
+					continue;
+				fv.Clear();
+				st->editHE.GetFaceVerts((renderer::NkEmId)f, fv);
+				if (fv.Empty())
+					continue;
+				bool tous = true;
+				for (uint32 k = 0; k < (uint32)fv.Size() && tous; ++k)
+					if (fv[k] >= nv || !st->vertSel[fv[k]])
+						tous = false;
+				st->faceSel[f] = tous ? (uint8)1 : (uint8)0;
+			}
+			st->faceSelSnap = st->vertSel;
+		}
+		static bool Demo3D_FaceEstSel(const Demo3DState *st, uint32 f) {
+			return f < (uint32)st->faceSel.Size() && st->faceSel[f] != 0;
+		}
+		// L'intention redescend sur les sommets : on repart de zero et on rallume
+		// les sommets des faces retenues. Repartir de zero n'est pas brutal, c'est
+		// la seule facon de gerer un sommet PARTAGE entre une face qu'on vient de
+		// deselectionner et une autre qui reste selectionnee.
+		static void Demo3D_FaceSelApply(Demo3DState *st) {
+			const uint32 nv = (uint32)st->vertSel.Size();
+			for (uint32 i = 0; i < nv; ++i)
+				st->vertSel[i] = 0;
+			NkVector<renderer::NkEmId> fv;
+			for (uint32 f = 0; f < (uint32)st->faceSel.Size(); ++f) {
+				if (!st->faceSel[f] || f >= (uint32)st->editHE.faces.Size() ||
+					!st->editHE.faces[f].alive)
+					continue;
+				fv.Clear();
+				st->editHE.GetFaceVerts((renderer::NkEmId)f, fv);
+				for (uint32 k = 0; k < (uint32)fv.Size(); ++k)
+					if (fv[k] < nv)
+						st->vertSel[fv[k]] = 1;
+			}
+			Demo3D_NormalizeSel(st);
+			// LA PHOTO SE PREND APRES LA PROPAGATION : prise avant, elle differerait
+			// du tableau des la ligne suivante et l'intention serait rededuite tout de
+			// suite -- le cablage n'aurait servi a rien, et rien ne l'aurait dit.
+			st->faceSelSnap = st->vertSel;
 		}
 
 		// ── LUMIERE EFFECTIVE = base + transform du gizmo ───────────────────────────
@@ -9389,6 +9473,10 @@ namespace nkentseu {
 					// si l'élément cliqué était DÉJÀ sélectionné -> dans ce cas le clic le
 					// DÉSÉLECTIONNE (au lieu de le re-sélectionner). Shift+clic = toggle sans
 					// vider le reste de la sélection.
+					// L'INTENTION DE FACE SE LIT AVANT QUE LE CLIC NE TOUCHE LES SOMMETS.
+					// Apres le nettoyage ci-dessous, `vertSel` ne ressemble plus a la photo :
+					// la synchronisation rededuirait a partir d'un tableau a moitie efface.
+					Demo3D_FaceSelSync(st);
 					NkVector<uint8> prevSel = st->vertSel;
 					auto wasSel = [&](uint32 i) { return i < (uint32)prevSel.Size() && prevSel[i] != 0; };
 					if (!shiftEff)
@@ -9664,18 +9752,44 @@ namespace nkentseu {
 							fv.PushBack(st->editIdx[bestFt + 1]);
 							fv.PushBack(st->editIdx[bestFt + 2]);
 						}
-						bool allWere = fv.Size() > 0;
-						for (uint32 k = 0; k < (uint32)fv.Size(); k++)
-							if (!wasSel(fv[k]))
-								allWere = false;
-						const uint8 on = allWere ? (uint8)0 : (uint8)1;
-						for (uint32 k = 0; k < (uint32)fv.Size(); k++) {
-							st->vertSel[fv[k]] = on;
-							if (on)
-								st->editActiveVert = (int32)fv[k];
-						}
-						if (!on)
+						// ⚠ « DEJA SELECTIONNEE » SE LIT SUR LA FACE, PAS SUR SES SOMMETS.
+						// L'ancienne question -- « tous ses sommets etaient-ils retenus ? » --
+						// repondait OUI pour les six faces des qu'on en avait pris deux
+						// opposees : le clic suivant les VIDAIT toutes. La face repond
+						// desormais pour elle-meme.
+						uint8 on = 1;
+						if (f != renderer::NK_EM_INVALID) {
+							if ((uint32)f >= (uint32)st->faceSel.Size())
+								st->faceSel.Resize((uint32)st->editHE.faces.Size());
+							if (!shiftEff)
+								for (uint32 q = 0; q < (uint32)st->faceSel.Size(); ++q)
+									st->faceSel[q] = 0;
+							on = Demo3D_FaceEstSel(st, (uint32)f) ? (uint8)0 : (uint8)1;
+							st->faceSel[(uint32)f] = on;
+							// L'intention redescend : c'est elle qui ecrit les sommets, et non
+							// l'inverse. Les operations, elles, continuent de lire les sommets.
+							Demo3D_FaceSelApply(st);
 							st->editActiveVert = -1;
+							if (on)
+								for (uint32 k = 0; k < (uint32)fv.Size(); k++)
+									st->editActiveVert = (int32)fv[k];
+						} else {
+						// TRIANGLE SANS FACE N-GON : aucune intention a porter, on retombe
+						// sur l'ancien chemin par sommets. La photo devient caduque, donc
+						// l'intention sera rededuite -- ce qui est le bon comportement.
+							bool allWere = fv.Size() > 0;
+							for (uint32 k = 0; k < (uint32)fv.Size(); k++)
+								if (!wasSel(fv[k]))
+									allWere = false;
+							on = allWere ? (uint8)0 : (uint8)1;
+							for (uint32 k = 0; k < (uint32)fv.Size(); k++) {
+								st->vertSel[fv[k]] = on;
+								if (on)
+									st->editActiveVert = (int32)fv[k];
+							}
+							if (!on)
+								st->editActiveVert = -1;
+						}
 						// La FACE active est l'identifiant n-gon, pas le triangle touché :
 						// une face quadrangulaire couvre deux triangles, et retenir le
 						// triangle ferait clignoter l'actif selon la moitié cliquée.
@@ -9778,7 +9892,8 @@ namespace nkentseu {
 							indOrg[(uint32)i] = {0.f, 0.f, 0.f};
 							indCnt[(uint32)i] = 0;
 						}
-						NkVector<renderer::NkEmId> fvi;
+						Demo3D_FaceSelSync(st);
+					NkVector<renderer::NkEmId> fvi;
 						for (uint32 f = 0; f < (uint32)st->editHE.faces.Size(); f++) {
 							if (!st->editHE.faces[f].alive)
 								continue;
@@ -9787,11 +9902,11 @@ namespace nkentseu {
 							const uint32 fn = (uint32)fvi.Size();
 							if (fn < 2)
 								continue;
-							bool allSel = true;
-							for (uint32 k = 0; k < fn && allSel; k++)
-								if (fvi[k] >= (uint32)st->vertSel.Size() || !st->vertSel[fvi[k]])
-									allSel = false;
-							if (!allSel)
+							// MEME AUTORITE ICI AUSSI : « chaque face entierement selectionnee »
+							// et « chaque face selectionnee » doivent designer le meme ensemble,
+							// sans quoi le pivot tournerait autour de faces que personne n'a
+							// choisies -- le meme effondrement, deplace dans la transformation.
+							if (!Demo3D_FaceEstSel(st, f))
 								continue;
 							NkVec3f fc{0.f, 0.f, 0.f};
 							for (uint32 k = 0; k < fn; k++)
@@ -10090,7 +10205,11 @@ namespace nkentseu {
 				// Une face est sélectionnée si TOUS ses sommets le sont (convention Blender) :
 				// le fill apparaît donc aussi en mode VERTEX/EDGE, comme dans Blender.
 				{
-					auto liveWf = [&](int32 i) { return st->editAnchor * st->editLive[i].pos; };
+					// LE SURLIGNAGE LIT LA MEME AUTORITE QUE LE COMPTEUR. S'il lisait encore
+				// « tous les sommets », le chiffre dirait 2 et l'image montrerait 6 : le
+				// pire des deux mondes, puisque l'auteur juge sur l'image.
+				Demo3D_FaceSelSync(st);
+				auto liveWf = [&](int32 i) { return st->editAnchor * st->editLive[i].pos; };
 					const NkVec4f faceFill{1.f, 0.55f, 0.06f, 0.36f};
 					const uint32 fcntF = (uint32)st->editHE.faces.Size();
 					NkVector<renderer::NkEmId> fvf;
@@ -10102,13 +10221,10 @@ namespace nkentseu {
 						const uint32 fn = (uint32)fvf.Size();
 						if (fn < 3)
 							continue; // arête fil : pas de surface
-						bool allSel = true;
-						for (uint32 k = 0; k < fn && allSel; k++) {
-							const uint32 vi = fvf[k];
-							if (vi >= (uint32)st->vertSel.Size() || !st->vertSel[vi] ||
-								vi >= (uint32)st->editLive.Size())
+						bool allSel = Demo3D_FaceEstSel(st, f);
+						for (uint32 k = 0; k < fn && allSel; k++)
+							if (fvf[k] >= (uint32)st->editLive.Size())
 								allSel = false;
-						}
 						if (!allSel)
 							continue;
 						const NkVec3f p0 = liveWf((int32)fvf[0]);
@@ -10191,13 +10307,11 @@ namespace nkentseu {
 							if (fn < 3)
 								continue;
 							NkVec3f cW{0.f, 0.f, 0.f};
-							bool allSel = true;
+							const bool allSel = Demo3D_FaceEstSel(st, f); // meme autorite que le fill
 							for (uint32 k = 0; k < fn; k++) {
 								const uint32 vi = fvd[k];
 								if (vi < (uint32)st->editLive.Size())
 									cW = cW + liveWv((int32)vi);
-								if (vi >= (uint32)st->vertSel.Size() || !st->vertSel[vi])
-									allSel = false;
 							}
 							cW = cW * (1.f / (float32)fn);
 							if (!facingCam(cW, st->editHE.faces[f].normal))
@@ -15904,23 +16018,18 @@ namespace nkentseu {
 			// Priorite identique a celle du menu : FACE, puis ARETE, puis SOMMET.
 			int32 n = 0;
 			if (st->editSelMask & 4) {
-				const uint32 nf = st->editHE.FaceCount();
-				NkVector<uint32> fv;
+				// ON COMPTE L'INTENTION, PAS SA DEDUCTION. Deux faces opposees d'un
+				// cube rendaient 6 : leurs sommets sont tous les coins de l'objet,
+				// donc toute face avait « tous ses sommets ». La synchronisation
+				// rededuit quand la selection est venue d'ailleurs (boite, lasso,
+				// tout selectionner, resultat d'operation) : la, la deduction est
+				// la bonne reponse.
+				Demo3D_FaceSelSync(st);
+				const uint32 nf = (uint32)st->faceSel.Size();
 				for (uint32 f = 0; f < nf; ++f) {
-					if (!st->editHE.faces[f].alive)
+					if (f < (uint32)st->editHE.faces.Size() && !st->editHE.faces[f].alive)
 						continue;
-					fv.Clear();
-					st->editHE.GetFaceVerts((renderer::NkEmId)f, fv);
-					if (fv.Empty())
-						continue;
-					// Une face compte si TOUS ses sommets sont retenus : c'est ce qui
-					// distingue « la face est selectionnee » de « elle est effleuree
-					// par la selection d'une voisine ».
-					bool tous = true;
-					for (uint32 k = 0; k < (uint32)fv.Size() && tous; ++k)
-						if (fv[k] >= (uint32)st->vertSel.Size() || !st->vertSel[fv[k]])
-							tous = false;
-					if (tous)
+					if (st->faceSel[f])
 						++n;
 				}
 				return n;
