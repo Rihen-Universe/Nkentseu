@@ -465,6 +465,77 @@ int main() {
 	}
 
 	// =========================================================================
+	// NKMATH -- LE REPERE DES ACCESSEURS D AXE (2026-09-14)
+	//
+	// `NkQuat::Right()` rendait +X alors que `Forward() = +Z` et `Up() = +Y`
+	// imposent -X en repere direct. Ce n etait pas une convention -- une
+	// convention est UN choix -- mais deux choix qui s excluent dans le meme
+	// fichier. Cout du defaut : les fleches gauche/droite de la voiture etaient
+	// inversees A L ECRAN, et aucun des neuf bancs vehicule ne pouvait le voir,
+	// parce qu ils partent tous d une consigne de braquage DEJA SIGNEE.
+	//
+	// ⚠️ LE CRITERE EST UNE IDENTITE, PAS UNE VALEUR, et il se verifie sur des
+	// orientations QUELCONQUES : un test au quaternion neutre ne verifie rien,
+	// puisque tout accesseur y rend son axe local tel quel.
+	// =========================================================================
+	{
+		using namespace nkentseu::math;
+		// Huit orientations : l identite, trois rotations d axe simple, et quatre
+		// axes obliques -- de quoi sortir des cas ou les composantes s annulent.
+		struct Pose { NkVec3f axe; float32 deg; };
+		static const Pose kPoses[8] = {{{0.f, 1.f, 0.f}, 0.f},   {{0.f, 1.f, 0.f}, 37.f},
+									   {{1.f, 0.f, 0.f}, -52.f}, {{0.f, 0.f, 1.f}, 113.f},
+									   {{1.f, 1.f, 0.f}, 61.f},  {{0.f, 1.f, 1.f}, -144.f},
+									   {{1.f, 0.f, 1.f}, 88.f},  {{1.f, 2.f, -3.f}, 200.f}};
+		uint32 nIdent = 0, nOrtho = 0, nCyclique = 0, nOppose = 0;
+		float32 pireIdent = 0.f, pireOrtho = 0.f;
+		for (uint32 i = 0; i < 8u; ++i) {
+			NkVec3f ax = kPoses[i].axe;
+			const float32 l = std::sqrt(ax.Dot(ax));
+			ax = (l > 1e-6f) ? ax * (1.f / l) : NkVec3f{0.f, 1.f, 0.f};
+			const NkQuatf q(NkAngle::FromRad(kPoses[i].deg / 57.29578f), ax);
+			const NkVec3f F = q.Forward(), U = q.Up(), R = q.Right();
+			// (a) L IDENTITE : Right == cross(Forward, Up)
+			const NkVec3f c = F.Cross(U);
+			const NkVec3f e = c - R;
+			const float32 dIdent = std::sqrt(e.Dot(e));
+			if (dIdent > pireIdent) pireIdent = dIdent;
+			if (dIdent < 1e-5f) ++nIdent;
+			// (b) NEGATIF : la base reste ORTHONORMEE
+			const float32 o = std::fabs(F.Dot(U)) + std::fabs(U.Dot(R)) + std::fabs(R.Dot(F)) +
+							 std::fabs(std::sqrt(F.Dot(F)) - 1.f) + std::fabs(std::sqrt(U.Dot(U)) - 1.f) +
+							 std::fabs(std::sqrt(R.Dot(R)) - 1.f);
+			if (o > pireOrtho) pireOrtho = o;
+			if (o < 1e-4f) ++nOrtho;
+			// (c) les deux autres identites cycliques, dans l ordre (Forward, Up, Right)
+			const NkVec3f e2 = U.Cross(R) - F, e3 = R.Cross(F) - U;
+			if (std::sqrt(e2.Dot(e2)) < 1e-5f && std::sqrt(e3.Dot(e3)) < 1e-5f) ++nCyclique;
+			// (d) les paires opposees
+			const NkVec3f o1 = q.Left() + R, o2 = q.Back() + F, o3 = q.Down() + U;
+			if (std::sqrt(o1.Dot(o1)) < 1e-5f && std::sqrt(o2.Dot(o2)) < 1e-5f &&
+				std::sqrt(o3.Dot(o3)) < 1e-5f)
+				++nOppose;
+		}
+		Check(nIdent == 8u, "NKMATH repere : Right() == cross(Forward(), Up()) sur 8 orientations QUELCONQUES");
+		Check(nOrtho == 8u, "NKMATH repere : la base reste ORTHONORMEE sur les 8 (negatif)");
+		Check(nCyclique == 8u,
+			  "NKMATH repere : cross(Up, Right) == Forward ET cross(Right, Forward) == Up sur les 8");
+		Check(nOppose == 8u, "NKMATH repere : Left/Back/Down restent les opposes exacts de Right/Forward/Up");
+		std::printf("  [nkmath] repere : pire ecart a l identite %.3e, pire defaut d orthonormalite %.3e\n",
+					pireIdent, pireOrtho);
+		// LE CONTROLE QUI NOMME LA CONSEQUENCE, ecrite AVANT la mesure : le triplet
+		// ORDONNE (Right, Up, Forward) devient INDIRECT. Ce n est pas un defaut,
+		// c est la convention « droite/haut/avant » a la DirectX ; la base du MONDE
+		// reste directe. Si ce Check rougit un jour, quelqu un aura retourne Right().
+		{
+			const NkQuatf q;
+			const NkVec3f d = q.Right().Cross(q.Up()) + q.Forward();
+			Check(std::sqrt(d.Dot(d)) < 1e-5f,
+				  "NKMATH repere : cross(Right, Up) == -Forward (triplet droite/haut/avant INDIRECT, annonce)");
+		}
+	}
+
+	// =========================================================================
 	// NKMATH -- TransformVector : UNE INSTANCIATION, pour que la panne revienne ICI
 	//
 	// Elle etait DECLAREE rendant un NkVec3T et son corps rendait
