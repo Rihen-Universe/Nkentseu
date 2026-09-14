@@ -12880,11 +12880,20 @@ namespace nkuidesign {
 					costume::TexteGras(dl, F.px9, r.x + 12.f, r.y + 10.f, "STYLES", ctx.theme.textMuted, 0.4f);
 				}
 				if (doc.styles.Empty()) {
-					const NkRect r = ctx.NextItemRect(-1.f, 44.f);
+					// (c2) LA PHRASE SE REPLIE — mesure du 14/09 : elle debordait de
+					// 198,8 px, coupee net par le rognage, et c'est l'un des deux
+					// textes que Rodolf a vus sur sa capture. La HAUTEUR de la rangee
+					// se derive du repli lui-meme : une rangee figee a 44 px ferait
+					// deborder par le BAS ce qui ne deborde plus par la droite.
+					static const char *const kPhrase =
+						"Une section de l'inspecteur en crée : « Style : Créer » "
+						"(remplissages, typographie).";
+					const float32 lgDispo = ctx.NextItemRect(-1.f, 0.f).w - 24.f;
+					const float32 hPhrase = costume::HauteurReplie(F.px9, lgDispo, kPhrase, 2.f);
+					const NkRect r = ctx.NextItemRect(-1.f, 24.f + hPhrase + 8.f);
 					costume::Texte(dl, F.px10, r.x + 12.f, r.y + 6.f, "(aucun style)", ctx.theme.textMuted);
-					costume::Texte(dl, F.px9, r.x + 12.f, r.y + 24.f,
-								   "Une section de l'inspecteur en crée : « Style : Créer » (remplissages, typographie).",
-								   ctx.theme.textMuted);
+					costume::TexteReplie(dl, F.px9, r.x + 12.f, r.y + 24.f, lgDispo, kPhrase,
+										 ctx.theme.textMuted, 2.f);
 					mRenomme = -1;
 					return;
 				}
@@ -17317,13 +17326,25 @@ namespace nkuidesign {
 					//   menu ; le kit attend ses propres cles. Choisir lequel fait foi touche les
 					//   documents enregistres : c'est a Rodolf, pas a ce panneau.
 					const bool hors = NkRoleHorsCatalogue(n->role.Data());
-					const NkRect r2 = ctx.NextItemRect(-1.f, 22.f);
+					// (c2) LA SECONDE PHRASE COUPEE DE LA CAPTURE DE RODOLF.
+					// ⚠️ ET JE NE PEUX PAS LA PROUVER REPAREE : elle n'est peinte que
+					//    si le noeud selectionne porte un role HORS du catalogue du
+					//    kit, et aucun noeud du document de demarrage n'est dans cet
+					//    etat -- mon releve ne l'atteint donc jamais. Elle est
+					//    corrigee PAR LA MEME FORME que l'autre, pas par une mesure.
+					//    Dire « 0 coupure » ici voudrait dire « je ne suis pas passe
+					//    par la », pas « c'est repare ».
+					const char *const phraseRole =
+						hors ? "Hors catalogue du kit : aucun événement ni état n'y répond."
+							 : "Les paramètres du rôle arrivent avec la taxonomie.";
+					const float32 lgRole = ctx.NextItemRect(-1.f, 0.f).w - 24.f;
+					const float32 hRole = costume::HauteurReplie(F.px10, lgRole, phraseRole, 2.f);
+					const NkRect r2 = ctx.NextItemRect(-1.f, hRole > 22.f ? hRole + 6.f : 22.f);
 					ctx.BeginDisabled();
-					costume::Texte(dl, F.px10, r2.x + 12.f,
-								   costume::CentrerY(F.px10, r2.y, 22.f),
-								   hors ? "Hors catalogue du kit : aucun événement ni état n'y répond."
-									  : "Les paramètres du rôle arrivent avec la taxonomie.",
-								   ctx.theme.textMuted);
+					costume::TexteReplie(dl, F.px10, r2.x + 12.f,
+										 hRole > 22.f ? r2.y + 3.f
+													  : costume::CentrerY(F.px10, r2.y, 22.f),
+										 lgRole, phraseRole, ctx.theme.textMuted, 2.f);
 					ctx.EndDisabled();
 					// le releve dit LAQUELLE des deux phrases est posee (banc sans fenetre)
 					if (nkgui::NkGuiIntrospectActif(ctx)) {
