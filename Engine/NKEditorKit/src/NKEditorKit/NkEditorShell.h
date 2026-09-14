@@ -2,7 +2,7 @@
 // -----------------------------------------------------------------------------
 // @File    NkEditorShell.h
 // @Brief   Coquille d'application d'editeur : fenetre + docking + panneaux.
-// @Author  Rihen
+// @Author  TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // @License Proprietary - All Rights Reserved (see LICENSE)
 //
 // NkEditorShell est la base reutilisable des editeurs Nkentseu (NKCode = IDE,
@@ -181,6 +181,25 @@ namespace nkentseu {
 				bool IsContextMenuOpen() const noexcept {
 					return mCtxOpen;
 				}
+
+				// ── (R16) LES PORTES DU CORPS ─────────────────────────────────────
+				// Ce qui prive le CORPS d'entree pendant que la barre de titre -- dessinee
+				// AVANT le masquage -- la garde. Calcule a chaque image dans RenderFrame ;
+				// journal par TRANSITION sous NK_PORTES=1.
+				// ⚠️ P A O C R masquent le corps ENTIER (condition `modal`) ; S ne masque
+				//    que le panneau dont le point est recouvert.
+				static constexpr int32 kPortePreferences = 1; ///< P : mShowPrefs
+				static constexpr int32 kPorteAppModal = 2;	  ///< A : ctx.appModal (APP-gere, le shell ne le remet pas)
+				static constexpr int32 kPortePopup = 4;		  ///< O : souris dans popupRects[i < popupDepth]
+				static constexpr int32 kPorteMenuCtx = 8;	  ///< C : menu contextuel du shell
+				static constexpr int32 kPorteSaisie = 16;	  ///< R : saisie reservee par l'image precedente
+				static constexpr int32 kPorteSurface = 32;	  ///< S : point sous une surface (partiel)
+				static constexpr int32 kPortesCorpsEntier = 31;
+				int32 PortesDuCorps() const noexcept {
+					return mPortesCorps;
+				}
+				/// Imprime (sous NK_PORTES=1) le masquage EN COURS et le pire masquage continu.
+				void JournalPortesBilan(const char *etiquette) const noexcept;
 
 				// ── SÉLECTEUR de FICHIER/DOSSIER GÉNÉRIQUE (modal, réutilisable) ────
 
@@ -897,6 +916,7 @@ namespace nkentseu {
 				// qu'apres un vrai glissement (seuil) -> un simple clic ne deplace jamais.
 				bool mTitleDragArmed = false;
 				float32 mDragStartX = 0.f, mDragStartY = 0.f;
+				int32 mPortesCorps = 0; ///< (R16) cf. PortesDuCorps
 		};
 
 	} // namespace editorkit
