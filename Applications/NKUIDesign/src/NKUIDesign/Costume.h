@@ -182,18 +182,99 @@ namespace nkuidesign {
 			return best;
 		}
 
+		// ═══════════════════════════════════════════════════════════════════
+		//  (c2) LE RELEVE DES TEXTES QUI SORTENT DE LEUR ROGNAGE
+		// ═══════════════════════════════════════════════════════════════════
+		//  🔴 RODOLF, 14/09, sur sa capture -- DEUX panneaux perdent leur texte :
+		//        inspecteur droit  « ... aucun evenement ni etat n'y rep… »
+		//        panneau gauche    « ... Style : Creer (rem… »
+		//     Coupe NET, sans repli ni points de suspension. Un texte tronque est
+		//     PIRE qu'un texte absent : il promet une information et la retire.
+		//
+		//  ⚠️ LE LIVRABLE N'EST PAS DE RALLONGER UN PANNEAU, C'EST LA MESURE QUI
+		//     MANQUAIT. Le meme defaut a ete trouve le meme jour dans le modeleur
+		//     (« Clamp, Wi… ») et la cause y etait identique : **aucun compteur ne
+		//     regardait la largeur du texte**. Rallonger un panneau corrige UN
+		//     pixel ; le compteur attrape la famille.
+		//
+		//  ⚠️ POURQUOI LE ROGNAGE ET PAS UNE BOITE PASSEE EN PARAMETRE : c'est le
+		//     ROGNAGE qui coupe reellement a l'ecran -- c'est lui qui produit le
+		//     « coupe net » que Rodolf voit. `AddText` ne coupe pas ; le rasteriseur
+		//     s'arrete au bord du rectangle de rognage courant. On mesure donc la
+		//     cause exacte du symptome, pas une approximation de boite. Et cela ne
+		//     demande de changer AUCUN des sites d'appel : la porte connait deja
+		//     `dl.CurrentClip()`.
+		//
+		//  ⚠️ ETEINT PAR DEFAUT, et pas par prudence : `MeasureWidth` sur chaque
+		//     texte de chaque image couterait cher dans une phase qui pese deja
+		//     88 % du temps. Le releve s'allume pour une course de mesure et se
+		//     rend.
+		struct NkReleveTexte {
+				bool actif = false;
+				uint32 examines = 0;
+				uint32 coupes = 0;
+				float32 pireDebord = 0.f;
+				/// ⚠️ LARGEUR FORCEE, ET C'EST LA PREUVE DE NON-MUTISME. A une
+				///    valeur > 0, on compare a `clip.x + cette largeur` au lieu du
+				///    rognage reel. A 20 px, tout deborde : un releve qui rendrait
+				///    quand meme zero serait un releve qui ne regarde rien.
+				///    L'autre agent a prouve le sien exactement ainsi (600 lignes
+				///    comptees a 20 px, contre 0 en conditions normales).
+				float32 largeurForcee = 0.f;
+				char premier[192] = {0};
+				char pire[192] = {0};
+
+				void Reinitialiser() {
+					examines = 0;
+					coupes = 0;
+					pireDebord = 0.f;
+					premier[0] = 0;
+					pire[0] = 0;
+				}
+		};
+		inline NkReleveTexte &Releve() {
+			static NkReleveTexte r;
+			return r;
+		}
+
 		// ── Texte : normal, et « gras » approximé (graisses non embarquées) ──
 		inline void Texte(NkGuiDrawList &dl, const NkGuiFont &f, float32 x, float32 yHaut,
 						  const char *t, const NkColor &c) {
 			if (!f.Valid() || !t)
 				return;
+			NkReleveTexte &rel = Releve();
+			if (rel.actif && t[0]) {
+				const NkRect cl = dl.CurrentClip();
+				const float32 bord =
+					rel.largeurForcee > 0.f ? cl.x + rel.largeurForcee : cl.x + cl.w;
+				const float32 droite = x + f.MeasureWidth(t);
+				++rel.examines;
+				if (droite > bord + 0.5f) {
+					++rel.coupes;
+					const float32 debord = droite - bord;
+					if (!rel.premier[0])
+						snprintf(rel.premier, sizeof(rel.premier), "%s", t);
+					if (debord > rel.pireDebord) {
+						rel.pireDebord = debord;
+						snprintf(rel.pire, sizeof(rel.pire), "%s", t);
+					}
+				}
+			}
 			dl.AddText(f.Face(), f.TexId(), {x, yHaut + f.Ascent()}, t, c);
 		}
 		/// fw500 ≈ 0.3 px, fw600 ≈ 0.5 px, fw700 ≈ 0.8 px de double trait.
 		inline void TexteGras(NkGuiDrawList &dl, const NkGuiFont &f, float32 x, float32 yHaut,
 							  const char *t, const NkColor &c, float32 e = 0.5f) {
 			Texte(dl, f, x, yHaut, t, c);
+			// ⚠️ LE SECOND TRAIT NE SE COMPTE PAS. Le gras est approxime par DEUX
+			//    passes du meme texte ; les compter toutes les deux doublerait chaque
+			//    chiffre du releve, et un compteur qui compte deux fois la meme chose
+			//    est un compteur dont on ne peut rien conclure.
+			NkReleveTexte &rel = Releve();
+			const bool sauve = rel.actif;
+			rel.actif = false;
 			Texte(dl, f, x + e, yHaut, t, c);
+			rel.actif = sauve;
 		}
 		/// ⑩ LE TEXTE QUI NE DEBORDE PAS SUR SON VOISIN (2026-09-05).
 		/// 🔴 Rodolf, capture `2026-09-05_app_popover_etiquette_fuit_dans_champ.png` : la
@@ -265,6 +346,100 @@ namespace nkuidesign {
 				return 0.f;
 			dl.AddText(f.Face(), f.TexId(), {x, yHaut + f.Ascent()}, buf, c);
 			return f.MeasureWidth(buf);
+		}
+
+		// ═══════════════════════════════════════════════════════════════════
+		//  (c2) LE REPLI — pour les PHRASES, pas pour les valeurs
+		// ═══════════════════════════════════════════════════════════════════
+		//  ⚠️ POURQUOI LE REPLI ICI ET NON LES POINTS DE SUSPENSION. J'avais
+		//     d'abord propose « … + infobulle » partout, et la mesure m'a fait
+		//     changer d'avis : les deux textes que Rodolf a vus coupes sont des
+		//     PHRASES D'EXPLICATION --
+		//        « Une section de l'inspecteur en cree : Style : Creer ... »
+		//        « Hors catalogue du kit : aucun evenement ni etat n'y repond. »
+		//     Leur raison d'etre est d'ETRE LUES. Les tronquer retire precisement
+		//     l'information qu'elles apportent, et une infobulle demande de savoir
+		//     qu'il faut survoler -- ce que personne ne devine sur un paragraphe.
+		//
+		//     LA REGLE, et elle se decide par ce que le texte EST :
+		//        une PHRASE (elle explique)        -> elle se REPLIE
+		//        une VALEUR (nom, nombre, chemin)  -> « … » + infobulle
+		//     Pour une valeur, le texte entier reste atteignable ailleurs (le
+		//     champ, l'inspecteur) ; pour une phrase, nulle part.
+		//
+		//  ⚠️ COUPE AUX MOTS, REPLI AU CARACTERE, ET JAMAIS AU MILIEU D'UN
+		//     CARACTERE : on recule tant que l'octet est une continuation UTF-8
+		//     (10xxxxxx). Un accent coupe en deux rend un glyphe de remplacement,
+		//     et le defaut qu'on corrige reapparait sous une autre forme.
+		//
+		//  Rend le NOMBRE DE LIGNES peintes -- l'appelant en a besoin pour reserver
+		//  sa hauteur, et un repli dont on ne connait pas la hauteur deborde par le
+		//  bas au lieu de deborder par la droite.
+		inline int32 TexteReplie(NkGuiDrawList &dl, const NkGuiFont &f, float32 x,
+								 float32 yHaut, float32 largeurMax, const char *t,
+								 const NkColor &c, float32 interligne = 0.f,
+								 int32 maxLignes = 8) {
+			if (!f.Valid() || !t || !t[0] || largeurMax <= 1.f)
+				return 0;
+			const float32 h = f.LineHeight() + interligne;
+			char ligne[512];
+			int32 lignes = 0;
+			const char *p = t;
+			while (*p && lignes < maxLignes) {
+				// on avance mot a mot tant que ca tient
+				int32 pris = 0;		 // octets retenus
+				int32 dernierEspace = -1; // dernier point de coupure propre
+				int32 i = 0;
+				while (p[i] && i < (int32)sizeof(ligne) - 1) {
+					ligne[i] = p[i];
+					ligne[i + 1] = 0;
+					if (f.MeasureWidth(ligne) > largeurMax) {
+						// trop large : on revient au dernier espace, sinon on coupe
+						// au caractere (un mot seul plus large que la colonne)
+						if (dernierEspace > 0)
+							pris = dernierEspace;
+						else {
+							pris = i;
+							// ⚠️ jamais au milieu d'un caractere UTF-8
+							while (pris > 1 && ((unsigned char)p[pris] & 0xC0) == 0x80)
+								--pris;
+						}
+						break;
+					}
+					if (p[i] == ' ')
+						dernierEspace = i;
+					++i;
+					pris = i;
+				}
+				if (pris <= 0)
+					break;
+				for (int32 k = 0; k < pris; ++k)
+					ligne[k] = p[k];
+				ligne[pris] = 0;
+				Texte(dl, f, x, yHaut + (float32)lignes * h, ligne, c);
+				++lignes;
+				p += pris;
+				while (*p == ' ')
+					++p;
+			}
+			return lignes;
+		}
+
+		/// La HAUTEUR que `TexteReplie` prendra, sans rien peindre. Sert a reserver
+		/// la rangee AVANT de dessiner -- deux calculs differents donneraient une
+		/// boite qui ne correspond pas a son contenu.
+		inline float32 HauteurReplie(const NkGuiFont &f, float32 largeurMax, const char *t,
+									 float32 interligne = 0.f, int32 maxLignes = 8) {
+			if (!f.Valid() || !t || !t[0] || largeurMax <= 1.f)
+				return 0.f;
+			NkGuiDrawList poubelle; // on ne peint pas : le releve ne doit pas compter
+			NkReleveTexte &rel = Releve();
+			const bool sauve = rel.actif;
+			rel.actif = false;
+			const int32 n = TexteReplie(poubelle, f, 0.f, 0.f, largeurMax, t, NkColor{0, 0, 0, 0},
+										interligne, maxLignes);
+			rel.actif = sauve;
+			return (float32)n * (f.LineHeight() + interligne);
 		}
 
 		inline float32 Largeur(const NkGuiFont &f, const char *t) {

@@ -232,6 +232,11 @@ static nkentseu::int64 gMesureFpsMs = -1;
 /// (k2) --mesure-double=<images> : combien de fois la toile est-elle dessinee
 /// dans UNE image ? Le seul chiffre acceptable est 1.
 static nkentseu::int64 gMesureDoubleImages = -1;
+/// (c2) --mesure-texte=<images>[:<largeurForcee>] : combien de textes sortent de
+/// leur rognage. Attendu en conditions normales : ZERO. La largeur forcee est la
+/// PREUVE DE NON-MUTISME -- a 20 px, tout doit deborder.
+static nkentseu::int64 gMesureTexteImages = -1;
+static float32 gMesureTexteLargeur = 0.f;
 // 🔴 DEUX COMPTEURS QUI NE COMPTENT PAS LA MEME CHOSE -- mesure du 14/09.
 //    `mAppMenuFn` (ou vit ce tick) est appele DEUX FOIS par image par la
 //    coquille ; `mMenuBarFn` (ou vit la recolte) UNE fois. Compter la reference
@@ -269,6 +274,39 @@ static void MesureTick(NkEditorShell *sh) {
 		if (sec * 1000.0 >= (float64)gMesureFpsMs) {
 			printf("[mesure-fps] repos : %d images en %.3f s -> %.1f images/s\n",
 				   gImagesReelles, sec, (float64)gImagesReelles / (sec > 0.0 ? sec : 1.0));
+			fflush(stdout);
+			sh->RequestClose();
+		}
+		return;
+	}
+	// (c2) LE RELEVE DES TEXTES QUI DEBORDENT DE LEUR ROGNAGE.
+	if (gMesureTexteImages >= 0) {
+		nkuidesign::costume::NkReleveTexte &rel = nkuidesign::costume::Releve();
+		if (!gMesureLancee) {
+			// ⚠️ ON NE JUGE PAS LES PREMIERES IMAGES : la coquille restaure l'etat
+			//    de fenetre et stabilise le dock ; un texte mesure pendant que sa
+			//    colonne n'a pas sa largeur finale deborderait pour rien.
+			if (gImagesReelles < 10)
+				return;
+			gMesureLancee = true;
+			rel.largeurForcee = gMesureTexteLargeur;
+			rel.actif = true;
+			rel.Reinitialiser();
+			gImagesReelles = 0;
+			return;
+		}
+		if (gImagesReelles >= (int32)gMesureTexteImages) {
+			rel.actif = false;
+			printf("[mesure-texte] %u texte(s) examine(s) sur %d images ; "
+				   "%u COUPE(S) par le rognage",
+				   rel.examines, gImagesReelles, rel.coupes);
+			if (gMesureTexteLargeur > 0.f)
+				printf(" [largeur FORCEE a %.0f px]", gMesureTexteLargeur);
+			printf("\n");
+			if (rel.coupes > 0)
+				printf("[mesure-texte]    premier : \"%s\"\n"
+					   "[mesure-texte]    pire    : \"%s\"  (deborde de %.1f px)\n",
+					   rel.premier, rel.pire, rel.pireDebord);
 			fflush(stdout);
 			sh->RequestClose();
 		}
@@ -8652,6 +8690,15 @@ int nkmain(const NkEntryState &state) {
 				gMesureDoubleImages = (nkentseu::int64)atof(a + 16);
 				continue;
 			}
+			if (arg.StartsWith("--mesure-texte=")) {
+				const char *q = a + 15;
+				gMesureTexteImages = (nkentseu::int64)atof(q);
+				while (*q && *q != ':')
+					++q;
+				if (*q == ':')
+					gMesureTexteLargeur = (float32)atof(q + 1);
+				continue;
+			}
 			if (arg.StartsWith("--toile-seule")) {
 				gToileSeule = true;
 				continue;
@@ -9451,7 +9498,8 @@ int nkmain(const NkEntryState &state) {
 	// tête de fichier. Hors capture, aucun callback : rien ne change.
 	if (gCapturePath[0])
 		shell->SetAppMenu(&CaptureTick, shell.Get());
-	else if (gMesureAsyncMs >= 0 || gMesureFpsMs >= 0 || gMesureDoubleImages >= 0)
+	else if (gMesureAsyncMs >= 0 || gMesureFpsMs >= 0 || gMesureDoubleImages >= 0
+			 || gMesureTexteImages >= 0)
 		shell->SetAppMenu(
 			[](NkEditorFrameContext &, void *u) { MesureTick(static_cast<NkEditorShell *>(u)); },
 			shell.Get());
