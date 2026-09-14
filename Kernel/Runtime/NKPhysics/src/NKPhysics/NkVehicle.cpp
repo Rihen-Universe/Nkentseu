@@ -41,7 +41,7 @@ namespace nkentseu {
 			d.orientation = NkQuatf::Identity();
 			d.layer = kChassisLayer; // les rayons des roues masquent cette couche
 			d.angularDamping = 0.5f; // une caisse ne tourne pas librement dans l'air
-			d.linearDamping = 0.02f;
+			d.linearDamping = mTuning.linearDamping; // plus un littéral : un réglage
 			const float32 vol = 8.f * half.x * half.y * half.z;
 			d.material.density = massKg / (vol > 1e-6f ? vol : 1e-6f);
 			mMass = massKg;
@@ -92,6 +92,13 @@ namespace nkentseu {
 				mTuning.engineForce = 0.8f * kG * mMass / (float32)powered;
 			if (mTuning.brakeForce <= 0.f)
 				mTuning.brakeForce = 1.2f * kG * mMass / (float32)n;
+			// L'amortissement a pu être posé APRÈS `SetChassisBox` — c'est même le
+			// cas normal quand il vient d'un fichier de configuration. On le
+			// repousse donc sur le corps ICI, au premier sous-pas, comme les autres
+			// valeurs dérivées : sinon le réglage existerait sans jamais s'appliquer,
+			// et c'est précisément la sorte de défaut qui ne dit rien.
+			if (NkRigidBody *bd = mWorld.GetBody(mChassis))
+				bd->linearDamping = mTuning.linearDamping;
 			if (mTuning.mu <= 0.f) {
 				const NkRigidBody *b = mWorld.GetBody(mChassis);
 				mTuning.mu = b ? b->material.dynamicFriction : 0.8f;
