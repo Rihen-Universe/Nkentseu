@@ -18,6 +18,7 @@
 #include "NKMemory/NKMemory.h"	// NkGetDefaultAllocator
 #include "NKMath/NkRectangle.h" // NkRect2i
 #include "NKGui/NKGui.h"
+#include "NKTime/NkChrono.h"	// NkChrono : chronometres de NK_PHASES. Inclus ICI : NKPA incluait ce fichier sans NKTime avant lui (transit 45149f118, 20 erreurs).
 
 namespace nkentseu {
 	namespace renderer {
