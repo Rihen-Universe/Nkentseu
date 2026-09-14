@@ -390,6 +390,60 @@ namespace nkentseu {
 		}
 
 		// =====================================================================
+		//  LE CROCHET D'EXECUTION -- et pourquoi il est ici et pas ailleurs
+		// =====================================================================
+		/**
+		 * @brief Ce que le monteur laisse faire a qui veut EXECUTER le document.
+		 *
+		 * Le monteur monte l'ETAT AU REPOS, c'est ce que son en-tete promet et
+		 * c'est ce qu'il continuera de faire seul. Mais quatre choses du format
+		 * ne peuvent se faire qu'au moment PRECIS ou un widget se dessine :
+		 *
+		 *   - desactiver le widget (`enabled = false`) AVANT qu'il ne peigne,
+		 *     parce que `BeginDisabled` est une pile et qu'elle se pose autour ;
+		 *   - savoir QUEL widget du document NKGui est en train de peindre, pour
+		 *     que le crochet de style (`ctx.styleFn`) puisse choisir la couleur
+		 *     que le FICHIER declare pour l'etat courant ;
+		 *   - pousser la donnee liee (`bind`) dans la valeur editee juste avant,
+		 *     et relire ce que l'utilisateur en a fait juste apres ;
+		 *   - peindre par-dessus ce que le widget ne sait pas peindre (l'anneau
+		 *     de focus d'un champ de saisie : `InputText` n'a pas de crochet).
+		 *
+		 * ⚠️ C'EST UN CROCHET, PAS UNE SECONDE PORTE. Le monteur reste le seul a
+		 *    monter ; ce qui suit ne fait que l'encadrer. `Monter` garde sa
+		 *    signature a quatre arguments -- les 162 criteres de `NKGuiMonteTest`
+		 *    l'appellent encore comme avant et restent la mesure de
+		 *    non-regression.
+		 *
+		 * ⚠️ `Apres` EST APPELE MEME QUAND LE WIDGET SORT TOT. Les conteneurs
+		 *    (`Window`, `VBox`, `HBox`, `Group`) quittent `MonterBloc` par un
+		 *    `return` au milieu du `switch`. Un appariement ecrit a la main
+		 *    aurait donc laisse une pile `BeginDisabled` ouverte sur le premier
+		 *    conteneur desactive rencontre -- et la faute ne se serait vue que
+		 *    beaucoup plus loin, sur un widget qui n'a rien demande. L'appariement
+		 *    passe par un objet de pile (`Garde`), pas par de la discipline.
+		 */
+		struct NkGuiMonteHooks {
+				virtual ~NkGuiMonteHooks() = default;
+				/// Avant que le widget ne dessine. `e` peut etre nul (role sans etat).
+				virtual void Avant(NkGuiContext &ctx, const NkArchive &w, NkStringView role,
+								   NkGuiMonteEtat::Entree *e) noexcept {
+					(void)ctx;
+					(void)w;
+					(void)role;
+					(void)e;
+				}
+				/// Apres, quelle que soit la porte de sortie.
+				virtual void Apres(NkGuiContext &ctx, const NkArchive &w, NkStringView role,
+								   NkGuiMonteEtat::Entree *e) noexcept {
+					(void)ctx;
+					(void)w;
+					(void)role;
+					(void)e;
+				}
+		};
+
+		// =====================================================================
 		//  LE MONTEUR
 		// =====================================================================
 		class NkGuiMonteur {
@@ -413,7 +467,7 @@ namespace nkentseu {
 				/// Phase 2 : monter le document dans `ctx`, au curseur courant.
 				/// L'appelant a deja fait `ctx.BeginLayout(region)`.
 				static void Monter(NkGuiContext &ctx, const NkArchive &doc, NkGuiMonteEtat &etat,
-								   NkGuiMonteRapport &rap) noexcept {
+								   NkGuiMonteRapport &rap, NkGuiMonteHooks *hooks = nullptr) noexcept {
 					const NkArchiveNode *corps = NkGMonteCorps(doc);
 					if (!corps)
 						return;
@@ -434,7 +488,7 @@ namespace nkentseu {
 						}
 						if (!NkGMotEgal(nom, "widgets"))
 							continue;  // geometry, controller, callback, fonts, include
-						MonterCorps(ctx, sec, etat, rap, 0u, false);
+						MonterCorps(ctx, sec, etat, rap, 0u, false, hooks);
 					}
 				}
 
@@ -468,19 +522,42 @@ namespace nkentseu {
 
 				// ── phase 2 ──────────────────────────────────────────────────
 				static void MonterCorps(NkGuiContext &ctx, const NkArchive &bloc, NkGuiMonteEtat &etat,
-										NkGuiMonteRapport &rap, uint32 prof, bool horizontal) noexcept {
+										NkGuiMonteRapport &rap, uint32 prof, bool horizontal,
+										NkGuiMonteHooks *hooks) noexcept {
 					const NkArchiveNode *c = NkGMonteCorps(bloc);
 					if (!c)
 						return;
 					for (uint32 k = 0; k < (uint32)c->array.Size(); ++k) {
 						if (!c->array[k].IsObject() || !c->array[k].object)
 							continue;
-						MonterBloc(ctx, *c->array[k].object, etat, rap, prof, horizontal);
+						MonterBloc(ctx, *c->array[k].object, etat, rap, prof, horizontal, hooks);
 					}
 				}
 
+				/// Appariement du crochet par objet de PILE : `Apres` part meme quand
+				/// le `switch` de `MonterBloc` sort par un `return` (les conteneurs le
+				/// font tous). Voir l'avertissement de `NkGuiMonteHooks`.
+				struct Garde {
+						NkGuiMonteHooks *h = nullptr;
+						NkGuiContext *ctx = nullptr;
+						const NkArchive *w = nullptr;
+						NkStringView role;
+						NkGuiMonteEtat::Entree *e = nullptr;
+						Garde(NkGuiMonteHooks *hooks, NkGuiContext &c, const NkArchive &bloc,
+							  NkStringView r, NkGuiMonteEtat::Entree *ent) noexcept
+							: h(hooks), ctx(&c), w(&bloc), role(r), e(ent) {
+							if (h)
+								h->Avant(*ctx, *w, role, e);
+						}
+						~Garde() {
+							if (h)
+								h->Apres(*ctx, *w, role, e);
+						}
+				};
+
 				static void MonterBloc(NkGuiContext &ctx, const NkArchive &w, NkGuiMonteEtat &etat,
-									   NkGuiMonteRapport &rap, uint32 prof, bool horizontal) noexcept {
+									   NkGuiMonteRapport &rap, uint32 prof, bool horizontal,
+									   NkGuiMonteHooks *hooks) noexcept {
 					const NkStringView t = NkGuiArchive::TypeOf(w);
 
 					// L'apparence n'est pas un widget : on la compte, on ne la monte pas.
@@ -504,6 +581,8 @@ namespace nkentseu {
 					const NkString id(NkGuiArchive::IdOf(w));
 					const char *lbl = id.CStr();
 					NkGuiMonteEtat::Entree *e = etat.Get(NkStringView(CleEtat(w)));
+					// Le crochet encadre TOUT ce qui suit, sorties anticipees comprises.
+					Garde garde(hooks, ctx, w, t, e);
 					bool aDessine = true;
 					float32 valeurMontee = 0.f;
 					bool aValeurMontee = false;
@@ -530,14 +609,14 @@ namespace nkentseu {
 								ctx.layout.cursor.y += ctx.ItemHeight();
 							}
 							Noter(rap, id, t, r, prof, true, horizontal);
-							MonterCorps(ctx, w, etat, rap, prof + 1u, false);
+							MonterCorps(ctx, w, etat, rap, prof + 1u, false, hooks);
 							++rap.montes;
 							return;
 						}
 						case NkGuiRole::Group: {
 							const NkVec2 c0 = ctx.layout.cursor;
 							BeginGroup(ctx);
-							MonterCorps(ctx, w, etat, rap, prof + 1u, horizontal);
+							MonterCorps(ctx, w, etat, rap, prof + 1u, horizontal, hooks);
 							EndGroup(ctx);
 							Noter(rap, id, t, BlocConsomme(ctx, c0), prof, true, horizontal);
 							++rap.montes;
@@ -547,7 +626,7 @@ namespace nkentseu {
 							const float32 gap = NkGA(w, "gap") ? NkGNombre(w, "gap", -1.f) : -1.f;
 							const NkVec2 c0 = ctx.layout.cursor;
 							BeginVBox(ctx, gap);
-							MonterCorps(ctx, w, etat, rap, prof + 1u, false);
+							MonterCorps(ctx, w, etat, rap, prof + 1u, false, hooks);
 							EndVBox(ctx);
 							Noter(rap, id, t, BlocConsomme(ctx, c0), prof, true, horizontal);
 							++rap.montes;
@@ -557,7 +636,7 @@ namespace nkentseu {
 							const float32 gap = NkGA(w, "gap") ? NkGNombre(w, "gap", -1.f) : -1.f;
 							const NkVec2 c0 = ctx.layout.cursor;
 							BeginHBox(ctx, gap);
-							MonterCorps(ctx, w, etat, rap, prof + 1u, true);
+							MonterCorps(ctx, w, etat, rap, prof + 1u, true, hooks);
 							EndHBox(ctx);
 							Noter(rap, id, t, BlocConsomme(ctx, c0), prof, true, horizontal);
 							++rap.montes;
