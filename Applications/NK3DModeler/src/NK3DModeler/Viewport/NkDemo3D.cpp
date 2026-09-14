@@ -2565,6 +2565,14 @@ namespace nkentseu {
 			// du tableau des la ligne suivante et l'intention serait rededuite tout de
 			// suite -- le cablage n'aurait servi a rien, et rien ne l'aurait dit.
 			st->faceSelSnap = st->vertSel;
+			// ⚠ L'INTENTION DESCEND AUSSI DANS LE MOTEUR, ET C'EST ICI QU'ELLE LE PEUT.
+			// Sans cette ligne, l'ecran disait 2 et l'extrusion en prenait 6 : les
+			// operations lisent `NkEditMesh`, pas ce tableau. Ici, `Demo3D_NormalizeSel`
+			// vient d'aligner les sommets du moteur sur `vertSel` : la photo que prend
+			// le moteur est donc la meme que la notre. Et `Demo3D_ApplyCmd` rejoue au
+			// moment de l'operation une selection construite depuis ce meme `vertSel`,
+			// donc les memes bits : l'intention est encore a jour quand elle sert.
+			st->editHE.SetFaceSelection(st->faceSel.Data(), (uint32)st->faceSel.Size());
 		}
 
 		// ── LUMIERE EFFECTIVE = base + transform du gizmo ───────────────────────────
