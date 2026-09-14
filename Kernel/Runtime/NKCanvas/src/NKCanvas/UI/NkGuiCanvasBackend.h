@@ -155,10 +155,24 @@ namespace nkentseu {
 				//     faut descendre la -- ou ailleurs.
 				struct NkReleveSubmit {
 						bool actif = false;
+						bool fin = false; ///< les chronos PAR COMMANDE (NK_PHASES=2)
 						bool decide = false;
+						nkentseu::float64 boucle = 0.0; ///< UN seul chrono autour de toute la boucle
 						nkentseu::float64 conversion = 0.0, rebasage = 0.0, ressources = 0.0, pilote = 0.0;
 						nkentseu::float64 total = 0.0;
 						nkentseu::int32 appels = 0;
+						// ⚠️ DES COMPTES, PAS DES DUREES. Deduire une allocation d'un
+						//    temps long, c'est confirmer ce qu'on croyait deja. On
+						//    compte donc un CHANGEMENT DE CAPACITE -- le seul fait qui
+						//    dise qu'une reallocation a eu lieu.
+						nkentseu::int64 reallocIdx = 0, reallocVtx = 0;
+						nkentseu::int64 derniereRealloc = -1; ///< a quel appel, la derniere
+						nkentseu::int64 zerosPerdus = 0;	  ///< elements remplis a zero par Resize
+						nkentseu::int64 indicesTraites = 0;	  ///< les deux passes utiles
+						nkentseu::int64 commandes = 0;		  ///< combien de commandes de dessin
+						nkentseu::float64 balayage = 0.0;	  ///< la passe lo/hi
+						nkentseu::float64 recopie = 0.0;	  ///< la passe de soustraction
+						nkentseu::float64 popclip = 0.0;	  ///< PopClip, un appel au dorsal
 				};
 				static NkReleveSubmit &Releve() {
 					static NkReleveSubmit r;
@@ -174,13 +188,27 @@ namespace nkentseu {
 					if (!rel.decide) {
 						rel.decide = true;
 						const char *v = getenv("NK_PHASES");
-						rel.actif = v && v[0] == '2';
+						// ⚠️ DEUX MODES, ET C'EST LE BANC DE L'INSTRUMENT LUI-MEME.
+						//    `=2` pose un chronometre PAR COMMANDE ; `=3` n'en pose
+						//    qu'UN, autour de toute la boucle. Si le total de `=2` est
+						//    tres superieur a celui de `=3`, **c'est l'instrument qui
+						//    coute**, et aucun de ses pourcentages ne vaut.
+						rel.actif = v && (v[0] == '2' || v[0] == '3');
+						rel.fin = v && v[0] == '2';
 					}
 					NkChrono hTotal, hPoste;
 					if (rel.actif)
 						++rel.appels;
 
-					mScratch.Resize(dl.vtx.Size());
+					if (rel.actif) {
+						const uint32 capAvant = mScratch.Capacity();
+						mScratch.Resize(dl.vtx.Size());
+						if (mScratch.Capacity() != capAvant) {
+							++rel.reallocVtx;
+							rel.derniereRealloc = rel.appels;
+						}
+					} else
+						mScratch.Resize(dl.vtx.Size());
 					for (uint32 i = 0; i < dl.vtx.Size(); ++i) {
 						const nkgui::NkGuiVertex &s = dl.vtx[i];
 						renderer::NkVertex2D &d = mScratch[i];
@@ -198,6 +226,7 @@ namespace nkentseu {
 						rel.conversion += hPoste.Elapsed().ToSeconds() * 1000.0;
 						hPoste = NkChrono();
 					}
+					NkChrono hBoucle;
 
 					for (uint32 ci = 0; ci < dl.cmds.Size(); ++ci) {
 						const nkgui::NkGuiDrawCmd &dc = dl.cmds[ci];
@@ -216,14 +245,14 @@ namespace nkentseu {
 								y1 = static_cast<float32>(fbH);
 							if (x1 <= x0 || y1 <= y0)
 								continue;
-							if (rel.actif) {
+							if (rel.fin) {
 								rel.rebasage += hPoste.Elapsed().ToSeconds() * 1000.0;
 								hPoste = NkChrono();
 							}
 							mRenderer->SetClip(math::NkRect2i{static_cast<int32>(x0), static_cast<int32>(y0),
 															  static_cast<int32>(x1 - x0),
 															  static_cast<int32>(y1 - y0)});
-							if (rel.actif) {
+							if (rel.fin) {
 								rel.pilote += hPoste.Elapsed().ToSeconds() * 1000.0;
 								hPoste = NkChrono();
 							}
@@ -251,7 +280,7 @@ namespace nkentseu {
 								break;
 						}
 
-						if (rel.actif) {
+						if (rel.fin) {
 							rel.pilote += hPoste.Elapsed().ToSeconds() * 1000.0; // SetBlendMode
 							hPoste = NkChrono();
 						}
@@ -273,7 +302,7 @@ namespace nkentseu {
 						// Ne soumet que le SOUS-ENSEMBLE de vertices reference par cette
 						// commande (indices rebases). Indispensable : passer tout le buffer
 						// depasse kMaxVertices (65536) des qu'un draw list est gros -> crash.
-						if (rel.actif) {
+						if (rel.fin) {
 							rel.ressources += hPoste.Elapsed().ToSeconds() * 1000.0;
 							hPoste = NkChrono();
 						}
@@ -285,44 +314,134 @@ namespace nkentseu {
 							if (v > hi)
 								hi = v;
 						}
-						mIdxTmp.Resize(dc.idxCount);
+						if (rel.fin) {
+							rel.balayage += hPoste.Elapsed().ToSeconds() * 1000.0;
+							++rel.commandes;
+							hPoste = NkChrono();
+						}
+						if (rel.actif) {
+							const uint32 capAvant = mIdxTmp.Capacity();
+							const uint32 tailleAvant = mIdxTmp.Size();
+							// la PASSE PERDUE : `Resize` initialise a zero tout ce qu'il
+							// ajoute, et on recrase ces zeros trois lignes plus bas.
+							if (dc.idxCount > tailleAvant)
+								rel.zerosPerdus += (int64)(dc.idxCount - tailleAvant);
+							mIdxTmp.Resize(dc.idxCount);
+							if (mIdxTmp.Capacity() != capAvant) {
+								++rel.reallocIdx;
+								rel.derniereRealloc = rel.appels;
+							}
+							rel.indicesTraites += (int64)dc.idxCount * 2; // balayage + recopie
+						} else
+							mIdxTmp.Resize(dc.idxCount);
+						// ⚠️ UNE PASSE PERDUE EXISTE ICI, ET ELLE N'EST PAS CORRIGEE.
+						//    Ce bloc de commentaire garde la mesure parce qu'elle vaut
+						//    plus que le correctif qu'elle a fait abandonner.
+						// ⚠️ MESURE D'ABORD, ET ELLE A TUE MON PROPRE SOUPCON. J'avais
+						//    accuse la REALLOCATION. Les COMPTES disent : 5 reallocations
+						//    de `mIdxTmp` et 3 de `mScratch` sur 600 appels, la derniere
+						//    a l'appel n°5. `NkVector` ne rend jamais sa capacite
+						//    (`ShrinkToFit` n'est pas appele), donc apres cinq appels il
+						//    n'alloue plus rien. **Ce n'etait pas l'allocation.**
+						//
+						// ⚠️ CE QUE LES COMPTES ONT TROUVE A LA PLACE : `Resize(n)` avec
+						//    `n > mSize` fait `ConstructAt` sur chaque element ajoute --
+						//    pour un `uint32`, il ECRIT UN ZERO. Comme `mIdxTmp`
+						//    retrecissait a chaque commande (`Resize` vers une taille plus
+						//    petite detruit, donc la suivante re-grossit), on ecrivait des
+						//    zeros qu'on ecrasait trois lignes plus bas :
+						//        8 023 344 zeros ecrits puis ecrases
+						//        contre 19 830 096 indices traites utilement
+						//        -> **40 % de travail perdu**, a chaque image.
+						//
+						// 🔴 J'AI ECRIT LE CORRECTIF (ne plus retrecir : `if (Size() <
+						//    idxCount) Resize(...)`), MESURE, ET JE L'AI RETIRE.
+						//    Les zeros sont bien passes de 8 023 344 a 14 652 -- le geste
+						//    faisait ce qu'il annoncait -- et le temps N'A PAS BOUGE :
+						//        AVANT  1853,17 | 1802,18 | 1808,77 ms
+						//        APRES  1798,81 | 1801,68 | 1807,16 ms
+						//    (courses ENTRELACEES, meme machine, meme minute -- cette
+						//     machine rend 62 a 140 images/s pour la meme mesure, deux
+						//     courses eloignees ne se comparent pas.)
+						//    Supprimer huit millions d'ecritures inutiles n'a rien change :
+						//    **ce n'etait pas la le cout.** Un changement sans gain mesure
+						//    dans du code de noyau PARTAGE ne se garde pas -- il ajoute un
+						//    risque a quatre autres applications contre rien. La MESURE
+						//    reste ; le correctif part.
+						//
+						// ⚠️ ET LE VRAI COUT EST AILLEURS : `PopClip`, 1 827 ms sur
+						//    1 940 -- 94 %. Voir le releve.
 						for (uint32 k = 0; k < dc.idxCount; ++k)
 							mIdxTmp[k] = dl.idx[dc.idxOffset + k] - lo;
-						if (rel.actif) {
-							rel.rebasage += hPoste.Elapsed().ToSeconds() * 1000.0;
+						if (rel.fin) {
+							rel.recopie += hPoste.Elapsed().ToSeconds() * 1000.0;
 							hPoste = NkChrono();
 						}
 						mRenderer->DrawVertices(mScratch.Data() + lo, hi - lo + 1u, mIdxTmp.Data(), dc.idxCount, tex);
-						if (rel.actif) {
+						if (rel.fin) {
 							rel.pilote += hPoste.Elapsed().ToSeconds() * 1000.0;
 							hPoste = NkChrono();
 						}
 
-						if (hasClip)
+						// 🔴 `PopClip` N'ETAIT MESURE PAR RIEN, et il tombait dans le
+						//    seau du COUP D'APRES. C'est un appel au DORSAL, au meme
+						//    titre que `SetClip` -- le compter avec le rebasage etait une
+						//    erreur d'etiquette, pas de chronometre.
+						if (hasClip) {
 							mRenderer->PopClip();
+							if (rel.fin) {
+								rel.popclip += hPoste.Elapsed().ToSeconds() * 1000.0;
+								hPoste = NkChrono();
+							}
+						}
 					}
 					mRenderer->SetBlendMode(renderer::NkBlendMode::NK_ALPHA); // ce qui suit repart en alpha
 					if (rel.actif) {
-						rel.pilote += hPoste.Elapsed().ToSeconds() * 1000.0;
+						if (rel.fin)
+							rel.pilote += hPoste.Elapsed().ToSeconds() * 1000.0;
+						rel.boucle += hBoucle.Elapsed().ToSeconds() * 1000.0;
 						rel.total += hTotal.Elapsed().ToSeconds() * 1000.0;
 						// Deux appels par image (la liste normale et l'incrustation) :
 						// 600 appels = 300 images, la meme cadence que la coquille.
 						if ((rel.appels % 600) == 0) {
-							const float64 somme = rel.conversion + rel.rebasage + rel.ressources + rel.pilote;
-							printf("[submit] %d appels (= %d images) ; TOTAL mesure %.2f ms\n"
+							const float64 somme = rel.conversion + rel.rebasage + rel.balayage + rel.recopie + rel.popclip + rel.ressources + rel.pilote;
+							printf("[submit] %s -- %d appels (= %d images) ; TOTAL %.2f ms ; "
+								   "la BOUCLE DE COMMANDES a elle seule %.2f ms\n"
 								   "[submit]   conversion des sommets %9.2f ms  (%5.1f %%)\n"
 								   "[submit]   rebasage des indices  %9.2f ms  (%5.1f %%)\n"
 								   "[submit]   recherche de texture  %9.2f ms  (%5.1f %%)\n"
 								   "[submit]   appels au PILOTE      %9.2f ms  (%5.1f %%)\n"
 								   "[submit]   FERMETURE : somme des quatre %.2f ms contre %.2f ms "
 								   "de total -- il manque %.1f %%\n",
-								   rel.appels, rel.appels / 2, rel.total,
+								   rel.fin ? "chronos PAR COMMANDE" : "UN SEUL chrono (grossier)",
+								   rel.appels, rel.appels / 2, rel.total, rel.boucle,
 								   rel.conversion, 100.0 * rel.conversion / (rel.total > 0.0 ? rel.total : 1.0),
-								   rel.rebasage, 100.0 * rel.rebasage / (rel.total > 0.0 ? rel.total : 1.0),
+								   rel.rebasage + rel.balayage + rel.recopie,
+								   100.0 * (rel.rebasage + rel.balayage + rel.recopie) / (rel.total > 0.0 ? rel.total : 1.0),
 								   rel.ressources, 100.0 * rel.ressources / (rel.total > 0.0 ? rel.total : 1.0),
-								   rel.pilote, 100.0 * rel.pilote / (rel.total > 0.0 ? rel.total : 1.0),
+								   rel.pilote + rel.popclip,
+								   100.0 * (rel.pilote + rel.popclip) / (rel.total > 0.0 ? rel.total : 1.0),
 								   somme, rel.total,
 								   rel.total > 0.0 ? 100.0 * (rel.total - somme) / rel.total : 0.0);
+							printf("[submit]   COMPTES (pas des durees) :\n"
+								   "[submit]     reallocations mIdxTmp : %lld   mScratch : %lld\n"
+								   "[submit]     derniere realloc a l'appel n°%lld sur %d\n"
+								   "[submit]     zeros ECRITS PUIS ECRASES par Resize : %lld\n"
+								   "[submit]     indices traites par les deux passes utiles : %lld\n"
+								   "[submit]     -> la passe PERDUE pese %.0f %% des passes utiles\n"
+								   "[submit]     commandes de dessin : %lld (= %.0f par image)\n"
+								   "[submit]     DANS le rebasage : balayage lo/hi %.2f ms | "
+								   "recopie %.2f ms | PopClip %.2f ms | reste %.2f ms\n",
+								   (long long)rel.reallocIdx, (long long)rel.reallocVtx,
+								   (long long)rel.derniereRealloc, rel.appels,
+								   (long long)rel.zerosPerdus, (long long)rel.indicesTraites,
+								   rel.indicesTraites > 0
+									   ? 100.0 * (float64)rel.zerosPerdus / (float64)rel.indicesTraites
+									   : 0.0,
+								   (long long)rel.commandes,
+								   rel.appels > 0 ? (float64)rel.commandes / ((float64)rel.appels / 2.0) : 0.0,
+								   rel.balayage, rel.recopie, rel.popclip,
+								   rel.rebasage);
 							fflush(stdout);
 						}
 					}
