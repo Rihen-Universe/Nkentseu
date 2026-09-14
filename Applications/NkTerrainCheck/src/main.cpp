@@ -507,8 +507,12 @@ struct Scene {
 		bool Monter();
 		void Demonter();
 		// `sommets == nullptr` => AUCUN trace. C'est la preuve du zero.
+		// `outNuances`, quand il est fourni, recoit le nombre de VALEURS DE VERT
+		// DISTINCTES parmi les pixels non-fond. C'est ce qui distingue « le
+		// terrain est peint » de « les normales arrivent au nuanceur ».
 		bool RendreEtCompter(const SommetRendu *sommets, uint32 nbSommets, const uint32 *indices,
-							 uint32 nbIndices, uint32 &outNonFond, const char *capture);
+							 uint32 nbIndices, uint32 &outNonFond, const char *capture,
+							 uint32 *outNuances = nullptr);
 };
 
 bool Scene::Monter() {
@@ -594,8 +598,10 @@ void Scene::Demonter() {
 }
 
 bool Scene::RendreEtCompter(const SommetRendu *sommets, uint32 nbSommets, const uint32 *indices,
-							uint32 nbIndices, uint32 &outNonFond, const char *capture) {
+							uint32 nbIndices, uint32 &outNonFond, const char *capture, uint32 *outNuances) {
 	outNonFond = 0;
+	if (outNuances)
+		*outNuances = 0;
 	NkBufferHandle vbo, ibo;
 	const bool trace = (sommets != nullptr && nbSommets > 0u && indices != nullptr && nbIndices > 0u);
 	if (trace) {
@@ -631,10 +637,20 @@ bool Scene::RendreEtCompter(const SommetRendu *sommets, uint32 nbSommets, const 
 	if (!cible.ReadbackPixels(px.Data()))
 		return false;
 
+	uint8 vus[256];
+	memset(vus, 0, sizeof(vus));
 	for (uint32 k = 0; k < largeur * hauteur; ++k) {
 		const uint8 r = px[k * 4u + 0u], g = px[k * 4u + 1u], b = px[k * 4u + 2u];
-		if (!(r == 255u && g == 0u && b == 255u))
+		if (!(r == 255u && g == 0u && b == 255u)) {
 			++outNonFond;
+			vus[g] = 1u;
+		}
+	}
+	if (outNuances) {
+		uint32 n = 0;
+		for (uint32 g = 0; g < 256u; ++g)
+			n += vus[g];
+		*outNuances = n;
 	}
 
 	// La capture PNG est POUR L'OEIL DE RODOLF, pas pour le verdict. Le banc ne
@@ -935,13 +951,47 @@ int main(int argc, char **argv) {
 				oblique.k = 0.85f;
 				NkVector<SommetRendu> so;
 				Projeter(tv, oblique, so);
-				uint32 vus2 = 0;
-				const bool lu2 = sc.RendreEtCompter(so.Data(), (uint32)so.Size(), ti.Data(),
-													(uint32)ti.Size(), vus2, "nkterrain_vue_oblique.png");
-				Cas("(t4) vue oblique > 0", lu2 && vus2 > 0u,
-					NkFormat("pixels non-fond = {0} (chiffre IMPRIME, pas juge : il depend du cadrage) . "
-							 "capture nkterrain_vue_oblique.png -- pour l'oeil, jamais pour le verdict",
-							 vus2));
+				uint32 vus2 = 0, nuances2 = 0;
+				const bool lu2 =
+					sc.RendreEtCompter(so.Data(), (uint32)so.Size(), ti.Data(), (uint32)ti.Size(), vus2,
+									   "nkterrain_A_oblique.png", &nuances2);
+				// ⚠️ CE QUE CETTE IMAGE NE PROUVE PAS, ET IL FAUT LE DIRE.
+				// A est un plan EXACT : toutes ses normales sont identiques, donc
+				// sa capture est UNIFORMEMENT verte -- c'est correct, et c'est
+				// justement pourquoi elle ne temoigne de rien sur les normales.
+				// Une chaine de normales entierement cassee donnerait aussi un
+				// aplat uniforme, d'une autre teinte. L'attendu ici est donc
+				// EXACTEMENT UNE nuance, et le temoin des normales est la passe
+				// suivante, sur B.
+				Cas("(t4) A oblique : 1 nuance (plan exact)", lu2 && vus2 > 0u && nuances2 == 1u,
+					NkFormat("pixels non-fond = {0} (chiffre imprime, pas juge : il depend du cadrage) . "
+							 "nuances de vert = {1} (attendu 1 : un plan exact n'a qu'une normale)",
+							 vus2, nuances2));
+
+				// ── LE TEMOIN DES NORMALES : B, LA MARCHE ───────────────────
+				// B a deux plateaux et une falaise, donc des normales qui
+				// DIFFERENT. Si les normales n'arrivaient pas au nuanceur, ou si
+				// le terrain etait plat, on retomberait sur UNE seule nuance. Le
+				// critere est donc « au moins 2 », derive de la forme de B et non
+				// d'un reglage.
+				if (rB.construit) {
+					NkVector<NkVertex3D> tvB;
+					NkVector<uint32> tiB;
+					NkVector<NkEmId> tfB;
+					rB.mesh.Triangulate(tvB, tiB, tfB);
+					NkVector<SommetRendu> soB;
+					Projeter(tvB, oblique, soB);
+					uint32 vusB = 0, nuancesB = 0;
+					const bool luB =
+						sc.RendreEtCompter(soB.Data(), (uint32)soB.Size(), tiB.Data(), (uint32)tiB.Size(),
+										   vusB, "nkterrain_B_marche_oblique.png", &nuancesB);
+					Cas("(t4) B oblique : le RELIEF se voit", luB && vusB > 0u && nuancesB >= 2u,
+						NkFormat("pixels non-fond = {0} . nuances de vert = {1} (attendu >= 2 : la marche a "
+								 "deux plateaux et une falaise, donc des normales differentes)",
+								 vusB, nuancesB));
+				} else {
+					Ignore("(t4) B oblique", NkString("l'image B n'a pas produit de maillage."));
+				}
 			}
 		} else if (!rA.construit) {
 			Ignore("(t4) terrain", NkString("l'image A n'a pas produit de maillage : rien a rendre."));
