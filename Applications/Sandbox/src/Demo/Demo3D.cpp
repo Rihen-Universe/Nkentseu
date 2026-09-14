@@ -118,6 +118,8 @@ namespace nkentseu {
 				bool vehNoCoast = false; // NK_VEHICLE_NOCOAST=1 : la mutation
 				// ── BANC 2 : VITESSE DE POINTE ; BANC 3 : MANOEUVRE SERREE (2026-09-13) ──
 				uint32 vehBanc = 1u; // NK_VEHICLE_SCENARIO=1 (route), 2 (pointe), 3 (serre)
+				// ... 4 virage, 5 pentes, 6 frein en pente, 7 collisions, 8 trainee de
+				// virage, 9 touche->image, 10 touche->consigne->poussee.
 				float32 vehVprec = 0.f, vehTprec = 0.f;
 				// banc 3 : la boite du cercle decrit, et le glissement lateral residuel
 				float32 vehCx0 = 1e30f, vehCx1 = -1e30f, vehCz0 = 1e30f, vehCz1 = -1e30f;
@@ -188,6 +190,23 @@ namespace nkentseu {
 				NkVec3f vehCamRight{}, vehG0{}, vehGFwd{}, vehGRight{}, vehGCamRight{};
 				bool vehGArme = false, vehGDit = false;
 				float32 vehGSteer = 0.f;
+				// BANC 10 : le masque de touches, et l'echantillonnage de a(v).
+				uint32 vehGMask = 0u;
+				float32 vehAccT0 = -1.f, vehAccV0 = 0.f;
+				int32 vehAccIdx = -1;
+				bool vehAccFait[3] = {false, false, false};
+				bool vehTdit0 = false, vehTdit1 = false, vehTdit2 = false;
+				float32 vehTv0 = 0.f;
+				// LE LANCEMENT : freiner a l'arret ne prouve rien. Sous NK_VEHICLE_VCIBLE,
+				// le banc monte d'abord en vitesse touche HAUT, puis passe a la touche
+				// demandee -- et c'est LA qu'il mesure.
+				bool vehTlance = false, vehTfreinDit = false, vehTarretDit = false;
+				// ⚠️ `vehCible` vaut 8 PAR DEFAUT : un test « > 0 » serait donc toujours
+				// vrai et le banc 10 se lancerait TOUJOURS, y compris quand on mesure la
+				// touche depuis l'arret. Ce qui commande, c'est que la variable ait ete
+				// DONNEE -- pas la valeur qu'elle porte.
+				bool vehCibleDonnee = false;
+				float32 vehTlanceT = 0.f, vehTlanceV = 0.f, vehTdist = 0.f;
 				float64 vehTvALat = 0.0, vehTvSlip = 0.0, vehTvDrag = 0.0;
 				uint32 vehTvN = 0;
 				bool vehKickFait = false;
@@ -2394,8 +2413,41 @@ static NkTexHandle CreateLanternCubeCookie(NkTextureLibrary *texLib, NkIDevice *
 		//  Ces deux constantes sont ce maillon. Le clavier les ecrit, le banc 9
 		//  les relit -- il ne SIMULE aucune touche, il lit la meme table.
 		// ═══════════════════════════════════════════════════════════════════
+		// Le plus grand numero de banc. Ecrit ICI, lu par le parseur : ajouter un
+		// banc sans bouger cette ligne le rend injoignable, et en silence.
+		static constexpr int kVehBancMax = 10;
+
 		static constexpr float32 kSteerGauche = -1.f;
 		static constexpr float32 kSteerDroite = +1.f;
+
+		// ⚠️ ELARGIE LE 14/09 AUX TROIS ENTREES. La table ci-dessus ne couvrait que
+		// le BRAQUAGE : l'accelerateur et le frein restaient traduits a l'interieur
+		// du bloc clavier, en un seul exemplaire que AUCUN banc ne pouvait lire.
+		// C'est exactement le defaut d'hier, sur les deux autres entrees.
+		// Les cinq touches de conduite, en bits. Un banc ecrit ce masque A LA MAIN ;
+		// le clavier l'assemble depuis IsKeyDown. Aucune touche n'est simulee : c'est
+		// la TABLE qui est partagee, pas la frappe.
+		enum : uint32 {
+			kToucheGauche = 1u << 0,
+			kToucheDroite = 1u << 1,
+			kToucheHaut = 1u << 2,
+			kToucheBas = 1u << 3,
+			kToucheEspace = 1u << 4
+		};
+
+		// LE MAILLON. Tout ce qui traduit une touche en consigne est ICI et nulle
+		// part ailleurs. Le clavier appelle, le banc 10 appelle. S'il en existait
+		// deux exemplaires, un banc vert ne prouverait rien sur l'autre.
+		static void Demo3D_ToucheVersConsigne(uint32 m, float32 *steer, float32 *thr, float32 *brk) noexcept {
+			*steer = 0.f;
+			*thr = 0.f;
+			*brk = 0.f;
+			if (m & kToucheGauche) *steer += kSteerGauche;
+			if (m & kToucheDroite) *steer += kSteerDroite;
+			if (m & kToucheHaut) *thr += 1.f;
+			if (m & kToucheBas) *thr -= 1.f;
+			if (m & kToucheEspace) *brk = 1.f;
+		}
 
 		// ═══════════════════════════════════════════════════════════════════
 		//  LA TRANSFORMATION DE LA ROUE -- UN SEUL ENDROIT, UNE SEULE VERITE
@@ -2654,7 +2706,13 @@ static NkTexHandle CreateLanternCubeCookie(NkTextureLibrary *texLib, NkIDevice *
 					// NK_VEHICLE_SOL=<demi-taille> : pour demander si un OBB GEANT est en
 					// cause quand la voiture est projetee a 15 km au premier contact.
 					if (const char *so = std::getenv("NK_VEHICLE_SOL"); so && so[0]) return NkEnvFloat("NK_VEHICLE_SOL", 200.f);
-					return (e && (e[0] == '2' || e[0] == '5')) ? 20000.f : 200.f;
+					// ⚠️ MEME CORRECTION : ce test lisait lui aussi e[0]. « LA TAILLE DU
+					// SOL SUIT LE BANC » -- encore faut-il que le banc soit lu en entier.
+					// Les bancs de LIGNE DROITE (2 pointe, 5 pentes, 10 poussee) ont besoin
+					// d'une piste de 40 km : sinon la voiture sort du sol et « sature » en
+					// CHUTE LIBRE. C'est le piege dans lequel je suis tombe trois fois.
+					const int nb = (e && e[0]) ? std::atoi(e) : 0;
+					return (nb == 2 || nb == 5 || nb == 10) ? 20000.f : 200.f;
 				}();
 				// NK_VEHICLE_PENTE=<degres> : le sol s'incline. Le contrat de CreateBody
 				// veut la forme en repere MONDE et la pose la tourne ensuite ; la normale
@@ -2726,8 +2784,15 @@ static NkTexHandle CreateLanternCubeCookie(NkTextureLibrary *texLib, NkIDevice *
 							 2.f * demiSol, demiSol);
 				st->veh = new NkVehicle(*st->vehWorld);
 				st->vehBanc = [] {
+					// ⚠️ CORRIGE LE 14/09. Cette ligne lisait `e[0] - '0'` : UN SEUL
+					// CARACTERE. « 10 » y valait donc 1 -- le banc 1, silencieusement,
+					// avec le nom du banc 10 sur la ligne de commande et aucune erreur.
+					// Un chiffre a deux caracteres n'est pas une extension du probleme,
+					// c'est la meme famille que les attendus qui voyagent sans leur
+					// condition : la valeur est acceptee, tronquee, et rien ne le dit.
 					const char *e = std::getenv("NK_VEHICLE_SCENARIO");
-					return (e && e[0] >= '1' && e[0] <= '9') ? (uint32)(e[0] - '0') : 0u;
+					const int n = (e && e[0]) ? std::atoi(e) : 0;
+					return (n >= 1 && n <= kVehBancMax) ? (uint32)n : 0u;
 				}();
 				st->vehScenario = st->vehBanc != 0u;
 				if (const char *cf = std::getenv("NK_VEHICLE_CAM"); cf && cf[0] == '0')
@@ -3214,13 +3279,26 @@ static NkTexHandle CreateLanternCubeCookie(NkTextureLibrary *texLib, NkIDevice *
 				if (const char *mu = std::getenv("NK_VEHICLE_MU"); mu && mu[0])
 					st->veh->Tuning().mu = NkEnvFloat("NK_VEHICLE_MU", 0.f);
 				if (const char *kk = std::getenv("NK_VEHICLE_KICK"); kk && kk[0]) st->vehKick = NkEnvFloat("NK_VEHICLE_KICK", 0.f);
-				if (const char *vc = std::getenv("NK_VEHICLE_VCIBLE"); vc && vc[0]) st->vehCible = NkEnvFloat("NK_VEHICLE_VCIBLE", 8.f);
+				if (const char *vc = std::getenv("NK_VEHICLE_VCIBLE"); vc && vc[0]) { st->vehCible = NkEnvFloat("NK_VEHICLE_VCIBLE", 8.f); st->vehCibleDonnee = true; }
 				if (const char *tc = std::getenv("NK_VEHICLE_TOUCHE"); tc && tc[0])
 					// 'n' = NEUTRE : le volet negatif de (g1). Aucune consigne, donc aucun
 					// lacet et aucun deplacement lateral -- sinon le banc mesurerait la
 					// derive residuelle en croyant mesurer une touche.
-					st->vehGSteer = (tc[0] == 'n' || tc[0] == 'N') ? 0.f
-									: ((tc[0] == 'g' || tc[0] == 'G') ? kSteerGauche : kSteerDroite);
+				{
+					// La touche NOMMEE -> le MASQUE. Le banc n'ecrit plus de consigne
+					// signee : il ecrit une touche, et c'est la table partagee qui la
+					// traduit. gauche | droite | haut | bas | espace | neutre.
+					const char c0 = (tc[0] >= 'A' && tc[0] <= 'Z') ? (char)(tc[0] + 32) : tc[0];
+					st->vehGMask = (c0 == 'g')	 ? kToucheGauche
+								   : (c0 == 'd') ? kToucheDroite
+								   : (c0 == 'h') ? kToucheHaut
+								   : (c0 == 'b') ? kToucheBas
+								   : (c0 == 'e') ? kToucheEspace
+												 : 0u; // 'n' = NEUTRE : le volet negatif
+					float32 s9 = 0.f, t9 = 0.f, f9 = 0.f;
+					Demo3D_ToucheVersConsigne(st->vehGMask, &s9, &t9, &f9);
+					st->vehGSteer = s9;
+				}
 				if (const char *sf = std::getenv("NK_VEHICLE_STEER"); sf && sf[0]) st->vehSteerFixe = NkEnvFloat("NK_VEHICLE_STEER", 0.30f);
 				// NK_VEHICLE_SYM=1 : ancres forcees EXACTEMENT symetriques (meme |x| par
 				// essieu, signes opposes). Isole les 1,5 um d'asymetrie que la cuisson du
@@ -5638,6 +5716,177 @@ static NkTexHandle CreateLanternCubeCookie(NkTextureLibrary *texLib, NkIDevice *
 										 st->vehGCamRight.x, st->vehGCamRight.y, st->vehGCamRight.z,
 										 st->vehGRight.Dot(st->vehGCamRight));
 						}
+					} else if (st->vehBanc == 10u) {
+						// ══ BANC 10 : LE MAILLON QUE PERSONNE NE SURVEILLAIT ══════
+						// Rodolf : « je ne peux ni accelerer ni freiner en vitesse ».
+						// Avant d'accuser la physique, on mesure LE FIL :
+						//   (a1) la touche HAUT produit-elle un throttle non nul ?
+						//   (a2) la touche ESPACE produit-elle un brake non nul, et
+						//        est-elle DISTINCTE de la marche arriere (touche BAS) ?
+						//   (a3) si le fil est bon : l'acceleration REELLE a 5, 15, 25 m/s.
+						//
+						// Le banc n'ecrit AUCUNE consigne : il ecrit un MASQUE DE TOUCHES
+						// et appelle Demo3D_ToucheVersConsigne -- LA MEME fonction que le
+						// clavier. Aucune touche n'est pressee ni simulee.
+						// NK_VEHICLE_TOUCHE = haut | bas | espace | gauche | droite | neutre
+						//
+						// Phase 1 (0-2 s)  : masque VIDE -> volet negatif, thr et brk
+						//                    doivent valoir EXACTEMENT zero.
+						// Phase 2 (2 s ->) : la touche demandee, TENUE.
+						//
+						// ⚠️ ATTENDU ECRIT AVANT LA MESURE (m = 1200 kg, mu = 0,40,
+						// 2 roues motrices sur 4, aire 4 x 1,020 x 0,667 = 2,7214 m2) :
+						//   traction dispo = mu x (poids porte par les motrices)
+						//                  = 0,40 x 5886 = 2354,4 N -> 1,962 m/s2 = 0,20 g
+						//   demande moteur = 2 x 4708,8 = 9417,6 N = 0,80 g
+						//   -> le pneu sature a UN QUART de ce que le moteur demande.
+						//   a(v) = [2354,4 - 88,3(roul. avant) - 0,500 v^2(aero) - 24 v(amort.)] / 1200
+						//   a(5) = 1,778   a(15) = 1,495   a(25) = 1,128 m/s2
+						// Le TRANSFERT DE CHARGE vers l'arriere sous acceleration augmente
+						// Fsusp des motrices : je m'attends donc a mesurer PLUS que ces
+						// valeurs, et si c'est le cas la raison est nommee d'avance.
+						// ⚠️ FREINER A L'ARRET NE PROUVE RIEN, et c'est « EN VITESSE » que
+						// Rodolf dit ne pas pouvoir freiner. Sous NK_VEHICLE_VCIBLE=<m/s>,
+						// le banc tient d'abord la touche HAUT jusqu'a la vitesse demandee,
+						// puis bascule sur la touche etudiee. La mesure commence LA.
+						const float32 vB = st->veh->ForwardSpeed();
+						if (st->vehCibleDonnee && !st->vehTlance && st->vehClock >= 2.f && vB >= st->vehCible) {
+							st->vehTlance = true;
+							st->vehTlanceT = st->vehClock;
+							st->vehTlanceV = vB;
+							st->vehTdist = 0.f;
+							std::fprintf(stderr, "[VEHICULE FIL LANCE] v = %.4f m/s (%.1f km/h) atteinte a t=%.2f s -> "
+												 "on passe a la touche etudiee\n", vB, vB * 3.6f, st->vehClock);
+						}
+						const uint32 mB = (st->vehClock < 2.f)								 ? 0u
+										  : (st->vehCibleDonnee && !st->vehTlance)			 ? kToucheHaut
+																							 : st->vehGMask;
+						Demo3D_ToucheVersConsigne(mB, &steer, &thr, &brk);
+						if (st->vehTlance) {
+							st->vehTdist += std::fabs(vB) * dt;
+							// (a2 bis) LE FREIN EN VITESSE : la deceleration sur 1 s, puis la
+							// distance et le temps d'arret complet. Un chiffre, pas un ressenti.
+							if (!st->vehTfreinDit && (st->vehClock - st->vehTlanceT) >= 1.f) {
+								st->vehTfreinDit = true;
+								const float32 dtf = st->vehClock - st->vehTlanceT;
+								float32 sFsT = 0.f;
+								for (uint32 wf = 0; wf < st->veh->WheelCount(); ++wf) sFsT += st->veh->Wheel(wf).suspForce;
+								const auto &tF = st->veh->Tuning();
+								std::fprintf(stderr,
+											 "[VEHICULE FREIN] sur %.3f s : %.4f -> %.4f m/s, deceleration MESUREE "
+											 "%+.4f m/s2 (%.3f g)\n"
+											 "[VEHICULE FREIN]   demande FREIN %.1f N (%u roues x %.1f) = %.3f g ; "
+											 "adherence DISPONIBLE mu x somme Fsusp = %.4f x %.1f = %.1f N = %.3f g "
+											 "-> facteur %.2f\n",
+											 dtf, st->vehTlanceV, vB, (vB - st->vehTlanceV) / dtf,
+											 std::fabs((vB - st->vehTlanceV) / dtf) / 9.81f,
+											 (float32)st->veh->WheelCount() * tF.brakeForce,
+											 (unsigned)st->veh->WheelCount(), tF.brakeForce,
+											 (float32)st->veh->WheelCount() * tF.brakeForce / (1200.f * 9.81f), tF.mu,
+											 sFsT, tF.mu * sFsT, tF.mu * sFsT / (1200.f * 9.81f),
+											 tF.mu * sFsT > 1e-3f
+												 ? (float32)st->veh->WheelCount() * tF.brakeForce / (tF.mu * sFsT)
+												 : 0.f);
+							}
+							if (!st->vehTarretDit && std::fabs(vB) < 0.05f) {
+								st->vehTarretDit = true;
+								std::fprintf(stderr,
+											 "[VEHICULE FREIN] ARRET a t=%.2f s : %.3f s et %.2f m depuis %.3f m/s "
+											 "(%.1f km/h)\n",
+											 st->vehClock, st->vehClock - st->vehTlanceT, st->vehTdist,
+											 st->vehTlanceV, st->vehTlanceV * 3.6f);
+							}
+						}
+						// (a1)(a2) volet NEGATIF : aucune touche -> zero au bit.
+						if (!st->vehTdit0 && st->vehClock >= 1.5f) {
+							st->vehTdit0 = true;
+							st->vehTv0 = vB;
+							std::fprintf(stderr,
+										 "[VEHICULE FIL a0] NEGATIF, masque VIDE a t=%.2f s : steer=%+.8f thr=%+.8f "
+										 "brk=%+.8f (attendu : exactement 0) ; v=%+.6f m/s\n",
+										 st->vehClock, steer, thr, brk, vB);
+						}
+						// La consigne que la touche produit, relevee au premier pas ou
+						// elle s'applique -- et ce que SetInput en fera (Clamp -1..1 pour
+						// le gaz, 0..1 pour le frein) : « freiner » et « reculer » ne sont
+						// PAS le meme geste si l'un sort un thr negatif et l'autre un brk.
+						if (!st->vehTdit1 && st->vehClock >= 2.f) {
+							st->vehTdit1 = true;
+							const float32 cThr = thr < -1.f ? -1.f : (thr > 1.f ? 1.f : thr);
+							const float32 cBrk = brk < 0.f ? 0.f : (brk > 1.f ? 1.f : brk);
+							std::fprintf(stderr,
+										 "[VEHICULE FIL a1] touche « %s » (masque 0x%02X) -> steer=%+.4f thr=%+.4f "
+										 "brk=%+.4f ; apres Clamp de SetInput : thr=%+.4f brk=%+.4f\n",
+										 st->vehGMask == kToucheHaut	 ? "HAUT (accelerer)"
+										 : st->vehGMask == kToucheBas	 ? "BAS (marche arriere)"
+										 : st->vehGMask == kToucheEspace ? "ESPACE (frein)"
+										 : st->vehGMask == kToucheGauche ? "GAUCHE"
+										 : st->vehGMask == kToucheDroite ? "DROITE"
+																		 : "NEUTRE (aucune)",
+										 (unsigned)st->vehGMask, steer, thr, brk, cThr, cBrk);
+						}
+						// ... et la VITESSE a t+2 s : une consigne qui ne fait rien bouger
+						// n'est pas une consigne.
+						if (!st->vehTdit2 && st->vehClock >= 4.f) {
+							st->vehTdit2 = true;
+							std::fprintf(stderr,
+										 "[VEHICULE FIL a2] 2 s apres la touche : v = %+.6f m/s (elle valait %+.6f a "
+										 "l'instant de l'appui) -> variation %+.6f m/s\n",
+										 vB, st->vehTv0, vB - st->vehTv0);
+						}
+						// ── (a3) L'ACCELERATION REELLE A TROIS VITESSES ───────────
+						// Fenetre de 0,25 s au passage de chaque cible, et le BILAN DES
+						// FORCES au meme instant : si la poussee tombe, on dit POURQUOI.
+						{
+							static const float32 kCibles[3] = {5.f, 15.f, 25.f};
+							if (st->vehAccIdx < 0) {
+								for (int32 ic = 0; ic < 3; ++ic)
+									if (!st->vehAccFait[ic] && vB >= kCibles[ic]) {
+										st->vehAccIdx = ic;
+										st->vehAccT0 = st->vehClock;
+										st->vehAccV0 = vB;
+										break;
+									}
+							} else if ((st->vehClock - st->vehAccT0) >= 0.25f) {
+								const int32 ic = st->vehAccIdx;
+								const float32 dtA = st->vehClock - st->vehAccT0;
+								const float32 aM = (vB - st->vehAccV0) / dtA;
+								float32 sFsMot = 0.f, sFsTot = 0.f;
+								uint32 auSolA = 0u;
+								for (uint32 wa = 0; wa < st->veh->WheelCount(); ++wa) {
+									const auto &wA = st->veh->Wheel(wa);
+									sFsTot += wA.suspForce;
+									if (wA.flags & nkentseu::physics::NkWheel::kPowered) sFsMot += wA.suspForce;
+									if (wA.grounded) ++auSolA;
+								}
+								const auto &tA2 = st->veh->Tuning();
+								const float32 aire2 = tA2.frontalArea > 0.f ? tA2.frontalArea : 4.f * 1.020f * 0.667f;
+								const float32 Fa = 0.5f * tA2.airDensity * tA2.dragCd * aire2 * vB * vB;
+								const float32 Fr = tA2.rollingResistance * sFsTot;
+								const float32 Fd = 0.02f * 1200.f * vB;
+								const float32 Fdispo = tA2.mu * sFsMot;	  // ce que la GOMME peut passer
+								const float32 Fdem = 2.f * tA2.engineForce; // ce que le MOTEUR demande
+								std::fprintf(stderr,
+											 "[VEHICULE POUSSEE] a v = %.3f m/s (%.1f km/h) : acceleration MESUREE "
+											 "%+.4f m/s2 sur %.3f s ; %u/4 roues au sol\n"
+											 "[VEHICULE POUSSEE]   demande MOTEUR %.1f N (%.3f g) ; adherence DISPONIBLE "
+											 "sur les motrices mu x %.1f = %.1f N (%.3f g) -> facteur %.2f\n"
+											 "[VEHICULE POUSSEE]   pertes : aero %.1f N + roulement %.1f N + "
+											 "amortissement %.1f N = %.1f N (%.4f m/s2)\n"
+											 "[VEHICULE POUSSEE]   -> attendu [%.1f - %.1f]/1200 = %+.4f m/s2 ; "
+											 "ecart mesure/attendu %+.1f %%\n",
+											 vB, vB * 3.6f, aM, dtA, (unsigned)auSolA, Fdem, Fdem / (1200.f * 9.81f),
+											 sFsMot, Fdispo, Fdispo / (1200.f * 9.81f),
+											 Fdispo > 1e-3f ? Fdem / Fdispo : 0.f, Fa, Fr, Fd, Fa + Fr + Fd,
+											 (Fa + Fr + Fd) / 1200.f, Fdispo, Fa + Fr + Fd,
+											 (Fdispo - (Fa + Fr + Fd)) / 1200.f,
+											 std::fabs(Fdispo - (Fa + Fr + Fd)) > 1e-3f
+												 ? 100.f * (aM / ((Fdispo - (Fa + Fr + Fd)) / 1200.f) - 1.f)
+												 : 0.f);
+								st->vehAccFait[ic] = true;
+								st->vehAccIdx = -1;
+							}
+						}
 					} else if (st->vehBanc == 8u) {
 						// ══ BANC 8 : TRAINEE EN VIRAGE ════════════════════════════
 						// 0-10 s : montee en vitesse, ligne droite. A 10 s : gaz coupes
@@ -5965,11 +6214,15 @@ static NkTexHandle CreateLanternCubeCookie(NkTextureLibrary *texLib, NkIDevice *
 					} else if (st->vehDrive) {
 						// LE CLAVIER — fleches + espace. Pas de ZQSD/WASD : ces touches
 						// appartiennent deja a la camera fly et au gizmo de l'editeur.
-						if (NkInput.IsKeyDown(NkKey::NK_LEFT)) steer += kSteerGauche;
-						if (NkInput.IsKeyDown(NkKey::NK_RIGHT)) steer += kSteerDroite;
-						if (NkInput.IsKeyDown(NkKey::NK_UP)) thr += 1.f;
-						if (NkInput.IsKeyDown(NkKey::NK_DOWN)) thr -= 1.f;
-						if (NkInput.IsKeyDown(NkKey::NK_SPACE)) brk = 1.f;
+						// Il ASSEMBLE le masque et appelle la table ; il ne traduit plus
+						// rien lui-meme, sinon le banc 10 mesurerait un second exemplaire.
+						uint32 mT = 0u;
+						if (NkInput.IsKeyDown(NkKey::NK_LEFT)) mT |= kToucheGauche;
+						if (NkInput.IsKeyDown(NkKey::NK_RIGHT)) mT |= kToucheDroite;
+						if (NkInput.IsKeyDown(NkKey::NK_UP)) mT |= kToucheHaut;
+						if (NkInput.IsKeyDown(NkKey::NK_DOWN)) mT |= kToucheBas;
+						if (NkInput.IsKeyDown(NkKey::NK_SPACE)) mT |= kToucheEspace;
+						Demo3D_ToucheVersConsigne(mT, &steer, &thr, &brk);
 					}
 					// a(v0) : difference finie sur 0,25 s apres le relachement. Le chiffre
 					// que la formule PREDIT, pas une borne. Predit avant la mesure :
