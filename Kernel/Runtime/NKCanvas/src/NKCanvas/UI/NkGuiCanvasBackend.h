@@ -1,4 +1,6 @@
 #pragma once
+#include <cstdio>
+#include <cstdlib>
 // AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // =============================================================================
 // NkGuiCanvasBackend.h — rend un nkgui::NkGuiDrawList via NKCanvas (NkIRenderer2D).
@@ -118,10 +120,65 @@ namespace nkentseu {
 					return tex->Update(rgba, static_cast<uint32>(w), static_cast<uint32>(h), 0, 0);
 				}
 
+				// ═══════════════════════════════════════════════════════════════
+				//  LE RELEVE DE `Submit` (NK_PHASES=2) — les 92 % vus de l'interieur
+				// ═══════════════════════════════════════════════════════════════
+				//  La coquille a montre que **92 % de l'image** part dans les deux
+				//  appels a `SubmitDrawList`, et que la presentation ne pese que
+				//  0,84 % -- donc ni attente d'ecran, ni synchronisation : du TRAVAIL.
+				//  Mais « SubmitDrawList » nomme l'appel, pas son contenu. Voici la
+				//  borne d'un cran plus bas, en TROIS postes, et la decoupe suit la
+				//  structure reelle de la fonction -- elle n'est pas plaquee :
+				//
+				//    1. CONVERSION   les sommets NKGui -> sommets du dorsal (une
+				//                    boucle sur tout le tampon, pur calcul)
+				//    2. RESSOURCES   la recherche de texture : deux balayages
+				//                    LINEAIRES (polices puis images) par commande
+				//                    texturee. C'est le poste « creation ou recherche
+				//                    de ressources ».
+				//    3. PILOTE       `SetClip`, `SetBlendMode` et `DrawVertices` --
+				//                    les appels qui traversent vers le dorsal
+				//                    graphique. **C'est le seul des trois qui puisse
+				//                    porter une attente implicite**, et donc le seul
+				//                    qui expliquerait une image geante isolee.
+				//    (le rebasage des indices est compte avec 1 : c'est du calcul sur
+				//     le tampon, meme nature, meme absence de traversee)
+				//
+				//  ⚠️ LES TROIS REGLES, appliquees ici comme au-dessus :
+				//     le TOTAL est la SOMME des trois (il ne peut pas en diverger) ;
+				//     le DENOMINATEUR est imprime ; l'ECART DE FERMETURE est dit.
+				//
+				//  ⚠️ ET CE QUE CETTE DECOUPE NE PEUT PAS FAIRE, dit avec elle : elle
+				//     ne distingue pas, DANS le poste 3, l'enregistrement d'une
+				//     commande d'une attente du pilote. Les deux se produisent
+				//     derriere le meme appel. Ce qu'elle permet, c'est de savoir s'il
+				//     faut descendre la -- ou ailleurs.
+				struct NkReleveSubmit {
+						bool actif = false;
+						bool decide = false;
+						nkentseu::float64 conversion = 0.0, rebasage = 0.0, ressources = 0.0, pilote = 0.0;
+						nkentseu::float64 total = 0.0;
+						nkentseu::int32 appels = 0;
+				};
+				static NkReleveSubmit &Releve() {
+					static NkReleveSubmit r;
+					return r;
+				}
+
 				void Submit(const nkentseu::nkgui::NkGuiDrawList &dl, nkentseu::uint32 fbW, nkentseu::uint32 fbH) {
 					using namespace nkentseu;
 					if (!mRenderer || dl.vtx.Size() == 0 || dl.idx.Size() == 0)
 						return;
+
+					NkReleveSubmit &rel = Releve();
+					if (!rel.decide) {
+						rel.decide = true;
+						const char *v = getenv("NK_PHASES");
+						rel.actif = v && v[0] == '2';
+					}
+					NkChrono hTotal, hPoste;
+					if (rel.actif)
+						++rel.appels;
 
 					mScratch.Resize(dl.vtx.Size());
 					for (uint32 i = 0; i < dl.vtx.Size(); ++i) {
@@ -135,6 +192,11 @@ namespace nkentseu {
 						d.g = static_cast<uint8>((s.col >> 8) & 0xFFu);
 						d.b = static_cast<uint8>((s.col >> 16) & 0xFFu);
 						d.a = static_cast<uint8>((s.col >> 24) & 0xFFu);
+					}
+
+					if (rel.actif) {
+						rel.conversion += hPoste.Elapsed().ToSeconds() * 1000.0;
+						hPoste = NkChrono();
 					}
 
 					for (uint32 ci = 0; ci < dl.cmds.Size(); ++ci) {
@@ -154,9 +216,17 @@ namespace nkentseu {
 								y1 = static_cast<float32>(fbH);
 							if (x1 <= x0 || y1 <= y0)
 								continue;
+							if (rel.actif) {
+								rel.rebasage += hPoste.Elapsed().ToSeconds() * 1000.0;
+								hPoste = NkChrono();
+							}
 							mRenderer->SetClip(math::NkRect2i{static_cast<int32>(x0), static_cast<int32>(y0),
 															  static_cast<int32>(x1 - x0),
 															  static_cast<int32>(y1 - y0)});
+							if (rel.actif) {
+								rel.pilote += hPoste.Elapsed().ToSeconds() * 1000.0;
+								hPoste = NkChrono();
+							}
 						}
 
 						// 2026-09-04 : le mode de melange de la commande -> l'etat du dorsal
@@ -181,6 +251,10 @@ namespace nkentseu {
 								break;
 						}
 
+						if (rel.actif) {
+							rel.pilote += hPoste.Elapsed().ToSeconds() * 1000.0; // SetBlendMode
+							hPoste = NkChrono();
+						}
 						renderer::NkTexture *tex = nullptr;
 						if (dc.type == nkgui::NkGuiDrawCmdType::TexturedTriangles) {
 							for (uint32 fi = 0; fi < mFonts.Size(); ++fi)
@@ -199,6 +273,10 @@ namespace nkentseu {
 						// Ne soumet que le SOUS-ENSEMBLE de vertices reference par cette
 						// commande (indices rebases). Indispensable : passer tout le buffer
 						// depasse kMaxVertices (65536) des qu'un draw list est gros -> crash.
+						if (rel.actif) {
+							rel.ressources += hPoste.Elapsed().ToSeconds() * 1000.0;
+							hPoste = NkChrono();
+						}
 						uint32 lo = 0xFFFFFFFFu, hi = 0u;
 						for (uint32 k = 0; k < dc.idxCount; ++k) {
 							const uint32 v = dl.idx[dc.idxOffset + k];
@@ -210,12 +288,44 @@ namespace nkentseu {
 						mIdxTmp.Resize(dc.idxCount);
 						for (uint32 k = 0; k < dc.idxCount; ++k)
 							mIdxTmp[k] = dl.idx[dc.idxOffset + k] - lo;
+						if (rel.actif) {
+							rel.rebasage += hPoste.Elapsed().ToSeconds() * 1000.0;
+							hPoste = NkChrono();
+						}
 						mRenderer->DrawVertices(mScratch.Data() + lo, hi - lo + 1u, mIdxTmp.Data(), dc.idxCount, tex);
+						if (rel.actif) {
+							rel.pilote += hPoste.Elapsed().ToSeconds() * 1000.0;
+							hPoste = NkChrono();
+						}
 
 						if (hasClip)
 							mRenderer->PopClip();
 					}
 					mRenderer->SetBlendMode(renderer::NkBlendMode::NK_ALPHA); // ce qui suit repart en alpha
+					if (rel.actif) {
+						rel.pilote += hPoste.Elapsed().ToSeconds() * 1000.0;
+						rel.total += hTotal.Elapsed().ToSeconds() * 1000.0;
+						// Deux appels par image (la liste normale et l'incrustation) :
+						// 600 appels = 300 images, la meme cadence que la coquille.
+						if ((rel.appels % 600) == 0) {
+							const float64 somme = rel.conversion + rel.rebasage + rel.ressources + rel.pilote;
+							printf("[submit] %d appels (= %d images) ; TOTAL mesure %.2f ms\n"
+								   "[submit]   conversion des sommets %9.2f ms  (%5.1f %%)\n"
+								   "[submit]   rebasage des indices  %9.2f ms  (%5.1f %%)\n"
+								   "[submit]   recherche de texture  %9.2f ms  (%5.1f %%)\n"
+								   "[submit]   appels au PILOTE      %9.2f ms  (%5.1f %%)\n"
+								   "[submit]   FERMETURE : somme des quatre %.2f ms contre %.2f ms "
+								   "de total -- il manque %.1f %%\n",
+								   rel.appels, rel.appels / 2, rel.total,
+								   rel.conversion, 100.0 * rel.conversion / (rel.total > 0.0 ? rel.total : 1.0),
+								   rel.rebasage, 100.0 * rel.rebasage / (rel.total > 0.0 ? rel.total : 1.0),
+								   rel.ressources, 100.0 * rel.ressources / (rel.total > 0.0 ? rel.total : 1.0),
+								   rel.pilote, 100.0 * rel.pilote / (rel.total > 0.0 ? rel.total : 1.0),
+								   somme, rel.total,
+								   rel.total > 0.0 ? 100.0 * (rel.total - somme) / rel.total : 0.0);
+							fflush(stdout);
+						}
+					}
 				}
 
 			private:

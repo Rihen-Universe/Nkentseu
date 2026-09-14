@@ -979,6 +979,31 @@ namespace nkentseu {
 			static int32 sPeriodes = 0;
 			static nkentseu::NkChrono sDepartPrec;
 			static bool sPeriodeAmorcee = false;
+			// 🔴 LA MOYENNE NE PEUT PAS SERVIR DE SEUIL, ET LA CONTRADICTION L'A DIT.
+			//    Releve du 14/09 : ecart-type 14,54 ms pour une moyenne de 7,98 --
+			//    182 % -- donc des images enormes EXISTENT, et l'alarme « quatre fois
+			//    la moyenne » n'en a attrape AUCUNE. Deux raisons, toutes deux
+			//    fatales :
+			//      1. **la moyenne est polluee par ce qu'elle doit detecter.** Une
+			//         image de 250 ms parmi 300 fait passer la moyenne de 8 a 8,8 ms
+			//         et le seuil de 32 a 35 ms : le pic s'immunise lui-meme.
+			//      2. **les dix premieres images ne jugent rien**, et c'est
+			//         precisement la que vivent les images geantes (creation de la
+			//         fenetre, montage des atlas, premiers pipelines).
+			//    Un seuil bati sur une moyenne est un seuil qu'un seul pic desarme.
+			//
+			//    LA PARADE, et elle ne demande aucune finesse : une MEDIANE glissante
+			//    sur les 64 dernieres images. Une mediane ne bouge pas quand une
+			//    valeur sur soixante explose -- c'est exactement la propriete qui
+			//    manquait. Et on garde en plus **LA PIRE IMAGE DE LA COURSE**, seuil
+			//    ou pas : rien de geant ne doit pouvoir passer en silence.
+			static const int32 kFen = 64;
+			static float64 sFen[kFen] = {0.0};
+			static int32 sFenN = 0, sFenI = 0;
+			static float64 sPireImage = 0.0;
+			static int32 sPireIndex = -1;
+			static float64 sPirePhases[24] = {0.0};
+			static int32 sPirePhasesN = 0;
 			static float64 sImageMoyenne = 0.0;
 			static int32 sImages = 0;
 			static int32 sCris = 0;
@@ -1267,11 +1292,45 @@ namespace nkentseu {
 				//    zero. Sans ce delai, la premiere image -- toujours la plus
 				//    longue, elle monte les atlas -- se denoncerait elle-meme et
 				//    remonterait la moyenne d'un coup.
-				const bool juge = sImages > 10 && sImageMoyenne > 0.0;
-				if (juge && totalMs > 4.0 * sImageMoyenne && sCris < 20) {
+				// LA PIRE IMAGE DE LA COURSE, gardee AVANT tout seuil et des la
+				// premiere : c'est le filet qui ne depend d'aucun reglage.
+				if (totalMs > sPireImage) {
+					sPireImage = totalMs;
+					sPireIndex = sImages;
+					sPirePhasesN = nPhases;
+					for (int32 i = 0; i < nPhases && i < 24; ++i)
+						sPirePhases[i] = phaseMs[i];
+				}
+				// LA MEDIANE GLISSANTE, sur une copie triee de la fenetre.
+				sFen[sFenI] = totalMs;
+				sFenI = (sFenI + 1) % kFen;
+				if (sFenN < kFen)
+					++sFenN;
+				float64 mediane = 0.0;
+				if (sFenN >= 8) {
+					float64 tri[kFen];
+					for (int32 i = 0; i < sFenN; ++i)
+						tri[i] = sFen[i];
+					for (int32 i = 1; i < sFenN; ++i) { // insertion : 64 elements, une fois par image
+						const float64 v = tri[i];
+						int32 j = i - 1;
+						while (j >= 0 && tri[j] > v) {
+							tri[j + 1] = tri[j];
+							--j;
+						}
+						tri[j + 1] = v;
+					}
+					mediane = tri[sFenN / 2];
+				}
+				// ⚠️ LE SEUIL S'APPLIQUE DES LA HUITIEME IMAGE, plus a partir de la
+				//    onzieme : la fenetre n'a besoin que de huit valeurs pour avoir
+				//    une mediane, et attendre davantage, c'etait exclure les images
+				//    geantes du demarrage -- celles qu'on cherche.
+				const bool juge = sFenN >= 8 && mediane > 0.0;
+				if (juge && totalMs > 4.0 * mediane && sCris < 20) {
 					++sCris;
-					printf("[phases] image %d : %.1f ms (moyenne %.1f ms) -- le detail :\n",
-						   sImages, totalMs, sImageMoyenne);
+					printf("[phases] image %d : %.1f ms (mediane %.2f ms, x%.0f) -- le detail :\n",
+						   sImages, totalMs, mediane, mediane > 0.0 ? totalMs / mediane : 0.0);
 					for (int32 i = 0; i < nPhases; ++i)
 						if (phaseMs[i] > 0.05 * totalMs)
 							printf("[phases]     %-24s %7.1f ms  (%4.1f %%)\n",
@@ -1341,6 +1400,17 @@ namespace nkentseu {
 						printf("[phases]     %-28s %9.2f ms au total  (%5.2f %% de l'image)\n",
 							   sPhaseNom[i] ? sPhaseNom[i] : "?", sPhaseCumul[i],
 							   100.0 * sPhaseCumul[i] / (totalPeriodes > 0.0 ? totalPeriodes : 1.0));
+					if (sPireIndex >= 0) {
+						printf("[phases]   LA PIRE IMAGE DE LA COURSE : n°%d, %.2f ms "
+							   "(%.0f x la periode moyenne) -- son detail :\n",
+							   sPireIndex, sPireImage,
+							   sPeriodeMoyenne > 0.0 ? sPireImage / sPeriodeMoyenne : 0.0);
+						for (int32 i = 0; i < sPirePhasesN; ++i)
+							if (sPirePhases[i] > 0.02 * sPireImage)
+								printf("[phases]       %-28s %9.2f ms  (%5.1f %%)\n",
+									   sPhaseNom[i] ? sPhaseNom[i] : "?", sPirePhases[i],
+									   100.0 * sPirePhases[i] / (sPireImage > 0.0 ? sPireImage : 1.0));
+					}
 					{
 						NkShellPanRelve &pr = NkShellPanneaux();
 						float64 tot = 0.0;
