@@ -876,6 +876,18 @@ namespace nkentseu {
 			//     comparer deux constructions -- deux binaires qui different par
 			//     autre chose que ce qu'on croit, c'est ainsi qu'on mesure une
 			//     pente de 10 degres sur un sol plat.
+			// ── E10 : LES DEUX BANDES D'ACTIVITE, RENDUES AU DOCK ───────────
+			// MESURE (sonde --panneaux-sonde, releve a zero) : `corps.x = 48` et
+			// `W - corps.x - corps.w = 48`. Le shell reserve `S(48)` de chaque
+			// cote (NkEditorShell.cpp:841-843) des que `mActivityBarLeft/Right`
+			// sont vrais -- et ils le sont par defaut. Nogee n'y pose AUCUNE
+			// icone : aucun `SetActivityIcons` dans tout ce montage. Ce sont donc
+			// 96 px sur 1600, six pour cent de la largeur, occupes par deux bandes
+			// vides. NK3DModeler n'a rien de tel : sa hierarchie commence a x=0.
+			// La porte existe et elle est ecrite pour ce cas exact (« une app sans
+			// vues a basculer les desactive et le dock recupere la place »).
+			shell->SetActivityBars(false, false);
+
 			const bool sansHabillage = std::getenv("NOGEE_SANS_HABILLAGE") != nullptr;
 			if (!sansHabillage)
 				shell->SetHeaderLayout(30.f, 34.f, 0.f);
