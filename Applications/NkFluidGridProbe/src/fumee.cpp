@@ -56,22 +56,39 @@
 //
 //   (f3) ÇA NE BRÛLE PAS. Mesure, à CHAQUE pas : l'écart maximal de température à
 //        l'ambiante, la chaleur totale, le carburant total.
-//        Attendu : carburant identiquement NUL (aucun n'est jamais injecté), et
-//        écart de température <= 1,0e-02 K. Ce seuil est DÉRIVÉ, pas choisi :
-//        l'advection d'un champ UNIFORME ne peut dériver que par l'arrondi, et
-//        N * eps_f32 * T_amb = 255 * 1,19e-07 * 300 = 9,1e-03 K le majore.
+//        Attendu (f3a) : carburant identiquement NUL, au bit.
+//        Attendu (f3b) : l'écart de température reste sous son majorant.
+//        ⚠️ LE PREMIER MAJORANT ÉCRIT ÉTAIT LE MAUVAIS, et le dire vaut mieux que
+//        le corriger en douce. J'avais écrit N * eps_f32 * T_amb = 9,1e-03 K —
+//        l'arrondi. Il ne vaut que pour le SEMI-LAGRANGIEN, qui INTERPOLE et rend
+//        un champ uniforme exact. Le schéma en FLUX, lui, transporte la
+//        température comme une quantité CONSERVÉE : il ajoute -T dt div(u), donc
+//        il dérive du RÉSIDU DE PROJECTION, qui n'est pas nul — la projection
+//        s'arrête à une tolérance. Le majorant juste est donc
+//        T_amb * dt * N * (|div|h)_max / h, dérivé de la divergence MESURÉE dans
+//        la course. Les deux sont publiés côte à côte : sur la mesure du 14/09,
+//        l'écart vaut 4,977e-02 K, le majorant par l'arrondi 9,120e-03 K (il
+//        aurait crié ROUGE sur un montage correct) et celui par la divergence
+//        2,160e-01 K. Un attendu dérivé du mauvais mécanisme est un faux rouge en
+//        attente.
 //        NÉGATIF : la MÊME scène, combustion rallumée (le réglage chiffré de
 //        rendu.cpp:140-147) -> la température monte de plusieurs centaines de K.
 //        Le verdict publié est le RAPPORT des deux : il doit valoir >= 1 000.
 //
 //   (f4) ÇA SE VOIT. Une suite d'images hors-écran, et LE COMPTEUR DE PIXELS
 //        PROUVE SON ZÉRO D'ABORD : grille vide -> exactement 0 pixel différent du
-//        fond sur les 480 x 360. Ensuite seulement on compte.
-//        Attendu : le nombre de pixels de fumée croît, et le HAUT du panache dans
-//        l'image MONTE (la rangée du haut décroît). C'est (f2) reprouvé par un
-//        instrument qui ne sait rien de la grille.
+//        fond sur les 480 x 360, sur une image dont les rayons COUPENT la boîte
+//        (un zéro de caméra qui regarde ailleurs n'est pas un zéro). Ensuite
+//        seulement on compte.
+//        Attendu : le nombre de pixels de fumée croît, et la rangée BARYCENTRE du
+//        panache monte. C'est (f2) reprouvé par un instrument qui ne sait rien de
+//        la grille.
+//        ⚠️ CE N'EST PAS LA RANGÉE LA PLUS HAUTE QUI JUGE, et c'est la mesure qui
+//        l'a imposé : dès la 2e image, le panache touche le bord supérieur du
+//        cadre, cette rangée vaut 0 et ne peut plus décroître. « Elle décroît »
+//        serait alors vrai par SATURATION. Le nombre d'images saturées est publié.
 //        NÉGATIF : le zéro ci-dessus, plus l'image de la course sans poussée, où
-//        le haut du panache ne doit PAS monter.
+//        la rangée barycentre ne doit PAS monter.
 //
 // LE PRIX est mesuré et ÉCRIT DANS LA SORTIE : millisecondes de simulation et de
 // marche de rayon par image, pour cette fumée ET pour le feu de la même grille —
@@ -181,6 +198,10 @@ struct CourseFumee {
 		float32 carburantMax = 0.f;
 		float32 msSolveur = 0.f;   // somme des Stats().ms — le SOLVEUR seul
 		float32 msSolveurMax = 0.f;
+		// LE MINIMUM, et ce n'est pas une coquetterie : voir le bloc du PRIX. Sur
+		// une machine partagée, la MOYENNE mesure la charge des autres ; le pas le
+		// moins gêné est la meilleure approche par le bas du coût vrai.
+		float32 msSolveurMin = 1.0e30f;
 		float32 msMur = 0.f;	   // le temps RÉEL de la boucle, source comprise
 		uint32 nan = 0;
 		uint32 speedClamped = 0;
@@ -218,6 +239,8 @@ static void Courir(NkFluidGrid &g, const NkFluidGridParams &p, bool sourceContin
 		r.msSolveur += st.ms;
 		if (st.ms > r.msSolveurMax)
 			r.msSolveurMax = st.ms;
+		if (st.ms < r.msSolveurMin)
+			r.msSolveurMin = st.ms;
 		r.nan += st.nanCount;
 		r.speedClamped += st.speedClamped;
 		if (st.maxSpeed > r.vitesseMax)
@@ -264,20 +287,36 @@ static uint32 OpacitePixel(const NkVector<uint8> &rgba, uint32 W, uint32 x, uint
 	return (uint32)((dr < 0 ? -dr : dr) + (dg < 0 ? -dg : dg) + (db < 0 ? -db : db));
 }
 
-// Rend le nombre de pixels au-dessus du seuil, et la rangée la PLUS HAUTE qu'ils
-// occupent (y = 0 est le haut de l'image : une rangée qui DÉCROÎT est un panache
-// qui MONTE). `hautOut` vaut H si aucun pixel ne passe le seuil.
+// Rend le nombre de pixels au-dessus du seuil, la rangée la PLUS HAUTE qu'ils
+// occupent, et la rangée BARYCENTRE pondérée par l'opacité (y = 0 est le haut de
+// l'image : une rangée qui DÉCROÎT est un panache qui MONTE).
+// `hautOut` vaut H et `ligneOut` vaut 0 si aucun pixel ne passe le seuil.
+//
+// ⚠️ POURQUOI DEUX RANGÉES ET PAS UNE. La rangée la plus haute SATURE : dès que le
+// panache atteint le bord supérieur de l'image, elle vaut 0 et ne peut plus
+// décroître — un critère « elle décroît » deviendrait alors vrai par saturation,
+// c'est-à-dire pour la mauvaise raison. Mesuré ici même : à partir de la 2e image
+// de la suite, le panache touche le haut du cadre. La rangée BARYCENTRE, elle, ne
+// sature pas tant qu'il reste de la fumée en bas, et c'est donc ELLE qui juge.
 static uint32 PixelsDeFumee(const NkVector<uint8> &rgba, uint32 W, uint32 H, const uint8 bg[3], uint32 seuil,
-							uint32 &hautOut) {
+							uint32 &hautOut, float32 &ligneOut) {
 	uint32 n = 0;
 	hautOut = H;
+	ligneOut = 0.f;
+	float64 poids = 0.0, somme = 0.0;
 	for (uint32 y = 0; y < H; ++y)
-		for (uint32 x = 0; x < W; ++x)
-			if (OpacitePixel(rgba, W, x, y, bg) > seuil) {
-				++n;
-				if (y < hautOut)
-					hautOut = y;
-			}
+		for (uint32 x = 0; x < W; ++x) {
+			const uint32 o = OpacitePixel(rgba, W, x, y, bg);
+			if (o <= seuil)
+				continue;
+			++n;
+			if (y < hautOut)
+				hautOut = y;
+			poids += (float64)o;
+			somme += (float64)o * (float64)y;
+		}
+	if (poids > 0.0)
+		ligneOut = (float32)(somme / poids);
 	return n;
 }
 
@@ -342,7 +381,8 @@ void PalierFumee() {
 		NkFluidRaymarchStats st;
 		NkFluidRaymarchRender(vide, rp, img, st);
 		uint32 haut = 0;
-		const uint32 n = PixelsDeFumee(img, rp.width, rp.height, bg, kSeuilPixel, haut);
+		float32 ligne = 0.f;
+		const uint32 n = PixelsDeFumee(img, rp.width, rp.height, bg, kSeuilPixel, haut, ligne);
 		snprintf(buf, sizeof(buf),
 				 "%u pixel(s) au-dessus du seuil %u/765 sur %u ; %u rayons dont %u coupent la boîte — la boîte "
 				 "EST traversée, donc ce zéro n'est pas celui d'une caméra qui regarde ailleurs",
@@ -491,6 +531,7 @@ void PalierFumee() {
 	// (f2-) poussée coupée : le barycentre ne doit pas monter.
 	NkVector<uint8> imgNeg;
 	uint32 hautNeg = 0, pixelsNeg = 0;
+	float32 ligneNeg = 0.f;
 	{
 		NkFluidGridParams q = p;
 		q.buoyancyEnabled = false; // NkFluidGrid.h:226 — l'interrupteur de mutation
@@ -508,7 +549,7 @@ void PalierFumee() {
 		NkFluidRaymarchStats stn;
 		NkFluidRaymarchRender(gn, rp, imgNeg, stn);
 		EcrirePng(imgNeg, rp.width, rp.height, "Captures/fumee_sans_poussee_2026-09-14.png");
-		pixelsNeg = PixelsDeFumee(imgNeg, rp.width, rp.height, bg, kSeuilPixel, hautNeg);
+		pixelsNeg = PixelsDeFumee(imgNeg, rp.width, rp.height, bg, kSeuilPixel, hautNeg, ligneNeg);
 	}
 
 	// (f3-) combustion RALLUMÉE : la température doit bondir. Le réglage chiffré
@@ -550,6 +591,7 @@ void PalierFumee() {
 		const uint32 kImages = 5;
 		uint32 pixels[kImages] = {0, 0, 0, 0, 0};
 		uint32 hauts[kImages] = {0, 0, 0, 0, 0};
+		float32 lignes[kImages] = {0.f, 0.f, 0.f, 0.f, 0.f};
 		float32 msRendu[kImages] = {0.f, 0.f, 0.f, 0.f, 0.f};
 		NkFluidGrid gi;
 		gi.Init(p);
@@ -567,7 +609,7 @@ void PalierFumee() {
 			if (faite < kImages && (s + 1u) >= jalon) {
 				NkFluidRaymarchRender(gi, rp, img, st);
 				EcrirePng(img, rp.width, rp.height, noms[faite]);
-				pixels[faite] = PixelsDeFumee(img, rp.width, rp.height, bg, kSeuilPixel, hauts[faite]);
+				pixels[faite] = PixelsDeFumee(img, rp.width, rp.height, bg, kSeuilPixel, hauts[faite], lignes[faite]);
 				msRendu[faite] = st.ms;
 				++faite;
 			}
@@ -575,29 +617,38 @@ void PalierFumee() {
 
 		printf("    la suite : ");
 		for (uint32 i = 0; i < faite; ++i)
-			printf("%u px (haut y=%u, %.0f ms)%s", pixels[i], hauts[i], (double)msRendu[i],
-				   (i + 1 == faite) ? "\n" : " -> ");
+			printf("%u px (haut y=%u, barycentre y=%.1f, %.0f ms)%s", pixels[i], hauts[i], (double)lignes[i],
+				   (double)msRendu[i], (i + 1 == faite) ? "\n" : " -> ");
 
 		bool croit = true, monte = true;
+		uint32 satures = 0;
 		for (uint32 i = 1; i < faite; ++i) {
 			if (pixels[i] <= pixels[i - 1])
 				croit = false;
-			if (hauts[i] > hauts[i - 1]) // y décroissant = le panache monte
+			// C'est la rangée BARYCENTRE qui juge : elle ne sature pas.
+			if (lignes[i] >= lignes[i - 1])
 				monte = false;
 		}
+		for (uint32 i = 0; i < faite; ++i)
+			if (hauts[i] == 0)
+				++satures;
 		snprintf(buf, sizeof(buf),
-				 "%u images 480 x 360 écrites dans Captures/ ; la fumée passe de %u à %u pixels et son HAUT "
-				 "monte de la rangée %u à la rangée %u (y croît vers le bas). Cet instrument ne sait RIEN de la "
-				 "grille : il reprouve (f2) par un autre chemin, et son zéro est (f4.0)",
-				 faite, faite > 0 ? pixels[0] : 0u, faite > 0 ? pixels[faite - 1] : 0u, faite > 0 ? hauts[0] : 0u,
-				 faite > 0 ? hauts[faite - 1] : 0u);
+				 "%u images 480 x 360 écrites dans Captures/ ; la fumée passe de %u à %u pixels et sa rangée "
+				 "BARYCENTRE monte de %.1f à %.1f (y croît vers le bas). ⚠️ La rangée la plus HAUTE, elle, est "
+				 "SATURÉE à 0 sur %u des %u images — le panache sort du cadre par le haut, et c'est pourquoi "
+				 "elle ne juge pas. Cet instrument ne sait RIEN de la grille : il reprouve (f2) par un autre "
+				 "chemin, et son zéro est (f4.0)",
+				 faite, faite > 0 ? pixels[0] : 0u, faite > 0 ? pixels[faite - 1] : 0u, faite > 0 ? (double)lignes[0] : 0.0,
+				 faite > 0 ? (double)lignes[faite - 1] : 0.0, satures, faite);
 		ProbeCheck(faite == kImages && pixels[0] > 0 && croit && monte, "(f4) ÇA SE VOIT, ET ÇA MONTE À L'IMAGE", buf);
 
 		snprintf(buf, sizeof(buf),
-				 "sans poussée : %u pixels, haut à la rangée %u, contre la rangée %u avec poussée — le panache "
-				 "coupé reste EN BAS de l'image (image : Captures/fumee_sans_poussee_2026-09-14.png)",
-				 pixelsNeg, hautNeg, faite > 0 ? hauts[faite - 1] : 0u);
-		ProbeCheck(faite > 0 && hautNeg > hauts[faite - 1], "(f4-) NÉGATIF : sans poussée, rien ne monte à l'image",
+				 "sans poussée : %u pixels, rangée barycentre %.1f (haut à la rangée %u), contre %.1f (haut %u) "
+				 "avec poussée — le panache coupé reste EN BAS de l'image, et l'écart est de %.1f rangées "
+				 "(image : Captures/fumee_sans_poussee_2026-09-14.png)",
+				 pixelsNeg, (double)ligneNeg, hautNeg, faite > 0 ? (double)lignes[faite - 1] : 0.0,
+				 faite > 0 ? hauts[faite - 1] : 0u, faite > 0 ? (double)(ligneNeg - lignes[faite - 1]) : 0.0);
+		ProbeCheck(faite > 0 && ligneNeg > lignes[faite - 1], "(f4-) NÉGATIF : sans poussée, rien ne monte à l'image",
 				   buf);
 	}
 
@@ -612,6 +663,22 @@ void PalierFumee() {
 		ConstruirePanache(gfeu, true, kPas, EpsilonConfinement());
 		const float32 msFeu = (float32)((::nkentseu::NkChrono::Now().nanoseconds - t0) / 1.0e6);
 
+		// ── LE COÛT PAR PAS DU FEU, pas à pas, pour en tirer le MINIMUM ─────
+		// ⚠️ UNE LIGNE EST COPIÉE de rendu.cpp:151 — la source du feu — parce que
+		// `ConstruirePanache` ne rend pas la main entre deux pas. Elle est DITE, et
+		// elle ne décide de rien : ces pas-ci ne servent qu'au chronomètre, jamais
+		// à un critère. Le reste de la scène est celle de rendu.cpp, non recopiée.
+		float32 msFeuMin = 1.0e30f, msFeuSomme = 0.f;
+		const uint32 kPasChrono = 30;
+		for (uint32 s = 0; s < kPasChrono; ++s) {
+			gfeu.EmitSphere({0.f, 0.07f, 0.f}, 0.07f, 0.05f * kDt, 0.f, 5.f * kDt);
+			gfeu.Step(kDt);
+			const float32 ms = gfeu.Stats().ms;
+			msFeuSomme += ms;
+			if (ms < msFeuMin)
+				msFeuMin = ms;
+		}
+
 		NkVector<uint8> imgFeu;
 		NkFluidRaymarchStats stFeu;
 		NkFluidRaymarchParams rf = CameraDuBanc();
@@ -625,20 +692,33 @@ void PalierFumee() {
 		printf("\n    ───────────────  LE PRIX, PAR IMAGE  ───────────────\n");
 		printf("    grille 25 x 80 x 25 = %u cellules intérieures, rendu 480 x 360, CPU seul.\n",
 			   g.Stats().cellsInterior);
-		printf("    FUMÉE FROIDE : simulation %.1f ms/image (max %.1f ; %.0f ms de mur pour %u pas,\n",
-			   (double)(r.msSolveur / (float32)r.pas), (double)r.msSolveurMax, (double)r.msMur, r.pas);
-		printf("                   soit %.1f ms/image source comprise) ; marche de rayon %.0f ms\n",
-			   (double)(r.msMur / (float32)r.pas), (double)stFum.ms);
-		printf("                   (%llu échantillons, %u rayons dont %u coupent la boîte).\n",
-			   (unsigned long long)stFum.samples, stFum.rays, stFum.raysHit);
-		printf("    FEU (même grille, scène de rendu.cpp:119) : simulation %.1f ms/image de mur ;\n",
-			   (double)(msFeu / (float32)kPas));
-		printf("                   marche de rayon %.0f ms, émission ALLUMÉE (%llu échantillons).\n",
-			   (double)stFeu.ms, (unsigned long long)stFeu.samples);
-		printf("    RAPPORT simulation feu / fumée : %.2f ; marche de rayon : %.2f.\n",
-			   (double)((msFeu / (float32)kPas) / (r.msMur / (float32)r.pas)),
-			   (double)(stFeu.ms / (stFum.ms > 0.f ? stFum.ms : 1.f)));
-		printf("    ⚠️ Ces deux chiffres sont MESURÉS ici, sur CETTE machine, dans CETTE course.\n");
+		printf("    ⚠️ LIRE LA COLONNE « mini » D'ABORD. Cette machine est partagée avec\n");
+		printf("       d'autres agents qui compilent : la MOYENNE porte leur charge, pas le\n");
+		printf("       coût de ce code. Mesuré le 14/09 : deux courses du MÊME binaire ont\n");
+		printf("       rendu 241,9 puis 306,3 ms de moyenne — 27 %% d'écart sans qu'une ligne\n");
+		printf("       ne change. Le pas le MOINS gêné est la meilleure approche par le bas.\n");
+		printf("                                    mini        moyenne        max\n");
+		printf("    FUMÉE FROIDE, simulation :  %8.1f ms  %8.1f ms  %8.1f ms  (%u pas)\n",
+			   (double)r.msSolveurMin, (double)(r.msSolveur / (float32)r.pas), (double)r.msSolveurMax, r.pas);
+		printf("    FEU,          simulation :  %8.1f ms  %8.1f ms       --      (%u pas chronométrés,\n",
+			   (double)msFeuMin, (double)(msFeuSomme / (float32)kPasChrono), kPasChrono);
+		printf("                                                                  après %u pas de mise en régime)\n",
+			   kPas);
+		printf("    RAPPORT feu / fumée sur le MINI : %.2f  (sur la moyenne : %.2f)\n",
+			   (double)(msFeuMin / (r.msSolveurMin > 0.f ? r.msSolveurMin : 1.f)),
+			   (double)((msFeuSomme / (float32)kPasChrono) / (r.msSolveur / (float32)r.pas)));
+		printf("    MARCHE DE RAYON : fumée %.0f ms (%llu échantillons) ; feu %.0f ms (%llu),\n",
+			   (double)stFum.ms, (unsigned long long)stFum.samples, (double)stFeu.ms,
+			   (unsigned long long)stFeu.samples);
+		printf("                      émission ALLUMÉE pour le feu ; %u rayons dont %u coupent\n", stFum.rays,
+			   stFum.raysHit);
+		printf("                      la boîte. UNE seule marche chacun : pas de mini, donc ces\n");
+		printf("                      deux-là portent la charge de la machine en entier.\n");
+		printf("    Pour mémoire, le mur de la course entière : %.0f ms pour %u pas de fumée\n", (double)r.msMur,
+			   r.pas);
+		printf("    (soit %.1f ms/image source comprise) et %.0f ms pour %u pas de feu.\n",
+			   (double)(r.msMur / (float32)r.pas), (double)msFeu, kPas);
+		printf("    ⚠️ Ces chiffres sont MESURÉS ici, sur CETTE machine, dans CETTE course.\n");
 		printf("    ⚠️ Le prix de la fumée n'est PAS celui du feu moins la combustion : le feu\n");
 		printf("       porte un champ de carburant que la fumée ne fait même pas advecter\n");
 		printf("       (NkFluidGrid.cpp:1373 — il est sauté tant que burnRate vaut 0).\n");
