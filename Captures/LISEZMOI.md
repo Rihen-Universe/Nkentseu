@@ -1,3 +1,5 @@
+<!-- AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen -->
+
 # `Captures/` — ce qui est versionné ici, et ce qui ne l'est pas
 
 ## 🔴 LA RÈGLE, en une phrase
@@ -178,3 +180,106 @@ LE CONFINEMENT DE VORTICITÉ, ET LA GRILLE BRANCHÉE ».
 | image | octets | ce qu'elle prouve, et ce qu'elle ne prouve pas |
 |---|---:|---|
 | `fumee_panache_h1cm_2026-09-12.png` | 23 687 | **Le même panache que `fumee_panache_confinement_2026-09-07.png`, à h = 1 cm au lieu de 2** — même boîte 0,5 × 1,6 × 0,5 m, même source, même `dt`, mêmes 255 pas, même `epsilon = 8`, **même caméra** ; 25 × 80 × 25 → **50 × 160 × 50 = 400 000 cellules**, 3,3 s par pas sur un fil. Elle se regarde À CÔTÉ de celle du 07/09 : **c'est une aide à l'œil, pas une preuve** — la preuve est la mesure, dans `PLAN_VOLUTES.md` et le bloc du 12/09 de `DECISIONS_RODOLF.md`. Mesuré sur la grille (pas sur les pixels) : l'échelle des structures tourbillonnaires vaut **2,20 cellules à 2 cm et 4,77 cellules à 1 cm** — soit **0,044 m → 0,048 m, constante en MÈTRES** (0,4 fois le diamètre de la source). ⚠️ **Ce que l'œil voit, exactement** : la colonne à 1 cm est **plus fine et plus filamentée** (des stries, des bouffées mieux découpées), **pas plus enroulée** — les structures ont la même taille en mètres, elles sont seulement mieux résolues. **Elle ne montre pas de grosses volutes non plus**, et la mesure dit pourquoi ce n'est pas la grille qui les cache : leur taille est physique, ~4-5 cm sur une source de 12 cm, à 3 pixels par centimètre. ⚠️ Rendu **CPU** (`NkFluidGridRaymarch`), aucune fenêtre, aucun device. |
+
+
+### AVANT / APRÈS la GRILLE DÉCALÉE (MAC) et l'ADVECTION EN FLUX (13/09) — `NkFluidGridProbe`
+
+**Décision de Rodolf, 13/09 : on GARDE les anciennes en les DATANT, et on ajoute
+les neuves.** *Une preuve réfutée reste une pièce du dossier* — c'est déjà la
+doctrine appliquée aux deux témoins invalidés plus haut. Une image qu'on écrase
+emporte avec elle la possibilité de raconter ce qui a changé.
+
+#### ① Les QUATRE images d'AVANT — inchangées à l'octet, et c'est volontaire
+
+Elles montrent l'état du solveur **AVANT la bascule sur grille décalée (MAC) et
+avant l'advection conservative en flux**. Elles ne sont pas fausses : elles sont
+**datées**.
+
+| image | octets | produite par le commit | ce qu'elle date |
+|---|---:|---|---|
+| `feu_degrade_2026-09-05.png` | 28 985 | `e2692098d` (06/09) | grille COLOCALISÉE, advection semi-lagrangienne seule |
+| `fumee_colonne_2026-09-05.png` | 11 183 | `e2692098d` (06/09) | idem |
+| `fumee_jet_sans_confinement_2026-09-07.png` | 11 183 | `105baf2ce` (07/09) | idem, avec le confinement de vorticité ajouté (ici `epsilon = 0`) |
+| `fumee_panache_confinement_2026-09-07.png` | 25 043 | `105baf2ce` (07/09) | idem, `epsilon = 8` |
+
+#### ② LES DEUX JUMELLES : le même objet git, et c'est VOULU — démontré, pas supposé
+
+`fumee_colonne_2026-09-05.png` et `fumee_jet_sans_confinement_2026-09-07.png` sont
+**le même objet git**, `2eb5b17f2`. Ce n'est pas une copie involontaire, et voici
+les trois pièces qui le montrent :
+
+1. **LE CODE.** Les deux sont rendues par **le même appel, avec les mêmes quatre
+   arguments** — `ConstruirePanache(g, false, 255, 0.f)` (`rendu.cpp`, palier ② et
+   `ImagesDuConfinement`), même caméra, même rendu. Le solveur est **déterministe
+   et sans GPU** : deux appels identiques *doivent* rendre les mêmes octets.
+2. **L'HISTORIQUE.** Le blob de `fumee_colonne` est **le même à `e2692098d` et à
+   `105baf2ce`** : la colonne n'a pas bougé entre le 06 et le 07/09, et c'est
+   normal — le confinement ajouté le 07/09 vaut `epsilon = 0` par défaut. L'image
+   du jet, écrite par une **autre ligne de code** le 07/09, est sortie identique.
+3. **LA CONTRE-ÉPREUVE D'AUJOURD'HUI, et c'est elle qui tranche.** La course du
+   13/09 a **re-rendu les deux, séparément** (08h02 et 08h21, deux appels de
+   `NkFluidRaymarchRender` distincts) : les deux fichiers neufs sont **de nouveau
+   identiques à l'octet** (`130e9122…`). Deux rendus séparés produisant les mêmes
+   octets, aujourd'hui, sur un code différent de celui de septembre : l'identité
+   est une **propriété de la scène**, pas la trace d'un `cp`.
+
+> ⚠️ **CE QUI RESTE VRAI MALGRÉ TOUT : le NOM du 07/09 fait mal croire.**
+> « colonne » et « jet sans confinement » désignent la **même scène**. Le second
+> nom n'a de sens que **par paire** avec `fumee_panache_confinement_*`, dont il est
+> le bras `epsilon = 0`. Ce n'est pas un doublon accidentel, c'est un **doublon
+> assumé** — et le dire coûte moins cher que de laisser quelqu'un le redécouvrir.
+
+#### ③ Les QUATRE images d'AUJOURD'HUI — mêmes scènes, code de `main` (9c3fad332)
+
+**Configuration commune**, écrite ici plutôt que devinée : binaire
+`Build/Bin/Release-Windows/NkFluidGridProbe`, **Release**, **aucun GPU, aucune
+fenêtre, aucun device** (marche de rayon **CPU**, un seul fil), rendu **480 × 360**,
+caméra `(0 ; 0,38 ; 2,10)` visant `(0 ; 0,30 ; 0)`, champ 40°. Course complète du
+**13/09, 08h07 → 08h21 — 14 min 30 s** sur cette machine (et non ~27 min : le
+chiffre dépend de la machine et de la charge, il est publié avec les siens).
+
+| image | octets | scène, et ce qui est MESURÉ DANS CES PIXELS |
+|---|---:|---|
+| `fumee_colonne_2026-09-13.png` | 11 701 | Palier ②. Boîte 0,5 × 1,6 × 0,5 m, `h = 2 cm` → **25 × 80 × 25**, `dt = 1/60 s`, **255 pas**, `epsilon = 0`. (2.1) centre **245,67** sur 1 680 px contre **0,00** aux deux bords (1 764 px chacun) — rapport **SATURÉ**, pas un nombre ; (2.2) bande basse **122,30** contre bande haute **89,54** → **1,37**. Contrôle négatif au même cadrage : densité nulle → **0 pixel** sur 172 800. Coût du rendu : **518,0 ms** à 480 × 360 (1 501 910 échantillons + 4 440 358 d'ombre) |
+| `fumee_jet_sans_confinement_2026-09-13.png` | 11 701 | **Le MÊME appel que la précédente** — voir ② : c'est le bras `epsilon = 0` de la comparaison. Boîte du panache dans l'image : **108 px** de large ; à la ligne y = 84, rayon de giration pondéré par l'opacité **5,273 px** sur 31 px |
+| `fumee_panache_confinement_2026-09-13.png` | 31 359 | `epsilon = 8` (Fedkiw, Stam & Jensen, SIGGRAPH 2001, § 4, eq. 9-11). À la MÊME ligne y = 84 : rayon **16,122 px** sur 86 px — **× 3,06** (contre × 2,46 le 07/09) |
+| `feu_degrade_2026-09-13.png` | 18 452 | Palier ③, **combustion réelle** (carburant qui se consume). **Tmax de la scène 1 836 K** ; mesuré par DIFFÉRENCE avec le même rendu sans émission : sur **7 138 px** émissifs (rayons de 927 à 1 835 K), G/R émis du tiers **FROID** (≤ 1 230 K) **0,222** (1 748 px) contre tiers **CHAUD** (≥ 1 533 K) **0,538** (3 142 px). Rendu **5 389 ms** |
+
+#### ⚠️ CE QUI A CHANGÉ ENTRE LES DEUX SÉRIES, et il faut le dire
+
+**La boîte du jet a plus que DOUBLÉ, et la comparaison de boîtes s'est INVERSÉE.**
+
+| | 07/09 (avant MAC) | 13/09 (après) |
+|---|---:|---:|
+| boîte SANS confinement | 45 px | **108 px** |
+| boîte AVEC confinement | 72 px | **92 px** |
+| rayon à y = 84, SANS | 5,329 px | 5,273 px |
+| rayon à y = 84, AVEC | 13,124 px | **16,122 px** |
+
+Le 07/09, la boîte disait « le panache est plus large que le jet ». **Aujourd'hui
+elle dit l'inverse**, pendant que le rayon de giration, lui, dit la même chose en
+**plus fort** (× 2,46 → × 3,06).
+
+**Ce n'est pas une contradiction, c'est deux grandeurs différentes** : la *boîte*
+est l'enveloppe de **tout pixel au-dessus du seuil**, donc elle suit la fumée la
+plus **diluée** ; le *rayon de giration* pèse chaque pixel par son **opacité**,
+donc il suit la **matière**. Le jet d'aujourd'hui s'étale davantage en voile
+ténu — ce que confirme la dérive de masse mesurée sur cette scène — sans pour
+autant concentrer plus de fumée loin de l'axe.
+
+> 📌 **Le témoin (i1) juge sur le RAYON, pas sur la boîte**, et c'est pour cette
+> raison-là. La boîte est publiée à côté, comme information, pas comme verdict.
+> Une ligne du LISEZMOI du 07/09 (« boîte 45 px → 72 px ») est donc **datée** :
+> elle décrivait un état, elle ne décrit plus celui-ci.
+
+⚠️ **Et un témoin du confinement est ROUGE** sur le code d'aujourd'hui : **(v1)
+l'enstrophie**, qui devrait au moins DOUBLER avec le confinement, vaut
+**× 0,36** (19,196880 → 6,940482). C'est l'un des **7 ROUGES** des **84 contrôles**
+de la course du 13/09. L'image du panache montre donc bien un panache **plus
+large et plus structuré** ; elle **ne prouve pas** que le confinement réinjecte de
+la vorticité sur cette scène-là — la mesure dit aujourd'hui le contraire, et c'est
+un chantier ouvert, pas un détail.
+
+⚠️ **Ce ne sont pas des rendus GPU** : marche de rayon **CPU**
+(`NkFluidGridRaymarch`), aucune fenêtre, aucun device — comme toutes les images de
+`NkFluidGridProbe`.

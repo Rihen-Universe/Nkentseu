@@ -3,6 +3,8 @@
 //
 // Loader glTF 2.0 from-scratch (MVP geometrie), zero-STL / NKMemory.
 // Voir NkGLTFLoader.h pour le perimetre supporte / differe.
+//
+// @Author  TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // =============================================================================
 #include "NkGLTFLoader.h"
 
@@ -1063,10 +1065,22 @@ namespace nkentseu {
 
 					// ── SubMesh ───────────────────────────────────────────────
 					NkSubMesh sm;
-					if (!meshName.Empty())
-						sm.name = meshName;
-					else
-						sm.name = NkString("primitive");
+					// 🔴 LE NOM VIENT DU FICHIER, OU IL N'Y EN A PAS.
+					//
+					// Ce champ portait « primitive » quand `meshes[].name` est
+					// absent. Mesure du 2026-09-06, GLB importe par Rodolf
+					// (`042082ea...glb`, genere par pygltflib) : le JSON ne
+					// contient AUCUN `name` -- ni sur `meshes`, ni sur `nodes`.
+					// L'onglet et la carte s'appelaient pourtant « primitive »,
+					// et Rodolf a lu ca comme un nom lu dans son fichier.
+					//
+					// Un repli invente ici est indiscernable d'un nom reel pour
+					// l'appelant : il ne peut plus decider de nommer autrement
+					// (par le fichier, par le noeud) puisqu'on lui a rendu un
+					// nom. On laisse donc le champ VIDE -- c'est la verite sur
+					// le fichier -- et c'est l'appelant qui choisit son repli
+					// (NK3DModeler prend le radical du chemin, NkImpStem).
+					sm.name = meshName; // vide si le fichier ne nomme rien
 					sm.firstIndex = firstIndex;
 					sm.indexCount = idxCount;
 					sm.baseVertex = baseVertex;

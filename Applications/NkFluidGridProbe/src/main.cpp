@@ -57,9 +57,21 @@ void EnqueteLePrix();		// (f2) LE PRIX du donor-cell (NK_FLUID_MAC=4)
 void EnqueteStabilite();	// (f3) LA STABILITÉ, filet coupé (NK_FLUID_MAC=5)
 void EnqueteRuptureFine();	// (g1) la rupture ENCADRÉE par dichotomie (NK_FLUID_MAC=6)
 void EnqueteCibleSousCyclage(); // (g2)+(g3) la courbe, la cible, le NOUVEAU prix (NK_FLUID_MAC=7)
+void EnqueteOrdreSuperieur();	// (h1)+(h3) l'ORDRE SUPÉRIEUR : le prix repayé ? (NK_FLUID_MAC=8)
+void ControleOrdreSuperieur();	// (h2) les trois contrôles de la course complète
+void EnqueteFumeeQuiPese();		  // (i) l'ENQUÊTE, AUCUN verdict (NK_FLUID_MAC=9)
+void EnqueteComptageAnalytique(); // (j1) le comptage À LA MAIN (NK_FLUID_MAC=a)
+void EnqueteComptageChaleur();	  // (k1) le MÊME comptage, sur la CHALEUR (NK_FLUID_MAC=b)
+void EnqueteEchelleDebit();		  // (p2) l'échelle de débit, re-réglage de (e) (NK_FLUID_MAC=c)
+void EnqueteCoutAffichage();	  // (r) marche avec/sans ombres + le transfert (NK_FLUID_MAC=d)
+void EnqueteVentilationPas();	  // (s0) la ventilation du pas par phase (NK_FLUID_MAC=e)
 void PalierVolutes(bool complet); // (n1)(n3)(n2a) toujours ; (n2b) sous NK_FLUID_VOLUTES=1 (PLAN_VOLUTES.md)
 void ImagesDuConfinement(float32 epsilon);
 float32 EpsilonConfinement();
+// LA FUMEE SANS LE FEU (fumee.cpp) -- (f1) la masse, (f2) la montee, (f3) rien
+// ne brule, (f4) ca se voit ; chacun avec son NEGATIF, plus LE PRIX par image.
+// Mode court : NK_FUMEE=1 -- seul ce palier tourne.
+void PalierFumee();
 
 static void Check(bool ok, const char *nom, const char *detail) {
 	++gChecks;
@@ -284,11 +296,65 @@ static void MasseEtDivergence(bool mutationProjectionCoupee) {
 	const float32 ratioMoyen = (float32)(ratioSum / (float64)pas);
 
 	char buf[400];
-	// GARDE : le temoin (a) n'a de sens que si la fumee n'a jamais touche la paroi.
-	snprintf(buf, sizeof(buf), "masse paroi max %.3e (seuil %.3e), premier contact au pas %u (0 = jamais)",
-			 (double)paroiMax, (double)seuilParoi, premierContact);
-	if (!mutationProjectionCoupee)
-		Check(premierContact == 0, "GARDE de (a) : la fumee n'a jamais touche la paroi", buf);
+	// =====================================================================
+	// GARDE de (a) — CE QU'ELLE SURVEILLE A CHANGE LE 2026-09-14, et il faut
+	// lire pourquoi avant de croire l'un ou l'autre de ses deux verdicts.
+	//
+	// CE QU'ELLE DISAIT : « la fumee n'a jamais touche la paroi ». Ce n'etait
+	// PAS la propriete qu'on veut ; c'etait une CONDITION SUFFISANTE pour
+	// l'obtenir sous le schema d'alors. La propriete voulue est : « la derive
+	// mesuree par (a) vient du VOLUME, pas de la paroi ». Sous l'advection
+	// semi-lagrangienne, une cellule de bord advecte son contenu vers la couche
+	// fantome ou rien ne le recupere : la paroi DETRUIT franchement de la masse
+	// (mesure du 05/09 : -100 % en 500 pas avec une vitesse dirigee vers la
+	// paroi). Exiger qu'on n'y touche jamais etait donc legitime.
+	//
+	// ⚠️ MAIS ELLE ETAIT VERTE A CAUSE DU DEFAUT QU'ELLE ETAIT CENSEE ECARTER.
+	// Mesure du 14/09, les deux courses cote a cote :
+	//     semi-lagrangien : masse paroi max 5,978e-08, premier contact au pas 0
+	//                       (jamais) -- et (a) ROUGE a -43,1032 %
+	//     flux conservatif : masse paroi max 2,130e-05, contact au pas 359
+	//                       -- et (a) VERT a 0,0000 %
+	// La fumee « n'atteignait jamais la paroi » PARCE QU'ELLE S'EVAPORAIT EN
+	// CHEMIN. La garde etait verte pour la raison meme qu'elle devait exclure.
+	//
+	// CE QU'ELLE SURVEILLE MAINTENANT, quand le schema est CONSERVATIF :
+	// `AdvectFluxUnePasse` ne parcourt AUCUNE face de paroi (les boucles vont de
+	// 2 a N sur les faces internes), donc une paroi ne peut NI prendre NI
+	// fabriquer : le contact est inoffensif pour (a). Ce qui affaiblirait (a),
+	// desormais, c'est l'INVERSE — que la fumee n'atteigne JAMAIS la paroi, car
+	// le cas difficile ne serait alors pas exerce du tout. La garde change donc
+	// de sens avec le schema, et **ce n'est pas une commodite** : c'est que la
+	// menace, elle, a change de camp.
+	//
+	// ⚠️ ELLE N'ASSERTE PAS QUE LA MASSE TIENT : c'est le travail de (a), deux
+	// lignes plus bas, et une propriete garantie deux fois est une propriete
+	// dont l'echec se masque. Elle PUBLIE la derive a cote du contact pour qu'on
+	// lise les deux ensemble, mais elle ne la juge pas.
+	//
+	// L'ancienne branche est GARDEE telle quelle : si quelqu'un remet
+	// `advectFluxConservative` a faux, la paroi redevient un gouffre et la garde
+	// reprend son ancien travail, au mot pres.
+	// =====================================================================
+	if (!mutationProjectionCoupee) {
+		if (!p.advectFluxConservative) {
+			snprintf(buf, sizeof(buf),
+					 "masse paroi max %.3e (seuil %.3e), premier contact au pas %u (0 = jamais) -- schema "
+					 "SEMI-LAGRANGIEN : une cellule de bord advecte vers la couche fantome, ou rien ne la "
+					 "recupere, donc un contact DETRUIT de la masse et (a) mesurerait la paroi",
+					 (double)paroiMax, (double)seuilParoi, premierContact);
+			Check(premierContact == 0, "GARDE de (a) : la fumee n'a jamais touche la paroi", buf);
+		} else {
+			snprintf(buf, sizeof(buf),
+					 "masse paroi max %.3e (seuil de contact %.3e), premier contact au pas %u sur %u -- et la "
+					 "masse totale derive de %.4f %% MALGRE ce sejour contre la paroi (chiffre publie, juge par "
+					 "(a) et non ici). Schema en FLUX : aucune face de paroi n'est parcourue, une paroi ne peut "
+					 "ni prendre ni fabriquer ; ce qui affaiblirait (a) serait de ne JAMAIS l'atteindre",
+					 (double)paroiMax, (double)seuilParoi, premierContact, pas, (double)(derive * 100.f));
+			Check(premierContact != 0, "GARDE de (a) : la fumee ATTEINT la paroi -- le cas difficile est exerce",
+				  buf);
+		}
+	}
 
 	snprintf(buf, sizeof(buf), "masse %.9f -> %.9f, derive %.4f %% sur %u pas (critere < 1 %%)", (double)masse0,
 			 (double)masse1, (double)(derive * 100.f), pas);
@@ -587,6 +653,19 @@ int main(int argc, char **argv) {
 	printf("2001, eq. (8). Banc CPU, aucun GPU, aucune fenêtre.\n");
 	printf("=============================================================\n");
 
+	// Mode FUMEE : seul le palier de la fumee sans le feu tourne. Il ne remplace
+	// pas la course complete et ne rend aucun verdict sur le reste du solveur --
+	// il repond a UNE question : un panache monte-t-il sans que rien ne brule.
+	const char *fumee = ::nkentseu::env::GetEnvVar("NK_FUMEE");
+	if (fumee != nullptr && fumee[0] == '1') {
+		PalierFumee();
+		printf("\n=============================================================\n");
+		printf("BILAN (mode NK_FUMEE=1, LA FUMEE SANS LE FEU) : %d controles, %d ROUGES\n", gChecks,
+			   gFailures);
+		printf("=============================================================\n");
+		return gFailures == 0 ? 0 : 1;
+	}
+
 	// Mode BALAYAGE : seul le tableau qui CHOISIT epsilon tourne. C'est une
 	// enquete de parametre, pas un temoin -- elle ne rend aucun verdict.
 	const char *sweep = ::nkentseu::env::GetEnvVar("NK_FLUID_SWEEP");
@@ -681,6 +760,102 @@ int main(int argc, char **argv) {
 		printf("=============================================================\n");
 		return gFailures == 0 ? 0 : 1;
 	}
+	// NK_FLUID_MAC=8 : (h1) le DÉTAIL qui revient, et (h3) la stabilité qui bouge ou
+	// non — l'ÉTAPE 6, ouverte par la décision de Rodolf du 13/09 : ne pas SUBIR
+	// l'arbitrage masse/détail mais le SUPPRIMER. Le lot se juge sur UN rapport,
+	// Tmax / Tmax(référence), avec son seuil écrit AVANT (0,50, repris de Q6).
+	// ⚠️ Le mode fait tourner SIX bras de la scène (e) dans la MÊME course, dont le
+	// schéma SANS limiteur : il est FAUX exprès, c'est le témoin qui prouve que le
+	// détecteur de densité négative sait rendre autre chose que zéro.
+	if (mac != nullptr && mac[0] == '8') {
+		EnqueteOrdreSuperieur();
+		printf("\n=============================================================\n");
+		printf("BILAN (mode NK_FLUID_MAC=8, (h) L'ORDRE SUPERIEUR) : %d controles, %d ROUGES\n", gChecks,
+			   gFailures);
+		printf("=============================================================\n");
+		return gFailures == 0 ? 0 : 1;
+	}
+	// NK_FLUID_MAC=9 : l'ENQUÊTE (i), LA FUMÉE QUI PÈSE. ⚠️ CE N'EST PAS UN TÉMOIN
+	// et elle ne rend AUCUN verdict — comme les enquêtes de la bascule et (g2).
+	// (h1) a éliminé l'ordre du schéma scalaire comme cause du prix : même un
+	// Lax-Wendroff NU, sans aucune diffusion au premier ordre, plafonne à 0,4030.
+	// Cette enquête va voir du côté du PREMIER terme de l'équation (8) de Fedkiw —
+	// celui qui fait PESER la fumée, et dont le semi-lagrangien perd 43 %.
+	if (mac != nullptr && mac[0] == '9') {
+		EnqueteFumeeQuiPese();
+		return 0;
+	}
+	// NK_FLUID_MAC=a : (j1) LE COMPTAGE ANALYTIQUE. Il transforme en FAIT la
+	// déduction de l'enquête (i) : la masse attendue est recalculée À LA MAIN,
+	// depuis les paramètres d'injection, et JAMAIS demandée au solveur qu'elle
+	// juge. Quatre contrôles, dont une MUTATION qui doit faire rougir le compteur
+	// — un compteur qui ne sait pas rougir n'a jamais rien prouvé en verdissant.
+	// (La lettre, pas un chiffre : `mac[0] == '1'` attraperait « 10 ».)
+	// NK_FLUID_MAC=b : (k1) LE MÊME COMPTAGE, SUR LA CHALEUR. La masse prouve que
+	// le semi-lagrangien fabrique de la MATIÈRE ; mais l'arbitrage de Rodolf porte
+	// sur Tmax, donc sur la CHALEUR — tant que le facteur 8,7 reste une déduction,
+	// il reste une inférence sur le nombre qui DÉCIDE.
+	// ⚠️ Ce mode s'autorise la MÊME fonction de comptage que (j1) parce que trois
+	// préconditions le permettent, lues dans le code et nommées dans le plan (§ 13).
+	// Il ajoute (k0), le contrôle qui MANQUAIT à (j1) : la source injecte-t-elle
+	// exactement ce que je compte, AVANT tout transport ?
+	// NK_FLUID_MAC=c : (p2) L'ÉCHELLE DE DÉBIT. Elle ne juge pas un schéma, elle
+	// CHOISIT un réglage — et ses deux seuls verdicts sont des GARDES : à débit nul
+	// Tmax revient exactement à l'ambiante, et la courbe est monotone (sans quoi le
+	// débit ne serait pas le levier, et la règle de choix porterait sur du vide).
+	// ⚠️ UN SEUL LEVIER, le DÉBIT : tirer sur la grandeur qu'on mesure reviendrait à
+	// écrire la réponse.
+	// NK_FLUID_MAC=d : (r) LE COÛT D'UN AFFICHAGE. Les deux mesures que j'ai
+	// moi-même exigées avant de recommander un chemin — la marche SANS ombres, et
+	// le transfert chiffré À PART. ⚠️ Le TÉLÉVERSEMENT GPU n'y est PAS mesuré : le
+	// banc n'ouvre aucun device. Sa part CPU l'est, le reste est BORNÉ et dit tel.
+	// ⚠️ Les deux verdicts sont des RAPPORTS, jamais des seuils en millisecondes :
+	// un seuil dépendrait de la machine, un rapport désigne le chemin à écrire.
+	// NK_FLUID_MAC=e : (s0) LA VENTILATION DU PAS. L'etape 0 du portage GPU, et
+	// elle peut TUER le lot : si la projection pese moins de 50 %, la cible change.
+	// ⚠️ AMDAHL est calcule sur le chiffre MESURE, pas suppose — un facteur 10 sur
+	// une phase qui pese 60 % ne donne que 2,17 sur le total.
+	// ⚠️ Sa garde (s0g) verifie que la somme des parts vaut le total a 2 % pres :
+	// si une phase echappe au comptage, aucun pourcentage n'est lisible.
+	if (mac != nullptr && mac[0] == 'e') {
+		EnqueteVentilationPas();
+		printf("\n=============================================================\n");
+		printf("BILAN (mode NK_FLUID_MAC=e, (s0) LA VENTILATION DU PAS) : %d controles, %d ROUGES\n", gChecks,
+			   gFailures);
+		printf("=============================================================\n");
+		return gFailures == 0 ? 0 : 1;
+	}
+	if (mac != nullptr && mac[0] == 'd') {
+		EnqueteCoutAffichage();
+		printf("\n=============================================================\n");
+		printf("BILAN (mode NK_FLUID_MAC=d, (r) LE COUT D AFFICHAGE) : %d controles, %d ROUGES\n", gChecks,
+			   gFailures);
+		printf("=============================================================\n");
+		return gFailures == 0 ? 0 : 1;
+	}
+	if (mac != nullptr && mac[0] == 'c') {
+		EnqueteEchelleDebit();
+		printf("\n=============================================================\n");
+		printf("BILAN (mode NK_FLUID_MAC=c, (p2) L ECHELLE DE DEBIT) : %d controles, %d ROUGES\n", gChecks,
+			   gFailures);
+		printf("=============================================================\n");
+		return gFailures == 0 ? 0 : 1;
+	}
+	if (mac != nullptr && mac[0] == 'b') {
+		EnqueteComptageChaleur();
+		printf("\n=============================================================\n");
+		printf("BILAN (mode NK_FLUID_MAC=b, (k1) LA CHALEUR) : %d controles, %d ROUGES\n", gChecks, gFailures);
+		printf("=============================================================\n");
+		return gFailures == 0 ? 0 : 1;
+	}
+	if (mac != nullptr && mac[0] == 'a') {
+		EnqueteComptageAnalytique();
+		printf("\n=============================================================\n");
+		printf("BILAN (mode NK_FLUID_MAC=a, (j1) LE COMPTAGE ANALYTIQUE) : %d controles, %d ROUGES\n", gChecks,
+			   gFailures);
+		printf("=============================================================\n");
+		return gFailures == 0 ? 0 : 1;
+	}
 	if (mac != nullptr && (mac[0] == '1' || mac[0] == '2')) {
 		ControlesPositifs();
 		PalierGrilleMAC();
@@ -731,6 +906,7 @@ int main(int argc, char **argv) {
 	Transport(false);
 	DixSecondes();
 	PalierRendu();
+	PalierFumee(); // la fumee sans le feu, AVANT le feu : c'est l'ordre du canal
 	PalierFeu();
 	PalierVorticite();
 	PalierBranchement();

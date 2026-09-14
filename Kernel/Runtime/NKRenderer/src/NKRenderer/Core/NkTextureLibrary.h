@@ -1,4 +1,5 @@
 #pragma once
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // =============================================================================
 // NkTextureLibrary.h  — NKRenderer v5.0  (Core/)
 //
@@ -17,6 +18,8 @@
 #include "NKRHI/Core/NkIDevice.h"
 #include "NKContainers/Associative/NkHashMap.h"
 #include "NKContainers/String/NkString.h"
+#include "NKSerialization/Asset/NkTextureAssetFormat.h"
+#include "NKImage/Core/NkTextureOven.h"
 
 namespace nkentseu {
 	namespace renderer {
@@ -47,6 +50,19 @@ namespace nkentseu {
 				bool useAnisotropic = true; // utilise le sampler Aniso16 (sinon Linear)
 				bool useClampEdge = false;	// sinon REPEAT
 				const char *debugName = nullptr;
+
+				// ── COMPRESSION PAR BLOCS, sur DEMANDE ────────────────────────
+				// `NKTEXFMT_INCONNU` (defaut) = pixels bruts. Le moteur ne
+				// compresse JAMAIS de lui-meme : BC1 est avec perte et sans
+				// alpha, l'appliquer d'office abimerait les cartes de normales et
+				// mangerait l'alpha. C'est a l'appelant de le demander, carte par
+				// carte. Le code voyage jusqu'a l'empreinte du cache : deux
+				// compressions differentes sont deux actifs differents.
+				// `NKTEXFMT_AUTO` : le four regarde l'image et decide (BC1 sauf
+				// alpha utile, normales et HDR). C'est le DEFAUT depuis le
+				// 2026-09-05 — avec « aucune » le format d'actif ne gagnait rien,
+				// mesure a l'appui. `NKTEXFMT_INCONNU` = brut, explicitement.
+				uint32 compression = 0xFFFFFFFFu; // NKTEXFMT_AUTO
 		};
 
 		// =====================================================================
@@ -94,6 +110,41 @@ namespace nkentseu {
 
 				// ── Creation manuelle ─────────────────────────────────────────
 				NkTexHandle Create(const NkTextureCreateDesc &desc);
+
+				// ── Actif DEJA CUIT : televersement SANS AUCUN DECODAGE ───────
+				// `vue` decrit un payload `.nktex` deja en memoire : les pixels y
+				// sont dans la disposition que le GPU accepte et les mipmaps sont
+				// deja calculees. Chaque niveau est ecrit tel quel — ni codec, ni
+				// `GenerateMipmaps`.
+				//
+				// ⚠️ On ne passe PAS les pixels par `NkTextureDesc::initialData` :
+				// quand `mipLevels > 1`, `CreateTexture` genere lui-meme la chaine
+				// sur le GPU (`vkCmdBlitImage` cote Vulkan) — ce serait refaire le
+				// travail que l'actif porte deja, puis l'ecraser. La texture est
+				// donc creee VIDE et chaque niveau televerse par
+				// `WriteTextureRegion`, l'entree du RHI prevue pour ça et que
+				// personne n'utilisait encore pour un mip.
+				NkTexHandle CreateFromBaked(const NkTexVue &vue, const NkLoadOptions &opts = {});
+
+				// Traduction du code de format STABLE du fichier vers le format
+				// GPU. Rend NK_UNDEFINED si le format n'est pas televersable — ce
+				// qui est le cas de TOUS les formats par blocs aujourd'hui.
+				static NkGPUFormat FormatGpuDepuisCode(uint32 code);
+
+				// La SEULE traduction des options de chargement vers les reglages de
+				// cuisson. Elle est publique pour qu'un banc puisse la comparer aux
+				// defauts du four : ces quatre champs entrent dans l'empreinte du
+				// cache, et un desaccord rendrait toute pre-cuisson introuvable sans
+				// qu'aucune erreur ne sorte.
+				[[nodiscard]] static NkTexOvenReglages ReglagesDepuisOptions(const NkLoadOptions &opts) noexcept {
+					NkTexOvenReglages r;
+					r.sRGB = opts.srgb;
+					r.genererMips = opts.genMipmaps;
+					r.addressMode = opts.useClampEdge ? nk_uint32(NKTEXADDR_CLAMP) : nk_uint32(NKTEXADDR_REPEAT);
+					r.filterMode = opts.useAnisotropic ? nk_uint32(NKTEXFILTER_ANISO) : nk_uint32(NKTEXFILTER_LINEAR);
+					r.compression = opts.compression;
+					return r;
+				}
 
 				// ── Render targets ────────────────────────────────────────────
 				NkTexHandle CreateRenderTarget(uint32 w, uint32 h, NkGPUFormat format, bool depth = false,
@@ -171,10 +222,20 @@ namespace nkentseu {
 				NkTexHandle mWhite, mBlack, mNormal, mError, mBRDFLUT;
 
 				NkTexHandle AllocHandle();
+				// `format` sert a compter la VRAM : un format par blocs n'occupe pas
+				// quatre octets par pixel, et l'annoncer fausserait le seul chiffre
+				// qui dit si la compression a servi. NK_UNDEFINED = « suppose du
+				// RGBA8 », pour les appelants qui n'en ont pas (render targets).
 				NkTexHandle WrapRHI(NkTextureHandle rhi, NkSamplerHandle sampler, uint32 w, uint32 h, uint32 mips,
-									const NkString &dbgName, bool ownsSampler, bool ownsTexture = true);
+									const NkString &dbgName, bool ownsSampler, bool ownsTexture = true,
+									NkGPUFormat format = NkGPUFormat::NK_UNDEFINED);
 
 				bool LoadWithNKImage(const NkString &path, NkImageData &out);
+
+				// Cuit les pixels DEJA decodes et les ecrit dans le cache d'actifs.
+				// Appelee sur un manque de cache, jamais sur une touche.
+				void CuireDansLeCache(const NkString &source, const NkString &cheminCuit, const NkImageData &img,
+									  const NkTexOvenReglages &reglages);
 				void FreeImageData(NkImageData &data);
 				NkSamplerHandle PickSampler(const NkLoadOptions &opts) const;
 
@@ -187,6 +248,12 @@ namespace nkentseu {
 
 				NkTexHandle CreateBRDFLUT();
 				static uint64 EstimateBytes(uint32 w, uint32 h, uint32 mips, uint32 bytesPerPixel, uint32 layers = 1);
+
+				// Compte la VRAM d'une chaine de mips en tenant compte des BLOCS.
+				// C'est `NkFormatImageSize` qui tranche, la meme fonction que les
+				// dorsaux utilisent pour televerser — un seul calcul, donc pas
+				// d'ecart possible entre ce qu'on envoie et ce qu'on compte.
+				static uint64 OctetsChaine(NkGPUFormat format, uint32 w, uint32 h, uint32 mips, uint32 layers = 1);
 		};
 
 	} // namespace renderer

@@ -45,6 +45,7 @@
 // =============================================================================
 #include "NKRenderer/Tools/VFX/NkFluidGridRaymarch.h"
 #include "NKImage/Core/NkImage.h"
+#include "NKTime/NkChrono.h" // (r3) : chronometrer la recopie du tampon
 
 #include <cstdio>
 
@@ -381,6 +382,267 @@ void PalierRendu() {
 		fflush(stdout);
 	}
 	printf("    image : Captures/fumee_colonne_2026-09-05.png (480 x 360)\n");
+}
+
+// =============================================================================
+// (s0) LA VENTILATION DU PAS — pré-enregistrée au § 7 de PLAN_SIMULATION_GPU.md.
+// Mode NK_FLUID_MAC=e. ⚠️ Ce n'est PAS un témoin de schéma : il répond à UNE
+// question — quelle part du pas est la PROJECTION ?
+// ⚠️ SANS CETTE MESURE, ANNONCER UN GAIN DE PORTAGE SERAIT DE LA FOI. AMDAHL : un
+// facteur 10 sur une phase qui pèse 60 % ne donne que 2,17 sur le total.
+// =============================================================================
+void EnqueteVentilationPas() {
+	printf("\n=== (s0) LA VENTILATION DU PAS : quelle part est la PROJECTION ? ===\n");
+	printf("    PRÉ-ENREGISTRÉ (PLAN_SIMULATION_GPU.md § 7), prédiction écrite AVANT :\n");
+	printf("      projection 50 a 75 %% · advection scalaires 15 a 30 %% ·\n");
+	printf("      instrumentation 3 a 10 %% · le reste sous 10 %%\n");
+	printf("    Calcul : 268,3 balayages SOR par pas sur 50 000 cellules = ~13,4 M mises a\n");
+	printf("    jour, contre ~0,5 M pour l'instrumentation — un rapport de 27 pour 1.\n");
+	printf("    ⚠️ MA REGLE, QUE JE NE NEGOCIE PAS : si la projection pese MOINS DE 50 %%,\n");
+	printf("    je CHANGE DE CIBLE et je le dis, meme si cela contredit le titre du plan.\n");
+	printf("    ⚠️ L'HYPOTHESE DANGEREUSE : Step() contient TROIS parcours de divergence,\n");
+	printf("    DEUX vorticites et QUATRE reductions. Si cette famille pese lourd, les\n");
+	printf("    244,3 ms publies comme « cout de simulation » sont en partie le cout du\n");
+	printf("    solveur qui SE MESURE LUI-MEME — et tout le lot B se relit autrement.\n");
+	char buf[640];
+
+	NkFluidGrid g;
+	ConstruirePanache(g, false, 255, 8.f); // le MEME montage que (r) : panache etabli
+
+	const uint32 kPas = 30;
+	const float32 dt = 1.f / 60.f;
+	float64 sCombu = 0, sFlot = 0, sVort = 0, sConf = 0, sVent = 0, sAdvV = 0;
+	float64 sProj = 0, sCFL = 0, sAdvS = 0, sDiss = 0, sMes = 0, sPhys = 0, sTot = 0;
+	float64 sEteint = 0, sGarde = 0;
+	for (uint32 s = 0; s < kPas; ++s) {
+		g.EmitSphere({0.f, 0.05f, 0.f}, 0.06f, 7.f * dt, 400.f * dt, 0.f);
+		g.Step(dt);
+		const NkFluidGridStats &t = g.Stats();
+		sCombu += t.msCombustion;
+		sFlot += t.msFlottabilite;
+		sVort += t.msVorticite1;
+		sConf += t.msConfinement;
+		sVent += t.msVent;
+		sAdvV += t.msAdvVitesse;
+		sProj += t.msProjection;
+		sCFL += t.msCFL;
+		sAdvS += t.msAdvScalaires;
+		sDiss += t.msDissipation;
+		sMes += t.msMesures;
+		sEteint += t.msMesuresEteintes;
+		sGarde += t.msMesuresGardees;
+		sPhys += t.msPhysique;
+		sTot += t.ms;
+	}
+	const float64 n = (float64)kPas;
+	const float64 tot = sTot / n;
+	const float64 pc = (tot > 0.0) ? 100.0 / tot : 0.0;
+
+	printf("\n      grille %u x %u x %u = %u cellules, %u pas, %u balayages SOR au dernier pas\n", g.Nx(), g.Ny(),
+		   g.Nz(), g.Nx() * g.Ny() * g.Nz(), kPas, g.Stats().pressureIters);
+	printf("      phase                            ms / pas      part\n");
+	printf("      PROJECTION (solveur pression)   %9.2f   %6.2f %%\n", sProj / n, (sProj / n) * pc);
+	printf("      advection des scalaires (x3)    %9.2f   %6.2f %%\n", sAdvS / n, (sAdvS / n) * pc);
+	printf("      advection de la vitesse         %9.2f   %6.2f %%\n", sAdvV / n, (sAdvV / n) * pc);
+	printf("      vorticite (1re, pour le confin.)%9.2f   %6.2f %%\n", sVort / n, (sVort / n) * pc);
+	printf("      confinement de vorticite        %9.2f   %6.2f %%\n", sConf / n, (sConf / n) * pc);
+	printf("      flottabilite                    %9.2f   %6.2f %%\n", sFlot / n, (sFlot / n) * pc);
+	printf("      combustion                      %9.2f   %6.2f %%\n", sCombu / n, (sCombu / n) * pc);
+	printf("      vent                            %9.2f   %6.2f %%\n", sVent / n, (sVent / n) * pc);
+	printf("      CFL + sous-cyclage              %9.2f   %6.2f %%\n", sCFL / n, (sCFL / n) * pc);
+	printf("      dissipation                     %9.2f   %6.2f %%\n", sDiss / n, (sDiss / n) * pc);
+	printf("      -----------------------------------------------------\n");
+	printf("      PHYSIQUE (somme)                %9.2f   %6.2f %%\n", sPhys / n, (sPhys / n) * pc);
+	printf("      INSTRUMENTATION (le banc)       %9.2f   %6.2f %%\n", sMes / n, (sMes / n) * pc);
+	printf("        dont EXTINGUIBLE (temps reel) %9.2f   %6.2f %%\n", sEteint / n, (sEteint / n) * pc);
+	printf("        dont GARDE (filet + Tmax)     %9.2f   %6.2f %%\n", sGarde / n, (sGarde / n) * pc);
+	printf("      TOTAL mesure                    %9.2f   100,00 %%\n", tot);
+	printf("\n    ⚠️ LE PARTAGE COMPTE PLUS QUE LE TOTAL. `MeasureVelocity` N'EST PAS une\n");
+	printf("    mesure : quand une cellule depasse maxSpeed, elle MULTIPLIE les six vitesses\n");
+	printf("    de face par lim/s. C'est un FILET DE SECURITE, donc de la PHYSIQUE, et la\n");
+	printf("    couper changerait le CHAMP, pas seulement le rapport. Annoncer %.2f ms\n", sMes / n);
+	printf("    d'economie serait donc promettre ce qu'on ne peut pas rendre : l'economie\n");
+	printf("    REELLE du chemin temps reel est %.2f ms.\n", sEteint / n);
+	printf("    ⚠️ ET DANS LE BANC, RIEN NE S'ETEINT : aucun mode ne touche `temoinsMesure`,\n");
+	printf("    aucune variable d'environnement ne l'expose. Un juge qui peut fermer les\n");
+	printf("    yeux ne juge plus.\n");
+	fflush(stdout);
+
+	// ── (s0g) LA GARDE DE SOMME ────────────────────────────────────────────
+	const float64 somme = (sPhys + sMes) / n;
+	const float64 ecart = (tot > 0.0) ? ((somme > tot ? somme - tot : tot - somme) / tot) : 1.0;
+	snprintf(buf, sizeof(buf),
+			 "physique %.2f + instrumentation %.2f = %.2f ms, contre %.2f ms de total mesure : ecart "
+			 "relatif %.4f (seuil 2 %%, ecrit AVANT). Si la somme ne fait pas le total, une phase echappe "
+			 "au comptage et AUCUN pourcentage n'est lisible — pas meme celui qui decide du portage",
+			 sPhys / n, sMes / n, somme, tot, ecart);
+	ProbeCheck(ecart < 0.02, "(s0g) GARDE : la somme des parts vaut le TOTAL a 2 % pres", buf);
+
+	// ── LA REGLE, APPLIQUEE MECANIQUEMENT ─────────────────────────────────
+	const float64 partProj = (sProj / n) * pc;
+	const float64 reste = 1.0 - partProj / 100.0;
+	printf("\n    REGLE (ecrite AVANT) : si la projection pese MOINS de 50 %%, je change de cible.\n");
+	if (partProj >= 50.0)
+		printf("    ==> La projection pese %.2f %% : LA CIBLE DU PLAN TIENT.\n", partProj);
+	else {
+		printf("    ==> La projection ne pese que %.2f %% : JE CHANGE DE CIBLE, et je le dis.\n", partProj);
+		printf("    Le titre du plan (« le solveur de pression d'abord ») est REFUTE par la mesure.\n");
+	}
+	printf("    AMDAHL sur le chiffre MESURE : un facteur 10 sur la projection SEULE donnerait\n");
+	printf("    1 / (%.4f + %.4f/10) = %.2f fois sur le PAS COMPLET.\n", reste, partProj / 100.0,
+		   1.0 / (reste + partProj / 1000.0));
+	printf("    ⚠️ La part de l'INSTRUMENTATION (%.2f %%) se lit A PART : un moteur qui n'a pas\n",
+		   (sMes / n) * pc);
+	printf("    besoin de ces temoins ne la paierait pas.\n");
+}
+
+// =============================================================================
+// (r) LES DEUX MESURES QUI MANQUAIENT POUR CHOISIR UN CHEMIN D'AFFICHAGE.
+// Pré-enregistrées dans PLAN_FEU_VISIBLE.md, § (r), AVANT ce code.
+// Mode NK_FLUID_MAC=d. ⚠️ Ce n'est PAS un témoin de schéma : il chiffre des COÛTS.
+//
+// ⚠️ CE QUE CE BANC N'A PAS LE DROIT DE MESURER, ET NE MESURERA PAS :
+// le TÉLÉVERSEMENT GPU (map/unmap, DMA). Le banc n'ouvre AUCUN device — il n'a ni
+// fenêtre ni contexte. On mesure donc la part CPU du transfert (la recopie du
+// tampon, celle qui domine et qui est réellement à portée) et on BORNE l'autre par
+// l'arithmétique du volume de données, en la disant BORNE et non mesure.
+// Un banc sans GPU ne doit pas publier un chiffre de GPU.
+// =============================================================================
+void EnqueteCoutAffichage() {
+	printf("\n=== (r) LE COÛT D'UN AFFICHAGE : marche avec/sans ombres, et le transfert ===\n");
+	printf("    PRÉ-ENREGISTRÉ (PLAN_FEU_VISIBLE.md § r) :\n");
+	printf("      (r1) les ombres pèsent 4 440 358 échantillons contre 1 501 910 primaires,\n");
+	printf("           soit 74,7 %% du travail -> le coût doit tomber vers 25,3 %%.\n");
+	printf("           PRÉDICTION à 480x360 : 604,1 x 0,253 = 153 ms, bande 140 à 190.\n");
+	printf("      (r2) 1280x720 MESURÉ, pour remplacer mon extrapolation de ~3,2 s.\n");
+	printf("           PRÉDICTION : 3 220 ms avec ombres, 815 ms sans.\n");
+	printf("      (r3) recopie du tampon RGBA8 : PRÉDICTION < 2 ms à toute définition.\n");
+	printf("      (r4) simulation sur la grille du RENDU (25 x 80 x 25 = 50 000 cellules).\n");
+	printf("    ⚠️ PRÉDICTION DE FOND : aux définitions où le rendu devient abordable, c'est\n");
+	printf("    la SIMULATION qui domine (~150 à 250 ms), soit 4 à 7 fois le rendu. Si elle\n");
+	printf("    tient, le chemin GPU ne sauve PAS l'affaire : il n'accélère que le rendu.\n");
+	char buf[600];
+
+	// La scène du rendu, celle des captures : 25 x 80 x 25 = 50 000 cellules.
+	// ⚠️ `epsilon = 8`, DONC AVEC CONFINEMENT DE VORTICITÉ — et ce choix a un prix
+	// que la course complète permet d'ISOLER, parce qu'elle rend la MÊME scène à
+	// `epsilon = 0` : à 480x360 avec ombres, 495,5 ms sans confinement contre
+	// 1840,5 ms avec, soit x 3,7. La structure que le confinement crée garde les
+	// rayons vivants plus longtemps, donc coûte des échantillons.
+	// ⚠️ ET CE N'EST PAS LE SCHÉMA : à `epsilon = 0`, la bascule conservative a
+	// RENDU LE RENDU MOINS CHER (604,1 -> 495,5 ms, échantillons d'ombre
+	// 4 440 358 -> 2 569 360). Deux choses avaient changé, la course complète les
+	// sépare — je ne pouvais pas attribuer sans elle.
+	NkFluidGrid g;
+	ConstruirePanache(g, false, 255, 8.f);
+
+	NkFluidRaymarchParams rp;
+	rp.cameraPos = {0.f, 0.38f, 2.10f};
+	rp.cameraTarget = {0.f, 0.30f, 0.f};
+	rp.fovDegrees = 40.f;
+	rp.shadowMaxDistance = 0.35f;
+
+	const uint32 defs[4][2] = {{240, 180}, {480, 360}, {960, 720}, {1280, 720}};
+	float32 avec[4] = {0, 0, 0, 0}, sans[4] = {0, 0, 0, 0}, copie[4] = {0, 0, 0, 0};
+
+	printf("\n      definition     AVEC ombres    SANS ombres   rapport   recopie RGBA8   octets\n");
+	for (uint32 i = 0; i < 4; ++i) {
+		NkFluidRaymarchParams q = rp;
+		q.width = defs[i][0];
+		q.height = defs[i][1];
+		NkVector<uint8> img;
+		NkFluidRaymarchStats s1, s2;
+
+		q.shadowMarch = true;
+		NkFluidRaymarchRender(g, q, img, s1);
+		avec[i] = s1.ms;
+
+		q.shadowMarch = false;
+		NkFluidRaymarchRender(g, q, img, s2);
+		sans[i] = s2.ms;
+
+		// (r3) LA PART CPU DU TRANSFERT : la recopie du tampon, celle qu'un
+		// téléversement paie avant même de toucher le pilote.
+		//
+		// ⚠️⚠️ PREMIER JET FAUX, ET GARDÉ EN COMMENTAIRE PARCE QUE LA FAUTE EST LA
+		// LEÇON. J'avais écrit la boucle avec `dst[k] = img[k]`, c'est-à-dire par
+		// l'ACCESSEUR de `NkVector`. Mesure : 42,7 ms pour 3,7 Mo, soit 86 Mo/s —
+		// un ordre de grandeur sous la bande passante d'un memcpy. Je ne mesurais
+		// pas un transfert, JE MESURAIS MON PROPRE ACCESSEUR. Un téléversement
+		// n'appelle aucun `operator[]` : il copie des octets contigus.
+		// On passe donc par les pointeurs bruts, ce que fait un vrai transfert.
+		const uint32 n = (uint32)img.Size();
+		NkVector<uint8> dst;
+		dst.Resize(n, 0);
+		const uint8 *src = img.Data();
+		uint8 *out = dst.Data();
+		const int64 t0 = NkChrono::Now().nanoseconds;
+		for (uint32 r = 0; r < 20; ++r)
+			for (uint32 k = 0; k < n; ++k)
+				out[k] = src[k];
+		const int64 t1 = NkChrono::Now().nanoseconds;
+		copie[i] = (float32)((float64)(t1 - t0) / 20.0 / 1.0e6);
+
+		printf("      %4u x %4u   %9.1f ms   %9.1f ms    %5.3f   %9.3f ms   %8u\n", q.width, q.height,
+			   (double)avec[i], (double)sans[i], (avec[i] > 0.f) ? (double)(sans[i] / avec[i]) : 0.0,
+			   (double)copie[i], n);
+		fflush(stdout);
+	}
+
+	// (r4) LE COÛT DE SIMULATION sur CETTE grille, pas sur celle de la scène (e).
+	{
+		// ⚠️ ON MESURE SUR LE PANACHE DÉJÀ ÉTABLI, `g` lui-même — pas sur une grille
+		// neuve. Un panache de 1 pas est presque vide : le solveur de pression y
+		// converge en quelques balayages et rendrait un coût FLATTEUR qui ne
+		// correspondrait à aucune image réelle. On continue donc la course de `g`,
+		// dans l'état exact que les rendus ci-dessus viennent de photographier.
+		const float32 dt = 1.f / 60.f;
+		float64 somme = 0.0;
+		for (uint32 s = 0; s < 30; ++s) {
+			g.EmitSphere({0.f, 0.05f, 0.f}, 0.06f, 7.f * dt, 400.f * dt, 0.f);
+			g.Step(dt);
+			somme += (float64)g.Stats().ms;
+		}
+		const float64 msSim = somme / 30.0;
+		printf("\n      SIMULATION sur la MÊME grille, panache ÉTABLI (%u x %u x %u = %u cellules) :\n",
+			   g.Nx(), g.Ny(), g.Nz(), g.Nx() * g.Ny() * g.Nz());
+		printf("      %.1f ms par pas, moyenne sur 30 pas\n", msSim);
+
+		// ── LE TABLEAU QUI DÉCIDE : le temps d'image du chemin ① ──────────
+		printf("\n      TEMPS D'IMAGE du chemin CPU (simulation + marche SANS ombres + recopie) :\n");
+		for (uint32 i = 0; i < 4; ++i)
+			printf("        %4u x %4u : %8.1f ms  =  %6.1f (sim) + %6.1f (marche) + %.3f (recopie)"
+				   "   -> %5.2f images/s\n",
+				   defs[i][0], defs[i][1], msSim + (float64)sans[i] + (float64)copie[i], msSim,
+				   (double)sans[i], (double)copie[i],
+				   1000.0 / (msSim + (float64)sans[i] + (float64)copie[i]));
+
+		// ⚠️ LE VERDICT DE CE LOT EST UN RAPPORT, PAS UN SEUIL EN MILLISECONDES.
+		// La question n'est pas « est-ce rapide » (ça dépend de la machine) mais
+		// « QUI domine » — parce que c'est cela qui désigne le chemin à écrire.
+		const float64 rapport = (sans[0] > 0.f) ? msSim / (float64)sans[0] : 0.0;
+		snprintf(buf, sizeof(buf),
+				 "à 240x180 sans ombres, la simulation coûte %.1f ms et la marche %.1f ms : rapport %.2f. "
+				 "Si ce rapport est > 1, c'est la SIMULATION qui domine, et porter le RENDU sur GPU ne "
+				 "changerait pas le temps d'image — ce serait optimiser ce qui ne coûte pas. Un rapport, "
+				 "pas un seuil en ms : le seuil dépendrait de la machine, le rapport désigne le chemin",
+				 msSim, (double)sans[0], rapport);
+		ProbeCheck(rapport > 1.0, "(r4) C'est la SIMULATION qui domine, pas le rendu", buf);
+
+		// (r3) LE TRANSFERT N'EST PAS LE PROBLÈME — et c'est un rapport aussi.
+		const float64 rapportCopie = (copie[3] > 0.f) ? (float64)sans[3] / (float64)copie[3] : 0.0;
+		snprintf(buf, sizeof(buf),
+				 "à 1280x720, la recopie du tampon coûte %.3f ms contre %.1f ms de marche : la marche est "
+				 "%.0f fois plus chère. ⚠️ LE TÉLÉVERSEMENT GPU N'EST PAS MESURÉ ICI (le banc n'ouvre aucun "
+				 "device) ; sa BORNE arithmétique est %u octets, soit ~1,8 ms à 2 Go/s — du même ordre que "
+				 "la recopie, et deux ordres de grandeur sous la marche. Le transfert n'est pas le problème",
+				 (double)copie[3], (double)sans[3], rapportCopie, defs[3][0] * defs[3][1] * 4u);
+		ProbeCheck(rapportCopie > 100.0, "(r3) LE TRANSFERT n'est pas le problème : 100x moins cher", buf);
+	}
+
+	printf("\n    ⚠️ CE QUI N'EST PAS MESURÉ, et je le dis plutôt que de l'estimer en douce :\n");
+	printf("    le téléversement GPU lui-même (map/unmap, DMA). Le banc n'a NI fenêtre NI\n");
+	printf("    device. Ce qui est mesuré est la part CPU ; le reste est BORNÉ, pas mesuré.\n");
 }
 
 // =============================================================================
