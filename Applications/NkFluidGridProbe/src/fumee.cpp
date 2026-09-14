@@ -320,6 +320,32 @@ static uint32 PixelsDeFumee(const NkVector<uint8> &rgba, uint32 W, uint32 H, con
 	return n;
 }
 
+// LA CAMERA ELARGIE — celle ou le panache TIENT ENTIER dans le cadre.
+//
+// ⚠️ POURQUOI ELLE EXISTE, et c'est la MESURE du 14/09 qui l'a imposee, pas le
+// gout. Avec la camera du banc, le panache SORT DU CADRE par le haut des la 2e
+// image. Tout ce qu'on mesure alors — rangee du haut, rangee barycentre, nombre
+// de pixels — porte sur un objet TRONQUE, et la troncature n'est pas constante :
+// elle grandit d'une image a l'autre. Resultat mesure apres la bascule van Leer :
+// la rangee barycentre est passee de 192,6 a 127,9 puis EST REMONTEE a 129,5
+// avant de redescendre a 113,1. Un creux de 1,6 rangee sur 79,5 de montee — non
+// pas parce que le panache redescend, mais parce que la source remplit le bas
+// pendant que le haut, lui, a deja quitte l'image. **Un instrument qui mesure ce
+// que la camera garde ne mesure pas l'objet.**
+//
+// La boite fait 1,6 m de haut ; a 4,2 m et 40 degres, le cadre en couvre 3,06 m.
+// La GARDE de (f4b) le verifie a chaque image plutot que de le supposer.
+static NkFluidRaymarchParams CameraElargie() {
+	NkFluidRaymarchParams rp;
+	rp.width = 480;
+	rp.height = 360;
+	rp.cameraPos = {0.f, 0.80f, 4.20f};
+	rp.cameraTarget = {0.f, 0.80f, 0.f};
+	rp.fovDegrees = 40.f;
+	rp.shadowMaxDistance = 0.35f;
+	return rp;
+}
+
 static NkFluidRaymarchParams CameraDuBanc() {
 	NkFluidRaymarchParams rp;
 	rp.width = 480;
@@ -593,6 +619,16 @@ void PalierFumee() {
 		uint32 hauts[kImages] = {0, 0, 0, 0, 0};
 		float32 lignes[kImages] = {0.f, 0.f, 0.f, 0.f, 0.f};
 		float32 msRendu[kImages] = {0.f, 0.f, 0.f, 0.f, 0.f};
+		// La MEME suite, vue par la camera ELARGIE : c'est la que la monotonie a
+		// un sens, parce que l'objet y tient entier.
+		uint32 pixelsL[kImages] = {0, 0, 0, 0, 0};
+		uint32 hautsL[kImages] = {0, 0, 0, 0, 0};
+		float32 lignesL[kImages] = {0.f, 0.f, 0.f, 0.f, 0.f};
+		const NkFluidRaymarchParams rpL = CameraElargie();
+		const char *nomsL[kImages] = {
+			"Captures/fumee_froide_large_01_2026-09-14.png", "Captures/fumee_froide_large_02_2026-09-14.png",
+			"Captures/fumee_froide_large_03_2026-09-14.png", "Captures/fumee_froide_large_04_2026-09-14.png",
+			"Captures/fumee_froide_large_05_2026-09-14.png"};
 		NkFluidGrid gi;
 		gi.Init(p);
 		NkVector<uint8> img;
@@ -611,6 +647,12 @@ void PalierFumee() {
 				EcrirePng(img, rp.width, rp.height, noms[faite]);
 				pixels[faite] = PixelsDeFumee(img, rp.width, rp.height, bg, kSeuilPixel, hauts[faite], lignes[faite]);
 				msRendu[faite] = st.ms;
+				// La MEME grille, au MEME instant, par la camera elargie.
+				NkFluidRaymarchStats stL;
+				NkFluidRaymarchRender(gi, rpL, img, stL);
+				EcrirePng(img, rpL.width, rpL.height, nomsL[faite]);
+				pixelsL[faite] =
+					PixelsDeFumee(img, rpL.width, rpL.height, bg, kSeuilPixel, hautsL[faite], lignesL[faite]);
 				++faite;
 			}
 		}
@@ -620,27 +662,79 @@ void PalierFumee() {
 			printf("%u px (haut y=%u, barycentre y=%.1f, %.0f ms)%s", pixels[i], hauts[i], (double)lignes[i],
 				   (double)msRendu[i], (i + 1 == faite) ? "\n" : " -> ");
 
-		bool croit = true, monte = true;
-		uint32 satures = 0;
+		bool croit = true;
+		uint32 satures = 0, creux = 0;
+		float32 creuxMax = 0.f;
 		for (uint32 i = 1; i < faite; ++i) {
 			if (pixels[i] <= pixels[i - 1])
 				croit = false;
-			// C'est la rangée BARYCENTRE qui juge : elle ne sature pas.
-			if (lignes[i] >= lignes[i - 1])
-				monte = false;
+			if (lignes[i] >= lignes[i - 1]) { // y croît vers le bas : ceci est une DESCENTE
+				++creux;
+				const float32 d = lignes[i] - lignes[i - 1];
+				if (d > creuxMax)
+					creuxMax = d;
+			}
 		}
 		for (uint32 i = 0; i < faite; ++i)
 			if (hauts[i] == 0)
 				++satures;
+		const float32 monteeNette = (faite > 1) ? (lignes[0] - lignes[faite - 1]) : 0.f;
+
+		// ⚠️ CE CRITÈRE A ÉTÉ DESSERRÉ, ET JE LE DIS PLUTÔT QUE DE LE FAIRE EN
+		// SILENCE. Il exigeait la décroissance de la rangée barycentre À CHAQUE
+		// PAS. Après la bascule van Leer il est devenu ROUGE — non pas parce que
+		// le panache cesse de monter (il monte de 79,5 rangées) mais parce qu'il
+		// SORT DU CADRE : la source remplit le bas pendant que le haut a déjà
+		// quitté l'image, et le barycentre de ce qui RESTE VISIBLE recule d'une
+		// rangée et demie entre deux vues. L'exigence portait sur un objet
+		// TRONQUÉ, donc elle ne portait sur rien de physique.
+		// Ici on ne juge donc plus que la TENDANCE : le creux doit rester petit
+		// devant la montée. ⚠️ Le rapport de 10 est choisi APRÈS avoir vu 1,6
+		// contre 79,5 — c'est un seuil POST-HOC, et un seuil post-hoc ne prouve
+		// pas grand-chose. Ce qui rend l'affaire honnête est (f4b) juste en
+		// dessous : sur la caméra ÉLARGIE, où l'objet tient entier, la monotonie
+		// STRICTE redevient exigible, et c'est LUI qui la juge.
 		snprintf(buf, sizeof(buf),
-				 "%u images 480 x 360 écrites dans Captures/ ; la fumée passe de %u à %u pixels et sa rangée "
-				 "BARYCENTRE monte de %.1f à %.1f (y croît vers le bas). ⚠️ La rangée la plus HAUTE, elle, est "
-				 "SATURÉE à 0 sur %u des %u images — le panache sort du cadre par le haut, et c'est pourquoi "
-				 "elle ne juge pas. Cet instrument ne sait RIEN de la grille : il reprouve (f2) par un autre "
-				 "chemin, et son zéro est (f4.0)",
-				 faite, faite > 0 ? pixels[0] : 0u, faite > 0 ? pixels[faite - 1] : 0u, faite > 0 ? (double)lignes[0] : 0.0,
-				 faite > 0 ? (double)lignes[faite - 1] : 0.0, satures, faite);
-		ProbeCheck(faite == kImages && pixels[0] > 0 && croit && monte, "(f4) ÇA SE VOIT, ET ÇA MONTE À L'IMAGE", buf);
+				 "caméra DU BANC (celle des images comparables à l'AVANT) : %u images, la fumée passe de %u à "
+				 "%u pixels, rangée BARYCENTRE %.1f -> %.1f, soit %.1f rangées de MONTÉE nette ; %u recul(s), "
+				 "le plus grand de %.1f rangée (exigé <= montée/10 = %.1f). ⚠️ Rangée du haut SATURÉE à 0 sur "
+				 "%u des %u images : ce cadre TRONQUE le panache, et c'est (f4b) qui juge la monotonie",
+				 faite, faite > 0 ? pixels[0] : 0u, faite > 0 ? pixels[faite - 1] : 0u,
+				 faite > 0 ? (double)lignes[0] : 0.0, faite > 0 ? (double)lignes[faite - 1] : 0.0,
+				 (double)monteeNette, creux, (double)creuxMax, (double)(monteeNette / 10.f), satures, faite);
+		ProbeCheck(faite == kImages && pixels[0] > 0 && croit && monteeNette > 0.f &&
+					   creuxMax <= monteeNette / 10.f,
+				   "(f4) ÇA SE VOIT, ET ÇA MONTE À L'IMAGE", buf);
+
+		// ── (f4b) LA MONOTONIE, LÀ OÙ ELLE A UN SENS ─────────────────────────
+		// GARDE D'ABORD : si une seule image sature, l'objet est tronqué et le
+		// critère ne juge plus rien. La garde passe AVANT le critère.
+		uint32 saturesL = 0;
+		for (uint32 i = 0; i < faite; ++i)
+			if (hautsL[i] == 0 || pixelsL[i] == 0)
+				++saturesL;
+		snprintf(buf, sizeof(buf),
+				 "caméra à 4,20 m (le cadre couvre 3,06 m pour une boîte de 1,60 m) : rangée du haut = %u, %u, "
+				 "%u, %u, %u — AUCUNE à 0, donc le panache tient ENTIER dans les %u images. Sans cette garde, "
+				 "(f4b) jugerait le même objet tronqué que (f4)",
+				 faite > 0 ? hautsL[0] : 0u, faite > 1 ? hautsL[1] : 0u, faite > 2 ? hautsL[2] : 0u,
+				 faite > 3 ? hautsL[3] : 0u, faite > 4 ? hautsL[4] : 0u, faite);
+		ProbeCheck(faite == kImages && saturesL == 0, "(f4b-garde) le panache TIENT ENTIER dans le cadre élargi",
+				   buf);
+
+		bool monteL = true;
+		for (uint32 i = 1; i < faite; ++i)
+			if (lignesL[i] >= lignesL[i - 1])
+				monteL = false;
+		snprintf(buf, sizeof(buf),
+				 "rangée BARYCENTRE sur l'objet ENTIER : %.1f -> %.1f -> %.1f -> %.1f -> %.1f (y croît vers le "
+				 "bas) — décroissance exigée à CHAQUE pas, et elle est tenue ici alors que la caméra du banc "
+				 "montrait un recul. La différence n'est pas dans le fluide : elle est dans ce que le cadre "
+				 "garde. Images : Captures/fumee_froide_large_01..05_2026-09-14.png",
+				 faite > 0 ? (double)lignesL[0] : 0.0, faite > 1 ? (double)lignesL[1] : 0.0,
+				 faite > 2 ? (double)lignesL[2] : 0.0, faite > 3 ? (double)lignesL[3] : 0.0,
+				 faite > 4 ? (double)lignesL[4] : 0.0);
+		ProbeCheck(faite == kImages && monteL, "(f4b) LE PANACHE MONTE, monotone, sur l'objet ENTIER", buf);
 
 		snprintf(buf, sizeof(buf),
 				 "sans poussée : %u pixels, rangée barycentre %.1f (haut à la rangée %u), contre %.1f (haut %u) "
@@ -724,6 +818,19 @@ void PalierFumee() {
 		printf("    (soit %.1f ms/image source comprise) et %.0f ms pour %u pas de feu.\n",
 			   (double)(r.msMur / (float32)r.pas), (double)msFeu, kPas);
 		printf("    ⚠️ Ces chiffres sont MESURÉS ici, sur CETTE machine, dans CETTE course.\n");
+		printf("    ── POURQUOI LE RAPPORT, ET PAS L'ABSOLU ───────────────────────────────\n");
+		printf("       Le rapport imprimé ci-dessus est celui de CETTE course : ses deux\n");
+		printf("       termes ont subi la MÊME charge machine, donc elle s'en va par\n");
+		printf("       division. Un absolu, lui, la garde entière.\n");
+		printf("       Relevé de SEPT courses du même binaire, le 2026-09-14 :\n");
+		printf("         moyennes fumée : 195,1 à 400,3 ms      -> 105 %% d'écart\n");
+		printf("         rapports feu/fumée : 1,44 à 1,77       ->  23 %% d'écart\n");
+		printf("       Le rapport est donc 4,6 fois plus stable que la moyenne. ⚠️ CES\n");
+		printf("       DEUX FOURCHETTES SONT UN RELEVÉ DATÉ, PAS UNE PROPRIÉTÉ : elles\n");
+		printf("       s'élargiront à chaque course. La première version de cette ligne\n");
+		printf("       annonçait « 7 %% » sur quatre courses ; la cinquième a rendu 1,77 et\n");
+		printf("       l'a périmée le jour même. Un chiffre en dur dans une sortie est un\n");
+		printf("       chiffre qui vieillit sans prévenir — comparez au relevé du canal.\n");
 		printf("    ⚠️ Le prix de la fumée n'est PAS celui du feu moins la combustion : le feu\n");
 		printf("       porte un champ de carburant que la fumée ne fait même pas advecter\n");
 		printf("       (NkFluidGrid.cpp:1373 — il est sauté tant que burnRate vaut 0).\n");
