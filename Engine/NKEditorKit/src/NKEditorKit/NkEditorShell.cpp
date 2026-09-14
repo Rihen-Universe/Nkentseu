@@ -867,8 +867,64 @@ namespace nkentseu {
 				const char *v = getenv("NK_TRACE_PIPETTE");
 				return v && v[0] && v[0] != '0';
 			}();
+			// ══ ③ TRACE — QUELLE PHASE A MANGE L'IMAGE (`NK_PHASES=1`) ═══════════
+			//
+			// 🔴 RODOLF, 14/09 : « on a l'impression que ca plante [...] mais les
+			//    boutons de fermeture ne plantent pas, donc minimiser maximiser
+			//    fermer ». Ces trois boutons sont dans la ZONE NON CLIENTE, traitee
+			//    par le systeme : qu'ils repondent pendant que le reste est fige dit
+			//    que NOTRE boucle ne tourne plus.
+			//
+			// ⚠️ ET JE N'AI PAS SU LE REPRODUIRE. Premiere course sur son binaire :
+			//    **5,4 images/s**. Les DOUZE courses suivantes, meme binaire, memes
+			//    drapeaux : 61 a 140 images/s, jamais en dessous. Un defaut que je
+			//    ne reproduis pas ne se corrige pas par hypothese -- et une machine
+			//    qui rend 61 puis 140 pour la meme mesure n'est pas une condition
+			//    d'essai, c'est un bruit de fond.
+			//
+			//    Alors plutot que de deviner l'appel bloquant, **on rend l'image
+			//    lente capable de se nommer**. Quand elle se reproduira -- chez
+			//    Rodolf, chez un agent, dans six semaines -- une variable
+			//    d'environnement suffira a savoir quelle phase a mange le temps.
+			//
+			// ⚠️ LE SEUIL N'EST PAS EN MILLISECONDES, ET C'EST VOLONTAIRE. Un seuil
+			//    absolu se perime avec la machine et crie rouge sur un montage
+			//    correct. On compare chaque image a la MOYENNE COURANTE de la course
+			//    elle-meme : une image quatre fois plus longue que ses voisines est
+			//    anormale sur n'importe quel materiel. Le banc porte donc son propre
+			//    zero.
+			//
+			// ⚠️ COUT QUAND C'EST ETEINT : un `if (bool)` par phase, et rien d'autre
+			//    -- aucune horloge n'est lue. Mesure a faire si quelqu'un en doute ;
+			//    je ne l'affirme pas sans l'avoir mesuree, je dis seulement ce que le
+			//    code fait.
+			const bool tracePhases = []() {
+				const char *v = getenv("NK_PHASES");
+				return v && v[0] && v[0] != '0';
+			}();
+			static float64 sPhaseCumul[24] = {0.0};
+			static const char *sPhaseNom[24] = {nullptr};
+			static int32 sPhaseN = 0;
+			static float64 sImageMoyenne = 0.0;
+			static int32 sImages = 0;
+			static int32 sCris = 0;
+			nkentseu::NkChrono horlogeImage, horlogePhase;
+			float64 phaseMs[24] = {0.0};
+			int32 nPhases = 0;
+
 			nkgui::NkGuiCursor curseurPrec = mUI.wantCursor;
 			auto phase = [&](const char *nom) {
+				if (tracePhases && nPhases < 24) {
+					const float64 ms = horlogePhase.Elapsed().ToSeconds() * 1000.0;
+					horlogePhase = nkentseu::NkChrono();
+					phaseMs[nPhases] = ms;
+					if (nPhases >= sPhaseN) {
+						sPhaseNom[nPhases] = nom;
+						sPhaseN = nPhases + 1;
+					}
+					sPhaseCumul[nPhases] += ms;
+					++nPhases;
+				}
 				if (!tracePhase || mUI.wantCursor == curseurPrec)
 					return;
 				static const char *const kN[] = {"fleche", "texte", "main", "REDIM <->",
@@ -1041,6 +1097,44 @@ namespace nkentseu {
 			if (mOverlayFn)
 				mOverlayFn(ec, mOverlayUser); // dialogues modaux de l'app (creation/proprietes)
 			phase("OVERLAY (pipette)");
+			// ── LE VERDICT DE L'IMAGE (NK_PHASES=1) ─────────────────────────────
+			if (tracePhases) {
+				const float64 totalMs = horlogeImage.Elapsed().ToSeconds() * 1000.0;
+				++sImages;
+				// ⚠️ LA MOYENNE SE CONSTRUIT AVANT DE SERVIR DE SEUIL. Les dix
+				//    premieres images ne jugent rien : ce sont elles qui posent le
+				//    zero. Sans ce delai, la premiere image -- toujours la plus
+				//    longue, elle monte les atlas -- se denoncerait elle-meme et
+				//    remonterait la moyenne d'un coup.
+				const bool juge = sImages > 10 && sImageMoyenne > 0.0;
+				if (juge && totalMs > 4.0 * sImageMoyenne && sCris < 20) {
+					++sCris;
+					printf("[phases] image %d : %.1f ms (moyenne %.1f ms) -- le detail :\n",
+						   sImages, totalMs, sImageMoyenne);
+					for (int32 i = 0; i < nPhases; ++i)
+						if (phaseMs[i] > 0.05 * totalMs)
+							printf("[phases]     %-24s %7.1f ms  (%4.1f %%)\n",
+								   sPhaseNom[i] ? sPhaseNom[i] : "?", phaseMs[i],
+								   100.0 * phaseMs[i] / (totalMs > 0.0 ? totalMs : 1.0));
+					fflush(stdout);
+				}
+				sImageMoyenne = (sImageMoyenne * (float64)(sImages - 1) + totalMs)
+								/ (float64)sImages;
+				// Le releve cumule, a la demande : NK_PHASES=2 l'imprime tous les 300.
+				const char *v = getenv("NK_PHASES");
+				if (v && v[0] == '2' && (sImages % 300) == 0) {
+					printf("[phases] cumul sur %d images (moyenne %.2f ms/image) :\n",
+						   sImages, sImageMoyenne);
+					for (int32 i = 0; i < sPhaseN; ++i)
+						printf("[phases]     %-24s %8.2f ms au total  (%5.2f %% du temps)\n",
+							   sPhaseNom[i] ? sPhaseNom[i] : "?", sPhaseCumul[i],
+							   100.0 * sPhaseCumul[i]
+								   / (sImageMoyenne * (float64)sImages > 0.0
+										  ? sImageMoyenne * (float64)sImages
+										  : 1.0));
+					fflush(stdout);
+				}
+			}
 
 			// Bordure de NOTRE fenetre (l'OS n'en dessine plus) — sauf si maximisee.
 			if (!mWindow.IsMaximized())
