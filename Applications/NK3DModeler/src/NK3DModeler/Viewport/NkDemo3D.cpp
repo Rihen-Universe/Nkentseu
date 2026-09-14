@@ -1484,6 +1484,15 @@ namespace nkentseu {
 				// cesse de detruire l'information a la frontiere.
 				int32 uiMode = 0;
 				bool editTogglePending = false;	  // TAB traité côté frame (accès meshSys)
+				// ── COMBIEN D'IMAGES L'EDITION EST-ELLE DEMANDEE SANS COMMENCER ? ──
+				// Le shell rearme la bascule a CHAQUE image tant que son `st.mode` et
+				// notre `editMode` different. Quand la resolution de cible echoue (rien
+				// de selectionne), cet ecart ne se resorbe JAMAIS -- et le seul message
+				// existant part dans le journal. Ce compteur est ce qui permet a la vue
+				// de le DIRE a l'ecran. Une image ou deux d'ecart sont NORMALES (la
+				// bascule est consommee a la frame suivante) : c'est la DUREE qui fait
+				// l'echec, pas l'ecart lui-meme.
+				int32 editRefusedFrames = 0;
 				bool editWasDragging = false;	  // pour baker le delta en fin de drag
 				bool editOverlayDirty = true;	  // reconstruire les buffers overlay (cage/points/faces)
 				bool editExtrudePending = false;  // E : extrude région (traité côté frame)
@@ -3719,6 +3728,33 @@ namespace nkentseu {
 			return "-";
 		}
 		
+		// ── LES BORNES D'UN PARAMETRE MODAL, EN UN SEUL ENDROIT ─────────────
+		// Elles vivaient en cinq lignes DANS le bloc qui lit la souris. Tant que la
+		// souris etait le seul pilote, cela suffisait ; des qu'un second pilote
+		// existe (un champ de saisie dans le panneau d'operation), deux jeux de
+		// bornes cohabiteraient -- et c'est par le second qu'un angle de spin a
+		// 900 degres serait entre. Le bloc souris appelle desormais ceci.
+		// Extraction A COMPORTEMENT IDENTIQUE : les valeurs sont celles qui y
+		// etaient ecrites, pas des valeurs rechoisies.
+		static float32 Demo3D_ModalClampVal(int32 op, float32 v) {
+			if (op == 5)
+				return NkMax(1.f, NkMin(360.f, v));
+			if (op == 7)
+				return NkMax(0.f, NkMin(2.f, v));
+			if (op == 4)
+				return NkMax(-1.f, NkMin(1.f, v));
+			// extrude (6), shrink/fatten (8) et les trois transformations (9..11)
+			// sont SIGNES : les borner par le bas les empecherait de creuser.
+			if (op != 6 && op != 8 && !(op >= 9 && op <= 11))
+				return NkMax(0.f, v);
+			return v;
+		}
+		static int32 Demo3D_ModalClampSeg(int32 op, int32 n) {
+			const int32 lo = (op == 5) ? 3 : 1;
+			const int32 hi = (op == 5) ? 64 : 16;
+			return NkMax(lo, NkMin(hi, n));
+		}
+
 		// L'operation a-t-elle un effet avec les parametres courants ? (un bevel/inset de
 		// largeur nulle ne doit RIEN faire : la commande interpreterait 0 comme « AUTO ».)
 		static bool Demo3D_ModalHasEffect(const Demo3DState *st) {
@@ -4158,10 +4194,8 @@ namespace nkentseu {
 				logger.Info("[Demo3D] NK_MODAL_WHEEL -> {0} cran(s) de molette injectes\n", st->modalInjWheel);
 			}
 			if (wheelNotches != 0) {
-				const int32 lo = (st->modalOp == 5) ? 3 : 1;
-				const int32 hi = (st->modalOp == 5) ? 64 : 16;
 				const int32 before = st->modalSeg;
-				st->modalSeg = NkMax(lo, NkMin(hi, st->modalSeg + wheelNotches));
+				st->modalSeg = Demo3D_ModalClampSeg(st->modalOp, st->modalSeg + wheelNotches);
 				if (st->modalSeg != before)
 					st->modalDirty = true;
 			}
@@ -4184,16 +4218,11 @@ namespace nkentseu {
 				const bool precis = st->modalPrecisForce || NkInput.IsKeyDown(NkKey::NK_LSHIFT) ||
 									NkInput.IsKeyDown(NkKey::NK_RSHIFT);
 				const float32 ech = st->modalScale * (precis ? 0.1f : 1.f);
-				float32 nvv = st->modalBase + (st->modalCurX - st->modalStartX) * ech;
-				if (st->modalOp == 5)
-					nvv = NkMax(1.f, NkMin(360.f, nvv));
-				else if (st->modalOp == 7)
-					nvv = NkMax(0.f, NkMin(2.f, nvv));
-				else if (st->modalOp == 4)
-					nvv = NkMax(-1.f, NkMin(1.f, nvv));
-				else if (st->modalOp != 6 && st->modalOp != 8 && !(st->modalOp >= 9 && st->modalOp <= 11))
-					nvv = NkMax(0.f, nvv);
-				// (extrude, shrink/fatten ET les trois transformations sont SIGNES)
+				// LES BORNES SONT CELLES DE `Demo3D_ModalClampVal`, partagees avec le
+				// panneau d'operation : un seul endroit decide, donc les deux pilotes
+				// ne peuvent pas diverger.
+				const float32 nvv = Demo3D_ModalClampVal(
+					st->modalOp, st->modalBase + (st->modalCurX - st->modalStartX) * ech);
 				if (fabsf(nvv - st->modalVal) > 1e-6f) {
 					st->modalVal = nvv;
 					st->modalDirty = true;
@@ -14618,6 +14647,18 @@ namespace nkentseu {
 			const bool veutEdition = (mode == 1); // NkMode::Edit
 			if (veutEdition != st->editMode)
 				st->editTogglePending = true;
+			// ⚠ C'EST ICI QUE L'ECHEC DEVIENT MESURABLE, et nulle part ailleurs.
+			// Le shell appelle cette fonction UNE FOIS PAR IMAGE avec son propre
+			// mode : c'est le seul point qui voit, chaque image, si les deux cotes
+			// sont d'accord. Tant qu'ils ne le sont pas, on compte.
+			// On ne compte QUE l'entree refusee (veutEdition && !editMode) : la
+			// SORTIE d'edition, elle, ne peut pas echouer.
+			if (veutEdition && !st->editMode) {
+				if (st->editRefusedFrames < 1000000)
+					++st->editRefusedFrames;
+			} else {
+				st->editRefusedFrames = 0;
+			}
 		}
 		int32 Demo3DHostMode() {
 			auto *st = HostSt();
@@ -15222,6 +15263,100 @@ namespace nkentseu {
 		bool Demo3DHostModalActive() {
 			auto *st = HostSt();
 			return st && st->modalOp != 0;
+		}
+		// LES LIBELLES SONT PRIS SUR LE CHAMP REELLEMENT ALIMENTE par
+		// `Demo3D_ModalCmd`, jamais choisis ici. Relire ce switch est le seul moyen
+		// d'en etre sur : « Decalage » avait ete peint a cote d'une extrusion dont
+		// le parametre s'appelle `extrude.offset` et se lit « Distance ».
+		// Une operation sans parametre entier rend nullptr pour `segLabel` : la vue
+		// n'affiche alors PAS la rangee. Afficher un reglage sans effet apprend a
+		// l'utilisateur a ne plus croire les reglages.
+		bool Demo3DHostModalInfo(int32 *op, const char **nom, const char **valLabel, float32 *val,
+								 const char **segLabel, int32 *seg) {
+			auto *st = HostSt();
+			if (!st || st->modalOp == 0)
+				return false;
+			const int32 o = st->modalOp;
+			const char *lv = "Valeur";
+			const char *ls = nullptr;
+			switch (o) {
+				case 1:
+				case 2:
+					lv = "Largeur";  // c.bevel.offset
+					ls = "Segments"; // c.bevel.segments
+					break;
+				case 3:
+					lv = "Epaisseur"; // c.inset.thickness -- PAS de parametre entier
+					break;
+				case 4:
+					lv = "Glissement"; // c.loopcut.slide
+					ls = "Coupes";     // c.loopcut.cuts
+					break;
+				case 5:
+					lv = "Angle (deg)"; // c.spin.angle (converti en radians a l'usage)
+					ls = "Pas";         // c.spin.steps
+					break;
+				case 6:
+					lv = "Distance"; // c.extrude.offset
+					break;
+				case 7:
+					lv = "Facteur"; // c.tosphere.factor
+					break;
+				case 8:
+					lv = "Decalage"; // c.shrinkfatten.offset (valeur SIGNEE)
+					break;
+				case 9:
+				case 10:
+				case 11:
+					lv = "Amplitude"; // transformation : la valeur pilote le gizmo
+					break;
+				default: break;
+			}
+			if (op) *op = o;
+			if (nom) *nom = Demo3D_ModalName(o);
+			if (valLabel) *valLabel = lv;
+			if (val) *val = st->modalVal;
+			if (segLabel) *segLabel = ls;
+			if (seg) *seg = st->modalSeg;
+			return true;
+		}
+		int32 Demo3DHostEditRefusedFrames() {
+			auto *st = HostSt();
+			return st ? st->editRefusedFrames : 0;
+		}
+		// ── REGLER UN PARAMETRE DEPUIS LE PANNEAU ───────────────────────────
+		// Le parametre se pilotait deja : a la souris (continu) et a la molette
+		// (entier). Ce qui manquait, c'est de pouvoir le TAPER -- la demande de
+		// Rodolf, « pas de propriete ».
+		// ⚠ ON RE-ANCRE LE GLISSEMENT. Sans cela, le pilotage souris recalculerait
+		// `modalBase + (curX - startX) * ech` a l'image suivante et ECRASERAIT la
+		// valeur tapee, sans que rien ne le signale : le champ aurait paru
+		// fonctionner une image, puis « ne rien faire ». En deplacant l'ancre, le
+		// geste souris repart de la valeur saisie -- les deux pilotes s'accordent
+		// au lieu de se disputer.
+		bool Demo3DHostModalSetVal(float32 v) {
+			auto *st = HostSt();
+			if (!st || st->modalOp == 0)
+				return false;
+			const float32 nv = Demo3D_ModalClampVal(st->modalOp, v);
+			if (fabsf(nv - st->modalVal) > 1e-6f) {
+				st->modalVal = nv;
+				st->modalDirty = true;
+			}
+			st->modalBase = nv;
+			st->modalStartX = st->modalCurX;
+			return true;
+		}
+		bool Demo3DHostModalSetSeg(int32 n) {
+			auto *st = HostSt();
+			if (!st || st->modalOp == 0)
+				return false;
+			const int32 nv = Demo3D_ModalClampSeg(st->modalOp, n);
+			if (nv != st->modalSeg) {
+				st->modalSeg = nv;
+				st->modalDirty = true;
+			}
+			return true;
 		}
 		int32 Demo3DHostEditSelCount() {
 			auto *st = HostSt();
