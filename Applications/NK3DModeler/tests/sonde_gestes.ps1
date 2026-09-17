@@ -215,12 +215,25 @@ $s03 = Aimante "snap_03" "0.3" "1" "x"
 $s2 = Aimante "snap_2" "2" "1" "x"
 Write-Host "       sans aimantation : $brut  ·  pas 0,5 : $s05  ·  pas 0,3 : $s03  ·  pas 2 : $s2"
 
-Dire "(h) LE ZERO : sans aimantation, la valeur n'est pas arrondie" ([Math]::Abs($brut - 1.04211) -lt 0.001) `
-	"brut = $brut (exige la valeur non arrondie ; sinon « arrondi » ne voudrait rien dire)"
-Dire "(i) l'aimantation AGIT pendant une modale" ([Math]::Abs($s05 - 1.0) -lt 0.001) `
-	"pas 0,5 : $brut -> $s05 (exige 1,0 ; avant ce lot, la modale ignorait le pas)"
-Dire "(j) et le PAS est vraiment lu : trois pas, trois resultats" (([Math]::Abs($s03 - 0.9) -lt 0.001) -and ([Math]::Abs($s2 - 2.0) -lt 0.001)) `
-	"pas 0,3 -> $s03 (exige 0,9) · pas 2 -> $s2 (exige 2,0) ; s'ils etaient egaux, le pas ne serait pas lu"
+# ⚠ LES ATTENDUS SE DERIVENT DU BRUT DE LA MEME COURSE, ILS NE SONT PLUS ECRITS
+#   EN DUR. « 1,04211 », « 0,9 », « 2,0 » venaient d'une course de reference ou
+#   le curseur de Rodolf se trouvait a un endroit precis : `brut` depend de la
+#   distance au pivot, donc du bureau. Le 17/09 au soir, le curseur etait ailleurs
+#   et les trois criteres ont accuse le code d'un defaut qui n'existait pas.
+#   Ce qu'on veut dire est INDEPENDANT de la souris : le brut n'est PAS arrondi,
+#   et chaque pas rend le multiple LE PLUS PROCHE du brut.
+function Arrondi([double]$v, [double]$pas) { return [Math]::Round([Math]::Round($v / $pas, 0) * $pas, 6) }
+$att05 = Arrondi $brut 0.5
+$att03 = Arrondi $brut 0.3
+$att2 = Arrondi $brut 2.0
+Dire "(h) LE ZERO : sans aimantation, la valeur n'est PAS un multiple du pas" `
+	(($brut -gt -900) -and ([Math]::Abs($brut - $att05) -gt 0.001)) `
+	"brut = $brut, le multiple de 0,5 le plus proche est $att05 (exige DIFFERENTS ; sinon « arrondi » ne voudrait rien dire)"
+Dire "(i) l'aimantation AGIT pendant une modale" ([Math]::Abs($s05 - $att05) -lt 0.001) `
+	"pas 0,5 : $brut -> $s05 (exige $att05, derive du brut ; avant ce lot, la modale ignorait le pas)"
+Dire "(j) et le PAS est vraiment lu : trois pas, trois resultats" `
+	(([Math]::Abs($s03 - $att03) -lt 0.001) -and ([Math]::Abs($s2 - $att2) -lt 0.001) -and ($att03 -ne $att05)) `
+	"pas 0,3 -> $s03 (exige $att03) · pas 2 -> $s2 (exige $att2) ; les trois attendus different, sinon le pas ne serait pas lu"
 
 # -- (k)(l)(m)(n) `S` LIBRE : LE RAPPORT DES DISTANCES AU PIVOT ------------
 # Blender : eloigner le curseur du pivot agrandit, QUELLE QUE SOIT la direction,
@@ -293,12 +306,27 @@ Dire "(l) un geste VERTICAL agit desormais" ([Math]::Abs($sv.val) -gt 0.01) `
 #   facteur suit le signe de (d1 - d0), quelle que soit la souris. Et les deux
 #   gestes etant opposes, l'un des deux eloigne forcement -- les deux cas sont donc
 #   couverts sans rien supposer.
+# ⚠ ET LA DERNIERE CLAUSE ETAIT ENCORE UNE SUPPOSITION SUR LE BUREAU. « les deux
+#   gestes etant opposes, l'un des deux eloigne forcement » est FAUX quand le
+#   curseur demarre HORS de la fenetre : mesure du 17/09, pivot (524,326) et
+#   d0 = 883 -- le depart etait a ~360 px a gauche du bord, et le confinement du
+#   curseur a fait RAPPROCHER les deux gestes. Le code etait juste ; c'est le
+#   montage qui ne couvrait pas les deux cas.
+#   Ce qui teste LE PRODUIT est le signe : le facteur suit (d1 - d0), pour chaque
+#   geste, quelle que soit la souris. Que les deux cas soient couverts est une
+#   CONDITION du montage -- elle se DIT, elle n'accuse pas.
 $signeOk = ($sh.d0 -gt 0) -and ($sr.d0 -gt 0) -and
 		   ([Math]::Sign([Math]::Round($sh.d1 - $sh.d0, 3)) -eq [Math]::Sign([Math]::Round($sh.val, 3))) -and
-		   ([Math]::Sign([Math]::Round($sr.d1 - $sr.d0, 3)) -eq [Math]::Sign([Math]::Round($sr.val, 3))) -and
-		   ([Math]::Sign([Math]::Round($sh.d1 - $sh.d0, 3)) -ne [Math]::Sign([Math]::Round($sr.d1 - $sr.d0, 3)))
-Dire "(m) s'ELOIGNER agrandit, se RAPPROCHER retrecit" $signeOk `
-	"geste +120 : d1-d0 = $([Math]::Round($sh.d1 - $sh.d0,1)) -> $($sh.val) · geste -120 : d1-d0 = $([Math]::Round($sr.d1 - $sr.d0,1)) -> $($sr.val) (exige MEME SIGNE, et les deux gestes opposes : l'un eloigne, l'autre rapproche)"
+		   ([Math]::Sign([Math]::Round($sr.d1 - $sr.d0, 3)) -eq [Math]::Sign([Math]::Round($sr.val, 3)))
+$deuxCas = ([Math]::Sign([Math]::Round($sh.d1 - $sh.d0, 3)) -ne [Math]::Sign([Math]::Round($sr.d1 - $sr.d0, 3)))
+Dire "(m) LE FACTEUR SUIT LA DISTANCE AU PIVOT, dans les deux gestes" $signeOk `
+	"geste +120 : d1-d0 = $([Math]::Round($sh.d1 - $sh.d0,1)) -> $($sh.val) · geste -120 : d1-d0 = $([Math]::Round($sr.d1 - $sr.d0,1)) -> $($sr.val) (exige le MEME SIGNE de part et d'autre)"
+if (-not $deuxCas) {
+	Write-Host "       ⚠ CONDITION PARTIELLE : les deux gestes vont du MEME COTE de la distance"
+	Write-Host "         (curseur demarre hors fenetre, ou confinement). « eloigner » n'a donc"
+	Write-Host "         pas ete exerce cette fois -- ce n'est pas un defaut du code, et le"
+	Write-Host "         critere ne l'ecrit pas comme tel."
+}
 $interne = ($sh.d0 -gt 0) -and ([Math]::Abs(($sh.d1 / $sh.d0 - 1.0) - $sh.val) -lt 0.002) -and
 		   ($sv.d0 -gt 0) -and ([Math]::Abs(($sv.d1 / $sv.d0 - 1.0) - $sv.val) -lt 0.002)
 Dire "(n) CRITERE INTERNE : la valeur vaut EXACTEMENT d1/d0 - 1" $interne `
