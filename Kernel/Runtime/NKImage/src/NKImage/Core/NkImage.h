@@ -1,4 +1,5 @@
 #pragma once
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 /**
  * @File    NkImage.h
  * @Brief   NkImage — chargement/sauvegarde/manipulation d'images, sans dépendance externe.
@@ -1072,8 +1073,18 @@ namespace nkentseu {
 	 * @class NkDeflate
 	 *
 	 * Implémentation inflate (décompression DEFLATE RFC 1951 + zlib RFC 1950)
-	 * et deflate minimal (compression sans compression = stored blocks) pour
-	 * permettre l'écriture de PNG valides.
+	 * et deflate RÉEL (un bloc Huffman FIXE, BTYPE=01, + LZ77), pour permettre
+	 * l'écriture de PNG valides.
+	 *
+	 * ⚠️ CE PARAGRAPHE DISAIT LE CONTRAIRE DU CODE : « deflate minimal
+	 *  (compression sans compression = stored blocks) ». Ce n'est plus vrai
+	 *  depuis que Compress() écrit du Huffman fixe + LZ77 (NkImage.cpp, section
+	 *  « DEFLATE réel : UN bloc Huffman FIXE (BTYPE=01) + LZ77 »). Mesure du
+	 *  2026-09-13 sur des maillages : x3,86 sur 448 octets, x2,02 sur 9 240,
+	 *  x1,22 sur 317 856 — le niveau d'un zlib -6 sur les petits volumes. Un lot
+	 *  entier a failli être écrit pour « ajouter un compresseur au dépôt » sur la
+	 *  foi de cette phrase. Une documentation est un instrument : quand elle ment,
+	 *  elle coûte autant qu'un témoin muet.
 	 *
 	 * ─── CORRECTNESS INFLATE (LSB-first, stb_image exact) ────────────────────
 	 *
@@ -1126,16 +1137,18 @@ namespace nkentseu {
 			static bool DecompressRaw(const uint8 *in, usize inSz, uint8 *out, usize outCap, usize &written) noexcept;
 
 			/**
-			 * Compresse les données en zlib RFC 1950 avec stored blocks (BTYPE=00).
-			 * Produit un flux zlib valide lisible par tout décompresseur standard,
-			 * mais sans compression réelle (ratio 1:1 + overhead ~6 octets/bloc).
-			 * Suffisant pour écrire des PNG valides avec NkPNGCodec.
+			 * Compresse les données en zlib RFC 1950, par UN bloc Huffman FIXE
+			 * (BTYPE=01) + LZ77. Produit un flux zlib valide lisible par tout
+			 * décompresseur standard, et il COMPRESSE VRAIMENT — la description
+			 * « stored blocks, ratio 1:1 » qui tenait ici était périmée et a induit
+			 * en erreur (cf. l'avertissement sur la classe).
 			 *
-			 * @param in      Données à "compresser".
+			 * @param in      Données à compresser.
 			 * @param inSz    Taille des données.
 			 * @param outData Reçoit le buffer zlib alloué (NkAlloc).  L'appelant doit NkFree.
 			 * @param outSz   Reçoit la taille du buffer de sortie.
-			 * @param level   Niveau de compression (ignoré pour l'instant, stored uniquement).
+			 * @param level   Niveau demandé — IGNORÉ : la table de Huffman est fixe,
+			 *                il n'y a pas de niveaux. Gardé pour la forme d'appel.
 			 * @return true si l'encodage a réussi.
 			 */
 			static bool Compress(const uint8 *in, usize inSz, uint8 *&out, usize &outSz, int32 level = 6) noexcept;

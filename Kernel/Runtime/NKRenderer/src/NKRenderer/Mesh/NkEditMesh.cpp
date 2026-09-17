@@ -697,6 +697,7 @@ namespace nkentseu {
 		}
 
 		bool NkEditMesh::SetShadeSmooth(bool smooth, bool selectedOnly) {
+			RefreshFaceSel(); // en tete : la validite se calcule une fois, pas par face
 			const uint8 want = smooth ? (uint8)1 : (uint8)0;
 			// Y a-t-il au moins une face sélectionnée ? Sinon on traite TOUT le maillage
 			// (équivalent du « Shade Smooth » appliqué à l'objet entier).
@@ -955,6 +956,11 @@ namespace nkentseu {
 		bool NkEditMesh::FaceIsSelected(NkEmId f) const {
 			if (f >= (NkEmId)faces.Size() || !faces[f].alive)
 				return false;
+			// L'INTENTION D'ABORD. La deduction ci-dessous reste le repli, et elle
+			// reste juste pour tout ce qui vient du niveau SOMMET (boite, lasso, tout
+			// selectionner) : c'est la qu'on veut deduire.
+			if (faceSelOk)
+				return faces[f].sel != 0;
 			const NkEmId start = faces[f].hedge;
 			if (start == NK_EM_INVALID)
 				return false;
@@ -1215,6 +1221,8 @@ namespace nkentseu {
 		// selectionnes (cf. la declaration pour le pourquoi). Un sommet ne porte
 		// jamais de materiau.
 		uint32 NkEditMesh::AssignMaterialToSelectedFaces(uint16 slot) {
+			RefreshFaceSel();
+			const bool fsel = faceSelOk;
 			uint32 n = 0;
 			NkVector<NkEmId> loop;
 			for (uint32 f = 0; f < (uint32)faces.Size(); ++f) {
@@ -1231,9 +1239,13 @@ namespace nkentseu {
 						break;
 					}
 				}
-				// La face DEJA selectionnee compte aussi : en mode face, c'est `sel` de
-				// la face qui porte l'intention, pas celui de ses coins.
-				if (all || faces[f].sel) {
+				// ⚠ CETTE LECTURE EXISTAIT ET NE POUVAIT RIEN LIRE : `faces[f].sel`
+				// n'etait ecrit nulle part dans le moteur. Le commentaire disait deja
+				// la bonne regle -- « en mode face, c'est `sel` de la face qui porte
+				// l'intention, pas celui de ses coins » -- et personne ne la posait.
+				// Maintenant qu'elle est posee, elle REMPLACE la deduction au lieu de
+				// s'y ajouter : sinon deux faces opposees en peindraient six.
+				if (fsel ? (faces[f].sel != 0) : all) {
 					faces[f].material = slot;
 					++n;
 				}
@@ -1292,6 +1304,7 @@ namespace nkentseu {
 					FaceAttrib a;
 					a.material = faces[f].material;
 					a.smooth = faces[f].smooth;
+					a.sel = faces[f].sel;
 					ofaceAttrib->PushBack(a);
 				}
 			}
@@ -1363,6 +1376,10 @@ namespace nkentseu {
 					// chemin-ci n'a pas de normales de coin a interroger — il n'a que
 					// la parente, et elle etait ignoree.
 					fc.smooth = faceAttrib[f].smooth;
+					// L'INTENTION SURVIT A L'ALLER-RETOUR, par la meme table de parente. Une
+					// face neuve qui herite de sa mere herite donc aussi de son etat choisi :
+					// le capuchon d'une extrusion reste selectionne, comme dans Blender.
+					fc.sel = faceAttrib[f].sel;
 				}
 				faces.PushBack(fc);
 			}
@@ -1588,6 +1605,39 @@ namespace nkentseu {
 					return false;
 			}
 			return e > s;
+		}
+
+		// ── POSER L'INTENTION DE FACE, ET PHOTOGRAPHIER CE QUI LA JUSTIFIE ──────
+		// L'editeur pousse le tableau ENTIER, comme pour les sommets. La photo se
+		// prend ICI, donc APRES que l'editeur a fait redescendre l'intention sur
+		// les sommets et propage aux coincidents : prise avant, elle differerait du
+		// tableau des la ligne suivante et l'intention serait perimee aussitot --
+		// le cablage n'aurait servi a rien, et rien ne l'aurait dit.
+		void NkEditMesh::SetFaceSelection(const uint8 *flags, uint32 count) {
+			const uint32 nf = (uint32)faces.Size();
+			for (uint32 f = 0; f < nf; ++f)
+				faces[f].sel = (f < count && flags && flags[f]) ? (uint8)1 : (uint8)0;
+			faceSelSnap.Resize((uint32)verts.Size());
+			for (uint32 i = 0; i < (uint32)verts.Size(); ++i)
+				faceSelSnap[i] = verts[i].sel;
+			faceSelPorte = true;
+			faceSelOk = true;
+		}
+		// L'INTENTION EST-ELLE ENCORE A JOUR ? Elle ne l'est plus des que la
+		// selection de sommets a change par un autre chemin -- et alors la deduction
+		// redevient la bonne reponse. Une topologie qui change invalide aussi : les
+		// faces ne sont plus les memes, leur intention ne veut plus rien dire.
+		void NkEditMesh::RefreshFaceSel() {
+			faceSelOk = false;
+			if (!faceSelPorte)
+				return;
+			const uint32 nv = (uint32)verts.Size();
+			if ((uint32)faceSelSnap.Size() != nv)
+				return;
+			for (uint32 i = 0; i < nv; ++i)
+				if (faceSelSnap[i] != verts[i].sel)
+					return;
+			faceSelOk = true;
 		}
 
 		// ── SELECTION ORDONNEE ──────────────────────────────────────────────────
@@ -1920,6 +1970,7 @@ namespace nkentseu {
 			// -- 1. Faces selectionnees, dans l'ORDRE DES INDICES ----------------
 			// Le meme ordre que `ToPolygons` : il saute les mortes et les aretes fil
 			// (moins de 3 sommets), et c'est lui qui fixe la numerotation des copies.
+			RefreshFaceSel();
 			NkVector<NkEmId> selFaces;
 			NkVector<uint32> selStart, selVerts; // boucles SAUVEGARDEES avant mutation
 			selStart.PushBack(0);
@@ -1934,8 +1985,12 @@ namespace nkentseu {
 				if (n < 3)
 					continue;
 				bool sel = true;
-				for (uint32 k = 0; k < n && sel; ++k)
-					sel = (loop[k] < (NkEmId)nv0) && verts[loop[k]].sel != 0;
+				if (faceSelOk) {
+					sel = faces[f].sel != 0;
+				} else {
+					for (uint32 k = 0; k < n && sel; ++k)
+						sel = (loop[k] < (NkEmId)nv0) && verts[loop[k]].sel != 0;
+				}
 				if (!sel)
 					continue;
 				selFaces.PushBack((NkEmId)f);
@@ -2261,6 +2316,8 @@ namespace nkentseu {
 			// d'origine, pas du slot 0.
 			NkVector<NkEditMesh::FaceAttrib> fm;
 			NkVector<NkEditMesh::FaceAttrib> nfm;
+			RefreshFaceSel();
+			const bool fsel = faceSelOk;
 			ToPolygons(pv, fs, fv, &fm);
 			const uint32 fc = (fs.Size() > 0) ? (uint32)fs.Size() - 1 : 0;
 			NkVec3f avgN{0.f, 0.f, 0.f};
@@ -2270,7 +2327,10 @@ namespace nkentseu {
 			for (uint32 f = 0; f < fc; f++) {
 				const uint32 s = fs[f], e = fs[f + 1];
 				// Les arêtes FIL (2 sommets) ne sont pas des faces extrudables.
-				const bool sel = (e - s >= 3) && PolyFaceSelected(fv, s, e);
+				// L'INTENTION D'ABORD (transportee par `fm`, aligne sur `f` par
+				// construction dans ToPolygons), la deduction en repli.
+				const bool sel = (e - s >= 3) && (fsel ? (f < (uint32)fm.Size() && fm[f].sel != 0)
+								: PolyFaceSelected(fv, s, e));
 				faceSel[f] = sel ? 1 : 0;
 				if (sel) {
 					selCount++;
@@ -2663,6 +2723,8 @@ namespace nkentseu {
 			// MATERIAU PAR FACE : transporte a travers le round-trip. Les faces survivantes gardent leur index ; la face supprimee ne laisse rien.
 			NkVector<NkEditMesh::FaceAttrib> fm;
 			NkVector<NkEditMesh::FaceAttrib> nfm;
+			RefreshFaceSel();
+			const bool fsel = faceSelOk;
 			ToPolygons(pv, fs, fv, &fm);
 			const uint32 fc = (fs.Size() > 0) ? (uint32)fs.Size() - 1 : 0;
 			NkVector<int32> remap;
@@ -2676,7 +2738,9 @@ namespace nkentseu {
 			uint32 removed = 0;
 			for (uint32 f = 0; f < fc; f++) {
 				const uint32 s = fs[f], e = fs[f + 1];
-				if (PolyFaceSelected(fv, s, e)) {
+				const bool selF = fsel ? (f < (uint32)fm.Size() && fm[f].sel != 0)
+							: PolyFaceSelected(fv, s, e);
+				if (selF) {
 					removed++;
 					continue;
 				} // face supprimée
@@ -3876,6 +3940,8 @@ namespace nkentseu {
 			// « slot1 2 -> 0 » des la premiere subdivision.
 			NkVector<NkEditMesh::FaceAttrib> fm;
 			NkVector<NkEditMesh::FaceAttrib> nfm;
+			RefreshFaceSel();
+			const bool fsel = faceSelOk;
 			ToPolygons(pv, fs, fv, &fm);
 			const uint32 fc = (fs.Size() > 0) ? (uint32)fs.Size() - 1 : 0;
 			if (fc == 0)
@@ -3884,7 +3950,8 @@ namespace nkentseu {
 			faceSel.Resize(fc);
 			int32 selCount = 0;
 			for (uint32 f = 0; f < fc; f++) {
-				bool s = PolyFaceSelected(fv, fs[f], fs[f + 1]);
+				bool s = fsel ? (f < (uint32)fm.Size() && fm[f].sel != 0)
+							: PolyFaceSelected(fv, fs[f], fs[f + 1]);
 				faceSel[f] = s ? 1 : 0;
 				if (s)
 					selCount++;
@@ -4810,6 +4877,8 @@ namespace nkentseu {
 			// MATERIAU PAR FACE : transporte a travers le round-trip soude.
 			NkVector<NkEditMesh::FaceAttrib> fm;
 			NkVector<NkEditMesh::FaceAttrib> nfm;
+			RefreshFaceSel();
+			const bool fsel = faceSelOk;
 			EM_ToWeldedPolygons(*this, pv, fs, fv, vsel, wmap, &fm);
 			const uint32 fc = (fs.Size() > 0) ? (uint32)fs.Size() - 1 : 0;
 			if (fc == 0)
@@ -4819,9 +4888,14 @@ namespace nkentseu {
 			uint32 selCount = 0;
 			for (uint32 f = 0; f < fc; ++f) {
 				const uint32 s = fs[f], e = fs[f + 1];
+				// L'intention voyage dans `fm`, que le round-trip SOUDE transporte aussi
+				// (EM_ToWeldedPolygons relaie les attributs de ToPolygons, face par face).
 				bool sel = (e - s) >= 3u;
-				for (uint32 k = s; k < e && sel; ++k)
-					sel = (fv[k] < (uint32)vsel.Size()) && (vsel[fv[k]] != 0);
+				if (sel && fsel)
+					sel = (f < (uint32)fm.Size()) && (fm[f].sel != 0);
+				else
+					for (uint32 k = s; k < e && sel; ++k)
+						sel = (fv[k] < (uint32)vsel.Size()) && (vsel[fv[k]] != 0);
 				faceSel[f] = sel ? (uint8)1 : (uint8)0;
 				selCount += sel ? 1u : 0u;
 			}
@@ -5497,6 +5571,7 @@ namespace nkentseu {
 		// c'est ce qui rend le dissolve de SOMMET et de FACE identiques à celui d'ARÊTE.
 		// =====================================================================
 		bool NkEditMesh::DissolveSelected(const NkDissolveParams &p, uint32 *outMaterialChanged) {
+			RefreshFaceSel(); // la validite se calcule sur l'original, avant la soudure
 			if (outMaterialChanged)
 				*outMaterialChanged = 0;
 			NkVector<NkVertex3D> wv;
@@ -5522,6 +5597,13 @@ namespace nkentseu {
 				return false;
 			for (uint32 i = 0; i < NV && i < (uint32)wsel.Size(); ++i)
 				W.verts[i].sel = wsel[i];
+			// ⚠ L'INTENTION TRAVERSE LA SOUDURE, MAIS PAS SA VALIDITE. `wfm` porte `sel`
+			// et BuildFromPolygons la restitue face par face, dans l'ordre de W. Mais W
+			// est un maillage NEUF, sans photo : laisse a lui-meme, il rededuirait
+			// depuis les sommets soudes -- exactement la deduction qu'on quitte. La
+			// validite a ete calculee sur l'original ; c'est elle qu'on lui transmet.
+			W.faceSelPorte = faceSelOk;
+			W.faceSelOk = faceSelOk;
 			auto dstOf = [&](NkEmId h) -> uint32 {
 				const NkEmId nx = W.hedges[h].next;
 				return (nx == NK_EM_INVALID) ? W.hedges[h].origin : W.hedges[nx].origin;
@@ -5871,6 +5953,7 @@ namespace nkentseu {
 		// coincidentes d'un meme coin recoivent EXACTEMENT le meme deplacement, sinon
 		// la soudure (donc les jumeaux de demi-aretes) serait rompue au premier appel.
 		bool NkEditMesh::ToSphereSelected(const NkToSphereParams &p) {
+			RefreshFaceSel(); // sa boucle sur les faces lit FaceIsSelected
 			const uint32 nv = (uint32)verts.Size();
 			if (nv == 0 || fabsf(p.factor) < 1e-6f)
 				return false;

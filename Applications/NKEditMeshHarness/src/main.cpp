@@ -1,4 +1,5 @@
 // =============================================================================
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // NKEditMeshHarness — harnais de NON-REGRESSION de NkEditMesh
 //
 // POURQUOI CE PROGRAMME EXISTE
@@ -9088,6 +9089,360 @@ static void EnPlaceBattery() {
 	}
 }
 
+// ── L'INTENTION DE FACE, MESUREE AU NIVEAU DU MOTEUR (--intention) ───────────
+// POURQUOI UN MODE A PART. `--check` compare ligne a ligne a une reference qui
+// rougit deja de 8 cas herites (theme, graphe, et trois signatures d'aretes
+// imprimees signees puis non signees). Y ajouter des lignes les ferait sortir en
+// divergences, et les regenerer absorberait en silence 8 ecarts qui ne sont pas
+// les miens. Ce mode imprime ses propres verdicts et n'ecrit rien dans gLines.
+//
+// CE QU'IL PROUVE. Deux faces OPPOSEES d'un cube ont pour sommets les 8 coins :
+// la deduction « tous ses sommets sont retenus » designait les SIX faces, et
+// l'operation suivait. Chaque critere est pose deux fois, avec et sans
+// l'intention, sur la MEME selection de sommets et dans le MEME binaire -- sans
+// quoi on prouverait qu'un chiffre a change, pas ce qui l'a fait changer.
+static int32 gIntEchecs = 0;
+static void IntVerdict(const char *nom, int32 attendu, int32 mesure) {
+	const bool ok = (attendu == mesure);
+	printf("[intention] %-52s attendu=%-4d mesure=%-4d %s\n", nom, attendu, mesure, ok ? "VERT" : "ROUGE");
+	if (!ok)
+		++gIntEchecs;
+}
+// Pour un attendu qu'on NE SAIT PAS deriver : on exige seulement de ne PAS valoir
+// `interdit`, et on imprime la valeur -- plutot que d'ecrire un nombre suppose.
+static void IntDifferent(const char *nom, int32 interdit, int32 mesure) {
+	const bool ok = (mesure != interdit);
+	printf("[intention] %-52s interdit=%-4d mesure=%-4d %s\n", nom, interdit, mesure, ok ? "VERT" : "ROUGE");
+	if (!ok)
+		++gIntEchecs;
+}
+static int32 IntFacesVivantes(const NkEditMesh &m) {
+	int32 n = 0;
+	for (uint32 f = 0; f < (uint32)m.faces.Size(); ++f)
+		if (m.faces[f].alive)
+			++n;
+	return n;
+}
+// La face se retrouve par son CENTRE, jamais par un indice suppose : l'ordre des
+// faces apres quadrangulation est un detail du moteur, pas un contrat.
+static int32 IntFaceParCentre(const NkEditMesh &m, const NkVec3f &c) {
+	NkVector<NkEmId> loop;
+	for (uint32 f = 0; f < (uint32)m.faces.Size(); ++f) {
+		if (!m.faces[f].alive)
+			continue;
+		loop.Clear();
+		m.GetFaceVerts((NkEmId)f, loop);
+		if (loop.Size() < 3)
+			continue;
+		NkVec3f g{0.f, 0.f, 0.f};
+		for (uint32 k = 0; k < (uint32)loop.Size(); ++k)
+			g = g + m.verts[loop[k]].pos;
+		g = g * (1.f / (float32)loop.Size());
+		if ((g - c).Len() < 1e-4f)
+			return (int32)f;
+	}
+	return -1;
+}
+// Selection de SOMMETS des faces designees + propagation aux coincidents : c'est
+// exactement ce que fait l'editeur au clic. L'intention n'est posee que si on
+// la demande -- c'est la seule difference entre un critere et son negatif.
+static void IntPrepare(NkEditMesh &m, const NkVec3f *centres, uint32 n, bool intention) {
+	NkVector<NkVertex3D> v;
+	NkVector<uint32> idx;
+	MakeCube(v, idx);
+	m.BuildFromIndexed(v.Data(), (uint32)v.Size(), idx.Data(), (uint32)idx.Size(), true);
+	m.SelectNone();
+	NkVector<uint8> vs;
+	vs.Resize(m.VertCount());
+	for (uint32 i = 0; i < (uint32)vs.Size(); ++i)
+		vs[i] = 0;
+	NkVector<uint8> fs;
+	fs.Resize((uint32)m.faces.Size());
+	for (uint32 f = 0; f < (uint32)fs.Size(); ++f)
+		fs[f] = 0;
+	NkVector<NkEmId> loop;
+	for (uint32 j = 0; j < n; ++j) {
+		const int32 f = IntFaceParCentre(m, centres[j]);
+		if (f < 0) {
+			printf("[intention] ECHEC D'INSTRUMENT : face de centre (%.2f,%.2f,%.2f) introuvable\n",
+				(double)centres[j].x, (double)centres[j].y, (double)centres[j].z);
+			++gIntEchecs;
+			continue;
+		}
+		fs[(uint32)f] = 1;
+		loop.Clear();
+		m.GetFaceVerts((NkEmId)f, loop);
+		for (uint32 k = 0; k < (uint32)loop.Size(); ++k)
+			vs[loop[k]] = 1;
+	}
+	m.SetVertSelection(vs.Data(), (uint32)vs.Size());
+	m.PropagateSelectionToCoincident();
+	if (intention)
+		m.SetFaceSelection(fs.Data(), (uint32)fs.Size());
+}
+static int32 IntExtrude(NkEditMesh &m) {
+	NkExtrudeParams p;
+	p.direction = NkExtrudeParams::Region;
+	p.offset = 0.2f;
+	return m.ExtrudeSelectedFaces(p) ? IntFacesVivantes(m) : -1;
+}
+static int32 IntentionBattery() {
+	const NkVec3f PZ{0.f, 0.f, 0.5f}, MZ{0.f, 0.f, -0.5f}, PX{0.5f, 0.f, 0.f};
+	const NkVec3f opposees[2] = {PZ, MZ};
+	const NkVec3f voisines[2] = {PZ, PX};
+	const NkVec3f seulePZ[1] = {PZ};
+
+	// ZERO : le cube a 6 faces vivantes, et chaque face se retrouve par son centre.
+	{
+		NkEditMesh m;
+		IntPrepare(m, opposees, 2, false);
+		IntVerdict("zero/cube-faces-vivantes", 6, IntFacesVivantes(m));
+	}
+
+	// 1. EXTRUDER deux faces OPPOSEES avec l'intention : deux regions disjointes,
+	//    4 aretes de bord chacune, donc 4 parois chacune -> 6 + 2x4 = 14.
+	int32 extOpp = -1;
+	{
+		NkEditMesh m;
+		IntPrepare(m, opposees, 2, true);
+		extOpp = IntExtrude(m);
+		IntVerdict("extruder/opposees+intention", 14, extOpp);
+	}
+	// 1-NEG. La MEME selection de sommets SANS intention : ce que faisait l'ancien
+	//    code. Sa valeur n'est PAS derivee -- la region est le cube FERME, sans
+	//    arete de bord -- donc on exige seulement qu'elle differe de 14, et on
+	//    prouve qu'elle vaut exactement « tout selectionner ».
+	int32 extOppSans = -1, extTout = -1;
+	{
+		NkEditMesh m;
+		IntPrepare(m, opposees, 2, false);
+		extOppSans = IntExtrude(m);
+		IntDifferent("extruder/opposees-SANS-intention (ancien)", 14, extOppSans);
+	}
+	{
+		NkEditMesh m;
+		IntPrepare(m, nullptr, 0, false);
+		m.SelectAll();
+		extTout = IntExtrude(m);
+		IntVerdict("extruder/ancien == tout-selectionner", extTout, extOppSans);
+	}
+
+	// 2. SUPPRIMER, la seconde operation, dont le resultat ne se confond avec rien :
+	//    deux faces retirees -> 4 ; sans intention les six partent -> 0.
+	{
+		NkEditMesh m;
+		IntPrepare(m, opposees, 2, true);
+		m.DeleteSelectedFaces();
+		IntVerdict("supprimer/opposees+intention", 4, IntFacesVivantes(m));
+	}
+	{
+		NkEditMesh m;
+		IntPrepare(m, opposees, 2, false);
+		m.DeleteSelectedFaces();
+		IntVerdict("supprimer/opposees-SANS-intention (ancien)", 0, IntFacesVivantes(m));
+	}
+
+	// 3. DEUX FACES VOISINES : le cas qui marchait. Avec ou sans intention, la
+	//    deduction et l'intention designent les memes deux faces -> 14 et 14.
+	{
+		NkEditMesh m;
+		IntPrepare(m, voisines, 2, true);
+		IntVerdict("extruder/voisines+intention", 14, IntExtrude(m));
+	}
+	{
+		NkEditMesh m;
+		IntPrepare(m, voisines, 2, false);
+		IntVerdict("extruder/voisines-SANS-intention", 14, IntExtrude(m));
+	}
+
+	// 4. L'INTENTION PERIMEE NE DOIT PAS ETRE HONOREE. Posee sur {+Z,-Z}, puis la
+	//    selection de sommets change par un autre chemin (+Z seule). La photo ne
+	//    colle plus : on retombe sur la deduction -> une face -> 6 + 4 = 10. C'est
+	//    la propriete qui justifie la photo plutot qu'une invalidation a la main.
+	{
+		NkEditMesh m;
+		IntPrepare(m, opposees, 2, true);
+		NkVector<uint8> vs;
+		vs.Resize(m.VertCount());
+		for (uint32 i = 0; i < (uint32)vs.Size(); ++i)
+			vs[i] = 0;
+		NkVector<NkEmId> loop;
+		const int32 f = IntFaceParCentre(m, seulePZ[0]);
+		if (f >= 0) {
+			m.GetFaceVerts((NkEmId)f, loop);
+			for (uint32 k = 0; k < (uint32)loop.Size(); ++k)
+				vs[loop[k]] = 1;
+		}
+		m.SetVertSelection(vs.Data(), (uint32)vs.Size());
+		m.PropagateSelectionToCoincident();
+		IntVerdict("extruder/intention-PERIMEE -> deduction", 10, IntExtrude(m));
+	}
+
+	// 5. INSERER (individuel). Chaque face choisie devient UNE face interieure et
+	//    QUATRE bandes : elle est remplacee par 5. Deux faces -> 6 - 2 + 2x5 = 14.
+	//    Sans intention les six sont prises -> 6x5 = 30. Derive de la definition
+	//    d'InsetSelectedFaces (« chaque face selectionnee recoit son propre
+	//    contour interieur ; la bande relie les 4 cotes »), pas d'une execution.
+	{
+		NkEditMesh m;
+		IntPrepare(m, opposees, 2, true);
+		NkInsetParams p;
+		p.individual = true;
+		p.thickness = 0.1f;
+		const bool ok = m.InsetSelectedFaces(p);
+		IntVerdict("inserer/opposees+intention", 14, ok ? IntFacesVivantes(m) : -1);
+	}
+	{
+		NkEditMesh m;
+		IntPrepare(m, opposees, 2, false);
+		NkInsetParams p;
+		p.individual = true;
+		p.thickness = 0.1f;
+		const bool ok = m.InsetSelectedFaces(p);
+		IntVerdict("inserer/opposees-SANS-intention (ancien)", 30, ok ? IntFacesVivantes(m) : -1);
+	}
+
+	// 6. SUBDIVISER (une passe). Chaque face choisie -> 4 quads (centre + milieux
+	//    d'arete) ; les faces NON choisies sont recopiees avec leur boucle d'origine.
+	//    Deux faces -> 6 - 2 + 2x4 = 12. Sans intention les six -> 6x4 = 24.
+	{
+		NkEditMesh m;
+		IntPrepare(m, opposees, 2, true);
+		NkSubdivideParams p;
+		p.cuts = 1;
+		const bool ok = m.SubdivideSelectedFaces(p);
+		IntVerdict("subdiviser/opposees+intention", 12, ok ? IntFacesVivantes(m) : -1);
+	}
+	{
+		NkEditMesh m;
+		IntPrepare(m, opposees, 2, false);
+		NkSubdivideParams p;
+		p.cuts = 1;
+		const bool ok = m.SubdivideSelectedFaces(p);
+		IntVerdict("subdiviser/opposees-SANS-intention (ancien)", 24, ok ? IntFacesVivantes(m) : -1);
+	}
+
+	// 7. MATERIAU. La fonction rend elle-meme le nombre de faces affectees : 2 avec
+	//    l'intention, 6 sans. Et l'on relit les faces, pour ne pas croire le seul
+	//    compteur de retour : un compteur juste sur une affectation fausse existe.
+	{
+		NkEditMesh m;
+		IntPrepare(m, opposees, 2, true);
+		const int32 n = (int32)m.AssignMaterialToSelectedFaces(1);
+		int32 relues = 0;
+		for (uint32 f = 0; f < (uint32)m.faces.Size(); ++f)
+			if (m.faces[f].alive && m.faces[f].material == 1)
+				++relues;
+		IntVerdict("materiau/opposees+intention (retour)", 2, n);
+		IntVerdict("materiau/opposees+intention (faces relues)", 2, relues);
+	}
+	{
+		NkEditMesh m;
+		IntPrepare(m, opposees, 2, false);
+		IntVerdict("materiau/opposees-SANS-intention (ancien)", 6,
+						(int32)m.AssignMaterialToSelectedFaces(1));
+	}
+
+	// 8. REJEU .nkmec -- CARACTERISATION D'UN DEFAUT CONNU (R11), PAS UN ATTENDU.
+	//    La commande enregistree ne porte que des INDICES DE SOMMETS. Deux faces
+	//    opposees d'un cube allument les 24 coins, exactement comme « tout
+	//    selectionner » : deux gestes differents, et le journal ne peut pas les
+	//    distinguer. Ces verdicts sont VERTS TANT QUE LE DEFAUT EST LA ; ils doivent
+	//    BASCULER le jour ou la commande portera l'intention. C'est leur condition
+	//    de retrait -- et c'est pour ca qu'ils sont annonces comme tels a l'ecran.
+	printf("[intention] -- CARACTERISATION D'UN DEFAUT (R11) : VERT = le defaut est toujours la --\n");
+	{
+		// La commande telle que Demo3D_ApplyCmd la construit : selection = sommets retenus.
+		auto commande = [](const NkEditMesh &src) -> NkMeshEditCommand {
+			NkMeshEditCommand c;
+			c.op = NkMeshEditOp::Extrude;
+			c.extrude.individual = false;
+			c.extrude.offset = 0.2f;
+			for (uint32 i = 0; i < src.VertCount(); ++i)
+				if (src.verts[i].sel)
+					c.selection.PushBack(i);
+			return c;
+		};
+		NkEditMesh srcOpp;
+		IntPrepare(srcOpp, opposees, 2, true);
+		NkEditMesh srcTout;
+		IntPrepare(srcTout, nullptr, 0, false);
+		srcTout.SelectAll();
+		const NkMeshEditCommand cOpp = commande(srcOpp);
+		const NkMeshEditCommand cTout = commande(srcTout);
+
+		// (a) Sur la MEME instance -- le chemin du viseur -- l'intention est encore
+		//     la : 14. C'est le temoin que la commande elle-meme n'est pas fautive.
+		{
+			NkEditMesh live = srcOpp;
+			const bool ok = cOpp.Apply(live);
+			IntVerdict("rejeu/meme-instance (chemin du viseur)", 14, ok ? IntFacesVivantes(live) : -1);
+		}
+
+		// (b) Serialisees : deux gestes differents donnent-ils les MEMES octets ?
+		NkMeshEditRecorder rOpp, rTout;
+		rOpp.Push(cOpp);
+		rTout.Push(cTout);
+		NkVector<uint8> bOpp, bTout;
+		rOpp.Serialize(bOpp);
+		rTout.Serialize(bTout);
+		int32 memes = (bOpp.Size() == bTout.Size()) ? 1 : 0;
+		for (uint32 k = 0; memes && k < (uint32)bOpp.Size(); ++k)
+			if (bOpp[k] != bTout[k])
+				memes = 0;
+		printf("[intention]   octets : 2 opposees=%u, tout=%u\n", (uint32)bOpp.Size(), (uint32)bTout.Size());
+		IntVerdict("rejeu/octets(2 opposees) == octets(tout) [DEFAUT]", 1, memes);
+
+		// (c) Relu depuis ces octets et rejoue sur un cube NEUF : l'intention n'a
+		//     pas survecu au fichier, on retombe sur la deduction -> 30.
+		{
+			NkMeshEditRecorder lu;
+			const bool okLu = lu.Deserialize(bOpp.Data(), (uint32)bOpp.Size());
+			NkEditMesh neuf;
+			IntPrepare(neuf, nullptr, 0, false);
+			const uint32 appliquees = lu.ReplayOnto(neuf);
+			printf("[intention]   relu=%d commandes appliquees=%u\n", okLu ? 1 : 0, appliquees);
+			IntVerdict("rejeu/.nkmec relu, cube neuf == ancien [DEFAUT]", 30, okLu ? IntFacesVivantes(neuf) : -1);
+		}
+	}
+
+	// 9. LE COMPTE D'ARETES APRES UNE EXTRUSION -- le nombre que la barre d'etat affiche.
+	//    Derive : chaque face extrudee ajoute 4 aretes de paroi et 4 de capuchon, soit
+	//    12 + 2x8 = 28 ; Euler le confirme (16 positions - 28 + 14 = 2). Le modeleur
+	//    affiche 12, meme apres avoir glisse les capuchons. Deux causes possibles, qui
+	//    peuvent s'additionner : la soudure par POSITION a decalage nul (le modeleur
+	//    extrude a zero, comme Blender), et une table d'aretes non reconstruite apres un
+	//    simple deplacement. Les CONSTATS ci-dessous les separent.
+	{
+		NkEditMesh m;
+		IntPrepare(m, opposees, 2, true);
+		NkExtrudeParams p;
+		p.direction = NkExtrudeParams::Region;
+		p.offset = 0.2f;
+		const bool ok = m.ExtrudeSelectedFaces(p);
+		IntVerdict("aretes/extrusion decalage 0.2", 28, ok ? (int32)m.EdgeCount() : -1);
+	}
+	{
+		NkEditMesh m;
+		IntPrepare(m, opposees, 2, true);
+		NkExtrudeParams p;
+		p.direction = NkExtrudeParams::Region;
+		p.offset = 0.f;
+		const bool ok = m.ExtrudeSelectedFaces(p);
+		printf("[intention]   CONSTAT aretes/decalage 0 (celui du modeleur)          : %d   faces=%d\n",
+				ok ? (int32)m.EdgeCount() : -1, IntFacesVivantes(m));
+		for (uint32 i = 0; i < m.VertCount(); ++i)
+			if (m.verts[i].sel)
+				m.verts[i].pos.x += 0.3f;
+		printf("[intention]   CONSTAT aretes/decalage 0 puis capuchons deplaces     : %d\n", (int32)m.EdgeCount());
+		m.RebuildEdges();
+		printf("[intention]   CONSTAT aretes/idem, apres RebuildEdges explicite      : %d\n", (int32)m.EdgeCount());
+	}
+
+	printf("[intention] %d echec(s)\n", gIntEchecs);
+	return gIntEchecs ? 1 : 0;
+}
+
 int main(int argc, char **argv) {
 	// ANCRE : resolue AVANT toute mesure (cf. Applications/Common/NkBenchRoot.h).
 	// C'est elle qui porte les ressources ET la reference (cf. CheminRessource).
@@ -9101,7 +9456,7 @@ int main(int argc, char **argv) {
 		return 3;
 	}
 
-	bool baseline = false, check = false, perf = false;
+	bool baseline = false, check = false, perf = false, intention = false;
 	for (int32 i = 1; i < argc; i++) {
 		if (strcmp(argv[i], "--baseline") == 0)
 			baseline = true;
@@ -9109,7 +9464,13 @@ int main(int argc, char **argv) {
 			check = true;
 		else if (strcmp(argv[i], "--perf") == 0)
 			perf = true;
+		else if (strcmp(argv[i], "--intention") == 0)
+			intention = true;
 	}
+	// --intention rend AVANT les batteries comparees : il ne pose aucune ligne dans
+	// gLines, donc ne peut ni perimer ni masquer la reference de --check.
+	if (intention)
+		return IntentionBattery();
 
 	Battery();
 	WireBattery();
