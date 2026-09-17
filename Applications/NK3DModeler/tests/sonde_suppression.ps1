@@ -65,16 +65,10 @@ $ErrorActionPreference = "Stop"
 $exe = Join-Path $Arbre "Build\Bin\$Config-Windows\NK3DModeler\NK3DModeler.exe"
 if (-not (Test-Path $exe)) { Write-Host "ROUGE  binaire introuvable : $exe"; exit 1 }
 
-# ⚠ LE MASQUE EST COMBINE (FACE + le sous-mode teste), ET CE N'EST PAS UN
-#   ARRANGEMENT. Mesure du 17/09 : en sous-mode ARETE ou SOMMET seul, le clic de
-#   FACE est filtre par le sous-mode et la selection reste VIDE -- la course
-#   n'avait pas lieu, et le critere (0) l'a dit. Or la suppression passe par
-#   `DeleteSelectedFaces`, qui exige des faces ENTIEREMENT selectionnees : deux
-#   sommets ou deux aretes ne suppriment donc RIEN aujourd'hui (difference avec
-#   Blender, a remonter, hors de ce lot). Ce que ce parametre eprouve est donc :
-#   « la selection est-elle videe AUSSI du point de vue de ce sous-mode-la »,
-#   apres une suppression declenchee par une selection de faces.
-$masque = switch ($SousMode) { "face" { 4 } "arete" { 6 } "sommet" { 5 } }
+# LE SOUS-MODE CHOISIT LE GESTE DE SELECTION, et c'est ce qui manquait : le clic
+# de FACE est filtre par le sous-mode (a juste titre), donc en ARETE et en SOMMET
+# il fallait cliquer des SOMMETS. Deux sommets adjacents designent une arete.
+$masque = switch ($SousMode) { "face" { 4 } "arete" { 2 } "sommet" { 1 } }
 $sortie = Join-Path ([System.IO.Path]::GetTempPath()) ("nk_sonde_suppression_" + $SousMode + $(if ($Mutation) { "_MUTE" } else { "" }) + ".txt")
 
 # Les images sont choisies pour que chaque geste soit CONSOMME avant le releve
@@ -91,7 +85,13 @@ $env:NK_EDIT_USER = "99"
 $env:NK_EDIT_MODE = "1,40"
 $env:NK_EDIT_SEL = "n"
 $env:NK_EDIT_SELMASK = "$masque"
-$env:NK_EDIT_PICK_FACE = "0,2,1,70"
+if ($SousMode -eq "face") {
+	$env:NK_EDIT_PICK_FACE = "0,2,1,70"   # deux faces OPPOSEES, le cas qui portait (b2)
+} elseif ($SousMode -eq "arete") {
+	$env:NK_EDIT_PICK_EDGE = "0,-1,0,70"  # UNE arete de la cage, par son index
+} else {
+	$env:NK_EDIT_PICK_VERT = "0,-1,0,70"  # un seul coin
+}
 $env:NK_EDIT_REPORT = "110,150,180,210"
 $env:NK_VP_ACTION = "delete,140"
 $env:NK_VP_ACTION2 = "delete,170"
@@ -102,7 +102,7 @@ if ($Mutation) { $env:NK_DEL_KEEPSEL = "1" } else { Remove-Item Env:\NK_DEL_KEEP
 $p = Start-Process -FilePath $exe -WorkingDirectory $Arbre -NoNewWindow -PassThru -Wait `
 	-RedirectStandardOutput $sortie
 foreach ($v in @("NK_SONDE", "NK_ADD_NODE", "NK_EDIT_USER", "NK_EDIT_MODE", "NK_EDIT_SEL",
-		"NK_EDIT_SELMASK", "NK_EDIT_PICK_FACE",
+		"NK_EDIT_SELMASK", "NK_EDIT_PICK_FACE", "NK_EDIT_PICK_VERT", "NK_EDIT_PICK_EDGE",
 		"NK_EDIT_REPORT", "NK_VP_ACTION", "NK_VP_ACTION2", "NK_VP_ACTION3", "NK_AGENT_EXIT",
 		"NK_DEL_KEEPSEL")) {
 	Remove-Item "Env:\$v" -ErrorAction SilentlyContinue

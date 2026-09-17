@@ -407,6 +407,12 @@ namespace nkentseu {
 		bool Demo3DHostEditPickFace(int32 face, bool shift);
 		// Le jumeau pour le sous-mode SOMMET : indice BRUT d'un coin de la cage.
 		bool Demo3DHostEditPickVert(int32 vert, bool shift);
+		// Le pendant pour l'ARETE : elle manquait, et le sous-mode ARETE etait donc
+		// inatteignable par une course scriptee (le clic de sommet y est filtre, et
+		// viser en pixels n'est pas deterministe).
+		bool Demo3DHostEditPickEdge(int32 edge, bool shift);
+		uint32 Demo3DHostEditEdgeCount();
+		bool Demo3DHostEditEdgeVerts(int32 edge, int32 *v0, int32 *v1);
 		uint32 Demo3DHostEditVertCount();
 		bool Demo3DHostEditVertPos(int32 vert, float32 *x, float32 *y, float32 *z);
 		// De quoi choisir cet index sans le deviner : combien de faces, et ou.

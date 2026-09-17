@@ -1558,6 +1558,12 @@ namespace nkentseu {
 				// clic de Rodolf elit un SOMMET, pas une face. Forcer une face la ou il
 				// designe un sommet mesurerait un geste que le produit ne fait jamais.
 				int32 editPickVert = -1;
+				// LE PENDANT DU PICK DE FACE ET DE SOMMET, POUR L'ARETE. Il manquait, et
+				// c'est ce qui rendait le sous-mode ARETE inatteignable par une course
+				// scriptee : le clic de sommet y est filtre (a juste titre -- en mode
+				// arete, un clic designe une arete), et viser en pixels n'est pas
+				// deterministe. Mesure du 17/09 : la course rendait COURSE IMPOSSIBLE.
+				int32 editPickEdge = -1;
 				int32 editActiveVert = -1;		  // sommet ACTIF (dernier sélectionné) = rendu BLANC façon Blender
 				// ── ÉLÉMENT ACTIF EN ARÊTE ET EN FACE ───────────────────────────────
 				// Blender distingue TROIS états, pas deux : non sélectionné (noir),
@@ -4096,7 +4102,18 @@ namespace nkentseu {
 		// avec eux. Mesure : `NKEditMeshHarness --suppression`, mutation NK_DEL_KEEPSEL.
 		static void Demo3D_DeleteHE(Demo3DState *st, renderer::NkMeshSystem *ms) {
 			renderer::NkMeshEditCommand c;
-			c.op = renderer::NkMeshEditOp::Delete;
+			// ── X SUIT LE SOUS-MODE, COMME BLENDER ──────────────────────────
+			// Blender ne supprime pas la meme chose en mode sommet, arete et face.
+			// Chez nous X passait TOUJOURS par la regle des faces (« toutes ses
+			// aretes retenues ») : en sous-mode ARETE ou SOMMET, deux aretes ou
+			// deux sommets ne supprimaient donc RIEN -- mesure du 17/09, et c'est
+			// ce qui rendait la course de bout en bout impossible dans deux
+			// sous-modes sur trois.
+			// Priorite identique a celle du menu et du dissolve contextuel :
+			// FACE (bit 4) > ARETE (bit 2) > SOMMET. Un seul endroit decide.
+			c.op = (st->editSelMask & 4)   ? renderer::NkMeshEditOp::Delete
+				   : (st->editSelMask & 2) ? renderer::NkMeshEditOp::DeleteEdges
+										   : renderer::NkMeshEditOp::DeleteVerts;
 			Demo3D_ApplyCmd(st, ms, c);
 		}
 
@@ -10150,10 +10167,12 @@ namespace nkentseu {
 				// survivait au pick, le clic SUIVANT de Rodolf viserait la face du banc.
 				const int32 pickTri = pickArme ? st->editPickTri : -1;
 				const int32 pickVert = pickArme ? st->editPickVert : -1;
+				const int32 pickEdge = pickArme ? st->editPickEdge : -1;
 				if (pickArme) {
 					st->editPickPending = false; // consomme une fois, comme un clic
 					st->editPickTri = -1;
 					st->editPickVert = -1;
+					st->editPickEdge = -1;
 				}
 				if ((clickNow || pickArme) && !grabbedHandle && !st->knifeArmed && !zoneToolConsumed) {
 					st->editOverlayDirty = true; // la sélection va changer -> reconstruire l'overlay
@@ -10359,6 +10378,17 @@ namespace nkentseu {
 					} else if (pickVert >= 0 && (st->editSelMask & 1)) {
 						bestV = pickVert;
 						bestEa = bestEb = -1;
+						bestFt = -1;
+					} else if (pickEdge >= 0 && (st->editSelMask & 2) &&
+							   (uint32)pickEdge < (uint32)st->editHE.edges.Size()) {
+						// L'ARETE DESIGNEE PAR SON INDEX : ses deux extremites deviennent
+						// l'arete elue, exactement comme si le clic l'avait trouvee. On ne
+						// court-circuite pas la suite -- c'est elle qui allume les sommets,
+						// propage aux coincidents et gere le toggle facon Blender.
+						const auto &ed = st->editHE.edges[(uint32)pickEdge];
+						bestEa = (int32)ed.v0;
+						bestEb = (int32)ed.v1;
+						bestV = -1;
 						bestFt = -1;
 					}
 					// PREUVE : verdict de l'ANCIENNE regle (« moitie near ») sur l'element elu.
@@ -16915,6 +16945,42 @@ namespace nkentseu {
 		// cage editee : notre Vert est un COIN (un cube en a 24 pour 8 positions),
 		// donc trois indices differents designent le meme point de l'espace -- et
 		// c'est precisement ce que la mesure du sous-mode Sommet doit montrer.
+		// Le pendant pour l'ARETE. Meme porte, meme consommation, meme toggle.
+		bool Demo3DHostEditPickEdge(int32 edge, bool shift) {
+			auto *st = HostSt();
+			if (!st || !st->editMode)
+				return false;
+			if (edge < 0 || (uint32)edge >= (uint32)st->editHE.edges.Size())
+				return false;
+			st->editPickEdge = edge;
+			st->editPickVert = -1;
+			st->editPickTri = -1;
+			st->editPickX = 0.f;
+			st->editPickY = 0.f;
+			st->editPickShift = shift;
+			st->editPickAlt = false;
+			st->editPickPending = true;
+			return true;
+		}
+		// Combien d'aretes de cage, et lesquelles : de quoi choisir un index sans le
+		// deviner. Rend les deux sommets de l'arete demandee.
+		uint32 Demo3DHostEditEdgeCount() {
+			auto *st = HostSt();
+			if (!st || !st->editMode)
+				return 0;
+			return (uint32)st->editHE.edges.Size();
+		}
+		bool Demo3DHostEditEdgeVerts(int32 edge, int32 *v0, int32 *v1) {
+			auto *st = HostSt();
+			if (!st || !st->editMode || edge < 0 || (uint32)edge >= (uint32)st->editHE.edges.Size())
+				return false;
+			const auto &ed = st->editHE.edges[(uint32)edge];
+			if (v0)
+				*v0 = (int32)ed.v0;
+			if (v1)
+				*v1 = (int32)ed.v1;
+			return true;
+		}
 		bool Demo3DHostEditPickVert(int32 vert, bool shift) {
 			auto *st = HostSt();
 			if (!st || !st->editMode)
