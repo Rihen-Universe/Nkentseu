@@ -130,8 +130,13 @@ foreach ($c in $cas) {
 }
 
 Write-Host "-----------------------------------------------------------------------"
-Write-Host "  T1  le modele rend-il quelque chose  : NON MESURE (aucun modele charge)"
-Write-Host "      ⚠ inconnu, et surtout PAS zero. La commande est en fin de fichier."
+Write-Host "  T1  le modele rend-il quelque chose  : INCONNU (non mesure)"
+Write-Host "      ⚠ INCONNU N EST PAS ZERO. Deux raisons, et aucune n est une preference :"
+Write-Host "        1. la carte est PRISE : l entrainement d Ilyana l occupe pour des jours ;"
+Write-Host "        2. NKDesignLLM n a AUCUN chemin processeur -- il refuse en disant"
+Write-Host "           « aucun peripherique de calcul GPU disponible » (main.cpp:207)."
+Write-Host "        Mesurer T1 sur CPU demanderait donc d ECRIRE ce chemin, ce qui est un"
+Write-Host "        autre chantier. La commande ci-dessous est a lancer par Rodolf."
 Write-Host ("  T2  traduit en verbe connu, ou refuse avec motif : {0}/10  ({1} %)" -f `
 	$t2ok, [Math]::Round(100.0 * $t2ok / 10.0))
 Write-Host ("  T3  l'operation s'execute et modifie le maillage  : {0}/{1}  ({2} %)" -f `
