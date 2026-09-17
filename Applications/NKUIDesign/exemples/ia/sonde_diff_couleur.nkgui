@@ -1,0 +1,31 @@
+nkgui 0.3
+
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
+
+// SONDE : LE DIFF COLORE. Deux couleurs par ligne -- est-ce un role, ou l'affaire
+// de l'hote ? La question se tranche par une IMAGE, pas par une lecture de table :
+// on demande a DEUX `Text` de porter un fond ROUGE PUR et VERT PUR, couleurs que
+// le theme ne produit nulle part. Si l'image ne les contient pas, le format sait
+// ECRIRE l'apparence d'un texte et le monteur ne la PEINT pas.
+//
+//    NKGuiMonteTest --png=<dossier> --monter=<ce fichier>
+widgets {
+
+  Panel "sonde" {
+    title = "Diff"
+
+    Text "ligne_ajoutee" {
+      text = "+ ajoutee"
+      appearance {
+        fill { color = #00FF00 }
+      }
+    }
+
+    Text "ligne_retiree" {
+      text = "- retiree"
+      appearance {
+        fill { color = #FF0000 }
+      }
+    }
+  }
+}
