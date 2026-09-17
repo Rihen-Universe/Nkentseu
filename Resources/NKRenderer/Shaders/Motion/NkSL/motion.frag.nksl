@@ -1,0 +1,58 @@
+// motion.frag.nksl — NKRenderer — vecteurs de mouvement par pixel (FS)
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
+//
+// SORTIE : RG16F, en fraction d'écran (UV), et NON en pixels. Une unité de
+// résolution ne voyage pas : le consommateur (le TAA) travaille en UV et n'a pas
+// à connaître la taille de la cible. Convention retenue, écrite avant la première
+// mesure :
+//
+//     motion = uvCourant − uvPrécédent
+//
+// c'est-à-dire, pour un pixel de l'image courante, DE COMBIEN IL FAUT RECULER
+// pour retrouver le même point du monde dans l'image précédente. Le lecteur écrit
+// donc `uvHistorique = uv − motion`.
+//
+// ⚠️ LA CONVENTION Y DE CETTE SORTIE SUIT LE NDC DU DORSAL, et ce n'est pas
+// réglé ici. Aucun retournement n'est appliqué : `uv = ndc × 0,5 + 0,5` sans
+// flip. Les dorsaux ne s'accordent pas sur l'origine du framebuffer (OpenGL l'a
+// en bas), donc le signe de la composante Y devra être harmonisé AU MOMENT où le
+// TAA consommera cette cible — pas avant, et surtout pas deviné.
+// C'est écrit ici pour que la prochaine session ne prenne pas ce silence pour un
+// oubli : c'est une décision, et la composante X, elle, est indépendante du
+// problème. C'est pourquoi le critère de validation de cette passe mesure un
+// mouvement HORIZONTAL.
+
+@location(0) in vec4 vClipCur;
+@location(1) in vec4 vClipPrev;
+
+@location(0) out vec2 oMotion;
+
+layout(push_constant) uniform PC {
+    mat4 mvpCur;
+    mat4 mvpPrev;
+} pc;
+
+@stage(fragment)
+@entry
+void main() {
+    // Division perspective FAITE ICI, par pixel. C'est tout l'intérêt d'avoir
+    // transporté les positions de clip : le déplacement d'un pixel sur une face
+    // vue en biais n'est pas l'interpolation linéaire du déplacement de ses
+    // sommets.
+    // Garde sur w : un sommet derrière le plan de la caméra à l'image précédente
+    // (objet qui entre dans le champ) donnerait une division par un w négatif ou
+    // nul, donc une valeur aberrante qui se propagerait dans l'accumulation.
+    // On rend alors un vecteur NUL : le consommateur retombe sur le pixel courant,
+    // ce qui est le comportement sûr — pas de traînée venue de nulle part.
+    // ⚠️ On ne BORNE pas la valeur, on la remplace par zéro dans un cas nommé.
+    // Borner un nombre aberrant transforme un défaut qui crie en défaut muet.
+    if (vClipCur.w <= 1e-6 || vClipPrev.w <= 1e-6) {
+        oMotion = vec2(0.0, 0.0);
+        return;
+    }
+    vec2 ndcCur  = vClipCur.xy  / vClipCur.w;
+    vec2 ndcPrev = vClipPrev.xy / vClipPrev.w;
+    // uv = ndc × 0,5 + 0,5, donc la différence des UV vaut la moitié de la
+    // différence des NDC. Le +0,5 disparaît dans la soustraction.
+    oMotion = (ndcCur - ndcPrev) * 0.5;
+}

@@ -1637,6 +1637,20 @@ with workspace("Nkentseu", location="."):
 
 
 
+    # NkTemporelProbe -- le TAA s execute-t-il, et qu est-ce qui bouge quand il
+
+    # tourne ? Banc hors-ecran qui tire le NkRenderer COMPLET (graphe, post-process,
+
+    # TAA) et relit ses pixels, la ou les autres bancs hors-ecran s arretent au RHI.
+
+    # Meme chaine de liaison que NkTerrainCheck : enregistre apres NkSableCheck.
+
+    with include("Applications/NkTemporelProbe/NkTemporelProbe.jenga"):
+
+        pass
+
+
+
     with include("Applications/NKPA/NKPA.jenga"):
 
         pass
