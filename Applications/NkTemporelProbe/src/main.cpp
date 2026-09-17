@@ -336,7 +336,24 @@ int main(int argc, char **argv) {
 	// aretes obliques (une arete alignee sur la grille de pixels ne bougerait
 	// pas sous un decalage sous-pixel, et (t1) serait aveugle par construction).
 	NkSceneContext ctx;
-	ctx.camera.SetPosition({2.6f, 2.0f, 3.4f});
+	// ── NK_TEMPOREL_MOVE=<unites monde par image> : L'OBJET BOUGE ────────────
+	// Camera posee sur l'axe Z, objet qui glisse en X. Attendu DERIVE de la
+	// matrice de projection reellement construite par NkCamera3D (fovY VERTICAL,
+	// mProj[0][0] = 1/(aspect x tanHalf), cf. NkCamera.cpp:146) :
+	//     duv_x = 0,5 x dx / (aspect x tanHalfFovY x d)
+	// ⚠️ Une premiere version de cet attendu supposait un fov HORIZONTAL et
+	// oubliait l'aspect : elle etait fausse d'un facteur 1,3333, assez pour
+	// declarer ROUGE un moteur correct et envoyer chercher un defaut inexistant.
+	// « fov » ne dit pas quel axe.
+	const char *envMove = getenv("NK_TEMPOREL_MOVE");
+	const float32 deplacementParImage = (envMove && envMove[0]) ? (float32)atof(envMove) : 0.f;
+	const float32 kDistCam = 4.28f;
+
+	// Camera sur l'axe Z quand l'objet doit glisser : voir NK_TEMPOREL_MOVE.
+	if (deplacementParImage != 0.f)
+		ctx.camera.SetPosition({0.f, 0.f, kDistCam});
+	else
+		ctx.camera.SetPosition({2.6f, 2.0f, 3.4f});
 	ctx.camera.SetTarget({0.f, 0.f, 0.f});
 	ctx.camera.SetUp({0.f, 1.f, 0.f});
 	ctx.camera.SetFOV(45.f);
@@ -410,6 +427,26 @@ int main(int argc, char **argv) {
 			ctx.camera.SetPosition({rayonCam * (float32)::sin((double)a), 2.0f,
 									rayonCam * (float32)::cos((double)a)});
 			ctx.camera.SetTarget({0.f, 0.f, 0.f});
+		}
+		// ── L'OBJET QUI TRAVERSE A VITESSE CONNUE (critere m1) ───────────────
+		// La camera est posee sur l'axe Z et l'objet glisse en X : le deplacement
+		// est alors exactement PERPENDICULAIRE a l'axe de vue, donc la profondeur
+		// de vue `d` reste CONSTANTE quand l'objet glisse. C'est ce qui rend
+		// l'attendu calculable exactement, au lieu de varier avec la position.
+		if (deplacementParImage != 0.f) {
+			NkMat4f mPrec = dc.transform;
+			NkMat4f mCour = NkMat4f::Identity();
+			mCour[3][0] = (float32)i * deplacementParImage;
+			dc.transform = mCour;
+			// La pose PRECEDENTE est fournie explicitement. Sans elle, le moteur
+			// traiterait l'objet comme statique -- ce qui est son defaut, et c'est
+			// justement ce que (m0) verifie par ailleurs.
+			dc.prevTransform = (i == 0) ? mCour : mPrec;
+			dc.hasPrevTransform = true;
+			// L'AABB suit l'objet, sinon le culling le rejette des qu'il sort de la
+			// boite d'origine -- un rejet SILENCIEUX, deja paye une fois sur ce banc.
+			const float32 cx = mCour[3][0];
+			dc.aabb = {{cx - 1.5f, -1.5f, -1.5f}, {cx + 1.5f, 1.5f, 1.5f}};
 		}
 		r3d->BeginScene(ctx);
 		r3d->Submit(dc);
@@ -530,6 +567,94 @@ int main(int argc, char **argv) {
 			printf("     L(%u) = %7.2f\n", k + 1, lumParImage[k]);
 		}
 	}
+	// ── LECTURE DES VECTEURS DE MOUVEMENT (criteres m0 et m1) ────────────────
+	// L'encodage de la sonde est exactement inversible :
+	//     r = 0,5 + motion.x x A   ->   motion.x = (r/255 - 0,5) / A
+	// On prend la MEDIANE et non la moyenne : la profondeur de vue varie sur la
+	// silhouette d'un cube (faces avant et arriere), donc les vecteurs varient
+	// autour de leur valeur centrale, et une moyenne se ferait tirer par les bords
+	// de la silhouette ou l'antialiasing melange objet et fond.
+	if (const char *amp = getenv("NK_MOTION_DEBUG")) {
+		if (amp[0] && amp[0] != '0') {
+			float32 A = (float32)atof(amp);
+			if (A <= 1.f)
+				A = 16.f; // meme regle que le moteur : « 1 » veut dire « allume »
+			// ⚠️ LE TEMOIN DU CANAL BLEU, D'ABORD. Il vaut 0,5 partout et toujours
+			// dans l'encodage. S'il s'ecarte de 128, ce n'est pas le vecteur qui est
+			// faux, c'est le CHEMIN DE LECTURE (format, tonemap reste branche,
+			// espace colorimetrique). Sans ce temoin, un banc ne peut pas distinguer
+			// « le moteur ecrit un mauvais vecteur » de « je lis mal ».
+			uint32 bleuHorsNorme = 0;
+			for (uint32 k = 0; k < nPix; ++k)
+				if (imgB[k * 4 + 2] < 126 || imgB[k * 4 + 2] > 130)
+					bleuHorsNorme++;
+			printf("---- (m0/m1) VECTEURS DE MOUVEMENT ----\n");
+			printf("     amplification          : %.1f\n", (double)A);
+			printf("     TEMOIN canal bleu      : %u pixels hors de 128 +/- 2 sur %u\n", bleuHorsNorme, nPix);
+			if (bleuHorsNorme * 100u > nPix * 2u) {
+				printf("     [ECHEC] le canal temoin n'est pas a 128 : c'est le chemin de LECTURE\n");
+				printf("             qui est en cause, pas les vecteurs. Aucun chiffre ci-dessous ne vaut.\n");
+			} else {
+				// Les pixels qui ont un vecteur NON NUL. Le seuil de 1 niveau est la
+				// quantification, pas un reglage : en dessous, rien n'est distinguable
+				// du fond par construction.
+				NkVector<float32> vx, vy;
+				for (uint32 k = 0; k < nPix; ++k) {
+					const int r8 = (int)imgB[k * 4 + 0];
+					const int g8 = (int)imgB[k * 4 + 1];
+					if (r8 > 129 || r8 < 127 || g8 > 129 || g8 < 127) {
+						vx.PushBack(((float32)r8 / 255.f - 0.5f) / A);
+						vy.PushBack(((float32)g8 / 255.f - 0.5f) / A);
+					}
+				}
+				printf("     pixels a vecteur NON NUL : %u\n", (uint32)vx.Size());
+				if (vx.Size() == 0) {
+					printf("     mediane duv_x          : 0 (aucun pixel ne bouge)\n");
+				} else {
+					// Tri par insertion : quelques milliers d'elements, et une
+					// dependance de moins.
+					for (uint32 a1 = 1; a1 < (uint32)vx.Size(); ++a1) {
+						float32 kx = vx[a1], ky = vy[a1];
+						uint32 b1 = a1;
+						while (b1 > 0 && vx[b1 - 1] > kx) {
+							vx[b1] = vx[b1 - 1];
+							b1--;
+						}
+						vx[b1] = kx;
+						(void)ky;
+					}
+					for (uint32 a1 = 1; a1 < (uint32)vy.Size(); ++a1) {
+						float32 ky = vy[a1];
+						uint32 b1 = a1;
+						while (b1 > 0 && vy[b1 - 1] > ky) {
+							vy[b1] = vy[b1 - 1];
+							b1--;
+						}
+						vy[b1] = ky;
+					}
+					const float32 medx = vx[(uint32)vx.Size() / 2];
+					const float32 medy = vy[(uint32)vy.Size() / 2];
+					printf("     MEDIANE duv_x          : %.6f   (soit %.3f pixels)\n", (double)medx,
+						   (double)medx * (double)kW);
+					printf("     MEDIANE duv_y          : %.6f\n", (double)medy);
+					if (deplacementParImage != 0.f) {
+						const double aspect = (double)kW / (double)kH;
+						const double tanHalf = 0.41421356; // tan(45/2 degres)
+						const double attendu = 0.5 * (double)deplacementParImage / (aspect * tanHalf * (double)kDistCam);
+						const double ecart = (attendu != 0.0) ? (double)medx / attendu : 0.0;
+						printf("     ATTENDU derive         : %.6f   (rapport mesure/attendu : %.4f)\n", attendu,
+							   ecart);
+						printf("     critere (m1)           : %s   [tolerance +/- 15 %%]\n",
+							   (ecart > 0.85 && ecart < 1.15) ? "[ ok ]" : "[ECHEC]");
+						const double rapportY = (medx != 0.f) ? (double)medy / (double)medx : 0.0;
+						printf("     |duv_y| / |duv_x|      : %.4f   %s   [doit rester sous 0,1]\n", rapportY,
+							   (rapportY < 0.1 && rapportY > -0.1) ? "[ ok ]" : "[ECHEC]");
+					}
+				}
+			}
+		}
+	}
+
 	printf("---- LE TEMPS (pire image de la course, aucun seuil) ----\n");
 	printf("PIRE_IMAGE_MS          : %.3f\n", (double)pireNs / 1.0e6);
 	printf("MOYENNE_MS             : %.3f  (denominateur : %u images)\n",
@@ -539,7 +664,17 @@ int main(int argc, char **argv) {
 	// Elle passe AVANT tout verdict. Deux images vides sont identiques, donc
 	// (t0) vaut 0 pixel et se déclare vert : c'est arrivé au premier jet de ce
 	// banc, et l'image était un aplat. Aucun critère ne vaut si rien n'est peint.
-	if (c.pixelsGeometrie == 0) {
+	// ⚠️ ET CETTE GARDE NON PLUS NE SE PRONONCE PAS HORS DE SA CONDITION. Sous
+	// NK_MOTION_DEBUG, l'image finale N'EST PAS UN RENDU : c'est une carte de
+	// vecteurs, uniformement grise la ou rien ne bouge. « Aucun pixel de
+	// geometrie » y est le comportement NORMAL, et la garde criait donc ROUGE sur
+	// un resultat juste. Dans ce mode, le temoin qui vaut est le CANAL BLEU, qui
+	// est verifie plus haut.
+	const bool modeCarteDeVecteurs = [] {
+		const char *v = getenv("NK_MOTION_DEBUG");
+		return v && v[0] && v[0] != '0';
+	}();
+	if (c.pixelsGeometrie == 0 && !modeCarteDeVecteurs) {
 		printf("\n[ECHEC] AUCUN PIXEL DE GEOMETRIE : l'image est un aplat de fond.\n");
 		printf("        Aucun critere de ce banc ne vaut dans cet etat — deux images\n");
 		printf("        VIDES sont identiques, donc (t0) verdirait sur du rien.\n");
@@ -552,7 +687,14 @@ int main(int argc, char **argv) {
 	// autres comparent DEUX courses, donc ils appartiennent au script qui les
 	// enchaine. Ce banc imprime des nombres ; il ne pretend pas conclure a leur
 	// place.
-	if (!envTaa || envTaa[0] == '0') {
+	// ⚠️ (t0) NE SE PRONONCE QUE SI RIEN NE BOUGE. Il affirme « deux images
+	// consecutives sont identiques » ; sous NK_TEMPOREL_MOVE ou NK_TEMPOREL_ROT,
+	// quelque chose bouge PAR CONSTRUCTION et le critere crierait ROUGE sur un
+	// moteur parfaitement correct. Un temoin qui se prononce hors de sa condition
+	// de validite ne mesure plus rien -- il fabrique du bruit qu'on finit par
+	// apprendre a ignorer, et c'est ainsi qu'un vrai rouge passe inapercu.
+	const bool sceneImmobile = (deplacementParImage == 0.f && rotParImage == 0.f);
+	if ((!envTaa || envTaa[0] == '0') && sceneImmobile) {
 		printf("---- VERDICT (t0), LE ZERO ----\n");
 		if (c.diffPixels == 0)
 			printf("[ ok ] t0 : NK_TAA=0 -> deux images consecutives identiques (0 pixel)\n");
