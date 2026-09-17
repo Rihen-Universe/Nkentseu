@@ -2009,7 +2009,15 @@ int nkmain(const NkEntryState &entry) {
 				else if (opNow == 2)
 					cur = &st.snapScale;
 				if (!sy.first && changed)
-					demo::Demo3DHostSetSnap(*cur, 0.5f, 15.f, 0.1f);
+					// ⚠ LE JUMEAU DU DEFAUT D'EN BAS, ET IL ETAIT ARME. Recensement du 17/09 :
+					//   sur les 39 poseurs de la boucle, DEUX passaient des constantes au lieu
+					//   de l'etat -- celui-ci et celui du reglage permanent. L'autre reposait a
+					//   chaque image ; celui-ci n'agit qu'au CHANGEMENT de bascule, donc il ne
+					//   se voyait pas -- jusqu'au premier Shift+Tab, qui aurait remis le pas de
+					//   l'utilisateur a 0,5 sans rien dire.
+					//   Un reglage qu'on peut changer et qui redevient ce qu'il etait est PIRE
+					//   qu'un reglage absent : l'utilisateur croit avoir mal fait.
+					demo::Demo3DHostSetSnap(*cur, st.snapStepT, st.snapStepR, st.snapStepS);
 				else
 					*cur = demo::Demo3DHostSnapEnabled(); // Shift+TAB dans la vue
 				sy.snapGrid = st.snapGrid;
