@@ -25,6 +25,8 @@
 # se lit avec.
 #
 # USAGE : python comparer_maillages.py <avant.obj> <apres.obj> --seuil 0.02
+#         le seuil s'applique PAR AXE ; la borne euclidienne en est deduite
+#         (seuil x racine(3)), parce que trois axes peuvent etre bornes ensemble.
 #         code 0 = sous le seuil · 1 = au-dessus · 2 = refus nomme
 # -----------------------------------------------------------------------------
 import argparse
@@ -71,24 +73,43 @@ def main():
 
     # Plus proche voisin par force brute, par paquets pour ne pas exploser la
     # memoire : len(A) x len(B) flottants seraient 8 Go sur un gros maillage.
-    pire, somme = 0.0, 0.0
+    pire, somme, pireAxe = 0.0, 0.0, 0.0
     PAQUET = 512
     for i in range(0, len(B), PAQUET):
         bloc = B[i:i + PAQUET]
-        d = np.sqrt(((bloc[:, None, :] - A[None, :, :]) ** 2).sum(axis=2)).min(axis=1)
+        ecarts = bloc[:, None, :] - A[None, :, :]
+        dist = np.sqrt((ecarts ** 2).sum(axis=2))
+        proche = dist.argmin(axis=1)
+        d = dist[np.arange(len(bloc)), proche]
         somme += float(d.sum())
         pire = max(pire, float(d.max()))
+        # ── LES DEUX GRANDEURS, ET C'EST UNE MESURE DU 18/09 QUI L'IMPOSE ────
+        # Ce comparateur ne rendait QUE la distance euclidienne, et il a declare
+        # ROUGE un produit correct : la dette qu'il devait juger etait ecrite
+        # « 2 % d'une cellule », ce qui se pense PAR AXE. Or trois axes bornes a
+        # 0,02 chacun donnent 0,02 x racine(3) = 0,034641 de distance. L'ecart
+        # mesure valait 0,034240 -- sous la borne geometrique, et au-dessus d'un
+        # seuil qui parlait d'autre chose.
+        # « Un attendu derive d'une convention doit citer la ligne qui fixe cette
+        # convention » : ici la convention est le bornage PAR AXE de
+        # `SurfaceNets`. On imprime donc les DEUX, et le seuil dit lequel il juge.
+        pireAxe = max(pireAxe, float(np.abs(ecarts[np.arange(len(bloc)), proche]).max()))
     moyen = somme / float(len(B))
 
-    print("  ecart au plus proche voisin : PIRE=%.6f  MOYEN=%.6f" % (pire, moyen))
-    print("  seuil ecrit AVANT la course : %.6f" % a.seuil)
+    print("  ecart au plus proche voisin : PIRE=%.6f  MOYEN=%.6f  (distance euclidienne)" % (pire, moyen))
+    print("  ecart maximal PAR AXE       : %.6f" % pireAxe)
+    print("  seuil ecrit AVANT la course : %.6f  -- applique PAR AXE" % a.seuil)
+    print("  borne euclidienne derivee   : %.6f  = seuil x racine(3)" % (a.seuil * 3.0 ** 0.5))
     # LA PIRE DE LA COURSE, SANS AUCUN SEUIL GLISSANT : c'est le filet qui ne
     # depend d'aucun reglage, donc le seul qu'on ne puisse pas mal regler. Une
     # moyenne serait noyee par les milliers de sommets qui n'ont pas bouge.
-    if pire <= a.seuil:
-        print("VERDICT : SOUS LE SEUIL -- la surface n'a pas bouge au-dela de ce qui etait annonce.")
+    if pireAxe <= a.seuil + 1e-9 and pire <= a.seuil * 3.0 ** 0.5 + 1e-9:
+        print("VERDICT : SOUS LE SEUIL -- aucun sommet n'a bouge de plus que la borne, sur aucun axe.")
         sys.exit(0)
-    print("VERDICT : AU-DESSUS DU SEUIL (%.6f > %.6f) -- c'est autre chose, il faut revenir." % (pire, a.seuil))
+    quoi = "PAR AXE" if pireAxe > a.seuil + 1e-9 else "en distance"
+    print("VERDICT : AU-DESSUS DU SEUIL (%s) -- c'est autre chose, il faut revenir." % quoi)
+    print("          par axe %.6f contre %.6f ; distance %.6f contre %.6f"
+          % (pireAxe, a.seuil, pire, a.seuil * 3.0 ** 0.5))
     sys.exit(1)
 
 
