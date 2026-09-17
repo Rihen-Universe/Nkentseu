@@ -148,5 +148,8 @@ limite 16 roles du vocabulaire du format ne sont pas montes (ColorField,
        CONTENU n'est plus perdu depuis le 17/09 -- il monte dans le flux du
        parent -- mais le conteneur est compte inconnu et le document REFUSE
        (mesure : 2 montes -> 6 et REFUSE -> MONTE pour Scroll, desormais monte)
-limite le monteur ne peint pas l'apparence : il la compte (mesure du 17/09,
-       0 pixel sur une demande de vert pur, decodeur PNG independant)
+limite le monteur ne peint l'apparence AU REPOS que sur Button, RepeatButton,
+       Panel et Window (fond) et Text (encre). Un fill sur un role sans surface,
+       radius, font, shadow et stroke sont COMPTES non peints, jamais devines
+limite aucun etat d'apparence autre que le repos n'est applique : ce monteur
+       monte l'etat au repos, il n'a ni souris ni focus
