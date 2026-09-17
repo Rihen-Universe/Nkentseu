@@ -2677,6 +2677,17 @@ namespace nkuidesign {
 	///    condition pour qu'une correction les atteigne toutes.
 	/// Rend vrai si l'action a été traitée ici (les deux qui restent —
 	/// `EditerTexte` et `Renommer` — dépendent de la surface).
+	/// (R19) MUTATION DE BANC, NK_PORTES_MUTATION=panneau : les deux menus du clic droit de la
+	/// toile redeviennent dessines DANS le panneau, sous le masque qu'ils causent. Sert a prouver
+	/// que le correctif porte sur la PHASE de dessin ; sans la variable, rien ne change.
+	inline bool NkMenusToileDansLePanneau() {
+		static const bool k = []() {
+			const char *v = getenv("NK_PORTES_MUTATION");
+			return v && !strcmp(v, "panneau");
+		}();
+		return k;
+	}
+
 	inline bool NkAppliquerActionCtx(DesignState &st, nkentseu::int32 noeud, NkActionCtx a) {
 		switch (a) {
 			case NkActionCtx::Copier: st.CopierSelection(); return true;
@@ -3486,6 +3497,102 @@ namespace nkuidesign {
 			bool MenuContextuelOuvert() const {
 				return mMenuCtx.open;
 			}
+			/// (R19) LES DEUX MENUS DU CLIC DROIT, OUVERTS PAR PROGRAMME. La sonde des portes
+			/// ne clique pas sur la machine ; elle pose le MEME etat que le vrai geste
+			/// (l. « mMenuCtx.open = true » et « mMenuVide.open = true » du clic droit).
+			bool MenuVideOuvert() const {
+				return mMenuVide.open;
+			}
+			void SondeOuvrirMenuNoeud(int32 noeud, NkVec2 pos) {
+				mMenuNode = noeud;
+				mMenuCtx.open = true;
+				mMenuCtx.pos = pos;
+			}
+			void SondeOuvrirMenuVide(NkVec2 pos) {
+				mMenuVide.open = true;
+				mMenuVide.pos = pos;
+				mMenuVidePt = pos;
+			}
+			/// (R19) LE DESSIN DES DEUX MENUS DU CLIC DROIT DE LA TOILE, SORTI DU PANNEAU.
+			/// Appele depuis l'OVERLAY de l'application (apres les panneaux, entree REELLE) :
+			/// c'est le seul endroit ou une source flottante recoit encore la souris et le
+			/// clavier -- `main.cpp:7126` l'ecrit deja pour le selecteur de couleur. L'OUVERTURE
+			/// (le clic droit) reste dans `OnUI` ; seul le DESSIN a bouge.
+			void DessinerMenusToile(NkGuiContext &ctx) {
+			// ── LE MENU DE VUE, PEINT ET EXECUTE ────────────────────────
+			if (mMenuVide.open) {
+				const NkActionVide av = NkDessinerMenuVide(ctx, mMenuVide, *mSt, mMenuVideFiltre,
+														   (int32)sizeof(mMenuVideFiltre),
+														   &mMenuVideFiltreFocus);
+				switch (av) {
+					case NkActionVide::GrillePixels:
+						mSt->grilleVisible = !mSt->grilleVisible;
+						// ③ Deux portes, un seul enregistrement (essai 135).
+						mSt->EnregistrerDecor();
+						Dire(mSt->grilleVisible ? "Grille de points affichée."
+												: "Grille de points masquée.",
+							 "", "");
+						break;
+					case NkActionVide::AimanterCalques:
+						mSt->aimantActif = !mSt->aimantActif;
+						// ⚠️ ON EFFACE LES GUIDES EN ETEIGNANT, comme le fait
+						//    le bouton du cluster : un guide qui survit a
+						//    l'aimant qu'on vient d'eteindre est un trait qui
+						//    ment. Les deux portes du meme reglage doivent
+						//    faire le meme geste, sinon l'une des deux laisse
+						//    l'ecran dans un etat que l'autre ne produit pas.
+						if (!mSt->aimantActif)
+							mSt->snapVif = NkSnapResultat();
+						Dire(mSt->aimantActif
+								 ? "Aimantation aux calques activée — bords, centres, "
+								   "espacements égaux et répétés."
+								 : "Aimantation aux calques désactivée.",
+							 "", "");
+						break;
+					case NkActionVide::CollerIci:
+						mSt->CollerPressePapiers();
+						Dire("Collé.", "", "");
+						break;
+					default: break;
+				}
+			}
+			if (mMenuCtx.open && mSt->doc.IsValidIndex(mMenuNode)) {
+				// ── LE MENU VIENT DU CONSTRUCTEUR PARTAGÉ (MenuContexte.h).
+				// ⚠️ ÉCRIT LÀ ET PAS ICI PARCE QUE LA HIÉRARCHIE A LE MÊME
+				//    MENU. C'est le troisième retour du couple TOILE /
+				//    HIÉRARCHIE sur ce chantier (après les tables de clic et
+				//    l'englobant) : on ne recommence pas à l'écrire deux fois.
+				//    Ce qui diffère entre les deux surfaces est
+				//    l'APPLICABILITÉ, jamais le jeu d'entrées — Lunacy montre
+				//    le même menu depuis sa toile et depuis son panneau Layers.
+				const NkUINode &nm = mSt->doc.nodes[(uint32)mMenuNode];
+				const NkActionCtx a =
+					NkDessinerMenuCtx(ctx, mMenuCtx, *mSt, mMenuNode, false, mMenuFiltre,
+									  (int32)sizeof(mMenuFiltre), &mMenuFiltreFocus);
+				if (a == NkActionCtx::EditerTexte) {
+					mEditNode = mMenuNode;
+					mEditEtiquette = false;
+					const char *t0 = nm.TexteEn(mSt->langueActive.Data());
+					snprintf(mEditBuf, sizeof(mEditBuf), "%s", t0 ? t0 : "");
+					mSt->SelectSingle(mMenuNode);
+					Dire("Édition du texte — Entrée valide, Échap annule.", "", "");
+				} else if (a == NkActionCtx::Renommer) {
+					mEditNode = mMenuNode;
+					mEditEtiquette = true;
+					snprintf(mEditBuf, sizeof(mEditBuf), "%s", nm.label.Data());
+					mSt->SelectSingle(mMenuNode);
+					Dire("Renommage de la page — Entrée valide, Échap annule.", "", "");
+				} else if (NkAppliquerActionCtx(*mSt, mMenuNode, a)) {
+					Dire(mSt->status.Data(), "", "");
+					if (a == NkActionCtx::Couper || a == NkActionCtx::Supprimer)
+						mMenuNode = -1; // le noeud visé vient de partir
+				}
+				if (!mMenuCtx.open)
+					mMenuFiltre[0] = 0; // le filtre ne survit pas a son menu
+			} else if (mMenuCtx.open) {
+				mMenuCtx.open = false; // le noeud vise a disparu : rien a montrer
+			}
+			}
 			/// Le badge « proportionnel / depuis le centre » est-il affiche (③) -- lu par la sonde.
 			bool BadgeToucheVu() const {
 				return mBadgeTouche;
@@ -3970,8 +4077,32 @@ namespace nkuidesign {
 				{
 					const NkPaintRect &vpDrop = mSt->view.viewport;
 					const NkRect zoneDrop = {vpDrop.x, vpDrop.y, vpDrop.w, vpDrop.h};
-					if (nkgui::BeginDropTarget(ctx, ctx.GetId("nkuidesign.toile.depot"),
-											   zoneDrop)) {
+					// (R20) LA TRACE DU DEPOT, NK_TRACE_DEPOT=1 : par TRANSITION, les quatre
+					// conditions dans l'ordre ou la chaine les exige. Mesure avant correctif.
+					static const bool kTraceDepot = []() {
+						const char *v = getenv("NK_TRACE_DEPOT");
+						return v && v[0] == '1';
+					}();
+					const bool depotAtteint = ctx.InputHits(zoneDrop);
+					const bool depotOuvert = nkgui::BeginDropTarget(ctx, ctx.GetId("nkuidesign.toile.depot"), zoneDrop);
+					if (kTraceDepot && ctx.dragActive) {
+						static int32 cleTrace = -1;
+						const int32 cle = (depotAtteint ? 1 : 0) | (depotOuvert ? 2 : 0)
+										  | (ctx.input.mouseReleased[0] ? 4 : 0)
+										  | ((ctx.input.mousePos.x < -1000.f) ? 8 : 0);
+						if (cle != cleTrace) {
+							cleTrace = cle;
+							printf("[depot] glisser actif (type %s) ; souris (%.0f, %.0f)%s ; zone toile (%.0f,%.0f %.0fx%.0f) "
+								   "atteinte %s ; cible ouverte %s ; relache %s ; couche %d\n",
+								   ctx.dragType, (double)ctx.input.mousePos.x, (double)ctx.input.mousePos.y,
+								   (ctx.input.mousePos.x < -1000.f) ? " MASQUEE" : "", (double)zoneDrop.x,
+								   (double)zoneDrop.y, (double)zoneDrop.w, (double)zoneDrop.h,
+								   depotAtteint ? "OUI" : "NON", depotOuvert ? "OUI" : "NON",
+								   ctx.input.mouseReleased[0] ? "OUI" : "non", ctx.curInputLayer);
+							fflush(stdout);
+						}
+					}
+					if (depotOuvert) {
 						// LA VISEE SE FAIT A CHAQUE IMAGE DU SURVOL, pas au seul
 						// relachement : c'est elle qui alimente les guides
 						// d'aimantation et le cadre du parent. Viser seulement au
@@ -3992,6 +4123,11 @@ namespace nkuidesign {
 							const int32 neuf = glisser::NkDeposerVise(
 								mSt->doc, mSt->viseGlisser, (const char *)charge, dit);
 							mSt->status = dit; // succes COMME refus : jamais muet
+							if (kTraceDepot) {
+								printf("[depot] CHARGE ACCEPTEE : « %s » -> noeud %d ; %s\n", (const char *)charge,
+									   neuf, dit.Data());
+								fflush(stdout);
+							}
 							if (neuf >= 0) {
 								// 🔴 LA MEME TAILLE VISIBLE QUE LE DOUBLE-CLIC. Mesure du
 								//    03/09 : un composant DEPOSE naissait en `expand` dans une
@@ -5141,79 +5277,13 @@ namespace nkuidesign {
 						mMenuVidePt = {in.mouseX, in.mouseY};
 					}
 				}
-				// ── LE MENU DE VUE, PEINT ET EXECUTE ────────────────────────
-				if (mMenuVide.open) {
-					const NkActionVide av = NkDessinerMenuVide(ctx, mMenuVide, *mSt, mMenuVideFiltre,
-															   (int32)sizeof(mMenuVideFiltre),
-															   &mMenuVideFiltreFocus);
-					switch (av) {
-						case NkActionVide::GrillePixels:
-							mSt->grilleVisible = !mSt->grilleVisible;
-							// ③ Deux portes, un seul enregistrement (essai 135).
-							mSt->EnregistrerDecor();
-							Dire(mSt->grilleVisible ? "Grille de points affichée."
-													: "Grille de points masquée.",
-								 "", "");
-							break;
-						case NkActionVide::AimanterCalques:
-							mSt->aimantActif = !mSt->aimantActif;
-							// ⚠️ ON EFFACE LES GUIDES EN ETEIGNANT, comme le fait
-							//    le bouton du cluster : un guide qui survit a
-							//    l'aimant qu'on vient d'eteindre est un trait qui
-							//    ment. Les deux portes du meme reglage doivent
-							//    faire le meme geste, sinon l'une des deux laisse
-							//    l'ecran dans un etat que l'autre ne produit pas.
-							if (!mSt->aimantActif)
-								mSt->snapVif = NkSnapResultat();
-							Dire(mSt->aimantActif
-									 ? "Aimantation aux calques activée — bords, centres, "
-									   "espacements égaux et répétés."
-									 : "Aimantation aux calques désactivée.",
-								 "", "");
-							break;
-						case NkActionVide::CollerIci:
-							mSt->CollerPressePapiers();
-							Dire("Collé.", "", "");
-							break;
-						default: break;
-					}
-				}
-				if (mMenuCtx.open && mSt->doc.IsValidIndex(mMenuNode)) {
-					// ── LE MENU VIENT DU CONSTRUCTEUR PARTAGÉ (MenuContexte.h).
-					// ⚠️ ÉCRIT LÀ ET PAS ICI PARCE QUE LA HIÉRARCHIE A LE MÊME
-					//    MENU. C'est le troisième retour du couple TOILE /
-					//    HIÉRARCHIE sur ce chantier (après les tables de clic et
-					//    l'englobant) : on ne recommence pas à l'écrire deux fois.
-					//    Ce qui diffère entre les deux surfaces est
-					//    l'APPLICABILITÉ, jamais le jeu d'entrées — Lunacy montre
-					//    le même menu depuis sa toile et depuis son panneau Layers.
-					const NkUINode &nm = mSt->doc.nodes[(uint32)mMenuNode];
-					const NkActionCtx a =
-						NkDessinerMenuCtx(ctx, mMenuCtx, *mSt, mMenuNode, false, mMenuFiltre,
-										  (int32)sizeof(mMenuFiltre), &mMenuFiltreFocus);
-					if (a == NkActionCtx::EditerTexte) {
-						mEditNode = mMenuNode;
-						mEditEtiquette = false;
-						const char *t0 = nm.TexteEn(mSt->langueActive.Data());
-						snprintf(mEditBuf, sizeof(mEditBuf), "%s", t0 ? t0 : "");
-						mSt->SelectSingle(mMenuNode);
-						Dire("Édition du texte — Entrée valide, Échap annule.", "", "");
-					} else if (a == NkActionCtx::Renommer) {
-						mEditNode = mMenuNode;
-						mEditEtiquette = true;
-						snprintf(mEditBuf, sizeof(mEditBuf), "%s", nm.label.Data());
-						mSt->SelectSingle(mMenuNode);
-						Dire("Renommage de la page — Entrée valide, Échap annule.", "", "");
-					} else if (NkAppliquerActionCtx(*mSt, mMenuNode, a)) {
-						Dire(mSt->status.Data(), "", "");
-						if (a == NkActionCtx::Couper || a == NkActionCtx::Supprimer)
-							mMenuNode = -1; // le noeud visé vient de partir
-					}
-					if (!mMenuCtx.open)
-						mMenuFiltre[0] = 0; // le filtre ne survit pas a son menu
-				} else if (mMenuCtx.open) {
-					mMenuCtx.open = false; // le noeud vise a disparu : rien a montrer
-				}
+				// (R19) LES DEUX MENUS DU CLIC DROIT SONT DESSINES EN OVERLAY (main.cpp,
+				//   EcrireReleveUI), a cote du menu des roles et du menu des formats : dessines
+				//   ICI, ils vivaient SOUS le masque qu'ils causent eux-memes et ne recevaient
+				//   plus ni Echap ni clic (sonde des portes, R19 : corps masque POUR TOUJOURS).
+				//   Mutation de banc NK_PORTES_MUTATION=panneau : le dessin revient ici.
+				if (NkMenusToileDansLePanneau())
+					DessinerMenusToile(ctx);
 
 				// ⚠️ L'APERCU PUBLIE LE RECTANGLE DE CHAQUE NOEUD. Meme principe
 				//    que pour les widgets : un essai a la souris doit viser ce que
@@ -9859,6 +9929,20 @@ namespace nkuidesign {
 					{
 						char idz[96];
 						snprintf(idz, sizeof(idz), "biblio.%s.glisser", d->name);
+						{
+							// (R20) ou est la PREMIERE ligne, pour que le banc vise sans deviner
+							static const bool kTrace = []() {
+								const char *v = getenv("NK_TRACE_DEPOT");
+								return v && v[0] == '1';
+							}();
+							static int32 dejaDit = 0;
+							if (kTrace && c == 0 && dejaDit < 3) {
+								++dejaDit;
+								printf("[depot] bibliotheque : premiere ligne « %s » en (%.0f,%.0f %.0fx%.0f)\n", d->name,
+									   (double)r.x, (double)r.y, (double)r.w, (double)r.h);
+								fflush(stdout);
+							}
+						}
 						if (nkgui::BeginDragSource(ctx, ctx.GetId(idz), r)) {
 							nkgui::SetDragPayload(ctx, glisser::NkTypeCharge(), d->name,
 												  (int32)(strlen(d->name) + 1u), d->name);
@@ -9887,6 +9971,14 @@ namespace nkuidesign {
 				//    d'une zone VIDE du tiroir -- 0 pixel de difference, deux courses
 				//    sur deux. **Le depot n'a pas lieu.** La source est posee, le
 				//    geste ne l'est pas.
+				// ✅ (R20, 17/09) LE DEPOT EST BRANCHE, ET MESURE : la cause etait que le
+				//    TIROIR reclamait TOUT le corps, glisser compris ; la toile, dessous,
+				//    recevait une souris hors ecran et sa zone de depot n'etait jamais
+				//    atteinte. Le tiroir ne reclame plus que son rectangle PENDANT un
+				//    glisser. Preuve : le noeud existe dans le .nkuidoc sauve ET se relit.
+				//    Ce qui reste non branche est l'IMPORT (ecrire une declaration dans le
+				//    document) : question de comportement posee a Rodolf (§14bis « poser »
+				//    contre §11.6 « acquerir »).
 				//    Plutot que d'annoncer un correctif que la mesure dement, la
 				//    bibliotheque DIT ou elle en est. Un catalogue qu'on ne peut que
 				//    regarder sous une etiquette qui promet « acquerir » est un
@@ -9895,10 +9987,11 @@ namespace nkuidesign {
 				{
 					const NkRect r = ctx.NextItemRect(-1.f, 34.f);
 					costume::Texte(dl, F.px10, r.x + 12.f, r.y + 4.f,
-								   "Poser un composant sur la toile : pas encore branche.",
+								   "Glisser une ligne sur la toile pose une instance.",
 								   ctx.theme.textMuted);
 					costume::Texte(dl, F.px10, r.x + 12.f, r.y + 18.f,
-								   "Passez par la Palette en attendant.", ctx.theme.textMuted);
+								   "Importer dans le projet : a brancher.",
+								   ctx.theme.textMuted);
 				}
 				// ── « Importer un composant… » (pied, inerte et il le dit) ───
 				{
@@ -12880,11 +12973,20 @@ namespace nkuidesign {
 					costume::TexteGras(dl, F.px9, r.x + 12.f, r.y + 10.f, "STYLES", ctx.theme.textMuted, 0.4f);
 				}
 				if (doc.styles.Empty()) {
-					const NkRect r = ctx.NextItemRect(-1.f, 44.f);
+					// (c2) LA PHRASE SE REPLIE — mesure du 14/09 : elle debordait de
+					// 198,8 px, coupee net par le rognage, et c'est l'un des deux
+					// textes que Rodolf a vus sur sa capture. La HAUTEUR de la rangee
+					// se derive du repli lui-meme : une rangee figee a 44 px ferait
+					// deborder par le BAS ce qui ne deborde plus par la droite.
+					static const char *const kPhrase =
+						"Une section de l'inspecteur en crée : « Style : Créer » "
+						"(remplissages, typographie).";
+					const float32 lgDispo = ctx.NextItemRect(-1.f, 0.f).w - 24.f;
+					const float32 hPhrase = costume::HauteurReplie(F.px9, lgDispo, kPhrase, 2.f);
+					const NkRect r = ctx.NextItemRect(-1.f, 24.f + hPhrase + 8.f);
 					costume::Texte(dl, F.px10, r.x + 12.f, r.y + 6.f, "(aucun style)", ctx.theme.textMuted);
-					costume::Texte(dl, F.px9, r.x + 12.f, r.y + 24.f,
-								   "Une section de l'inspecteur en crée : « Style : Créer » (remplissages, typographie).",
-								   ctx.theme.textMuted);
+					costume::TexteReplie(dl, F.px9, r.x + 12.f, r.y + 24.f, lgDispo, kPhrase,
+										 ctx.theme.textMuted, 2.f);
 					mRenomme = -1;
 					return;
 				}
@@ -17317,13 +17419,25 @@ namespace nkuidesign {
 					//   menu ; le kit attend ses propres cles. Choisir lequel fait foi touche les
 					//   documents enregistres : c'est a Rodolf, pas a ce panneau.
 					const bool hors = NkRoleHorsCatalogue(n->role.Data());
-					const NkRect r2 = ctx.NextItemRect(-1.f, 22.f);
+					// (c2) LA SECONDE PHRASE COUPEE DE LA CAPTURE DE RODOLF.
+					// ⚠️ ET JE NE PEUX PAS LA PROUVER REPAREE : elle n'est peinte que
+					//    si le noeud selectionne porte un role HORS du catalogue du
+					//    kit, et aucun noeud du document de demarrage n'est dans cet
+					//    etat -- mon releve ne l'atteint donc jamais. Elle est
+					//    corrigee PAR LA MEME FORME que l'autre, pas par une mesure.
+					//    Dire « 0 coupure » ici voudrait dire « je ne suis pas passe
+					//    par la », pas « c'est repare ».
+					const char *const phraseRole =
+						hors ? "Hors catalogue du kit : aucun événement ni état n'y répond."
+							 : "Les paramètres du rôle arrivent avec la taxonomie.";
+					const float32 lgRole = ctx.NextItemRect(-1.f, 0.f).w - 24.f;
+					const float32 hRole = costume::HauteurReplie(F.px10, lgRole, phraseRole, 2.f);
+					const NkRect r2 = ctx.NextItemRect(-1.f, hRole > 22.f ? hRole + 6.f : 22.f);
 					ctx.BeginDisabled();
-					costume::Texte(dl, F.px10, r2.x + 12.f,
-								   costume::CentrerY(F.px10, r2.y, 22.f),
-								   hors ? "Hors catalogue du kit : aucun événement ni état n'y répond."
-									  : "Les paramètres du rôle arrivent avec la taxonomie.",
-								   ctx.theme.textMuted);
+					costume::TexteReplie(dl, F.px10, r2.x + 12.f,
+										 hRole > 22.f ? r2.y + 3.f
+													  : costume::CentrerY(F.px10, r2.y, 22.f),
+										 lgRole, phraseRole, ctx.theme.textMuted, 2.f);
 					ctx.EndDisabled();
 					// le releve dit LAQUELLE des deux phrases est posee (banc sans fenetre)
 					if (nkgui::NkGuiIntrospectActif(ctx)) {
