@@ -1,0 +1,44 @@
+# -----------------------------------------------------------------------------
+# AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
+# @File    Applications/NK3DModeler/tests/demandes_ia.txt
+# @License Proprietary - All Rights Reserved (see LICENSE)
+# -----------------------------------------------------------------------------
+#
+# LES DIX DEMANDES, ECRITES A L'AVANCE — (b9), banc de bout en bout
+#
+# ⚠ ELLES SONT ECRITES AVANT TOUTE MESURE, ET C'EST TOUT LEUR INTERET.
+#   Des demandes choisies APRES coup mesurent ce que la chaine sait deja faire :
+#   on garde celles qui passent, on oublie les autres, et le taux obtenu ne dit
+#   plus rien. Celles-ci sont figees dans le depot, datees, et le taux se calcule
+#   sur les DIX -- y compris sur celles dont je sais deja qu'elles echoueront.
+#
+# ⚠ TROIS D'ENTRE ELLES SONT HORS DE PORTEE, ET C'EST VOULU (8, 9, 10). Un banc
+#   dont tous les cas passent ne mesure pas une limite, il la cache. Celles-la
+#   disent OU la chaine s'arrete, et ce que couterait de l'etendre.
+#
+# FORMAT : une ligne par demande.
+#   <numero> | <ce que Rodolf ecrirait, en francais> | <verbe attendu> | <pourquoi>
+#   Le verbe attendu est la VERITE DE REFERENCE. Il est ecrit ici, par moi, avant
+#   qu'aucun modele ne soit interroge : c'est contre lui que la traduction du
+#   modele se juge, et non contre ce que le modele aura repondu.
+#
+# CE QUE « HORS PORTEE » VEUT DIRE : le verbe attendu est `-`, et la chaine doit
+#   REFUSER en nommant son motif. Un refus nomme est un succes ; une invention
+#   silencieuse est l'echec le plus grave, parce qu'elle modifie le travail de
+#   Rodolf sans qu'il l'ait demande.
+#
+# -----------------------------------------------------------------------------
+
+1 | subdivise la selection | subdivide | le verbe nu, sans parametre : le cas le plus simple
+2 | subdivise trois fois | subdivide:3 | un parametre entier, et il doit changer le resultat
+3 | biseaute les aretes selectionnees | bevel | le verbe nu ; la largeur reste automatique
+4 | biseaute a 0.2 avec 4 segments | bevel:0.2:4 | deux parametres, dans l ordre de la table
+5 | extrude la face selectionnee | extrude | l operation la plus utilisee du mode edition
+6 | insere une face | inset | verbe a un mot, sans parametre
+7 | annule ce que tu viens de faire | undo | l annulation doit etre atteignable PAR LE LANGAGE
+8 | biseaute l arete du haut | - | HORS PORTEE : la DESIGNATION. La selection est un vecteur
+      d indices, et rien ne sait traduire « du haut ». Doit se refuser, pas deviner.
+9 | fais-en un cylindre | - | HORS PORTEE : ce n est pas une operation sur le maillage
+      existant, c est de la GENERATION -- et un autre agent la traite, hors NK3DModeler.
+10 | rends ce modele plus beau | - | HORS PORTEE : aucune operation ne correspond. C est le
+      cas qui compte le plus : une IA complaisante inventerait quelque chose.
