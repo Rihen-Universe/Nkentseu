@@ -1,5 +1,6 @@
 #pragma once
 // =============================================================================
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // NkPostProcessStack.h  — NKRenderer v4.0  (Tools/PostProcess/)
 // =============================================================================
 #include "NKRenderer/Core/NkRendererTypes.h"
@@ -152,6 +153,16 @@ namespace nkentseu {
 								  NkRenderPassHandle rp);
 
 				bool IsTAAEnabled() const;
+
+				// ── LA SONDE DES VECTEURS DE MOUVEMENT ───────────────────────────
+				// Encode la cible RG16F dans la cible courante : r = 0,5 + x*amp,
+				// g = 0,5 + y*amp, b = 0,5. Le canal bleu est un TEMOIN, pas une
+				// decoration : il vaut 128/255 partout et toujours, et s'il s'en
+				// ecarte c'est le chemin de LECTURE qui est en cause, pas le vecteur.
+				// Sans lui, un banc ne peut pas distinguer « le moteur ecrit un
+				// mauvais vecteur » de « je lis mal ».
+				void RunMotionDebugInPass(NkICommandBuffer *cmd, NkTextureHandle motion, float32 amplification,
+										  NkRenderPassHandle rp);
 				NkTexHandle RunSSAO(NkICommandBuffer *cmd, NkTexHandle depth, NkTexHandle normal);
 				NkTexHandle RunBloom(NkICommandBuffer *cmd, NkTexHandle hdr);
 				NkTexHandle RunTonemap(NkICommandBuffer *cmd, NkTexHandle hdr);
@@ -299,6 +310,18 @@ namespace nkentseu {
 				bool EnsureTAAPipeline(NkRenderPassHandle rp);
 				NkPipelineHandle mPipeTAA;
 				::nkentseu::NkShaderHandle mShaderTAA;
+				// ── Sonde de lecture des vecteurs de mouvement (17/09/2026) ──────
+				// Un seul sampler : la cible RG16F. Elle existe parce que le chemin
+				// de relecture eprouve du moteur est RGBA8 et qu'un banc ne peut donc
+				// pas lire RG16F -- et un produit que personne ne peut lire ne se
+				// prouve pas. Inerte sans NK_MOTION_DEBUG.
+				NkDescSetHandle mMotionDbgLayout;
+				static constexpr int kMotionDbgDescSets = 4;
+				NkDescSetHandle mMotionDbgSets[kMotionDbgDescSets];
+				int mMotionDbgSetCursor = 0;
+				::nkentseu::NkShaderHandle mShaderMotionDbg;
+				NkPipelineHandle mPipeMotionDbg;
+
 				NkDescSetHandle mTAALayout; // 3 samplers : courant + historique + depth
 				static constexpr int kTAADescSets = 6;
 				NkDescSetHandle mTAASets[kTAADescSets];

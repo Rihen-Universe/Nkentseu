@@ -832,6 +832,47 @@ namespace nkentseu {
 		// Construit un graphe de rendu opt-in en fonction des sous-systemes actifs.
 		// Si l'utilisateur a desactive RENDER3D, on n'ajoute ni Shadow ni Geometry.
 		// Si POST_PROCESS est off, on ecrit Geometry directement dans Swapchain.
+		// ── NK_MOTION : la passe des vecteurs de mouvement (17/09/2026) ───────
+		// Elle ne s'allume pas toute seule, et c'est deliberе : tant qu'aucun
+		// consommateur ne lit la cible, l'activer par defaut serait payer un dessin
+		// de la geometrie opaque par image pour rien. Lecture UNE FOIS, comme les
+		// autres leviers du fichier : une variable relue a chaque image ferait
+		// varier la STRUCTURE du graphe en cours de vol.
+		static bool NkMotionEnabledEnv() {
+			static int sInit = 0;
+			static bool sOn = false;
+			if (!sInit) {
+				sInit = 1;
+				const char *v = getenv("NK_MOTION");
+				sOn = (v && v[0] && v[0] != '0');
+			}
+			return sOn;
+		}
+
+		// ── NK_MOTION_DEBUG : la sonde qui rend la cible RG16F LISIBLE ────────
+		// La cible des vecteurs est RG16F ; le chemin de relecture eprouve du
+		// moteur est RGBA8. Sans cette sonde, aucun banc ne peut LIRE ce que la
+		// passe ecrit -- et un produit que personne ne peut lire ne se prouve pas.
+		// Elle encode motion dans la sortie finale : r = 0,5 + x*A, g = 0,5 + y*A,
+		// b = 0,5 (temoin fixe). Inerte sans la variable.
+		static float32 NkMotionDebugAmp() {
+			static int sInit = 0;
+			static float32 sAmp = 0.f;
+			if (!sInit) {
+				sInit = 1;
+				const char *v = getenv("NK_MOTION_DEBUG");
+				if (v && v[0] && v[0] != '0')
+					sAmp = (float32)atof(v);
+				// « 1 » veut dire « allume », pas « amplifie une fois » : une
+				// amplification de 1 rendrait un deplacement de 0,014 UV
+				// indiscernable du fond (3 niveaux sur 255). 16 est le defaut, et
+				// il se remplace en donnant directement le facteur.
+				if (sAmp > 0.f && sAmp <= 1.f)
+					sAmp = 16.f;
+			}
+			return sAmp;
+		}
+
 		void NkRendererImpl::BuildDefaultRenderGraph() {
 			auto &g = *mRenderGraph;
 			const bool has3D = (mRender3D.Get() != nullptr);
@@ -936,6 +977,44 @@ namespace nkentseu {
 				// l'ordre d'AddPass et le bind du shadow atlas se fait via le
 				// descriptor set frame de Render3D (set au Init).
 				geom.Execute([this](NkICommandBuffer *cmd) { mRender3D->Flush(cmd); });
+			}
+
+			// ── VECTEURS DE MOUVEMENT PAR PIXEL (17/09/2026) ──────────────────
+			// Une passe DEDIEE, apres la geometrie et avant tout post-process,
+			// qui redessine les opaques dans une cible RG16F en n'ecrivant que le
+			// deplacement a l'ecran de chaque pixel. Voir NkRender3D::FlushMotion
+			// Vectors pour le detail, et le canal `rendu-temporel` pour les mesures.
+			//
+			// POURQUOI UNE PASSE PLUTOT QU'UNE CIBLE DE PLUS SUR `Geometry` : un
+			// MRT ajoute au forward toucherait TOUS les nuanceurs d'objets opaques,
+			// donc mettrait en jeu les quatre applications ET le palier de version
+			// du cache NkSL. La passe dediee n'a qu'un nuanceur, se mesure seule et
+			// s'eteint seule. Elle coute un dessin de la geometrie en plus -- cout
+			// MESURE, pas suppose.
+			//
+			// ⚠️ ELLE NE S'ALLUME PAS TOUTE SEULE. Tant que rien ne la consomme,
+			// l'ajouter au graphe par defaut serait payer un dessin par image pour
+			// une cible que personne ne lit. NK_MOTION=1 l'active.
+			// Le jour ou le TAA la consommera, cette condition devient « le TAA est
+			// actif », et ce commentaire devra etre corrige en meme temps.
+			NkGraphResId motionId = NK_INVALID_RES_ID;
+			if (has3D && mainDepth != NK_INVALID_RES_ID && NkMotionEnabledEnv()) {
+				auto mdesc = NkTextureDesc::RenderTarget(mCfg.width, mCfg.height, NkGPUFormat::NK_RG16_FLOAT);
+				mdesc.debugName = "MotionVec";
+				motionId = g.CreateTransient("MotionVec", mdesc);
+				if (motionId != NK_INVALID_RES_ID) {
+					auto &mv = g.AddPass("MotionVectors", NkPassType::NK_GEOMETRY);
+					// CLEAR A ZERO, et c'est le seul effacement honnete : « rien n'a
+					// bouge ». Un consommateur qui lit un pixel jamais ecrit retombe
+					// alors sur lui-meme, ce qui est conservateur. Effacer a autre
+					// chose fabriquerait du mouvement la ou il n'y a pas de geometrie.
+					mv.SetColor(0, motionId, NkLoadOp::NK_CLEAR, {0.f, 0.f, 0.f, 0.f})
+						.SetDepth(mainDepth, NkLoadOp::NK_LOAD);
+					mv.Execute([this](NkICommandBuffer *cmd) {
+						if (mRender3D)
+							mRender3D->FlushMotionVectors(cmd, mRenderGraph->GetPassRenderPass("MotionVectors"));
+					});
+				}
 			}
 
 			// ── VFX pass (transparents) ───────────────────────────────────────
@@ -1591,6 +1670,27 @@ namespace nkentseu {
 			// [AJOUT 2026-07-25] La passe existe aussi si un callback UI applicatif
 			// est enregistré (SetUIOverlayCallback — ex. NKUI de l'éditeur Nogee) ;
 			// il est invoqué en fin de passe, render pass active sur la sortie finale.
+			// ── SONDE DES VECTEURS DE MOUVEMENT (NK_MOTION_DEBUG) ─────────────
+			// Placee ICI, en toute fin de chaine, et c'est deliberе : elle ECRASE
+			// l'image finale par l'encodage des vecteurs. Une sonde qui se
+			// contenterait de se melanger a l'image ne serait pas lisible par un
+			// banc, et une sonde placee plus tot serait repeinte par le
+			// post-process. Inerte sans la variable.
+			// ⚠️ CE QUI SORT DE LA N'EST PAS LE PRODUIT. Une image dont le fond est
+			// gris moyen (128,128,128) est une CARTE DE VECTEURS, pas un rendu rate.
+			if (motionId != NK_INVALID_RES_ID && NkMotionDebugAmp() > 0.f && mPostProcess.Get()) {
+				auto &md = g.AddPass("MotionDebug", NkPassType::NK_POST_PROCESS);
+				md.Reads(motionId);
+				md.SetColor(0, colorId, NkLoadOp::NK_LOAD);
+				md.Execute([this, motionId](NkICommandBuffer *cmd) {
+					if (!mPostProcess)
+						return;
+					NkTextureHandle mv = mRenderGraph->GetResourceTexture(motionId);
+					mPostProcess->RunMotionDebugInPass(cmd, mv, NkMotionDebugAmp(),
+													   mRenderGraph->GetPassRenderPass("MotionDebug"));
+				});
+			}
+
 			if (has2D || hasOverlay || mUIOverlayCb.IsValid()) {
 				auto &ov = g.AddPass("Overlay2D", NkPassType::NK_UI_OVERLAY);
 				const auto loadOp = has3D ? NkLoadOp::NK_LOAD : NkLoadOp::NK_CLEAR;
