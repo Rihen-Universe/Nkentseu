@@ -69,6 +69,13 @@ namespace nkentseu {
 				{"undo", NkVpAction::Undo, "annule la derniere operation"},
 				{"redo", NkVpAction::Redo, "refait l'operation annulee"},
 				{"subdivide", NkVpAction::Subdivide, "subdivise la selection"},
+				// ⚠️ IL MANQUAIT, ET C'EST LE CONTRAT LUI-MEME QUI L'A MONTRE : l'outil
+				//    existe depuis le 16/09, prouve en deux phases, et AUCUN modele ne
+				//    pouvait le demander. Un outil qu'on ne peut pas nommer n'existe pas
+				//    pour qui parle. Ses deux parametres -- nombre de boucles et
+				//    glissement -- sont LUS dans la table de l'hote, comme tous les
+				//    autres : rien n'est recopie ici.
+				{"loopcut", NkVpAction::LoopCut, "insere une ou plusieurs boucles d'aretes"},
 				{"extrude", NkVpAction::Extrude, "extrude la selection"},
 				{"inset", NkVpAction::Inset, "insere une face dans la selection"},
 				{"bevel", NkVpAction::BevelEdge, "biseaute la selection"},
@@ -95,6 +102,12 @@ namespace nkentseu {
 				"parametre en trop : la commande en accepte moins que ce qui est donne",
 				"demande vide : rien n'est soumis",
 				"aucun projet ouvert : l'assistant agit sur un maillage",
+				// ⚠️ DEUX ETATS QUI NE SE CONFONDENT PAS. Un seul message pour les
+				//    deux -- « ca n'a pas marche » -- ne permettrait a aucun modele de
+				//    se corriger : dans un cas il doit entrer en Edition, dans l'autre
+				//    choisir une autre arete.
+				"loopcut hors du mode Edition : l'operation agit sur un maillage ouvert",
+				"loopcut sans anneau : il part d'une ARETE selectionnee, et l'anneau doit se fermer",
 			};
 			n = (int32)(sizeof(kM) / sizeof(kM[0]));
 			return kM;
