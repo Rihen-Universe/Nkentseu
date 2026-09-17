@@ -153,3 +153,12 @@ limite le monteur ne peint l'apparence AU REPOS que sur Button, RepeatButton,
        radius, font, shadow et stroke sont COMPTES non peints, jamais devines
 limite aucun etat d'apparence autre que le repos n'est applique : ce monteur
        monte l'etat au repos, il n'a ni souris ni focus
+limite un Spacer sans size, dans une rangee, veut dire prends la place qui
+       reste et n'est PAS honore : pousser le voisin jusqu'au bord demanderait
+       deux passes. Il vaut zero (le voisin reste dedans) et la demande est
+       COMPTEE. Avant le 17/09 il valait 120 px inventes et poussait le voisin
+       HORS du panneau, montage vert
+mesure  un compteur de DEBORDEMENT existe depuis le 17/09 : il nomme tout widget
+       qui sort de la region de son conteneur. Il reste rouge sur deux familles
+       non corrigees : un conteneur a sizeRel 1.0 pose apres une marge, et une
+       HBox qui prend toute la largeur du parent depuis un curseur indente

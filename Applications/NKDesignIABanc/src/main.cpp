@@ -287,6 +287,18 @@ namespace {
 		out.Append("       radius, font, shadow et stroke sont COMPTES non peints, jamais devines\n");
 		out.Append("limite aucun etat d'apparence autre que le repos n'est applique : ce monteur\n");
 		out.Append("       monte l'etat au repos, il n'a ni souris ni focus\n");
+		// ⚠️ LE `Spacer` FLEXIBLE : ce que le document VEUT DIRE et qu'on ne rend
+		//    pas. Il n'invente plus 120 px depuis le 17/09, mais il ne pousse pas
+		//    davantage -- et un modele qui ecrit `Spacer {}` doit le savoir.
+		out.Append("limite un Spacer sans size, dans une rangee, veut dire prends la place qui\n");
+		out.Append("       reste et n'est PAS honore : pousser le voisin jusqu'au bord demanderait\n");
+		out.Append("       deux passes. Il vaut zero (le voisin reste dedans) et la demande est\n");
+		out.Append("       COMPTEE. Avant le 17/09 il valait 120 px inventes et poussait le voisin\n");
+		out.Append("       HORS du panneau, montage vert\n");
+		out.Append("mesure  un compteur de DEBORDEMENT existe depuis le 17/09 : il nomme tout widget\n");
+		out.Append("       qui sort de la region de son conteneur. Il reste rouge sur deux familles\n");
+		out.Append("       non corrigees : un conteneur a sizeRel 1.0 pose apres une marge, et une\n");
+		out.Append("       HBox qui prend toute la largeur du parent depuis un curseur indente\n");
 	}
 
 	struct Bilan {
