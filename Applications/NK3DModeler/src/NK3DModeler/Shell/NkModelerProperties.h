@@ -24,6 +24,7 @@
 #include "NK3DModeler/Shell/NkModelerWidgets.h"
 #include "NK3DModeler/Shell/NkModelerTables.h"
 #include "NK3DModeler/Shell/NkModelerCommon.h"
+#include "NK3DModeler/Shell/NkModelerAiPanel.h" // (b9) l'assistant
 #include "NK3DModeler/Shell/NkModelerViewport.h"
 #include "NK3DModeler/Shell/NkModelerFileDialog.h"
 #include "NK3DModeler/Viewport/NkViewport3D.h"
@@ -6539,6 +6540,40 @@ namespace nkentseu {
 									 (m2 & 4) ? "Faces" : "");
 							p.TextV(iR.x, yy, kRowH, buf, NkRole::TextMuted);
 							yy += kRowH;
+							// ── (b6) LES TROIS SOUS-MODES, EN BOUTONS ───────────────────────
+							// Rodolf les veut A DEUX ENDROITS : la barre du viewport (ou ils
+							// existaient deja, en icones de 14 px sans libelle) ET ici, ou le
+							// bloc n'offrait qu'un TEXTE : « Sous-mode : Faces ». Un texte dit
+							// l'etat ; il ne permet pas d'en changer, et rien n'indiquait que
+							// les trois autres lignes etaient cliquables.
+							// La ligne de texte reste au-dessus : elle seule sait dire une
+							// COMBINAISON (Maj+1/2/3), que trois boutons ne montrent pas.
+							// ⚠ MEME CONVENTION que les segments Lineaire/Perceptuel de la
+							//   pastille couleur -- on ne dessine pas un quatrieme style de
+							//   bouton actif dans une interface qui en a deja un.
+							{
+								static const char *const kSMN[3] = {"Sommets", "Aretes", "Faces"};
+								static const char *const kSMK[3] = {"prop.sm.v", "prop.sm.e", "prop.sm.f"};
+								static const NkVpAction kSMA[3] = {NkVpAction::SubModeVertex,
+									NkVpAction::SubModeEdge, NkVpAction::SubModeFace};
+								const float32 gap = S(4.f);
+								const float32 bw = (iR.w - 2.f * gap) / 3.f;
+								for (int32 i9 = 0; i9 < 3; ++i9) {
+									const NkRect br{iR.x + (bw + gap) * (float32)i9, yy + S(2.f), bw,
+										kRowH - S(4.f)};
+									const bool on9 = (m2 & (1 << i9)) != 0;
+									hit.Add(kSMK[i9], br);
+									p.Fill(br, on9 ? NkRole::AccentUi : NkRole::InputBg, 3.f);
+									p.TextV(br.x + (bw - p.TextW(kSMN[i9])) * 0.5f, yy, kRowH, kSMN[i9],
+										on9 ? NkRole::TextOnAccent : NkRole::Text);
+									// On passe par `pendingAction`, donc par la MEME porte que le
+									// verbe et que le crochet d'agent : un bouton qui appellerait
+									// l'hote directement serait un troisieme chemin vers le meme etat.
+									if (hit.Clicked(kSMK[i9]))
+										st.pendingAction = kSMA[i9];
+								}
+							}
+							yy += kRowH;
 							// « 1 / 2 / 3 pour changer » etait vrai, mais ECRIT A LA MAIN :
 							// rebinder une touche l'aurait rendu faux en silence. Les trois
 							// entrees existent desormais dans la table (elles n'y etaient
@@ -6552,6 +6587,48 @@ namespace nkentseu {
 							PaintGroupBlock(p, rowR, gSelTop, yy);
 						}
 						yy += NkPropGroupGap();
+						// ── (b9) L'ASSISTANT : UNE PORTE, PAS LE PANNEAU ────────────────
+						// Le panneau ne vit PLUS ici. Il est peint dans l'OVERLAY, ancre a
+						// droite sur toute la hauteur -- la forme que Rodolf a tranchee le
+						// 17/09 (echanges/PANNEAU_IA_SPEC.md), et la correction d'un
+						// defaut : un panneau dessine DANS un panneau hote laisse passer
+						// les clics une image sur deux.
+						// Ce qui reste ici est le BOUTON qui l'ouvre, a l'endroit ou on
+						// l'avait mis -- sous « Selection », parce que c'est l'ordre du
+						// geste : on selectionne, PUIS on demande.
+						// ⚠️ ET C'EST UNE PORTE, PAS UN SECOND CHEMIN : il pose
+						//    `st.aiOuvert` et rien d'autre. Aucune partie du panneau n'est
+						//    redessinee ici, sinon les deux divergeraient a la premiere
+						//    correction portee d'un seul cote.
+						{
+							const bool gAi = PaintPropGroup(p, hit, st, rowR, yy, "prop.g.edai",
+								"Assistant", 0x4000u);
+							const float32 gAiTop = yy;
+							if (gAi) {
+								yy += NkGroupPad();
+								const NkRect iA = NkGroupInner(rowR);
+								const NkRect bt{iA.x, yy, iA.w, S(22.f)};
+								const bool ovA = hit.Add("prop.ai.ouvrir", bt);
+								p.Outline(bt, ovA ? NkRole::AccentUi : NkRole::Border,
+										  NkRole::PanelHeader, 3.f);
+								const char *lbl = st.aiOuvert ? "Fermer l'assistant"
+															  : "Ouvrir l'assistant";
+								p.TextV(bt.x + (bt.w - p.TextW(lbl)) * 0.5f, bt.y, bt.h, lbl,
+										NkRole::Text);
+								if (hit.Clicked("prop.ai.ouvrir"))
+									st.aiOuvert = !st.aiOuvert;
+								yy += S(22.f);
+								// CE QUE L'ASSISTANT SAIT FAIRE, DIT ICI AUSSI : le panneau
+								// peut etre ferme, et la question « a quoi ca sert » se pose
+								// AVANT de l'ouvrir.
+								p.TextV(iA.x, yy, S(20.f), "Agit sur la selection du maillage.",
+										NkRole::TextMuted);
+								yy += S(20.f);
+								yy += NkGroupPad();
+								PaintGroupBlock(p, rowR, gAiTop, yy);
+							}
+							yy += NkPropGroupGap();
+						}
 						const bool gTools = PaintPropGroup(p, hit, st, rowR, yy,
 														   "prop.g.edtools", "Outils",
 														   0x2000u);

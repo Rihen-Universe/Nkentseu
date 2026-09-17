@@ -69,176 +69,38 @@
 
 #include "DesignAI.h"
 
+// ═══════════════════════════════════════════════════════════════════════════
+//  LA CONVERSATION A DEMENAGE ; LA SPECIFICATION EST RESTEE
+// ═══════════════════════════════════════════════════════════════════════════
+//  Les tours, l'historique et l'echappement sont descendus dans
+//  `Kernel/System/NKConverse` : ils ne savent rien du design.
+//
+//  ⚠️ MAIS `NkSpecification` EST RESTEE ICI, ET ELLE A FAILLI PARTIR AVEC.
+//     La mesure qui autorisait le demenagement etait « zero occurrence du
+//     document dans ce fichier » — et elle est VRAIE. Elle ne prouvait
+//     pourtant pas la neutralite : `NkSpecification` ne nomme jamais le
+//     document, mais son format s'appelle `nkuispec`, ses champs sont des
+//     EXIGENCES de design, et `Panels.h` comme `Probe.h` l'utilisent. Un
+//     critere qui cherche un NOM ne trouve que ce nom-la.
+//     C'est la construction qui l'a dit, pas la relecture : 20 erreurs,
+//     « unknown type name 'NkSpecification' ».
+//
+//  ⚠️ DEMENAGER, PAS SUPPRIMER : les alias ci-dessous existent pour que PAS
+//     UNE LIGNE des appelants ne bouge.
+// ═══════════════════════════════════════════════════════════════════════════
+
+#include "NKConverse/NkConverseChat.h"
+
 namespace nkuidesign {
 
-	// ── UN TOUR DE PAROLE ───────────────────────────────────────────────────
-	enum class NkQui : nkentseu::uint8 {
-		Moi = 0,  ///< l'humain
-		IA,		  ///< le dorsal, quel qu'il soit
-		Count
-	};
+	using NkQui = nkentseu::converse::NkQui;
+	using NkDesignTour = nkentseu::converse::NkConverseTour;
+	using NkDesignConversation = nkentseu::converse::NkConverseConversation;
+	using nkentseu::converse::NkQuiNom;
+	using nkentseu::converse::NkQuiParse;
+	using nkentseu::converse::NkEchapper;
+	using nkentseu::converse::NkDesechapper;
 
-	inline const char *NkQuiNom(NkQui q) {
-		return q == NkQui::Moi ? "moi" : "ia";
-	}
-	inline NkQui NkQuiParse(const char *s) {
-		return (s && s[0] == 'i' && s[1] == 'a') ? NkQui::IA : NkQui::Moi;
-	}
-
-	struct NkDesignTour {
-			NkQui qui = NkQui::Moi;
-			NkString texte;
-	};
-
-	// ── L'ECHAPPEMENT DES SAUTS DE LIGNE ────────────────────────────────────
-	// Un tour tient sur UNE ligne dans le fichier ; une reponse de modele, non.
-	// On echappe donc `\n` en `\n` (deux caracteres) et `\` en `\\`. Le choix
-	// est celui du moindre appareil : le format reste lisible a l'oeil et
-	// l'aller-retour est EXACT — la sonde le prouve sur un texte qui contient
-	// les deux caracteres pieges.
-	inline void NkEchapper(const NkString &in, NkString &out) {
-		const char *p = in.Data() ? in.Data() : "";
-		for (; *p; ++p) {
-			if (*p == '\\')
-				out.Append("\\\\");
-			else if (*p == '\n')
-				out.Append("\\n");
-			else if (*p == '\r')
-				continue; // un CR seul n'a jamais rien signifie ici
-			else
-				out.Append(*p);
-		}
-	}
-	inline void NkDesechapper(const char *p, NkString &out) {
-		for (; p && *p; ++p) {
-			if (*p != '\\') {
-				out.Append(*p);
-				continue;
-			}
-			++p;
-			if (*p == 'n')
-				out.Append('\n');
-			else if (*p == '\\')
-				out.Append('\\');
-			else if (!*p) // un antislash final : on le rend tel quel
-				return (void)out.Append('\\');
-			else {
-				out.Append('\\');
-				out.Append(*p);
-			}
-		}
-	}
-
-	// ═══════════════════════════════════════════════════════════════════════
-	//  LA CONVERSATION
-	// ═══════════════════════════════════════════════════════════════════════
-	//  ⚠️ ELLE NE PREND AUCUN DOCUMENT EN PARAMETRE, et ce n'est pas un oubli :
-	//     c'est la seule facon de rendre VRAI par construction « discuter ne
-	//     dessine pas ». Une conversation qui aurait acces au document
-	//     finirait, un jour, par le modifier « juste un peu ».
-	class NkDesignConversation {
-		public:
-			/// Le sujet, pose une fois : de quoi on parle. Il entre dans l'invite
-			/// a chaque tour (le dorsal n'a pas de memoire garantie).
-			NkString sujet;
-
-			const nkentseu::NkVector<NkDesignTour> &Tours() const {
-				return mTours;
-			}
-			nkentseu::uint32 Count() const {
-				return (nkentseu::uint32)mTours.Size();
-			}
-			bool Vide() const {
-				return mTours.Size() == 0;
-			}
-			void Effacer() {
-				mTours.Clear();
-			}
-			/// Poser un tour a la main — ce qui permet de REJOUER une conversation
-			/// enregistree, et a la sonde d'exercer la chaine sans dorsal.
-			void Ajouter(NkQui qui, const char *texte) {
-				NkDesignTour t;
-				t.qui = qui;
-				t.texte = NkString(texte ? texte : "");
-				mTours.PushBack(t);
-			}
-
-			/// ENVOYER. Ajoute le tour humain, demande au dorsal, ajoute le tour
-			/// IA. Rend faux avec `erreur` remplie si le dorsal refuse.
-			///
-			/// ⚠️ SUR REFUS, LE TOUR HUMAIN RESTE ET AUCUN TOUR IA N'EST AJOUTE.
-			///    Retirer ce que l'utilisateur vient de taper parce que le modele
-			///    n'a pas repondu lui ferait perdre sa phrase — et un tour IA vide
-			///    ferait croire que la machine a repondu « rien ».
-			bool Envoyer(NkIDesignBackend *dorsal, const char *texte, NkString &erreur) {
-				erreur = NkString("");
-				if (!texte || !*texte) {
-					erreur = NkString("rien a envoyer : l'invite est vide");
-					return false;
-				}
-				Ajouter(NkQui::Moi, texte);
-				if (!dorsal) {
-					erreur = NkString("aucun dorsal branche");
-					return false;
-				}
-				NkDesignRequest req;
-				BatirInvite(req.prompt);
-				NkDesignReply rep;
-				if (!dorsal->Complete(req, rep) || rep.text.Length() == 0) {
-					erreur = rep.error.Length() > 0
-								 ? rep.error
-								 : NkString("le dorsal n'a rien rendu");
-					return false;
-				}
-				Ajouter(NkQui::IA, rep.text.Data());
-				return true;
-			}
-
-			/// La transcription lisible — celle qu'on colle dans la specification
-			/// et celle que le panneau affiche. Une seule fonction : deux
-			/// transcriptions auraient diverge des le premier champ ajoute.
-			void Transcrire(NkString &out) const {
-				for (nkentseu::uint32 i = 0; i < (nkentseu::uint32)mTours.Size(); ++i) {
-					out.Append(NkQuiNom(mTours[i].qui));
-					out.Append("> ");
-					out.Append(mTours[i].texte);
-					out.Append('\n');
-				}
-			}
-
-			/// L'INVITE DE CONVERSATION. Publique parce que la sonde veut pouvoir
-			/// la LIRE : une invite qu'on ne peut pas inspecter est une invite
-			/// qu'on croit sur parole.
-			///
-			/// ⚠️ ELLE NE DEMANDE PAS DE DOCUMENT, ET C'EST TOUT L'INTERET. Elle
-			///    demande de POSER DES QUESTIONS et de resumer des besoins. C'est
-			///    la difference entre `DesignAI::BuildPrompt` (qui exige un
-			///    `nkuidoc` et rejette tout le reste) et celle-ci : ici, du texte
-			///    libre est la bonne reponse.
-			void BatirInvite(NkString &out) const {
-				out = NkString("Tu aides a DEFINIR une interface avant de la dessiner.\n");
-				out.Append("Tu ne produis AUCUN document, AUCUN code, AUCUNE maquette a ce stade.\n");
-				out.Append("Tu poses des questions courtes et tu resumes les besoins, en francais.\n\n");
-				if (sujet.Length() > 0) {
-					out.Append("Sujet : ");
-					out.Append(sujet);
-					out.Append('\n');
-				}
-				out.Append("\nEchange :\n");
-				Transcrire(out);
-				out.Append("\nReponds au dernier tour, en francais, en trois phrases au plus.\n");
-			}
-
-		private:
-			nkentseu::NkVector<NkDesignTour> mTours;
-	};
-
-	// ═══════════════════════════════════════════════════════════════════════
-	//  LE DOCUMENT DE SPECIFICATION
-	// ═══════════════════════════════════════════════════════════════════════
-	//  Format `nkuispec 1` — volontairement le MEME patron que `nkuidoc 1` :
-	//  une ligne d'en-tete, des cles `nom = valeur`, un mot-cle par element de
-	//  liste. Un second style de fichier dans la meme application aurait fait
 	//  deux analyseurs a tenir d'accord.
 	//
 	//      nkuispec 1

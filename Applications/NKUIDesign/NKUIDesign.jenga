@@ -32,7 +32,10 @@ with project("NKUIDesign"):
         # NKSerialization : depuis la bascule du 2026-08-22, le lecteur/ecrivain
         # `.nkgui` vit dans NKSerialization/NkGui/NkGuiArchive.h et rend une
         # NkArchive. NKReflection vient avec (NKSerialization en depend).
-        ["NKEditorKit", "NKCanvas", "NKGui", "NKWindow", "NKEvent", "NKGlad",
+        # NKConverse : le transport de la conversation IA (invite -> reponse, ou
+        # refus nomme), extrait de DesignAI.h le 2026-09-17. Ce qui sait ce
+        # qu est un document est reste ici.
+        ["NKConverse", "NKEditorKit", "NKCanvas", "NKGui", "NKWindow", "NKEvent", "NKGlad",
          "NKFont", "NKImage", "NKLogger", "NKMath", "NKTime", "NKStream",
          "NKFileSystem", "NKSerialization", "NKReflection",
          "NKContainers", "NKMemory", "NKCore", "NKPlatform",

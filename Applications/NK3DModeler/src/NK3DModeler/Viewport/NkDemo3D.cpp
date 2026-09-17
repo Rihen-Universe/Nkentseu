@@ -1744,9 +1744,60 @@ namespace nkentseu {
 				float32 modalBase = 0.f;          // valeur au moment du lancement (ancre du drag)
 				int32 modalSeg = 1;               // parametre ENTIER pilote a la MOLETTE
 				float32 modalStartX = 0.f;        // position souris au lancement (pixels)
+				float32 modalStartY = 0.f;        // ... et son ordonnee : le geste LIBRE est a DEUX
+				                                  // dimensions, un seul axe ne peut pas le decrire
+				float32 modalValY = 0.f;          // second axe du geste libre (ecran)
+				// ── (b8) LE REPERE DE LA VUE, PHOTOGRAPHIE AU LANCEMENT ─────────
+				// Blender : G sans axe deplace dans le PLAN DE LA CAMERA. Il faut donc
+				// ce repere, et le viseur ne le donnait pas a la modale -- d'ou le repli
+				// sur l'axe Y du MONDE, que le commentaire d'a cote annoncait pourtant
+				// comme « repere de la vue ».
+				// ⚠ PHOTOGRAPHIE, PAS RELU A CHAQUE IMAGE : le relire ferait deriver le
+				//   geste si la camera bougeait en cours de route, exactement comme les
+				//   axes de l'objet figes pour tout le drag du gizmo.
+				NkVec3f modalVueRight{1.f, 0.f, 0.f};
+				NkVec3f modalVueUp{0.f, 1.f, 0.f};
+				NkVec3f modalVueFwd{0.f, 0.f, 1.f};
+				// Le repere de la vue de l'image courante, pose par la boucle. C'est lui
+				// que la modale photographie.
+				NkVec3f vueRight{1.f, 0.f, 0.f}, vueUp{0.f, 1.f, 0.f}, vueFwd{0.f, 0.f, 1.f};
+				// (b8 temps 2) DE QUOI CONVERTIR DES PIXELS EN UNITES DU MONDE. A la
+				// distance d de la camera, un pixel d'ecran vaut (2 d tan(fov/2)) / H
+				// unites. Sans ces trois-la, l'echelle du geste ne pouvait qu'etre
+				// indexee sur la TAILLE de l'objet -- et l'objet fuyait le curseur des
+				// qu'on s'eloignait.
+				NkVec3f vueCamPos{0.f, 0.f, 0.f};
+				// Le pivot d'edition effectivement utilise, en monde. Mesure, pas lu.
+				NkVec3f editPivotW{0.f, 0.f, 0.f};
+				float32 vueThY = 0.5773502692f; // tan(30 deg), le demi-angle vertical
+				float32 vueH = 1.f;             // hauteur de la vue, en pixels
+				float32 vueW = 1.f;             // ... et sa largeur
+				// (b8) LE PIVOT A L'ECRAN, photographie au lancement de la modale. Le `S`
+				// de Blender est un RAPPORT DE DISTANCES AU PIVOT : sans sa position en
+				// pixels, on ne peut mesurer qu'un deplacement, et c'est ce que nous
+				// faisions -- d'ou un geste vertical qui ne faisait RIEN.
+				float32 modalPivotPxX = 0.f, modalPivotPxY = 0.f;
+				bool modalPivotPxOk = false;
+				// Photographies au lancement de la modale, comme le repere.
+				float32 modalPxParUnite = 1.f;  // pixels d'ecran par unite du monde, au pivot
+				float32 modalDragPx = 0.f;      // course souris TOTALE du geste, en pixels
 				float32 modalScale = 0.01f;       // conversion pixels -> unites du parametre
 				bool modalDirty = true;           // les parametres ont change -> re-appliquer
 				int32 modalLoopA = -1, modalLoopB = -1; // LOOP CUT : arete survolee (apercu de l'anneau)
+				// ── (b7) LES QUATRE ETATS DE Ctrl+R ─────────────────────────────
+				// Chez Blender ce n'est pas UNE commande : c'est DEUX phases separees
+				// par un clic, et l'annulation n'y veut pas dire la meme chose.
+				//   phase 0 (CHOIX)   la souris choisit l'ANNEAU, le glissement reste
+				//                     a zero. Echap : AUCUNE boucle.
+				//   phase 1 (GLISSER) l'anneau est FIGE, la souris fait coulisser.
+				//                     Echap : la boucle RESTE, remise au milieu.
+				// ⚠ C'est l'Echap de la phase 1 qui portait tout le defaut : il
+				//   annulait TOUT, donc un utilisateur qui placait sa boucle puis se
+				//   ravisait sur le coulissement PERDAIT sa boucle.
+				// Une seule variable, et elle ne vaut que pour `modalOp == 4` : un
+				// second drapeau (« a-t-on deja clique ») serait une seconde autorite
+				// sur le meme etat.
+				int32 modalLoopPhase = 0;
 				NkVector<uint32> modalSnapEdges; // aretes UNIQUES du snapshot (survol du loop cut)
 				// ── INSTANTANE ENFICHABLE (2026-08-28) ──────────────────────────────
 				// ⚠ IL N'Y A QU'UN SEUL CADRE MODAL, et il ne se duplique pas. Seul CE
@@ -1798,6 +1849,12 @@ namespace nkentseu {
 				// est active, LA SOURIS NE PILOTE PLUS -- sinon le nombre tape serait
 				// ecrase au premier tremblement du curseur.
 				bool modalNumActive = false;
+				// (b7) LE SECOND NOMBRE, celui de la PHASE 2. `NK_MODAL_NUM="<n1>,<n2>"` :
+				// n1 au lancement (des COUPES, phase 0), n2 apres la transition (un FACTEUR
+				// DE GLISSEMENT, phase 1). Sans lui, la phase 2 n'etait pas mesurable : le
+				// tampon est vide a la transition, et a raison de l'etre.
+				char modalNum2Buf[32] = {0};
+				bool modalNum2Pret = false;
 				// NK_MODAL_PRECIS=1 : force le modificateur de precision. Maj se TIENT,
 				// et rien n'injecte une touche TENUE en headless -- sans ce drapeau, la
 				// precision ne serait verifiable qu'a la main.
@@ -1815,6 +1872,13 @@ namespace nkentseu {
 				NkVec3f modalCenterLocal = {0.f, 0.f, 0.f};
 				int32 modalFrames = 0;           // frames ecoulees depuis le lancement
 				bool modalEnvConfirm = false;    // NK_MODAL_CONFIRM=1 : confirme automatiquement
+				// COMBIEN DE CONFIRMATIONS AU PLUS. Il en fallait un depuis (b7) : le loop
+				// cut a DEUX phases, donc DEUX clics -- un pour figer l'anneau, un pour
+				// valider. Une confirmation qui se rearme a chaque image confirmait les deux
+				// d'affilee, et une course qui croyait mesurer « Echap en phase 1 » mesurait
+				// en realite « confirme, confirme » -- juste au resultat, faux sur la
+				// question. `NK_MODAL_CONFIRM=<n>` : n clics.
+				int32 modalEnvConfirmRestant = 0;
 				// Pilote headless : NK_MODAL_OP / NK_MODAL_VAL / NK_MODAL_SEG forcent les
 				// parametres au lancement (les ops modales n'ont pas de souris en capture).
 				bool modalEnvHasVal = false, modalEnvHasSeg = false;
@@ -1842,6 +1906,12 @@ namespace nkentseu {
 				int32 modalInjWheel = 0;
 				bool modalInjWheelDone = false;
 				bool modalInjCancel = false;
+				// DELAI, EN IMAGES, AVANT L'ECHAP SYNTHETIQUE. Il existe pour une raison
+				// precise : depuis (b7), le loop cut a DEUX phases, et scripter « clic puis
+				// Echap » exige que les deux ne tombent pas sur la MEME image -- sinon
+				// l'annulation gagne (elle est testee en premier) et la transition de phase
+				// n'a jamais lieu. 0 = comportement d'origine.
+				int32 modalInjCancelDelai = 0;
 				// Mesures (NK_MODAL_PERF=1) : cout des apercus, chemin COMPLET vs POSITIONS.
 				bool modalPerf = false;
 				bool modalForceFull = false; // NK_MODAL_FORCEFULL=1 : desactive le chemin allege
@@ -2739,6 +2809,56 @@ namespace nkentseu {
 		// Ce compteur rendait TOUJOURS des sommets : sur un cube en sous-mode
 		// SOMMET il affichait 12, c'est-a-dire le nombre des ARETES -- un chiffre
 		// juste pour une question que personne ne posait.
+		// ── (b10) LES SOMMETS SOUDES : UNE AUTORITE, DEUX LECTEURS ──────────────
+		// La barre d'etat affichait « Sommets 24 - Aretes 12 - Faces 6 » sur un cube,
+		// et le compteur de selection rendait 3 pour UN clic. Ce n'est pas un texte
+		// qui se trompe, c'est une UNITE qui manque : notre Vert EST un coin (24 sur
+		// un cube), tandis que `EdgeCount()` est deja soude par POSITION (12). Les
+		// deux nombres affiches cote a cote n'etaient donc pas dans la meme unite.
+		//
+		// ⚠ LE CRITERE N'EST PAS « Blender dit 8 », C'EST LA COHERENCE INTERNE :
+		//   la caracteristique d'Euler d'un volume ferme vaut V - E + F = 2.
+		//     24 - 12 + 6 = 18  (impossible)   ·   8 - 12 + 6 = 2  (juste)
+		//   Aucun attendu dicte n'est necessaire : la topologie se juge elle-meme, et
+		//   elle vaut pour un cube comme pour une sphere.
+		//
+		// ⚠ ON NE REECRIT PAS DE SOUDEUR. `BuildVertexMerge` existe, il est en O(n)
+		//   par grille de hachage, et NkEditMesh.h porte l'avertissement explicite :
+		//   « un second soudeur divergerait du premier au premier changement
+		//   d'epsilon ». Le representant d'un groupe se reconnait a `canon[i] == i`.
+		//
+		// ⚠ NOMME ET NON TRAITE : `verts` est un tableau de SLOTS, sans drapeau
+		//   `alive` (contrairement aux faces). Un sommet devenu orphelin apres une
+		//   suppression garde sa position et reste donc compte. C'est la meme famille
+		//   de defaut, hors du perimetre de (b10) tel que Rodolf l'a ecrit.
+		//   CONDITION DE REOUVERTURE : le jour ou `Vert` porte un `alive`, ou bien
+		//   quand un compte ne coincidera plus avec Euler apres une suppression.
+		//
+		// MUTATION : `NK_VERT_COINS=1` remet le compte en COINS, dans le meme
+		// binaire -- la barre redit 24, la selection redit 3, et Euler redit 18.
+		static bool Demo3D_VertEnCoins() {
+			static int sCoins = -1;
+			if (sCoins == -1) {
+				const char *v = getenv("NK_VERT_COINS");
+				sCoins = (v && v[0] && v[0] != '0') ? 1 : 0;
+			}
+			return sCoins != 0;
+		}
+		
+		// Nombre de POSITIONS DISTINCTES du maillage en edition (8 sur un cube).
+		static uint32 Demo3D_VertSoudeCount(Demo3DState *st) {
+			const uint32 n = st->editHE.VertCount();
+			if (Demo3D_VertEnCoins() || n == 0u)
+				return n;
+			NkVector<uint32> canon;
+			st->editHE.BuildVertexMerge(canon);
+			uint32 c = 0u;
+			for (uint32 i = 0; i < n && i < (uint32)canon.Size(); ++i)
+				if (canon[i] == i)
+					++c;
+			return c;
+		}
+		
 		static int32 Demo3D_SelCountFor(Demo3DState *st, int32 mask) {
 			int32 n = 0;
 			if (mask & 4) {
@@ -2771,9 +2891,33 @@ namespace nkentseu {
 				}
 				return n;
 			}
-			for (uint32 i = 0; i < (uint32)st->vertSel.Size(); ++i)
-				if (st->vertSel[i])
+			// (b10) MEME UNITE QUE LE TOTAL. Un clic sur un coin de cube allume les
+			// TROIS copies coincidentes (`PropagateSelectionToCoincident`), et nous
+			// rendions 3 la ou Blender dit 1. On compte les REPRESENTANTS distincts :
+			// « 1/8 sommets » au lieu de « 3/24 ». Les branches face et arete ne
+			// changent pas -- elles etaient deja justes, et c'est le negatif du lot.
+			if (Demo3D_VertEnCoins()) {
+				for (uint32 i = 0; i < (uint32)st->vertSel.Size(); ++i)
+					if (st->vertSel[i])
+						++n;
+				return n;
+			}
+			NkVector<uint32> canon;
+			st->editHE.BuildVertexMerge(canon);
+			const uint32 nv = (uint32)st->vertSel.Size();
+			NkVector<uint8> vu;
+			vu.Resize(nv);
+			for (uint32 i = 0; i < nv; ++i)
+				vu[i] = 0u;
+			for (uint32 i = 0; i < nv; ++i) {
+				if (!st->vertSel[i])
+					continue;
+				const uint32 c = (i < (uint32)canon.Size()) ? canon[i] : i;
+				if (c < nv && !vu[c]) {
+					vu[c] = 1u;
 					++n;
+				}
+			}
 			return n;
 		}
 
@@ -4548,7 +4692,30 @@ namespace nkentseu {
 			// L'AXE : -1 = libre (repere de la vue), 0/1/2 = X/Y/Z. Le verrou
 			// d'axe du DRAG (NkGizmoInput::lockAxis) reste l'autorite pour le
 			// glissement ; ici on pose la meme convention pour le geste modal.
-			const int32 ax = (st->modalAxis >= 0 && st->modalAxis < 3) ? st->modalAxis : 1;
+			// ⚠ (b8) LE REPLI « : 1 » ETAIT LE DEFAUT, ET SON COMMENTAIRE LE PROTEGEAIT.
+			//   La ligne disait `? st->modalAxis : 1` -- c'est-a-dire l'axe Y du MONDE --
+			//   pendant que le commentaire juste au-dessus annoncait « repere de la vue ».
+			//   On lisait le commentaire, on croyait que c'etait fait, et G libre montait
+			//   tout droit quelle que soit la camera. Il n'y a plus de repli : le cas
+			//   LIBRE est traite a part, avec le repere qu'il annonce.
+			// MUTATION dans le MEME binaire : `NK_GLIBRE_AXEY=1` remet le repli sur
+			// l'axe Y du monde, et rien d'autre. Le critere « la direction change avec
+			// la camera » doit alors rougir.
+			static int replicAxeY = -1;
+			if (replicAxeY == -1) {
+				const char *vv = getenv("NK_GLIBRE_AXEY");
+				replicAxeY = (vv && vv[0] && vv[0] != '0') ? 1 : 0;
+			}
+			// ⚠ DEUX QUESTIONS DISTINCTES, ET LES CONFONDRE ECRIT HORS DU TABLEAU.
+			//   « y a-t-il un axe ? » decide de l'INDEX ; « faut-il le repere de la
+			//   vue ? » decide du COMPORTEMENT. En les fondant en une seule variable,
+			//   la mutation mettait `libre` a faux avec `modalAxis` a -1, donc
+			//   `(&dir.x)[-1] = 1.f` -- une ecriture UN CRAN AVANT le vecteur. Le
+			//   symptome etait une translation nulle ; c'est la MUTATION qui l'a
+			//   revelee, pas la course saine, qui ne passe jamais par ce cas.
+			const bool sansAxe = !(st->modalAxis >= 0 && st->modalAxis < 3);
+			const bool libre = !replicAxeY && sansAxe;
+			const int32 ax = sansAxe ? 1 : st->modalAxis; // l'index reste TOUJOURS valide
 			NkVec3f dir{0.f, 0.f, 0.f};
 			(&dir.x)[ax] = 1.f;
 			// ── AXE LOCAL : direction prise dans la rotation PHOTOGRAPHIEE ──────
@@ -4574,12 +4741,69 @@ namespace nkentseu {
 			NkVec3f tr{0.f, 0.f, 0.f}, scl{0.f, 0.f, 0.f};
 			NkMat4f rot = NkMat4f::Identity();
 			if (st->modalOp == 9) {
-				tr = dir * v;
+				// ── G LIBRE : LE PLAN DE LA CAMERA, COMME BLENDER ───────────────
+				// Le geste a DEUX composantes ecran ; une seule valeur scalaire ne
+				// pouvait pas le porter, et c'est pour ca qu'il tombait sur un axe.
+				// L'ordonnee de l'ecran descend, celle du monde monte : d'ou le signe.
+				if (libre && !st->modalPlane)
+					tr = st->modalVueRight * v - st->modalVueUp * st->modalValY;
+				else
+					tr = dir * v;
 			} else if (st->modalOp == 10) {
-				rot = NkMat4f::Rotation(dir, NkAngle::FromRad(v * 0.01745329252f));
+				// R LIBRE : Blender tourne autour de l'AXE DE VUE. Le repli sur Y du
+				// monde faisait tourner autour de la verticale, quelle que soit la
+				// camera -- meme defaut, meme ligne.
+				const NkVec3f axeRot = (libre && !st->modalPlane) ? st->modalVueFwd : dir;
+				rot = NkMat4f::Rotation(axeRot, NkAngle::FromRad(v * 0.01745329252f));
 			} else if (st->modalOp == 11) {
 				// mScale est un DELTA (Scale applique 1+s) : 0 = inchange.
 				scl = (st->modalAxis >= 0) ? dir * v : NkVec3f{v, v, v};
+			}
+			// ── L'AIMANTATION PENDANT UNE MODALE (Rodolf, 14/09) ────────────────
+			// « Est-ce que l'aimant/snap fonctionne aussi en edition mode ? » La
+			// reponse mesuree etait NON, et pas seulement en edition : l'aimantation
+			// etait reglee sur les deux GIZMOS -- donc elle agissait au DRAG, dans les
+			// deux modes -- mais la modale G/R/S ne passe pas par le drag. Elle calcule
+			// sa valeur et la pose ici : le pas du gizmo n'etait jamais consulte.
+			// Mesure du 17/09, avant : NK_SNAP_ON=1 avec un pas de 0,5 donnait
+			// 1,04211 -- exactement la meme valeur que sans aimantation.
+			//
+			// ⚠ UN SEUL ENDROIT, ET C'EST LA TRANSFORMATION FINALE QU'ON ARRONDIT,
+			//   pas la valeur du parametre. Arrondir `modalVal` marcherait pour un axe
+			//   contraint et donnerait, pour le geste LIBRE, une grille alignee sur la
+			//   CAMERA au lieu du MONDE -- deux comportements pour une seule notion.
+			//   Ici, les deux cas tombent juste avec la meme ligne.
+			// Ctrl INVERSE la bascule, comme au drag et comme chez Blender.
+			{
+				const bool ctrlTenu =
+					NkInput.IsKeyDown(NkKey::NK_LCTRL) || NkInput.IsKeyDown(NkKey::NK_RCTRL);
+				const bool aimante = (G.IsSnapEnabled() != ctrlTenu);
+				if (aimante) {
+					auto arrondi = [](float32 x, float32 pas) -> float32 {
+						if (!(pas > 1e-6f))
+							return x;
+						const float32 k = (x < 0.f) ? -0.5f : 0.5f;
+						return ((float32)(int32)(x / pas + k)) * pas;
+					};
+					if (st->modalOp == 9) {
+						const float32 pas = G.SnapTranslate();
+						tr.x = arrondi(tr.x, pas);
+						tr.y = arrondi(tr.y, pas);
+						tr.z = arrondi(tr.z, pas);
+					} else if (st->modalOp == 10) {
+						// La ROTATION s'arrondit en DEGRES, donc AVANT la matrice : arrondir
+						// la matrice n'aurait aucun sens.
+						const float32 pas = G.SnapRotateDeg();
+						const float32 va = arrondi(v, pas);
+						rot = NkMat4f::Rotation((libre && !st->modalPlane) ? st->modalVueFwd : dir,
+								NkAngle::FromRad(va * 0.01745329252f));
+					} else if (st->modalOp == 11) {
+						const float32 pas = G.SnapScale();
+						scl.x = arrondi(scl.x, pas);
+						scl.y = arrondi(scl.y, pas);
+						scl.z = arrondi(scl.z, pas);
+					}
+				}
 			}
 			if (st->editMode) {
 				// EDITION : une seule cible (0), consommee par ApplyAbout autour du
@@ -4781,6 +5005,20 @@ namespace nkentseu {
 				st->modalOp = 0;
 				st->modalPhoto = Demo3DState::kPhotoMaillage;
 				st->editOverlayDirty = true;
+				// ── L'INSTRUMENT DE (b8 temps 2) ────────────────────────────────────
+				// « L'objet reste-t-il sous le curseur ? » se mesure en PIXELS, pas en
+				// unites : on fait donc imprimer a l'application la grandeur qu'elle
+				// possede deja -- le deplacement projete a l'ecran -- au lieu de la
+				// deduire d'une capture. Un nombre, question close.
+				// On ne garde que la part PERPENDICULAIRE a l'axe de vue : la part qui
+				// s'eloigne ou se rapproche ne se traduit pas en pixels de deplacement.
+				{
+					const float32 le = t.Dot(st->modalVueRight), ha = t.Dot(st->modalVueUp);
+					const float32 ecranPx = sqrtf(le * le + ha * ha) * st->modalPxParUnite;
+					logger.Info("[Demo3D] (b8) GESTE : souris {0} px -> objet {1} px a l'ecran "
+							"(pxParUnite={2}, translation |{3}|)\n",
+						st->modalDragPx, ecranPx, st->modalPxParUnite, t.Len());
+				}
 				logger.Info("[Demo3D] MODAL {0} CONFIRME (axe={1} valeur={2}) -> translation=({3}, {4}, {5})\n",
 							Demo3D_ModalName(op),
 							st->modalAxis < 0 ? "libre" : (st->modalAxis == 0 ? "X" : (st->modalAxis == 1 ? "Y" : "Z")),
@@ -4791,6 +5029,7 @@ namespace nkentseu {
 			Demo3D_ModalRestore(st);
 			st->modalOp = 0;
 			st->modalLoopA = st->modalLoopB = -1;
+			st->modalLoopPhase = 0; // (b7) la phase ne survit jamais a sa modale
 			if (eff)
 				Demo3D_ApplyCmd(st, ms, c);
 			else
@@ -4814,6 +5053,7 @@ namespace nkentseu {
 				return;
 			const int32 op = st->modalOp;
 			st->modalLoopA = st->modalLoopB = -1;
+			st->modalLoopPhase = 0; // (b7) la phase ne survit jamais a sa modale
 			// PHOTO GIZMO : on REPOSE les trois tableaux photographies -- jamais un
 			// delta inverse. Puis on le PROUVE bit a bit : une derive d'epsilon sur
 			// une transformation est invisible a l'oeil et fausse tout ce qui suit,
@@ -4876,6 +5116,13 @@ namespace nkentseu {
 			}
 			st->modalCurX += mdx + injDX;
 			st->modalCurY += mdy + injDY;
+			// (b8 temps 2) LA COURSE TOTALE, en pixels : c'est le denominateur du
+			// critere « l'objet reste sous le curseur ». Cumulee ici, la ou les deltas
+			// passent -- la deduire du depart et de l'arrivee raterait les allers-retours.
+			{
+				const float32 ddx = mdx + injDX, ddy = mdy + injDY;
+				st->modalDragPx += sqrtf(ddx * ddx + ddy * ddy);
+			}
 			int32 wheelNotches = 0;
 			if (st->lastWheel != 0.f) {
 				wheelNotches = (st->lastWheel > 0.f) ? 1 : -1;
@@ -4897,12 +5144,54 @@ namespace nkentseu {
 			// sinon le nombre tape serait ecrase au premier tremblement du curseur.
 			if (st->modalNumActive) {
 				const float32 tape = (float32)atof(st->modalNumBuf);
-				if (fabsf(tape - st->modalVal) > 1e-9f) {
-					st->modalVal = tape;
+				// ── (b7) EN PHASE 0 DU LOOP CUT, LE NOMBRE EST UN NOMBRE DE COUPES ──
+				// Blender : apres Ctrl+R, taper 3 donne TROIS boucles ; c'est une fois
+				// l'anneau fige que le nombre devient le facteur de glissement. Deux
+				// phases, deux sens -- et le meme geste.
+				if (st->modalOp == 4 && st->modalLoopPhase == 0) {
+					const int32 n = Demo3D_ModalClampSeg(st->modalOp, (int32)(tape + 0.5f));
+					if (n != st->modalSeg) {
+						st->modalSeg = n;
+						st->modalDirty = true;
+					}
+					return;
+				}
+				// ⚠ LES BORNES SONT CELLES DU PILOTAGE SOURIS, ET C'EST TOUT L'OBJET DE
+				//   CETTE LIGNE. La saisie ne passait par AUCUNE borne, alors que la
+				//   souris passe par `Demo3D_ModalClampVal` : deux pilotes de la meme
+				//   valeur, un seul borne. Taper 50 sur un loop cut donnait un facteur de
+				//   glissement de 50 la ou la souris ne peut pas depasser 1 -- et le defaut
+				//   ne se voyait QUE si l'on tapait un nombre, c'est-a-dire presque jamais.
+				//   Un seul endroit decide desormais, pour les DEUX pilotes.
+				// MUTATION dans le MEME binaire : `NK_NUM_SANSBORNE=1` retire CE partage
+				// et rien d'autre. Taper 50 sur un loop cut doit alors rendre 50, la ou
+				// la souris ne peut pas depasser 1.
+				static int sansBorne = -1;
+				if (sansBorne == -1) {
+					const char *v = getenv("NK_NUM_SANSBORNE");
+					sansBorne = (v && v[0] && v[0] != '0') ? 1 : 0;
+				}
+				const float32 borne = sansBorne ? tape : Demo3D_ModalClampVal(st->modalOp, tape);
+				if (fabsf(borne - st->modalVal) > 1e-9f) {
+					st->modalVal = borne;
 					st->modalDirty = true;
 				}
 				return;
 			}
+			// ── (b7) PHASE 0 DU LOOP CUT : LA SOURIS NE GLISSE PAS ─────────────
+			// Elle choisit l'anneau, et rien d'autre. Sans cette garde, le meme
+			// geste faisait DEUX choses a la fois -- choisir ET coulisser -- et les
+			// deux phases de Blender se confondaient en une.
+			// MUTATION dans le MEME binaire : `NK_LOOP_UNEPHASE=1` refusionne les deux
+			// phases -- la souris glisse des la phase 0, comme avant. Les criteres (e),
+			// (f) et (g) doivent alors rougir ; s'ils restent verts, ils ne testent rien.
+			static int unePhase = -1;
+			if (unePhase == -1) {
+				const char *v = getenv("NK_LOOP_UNEPHASE");
+				unePhase = (v && v[0] && v[0] != '0') ? 1 : 0;
+			}
+			if (!unePhase && st->modalOp == 4 && st->modalLoopPhase == 0)
+				return;
 			if (st->modalScale != 0.f) {
 				// ── PRECISION : Maj TENU ralentit le geste d'un facteur 10 ──────
 				// Keymap Blender : PRECISION sur LEFT_SHIFT/RIGHT_SHIFT en value
@@ -4914,8 +5203,57 @@ namespace nkentseu {
 				// LES BORNES SONT CELLES DE `Demo3D_ModalClampVal`, partagees avec le
 				// panneau d'operation : un seul endroit decide, donc les deux pilotes
 				// ne peuvent pas diverger.
-				const float32 nvv = Demo3D_ModalClampVal(
-					st->modalOp, st->modalBase + (st->modalCurX - st->modalStartX) * ech);
+				// (b8) LE SECOND AXE, pour le geste LIBRE. Il n'est lu que la ou il a un
+				// sens -- translation sans axe -- et il ne touche a rien d'autre.
+				st->modalValY = (st->modalCurY - st->modalStartY) * ech;
+				// ── (b8) `S` LIBRE : LE RAPPORT DES DISTANCES AU PIVOT (Blender) ────
+				// Notre `S` lisait `(curX - startX)` : une composante HORIZONTALE. Mesure
+				// du 17/09, meme longueur de geste, trois directions :
+				//     horizontal 120 px -> 0,4   ·   VERTICAL 120 px -> 0   (rien !)
+				//     diagonal (85, 85) -> 0,283 = 85/300 : seul l'horizontal comptait
+				// Chez Blender, eloigner le curseur du pivot agrandit, QUELLE QUE SOIT la
+				// direction, et le facteur est le rapport des distances avant/apres.
+				// `modalVal` etant un DELTA (l'echelle appliquee vaut 1 + val), le rapport
+				// se traduit en `d1/d0 - 1`.
+				// ⚠ SEULEMENT SANS AXE : sur un axe explicite, Blender garde le geste
+				//   lineaire -- et c'est le negatif de ce lot.
+				// MUTATION : `NK_SLIBRE_HORIZ=1` remet la lecture horizontale.
+				static int sHoriz = -1;
+				if (sHoriz == -1) {
+					const char *vh = getenv("NK_SLIBRE_HORIZ");
+					sHoriz = (vh && vh[0] && vh[0] != '0') ? 1 : 0;
+				}
+				const bool sLibre = (st->modalOp == 11) && !sHoriz && st->modalPivotPxOk &&
+					!(st->modalAxis >= 0 && st->modalAxis < 3) && !st->modalPlane;
+				float32 brut = st->modalBase + (st->modalCurX - st->modalStartX) * ech;
+				if (sLibre) {
+					const float32 ax0 = st->modalStartX - st->modalPivotPxX;
+					const float32 ay0 = st->modalStartY - st->modalPivotPxY;
+					const float32 ax1 = st->modalCurX - st->modalPivotPxX;
+					const float32 ay1 = st->modalCurY - st->modalPivotPxY;
+					const float32 d0 = sqrtf(ax0 * ax0 + ay0 * ay0);
+					const float32 d1 = sqrtf(ax1 * ax1 + ay1 * ay1);
+					// Curseur POSE sur le pivot au lancement : le rapport n'a pas de sens.
+					// On garde alors la lecture lineaire plutot que de diviser par zero --
+					// et c'est nomme, pas silencieux.
+					if (d0 > 1e-3f)
+						brut = d1 / d0 - 1.f;
+					// ⚠ ON IMPRIME d0 ET d1, ET C'EST INDISPENSABLE : `d0` depend de la
+					//   position REELLE de la souris au lancement, donc du bureau de
+					//   l'utilisateur. Un critere ecrit sur la seule valeur finale ne serait
+					//   pas reproductible -- il varierait avec la main de celui qui mesure.
+					//   Avec d0 et d1, le critere devient INTERNE : la valeur DOIT valoir
+					//   d1/d0 - 1, et cela se verifie quelle que soit la souris.
+					static int trS = -1;
+					if (trS == -1) {
+						const char *v2 = getenv("NK_MODAL_OBS");
+						trS = (v2 && v2[0] && v2[0] != '0') ? 1 : 0;
+					}
+					if (trS)
+						logger.Info("[Demo3D] (b8) S LIBRE : pivot ecran ({0}, {1}) · d0={2} d1={3} -> val={4}\n",
+								(int32)st->modalPivotPxX, (int32)st->modalPivotPxY, d0, d1, brut);
+				}
+				const float32 nvv = Demo3D_ModalClampVal(st->modalOp, brut);
 				if (fabsf(nvv - st->modalVal) > 1e-6f) {
 					st->modalVal = nvv;
 					st->modalDirty = true;
@@ -4935,18 +5273,77 @@ namespace nkentseu {
 				Demo3D_ModalPreview(st, ms);
 			}
 			const int32 injEnd = st->modalInjDrag ? (st->modalInjFrames + 2) : 3;
-			const bool autoConfirm = (st->modalEnvConfirm && st->modalFrames > injEnd);
-			if (st->modalInjCancel && st->modalFrames > injEnd) {
+			const bool autoConfirm =
+				(st->modalEnvConfirm && st->modalEnvConfirmRestant > 0 && st->modalFrames > injEnd);
+			if (autoConfirm)
+				--st->modalEnvConfirmRestant;
+			if (st->modalInjCancel && st->modalFrames > injEnd + st->modalInjCancelDelai) {
 				st->modalInjCancel = false;
 				st->modalCancelPending = true;
 				logger.Info("[Demo3D] NK_MODAL_CANCEL -> Echap synthetique envoye a l'op modale\n");
 			}
+			// MUTATION `NK_LOOP_UNEPHASE=1` : les deux phases redeviennent une seule.
+			// Lue ICI, avant les deux branches, parce que les DEUX en dependent --
+			// la declarer dans une seule les ferait diverger.
+			static int unePhaseF = -1;
+			if (unePhaseF == -1) {
+				const char *v = getenv("NK_LOOP_UNEPHASE");
+				unePhaseF = (v && v[0] && v[0] != '0') ? 1 : 0;
+			}
 			if (st->modalCancelPending) {
 				st->modalCancelPending = false;
 				st->modalConfirmPending = false;
+				// ── (b7) ECHAP N'A PAS LE MEME SENS DANS LES DEUX PHASES ───────────
+				// En phase 1, Blender annule LE GLISSEMENT, pas l'insertion : la
+				// boucle reste, remise au milieu. C'est le coeur de (b7) -- et
+				// c'etait le defaut : Echap emportait la boucle avec lui.
+				if (!unePhaseF && st->modalOp == 4 && st->modalLoopPhase == 1) {
+					st->modalVal = 0.f;
+					st->modalDirty = true;
+					logger.Info("[Demo3D] (b7) LOOP CUT : glissement annule, la boucle RESTE au "
+								"milieu\n");
+					Demo3D_ModalConfirm(st, ms);
+					return true;
+				}
 				Demo3D_ModalCancel(st, ms);
 			} else if (clickNow || autoConfirm || st->modalConfirmPending) {
 				st->modalConfirmPending = false;
+				// ── (b7) 1 -> 2 : LE PREMIER CLIC NE VALIDE PAS, IL FIGE L'ANNEAU ──
+				// Blender : le clic pose la boucle AU MILIEU et ouvre le glissement.
+				// C'est le second clic qui valide. On repart donc de la position
+				// COURANTE de la souris -- sinon le glissement heriterait du trajet
+				// parcouru pendant le choix de l'anneau, et bondirait au premier
+				// pixel.
+				if (!unePhaseF && st->modalOp == 4 && st->modalLoopPhase == 0) {
+					st->modalLoopPhase = 1;
+					st->modalStartX = st->modalCurX;
+					st->modalVal = 0.f;
+					// ⚠ LE TAMPON NUMERIQUE NE TRAVERSE PAS LA TRANSITION. Le nombre tape
+					// en phase 0 designe des COUPES ; le laisser vivre le ferait relire en
+					// phase 1 comme un FACTEUR DE GLISSEMENT -- le meme chiffre, deux sens,
+					// et l'utilisateur n'a tape qu'une fois. Mesure du 17/09 : taper 3
+					// donnait 3 coupes ET un glissement de 1.
+					st->modalNumActive = false;
+					st->modalNumLen = 0;
+					st->modalNumBuf[0] = 0;
+					// ... et si un SECOND nombre a ete prevu, c'est ici qu'il entre : il ne
+					// pouvait pas exister avant, la phase 1 n'etant pas ouverte.
+					if (st->modalNum2Pret) {
+						int32 k2 = 0;
+						while (st->modalNum2Buf[k2] && k2 < (int32)sizeof(st->modalNumBuf) - 1) {
+							st->modalNumBuf[k2] = st->modalNum2Buf[k2];
+							++k2;
+						}
+						st->modalNumBuf[k2] = 0;
+						st->modalNumLen = k2;
+						st->modalNumActive = (k2 > 0);
+					}
+					st->modalDirty = true;
+					logger.Info("[Demo3D] (b7) LOOP CUT : anneau FIGE ({0}, {1}), {2} coupe(s) -- "
+								"phase GLISSEMENT\n",
+								st->modalLoopA, st->modalLoopB, st->modalSeg);
+					return true;
+				}
 				Demo3D_ModalConfirm(st, ms);
 			}
 			return true;
@@ -4973,9 +5370,35 @@ namespace nkentseu {
 			Demo3D_ModalPhotoPrendre(st);
 			st->modalFrames = 0;
 			st->modalLoopA = st->modalLoopB = -1;
+			st->modalLoopPhase = 0; // (b7) la phase ne survit jamais a sa modale
 			st->modalSnapVerts = st->modalSnap.VertCount();
 			st->modalSnapFaces = st->modalSnap.FaceCount();
 			st->modalStartX = ((float32)NkInput.MouseX() - nkvpOffX);
+			st->modalStartY = ((float32)NkInput.MouseY() - nkvpOffY);
+			st->modalValY = 0.f;
+			// (b8) LE REPERE DE LA VUE, PHOTOGRAPHIE. Voir les champs.
+			st->modalVueRight = st->vueRight;
+			st->modalVueUp = st->vueUp;
+			st->modalVueFwd = st->vueFwd;
+			st->modalDragPx = 0.f;
+			// ── (b8) LE PIVOT A L'ECRAN, PHOTOGRAPHIE ───────────────────────────
+			// Photographie, comme le repere : le relire a chaque image le ferait
+			// deriver pendant que l'objet grossit, et le rapport de distances se
+			// mordrait la queue -- la meme boucle que les axes de l'objet relus
+			// depuis une matrice qui porte deja l'echelle en cours.
+			{
+				const NkVec3f piv = st->editMode ? st->editPivotW
+					: Demo3D_ModalGizmoActif(st).GetPivot();
+				const NkVec3f v3 = piv - st->vueCamPos;
+				const float32 zc = v3.Dot(st->vueFwd);
+				st->modalPivotPxOk = (zc > 1e-4f) && (st->vueH > 1.f) && (st->vueW > 1.f);
+				if (st->modalPivotPxOk) {
+					const float32 thX = st->vueThY * (st->vueW / st->vueH);
+					const float32 xa = v3.Dot(st->vueRight), ya = v3.Dot(st->vueUp);
+					st->modalPivotPxX = (xa / (zc * thX)) * (st->vueW * 0.5f) + st->vueW * 0.5f;
+					st->modalPivotPxY = -(ya / (zc * st->vueThY)) * (st->vueH * 0.5f) + st->vueH * 0.5f;
+				}
+			}
 			// CURSEUR VIRTUEL : point de depart = position reelle de la souris. Les deltas
 			// (reels OU injectes par NK_MODAL_DRAG) s'y accumulent tant que l'op tourne.
 			st->modalCurX = st->modalStartX;
@@ -4999,6 +5422,40 @@ namespace nkentseu {
 				bmax.z = NkMax(bmax.z, q.z);
 			}
 			const float32 diag = (st->modalSnap.VertCount() > 0) ? (bmax - bmin).Len() : 1.f;
+			// ══ POURQUOI LES ECHELLES CI-DESSOUS NE SONT **PAS** CELLES DE LA VUE ══
+			// ⚠ A LIRE AVANT DE LES « UNIFORMISER ». Le 17/09, la translation (op 9) a
+			//   recu une echelle indexee sur la VUE, pour que l'objet reste sous le
+			//   curseur a toute distance. La tentation suivante est de la mettre
+			//   PARTOUT -- « j'ai trouve une meilleure echelle, je la mets partout ».
+			//   Ce serait une faute, et c'est celle qui a coute le chantier des sept
+			//   retournements.
+			//
+			//   Le parametre du biseau, de l'inset, de l'extrusion ou du gonflement est
+			//   une LONGUEUR DE MATIERE : il vit dans le maillage, il doit rester le
+			//   meme quand on recule la camera, et il n'a aucune raison de dependre du
+			//   nombre de pixels. C'est la TAILLE DE L'OBJET qui le regle -- « 400 px
+			//   de course couvrent la diagonale » -- et c'est JUSTE.
+			//   Le parametre de la translation, lui, est un DEPLACEMENT A L'ECRAN.
+			//
+			//   La question devant chacune de ces lignes n'est donc pas « quelle est la
+			//   meilleure echelle ? » mais « CE PARAMETRE EST-IL UNE LONGUEUR DE
+			//   MATIERE OU UN DEPLACEMENT A L'ECRAN ? ». Deux reponses, deux echelles,
+			//   et elles n'ont pas a se ressembler.
+			// ── (b8 temps 2) COMBIEN DE PIXELS VAUT UNE UNITE, ICI ? ────────────
+			// A la distance d, la vue couvre 2 d tan(fov/2) unites sur sa hauteur H.
+			// Un pixel vaut donc (2 d thY) / H unites, et une unite vaut l'inverse.
+			// La distance est prise au CENTRE DE LA BOITE ENGLOBANTE, en monde --
+			// pas a la cible de la camera : un objet loin de la cible aurait recu
+			// l'echelle d'un autre endroit de la scene.
+			{
+				const NkVec3f cLoc = (bmin + bmax) * 0.5f;
+				const NkVec3f cMonde = st->editMode ? (st->editAnchor * cLoc) : cLoc;
+				float32 dist = (cMonde - st->vueCamPos).Len();
+				if (!(dist > 1e-4f))
+					dist = 1.f; // camera SUR l'objet : aucune conversion n'a de sens
+				const float32 unitesParPixel = (2.f * dist * st->vueThY) / NkMax(1.f, st->vueH);
+				st->modalPxParUnite = (unitesParPixel > 1e-9f) ? (1.f / unitesParPixel) : 1.f;
+			}
 			switch (op) {
 				case 1:
 				case 2:
@@ -5040,10 +5497,32 @@ namespace nkentseu {
 					st->modalScale = diag / 400.f;
 					break;
 				// ── TRANSFORMATIONS (G / R / S), les DEUX modes ─────────────────
-				case 9:  // DEPLACER : la souris tire une distance, en unites du monde
+				case 9:  // DEPLACER : L'OBJET RESTE SOUS LE CURSEUR (Blender)
 					st->modalVal = 0.f;
 					st->modalSeg = 1;
-					st->modalScale = diag / 400.f;
+					// ⚠ L'ECHELLE EST CELLE DE LA VUE, PAS CELLE DE L'OBJET. Indexee sur la
+					//   diagonale de la boite englobante -- `diag / 400` -- elle donnait le
+					//   meme deplacement MONDE quelle que soit la distance, donc un
+					//   deplacement ECRAN d'autant plus petit qu'on s'eloignait : l'objet
+					//   fuyait le curseur. Mesure du 17/09, avant correctif : pour 120 px de
+					//   souris, l'objet parcourait 59,8 px a la distance 4 et 20,1 px a la
+					//   distance 12 -- un rapport de 2,98 pour une distance TRIPLE.
+					//   Un pixel de souris vaut desormais un pixel d'ecran AU PIVOT, ce qui
+					//   rend le geste previsible : c'est ce que fait Blender.
+					// ⚠ ET SEULE L'OP 9 CHANGE. Les autres (biseau, inset, extrusion...) ont
+					//   raison d'etre indexees sur la TAILLE de l'objet : leur parametre est
+					//   une longueur de matiere, pas un deplacement a l'ecran.
+					// MUTATION dans le MEME binaire : `NK_DIST_FIXE=1` remet l'ancienne
+					// echelle et rien d'autre.
+					{
+						static int distFixe = -1;
+						if (distFixe == -1) {
+							const char *v = getenv("NK_DIST_FIXE");
+							distFixe = (v && v[0] && v[0] != '0') ? 1 : 0;
+						}
+						st->modalScale = distFixe ? (diag / 400.f)
+							: (1.f / NkMax(1e-6f, st->modalPxParUnite));
+					}
 					break;
 				case 10: // TOURNER : 1 degre par pixel, comme le spin
 					st->modalVal = 0.f;
@@ -5082,12 +5561,24 @@ namespace nkentseu {
 			}
 			// NK_MODAL_NUM="<nombre>" : saisie numerique, meme chemin que la frappe.
 			if (const char *mnum = getenv("NK_MODAL_NUM")) {
+				// `NK_MODAL_NUM="<n1>[,<n2>]"` : n1 tout de suite, n2 a la transition de
+				// phase du loop cut. Deux phases, deux sens du meme geste.
 				int32 n = 0;
-				for (const char *q = mnum; *q && n < (int32)sizeof(st->modalNumBuf) - 1; ++q)
+				const char *q = mnum;
+				for (; *q && *q != ',' && n < (int32)sizeof(st->modalNumBuf) - 1; ++q)
 					st->modalNumBuf[n++] = *q;
 				st->modalNumBuf[n] = 0;
 				st->modalNumLen = n;
 				st->modalNumActive = (n > 0);
+				st->modalNum2Pret = false;
+				if (*q == ',') {
+					++q;
+					int32 m = 0;
+					for (; *q && m < (int32)sizeof(st->modalNum2Buf) - 1; ++q)
+						st->modalNum2Buf[m++] = *q;
+					st->modalNum2Buf[m] = 0;
+					st->modalNum2Pret = (m > 0);
+				}
 			}
 			if (st->modalEnvHasVal)
 				st->modalVal = st->modalEnvVal; // pilote headless (pas de souris en capture)
@@ -7322,8 +7813,12 @@ namespace nkentseu {
 						st->modalEnvHasSeg = true;
 						st->modalEnvSeg = atoi(mg);
 					}
-					if (getenv("NK_MODAL_CONFIRM"))
+					if (const char *mcf = getenv("NK_MODAL_CONFIRM")) {
 						st->modalEnvConfirm = true;
+						// `NK_MODAL_CONFIRM=<n>` : n clics de validation AU PLUS. Voir le champ.
+						const int32 nc = atoi(mcf);
+						st->modalEnvConfirmRestant = (nc > 0) ? nc : 1;
+					}
 					// ── INJECTION D'EVENEMENTS SOURIS SYNTHETIQUES (verification headless) ──
 					// La souris est CAPTUREE par l'op modale : on injecte donc le MEME signal
 					// qu'un vrai geste, dans le MEME curseur virtuel, et on prouve en capture
@@ -7356,8 +7851,12 @@ namespace nkentseu {
 					}
 					if (const char *mw = getenv("NK_MODAL_WHEEL"))
 						st->modalInjWheel = atoi(mw);
-					if (getenv("NK_MODAL_CANCEL"))
+					if (const char *mc = getenv("NK_MODAL_CANCEL")) {
 						st->modalInjCancel = true;
+						// `NK_MODAL_CANCEL=<n>` : n images d'attente EN PLUS. Voir le champ.
+						const int32 dl = atoi(mc);
+						st->modalInjCancelDelai = (dl > 1) ? dl : 0;
+					}
 					// NK_MODAL_OBS=1 : journalise l'etat INTERMEDIAIRE d'une modale de
 					// transformation, a chaque apercu. Obligatoire depuis la mesure de
 					// Spin : un compteur de maillage ne bouge JAMAIS pendant une
@@ -9700,7 +10199,18 @@ namespace nkentseu {
 				const NkVec3f fwd = (camTgt - camPos).Normalized();
 				const NkVec3f rgt = fwd.Cross(NkVec3f{0.f, 1.f, 0.f}).Normalized();
 				const NkVec3f upv = rgt.Cross(fwd).Normalized();
+				// (b8) LE REPERE DE LA VUE EST PUBLIE ICI, et nulle part ailleurs : c'est
+				// le seul endroit ou il est deja calcule, et le recalculer pour la modale
+				// ferait deux derivations du meme repere -- celle qui derive est toujours
+				// celle qu'on oublie de corriger.
+				st->vueRight = rgt;
+				st->vueUp = upv;
+				st->vueFwd = fwd;
+				st->vueCamPos = camPos;
 				const float32 thY = tanf(60.f * 0.5f * 3.14159265f / 180.f);
+				st->vueThY = thY;
+				st->vueH = (float32)ctx.height;
+				st->vueW = (float32)ctx.width;
 				const float32 thX = thY * ((float32)ctx.width / (float32)ctx.height);
 				const float32 VW = (float32)ctx.width, VH = (float32)ctx.height;
 				auto project = [&](NkVec3f P, float32 &px, float32 &py) -> bool {
@@ -9865,6 +10375,10 @@ namespace nkentseu {
 						 st->editActiveVert < nv)
 					pivotW = worldV(st->editActiveVert);
 
+				// PUBLIE : « le reglage existe » et « le reglage AGIT » sont deux choses
+				// differentes, et une seule des deux se lit. Apres le pas d'aimantation
+				// ecrase a chaque image par la boucle, le pivot se MESURE.
+				st->editPivotW = pivotW;
 				// Cible unique du gizmo = le PIVOT courant.
 				renderer::NkGizmoTarget vt[1];
 				vt[0] = {NkMat4f::Translate(pivotW), {0.001f, 0.001f, 0.001f}, 0.0001f};
@@ -9961,7 +10475,10 @@ namespace nkentseu {
 					// d'occlusion reel du pick au clic (Demo3D_PointOccluded) sur le point de
 					// l'arete le plus proche du curseur. Cout maitrise : on ne teste que les
 					// candidats qui AMELIORENT le meilleur score courant (quelques-uns).
-					if (st->modalOp == 4 &&
+					// ⚠ (b7) EN PHASE 1, L'ANNEAU EST FIGE. Sans cette garde, coulisser
+					// ferait aussi CHANGER d'anneau -- c'est-a-dire exactement la
+					// confusion des deux phases qu'on vient de defaire.
+					if (st->modalOp == 4 && st->modalLoopPhase == 0 &&
 						(modalMDX != 0.f || modalMDY != 0.f || st->modalInjDrag || st->modalLoopA < 0)) {
 						const float32 hx = st->modalCurX, hy = st->modalCurY;
 						int32 ha = -1, hb = -1;
@@ -16086,7 +16603,11 @@ namespace nkentseu {
 			if (!st)
 				return false;
 			if (st->editMode) {
-				*verts = st->editHE.VertCount();
+				// (b10) LA MEME AUTORITE QUE LE COMPTEUR DE SELECTION. Publier ici des
+				// coins et la-bas des positions ferait diverger deux textes que
+				// l'utilisateur lit cote a cote (« 3/24 »), ce que la barre d'etat
+				// interdit explicitement. Une source, deux lecteurs.
+				*verts = Demo3D_VertSoudeCount(st);
 				*edges = st->editHE.EdgeCount();
 				// FACES VIVANTES, comptees DANS LA TABLE et non dans la
 				// triangulation. La vue morte comptait les changements
@@ -16987,6 +17508,22 @@ namespace nkentseu {
 			if (relaches)
 				*relaches = st->clipRelaches;
 			return st->clipActif;
+		}
+		// Le PIVOT d'edition REELLEMENT utilise, et le mode qui l'a produit. Sert a
+		// prouver que le reglage AGIT : quatre modes doivent donner quatre reponses.
+		bool Demo3DHostEditPivot(float32 *x, float32 *y, float32 *z, int32 *mode) {
+			auto *st = HostSt();
+			if (!st || !st->editMode)
+				return false;
+			if (x)
+				*x = st->editPivotW.x;
+			if (y)
+				*y = st->editPivotW.y;
+			if (z)
+				*z = st->editPivotW.z;
+			if (mode)
+				*mode = st->editGizmo.PivotMode();
+			return true;
 		}
 		int32 Demo3DHostEditSelCountFor(int32 mask) {
 			auto *st = HostSt();

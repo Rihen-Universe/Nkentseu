@@ -251,6 +251,10 @@ namespace nkentseu {
 		// sans changer le sous-mode courant : un temoin qui doit dire "0 dans les
 		// TROIS sous-modes" ne peut pas basculer le mode pour mesurer, sous peine de
 		// modifier ce qu il mesure.
+		// Le PIVOT d'edition REELLEMENT utilise, et le mode qui l'a produit.
+		// « Le reglage existe » et « le reglage AGIT » sont deux choses differentes,
+		// et une seule des deux se lit.
+		bool Demo3DHostEditPivot(float32 *x, float32 *y, float32 *z, int32 *mode);
 		int32 Demo3DHostEditSelCountFor(int32 mask);
 		// Une operation MODALE tourne-t-elle ? Le clic droit lui appartient alors
 		// (il ANNULE l'operation) : le menu contextuel ne doit surtout pas s'ouvrir
