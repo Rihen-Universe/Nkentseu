@@ -2065,7 +2065,20 @@ namespace nkentseu {
 					// ⚠️ LE TIROIR DESSINE UN PANNEAU EXISTANT, il n en invente pas
 					//    un second. C est ce qui rendra l etat 3 (l ancrer) presque
 					//    gratuit : le meme objet, ancre au lieu d etre pose ici.
-					if (BeginChild(mUI, "##tiroir", dedans, false, true)) {
+					// 🔴 LE TIROIR NE DEFILE PAS HORIZONTALEMENT, ET CE N'EST PAS UN GOUT.
+					//    `BeginScrollFrame` (NkGuiWidgets.cpp) l'ecrit en toutes lettres :
+					//      regionW = (horizontal && !fillWidth) ? 1.0e6f : inner.w;
+					//    Avec `horizontal = true`, TOUT panneau heberge dans un tiroir recevait
+					//    une largeur de mise en page d'UN MILLION de pixels. Mesure du 17/09 :
+					//    une ligne de la Bibliotheque qui demande « remplis la largeur » sortait
+					//    a 999 980 px -- donc une zone de glisser qui debordait de son panneau,
+					//    et une BARRE DE DEFILEMENT HORIZONTALE dans le tiroir, visible sur la
+					//    capture, alors qu'il n'y a rien a faire defiler. J'avais ecrit en R20
+					//    « sans effet visible » : l'image m'a dementi.
+					//    Un tiroir est une colonne etroite ; ce qui y defile, defile en Y.
+					//    ⚠️ Le `1.0e6f` de NKGui n'est PAS touche : il reste juste pour qui demande
+					//       vraiment un defilement horizontal. Seul le tiroir cesse d'en demander un.
+					if (BeginChild(mUI, "##tiroir", dedans, false, /*horizontal*/ false)) {
 						p->OnUI(ec);
 						EndChild(mUI);
 					}
