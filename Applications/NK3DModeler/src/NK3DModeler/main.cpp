@@ -594,6 +594,11 @@ namespace {
 			st.pendingAction = NkVpAction::SelectAll;
 		else if (est("selectnone"))
 			st.pendingAction = NkVpAction::SelectNone;
+		// (b6) `submodevert` MANQUAIT : la table connaissait l'arete et la face,
+		// pas le sommet -- on pouvait donc quitter le sous-mode Sommet par un verbe
+		// mais jamais y revenir. Trois sous-modes, trois verbes.
+		else if (est("submodevert"))
+			st.pendingAction = NkVpAction::SubModeVertex;
 		else if (est("submodeedge"))
 			st.pendingAction = NkVpAction::SubModeEdge;
 		else if (est("submodeface"))
@@ -3298,9 +3303,45 @@ int nkmain(const NkEntryState &entry) {
 				// son XOR et ce cas-ci ecraserait par le bit seul -- la combinaison
 				// serait perdue, et le defaut n'apparaitrait QUE modificateur enfonce.
 				// On retire le doublon, on ne le repare pas.
+				// ── (b6) ET POURTANT ILS DOIVENT AGIR -- PAR LA PORTE, PAS PAR LE MIROIR.
+				// Tout ce qui precede reste vrai pour le CLAVIER : le viseur tient 1/2/3,
+				// et lui seul sait faire Maj+1/2/3 = COMBINER. Mais ces actions ont un
+				// SECOND appelant que le clavier : les crochets d'agent (`NK_VP_ACTION`),
+				// les boutons de la pastille, et demain la pastille IA. Mesure du 17/09 :
+				//     NK_VP_ACTION=submodeface -> masque=1   (inchange)
+				//     NK_VP_ACTION=submodeedge -> masque=1   (inchange)
+				// Le verbe etait ACCEPTE et ne faisait RIEN : le quatrieme etat d'une
+				// commande, le seul qui rapporte un succes. `submodevert`, lui, n'existait
+				// pas dans la table et se REFUSAIT avec son motif -- l'absent se comportait
+				// mieux que les presents, parce qu'il le disait.
+				//
+				// On appelle donc `Demo3DHostSetEditSelMask`, qui est LA porte (le viseur
+				// lui-meme passe par elle, NkModelerViewport.h). Ce n'est pas le second
+				// chemin d'hier : celui-la ecrivait dans `st.subMode`, un MIROIR reecrit a
+				// chaque image. Ecrire dans la porte et ecrire dans le miroir ne sont pas
+				// le meme geste.
+				//
+				// ⚠ LA GARDE `!pendingShift` EST LE COEUR DU CORRECTIF, et c'est le danger
+				//   que le commentaire ci-dessus nommait. Sans Maj, le viseur a deja pose le
+				//   bit seul : reposer le MEME bit est idempotent, donc inoffensif. Avec Maj,
+				//   le viseur COMBINE par XOR, et ecraser par le bit seul perdrait la
+				//   combinaison -- un defaut qui n'apparaitrait QUE modificateur enfonce.
+				//   Le negatif se mesure sans injecter de clavier : la table accepte
+				//   « maj+submodeface », qui doit COMBINER et non remplacer.
 				case NkVpAction::SubModeVertex:
 				case NkVpAction::SubModeEdge:
 				case NkVpAction::SubModeFace:
+					// ⚠ `majAct`, ET SURTOUT PAS `st.pendingShift` : dix lignes plus haut, les
+					//   modificateurs sont CONSOMMES avec l'action (remis a zero pour ne pas se
+					//   preter a la suivante). Ecrite avec `st.pendingShift`, la garde etait donc
+					//   TOUJOURS vraie, et j'ecrasais le masque y compris sur Maj+1/2/3 au
+					//   clavier -- exactement la regression que le commentaire ci-dessus
+					//   interdisait. C'est le NEGATIF qui l'a vu (maj+submodeface rendait 4 au
+					//   lieu de laisser 1), pas la relecture.
+					if (!majAct && demo::Demo3DHostInEditMode())
+						demo::Demo3DHostSetEditSelMask(a == NkVpAction::SubModeVertex ? 1
+							: a == NkVpAction::SubModeEdge ? 2
+								: 4);
 					break;
 				case NkVpAction::SelectAll:
 					demo::Demo3DHostSelectAll(true);
