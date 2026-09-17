@@ -1235,6 +1235,31 @@ void main() {
 			// bloom mal positionne. En VK le storage est Y-down natif, flip OK.
 			bool isVK = mDevice && mDevice->GetApi() == NkGraphicsApi::NK_GFX_API_VULKAN;
 			pc.yFlipUV = isVK ? -1.f : +1.f;
+			// ── CE SIGNE EST MESURE, PAS SEULEMENT HERITE (17/09/2026) ───────────
+			// Ce site porte l'ancienne forme `isVK ? -1 : +1` avec un `isVK` qui
+			// vaut `api == VULKAN`, donc +1 sur DX et GL. La regle ecrite une fois
+			// (`NkOffscreenStoredIsBottomUp`) prescrirait -1 sur DX. Mesure du
+			// centre de masse vertical de ce que le bloom AJOUTE, objet decentre
+			// vers le haut (source a y = 46, miroir a y = 194) :
+			//     DX11   defaut 81,9   |  +1 -> 81,9  |  -1 -> 174,5
+			//     OpenGL defaut 81,3   |  +1 -> 81,3  |  -1 -> 175,0
+			// Le halo est du BON COTE au defaut, et -1 le retourne. **La valeur en
+			// place est donc juste, et la regle generale la casserait** -- comme
+			// pour `RunTAAInPass`. Ne pas « harmoniser » sans remesurer.
+			// Levier de mutation, lu UNE FOIS (ces passes tournent onze fois par
+			// image : un getenv par appel se paierait) et inerte sans la variable.
+			{
+				static int sMutInit = 0;
+				static float32 sMut = 0.f;
+				if (!sMutInit) {
+					sMutInit = 1;
+					const char *vmut = std::getenv("NK_TEMPOREL_BLOOM_YSIGN");
+					if (vmut && vmut[0])
+						sMut = (float32)std::atof(vmut);
+				}
+				if (sMut != 0.f)
+					pc.yFlipUV = sMut;
+			}
 			cmd->PushConstants(::nkentseu::NkShaderStage::NK_ALL_GRAPHICS, 0, sizeof(pc), &pc);
 
 			// Fullscreen triangle : 3 verts sans VBO.
@@ -1268,6 +1293,31 @@ void main() {
 			// Sub-passes bloom : pas de flip en GL (cf. DrawBloomDownPass).
 			bool isVK = mDevice && mDevice->GetApi() == NkGraphicsApi::NK_GFX_API_VULKAN;
 			pc.yFlipUV = isVK ? -1.f : +1.f;
+			// ── CE SIGNE EST MESURE, PAS SEULEMENT HERITE (17/09/2026) ───────────
+			// Ce site porte l'ancienne forme `isVK ? -1 : +1` avec un `isVK` qui
+			// vaut `api == VULKAN`, donc +1 sur DX et GL. La regle ecrite une fois
+			// (`NkOffscreenStoredIsBottomUp`) prescrirait -1 sur DX. Mesure du
+			// centre de masse vertical de ce que le bloom AJOUTE, objet decentre
+			// vers le haut (source a y = 46, miroir a y = 194) :
+			//     DX11   defaut 81,9   |  +1 -> 81,9  |  -1 -> 174,5
+			//     OpenGL defaut 81,3   |  +1 -> 81,3  |  -1 -> 175,0
+			// Le halo est du BON COTE au defaut, et -1 le retourne. **La valeur en
+			// place est donc juste, et la regle generale la casserait** -- comme
+			// pour `RunTAAInPass`. Ne pas « harmoniser » sans remesurer.
+			// Levier de mutation, lu UNE FOIS (ces passes tournent onze fois par
+			// image : un getenv par appel se paierait) et inerte sans la variable.
+			{
+				static int sMutInit = 0;
+				static float32 sMut = 0.f;
+				if (!sMutInit) {
+					sMutInit = 1;
+					const char *vmut = std::getenv("NK_TEMPOREL_BLOOM_YSIGN");
+					if (vmut && vmut[0])
+						sMut = (float32)std::atof(vmut);
+				}
+				if (sMut != 0.f)
+					pc.yFlipUV = sMut;
+			}
 			cmd->PushConstants(::nkentseu::NkShaderStage::NK_ALL_GRAPHICS, 0, sizeof(pc), &pc);
 
 			// Fullscreen triangle : 3 verts sans VBO.
