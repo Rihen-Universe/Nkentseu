@@ -81,9 +81,44 @@ namespace nkentseu {
 				//    table, le modele doit DEVINER le vocabulaire. C'est ce que
 				//    mesure la sonde : ce que NOTRE outillage apporte, et non ce
 				//    que le modele sait deja.
+				// ⚠️ LA MUTATION NE DOIT CHANGER QU'UNE CHOSE : la presence de la
+				//    TABLE. La regle de syntaxe reste dite des deux cotes, sinon on
+				//    comparerait « avec table et avec syntaxe » a « sans table et sans
+				//    syntaxe » -- deux variables pour une conclusion.
+				ajout("Les parametres sont POSITIONNELS : leurs VALEURS, separees par des\n");
+				ajout("deux-points. Exemple : bevel:0.2:4\n");
 				ajout("Le vocabulaire n'est pas donne : devine le verbe anglais usuel.\n");
 				return;
 			}
+			// ⚠️ CES QUATRE LIGNES VIENNENT D'UNE MESURE, PAS D'UNE INTUITION. Sans
+			//    elles, le modele recopiait les LIBELLES du tableau comme s'ils
+			//    etaient de la syntaxe et rendait
+			//        bevel:largeur (0 = auto)=0.5:segments=4
+			//    au lieu de `bevel:0.2:4`. Ce n'etait pas une faute du modele : notre
+			//    contrat melangeait un libelle destine a un humain et une syntaxe
+			//    destinee a une machine, sans jamais dire lequel etait lequel.
+			ajout("\nLes parametres sont POSITIONNELS : on ecrit leurs VALEURS, dans l'ordre du\n");
+			ajout("tableau, separees par des deux-points. On n'ecrit JAMAIS le nom d'un\n");
+			ajout("parametre. Exemple : pour biseauter a 0.2 avec 4 segments -> bevel:0.2:4\n");
+			ajout("Un verbe sans parametre s'ecrit seul : subdivide\n");
+			// ⚠️ CES DEUX REGLES VIENNENT AUSSI D'UNE MESURE, ET JE DIS D'OU : des DIX
+			//    demandes du banc. Le contrat portait T1 et T2 a 10/10 mais FAISAIT
+			//    BAISSER T3, parce qu'il rendait le modele trop zele : il remplissait
+			//    des parametres que personne n'avait demandes (« extrude:0:0 » alors
+			//    qu'extrude n'en a qu'UN -- le pont l'aurait signale comme parametre
+			//    en trop) et il trouvait TOUJOURS un verbe, meme pour « rends ce
+			//    modele plus beau ».
+			//    ⚠️ AVOIR TIRE CES REGLES DES CAS DU BANC REND LE TAUX SUIVANT
+			//       OPTIMISTE. Ce sont des regles GENERALES et non des reponses
+			//       apprises par cœur, mais le banc n'est plus tout a fait aveugle,
+			//       et un taux mesure sur ce qui a servi a regler se lit avec cette
+			//       reserve. De nouvelles demandes le diront mieux.
+			ajout("N'AJOUTE JAMAIS un parametre que la demande ne donne pas : si elle ne\n");
+			ajout("precise rien, ecris le verbe SEUL. Ne donne jamais plus de valeurs que le\n");
+			ajout("tableau n'en annonce pour ce verbe.\n");
+			ajout("Si la demande ne correspond a AUCUN verbe de la liste -- parce qu'elle\n");
+			ajout("designe par les mots, demande de creer un objet, ou reste vague --\n");
+			ajout("reponds exactement : aucune. Ne choisis pas un verbe par defaut.\n");
 			ajout("\nVerbes autorises, avec leurs parametres et leurs bornes :\n");
 			int32 nv = 0;
 			const NkVerbe *V = NkVerbes(nv);
@@ -112,7 +147,7 @@ namespace nkentseu {
 				ajout(ligne);
 			}
 			ajout("\nUne valeur hors bornes est ramenee aux bornes ; un parametre en trop est\n");
-			ajout("refuse. Si aucune commande ne convient, reponds exactement : aucune\n");
+			ajout("refuse.\n");
 		}
 
 		// ── LA REPONSE -> UN VERBE ─────────────────────────────────────────────
