@@ -4,6 +4,7 @@
 #include "NKGen/NkMesh.h"
 
 #include <cstdio>
+#include <cstdlib> // getenv : le negatif du banc, cf. SurfaceNets
 #include <cmath>
 
 namespace nkentseu {
@@ -78,8 +79,77 @@ namespace nkentseu {
 				{0, 4}, {1, 5}, {2, 6}, {3, 7}, // le long de z
 			};
 
+			// ── LES COMPOSANTES CONNEXES DES COINS SOLIDES D'UNE CELLULE ─────────
+			// POURQUOI ELLES EXISTENT (mesure du 2026-09-18). Le SurfaceNets naif
+			// pose UN sommet par cellule. Quand la surface traverse la cellule en
+			// DEUX nappes disjointes, ce sommet unique sert aux deux, et le
+			// maillage cesse d'etre une surface. Mesure, sur des champs poses a
+			// la main (`NKTexte3D --banc-variete`) :
+			//
+			//   deux coins solides diagonaux d'une CELLULE -> V=15 E=36 F=24,
+			//     0 arete non-manifold mais chi = 3. Un SOMMET non-manifold :
+			//     deux nappes jointes par un POINT. Aucun compteur d'aretes ne
+			//     peut le voir -- il est invariant par ce defaut-la. C'est la
+			//     PARITE de chi qui l'a denonce : une surface fermee orientable
+			//     a chi = 2 - 2g, donc toujours pair.
+			//   deux coins solides diagonaux d'une FACE -> 1 arete non-manifold.
+			//   un damier -> 450 aretes non-manifold et chi = 141.
+			//
+			// LA REGLE, ET ELLE EST COHERENTE ENTRE CELLULES VOISINES PAR
+			// CONSTRUCTION : deux coins solides sont dans la meme nappe s'ils
+			// sont relies par une ARETE du cube (6-connexite, soit exactement
+			// `kEdge`). Deux coins diagonaux ne le sont donc jamais. Comme la
+			// regle ne depend que du motif de solidite, et que deux cellules
+			// partageant une face y lisent le MEME motif, elles la resolvent
+			// forcement de la meme facon -- il n'y a aucune convention a
+			// s'accorder, et donc aucune occasion de diverger.
+			//
+			// RETRO-COMPATIBILITE, et elle est exacte : quand une cellule n'a
+			// qu'UNE composante -- le cas de l'immense majorite -- cette fonction
+			// rend 1, tous les coins solides portent la composante 0, et le
+			// sommet utilise reste `buffer[cellule] + 0`. La sortie est alors
+			// IDENTIQUE AU BIT a celle d'avant. Ce module a NEUF consommateurs :
+			// c'est l'attendu « sur ce qui ne doit pas bouger », et il est
+			// derive, pas espere.
+			static int ComposantesSolides(int mask, int comp[8]) {
+				for (int i = 0; i < 8; ++i)
+					comp[i] = -1;
+				int n = 0;
+				for (int s = 0; s < 8; ++s) {
+					if (!((mask >> s) & 1) || comp[s] >= 0)
+						continue;
+					int pile[8], np = 0;
+					pile[np++] = s;
+					comp[s] = n;
+					while (np > 0) {
+						const int c = pile[--np];
+						for (int e = 0; e < 12; ++e) {
+							const int a = kEdge[e][0], b = kEdge[e][1];
+							const int o = (a == c) ? b : ((b == c) ? a : -1);
+							if (o < 0)
+								continue;
+							if (((mask >> o) & 1) && comp[o] < 0) {
+								comp[o] = n;
+								pile[np++] = o;
+							}
+						}
+					}
+					++n;
+				}
+				return n;
+			}
+
 			NkMesh SurfaceNets(const float *f, uint32 nx, uint32 ny, uint32 nz, float iso, float cell) {
 				NkMesh mesh;
+				// ── LE NEGATIF, DANS LE MEME BINAIRE ────────────────────────────────
+				// `NK_SURFACENETS_NAIF=1` restaure exactement l'algorithme d'avant le
+				// 18/09 : un sommet par cellule, aucun bornage. Il sert a prouver que
+				// le vert du banc vient bien des deux correctifs et non d'autre chose.
+				// Une variable d'environnement plutot que deux constructions : deux
+				// binaires peuvent differer par autre chose que la cause testee.
+				// Ce n'est PAS une option de production -- rien ne la lit en dehors
+				// des bancs, et son nom le dit.
+				static const bool naif = getenv("NK_SURFACENETS_NAIF") != nullptr;
 				if (nx < 2 || ny < 2 || nz < 2)
 					return mesh;
 				const uint32 Cx = nx - 1, Cy = ny - 1, Cz = nz - 1; // nb de cellules
@@ -88,11 +158,20 @@ namespace nkentseu {
 					return f[(uint32)x + nx * ((uint32)y + ny * (uint32)z)];
 				};
 				auto solid = [&](uint32 x, uint32 y, uint32 z) -> bool { return sample(x, y, z) > iso; };
-				// Index de sommet par cellule (-1 = pas de surface).
+				// Index du PREMIER sommet de la cellule (-1 = pas de surface). Les
+				// sommets d'une meme cellule sont consecutifs : le k-ieme vaut
+				// buffer[cellule] + k.
 				NkVector<int32> buffer;
 				buffer.Resize(Cx * Cy * Cz);
 				for (uint32 i = 0; i < buffer.Size(); ++i)
 					buffer[i] = -1;
+				// La composante de chaque coin, 8 octets par cellule. C'est ce qui
+				// permet a l'etape 2 de choisir LEQUEL des sommets d'une cellule
+				// une arete de grille donnee doit utiliser.
+				NkVector<int8> coinComp;
+				coinComp.Resize(Cx * Cy * Cz * 8);
+				for (uint32 i = 0; i < coinComp.Size(); ++i)
+					coinComp[i] = -1;
 				auto cellIdx = [&](uint32 x, uint32 y, uint32 z) -> uint32 { return x + Cx * (y + Cy * z); };
 
 				// 1) Un sommet par cellule traversant l'iso-surface.
@@ -109,32 +188,86 @@ namespace nkentseu {
 							if (mask == 0 || mask == 255)
 								continue; // cellule entièrement in/out
 
-							// Position = moyenne des points d'intersection des arêtes.
-							float vx = 0.f, vy = 0.f, vz = 0.f;
-							int ec = 0;
+							// UN SOMMET PAR NAPPE. Chaque arete traversante appartient a
+							// la nappe de son extremite SOLIDE ; sa position moyenne ne
+							// melange donc plus deux morceaux de surface distincts.
+							int comp[8];
+							int nComp = ComposantesSolides(mask, comp);
+							if (naif) { // MUTATION : une seule nappe, comme avant
+								for (int i = 0; i < 8; ++i)
+									comp[i] = ((mask >> i) & 1) ? 0 : -1;
+								nComp = 1;
+							}
+							float vx[8] = {0.f}, vy[8] = {0.f}, vz[8] = {0.f};
+							int ec[8] = {0};
 							for (int e = 0; e < 12; ++e) {
 								int a = kEdge[e][0], b = kEdge[e][1];
 								bool sa = (mask >> a) & 1, sb = (mask >> b) & 1;
 								if (sa == sb)
 									continue;
+								const int k = sa ? comp[a] : comp[b]; // l'extremite solide donne la nappe
+								if (k < 0)
+									continue;
 								float fa = g[a], fb = g[b];
 								float d = fb - fa;
 								float t = (d > 1e-6f || d < -1e-6f) ? (iso - fa) / d : 0.5f;
-								vx += (float)kCorner[a][0] + t * (float)(kCorner[b][0] - kCorner[a][0]);
-								vy += (float)kCorner[a][1] + t * (float)(kCorner[b][1] - kCorner[a][1]);
-								vz += (float)kCorner[a][2] + t * (float)(kCorner[b][2] - kCorner[a][2]);
-								++ec;
+								vx[k] += (float)kCorner[a][0] + t * (float)(kCorner[b][0] - kCorner[a][0]);
+								vy[k] += (float)kCorner[a][1] + t * (float)(kCorner[b][1] - kCorner[a][1]);
+								vz[k] += (float)kCorner[a][2] + t * (float)(kCorner[b][2] - kCorner[a][2]);
+								++ec[k];
 							}
-							if (ec == 0)
+							int total = 0;
+							for (int k = 0; k < nComp; ++k)
+								total += ec[k];
+							if (total == 0)
 								continue;
-							vx /= ec;
-							vy /= ec;
-							vz /= ec;
-							int32 vi = (int32)(mesh.positions.Size() / 3);
-							mesh.positions.PushBack(((float)x + vx) * cell);
-							mesh.positions.PushBack(((float)y + vy) * cell);
-							mesh.positions.PushBack(((float)z + vz) * cell);
+							// Une nappe sans arete traversante ne peut pas exister ici
+							// (toute composante solide d'une cellule non pleine touche au
+							// moins une arete vers un coin vide), mais on ne le SUPPOSE
+							// pas : un ec nul retomberait au centre de la cellule, ce qui
+							// se verrait, plutot que de produire un NaN silencieux.
+							const int32 vi = (int32)(mesh.positions.Size() / 3);
+							// ── LE SOMMET RESTE DANS SA CELLULE, ET CE N'EST PAS COSMETIQUE ──
+							// SECONDE CAUSE mesuree le 18/09, distincte de l'ambiguite de
+							// cellule. Quand la surface est quasi TANGENTE a un plan de
+							// grille, le barycentre des intersections d'une cellule tombe
+							// sur une de ses faces -- et la cellule voisine y pose le sien
+							// AU MEME ENDROIT. Le maillage brut reste manifold, donc rien
+							// ne s'en plaint a l'ecriture ; mais toute soudure par distance
+							// (NkEditMesh::BuildFromIndexed, « merge by distance » de
+							// Blender, l'import du modeleur) fusionne les deux et cree un
+							// pincement. Signature dans les mesures : V(soude) < V(brut),
+							// et EXACTEMENT les cas ou cet ecart est non nul portaient des
+							// aretes non-manifold. Sur « une sphere » a res 48 :
+							// 10 739 soudes contre 10 748 bruts, et 9 aretes fautives.
+							//
+							// La parade est standard et tient en trois lignes : borner le
+							// sommet a ]0,1[ dans sa propre cellule. Deux cellules
+							// distinctes occupent alors des cubes disjoints, et ne peuvent
+							// PLUS produire deux positions coincidentes -- c'est une
+							// garantie de construction, pas une tolerance a regler.
+							//
+							// 0,02 cellule est choisi pour depasser l'epsilon de soudure
+							// (1e-4 en unites monde) des que `cell` vaut plus de 5e-3 :
+							// 0,02 x 0,053 = 1,06e-3, soit dix fois l'epsilon. En dessous,
+							// la grille est plus fine que la tolerance de soudure et c'est
+							// un autre probleme, qui se verrait ailleurs.
+							const float kMarge = naif ? 0.f : 0.02f; // MUTATION : aucun bornage
+							for (int k = 0; k < nComp; ++k) {
+								const float inv = ec[k] > 0 ? 1.f / (float)ec[k] : 0.f;
+								float ox = ec[k] > 0 ? vx[k] * inv : 0.5f;
+								float oy = ec[k] > 0 ? vy[k] * inv : 0.5f;
+								float oz = ec[k] > 0 ? vz[k] * inv : 0.5f;
+								ox = ox < kMarge ? kMarge : (ox > 1.f - kMarge ? 1.f - kMarge : ox);
+								oy = oy < kMarge ? kMarge : (oy > 1.f - kMarge ? 1.f - kMarge : oy);
+								oz = oz < kMarge ? kMarge : (oz > 1.f - kMarge ? 1.f - kMarge : oz);
+								mesh.positions.PushBack(((float)x + ox) * cell);
+								mesh.positions.PushBack(((float)y + oy) * cell);
+								mesh.positions.PushBack(((float)z + oz) * cell);
+							}
 							buffer[cellIdx(x, y, z)] = vi;
+							for (int i = 0; i < 8; ++i)
+								coinComp[cellIdx(x, y, z) * 8 + i] = (int8)comp[i];
 						}
 
 				// 2) Relier les cellules : pour chaque arête de grille traversant l'iso,
@@ -155,6 +288,10 @@ namespace nkentseu {
 								bool sd = solid(sx, sy, sz);
 								if (s0 == sd)
 									continue; // pas de changement de signe
+
+								// Le point SOLIDE de cette arete de grille : c'est lui qui
+								// designe la nappe a utiliser dans chacune des 4 cellules.
+								const uint32 px = s0 ? x : sx, py = s0 ? y : sy, pz = s0 ? z : sz;
 
 								// Axes perpendiculaires (u,v) à d.
 								int u = (d + 1) % 3, w = (d + 2) % 3;
@@ -181,11 +318,27 @@ namespace nkentseu {
 										ok = false;
 										break;
 									}
-									q[c] = buffer[cellIdx((uint32)cx, (uint32)cy, (uint32)cz)];
-									if (q[c] < 0) {
+									const uint32 ci = cellIdx((uint32)cx, (uint32)cy, (uint32)cz);
+									const int32 base = buffer[ci];
+									if (base < 0) {
 										ok = false;
 										break;
 									}
+									// Coordonnees locales du point solide dans CETTE cellule,
+									// puis l'index de coin. `kCorner` est range de telle sorte
+									// que l'index vaut lx + 2*ly + 4*lz -- verifie sur les huit
+									// entrees, pas suppose.
+									const int lx = (int)px - cx, ly = (int)py - cy, lz = (int)pz - cz;
+									if (lx < 0 || lx > 1 || ly < 0 || ly > 1 || lz < 0 || lz > 1) {
+										ok = false; // le point solide n'appartient pas a cette cellule
+										break;
+									}
+									const int k = (int)coinComp[ci * 8 + (lx + 2 * ly + 4 * lz)];
+									if (k < 0) {
+										ok = false; // ce coin n'est pas solide ici : rien a relier
+										break;
+									}
+									q[c] = base + k;
 								}
 								if (!ok)
 									continue;
