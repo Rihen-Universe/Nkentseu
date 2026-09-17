@@ -1,0 +1,102 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+# AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
+"""
+NKConverse — Parler a un modele, et rien d'autre (C++17)
+========================================================
+Transporte une INVITE vers un modele et en rapporte une REPONSE, ou un REFUS
+NOMME. Ce module ne sait pas ce qu'est un document, un maillage ni une scene.
+
+Contenu (src/NKConverse/) :
+  NkConverse.h           => requete, reponse, interface de dorsal, TROIS dorsaux
+                            (fichier, processus, conserve)
+  NkConverseChat.h       => la conversation : tours, historique
+  NkConverseChatAsync.h  => l'appel qui ne gele pas l'interface
+  NkConverse.cpp         => AUCUNE logique : il inclut les en-tetes dans un
+                            contexte VIDE, ce qui PROUVE la regle 2 ci-dessous.
+
+POURQUOI CE MODULE EXISTE
+-------------------------
+Le meme patron etait ecrit TROIS FOIS : PV3DE (NkIConvBackend, l'original),
+NKUIDesign (NkIDesignBackend, dont ceci est extrait) et NKCode (NkAiPanel).
+Deux listes ecrites separement finissent toujours par diverger.
+
+POURQUOI Kernel/System ET PAS AILLEURS
+--------------------------------------
+System est la couche des TRANSPORTS (NKStream, NKNetwork, NKSerialization). Une
+conversation portee par des fichiers ou par un processus est un transport.
+  - Foundation est exclu : un module ne vit pas SOUS la couche de ce qu'il
+    utilise (NKFileSystem, NKThreading et NKTime sont en System).
+  - Kernel/AI est exclu PAR LA MESURE : NKAgent declare NKTensor, NKRL et
+    NKInfer. Y loger la conversation aurait fait tirer tout le moteur
+    d'inference dans NK3DModeler, qui n'a besoin que de lire un fichier.
+  - Runtime est exclu : rien ici ne parle d'images, de son ni de scene.
+
+⚠️ REGLE 2 — NKThreading ET NKTime SONT DECLARES ICI, PAS TIRES EN DOUCE.
+   NkConverseChatAsync.h les utilise et les inclut lui-meme. La faute inverse a
+   coute 20 erreurs a NKPA : un en-tete comptait sur ses consommateurs pour
+   tirer NKTime, et ca marchait par chance chez les deux qu'il avait.
+"""
+
+from Jenga import *
+from jengaconfig import *
+
+
+with project("NKConverse"):
+    # NKThreading et NKTime : DECLARES, parce que NkConverseChatAsync.h s'en sert.
+    # NKFileSystem : le dorsal fichier et le dorsal processus ecrivent l'invite et
+    # relisent la reponse -- c'est tout le contrat, et il passe par des fichiers.
+    nkentseudependson(
+        ["NKPlatform", "NKCore", "NKMemory", "NKContainers", "NKLogger",
+         "NKFileSystem", "NKThreading", "NKTime"],
+        selfexport="NKConverse",
+        extra_includes=["src", "pch"],
+    )
+
+    language("C++")
+    cppdialect("C++17")
+    location(".")
+
+    files([
+        "src/NKConverse/**.cpp",
+        "src/NKConverse/**.h",
+    ])
+
+    objdir("%{wks.location}/Build/Obj/%{cfg.buildcfg}-%{cfg.system}/%{prj.name}")
+    targetdir("%{wks.location}/Build/Lib/%{cfg.buildcfg}-%{cfg.system}")
+
+    with filter("system:Windows && options:windows-runtime=uwp"):
+        objdir("%{wks.location}/Build/Obj/%{cfg.buildcfg}-%{cfg.system}-uwp/%{prj.name}")
+        targetdir("%{wks.location}/Build/Lib/%{cfg.buildcfg}-%{cfg.system}-uwp")
+
+    with filter("system:Windows && !options:windows-runtime=uwp && !system:XboxSeries && !system:XboxOne"):
+        usetoolchain(TC_WINDOWS)
+    with filter("system:UWP || system:Windows && options:windows-runtime=uwp"):
+        usetoolchain("xbox-clang")
+    with filter("system:Linux"):
+        links(["pthread"])
+    with filter("system:macOS"):
+        usetoolchain("clang-native")
+    with filter("system:Android"):
+        pchheader("")
+        pchsource("")
+        usetoolchain("android-ndk")
+        links(["log"])
+    with filter("system:HarmonyOS"):
+        pchheader("")
+        pchsource("")
+        usetoolchain("ohos-ndk")
+        links(["hilog_ndk.z"])
+    with filter("system:Web"):
+        usetoolchain("emscripten")
+    with filter("system:XboxSeries || system:XboxOne"):
+        usetoolchain("xbox-clang")
+
+    with filter("config:Debug"):
+        defines(["_DEBUG", "DEBUG"])
+        optimize("Off")
+        symbols(True)
+    with filter("config:Release"):
+        defines(["NDEBUG"])
+        optimize("Speed")
+        symbols(False)
