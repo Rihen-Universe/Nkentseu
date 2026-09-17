@@ -552,7 +552,27 @@ namespace nkuidesign {
 			NkUIDocument doc;
 			NkLayoutResult layout;
 			NkDocumentHost host;
-			NkTheme theme;
+			/// ⚠️ IL NAIT CHARGE, ET C'EST LA PORTE UNIQUE D'UNE FAMILLE DE FAUX
+			///    VERTS. Un `NkTheme` neuf porte la sentinelle magenta sur TOUS ses
+			///    roles -- c'est voulu : un role oublie doit sauter aux yeux. Mais un
+			///    `DesignState` qui naissait ainsi rendait la MEME valeur pour 43 roles,
+			///    et tout critere qui identifie la geometrie PAR SA COULEUR retenait
+			///    alors 78 % des sommets de la scene (mesure du 17/09 : 3 688 sur 4 754).
+			///    La sonde 74 accusait le produit depuis des SEMAINES a cause de ca.
+			///
+			///    35 des 36 etats de mesure du banc etaient dans ce cas. On ne corrige
+			///    pas 35 sites a la main : on ferme la porte par ou ils passent tous.
+			///
+			/// ⚠️ ET LA SENTINELLE SURVIT LA OU ELLE SERT : `Dark()` pose les roles
+			///    qu'il connait ; un role NEUF que personne n'a pose garde le magenta.
+			///    On ne desarme pas le detecteur de « role oublie » -- on retire le cas
+			///    « theme jamais charge », qui n'est pas la meme chose.
+			///
+			/// ⚠️ L'APPLICATION NE CHANGE PAS D'UN PIXEL : elle POUSSE son theme
+			///    par-dessus (`gDesign.theme = gThemes.Current()` au demarrage et a
+			///    chaque bascule). Cette valeur par defaut ne vaut que pour les etats
+			///    que personne n'alimente -- c'est-a-dire les bancs.
+			NkTheme theme = NkTheme::Dark();
 
 			NkDesignAI ai;
 			NkFileBackend fileBackend;
