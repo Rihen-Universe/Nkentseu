@@ -9443,6 +9443,138 @@ static int32 IntentionBattery() {
 	return gIntEchecs ? 1 : 0;
 }
 
+// -- APRES UNE SUPPRESSION, LA SELECTION EST VIDE (--suppression) -------------
+// COMPORTEMENT BLENDER, confirme par Rodolf (14/09) : « dans Blender, la
+// selection est VIDE apres une suppression ». Chez nous elle SURVIVAIT : les
+// quatre faces restantes d'un cube se retrouvaient selectionnees et un SECOND X
+// vidait le cube -- 6, puis 4, puis 0. Une frappe de trop detruisait le travail.
+//
+// POURQUOI AU NIVEAU DU MOTEUR, ET EN CONSOLE. La regle vit dans
+// `NkEditMesh::DeleteSelectedFaces`, donc elle vaut pour TOUS les hotes ; posee
+// dans un seul appelant, elle aurait ete vraie a un seul endroit. Et elle se
+// mesure ici sans fenetre, sans device et SANS AUCUNE INJECTION D'ENTREE.
+//
+// LE ZERO SE PROUVE EN PREMIER : avant la suppression, les trois compteurs
+// rendent AUTRE CHOSE que 0. Sans ce releve, les 0 d'apres pourraient vouloir
+// dire que les compteurs ne comptent rien.
+//
+// LE NEGATIF EST DANS LE MEME BINAIRE : `NK_DEL_KEEPSEL=1` remet l'ancien
+// comportement et ne touche a rien d'autre. Les criteres DOIVENT alors rougir ;
+// s'ils restent verts, le banc sort 2 et le dit -- ils ne testent rien.
+static int32 SupSommetsSel(const NkEditMesh &m) {
+	int32 n = 0;
+	for (uint32 i = 0; i < m.VertCount(); ++i)
+		if (m.verts[i].sel)
+			++n;
+	return n;
+}
+// Une arete est « selectionnee » quand ses DEUX extremites le sont : c'est la
+// regle du sous-mode ARETE du modeleur. On la refait ici plutot que d'appeler le
+// modeleur, qui exige un device.
+static int32 SupAretesSel(const NkEditMesh &m) {
+	int32 n = 0;
+	for (uint32 e = 0; e < (uint32)m.edges.Size(); ++e) {
+		const NkEditMesh::Edge &ed = m.edges[e];
+		if (!ed.alive)
+			continue;
+		if ((uint32)ed.v0 < m.VertCount() && (uint32)ed.v1 < m.VertCount() && m.verts[ed.v0].sel &&
+			m.verts[ed.v1].sel)
+			++n;
+	}
+	return n;
+}
+static int32 SupFacesSel(const NkEditMesh &m) {
+	int32 n = 0;
+	for (uint32 f = 0; f < (uint32)m.faces.Size(); ++f)
+		if (m.faces[f].alive && m.faces[f].sel)
+			++n;
+	return n;
+}
+static int32 SuppressionBattery() {
+	const bool garde = (getenv("NK_DEL_KEEPSEL") != nullptr);
+	printf("[suppr] MUTATION NK_DEL_KEEPSEL : %s\n",
+		   garde ? "ACTIVE -- les criteres (1) et (2) DOIVENT rougir" : "inactive");
+	const NkVec3f PZ{0.f, 0.f, 0.5f}, MZ{0.f, 0.f, -0.5f};
+	const NkVec3f opposees[2] = {PZ, MZ};
+	const NkVec3f PX3{0.5f, 0.f, 0.f};
+	const NkVec3f seulePZ3[1] = {PZ};
+
+	NkEditMesh m;
+	IntPrepare(m, opposees, 2, true);
+
+	// (0) LE ZERO D'ABORD : les trois compteurs savent rendre autre chose que 0.
+	const int32 v0 = SupSommetsSel(m), e0 = SupAretesSel(m), f0 = SupFacesSel(m);
+	printf("[suppr] AVANT : faces vivantes=%d  selV=%d selE=%d selF=%d\n", IntFacesVivantes(m), v0,
+		   e0, f0);
+	IntDifferent("(0) ZERO : sommets selectionnes AVANT", 0, v0);
+	IntDifferent("(0) ZERO : aretes selectionnees AVANT", 0, e0);
+	IntDifferent("(0) ZERO : faces selectionnees AVANT", 0, f0);
+
+	// (1) LE PREMIER X : deux faces partent (6 - 2 = 4) et la selection est VIDE
+	//     dans les trois sous-modes.
+	const bool ok1 = m.DeleteSelectedFaces();
+	const int32 fv1 = IntFacesVivantes(m);
+	const int32 v1 = SupSommetsSel(m), e1 = SupAretesSel(m), f1 = SupFacesSel(m);
+	printf("[suppr] APRES 1er X (rendu=%d) : faces vivantes=%d  selV=%d selE=%d selF=%d\n",
+		   ok1 ? 1 : 0, fv1, v1, e1, f1);
+	IntVerdict("(1a) le 1er X supprime les deux faces opposees", 4, fv1);
+	IntVerdict("(1b) apres le 1er X : sommets selectionnes", 0, v1);
+	IntVerdict("(1c) apres le 1er X : aretes selectionnees", 0, e1);
+	IntVerdict("(1d) apres le 1er X : faces selectionnees", 0, f1);
+
+	// (2) LE SECOND X NE SUPPRIME PLUS RIEN. C'est LE critere qui porte le defaut
+	//     signale par Rodolf : un temoin qui se serait arrete au premier X serait
+	//     reste vert. `DeleteSelectedFaces` rend faux quand aucune face n'est prise.
+	const bool ok2 = m.DeleteSelectedFaces();
+	const int32 fv2 = IntFacesVivantes(m);
+	printf("[suppr] APRES 2e X (rendu=%d) : faces vivantes=%d\n", ok2 ? 1 : 0, fv2);
+	IntVerdict("(2a) le 2e X ne supprime rien : faces inchangees", fv1, fv2);
+	IntVerdict("(2b) le 2e X rend FAUX (rien de selectionne)", 0, ok2 ? 1 : 0);
+
+
+	// (3) L'INTENTION DE FACE PERIMEE NE DOIT PAS SURVIVRE NON PLUS.
+	//     POURQUOI CE CAS EXISTE : sans lui, la ligne qui remet `FaceAttrib::sel` a
+	//     zero ne deplacerait AUCUNE mesure -- dans le cas (1), toute face survivante
+	//     a deja `sel = 0` par construction, puisque les faces retenues sont
+	//     justement celles qu'on supprime. Un correctif qui ne deplace aucune mesure
+	//     est indiscernable d'un placebo, et il FERME LE DOSSIER. Il fallait donc le
+	//     cas ou une intention PERIMEE survit.
+	//     LE MONTAGE : on pose l'intention sur +Z, puis on change la selection de
+	//     SOMMETS pour +X SANS reposer l'intention. `RefreshFaceSel` ne fait que
+	//     VALIDER (elle ne rededuit rien) : `faceSelOk` passe a faux, la suppression
+	//     part sur la deduction et retire +X -- pendant que +Z garde un `sel = 1`
+	//     perime, qu'une operation ulterieure relirait.
+	{
+		NkEditMesh m3;
+		IntPrepare(m3, seulePZ3, 1, true);
+		const int32 fx = IntFaceParCentre(m3, PX3);
+		NkVector<uint8> vs;
+		vs.Resize(m3.VertCount());
+		for (uint32 i = 0; i < (uint32)vs.Size(); ++i)
+			vs[i] = 0;
+		if (fx >= 0) {
+			NkVector<NkEmId> loop;
+			m3.GetFaceVerts((NkEmId)fx, loop);
+			for (uint32 k = 0; k < (uint32)loop.Size(); ++k)
+				vs[loop[k]] = 1;
+		}
+		m3.SetVertSelection(vs.Data(), (uint32)vs.Size());
+		const int32 avant = SupFacesSel(m3);
+		const bool ok3 = m3.DeleteSelectedFaces();
+		const int32 fv3 = IntFacesVivantes(m3), f3 = SupFacesSel(m3);
+		printf("[suppr] INTENTION PERIMEE : avant selF=%d, apres (rendu=%d) vivantes=%d selF=%d\n",
+			   avant, ok3 ? 1 : 0, fv3, f3);
+		IntVerdict("(3a) ZERO : l'intention perimee est bien la AVANT", 1, avant);
+		IntVerdict("(3b) la deduction retire la seule face +X", 5, fv3);
+		IntVerdict("(3c) l'intention de face perimee ne survit pas", 0, f3);
+	}
+
+	printf("[suppr] %d echec(s)\n", gIntEchecs);
+	if (garde)
+		return gIntEchecs > 0 ? 1 : 2;
+	return gIntEchecs ? 1 : 0;
+}
+
 int main(int argc, char **argv) {
 	// ANCRE : resolue AVANT toute mesure (cf. Applications/Common/NkBenchRoot.h).
 	// C'est elle qui porte les ressources ET la reference (cf. CheminRessource).
@@ -9457,6 +9589,7 @@ int main(int argc, char **argv) {
 	}
 
 	bool baseline = false, check = false, perf = false, intention = false;
+	bool suppression = false;
 	for (int32 i = 1; i < argc; i++) {
 		if (strcmp(argv[i], "--baseline") == 0)
 			baseline = true;
@@ -9466,11 +9599,17 @@ int main(int argc, char **argv) {
 			perf = true;
 		else if (strcmp(argv[i], "--intention") == 0)
 			intention = true;
+		else if (strcmp(argv[i], "--suppression") == 0)
+			suppression = true;
 	}
 	// --intention rend AVANT les batteries comparees : il ne pose aucune ligne dans
 	// gLines, donc ne peut ni perimer ni masquer la reference de --check.
 	if (intention)
 		return IntentionBattery();
+	// MEME RAISON QUE --intention : cette batterie n'ecrit aucune ligne dans
+	// `gLines`, donc elle ne peut ni perimer ni masquer la reference de --check.
+	if (suppression)
+		return SuppressionBattery();
 
 	Battery();
 	WireBattery();

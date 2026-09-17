@@ -2717,7 +2717,28 @@ namespace nkentseu {
 		}
 
 		// DELETE : supprime les faces sélectionnées, compacte les sommets orphelins.
+		// ── APRES UNE SUPPRESSION, LA SELECTION EST VIDE ────────────────────────
+		// COMPORTEMENT BLENDER, confirme par Rodolf (14/09) : « dans Blender, la
+		// selection est VIDE apres une suppression ».
+		//
+		// 🔴 CE QUE CA REPARE, ET CE N'EST PAS COSMETIQUE. La selection SURVIVAIT a
+		//   la suppression : les sommets survivants gardaient leur `sel` et les faces
+		//   survivantes leur `FaceAttrib::sel`. Sur un cube, supprimer deux faces
+		//   opposees laissait les quatre autres SELECTIONNEES -- et un SECOND X
+		//   vidait le cube : 6 faces, puis 4, puis 0. Une frappe de trop detruisait
+		//   le travail. C'est Rodolf qui l'a signale.
+		//
+		// ⚠ LA REGLE EST POSEE ICI, DANS LE MOTEUR, ET PAS DANS LE MODELEUR. Tous
+		//   les hotes (NK3DModeler, NkAnimaEditor, Nogee...) passent par cette
+		//   fonction ; une regle posee dans un seul appelant aurait ete vraie a un
+		//   seul endroit, et fausse partout ailleurs sans que rien ne le dise.
+		//
+		// MUTATION, DANS LE MEME BINAIRE : `NK_DEL_KEEPSEL=1` remet l'ANCIEN
+		// comportement et ne touche a rien d'autre. Le banc `--suppression` de
+		// NKEditMeshHarness DOIT alors rougir ; s'il reste vert, il ne teste rien.
+		// Lu une seule fois : un getenv par face serait une mesure qui coute.
 		bool NkEditMesh::DeleteSelectedFaces() {
+			static const bool gardeSelApresSuppr = (getenv("NK_DEL_KEEPSEL") != nullptr);
 			NkVector<NkVertex3D> pv;
 			NkVector<uint32> fs, fv;
 			// MATERIAU PAR FACE : transporte a travers le round-trip. Les faces survivantes gardent leur index ; la face supprimee ne laisse rien.
@@ -2749,12 +2770,24 @@ namespace nkentseu {
 					if (remap[vi] < 0) {
 						remap[vi] = (int32)nv2.Size();
 						nv2.PushBack(pv[vi]);
-						vsel.PushBack(verts[vi].sel);
+						// APRES UNE SUPPRESSION, LA SELECTION EST VIDE (voir plus bas).
+						vsel.PushBack(gardeSelApresSuppr ? verts[vi].sel : (uint8)0);
 					}
 					nfv.PushBack((uint32)remap[vi]);
 				}
 				nfs.PushBack((uint32)nfv.Size());
-				nfm.PushBack(f < (uint32)fm.Size() ? fm[f] : NkEditMesh::FaceAttrib{});
+				{
+					NkEditMesh::FaceAttrib fa =
+						f < (uint32)fm.Size() ? fm[f] : NkEditMesh::FaceAttrib{};
+					// L'INTENTION DE FACE SE VIDE AUSSI, et c'est elle qui compte : les
+					// operations lisent `FaceAttrib::sel` quand elle est valide, pas la
+					// deduction depuis les sommets. La laisser allumee rendrait le vidage
+					// des sommets purement decoratif -- un ecran a 0 et un second X qui
+					// supprime quand meme.
+					if (!gardeSelApresSuppr)
+						fa.sel = 0;
+					nfm.PushBack(fa);
+				}
 			}
 			if (removed == 0)
 				return false;
