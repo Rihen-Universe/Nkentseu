@@ -220,6 +220,17 @@ namespace nkentseu {
 				uint32 animations = 0;		   ///< blocs de section `animation`
 				uint32 rolesInconnus = 0;	   ///< hors vocabulaire du document 7
 				uint32 apparencesLues = 0;	   ///< blocs `appearance` rencontres
+				/// ⚠️ CE QUE L'APPARENCE AU REPOS A REELLEMENT PEINT (2026-09-17). Le
+				///    monteur la COMPTAIT sans jamais l'appliquer : une demande de vert
+				///    pur rendait 0 pixel vert sur 700 000 lus. Deux compteurs, pas un :
+				///    « lue » ne dit pas « honoree ».
+				uint32 apparencesPeintes = 0;
+				/// ⚠️ ET CELLES QU'ON NE SAIT PAS PEINDRE -- un `fill` sur un role sans
+				///    surface (`Group`, `Spacer`, `Text`...), ou une propriete que ce
+				///    monteur ne rend pas (`radius`, `shadow`, `font`, `stroke`). Un repli
+				///    MUET ferait passer un document a moitie honore pour un document
+				///    honore : celui-ci se compte.
+				uint32 apparencesNonPeintes = 0;
 				uint32 etatsNonAppliques = 0;  ///< `appearance(Hover)` et consorts
 				// ── LE PLACEMENT PAR WIDGET (2026-09-14) ─────────────────────
 				// `pos` est l'interrupteur : un widget qui l'ecrit est POSE.
@@ -731,6 +742,83 @@ namespace nkentseu {
 			return true;
 		}
 		
+		/// ── L'APPARENCE AU REPOS, LUE UNE FOIS ────────────────────────────────────
+		/// Ce que le document ecrit dans `appearance { ... }` SANS parenthese d'etat.
+		///
+		/// ⚠️ LE REPOS SEUL, ET C'EST UNE LIMITE ASSUMEE. `appearance(Hover)` decrit
+		///    un etat que ce monteur ne peut pas atteindre -- il monte l'etat au repos,
+		///    il n'a ni souris ni focus. Il les compte deja (`etatsNonAppliques`) ; les
+		///    peindre serait mentir sur ce qu'on voit.
+		struct NkGuiApparenceRepos {
+				NkColor fond{0, 0, 0, 0};
+				NkColor encre{0, 0, 0, 0};
+				float32 rayon = -1.f;
+				bool aFond = false;
+				bool aEncre = false;
+				/// Les proprietes ECRITES que ce monteur ne rend pas. Comptees, jamais tues.
+				uint32 nonRendues = 0;
+		};
+
+		/// Le lexeme d'etat d'un bloc dit-il LE REPOS ? `$state` porte la parenthese
+		/// entiere telle qu'ecrite : `(Normal)`, `(  Normal  )`, `(Hover)`.
+		inline bool NkGuiEtatEstRepos(NkStringView lexeme) noexcept {
+			// `$state` porte la parenthese entiere telle qu'ecrite :
+			// `(Normal)`, `(  Normal  )`, `(Hover)`.
+			for (uint32 i = 0; i + 5u < (uint32)lexeme.Size() + 1u; ++i) {
+				if (lexeme.Data()[i] == 'N' && i + 6u <= (uint32)lexeme.Size()) {
+					bool ok = true;
+					const char *m = "Normal";
+					for (uint32 j = 0; j < 6u; ++j)
+						if (lexeme.Data()[i + j] != m[j])
+							ok = false;
+					if (ok)
+						return true;
+				}
+			}
+			return false;
+		}
+
+		inline NkGuiApparenceRepos NkGuiLireApparenceRepos(const NkArchive &w) noexcept {
+			NkGuiApparenceRepos a;
+			const NkArchiveNode *corps = NkGMonteCorps(w);
+			if (!corps)
+				return a;
+			for (uint32 k = 0; k < (uint32)corps->array.Size(); ++k) {
+				if (!corps->array[k].IsObject() || !corps->array[k].object)
+					continue;
+				const NkArchive &ap = *corps->array[k].object;
+				if (!NkGMotEgal(NkGuiArchive::TypeOf(ap), "appearance"))
+					continue;
+				// ⚠️ LA PARENTHESE D'ETAT EST LE FILTRE, et elle se lit par la MEME porte
+				//    que le compteur `etatsNonAppliques` juste au-dessus. Deux lectures de
+				//    l'etat finiraient par ne plus etre d'accord sur ce qu'est « le repos ».
+				const NkStringView st = NkGuiArchive::StateOf(ap);
+				if (st.Size() > 0 && !NkGuiEtatEstRepos(st))
+					continue;
+				if (NkGA(ap, "radius"))
+					a.rayon = NkGNombre(ap, "radius", -1.f);
+				if (NkGA(ap, "font"))
+					++a.nonRendues; // la chasse : le monteur n'a qu'une fonte
+				const NkArchiveNode *c2 = NkGMonteCorps(ap);
+				if (!c2)
+					continue;
+				for (uint32 j = 0; j < (uint32)c2->array.Size(); ++j) {
+					if (!c2->array[j].IsObject() || !c2->array[j].object)
+						continue;
+					const NkArchive &sub = *c2->array[j].object;
+					const NkStringView ts = NkGuiArchive::TypeOf(sub);
+					const NkArchiveNode *nc = sub.FindNode(NkStringView("color"));
+					if (NkGMotEgal(ts, "fill") && nc)
+						a.aFond = NkGuiCouleur(nc->Lexeme(), a.fond);
+					else if (NkGMotEgal(ts, "text") && nc)
+						a.aEncre = NkGuiCouleur(nc->Lexeme(), a.encre);
+					else if (NkGMotEgal(ts, "shadow") || NkGMotEgal(ts, "stroke"))
+						++a.nonRendues;
+				}
+			}
+			return a;
+		}
+
 		// =====================================================================
 		//  LE CROCHET D'EXECUTION -- et pourquoi il est ici et pas ailleurs
 		// =====================================================================
@@ -1126,6 +1214,25 @@ namespace nkentseu {
 					// un crochet, qui est du code ecrit par quelqu'un d'autre.
 					if (pl.pose && !estConteneur)
 						ctx.SetNextItemRect(pl.rect);
+					// ── L'APPARENCE AU REPOS ──────────────────────────────────────
+					// Elle etait COMPTEE et jamais appliquee : une demande de vert pur rendait
+					// 0 pixel vert sur 700 000 lus (mesure du 17/09, decodeur PNG independant).
+					// On la lit ici, une fois, et chaque role la rend a SA maniere.
+					//
+					// ⚠️ PAS DE SURCHARGE GLOBALE DU THEME. Un conteneur vert dont le theme
+					//    resterait surcharge pendant le montage de ses enfants TEINDRAIT ses
+					//    enfants. La surcharge ne vaut que pour les roles SANS enfants ; un
+					//    conteneur, lui, peint son rectangle et rend la main.
+					const NkGuiApparenceRepos app = NkGuiLireApparenceRepos(w);
+					rap.apparencesNonPeintes += app.nonRendues;
+					// ⚠️ ET CE QU'AUCUN ROLE NE SAURA PEINDRE SE COMPTE ICI, PAS PLUS LOIN.
+					//    Seuls quatre roles ont une surface a remplir. Un `fill` ecrit sur un
+					//    `Group`, un `Spacer` ou un `Text` est une demande que le monteur ne
+					//    tient pas : la compter ici, ou le role est connu, evite de la compter
+					//    dans chaque `case` -- et surtout d'en OUBLIER un en silence.
+					if (app.aFond && role != NkGuiRole::Button && role != NkGuiRole::RepeatButton
+						&& role != NkGuiRole::Panel && role != NkGuiRole::Window)
+						++rap.apparencesNonPeintes;
 					bool aDessine = true;
 					float32 valeurMontee = 0.f;
 					bool aValeurMontee = false;
@@ -1187,6 +1294,15 @@ namespace nkentseu {
 										++rap.flagsNonAppliques;
 							}
 							PanelBackground(ctx, r);
+							// ⚠️ PAR-DESSUS, ET AVANT LES ENFANTS. Le fond du theme est peint d'abord
+							//    (il porte l'ombre et le contour que la primitive dessine) ; la couleur
+							//    du document le recouvre. Peindre a la place aurait fait disparaitre ce
+							//    que la primitive ajoute autour.
+							if (app.aFond) {
+								ctx.DL().AddRectFilled(r, app.fond, app.rayon >= 0.f ? app.rayon : ctx.theme.rounding);
+								++rap.apparencesPeintes;
+							}
+
 							// ⚠️ LE `title` DU FICHIER ETAIT PERDU. Le monteur n'ouvre
 							//    pas `BeginPanel` (voir l'en-tete du fichier), mais ne
 							//    pas ouvrir un conteneur n'est pas une raison de jeter
@@ -1356,15 +1472,35 @@ namespace nkentseu {
 						// ── FEUILLES ─────────────────────────────────────────
 						case NkGuiRole::Text: {
 							const NkString s = NkGTexte(w, "text", "");
+							// ⚠️ UN `Text` N'A PAS DE SURFACE. Son apparence honoree est son ENCRE
+							//    (`text { color }`). Un `fill` ecrit sur lui demande un fond que NKGui
+							//    ne peint pas pour un texte : on le COMPTE plutot que de l'inventer
+							//    -- inventer un rectangle demanderait de mesurer le texte avant de le
+							//    dessiner, ce que ce monteur ne fait pas.
+							const NkColor sauve = ctx.theme.text;
+							if (app.aEncre) {
+								ctx.theme.text = app.encre;
+								++rap.apparencesPeintes;
+							}
 							if (NkGBooleen(w, "wrap", false))
 								TextWrapped(ctx, s.CStr());
 							else
 								Text(ctx, s.CStr());
+							ctx.theme.text = sauve;
 							break;
 						}
 						case NkGuiRole::Button: {
 							const NkString s = NkGTexte(w, "label", id.CStr());
+							// ⚠️ UNE FEUILLE : la surcharge ne peut fuir vers personne, et elle est
+							//    RENDUE juste apres. C'est ce qui la rend sure ici et interdite sur
+							//    un conteneur.
+							const NkColor sauve = ctx.theme.button;
+							if (app.aFond) {
+								ctx.theme.button = app.fond;
+								++rap.apparencesPeintes;
+							}
 							(void)Button(ctx, s.CStr());
+							ctx.theme.button = sauve;
 							break;
 						}
 						case NkGuiRole::RepeatButton: {
@@ -1961,21 +2097,13 @@ namespace nkentseu {
 					return r;
 				}
 
+				/// ⚠️ UNE SEULE LECTURE DE « LE REPOS » DANS TOUT LE FICHIER. Elle vit
+				///    desormais en fonction libre (`NkGuiEtatEstRepos`) parce que le lecteur
+				///    d'apparence, ecrit hors de cette classe, en a besoin lui aussi. Deux
+				///    copies auraient fini par ne plus etre d'accord sur ce qu'est le repos,
+				///    et le desaccord se serait vu en PIXELS, jamais dans un compteur.
 				static bool EtatEstRepos(NkStringView lexeme) noexcept {
-					// `$state` porte la parenthese entiere telle qu'ecrite :
-					// `(Normal)`, `(  Normal  )`, `(Hover)`.
-					for (uint32 i = 0; i + 5u < (uint32)lexeme.Size() + 1u; ++i) {
-						if (lexeme.Data()[i] == 'N' && i + 6u <= (uint32)lexeme.Size()) {
-							bool ok = true;
-							const char *m = "Normal";
-							for (uint32 j = 0; j < 6u; ++j)
-								if (lexeme.Data()[i + j] != m[j])
-									ok = false;
-							if (ok)
-								return true;
-						}
-					}
-					return false;
+					return NkGuiEtatEstRepos(lexeme);
 				}
 
 				static void CompterApparences(const NkArchive &w, NkGuiMonteRapport &rap) noexcept {

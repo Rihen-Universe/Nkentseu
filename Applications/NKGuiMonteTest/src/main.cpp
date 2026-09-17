@@ -690,6 +690,14 @@ static int MonterUnFichier(const char *chemin) {
 			++nonGroupes;
 	}
 	printf("  roles utiles: %u widget(s) qui ne sont pas un simple conteneur\n", nonGroupes);
+	// ⚠️ DEUX COMPTEURS QUE PERSONNE N'IMPRIMAIT N'AURAIENT SERVI A PERSONNE.
+	//    `apparencesLues` disait combien de blocs le document ecrit ; il ne disait
+	//    pas combien ont ete HONORES. Depuis le 17/09 le monteur peint l'apparence
+	//    au repos des quatre roles qui ont une surface, et compte a part ce qu'il
+	//    ne sait pas rendre. Les deux se lisent ici, cote a cote, parce qu'un
+	//    compteur qu'on n'imprime pas est un compteur que personne ne verifie.
+	printf("  apparence  : %u lue(s), %u peinte(s), %u NON peinte(s)\n",
+		   m.rap.apparencesLues, m.rap.apparencesPeintes, m.rap.apparencesNonPeintes);
 	const bool ok = m.lu && v.errors == 0u && m.rap.rolesInconnus == 0u
 					&& m.rap.hotesNonRemplis == 0u && m.rap.zonesSansPanneau == 0u
 					&& m.rap.montes > 0u;
