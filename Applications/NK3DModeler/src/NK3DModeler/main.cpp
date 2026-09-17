@@ -2835,6 +2835,25 @@ int nkmain(const NkEntryState &entry) {
 			}
 		}
 
+		// NK_PIVOT_REPORT=<image> : le PIVOT d'edition reellement utilise, et le mode
+		// qui l'a produit. Il existe parce que « le reglage existe » et « le reglage
+		// AGIT » sont deux choses differentes, et qu'une seule des deux se lit.
+		{
+			static bool sPvRepFait = false;
+			if (const char *pr = std::getenv("NK_PIVOT_REPORT")) {
+				const int32 fr = (int32)std::atoi(pr);
+				if (!sPvRepFait && fr > 0 && agentFrame >= fr) {
+					sPvRepFait = true;
+					float32 px = 0.f, py = 0.f, pz = 0.f;
+					int32 md = -1;
+					const bool ok = demo::Demo3DHostEditPivot(&px, &py, &pz, &md);
+					std::printf("[nk3d] PIVOT frame=%d : mode=%d -> (%.4f, %.4f, %.4f) (lu=%d)\n",
+							(int)agentFrame, (int)md, (double)px, (double)py, (double)pz, ok ? 1 : 0);
+					std::fflush(stdout);
+				}
+			}
+		}
+
 		// NK_MENU_X="<image>[,<entree>]" : la touche X SANS CLAVIER.
 		// Sans <entree>, le menu s'ouvre et RIEN n'est choisi -- c'est le ZERO du
 		// nouveau comportement : X seul ne supprime plus. Avec <entree>, on passe par

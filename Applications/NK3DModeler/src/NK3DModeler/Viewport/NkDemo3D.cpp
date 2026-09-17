@@ -1767,6 +1767,8 @@ namespace nkentseu {
 				// indexee sur la TAILLE de l'objet -- et l'objet fuyait le curseur des
 				// qu'on s'eloignait.
 				NkVec3f vueCamPos{0.f, 0.f, 0.f};
+				// Le pivot d'edition effectivement utilise, en monde. Mesure, pas lu.
+				NkVec3f editPivotW{0.f, 0.f, 0.f};
 				float32 vueThY = 0.5773502692f; // tan(30 deg), le demi-angle vertical
 				float32 vueH = 1.f;             // hauteur de la vue, en pixels
 				// Photographies au lancement de la modale, comme le repere.
@@ -10227,6 +10229,10 @@ namespace nkentseu {
 						 st->editActiveVert < nv)
 					pivotW = worldV(st->editActiveVert);
 
+				// PUBLIE : « le reglage existe » et « le reglage AGIT » sont deux choses
+				// differentes, et une seule des deux se lit. Apres le pas d'aimantation
+				// ecrase a chaque image par la boucle, le pivot se MESURE.
+				st->editPivotW = pivotW;
 				// Cible unique du gizmo = le PIVOT courant.
 				renderer::NkGizmoTarget vt[1];
 				vt[0] = {NkMat4f::Translate(pivotW), {0.001f, 0.001f, 0.001f}, 0.0001f};
@@ -17352,6 +17358,22 @@ namespace nkentseu {
 			if (relaches)
 				*relaches = st->clipRelaches;
 			return st->clipActif;
+		}
+		// Le PIVOT d'edition REELLEMENT utilise, et le mode qui l'a produit. Sert a
+		// prouver que le reglage AGIT : quatre modes doivent donner quatre reponses.
+		bool Demo3DHostEditPivot(float32 *x, float32 *y, float32 *z, int32 *mode) {
+			auto *st = HostSt();
+			if (!st || !st->editMode)
+				return false;
+			if (x)
+				*x = st->editPivotW.x;
+			if (y)
+				*y = st->editPivotW.y;
+			if (z)
+				*z = st->editPivotW.z;
+			if (mode)
+				*mode = st->editGizmo.PivotMode();
+			return true;
 		}
 		int32 Demo3DHostEditSelCountFor(int32 mask) {
 			auto *st = HostSt();
