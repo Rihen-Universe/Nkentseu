@@ -4222,6 +4222,31 @@ namespace nkentseu {
 			for (uint32 i = 0; i < (uint32)st->vertSel.Size(); ++i)
 				if (st->vertSel[i])
 					cmd.selection.PushBack(i);
+			// ⚠️ ET L'INTENTION DE FACE AVEC, sinon le journal rejoue une AUTRE
+			//    intention que celle de la main. Sur un cube, « deux faces opposees »
+			//    allume les huit sommets ; au rejeu, les six faces etaient alors
+			//    entierement couvertes et l'extrusion en prenait SIX. Le geste
+			//    enregistre n'etait pas incomplet, il etait FAUX.
+			//    On ne l'ecrit QUE dans le sous-mode FACE : dans les sous-modes
+			//    sommet et arete, l'editeur ne pose aucune intention de face, et en
+			//    fabriquer une ici ferait entrer dans le journal une donnee que
+			//    l'utilisateur n'a jamais exprimee.
+			cmd.faceSel.Clear();
+			// ⚠️ LA MUTATION DU BANC VIT ICI, et elle vit dans le MEME BINAIRE.
+			//    `NK_MEC_SANS_INTENTION=1` restaure l'etat d'avant : la commande
+			//    part sans intention de face, et les trois verdicts du harnais
+			//    doivent revenir a 14 / 1 / 30. Sans elle, le banc cesserait de
+			//    mesurer la limite qu'il servait a documenter des que la limite
+			//    serait levee -- « le negatif doit changer de place, pas
+			//    disparaitre ».
+			static int32 sSansIntention = -1;
+			if (sSansIntention < 0) {
+				const char *v = getenv("NK_MEC_SANS_INTENTION");
+				sSansIntention = (v && v[0] && v[0] != '0') ? 1 : 0;
+			}
+			if (!sSansIntention && (st->editSelMask & 4) && !st->faceSel.Empty())
+				for (uint32 f = 0; f < (uint32)st->faceSel.Size(); ++f)
+					cmd.faceSel.PushBack(st->faceSel[f]);
 			Demo3D_PushSel(st);
 			renderer::NkEditMesh snapshot = st->editHE; // pré-état (avec sélection live)
 			if (!cmd.Apply(st->editHE))
@@ -8004,6 +8029,20 @@ namespace nkentseu {
 						if (m)
 							st->editSelMask = m;
 					}
+					// ── CROCHET DE MESURE DU RAYON X ────────────────────────────────
+					// ⚠️ IL EXISTE PARCE QU'UN NEGATIF A DEJA ETE CRU SANS LUI. La
+					//    session du 17/09 a bascule le rayon X par la commande du shell,
+					//    n'a vu aucun marqueur apparaitre, et en a conclu que le filtre
+					//    d'orientation etait hors de cause -- SANS AVOIR VERIFIE que le
+					//    rayon X s'etait reellement allume. Un negatif dont on ne prouve
+					//    pas la condition ne refute rien.
+					//    Ici l'etat est POSE et IMPRIME, sur la meme ligne : ce qui est
+					//    lu ensuite dans le journal est l'etat REEL, pas une intention.
+					if (const char *xr = getenv("NK_EDIT_XRAY")) {
+						st->editXray = (xr[0] && xr[0] != '0');
+						st->editOverlayDirty = true;
+						logger.Info("[MARQ] crochet NK_EDIT_XRAY : editXray = {0}\n", st->editXray ? 1 : 0);
+					}
 					if (const char *sh = getenv("NK_SHADING")) {
 						st->shadingMode = atoi(sh) % 6;
 						const int32 vm[6] = {0, 1, 1, 2, 3, 4};
@@ -11522,6 +11561,18 @@ namespace nkentseu {
 				// rendu identique OpenGL / DX12). Non sél. = sombre, sél. = orange, actif = blanc ;
 				// PLEIN dans tous les cas (fin liseré sombre dessous pour la lisibilité). Rendu
 				// chaque frame (suit la caméra pour rester écran-constant).
+				// ── CROCHET : ON COMPTE LES APPELS DE TRACE, ON NE LES SUPPOSE PAS ──
+				// Le gizmo emprunte EXACTEMENT le meme chemin (`DrawDebugTriangle`) et
+				// se voit ; les marqueurs ne se voient pas. Tant qu'on n'a pas compte
+				// les appels des deux, on ne sait pas si le defaut est « on ne trace
+				// pas » ou « on trace et ca ne peint pas » -- deux causes opposees,
+				// un seul symptome. `NK_MARQ_PROBE=1`.
+				static const bool nkMarqProbe = []() {
+					const char *v = getenv("NK_MARQ_PROBE");
+					return v && v[0] && v[0] != '0';
+				}();
+				static uint32 nkMarqFrame = 0u;
+				uint32 nkMarqTri = 0u, nkMarqCull = 0u, nkMarqPts = 0u, nkGizmoTri = 0u;
 				{
 					auto liveWv = [&](int32 i) { return st->editAnchor * st->editLive[i].pos; };
 					// Les marqueurs sont tracés SANS depth-test (fiabilité DX12) : sans filtre,
@@ -11550,6 +11601,7 @@ namespace nkentseu {
 						// lui-même). X-ray ON -> no-depth : on voit à travers (façon Blender).
 						// Le GIZMO, lui, reste no-depth dans TOUS les cas (dessiné plus bas).
 						diagTri("marker", c00, c10, c11, col);
+						nkMarqTri += 2u;
 						r3d->DrawDebugTriangle(c00, c10, c11, col, 0.f, st->editXray);
 						r3d->DrawDebugTriangle(c00, c11, c01, col, 0.f, st->editXray);
 					};
@@ -11565,8 +11617,11 @@ namespace nkentseu {
 					if (st->editSelMask & 1) {
 						for (int32 i = 0; i < nv; i++) {
 							NkVec3f w = liveWv(i);
-							if (!facingCam(w, st->editLive[i].normal))
+							if (!facingCam(w, st->editLive[i].normal)) {
+								++nkMarqCull;
 								continue; // sommet du dos -> caché (sauf X-ray), façon Blender
+							}
+							++nkMarqPts;
 							if (i == st->editActiveVert)
 								dot(w, 2.0f, NkVec4f{1.f, 1.f, 1.f, 1.f}); // actif = BLANC
 							else if (i < (int32)st->vertSel.Size() && st->vertSel[i])
@@ -11627,8 +11682,24 @@ namespace nkentseu {
 					[&](NkVec3f a, NkVec3f b, NkVec4f c) { r3d->DrawDebugLine(a, b, c, 0.f, true); },
 					[&](NkVec3f a, NkVec3f b, NkVec3f c, NkVec4f col) {
 						diagTri("gizmo", a, b, c, col);
+						++nkGizmoTri;
 						r3d->DrawDebugTriangle(a, b, c, col, 0.f, true);
 					});
+				// ⚠️ LE TEMOIN EST LE GIZMO, ET IL EST DANS LA MEME LIGNE. Il part par
+				//    le meme appel, dans la meme image, vers le meme tampon -- avec, pour
+				//    seule difference, `overlay = true` la ou les marqueurs passent
+				//    `overlay = st->editXray`. Si les deux comptes sont non nuls et que
+				//    seul le gizmo se voit, le dessin est disculpe et le suspect devient
+				//    le PIPELINE PROFONDEUR, pas le trace.
+				if (nkMarqProbe && nkMarqFrame < 40u) {
+					logger.Info("[MARQ] n={0} selMask={1} xray={2} sommets(traces)={3} sommets(rejetes "
+								"par l'orientation)={4} triangles(marqueurs)={5} triangles(gizmo)={6} "
+								"overlay(marqueurs)={7}\n",
+								(int32)nkMarqFrame, (int32)st->editSelMask, st->editXray ? 1 : 0,
+								(int32)nkMarqPts, (int32)nkMarqCull, (int32)nkMarqTri, (int32)nkGizmoTri,
+								st->editXray ? 1 : 0);
+					++nkMarqFrame;
+				}
 			}
 
 			// ── Gizmo éditeur (composant réutilisable NkGizmo3D) ────────────────────
