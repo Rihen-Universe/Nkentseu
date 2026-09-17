@@ -1761,6 +1761,17 @@ namespace nkentseu {
 				// Le repere de la vue de l'image courante, pose par la boucle. C'est lui
 				// que la modale photographie.
 				NkVec3f vueRight{1.f, 0.f, 0.f}, vueUp{0.f, 1.f, 0.f}, vueFwd{0.f, 0.f, 1.f};
+				// (b8 temps 2) DE QUOI CONVERTIR DES PIXELS EN UNITES DU MONDE. A la
+				// distance d de la camera, un pixel d'ecran vaut (2 d tan(fov/2)) / H
+				// unites. Sans ces trois-la, l'echelle du geste ne pouvait qu'etre
+				// indexee sur la TAILLE de l'objet -- et l'objet fuyait le curseur des
+				// qu'on s'eloignait.
+				NkVec3f vueCamPos{0.f, 0.f, 0.f};
+				float32 vueThY = 0.5773502692f; // tan(30 deg), le demi-angle vertical
+				float32 vueH = 1.f;             // hauteur de la vue, en pixels
+				// Photographies au lancement de la modale, comme le repere.
+				float32 modalPxParUnite = 1.f;  // pixels d'ecran par unite du monde, au pivot
+				float32 modalDragPx = 0.f;      // course souris TOTALE du geste, en pixels
 				float32 modalScale = 0.01f;       // conversion pixels -> unites du parametre
 				bool modalDirty = true;           // les parametres ont change -> re-appliquer
 				int32 modalLoopA = -1, modalLoopB = -1; // LOOP CUT : arete survolee (apercu de l'anneau)
@@ -4865,6 +4876,20 @@ namespace nkentseu {
 				st->modalOp = 0;
 				st->modalPhoto = Demo3DState::kPhotoMaillage;
 				st->editOverlayDirty = true;
+				// ── L'INSTRUMENT DE (b8 temps 2) ────────────────────────────────────
+				// « L'objet reste-t-il sous le curseur ? » se mesure en PIXELS, pas en
+				// unites : on fait donc imprimer a l'application la grandeur qu'elle
+				// possede deja -- le deplacement projete a l'ecran -- au lieu de la
+				// deduire d'une capture. Un nombre, question close.
+				// On ne garde que la part PERPENDICULAIRE a l'axe de vue : la part qui
+				// s'eloigne ou se rapproche ne se traduit pas en pixels de deplacement.
+				{
+					const float32 le = t.Dot(st->modalVueRight), ha = t.Dot(st->modalVueUp);
+					const float32 ecranPx = sqrtf(le * le + ha * ha) * st->modalPxParUnite;
+					logger.Info("[Demo3D] (b8) GESTE : souris {0} px -> objet {1} px a l'ecran "
+							"(pxParUnite={2}, translation |{3}|)\n",
+						st->modalDragPx, ecranPx, st->modalPxParUnite, t.Len());
+				}
 				logger.Info("[Demo3D] MODAL {0} CONFIRME (axe={1} valeur={2}) -> translation=({3}, {4}, {5})\n",
 							Demo3D_ModalName(op),
 							st->modalAxis < 0 ? "libre" : (st->modalAxis == 0 ? "X" : (st->modalAxis == 1 ? "Y" : "Z")),
@@ -4962,6 +4987,13 @@ namespace nkentseu {
 			}
 			st->modalCurX += mdx + injDX;
 			st->modalCurY += mdy + injDY;
+			// (b8 temps 2) LA COURSE TOTALE, en pixels : c'est le denominateur du
+			// critere « l'objet reste sous le curseur ». Cumulee ici, la ou les deltas
+			// passent -- la deduire du depart et de l'arrivee raterait les allers-retours.
+			{
+				const float32 ddx = mdx + injDX, ddy = mdy + injDY;
+				st->modalDragPx += sqrtf(ddx * ddx + ddy * ddy);
+			}
 			int32 wheelNotches = 0;
 			if (st->lastWheel != 0.f) {
 				wheelNotches = (st->lastWheel > 0.f) ? 1 : -1;
@@ -5173,6 +5205,7 @@ namespace nkentseu {
 			st->modalVueRight = st->vueRight;
 			st->modalVueUp = st->vueUp;
 			st->modalVueFwd = st->vueFwd;
+			st->modalDragPx = 0.f;
 			// CURSEUR VIRTUEL : point de depart = position reelle de la souris. Les deltas
 			// (reels OU injectes par NK_MODAL_DRAG) s'y accumulent tant que l'op tourne.
 			st->modalCurX = st->modalStartX;
@@ -5196,6 +5229,21 @@ namespace nkentseu {
 				bmax.z = NkMax(bmax.z, q.z);
 			}
 			const float32 diag = (st->modalSnap.VertCount() > 0) ? (bmax - bmin).Len() : 1.f;
+			// ── (b8 temps 2) COMBIEN DE PIXELS VAUT UNE UNITE, ICI ? ────────────
+			// A la distance d, la vue couvre 2 d tan(fov/2) unites sur sa hauteur H.
+			// Un pixel vaut donc (2 d thY) / H unites, et une unite vaut l'inverse.
+			// La distance est prise au CENTRE DE LA BOITE ENGLOBANTE, en monde --
+			// pas a la cible de la camera : un objet loin de la cible aurait recu
+			// l'echelle d'un autre endroit de la scene.
+			{
+				const NkVec3f cLoc = (bmin + bmax) * 0.5f;
+				const NkVec3f cMonde = st->editMode ? (st->editAnchor * cLoc) : cLoc;
+				float32 dist = (cMonde - st->vueCamPos).Len();
+				if (!(dist > 1e-4f))
+					dist = 1.f; // camera SUR l'objet : aucune conversion n'a de sens
+				const float32 unitesParPixel = (2.f * dist * st->vueThY) / NkMax(1.f, st->vueH);
+				st->modalPxParUnite = (unitesParPixel > 1e-9f) ? (1.f / unitesParPixel) : 1.f;
+			}
 			switch (op) {
 				case 1:
 				case 2:
@@ -5237,10 +5285,32 @@ namespace nkentseu {
 					st->modalScale = diag / 400.f;
 					break;
 				// ── TRANSFORMATIONS (G / R / S), les DEUX modes ─────────────────
-				case 9:  // DEPLACER : la souris tire une distance, en unites du monde
+				case 9:  // DEPLACER : L'OBJET RESTE SOUS LE CURSEUR (Blender)
 					st->modalVal = 0.f;
 					st->modalSeg = 1;
-					st->modalScale = diag / 400.f;
+					// ⚠ L'ECHELLE EST CELLE DE LA VUE, PAS CELLE DE L'OBJET. Indexee sur la
+					//   diagonale de la boite englobante -- `diag / 400` -- elle donnait le
+					//   meme deplacement MONDE quelle que soit la distance, donc un
+					//   deplacement ECRAN d'autant plus petit qu'on s'eloignait : l'objet
+					//   fuyait le curseur. Mesure du 17/09, avant correctif : pour 120 px de
+					//   souris, l'objet parcourait 59,8 px a la distance 4 et 20,1 px a la
+					//   distance 12 -- un rapport de 2,98 pour une distance TRIPLE.
+					//   Un pixel de souris vaut desormais un pixel d'ecran AU PIVOT, ce qui
+					//   rend le geste previsible : c'est ce que fait Blender.
+					// ⚠ ET SEULE L'OP 9 CHANGE. Les autres (biseau, inset, extrusion...) ont
+					//   raison d'etre indexees sur la TAILLE de l'objet : leur parametre est
+					//   une longueur de matiere, pas un deplacement a l'ecran.
+					// MUTATION dans le MEME binaire : `NK_DIST_FIXE=1` remet l'ancienne
+					// echelle et rien d'autre.
+					{
+						static int distFixe = -1;
+						if (distFixe == -1) {
+							const char *v = getenv("NK_DIST_FIXE");
+							distFixe = (v && v[0] && v[0] != '0') ? 1 : 0;
+						}
+						st->modalScale = distFixe ? (diag / 400.f)
+							: (1.f / NkMax(1e-6f, st->modalPxParUnite));
+					}
 					break;
 				case 10: // TOURNER : 1 degre par pixel, comme le spin
 					st->modalVal = 0.f;
@@ -9924,7 +9994,10 @@ namespace nkentseu {
 				st->vueRight = rgt;
 				st->vueUp = upv;
 				st->vueFwd = fwd;
+				st->vueCamPos = camPos;
 				const float32 thY = tanf(60.f * 0.5f * 3.14159265f / 180.f);
+				st->vueThY = thY;
+				st->vueH = (float32)ctx.height;
 				const float32 thX = thY * ((float32)ctx.width / (float32)ctx.height);
 				const float32 VW = (float32)ctx.width, VH = (float32)ctx.height;
 				auto project = [&](NkVec3f P, float32 &px, float32 &py) -> bool {

@@ -114,6 +114,57 @@ $axOk = ($null -ne $dx) -and ($null -ne $dy) -and ([Math]::Abs($dx.x - $n0) -lt 
 Dire "(d) NEGATIF : G sur un axe explicite est INCHANGE" $axOk `
 	"axe X -> $(Txt $dx) · axe Y -> $(Txt $dy) (exige purement sur l'axe, meme amplitude $([Math]::Round($n0,4)))"
 
+# -- (e)(f)(g) TEMPS 2 : L'OBJET RESTE SOUS LE CURSEUR ---------------------
+# Blender : le deplacement suit le pointeur, a toute distance. Chez nous
+# l'echelle etait indexee sur la TAILLE de l'objet (diagonale / 400 px), donc le
+# meme geste donnait le meme deplacement MONDE quelle que soit la distance -- et
+# un deplacement ECRAN d'autant plus petit qu'on s'eloignait. L'objet fuyait le
+# pointeur.
+# ⚠ DEUX DISTANCES FRANCHEMENT DIFFERENTES (simple et TRIPLE) : avec deux
+#   distances voisines, l'ecart se noierait dans la tolerance et le critere
+#   passerait au vert sans rien avoir distingue.
+# ⚠ ET L'INSTRUMENT SAIT ROUGIR, c'est mesure : sous NK_DIST_FIXE (l'echelle
+#   d'avant), 120 px de souris donnaient 59,8 px a la distance 4 et 20,1 px a la
+#   distance 12 -- un rapport de 2,98 pour une distance triple.
+function GestePx([string]$nom, [string]$dist, [string]$mutDist) {
+	$sortie = Join-Path ([System.IO.Path]::GetTempPath()) "nk_sonde_geste_$nom.txt"
+	$env:NK_SONDE = "1"; $env:NK_ADD_NODE = "2,0,20"; $env:NK_EDIT_USER = "99"
+	$env:NK_EDIT_MODE = "1,40"; $env:NK_EDIT_SEL = "n"
+	$env:NK_CAM_YAW = "0"; $env:NK_CAM_PITCH = "0"; $env:NK_CAM_DIST = $dist
+	$env:NK_MODAL_OP = "move"; $env:NK_MODAL_DRAG = "120"; $env:NK_MODAL_DRAG_FRAMES = "6"
+	$env:NK_MODAL_CONFIRM = "1"; $env:NK_AGENT_EXIT = "220"
+	if ($mutDist) { $env:NK_DIST_FIXE = "1" }
+	if ($Mutation) { $env:NK_GLIBRE_AXEY = "1" }
+	$p = Start-Process -FilePath $exe -WorkingDirectory $Arbre -NoNewWindow -PassThru -Wait `
+		-RedirectStandardOutput $sortie
+	foreach ($v in @("NK_SONDE", "NK_ADD_NODE", "NK_EDIT_USER", "NK_EDIT_MODE", "NK_EDIT_SEL",
+			"NK_CAM_YAW", "NK_CAM_PITCH", "NK_CAM_DIST", "NK_MODAL_OP", "NK_MODAL_DRAG",
+			"NK_MODAL_DRAG_FRAMES", "NK_MODAL_CONFIRM", "NK_AGENT_EXIT", "NK_DIST_FIXE",
+			"NK_GLIBRE_AXEY")) {
+		if (Test-Path "Env:\$v") { Remove-Item -Path "Env:\$v" }
+	}
+	$m = @(Select-String -Path $sortie -Pattern "\(b8\) GESTE")
+	if ($m.Count -eq 0) { return @(-1.0, -1.0) }
+	$r = [regex]::Match($m[$m.Count - 1].Line, "souris ([0-9.]+) px -> objet ([0-9.]+) px")
+	if (-not $r.Success) { return @(-1.0, -1.0) }
+	return @([double]$r.Groups[1].Value, [double]$r.Groups[2].Value)
+}
+$p4 = GestePx "px_d4" "4" ""
+$p12 = GestePx "px_d12" "12" ""
+$q4 = GestePx "px_d4_fixe" "4" "x"
+$q12 = GestePx "px_d12_fixe" "12" "x"
+
+Write-Host "       distance 4  : souris $($p4[0]) px -> objet $($p4[1]) px"
+Write-Host "       distance 12 : souris $($p12[0]) px -> objet $($p12[1]) px"
+Write-Host "       (echelle fixe, l'ancienne) : $($q4[1]) px et $($q12[1]) px"
+
+Dire "(e) L'INSTRUMENT SAIT ROUGIR : avec l'echelle fixe, l'objet FUIT" (([Math]::Abs($q4[1] - $q4[0]) -gt 20) -and ([Math]::Abs($q12[1] - $q12[0]) -gt 20)) `
+	"NK_DIST_FIXE : $($q4[1]) px et $($q12[1]) px pour 120 px de souris (exige un ECART franc ; un critere qui nait vert ne prouve rien)"
+Dire "(f) distance SIMPLE : l'objet reste sous le curseur" ([Math]::Abs($p4[1] - $p4[0]) -le 3) `
+	"souris $($p4[0]) px -> objet $($p4[1]) px (exige l'egalite a 3 px pres)"
+Dire "(g) distance TRIPLE : l'objet reste sous le curseur" ([Math]::Abs($p12[1] - $p12[0]) -le 3) `
+	"souris $($p12[0]) px -> objet $($p12[1]) px (exige la MEME chose qu'a la distance simple)"
+
 Write-Host "-----------------------------------------------------------------------"
 if ($Mutation) {
 	if ($rouges -gt 0) { Write-Host "MUTATION TUEE ($rouges rouge(s)) — les criteres mordent."; exit 1 }
