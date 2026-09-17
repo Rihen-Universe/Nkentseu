@@ -28,6 +28,7 @@
 #include "NK3DModeler/Viewport/NkMatPreview3D.h"
 #include "NK3DModeler/Viewport/NkVpMatTypeDefaults.h"
 #include "NK3DModeler/Viewport/NkVpEditTarget.h"
+#include "NK3DModeler/Viewport/NkCursorWrap.h" // (b5) rebouclage du curseur pendant G/R/S
 #include "NKWindow/Core/NkWESystem.h" // NkEvents()
 #include "NKEvent/NkEventSystem.h"
 #include "NKEvent/NkKeyboardEvent.h"
@@ -71,6 +72,35 @@ namespace nkentseu {
 		static float32 nkvpOffX = 0.f, nkvpOffY = 0.f; // origine de la vue (px fenetre)
 		static float32 nkvpW = 0.f, nkvpH = 0.f;	   // taille de la vue
 		static bool nkvpInputOn = true;				   // faux pendant une saisie de texte
+		// (b5) REPLACEMENT PHYSIQUE DU CURSEUR — SERVICE DE L'HOTE, PAS DU VIEWER.
+		// Le viewer ne connait pas la fenetre : seul `main.cpp` la tient. Et le
+		// contrat de `NkWindow::SetMousePosition` DIVERGE selon la plateforme
+		// (Win32 = coordonnees ECRAN via `SetCursorPos` ; XCB = coordonnees
+		// FENETRE via `xcb_warp_pointer`), donc la conversion ne peut etre faite
+		// que la ou la fenetre est connue. Tant que ce pointeur est nul, le
+		// rebouclage reste ARITHMETIQUE : les deltas sont corriges, le curseur ne
+		// bouge pas. C'est exactement l'etat que `--sonde-wrap` prouve.
+		// Argument attendu : la position visee en pixels FENETRE (origine de la
+		// vue deja ajoutee).
+		static bool (*nkvpCursorWarp)(float32, float32) = nullptr;
+
+		// ── (b5) LE CONFINEMENT DU CURSEUR PENDANT UNE MODALE ───────────────────
+		// POURQUOI IL FAUT LE FAIRE. Quand une modale est lancee au CLAVIER (G, R,
+		// S), aucun bouton n'est tenu : des que le curseur sort de la fenetre,
+		// Windows cesse d'envoyer des `WM_MOUSEMOVE`. La position hors bornes n'est
+		// alors JAMAIS vue, et le rebouclage ne se declenche pas -- il ne marcherait
+		// donc jamais sur un bord qui est aussi le bord de la fenetre. Blender
+		// confine exactement de la meme facon.
+		//
+		// LE SERVICE REND L'ETAT REELLEMENT OBTENU, et pas ce qu'on a demande :
+		// c'est lui qui connait la fenetre ET le focus. `veut = true` sans focus
+		// doit RELACHER et rendre faux -- un curseur prisonnier d'une fenetre qui
+		// n'a plus le focus serait pire que le defaut qu'on repare.
+		//
+		// ⚠ CONDITION DE RETRAIT, ecrite avec le contournement : le jour ou le
+		//   rebouclage saura voir les positions hors fenetre sans confiner (souris
+		//   BRUTE, `WM_INPUT`), ce service et tout ce bloc disparaissent.
+		static bool (*nkvpCursorClip)(bool) = nullptr;
 		// ── LE JETON DE PICK DU GLISSER-DEPOSER ─────────────────────────────
 		// L'interface DEMANDE, la boucle EXECUTE -- meme motif que
 		// `capturePending` du shell. Le pick a besoin de la CAMERA et de la
@@ -1378,6 +1408,17 @@ namespace nkentseu {
 				// (valeur périmée conservée) -> le gizmo continuait de transformer souris immobile.
 				float32 lastMouseX = 0.f, lastMouseY = 0.f;
 				bool mouseTracked = false; // 1re frame : pas de delta
+				// (b5) REBOUCLAGE DU CURSEUR AUX BORDS DE LA VUE pendant une modale.
+				// L'etat vit ICI et nulle part ailleurs : un report d'avance/retard
+				// duplique serait le motif « un etat duplique n'a qu'une seule
+				// autorite », et celui qu'on ecrit ne serait pas celui qu'on lit.
+				NkCursorWrapState curWrap;
+				// (b5) CONFINEMENT : l'etat REEL, et de quoi prouver le ZERO.
+				// `clipPrises` compte les fois ou le confinement a ete pris. Une course
+				// SANS aucune modale doit le laisser a 0 -- sans ce compteur, « il ne
+				// s'active jamais a tort » ne serait qu'une affirmation.
+				bool clipActif = false;
+				int32 clipPrises = 0, clipRelaches = 0;
 				// Indices des cibles : 16 sphères, 1 cube, 2 colonnes, 64 instanciés,
 				// puis 3 éléments de décor longtemps NON sélectionnables — le sol (83),
 				// le panneau feuillage alpha-testé (84) et le mur rouge du GI (85).
@@ -1541,6 +1582,12 @@ namespace nkentseu {
 				// clic de Rodolf elit un SOMMET, pas une face. Forcer une face la ou il
 				// designe un sommet mesurerait un geste que le produit ne fait jamais.
 				int32 editPickVert = -1;
+				// LE PENDANT DU PICK DE FACE ET DE SOMMET, POUR L'ARETE. Il manquait, et
+				// c'est ce qui rendait le sous-mode ARETE inatteignable par une course
+				// scriptee : le clic de sommet y est filtre (a juste titre -- en mode
+				// arete, un clic designe une arete), et viser en pixels n'est pas
+				// deterministe. Mesure du 17/09 : la course rendait COURSE IMPOSSIBLE.
+				int32 editPickEdge = -1;
 				int32 editActiveVert = -1;		  // sommet ACTIF (dernier sélectionné) = rendu BLANC façon Blender
 				// ── ÉLÉMENT ACTIF EN ARÊTE ET EN FACE ───────────────────────────────
 				// Blender distingue TROIS états, pas deux : non sélectionné (noir),
@@ -1598,7 +1645,16 @@ namespace nkentseu {
 				bool editWasDragging = false;	  // pour baker le delta en fin de drag
 				bool editOverlayDirty = true;	  // reconstruire les buffers overlay (cage/points/faces)
 				bool editExtrudePending = false;  // E : extrude région (traité côté frame)
-				bool editDeletePending = false;	  // X : supprime faces (traité côté frame)
+				bool editDeletePending = false;
+				// LE MENU X (Blender) : la touche DEMANDE l'ouverture, le shell l'ouvre.
+				// La vue 3D ne dessine pas de menu -- c'est le shell qui tient NKGui --,
+				// donc un JETON, exactement comme `capturePending` : l'un demande,
+				// l'autre execute, et personne ne fait les deux.
+				bool deleteMenuPending = false;
+				// 0 = suit le sous-mode (le defaut, et ce que fait le bouton) ; 1, 2 ou 4
+				// = l'element DEMANDE par une entree du menu. Remis a 0 apres usage :
+				// un mode qui survivrait a sa commande s'appliquerait a la suivante.
+				int32 editDeleteMode = 0;	  // X : supprime faces (traité côté frame)
 				bool editMergePending = false;	  // M : soude les vertices sélectionnés
 				bool editMakeFacePending = false; // F : crée une face (n-gon) depuis la sélection
 				bool editSubdivPending = false;	  // W : subdivise les faces sélectionnées
@@ -2551,6 +2607,50 @@ namespace nkentseu {
 
 		// Normalise la sélection de l'UI après un pick (ou une sélection scriptée) : passe par
 		// l'AUTORITÉ (editHE) pour l'étendre aux sommets coïncidents, puis la relit.
+		// ── LE LECTEUR DE L'INTENTION DE FACE, ET POURQUOI IL MANQUAIT ──────────
+		// Mesure du 17/09 : apres un Ctrl+Z, l'ecran rendait SIX faces selectionnees la
+		// ou l'utilisateur en avait choisi DEUX. Le cliche d'annulation est pourtant une
+		// COPIE COMPLETE de `NkEditMesh`, qui porte `faces[].sel` : l'intention y EST.
+		// Ce qui manquait est ce lecteur -- `Demo3D_UndoEdit` ne rappelait que
+		// `Demo3D_PullSel`, qui relit les SOMMETS, et `Demo3D_FaceSelSync` rededuisait
+		// ensuite « toutes les faces dont tous les sommets sont retenus », c'est-a-dire
+		// les six (deux faces opposees allument les 24 coins).
+		// Prouve par `NKEditMeshHarness --annulation` : sur le MEME maillage restaure,
+		// l'intention rend 2 et la deduction rend 6. Ce n'est donc pas le cliche qui
+		// perd l'information, c'est le lecteur qui n'en voulait pas.
+		//
+		// ⚠ CETTE REGLE SURVIVRA AU MODELE D'IDENTITE : « l'annulation rend l'intention
+		//   telle qu'elle etait » reste vraie quand un sommet sera une entite unique.
+		//   C'est la PROPAGATION aux coincidents qui est la dette, pas ceci.
+		//
+		// ⚠ ET ON NE FORCE RIEN QUAND L'INTENTION EST PERIMEE. `RefreshFaceSel` decide ;
+		//   si elle dit non, on ne touche a rien et la deduction reprend la main -- elle
+		//   est alors la bonne reponse (selection venue d'une boite, d'un lasso, d'un
+		//   « tout selectionner » ou du resultat d'une operation).
+		static void Demo3D_PullFaceSel(Demo3DState *st) {
+			// MUTATION dans le MEME binaire : `NK_UNDO_NOFACESEL=1` retire CE lecteur et
+			// rien d'autre. Le releve d'apres annulation doit alors rendre 6.
+			static int sansLecteur = -1;
+			if (sansLecteur == -1) {
+				const char *v = getenv("NK_UNDO_NOFACESEL");
+				sansLecteur = (v && v[0] && v[0] != '0') ? 1 : 0;
+			}
+			if (sansLecteur)
+				return;
+			st->editHE.RefreshFaceSel();
+			if (!st->editHE.FaceSelAJour())
+				return; // intention perimee : la deduction est la bonne reponse
+			const uint32 nf = (uint32)st->editHE.faces.Size();
+			if ((uint32)st->faceSel.Size() != nf)
+				st->faceSel.Resize(nf);
+			for (uint32 f = 0; f < nf; ++f)
+				st->faceSel[f] = st->editHE.faces[f].sel ? (uint8)1 : (uint8)0;
+			// LA PHOTO SE PREND EN DERNIER, comme dans `Demo3D_FaceSelApply` et pour la
+			// meme raison : prise avant, `Demo3D_FaceSelSync` rededuirait des le tour
+			// suivant et ce lecteur n'aurait servi a rien -- sans que rien ne le dise.
+			st->faceSelSnap = st->vertSel;
+		}
+
 		static void Demo3D_NormalizeSel(Demo3DState *st) {
 			Demo3D_PushSel(st);
 			Demo3D_PullSel(st);
@@ -2628,6 +2728,53 @@ namespace nkentseu {
 			// moment de l'operation une selection construite depuis ce meme `vertSel`,
 			// donc les memes bits : l'intention est encore a jour quand elle sert.
 			st->editHE.SetFaceSelection(st->faceSel.Data(), (uint32)st->faceSel.Size());
+		}
+
+		// ── COMBIEN D'ELEMENTS LE SOUS-MODE DESIGNE-T-IL ? ──────────────────────
+		// ⚠ UNE SEULE FONCTION, et c'est la raison d'etre de son extraction : le
+		// crochet d'hote `Demo3DHostEditSelCount` ET la sonde de suppression
+		// lisent CELLE-CI. Si la sonde comptait avec sa propre boucle, elle
+		// prouverait le comportement de la sonde.
+		// Priorite identique a celle du menu : FACE, puis ARETE, puis SOMMET.
+		// Ce compteur rendait TOUJOURS des sommets : sur un cube en sous-mode
+		// SOMMET il affichait 12, c'est-a-dire le nombre des ARETES -- un chiffre
+		// juste pour une question que personne ne posait.
+		static int32 Demo3D_SelCountFor(Demo3DState *st, int32 mask) {
+			int32 n = 0;
+			if (mask & 4) {
+				// ON COMPTE L'INTENTION, PAS SA DEDUCTION. Deux faces opposees d'un
+				// cube rendaient 6 : leurs sommets sont tous les coins de l'objet,
+				// donc toute face avait « tous ses sommets ». La synchronisation
+				// rededuit quand la selection est venue d'ailleurs (boite, lasso,
+				// tout selectionner, resultat d'operation) : la, la deduction est
+				// la bonne reponse.
+				Demo3D_FaceSelSync(st);
+				const uint32 nf = (uint32)st->faceSel.Size();
+				for (uint32 f = 0; f < nf; ++f) {
+					if (f < (uint32)st->editHE.faces.Size() && !st->editHE.faces[f].alive)
+						continue;
+					if (st->faceSel[f])
+						++n;
+				}
+				return n;
+			}
+			if (mask & 2) {
+				const uint32 ne = (uint32)st->editHE.edges.Size();
+				for (uint32 e = 0; e < ne; ++e) {
+					const auto &ed = st->editHE.edges[e];
+					if (!ed.alive)
+						continue;
+					if ((uint32)ed.v0 < (uint32)st->vertSel.Size() &&
+						(uint32)ed.v1 < (uint32)st->vertSel.Size() && st->vertSel[ed.v0] &&
+						st->vertSel[ed.v1])
+						++n;
+				}
+				return n;
+			}
+			for (uint32 i = 0; i < (uint32)st->vertSel.Size(); ++i)
+				if (st->vertSel[i])
+					++n;
+			return n;
 		}
 
 		// ── LUMIERE EFFECTIVE = base + transform du gizmo ───────────────────────────
@@ -3977,10 +4124,35 @@ namespace nkentseu {
 			}
 		}
 
-		// DELETE (X) : supprime les faces sélectionnées, compacte — cf. NkEditMesh.
+		// DELETE (X) : supprime les faces selectionnees, compacte -- cf. NkEditMesh.
+		// LA SELECTION EST VIDE APRES : la regle vit dans `NkEditMesh::DeleteSelectedFaces`
+		// (comportement Blender, confirme par Rodolf le 14/09) et vaut donc pour TOUS les
+		// hotes. ⚠ ELLE N'EST PAS REDITE ICI : un second vidage dans cet appelant serait
+		// une seconde autorite sur le meme etat -- celle qu'on ecrit et celle qu'on lit
+		// finiraient par differer -- et il ne deplacerait aucune mesure, donc rien ne le
+		// dirait. `Demo3D_PullSel`, appele par `Demo3D_ApplyCmd`, relit les zeros du
+		// moteur ; `Demo3D_FaceSelSync` rededuit l'intention de face, qui tombe a zero
+		// avec eux. Mesure : `NKEditMeshHarness --suppression`, mutation NK_DEL_KEEPSEL.
 		static void Demo3D_DeleteHE(Demo3DState *st, renderer::NkMeshSystem *ms) {
 			renderer::NkMeshEditCommand c;
-			c.op = renderer::NkMeshEditOp::Delete;
+			// ── X SUIT LE SOUS-MODE, COMME BLENDER ──────────────────────────
+			// Blender ne supprime pas la meme chose en mode sommet, arete et face.
+			// Chez nous X passait TOUJOURS par la regle des faces (« toutes ses
+			// aretes retenues ») : en sous-mode ARETE ou SOMMET, deux aretes ou
+			// deux sommets ne supprimaient donc RIEN -- mesure du 17/09, et c'est
+			// ce qui rendait la course de bout en bout impossible dans deux
+			// sous-modes sur trois.
+			// Priorite identique a celle du menu et du dissolve contextuel :
+			// FACE (bit 4) > ARETE (bit 2) > SOMMET. Un seul endroit decide.
+			// L'ELEMENT DEMANDE l'emporte sur le sous-mode, et c'est tout l'interet
+			// du menu : « Faces » doit supprimer des faces MEME en sous-mode Sommet,
+			// sinon le menu n'est qu'une decoration a onze lignes qui refait ce que
+			// la touche faisait deja. 0 = suit le sous-mode (le defaut).
+			const int32 el = st->editDeleteMode ? st->editDeleteMode : st->editSelMask;
+			st->editDeleteMode = 0; // consomme : il ne survit pas a sa commande
+			c.op = (el & 4)   ? renderer::NkMeshEditOp::Delete
+				   : (el & 2) ? renderer::NkMeshEditOp::DeleteEdges
+							  : renderer::NkMeshEditOp::DeleteVerts;
 			Demo3D_ApplyCmd(st, ms, c);
 		}
 
@@ -5148,6 +5320,9 @@ namespace nkentseu {
 			if (!st->editHistory.Undo(st->editHE))
 				return;
 			Demo3D_PullSel(st);
+			// L'INTENTION DE FACE SE RELIT AUSSI, et dans cet ordre : `Demo3D_PullFaceSel`
+			// prend sa photo sur `vertSel`, que la ligne du dessus vient de remplir.
+			Demo3D_PullFaceSel(st);
 			Demo3D_SyncFromHE(st, ms);
 		}
 
@@ -5155,6 +5330,9 @@ namespace nkentseu {
 			if (!st->editHistory.Redo(st->editHE))
 				return;
 			Demo3D_PullSel(st);
+			// L'INTENTION DE FACE SE RELIT AUSSI, et dans cet ordre : `Demo3D_PullFaceSel`
+			// prend sa photo sur `vertSel`, que la ligne du dessus vient de remplir.
+			Demo3D_PullFaceSel(st);
 			Demo3D_SyncFromHE(st, ms);
 		}
 
@@ -6184,7 +6362,12 @@ namespace nkentseu {
 							if (ctrlK)
 								st->editDissolvePending = 1;
 							else
-								st->editDeletePending = true;
+								// ⚠ X N'EXECUTE PLUS, IL OUVRE LE MENU -- c'est ce que fait Blender,
+								// et c'est le seul moyen de rendre decouvrables les dix autres
+								// commandes de suppression. Le BOUTON et le menu contextuel,
+								// eux, executent toujours le defaut du sous-mode : une commande,
+								// plusieurs entrees, et elles n'ont pas le meme role.
+								st->deleteMenuPending = true;
 							return;
 						}
 						if (k == NkKey::NK_M) {
@@ -6955,8 +7138,68 @@ namespace nkentseu {
 			}
 		}
 
+		// ── UNE SEULE FONCTION POSE ET RETIRE LE CONFINEMENT ────────────────────
+		// Et elle le SYNCHRONISE a chaque image, au lieu de « prendre » ici et
+		// « relacher » la. Ce n'est pas un detail de style : la modale a QUATRE
+		// chemins de sortie (validation, annulation, changement de mode, fin
+		// d'edition), et un relachement reparti sur quatre sites a quatre chances
+		// d'etre oublie. La question posee chaque image est la seule qui compte --
+		// « une modale tourne-t-elle ? » -- et la reponse pilote l'etat.
+		// C'est aussi ce qui traite la PERTE DE FOCUS sans une ligne de plus : le
+		// service, qui seul connait la fenetre, refuse et relache.
+		static void Demo3D_SyncCursorClip(Demo3DState *st, bool modaleVivante) {
+			// `NK_CLIP_OFF=1` retire tout le mecanisme. MUTATION : le compteur de
+			// prises doit alors rester a 0 meme pendant une modale.
+			static int clipOff = -1;
+			if (clipOff == -1) {
+				const char *v = getenv("NK_CLIP_OFF");
+				clipOff = (v && v[0] && v[0] != '0') ? 1 : 0;
+			}
+			const bool veut = (!clipOff && modaleVivante && nkvpCursorClip != nullptr);
+			if (!veut && !st->clipActif)
+				return; // rien a faire, et surtout AUCUN appel : c'est le zero
+			const bool obtenu = nkvpCursorClip ? nkvpCursorClip(veut) : false;
+			if (obtenu != st->clipActif) {
+				if (obtenu)
+					++st->clipPrises;
+				else
+					++st->clipRelaches;
+				logger.Info("[Demo3D] (b5) confinement du curseur : {0} (prises={1} relaches={2})\n",
+							obtenu ? "PRIS" : "relache", st->clipPrises, st->clipRelaches);
+				st->clipActif = obtenu;
+			}
+		}
+
 		void Demo3D_Frame(DemoCtx &ctx, float32 dt) {
 			auto *st = (Demo3DState *)ctx.userData;
+			// NK_SEL_TRACE=1 : la selection d'objet de DEMO, lue a l'ENTREE de la
+			// frame ; =2 : imprimee a CHAQUE image, avec le POINTEUR de l'etat.
+			// ⚠ LE POINTEUR EST LA POUR UNE RAISON PRECISE. Une trace qui n'imprime
+			// que SUR CHANGEMENT ne peut pas distinguer « quelqu'un a efface la
+			// selection » de « l'etat entier a ete RECREE » : dans le second cas la
+			// valeur repart a -1 et le `static` de la trace, lui, survit -- donc rien
+			// ne change de son point de vue, et elle se tait. Deux causes, un seul
+			// silence. Le pointeur les separe.
+			static int32 gSelTraceFrame = 0;
+			{
+				static int selTrace = -1;
+				if (selTrace == -1) {
+					const char *v = getenv("NK_SEL_TRACE");
+					selTrace = (v && v[0] && v[0] != '0') ? (v[0] - '0') : 0;
+					if (selTrace < 1 || selTrace > 9)
+						selTrace = (v && v[0] && v[0] != '0') ? 1 : 0;
+				}
+				static int32 selPrec = -2;
+				if (selTrace && st) {
+					++gSelTraceFrame;
+					const int32 a = st->gizmo.ActiveIndex();
+					if (selTrace >= 2 || a != selPrec) {
+						logger.Info("[Demo3D] SEL TRACE : img {0} ENTREE ActiveIndex {1} -> {2} (etat {3})\n",
+									gSelTraceFrame, selPrec, a, (uint64)(usize)st);
+						selPrec = a;
+					}
+				}
+			}
 			if (st)
 				Demo3D_SondeOrbite(st, ctx); // inerte sans NK_AGENT_ORBITE
 			if (st)
@@ -7196,6 +7439,27 @@ namespace nkentseu {
 						obj = atoi(go);
 					st->gizmo.Select(obj);
 					st->gizmo.SetMode(0);		  // gizmo d'édition en TRANSLATE (flèches pleines)
+					// ⚠ ET ON DIT SI LA CIBLE EST DEJA CONDAMNEE. `NK_EDIT_MODE` vise par
+					// defaut l'objet 16 de la DEMO, qui dans NK3DModeler est marque
+					// SUPPRIME : la garde du cadenas de `HostHierarchyFrame` le
+					// desselectionne a l'image suivante, a juste titre. Le pilote
+					// « prenait » donc toujours, et le mode Edition ne s'ouvrait jamais --
+					// un repli muet cote instrument, qui a coute une soiree le 17/09.
+					// LA SORTIE : `NK_ADD_NODE="2,0,<img>"` cree un cube UTILISATEUR (noeud
+					// 96 + emplacement) et `NK_EDIT_USER=<emplacement>` le vise.
+					if (obj >= 0 && obj < kNkvpMaxNodes && nkvpDeleted[obj])
+						logger.Info("[Demo3D] PILOTE edition : ⚠ l'objet {0} est SUPPRIME dans ce "
+									"projet -- il sera desselectionne a l'image suivante et le "
+									"mode Edition ne s'ouvrira PAS. Utilise NK_ADD_NODE + "
+									"NK_EDIT_USER=<emplacement>.\n",
+									obj);
+					// ⚠ ON DIT CE QUE LA SELECTION EST DEVENUE, pas ce qu'on a demande.
+					// Sans cette ligne, un `Select` qui n'accroche rien (objet de demo
+					// absent de la scene du modeleur) est INDISCERNABLE d'un pilote qui
+					// ne se declenche pas : les deux laissent `selDemo=-1` dans la trace
+					// d'edition, et on cherche la cause du mauvais cote.
+					logger.Info("[Demo3D] PILOTE edition : demande objet {0} a l'image {1} -> ActiveIndex={2}\n",
+								obj, gEditDrvFrame, st->gizmo.ActiveIndex());
 					// NK_EDIT_USER=<slot> : entrer en edition sur un objet de
 					// L'UTILISATEUR et non sur un objet de demo.
 					// POURQUOI. NK_EDIT_MODE ne sait viser que `st->gizmo`, l'espace
@@ -7208,7 +7472,19 @@ namespace nkentseu {
 					// Et `q.selDemo` etant PRIORITAIRE dans la resolution de cible, il
 					// faut VIDER la selection de demo, sinon on editerait le cube 16.
 					if (const char *eu = getenv("NK_EDIT_USER")) {
-						const int32 slot = atoi(eu);
+						// ⚠ EMPLACEMENT **OU** NUMERO DE NOEUD. `NK_ADD_NODE` imprime un
+						// NOEUD (99), ce crochet attendait un EMPLACEMENT (3) : deux
+						// nombres pour la meme chose, et celui qu'on lit sous la main est
+						// le mauvais. Trois courses perdues le 17/09 a viser
+						// l'emplacement 0, qui existe et n'a pas de maillage -- donc un
+						// refus qui ressemblait trait pour trait au defaut cherche.
+						// On accepte les deux et on DIT lequel on a compris.
+						int32 slot = atoi(eu);
+						if (slot >= kNkvpFirstUser && slot < kNkvpMaxNodes) {
+							logger.Info("[Demo3D] NK_EDIT_USER={0} lu comme un NOEUD -> emplacement {1}\n",
+										slot, slot - kNkvpFirstUser);
+							slot -= kNkvpFirstUser;
+						}
 						if (slot >= 0 && slot < kNkvpMaxUser) {
 							st->gizmo.ClearSelection();
 							st->emptyGizmo.Select(slot + (kNkvpFirstUser - kNkvpEmptyBase));
@@ -7698,8 +7974,40 @@ namespace nkentseu {
 						Demo3D_EnterEditOnObject(st, ms, r3d, cible.index);
 					else if (cible.kind == NkVpEditKind::Utilisateur)
 						Demo3D_EnterEditOnUser(st, ms, r3d, cible.index);
-					else
-						logger.Info("[Demo3D] Sélectionne un objet (clic) avant TAB.\n");
+					else {
+						// ── UN REFUS NOMME, PAS UN REPLI MUET ────────────────────────
+						// « Selectionne un objet (clic) avant TAB » ACCUSE L'UTILISATEUR
+						// d'un geste qu'il a fait. Il l'a fait : l'objet etait bien
+						// selectionne, et c'est la garde du cadenas de
+						// `HostHierarchyFrame` qui l'a desselectionne a l'image suivante
+						// parce qu'il etait supprime. Le message envoyait chercher du
+						// cote du clic, c'est-a-dire nulle part. Mesure du 17/09 : une
+						// soiree perdue sur cette phrase.
+						// Cinq refus DISTINCTS, et chacun dit quoi faire.
+						const int32 uSlot = NkVpUserSlotOfEmpty(q.selEmpty);
+						if (q.selDemo < 0 && q.selEmpty < 0)
+							logger.Info("[Demo3D] EDITION REFUSEE : rien n'est selectionne. "
+										"Selectionne un objet (clic) avant TAB.\n");
+						else if (uSlot >= 0 && q.userDeleted)
+							logger.Info("[Demo3D] EDITION REFUSEE : l'objet designe (emplacement {0}, "
+										"noeud {1}) est SUPPRIME. Un noeud supprime est aussi "
+										"desselectionne d'office a l'image suivante par la garde du "
+										"cadenas.\n",
+										uSlot, kNkvpFirstUser + uSlot);
+						else if (uSlot >= 0 && !q.userMeshValid)
+							logger.Info("[Demo3D] EDITION REFUSEE : l'objet designe (emplacement {0}, "
+										"nature {1}) n'a PAS DE MAILLAGE A LUI. Une primitive d'un "
+										"projet jamais enregistre est dans ce cas.\n",
+										uSlot, (int32)q.userKind);
+						else if (uSlot >= 0)
+							logger.Info("[Demo3D] EDITION REFUSEE : la nature {0} de l'objet designe "
+										"(emplacement {1}) n'est pas editable.\n",
+										(int32)q.userKind, uSlot);
+						else
+							logger.Info("[Demo3D] EDITION REFUSEE : la selection (demo {0}, empty {1}) "
+										"ne designe aucun maillage editable.\n",
+										q.selDemo, q.selEmpty);
+					}
 				}
 			}
 
@@ -7746,8 +8054,65 @@ namespace nkentseu {
 			// A la sortie (confirmation OU annulation), modalOp repasse a 0 : rien n'est
 			// memorise, tout redevient strictement normal des la frame suivante.
 			const bool modalLock = (st->modalOp != 0);
-			const float32 modalMDX = frameMDX; // deltas BRUTS : reserves a l'op modale
-			const float32 modalMDY = frameMDY;
+			// LE CONFINEMENT SUIT LA MODALE, ET RIEN D'AUTRE. Appele a CHAQUE image,
+			// modale ou non : c'est ce qui garantit qu'il est relache des que
+			// `modalOp` retombe a 0, par n'importe lequel de ses quatre chemins.
+			Demo3D_SyncCursorClip(st, modalLock);
+			// ── (b5) LE CURSEUR REBOUCLE AUX BORDS DE LA VUE ────────────────
+			// Blender : pendant G/R/S, le curseur qui sort d'un bord reapparait
+			// au bord oppose et la transformation CONTINUE. Le geste cesse donc
+			// d'etre borne par la taille de l'ecran.
+			// ⚠ LA CORRECTION SE POSE ICI, ET NULLE PART AILLEURS : c'est le
+			//   point de garde unique par lequel passent les DEUX cadres modaux
+			//   (edition et objet). La poser dans `Demo3D_ModalParams` la
+			//   mettrait apres la neutralisation ; la poser aux deux appels en
+			//   ferait deux copies qui divergeraient.
+			// La regle et son attendu derive vivent dans `NkCursorWrap.h` ; elle
+			// se prouve sans fenetre par `NK3DModeler.exe --sonde-wrap`.
+			float32 modalMDX = frameMDX; // deltas BRUTS : reserves a l'op modale
+			float32 modalMDY = frameMDY;
+			if (modalLock) {
+				static int wrapOff = -1;
+				if (wrapOff == -1) {
+					const char *v = getenv("NK_WRAP_OFF");
+					wrapOff = (v && v[0] && v[0] != '0') ? 1 : 0;
+				}
+				// MUTATION dans le MEME binaire : `NK_WRAP_NOFIX=1` retire la
+				// seule soustraction du report ; `NK_WRAP_OFF=1` retire tout le
+				// mecanisme. Deux leviers distincts parce qu'ils ne repondent pas
+				// a la meme question : « la correction sert-elle ? » et « le
+				// rebouclage derange-t-il ? ».
+				st->curWrap.disabled = (std::getenv("NK_WRAP_NOFIX") != nullptr);
+				if (!wrapOff) {
+					NkCursorWrapOut wo;
+					NkCursorWrapStep(st->curWrap, curMouseX, curMouseY, modalMDX, modalMDY, nkvpW,
+									 nkvpH, wo);
+					modalMDX = wo.dx;
+					modalMDY = wo.dy;
+					if (wo.warp) {
+						// Le replacement PHYSIQUE est un service de l'hote : le viewer ne
+						// tient pas la fenetre. Sans hote pose, le rebouclage reste
+						// arithmetique -- et c'est l'etat dans lequel la sonde le prouve.
+						// ⚠ LE REFUS ANNULE L'ATTENTE. Si le curseur n'a PAS bouge (aucun
+						// hote, plateforme sans implementation, cible hors zone client),
+						// garder le report en attente ferait corriger le PREMIER grand geste
+						// reel suivant : on fabriquerait le saut qu'on supprime. C'est la
+						// raison d'etre du booleen -- un service qui ne rend rien laisse
+						// l'appelant croire qu'il a agi.
+						const bool place =
+							nkvpCursorWarp && nkvpCursorWarp(wo.warpX + nkvpOffX, wo.warpY + nkvpOffY);
+						if (!place)
+							NkCursorWrapReset(st->curWrap);
+						logger.Info("[Demo3D] (b5) rebouclage curseur : vue {0}x{1}, ({2}, {3}) -> "
+									"({4}, {5}){6}\n",
+									(int32)nkvpW, (int32)nkvpH, (int32)curMouseX, (int32)curMouseY,
+									(int32)wo.warpX, (int32)wo.warpY,
+									place ? "" : " [REFUSE : le curseur n'a PAS bouge, attente annulee]");
+					}
+				}
+			} else {
+				NkCursorWrapReset(st->curWrap);
+			}
 			const float32 modalWheelRaw = wheelRaw;
 			if (modalLock) {
 				frameMDX = 0.f; // -> aucune orbite / pan / regard, aucun drag de gizmo
@@ -9882,10 +10247,12 @@ namespace nkentseu {
 				// survivait au pick, le clic SUIVANT de Rodolf viserait la face du banc.
 				const int32 pickTri = pickArme ? st->editPickTri : -1;
 				const int32 pickVert = pickArme ? st->editPickVert : -1;
+				const int32 pickEdge = pickArme ? st->editPickEdge : -1;
 				if (pickArme) {
 					st->editPickPending = false; // consomme une fois, comme un clic
 					st->editPickTri = -1;
 					st->editPickVert = -1;
+					st->editPickEdge = -1;
 				}
 				if ((clickNow || pickArme) && !grabbedHandle && !st->knifeArmed && !zoneToolConsumed) {
 					st->editOverlayDirty = true; // la sélection va changer -> reconstruire l'overlay
@@ -10091,6 +10458,17 @@ namespace nkentseu {
 					} else if (pickVert >= 0 && (st->editSelMask & 1)) {
 						bestV = pickVert;
 						bestEa = bestEb = -1;
+						bestFt = -1;
+					} else if (pickEdge >= 0 && (st->editSelMask & 2) &&
+							   (uint32)pickEdge < (uint32)st->editHE.edges.Size()) {
+						// L'ARETE DESIGNEE PAR SON INDEX : ses deux extremites deviennent
+						// l'arete elue, exactement comme si le clic l'avait trouvee. On ne
+						// court-circuite pas la suite -- c'est elle qui allume les sommets,
+						// propage aux coincidents et gere le toggle facon Blender.
+						const auto &ed = st->editHE.edges[(uint32)pickEdge];
+						bestEa = (int32)ed.v0;
+						bestEb = (int32)ed.v1;
+						bestV = -1;
 						bestFt = -1;
 					}
 					// PREUVE : verdict de l'ANCIENNE regle (« moitie near ») sur l'element elu.
@@ -11516,7 +11894,29 @@ namespace nkentseu {
 						gin.leftPressed = false;
 						gin.leftDown = false;
 					}
-					st->gizmo.Update(targets, n, gin);
+					// NK_SEL_TRACE : CE QUE LE GIZMO RECOIT, et ce qu'il en fait.
+					// `NkGizmo3D` vide sa PROPRE selection sur « clic dans le vide »
+					// (branche `else if (!in.shiftDown)`) : il faut donc voir l'entree
+					// EXACTE -- position, boutons, modificateurs -- et pas seulement
+					// constater que la valeur est tombee. Une entree par defaut portant
+					// un appui a (0, 0) serait un clic dans le vide FABRIQUE par
+					// l'instrument, et c'est l'hypothese a ecarter en premier.
+					{
+						static int t = -1;
+						if (t == -1) {
+							const char *v = getenv("NK_SEL_TRACE");
+							t = (v && v[0] && v[0] != '0') ? 1 : 0;
+						}
+						const int32 avantGz = st->gizmo.ActiveIndex();
+						st->gizmo.Update(targets, n, gin);
+						const int32 apresGz = st->gizmo.ActiveIndex();
+						if (t && (apresGz != avantGz || gin.leftPressed))
+							logger.Info("[Demo3D] SEL TRACE : gizmo.Update {0} -> {1} | souris ({2}, {3}) "
+										"gauche appui={4} tenu={5} maj={6} ctrl={7} | cibles={8}\n",
+										avantGz, apresGz, (int32)gin.mouseX, (int32)gin.mouseY,
+										gin.leftPressed ? 1 : 0, gin.leftDown ? 1 : 0,
+										gin.shiftDown ? 1 : 0, gin.ctrlDown ? 1 : 0, n);
+					}
 					// ── INSTRUMENT : OU SONT LES POIGNEES, ET CE QUE LE VISEUR RECOIT ──
 					// Deux absences comblees d'un coup (Q57 §3-§4).
 					// (1) La position ECRAN d'une poignee de gizmo n'etait journalisee
@@ -12597,6 +12997,28 @@ namespace nkentseu {
 			if (nkvpCmd)
 				if (auto *graph = ctx.renderer->GetRenderGraph())
 					graph->Execute((NkICommandBuffer *)nkvpCmd);
+			// NK_SEL_TRACE : la selection a la SORTIE de la frame. Avec celle de
+			// l'entree et le POINTEUR d'etat, elle tranche TROIS hypotheses au lieu de
+			// deux : efface par le viseur, efface entre deux frames par le shell, ou
+			// etat entierement RECREE.
+			{
+				static int t = -1;
+				if (t == -1) {
+					const char *v = getenv("NK_SEL_TRACE");
+					t = (v && v[0] && v[0] != '0') ? (v[0] - '0') : 0;
+					if (t < 1 || t > 9)
+						t = (v && v[0] && v[0] != '0') ? 1 : 0;
+				}
+				static int32 prec = -2;
+				if (t && st) {
+					const int32 a = st->gizmo.ActiveIndex();
+					if (t >= 2 || a != prec) {
+						logger.Info("[Demo3D] SEL TRACE : img {0} SORTIE ActiveIndex {1} -> {2} (etat {3})\n",
+									gSelTraceFrame, prec, a, (uint64)(usize)st);
+						prec = a;
+					}
+				}
+			}
 		}
 
 		void Demo3D_Shutdown(DemoCtx &ctx) {
@@ -14475,6 +14897,11 @@ namespace nkentseu {
 			nkvpInputOn = inputOn;
 		}
 
+		// (b5) L'hote POSE son service de replacement du curseur. Nul par defaut :
+		// le rebouclage est alors arithmetique seulement.
+		void Demo3DHostSetCursorWarp(bool (*fn)(float32, float32)) { nkvpCursorWarp = fn; }
+		void Demo3DHostSetCursorClip(bool (*fn)(bool)) { nkvpCursorClip = fn; }
+
 		void Demo3DHostFrame(void *cmd) {
 			if (!HostInit() || !cmd)
 				return;
@@ -15320,6 +15747,33 @@ namespace nkentseu {
 		}
 		bool Demo3DHostEditDelete() {
 			return HostEditRun(&Demo3D_DeleteHE);
+		}
+		// LE MENU X A DEMANDE UN ELEMENT PRECIS. Meme entonnoir que le bouton :
+		// on pose l'element voulu, puis on appelle LA MEME fonction. Il n'y a pas
+		// de second chemin de suppression -- c'est la condition pour qu'une mesure
+		// faite sur l'un dise quelque chose de l'autre.
+		bool Demo3DHostEditDeleteMode(int32 element) {
+			auto *st = HostSt();
+			if (!st)
+				return false;
+			st->editDeleteMode = element;
+			const bool ok = HostEditRun(&Demo3D_DeleteHE);
+			st->editDeleteMode = 0; // meme si l'operation a echoue
+			return ok;
+		}
+		// LE JETON DU MENU X : rend VRAI une seule fois, et se consomme. S'il
+		// survivait, le menu se rouvrirait a chaque image.
+		bool Demo3DHostTakeDeleteMenuAsk() {
+			auto *st = HostSt();
+			if (!st || !st->deleteMenuPending)
+				return false;
+			st->deleteMenuPending = false;
+			return true;
+		}
+		// Pour le pilote headless : demander l'ouverture sans toucher au clavier.
+		void Demo3DHostAskDeleteMenu() {
+			if (auto *st = HostSt())
+				st->deleteMenuPending = true;
 		}
 		// ── ANNULER / REFAIRE : LE BOUTON PARLAIT A LA MAUVAISE PILE ────────
 		// Il y a DEUX historiques dans ce binaire, et c'est la cause exacte du
@@ -16515,47 +16969,30 @@ namespace nkentseu {
 			if (!st || !st->editMode)
 				return 0;
 			// ⚠ ON COMPTE CE QUE LE SOUS-MODE DESIGNE, et c'est (b10) autant que (b2).
-			// Ce compteur rendait TOUJOURS des sommets : sur un cube en sous-mode
-			// SOMMET il affichait 12, c'est-a-dire le nombre des ARETES -- un chiffre
-			// juste pour une question que personne ne posait. En mode FACE il faut
-			// des FACES, en mode ARETE des ARETES : sinon « 12 selectionnes » ne dit
-			// pas de quoi il parle, et on cesse de croire tous les autres chiffres.
-			// Priorite identique a celle du menu : FACE, puis ARETE, puis SOMMET.
-			int32 n = 0;
-			if (st->editSelMask & 4) {
-				// ON COMPTE L'INTENTION, PAS SA DEDUCTION. Deux faces opposees d'un
-				// cube rendaient 6 : leurs sommets sont tous les coins de l'objet,
-				// donc toute face avait « tous ses sommets ». La synchronisation
-				// rededuit quand la selection est venue d'ailleurs (boite, lasso,
-				// tout selectionner, resultat d'operation) : la, la deduction est
-				// la bonne reponse.
-				Demo3D_FaceSelSync(st);
-				const uint32 nf = (uint32)st->faceSel.Size();
-				for (uint32 f = 0; f < nf; ++f) {
-					if (f < (uint32)st->editHE.faces.Size() && !st->editHE.faces[f].alive)
-						continue;
-					if (st->faceSel[f])
-						++n;
-				}
-				return n;
-			}
-			if (st->editSelMask & 2) {
-				const uint32 ne = (uint32)st->editHE.edges.Size();
-				for (uint32 e = 0; e < ne; ++e) {
-					const auto &ed = st->editHE.edges[e];
-					if (!ed.alive)
-						continue;
-					if ((uint32)ed.v0 < (uint32)st->vertSel.Size() &&
-						(uint32)ed.v1 < (uint32)st->vertSel.Size() && st->vertSel[ed.v0] &&
-						st->vertSel[ed.v1])
-						++n;
-				}
-				return n;
-			}
-			for (uint32 i = 0; i < (uint32)st->vertSel.Size(); ++i)
-				if (st->vertSel[i])
-					++n;
-			return n;
+			// Le corps vit dans `Demo3D_SelCountFor` : la sonde de suppression lit LA
+			// MEME fonction, sinon elle prouverait sa propre boucle.
+			return Demo3D_SelCountFor(st, st->editSelMask);
+		}
+		// Le meme compte, pour un sous-mode DEMANDE. Sert aux temoins qui doivent
+		// dire « 0 dans les TROIS sous-modes » sans changer le sous-mode courant --
+		// changer le sous-mode pour mesurer modifierait ce qu'on mesure.
+		// L'etat du confinement et ses compteurs, pour prouver le ZERO : une course
+		// sans modale doit laisser `prises` a 0.
+		bool Demo3DHostCursorClipStats(int32 *prises, int32 *relaches) {
+			auto *st = HostSt();
+			if (!st)
+				return false;
+			if (prises)
+				*prises = st->clipPrises;
+			if (relaches)
+				*relaches = st->clipRelaches;
+			return st->clipActif;
+		}
+		int32 Demo3DHostEditSelCountFor(int32 mask) {
+			auto *st = HostSt();
+			if (!st || !st->editMode)
+				return 0;
+			return Demo3D_SelCountFor(st, mask);
 		}
 		void Demo3DHostSetEditSelMask(int32 mask) {
 			auto *st = HostSt();
@@ -16628,6 +17065,42 @@ namespace nkentseu {
 		// cage editee : notre Vert est un COIN (un cube en a 24 pour 8 positions),
 		// donc trois indices differents designent le meme point de l'espace -- et
 		// c'est precisement ce que la mesure du sous-mode Sommet doit montrer.
+		// Le pendant pour l'ARETE. Meme porte, meme consommation, meme toggle.
+		bool Demo3DHostEditPickEdge(int32 edge, bool shift) {
+			auto *st = HostSt();
+			if (!st || !st->editMode)
+				return false;
+			if (edge < 0 || (uint32)edge >= (uint32)st->editHE.edges.Size())
+				return false;
+			st->editPickEdge = edge;
+			st->editPickVert = -1;
+			st->editPickTri = -1;
+			st->editPickX = 0.f;
+			st->editPickY = 0.f;
+			st->editPickShift = shift;
+			st->editPickAlt = false;
+			st->editPickPending = true;
+			return true;
+		}
+		// Combien d'aretes de cage, et lesquelles : de quoi choisir un index sans le
+		// deviner. Rend les deux sommets de l'arete demandee.
+		uint32 Demo3DHostEditEdgeCount() {
+			auto *st = HostSt();
+			if (!st || !st->editMode)
+				return 0;
+			return (uint32)st->editHE.edges.Size();
+		}
+		bool Demo3DHostEditEdgeVerts(int32 edge, int32 *v0, int32 *v1) {
+			auto *st = HostSt();
+			if (!st || !st->editMode || edge < 0 || (uint32)edge >= (uint32)st->editHE.edges.Size())
+				return false;
+			const auto &ed = st->editHE.edges[(uint32)edge];
+			if (v0)
+				*v0 = (int32)ed.v0;
+			if (v1)
+				*v1 = (int32)ed.v1;
+			return true;
+		}
 		bool Demo3DHostEditPickVert(int32 vert, bool shift) {
 			auto *st = HostSt();
 			if (!st || !st->editMode)
@@ -16966,8 +17439,23 @@ namespace nkentseu {
 			return true;
 		}
 
+		// NK_SEL_TRACE : NOMMER LA PORTE. Une trace posee dans la boucle dit que la
+		// selection est tombee ; elle ne dit pas PAR OU. Une seule fonction, appelee
+		// par chaque facade qui peut vider `st->gizmo` : six copies divergeraient, et
+		// celle qui manquerait serait justement la coupable.
+		static void HostSelTrace(Demo3DState *st, const char *porte) {
+			static int t = -1;
+			if (t == -1) {
+				const char *v = getenv("NK_SEL_TRACE");
+				t = (v && v[0] && v[0] != '0') ? 1 : 0;
+			}
+			if (t && st && st->gizmo.ActiveIndex() >= 0)
+				logger.Info("[Demo3D] SEL TRACE : {0} va effacer ActiveIndex={1}\n", porte,
+							st->gizmo.ActiveIndex());
+		}
 		void Demo3DHostSelectObject(int32 i, bool additive) {
 			auto *st = HostSt();
+			HostSelTrace(st, "Demo3DHostSelectObject");
 			if (!st)
 				return;
 			// lightSel seul ne suffit pas : le gizmo des lumieres le RESSUSCITE
@@ -16988,6 +17476,7 @@ namespace nkentseu {
 		// re-parentage libre viendra avec le format projet.
 		void Demo3DHostSelectGroup(int32 start, int32 count, bool additive) {
 			auto *st = HostSt();
+			HostSelTrace(st, "Demo3DHostSelectGroup");
 			if (!st)
 				return;
 			st->lightGizmo.ClearSelection(); // meme regle que Demo3DHostSelectObject
@@ -17008,6 +17497,7 @@ namespace nkentseu {
 		// (une lumiere enfant d'un maillage...) viendra avec le format projet.
 		void Demo3DHostSelectAllLights() {
 			auto *st = HostSt();
+			HostSelTrace(st, "Demo3DHostSelectAllLights");
 			if (!st)
 				return;
 			st->gizmo.ClearSelection();
@@ -17028,6 +17518,7 @@ namespace nkentseu {
 			auto *st = HostSt();
 			if (!st)
 				return;
+			HostSelTrace(st, "Demo3DHostDeselectAll");
 			st->gizmo.ClearSelection();
 			st->lightGizmo.ClearSelection(); // sinon lightSel renait a la frame suivante
 			st->emptyGizmo.ClearSelection();
@@ -17059,6 +17550,7 @@ namespace nkentseu {
 		}
 		void Demo3DHostSelectLight(int32 li) {
 			auto *st = HostSt();
+			HostSelTrace(st, "Demo3DHostSelectLight");
 			if (!st)
 				return;
 			if (li >= 0 && HostLockedEff(86 + li))
@@ -17645,6 +18137,7 @@ namespace nkentseu {
 		static NkMat4f HostRotFromEuler(const float32 *rotDeg);
 		void Demo3DHostSelectEmptyNode(int32 node) {
 			auto *st = HostSt();
+			HostSelTrace(st, "Demo3DHostSelectEmptyNode");
 			if (!st)
 				return;
 			if (node < kNkvpFirstEmpty || node >= kNkvpMaxNodes) {
@@ -17663,6 +18156,7 @@ namespace nkentseu {
 		}
 		void Demo3DHostToggleEmptyNode(int32 node) {
 			auto *st = HostSt();
+			HostSelTrace(st, "Demo3DHostToggleEmptyNode");
 			if (!st || node < kNkvpFirstEmpty || node >= kNkvpMaxNodes)
 				return;
 			if (HostLockedEff(node) || nkvpDeleted[node] ||
@@ -19265,8 +19759,25 @@ namespace nkentseu {
 			// CADENAS INVIOLABLE : quel que soit le chemin (clic vue, zone,
 			// panneau), un objet verrouille est desselectionne d'office.
 			for (int32 i = 0; i < Demo3DState::kNumObj; ++i)
-				if ((HostLockedEff(i) || nkvpDeleted[i]) && st->gizmo.IsSelected(i))
+				if ((HostLockedEff(i) || nkvpDeleted[i]) && st->gizmo.IsSelected(i)) {
+					// NK_SEL_TRACE : DIRE POURQUOI, pas seulement qu'on desselectionne.
+					// « cadenasse » et « supprime » sont deux raisons tres differentes et
+					// la garde les confond dans un seul geste muet : le symptome remonte
+					// jusqu'a « Selectionne un objet (clic) avant TAB », qui accuse
+					// l'utilisateur d'un geste qu'il a fait.
+					{
+						static int t = -1;
+						if (t == -1) {
+							const char *v = getenv("NK_SEL_TRACE");
+							t = (v && v[0] && v[0] != '0') ? 1 : 0;
+						}
+						if (t)
+							logger.Info("[Demo3D] SEL TRACE : CADENAS de HostHierarchyFrame desselectionne "
+										"l'objet {0} (cadenasse={1} supprime={2})\n",
+										i, HostLockedEff(i) ? 1 : 0, nkvpDeleted[i] ? 1 : 0);
+					}
 					st->gizmo.ToggleSelection(i);
+				}
 			for (int32 li2 = 0; li2 < Demo3DState::kNumLights; ++li2)
 				if ((HostLockedEff(86 + li2) || nkvpDeleted[86 + li2]) &&
 					st->lightGizmo.IsSelected(li2))
@@ -19409,6 +19920,7 @@ namespace nkentseu {
 			return node >= 0 && node < kNkvpMaxNodes && nkvpDeleted[node];
 		}
 		static void HostDeselectNode(Demo3DState *st, int32 n) {
+			HostSelTrace(st, "HostDeselectNode");
 			if (n < Demo3DState::kNumObj) {
 				if (st->gizmo.IsSelected(n))
 					st->gizmo.ToggleSelection(n);

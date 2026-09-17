@@ -193,6 +193,8 @@ static float32 gSourisSondeX = 0.f, gSourisSondeY = 0.f;
 //    famille que `--clic` ecrase par le tick de capture. `--capture-frame=<n>`
 //    repousse la photo ; le defaut reste 8, donc aucune mise en scene ne bouge.
 static int32 kCaptureFramePrete = 8;
+/// (R20) la capture est armee (une seule fois) -- cf. le pave de `CaptureTick`
+static bool gCaptureArmee = false;
 /// --selectionner=<libellé> : le nœud à sélectionner AVANT la photo.
 ///
 /// ⚠️ NÉ D'UNE PREUVE EN CREUX (E6 du doc 17, payée le jour même) : un
@@ -256,6 +258,8 @@ static nkentseu::NkChrono gMesureHorloge;
 
 /// Le panneau IA, pour que le banc puisse le piloter. Pose au montage.
 static nkuidesign::AIPanel *gPanneauIA = nullptr;
+/// (R19) La toile, pour que la sonde des portes ouvre ses menus du clic droit.
+static nkuidesign::PreviewPanel *gPanneauToile = nullptr;
 
 /// LE TICK DU BANC. Il vit dans le meme crochet par image que la capture -- la
 /// coquille n'en offre qu'un, et l'un exclut l'autre (on ne photographie pas une
@@ -477,7 +481,21 @@ static void CaptureTick(NkEditorFrameContext &ec, void *user) {
 			puts(gSelectionner);
 		}
 	}
-	if (gCaptureFrame == kCaptureFramePrete) {
+	// 🔴 (R20) LA CAPTURE SE DECLENCHE SUR L'IMAGE REELLE, PAS SUR CE TICK.
+	//    Mesure du 17/09 : `mAppMenuFn` est appele DEUX FOIS par image (le commentaire
+	//    ci-dessus le dit deja), donc `gCaptureFrame` compte des DEMI-IMAGES.
+	//    `--capture-frame=105` photographiait l'image reelle ~52. Consequence mesuree :
+	//    un glisser programme a l'image 60 n'avait PAS COMMENCE sur la photo, et trois
+	//    captures censees montrer trois etats differents sont sorties IDENTIQUES AU BIT
+	//    (meme SHA-256) -- « un negatif incapable de refuter », pour la quatrieme fois.
+	//    `gImagesReelles` est la seule cadence de reference (une incrementation par image,
+	//    dans `DrawMenuBar`). ⚠️ Un banc qui demandait 105 photographie desormais l'image
+	//    105 et non ~52 : plus tard, donc plus stable, mais ce n'est PAS le meme instant.
+	if (!gCaptureArmee && gImagesReelles >= kCaptureFramePrete) {
+		gCaptureArmee = true;
+		printf("[NKUIDesign] capture armee a l'image reelle %d (tick d'application %d)\n",
+			   gImagesReelles, gCaptureFrame);
+		fflush(stdout);
 		// Armée ICI, exécutée par le backend APRÈS le Display() de cette même
 		// frame — le seul moment que le contrat du readback autorise.
 		if (sh->Renderer() && !sh->Renderer()->CaptureNext(gCapturePath)) {
@@ -486,7 +504,7 @@ static void CaptureTick(NkEditorFrameContext &ec, void *user) {
 			// (fichier absent) dira l'échec.
 			sh->RequestClose();
 		}
-	} else if (gCaptureFrame > kCaptureFramePrete) {
+	} else if (gCaptureArmee && gImagesReelles > kCaptureFramePrete) {
 		// La frame SUIVANTE : la capture de la frame précédente est faite (ou
 		// pas — le fichier en témoignera). Fermer proprement.
 		sh->RequestClose();
@@ -7150,6 +7168,15 @@ static void EcrireReleveUI(NkEditorFrameContext &ec, void *) {
 		}
 	} else if (gDesign.menuRole.ouvert)
 		gDesign.menuRole.ouvert = false; // plus de selection : le menu se ferme
+	// (R19) LES DEUX MENUS DU CLIC DROIT DE LA TOILE, ICI ET PLUS DANS LE PANNEAU.
+	// Mesure du 14/09 (sonde des portes) : dessines dans `PreviewPanel::OnUI`, ils
+	// reservaient la saisie, le shell masquait alors l'entree de TOUS les panneaux -- eux
+	// compris. Ni Echap ni clic ne leur parvenait : le menu restait ouvert et le corps
+	// masque POUR TOUJOURS (le symptome du gel), pendant que la barre de titre vivait.
+	// Le menu contextuel du SHELL, meme widget, dessine apres la restauration, etait vert :
+	// c'est la PHASE qui decide, pas le widget. Meme raison que la ligne 7126 ci-dessus.
+	if (gPanneauToile && !nkuidesign::NkMenusToileDansLePanneau())
+		gPanneauToile->DessinerMenusToile(ec.Ui());
 	// LE MENU DES FORMATS (catalogue Formats.h, 31/08) — meme couche, meme
 	// patron que le menu des roles ; le choix passe par AppliquerFormat
 	// (cible + redimension + constats au rapport), annulable en un pas.
@@ -7560,11 +7587,30 @@ static void InjecterClics(nkgui::NkGuiContext &ctx) {
 			ctx.input.keyInit[(int32)gTouches[i].touche] = false;
 	}
 	// ── LE GLISSER (--glisser=) : presse, interpole, relache ────────────────
+	// 🔴 (R20) LE GLISSER NE POSAIT PAS LA SOURIS DE SONDE. `CaptureTick` repousse la souris
+	//    hors ecran a son second passage de l'image, SAUF si `gSourisSondePosee` : c'est le
+	//    correctif du 14/09 pour `--clic`, et `--glisser` n'en profitait pas. Sous `--capture`,
+	//    le geste etait donc teleporte hors ecran a chaque image -- la famille « un negatif
+	//    incapable de refuter », une troisieme fois. On pose la position a la fin de la boucle,
+	//    tant que le geste est vif.
+	struct PoseGlisser {
+			~PoseGlisser() {
+				if (vif) {
+					gSourisSondePosee = true;
+					gSourisSondeX = x;
+					gSourisSondeY = y;
+				}
+			}
+			bool vif = false;
+			float32 x = 0.f, y = 0.f;
+	} poseGlisser;
 	for (int32 i = 0; i < 2; ++i) {
 		if (gGlissers[i].frame < 0)
 			continue;
 		const int32 f0 = gGlissers[i].frame;
 		const int32 fn = f0 + (gGlissers[i].duree > 0 ? gGlissers[i].duree : 12);
+		if (compteur >= f0 - 5 && (compteur <= fn + 1 || gGlissers[i].tenir))
+			poseGlisser.vif = true;
 		if (compteur >= f0 - 5 && compteur < f0)
 			ctx.input.mousePos = {gGlissers[i].x1, gGlissers[i].y1}; // survol etabli
 		else if (compteur == f0) {
@@ -7590,6 +7636,8 @@ static void InjecterClics(nkgui::NkGuiContext &ctx) {
 			ctx.input.mouseReleased[0] = true;
 		}
 	}
+	poseGlisser.x = ctx.input.mousePos.x; // (R20) lue par le destructeur, apres la boucle
+	poseGlisser.y = ctx.input.mousePos.y;
 	// ── LA MOLETTE (--molette=) : un cran a la position donnee ──────────────
 	for (int32 i = 0; i < 2; ++i) {
 		if (gMolettes[i].frame < 0)
@@ -7620,6 +7668,45 @@ static void InjecterClics(nkgui::NkGuiContext &ctx) {
 //     partent qu'au passage ou `gImagesReelles` a change ; la position, elle, est
 //     forcee aux deux.
 static char gSondePortes[256] = {};
+/// (R20) --sauver-document=<image>:<chemin> : a l'image donnee, ECRIRE le document, le RELIRE
+/// dans un document neuf, et comparer les composants poses dans les deux.
+static nkentseu::int32 gSauverImage = -1;
+static char gSauverChemin[512] = {};
+static void SauverEtRelire() {
+	using namespace nkuidesign;
+	NkString texte;
+	gDesign.doc.Save(texte);
+	const bool ecrit = nkentseu::NkFile::WriteAllText(gSauverChemin, texte.Data());
+	NkUIDocument relu;
+	const bool lu = ecrit && relu.Load(texte.Data());
+	auto compter = [](const NkUIDocument &d, char *buf, size_t taille) {
+		nkentseu::int32 n = 0;
+		buf[0] = 0;
+		size_t k = 0;
+		for (nkentseu::uint32 i = 0; i < (nkentseu::uint32)d.nodes.Size(); ++i) {
+			const char *c = d.nodes[i].component.Data();
+			if (c && *c) {
+				++n;
+				k += (size_t)snprintf(buf + k, k < taille ? taille - k : 0, "%s%s", n > 1 ? "," : "", c);
+			}
+		}
+		return n;
+	};
+	char a[2048], b[2048];
+	const nkentseu::int32 na = compter(gDesign.doc, a, sizeof(a));
+	const nkentseu::int32 nb = lu ? compter(relu, b, sizeof(b)) : -1;
+	if (!lu)
+		b[0] = 0;
+	printf("[depot] SAUVE %s -> %s ; relu %s\n"
+		   "[depot]   en memoire : %u noeuds, %d composant(s) : %s\n"
+		   "[depot]   relu       : %u noeuds, %d composant(s) : %s\n",
+		   gSauverChemin, ecrit ? "ecrit" : "ECHEC", lu ? "OUI" : "NON", (unsigned)gDesign.doc.nodes.Size(), na, a,
+		   lu ? (unsigned)relu.nodes.Size() : 0u, nb, b);
+	fflush(stdout);
+}
+/// (R19) combien de fois la commande SANS EFFET de la sonde a ete executee
+static nkentseu::int32 gSondeRienExecutee = 0;
+static nkentseu::editorkit::NkModal &LauncherModalSonde();
 
 static const char *NkNomsPortesSonde(nkentseu::int32 p, char *buf, nkentseu::int32 taille) {
 	static const char *const kNoms[6] = {"P", "A", "O", "C", "R", "S"};
@@ -7650,8 +7737,84 @@ static nkentseu::int32 NkSourceOuverte(const char *src, NkEditorShell *sh, nkgui
 		return gDesign.menuFormat.ouvert ? 1 : 0;
 	if (!strcmp(src, "rapport"))
 		return gDesign.rapportTransposition ? 1 : 0;
+	if (!strncmp(src, "palette", 7))
+		return sh->PaletteOuverte() ? 1 : 0;
+	if (!strcmp(src, "menu-noeud"))
+		return (gPanneauToile && gPanneauToile->MenuContextuelOuvert()) ? 1 : 0;
+	if (!strcmp(src, "menu-vide"))
+		return (gPanneauToile && gPanneauToile->MenuVideOuvert()) ? 1 : 0;
+	if (!strncmp(src, "nouveau-projet", 14))
+		return LauncherModalSonde().open ? 1 : 0;
 	(void)ctx;
 	return -1;
+}
+
+/// (GEL) LES SOURCES OUVERTES, DANS LE VOCABULAIRE DE L'APPLICATION. Le kit connait ses six
+/// portes ; lui seul ne sait pas dire « le menu des roles est ouvert ». Appelee UNIQUEMENT
+/// quand une ligne de gel part au journal (jamais par image) -- cf. NkDetecterGel.
+static const char *SourcesOuvertesNKUIDesign(void *) {
+	static char buf[512];
+	int32 n = 0;
+	buf[0] = 0;
+	const auto ajouter = [&](const char *nom) {
+		n += snprintf(buf + n, (size_t)(n < (int32)sizeof(buf) ? sizeof(buf) - (size_t)n : 0), "%s%s",
+					  n ? ", " : "", nom);
+	};
+	if (gShell && gShell->IsContextMenuOpen())
+		ajouter("menu contextuel du shell");
+	if (gShell && gShell->PaletteOuverte())
+		ajouter("palette de commandes");
+	if (gDesign.choixExport.dialogue.open)
+		ajouter("dialogue Exporter");
+	if (gDesign.choixExport.picker.pickerOpen)
+		ajouter("selecteur de fichier");
+	if (gDesign.picker.ouvert)
+		ajouter("selecteur de couleur");
+	if (gDesign.menuRole.ouvert)
+		ajouter("menu des roles");
+	if (gDesign.menuFormat.ouvert)
+		ajouter("menu des formats");
+	if (gDesign.rapportTransposition)
+		ajouter("rapport de transposition");
+	if (gPanneauToile && gPanneauToile->MenuContextuelOuvert())
+		ajouter("menu du clic droit (noeud)");
+	if (gPanneauToile && gPanneauToile->MenuVideOuvert())
+		ajouter("menu du clic droit (vide)");
+	if (LauncherModalSonde().open)
+		ajouter("dialogue Nouveau projet");
+	if (!n)
+		snprintf(buf, sizeof(buf), "AUCUNE source de l'application n'est ouverte");
+	return buf;
+}
+
+/// (GEL) LA SONDE DU DETECTEUR : `--sonde-gel=porte|inconnu|sain`. Elle ne touche PAS la
+/// machine -- clics et position sont poses dans NOTRE contexte, comme les autres sondes.
+///   porte   : `appModal` est pose A CHAQUE IMAGE des l'image 30 et n'est jamais retire --
+///             une porte connue qui ne se rouvre pas. La ligne doit nommer A(appModal).
+///   inconnu : AUCUNE porte, mais des gestes qui ne changent rien (souris hors des
+///             panneaux) -- la ligne « AUCUNE PORTE CONNUE » doit partir.
+///   sain    : la meme course, SANS aucun geste. Aucune ligne ne doit partir.
+static char gSondeGel[32] = {};
+static void GelTick(NkEditorFrameContext &ec, void *user) {
+	NkEditorShell *sh = static_cast<NkEditorShell *>(user);
+	auto &ctx = ec.Ui();
+	const int32 n = gImagesReelles;
+	const bool porte = !strcmp(gSondeGel, "porte");
+	const bool gestes = !porte ? !strcmp(gSondeGel, "inconnu") : true;
+	// La souris est TENUE hors des panneaux : sans cela, celle de la machine ferait varier
+	// le survol, donc la cle d'etat, et la course ne serait pas repetable.
+	ctx.input.mousePos = {-10000.f, -10000.f};
+	if (porte && n >= 30)
+		ctx.appModal = true; // la porte qui ne se rouvre jamais
+	if (gestes && n >= 40 && n <= 220 && (n % 10) == 0) {
+		ctx.input.mouseClicked[0] = true;
+		ctx.input.mouseDown[0] = true;
+	}
+	if (n >= 300) {
+		puts("[sonde-gel] fin de course");
+		fflush(stdout);
+		sh->RequestClose();
+	}
 }
 
 static const char *src_ou_vide(nkentseu::int32 etape, nkentseu::int32 n, const char s[][32]) {
@@ -7768,7 +7931,22 @@ static void PortesTick(NkEditorFrameContext &ec, void *user) {
 				gDesign.menuFormat.vientDOuvrir = true;
 				gDesign.menuFormat.page = gDesign.selected;
 			}
-		} else if (!strcmp(src, "rapport"))
+		} else if (!strncmp(src, "palette", 7))
+			sh->OpenCommandPalette();
+		else if (!strcmp(src, "menu-noeud") || !strcmp(src, "menu-vide")) {
+			const nkgui::NkVec2 pos = {(float32)ctx.viewW * 0.45f, (float32)ctx.viewH * 0.45f};
+			if (!gPanneauToile) {
+				ouvert = false;
+				printf("[sonde-portes]     la toile n'est pas montee\n");
+			} else if (!strcmp(src, "menu-noeud")) {
+				if (!gDesign.doc.IsValidIndex(gDesign.selected) && gDesign.doc.IsValidIndex(1))
+					gDesign.SelectSingle(1);
+				gPanneauToile->SondeOuvrirMenuNoeud(gDesign.selected, pos);
+			} else
+				gPanneauToile->SondeOuvrirMenuVide(pos);
+		} else if (!strncmp(src, "nouveau-projet", 14))
+			LauncherModalSonde().open = true;
+		else if (!strcmp(src, "rapport"))
 			gDesign.rapportTransposition = true;
 		else {
 			ouvert = false;
@@ -7808,7 +7986,7 @@ static void PortesTick(NkEditorFrameContext &ec, void *user) {
 			ctx.input.mouseDown[0] = true;
 			ctx.input.mouseClicked[0] = true;
 			printf("[sonde-portes]     FERMETURE : clic interne hors de la fenetre (8, %.0f)\n", (double)souris.y);
-		} else if (!strcmp(src, "export-croix") && ctx.popupDepth > 0) {
+		} else if ((!strcmp(src, "export-croix") || !strcmp(src, "nouveau-projet-croix")) && ctx.popupDepth > 0) {
 			// ⚠️ POURQUOI LA CROIX, ET PAS ECHAP : Echap fait aussi `--popupDepth` dans
 			//    NkGuiContext::EndFrame, et un clic hors de la boite fait `popupDepth = 0`
 			//    au meme endroit. Ces deux fermetures sont donc RATTRAPEES par NKGui : une
@@ -7825,6 +8003,16 @@ static void PortesTick(NkEditorFrameContext &ec, void *user) {
 			ctx.input.mouseClicked[0] = true;
 			printf("[sonde-portes]     FERMETURE : clic interne sur la CROIX (%.0f, %.0f) -- dans la boite\n",
 				   (double)souris.x, (double)souris.y);
+		} else if (!strcmp(src, "palette-echap")) {
+			const bool prise = sh->PaletteTouche(NkKey::NK_ESCAPE);
+			printf("[sonde-portes]     FERMETURE : PaletteTouche(Echap) -- le chemin du rappel OS, sans frappe (%s)\n",
+				   prise ? "prise" : "palette deja fermee");
+		} else if (!strcmp(src, "palette-commande")) {
+			const int32 avant = gSondeRienExecutee;
+			sh->PaletteTouche(NkKey::NK_UP); // depuis 0 : la DERNIERE commande, « Sonde : rien »
+			sh->PaletteTouche(NkKey::NK_ENTER);
+			printf("[sonde-portes]     FERMETURE : Haut puis Entree -- commande sans effet executee %d fois\n",
+				   gSondeRienExecutee - avant);
 		} else if (!strcmp(src, "export-etat")) {
 			// LA FERMETURE PAR L'ETAT, telle que ExportDialogue.h l'ecrit a la confirmation
 			// (`c.dialogue.open = false`, l. 283 et 293) : NkModalFrameDraw n'est plus appele,
@@ -7853,6 +8041,12 @@ static void PortesTick(NkEditorFrameContext &ec, void *user) {
 		} else if (!ouvertureConfirmee) {
 			verdict = "NON JUGEE";
 			++nonJugees;
+		} else if (so == 1 && (fermees & NkEditorShell::kPortesCorpsEntier) != 0) {
+			// (R19) Une source restee OUVERTE qui MASQUE le corps : elle a pu etre dessinee
+			// sous le masque qu'elle cause, et son geste de fermeture ne lui parvient plus.
+			// Ce n'est pas « la sonde a manque son geste » -- la mutation `ctxnon` le tranche.
+			verdict = "ROUGE : la SOURCE est restee ouverte ET masque le corps";
+			++rouges;
 		} else if (so == 1) {
 			verdict = "NON JUGEE (la SOURCE ne s'est pas fermee : c'est la sonde qui a manque son geste)";
 			++nonJugees;
@@ -7887,6 +8081,8 @@ static void DrawMenuBar(NkEditorFrameContext &ec, void *) {
 	//    *Une tache de fond ne se recolte pas dans le dessin de ce qui l'affiche.*
 	gDesign.RecolterIA();
 	++gImagesReelles; // UNE fois par image : la seule cadence de reference
+	if (gSauverImage >= 0 && gImagesReelles == gSauverImage)
+		SauverEtRelire(); // (R20)
 	gDesign.RangerCompteDessins(); // (k2) idem : une fois par image, avant les panneaux
 	auto &ctx = ec.Ui();
 	using namespace nkentseu::nkgui;
@@ -8318,6 +8514,10 @@ static void DrawMenuBar(NkEditorFrameContext &ec, void *) {
 //    + grille de projets) : c est son raccourci a trois branches, celui que le
 //    §3 decrit pour le bouton « + Nouveau projet ».
 static nkentseu::editorkit::NkModal gLauncherModal;
+/// (R19) la sonde des portes est definie plus haut que ce dialogue
+static nkentseu::editorkit::NkModal &LauncherModalSonde() {
+	return gLauncherModal;
+}
 
 static void DrawProjectTabs(NkEditorFrameContext &ec, void *) {
 	// ── LA PIPETTE PREND SON CLIC ICI, ET C'EST MESURE ────────────────────
@@ -8949,6 +9149,18 @@ int nkmain(const NkEntryState &state) {
 				continue;
 			}
 			// (R16) --sonde-portes=preferences,menu-ctx,export,... : voir PortesTick.
+			if (arg.StartsWith("--sauver-document=")) {
+				gSauverImage = (int32)atof(a + 18);
+				const char *q = a + 18;
+				while (*q && *q != ':')
+					++q;
+				snprintf(gSauverChemin, sizeof(gSauverChemin), "%s", *q == ':' ? q + 1 : "depot_relu.nkuidoc");
+				continue;
+			}
+			if (arg.StartsWith("--sonde-gel=")) {
+				snprintf(gSondeGel, sizeof(gSondeGel), "%s", a + 12); // « --sonde-gel= » fait 12 caracteres
+				continue;
+			}
 			if (arg.StartsWith("--sonde-portes=")) {
 				snprintf(gSondePortes, sizeof(gSondePortes), "%s", a + 15);
 				continue;
@@ -9428,6 +9640,7 @@ int nkmain(const NkEntryState &state) {
 	static nkuidesign::PreviewPanel preview(&gDesign);
 	static nkuidesign::AIPanel ai(&gDesign);
 	gPanneauIA = &ai; // le banc --mesure-async le pilote ; rien d'autre ne le lit
+	gPanneauToile = &preview; // (R19) la sonde des portes ouvre ses menus
 	static nkuidesign::HierarchyPanel hierarchie(&gDesign);
 	static nkuidesign::InspectorPanel inspecteur(&gDesign);
 	// LE RAIL « VARIABLES » (§15.14) : a gauche, onglet a cote de la Hierarchie --
@@ -9788,10 +10001,15 @@ int nkmain(const NkEntryState &state) {
 	shell->RegisterCommand("Objet: Dégrouper (Ctrl+Maj+G sur la toile)", &CmdDegrouper, nullptr, nullptr);
 	shell->RegisterCommand("Application: Quitter", &CmdQuit, shell.Get(), "Ctrl+Q");
 	gShell = shell.Get();
+	// LE DETECTEUR DE GEL (NKEditorKit) NOMME LES SOURCES DE L'APPLICATION : sans ce crochet,
+	// sa ligne dirait la porte du kit sans dire QUI l'a posee. Toujours pose, rien a armer.
+	shell->SetSourcesOuvertes(&SourcesOuvertesNKUIDesign);
 	// Le mode --capture branche son tick par frame — cf. le bloc CaptureTick en
 	// tête de fichier. Hors capture, aucun callback : rien ne change.
 	if (gCapturePath[0])
 		shell->SetAppMenu(&CaptureTick, shell.Get());
+	else if (gSondeGel[0])
+		shell->SetAppMenu(&GelTick, shell.Get()); // la sonde du detecteur de gel
 	else if (gSondePortes[0])
 		shell->SetAppMenu(&PortesTick, shell.Get()); // (R16) la sonde des portes du corps
 	else if (gMesureAsyncMs >= 0 || gMesureFpsMs >= 0 || gMesureDoubleImages >= 0
@@ -9818,6 +10036,10 @@ int nkmain(const NkEntryState &state) {
 	shell->RegisterCommand("Vue: Préférences", &CmdVuePreferences, nullptr, "Ctrl+M");
 #endif
 
+	// (R19) LA COMMANDE SANS EFFET : enregistree EN DERNIER et seulement sous la sonde des portes.
+	// La palette se ferme par l'execution d'une commande ; celle-ci ne fait que se compter.
+	if (gSondePortes[0] && !shell->RegisterCommand("Sonde : rien", +[](void *) { ++gSondeRienExecutee; }, nullptr, nullptr))
+		printf("[sonde-portes] la commande sans effet n'a PAS pu etre enregistree\n");
 	const int codeShell = shell->Run();
 
 	// ── Verdict du mode --capture : le FICHIER, pas un drapeau ────────────────
