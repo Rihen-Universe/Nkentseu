@@ -1562,6 +1562,24 @@ with workspace("Nkentseu", location="."):
 
 
 
+    with include("Applications/NKMeshMenuTest/NKMeshMenuTest.jenga"):
+
+        pass
+
+
+
+    with include("Applications/NKFoldTest/NKFoldTest.jenga"):
+
+        pass
+
+
+
+    with include("Applications/NKNormalesTest/NKNormalesTest.jenga"):
+
+        pass
+
+
+
     with include("Applications/NKMeshRenderTest/NKMeshRenderTest.jenga"):
 
         pass
@@ -1607,6 +1625,18 @@ with workspace("Nkentseu", location="."):
 
 
 
+    # NkSableCheck -- une roue passe, le sol garde-t-il son orniere ? et le tas
+
+    # s effondre-t-il au-dela de son angle de repos ? Meme chaine que NkTerrainCheck
+
+    # (NkTerrainSable vit dans le meme module) : enregistre juste apres lui.
+
+    with include("Applications/NkSableCheck/NkSableCheck.jenga"):
+
+        pass
+
+
+
     with include("Applications/NKPA/NKPA.jenga"):
 
         pass
@@ -1636,6 +1666,23 @@ with workspace("Nkentseu", location="."):
 
 
     with include("Applications/NKEditorKitDemo/NKEditorKitDemo.jenga"):
+
+        pass
+
+
+    # SONDE DE MESURE (canal chrome, mesure b1) -- PAS UN PRODUIT.
+    # Mesure si `NkEditorShell::SetHeaderLayout` honore ses pixels.
+    # AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
+    with include("Applications/NkChromeProbe/NkChromeProbe.jenga"):
+
+        pass
+
+
+
+    # SONDE DE MESURE (canal onglets : o1 la bande partagee, o2 les accents).
+    # PAS UN PRODUIT -- sa fenetre le dit dans son titre et elle se ferme seule.
+    # AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
+    with include("Applications/NkOngletSonde/NkOngletSonde.jenga"):
 
         pass
 
@@ -1681,6 +1728,18 @@ with workspace("Nkentseu", location="."):
 
 
     with include("Applications/NKGuiDrawTest/NKGuiDrawTest.jenga"):
+
+        pass
+
+
+
+    with include("Applications/NKGuiMonteTest/NKGuiMonteTest.jenga"):
+
+        pass
+
+
+
+    with include("Applications/NKGuiInteractTest/NKGuiInteractTest.jenga"):
 
         pass
 

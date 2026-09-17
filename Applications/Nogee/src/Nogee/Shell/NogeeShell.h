@@ -1,4 +1,9 @@
 #pragma once
+// -----------------------------------------------------------------------------
+// @File    NogeeShell.h
+// @Author  TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
+// @License Proprietary - All Rights Reserved (see LICENSE)
+// -----------------------------------------------------------------------------
 // =============================================================================
 // Nogee/Shell/NogeeShell.h — chemin OPTIONNEL « coquille d'editeur » (NKEditorKit)
 // =============================================================================
@@ -48,6 +53,15 @@ namespace nkentseu {
 		// ferme. UNE sonde par execution : prioritaire sur --occlusion-test si
 		// les deux sont passes. A appeler AVANT RunNogeeEditorShell.
 		void NogeeShellEnableDragDropProbe() noexcept;
+
+		// `--panneaux-sonde` : MESURE de la disposition. Imprime les cotes des
+		// trois bandes (titre / outils / etat), DERIVEES du rectangle reellement
+		// donne au dock, puis le rectangle de chaque panneau en pixels et en
+		// fraction de la fenetre, puis ferme. Elle ne compare a rien : les
+		// attendus sont lus dans NkModelerUI.h par le banc, a chaque execution.
+		// Elle n'injecte NI souris NI clavier, et la fenetre porte un titre qui
+		// dit qu'elle n'est pas le produit. A appeler AVANT RunNogeeEditorShell.
+		void NogeeShellEnablePanneauxSonde(bool redim = false, bool pose = false) noexcept;
 
 	} // namespace noge
 } // namespace nkentseu

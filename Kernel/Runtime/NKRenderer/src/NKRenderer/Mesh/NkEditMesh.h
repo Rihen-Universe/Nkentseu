@@ -491,11 +491,31 @@ namespace nkentseu {
 				struct FaceAttrib {
 						uint16 material = 0;
 						uint8 smooth = 0;
+						// L'INTENTION DE SELECTION VOYAGE AVEC LE RESTE. Elle est par FACE, comme
+						// le materiau et l'ombrage, et elle traverse le meme aller-retour : c'est
+						// ce qui permet a chaque operation de repondre « cette face etait-elle
+						// choisie ? » sans redemander aux sommets -- la question qui s'effondre
+						// des que les sommets choisis couvrent l'objet.
+						uint8 sel = 0;
 				};
 
 				NkVector<Vert> verts;
 				NkVector<Hedge> hedges;
 				NkVector<Face> faces;
+				// ── L'INTENTION DE FACE, ET POURQUOI ELLE NE SE DEDUIT PAS ──────────
+				// `FaceIsSelected` repondait « tous ses sommets sont-ils retenus ? ».
+				// C'est juste tant que les sommets choisis ne couvrent pas l'objet, et
+				// c'est faux des qu'ils le couvrent : deux faces OPPOSEES d'un cube ont
+				// pour sommets les 8 coins, donc TOUTE face repondait oui -- extruder deux
+				// faces en extrudait six.
+				// `faceSelSnap` est la photo de `verts[i].sel` prise quand l'intention a
+				// ete posee. Si les sommets ont bouge depuis, l'intention est perimee et
+				// l'on retombe sur la deduction -- qui est alors la bonne reponse. Une
+				// photo qu'on compare ne peut pas s'oublier ; une invalidation posee a la
+				// main sur chaque site d'ecriture, si.
+				NkVector<uint8> faceSelSnap;
+				bool faceSelPorte = false; // une intention a-t-elle jamais ete posee ?
+				bool faceSelOk = false;    // ... et etait-elle a jour au dernier Refresh ?
 				// Aretes de premier plan. Reconstruites par RebuildEdges() apres toute
 				// operation topologique ; les aretes FILAIRES y survivent (elles ne sont
 				// deduites d'aucune face, donc rien d'autre ne peut les recreer).
@@ -698,8 +718,19 @@ namespace nkentseu {
 				// unique usage : DEPARTAGER deux contributeurs d'une fusion.
 				// Rend 0 pour une face morte ou de moins de 3 coins.
 				float32 FaceArea(NkEmId f) const; // nombre de sommets du bord
-				// Une face est SÉLECTIONNÉE si TOUS ses sommets le sont (convention Blender).
+				// Une face est SELECTIONNEE si l'INTENTION le dit -- et, faute d'intention
+				// a jour, si tous ses sommets le sont (deduction historique).
+				// ⚠ Lit `faceSelOk`, pose par `RefreshFaceSel`. La validite se calcule UNE
+				// fois par operation et non a chaque face : la comparaison est en O(sommets)
+				// et ce test-ci vit dans des boucles sur les faces.
 				bool FaceIsSelected(NkEmId f) const;
+				// Pose l'intention de face (un octet par face) et photographie la selection
+				// de sommets qui l'accompagne. C'est l'editeur qui appelle, au clic.
+				void SetFaceSelection(const uint8 *flags, uint32 count);
+				// L'intention est-elle encore a jour ? A appeler en TETE de toute operation
+				// qui consomme une selection de faces.
+				void RefreshFaceSel();
+				bool FaceSelAJour() const { return faceSelOk; }
 				// Les (au plus 2) faces incidentes à l'arête (a,b) — pour la normale d'arête.
 				// Renvoie le nombre de faces trouvées (0..2).
 				uint32 EdgeFaces(uint32 a, uint32 b, NkEmId &f0, NkEmId &f1) const;

@@ -19,7 +19,7 @@
 //
 //   L'anneau est BORNE : un journal qui grossit sans fin finit par manger la
 //   memoire d'une session longue. Les plus vieilles lignes tombent.
-// @Author  Rihen
+// @Author  TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // @License Proprietary - All Rights Reserved (see LICENSE)
 // -----------------------------------------------------------------------------
 #include "NK3DModeler/Shell/NkModelerUI.h"
@@ -376,19 +376,30 @@ namespace nkentseu {
 					// lit, elles ne font que le situer.
 					static const char *const kLib[6] = {"TRACE", "DEBUG", "INFO ",
 														"WARN ", "ERREUR", "FATAL"};
-					// Le theme n'a ni « danger » ni « avertissement » : on emprunte
-					// le rouge des axes pour les fautes et l'accent pour les
-					// avertissements. Le jour ou ces roles existeront, c'est ici
-					// qu'il faudra changer -- et nulle part ailleurs.
+					// ⚠️ 2026-09-14 — LA CONDITION DE RETRAIT ECRITE ICI EST REMPLIE.
+					//    Le commentaire qui tenait cette place disait : « Le theme
+					//    n'a ni "danger" ni "avertissement" : on emprunte le rouge
+					//    des AXES pour les fautes et l'ACCENT D'INTERFACE pour les
+					//    avertissements. Le jour ou ces roles existeront, c'est ici
+					//    qu'il faudra changer -- et nulle part ailleurs. »
+					//
+					//    Les roles existent. `StatusErr` remplace `AxisX` : le rouge
+					//    des axes designe l'axe X d'un repere 3D, pas une faute, et
+					//    un journal ouvert a cote de la vue peignait ses erreurs de
+					//    la couleur de l'axe visible juste a cote. `StatusWarn`
+					//    remplace `AccentUi` : le bleu d'interface dit l'ETAT de
+					//    l'interface (survol, selection, actif) -- un avertissement
+					//    peint en bleu de survol ne se lit pas comme un
+					//    avertissement, il se lit comme une ligne survolee.
 					const int32 nv = (int32)l.niveau;
-					const NkRole colNv = (nv >= (int32)NkJnvNiveau::Erreur) ? NkRole::AxisX
-										 : (nv == (int32)NkJnvNiveau::Warn) ? NkRole::AccentUi
+					const NkRole colNv = (nv >= (int32)NkJnvNiveau::Erreur) ? NkRole::StatusErr
+										 : (nv == (int32)NkJnvNiveau::Warn) ? NkRole::StatusWarn
 																			: NkRole::TextMuted;
 					// Le MESSAGE prend la couleur de sa gravite ; une trace et un
 					// message de mise au point s'effacent, pour que l'oeil aille aux
 					// lignes qui comptent.
-					const NkRole colMsg = (nv >= (int32)NkJnvNiveau::Erreur) ? NkRole::AxisX
-										  : (nv == (int32)NkJnvNiveau::Warn)  ? NkRole::AccentUi
+					const NkRole colMsg = (nv >= (int32)NkJnvNiveau::Erreur) ? NkRole::StatusErr
+										  : (nv == (int32)NkJnvNiveau::Warn)  ? NkRole::StatusWarn
 										  : (nv <= (int32)NkJnvNiveau::Debug) ? NkRole::TextMuted
 																			  : NkRole::Text;
 				// COLONNES A POSITION FIXE, chacune bornee par un clip : une source

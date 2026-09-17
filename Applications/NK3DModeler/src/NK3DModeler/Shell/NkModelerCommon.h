@@ -66,8 +66,47 @@ namespace nkentseu {
 			return node >= 96 && demo::Demo3DHostUserKind(node) == 0;
 		}
 
+		// ── LE DECOMPTE DES OBJETS : UNE DEFINITION, DEUX TEXTES ──────────────
+		// La barre d'etat ecrivait « Objets 6 » en dur, et le pied de la Hierarchie
+		// arretait sa boucle au noeud 90 : les empties et TOUS les objets crees par
+		// l'utilisateur (noeuds >= 96) n'etaient pas comptes -- d'ou « 0 objet(s) »
+		// sous une liste de quatre noeuds. Deux textes, deux comptes, aucun juste.
+		// Ici : le MEME predicat que les lignes de la liste (NkHierNodeSkip) et la
+		// MEME regle de selection que la ligne (empty, lumiere, objet). Ce qui est
+		// compte est donc ce qui est affiche -- c'est la seule definition verifiable
+		// a l'oeil. `seul` rend le noeud quand exactement un est selectionne, -1 sinon.
+		inline void NkSceneCounts(NkModelerState &st, int32 &alive, int32 &sel, int32 &seul) {
+			alive = 0;
+			sel = 0;
+			seul = -1;
+			const int32 kFirstLight = demo::Demo3DHostObjectCount();
+			const int32 kFirstEmpty = 90;
+			const int32 selLight = demo::Demo3DHostSelectedLight();
+			int32 nNoeuds = demo::Demo3DHostNodeCount();
+			if (nNoeuds > NkModelerState::kMaxNodeNames)
+				nNoeuds = NkModelerState::kMaxNodeNames; // la table de noms, relevee a 352 par transit
+			for (int32 n = 0; n < nNoeuds; ++n) {
+				if (NkHierNodeSkip(n))
+					continue;
+				++alive;
+				const bool isEmpty = n >= kFirstEmpty;
+				const bool isLight = n >= kFirstLight && n < kFirstEmpty;
+				const bool s = isEmpty ? (demo::Demo3DHostEmptyNodeSelected(n) || st.activeEmpty == n)
+								: isLight ? (selLight == n - kFirstLight)
+										: demo::Demo3DHostObjectSelected(n);
+				if (s) {
+					++sel;
+					seul = (sel == 1) ? n : -1;
+				}
+			}
+		}
+
 		inline void NkHierNodeName(NkModelerState &st, int32 node, char *out, uint32 cap) {
-			if (node >= 0 && node < 160 && st.customNames[node][0]) {
+			// ⚠ BORNE DE LA TABLE, PAS UN NOMBRE : `customNames` a kMaxNodeNames entrees (352
+			// depuis que transit a releve kNkvpMaxNodes). Un `< 160` ecrit en dur ici etait passe
+			// SANS conflit a la fusion du 14/09 : les noms des noeuds 160..351 ne s'affichaient
+			// jamais. Meme correction dans NkSceneCounts, qui ne les comptait plus.
+			if (node >= 0 && node < NkModelerState::kMaxNodeNames && st.customNames[node][0]) {
 				snprintf(out, cap, "%s", st.customNames[node]);
 				return;
 			}

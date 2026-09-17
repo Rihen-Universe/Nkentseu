@@ -1,4 +1,5 @@
 #pragma once
+
 // -----------------------------------------------------------------------------
 // @File    NkModelerInput.h
 // @Author  TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
@@ -35,7 +36,7 @@
 #include "NK3DModeler/Shell/NkModelerMatTypes.h"
 #include "NKEditorKit/NkEditorModal.h"
 #include "NKEditorKit/NkEditorContextMenu.h" // menu contextuel du kit (grisage natif)
-#include "NKEditorKit/NkShortcutTable.h"
+#include "NK3DModeler/Shell/NkModelerFold.h"#include "NKEditorKit/NkShortcutTable.h"
 #include "NKSerialization/NkArchive.h" // reglages Rendu PAR SCENE (docRendu)
 
 namespace nkentseu {
@@ -506,10 +507,15 @@ namespace nkentseu {
 				bool propMat = false;
 				bool lockLit = false;
 				bool propLit = false;
-				// GROUPES du panneau Modele (Transformation, Dimensions, Relations,
-				// Materiaux...) : un bit par groupe, mis a 1 quand il est REPLIE.
-				// Les elements de nature differente se rangent par groupe (Rihen).
-				uint32 grpFold = 0;
+				// ── GROUPES DU PANNEAU : L'ETAT DE PLIAGE, INDEXE PAR CLE ───
+				// C'ETAIT un `uint32`, un BIT par groupe choisi a la main. Mesure du
+				// 14/09 : 27 groupes pour 16 bits, SIX bits partages par 17 groupes,
+				// et `prop.g.cam` portant le bit 3 — pas une puissance de deux — dont
+				// le XOR en basculait sept d'un coup. Plier « SSAO » pliait aussi GI,
+				// PostFX, Ombres et Transformation : un defaut que Rodolf VOIT.
+				// La regle vit desormais dans `NkModelerFold.h`, hors de ce fichier,
+				// pour etre exercable sans fenetre (banc NKFoldTest, 13 criteres).
+				NkFoldTable grpFold;
 				// ── MENU D'UN GROUPE DE PROPRIETES (facture Unity) ───────────
 				// Chaque bandeau de groupe porte le meme petit menu a droite :
 				// copier / coller / reinitialiser. Un SEUL etat pour toute
@@ -1029,6 +1035,12 @@ namespace nkentseu {
 				/// dit seulement QUI l a ouvert.
 				bool matNewPending = false;
 				NkVpAction pendingAction = NkVpAction::None;
+				/// LES MODIFICATEURS DE L'APPUI QUI A POSE `pendingAction`. L'action etait
+				/// une simple enumeration : ce qui ne se decide qu'a l'EXECUTION -- les axes
+				/// d'une modale, en tete -- avait perdu Maj entre la touche et le dispatch.
+				/// Ils sont poses par `want()` (clavier) et par les crochets d'action, et
+				/// consommes avec l'action.
+				bool pendingShift = false, pendingCtrl = false, pendingAlt = false;
 				bool editingText = false;
 				bool xray = false;
 				float32 navLastX = 0.f, navLastY = 0.f;
@@ -1193,8 +1205,13 @@ namespace nkentseu {
 				//   1 ouvrir la boite Nouveau · 2 Ouvrir... · 3 Enregistrer
 				//   4 Enregistrer sous... · 5 Parcourir (dossier de la boite)
 				//   6 Creer (validation de la boite) · 7 ouvrir un recent
+				//   9 ouvrir (ou creer) un projet DESIGNE PAR SON CHEMIN
 				int32 projPending = 0;
 				int32 projRecent = -1; ///< indice du recent a ouvrir (action 7)
+				/// Chemin ABSOLU du .nk3dm de l'action 9. Il vit ici, a cote de
+				/// projRecent, parce que c'est la meme chose sous une autre
+				/// designation : ce qu'on demande a ouvrir apres la frame.
+				char projOpenPath[512] = {};
 				// « Enregistrer et quitter » : la sauvegarde a lieu apres la frame,
 				// la fermeture doit donc attendre qu'elle ait reussi.
 				bool quitAfterSave = false;

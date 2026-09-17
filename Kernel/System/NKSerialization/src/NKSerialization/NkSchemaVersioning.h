@@ -22,7 +22,7 @@
 //  - L'enregistrement (SetCurrentVersion/RegisterMigration) doit être fait avant accès concurrent
 //  - Typiquement : enregistrer toutes les migrations au démarrage, dans un seul thread
 //
-// Auteur : TEUGUIA TADJUIDJE Rodolf / Rihen
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // Date : 2024-2026
 // License : Proprietary - All Rights Reserved (see LICENSE)
 // =============================================================================
@@ -44,6 +44,16 @@
 #include "NKContainers/String/NkString.h"
 #include "NKContainers/Functional/NkFunction.h"
 #include "NKCore/NkTypes.h"
+
+// ⚠️ CET EN-TETE APPELLE `std::strncpy` (SECTION DES MIGRATIONS DE CHAMP, dans un
+//    template) SANS L'AVOIR INCLUS. Il a compile jusqu'ici par accident : ses
+//    seuls consommateurs incluaient <cstring> par ailleurs, avant lui. Le premier
+//    TU qui l'inclut seul -- `NKGuiMonteTest`, 2026-09-14 -- casse net sur
+//    « no member named 'strncpy' in namespace 'std' ». Un en-tete inclut ce qu'il
+//    utilise, sinon il ne dit pas la verite sur ses dependances.
+//    (Et la « Philosophie STL-FREE » ci-dessus n'est donc pas tenue a la lettre :
+//    ce seul appel reste a remplacer par une copie maison. Ecrit, pas masque.)
+#include <cstring>
 
 // -------------------------------------------------------------------------
 // SECTION 2 : DÉCLARATION DU NAMESPACE PRINCIPAL

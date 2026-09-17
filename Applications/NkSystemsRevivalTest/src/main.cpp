@@ -24,10 +24,12 @@
 #include "NKPhysics/NkPhysicsWorld.h"
 #include "NKPhysics/NkRagdoll.h" // banc RAGDOLL (2026-09-04)
 #include "NKPhysics/NkVehicle.h" // banc VEHICULE (2026-09-03) // banc COUPLE (2026-09-03)
+#include "Noge/Physics/NkVehicleTuningIO.h" // banc CONFIGURATION (2026-09-14)
 #include "Noge/ECS/Components/Animation/NkAnimation.h"
 #include "Noge/ECS/Components/Core/NkTransform.h"
 
 #include <cmath> // std::fabs / std::fmax (banc COUPLE)
+#include <cstring> // std::memcmp (banc CONFIGURATION, 2026-09-14)
 #include <cstdio>
 
 using namespace nkentseu;
@@ -465,6 +467,109 @@ int main() {
 	}
 
 	// =========================================================================
+	// NKMATH -- LE REPERE DES ACCESSEURS D AXE (2026-09-14)
+	//
+	// `NkQuat::Right()` rendait +X alors que `Forward() = +Z` et `Up() = +Y`
+	// imposent -X en repere direct. Ce n etait pas une convention -- une
+	// convention est UN choix -- mais deux choix qui s excluent dans le meme
+	// fichier. Cout du defaut : les fleches gauche/droite de la voiture etaient
+	// inversees A L ECRAN, et aucun des neuf bancs vehicule ne pouvait le voir,
+	// parce qu ils partent tous d une consigne de braquage DEJA SIGNEE.
+	//
+	// ⚠️ LE CRITERE EST UNE IDENTITE, PAS UNE VALEUR, et il se verifie sur des
+	// orientations QUELCONQUES : un test au quaternion neutre ne verifie rien,
+	// puisque tout accesseur y rend son axe local tel quel.
+	// =========================================================================
+	{
+		using namespace nkentseu::math;
+		// Huit orientations : l identite, trois rotations d axe simple, et quatre
+		// axes obliques -- de quoi sortir des cas ou les composantes s annulent.
+		struct Pose { NkVec3f axe; float32 deg; };
+		static const Pose kPoses[8] = {{{0.f, 1.f, 0.f}, 0.f},   {{0.f, 1.f, 0.f}, 37.f},
+									   {{1.f, 0.f, 0.f}, -52.f}, {{0.f, 0.f, 1.f}, 113.f},
+									   {{1.f, 1.f, 0.f}, 61.f},  {{0.f, 1.f, 1.f}, -144.f},
+									   {{1.f, 0.f, 1.f}, 88.f},  {{1.f, 2.f, -3.f}, 200.f}};
+		uint32 nIdent = 0, nOrtho = 0, nCyclique = 0, nOppose = 0;
+		float32 pireIdent = 0.f, pireOrtho = 0.f;
+		for (uint32 i = 0; i < 8u; ++i) {
+			NkVec3f ax = kPoses[i].axe;
+			const float32 l = std::sqrt(ax.Dot(ax));
+			ax = (l > 1e-6f) ? ax * (1.f / l) : NkVec3f{0.f, 1.f, 0.f};
+			const NkQuatf q(NkAngle::FromRad(kPoses[i].deg / 57.29578f), ax);
+			const NkVec3f F = q.Forward(), U = q.Up(), R = q.Right();
+			// (a) L IDENTITE : Right == cross(Forward, Up)
+			const NkVec3f c = F.Cross(U);
+			const NkVec3f e = c - R;
+			const float32 dIdent = std::sqrt(e.Dot(e));
+			if (dIdent > pireIdent) pireIdent = dIdent;
+			if (dIdent < 1e-5f) ++nIdent;
+			// (b) NEGATIF : la base reste ORTHONORMEE
+			const float32 o = std::fabs(F.Dot(U)) + std::fabs(U.Dot(R)) + std::fabs(R.Dot(F)) +
+							 std::fabs(std::sqrt(F.Dot(F)) - 1.f) + std::fabs(std::sqrt(U.Dot(U)) - 1.f) +
+							 std::fabs(std::sqrt(R.Dot(R)) - 1.f);
+			if (o > pireOrtho) pireOrtho = o;
+			if (o < 1e-4f) ++nOrtho;
+			// (c) les deux autres identites cycliques, dans l ordre (Forward, Up, Right)
+			const NkVec3f e2 = U.Cross(R) - F, e3 = R.Cross(F) - U;
+			if (std::sqrt(e2.Dot(e2)) < 1e-5f && std::sqrt(e3.Dot(e3)) < 1e-5f) ++nCyclique;
+			// (d) les paires opposees
+			const NkVec3f o1 = q.Left() + R, o2 = q.Back() + F, o3 = q.Down() + U;
+			if (std::sqrt(o1.Dot(o1)) < 1e-5f && std::sqrt(o2.Dot(o2)) < 1e-5f &&
+				std::sqrt(o3.Dot(o3)) < 1e-5f)
+				++nOppose;
+		}
+		Check(nIdent == 8u, "NKMATH repere : Right() == cross(Forward(), Up()) sur 8 orientations QUELCONQUES");
+		Check(nOrtho == 8u, "NKMATH repere : la base reste ORTHONORMEE sur les 8 (negatif)");
+		Check(nCyclique == 8u,
+			  "NKMATH repere : cross(Up, Right) == Forward ET cross(Right, Forward) == Up sur les 8");
+		Check(nOppose == 8u, "NKMATH repere : Left/Back/Down restent les opposes exacts de Right/Forward/Up");
+		std::printf("  [nkmath] repere : pire ecart a l identite %.3e, pire defaut d orthonormalite %.3e\n",
+					pireIdent, pireOrtho);
+		// LE CONTROLE QUI NOMME LA CONSEQUENCE, ecrite AVANT la mesure : le triplet
+		// ORDONNE (Right, Up, Forward) devient INDIRECT. Ce n est pas un defaut,
+		// c est la convention « droite/haut/avant » a la DirectX ; la base du MONDE
+		// reste directe. Si ce Check rougit un jour, quelqu un aura retourne Right().
+		{
+			const NkQuatf q;
+			const NkVec3f d = q.Right().Cross(q.Up()) + q.Forward();
+			Check(std::sqrt(d.Dot(d)) < 1e-5f,
+				  "NKMATH repere : cross(Right, Up) == -Forward (triplet droite/haut/avant INDIRECT, annonce)");
+		}
+	}
+
+	// =========================================================================
+	// NKMATH -- TransformVector : UNE INSTANCIATION, pour que la panne revienne ICI
+	//
+	// Elle etait DECLAREE rendant un NkVec3T et son corps rendait
+	// `(*this) * NkVec4T(v, 0)`, un NkVec4T (NkMat.h:994 avant correctif). Erreur
+	// de type franche -- mais dans un MODELE : le corps d une fonction template
+	// n est verifie qu a l instanciation, et personne ne l instanciait. Trois
+	// sites l avaient contournee en recopiant chacun sa version, sans la reparer
+	// (NkGLTFLoader.cpp:179, Demo3DMannequin.cpp:86, la sonde VEHICULE de Demo3D).
+	// Corrigee le 13/09. Ce bloc EST le correctif durable : sans une instanciation
+	// quelque part, la reparation serait invisible et se reperdrait.
+	// =========================================================================
+	{
+		using namespace nkentseu::math;
+		const NkVec3f t = {10.f, -4.f, 7.f};
+		const NkMat4f m = NkMat4f::TRS(t, NkQuatf(NkAngle::FromRad(1.57079633f), NkVec3f{0.f, 1.f, 0.f}),
+									   NkVec3f{1.f, 1.f, 1.f});
+		const NkVec3f dir = m.TransformVector(NkVec3f{0.f, 0.f, 1.f}); // <- L INSTANCIATION
+		const NkVec3f pt = m.TransformPoint(NkVec3f{0.f, 0.f, 1.f});
+		Check(std::fabs(dir.x - 1.f) < 1e-4f && std::fabs(dir.y) < 1e-4f && std::fabs(dir.z) < 1e-4f,
+			  "NKMATH TransformVector : +Z tourne de 90 deg autour de Y donne +X");
+		// LE VOLET QUI DISCRIMINE : une DIRECTION ignore la translation. Si quelqu un
+		// reparait un jour TransformVector en la deleguant a TransformPoint, la ligne
+		// ci-dessus resterait VERTE et celle-ci rougirait. Sans elle, ce banc ne
+		// mesurerait que « ca compile », pas « ca fait la bonne chose ».
+		Check(std::fabs((pt.x - dir.x) - t.x) < 1e-4f && std::fabs((pt.y - dir.y) - t.y) < 1e-4f &&
+				  std::fabs((pt.z - dir.z) - t.z) < 1e-4f,
+			  "NKMATH TransformVector : elle IGNORE la translation (point - direction = translation exacte)");
+		std::printf("  [nkmath] TransformVector(+Z) = (%.4f, %.4f, %.4f) ; TransformPoint(+Z) = (%.4f, %.4f, %.4f)\n",
+					dir.x, dir.y, dir.z, pt.x, pt.y, pt.z);
+	}
+
+	// =========================================================================
 	// BANC VEHICULE -- comportement, headless, sans GPU. Conception :
 	// Engine/Noge/CONCEPTION_VEHICULE.md §6. Assertions en RELATION, pas en
 	// borne ; et une CONTRE-EPREUVE : mu = 0.01 doit faire patiner ET rougir
@@ -533,16 +638,42 @@ int main() {
 			const NkVec3f p1 = world.GetBody(car->Chassis())->position;
 			avanceRef = p1.z - p0.z;
 			Check(avanceRef > 5.f, "VEHICULE avance : plein gaz 3 s -> plus de 5 m dans l'axe");
-			Check(std::fabs(p1.x - p0.x) < 0.2f, "VEHICULE avance : derive laterale < 0,2 m (adherence laterale presente)");
+			// LE CHIFFRE, pas seulement le verdict : une assertion « > 5 m » reste verte
+			// pendant que la valeur derive. Le relachement ajoute le 13/09 (resistance au
+			// roulement + frein moteur) RETIRE de l'avance sans faire rougir ce Check ;
+			// sans cette ligne, personne ne verrait de combien.
+			std::printf("  [vehicule] plein gaz 3 s : avance %.3f m, derive %.4f m, v = %.4f m/s\n",
+						avanceRef, p1.x - p0.x, car->ForwardSpeed());
+			// ⚠️ DERIVE, PLUS GRAVEE (14/09). Ce critere disait « < 0,2 m ». Des metres
+			// ABSOLUS, calibres sur un monde ou la voiture parcourait ~11 m en 3 s. Le
+			// jour ou mu est passe de 0,40 a 0,90 elle en a parcouru 31,8, et le critere
+			// a rougi sur un comportement SAIN : ce qu'il voulait dire, c'est « elle ne
+			// crabe pas », donc une PROPORTION du chemin parcouru, pas une longueur.
+			// 2 % est une forme, pas un etalonnage : au-dela, la voiture va visiblement
+			// de travers, quelle que soit sa vitesse.
+			Check(std::fabs(p1.x - p0.x) < 0.02f * std::fabs(avanceRef),
+				  "VEHICULE avance : derive laterale sous 2 % du chemin parcouru (adherence laterale presente)");
 			Check(car->ForwardSpeed() > 0.f, "VEHICULE avance : la vitesse est signee dans le sens de l'axe");
-			// 3) ELLE S'ARRETE : frein plein, 3 s -> immobile et le reste.
+			// 3) ELLE S'ARRETE. ⚠️ LA DUREE SE DERIVE, elle n'est plus gravee (14/09).
+			// Ce test freinait « 3 s », un nombre calibre sur une voiture qui atteignait
+			// ~7 m/s. A mu = 0,90 elle en atteint 21 : 3 s ne suffisent plus, et le
+			// critere rougissait sur un freinage PARFAITEMENT sain. La duree d'arret
+			// n'est pas une constante, c'est v / (mu*g) -- on la calcule, avec 50 % de
+			// marge pour le transfert de charge et la reprise de contact.
+			const float32 vAvantFrein = std::fabs(car->ForwardSpeed());
+			const float32 muEff = car->Tuning().mu;
+			const float32 tArret = vAvantFrein / (muEff * 9.81f);
+			const int nFrein = (int)(1.5f * tArret / h) + 30;
 			car->SetInput(0.f, 0.f, 1.f);
-			for (int i = 0; i < 180; ++i) world.Step(h);
+			for (int i = 0; i < nFrein; ++i) world.Step(h);
 			const float32 v = std::fabs(car->ForwardSpeed());
 			const NkVec3f p2 = world.GetBody(car->Chassis())->position;
 			for (int i = 0; i < 60; ++i) world.Step(h);
 			const NkVec3f p3 = world.GetBody(car->Chassis())->position;
-			Check(v < 0.05f, "VEHICULE s'arrete : frein plein 3 s -> vitesse < 5 cm/s");
+			std::printf("  [vehicule] frein depuis %.4f m/s a mu %.4f : arret theorique %.3f s, "
+						"freine %.3f s -> v = %.6f m/s, glissement en 1 s = %.6f m\n",
+						vAvantFrein, muEff, tArret, (float32)nFrein * h, v, p3.z - p2.z);
+			Check(v < 0.05f, "VEHICULE s'arrete : frein plein (duree DERIVEE de v et mu) -> vitesse < 5 cm/s");
 			Check(std::fabs(p3.z - p2.z) < 0.02f, "VEHICULE s'arrete : et RESTE immobile (gel sous la vitesse plancher)");
 			delete car;
 		}
@@ -556,6 +687,8 @@ int main() {
 			car->SetInput(0.f, 1.f, 0.f);
 			for (int i = 0; i < 180; ++i) world.Step(h);
 			const float32 avance = world.GetBody(car->Chassis())->position.z - p0.z;
+			std::printf("  [vehicule] contre-epreuve mu = 0,01 : avance %.3f m, soit %.1f %% de l'avance normale\n",
+						avance, avanceRef > 1e-6f ? 100.f * avance / avanceRef : 0.f);
 			Check(avance < 0.25f * avanceRef,
 				  "CONTRE-EPREUVE : avec mu = 0,01 la voiture PATINE (moins du quart de l'avance normale) -- le frottement est bien mesure");
 			delete car;
@@ -672,6 +805,289 @@ int main() {
 		Check(jC == 0 && kC == 3 && dCoupee < 1e-3f,
 			  "RAGDOLL (attributs derives) : coupee = trois racines ancrees -> 0 joint, 3 cinematiques, personne ne tombe");
 		std::printf("  [ragdoll] attributs derives : ancree %.3f m, liberee %.3f m, coupee %.3f m\n", dAncree, dLibre, dCoupee);
+	}
+
+	// =====================================================================
+	//  BANC CONFIGURATION — le reglage s'ECRIT et se RELIT (2026-09-14)
+	// =====================================================================
+	// (k1) aller-retour identique au BIT sur les 22 champs, dans un processus
+	//      neuf -- celui-ci. (k2) `linearDamping` est entre dans NkTuning, et
+	//      un fichier qui ne le mentionne pas laisse le defaut intact.
+	//      (k3) deux jeux de valeurs, pas deux codes.
+	//
+	// ⚠️ La comparaison se fait par `memcmp` sur la STRUCTURE, pas champ par
+	// champ a l'oeil : un champ oublie dans la comparaison ferait passer un
+	// aller-retour casse pour un aller-retour juste. Et les fichiers eux-memes
+	// sont compares OCTET PAR OCTET, ouverts en BINAIRE : en mode texte, la
+	// traduction CRLF s'applique des DEUX cotes et masque une difference reelle.
+	{
+		using namespace nkentseu::physics; // NkVehicleTuning, NkPhysicsWorld, NkVehicle, NkWheel
+
+		// ⚠️ DEFAUT DE MON PROPRE CRITERE, TROUVE LE 14/09 ET REPARE ICI.
+		// Ces criteres comparaient deux `NkVehicleTuning` par `std::memcmp`. Or la
+		// structure contient du BOURRAGE : 21 `float32` et 3 `bool` laissent des
+		// octets morts aux offsets 45-47 et 70-71. `memcmp` les compare aussi, et
+		// ces octets-la ne sont initialises par RIEN.
+		// Mesure qui l'a etabli -- le diagnostic octet par octet a imprime :
+		//     offset 45 : lu 0x00, defaut 0x19    offset 70 : lu 0x00, defaut 0x7E
+		//     offset 46 : lu 0x00, defaut 0xCB    offset 71 : lu 0x00, defaut 0x11
+		// Autrement dit mon « identique au BIT » pouvait rougir sur un aller-retour
+		// PARFAIT, et -- bien pire -- verdir sur un aller-retour casse si les deux
+		// piles portaient les memes restes. Il etait vert pour la mauvaise raison
+		// depuis que je l'ai ecrit.
+		// LA REPARATION : on compare les deux reglages A TRAVERS LE SERIALISEUR.
+		// Le bourrage disparait par construction, et tous les champs de la table
+		// sont compares -- et un champ ajoute a la structure mais OUBLIE dans la
+		// table reste attrape par le `static_assert` sur `sizeof`. Les deux gardes
+		// se completent au lieu de se recouvrir.
+		auto MemeReglage = [](const NkVehicleTuning &a, const NkVehicleTuning &b) -> bool {
+			nkentseu::NkString ja, jb;
+			if (!noge::VehicleTuningToJson(a, ja) || !noge::VehicleTuningToJson(b, jb)) return false;
+			if (ja.Size() != jb.Size()) return false;
+			return std::memcmp(ja.Data(), jb.Data(), ja.Size()) == 0;
+		};
+
+		// Un reglage ou AUCUN champ ne vaut son defaut : si l'aller-retour
+		// perdait un champ, la valeur par defaut reviendrait et le memcmp le
+		// verrait. Un reglage par defaut ne prouverait rien du tout.
+		NkVehicleTuning src{};
+		src.restLength = 0.417f;         src.wheelRadius = 0.361f;
+		src.stiffness = 31337.5f;        src.damping = 2718.25f;
+		src.maxSuspFactor = 3.75f;       src.engineForce = 5123.5f;
+		src.brakeForce = 4096.25f;       src.maxSteerDeg = 27.5f;
+		src.steerRateDegPerSec = 144.f;  src.ackermann = 0.625f;
+		src.mu = 0.735f;                 src.freezeSpeed = 0.0625f;
+		src.staticFriction = false;      src.alternateSweep = false;
+		src.rollingResistance = 0.0225f; src.engineBrake = 0.175f;
+		src.dragCd = 0.345f;             src.airDensity = 1.1875f;
+		src.frontalArea = 2.4375f;       src.linearDamping = 0.0375f;
+		src.corneringDrag = 0.0915f;     src.corneringDragTau = 0.1875f;
+
+		const char *fA = "vehicule_A.json";
+		const char *fB = "vehicule_B.json";
+		NkVehicleTuning relu{};
+		const bool ecritA = noge::SaveVehicleTuning(src, fA);
+		const bool lu = noge::LoadVehicleTuning(fA, relu);
+		const bool ecritB = noge::SaveVehicleTuning(relu, fB);
+
+		// La taille se LIT ici, pour que personne n'ait a la recalculer : c'est le
+		// nombre que le static_assert de NkVehicleTuningIO.h attend.
+		std::printf("  [config] sizeof(NkVehicleTuning) = %u octets (le static_assert du pont attend ce nombre)\n",
+					(unsigned)sizeof(NkVehicleTuning));
+		Check(ecritA && lu && ecritB, "CONFIG : ecriture, relecture et reecriture aboutissent (NKSerialization, JSON)");
+		Check(MemeReglage(src, relu),
+			  "CONFIG (k1) : aller-retour IDENTIQUE AU BIT sur les 24 champs (compares A TRAVERS le serialiseur, hors bourrage)");
+
+		// Les deux FICHIERS, octet par octet, ouverts en BINAIRE.
+		auto litOctets = [](const char *chemin, unsigned char *buf, size_t max) -> long {
+			std::FILE *f = std::fopen(chemin, "rb"); // ⚠️ "rb" : pas de traduction CRLF
+			if (!f) return -1;
+			const long n = (long)std::fread(buf, 1, max, f);
+			std::fclose(f);
+			return n;
+		};
+		static unsigned char bufA[65536], bufB[65536];
+		const long nA = litOctets(fA, bufA, sizeof(bufA));
+		const long nB = litOctets(fB, bufB, sizeof(bufB));
+		Check(nA > 0 && nA == nB && std::memcmp(bufA, bufB, (size_t)nA) == 0,
+			  "CONFIG (k1) : les deux FICHIERS sont identiques octet par octet (lus en binaire, pas en texte)");
+		std::printf("  [config] fichier %ld octets ; A et B %s\n", nA,
+					(nA == nB && nA > 0 && std::memcmp(bufA, bufB, (size_t)nA) == 0) ? "identiques" : "DIFFERENTS");
+
+		// ── LE NEGATIF : un seul champ modifie -> les fichiers DIFFERENT ────
+		// Sans lui, un ecrivain qui n'ecrirait RIEN passerait les deux criteres
+		// ci-dessus : deux fichiers vides sont identiques et deux structures non
+		// touchees le sont aussi.
+		NkVehicleTuning mute = src;
+		mute.linearDamping = src.linearDamping + 0.001f; // le champ ajoute ce jour
+		const char *fC = "vehicule_C.json";
+		noge::SaveVehicleTuning(mute, fC);
+		static unsigned char bufC[65536];
+		const long nC = litOctets(fC, bufC, sizeof(bufC));
+		Check(nC > 0 && (nC != nA || std::memcmp(bufA, bufC, (size_t)(nA < nC ? nA : nC)) != 0),
+			  "CONFIG NEGATIF : UN champ modifie (linearDamping) -> les fichiers DIFFERENT");
+
+		// ── (k2) LE CHAMP ABSENT LAISSE LE DEFAUT, AU BIT ──────────────────
+		{
+			std::FILE *f = std::fopen("vehicule_partiel.json", "wb");
+			if (f) { std::fputs("{\"mu\":0.5}", f); std::fclose(f); }
+			NkVehicleTuning partiel{}; // les defauts du produit
+			const bool okP = noge::LoadVehicleTuning("vehicule_partiel.json", partiel);
+			NkVehicleTuning temoin{};
+			temoin.mu = 0.5f; // la SEULE chose que le fichier dit
+			Check(okP && MemeReglage(partiel, temoin),
+				  "CONFIG (k2) : fichier SANS linearDamping -> le defaut 0.02 intact, et tout le reste aussi (au bit)");
+			std::printf("  [config] fichier partiel : mu = %.4f, linearDamping = %.6f (defaut attendu 0.020000)\n",
+						partiel.mu, partiel.linearDamping);
+		}
+
+		// ── (k3) DEUX JEUX DE VALEURS, PAS DEUX CODES ──────────────────────
+		{
+			const NkVehicleTuning jeu = noge::VehicleTuningJeu();
+			const NkVehicleTuning sim = noge::VehicleTuningSimulation();
+			const NkVehicleTuning defauts{};
+			Check(MemeReglage(jeu, defauts),
+				  "CONFIG (k3) : le jeu de valeurs « jeu » EST le defaut du produit, au bit -- rien n'a ete deplace");
+			// ⚠️ Le defaut de `mu` est ZERO, et zero ne veut pas dire « pas de
+			// friction » : il veut dire « derive-la », ce qu'Autotune fait au premier
+			// sous-pas. Depuis le 14/09 la derivation lit le PNEU, pas le chassis.
+			// ⚠️ CE CRITERE NE GRAVE PLUS 0,90. Il disait `sim.mu == 0.90f` : une
+			// constante gravee, qui serait devenue fausse le jour ou Rodolf changerait
+			// d'avis -- et il vient justement d'en changer. L'attendu se DERIVE des
+			// defauts de la structure.
+			Check(jeu.mu == 0.f && sim.mu > 0.f && sim.linearDamping < jeu.linearDamping &&
+					  sim.frontalArea > 0.f && jeu.frontalArea == 0.f,
+				  "CONFIG (k3) : « jeu » laisse tout DERIVE, « simulation » pose ce qu'il veut fixer");
+			noge::SaveVehicleTuning(jeu, "vehicule_jeu.json");
+			noge::SaveVehicleTuning(sim, "vehicule_simulation.json");
+			NkVehicleTuning rj{}, rs{};
+			const bool okJ = noge::LoadVehicleTuning("vehicule_jeu.json", rj);
+			const bool okS = noge::LoadVehicleTuning("vehicule_simulation.json", rs);
+			Check(okJ && okS && MemeReglage(rj, jeu) && MemeReglage(rs, sim),
+				  "CONFIG (k3) : les DEUX fichiers se relisent au bit");
+			std::printf("  [config] jeu : mu %.4f, linearDamping %.6f, aire %.4f | simulation : mu %.4f, "
+						"linearDamping %.6f, aire %.4f\n",
+						rj.mu, rj.linearDamping, rj.frontalArea, rs.mu, rs.linearDamping, rs.frontalArea);
+		}
+
+		// ══════════════════════════════════════════════════════════════════
+		//  (m1)(m2) MU EST UNE PROPRIETE DU PNEU, PAS DU CHASSIS (14/09)
+		// ══════════════════════════════════════════════════════════════════
+		// ⚠️ ATTENDU ECRIT AVANT LA MESURE, ET DERIVE -- aucun nombre grave :
+		//   (1) sans rien poser, le mu effectif doit valoir `tyreFriction`
+		//       (et NON `material.dynamicFriction` du chassis) ;
+		//   (2) le defaut doit rendre EXACTEMENT la trajectoire qu'un
+		//       `mu = tyreFriction` pose a la main ;
+		//   (3) la MUTATION `muFromChassis = true` doit rendre EXACTEMENT la
+		//       trajectoire qu'un `mu = <materiau du chassis>` pose a la main --
+		//       c'est-a-dire le monde d'avant, retrouve, pas approche.
+		// La comparaison est au BIT sur la position finale : a pas fixe il n'y a
+		// aucune gigue, contrairement a la demo temps reel (2,8 % d'ecart entre
+		// deux essais identiques -- mesure du 14/09). On ne conclut donc PAS sur
+		// des accelerations lues a l'oeil, on conclut sur des octets.
+		{
+			const float32 hm = 1.f / 60.f;
+			auto rouleMu = [&](float32 muPose, bool depuisChassis, float32 *muEffectif) -> NkVec3f {
+				NkPhysicsWorld world;
+				world.SetGravity({0.f, -9.81f, 0.f});
+				NkBodyDef solm;
+				solm.type = NkBodyType::STATIC;
+				solm.position = {0.f, -0.5f, 0.f};
+				solm.orientation = NkQuatf::Identity();
+				world.CreateBody(solm, collision::NkShape::Box3D({0.f, -0.5f, 0.f}, {200.f, 0.5f, 200.f}));
+				NkVehicle *car = new NkVehicle(world);
+				car->SetChassisBox({0.f, 1.15f, 0.f}, {0.9f, 0.5f, 2.2f}, 1200.f);
+				car->AddWheel({-0.8f, -0.5f, 1.3f}, NkWheel::kSteered);
+				car->AddWheel({0.8f, -0.5f, 1.3f}, NkWheel::kSteered);
+				car->AddWheel({-0.8f, -0.5f, -1.3f}, NkWheel::kPowered);
+				car->AddWheel({0.8f, -0.5f, -1.3f}, NkWheel::kPowered);
+				if (muPose > 0.f) car->Tuning().mu = muPose;
+				if (depuisChassis) car->Tuning().muFromChassis = true;
+				car->SetInput(0.f, 1.f, 0.f);
+				for (int i = 0; i < 300; ++i) world.Step(hm);
+				if (muEffectif) *muEffectif = car->Tuning().mu;
+				const NkVec3f p = world.GetBody(car->Chassis())->position;
+				delete car;
+				return p;
+			};
+			// L'attendu se LIT dans les defauts, il ne se recopie pas.
+			const NkVehicleTuning defM{};
+			const float32 muPneuAttendu = defM.tyreFriction;
+			const float32 muChassisAttendu = NkPhysicsMaterial{}.dynamicFriction;
+
+			float32 muDefaut = 0.f, muPose = 0.f, muMut = 0.f, muMutPose = 0.f;
+			const NkVec3f pDefaut = rouleMu(0.f, false, &muDefaut);
+			const NkVec3f pPose = rouleMu(muPneuAttendu, false, &muPose);
+			const NkVec3f pMut = rouleMu(0.f, true, &muMut);
+			const NkVec3f pMutPose = rouleMu(muChassisAttendu, false, &muMutPose);
+
+			Check(muDefaut == muPneuAttendu,
+				  "MU (m1) : sans rien poser, le mu effectif vaut tyreFriction -- c'est le PNEU qui le donne");
+			Check(muDefaut != muChassisAttendu,
+				  "MU (m1) NEGATIF : et il ne vaut PLUS material.dynamicFriction du chassis");
+			Check(std::memcmp(&pDefaut, &pPose, sizeof(NkVec3f)) == 0,
+				  "MU (m1) : le defaut rend la MEME trajectoire au bit qu'un mu pose a la main");
+			Check(muMut == muChassisAttendu,
+				  "MU (m2) MUTATION : muFromChassis=true redonne le mu du chassis");
+			Check(std::memcmp(&pMut, &pMutPose, sizeof(NkVec3f)) == 0,
+				  "MU (m2) MUTATION : et la MEME trajectoire au bit que le monde d'avant");
+			Check(std::memcmp(&pDefaut, &pMut, sizeof(NkVec3f)) != 0,
+				  "MU (m2) NEGATIF : les deux mondes DIFFERENT -- sinon les quatre criteres ci-dessus ne prouveraient rien");
+			std::printf("  [mu] pneu %.4f -> z = %.9f m | chassis %.4f -> z = %.9f m | ecart %.3f m\n",
+						muDefaut, pDefaut.z, muMut, pMut.z, pDefaut.z - pMut.z);
+			// Le fichier garde le dernier mot : c'est ce que Rodolf a demande.
+			{
+				std::FILE *f = std::fopen("vehicule_mu.json", "wb");
+				if (f) { std::fputs("{\"mu\":0.5}", f); std::fclose(f); }
+				NkVehicleTuning depuisFichier{};
+				const bool okF = noge::LoadVehicleTuning("vehicule_mu.json", depuisFichier);
+				Check(okF && depuisFichier.mu == 0.5f && depuisFichier.tyreFriction == muPneuAttendu,
+					  "MU (m1) : un fichier ecrase toujours mu, et ne touche pas tyreFriction");
+			}
+		}
+
+		// ── (k2 negatif) LE COMPORTEMENT N'A PAS BOUGE ─────────────────────
+		// Exposer un reglage n'est pas le changer. Deux voitures identiques, dont
+		// l'une recoit EXPLICITEMENT le defaut 0.02f : les trajectoires doivent
+		// coincider AU BIT sur 300 pas. Si elles divergent, c'est que le champ
+		// ajoute a change quelque chose -- et ce serait le defaut, pas la mesure.
+		{
+			const float32 hc = 1.f / 60.f;
+			auto roule = [&](bool poseExplicite) -> NkVec3f {
+				NkPhysicsWorld world;
+				world.SetGravity({0.f, -9.81f, 0.f});
+				NkBodyDef solc;
+				solc.type = NkBodyType::STATIC;
+				solc.position = {0.f, -0.5f, 0.f};
+				solc.orientation = NkQuatf::Identity();
+				world.CreateBody(solc, collision::NkShape::Box3D({0.f, -0.5f, 0.f}, {200.f, 0.5f, 200.f}));
+				NkVehicle *car = new NkVehicle(world);
+				car->SetChassisBox({0.f, 1.15f, 0.f}, {0.9f, 0.5f, 2.2f}, 1200.f);
+				car->AddWheel({-0.8f, -0.5f, 1.3f}, NkWheel::kSteered);
+				car->AddWheel({0.8f, -0.5f, 1.3f}, NkWheel::kSteered);
+				car->AddWheel({-0.8f, -0.5f, -1.3f}, NkWheel::kPowered);
+				car->AddWheel({0.8f, -0.5f, -1.3f}, NkWheel::kPowered);
+				if (poseExplicite) car->Tuning().linearDamping = 0.02f;
+				car->SetInput(0.f, 1.f, 0.f);
+				for (int i = 0; i < 300; ++i) world.Step(hc);
+				const NkVec3f p = world.GetBody(car->Chassis())->position;
+				delete car;
+				return p;
+			};
+			const NkVec3f pRef = roule(false);
+			const NkVec3f pExp = roule(true);
+			// LE CRITERE QUI MANQUAIT, et qui a coute une mesure fausse le jour meme.
+			// Mes trois criteres (k3) comparaient des STRUCTURES et etaient verts,
+			// pendant que la demo chargeant le fichier « jeu » passait de 1,9260 a
+			// 0,2282 m/s2. Une structure identique ne prouve pas un comportement
+            // identique tant que quelqu un, en aval, DERIVE encore une valeur.
+			// Ici : on ECRIT le jeu « jeu », on le RELIT dans une voiture, et on
+			// exige la MEME TRAJECTOIRE au bit qu une voiture sans fichier.
+			const bool cfgNeutre = [&]() -> bool {
+				noge::SaveVehicleTuning(noge::VehicleTuningJeu(), "vehicule_neutre.json");
+				NkVehicleTuning lu2{};
+				if (!noge::LoadVehicleTuning("vehicule_neutre.json", lu2)) {
+					std::printf("  [config] NEUTRE : la RELECTURE a echoue\n");
+					return false;
+				}
+				NkVehicleTuning defauts2{};
+				if (MemeReglage(lu2, defauts2)) return true;
+				// UN VERDICT QUI NE DIT PAS OU NE SERT A RIEN : c'est cette impression-la
+				// qui a designe le bourrage, et donc le defaut de l'instrument.
+				nkentseu::NkString j1, j2;
+				noge::VehicleTuningToJson(lu2, j1);
+				noge::VehicleTuningToJson(defauts2, j2);
+				std::printf("  [config] NEUTRE : les deux JSON different (%u contre %u octets)\n",
+							(unsigned)j1.Size(), (unsigned)j2.Size());
+				return false;
+			}();
+			Check(cfgNeutre,
+				  "CONFIG (k3) NEGATIF : le fichier « jeu » ecrit puis relu redonne les defauts au bit -- le charger ne change RIEN");
+			Check(std::memcmp(&pRef, &pExp, sizeof(NkVec3f)) == 0,
+				  "CONFIG (k2) NEGATIF : poser explicitement 0.02f donne la MEME trajectoire au bit -- exposer n'est pas changer");
+			std::printf("  [config] 300 pas plein gaz : sans reglage z = %.9f m, avec 0.02f explicite z = %.9f m\n",
+						pRef.z, pExp.z);
+		}
 	}
 
 	std::printf("=== Resultat : %d OK / %d FAIL ===\n", gPass, gFail);

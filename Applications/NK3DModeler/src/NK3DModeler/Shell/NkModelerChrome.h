@@ -9,7 +9,7 @@
 //          la disposition et de l'etat. Extrait de NkModelerScreens.h au premier
 //          lot de la refonte -- « subdiviser les gros fichiers » (Rihen,
 //          13 aout 2026).
-// @Author  Rihen
+// @Author  TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // @License Proprietary - All Rights Reserved (see LICENSE)
 // -----------------------------------------------------------------------------
 #include "NK3DModeler/Shell/NkModelerUI.h"
@@ -335,14 +335,77 @@ namespace nkentseu {
 
 		inline void PaintStatus(NkModelerPainter &p, NkHitRegistry &hit, const NkRect &r,
 								NkModelerState &st) {
-			char stats[128];
-			if (st.mode == NkMode::Object)
-				snprintf(stats, sizeof(stats), "Objets 6 - selectionne : %s - 60 ips - dorsal : %s",
-						 st.selectedObject == 1 ? "Cube" : "-", NkDorsalRetenu());
-			else
-				snprintf(stats, sizeof(stats),
-						 "Sommets 8 - Aretes 12 - Faces 6 - %s - 60 ips - dorsal : %s",
-						 NkModeName(st.mode), NkDorsalRetenu());
+			// ── LA BARRE D'ETAT LIT L'HOTE ─────────────────────────────────────────
+			// Elle ecrivait « Objets 6 », « Sommets 8 - Aretes 12 - Faces 6 » et « 60 ips »
+			// EN DUR : apres une extrusion a 14 faces elle affichait toujours 6. C'est le
+			// chiffre que l'auteur voit a chaque geste, et une barre qui ment fait douter de
+			// tous les autres.
+			// CHAQUE NOMBRE A UNE SEULE SOURCE, deja utilisee ailleurs :
+			//  - objets : NkSceneCounts, la meme fonction que le pied de la Hierarchie ;
+			//  - geometrie : Demo3DHostStats, la meme que le panneau Details ;
+			//  - selection : Demo3DHostEditSelCount, le compteur par sous-mode ;
+			//  - cadence : Demo3DHostFrameSeconds, le `dt` du viseur, lisse.
+			// ⚠ « Sommets » compte ce que compte Demo3DHostStats, c'est-a-dire des COINS
+			// (24 sur un cube ; Blender dit 8). Le panneau Details dit la meme chose : un
+			// defaut de source se corrige A LA SOURCE, une fois -- pas en faisant diverger
+			// deux textes. La selection est donc donnee dans la MEME unite que son total.
+			// ⚠ Hors Objet et Edition (sculpture, texturing...), la source n'est exacte que
+			// pour les sommets et les triangles : on n'affiche QUE ceux-la.
+			char stats[192];
+			char statsCourt[96];
+			char ips[24];
+			ips[0] = 0;
+			{
+				const float32 sp = demo::Demo3DHostFrameSeconds();
+				if (sp > 1e-5f)
+					snprintf(ips, sizeof(ips), " - %.0f ips", (double)(1.f / sp));
+			}
+			if (st.mode == NkMode::Object) {
+				int32 nObj = 0, nSel = 0, seul = -1;
+				NkSceneCounts(st, nObj, nSel, seul);
+				if (seul >= 0) {
+					char nom[48];
+					NkHierNodeName(st, seul, nom, sizeof(nom));
+					snprintf(stats, sizeof(stats), "%d objet(s) - selectionne : %s%s", nObj, nom, ips);
+				} else {
+					snprintf(stats, sizeof(stats), "%d objet(s) - %d selectionne(s)%s", nObj, nSel, ips);
+				}
+				snprintf(statsCourt, sizeof(statsCourt), "%d obj. - %d sel.", nObj, nSel);
+			} else {
+				uint32 nv = 0, ne = 0, nf = 0, nt = 0;
+				const bool lu = demo::Demo3DHostStats(&nv, &ne, &nf, &nt);
+				if (st.mode == NkMode::Edit && demo::Demo3DHostInEditMode()) {
+					const int32 m = demo::Demo3DHostEditSelMask();
+					const int32 nSel = demo::Demo3DHostEditSelCount();
+					const uint32 total = (m & 4) ? nf : ((m & 2) ? ne : nv);
+					const char *unite = (m & 4) ? "faces" : ((m & 2) ? "aretes" : "sommets");
+					snprintf(stats, sizeof(stats),
+							"Sommets %u - Aretes %u - Faces %u - Triangles %u - %d/%u %s - %s%s", nv, ne,
+							nf, nt, nSel, total, unite, NkModeName(st.mode), ips);
+					snprintf(statsCourt, sizeof(statsCourt), "S %u - A %u - F %u - %d/%u %s", nv, ne, nf,
+							nSel, total, unite);
+				} else if (lu) {
+					snprintf(stats, sizeof(stats), "Sommets %u - Triangles %u - %s%s", nv, nt,
+							NkModeName(st.mode), ips);
+					snprintf(statsCourt, sizeof(statsCourt), "S %u - T %u", nv, nt);
+				} else {
+					snprintf(stats, sizeof(stats), "%s%s", NkModeName(st.mode), ips);
+					snprintf(statsCourt, sizeof(statsCourt), "%s", NkModeName(st.mode));
+				}
+			}
+			// LE DORSAL GRAPHIQUE, AJOUTE PAR transit : la fenetre est sans cadre, son titre
+			// n'est lu par personne, et la barre d'etat est le seul endroit ou il se voit.
+			// Fusion du 14/09 : les deux intentions sont gardees -- les nombres LUS a leur
+			// source (feat/modeleur-edition-ui) ET le dorsal retenu (transit), dans le texte
+			// complet comme dans la version courte.
+			{
+				char base[192];
+				snprintf(base, sizeof(base), "%s", stats);
+				snprintf(stats, sizeof(stats), "%s - dorsal : %s", base, NkDorsalRetenu());
+				char baseCourt[96];
+				snprintf(baseCourt, sizeof(baseCourt), "%s", statsCourt);
+				snprintf(statsCourt, sizeof(statsCourt), "%s - %s", baseCourt, NkDorsalRetenu());
+			}
 			p.Fill(r, NkRole::PanelHeader);
 			p.HLine(r.x, r.y, r.w);
 			float32 x = r.x + kPad;
@@ -432,8 +495,24 @@ namespace nkentseu {
 			p.Fill({x, r.y + (r.h - 20.f) * 0.5f, 240.f, 20.f}, NkRole::InputBg, 2.f);
 			p.IconV(x + 6.f, r.y, r.h, NkIcon::Terminal, NkRole::Text, 12.f);
 			p.TextV(x + 24.f, r.y, r.h, "Entrer une commande", NkRole::TextMuted);
-			const float32 w = p.TextW(stats);
-			p.TextV(r.x + r.w - w - kPad, r.y, r.h, stats, NkRole::TextMuted);
+			// PLUS LONG QU'AVANT, DONC IL NE DOIT PAS RECOUVRIR LE CHAMP DE COMMANDE (240
+			// px a partir de `x`). Deux niveaux : le texte complet, puis sa version courte,
+			// puis -- en dernier recours -- une decoupe. `w` garde son nom : la barre
+			// d'enregistrement ci-dessous se place avec.
+			const float32 xLibre = x + 240.f + 8.f;
+			const char *texte = stats;
+			float32 w = p.TextW(texte);
+			if (r.x + r.w - w - kPad < xLibre) {
+				texte = statsCourt;
+				w = p.TextW(texte);
+			}
+			if (r.x + r.w - w - kPad < xLibre) {
+				p.Clip({xLibre, r.y, r.x + r.w - xLibre, r.h});
+				p.TextV(r.x + r.w - w - kPad, r.y, r.h, texte, NkRole::TextMuted);
+				p.Unclip();
+			} else {
+				p.TextV(r.x + r.w - w - kPad, r.y, r.h, texte, NkRole::TextMuted);
+			}
 
 			// BARRE D'ENREGISTREMENT -- visible SEULEMENT pendant une prise. Une
 			// prise en cours est un etat qu'on oublie : elle doit se signaler

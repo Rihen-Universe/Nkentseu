@@ -2,7 +2,7 @@
 // -----------------------------------------------------------------------------
 // @File    NkTheme.h
 // @Brief   Systeme de themes : roles de couleur nommes, heritage, chargement.
-// @Author  Rihen
+// @Author  TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // @License Proprietary - All Rights Reserved (see LICENSE)
 //
 // A QUOI CA SERT, ET POURQUOI CE N'EST PAS QU'UNE LISTE DE COULEURS
@@ -180,6 +180,46 @@ namespace nkentseu {
 			/// Repli : DocText. Ajout 31/08, meme regime facultatif-avec-repli.
 			DocMuted,
 
+			// ⚠️ UN SEUL ROLE AJOUTE LE 2026-09-14 — L'AVERTISSEMENT. Et UN seul,
+			//    pas trois : le compte a ete verifie AVANT d'etre livre.
+			//
+			//    LA MESURE QUI L'IMPOSE — trois sites qui empruntaient faute de
+			//    mieux, dans trois applications differentes :
+			//      NkModelerToast.h:182    `NkToastKind::Partiel` -> `AccentSel`
+			//      NkModelerJournal.h:385  `NkJnvNiveau::Warn`    -> `AccentUi`
+			//      NkcLabTheme.h:86        `NkcPalette::Warn()`   -> #D29922 EN DUR
+			//    Le commentaire de NkModelerJournal.h portait deja sa condition de
+			//    retrait : « Le jour ou ces roles existeront, c'est ici qu'il
+			//    faudra changer -- et nulle part ailleurs. » C'est ce jour.
+			//
+			//    POURQUOI PAS TROIS. Le succes et l'erreur EXISTAIENT DEJA
+			//    (`StatusOk` #3FB950, `StatusErr` #F85149, poses le 31/08) : il ne
+			//    manquait que le troisieme membre de la triade, et ConquerorLab
+			//    l'avait deja ecrit en dur sous le nom EXACT de GitHub —
+			//    `attention.fg` #D29922, a cote de `Ok()` #3FB950 et `Error()`
+			//    #F85149 qui sont, elles, les deux valeurs du theme. Quant a
+			//    « Danger » et « Error » : AUCUN comportement ne les distingue
+			//    dans ce depot -- le journal peint `Erreur` ET `Fatal` de la meme
+			//    couleur (`nv >= Erreur`), et le seul autre vocabulaire de
+			//    gravite, `NkToastKind`, n'a que trois membres. Deux noms pour la
+			//    meme couleur ne font pas deux familles : on n'en livre qu'un.
+			//
+			//    ⚠️ IL N'EST PAS `AccentSel`, ET IL NE DOIT PAS L'ETRE. Ecart
+			//       mesure entre l'ambre d'alerte et l'ambre de selection 3D :
+			//       dE76 = 16,8 en sombre (#D29922 / #F2980E), 17,2 en clair
+			//       (#9A6700 / #C97A08). Il FAUT cet ecart : une pastille
+			//       d'avertissement et un element 3D selectionne COEXISTENT a
+			//       l'ecran. La tolerance accordee aux deux sarcelles (10bis.3) ne
+			//       vaut que pour des etats qui NE COEXISTENT JAMAIS ; ce n'est
+			//       pas le cas ici, donc elle ne s'applique pas.
+
+			/// Ambre d'ALERTE : « attention », « partiel », « ca a marche mais pas
+			/// entierement ». Distinct de l'ERREUR (qui, elle, n'a PAS eu lieu) et
+			/// de l'ambre de selection 3D (`AccentSel`). ⚠️ Repli : `AccentSel` --
+			/// l'approximation la moins fausse, et exactement ce que les sites
+			/// emprunteurs faisaient deja.
+			StatusWarn,
+
 			Count
 		};
 
@@ -187,6 +227,18 @@ namespace nkentseu {
 		const char *NkRoleName(NkRole r);
 		// Role correspondant a une cle, ou Count si inconnue.
 		NkRole NkRoleFromName(const char *name);
+
+		// ── LA TABLE DE REPLI — UNE SEULE, ET C'EST LA SOURCE DE VERITE ─────────
+		// Elle existait deja, mais en PROSE : chaque role facultatif porte dans son
+		// commentaire « Repli : X ». Un commentaire ne s'execute pas, et c'est
+		// exactement ce qui a laisse vivre le repli muet : la regle etait ecrite et
+		// personne ne l'appliquait. Elle est desormais du code, et les commentaires
+		// ci-dessus la decrivent au lieu de la remplacer.
+		//
+		/// Role SOURCE dont `r` prend la couleur s'il n'a jamais ete pose.
+		/// `NkRole::Count` = AUCUN repli : ce role est obligatoire, son absence est
+		/// un oubli, et c'est le magenta du constructeur qui doit le dire.
+		NkRole NkRoleRepli(NkRole r);
 
 		// Arrondis. Banani les exporte, la specification s'y refere : ils font
 		// partie du theme au meme titre que les couleurs.
@@ -302,9 +354,25 @@ namespace nkentseu {
 				/// mais la declaration est a corriger a la source.
 				static NkVector<Entry> &Rescued();
 
+				/// ⚠️ TROISIEME LISTE, ajoutee le 2026-09-14 avec le repli de
+				///    COULEUR. Elle ne se fond PAS dans `Rescued` : celle-la parle
+				///    d'un NOM mal ecrit dans un composant, celle-ci d'une COULEUR
+				///    absente du theme charge. Les deux se corrigent a des endroits
+				///    differents -- l'une dans la declaration du composant, l'autre
+				///    dans le fichier de theme -- et une liste qui melange les deux
+				///    ne dit plus quoi faire.
+				///    `name` = le role qui manquait, `canon` = celui dont il a pris
+				///    la couleur.
+				static NkVector<Entry> &Replis();
+
 				static void Reset();
 				static uint32 FaultCount();
 				static uint32 RescuedCount();
+				static uint32 RepliCount();
+
+				/// Annonce un repli de COULEUR. Meme deduplication, meme puits, et
+				/// une phrase a lui : « role X absent du theme -> peint avec Y ».
+				static void NoteRepli(const char *role, const char *repli);
 
 				/// Remplace le puits. `fn == nullptr` fait taire la sortie — reserve
 				/// aux bancs qui veulent lire les listes sans polluer leur console.
@@ -355,11 +423,63 @@ namespace nkentseu {
 				static NkTheme Dark();
 				static NkTheme Light();
 
+				// ══ LE REPLI EST DANS `Get`, PAS AU SITE D'APPEL (2026-09-14) ══
+				//
+				// CE QUI ETAIT LA AVANT, et pourquoi ca ne pouvait pas tenir. Le
+				// fichier portait DEUX politiques qui s'excluent :
+				//   (A) `GetOuRepli(role, repli)` -- le repli NOMME au site d'appel ;
+				//   (B) rien du tout -- `Get` rendait la sentinelle telle quelle,
+				//       c'est-a-dire 0x00000000, un noir ENTIEREMENT TRANSPARENT.
+				//       Le role ne criait pas : il DISPARAISSAIT.
+				//
+				// LE COMPTE QUI TRANCHE, pris sur l'arbre le 14/09 :
+				//   politique (A) : 2 sites la portent (NkThemeToGui.h:134 et :141,
+				//                   `ButtonBg` et `TabBarBg`) ;
+				//   politique (B) : 51 sites lisent les autres roles a sentinelle --
+				//                   5 par l'enumeration (`StatusOk`, `StatusErr`,
+				//                   `AccentAI`, `DocText`, `DocMuted`) et 46 PAR NOM
+				//                   via `NkResolveRole` + `Get(uint16)`
+				//                   (`doc_field_bg` 17, `doc_text` 13, `artboard_bg`
+				//                   5, `snap_line` 4, `doc_muted` 4, `canvas_bg` 2,
+				//                   `canvas_dot` 1).
+				//
+				// ⚠️ ET LE CHIFFRE N'EST MEME PAS LE PLUS FORT : la politique (A)
+				//    EST INAPPLICABLE a ces 46 sites. Ils passent par `Get(uint16)`,
+				//    qui n'a pas -- et ne peut pas avoir -- de surcharge
+				//    « OuRepli » : a ce niveau le role n'est qu'un entier resolu
+				//    depuis une chaine, l'appelant ne connait pas le role source et
+				//    n'a aucun moyen de le nommer. Une politique qui ne peut pas
+				//    s'appliquer a 90 % des sites n'est pas la politique du fichier.
+				//
+				// LA REGLE RETENUE, une seule, exercable par un banc : le repli est
+				// une propriete DU ROLE (`NkRoleRepli`), pas du site d'appel. Toute
+				// lecture -- par enumeration ou par identifiant -- le traverse, et
+				// CHAQUE repli traverse est ANNONCE une fois dans
+				// `NkRoleAudit::Replis()`. Un repli muet n'existe plus.
+				//
+				// `GetOuRepli` RESTE, et n'est pas un doublon : il permet a un
+				// appelant d'imposer un AUTRE repli que celui du role. Ses deux
+				// sites gardent exactement le comportement qu'ils avaient.
 				NkThemeColor Get(NkRole r) const {
-					return (uint16)r < (uint16)NkRole::Count ? mColors[(uint16)r] : 0xFF00FFFFu;
+					if ((uint16)r >= (uint16)NkRole::Count)
+						return 0xFF00FFFFu;
+					const NkThemeColor c = mColors[(uint16)r];
+					// Chemin chaud : une comparaison 32 bits. Tout le reste est
+					// hors ligne, dans `Replier`, et ne s'execute que si le role
+					// n'a effectivement jamais ete pose.
+					return c != NkThemeNonDefini ? c : Replier(r);
 				}
 
+				/// Suit la chaine de repli de `r` ET L'ANNONCE. Hors ligne a
+				/// dessein : `Get` est appele des milliers de fois par image.
+				NkThemeColor Replier(NkRole r) const;
+
 				/// Lit `r`, et retombe sur `repli` si `r` n'a jamais ete defini.
+				///
+				/// ⚠️ DEPUIS LE 14/09 `Get(r)` REPLIE DEJA. Cette fonction ne sert
+				///    donc plus qu'a IMPOSER un repli different de celui du role --
+				///    c'est le cas de ses deux appelants, qui nomment le meme repli
+				///    que la table et gardent donc, au bit pres, leur rendu d'avant.
 				///
 				/// ⚠️ C'EST LE MECANISME QUI REND UN ROLE NEUF GRATUIT. Ajouter un
 				///    role a une enumeration ne coute rien ; lui donner une valeur
@@ -372,8 +492,20 @@ namespace nkentseu {
 				///    l'a pose. Aucun theme existant ne change d'apparence, et un
 				///    theme qui veut la distinction l'ecrit.
 				NkThemeColor GetOuRepli(NkRole r, NkRole repli) const {
-					const NkThemeColor c = Get(r);
+					// ⚠️ `GetBrut` et NON `Get` : depuis que `Get` replie tout seul,
+					//    l'ancienne ecriture aurait rendu la comparaison morte et le
+					//    repli DU ROLE aurait silencieusement prime sur celui que
+					//    l'appelant nomme -- le contraire de ce que cette fonction
+					//    promet. La sentinelle doit etre vue BRUTE ici.
+					const NkThemeColor c = GetBrut(r);
 					return c == NkThemeNonDefini ? Get(repli) : c;
+				}
+
+				/// La valeur POSEE, sentinelle comprise, sans aucun repli. Reservee
+				/// a qui doit repondre « ce role a-t-il ete pose ? » -- `GetOuRepli`
+				/// et les bancs. Ce n'est PAS l'accesseur de dessin.
+				NkThemeColor GetBrut(NkRole r) const {
+					return (uint16)r < (uint16)NkRole::Count ? mColors[(uint16)r] : 0xFF00FFFFu;
 				}
 				void Set(NkRole r, NkThemeColor c) {
 					if ((uint16)r < (uint16)NkRole::Count)
