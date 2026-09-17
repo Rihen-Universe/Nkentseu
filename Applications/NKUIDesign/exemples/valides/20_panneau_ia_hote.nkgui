@@ -1,0 +1,75 @@
+nkgui 0.3
+
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
+
+// LE MEME PANNEAU IA, VERSION « LE FIL EST UNE ZONE HOTE ».
+//
+// Ce fichier existe pour REPONDRE A UNE QUESTION PAR UN ECART, pas par un avis.
+// `19_panneau_ia_decrit.nkgui` ecrit le fil en dur -- trois pliables. Un vrai fil
+// GRANDIT a l'execution, ses blocs ont des hauteurs differentes, et leur contenu
+// n'est pas connu quand le document est ecrit.
+//
+// Le format a deja DEUX facons de dire « ceci vient de l'application », et elles
+// ne sont pas de meme nature :
+//   `ListBox { bind = ... }`  une LISTE LIEE : des rangees que l'application sert
+//                              -- elle choisit QUOI, le monteur garde COMMENT ;
+//   `Host { hint = ... }`      une ZONE HOTE : un RECTANGLE que l'application
+//                              peint entierement -- elle garde QUAND et COMMENT.
+//
+// Les deux sont ici, cote a cote, pour que le montage dise ce qu'elles coutent :
+// le fil en zone hote, et la liste des conversations en liste liee.
+widgets {
+
+  Panel "panneau_ia" {
+    title = "Assistant"
+    sizeRel = (0.28, 1.0)
+    minSize = (320, 0)
+
+    TabBar "fournisseurs" {
+      tabs = [Local, Claude, Codex]
+      bind = ia.fournisseur
+    }
+
+    HBox "ligne_titre" {
+      gap = 4
+
+      Text "sujet" {
+        text = "Un ecran de connexion"
+        maxLines = 1
+      }
+      Button "historique" { label = "Historique" }
+      Button "nouvelle" { label = "Nouvelle" }
+    }
+
+    // L'HISTORIQUE DES CONVERSATIONS : une liste LIEE. L'application la sert ;
+    // si personne ne la remplit, elle SE SIGNALE -- c'est la frontiere nommee le
+    // 17/09, et c'est exactement ce qu'on veut ici.
+    ListBox "conversations" {
+      bind = ia.conversations
+    }
+
+    // LE FIL : une ZONE HOTE. L'application y peint des blocs de hauteurs
+    // differentes, qui arrivent pendant que la reponse se genere.
+    Host "fil" {
+      hint = "le fil de la conversation"
+    }
+
+    TextField "composeur" {
+      multiline = true
+      wrap = true
+      placeholder = "Decris l'interface que tu veux..."
+      bind = ia.saisie
+    }
+
+    HBox "ligne_etat" {
+      gap = 8
+
+      Text "etat_dorsal" {
+        text = "local NKDesignLLM  --  4444 Mo / 8192"
+        maxLines = 1
+      }
+      Spacer "etat_ressort" { }
+      Button "envoyer" { label = "Envoyer" }
+    }
+  }
+}

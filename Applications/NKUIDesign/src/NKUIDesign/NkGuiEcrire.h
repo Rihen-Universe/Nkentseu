@@ -77,8 +77,22 @@
 #include "NKFileSystem/NkFile.h"
 #include "NKSerialization/NkGui/NkGuiArchive.h"
 
+// ⚠️ IL UTILISE `NkGFindRole` / `NkGFindAlias`, DONC IL LES INCLUT. Mesure du
+//    17/09 : ce fichier compilait chez son unique consommateur (NKUIDesign)
+//    seulement parce que `main.cpp` avait inclus le validateur plus tot. Le
+//    premier consommateur a ne pas l'avoir eu par hasard (NKDesignIABanc) a
+//    recolte deux « undeclared identifier ». Un en-tete partage inclut ce
+//    qu'il utilise.
+#include "NkGuiValidate.h"
+
 #include "Document.h"
 #include "Layout.h"
+
+// ⚠️ IL UTILISE `std::getenv` (la mutation `NK_PONT_SANS_COMPOSANT`), DONC IL
+//    L'INCLUT. Meme regle que l'include de `NkGuiValidate.h` ci-dessus : un
+//    en-tete partage inclut ce qu'il utilise, sinon il compile par accident chez
+//    celui qui l'a eu par un autre chemin et casse chez le suivant.
+#include <cstdlib>
 
 namespace nkuidesign {
 	namespace guifmt {
@@ -145,6 +159,18 @@ namespace nkuidesign {
 				/// la graphie des roles touche des fichiers deja enregistres, et cette
 				/// decision appartient a Rodolf.
 				NkVector<NkString> nomsHorsCatalogue;
+				/// Les noeuds qui portent un `composant` du registre AUQUEL LE
+				/// VOCABULAIRE `.nkgui` N'A PAS D'EQUIVALENT (les composites du kit :
+				/// un navigateur de contenu n'est pas un `ListBox`, il porte un arbre,
+				/// un fil d'Ariane et une recherche). **Comptes, jamais devines** :
+				/// leur donner un role approchant produirait un fichier qui se monte
+				/// en montrant autre chose que ce qui a ete demande -- la pire des
+				/// trois issues, parce qu'elle est VERTE.
+				uint32 composantsSansRole = 0;
+				NkVector<NkString> nomsComposantsSansRole;
+				/// Les noeuds dont le role `.nkgui` a ete derive de leur `composant`.
+				/// Non nul = ce fichier vient de la palette ou de l'IA, pas du menu.
+				uint32 rolesDuComposant = 0;
 				/// Le releve de ce qui a ete ecrit -- voir `NkEcritItem`.
 				NkVector<NkEcritItem> items;
 
@@ -156,6 +182,16 @@ namespace nkuidesign {
 					}
 					nomsHorsCatalogue.PushBack(n);
 					++rolesHorsCatalogue;
+				}
+
+				void SignalerComposantSansRole(const NkString &n) {
+					for (uint32 i = 0; i < (uint32)nomsComposantsSansRole.Size(); ++i) {
+						if (nomsComposantsSansRole[i].Compare(n) == 0) {
+							return;
+						}
+					}
+					nomsComposantsSansRole.PushBack(n);
+					++composantsSansRole;
 				}
 		};
 
@@ -235,6 +271,91 @@ namespace nkuidesign {
 			return k;
 		}
 
+		// =====================================================================
+		//  LE `composant` -- LE TROISIEME VOCABULAIRE, ET LE SEUL QUE L'IA ECRIT
+		// =====================================================================
+		//
+		// 🔴 MESURE DU 18/09, ET ELLE OUVRE CE BLOC. Le dorsal TEMOIN (une reponse
+		//    fixe et JUSTE) a passe les trois niveaux du jeu d'epreuve -- 12/12,
+		//    12/12, 12/12 -- et le fichier produit etait :
+		//
+		//        Group "Ecran_1" { Group "Titre_2" { } Group "Valider_3" { } }
+		//
+		//    La reponse disait `composant = etiquette` et `composant = bouton`.
+		//    **Les deux sont sortis en `Group`.** Trois taux verts, et un document
+		//    qui ne montre rien : c'est le compteur `roles utiles` de
+		//    `NKGuiMonteTest --monter=` qui l'a attrape, a sa premiere course.
+		//
+		// ⚠️ LA CAUSE EST UNE CONFUSION DE CHAMPS, PAS UN OUBLI DE TABLE.
+		//    `NkUINode` porte DEUX cles distinctes (`Document.h`) :
+		//      `component` -- la cle du REGISTRE, ce que `composant = ...` ecrit ;
+		//      `role`      -- la taxonomie d'ecran, ce que le MENU ecrit.
+		//    Les trois regles de `NkRoleNkguiDuNoeud` ne regardaient que `role` et
+		//    `shape`. Or l'invite envoyee au modele (`DesignAI.h`) ne propose QUE
+		//    `composant = <nom du catalogue>` : le mot `role` n'y figure meme pas.
+		//    **Le pont etait donc aveugle, par construction, a tout ce qu'un modele
+		//    peut produire.** Ce n'etait pas une regression : ce chemin n'avait
+		//    jamais eu de premier producteur.
+		//
+		// ⚠️ LE RISQUE DE REGRESSION EST NUL, ET COMPTE AVANT D'ECRIRE : sur les
+		//    NEUF `.nkuidoc` versionnes, **zero** noeud porte un `composant` non
+		//    vide. La regle ci-dessous ne peut donc changer aucun fichier existant ;
+		//    elle ne sert qu'aux documents que l'IA et la palette produisent.
+		//
+		// ⚠️ ET ELLE NE DEVINE PAS LES COMPOSITES. Huit des dix composants du
+		//    catalogue ont un equivalent evident. `content_browser` et `tree_view`
+		//    n'en ont pas : un navigateur de contenu n'est pas un `ListBox`. Ils
+		//    sont SIGNALES (`composantsSansRole`) et le pont retombe sur la regle
+		//    suivante. Un refus nomme est un succes ; un repli muet est le defaut
+		//    que ce depot passe son temps a retirer.
+		//
+		//    CONDITION DE RETRAIT DE CETTE TABLE : le jour ou `NkComponentDecl`
+		//    portera lui-meme son role `.nkgui`, elle disparait -- c'est la porte
+		//    propre, et elle vit dans NKEditorKit, que cinq applications partagent.
+
+		struct NkComposantNkgui {
+				const char *composant;
+				const char *nkgui;
+		};
+
+		inline const NkComposantNkgui *NkTableComposantsNkgui(uint32 &n) {
+			static const NkComposantNkgui k[] = {
+				{"bouton", "Button"},		  {"champ_texte", "TextField"},
+				{"case_a_cocher", "Checkbox"}, {"interrupteur", "Switch"},
+				{"barre_progression", "Progress"}, {"etiquette", "Text"},
+				{"separateur", "Separator"},  {"carte", "Panel"},
+			};
+			n = (uint32)(sizeof(k) / sizeof(k[0]));
+			return k;
+		}
+
+		/// Le role `.nkgui` d'une cle de registre. Rend `nullptr` quand le
+		/// composant existe mais n'a pas d'equivalent -- l'appelant SIGNALE alors.
+		///
+		/// ⚠️ LA MUTATION VIT DANS L'INSTRUMENT, pas dans une modification
+		///    temporaire du code : `NK_PONT_SANS_COMPOSANT=1` eteint la table. Elle
+		///    reste dans le depot, donc n'importe qui peut reprouver que le critere
+		///    mord -- un negatif qu'il faut reecrire est un negatif qu'on ne refait
+		///    jamais.
+		inline const char *NkRoleNkguiDuComposant(const char *comp) {
+			if (!comp || !*comp) {
+				return nullptr;
+			}
+			if (const char *m = std::getenv("NK_PONT_SANS_COMPOSANT")) {
+				if (m[0] == '1') {
+					return nullptr;
+				}
+			}
+			uint32 nb = 0;
+			const NkComposantNkgui *t = NkTableComposantsNkgui(nb);
+			for (uint32 i = 0; i < nb; ++i) {
+				if (NkComponentDecl::StrEq(t[i].composant, comp)) {
+					return t[i].nkgui;
+				}
+			}
+			return nullptr;
+		}
+
 		/// Vrai si `nom` est du vocabulaire `.nkgui`.
 		///
 		/// ⚠️ LA RECHERCHE N'EST PAS REECRITE ICI. `NkGFindRole` et `NkGFindAlias`
@@ -257,8 +378,11 @@ namespace nkuidesign {
 		///   3. pas de role exploitable -> on retombe sur la NATURE DESSINEE.
 		/// `horsCatalogue` est pose quand le noeud portait un role que ni (1) ni (2)
 		/// ne reconnaissent : la valeur est alors SIGNALEE et le pont retombe sur (3).
-		inline const char *NkRoleNkguiDuNoeud(const NkUINode &n, bool &horsCatalogue) {
+		inline const char *NkRoleNkguiDuNoeud(const NkUINode &n, bool &horsCatalogue,
+											  bool &composantSansRole, bool &roleDuComposant) {
 			horsCatalogue = false;
+			composantSansRole = false;
+			roleDuComposant = false;
 			const char *r = n.role.Data();
 			if (r && *r) {
 				if (NkRoleConnuNkgui(r)) {
@@ -272,6 +396,18 @@ namespace nkuidesign {
 					}
 				}
 				horsCatalogue = true; // on le DIT, puis on retombe sur la forme
+			}
+			// (2bis) LE `composant` DU REGISTRE -- la seule cle que l'IA ecrive.
+			//        Voir le bloc « LE TROISIEME VOCABULAIRE » plus haut.
+			const char *c = n.component.Data();
+			if (c && *c) {
+				if (const char *rc = NkRoleNkguiDuComposant(c)) {
+					roleDuComposant = true;
+					return rc;
+				}
+				// Le composant existe et n'a pas d'equivalent : on le DIT, et on
+				// retombe sur la forme plutot que d'inventer un role approchant.
+				composantSansRole = true;
 			}
 			// (3) LA NATURE DESSINEE. Le vocabulaire est celui de `NkUINode::shape`
 			//     (specification §4.2), et la correspondance est celle qui perd le
@@ -504,9 +640,17 @@ namespace nkuidesign {
 			++rap.noeudsVus;
 
 			bool hors = false;
-			const char *role = NkRoleNkguiDuNoeud(n, hors);
+			bool compSansRole = false;
+			bool roleDuComposant = false;
+			const char *role = NkRoleNkguiDuNoeud(n, hors, compSansRole, roleDuComposant);
 			if (hors) {
 				rap.SignalerHorsCatalogue(n.role);
+			}
+			if (compSansRole) {
+				rap.SignalerComposantSansRole(n.component);
+			}
+			if (roleDuComposant) {
+				++rap.rolesDuComposant;
 			}
 			const NkString id = NkIdDuNoeud(n, index);
 
@@ -526,7 +670,18 @@ namespace nkuidesign {
 
 			// ── ce que le role sait porter ───────────────────────────────────
 			if (NkComponentDecl::StrEq(role, "Text")) {
-				bloc.SetString(NkStringView("text"), NkStringView(n.text));
+				// 🔴 LE REPLI SUR LE LIBELLE, ET SEULEMENT QUAND LE ROLE VIENT DU
+				//    COMPOSANT. Le modele n'ecrit JAMAIS `texte` : l'invite ne lui
+				//    propose que `libelle` (`DesignAI.h`). Sans ce repli, une
+				//    `etiquette` sortirait avec le bon role et une chaine VIDE --
+				//    c'est-a-dire un vert qui n'affiche rien, exactement le defaut
+				//    qu'on repare. La condition `roleDuComposant` garde les fichiers
+				//    deja enregistres intacts PAR CONSTRUCTION : aucun d'eux ne porte
+				//    de composant (compte : 0 noeud sur les 9 `.nkuidoc` versionnes),
+				//    donc aucun ne peut prendre ce chemin. `NkRolePorteUnLibelle`
+				//    fait le meme repli depuis le 14/09, et pour la meme raison.
+				const NkString &t = (!n.text.Empty() || !roleDuComposant) ? n.text : n.label;
+				bloc.SetString(NkStringView("text"), NkStringView(t));
 			} else if (NkRolePorteUnLibelle(role)) {
 				// Le libelle : son `texte` s'il en a un ; sinon celui de l'enfant
 				// absorbe ; sinon, en dernier recours seulement, son libelle
@@ -538,7 +693,10 @@ namespace nkuidesign {
 				bloc.SetString(NkStringView("label"), NkStringView(l));
 			} else if (NkComponentDecl::StrEq(role, "TextField")
 					   || NkComponentDecl::StrEq(role, "NumberField")) {
-				bloc.SetString(NkStringView("placeholder"), NkStringView(n.text));
+				// Meme repli, meme raison, meme garde que pour `Text` ci-dessus : un
+				// `champ_texte` produit par le modele ne porte que son `libelle`.
+				const NkString &t = (!n.text.Empty() || !roleDuComposant) ? n.text : n.label;
+				bloc.SetString(NkStringView("placeholder"), NkStringView(t));
 			} else if (NkComponentDecl::StrEq(role, "Panel") && !n.text.Empty()) {
 				bloc.SetString(NkStringView("title"), NkStringView(n.text));
 			}

@@ -115,6 +115,7 @@ namespace nkentseu {
 			ListBox,
 			Item,
 			TreeItem,
+			DockSpace,
 			// 🔴 `Callback` ETAIT ICI, ET C'ETAIT UN HOMONYME. Le mot appartient deja DEUX
 			//    FOIS au format : `callback` est l'une des huit sections, et
 			//    `Callback "alerte"(...)` est un APPEL DE COMPORTEMENT -- la grammaire
@@ -162,6 +163,7 @@ namespace nkentseu {
 			if (NkGMotEgal(n, "ListBox")) return NkGuiRole::ListBox;
 			if (NkGMotEgal(n, "Item")) return NkGuiRole::Item;
 			if (NkGMotEgal(n, "TreeItem")) return NkGuiRole::TreeItem;
+			if (NkGMotEgal(n, "DockSpace")) return NkGuiRole::DockSpace;
 			if (NkGMotEgal(n, "Host")) return NkGuiRole::Host;
 			return NkGuiRole::Inconnu;
 		}
@@ -235,6 +237,12 @@ namespace nkentseu {
 				/// Meme raison que `hotesNonRemplis` : un arbre vide se fait prendre pour un
 				/// arbre sans elements, et le document a l'air monte alors qu'il manque sa moitie.
 				uint32 listesNonRemplies = 0;
+				/// Les ZONES d'ancrage declarees par le document.
+				uint32 zones = 0;
+				/// ⚠️ CELLES QUE L'APPLICATION NE FOURNIT PAS. C'est le troisieme pire
+				///    resultat du format -- un document dont les noms de zone ne
+				///    correspondent a rien -- et il ne doit jamais etre silencieux.
+				uint32 zonesSansPanneau = 0;
 				uint32 modales = 0;			 ///< `Window { modal = true }` rencontres
 				/// Les drapeaux d'INTERACTION (`NoMove`, `NoResize`, `NoClose`,
 				/// `NoScrollbar`) : ce monteur monte l'etat AU REPOS, il n'a aucune
@@ -780,6 +788,18 @@ namespace nkentseu {
 				///    existe pour empecher.
 				virtual bool RemplirHote(NkGuiContext &ctx, const char *nom, const NkRect &zone) noexcept {
 					(void)ctx;
+					(void)nom;
+					(void)zone;
+					return false;
+				}
+
+				/// L'ANCRAGE : l'hote fournit-il un panneau portant CE NOM ?
+				///
+				/// ⚠️ LE NOM EST L'IDENTIFIANT DU PANNEAU, jamais son libelle affiche. Et le
+				///    defaut est `false` : un hote qui ne connait pas ce nom ne doit pas
+				///    repondre oui. Le monteur peindra alors le marqueur et comptera la zone
+				///    -- une zone que personne ne fournit ne se fait pas passer pour un fond.
+				virtual bool ZoneAncree(const char *nom, const NkRect &zone) noexcept {
 					(void)nom;
 					(void)zone;
 					return false;
@@ -1426,6 +1446,131 @@ namespace nkentseu {
 								aDessine = false;
 							}
 							break;
+						}
+						// ── L'ANCRAGE : le document dit QUELLES ZONES, pas l'arbre ─
+						// ⚠️ LA FRONTIERE, ET ELLE EST LE RESULTAT D'UNE MESURE, PAS D'UN GOUT.
+						//    La coquille ecrit DEJA un arbre d'ancrage complet -- `dockroot=`,
+						//    `node=k|kind|vertical|ratio|c0|c1|activeTab`, `nwin=`, `float=` --
+						//    et elle le RELIT (`NkEditorShell::LoadUiState`). Le document n'a
+						//    donc AUCUN arbre a decrire : il dirait une seconde verite, et la
+						//    premiere fois que l'utilisateur tirerait un separateur, les deux
+						//    divergeraient.
+						//      le document   : QUELLES zones, leur cote, leurs proportions PAR DEFAUT
+						//      la coquille   : l'arbre que l'utilisateur a OBTENU
+						//    *Le document dit le defaut, le geste vit a cote* -- la meme frontiere
+						//    que pour le separateur, un cran plus haut.
+						//
+						// ⚠️ ET UNE ZONE SE NOMME PAR L'IDENTIFIANT DU PANNEAU, jamais par son
+						//    libelle affiche. Un document qui ecrirait « Propriétés » lierait la
+						//    disposition a du texte traduisible -- mesure du 17/09 : renommer
+						//    perdait la disposition en silence. L'identifiant existe depuis.
+						//
+						// ⚠️ LE MONTEUR NE RESOUT AUCUN PANNEAU : il DEMANDE a l'hote. NKGui ne
+						//    sait pas quels panneaux une application fournit, et inventer une
+						//    table ici en ferait une seconde autorite.
+						case NkGuiRole::DockSpace: {
+							static const bool kMuet = []() {
+								const char *v = getenv("NK_DOCK_MUTATION"); // =muet : pas de marqueur
+								return v && v[0] == 'm';
+							}();
+							const NkGuiTailleRel relD = NkGuiLireTailleRelative(w, ctx.layout.region);
+							NkRect zone = pl.pose ? pl.rect : ctx.layout.region;
+							if (relD.aW)
+								zone.w = relD.w;
+							if (relD.aH)
+								zone.h = relD.h;
+							// Les zones filles, cote a cote dans l'ordre du document. Chacune
+							// prend sa fraction si elle en declare une, sinon une part egale.
+							const NkArchiveNode *cd = NkGMonteCorps(w);
+							uint32 nZones = 0;
+							if (cd)
+								for (uint32 k = 0; k < (uint32)cd->array.Size(); ++k)
+									if (cd->array[k].IsObject() && cd->array[k].object)
+										++nZones;
+							if (cd && nZones > 0u) {
+								// ⚠️ LE RESTE, ET NON UNE PART EGALE. Une zone qui ne declare pas
+								//    sa fraction prend ce qui RESTE apres les fractions declarees,
+								//    partage entre celles qui sont dans son cas. La regle « part
+								//    egale » laissait une bande orpheline -- 197 px noirs a droite
+								//    sur la capture du 17/09, alors que les onze criteres de
+								//    l'epoque etaient verts. Un dock qui laisse un trou n'est pas
+								//    un dock : les zones couvrent TOUT.
+								float32 sommeDeclaree = 0.f;
+								uint32 nImplicites = 0u;
+								for (uint32 k = 0; k < (uint32)cd->array.Size(); ++k) {
+									if (!cd->array[k].IsObject() || !cd->array[k].object)
+										continue;
+									const NkGuiTailleRel rk =
+										NkGuiLireTailleRelative(*cd->array[k].object, zone);
+									if (rk.aW)
+										sommeDeclaree += rk.w;
+									else
+										++nImplicites;
+								}
+								float32 reste = zone.w - sommeDeclaree;
+								if (reste < 0.f)
+									reste = 0.f; // le document sur-declare : on ne rend pas negatif
+								const float32 partReste =
+									nImplicites > 0u ? reste / (float32)nImplicites : 0.f;
+								float32 x = zone.x;
+								uint32 vues = 0u;
+								for (uint32 k = 0; k < (uint32)cd->array.Size(); ++k) {
+									if (!cd->array[k].IsObject() || !cd->array[k].object)
+										continue;
+									const NkArchive &z = *cd->array[k].object;
+									const NkString nom(NkGuiArchive::IdOf(z));
+									const NkGuiTailleRel rz = NkGuiLireTailleRelative(z, zone);
+									++vues;
+									float32 larg = rz.aW ? rz.w : partReste;
+									// La DERNIERE zone absorbe l'arrondi jusqu'au bord : trois
+									// divisions flottantes ne retombent pas sur le pixel.
+									if (vues == nZones && sommeDeclaree + partReste * (float32)nImplicites
+															  <= zone.w + 0.5f)
+										larg = zone.x + zone.w - x;
+									const NkRect r = {x, zone.y, larg, zone.h};
+									x += larg;
+									++rap.zones;
+									// L'HOTE DIT s'il fournit un panneau de ce nom.
+									const bool servie = hooks && hooks->ZoneAncree(nom.CStr(), r);
+									if (!servie) {
+										// ⚠️ UNE ZONE QUE PERSONNE NE FOURNIT NE DOIT PAS ETRE UN
+										//    TROU QUI RESSEMBLE A UN FOND. Elle se signale, et elle
+										//    ECRIT SON NOM : c'est le nom que l'application doit
+										//    servir, et sans lui l'hote cherche a l'aveugle.
+										++rap.zonesSansPanneau;
+										if (!kMuet) {
+											NkGuiDrawList &dl = ctx.DL();
+											const NkColor trait = ctx.theme.textMuted;
+											dl.AddRect(r, trait, 1.f);
+											for (float32 dd = 0.f; dd < r.w + r.h; dd += 12.f) {
+												float32 x0 = r.x + dd, y0 = r.y;
+												float32 x1 = r.x, y1 = r.y + dd;
+												if (x0 > r.x + r.w) {
+													y0 += x0 - (r.x + r.w);
+													x0 = r.x + r.w;
+												}
+												if (y1 > r.y + r.h) {
+													x1 += y1 - (r.y + r.h);
+													y1 = r.y + r.h;
+												}
+												if (y0 <= r.y + r.h && x1 <= r.x + r.w)
+													dl.AddLine({x0, y0}, {x1, y1}, trait, 1.f);
+											}
+											if (ctx.font && ctx.font->Valid())
+												// `AddText` prend la LIGNE DE BASE, pas le haut :
+												// sans l'ascendante, le nom sortait par le haut de
+												// la fenetre -- la capture l'a montre coupe en deux.
+												dl.AddText(ctx.font->Face(), ctx.font->TexId(),
+														   {r.x + 6.f, r.y + 4.f + ctx.font->Ascent()},
+														   nom.CStr(), trait);
+										}
+									}
+									Noter(rap, nom, NkGuiArchive::TypeOf(z), r, prof + 1u, true, true);
+								}
+							}
+							Noter(rap, id, t, zone, prof, true, horizontal);
+							++rap.montes;
+							return;
 						}
 						// ── LA HIERARCHIE : liste, arbre, element ────────────
 						// ⚠️ LA QUESTION DU CONTENU, TRANCHEE ICI. Le format sait dire les

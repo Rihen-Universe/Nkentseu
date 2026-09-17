@@ -23,6 +23,21 @@ namespace nkentseu {
 			public:
 				explicit NkEditorPanel(const char *title,
 									   NkEditorDockSide defaultSide = NkEditorDockSide::NK_CENTER) noexcept;
+
+				// ⚠️ L'IDENTIFIANT STABLE, ET POURQUOI IL EXISTE (2026-09-17)
+				//    Jusqu'ici un panneau n'avait qu'une identite : son TITRE AFFICHE. La
+				//    coquille s'y accrochait trois fois -- le retour de disposition
+				//    (`StrEqual(Title(), nom)`), l'identite de la fenetre NKGui
+				//    (`GetId(Title())`, qui hache la chaine entiere), et la serialisation.
+				//    Consequence mesuree : **renommer un panneau -- ou le traduire -- perd sa
+				//    disposition, en silence.** Et les libelles de ce depot sont francais et
+				//    accentues : la traduction n'est pas une hypothese.
+				//
+				// ⚠️ STRICTEMENT ADDITIF : par defaut l'identifiant VAUT le titre. Une
+				//    application qui n'en donne pas se comporte exactement comme avant, et
+				//    les cinq peuvent migrer une par une.
+				NkEditorPanel(const char *id, const char *title,
+							  NkEditorDockSide defaultSide = NkEditorDockSide::NK_CENTER) noexcept;
 				virtual ~NkEditorPanel() = default;
 
 				NkEditorPanel(const NkEditorPanel &) = delete;
@@ -31,6 +46,12 @@ namespace nkentseu {
 				// ── Identite ────────────────────────────────────────────────────────
 				const char *Title() const noexcept {
 					return mTitle;
+				}
+
+				/// L'IDENTIFIANT STABLE -- ce par quoi la disposition connait ce panneau.
+				/// Vaut le titre tant que l'application n'en declare pas d'autre.
+				const char *Id() const noexcept {
+					return mId;
 				}
 
 				// ── Etat d'ouverture (pilote le menu « Affichage ») ─────────────────
@@ -77,6 +98,7 @@ namespace nkentseu {
 
 			protected:
 				char mTitle[64] = {};
+				char mId[64] = {}; ///< identifiant stable ; par defaut, le titre
 				bool mOpen = true;
 				bool mDockable = true;
 				NkEditorDockSide mDefaultSide = NkEditorDockSide::NK_CENTER;
