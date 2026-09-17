@@ -311,6 +311,7 @@ int main(int argc, char **argv) {
 	const char *fDemandes = "Applications/NKUIDesign/exemples/ia/demandes.txt";
 	const char *dSortie = "Build/ia-jeu";
 	const char *dorsal = "processus";
+	bool sondeHttp = false; // --sonde-http : le TRANSPORT avant le modele
 	const char *seul = nullptr;		// --seule=d01 : une seule demande
 	const char *contrat = nullptr;	// --contrat=<f> : ECRIRE le contrat d'outil
 	const char *verifier = nullptr; // --verifier-contrat=<f> : la GARDE anti-derive
@@ -319,6 +320,8 @@ int main(int argc, char **argv) {
 			fDemandes = argv[a] + 11;
 		else if (CommencePar(argv[a], "--sortie="))
 			dSortie = argv[a] + 9;
+		else if (std::strcmp(argv[a], "--sonde-http") == 0)
+			sondeHttp = true;
 		else if (CommencePar(argv[a], "--dorsal="))
 			dorsal = argv[a] + 9;
 		else if (CommencePar(argv[a], "--seule="))
@@ -334,10 +337,12 @@ int main(int argc, char **argv) {
 			contrat = argv[a] + 10;
 		else if (std::strcmp(argv[a], "--aide") == 0) {
 			std::printf("NKDesignIABanc --demandes=<f> --sortie=<dossier> "
-						"[--dorsal=processus|temoin] [--seule=<id>]\n"
+						"[--dorsal=processus|temoin|ollama] [--seule=<id>]\n"
 						"  processus : le gabarit de NK_DESIGN_CMD / NK_DESIGN_EXE "
 						"(NKDesignLLM)\n"
 						"  temoin    : LE ZERO du banc -- une reponse fixe et juste\n"
+						"  ollama    : un VRAI modele, par le service HTTP local (le modele et "
+						"              l'hote sont des REGLAGES : NK_OLLAMA_MODELE, NK_OLLAMA_HOTE)\n"
 						"  --contrat=<f>           ecrit le CONTRAT D'OUTIL (sans dorsal,\n"
 						"                          sans modele, sans carte graphique)\n"
 						"  --verifier-contrat=<f>  la GARDE : rend 1 si le fichier versionne\n"
@@ -386,6 +391,37 @@ int main(int argc, char **argv) {
 		return 0;
 	}
 
+	// ── SONDE DU TRANSPORT : `NkHTTPClient` PARLE-T-IL REELLEMENT ? ──────────
+	// ⚠️ ELLE EXISTE PARCE QUE « DECLARER N'EST PAS LIVRER ». `NkHTTPClient` a
+	//    1 582 lignes d'en-tete, un `.cpp`, et des exemples en commentaire. Rien
+	//    de tout ca ne prouve qu'un POST aboutit. Avant d'accuser un modele ou
+	//    une invite, on demande au TRANSPORT ce qu'il rend, et on l'imprime.
+	if (sondeHttp) {
+		static NkOllamaBackend o;
+		if (const char *h = std::getenv("NK_OLLAMA_HOTE"))
+			o.hote = NkString(h);
+		nkentseu::net::NkHTTPClient http;
+		nkentseu::net::NkHTTPClient::Config cfg;
+		cfg.defaultTimeoutMs = 10000u;
+		http.Configure(cfg);
+		NkString u = o.hote;
+		u.Append("/api/tags");
+		const nkentseu::net::NkHTTPResponse g = http.Get(u.Data());
+		std::printf("SONDE HTTP  GET  %s\n", u.Data());
+		std::printf("   statusCode = %u   octets de corps = %u   duree = %u ms\n",
+				   (unsigned)g.statusCode, (unsigned)g.body.Size(), (unsigned)g.timeMs);
+		std::printf("   erreur reseau = \"%s\"\n", g.error.Data());
+		NkString u2 = o.hote;
+		u2.Append("/api/generate");
+		const nkentseu::net::NkHTTPResponse pr =
+			http.Post(u2.Data(), "{\"model\":\"qwen2.5:7b-instruct\",\"prompt\":\"OK\",\"stream\":false}");
+		std::printf("SONDE HTTP  POST %s\n", u2.Data());
+		std::printf("   statusCode = %u   octets de corps = %u   duree = %u ms\n",
+				   (unsigned)pr.statusCode, (unsigned)pr.body.Size(), (unsigned)pr.timeMs);
+		std::printf("   erreur reseau = \"%s\"\n", pr.error.Data());
+		return 0;
+	}
+
 	NkDirectory::CreateRecursive(dSortie);
 
 	Ligne demandes[64];
@@ -397,9 +433,30 @@ int main(int argc, char **argv) {
 
 	// ── LE DORSAL ────────────────────────────────────────────────────────────
 	DorsalTemoin temoin;
+	// ⚠️ STATIQUE, PARCE QUE `ia` GARDE UN POINTEUR. Ce depot a paye la faute
+	//    inverse : « le registre garde un pointeur -- declarer par valeur =
+	//    segfault mouvant ». Le dorsal doit survivre a la portee ou il est pose.
+	static NkOllamaBackend ollama;
 	NkDesignAI ia;
 	if (std::strcmp(dorsal, "temoin") == 0) {
 		ia.SetBackend(&temoin);
+	} else if (std::strcmp(dorsal, "ollama") == 0) {
+		// Le modele et l'hote sont des REGLAGES : lus dans l'environnement plutot
+		// que graves. NK_OLLAMA_MODELE et NK_OLLAMA_HOTE.
+		if (const char *m = std::getenv("NK_OLLAMA_MODELE"))
+			ollama.modele = NkString(m);
+		if (const char *h = std::getenv("NK_OLLAMA_HOTE"))
+			ollama.hote = NkString(h);
+		// ⚠️ ON INTERROGE LE SERVICE AVANT DE LANCER DOUZE DEMANDES. Sans ca, un
+		//    service eteint rendrait douze refus identiques et on lirait « le
+		//    modele echoue » la ou il faut lire « personne n'ecoute ».
+		if (!ollama.IsAvailable()) {
+			std::printf("SERVICE INJOIGNABLE : %s ne repond pas (code %u). Rien mesure.\n",
+					ollama.hote.Data(), (unsigned)ollama.dernierCode);
+			return 2;
+		}
+		std::printf("modele        : %s (reglage) sur %s\n", ollama.modele.Data(), ollama.hote.Data());
+		ia.SetBackend(&ollama);
 	} else {
 		NkDesignBackendProcessus &proc = NkDesignBackendProcessus::ParDefaut();
 		char inv[512], sor[512];

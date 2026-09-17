@@ -84,7 +84,8 @@
 	#include <windows.h>
 #endif
 
-#include "NKConverse/NkConverse.h" // le transport : invite, reponse, dorsaux
+#include "NKConverse/NkConverse.h"
+#include "NKConverse/NkConverseOllama.h" // le transport : invite, reponse, dorsaux
 #include "Layout.h"
 
 namespace nkuidesign {
@@ -113,6 +114,11 @@ namespace nkuidesign {
 	using NkFileBackend = nkentseu::converse::NkConverseBackendFichier;
 	using NkDesignBackendProcessus = nkentseu::converse::NkConverseBackendProcessus;
 	using NkCannedBackend = nkentseu::converse::NkConverseBackendConserve;
+	/// ⚠️ LE QUATRIEME DORSAL, et le premier qui parle a un VRAI modele sur
+	///    cette machine. Il vit dans son propre en-tete parce qu'il est le seul
+	///    a tirer NKNetwork -- un consommateur qui ne veut que le dorsal fichier
+	///    n'a pas a payer la pile reseau.
+	using NkOllamaBackend = nkentseu::converse::NkConverseBackendOllama;
 
 	enum class NkAIVerdict : uint8 {
 		Acceptee = 0,
