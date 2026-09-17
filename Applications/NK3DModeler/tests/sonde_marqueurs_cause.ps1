@@ -230,12 +230,20 @@ if ($script:rouges -gt 0) {
 
 $proche_off = CourirMod "proche_off" $null "4" $null
 $loin_off = CourirMod "loin_off" $null "7" $null
-foreach ($m in @($proche_on, $loin_on)) {
-	if (-not (Plausible $m.n)) {
-		Write-Host ("ARRET : compte hors d'ordre de grandeur ({0} px pour huit marqueurs)." -f $m.n)
-		Write-Host "La sonde REFUSE de conclure : ces pixels ne sont pas des marqueurs."
-		exit 2
-	}
+# ⚠️ LE GARDE-FOU INVALIDE UNE COMPARAISON, PAS TOUTE LA COURSE. Premiere
+#    version : il faisait `exit 2` et emportait les parties B et C avec lui --
+#    alors qu'elles ne dependent pas du tout de la distance. Un garde-fou qui
+#    arrete plus que ce qu'il protege finit par etre retire ; celui-ci dit
+#    seulement « (A1) n'est pas mesurable dans cette condition ».
+#    ⚠️ ET « NON MESURABLE » N'EST NI VERT NI ROUGE : le verdict n'est pas rendu.
+#       Le compter comme vert dirait que le code va bien, le compter comme rouge
+#       accuserait le code de ce que la mesure n'a pas pu voir.
+$aMesurable = (Plausible $proche_on.n) -and (Plausible $loin_on.n)
+if (-not $aMesurable) {
+	Write-Host ("       (A1) NON MESURABLE : {0} px a d=4 et {1} px a d=7, hors de l'ordre de" -f $proche_on.n, $loin_on.n)
+	Write-Host "       grandeur de huit marqueurs (20 a 400). A cette distance le cube est trop"
+	Write-Host "       petit : le lisere du marqueur se confond avec les aretes. Ce n'est PAS un"
+	Write-Host "       verdict sur le code."
 }
 $rProche = Rapport $proche_off.n $proche_on.n
 $rLoin = Rapport $loin_off.n $loin_on.n
@@ -247,8 +255,10 @@ Write-Host ("       d=7 : eteint {0} px / allume {1} px  ->  {2} %" -f $loin_off
 #   CROIT avec la distance. Il plonge donc plus profond dans le volume quand on
 #   s'eloigne, alors que le biais reste fixe. Si l'echelle explique le rognage,
 #   le rapport doit MONTER nettement quand on s'approche.
+if ($aMesurable) {
 Dire "(A1) PREDICTION : le rognage s'attenue quand la camera s'APPROCHE" ($rProche -gt ($rLoin + 15)) `
 	("{0} % a d=4 contre {1} % a d=7 (prediction ecrite avant la course ; si elle est dementie, mon mecanisme est faux, si coherent soit-il)" -f $rProche, $rLoin)
+}
 
 Write-Host ""
 Write-Host "PARTIE C — LE TEMOIN DE DORSAL : le modeleur, en OpenGL comme l'etalon"
