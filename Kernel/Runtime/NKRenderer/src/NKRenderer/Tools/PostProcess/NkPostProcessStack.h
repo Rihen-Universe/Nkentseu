@@ -193,7 +193,32 @@ namespace nkentseu {
 				// quand la cible finale est redirigee (capture/enregistrement),
 				// cette passe garde la FENETRE vivante en recopiant la cible vers
 				// le swapchain. Cout : 1 draw plein-ecran.
-				void ExecuteBlit(NkICommandBuffer *cmd, NkTextureHandle src);
+				// ── LA DESTINATION D'UN BLIT, DECLAREE ET NON DEVINEE (17/09/2026) ──
+				// Le signe de retournement d'un blit plein ecran depend de SA
+				// DESTINATION, et de rien d'autre :
+				//   NK_VERS_ECRAN     la vraie swapchain -- il faut compenser son
+				//                     inversion sur tout ce qui n'est pas OpenGL ;
+				//   NK_VERS_CIBLE     une texture hors ecran (`SetFinalColorTarget`,
+				//                     donc TOUT viseur d'editeur) -- il n'y a rien a
+				//                     compenser, et compenser RETOURNE l'image.
+				//
+				// ⚠️ POURQUOI L'APPELANT DOIT LE DIRE, et pourquoi `ExecuteBlit` ne
+				// peut pas le deviner : sa signature ne lui donne que la SOURCE. Sa
+				// destination est celle du render pass ouvert par le graphe, auquel
+				// il n'a aucun acces. L'information existe -- `mFinalColorOverride`
+				// cote NkRendererImpl, et l'etat d'import de la ressource cote graphe
+				// -- mais pas ici.
+				//
+				// Ce que ce parametre change : avant, chaque appelant choisissait une
+				// FONCTION selon sa destination, donc il choisissait un SIGNE sans
+				// savoir qu'il le faisait. Maintenant il declare une DESTINATION, et
+				// la regle est appliquee au seul endroit qui la connait.
+				enum class NkBlitCible {
+					NK_VERS_ECRAN,
+					NK_VERS_CIBLE,
+				};
+				void ExecuteBlit(NkICommandBuffer *cmd, NkTextureHandle src,
+								 NkBlitCible cible = NkBlitCible::NK_VERS_ECRAN);
 
 				// Variante d'ExecuteBlit vers une cible OFF-SCREEN (framebuffer du
 				// graph) au lieu du swapchain : sert a recopier le resultat du TAA dans

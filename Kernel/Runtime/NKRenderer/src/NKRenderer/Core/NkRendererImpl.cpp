@@ -1539,42 +1539,26 @@ namespace nkentseu {
 								mRenderGraph->GetResourceTexture(sPresentHist ? histId : taaOutId);
 							if (!res.IsValid())
 								return;
-							// ── DEUX REGLES DE BLIT, ET IL FAUT CELLE DE LA DESTINATION ──
-							// `ExecuteBlit` porte la regle du blit vers l'ECRAN : son
-							// `isVK` vaut en realite `api != OPENGL`
-							// (NkPostProcessStack.cpp:1083 -- le nom ment, la valeur est
-							// juste), donc -1 sur DX, ce qui compense l'inversion de la
-							// SWAPCHAIN. `ExecuteBlitToRT` porte celle de l'ecriture dans
-							// une cible HORS ECRAN (`isVulkan ? -1 : +1`).
+							// ── LA DESTINATION EST DECLAREE, LE SIGNE EN EST DEDUIT ─────
+							// `colorId` est la vraie swapchain quand rien n'a redirige
+							// la sortie, et une texture externe des que
+							// `SetFinalColorTarget` l'a fait -- ce que fait TOUT viseur
+							// d'editeur (NkViewport3D.cpp:762, AnimBridge).
+							// Avant, ce site choisissait une FONCTION selon sa
+							// destination, donc un SIGNE, sans savoir qu'il le faisait.
+							// Il declare desormais sa DESTINATION ; la regle vit dans
+							// `ExecuteBlit` et nulle part ailleurs.
 							//
-							// Or `colorId` N'EST PAS TOUJOURS LA SWAPCHAIN : des que
-							// `SetFinalColorTarget` a redirige la sortie vers une texture
-							// externe -- ce que fait tout viewport d'editeur, dont celui
-							// de NK3DModeler -- il n'y a plus d'inversion a compenser, et
-							// le flip de l'ecran RETOURNE l'image.
-							//
-							// CE QUE CE CHOIX DEPLACE (DX11, cible hors ecran, 17/09) :
-							// l'image passe de RETOURNEE a DROITE, et le gain des
-							// vecteurs de mouvement sur un mouvement VERTICAL, qui
-							// n'existait pas, apparait : erreur sur l'objet
-							// 1 457 621 -> 541 534, soit un facteur 2,69 -- le meme
-							// ordre que l'horizontal (2,73).
-							// TEMOIN : FXAA, qui ecrit dans `colorId` SANS passer par ce
-							// blit, rendait deja l'image droite.
-							// PORTEE : `api != OPENGL` est faux pour OpenGL seul, donc les
-							// CINQ autres dorsaux sont concernes des qu'une application
-							// redirige sa sortie.
-							//
-							// NK_TAA_PRESENT_RT=0 restitue l'ancien chemin sans recompiler.
-							static int sPresentRT = -1;
-							if (sPresentRT < 0) {
-								const char *v = getenv("NK_TAA_PRESENT_RT");
-								sPresentRT = (v && v[0] && v[0] == '0') ? 0 : 1;
-							}
-							if (sPresentRT && mFinalColorOverride.IsValid())
-								mPostProcess->ExecuteBlitToRT(cmd, res, mRenderGraph->GetPassRenderPass("TAA_Present"));
-							else
-								mPostProcess->ExecuteBlit(cmd, res);
+							// CE QUE CE CHOIX A DEPLACE (DX11, cible hors ecran, 17/09) :
+							// image RETOURNEE -> DROITE, et le gain des vecteurs de
+							// mouvement sur un mouvement VERTICAL, qui n'existait pas,
+							// apparait : erreur sur l'objet 1 457 621 -> 541 534.
+							// TEMOIN : FXAA, qui ecrit dans `colorId` SANS blit, rendait
+							// deja l'image droite.
+							using NkBlitCible = NkPostProcessStack::NkBlitCible;
+							mPostProcess->ExecuteBlit(cmd, res,
+													  mFinalColorOverride.IsValid() ? NkBlitCible::NK_VERS_CIBLE
+																				   : NkBlitCible::NK_VERS_ECRAN);
 						});
 					}
 				}
@@ -1770,6 +1754,12 @@ namespace nkentseu {
 				mir.Reads(colorId);
 				mir.SetColor(0, screenId, NkLoadOp::NK_CLEAR, {0.f, 0.f, 0.f, 1.f});
 				mir.Execute([this](NkICommandBuffer *cmd) {
+					// ⚠️ DESTINATION = LA VRAIE SWAPCHAIN, et c'est le seul site du
+					// depot pour lequel c'est INCONDITIONNEL : cette passe n'existe
+					// que pour renvoyer la cible redirigee vers l'ecran. Elle garde
+					// donc le defaut, `NK_VERS_ECRAN`, et le changement de regle du
+					// 17/09 ne doit RIEN modifier pour elle. C'est le negatif de ce
+					// correctif.
 					if (mPostProcess)
 						mPostProcess->ExecuteBlit(cmd, mFinalColorOverride);
 				});
