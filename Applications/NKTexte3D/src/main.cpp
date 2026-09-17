@@ -806,6 +806,158 @@ static void JouerCas(const Cas &c, uint32 res, const char *dossier) {
 		Attendu(rl.st.genus == c.genre, "genre deduit (nombre d'anses)", c.genre, rl.st.genus);
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// 5. LE BANC DE VARIETE -- `gen::SurfaceNets` SEUL, sans ma grammaire.
+//
+// POURQUOI IL EXISTE SEPAREMENT. La dette du 18/09 dit : sur sept resolutions
+// eprouvees, seules 32 et 64 rendent un maillage sans arete non-manifold. Mesure
+// faite a travers ma grammaire -- donc incapable de dire si la faute est au
+// mailleur ou a la facon dont je construis mes champs. Ce banc appelle
+// `gen::SurfaceNets` DIRECTEMENT, sur des champs poses a la main.
+//
+// L'HYPOTHESE, ET ELLE EST TESTABLE. Le SurfaceNets naif pose UN sommet par
+// cellule. Quand la surface traverse une cellule en DEUX nappes disjointes -- le
+// cas d'ecole etant deux coins DIAGONALEMENT OPPOSES solides -- ce sommet unique
+// est partage par des quads appartenant a des nappes differentes, et l'arete qui
+// les joint se retrouve portee par plus de deux faces.
+//
+// Si c'est vrai, alors un champ portant UNE cellule ambigue doit produire au
+// moins une arete non-manifold, et un champ sans cellule ambigue jamais. Les
+// deux sont mesures ci-dessous, le NEGATIF en premier.
+// ─────────────────────────────────────────────────────────────────────────────
+static void CasVariete(const char *nom, const NkVector<float> &champ, uint32 nx, uint32 ny, uint32 nz,
+					   bool attenduSain, const char *pourquoi, const char *dossier) {
+	char out[512];
+	snprintf(out, sizeof(out), "%s/__variete_%s.obj", dossier, nom);
+	remove(out); // un fichier qui preexiste rendrait un echec invisible
+
+	printf("\n-- variete « %s »  (%s)\n", nom, pourquoi);
+	gen::NkMesh m = gen::SurfaceNets(champ.Data(), nx, ny, nz, 0.f, 1.f);
+	printf("  MESURE brute : grille %ux%ux%u -> sommets=%u triangles=%u\n", nx, ny, nz, m.VertexCount(),
+		   m.TriangleCount());
+	if (m.VertexCount() == 0 || m.TriangleCount() == 0) {
+		Attendu(false, "SurfaceNets produit une surface (sinon rien ne se mesure)", 1, 0);
+		return;
+	}
+	gen::ComputeNormals(m);
+	if (!gen::SaveMeshObj(out, m)) {
+		Attendu(false, "gen::SaveMeshObj ecrit le fichier", 1, 0);
+		return;
+	}
+	Relecture rl;
+	if (!Relire(out, rl)) {
+		Attendu(false, "LoadOBJ relit ce que SaveMeshObj a ecrit", 1, 0);
+		return;
+	}
+	printf("  MESURE relecture : V=%u E=%u F=%u  bords=%u nonManifold=%u chi=%d\n", rl.st.verts, rl.st.edges,
+		   rl.st.faces, rl.st.boundaryEdges, rl.st.nonManifoldEdges, rl.st.euler);
+	// ── POURQUOI LE CRITERE N'EST PAS « AUCUNE ARETE NON-MANIFOLD » ──────────
+	// Premiere version de ce banc, 18/09 : elle ne comptait que les aretes, et
+	// le cas DIAGONAL est sorti VERT -- 0 arete non-manifold. L'instrument
+	// mesurait la grandeur d'a cote. Une cellule ambigue produit un SOMMET
+	// non-manifold : deux nappes jointes par un POINT. Chaque arete y reste
+	// portee par exactement deux faces, donc le compteur d'aretes ne peut PAS
+	// le voir -- il est invariant par le defaut cherche.
+	// Ce qui l'a denonce est un NOMBRE IMPOSSIBLE : V-E+F = 15-36+24 = 3, alors
+	// qu'une surface fermee orientable a chi = 2-2g, donc TOUJOURS PAIR.
+	// `NkMeshStats` n'a pas de compteur de sommets non-manifold ; la parite de
+	// chi en tient lieu, et elle est derivee, pas choisie.
+	const bool pair = (rl.st.euler % 2) == 0;
+	const bool sain = (rl.st.nonManifoldEdges == 0) && pair;
+	Attendu(sain == attenduSain,
+			attenduSain ? "surface SAINE (0 arete non-manifold ET chi pair)"
+						: "surface PATHOLOGIQUE, comme attendu (le defaut est reproduit)",
+			attenduSain ? 1 : 0, sain ? 1 : 0);
+}
+
+static int BancVariete(const char *dossier) {
+	printf("== NKTexte3D --banc-variete (gen::SurfaceNets SEUL, champs synthetiques) ==\n");
+
+	// [0] LE ZERO D'ABORD : une sphere lisse, aucune cellule ambigue possible.
+	{
+		const uint32 n = 34;
+		NkVector<float> c;
+		c.Resize(n * n * n);
+		const float ctr = 16.5f, r = 12.f;
+		for (uint32 k = 0; k < n; ++k)
+			for (uint32 j = 0; j < n; ++j)
+				for (uint32 i = 0; i < n; ++i) {
+					const float dx = (float)i - ctr, dy = (float)j - ctr, dz = (float)k - ctr;
+					c[i + n * (j + n * k)] = r - sqrtf(dx * dx + dy * dy + dz * dz);
+				}
+		CasVariete("sphere", c, n, n, n, true, "champ lisse : la surface traverse chaque cellule en UNE nappe",
+				   dossier);
+	}
+
+	// [1] CONTROLE : deux voxels LOIN l'un de l'autre. Deux composantes, mais
+	// aucune cellule ne voit les deux -- donc aucune ambiguite. Ce cas existe
+	// pour que le cas suivant ne puisse pas etre explique par « il y a deux
+	// morceaux » : ici aussi il y en a deux, et il doit rester manifold.
+	{
+		const uint32 n = 10;
+		NkVector<float> c;
+		c.Resize(n * n * n);
+		for (uint32 i = 0; i < c.Size(); ++i)
+			c[i] = -1.f;
+		c[2 + n * (2 + n * 2)] = 1.f;
+		c[7 + n * (7 + n * 7)] = 1.f;
+		CasVariete("deux_voxels_loin", c, n, n, n, true, "deux composantes, AUCUNE cellule ne voit les deux",
+				   dossier);
+	}
+
+	// [2] LE POSITIF DERIVE : deux voxels DIAGONALEMENT adjacents. La cellule
+	// (3,3,3) a pour coins (3..4)^3 : elle contient donc (3,3,3) et (4,4,4),
+	// deux coins DIAGONALEMENT OPPOSES. C'est la configuration ambigue, et elle
+	// est la SEULE difference avec le cas [1].
+	{
+		const uint32 n = 10;
+		NkVector<float> c;
+		c.Resize(n * n * n);
+		for (uint32 i = 0; i < c.Size(); ++i)
+			c[i] = -1.f;
+		c[3 + n * (3 + n * 3)] = 1.f;
+		c[4 + n * (4 + n * 4)] = 1.f;
+		CasVariete("diagonale", c, n, n, n, false,
+				   "deux coins DIAGONALEMENT opposes dans la MEME cellule : un sommet pour deux nappes", dossier);
+	}
+
+	// [3] DIAGONAUX SUR UNE FACE (et non par un coin). Les deux voxels
+	// partagent une ARETE de grille. C'est l'autre configuration ambigue
+	// classique, et elle est distincte de [2] : il faut les separer, sinon on
+	// attribue a l'une ce que fait l'autre.
+	{
+		const uint32 n = 10;
+		NkVector<float> c;
+		c.Resize(n * n * n);
+		for (uint32 i = 0; i < c.Size(); ++i)
+			c[i] = -1.f;
+		c[3 + n * (3 + n * 3)] = 1.f;
+		c[4 + n * (4 + n * 3)] = 1.f;
+		CasVariete("diagonale_face", c, n, n, n, false,
+				   "deux coins diagonaux d'une MEME FACE : ambiguite de face, distincte du coin", dossier);
+	}
+
+	// [4] DAMIER : le pire cas possible, une cellule ambigue partout. S'il
+	// existe une configuration qui produit des ARETES non-manifold, elle est
+	// ici.
+	{
+		const uint32 n = 12;
+		NkVector<float> c;
+		c.Resize(n * n * n);
+		for (uint32 k = 0; k < n; ++k)
+			for (uint32 j = 0; j < n; ++j)
+				for (uint32 i = 0; i < n; ++i) {
+					const bool dedans = i >= 3 && i <= 8 && j >= 3 && j <= 8 && k >= 3 && k <= 8;
+					c[i + n * (j + n * k)] = (dedans && ((i + j + k) % 2) == 0) ? 1.f : -1.f;
+				}
+		CasVariete("damier", c, n, n, n, false, "une cellule ambigue PARTOUT : le pire cas constructible",
+				   dossier);
+	}
+
+	printf("\n== VERDICT VARIETE : %s (%d ligne(s) rouge(s)) ==\n", g_rouge == 0 ? "VERT" : "ROUGE", g_rouge);
+	return g_rouge == 0 ? 0 : 1;
+}
+
 static int Banc(uint32 res, const char *dossier) {
 	printf("== NKTexte3D --banc (res=%u, sorties dans %s) ==\n", res, dossier);
 	printf("\n[0] LE ZERO D'ABORD : trois refus, chacun NOMME, et AUCUN fichier ecrit.\n");
@@ -865,17 +1017,21 @@ int main(int argc, char **argv) {
 	const char *dossier = ".";
 	uint32 res = 64;
 	bool banc = false;
+	bool bancVariete = false;
 	for (int i = 1; i < argc; ++i) {
 		if (strcmp(argv[i], "--texte") == 0 && i + 1 < argc) texte = argv[++i];
 		else if (strcmp(argv[i], "--out") == 0 && i + 1 < argc) out = argv[++i];
 		else if (strcmp(argv[i], "--res") == 0 && i + 1 < argc) res = (uint32)atoi(argv[++i]);
 		else if (strcmp(argv[i], "--dossier") == 0 && i + 1 < argc) dossier = argv[++i];
 		else if (strcmp(argv[i], "--banc") == 0) banc = true;
+		else if (strcmp(argv[i], "--banc-variete") == 0) bancVariete = true;
 		else
 			return Refus("argument inconnu : %s\nusage : NKTexte3D --texte \"<phrase>\" --out <f.obj> [--res N]\n"
 						 "        NKTexte3D --banc [--res N] [--dossier <d>]",
 						 argv[i]);
 	}
+	if (bancVariete)
+		return BancVariete(dossier);
 	if (banc)
 		return Banc(res, dossier);
 	if (!texte && !out)
@@ -902,6 +1058,41 @@ int main(int argc, char **argv) {
 		   rl.st.euler, rl.st.genus, rl.volume);
 	printf("  %s\n", rl.st.IsClosed() ? "ETANCHE : oui (aucune arete de bord)"
 									  : "ETANCHE : NON -- le maillage est ouvert, et je le dis plutot que de le taire");
+
+	// ââ LE GARDE-FOU DE VARIETE, ET IL JUGE LE PRODUIT, PAS LE REGLAGE âââ
+	// Mesure du 18/09 : `gen::SurfaceNets` pose UN sommet par cellule, et sur une
+	// cellule AMBIGUE (deux coins diagonalement opposes) ce sommet unique sert a
+	// DEUX nappes. Selon que l'ambiguite porte sur un COIN ou sur une FACE, cela
+	// donne un SOMMET non-manifold (chi devient IMPAIR) ou une ARETE
+	// non-manifold. La mesure de la cause est dans `--banc-variete`.
+	//
+	// POURQUOI ON NE REFUSE PAS « LES RESOLUTIONS NON EPROUVEES ». Une liste
+	// blanche {32, 64} serait fausse dans les DEUX sens : elle interdirait des
+	// resolutions saines, et elle autoriserait 32 ou 64 sur une FORME qui, elle,
+	// produit une cellule ambigue. La resolution n'est pas la grandeur qui
+	// decide -- la sante du maillage produit l'est, et on vient de la mesurer.
+	//
+	// chi IMPAIR est le critere qui attrape le cas du COIN : une surface fermee
+	// orientable a chi = 2 - 2g, donc toujours PAIR. Un compteur d'aretes seul
+	// ne peut pas le voir : il est invariant par ce defaut-la.
+	{
+		const bool pair = (rl.st.euler % 2) == 0;
+		if (rl.st.nonManifoldEdges > 0 || !pair) {
+			remove(out); // ne JAMAIS laisser un objet casse sur le disque
+			fprintf(stderr,
+					"REFUS : le maillage produit n'est pas une surface saine, et il a ete EFFACE.\n"
+					"        aretes non-manifold = %u (attendu 0)%s\n"
+					"        caracteristique d'Euler = %d%s\n"
+					"        CAUSE : gen::SurfaceNets pose un seul sommet par cellule ; sur une cellule\n"
+					"        ambigue (deux coins diagonalement opposes) ce sommet sert a deux nappes.\n"
+					"        CE QUI MARCHE AUJOURD'HUI : --res 32 et --res 64 sur les formes du banc.\n"
+					"        Vois `NKTexte3D --banc-variete` pour la mesure de la cause.\n",
+					rl.st.nonManifoldEdges, rl.st.nonManifoldEdges > 0 ? " <- ambiguite de FACE" : "",
+					rl.st.euler, pair ? "" : " <- IMPAIR : impossible pour une surface fermee (ambiguite de COIN)");
+			return 3;
+		}
+	}
+	printf("  VARIETE : saine (0 arete non-manifold, chi pair)\n");
 	printf("  EDITABLE : oui -- entre dans NkEditMesh par la MEME porte que les modeles importes\n");
 	return 0;
 }
