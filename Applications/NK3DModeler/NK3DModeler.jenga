@@ -33,6 +33,11 @@ with project("NK3DModeler"):
     nkentseudependson(
         ["NKEditorKit", "NKRenderer", "NKRHI", "NKSL", "NKCanvas", "NKGui",
          "NKMedia",
+         # NKConverse : le PANNEAU IA appelle un modele par le module PARTAGE.
+         # On consomme son interface et son envoi asynchrone ; aucun dorsal
+         # n'est ecrit ici -- deux dorsaux seraient la dette des trois
+         # exemplaires, rouverte le lendemain de son remboursement.
+         "NKConverse",
          "NKWindow", "NKEvent", "NKGlad", "NKFont", "NKImage", "NKFileSystem",
          "NKSerialization", "NKReflection", "NKThreading", "NKLogger", "NKMath",
          "NKTime", "NKStream", "NKContainers", "NKMemory", "NKCore", "NKPlatform",

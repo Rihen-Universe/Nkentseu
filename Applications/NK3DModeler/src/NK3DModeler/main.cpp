@@ -65,6 +65,7 @@
 #include "NK3DModeler/Shell/NkModelerWelcome.h"
 #include "NK3DModeler/Genia/NkGeniaSonde.h" // --sonde-genia : la porte du generateur
 #include "NK3DModeler/Shell/NkModelerContrat.h" // la table des verbes, DONNEE partagee
+#include "NK3DModeler/Shell/NkModelerIA.h"      // le panneau APPELLE : NKConverse, asynchrone
 #include "NKEvent/NkMouseEvent.h"
 #include "NKEvent/NkWindowEvent.h" // focus : le confinement du curseur le relache
 #include "NKEvent/NkDropEvent.h" // NkDropFileEvent : fichiers laches depuis l'explorateur
@@ -658,16 +659,17 @@ namespace {
 		// l'imprimeur du contrat. Une seule autorite, deux lecteurs : un verbe
 		// ajoute est reconnu ET documente du meme geste.
 		{
-			int32 nv = 0;
-			const NkVerbe *V = NkVerbes(nv);
-			bool trouve = false;
-			for (int32 i = 0; i < nv; ++i) {
-				if (!est(V[i].nom))
-					continue;
-				st.pendingAction = V[i].act;
-				trouve = true;
-				break;
-			}
+			// ⚠️ LE TEST DE RECONNAISSANCE VIT DANS LE CONTRAT, PLUS ICI. Un second
+			//    lecteur est apparu -- le panneau doit savoir si ce que Rodolf tape
+			//    est DEJA un verbe (on l'execute) ou une phrase (on interroge le
+			//    modele). Deux tests auraient diverge au premier terminateur
+			//    ajoute, et la divergence se serait vue comme « le panneau accepte
+			//    ce que le pont refuse ».
+			(void)est; // la lambda reste pour le reste de la fonction
+			const NkVerbe *trouveV = NkVerbeTrouve(nomAct);
+			const bool trouve = (trouveV != nullptr);
+			if (trouve)
+				st.pendingAction = trouveV->act;
 			if (!trouve) {
 			printf("[nk3d] %s : nom inconnu, aucune action posee\n", quiSuisJe);
 			// (b9) LE MEME REFUS, MAIS VISIBLE. Le journal sert aux sondes ; Rodolf,
@@ -3414,10 +3416,114 @@ int nkmain(const NkEntryState &entry) {
 			// Si l'hote n'a rien a lire, on NE POSE RIEN : le bloc reste « effet en
 			// cours de mesure », ce qui est vrai, au lieu d'afficher un zero invente.
 		}
+		// ── LE PANNEAU APPELLE VRAIMENT : la phrase part, le verbe revient ─────
+		// Jusqu'ici le texte tape etait soumis TEL QUEL au pont : « subdivise deux
+		// fois » tombait donc dans le refus nomme, parce que ce n'est pas un verbe.
+		// ⚠️ LE PANNEAU NE CONNAIT AUCUN MODELE. Il parle a NKConverse -- une
+		//    requete, une reponse ou un refus nomme -- et le dorsal est un REGLAGE.
+		//    Si du vocabulaire propre a un fournisseur remontait jusqu'ici, ce
+		//    serait une fuite, et elle se signalerait au lieu d'etre absorbee.
+		static nk3d::NkIaCanal sIa;
+		static bool sIaPret = false;
+		static char sIaPhrase[256] = {0};
+		if (!sIaPret) {
+			sIaPret = true;
+			nk3d::NkIaCmdDuVerbe = &NkVpCmdDuVerbe;
+			sIa.Preparer(nullptr);
+		}
+		// (a) LA RECOLTE, A CHAQUE IMAGE. C'est ce qui empeche la fenetre de geler,
+		//     et `Images()` en est la PREUVE : si la boucle etait bloquee, ce
+		//     compteur vaudrait 1. On ne mesure pas une impression de fluidite.
+		if (sIa.envoi.EnCours()) {
+			NkString rep, err;
+			bool reussi = false;
+			if (sIa.envoi.Recolter(rep, err, reussi)) {
+				char verbe[192];
+				verbe[0] = 0;
+				const bool lisible = reussi && nk3d::NkIaExtraireVerbe(rep.Data(), verbe, sizeof(verbe));
+				const bool connu = lisible && (nk3d::NkVerbeTrouve(verbe) != nullptr);
+				if (connu) {
+					std::printf("[nk3d] IA REPONSE : %u image(s) pendant l'attente, %.2f s -> « %s »\n",
+								(unsigned)sIa.envoi.Images(), (double)sIa.envoi.Secondes(), verbe);
+					std::fflush(stdout);
+					nk3d::NkAiCopie(st.aiPending, sizeof(st.aiPending), verbe);
+				} else {
+					// ⚠️ LE REFUS S'AFFICHE, AVEC SON MOTIF, ET LES TROIS CAS NE SE
+					//    CONFONDENT PAS : le dorsal n'a pas repondu, il a repondu
+					//    quelque chose d'illisible, ou il a propose un verbe absent du
+					//    contrat. Un seul message pour les trois n'apprendrait a
+					//    personne quoi corriger.
+					char motif[192];
+					if (!reussi)
+						snprintf(motif, sizeof(motif), "L'assistant n'a pas repondu : %s",
+								 err.Data() ? err.Data() : "raison inconnue");
+					else if (!lisible)
+						snprintf(motif, sizeof(motif),
+								 "Reponse illisible : aucune ligne ne ressemble a une commande.");
+					else
+						snprintf(motif, sizeof(motif), "« %s » n'est pas un verbe du contrat.", verbe);
+					nk3d::NkAiCopie(st.aiMotif, sizeof(st.aiMotif), motif);
+					st.aiMotifEstRefus = true;
+					const int32 ir = nk3d::NkAiPousser(st, NkModelerState::AiType::Refus, "Demande refusee");
+					nk3d::NkAiCopie(st.aiFil[ir].detail, sizeof(st.aiFil[ir].detail), motif);
+					nk3d::NkAiCopie(st.aiFil[ir].in, sizeof(st.aiFil[ir].in), sIaPhrase);
+					std::printf("[nk3d] IA REFUS : %s (reponse brute : « %s »)\n", motif,
+								rep.Data() ? rep.Data() : "");
+					std::fflush(stdout);
+				}
+			}
+		}
 		if (st.aiPending[0]) {
 			char dem[256];
 			nk3d::NkAiCopie(dem, sizeof(dem), st.aiPending);
 			st.aiPending[0] = 0; // consommee : une demande ne se rejoue pas toute seule
+			// ── UN VERBE S'EXECUTE, UNE PHRASE S'ENVOIE ───────────────────────
+			// ⚠️ ON N'INTERROGE PAS LE MODELE POUR RIEN. « subdivide:2 » est deja
+			//    un verbe : le faire traduire couterait une seconde et pourrait le
+			//    DEGRADER. Le test est celui du pont, pas un second.
+			if (!nk3d::NkVerbeTrouve(dem)) {
+				nk3d::NkAiCopie(sIaPhrase, sizeof(sIaPhrase), dem);
+				char motif[192];
+				motif[0] = 0;
+				if (!sIa.pret) {
+					snprintf(motif, sizeof(motif), "%s", sIa.motif);
+				} else {
+					// ⚠️ LE CONTRAT PART AVEC LA DEMANDE. Un modele qui connait la
+					//    grammaire produit un verbe valide bien plus souvent qu'un
+					//    modele a qui on demande d'inventer -- et c'est la mesure de
+					//    NOTRE outillage, pas du modele. `NK_IA_SANS_CONTRAT=1` est
+					//    la MUTATION qui le prouve, dans le meme binaire.
+					static const bool sSansContrat = []() {
+						const char *v = std::getenv("NK_IA_SANS_CONTRAT");
+						return v && v[0] && v[0] != '0';
+					}();
+					static char invite[16384];
+					nk3d::NkIaEcrireContratDansInvite(invite, sizeof(invite), !sSansContrat);
+					const size_t lg = strlen(invite);
+					snprintf(invite + lg, sizeof(invite) - lg, "\nDemande : %s\nCommande :", dem);
+					NkString pourquoi;
+					if (!sIa.envoi.Lancer(&sIa.dorsal, NkString(invite), pourquoi))
+						snprintf(motif, sizeof(motif), "L'assistant n'a pas pu etre appele : %s",
+								 pourquoi.Data() ? pourquoi.Data() : "raison inconnue");
+					else {
+						const int32 inote = nk3d::NkAiPousser(st, NkModelerState::AiType::Note,
+															  "J'interroge l'assistant...");
+						nk3d::NkAiCopie(st.aiFil[inote].in, sizeof(st.aiFil[inote].in), dem);
+						std::printf("[nk3d] IA ENVOI : « %s » (contrat %s)\n", dem,
+									sSansContrat ? "ABSENT" : "donne");
+						std::fflush(stdout);
+					}
+				}
+				if (motif[0]) {
+					nk3d::NkAiCopie(st.aiMotif, sizeof(st.aiMotif), motif);
+					st.aiMotifEstRefus = true;
+					const int32 ir = nk3d::NkAiPousser(st, NkModelerState::AiType::Refus, "Demande refusee");
+					nk3d::NkAiCopie(st.aiFil[ir].detail, sizeof(st.aiFil[ir].detail), motif);
+					nk3d::NkAiCopie(st.aiFil[ir].in, sizeof(st.aiFil[ir].in), dem);
+					std::printf("[nk3d] IA REFUS : %s\n", motif);
+					std::fflush(stdout);
+				}
+			} else {
 			// LES COMPTEURS D'AVANT, LUS AVANT. C'est ce qui rend l'effet MESURE et
 			// non recopie de la demande : « faces 6 -> 384 » doit venir de l'hote,
 			// sinon il afficherait le meme texte quand l'operation echoue.
@@ -3431,6 +3537,7 @@ int nkmain(const NkEntryState &entry) {
 				st.aiMotifEstRefus ? "REFUS : " : "acceptee",
 				st.aiMotifEstRefus ? st.aiMotif : "", "");
 			std::fflush(stdout);
+			}
 		}
 		if (st.pendingAction != NkVpAction::None) {
 			const NkVpAction a = st.pendingAction;
