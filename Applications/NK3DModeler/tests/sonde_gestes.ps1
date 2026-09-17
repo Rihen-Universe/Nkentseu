@@ -43,6 +43,12 @@ param(
 	[switch]$Mutation,
 	[string]$Arbre = "D:\Projets\2026\Nkentseu\Nkentseu-actifs"
 )
+# ── LA GARDE DE CONDITION ──────────────────────────────────────────────────
+# Un banc qui n a pas pu mesurer doit le DIRE, au lieu d accuser le code : le
+# 17/09 celui-ci a rendu rouge sur une scene qui n etait pas prete, et deux de
+# ses criteres sont meme passes VERT en comparant deux sentinelles entre elles.
+. (Join-Path $PSScriptRoot "condition.ps1")
+$script:fichiers = @()
 
 $ErrorActionPreference = "Stop"
 $exe = Join-Path $Arbre "Build\Bin\$Config-Windows\NK3DModeler\NK3DModeler.exe"
@@ -50,6 +56,7 @@ if (-not (Test-Path $exe)) { Write-Host "ROUGE  binaire introuvable : $exe"; exi
 
 function Geste([string]$nom, [hashtable]$vars) {
 	$sortie = Join-Path ([System.IO.Path]::GetTempPath()) "nk_sonde_geste_$nom.txt"
+	$script:fichiers += $sortie
 	$env:NK_SONDE = "1"
 	$env:NK_ADD_NODE = "2,0,20"
 	$env:NK_EDIT_USER = "99"
@@ -128,6 +135,7 @@ Dire "(d) NEGATIF : G sur un axe explicite est INCHANGE" $axOk `
 #   distance 12 -- un rapport de 2,98 pour une distance triple.
 function GestePx([string]$nom, [string]$dist, [string]$mutDist) {
 	$sortie = Join-Path ([System.IO.Path]::GetTempPath()) "nk_sonde_geste_$nom.txt"
+	$script:fichiers += $sortie
 	$env:NK_SONDE = "1"; $env:NK_ADD_NODE = "2,0,20"; $env:NK_EDIT_USER = "99"
 	$env:NK_EDIT_MODE = "1,40"; $env:NK_EDIT_SEL = "n"
 	$env:NK_CAM_YAW = "0"; $env:NK_CAM_PITCH = "0"; $env:NK_CAM_DIST = $dist
@@ -178,6 +186,7 @@ Dire "(g) distance TRIPLE : l'objet reste sous le curseur" ([Math]::Abs($p12[1] 
 #   toujours 0,5 ». Il a fallu reparer l'INSTRUMENT avant de pouvoir juger.
 function Aimante([string]$nom, [string]$pas, [string]$on, [string]$axe) {
 	$sortie = Join-Path ([System.IO.Path]::GetTempPath()) "nk_sonde_geste_$nom.txt"
+	$script:fichiers += $sortie
 	$env:NK_SONDE = "1"; $env:NK_ADD_NODE = "2,0,20"; $env:NK_EDIT_USER = "99"
 	$env:NK_EDIT_MODE = "1,40"; $env:NK_EDIT_SEL = "n"
 	$env:NK_CAM_YAW = "0"; $env:NK_CAM_PITCH = "0"; $env:NK_CAM_DIST = "4"
@@ -232,6 +241,7 @@ Dire "(j) et le PAS est vraiment lu : trois pas, trois resultats" (([Math]::Abs(
 #   donc imprimer d0 et d1 par l'application, et on exige `val == d1/d0 - 1`.
 function Echelle([string]$nom, [string]$drag, [string]$axe, [string]$mut) {
 	$sortie = Join-Path ([System.IO.Path]::GetTempPath()) "nk_sonde_geste_$nom.txt"
+	$script:fichiers += $sortie
 	$env:NK_SONDE = "1"; $env:NK_ADD_NODE = "2,0,20"; $env:NK_EDIT_USER = "99"
 	$env:NK_EDIT_MODE = "1,40"; $env:NK_EDIT_SEL = "n"
 	$env:NK_CAM_YAW = "0"; $env:NK_CAM_PITCH = "0"; $env:NK_CAM_DIST = "4"
@@ -301,6 +311,12 @@ if ($Mutation) {
 	if ($rouges -gt 0) { Write-Host "MUTATION TUEE ($rouges rouge(s)) — les criteres mordent."; exit 1 }
 	Write-Host "ECHEC DE LA SONDE : la mutation a SURVECU, les criteres ne testent rien."
 	exit 2
+}
+# ⚠ LE VERDICT NE VAUT QUE SI LA CONDITION ETAIT REUNIE. Sinon, ni vert ni
+#   rouge : code 3, et les lignes ci-dessus ne sont pas des verdicts.
+if (NkConditionManque $script:fichiers) {
+	Write-Host "  ⚠ LES LIGNES CI-DESSUS NE SONT PAS DES VERDICTS."
+	exit 3
 }
 if ($rouges -eq 0) { Write-Host "TOUT VERT (0 rouge)"; exit 0 }
 Write-Host "ECHEC ($rouges rouge(s))"

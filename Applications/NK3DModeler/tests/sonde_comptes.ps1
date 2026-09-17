@@ -40,6 +40,12 @@ param(
 	[string]$Config = "Release",
 	[switch]$Mutation
 )
+# ── LA GARDE DE CONDITION ──────────────────────────────────────────────────
+# Un banc qui n a pas pu mesurer doit le DIRE, au lieu d accuser le code : le
+# 17/09 celui-ci a rendu rouge sur une scene qui n etait pas prete, et deux de
+# ses criteres sont meme passes VERT en comparant deux sentinelles entre elles.
+. (Join-Path $PSScriptRoot "condition.ps1")
+$script:fichiers = @()
 
 $exe = Join-Path $Arbre "Build\Bin\$Config-Windows\NK3DModeler\NK3DModeler.exe"
 if (-not (Test-Path $exe)) { Write-Host "ROUGE  binaire introuvable : $exe"; exit 1 }
@@ -56,6 +62,7 @@ function Dire([string]$nom, [bool]$ok, [string]$detail) {
 # deselectionnait a juste titre, et j'avais accuse le produit).
 function Relever([string]$nom, [string]$masque, [string]$pick, [string]$action) {
 	$out = Join-Path ([System.IO.Path]::GetTempPath()) "nk_comptes_$nom.txt"
+	$script:fichiers += $out
 	$env:NK_SONDE = "1"; $env:NK_ADD_NODE = "2,0,20"; $env:NK_EDIT_USER = "99"
 	$env:NK_EDIT_MODE = "1,40"; $env:NK_EDIT_SEL = "n"; $env:NK_EDIT_SELMASK = $masque
 	if ($pick) { $env:NK_EDIT_PICK_VERT = $pick }
@@ -152,6 +159,12 @@ if ($Mutation) {
 	}
 	Write-Host "MUTATION OK : $($script:rouges) rouge(s), le defaut d'origine est bien reproduit"
 	exit 0
+}
+# ⚠ LE VERDICT NE VAUT QUE SI LA CONDITION ETAIT REUNIE. Sinon, ni vert ni
+#   rouge : code 3, et les lignes ci-dessus ne sont pas des verdicts.
+if (NkConditionManque $script:fichiers) {
+	Write-Host "  ⚠ LES LIGNES CI-DESSUS NE SONT PAS DES VERDICTS."
+	exit 3
 }
 if ($script:rouges -eq 0) { Write-Host "TOUT VERT (0 rouge)"; exit 0 }
 Write-Host "$($script:rouges) ROUGE(S)"
