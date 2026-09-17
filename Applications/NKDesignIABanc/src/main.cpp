@@ -279,8 +279,14 @@ namespace {
 		out.Append("       CONTENU n'est plus perdu depuis le 17/09 -- il monte dans le flux du\n");
 		out.Append("       parent -- mais le conteneur est compte inconnu et le document REFUSE\n");
 		out.Append("       (mesure : 2 montes -> 6 et REFUSE -> MONTE pour Scroll, desormais monte)\n");
-		out.Append("limite le monteur ne peint pas l'apparence : il la compte (mesure du 17/09,\n");
-		out.Append("       0 pixel sur une demande de vert pur, decodeur PNG independant)\n");
+		// ⚠️ LIMITE REDUITE LE 17/09 AU SOIR, PAS LEVEE. L'apparence AU REPOS se
+		//    peint sur les quatre roles qui ont une surface ; le reste est compte.
+		//    Dire « il peint l'apparence » tout court serait une publicite.
+		out.Append("limite le monteur ne peint l'apparence AU REPOS que sur Button, RepeatButton,\n");
+		out.Append("       Panel et Window (fond) et Text (encre). Un fill sur un role sans surface,\n");
+		out.Append("       radius, font, shadow et stroke sont COMPTES non peints, jamais devines\n");
+		out.Append("limite aucun etat d'apparence autre que le repos n'est applique : ce monteur\n");
+		out.Append("       monte l'etat au repos, il n'a ni souris ni focus\n");
 	}
 
 	struct Bilan {
