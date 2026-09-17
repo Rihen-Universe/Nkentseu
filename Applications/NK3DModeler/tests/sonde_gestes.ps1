@@ -165,6 +165,54 @@ Dire "(f) distance SIMPLE : l'objet reste sous le curseur" ([Math]::Abs($p4[1] -
 Dire "(g) distance TRIPLE : l'objet reste sous le curseur" ([Math]::Abs($p12[1] - $p12[0]) -le 3) `
 	"souris $($p12[0]) px -> objet $($p12[1]) px (exige la MEME chose qu'a la distance simple)"
 
+# -- (h)(i)(j) L'AIMANTATION PENDANT UNE MODALE (Rodolf, 14/09) -------------
+# « Est-ce que l'aimant/snap fonctionne aussi en edition mode ? » La reponse
+# mesuree etait NON -- et pas seulement en edition. L'aimantation etait reglee
+# sur les deux GIZMOS, donc elle agissait au DRAG dans les deux modes, mais la
+# modale G/R/S ne passe pas par le drag : le pas n'etait jamais consulte.
+# ⚠ ET LE PAS N'ETAIT PAS REGLABLE : la boucle du shell le reecrivait a CHAQUE
+#   image avec 0,5 / 15 / 0,1 en dur, pendant que le panneau de proprietes
+#   passait, lui, les vraies valeurs. Deux autorites, celle de la boucle gagnait.
+#   Mon premier critere ne le voyait pas : trois pas differents donnaient le meme
+#   resultat, et je ne pouvais pas distinguer « le pas est lu » de « le pas vaut
+#   toujours 0,5 ». Il a fallu reparer l'INSTRUMENT avant de pouvoir juger.
+function Aimante([string]$nom, [string]$pas, [string]$on, [string]$axe) {
+	$sortie = Join-Path ([System.IO.Path]::GetTempPath()) "nk_sonde_geste_$nom.txt"
+	$env:NK_SONDE = "1"; $env:NK_ADD_NODE = "2,0,20"; $env:NK_EDIT_USER = "99"
+	$env:NK_EDIT_MODE = "1,40"; $env:NK_EDIT_SEL = "n"
+	$env:NK_CAM_YAW = "0"; $env:NK_CAM_PITCH = "0"; $env:NK_CAM_DIST = "4"
+	$env:NK_SNAP_ON = $on; $env:NK_SNAP_STEP = $pas
+	$env:NK_MODAL_OP = "move"; $env:NK_MODAL_DRAG = "120"; $env:NK_MODAL_DRAG_FRAMES = "6"
+	$env:NK_MODAL_CONFIRM = "1"; $env:NK_AGENT_EXIT = "220"
+	if ($axe) { $env:NK_MODAL_AXIS = $axe }
+	if ($Mutation) { $env:NK_GLIBRE_AXEY = "1" }
+	$p = Start-Process -FilePath $exe -WorkingDirectory $Arbre -NoNewWindow -PassThru -Wait `
+		-RedirectStandardOutput $sortie
+	foreach ($v in @("NK_SONDE", "NK_ADD_NODE", "NK_EDIT_USER", "NK_EDIT_MODE", "NK_EDIT_SEL",
+			"NK_CAM_YAW", "NK_CAM_PITCH", "NK_CAM_DIST", "NK_SNAP_ON", "NK_SNAP_STEP",
+			"NK_MODAL_OP", "NK_MODAL_DRAG", "NK_MODAL_DRAG_FRAMES", "NK_MODAL_CONFIRM",
+			"NK_AGENT_EXIT", "NK_MODAL_AXIS", "NK_GLIBRE_AXEY")) {
+		if (Test-Path "Env:\$v") { Remove-Item -Path "Env:\$v" }
+	}
+	$m = @(Select-String -Path $sortie -Pattern "translation=\(")
+	if ($m.Count -eq 0) { return -999.0 }
+	$r = [regex]::Match($m[$m.Count - 1].Line, "translation=\((-?[0-9.e-]+),")
+	if (-not $r.Success) { return -999.0 }
+	return [double]$r.Groups[1].Value
+}
+$brut = Aimante "snap_off" "0.5" "0" "x"
+$s05 = Aimante "snap_05" "0.5" "1" "x"
+$s03 = Aimante "snap_03" "0.3" "1" "x"
+$s2 = Aimante "snap_2" "2" "1" "x"
+Write-Host "       sans aimantation : $brut  ·  pas 0,5 : $s05  ·  pas 0,3 : $s03  ·  pas 2 : $s2"
+
+Dire "(h) LE ZERO : sans aimantation, la valeur n'est pas arrondie" ([Math]::Abs($brut - 1.04211) -lt 0.001) `
+	"brut = $brut (exige la valeur non arrondie ; sinon « arrondi » ne voudrait rien dire)"
+Dire "(i) l'aimantation AGIT pendant une modale" ([Math]::Abs($s05 - 1.0) -lt 0.001) `
+	"pas 0,5 : $brut -> $s05 (exige 1,0 ; avant ce lot, la modale ignorait le pas)"
+Dire "(j) et le PAS est vraiment lu : trois pas, trois resultats" (([Math]::Abs($s03 - 0.9) -lt 0.001) -and ([Math]::Abs($s2 - 2.0) -lt 0.001)) `
+	"pas 0,3 -> $s03 (exige 0,9) · pas 2 -> $s2 (exige 2,0) ; s'ils etaient egaux, le pas ne serait pas lu"
+
 Write-Host "-----------------------------------------------------------------------"
 if ($Mutation) {
 	if ($rouges -gt 0) { Write-Host "MUTATION TUEE ($rouges rouge(s)) — les criteres mordent."; exit 1 }

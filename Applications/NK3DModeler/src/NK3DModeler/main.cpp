@@ -1108,6 +1108,28 @@ int nkmain(const NkEntryState &entry) {
 			agentSceneFrame = (int32)std::atoi(v);
 		if (const char *v = std::getenv("NK_AGENT_SHOT"))
 			agentShotFrame = (int32)std::atoi(v);
+		// NK_SNAP_STEP / NK_SNAP_ROT / NK_SNAP_SCALE : les pas d'aimantation, dans
+		// L'ETAT DU SHELL -- qui en est l'autorite depuis que la boucle ne passe plus
+		// de constantes. Les poser sur le GIZMO (ce que faisait le viseur a son init)
+		// ne servait a rien : la boucle les ecrasait a l'image suivante. C'est ce qui
+		// rendait mon propre critere aveugle -- trois pas differents, un seul
+		// resultat, et rien pour distinguer « le pas est lu » de « le pas vaut
+		// toujours 0,5 ».
+		if (const char *v = std::getenv("NK_SNAP_STEP")) {
+			const float32 f = (float32)std::atof(v);
+			if (f > 0.f)
+				st.snapStepT = f;
+		}
+		if (const char *v = std::getenv("NK_SNAP_ROT")) {
+			const float32 f = (float32)std::atof(v);
+			if (f > 0.f)
+				st.snapStepR = f;
+		}
+		if (const char *v = std::getenv("NK_SNAP_SCALE")) {
+			const float32 f = (float32)std::atof(v);
+			if (f > 0.f)
+				st.snapStepS = f;
+		}
 		if (const char *v = std::getenv("NK_AGENT_EXIT"))
 			agentExitFrame = (int32)std::atoi(v);
 	}
@@ -2202,7 +2224,15 @@ int nkmain(const NkEntryState &entry) {
 				snapOn = st.snapAngle;
 			else if (st.tool == NkTool::Scale)
 				snapOn = st.snapScale;
-			demo::Demo3DHostSetSnap(snapOn, 0.5f, 15.f, 0.1f);
+			// ⚠ LES PAS VIENNENT DE L'ETAT, PAS DE CONSTANTES. Cette ligne passait
+			//   0,5 / 15 / 0,1 EN DUR, a CHAQUE IMAGE -- pendant que le panneau de
+			//   proprietes, lui, passait `st.snapStepT/R/S`. Deux appelants pour le
+			//   meme reglage, et c'est celui de la boucle qui ecrivait en dernier : le
+			//   pas choisi par l'utilisateur etait ECRASE a l'image suivante.
+			//   Mesure du 17/09 : un pas demande de 0,3 aimantait 1,04211 sur 1,0 (le
+			//   0,5 en dur) au lieu de 0,9. Meme famille que les deux autorites sur la
+			//   selection : celle qu'on ecrit est recopiee depuis l'autre a chaque tour.
+			demo::Demo3DHostSetSnap(snapOn, st.snapStepT, st.snapStepR, st.snapStepS);
 		}
 		// PROJECTION : entierement geree par la SYNC de la demo portee, plus haut.
 		// L'ancien bloc RELISAIT l'etat de la vue DORMANTE (Viewport3DIsOrtho,
