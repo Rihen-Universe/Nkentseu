@@ -268,8 +268,17 @@ namespace {
 		out.Append("       changer une propriete d'un noeud existant\n");
 		out.Append("limite deux composants du catalogue n'ont pas d'equivalent dans le vocabulaire\n");
 		out.Append("       du fichier d'interface : ils sont COMPTES et NOMMES, jamais devines\n");
-		out.Append("limite le monteur ne monte pas le role Scroll, et un role inconnu EMPORTE ses\n");
-		out.Append("       enfants (mesure du 17/09 : Panel > Scroll > Text monte UN widget)\n");
+		// ⚠️ CETTE LIMITE A ETE LEVEE LE 17/09 AU SOIR, ET LE CONTRAT LE DIT PLUTOT
+		//    QUE DE SE TAIRE. `Scroll` se monte ; un role inconnu ne perd plus son
+		//    sous-arbre. Il RESTE 16 roles du format que le monteur ignore : les
+		//    annoncer est la seule facon de ne pas promettre a un modele distant ce
+		//    que l'application ne sait pas honorer.
+		out.Append("limite 16 roles du vocabulaire du format ne sont pas montes (ColorField,\n");
+		out.Append("       Column, ContextMenu, Drag, Flow, Grid, ImageButton, Menu, MenuBar,\n");
+		out.Append("       MenuItem, NumberField, RadioGroup, Row, Stack, Switch, Table). Leur\n");
+		out.Append("       CONTENU n'est plus perdu depuis le 17/09 -- il monte dans le flux du\n");
+		out.Append("       parent -- mais le conteneur est compte inconnu et le document REFUSE\n");
+		out.Append("       (mesure : 2 montes -> 6 et REFUSE -> MONTE pour Scroll, desormais monte)\n");
 		out.Append("limite le monteur ne peint pas l'apparence : il la compte (mesure du 17/09,\n");
 		out.Append("       0 pixel sur une demande de vert pur, decodeur PNG independant)\n");
 	}
