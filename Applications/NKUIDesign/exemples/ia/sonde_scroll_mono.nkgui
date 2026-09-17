@@ -1,0 +1,44 @@
+nkgui 0.3
+
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
+
+// SONDE : `Scroll` et la chasse fixe -- les deux points que le coordinateur veut
+// voir tranches par la MESURE et non par une lecture de table.
+//
+// ⚠️ CE FICHIER N'EST PAS DANS `valides/` ET CE N'EST PAS UN OUBLI. Le banc du
+//    corpus exige 0 role inconnu sur tout ce qui est dans `valides/` ; ce
+//    fichier-ci est ecrit precisement pour voir SI `Scroll` en est un. Le mettre
+//    dans `valides/` ferait rougir un banc qui n'a rien fait de mal, et un banc
+//    qui rougit pour une raison etrangere cesse d'etre lu.
+//
+// Il se monte a la main :
+//    NKGuiMonteTest --monter=Applications/NKUIDesign/exemples/ia/sonde_scroll_mono.nkgui
+//
+// Ce qu'il demande, exactement :
+//   1. `Scroll` est DANS le vocabulaire du validateur (`NkGRoleTable`) -- il
+//      valide donc a 0 erreur. Mais le monteur a 25 roles montes, et `Scroll`
+//      n'est pas dans la liste de la passation du 17/09. Si le compteur
+//      `role(s) inconnu(s)` rend 1, la reponse est nette : le format le DECRIT
+//      et le monteur ne le MONTE pas. C'est la distinction que ce depot paie
+//      depuis « 108 widgets declares, 2 qui peignent ».
+//   2. `appearance { font = "..." }` accepte un NOM de police. Un fil d'appels
+//      d'outil se lit en chasse fixe. La question n'est pas si le format sait
+//      l'ECRIRE -- il sait -- mais si une police a chasse fixe existe cote kit.
+widgets {
+
+  Panel "sonde" {
+    title = "Sonde"
+
+    Scroll "zone_defilante" {
+      axis = Vertical
+      always = true
+
+      Text "contenu_mono" {
+        text = "IN  : { demande: ecran de connexion }"
+        appearance {
+          font = "Consolas"
+        }
+      }
+    }
+  }
+}

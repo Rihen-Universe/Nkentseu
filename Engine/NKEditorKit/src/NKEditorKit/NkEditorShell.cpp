@@ -434,6 +434,16 @@ namespace nkentseu {
 		// ── NkEditorPanel : constructeur (defini dans la lib) ────────────────────
 		NkEditorPanel::NkEditorPanel(const char *title, NkEditorDockSide defaultSide) noexcept {
 			CopyStr(mTitle, title ? title : "Panel", sizeof(mTitle));
+			// SANS IDENTIFIANT DECLARE, L'IDENTIFIANT EST LE TITRE : c'est ce qui rend
+			// l'ajout strictement additif -- rien ne change pour qui n'en donne pas.
+			CopyStr(mId, mTitle, sizeof(mId));
+			mDefaultSide = defaultSide;
+		}
+
+		NkEditorPanel::NkEditorPanel(const char *id, const char *title,
+									 NkEditorDockSide defaultSide) noexcept {
+			CopyStr(mTitle, title ? title : "Panel", sizeof(mTitle));
+			CopyStr(mId, (id && *id) ? id : mTitle, sizeof(mId));
 			mDefaultSide = defaultSide;
 		}
 
@@ -3299,6 +3309,54 @@ namespace nkentseu {
 		}
 
 		// ── Etat d'interface par projet (maximise + panneaux ouverts) ────────────
+		// ═══════════════════════════════════════════════════════════════════════
+		//  L'IDENTIFIANT D'ABORD, LE TITRE EN REPLI -- et le repli se DIT
+		// ═══════════════════════════════════════════════════════════════════════
+		//  Une disposition enregistree nomme desormais ses panneaux par leur
+		//  IDENTIFIANT STABLE. Mesure du 17/09, avant ce correctif : un panneau
+		//  « Propriétés » renomme « Proprietes » -- ce que fait une traduction, ou un
+		//  simple retrait d'accent -- **etait perdu, en silence**.
+		//
+		//  ⚠️ ET UN FICHIER EXISTANT NE DOIT PAS DEVENIR ILLISIBLE parce qu'on a
+		//     ameliore le format : un nom qui ne correspond a aucun identifiant retombe
+		//     sur une comparaison de TITRE. Le repli n'est pas muet -- il ecrit une
+		//     ligne : un fichier d'hier qu'on relit sans le dire redeviendrait un
+		//     fichier d'hier a la prochaine ecriture, et personne ne saurait pourquoi.
+		/// Le nom sous lequel une fenetre s'ecrit dans la disposition : l'identifiant du
+		/// panneau qui porte ce titre, ou le titre lui-meme si aucun panneau ne le porte
+		/// (une fenetre libre, qui n'est pas un panneau).
+		const char *NkEditorShell::NomDeDisposition(const char *titre) noexcept {
+			if (!titre || !*titre)
+				return titre;
+			for (int32 i = 0; i < mNumPanels; ++i)
+				if (mPanels[i] && StrEqual(mPanels[i]->Title(), titre))
+					return mPanels[i]->Id();
+			return titre;
+		}
+
+		NkEditorPanel *NkEditorShell::PanneauParIdentite(const char *nom) noexcept {
+			if (!nom || !*nom)
+				return nullptr;
+			static const bool kParTitre = []() {
+				const char *v = getenv("NK_IDENT_MUTATION"); // =titre : on reprend l'ancienne identite
+				return v && v[0] == 't';
+			}();
+			if (!kParTitre)
+				for (int32 i = 0; i < mNumPanels; ++i)
+					if (mPanels[i] && StrEqual(mPanels[i]->Id(), nom))
+						return mPanels[i];
+			for (int32 i = 0; i < mNumPanels; ++i)
+				if (mPanels[i] && StrEqual(mPanels[i]->Title(), nom)) {
+					if (!kParTitre && !StrEqual(mPanels[i]->Id(), mPanels[i]->Title()))
+						logger.Warn("[disposition] « {0} » retrouve par son TITRE et non par son "
+									"identifiant « {1} » : fichier d'un format anterieur, il sera "
+									"reecrit avec l'identifiant",
+									nom, mPanels[i]->Id());
+					return mPanels[i];
+				}
+			return nullptr;
+		}
+
 		void NkEditorShell::LoadUiState(const char *path) noexcept {
 			if (!path || !*path)
 				return;
@@ -3357,12 +3415,9 @@ namespace nkentseu {
 					} else if (mWindow.IsMaximized())
 						mWindow.Restore();
 				} else if (StartsWith(s, "panel=")) {
-					const char *name = s + 6;
-					for (int32 i = 0; i < mNumPanels; ++i)
-						if (StrEqual(mPanels[i]->Title(), name)) {
-							mPanels[i]->SetOpen(true);
-							break;
-						}
+					// L'IDENTIFIANT D'ABORD, LE TITRE EN REPLI (cf. `PanneauParIdentite`).
+					if (NkEditorPanel *pp = PanneauParIdentite(s + 6))
+						pp->SetOpen(true);
 				} else if (StartsWith(s, "dockroot=")) {
 					// Disposition sérialisée -> RESET du dock courant (l'arbre du fichier
 					// fait foi) ; les nœuds arrivent ensuite dans l'ordre 0..n-1 (DFS).
@@ -3396,9 +3451,17 @@ namespace nkentseu {
 					if (*b == '|' && b[1] && idx >= 0 && idx < static_cast<int32>(mUI.dockNodes.Size())) {
 						NkGuiDockNode &L = mUI.dockNodes[idx];
 						if (L.kind == 2 && L.winCount < 8) {
-							const NkGuiId wid = mUI.GetId(b + 1);
+							// ⚠️ LE FICHIER PARLE EN IDENTIFIANTS, LE MOTEUR HACHE LE TITRE.
+							//    La traduction se fait ICI, a la frontiere : `GetId` hache la
+							//    chaine entiere et n'a pas de convention « libelle##id ». Faire
+							//    autrement demanderait de changer les vingt-cinq sites qui
+							//    derivent une identite du titre -- c'est le cout de migration,
+							//    ecrit dans le rapport, pas paye ici.
+							NkEditorPanel *pw = PanneauParIdentite(b + 1);
+							const char *tw = pw ? pw->Title() : (b + 1);
+							const NkGuiId wid = mUI.GetId(tw);
 							L.windows[L.winCount++] = wid;
-							ensureMeta(wid, b + 1)->dockNode = idx;
+							ensureMeta(wid, tw)->dockNode = idx;
 						}
 					}
 				} else if (dockRestored && StartsWith(s, "float=")) {
@@ -3409,7 +3472,9 @@ namespace nkentseu {
 							if (*b == '|')
 								++bars;
 						if (*b && w > 40.f && h > 40.f) {
-							NkGuiWindowMeta *wm = ensureMeta(mUI.GetId(b), b);
+							NkEditorPanel *pf = PanneauParIdentite(b);
+							const char *tf = pf ? pf->Title() : b;
+							NkGuiWindowMeta *wm = ensureMeta(mUI.GetId(tf), tf);
 							wm->rect = {x, y, w, h};
 							wm->floatRect = wm->rect;
 							wm->init = true;
@@ -3690,7 +3755,8 @@ void NkEditorShell::MaximizeWindow() noexcept {
 			for (int32 i = 0; i < mNumPanels; ++i)
 				if (mPanels[i]->IsOpen()) {
 					out += "panel=";
-					out += mPanels[i]->Title();
+					// L'IDENTIFIANT, PAS LE TITRE : un libelle se renomme et se traduit.
+					out += mPanels[i]->Id();
 					out += "\n";
 				}
 			// ── Disposition du dock : arbre CENTRAL sérialisé en DFS (indices remappés
@@ -3729,7 +3795,7 @@ void NkEditorShell::MaximizeWindow() noexcept {
 							for (uint32 m2 = 0; m2 < mUI.windowMeta.Size(); ++m2)
 								if (mUI.windowMeta[m2].id == d.windows[w]) {
 									if (mUI.windowMeta[m2].title[0]) {
-										nkentseu::NkSnprintf(buf, sizeof(buf), "nwin=%d|%s\n", k, mUI.windowMeta[m2].title);
+										nkentseu::NkSnprintf(buf, sizeof(buf), "nwin=%d|%s\n", k, NomDeDisposition(mUI.windowMeta[m2].title));
 										out += buf;
 									}
 									break;
@@ -3745,7 +3811,7 @@ void NkEditorShell::MaximizeWindow() noexcept {
 							nkentseu::NkSnprintf(buf, sizeof(buf), "float=%.1f|%.1f|%.1f|%.1f|%s\n",
 										  static_cast<double>(wm.rect.x), static_cast<double>(wm.rect.y),
 										  static_cast<double>(wm.rect.w), static_cast<double>(wm.rect.h),
-										  mPanels[i]->Title());
+										  mPanels[i]->Id());
 							out += buf;
 						}
 						break;

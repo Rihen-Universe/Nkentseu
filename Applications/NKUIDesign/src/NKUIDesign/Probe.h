@@ -9343,6 +9343,14 @@ namespace nkuidesign {
 					ctxM.BeginLayout({340.f, 0.f, 260.f, 900.f});
 					inspM.OnUI(ec);
 					NkDessinerPickerDemande(ctxM, stM);
+					// ⚠️ LES DEUX MENUS DU CLIC DROIT SE DESSINENT EN OVERLAY depuis R19, comme
+					//    le selecteur juste au-dessus : `main.cpp` (EcrireReleveUI) appelle
+					//    CES DEUX LIGNES-LA. Sans la seconde, ce banc montait une application
+					//    QUI N'EXISTE PLUS : le menu s'ouvrait et ne recevait plus Echap, donc
+					//    « menu ferme=0 » -- un rouge qui accusait le produit d'un defaut du
+					//    banc. La regle : un harnais qui imite l'application imite TOUTE sa
+					//    phase de dessin, pas la moitie.
+					toileM.DessinerMenusToile(ctxM);
 					ctxM.EndFrame();
 				};
 				for (int32 k = 0; k < 3; ++k)

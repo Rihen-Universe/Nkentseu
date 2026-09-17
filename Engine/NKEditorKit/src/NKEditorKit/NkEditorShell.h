@@ -980,6 +980,13 @@ namespace nkentseu {
 				void *mOverlayUser = nullptr;
 				NkEditorAppMenuFn mStartScreenFn = nullptr;
 				void *mStartScreenUser = nullptr;
+				// ── L'IDENTITE D'UN PANNEAU DANS LA DISPOSITION (2026-09-17) ──
+				/// Retrouve un panneau par son IDENTIFIANT STABLE, et retombe sur son TITRE
+				/// pour les fichiers d'un format anterieur -- en le DISANT.
+				NkEditorPanel *PanneauParIdentite(const char *nom) noexcept;
+				/// Le nom sous lequel une fenetre s'ecrit dans la disposition.
+				const char *NomDeDisposition(const char *titre) noexcept;
+
 				NkEditorSourcesFn mSourcesFn = nullptr; // sources ouvertes nommees par l'app (detecteur de gel)
 				void *mSourcesUser = nullptr;
 				NkEditorAppMenuFn mStatusBarFn = nullptr; // barre d'etat COMPLETE fournie par l'app (SetStatusBarFn)

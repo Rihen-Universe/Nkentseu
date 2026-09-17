@@ -1,3 +1,4 @@
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 # Document 7 — Le vocabulaire NkUI
 
 > Ouvert le **2026-08-21** à la demande de Rodolf : *« définis un vocabulaire pour
@@ -212,6 +213,55 @@ Preuve, au pixel, sur le **même** document (`valides/13_tailles_relatives.nkgui
 `Host`. Une **feuille en flux** garde sa taille naturelle, parce que `pos` reste
 l'interrupteur du placement et que le changer ne serait plus additif. C'est une limite
 nommée, pas un oubli.
+
+### 3.9 L'ancrage — `DockSpace`
+
+| rôle | ce qu'il dit | ce qu'il NE dit PAS |
+|---|---|---|
+| `DockSpace` | **quelles zones** existent, dans quel ordre, et leurs **proportions par défaut** | l'**arbre** d'ancrage, les onglets, ce que l'utilisateur a tiré |
+
+⚠️ **La frontière, et elle vient d'une mesure, pas d'un goût.** La coquille écrit **déjà**
+un arbre complet — `dockroot=`, `node=k|kind|vertical|ratio|c0|c1|activeTab`, `nwin=`,
+`float=` — et elle le **relit** (`NkEditorShell::LoadUiState`). Si le document décrivait
+lui aussi un arbre, il dirait une **seconde vérité**, et les deux divergeraient au premier
+séparateur tiré. Donc :
+
+- le **document** dit *quelles zones, leurs proportions par défaut* ;
+- la **coquille** garde *l'arbre que l'utilisateur a obtenu*.
+
+*Le document dit le défaut, le geste vit à côté* — la même frontière que pour le
+séparateur, un cran plus haut.
+
+⚠️ **Une zone se nomme par l'IDENTIFIANT du panneau**, jamais par son libellé affiché :
+`hierarchie`, pas `Hiérarchie`. Un libellé se traduit, un identifiant non ; la mesure du
+17/09 montre que renommer perdait la disposition en silence tant que la coquille adressait
+les panneaux par leur titre.
+
+**Le monteur ne résout aucun panneau** : il **demande** à l'hôte
+(`NkGuiMonteHooks::ZoneAncree(nom, rect)`). NKGui ne sait pas quels panneaux une
+application fournit, et une table ici en ferait une seconde autorité.
+
+**Les deux cas dissymétriques, mesurés des deux côtés** :
+
+| cas | réponse | où c'est mesuré |
+|---|---|---|
+| le document nomme une zone que **personne ne fournit** | elle **se signale** : cadre, hachures, **et son nom écrit** (c'est le nom que l'application doit servir) | `NKGuiMonteTest` (m12), mutation `NK_DOCK_MUTATION=muet` |
+| l'application fournit un panneau que le **document ne nomme pas** | il reste **INTOUCHÉ** : le crochet n'est jamais appelé pour lui — le document n'a aucun pouvoir dessus | `NKGuiMonteTest` (m12) : 3 crochets pour 3 zones |
+| la **disposition enregistrée** ne nomme pas un panneau | il est **FERMÉ** — `LoadUiState` ferme tout dès qu'une ligne `panel=` existe, puis rouvre les seuls nommés | `NKUIDesign --recette-identite`, section 6 |
+
+⚠️ Les deux derniers sont des politiques **opposées** sur la même question, dans deux
+formats différents. C'est écrit pour que personne ne transporte la réponse de l'un vers
+l'autre.
+
+**La largeur d'une zone** : sa fraction si elle en déclare une, sinon **le reste** partagé
+entre celles qui n'en déclarent pas — pas « une part égale ». La règle « part égale »
+laissait une **bande orpheline** de 197 px que onze critères verts n'avaient pas vue et que
+la capture a montrée. Un dock qui laisse un trou n'est pas un dock.
+
+    zones : hierarchie 180 px (0,16 clampe par minSize 180) | apercu 530 px (le RESTE) | zone_absente 290 px (0,29)
+    couverture : 1000 / 1000
+
+---
 
 ---
 
