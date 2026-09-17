@@ -142,7 +142,11 @@ limite il ne sait que GREFFER un sous-arbre : ni renommer, ni deplacer, ni
        changer une propriete d'un noeud existant
 limite deux composants du catalogue n'ont pas d'equivalent dans le vocabulaire
        du fichier d'interface : ils sont COMPTES et NOMMES, jamais devines
-limite le monteur ne monte pas le role Scroll, et un role inconnu EMPORTE ses
-       enfants (mesure du 17/09 : Panel > Scroll > Text monte UN widget)
+limite 16 roles du vocabulaire du format ne sont pas montes (ColorField,
+       Column, ContextMenu, Drag, Flow, Grid, ImageButton, Menu, MenuBar,
+       MenuItem, NumberField, RadioGroup, Row, Stack, Switch, Table). Leur
+       CONTENU n'est plus perdu depuis le 17/09 -- il monte dans le flux du
+       parent -- mais le conteneur est compte inconnu et le document REFUSE
+       (mesure : 2 montes -> 6 et REFUSE -> MONTE pour Scroll, desormais monte)
 limite le monteur ne peint pas l'apparence : il la compte (mesure du 17/09,
        0 pixel sur une demande de vert pur, decodeur PNG independant)
