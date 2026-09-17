@@ -28,6 +28,7 @@
 #include "NK3DModeler/Viewport/NkMatPreview3D.h"
 #include "NK3DModeler/Viewport/NkVpMatTypeDefaults.h"
 #include "NK3DModeler/Viewport/NkVpEditTarget.h"
+#include "NK3DModeler/Viewport/NkCursorWrap.h" // (b5) rebouclage du curseur pendant G/R/S
 #include "NKWindow/Core/NkWESystem.h" // NkEvents()
 #include "NKEvent/NkEventSystem.h"
 #include "NKEvent/NkKeyboardEvent.h"
@@ -71,6 +72,17 @@ namespace nkentseu {
 		static float32 nkvpOffX = 0.f, nkvpOffY = 0.f; // origine de la vue (px fenetre)
 		static float32 nkvpW = 0.f, nkvpH = 0.f;	   // taille de la vue
 		static bool nkvpInputOn = true;				   // faux pendant une saisie de texte
+		// (b5) REPLACEMENT PHYSIQUE DU CURSEUR — SERVICE DE L'HOTE, PAS DU VIEWER.
+		// Le viewer ne connait pas la fenetre : seul `main.cpp` la tient. Et le
+		// contrat de `NkWindow::SetMousePosition` DIVERGE selon la plateforme
+		// (Win32 = coordonnees ECRAN via `SetCursorPos` ; XCB = coordonnees
+		// FENETRE via `xcb_warp_pointer`), donc la conversion ne peut etre faite
+		// que la ou la fenetre est connue. Tant que ce pointeur est nul, le
+		// rebouclage reste ARITHMETIQUE : les deltas sont corriges, le curseur ne
+		// bouge pas. C'est exactement l'etat que `--sonde-wrap` prouve.
+		// Argument attendu : la position visee en pixels FENETRE (origine de la
+		// vue deja ajoutee).
+		static void (*nkvpCursorWarp)(float32, float32) = nullptr;
 		// ── LE JETON DE PICK DU GLISSER-DEPOSER ─────────────────────────────
 		// L'interface DEMANDE, la boucle EXECUTE -- meme motif que
 		// `capturePending` du shell. Le pick a besoin de la CAMERA et de la
@@ -1378,6 +1390,11 @@ namespace nkentseu {
 				// (valeur périmée conservée) -> le gizmo continuait de transformer souris immobile.
 				float32 lastMouseX = 0.f, lastMouseY = 0.f;
 				bool mouseTracked = false; // 1re frame : pas de delta
+				// (b5) REBOUCLAGE DU CURSEUR AUX BORDS DE LA VUE pendant une modale.
+				// L'etat vit ICI et nulle part ailleurs : un report d'avance/retard
+				// duplique serait le motif « un etat duplique n'a qu'une seule
+				// autorite », et celui qu'on ecrit ne serait pas celui qu'on lit.
+				NkCursorWrapState curWrap;
 				// Indices des cibles : 16 sphères, 1 cube, 2 colonnes, 64 instanciés,
 				// puis 3 éléments de décor longtemps NON sélectionnables — le sol (83),
 				// le panneau feuillage alpha-testé (84) et le mur rouge du GI (85).
@@ -2628,6 +2645,53 @@ namespace nkentseu {
 			// moment de l'operation une selection construite depuis ce meme `vertSel`,
 			// donc les memes bits : l'intention est encore a jour quand elle sert.
 			st->editHE.SetFaceSelection(st->faceSel.Data(), (uint32)st->faceSel.Size());
+		}
+
+		// ── COMBIEN D'ELEMENTS LE SOUS-MODE DESIGNE-T-IL ? ──────────────────────
+		// ⚠ UNE SEULE FONCTION, et c'est la raison d'etre de son extraction : le
+		// crochet d'hote `Demo3DHostEditSelCount` ET la sonde de suppression
+		// lisent CELLE-CI. Si la sonde comptait avec sa propre boucle, elle
+		// prouverait le comportement de la sonde.
+		// Priorite identique a celle du menu : FACE, puis ARETE, puis SOMMET.
+		// Ce compteur rendait TOUJOURS des sommets : sur un cube en sous-mode
+		// SOMMET il affichait 12, c'est-a-dire le nombre des ARETES -- un chiffre
+		// juste pour une question que personne ne posait.
+		static int32 Demo3D_SelCountFor(Demo3DState *st, int32 mask) {
+			int32 n = 0;
+			if (mask & 4) {
+				// ON COMPTE L'INTENTION, PAS SA DEDUCTION. Deux faces opposees d'un
+				// cube rendaient 6 : leurs sommets sont tous les coins de l'objet,
+				// donc toute face avait « tous ses sommets ». La synchronisation
+				// rededuit quand la selection est venue d'ailleurs (boite, lasso,
+				// tout selectionner, resultat d'operation) : la, la deduction est
+				// la bonne reponse.
+				Demo3D_FaceSelSync(st);
+				const uint32 nf = (uint32)st->faceSel.Size();
+				for (uint32 f = 0; f < nf; ++f) {
+					if (f < (uint32)st->editHE.faces.Size() && !st->editHE.faces[f].alive)
+						continue;
+					if (st->faceSel[f])
+						++n;
+				}
+				return n;
+			}
+			if (mask & 2) {
+				const uint32 ne = (uint32)st->editHE.edges.Size();
+				for (uint32 e = 0; e < ne; ++e) {
+					const auto &ed = st->editHE.edges[e];
+					if (!ed.alive)
+						continue;
+					if ((uint32)ed.v0 < (uint32)st->vertSel.Size() &&
+						(uint32)ed.v1 < (uint32)st->vertSel.Size() && st->vertSel[ed.v0] &&
+						st->vertSel[ed.v1])
+						++n;
+				}
+				return n;
+			}
+			for (uint32 i = 0; i < (uint32)st->vertSel.Size(); ++i)
+				if (st->vertSel[i])
+					++n;
+			return n;
 		}
 
 		// ── LUMIERE EFFECTIVE = base + transform du gizmo ───────────────────────────
@@ -3977,7 +4041,15 @@ namespace nkentseu {
 			}
 		}
 
-		// DELETE (X) : supprime les faces sélectionnées, compacte — cf. NkEditMesh.
+		// DELETE (X) : supprime les faces selectionnees, compacte -- cf. NkEditMesh.
+		// LA SELECTION EST VIDE APRES : la regle vit dans `NkEditMesh::DeleteSelectedFaces`
+		// (comportement Blender, confirme par Rodolf le 14/09) et vaut donc pour TOUS les
+		// hotes. ⚠ ELLE N'EST PAS REDITE ICI : un second vidage dans cet appelant serait
+		// une seconde autorite sur le meme etat -- celle qu'on ecrit et celle qu'on lit
+		// finiraient par differer -- et il ne deplacerait aucune mesure, donc rien ne le
+		// dirait. `Demo3D_PullSel`, appele par `Demo3D_ApplyCmd`, relit les zeros du
+		// moteur ; `Demo3D_FaceSelSync` rededuit l'intention de face, qui tombe a zero
+		// avec eux. Mesure : `NKEditMeshHarness --suppression`, mutation NK_DEL_KEEPSEL.
 		static void Demo3D_DeleteHE(Demo3DState *st, renderer::NkMeshSystem *ms) {
 			renderer::NkMeshEditCommand c;
 			c.op = renderer::NkMeshEditOp::Delete;
@@ -7196,6 +7268,13 @@ namespace nkentseu {
 						obj = atoi(go);
 					st->gizmo.Select(obj);
 					st->gizmo.SetMode(0);		  // gizmo d'édition en TRANSLATE (flèches pleines)
+					// ⚠ ON DIT CE QUE LA SELECTION EST DEVENUE, pas ce qu'on a demande.
+					// Sans cette ligne, un `Select` qui n'accroche rien (objet de demo
+					// absent de la scene du modeleur) est INDISCERNABLE d'un pilote qui
+					// ne se declenche pas : les deux laissent `selDemo=-1` dans la trace
+					// d'edition, et on cherche la cause du mauvais cote.
+					logger.Info("[Demo3D] PILOTE edition : demande objet {0} a l'image {1} -> ActiveIndex={2}\n",
+								obj, gEditDrvFrame, st->gizmo.ActiveIndex());
 					// NK_EDIT_USER=<slot> : entrer en edition sur un objet de
 					// L'UTILISATEUR et non sur un objet de demo.
 					// POURQUOI. NK_EDIT_MODE ne sait viser que `st->gizmo`, l'espace
@@ -7746,8 +7825,54 @@ namespace nkentseu {
 			// A la sortie (confirmation OU annulation), modalOp repasse a 0 : rien n'est
 			// memorise, tout redevient strictement normal des la frame suivante.
 			const bool modalLock = (st->modalOp != 0);
-			const float32 modalMDX = frameMDX; // deltas BRUTS : reserves a l'op modale
-			const float32 modalMDY = frameMDY;
+			// ── (b5) LE CURSEUR REBOUCLE AUX BORDS DE LA VUE ────────────────
+			// Blender : pendant G/R/S, le curseur qui sort d'un bord reapparait
+			// au bord oppose et la transformation CONTINUE. Le geste cesse donc
+			// d'etre borne par la taille de l'ecran.
+			// ⚠ LA CORRECTION SE POSE ICI, ET NULLE PART AILLEURS : c'est le
+			//   point de garde unique par lequel passent les DEUX cadres modaux
+			//   (edition et objet). La poser dans `Demo3D_ModalParams` la
+			//   mettrait apres la neutralisation ; la poser aux deux appels en
+			//   ferait deux copies qui divergeraient.
+			// La regle et son attendu derive vivent dans `NkCursorWrap.h` ; elle
+			// se prouve sans fenetre par `NK3DModeler.exe --sonde-wrap`.
+			float32 modalMDX = frameMDX; // deltas BRUTS : reserves a l'op modale
+			float32 modalMDY = frameMDY;
+			if (modalLock) {
+				static int wrapOff = -1;
+				if (wrapOff == -1) {
+					const char *v = getenv("NK_WRAP_OFF");
+					wrapOff = (v && v[0] && v[0] != '0') ? 1 : 0;
+				}
+				// MUTATION dans le MEME binaire : `NK_WRAP_NOFIX=1` retire la
+				// seule soustraction du report ; `NK_WRAP_OFF=1` retire tout le
+				// mecanisme. Deux leviers distincts parce qu'ils ne repondent pas
+				// a la meme question : « la correction sert-elle ? » et « le
+				// rebouclage derange-t-il ? ».
+				st->curWrap.disabled = (std::getenv("NK_WRAP_NOFIX") != nullptr);
+				if (!wrapOff) {
+					NkCursorWrapOut wo;
+					NkCursorWrapStep(st->curWrap, curMouseX, curMouseY, modalMDX, modalMDY, nkvpW,
+									 nkvpH, wo);
+					modalMDX = wo.dx;
+					modalMDY = wo.dy;
+					if (wo.warp) {
+						// Le replacement PHYSIQUE est un service de l'hote : le
+						// viewer ne tient pas la fenetre. Sans hote pose, le
+						// rebouclage reste arithmetique -- et c'est exactement
+						// l'etat dans lequel la sonde le prouve.
+						if (nkvpCursorWarp)
+							nkvpCursorWarp(wo.warpX + nkvpOffX, wo.warpY + nkvpOffY);
+						logger.Info("[Demo3D] (b5) rebouclage curseur : vue {0}x{1}, ({2}, {3}) -> "
+									"({4}, {5}){6}\n",
+									(int32)nkvpW, (int32)nkvpH, (int32)curMouseX, (int32)curMouseY,
+									(int32)wo.warpX, (int32)wo.warpY,
+									nkvpCursorWarp ? "" : " [AUCUN HOTE : arithmetique seule]");
+					}
+				}
+			} else {
+				NkCursorWrapReset(st->curWrap);
+			}
 			const float32 modalWheelRaw = wheelRaw;
 			if (modalLock) {
 				frameMDX = 0.f; // -> aucune orbite / pan / regard, aucun drag de gizmo
@@ -14475,6 +14600,10 @@ namespace nkentseu {
 			nkvpInputOn = inputOn;
 		}
 
+		// (b5) L'hote POSE son service de replacement du curseur. Nul par defaut :
+		// le rebouclage est alors arithmetique seulement.
+		void Demo3DHostSetCursorWarp(void (*fn)(float32, float32)) { nkvpCursorWarp = fn; }
+
 		void Demo3DHostFrame(void *cmd) {
 			if (!HostInit() || !cmd)
 				return;
@@ -16515,47 +16644,18 @@ namespace nkentseu {
 			if (!st || !st->editMode)
 				return 0;
 			// ⚠ ON COMPTE CE QUE LE SOUS-MODE DESIGNE, et c'est (b10) autant que (b2).
-			// Ce compteur rendait TOUJOURS des sommets : sur un cube en sous-mode
-			// SOMMET il affichait 12, c'est-a-dire le nombre des ARETES -- un chiffre
-			// juste pour une question que personne ne posait. En mode FACE il faut
-			// des FACES, en mode ARETE des ARETES : sinon « 12 selectionnes » ne dit
-			// pas de quoi il parle, et on cesse de croire tous les autres chiffres.
-			// Priorite identique a celle du menu : FACE, puis ARETE, puis SOMMET.
-			int32 n = 0;
-			if (st->editSelMask & 4) {
-				// ON COMPTE L'INTENTION, PAS SA DEDUCTION. Deux faces opposees d'un
-				// cube rendaient 6 : leurs sommets sont tous les coins de l'objet,
-				// donc toute face avait « tous ses sommets ». La synchronisation
-				// rededuit quand la selection est venue d'ailleurs (boite, lasso,
-				// tout selectionner, resultat d'operation) : la, la deduction est
-				// la bonne reponse.
-				Demo3D_FaceSelSync(st);
-				const uint32 nf = (uint32)st->faceSel.Size();
-				for (uint32 f = 0; f < nf; ++f) {
-					if (f < (uint32)st->editHE.faces.Size() && !st->editHE.faces[f].alive)
-						continue;
-					if (st->faceSel[f])
-						++n;
-				}
-				return n;
-			}
-			if (st->editSelMask & 2) {
-				const uint32 ne = (uint32)st->editHE.edges.Size();
-				for (uint32 e = 0; e < ne; ++e) {
-					const auto &ed = st->editHE.edges[e];
-					if (!ed.alive)
-						continue;
-					if ((uint32)ed.v0 < (uint32)st->vertSel.Size() &&
-						(uint32)ed.v1 < (uint32)st->vertSel.Size() && st->vertSel[ed.v0] &&
-						st->vertSel[ed.v1])
-						++n;
-				}
-				return n;
-			}
-			for (uint32 i = 0; i < (uint32)st->vertSel.Size(); ++i)
-				if (st->vertSel[i])
-					++n;
-			return n;
+			// Le corps vit dans `Demo3D_SelCountFor` : la sonde de suppression lit LA
+			// MEME fonction, sinon elle prouverait sa propre boucle.
+			return Demo3D_SelCountFor(st, st->editSelMask);
+		}
+		// Le meme compte, pour un sous-mode DEMANDE. Sert aux temoins qui doivent
+		// dire « 0 dans les TROIS sous-modes » sans changer le sous-mode courant --
+		// changer le sous-mode pour mesurer modifierait ce qu'on mesure.
+		int32 Demo3DHostEditSelCountFor(int32 mask) {
+			auto *st = HostSt();
+			if (!st || !st->editMode)
+				return 0;
+			return Demo3D_SelCountFor(st, mask);
 		}
 		void Demo3DHostSetEditSelMask(int32 mask) {
 			auto *st = HostSt();

@@ -32,6 +32,7 @@
 #include "NKEvent/NkEvent.h"
 #include "NKGui/NkEditorRHIRenderer.h" // Integrations/NKGui
 #include "NK3DModeler/Viewport/NkViewport3D.h"
+#include "NK3DModeler/Viewport/NkCursorWrapSonde.h" // (b5) sonde du rebouclage, sans fenetre
 #include "NK3DModeler/Viewport/NkDemo3DHost.h" // PORTAGE INTEGRAL de --demo=2
 #include "NKGui/Core/NkGuiContext.h"
 #include "NKLogger/NkLog.h"
@@ -544,6 +545,90 @@ namespace {
 		(void)NkDrawContentBrowser(paint, ci, rect, m, s, hooks);
 	}
 
+
+	// ── POSER UNE ACTION DU SHELL PAR SON NOM, PAR LE CHEMIN DU BOUTON ──────
+	// ⚠ EXTRAITE PARCE QU'ELLE EXISTAIT EN DOUBLE. `NK_VP_ACTION` et
+	// `NK_VP_ACTION2` portaient la MEME table de cinquante lignes, recopiee.
+	// Le troisieme crochet (necessaire au temoin de la suppression : supprimer,
+	// supprimer, annuler) en aurait fait une troisieme -- et la premiere action
+	// ajoutee a l'une des trois aurait manque aux deux autres.
+	// On POSE l'action, on n'appelle pas la facade : le temoin doit emprunter le
+	// chemin du BOUTON, pas un raccourci qui serait vert meme si le bouton
+	// restait mort.
+	// « maj+<nom> » : l'action porte Maj, exactement comme une touche enfoncee
+	// avec Maj -- le seul moyen de faire passer un modificateur par le chemin du
+	// bouton sans injecter d'evenement clavier.
+	void NkVpPoserAction(NkModelerState &st, const char *vpa, const char *quiSuisJe) {
+		const bool majHook = (vpa[0] == 'm' || vpa[0] == 'M') && (vpa[1] == 'a' || vpa[1] == 'A') &&
+				(vpa[2] == 'j' || vpa[2] == 'J') && vpa[3] == '+';
+		const char *nomAct = majHook ? vpa + 4 : vpa;
+		st.pendingShift = majHook;
+		st.pendingCtrl = false;
+		st.pendingAlt = false;
+		auto est = [&](const char *n) -> bool {
+			const char *a = nomAct;
+			const char *b = n;
+			while (*b) {
+				char x = *a++, y = *b++;
+				if (x >= 'A' && x <= 'Z')
+					x = (char)(x - 'A' + 'a');
+				if (x != y)
+					return false;
+			}
+			return (*a == 0 || *a == ',');
+		};
+		if (est("togglexray"))
+			st.pendingAction = NkVpAction::ToggleXray;
+		else if (est("frameall"))
+			st.pendingAction = NkVpAction::FrameAll;
+		else if (est("viewfront"))
+			st.pendingAction = NkVpAction::ViewFront;
+		else if (est("viewtop"))
+			st.pendingAction = NkVpAction::ViewTop;
+		else if (est("viewright"))
+			st.pendingAction = NkVpAction::ViewRight;
+		else if (est("selectall"))
+			st.pendingAction = NkVpAction::SelectAll;
+		else if (est("selectnone"))
+			st.pendingAction = NkVpAction::SelectNone;
+		else if (est("submodeedge"))
+			st.pendingAction = NkVpAction::SubModeEdge;
+		else if (est("submodeface"))
+			st.pendingAction = NkVpAction::SubModeFace;
+		else if (est("undo"))
+			st.pendingAction = NkVpAction::Undo;
+		else if (est("redo"))
+			st.pendingAction = NkVpAction::Redo;
+		else if (est("subdivide"))
+			st.pendingAction = NkVpAction::Subdivide;
+		else if (est("extrude"))
+			st.pendingAction = NkVpAction::Extrude;
+		else if (est("inset"))
+			st.pendingAction = NkVpAction::Inset;
+		else if (est("bevel"))
+			st.pendingAction = NkVpAction::BevelEdge;
+		else if (est("delete"))
+			st.pendingAction = NkVpAction::Delete;
+		else if (est("modalaxisx"))
+			st.pendingAction = NkVpAction::ModalAxisX;
+		else if (est("modalaxisy"))
+			st.pendingAction = NkVpAction::ModalAxisY;
+		else if (est("modalaxisz"))
+			st.pendingAction = NkVpAction::ModalAxisZ;
+		else if (est("modalmove"))
+			st.pendingAction = NkVpAction::ModalMove;
+		else if (est("modalconfirm"))
+			st.pendingAction = NkVpAction::ModalConfirm;
+		else if (est("modalcancel"))
+			st.pendingAction = NkVpAction::ModalCancel;
+		else if (est("dissolve"))
+			st.pendingAction = NkVpAction::Dissolve;
+		else if (est("toggleedit"))
+			st.pendingAction = NkVpAction::ToggleEdit;
+		else
+			printf("[nk3d] %s : nom inconnu, aucune action posee\n", quiSuisJe);
+	}
+
 } // namespace
 
 int nkmain(const NkEntryState &entry) {
@@ -559,6 +644,20 @@ int nkmain(const NkEntryState &entry) {
 			continue;
 		const NkString dir = (a + 1u < entry.args.Size()) ? entry.args[a + 1u] : NkString(".");
 		return (int)nk3d::NkGeoSonde(dir);
+	}
+
+	// ── SONDE (b5) DU REBOUCLAGE DU CURSEUR, AVANT TOUT LE RESTE ────────────
+	// `NK3DModeler.exe --sonde-wrap [dossier]` rejoue des suites de positions
+	// ecrites a l'avance a travers `NkCursorWrapStep` et SORT : aucune fenetre,
+	// aucun device, AUCUNE INJECTION D'ENTREE. Elle peut donc tourner pendant
+	// qu'une autre application tient la carte. Verdict dans `sonde_wrap.txt`.
+	// `NK_WRAP_NOFIX=1` retire la correction (mutation dans le MEME binaire) :
+	// la sonde doit alors rendre 1, et rendre 2 si la mutation a survecu.
+	for (usize a = 0; a < entry.args.Size(); ++a) {
+		if (!(entry.args[a] == NkString("--sonde-wrap")))
+			continue;
+		const NkString dir = (a + 1u < entry.args.Size()) ? entry.args[a + 1u] : NkString(".");
+		return nk3d::NkCursorWrapSonde(dir.CStr());
 	}
 
 	// ── THEMES ──────────────────────────────────────────────────────────────
@@ -2585,37 +2684,45 @@ int nkmain(const NkEntryState &entry) {
 		// un mode edition sans annulation est un piege, pas un outil -- et la seule
 		// facon de le savoir est de le lire au meme moment que le reste.
 		{
-			static bool sRep1 = false, sRep2 = false;
+			// ⚠ UNE LISTE DE FRAMES, PLUS DEUX. Deux releves suffisaient a « avant /
+			// apres » ; le temoin de la suppression en demande QUATRE (avant, apres
+			// le premier X, apres le second, apres l'annulation). Le format reste
+			// compatible : "50" et "50,120" se lisent comme avant.
+			// ⚠ ET LES TROIS SOUS-MODES SONT IMPRIMES ENSEMBLE. `selection` seule
+			// repond pour le sous-mode COURANT : dire « 0 selectionne » en mode FACE
+			// ne dit RIEN des sommets, qui peuvent rester allumes et nourrir la
+			// deduction au tour suivant. Trois nombres, une seule question fermee.
+			static const int32 kRepMax = 8;
+			static bool sRepFait[kRepMax] = {false, false, false, false, false, false, false, false};
 			if (const char *rp = std::getenv("NK_EDIT_REPORT")) {
-				int32 f1 = 50, f2 = -1;
-				f1 = (int32)std::atoi(rp);
-				{
-					const char *c = rp;
+				int32 quand[kRepMax];
+				int32 nq = 0;
+				for (const char *c = rp; *c && nq < kRepMax;) {
+					quand[nq++] = (int32)std::atoi(c);
 					while (*c && *c != ',')
 						++c;
 					if (*c == ',')
-						f2 = (int32)std::atoi(c + 1);
+						++c;
 				}
-				auto ecrire = [&](int32 quand) {
+				auto ecrire = [&](int32 q) {
 					uint32 vv = 0, ve = 0, vf = 0, vt = 0;
 					const bool ok = demo::Demo3DHostStats(&vv, &ve, &vf, &vt);
 					std::printf("[nk3d] EDIT RAPPORT frame=%d : v=%u e=%u f=%u t=%u | selection=%d "
-								"| masque=%d | annuler=%d refaire=%d (lu=%d)\n",
-								(int)quand, vv, ve, vf, vt, (int)demo::Demo3DHostEditSelCount(),
+								"| selV=%d selE=%d selF=%d | masque=%d | annuler=%d refaire=%d (lu=%d)\n",
+								(int)q, vv, ve, vf, vt, (int)demo::Demo3DHostEditSelCount(),
+								(int)demo::Demo3DHostEditSelCountFor(1),
+								(int)demo::Demo3DHostEditSelCountFor(2),
+								(int)demo::Demo3DHostEditSelCountFor(4),
 								(int)demo::Demo3DHostEditSelMask(),
 								demo::Demo3DHostEditCanUndo() ? 1 : 0,
 								demo::Demo3DHostEditCanRedo() ? 1 : 0, ok ? 1 : 0);
+					std::fflush(stdout);
 				};
-				if (!sRep1 && f1 > 0 && agentFrame >= f1) {
-					sRep1 = true;
-					ecrire(agentFrame);
-				}
-				if (!sRep2 && f2 > 0 && agentFrame >= f2) {
-					sRep2 = true;
-					ecrire(agentFrame);
-				}
-			} else {
-				sRep1 = sRep2 = true;
+				for (int32 i = 0; i < nq; ++i)
+					if (!sRepFait[i] && quand[i] > 0 && agentFrame >= quand[i]) {
+						sRepFait[i] = true;
+						ecrire(agentFrame);
+					}
 			}
 		}
 
@@ -2874,87 +2981,7 @@ int nkmain(const NkEntryState &entry) {
 					fr = (int32)std::atoi(cm + 1);
 				if (!sVpActDone && agentFrame >= fr) {
 					sVpActDone = true;
-					// « maj+<nom> » : l'action porte Maj, exactement comme une touche enfoncee
-					// avec Maj. C'est le seul moyen de faire passer un modificateur par le
-					// chemin du BOUTON sans injecter d'evenement clavier.
-					const bool majHook = (vpa[0] == 'm' || vpa[0] == 'M') && (vpa[1] == 'a' || vpa[1] == 'A') &&
-							(vpa[2] == 'j' || vpa[2] == 'J') && vpa[3] == '+';
-					const char *nomAct = majHook ? vpa + 4 : vpa;
-					st.pendingShift = majHook;
-					st.pendingCtrl = false;
-					st.pendingAlt = false;
-					auto est = [&](const char *n) -> bool {
-						const char *a = nomAct;
-						const char *b = n;
-						while (*b) {
-							char x = *a++, y = *b++;
-							if (x >= 'A' && x <= 'Z')
-								x = (char)(x - 'A' + 'a');
-							if (x != y)
-								return false;
-						}
-						return (*a == 0 || *a == ',');
-					};
-					// ⚠️ CE CROCHET NE FORCE PLUS LE MODE. Il posait `st.mode = Edit`
-					// avant toute action : tout temoin mesurait donc l'action ET le
-					// changement de mode, d'ou l'obligation d'un controle a nom inconnu
-					// pour les separer. Pire, il rendait INTESTABLE toute action de mode
-					// OBJET -- la suppression d'objet partait toujours dans la branche
-					// edition. Le mode se pose desormais explicitement (NK_EDIT_MODE ou
-					// NK_UI_MODE), par la porte unique.
-					// On pose l ACTION, on n appelle pas la facade : le temoin doit
-					// emprunter le chemin du BOUTON, pas un raccourci qui serait vert
-					// meme si le bouton restait mort.
-					if (est("togglexray"))
-						st.pendingAction = NkVpAction::ToggleXray;
-					else if (est("frameall"))
-						st.pendingAction = NkVpAction::FrameAll;
-					else if (est("viewfront"))
-						st.pendingAction = NkVpAction::ViewFront;
-					else if (est("viewtop"))
-						st.pendingAction = NkVpAction::ViewTop;
-					else if (est("viewright"))
-						st.pendingAction = NkVpAction::ViewRight;
-					else if (est("selectall"))
-						st.pendingAction = NkVpAction::SelectAll;
-					else if (est("selectnone"))
-						st.pendingAction = NkVpAction::SelectNone;
-					else if (est("submodeedge"))
-						st.pendingAction = NkVpAction::SubModeEdge;
-					else if (est("submodeface"))
-						st.pendingAction = NkVpAction::SubModeFace;
-					else if (est("undo"))
-						st.pendingAction = NkVpAction::Undo;
-					else if (est("redo"))
-						st.pendingAction = NkVpAction::Redo;
-					else if (est("subdivide"))
-						st.pendingAction = NkVpAction::Subdivide;
-					else if (est("extrude"))
-						st.pendingAction = NkVpAction::Extrude;
-					else if (est("inset"))
-						st.pendingAction = NkVpAction::Inset;
-					else if (est("bevel"))
-						st.pendingAction = NkVpAction::BevelEdge;
-					else if (est("delete"))
-						st.pendingAction = NkVpAction::Delete;
-					else if (est("modalaxisx"))
-						st.pendingAction = NkVpAction::ModalAxisX;
-					else if (est("modalaxisy"))
-						st.pendingAction = NkVpAction::ModalAxisY;
-					else if (est("modalaxisz"))
-						st.pendingAction = NkVpAction::ModalAxisZ;
-					else if (est("modalmove"))
-						st.pendingAction = NkVpAction::ModalMove;
-					else if (est("modalconfirm"))
-						st.pendingAction = NkVpAction::ModalConfirm;
-					else if (est("modalcancel"))
-						st.pendingAction = NkVpAction::ModalCancel;
-					else if (est("dissolve"))
-						st.pendingAction = NkVpAction::Dissolve;
-					else if (est("toggleedit"))
-						st.pendingAction = NkVpAction::ToggleEdit;
-					else
-						puts("[nk3d] NK_VP_ACTION : nom inconnu, aucune action posee");
+					NkVpPoserAction(st, vpa, "NK_VP_ACTION");
 				}
 			}
 		}
@@ -2976,87 +3003,29 @@ int nkmain(const NkEntryState &entry) {
 					fr = (int32)std::atoi(cm + 1);
 				if (!sVpAct2Done && agentFrame >= fr) {
 					sVpAct2Done = true;
-					// « maj+<nom> » : l'action porte Maj, exactement comme une touche enfoncee
-					// avec Maj. C'est le seul moyen de faire passer un modificateur par le
-					// chemin du BOUTON sans injecter d'evenement clavier.
-					const bool majHook = (vpa[0] == 'm' || vpa[0] == 'M') && (vpa[1] == 'a' || vpa[1] == 'A') &&
-							(vpa[2] == 'j' || vpa[2] == 'J') && vpa[3] == '+';
-					const char *nomAct = majHook ? vpa + 4 : vpa;
-					st.pendingShift = majHook;
-					st.pendingCtrl = false;
-					st.pendingAlt = false;
-					auto est = [&](const char *n) -> bool {
-						const char *a = nomAct;
-						const char *b = n;
-						while (*b) {
-							char x = *a++, y = *b++;
-							if (x >= 'A' && x <= 'Z')
-								x = (char)(x - 'A' + 'a');
-							if (x != y)
-								return false;
-						}
-						return (*a == 0 || *a == ',');
-					};
-					// ⚠️ CE CROCHET NE FORCE PLUS LE MODE. Il posait `st.mode = Edit`
-					// avant toute action : tout temoin mesurait donc l'action ET le
-					// changement de mode, d'ou l'obligation d'un controle a nom inconnu
-					// pour les separer. Pire, il rendait INTESTABLE toute action de mode
-					// OBJET -- la suppression d'objet partait toujours dans la branche
-					// edition. Le mode se pose desormais explicitement (NK_EDIT_MODE ou
-					// NK_UI_MODE), par la porte unique.
-					// On pose l ACTION, on n appelle pas la facade : le temoin doit
-					// emprunter le chemin du BOUTON, pas un raccourci qui serait vert
-					// meme si le bouton restait mort.
-					if (est("togglexray"))
-						st.pendingAction = NkVpAction::ToggleXray;
-					else if (est("frameall"))
-						st.pendingAction = NkVpAction::FrameAll;
-					else if (est("viewfront"))
-						st.pendingAction = NkVpAction::ViewFront;
-					else if (est("viewtop"))
-						st.pendingAction = NkVpAction::ViewTop;
-					else if (est("viewright"))
-						st.pendingAction = NkVpAction::ViewRight;
-					else if (est("selectall"))
-						st.pendingAction = NkVpAction::SelectAll;
-					else if (est("selectnone"))
-						st.pendingAction = NkVpAction::SelectNone;
-					else if (est("submodeedge"))
-						st.pendingAction = NkVpAction::SubModeEdge;
-					else if (est("submodeface"))
-						st.pendingAction = NkVpAction::SubModeFace;
-					else if (est("undo"))
-						st.pendingAction = NkVpAction::Undo;
-					else if (est("redo"))
-						st.pendingAction = NkVpAction::Redo;
-					else if (est("subdivide"))
-						st.pendingAction = NkVpAction::Subdivide;
-					else if (est("extrude"))
-						st.pendingAction = NkVpAction::Extrude;
-					else if (est("inset"))
-						st.pendingAction = NkVpAction::Inset;
-					else if (est("bevel"))
-						st.pendingAction = NkVpAction::BevelEdge;
-					else if (est("delete"))
-						st.pendingAction = NkVpAction::Delete;
-					else if (est("modalaxisx"))
-						st.pendingAction = NkVpAction::ModalAxisX;
-					else if (est("modalaxisy"))
-						st.pendingAction = NkVpAction::ModalAxisY;
-					else if (est("modalaxisz"))
-						st.pendingAction = NkVpAction::ModalAxisZ;
-					else if (est("modalmove"))
-						st.pendingAction = NkVpAction::ModalMove;
-					else if (est("modalconfirm"))
-						st.pendingAction = NkVpAction::ModalConfirm;
-					else if (est("modalcancel"))
-						st.pendingAction = NkVpAction::ModalCancel;
-					else if (est("dissolve"))
-						st.pendingAction = NkVpAction::Dissolve;
-					else if (est("toggleedit"))
-						st.pendingAction = NkVpAction::ToggleEdit;
-					else
-						puts("[nk3d] NK_VP_ACTION2 : nom inconnu, aucune action posee");
+					NkVpPoserAction(st, vpa, "NK_VP_ACTION2");
+				}
+			}
+		}
+
+		// NK_VP_ACTION3=<nom>[,frame] : une TROISIEME action du shell.
+		// ⚠ ELLE EXISTE POUR UN TEMOIN PRECIS, celui de la suppression : « X, puis
+		// X encore, puis Ctrl+Z ». Deux crochets ne pouvaient pas l'exprimer, et
+		// c'est justement le SECOND X qui portait le defaut signale par Rodolf --
+		// la selection survivait a la suppression, donc le second X vidait le cube.
+		// Un temoin qui se serait arrete au premier X serait reste vert.
+		{
+			static bool sVpAct3Done = false;
+			if (const char *vpa = std::getenv("NK_VP_ACTION3")) {
+				int32 fr = 180;
+				const char *cm = vpa;
+				while (*cm && *cm != ',')
+					++cm;
+				if (*cm == ',')
+					fr = (int32)std::atoi(cm + 1);
+				if (!sVpAct3Done && agentFrame >= fr) {
+					sVpAct3Done = true;
+					NkVpPoserAction(st, vpa, "NK_VP_ACTION3");
 				}
 			}
 		}
