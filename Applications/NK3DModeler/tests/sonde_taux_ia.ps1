@@ -43,6 +43,7 @@ param(
 	[string]$Arbre = "D:\Projets\2026\Nkentseu\Nkentseu-actifs",
 	[string]$Config = "Release",
 	[string]$Modele = "qwen2.5:7b-instruct",
+	[string]$Serie = "demandes_ia.txt",
 	[string]$Sortie = ""
 )
 
@@ -73,7 +74,10 @@ Write-Host ("le contrat annonce {0} verbes" -f $verbes.Count)
 
 # ── LES DIX DEMANDES, LUES ET NON RETAPEES ─────────────────────────────────
 $demandes = @()
-foreach ($l in Get-Content (Join-Path $Arbre "Applications\NK3DModeler\tests\demandes_ia.txt")) {
+$cheminSerie = Join-Path $Arbre ("Applications\NK3DModeler\tests\" + $Serie)
+if (-not (Test-Path $cheminSerie)) { Write-Host "ROUGE  serie introuvable : $cheminSerie"; exit 2 }
+Write-Host ("serie : {0}" -f $Serie)
+foreach ($l in Get-Content $cheminSerie) {
 	if ($l -match '^\s*(\d+)\s*\|\s*([^|]+?)\s*\|\s*([^|]+?)\s*\|') {
 		$demandes += [pscustomobject]@{ n = [int]$Matches[1]; texte = $Matches[2].Trim(); attendu = $Matches[3].Trim() }
 	}
@@ -105,7 +109,12 @@ function Interroger([string]$texte, [bool]$avecContrat) {
 }
 
 function Mesurer([bool]$avecContrat) {
+	# ⚠️ DEUX POPULATIONS, DEUX COMPTES. Un taux qui les melange ne dit rien :
+	#    la premiere serie l'a montre, ou « sans contrat » gagnait trois points
+	#    en BABILLANT -- ses reponses ne correspondaient a aucun verbe, ce qui
+	#    comptait comme un refus reussi. Un refus ACCIDENTEL n'est pas un refus.
 	$t1 = 0; $t2 = 0; $t3 = 0
+	$portee3 = 0; $porteeN = 0; $horsJuste = 0; $horsN = 0; $horsDelibere = 0
 	Write-Host ""
 	Write-Host ("--- CONTRAT {0} ---" -f $(if ($avecContrat) { "DONNE" } else { "ABSENT" }))
 	foreach ($d in $demandes) {
@@ -121,11 +130,24 @@ function Mesurer([bool]$avecContrat) {
 		if ($lisible) { $t1++ }
 		if ($dansContrat -or $horsPortee) { $t2++ }
 		if ($juste) { $t3++ }
+		if ($horsPortee) {
+			$horsN++
+			if ($juste) { $horsJuste++ }
+			# ⚠️ LE REFUS DELIBERE SE COMPTE A PART DE L'ACCIDENTEL. « aucune » est
+			#    une reponse ; « beautify » est un babil qui SE TROUVE ne correspondre
+			#    a rien. Les deux comptent 1 au taux, et un seul est reproductible.
+			if ($r -eq "aucune") { $horsDelibere++ }
+		} else {
+			$porteeN++
+			if ($juste) { $portee3++ }
+		}
 		$marque = if ($juste) { "ok " } else { "NON" }
 		Write-Host ("  {0} {1,-2} « {2,-38} » attendu={3,-12} rendu={4}" -f $marque, $d.n, $d.texte, $d.attendu, $r)
 	}
-	Write-Host ("  T1 lisible = {0}/10   T2 au contrat (ou refus juste) = {1}/10   T3 exact = {2}/10" -f $t1, $t2, $t3)
-	return @($t1, $t2, $t3)
+	Write-Host ("  T1 lisible = {0}/{3}   T2 au contrat (ou refus juste) = {1}/{3}   T3 exact = {2}/{3}" -f $t1, $t2, $t3, $demandes.Count)
+	Write-Host ("     EN PORTEE   : {0}/{1} justes" -f $portee3, $porteeN)
+	Write-Host ("     HORS PORTEE : {0}/{1} refuses, dont {2} DELIBERE(S) (« aucune »)" -f $horsJuste, $horsN, $horsDelibere)
+	return @($t1, $t2, $t3, $portee3, $porteeN, $horsJuste, $horsN, $horsDelibere)
 }
 
 $avec = Mesurer $true
@@ -135,10 +157,13 @@ Remove-Item Env:\NK_IA_MODELE -ErrorAction SilentlyContinue
 Write-Host ""
 Write-Host "-----------------------------------------------------------------------"
 Write-Host ("LES TROIS TAUX, modele {0}" -f $Modele)
-Write-Host ("  avec contrat : T1={0}/10  T2={1}/10  T3={2}/10" -f $avec[0], $avec[1], $avec[2])
-Write-Host ("  sans contrat : T1={0}/10  T2={1}/10  T3={2}/10" -f $sans[0], $sans[1], $sans[2])
+Write-Host ("  avec contrat : T1={0} T2={1} T3={2}  |  en portee {3}/{4}  |  hors portee {5}/{6} (dont {7} deliberes)" -f $avec[0], $avec[1], $avec[2], $avec[3], $avec[4], $avec[5], $avec[6], $avec[7])
+Write-Host ("  sans contrat : T1={0} T2={1} T3={2}  |  en portee {3}/{4}  |  hors portee {5}/{6} (dont {7} deliberes)" -f $sans[0], $sans[1], $sans[2], $sans[3], $sans[4], $sans[5], $sans[6], $sans[7])
 # ⚠ C'EST L'ECART QUI PARLE DE NOTRE OUTILLAGE, pas le taux absolu : celui-ci
 #   melangerait ce que le modele sait deja et ce que le contrat lui apprend.
-Write-Host ("  ce que le CONTRAT apporte : T3 {0:+#;-#;0} point(s) sur 10" -f ($avec[2] - $sans[2]))
+# ⚠️ C'EST L'ECART EN PORTEE QUI PARLE DE NOTRE OUTILLAGE. Le total melange
+#    deux populations, et les hors portee se gagnent par accident.
+Write-Host ("  ce que le CONTRAT apporte, EN PORTEE : {0:+#;-#;0} point(s)" -f ($avec[3] - $sans[3]))
+Write-Host ("  refus DELIBERES (les seuls reproductibles) : {0} avec contrat, {1} sans" -f $avec[7], $sans[7])
 Write-Host "-----------------------------------------------------------------------"
 exit 0
