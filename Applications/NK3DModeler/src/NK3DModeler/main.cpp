@@ -33,6 +33,7 @@
 #include "NKGui/NkEditorRHIRenderer.h" // Integrations/NKGui
 #include "NK3DModeler/Viewport/NkViewport3D.h"
 #include "NK3DModeler/Viewport/NkCursorWrapSonde.h" // (b5) sonde du rebouclage, sans fenetre
+#include "NK3DModeler/Viewport/NkCursorWarpSonde.h" // (b5 etape 3) sonde du replacement
 #include "NK3DModeler/Viewport/NkDemo3DHost.h" // PORTAGE INTEGRAL de --demo=2
 #include "NKGui/Core/NkGuiContext.h"
 #include "NKLogger/NkLog.h"
@@ -660,6 +661,17 @@ int nkmain(const NkEntryState &entry) {
 		return nk3d::NkCursorWrapSonde(dir.CStr());
 	}
 
+	// SONDE (b5 etape 3) : NkWindow::SetMousePositionClient.
+	// Elle ouvre UNE fenetre, marquee *** SONDE DE MESURE ***, et la ferme.
+	// Elle NE DEPLACE PAS le curseur -- voir l'en-tete : le deplacer serait une
+	// injection de souris.
+	for (usize a = 0; a < entry.args.Size(); ++a) {
+		if (!(entry.args[a] == NkString("--sonde-warp")))
+			continue;
+		const NkString dir = (a + 1u < entry.args.Size()) ? entry.args[a + 1u] : NkString(".");
+		return nk3d::NkCursorWarpSonde(dir.CStr());
+	}
+
 	// ── THEMES ──────────────────────────────────────────────────────────────
 	NkModelerRoles roles;
 	roles.Register();
@@ -812,6 +824,33 @@ int nkmain(const NkEntryState &entry) {
 	wc.dropEnabled = true;
 
 	NkWindow window;
+
+	// ── (b5) LE SERVICE DE REPLACEMENT DU CURSEUR, POSE PAR L'HOTE ──────────
+	// Le viseur ne connait pas la fenetre : seul ce fichier la tient. Il expose
+	// donc un pointeur de fonction que l'on remplit ici, et qui reste NUL tant
+	// que personne ne le pose -- le rebouclage est alors purement arithmetique,
+	// et c'est exactement l'etat que `--sonde-wrap` prouve.
+	//
+	// ⚠ COORDONNEES **CLIENT**, et c'est tout l'objet de la nouvelle methode.
+	// `NkWindow::SetMousePosition` n'a PAS le meme contrat selon la plateforme
+	// (Win32 = ecran, XCB/XLib = fenetre) : l'appeler ici aurait marche sous
+	// Windows et vise un autre pixel sous Linux, sans que rien ne le dise. On ne
+	// l'a pas renommee -- un appelant peut naitre ailleurs et compter dessus.
+	//
+	// ⚠ ET LE REFUS REMONTE. `SetMousePositionClient` rend FAUX et le journalise
+	// quand la plateforme ne sait pas faire ou quand la cible tombe hors de la
+	// zone client. On NE corrige alors PAS le delta cote viseur : corriger un
+	// deplacement qui n'a pas eu lieu fabriquerait le saut qu'on veut supprimer.
+	// C'est pour ca que ce service rend un booleen et non rien.
+	{
+		static NkWindow *sFenetreDuWarp = nullptr;
+		sFenetreDuWarp = &window;
+		demo::Demo3DHostSetCursorWarp([](float32 x, float32 y) -> bool {
+			if (!sFenetreDuWarp)
+				return false;
+			return sFenetreDuWarp->SetMousePositionClient((int32)(x + 0.5f), (int32)(y + 0.5f));
+		});
+	}
 	if (!window.Create(wc)) {
 		printf("[nk3d] impossible de creer la fenetre.\n");
 		return 1;

@@ -39,7 +39,10 @@ namespace nkentseu {
 		// mais ne bouge pas le curseur physique. Le viewer ne peut pas le faire
 		// lui-meme : il ne connait pas la fenetre, et le contrat de
 		// `NkWindow::SetMousePosition` diverge entre Win32 (ecran) et XCB (fenetre).
-		void Demo3DHostSetCursorWarp(void (*fn)(float32, float32));
+		// Le service rend VRAI s'il a replace le curseur. Le refus REMONTE : sans
+		// lui, le viewer corrigerait un deplacement qui n'a pas eu lieu, et
+		// fabriquerait le saut qu'il cherche a supprimer.
+		void Demo3DHostSetCursorWarp(bool (*fn)(float32, float32));
 
 		// Rend la frame de la demo dans la cible hors ecran, sur le command
 		// buffer de l'editeur (crochet preUI). Calcule son dt lui-meme.

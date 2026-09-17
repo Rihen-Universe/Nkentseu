@@ -1725,6 +1725,18 @@ namespace nkentseu {
 	// Souris
 	// =========================================================================
 
+	// COORDONNEES CLIENT : NON IMPLEMENTE sur Wayland. On le DIT et on rend
+	// FAUX -- un repli silencieux ferait croire a l'appelant que le curseur a
+	// bouge, et le rebouclage de la vue 3D corrigerait alors un deplacement qui
+	// n'a jamais eu lieu. Une absence annoncee se repare ; une absence muette se
+	// decouvre par un defaut incomprehensible, des mois plus tard.
+	bool NkWindow::SetMousePositionClient(int32 x, int32 y) {
+		(void)x;
+		(void)y;
+		NkLog::Instance().Warnf("[NkWindow] SetMousePositionClient : NON IMPLEMENTE sur Wayland.");
+		return false;
+	}
+
 	void NkWindow::SetMousePosition(uint32 x, uint32 y) {
 		// Wayland interdit le warp de curseur sans zwp_pointer_constraints_v1.
 		// On mémorise la position cible pour usage interne (ex. FPS camera).
