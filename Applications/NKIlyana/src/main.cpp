@@ -24,7 +24,8 @@
 // GPU. `nn::NkGPT`, lui, passe par NKAutograd, tourne entièrement sur GPU et a
 // déjà entraîné les paliers 1 à 3. On prouve la chaîne sur ce qui marche ;
 // RoPE/RMSNorm/SwiGLU sont une amélioration identifiée, pas un préalable.
-// AUTEUR : Rihen — LICENCE : Propriétaire - usage régi par le fichier LICENSE à la racine du dépôt
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
+// LICENCE : Propriétaire - usage régi par le fichier LICENSE à la racine du dépôt
 // =============================================================================
 #include "NkIlyanaIdentite.h"
 #include "NkIlyanaDialogues.h"
@@ -815,6 +816,29 @@ static int ModeTrain(int argc, char **argv) {
 	}
 	if (avecReserve)
 		NkTensorGpu::ReserveActive(false); // vide la retenue avant la generation
+
+	// ================================================================
+	// LE CODE DE SORTIE DOIT DIRE CE QUI S'EST PASSE
+	// ================================================================
+	// Du 08/09 au 17/09, dix-neuf sessions se sont arretees sur une garde
+	// et sont sorties en 0. `relance_auto.ps1` a lu « code 0 », a lu
+	// « pas global : 240000 / 240000 » dans l'etat, a ecrit « OK » dans son
+	// journal, et a recommence a l'identique le lendemain. Trois instruments
+	// d'affilee annoncaient le succes d'une campagne morte.
+	//
+	// Un appelant ne peut pas deviner : il faut le lui DIRE. 2 = arret fatal
+	// (le calcul GPU ne produit plus rien), et le motif est nomme.
+	//
+	// Place ICI, apres le temoin de la reserve : sur un arret fatal, le pic
+	// de VRAM est precisement ce qu'on veut lire pour diagnostiquer. On ne
+	// genere pas d'echantillon, en revanche — faire parler un modele dont on
+	// vient d'etablir que son calcul n'a pas lieu ne mesure rien.
+	if (t.ArretFatal()) {
+		logger.Info("*** COURSE INTERROMPUE : {0}. ***", t.ArretFatal());
+		logger.Info("*** Code de sortie 2 : un script de relance ne DOIT pas repartir sur ce motif sans "
+					"diagnostic. Le checkpoint n'a pas ete reecrit. ***");
+		return 2;
+	}
 
 	// NE PAS rappeler t.Save() ici. `Fit()` a DEJA ecrit le checkpoint final AVEC
 	// l'etat de l'optimiseur (moments d'Adam + pas global), ce qui permet une
