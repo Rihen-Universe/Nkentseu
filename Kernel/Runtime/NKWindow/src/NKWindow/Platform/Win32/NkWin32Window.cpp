@@ -16,6 +16,7 @@
 #include "NkWin32Window.h"
 #include "NKWindow/Platform/Win32/NkWin32DropTarget.h"
 #include "NKWindow/Core/NkWindow.h"
+#include "NKLogger/NkLog.h" // SetMousePositionClient DIT ses refus : jamais un repli muet
 #include "NKWindow/Core/NkWESystem.h"
 #include "NKEvent/NkEventSystem.h"
 #include "NKWindow/Platform/Win32/NkWin32EventSystem.h"
@@ -1364,6 +1365,56 @@ namespace nkentseu {
 	// =============================================================================
 	// Mouse
 	// =============================================================================
+
+	// ── COORDONNEES CLIENT -> ECRAN, PAR L'API QUI SAIT ─────────────────────
+	// `ClientToScreen` fait la conversion ; on ne la REFAIT PAS a la main a
+	// partir de `GetWindowRect`, qui rend le coin du CADRE et non celui de la
+	// zone client -- juste sur une fenetre sans cadre, faux des qu'on en met un.
+	//
+	// ⚠ ON BORNE. Une conversion fausse enverrait le curseur de l'utilisateur
+	// n'importe ou sur son ecran, et rien ne le lui dirait. On refuse donc une
+	// destination qui tombe HORS de la zone client : le pire cas devient « rien
+	// ne bouge et le journal le dit », au lieu de « le curseur a saute ».
+	//
+	// ⚠ CE QUI N'EST PAS TRAITE ICI, ET C'EST NOMME PLUTOT QUE TU : quand le
+	// curseur sort par un bord qui est AUSSI le bord de la fenetre et qu'aucun
+	// bouton n'est tenu (une modale lancee au clavier), Windows cesse d'envoyer
+	// des `WM_MOUSEMOVE` -- la position hors bornes n'est alors JAMAIS vue, et
+	// le rebouclage ne se declenche pas. La parade identifiee est d'appeler
+	// `ClipMouseToClient(true)` pendant la modale (elle existe deja, juste en
+	// dessous) et de la relacher a la sortie. Elle n'est PAS posee ici parce
+	// qu'elle change le curseur physique de l'utilisateur d'une facon qui se
+	// juge a l'oeil et non au chiffre : c'est une decision, pas une correction.
+	// CONDITION DE RETRAIT DE CE COMMENTAIRE : le jour ou la modale prend et
+	// relache le clip, ce paragraphe disparait avec lui.
+	bool NkWindow::SetMousePositionClient(int32 x, int32 y) {
+		if (!mData.mHwnd) {
+			NkLog::Instance().Warnf("[NkWindow] SetMousePositionClient refuse : aucune fenetre native.");
+			return false;
+		}
+		RECT cr;
+		if (!::GetClientRect(mData.mHwnd, &cr)) {
+			NkLog::Instance().Warnf("[NkWindow] SetMousePositionClient refuse : GetClientRect a echoue.");
+			return false;
+		}
+		if (x < cr.left || y < cr.top || x >= cr.right || y >= cr.bottom) {
+			NkLog::Instance().Warnf("[NkWindow] SetMousePositionClient refuse : (%d, %d) est hors de la "
+									"zone client (%d x %d). Rien n'a bouge.",
+									(int)x, (int)y, (int)(cr.right - cr.left), (int)(cr.bottom - cr.top));
+			return false;
+		}
+		POINT pt = {(LONG)x, (LONG)y};
+		if (!::ClientToScreen(mData.mHwnd, &pt)) {
+			NkLog::Instance().Warnf("[NkWindow] SetMousePositionClient refuse : ClientToScreen a echoue.");
+			return false;
+		}
+		if (!::SetCursorPos(pt.x, pt.y)) {
+			NkLog::Instance().Warnf("[NkWindow] SetMousePositionClient : SetCursorPos a echoue (%d, %d).",
+									(int)pt.x, (int)pt.y);
+			return false;
+		}
+		return true;
+	}
 
 	void NkWindow::SetMousePosition(uint32 x, uint32 y) {
 		SetCursorPos((int)x, (int)y);

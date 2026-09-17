@@ -13,6 +13,7 @@
 #if defined(NKENTSEU_PLATFORM_LINUX) && defined(NKENTSEU_WINDOWING_XLIB)
 
 #include "NKWindow/Core/NkWindow.h"
+#include "NKLogger/NkLog.h" // SetMousePositionClient DIT ses refus : jamais un repli muet
 #include "NKWindow/Core/NkWESystem.h"
 #include "NKEvent/NkEventSystem.h"
 #include "NKWindow/Platform/XLib/NkXLibWindow.h"
@@ -1148,6 +1149,20 @@ namespace nkentseu {
 	// =============================================================================
 	// Mouse
 	// =============================================================================
+
+	// COORDONNEES CLIENT : ici le warp est DEJA relatif a la fenetre, donc le
+	// contrat demande coincide avec l'appel natif. C'est Win32 qui differe, pas
+	// X11 -- et c'est pour cela que la nouvelle methode existe : le contrat
+	// commun se choisit, il ne se devine pas au cas par cas.
+	bool NkWindow::SetMousePositionClient(int32 x, int32 y) {
+		if (!mData.mDisplay || !mData.mXid) {
+			NkLog::Instance().Warnf("[NkWindow] SetMousePositionClient refuse : aucune fenetre X11.");
+			return false;
+		}
+		XWarpPointer(mData.mDisplay, None, mData.mXid, 0, 0, 0, 0, (int)x, (int)y);
+		XFlush(mData.mDisplay);
+		return true;
+	}
 
 	void NkWindow::SetMousePosition(uint32 x, uint32 y) {
 		if (mData.mDisplay && mData.mXid) {

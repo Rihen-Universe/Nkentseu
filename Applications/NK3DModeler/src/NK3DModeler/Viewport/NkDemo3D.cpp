@@ -82,7 +82,7 @@ namespace nkentseu {
 		// bouge pas. C'est exactement l'etat que `--sonde-wrap` prouve.
 		// Argument attendu : la position visee en pixels FENETRE (origine de la
 		// vue deja ajoutee).
-		static void (*nkvpCursorWarp)(float32, float32) = nullptr;
+		static bool (*nkvpCursorWarp)(float32, float32) = nullptr;
 		// ── LE JETON DE PICK DU GLISSER-DEPOSER ─────────────────────────────
 		// L'interface DEMANDE, la boucle EXECUTE -- meme motif que
 		// `capturePending` du shell. Le pick a besoin de la CAMERA et de la
@@ -7943,17 +7943,24 @@ namespace nkentseu {
 					modalMDX = wo.dx;
 					modalMDY = wo.dy;
 					if (wo.warp) {
-						// Le replacement PHYSIQUE est un service de l'hote : le
-						// viewer ne tient pas la fenetre. Sans hote pose, le
-						// rebouclage reste arithmetique -- et c'est exactement
-						// l'etat dans lequel la sonde le prouve.
-						if (nkvpCursorWarp)
-							nkvpCursorWarp(wo.warpX + nkvpOffX, wo.warpY + nkvpOffY);
+						// Le replacement PHYSIQUE est un service de l'hote : le viewer ne
+						// tient pas la fenetre. Sans hote pose, le rebouclage reste
+						// arithmetique -- et c'est l'etat dans lequel la sonde le prouve.
+						// ⚠ LE REFUS ANNULE L'ATTENTE. Si le curseur n'a PAS bouge (aucun
+						// hote, plateforme sans implementation, cible hors zone client),
+						// garder le report en attente ferait corriger le PREMIER grand geste
+						// reel suivant : on fabriquerait le saut qu'on supprime. C'est la
+						// raison d'etre du booleen -- un service qui ne rend rien laisse
+						// l'appelant croire qu'il a agi.
+						const bool place =
+							nkvpCursorWarp && nkvpCursorWarp(wo.warpX + nkvpOffX, wo.warpY + nkvpOffY);
+						if (!place)
+							NkCursorWrapReset(st->curWrap);
 						logger.Info("[Demo3D] (b5) rebouclage curseur : vue {0}x{1}, ({2}, {3}) -> "
 									"({4}, {5}){6}\n",
 									(int32)nkvpW, (int32)nkvpH, (int32)curMouseX, (int32)curMouseY,
 									(int32)wo.warpX, (int32)wo.warpY,
-									nkvpCursorWarp ? "" : " [AUCUN HOTE : arithmetique seule]");
+									place ? "" : " [REFUSE : le curseur n'a PAS bouge, attente annulee]");
 					}
 				}
 			} else {
@@ -14732,7 +14739,7 @@ namespace nkentseu {
 
 		// (b5) L'hote POSE son service de replacement du curseur. Nul par defaut :
 		// le rebouclage est alors arithmetique seulement.
-		void Demo3DHostSetCursorWarp(void (*fn)(float32, float32)) { nkvpCursorWarp = fn; }
+		void Demo3DHostSetCursorWarp(bool (*fn)(float32, float32)) { nkvpCursorWarp = fn; }
 
 		void Demo3DHostFrame(void *cmd) {
 			if (!HostInit() || !cmd)
