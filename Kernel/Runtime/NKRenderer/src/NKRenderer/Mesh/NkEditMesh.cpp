@@ -6168,6 +6168,16 @@ namespace nkentseu {
 				if (vi < m.VertCount())
 					m.verts[vi].sel = 1;
 			}
+			// L'INTENTION DE FACE, SI LA COMMANDE EN PORTE UNE. Elle est posee APRES
+			// la selection de sommets, parce que `SetFaceSelection` photographie cette
+			// selection en meme temps que l'intention : l'ordre inverse enregistrerait
+			// la selection de l'operation precedente.
+			// ⚠️ VIDE = ON NE POSE RIEN, et c'est le repli qui donne aux sessions v9
+			//    leur sens d'origine (deduction depuis les sommets). Poser un tableau
+			//    vide reviendrait a dire « aucune face selectionnee », ce qui est une
+			//    AFFIRMATION, alors que l'absence est une IGNORANCE.
+			if (!faceSel.Empty())
+				m.SetFaceSelection(faceSel.Data(), (uint32)faceSel.Size());
 			switch (op) {
 				case NkMeshEditOp::Extrude:
 					return m.ExtrudeSelectedFaces(extrude);
@@ -6320,7 +6330,10 @@ namespace nkentseu {
 			out.Clear();
 			EmW w{out};
 			w.U32(NK_EMREC_MAGIC);
-			w.U32(9u); // v9 : + loopcut.slide (v8 : ToSphere/ShrinkFatten · v7 : dissolve · v6 : spin
+			w.U32(10u); // v10 : + l'INTENTION DE FACE (sans elle, deux gestes differents
+						//       s'ecrivaient a l'identique -- 370 octets pour « deux faces
+						//       opposees » comme pour « tout selectionner »)
+						// v9 : + loopcut.slide (v8 : ToSphere/ShrinkFatten · v7 : dissolve · v6 : spin
 					   //       v5 : split · v4 : inset · v3 : bevel · v2 : loopcut.cuts)
 			w.U32((uint32)mCommands.Size());
 			for (uint32 i = 0; i < (uint32)mCommands.Size(); ++i) {
@@ -6376,6 +6389,12 @@ namespace nkentseu {
 				w.U8((uint8)(c.tosphere.individual ? 1 : 0));
 				w.F32(c.shrinkfatten.offset);
 				w.F32(c.loopcut.slide); // v9
+				// v10 : L'INTENTION DE FACE. Ecrite EN FIN, comme les neuf paliers
+				// precedents : un lecteur v9 s'arrete avant et lit exactement ce
+				// qu'il lisait hier.
+				w.U32((uint32)c.faceSel.Size());
+				for (uint32 k = 0; k < (uint32)c.faceSel.Size(); ++k)
+					w.U8(c.faceSel[k]);
 			}
 		}
 
@@ -7374,6 +7393,7 @@ namespace nkentseu {
 			if (r.U32() != NK_EMREC_MAGIC)
 				return false;
 			const uint32 ver = r.U32(); // 1 = sans loopcut.cuts, 2 = avec
+			mVersion = ver; // RETENUE : un lecteur doit pouvoir DIRE ce qu'il a lu
 			const uint32 count = r.U32();
 			for (uint32 i = 0; i < count && r.ok; ++i) {
 				NkMeshEditCommand c;
@@ -7439,6 +7459,17 @@ namespace nkentseu {
 				}
 				if (ver >= 9u)
 					c.loopcut.slide = r.F32();
+				if (ver >= 10u) {
+					const uint32 fc = r.U32();
+					for (uint32 k = 0; k < fc && r.ok; ++k)
+						c.faceSel.PushBack(r.U8());
+				}
+				// ⚠️ ver < 10 : `faceSel` RESTE VIDE, et ce n'est pas un oubli. Une
+				//    session d'hier n'a jamais porte d'intention de face : lui en
+				//    fabriquer une serait inventer une donnee qu'elle n'a pas. Elle se
+				//    rejoue donc avec sa semantique d'origine -- la deduction depuis
+				//    les sommets -- et `NkMeshEditRecorder::Version()` permet de LE
+				//    DIRE a qui l'affiche, au lieu de le laisser croire.
 				if (r.ok)
 					mCommands.PushBack(c);
 			}

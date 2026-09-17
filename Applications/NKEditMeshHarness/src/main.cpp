@@ -9353,7 +9353,16 @@ static int32 IntentionBattery() {
 	printf("[intention] -- CARACTERISATION D'UN DEFAUT (R11) : VERT = le defaut est toujours la --\n");
 	{
 		// La commande telle que Demo3D_ApplyCmd la construit : selection = sommets retenus.
-		auto commande = [](const NkEditMesh &src) -> NkMeshEditCommand {
+		// ⚠️ LA MUTATION VIT DANS LE MEME BINAIRE. `NK_MEC_SANS_INTENTION=1`
+		//    reconstruit la commande d'AVANT -- sommets seuls. Les trois verdicts
+		//    doivent alors revenir a 14 / 1 / 30. Sans elle, ce bloc cesserait de
+		//    mesurer quoi que ce soit le jour ou le defaut serait leve : un banc
+		//    dont tous les cas passent ne mesure plus la limite qu'il documentait.
+		const bool sansIntention = []() {
+			const char *v = getenv("NK_MEC_SANS_INTENTION");
+			return v && v[0] && v[0] != '0';
+		}();
+		auto commande = [&](const NkEditMesh &src) -> NkMeshEditCommand {
 			NkMeshEditCommand c;
 			c.op = NkMeshEditOp::Extrude;
 			c.extrude.individual = false;
@@ -9361,6 +9370,22 @@ static int32 IntentionBattery() {
 			for (uint32 i = 0; i < src.VertCount(); ++i)
 				if (src.verts[i].sel)
 					c.selection.PushBack(i);
+			// L'INTENTION DE FACE, telle que l'editeur l'a posee. C'est exactement
+			// ce que `Demo3D_ApplyCmd` ecrit desormais : un octet par face, lu dans
+			// le maillage et non rededuit -- sinon on enregistrerait la deduction
+			// qu'on cherche justement a ne plus subir au rejeu.
+			if (!sansIntention) {
+				const uint32 fc = (uint32)src.faces.Size();
+				bool une = false;
+				for (uint32 f = 0; f < fc; ++f)
+					if (src.faces[f].alive && src.faces[f].sel) {
+						une = true;
+						break;
+					}
+				if (une)
+					for (uint32 f = 0; f < fc; ++f)
+						c.faceSel.PushBack((uint8)((src.faces[f].alive && src.faces[f].sel) ? 1 : 0));
+			}
 			return c;
 		};
 		NkEditMesh srcOpp;
@@ -9391,7 +9416,14 @@ static int32 IntentionBattery() {
 			if (bOpp[k] != bTout[k])
 				memes = 0;
 		printf("[intention]   octets : 2 opposees=%u, tout=%u\n", (uint32)bOpp.Size(), (uint32)bTout.Size());
-		IntVerdict("rejeu/octets(2 opposees) == octets(tout) [DEFAUT]", 1, memes);
+		// ⚠️ L'ATTENDU SUIT LA CONDITION, ET LA CONDITION EST LA MUTATION.
+		//    Sans intention de face (l'etat d'avant), deux gestes humains differents
+		//    s'ecrivent A L'IDENTIQUE : c'est le defaut, et il valait 1. Avec
+		//    l'intention, ils doivent s'ecrire differemment : 0. Un attendu en dur
+		//    se serait perime le jour meme de la correction ; celui-ci se derive.
+		IntVerdict(sansIntention ? "rejeu/octets(2 opposees) == octets(tout) [DEFAUT, sous mutation]"
+							 : "rejeu/octets(2 opposees) != octets(tout)",
+				   sansIntention ? 1 : 0, memes);
 
 		// (c) Relu depuis ces octets et rejoue sur un cube NEUF : l'intention n'a
 		//     pas survecu au fichier, on retombe sur la deduction -> 30.
@@ -9402,7 +9434,62 @@ static int32 IntentionBattery() {
 			IntPrepare(neuf, nullptr, 0, false);
 			const uint32 appliquees = lu.ReplayOnto(neuf);
 			printf("[intention]   relu=%d commandes appliquees=%u\n", okLu ? 1 : 0, appliquees);
-			IntVerdict("rejeu/.nkmec relu, cube neuf == ancien [DEFAUT]", 30, okLu ? IntFacesVivantes(neuf) : -1);
+			printf("[intention]   version relue=%u\n", lu.Version());
+			// ⚠️ LE NOMBRE SE DERIVE, IL NE S'OBSERVE PAS. Extruder DEUX faces
+			//    opposees d'un cube : 6 - 2 + 2 + 8 = 14. Les 30 d'avant sont
+			//    6 - 6 + 6 + 24, c'est-a-dire LES SIX FACES -- le rejeu extrudait
+			//    tout, parce que, l'intention absente, il re-deduisait les faces
+			//    depuis des sommets qui etaient TOUS allumes. Que ce verdict tombe
+			//    sur le MEME 14 que le chemin vivant n'est pas une coincidence
+			//    d'attendus : c'est la definition de ce qu'on repare -- le fichier
+			//    doit rendre ce que la main a fait.
+			IntVerdict(sansIntention ? "rejeu/.nkmec relu, cube neuf == ancien [DEFAUT, sous mutation]"
+								 : "rejeu/.nkmec relu, cube neuf rend le geste",
+					   sansIntention ? 30 : 14, okLu ? IntFacesVivantes(neuf) : -1);
+		}
+
+		// (d) LE CORPUS D'HIER. Un `.nkmec` ecrit AVANT ce jour ne porte aucune
+		//     intention de face. Il doit se relire SANS MENTIR : soit avec sa
+		//     semantique d'origine ANNONCEE, soit refuse avec son motif -- jamais
+		//     relu en silence comme s'il portait le nouveau champ. Sans ce cas, un
+		//     format qui change de sens sans changer de version transformerait des
+		//     fichiers justes en fichiers faux, et `NKMeshAITest` deserialise deja
+		//     ce corpus.
+		{
+			// ⚠️ C'EST UNE FABRICATION, ET JE L'ECRIS COMME TELLE. Le nouvel
+			//    ecrivain ecrit TOUJOURS la version courante : aucun appel d'API ne
+			//    peut produire un v9 aujourd'hui. On serialise donc en v10, on
+			//    ramene le champ de version a 9 et on retire EXACTEMENT la queue que
+			//    le palier v10 ajoute -- 4 octets de compte, puis un octet par face.
+			//    Le fichier obtenu est un v9 authentique PAR CONSTRUCTION. Cela ne
+			//    vaut que parce qu'il n'y a QU'UNE commande : la queue est alors en
+			//    fin de tampon. Avec deux commandes, il faudrait relire le format.
+			NkVector<uint8> v9 = bOpp;
+			const uint32 queue = 4u + (uint32)cOpp.faceSel.Size();
+			const bool taillable = ((uint32)v9.Size() > 12u + queue);
+			if (taillable) {
+				v9[4] = 9u; // la version, petit-boutiste (EmW::U32)
+				v9[5] = 0u;
+				v9[6] = 0u;
+				v9[7] = 0u;
+				v9.Resize((uint32)v9.Size() - queue);
+			}
+			NkMeshEditRecorder vieux;
+			const bool okV9 = taillable && vieux.Deserialize(v9.Data(), (uint32)v9.Size());
+			NkEditMesh neuf9;
+			IntPrepare(neuf9, nullptr, 0, false);
+			const uint32 app9 = okV9 ? vieux.ReplayOnto(neuf9) : 0u;
+			printf("[intention]   v9 fabrique : octets=%u relu=%d version=%u appliquees=%u\n",
+				   (uint32)v9.Size(), okV9 ? 1 : 0, vieux.Version(), app9);
+			// Il se relit, et il se relit AVEC SON SENS D'HIER : la deduction depuis
+			// les sommets, donc 30. Lui donner 14 voudrait dire qu'on lui a prete une
+			// intention qu'il n'a jamais portee.
+			IntVerdict("corpus d'hier/v9 relu, semantique d'origine conservee", 30,
+					   okV9 ? IntFacesVivantes(neuf9) : -1);
+			// Et il sait le DIRE. Sans ce verdict, un affichage ne pourrait pas
+			// distinguer « pas d'intention » de « intention vide », et rejouerait
+			// une semantique ancienne en silence.
+			IntVerdict("corpus d'hier/la version relue est ANNONCABLE", 9, okV9 ? (int32)vieux.Version() : -1);
 		}
 	}
 
