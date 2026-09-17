@@ -1,0 +1,148 @@
+# CONTRAT D'OUTIL -- NKUIDesign, texte vers interface
+#
+# AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
+#
+# ENGENDRE par `NKDesignIABanc --contrat=<fichier>`.
+# NE PAS EDITER A LA MAIN : `--verifier-contrat=<fichier>` rougit si ce
+# fichier ne dit plus ce que le binaire fait.
+
+## 1. CE QUE L'OUTIL ACCEPTE -- la grammaire du document
+
+Tu produis une INTERFACE pour NkUIDesign.
+
+Demande : <la demande de l'utilisateur, en francais>
+
+Reponds UNIQUEMENT par un document au format ci-dessous,
+sans explication, sans balise de code.
+
+REGLE ABSOLUE : n'ecris JAMAIS de position ni de coordonnee.
+La position se calcule ; tu declares des tailles et un agencement.
+
+Format :
+nkuidoc 1
+titre = <texte>
+noeud <numero, en partant de 0 pour la racine>
+  libelle = <texte>
+  composant = <nom du catalogue, ou vide pour un cadre>
+  enfants = <numeros de noeuds, separes par des espaces>
+  largeur = <fixed | content | fraction | weight | expand> <valeur> <min> <max>
+  hauteur = <idem>
+  agencement = <none | row | column | grid | anchor | free>
+  ecart = <px>
+  marge = <px>
+  colonnes = <n, pour la grille>
+  alignement = <start | center | end | stretch>
+  reglage param <nom> = <valeur>   (facultatif)
+  reglage variante <nom>           (facultatif)
+
+N'emploie que des composants du catalogue ci-dessous.
+
+## 2. CE QUE L'OUTIL CONNAIT -- le catalogue des composants
+# Boucle sur le registre. Un composant absent d'ici est REFUSE, jamais
+# approche par un voisin.
+
+composant bouton : une boîte et un libellé centré — la variante porte l'accent
+    variante primaire
+    variante secondaire
+    variante fantome
+composant champ_texte : une boîte creuse et son texte indicatif
+composant case_a_cocher : un carré, sa coche quand elle est mise, et son libellé
+    param coche
+composant interrupteur : une pilule et son galet — à gauche ou à droite selon l'état
+    param actif
+composant barre_progression : une piste et sa portion remplie (paramètre « valeur », 0..100)
+    param valeur
+composant etiquette : du texte seul, sans boîte
+composant separateur : un filet horizontal à mi-hauteur
+composant carte : une surface bordée et arrondie qui reçoit d'autres nœuds
+composant content_browser : grille ou liste d'assets, arbre de dossiers, fil d'Ariane, recherche
+    variante grid
+    variante dense_list
+    variante columns
+    variante minimal
+    param thumb_size
+    param show_tree
+    param show_footer
+    param tree_width
+    param show_filters
+    param show_status
+    param show_header
+    param show_actions
+    param show_select_all
+    param show_sort
+    param tree_default_open
+    param multi_select
+    metrique card_gap
+    metrique card_pad
+    metrique footer_h
+    metrique row_h
+    metrique stroke_w
+    metrique toolbar_h
+    metrique header_h
+    metrique filter_h
+    metrique info_h
+    metrique status_h
+    metrique search_w
+    metrique slider_w
+    metrique badge_h
+    metrique scrollbar_w
+    metrique drag_threshold
+composant tree_view : arbre hierarchique : pliage, selection simple et multiple, renommage en place, glisser-deposer avec garde anti-cycle
+    variante tree
+    variante flat_list
+    param show_header
+    param show_search
+    param show_footer
+    param show_visibility
+    param show_lock
+    param show_type
+    param indent_guides
+    param default_open
+    param chevron_only_fold
+    param multi_select
+    param range_select
+    param drop_into_only
+    param activate_on_double_click
+    metrique row_h
+    metrique indent_step
+    metrique flat_indent
+    metrique chevron_w
+    metrique icon_w
+    metrique row_pad
+    metrique header_h
+    metrique search_h
+    metrique footer_h
+    metrique stroke_w
+    metrique scrollbar_w
+    metrique accent_bar_w
+    metrique drop_line_h
+    metrique guide_x
+
+## 3. CE QUE L'OUTIL REFUSE, ET AVEC QUEL MOTIF
+# Un refus nomme est un OUTIL, pas une panne : un modele invente, c'est le
+# cas normal. Chacun de ces motifs laisse le document INTACT.
+
+refus le backend n'a rien rendu
+refus aucun document lisible dans la reponse
+refus nomme un composant que le registre ignore
+refus ne se rejoue pas a l'identique
+refus cible de greffe invalide
+
+## 4. CE QUE L'OUTIL GARANTIT
+
+garantie le document n'est touche qu'apres validation ET rejeu identique
+garantie toute pose se retire d'un geste, document identique au bit
+garantie une proposition ne touche pas le document avant sa validation
+garantie chaque noeud pose porte sa provenance (auteur ia, origine nommee)
+
+## 5. CE QUE L'OUTIL NE SAIT PAS FAIRE -- mesure, pas suppose
+
+limite il ne recoit AUCUNE image : la requete porte trois champs, tous du texte
+limite il ne sait que GREFFER un sous-arbre : ni renommer, ni deplacer, ni
+       changer une propriete d'un noeud existant
+limite deux composants du catalogue n'ont pas d'equivalent dans le vocabulaire
+       du fichier d'interface : ils sont COMPTES et NOMMES, jamais devines
+limite le monteur ne monte pas le role Scroll, et un role inconnu EMPORTE ses
+       enfants (mesure du 17/09 : Panel > Scroll > Text monte UN widget)
+limite le monteur ne peint pas l'apparence : il la compte (mesure du 17/09,
+       0 pixel sur une demande de vert pur, decodeur PNG independant)

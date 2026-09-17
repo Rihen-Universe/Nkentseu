@@ -199,6 +199,81 @@ namespace {
 			}
 	};
 
+	// ═══════════════════════════════════════════════════════════════════
+	//  LE CONTRAT D'OUTIL -- ECRIT, VERSIONNE, ET ENGENDRE
+	// ═══════════════════════════════════════════════════════════════════
+	// Arbitrage de Rodolf, 17/09 au soir : « on peut choisir le modele a
+	// utiliser, local ou distant ; le plus important est la PERFORMANCE DES
+	// OUTILS qui sont associes au modele. » Consequence directe (cap §6.5) :
+	// **le contrat d'outil est ecrit et versionne** -- ce qu'il accepte, ce
+	// qu'il connait, ce qu'il refuse et avec quel motif. C'est lui qu'on donne
+	// a un modele distant comme a Ilyana ; un contrat qui ne vit que dans la
+	// chaine de l'invite n'est partageable avec personne.
+	//
+	// ⚠️ IL EST ENGENDRE, JAMAIS REDIGE. Chaque section sort de la source qui
+	//    fait foi a l'execution : le REGISTRE pour les composants, les memes
+	//    fonctions de nom que l'invite pour la grammaire, l'enumeration des
+	//    verdicts pour les refus. Un contrat recopie a la main derive au
+	//    premier ajout, et il derive EN SILENCE -- c'est-a-dire qu'il promet a
+	//    un modele distant des choses que l'application ne sait plus faire.
+	//
+	// ⚠️ ET IL PORTE SA PROPRE GARDE. `--verifier-contrat=<f>` compare le
+	//    fichier versionne a ce que le binaire engendre AUJOURD'HUI, et rend 1
+	//    s'ils different. Un fichier engendre puis commite sans garde est une
+	//    copie qui se perime en silence, et le depot paie deja ce defaut
+	//    ailleurs.
+	void BatirContrat(NkString &out) {
+		out = NkString("# CONTRAT D'OUTIL -- NKUIDesign, texte vers interface\n");
+		out.Append("#\n");
+		out.Append("# AUTEUR : TEUGUIA TADJUIDJE Rodolf S\xC3\xA9""deris \xE2\x80\x94 Rihen\n");
+		out.Append("#\n");
+		out.Append("# ENGENDRE par `NKDesignIABanc --contrat=<fichier>`.\n");
+		out.Append("# NE PAS EDITER A LA MAIN : `--verifier-contrat=<fichier>` rougit si ce\n");
+		out.Append("# fichier ne dit plus ce que le binaire fait.\n\n");
+
+		out.Append("## 1. CE QUE L'OUTIL ACCEPTE -- la grammaire du document\n\n");
+		NkString invite;
+		NkDesignAI::BuildPrompt("<la demande de l'utilisateur, en francais>", invite);
+		out.Append(invite);
+
+		out.Append("\n## 2. CE QUE L'OUTIL CONNAIT -- le catalogue des composants\n");
+		out.Append("# Boucle sur le registre. Un composant absent d'ici est REFUSE, jamais\n");
+		out.Append("# approche par un voisin.\n\n");
+		NkString cat;
+		NkDesignAI::BuildCatalog(cat);
+		out.Append(cat);
+
+		out.Append("\n## 3. CE QUE L'OUTIL REFUSE, ET AVEC QUEL MOTIF\n");
+		out.Append("# Un refus nomme est un OUTIL, pas une panne : un modele invente, c'est le\n");
+		out.Append("# cas normal. Chacun de ces motifs laisse le document INTACT.\n\n");
+		for (uint8 v = 0; v < (uint8)NkAIVerdict::Count; ++v) {
+			const NkAIVerdict vv = (NkAIVerdict)v;
+			if (vv == NkAIVerdict::Acceptee) {
+				continue;
+			}
+			out.Append("refus ");
+			out.Append(NkAIVerdictName(vv));
+			out.Append('\n');
+		}
+
+		out.Append("\n## 4. CE QUE L'OUTIL GARANTIT\n\n");
+		out.Append("garantie le document n'est touche qu'apres validation ET rejeu identique\n");
+		out.Append("garantie toute pose se retire d'un geste, document identique au bit\n");
+		out.Append("garantie une proposition ne touche pas le document avant sa validation\n");
+		out.Append("garantie chaque noeud pose porte sa provenance (auteur ia, origine nommee)\n");
+
+		out.Append("\n## 5. CE QUE L'OUTIL NE SAIT PAS FAIRE -- mesure, pas suppose\n\n");
+		out.Append("limite il ne recoit AUCUNE image : la requete porte trois champs, tous du texte\n");
+		out.Append("limite il ne sait que GREFFER un sous-arbre : ni renommer, ni deplacer, ni\n");
+		out.Append("       changer une propriete d'un noeud existant\n");
+		out.Append("limite deux composants du catalogue n'ont pas d'equivalent dans le vocabulaire\n");
+		out.Append("       du fichier d'interface : ils sont COMPTES et NOMMES, jamais devines\n");
+		out.Append("limite le monteur ne monte pas le role Scroll, et un role inconnu EMPORTE ses\n");
+		out.Append("       enfants (mesure du 17/09 : Panel > Scroll > Text monte UN widget)\n");
+		out.Append("limite le monteur ne peint pas l'apparence : il la compte (mesure du 17/09,\n");
+		out.Append("       0 pixel sur une demande de vert pur, decodeur PNG independant)\n");
+	}
+
 	struct Bilan {
 			uint32 n1 = 0, n2 = 0, n3 = 0, total = 0;
 	};
@@ -209,7 +284,9 @@ int main(int argc, char **argv) {
 	const char *fDemandes = "Applications/NKUIDesign/exemples/ia/demandes.txt";
 	const char *dSortie = "Build/ia-jeu";
 	const char *dorsal = "processus";
-	const char *seul = nullptr; // --seule=d01 : une seule demande
+	const char *seul = nullptr;		// --seule=d01 : une seule demande
+	const char *contrat = nullptr;	// --contrat=<f> : ECRIRE le contrat d'outil
+	const char *verifier = nullptr; // --verifier-contrat=<f> : la GARDE anti-derive
 	for (int a = 1; a < argc; ++a) {
 		if (CommencePar(argv[a], "--demandes="))
 			fDemandes = argv[a] + 11;
@@ -219,17 +296,69 @@ int main(int argc, char **argv) {
 			dorsal = argv[a] + 9;
 		else if (CommencePar(argv[a], "--seule="))
 			seul = argv[a] + 8;
+		// ⚠️ `--verifier-contrat=` SE TESTE AVANT `--contrat=`, parce que le
+		//    second est un PREFIXE du premier sur ses neuf premiers caracteres
+		//    et l'attraperait. Une analyse d'arguments ou un drapeau en avale un
+		//    autre est un piege muet : l'option demandee ne s'execute jamais, et
+		//    rien ne le dit.
+		else if (CommencePar(argv[a], "--verifier-contrat="))
+			verifier = argv[a] + 19;
+		else if (CommencePar(argv[a], "--contrat="))
+			contrat = argv[a] + 10;
 		else if (std::strcmp(argv[a], "--aide") == 0) {
 			std::printf("NKDesignIABanc --demandes=<f> --sortie=<dossier> "
 						"[--dorsal=processus|temoin] [--seule=<id>]\n"
 						"  processus : le gabarit de NK_DESIGN_CMD / NK_DESIGN_EXE "
 						"(NKDesignLLM)\n"
-						"  temoin    : LE ZERO du banc -- une reponse fixe et juste\n");
+						"  temoin    : LE ZERO du banc -- une reponse fixe et juste\n"
+						"  --contrat=<f>           ecrit le CONTRAT D'OUTIL (sans dorsal,\n"
+						"                          sans modele, sans carte graphique)\n"
+						"  --verifier-contrat=<f>  la GARDE : rend 1 si le fichier versionne\n"
+						"                          ne dit plus ce que le binaire fait\n");
 			return 0;
 		}
 	}
 
 	PeuplerCatalogue();
+
+	// LE CONTRAT SE REND AVANT TOUTE COURSE, ET C'EST TOUT L'INTERET : il ne
+	// demande ni dorsal, ni modele, ni carte graphique. C'est le point du cap --
+	// un outil se DECRIT et se MESURE sans le modele, sinon un bon outil et un
+	// mauvais modele rendent le meme vert.
+	if (contrat || verifier) {
+		NkString c;
+		BatirContrat(c);
+		if (contrat) {
+			NkFile::WriteAllText(NkPath(contrat), c);
+			std::printf("contrat ecrit : %s (%u octets)\n", contrat, (uint32)c.Size());
+		}
+		if (verifier) {
+			const NkString sur = NkFile::ReadAllText(NkPath(verifier));
+			// ⚠️ ON NORMALISE LES FINS DE LIGNE DES DEUX COTES. Le depot est
+			//    heterogene -- des fichiers en LF et en CRLF dans les memes
+			//    dossiers, mesure le 17/09 -- et git reecrit les fins de ligne a
+			//    la sortie de l'index. Une garde qui rougit sur un CRLF crie sans
+			//    rien dire, et on apprend a l'ignorer : c'est ainsi qu'un vrai
+			//    rouge passe inapercu.
+			NkString a, b;
+			for (uint32 i = 0; i < (uint32)c.Size(); ++i)
+				if (c.Data()[i] != '\r')
+					a.Append(c.Data()[i]);
+			for (uint32 i = 0; i < (uint32)sur.Size(); ++i)
+				if (sur.Data()[i] != '\r')
+					b.Append(sur.Data()[i]);
+			const bool ok = a.Size() == b.Size() && a.Compare(b) == 0;
+			std::printf("GARDE DU CONTRAT : %s\n"
+						"  engendre %u octets, versionne %u octets\n",
+						ok ? "IDENTIQUE"
+						   : "A DERIVE -- le fichier versionne ne dit plus ce que le binaire fait",
+						(uint32)a.Size(), (uint32)b.Size());
+			if (!ok)
+				return 1;
+		}
+		return 0;
+	}
+
 	NkDirectory::CreateRecursive(dSortie);
 
 	Ligne demandes[64];
