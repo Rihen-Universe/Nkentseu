@@ -2717,7 +2717,28 @@ namespace nkentseu {
 		}
 
 		// DELETE : supprime les faces sélectionnées, compacte les sommets orphelins.
-		bool NkEditMesh::DeleteSelectedFaces() {
+		// ── APRES UNE SUPPRESSION, LA SELECTION EST VIDE ────────────────────────
+		// COMPORTEMENT BLENDER, confirme par Rodolf (14/09) : « dans Blender, la
+		// selection est VIDE apres une suppression ».
+		//
+		// 🔴 CE QUE CA REPARE, ET CE N'EST PAS COSMETIQUE. La selection SURVIVAIT a
+		//   la suppression : les sommets survivants gardaient leur `sel` et les faces
+		//   survivantes leur `FaceAttrib::sel`. Sur un cube, supprimer deux faces
+		//   opposees laissait les quatre autres SELECTIONNEES -- et un SECOND X
+		//   vidait le cube : 6 faces, puis 4, puis 0. Une frappe de trop detruisait
+		//   le travail. C'est Rodolf qui l'a signale.
+		//
+		// ⚠ LA REGLE EST POSEE ICI, DANS LE MOTEUR, ET PAS DANS LE MODELEUR. Tous
+		//   les hotes (NK3DModeler, NkAnimaEditor, Nogee...) passent par cette
+		//   fonction ; une regle posee dans un seul appelant aurait ete vraie a un
+		//   seul endroit, et fausse partout ailleurs sans que rien ne le dise.
+		//
+		// MUTATION, DANS LE MEME BINAIRE : `NK_DEL_KEEPSEL=1` remet l'ANCIEN
+		// comportement et ne touche a rien d'autre. Le banc `--suppression` de
+		// NKEditMeshHarness DOIT alors rougir ; s'il reste vert, il ne teste rien.
+		// Lu une seule fois : un getenv par face serait une mesure qui coute.
+		bool NkEditMesh::DeleteSelected(NkEditMesh::DeleteMode mode) {
+			static const bool gardeSelApresSuppr = (getenv("NK_DEL_KEEPSEL") != nullptr);
 			NkVector<NkVertex3D> pv;
 			NkVector<uint32> fs, fv;
 			// MATERIAU PAR FACE : transporte a travers le round-trip. Les faces survivantes gardent leur index ; la face supprimee ne laisse rien.
@@ -2738,8 +2759,32 @@ namespace nkentseu {
 			uint32 removed = 0;
 			for (uint32 f = 0; f < fc; f++) {
 				const uint32 s = fs[f], e = fs[f + 1];
-				const bool selF = fsel ? (f < (uint32)fm.Size() && fm[f].sel != 0)
-							: PolyFaceSelected(fv, s, e);
+				// LE SEUL ENDROIT QUI CHANGE ENTRE LES TROIS MODES. Tout le reste --
+				// le remap, la reconstruction, le vidage de la selection -- est commun,
+				// et c'est pour ca qu'il n'y a qu'une implementation.
+				bool selF = false;
+				if (mode == DeleteMode::Verts) {
+					// « Vertices » de Blender : le sommet part, et TOUT ce qui s'appuie
+					// dessus part avec lui.
+					for (uint32 k = s; k < e && !selF; k++) {
+						const uint32 vi = fv[k];
+						if (vi < (uint32)verts.Size() && verts[vi].sel)
+							selF = true;
+					}
+				} else if (mode == DeleteMode::Edges) {
+					// « Edges » de Blender : deux sommets CONSECUTIFS de la boucle, donc
+					// une arete de CETTE face. Le dernier segment referme la boucle.
+					const uint32 n = e - s;
+					for (uint32 k = 0; k < n && !selF; k++) {
+						const uint32 a = fv[s + k], b = fv[s + ((k + 1u) % n)];
+						if (a < (uint32)verts.Size() && b < (uint32)verts.Size() && verts[a].sel &&
+							verts[b].sel)
+							selF = true;
+					}
+				} else {
+					selF = fsel ? (f < (uint32)fm.Size() && fm[f].sel != 0)
+								: PolyFaceSelected(fv, s, e);
+				}
 				if (selF) {
 					removed++;
 					continue;
@@ -2749,12 +2794,24 @@ namespace nkentseu {
 					if (remap[vi] < 0) {
 						remap[vi] = (int32)nv2.Size();
 						nv2.PushBack(pv[vi]);
-						vsel.PushBack(verts[vi].sel);
+						// APRES UNE SUPPRESSION, LA SELECTION EST VIDE (voir plus bas).
+						vsel.PushBack(gardeSelApresSuppr ? verts[vi].sel : (uint8)0);
 					}
 					nfv.PushBack((uint32)remap[vi]);
 				}
 				nfs.PushBack((uint32)nfv.Size());
-				nfm.PushBack(f < (uint32)fm.Size() ? fm[f] : NkEditMesh::FaceAttrib{});
+				{
+					NkEditMesh::FaceAttrib fa =
+						f < (uint32)fm.Size() ? fm[f] : NkEditMesh::FaceAttrib{};
+					// L'INTENTION DE FACE SE VIDE AUSSI, et c'est elle qui compte : les
+					// operations lisent `FaceAttrib::sel` quand elle est valide, pas la
+					// deduction depuis les sommets. La laisser allumee rendrait le vidage
+					// des sommets purement decoratif -- un ecran a 0 et un second X qui
+					// supprime quand meme.
+					if (!gardeSelApresSuppr)
+						fa.sel = 0;
+					nfm.PushBack(fa);
+				}
 			}
 			if (removed == 0)
 				return false;
@@ -6120,6 +6177,10 @@ namespace nkentseu {
 					return m.ExtrudeSelectedEdges(extrude);
 				case NkMeshEditOp::Delete:
 					return m.DeleteSelectedFaces();
+				case NkMeshEditOp::DeleteEdges:
+					return m.DeleteSelectedEdges();
+				case NkMeshEditOp::DeleteVerts:
+					return m.DeleteSelectedVerts();
 				case NkMeshEditOp::Merge:
 					return m.MergeSelectedVerts(merge);
 				case NkMeshEditOp::MakeFace:
