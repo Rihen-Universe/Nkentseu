@@ -344,6 +344,119 @@ static int32 g_lumX0 = 0, g_lumX1 = 0;
 /// Garder une copie des pixels du prochain montage (pour comparer deux images).
 static bool g_garderPixels = false;
 
+// ── LA ZONE HOTE : le remplisseur de l'application d'essai (m5) ──────────────
+// ⚠️ LA SIGNATURE EST UNE COULEUR QUE RIEN D'AUTRE NE PEINT. Un remplisseur qui
+//    peindrait dans les tons du theme serait indistinguable du marqueur de zone
+//    vide, et le banc mesurerait « des pixels » au lieu de mesurer SON contenu.
+static const uint32 kSignatureHote = 0xFF00FFFFu; // magenta opaque, R<<24|G<<16|B<<8|A
+
+static bool NomEgal(const char *a, const char *b) {
+	if (!a || !b)
+		return false;
+	while (*a && *b && *a == *b) {
+		++a;
+		++b;
+	}
+	return *a == '\0' && *b == '\0';
+}
+
+struct RemplisseurHote : nkentseu::nkgui::NkGuiMonteHooks {
+		const char *cible = nullptr; ///< le seul nom que cet hote sait remplir
+		NkRect derniere{};
+		uint32 remplis = 0;
+		bool RemplirHote(NkGuiContext &ctx, const char *nom, const NkRect &zone) noexcept override {
+			// UN HOTE QUI NE CONNAIT PAS LE NOM REPOND NON. C'est le contrat : repondre
+			// oui sans peindre ferait disparaitre la zone en silence.
+			if (!NomEgal(nom, cible))
+				return false;
+			ctx.DL().AddRectFilled(zone, NkColor{255, 0, 255, 255});
+			derniere = zone;
+			++remplis;
+			return true;
+		}
+};
+/// Pose juste avant un montage, comme les autres options de ce banc.
+static nkentseu::nkgui::NkGuiMonteHooks *g_hooks = nullptr;
+
+/// LE TEMOIN D'UNE ZONE NON REMPLIE : il note le rectangle et repond NON.
+///
+/// ⚠️ IL EXISTE PARCE QU'UN COMPTEUR SATURE NE DISTINGUE RIEN. Le premier critere
+///    du marqueur etait « l'image peint des pixels » : le Panel en peint 239 980 a
+///    lui seul, et le compte etait IDENTIQUE avec et sans marqueur. Un critere qui
+///    rend le meme nombre dans les deux cas ne teste rien. On compte donc DANS LE
+///    RECTANGLE DE LA ZONE, et on garde le rectangle par ce temoin.
+struct TemoinHote : nkentseu::nkgui::NkGuiMonteHooks {
+		const char *cible = nullptr;
+		NkRect zone{};
+		bool vu = false;
+		bool RemplirHote(NkGuiContext &ctx, const char *nom, const NkRect &r) noexcept override {
+			(void)ctx;
+			if (NomEgal(nom, cible)) {
+				zone = r;
+				vu = true;
+			}
+			return false; // il REGARDE, il ne remplit pas
+		}
+};
+
+/// Combien de pixels, DANS ce rectangle, S'ECARTENT EN LUMINANCE de la dominante du
+/// rectangle lui-meme. Sur une zone vide, la dominante est l'aplat du panneau :
+/// tout ce qui compte ici est donc ce que le marqueur a trace.
+static uint32 ComptePixelsDansRect(const NkVector<uint8> &px, int32 W, int32 H, const NkRect &r) {
+	if (px.Size() == 0u || r.w < 1.f || r.h < 1.f)
+		return 0u;
+	const int32 x0 = (int32)(r.x + 1.f), y0 = (int32)(r.y + 1.f);
+	const int32 x1 = (int32)(r.x + r.w - 1.f), y1 = (int32)(r.y + r.h - 1.f);
+	// La dominante du rectangle, comptee sur lui et non sur l'image entiere.
+	uint32 couleurs[64] = {};
+	uint32 comptes[64] = {};
+	uint32 n = 0;
+	for (int32 y = y0; y < y1; ++y)
+		for (int32 x = x0; x < x1; ++x) {
+			const usize i = ((usize)y * (usize)W + (usize)x) * 4u;
+			if (i + 3u >= px.Size())
+				continue;
+			const uint32 c = ((uint32)px[(uint32)i] << 24) | ((uint32)px[(uint32)i + 1u] << 16)
+							 | ((uint32)px[(uint32)i + 2u] << 8) | (uint32)px[(uint32)i + 3u];
+			uint32 k = 0;
+			for (; k < n; ++k)
+				if (couleurs[k] == c) {
+					++comptes[k];
+					break;
+				}
+			if (k == n && n < 64u) {
+				couleurs[n] = c;
+				comptes[n] = 1u;
+				++n;
+			}
+		}
+	uint32 best = 0u, bestN = 0u;
+	for (uint32 k = 0; k < n; ++k)
+		if (comptes[k] > bestN) {
+			bestN = comptes[k];
+			best = couleurs[k];
+		}
+	uint32 autres = 0u;
+	for (int32 y = y0; y < y1; ++y)
+		for (int32 x = x0; x < x1; ++x) {
+			const usize i = ((usize)y * (usize)W + (usize)x) * 4u;
+			if (i + 3u >= px.Size())
+				continue;
+			const uint32 c = ((uint32)px[(uint32)i] << 24) | ((uint32)px[(uint32)i + 1u] << 16)
+							 | ((uint32)px[(uint32)i + 2u] << 8) | (uint32)px[(uint32)i + 3u];
+			// ⚠️ « DIFFERENT » NE VEUT PAS DIRE « VISIBLE ». La premiere version comptait
+			//    toute couleur autre que la dominante : le marqueur trace en `theme.border`
+			//    rendait 3 778 pixels, le critere passait au vert, et l'image ne montrait
+			//    RIEN -- la bordure est a 9 de luminance de l'aplat. On exige donc un ecart
+			//    de luminance qu'un oeil distingue.
+			const float32 dl = Luminance(c) - Luminance(best);
+			if (dl > 20.f || dl < -20.f)
+				++autres;
+		}
+	(void)H;
+	return autres;
+}
+
 // ── LA POLICE, et pourquoi ce banc en charge une ──────────────────────────────
 // Sans police, `Text()` place son rectangle mais ne peint AUCUN glyphe : le
 // premier releve de ce banc rendait 0 pixel pour `04_echappements_utf8` et
@@ -422,7 +535,7 @@ static Montage MonterTexte(const char *src, uint32 len, int32 w, int32 h,
 
 	NkGuiMonteEtat etat;
 	NkGuiMonteur::Preparer(doc, etat);
-	NkGuiMonteur::Monter(ctx, doc, etat, m.rap);
+	NkGuiMonteur::Monter(ctx, doc, etat, m.rap, g_hooks);
 
 	NkGuiDrawListRaster ras;
 	if (ras.Init(w, h)) {
@@ -1192,6 +1305,473 @@ int main(int argc, char **argv) {
 				"   NEGATIF : `title` vide == pas de `title`, AU BIT");
 	}
 
+	printf("\n-- (m5) LA ZONE HOTE : l'application remplit, et ce que personne ne remplit SE VOIT\n");
+	{
+		// ⚠️ LA FRONTIERE DU FORMAT, ET ELLE SE MESURE. Un `Host` est un rectangle que
+		//    l'APPLICATION peint. Trois choses doivent etre vraies a la fois :
+		//      1. ce que l'hote peint est LA, a la place que le document lui a donnee ;
+		//      2. ce que personne ne remplit NE PEINT PAS de faux contenu -- zero pixel
+		//         de la signature -- et NE DISPARAIT PAS : un marqueur, et un compteur ;
+		//      3. la zone se compte dans les deux cas.
+		Joindre(dossier, sizeof(dossier), racine, "/valides/");
+		Joindre(chemin, sizeof(chemin), dossier, "12_zone_hote.nkgui");
+
+		// ── (a) L'HOTE REMPLIT « viseur3d », personne ne remplit « apercu_materiau »
+		RemplisseurHote hote;
+		hote.cible = "viseur3d";
+		g_hooks = &hote;
+		g_couleurCible = kSignatureHote;
+		const Montage r = MonterFichier(chemin, 400, 600, "12_zone_hote_rempli");
+		g_hooks = nullptr;
+		g_couleurCible = 0u;
+		Check(r.lu, "   le document se lit");
+		CheckEq(r.rap.rolesInconnus, 0u, "   `Host` est du vocabulaire (0 role inconnu)");
+		CheckEq(r.rap.hotes, 2u, "   DEUX zones hotes comptees");
+		CheckEq(r.rap.hotesNonRemplis, 1u, "   UNE seule est restee non remplie");
+		CheckEq(hote.remplis, 1u, "   l'hote n'a rempli QUE le nom qu'il connait");
+		// Ce que l'hote a peint est a la place que le DOCUMENT lui a donnee, et sa
+		// surface est celle du rectangle -- pas « des pixels quelque part ».
+		const uint32 aire = (uint32)(hote.derniere.w * hote.derniere.h + 0.5f);
+		printf("        zone rendue a l'hote : %.0fx%.0f a (%.0f, %.0f) -> %u px attendus ; %u peints\n",
+			   (double)hote.derniere.w, (double)hote.derniere.h, (double)hote.derniere.x,
+			   (double)hote.derniere.y, aire, r.poigneeN);
+		Check(hote.derniere.w > 1.f && hote.derniere.h > 1.f, "   la zone rendue a une surface");
+		Check(r.poigneeN > 0u, "   la signature de l'hote EST dans l'image");
+		// Tolerance : le rasteriseur peut perdre une bordure de pixels sur les bords,
+		// et le texte du Panel peut recouvrir une partie de l'aplat.
+		Check(r.poigneeN <= aire + 4u, "   et elle ne DEBORDE pas du rectangle du document");
+		Check(r.poigneeN * 10u >= aire * 9u, "   elle en couvre au moins les neuf dixiemes");
+
+		// ── (b) LE NEGATIF : personne ne remplit rien
+		g_couleurCible = kSignatureHote;
+		const Montage v = MonterFichier(chemin, 400, 600, "12_zone_hote_vide");
+		g_couleurCible = 0u;
+		Check(v.lu, "   le meme document, sans aucun hote, se lit");
+		CheckEq(v.rap.hotes, 2u, "   les DEUX zones se comptent quand meme");
+		CheckEq(v.rap.hotesNonRemplis, 2u, "   et les DEUX sont declarees non remplies");
+		CheckEq(v.poigneeN, 0u, "   ZERO pixel de la signature : aucun faux contenu");
+		// Et elles ne disparaissent pas : le marqueur peint, donc l'image change.
+		printf("        pixels peints : avec hote %u ; sans hote %u\n", r.pixels, v.pixels);
+		Check(v.pixels > 0u, "   la zone vide PEINT quelque chose (son marqueur)");
+		Check(v.empreinte != r.empreinte, "   et les deux images different");
+
+		// ── (c) LE MARQUEUR SE MESURE DANS SA ZONE, PAS SUR L'IMAGE ENTIERE
+		// Le temoin note le rectangle de la zone que personne ne remplit, puis on
+		// recompte DANS ce rectangle. Le compteur d'image entiere, lui, rendait
+		// 239 980 dans les deux cas : sature par l'aplat du Panel.
+		TemoinHote temoin;
+		temoin.cible = "apercu_materiau";
+		g_hooks = &temoin;
+		g_garderPixels = true;
+		const Montage t = MonterFichier(chemin, 400, 600);
+		g_hooks = nullptr;
+		g_garderPixels = false;
+		Check(temoin.vu, "   le temoin a bien vu passer la zone non remplie");
+		const uint32 marque = ComptePixelsDansRect(t.px, 400, 600, temoin.zone);
+		printf("        zone non remplie : %.0fx%.0f a (%.0f, %.0f) -> %u px de marqueur\n",
+			   (double)temoin.zone.w, (double)temoin.zone.h, (double)temoin.zone.x,
+			   (double)temoin.zone.y, marque);
+		// ⚠️ CE CRITERE EST CELUI QUE LA MUTATION DOIT FAIRE ROUGIR.
+		//    `NK_HOTE_MUTATION=sansmarqueur` retire le trace du marqueur : ce compte
+		//    doit alors tomber a zero, et cette ligne doit ECHOUER. Une mutation qui
+		//    survit dirait que le critere ne teste rien.
+		Check(marque > 0u, "   le marqueur TRACE dans la zone (mutation : sansmarqueur)");
+		Check(temoin.zone.w > 1.f && temoin.zone.h > 1.f, "   et la zone a une surface");
+	}
+
+	printf("\n-- (m6) LES TAILLES RELATIVES : le MEME document, DEUX fenetres, DEUX dispositions justes\n");
+	{
+		// ⚠️ C'EST LE MANQUE STRUCTUREL DE L'INVENTAIRE DU 17/09. `pos` et `size` sont en
+		//    pixels absolus : un document qui decrirait NK3DModeler avec eux le figerait a
+		//    UNE taille de fenetre, alors que sa disposition reelle est en fractions
+		//    (0,16 et 0,29). Le critere est donc : le meme fichier, deux fenetres, et les
+		//    largeurs suivent -- avec le PLANCHER qui mord dans la petite.
+		Joindre(dossier, sizeof(dossier), racine, "/valides/");
+		Joindre(chemin, sizeof(chemin), dossier, "13_tailles_relatives.nkgui");
+
+		const Montage grand = MonterFichier(chemin, 1200, 800, "13_tailles_grand");
+		const Montage petit = MonterFichier(chemin, 800, 600, "13_tailles_petit");
+		Check(grand.lu && petit.lu, "   le document se lit dans les deux fenetres");
+		CheckEq(grand.rap.rolesInconnus, 0u, "   aucun role hors vocabulaire");
+
+		// Les rectangles REELLEMENT montes, lus dans le releve -- jamais recalcules ici.
+		float32 gG = -1.f, dG = -1.f, gP = -1.f, dP = -1.f;
+		for (uint32 i = 0; i < (uint32)grand.rap.items.Size(); ++i) {
+			const NkGuiMonteItem &it = grand.rap.items[i];
+			if (it.id.Compare("gauche") == 0) gG = it.rect.w;
+			if (it.id.Compare("droite") == 0) dG = it.rect.w;
+		}
+		for (uint32 i = 0; i < (uint32)petit.rap.items.Size(); ++i) {
+			const NkGuiMonteItem &it = petit.rap.items[i];
+			if (it.id.Compare("gauche") == 0) gP = it.rect.w;
+			if (it.id.Compare("droite") == 0) dP = it.rect.w;
+		}
+		printf("        1200x800 : gauche %.0f px (attendu 192)   droite %.0f px (attendu 348)\n",
+			   (double)gG, (double)dG);
+		printf("         800x600 : gauche %.0f px (attendu 180, le PLANCHER mord)   droite %.0f px (attendu 232)\n",
+			   (double)gP, (double)dP);
+		Check(gG > 191.f && gG < 193.f, "   1200 : la colonne gauche fait 16 % (192 px)");
+		Check(dG > 347.f && dG < 349.f, "   1200 : la colonne droite fait 29 % (348 px)");
+		Check(gP > 179.f && gP < 181.f, "   800 : le PLANCHER de 180 px mord (128 -> 180)");
+		Check(dP > 231.f && dP < 233.f, "   800 : la colonne droite suit (232 px)");
+		// Et les deux dispositions sont DIFFERENTES : un document fige rendrait la meme.
+		Check(gG != gP || dG != dP, "   les deux fenetres donnent deux dispositions differentes");
+
+		// ── LE NEGATIF DE L'ABSOLU : `pos`+`size` ne suit PAS la fenetre ──
+		const char *abs =
+			"nkgui 0.3\nwidgets {\n  Panel \"racine\" { placement = absolute\n"
+			"    Panel \"fixe\" { pos = (10, 10), size = (200, 100) }\n  }\n}\n";
+		uint32 na = 0;
+		while (abs[na]) ++na;
+		const Montage a1 = MonterTexte(abs, na, 1200, 800);
+		const Montage a2 = MonterTexte(abs, na, 800, 600);
+		float32 f1 = -1.f, f2 = -1.f;
+		for (uint32 i = 0; i < (uint32)a1.rap.items.Size(); ++i)
+			if (a1.rap.items[i].id.Compare("fixe") == 0) f1 = a1.rap.items[i].rect.w;
+		for (uint32 i = 0; i < (uint32)a2.rap.items.Size(); ++i)
+			if (a2.rap.items[i].id.Compare("fixe") == 0) f2 = a2.rap.items[i].rect.w;
+		printf("        NEGATIF absolu : %.0f px dans les deux fenetres\n", (double)f1);
+		Check(f1 > 199.f && f1 < 201.f, "   NEGATIF : un `size` absolu vaut 200 px");
+		Check(f1 == f2, "   NEGATIF : et il vaut le MEME dans une autre fenetre");
+	}
+	printf("\n-- (m7) LA BANDE D'ONGLETS : montee, et c'est le SOULIGNEMENT de l'onglet actif qui le prouve\n");
+	{
+		// ⚠️ LE CRITERE EST UNE COULEUR QUE SEULE LA SELECTION PEINT. `TabBar` souligne
+		//    l'onglet actif sur 3 px en `theme.accent` (NkGuiWidgets.cpp:2249). Compter
+		//    « des pixels » ne dirait rien -- le Panel en peint des dizaines de milliers.
+		//    Compter l'ACCENT dit qu'un onglet est monte ET selectionne.
+		const uint32 kAccent = 0x60A5FAFFu; // theme.accent par defaut : (96, 165, 250, 255)
+		Joindre(dossier, sizeof(dossier), racine, "/valides/");
+		Joindre(chemin, sizeof(chemin), dossier, "14_onglets.nkgui");
+
+		g_couleurCible = kAccent;
+		const Montage t3 = MonterFichier(chemin, 400, 300, "14_onglets");
+		g_couleurCible = 0u;
+		Check(t3.lu, "   le document se lit");
+		CheckEq(t3.rap.rolesInconnus, 0u, "   `TabBar` est du vocabulaire (0 role inconnu)");
+		float32 largeur = -1.f;
+		for (uint32 i = 0; i < (uint32)t3.rap.items.Size(); ++i)
+			if (t3.rap.items[i].id.Compare("onglets") == 0)
+				largeur = t3.rap.items[i].rect.w;
+		printf("        bande montee : largeur %.0f px ; pixels d'accent %u ; texte %u px\n",
+			   (double)largeur, t3.poigneeN, t3.contenu);
+		Check(largeur > 0.f, "   la bande est MONTEE (un rectangle non vide au releve)");
+		Check(t3.poigneeN > 100u, "   l'onglet actif est SOULIGNE (accent peint)");
+
+		// ── (c) TROIS onglets et non un : moins de texte avec un seul
+		const char *un = "nkgui 0.3\nwidgets {\n  Panel \"f\" {\n    TabBar \"onglets\" { tabs = [Scene] }\n  }\n}\n";
+		uint32 nu = 0;
+		while (un[nu]) ++nu;
+		g_couleurCible = kAccent;
+		const Montage t1 = MonterTexte(un, nu, 400, 300);
+		g_couleurCible = 0u;
+		printf("        un seul onglet : texte %u px ; accent %u px\n", t1.contenu, t1.poigneeN);
+		Check(t1.contenu < t3.contenu, "   TROIS onglets peignent plus de texte qu'UN");
+		Check(t1.empreinte != t3.empreinte, "   et les deux images different");
+		Check(t1.poigneeN > 100u, "   un seul onglet reste souligne (il est actif)");
+
+		// ── (d) NEGATIF : une liste VIDE ne souligne rien
+		const char *vide = "nkgui 0.3\nwidgets {\n  Panel \"f\" {\n    TabBar \"onglets\" { tabs = [] }\n  }\n}\n";
+		uint32 nv = 0;
+		while (vide[nv]) ++nv;
+		g_couleurCible = kAccent;
+		const Montage t0 = MonterTexte(vide, nv, 400, 300);
+		g_couleurCible = 0u;
+		printf("        liste vide : accent %u px\n", t0.poigneeN);
+		CheckEq(t0.poigneeN, 0u, "   NEGATIF : `tabs = []` ne souligne RIEN");
+	}
+	printf("\n-- (m8) L'INSPECTEUR A BLOCS PLIABLES : ce qui compte n'est pas le triangle, c'est ce qu'il CACHE\n");
+	{
+		// ⚠️ LE CRITERE EST L'ABSENCE D'UN ENFANT DANS LE RELEVE. Un bloc replie qui
+		//    monterait quand meme ses enfants « en les cachant » serait un titre, pas un
+		//    pliable -- et un compteur de pixels ne verrait pas la difference si le contenu
+		//    tombait hors clip. On lit donc le RELEVE, qui nomme chaque bloc monte.
+		Joindre(dossier, sizeof(dossier), racine, "/valides/");
+		Joindre(chemin, sizeof(chemin), dossier, "15_inspecteur.nkgui");
+		const Montage m = MonterFichier(chemin, 400, 300, "15_inspecteur");
+		Check(m.lu, "   le document se lit");
+		CheckEq(m.rap.rolesInconnus, 0u, "   `Expander` est du vocabulaire (0 role inconnu)");
+
+		bool blocOuvert = false, blocFerme = false, enfantVisible = false, enfantCache = false;
+		for (uint32 i = 0; i < (uint32)m.rap.items.Size(); ++i) {
+			const NkGuiMonteItem &it = m.rap.items[i];
+			if (it.id.Compare("transformation") == 0) blocOuvert = true;
+			if (it.id.Compare("materiau") == 0) blocFerme = true;
+			if (it.id.Compare("position_visible") == 0) enfantVisible = true;
+			if (it.id.Compare("couleur_cachee") == 0) enfantCache = true;
+		}
+		printf("        releve : bloc ouvert %s ; bloc ferme %s ; enfant du ouvert %s ; enfant du ferme %s\n",
+			   blocOuvert ? "oui" : "NON", blocFerme ? "oui" : "NON",
+			   enfantVisible ? "oui" : "NON", enfantCache ? "OUI" : "non");
+		Check(blocOuvert && blocFerme, "   les DEUX blocs sont montes");
+		Check(enfantVisible, "   l'enfant du bloc OUVERT est monte");
+		Check(!enfantCache, "   NEGATIF : l'enfant du bloc FERME n'est PAS monte (mutation : toujours)");
+
+		// ── (d) L'IMAGE : deux blocs fermes peignent MOINS que un ouvert + un ferme
+		const char *deuxFermes =
+			"nkgui 0.3\nwidgets {\n  Panel \"inspecteur\" { title = \"Proprietes\"\n"
+			"    Expander \"transformation\" { label = \"Transformation\", expanded = false\n"
+			"      Text \"position_visible\" { text = \"Position X Y Z\" }\n    }\n"
+			"    Expander \"materiau\" { label = \"Materiau\", expanded = false\n"
+			"      Text \"couleur_cachee\" { text = \"Couleur de base\" }\n    }\n  }\n}\n";
+		uint32 nd = 0;
+		while (deuxFermes[nd]) ++nd;
+		const Montage f = MonterTexte(deuxFermes, nd, 400, 300);
+		printf("        contenu peint : un ouvert %u px ; deux fermes %u px\n", m.contenu, f.contenu);
+		Check(f.contenu < m.contenu, "   deux blocs fermes peignent MOINS de contenu");
+		Check(f.empreinte != m.empreinte, "   et les deux images different");
+	}
+	printf("\n-- (m9) LE SEPARATEUR : le critere n'est pas qu'il se dessine, c'est qu'il DEPLACE la frontiere\n");
+	{
+		// ⚠️ UN TRAIT GRIS DE QUATRE PIXELS SE DESSINE SANS RIEN SEPARER. On monte donc
+		//    DEUX FOIS dans le MEME contexte et le MEME etat, avec un GESTE entre les deux,
+		//    et on lit les rectangles des deux voisins dans le releve. Ils doivent bouger
+		//    EN SENS CONTRAIRE : un seul qui bouge serait un redimensionneur, pas un
+		//    separateur.
+		// ⚠️ AUCUNE ENTREE MACHINE : la souris est posee dans NOTRE contexte, comme partout
+		//    ailleurs dans ce depot.
+		Joindre(dossier, sizeof(dossier), racine, "/valides/");
+		Joindre(chemin, sizeof(chemin), dossier, "16_separateur.nkgui");
+		Fichier f = Lire(chemin);
+		Check(f.ok, "   le document se lit depuis le disque");
+		if (f.ok) {
+			NkArchive doc;
+			NkGuiDiag err;
+			const bool lu = NkGuiArchive::Read(f.data, f.taille, doc, err);
+			Check(lu, "   il s'analyse");
+			if (lu) {
+				NkGuiContext ctx;
+				ctx.viewW = 1000;
+				ctx.viewH = 600;
+				if (g_fontOk)
+					ctx.font = &g_font;
+				const NkRect region{0.f, 0.f, 1000.f, 600.f};
+				NkGuiMonteEtat etat;
+				NkGuiMonteur::Preparer(doc, etat);
+
+				// ── PASSE 1 : AU REPOS, aucune souris
+				NkGuiMonteRapport r1;
+				ctx.BeginFrame(0.016f);
+				ctx.BeginLayout(region);
+				ctx.DL().Reset();
+				NkGuiMonteur::Monter(ctx, doc, etat, r1);
+				ctx.EndFrame();
+				float32 g1 = -1.f, d1 = -1.f;
+				for (uint32 i = 0; i < (uint32)r1.items.Size(); ++i) {
+					if (r1.items[i].id.Compare("gauche") == 0) g1 = r1.items[i].rect.w;
+					if (r1.items[i].id.Compare("droite") == 0) d1 = r1.items[i].rect.w;
+				}
+				// ⚠️ MON ATTENDU ETAIT FAUX, ET LE CODE AVAIT RAISON. J'avais predit 160 et 836 ;
+				//    `SplitterRects` CENTRE la poignee sur le point de coupe : le trait de 4 px va
+				//    de 158 a 162, donc le voisin gauche fait 158 et le droit 838. La coupe est bien
+				//    a 0,16 x 1000 = 160 -- c'est la CONDITION que ma prediction supposait (poignee
+				//    posee APRES la coupe) qui etait fausse, pas la valeur.
+				printf("        AU REPOS  : gauche %.0f px (attendu 158)   droite %.0f px (attendu 838)\n",
+					   (double)g1, (double)d1);
+				Check(g1 > 157.f && g1 < 159.f, "   le defaut du DOCUMENT est applique (coupe a 160, poignee centree)");
+				Check(d1 > 837.f && d1 < 839.f, "   et le voisin prend le reste (1000 - 158 - 4)");
+
+				// ── PASSE 2 : LE GESTE. Souris pressee sur la poignee, puis tiree a x = 400.
+				//    Deux images : la premiere prend la poignee, la seconde la deplace --
+				//    c'est le contrat de `SplitterRatio`, qui lit un appui deja actif.
+				// 🔴 TROIS IMAGES, ET PAS DEUX : `ItemHoverable` finit par `return hotIdPrev == id`,
+				//    donc un widget n'est survolable qu'apres avoir ete le plus en avant a l'image
+				//    PRECEDENTE. Un appui pose des la premiere image ne trouve personne de survole
+				//    et ne prend jamais la main : ma premiere sonde faisait deux images, le geste
+				//    n'avait aucun effet, et j'ai failli accuser le separateur.
+				//    Ordre obligatoire : SURVOLER, puis APPUYER, puis DEPLACER.
+				for (int32 img = 0; img < 3; ++img) {
+					NkGuiMonteRapport rg;
+					ctx.BeginFrame(0.016f);
+					ctx.input.mousePos = (img < 2) ? NkVec2{160.f, 300.f} : NkVec2{400.f, 300.f};
+					ctx.input.mouseDown[0] = (img >= 1);
+					ctx.input.mouseClicked[0] = (img == 1);
+					ctx.BeginLayout(region);
+					ctx.DL().Reset();
+					NkGuiMonteur::Monter(ctx, doc, etat, rg);
+					ctx.EndFrame();
+				}
+				// 🔴 ON RELACHE LA OU L'ON EST, ET C'EST UNE CORRECTION DE MA SONDE.
+				//    Ma premiere version relachait ET teleportait la souris hors ecran dans la
+				//    MEME image : `SplitterRatio` rapporte la position a la zone, donc
+				//    (-10000 - 0) / 1000 = -10, borne a `min` = 0,1 -- la colonne tombait a 98 px
+				//    et j'ai failli conclure que le geste ne survivait pas. Un utilisateur
+				//    relache ou son curseur est ; le teleporter etait une condition que le
+				//    produit ne rencontre pas.
+				// ⚠️ CONSTAT GARDE, NON CORRIGE : si la souris sort VRAIMENT de la fenetre
+				//    pendant le glisser, le ratio saute au minimum. Condition de reouverture :
+				//    le jour ou un glisser reel devra survivre a une sortie de fenetre.
+				// ── PASSE 3 : on relache, et on relit la disposition
+				NkGuiMonteRapport r2;
+				ctx.BeginFrame(0.016f);
+				ctx.input.mouseDown[0] = false;
+				ctx.input.mouseClicked[0] = false;
+				ctx.input.mousePos = NkVec2{400.f, 300.f}; // ON RELACHE SUR PLACE (voir ci-dessous)
+				ctx.BeginLayout(region);
+				ctx.DL().Reset();
+				NkGuiMonteur::Monter(ctx, doc, etat, r2);
+				ctx.EndFrame();
+				float32 g2 = -1.f, d2 = -1.f;
+				for (uint32 i = 0; i < (uint32)r2.items.Size(); ++i) {
+					if (r2.items[i].id.Compare("gauche") == 0) g2 = r2.items[i].rect.w;
+					if (r2.items[i].id.Compare("droite") == 0) d2 = r2.items[i].rect.w;
+				}
+				printf("        APRES LE GESTE : gauche %.0f px   droite %.0f px   (somme %.0f, etait %.0f)\n",
+					   (double)g2, (double)d2, (double)(g2 + d2), (double)(g1 + d1));
+				Check(g2 > g1, "   la frontiere a BOUGE : le voisin gauche a grandi");
+				Check(d2 < d1, "   ET le voisin droit a diminue -- les DEUX se recalculent");
+				const float32 somme1 = g1 + d1, somme2 = g2 + d2;
+				Check(somme2 > somme1 - 1.f && somme2 < somme1 + 1.f,
+					  "   leur somme est conservee (le trait garde son epaisseur)");
+
+				// ── (c) LE DOCUMENT NE REECRIT PAS LE GESTE : un montage de plus, sans
+				//    souris, garde la valeur tiree. C'est `initialise` qui le garantit.
+				NkGuiMonteRapport r3;
+				ctx.BeginFrame(0.016f);
+				ctx.BeginLayout(region);
+				ctx.DL().Reset();
+				NkGuiMonteur::Monter(ctx, doc, etat, r3);
+				ctx.EndFrame();
+				float32 g3 = -1.f;
+				for (uint32 i = 0; i < (uint32)r3.items.Size(); ++i)
+					if (r3.items[i].id.Compare("gauche") == 0) g3 = r3.items[i].rect.w;
+				printf("        MONTAGE SUIVANT, sans geste : gauche %.0f px\n", (double)g3);
+				Check(g3 > g2 - 1.f && g3 < g2 + 1.f,
+					  "   le geste SURVIT au montage suivant (le document ne le reecrit pas)");
+			}
+			Liberer(f);
+		}
+
+		// ── (e) NEGATIF : sans aucun geste, deux montages rendent la MEME disposition
+		const Montage s1 = MonterFichier(chemin, 1000, 600, "16_separateur");
+		const Montage s2 = MonterFichier(chemin, 1000, 600);
+		CheckEq(s1.empreinte, s2.empreinte, "   NEGATIF : sans geste, deux montages sont identiques AU BIT");
+	}
+	printf("\n-- (m10) UNE SENTINELLE N'EST PAS UNE POSITION : un geste ne suit pas une souris « nulle part »\n");
+	{
+		// ⚠️ LE DEFAUT, TROUVE EN ME TROMPANT LE 17/09 : un separateur tire a 398 px puis
+		//    relache pendant que la souris est repoussee hors ecran voyait sa colonne tomber
+		//    a 98 px -- la valeur minimale. La coquille repousse la souris a (-100000,
+		//    -100000) quand elle masque l'entree des panneaux ; quinze endroits de NKGui
+		//    derivent une valeur de la position ABSOLUE, aucun n'avait de garde.
+		// ⚠️ LE ZERO D'ABORD : la regle ne doit RIEN changer quand la souris reste dedans.
+		Joindre(dossier, sizeof(dossier), racine, "/valides/");
+		Joindre(chemin, sizeof(chemin), dossier, "16_separateur.nkgui");
+		Fichier f2 = Lire(chemin);
+		Check(f2.ok, "   le document se lit");
+		if (f2.ok) {
+			NkArchive doc;
+			NkGuiDiag err;
+			if (NkGuiArchive::Read(f2.data, f2.taille, doc, err)) {
+				// Un glisser identique a celui de (m9), mais relache AVEC LA SENTINELLE.
+				NkGuiContext ctx;
+				ctx.viewW = 1000;
+				ctx.viewH = 600;
+				if (g_fontOk)
+					ctx.font = &g_font;
+				const NkRect region{0.f, 0.f, 1000.f, 600.f};
+				NkGuiMonteEtat etat;
+				NkGuiMonteur::Preparer(doc, etat);
+				NkGuiMonteRapport rz;
+				// survol, appui, deplacement -- l'ordre qu'impose `hotIdPrev`
+				for (int32 img = 0; img < 3; ++img) {
+					ctx.BeginFrame(0.016f);
+					ctx.input.mousePos = (img < 2) ? NkVec2{160.f, 300.f} : NkVec2{400.f, 300.f};
+					ctx.input.mouseDown[0] = (img >= 1);
+					ctx.input.mouseClicked[0] = (img == 1);
+					ctx.BeginLayout(region);
+					ctx.DL().Reset();
+					NkGuiMonteRapport tmp;
+					NkGuiMonteur::Monter(ctx, doc, etat, tmp);
+					ctx.EndFrame();
+				}
+				// LA SENTINELLE : la souris part « nulle part » alors que le geste est vif.
+				ctx.BeginFrame(0.016f);
+				ctx.input.mousePos = NkVec2{-100000.f, -100000.f};
+				ctx.input.mouseDown[0] = true;
+				ctx.BeginLayout(region);
+				ctx.DL().Reset();
+				NkGuiMonteur::Monter(ctx, doc, etat, rz);
+				ctx.EndFrame();
+				// puis on relache, souris toujours nulle part, et on relit
+				NkGuiMonteRapport rf;
+				ctx.BeginFrame(0.016f);
+				ctx.input.mouseDown[0] = false;
+				ctx.BeginLayout(region);
+				ctx.DL().Reset();
+				NkGuiMonteur::Monter(ctx, doc, etat, rf);
+				ctx.EndFrame();
+				float32 gf = -1.f;
+				for (uint32 i = 0; i < (uint32)rf.items.Size(); ++i)
+					if (rf.items[i].id.Compare("gauche") == 0)
+						gf = rf.items[i].rect.w;
+				printf("        apres la SENTINELLE : gauche %.0f px (attendu ~398, et non 98)\n", (double)gf);
+				Check(gf > 390.f, "   la colonne NE S'EFFONDRE PAS (mutation : NK_SOURIS_MUTATION=libre)");
+			}
+			Liberer(f2);
+		}
+	}
+	printf("\n-- (m11) LA HIERARCHIE : une liste ECRITE est un widget, une liste LIEE est une donnee\n");
+	{
+		// ⚠️ LA FRONTIERE, ET ELLE EST LA MEME QUE CELLE DE LA ZONE HOTE. Le format sait
+		//    ECRIRE une liste (`items`, ou des enfants `Item`/`TreeItem`) : c'est statique,
+		//    donc un widget. Il sait aussi NOMMER une source (`bind`), et la rien ne peut la
+		//    fournir -- l'etat du montage ne porte qu'un booleen, un flottant et un texte.
+		//    Une liste liee que personne ne remplit doit donc SE SIGNALER, comme la zone
+		//    hachuree : sinon un arbre vide se fait prendre pour un arbre sans elements.
+		Joindre(dossier, sizeof(dossier), racine, "/valides/");
+		Joindre(chemin, sizeof(chemin), dossier, "17_hierarchie.nkgui");
+		const Montage h = MonterFichier(chemin, 400, 500, "17_hierarchie");
+		Check(h.lu, "   le document se lit");
+		CheckEq(h.rap.rolesInconnus, 0u, "   `ListBox`, `TreeItem` et `Item` sont du vocabulaire");
+
+		bool listeEcrite = false, listeLiee = false, arbre = false, cube = false, lumiere = false;
+		NkRect rectLiee{};
+		for (uint32 i = 0; i < (uint32)h.rap.items.Size(); ++i) {
+			const NkGuiMonteItem &it = h.rap.items[i];
+			if (it.id.Compare("ecrite") == 0) listeEcrite = true;
+			if (it.id.Compare("liee") == 0) { listeLiee = true; rectLiee = it.rect; }
+			if (it.id.Compare("racine") == 0) arbre = true;
+			if (it.id.Compare("cube") == 0) cube = true;
+			if (it.id.Compare("lumiere") == 0) lumiere = true;
+		}
+		printf("        releve : liste ecrite %s ; arbre %s ; cube %s ; lumiere %s ; liste liee %s\n",
+			   listeEcrite ? "oui" : "NON", arbre ? "oui" : "NON", cube ? "oui" : "NON",
+			   lumiere ? "oui" : "NON", listeLiee ? "oui" : "NON");
+		Check(listeEcrite && listeLiee, "   les DEUX listes sont montees");
+		Check(arbre && cube && lumiere, "   la liste ECRITE monte son arbre et ses deux elements");
+		printf("        listes liees et jamais remplies : %u (attendu 1)\n", h.rap.listesNonRemplies);
+		CheckEq(h.rap.listesNonRemplies, 1u, "   UNE SEULE liste est declaree non remplie");
+
+		// ── (c) LE MARQUEUR EST VISIBLE, et on le mesure DANS son rectangle
+		g_garderPixels = true;
+		const Montage h2 = MonterFichier(chemin, 400, 500);
+		g_garderPixels = false;
+		const uint32 marqueL = ComptePixelsDansRect(h2.px, 400, 500, rectLiee);
+		printf("        zone de la liste liee : %.0fx%.0f a (%.0f,%.0f) -> %u px de marqueur\n",
+			   (double)rectLiee.w, (double)rectLiee.h, (double)rectLiee.x, (double)rectLiee.y, marqueL);
+		// 🔴 LE SEUIL EST DERIVE DU TRACE, ET PAS « PLUS DE ZERO ». Premiere version :
+		//    `marque > 0`. La MUTATION A SURVECU -- elle rendait 12 pixels (le cadre de la
+		//    `ListBox` elle-meme) au lieu de 4 249, et le critere passait quand meme. Un
+		//    critere qu'une mutation traverse ne teste rien.
+		//    Les hachures posent un segment tous les 12 px sur (largeur + hauteur) : meme a
+		//    dix pixels de long en moyenne, cela fait (w + h) / 12 * 10. Le seuil vient donc
+		//    de la geometrie du trace, pas d'un nombre choisi.
+		const uint32 seuilHachures = (uint32)((rectLiee.w + rectLiee.h) / 12.f * 10.f);
+		printf("        seuil derive des hachures : %u px\n", seuilHachures);
+		Check(marqueL > seuilHachures, "   le marqueur de la liste liee est VISIBLE (mutation : muette)");
+
+		// ── (d) NEGATIF : une liste ECRITE ne compte pas comme non remplie
+		const char *ecrite =
+			"nkgui 0.3\nwidgets {\n  Panel \"f\" {\n    ListBox \"l\" { bind = ui.scene\n"
+			"      Item \"a\" { label = \"A\" }\n    }\n  }\n}\n";
+		uint32 ne = 0;
+		while (ecrite[ne]) ++ne;
+		const Montage he = MonterTexte(ecrite, ne, 400, 500);
+		printf("        liste LIEE mais REMPLIE : %u non remplie(s)\n", he.rap.listesNonRemplies);
+		CheckEq(he.rap.listesNonRemplies, 0u,
+				"   NEGATIF : une liste liee ET remplie n'est PAS signalee");
+	}
 	printf("\n=== %d / %d ===\n", g_pass, g_pass + g_fail);
 	if (g_fail > 0)
 		printf("    %d ECHEC(S)\n", g_fail);
