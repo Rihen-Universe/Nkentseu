@@ -917,7 +917,7 @@ static int BancVariete(const char *dossier) {
 			c[i] = -1.f;
 		c[3 + n * (3 + n * 3)] = 1.f;
 		c[4 + n * (4 + n * 4)] = 1.f;
-		CasVariete("diagonale", c, n, n, n, false,
+		CasVariete("diagonale", c, n, n, n, true,
 				   "deux coins DIAGONALEMENT opposes dans la MEME cellule : un sommet pour deux nappes", dossier);
 	}
 
@@ -933,7 +933,7 @@ static int BancVariete(const char *dossier) {
 			c[i] = -1.f;
 		c[3 + n * (3 + n * 3)] = 1.f;
 		c[4 + n * (4 + n * 3)] = 1.f;
-		CasVariete("diagonale_face", c, n, n, n, false,
+		CasVariete("diagonale_face", c, n, n, n, true,
 				   "deux coins diagonaux d'une MEME FACE : ambiguite de face, distincte du coin", dossier);
 	}
 
@@ -950,7 +950,7 @@ static int BancVariete(const char *dossier) {
 					const bool dedans = i >= 3 && i <= 8 && j >= 3 && j <= 8 && k >= 3 && k <= 8;
 					c[i + n * (j + n * k)] = (dedans && ((i + j + k) % 2) == 0) ? 1.f : -1.f;
 				}
-		CasVariete("damier", c, n, n, n, false, "une cellule ambigue PARTOUT : le pire cas constructible",
+		CasVariete("damier", c, n, n, n, true, "une cellule ambigue PARTOUT : le pire cas constructible",
 				   dossier);
 	}
 
