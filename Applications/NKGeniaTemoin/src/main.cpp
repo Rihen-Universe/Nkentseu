@@ -36,6 +36,7 @@
 // USAGE : NKGeniaTemoin <fichier.glb|.gltf>     code 0 = VERT, 1 = ROUGE
 // =============================================================================
 #include "NKRenderer/Mesh/NkGLTFLoader.h"
+#include "NKRenderer/Mesh/NkOBJLoader.h"
 #include "NKRenderer/Mesh/NkEditMesh.h"
 #include "NKContainers/Associative/NkHashMap.h"
 #include "NKLogger/NkLog.h"
@@ -86,6 +87,19 @@ static void MakeCube(NkVector<NkVertex3D> &v, NkVector<uint32> &idx) {
 // vu sur BrainStem.glb (59 sous-mesh) -- selectionner trois sommets y
 // selectionnait 59 faces. L'arithmetique d'extrusion tenait quand meme, et
 // c'est precisement pourquoi le temoin imprime S : un chiffre qu'on lit.
+// L'AIGUILLAGE PAR EXTENSION, et il vit ICI, a un seul endroit.
+// POURQUOI : depuis le 2026-09-17 ce temoin juge DEUX producteurs -- le
+// generateur d'IMAGE (TripoSR, qui ecrit du glTF) et le generateur de TEXTE
+// (NKTexte3D, qui ecrit du .obj parce qu'aucun ecrivain glTF n'existe dans le
+// depot). La question mesuree est la MEME : « l'objet produit repond-il aux
+// outils d'edition ». Deux temoins auraient pu deriver l'un de l'autre ; un
+// seul ne le peut pas. LoadOBJ et LoadGLTF remplissent la meme structure.
+static bool ChargerMaillage(const char *path, NkGLTFMeshData &out) {
+	const size_t n = path ? strlen(path) : 0;
+	const bool obj = n > 4 && (strcmp(path + n - 4, ".obj") == 0 || strcmp(path + n - 4, ".OBJ") == 0);
+	return obj ? LoadOBJ(NkString(path), out) : LoadGLTF(NkString(path), out);
+}
+
 static void IndicesGlobaux(const NkGLTFMeshData &data, NkVector<uint32> &out) {
 	out.Clear();
 	const uint32 iTotal = (uint32)data.indices.Size();
@@ -160,17 +174,17 @@ static bool VoletIdentite(NkEditMesh &m, const char *nom) {
 
 int main(int argc, char **argv) {
 	if (argc < 2) {
-		printf("usage : NKGeniaTemoin <fichier.glb|.gltf>\n");
+		printf("usage : NKGeniaTemoin <fichier.glb|.gltf|.obj>\n");
 		return 1;
 	}
 	const char *path = argv[1];
 	printf("== NKGeniaTemoin : %s ==\n", path);
 
 	// ── [1] LE CHARGEUR EXISTANT LIT-IL LE GLTF GENERE ? ────────────────────
-	printf("[1] chargement par NkGLTFLoader\n");
+	printf("[1] chargement par NkGLTFLoader (.glb/.gltf) ou NkOBJLoader (.obj)\n");
 	NkGLTFMeshData data;
-	const bool ok = LoadGLTF(NkString(path), data);
-	Attendu(ok && data.IsValid(), "LoadGLTF rend vrai et des sommets", 1, ok && data.IsValid() ? 1 : 0);
+	const bool ok = ChargerMaillage(path, data);
+	Attendu(ok && data.IsValid(), "le chargeur rend vrai et des sommets", 1, ok && data.IsValid() ? 1 : 0);
 	if (!ok || !data.IsValid()) {
 		printf("VERDICT : ROUGE -- le chargeur ne lit pas ce fichier, rien d'autre ne peut se mesurer\n");
 		return 1;
@@ -186,9 +200,14 @@ int main(int argc, char **argv) {
 	{
 		// Volet negatif : un chemin inexistant doit etre REFUSE.
 		NkString faux(path);
-		faux.Append(".inexistant.glb");
+		// L'extension est CONSERVEE : ajouter « .glb » ferait tester le
+		// chargeur glTF meme quand le cas porte sur un .obj -- un negatif qui
+		// change de chemin de code ne refute pas le chemin mesure.
+		const size_t nl = strlen(path);
+		const bool objCas = nl > 4 && (strcmp(path + nl - 4, ".obj") == 0 || strcmp(path + nl - 4, ".OBJ") == 0);
+		faux.Append(objCas ? ".inexistant.obj" : ".inexistant.glb");
 		NkGLTFMeshData rien;
-		const bool okFaux = LoadGLTF(faux, rien);
+		const bool okFaux = ChargerMaillage(faux.CStr(), rien);
 		Attendu(!okFaux && !rien.IsValid(), "negatif : chemin inexistant refuse", 0, okFaux ? 1 : 0);
 	}
 
