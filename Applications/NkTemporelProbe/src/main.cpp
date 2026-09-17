@@ -98,6 +98,41 @@
 // qui l'ont trouvé — les images trouvent ce que les nombres validaient.
 //
 // ⚠️ AUCUNE FENETRE N'EST OUVERTE. Périphérique DX11 sans surface.
+//
+// -----------------------------------------------------------------------------
+// LA SUITE, LE MEME JOUR : (t2) N'EST PLUS ROUGE, ET LA CAUSE ETAIT ECRITE DANS
+// LE NUANCEUR DEPUIS LE DEBUT.
+//
+// Deux hypotheses ont ete mises a l'epreuve, attendus ecrits avant chaque course.
+//
+//   H1, le retournement decorrelerait l'historique -> REFUTEE. Avec
+//   NK_TAA_YFLIP=-1 (image droite), le rapport passe de 0,915 a 0,9219 : il ne
+//   descend pas, il monte. Le nuanceur de sommets calcule vUV UNE fois et les
+//   TROIS echantillonnages s'en servent, donc le retournement est COHERENT et ne
+//   casse pas la correspondance courant/historique. Le retournement reste un vrai
+//   defaut, mais ce n'est pas celui-ci.
+//
+//   H2, les matrices de reprojection portent le JITTER -> CONFIRMEE. Le nuanceur
+//   ecrit en tete : « les deux matrices sont DE-JITTREES : le jitter ne doit pas
+//   entrer dans la correspondance geometrique ». Le C++ lui envoyait les matrices
+//   jittees. La sonde NK_TAA_DEBUG=3, qui mesure |prevUV - vUV| x 20 sur une scene
+//   et une camera IMMOBILES, rendait 6,33 la ou l'identite aurait rendu 0 --
+//   l'attendu derive avant la course etait « 0 si de-jitte, 5 a 11 si jitte ».
+//
+// LE CORRECTIF ET CE QU'IL DEPLACE (meme binaire, un seul levier) :
+//   sonde 3 (|prevUV - vUV|) :        6,33  ->  0,00
+//   somme des ecarts, blend 0,9 :    33273  ->  4589
+//   rapport a l'image non accumulee : 0,915 ->  0,1262
+// L'attendu, derive AVANT par D(n) = 0,1 E(n) + 0,9 D(n-1), valait 0,136 pour la
+// frequence dominante du cycle de Halton a 8 phases. Le correctif tombe dessus.
+//
+// CAMERA MOBILE (NK_TEMPOREL_ROT=1.5), parce qu'un correctif de reprojection
+// valide sur une camera immobile serait valide hors de son cas d'usage : aucune
+// trainee introduite -- 6307 pixels de silhouette apres correctif, 6307 avant,
+// 6317 sans TAA du tout. Les deux captures sont visuellement identiques.
+//
+// NK_TAA_DEJITTER=0 restitue l'ancien comportement sans recompiler : ce correctif
+// reste refutable.
 // =============================================================================
 #include "NKRHI/Core/NkDeviceFactory.h"
 #include "NKRHI/Core/NkDeviceInitInfo.h"
@@ -111,6 +146,7 @@
 #include "NKMemory/NKMemory.h"
 #include "NKTime/NkChrono.h"
 
+#include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -317,10 +353,28 @@ int main(int argc, char **argv) {
 	uint32 imagesMesurees = 0;
 	double lumParImage[8] = {0, 0, 0, 0, 0, 0, 0, 0};
 
+	// -- NK_TEMPOREL_ROT=<degres par image> : LA CAMERA BOUGE -----------------
+	// Un TAA se juge surtout EN MOUVEMENT : c'est la que la reprojection sert, et
+	// c'est la qu'un TAA casse laisse une TRAINEE. Valider un correctif de
+	// reprojection sur une camera immobile, ce serait le valider hors de son cas
+	// d'usage. ATTENDU, ECRIT AVANT : une trainee ETALE la silhouette, donc elle
+	// GONFLE le nombre de pixels non-fond. Un TAA sain garde ce nombre proche de
+	// celui obtenu SANS TAA sur la MEME trajectoire.
+	const char *envRot = getenv("NK_TEMPOREL_ROT");
+	const float32 rotParImage = (envRot && envRot[0]) ? (float32)atof(envRot) : 0.f;
+	const float32 rayonCam = 4.28f;  // |(2.6, 3.4)| dans le plan XZ
+	const float32 azimutDep = 0.6529f; // atan2(2.6, 3.4), l'azimut de depart
+
 	for (uint32 i = 0; i < kImages; ++i) {
 		const uint64 t0 = ::nkentseu::NkChrono::Now().nanoseconds;
 		if (!r->BeginFrame())
 			continue;
+		if (rotParImage != 0.f) {
+			const float32 a = azimutDep + (float32)i * rotParImage * 3.14159265f / 180.f;
+			ctx.camera.SetPosition({rayonCam * (float32)::sin((double)a), 2.0f,
+									rayonCam * (float32)::cos((double)a)});
+			ctx.camera.SetTarget({0.f, 0.f, 0.f});
+		}
 		r3d->BeginScene(ctx);
 		r3d->Submit(dc);
 		r->Present();
