@@ -127,7 +127,7 @@ function Lire([string]$l, [string]$cle) {
 	return -999
 }
 $r = @($lignes | ForEach-Object { $_.ToString() })
-$f1 = Lire $r[0] "f"; $s1 = Lire $r[0] "selection"
+$f1 = Lire $r[0] "f"; $s1 = Lire $r[0] "selection"; $c1x = Lire $r[0] "selF"
 $f2 = Lire $r[1] "f"; $v2 = Lire $r[1] "selV"; $e2 = Lire $r[1] "selE"; $c2 = Lire $r[1] "selF"
 $f3 = Lire $r[2] "f"
 $f4 = Lire $r[3] "f"; $s4 = Lire $r[3] "selection"
@@ -156,7 +156,17 @@ Dire "(1) apres le 1er X : selection VIDE dans les TROIS sous-modes" (($v2 -eq 0
 	"releve 2 : faces=$f2 selV=$v2 selE=$e2 selF=$c2 (exige 0/0/0)"
 Dire "(2) le 2e X ne supprime plus rien" ($f3 -eq $f2) `
 	"releve 3 : faces=$f3, contre $f2 au releve 2 (exige EGAL ; sans le correctif : 0)"
-Write-Host "FAIT   (3) apres Ctrl+Z (rapporte, non juge) : faces=$f4 selection=$s4"
+# (3) L'ANNULATION REND L'INTENTION, PAS UNE DEDUCTION.
+#   Mesure du 17/09 : Ctrl+Z rendait SIX faces la ou l'utilisateur en avait choisi
+#   DEUX. Le cliche d'annulation PORTE pourtant l'intention -- prouve un etage plus
+#   bas par NKEditMeshHarness --annulation, qui montre 2 par l'intention et 6 par la
+#   deduction SUR LE MEME maillage restaure. Il manquait le LECTEUR.
+#   ⚠ LE CRITERE PORTE SUR selF, PAS SUR selV. selV=24 est ATTENDU et normal : c'est
+#   la propagation aux sommets coincidents, qui disparaitra avec le modele
+#   d'identite. L'ecrire evite qu'on le prenne un jour pour un defaut.
+$v4 = Lire $r[3] "selV"; $c4 = Lire $r[3] "selF"
+Dire "(3) apres Ctrl+Z : l'intention d'origine revient (2 faces)" (($f4 -eq $f1) -and ($c4 -eq $c1x)) `
+	"releve 4 : faces=$f4 (attendu $f1) selF=$c4 (attendu $c1x ; sans le lecteur : 6) selV=$v4 (24 attendu, propagation)"
 
 Write-Host "-----------------------------------------------------------------------"
 if ($Mutation) {

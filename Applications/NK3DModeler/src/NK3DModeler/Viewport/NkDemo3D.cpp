@@ -2568,6 +2568,50 @@ namespace nkentseu {
 
 		// Normalise la sélection de l'UI après un pick (ou une sélection scriptée) : passe par
 		// l'AUTORITÉ (editHE) pour l'étendre aux sommets coïncidents, puis la relit.
+		// ── LE LECTEUR DE L'INTENTION DE FACE, ET POURQUOI IL MANQUAIT ──────────
+		// Mesure du 17/09 : apres un Ctrl+Z, l'ecran rendait SIX faces selectionnees la
+		// ou l'utilisateur en avait choisi DEUX. Le cliche d'annulation est pourtant une
+		// COPIE COMPLETE de `NkEditMesh`, qui porte `faces[].sel` : l'intention y EST.
+		// Ce qui manquait est ce lecteur -- `Demo3D_UndoEdit` ne rappelait que
+		// `Demo3D_PullSel`, qui relit les SOMMETS, et `Demo3D_FaceSelSync` rededuisait
+		// ensuite « toutes les faces dont tous les sommets sont retenus », c'est-a-dire
+		// les six (deux faces opposees allument les 24 coins).
+		// Prouve par `NKEditMeshHarness --annulation` : sur le MEME maillage restaure,
+		// l'intention rend 2 et la deduction rend 6. Ce n'est donc pas le cliche qui
+		// perd l'information, c'est le lecteur qui n'en voulait pas.
+		//
+		// ⚠ CETTE REGLE SURVIVRA AU MODELE D'IDENTITE : « l'annulation rend l'intention
+		//   telle qu'elle etait » reste vraie quand un sommet sera une entite unique.
+		//   C'est la PROPAGATION aux coincidents qui est la dette, pas ceci.
+		//
+		// ⚠ ET ON NE FORCE RIEN QUAND L'INTENTION EST PERIMEE. `RefreshFaceSel` decide ;
+		//   si elle dit non, on ne touche a rien et la deduction reprend la main -- elle
+		//   est alors la bonne reponse (selection venue d'une boite, d'un lasso, d'un
+		//   « tout selectionner » ou du resultat d'une operation).
+		static void Demo3D_PullFaceSel(Demo3DState *st) {
+			// MUTATION dans le MEME binaire : `NK_UNDO_NOFACESEL=1` retire CE lecteur et
+			// rien d'autre. Le releve d'apres annulation doit alors rendre 6.
+			static int sansLecteur = -1;
+			if (sansLecteur == -1) {
+				const char *v = getenv("NK_UNDO_NOFACESEL");
+				sansLecteur = (v && v[0] && v[0] != '0') ? 1 : 0;
+			}
+			if (sansLecteur)
+				return;
+			st->editHE.RefreshFaceSel();
+			if (!st->editHE.FaceSelAJour())
+				return; // intention perimee : la deduction est la bonne reponse
+			const uint32 nf = (uint32)st->editHE.faces.Size();
+			if ((uint32)st->faceSel.Size() != nf)
+				st->faceSel.Resize(nf);
+			for (uint32 f = 0; f < nf; ++f)
+				st->faceSel[f] = st->editHE.faces[f].sel ? (uint8)1 : (uint8)0;
+			// LA PHOTO SE PREND EN DERNIER, comme dans `Demo3D_FaceSelApply` et pour la
+			// meme raison : prise avant, `Demo3D_FaceSelSync` rededuirait des le tour
+			// suivant et ce lecteur n'aurait servi a rien -- sans que rien ne le dise.
+			st->faceSelSnap = st->vertSel;
+		}
+
 		static void Demo3D_NormalizeSel(Demo3DState *st) {
 			Demo3D_PushSel(st);
 			Demo3D_PullSel(st);
@@ -5220,6 +5264,9 @@ namespace nkentseu {
 			if (!st->editHistory.Undo(st->editHE))
 				return;
 			Demo3D_PullSel(st);
+			// L'INTENTION DE FACE SE RELIT AUSSI, et dans cet ordre : `Demo3D_PullFaceSel`
+			// prend sa photo sur `vertSel`, que la ligne du dessus vient de remplir.
+			Demo3D_PullFaceSel(st);
 			Demo3D_SyncFromHE(st, ms);
 		}
 
@@ -5227,6 +5274,9 @@ namespace nkentseu {
 			if (!st->editHistory.Redo(st->editHE))
 				return;
 			Demo3D_PullSel(st);
+			// L'INTENTION DE FACE SE RELIT AUSSI, et dans cet ordre : `Demo3D_PullFaceSel`
+			// prend sa photo sur `vertSel`, que la ligne du dessus vient de remplir.
+			Demo3D_PullFaceSel(st);
 			Demo3D_SyncFromHE(st, ms);
 		}
 
