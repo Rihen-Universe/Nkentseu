@@ -34,6 +34,24 @@ namespace nkentseu {
 		// autorisation d'entree (faux pendant une saisie de texte).
 		void Demo3DHostSetView(float32 offX, float32 offY, bool hover, bool inputOn);
 
+		// (b5) REBOUCLAGE DU CURSEUR : l'hote pose son service de replacement,
+		// en pixels FENETRE. Nul par defaut -> le rebouclage corrige les deltas
+		// mais ne bouge pas le curseur physique. Le viewer ne peut pas le faire
+		// lui-meme : il ne connait pas la fenetre, et le contrat de
+		// `NkWindow::SetMousePosition` diverge entre Win32 (ecran) et XCB (fenetre).
+		// Le service rend VRAI s'il a replace le curseur. Le refus REMONTE : sans
+		// lui, le viewer corrigerait un deplacement qui n'a pas eu lieu, et
+		// fabriquerait le saut qu'il cherche a supprimer.
+		void Demo3DHostSetCursorWarp(bool (*fn)(float32, float32));
+		// (b5) CONFINEMENT PENDANT UNE MODALE. Le service rend l'etat REELLEMENT
+		// obtenu, pas ce qu'on a demande : lui seul connait la fenetre ET le focus,
+		// et `veut = true` sans focus doit RELACHER et rendre faux -- un curseur
+		// prisonnier d'une fenetre qui n'a plus le focus serait pire que le defaut.
+		void Demo3DHostSetCursorClip(bool (*fn)(bool));
+		// Rend l'etat courant ; remplit les compteurs de prises et de relachements.
+		// Ils servent a prouver le ZERO : une course sans modale laisse prises a 0.
+		bool Demo3DHostCursorClipStats(int32 *prises, int32 *relaches);
+
 		// Rend la frame de la demo dans la cible hors ecran, sur le command
 		// buffer de l'editeur (crochet preUI). Calcule son dt lui-meme.
 		/// ── LA CARTE DES IDENTIFIANTS DE TEXTURE D'INTERFACE ────────────────
@@ -193,6 +211,13 @@ namespace nkentseu {
 		// Rendent true si la commande a REELLEMENT modifie le maillage.
 		bool Demo3DHostEditExtrude(bool individual);
 		bool Demo3DHostEditDelete();
+		// LE MENU X : supprimer un ELEMENT DEMANDE (1 sommet, 2 arete, 4 face),
+		// quel que soit le sous-mode. Meme entonnoir que le bouton.
+		bool Demo3DHostEditDeleteMode(int32 element);
+		// Le jeton du menu X : la touche DEMANDE, le shell OUVRE. Rend vrai une
+		// seule fois et se consomme -- sinon le menu se rouvrirait a chaque image.
+		bool Demo3DHostTakeDeleteMenuAsk();
+		void Demo3DHostAskDeleteMenu();
 		bool Demo3DHostEditMerge();
 		bool Demo3DHostEditMakeFace();
 		bool Demo3DHostEditSubdivide();
@@ -222,6 +247,11 @@ namespace nkentseu {
 		// chiffre, l'interface ne peut pas savoir si une commande produirait
 		// quelque chose, et devrait donc toutes les proposer.
 		int32 Demo3DHostEditSelCount();
+		// Le meme compte, pour un sous-mode DEMANDE (1 sommet, 2 arete, 4 face),
+		// sans changer le sous-mode courant : un temoin qui doit dire "0 dans les
+		// TROIS sous-modes" ne peut pas basculer le mode pour mesurer, sous peine de
+		// modifier ce qu il mesure.
+		int32 Demo3DHostEditSelCountFor(int32 mask);
 		// Une operation MODALE tourne-t-elle ? Le clic droit lui appartient alors
 		// (il ANNULE l'operation) : le menu contextuel ne doit surtout pas s'ouvrir
 		// par-dessus, sinon un seul clic ferait les deux.
@@ -392,6 +422,12 @@ namespace nkentseu {
 		bool Demo3DHostEditPickFace(int32 face, bool shift);
 		// Le jumeau pour le sous-mode SOMMET : indice BRUT d'un coin de la cage.
 		bool Demo3DHostEditPickVert(int32 vert, bool shift);
+		// Le pendant pour l'ARETE : elle manquait, et le sous-mode ARETE etait donc
+		// inatteignable par une course scriptee (le clic de sommet y est filtre, et
+		// viser en pixels n'est pas deterministe).
+		bool Demo3DHostEditPickEdge(int32 edge, bool shift);
+		uint32 Demo3DHostEditEdgeCount();
+		bool Demo3DHostEditEdgeVerts(int32 edge, int32 *v0, int32 *v1);
 		uint32 Demo3DHostEditVertCount();
 		bool Demo3DHostEditVertPos(int32 vert, float32 *x, float32 *y, float32 *z);
 		// De quoi choisir cet index sans le deviner : combien de faces, et ou.

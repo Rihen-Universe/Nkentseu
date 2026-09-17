@@ -1,0 +1,28 @@
+nkgui 0.3
+
+// L'INSPECTEUR A BLOCS PLIABLES, celui que NK3DModeler peint a la main dans
+// NkModelerProperties.h. Ce qui fait un pliable n'est pas son triangle : c'est ce
+// qu'il CACHE. Le bloc ferme ne doit PAS monter son enfant.
+widgets {
+  Panel "inspecteur" {
+    title = "Proprietes"
+
+    Expander "transformation" {
+      label = "Transformation"
+      expanded = true
+
+      Text "position_visible" {
+        text = "Position X Y Z"
+      }
+    }
+
+    Expander "materiau" {
+      label = "Materiau"
+      expanded = false
+
+      Text "couleur_cachee" {
+        text = "Couleur de base"
+      }
+    }
+  }
+}

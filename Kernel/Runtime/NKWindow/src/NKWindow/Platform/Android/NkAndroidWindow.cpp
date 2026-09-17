@@ -9,6 +9,7 @@
 #include "NKWindow/Platform/Android/NkAndroidWindow.h"
 #include "NKWindow/Platform/Android/NkAndroidDropTarget.h"
 #include "NKWindow/Core/NkWindow.h"
+#include "NKLogger/NkLog.h" // SetMousePositionClient DIT ses refus : jamais un repli muet
 #include "NKWindow/Core/NkWESystem.h"
 #include "NKEvent/NkEventSystem.h"
 #include "NKMemory/NkAllocator.h" // NkGetDefaultAllocator().New/Delete (regle maison : pas de new/delete)
@@ -1151,6 +1152,18 @@ namespace nkentseu {
 
 	bool NkWindow::GetLockOrientation() const {
 		return mConfig.lockOrientation;
+	}
+
+	// COORDONNEES CLIENT : NON IMPLEMENTE sur Android. On le DIT et on rend
+	// FAUX -- un repli silencieux ferait croire a l'appelant que le curseur a
+	// bouge, et le rebouclage de la vue 3D corrigerait alors un deplacement qui
+	// n'a jamais eu lieu. Une absence annoncee se repare ; une absence muette se
+	// decouvre par un defaut incomprehensible, des mois plus tard.
+	bool NkWindow::SetMousePositionClient(int32 x, int32 y) {
+		(void)x;
+		(void)y;
+		NkLog::Instance().Warnf("[NkWindow] SetMousePositionClient : NON IMPLEMENTE sur Android.");
+		return false;
 	}
 
 	void NkWindow::SetMousePosition(uint32, uint32) {

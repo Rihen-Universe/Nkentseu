@@ -40,6 +40,7 @@
 //     pas une propriete du menu, il se mesure dans la vue.
 // =============================================================================
 #include "NK3DModeler/Shell/NkModelerMeshMenu.h"
+#include "NK3DModeler/Shell/NkModelerDeleteMenu.h" // le menu X (Blender)
 
 #include <stdio.h>
 #include <string.h>
@@ -263,6 +264,129 @@ namespace {
 		Cas(toutesVides, "N5b aucune entree sans cle n'annonce de touche (chaine VIDE)");
 	}
 
+
+	// ══ LE MENU X, CELUI DE BLENDER ════════════════════════════════════════
+	// X n'execute plus : il OUVRE un menu de ONZE entrees. La regle de la maison
+	// -- « une entree qui ne peut rien produire se MONTRE et se REFUSE » -- est
+	// exactement ce qu'il faut ici : un menu ampute apprendrait a l'utilisateur
+	// que Blender n'a pas ces commandes.
+	// ⚠ CE BANC N'APPELLE JAMAIS `NkDelMenuRun` : elle passe par les facades
+	//   `demo::`, qui exigent un device. La CONSTRUCTION de la liste, elle, est
+	//   du calcul pur -- c'est ce qui permet de la mesurer ici, sans fenetre.
+	struct DelSnap {
+			const char *labels[kDelMenuCap];
+			const char *motifs[kDelMenuCap];
+			bool enabled[kDelMenuCap];
+			NkDelCmd ids[kDelMenuCap];
+			int32 n = 0;
+			void Build(int32 mask, int32 sel) {
+				n = NkDelMenuBuild(mask, sel, labels, enabled, ids, motifs);
+			}
+			int32 Actives() const {
+				int32 k = 0;
+				for (int32 i = 0; i < n; ++i)
+					if (enabled[i])
+						++k;
+				return k;
+			}
+			// LA SIGNATURE DES ACTIVES, pas leur NOMBRE. C'est une correction de
+			// mon propre attendu (canal R22) : j'avais ecrit « le NOMBRE d'entrees
+			// actives differe d'un sous-mode a l'autre ». Il ne differe PAS -- il
+			// vaut quatre partout. Ce ne sont simplement pas LES MEMES quatre. Un
+			// critere qui aurait compare deux nombres egaux par construction
+			// n'aurait rien pu distinguer ; celui-ci compare des ENSEMBLES.
+			uint32 Signature() const {
+				uint32 b = 0;
+				for (int32 i = 0; i < n; ++i)
+					if (enabled[i])
+						b |= (1u << (uint32)(int32)ids[i]);
+				return b;
+			}
+			bool Actif(NkDelCmd c) const {
+				for (int32 i = 0; i < n; ++i)
+					if (ids[i] == c)
+						return enabled[i];
+				return false;
+			}
+	};
+
+	void Test_MenuX() {
+		printf("\n-- LE MENU X (Blender) : onze entrees, et celles qui refusent disent pourquoi --\n");
+		DelSnap v, e, f, vide;
+		v.Build(1, 3);
+		e.Build(2, 3);
+		f.Build(4, 3);
+		vide.Build(4, 0); // rien de selectionne
+
+		// (z) LE ZERO DU COMPTEUR : sans selection, AUCUNE entree n'est active.
+		//     Sans ce cas, « quatre actives » plus bas ne prouverait pas que le
+		//     compteur sait rendre autre chose.
+		printf("   sans selection : %d entrees, %d actives\n", vide.n, vide.Actives());
+		Cas(vide.n == 11 && vide.Actives() == 0,
+			"X0 sans selection : les 11 entrees sont LA, et aucune n'est active");
+
+		// (a) LES ONZE SONT PRESENTES DANS LES TROIS SOUS-MODES.
+		printf("   sommet %d entrees / %d actives · arete %d / %d · face %d / %d\n", v.n, v.Actives(),
+			   e.n, e.Actives(), f.n, f.Actives());
+		Cas(v.n == 11 && e.n == 11 && f.n == 11,
+			"X1 les 11 entrees de Blender sont presentes dans LES TROIS sous-modes");
+
+		// (b) ET LES ENSEMBLES D'ACTIVES DIFFERENT.
+		printf("   signatures : sommet=%u arete=%u face=%u\n", v.Signature(), e.Signature(),
+			   f.Signature());
+		Cas(v.Signature() != e.Signature() && e.Signature() != f.Signature() &&
+				v.Signature() != f.Signature(),
+			"X2 les trois sous-modes n'activent PAS les memes entrees");
+
+		// (c) LES TROIS SUPPRESSIONS SONT ACTIVES PARTOUT. C'est le coeur du menu :
+		//     « Faces » doit etre choisissable meme en sous-mode Sommet, sinon le
+		//     menu ne fait que repeter ce que la touche faisait deja.
+		Cas(v.Actif(NkDelCmd::Faces) && v.Actif(NkDelCmd::Edges) && v.Actif(NkDelCmd::Vertices) &&
+				e.Actif(NkDelCmd::Faces) && f.Actif(NkDelCmd::Vertices),
+			"X3 Sommets / Aretes / Faces sont choisissables dans les TROIS sous-modes");
+
+		// (d) LE DISSOLVE EST CONTEXTUEL, ET C'EST LUI QUI FAIT LA DIFFERENCE.
+		Cas(v.Actif(NkDelCmd::DissolveVerts) && !v.Actif(NkDelCmd::DissolveFaces) &&
+				f.Actif(NkDelCmd::DissolveFaces) && !f.Actif(NkDelCmd::DissolveVerts) &&
+				e.Actif(NkDelCmd::DissolveEdges) && !e.Actif(NkDelCmd::DissolveVerts),
+			"X4 le dissolve n'est actif que sur l'element du sous-mode courant");
+
+		// (e) CHAQUE REFUS PORTE UN MOTIF, ET CHAQUE ENTREE ACTIVE N'EN PORTE PAS.
+		//     Les deux moities comptent : un motif sur une entree active voudrait
+		//     dire que deux autorites repondent a la meme question.
+		bool refusMuet = false, actifBavard = false;
+		const DelSnap *tous[4] = {&v, &e, &f, &vide};
+		for (int32 k = 0; k < 4; ++k)
+			for (int32 i = 0; i < tous[k]->n; ++i) {
+				const bool aMotif = (tous[k]->motifs[i][0] != 0);
+				if (!tous[k]->enabled[i] && !aMotif)
+					refusMuet = true;
+				if (tous[k]->enabled[i] && aMotif)
+					actifBavard = true;
+			}
+		Cas(!refusMuet, "X5 aucune entree refusee n'est MUETTE : chacune dit pourquoi");
+		Cas(!actifBavard, "X5b aucune entree ACTIVE ne porte de motif de refus");
+
+		// (f) LE DEFAUT DE CHAQUE SOUS-MODE EST CE QUE X FAISAIT AVANT.
+		Cas(NkDelMenuDefaut(1) == NkDelCmd::Vertices && NkDelMenuDefaut(2) == NkDelCmd::Edges &&
+				NkDelMenuDefaut(4) == NkDelCmd::Faces,
+			"X6 le defaut de chaque sous-mode est celui que la touche executait");
+
+		// (g) NEGATIF : une entree non implementee ne doit JAMAIS devenir active,
+		//     quel que soit le sous-mode ou la selection. Sans ce cas, il suffirait
+		//     d'un `return ""` egare pour que le menu promette ce qu'il ne sait pas
+		//     faire -- et une fausse promesse est pire qu'une absence.
+		bool promesse = false;
+		const NkDelCmd kPasEcrites[] = {NkDelCmd::OnlyEdgesFaces, NkDelCmd::OnlyFaces,
+										NkDelCmd::LimitedDissolve, NkDelCmd::EdgeCollapse,
+										NkDelCmd::EdgeLoops};
+		for (int32 k = 0; k < 4; ++k)
+			for (int32 q = 0; q < 5; ++q)
+				if (tous[k]->Actif(kPasEcrites[q]))
+					promesse = true;
+		Cas(!promesse, "X7 aucune des 5 commandes non ecrites ne se declare active");
+	}
+
 } // namespace
 
 int main() {
@@ -282,6 +406,7 @@ int main() {
 	Test_Negatifs(sc);
 	Test_MasqueCombine(sc);
 	Test_AucuneFaussePromesse(sc);
+	Test_MenuX();
 
 	printf("\n=== Resultat : %d OK / %d FAIL (sur %d cas nommes) ===\n", gPass, gFail,
 		   gPass + gFail);

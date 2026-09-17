@@ -1155,6 +1155,11 @@ namespace nkentseu {
 				// recherche. Son CONTENU depend du sous-mode sommet/arete/face,
 				// comme les trois « Context Menu » distincts de Blender.
 				editorkit::NkCtxMenu meshMenu;
+				// LE MENU X (Blender). Un NkCtxMenu a lui : le partager avec celui du
+				// clic droit ferait qu'ouvrir l'un fermerait l'autre, et la trace de
+				// l'un decrirait le contenu de l'autre.
+				editorkit::NkCtxMenu deleteMenu;
+				bool deleteMenuTrace = false;
 				bool meshMenuTrace = false; ///< journalise le contenu a la PROCHAINE ouverture
 				// SELECTEUR D'OUTIL (Espace) -- le MEME composant du kit que le menu du
 				// maillage. C'est la ou G/R/S/C ont depose la selection d'outil.
