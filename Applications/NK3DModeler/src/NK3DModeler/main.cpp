@@ -64,6 +64,7 @@
 // projet n'est ouvert, et il porte l'execution differee des actions projet.
 #include "NK3DModeler/Shell/NkModelerWelcome.h"
 #include "NK3DModeler/Genia/NkGeniaSonde.h" // --sonde-genia : la porte du generateur
+#include "NK3DModeler/Shell/NkModelerContrat.h" // la table des verbes, DONNEE partagee
 #include "NKEvent/NkMouseEvent.h"
 #include "NKEvent/NkWindowEvent.h" // focus : le confinement du curseur le relache
 #include "NKEvent/NkDropEvent.h" // NkDropFileEvent : fichiers laches depuis l'explorateur
@@ -648,60 +649,26 @@ namespace {
 			// ete honnete, mais inutile.
 			return (*a == 0 || *a == ',' || *a == ':');
 		};
-		if (est("togglexray"))
-			st.pendingAction = NkVpAction::ToggleXray;
-		else if (est("frameall"))
-			st.pendingAction = NkVpAction::FrameAll;
-		else if (est("viewfront"))
-			st.pendingAction = NkVpAction::ViewFront;
-		else if (est("viewtop"))
-			st.pendingAction = NkVpAction::ViewTop;
-		else if (est("viewright"))
-			st.pendingAction = NkVpAction::ViewRight;
-		else if (est("selectall"))
-			st.pendingAction = NkVpAction::SelectAll;
-		else if (est("selectnone"))
-			st.pendingAction = NkVpAction::SelectNone;
-		// (b6) `submodevert` MANQUAIT : la table connaissait l'arete et la face,
-		// pas le sommet -- on pouvait donc quitter le sous-mode Sommet par un verbe
-		// mais jamais y revenir. Trois sous-modes, trois verbes.
-		else if (est("submodevert"))
-			st.pendingAction = NkVpAction::SubModeVertex;
-		else if (est("submodeedge"))
-			st.pendingAction = NkVpAction::SubModeEdge;
-		else if (est("submodeface"))
-			st.pendingAction = NkVpAction::SubModeFace;
-		else if (est("undo"))
-			st.pendingAction = NkVpAction::Undo;
-		else if (est("redo"))
-			st.pendingAction = NkVpAction::Redo;
-		else if (est("subdivide"))
-			st.pendingAction = NkVpAction::Subdivide;
-		else if (est("extrude"))
-			st.pendingAction = NkVpAction::Extrude;
-		else if (est("inset"))
-			st.pendingAction = NkVpAction::Inset;
-		else if (est("bevel"))
-			st.pendingAction = NkVpAction::BevelEdge;
-		else if (est("delete"))
-			st.pendingAction = NkVpAction::Delete;
-		else if (est("modalaxisx"))
-			st.pendingAction = NkVpAction::ModalAxisX;
-		else if (est("modalaxisy"))
-			st.pendingAction = NkVpAction::ModalAxisY;
-		else if (est("modalaxisz"))
-			st.pendingAction = NkVpAction::ModalAxisZ;
-		else if (est("modalmove"))
-			st.pendingAction = NkVpAction::ModalMove;
-		else if (est("modalconfirm"))
-			st.pendingAction = NkVpAction::ModalConfirm;
-		else if (est("modalcancel"))
-			st.pendingAction = NkVpAction::ModalCancel;
-		else if (est("dissolve"))
-			st.pendingAction = NkVpAction::Dissolve;
-		else if (est("toggleedit"))
-			st.pendingAction = NkVpAction::ToggleEdit;
-		else {
+		// ── LE PONT LIT LA TABLE, IL NE LA REECRIT PAS ──────────────────────────
+		// La chaine de `else if (est("..."))` qui vivait ici etait la SEULE
+		// definition du vocabulaire, et elle etait illisible hors du C++ : on ne
+		// pouvait ni l'imprimer, ni la donner a un modele, sans la RECOPIER -- et
+		// une chaine recopiee peut mentir sans que rien ne le signale.
+		// Elle est maintenant une donnee (`NkModelerContrat.h`), lue ici ET par
+		// l'imprimeur du contrat. Une seule autorite, deux lecteurs : un verbe
+		// ajoute est reconnu ET documente du meme geste.
+		{
+			int32 nv = 0;
+			const NkVerbe *V = NkVerbes(nv);
+			bool trouve = false;
+			for (int32 i = 0; i < nv; ++i) {
+				if (!est(V[i].nom))
+					continue;
+				st.pendingAction = V[i].act;
+				trouve = true;
+				break;
+			}
+			if (!trouve) {
 			printf("[nk3d] %s : nom inconnu, aucune action posee\n", quiSuisJe);
 			// (b9) LE MEME REFUS, MAIS VISIBLE. Le journal sert aux sondes ; Rodolf,
 			// lui, n'a pas de console. Le motif est donc aussi pose dans l'etat, ou
@@ -709,8 +676,9 @@ namespace {
 			// textes qui finiraient par ne plus dire la meme chose.
 			snprintf(st.aiMotif, sizeof(st.aiMotif),
 				"Je ne connais pas « %s ». Aucune action n'a ete posee.", nomAct);
-			st.aiMotifEstRefus = true;
-			return; // rien a parametrer : il n'y a pas de commande
+				st.aiMotifEstRefus = true;
+				return; // rien a parametrer : il n'y a pas de commande
+			}
 		}
 		st.aiMotifEstRefus = false;
 		st.aiMotif[0] = 0;
@@ -736,6 +704,25 @@ int nkmain(const NkEntryState &entry) {
 	// sans un seul clic. Le verdict part dans `sonde_geo.txt` du dossier donne
 	// (defaut : le dossier courant), parce qu'une application fenetree n'a pas
 	// de console ou ecrire.
+	// ── LE CONTRAT D'OUTILS, ECRIT PAR L'APPLICATION ────────────────────────
+	// `NK3DModeler.exe --contrat-outils [fichier]` ecrit le contrat et SORT :
+	// aucune fenetre, aucun device. C'est le document qu'on donnera a un modele
+	// distant, a Ilyana, ou a un modele de Rodolf -- arbitrage du 17/09 : « le
+	// plus important est la performance des OUTILS associes au modele ».
+	// ⚠ IL N'EST PAS ECRIT A LA MAIN : il parcourt la table des verbes et la
+	//   table des parametres. Un contrat recopie decrirait, tot ou tard, un outil
+	//   qui n'existe plus.
+	for (usize a = 0; a < entry.args.Size(); ++a) {
+		if (!(entry.args[a] == NkString("--contrat-outils")))
+			continue;
+		const NkString out = (a + 1u < entry.args.Size()) ? entry.args[a + 1u]
+														  : NkString("CONTRAT_OUTILS.md");
+		const bool ok = nk3d::NkEcrireContrat(out.CStr(), &NkVpCmdDuVerbe);
+		std::printf("[nk3d] contrat d'outils : %s -> %s\n", ok ? "ecrit" : "ECHEC", out.CStr());
+		std::fflush(stdout);
+		return ok ? 0 : 1;
+	}
+
 	// ── SONDE DE LA PORTE DU GENERATEUR, SANS FENETRE NI CARTE ──────────────
 	// `NK3DModeler.exe --sonde-genia [dossier]` eprouve la remontee du MOTIF du
 	// sous-processus (le defaut nomme par la navette « texte vers 3D ») et la
