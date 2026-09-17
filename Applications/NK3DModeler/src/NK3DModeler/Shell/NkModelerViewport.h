@@ -17,7 +17,8 @@
 #include "NK3DModeler/Viewport/NkViewport3D.h"
 #include "NK3DModeler/Viewport/NkDemo3DHost.h"
 #include "NK3DModeler/Viewport/NkOutCompose.h"
-#include "NK3DModeler/Shell/NkModelerMeshMenu.h" // commandes de maillage : une decl., N chemins
+#include "NK3DModeler/Shell/NkModelerMeshMenu.h"
+#include "NK3DModeler/Shell/NkModelerDeleteMenu.h" // le menu X (Blender) // commandes de maillage : une decl., N chemins
 #include <cstdio> // instrument du menu contextuel (printf/fflush)
 
 namespace nkentseu {
@@ -2072,7 +2073,56 @@ namespace nkentseu {
 					st.toolMenu.open = true;
 					st.toolMenu.pos = in.mousePos;
 				}
-				if (st.toolMenu.open) {
+				// ── LE MENU X, CELUI DE BLENDER ─────────────────────────────────
+			// X n'execute plus : il OUVRE. La touche a pose un jeton dans la vue
+			// 3D (elle ne dessine pas de menu, c'est le shell qui tient NKGui) ;
+			// on le consomme ici. Le contenu vit dans `NkModelerDeleteMenu.h`,
+			// qui est du CALCUL PUR et se mesure donc en console, sans fenetre.
+			if (guiCtx && editMode && demo::Demo3DHostReady()) {
+				if (demo::Demo3DHostTakeDeleteMenuAsk() && !st.deleteMenu.open) {
+					st.deleteMenu.open = true;
+					st.deleteMenu.pos = in.mousePos;
+					st.deleteMenuTrace = true;
+				}
+				if (st.deleteMenu.open) {
+					const char *labels[kDelMenuCap];
+					const char *motifs[kDelMenuCap];
+					bool enabled[kDelMenuCap];
+					NkDelCmd ids[kDelMenuCap];
+					const int32 selMask = demo::Demo3DHostEditSelMask();
+					const int32 selCount = demo::Demo3DHostEditSelCount();
+					const int32 n = NkDelMenuBuild(selMask, selCount, labels, enabled, ids, motifs);
+					// LE MOTIF EST AFFICHE A LA PLACE DU RACCOURCI, sur la ligne meme.
+					// Une entree grisee sans raison est un mur sans panneau : on ne sait
+					// pas s'il manque une selection, un sous-mode, ou la fonctionnalite.
+					const int32 choisi = editorkit::NkCtxMenuDraw(*guiCtx, st.deleteMenu, labels, enabled,
+									n, nullptr, nullptr, nullptr, nullptr, 0,
+									nullptr, motifs);
+					static const bool trMenu = (std::getenv("NK_MENU_TRACE") != nullptr);
+					if (trMenu && st.deleteMenuTrace) {
+						st.deleteMenuTrace = false;
+						std::printf("[nk3d-menux] OUVERT mode=%s entrees=%d selection=%d\n",
+								(selMask & 4) ? "FACE" : ((selMask & 2) ? "ARETE" : "SOMMET"), (int)n,
+								(int)selCount);
+						for (int32 q = 0; q < n; ++q)
+							std::printf("[nk3d-menux]   %2d %-28s %-6s %s\n", (int)q, labels[q],
+									enabled[q] ? "actif" : "GRISE", motifs[q]);
+						std::fflush(stdout);
+					}
+					if (choisi >= 0 && choisi < n) {
+						// UNE COMMANDE, PLUSIEURS ENTREES : on NOMME, le repartiteur fait.
+						// Et c'est LUI qui refuse -- la vue ne redecide pas, sinon l'ecran
+						// pourrait montrer grise ce que le repartiteur executerait.
+						const bool agi = NkDelMenuRun(ids[choisi], selMask, selCount);
+						if (trMenu)
+							std::printf("[nk3d-menux] CHOISI %d (%s) -> agi=%d\n", (int)choisi,
+									labels[choisi], agi ? 1 : 0);
+						st.deleteMenu.open = false;
+					}
+				}
+			}
+
+			if (st.toolMenu.open) {
 					static const char *const kOutils[4] = {"Deplacer", "Tourner", "Redimensionner",
 														  "Combine (T+R+S)"};
 					// Aucune de ces entrees n'a de raccourci : G/R/S sont desormais

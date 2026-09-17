@@ -211,6 +211,13 @@ namespace nkentseu {
 		// Rendent true si la commande a REELLEMENT modifie le maillage.
 		bool Demo3DHostEditExtrude(bool individual);
 		bool Demo3DHostEditDelete();
+		// LE MENU X : supprimer un ELEMENT DEMANDE (1 sommet, 2 arete, 4 face),
+		// quel que soit le sous-mode. Meme entonnoir que le bouton.
+		bool Demo3DHostEditDeleteMode(int32 element);
+		// Le jeton du menu X : la touche DEMANDE, le shell OUVRE. Rend vrai une
+		// seule fois et se consomme -- sinon le menu se rouvrirait a chaque image.
+		bool Demo3DHostTakeDeleteMenuAsk();
+		void Demo3DHostAskDeleteMenu();
 		bool Demo3DHostEditMerge();
 		bool Demo3DHostEditMakeFace();
 		bool Demo3DHostEditSubdivide();

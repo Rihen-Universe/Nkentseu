@@ -58,7 +58,8 @@
 #include "NKEditorKit/Components/NkTreeViewModel.h"
 #include "NKEditorKit/Components/NkContentBrowserModel.h"
 #include "NK3DModeler/Genia/NkGeniaImport.h"     // GENIA : image -> generateur externe -> import (bouton Generer)
-#include "NK3DModeler/Shell/NkModelerMenus.h"   // menus deroulants
+#include "NK3DModeler/Shell/NkModelerMenus.h"
+#include "NK3DModeler/Shell/NkModelerDeleteMenu.h" // le menu X (Blender)   // menus deroulants
 // ECRAN D'ACCUEIL + socle PROJET (.nk3dm) : l'accueil est peint tant qu'aucun
 // projet n'est ouvert, et il porte l'execution differee des actions projet.
 #include "NK3DModeler/Shell/NkModelerWelcome.h"
@@ -2793,6 +2794,50 @@ int nkmain(const NkEntryState &entry) {
 						sRepFait[i] = true;
 						ecrire(agentFrame);
 					}
+			}
+		}
+
+		// NK_MENU_X="<image>[,<entree>]" : la touche X SANS CLAVIER.
+		// Sans <entree>, le menu s'ouvre et RIEN n'est choisi -- c'est le ZERO du
+		// nouveau comportement : X seul ne supprime plus. Avec <entree>, on passe par
+		// LE REPARTITEUR, exactement comme le clic sur la ligne du menu : il n'y a pas
+		// de second chemin, donc une mesure faite ici dit quelque chose du clic.
+		{
+			static bool sMenuXOuvert = false, sMenuXChoisi = false;
+			static int32 sMenuXFrame = 0;
+			if (const char *mx = std::getenv("NK_MENU_X")) {
+				int32 v[2] = {120, -1};
+				int32 k = 0;
+				for (const char *q = mx; k < 2 && *q;) {
+					v[k++] = (int32)std::atoi(q);
+					while (*q && *q != ',')
+						++q;
+					if (*q == ',')
+						++q;
+				}
+				if (!sMenuXOuvert && agentFrame >= v[0]) {
+					sMenuXOuvert = true;
+					sMenuXFrame = agentFrame;
+					demo::Demo3DHostAskDeleteMenu();
+					std::printf("[nk3d-menux] X demande a l'image %d\n", (int)agentFrame);
+					std::fflush(stdout);
+				}
+				if (sMenuXOuvert && !sMenuXChoisi && v[1] >= 0 && agentFrame >= sMenuXFrame + 20) {
+					sMenuXChoisi = true;
+					const char *labels[kDelMenuCap];
+					const char *motifs[kDelMenuCap];
+					bool enabled[kDelMenuCap];
+					NkDelCmd ids[kDelMenuCap];
+					const int32 sm = demo::Demo3DHostEditSelMask();
+					const int32 sc2 = demo::Demo3DHostEditSelCount();
+					const int32 n = NkDelMenuBuild(sm, sc2, labels, enabled, ids, motifs);
+					if (v[1] < n) {
+						const bool agi = NkDelMenuRun(ids[v[1]], sm, sc2);
+						std::printf("[nk3d-menux] CHOISI %d (%s) actif=%d -> agi=%d motif=%s\n", (int)v[1],
+								labels[v[1]], enabled[v[1]] ? 1 : 0, agi ? 1 : 0, motifs[v[1]]);
+					}
+					std::fflush(stdout);
+				}
 			}
 		}
 

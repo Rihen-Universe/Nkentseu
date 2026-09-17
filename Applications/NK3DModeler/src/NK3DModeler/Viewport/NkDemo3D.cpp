@@ -1645,7 +1645,16 @@ namespace nkentseu {
 				bool editWasDragging = false;	  // pour baker le delta en fin de drag
 				bool editOverlayDirty = true;	  // reconstruire les buffers overlay (cage/points/faces)
 				bool editExtrudePending = false;  // E : extrude région (traité côté frame)
-				bool editDeletePending = false;	  // X : supprime faces (traité côté frame)
+				bool editDeletePending = false;
+				// LE MENU X (Blender) : la touche DEMANDE l'ouverture, le shell l'ouvre.
+				// La vue 3D ne dessine pas de menu -- c'est le shell qui tient NKGui --,
+				// donc un JETON, exactement comme `capturePending` : l'un demande,
+				// l'autre execute, et personne ne fait les deux.
+				bool deleteMenuPending = false;
+				// 0 = suit le sous-mode (le defaut, et ce que fait le bouton) ; 1, 2 ou 4
+				// = l'element DEMANDE par une entree du menu. Remis a 0 apres usage :
+				// un mode qui survivrait a sa commande s'appliquerait a la suivante.
+				int32 editDeleteMode = 0;	  // X : supprime faces (traité côté frame)
 				bool editMergePending = false;	  // M : soude les vertices sélectionnés
 				bool editMakeFacePending = false; // F : crée une face (n-gon) depuis la sélection
 				bool editSubdivPending = false;	  // W : subdivise les faces sélectionnées
@@ -4135,9 +4144,15 @@ namespace nkentseu {
 			// sous-modes sur trois.
 			// Priorite identique a celle du menu et du dissolve contextuel :
 			// FACE (bit 4) > ARETE (bit 2) > SOMMET. Un seul endroit decide.
-			c.op = (st->editSelMask & 4)   ? renderer::NkMeshEditOp::Delete
-				   : (st->editSelMask & 2) ? renderer::NkMeshEditOp::DeleteEdges
-										   : renderer::NkMeshEditOp::DeleteVerts;
+			// L'ELEMENT DEMANDE l'emporte sur le sous-mode, et c'est tout l'interet
+			// du menu : « Faces » doit supprimer des faces MEME en sous-mode Sommet,
+			// sinon le menu n'est qu'une decoration a onze lignes qui refait ce que
+			// la touche faisait deja. 0 = suit le sous-mode (le defaut).
+			const int32 el = st->editDeleteMode ? st->editDeleteMode : st->editSelMask;
+			st->editDeleteMode = 0; // consomme : il ne survit pas a sa commande
+			c.op = (el & 4)   ? renderer::NkMeshEditOp::Delete
+				   : (el & 2) ? renderer::NkMeshEditOp::DeleteEdges
+							  : renderer::NkMeshEditOp::DeleteVerts;
 			Demo3D_ApplyCmd(st, ms, c);
 		}
 
@@ -6347,7 +6362,12 @@ namespace nkentseu {
 							if (ctrlK)
 								st->editDissolvePending = 1;
 							else
-								st->editDeletePending = true;
+								// ⚠ X N'EXECUTE PLUS, IL OUVRE LE MENU -- c'est ce que fait Blender,
+								// et c'est le seul moyen de rendre decouvrables les dix autres
+								// commandes de suppression. Le BOUTON et le menu contextuel,
+								// eux, executent toujours le defaut du sous-mode : une commande,
+								// plusieurs entrees, et elles n'ont pas le meme role.
+								st->deleteMenuPending = true;
 							return;
 						}
 						if (k == NkKey::NK_M) {
@@ -15727,6 +15747,33 @@ namespace nkentseu {
 		}
 		bool Demo3DHostEditDelete() {
 			return HostEditRun(&Demo3D_DeleteHE);
+		}
+		// LE MENU X A DEMANDE UN ELEMENT PRECIS. Meme entonnoir que le bouton :
+		// on pose l'element voulu, puis on appelle LA MEME fonction. Il n'y a pas
+		// de second chemin de suppression -- c'est la condition pour qu'une mesure
+		// faite sur l'un dise quelque chose de l'autre.
+		bool Demo3DHostEditDeleteMode(int32 element) {
+			auto *st = HostSt();
+			if (!st)
+				return false;
+			st->editDeleteMode = element;
+			const bool ok = HostEditRun(&Demo3D_DeleteHE);
+			st->editDeleteMode = 0; // meme si l'operation a echoue
+			return ok;
+		}
+		// LE JETON DU MENU X : rend VRAI une seule fois, et se consomme. S'il
+		// survivait, le menu se rouvrirait a chaque image.
+		bool Demo3DHostTakeDeleteMenuAsk() {
+			auto *st = HostSt();
+			if (!st || !st->deleteMenuPending)
+				return false;
+			st->deleteMenuPending = false;
+			return true;
+		}
+		// Pour le pilote headless : demander l'ouverture sans toucher au clavier.
+		void Demo3DHostAskDeleteMenu() {
+			if (auto *st = HostSt())
+				st->deleteMenuPending = true;
 		}
 		// ── ANNULER / REFAIRE : LE BOUTON PARLAIT A LA MAUVAISE PILE ────────
 		// Il y a DEUX historiques dans ce binaire, et c'est la cause exacte du
