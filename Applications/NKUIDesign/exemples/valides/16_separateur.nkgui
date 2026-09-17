@@ -1,0 +1,27 @@
+nkgui 0.3
+
+// LE SEPARATEUR. Ce qui fait un separateur n'est pas son trait : c'est qu'il DEPLACE
+// la frontiere et que les DEUX voisins se recalculent. Ses voisins sont donc ses
+// enfants.
+//
+// `ratio` est la disposition PAR DEFAUT, posee une seule fois. Ce que l'utilisateur
+// tire ensuite vit dans l'etat du montage, jamais dans ce fichier : c'est ce qui le
+// garde partageable.
+widgets {
+
+  Splitter "colonnes" {
+    bind = ui.ratioColonnes
+    ratio = 0.16
+    min = 0.1
+    max = 0.9
+    orientation = Vertical
+
+    Panel "gauche" {
+      title = "Hierarchie"
+    }
+
+    Panel "droite" {
+      title = "Proprietes"
+    }
+  }
+}
