@@ -1721,7 +1721,7 @@ int main(int argc, char **argv) {
 		//    hachuree : sinon un arbre vide se fait prendre pour un arbre sans elements.
 		Joindre(dossier, sizeof(dossier), racine, "/valides/");
 		Joindre(chemin, sizeof(chemin), dossier, "17_hierarchie.nkgui");
-		const Montage h = MonterFichier(chemin, 400, 500, "17_hierarchie");
+		const Montage h = MonterFichier(chemin, 400, 500, "17_hierarchie.png");
 		Check(h.lu, "   le document se lit");
 		CheckEq(h.rap.rolesInconnus, 0u, "   `ListBox`, `TreeItem` et `Item` sont du vocabulaire");
 
@@ -1771,6 +1771,122 @@ int main(int argc, char **argv) {
 		printf("        liste LIEE mais REMPLIE : %u non remplie(s)\n", he.rap.listesNonRemplies);
 		CheckEq(he.rap.listesNonRemplies, 0u,
 				"   NEGATIF : une liste liee ET remplie n'est PAS signalee");
+	}
+	printf("\n-- (m12) L'ANCRAGE : le document dit QUELLES ZONES, et une zone que personne ne fournit SE SIGNALE\n");
+	{
+		// ⚠️ LE TROISIEME PIRE RESULTAT DU FORMAT est ici : un document dont les noms de
+		//    zone ne correspondent a rien de ce que l'application peut fournir. Il doit se
+		//    signaler comme la zone hote et la liste liee -- visible, NOMME, jamais muet.
+		// L'hote de ce banc fournit deux panneaux, « hierarchie » et « apercu », et pas le
+		// troisieme : c'est exactement le cas a mesurer.
+		struct HoteAncrage : nkentseu::nkgui::NkGuiMonteHooks {
+				uint32 servies = 0;
+				NkRect derniere{};
+				// L'INVENTAIRE DE L'HOTE : il possede TROIS panneaux, dont « console »,
+				// que le document ne nomme nulle part. C'est le cas INVERSE.
+				uint32 nbDemandes = 0;
+				bool consoleDemandee = false;
+				bool ZoneAncree(const char *nom, const NkRect &zone) noexcept override {
+					++nbDemandes;
+					if (NomEgal(nom, "console"))
+						consoleDemandee = true;
+					if (NomEgal(nom, "hierarchie") || NomEgal(nom, "apercu")) {
+						++servies;
+						derniere = zone;
+						return true;
+					}
+					return false; // « zone_absente » : cet hote ne la fournit pas
+				}
+		};
+		Joindre(dossier, sizeof(dossier), racine, "/valides/");
+		Joindre(chemin, sizeof(chemin), dossier, "18_ancrage.nkgui");
+		HoteAncrage hote;
+		g_hooks = &hote;
+		g_garderPixels = true;
+		const Montage d1 = MonterFichier(chemin, 1000, 600, "18_ancrage.png");
+		g_hooks = nullptr;
+		g_garderPixels = false;
+		Check(d1.lu, "   le document se lit");
+		CheckEq(d1.rap.rolesInconnus, 0u, "   `DockSpace` est du vocabulaire (0 role inconnu)");
+		CheckEq(d1.rap.zones, 3u, "   TROIS zones declarees par le document");
+		CheckEq(hote.servies, 2u, "   l'hote en sert DEUX (celles dont il a le panneau)");
+		CheckEq(d1.rap.zonesSansPanneau, 1u, "   UNE zone ne correspond a AUCUN panneau fourni");
+
+		// Les proportions viennent du DOCUMENT : 0,16 x 1000 = 160 pour la premiere.
+		float32 largHier = -1.f, rectAbsenteW = -1.f;
+		NkRect rectAbsente{};
+		for (uint32 i = 0; i < (uint32)d1.rap.items.Size(); ++i) {
+			const NkGuiMonteItem &it = d1.rap.items[i];
+			if (it.id.Compare("hierarchie") == 0) largHier = it.rect.w;
+			if (it.id.Compare("zone_absente") == 0) { rectAbsente = it.rect; rectAbsenteW = it.rect.w; }
+		}
+		printf("        zone « hierarchie » : %.0f px (attendu 180 : le plancher mord)   zone absente : %.0f px (attendu 290)\n",
+			   (double)largHier, (double)rectAbsenteW);
+		// ⚠️ 180 ET NON 160, ET C'EST MON ATTENDU QUI AVAIT TORT -- pour la troisieme fois
+		//    cette semaine, j'avais ecrit la VALEUR sans la CONDITION qu'elle suppose. Le
+		//    document declare `sizeRel = (0.16, 0)` ET `minSize = (180, 0)` : 0,16 x 1000
+		//    fait 160, le plancher de 180 MORD, et 180 est le bon resultat. Le zero de ce
+		//    critere est ailleurs : une zone SANS plancher, qui doit rendre sa fraction nue.
+		Check(largHier > 179.f && largHier < 181.f, "   la proportion vient du DOCUMENT (16 %, plancher 180 px)");
+		// LE ZERO DE LA FRACTION : la troisieme zone declare 0,29 SANS plancher -> 290 px nus.
+		Check(rectAbsenteW > 289.f && rectAbsenteW < 291.f, "   une zone SANS plancher rend sa fraction nue (29 %)");
+
+		// ⚠️ CE CRITERE EST NE DE L'IMAGE, PAS DES NOMBRES : les onze criteres precedents
+		//    etaient verts et la capture montrait une BANDE NOIRE de ~197 px a droite, qui
+		//    n'appartenait a aucune zone. Cause : une zone sans `sizeRel` prenait « une part
+		//    egale » (1000/3 = 333) au lieu du RESTE. Un dock qui laisse un trou n'est pas
+		//    un dock. La regle est donc : les fractions declarees d'abord, le RESTE partage
+		//    entre celles qui n'en declarent pas.
+		float32 sommeZones = 0.f, droiteMax = 0.f;
+		for (uint32 i = 0; i < (uint32)d1.rap.items.Size(); ++i) {
+			const NkGuiMonteItem &it = d1.rap.items[i];
+			if (it.profondeur != 1u)
+				continue;
+			sommeZones += it.rect.w;
+			if (it.rect.x + it.rect.w > droiteMax)
+				droiteMax = it.rect.x + it.rect.w;
+		}
+		printf("        largeur couverte par les zones : %.0f px sur 1000 ; bord droit : %.0f\n",
+			   (double)sommeZones, (double)droiteMax);
+		Check(droiteMax > 999.f, "   LES ZONES COUVRENT TOUT LE DOCK -- aucune bande orpheline");
+
+		// LE MARQUEUR de la zone non fournie, mesure DANS son rectangle, avec le seuil
+		// derive des hachures -- pas « plus de zero », qui laisserait passer un cadre.
+		const uint32 marqueZ = ComptePixelsDansRect(d1.px, 1000, 600, rectAbsente);
+		const uint32 seuilZ = (uint32)((rectAbsente.w + rectAbsente.h) / 12.f * 10.f);
+		printf("        marqueur de la zone absente : %u px (seuil derive %u)\n", marqueZ, seuilZ);
+		Check(marqueZ > seuilZ, "   la zone non fournie SE SIGNALE (mutation : NK_DOCK_MUTATION=muet)");
+
+		// ── LE CAS INVERSE, celui que le coordinateur demande par ecrit : UN PANNEAU QUE
+		//    L'APPLICATION FOURNIT ET QUE LE DOCUMENT NE MENTIONNE PAS.
+		//    MON ATTENDU, ecrit avant de lire le compteur : le monteur ne parcourt que les
+		//    zones DU DOCUMENT ; il ne connait pas l'inventaire de l'hote et ne peut donc
+		//    ni l'ouvrir, ni le fermer, ni le deplacer. Le panneau doit rester EXACTEMENT
+		//    ou l'application l'avait mis -- ni flottant, ni ferme : INTOUCHE. La preuve
+		//    est que le crochet n'est JAMAIS appele pour lui : exactement 3 demandes pour
+		//    3 zones declarees, et « console » n'en fait pas partie.
+		//    ⚠️ Ce n'est PAS la reponse de l'autre format : la coquille, elle, FERME. Voir
+		//    `LoadUiState` (NkEditorShell.cpp) -- `if (sawPanel) ... SetOpen(false)` ferme
+		//    TOUS les panneaux avant de rouvrir les seuls qui sont nommes. Les deux formats
+		//    ont donc des politiques OPPOSEES sur le panneau non mentionne, et c'est mesure
+		//    des deux cotes (ici, et section 6 de `--recette-identite` dans NKUIDesign).
+		printf("        crochets demandes : %u (zones du document : %u) ; « console » demandee : %s\n",
+			   hote.nbDemandes, d1.rap.zones, hote.consoleDemandee ? "OUI" : "non");
+		CheckEq(hote.nbDemandes, d1.rap.zones, "   le monteur ne demande QUE les zones du document");
+		Check(!hote.consoleDemandee,
+			  "   LE CAS INVERSE : un panneau non mentionne n'est JAMAIS demande -- il reste INTOUCHE");
+
+		// ── NEGATIF : un hote qui sert TOUT ne doit rien signaler
+		struct HoteComplet : nkentseu::nkgui::NkGuiMonteHooks {
+				bool ZoneAncree(const char *, const NkRect &) noexcept override { return true; }
+		};
+		HoteComplet complet;
+		g_hooks = &complet;
+		const Montage d2 = MonterFichier(chemin, 1000, 600);
+		g_hooks = nullptr;
+		printf("        hote qui sert TOUT : %u zone(s) sans panneau\n", d2.rap.zonesSansPanneau);
+		CheckEq(d2.rap.zonesSansPanneau, 0u, "   NEGATIF : un hote complet ne signale RIEN");
+		Check(d2.empreinte != d1.empreinte, "   et les deux images different");
 	}
 	printf("\n=== %d / %d ===\n", g_pass, g_pass + g_fail);
 	if (g_fail > 0)
