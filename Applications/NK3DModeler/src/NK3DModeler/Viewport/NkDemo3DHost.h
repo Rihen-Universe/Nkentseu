@@ -34,6 +34,13 @@ namespace nkentseu {
 		// autorisation d'entree (faux pendant une saisie de texte).
 		void Demo3DHostSetView(float32 offX, float32 offY, bool hover, bool inputOn);
 
+		// (b5) REBOUCLAGE DU CURSEUR : l'hote pose son service de replacement,
+		// en pixels FENETRE. Nul par defaut -> le rebouclage corrige les deltas
+		// mais ne bouge pas le curseur physique. Le viewer ne peut pas le faire
+		// lui-meme : il ne connait pas la fenetre, et le contrat de
+		// `NkWindow::SetMousePosition` diverge entre Win32 (ecran) et XCB (fenetre).
+		void Demo3DHostSetCursorWarp(void (*fn)(float32, float32));
+
 		// Rend la frame de la demo dans la cible hors ecran, sur le command
 		// buffer de l'editeur (crochet preUI). Calcule son dt lui-meme.
 		/// ── LA CARTE DES IDENTIFIANTS DE TEXTURE D'INTERFACE ────────────────
@@ -222,6 +229,11 @@ namespace nkentseu {
 		// chiffre, l'interface ne peut pas savoir si une commande produirait
 		// quelque chose, et devrait donc toutes les proposer.
 		int32 Demo3DHostEditSelCount();
+		// Le meme compte, pour un sous-mode DEMANDE (1 sommet, 2 arete, 4 face),
+		// sans changer le sous-mode courant : un temoin qui doit dire "0 dans les
+		// TROIS sous-modes" ne peut pas basculer le mode pour mesurer, sous peine de
+		// modifier ce qu il mesure.
+		int32 Demo3DHostEditSelCountFor(int32 mask);
 		// Une operation MODALE tourne-t-elle ? Le clic droit lui appartient alors
 		// (il ANNULE l'operation) : le menu contextuel ne doit surtout pas s'ouvrir
 		// par-dessus, sinon un seul clic ferait les deux.
