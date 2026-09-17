@@ -9146,6 +9146,28 @@ namespace nkuidesign {
 							++n;
 					return n;
 				};
+				// ⚠️ LA PIECE A CONVICTION. « 3 » n'a jamais dit OU ni QUOI. On garde,
+				//    pour le PREMIER coin fautif, sa position droite, le sommet
+				//    d'accent le plus proche de cette position, et la distance de ce
+				//    coin au CONTOUR TOURNE. Si le coupable est sur le contour
+				//    tourne, alors ce critere compte la geometrie qu'il valide par
+				//    ailleurs -- et il ne peut pas distinguer ce qu'il pretend
+				//    distinguer.
+				float32 cDroitX = -1.f, cDroitY = -1.f, cAccX = -1.f, cAccY = -1.f, cDistAcc = -1.f;
+				auto accentLePlusProche = [&](float32 x, float32 y, float32 &ox, float32 &oy) {
+					float32 best = 1e30f;
+					for (uint32 i = 0; i < (uint32)ctxE.dl.vtx.Size(); ++i) {
+						if (ctxE.dl.vtx[i].col != accent)
+							continue;
+						const float32 d = NkLongueur2D(ctxE.dl.vtx[i].pos.x - x, ctxE.dl.vtx[i].pos.y - y);
+						if (d < best) {
+							best = d;
+							ox = ctxE.dl.vtx[i].pos.x;
+							oy = ctxE.dl.vtx[i].pos.y;
+						}
+					}
+					return best;
+				};
 				uint32 presTournes = 0u, presDroits = 0u;
 				for (uint32 i = 0; i < nbS0 && i < 4u; ++i) {
 					float32 tx = sx0[i * 2], ty = sx0[i * 2 + 1];
@@ -9153,9 +9175,21 @@ namespace nkuidesign {
 					if (accentPres(tx, ty) > 0u)
 						++presTournes;
 					// la position NON tournee : loin du sommet tourne (> 12 px) et sans poignee
-					if (NkLongueur2D(tx - sx0[i * 2], ty - sx0[i * 2 + 1]) > 12.f && accentPres(sx0[i * 2], sx0[i * 2 + 1]) > 0u)
+					if (NkLongueur2D(tx - sx0[i * 2], ty - sx0[i * 2 + 1]) > 12.f && accentPres(sx0[i * 2], sx0[i * 2 + 1]) > 0u) {
 						++presDroits;
+						if (cDistAcc < 0.f) {
+							cDroitX = sx0[i * 2];
+							cDroitY = sx0[i * 2 + 1];
+							cDistAcc = accentLePlusProche(cDroitX, cDroitY, cAccX, cAccY);
+						}
+					}
 				}
+				// ⚠️ LE NEGATIF EST PLUS BAS, APRES LES TESTS DE CLIC : pose ICI, il
+				//    changeait la selection avant eux et faisait passer `tire` de 0 a -1.
+				//    Un negatif qui deplace le critere voisin fabrique le signal qu'il
+				//    pretend mesurer.
+				uint32 presDroitsSansSel = 0u;
+				float32 cDistContour = -1.f;
 				const bool memeRepere = nbS0 == 4u && presTournes == 4u && presDroits == 0u;
 				const uint32 nF = presTournes, nA = presDroits;
 				const float32 fx0 = 0.f, fx1 = 0.f, fy0 = 0.f, fy1 = 0.f, ax0 = 0.f, ax1 = 0.f, ay0 = 0.f, ay1 = 0.f;
@@ -9190,11 +9224,69 @@ namespace nkuidesign {
 				const int32 tireDroit = stE.modeForme.tire;
 				image(qx, qy, false);
 				image(-1.f, -1.f, false);
+				// ⚠️ LE NEGATIF QUI NOMME LE COUPABLE (2026-09-17, soir). Ce critere
+				//    compte des sommets d'accent pres des positions NON tournees et
+				//    rend 3 depuis au moins `169581007` -- « 3 », sans jamais dire
+				//    QUI les peint. Un compteur qui accuse doit nommer, sinon il
+				//    envoie chercher partout. On rejoue donc la MEME scene SANS
+				//    SELECTION, en ne changeant QUE la selection :
+				//      tombe a 0 -> l'accent vient du CADRE DE SELECTION, et le mode
+				//                   edition, lui, dessine bien sous la matrice ;
+				//      reste a 3 -> il vient du MODE EDITION, et c'est le produit qui
+				//                   dessine dans le mauvais repere.
+				{
+					stE.SelectClear();
+					for (int32 k = 0; k < 4; ++k)
+						image(-1.f, -1.f, false);
+					for (uint32 i = 0; i < nbS0 && i < 4u; ++i) {
+						float32 tx = sx0[i * 2], ty = sx0[i * 2 + 1];
+						NkMatPoint(mE, tx, ty);
+						if (NkLongueur2D(tx - sx0[i * 2], ty - sx0[i * 2 + 1]) > 12.f
+							&& accentPres(sx0[i * 2], sx0[i * 2 + 1]) > 0u)
+							++presDroitsSansSel;
+					}
+					stE.SelectSingle(rc);
+					for (int32 k = 0; k < 4; ++k)
+						image(-1.f, -1.f, false);
+				}
+				// SECOND NEGATIF, et il borne le coupable : SANS selection ET SANS mode
+				// edition. Trois issues, trois coupables differents :
+				//   0 ici et 3 au-dessus -> c'est le MODE EDITION qui peint non tourne ;
+				//   3 ici                -> c'est un trace peint TOUJOURS (le lisere du
+				//                          noeud, la page), independant des deux modes ;
+				//   autre                -> les deux contribuent.
+				uint32 presDroitsNu = 0u;
+				{
+					const int32 gardeNoeud = stE.modeForme.noeud;
+					stE.SelectClear();
+					stE.modeForme.Quitter();
+					for (int32 k = 0; k < 4; ++k)
+						image(-1.f, -1.f, false);
+					for (uint32 i = 0; i < nbS0 && i < 4u; ++i) {
+						float32 tx = sx0[i * 2], ty = sx0[i * 2 + 1];
+						NkMatPoint(mE, tx, ty);
+						if (NkLongueur2D(tx - sx0[i * 2], ty - sx0[i * 2 + 1]) > 12.f
+							&& accentPres(sx0[i * 2], sx0[i * 2 + 1]) > 0u)
+							++presDroitsNu;
+					}
+					stE.modeForme.noeud = gardeNoeud;
+					stE.SelectSingle(rc);
+					for (int32 k = 0; k < 4; ++k)
+						image(-1.f, -1.f, false);
+				}
+				// LA MESURE QUI TRANCHE : le sommet d'accent incrimine est-il SUR le
+				// contour tourne ? S'il y est, ce critere compte la geometrie qu'il
+				// valide par ailleurs et ne distingue rien ; s'il en est loin, c'est
+				// bien un trace NON tourne, donc le produit.
+				if (cDistAcc >= 0.f) {
+					float32 tC = 0.f;
+					(void)NkSegmentLePlusProche(ctT, nbS, cAccX, cAccY, tC, cDistContour);
+				}
 				stE.modeForme.Quitter();
 				(void)fx0; (void)fx1; (void)fy0; (void)fy1; (void)ax0; (void)ax1; (void)ay0; (void)ay1;
-				snprintf(det, sizeof(det), "poignees pres des 4 sommets TOURNES : %u/4 ; pres des positions non tournees : %u (attendu 0) ; "
+				snprintf(det, sizeof(det), "poignees pres des 4 sommets TOURNES : %u/4 ; pres des positions non tournees : %u (attendu 0), dont %u SANS SELECTION et %u SANS SELECTION NI MODE EDITION ; 1er coin droit (%.1f,%.1f) accent le plus proche (%.1f,%.1f) a %.2f px, et a %.2f px du CONTOUR TOURNE ; "
 										   "clic sur la position ecran du sommet 0 (%.0f,%.0f) -> tire=%d ; loin du contour tourne (%.0f,%.0f, a %.0f px du cote le plus proche) -> tire=%d",
-						 nF, nA, px, py, tire, qx, qy, ecart, tireDroit);
+						 nF, nA, presDroitsSansSel, presDroitsNu, cDroitX, cDroitY, cAccX, cAccY, cDistAcc, cDistContour, px, py, tire, qx, qy, ecart, tireDroit);
 				check("74. LE MODE EDITION SOUS LA MATRICE, sur la vraie toile : un rect tourne de 30° au coin coupe -- le "
 					  "poignees d'edition sont aux positions ECRAN tournees des sommets, aucune aux positions droites ; un clic "
 					  "sur la position ECRAN d'un sommet le prend, un clic loin du contour tourne ne prend rien",
