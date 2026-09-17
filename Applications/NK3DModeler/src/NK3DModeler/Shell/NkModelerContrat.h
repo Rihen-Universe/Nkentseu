@@ -93,6 +93,37 @@ namespace nkentseu {
 			return kV;
 		}
 
+		/// LE TEST DE RECONNAISSANCE, ET IL N'EXISTE QU'ICI.
+		/// ⚠️ IL A ETE SORTI DU PONT PARCE QU'UN SECOND LECTEUR EST APPARU : le
+		///    panneau doit savoir si ce que tape Rodolf est DEJA un verbe (auquel
+		///    cas on l'execute sans deranger le modele) ou une phrase (auquel cas
+		///    on interroge le modele). Deux tests de reconnaissance auraient
+		///    diverge au premier caractere terminateur ajoute -- et la divergence
+		///    se serait vue comme « le panneau accepte ce que le pont refuse ».
+		/// Le verbe s'arrete sur 0, ',' ou ':' : « bevel:0.2:4 » nomme la commande
+		/// PUIS ses parametres.
+		inline const NkVerbe *NkVerbeTrouve(const char *texte) {
+			if (!texte || !*texte)
+				return nullptr;
+			int32 nv = 0;
+			const NkVerbe *V = NkVerbes(nv);
+			for (int32 i = 0; i < nv; ++i) {
+				const char *a = texte;
+				const char *b = V[i].nom;
+				bool egal = true;
+				while (*b && egal) {
+					char x = *a++, y = *b++;
+					if (x >= 'A' && x <= 'Z')
+						x = (char)(x - 'A' + 'a');
+					if (x != y)
+						egal = false;
+				}
+				if (egal && (*a == 0 || *a == ',' || *a == ':'))
+					return &V[i];
+			}
+			return nullptr;
+		}
+
 		/// LES MOTIFS DE REFUS, ET ILS FONT PARTIE DU CONTRAT. Un modele doit
 		/// savoir ce qu'on lui repondra quand il se trompe -- sinon il ne peut pas
 		/// se corriger.
