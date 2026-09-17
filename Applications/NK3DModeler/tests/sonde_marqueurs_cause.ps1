@@ -160,12 +160,28 @@ function CourirMod([string]$nom, [string]$xray, [string]$dist, [string]$dorsal) 
 	#    survie ne bouge pas, le dorsal est hors de cause et la comparaison entre
 	#    applications tient. Sinon elle ne tient pas, et il faut le dire.
 	if ($dorsal) { $env:NK_GFX_BACKEND = $dorsal }
+	# ⚠️ LA CAMERA EST FIGEE, ET C'EST LE CORRECTIF LE PLUS IMPORTANT DE CE
+	#    FICHIER. Deux courses identiques -- meme binaire, memes variables, trois
+	#    minutes d'ecart -- ont rendu 10 px puis 181 px. En comparant les deux
+	#    captures : 13 116 pixels differents sur 13 200 echantillonnes. Ce
+	#    n'etait pas du bruit de mesure, C'ETAIT UNE AUTRE SCENE : cube a une
+	#    autre place, autre orientation, autre ombre. La sonde mesurait une CIBLE
+	#    MOUVANTE, et toutes ses boites relevees a la main portaient a cote.
+	#    `NK_FIX_CAM` fige la pose ET le temps. Sans lui, aucun chiffre de cette
+	#    sonde n'est reproductible -- et un chiffre non reproductible ne prouve
+	#    rien, meme quand il tombe sur la bonne conclusion.
+	#    ⚠️ LE PRIX EST DIT : sous NK_FIX_CAM, `NK_CAM_DIST` est INERTE (le code
+	#       le documente, NkDemo3D.cpp:7214). La partie A perd donc son levier.
+	#       C'est un echange assume : la question de l'echelle de camera a deja
+	#       ete tranchee (R66/R67, prediction dementie), tandis que la
+	#       reproductibilite manquait a TOUT le reste.
+	$env:NK_FIX_CAM = "1"
 	$journal = Join-Path $Arbre "logs\app.log"
 	$avant = Get-Date
 	Start-Process -FilePath $exeMod -WorkingDirectory $Arbre -NoNewWindow -Wait -RedirectStandardOutput $out -ErrorAction Stop | Out-Null
 	foreach ($v in @("NK_SONDE", "NK_ADD_NODE", "NK_EDIT_USER", "NK_MARQ_PROBE", "NK_AGENT_SCENE",
 			"NK_AGENT_EXIT", "NK_EDIT_MODE", "NK_EDIT_SEL", "NK_EDIT_SELMASK", "NK_AGENT_SHOT",
-			"NK_TOAST_PROBE", "NK_EDIT_XRAY", "NK_CAM_DIST", "NK_GFX_BACKEND")) {
+			"NK_TOAST_PROBE", "NK_EDIT_XRAY", "NK_CAM_DIST", "NK_GFX_BACKEND", "NK_FIX_CAM")) {
 		if (Test-Path "Env:\$v") { Remove-Item -Path "Env:\$v" }
 	}
 	# La course a-t-elle seulement eu lieu ? Un journal anterieur au lancement
@@ -263,12 +279,31 @@ Dire "(A1) PREDICTION : le rognage s'attenue quand la camera s'APPROCHE" ($rProc
 Write-Host ""
 Write-Host "PARTIE C — LE TEMOIN DE DORSAL : le modeleur, en OpenGL comme l'etalon"
 Write-Host "-----------------------------------------------------------------------"
-$gl_on = CourirMod "gl_on" "1" "4" "opengl"
-$gl_off = CourirMod "gl_off" $null "4" "opengl"
+# ⚠️ LE TEMOIN COURT A LA DISTANCE PAR DEFAUT, ET PAS A d=4. Premiere
+#    version : il reutilisait le d=4 de la partie A et rendait VERT sur 8 px
+#    contre 1 px -- c'est-a-dire sur des comptes que la sonde venait, deux
+#    lignes plus haut, de declarer HORS D'ORDRE DE GRANDEUR. Un garde-fou qui
+#    protege un critere et pas son voisin ne protege rien : le chiffre faux
+#    ressort par la porte d'a cote. A la distance par defaut, le cadrage est
+#    celui pour lequel la boite a ete relevee, et les comptes redeviennent
+#    plausibles.
+$gl_on = CourirMod "gl_on" "1" $null "opengl"
+$gl_off = CourirMod "gl_off" $null $null "opengl"
+$dx_on = CourirMod "dx_on" "1" $null $null
+$dx_off = CourirMod "dx_off" $null $null $null
 $rGL = Rapport $gl_off.n $gl_on.n
-Write-Host ("       modeleur OpenGL d=4 : eteint {0} px / allume {1} px  ->  {2} %" -f $gl_off.n, $gl_on.n, $rGL)
-Dire "(C) le DORSAL ne change pas la survie des marqueurs" (($rGL -gt 0) -and ([Math]::Abs($rGL - $rProche) -lt 15)) `
-	("{0} % en OpenGL contre {1} % en DirectX 11, meme distance (exige un ecart faible ; sinon comparer deux applications sur deux dorsaux ne veut rien dire)" -f $rGL, $rProche)
+$rDX = Rapport $dx_off.n $dx_on.n
+Write-Host ("       modeleur OpenGL     : eteint {0} px / allume {1} px  ->  {2} %" -f $gl_off.n, $gl_on.n, $rGL)
+Write-Host ("       modeleur DirectX 11 : eteint {0} px / allume {1} px  ->  {2} %" -f $dx_off.n, $dx_on.n, $rDX)
+# Le meme garde-fou qu'en (A1), et pour la meme raison.
+if ((Plausible $gl_on.n) -and (Plausible $dx_on.n)) {
+	Dire "(C) le DORSAL ne change pas la survie des marqueurs" (($rGL -gt 0) -and ($rDX -gt 0) -and ([Math]::Abs($rGL - $rDX) -lt 15)) `
+		("{0} % en OpenGL contre {1} % en DirectX 11, meme cadrage (exige un ecart faible ; sinon comparer deux applications sur deux dorsaux ne veut rien dire)" -f $rGL, $rDX)
+}
+else {
+	Write-Host ("       (C) NON MESURABLE : {0} px en OpenGL et {1} px en DirectX 11, hors de" -f $gl_on.n, $dx_on.n)
+	Write-Host "       l'ordre de grandeur de huit marqueurs. Ce n'est PAS un verdict sur le code."
+}
 
 Write-Host ""
 Write-Host "PARTIE B — L'ETALON, MEME MONTAGE, MEME FILTRE DE FORME"
@@ -282,6 +317,11 @@ if (-not (Plausible $eta_on.n)) {
 }
 $rEta = Rapport $eta_off.n $eta_on.n
 Write-Host ("       etalon : eteint {0} px / allume {1} px  ->  {2} %" -f $eta_off.n, $eta_on.n, $rEta)
+Write-Host "       ⚠ CE CHIFFRE EST FRAGILE, et il faut le dire a cote de lui : dans"
+Write-Host "       l'etalon les aretes sont CLAIRES, et le filtre de forme en ramasse des"
+Write-Host "       fragments. En retirant les amas fusionnes avec une arete, ce meme"
+Write-Host "       comptage donne 110 % de survie -- une impossibilite. Ce qui etablit le"
+Write-Host "       rognage de l'etalon, ce sont les IMAGES, pas ce pourcentage."
 
 Write-Host ""
 Write-Host "-----------------------------------------------------------------------"
@@ -292,13 +332,18 @@ if ($rEta -lt 0 -or $rProche -lt 0) {
 }
 elseif ($rEta -lt 80) {
 	Write-Host ("  L'ETALON ROGNE LUI AUSSI : {0} % de ses coeurs survivent rayon X eteint" -f $rEta)
-	Write-Host ("  (modeleur : {0} % a d=4, {1} % a d=7)." -f $rProche, $rLoin)
+	# ⚠️ ON AFFICHE LA VALEUR MESURABLE DU MODELEUR, PAS CELLE DE d=4. Celle-ci
+	#    vient de la partie C, au cadrage pour lequel la boite a ete relevee, et
+	#    elle passe le garde-fou d'ordre de grandeur. Imprimer a cote de la
+	#    conclusion un chiffre que la sonde vient de declarer NON MESURABLE, ce
+	#    serait le remettre en circulation par la bande.
+	Write-Host ("  (modeleur, cadrage par defaut : {0} % en DirectX 11, {1} % en OpenGL)." -f $rDX, $rGL)
 	Write-Host "  => Ce n'est PAS un defaut du modeleur : c'est une PROPRIETE DU MARQUEUR,"
 	Write-Host "     presente des deux cotes. Changer le marqueur toucherait l'ETALON que"
 	Write-Host "     Rodolf a valide : c'est un ARBITRAGE, pas un correctif discret."
 }
 else {
-	Write-Host ("  L'ETALON NE ROGNE PAS ({0} % contre {1} % pour le modeleur)." -f $rEta, $rLoin)
+	Write-Host ("  L'ETALON NE ROGNE PAS ({0} % contre {1} % pour le modeleur)." -f $rEta, $rDX)
 	Write-Host "  => Le modeleur est seul en cause. (A1) dit si l'echelle de camera l'explique."
 }
 Write-Host "-----------------------------------------------------------------------"
