@@ -678,8 +678,15 @@ static int MonterUnFichier(const char *chemin) {
 	uint32 nonGroupes = 0u;
 	for (uint32 i = 0; i < (uint32)m.rap.items.Size(); ++i) {
 		const NkString &r = m.rap.items[i].role;
+		// ⚠️ `Scroll` EST UN CONTENEUR, ET IL EST ARRIVE DANS CETTE LISTE APRES COUP.
+		//    Le 17/09, le monteur a appris a le monter, et ce compteur a saute de 4 a
+		//    5 sans qu'aucun widget utile n'apparaisse. Le but ecrit de la ligne est
+		//    de refuser de compter ce qui ne MONTRE rien : une zone defilante vide
+		//    est exactement le meme piege qu'un `Group` vide. *Une liste de noms
+		//    ecrite en dur se perime des qu'un role naît ; celle-ci se corrige ici, et
+		//    le jour ou elle se perimera encore, ce commentaire dit pourquoi.*
 		if (r.Compare("Group") != 0 && r.Compare("VBox") != 0 && r.Compare("HBox") != 0
-			&& r.Compare("Panel") != 0 && r.Compare("Window") != 0)
+			&& r.Compare("Panel") != 0 && r.Compare("Window") != 0 && r.Compare("Scroll") != 0)
 			++nonGroupes;
 	}
 	printf("  roles utiles: %u widget(s) qui ne sont pas un simple conteneur\n", nonGroupes);

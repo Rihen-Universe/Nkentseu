@@ -126,7 +126,11 @@ namespace nkentseu {
 			//    document invalide pouvait atteindre. On ne le legalise pas, on le retire.
 			/// LA ZONE QUE L'APPLICATION REMPLIT -- viseur 3D, toile, editeur de texte.
 			/// Le document dit OU et QUOI ; l'hote garde QUAND et COMMENT.
-			Host
+			Host,
+			/// LA ZONE DEFILANTE. Elle etait au vocabulaire du VALIDATEUR
+			/// (`NkGuiValidate.h`, `axis` et `always`) et absente d'ici : un document
+			/// que le format accepte perdait tout son contenu au montage.
+			Scroll
 		};
 
 		/// Comparaison de noms sans <cstring> (le depot est zero-STL).
@@ -165,6 +169,7 @@ namespace nkentseu {
 			if (NkGMotEgal(n, "TreeItem")) return NkGuiRole::TreeItem;
 			if (NkGMotEgal(n, "DockSpace")) return NkGuiRole::DockSpace;
 			if (NkGMotEgal(n, "Host")) return NkGuiRole::Host;
+			if (NkGMotEgal(n, "Scroll")) return NkGuiRole::Scroll;
 			return NkGuiRole::Inconnu;
 		}
 
@@ -1051,6 +1056,27 @@ namespace nkentseu {
 					const NkGuiRole role = NkGuiRoleDepuisNom(t);
 					if (role == NkGuiRole::Inconnu) {
 						++rap.rolesInconnus;
+						// ⚠️ IL NE DOIT PLUS EMPORTER SES ENFANTS. Le `return` sec qui
+						//    vivait ici jetait le SOUS-ARBRE ENTIER, pas seulement le
+						//    conteneur inconnu. Mesure du 17/09, deux documents qui ne
+						//    different QUE par le role du conteneur :
+						//      Panel > Scroll { 3 widgets } + 1  ->  2 montes, 1 utile
+						//      Panel > Group  { 3 widgets } + 1  ->  6 montes, 4 utiles
+						//    Quatre widgets sur six disparaissaient, et le format, lui,
+						//    ACCEPTE le document (`Scroll` est au vocabulaire du
+						//    validateur). 17 des 41 roles du format sont dans ce cas.
+						//
+						//    Perdre le contenu est le PIRE des deux echecs : le document
+						//    ne se presente pas comme une erreur, il se presente comme un
+						//    document plus pauvre -- et personne ne va chercher ce qui
+						//    n'est plus la. On monte donc le sous-arbre dans le flux du
+						//    parent, faute de savoir ce que le conteneur imposait.
+						//
+						// ⚠️ ET LE REPLI N'EST PAS MUET : `rolesInconnus` compte toujours,
+						//    donc le verdict d'un document qui nomme l'inconnaissable
+						//    reste REFUSE. Ce correctif change ce qu'on PERD, jamais ce
+						//    qu'on ANNONCE.
+						MonterCorps(ctx, w, etat, rap, prof + 1u, horizontal, parentAbsolu, hooks);
 						return;
 					}
 					++rap.widgets;
@@ -1201,6 +1227,46 @@ namespace nkentseu {
 									ctx.layout.cursor.y += ctx.ItemHeight();
 								MonterCorps(ctx, w, etat, rap, prof + 1u, false, enfantsAbsolus, hooks);
 							}
+							++rap.montes;
+							return;
+						}
+						// ── LA ZONE DEFILANTE ────────────────────────────────
+						// Le format la connait depuis toujours (`axis`, `always`) ; le monteur,
+						// non -- et son contenu etait donc EMPORTE. `BeginChild` est la brique
+						// que NKGui a deja : elle rogne son contenu, tient la molette et pose
+						// une barre de defilement. On ne reecrit rien.
+						//
+						// ⚠️ `axis` EST LU, ET IL NE PEUT PAS TOUT DIRE. `BeginChild` defile
+						//    TOUJOURS verticalement et prend l'horizontal EN PLUS ; il n'existe
+						//    pas de mode « horizontal SEUL ». `axis = Horizontal` active donc
+						//    les deux, et ce n'est pas exactement ce que le document demande.
+						//    On l'ecrit ici plutot que de laisser croire a une fidelite qu'on
+						//    n'a pas -- le jour ou NKGui saura l'horizontal seul, la ligne a
+						//    changer est celle-ci.
+						//
+						// ⚠️ ET SI `BeginChild` REFUSE, ON MONTE QUAND MEME LE CONTENU, en flux.
+						//    Un `return` sec ici aurait reintroduit, pour ce seul role, le defaut
+						//    que ce lot corrige : perdre le sous-arbre sans le dire.
+						case NkGuiRole::Scroll: {
+							const NkString ax = NkGTexte(w, "axis", "Vertical");
+							const bool horiz = NkGMotEgal(NkStringView(ax.CStr()), "Horizontal")
+											   || NkGMotEgal(NkStringView(ax.CStr()), "Both");
+							NkRect r = pl.pose ? pl.rect : ctx.layout.region;
+							if (!pl.pose) {
+								// Comme un groupe absolu pose dans un flux : on part du curseur,
+								// jamais du bord de la region, sinon la zone recouvre ses aines.
+								r.w -= (ctx.layout.cursor.x - r.x);
+								r.h -= (ctx.layout.cursor.y - r.y);
+								r.x = ctx.layout.cursor.x;
+								r.y = ctx.layout.cursor.y;
+							}
+							if (BeginChild(ctx, lbl, r, true, horiz)) {
+								MonterCorps(ctx, w, etat, rap, prof + 1u, false, false, hooks);
+								EndChild(ctx);
+							} else {
+								MonterCorps(ctx, w, etat, rap, prof + 1u, horizontal, parentAbsolu, hooks);
+							}
+							Noter(rap, id, t, r, prof, true, horizontal);
 							++rap.montes;
 							return;
 						}
