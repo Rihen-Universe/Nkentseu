@@ -1744,6 +1744,23 @@ namespace nkentseu {
 				float32 modalBase = 0.f;          // valeur au moment du lancement (ancre du drag)
 				int32 modalSeg = 1;               // parametre ENTIER pilote a la MOLETTE
 				float32 modalStartX = 0.f;        // position souris au lancement (pixels)
+				float32 modalStartY = 0.f;        // ... et son ordonnee : le geste LIBRE est a DEUX
+				                                  // dimensions, un seul axe ne peut pas le decrire
+				float32 modalValY = 0.f;          // second axe du geste libre (ecran)
+				// ── (b8) LE REPERE DE LA VUE, PHOTOGRAPHIE AU LANCEMENT ─────────
+				// Blender : G sans axe deplace dans le PLAN DE LA CAMERA. Il faut donc
+				// ce repere, et le viseur ne le donnait pas a la modale -- d'ou le repli
+				// sur l'axe Y du MONDE, que le commentaire d'a cote annoncait pourtant
+				// comme « repere de la vue ».
+				// ⚠ PHOTOGRAPHIE, PAS RELU A CHAQUE IMAGE : le relire ferait deriver le
+				//   geste si la camera bougeait en cours de route, exactement comme les
+				//   axes de l'objet figes pour tout le drag du gizmo.
+				NkVec3f modalVueRight{1.f, 0.f, 0.f};
+				NkVec3f modalVueUp{0.f, 1.f, 0.f};
+				NkVec3f modalVueFwd{0.f, 0.f, 1.f};
+				// Le repere de la vue de l'image courante, pose par la boucle. C'est lui
+				// que la modale photographie.
+				NkVec3f vueRight{1.f, 0.f, 0.f}, vueUp{0.f, 1.f, 0.f}, vueFwd{0.f, 0.f, 1.f};
 				float32 modalScale = 0.01f;       // conversion pixels -> unites du parametre
 				bool modalDirty = true;           // les parametres ont change -> re-appliquer
 				int32 modalLoopA = -1, modalLoopB = -1; // LOOP CUT : arete survolee (apercu de l'anneau)
@@ -4581,7 +4598,30 @@ namespace nkentseu {
 			// L'AXE : -1 = libre (repere de la vue), 0/1/2 = X/Y/Z. Le verrou
 			// d'axe du DRAG (NkGizmoInput::lockAxis) reste l'autorite pour le
 			// glissement ; ici on pose la meme convention pour le geste modal.
-			const int32 ax = (st->modalAxis >= 0 && st->modalAxis < 3) ? st->modalAxis : 1;
+			// ⚠ (b8) LE REPLI « : 1 » ETAIT LE DEFAUT, ET SON COMMENTAIRE LE PROTEGEAIT.
+			//   La ligne disait `? st->modalAxis : 1` -- c'est-a-dire l'axe Y du MONDE --
+			//   pendant que le commentaire juste au-dessus annoncait « repere de la vue ».
+			//   On lisait le commentaire, on croyait que c'etait fait, et G libre montait
+			//   tout droit quelle que soit la camera. Il n'y a plus de repli : le cas
+			//   LIBRE est traite a part, avec le repere qu'il annonce.
+			// MUTATION dans le MEME binaire : `NK_GLIBRE_AXEY=1` remet le repli sur
+			// l'axe Y du monde, et rien d'autre. Le critere « la direction change avec
+			// la camera » doit alors rougir.
+			static int replicAxeY = -1;
+			if (replicAxeY == -1) {
+				const char *vv = getenv("NK_GLIBRE_AXEY");
+				replicAxeY = (vv && vv[0] && vv[0] != '0') ? 1 : 0;
+			}
+			// ⚠ DEUX QUESTIONS DISTINCTES, ET LES CONFONDRE ECRIT HORS DU TABLEAU.
+			//   « y a-t-il un axe ? » decide de l'INDEX ; « faut-il le repere de la
+			//   vue ? » decide du COMPORTEMENT. En les fondant en une seule variable,
+			//   la mutation mettait `libre` a faux avec `modalAxis` a -1, donc
+			//   `(&dir.x)[-1] = 1.f` -- une ecriture UN CRAN AVANT le vecteur. Le
+			//   symptome etait une translation nulle ; c'est la MUTATION qui l'a
+			//   revelee, pas la course saine, qui ne passe jamais par ce cas.
+			const bool sansAxe = !(st->modalAxis >= 0 && st->modalAxis < 3);
+			const bool libre = !replicAxeY && sansAxe;
+			const int32 ax = sansAxe ? 1 : st->modalAxis; // l'index reste TOUJOURS valide
 			NkVec3f dir{0.f, 0.f, 0.f};
 			(&dir.x)[ax] = 1.f;
 			// ── AXE LOCAL : direction prise dans la rotation PHOTOGRAPHIEE ──────
@@ -4607,9 +4647,20 @@ namespace nkentseu {
 			NkVec3f tr{0.f, 0.f, 0.f}, scl{0.f, 0.f, 0.f};
 			NkMat4f rot = NkMat4f::Identity();
 			if (st->modalOp == 9) {
-				tr = dir * v;
+				// ── G LIBRE : LE PLAN DE LA CAMERA, COMME BLENDER ───────────────
+				// Le geste a DEUX composantes ecran ; une seule valeur scalaire ne
+				// pouvait pas le porter, et c'est pour ca qu'il tombait sur un axe.
+				// L'ordonnee de l'ecran descend, celle du monde monte : d'ou le signe.
+				if (libre && !st->modalPlane)
+					tr = st->modalVueRight * v - st->modalVueUp * st->modalValY;
+				else
+					tr = dir * v;
 			} else if (st->modalOp == 10) {
-				rot = NkMat4f::Rotation(dir, NkAngle::FromRad(v * 0.01745329252f));
+				// R LIBRE : Blender tourne autour de l'AXE DE VUE. Le repli sur Y du
+				// monde faisait tourner autour de la verticale, quelle que soit la
+				// camera -- meme defaut, meme ligne.
+				const NkVec3f axeRot = (libre && !st->modalPlane) ? st->modalVueFwd : dir;
+				rot = NkMat4f::Rotation(axeRot, NkAngle::FromRad(v * 0.01745329252f));
 			} else if (st->modalOp == 11) {
 				// mScale est un DELTA (Scale applique 1+s) : 0 = inchange.
 				scl = (st->modalAxis >= 0) ? dir * v : NkVec3f{v, v, v};
@@ -4991,6 +5042,9 @@ namespace nkentseu {
 				// LES BORNES SONT CELLES DE `Demo3D_ModalClampVal`, partagees avec le
 				// panneau d'operation : un seul endroit decide, donc les deux pilotes
 				// ne peuvent pas diverger.
+				// (b8) LE SECOND AXE, pour le geste LIBRE. Il n'est lu que la ou il a un
+				// sens -- translation sans axe -- et il ne touche a rien d'autre.
+				st->modalValY = (st->modalCurY - st->modalStartY) * ech;
 				const float32 nvv = Demo3D_ModalClampVal(
 					st->modalOp, st->modalBase + (st->modalCurX - st->modalStartX) * ech);
 				if (fabsf(nvv - st->modalVal) > 1e-6f) {
@@ -5113,6 +5167,12 @@ namespace nkentseu {
 			st->modalSnapVerts = st->modalSnap.VertCount();
 			st->modalSnapFaces = st->modalSnap.FaceCount();
 			st->modalStartX = ((float32)NkInput.MouseX() - nkvpOffX);
+			st->modalStartY = ((float32)NkInput.MouseY() - nkvpOffY);
+			st->modalValY = 0.f;
+			// (b8) LE REPERE DE LA VUE, PHOTOGRAPHIE. Voir les champs.
+			st->modalVueRight = st->vueRight;
+			st->modalVueUp = st->vueUp;
+			st->modalVueFwd = st->vueFwd;
 			// CURSEUR VIRTUEL : point de depart = position reelle de la souris. Les deltas
 			// (reels OU injectes par NK_MODAL_DRAG) s'y accumulent tant que l'op tourne.
 			st->modalCurX = st->modalStartX;
@@ -9857,6 +9917,13 @@ namespace nkentseu {
 				const NkVec3f fwd = (camTgt - camPos).Normalized();
 				const NkVec3f rgt = fwd.Cross(NkVec3f{0.f, 1.f, 0.f}).Normalized();
 				const NkVec3f upv = rgt.Cross(fwd).Normalized();
+				// (b8) LE REPERE DE LA VUE EST PUBLIE ICI, et nulle part ailleurs : c'est
+				// le seul endroit ou il est deja calcule, et le recalculer pour la modale
+				// ferait deux derivations du meme repere -- celle qui derive est toujours
+				// celle qu'on oublie de corriger.
+				st->vueRight = rgt;
+				st->vueUp = upv;
+				st->vueFwd = fwd;
 				const float32 thY = tanf(60.f * 0.5f * 3.14159265f / 180.f);
 				const float32 thX = thY * ((float32)ctx.width / (float32)ctx.height);
 				const float32 VW = (float32)ctx.width, VH = (float32)ctx.height;
