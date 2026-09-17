@@ -104,6 +104,25 @@ def main():
               % (p.name, total // (1024 * 1024), libre // (1024 * 1024)))
         torch.cuda.reset_peak_memory_stats()
 
+    # ── LE REFUS NOMME, ET AVANT LA DEPENSE (mesure du 2026-09-17) ───────────
+    # Un fichier texte renomme « .png » traversait TOUT ce chemin sans refus
+    # nomme : PIL levait `UnidentifiedImageError`, le script sortait avec le
+    # code 1 et AUCUNE ligne « REFUS : ». Le contrat ecrit en tete de ce fichier
+    # etait donc viole pour ce cas precis -- et cote modeleur c'est pire :
+    # `NkGenerateurProcessus::Generer` ne lit PAS stderr (CREATE_NO_WINDOW), il
+    # ne regarde que l'existence du fichier de sortie. L'ecran affichait donc un
+    # echec SANS CAUSE, et « un refus nomme sa cause ».
+    # Deuxieme raison de le poser ICI et non plus bas : le refus coutait 11,2 s
+    # de chargement de modele pour un fichier que PIL rejette en millisecondes.
+    try:
+        _sonde = Image.open(a.image)
+        _sonde.load()  # `open` est PARESSEUX : sans `load`, un fichier tronque passerait.
+        _mode, _w, _h = _sonde.mode, _sonde.size[0], _sonde.size[1]
+        _sonde.close()
+    except Exception as e:
+        _refus("image illisible : %s (%s: %s)" % (a.image, type(e).__name__, e))
+    print("MESURE genia : image lisible, mode=%s taille=%dx%d" % (_mode, _w, _h))
+
     t1 = time.time()
     model = TSR.from_pretrained(pdir, config_name="config.yaml", weight_name="model.ckpt")
     model.renderer.set_chunk_size(a.chunk_size)
