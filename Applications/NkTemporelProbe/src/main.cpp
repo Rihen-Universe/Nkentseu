@@ -280,7 +280,14 @@ int main(int argc, char **argv) {
 	// (NkRendererConfig.h:718). C'est justement le fait mesure en R1.
 	NkRendererConfig cfg = NkRendererConfig::ForGame(apiVoulue, kW, kH);
 	cfg.postProcess.taa = true;
-	cfg.postProcess.fxaa = false; // le TAA a priorite de toute facon ; on l'ecrit
+	// NK_TEMPOREL_FXAA=1 : FXAA au lieu du TAA. C'est le candidat C1 du chantier
+	// « retournement DX11 » -- FXAA n'insere QU'UNE passe plein ecran apres le
+	// tonemap, la ou le TAA en insere TROIS. Si l'image est droite avec une et
+	// retournee avec trois, la faute est dans l'enchainement et non dans yFlipUV.
+	{
+		const char *v = getenv("NK_TEMPOREL_FXAA");
+		cfg.postProcess.fxaa = (v && v[0] && v[0] != '0');
+	}
 	cfg.vsync = false;
 
 	NkRenderer *r = NkRenderer::Create(device, cfg);
@@ -315,7 +322,14 @@ int main(int argc, char **argv) {
 		return 1;
 	}
 
-	r->SetRenderSizeOverride(kW, kH);
+	// NK_TEMPOREL_NOOVERRIDE=1 : candidat C2. Mon banc pose une taille de rendu
+	// independante ; les applications ne le font pas toutes. Si le retournement
+	// disparait sans l'override, c'est LUI la condition.
+	{
+		const char *v = getenv("NK_TEMPOREL_NOOVERRIDE");
+		if (!(v && v[0] && v[0] != '0'))
+			r->SetRenderSizeOverride(kW, kH);
+	}
 	r->SetFinalColorTarget(texLib->GetRHIHandle(cible.GetColorResult()));
 	// ⚠️ LE FOND N'EST PAS NOIR, ET C'EST LE POINT. Un fond noir est INDISCERNABLE
 	// d'une cible que personne n'a ecrite : le premier jet de ce banc a imprime
