@@ -1379,6 +1379,61 @@ int main(int argc, char **argv) {
 		Check(temoin.zone.w > 1.f && temoin.zone.h > 1.f, "   et la zone a une surface");
 	}
 
+	printf("\n-- (m6) LES TAILLES RELATIVES : le MEME document, DEUX fenetres, DEUX dispositions justes\n");
+	{
+		// ⚠️ C'EST LE MANQUE STRUCTUREL DE L'INVENTAIRE DU 17/09. `pos` et `size` sont en
+		//    pixels absolus : un document qui decrirait NK3DModeler avec eux le figerait a
+		//    UNE taille de fenetre, alors que sa disposition reelle est en fractions
+		//    (0,16 et 0,29). Le critere est donc : le meme fichier, deux fenetres, et les
+		//    largeurs suivent -- avec le PLANCHER qui mord dans la petite.
+		Joindre(dossier, sizeof(dossier), racine, "/valides/");
+		Joindre(chemin, sizeof(chemin), dossier, "13_tailles_relatives.nkgui");
+
+		const Montage grand = MonterFichier(chemin, 1200, 800, "13_tailles_grand");
+		const Montage petit = MonterFichier(chemin, 800, 600, "13_tailles_petit");
+		Check(grand.lu && petit.lu, "   le document se lit dans les deux fenetres");
+		CheckEq(grand.rap.rolesInconnus, 0u, "   aucun role hors vocabulaire");
+
+		// Les rectangles REELLEMENT montes, lus dans le releve -- jamais recalcules ici.
+		float32 gG = -1.f, dG = -1.f, gP = -1.f, dP = -1.f;
+		for (uint32 i = 0; i < (uint32)grand.rap.items.Size(); ++i) {
+			const NkGuiMonteItem &it = grand.rap.items[i];
+			if (it.id.Compare("gauche") == 0) gG = it.rect.w;
+			if (it.id.Compare("droite") == 0) dG = it.rect.w;
+		}
+		for (uint32 i = 0; i < (uint32)petit.rap.items.Size(); ++i) {
+			const NkGuiMonteItem &it = petit.rap.items[i];
+			if (it.id.Compare("gauche") == 0) gP = it.rect.w;
+			if (it.id.Compare("droite") == 0) dP = it.rect.w;
+		}
+		printf("        1200x800 : gauche %.0f px (attendu 192)   droite %.0f px (attendu 348)\n",
+			   (double)gG, (double)dG);
+		printf("         800x600 : gauche %.0f px (attendu 180, le PLANCHER mord)   droite %.0f px (attendu 232)\n",
+			   (double)gP, (double)dP);
+		Check(gG > 191.f && gG < 193.f, "   1200 : la colonne gauche fait 16 % (192 px)");
+		Check(dG > 347.f && dG < 349.f, "   1200 : la colonne droite fait 29 % (348 px)");
+		Check(gP > 179.f && gP < 181.f, "   800 : le PLANCHER de 180 px mord (128 -> 180)");
+		Check(dP > 231.f && dP < 233.f, "   800 : la colonne droite suit (232 px)");
+		// Et les deux dispositions sont DIFFERENTES : un document fige rendrait la meme.
+		Check(gG != gP || dG != dP, "   les deux fenetres donnent deux dispositions differentes");
+
+		// ── LE NEGATIF DE L'ABSOLU : `pos`+`size` ne suit PAS la fenetre ──
+		const char *abs =
+			"nkgui 0.3\nwidgets {\n  Panel \"racine\" { placement = absolute\n"
+			"    Panel \"fixe\" { pos = (10, 10), size = (200, 100) }\n  }\n}\n";
+		uint32 na = 0;
+		while (abs[na]) ++na;
+		const Montage a1 = MonterTexte(abs, na, 1200, 800);
+		const Montage a2 = MonterTexte(abs, na, 800, 600);
+		float32 f1 = -1.f, f2 = -1.f;
+		for (uint32 i = 0; i < (uint32)a1.rap.items.Size(); ++i)
+			if (a1.rap.items[i].id.Compare("fixe") == 0) f1 = a1.rap.items[i].rect.w;
+		for (uint32 i = 0; i < (uint32)a2.rap.items.Size(); ++i)
+			if (a2.rap.items[i].id.Compare("fixe") == 0) f2 = a2.rap.items[i].rect.w;
+		printf("        NEGATIF absolu : %.0f px dans les deux fenetres\n", (double)f1);
+		Check(f1 > 199.f && f1 < 201.f, "   NEGATIF : un `size` absolu vaut 200 px");
+		Check(f1 == f2, "   NEGATIF : et il vaut le MEME dans une autre fenetre");
+	}
 	printf("\n=== %d / %d ===\n", g_pass, g_pass + g_fail);
 	if (g_fail > 0)
 		printf("    %d ECHEC(S)\n", g_fail);

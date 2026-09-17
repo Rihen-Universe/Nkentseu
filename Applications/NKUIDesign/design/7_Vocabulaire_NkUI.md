@@ -181,6 +181,40 @@ objet dans une maquette, pas une option cachée d'un autre.*
 
 ---
 
+### 3.8 Les tailles relatives — trois propriétés UNIVERSELLES
+
+| propriété | type | sens |
+|---|---|---|
+| `sizeRel` | vecteur | fraction de la région du **parent**, par axe (`0.16` = 16 %) |
+| `minSize` | vecteur | plancher, en pixels |
+| `maxSize` | vecteur | plafond, en pixels |
+
+⚠️ **Sans elles, un document ne décrit qu'une seule taille de fenêtre.** `pos` et `size`
+sont en **pixels absolus** ; or la disposition réelle de NK3DModeler est écrite en
+fractions — `NkLayout::Compute(W, H, fLeft = 0.16f, fRight = 0.29f)`. Un `.nkgui` qui
+décrirait le modeleur avec `size` le **figerait**. C'est ce qui sépare un écran de
+démonstration d'une **fenêtre d'éditeur**.
+
+**Elles sont strictement ADDITIVES**, et c'est mesuré, pas espéré :
+- `size` garde exactement son sens — il n'agit qu'avec `pos`, en pixels ;
+- une composante `<= 0` veut dire « **cet axe n'est pas contraint** » : on peut ne dire que
+  la largeur, `sizeRel = (0.16, 0)` ;
+- si `sizeRel` est présent pour un axe, il gagne sur cet axe, puis `minSize`/`maxSize`
+  bornent le résultat.
+
+Preuve, au pixel, sur le **même** document (`valides/13_tailles_relatives.nkgui`) :
+
+    a 1200 x 800 :  gauche 192 px (16 %)      droite 348 px (29 %)
+    a  800 x 600 :  gauche 180 px (le PLANCHER mord : 128 -> 180)   droite 232 px
+    negatif      :  un `pos`+`size` rend 200 px dans LES DEUX fenetres
+
+⚠️ **Ce que ces propriétés ne font pas encore** : elles s'appliquent aux **conteneurs** et à
+`Host`. Une **feuille en flux** garde sa taille naturelle, parce que `pos` reste
+l'interrupteur du placement et que le changer ne serait plus additif. C'est une limite
+nommée, pas un oubli.
+
+---
+
 ## 4. Ce qui n'entre PAS au vocabulaire
 
 | | pourquoi |

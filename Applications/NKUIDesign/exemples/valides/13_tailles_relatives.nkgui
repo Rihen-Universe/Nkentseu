@@ -1,0 +1,29 @@
+nkgui 0.3
+
+// LES TAILLES RELATIVES, avec les cotes REELLES de NK3DModeler : sa disposition
+// est ecrite en fractions (`NkLayout::Compute(W, H, fLeft = 0.16f, fRight = 0.29f)`).
+// Le meme document doit donner DEUX dispositions justes dans DEUX fenetres.
+//
+// Le plancher de 180 px ne mord pas a 1200 de large (0,16 x 1200 = 192) et MORD a
+// 800 (0,16 x 800 = 128) : c'est lui qui prouve que la borne est appliquee.
+widgets {
+
+  HBox "colonnes" {
+    gap = 0
+
+    Panel "gauche" {
+      title = "Hierarchie"
+      sizeRel = (0.16, 0)
+      minSize = (180, 0)
+    }
+
+    Host "viseur" {
+      hint = "viseur 3D"
+    }
+
+    Panel "droite" {
+      title = "Proprietes"
+      sizeRel = (0.29, 0)
+    }
+  }
+}
