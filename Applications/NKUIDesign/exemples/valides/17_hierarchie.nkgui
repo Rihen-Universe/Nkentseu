@@ -1,0 +1,28 @@
+nkgui 0.3
+
+// LA HIERARCHIE. Le format dit les elements de DEUX facons, et elles ne sont pas de
+// meme nature : les ECRIRE (statique, c'est un widget) ou NOMMER une source (`bind`,
+// et la c'est une DONNEE que l'application doit servir).
+//
+// Ici les deux, cote a cote : la premiere liste est ecrite, la seconde est liee et
+// personne ne la remplit -- elle doit SE SIGNALER.
+widgets {
+
+  Panel "fenetre" {
+    title = "Scene"
+
+    ListBox "ecrite" {
+      TreeItem "racine" {
+        label = "Scene"
+        expanded = true
+
+        Item "cube" { label = "Cube" }
+        Item "lumiere" { label = "Lumiere" }
+      }
+    }
+
+    ListBox "liee" {
+      bind = ui.scene
+    }
+  }
+}

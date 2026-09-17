@@ -612,6 +612,27 @@ namespace nkentseu {
 				// d'eau. Ce champ est donc a 0 par defaut (Lagarde pur) ; le monter
 				// ajoute une pellicule d'eau franche (flaque, ruissellement).
 				float32 waterLayer = 0.f; // [0,1]
+				// ── LA POSE DE L'IMAGE PRECEDENTE (17/09/2026) ────────────────
+				// Elle sert AUX VECTEURS DE MOUVEMENT, et elle vient de l'appelant
+				// parce que le moteur ne peut PAS la deduire : un NkDrawCall3D n'a
+				// aucune identite stable (pas d'objectId ; `sortKey` vaut
+				// material*1000 + meshHash et n'est pas unique par instance), donc
+				// memoriser une pose « precedente » cote moteur reviendrait a
+				// l'attribuer au hasard entre deux instances du meme maillage.
+				//
+				// DEFAUT = NON FOURNIE, et alors l'objet est traite comme STATIQUE :
+				// son vecteur ne porte que le mouvement de la CAMERA. C'est EXACT
+				// pour la geometrie statique -- le cas dominant -- et c'est ce qui
+				// permet a la passe d'exister sans rien exiger des applications.
+				// Un appelant qui anime un objet la renseigne et gagne la
+				// correspondance temporelle sur cet objet.
+				//
+				// ⚠️ Ne PAS la remplir d'office avec `transform` : ce serait
+				// indiscernable de « fournie et egale », et le moteur ne saurait
+				// plus distinguer qui est statique PAR CHOIX de qui l'est PAR OUBLI.
+				// Le booleen porte cette information, la matrice ne le peut pas.
+				NkMat4f prevTransform = NkMat4f::Identity();
+				bool hasPrevTransform = false;
 				NkAABB aabb; // world-space, pour culling
 				bool castShadow = true;
 				bool receiveShadow = true;

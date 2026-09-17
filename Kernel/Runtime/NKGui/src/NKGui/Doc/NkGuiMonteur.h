@@ -44,6 +44,11 @@
 //  MONTE  :  l'ETAT AU REPOS du document. Les conteneurs (Window, Panel, VBox,
 //            HBox, Group), leur `gap`, leur `align`/`justify`, les `Spacer`, et
 //            les quatorze roles qui dessinent.
+//            Depuis le 2026-09-17, il monte aussi la ZONE HOTE (`Host`) : un
+//            rectangle que l'APPLICATION remplit par le crochet `RemplirHote`.
+//            C'est la frontiere du format -- le document dit OU et QUOI, l'hote
+//            garde QUAND et COMMENT -- et une zone que personne ne remplit se
+//            SIGNALE (hachures + nom) au lieu de disparaitre.
 //
 //  NE MONTE PAS, et ce n'est pas un oubli :
 //   - le COMPORTEMENT qui s'execute (`set r = n1.value * 100`, `if`) : la section
@@ -77,6 +82,7 @@
 #include "NKGui/Core/NkGuiContext.h"
 #include "NKGui/Widgets/NkGuiWidgets.h"
 #include "NKSerialization/NkGui/NkGuiArchive.h"
+#include <cstdlib> // getenv : la mutation de banc `sansmarqueur` de la zone hote
 
 namespace nkentseu {
 	namespace nkgui {
@@ -103,7 +109,23 @@ namespace nkentseu {
 			Spacer,
 			Image,
 			Chart,
-			Callback
+			TabBar,
+			Expander,
+			Splitter,
+			ListBox,
+			Item,
+			TreeItem,
+			// 🔴 `Callback` ETAIT ICI, ET C'ETAIT UN HOMONYME. Le mot appartient deja DEUX
+			//    FOIS au format : `callback` est l'une des huit sections, et
+			//    `Callback "alerte"(...)` est un APPEL DE COMPORTEMENT -- la grammaire
+			//    l'ecrit (`NkGuiInteraction.h:66`) et le corpus l'emploie ainsi
+			//    (`valides/05_animation_comportement.nkgui:29`, qui valide a 0 erreur).
+			//    Le role de widget du meme nom n'etait dans AUCUN document et le
+			//    validateur le refusait (`E-ROLE-INCONNU`, mesure) : du code que seul un
+			//    document invalide pouvait atteindre. On ne le legalise pas, on le retire.
+			/// LA ZONE QUE L'APPLICATION REMPLIT -- viseur 3D, toile, editeur de texte.
+			/// Le document dit OU et QUOI ; l'hote garde QUAND et COMMENT.
+			Host
 		};
 
 		/// Comparaison de noms sans <cstring> (le depot est zero-STL).
@@ -134,7 +156,13 @@ namespace nkentseu {
 			if (NkGMotEgal(n, "Spacer")) return NkGuiRole::Spacer;
 			if (NkGMotEgal(n, "Image")) return NkGuiRole::Image;
 			if (NkGMotEgal(n, "Chart")) return NkGuiRole::Chart;
-			if (NkGMotEgal(n, "Callback")) return NkGuiRole::Callback;
+			if (NkGMotEgal(n, "TabBar")) return NkGuiRole::TabBar;
+			if (NkGMotEgal(n, "Expander")) return NkGuiRole::Expander;
+			if (NkGMotEgal(n, "Splitter")) return NkGuiRole::Splitter;
+			if (NkGMotEgal(n, "ListBox")) return NkGuiRole::ListBox;
+			if (NkGMotEgal(n, "Item")) return NkGuiRole::Item;
+			if (NkGMotEgal(n, "TreeItem")) return NkGuiRole::TreeItem;
+			if (NkGMotEgal(n, "Host")) return NkGuiRole::Host;
 			return NkGuiRole::Inconnu;
 		}
 
@@ -195,6 +223,18 @@ namespace nkentseu {
 				///    pas par `NextItemRect` le laisserait ARME pour le suivant. On
 				///    le desarme et on le COMPTE, plutot que de contaminer le voisin.
 				uint32 posesNonConsommes = 0;
+				// ── LA ZONE HOTE (2026-09-17) ────────────────────────────────
+				/// Les `Host` rencontres : une zone se compte, remplie ou non.
+				uint32 hotes = 0;
+				/// ⚠️ CELLES QUE PERSONNE N'A REMPLIES. Ce compteur est la raison d'etre
+				///    du marqueur : une zone vide qui ne se compte pas se fait prendre
+				///    pour un fond, et le document a l'air monte alors qu'il manque sa
+				///    partie la plus importante.
+				uint32 hotesNonRemplis = 0;
+				/// Les listes qui NOMMENT une source (`bind`) et que personne n'a remplie.
+				/// Meme raison que `hotesNonRemplis` : un arbre vide se fait prendre pour un
+				/// arbre sans elements, et le document a l'air monte alors qu'il manque sa moitie.
+				uint32 listesNonRemplies = 0;
 				uint32 modales = 0;			 ///< `Window { modal = true }` rencontres
 				/// Les drapeaux d'INTERACTION (`NoMove`, `NoResize`, `NoClose`,
 				/// `NoScrollbar`) : ce monteur monte l'etat AU REPOS, il n'a aucune
@@ -407,6 +447,91 @@ namespace nkentseu {
 			return virgules + 1u;
 		}
 
+		/// Retire les espaces de bord d'un element de liste (`[ Scene , Rendu ]`).
+		inline NkString NkGCouper(const NkString &s) noexcept {
+			uint32 a = 0, b = (uint32)s.Size();
+			while (a < b && (s.Data()[a] == ' ' || s.Data()[a] == '\t'))
+				++a;
+			while (b > a && (s.Data()[b - 1u] == ' ' || s.Data()[b - 1u] == '\t'))
+				--b;
+			NkString r;
+			for (uint32 i = a; i < b; ++i)
+				r += s.Data()[i];
+			return r;
+		}
+
+		/// LES LIBELLES d'une liste en jeton nu : `tabs = [Scene, "Materiaux", Rendu]`.
+		///
+		/// ⚠️ DU COTE DU CONSOMMATEUR, ET C'EST LA REGLE DE CE FICHIER. Le lecteur le dit
+		///    lui-meme : « un outil qui veut iterer dessus doit encore l'analyser lui-meme ».
+		///    `NkGListeCompte` rend un NOMBRE -- ce dont `Dropdown` se contente. Pour appeler
+		///    `TabBar(ctx, id, labels, count)` il faut les CHAINES. **Le format n'est pas
+		///    touche** : ses listes restent des jetons nus, c'est ici qu'on les lit.
+		///
+		/// Accepte les elements nus (`Scene`) et les chaines (`"Materiaux"`). Les
+		/// espaces de bord sont retires ; une liste vide rend zero element.
+		inline uint32 NkGListeChaines(const NkArchive &b, const char *cle, NkVector<NkString> &out) noexcept {
+			out.Clear();
+			const NkArchiveNode *n = b.FindNode(NkStringView(cle));
+			if (!n)
+				return 0u;
+			const NkString lex(n->Lexeme());
+			const char *p = lex.Data();
+			const uint32 len = (uint32)lex.Size();
+			uint32 profondeur = 0;
+			bool chaine = false;
+			NkString courant;
+			bool aDuContenu = false;
+			for (uint32 i = 0; i < len; ++i) {
+				const char c = p[i];
+				if (chaine) {
+					if (c == '\\' && i + 1u < len) {
+						++i;
+						courant += p[i];
+						continue;
+					}
+					if (c == '"') {
+						chaine = false;
+						continue;
+					}
+					courant += c;
+					aDuContenu = true;
+					continue;
+				}
+				if (c == '"') {
+					chaine = true;
+					aDuContenu = true;
+					continue;
+				}
+				if (c == '[' || c == '(' || c == '{') {
+					++profondeur;
+					continue;
+				}
+				if (c == ']' || c == ')' || c == '}') {
+					if (profondeur > 0)
+						--profondeur;
+					if (profondeur == 0 && aDuContenu) {
+						out.PushBack(NkGCouper(courant));
+						courant = NkString();
+						aDuContenu = false;
+					}
+					continue;
+				}
+				if (c == ',' && profondeur == 1) {
+					out.PushBack(NkGCouper(courant));
+					courant = NkString();
+					aDuContenu = false;
+					continue;
+				}
+				if (profondeur >= 1) {
+					courant += c;
+					if (c != ' ' && c != '\t')
+						aDuContenu = true;
+				}
+			}
+			return (uint32)out.Size();
+		}
+
 		// =====================================================================
 		//  LE PLACEMENT EST UNE PROPRIETE DU CONTENEUR -- tranche le 2026-09-14
 		// =====================================================================
@@ -456,6 +581,72 @@ namespace nkentseu {
 			NkRect rect{0.f, 0.f, 0.f, 0.f};
 		};
 		
+		// =====================================================================
+		//  LES TAILLES RELATIVES -- « cette colonne fait 16 % de son parent,
+		//  au minimum 180 px »
+		// =====================================================================
+		//  ⚠️ POURQUOI ELLES EXISTENT, ET CE QUE MESURE L'INVENTAIRE DU 17/09 :
+		//     `pos` et `size` sont en PIXELS ABSOLUS. Un document qui decrirait
+		//     l'interface de NK3DModeler avec eux la FIGERAIT a une seule taille de
+		//     fenetre -- alors que sa disposition reelle est ecrite en fractions
+		//     (`NkLayout::Compute(W, H, fLeft = 0.16f, fRight = 0.29f)`). C'est ce
+		//     qui separe un ecran de demonstration d'une fenetre d'editeur.
+		//
+		//  ⚠️ ET C'EST STRICTEMENT ADDITIF. `size` garde exactement son sens : il
+		//     n'agit qu'avec `pos`. Les 226 noeuds absolus du depot ne changent pas
+		//     d'un pixel -- c'est mesure par la non-regression du banc, pas espere.
+		//
+		//  Une composante <= 0 veut dire « cet axe n'est pas contraint » : on peut
+		//  ne dire que la largeur, `sizeRel = (0.16, 0)`.
+		struct NkGuiTailleRel {
+				bool aW = false, aH = false;
+				float32 w = 0.f, h = 0.f;
+		};
+
+		inline NkGuiTailleRel NkGuiLireTailleRelative(const NkArchive &b, const NkRect &region) noexcept {
+			NkGuiTailleRel t;
+			// MUTATION DE BANC, NK_TAILLE_MUTATION=absolu : `sizeRel` est ignore, et la
+			// disposition redevient celle du flux. Elle sert a prouver que le critere des
+			// deux fenetres teste quelque chose ; sans la variable, rien ne change.
+			static const bool kIgnorer = []() {
+				const char *v = getenv("NK_TAILLE_MUTATION");
+				return v && v[0] == 'a';
+			}();
+			if (kIgnorer)
+				return t;
+			const NkArchiveNode *nr = b.FindNode(NkStringView("sizeRel"));
+			if (!nr)
+				return t;
+			float32 v[4];
+			if (NkGNombresDansLexeme(nr->Lexeme(), v, 4u) < 2u)
+				return t; // `sizeRel = 0.16` n'est pas un vecteur : la validation le dit
+			float32 mn[4] = {0.f, 0.f, 0.f, 0.f};
+			float32 mx[4] = {0.f, 0.f, 0.f, 0.f};
+			const NkArchiveNode *nmn = b.FindNode(NkStringView("minSize"));
+			const NkArchiveNode *nmx = b.FindNode(NkStringView("maxSize"));
+			if (nmn)
+				(void)NkGNombresDansLexeme(nmn->Lexeme(), mn, 4u);
+			if (nmx)
+				(void)NkGNombresDansLexeme(nmx->Lexeme(), mx, 4u);
+			if (v[0] > 0.f) {
+				t.aW = true;
+				t.w = region.w * v[0];
+				if (mn[0] > 0.f && t.w < mn[0])
+					t.w = mn[0];
+				if (mx[0] > 0.f && t.w > mx[0])
+					t.w = mx[0];
+			}
+			if (v[1] > 0.f) {
+				t.aH = true;
+				t.h = region.h * v[1];
+				if (mn[1] > 0.f && t.h < mn[1])
+					t.h = mn[1];
+				if (mx[1] > 0.f && t.h > mx[1])
+					t.h = mx[1];
+			}
+			return t;
+		}
+
 		inline NkGuiPlacement NkGuiLirePlacement(const NkArchive &w, const NkRect &reg,
 						float32 hauteurRangee, bool conteneur) noexcept {
 			NkGuiPlacement pl;
@@ -578,6 +769,20 @@ namespace nkentseu {
 					(void)w;
 					(void)role;
 					(void)e;
+				}
+
+				/// LA ZONE HOTE : l'hote peint `zone`, et rend VRAI s'il l'a fait.
+				///
+				/// ⚠️ LE DEFAUT EST `false`, ET C'EST VOULU. Un hote qui ne connait pas ce
+				///    nom ne doit pas repondre oui : le monteur peindra alors son marqueur
+				///    et comptera la zone comme non remplie. Repondre vrai sans peindre
+				///    ferait disparaitre la zone en silence -- exactement ce que ce role
+				///    existe pour empecher.
+				virtual bool RemplirHote(NkGuiContext &ctx, const char *nom, const NkRect &zone) noexcept {
+					(void)ctx;
+					(void)nom;
+					(void)zone;
+					return false;
 				}
 		};
 
@@ -759,6 +964,33 @@ namespace nkentseu {
 					}
 				}
 
+				/// LES DEUX ENFANTS D'UN SEPARATEUR, chacun dans SA moitie.
+				///
+				/// ⚠️ ELLE EXISTE POUR UN SEUL APPELANT, ET C'EST ASSUME. `MonterCorps` monte
+				///    tous les enfants dans la MEME region ; un separateur en donne une
+				///    DIFFERENTE a chacun de ses deux premiers enfants. Plutot que d'ajouter
+				///    un parametre a `MonterCorps` -- que ses six autres appelants auraient
+				///    du passer a vide -- on ecrit la boucle qui fait autre chose.
+				/// Les enfants au-dela du deuxieme sont montes dans la seconde moitie : un
+				/// document qui en met trois n'en perd aucun, et le releve le montrera.
+				static void MonterCorpsBorne(NkGuiContext &ctx, const NkArchive &bloc, NkGuiMonteEtat &etat,
+											 NkGuiMonteRapport &rap, uint32 prof, NkGuiMonteHooks *hooks,
+											 const NkRect &regionA, const NkRect &regionB) noexcept {
+					const NkArchiveNode *c = NkGMonteCorps(bloc);
+					if (!c)
+						return;
+					uint32 rang = 0;
+					for (uint32 k = 0; k < (uint32)c->array.Size(); ++k) {
+						if (!c->array[k].IsObject() || !c->array[k].object)
+							continue;
+						const NkGuiLayout sauve = ctx.layout;
+						ctx.BeginLayout(rang == 0u ? regionA : regionB);
+						MonterBloc(ctx, *c->array[k].object, etat, rap, prof, false, false, hooks);
+						ctx.layout = sauve;
+						++rang;
+					}
+				}
+
 				/// Appariement du crochet par objet de PILE : `Apres` part meme quand
 				/// le `switch` de `MonterBloc` sort par un `return` (les conteneurs le
 				/// font tous). Voir l'avertissement de `NkGuiMonteHooks`.
@@ -872,6 +1104,18 @@ namespace nkentseu {
 								r.x = ctx.layout.cursor.x;
 								r.y = ctx.layout.cursor.y;
 							}
+							// ── LA TAILLE RELATIVE : « 16 % de mon parent, au minimum 180 px » ──
+							// Un conteneur qui declare `sizeRel` DECOUPE son rectangle dans le flux
+							// du parent par la porte que NKGui a deja (`NextItemRect`) : c'est elle
+							// qui sait avancer le curseur en X dans une HBox et en Y ailleurs. En
+							// ecrire une seconde aurait fait deux verites sur la meme chose.
+							const NkGuiTailleRel rel = NkGuiLireTailleRelative(w, ctx.layout.region);
+							bool decoupeRel = false;
+							if (!pl.pose && (rel.aW || rel.aH)) {
+								r = ctx.NextItemRect(rel.aW ? rel.w : -1.f,
+													 rel.aH ? rel.h : ctx.AvailHeight());
+								decoupeRel = true;
+							}
 							// ⚠️ LE VOILE D'UNE MODALE, PEINT AVANT LE FOND.
 							//    `modal` etait DECLARE par le format (doc 7 §3.6) et lu par PERSONNE :
 							//    ni le monteur, ni le validateur au-dela du type. Une propriete que
@@ -924,7 +1168,7 @@ namespace nkentseu {
 							//    on le repose : c'est exactement ce que NKGui fait deja pour ses popups
 							//    (`popupSaved[PopupMax]`, un `NkGuiLayout` par niveau). On reprend son
 							//    procede plutot que d'en inventer un second.
-							const bool ouvrirRegion = pl.pose || enfantsAbsolus;
+							const bool ouvrirRegion = pl.pose || enfantsAbsolus || decoupeRel;
 							if (ouvrirRegion) {
 								const NkGuiLayout sauve = ctx.layout;
 								ctx.BeginLayout(r);
@@ -1183,10 +1427,277 @@ namespace nkentseu {
 							}
 							break;
 						}
-						case NkGuiRole::Callback: {
-							// Ce n'est pas une chose qui se voit : c'est un point
-							// d'entree. Compte comme widget du document, jamais monte.
-							aDessine = false;
+						// ── LA HIERARCHIE : liste, arbre, element ────────────
+						// ⚠️ LA QUESTION DU CONTENU, TRANCHEE ICI. Le format sait dire les
+						//    elements de DEUX facons, et elles ne sont pas de meme nature :
+						//      1. en les ECRIVANT (`items = [...]`, ou des enfants `Item` /
+						//         `TreeItem`) -- c'est une liste STATIQUE, donc un widget,
+						//         et le document la dit entierement ;
+						//      2. en NOMMANT une source (`bind = ui.scene`) -- et la, RIEN
+						//         ne peut la fournir : `NkGuiMonteEtat::Entree` ne porte
+						//         qu'un booleen, un flottant et un texte. **Il n'existe
+						//         aucun type liste dans l'etat du montage.**
+						//    C'est EXACTEMENT la frontiere de la zone hote : la hierarchie
+						//    d'une scene est une DONNEE de l'application, pas une
+						//    disposition. On ne l'invente pas dans le document -- on la
+						//    nomme, et une liste liee que personne ne remplit SE SIGNALE.
+						case NkGuiRole::ListBox: {
+							static const bool kMuette = []() {
+								const char *v = getenv("NK_LISTE_MUTATION"); // =muette : pas de marqueur
+								return v && v[0] == 'm';
+							}();
+							const NkGuiTailleRel relL = NkGuiLireTailleRelative(w, ctx.layout.region);
+							const NkRect zone = ctx.NextItemRect(relL.aW ? relL.w : -1.f,
+																 relL.aH ? relL.h : ctx.ItemHeight() * 5.f);
+							NkVector<NkString> ecrits;
+							const uint32 nEcrits = NkGListeChaines(w, "items", ecrits);
+							const uint32 montesAvant = rap.montes;
+							if (BeginListBox(ctx, lbl, zone)) {
+								for (uint32 k = 0; k < nEcrits; ++k)
+									(void)SelectItem(ctx, ecrits[k].CStr());
+								MonterCorps(ctx, w, etat, rap, prof + 1u, false, false, hooks);
+								EndListBox(ctx);
+							}
+							const bool rempli = (nEcrits > 0u) || (rap.montes > montesAvant);
+							const NkString cle = NkGTexte(w, "bind", "");
+							if (!rempli && cle.Size() > 0u) {
+								// LIEE, ET JAMAIS REMPLIE. Sans ce marqueur, un arbre vide se
+								// fait prendre pour un arbre sans elements, et le document a
+								// l'air monte alors qu'il manque sa moitie.
+								++rap.listesNonRemplies;
+								if (!kMuette) {
+									NkGuiDrawList &dl = ctx.DL();
+									const NkColor trait = ctx.theme.textMuted;
+									const float32 pas = 12.f;
+									for (float32 dd = 0.f; dd < zone.w + zone.h; dd += pas) {
+										float32 x0 = zone.x + dd, y0 = zone.y;
+										float32 x1 = zone.x, y1 = zone.y + dd;
+										if (x0 > zone.x + zone.w) {
+											y0 += x0 - (zone.x + zone.w);
+											x0 = zone.x + zone.w;
+										}
+										if (y1 > zone.y + zone.h) {
+											x1 += y1 - (zone.y + zone.h);
+											y1 = zone.y + zone.h;
+										}
+										if (y0 <= zone.y + zone.h && x1 <= zone.x + zone.w)
+											dl.AddLine({x0, y0}, {x1, y1}, trait, 1.f);
+									}
+									// LE CHEMIN DE LA CLE, et pas « liste vide » : l'hote doit
+									// savoir QUOI servir, pas seulement qu'il manque quelque chose.
+									if (ctx.font && ctx.font->Valid())
+										dl.AddText(ctx.font->Face(), ctx.font->TexId(),
+												   {zone.x + 6.f, zone.y + 4.f}, cle.CStr(), trait);
+								}
+							}
+							Noter(rap, id, t, zone, prof, true, horizontal);
+							++rap.montes;
+							return;
+						}
+						case NkGuiRole::Item: {
+							(void)SelectItem(ctx, NkGTexte(w, "label", lbl).CStr());
+							break;
+						}
+						case NkGuiRole::TreeItem: {
+							const NkString titre = NkGTexte(w, "label", id.CStr());
+							ctx.SetNodeOpen(ctx.GetId(titre.CStr()), NkGBooleen(w, "expanded", false));
+							if (TreeNode(ctx, titre.CStr())) {
+								MonterCorps(ctx, w, etat, rap, prof + 1u, false, false, hooks);
+								TreePop(ctx);
+							}
+							break;
+						}
+						// ── LE SEPARATEUR : il ne se dessine pas, il PARTAGE ─
+						// ⚠️ CE QUI FAIT UN SEPARATEUR N'EST PAS SON TRAIT. Un trait gris de
+						//    quatre pixels se dessine sans rien separer. C'est qu'il DEPLACE
+						//    la frontiere et que les DEUX voisins se recalculent -- et c'est
+						//    pour cela qu'il est un CONTENEUR DE DEUX ENFANTS ici : ses
+						//    voisins sont ses enfants, donc « les deux se recalculent » se
+						//    mesure sans aller fouiller la fratrie, mecanisme que ce monteur
+						//    n'a nulle part ailleurs.
+						//
+						// ⚠️ LE DOCUMENT POSE LE DEFAUT, LE GESTE VIT A COTE, et le depot
+						//    avait deja le mecanisme : `NkGuiMonteEtat::Entree::initialise`
+						//    -- « sans lui, chaque trame ecraserait ce que l'utilisateur a
+						//    change ». Le ratio tire par l'utilisateur vit dans l'ETAT du
+						//    montage, pour la duree de la session ; **rien n'est reecrit dans
+						//    le `.nkgui`**, et c'est ce qui garde le fichier partageable.
+						//    Le ratio plutot que des pixels : `SplitterRatio` le dit
+						//    lui-meme, « un ratio survit au redimensionnement de la fenetre ».
+						case NkGuiRole::Splitter: {
+							// MUTATION DE BANC, NK_SEPARATEUR_MUTATION=fige : le ratio de
+							// l'etat est ignore et le defaut du document repris a chaque
+							// image. Le geste n'a alors plus d'effet -- c'est ce que le
+							// critere du deplacement doit voir.
+							static const bool kFige = []() {
+								const char *v = getenv("NK_SEPARATEUR_MUTATION");
+								return v && v[0] == 'f';
+							}();
+							const float32 defaut = NkGNombre(w, "ratio", 0.5f);
+							const float32 rmin = NkGNombre(w, "min", 0.1f);
+							const float32 rmax = NkGNombre(w, "max", 0.9f);
+							const bool vertical = !NkGMotEgal(NkStringView(NkGTexte(w, "orientation", "Vertical").CStr()),
+															  "Horizontal");
+							if (e && !e->initialise) {
+								e->f = defaut;
+								e->initialise = true;
+							}
+							float32 ratio = (e && !kFige) ? e->f : defaut;
+							if (ratio < rmin)
+								ratio = rmin;
+							if (ratio > rmax)
+								ratio = rmax;
+							const NkRect zone = pl.pose ? pl.rect : ctx.layout.region;
+							const float32 epaisseur = 4.f;
+							NkRect visuel{}, prise{};
+							SplitterRects(zone, vertical, ratio, epaisseur, 12.f, &visuel, &prise);
+							// La poignee, et le geste : `SplitterRatio` ecrit dans `ratio`.
+							(void)SplitterRatio(ctx, lbl, zone, vertical, &ratio, rmin, rmax, epaisseur, 12.f);
+							if (e && !kFige)
+								e->f = ratio; // LE GESTE, garde dans l'etat -- jamais dans le document
+							// Les deux enfants, chacun dans SA moitie. C'est ici que « les
+							// deux voisins se recalculent » se produit.
+							NkRect a = zone, b = zone;
+							if (vertical) {
+								a.w = visuel.x - zone.x;
+								b.x = visuel.x + epaisseur;
+								b.w = (zone.x + zone.w) - b.x;
+							} else {
+								a.h = visuel.y - zone.y;
+								b.y = visuel.y + epaisseur;
+								b.h = (zone.y + zone.h) - b.y;
+							}
+							MonterCorpsBorne(ctx, w, etat, rap, prof + 1u, hooks, a, b);
+							Noter(rap, id, t, zone, prof, true, horizontal);
+							++rap.montes;
+							return;
+						}
+						// ── L'EN-TETE REPLIABLE (l'inspecteur du modeleur) ───
+						// ⚠️ CE QUI FAIT UN PLIABLE N'EST PAS SON TRIANGLE, C'EST CE QU'IL
+						//    CACHE. Un bloc replie ne monte PAS ses enfants : c'est le seul
+						//    critere qui distingue un pliable d'un simple titre, et c'est
+						//    celui que le banc mesure (l'enfant absent du releve).
+						// ⚠️ `expanded` VIENT DU DOCUMENT, et il faut le poser AVANT d'appeler
+						//    `CollapsingHeader` : le widget garde son etat par identifiant, et
+						//    sans cette ligne le document ne commanderait rien -- la propriete
+						//    serait un decor, exactement ce que ce fichier reproche ailleurs.
+						case NkGuiRole::Expander: {
+							// MUTATION DE BANC, NK_PLIABLE_MUTATION=toujours : tout est ouvert.
+							// Elle prouve que le critere de l'enfant cache teste quelque chose.
+							static const bool kToujours = []() {
+								const char *v = getenv("NK_PLIABLE_MUTATION");
+								return v && v[0] == 't';
+							}();
+							const NkString titre = NkGTexte(w, "label", id.CStr());
+							const bool voulu = kToujours || NkGBooleen(w, "expanded", false);
+							ctx.SetNodeOpen(ctx.GetId(titre.CStr()), voulu);
+							if (CollapsingHeader(ctx, titre.CStr()))
+								MonterCorps(ctx, w, etat, rap, prof + 1u, false, false, hooks);
+							break;
+						}
+						// ── LA BANDE D'ONGLETS ───────────────────────────────
+						// ⚠️ LE FORMAT DIT `tabs`, PAS `items`. Le schema du role
+						//    (`NkGuiValidate.h`) porte `tabs, bind, editable, closable` :
+						//    un document qui ecrirait `items` se fait refuser, et c'est le
+						//    negatif de ce lot.
+						// ⚠️ ET ON N'ECRIT PAS DE WIDGET : `TabBar` existe dans NKGui depuis
+						//    toujours. Le monteur appelle ce qui est la, comme pour les
+						//    quatorze autres roles.
+						case NkGuiRole::TabBar: {
+							// MUTATION DE BANC, NK_ONGLETS_MUTATION=vide : la liste est
+							// ignoree. Elle prouve que le critere de l'image teste quelque
+							// chose ; sans la variable, rien ne change.
+							static const bool kVide = []() {
+								const char *v = getenv("NK_ONGLETS_MUTATION");
+								return v && v[0] == 'v';
+							}();
+							NkVector<NkString> libelles;
+							const uint32 n = kVide ? 0u : NkGListeChaines(w, "tabs", libelles);
+							if (n == 0u) {
+								// Une bande sans onglet ne peint rien : il n'y a rien a
+								// selectionner, donc rien a souligner. On le COMPTE.
+								aDessine = false;
+								break;
+							}
+							// `TabBar` attend un tableau de `const char *` : on le construit
+							// ici, sur la pile, borne par le plafond du kit.
+							const char *ptr[32];
+							uint32 m = n > 32u ? 32u : n;
+							for (uint32 k = 0; k < m; ++k)
+								ptr[k] = libelles[k].CStr();
+							(void)TabBar(ctx, lbl, ptr, (int32)m);
+							break;
+						}
+						// ═══════════════════════════════════════════════════════════
+						//  LA ZONE HOTE -- le document dit OU, l'application peint QUOI
+						// ═══════════════════════════════════════════════════════════
+						//  C'est la frontiere du format, et elle est ici. Un viseur 3D, une
+						//  toile, un editeur de texte ne sont pas des widgets : ce sont des
+						//  RECTANGLES que l'hote remplit. Sans ce role, aucun document ne
+						//  pourra jamais decrire une application reelle.
+						//
+						//  ⚠️ UNE ZONE QUE PERSONNE NE REMPLIT NE DISPARAIT PAS EN SILENCE,
+						//     ET NE PEINT PAS DE FAUX CONTENU. Elle se signale : des hachures
+						//     et son nom -- ce qu'aucun contenu plausible ne ressemble -- et
+						//     elle se COMPTE (`hotesNonRemplis`). Un manque muet se fait
+						//     prendre pour un fond ; un manque qui se voit se repare.
+						case NkGuiRole::Host: {
+							++rap.hotes;
+							// Un `pos`/`size` pose a deja arme `SetNextItemRect` avant le switch :
+							// `NextItemRect` le rend tel quel. Sinon, la zone lit sa TAILLE RELATIVE
+							// (« 60 % de mon parent ») ; a defaut, elle prend la largeur disponible et
+							// quatre hauteurs d'item -- assez pour se voir.
+							const NkGuiTailleRel relH = NkGuiLireTailleRelative(w, ctx.layout.region);
+							const NkRect zone = ctx.NextItemRect(relH.aW ? relH.w : -1.f,
+																 relH.aH ? relH.h : ctx.ItemHeight() * 4.f);
+							const bool rempli = hooks && hooks->RemplirHote(ctx, id.CStr(), zone);
+							if (!rempli) {
+								++rap.hotesNonRemplis;
+								// MUTATION DE BANC, NK_HOTE_MUTATION=sansmarqueur : la zone vide ne
+								// trace plus rien. Elle sert a prouver que le critere du marqueur
+								// teste quelque chose ; sans la variable, rien ne change.
+								static const bool kSansMarqueur = []() {
+									const char *v = getenv("NK_HOTE_MUTATION");
+									return v && v[0] == 's';
+								}();
+								if (kSansMarqueur)
+									break;
+								NkGuiDrawList &dl = ctx.DL();
+								// 🔴 LA COULEUR DU MARQUEUR EST CELLE DU TEXTE SECONDAIRE, PAS CELLE
+								//    DE LA BORDURE. Premiere version : `theme.border`. Le banc
+								//    comptait 3 778 pixels traces et passait au VERT -- et l'image
+								//    ne montrait RIEN : la bordure est a 9 de luminance de l'aplat du
+								//    panneau. Un marqueur qu'aucun oeil ne voit ne signale rien, et
+								//    c'est exactement le defaut muet que ce role existe pour empecher.
+								//    Le critere du banc compte desormais les pixels dont la LUMINANCE
+								//    s'ecarte de l'aplat : la bordure y rougirait.
+								const NkColor trait = ctx.theme.textMuted;
+								dl.AddRect(zone, trait, 1.f);
+								// LES HACHURES : elles disent « rien n'est monte ici », et aucun
+								// contenu d'application ne leur ressemble.
+								const float32 pas = 12.f;
+								for (float32 d = 0.f; d < zone.w + zone.h; d += pas) {
+									float32 x0 = zone.x + d, y0 = zone.y;
+									float32 x1 = zone.x, y1 = zone.y + d;
+									if (x0 > zone.x + zone.w) {
+										y0 += x0 - (zone.x + zone.w);
+										x0 = zone.x + zone.w;
+									}
+									if (y1 > zone.y + zone.h) {
+										x1 += y1 - (zone.y + zone.h);
+										y1 = zone.y + zone.h;
+									}
+									if (y0 <= zone.y + zone.h && x1 <= zone.x + zone.w)
+										dl.AddLine({x0, y0}, {x1, y1}, trait, 1.f);
+								}
+								// ET SON NOM : « zone non remplie » sans dire LAQUELLE renverrait
+								// l'hote a chercher. Le nom du noeud est la cle qu'il doit servir.
+								if (ctx.font && ctx.font->Valid()) {
+									const NkString h = NkGTexte(w, "hint", id.CStr());
+									dl.AddText(ctx.font->Face(), ctx.font->TexId(),
+											   {zone.x + 6.f, zone.y + 4.f}, h.CStr(), ctx.theme.textMuted);
+								}
+							}
 							break;
 						}
 						default:

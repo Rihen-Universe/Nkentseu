@@ -1,0 +1,23 @@
+nkgui 0.3
+
+// LA ZONE HOTE. Le document dit OU et QUOI ; l'application garde QUAND et COMMENT.
+// Deux zones : la premiere, l'hote la remplit ; la seconde, personne. Celle que
+// personne ne remplit doit SE VOIR -- hachures et nom -- et se compter.
+widgets {
+
+  Panel "fenetre" {
+    title = "Modeleur"
+
+    Text "titre" {
+      text = "Viseur"
+    }
+
+    Host "viseur3d" {
+      hint = "viseur 3D"
+    }
+
+    Host "apercu_materiau" {
+      hint = "apercu du materiau (personne ne le remplit)"
+    }
+  }
+}

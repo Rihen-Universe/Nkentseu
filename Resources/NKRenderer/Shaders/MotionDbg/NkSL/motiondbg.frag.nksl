@@ -1,0 +1,45 @@
+// motiondbg.frag.nksl — NKRenderer — sonde de lecture des vecteurs de mouvement (FS)
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
+//
+// POURQUOI CETTE SONDE EXISTE. La cible des vecteurs de mouvement est RG16F : un
+// banc ne peut pas la relire par le chemin de relecture RGBA8 déjà éprouvé du
+// moteur. Cette passe l'encode donc en couleur, dans la sortie finale, sous la
+// seule variable NK_MOTION_DEBUG. Sans elle, elle ne s'ajoute pas au graphe.
+//
+// L'ENCODAGE, ET IL EST EXACTEMENT INVERSIBLE — c'est tout ce qu'on lui demande :
+//
+//     r = 0,5 + motion.x × A
+//     g = 0,5 + motion.y × A
+//     b = 0,5                     (repère fixe : un canal qui ne doit jamais bouger)
+//
+// donc le lecteur retrouve   motion.x = (r − 0,5) / A.
+//
+// ⚠️ LE CANAL BLEU EST UN TÉMOIN, PAS UNE DÉCORATION. Il vaut 0,5 partout et
+// pour toujours. S'il s'écarte de 128/255 dans une relecture, ce n'est pas le
+// vecteur qui est faux : c'est le chemin de lecture (format, espace colorimétrique,
+// tonemap resté branché, quantification). Un banc qui ne le vérifie pas ne peut
+// pas distinguer « le moteur écrit un mauvais vecteur » de « je lis mal ».
+//
+// ⚠️ ET LA SONDE N'ÉCRÊTE RIEN. Une valeur hors de [0,1] sort en saturation du
+// format, visiblement, au lieu d'être ramenée dans la plage. Un nombre impossible
+// qui se dénonce vaut mieux qu'un nombre plausible qu'on publie.
+
+@location(0) in vec2 vUV;
+@location(0) out vec4 oColor;
+
+@binding(set=0, binding=0) uniform sampler2D uMotion;
+
+layout(push_constant) uniform PC {
+    vec4 p0; // (amplification, yFlipUV, _, _)
+} pc;
+
+@stage(fragment)
+@entry
+void main() {
+    float amplification = pc.p0.x;
+    vec2 m = texture(uMotion, vUV).rg;
+    oColor = vec4(0.5 + m.x * amplification,
+                  0.5 + m.y * amplification,
+                  0.5,
+                  1.0);
+}
