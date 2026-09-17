@@ -144,6 +144,39 @@ $absVal = [Math]::Abs($val)
 Dire "(h) un glisser en phase 0 est IGNORE : validation a glissement nul" ($absVal -lt 0.001) `
 	"glissement a la validation = $val (exige 0 ; sans la separation, le glisser compte deja)"
 
+# -- (i)(j)(k)(l) LA SAISIE NUMERIQUE : DEUX PHASES, DEUX SENS, MEMES BORNES --
+# Blender : apres Ctrl+R, taper 3 donne TROIS coupes ; une fois l'anneau fige, le
+# nombre devient le FACTEUR DE GLISSEMENT. NK_MODAL_NUM="<n1>,<n2>" joue les deux
+# frappes -- n2 ne pouvait pas exister avant, la phase 1 n'etant pas ouverte.
+# ⚠ LES BORNES SONT CELLES DU PILOTAGE SOURIS. La saisie ne passait par AUCUNE
+#   borne : taper 50 donnait un facteur de 50 la ou la souris plafonne a 1, et le
+#   defaut ne se voyait QUE si l'on tapait un nombre -- presque jamais.
+function ValeurDe([string]$nums, [string]$mutBorne) {
+	$e = @{ "NK_MODAL_OP" = "loopcut"; "NK_MODAL_NUM" = $nums; "NK_MODAL_CONFIRM" = "2" }
+	if ($mutBorne) { $e["NK_NUM_SANSBORNE"] = "1" }
+	$f = Courir ("num_" + ($nums -replace "[^0-9]", "_") + $mutBorne) $e
+	if (Test-Path "Env:\NK_NUM_SANSBORNE") { Remove-Item -Path "Env:\NK_NUM_SANSBORNE" }
+	$c = @(Select-String -Path $f -Pattern "CONFIRME")
+	$v = -999.0; $sg = -999
+	if ($c.Count -gt 0) {
+		$m = [regex]::Match($c[$c.Count - 1].Line, "valeur=(-?[0-9.]+) segments=([0-9]+)")
+		if ($m.Success) { $v = [double]$m.Groups[1].Value; $sg = [int]$m.Groups[2].Value }
+	}
+	return @($v, $sg)
+}
+$r1 = ValeurDe "3,50" ""
+$r2 = ValeurDe "3,50" "x"
+$r3 = ValeurDe "3,0.4" ""
+$r4 = ValeurDe "3,-50" ""
+Dire "(i) le nombre de la phase 0 est un nombre de COUPES" ($r1[1] -eq 3) `
+	"NUM=3,50 -> segments=$($r1[1]) (exige 3)"
+Dire "(j) LE ZERO DES BORNES : une valeur DEJA valide n'est pas deformee" ([Math]::Abs($r3[0] - 0.4) -lt 0.001) `
+	"NUM=3,0.4 -> glissement=$($r3[0]) (exige 0,4 inchange ; sinon la borne deformerait tout)"
+Dire "(k) la saisie de phase 1 est bornee COMME LA SOURIS" (([Math]::Abs($r1[0] - 1.0) -lt 0.001) -and ([Math]::Abs($r4[0] + 1.0) -lt 0.001)) `
+	"NUM=3,50 -> $($r1[0]) et NUM=3,-50 -> $($r4[0]) (exige +1 et -1 : la souris ne depasse jamais 1)"
+Dire "(l) MUTATION des bornes : 50 passe tel quel" ([Math]::Abs($r2[0] - 50.0) -lt 0.001) `
+	"NUM=3,50 sans borne -> $($r2[0]) (exige 50 : c'est exactement ce que la borne empeche)"
+
 Write-Host "-----------------------------------------------------------------------"
 if ($Mutation) {
 	if ($rouges -gt 0) { Write-Host "MUTATION TUEE ($rouges rouge(s)) — les criteres mordent."; exit 1 }

@@ -1812,6 +1812,12 @@ namespace nkentseu {
 				// est active, LA SOURIS NE PILOTE PLUS -- sinon le nombre tape serait
 				// ecrase au premier tremblement du curseur.
 				bool modalNumActive = false;
+				// (b7) LE SECOND NOMBRE, celui de la PHASE 2. `NK_MODAL_NUM="<n1>,<n2>"` :
+				// n1 au lancement (des COUPES, phase 0), n2 apres la transition (un FACTEUR
+				// DE GLISSEMENT, phase 1). Sans lui, la phase 2 n'etait pas mesurable : le
+				// tampon est vide a la transition, et a raison de l'etre.
+				char modalNum2Buf[32] = {0};
+				bool modalNum2Pret = false;
 				// NK_MODAL_PRECIS=1 : force le modificateur de precision. Maj se TIENT,
 				// et rien n'injecte une touche TENUE en headless -- sans ce drapeau, la
 				// precision ne serait verifiable qu'a la main.
@@ -4926,8 +4932,36 @@ namespace nkentseu {
 			// sinon le nombre tape serait ecrase au premier tremblement du curseur.
 			if (st->modalNumActive) {
 				const float32 tape = (float32)atof(st->modalNumBuf);
-				if (fabsf(tape - st->modalVal) > 1e-9f) {
-					st->modalVal = tape;
+				// ── (b7) EN PHASE 0 DU LOOP CUT, LE NOMBRE EST UN NOMBRE DE COUPES ──
+				// Blender : apres Ctrl+R, taper 3 donne TROIS boucles ; c'est une fois
+				// l'anneau fige que le nombre devient le facteur de glissement. Deux
+				// phases, deux sens -- et le meme geste.
+				if (st->modalOp == 4 && st->modalLoopPhase == 0) {
+					const int32 n = Demo3D_ModalClampSeg(st->modalOp, (int32)(tape + 0.5f));
+					if (n != st->modalSeg) {
+						st->modalSeg = n;
+						st->modalDirty = true;
+					}
+					return;
+				}
+				// ⚠ LES BORNES SONT CELLES DU PILOTAGE SOURIS, ET C'EST TOUT L'OBJET DE
+				//   CETTE LIGNE. La saisie ne passait par AUCUNE borne, alors que la
+				//   souris passe par `Demo3D_ModalClampVal` : deux pilotes de la meme
+				//   valeur, un seul borne. Taper 50 sur un loop cut donnait un facteur de
+				//   glissement de 50 la ou la souris ne peut pas depasser 1 -- et le defaut
+				//   ne se voyait QUE si l'on tapait un nombre, c'est-a-dire presque jamais.
+				//   Un seul endroit decide desormais, pour les DEUX pilotes.
+				// MUTATION dans le MEME binaire : `NK_NUM_SANSBORNE=1` retire CE partage
+				// et rien d'autre. Taper 50 sur un loop cut doit alors rendre 50, la ou
+				// la souris ne peut pas depasser 1.
+				static int sansBorne = -1;
+				if (sansBorne == -1) {
+					const char *v = getenv("NK_NUM_SANSBORNE");
+					sansBorne = (v && v[0] && v[0] != '0') ? 1 : 0;
+				}
+				const float32 borne = sansBorne ? tape : Demo3D_ModalClampVal(st->modalOp, tape);
+				if (fabsf(borne - st->modalVal) > 1e-9f) {
+					st->modalVal = borne;
 					st->modalDirty = true;
 				}
 				return;
@@ -5023,6 +5057,26 @@ namespace nkentseu {
 					st->modalLoopPhase = 1;
 					st->modalStartX = st->modalCurX;
 					st->modalVal = 0.f;
+					// ⚠ LE TAMPON NUMERIQUE NE TRAVERSE PAS LA TRANSITION. Le nombre tape
+					// en phase 0 designe des COUPES ; le laisser vivre le ferait relire en
+					// phase 1 comme un FACTEUR DE GLISSEMENT -- le meme chiffre, deux sens,
+					// et l'utilisateur n'a tape qu'une fois. Mesure du 17/09 : taper 3
+					// donnait 3 coupes ET un glissement de 1.
+					st->modalNumActive = false;
+					st->modalNumLen = 0;
+					st->modalNumBuf[0] = 0;
+					// ... et si un SECOND nombre a ete prevu, c'est ici qu'il entre : il ne
+					// pouvait pas exister avant, la phase 1 n'etant pas ouverte.
+					if (st->modalNum2Pret) {
+						int32 k2 = 0;
+						while (st->modalNum2Buf[k2] && k2 < (int32)sizeof(st->modalNumBuf) - 1) {
+							st->modalNumBuf[k2] = st->modalNum2Buf[k2];
+							++k2;
+						}
+						st->modalNumBuf[k2] = 0;
+						st->modalNumLen = k2;
+						st->modalNumActive = (k2 > 0);
+					}
 					st->modalDirty = true;
 					logger.Info("[Demo3D] (b7) LOOP CUT : anneau FIGE ({0}, {1}), {2} coupe(s) -- "
 								"phase GLISSEMENT\n",
@@ -5165,12 +5219,24 @@ namespace nkentseu {
 			}
 			// NK_MODAL_NUM="<nombre>" : saisie numerique, meme chemin que la frappe.
 			if (const char *mnum = getenv("NK_MODAL_NUM")) {
+				// `NK_MODAL_NUM="<n1>[,<n2>]"` : n1 tout de suite, n2 a la transition de
+				// phase du loop cut. Deux phases, deux sens du meme geste.
 				int32 n = 0;
-				for (const char *q = mnum; *q && n < (int32)sizeof(st->modalNumBuf) - 1; ++q)
+				const char *q = mnum;
+				for (; *q && *q != ',' && n < (int32)sizeof(st->modalNumBuf) - 1; ++q)
 					st->modalNumBuf[n++] = *q;
 				st->modalNumBuf[n] = 0;
 				st->modalNumLen = n;
 				st->modalNumActive = (n > 0);
+				st->modalNum2Pret = false;
+				if (*q == ',') {
+					++q;
+					int32 m = 0;
+					for (; *q && m < (int32)sizeof(st->modalNum2Buf) - 1; ++q)
+						st->modalNum2Buf[m++] = *q;
+					st->modalNum2Buf[m] = 0;
+					st->modalNum2Pret = (m > 0);
+				}
 			}
 			if (st->modalEnvHasVal)
 				st->modalVal = st->modalEnvVal; // pilote headless (pas de souris en capture)
