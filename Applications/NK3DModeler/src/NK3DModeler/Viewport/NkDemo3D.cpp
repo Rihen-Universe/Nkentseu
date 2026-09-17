@@ -1747,6 +1747,20 @@ namespace nkentseu {
 				float32 modalScale = 0.01f;       // conversion pixels -> unites du parametre
 				bool modalDirty = true;           // les parametres ont change -> re-appliquer
 				int32 modalLoopA = -1, modalLoopB = -1; // LOOP CUT : arete survolee (apercu de l'anneau)
+				// ── (b7) LES QUATRE ETATS DE Ctrl+R ─────────────────────────────
+				// Chez Blender ce n'est pas UNE commande : c'est DEUX phases separees
+				// par un clic, et l'annulation n'y veut pas dire la meme chose.
+				//   phase 0 (CHOIX)   la souris choisit l'ANNEAU, le glissement reste
+				//                     a zero. Echap : AUCUNE boucle.
+				//   phase 1 (GLISSER) l'anneau est FIGE, la souris fait coulisser.
+				//                     Echap : la boucle RESTE, remise au milieu.
+				// ⚠ C'est l'Echap de la phase 1 qui portait tout le defaut : il
+				//   annulait TOUT, donc un utilisateur qui placait sa boucle puis se
+				//   ravisait sur le coulissement PERDAIT sa boucle.
+				// Une seule variable, et elle ne vaut que pour `modalOp == 4` : un
+				// second drapeau (« a-t-on deja clique ») serait une seconde autorite
+				// sur le meme etat.
+				int32 modalLoopPhase = 0;
 				NkVector<uint32> modalSnapEdges; // aretes UNIQUES du snapshot (survol du loop cut)
 				// ── INSTANTANE ENFICHABLE (2026-08-28) ──────────────────────────────
 				// ⚠ IL N'Y A QU'UN SEUL CADRE MODAL, et il ne se duplique pas. Seul CE
@@ -1815,6 +1829,13 @@ namespace nkentseu {
 				NkVec3f modalCenterLocal = {0.f, 0.f, 0.f};
 				int32 modalFrames = 0;           // frames ecoulees depuis le lancement
 				bool modalEnvConfirm = false;    // NK_MODAL_CONFIRM=1 : confirme automatiquement
+				// COMBIEN DE CONFIRMATIONS AU PLUS. Il en fallait un depuis (b7) : le loop
+				// cut a DEUX phases, donc DEUX clics -- un pour figer l'anneau, un pour
+				// valider. Une confirmation qui se rearme a chaque image confirmait les deux
+				// d'affilee, et une course qui croyait mesurer « Echap en phase 1 » mesurait
+				// en realite « confirme, confirme » -- juste au resultat, faux sur la
+				// question. `NK_MODAL_CONFIRM=<n>` : n clics.
+				int32 modalEnvConfirmRestant = 0;
 				// Pilote headless : NK_MODAL_OP / NK_MODAL_VAL / NK_MODAL_SEG forcent les
 				// parametres au lancement (les ops modales n'ont pas de souris en capture).
 				bool modalEnvHasVal = false, modalEnvHasSeg = false;
@@ -1842,6 +1863,12 @@ namespace nkentseu {
 				int32 modalInjWheel = 0;
 				bool modalInjWheelDone = false;
 				bool modalInjCancel = false;
+				// DELAI, EN IMAGES, AVANT L'ECHAP SYNTHETIQUE. Il existe pour une raison
+				// precise : depuis (b7), le loop cut a DEUX phases, et scripter « clic puis
+				// Echap » exige que les deux ne tombent pas sur la MEME image -- sinon
+				// l'annulation gagne (elle est testee en premier) et la transition de phase
+				// n'a jamais lieu. 0 = comportement d'origine.
+				int32 modalInjCancelDelai = 0;
 				// Mesures (NK_MODAL_PERF=1) : cout des apercus, chemin COMPLET vs POSITIONS.
 				bool modalPerf = false;
 				bool modalForceFull = false; // NK_MODAL_FORCEFULL=1 : desactive le chemin allege
@@ -4791,6 +4818,7 @@ namespace nkentseu {
 			Demo3D_ModalRestore(st);
 			st->modalOp = 0;
 			st->modalLoopA = st->modalLoopB = -1;
+			st->modalLoopPhase = 0; // (b7) la phase ne survit jamais a sa modale
 			if (eff)
 				Demo3D_ApplyCmd(st, ms, c);
 			else
@@ -4814,6 +4842,7 @@ namespace nkentseu {
 				return;
 			const int32 op = st->modalOp;
 			st->modalLoopA = st->modalLoopB = -1;
+			st->modalLoopPhase = 0; // (b7) la phase ne survit jamais a sa modale
 			// PHOTO GIZMO : on REPOSE les trois tableaux photographies -- jamais un
 			// delta inverse. Puis on le PROUVE bit a bit : une derive d'epsilon sur
 			// une transformation est invisible a l'oeil et fausse tout ce qui suit,
@@ -4903,6 +4932,20 @@ namespace nkentseu {
 				}
 				return;
 			}
+			// ── (b7) PHASE 0 DU LOOP CUT : LA SOURIS NE GLISSE PAS ─────────────
+			// Elle choisit l'anneau, et rien d'autre. Sans cette garde, le meme
+			// geste faisait DEUX choses a la fois -- choisir ET coulisser -- et les
+			// deux phases de Blender se confondaient en une.
+			// MUTATION dans le MEME binaire : `NK_LOOP_UNEPHASE=1` refusionne les deux
+			// phases -- la souris glisse des la phase 0, comme avant. Les criteres (e),
+			// (f) et (g) doivent alors rougir ; s'ils restent verts, ils ne testent rien.
+			static int unePhase = -1;
+			if (unePhase == -1) {
+				const char *v = getenv("NK_LOOP_UNEPHASE");
+				unePhase = (v && v[0] && v[0] != '0') ? 1 : 0;
+			}
+			if (!unePhase && st->modalOp == 4 && st->modalLoopPhase == 0)
+				return;
 			if (st->modalScale != 0.f) {
 				// ── PRECISION : Maj TENU ralentit le geste d'un facteur 10 ──────
 				// Keymap Blender : PRECISION sur LEFT_SHIFT/RIGHT_SHIFT en value
@@ -4935,18 +4978,57 @@ namespace nkentseu {
 				Demo3D_ModalPreview(st, ms);
 			}
 			const int32 injEnd = st->modalInjDrag ? (st->modalInjFrames + 2) : 3;
-			const bool autoConfirm = (st->modalEnvConfirm && st->modalFrames > injEnd);
-			if (st->modalInjCancel && st->modalFrames > injEnd) {
+			const bool autoConfirm =
+				(st->modalEnvConfirm && st->modalEnvConfirmRestant > 0 && st->modalFrames > injEnd);
+			if (autoConfirm)
+				--st->modalEnvConfirmRestant;
+			if (st->modalInjCancel && st->modalFrames > injEnd + st->modalInjCancelDelai) {
 				st->modalInjCancel = false;
 				st->modalCancelPending = true;
 				logger.Info("[Demo3D] NK_MODAL_CANCEL -> Echap synthetique envoye a l'op modale\n");
 			}
+			// MUTATION `NK_LOOP_UNEPHASE=1` : les deux phases redeviennent une seule.
+			// Lue ICI, avant les deux branches, parce que les DEUX en dependent --
+			// la declarer dans une seule les ferait diverger.
+			static int unePhaseF = -1;
+			if (unePhaseF == -1) {
+				const char *v = getenv("NK_LOOP_UNEPHASE");
+				unePhaseF = (v && v[0] && v[0] != '0') ? 1 : 0;
+			}
 			if (st->modalCancelPending) {
 				st->modalCancelPending = false;
 				st->modalConfirmPending = false;
+				// ── (b7) ECHAP N'A PAS LE MEME SENS DANS LES DEUX PHASES ───────────
+				// En phase 1, Blender annule LE GLISSEMENT, pas l'insertion : la
+				// boucle reste, remise au milieu. C'est le coeur de (b7) -- et
+				// c'etait le defaut : Echap emportait la boucle avec lui.
+				if (!unePhaseF && st->modalOp == 4 && st->modalLoopPhase == 1) {
+					st->modalVal = 0.f;
+					st->modalDirty = true;
+					logger.Info("[Demo3D] (b7) LOOP CUT : glissement annule, la boucle RESTE au "
+								"milieu\n");
+					Demo3D_ModalConfirm(st, ms);
+					return true;
+				}
 				Demo3D_ModalCancel(st, ms);
 			} else if (clickNow || autoConfirm || st->modalConfirmPending) {
 				st->modalConfirmPending = false;
+				// ── (b7) 1 -> 2 : LE PREMIER CLIC NE VALIDE PAS, IL FIGE L'ANNEAU ──
+				// Blender : le clic pose la boucle AU MILIEU et ouvre le glissement.
+				// C'est le second clic qui valide. On repart donc de la position
+				// COURANTE de la souris -- sinon le glissement heriterait du trajet
+				// parcouru pendant le choix de l'anneau, et bondirait au premier
+				// pixel.
+				if (!unePhaseF && st->modalOp == 4 && st->modalLoopPhase == 0) {
+					st->modalLoopPhase = 1;
+					st->modalStartX = st->modalCurX;
+					st->modalVal = 0.f;
+					st->modalDirty = true;
+					logger.Info("[Demo3D] (b7) LOOP CUT : anneau FIGE ({0}, {1}), {2} coupe(s) -- "
+								"phase GLISSEMENT\n",
+								st->modalLoopA, st->modalLoopB, st->modalSeg);
+					return true;
+				}
 				Demo3D_ModalConfirm(st, ms);
 			}
 			return true;
@@ -4973,6 +5055,7 @@ namespace nkentseu {
 			Demo3D_ModalPhotoPrendre(st);
 			st->modalFrames = 0;
 			st->modalLoopA = st->modalLoopB = -1;
+			st->modalLoopPhase = 0; // (b7) la phase ne survit jamais a sa modale
 			st->modalSnapVerts = st->modalSnap.VertCount();
 			st->modalSnapFaces = st->modalSnap.FaceCount();
 			st->modalStartX = ((float32)NkInput.MouseX() - nkvpOffX);
@@ -7322,8 +7405,12 @@ namespace nkentseu {
 						st->modalEnvHasSeg = true;
 						st->modalEnvSeg = atoi(mg);
 					}
-					if (getenv("NK_MODAL_CONFIRM"))
+					if (const char *mcf = getenv("NK_MODAL_CONFIRM")) {
 						st->modalEnvConfirm = true;
+						// `NK_MODAL_CONFIRM=<n>` : n clics de validation AU PLUS. Voir le champ.
+						const int32 nc = atoi(mcf);
+						st->modalEnvConfirmRestant = (nc > 0) ? nc : 1;
+					}
 					// ── INJECTION D'EVENEMENTS SOURIS SYNTHETIQUES (verification headless) ──
 					// La souris est CAPTUREE par l'op modale : on injecte donc le MEME signal
 					// qu'un vrai geste, dans le MEME curseur virtuel, et on prouve en capture
@@ -7356,8 +7443,12 @@ namespace nkentseu {
 					}
 					if (const char *mw = getenv("NK_MODAL_WHEEL"))
 						st->modalInjWheel = atoi(mw);
-					if (getenv("NK_MODAL_CANCEL"))
+					if (const char *mc = getenv("NK_MODAL_CANCEL")) {
 						st->modalInjCancel = true;
+						// `NK_MODAL_CANCEL=<n>` : n images d'attente EN PLUS. Voir le champ.
+						const int32 dl = atoi(mc);
+						st->modalInjCancelDelai = (dl > 1) ? dl : 0;
+					}
 					// NK_MODAL_OBS=1 : journalise l'etat INTERMEDIAIRE d'une modale de
 					// transformation, a chaque apercu. Obligatoire depuis la mesure de
 					// Spin : un compteur de maillage ne bouge JAMAIS pendant une
@@ -9961,7 +10052,10 @@ namespace nkentseu {
 					// d'occlusion reel du pick au clic (Demo3D_PointOccluded) sur le point de
 					// l'arete le plus proche du curseur. Cout maitrise : on ne teste que les
 					// candidats qui AMELIORENT le meilleur score courant (quelques-uns).
-					if (st->modalOp == 4 &&
+					// ⚠ (b7) EN PHASE 1, L'ANNEAU EST FIGE. Sans cette garde, coulisser
+					// ferait aussi CHANGER d'anneau -- c'est-a-dire exactement la
+					// confusion des deux phases qu'on vient de defaire.
+					if (st->modalOp == 4 && st->modalLoopPhase == 0 &&
 						(modalMDX != 0.f || modalMDY != 0.f || st->modalInjDrag || st->modalLoopA < 0)) {
 						const float32 hx = st->modalCurX, hy = st->modalCurY;
 						int32 ha = -1, hb = -1;
