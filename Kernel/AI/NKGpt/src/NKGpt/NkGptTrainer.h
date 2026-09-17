@@ -8,7 +8,8 @@
 // Encapsule : chargement corpus/checkpoint, BPE, construction modèle, accumulation de
 // gradient, masquage de loss (instruction-tuning), LR schedule (warmup+cosine), checkpoint
 // périodique, reprise d'entraînement, génération autoregressive. Namespace nkentseu::ai::gpt.
-// AUTEUR : Rihen — LICENCE : Propriétaire - usage régi par le fichier LICENSE à la racine du dépôt
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
+// LICENCE : Propriétaire - usage régi par le fichier LICENSE à la racine du dépôt
 // =============================================================================
 #pragma once
 
@@ -263,6 +264,23 @@ namespace nkentseu {
 						return mEma;
 					}
 
+					// ARRÊT FATAL de Fit() : le motif si la boucle s'est interrompue sur une
+					// impossibilité (perte nulle/négative/NaN, rafale de défauts GPU) ;
+					// nullptr si la course s'est terminée normalement.
+					//
+					// ⚠️ POURQUOI CECI EXISTE. Le 2026-09-07 à 18:58, la garde « perte = 0,
+					// ce qui est IMPOSSIBLE » a crié — puis Fit() est retombé sur sa
+					// sauvegarde de fin de course et a écrit le modèle dégénéré PAR-DESSUS
+					// le checkpoint sain. La rotation .prev/.prev2 a consommé le dernier
+					// point sain dès la session suivante : 38 816 pas, six jours de GPU,
+					// perdus. Une garde qui n'empêche rien n'est pas une garde, c'est une
+					// décoration.
+					// L'appelant DOIT lire ceci et sortir en ÉCHEC : sinon le script de
+					// relance lit « code 0 » et recommence à l'identique.
+					const char *ArretFatal() const {
+						return mArretFatal;
+					}
+
 					int GenLangIndex() const {
 						return mGenLang;
 					}
@@ -363,6 +381,9 @@ namespace nkentseu {
 					// Perte du tout premier pas : sert de reference au filet de securite qui
 					// detecte un entrainement qui ne calcule rien.
 					double mPerteInitiale = 0.0;
+					// Motif d'arret fatal, ecrit par Fit() au moment du `break`. Chaine
+					// litterale (duree de vie du programme), nullptr = course normale.
+					const char *mArretFatal = nullptr;
 
 					// État optimiseur repris d'un checkpoint (reprise parfaite du schedule).
 					NkVector<NkTensor> mOptM, mOptV;

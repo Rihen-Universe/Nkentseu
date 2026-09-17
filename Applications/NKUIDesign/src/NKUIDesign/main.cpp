@@ -7139,6 +7139,170 @@ static void CalerLargeursDock(nkgui::NkGuiContext &ctx) {
 
 static void FocusPanel(const char *titre); // defini plus bas (il tient gShell)
 
+// ═══════════════════════════════════════════════════════════════════════════
+//  RECETTE : L'IDENTITE D'UN PANNEAU -- renommer ne doit pas perdre la disposition
+// ═══════════════════════════════════════════════════════════════════════════
+//  Sans fenetre, sans GPU : elle n'exerce que l'enregistrement et la relecture de
+//  la disposition. C'est le CRITERE qui decide de l'identifiant stable, et il doit
+//  ROUGIR tant que la coquille adresse les panneaux par leur titre affiche.
+//
+//  Le geste mesure est celui de Rodolf : il renomme un panneau -- ou il le traduit,
+//  ce qui revient au meme -- et retrouve sa disposition au lancement suivant.
+struct PanneauSonde : public nkentseu::editorkit::NkEditorPanel {
+		PanneauSonde(const char *ident, const char *titre)
+			: nkentseu::editorkit::NkEditorPanel(ident, titre,
+												 nkentseu::editorkit::NkEditorDockSide::NK_LEFT) {}
+		void OnUI(nkentseu::editorkit::NkEditorFrameContext &) override {}
+};
+
+static int RecetteIdentite() {
+	using namespace nkentseu;
+	using namespace nkentseu::editorkit;
+	int echecs = 0;
+	auto verifier = [&](bool ok, const char *quoi) {
+		printf("%s  %s\n", ok ? "OK   " : "ECHEC", quoi);
+		if (!ok)
+			++echecs;
+	};
+	printf("=== RECETTE : l'identite d'un panneau (renommer ne doit pas perdre la disposition) ===\n");
+
+	const char *chemin = "Build/sondes-nkuidesign/disposition_identite.cfg";
+
+	// ── 1. On enregistre une disposition : « Propriétés » OUVERT, « Console » ferme.
+	{
+		PanneauSonde props("proprietes", "Propriétés");
+		PanneauSonde console("console", "Console");
+		NkEditorShell sh;
+		sh.AddPanel(&props);
+		sh.AddPanel(&console);
+		props.SetOpen(true);
+		console.SetOpen(false);
+		sh.SaveUiState(chemin);
+	}
+	const NkString ecrit = NkFile::ReadAllText(NkPath(chemin));
+	verifier(!ecrit.Empty(), "la disposition s'enregistre");
+	printf("      fichier ecrit :\n%s", ecrit.CStr());
+
+	// ── 2. ON RENOMME. « Propriétés » devient « Proprietes » : c'est exactement ce que
+	//    fait une traduction, ou un simple retrait d'accent. L'IDENTIFIANT, lui, ne
+	//    bouge pas -- c'est tout l'objet de ce lot.
+	{
+		PanneauSonde props("proprietes", "Proprietes");
+		PanneauSonde console("console", "Console");
+		NkEditorShell sh;
+		sh.AddPanel(&props);
+		sh.AddPanel(&console);
+		props.SetOpen(false);
+		console.SetOpen(false);
+		sh.LoadUiState(chemin);
+		printf("      apres renommage : « %s » est %s\n", props.Title(),
+			   props.IsOpen() ? "RETROUVE (ouvert)" : "PERDU (ferme)");
+		verifier(props.IsOpen(),
+				 "LE CRITERE : un panneau RENOMME retrouve sa place (mutation : NK_IDENT_MUTATION=titre)");
+	}
+
+	// ── 3. LE ZERO : une application qui ne donne PAS d'identifiant ne change pas de
+	//    comportement. Son identifiant VAUT son titre, et tout se passe comme avant.
+	{
+		const char *cheminVieux = "Build/sondes-nkuidesign/disposition_sans_ident.cfg";
+		struct PanneauSansIdent : public NkEditorPanel {
+				explicit PanneauSansIdent(const char *t) : NkEditorPanel(t) {}
+				void OnUI(NkEditorFrameContext &) override {}
+		};
+		PanneauSansIdent p1("Console");
+		NkEditorShell sh;
+		sh.AddPanel(&p1);
+		p1.SetOpen(true);
+		sh.SaveUiState(cheminVieux);
+		PanneauSansIdent p2("Console");
+		NkEditorShell sh2;
+		sh2.AddPanel(&p2);
+		p2.SetOpen(false);
+		sh2.LoadUiState(cheminVieux);
+		verifier(p2.IsOpen(), "LE ZERO : sans identifiant declare, tout se comporte comme avant");
+	}
+
+	// ── 4. UN ANCIEN FICHIER, ecrit a la main comme la coquille l'ecrivait hier :
+	//    il ne porte que des TITRES. Il doit encore se relire -- un fichier de
+	//    disposition existant chez Rodolf ne devient pas illisible parce qu'on a
+	//    ameliore le format.
+	{
+		const char *cheminAncien = "Build/sondes-nkuidesign/disposition_ancienne.cfg";
+		NkFile::WriteAllText(cheminAncien, "maximized=0\npanel=Propriétés\n");
+		PanneauSonde props("proprietes", "Propriétés");
+		NkEditorShell sh;
+		sh.AddPanel(&props);
+		props.SetOpen(false);
+		sh.LoadUiState(cheminAncien);
+		verifier(props.IsOpen(),
+				 "UN ANCIEN FICHIER (titres seuls) se relit encore -- le repli par titre");
+	}
+
+	// ── 5. LE MELANGE, et c'est l'etat dans lequel le depot va vivre plusieurs jours :
+	//    NKUIDesign migree, les quatre autres non. Les deux sortes de panneaux doivent
+	//    cohabiter dans la MEME disposition.
+	{
+		const char *cheminMix = "Build/sondes-nkuidesign/disposition_melange.cfg";
+		struct PanneauSansIdent2 : public NkEditorPanel {
+				explicit PanneauSansIdent2(const char *t) : NkEditorPanel(t) {}
+				void OnUI(NkEditorFrameContext &) override {}
+		};
+		{
+			PanneauSonde migre("proprietes", "Propriétés");
+			PanneauSansIdent2 ancien("Console");
+			NkEditorShell sh;
+			sh.AddPanel(&migre);
+			sh.AddPanel(&ancien);
+			migre.SetOpen(true);
+			ancien.SetOpen(true);
+			sh.SaveUiState(cheminMix);
+		}
+		PanneauSonde migre2("proprietes", "Proprietes"); // RENOMME
+		PanneauSansIdent2 ancien2("Console");			 // inchange
+		NkEditorShell sh2;
+		sh2.AddPanel(&migre2);
+		sh2.AddPanel(&ancien2);
+		migre2.SetOpen(false);
+		ancien2.SetOpen(false);
+		sh2.LoadUiState(cheminMix);
+		verifier(migre2.IsOpen(), "LE MELANGE : le panneau MIGRE et renomme est retrouve");
+		verifier(ancien2.IsOpen(), "LE MELANGE : le panneau NON MIGRE, lui, marche comme avant");
+	}
+
+	// ── 6. LE CAS INVERSE, demande par ecrit : UN PANNEAU QUE L'APPLICATION FOURNIT
+	//    ET QUE LA DISPOSITION ENREGISTREE NE MENTIONNE PAS.
+	//    MON ATTENDU, ecrit avant la mesure : « FERME », et non « il reste flottant ».
+	//    La raison est lisible dans `NkEditorShell::LoadUiState` : des qu'une seule ligne
+	//    `panel=` existe, la coquille FERME TOUS les panneaux, puis rouvre uniquement ceux
+	//    qui sont nommes. Un panneau absent du fichier n'est donc pas « laisse tel quel » :
+	//    il est ferme, meme s'il etait ouvert une microseconde plus tot.
+	//    ⚠️ C'est la politique INVERSE de celle du document `.nkgui`, ou le monteur ne
+	//    parcourt que ses propres zones et ne peut RIEN faire d'un panneau qu'il ne nomme
+	//    pas (mesure dans NKGuiMonteTest, section (m12)). Deux formats, deux politiques
+	//    opposees sur la meme question : c'est ecrit ici pour que personne ne transporte
+	//    la reponse de l'un vers l'autre.
+	{
+		const char *cheminPartiel = "Build/sondes-nkuidesign/disposition_partielle.cfg";
+		NkFile::WriteAllText(cheminPartiel, "maximized=0\npanel=proprietes\n");
+		PanneauSonde props("proprietes", "Propriétés");
+		PanneauSonde console("console", "Console");
+		NkEditorShell sh;
+		sh.AddPanel(&props);
+		sh.AddPanel(&console);
+		props.SetOpen(false);
+		console.SetOpen(true); // OUVERT avant la relecture, et non mentionne dans le fichier
+		sh.LoadUiState(cheminPartiel);
+		printf("      non mentionne : « %s » est %s (attendu : FERME)\n", console.Title(),
+			   console.IsOpen() ? "OUVERT" : "FERME");
+		verifier(props.IsOpen(), "LE CAS INVERSE : le panneau NOMME est bien rouvert");
+		verifier(!console.IsOpen(),
+				 "LE CAS INVERSE : un panneau NON MENTIONNE est FERME, pas laisse flottant");
+	}
+
+	printf("=== %d echec(s) ===\n", echecs);
+	return echecs > 0 ? 1 : 0;
+}
+
 static void EcrireReleveUI(NkEditorFrameContext &ec, void *) {
 	CalerLargeursDock(ec.Ui());
 	// LE SELECTEUR DE COULEUR : ici et pas dans le panneau -- c'est le seul
@@ -7671,6 +7835,11 @@ static char gSondePortes[256] = {};
 /// (R20) --sauver-document=<image>:<chemin> : a l'image donnee, ECRIRE le document, le RELIRE
 /// dans un document neuf, et comparer les composants poses dans les deux.
 static nkentseu::int32 gSauverImage = -1;
+/// (identite) --sauver-disposition=<image>:<chemin> : ecrire la DISPOSITION REELLE de
+/// l'application a cette image, puis fermer. Sert a verifier, sur les quinze vrais
+/// panneaux, que le fichier porte des IDENTIFIANTS et non des libelles affiches.
+static nkentseu::int32 gDispoImage = -1;
+static char gDispoChemin[512] = {};
 static char gSauverChemin[512] = {};
 static void SauverEtRelire() {
 	using namespace nkuidesign;
@@ -8083,6 +8252,12 @@ static void DrawMenuBar(NkEditorFrameContext &ec, void *) {
 	++gImagesReelles; // UNE fois par image : la seule cadence de reference
 	if (gSauverImage >= 0 && gImagesReelles == gSauverImage)
 		SauverEtRelire(); // (R20)
+	if (gDispoImage >= 0 && gImagesReelles == gDispoImage) {
+		gShell->SaveUiState(gDispoChemin);
+		printf("[disposition] ecrite : %s\n", gDispoChemin);
+		fflush(stdout);
+		gShell->RequestClose();
+	}
 	gDesign.RangerCompteDessins(); // (k2) idem : une fois par image, avant les panneaux
 	auto &ctx = ec.Ui();
 	using namespace nkentseu::nkgui;
@@ -9149,6 +9324,14 @@ int nkmain(const NkEntryState &state) {
 				continue;
 			}
 			// (R16) --sonde-portes=preferences,menu-ctx,export,... : voir PortesTick.
+			if (arg.StartsWith("--sauver-disposition=")) {
+				gDispoImage = (int32)atof(a + 21);
+				const char *q = a + 21;
+				while (*q && *q != ':')
+					++q;
+				snprintf(gDispoChemin, sizeof(gDispoChemin), "%s", *q == ':' ? q + 1 : "disposition.cfg");
+				continue;
+			}
 			if (arg.StartsWith("--sauver-document=")) {
 				gSauverImage = (int32)atof(a + 18);
 				const char *q = a + 18;
@@ -9372,6 +9555,8 @@ int nkmain(const NkEntryState &state) {
 		//    touche pas au modele, donc un document fautif reste lisible,
 		//    modifiable et enregistrable. Un outil qui refuserait d'ouvrir ce
 		//    qu'il signale serait celui qui empeche de le reparer.
+		if (NkComponentDecl::StrEq(a, "--recette-identite"))
+			return RecetteIdentite();
 		if (NkComponentDecl::StrEq(a, "--valider"))
 			return nkuidesign::guifmt::NkGRunValidate(".");
 		{
