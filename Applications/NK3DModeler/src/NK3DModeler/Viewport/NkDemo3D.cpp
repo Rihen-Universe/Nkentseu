@@ -7029,6 +7029,26 @@ namespace nkentseu {
 
 		void Demo3D_Frame(DemoCtx &ctx, float32 dt) {
 			auto *st = (Demo3DState *)ctx.userData;
+			// NK_SEL_TRACE=1 : la selection d'objet de DEMO, lue a l'ENTREE de la
+			// frame. Elle repond a une question que la trace d'edition ne peut pas
+			// poser : l'effacement a-t-il lieu DANS cette fonction, ou entre deux
+			// appels (donc par une facade appelee depuis le shell) ?
+			{
+				static int selTrace = -1;
+				if (selTrace == -1) {
+					const char *v = getenv("NK_SEL_TRACE");
+					selTrace = (v && v[0] && v[0] != '0') ? 1 : 0;
+				}
+				static int32 selPrec = -2;
+				if (selTrace && st) {
+					const int32 a = st->gizmo.ActiveIndex();
+					if (a != selPrec) {
+						logger.Info("[Demo3D] SEL TRACE : entree de frame, ActiveIndex {0} -> {1}\n",
+									selPrec, a);
+						selPrec = a;
+					}
+				}
+			}
 			if (st)
 				Demo3D_SondeOrbite(st, ctx); // inerte sans NK_AGENT_ORBITE
 			if (st)
@@ -12722,6 +12742,26 @@ namespace nkentseu {
 			if (nkvpCmd)
 				if (auto *graph = ctx.renderer->GetRenderGraph())
 					graph->Execute((NkICommandBuffer *)nkvpCmd);
+			// NK_SEL_TRACE : la selection a la SORTIE de la frame. Avec celle de
+			// l'entree, elle tranche ce qu'un seul releve ne peut pas : si elle vaut
+			// encore 16 ici et -1 a l'entree suivante, l'effacement vient du SHELL,
+			// entre deux frames -- et pas du viseur.
+			{
+				static int t = -1;
+				if (t == -1) {
+					const char *v = getenv("NK_SEL_TRACE");
+					t = (v && v[0] && v[0] != '0') ? 1 : 0;
+				}
+				static int32 prec = -2;
+				if (t && st) {
+					const int32 a = st->gizmo.ActiveIndex();
+					if (a != prec) {
+						logger.Info("[Demo3D] SEL TRACE : SORTIE de frame, ActiveIndex {0} -> {1}\n",
+									prec, a);
+						prec = a;
+					}
+				}
+			}
 		}
 
 		void Demo3D_Shutdown(DemoCtx &ctx) {
@@ -17066,8 +17106,23 @@ namespace nkentseu {
 			return true;
 		}
 
+		// NK_SEL_TRACE : NOMMER LA PORTE. Une trace posee dans la boucle dit que la
+		// selection est tombee ; elle ne dit pas PAR OU. Une seule fonction, appelee
+		// par chaque facade qui peut vider `st->gizmo` : six copies divergeraient, et
+		// celle qui manquerait serait justement la coupable.
+		static void HostSelTrace(Demo3DState *st, const char *porte) {
+			static int t = -1;
+			if (t == -1) {
+				const char *v = getenv("NK_SEL_TRACE");
+				t = (v && v[0] && v[0] != '0') ? 1 : 0;
+			}
+			if (t && st && st->gizmo.ActiveIndex() >= 0)
+				logger.Info("[Demo3D] SEL TRACE : {0} va effacer ActiveIndex={1}\n", porte,
+							st->gizmo.ActiveIndex());
+		}
 		void Demo3DHostSelectObject(int32 i, bool additive) {
 			auto *st = HostSt();
+			HostSelTrace(st, "Demo3DHostSelectObject");
 			if (!st)
 				return;
 			// lightSel seul ne suffit pas : le gizmo des lumieres le RESSUSCITE
@@ -17088,6 +17143,7 @@ namespace nkentseu {
 		// re-parentage libre viendra avec le format projet.
 		void Demo3DHostSelectGroup(int32 start, int32 count, bool additive) {
 			auto *st = HostSt();
+			HostSelTrace(st, "Demo3DHostSelectGroup");
 			if (!st)
 				return;
 			st->lightGizmo.ClearSelection(); // meme regle que Demo3DHostSelectObject
@@ -17108,6 +17164,7 @@ namespace nkentseu {
 		// (une lumiere enfant d'un maillage...) viendra avec le format projet.
 		void Demo3DHostSelectAllLights() {
 			auto *st = HostSt();
+			HostSelTrace(st, "Demo3DHostSelectAllLights");
 			if (!st)
 				return;
 			st->gizmo.ClearSelection();
@@ -17128,6 +17185,7 @@ namespace nkentseu {
 			auto *st = HostSt();
 			if (!st)
 				return;
+			HostSelTrace(st, "Demo3DHostDeselectAll");
 			st->gizmo.ClearSelection();
 			st->lightGizmo.ClearSelection(); // sinon lightSel renait a la frame suivante
 			st->emptyGizmo.ClearSelection();
@@ -17159,6 +17217,7 @@ namespace nkentseu {
 		}
 		void Demo3DHostSelectLight(int32 li) {
 			auto *st = HostSt();
+			HostSelTrace(st, "Demo3DHostSelectLight");
 			if (!st)
 				return;
 			if (li >= 0 && HostLockedEff(86 + li))
@@ -17745,6 +17804,7 @@ namespace nkentseu {
 		static NkMat4f HostRotFromEuler(const float32 *rotDeg);
 		void Demo3DHostSelectEmptyNode(int32 node) {
 			auto *st = HostSt();
+			HostSelTrace(st, "Demo3DHostSelectEmptyNode");
 			if (!st)
 				return;
 			if (node < kNkvpFirstEmpty || node >= kNkvpMaxNodes) {
@@ -17763,6 +17823,7 @@ namespace nkentseu {
 		}
 		void Demo3DHostToggleEmptyNode(int32 node) {
 			auto *st = HostSt();
+			HostSelTrace(st, "Demo3DHostToggleEmptyNode");
 			if (!st || node < kNkvpFirstEmpty || node >= kNkvpMaxNodes)
 				return;
 			if (HostLockedEff(node) || nkvpDeleted[node] ||
@@ -19509,6 +19570,7 @@ namespace nkentseu {
 			return node >= 0 && node < kNkvpMaxNodes && nkvpDeleted[node];
 		}
 		static void HostDeselectNode(Demo3DState *st, int32 n) {
+			HostSelTrace(st, "HostDeselectNode");
 			if (n < Demo3DState::kNumObj) {
 				if (st->gizmo.IsSelected(n))
 					st->gizmo.ToggleSelection(n);
