@@ -306,8 +306,12 @@ namespace nkuidesign {
 			static const NkGSchemaProp pStack[] = {{"anchor", 'e'}};
 			static const NkGSchemaProp pTable[] = {{"columns", 'l'}, {"flags", 'i'}};
 			static const NkGSchemaProp pScroll[] = {{"axis", 'e'}, {"always", 'b'}};
+			// ⚠️ `ratio` EST NEUF (2026-09-17) : un separateur sans position par defaut ne
+			//    peut pas etre decrit. Le document pose ce defaut UNE FOIS ; le geste de
+			//    l'utilisateur vit ensuite dans l'etat du montage, et n'est JAMAIS reecrit
+			//    dans le fichier -- c'est ce qui le garde partageable. Propriete revisable.
 			static const NkGSchemaProp pSplitter[] = {
-				{"bind", 'r'}, {"min", 'n'}, {"max", 'n'}, {"orientation", 'e'}};
+				{"bind", 'r'}, {"min", 'n'}, {"max", 'n'}, {"orientation", 'e'}, {"ratio", 'n'}};
 			// ── LA ZONE HOTE (2026-09-17) ────────────────────────────────────
 			// ⚠️ ELLE N'EST PAS UN WIDGET, ET C'EST TOUT L'INTERET. `Host` declare un
 			//    RECTANGLE que l'application remplit : un viseur 3D, une toile, un
@@ -362,7 +366,7 @@ namespace nkuidesign {
 				{"Stack", pStack, 1},
 				{"Table", pTable, 2},
 				{"Scroll", pScroll, 2},
-				{"Splitter", pSplitter, 4},
+				{"Splitter", pSplitter, 5},
 				{"Host", pHost, 1},
 			};
 			count = sizeof(kTable) / sizeof(NkGSchemaRole);

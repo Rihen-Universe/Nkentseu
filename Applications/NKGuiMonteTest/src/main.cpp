@@ -1521,6 +1521,132 @@ int main(int argc, char **argv) {
 		Check(f.contenu < m.contenu, "   deux blocs fermes peignent MOINS de contenu");
 		Check(f.empreinte != m.empreinte, "   et les deux images different");
 	}
+	printf("\n-- (m9) LE SEPARATEUR : le critere n'est pas qu'il se dessine, c'est qu'il DEPLACE la frontiere\n");
+	{
+		// ⚠️ UN TRAIT GRIS DE QUATRE PIXELS SE DESSINE SANS RIEN SEPARER. On monte donc
+		//    DEUX FOIS dans le MEME contexte et le MEME etat, avec un GESTE entre les deux,
+		//    et on lit les rectangles des deux voisins dans le releve. Ils doivent bouger
+		//    EN SENS CONTRAIRE : un seul qui bouge serait un redimensionneur, pas un
+		//    separateur.
+		// ⚠️ AUCUNE ENTREE MACHINE : la souris est posee dans NOTRE contexte, comme partout
+		//    ailleurs dans ce depot.
+		Joindre(dossier, sizeof(dossier), racine, "/valides/");
+		Joindre(chemin, sizeof(chemin), dossier, "16_separateur.nkgui");
+		Fichier f = Lire(chemin);
+		Check(f.ok, "   le document se lit depuis le disque");
+		if (f.ok) {
+			NkArchive doc;
+			NkGuiDiag err;
+			const bool lu = NkGuiArchive::Read(f.data, f.taille, doc, err);
+			Check(lu, "   il s'analyse");
+			if (lu) {
+				NkGuiContext ctx;
+				ctx.viewW = 1000;
+				ctx.viewH = 600;
+				if (g_fontOk)
+					ctx.font = &g_font;
+				const NkRect region{0.f, 0.f, 1000.f, 600.f};
+				NkGuiMonteEtat etat;
+				NkGuiMonteur::Preparer(doc, etat);
+
+				// ── PASSE 1 : AU REPOS, aucune souris
+				NkGuiMonteRapport r1;
+				ctx.BeginFrame(0.016f);
+				ctx.BeginLayout(region);
+				ctx.DL().Reset();
+				NkGuiMonteur::Monter(ctx, doc, etat, r1);
+				ctx.EndFrame();
+				float32 g1 = -1.f, d1 = -1.f;
+				for (uint32 i = 0; i < (uint32)r1.items.Size(); ++i) {
+					if (r1.items[i].id.Compare("gauche") == 0) g1 = r1.items[i].rect.w;
+					if (r1.items[i].id.Compare("droite") == 0) d1 = r1.items[i].rect.w;
+				}
+				// ⚠️ MON ATTENDU ETAIT FAUX, ET LE CODE AVAIT RAISON. J'avais predit 160 et 836 ;
+				//    `SplitterRects` CENTRE la poignee sur le point de coupe : le trait de 4 px va
+				//    de 158 a 162, donc le voisin gauche fait 158 et le droit 838. La coupe est bien
+				//    a 0,16 x 1000 = 160 -- c'est la CONDITION que ma prediction supposait (poignee
+				//    posee APRES la coupe) qui etait fausse, pas la valeur.
+				printf("        AU REPOS  : gauche %.0f px (attendu 158)   droite %.0f px (attendu 838)\n",
+					   (double)g1, (double)d1);
+				Check(g1 > 157.f && g1 < 159.f, "   le defaut du DOCUMENT est applique (coupe a 160, poignee centree)");
+				Check(d1 > 837.f && d1 < 839.f, "   et le voisin prend le reste (1000 - 158 - 4)");
+
+				// ── PASSE 2 : LE GESTE. Souris pressee sur la poignee, puis tiree a x = 400.
+				//    Deux images : la premiere prend la poignee, la seconde la deplace --
+				//    c'est le contrat de `SplitterRatio`, qui lit un appui deja actif.
+				// 🔴 TROIS IMAGES, ET PAS DEUX : `ItemHoverable` finit par `return hotIdPrev == id`,
+				//    donc un widget n'est survolable qu'apres avoir ete le plus en avant a l'image
+				//    PRECEDENTE. Un appui pose des la premiere image ne trouve personne de survole
+				//    et ne prend jamais la main : ma premiere sonde faisait deux images, le geste
+				//    n'avait aucun effet, et j'ai failli accuser le separateur.
+				//    Ordre obligatoire : SURVOLER, puis APPUYER, puis DEPLACER.
+				for (int32 img = 0; img < 3; ++img) {
+					NkGuiMonteRapport rg;
+					ctx.BeginFrame(0.016f);
+					ctx.input.mousePos = (img < 2) ? NkVec2{160.f, 300.f} : NkVec2{400.f, 300.f};
+					ctx.input.mouseDown[0] = (img >= 1);
+					ctx.input.mouseClicked[0] = (img == 1);
+					ctx.BeginLayout(region);
+					ctx.DL().Reset();
+					NkGuiMonteur::Monter(ctx, doc, etat, rg);
+					ctx.EndFrame();
+				}
+				// 🔴 ON RELACHE LA OU L'ON EST, ET C'EST UNE CORRECTION DE MA SONDE.
+				//    Ma premiere version relachait ET teleportait la souris hors ecran dans la
+				//    MEME image : `SplitterRatio` rapporte la position a la zone, donc
+				//    (-10000 - 0) / 1000 = -10, borne a `min` = 0,1 -- la colonne tombait a 98 px
+				//    et j'ai failli conclure que le geste ne survivait pas. Un utilisateur
+				//    relache ou son curseur est ; le teleporter etait une condition que le
+				//    produit ne rencontre pas.
+				// ⚠️ CONSTAT GARDE, NON CORRIGE : si la souris sort VRAIMENT de la fenetre
+				//    pendant le glisser, le ratio saute au minimum. Condition de reouverture :
+				//    le jour ou un glisser reel devra survivre a une sortie de fenetre.
+				// ── PASSE 3 : on relache, et on relit la disposition
+				NkGuiMonteRapport r2;
+				ctx.BeginFrame(0.016f);
+				ctx.input.mouseDown[0] = false;
+				ctx.input.mouseClicked[0] = false;
+				ctx.input.mousePos = NkVec2{400.f, 300.f}; // ON RELACHE SUR PLACE (voir ci-dessous)
+				ctx.BeginLayout(region);
+				ctx.DL().Reset();
+				NkGuiMonteur::Monter(ctx, doc, etat, r2);
+				ctx.EndFrame();
+				float32 g2 = -1.f, d2 = -1.f;
+				for (uint32 i = 0; i < (uint32)r2.items.Size(); ++i) {
+					if (r2.items[i].id.Compare("gauche") == 0) g2 = r2.items[i].rect.w;
+					if (r2.items[i].id.Compare("droite") == 0) d2 = r2.items[i].rect.w;
+				}
+				printf("        APRES LE GESTE : gauche %.0f px   droite %.0f px   (somme %.0f, etait %.0f)\n",
+					   (double)g2, (double)d2, (double)(g2 + d2), (double)(g1 + d1));
+				Check(g2 > g1, "   la frontiere a BOUGE : le voisin gauche a grandi");
+				Check(d2 < d1, "   ET le voisin droit a diminue -- les DEUX se recalculent");
+				const float32 somme1 = g1 + d1, somme2 = g2 + d2;
+				Check(somme2 > somme1 - 1.f && somme2 < somme1 + 1.f,
+					  "   leur somme est conservee (le trait garde son epaisseur)");
+
+				// ── (c) LE DOCUMENT NE REECRIT PAS LE GESTE : un montage de plus, sans
+				//    souris, garde la valeur tiree. C'est `initialise` qui le garantit.
+				NkGuiMonteRapport r3;
+				ctx.BeginFrame(0.016f);
+				ctx.BeginLayout(region);
+				ctx.DL().Reset();
+				NkGuiMonteur::Monter(ctx, doc, etat, r3);
+				ctx.EndFrame();
+				float32 g3 = -1.f;
+				for (uint32 i = 0; i < (uint32)r3.items.Size(); ++i)
+					if (r3.items[i].id.Compare("gauche") == 0) g3 = r3.items[i].rect.w;
+				printf("        MONTAGE SUIVANT, sans geste : gauche %.0f px\n", (double)g3);
+				Check(g3 > g2 - 1.f && g3 < g2 + 1.f,
+					  "   le geste SURVIT au montage suivant (le document ne le reecrit pas)");
+			}
+			Liberer(f);
+		}
+
+		// ── (e) NEGATIF : sans aucun geste, deux montages rendent la MEME disposition
+		const Montage s1 = MonterFichier(chemin, 1000, 600, "16_separateur");
+		const Montage s2 = MonterFichier(chemin, 1000, 600);
+		CheckEq(s1.empreinte, s2.empreinte, "   NEGATIF : sans geste, deux montages sont identiques AU BIT");
+	}
 	printf("\n=== %d / %d ===\n", g_pass, g_pass + g_fail);
 	if (g_fail > 0)
 		printf("    %d ECHEC(S)\n", g_fail);

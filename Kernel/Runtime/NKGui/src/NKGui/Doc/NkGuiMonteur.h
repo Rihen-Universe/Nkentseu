@@ -111,6 +111,7 @@ namespace nkentseu {
 			Chart,
 			TabBar,
 			Expander,
+			Splitter,
 			// 🔴 `Callback` ETAIT ICI, ET C'ETAIT UN HOMONYME. Le mot appartient deja DEUX
 			//    FOIS au format : `callback` est l'une des huit sections, et
 			//    `Callback "alerte"(...)` est un APPEL DE COMPORTEMENT -- la grammaire
@@ -154,6 +155,7 @@ namespace nkentseu {
 			if (NkGMotEgal(n, "Chart")) return NkGuiRole::Chart;
 			if (NkGMotEgal(n, "TabBar")) return NkGuiRole::TabBar;
 			if (NkGMotEgal(n, "Expander")) return NkGuiRole::Expander;
+			if (NkGMotEgal(n, "Splitter")) return NkGuiRole::Splitter;
 			if (NkGMotEgal(n, "Host")) return NkGuiRole::Host;
 			return NkGuiRole::Inconnu;
 		}
@@ -952,6 +954,33 @@ namespace nkentseu {
 					}
 				}
 
+				/// LES DEUX ENFANTS D'UN SEPARATEUR, chacun dans SA moitie.
+				///
+				/// ⚠️ ELLE EXISTE POUR UN SEUL APPELANT, ET C'EST ASSUME. `MonterCorps` monte
+				///    tous les enfants dans la MEME region ; un separateur en donne une
+				///    DIFFERENTE a chacun de ses deux premiers enfants. Plutot que d'ajouter
+				///    un parametre a `MonterCorps` -- que ses six autres appelants auraient
+				///    du passer a vide -- on ecrit la boucle qui fait autre chose.
+				/// Les enfants au-dela du deuxieme sont montes dans la seconde moitie : un
+				/// document qui en met trois n'en perd aucun, et le releve le montrera.
+				static void MonterCorpsBorne(NkGuiContext &ctx, const NkArchive &bloc, NkGuiMonteEtat &etat,
+											 NkGuiMonteRapport &rap, uint32 prof, NkGuiMonteHooks *hooks,
+											 const NkRect &regionA, const NkRect &regionB) noexcept {
+					const NkArchiveNode *c = NkGMonteCorps(bloc);
+					if (!c)
+						return;
+					uint32 rang = 0;
+					for (uint32 k = 0; k < (uint32)c->array.Size(); ++k) {
+						if (!c->array[k].IsObject() || !c->array[k].object)
+							continue;
+						const NkGuiLayout sauve = ctx.layout;
+						ctx.BeginLayout(rang == 0u ? regionA : regionB);
+						MonterBloc(ctx, *c->array[k].object, etat, rap, prof, false, false, hooks);
+						ctx.layout = sauve;
+						++rang;
+					}
+				}
+
 				/// Appariement du crochet par objet de PILE : `Apres` part meme quand
 				/// le `switch` de `MonterBloc` sort par un `return` (les conteneurs le
 				/// font tous). Voir l'avertissement de `NkGuiMonteHooks`.
@@ -1387,6 +1416,71 @@ namespace nkentseu {
 								aDessine = false;
 							}
 							break;
+						}
+						// ── LE SEPARATEUR : il ne se dessine pas, il PARTAGE ─
+						// ⚠️ CE QUI FAIT UN SEPARATEUR N'EST PAS SON TRAIT. Un trait gris de
+						//    quatre pixels se dessine sans rien separer. C'est qu'il DEPLACE
+						//    la frontiere et que les DEUX voisins se recalculent -- et c'est
+						//    pour cela qu'il est un CONTENEUR DE DEUX ENFANTS ici : ses
+						//    voisins sont ses enfants, donc « les deux se recalculent » se
+						//    mesure sans aller fouiller la fratrie, mecanisme que ce monteur
+						//    n'a nulle part ailleurs.
+						//
+						// ⚠️ LE DOCUMENT POSE LE DEFAUT, LE GESTE VIT A COTE, et le depot
+						//    avait deja le mecanisme : `NkGuiMonteEtat::Entree::initialise`
+						//    -- « sans lui, chaque trame ecraserait ce que l'utilisateur a
+						//    change ». Le ratio tire par l'utilisateur vit dans l'ETAT du
+						//    montage, pour la duree de la session ; **rien n'est reecrit dans
+						//    le `.nkgui`**, et c'est ce qui garde le fichier partageable.
+						//    Le ratio plutot que des pixels : `SplitterRatio` le dit
+						//    lui-meme, « un ratio survit au redimensionnement de la fenetre ».
+						case NkGuiRole::Splitter: {
+							// MUTATION DE BANC, NK_SEPARATEUR_MUTATION=fige : le ratio de
+							// l'etat est ignore et le defaut du document repris a chaque
+							// image. Le geste n'a alors plus d'effet -- c'est ce que le
+							// critere du deplacement doit voir.
+							static const bool kFige = []() {
+								const char *v = getenv("NK_SEPARATEUR_MUTATION");
+								return v && v[0] == 'f';
+							}();
+							const float32 defaut = NkGNombre(w, "ratio", 0.5f);
+							const float32 rmin = NkGNombre(w, "min", 0.1f);
+							const float32 rmax = NkGNombre(w, "max", 0.9f);
+							const bool vertical = !NkGMotEgal(NkStringView(NkGTexte(w, "orientation", "Vertical").CStr()),
+															  "Horizontal");
+							if (e && !e->initialise) {
+								e->f = defaut;
+								e->initialise = true;
+							}
+							float32 ratio = (e && !kFige) ? e->f : defaut;
+							if (ratio < rmin)
+								ratio = rmin;
+							if (ratio > rmax)
+								ratio = rmax;
+							const NkRect zone = pl.pose ? pl.rect : ctx.layout.region;
+							const float32 epaisseur = 4.f;
+							NkRect visuel{}, prise{};
+							SplitterRects(zone, vertical, ratio, epaisseur, 12.f, &visuel, &prise);
+							// La poignee, et le geste : `SplitterRatio` ecrit dans `ratio`.
+							(void)SplitterRatio(ctx, lbl, zone, vertical, &ratio, rmin, rmax, epaisseur, 12.f);
+							if (e && !kFige)
+								e->f = ratio; // LE GESTE, garde dans l'etat -- jamais dans le document
+							// Les deux enfants, chacun dans SA moitie. C'est ici que « les
+							// deux voisins se recalculent » se produit.
+							NkRect a = zone, b = zone;
+							if (vertical) {
+								a.w = visuel.x - zone.x;
+								b.x = visuel.x + epaisseur;
+								b.w = (zone.x + zone.w) - b.x;
+							} else {
+								a.h = visuel.y - zone.y;
+								b.y = visuel.y + epaisseur;
+								b.h = (zone.y + zone.h) - b.y;
+							}
+							MonterCorpsBorne(ctx, w, etat, rap, prof + 1u, hooks, a, b);
+							Noter(rap, id, t, zone, prof, true, horizontal);
+							++rap.montes;
+							return;
 						}
 						// ── L'EN-TETE REPLIABLE (l'inspecteur du modeleur) ───
 						// ⚠️ CE QUI FAIT UN PLIABLE N'EST PAS SON TRIANGLE, C'EST CE QU'IL
