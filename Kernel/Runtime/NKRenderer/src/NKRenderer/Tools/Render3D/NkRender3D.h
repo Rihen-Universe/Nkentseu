@@ -1,5 +1,6 @@
 #pragma once
 // =============================================================================
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // NkRender3D.h  — NKRenderer v4.0  (Tools/Render3D/)
 // =============================================================================
 #include "NKRenderer/Core/NkRendererTypes.h"
@@ -89,6 +90,23 @@ namespace nkentseu {
 				bool IsOverlayAfterPost() const {
 					return mOverlayAfterPost;
 				}
+				// ── VECTEURS DE MOUVEMENT PAR PIXEL (17/09/2026) ────────────────
+				// Redessine les OPAQUES dans une cible RG16F en n'ecrivant que le
+				// deplacement a l'ecran de chaque pixel entre l'image -1 et l'image
+				// courante, en fraction d'ecran (UV).
+				//
+				// UNE PASSE DEDIEE, ET NON UNE CIBLE DE PLUS SUR `Geometry`. Le
+				// choix se paie d'un dessin supplementaire de la geometrie opaque,
+				// et il s'achete trois choses : aucun nuanceur d'objet existant
+				// n'est touche (donc aucune des applications n'est mise en jeu, ni
+				// le palier du cache NkSL), la passe se mesure SEULE, et elle
+				// s'eteint seule. Le cout est mesure, pas suppose.
+				//
+				// ⚠️ Ne fait RIEN a la premiere image : sans image -1, un vecteur
+				// calcule contre une matrice identite serait une aberration plein
+				// ecran, et le consommateur n'aurait aucun moyen de le savoir.
+				void FlushMotionVectors(NkICommandBuffer *cmd, NkRenderPassHandle rp);
+
 				// Emet les overlays 3D. A appeler UNIQUEMENT depuis la passe dediee.
 				void FlushOverlay3D(NkICommandBuffer *cmd);
 
@@ -221,6 +239,26 @@ namespace nkentseu {
 
 				const NkMat4f &GetRenderInvViewProj() const noexcept {
 					return mRenderInvViewProj;
+				}
+
+				// ── Le meme couple SANS le jitter (17/09/2026) ───────────────────
+				// L'historique du TAA est ecrit par TAA_Store a la position PIXEL, pas
+				// sur la grille jittee : le lire demande donc des UV NON jittes.
+				// `pp_taa.frag.nksl` le dit en tete de fichier (« les deux matrices
+				// sont DE-JITTREES : le jitter ne doit pas entrer dans la
+				// correspondance geometrique, seulement dans l'echantillonnage »), et
+				// le C++ lui envoyait les matrices JITTEES. Ces accesseurs existent
+				// pour trancher par la MESURE plutot que par le raisonnement ; ils ne
+				// sont consommes que sous NK_TAA_DEJITTER=1, donc inertes par defaut.
+				// ⚠️ Ils ne conviennent PAS a la reconstruction de position monde du
+				// rendu differe, qui lit une profondeur produite par la projection
+				// JITTEE : celle-la doit continuer d'utiliser les accesseurs du dessus.
+				const NkMat4f &GetRenderViewProjNoJitter() const noexcept {
+					return mRenderViewProjNoJitter;
+				}
+
+				const NkMat4f &GetRenderInvViewProjNoJitter() const noexcept {
+					return mRenderInvViewProjNoJitter;
 				}
 
 				// Accesseurs pour NkVirtualShadowMaps (ring UBO multi-frame).
@@ -605,6 +643,23 @@ namespace nkentseu {
 				uint32 mTAAJitterIdx = 0;
 				NkMat4f mRenderViewProj = NkMat4f::Identity();
 				NkMat4f mRenderInvViewProj = NkMat4f::Identity();
+				// Le meme couple sans le jitter (cf. GetRenderViewProjNoJitter).
+				NkMat4f mRenderViewProjNoJitter = NkMat4f::Identity();
+				NkMat4f mRenderInvViewProjNoJitter = NkMat4f::Identity();
+				// ── Vecteurs de mouvement (17/09/2026) ───────────────────────────
+				// La vue-projection de l'image PRECEDENTE, de-jittree, archivee UNE
+				// FOIS PAR IMAGE dans BeginScene (cf. le commentaire qui s'y trouve).
+				// `mHasPrevRenderViewProj` est faux a la toute premiere image : il
+				// n'y a alors pas d'image -1, et calculer un vecteur contre une
+				// matrice identite produirait une aberration plein ecran que le TAA
+				// avalerait sans broncher.
+				NkMat4f mPrevRenderViewProjNoJitter = NkMat4f::Identity();
+				bool mHasPrevRenderViewProj = false;
+				uint64 mFrameCountSeen = 0;
+				// Passe des vecteurs de mouvement : nuanceur et pipeline, crees
+				// paresseusement (le RP de la passe n'existe qu'au premier Execute).
+				::nkentseu::NkShaderHandle mMotionShader;
+				NkPipelineHandle mMotionPipeline;
 				bool mInScene = false;
 				bool mWireframe = false;
 				int32 mViewMode = 0;   // 0=rendered(lit) 1=solid(unlit)

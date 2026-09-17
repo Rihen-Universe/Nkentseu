@@ -1,5 +1,6 @@
 #pragma once
 // =============================================================================
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // NkPostProcessStack.h  — NKRenderer v4.0  (Tools/PostProcess/)
 // =============================================================================
 #include "NKRenderer/Core/NkRendererTypes.h"
@@ -149,9 +150,19 @@ namespace nkentseu {
 				//   rp         : render pass de la passe appelante (graph), pour le lazy
 				void RunTAAInPass(NkICommandBuffer *cmd, NkTextureHandle ldrIn, NkTextureHandle histIn,
 								  NkTextureHandle depth, const NkMat4f &reproj, bool useHistory,
-								  NkRenderPassHandle rp);
+								  NkRenderPassHandle rp, NkTextureHandle motion = NkTextureHandle{});
 
 				bool IsTAAEnabled() const;
+
+				// ── LA SONDE DES VECTEURS DE MOUVEMENT ───────────────────────────
+				// Encode la cible RG16F dans la cible courante : r = 0,5 + x*amp,
+				// g = 0,5 + y*amp, b = 0,5. Le canal bleu est un TEMOIN, pas une
+				// decoration : il vaut 128/255 partout et toujours, et s'il s'en
+				// ecarte c'est le chemin de LECTURE qui est en cause, pas le vecteur.
+				// Sans lui, un banc ne peut pas distinguer « le moteur ecrit un
+				// mauvais vecteur » de « je lis mal ».
+				void RunMotionDebugInPass(NkICommandBuffer *cmd, NkTextureHandle motion, float32 amplification,
+										  NkRenderPassHandle rp);
 				NkTexHandle RunSSAO(NkICommandBuffer *cmd, NkTexHandle depth, NkTexHandle normal);
 				NkTexHandle RunBloom(NkICommandBuffer *cmd, NkTexHandle hdr);
 				NkTexHandle RunTonemap(NkICommandBuffer *cmd, NkTexHandle hdr);
@@ -182,7 +193,32 @@ namespace nkentseu {
 				// quand la cible finale est redirigee (capture/enregistrement),
 				// cette passe garde la FENETRE vivante en recopiant la cible vers
 				// le swapchain. Cout : 1 draw plein-ecran.
-				void ExecuteBlit(NkICommandBuffer *cmd, NkTextureHandle src);
+				// ── LA DESTINATION D'UN BLIT, DECLAREE ET NON DEVINEE (17/09/2026) ──
+				// Le signe de retournement d'un blit plein ecran depend de SA
+				// DESTINATION, et de rien d'autre :
+				//   NK_VERS_ECRAN     la vraie swapchain -- il faut compenser son
+				//                     inversion sur tout ce qui n'est pas OpenGL ;
+				//   NK_VERS_CIBLE     une texture hors ecran (`SetFinalColorTarget`,
+				//                     donc TOUT viseur d'editeur) -- il n'y a rien a
+				//                     compenser, et compenser RETOURNE l'image.
+				//
+				// ⚠️ POURQUOI L'APPELANT DOIT LE DIRE, et pourquoi `ExecuteBlit` ne
+				// peut pas le deviner : sa signature ne lui donne que la SOURCE. Sa
+				// destination est celle du render pass ouvert par le graphe, auquel
+				// il n'a aucun acces. L'information existe -- `mFinalColorOverride`
+				// cote NkRendererImpl, et l'etat d'import de la ressource cote graphe
+				// -- mais pas ici.
+				//
+				// Ce que ce parametre change : avant, chaque appelant choisissait une
+				// FONCTION selon sa destination, donc il choisissait un SIGNE sans
+				// savoir qu'il le faisait. Maintenant il declare une DESTINATION, et
+				// la regle est appliquee au seul endroit qui la connait.
+				enum class NkBlitCible {
+					NK_VERS_ECRAN,
+					NK_VERS_CIBLE,
+				};
+				void ExecuteBlit(NkICommandBuffer *cmd, NkTextureHandle src,
+								 NkBlitCible cible = NkBlitCible::NK_VERS_ECRAN);
 
 				// Variante d'ExecuteBlit vers une cible OFF-SCREEN (framebuffer du
 				// graph) au lieu du swapchain : sert a recopier le resultat du TAA dans
@@ -299,6 +335,18 @@ namespace nkentseu {
 				bool EnsureTAAPipeline(NkRenderPassHandle rp);
 				NkPipelineHandle mPipeTAA;
 				::nkentseu::NkShaderHandle mShaderTAA;
+				// ── Sonde de lecture des vecteurs de mouvement (17/09/2026) ──────
+				// Un seul sampler : la cible RG16F. Elle existe parce que le chemin
+				// de relecture eprouve du moteur est RGBA8 et qu'un banc ne peut donc
+				// pas lire RG16F -- et un produit que personne ne peut lire ne se
+				// prouve pas. Inerte sans NK_MOTION_DEBUG.
+				NkDescSetHandle mMotionDbgLayout;
+				static constexpr int kMotionDbgDescSets = 4;
+				NkDescSetHandle mMotionDbgSets[kMotionDbgDescSets];
+				int mMotionDbgSetCursor = 0;
+				::nkentseu::NkShaderHandle mShaderMotionDbg;
+				NkPipelineHandle mPipeMotionDbg;
+
 				NkDescSetHandle mTAALayout; // 3 samplers : courant + historique + depth
 				static constexpr int kTAADescSets = 6;
 				NkDescSetHandle mTAASets[kTAADescSets];
