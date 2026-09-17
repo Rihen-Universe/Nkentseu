@@ -1,0 +1,28 @@
+nkgui 0.3
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
+
+// L'ANCRAGE. Le document dit QUELLES ZONES existent et leurs proportions par defaut ;
+// la coquille garde l'arbre que l'utilisateur a obtenu. Il n'y a donc AUCUN arbre ici.
+//
+// ⚠️ Une zone se nomme par l'IDENTIFIANT du panneau, jamais par son libelle affiche :
+// « hierarchie », pas « Hiérarchie ». Un libelle se traduit ; un identifiant, non.
+//
+// La troisieme zone ne correspond a AUCUN panneau : elle doit SE SIGNALER, et ecrire
+// le nom que l'application devrait servir.
+widgets {
+
+  DockSpace "racine" {
+
+    Panel "hierarchie" {
+      sizeRel = (0.16, 0)
+      minSize = (180, 0)
+    }
+
+    Panel "apercu" {
+    }
+
+    Panel "zone_absente" {
+      sizeRel = (0.29, 0)
+    }
+  }
+}

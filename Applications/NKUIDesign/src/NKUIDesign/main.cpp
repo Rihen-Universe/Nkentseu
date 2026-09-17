@@ -7269,6 +7269,36 @@ static int RecetteIdentite() {
 		verifier(ancien2.IsOpen(), "LE MELANGE : le panneau NON MIGRE, lui, marche comme avant");
 	}
 
+	// ── 6. LE CAS INVERSE, demande par ecrit : UN PANNEAU QUE L'APPLICATION FOURNIT
+	//    ET QUE LA DISPOSITION ENREGISTREE NE MENTIONNE PAS.
+	//    MON ATTENDU, ecrit avant la mesure : « FERME », et non « il reste flottant ».
+	//    La raison est lisible dans `NkEditorShell::LoadUiState` : des qu'une seule ligne
+	//    `panel=` existe, la coquille FERME TOUS les panneaux, puis rouvre uniquement ceux
+	//    qui sont nommes. Un panneau absent du fichier n'est donc pas « laisse tel quel » :
+	//    il est ferme, meme s'il etait ouvert une microseconde plus tot.
+	//    ⚠️ C'est la politique INVERSE de celle du document `.nkgui`, ou le monteur ne
+	//    parcourt que ses propres zones et ne peut RIEN faire d'un panneau qu'il ne nomme
+	//    pas (mesure dans NKGuiMonteTest, section (m12)). Deux formats, deux politiques
+	//    opposees sur la meme question : c'est ecrit ici pour que personne ne transporte
+	//    la reponse de l'un vers l'autre.
+	{
+		const char *cheminPartiel = "Build/sondes-nkuidesign/disposition_partielle.cfg";
+		NkFile::WriteAllText(cheminPartiel, "maximized=0\npanel=proprietes\n");
+		PanneauSonde props("proprietes", "Propriétés");
+		PanneauSonde console("console", "Console");
+		NkEditorShell sh;
+		sh.AddPanel(&props);
+		sh.AddPanel(&console);
+		props.SetOpen(false);
+		console.SetOpen(true); // OUVERT avant la relecture, et non mentionne dans le fichier
+		sh.LoadUiState(cheminPartiel);
+		printf("      non mentionne : « %s » est %s (attendu : FERME)\n", console.Title(),
+			   console.IsOpen() ? "OUVERT" : "FERME");
+		verifier(props.IsOpen(), "LE CAS INVERSE : le panneau NOMME est bien rouvert");
+		verifier(!console.IsOpen(),
+				 "LE CAS INVERSE : un panneau NON MENTIONNE est FERME, pas laisse flottant");
+	}
+
 	printf("=== %d echec(s) ===\n", echecs);
 	return echecs > 0 ? 1 : 0;
 }
