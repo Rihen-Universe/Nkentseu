@@ -1257,6 +1257,10 @@ with workspace("Nkentseu", location="."):
     with include("Applications/NKGeniaTemoin/NKGeniaTemoin.jenga"):
 
         pass
+    # NKTexte3D : « une phrase -> un maillage editable ». Console pure, CPU pur.
+    with include("Applications/NKTexte3D/NKTexte3D.jenga"):
+
+        pass
 
     with include("Applications/NkAnimaTest/NkAnimaTest.jenga"):
 
