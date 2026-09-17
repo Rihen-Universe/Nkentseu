@@ -294,10 +294,24 @@ void main() {
 			taalay.Add(0, NkDescriptorType::NK_COMBINED_IMAGE_SAMPLER, ::nkentseu::NkShaderStage::NK_ALL_GRAPHICS);
 			taalay.Add(1, NkDescriptorType::NK_COMBINED_IMAGE_SAMPLER, ::nkentseu::NkShaderStage::NK_ALL_GRAPHICS);
 			taalay.Add(2, NkDescriptorType::NK_COMBINED_IMAGE_SAMPLER, ::nkentseu::NkShaderStage::NK_ALL_GRAPHICS);
+			// binding 3 : les VECTEURS DE MOUVEMENT (17/09/2026). Toujours declare,
+			// meme quand la passe qui les produit est eteinte : un slot non declare
+			// ferait diverger le layout du nuanceur et le pipeline echouerait au
+			// lieu de degrader. Quand la cible n'existe pas, on y lie la profondeur
+			// -- ce qui donne un deplacement lu comme nul, donc le repli PROFONDEUR.
+			taalay.Add(3, NkDescriptorType::NK_COMBINED_IMAGE_SAMPLER, ::nkentseu::NkShaderStage::NK_ALL_GRAPHICS);
 			mTAALayout = mDevice->CreateDescriptorSetLayout(taalay);
 			for (int i = 0; i < kTAADescSets; i++)
 				mTAASets[i] = mDevice->AllocateDescriptorSet(mTAALayout);
 			mTAASetCursor = 0;
+
+			// ── Sonde des vecteurs de mouvement : UN sampler (la cible RG16F) ────
+			NkDescriptorSetLayoutDesc mdlay;
+			mdlay.Add(0, NkDescriptorType::NK_COMBINED_IMAGE_SAMPLER, ::nkentseu::NkShaderStage::NK_ALL_GRAPHICS);
+			mMotionDbgLayout = mDevice->CreateDescriptorSetLayout(mdlay);
+			for (int i = 0; i < kMotionDbgDescSets; i++)
+				mMotionDbgSets[i] = mDevice->AllocateDescriptorSet(mMotionDbgLayout);
+			mMotionDbgSetCursor = 0;
 
 			// Phase L : create identity LUT 16^3 par defaut (no color change).
 			// User upload son LUT custom via SetColorGradingLUT (accessible par
@@ -513,6 +527,17 @@ void main() {
 			// des sa construction s'il declare les passes TAA), mais le PIPELINE est
 			// cree en lazy dans EnsureTAAPipeline : il doit etre RP-compatible avec le
 			// framebuffer que le graph cree pour la passe, lequel n'existe pas encore.
+			// Sonde des vecteurs de mouvement : chargee ici, pipeline en lazy (le
+			// RP de la passe n'existe qu'au premier Execute). Le chargement ne coute
+			// que si les fichiers existent ; la passe, elle, ne s'ajoute au graphe
+			// que sous NK_MOTION_DEBUG.
+			if (mShaderLib) {
+				auto progMD = mShaderLib->LoadOrCompileVF("MotionDbg", "", "");
+				if (progMD.IsValid())
+					mShaderMotionDbg = mShaderLib->GetRHIHandle(progMD);
+				logger.Info("[NkPostProcessStack] MotionDbg shader : valid={0}\n", mShaderMotionDbg.IsValid() ? 1 : 0);
+			}
+
 			if (mShaderLib) {
 				auto progTAA = mShaderLib->LoadOrCompileVF("PP_TAA", "", "");
 				if (progTAA.IsValid())
@@ -1036,7 +1061,7 @@ void main() {
 			cmd->Draw(3, 1, 0, 0);
 		}
 
-		void NkPostProcessStack::ExecuteBlit(NkICommandBuffer *cmd, NkTextureHandle src) {
+		void NkPostProcessStack::ExecuteBlit(NkICommandBuffer *cmd, NkTextureHandle src, NkBlitCible cible) {
 			if (!cmd || !mPipeBlit.IsValid() || !src.IsValid())
 				return;
 
@@ -1055,7 +1080,28 @@ void main() {
 			// VK, l'affichage direct vers le swapchain est inverse -> flip.
 			// Sur GL (origine bas-gauche partout) l'UV directe est correcte.
 			// (Confirme a l'ecran par Rihen : DX11 inverse sans ce flip.)
-			const bool isVK = mDevice && mDevice->GetApi() != NkGraphicsApi::NK_GFX_API_OPENGL;
+			// ── LA REGLE DES DEUX DESTINATIONS, ECRITE ICI ET NULLE PART AILLEURS ─
+			// VERS L'ECRAN : la swapchain est inversee sur tout ce qui n'est pas
+			//   OpenGL, il faut donc retourner l'UV. (La variable s'appelait `isVK`
+			//   et valait en realite `api != OPENGL` -- un nom qui mentait, et qui a
+			//   failli faire accuser quatre sites corrects lors du recensement du
+			//   17/09.)
+			// VERS UNE CIBLE HORS ECRAN : il n'y a AUCUNE inversion a compenser, et
+			//   compenser quand meme RETOURNE l'image. C'est le defaut qui frappait
+			//   cinq dorsaux des qu'une application redirigeait sa sortie, donc dans
+			//   tout viseur d'editeur. Le signe est alors celui d'`ExecuteBlitToRT`,
+			//   dont le commentaire porte deja la mesure : `isVulkan ? -1 : +1`.
+			//
+			// ⚠️ J'AI D'ABORD ECRIT ICI `NkOffscreenStoredIsBottomUp`, EN CROYANT
+			// REUTILISER « la regle ecrite une fois ». C'EST UNE TROISIEME REGLE,
+			// distincte des deux autres, et elle donne -1 sur OpenGL la ou il faut
+			// +1. Mon propre attendu l'a attrape : j'avais ecrit avant la course que
+			// les deux branches doivent coincider sur OpenGL, et l'image GL a change.
+			// Sans cet attendu, le correctif serait parti en cassant OpenGL pour
+			// reparer DX11.
+			const bool versEcran = (cible == NkBlitCible::NK_VERS_ECRAN);
+			const bool pasOpenGL = mDevice && mDevice->GetApi() != NkGraphicsApi::NK_GFX_API_OPENGL;
+			const bool estVulkan = mDevice && mDevice->GetApi() == NkGraphicsApi::NK_GFX_API_VULKAN;
 
 			struct PC {
 					float invResW, invResH, yFlipUV, _pad;
@@ -1063,7 +1109,21 @@ void main() {
 
 			pc.invResW = 1.0f / (float)(mW > 0 ? mW : 1);
 			pc.invResH = 1.0f / (float)(mH > 0 ? mH : 1);
-			pc.yFlipUV = isVK ? -1.f : +1.f;
+			pc.yFlipUV = versEcran ? (pasOpenGL ? -1.f : +1.f) : (estVulkan ? -1.f : +1.f);
+			// Mutation de mesure : force la mauvaise branche. Lue UNE FOIS, inerte
+			// sans la variable. Elle doit RETOURNER l'image -- sinon le parametre
+			// n'est pas lu, et la parade ne serait qu'un commentaire.
+			{
+				static int sMutInit = 0;
+				static int sMut = 0;
+				if (!sMutInit) {
+					sMutInit = 1;
+					const char *v = std::getenv("NK_BLIT_CIBLE_INVERSE");
+					sMut = (v && v[0] && v[0] != '0') ? 1 : 0;
+				}
+				if (sMut)
+					pc.yFlipUV = versEcran ? (estVulkan ? -1.f : +1.f) : (pasOpenGL ? -1.f : +1.f);
+			}
 			pc._pad = 0.f;
 			cmd->PushConstants(::nkentseu::NkShaderStage::NK_ALL_GRAPHICS, 0, sizeof(pc), &pc);
 			cmd->Draw(3, 1, 0, 0);
@@ -1210,6 +1270,31 @@ void main() {
 			// bloom mal positionne. En VK le storage est Y-down natif, flip OK.
 			bool isVK = mDevice && mDevice->GetApi() == NkGraphicsApi::NK_GFX_API_VULKAN;
 			pc.yFlipUV = isVK ? -1.f : +1.f;
+			// ── CE SIGNE EST MESURE, PAS SEULEMENT HERITE (17/09/2026) ───────────
+			// Ce site porte l'ancienne forme `isVK ? -1 : +1` avec un `isVK` qui
+			// vaut `api == VULKAN`, donc +1 sur DX et GL. La regle ecrite une fois
+			// (`NkOffscreenStoredIsBottomUp`) prescrirait -1 sur DX. Mesure du
+			// centre de masse vertical de ce que le bloom AJOUTE, objet decentre
+			// vers le haut (source a y = 46, miroir a y = 194) :
+			//     DX11   defaut 81,9   |  +1 -> 81,9  |  -1 -> 174,5
+			//     OpenGL defaut 81,3   |  +1 -> 81,3  |  -1 -> 175,0
+			// Le halo est du BON COTE au defaut, et -1 le retourne. **La valeur en
+			// place est donc juste, et la regle generale la casserait** -- comme
+			// pour `RunTAAInPass`. Ne pas « harmoniser » sans remesurer.
+			// Levier de mutation, lu UNE FOIS (ces passes tournent onze fois par
+			// image : un getenv par appel se paierait) et inerte sans la variable.
+			{
+				static int sMutInit = 0;
+				static float32 sMut = 0.f;
+				if (!sMutInit) {
+					sMutInit = 1;
+					const char *vmut = std::getenv("NK_TEMPOREL_BLOOM_YSIGN");
+					if (vmut && vmut[0])
+						sMut = (float32)std::atof(vmut);
+				}
+				if (sMut != 0.f)
+					pc.yFlipUV = sMut;
+			}
 			cmd->PushConstants(::nkentseu::NkShaderStage::NK_ALL_GRAPHICS, 0, sizeof(pc), &pc);
 
 			// Fullscreen triangle : 3 verts sans VBO.
@@ -1243,6 +1328,31 @@ void main() {
 			// Sub-passes bloom : pas de flip en GL (cf. DrawBloomDownPass).
 			bool isVK = mDevice && mDevice->GetApi() == NkGraphicsApi::NK_GFX_API_VULKAN;
 			pc.yFlipUV = isVK ? -1.f : +1.f;
+			// ── CE SIGNE EST MESURE, PAS SEULEMENT HERITE (17/09/2026) ───────────
+			// Ce site porte l'ancienne forme `isVK ? -1 : +1` avec un `isVK` qui
+			// vaut `api == VULKAN`, donc +1 sur DX et GL. La regle ecrite une fois
+			// (`NkOffscreenStoredIsBottomUp`) prescrirait -1 sur DX. Mesure du
+			// centre de masse vertical de ce que le bloom AJOUTE, objet decentre
+			// vers le haut (source a y = 46, miroir a y = 194) :
+			//     DX11   defaut 81,9   |  +1 -> 81,9  |  -1 -> 174,5
+			//     OpenGL defaut 81,3   |  +1 -> 81,3  |  -1 -> 175,0
+			// Le halo est du BON COTE au defaut, et -1 le retourne. **La valeur en
+			// place est donc juste, et la regle generale la casserait** -- comme
+			// pour `RunTAAInPass`. Ne pas « harmoniser » sans remesurer.
+			// Levier de mutation, lu UNE FOIS (ces passes tournent onze fois par
+			// image : un getenv par appel se paierait) et inerte sans la variable.
+			{
+				static int sMutInit = 0;
+				static float32 sMut = 0.f;
+				if (!sMutInit) {
+					sMutInit = 1;
+					const char *vmut = std::getenv("NK_TEMPOREL_BLOOM_YSIGN");
+					if (vmut && vmut[0])
+						sMut = (float32)std::atof(vmut);
+				}
+				if (sMut != 0.f)
+					pc.yFlipUV = sMut;
+			}
 			cmd->PushConstants(::nkentseu::NkShaderStage::NK_ALL_GRAPHICS, 0, sizeof(pc), &pc);
 
 			// Fullscreen triangle : 3 verts sans VBO.
@@ -1348,6 +1458,20 @@ void main() {
 			pc.invW = ssaoW > 0 ? 1.0f / (float)ssaoW : 0.f;
 			pc.invH = ssaoH > 0 ? 1.0f / (float)ssaoH : 0.f;
 			pc.yFlipUV = isVK ? -1.f : +1.f;
+			// Levier de mutation, lu UNE FOIS, inerte sans la variable : il sert a
+			// prouver que le critere du centre de masse teste BIEN ce signe.
+			{
+				static int sMutInit = 0;
+				static float32 sMut = 0.f;
+				if (!sMutInit) {
+					sMutInit = 1;
+					const char *vmut = std::getenv("NK_TEMPOREL_SSAO_YSIGN");
+					if (vmut && vmut[0])
+						sMut = (float32)std::atof(vmut);
+				}
+				if (sMut != 0.f)
+					pc.yFlipUV = sMut;
+			}
 			pc._pad = 0.f;
 			cmd->PushConstants(::nkentseu::NkShaderStage::NK_ALL_GRAPHICS, 0, sizeof(pc), &pc);
 
@@ -1704,11 +1828,16 @@ void main() {
 			pd.blend = NkBlendDesc::Opaque();
 			pd.debugName = "PP_TAA";
 			pd.renderPass = rp; // RP de la passe du graph (cf. GetPassRenderPass)
-			// 96 octets : mat4 reproj (64) + vec4 p0 (16) + vec4 p1 (16). Sous la
-			// garantie Vulkan (128) et sous les root constants DX12 (32 DWORDs).
+			// 112 octets : mat4 reproj (64) + vec4 p0 + vec4 p1 + vec4 p2 (48).
+			// Sous la garantie Vulkan (128) et sous les root constants DX12
+			// (32 DWORDs = 128). Il reste donc UN vec4 de marge, pas deux.
 			// p1 existe pour DISSOCIER yFlipUV (VS) de ndcYSign (FS) : ces deux
 			// valeurs divergent par backend, les confondre cassait GL et DX.
-			pd.AddPushConstant(::nkentseu::NkShaderStage::NK_ALL_GRAPHICS, 0, 96);
+			// p2 porte le signe Y des VECTEURS DE MOUVEMENT, qui est une TROISIEME
+			// convention Y, distincte des deux autres -- la cible de mouvement suit
+			// le NDC du dorsal sans retournement, ce qui ne coincide ni avec l'UV
+			// d'echantillonnage ni avec le NDC reconstruit.
+			pd.AddPushConstant(::nkentseu::NkShaderStage::NK_ALL_GRAPHICS, 0, 112);
 			if (mTAALayout.IsValid())
 				pd.descriptorSetLayouts.PushBack(mTAALayout);
 			mPipeTAA = mDevice->CreateGraphicsPipeline(pd);
@@ -1716,9 +1845,55 @@ void main() {
 			return mPipeTAA.IsValid();
 		}
 
+		void NkPostProcessStack::RunMotionDebugInPass(NkICommandBuffer *cmd, NkTextureHandle motion,
+													 float32 amplification, NkRenderPassHandle rp) {
+			if (!cmd || !motion.IsValid() || !mShaderMotionDbg.IsValid() || !mDevice)
+				return;
+			if (!mPipeMotionDbg.IsValid()) {
+				NkGraphicsPipelineDesc pd;
+				pd.shader = mShaderMotionDbg;
+				pd.depthStencil = NkDepthStencilDesc::NoDepth();
+				pd.rasterizer = NkRasterizerDesc::NoCull();
+				pd.blend = NkBlendDesc::Opaque();
+				pd.debugName = "MotionDbg";
+				pd.renderPass = rp;
+				pd.AddPushConstant(::nkentseu::NkShaderStage::NK_ALL_GRAPHICS, 0, 16);
+				if (mMotionDbgLayout.IsValid())
+					pd.descriptorSetLayouts.PushBack(mMotionDbgLayout);
+				mPipeMotionDbg = mDevice->CreateGraphicsPipeline(pd);
+				logger.Info("[NkPostProcessStack] MotionDbg pipeline (lazy) : valid={0}\n",
+							mPipeMotionDbg.IsValid() ? 1 : 0);
+			}
+			if (!mPipeMotionDbg.IsValid())
+				return;
+			NkSamplerHandle samp = mResources ? mResources->GetSamplerLinearClamp() : NkSamplerHandle{};
+			if (!samp.IsValid())
+				return;
+			NkDescSetHandle set = mMotionDbgSets[mMotionDbgSetCursor % kMotionDbgDescSets];
+			mMotionDbgSetCursor++;
+			if (!set.IsValid())
+				return;
+			mDevice->BindTextureSampler(set, 0, motion, samp);
+			cmd->BindGraphicsPipeline(mPipeMotionDbg);
+			cmd->BindDescriptorSet(set, 0);
+			struct PC {
+					float32 amp, yFlipUV, pad0, pad1;
+			} pc;
+			pc.amp = amplification;
+			// Meme convention que le TAA et que le FXAA : ce qui compte est
+			// l'orientation de la TEXTURE LUE, et c'est un transient du graphe,
+			// exactement comme ToneLDR. VK retourne, les autres non.
+			const NkGraphicsApi api = mDevice ? mDevice->GetApi() : NkGraphicsApi::NK_GFX_API_OPENGL;
+			pc.yFlipUV = (api == NkGraphicsApi::NK_GFX_API_VULKAN) ? -1.f : 1.f;
+			pc.pad0 = 0.f;
+			pc.pad1 = 0.f;
+			cmd->PushConstants(::nkentseu::NkShaderStage::NK_ALL_GRAPHICS, 0, sizeof(pc), &pc);
+			cmd->Draw(3, 1, 0, 0);
+		}
+
 		void NkPostProcessStack::RunTAAInPass(NkICommandBuffer *cmd, NkTextureHandle ldrIn, NkTextureHandle histIn,
 											  NkTextureHandle depth, const NkMat4f &reproj, bool useHistory,
-											  NkRenderPassHandle rp) {
+											  NkRenderPassHandle rp, NkTextureHandle motion) {
 			if (!cmd || !ldrIn.IsValid() || !IsTAAEnabled())
 				return;
 			if (!EnsureTAAPipeline(rp))
@@ -1738,14 +1913,25 @@ void main() {
 			// laisser un slot non initialise ; le shader verra depth >= 0.9999 comme
 			// du ciel et retombera sur l'image courante (donc pas d'accumulation).
 			mDevice->BindTextureSampler(set, 2, depth.IsValid() ? depth : ldrIn, samp);
+			// binding 3 : les vecteurs de mouvement. Absents, on lie la PROFONDEUR
+			// plutot que de laisser le slot vide -- un slot non initialise est un
+			// comportement indefini, et sur certains dorsaux une lecture de memoire
+			// recyclee. La profondeur relue dans les canaux .rg donne des valeurs
+			// proches de 1, tres au-dessus du seuil du nuanceur... c'est pourquoi le
+			// nuanceur ne LIT la cible que si `motionOn` vaut 1. Le repli de liaison
+			// protege le pipeline, le drapeau protege le calcul : les deux sont
+			// necessaires, et aucun ne remplace l'autre.
+			const bool motionOk = motion.IsValid();
+			mDevice->BindTextureSampler(set, 3, motionOk ? motion : (depth.IsValid() ? depth : ldrIn), samp);
 
 			cmd->BindGraphicsPipeline(mPipeTAA);
 			cmd->BindDescriptorSet(set, 0);
 
 			struct PC {
 					float32 reproj[16];
-					float32 blend, yFlipUV, invResW, invResH; // p0
-					float32 ndcYSign, clampOn, debugMode, _pad; // p1
+					float32 blend, yFlipUV, invResW, invResH;	  // p0
+					float32 ndcYSign, clampOn, debugMode, motionOn; // p1
+					float32 motionYSign, motionUVFlip, _pad1, _pad2; // p2
 			} pc;
 
 			memcpy(pc.reproj, &reproj, sizeof(pc.reproj));
@@ -1768,8 +1954,34 @@ void main() {
 			// 97,8 au lieu de 89,2 sur DX11 (image retournee), contre 88,7 avec +1.
 			// Verifie sur trois backends : GL +1 / VK -1 / DX +1.
 			const NkGraphicsApi api = mDevice ? mDevice->GetApi() : NkGraphicsApi::NK_GFX_API_OPENGL;
-			const bool isVK = (api == NkGraphicsApi::NK_GFX_API_VULKAN);
 			const bool isDX = (api == NkGraphicsApi::NK_GFX_API_DX11 || api == NkGraphicsApi::NK_GFX_API_DX12);
+			// ── CE SITE PORTE L'ANCIENNE FORME, ET SA VALEUR EST POURTANT JUSTE ──
+			// (17/09/2026). Il ressemble aux quatre autres `isVK ? -1 : +1` du
+			// fichier, calibres au temps ou le generateur HLSL niait Y en sortie du
+			// nuanceur de sommets. Y appliquer la regle ecrite une fois
+			// (`NkOffscreenStoredIsBottomUp`, donc -1 sur DX) a ete ESSAYE, et
+			// MESURE : l'accumulation du TAA s'effondre.
+			//
+			//   rapport d'attenuation, DX11, scene immobile :
+			//       yFlipUV = +1 (ici)          -> 0,0567   convergence excellente
+			//       yFlipUV = -1 (la regle)     -> 0,744    ne converge plus
+			//       OpenGL : 0,0563 dans les deux cas (les deux regles y coincident)
+			//
+			// POURQUOI. Ce `vUV` ne sert pas a UNE texture mais a TROIS -- `uCurrent`
+			// (ToneLDR, ecrit par une passe plein ecran), `uHistory` (ecrit par
+			// `ExecuteBlitToRT`, donc avec `isVulkan ? -1 : +1`, soit +1 sur DX) et
+			// `uDepth`. Un seul signe pour trois orientations est un COMPROMIS : a
+			// +1 la correspondance courant/historique est exacte -- c'est elle qui
+			// fait converger -- au prix d'une orientation absolue retournee, que le
+			// blit de presentation rattrape.
+			//
+			// ⚠️ NE PAS « HARMONISER » CE SITE AVEC LES AUTRES SANS DEMELER LE
+			// TRIPLET. La bonne correction n'est pas une ligne : c'est d'aligner
+			// d'abord les orientations de `uCurrent` et `uHistory`, puis de reprendre
+			// ce signe. Une correction en bloc des cinq sites casserait le TAA sur
+			// DX11, et la mesure ci-dessus est la pour le prouver a qui essaiera.
+			// NK_TAA_YFLIP permet de la refaire en une commande.
+			const bool isVK = (api == NkGraphicsApi::NK_GFX_API_VULKAN);
 			pc.yFlipUV = isVK ? -1.f : 1.f;
 			pc.ndcYSign = isDX ? 1.f : -1.f;
 			// Overrides de diagnostic : ces deux signes ne se VOIENT pas separement a
@@ -1795,21 +2007,72 @@ void main() {
 			if (const char *v = getenv("NK_TAA_DEBUG"))
 				if (v[0])
 					pc.debugMode = (float32)atof(v);
+			// ── LES VECTEURS DE MOUVEMENT ────────────────────────────────────────
+			// `motionOn` n'est vrai que si la cible EXISTE : sans elle, le nuanceur
+			// ne doit surtout pas lire le slot de repli (cf. la liaison plus haut).
+			pc.motionOn = motionOk ? 1.f : 0.f;
+			// ── LA TROISIEME CONVENTION Y, ET ELLE SUIT CELLE DES TEXTURES ───────
+			// Le vecteur est lu dans une TEXTURE -- la cible `MotionVec`, un
+			// transient du graphe comme ToneLDR. Il suit donc la convention
+			// d'ECHANTILLONNAGE de cette passe, `yFlipUV`, et NON celle du NDC
+			// reconstruit depuis la profondeur.
+			//
+			// ⚠️ J'AVAIS D'ABORD ECRIT `= ndcYSign`, ET LA MESURE M'A CONTREDIT.
+			// Mouvement VERTICAL, clamp desarme, erreur sur l'objet contre une
+			// reference sans TAA (17/09) :
+			//   OpenGL  : sans vecteurs 1 431 209 | YSIGN=+1 -> 1 334 962 (-6,7 %)
+			//                                     | YSIGN=-1 -> 1 430 199 (rien)
+			//   DX11 redresse (NK_TAA_YFLIP=-1) :
+			//             sans vecteurs 1 831 766 | YSIGN=-1 -> 1 559 882 (-14,8 %)
+			//                                     | YSIGN=+1 -> 2 059 030 (pire)
+			// Le bon signe vaut +1 la ou `yFlipUV` vaut +1 (GL) et -1 la ou il vaut
+			// -1 (DX redresse). C'est `yFlipUV`, pas `ndcYSign`.
+			//
+			// ⚠️ ET CE CORRECTIF EST BRIDE PAR UN DEFAUT QUI N'EST PAS LE SIEN.
+			// Avec la valeur que ce fichier pose aujourd'hui sur DX (`yFlipUV = +1`,
+			// mesuree FAUSSE sur cible hors ecran, cf. le canal rendu-temporel R2
+			// section 2.5), le mouvement vertical n'est pas corrige sur DX11 : il y
+			// est meme legerement degrade. Le benefice vertical des vecteurs y
+			// depend donc du reglement du retournement, qui est un autre chantier.
+			// NK_TAA_MOTION_YSIGN reste le levier pour refuter tout ceci.
+			// La regle mesuree est celle du BLIT VERS L'ECRAN -- `+1 sur OpenGL, -1
+			// partout ailleurs` -- et non `yFlipUV` ni `ndcYSign`. Elle se derive :
+			// la cible de mouvement est ecrite par une passe GEOMETRIQUE, donc elle
+			// porte l'orientation du framebuffer de rendu, celle-la meme que le blit
+			// vers l'ecran doit compenser sur DX.
+			pc.motionYSign = (api == NkGraphicsApi::NK_GFX_API_OPENGL) ? 1.f : -1.f;
+			if (const char *v = getenv("NK_TAA_MOTION_YSIGN"))
+				if (v[0])
+					pc.motionYSign = (float32)atof(v);
+			pc.motionUVFlip = 1.f; // libre : cf. la note du nuanceur (hypothese refutee)
+			pc._pad1 = 0.f;
+			pc._pad2 = 0.f;
 			pc.invResW = mW > 0 ? 1.f / (float32)mW : 0.f;
 			pc.invResH = mH > 0 ? 1.f / (float32)mH : 0.f;
-			pc._pad = 0.f;
 			cmd->PushConstants(::nkentseu::NkShaderStage::NK_ALL_GRAPHICS, 0, sizeof(pc), &pc);
 			cmd->Draw(3, 1, 0, 0);
 
-			// Trace one-shot : de quoi verifier d'un coup d'oeil, sur un nouveau
+			// Trace de demarrage : de quoi verifier d'un coup d'oeil, sur un nouveau
 			// backend, que l'historique est bien branche et quelles conventions Y
 			// s'appliquent. Les handles distincts confirment que les trois entrees
 			// ne pointent pas sur la meme cible.
+			//
+			// ⚠️ LES CINQ PREMIERES IMAGES, ET NON LA PREMIERE SEULE (17/09/2026).
+			// En one-shot, cette trace ne pouvait imprimer QUE `useHistory=0
+			// blend=0` : a la premiere image `mTAAHasPrev` est faux PAR
+			// CONSTRUCTION, l'accumulation n'ayant pas encore d'image -1. Elle
+			// disait donc toujours la meme chose, quel que soit l'etat du moteur,
+			// et ne pouvait PAS repondre a la seule question qui compte — « le
+			// melange demarre-t-il a l'image suivante ? ». Un instrument qui ne
+			// peut rendre qu'une valeur ne distingue rien.
 			static int sDiag = 0;
-			if (sDiag++ == 0)
-				logger.Info("[TAA] useHistory={0} blend={1} yFlip={2} ndcY={3} | ids ldr={4} hist={5} depth={6}\n",
+			if (sDiag < 5) {
+				sDiag++;
+				logger.Info("[TAA] image={7} useHistory={0} blend={1} yFlip={2} ndcY={3} motionOn={8} | ids ldr={4} hist={5} "
+							"depth={6}\n",
 							histOk ? 1 : 0, pc.blend, pc.yFlipUV, pc.ndcYSign, (uint32)ldrIn.id, (uint32)histIn.id,
-							(uint32)depth.id);
+							(uint32)depth.id, sDiag, pc.motionOn);
+			}
 		}
 
 	} // namespace renderer
