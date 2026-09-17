@@ -908,7 +908,31 @@ namespace nkentseu {
 				// n'a pas ete retenu — la perte, comptee et non supposee.
 				bool ExtrudeSelectedEdges(const NkExtrudeParams &p = NkExtrudeParams{},
 										  uint32 *outMaterialChanged = nullptr);
-				bool DeleteSelectedFaces();
+				// ── X, ET CE QU'IL SUPPRIME SELON LE SOUS-MODE (Blender) ────────────
+				// Blender ne supprime pas la meme chose en mode SOMMET, ARETE et FACE, et
+				// la difference n'est pas cosmetique : en mode sommet, un coin choisi
+				// emporte TOUT ce qui s'appuie sur lui. Chez nous X passait TOUJOURS par
+				// la regle des faces (« toutes ses aretes retenues »), donc deux sommets
+				// ou deux aretes ne supprimaient RIEN -- mesure du 17/09.
+				//
+				// ⚠ LE PREDICAT S'EXPRIME SUR LA FACE, PAS SUR LA CAGE. « Une de ses
+				//   aretes est retenue » se lit « deux de ses sommets CONSECUTIFS le
+				//   sont », ce qui ne depend ni de `edges` ni de la soudure. La cage est
+				//   soudee par POSITION (un cube rend 12 aretes pour 24 sommets) : un
+				//   predicat ecrit sur elle aurait designe des faces par un indice de
+				//   sommet qui n'est qu'UNE des copies coincidentes.
+				enum class DeleteMode : uint8 {
+					Faces = 0, // une face part si elle est RETENUE (intention, ou deduction)
+					Edges,     // ... si deux de ses sommets CONSECUTIFS sont retenus
+					Verts      // ... si AU MOINS UN de ses sommets est retenu
+				};
+				// UNE SEULE IMPLEMENTATION, TROIS PORTES : trois copies divergeraient a la
+				// premiere correction, et c'est celle qu'on oublie qui se ferait prendre
+				// pour le produit.
+				bool DeleteSelected(DeleteMode mode);
+				bool DeleteSelectedFaces() { return DeleteSelected(DeleteMode::Faces); }
+				bool DeleteSelectedEdges() { return DeleteSelected(DeleteMode::Edges); }
+				bool DeleteSelectedVerts() { return DeleteSelected(DeleteMode::Verts); }
 				// ── SELECTION ORDONNEE ──────────────────────────────────────────────
 				// Pose la selection COMPLETE en une passe, tout en enregistrant l'ORDRE.
 				// L'ordre est deduit des TRANSITIONS : un sommet qui passe de non
@@ -1375,7 +1399,11 @@ namespace nkentseu {
 			Spin,
 			Dissolve,
 			ToSphere,
-			ShrinkFatten
+			ShrinkFatten,
+			// AJOUTEES EN FIN (l'op est serialisee en uint8) : X ne supprime pas la
+			// meme chose selon le sous-mode, exactement comme Blender.
+			DeleteEdges,
+			DeleteVerts
 		};
 
 		struct NkMeshEditCommand {
