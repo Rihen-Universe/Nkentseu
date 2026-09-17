@@ -59,6 +59,20 @@
 #include <cstring>
 #include <csignal> // arret propre de l'entrainement (SIGINT/SIGTERM)
 
+#include "NKPlatform/NkEnv.h" // NK_ILYANA_MULTI : mutation de la garde de course unique
+#if defined(_WIN32)
+// Mutex nomme : la seule facon de prendre un verrou EN UNE OPERATION, donc la
+// seule qui ferme l'intervalle entre « regarder » et « lancer ». Voir
+// CourseUniqueOuEchec().
+#	ifndef WIN32_LEAN_AND_MEAN
+#		define WIN32_LEAN_AND_MEAN
+#	endif
+#	ifndef NOMINMAX
+#		define NOMINMAX
+#	endif
+#	include <windows.h>
+#endif
+
 using namespace nkentseu;
 using namespace nkentseu::ai;
 
@@ -655,7 +669,82 @@ static int64 CompterParametres(int64 V, int64 d, int64 L, int64 T) {
 	return emb + L * bloc + 2 * d + tete;
 }
 
+// =============================================================================
+// COURSE UNIQUE : deux entrainements ne partagent pas cette carte
+// =============================================================================
+// Le 2026-09-17 a 19:34:44, la machine est tombee (0x119,
+// VIDEO_SCHEDULER_INTERNAL_ERROR) pendant que DEUX NKIlyana se partageaient une
+// RTX 3070 de 8 192 Mio. Chacun en reclame ~4 400 : 8 800 demandes sur 8 192.
+// Ils avaient demarre a 19:25:31 et 19:25:33, DEUX SECONDES d'ecart.
+//
+// ⚠️ POURQUOI CETTE GARDE EST DANS LE PRODUIT ET NON DANS UN SCRIPT.
+//
+// Une garde de script s'ecrit forcement « regarder s'il y en a un, puis lancer »
+// -- et c'est exactement ce qui a echoue : entre le regard et le lancement il y a
+// un intervalle, et le second lanceur est tombe dedans. Aucune verification en
+// deux temps ne peut fermer cet intervalle. Un script qui n'appelle pas la garde
+// n'est d'ailleurs pas protege du tout, et c'etait le cas des deux d'hier soir.
+//
+// Un mutex nomme, lui, est PRIS PAR LE SYSTEME EN UNE SEULE OPERATION : deux
+// processus qui le demandent dans la meme microseconde, l'un l'obtient et l'autre
+// apprend qu'il existait deja. Et il est relache par le systeme quand le
+// processus meurt -- y compris d'un ecran bleu -- donc il ne laisse jamais de
+// verrou fantome derriere lui, contrairement a un fichier de verrou.
+//
+// La regle vit chez celui que TOUS les hotes traversent : peu importe desormais
+// quel script, quelle tache planifiee ou quel agent lance la course.
+//
+// Ne s'applique qu'a `--train` : c'est lui qui remplit la carte. `--parler` et
+// les outils de corpus restent libres.
+//
+// ECHAPPEMENT, volontairement explicite : NK_ILYANA_MULTI=1. Il sert a la
+// MUTATION qui prouve que cette garde n'est pas une decoration, et il s'annonce
+// dans le journal. Il n'a aucun autre usage legitime aujourd'hui.
+static int CourseUniqueOuEchec() {
+	const char *multi = nkentseu::env::GetEnvVar("NK_ILYANA_MULTI");
+	if (multi != nullptr && multi[0] == '1') {
+		logger.Info("*** SONDE DE MESURE *** NK_ILYANA_MULTI=1 : la garde de course unique est LEVEE. "
+					"Deux entrainements peuvent se partager la carte. Le critere DOIT rougir.");
+		return 0;
+	}
+#if defined(_WIN32)
+	// Le handle n'est jamais ferme : il doit vivre aussi longtemps que le
+	// processus, et Windows le relache a la mort de celui-ci.
+	::HANDLE h = ::CreateMutexA(nullptr, TRUE, "Global\\Rihen.NKIlyana.Entrainement");
+	const unsigned long err = ::GetLastError();
+	if (h == nullptr) {
+		// On ne sait pas conclure : on LAISSE PASSER en le disant, plutot que de
+		// bloquer une campagne sur un defaut de la garde elle-meme.
+		logger.Info("[course unique] mutex indisponible (erreur {0}) : garde INACTIVE pour cette course.",
+					(long long)err);
+		return 0;
+	}
+	if (err == ERROR_ALREADY_EXISTS) {
+		logger.Info("*** REFUS : un autre NKIlyana --train tourne deja sur cette machine. ***");
+		logger.Info("*** Deux entrainements reclament ~8 800 Mio sur une carte de 8 192, et c'est ce "
+					"montage qui a fait tomber la machine le 2026-09-17 a 19:34:44. Code de sortie 3. ***");
+		logger.Info("*** Rien n'a ete charge, rien n'a ete ecrit, la carte n'a pas ete touchee. ***");
+		return 3;
+	}
+	logger.Info("[course unique] verrou obtenu : cette course est seule a s'entrainer sur la machine.");
+#else
+	// ⚠️ LIMITE NOMMEE, et ce n'est pas un oubli : la garde n'existe pas ailleurs
+	// que sur Windows, faute d'equivalent qui se relache tout seul a la mort du
+	// processus (un fichier de verrou laisse un fantome apres un ecran bleu, ce
+	// qui bloquerait la campagne au redemarrage -- le remede serait pire).
+	// CONDITION DE REOUVERTURE : le jour ou la campagne tourne sur Linux.
+	logger.Info("[course unique] garde non implementee sur cette plateforme : une seule course a la fois "
+				"reste a la charge de l'appelant.");
+#endif
+	return 0;
+}
+
 static int ModeTrain(int argc, char **argv) {
+	// AVANT TOUT LE RESTE : ni corpus lu, ni carte touchee, ni fichier ouvert.
+	const int refus = CourseUniqueOuEchec();
+	if (refus != 0)
+		return refus;
+
 	gpt::NkGptConfig cfg;
 	cfg.corpusFile = NkString(Arg(argc, argv, "--corpus", "D:/Projets/Camrail/AI/Ilyana/fr_ilyana.txt"));
 	cfg.bpePath = NkString(Arg(argc, argv, "--bpe", "D:/Projets/Camrail/AI/Ilyana/ilyana.nkbpe"));
