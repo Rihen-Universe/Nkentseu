@@ -42,6 +42,12 @@ param(
 	[switch]$Mutation,
 	[string]$Arbre = "D:\Projets\2026\Nkentseu\Nkentseu-actifs"
 )
+# ── LA GARDE DE CONDITION ──────────────────────────────────────────────────
+# Un banc qui n a pas pu mesurer doit le DIRE, au lieu d accuser le code : le
+# 17/09 celui-ci a rendu rouge sur une scene qui n etait pas prete, et deux de
+# ses criteres sont meme passes VERT en comparant deux sentinelles entre elles.
+. (Join-Path $PSScriptRoot "condition.ps1")
+$script:fichiers = @()
 
 $ErrorActionPreference = "Stop"
 $exe = Join-Path $Arbre "Build\Bin\$Config-Windows\NK3DModeler\NK3DModeler.exe"
@@ -49,6 +55,7 @@ if (-not (Test-Path $exe)) { Write-Host "ROUGE  binaire introuvable : $exe"; exi
 
 function Courir([string]$nom, [hashtable]$vars) {
 	$sortie = Join-Path ([System.IO.Path]::GetTempPath()) "nk_sonde_loop_$nom.txt"
+	$script:fichiers += $sortie
 	$env:NK_SONDE = "1"
 	$env:NK_ADD_NODE = "2,0,20"
 	$env:NK_EDIT_USER = "99"
@@ -182,6 +189,12 @@ if ($Mutation) {
 	if ($rouges -gt 0) { Write-Host "MUTATION TUEE ($rouges rouge(s)) — les criteres mordent."; exit 1 }
 	Write-Host "ECHEC DE LA SONDE : la mutation a SURVECU, les criteres ne testent rien."
 	exit 2
+}
+# ⚠ LE VERDICT NE VAUT QUE SI LA CONDITION ETAIT REUNIE. Sinon, ni vert ni
+#   rouge : code 3, et les lignes ci-dessus ne sont pas des verdicts.
+if (NkConditionManque $script:fichiers) {
+	Write-Host "  ⚠ LES LIGNES CI-DESSUS NE SONT PAS DES VERDICTS."
+	exit 3
 }
 if ($rouges -eq 0) { Write-Host "TOUT VERT (0 rouge)"; exit 0 }
 Write-Host "ECHEC ($rouges rouge(s))"
