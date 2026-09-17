@@ -63,6 +63,7 @@
 // ECRAN D'ACCUEIL + socle PROJET (.nk3dm) : l'accueil est peint tant qu'aucun
 // projet n'est ouvert, et il porte l'execution differee des actions projet.
 #include "NK3DModeler/Shell/NkModelerWelcome.h"
+#include "NK3DModeler/Genia/NkGeniaSonde.h" // --sonde-genia : la porte du generateur
 #include "NKEvent/NkMouseEvent.h"
 #include "NKEvent/NkWindowEvent.h" // focus : le confinement du curseur le relache
 #include "NKEvent/NkDropEvent.h" // NkDropFileEvent : fichiers laches depuis l'explorateur
@@ -735,6 +736,18 @@ int nkmain(const NkEntryState &entry) {
 	// sans un seul clic. Le verdict part dans `sonde_geo.txt` du dossier donne
 	// (defaut : le dossier courant), parce qu'une application fenetree n'a pas
 	// de console ou ecrire.
+	// ── SONDE DE LA PORTE DU GENERATEUR, SANS FENETRE NI CARTE ──────────────
+	// `NK3DModeler.exe --sonde-genia [dossier]` eprouve la remontee du MOTIF du
+	// sous-processus (le defaut nomme par la navette « texte vers 3D ») et la
+	// porte `GenererDepuisTexte`. Aucun device, aucun GPU : elle se lance
+	// pendant que la carte est prise -- et elle l'est.
+	for (usize a = 0; a < entry.args.Size(); ++a) {
+		if (!(entry.args[a] == NkString("--sonde-genia")))
+			continue;
+		const NkString dir = (a + 1u < entry.args.Size()) ? entry.args[a + 1u] : NkString(".");
+		return (int)nk3d::NkGeniaSonde(dir);
+	}
+
 	for (usize a = 0; a < entry.args.Size(); ++a) {
 		if (!(entry.args[a] == NkString("--sonde-geo")))
 			continue;
@@ -3381,21 +3394,45 @@ int nkmain(const NkEntryState &entry) {
 						tmp[n] = 0;
 						sAiFait = true;
 						const bool pris = nk3d::NkAiSoumettre(st, tmp);
-						std::printf("[nk3d] AI DEMANDE frame=%d : « %s » -> %s\n", (int)agentFrame,
-							tmp, pris ? "soumise" : "refusee (vide)");
+						// ⚠ LE MOTIF, ET PAS UN MOT DE CODE. Cette ligne disait
+						//   « refusee (vide) » QUELLE QUE SOIT la raison : le jour ou
+						//   un second refus est apparu -- « aucun projet ouvert » --
+						//   elle a annonce un champ vide sur une demande pleine. Un
+						//   journal qui nomme la mauvaise cause envoie chercher au
+						//   mauvais endroit, exactement comme un ecran qui se tait.
+						//   Le motif imprime est CELUI QUE LE PANNEAU AFFICHE : une
+						//   seule formulation, deux destinations.
+						std::printf("[nk3d] AI DEMANDE frame=%d : « %s » -> %s%s\n", (int)agentFrame,
+							tmp, pris ? "soumise" : "refusee : ", pris ? "" : st.aiMotif);
 						std::fflush(stdout);
 					}
 				}
 			}
 		}
+		// ── L'EFFET DE LA DEMANDE PRECEDENTE, MESURE UNE IMAGE PLUS TARD ────────
+		// ⚠ PAS DANS LA MEME IMAGE. L'operation s'execute quelques lignes plus bas
+		//   (`pendingAction`) : lire les compteurs ici rendrait l'etat d'AVANT en le
+		//   presentant comme celui d'apres -- un chiffre juste sur la mauvaise ligne.
+		if (st.aiEnCours >= 0 && agentFrame > st.aiEnCoursFrame) {
+			uint32 v1 = 0, e1 = 0, f1 = 0, t1 = 0;
+			if (demo::Demo3DHostStats(&v1, &e1, &f1, &t1))
+				nk3d::NkAiEffet(st, (int32)v1, (int32)e1, (int32)f1);
+			// Si l'hote n'a rien a lire, on NE POSE RIEN : le bloc reste « effet en
+			// cours de mesure », ce qui est vrai, au lieu d'afficher un zero invente.
+		}
 		if (st.aiPending[0]) {
 			char dem[256];
 			nk3d::NkAiCopie(dem, sizeof(dem), st.aiPending);
 			st.aiPending[0] = 0; // consommee : une demande ne se rejoue pas toute seule
+			// LES COMPTEURS D'AVANT, LUS AVANT. C'est ce qui rend l'effet MESURE et
+			// non recopie de la demande : « faces 6 -> 384 » doit venir de l'hote,
+			// sinon il afficherait le meme texte quand l'operation echoue.
+			uint32 v0 = 0, e0 = 0, f0 = 0, t0 = 0;
+			(void)demo::Demo3DHostStats(&v0, &e0, &f0, &t0);
 			NkVpPoserAction(st, dem, "assistant");
 			// Le tour est note APRES le passage par la table : c'est elle qui sait si
 			// le verbe existe, et `aiMotifEstRefus` porte deja sa reponse.
-			nk3d::NkAiNoter(st, dem, !st.aiMotifEstRefus);
+			nk3d::NkAiTour(st, dem, (int32)v0, (int32)e0, (int32)f0, agentFrame);
 			std::printf("[nk3d] AI RESULTAT : « %s » -> %s%s%s\n", dem,
 				st.aiMotifEstRefus ? "REFUS : " : "acceptee",
 				st.aiMotifEstRefus ? st.aiMotif : "", "");
@@ -3837,6 +3874,21 @@ int nkmain(const NkEntryState &entry) {
 			else
 				PaintBrowser(p, lay.browser, st, hit, ws, ui.input, &ui, &combo);
 		}
+		// LE ZERO SE DIT. Une trace muette ne distingue pas « le panneau n'est pas
+		// peint » de « la trace n'a pas tourne » : elle affirme donc l'absence.
+		{
+			static int32 sTraceZ = -2;
+			if (sTraceZ == -2) {
+				const char *v = std::getenv("NK_AI_TRACE");
+				sTraceZ = v ? (int32)std::atoi(v) : -1;
+			}
+			if (sTraceZ >= 0 && agentFrame == sTraceZ && !(st.aiOuvert && !st.welcome)) {
+				std::printf("[nk3d] AI PANNEAU absent=1 ouvert=%d accueil=%d motif=%s\n",
+							st.aiOuvert ? 1 : 0, st.welcome ? 1 : 0,
+							st.welcome ? "ecran-d-accueil" : "panneau-ferme");
+				std::fflush(stdout);
+			}
+		}
 		PaintStatus(p, hit, lay.status, st);
 		// LE JOURNAL S'ANCRE SUR LA FENETRE ENTIERE, pas sur une zone de la mise
 		// en page : il recouvre ce qui se trouve dessous, comme un tiroir. Peint
@@ -3872,6 +3924,103 @@ int nkmain(const NkEntryState &entry) {
 		if (modalOpen || menuDeroule || sourisSurJournal) {
 			ui.input = inputReel;
 			hit.Rearm(ui.input);
+		}
+		// ⚠️ LE PANNEAU DE L'ASSISTANT EST UNE SURCOUCHE, PAS UN PANNEAU -- et il
+		//    est peint ICI pour cette seule raison. Mesure du 17/09 : place avec
+		//    les panneaux, il recevait un `enfonce=0` A L'IMAGE MEME ou le crochet
+		//    avait ecrit `enfonce=1`. Vingt lignes plus haut, l'application VIDE
+		//    l'entree des panneaux des qu'une modale, un menu ou le journal tient
+		//    la souris, et ne la rend qu'ici. Son survol etait donc juste
+		//    (`survole=ai.undo1`, `bloque=0`) et son clic ne prenait jamais : le
+		//    genre de defaut qu'on impute a la position du curseur pendant une
+		//    heure.
+		//    ⚠️ COUCHE 40, ET PAS 90 : au-dessus des panneaux (0), mais SOUS les
+		//       menus (50). Un menu deroule depuis la barre de titre doit passer
+		//       PAR-DESSUS lui ; a 90, le panneau aurait avale les clics d'un menu
+		//       ouvert au-dessus de lui.
+		// ── (b9) LE PANNEAU DE L'ASSISTANT, ANCRE A DROITE, DANS L'OVERLAY ──
+		// ⚠ PEINT AVEC `pOverlay`, PAS AVEC `p`, ET C'EST LE FOND DU SUJET. Sa
+		//   premiere version vivait DANS la pastille de proprietes -- un panneau
+		//   dessine a l'interieur d'un panneau hote, ce que la specification
+		//   interdit depuis que deux menus de NKUIDesign ont laissé passer les
+		//   clics une image sur deux. Ici il couvre la pastille, et c'est visible :
+		//   une image le montre par-dessus.
+		// Sa couche de registre est haute (90) : sous son emprise, les panneaux
+		// du dessous deviennent aveugles sans avoir a s'en garder eux-memes.
+		// ⚠️ `!st.welcome` EST UNE CONDITION DE LA REGLE, PAS UNE OPTIMISATION :
+		//    sur l'ecran d'accueil, il ne doit y avoir NI pastille, NI onglet, NI
+		//    panneau -- pas un panneau vide, pas un panneau grise : RIEN.
+		//    ⚠️ ET LA COQUILLE A TROIS ETATS, PAS DEUX. `st.welcome` dit
+		//       « ecran d'accueil » ; `proj.open` dit « un projet est ouvert sur le
+		//       disque ». Entre les deux vit une session de travail SANS projet
+		//       enregistre (c'est celle ou nos bancs mesurent, et celle d'un
+		//       « Nouveau » jamais sauve). La garde porte sur l'ACCUEIL, qui est ce
+		//       que Rodolf a nomme -- et parce que c'est la, et seulement la, qu'il
+		//       n'y a rien a modifier. Fermer aussi la porte a la session sans
+		//       projet retirerait l'assistant a un maillage bien reel.
+		if (st.aiOuvert && !st.welcome) {
+			const float32 aiW = S(400.f);
+			const float32 aiY = (lay.right.h > 1.f) ? lay.right.y : lay.view.y;
+			const float32 aiH = (lay.right.h > 1.f) ? lay.right.h : lay.view.h;
+			NkHitRegistry::LayerScope aiLayer(hit, 40);
+			// `peutAnnuler` vient de l'HOTE et pas du panneau : c'est lui qui tient
+			// la pile, et un bouton qui devinerait son etat mentirait un jour.
+			nk3d::PaintAiOverlay(pOverlay, hit, st, &ui,
+								 {(float32)W - aiW, aiY, aiW, aiH},
+								 demo::Demo3DHostEditCanUndo());
+			// ── NK_AI_TRACE=<image> : CE QUE LE PANNEAU A DESSINE, EN CHIFFRES ──
+			// Il n'ouvre aucun chemin : il LIT l'etat apres la peinture. Les
+			// rectangles qu'il imprime sont ceux que la peinture vient d'ecrire,
+			// donc ceux qu'un doigt toucherait -- une sonde qui recalculerait la
+			// disposition de son cote mesurerait sa propre formule.
+			static int32 sTrace = -2;
+			if (sTrace == -2) {
+				const char *v = std::getenv("NK_AI_TRACE");
+				sTrace = v ? (int32)std::atoi(v) : -1;
+			}
+			// ⚠ LA FENETRE DE TRACE COUVRE LES QUATRE DERNIERES IMAGES, pas
+			//   seulement la derniere : un clic de mesure dure trois images
+			//   (survol, appui, relachement) et se juge LA, pas vingt images plus
+			//   tard. Ma premiere version ne montrait que l'etat final -- elle
+			//   disait « la zone est survolee » sans rien dire de l'instant ou le
+			//   clic aurait du prendre.
+			if (sTrace >= 0 && agentFrame >= sTrace - 3 && agentFrame <= sTrace) {
+				std::printf("[nk3d] AI CLIC image=%d souris=(%.0f,%.0f) enfonce=%d"
+							" survole=%s clic=%d bloque=%d\n",
+							(int)agentFrame, (double)ui.input.mousePos.x,
+							(double)ui.input.mousePos.y, ui.input.mouseDown[0] ? 1 : 0,
+							hit.Hovered(), hit.Clicked(hit.Hovered()) ? 1 : 0,
+							hit.BlockedAtMouse() ? 1 : 0);
+				std::fflush(stdout);
+			}
+			if (sTrace >= 0 && agentFrame == sTrace) {
+				std::printf("[nk3d] AI PANNEAU rect=(%.0f,%.0f,%.0f,%.0f) fenetre=(%d,%d)"
+							" props=(%.0f,%.0f,%.0f,%.0f) onglet=%d fournisseur=%s blocs=%d\n",
+							(double)((float32)W - aiW), (double)aiY, (double)aiW, (double)aiH,
+							(int)W, (int)H, (double)lay.propsR.x, (double)lay.propsR.y,
+							(double)lay.propsR.w, (double)lay.propsR.h, (int)st.aiOnglet,
+							nk3d::NkAiFournisseur(st.aiOnglet), (int)st.aiFilN);
+				for (int32 i = 0; i < st.aiFilN; ++i) {
+					const NkModelerState::AiBloc &bl = st.aiFil[i];
+					std::printf("[nk3d] AI BLOC %d type=%d replie=%d mesure=%d"
+								" ligne=(%.0f,%.0f,%.0f,%.0f) annuler=(%.0f,%.0f,%.0f,%.0f)"
+								" v=%d->%d f=%d->%d texte=\"%s\" out=\"%s\" motif=\"%s\"\n",
+								(int)i, (int)bl.type, (int)bl.replie, (int)bl.mesure,
+								(double)bl.rl[0], (double)bl.rl[1], (double)bl.rl[2],
+								(double)bl.rl[3], (double)bl.ru[0], (double)bl.ru[1],
+								(double)bl.ru[2], (double)bl.ru[3], (int)bl.vA, (int)bl.vB,
+								(int)bl.fA, (int)bl.fB, bl.ligne, bl.out, bl.detail);
+				}
+				// ⚠ LE SURVOL ET LE BLOCAGE, AU MOMENT MEME. Sans eux, un clic qui
+				//   ne prend pas laisse trois explications possibles (mauvaise
+				//   position, zone volee par une couche, clic refuse par une
+				//   surcouche bloquante) et aucune facon de trancher.
+				std::printf("[nk3d] AI SURVOL souris=(%.0f,%.0f) survole=\"%s\" bloque=%d"
+							" etat=\"%s\"\n",
+							(double)ui.input.mousePos.x, (double)ui.input.mousePos.y,
+							hit.Hovered(), hit.BlockedAtMouse() ? 1 : 0, st.aiEtat);
+				std::fflush(stdout);
+			}
 		}
 		{
 			NkHitRegistry::LayerScope menuLayer(hit, 50);
