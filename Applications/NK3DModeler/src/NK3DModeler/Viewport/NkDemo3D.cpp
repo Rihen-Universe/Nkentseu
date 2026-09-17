@@ -7030,21 +7030,29 @@ namespace nkentseu {
 		void Demo3D_Frame(DemoCtx &ctx, float32 dt) {
 			auto *st = (Demo3DState *)ctx.userData;
 			// NK_SEL_TRACE=1 : la selection d'objet de DEMO, lue a l'ENTREE de la
-			// frame. Elle repond a une question que la trace d'edition ne peut pas
-			// poser : l'effacement a-t-il lieu DANS cette fonction, ou entre deux
-			// appels (donc par une facade appelee depuis le shell) ?
+			// frame ; =2 : imprimee a CHAQUE image, avec le POINTEUR de l'etat.
+			// ⚠ LE POINTEUR EST LA POUR UNE RAISON PRECISE. Une trace qui n'imprime
+			// que SUR CHANGEMENT ne peut pas distinguer « quelqu'un a efface la
+			// selection » de « l'etat entier a ete RECREE » : dans le second cas la
+			// valeur repart a -1 et le `static` de la trace, lui, survit -- donc rien
+			// ne change de son point de vue, et elle se tait. Deux causes, un seul
+			// silence. Le pointeur les separe.
+			static int32 gSelTraceFrame = 0;
 			{
 				static int selTrace = -1;
 				if (selTrace == -1) {
 					const char *v = getenv("NK_SEL_TRACE");
-					selTrace = (v && v[0] && v[0] != '0') ? 1 : 0;
+					selTrace = (v && v[0] && v[0] != '0') ? (v[0] - '0') : 0;
+					if (selTrace < 1 || selTrace > 9)
+						selTrace = (v && v[0] && v[0] != '0') ? 1 : 0;
 				}
 				static int32 selPrec = -2;
 				if (selTrace && st) {
+					++gSelTraceFrame;
 					const int32 a = st->gizmo.ActiveIndex();
-					if (a != selPrec) {
-						logger.Info("[Demo3D] SEL TRACE : entree de frame, ActiveIndex {0} -> {1}\n",
-									selPrec, a);
+					if (selTrace >= 2 || a != selPrec) {
+						logger.Info("[Demo3D] SEL TRACE : img {0} ENTREE ActiveIndex {1} -> {2} (etat {3})\n",
+									gSelTraceFrame, selPrec, a, (uint64)(usize)st);
 						selPrec = a;
 					}
 				}
@@ -7288,6 +7296,20 @@ namespace nkentseu {
 						obj = atoi(go);
 					st->gizmo.Select(obj);
 					st->gizmo.SetMode(0);		  // gizmo d'édition en TRANSLATE (flèches pleines)
+					// ⚠ ET ON DIT SI LA CIBLE EST DEJA CONDAMNEE. `NK_EDIT_MODE` vise par
+					// defaut l'objet 16 de la DEMO, qui dans NK3DModeler est marque
+					// SUPPRIME : la garde du cadenas de `HostHierarchyFrame` le
+					// desselectionne a l'image suivante, a juste titre. Le pilote
+					// « prenait » donc toujours, et le mode Edition ne s'ouvrait jamais --
+					// un repli muet cote instrument, qui a coute une soiree le 17/09.
+					// LA SORTIE : `NK_ADD_NODE="2,0,<img>"` cree un cube UTILISATEUR (noeud
+					// 96 + emplacement) et `NK_EDIT_USER=<emplacement>` le vise.
+					if (obj >= 0 && obj < kNkvpMaxNodes && nkvpDeleted[obj])
+						logger.Info("[Demo3D] PILOTE edition : ⚠ l'objet {0} est SUPPRIME dans ce "
+									"projet -- il sera desselectionne a l'image suivante et le "
+									"mode Edition ne s'ouvrira PAS. Utilise NK_ADD_NODE + "
+									"NK_EDIT_USER=<emplacement>.\n",
+									obj);
 					// ⚠ ON DIT CE QUE LA SELECTION EST DEVENUE, pas ce qu'on a demande.
 					// Sans cette ligne, un `Select` qui n'accroche rien (objet de demo
 					// absent de la scene du modeleur) est INDISCERNABLE d'un pilote qui
@@ -7307,7 +7329,19 @@ namespace nkentseu {
 					// Et `q.selDemo` etant PRIORITAIRE dans la resolution de cible, il
 					// faut VIDER la selection de demo, sinon on editerait le cube 16.
 					if (const char *eu = getenv("NK_EDIT_USER")) {
-						const int32 slot = atoi(eu);
+						// ⚠ EMPLACEMENT **OU** NUMERO DE NOEUD. `NK_ADD_NODE` imprime un
+						// NOEUD (99), ce crochet attendait un EMPLACEMENT (3) : deux
+						// nombres pour la meme chose, et celui qu'on lit sous la main est
+						// le mauvais. Trois courses perdues le 17/09 a viser
+						// l'emplacement 0, qui existe et n'a pas de maillage -- donc un
+						// refus qui ressemblait trait pour trait au defaut cherche.
+						// On accepte les deux et on DIT lequel on a compris.
+						int32 slot = atoi(eu);
+						if (slot >= kNkvpFirstUser && slot < kNkvpMaxNodes) {
+							logger.Info("[Demo3D] NK_EDIT_USER={0} lu comme un NOEUD -> emplacement {1}\n",
+										slot, slot - kNkvpFirstUser);
+							slot -= kNkvpFirstUser;
+						}
 						if (slot >= 0 && slot < kNkvpMaxUser) {
 							st->gizmo.ClearSelection();
 							st->emptyGizmo.Select(slot + (kNkvpFirstUser - kNkvpEmptyBase));
@@ -7797,8 +7831,40 @@ namespace nkentseu {
 						Demo3D_EnterEditOnObject(st, ms, r3d, cible.index);
 					else if (cible.kind == NkVpEditKind::Utilisateur)
 						Demo3D_EnterEditOnUser(st, ms, r3d, cible.index);
-					else
-						logger.Info("[Demo3D] Sélectionne un objet (clic) avant TAB.\n");
+					else {
+						// ── UN REFUS NOMME, PAS UN REPLI MUET ────────────────────────
+						// « Selectionne un objet (clic) avant TAB » ACCUSE L'UTILISATEUR
+						// d'un geste qu'il a fait. Il l'a fait : l'objet etait bien
+						// selectionne, et c'est la garde du cadenas de
+						// `HostHierarchyFrame` qui l'a desselectionne a l'image suivante
+						// parce qu'il etait supprime. Le message envoyait chercher du
+						// cote du clic, c'est-a-dire nulle part. Mesure du 17/09 : une
+						// soiree perdue sur cette phrase.
+						// Cinq refus DISTINCTS, et chacun dit quoi faire.
+						const int32 uSlot = NkVpUserSlotOfEmpty(q.selEmpty);
+						if (q.selDemo < 0 && q.selEmpty < 0)
+							logger.Info("[Demo3D] EDITION REFUSEE : rien n'est selectionne. "
+										"Selectionne un objet (clic) avant TAB.\n");
+						else if (uSlot >= 0 && q.userDeleted)
+							logger.Info("[Demo3D] EDITION REFUSEE : l'objet designe (emplacement {0}, "
+										"noeud {1}) est SUPPRIME. Un noeud supprime est aussi "
+										"desselectionne d'office a l'image suivante par la garde du "
+										"cadenas.\n",
+										uSlot, kNkvpFirstUser + uSlot);
+						else if (uSlot >= 0 && !q.userMeshValid)
+							logger.Info("[Demo3D] EDITION REFUSEE : l'objet designe (emplacement {0}, "
+										"nature {1}) n'a PAS DE MAILLAGE A LUI. Une primitive d'un "
+										"projet jamais enregistre est dans ce cas.\n",
+										uSlot, (int32)q.userKind);
+						else if (uSlot >= 0)
+							logger.Info("[Demo3D] EDITION REFUSEE : la nature {0} de l'objet designe "
+										"(emplacement {1}) n'est pas editable.\n",
+										(int32)q.userKind, uSlot);
+						else
+							logger.Info("[Demo3D] EDITION REFUSEE : la selection (demo {0}, empty {1}) "
+										"ne designe aucun maillage editable.\n",
+										q.selDemo, q.selEmpty);
+					}
 				}
 			}
 
@@ -11661,7 +11727,29 @@ namespace nkentseu {
 						gin.leftPressed = false;
 						gin.leftDown = false;
 					}
-					st->gizmo.Update(targets, n, gin);
+					// NK_SEL_TRACE : CE QUE LE GIZMO RECOIT, et ce qu'il en fait.
+					// `NkGizmo3D` vide sa PROPRE selection sur « clic dans le vide »
+					// (branche `else if (!in.shiftDown)`) : il faut donc voir l'entree
+					// EXACTE -- position, boutons, modificateurs -- et pas seulement
+					// constater que la valeur est tombee. Une entree par defaut portant
+					// un appui a (0, 0) serait un clic dans le vide FABRIQUE par
+					// l'instrument, et c'est l'hypothese a ecarter en premier.
+					{
+						static int t = -1;
+						if (t == -1) {
+							const char *v = getenv("NK_SEL_TRACE");
+							t = (v && v[0] && v[0] != '0') ? 1 : 0;
+						}
+						const int32 avantGz = st->gizmo.ActiveIndex();
+						st->gizmo.Update(targets, n, gin);
+						const int32 apresGz = st->gizmo.ActiveIndex();
+						if (t && (apresGz != avantGz || gin.leftPressed))
+							logger.Info("[Demo3D] SEL TRACE : gizmo.Update {0} -> {1} | souris ({2}, {3}) "
+										"gauche appui={4} tenu={5} maj={6} ctrl={7} | cibles={8}\n",
+										avantGz, apresGz, (int32)gin.mouseX, (int32)gin.mouseY,
+										gin.leftPressed ? 1 : 0, gin.leftDown ? 1 : 0,
+										gin.shiftDown ? 1 : 0, gin.ctrlDown ? 1 : 0, n);
+					}
 					// ── INSTRUMENT : OU SONT LES POIGNEES, ET CE QUE LE VISEUR RECOIT ──
 					// Deux absences comblees d'un coup (Q57 §3-§4).
 					// (1) La position ECRAN d'une poignee de gizmo n'etait journalisee
@@ -12743,21 +12831,23 @@ namespace nkentseu {
 				if (auto *graph = ctx.renderer->GetRenderGraph())
 					graph->Execute((NkICommandBuffer *)nkvpCmd);
 			// NK_SEL_TRACE : la selection a la SORTIE de la frame. Avec celle de
-			// l'entree, elle tranche ce qu'un seul releve ne peut pas : si elle vaut
-			// encore 16 ici et -1 a l'entree suivante, l'effacement vient du SHELL,
-			// entre deux frames -- et pas du viseur.
+			// l'entree et le POINTEUR d'etat, elle tranche TROIS hypotheses au lieu de
+			// deux : efface par le viseur, efface entre deux frames par le shell, ou
+			// etat entierement RECREE.
 			{
 				static int t = -1;
 				if (t == -1) {
 					const char *v = getenv("NK_SEL_TRACE");
-					t = (v && v[0] && v[0] != '0') ? 1 : 0;
+					t = (v && v[0] && v[0] != '0') ? (v[0] - '0') : 0;
+					if (t < 1 || t > 9)
+						t = (v && v[0] && v[0] != '0') ? 1 : 0;
 				}
 				static int32 prec = -2;
 				if (t && st) {
 					const int32 a = st->gizmo.ActiveIndex();
-					if (a != prec) {
-						logger.Info("[Demo3D] SEL TRACE : SORTIE de frame, ActiveIndex {0} -> {1}\n",
-									prec, a);
+					if (t >= 2 || a != prec) {
+						logger.Info("[Demo3D] SEL TRACE : img {0} SORTIE ActiveIndex {1} -> {2} (etat {3})\n",
+									gSelTraceFrame, prec, a, (uint64)(usize)st);
 						prec = a;
 					}
 				}
@@ -19426,8 +19516,25 @@ namespace nkentseu {
 			// CADENAS INVIOLABLE : quel que soit le chemin (clic vue, zone,
 			// panneau), un objet verrouille est desselectionne d'office.
 			for (int32 i = 0; i < Demo3DState::kNumObj; ++i)
-				if ((HostLockedEff(i) || nkvpDeleted[i]) && st->gizmo.IsSelected(i))
+				if ((HostLockedEff(i) || nkvpDeleted[i]) && st->gizmo.IsSelected(i)) {
+					// NK_SEL_TRACE : DIRE POURQUOI, pas seulement qu'on desselectionne.
+					// « cadenasse » et « supprime » sont deux raisons tres differentes et
+					// la garde les confond dans un seul geste muet : le symptome remonte
+					// jusqu'a « Selectionne un objet (clic) avant TAB », qui accuse
+					// l'utilisateur d'un geste qu'il a fait.
+					{
+						static int t = -1;
+						if (t == -1) {
+							const char *v = getenv("NK_SEL_TRACE");
+							t = (v && v[0] && v[0] != '0') ? 1 : 0;
+						}
+						if (t)
+							logger.Info("[Demo3D] SEL TRACE : CADENAS de HostHierarchyFrame desselectionne "
+										"l'objet {0} (cadenasse={1} supprime={2})\n",
+										i, HostLockedEff(i) ? 1 : 0, nkvpDeleted[i] ? 1 : 0);
+					}
 					st->gizmo.ToggleSelection(i);
+				}
 			for (int32 li2 = 0; li2 < Demo3DState::kNumLights; ++li2)
 				if ((HostLockedEff(86 + li2) || nkvpDeleted[86 + li2]) &&
 					st->lightGizmo.IsSelected(li2))
