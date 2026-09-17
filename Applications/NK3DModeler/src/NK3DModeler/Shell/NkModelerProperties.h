@@ -24,6 +24,7 @@
 #include "NK3DModeler/Shell/NkModelerWidgets.h"
 #include "NK3DModeler/Shell/NkModelerTables.h"
 #include "NK3DModeler/Shell/NkModelerCommon.h"
+#include "NK3DModeler/Shell/NkModelerAiPanel.h" // (b9) l'assistant
 #include "NK3DModeler/Shell/NkModelerViewport.h"
 #include "NK3DModeler/Shell/NkModelerFileDialog.h"
 #include "NK3DModeler/Viewport/NkViewport3D.h"
@@ -6586,6 +6587,25 @@ namespace nkentseu {
 							PaintGroupBlock(p, rowR, gSelTop, yy);
 						}
 						yy += NkPropGroupGap();
+						// ── (b9) L'ASSISTANT ────────────────────────────────────────────
+						// Il vit dans la pastille du MODE, juste sous « Selection », parce
+						// que c'est l'ordre du geste : on selectionne, PUIS on demande.
+						// C'est aussi ce que fait Blender, et c'est la limite qu'on assume :
+						// l'assistant agit sur ce qui est deja selectionne, il ne designe pas.
+						// Replie par defaut, comme tous les groupes de ce panneau.
+						{
+							const bool gAi = PaintPropGroup(p, hit, st, rowR, yy, "prop.g.edai",
+								"Assistant", 0x4000u);
+							const float32 gAiTop = yy;
+							if (gAi) {
+								yy += NkGroupPad();
+								const NkRect iA = NkGroupInner(rowR);
+								PaintAiPanel(p, hit, st, ws, guiCtx, iA, yy);
+								yy += NkGroupPad();
+								PaintGroupBlock(p, rowR, gAiTop, yy);
+							}
+							yy += NkPropGroupGap();
+						}
 						const bool gTools = PaintPropGroup(p, hit, st, rowR, yy,
 														   "prop.g.edtools", "Outils",
 														   0x2000u);
