@@ -2809,6 +2809,56 @@ namespace nkentseu {
 		// Ce compteur rendait TOUJOURS des sommets : sur un cube en sous-mode
 		// SOMMET il affichait 12, c'est-a-dire le nombre des ARETES -- un chiffre
 		// juste pour une question que personne ne posait.
+		// ── (b10) LES SOMMETS SOUDES : UNE AUTORITE, DEUX LECTEURS ──────────────
+		// La barre d'etat affichait « Sommets 24 - Aretes 12 - Faces 6 » sur un cube,
+		// et le compteur de selection rendait 3 pour UN clic. Ce n'est pas un texte
+		// qui se trompe, c'est une UNITE qui manque : notre Vert EST un coin (24 sur
+		// un cube), tandis que `EdgeCount()` est deja soude par POSITION (12). Les
+		// deux nombres affiches cote a cote n'etaient donc pas dans la meme unite.
+		//
+		// ⚠ LE CRITERE N'EST PAS « Blender dit 8 », C'EST LA COHERENCE INTERNE :
+		//   la caracteristique d'Euler d'un volume ferme vaut V - E + F = 2.
+		//     24 - 12 + 6 = 18  (impossible)   ·   8 - 12 + 6 = 2  (juste)
+		//   Aucun attendu dicte n'est necessaire : la topologie se juge elle-meme, et
+		//   elle vaut pour un cube comme pour une sphere.
+		//
+		// ⚠ ON NE REECRIT PAS DE SOUDEUR. `BuildVertexMerge` existe, il est en O(n)
+		//   par grille de hachage, et NkEditMesh.h porte l'avertissement explicite :
+		//   « un second soudeur divergerait du premier au premier changement
+		//   d'epsilon ». Le representant d'un groupe se reconnait a `canon[i] == i`.
+		//
+		// ⚠ NOMME ET NON TRAITE : `verts` est un tableau de SLOTS, sans drapeau
+		//   `alive` (contrairement aux faces). Un sommet devenu orphelin apres une
+		//   suppression garde sa position et reste donc compte. C'est la meme famille
+		//   de defaut, hors du perimetre de (b10) tel que Rodolf l'a ecrit.
+		//   CONDITION DE REOUVERTURE : le jour ou `Vert` porte un `alive`, ou bien
+		//   quand un compte ne coincidera plus avec Euler apres une suppression.
+		//
+		// MUTATION : `NK_VERT_COINS=1` remet le compte en COINS, dans le meme
+		// binaire -- la barre redit 24, la selection redit 3, et Euler redit 18.
+		static bool Demo3D_VertEnCoins() {
+			static int sCoins = -1;
+			if (sCoins == -1) {
+				const char *v = getenv("NK_VERT_COINS");
+				sCoins = (v && v[0] && v[0] != '0') ? 1 : 0;
+			}
+			return sCoins != 0;
+		}
+		
+		// Nombre de POSITIONS DISTINCTES du maillage en edition (8 sur un cube).
+		static uint32 Demo3D_VertSoudeCount(Demo3DState *st) {
+			const uint32 n = st->editHE.VertCount();
+			if (Demo3D_VertEnCoins() || n == 0u)
+				return n;
+			NkVector<uint32> canon;
+			st->editHE.BuildVertexMerge(canon);
+			uint32 c = 0u;
+			for (uint32 i = 0; i < n && i < (uint32)canon.Size(); ++i)
+				if (canon[i] == i)
+					++c;
+			return c;
+		}
+		
 		static int32 Demo3D_SelCountFor(Demo3DState *st, int32 mask) {
 			int32 n = 0;
 			if (mask & 4) {
@@ -2841,9 +2891,33 @@ namespace nkentseu {
 				}
 				return n;
 			}
-			for (uint32 i = 0; i < (uint32)st->vertSel.Size(); ++i)
-				if (st->vertSel[i])
+			// (b10) MEME UNITE QUE LE TOTAL. Un clic sur un coin de cube allume les
+			// TROIS copies coincidentes (`PropagateSelectionToCoincident`), et nous
+			// rendions 3 la ou Blender dit 1. On compte les REPRESENTANTS distincts :
+			// « 1/8 sommets » au lieu de « 3/24 ». Les branches face et arete ne
+			// changent pas -- elles etaient deja justes, et c'est le negatif du lot.
+			if (Demo3D_VertEnCoins()) {
+				for (uint32 i = 0; i < (uint32)st->vertSel.Size(); ++i)
+					if (st->vertSel[i])
+						++n;
+				return n;
+			}
+			NkVector<uint32> canon;
+			st->editHE.BuildVertexMerge(canon);
+			const uint32 nv = (uint32)st->vertSel.Size();
+			NkVector<uint8> vu;
+			vu.Resize(nv);
+			for (uint32 i = 0; i < nv; ++i)
+				vu[i] = 0u;
+			for (uint32 i = 0; i < nv; ++i) {
+				if (!st->vertSel[i])
+					continue;
+				const uint32 c = (i < (uint32)canon.Size()) ? canon[i] : i;
+				if (c < nv && !vu[c]) {
+					vu[c] = 1u;
 					++n;
+				}
+			}
 			return n;
 		}
 
@@ -16529,7 +16603,11 @@ namespace nkentseu {
 			if (!st)
 				return false;
 			if (st->editMode) {
-				*verts = st->editHE.VertCount();
+				// (b10) LA MEME AUTORITE QUE LE COMPTEUR DE SELECTION. Publier ici des
+				// coins et la-bas des positions ferait diverger deux textes que
+				// l'utilisateur lit cote a cote (« 3/24 »), ce que la barre d'etat
+				// interdit explicitement. Une source, deux lecteurs.
+				*verts = Demo3D_VertSoudeCount(st);
 				*edges = st->editHE.EdgeCount();
 				// FACES VIVANTES, comptees DANS LA TABLE et non dans la
 				// triangulation. La vue morte comptait les changements
