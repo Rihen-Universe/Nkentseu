@@ -630,8 +630,78 @@ static const char *kSignalesValidation[] = {
 };
 static const uint32 kNbSignalesValidation = 6u;
 
+// =============================================================================
+//  `--monter=<fichier.nkgui>` -- MONTER UN FICHIER QUELCONQUE, ET RENDRE UN
+//  VERDICT CHIFFRE. C'est le TROISIEME NIVEAU du jeu d'epreuve de l'IA : le
+//  document produit par un modele ne compte comme « ouvert » que si ce binaire-ci
+//  -- qui ne partage AUCUNE ligne avec celui qui l'a ecrit -- le lit, le valide et
+//  le monte sans role inconnu, sans zone hachuree et sans hote vide.
+//
+//  Le code de sortie EST le verdict : 0 monte proprement, 1 refus.
+// =============================================================================
+static int MonterUnFichier(const char *chemin) {
+	printf("=== MONTAGE D'UN FICHIER : %s ===\n", chemin);
+	const Fichier f = Lire(chemin);
+	if (!f.data) {
+		printf("  [ REFUS ] illisible ou vide\n");
+		return 1;
+	}
+	// 1. l'ANALYSE et la VALIDATION -- le meme validateur que le corpus.
+	NkArchive doc;
+	NkVector<NkGuiDiag> diags;
+	NkGuiDiag err;
+	if (!NkGuiArchive::Read(f.data, f.taille, doc, err)) {
+		printf("  [ REFUS ] l'analyseur refuse le fichier\n");
+		return 1;
+	}
+	const nkuidesign::guifmt::NkGValidateResult v =
+		nkuidesign::guifmt::NkGValidate(doc, diags);
+	printf("  validation : %u erreur(s), %u avertissement(s)\n", v.errors, v.warnings);
+	for (uint32 i = 0; i < (uint32)diags.Size() && i < 8u; ++i)
+		printf("      %s\n", diags[i].message.CStr());
+	// 2. LE MONTAGE, en widgets reels, rasterise en logiciel.
+	// ⚠️ ET SON IMAGE, quand `--png=<dossier>` est pose. Les nombres de la ligne
+	//    suivante ne peuvent PAS voir un widget monte qui ne peint rien -- c'est
+	//    la troisieme fois de la semaine que l'image tranche ce que les compteurs
+	//    validaient. Le nom est fixe (`monte.png`) : une seule course, un seul
+	//    fichier, jamais une trace ecrasee par une autre course sans le dire.
+	const Montage m = MonterTexte(f.data, f.taille, 1000, 700, g_pngDir ? "monte.png" : nullptr);
+	printf("  montage    : %u monte(s), %u role(s) inconnu(s), %u hote(s) non rempli(s), "
+		   "%u zone(s) sans panneau, %u liste(s) liee(s) non remplie(s)\n",
+		   m.rap.montes, m.rap.rolesInconnus, m.rap.hotesNonRemplis, m.rap.zonesSansPanneau,
+		   m.rap.listesNonRemplies);
+	// ⚠️ LE RECENSEMENT DES ROLES, ET IL N'EST PAS DECORATIF. Un document fait de
+	//    `Group` vides passe TOUS les compteurs ci-dessus : il se lit, il se
+	//    valide, il monte, et il ne montre RIEN. C'est le meme piege que la bande
+	//    noire de 197 px du 17/09 -- un vert qui ne regarde pas ce qu'il compte.
+	//    On publie donc le nombre de widgets qui ne sont PAS de simples groupes.
+	uint32 nonGroupes = 0u;
+	for (uint32 i = 0; i < (uint32)m.rap.items.Size(); ++i) {
+		const NkString &r = m.rap.items[i].role;
+		if (r.Compare("Group") != 0 && r.Compare("VBox") != 0 && r.Compare("HBox") != 0
+			&& r.Compare("Panel") != 0 && r.Compare("Window") != 0)
+			++nonGroupes;
+	}
+	printf("  roles utiles: %u widget(s) qui ne sont pas un simple conteneur\n", nonGroupes);
+	const bool ok = m.lu && v.errors == 0u && m.rap.rolesInconnus == 0u
+					&& m.rap.hotesNonRemplis == 0u && m.rap.zonesSansPanneau == 0u
+					&& m.rap.montes > 0u;
+	// ⚠️ UN HOTE NON REMPLI N'EST PAS UNE FAUTE DU DOCUMENT quand l'hote est ce
+	//    banc, qui n'en remplit aucun : c'est pourquoi le verdict le compte a part
+	//    et que la ligne ci-dessus le dit. Pour le jeu d'epreuve de l'IA, les
+	//    documents produits ne declarent ni `Host` ni `DockSpace` -- si un jour ils
+	//    en declarent, ce verdict devra recevoir un hote, et non etre assoupli.
+	printf("  VERDICT    : %s\n", ok ? "MONTE" : "REFUSE");
+	return ok ? 0 : 1;
+}
+
 int main(int argc, char **argv) {
 	const char *racine = "Applications/NKUIDesign/exemples";
+	// ⚠️ `--png=` SE LIT AVANT `--monter=`, ET CE N'EST PAS UN DETAIL D'ORDRE :
+	//    `--monter=` REND. Une boucle qui le traitait en premier faisait sortir le
+	//    programme avant d'avoir lu `--png=`, et l'image demandee n'etait jamais
+	//    ecrite -- sans un mot. Une option silencieusement ignoree est la forme la
+	//    moins visible du « declarer n'est pas livrer ».
 	for (int32 a = 1; a < (int32)argc; ++a) {
 		// `--png=<dossier>` : ecrire une image par fichier monte. OPT-IN.
 		if (argv[a][0] == '-' && argv[a][1] == '-' && argv[a][2] == 'p' && argv[a][3] == 'n'
@@ -639,6 +709,12 @@ int main(int argc, char **argv) {
 			g_pngDir = argv[a] + 6;
 		else if (argv[a][0] != '-')
 			racine = argv[a];
+	}
+	for (int32 a = 1; a < (int32)argc; ++a) {
+		if (argv[a][0] == '-' && argv[a][1] == '-' && argv[a][2] == 'm' && argv[a][3] == 'o'
+			&& argv[a][4] == 'n' && argv[a][5] == 't' && argv[a][6] == 'e' && argv[a][7] == 'r'
+			&& argv[a][8] == '=')
+			return MonterUnFichier(argv[a] + 9);
 	}
 	printf("=== NKGuiMonteTest : le format .nkgui MONTE et DESSINE (sans fenetre, sans GPU) ===\n");
 	printf("    corpus : %s\n", racine);

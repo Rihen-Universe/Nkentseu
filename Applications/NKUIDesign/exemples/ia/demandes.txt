@@ -1,0 +1,32 @@
+# AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
+# LES DOUZE DEMANDES DU JEU D'EPREUVE -- ECRITES AVANT LA PREMIERE COURSE
+#
+# ⚠️ REGLE : ce fichier est ecrit AVANT d'avoir vu une seule reponse du modele, et
+#    il ne sera PAS modifie apres. Choisir les demandes apres coup mesurerait
+#    l'habilete de celui qui choisit, pas la capacite du modele.
+#
+# ⚠️ ELLES SONT VOLONTAIREMENT INEGALES. Quatre sont des ecrans elementaires, cinq
+#    sont des ecrans d'application reels, trois sont HORS DE PORTEE PREVUE (une
+#    fenetre d'editeur complete). Un jeu dont toutes les demandes reussissent ne
+#    dit pas ou est la frontiere.
+#
+# Une demande par ligne : <identifiant> | <la phrase, en francais, telle qu'un
+# utilisateur l'ecrirait>
+#
+# --- elementaires (attendu : doivent passer si le modele sait ecrire le format)
+d01 | Un ecran de connexion : un titre, deux champs avec libelles, un bouton.
+d02 | Une boite de dialogue de confirmation : un texte de question et deux boutons cote a cote, Annuler et Confirmer.
+d03 | Une barre d'outils horizontale de cinq boutons de meme taille.
+d04 | Une carte de profil : une image carree en haut, un nom dessous, une courte description, un bouton en bas.
+#
+# --- ecrans d'application (attendu : la moitie, peut-etre)
+d05 | Un panneau de reglages en colonne : trois groupes titres, chaque groupe contenant deux lignes libelle plus champ.
+d06 | Une liste a gauche et le detail de l'element choisi a droite, la liste faisant environ un tiers de la largeur.
+d07 | Un formulaire d'inscription : nom, prenom, courriel, mot de passe, confirmation, et un bouton d'envoi en bas a droite.
+d08 | Un tableau de bord de quatre tuiles de statistiques sur deux colonnes, puis un grand cadre de graphique dessous.
+d09 | Un etat vide : une icone centree, un titre, une phrase d'explication, et un bouton d'action au centre.
+#
+# --- hors de portee prevue (attendu : elles doivent echouer, et dire pourquoi)
+d10 | La fenetre du modeleur 3D : une barre de menus en haut, une hierarchie a gauche, un viseur au centre, un inspecteur a droite, une console en bas.
+d11 | Un editeur de code : bande d'onglets en haut, explorateur de fichiers a gauche repliable, zone de texte au centre, terminal en bas redimensionnable.
+d12 | Une palette de composants en trois colonnes avec un champ de recherche au-dessus et des sections repliables par famille.
