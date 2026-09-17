@@ -9575,6 +9575,106 @@ static int32 SuppressionBattery() {
 	return gIntEchecs ? 1 : 0;
 }
 
+// -- L'ANNULATION REND L'INTENTION, PAS UNE DEDUCTION (--annulation) ---------
+// Mesure du 17/09 : apres un Ctrl+Z, le modeleur rendait SIX faces selectionnees
+// la ou l'utilisateur en avait choisi DEUX. Avant de corriger le lecteur, il faut
+// prouver que la VALEUR est dans le cliche -- sinon on corrige le mauvais etage.
+//
+// Le cliche d'annulation est une COPIE COMPLETE de `NkEditMesh`
+// (`Demo3D_ApplyCmd` : snapshot = st->editHE). Cette structure porte `faces[].sel`,
+// `faceSelSnap`, `faceSelPorte` et `faceSelOk`. Ce banc le VERIFIE, et montre au
+// passage que les deux lectures possibles du meme maillage restaure ne donnent pas
+// le meme nombre : 2 par l'intention, 6 par la deduction. C'est le choix du
+// LECTEUR qui decide, et c'est donc lui qu'il faut corriger.
+//
+// Les faces sont reperees par leur CENTRE, jamais par un indice : l'ordre des
+// faces apres reconstruction est un detail du moteur, pas un contrat.
+static bool AnnCentreSel(const NkEditMesh &m, const NkVec3f &c) {
+	const int32 f = IntFaceParCentre(m, c);
+	return f >= 0 && m.faces[(uint32)f].sel != 0;
+}
+// LA DEDUCTION, celle que le modeleur appliquait apres l'annulation : une face est
+// dite selectionnee quand TOUS ses sommets le sont. On la refait ici pour montrer
+// qu'elle ne rend pas la meme chose -- sans elle, « 2 » ne prouverait pas que le
+// defaut venait du lecteur.
+static int32 AnnFacesParDeduction(const NkEditMesh &m) {
+	int32 n = 0;
+	NkVector<NkEmId> loop;
+	for (uint32 f = 0; f < (uint32)m.faces.Size(); ++f) {
+		if (!m.faces[f].alive)
+			continue;
+		loop.Clear();
+		m.GetFaceVerts((NkEmId)f, loop);
+		if (loop.Empty())
+			continue;
+		bool tous = true;
+		for (uint32 k = 0; k < (uint32)loop.Size() && tous; ++k)
+			if (!m.verts[loop[k]].sel)
+				tous = false;
+		if (tous)
+			++n;
+	}
+	return n;
+}
+static int32 AnnulationBattery() {
+	const NkVec3f PZ{0.f, 0.f, 0.5f}, MZ{0.f, 0.f, -0.5f};
+	const NkVec3f opposees[2] = {PZ, MZ};
+
+	// (z0) LE ZERO : une copie puis une restauration ne FABRIQUENT aucune
+	//      selection. Sans ce cas, le « 2 » plus bas pourrait venir de n'importe ou.
+	{
+		NkEditMesh m;
+		IntPrepare(m, opposees, 2, false); // AUCUNE intention posee
+		const NkEditMesh cliche = m;
+		NkEditMesh restaure = cliche;
+		restaure.RefreshFaceSel();
+		printf("[annul] ZERO : sans intention -> selF=%d intentionAJour=%d\n", SupFacesSel(restaure),
+			   restaure.FaceSelAJour() ? 1 : 0);
+		IntVerdict("(z0) sans intention posee, la restauration n'en fabrique pas", 0,
+				   SupFacesSel(restaure));
+		IntVerdict("(z0) ... et l'intention n'est pas declaree a jour", 0,
+				   restaure.FaceSelAJour() ? 1 : 0);
+	}
+
+	// (a) L'INTENTION EST POSEE, ET ELLE DESIGNE LES DEUX BONNES FACES.
+	NkEditMesh m;
+	IntPrepare(m, opposees, 2, true);
+	printf("[annul] AVANT : faces=%d selF=%d intentionAJour=%d +Z=%d -Z=%d\n", IntFacesVivantes(m),
+		   SupFacesSel(m), m.FaceSelAJour() ? 1 : 0, AnnCentreSel(m, PZ) ? 1 : 0,
+		   AnnCentreSel(m, MZ) ? 1 : 0);
+	IntVerdict("(a) 2 faces portent l'intention", 2, SupFacesSel(m));
+	IntVerdict("(a) ... et ce sont +Z et -Z", 1,
+			   (AnnCentreSel(m, PZ) && AnnCentreSel(m, MZ)) ? 1 : 0);
+
+	// (b) LE CLICHE LA PORTE. Copie, suppression, restauration.
+	const NkEditMesh cliche = m;
+	const bool sup = m.DeleteSelectedFaces();
+	const int32 apresSup = IntFacesVivantes(m);
+	NkEditMesh restaure = cliche;
+	restaure.RefreshFaceSel();
+	const int32 parIntention = SupFacesSel(restaure);
+	const int32 parDeduction = AnnFacesParDeduction(restaure);
+	printf("[annul] APRES suppression : faces=%d (rendu=%d) ; APRES restauration : faces=%d "
+		   "selF(intention)=%d selF(deduction)=%d intentionAJour=%d +Z=%d -Z=%d\n",
+		   apresSup, sup ? 1 : 0, IntFacesVivantes(restaure), parIntention, parDeduction,
+		   restaure.FaceSelAJour() ? 1 : 0, AnnCentreSel(restaure, PZ) ? 1 : 0,
+		   AnnCentreSel(restaure, MZ) ? 1 : 0);
+	IntVerdict("(b) la restauration rend les 6 faces vivantes", 6, IntFacesVivantes(restaure));
+	IntVerdict("(b) le cliche PORTE l'intention : 2 faces", 2, parIntention);
+	IntVerdict("(b) ... et ce sont les MEMES : +Z et -Z", 1,
+			   (AnnCentreSel(restaure, PZ) && AnnCentreSel(restaure, MZ)) ? 1 : 0);
+	IntVerdict("(b) l'intention est declaree A JOUR apres restauration", 1,
+			   restaure.FaceSelAJour() ? 1 : 0);
+
+	// (c) LE NEGATIF QUI DESIGNE LE COUPABLE : sur le MEME maillage restaure, la
+	//     DEDUCTION rend 6. Les deux lectures different, donc ce n'est pas le
+	//     cliche qui perd l'information -- c'est le lecteur qui n'en veut pas.
+	IntVerdict("(c) la DEDUCTION sur le meme maillage rend 6 (le defaut)", 6, parDeduction);
+
+	printf("[annul] %d echec(s)\n", gIntEchecs);
+	return gIntEchecs ? 1 : 0;
+}
+
 int main(int argc, char **argv) {
 	// ANCRE : resolue AVANT toute mesure (cf. Applications/Common/NkBenchRoot.h).
 	// C'est elle qui porte les ressources ET la reference (cf. CheminRessource).
@@ -9590,6 +9690,7 @@ int main(int argc, char **argv) {
 
 	bool baseline = false, check = false, perf = false, intention = false;
 	bool suppression = false;
+	bool annulation = false;
 	for (int32 i = 1; i < argc; i++) {
 		if (strcmp(argv[i], "--baseline") == 0)
 			baseline = true;
@@ -9601,6 +9702,8 @@ int main(int argc, char **argv) {
 			intention = true;
 		else if (strcmp(argv[i], "--suppression") == 0)
 			suppression = true;
+		else if (strcmp(argv[i], "--annulation") == 0)
+			annulation = true;
 	}
 	// --intention rend AVANT les batteries comparees : il ne pose aucune ligne dans
 	// gLines, donc ne peut ni perimer ni masquer la reference de --check.
@@ -9610,6 +9713,8 @@ int main(int argc, char **argv) {
 	// `gLines`, donc elle ne peut ni perimer ni masquer la reference de --check.
 	if (suppression)
 		return SuppressionBattery();
+	if (annulation)
+		return AnnulationBattery();
 
 	Battery();
 	WireBattery();
