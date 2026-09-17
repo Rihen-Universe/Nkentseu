@@ -480,6 +480,72 @@ namespace nkentseu {
 			NkRect rect{0.f, 0.f, 0.f, 0.f};
 		};
 		
+		// =====================================================================
+		//  LES TAILLES RELATIVES -- « cette colonne fait 16 % de son parent,
+		//  au minimum 180 px »
+		// =====================================================================
+		//  ⚠️ POURQUOI ELLES EXISTENT, ET CE QUE MESURE L'INVENTAIRE DU 17/09 :
+		//     `pos` et `size` sont en PIXELS ABSOLUS. Un document qui decrirait
+		//     l'interface de NK3DModeler avec eux la FIGERAIT a une seule taille de
+		//     fenetre -- alors que sa disposition reelle est ecrite en fractions
+		//     (`NkLayout::Compute(W, H, fLeft = 0.16f, fRight = 0.29f)`). C'est ce
+		//     qui separe un ecran de demonstration d'une fenetre d'editeur.
+		//
+		//  ⚠️ ET C'EST STRICTEMENT ADDITIF. `size` garde exactement son sens : il
+		//     n'agit qu'avec `pos`. Les 226 noeuds absolus du depot ne changent pas
+		//     d'un pixel -- c'est mesure par la non-regression du banc, pas espere.
+		//
+		//  Une composante <= 0 veut dire « cet axe n'est pas contraint » : on peut
+		//  ne dire que la largeur, `sizeRel = (0.16, 0)`.
+		struct NkGuiTailleRel {
+				bool aW = false, aH = false;
+				float32 w = 0.f, h = 0.f;
+		};
+
+		inline NkGuiTailleRel NkGuiLireTailleRelative(const NkArchive &b, const NkRect &region) noexcept {
+			NkGuiTailleRel t;
+			// MUTATION DE BANC, NK_TAILLE_MUTATION=absolu : `sizeRel` est ignore, et la
+			// disposition redevient celle du flux. Elle sert a prouver que le critere des
+			// deux fenetres teste quelque chose ; sans la variable, rien ne change.
+			static const bool kIgnorer = []() {
+				const char *v = getenv("NK_TAILLE_MUTATION");
+				return v && v[0] == 'a';
+			}();
+			if (kIgnorer)
+				return t;
+			const NkArchiveNode *nr = b.FindNode(NkStringView("sizeRel"));
+			if (!nr)
+				return t;
+			float32 v[4];
+			if (NkGNombresDansLexeme(nr->Lexeme(), v, 4u) < 2u)
+				return t; // `sizeRel = 0.16` n'est pas un vecteur : la validation le dit
+			float32 mn[4] = {0.f, 0.f, 0.f, 0.f};
+			float32 mx[4] = {0.f, 0.f, 0.f, 0.f};
+			const NkArchiveNode *nmn = b.FindNode(NkStringView("minSize"));
+			const NkArchiveNode *nmx = b.FindNode(NkStringView("maxSize"));
+			if (nmn)
+				(void)NkGNombresDansLexeme(nmn->Lexeme(), mn, 4u);
+			if (nmx)
+				(void)NkGNombresDansLexeme(nmx->Lexeme(), mx, 4u);
+			if (v[0] > 0.f) {
+				t.aW = true;
+				t.w = region.w * v[0];
+				if (mn[0] > 0.f && t.w < mn[0])
+					t.w = mn[0];
+				if (mx[0] > 0.f && t.w > mx[0])
+					t.w = mx[0];
+			}
+			if (v[1] > 0.f) {
+				t.aH = true;
+				t.h = region.h * v[1];
+				if (mn[1] > 0.f && t.h < mn[1])
+					t.h = mn[1];
+				if (mx[1] > 0.f && t.h > mx[1])
+					t.h = mx[1];
+			}
+			return t;
+		}
+
 		inline NkGuiPlacement NkGuiLirePlacement(const NkArchive &w, const NkRect &reg,
 						float32 hauteurRangee, bool conteneur) noexcept {
 			NkGuiPlacement pl;
@@ -910,6 +976,18 @@ namespace nkentseu {
 								r.x = ctx.layout.cursor.x;
 								r.y = ctx.layout.cursor.y;
 							}
+							// ── LA TAILLE RELATIVE : « 16 % de mon parent, au minimum 180 px » ──
+							// Un conteneur qui declare `sizeRel` DECOUPE son rectangle dans le flux
+							// du parent par la porte que NKGui a deja (`NextItemRect`) : c'est elle
+							// qui sait avancer le curseur en X dans une HBox et en Y ailleurs. En
+							// ecrire une seconde aurait fait deux verites sur la meme chose.
+							const NkGuiTailleRel rel = NkGuiLireTailleRelative(w, ctx.layout.region);
+							bool decoupeRel = false;
+							if (!pl.pose && (rel.aW || rel.aH)) {
+								r = ctx.NextItemRect(rel.aW ? rel.w : -1.f,
+													 rel.aH ? rel.h : ctx.AvailHeight());
+								decoupeRel = true;
+							}
 							// ⚠️ LE VOILE D'UNE MODALE, PEINT AVANT LE FOND.
 							//    `modal` etait DECLARE par le format (doc 7 §3.6) et lu par PERSONNE :
 							//    ni le monteur, ni le validateur au-dela du type. Une propriete que
@@ -962,7 +1040,7 @@ namespace nkentseu {
 							//    on le repose : c'est exactement ce que NKGui fait deja pour ses popups
 							//    (`popupSaved[PopupMax]`, un `NkGuiLayout` par niveau). On reprend son
 							//    procede plutot que d'en inventer un second.
-							const bool ouvrirRegion = pl.pose || enfantsAbsolus;
+							const bool ouvrirRegion = pl.pose || enfantsAbsolus || decoupeRel;
 							if (ouvrirRegion) {
 								const NkGuiLayout sauve = ctx.layout;
 								ctx.BeginLayout(r);
@@ -1237,9 +1315,12 @@ namespace nkentseu {
 						case NkGuiRole::Host: {
 							++rap.hotes;
 							// Un `pos`/`size` pose a deja arme `SetNextItemRect` avant le switch :
-							// `NextItemRect` le rend tel quel. Sans pose, la zone prend la largeur
-							// disponible et quatre hauteurs d'item -- assez pour se voir.
-							const NkRect zone = ctx.NextItemRect(-1.f, ctx.ItemHeight() * 4.f);
+							// `NextItemRect` le rend tel quel. Sinon, la zone lit sa TAILLE RELATIVE
+							// (« 60 % de mon parent ») ; a defaut, elle prend la largeur disponible et
+							// quatre hauteurs d'item -- assez pour se voir.
+							const NkGuiTailleRel relH = NkGuiLireTailleRelative(w, ctx.layout.region);
+							const NkRect zone = ctx.NextItemRect(relH.aW ? relH.w : -1.f,
+																 relH.aH ? relH.h : ctx.ItemHeight() * 4.f);
 							const bool rempli = hooks && hooks->RemplirHote(ctx, id.CStr(), zone);
 							if (!rempli) {
 								++rap.hotesNonRemplis;

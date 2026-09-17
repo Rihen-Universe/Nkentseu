@@ -213,8 +213,17 @@ namespace nkuidesign {
 			static const NkGSchemaProp kUniversal[] = {
 				{"tooltip", 's'}, {"enabled", 'b'}, {"visible", 'b'},
 				{"id", 's'},      {"pos", 'v'},     {"size", 'v'},
+				// ── LES TAILLES RELATIVES (2026-09-17) ───────────────────────
+				// ⚠️ `pos` et `size` sont en PIXELS ABSOLUS : un document qui decrirait
+				//    l'interface du modeleur avec eux la FIGERAIT a une seule taille de
+				//    fenetre, alors que sa disposition reelle est ecrite en fractions
+				//    (0,16 et 0,29). `sizeRel` dit « 16 % de mon parent », `minSize` et
+				//    `maxSize` bornent le resultat en pixels.
+				// ⚠️ STRICTEMENT ADDITIF : `size` garde son sens, et une composante <= 0
+				//    veut dire « cet axe n'est pas contraint ».
+				{"sizeRel", 'v'}, {"minSize", 'v'}, {"maxSize", 'v'},
 			};
-			count = 6;
+			count = 9;
 			return kUniversal;
 		}
 
