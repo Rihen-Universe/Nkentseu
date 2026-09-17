@@ -1660,6 +1660,13 @@ namespace nkentseu {
 				bool editSubdivPending = false;	  // W : subdivise les faces sélectionnées
 				bool editLoopCutPending = false;  // Ctrl+R : boucle d'arêtes (loop cut)
 			int32 loopCuts = 1;				  // Ctrl+Shift+R : nb de boucles insérées (1..5)
+				// GLISSEMENT des boucles le long de l'anneau (le « edge slide » de
+				// Blender). Il existait deja dans la commande du noyau et dans la
+				// MODALE, mais le chemin DIRECT -- celui qu'un verbe emprunte -- ne
+				// le posait pas : un modele pouvait demander des boucles, jamais ou
+				// les mettre. Les bornes -1..+1 ne sont pas choisies ici : c'est le
+				// clamp du noyau (NkEditMesh.cpp:4122) qui les fixe.
+				float32 loopSlide = 0.f;		  // -1 .. +1
 				// ── BEVEL / CHANFREIN (façon Blender) ───────────────────────────
 				// Ctrl+B = bevel d'ARÊTE · Ctrl+Shift+B = bevel de SOMMET.
 				// Alt+B = cycle les SEGMENTS (1/2/3/4/6) · Alt+Shift+B = cycle la LARGEUR.
@@ -4359,6 +4366,12 @@ namespace nkentseu {
 			renderer::NkMeshEditCommand c;
 			c.op = renderer::NkMeshEditOp::LoopCut;
 			c.loopcut.cuts = st->loopCuts;
+			// ⚠️ LE CHEMIN DIRECT POSAIT LES BOUCLES ET OUBLIAIT OU LES METTRE.
+			//    La modale, elle, ecrivait `c.loopcut.slide` depuis sa valeur en
+			//    cours. Deux chemins pour un geste, dont un seul complet : un verbe
+			//    `loopcut:3:0.5` aurait accepte le 0,5 et ne l'aurait jamais
+			//    applique -- une commande qui s'execute et fait autre chose.
+			c.loopcut.slide = st->loopSlide;
 			Demo3D_ApplyCmd(st, ms, c);
 		}
 
@@ -17476,6 +17489,7 @@ namespace nkentseu {
 				{2, "Segments", 1, 1.f, 16.f},             // bevelSegments
 				{3, "Coupes", 1, 1.f, 10.f},               // subdivCuts
 				{4, "Boucles", 1, 1.f, 5.f},               // loopCuts
+				{4, "Glissement", 2, -1.f, 1.f},           // loopSlide (clamp du noyau)
 				{8, "Axe (0=X 1=Y 2=Z)", 1, 0.f, 2.f},     // spinAxis
 				{8, "Copies isolees", 0, 0.f, 1.f},        // spinDuplicate
 			};
@@ -17512,8 +17526,9 @@ namespace nkentseu {
 				case 4: *val = (float32)st->bevelSegments; return true;
 				case 5: *val = (float32)st->subdivCuts; return true;
 				case 6: *val = (float32)st->loopCuts; return true;
-				case 7: *val = (float32)st->spinAxis; return true;
-				case 8: *val = st->spinDuplicate ? 1.f : 0.f; return true;
+				case 7: *val = st->loopSlide; return true;
+				case 8: *val = (float32)st->spinAxis; return true;
+				case 9: *val = st->spinDuplicate ? 1.f : 0.f; return true;
 				default: return false;
 			}
 		}
@@ -17540,8 +17555,9 @@ namespace nkentseu {
 				case 4: st->bevelSegments = e; return true;
 				case 5: st->subdivCuts = e; return true;
 				case 6: st->loopCuts = e; return true;
-				case 7: st->spinAxis = e; return true;
-				case 8: st->spinDuplicate = (v >= 0.5f); return true;
+				case 7: st->loopSlide = v; return true;
+				case 8: st->spinAxis = e; return true;
+				case 9: st->spinDuplicate = (v >= 0.5f); return true;
 				default: return false;
 			}
 		}

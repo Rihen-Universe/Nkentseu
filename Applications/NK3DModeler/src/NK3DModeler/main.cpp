@@ -2944,9 +2944,16 @@ int nkmain(const NkEntryState &entry) {
 					(void)demo::Demo3DHostOpParamGet(4, &pBevS);
 					(void)demo::Demo3DHostOpParamGet(5, &pSubd);
 					(void)demo::Demo3DHostOpParamGet(6, &pLoop);
+					// LE GLISSEMENT DE LA BOUCLE, AU MEME INSTANT QUE LES AUTRES. Il vient
+					// d'entrer dans la table de l'hote : sans cette ligne, un verbe
+					// « loopcut:2:0.4 » accepterait le 0,4 sans qu'aucune mesure ne puisse
+					// dire s'il a ete pose -- un parametre invisible est un parametre qu'on
+					// croit sur parole.
+					float32 pGlis = -99.f;
+					(void)demo::Demo3DHostOpParamGet(7, &pGlis);
 					std::printf("[nk3d] EDIT RAPPORT frame=%d : v=%u e=%u f=%u t=%u | selection=%d "
 								"| selV=%d selE=%d selF=%d | masque=%d | annuler=%d refaire=%d (lu=%d)"
-								" | bevOff=%.3f bevSeg=%.0f subdiv=%.0f loop=%.0f\n",
+								" | bevOff=%.3f bevSeg=%.0f subdiv=%.0f loop=%.0f glis=%.3f\n",
 								(int)q, vv, ve, vf, vt, (int)demo::Demo3DHostEditSelCount(),
 								(int)demo::Demo3DHostEditSelCountFor(1),
 								(int)demo::Demo3DHostEditSelCountFor(2),
@@ -2954,7 +2961,7 @@ int nkmain(const NkEntryState &entry) {
 								(int)demo::Demo3DHostEditSelMask(),
 								demo::Demo3DHostEditCanUndo() ? 1 : 0,
 								demo::Demo3DHostEditCanRedo() ? 1 : 0, ok ? 1 : 0,
-						(double)pBevO, (double)pBevS, (double)pSubd, (double)pLoop);
+						(double)pBevO, (double)pBevS, (double)pSubd, (double)pLoop, (double)pGlis);
 					std::fflush(stdout);
 				};
 				for (int32 i = 0; i < nq; ++i)
@@ -3709,10 +3716,31 @@ int nkmain(const NkEntryState &entry) {
 					if (edit && demo::Demo3DHostEditSubdivide())
 						NkMarkDirty(st);
 					break;
-				case NkVpAction::LoopCut:
-					if (edit && demo::Demo3DHostEditLoopCut())
+				case NkVpAction::LoopCut: {
+					// ⚠️ LE REFUS EST NOMME, ET C'EST LA MOITIE DE L'OUTIL. Un verbe
+					//    qui echoue en silence est le pire des quatre etats d'une
+					//    commande : le modele croit avoir agi et enchaine. Loopcut a
+					//    deux conditions, et elles ne se confondent pas -- on n'est pas
+					//    en mode Edition, ou bien l'anneau ne se ferme pas depuis
+					//    l'arete choisie. Deux etats differents, deux phrases
+					//    differentes : dire « ca n'a pas marche » ne permet a personne
+					//    de se corriger.
+					if (!edit) {
+						snprintf(st.aiMotif, sizeof(st.aiMotif),
+								 "loopcut agit sur un maillage : il faut etre en mode Edition.");
+						st.aiMotifEstRefus = true;
+					} else if (demo::Demo3DHostEditLoopCut()) {
 						NkMarkDirty(st);
+					} else {
+						snprintf(st.aiMotif, sizeof(st.aiMotif),
+								 "aucune boucle posee : loopcut part d'une ARETE selectionnee, "
+								 "et son anneau doit se fermer.");
+						st.aiMotifEstRefus = true;
+					}
+					if (st.aiMotifEstRefus)
+						std::printf("[nk3d] loopcut REFUS : %s\n", st.aiMotif);
 					break;
+				}
 				case NkVpAction::Inset:
 					// Epaisseur AUTOMATIQUE, proportionnelle a l'objet : une valeur
 					// fixe donne un inset invisible sur un grand modele et un inset
