@@ -9675,6 +9675,183 @@ static int32 AnnulationBattery() {
 	return gIntEchecs ? 1 : 0;
 }
 
+// -- X NE SUPPRIME PAS LA MEME CHOSE SELON LE SOUS-MODE (--suppr-xe) ---------
+// Blender supprime les SOMMETS en mode sommet et les ARETES en mode arete, avec
+// tout ce qui s'appuie dessus. Chez nous X passait TOUJOURS par la regle des
+// faces (« toutes ses aretes retenues »), donc deux sommets ou deux aretes ne
+// supprimaient RIEN -- mesure du 17/09, et c'est ce qui rendait la course de
+// bout en bout impossible dans deux sous-modes sur trois.
+//
+// LES ATTENDUS SONT DERIVES, et ecrits dans le canal (R20) avant ce code :
+//   * un cube de la maison a 6 quads, 24 sommets (notre Vert EST un coin) et
+//     12 aretes de CAGE, soudee par POSITION ;
+//   * un COIN est porte par 3 faces -> supprimer un sommet en laisse 3 ;
+//   * une ARETE est portee par 2 faces -> supprimer une arete en laisse 4.
+// Les comptes d'ARETES restants ne sont PAS ecrits a la main : un attendu en dur
+// se perimerait au premier changement de quadrangulation. Ils sont compares a un
+// RECOMPTE INDEPENDANT -- les aretes uniques des faces survivantes -- qui ne
+// partage aucune ligne avec `RebuildEdges`.
+static int32 XeAretesUniquesDesFaces(const NkEditMesh &m) {
+	// Deux instruments sans code commun : celui-ci recompte les paires de sommets
+	// CONSECUTIFS des faces vivantes, dedupliquees par POSITION (la cage est
+	// soudee par position, pas par indice de sommet).
+	struct Paire {
+			float32 ax, ay, az, bx, by, bz;
+	};
+	NkVector<Paire> vues;
+	NkVector<NkEmId> loop;
+	auto proche = [](float32 a, float32 b) { return (a - b) < 1e-4f && (b - a) < 1e-4f; };
+	for (uint32 f = 0; f < (uint32)m.faces.Size(); ++f) {
+		if (!m.faces[f].alive)
+			continue;
+		loop.Clear();
+		m.GetFaceVerts((NkEmId)f, loop);
+		const uint32 n = (uint32)loop.Size();
+		for (uint32 k = 0; k < n; ++k) {
+			NkVec3f A = m.verts[loop[k]].pos, B = m.verts[loop[(k + 1u) % n]].pos;
+			// ordre canonique, sinon (A,B) et (B,A) compteraient deux fois
+			if (B.x < A.x || (proche(B.x, A.x) && (B.y < A.y || (proche(B.y, A.y) && B.z < A.z)))) {
+				const NkVec3f t = A;
+				A = B;
+				B = t;
+			}
+			bool deja = false;
+			for (uint32 u = 0; u < (uint32)vues.Size() && !deja; ++u)
+				deja = proche(vues[u].ax, A.x) && proche(vues[u].ay, A.y) && proche(vues[u].az, A.z) &&
+					   proche(vues[u].bx, B.x) && proche(vues[u].by, B.y) && proche(vues[u].bz, B.z);
+			if (!deja) {
+				Paire p{A.x, A.y, A.z, B.x, B.y, B.z};
+				vues.PushBack(p);
+			}
+		}
+	}
+	return (int32)vues.Size();
+}
+// Selectionne les sommets d'une face donnee par son centre, puis propage aux
+// coincidents -- exactement ce que fait l'editeur au clic. On peut ensuite
+// restreindre a un COIN ou a une ARETE de cette face.
+static void XePrepare(NkEditMesh &m) {
+	NkVector<NkVertex3D> v;
+	NkVector<uint32> idx;
+	MakeCube(v, idx);
+	m.BuildFromIndexed(v.Data(), (uint32)v.Size(), idx.Data(), (uint32)idx.Size(), true);
+	m.SelectNone();
+}
+// Allume tous les sommets dont la POSITION est l'une de celles donnees (la
+// propagation aux coincidents, faite a la main : un coin a trois copies).
+static void XeSelPositions(NkEditMesh &m, const NkVec3f *pos, uint32 n) {
+	NkVector<uint8> vs;
+	vs.Resize(m.VertCount());
+	for (uint32 i = 0; i < (uint32)vs.Size(); ++i)
+		vs[i] = 0;
+	for (uint32 i = 0; i < m.VertCount(); ++i)
+		for (uint32 k = 0; k < n; ++k)
+			if ((m.verts[i].pos - pos[k]).Len() < 1e-4f)
+				vs[i] = 1;
+	m.SetVertSelection(vs.Data(), (uint32)vs.Size());
+}
+static int32 SupprXeBattery() {
+	const bool garde = (getenv("NK_DEL_KEEPSEL") != nullptr);
+	printf("[xe] MUTATION NK_DEL_KEEPSEL : %s\n", garde ? "ACTIVE" : "inactive");
+	// Le cube de MakeCube va de -0.5 a +0.5 : un COIN et une ARETE s'ecrivent donc
+	// en clair, et ne sont pas des indices devines.
+	const NkVec3f coin{0.5f, 0.5f, 0.5f};
+	const NkVec3f areteA{0.5f, 0.5f, 0.5f}, areteB{-0.5f, 0.5f, 0.5f};
+
+	// (z) LE ZERO : rien de selectionne -> les trois modes ne suppriment RIEN et
+	//     rendent FAUX. Sans ce cas, « 3 » et « 4 » plus bas pourraient venir d'une
+	//     suppression qui part toute seule.
+	{
+		NkEditMesh m;
+		XePrepare(m);
+		const bool a = m.DeleteSelectedVerts();
+		const bool b = m.DeleteSelectedEdges();
+		const bool c = m.DeleteSelectedFaces();
+		printf("[xe] ZERO : rien de selectionne -> sommets=%d aretes=%d faces=%d, vivantes=%d\n",
+			   a ? 1 : 0, b ? 1 : 0, c ? 1 : 0, IntFacesVivantes(m));
+		IntVerdict("(z) sans selection, les 3 modes ne suppriment rien", 0,
+				   (a || b || c) ? 1 : 0);
+		IntVerdict("(z) ... et le cube est intact", 6, IntFacesVivantes(m));
+	}
+
+	// (1) SOMMET : un coin est porte par 3 faces -> il en reste 3.
+	{
+		NkEditMesh m;
+		XePrepare(m);
+		XeSelPositions(m, &coin, 1);
+		const int32 selAvant = SupSommetsSel(m);
+		const bool ok = m.DeleteSelectedVerts();
+		const int32 fv = IntFacesVivantes(m);
+		const int32 ar = (int32)m.EdgeCount(), arRec = XeAretesUniquesDesFaces(m);
+		printf("[xe] SOMMET : %d sommets retenus -> rendu=%d vivantes=%d aretes=%d "
+			   "(recompte independant %d) selV=%d selE=%d selF=%d\n",
+			   selAvant, ok ? 1 : 0, fv, ar, arRec, SupSommetsSel(m), SupAretesSel(m), SupFacesSel(m));
+		IntDifferent("(1) ZERO : le coin etait bien selectionne AVANT", 0, selAvant);
+		IntVerdict("(1a) supprimer un SOMMET retire ses 3 faces", 3, fv);
+		IntVerdict("(1b) ... et l'operation rend VRAI", 1, ok ? 1 : 0);
+		IntVerdict("(1c) les aretes de la cage = le recompte independant", arRec, ar);
+		if (!garde) {
+			IntVerdict("(1d) la selection est VIDE apres (sommets)", 0, SupSommetsSel(m));
+			IntVerdict("(1e) la selection est VIDE apres (aretes)", 0, SupAretesSel(m));
+			IntVerdict("(1f) la selection est VIDE apres (faces)", 0, SupFacesSel(m));
+		}
+	}
+
+	// (2) ARETE : une arete est portee par 2 faces -> il en reste 4.
+	{
+		NkEditMesh m;
+		XePrepare(m);
+		const NkVec3f deux[2] = {areteA, areteB};
+		XeSelPositions(m, deux, 2);
+		const int32 selAvant = SupAretesSel(m);
+		const bool ok = m.DeleteSelectedEdges();
+		const int32 fv = IntFacesVivantes(m);
+		const int32 ar = (int32)m.EdgeCount(), arRec = XeAretesUniquesDesFaces(m);
+		printf("[xe] ARETE : %d aretes retenues -> rendu=%d vivantes=%d aretes=%d "
+			   "(recompte independant %d) selV=%d selE=%d selF=%d\n",
+			   selAvant, ok ? 1 : 0, fv, ar, arRec, SupSommetsSel(m), SupAretesSel(m), SupFacesSel(m));
+		IntDifferent("(2) ZERO : l'arete etait bien selectionnee AVANT", 0, selAvant);
+		IntVerdict("(2a) supprimer une ARETE retire ses 2 faces", 4, fv);
+		IntVerdict("(2b) ... et l'operation rend VRAI", 1, ok ? 1 : 0);
+		IntVerdict("(2c) les aretes de la cage = le recompte independant", arRec, ar);
+		if (!garde) {
+			IntVerdict("(2d) la selection est VIDE apres (sommets)", 0, SupSommetsSel(m));
+			IntVerdict("(2e) la selection est VIDE apres (aretes)", 0, SupAretesSel(m));
+			IntVerdict("(2f) la selection est VIDE apres (faces)", 0, SupFacesSel(m));
+		}
+	}
+
+	// (3) LE NEGATIF QUI MONTRE QUE LES TROIS MODES SONT BIEN DISTINCTS.
+	//     Sur la MEME selection -- les deux coins d'une arete -- les trois portes
+	//     doivent rendre trois resultats DIFFERENTS : le mode FACE ne trouve aucune
+	//     face entierement retenue (c'est le defaut d'origine, et il est ici le
+	//     comportement correct), le mode ARETE en retire 2, le mode SOMMET en
+	//     retire 4 (les 4 faces qui touchent l'un des deux coins).
+	//     Sans ce cas, les trois portes pourraient etre trois noms de la meme chose.
+	{
+		const NkVec3f deux[2] = {areteA, areteB};
+		NkEditMesh mf, me, mv;
+		XePrepare(mf);
+		XeSelPositions(mf, deux, 2);
+		const bool okF = mf.DeleteSelectedFaces();
+		XePrepare(me);
+		XeSelPositions(me, deux, 2);
+		(void)me.DeleteSelectedEdges();
+		XePrepare(mv);
+		XeSelPositions(mv, deux, 2);
+		(void)mv.DeleteSelectedVerts();
+		printf("[xe] MEME SELECTION, 3 portes : face -> %d (rendu=%d) · arete -> %d · sommet -> %d\n",
+			   IntFacesVivantes(mf), okF ? 1 : 0, IntFacesVivantes(me), IntFacesVivantes(mv));
+		IntVerdict("(3a) mode FACE : rien a supprimer, cube intact", 6, IntFacesVivantes(mf));
+		IntVerdict("(3b) mode ARETE : 2 faces de moins", 4, IntFacesVivantes(me));
+		IntVerdict("(3c) mode SOMMET : les 4 faces qui touchent un des 2 coins", 2,
+				   IntFacesVivantes(mv));
+	}
+
+	printf("[xe] %d echec(s)\n", gIntEchecs);
+	return gIntEchecs ? 1 : 0;
+}
+
 int main(int argc, char **argv) {
 	// ANCRE : resolue AVANT toute mesure (cf. Applications/Common/NkBenchRoot.h).
 	// C'est elle qui porte les ressources ET la reference (cf. CheminRessource).
@@ -9691,6 +9868,7 @@ int main(int argc, char **argv) {
 	bool baseline = false, check = false, perf = false, intention = false;
 	bool suppression = false;
 	bool annulation = false;
+	bool supprXe = false;
 	for (int32 i = 1; i < argc; i++) {
 		if (strcmp(argv[i], "--baseline") == 0)
 			baseline = true;
@@ -9704,6 +9882,8 @@ int main(int argc, char **argv) {
 			suppression = true;
 		else if (strcmp(argv[i], "--annulation") == 0)
 			annulation = true;
+		else if (strcmp(argv[i], "--suppr-xe") == 0)
+			supprXe = true;
 	}
 	// --intention rend AVANT les batteries comparees : il ne pose aucune ligne dans
 	// gLines, donc ne peut ni perimer ni masquer la reference de --check.
@@ -9715,6 +9895,8 @@ int main(int argc, char **argv) {
 		return SuppressionBattery();
 	if (annulation)
 		return AnnulationBattery();
+	if (supprXe)
+		return SupprXeBattery();
 
 	Battery();
 	WireBattery();
