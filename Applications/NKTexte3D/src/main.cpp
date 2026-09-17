@@ -106,6 +106,27 @@ static const char *NomForme(Forme f) {
 	}
 }
 
+// ── LA DEMI-HAUTEUR EN Y, ET ELLE EST LUE DANS `SdfPiece`, PAS DEVINEE ──────
+// Chaque forme a la sienne, et c'est la cause reelle du defaut du 17/09 : le
+// placement utilisait le RAYON ENGLOBANT `s` pour tout le monde, si bien que
+// le jour entre deux formes empilees n'etait meme pas constant d'une forme a
+// l'autre. Les valeurs ci-dessous sont recopiees de `SdfPiece` ; si l'une y
+// change, elle doit changer ici -- c'est une dette, et elle est nommee.
+static float DemiHauteurY(Forme f, float s) {
+	switch (f) {
+		case F_SPHERE: return s;              // rayon
+		case F_CUBE: return 0.62f * s;        // demi-cote
+		case F_CYLINDRE: return 0.90f * s;    // h
+		case F_CONE: return 0.95f * s;        // h
+		case F_TORE: return 0.28f * s;        // petit rayon r
+		case F_CAPSULE: return 1.00f * s;     // h + r = 0,55 + 0,45
+		default: return s;
+	}
+}
+
+// Les deux facons d'empiler, et elles sont DISTINCTES a la mesure.
+enum Liaison { L_AUCUNE = 0, L_CONTACT, L_JOUR };
+
 struct Piece {
 		Forme f = F_AUCUNE;
 		float cx = 0.f, cy = 0.f, cz = 0.f; // centre
@@ -197,7 +218,10 @@ static uint32 Analyser(const char *phrase, Scene &sc, char *motInconnu, size_t c
 
 	int compte = 1;
 	float taille = 1.f;
-	bool empiler = false;	 // « sur » : la prochaine forme se pose sur la precedente
+	// ARBITRAGE DE RODOLF, 18/09 : « sur » signifie CONTACT. Qui veut un jour le
+	// dit -- « au-dessus de ». Les deux restent mesures separement, pour que la
+	// difference entre contact et jour soit une MESURE et non une supposition.
+	Liaison liaison = L_AUCUNE;
 	bool trouEnAttente = false;
 	uint32 motsUtiles = 0;
 
@@ -229,18 +253,36 @@ static uint32 Analyser(const char *phrase, Scene &sc, char *motInconnu, size_t c
 		// Mots de liaison sans effet geometrique : on les AVALE explicitement,
 		// sinon ils remonteraient comme « mot inconnu » et feraient refuser une
 		// phrase parfaitement lisible.
+		// ⚠️ « dessus » A ETE RETIRE DE CETTE LISTE le 18/09, et c'est le coeur du
+		// correctif. Il y etait, donc il etait avale ICI, donc le test « dessus »
+		// ecrit plus bas etait un CORPS MORT que rien n'atteignait. Le banc n'a
+		// rien vu : « au-dessus de » posait les formes COTE A COTE, ce qui donne
+		// aussi C=2 et chi=4. Un critere topologique ne peut pas distinguer deux
+		// solides disjoints EMPILES de deux solides disjoints COTE A COTE.
+		// LA LECON : avant d'ajouter un mot au vocabulaire, chercher qui le mange
+		// deja. Cette liste est l'UNIQUE autorite sur les mots sans effet.
 		if (Est(t, "le") || Est(t, "la") || Est(t, "les") || Est(t, "de") || Est(t, "du") || Est(t, "des") ||
-			Est(t, "d") || Est(t, "l") || Est(t, "au") || Est(t, "dessus") || Est(t, "avec") || Est(t, "a")) {
+			Est(t, "d") || Est(t, "l") || Est(t, "au") || Est(t, "avec") || Est(t, "a")) {
 			++motsUtiles;
 			continue;
 		}
 		if (Est(t, "et")) {
-			empiler = false;
+			liaison = L_AUCUNE;
 			++motsUtiles;
 			continue;
 		}
 		if (Est(t, "sur")) {
-			empiler = true;
+			liaison = L_CONTACT;
+			++motsUtiles;
+			continue;
+		}
+		// « au-dessus de » : la normalisation rabat la ponctuation sur des espaces,
+		// donc le tiret disparait et le mot arrive comme « dessus ». « au » et « de »
+		// restent avales par la liste unique du dessus -- ce test-ci doit donc venir
+		// APRES elle dans le fichier mais AVANT qu'elle ne mange « dessus », ce qui
+		// se regle en retirant le mot de la liste, pas en ajoutant un second test.
+		if (Est(t, "dessus") || Est(t, "audessus")) {
+			liaison = L_JOUR;
 			++motsUtiles;
 			continue;
 		}
@@ -293,24 +335,45 @@ static uint32 Analyser(const char *phrase, Scene &sc, char *motInconnu, size_t c
 			}
 			continue;
 		}
-		// EMISSION. Le rayon englobant vaut `taille` ; les formes sont posees
-		// cote a cote (X) ou empilees (Y), avec un jour d'un demi-rayon pour
-		// que deux formes voisines ne se soudent pas -- une soudure changerait
-		// la topologie, donc l'attendu, donc le verdict.
+		// EMISSION. Cote a cote (X), ou empilees (Y) de DEUX facons :
+		//   « sur »          -> CONTACT : les surfaces se touchent, les solides
+		//                       fusionnent, C = 1 et chi = 2 ;
+		//   « au-dessus de » -> JOUR    : deux solides disjoints, C = 2, chi = 4.
+		// L'attendu du banc a ete RE-DERIVE avant que cette ligne ne change :
+		// l'ancien chi = 4 du cas « sur » etait satisfait PARCE QUE le defaut
+		// etait la.
 		for (int k = 0; k < compte && sc.nPieces < 16; ++k) {
 			Piece &p = sc.pieces[sc.nPieces++];
 			p.f = f;
 			p.s = taille;
-			if (empiler && sc.nPieces >= 2) {
+			if (liaison != L_AUCUNE && sc.nPieces >= 2) {
 				// « A SUR B » : c'est A qui est EN HAUT. L'apercu du 17/09 a
 				// montre l'inverse -- « un cylindre sur un cube » posait le
 				// CUBE au-dessus. Les mots arrivent dans l'ordre A, « sur », B,
 				// donc la forme qui suit « sur » descend SOUS la precedente.
 				// Aucun chiffre du banc ne voyait cela : deux solides disjoints
 				// donnent chi = 4 quel que soit lequel est en haut.
-				p.cx = dernierX;
-				p.cz = dernierZ;
-				p.cy = curY - (dernierR + taille + 0.5f * taille);
+				const Piece &prec = sc.pieces[sc.nPieces - 2];
+				const float hA = DemiHauteurY(prec.f, prec.s);
+				const float hB = DemiHauteurY(p.f, p.s);
+				const float hMin = hA < hB ? hA : hB;
+				p.cx = prec.cx;
+				p.cz = prec.cz;
+				if (liaison == L_CONTACT) {
+					// POURQUOI UNE PENETRATION ET PAS UNE TANGENCE EXACTE : a
+					// tangence exacte le champ vaut 0 sur tout le plan de
+					// contact, et SurfaceNets peut rendre UNE composante ou
+					// DEUX selon le hasard de la grille. Le banc serait alors
+					// NON DETERMINISTE, ce qui est pire qu'un banc faux : il
+					// recompense celui qui s'arrete au premier essai qui
+					// l'arrange. 0,20 x la plus petite demi-hauteur fait ~1,8
+					// cellule de recouvrement a res=64 sur cylindre/cube, et
+					// davantage plus fin -- la BASSE resolution est le cas
+					// fragile, c'est donc elle qu'il faut eprouver.
+					p.cy = prec.cy - (hA + hB - 0.20f * hMin);
+				} else {
+					p.cy = prec.cy - (hA + hB + 0.5f * hMin);
+				}
 				curY = p.cy;
 			} else {
 				p.cx = curX + (sc.nPieces == 1 ? 0.f : dernierR + taille + 0.8f * taille);
@@ -322,7 +385,7 @@ static uint32 Analyser(const char *phrase, Scene &sc, char *motInconnu, size_t c
 			dernierR = taille;
 			dernierX = p.cx;
 			dernierZ = p.cz;
-			empiler = false;
+			liaison = L_AUCUNE;
 			if (trouEnAttente && sc.nTrous < 8) {
 				Trou &h = sc.trous[sc.nTrous++];
 				h.cx = p.cx;
@@ -601,6 +664,20 @@ static int Produire(const char *texte, const char *out, uint32 res, Sortie &so, 
 	if (const char *mu = getenv("NK_TEXTE3D_MUTE")) {
 		if (mu[0] == '2')
 			printf("  MUTATION NK_TEXTE3D_MUTE=2 : le redressement des faces est desactive\n");
+		if (mu[0] == '3') {
+			// Force le JOUR meme pour « sur ». Le cas contact doit alors rougir
+			// (chi mesure 4 la ou l'attendu vaut 2) et le cas « au-dessus de »
+			// rester VERT : une mutation qui fait tout rougir ne prouve pas
+			// qu'elle vise la bonne chose.
+			for (uint32 i = 1; i < sc.nPieces; ++i) {
+				const Piece &pr = sc.pieces[i - 1];
+				if (sc.pieces[i].cy >= pr.cy) continue; // pose cote a cote : rien a muter
+				const float hA = DemiHauteurY(pr.f, pr.s), hB = DemiHauteurY(sc.pieces[i].f, sc.pieces[i].s);
+				const float hMin = hA < hB ? hA : hB;
+				sc.pieces[i].cy = pr.cy - (hA + hB + 0.5f * hMin);
+			}
+			printf("  MUTATION NK_TEXTE3D_MUTE=3 : « sur » force au JOUR (contact supprime)\n");
+		}
 		if (mu[0] == '1') {
 			for (uint32 i = 0; i < sc.nPieces; ++i)
 				sc.pieces[i].f = F_SPHERE;
@@ -650,6 +727,16 @@ struct Cas {
 		int32 genre;   // anses attendues, ou GENRE_NON_JUGE si C > 1
 		int32 composantes; // C : ce qui rend l'attendu d'Euler derivable
 		const char *pourquoi;
+		// SANS CE CHAMP, chi=2 NE PROUVERAIT RIEN sur un cas a deux formes : une
+		// grammaire qui raterait le second mot n'emettrait qu'UNE forme, et une
+		// forme seule donne aussi chi=2. Le critere ne distinguerait pas « deux
+		// solides fusionnes » de « une seule forme comprise ».
+		uint32 formes;
+		// L'AXE, ET SANS LUI LE CAS « AU-DESSUS » NE PROUVE RIEN. Mesure du 18/09 :
+		// « au-dessus de » ne mordait pas, les formes tombaient COTE A COTE, et le
+		// banc est reste VERT -- parce que chi=4 vaut pour les deux dispositions.
+		// -1 = non juge (une seule forme) · 0 = cote a cote · 1 = empile en Y.
+		int32 empileY;
 };
 
 static void JouerCas(const Cas &c, uint32 res, const char *dossier) {
@@ -683,6 +770,30 @@ static void JouerCas(const Cas &c, uint32 res, const char *dossier) {
 			(long long)rl.F);
 	Attendu(rl.st.boundaryEdges == 0, "maillage FERME (aucune arete de bord)", 0, rl.st.boundaryEdges);
 	Attendu(rl.st.nonManifoldEdges == 0, "maillage MANIFOLD (aucune arete a 3 faces)", 0, rl.st.nonManifoldEdges);
+	Attendu(sc.nPieces == c.formes, "nombre de formes ANALYSEES (sans quoi chi ne distingue pas)",
+			(long long)c.formes, (long long)sc.nPieces);
+	if (c.empileY >= 0 && sc.nPieces >= 2) {
+		const float dx = sc.pieces[1].cx - sc.pieces[0].cx;
+		const float dy = sc.pieces[1].cy - sc.pieces[0].cy;
+		const float adx = dx < 0.f ? -dx : dx, ady = dy < 0.f ? -dy : dy;
+		printf("  MESURE disposition : dx=%+.3f dy=%+.3f\n", dx, dy);
+		Attendu((c.empileY == 1) ? (ady > adx) : (adx > ady),
+				c.empileY == 1 ? "les formes sont EMPILEES (|dy| > |dx|)" : "les formes sont COTE A COTE (|dx| > |dy|)",
+				1, ((c.empileY == 1) ? (ady > adx) : (adx > ady)) ? 1 : 0);
+		if (c.empileY == 1) {
+			// L'ECART ATTENDU EST DERIVE de `DemiHauteurY`, la source meme du
+			// placement -- pas ecrit en dur : « un attendu en dur se perime ».
+			const float hA = DemiHauteurY(sc.pieces[0].f, sc.pieces[0].s);
+			const float hB = DemiHauteurY(sc.pieces[1].f, sc.pieces[1].s);
+			const float hMin = hA < hB ? hA : hB;
+			const float att = (c.euler == 2) ? (hA + hB - 0.20f * hMin) : (hA + hB + 0.50f * hMin);
+			const float ecart = ady - att;
+			Attendu((ecart < 0.001f && ecart > -0.001f),
+					c.euler == 2 ? "ecart vertical = contact (hA + hB - 0,20 hMin)"
+								 : "ecart vertical = jour (hA + hB + 0,50 hMin)",
+					(long long)(att * 1000.f + 0.5f), (long long)(ady * 1000.f + 0.5f));
+		}
+	}
 	Attendu(rl.st.euler == c.euler, "caracteristique d'Euler V-E+F (derivee)", c.euler, rl.st.euler);
 	// LE CRITERE QUE LA TOPOLOGIE NE POUVAIT PAS PORTER. chi, l'etancheite et le
 	// genre sont invariants par retournement des faces : il faut une grandeur
@@ -726,14 +837,17 @@ static int Banc(uint32 res, const char *dossier) {
 
 	printf("\n[1] LES FORMES. L'attendu est DERIVE de V-E+F = 2-2g, pas choisi.\n");
 	const Cas cas[] = {
-		{"une sphere", 2, 0, 1, "C=1 G=0 : chi = 2x(1-0) = 2"},
-		{"un tore", 0, 1, 1, "C=1 G=1 : chi = 2x(1-1) = 0"},
-		{"un cube perce", 0, 1, 1, "un trou traversant EST une anse : C=1 G=1, chi = 0"},
-		{"une sphere percee", 0, 1, 1, "l'adjectif SUIT le nom, et il doit mordre : C=1 G=1, chi = 0"},
-		{"deux spheres", 4, GENRE_NON_JUGE, 2, "C=2 G=0 : chi = 2x(2-0) = 4"},
-		{"un cube", 2, 0, 1, "C=1 G=0 : chi = 2"},
-		{"un cylindre sur un cube", 4, GENRE_NON_JUGE, 2, "deux solides disjoints empiles : C=2, chi = 4"},
-		{"deux tores", 0, GENRE_NON_JUGE, 2, "C=2 G=2 : chi = 2x(2-2) = 0 -- et ce cas DISTINGUE de deux spheres"},
+		{"une sphere", 2, 0, 1, "C=1 G=0 : chi = 2x(1-0) = 2", 1, -1},
+		{"un tore", 0, 1, 1, "C=1 G=1 : chi = 2x(1-1) = 0", 1, -1},
+		{"un cube perce", 0, 1, 1, "un trou traversant EST une anse : C=1 G=1, chi = 0", 1, -1},
+		{"une sphere percee", 0, 1, 1, "l'adjectif SUIT le nom, et il doit mordre : C=1 G=1, chi = 0", 1, -1},
+		{"deux spheres", 4, GENRE_NON_JUGE, 2, "C=2 G=0 : chi = 2x(2-0) = 4", 2, 0},
+		{"un cube", 2, 0, 1, "C=1 G=0 : chi = 2", 1, -1},
+		{"un cylindre sur un cube", 2, 0, 1,
+		 "CONTACT (arbitrage 18/09) : deux convexes qui s'intersectent = une boule, C=1 G=0, chi = 2", 2, 1},
+		{"un cylindre au dessus d un cube", 4, GENRE_NON_JUGE, 2,
+		 "JOUR : deux solides disjoints, C=2, chi = 4 -- et ce cas MESURE la difference avec le precedent", 2, 1},
+		{"deux tores", 0, GENRE_NON_JUGE, 2, "C=2 G=2 : chi = 2x(2-2) = 0 -- et ce cas DISTINGUE de deux spheres", 2, 0},
 	};
 	for (uint32 i = 0; i < sizeof(cas) / sizeof(cas[0]); ++i)
 		JouerCas(cas[i], res, dossier);
