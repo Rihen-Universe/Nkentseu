@@ -83,6 +83,13 @@ namespace nkentseu {
 				void (*onContextMenu)(void *user, nk_uint64 id) = nullptr;
 		};
 
+		/// LES SOURCES OUVERTES, NOMMEES PAR L'APPLICATION (detecteur de gel). Le kit connait
+		/// ses six portes ; il ne connait pas le vocabulaire de l'hote (« menu des roles »,
+		/// « rapport de transposition »…). Cette fonction n'est appelee QUE lorsqu'une ligne
+		/// de gel part au journal -- jamais par image, sinon le detecteur couterait quand
+		/// tout va bien. Elle rend une chaine qui doit survivre a l'appel (tampon statique).
+		using NkEditorSourcesFn = const char *(*)(void *user);
+
 		class NKEDITORKIT_API NkEditorShell {
 			public:
 				static constexpr int32 MAX_PANELS = 64;
@@ -202,6 +209,25 @@ namespace nkentseu {
 				bool IsContextMenuOpen() const noexcept {
 					return mCtxOpen;
 				}
+
+				// ── (R16) LES PORTES DU CORPS ─────────────────────────────────────
+				// Ce qui prive le CORPS d'entree pendant que la barre de titre -- dessinee
+				// AVANT le masquage -- la garde. Calcule a chaque image dans RenderFrame ;
+				// journal par TRANSITION sous NK_PORTES=1.
+				// ⚠️ P A O C R masquent le corps ENTIER (condition `modal`) ; S ne masque
+				//    que le panneau dont le point est recouvert.
+				static constexpr int32 kPortePreferences = 1; ///< P : mShowPrefs
+				static constexpr int32 kPorteAppModal = 2;	  ///< A : ctx.appModal (APP-gere, le shell ne le remet pas)
+				static constexpr int32 kPortePopup = 4;		  ///< O : souris dans popupRects[i < popupDepth]
+				static constexpr int32 kPorteMenuCtx = 8;	  ///< C : menu contextuel du shell
+				static constexpr int32 kPorteSaisie = 16;	  ///< R : saisie reservee par l'image precedente
+				static constexpr int32 kPorteSurface = 32;	  ///< S : point sous une surface (partiel)
+				static constexpr int32 kPortesCorpsEntier = 31;
+				int32 PortesDuCorps() const noexcept {
+					return mPortesCorps;
+				}
+				/// Imprime (sous NK_PORTES=1) le masquage EN COURS et le pire masquage continu.
+				void JournalPortesBilan(const char *etiquette) const noexcept;
 
 				// ── SÉLECTEUR de FICHIER/DOSSIER GÉNÉRIQUE (modal, réutilisable) ────
 
@@ -580,6 +606,16 @@ namespace nkentseu {
 				// rend ses dialogues modaux (creation de projet, proprietes...). Quand
 				// ctx.appModal est leve, le shell masque l'input du corps. L'input du popup
 				// est restaure avant l'appel (comme la fenetre Preferences).
+				// ⚠️ (R17) `appModal` SE DECLARE A CHAQUE IMAGE, tant que le dialogue est
+				//    ouvert : le shell le remet a faux en debut d'image et lit aussi ce que
+				//    l'image precedente a declare. Le poser une fois ne tient plus.
+				/// Pose la fonction qui NOMME les sources ouvertes de l'application -- lue par le
+				/// detecteur de gel, et par lui seul (cf. `NkDetecterGel`, NkEditorShell.cpp).
+				void SetSourcesOuvertes(NkEditorSourcesFn fn, void *user = nullptr) noexcept {
+					mSourcesFn = fn;
+					mSourcesUser = user;
+				}
+
 				void SetOverlay(NkEditorAppMenuFn fn, void *user = nullptr) noexcept {
 					mOverlayFn = fn;
 					mOverlayUser = user;
@@ -644,6 +680,15 @@ namespace nkentseu {
 				void OpenCommandPalette() noexcept {
 					mPaletteOpen = true;
 					mPaletteSel = 0;
+				}
+				/// (R19) LE CLAVIER DE LA PALETTE, en UNE methode. Le rappel d'evenement OS
+				/// l'appelle ; une sonde aussi, sans frappe sur la machine. Avant, Echap,
+				/// Haut, Bas et Entree n'etaient lus QUE dans ce rappel : rien d'autre ne
+				/// pouvait fermer la palette sans executer une commande.
+				/// Rend vrai si la palette etait ouverte (la touche lui appartient alors).
+				bool PaletteTouche(NkKey k) noexcept;
+				bool PaletteOuverte() const noexcept {
+					return mPaletteOpen;
 				}
 
 				// Logo dessine a gauche de la barre de titre (texId via UploadRGBA).
@@ -935,6 +980,8 @@ namespace nkentseu {
 				void *mOverlayUser = nullptr;
 				NkEditorAppMenuFn mStartScreenFn = nullptr;
 				void *mStartScreenUser = nullptr;
+				NkEditorSourcesFn mSourcesFn = nullptr; // sources ouvertes nommees par l'app (detecteur de gel)
+				void *mSourcesUser = nullptr;
 				NkEditorAppMenuFn mStatusBarFn = nullptr; // barre d'etat COMPLETE fournie par l'app (SetStatusBarFn)
 				void *mStatusBarUser = nullptr;
 
@@ -1027,6 +1074,8 @@ namespace nkentseu {
 				// qu'apres un vrai glissement (seuil) -> un simple clic ne deplace jamais.
 				bool mTitleDragArmed = false;
 				float32 mDragStartX = 0.f, mDragStartY = 0.f;
+				int32 mPortesCorps = 0; ///< (R16) cf. PortesDuCorps
+				bool mAppModalPrec = false; ///< (R17) `appModal` declare par l'image precedente
 		};
 
 	} // namespace editorkit

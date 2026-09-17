@@ -17,6 +17,7 @@
 //    (2) cet en-tete tire NKCanvas (l.16-18), absent des includes du kit, et le
 //    compilateur le refuse : fatal error 'NKCanvas/Core/NkContextDesc.h' not found.
 #include "NKEditorKit/NkEditorSurface.h" // ④ LA porte unique pour peindre au-dessus
+#include "NKEditorKit/NkEditorModal.h"	 // (R17) NkNiveauModalDeLImage : le niveau rendu par regle
 #include "NKEditorKit/NkEditorTooltip.h"		// NkTooltip : infobulle des voyants du footer
 #include <cstdio>								// snprintf (indicateur de zoom barre d'etat)
 
@@ -46,6 +47,320 @@ using namespace nkentseu::nkgui;
 
 namespace nkentseu {
 	namespace editorkit {
+
+		// ═══════════════════════════════════════════════════════════════════════
+		//  (R16) LE JOURNAL DES PORTES DU CORPS -- NK_PORTES=1
+		// ═══════════════════════════════════════════════════════════════════════
+		//  Rodolf : la barre de titre repond (min/max/fermer), le corps ne recoit
+		//  plus rien. La barre de titre est dessinee AVANT le masquage de RenderFrame :
+		//  ce symptome est EXACTEMENT celui d'une porte de la condition `modal` restee
+		//  fermee. Ce journal nomme, a chaque TRANSITION, la porte responsable.
+		//  ⚠️ PAR TRANSITION, PAS PAR IMAGE : un flot de 60 lignes/s noierait la seule
+		//     ligne qui compte, celle ou une porte se ferme et ne se rouvre plus.
+		//  ⚠️ LA PIRE DUREE EST GARDEE SANS SEUIL, comme la pire image : un seuil
+		//     aurait decide a l'avance ce qui est « long ».
+		struct NkJournalPortes {
+				bool decide = false, actif = false;
+				int64 image = 0;
+				int32 cle = -1;
+				int64 debutEtat = 0;
+				nkentseu::NkChrono horlogeEtat;
+				bool masque = false;
+				int64 debutMasque = 0;
+				nkentseu::NkChrono horlogeMasque;
+				int64 pireImages = 0;
+				float64 pireMs = 0.0;
+		};
+		static NkJournalPortes &JournalPortes() noexcept {
+			static NkJournalPortes j;
+			if (!j.decide) {
+				j.decide = true;
+				const char *v = getenv("NK_PORTES");
+				j.actif = v && v[0] && v[0] != '0';
+			}
+			return j;
+		}
+		static const char *NkNomsPortes(int32 p, char *buf, int32 taille) noexcept {
+			static const char *const kNoms[6] = {"P(preferences)", "A(appModal)", "O(souris sur popup)",
+												 "C(menu ctx shell)", "R(saisie reservee)", "S(sous surface)"};
+			int32 n = 0;
+			buf[0] = 0;
+			for (int32 i = 0; i < 6; ++i)
+				if (p & (1 << i))
+					n += snprintf(buf + n, (size_t)(taille - n > 0 ? taille - n : 0), "%s%s", n ? "+" : "", kNoms[i]);
+			if (!n)
+				snprintf(buf, (size_t)taille, "aucune");
+			return buf;
+		}
+		// ═══════════════════════════════════════════════════════════════════════
+		//  LE DETECTEUR DE GEL -- ACTIF DANS LE BINAIRE LIVRE, SANS RIEN A ARMER
+		// ═══════════════════════════════════════════════════════════════════════
+		//  Rodolf voit des gels que nous ne reproduisons pas. Interroge sur les trois
+		//  sources trouvees, il repond « souvent oui souvent non » : il reste au moins une
+		//  cause inconnue. Ce detecteur la NOMME chez lui, et dit explicitement quand aucune
+		//  porte connue n'est responsable -- c'est CE message-la qui apprendra la cause.
+		//
+		//  ⚠️ POURQUOI LA DUREE SEULE NE PEUT PAS SERVIR DE CRITERE. Une modale ouverte
+		//     masque le corps LEGITIMEMENT, aussi longtemps qu'on la laisse ouverte. Un
+		//     detecteur « masque depuis plus d'une seconde » crierait a chaque dialogue : il
+		//     serait faux la plupart du temps, donc ignore -- et un detecteur ignore ne
+		//     detecte rien. Ce qui distingue un gel d'une modale ouverte, c'est que
+		//     L'UTILISATEUR ESSAIE ET QUE RIEN NE BOUGE. D'ou les trois conditions, qui
+		//     doivent toutes tenir :
+		//       1. l'etat ne bouge pas : memes portes, meme popupDepth, meme activeId, meme
+		//          focus texte, meme armement du drag de titre (la cle `cle`) ;
+		//       2. l'utilisateur agit : au moins 3 gestes (clic, caractere, molette, Echap,
+		//          Entree) pendant cette meme periode ;
+		//       3. ca dure : plus de 1 000 ms.
+		//     Derivation du seuil : la boucle tourne a ~140 images/s mesurees et une reaction
+		//     a un clic se voit en moins de 100 ms. Le cout d'un faux positif est une ligne
+		//     de journal ; celui d'un faux negatif est une soiree perdue.
+		//
+		//  ⚠️ L'ETAT QU'IL FAUT ARMER EST L'EXTINCTION (`NK_GEL=0`), jamais l'allumage : un
+		//     detecteur qu'il faut penser a armer se fait oublier le jour ou il servirait.
+		//  La pire duree de masquage de la session est gardee SANS SEUIL (un seuil aurait
+		//  decide a l'avance ce qui est long) et imprimee a la fermeture.
+		struct NkDetecteurGel {
+				bool decide = false, actif = true;
+				int64 image = 0;
+				int32 cle = -1;			///< l'etat observe ; il change = quelque chose a repondu
+				int64 debutCle = 0;		///< premiere image de la periode a `cle` constante
+				nkentseu::NkChrono horlogeCle;
+				int32 gestes = 0;		///< gestes de l'utilisateur DANS cette periode
+				bool dit = false;		///< une seule ligne par episode
+				bool masque = false;
+				int64 debutMasque = 0;
+				nkentseu::NkChrono horlogeMasque;
+				int64 pireImages = 0;	///< pire masquage continu de la session, SANS seuil
+				float64 pireMs = 0.0;
+				int32 pirePortes = 0;
+				int32 portesMasque = 0; ///< toutes les portes vues PENDANT le masquage en cours
+				int32 episodes = 0;
+		};
+		static NkDetecteurGel &DetecteurGel() noexcept {
+			static NkDetecteurGel d;
+			if (!d.decide) {
+				d.decide = true;
+				const char *v = getenv("NK_GEL");
+				d.actif = !(v && v[0] == '0'); // SEULE `NK_GEL=0` l'eteint (mesure du cout)
+			}
+			return d;
+		}
+		static constexpr int32 kGelGestesMini = 3;
+		static constexpr float64 kGelSeuilMs = 1000.0;
+
+		/// Rend le bilan de session (appele a la fermeture de la coquille).
+		static void NkGelBilanSession(const char *appli) noexcept {
+			NkDetecteurGel &d = DetecteurGel();
+			if (!d.actif || d.image == 0)
+				return;
+			// ⚠️ UN MASQUAGE ENCORE OUVERT A LA FERMETURE COMPTE. Sans cette ligne, une session
+			//    qui se termine PENDANT le masquage rendait « pire : 0 image » -- un compteur
+			//    dont le zero ne veut pas dire zero, et c'est exactement le cas qui nous
+			//    interesse (l'utilisateur ferme l'application parce qu'elle ne repond plus).
+			if (d.masque) {
+				const int64 im = d.image - d.debutMasque;
+				if (im > d.pireImages) {
+					d.pireImages = im;
+					d.pireMs = d.horlogeMasque.Elapsed().ToSeconds() * 1000.0;
+					d.pirePortes = d.portesMasque;
+				}
+			}
+			char noms[160];
+			logger.Info("[gel] {0} : {1} episode(s) signale(s) ; pire masquage continu de la session {2} "
+						"image(s) ({3} ms), porte(s) {4}",
+						appli ? appli : "application", d.episodes, (long long)d.pireImages, d.pireMs,
+						NkNomsPortes(d.pirePortes, noms, (int32)sizeof(noms)));
+		}
+
+		/// UNE image du detecteur. `gestes` = ce que l'utilisateur vient de faire (compte par
+		/// l'appelant sur l'entree REELLE, avant tout masquage) ; `sources` nomme les sources
+		/// ouvertes du cote de l'APPLICATION -- le kit ne peut pas les connaitre.
+		static void NkDetecterGel(int32 portes, int32 cle, int32 popupDepth, bool actifPose, bool focus,
+								  bool dragTitre, int32 gestes, NkEditorSourcesFn sourcesFn, void *sourcesUser) noexcept {
+			NkDetecteurGel &d = DetecteurGel();
+			if (!d.actif)
+				return;
+			++d.image;
+			const bool masque = (portes & 31) != 0;
+			// ── la pire duree de masquage de la session, gardee SANS SEUIL ──
+			if (masque && !d.masque) {
+				d.debutMasque = d.image;
+				d.horlogeMasque = nkentseu::NkChrono();
+				d.portesMasque = 0;
+			} else if (!masque && d.masque) {
+				const int64 im = d.image - d.debutMasque;
+				if (im > d.pireImages) {
+					d.pireImages = im;
+					d.pireMs = d.horlogeMasque.Elapsed().ToSeconds() * 1000.0;
+					// ⚠️ TOUTES les portes vues pendant le pire episode, pas seulement celle de sa
+					//    derniere image : un masquage change souvent de porte en cours de route.
+					d.pirePortes = d.portesMasque;
+				}
+			}
+			if (masque)
+				d.portesMasque |= (portes & 31);
+			d.masque = masque;
+			// ── l'episode : une periode a `cle` constante ──
+			if (cle != d.cle) {
+				d.cle = cle;
+				d.debutCle = d.image;
+				d.horlogeCle = nkentseu::NkChrono();
+				d.gestes = 0;
+				d.dit = false;
+				return;
+			}
+			d.gestes += gestes;
+			if (d.dit || d.gestes < kGelGestesMini)
+				return;
+			const float64 ms = d.horlogeCle.Elapsed().ToSeconds() * 1000.0;
+			if (ms < kGelSeuilMs)
+				return;
+			d.dit = true; // UNE ligne par episode, jamais un flot par image
+			++d.episodes;
+			char noms[160];
+			// ⚠️ L'APPLICATION N'EST INTERROGEE QU'ICI : une fois par episode, jamais par image.
+			const char *sources = sourcesFn ? sourcesFn(sourcesUser) : nullptr;
+			if (masque)
+				logger.Warn("[gel] LE CORPS NE REPOND PLUS : {0} image(s) ({1} ms) sans que rien bouge, "
+							"{2} geste(s) ignore(s) -- porte(s) : {3} ; popupDepth {4} ; activeId {5} ; "
+							"focus texte {6} ; drag titre {7} ; sources ouvertes : {8}",
+							(long long)(d.image - d.debutCle), ms, d.gestes,
+							NkNomsPortes(portes & 31, noms, (int32)sizeof(noms)), popupDepth,
+							actifPose ? "pose" : "libre", focus ? "oui" : "non", dragTitre ? "arme" : "non",
+							sources ? sources : "(l'application n'en publie pas)");
+			else
+				logger.Warn("[gel] LE CORPS NE REPOND PLUS ET AUCUNE PORTE CONNUE N'EST RESPONSABLE : "
+							"{0} image(s) ({1} ms) sans que rien bouge, {2} geste(s) ignore(s) ; "
+							"popupDepth {3} ; activeId {4} ; focus texte {5} ; drag titre {6} ; "
+							"sources ouvertes : {7}",
+							(long long)(d.image - d.debutCle), ms, d.gestes, popupDepth,
+							actifPose ? "pose" : "libre", focus ? "oui" : "non", dragTitre ? "arme" : "non",
+							sources ? sources : "(l'application n'en publie pas)");
+		}
+
+		static void NkNoterPortes(int32 portes, int32 popupDepth, bool actifPose, bool focus, bool dragTitre,
+								  int32 gestes, NkEditorSourcesFn sourcesFn, void *sourcesUser) noexcept {
+			NkJournalPortes &j = JournalPortes();
+			++j.image;
+			const bool masque = (portes & 31) != 0;
+			// LA CLE DE L'ETAT : une seule definition, lue par le journal de banc ET par le
+			// detecteur de gel -- deux lectures d'un meme etat, jamais deux definitions.
+			const int32 cle = portes | ((popupDepth > 7 ? 7 : popupDepth) << 8) | ((actifPose ? 1 : 0) << 12) |
+							  ((focus ? 1 : 0) << 13) | ((dragTitre ? 1 : 0) << 14);
+			NkDetecterGel(portes, cle, popupDepth, actifPose, focus, dragTitre, gestes, sourcesFn, sourcesUser);
+			if (!j.actif)
+				return;
+			if (cle == j.cle)
+				return;
+			const int64 tenu = j.image - j.debutEtat;
+			const float64 tenuMs = j.horlogeEtat.Elapsed().ToSeconds() * 1000.0;
+			if (j.masque && !masque) {
+				const int64 im = j.image - j.debutMasque;
+				const float64 ms = j.horlogeMasque.Elapsed().ToSeconds() * 1000.0;
+				if (im > j.pireImages) {
+					j.pireImages = im;
+					j.pireMs = ms;
+				}
+				printf("[portes] image %lld : CORPS ROUVERT apres %lld image(s) masquee(s) (%.1f ms) -- "
+					   "pire masquage continu : %lld images (%.1f ms)\n",
+					   (long long)j.image, (long long)im, ms, (long long)j.pireImages, j.pireMs);
+			}
+			if (!j.masque && masque) {
+				j.debutMasque = j.image;
+				j.horlogeMasque = nkentseu::NkChrono();
+			}
+			char noms[160];
+			printf("[portes] image %lld : %s %s | popupDepth %d | activeId %s | focus texte %s | drag titre %s"
+				   "  (etat precedent tenu %lld image(s), %.1f ms)\n",
+				   (long long)j.image, masque ? "CORPS MASQUE par" : "corps vivant ; portes :",
+				   NkNomsPortes(masque ? (portes & 31) : portes, noms, (int32)sizeof(noms)), popupDepth,
+				   actifPose ? "pose" : "libre", focus ? "oui" : "non", dragTitre ? "arme" : "non",
+				   (long long)tenu, tenuMs);
+			fflush(stdout);
+			j.cle = cle;
+			j.debutEtat = j.image;
+			j.horlogeEtat = nkentseu::NkChrono();
+			j.masque = masque;
+		}
+
+		// ═══════════════════════════════════════════════════════════════════════
+		//  (R19) POURQUOI LA RECOPIE BRUTE DE `mUI.input` EST LEGITIME ICI
+		// ═══════════════════════════════════════════════════════════════════════
+		//  Le shell masque l'entree des panneaux en COPIANT `mUI.input`, puis la RECOPIE
+		//  apres (deux sites : le masquage global et le masquage par panneau). Cette recopie
+		//  EFFACE ce qu'une source aurait declare PENDANT le dessin des panneaux --
+		//  `ReserverSaisie`, `ReserverMolette` vivent dans ce meme objet.
+		//  ⚠️ C'est volontaire, et c'est le contrat : UNE SOURCE FLOTTANTE QUI PREND L'ENTREE
+		//     SE DESSINE APRES LES PANNEAUX (crochet d'overlay), jamais dedans. Dessinee
+		//     dedans, elle vit SOUS le masque qu'elle cause elle-meme : ni clic ni Echap ne
+		//     lui parviennent, et le corps reste masque POUR TOUJOURS.
+		//  Mesure du 17/09 (R19c, sonde des portes de NKUIDesign, 20 courses) : garder les
+		//  declarations a travers la recopie ne deplace AUCUNE mesure une fois les sources
+		//  sorties des panneaux (17 courses vertes avec et sans) -- et, si une source reste
+		//  dessinee dans un panneau, cela transforme « le corps repond une image sur deux »
+		//  en « le corps ne repond plus du tout ». La regle a donc ete ECRITE, MESUREE, et
+		//  RETIREE. ⚠️ Deux applications sont encore dans ce cas par LECTURE, non mesurees :
+		//  NKCode (NkCodeEditor.h:4829 et 4856) et NK3DModeler (NkModelerViewport.h:1917 et
+		//  1983) dessinent un menu contextuel DANS un panneau.
+
+		void NkEditorShell::JournalPortesBilan(const char *etiquette) const noexcept {
+			NkJournalPortes &j = JournalPortes();
+			if (!j.actif)
+				return;
+			char noms[160];
+			if (j.masque)
+				printf("[portes] BILAN %s : corps MASQUE DEPUIS %lld image(s) (%.1f ms) par %s -- "
+					   "pire masquage continu termine : %lld images (%.1f ms)\n",
+					   etiquette ? etiquette : "", (long long)(j.image - j.debutMasque),
+					   j.horlogeMasque.Elapsed().ToSeconds() * 1000.0,
+					   NkNomsPortes(mPortesCorps & 31, noms, (int32)sizeof(noms)), (long long)j.pireImages, j.pireMs);
+			else
+				printf("[portes] BILAN %s : corps vivant -- pire masquage continu termine : %lld images (%.1f ms)\n",
+					   etiquette ? etiquette : "", (long long)j.pireImages, j.pireMs);
+			fflush(stdout);
+		}
+
+		// ── LE TEMPS PASSE DANS LA BOUCLE D'EVENEMENTS, mesure dans `Run` et lu
+		//    par `RenderFrame`. Il vit hors de `RenderFrame`, donc hors de portee du
+		//    releve par phases -- et c'est justement ce qu'on cherchait a couvrir.
+		float64 &NkShellMsEvenements() noexcept {
+			static float64 ms = 0.0;
+			return ms;
+		}
+
+		bool &NkShellPanneauxActif() noexcept {
+			static bool a = false;
+			return a;
+		}
+		struct NkShellPanRelve {
+				const char *nom[16] = {nullptr};
+				float64 ms[16] = {0.0};
+				int32 n = 0;
+		};
+		NkShellPanRelve &NkShellPanneaux() noexcept {
+			static NkShellPanRelve r;
+			return r;
+		}
+		/// ⚠️ ON COMPARE LES POINTEURS DE TITRE, PAS LES CHAINES. Les titres sont des
+		///    litteraux qui vivent aussi longtemps que le programme et ne changent
+		///    pas ; comparer caractere par caractere a chaque panneau de chaque image
+		///    ajouterait, dans un releve qui mesure le cout des panneaux, un cout de
+		///    plus -- l'instrument fausserait sa propre mesure.
+		void NkShellPanneauNoter(const char *nom, float64 ms) noexcept {
+			NkShellPanRelve &r = NkShellPanneaux();
+			for (int32 i = 0; i < r.n; ++i)
+				if (r.nom[i] == nom) {
+					r.ms[i] += ms;
+					return;
+				}
+			if (r.n < 16) {
+				r.nom[r.n] = nom;
+				r.ms[r.n] = ms;
+				++r.n;
+			}
+		}
+
 
 		namespace {
 			void CopyStr(char *dst, const char *src, usize cap) noexcept {
@@ -449,19 +764,9 @@ namespace nkentseu {
 					mPaletteSel = 0;
 					return;
 				}
-				if (mPaletteOpen) {
-					if (k == NkKey::NK_ESCAPE)
-						mPaletteOpen = false;
-					else if (k == NkKey::NK_DOWN && mNumCommands > 0)
-						mPaletteSel = (mPaletteSel + 1) % mNumCommands;
-					else if (k == NkKey::NK_UP && mNumCommands > 0)
-						mPaletteSel = (mPaletteSel - 1 + mNumCommands) % mNumCommands;
-					else if (k == NkKey::NK_ENTER) {
-						ExecuteCommand(mPaletteSel);
-						mPaletteOpen = false;
-					}
+				// (R19) le clavier de la palette vit dans PaletteTouche : meme chemin pour une sonde.
+				if (PaletteTouche(k))
 					return;
-				}
 				// Raccourcis Ctrl+<lettre> (ex. Ctrl+S, Ctrl+B) meme pendant la frappe.
 				if (e->GetModifiers().ctrl)
 					TryRunShortcut(k, e->GetModifiers().shift);
@@ -718,8 +1023,17 @@ namespace nkentseu {
 		int NkEditorShell::Run() noexcept {
 			NkEvents().SetSizeMoveFrameCallback(&SizeMoveFrameThunk, this); // anti-stretch pendant le resize natif
 			while (mRunning && mWindow.IsOpen()) {
-				while (NkEvent *ev = NkEvents().PollEvent()) {
-					(void)ev;
+				// ⚠️ MESURE MEME QUAND LE RELEVE EST ETEINT, et c'est deliberе : un
+				//    `NkChrono` coute deux lectures d'horloge par image, contre des
+				//    centaines de `MeasureWidth` pour le releve de texte. Le rendre
+				//    conditionnel demanderait de lire `getenv` ici ou de porter un
+				//    drapeau de plus, pour economiser ce que l'on mesure justement.
+				{
+					nkentseu::NkChrono hEv;
+					while (NkEvent *ev = NkEvents().PollEvent()) {
+						(void)ev;
+					}
+					NkShellMsEvenements() = hEv.Elapsed().ToSeconds() * 1000.0;
 				}
 				if (!mRunning)
 					break;
@@ -736,6 +1050,9 @@ namespace nkentseu {
 					mWindow.BeginResize(e);
 				}
 			}
+			// LE BILAN DU DETECTEUR DE GEL : la pire duree de masquage de la session, gardee
+			// SANS SEUIL, et le nombre d'episodes signales. Au journal, pas a la console.
+			NkGelBilanSession(mTitle);
 			return 0;
 		}
 
@@ -800,6 +1117,46 @@ namespace nkentseu {
 			}
 
 			mUI.BeginFrame(dt);
+
+			// ═══ (R17) DEUX REGLES DE DEBUT D'IMAGE, AVANT LE PREMIER ECRIVAIN ═══════
+			// Le 31/08, trois sources de NKUIDesign ont pose `appModal = true` sans jamais
+			// le remettre : corps masque pour toujours, barre de titre vivante (sonde des
+			// portes, R16). Les desarmer une par une serait la quatrieme fois qu'un etat
+			// qu'il faut penser a desarmer se fait oublier. On change donc la NATURE des
+			// deux etats : ils se DECLARENT a chaque image, comme `ReserverSaisie`.
+			// ⚠️ Mutations de banc (NK_PORTES_MUTATION), lues une fois ; sans la variable,
+			//    rien ne change : `appmodal` retire la regle A, `sansprec` casse sa lecture
+			//    (plus aucune modale ne masquerait), `niveau` retire la regle O.
+			{
+				static const int32 kMutation = []() {
+					const char *v = getenv("NK_PORTES_MUTATION");
+					if (!v)
+						return 0;
+					if (v[0] == 'a')
+						return 1; // appmodal
+					if (v[0] == 's')
+						return 2; // sansprec
+					if (v[0] == 'n')
+						return 3; // niveau
+					return 0;
+				}();
+				// REGLE A : `appModal` est une declaration PAR IMAGE. Ce que l'image
+				// precedente a declare (overlay compris) est garde pour la lecture ; le
+				// drapeau repart a faux et chaque source OUVERTE le redeclare. Une source
+				// qui n'est plus dessinee ne declare plus rien : il n'y a rien a desarmer.
+				mAppModalPrec = (kMutation == 2) ? false : mUI.appModal;
+				if (kMutation != 1)
+					mUI.appModal = false;
+				// REGLE O : le niveau de popup pris par une modale du kit ne survit pas a
+				// une image ou elle ne s'est pas dessinee (cf. NkEditorModal.h).
+				NkNiveauModal &nm = NkNiveauModalDeLImage();
+				if (nm.id != 0 && !nm.vu) {
+					if (kMutation != 3 && mUI.popupDepth > 0 && mUI.popupStack[0] == nm.id)
+						mUI.popupDepth = 0;
+					nm.id = 0;
+				}
+				nm.vu = false;
+			}
 
 			const float32 W = static_cast<float32>(mUI.viewW);
 			const float32 H = static_cast<float32>(mUI.viewH);
@@ -883,8 +1240,113 @@ namespace nkentseu {
 				const char *v = getenv("NK_TRACE_PIPETTE");
 				return v && v[0] && v[0] != '0';
 			}();
+			// ══ ③ TRACE — QUELLE PHASE A MANGE L'IMAGE (`NK_PHASES=1`) ═══════════
+			//
+			// 🔴 RODOLF, 14/09 : « on a l'impression que ca plante [...] mais les
+			//    boutons de fermeture ne plantent pas, donc minimiser maximiser
+			//    fermer ». Ces trois boutons sont dans la ZONE NON CLIENTE, traitee
+			//    par le systeme : qu'ils repondent pendant que le reste est fige dit
+			//    que NOTRE boucle ne tourne plus.
+			//
+			// ⚠️ ET JE N'AI PAS SU LE REPRODUIRE. Premiere course sur son binaire :
+			//    **5,4 images/s**. Les DOUZE courses suivantes, meme binaire, memes
+			//    drapeaux : 61 a 140 images/s, jamais en dessous. Un defaut que je
+			//    ne reproduis pas ne se corrige pas par hypothese -- et une machine
+			//    qui rend 61 puis 140 pour la meme mesure n'est pas une condition
+			//    d'essai, c'est un bruit de fond.
+			//
+			//    Alors plutot que de deviner l'appel bloquant, **on rend l'image
+			//    lente capable de se nommer**. Quand elle se reproduira -- chez
+			//    Rodolf, chez un agent, dans six semaines -- une variable
+			//    d'environnement suffira a savoir quelle phase a mange le temps.
+			//
+			// ⚠️ LE SEUIL N'EST PAS EN MILLISECONDES, ET C'EST VOLONTAIRE. Un seuil
+			//    absolu se perime avec la machine et crie rouge sur un montage
+			//    correct. On compare chaque image a la MOYENNE COURANTE de la course
+			//    elle-meme : une image quatre fois plus longue que ses voisines est
+			//    anormale sur n'importe quel materiel. Le banc porte donc son propre
+			//    zero.
+			//
+			// ⚠️ COUT QUAND C'EST ETEINT : un `if (bool)` par phase, et rien d'autre
+			//    -- aucune horloge n'est lue. Mesure a faire si quelqu'un en doute ;
+			//    je ne l'affirme pas sans l'avoir mesuree, je dis seulement ce que le
+			//    code fait.
+			const bool tracePhases = []() {
+				const char *v = getenv("NK_PHASES");
+				return v && v[0] && v[0] != '0';
+			}();
+			NkShellPanneauxActif() = tracePhases;
+			// ── UN CRAN PLUS BAS : QUEL PANNEAU MANGE LES 88 % ────────────────
+			// Le releve par phase disait « PANNEAUX 88,00 % » et s'arretait la.
+			// Une phase qui pese deja l'essentiel n'a besoin que d'un incident pour
+			// tout arreter : savoir LEQUEL des panneaux la remplit est la moitie
+			// manquante. Meme discipline que le releve par phase -- rien n'est lu
+			// quand c'est eteint.
+			static float64 sPanCumul[16] = {0.0};
+			static const char *sPanNom[16] = {nullptr};
+			static int32 sPanN = 0;
+			static float64 sPhaseCumul[24] = {0.0};
+			static const char *sPhaseNom[24] = {nullptr};
+			static int32 sPhaseN = 0;
+			// 🔴 LE DENOMINATEUR, ET IL MANQUAIT. Mon premier releve imprimait
+			//    « PANNEAUX 88,00 % du temps », et le coordinateur l'a lu -- a juste
+			//    titre -- comme « 88 % de l'image ». C'est FAUX : c'est 88 % du temps
+			//    QUE CES PHASES MESURENT, lequel ne fait qu'une fraction de l'image.
+			//    Le reste -- presentation, echange de tampons, attente du GPU -- vit
+			//    hors de ces bornes et n'etait compte nulle part.
+			//    *Un pourcentage sans son denominateur oriente celui qui le lit.*
+			//    On mesure donc aussi la PERIODE de l'image : le mur entre deux
+			//    departs. C'est le seul chiffre qui dise ce que 88 % vaut vraiment.
+			static float64 sPeriodeMoyenne = 0.0;
+			static float64 sPeriodeCarres = 0.0; ///< pour l'ecart-type : voir plus bas
+			static int32 sPeriodes = 0;
+			static nkentseu::NkChrono sDepartPrec;
+			static bool sPeriodeAmorcee = false;
+			// 🔴 LA MOYENNE NE PEUT PAS SERVIR DE SEUIL, ET LA CONTRADICTION L'A DIT.
+			//    Releve du 14/09 : ecart-type 14,54 ms pour une moyenne de 7,98 --
+			//    182 % -- donc des images enormes EXISTENT, et l'alarme « quatre fois
+			//    la moyenne » n'en a attrape AUCUNE. Deux raisons, toutes deux
+			//    fatales :
+			//      1. **la moyenne est polluee par ce qu'elle doit detecter.** Une
+			//         image de 250 ms parmi 300 fait passer la moyenne de 8 a 8,8 ms
+			//         et le seuil de 32 a 35 ms : le pic s'immunise lui-meme.
+			//      2. **les dix premieres images ne jugent rien**, et c'est
+			//         precisement la que vivent les images geantes (creation de la
+			//         fenetre, montage des atlas, premiers pipelines).
+			//    Un seuil bati sur une moyenne est un seuil qu'un seul pic desarme.
+			//
+			//    LA PARADE, et elle ne demande aucune finesse : une MEDIANE glissante
+			//    sur les 64 dernieres images. Une mediane ne bouge pas quand une
+			//    valeur sur soixante explose -- c'est exactement la propriete qui
+			//    manquait. Et on garde en plus **LA PIRE IMAGE DE LA COURSE**, seuil
+			//    ou pas : rien de geant ne doit pouvoir passer en silence.
+			static const int32 kFen = 64;
+			static float64 sFen[kFen] = {0.0};
+			static int32 sFenN = 0, sFenI = 0;
+			static float64 sPireImage = 0.0;
+			static int32 sPireIndex = -1;
+			static float64 sPirePhases[24] = {0.0};
+			static int32 sPirePhasesN = 0;
+			static float64 sImageMoyenne = 0.0;
+			static int32 sImages = 0;
+			static int32 sCris = 0;
+			nkentseu::NkChrono horlogeImage, horlogePhase;
+			float64 phaseMs[24] = {0.0};
+			int32 nPhases = 0;
+
 			nkgui::NkGuiCursor curseurPrec = mUI.wantCursor;
 			auto phase = [&](const char *nom) {
+				if (tracePhases && nPhases < 24) {
+					const float64 ms = horlogePhase.Elapsed().ToSeconds() * 1000.0;
+					horlogePhase = nkentseu::NkChrono();
+					phaseMs[nPhases] = ms;
+					if (nPhases >= sPhaseN) {
+						sPhaseNom[nPhases] = nom;
+						sPhaseN = nPhases + 1;
+					}
+					sPhaseCumul[nPhases] += ms;
+					++nPhases;
+				}
 				if (!tracePhase || mUI.wantCursor == curseurPrec)
 					return;
 				static const char *const kN[] = {"fleche", "texte", "main", "REDIM <->",
@@ -894,6 +1356,21 @@ namespace nkentseu {
 						a >= 0 && a < 5 ? kN[a] : "?", b >= 0 && b < 5 ? kN[b] : "?");
 				curseurPrec = mUI.wantCursor;
 			};
+			// ⚠️ LA PREMIERE PHASE EST CELLE QUI S'EST PASSEE AVANT NOUS. La boucle
+			//    d'evenements tourne dans `Run`, donc entre deux appels a
+			//    `RenderFrame` : sans elle, la somme ne pourrait pas refermer la
+			//    periode, et une attente dans le traitement d'un message OS -- le
+			//    candidat le plus credible pour un fil bloque -- resterait invisible.
+			if (tracePhases && nPhases < 24) {
+				phaseMs[nPhases] = NkShellMsEvenements();
+				if (nPhases >= sPhaseN) {
+					sPhaseNom[nPhases] = "evenements OS (hors image)";
+					sPhaseN = nPhases + 1;
+				}
+				sPhaseCumul[nPhases] += phaseMs[nPhases];
+				++nPhases;
+				horlogePhase = nkentseu::NkChrono();
+			}
 			phase("depart de l'image");
 			DrawTitleBar(ec, {logoW, 0.f, W - logoW, titleH});
 			phase("barre de titre");
@@ -948,11 +1425,49 @@ namespace nkentseu {
 			//    C'est ce qui fait entrer ici les dialogues dessines par l'APPLICATION dans le
 			//    crochet d'overlay -- le selecteur de fichier, en particulier : ils arrivent
 			//    apres les panneaux, donc ni `appModal` ni `overPopup` ne les voyaient.
-			const bool modal = mShowPrefs || mUI.appModal || overPopup || mCtxOpen || mUI.input.saisieReserveePrec;
+			// (R17) `appModal` LU : declare CETTE image avant la lecture (ex. NKCode, rappel
+			// de menu) OU par l'image precedente (ex. NKUIDesign, sources d'overlay).
+			const bool appModalLu = mUI.appModal || mAppModalPrec;
+			const bool modal = mShowPrefs || appModalLu || overPopup || mCtxOpen || mUI.input.saisieReserveePrec;
+			// (R16) LES PORTES, lues ICI : apres la barre de titre (qui a vu l'entree
+			// reelle), avant le masquage. Chaque bit est l'un des termes de `modal`
+			// ci-dessus, plus S (le masquage PARTIEL par panneau de DrawPanels).
+			{
+				int32 portes = 0;
+				if (mShowPrefs)
+					portes |= kPortePreferences;
+				if (appModalLu)
+					portes |= kPorteAppModal;
+				if (overPopup)
+					portes |= kPortePopup;
+				if (mCtxOpen)
+					portes |= kPorteMenuCtx;
+				if (mUI.input.saisieReserveePrec)
+					portes |= kPorteSaisie;
+				if (!mUI.PointReachable(mUI.input.mousePos))
+					portes |= kPorteSurface;
+				mPortesCorps = portes;
+				// ── LES GESTES DE L'UTILISATEUR, COMPTES SUR L'ENTREE REELLE ──
+				// C'est le seul point du code qui voit a la fois les portes ET ce que
+				// l'utilisateur fait : le masquage vient juste apres. Cout : six comparaisons.
+				// On ne balaie PAS les 350 touches (ce serait un cout par image pour rien) :
+				// Echap et Entree sont les deux que l'on frappe quand on se croit bloque.
+				int32 gestes = 0;
+				for (int32 b = 0; b < 3; ++b)
+					if (mUI.input.mouseClicked[b])
+						++gestes;
+				if (mUI.input.wheel != 0.f || mUI.input.wheelH != 0.f || mUI.input.wheelReserve != 0.f)
+					++gestes;
+				gestes += mUI.input.charCount;
+				if (mUI.input.keyInit[(int32)nkgui::NkGuiKey::Escape] || mUI.input.keyInit[(int32)nkgui::NkGuiKey::Enter])
+					++gestes;
+				NkNoterPortes(portes, mUI.popupDepth, mUI.activeId != NKGUI_ID_NONE, mUI.inputId != NKGUI_ID_NONE,
+							  mTitleDragArmed, gestes, mSourcesFn, mSourcesUser);
+			}
 			nkgui::NkGuiInput savedInput;
 			if (modal) {
 				savedInput = mUI.input;
-				mPopupMasked = overPopup && !mShowPrefs && !mUI.appModal; // cf. dockHeaderFn
+				mPopupMasked = overPopup && !mShowPrefs && !appModalLu; // cf. dockHeaderFn
 				mRealInput = savedInput;
 				mUI.input.mousePos = {-100000.f, -100000.f};
 				for (int32 i = 0; i < 3; ++i) {
@@ -1052,7 +1567,7 @@ namespace nkentseu {
 			phase("bords de fenetre");
 
 			if (modal)
-				mUI.input = savedInput; // restaure pour le popup
+				mUI.input = savedInput; // restaure pour le popup (cf. le pave « recopie brute » plus haut)
 			mPopupMasked = false;
 			DrawContextMenu(); // menu contextuel shell-level (au-dessus des panneaux)
 			phase("menu contextuel");
@@ -1071,6 +1586,7 @@ namespace nkentseu {
 				mUI.dlOverlay.AddRect({0.f, 0.f, W, H}, {48, 54, 61, 255}, 1.f); // bord #30363d
 
 			mUI.EndFrame();
+			phase("fin NKGui (tri, fusion)");
 
 			// ══ TRACE — `NK_TRACE_PIPETTE=1` : LE DERNIER MOT SUR LE CURSEUR ═════
 			// ⚠️ C'est ICI que l'OS apprend quel curseur afficher : tout ce qui a ete
@@ -1092,11 +1608,193 @@ namespace nkentseu {
 				}
 			}
 			mWindow.SetCursor(MapCursor(mUI.wantCursor));
+			phase("curseur OS");
 
 			mRenderer->BeginFrame();
+			phase("rendu : ouverture");
 			mRenderer->SubmitDrawList(mUI.dl, sz.x, sz.y);
 			mRenderer->SubmitDrawList(mUI.dlOverlay, sz.x, sz.y);
+			phase("rendu : soumission");
 			mRenderer->EndFrame();
+			// ⚠️ C'EST ICI QUE VIT LA PRESENTATION, et c'est la phase la plus
+			//    trompeuse du releve. Un gros chiffre ici veut dire DEUX choses
+			//    opposees :
+			//      - « tout va bien, on attend l'ecran » : la synchronisation
+			//        verticale rend la main au rythme du moniteur, et la periode se
+			//        pose sur un multiple de son intervalle ;
+			//      - « quelque chose bloque en amont » : le pilote attend la fin
+			//        d'un travail soumis avant, et la periode n'a plus de rapport
+			//        avec le moniteur.
+			//    **Le releve les distingue par la STABILITE de la periode**, pas par
+			//    la taille du chiffre : il imprime l'ecart-type. Une attente d'ecran
+			//    est reguliere ; un blocage ne l'est pas. Sans cette seconde mesure,
+			//    « 93 % en presentation » n'aurait aucun sens -- c'est exactement la
+			//    lecture qui m'a manque ce matin sur les 88 %.
+			phase("PRESENTATION (attente ecran)");
+			// ── LE VERDICT DE L'IMAGE (NK_PHASES=1) ─────────────────────────────
+			if (tracePhases) {
+				// ⚠️ LE TOTAL SE SOMME DES PHASES, IL NE SE LIT PLUS SUR UNE HORLOGE
+				//    DE DEBUT. `horlogeImage` demarrait au haut de `RenderFrame` et
+				//    etait lue AVANT la queue de l'image : elle rendait 0,44 ms quand
+				//    la seule soumission en pesait sept. C'est la MEME faute que les
+				//    88 % -- un total qui ne couvre pas ce qu'il pretend totaliser --
+				//    refaite un cran plus bas, quelques heures apres l'avoir corrigee.
+				//    Sommer les phases garantit que le total EST la decomposition.
+				float64 totalMs = 0.0;
+				for (int32 i = 0; i < nPhases; ++i)
+					totalMs += phaseMs[i];
+				(void)horlogeImage;
+				++sImages;
+				// La PERIODE : depuis le depart de l'image PRECEDENTE. La premiere
+				// n'en a pas -- elle amorce, elle ne compte pas.
+				if (sPeriodeAmorcee) {
+					const float64 per = sDepartPrec.Elapsed().ToSeconds() * 1000.0;
+					++sPeriodes;
+					sPeriodeMoyenne = (sPeriodeMoyenne * (float64)(sPeriodes - 1) + per)
+									  / (float64)sPeriodes;
+					sPeriodeCarres += per * per;
+				}
+				sDepartPrec = nkentseu::NkChrono();
+				sPeriodeAmorcee = true;
+				// ⚠️ LA MOYENNE SE CONSTRUIT AVANT DE SERVIR DE SEUIL. Les dix
+				//    premieres images ne jugent rien : ce sont elles qui posent le
+				//    zero. Sans ce delai, la premiere image -- toujours la plus
+				//    longue, elle monte les atlas -- se denoncerait elle-meme et
+				//    remonterait la moyenne d'un coup.
+				// LA PIRE IMAGE DE LA COURSE, gardee AVANT tout seuil et des la
+				// premiere : c'est le filet qui ne depend d'aucun reglage.
+				if (totalMs > sPireImage) {
+					sPireImage = totalMs;
+					sPireIndex = sImages;
+					sPirePhasesN = nPhases;
+					for (int32 i = 0; i < nPhases && i < 24; ++i)
+						sPirePhases[i] = phaseMs[i];
+				}
+				// LA MEDIANE GLISSANTE, sur une copie triee de la fenetre.
+				sFen[sFenI] = totalMs;
+				sFenI = (sFenI + 1) % kFen;
+				if (sFenN < kFen)
+					++sFenN;
+				float64 mediane = 0.0;
+				if (sFenN >= 8) {
+					float64 tri[kFen];
+					for (int32 i = 0; i < sFenN; ++i)
+						tri[i] = sFen[i];
+					for (int32 i = 1; i < sFenN; ++i) { // insertion : 64 elements, une fois par image
+						const float64 v = tri[i];
+						int32 j = i - 1;
+						while (j >= 0 && tri[j] > v) {
+							tri[j + 1] = tri[j];
+							--j;
+						}
+						tri[j + 1] = v;
+					}
+					mediane = tri[sFenN / 2];
+				}
+				// ⚠️ LE SEUIL S'APPLIQUE DES LA HUITIEME IMAGE, plus a partir de la
+				//    onzieme : la fenetre n'a besoin que de huit valeurs pour avoir
+				//    une mediane, et attendre davantage, c'etait exclure les images
+				//    geantes du demarrage -- celles qu'on cherche.
+				const bool juge = sFenN >= 8 && mediane > 0.0;
+				if (juge && totalMs > 4.0 * mediane && sCris < 20) {
+					++sCris;
+					printf("[phases] image %d : %.1f ms (mediane %.2f ms, x%.0f) -- le detail :\n",
+						   sImages, totalMs, mediane, mediane > 0.0 ? totalMs / mediane : 0.0);
+					for (int32 i = 0; i < nPhases; ++i)
+						if (phaseMs[i] > 0.05 * totalMs)
+							printf("[phases]     %-24s %7.1f ms  (%4.1f %%)\n",
+								   sPhaseNom[i] ? sPhaseNom[i] : "?", phaseMs[i],
+								   100.0 * phaseMs[i] / (totalMs > 0.0 ? totalMs : 1.0));
+					fflush(stdout);
+				}
+				sImageMoyenne = (sImageMoyenne * (float64)(sImages - 1) + totalMs)
+								/ (float64)sImages;
+				// Le releve cumule, a la demande : NK_PHASES=2 l'imprime tous les 300.
+				const char *v = getenv("NK_PHASES");
+				if (v && v[0] == '2' && (sImages % 300) == 0) {
+					const float64 totalPeriodes = sPeriodeMoyenne * (float64)sPeriodes;
+					printf("[phases] cumul sur %d images\n"
+						   "[phases]   periode reelle d'une image : %.2f ms  "
+						   "(%.0f images/s)\n"
+						   "[phases]   travail moyen decompose          : %.2f ms  "
+						   "= %.1f %% de l'image\n"
+						   "[phases]   non attribue (%.2f ms) : ce qui reste APRES la "
+						   "derniere phase et AVANT le prochain releve d'evenements\n",
+						   sImages, sPeriodeMoyenne,
+						   sPeriodeMoyenne > 0.0 ? 1000.0 / sPeriodeMoyenne : 0.0,
+						   sImageMoyenne,
+						   sPeriodeMoyenne > 0.0 ? 100.0 * sImageMoyenne / sPeriodeMoyenne : 0.0,
+						   sPeriodeMoyenne - sImageMoyenne > 0.0 ? sPeriodeMoyenne - sImageMoyenne
+																 : 0.0);
+					// ── LA FERMETURE, ET L'ECART-TYPE ─────────────────────────
+					// ⚠️ LA SOMME DOIT REFERMER LA PERIODE. Une decomposition qui ne
+					//    se boucle pas sur son total mesure autre chose que ce
+					//    qu'elle annonce -- c'est la discipline appliquee aux
+					//    panneaux, remontee d'un cran.
+					{
+						float64 somme = 0.0;
+						for (int32 i = 0; i < sPhaseN; ++i)
+							somme += sPhaseCumul[i];
+						const float64 attendu = sPeriodeMoyenne * (float64)sPeriodes;
+						const float64 ecart =
+							attendu > 0.0 ? 100.0 * (attendu - somme) / attendu : 0.0;
+						const float64 moy = sPeriodeMoyenne;
+						const float64 var =
+							sPeriodes > 1 ? (sPeriodeCarres / (float64)sPeriodes) - moy * moy : 0.0;
+						float64 et = var > 0.0 ? var : 0.0;
+						// racine, sans <cmath> : Newton, dix tours suffisent largement
+						if (et > 0.0) {
+							float64 r = et;
+							for (int32 k = 0; k < 12; ++k)
+								r = 0.5 * (r + et / r);
+							et = r;
+						}
+						printf("[phases]   FERMETURE : somme des phases %.2f ms contre "
+							   "%.2f ms de periodes -- il manque %.1f %%\n"
+							   "[phases]   STABILITE : ecart-type de la periode %.2f ms "
+							   "(%.1f %% de la moyenne) -- %s\n",
+							   somme, attendu, ecart, et,
+							   moy > 0.0 ? 100.0 * et / moy : 0.0,
+							   moy > 0.0 && et < 0.15 * moy
+								   ? "REGULIERE : compatible avec une attente d'ecran"
+								   : "IRREGULIERE : ce n'est pas un rythme de moniteur");
+					}
+					for (int32 i = 0; i < sPhaseN; ++i)
+						// ⚠️ LE DENOMINATEUR EST LA PERIODE, pas le temps mesure : c'est
+						//    la seule facon que « 91 % » veuille dire « 91 % de ce que
+						//    l'utilisateur attend ». Avec l'ancien denominateur, la
+						//    soumission affichait 1 651 % -- un nombre impossible, qui
+						//    au moins se denoncait ; un nombre plausible n'aurait rien
+						//    denonce du tout.
+						printf("[phases]     %-28s %9.2f ms au total  (%5.2f %% de l'image)\n",
+							   sPhaseNom[i] ? sPhaseNom[i] : "?", sPhaseCumul[i],
+							   100.0 * sPhaseCumul[i] / (totalPeriodes > 0.0 ? totalPeriodes : 1.0));
+					if (sPireIndex >= 0) {
+						printf("[phases]   LA PIRE IMAGE DE LA COURSE : n°%d, %.2f ms "
+							   "(%.0f x la periode moyenne) -- son detail :\n",
+							   sPireIndex, sPireImage,
+							   sPeriodeMoyenne > 0.0 ? sPireImage / sPeriodeMoyenne : 0.0);
+						for (int32 i = 0; i < sPirePhasesN; ++i)
+							if (sPirePhases[i] > 0.02 * sPireImage)
+								printf("[phases]       %-28s %9.2f ms  (%5.1f %%)\n",
+									   sPhaseNom[i] ? sPhaseNom[i] : "?", sPirePhases[i],
+									   100.0 * sPirePhases[i] / (sPireImage > 0.0 ? sPireImage : 1.0));
+					}
+					{
+						NkShellPanRelve &pr = NkShellPanneaux();
+						float64 tot = 0.0;
+						for (int32 i = 0; i < pr.n; ++i)
+							tot += pr.ms[i];
+						printf("[phases]   dont, DANS les panneaux (%.2f ms au total) :\n", tot);
+						for (int32 i = 0; i < pr.n; ++i)
+							printf("[phases]       %-22s %8.2f ms  (%5.2f %% des panneaux)\n",
+								   pr.nom[i] ? pr.nom[i] : "?", pr.ms[i],
+								   100.0 * pr.ms[i] / (tot > 0.0 ? tot : 1.0));
+					}
+					fflush(stdout);
+				}
+			}
+
 		}
 
 		// ── Activity bar (bande verticale d'icones a gauche, facon VSCode) ────────
@@ -1293,7 +1991,19 @@ namespace nkentseu {
 				//    attend.
 				// ⚠️ PAS DE CLAVIER : le tiroir accueille un PANNEAU de l'hote, qui a
 				//    ses propres champs ; lui prendre le clavier ici les couperait.
-				NkSurfaceFlottante _tiroir(mUI, corps, NkCouche::Menu, NkPriseClavier::Non);
+				// (R20) PENDANT UN GLISSER, LE TIROIR NE RECLAME QUE LUI-MEME. Il reclamait `corps`
+				// entier, glisser compris : la toile, dessous, recevait une souris hors ecran et sa
+				// zone de depot n'etait jamais atteinte -- la Bibliotheque, dans son tiroir, posait
+				// une charge que personne ne pouvait lire (mesure : souris MASQUEE, cible jamais
+				// ouverte, 0 composant pose). Un glisser parti du tiroir VISE ce qui est dessous.
+				// Hors glisser, rien ne change : tout le corps attend, comme le voile le dit.
+				// Mutation de banc NK_PORTES_MUTATION=tiroir : le tiroir reclame le corps meme en glisser.
+				static const bool kMutationTiroir = []() {
+					const char *v = getenv("NK_PORTES_MUTATION");
+					return v && v[0] == 't';
+				}();
+				const NkRect reclame = (mUI.dragActive && !kMutationTiroir) ? d : corps;
+				NkSurfaceFlottante _tiroir(mUI, reclame, NkCouche::Menu, NkPriseClavier::Non);
 				// Le voile : il dit « ce qui est dessous attend ». Sans lui, le
 				// tiroir se lit comme un panneau de plus, pas comme un tiroir.
 				mUI.dlOverlay.AddRectFilled(corps, mUI.theme.scrim);
@@ -1355,7 +2065,20 @@ namespace nkentseu {
 					// ⚠️ LE TIROIR DESSINE UN PANNEAU EXISTANT, il n en invente pas
 					//    un second. C est ce qui rendra l etat 3 (l ancrer) presque
 					//    gratuit : le meme objet, ancre au lieu d etre pose ici.
-					if (BeginChild(mUI, "##tiroir", dedans, false, true)) {
+					// 🔴 LE TIROIR NE DEFILE PAS HORIZONTALEMENT, ET CE N'EST PAS UN GOUT.
+					//    `BeginScrollFrame` (NkGuiWidgets.cpp) l'ecrit en toutes lettres :
+					//      regionW = (horizontal && !fillWidth) ? 1.0e6f : inner.w;
+					//    Avec `horizontal = true`, TOUT panneau heberge dans un tiroir recevait
+					//    une largeur de mise en page d'UN MILLION de pixels. Mesure du 17/09 :
+					//    une ligne de la Bibliotheque qui demande « remplis la largeur » sortait
+					//    a 999 980 px -- donc une zone de glisser qui debordait de son panneau,
+					//    et une BARRE DE DEFILEMENT HORIZONTALE dans le tiroir, visible sur la
+					//    capture, alors qu'il n'y a rien a faire defiler. J'avais ecrit en R20
+					//    « sans effet visible » : l'image m'a dementi.
+					//    Un tiroir est une colonne etroite ; ce qui y defile, defile en Y.
+					//    ⚠️ Le `1.0e6f` de NKGui n'est PAS touche : il reste juste pour qui demande
+					//       vraiment un defilement horizontal. Seul le tiroir cesse d'en demander un.
+					if (BeginChild(mUI, "##tiroir", dedans, false, /*horizontal*/ false)) {
 						p->OnUI(ec);
 						EndChild(mUI);
 					}
@@ -3033,6 +3756,10 @@ void NkEditorShell::MaximizeWindow() noexcept {
 		}
 
 		// ── Panneaux (le docking est gere DANS Begin) ────────────────────────────
+		// ── LE RELEVE PAR PANNEAU, partage entre `Run` (qui l'imprime) et
+		//    `DrawPanels` (qui le remplit). Une paire de fonctions plutot que deux
+		//    copies de statics : deux copies auraient diverge au premier panneau
+		//    ajoute, et le total n'aurait plus fait 100 %.
 		void NkEditorShell::DrawPanels(NkEditorFrameContext &ec) noexcept {
 			const float32 menuH = mUI.ItemHeight();
 			for (int32 i = 0; i < mNumPanels; ++i) {
@@ -3105,9 +3832,14 @@ void NkEditorShell::MaximizeWindow() noexcept {
 						}
 						mUI.input.wheel = mUI.input.wheelH = 0.f;
 					}
-					p->OnUI(ec);
+					if (NkShellPanneauxActif()) {
+						nkentseu::NkChrono h;
+						p->OnUI(ec);
+						NkShellPanneauNoter(p->Title(), h.Elapsed().ToSeconds() * 1000.0);
+					} else
+						p->OnUI(ec);
 					if (shielded)
-						mUI.input = saved;
+						mUI.input = saved; // cf. le pave « recopie brute » plus haut
 					EndWindow(mUI);
 				}
 			}
@@ -3143,6 +3875,22 @@ void NkEditorShell::MaximizeWindow() noexcept {
 		}
 
 		// ── Palette de commandes (overlay, Ctrl+P) ───────────────────────────────
+		bool NkEditorShell::PaletteTouche(NkKey k) noexcept {
+			if (!mPaletteOpen)
+				return false;
+			if (k == NkKey::NK_ESCAPE)
+				mPaletteOpen = false;
+			else if (k == NkKey::NK_DOWN && mNumCommands > 0)
+				mPaletteSel = (mPaletteSel + 1) % mNumCommands;
+			else if (k == NkKey::NK_UP && mNumCommands > 0)
+				mPaletteSel = (mPaletteSel - 1 + mNumCommands) % mNumCommands;
+			else if (k == NkKey::NK_ENTER) {
+				ExecuteCommand(mPaletteSel);
+				mPaletteOpen = false;
+			}
+			return true;
+		}
+
 		void NkEditorShell::DrawCommandPalette(NkEditorFrameContext &) noexcept {
 			if (!mPaletteOpen || !mFontOk)
 				return;

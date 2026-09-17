@@ -1,4 +1,6 @@
 #pragma once
+#include <cstdio>
+#include <cstdlib>
 // AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // =============================================================================
 // NkGuiCanvasBackend.h — rend un nkgui::NkGuiDrawList via NKCanvas (NkIRenderer2D).
@@ -16,6 +18,7 @@
 #include "NKMemory/NKMemory.h"	// NkGetDefaultAllocator
 #include "NKMath/NkRectangle.h" // NkRect2i
 #include "NKGui/NKGui.h"
+#include "NKTime/NkChrono.h"	// NkChrono : chronometres de NK_PHASES. Inclus ICI : NKPA incluait ce fichier sans NKTime avant lui (transit 45149f118, 20 erreurs).
 
 namespace nkentseu {
 	namespace renderer {
@@ -118,12 +121,130 @@ namespace nkentseu {
 					return tex->Update(rgba, static_cast<uint32>(w), static_cast<uint32>(h), 0, 0);
 				}
 
+				// ═══════════════════════════════════════════════════════════════
+				//  LE RELEVE DE `Submit` (NK_PHASES=2) — les 92 % vus de l'interieur
+				// ═══════════════════════════════════════════════════════════════
+				//  La coquille a montre que **92 % de l'image** part dans les deux
+				//  appels a `SubmitDrawList`, et que la presentation ne pese que
+				//  0,84 % -- donc ni attente d'ecran, ni synchronisation : du TRAVAIL.
+				//  Mais « SubmitDrawList » nomme l'appel, pas son contenu. Voici la
+				//  borne d'un cran plus bas, en TROIS postes, et la decoupe suit la
+				//  structure reelle de la fonction -- elle n'est pas plaquee :
+				//
+				//    1. CONVERSION   les sommets NKGui -> sommets du dorsal (une
+				//                    boucle sur tout le tampon, pur calcul)
+				//    2. RESSOURCES   la recherche de texture : deux balayages
+				//                    LINEAIRES (polices puis images) par commande
+				//                    texturee. C'est le poste « creation ou recherche
+				//                    de ressources ».
+				//    3. PILOTE       `SetClip`, `SetBlendMode` et `DrawVertices` --
+				//                    les appels qui traversent vers le dorsal
+				//                    graphique. **C'est le seul des trois qui puisse
+				//                    porter une attente implicite**, et donc le seul
+				//                    qui expliquerait une image geante isolee.
+				//    (le rebasage des indices est compte avec 1 : c'est du calcul sur
+				//     le tampon, meme nature, meme absence de traversee)
+				//
+				//  ⚠️ LES TROIS REGLES, appliquees ici comme au-dessus :
+				//     le TOTAL est la SOMME des trois (il ne peut pas en diverger) ;
+				//     le DENOMINATEUR est imprime ; l'ECART DE FERMETURE est dit.
+				//
+				//  ⚠️ ET CE QUE CETTE DECOUPE NE PEUT PAS FAIRE, dit avec elle : elle
+				//     ne distingue pas, DANS le poste 3, l'enregistrement d'une
+				//     commande d'une attente du pilote. Les deux se produisent
+				//     derriere le meme appel. Ce qu'elle permet, c'est de savoir s'il
+				//     faut descendre la -- ou ailleurs.
+				struct NkReleveSubmit {
+						bool actif = false;
+						bool fin = false; ///< les chronos PAR COMMANDE (NK_PHASES=2)
+						bool decide = false;
+						nkentseu::float64 boucle = 0.0; ///< UN seul chrono autour de toute la boucle
+						nkentseu::float64 conversion = 0.0, rebasage = 0.0, ressources = 0.0, pilote = 0.0;
+						nkentseu::float64 total = 0.0;
+						nkentseu::int32 appels = 0;
+						// ⚠️ DES COMPTES, PAS DES DUREES. Deduire une allocation d'un
+						//    temps long, c'est confirmer ce qu'on croyait deja. On
+						//    compte donc un CHANGEMENT DE CAPACITE -- le seul fait qui
+						//    dise qu'une reallocation a eu lieu.
+						nkentseu::int64 reallocIdx = 0, reallocVtx = 0;
+						nkentseu::int64 derniereRealloc = -1; ///< a quel appel, la derniere
+						nkentseu::int64 zerosPerdus = 0;	  ///< elements remplis a zero par Resize
+						nkentseu::int64 indicesTraites = 0;	  ///< les deux passes utiles
+						nkentseu::int64 commandes = 0;		  ///< combien de commandes de dessin
+						nkentseu::float64 balayage = 0.0;	  ///< la passe lo/hi
+						nkentseu::float64 recopie = 0.0;	  ///< la passe de soustraction
+						nkentseu::float64 popclip = 0.0;	  ///< PopClip, un appel au dorsal
+						// ⚠️ DEUX COMPTEURS SANS CODE COMMUN, et c'est voulu.
+						//    `setclips`/`popclips` comptent ce que CE fichier DEMANDE au
+						//    dorsal ; `drawCalls` (NkRenderStats2D) compte ce que le
+						//    DORSAL a reellement soumis au GPU. Si le correctif divise le
+						//    premier sans toucher au second, il n'a rien change la ou ca
+						//    coute -- un compteur seul l'aurait dit vert.
+						//    ⚠️ Et `drawCalls` compte des GROUPES, pas des vidages : un
+						//       vidage porte un groupe par changement de texture. Il ne
+						//       tombera donc pas forcement autant que les rognages -- on
+						//       le lit pour ce qu'il est.
+						nkentseu::int64 setclips = 0, popclips = 0;
+						nkentseu::uint32 drawCallsDepart = 0;
+						// ── LES TRANSITIONS ENTRE COMMANDES CONSECUTIVES ──────────────
+						// Le lot de dessin compte les GROUPES qu'il ouvre ; ici on compte
+						// ce que ce fichier DEMANDE, sans une ligne de code commune. Les
+						// transitions de texture et de rognage doivent EGALER, a l'unite,
+						// les groupes etiquetes T et C par le lot. Le melange peut
+						// differer vers le HAUT : plusieurs modes NKGui retombent sur le
+						// meme mode alpha du dorsal.
+						bool prevValide = false;
+						const nkentseu::renderer::NkTexture *prevTex = nullptr;
+						nkentseu::nkgui::NkGuiBlend prevBlend = nkentseu::nkgui::NkGuiBlend::Alpha;
+						bool prevClip = false;
+						nkentseu::int32 prevX = 0, prevY = 0, prevW = 0, prevH = 0;
+						nkentseu::int64 transT = 0, transB = 0, transC = 0, cmdsExec = 0;
+						// ⚠️ LE PIXEL BLANC ne supprime QUE les transitions ou un cote
+						//    n'a AUCUNE texture (aplat). Une transition entre deux vraies
+						//    textures (atlas <-> image, atlas A <-> atlas B) reste.
+						nkentseu::int64 transTNul = 0, cmdsSansTexture = 0;
+						nkentseu::int64 transTNulRognageIdentique = 0;
+				};
+				static NkReleveSubmit &Releve() {
+					static NkReleveSubmit r;
+					return r;
+				}
+
 				void Submit(const nkentseu::nkgui::NkGuiDrawList &dl, nkentseu::uint32 fbW, nkentseu::uint32 fbH) {
 					using namespace nkentseu;
 					if (!mRenderer || dl.vtx.Size() == 0 || dl.idx.Size() == 0)
 						return;
 
-					mScratch.Resize(dl.vtx.Size());
+					NkReleveSubmit &rel = Releve();
+					if (!rel.decide) {
+						rel.decide = true;
+						const char *v = getenv("NK_PHASES");
+						// ⚠️ DEUX MODES, ET C'EST LE BANC DE L'INSTRUMENT LUI-MEME.
+						//    `=2` pose un chronometre PAR COMMANDE ; `=3` n'en pose
+						//    qu'UN, autour de toute la boucle. Si le total de `=2` est
+						//    tres superieur a celui de `=3`, **c'est l'instrument qui
+						//    coute**, et aucun de ses pourcentages ne vaut.
+						rel.actif = v && (v[0] == '2' || v[0] == '3');
+						rel.fin = v && v[0] == '2';
+					}
+					NkChrono hTotal, hPoste;
+					if (rel.actif) {
+						++rel.appels;
+						// L'amorce AVANT les vidages de ce premier appel : le delta
+						// couvre alors exactement les appels comptes.
+						if (rel.appels == 1)
+							rel.drawCallsDepart = mRenderer->GetStats().drawCalls;
+					}
+
+					if (rel.actif) {
+						const uint32 capAvant = mScratch.Capacity();
+						mScratch.Resize(dl.vtx.Size());
+						if (mScratch.Capacity() != capAvant) {
+							++rel.reallocVtx;
+							rel.derniereRealloc = rel.appels;
+						}
+					} else
+						mScratch.Resize(dl.vtx.Size());
 					for (uint32 i = 0; i < dl.vtx.Size(); ++i) {
 						const nkgui::NkGuiVertex &s = dl.vtx[i];
 						renderer::NkVertex2D &d = mScratch[i];
@@ -137,12 +258,19 @@ namespace nkentseu {
 						d.a = static_cast<uint8>((s.col >> 24) & 0xFFu);
 					}
 
+					if (rel.actif) {
+						rel.conversion += hPoste.Elapsed().ToSeconds() * 1000.0;
+						hPoste = NkChrono();
+					}
+					NkChrono hBoucle;
+
 					for (uint32 ci = 0; ci < dl.cmds.Size(); ++ci) {
 						const nkgui::NkGuiDrawCmd &dc = dl.cmds[ci];
 						if (dc.idxCount == 0u)
 							continue;
 
 						const bool hasClip = (dc.clipRect.w < 1.0e8f && dc.clipRect.h < 1.0e8f);
+						int32 rcX = 0, rcY = 0, rcW = 0, rcH = 0; // le rognage de CETTE commande
 						if (hasClip) {
 							float32 x0 = dc.clipRect.x < 0.f ? 0.f : dc.clipRect.x;
 							float32 y0 = dc.clipRect.y < 0.f ? 0.f : dc.clipRect.y;
@@ -154,9 +282,23 @@ namespace nkentseu {
 								y1 = static_cast<float32>(fbH);
 							if (x1 <= x0 || y1 <= y0)
 								continue;
+							if (rel.fin) {
+								rel.rebasage += hPoste.Elapsed().ToSeconds() * 1000.0;
+								hPoste = NkChrono();
+							}
+							rcX = static_cast<int32>(x0);
+							rcY = static_cast<int32>(y0);
+							rcW = static_cast<int32>(x1 - x0);
+							rcH = static_cast<int32>(y1 - y0);
+							if (rel.actif)
+								++rel.setclips;
 							mRenderer->SetClip(math::NkRect2i{static_cast<int32>(x0), static_cast<int32>(y0),
 															  static_cast<int32>(x1 - x0),
 															  static_cast<int32>(y1 - y0)});
+							if (rel.fin) {
+								rel.pilote += hPoste.Elapsed().ToSeconds() * 1000.0;
+								hPoste = NkChrono();
+							}
 						}
 
 						// 2026-09-04 : le mode de melange de la commande -> l'etat du dorsal
@@ -181,6 +323,10 @@ namespace nkentseu {
 								break;
 						}
 
+						if (rel.fin) {
+							rel.pilote += hPoste.Elapsed().ToSeconds() * 1000.0; // SetBlendMode
+							hPoste = NkChrono();
+						}
 						renderer::NkTexture *tex = nullptr;
 						if (dc.type == nkgui::NkGuiDrawCmdType::TexturedTriangles) {
 							for (uint32 fi = 0; fi < mFonts.Size(); ++fi)
@@ -199,6 +345,10 @@ namespace nkentseu {
 						// Ne soumet que le SOUS-ENSEMBLE de vertices reference par cette
 						// commande (indices rebases). Indispensable : passer tout le buffer
 						// depasse kMaxVertices (65536) des qu'un draw list est gros -> crash.
+						if (rel.fin) {
+							rel.ressources += hPoste.Elapsed().ToSeconds() * 1000.0;
+							hPoste = NkChrono();
+						}
 						uint32 lo = 0xFFFFFFFFu, hi = 0u;
 						for (uint32 k = 0; k < dc.idxCount; ++k) {
 							const uint32 v = dl.idx[dc.idxOffset + k];
@@ -207,15 +357,205 @@ namespace nkentseu {
 							if (v > hi)
 								hi = v;
 						}
-						mIdxTmp.Resize(dc.idxCount);
+						if (rel.fin) {
+							rel.balayage += hPoste.Elapsed().ToSeconds() * 1000.0;
+							++rel.commandes;
+							hPoste = NkChrono();
+						}
+						if (rel.actif) {
+							const uint32 capAvant = mIdxTmp.Capacity();
+							const uint32 tailleAvant = mIdxTmp.Size();
+							// la PASSE PERDUE : `Resize` initialise a zero tout ce qu'il
+							// ajoute, et on recrase ces zeros trois lignes plus bas.
+							if (dc.idxCount > tailleAvant)
+								rel.zerosPerdus += (int64)(dc.idxCount - tailleAvant);
+							mIdxTmp.Resize(dc.idxCount);
+							if (mIdxTmp.Capacity() != capAvant) {
+								++rel.reallocIdx;
+								rel.derniereRealloc = rel.appels;
+							}
+							rel.indicesTraites += (int64)dc.idxCount * 2; // balayage + recopie
+						} else
+							mIdxTmp.Resize(dc.idxCount);
+						// ⚠️ UNE PASSE PERDUE EXISTE ICI, ET ELLE N'EST PAS CORRIGEE.
+						//    Ce bloc de commentaire garde la mesure parce qu'elle vaut
+						//    plus que le correctif qu'elle a fait abandonner.
+						// ⚠️ MESURE D'ABORD, ET ELLE A TUE MON PROPRE SOUPCON. J'avais
+						//    accuse la REALLOCATION. Les COMPTES disent : 5 reallocations
+						//    de `mIdxTmp` et 3 de `mScratch` sur 600 appels, la derniere
+						//    a l'appel n°5. `NkVector` ne rend jamais sa capacite
+						//    (`ShrinkToFit` n'est pas appele), donc apres cinq appels il
+						//    n'alloue plus rien. **Ce n'etait pas l'allocation.**
+						//
+						// ⚠️ CE QUE LES COMPTES ONT TROUVE A LA PLACE : `Resize(n)` avec
+						//    `n > mSize` fait `ConstructAt` sur chaque element ajoute --
+						//    pour un `uint32`, il ECRIT UN ZERO. Comme `mIdxTmp`
+						//    retrecissait a chaque commande (`Resize` vers une taille plus
+						//    petite detruit, donc la suivante re-grossit), on ecrivait des
+						//    zeros qu'on ecrasait trois lignes plus bas :
+						//        8 023 344 zeros ecrits puis ecrases
+						//        contre 19 830 096 indices traites utilement
+						//        -> **40 % de travail perdu**, a chaque image.
+						//
+						// 🔴 J'AI ECRIT LE CORRECTIF (ne plus retrecir : `if (Size() <
+						//    idxCount) Resize(...)`), MESURE, ET JE L'AI RETIRE.
+						//    Les zeros sont bien passes de 8 023 344 a 14 652 -- le geste
+						//    faisait ce qu'il annoncait -- et le temps N'A PAS BOUGE :
+						//        AVANT  1853,17 | 1802,18 | 1808,77 ms
+						//        APRES  1798,81 | 1801,68 | 1807,16 ms
+						//    (courses ENTRELACEES, meme machine, meme minute -- cette
+						//     machine rend 62 a 140 images/s pour la meme mesure, deux
+						//     courses eloignees ne se comparent pas.)
+						//    Supprimer huit millions d'ecritures inutiles n'a rien change :
+						//    **ce n'etait pas la le cout.** Un changement sans gain mesure
+						//    dans du code de noyau PARTAGE ne se garde pas -- il ajoute un
+						//    risque a quatre autres applications contre rien. La MESURE
+						//    reste ; le correctif part.
+						//
+						// ⚠️ ET LE VRAI COUT EST AILLEURS : `PopClip`, 1 827 ms sur
+						//    1 940 -- 94 %. Voir le releve.
 						for (uint32 k = 0; k < dc.idxCount; ++k)
 							mIdxTmp[k] = dl.idx[dc.idxOffset + k] - lo;
+						if (rel.fin) {
+							rel.recopie += hPoste.Elapsed().ToSeconds() * 1000.0;
+							hPoste = NkChrono();
+						}
+						if (rel.actif) {
+							if (rel.prevValide) {
+								if (tex != rel.prevTex) {
+									++rel.transT;
+									if (!tex || !rel.prevTex) {
+										++rel.transTNul;
+										// ... et le rognage NE change PAS : la seule
+										// transition que le pixel blanc ET un rognage
+										// non vide ensemble feraient disparaitre.
+										if (hasClip == rel.prevClip
+											&& (!hasClip || (rcX == rel.prevX && rcY == rel.prevY && rcW == rel.prevW && rcH == rel.prevH)))
+											++rel.transTNulRognageIdentique;
+									}
+								}
+								if (dc.blend != rel.prevBlend)
+									++rel.transB;
+								if (hasClip != rel.prevClip
+									|| (hasClip && (rcX != rel.prevX || rcY != rel.prevY || rcW != rel.prevW || rcH != rel.prevH)))
+									++rel.transC;
+							}
+							rel.prevValide = true;
+							rel.prevTex = tex;
+							rel.prevBlend = dc.blend;
+							rel.prevClip = hasClip;
+							rel.prevX = rcX;
+							rel.prevY = rcY;
+							rel.prevW = rcW;
+							rel.prevH = rcH;
+							++rel.cmdsExec;
+							if (!tex)
+								++rel.cmdsSansTexture;
+						}
 						mRenderer->DrawVertices(mScratch.Data() + lo, hi - lo + 1u, mIdxTmp.Data(), dc.idxCount, tex);
+						if (rel.fin) {
+							rel.pilote += hPoste.Elapsed().ToSeconds() * 1000.0;
+							hPoste = NkChrono();
+						}
 
-						if (hasClip)
+						// 🔴 `PopClip` N'ETAIT MESURE PAR RIEN, et il tombait dans le
+						//    seau du COUP D'APRES. C'est un appel au DORSAL, au meme
+						//    titre que `SetClip` -- le compter avec le rebasage etait une
+						//    erreur d'etiquette, pas de chronometre.
+						if (hasClip) {
+							if (rel.actif)
+								++rel.popclips;
 							mRenderer->PopClip();
+							if (rel.fin) {
+								rel.popclip += hPoste.Elapsed().ToSeconds() * 1000.0;
+								hPoste = NkChrono();
+							}
+						}
 					}
 					mRenderer->SetBlendMode(renderer::NkBlendMode::NK_ALPHA); // ce qui suit repart en alpha
+					if (rel.actif) {
+						if (rel.fin)
+							rel.pilote += hPoste.Elapsed().ToSeconds() * 1000.0;
+						rel.boucle += hBoucle.Elapsed().ToSeconds() * 1000.0;
+						rel.total += hTotal.Elapsed().ToSeconds() * 1000.0;
+						// Deux appels par image (la liste normale et l'incrustation) :
+						// 600 appels = 300 images, la meme cadence que la coquille.
+						if ((rel.appels % 600) == 0) {
+							const float64 somme = rel.conversion + rel.rebasage + rel.balayage + rel.recopie + rel.popclip + rel.ressources + rel.pilote;
+							printf("[submit] %s -- %d appels (= %d images) ; TOTAL %.2f ms ; "
+								   "la BOUCLE DE COMMANDES a elle seule %.2f ms\n"
+								   "[submit]   conversion des sommets %9.2f ms  (%5.1f %%)\n"
+								   "[submit]   rebasage des indices  %9.2f ms  (%5.1f %%)\n"
+								   "[submit]   recherche de texture  %9.2f ms  (%5.1f %%)\n"
+								   "[submit]   appels au PILOTE      %9.2f ms  (%5.1f %%)\n"
+								   "[submit]   FERMETURE : somme des quatre %.2f ms contre %.2f ms "
+								   "de total -- il manque %.1f %%\n",
+								   rel.fin ? "chronos PAR COMMANDE" : "UN SEUL chrono (grossier)",
+								   rel.appels, rel.appels / 2, rel.total, rel.boucle,
+								   rel.conversion, 100.0 * rel.conversion / (rel.total > 0.0 ? rel.total : 1.0),
+								   rel.rebasage + rel.balayage + rel.recopie,
+								   100.0 * (rel.rebasage + rel.balayage + rel.recopie) / (rel.total > 0.0 ? rel.total : 1.0),
+								   rel.ressources, 100.0 * rel.ressources / (rel.total > 0.0 ? rel.total : 1.0),
+								   rel.pilote + rel.popclip,
+								   100.0 * (rel.pilote + rel.popclip) / (rel.total > 0.0 ? rel.total : 1.0),
+								   somme, rel.total,
+								   rel.total > 0.0 ? 100.0 * (rel.total - somme) / rel.total : 0.0);
+							{
+								const nkentseu::uint32 dcNow = mRenderer->GetStats().drawCalls;
+								const nkentseu::float64 images = (nkentseu::float64)rel.appels / 2.0;
+								printf("[submit]   ROGNAGES demandes au dorsal : SetClip %lld | PopClip %lld "
+									   "(= %.0f + %.0f par image)\n"
+									   "[submit]   drawCalls SOUMIS (NkRenderStats2D, compteur independant) : "
+									   "%u (= %.0f par image)\n",
+									   (long long)rel.setclips, (long long)rel.popclips,
+									   images > 0.0 ? (nkentseu::float64)rel.setclips / images : 0.0,
+									   images > 0.0 ? (nkentseu::float64)rel.popclips / images : 0.0,
+									   (unsigned)(dcNow - rel.drawCallsDepart),
+									   images > 0.0 ? (nkentseu::float64)(dcNow - rel.drawCallsDepart) / images : 0.0);
+							}
+							{
+								const nkentseu::float64 imgT = (nkentseu::float64)rel.appels / 2.0;
+								printf("[submit]   TRANSITIONS demandees entre commandes executees (%lld commandes) : "
+									   "texture %lld | melange %lld | rognage %lld  (= %.1f | %.1f | %.1f par image)\n",
+									   (long long)rel.cmdsExec, (long long)rel.transT, (long long)rel.transB,
+									   (long long)rel.transC,
+									   imgT > 0.0 ? (nkentseu::float64)rel.transT / imgT : 0.0,
+									   imgT > 0.0 ? (nkentseu::float64)rel.transB / imgT : 0.0,
+									   imgT > 0.0 ? (nkentseu::float64)rel.transC / imgT : 0.0);
+								printf("[submit]     dont texture AUCUNE <-> une texture : %lld (= %.1f par image) ; "
+									   "entre DEUX vraies textures : %lld (= %.1f par image)\n"
+									   "[submit]     dont AUCUNE <-> texture a rognage IDENTIQUE : %lld (= %.1f par image)\n"
+									   "[submit]     commandes SANS texture (aplats) : %lld sur %lld (= %.1f par image)\n",
+									   (long long)rel.transTNul, imgT > 0.0 ? (nkentseu::float64)rel.transTNul / imgT : 0.0,
+									   (long long)(rel.transT - rel.transTNul),
+									   imgT > 0.0 ? (nkentseu::float64)(rel.transT - rel.transTNul) / imgT : 0.0,
+									   (long long)rel.transTNulRognageIdentique,
+									   imgT > 0.0 ? (nkentseu::float64)rel.transTNulRognageIdentique / imgT : 0.0,
+									   (long long)rel.cmdsSansTexture, (long long)rel.cmdsExec,
+									   imgT > 0.0 ? (nkentseu::float64)rel.cmdsSansTexture / imgT : 0.0);
+							}
+							printf("[submit]   COMPTES (pas des durees) :\n"
+								   "[submit]     reallocations mIdxTmp : %lld   mScratch : %lld\n"
+								   "[submit]     derniere realloc a l'appel n°%lld sur %d\n"
+								   "[submit]     zeros ECRITS PUIS ECRASES par Resize : %lld\n"
+								   "[submit]     indices traites par les deux passes utiles : %lld\n"
+								   "[submit]     -> la passe PERDUE pese %.0f %% des passes utiles\n"
+								   "[submit]     commandes de dessin : %lld (= %.0f par image)\n"
+								   "[submit]     DANS le rebasage : balayage lo/hi %.2f ms | "
+								   "recopie %.2f ms | PopClip %.2f ms | reste %.2f ms\n",
+								   (long long)rel.reallocIdx, (long long)rel.reallocVtx,
+								   (long long)rel.derniereRealloc, rel.appels,
+								   (long long)rel.zerosPerdus, (long long)rel.indicesTraites,
+								   rel.indicesTraites > 0
+									   ? 100.0 * (float64)rel.zerosPerdus / (float64)rel.indicesTraites
+									   : 0.0,
+								   (long long)rel.commandes,
+								   rel.appels > 0 ? (float64)rel.commandes / ((float64)rel.appels / 2.0) : 0.0,
+								   rel.balayage, rel.recopie, rel.popclip,
+								   rel.rebasage);
+							fflush(stdout);
+						}
+					}
 				}
 
 			private:
