@@ -4,6 +4,7 @@
 // LICENCE : Propriétaire - usage régi par le fichier LICENSE à la racine du dépôt
 // =============================================================================
 #include "NKGpt/NkGptTrainer.h"
+#include "NKGpt/NkGardeFouPuissance.h" // plafond de puissance GPU : coupure seche du 17/09 21:23
 #include "NKData/NkBpeTrainer.h" // tokenizer pré-entraîné (LoadBpe) + encodeur à mémo
 #include "NKOptim/NkOptim.h"
 #include "NKPlatform/NkEnv.h" // SONDE DE MESURE : interrupteur NK_ILYANA_SONDE (voir plus bas)
@@ -1108,6 +1109,23 @@ namespace nkentseu {
 				int picN = 0, picIdx = 0;
 				int64 picDernier = -1000;
 				int64 picCompte = 0;
+
+				// --- GARDE-FOU DE PUISSANCE ------------------------------------------
+				// Le 2026-09-17 a 21:23:38 la machine s'est eteinte SANS verification de
+				// bogue, trois minutes apres le depart d'une course, pendant que la carte
+				// montait de 19 a 92 W en quarante secondes. La batterie est
+				// electriquement morte et `nvidia-smi -pl` est REFUSE sur cette carte :
+				// le plafond ne peut donc vivre que dans notre code.
+				//
+				// Il s'ouvre ICI pour que tout ce qu'il retient -- le fichier de reglage,
+				// chaque valeur et sa provenance, l'etat de NVML -- soit dans le journal
+				// AVANT le premier pas, et non apres coup.
+				// Le detail, la mutation (NK_ILYANA_GARDE_FOU=0) et la limite de ce
+				// dispositif sont ecrits en tete de NkGardeFouPuissance.h. En deux mots :
+				// c'est un PANSEMENT, le vrai correctif est materiel.
+				NkGardeFouPuissance gardeFou;
+				gardeFou.Ouvrir(mCfg.savePath.Empty() ? nullptr : mCfg.savePath.CStr());
+
 				for (int s = 1; s <= STEPS; ++s) {
 					const int64 g = base + (int64)s; // pas global (pour le schedule)
 					float lr;
@@ -1168,6 +1186,14 @@ namespace nkentseu {
 							++microVides;
 						sommePonderee += loss.Value().ToCPU().GetItem(NkShape{(int64)0}) * (double)actifs;
 						posTotal += actifs;
+
+						// ---- GARDE-FOU DE PUISSANCE ----
+						// Frontiere de micro-lot : le seul endroit ou une pause ne coupe aucun
+						// graphe de calcul, ne touche aucun gradient et ne change aucune
+						// trajectoire. Elle ne fait RIEN tant que la moyenne glissante de la
+						// puissance reste sous le plafond : c'est le zero, et il ne coute que
+						// la lecture NVML, mesuree et imprimee dans le bilan de fin de course.
+						gardeFou.FreinerSiNecessaire();
 					}
 					lv = (posTotal > 0) ? sommePonderee / (double)posTotal : 0.0;
 
@@ -1473,9 +1499,14 @@ namespace nkentseu {
 						return;
 					}
 				}
-				if (V)
+				// Bilan du garde-fou : HORS du `if (V)`, parce qu'il ne depend pas de la
+				// verbosite et qu'il porte la condition de lecture de tout ce qui suit
+				// (une course bridee n'a pas le debit d'une course libre).
+				gardeFou.Resume();
+				if (V) {
 					logger.Info("Entraînement terminé en {0} s ({1}).", chrono.Elapsed().seconds,
 								mUseGpu ? "GPU-résident" : "CPU");
+				}
 				if (V && mUseGpu && pasProfiles > 0)
 					NkTensorGpu::ProfilRapport(chronoProfil.Elapsed().seconds, pasProfiles);
 

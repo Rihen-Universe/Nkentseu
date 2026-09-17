@@ -656,6 +656,13 @@ with workspace("Nkentseu", location="."):
 
 
 
+    # NKConverse : parler a un modele (invite -> reponse, ou refus nomme).
+    # Extrait de NKUIDesign/DesignAI.h le 2026-09-17 : le meme patron etait
+    # ecrit trois fois (PV3DE, NKUIDesign, NKCode).
+    with include("Kernel/System/NKConverse/NKConverse.jenga"):
+
+        pass
+
     with include("Kernel/System/NKStream/NKStream.jenga"):
 
         pass
@@ -1255,6 +1262,10 @@ with workspace("Nkentseu", location="."):
     with include("Applications/NKUVUnwrapTest/NKUVUnwrapTest.jenga"):
         pass
     with include("Applications/NKGeniaTemoin/NKGeniaTemoin.jenga"):
+
+        pass
+    # NKTexte3D : « une phrase -> un maillage editable ». Console pure, CPU pur.
+    with include("Applications/NKTexte3D/NKTexte3D.jenga"):
 
         pass
 
