@@ -13,11 +13,19 @@
 // l'historique. Les deux matrices sont DÉ-JITTRÉES : le jitter ne doit pas
 // entrer dans la correspondance géométrique, seulement dans l'échantillonnage.
 //
-// LIMITE ASSUMÉE (v1). Pas de velocity buffer : la reprojection n'est exacte que
-// pour la géométrie STATIQUE vue par une caméra qui bouge — c'est le cas
-// dominant. Un objet qui se déplace, lui, laisse une traînée ; c'est le clamp de
-// voisinage ci-dessous qui l'empêche (au prix de moins d'antialiasing sur cet
-// objet). Le velocity buffer est le travail de la v2.
+// LES VECTEURS DE MOUVEMENT (v2, 17/09/2026). La reprojection ci-dessus n'est
+// exacte que pour la géométrie STATIQUE : un pixel d'OBJET MOBILE y est reprojeté
+// comme s'il ne bougeait pas, donc il va chercher son historique là où se trouvait
+// le FOND — il s'accumule avec lui, se délave et se dédouble. La cible `uMotion`
+// corrige exactement cela : chaque pixel porte son propre déplacement.
+//
+// ⚠ CE QU'ELLE NE CORRIGE PAS, et il faut le savoir avant d'en attendre trop : la
+// TRAÎNÉE derrière un objet. Un pixel de fond que l'objet vient de quitter est de
+// la géométrie statique, son vecteur est nul, et son historique contient encore
+// l'objet. Cela relève de la DÉSOCCLUSION, dont ce nuanceur n'a pas de test
+// explicite — il faudrait la profondeur de l'image précédente, que le moteur ne
+// conserve pas. C'est le clamp de voisinage qui en tient lieu, approximativement.
+// Limite nommée plutôt que tue.
 //
 // CLAMP DE VOISINAGE. L'historique est borné à l'intervalle des 9 voisins du
 // pixel courant (min/max 3x3). Dès que l'historique sort de cet intervalle il
@@ -31,6 +39,13 @@
 @binding(set=0, binding=0) uniform sampler2D uCurrent;  // LDR tonemappé de cette frame
 @binding(set=0, binding=1) uniform sampler2D uHistory;  // résultat TAA de la frame -1
 @binding(set=0, binding=2) uniform sampler2D uDepth;    // profondeur de la frame courante
+// VECTEURS DE MOUVEMENT (17/09/2026), RG16F, en fraction d'ecran :
+//     motion = uvCourant - uvPrecedent
+// Quand ils sont branches (p1.w = 1), ils REMPLACENT la reprojection par la
+// profondeur pour tout pixel qui en porte un non nul. Leur interet n'est pas la
+// camera -- la profondeur suffisait -- mais les OBJETS QUI BOUGENT, que la
+// profondeur seule ne sait pas suivre.
+@binding(set=0, binding=3) uniform sampler2D uMotion;
 
 layout(push_constant) uniform PC {
     // Reprojection combinée = prevViewProj * invViewProj(courante) : envoie
@@ -39,7 +54,8 @@ layout(push_constant) uniform PC {
     // Vulkan (128) et sous les root constants DX12.
     mat4  reproj;
     vec4  p0;            // (blendHistory, yFlipUV, invResW, invResH)
-    vec4  p1;            // (ndcYSign, clampOn, _, _)
+    vec4  p1;            // (ndcYSign, clampOn, debugMode, motionOn)
+    vec4  p2;            // (motionYSign, _, _, _)
 } pc;
 
 @stage(fragment)
@@ -59,7 +75,12 @@ void main() {
     // return, car c'est justement l'early return « ciel » (depth >= 0.9999) qui
     // désactive silencieusement le TAA quand un backend ne rend pas le depth
     // lisible : l'image reste correcte mais sans aucun antialiasing.
-    if (pc.p1.z > 3.5) {
+    // ⚠️ BORNE HAUTE OBLIGATOIRE. Ce test s'écrivait `> 3.5`, donc il avalait
+    // TOUS les modes suivants : la sonde 5, ajoutée le 17/09, rendait la carte de
+    // profondeur au lieu du compte des rejets, et le banc lisait « 100 % sorti
+    // tôt » — un chiffre parfaitement cohérent, et faux. Une sonde à borne
+    // ouverte confisque tous les numéros au-dessus d'elle.
+    if (pc.p1.z > 3.5 && pc.p1.z < 4.5) {
         float dz = texture(uDepth, vUV).r;
         oColor = vec4(dz, dz, dz, 1.0);
         return;
@@ -109,7 +130,59 @@ void main() {
         return;
     }
 
+    // ── LES VECTEURS DE MOUVEMENT, QUAND ILS SONT BRANCHES ──────────────────
+    // Politique de repli, ECRITE AVANT d'etre codee, et COMPTABLE (cf. la sonde 5
+    // plus bas). Il n'y a pas de repli muet ici : chaque cas a un nom et une
+    // couleur.
+    //   VECTEUR    : le pixel porte un deplacement non nul  -> on l'utilise
+    //   PROFONDEUR : deplacement nul (fond, ou objet statique) -> reprojection
+    //                geometrique, le chemin d'avant
+    //   HORS-ECRAN : l'UV vise sort de [0,1] -> aucune accumulation
+    // ⚠️ La DESOCCLUSION n'a pas de test explicite : il faudrait la profondeur de
+    // l'image -1, que le moteur ne conserve pas. C'est le clamp de voisinage qui
+    // en tient lieu. Limite connue, ecrite plutot que tue.
+    float source = 0.0; // 0 = PROFONDEUR, 1 = VECTEUR
+    if (pc.p1.w > 0.5) {
+        // ⚠️ HYPOTHESE ESSAYEE ET REFUTEE (17/09/2026) : que `uMotion`, ecrite par
+        // une passe GEOMETRIQUE, porte une orientation differente de `uCurrent`,
+        // ecrite par un triangle plein ecran. Un levier de retournement de cet UV a
+        // ete ajoute, mesure en A/B sur mouvement VERTICAL, et il n'a RIEN deplace
+        // sur OpenGL : 1 334 962 contre 1 337 632. Il a donc ete RETIRE -- un
+        // reglage qui ne deplace aucune mesure est indiscernable d'un placebo, et
+        // pire, il ferme le dossier. La lecture se fait au meme UV que le reste.
+        vec2 mv = texture(uMotion, vUV).rg;
+        // Le signe Y relie la convention de la cible de mouvement (NDC du dorsal,
+        // sans retournement) a celle des UV d'echantillonnage de CETTE passe.
+        // Il est pousse par le C++ et mesurable en A/B : les deux conventions ne
+        // s'accordent pas d'un dorsal a l'autre, et le deviner a deja coute une
+        // nuit sur le yFlip du meme fichier.
+        mv.y = mv.y * pc.p2.x;
+        // Le seuil est la QUANTIFICATION du format, pas un reglage : sous un
+        // demi-millieme d'ecran, un deplacement ne deplace aucun texel.
+        if (abs(mv.x) > 0.0005 || abs(mv.y) > 0.0005) {
+            prevUV = vUV - mv;
+            source = 1.0;
+            if (prevUV.x < 0.0 || prevUV.x > 1.0 || prevUV.y < 0.0 || prevUV.y > 1.0) {
+                // HORS-ECRAN : ce pixel n'existait pas dans l'image d'avant.
+                oColor = vec4(current, 1.0);
+                return;
+            }
+        }
+    }
+
     vec3 history = texture(uHistory, prevUV).rgb;
+
+    // Sonde 5 : LE COMPTE DES REJETS, rendu VISIBLE. Un repli qu'on ne peut pas
+    // compter est un repli qu'on ne saura jamais trop frequent.
+    //   rouge = VECTEUR (le deplacement a servi)
+    //   vert  = PROFONDEUR (repli geometrique)
+    // Les pixels HORS-ECRAN et SANS-HISTOIRE sont sortis plus haut : ils gardent
+    // l'image courante, donc ils ne sont NI rouges NI verts, et c'est ainsi que le
+    // banc les distingue.
+    if (pc.p1.z > 4.5 && pc.p1.z < 5.5) {
+        oColor = vec4(source, 1.0 - source, 0.0, 1.0);
+        return;
+    }
 
     // ── Sondes de diagnostic (p1.z, via NK_TAA_DEBUG) ───────────────────────
     // 1 = historique BRUT reprojeté : noir => l'historique n'arrive pas ;

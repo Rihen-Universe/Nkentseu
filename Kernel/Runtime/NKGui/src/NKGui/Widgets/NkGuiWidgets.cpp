@@ -591,7 +591,7 @@ namespace nkentseu {
 			if (ctx.activeId == id) {
 				ctx.interact = NkGuiInteract::EditWidget;
 				const float32 denom = track.w > 1.f ? track.w : 1.f;
-				float32 t = (ctx.input.mousePos.x - track.x) / denom;
+				float32 t = (ctx.PositionGeste().x - track.x) / denom;
 				if (t < 0.f)
 					t = 0.f;
 				else if (t > 1.f)
@@ -736,9 +736,9 @@ namespace nkentseu {
 				ctx.interact = NkGuiInteract::EditWidget;
 				float32 delta = 0.f;
 				if (dir == NkGuiDragDir::Horizontal || dir == NkGuiDragDir::Both)
-					delta += ctx.input.mousePos.x - ctx.dragLastX;
+					delta += ctx.PositionGeste().x - ctx.dragLastX;
 				if (dir == NkGuiDragDir::Vertical || dir == NkGuiDragDir::Both)
-					delta -= ctx.input.mousePos.y - ctx.dragLastY; // haut = augmente
+					delta -= ctx.PositionGeste().y - ctx.dragLastY; // haut = augmente
 				ctx.dragLastX = ctx.input.mousePos.x;
 				ctx.dragLastY = ctx.input.mousePos.y;
 				if (delta != 0.f) {
@@ -1491,7 +1491,7 @@ namespace nkentseu {
 				bool hov = false, held = false;
 				ctx.ButtonBehavior(sbId, thumb, NkGuiButtonFlags::None, -1.f, -1.f, &hov, &held);
 				if (ctx.activeId == sbId && (track.h - thumbH) > 0.f) {
-					st.y = ((ctx.input.mousePos.y - track.y - thumbH * 0.5f) / (track.h - thumbH)) * maxY;
+					st.y = ((ctx.PositionGeste().y - track.y - thumbH * 0.5f) / (track.h - thumbH)) * maxY;
 					if (st.y < 0.f)
 						st.y = 0.f;
 					if (st.y > maxY)
@@ -1752,8 +1752,9 @@ namespace nkentseu {
 				// Position ABSOLUE de la souris rapportee a la zone : un ratio suit
 				// le curseur meme si la fenetre a change de taille entre-temps —
 				// c'est ce qu'un deplacement cumule en pixels ne sait pas faire.
-				const float32 d = vertical ? (ctx.input.mousePos.x - area.x) / area.w
-										   : (ctx.input.mousePos.y - area.y) / area.h;
+				const NkVec2 pg = ctx.PositionGeste(); // une sentinelle n'est pas une position
+				const float32 d = vertical ? (pg.x - area.x) / area.w
+										   : (pg.y - area.y) / area.h;
 				float32 v = d;
 				if (v < minR)
 					v = minR;
@@ -2442,9 +2443,9 @@ namespace nkentseu {
 					if (ctx.activeId == zid) {
 						const uint8 m = z[i].m;
 						if (m & 0x2)
-							wr.w = math::NkMax(minW, ctx.input.mousePos.x - x);
+							wr.w = math::NkMax(minW, ctx.PositionGeste().x - x);
 						if (m & 0x8)
-							wr.h = math::NkMax(minH, ctx.input.mousePos.y - y);
+							wr.h = math::NkMax(minH, ctx.PositionGeste().y - y);
 						if (m & 0x1) {
 							const float32 right = x + w;
 							float32 nx = ctx.input.mousePos.x;
@@ -2507,8 +2508,8 @@ namespace nkentseu {
 					if (ctx.activeId == (hostId ^ 0x70571u)) {
 						if (ctx.input.mouseClicked[0])
 							ctx.winDragOff = {ctx.input.mousePos.x - wr0.x, ctx.input.mousePos.y - wr0.y};
-						hr.x = ctx.input.mousePos.x - ctx.winDragOff.x;
-						hr.y = ctx.input.mousePos.y - ctx.winDragOff.y;
+						hr.x = ctx.PositionGeste().x - ctx.winDragOff.x;
+						hr.y = ctx.PositionGeste().y - ctx.winDragOff.y;
 					}
 				}
 				WindowBorders(ctx, hostId ^ 0x80571u, hr, wr0, minW, minH);

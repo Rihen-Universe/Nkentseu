@@ -1655,6 +1655,18 @@ namespace nkentseu {
 			// passe differemment, ce qui casserait la coherence de la profondeur).
 			if (mTAAJitter)
 				mTAAJitterIdx++;
+			// ── LA VUE-PROJECTION DE L'IMAGE PRECEDENTE, POUR LES VECTEURS DE
+			// MOUVEMENT (17/09/2026). Elle est archivee ICI, au meme endroit et
+			// pour la meme raison que la phase de jitter : UNE FOIS PAR IMAGE.
+			// La poser dans `UploadUBOs` serait faux -- celui-la peut s'executer
+			// plusieurs fois dans la meme image (passe miroir), et la « precedente »
+			// deviendrait alors la passe d'a cote, pas l'image d'avant.
+			// ⚠️ C'est la version DE-JITTREE qui est archivee : un vecteur de
+			// mouvement decrit le deplacement de la GEOMETRIE, pas celui de la
+			// grille d'echantillonnage.
+			mPrevRenderViewProjNoJitter = mRenderViewProjNoJitter;
+			mHasPrevRenderViewProj = mFrameCountSeen > 0;
+			mFrameCountSeen++;
 			mOpaque.Clear();
 			mTransparent.Clear();
 			mShadowCasters.Clear();
@@ -2030,6 +2042,118 @@ namespace nkentseu {
 		// les pipelines d'overlay sont caches PAR RENDER PASS, il faut donc les creer
 		// pour cette passe — c'est ce que font les Ensure*Pipeline appelees par
 		// FlushDebug. Sur OpenGL le RP vaut {} et le backend l'ignore, comme ailleurs.
+		// =====================================================================
+		// VECTEURS DE MOUVEMENT PAR PIXEL (17/09/2026)
+		// =====================================================================
+		// Voir la declaration dans le .h pour le POURQUOI d'une passe dediee.
+		// Ici, trois choses meritent d'etre lues avant de modifier quoi que ce soit.
+		//
+		// 1. LE PIPELINE EST PARESSEUX, comme celui du PBR et celui du TAA, et pour
+		//    la meme raison : Vulkan et DX12 exigent qu'un pipeline soit compatible
+		//    avec le render pass de sa cible, et ce render pass n'existe qu'au
+		//    PREMIER Execute de la passe -- donc apres Init.
+		//
+		// 2. RIEN N'EST DESSINE A LA PREMIERE IMAGE. `mHasPrevRenderViewProj` est
+		//    faux tant qu'aucune image -1 n'existe. Dessiner quand meme donnerait
+		//    un vecteur calcule contre une matrice identite : un deplacement
+		//    gigantesque et faux sur tout l'ecran, que le consommateur avalerait
+		//    sans aucun moyen de le detecter. La cible reste alors a sa valeur
+		//    d'effacement, qui est zero -- c'est-a-dire « rien n'a bouge », le seul
+		//    mensonge sur : il est conservateur.
+		//
+		// 3. LES DEUX MATRICES SONT DE-JITTREES. Un vecteur de mouvement decrit le
+		//    deplacement de la GEOMETRIE, pas celui de la grille d'echantillonnage.
+		//    Y laisser le jitter ajouterait a chaque vecteur l'ecart entre deux
+		//    phases de Halton -- exactement le defaut qui empechait l'accumulation
+		//    du TAA de converger, mesure le 17/09 (rapport 0,915 au lieu de 0,126).
+		void NkRender3D::FlushMotionVectors(NkICommandBuffer *cmd, NkRenderPassHandle rp) {
+			if (!cmd || !mDevice || !mMesh)
+				return;
+			if (!mHasPrevRenderViewProj)
+				return; // pas d'image -1 : voir le point 2 ci-dessus
+
+			if (!mMotionShader.IsValid() && mShaderLib) {
+				auto prog = mShaderLib->LoadOrCompileVF("Motion", "", "");
+				if (prog.IsValid())
+					mMotionShader = mShaderLib->GetRHIHandle(prog);
+				logger.Info("[NkRender3D] Motion shader compile: valid={0}\n", mMotionShader.IsValid() ? 1 : 0);
+			}
+			if (!mMotionShader.IsValid())
+				return;
+
+			if (!mMotionPipeline.IsValid()) {
+				NkGraphicsPipelineDesc pd;
+				pd.shader = mMotionShader;
+				// Profondeur LUE mais pas ECRITE : la passe s'appuie sur le tampon de
+				// profondeur deja rempli par Geometry, donc seuls les pixels
+				// reellement visibles ecrivent leur vecteur. Sans ce test, une face
+				// arriere ecraserait le vecteur de la face avant.
+				// `ReadOnly()` dit exactement l'intention et existe deja : test actif,
+				// ecriture coupee. La reecrire a la main serait dupliquer une regle.
+				pd.depthStencil = NkDepthStencilDesc::ReadOnly();
+				// LESS_EQUAL et non LESS : cette passe REDESSINE la meme geometrie
+				// avec les MEMES matrices que `Geometry`, donc chaque pixel retombe
+				// EXACTEMENT sur la profondeur deja ecrite. Avec un LESS strict, le
+				// test echouerait partout et la cible resterait vide -- un zero
+				// parfaitement silencieux, et indiscernable de « rien ne bouge ».
+				pd.depthStencil.depthCompareOp = NkCompareOp::NK_LESS_EQUAL;
+				pd.rasterizer = NkRasterizerDesc::NoCull();
+				pd.blend = NkBlendDesc::Opaque();
+				pd.debugName = "MotionVectors";
+				pd.renderPass = rp;
+				// 128 octets : deux mat4 deja composees cote CPU. Exactement la
+				// garantie Vulkan, exactement les root constants DX12 (32 DWORDs).
+				// Trois matrices separees en feraient 192 et ne passeraient pas.
+				pd.AddPushConstant(::nkentseu::NkShaderStage::NK_ALL_GRAPHICS, 0, 128);
+				pd.vertexLayout.AddBinding(0, sizeof(NkVertex3D), false)
+					.AddAttribute(0, 0, NkVertexFormat::NK_RGB32_FLOAT, 0, "POSITION", 0);
+				mMotionPipeline = mDevice->CreateGraphicsPipeline(pd);
+				logger.Info("[NkRender3D] Motion pipeline create: valid={0}\n", mMotionPipeline.IsValid() ? 1 : 0);
+			}
+			if (!mMotionPipeline.IsValid())
+				return;
+
+			cmd->BindGraphicsPipeline(mMotionPipeline);
+
+			const NkMat4f &vpCur = mRenderViewProjNoJitter;
+			const NkMat4f &vpPrev = mPrevRenderViewProjNoJitter;
+
+			uint32 dessines = 0;
+			for (const auto &sd : mOpaque) {
+				const NkDrawCall3D &dc = sd.dc;
+				if (!dc.visible || !dc.mesh.IsValid())
+					continue;
+				// La pose precedente vient de l'appelant. Absente, l'objet est
+				// STATIQUE et son vecteur ne porte que le mouvement de la camera --
+				// ce qui est exact, et c'est le cas dominant.
+				const NkMat4f &modelPrev = dc.hasPrevTransform ? dc.prevTransform : dc.transform;
+				struct PC {
+						float32 mvpCur[16];
+						float32 mvpPrev[16];
+				} pc;
+				const NkMat4f mvpCur = vpCur * dc.transform;
+				const NkMat4f mvpPrev = vpPrev * modelPrev;
+				std::memcpy(pc.mvpCur, &mvpCur, sizeof(pc.mvpCur));
+				std::memcpy(pc.mvpPrev, &mvpPrev, sizeof(pc.mvpPrev));
+				cmd->PushConstants(::nkentseu::NkShaderStage::NK_ALL_GRAPHICS, 0, sizeof(pc), &pc);
+				mMesh->BindMesh(cmd, dc.mesh);
+				if (dc.subMeshIdx == 0xFFFFFFFFu)
+					mMesh->DrawAll(cmd, dc.mesh);
+				else
+					mMesh->DrawSubMesh(cmd, dc.mesh, dc.subMeshIdx);
+				dessines++;
+			}
+
+			// Trace de demarrage, sur les cinq premieres images et non la premiere
+			// seule : a la premiere, cette fonction sort avant d'arriver ici, donc
+			// une trace one-shot n'aurait jamais rien imprime du cas nominal.
+			static int sDiag = 0;
+			if (sDiag < 5) {
+				sDiag++;
+				logger.Info("[Motion] image={0} opaques={1} dessines={2}\n", sDiag, (uint32)mOpaque.Size(), dessines);
+			}
+		}
+
 		void NkRender3D::FlushOverlay3D(NkICommandBuffer *cmd) {
 			if (!mOverlayAfterPost)
 				return;
@@ -2495,6 +2619,11 @@ namespace nkentseu {
 			// frame par frame ; c'est l'accumulation du TAA qui le transforme en
 			// super-echantillonnage. APRES la correction clip-Z pour que le jitter
 			// s'exprime bien en NDC de la projection finale.
+			// La viewProj AVANT jitter : c'est celle sur laquelle l'historique du TAA
+			// est reellement stocke, TAA_Store l'ecrivant a la position PIXEL et non
+			// sur la grille jittee. Elle sert a composer la reprojection du TAA.
+			const NkMat4f viewProjSansJitter = cb.viewProj;
+			bool jitterApplique = false;
 			if (mTAAJitter && mW > 0 && mH > 0) {
 				const uint32 n = (mTAAJitterIdx % 8u) + 1u;
 				float32 hx = 0.f;
@@ -2520,6 +2649,7 @@ namespace nkentseu {
 				jit[3][1] = jy;
 				cb.proj = jit * cb.proj;
 				cb.viewProj = jit * cb.viewProj;
+				jitterApplique = true;
 			}
 
 			cb.invViewProj = cb.viewProj.Inverse();
@@ -2528,6 +2658,18 @@ namespace nkentseu {
 			// du deferred lit une profondeur produite par cette meme projection.
 			mRenderViewProj = cb.viewProj;
 			mRenderInvViewProj = cb.invViewProj;
+			// ── LE MEME COUPLE, SANS LE JITTER (17/09/2026) ──────────────────────
+			// C'est avec CELUI-LA que la reprojection du TAA se compose, parce que
+			// l'historique est range a la position PIXEL et non sur la grille jittee
+			// (cf. GetRenderViewProjNoJitter, et la regle ecrite en tete de
+			// `pp_taa.frag.nksl`). Avec le jitter dedans, meme camera immobile, la
+			// reprojection valait l'ecart entre deux jitters et l'accumulation ne
+			// convergeait jamais.
+			// ⚠️ L'inversion, qui coute, n'est refaite QUE si le jitter a bouge la
+			// matrice : sans jitter les deux couples sont le meme, et recalculer
+			// serait payer une inversion de matrice par image pour rien.
+			mRenderViewProjNoJitter = viewProjSansJitter;
+			mRenderInvViewProjNoJitter = jitterApplique ? viewProjSansJitter.Inverse() : cb.invViewProj;
 			NkVec3f pos = mCtx.camera.GetPosition();
 			NkVec3f fwd = mCtx.camera.GetForward();
 			cb.camPos = {pos.x, pos.y, pos.z, mCtx.camera.GetNear()};

@@ -832,6 +832,47 @@ namespace nkentseu {
 		// Construit un graphe de rendu opt-in en fonction des sous-systemes actifs.
 		// Si l'utilisateur a desactive RENDER3D, on n'ajoute ni Shadow ni Geometry.
 		// Si POST_PROCESS est off, on ecrit Geometry directement dans Swapchain.
+		// ── NK_MOTION : la passe des vecteurs de mouvement (17/09/2026) ───────
+		// Elle ne s'allume pas toute seule, et c'est deliberе : tant qu'aucun
+		// consommateur ne lit la cible, l'activer par defaut serait payer un dessin
+		// de la geometrie opaque par image pour rien. Lecture UNE FOIS, comme les
+		// autres leviers du fichier : une variable relue a chaque image ferait
+		// varier la STRUCTURE du graphe en cours de vol.
+		static bool NkMotionEnabledEnv() {
+			static int sInit = 0;
+			static bool sOn = false;
+			if (!sInit) {
+				sInit = 1;
+				const char *v = getenv("NK_MOTION");
+				sOn = (v && v[0] && v[0] != '0');
+			}
+			return sOn;
+		}
+
+		// ── NK_MOTION_DEBUG : la sonde qui rend la cible RG16F LISIBLE ────────
+		// La cible des vecteurs est RG16F ; le chemin de relecture eprouve du
+		// moteur est RGBA8. Sans cette sonde, aucun banc ne peut LIRE ce que la
+		// passe ecrit -- et un produit que personne ne peut lire ne se prouve pas.
+		// Elle encode motion dans la sortie finale : r = 0,5 + x*A, g = 0,5 + y*A,
+		// b = 0,5 (temoin fixe). Inerte sans la variable.
+		static float32 NkMotionDebugAmp() {
+			static int sInit = 0;
+			static float32 sAmp = 0.f;
+			if (!sInit) {
+				sInit = 1;
+				const char *v = getenv("NK_MOTION_DEBUG");
+				if (v && v[0] && v[0] != '0')
+					sAmp = (float32)atof(v);
+				// « 1 » veut dire « allume », pas « amplifie une fois » : une
+				// amplification de 1 rendrait un deplacement de 0,014 UV
+				// indiscernable du fond (3 niveaux sur 255). 16 est le defaut, et
+				// il se remplace en donnant directement le facteur.
+				if (sAmp > 0.f && sAmp <= 1.f)
+					sAmp = 16.f;
+			}
+			return sAmp;
+		}
+
 		void NkRendererImpl::BuildDefaultRenderGraph() {
 			auto &g = *mRenderGraph;
 			const bool has3D = (mRender3D.Get() != nullptr);
@@ -936,6 +977,44 @@ namespace nkentseu {
 				// l'ordre d'AddPass et le bind du shadow atlas se fait via le
 				// descriptor set frame de Render3D (set au Init).
 				geom.Execute([this](NkICommandBuffer *cmd) { mRender3D->Flush(cmd); });
+			}
+
+			// ── VECTEURS DE MOUVEMENT PAR PIXEL (17/09/2026) ──────────────────
+			// Une passe DEDIEE, apres la geometrie et avant tout post-process,
+			// qui redessine les opaques dans une cible RG16F en n'ecrivant que le
+			// deplacement a l'ecran de chaque pixel. Voir NkRender3D::FlushMotion
+			// Vectors pour le detail, et le canal `rendu-temporel` pour les mesures.
+			//
+			// POURQUOI UNE PASSE PLUTOT QU'UNE CIBLE DE PLUS SUR `Geometry` : un
+			// MRT ajoute au forward toucherait TOUS les nuanceurs d'objets opaques,
+			// donc mettrait en jeu les quatre applications ET le palier de version
+			// du cache NkSL. La passe dediee n'a qu'un nuanceur, se mesure seule et
+			// s'eteint seule. Elle coute un dessin de la geometrie en plus -- cout
+			// MESURE, pas suppose.
+			//
+			// ⚠️ ELLE NE S'ALLUME PAS TOUTE SEULE. Tant que rien ne la consomme,
+			// l'ajouter au graphe par defaut serait payer un dessin par image pour
+			// une cible que personne ne lit. NK_MOTION=1 l'active.
+			// Le jour ou le TAA la consommera, cette condition devient « le TAA est
+			// actif », et ce commentaire devra etre corrige en meme temps.
+			NkGraphResId motionId = NK_INVALID_RES_ID;
+			if (has3D && mainDepth != NK_INVALID_RES_ID && NkMotionEnabledEnv()) {
+				auto mdesc = NkTextureDesc::RenderTarget(mCfg.width, mCfg.height, NkGPUFormat::NK_RG16_FLOAT);
+				mdesc.debugName = "MotionVec";
+				motionId = g.CreateTransient("MotionVec", mdesc);
+				if (motionId != NK_INVALID_RES_ID) {
+					auto &mv = g.AddPass("MotionVectors", NkPassType::NK_GEOMETRY);
+					// CLEAR A ZERO, et c'est le seul effacement honnete : « rien n'a
+					// bouge ». Un consommateur qui lit un pixel jamais ecrit retombe
+					// alors sur lui-meme, ce qui est conservateur. Effacer a autre
+					// chose fabriquerait du mouvement la ou il n'y a pas de geometrie.
+					mv.SetColor(0, motionId, NkLoadOp::NK_CLEAR, {0.f, 0.f, 0.f, 0.f})
+						.SetDepth(mainDepth, NkLoadOp::NK_LOAD);
+					mv.Execute([this](NkICommandBuffer *cmd) {
+						if (mRender3D)
+							mRender3D->FlushMotionVectors(cmd, mRenderGraph->GetPassRenderPass("MotionVectors"));
+					});
+				}
 			}
 
 			// ── VFX pass (transparents) ───────────────────────────────────────
@@ -1322,6 +1401,13 @@ namespace nkentseu {
 						taa.Reads(histId); // resultat de la frame -1 (ecrit par TAA_Store)
 						if (taaDepthId != NK_INVALID_RES_ID)
 							taa.Reads(taaDepthId);
+						// Les vecteurs de mouvement, quand la passe qui les produit
+						// existe. Le DECLARER importe autant que le lire : c'est ce
+						// `Reads` qui ordonne MotionVectors avant TAA et qui pose la
+						// barriere de transition de la cible. Le lire sans le declarer
+						// marcherait sur un dorsal et pas sur l'autre.
+						if (motionId != NK_INVALID_RES_ID)
+							taa.Reads(motionId);
 						taa.SetColor(0, taaOutId, NkLoadOp::NK_CLEAR, {0, 0, 0, 1});
 						taa.Execute([this, taaToneId, histId, taaDepthId](NkICommandBuffer *cmd) {
 							if (!mPostProcess || !mRender3D)
@@ -1339,12 +1425,64 @@ namespace nkentseu {
 							// compris), exposees par NkRender3D : les recalculer ici
 							// dupliquerait ces corrections et deriverait de la
 							// profondeur echantillonnee.
-							const NkMat4f cur = mRender3D->GetRenderViewProj();
+							// ── LA REPROJECTION SE COMPOSE SANS LE JITTER (17/09/2026) ──
+							// Elle le portait, et c'est ce qui empechait le TAA de
+							// converger. `pp_taa.frag.nksl` ecrivait pourtant la regle en
+							// tete de fichier depuis le debut : « les deux matrices sont
+							// DE-JITTREES : le jitter ne doit pas entrer dans la
+							// correspondance geometrique, seulement dans
+							// l'echantillonnage ». Le C++ lui envoyait les matrices
+							// jittees ; les deux ne pouvaient pas avoir raison.
+							//
+							// POURQUOI C'EST FAUX. `TAA_Store` range l'historique a la
+							// position PIXEL, pas sur la grille jittee : le relire demande
+							// donc des UV NON jittes. Avec le jitter dedans, meme camera
+							// parfaitement immobile, `reproj` ne vaut pas l'identite mais
+							// l'ECART ENTRE LE JITTER DE L'IMAGE -1 ET CELUI DE LA
+							// COURANTE. On lisait l'historique decale d'un sous-pixel,
+							// dans une direction qui change a chaque image (Halton,
+							// periode 8) : l'accumulation devenait un flou mobile qui ne
+							// convergeait jamais.
+							//
+							// CE QUE LE CORRECTIF DEPLACE, mesure par NkTemporelProbe sur
+							// DX11 hors ecran, meme binaire, scene et camera immobiles :
+							// la somme des ecarts entre deux images consecutives passe de
+							// 33273 a 4589, soit un rapport a l'image non accumulee de
+							// 0,915 -> 0,1262. L'attendu, derive AVANT la course par la
+							// recurrence D(n) = 0,1 E(n) + 0,9 D(n-1), valait 0,136 pour
+							// la frequence dominante du cycle de Halton. Et la sonde
+							// NK_TAA_DEBUG=3, qui mesure |prevUV - vUV|, tombe de 6,33 a
+							// 0,00 : la reprojection redevient l'identite quand rien ne
+							// bouge, ce qu'elle aurait toujours du etre.
+							// Camera MOBILE (1,5 deg/image) : aucune trainee introduite,
+							// 6307 pixels de silhouette contre 6307 avant et 6317 sans
+							// TAA du tout.
+							//
+							// NK_TAA_DEJITTER=0 restitue l'ancien comportement, pour
+							// pouvoir refuter ce correctif sans recompiler.
+							static int sDejitter = -1;
+							if (sDejitter < 0) {
+								const char *v = getenv("NK_TAA_DEJITTER");
+								sDejitter = (v && v[0] && v[0] == '0') ? 0 : 1;
+							}
+							const NkMat4f cur =
+								sDejitter ? mRender3D->GetRenderViewProjNoJitter() : mRender3D->GetRenderViewProj();
 							NkMat4f reproj = NkMat4f::Identity();
 							if (mTAAHasPrev)
-								reproj = mTAAPrevViewProj * mRender3D->GetRenderInvViewProj();
+								reproj = mTAAPrevViewProj * (sDejitter ? mRender3D->GetRenderInvViewProjNoJitter()
+																	   : mRender3D->GetRenderInvViewProj());
+							// La cible des vecteurs de mouvement, si la passe qui la
+							// produit existe dans CE graphe. `FindByName` plutot qu'une
+							// variable capturee : la passe TAA est declaree avant que
+							// l'on sache si la passe Motion a pu creer sa cible.
+							NkTextureHandle mvTex{};
+							{
+								const NkGraphResId mvId = mRenderGraph->FindByName("MotionVec");
+								if (mvId != NK_INVALID_RES_ID)
+									mvTex = mRenderGraph->GetResourceTexture(mvId);
+							}
 							mPostProcess->RunTAAInPass(cmd, ldr, hist, depth, reproj, mTAAHasPrev,
-													   mRenderGraph->GetPassRenderPass("TAA"));
+													   mRenderGraph->GetPassRenderPass("TAA"), mvTex);
 							// NK_TAA_PREVLAG=N : n'actualiser la matrice de la frame
 							// precedente qu'une frame sur N. Outil de MESURE, pas une
 							// option de rendu : quand la camera bouge lentement, reproj
@@ -1399,8 +1537,28 @@ namespace nkentseu {
 							}
 							NkTextureHandle res =
 								mRenderGraph->GetResourceTexture(sPresentHist ? histId : taaOutId);
-							if (res.IsValid())
-								mPostProcess->ExecuteBlit(cmd, res);
+							if (!res.IsValid())
+								return;
+							// ── LA DESTINATION EST DECLAREE, LE SIGNE EN EST DEDUIT ─────
+							// `colorId` est la vraie swapchain quand rien n'a redirige
+							// la sortie, et une texture externe des que
+							// `SetFinalColorTarget` l'a fait -- ce que fait TOUT viseur
+							// d'editeur (NkViewport3D.cpp:762, AnimBridge).
+							// Avant, ce site choisissait une FONCTION selon sa
+							// destination, donc un SIGNE, sans savoir qu'il le faisait.
+							// Il declare desormais sa DESTINATION ; la regle vit dans
+							// `ExecuteBlit` et nulle part ailleurs.
+							//
+							// CE QUE CE CHOIX A DEPLACE (DX11, cible hors ecran, 17/09) :
+							// image RETOURNEE -> DROITE, et le gain des vecteurs de
+							// mouvement sur un mouvement VERTICAL, qui n'existait pas,
+							// apparait : erreur sur l'objet 1 457 621 -> 541 534.
+							// TEMOIN : FXAA, qui ecrit dans `colorId` SANS blit, rendait
+							// deja l'image droite.
+							using NkBlitCible = NkPostProcessStack::NkBlitCible;
+							mPostProcess->ExecuteBlit(cmd, res,
+													  mFinalColorOverride.IsValid() ? NkBlitCible::NK_VERS_CIBLE
+																				   : NkBlitCible::NK_VERS_ECRAN);
 						});
 					}
 				}
@@ -1549,6 +1707,27 @@ namespace nkentseu {
 			// [AJOUT 2026-07-25] La passe existe aussi si un callback UI applicatif
 			// est enregistré (SetUIOverlayCallback — ex. NKUI de l'éditeur Nogee) ;
 			// il est invoqué en fin de passe, render pass active sur la sortie finale.
+			// ── SONDE DES VECTEURS DE MOUVEMENT (NK_MOTION_DEBUG) ─────────────
+			// Placee ICI, en toute fin de chaine, et c'est deliberе : elle ECRASE
+			// l'image finale par l'encodage des vecteurs. Une sonde qui se
+			// contenterait de se melanger a l'image ne serait pas lisible par un
+			// banc, et une sonde placee plus tot serait repeinte par le
+			// post-process. Inerte sans la variable.
+			// ⚠️ CE QUI SORT DE LA N'EST PAS LE PRODUIT. Une image dont le fond est
+			// gris moyen (128,128,128) est une CARTE DE VECTEURS, pas un rendu rate.
+			if (motionId != NK_INVALID_RES_ID && NkMotionDebugAmp() > 0.f && mPostProcess.Get()) {
+				auto &md = g.AddPass("MotionDebug", NkPassType::NK_POST_PROCESS);
+				md.Reads(motionId);
+				md.SetColor(0, colorId, NkLoadOp::NK_LOAD);
+				md.Execute([this, motionId](NkICommandBuffer *cmd) {
+					if (!mPostProcess)
+						return;
+					NkTextureHandle mv = mRenderGraph->GetResourceTexture(motionId);
+					mPostProcess->RunMotionDebugInPass(cmd, mv, NkMotionDebugAmp(),
+													   mRenderGraph->GetPassRenderPass("MotionDebug"));
+				});
+			}
+
 			if (has2D || hasOverlay || mUIOverlayCb.IsValid()) {
 				auto &ov = g.AddPass("Overlay2D", NkPassType::NK_UI_OVERLAY);
 				const auto loadOp = has3D ? NkLoadOp::NK_LOAD : NkLoadOp::NK_CLEAR;
@@ -1575,6 +1754,12 @@ namespace nkentseu {
 				mir.Reads(colorId);
 				mir.SetColor(0, screenId, NkLoadOp::NK_CLEAR, {0.f, 0.f, 0.f, 1.f});
 				mir.Execute([this](NkICommandBuffer *cmd) {
+					// ⚠️ DESTINATION = LA VRAIE SWAPCHAIN, et c'est le seul site du
+					// depot pour lequel c'est INCONDITIONNEL : cette passe n'existe
+					// que pour renvoyer la cible redirigee vers l'ecran. Elle garde
+					// donc le defaut, `NK_VERS_ECRAN`, et le changement de regle du
+					// 17/09 ne doit RIEN modifier pour elle. C'est le negatif de ce
+					// correctif.
 					if (mPostProcess)
 						mPostProcess->ExecuteBlit(cmd, mFinalColorOverride);
 				});

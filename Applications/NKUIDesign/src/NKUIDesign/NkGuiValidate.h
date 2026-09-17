@@ -213,8 +213,17 @@ namespace nkuidesign {
 			static const NkGSchemaProp kUniversal[] = {
 				{"tooltip", 's'}, {"enabled", 'b'}, {"visible", 'b'},
 				{"id", 's'},      {"pos", 'v'},     {"size", 'v'},
+				// ── LES TAILLES RELATIVES (2026-09-17) ───────────────────────
+				// ⚠️ `pos` et `size` sont en PIXELS ABSOLUS : un document qui decrirait
+				//    l'interface du modeleur avec eux la FIGERAIT a une seule taille de
+				//    fenetre, alors que sa disposition reelle est ecrite en fractions
+				//    (0,16 et 0,29). `sizeRel` dit « 16 % de mon parent », `minSize` et
+				//    `maxSize` bornent le resultat en pixels.
+				// ⚠️ STRICTEMENT ADDITIF : `size` garde son sens, et une composante <= 0
+				//    veut dire « cet axe n'est pas contraint ».
+				{"sizeRel", 'v'}, {"minSize", 'v'}, {"maxSize", 'v'},
 			};
-			count = 6;
+			count = 9;
 			return kUniversal;
 		}
 
@@ -297,8 +306,24 @@ namespace nkuidesign {
 			static const NkGSchemaProp pStack[] = {{"anchor", 'e'}};
 			static const NkGSchemaProp pTable[] = {{"columns", 'l'}, {"flags", 'i'}};
 			static const NkGSchemaProp pScroll[] = {{"axis", 'e'}, {"always", 'b'}};
+			// ⚠️ `ratio` EST NEUF (2026-09-17) : un separateur sans position par defaut ne
+			//    peut pas etre decrit. Le document pose ce defaut UNE FOIS ; le geste de
+			//    l'utilisateur vit ensuite dans l'etat du montage, et n'est JAMAIS reecrit
+			//    dans le fichier -- c'est ce qui le garde partageable. Propriete revisable.
 			static const NkGSchemaProp pSplitter[] = {
-				{"bind", 'r'}, {"min", 'n'}, {"max", 'n'}, {"orientation", 'e'}};
+				{"bind", 'r'}, {"min", 'n'}, {"max", 'n'}, {"orientation", 'e'}, {"ratio", 'n'}};
+			// ── LA ZONE HOTE (2026-09-17) ────────────────────────────────────
+			// ⚠️ ELLE N'EST PAS UN WIDGET, ET C'EST TOUT L'INTERET. `Host` declare un
+			//    RECTANGLE que l'application remplit : un viseur 3D, une toile, un
+			//    editeur de texte. Sans ce role, aucun document ne peut decrire une
+			//    application reelle -- seulement un ecran de demonstration.
+			// ⚠️ ET CE N'EST PAS `Callback`. Ce mot appartient deja au format DEUX fois :
+			//    `callback` est l'une des huit sections, et `Callback "nom"(...)` est un
+			//    appel de comportement (`valides/05_animation_comportement.nkgui:29`,
+			//    qui valide a 0 erreur). Le monteur avait inscrit un role de widget du
+			//    meme nom ; il a ete RETIRE, pas legalise.
+			// `hint` : le texte du marqueur quand personne ne remplit. Par defaut, le nom.
+			static const NkGSchemaProp pHost[] = {{"hint", 's'}};
 			static const NkGSchemaProp pNone[] = {{"", 'a'}};
 
 			static const NkGSchemaRole kTable[] = {
@@ -341,7 +366,8 @@ namespace nkuidesign {
 				{"Stack", pStack, 1},
 				{"Table", pTable, 2},
 				{"Scroll", pScroll, 2},
-				{"Splitter", pSplitter, 4},
+				{"Splitter", pSplitter, 5},
+				{"Host", pHost, 1},
 			};
 			count = sizeof(kTable) / sizeof(NkGSchemaRole);
 			return kTable;
