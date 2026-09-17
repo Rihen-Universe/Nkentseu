@@ -57,6 +57,8 @@ namespace nkentseu {
 		constexpr uint32 kNkMatPreviewTexId = 5000u;
 
 		void Demo3DHostFrame(void *cmd);
+		// Secondes par image du viseur, lissees ; 0 avant la premiere image.
+		float32 Demo3DHostFrameSeconds();
 		/// Rend l'apercu du materiau `slot` a `w` x `h`, dans le command buffer de
 		/// l'editeur — donc AVANT la passe backbuffer, une passe de rendu ne
 		/// pouvant pas en contenir une autre. Une seule image par frame : celle
@@ -224,6 +226,87 @@ namespace nkentseu {
 		// (il ANNULE l'operation) : le menu contextuel ne doit surtout pas s'ouvrir
 		// par-dessus, sinon un seul clic ferait les deux.
 		bool Demo3DHostModalActive();
+		// La contrainte de la modale en cours : axe (-1 libre), plan (Maj), local.
+		bool Demo3DHostModalConstraint(int32 *axe, bool *plan, bool *local);
+		// Valide la modale en cours par la porte du clic gauche (modalConfirmPending).
+		bool Demo3DHostModalConfirmAsk();
+		// Lance G/R/S (9/10/11) par la porte des touches, dans les deux modes.
+		bool Demo3DHostTransformModal(int32 op);
+		// Annule la modale en cours par la porte d'Echap (modalCancelPending).
+		bool Demo3DHostModalCancelAsk();
+		// ── CE QUE L'OPERATION EN COURS A COMME PARAMETRES ──────────────────
+		// Ils EXISTENT et se pilotent deja : `modalVal` a la souris, `modalSeg` a
+		// la molette, et l'apercu se recalcule a chaque changement. Ce qui leur
+		// manquait, c'est un LECTEUR : le panneau de la vue peignait « Distance
+		// 0,25 » et « Decalage 0,00 » en CHAINES CONSTANTES, sans jamais demander
+		// la valeur reelle. Cette facade est ce lecteur, et rien de plus : elle ne
+		// REGLE rien, elle DIT.
+		//
+		// Les libelles sont pris sur le champ que le parametre alimente vraiment
+		// dans `Demo3D_ModalCmd` (extrude.offset, bevel.segments, loopcut.cuts...),
+		// jamais choisis ici : un libelle invente aurait menti des la deuxieme
+		// commande.
+		//
+		// Rend FAUX quand aucune operation ne tourne -- il n'y a alors rien a
+		// afficher, et un panneau qui reste visible en permanence finit par
+		// decrire une operation qui n'a pas eu lieu. Tous les pointeurs de sortie
+		// sont facultatifs.
+		//   op       : 1 biseau arete, 2 biseau sommet, 3 inserer, 4 loop cut,
+		//              5 spin, 6 extruder, 7 spheriser, 8 gonfler/retrecir,
+		//              9/10/11 deplacer / tourner / redimensionner
+		//   valLabel : libelle du parametre CONTINU (souris) -- jamais nul si vrai
+		//   segLabel : libelle du parametre ENTIER (molette), ou nullptr quand
+		//              l'operation n'en a pas. Ne rien afficher vaut mieux
+		//              qu'afficher un reglage qui ne ferait rien.
+		bool Demo3DHostModalInfo(int32 *op, const char **nom, const char **valLabel, float32 *val,
+								 const char **segLabel, int32 *seg);
+		// ── L'EDITION A-T-ELLE ETE DEMANDEE SANS POUVOIR COMMENCER ? ────────
+		// `Demo3DHostSetMode` ne POSE pas le mode : il arme une bascule que la
+		// frame consomme, et cette bascule ECHOUE quand aucun objet n'est
+		// selectionne (`NkDemo3D.cpp`, « Selectionne un objet (clic) avant TAB »).
+		// Le shell, lui, ne relit jamais : il garde `st.mode = Edit` et rearme la
+		// bascule a CHAQUE image. L'utilisateur voit alors une interface d'edition
+		// sur un viseur qui n'y est pas -- et le seul message existant part dans un
+		// JOURNAL que personne ne lit.
+		// Rend le nombre d'images consecutives passees dans cet etat ; 0 quand tout
+		// va bien. C'est un COMPTEUR et non un booleen parce qu'une image ou deux
+		// d'ecart sont NORMALES (la bascule est consommee a la frame suivante) :
+		// seul un ecart qui DURE est un echec.
+		int32 Demo3DHostEditRefusedFrames();
+		// REGLER un parametre de l'operation en cours -- la demande « pas de
+		// propriete ». Le parametre se pilotait deja a la souris et a la molette ;
+		// il ne se TAPAIT nulle part. Les bornes sont celles du pilotage souris
+		// (`Demo3D_ModalClampVal` / `...Seg`, extraites pour etre partagees) : un
+		// second jeu de bornes aurait laisse entrer par le champ ce que la souris
+		// refuse. Rendent faux si aucune operation ne tourne.
+		bool Demo3DHostModalSetVal(float32 v);
+		bool Demo3DHostModalSetSeg(int32 n);
+
+		// ── LES REGLAGES PERSISTANTS DES OPERATIONS DE MAILLAGE ─────────────
+		// Ils EXISTENT (`Demo3DState::extrudeIndividual`, `insetDepth`,
+		// `bevelSegments`, `spinAxis`...) et sont LUS par `Demo3D_ModalCmd` au
+		// moment ou l'operation s'applique. Ce qui leur manquait est un lecteur :
+		// aucun ne se reglait nulle part, alors que Blender les expose tous.
+		//
+		// ⚠ CE SONT DES REGLAGES PERSISTANTS, PAS LES PARAMETRES D'UNE MODALE EN
+		// COURS. Les deux familles ne se confondent pas : `modalVal` / `modalSeg`
+		// vivent le temps d'un geste (cf. Demo3DHostModalInfo), ceux-ci survivent
+		// entre deux operations, comme les « Operator Presets » de Blender.
+		//
+		// Facade INDEXEE plutot qu'une paire get/set par champ : neuf paires
+		// auraient fait dix-huit fonctions a declarer, a implementer et a cabler
+		// une par une dans la vue -- et la dixieme propriete aurait recommence.
+		//   cmd  : l'operation a laquelle le parametre appartient (valeur de
+		//          NkMeshCmd), pour que la vue range chaque reglage dans SON bloc
+		//   type : 0 = booleen, 1 = entier, 2 = reel
+		// Les valeurs passent en `float32` quel que soit le type : un seul chemin,
+		// et la conversion se fait a UN seul endroit (l'implementation), pas chez
+		// chaque appelant.
+		int32 Demo3DHostOpParamCount();
+		bool Demo3DHostOpParamInfo(int32 i, int32 *cmd, const char **libelle, int32 *type,
+								   float32 *vmin, float32 *vmax);
+		bool Demo3DHostOpParamGet(int32 i, float32 *val);
+		bool Demo3DHostOpParamSet(int32 i, float32 val);
 		// SELECTEUR D'OUTIL demande au clavier (Espace / Maj+Espace) : rend true UNE
 		// fois puis se rearme. Le viseur possede le clavier, le shell possede le
 		// composant de menu -- ce drapeau est le seul point de contact.
@@ -256,6 +339,14 @@ namespace nkentseu {
 
 		// Cadrer la vue sur toute la scene (centre + distance ; l'angle est garde).
 		void Demo3DHostFrameAll();
+		// Cadrer SERRE sur le maillage edite, ou sur sa seule SELECTION.
+		// `Demo3DHostFrameAll` cadre la SCENE et ELOIGNE donc la camera d'un objet
+		// unique : trois preuves visuelles ont echoue pour cette raison.
+		// La boite est DERIVEE des sommets vivants, en espace monde (ancre
+		// comprise) -- jamais une position de camera en dur.
+		// Selection vide -> retombe sur le maillage entier, et le journalise.
+		// Rend faux hors edition ou sur un maillage vide.
+		bool Demo3DHostFrameEdit(bool selectionSeule);
 
 		// Transformation de l'objet ACTIF, quel que soit son espace d'indices
 		// (objet de demo ou noeud utilisateur). Le shell n'a pas a choisir.
@@ -287,6 +378,115 @@ namespace nkentseu {
 		bool Demo3DHostInEditMode();
 		void Demo3DHostSetEditSelMask(int32 mask); // bits 1 sommet, 2 arete, 4 face
 		int32 Demo3DHostEditSelMask();
+		// ── LE CLIC A DES COORDONNEES ECRITES (13/09) ────────────────────────
+		// Arme UN pick d'element a (x, y) en pixels de la VUE. Il est consomme a
+		// la frame suivante par la MEME condition et le MEME code que le clic de
+		// la souris -- il n'existe pas de second chemin de selection. Sert a
+		// prouver, sans toucher a la souris de personne, que les trois modes
+		// designent trois choses differentes au meme endroit. Faux hors Edition.
+		bool Demo3DHostEditPickAt(float32 x, float32 y, bool shift, bool alt);
+		// LE MEME PICK PAR INDEX DE FACE N-GON. Deux crochets, deux usages : les
+		// pixels reproduisent le chemin de Rodolf, l'index sert aux bancs -- viser
+		// en pixels n'est pas deterministe, et un essai qui rate faute d'avoir vise
+		// juste est indiscernable d'un essai qui rate parce que le code est faux.
+		bool Demo3DHostEditPickFace(int32 face, bool shift);
+		// Le jumeau pour le sous-mode SOMMET : indice BRUT d'un coin de la cage.
+		bool Demo3DHostEditPickVert(int32 vert, bool shift);
+		uint32 Demo3DHostEditVertCount();
+		bool Demo3DHostEditVertPos(int32 vert, float32 *x, float32 *y, float32 *z);
+		// De quoi choisir cet index sans le deviner : combien de faces, et ou.
+		uint32 Demo3DHostEditFaceCount();
+		bool Demo3DHostEditFaceInfo(int32 face, uint32 *nverts, float32 *cx, float32 *cy,
+					float32 *cz);
+		// Boite englobante MONDE de la selection + nombre de sommets bruts retenus.
+		bool Demo3DHostEditSelBounds(uint32 *nsel, float32 *cx, float32 *cy, float32 *cz,
+					float32 *rayon);
+		// Taille de la VUE en pixels : sans elle, une coordonnee de clic se devine,
+		// et une coordonnee devinee ne prouve rien.
+		void Demo3DHostViewSize(uint32 *w, uint32 *h);
+		// Ce que le dernier pick a designe : sommet actif, arete active (par ses
+		// deux sommets) et face active. -1 = rien. Les trois references de
+		// Blender, lues telles que la vue les a posees.
+		bool Demo3DHostEditActive(int32 *vert, int32 *edgeA, int32 *edgeB, int32 *face);
+		// ── POURQUOI CES TROIS LECTEURS EXISTENT ────────────────────────────
+		// Aucun ne CHANGE quoi que ce soit. Ils existent parce que deux questions
+		// de Rodolf -- « le deplacement ne se voit pas en temps reel » et
+		// « l'aimantation marche-t-elle en edition ? » -- n'etaient mesurables par
+		// AUCUN banc : rien ne permettait de lire la position d'un sommet edite,
+		// ni l'etat d'affichage, ni le pivot. Une interaction qu'aucun banc ne peut
+		// observer ne sera jamais testee.
+
+		// LE MAILLAGE AFFICHE SUIT-IL LA CAGE PENDANT LE GLISSEMENT ?
+		// `unPourUn` faux = le solide n'est PAS rafraichi pendant le drag, il se
+		// recale au relachement (`NkDemo3D.cpp`, l'update rapide est garde par ce
+		// drapeau). C'est la cause exacte du « il faut relacher pour voir ».
+		// `dispCount` est le nombre de sommets du maillage AFFICHE (triangulation
+		// ombree, qui dedouble les coins en FLAT), `restCount` celui de la cage
+		// editable. Les deux different des qu'un coin est dedouble -- et c'est le
+		// cas d'un cube en ombrage plat.
+		bool Demo3DHostEditDisplayInfo(bool *unPourUn, uint32 *dispCount, uint32 *restCount,
+									   bool *aDesModificateurs);
+		// POSITION D'UN SOMMET DU MAILLAGE EN COURS D'EDITION.
+		// `local` = dans l'espace du maillage ; `monde` = apres l'ancre de l'objet.
+		// Il faut les DEUX : l'aimantation raisonne en MONDE (la grille y vit), le
+		// maillage se stocke en LOCAL, et confondre les deux fait conclure a un
+		// defaut d'aimantation sur un objet simplement deplace.
+		// Lit `editLive`, donc l'etat VIVANT -- celui qu'on voit pendant le geste,
+		// pas celui d'apres le relachement.
+		bool Demo3DHostEditVertPos(int32 vert, float32 *local3, float32 *monde3);
+		// L'AIMANTATION DU GIZMO D'EDITION, et la grandeur sur laquelle elle porte.
+		// `pivot3` est rendu parce que c'est LUI que l'aimantation quantifie, et non
+		// les sommets : sans le lire, on ne peut pas distinguer « elle ne marche
+		// pas » de « elle marche sur la mauvaise grandeur ».
+		bool Demo3DHostEditSnapInfo(bool *actif, float32 *pas, bool *absolue, float32 *pivot3);
+
+		// ── L'EMPREINTE DU MAILLAGE EDITE ───────────────────────────────────
+		// « Identique au bit » ne se prouve pas avec des compteurs. La lecon a ete
+		// payee ce matin meme : le journal affirmait « transformation restauree :
+		// comparaison bit a bit = IDENTIQUE » -- vrai pour le GIZMO -- pendant que
+		// le maillage, lui, restait deplace. Deux autorites qui repondent
+		// differemment a la meme question.
+		//
+		// Cette empreinte hache les BITS EXACTS des positions (jamais des valeurs
+		// arrondies : deux flottants qui s'affichent « 0.5000 » peuvent differer)
+		// ET la topologie, parce qu'un maillage peut garder ses positions en
+		// changeant ses faces. Les deux sont necessaires ; ni l'une ni l'autre ne
+		// suffit.
+		//
+		// FNV-1a 64 bits : rien a inventer, et l'ordre des sommets y compte -- ce
+		// qui est voulu, une permutation N'EST PAS une identite pour une pile
+		// d'annulation.
+		// Rend faux hors edition. `verts` et `faces` sortent aussi, pour qu'un
+		// rapport puisse dire OU les deux etats different quand l'empreinte differe.
+		bool Demo3DHostEditFingerprint(uint64 *empreinte, uint32 *verts, uint32 *faces,
+									   uint64 *geoSeule = nullptr,
+									   uint64 *posSeules = nullptr,
+									   uint64 *selSeule = nullptr,
+									   uint64 *topoSeule = nullptr);
+		// ── ANNULER / REFAIRE, PAR LA PORTE DU CLAVIER ──────────────────────
+		// ⚠ ELLES POSENT `editUndoPending` / `editRedoPending`, le MEME drapeau que
+		// Ctrl+Z et Ctrl+Y, consomme au MEME endroit de la frame. Elles n'appellent
+		// PAS `Demo3D_UndoEdit` directement : un crochet qui court-circuiterait la
+		// porte prouverait que la PILE sait restaurer, pas que l'annulation marche.
+		// C'est la difference exacte entre les deux chemins de deplacement mesures
+		// ce matin -- l'un passait par le geste, l'autre non, et ils ne disaient pas
+		// la meme chose.
+		// Rendent faux hors edition, ou quand il n'y a rien a annuler/refaire : dans
+		// ce cas le banc doit le SAVOIR, et non mesurer un non-evenement.
+		bool Demo3DHostEditUndoAsk();
+		bool Demo3DHostEditRedoAsk();
+
+		// ── LA CONTRAINTE D'AXE DE LA MODALE EN COURS ───────────────────────
+		// Le shell posait l'axe par `Viewport3DModalAxis`, qui ecrit dans la vue
+		// DORMANTE. La modale reelle vit ici, et ne le voyait jamais.
+		// `plan` = la variante Maj de Blender : on EXCLUT l'axe au lieu de s'y
+		// tenir (Maj+X = tous les axes sauf X).
+		// Un seul comportement : cette facade appelle `Demo3D_ModalPoseAxe`, la
+		// MEME fonction que la touche du viseur -- y compris son cycle
+		// global -> local -> aucune contrainte, qu'un second chemin aurait perdu.
+		// Rend faux si aucune modale ne tourne : l'appelant doit alors garder le
+		// role normal de la touche, et non le rendre muet.
+		bool Demo3DHostModalAxis(int32 axe, bool plan);
 		void Demo3DHostSetZoneTool(int32 shape); // -1 off, 0 rectangle, 1 cercle, 2 lasso
 		void Demo3DHostSetCursorTool(bool on);
 		void Demo3DHostSetGridFlags(bool grid, bool minor, bool major, bool axes);
@@ -590,6 +790,31 @@ namespace nkentseu {
 		// matiere -- les enfants sont recules d'autant.
 		// Compteurs REELS de la geometrie d'un noeud (sommets, aretes, triangles).
 		bool Demo3DHostMeshCounts(int32 node, int32 *verts, int32 *edges, int32 *tris);
+		// ── LA GEOMETRIE ELLE-MEME, LUE ET POSEE (13/09) ────────────────────
+		// Ce que la persistance n'avait pas : de quoi ECRIRE les sommets d'un
+		// noeud dans son fichier, et les LUI RENDRE a la relecture. Les compteurs
+		// ci-dessus disaient combien ; ceux-ci disent quoi.
+		//
+		// Octets d'un sommet (sizeof(NkVertex3D)). Le pas est ECRIT dans le
+		// fichier et relu avant tout decodage : un bloc binaire dont on devine la
+		// forme est la pire des relectures.
+		uint32 Demo3DHostVertexBytes();
+		// Pointeurs vers la COPIE CPU du maillage propre du noeud. Faux -- et ce
+		// n'est PAS une erreur -- quand le noeud n'a pas de maillage a lui : une
+		// primitive du catalogue se regenere de ses parametres, elle n'a rien a
+		// ecrire. Faux AUSSI, et cette fois ca se dit, quand le maillage existe
+		// sans copie CPU (keepCPU) : on ne relit pas le GPU.
+		// Les pointeurs rendus appartiennent au systeme de maillages et ne valent
+		// que jusqu'a la prochaine operation sur ce noeud -- l'appelant encode
+		// tout de suite, il ne les garde pas.
+		bool Demo3DHostMeshData(int32 node, const void **verts, uint32 *vcount,
+								const uint32 **indices, uint32 *icount);
+		// REMPLACE la geometrie du noeud par celle-ci (copie CPU conservee). Le
+		// meme geste que l'import (Demo3DHostCreateMeshNode) mais sur un noeud qui
+		// EXISTE DEJA : la relecture a besoin des deux, parce qu'un noeud nait de
+		// sa nature avant qu'on sache s'il portait des sommets.
+		bool Demo3DHostSetMeshData(int32 node, const void *verts, uint32 vcount,
+								   const uint32 *indices, uint32 icount);
 		bool Demo3DHostNodeOrigin(int32 node, float32 *out3);
 		void Demo3DHostSetNodeOrigin(int32 node, const float32 *p3);
 		bool Demo3DHostMeshesCenter(int32 node, float32 *out3);

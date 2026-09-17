@@ -80,6 +80,8 @@
 #include "RecetteEdition.h"	 // --recette-edition : le contrat universel d'edition, par site
 #include "RecetteProprietes.h" // --recette-proprietes : les listes de proprietes, par le geste
 #include "TemoinRendu.h"	 // --temoin-rendu : le flux de commandes du peintre, diffable
+#include "RecetteEcrivain.h" // --recette-ecrivain : NKUIDesign ECRIT un .nkgui, le monteur le remonte
+#include "RecettePlacement.h" // --recette-placement : poser un widget, et garder le flux intact
 
 
 
@@ -9284,6 +9286,16 @@ int nkmain(const NkEntryState &state) {
 		// le GESTE : une vraie souris qui vise la poubelle, sans fenetre ni GPU.
 		if (NkComponentDecl::StrEq(a, "--recette-proprietes"))
 			return nkuidesign::NkRecetteProprietes();
+		// `--recette-ecrivain` : NKUIDesign ECRIT un `.nkgui`, le monteur le remonte,
+		// et les deux releves de rectangles se comparent PAR IDENTIFIANT -- sans
+		// fenetre ni GPU (les deux rendus passent par le rasteriseur logiciel).
+		if (NkComponentDecl::StrEq(a, "--recette-ecrivain"))
+			return nkuidesign::ecrivain::RecetteEcrivain();
+		// `--recette-placement` : le PLACEMENT PAR WIDGET (`pos` est l'interrupteur),
+		// les `Window` imbriques, la section `geometry` et le voile d'une modale.
+		// Sans fenetre ni GPU, comme la recette ecrivain.
+		if (NkComponentDecl::StrEq(a, "--recette-placement"))
+			return nkuidesign::placement::RecettePlacement();
 		// Le TEMOIN DE RENDU : le flux de commandes du peintre, ecrit tel quel.
 		// Il se DIFFE -- une refonte d apparence se juge sur ce qui bouge.
 		if (NkComponentDecl::StrEq(a, "--temoin-rendu"))
@@ -9476,6 +9488,7 @@ int nkmain(const NkEntryState &state) {
 			puts("  --roundtrip-controles   les temoins du lecteur/ecrivain");
 			puts("  --pool-controles        les témoins du pool de chaînes");
 			puts("  --valider[=<dossier>]   la validation par role et par type");
+			puts("  --recette-placement     le placement par widget, geometry, Window imbriques");
 			puts("  --dump-ui               publier le relevé de l'interface dessinée");
 			puts("  --releve-menus[=<fichier>] relever la barre de menus SANS fenêtre");
 			puts("  --small                 fenêtre réduite (1024x640)");

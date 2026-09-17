@@ -18,6 +18,7 @@
 // @Author  TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // @License Proprietary - All Rights Reserved (see LICENSE)
 // -----------------------------------------------------------------------------
+#include "NKEditorKit/NkShortcutTable.h"
 #include "NK3DModeler/Shell/NkModelerUI.h"
 #include "NK3DModeler/Shell/NkModelerInput.h"
 #include "NK3DModeler/Shell/NkModelerWidgets.h"
@@ -542,15 +543,28 @@ namespace nkentseu {
 				y += br.h;
 			}
 		}
+		// ⚠ `bit` N'EST PLUS LU, ET IL EST GARDE EXPRES.
+		// L'etat de pliage est desormais indexe par `key`, deja unique (le registre
+		// de survol et le menu de groupe l'exigeaient de toute facon). Garder le
+		// parametre evite de toucher les 27 appels DANS LE MEME LOT que le
+		// changement de mecanisme — deux modifications melangees se relisent mal, et
+		// un appel mal recopie serait passe inapercu. Il doit disparaitre au lot
+		// suivant, une fois celui-ci mesure.
+		//
+		// `plieParDefaut` est le troisieme etat : « jamais touche » n'est pas
+		// « deplie ». C'est ce qui permet a un bloc de naitre PLIE sans ecraser le
+		// choix de l'utilisateur des qu'il l'a exprime.
 		inline bool PaintPropGroup(NkModelerPainter &p, NkHitRegistry &hit, NkModelerState &st,
 								   const NkRect &r, float32 &y, const char *key,
-								   const char *title, uint32 bit) {
+								   const char *title, uint32 bit,
+								   bool plieParDefaut = false) {
+			(void)bit;
 			const NkRect hr{r.x, y, r.w, kRowH};
 			const bool over = hit.Add(key, hr);
 			p.Fill(hr, NkRole::PanelHeader);
 			if (over)
 				p.Fill({hr.x, hr.y + hr.h - S(2.f), hr.w, S(2.f)}, NkRole::AccentUi);
-			const bool folded = (st.grpFold & bit) != 0u;
+			const bool folded = st.grpFold.EstPlie(key, plieParDefaut);
 			p.IconV(r.x + S(4.f), y, kRowH,
 					folded ? NkIcon::ChevronRight : NkIcon::ChevronDown, NkRole::Text, 11.f);
 			p.TextV(r.x + S(20.f), y, kRowH, title);
@@ -583,7 +597,7 @@ namespace nkentseu {
 				// Le CHEVRON ne doit pas plier quand on visait le menu : la zone
 				// du menu est declaree APRES, elle gagne donc le survol.
 				if (hit.Clicked(key) && !ovM)
-					st.grpFold ^= bit;
+					st.grpFold.Basculer(key, plieParDefaut);
 			}
 			y += kRowH;
 			return !folded;
@@ -6337,10 +6351,160 @@ namespace nkentseu {
 		// Unique a chaque mode (Objet, Edition, Sculpture...). Ses fonctions
 		// arrivent PROGRESSIVEMENT par categories -- regle de Rihen : un onglet
 		// nait avec ses outils, pas vide.
+		// ── UNE LIGNE « COMMANDE -- TOUCHE », LUE ET JAMAIS RECOPIEE ────────
+		// Les deux listes de ce panneau etaient des chaines constantes. C'est
+		// exactement ce que `NkModelerMeshMenu.h` interdit par ecrit : « une chaine
+		// recopiee peut mentir sans que rien ne le signale ». Elles ont d'ailleurs
+		// deja diverge -- elles annoncaient `K` pour le couteau quand la table
+		// declarait bisect sans touche (c'est la table qui avait tort, mais le
+		// prochain ecart ne tombera pas forcement du bon cote).
+		//
+		// ⚠ SANS TOUCHE, ON N'ECRIT QUE LE LIBELLE. Un libelle de raccourci est une
+		// promesse ecrite a l'ecran, et une promesse fausse est pire que pas de
+		// libelle. Si la table ne connait pas la commande, la ligne existe quand
+		// meme -- la commande, elle, existe -- mais elle n'annonce aucune touche.
+		inline void NkPropCmdRow(NkModelerPainter &p, const editorkit::NkShortcutTable *sc,
+								 float32 x, float32 &yy, const char *libelle, const char *cle) {
+			char ligne[128];
+			char keys[32];
+			if (sc && cle && *cle && sc->FormatFor(cle, keys, sizeof(keys)))
+				snprintf(ligne, sizeof(ligne), "%s  --  %s", libelle, keys);
+			else
+				snprintf(ligne, sizeof(ligne), "%s", libelle);
+			p.TextV(x, yy, kRowH, ligne, NkRole::TextMuted);
+			yy += kRowH;
+		}
+
+		// Les commandes d'edition annoncees par le panneau, avec LEUR CLE de table.
+		// La liste des libelles et celle des cles ne peuvent plus diverger : c'est
+		// le meme tableau. Les cles sont celles de `NkModelerMeshMenu.h`, pour que
+		// le menu contextuel et ce panneau disent la meme chose.
+		struct NkPropEditCmd {
+				const char *libelle;
+				const char *cle;
+		};
+		inline const NkPropEditCmd *NkPropEditCmds(int32 &n) {
+			static const NkPropEditCmd k[] = {
+				{"extruder", "edit.extruder"},
+				{"inserer une face", "edit.inserer"},
+				{"biseauter", "edit.biseauter"},
+				{"boucle de coupe", "edit.loop_cut"},
+				{"subdiviser", "edit.subdiviser"},
+				{"couteau (bisect)", "edit.bisect"},
+				{"fusionner", "edit.fusionner"},
+				{"creer une face", "edit.creer_face"},
+				{"dissoudre", "edit.dissoudre"},
+				{"supprimer", "edit.supprimer"},
+			};
+			n = (int32)(sizeof(k) / sizeof(k[0]));
+			return k;
+		}
+
+		// ── CE QUE BLENDER A ET QUE NOUS N'AVONS PAS ────────────────────────
+		// ⚠ NOMMER UNE ABSENCE N'EST PAS AFFICHER UN DECOR, et la difference tient
+		// a un mot : ces lignes disent « a venir », elles n'offrent AUCUN champ, et
+		// rien ne laisse croire qu'on peut les regler. Le decor qu'on a passe trois
+		// lots a retirer, lui, montrait des valeurs FAUSSES comme si elles etaient
+		// vraies.
+		// Une absence nommee se cherche une fois ; une absence muette se cherche a
+		// chaque fois qu'on ouvre le bloc.
+		//
+		// La liste vient de la table du canal (R2), etablie en lisant les
+		// operateurs de Blender ET `NkEditMesh.h` cote par cote -- pas de memoire.
+		// Les operations qui n'ont RIEN d'absent n'apparaissent pas ici : elles ont
+		// deja tout ce que Blender expose.
+		struct NkPropAbsente {
+				int32 cmd;			///< valeur de NkMeshCmd
+				const char *noms;	///< ce qui manque, tel que Blender le nomme
+		};
+		// ── COMBIEN DE LIGNES ONT ETE COUPEES ? ─────────────────────────────
+		// ⚠ AUCUN DE MES CRITERES NE REGARDAIT LA LARGEUR DU TEXTE, et c'est une
+		// IMAGE qui a trouve le defaut : « A venir (Blender) : Shape / Profile,
+		// Clamp, Wi… ». Une ligne coupee est pire qu'une ligne absente -- elle
+		// promet une information et la retire. Ce compteur existe pour que la
+		// prochaine coupure se mesure au lieu de s'apercevoir.
+		// Il se lit sous NK_PROP_DIAG=1 ; il vaut 0 quand tout tient.
+		inline int32 &NkPropTronquees() {
+			static int32 n = 0;
+			return n;
+		}
+
+		// ── UNE LIGNE QUI NE TIENT PAS SE REPLIE ────────────────────────────
+		// Deux issues etaient acceptables : replier, ou mettre le texte entier dans
+		// l'infobulle. J'AI CHOISI DE REPLIER, et la raison est le but de la ligne :
+		// rendre l'absence visible SANS avoir a chercher. Une infobulle exige un
+		// survol -- donc de savoir qu'il y a quelque chose a survoler, ce qui est
+		// exactement l'information qui manquait. Elle aurait remplace une troncature
+		// par une absence conditionnelle.
+		//
+		// La coupure se fait sur les VIRGULES : ce sont les noms de Blender, et
+		// couper au milieu de « Quad Corner Type » rendrait la ligne inutile -- la
+		// raison meme pour laquelle je refuse de les abreger.
+		// Repli de derniere extremite : un seul nom plus large que la colonne est
+		// ecrit tel quel et COMPTE comme tronque. Mieux vaut un compteur qui
+		// l'avoue qu'une boucle qui ne termine pas.
+		inline void NkPropLigneRepliee(NkModelerPainter &p, float32 x, float32 largeur,
+									   const char *texte, float32 &yy) {
+			if (!texte || !*texte)
+				return;
+			const char *d = texte;
+			char tampon[256];
+			while (*d) {
+				uint32 n = 0;
+				int32 coupe = -1; // derniere virgule qui tenait encore
+				while (d[n] && n + 1 < sizeof(tampon)) {
+					tampon[n] = d[n];
+					tampon[n + 1] = 0;
+					if (p.TextW(tampon) > largeur) {
+						tampon[n] = 0;
+						break;
+					}
+					if (d[n] == ',')
+						coupe = (int32)n;
+					++n;
+				}
+				if (!d[n]) { // tout le reste tient
+					p.TextV(x, yy, kRowH, d, NkRole::TextMuted);
+					yy += kRowH;
+					return;
+				}
+				if (coupe < 0) {
+					// Aucun point de coupure : on ecrit et on l'AVOUE.
+					p.TextV(x, yy, kRowH, d, NkRole::TextMuted);
+					yy += kRowH;
+					++NkPropTronquees();
+					return;
+				}
+				tampon[coupe + 1] = 0;
+				p.TextV(x, yy, kRowH, tampon, NkRole::TextMuted);
+				yy += kRowH;
+				d += coupe + 1;
+				while (*d == ' ')
+					++d;
+			}
+		}
+
+		inline const NkPropAbsente *NkPropAbsentes(int32 &n) {
+			static const NkPropAbsente k[] = {
+				{1, "Boundary, Even, Relative"},
+				{2, "Shape / Profile, Clamp, Width Type"},
+				{3, "Smoothness, Fractal, Quad Corner Type"},
+				{4, "Smoothness, Falloff"},
+				{8, "Auto Merge, Flip Normals"},
+				{9, "Fill, Clear Inner, Clear Outer, Axis Threshold"},
+				{11, "Offset Even"},
+				{12, "Face Area Threshold, Tear Boundary"},
+				{13, "Only Edges & Faces, Only Faces"},
+			};
+			n = (int32)(sizeof(k) / sizeof(k[0]));
+			return k;
+		}
+
 		inline void PaintPropMode(NkModelerPainter &p, NkHitRegistry &hit, NkModelerState &st,
 									NkWidgetState &ws, const nkgui::NkGuiInput &in,
 									NkComboPending &combo, nkgui::NkGuiContext *guiCtx,
-									const NkRect &r, const NkRect &rr, float32 &yy) {
+									const NkRect &r, const NkRect &rr, float32 &yy,
+									const editorkit::NkShortcutTable *sc = nullptr) {
 			auto Button = [&](const char *k2, float32 yB, const char *label, float32 x,
 							  float32 w) -> bool {
 				return NkPropButton(p, hit, k2, yB, label, x, w);
@@ -6375,8 +6539,15 @@ namespace nkentseu {
 									 (m2 & 4) ? "Faces" : "");
 							p.TextV(iR.x, yy, kRowH, buf, NkRole::TextMuted);
 							yy += kRowH;
-							p.TextV(iR.x, yy, kRowH, "1 / 2 / 3 pour changer",
-									NkRole::TextMuted);
+							// « 1 / 2 / 3 pour changer » etait vrai, mais ECRIT A LA MAIN :
+							// rebinder une touche l'aurait rendu faux en silence. Les trois
+							// entrees existent desormais dans la table (elles n'y etaient
+							// pas, alors que le viseur les traite depuis toujours -- c'est
+							// pour ca que Rodolf ne pouvait pas savoir si elles existaient).
+							NkPropCmdRow(p, sc, iR.x, yy, "Sommets", "edit.sous_mode_sommet");
+							NkPropCmdRow(p, sc, iR.x, yy, "Aretes", "edit.sous_mode_arete");
+							NkPropCmdRow(p, sc, iR.x, yy, "Faces", "edit.sous_mode_face");
+							yy -= kRowH; // la ligne suivante rajoute kRowH : on ne compte pas deux fois
 							yy += kRowH + NkGroupPad();
 							PaintGroupBlock(p, rowR, gSelTop, yy);
 						}
@@ -6388,13 +6559,107 @@ namespace nkentseu {
 						if (gTools) {
 							const NkRect iR = NkGroupInner(rowR);
 							yy += NkGroupPad();
-							static const char *const kEdT[5] = {
-								"E  --  extruder", "I  --  inserer une face",
-								"Ctrl+B  --  biseauter", "Ctrl+R  --  boucle de coupe",
-								"K  --  couteau   W  --  subdiviser"};
-							for (int32 t6 = 0; t6 < 5; ++t6) {
-								p.TextV(iR.x, yy, kRowH, kEdT[t6], NkRole::TextMuted);
-								yy += kRowH;
+							// ── UN BLOC PAR OPERATION, TOUS PLIES AU DEMARRAGE ──────
+							// La demande de Rodolf, mot pour mot : « chaque bloc a sa
+							// propre propriete, tous les blocs sont fermes par defaut ».
+							// Les QUATORZE operations viennent de `NkMeshMenuTable` --
+							// la MEME table que le menu contextuel, pas une seconde
+							// liste : deux listes ecrites separement finissent toujours
+							// par diverger, et celles de ce panneau l'avaient deja fait.
+							//
+							// ⚠ LE BLOC N'EST PAS VIDE ET N'INVENTE RIEN. Il porte la
+							// touche (lue dans la table des raccourcis) et les reglages
+							// PERSISTANTS de l'operation, qui existent dans l'etat et que
+							// `Demo3D_ModalCmd` lit vraiment au moment d'agir. Une
+							// operation qui n'a pas de reglage le DIT, au lieu d'afficher
+							// un champ qui ne servirait a rien.
+							{
+								int32 nOps = 0;
+								const NkMeshMenuEntry *ops = NkMeshMenuTable(nOps);
+								const int32 nPar = demo::Demo3DHostOpParamCount();
+								for (int32 o6 = 0; o6 < nOps; ++o6) {
+									char kb[48];
+									snprintf(kb, sizeof(kb), "prop.g.op.%d", (int)ops[o6].cmd);
+									// `bit` ne sert plus (l'etat est indexe par la cle) :
+									// on passe 0. `true` = PLIE PAR DEFAUT.
+									const bool ouvert = PaintPropGroup(p, hit, st, rowR, yy, kb,
+																	   ops[o6].label, 0u, true);
+									const float32 opTop = yy;
+									if (!ouvert)
+										continue;
+									yy += NkGroupPad();
+									const NkRect iO = NkGroupInner(rowR);
+									NkPropCmdRow(p, sc, iO.x, yy, "Raccourci", ops[o6].command);
+									int32 poses = 0;
+									for (int32 q = 0; q < nPar; ++q) {
+										int32 pc = -1, pt = 0;
+										const char *pl = nullptr;
+										float32 lo = 0.f, hi = 0.f, pv = 0.f;
+										if (!demo::Demo3DHostOpParamInfo(q, &pc, &pl, &pt, &lo, &hi))
+											continue;
+										if (pc != (int32)ops[o6].cmd)
+											continue;
+										if (!demo::Demo3DHostOpParamGet(q, &pv))
+											continue;
+										++poses;
+										p.TextV(iO.x, yy, kRowH, pl ? pl : "?", NkRole::TextMuted);
+										char pk[64];
+										snprintf(pk, sizeof(pk), "prop.op.%d.%d", (int)ops[o6].cmd,
+												 (int)q);
+										const NkRect pr{iO.x + iO.w - S(96.f), yy + S(3.f), S(92.f),
+														kRowH - S(6.f)};
+										if (pt == 0) {
+											// BOOLEEN : le kit n'a AUCUNE case a cocher --
+											// verifie avant d'en dessiner une. On emprunte le
+											// bouton du panneau, dont le libelle DIT l'etat,
+											// plutot que d'ajouter un widget de plus.
+											const bool bv = (pv >= 0.5f);
+											if (NkPropButton(p, hit, pk, yy, bv ? "Oui" : "Non",
+															 pr.x, pr.w))
+												demo::Demo3DHostOpParamSet(q, bv ? 0.f : 1.f);
+										} else {
+											float32 fv = pv;
+											// Le pas suit le TYPE : 1 pour un entier, sinon
+											// un centieme. Un pas unique aurait rendu les
+											// entiers inatteignables ou les reels grossiers.
+											if (DragFloat(p, hit, ws, in, pk, pr, fv,
+														  pt == 1 ? 1.f : 0.01f, NkRole::AccentUi,
+														  pt == 1 ? "%.0f" : "%.3f"))
+												demo::Demo3DHostOpParamSet(q, fv);
+										}
+										yy += kRowH;
+									}
+									if (poses == 0) {
+										// LE DIRE plutot que de laisser un bloc vide : un
+										// bloc vide se lit comme un reglage qui n'a pas
+										// charge, et on l'ouvre deux fois pour verifier.
+										p.TextV(iO.x, yy, kRowH,
+												"Reglages pendant l'operation (souris, molette)",
+												NkRole::TextMuted);
+										yy += kRowH;
+									}
+									// CE QUI MANQUE, NOMME. Aucun champ n'est offert : la
+									// ligne dit « a venir » et s'arrete la.
+									{
+										int32 nAbs = 0;
+										const NkPropAbsente *abs = NkPropAbsentes(nAbs);
+										for (int32 a7 = 0; a7 < nAbs; ++a7) {
+											if (abs[a7].cmd != (int32)ops[o6].cmd)
+												continue;
+											char ab[192];
+											snprintf(ab, sizeof(ab), "A venir (Blender) : %s",
+													 abs[a7].noms);
+											// La largeur DISPONIBLE, pas une constante : le
+											// panneau se redimensionne, et un nombre en dur
+											// se serait perime au premier glissement de
+											// separateur.
+											NkPropLigneRepliee(p, iO.x, iO.w, ab, yy);
+										}
+									}
+									yy += NkGroupPad();
+									PaintGroupBlock(p, rowR, opTop, yy);
+									yy += NkPropGroupGap();
+								}
 							}
 							yy += NkGroupPad();
 							PaintGroupBlock(p, rowR, gToolsTop, yy);
@@ -6442,7 +6707,8 @@ namespace nkentseu {
 		inline void PaintPropTool(NkModelerPainter &p, NkHitRegistry &hit, NkModelerState &st,
 									NkWidgetState &ws, const nkgui::NkGuiInput &in,
 									NkComboPending &combo, nkgui::NkGuiContext *guiCtx,
-									const NkRect &r, const NkRect &rr, float32 &yy) {
+									const NkRect &r, const NkRect &rr, float32 &yy,
+									const editorkit::NkShortcutTable *sc = nullptr) {
 			auto Button = [&](const char *k2, float32 yB, const char *label, float32 x,
 							  float32 w) -> bool {
 				return NkPropButton(p, hit, k2, yB, label, x, w);
@@ -6653,12 +6919,15 @@ namespace nkentseu {
 								 (m2 & 2) ? "Aretes " : "", (m2 & 4) ? "Faces" : "");
 						p.TextV(r.x + kPad, yy, kRowH, buf, NkRole::TextMuted);
 						yy += kRowH;
-						p.TextV(r.x + kPad, yy, kRowH, "E extruder   I inserer   Ctrl+B biseauter",
-								NkRole::TextMuted);
-						yy += kRowH;
-						p.TextV(r.x + kPad, yy, kRowH, "Ctrl+R boucle   W subdiviser   K couteau",
-								NkRole::TextMuted);
-						yy += kRowH;
+						// MEME SOURCE que le groupe « Outils » ci-dessus : deux listes
+						// ecrites separement finissent toujours par diverger, et celles-ci
+						// n'annoncaient deja pas les memes commandes.
+						{
+							int32 nE2 = 0;
+							const NkPropEditCmd *kE2 = NkPropEditCmds(nE2);
+							for (int32 t7 = 0; t7 < nE2; ++t7)
+								NkPropCmdRow(p, sc, r.x + kPad, yy, kE2[t7].libelle, kE2[t7].cle);
+						}
 						yy += NkGroupPad();
 						PaintGroupBlock(p, rowR, grpEdTop, yy);
 						}
@@ -6940,7 +7209,8 @@ namespace nkentseu {
 		inline void PaintPropertiesUnified(NkModelerPainter &p, const NkRect &rFull,
 										   NkModelerState &st, NkHitRegistry &hit, NkWidgetState &ws,
 										   const nkgui::NkGuiInput &in, NkComboPending &combo,
-										   nkgui::NkGuiContext *guiCtx = nullptr) {
+										   nkgui::NkGuiContext *guiCtx = nullptr,
+										   const editorkit::NkShortcutTable *sc = nullptr) {
 			p.Fill(rFull, NkRole::PanelBg);
 			p.VLine(rFull.x, rFull.y, rFull.h);
 			// ── LA LISTE OUVERTE D'UN COMBO BLOQUE CE PANNEAU ───────────────
@@ -7315,13 +7585,13 @@ namespace nkentseu {
 				} else if (sec == 3) {
 					PaintPropModifier(p, hit, st, ws, in, combo, guiCtx, r, rr, yy);
 				} else if (sec == 5) {
-					PaintPropTool(p, hit, st, ws, in, combo, guiCtx, r, rr, yy);
+					PaintPropTool(p, hit, st, ws, in, combo, guiCtx, r, rr, yy, sc);
 				} else if (sec == 4) {
 					PaintPropMaterial(p, hit, st, ws, in, combo, guiCtx, r, rr, yy);
 				} else if (sec == 6) {
 					PaintPropOutput(p, hit, st, ws, in, combo, guiCtx, r, rr, yy);
 				} else if (sec == 7) {
-					PaintPropMode(p, hit, st, ws, in, combo, guiCtx, r, rr, yy);
+					PaintPropMode(p, hit, st, ws, in, combo, guiCtx, r, rr, yy, sc);
 				}
 
 				// La hauteur du contenu sert desormais a la SEULE barre generale :

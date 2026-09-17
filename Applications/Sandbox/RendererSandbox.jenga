@@ -56,6 +56,11 @@ def sandboxusenkrenderer(project_name: str, source_files: list, app_id_suffix: s
             "%{NKCollision.location}/src",
             "%{NKSerialization.location}/src",
             "%{NKReflection.location}/src",
+            # Noge : UNIQUEMENT pour Noge/Physics/NkVehicleTuningIO.h, un en-tete
+            # SEUL (aucun .cpp, aucun lien). Le pont reglage <-> fichier vit dans
+            # Noge parce que NKPhysics se declare « bibliotheque de simulation PURE »
+            # et renvoie l integration a Noge ; inclure n est pas lier.
+            "%{Noge.location}/src",
             "%{NKMedia.location}/src",
         ]
         if use_nkimage:

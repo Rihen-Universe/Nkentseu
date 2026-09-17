@@ -4,6 +4,7 @@
 // @License Proprietary - All Rights Reserved (see LICENSE)
 // -----------------------------------------------------------------------------
 // =============================================================================
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // main.cpp — Point d'entree de NK3DModeler.
 //
 // L'INTERFACE EST PEINTE DIRECTEMENT, sans passer par NkEditorShell.
@@ -151,7 +152,16 @@ namespace {
 		if (hbmp) {
 			HGDIOBJ old = SelectObject(hdcMem, hbmp);
 			ok = PrintWindow(hwnd, hdcMem, 2 /*PW_RENDERFULLCONTENT*/) != 0;
-			if (!ok)
+			// ⚠️ LE REPLI BitBlt EST INTERDIT SOUS SONDE, et ce n'est pas une
+			//    precaution de style. `PrintWindow(PW_RENDERFULLCONTENT)` demande a
+			//    LA FENETRE de se redessiner : il ne peut rendre que SON contenu,
+			//    meme recouverte. `BitBlt(..., CAPTUREBLT)` lit l'ECRAN a
+			//    l'emplacement de la fenetre : si quoi que ce soit passe par dessus,
+			//    l'image contient l'ecran de quelqu'un d'autre. Une sonde n'a pas le
+			//    droit de produire cette image-la, meme par accident.
+			//    HORS sonde le repli reste : pour un utilisateur, une capture
+			//    degradee vaut mieux qu'une capture absente.
+			if (!ok && !std::getenv("NK_TOAST_PROBE"))
 				ok = BitBlt(hdcMem, 0, 0, w, h, hdcWin, 0, 0, SRCCOPY | CAPTUREBLT) != 0;
 			if (ok && bits) {
 				ok = out.Create((uint32)w, (uint32)h, math::NkColor(0, 0, 0, 255), 4);
@@ -207,7 +217,16 @@ namespace {
 		if (hbmp) {
 			HGDIOBJ old = SelectObject(hdcMem, hbmp);
 			ok = PrintWindow(hwnd, hdcMem, 2 /*PW_RENDERFULLCONTENT*/) != 0;
-			if (!ok)
+			// ⚠️ LE REPLI BitBlt EST INTERDIT SOUS SONDE, et ce n'est pas une
+			//    precaution de style. `PrintWindow(PW_RENDERFULLCONTENT)` demande a
+			//    LA FENETRE de se redessiner : il ne peut rendre que SON contenu,
+			//    meme recouverte. `BitBlt(..., CAPTUREBLT)` lit l'ECRAN a
+			//    l'emplacement de la fenetre : si quoi que ce soit passe par dessus,
+			//    l'image contient l'ecran de quelqu'un d'autre. Une sonde n'a pas le
+			//    droit de produire cette image-la, meme par accident.
+			//    HORS sonde le repli reste : pour un utilisateur, une capture
+			//    degradee vaut mieux qu'une capture absente.
+			if (!ok && !std::getenv("NK_TOAST_PROBE"))
 				ok = BitBlt(hdcMem, 0, 0, w, h, hdcWin, 0, 0, SRCCOPY | CAPTUREBLT) != 0;
 			if (ok && bits) {
 				NkImage img;
@@ -291,6 +310,32 @@ namespace {
 		// aucun dans le keymap par defaut -- verifie a la source). La table dit
 		// donc la verite : pas d'entree = pas de touche, et le menu n'affiche
 		// aucun raccourci a cote d'eux.
+
+		// ── DEUX FAMILLES DE TOUCHES QUI EXISTENT ET QUE LA TABLE IGNORAIT ──
+		// Trouvees en verifiant une contradiction, pas en cherchant a completer :
+		// le panneau Proprietes annonce « K -- couteau » alors que la table declare
+		// `Bisect` SANS touche. L'une des deux ment. Mesure, en ouvrant le fichier :
+		// `NkDemo3D.cpp:5741` traite bien `NkKey::NK_K` et arme le couteau. C'est
+		// donc la TABLE qui etait incomplete, et le panneau qui disait vrai.
+		//
+		// ⚠ POURQUOI ELLE L'ETAIT, ET CE QUE CA APPREND. Le commentaire qui justifie
+		// l'absence s'appuie sur Blender, ou `mesh.bisect` n'a pas de touche par
+		// defaut -- verification exacte, mais portant sur LE MAUVAIS OBJET. Notre
+		// viseur n'est pas Blender : c'est lui qu'il fallait ouvrir. Un raccourci qui
+		// fonctionne et qu'aucun menu n'annonce est precisement la maladie que ce
+		// fichier soigne. Spin et « separer les aretes », eux, n'ont vraiment aucune
+		// touche (verifie de la meme facon : ils ne s'atteignent que par le pilote
+		// d'agent `NK_VP_ACTION`) -- ils restent donc sans entree, et le menu
+		// continue de n'afficher aucun raccourci a cote d'eux.
+		t.Bind("edit.bisect", "Couper (bisect)", NkKey::NK_K, 0, NK_SCTX_EDIT);
+		// LES SOUS-MODES. Ils sont traites dans `NkDemo3D.cpp:5356-5377`, garde par
+		// l'etat REEL du viseur : 1/2/3 posent le mode seul, Maj+1/2/3 combinent.
+		// Sans ces trois entrees, la pastille de sous-mode ne pouvait porter aucune
+		// infobulle honnete -- et Rodolf avait raison de ne pas savoir si ces
+		// raccourcis existaient : rien dans l'application ne le disait.
+		t.Bind("edit.sous_mode_sommet", "Sous-mode Sommets", NkKey::NK_NUM1, 0, NK_SCTX_EDIT);
+		t.Bind("edit.sous_mode_arete", "Sous-mode Aretes", NkKey::NK_NUM2, 0, NK_SCTX_EDIT);
+		t.Bind("edit.sous_mode_face", "Sous-mode Faces", NkKey::NK_NUM3, 0, NK_SCTX_EDIT);
 
 		t.Bind("app.palette", "Rechercher une commande", NkKey::NK_F3, 0, NK_SCTX_GLOBAL);
 		t.Bind("app.panneau_outils", "Panneau d'outils", NkKey::NK_T, 0, NK_SCTX_GLOBAL);
@@ -440,23 +485,30 @@ namespace {
 		// croirait l'alignement casse alors que c'est la carte qui deborde.
 		m.thumbSize = 56.f;
 		m.entries.Clear();
-		for (int32 i = 0; i < st.browserCount && i < 32; ++i) {
-			if (st.browserKind[i] == 255)
+		// ⚠️ LE `&& i < 32` A DISPARU, ET C'EST LE POINT (2026-09-14).
+		//    Ce site lisait encore les dix tableaux paralleles que le refactor
+		//    du 05/09 a remplaces par un vecteur (NkModelerInput.h:144-156). La
+		//    fusion dans `transit` a garde l'appelant ancien et la structure
+		//    neuve : refus de compilation. Le migrer en RECOPIANT la borne 32
+		//    aurait remis EN SILENCE le plafond que le refactor existait pour
+		//    supprimer -- le projet de Rodolf en avait exactement 32.
+		for (int32 i = 0; i < st.BrowserCount(); ++i) {
+			const NkBrowserCard &c = st.Card(i);
+			if (c.kind == 255)
 				continue; // carte supprimee
 			NkAssetEntry e;
-			e.name = NkString(st.browserNames[i]);
-			e.isFolder = (st.browserKind[i] == 1);
+			e.name = NkString(c.name);
+			e.isFolder = (c.kind == 1);
 			// Legende du CONSOMMATEUR (NkModelerUI.h) : 0 graphe · 1 dossier ·
 			// 2 materiau · 3 texture · 4 dataset IA · 5 scene · 6 model.
 			static const char *const kKind[7] = {"Graphe", "Dossier", "Materiau",
 												 "Texture", "Dataset", "Scene", "Model"};
-			e.kindLabel = (st.browserKind[i] < 7) ? kKind[st.browserKind[i]] : "";
+			e.kindLabel = (c.kind < 7) ? kKind[c.kind] : "";
 			static const NkRole kKindRole[7] = {NkRole::AccentUi, NkRole::TextMuted,
 												NkRole::TypeMat, NkRole::TypeTex,
 												NkRole::AccentUi, NkRole::TypeAnim,
 												NkRole::TypeMesh};
-			e.kindRole = (uint16)((st.browserKind[i] < 7) ? kKindRole[st.browserKind[i]]
-														  : NkRole::TextMuted);
+			e.kindRole = (uint16)((c.kind < 7) ? kKindRole[c.kind] : NkRole::TextMuted);
 			e.userTag = (uint32)i;
 			m.entries.PushBack(e);
 		}
@@ -632,10 +684,21 @@ int nkmain(const NkEntryState &entry) {
 	// SANS CADRE OS : la maquette porte ses propres boutons de fenetre dans la
 	// barre de menus. Garder le cadre natif donnerait deux barres de titre.
 	NkWindowConfig wc;
-	// LE DORSAL DANS LE TITRE : la barre des taches et les outils systeme le
-	// montrent, meme si la fenetre est sans cadre. Le bandeau de l'application le
-	// porte AUSSI (cf. `PaintStatus`), et c'est LUI que Rodolf voit a l'ecran.
-	wc.title = NkString("NK3DModeler ") + NkString(NkEditorGfxApiName(gfxApi));
+	// ⚠ UN SEUL MARQUEUR DE SONDE, DEUX DECLENCHEURS. Transit et ce chantier
+	// ont ecrit le meme garde-fou le meme jour, sans se voir : `NK_TOAST_PROBE`
+	// d'un cote, `NK_SONDE` de l'autre, pour la raison exacte -- une capture de
+	// sonde prise pour une capture du produit. On n'en garde qu'un, qui repond
+	// aux deux variables : deux mecanismes pour un role divergeraient au premier
+	// changement de texte.
+	// `sonde` sert AUSSI a la barre DESSINEE (PaintMenuBarI) -- c'est elle que
+	// Rodolf voit, le titre OS ne se montrant qu'en barre des taches.
+	const bool sonde =
+		(std::getenv("NK_SONDE") != nullptr) || (std::getenv("NK_TOAST_PROBE") != nullptr);
+	// LE DORSAL DANS LE TITRE (apport de transit) : la barre des taches et les
+	// outils systeme le montrent, meme si la fenetre est sans cadre.
+	wc.title = sonde ? NkString("*** SONDE DE MESURE - CETTE FENETRE N'EST PAS LE PRODUIT *** ") +
+						   NkString(NkEditorGfxApiName(gfxApi))
+					 : NkString("NK3DModeler ") + NkString(NkEditorGfxApiName(gfxApi));
 	wc.width = 1600;
 	wc.height = 900;
 	wc.minWidth = 1100;
@@ -1075,7 +1138,14 @@ int nkmain(const NkEntryState &entry) {
 			// ne doit agir sur un document qu'on n'a pas encore ouvert.
 			if (st.editingText || st.welcome)
 				return;
-			auto want = [&st](NkVpAction a) { st.pendingAction = a; };
+			// L'ACTION EMPORTE LES MODIFICATEURS DE SON APPUI. Sans eux, tout ce qui ne
+			// se decide qu'au dispatch (les axes d'une modale) perdait Maj en route.
+			auto want = [&st, shift, ctrl, alt](NkVpAction a) {
+				st.pendingAction = a;
+				st.pendingShift = shift;
+				st.pendingCtrl = ctrl;
+				st.pendingAlt = alt;
+			};
 
 			switch (k) {
 				// ── Modes ───────────────────────────────────────────────────
@@ -1102,10 +1172,15 @@ int nkmain(const NkEntryState &entry) {
 				// Le choisir plutot que « selectionner l'outil » n'est pas un detail :
 				// il n'y a aucune poignee a viser, donc rien a rater.
 				case NkKey::NK_G:
-					want(NkVpAction::ModalMove);
+					// Alt+G = EFFACER la translation (rappel du viseur) : ne rien armer ici.
+					if (!alt)
+						want(NkVpAction::ModalMove);
 					break;
 				case NkKey::NK_R:
-					want(ctrl ? NkVpAction::LoopCut : NkVpAction::ModalRotate);
+					if (ctrl)
+						want(NkVpAction::LoopCut);
+					else if (!alt) // Alt+R = effacer la rotation (viseur)
+						want(NkVpAction::ModalRotate);
 					break;
 				case NkKey::NK_S:
 					// Ctrl+S ENREGISTRE -- le reflexe universel passe AVANT le
@@ -1116,7 +1191,7 @@ int nkmain(const NkEntryState &entry) {
 					// Ctrl+S = le FICHIER ACTIF ; Ctrl+Maj+S = TOUT le projet.
 					if (ctrl)
 						st.projPending = shift ? 8 : 3;
-					else
+					else if (!alt) // Alt+S = effacer l'echelle (viseur)
 						want(NkVpAction::ModalScale);
 					break;
 				// ── Operations ──────────────────────────────────────────────
@@ -1818,6 +1893,116 @@ int nkmain(const NkEntryState &entry) {
 		// aurait laisse Sculpture et Sculpture 2.5D indiscernables a l'arrivee,
 		// alors qu'elles n'ont pas les memes exigences de topologie.
 		demo::Demo3DHostSetMode((int32)st.mode);
+		// ── NK_EDIT_DIAG=1 : LES DEUX MODES SONT-ILS D'ACCORD ? ─────────────
+		// `st.mode` est l'etat du SHELL ; `Demo3DHostInEditMode()` celui du
+		// VISEUR. Ils peuvent diverger indefiniment : `Demo3DHostSetMode` n'impose
+		// rien, il arme une bascule qui ECHOUE si aucun objet n'est selectionne.
+		// Rien, nulle part, ne mesurait cet ecart -- on ne pouvait donc pas
+		// distinguer « le mode edition ne marche pas » de « le mode edition n'a
+		// jamais commence ». Une ligne toutes les 30 images, pas une par image.
+		{
+			static const bool trDiag = (std::getenv("NK_EDIT_DIAG") != nullptr);
+			if (trDiag && (agentFrame % 30) == 0) {
+				const int32 refus = demo::Demo3DHostEditRefusedFrames();
+				// COMBIEN D'OBJETS DE L'UTILISATEUR VIVENT, et quelle geometrie porte
+				// le maillage courant. Les deux repondent a « ajouter en edition
+				// cree-t-il un objet a part ou entre-t-il dans le maillage ? » -- et
+				// il faut les DEUX : un seul des deux compteurs laisserait la
+				// question ouverte.
+				// ⚠ `Demo3DHostObjectCount` ne convient pas : il rend une CONSTANTE
+				// (les objets de demonstration), pas les nœuds de l'utilisateur.
+				int32 vivants = 0;
+				const int32 nTot = demo::Demo3DHostNodeCount();
+				for (int32 q = 0; q < nTot; ++q)
+					if (demo::Demo3DHostUserKind(q) != 0 && !demo::Demo3DHostNodeDeleted(q))
+						++vivants;
+				uint32 gv = 0, ge = 0, gf = 0, gt = 0;
+				(void)demo::Demo3DHostStats(&gv, &ge, &gf, &gt);
+				// L'AFFICHAGE SUIT-IL LA CAGE, et l'aimantation est-elle armee ?
+				// Les deux repondent a des questions de Rodolf qu'aucun banc ne
+				// pouvait poser : « le deplacement ne se voit pas en temps reel »
+				// et « le snap marche-t-il en edition ? ».
+				bool un11 = false, mods = false, snapOn = false, snapAbs = false;
+				uint32 dvc = 0, rvc = 0;
+				float32 snapPas = 0.f, piv[3] = {0.f, 0.f, 0.f};
+				const bool dispOk =
+					demo::Demo3DHostEditDisplayInfo(&un11, &dvc, &rvc, &mods);
+				const bool snapOk = demo::Demo3DHostEditSnapInfo(&snapOn, &snapPas, &snapAbs, piv);
+				// LA POSITION D'UN SOMMET, LUE PENDANT LE GESTE. C'est la seule
+				// facon de distinguer « l'operation n'est pas appliquee » de
+				// « elle est appliquee mais rien ne la repeint ». Le sommet 0
+				// suffit : on mesure une VARIATION, pas une valeur absolue.
+				float32 vl[3] = {0.f, 0.f, 0.f}, vw[3] = {0.f, 0.f, 0.f};
+				// -1 : le PREMIER SOMMET SELECTIONNE, pas le sommet 0 -- lire un sommet
+				// que le geste ne concerne pas ferait conclure a tort que rien ne bouge.
+				const bool vOk = demo::Demo3DHostEditVertPos(-1, vl, vw);
+				// LA VALEUR DE L'OPERATION MODALE, a cote de la position du sommet.
+				// C'est ce couple qui separe les DEUX causes possibles du « rien ne
+				// bouge » : la modale ne calcule pas (valeur figee), ou elle calcule
+				// et n'applique pas (valeur qui monte, sommet immobile).
+				int32 mop2 = 0, mseg2 = 1;
+				const char *mn2 = nullptr, *mlv2 = nullptr, *mls2 = nullptr;
+				float32 mval2 = 0.f;
+				const bool mOk2 = demo::Demo3DHostModalInfo(&mop2, &mn2, &mlv2, &mval2, &mls2, &mseg2);
+				std::printf("[nk3d-diag] f=%4d shell.mode=%d(edit=%d) viseur.edit=%d "
+							"refus=%d masque=%d selection=%d modale=%d "
+							"noeuds=%d v=%u a=%u f=%u\n",
+							(int)agentFrame, (int)st.mode, (st.mode != NkMode::Object) ? 1 : 0,
+							demo::Demo3DHostInEditMode() ? 1 : 0, (int)refus,
+							(int)demo::Demo3DHostEditSelMask(),
+							(int)demo::Demo3DHostEditSelCount(),
+							demo::Demo3DHostModalActive() ? 1 : 0,
+							(int)vivants, gv, ge, gf);
+				if (dispOk || snapOk) {
+					std::printf("[nk3d-vue ] f=%4d affiche1pour1=%d (disp=%u cage=%u mods=%d) "
+								"| snap actif=%d pas=%.3f absolu=%d pivot=(%.3f %.3f %.3f)\n",
+								(int)agentFrame, un11 ? 1 : 0, dvc, rvc, mods ? 1 : 0,
+								snapOn ? 1 : 0, (double)snapPas, snapAbs ? 1 : 0,
+								(double)piv[0], (double)piv[1], (double)piv[2]);
+				}
+				// L'EMPREINTE DES POSITIONS, insensible a la selection. Le lecteur
+				// « premier sommet SELECTIONNE » change de cible des que la selection
+				// change -- apres un SelectAll il ne designe plus le meme sommet, et
+				// comparer ses coordonnees avant/apres ne mesure alors rien.
+				{
+					uint64 pe = 0;
+					uint32 pv = 0, pf = 0;
+					if (demo::Demo3DHostEditFingerprint(nullptr, &pv, &pf, nullptr, &pe)) {
+						std::printf("[nk3d-emp ] f=%4d positions=%016llx v=%u f=%u\n",
+									(int)agentFrame, (unsigned long long)pe, pv, pf);
+						std::fflush(stdout);
+					}
+				}
+				// LES DEUX SOURCES DE L'ETAT MODAL, cote a cote. Le shell decide si X
+				// est un AXE ou une SUPPRESSION en lisant `Viewport3DModalKind()`,
+				// qui est l'etat de la vue DORMANTE. La modale reelle, elle, vit
+				// dans le viseur. Si les deux divergent, X supprime pendant un G.
+				std::printf("[nk3d-mod2] f=%4d viseur.modale=%d   vue_dormante.modalKind=%d   inModal_effectif=%d\n",
+							(int)agentFrame, demo::Demo3DHostModalActive() ? 1 : 0,
+							(int)nk3d::Viewport3DModalKind(),
+							(demo::Demo3DHostModalActive() ||
+							 nk3d::Viewport3DModalKind() != nk3d::kVpXformNone) ? 1 : 0);
+				std::fflush(stdout);
+				if (vOk) {
+					std::printf("[nk3d-vert] f=%4d sommet0 local=(%.4f %.4f %.4f) "
+								"monde=(%.4f %.4f %.4f)\n",
+								(int)agentFrame, (double)vl[0], (double)vl[1], (double)vl[2],
+								(double)vw[0], (double)vw[1], (double)vw[2]);
+				}
+				// LE CRITERE QUI MANQUAIT : combien de lignes du panneau ont ete
+				// coupees faute de largeur. Il vaut 0 quand tout tient. C'est une
+				// image qui a trouve la premiere troncature ; celui-ci est la pour
+				// que la prochaine se MESURE.
+				std::printf("[nk3d-txt ] f=%4d lignes tronquees = %d\n",
+							(int)agentFrame, (int)nk3d::NkPropTronquees());
+				if (mOk2) {
+					std::printf("[nk3d-mod ] f=%4d op=%d (%s) %s=%.4f %s=%d\n",
+								(int)agentFrame, (int)mop2, mn2 ? mn2 : "?", mlv2 ? mlv2 : "?",
+								(double)mval2, mls2 ? mls2 : "(pas de segments)", (int)mseg2);
+				}
+				std::fflush(stdout);
+			}
+		}
 		// Le sous-mode de la vue devient le masque de selection. Un seul bit ici :
 		// les trois boutons sont exclusifs. Les combiner (Maj+1/2/3 chez Blender)
 		// viendra avec les raccourcis clavier.
@@ -1967,6 +2152,244 @@ int nkmain(const NkEntryState &entry) {
 			}
 		}
 
+		// NK_ADD_NODE2=<kind>[,sub[,frame]] : UN SECOND AJOUT, par le MEME chemin
+		// que NK_ADD_NODE (`Demo3DHostAddNode`, celui du menu Ajouter).
+		// POURQUOI IL FAUT UN SECOND. `NK_ADD_NODE` ne tire qu'une fois (son
+		// `sAddDone` est unique), et il tire AVANT l'entree en edition. La question
+		// de Rodolf -- « ajouter un element EN MODE EDITION, sous-maillage ou objet
+		// a part ? » -- porte precisement sur un ajout qui arrive APRES. Sans ce
+		// second levier, elle n'est mesurable par AUCUN banc : il faudrait cliquer.
+		{
+			static bool sAdd2Done = false;
+			if (const char *an = std::getenv("NK_ADD_NODE2")) {
+				int32 v[3] = {2, 0, 100};
+				int32 k = 0;
+				for (const char *p2 = an; k < 3 && *p2;) {
+					v[k++] = (int32)std::atoi(p2);
+					while (*p2 && *p2 != ',')
+						++p2;
+					if (*p2 == ',')
+						++p2;
+				}
+				if (!sAdd2Done && agentFrame >= v[2]) {
+					sAdd2Done = true;
+					// On NOTE l'etat AVANT : « combien d'objets, quelle geometrie ».
+					// Une mesure prise seulement APRES ne dirait pas de combien ca a
+					// change, et c'est la variation qui repond a la question.
+					int32 av = 0;
+					const int32 nT2 = demo::Demo3DHostNodeCount();
+					for (int32 q = 0; q < nT2; ++q)
+						if (demo::Demo3DHostUserKind(q) != 0 && !demo::Demo3DHostNodeDeleted(q))
+							++av;
+					uint32 v0 = 0, e0 = 0, f0 = 0, t0 = 0;
+					(void)demo::Demo3DHostStats(&v0, &e0, &f0, &t0);
+					const int32 nd = demo::Demo3DHostAddNode(v[0], v[1]);
+					int32 ap = 0;
+					for (int32 q = 0; q < nT2; ++q)
+						if (demo::Demo3DHostUserKind(q) != 0 && !demo::Demo3DHostNodeDeleted(q))
+							++ap;
+					uint32 v1 = 0, e1 = 0, f1 = 0, t1 = 0;
+					(void)demo::Demo3DHostStats(&v1, &e1, &f1, &t1);
+					std::printf("[nk3d-add2] frame=%d edition=%d -> noeud %d | noeuds %d->%d "
+								"| maillage v %u->%u  a %u->%u  f %u->%u\n",
+								(int)agentFrame, demo::Demo3DHostInEditMode() ? 1 : 0, (int)nd,
+								(int)av, (int)ap, v0, v1, e0, e1, f0, f1);
+					std::fflush(stdout);
+				}
+			} else {
+				sAdd2Done = true;
+			}
+		}
+
+		// NK_FOLD_OPEN="<cmd>[,<cmd>...]" : DEPLIE des blocs d'operation au demarrage.
+		// ⚠ CE N'EST PAS UN CHEMIN D'ARMEMENT D'UN ETAT DU PRODUIT, c'est une
+		// commande d'INSPECTION : elle pose le meme etat que le clic sur le
+		// chevron, par la meme porte (`NkFoldTable::Poser`). Sans elle, le contenu
+		// d'un bloc n'est verifiable a l'image par personne -- puisqu'ils naissent
+		// TOUS plies, ce qui est precisement ce que Rodolf a demande.
+		{
+			static bool sFoldDone = false;
+			if (const char *fo = std::getenv("NK_FOLD_OPEN")) {
+				if (!sFoldDone) {
+					sFoldDone = true;
+					for (const char *q = fo; *q;) {
+						char kb[48];
+						snprintf(kb, sizeof(kb), "prop.g.op.%d", (int)std::atoi(q));
+						st.grpFold.Poser(kb, false); // false = DEPLIE
+						while (*q && *q != ',')
+							++q;
+						if (*q == ',')
+							++q;
+					}
+				}
+			} else {
+				sFoldDone = true;
+			}
+		}
+
+		// NK_UNDO_TEST=<frame> : LE NEGATIF CAPITAL, en un seul lancement.
+		// A la frame f     : releve l'empreinte APRES l'operation
+		// A la frame f+20  : demande l'annulation, par la porte du clavier
+		// A la frame f+40  : releve -- doit egaler l'empreinte D'AVANT l'operation
+		// A la frame f+60  : demande le retablissement
+		// A la frame f+80  : releve -- doit egaler l'empreinte D'APRES
+		// L'empreinte d'AVANT est prise des l'entree en edition, avant toute op.
+		//
+		// ⚠ « Identique au bit » et « memes compteurs » ne sont pas la meme chose.
+		// Ce matin un journal affirmait « comparaison bit a bit = IDENTIQUE » --
+		// pour le gizmo -- pendant que le maillage restait deplace. L'empreinte
+		// hache les BITS des positions, la selection et la topologie.
+		{
+			static int32 sUndoF = -1;
+			static uint64 sAvant = 0, sApres = 0, sAvantGeo = 0, sAvantPos = 0, sAvantSel = 0, sAvantTopo = 0;
+			static bool sAvantPris = false;
+			if (const char *ut = std::getenv("NK_UNDO_TEST")) {
+				if (sUndoF < 0)
+					sUndoF = (int32)std::atoi(ut);
+				uint64 emp = 0, geo = 0, pos = 0, sel = 0, topo = 0;
+				uint32 nv = 0, nf = 0;
+				const bool ok = demo::Demo3DHostEditFingerprint(&emp, &nv, &nf, &geo, &pos, &sel, &topo);
+				// ⚠ L'ETAT DE REFERENCE SE PREND QUAND IL EST STABLE, pas a la
+				// premiere image d'edition. Mesure du 14/09 : l'empreinte change
+				// encore entre l'entree en edition et la frame 70 -- la selection
+				// n'est pas normalisee tout de suite. Prise trop tot, la reference
+				// n'est l'etat d'AUCUN moment, et le negatif accuse l'annulation
+				// d'un ecart qu'elle n'a pas produit. C'est ce qu'il a fait, et j'ai
+				// publie la conclusion fausse avant de la mesurer.
+				// La stabilite se constate : deux releves consecutifs identiques.
+				static uint64 sPrec = 0;
+				static bool sPrecPris = false;
+				const bool stable = sPrecPris && (emp == sPrec);
+				sPrec = emp;
+				sPrecPris = ok;
+				if (ok && !sAvantPris && stable) {
+					// LA PREMIERE IMAGE OU L'EDITION EST ACTIVE, et non un numero de
+					// frame choisi : mon premier essai prenait l'empreinte a la
+					// frame 66, APRES que le pilote ait deja applique l'operation.
+					// L'etat  AVANT  etait donc l'etat d'apres, et le negatif
+					// comparait une chose a elle-meme. Cinquieme fois aujourd'hui
+					// qu'un instrument mal place accuse le produit.
+					// L'etat de REFERENCE : en edition, avant toute operation.
+					sAvantPris = true;
+					sAvant = emp;
+					sAvantGeo = geo;
+					sAvantPos = pos;
+					sAvantSel = sel;
+					sAvantTopo = topo;
+					std::printf("[nk3d-undo] AVANT  op (etat STABLE, f=%d) : empreinte=%016llx v=%u f=%u\n",
+								(int)agentFrame, (unsigned long long)sAvant, nv, nf);
+					std::fflush(stdout);
+				}
+				// QUAND L'ETAT SE STABILISE-T-IL ? Un releve periodique, sans lequel
+				// on ne peut pas distinguer « l'annulation a change quelque chose »
+				// de « l'etat n'etait pas encore stable quand je l'ai photographie ».
+				// C'est la faute que ce releve vient de me faire attraper.
+				if (ok && (agentFrame % 10) == 0 && agentFrame <= sUndoF)
+					std::printf("[nk3d-stab] f=%4d empreinte=%016llx\n",
+								(int)agentFrame, (unsigned long long)emp);
+				if (ok && agentFrame == sUndoF) {
+					sApres = emp;
+					std::printf("[nk3d-undo] APRES  op : empreinte=%016llx v=%u f=%u  (%s)\n",
+								(unsigned long long)sApres, nv, nf,
+								(sApres == sAvant) ? "INCHANGE -- l'op n'a rien fait ?" : "modifie");
+					std::fflush(stdout);
+				}
+				if (agentFrame == sUndoF + 20) {
+					const bool d = demo::Demo3DHostEditUndoAsk();
+					std::printf("[nk3d-undo] annulation demandee : %s\n", d ? "oui" : "REFUSEE");
+					std::fflush(stdout);
+				}
+				if (ok && agentFrame == sUndoF + 40) {
+					std::printf("[nk3d-undo] APRES undo : empreinte=%016llx geo=%016llx v=%u f=%u  -> %s (geo %s)\n",
+								(unsigned long long)emp, (unsigned long long)geo, nv, nf,
+								(emp == sAvant) ? "IDENTIQUE AU BIT a l'etat d'avant"
+												: "DIFFERENT de l'etat d'avant",
+								(geo == sAvantGeo) ? "identique" : "DIFFERENTE");
+					std::printf("[nk3d-undo]   positions %s | selection %s | topologie %s\n",
+								(pos == sAvantPos) ? "identiques" : "DIFFERENTES",
+								(sel == sAvantSel) ? "identique" : "DIFFERENTE",
+								(topo == sAvantTopo) ? "identique" : "DIFFERENTE");
+					std::fflush(stdout);
+				}
+				if (agentFrame == sUndoF + 60) {
+					const bool d = demo::Demo3DHostEditRedoAsk();
+					std::printf("[nk3d-undo] retablissement demande : %s\n", d ? "oui" : "REFUSE");
+					std::fflush(stdout);
+				}
+				if (ok && agentFrame == sUndoF + 80) {
+					std::printf("[nk3d-undo] APRES redo : empreinte=%016llx v=%u f=%u  -> %s\n",
+								(unsigned long long)emp, nv, nf,
+								(emp == sApres) ? "IDENTIQUE AU BIT a l'etat d'apres"
+												: "DIFFERENT de l'etat d'apres");
+					std::fflush(stdout);
+				}
+			}
+		}
+
+		// NK_FRAME_EDIT="[sel][,frame]" : CADRE SERRE sur le maillage edite.
+		// sel=1 -> sur la seule SELECTION ; sinon sur le maillage entier.
+		// Sans ce crochet, la vue ne bouge pas -- c'est le negatif du cadrage.
+		{
+			static bool sFrameDone = false;
+			if (const char *fe = std::getenv("NK_FRAME_EDIT")) {
+				int32 v[2] = {0, 100};
+				int32 k = 0;
+				for (const char *q = fe; k < 2 && *q;) {
+					v[k++] = (int32)std::atoi(q);
+					while (*q && *q != ',')
+						++q;
+					if (*q == ',')
+						++q;
+				}
+				if (!sFrameDone && agentFrame >= v[1]) {
+					sFrameDone = true;
+					const bool ok = demo::Demo3DHostFrameEdit(v[0] != 0);
+					std::printf("[nk3d-cadre] frame=%d selection_seule=%d -> %s\n",
+								(int)agentFrame, (int)v[0], ok ? "cadre" : "REFUSE");
+					std::fflush(stdout);
+				}
+			} else {
+				sFrameDone = true;
+			}
+		}
+
+		// NK_OP_PARAM="index,valeur[,frame]" : pose un REGLAGE PERSISTANT d'operation
+		// par la MEME porte que le champ du panneau (`Demo3DHostOpParamSet`), donc
+		// avec le meme clamp. Sert a prouver ce que le canal exige : « changer la
+		// propriete change la GEOMETRIE » -- sans quoi un champ affiche n'est qu'un
+		// decor mieux habille.
+		{
+			static bool sOpPDone = false;
+			if (const char *op = std::getenv("NK_OP_PARAM")) {
+				float32 v[3] = {0.f, 0.f, 90.f};
+				int32 k = 0;
+				for (const char *q = op; k < 3 && *q;) {
+					v[k++] = (float32)std::atof(q);
+					while (*q && *q != ',')
+						++q;
+					if (*q == ',')
+						++q;
+				}
+				if (!sOpPDone && agentFrame >= (int32)v[2]) {
+					sOpPDone = true;
+					const int32 idx = (int32)v[0];
+					float32 avant = 0.f, apres = 0.f;
+					(void)demo::Demo3DHostOpParamGet(idx, &avant);
+					const bool ok = demo::Demo3DHostOpParamSet(idx, v[1]);
+					(void)demo::Demo3DHostOpParamGet(idx, &apres);
+					const char *lib = nullptr;
+					int32 cmd = -1, typ = 0;
+					(void)demo::Demo3DHostOpParamInfo(idx, &cmd, &lib, &typ, nullptr, nullptr);
+					std::printf("[nk3d-opp ] param %d (%s, cmd=%d) : %.3f -> %.3f (pose=%d)\n",
+								(int)idx, lib ? lib : "?", (int)cmd, (double)avant, (double)apres,
+								ok ? 1 : 0);
+					std::fflush(stdout);
+				}
+			} else {
+				sOpPDone = true;
+			}
+		}
+
 		// NK_EDIT_MODE=<1>[,frame] : le MODE vient du shell, la CIBLE du viseur.
 		// Le crochet cote viseur choisit l'objet a editer ; c'est ici que le mode
 		// est POSE, par la meme porte que l'onglet et que TAB. Sans cela, le
@@ -1987,6 +2410,212 @@ int nkmain(const NkEntryState &entry) {
 				}
 			} else {
 				sEditModeDone = true;
+			}
+		}
+
+		// NK_EDIT_PICK="x,y[,frame][,shift][,alt]" : UN CLIC D'ELEMENT A DES
+		// COORDONNEES ECRITES, en pixels de la VUE. Il passe par la MEME porte que
+		// le clic de la souris (`Demo3DHostEditPickAt` arme, la vue consomme au
+		// meme endroit) -- aucun evenement souris n'est fabrique, aucune position
+		// de curseur n'est ecrite.
+		// ⚠️ POURQUOI CE CROCHET EXISTE : le pick d'element etait le SEUL geste du
+		// mode Edition qu'aucune porte ne pouvait declencher. Le mode, les
+		// operations, la selection par indices en avaient une ; designer un sommet
+		// a un endroit donne, non. Sans lui, « les trois modes designent trois
+		// choses differentes au meme clic » ne pouvait pas se mesurer du tout.
+		// La ligne imprimee est le quadruplet de Blender : sommet actif, arete
+		// active (deux sommets), face active, et le compte de la selection.
+		{
+			static bool sPickDone = false;
+			if (const char *pk = std::getenv("NK_EDIT_PICK")) {
+				float32 px = 0.f, py = 0.f;
+				int32 fr = 40;
+				int32 shf = 0, alt = 0;
+				{
+					const char *c = pk;
+					px = (float32)std::atof(c);
+					auto suivant = [](const char *&p) -> bool {
+						while (*p && *p != ',')
+							++p;
+						if (*p != ',')
+							return false;
+						++p;
+						return true;
+					};
+					if (suivant(c)) {
+						py = (float32)std::atof(c);
+						if (suivant(c)) {
+							fr = (int32)std::atoi(c);
+							if (suivant(c)) {
+								shf = std::atoi(c);
+								if (suivant(c))
+									alt = std::atoi(c);
+							}
+						}
+					}
+				}
+				if (!sPickDone && agentFrame >= fr && demo::Demo3DHostInEditMode()) {
+					sPickDone = true;
+					// UNE COORDONNEE ENTRE 0 ET 1 EST UNE FRACTION DE LA VUE, et c'est
+					// dit : la taille de la vue depend de la fenetre et des panneaux, et
+					// ecrire « 512 » dans un banc qui tournera ailleurs, c'est ecrire un
+					// point qui tombera a cote. Au-dessus de 1, c'est un pixel.
+					uint32 vw = 0, vh = 0;
+					demo::Demo3DHostViewSize(&vw, &vh);
+					if (px > 0.f && px <= 1.f)
+						px *= (float32)vw;
+					if (py > 0.f && py <= 1.f)
+						py *= (float32)vh;
+					const bool arme = demo::Demo3DHostEditPickAt(px, py, shf != 0, alt != 0);
+					std::printf("[nk3d] NK_EDIT_PICK (%.1f,%.1f) vue=%ux%u mode=%d arme=%d\n",
+								(double)px, (double)py, vw, vh,
+								(int)demo::Demo3DHostEditSelMask(), arme ? 1 : 0);
+				}
+				// Le RESULTAT se lit une frame APRES l'armement : le pick est
+				// consomme dans la vue, pas ici. Lire tout de suite rendrait
+				// l'etat d'AVANT le clic -- la faute deja payee sur les modes.
+				static int32 sPickLu = -1;
+				if (sPickDone && sPickLu < 0 && agentFrame >= fr + 2) {
+					sPickLu = agentFrame;
+					int32 v = -1, ea = -1, eb = -1, f = -1;
+					const bool ok = demo::Demo3DHostEditActive(&v, &ea, &eb, &f);
+					std::printf("[nk3d] PICK RESULTAT mode=%d : sommet=%d arete=(%d,%d) face=%d "
+								"selection=%d (lu=%d)\n",
+								(int)demo::Demo3DHostEditSelMask(), (int)v, (int)ea, (int)eb, (int)f,
+								(int)demo::Demo3DHostEditSelCount(), ok ? 1 : 0);
+				}
+			} else {
+				sPickDone = true;
+			}
+		}
+
+		// NK_EDIT_PICK_VERT="v1[,v2][,maj][,frame]" : le meme, par indice de SOMMET
+		// brut. Les deux partagent ce bloc : deux blocs jumeaux seraient deux
+		// instruments a tenir d'accord.
+		// NK_EDIT_PICK_FACE="f1[,f2][,maj][,frame]" : UN OU DEUX CLICS DE FACE
+		// DESIGNES PAR LEUR INDEX. Le crochet par pixels (NK_EDIT_PICK) reste : il
+		// reproduit le chemin de Rodolf. Celui-ci sert aux bancs, parce que viser
+		// en pixels n'est pas deterministe et qu'un essai qui rate faute d'avoir
+		// vise juste est indiscernable d'un essai qui rate parce que le code est
+		// faux. Les deux passent par la MEME porte et la MEME election.
+		// f2 >= 0 -> SECOND clic, trois frames plus tard, avec Maj si maj=1 : c'est
+		// le negatif obligatoire du Maj+clic (maj=0 doit laisser UNE face).
+		{
+			static bool sPf1 = false, sPf2 = false;
+			static int32 sPfLu = -1;
+			// UN SEUL SITE D'IMPRESSION POUR LES DEUX : deux blocs jumeaux, c'est
+			// deux instruments a garder d'accord, et le jour ou l'un des deux
+			// oublie un critere on ne le voit pas.
+			const char *pfF = std::getenv("NK_EDIT_PICK_FACE");
+			const char *pfV = std::getenv("NK_EDIT_PICK_VERT");
+			const bool parSommet = (pfF == nullptr && pfV != nullptr);
+			if (const char *pf = (pfF ? pfF : pfV)) {
+				int32 v[4] = {0, -1, 0, 40};
+				{
+					int32 k = 0;
+					for (const char *q = pf; k < 4 && *q;) {
+						v[k++] = (int32)std::atoi(q);
+						while (*q && *q != ',')
+							++q;
+						if (*q == ',')
+							++q;
+					}
+				}
+				const int32 fr = v[3];
+				if (!sPf1 && agentFrame >= fr && demo::Demo3DHostInEditMode()) {
+					sPf1 = true;
+					// L'INVENTAIRE DES FACES D'ABORD : un index choisi sans savoir ou
+					// sont les faces est un index devine, et on n'aurait rien gagne.
+					const uint32 nf = parSommet ? demo::Demo3DHostEditVertCount()
+										: demo::Demo3DHostEditFaceCount();
+					for (uint32 f = 0; f < nf && f < 64u; ++f) {
+						uint32 nv = 0;
+						float32 cx = 0.f, cy = 0.f, cz = 0.f;
+						if (parSommet) {
+							if (demo::Demo3DHostEditVertPos((int32)f, &cx, &cy, &cz))
+								std::printf("[nk3d-sommet] #%u : (%.4f, %.4f, %.4f)\n", f, (double)cx,
+												(double)cy, (double)cz);
+						} else if (demo::Demo3DHostEditFaceInfo((int32)f, &nv, &cx, &cy, &cz)) {
+							std::printf("[nk3d-face] #%u : %u sommets · centre (%.4f, %.4f, %.4f)\n",
+											f, nv, (double)cx, (double)cy, (double)cz);
+						}
+					}
+					const bool a1 = parSommet ? demo::Demo3DHostEditPickVert(v[0], false)
+										: demo::Demo3DHostEditPickFace(v[0], false);
+					std::printf("[nk3d-pickf] frame=%d clic 1 %s=%d maj=0 -> arme=%d (total=%u)\n",
+									(int)agentFrame, parSommet ? "sommet" : "face", (int)v[0], a1 ? 1 : 0, nf);
+					std::fflush(stdout);
+				}
+				if (sPf1 && !sPf2 && agentFrame >= fr + 3) {
+					sPf2 = true;
+					if (v[1] >= 0) {
+						const bool a2 = parSommet ? demo::Demo3DHostEditPickVert(v[1], v[2] != 0)
+											: demo::Demo3DHostEditPickFace(v[1], v[2] != 0);
+						std::printf("[nk3d-pickf] frame=%d clic 2 %s=%d maj=%d -> arme=%d\n",
+										(int)agentFrame, parSommet ? "sommet" : "face", (int)v[1], (int)v[2],
+										a2 ? 1 : 0);
+						std::fflush(stdout);
+					}
+				}
+				// Le resultat se lit APRES la frame qui consomme : le pick est consomme
+				// dans la vue, pas ici. Lire tout de suite rendrait l'etat d'AVANT.
+				if (sPf2 && sPfLu < 0 && agentFrame >= fr + 6) {
+					sPfLu = agentFrame;
+					int32 av = -1, ea = -1, eb = -1, fa = -1;
+					demo::Demo3DHostEditActive(&av, &ea, &eb, &fa);
+					uint32 ns = 0;
+					float32 bx = 0.f, by = 0.f, bz = 0.f, br = 0.f;
+					const bool okb = demo::Demo3DHostEditSelBounds(&ns, &bx, &by, &bz, &br);
+					std::printf("[nk3d-pickf] RESULTAT masque=%d : selection=%d · face active=%d"
+										" · sommets bruts=%u · boite centre (%.4f, %.4f, %.4f) rayon %.6f (lu=%d)\n",
+									(int)demo::Demo3DHostEditSelMask(), (int)demo::Demo3DHostEditSelCount(),
+									(int)fa, ns, (double)bx, (double)by, (double)bz, (double)br, okb ? 1 : 0);
+					std::fflush(stdout);
+				}
+			} else {
+				sPf1 = sPf2 = true;
+			}
+		}
+
+		// NK_EDIT_REPORT="<frame>[,<frame2>]" : l'etat du mode Edition a UNE ou DEUX
+		// frames donnees -- comptes reels, selection, masque, ET disponibilite de
+		// l'annulation. Deux frames parce qu'une operation se juge par un AVANT et
+		// un APRES, et qu'un seul relevé ne dit jamais ce qui a change.
+		// ⚠️ `annuler`/`refaire` sont dans la meme ligne que les comptes A DESSEIN :
+		// un mode edition sans annulation est un piege, pas un outil -- et la seule
+		// facon de le savoir est de le lire au meme moment que le reste.
+		{
+			static bool sRep1 = false, sRep2 = false;
+			if (const char *rp = std::getenv("NK_EDIT_REPORT")) {
+				int32 f1 = 50, f2 = -1;
+				f1 = (int32)std::atoi(rp);
+				{
+					const char *c = rp;
+					while (*c && *c != ',')
+						++c;
+					if (*c == ',')
+						f2 = (int32)std::atoi(c + 1);
+				}
+				auto ecrire = [&](int32 quand) {
+					uint32 vv = 0, ve = 0, vf = 0, vt = 0;
+					const bool ok = demo::Demo3DHostStats(&vv, &ve, &vf, &vt);
+					std::printf("[nk3d] EDIT RAPPORT frame=%d : v=%u e=%u f=%u t=%u | selection=%d "
+								"| masque=%d | annuler=%d refaire=%d (lu=%d)\n",
+								(int)quand, vv, ve, vf, vt, (int)demo::Demo3DHostEditSelCount(),
+								(int)demo::Demo3DHostEditSelMask(),
+								demo::Demo3DHostEditCanUndo() ? 1 : 0,
+								demo::Demo3DHostEditCanRedo() ? 1 : 0, ok ? 1 : 0);
+				};
+				if (!sRep1 && f1 > 0 && agentFrame >= f1) {
+					sRep1 = true;
+					ecrire(agentFrame);
+				}
+				if (!sRep2 && f2 > 0 && agentFrame >= f2) {
+					sRep2 = true;
+					ecrire(agentFrame);
+				}
+			} else {
+				sRep1 = sRep2 = true;
 			}
 		}
 
@@ -2168,6 +2797,62 @@ int nkmain(const NkEntryState &entry) {
 				demo::Demo3DHostNodesTrace();
 		}
 
+		// NK_MODAL_VALIDER=<frame> : valide la modale en cours par la porte du CLIC
+		// GAUCHE (Demo3DHostModalConfirmAsk -> modalConfirmPending), a une frame choisie.
+		// La validation automatique (NK_MODAL_CONFIRM) passe par la meme fonction de
+		// validation, mais pas par ce drapeau : ce crochet mesure la porte du clic.
+		{
+			static bool sMvDone = false;
+			if (const char *mv = std::getenv("NK_MODAL_VALIDER")) {
+				const int32 fr = (int32)std::atoi(mv);
+				if (!sMvDone && agentFrame >= fr) {
+					sMvDone = true;
+					const bool ok = demo::Demo3DHostModalConfirmAsk();
+					std::printf("[nk3d-axe ] f=%4d validation par la porte du clic -> %d\n", (int)agentFrame, ok ? 1 : 0);
+					std::fflush(stdout);
+				}
+			}
+		}
+
+		// NK_MODAL_START="move|rotate|scale[,frame]" : lance la VRAIE modale, celle du
+		// viseur, par `Demo3DHostEditModal` -- la meme porte que la touche G/R/S du
+		// viseur (modalStartPending). L'action ModalMove du shell, elle, arme la vue
+		// DORMANTE : un temoin qui l'emprunterait ne mesurerait rien.
+		// La CONTRAINTE est tracee a chaque changement ([nk3d-axe ]) : c'est elle qui
+		// dit ce que la modale a COMPRIS d'un appui, plan et repere compris.
+		{
+			static bool sMsDone = false;
+			static int32 sAxeVu = -99, sPlanVu = -1, sLocalVu = -1, sActifVu = -1;
+			if (const char *ms = std::getenv("NK_MODAL_START")) {
+				int32 fr = 80;
+				{
+					const char *c = ms;
+					while (*c && *c != ',')
+						++c;
+					if (*c == ',')
+						fr = (int32)std::atoi(c + 1);
+				}
+				if (!sMsDone && agentFrame >= fr && demo::Demo3DHostInEditMode()) {
+					sMsDone = true;
+					const int32 op = (ms[0] == 'r' || ms[0] == 'R') ? 10 : ((ms[0] == 's' || ms[0] == 'S') ? 11 : 9);
+					const bool ok = demo::Demo3DHostEditModal(op);
+					std::printf("[nk3d-axe ] f=%4d lancement modale op=%d -> %d\n", (int)agentFrame, (int)op, ok ? 1 : 0);
+				}
+				int32 ax = -1;
+				bool pl = false, lo = false;
+				const bool actif = demo::Demo3DHostModalConstraint(&ax, &pl, &lo);
+				if ((int32)actif != sActifVu || ax != sAxeVu || (int32)pl != sPlanVu || (int32)lo != sLocalVu) {
+					sActifVu = (int32)actif;
+					sAxeVu = ax;
+					sPlanVu = (int32)pl;
+					sLocalVu = (int32)lo;
+					std::printf("[nk3d-axe ] f=%4d modale=%d axe=%d plan=%d local=%d\n", (int)agentFrame,
+							actif ? 1 : 0, (int)ax, pl ? 1 : 0, lo ? 1 : 0);
+					std::fflush(stdout);
+				}
+			}
+		}
+
 		// NK_VP_ACTION=<nom>[,frame] : declenche une ACTION DU SHELL (NkVpAction),
 		// par le MEME chemin que le clavier et que les futurs boutons.
 		// ATTENTION, C EST TOUTE LA DIFFERENCE QUE CE TEMOIN MESURE : les crochets
@@ -2189,8 +2874,17 @@ int nkmain(const NkEntryState &entry) {
 					fr = (int32)std::atoi(cm + 1);
 				if (!sVpActDone && agentFrame >= fr) {
 					sVpActDone = true;
+					// « maj+<nom> » : l'action porte Maj, exactement comme une touche enfoncee
+					// avec Maj. C'est le seul moyen de faire passer un modificateur par le
+					// chemin du BOUTON sans injecter d'evenement clavier.
+					const bool majHook = (vpa[0] == 'm' || vpa[0] == 'M') && (vpa[1] == 'a' || vpa[1] == 'A') &&
+							(vpa[2] == 'j' || vpa[2] == 'J') && vpa[3] == '+';
+					const char *nomAct = majHook ? vpa + 4 : vpa;
+					st.pendingShift = majHook;
+					st.pendingCtrl = false;
+					st.pendingAlt = false;
 					auto est = [&](const char *n) -> bool {
-						const char *a = vpa;
+						const char *a = nomAct;
 						const char *b = n;
 						while (*b) {
 							char x = *a++, y = *b++;
@@ -2243,6 +2937,22 @@ int nkmain(const NkEntryState &entry) {
 						st.pendingAction = NkVpAction::BevelEdge;
 					else if (est("delete"))
 						st.pendingAction = NkVpAction::Delete;
+					else if (est("modalaxisx"))
+						st.pendingAction = NkVpAction::ModalAxisX;
+					else if (est("modalaxisy"))
+						st.pendingAction = NkVpAction::ModalAxisY;
+					else if (est("modalaxisz"))
+						st.pendingAction = NkVpAction::ModalAxisZ;
+					else if (est("modalmove"))
+						st.pendingAction = NkVpAction::ModalMove;
+					else if (est("modalconfirm"))
+						st.pendingAction = NkVpAction::ModalConfirm;
+					else if (est("modalcancel"))
+						st.pendingAction = NkVpAction::ModalCancel;
+					else if (est("dissolve"))
+						st.pendingAction = NkVpAction::Dissolve;
+					else if (est("toggleedit"))
+						st.pendingAction = NkVpAction::ToggleEdit;
 					else
 						puts("[nk3d] NK_VP_ACTION : nom inconnu, aucune action posee");
 				}
@@ -2266,8 +2976,17 @@ int nkmain(const NkEntryState &entry) {
 					fr = (int32)std::atoi(cm + 1);
 				if (!sVpAct2Done && agentFrame >= fr) {
 					sVpAct2Done = true;
+					// « maj+<nom> » : l'action porte Maj, exactement comme une touche enfoncee
+					// avec Maj. C'est le seul moyen de faire passer un modificateur par le
+					// chemin du BOUTON sans injecter d'evenement clavier.
+					const bool majHook = (vpa[0] == 'm' || vpa[0] == 'M') && (vpa[1] == 'a' || vpa[1] == 'A') &&
+							(vpa[2] == 'j' || vpa[2] == 'J') && vpa[3] == '+';
+					const char *nomAct = majHook ? vpa + 4 : vpa;
+					st.pendingShift = majHook;
+					st.pendingCtrl = false;
+					st.pendingAlt = false;
 					auto est = [&](const char *n) -> bool {
-						const char *a = vpa;
+						const char *a = nomAct;
 						const char *b = n;
 						while (*b) {
 							char x = *a++, y = *b++;
@@ -2320,6 +3039,22 @@ int nkmain(const NkEntryState &entry) {
 						st.pendingAction = NkVpAction::BevelEdge;
 					else if (est("delete"))
 						st.pendingAction = NkVpAction::Delete;
+					else if (est("modalaxisx"))
+						st.pendingAction = NkVpAction::ModalAxisX;
+					else if (est("modalaxisy"))
+						st.pendingAction = NkVpAction::ModalAxisY;
+					else if (est("modalaxisz"))
+						st.pendingAction = NkVpAction::ModalAxisZ;
+					else if (est("modalmove"))
+						st.pendingAction = NkVpAction::ModalMove;
+					else if (est("modalconfirm"))
+						st.pendingAction = NkVpAction::ModalConfirm;
+					else if (est("modalcancel"))
+						st.pendingAction = NkVpAction::ModalCancel;
+					else if (est("dissolve"))
+						st.pendingAction = NkVpAction::Dissolve;
+					else if (est("toggleedit"))
+						st.pendingAction = NkVpAction::ToggleEdit;
 					else
 						puts("[nk3d] NK_VP_ACTION2 : nom inconnu, aucune action posee");
 				}
@@ -2327,23 +3062,86 @@ int nkmain(const NkEntryState &entry) {
 		}
 		if (st.pendingAction != NkVpAction::None) {
 			const NkVpAction a = st.pendingAction;
+			// LES MODIFICATEURS SONT LUS AVEC L'ACTION, et remis a zero avec elle : un
+			// modificateur qui survivrait a son action se preterait a la suivante.
+			const bool majAct = st.pendingShift;
+			st.pendingShift = false;
+			st.pendingCtrl = false;
+			st.pendingAlt = false;
 			st.pendingAction = NkVpAction::None;
 			const bool edit = (st.mode != NkMode::Object);
-			const bool inModal = (nk3d::Viewport3DModalKind() != nk3d::kVpXformNone);
+			// ⚠ L'AUTORITE VIVANTE, ET NON LA VUE DORMANTE. `Viewport3DModalKind()`
+			// est l'etat de `NkViewport3D`, que le viseur n'alimente pas : mesure du
+			// 14/09, modale lancee par le viseur -> viseur.modale=1 et
+			// vue_dormante.modalKind=0. `inModal` etait donc FAUX pendant une vraie
+			// transformation, et X tombait dans la branche « supprimer » au lieu de
+			// contraindre l'axe. C'est la plainte de Rodolf, mot pour mot : « les
+			// raccourcis semblent bloques par l'action x qui permet de supprimer ».
+			// On garde l'ancienne source en OU : le chemin du shell arme encore la
+			// vue dormante (Viewport3DBeginModal), et la retirer ici casserait les
+			// modales lancees par ce chemin-la.
+			const bool inModal = demo::Demo3DHostModalActive() ||
+								 (nk3d::Viewport3DModalKind() != nk3d::kVpXformNone);
 			const float32 mxv = ui.input.mousePos.x - lay.view.x;
 			const float32 myv = ui.input.mousePos.y - lay.view.y;
+			// ── PENDANT UNE MODALE, LE CLAVIER APPARTIENT A LA MODALE ─────────────
+			// Mesure du 14/09 : pendant un G, le dispatch executait encore Extruder,
+			// Supprimer, Dissoudre, Fusionner, Subdiviser, Loop cut, Inserer, les biseaux,
+			// TAB, A / Alt+A et les outils de zone -- seuls Annuler et Refaire etaient gardes.
+			// Blender les refuse : sa « Transform Modal Map » remplace le keymap.
+			// ⚠ UNE LISTE BLANCHE, PAS ONZE GARDES. Poser `!inModal` sur chaque cas est la
+			// forme qui s'oublie a la prochaine action ajoutee ; ici, ce qui n'est pas cite
+			// est REFUSE par defaut. Passent : les actions de la modale (axes, valider,
+			// annuler) et la navigation de vue, qui ne touchent pas la geometrie.
+			bool permiseEnModale = false;
 			switch (a) {
+				case NkVpAction::ModalAxisX:
+				case NkVpAction::ModalAxisY:
+				case NkVpAction::ModalAxisZ:
+				case NkVpAction::ModalConfirm:
+				case NkVpAction::ModalCancel:
+				case NkVpAction::ViewFront:
+				case NkVpAction::ViewBack:
+				case NkVpAction::ViewRight:
+				case NkVpAction::ViewLeft:
+				case NkVpAction::ViewTop:
+				case NkVpAction::ViewBottom:
+				case NkVpAction::ToggleOrtho:
+				case NkVpAction::FrameAll:
+				case NkVpAction::ToggleXray:
+					permiseEnModale = true;
+					break;
+				default:
+					break;
+			}
+			if (inModal && !permiseEnModale) {
+				std::printf("[nk3d-mod ] action %d REFUSEE pendant une modale\n", (int)a);
+				std::fflush(stdout);
+			}
+			switch ((inModal && !permiseEnModale) ? NkVpAction::None : a) {
 				case NkVpAction::ToggleEdit:
 					st.mode = edit ? NkMode::Object : NkMode::Edit;
 					break;
+				// ⚠ CES TROIS CAS N'ONT JAMAIS RIEN FAIT, ET C'EST LE CORRECTIF.
+				// Ils posaient `st.subMode`, un MIROIR que la boucle REECRIT a chaque
+				// image depuis le viseur (« Sous-mode : refleter le masque reel »,
+				// plus haut dans ce fichier). La valeur ecrite ici etait donc ecrasee
+				// a l'image suivante : un raccourci qui ecrit dans un miroir n'est pas
+				// un raccourci.
+				//
+				// C'ETAIT UN SECOND CHEMIN vers le meme etat -- le motif que TAB a
+				// deja paye dans `NkDemo3D.cpp` (« TAB N'EST PLUS TRAITE ICI, ET
+				// C'EST LE CORRECTIF »). Le viseur tient deja 1/2/3, garde par son
+				// etat REEL, et lui seul sait faire Maj+1/2/3 = COMBINER.
+				//
+				// ⚠ ET ON NE LES REBRANCHE SURTOUT PAS vers `Demo3DHostSetEditSelMask` :
+				// les deux rappels recoivent la MEME touche. Sur Maj+1, le viseur ferait
+				// son XOR et ce cas-ci ecraserait par le bit seul -- la combinaison
+				// serait perdue, et le defaut n'apparaitrait QUE modificateur enfonce.
+				// On retire le doublon, on ne le repare pas.
 				case NkVpAction::SubModeVertex:
-					st.subMode = NkSubMode::Vertex;
-					break;
 				case NkVpAction::SubModeEdge:
-					st.subMode = NkSubMode::Edge;
-					break;
 				case NkVpAction::SubModeFace:
-					st.subMode = NkSubMode::Face;
 					break;
 				case NkVpAction::SelectAll:
 					demo::Demo3DHostSelectAll(true);
@@ -2362,19 +3160,40 @@ int nkmain(const NkEntryState &entry) {
 					break;
 				// ── Modales ─────────────────────────────────────────────────
 				case NkVpAction::ModalMove:
-					nk3d::Viewport3DBeginModal(nk3d::kVpXformMove, mxv, myv);
+					// LA MODALE VIVANTE, PAS LA VUE DORMANTE. Ce cas armait `Viewport3DBeginModal`,
+					// qu'aucune image n'affiche : G, souris hors de la vue, ne faisait rien, et la
+					// seule modale vivante naissait par le rappel du viseur, garde par le survol.
+					// Le viseur ne lance plus G/R/S : un appui, un chemin. Repli dormant si l'hote
+					// n'est pas pret.
+					if (!demo::Demo3DHostTransformModal(9))
+						nk3d::Viewport3DBeginModal(nk3d::kVpXformMove, mxv, myv);
 					break;
 				case NkVpAction::ModalRotate:
-					nk3d::Viewport3DBeginModal(nk3d::kVpXformRotate, mxv, myv);
+					if (!demo::Demo3DHostTransformModal(10))
+						nk3d::Viewport3DBeginModal(nk3d::kVpXformRotate, mxv, myv);
 					break;
 				case NkVpAction::ModalScale:
-					nk3d::Viewport3DBeginModal(nk3d::kVpXformScale, mxv, myv);
+					if (!demo::Demo3DHostTransformModal(11))
+						nk3d::Viewport3DBeginModal(nk3d::kVpXformScale, mxv, myv);
 					break;
 				case NkVpAction::ModalAxisX:
+					// ⚠ UN APPUI, UN CHEMIN, ET MAJ AVEC LUI. Mesure du 14/09, avant ce correctif :
+					// la table modale du viseur ET ce dispatch recevaient la meme touche (la
+					// diffusion d'evenements appelle tous les rappels, sans consommation).
+					//   Maj+X : le viseur posait le PLAN (f=81), ce cas le remplacait par l'axe
+					//           seul (f=91) -- Maj etait perdu, la contrainte redevenait X ;
+					//   X     : le viseur posait X, ce cas le reposait -> LOCAL : un appui comptait
+					//           double.
+					// Les touches d'axe ne vivent plus qu'ICI : ce chemin ne depend pas du survol de
+					// la vue (une modale possede le clavier ou que soit le curseur, comme chez
+					// Blender) et il porte maintenant les modificateurs de l'appui.
 					// HORS MODALE, X garde son role de suppression : une touche ne
 					// doit pas devenir muette parce qu'un autre mode existe.
 					if (inModal) {
-						nk3d::Viewport3DModalAxis(0);
+						// La modale VIVANTE d'abord ; la vue dormante reste le repli
+						// pour les modales lancees par le chemin du shell.
+						if (!demo::Demo3DHostModalAxis(0, majAct))
+							nk3d::Viewport3DModalAxis(0);
 					} else if (edit) {
 						if (demo::Demo3DHostEditDelete())
 							NkMarkDirty(st);
@@ -2394,15 +3213,25 @@ int nkmain(const NkEntryState &entry) {
 					break;
 				case NkVpAction::ModalAxisY:
 					if (inModal)
-						nk3d::Viewport3DModalAxis(1);
+						// La modale VIVANTE d'abord ; la vue dormante reste le repli
+						// pour les modales lancees par le chemin du shell.
+						if (!demo::Demo3DHostModalAxis(1, majAct))
+							nk3d::Viewport3DModalAxis(1);
 					break;
 				case NkVpAction::ModalAxisZ:
 					if (inModal)
-						nk3d::Viewport3DModalAxis(2);
+						// La modale VIVANTE d'abord ; la vue dormante reste le repli
+						// pour les modales lancees par le chemin du shell.
+						if (!demo::Demo3DHostModalAxis(2, majAct))
+							nk3d::Viewport3DModalAxis(2);
 					break;
 				case NkVpAction::ModalConfirm:
 					if (inModal)
-						nk3d::Viewport3DModalConfirm();
+						// Le drapeau de la modale VIVANTE (celui du clic gauche et de la table modale du
+						// viseur) ; la vue dormante reste le repli. Les deux chemins d'Entree convergent
+						// sur UN drapeau, consomme une fois.
+						if (!demo::Demo3DHostModalConfirmAsk())
+							nk3d::Viewport3DModalConfirm();
 					break;
 				case NkVpAction::ModalCancel:
 					// Echap annule ce qui est en cours, dans l'ordre de priorite :
@@ -2410,7 +3239,8 @@ int nkmain(const NkEntryState &entry) {
 					// armer un rectangle puis appuyer Echap annulerait la mauvaise
 					// chose.
 					if (inModal)
-						nk3d::Viewport3DModalCancel();
+						if (!demo::Demo3DHostModalCancelAsk())
+							nk3d::Viewport3DModalCancel();
 					else if (st.zoneTool >= 0) {
 						st.zoneTool = -1;
 						st.zoneActive = false;
@@ -2502,11 +3332,15 @@ int nkmain(const NkEntryState &entry) {
 				// les operations commitent dans celui de la vue VIVANTE. D ou un
 				// Annuler qui marchait au clavier et restait mort a la souris.
 				case NkVpAction::Undo:
-					if (edit && demo::Demo3DHostEditUndo())
+					// UN SEUL CHEMIN D'ANNULATION (celui-ci), et il refuse pendant une modale
+					// comme le faisait celui du viseur, retire : annuler l'historique pendant
+					// qu'un apercu est applique melangerait deux etats. Chez Blender aussi, la
+					// modale possede le clavier et Ctrl+Z n'y annule rien.
+					if (edit && demo::Demo3DHostEditUndo()) // refus pendant une modale : la PORTE
 						NkMarkDirty(st);
 					break;
 				case NkVpAction::Redo:
-					if (edit && demo::Demo3DHostEditRedo())
+					if (edit && demo::Demo3DHostEditRedo()) // refus pendant une modale : la PORTE
 						NkMarkDirty(st);
 					break;
 				// ── Vues ────────────────────────────────────────────────────
@@ -2569,9 +3403,12 @@ int nkmain(const NkEntryState &entry) {
 
 		// LE NOM DU PROJET, PAS UN LIBELLE FIGE. « MonProjet » etait un exemple de
 		// maquette ; la barre dit desormais ce qui est reellement ouvert.
+		// Sous NK_SONDE, le nom du projet cede la place a l'avertissement : c'est
+		// le texte CENTRAL de la barre, donc celui qu'une capture d'ecran montre.
 		PaintMenuBarI(p, lay.menu,
-					  proj.open && !proj.name.Empty() ? proj.name.CStr() : "Aucun projet", st,
-					  hit);
+					  sonde ? "*** SONDE DE MESURE - CETTE FENETRE N'EST PAS LE PRODUIT ***"
+							: (proj.open && !proj.name.Empty() ? proj.name.CStr() : "Aucun projet"),
+					  st, hit);
 		PaintTabsI(p, lay.tabs, st, hit, ws, ui.input);
 		PaintToolbar(p, lay.tool, st, hit, ws, combo);
 		// Un panneau MASQUE n'est pas peint en taille nulle : il n'est pas peint du
@@ -2606,7 +3443,11 @@ int nkmain(const NkEntryState &entry) {
 				// Le contexte passe AU PANNEAU : sa scrollbar est celle de
 				// NKEditorKit (la meme que l'editeur de code), qui dessine
 				// directement dans le contexte.
-				PaintPropertiesUnified(p, rightR, st, hit, ws, ui.input, combo, &ui);
+				// LA TABLE DESCEND JUSQU'AU PANNEAU. Sans elle, ses deux listes de
+				// raccourcis etaient des chaines recopiees a la main -- ce que
+				// `NkModelerMeshMenu.h` interdit par ecrit : « une chaine recopiee
+				// peut mentir sans que rien ne le signale ».
+				PaintPropertiesUnified(p, rightR, st, hit, ws, ui.input, combo, &ui, &shortcuts);
 			}
 		}
 		if (st.showBrowser) {
@@ -2862,6 +3703,19 @@ int nkmain(const NkEntryState &entry) {
 		{
 			NkHitRegistry::LayerScope toastLayer(hit, 200);
 			(void)nk3d::NkToastPaint(hit, (float32)W, (float32)H, lay.status.h);
+		}
+
+		// ── SONDE DU PEINTRE (`NK3D_SONDE_PEINTRE=1`) — canal onglets, (o1) ──
+		// ⚠️ EN DERNIER, ET C'EST UNE CORRECTION MESUREE. Posee d'abord dans le
+		//    rectangle du viseur, elle n'apparaissait PAS sur la capture : l'image
+		//    de la vue 3D est composee par-dessus. Ses trois boites etaient
+		//    dessinees et recouvertes -- le journal disait « DESSINEE » et le
+		//    pixel disait non. Meme lecon que le reste de ce chantier : ce qui est
+		//    emis n'est pas ce qui est vu.
+		{
+			static const bool kSondePeintre = (std::getenv("NK3D_SONDE_PEINTRE") != nullptr);
+			if (kSondePeintre)
+				PaintSondePeintre(p, {0.f, lay.tool.y + lay.tool.h, (float32)W, (float32)H});
 		}
 
 		ui.EndFrame();
@@ -3147,6 +4001,27 @@ int nkmain(const NkEntryState &entry) {
 			st.projPending = 7;
 			agentOpenRecent = -1;
 		}
+		// NK_PROJECT=<chemin .nk3dm> : ouvre CE projet, et le CREE s'il n'existe
+		// pas encore. Pose a cote de NK_OPEN_RECENT et pour la meme raison,
+		// mais par le CHEMIN : mesurer un aller-retour de persistance demande un
+		// projet a soi, et passer par la liste des recents obligerait a ecrire
+		// dans le fichier de recents de quelqu'un d'autre pour s'y ranger.
+		// Meme attente que ci-dessus : l'hote 3D doit etre ne, c'est lui qui
+		// porte les noeuds que la restitution recree.
+		{
+			static bool sProjDone = false;
+			if (!sProjDone && agentFrame >= 3 && demo::Demo3DHostReady() &&
+				st.projPending == 0) {
+				if (const char *v = std::getenv("NK_PROJECT")) {
+					sProjDone = true;
+					if (*v) {
+						std::snprintf(st.projOpenPath, sizeof(st.projOpenPath), "%s", v);
+						st.projPending = 9;
+					}
+				} else
+					sProjDone = true;
+			}
+		}
 		// ── NK_SEL_NODES="frame,n1,n2,n3..." : SELECTION MULTIPLE DE NOEUDS ──
 		// Crochet d'agent pose pour le defaut n.3 de Rodolf (18/08). Il n'existait
 		// aucun moyen de scripter une selection multiple de MODELS : NK_GIZMO_MULTI
@@ -3238,6 +4113,31 @@ int nkmain(const NkEntryState &entry) {
 				}
 				std::printf("[nk3d] NK_AGENT_SCENE : ciel Rayleigh+Mie pose (hote pret)\n");
 			}
+		}
+		// ── SONDE NK_TOAST_PROBE ────────────────────────────────────────────
+		// Les trois verdicts, un de chaque, poses juste avant le declic. Pas au
+		// demarrage : un succes ne dure que six secondes et serait deja mort.
+		// Aucune injection d'entree -- on appelle la MEME fonction que le code
+		// produit (`NkToastPush`), donc la meme table de couleurs.
+		// ⚠️ REPOSEES A CHAQUE IMAGE, ET NON UNE FOIS A UNE IMAGE NOMMEE. La
+		//    premiere version testait `agentFrame == agentShotFrame - 2` : elle a
+		//    donne une capture VIDE une fois sur deux, et j'ai failli conclure
+		//    « le theme clair ne peint pas ses pastilles ». Un indice d'image
+		//    n'est pas un rendez-vous fiable, et une pastille a duree de vie
+		//    (6 s / 12 s) peut mourir entre la pose et le declic. Reposees a
+		//    chaque image, la sonde ne depend plus d'aucun timing -- et le
+		//    compteur imprime dit ce qu'il y avait DANS LA PILE au declic, pour
+		//    qu'une capture vide se lise comme une capture vide et non comme un
+		//    verdict sur le theme.
+		if (std::getenv("NK_TOAST_PROBE") && agentShotFrame > 0 &&
+			agentFrame >= agentShotFrame - 2) {
+			NkToasts().count = 0;
+			NkToastPush(NkToastKind::Succes, "SONDE : succes");
+			NkToastPush(NkToastKind::Partiel, "SONDE : avertissement");
+			NkToastPush(NkToastKind::Refus, "SONDE : refus");
+			if (agentFrame == agentShotFrame)
+				std::printf("[sonde/toast] au declic : %d pastille(s) dans la pile\n",
+							(int)NkToasts().count);
 		}
 		if (agentShotFrame > 0 && agentFrame == agentShotFrame)
 			st.capturePending = 2; // « tutoriel » : toute la fenetre
@@ -3926,17 +4826,26 @@ int nkmain(const NkEntryState &entry) {
 				// nom et la numerotation sont ceux de la sortie : une seule
 				// destination configuree dans l'application, une seule
 				// convention.
+				// SONDE : destination EXPLICITE, hors du dossier de sortie de Rodolf --
+				// une image de sonde rangee parmi ses rendus finirait par etre prise
+				// pour l'un d'eux.
+				const char *probeOut = std::getenv("NK_TOAST_PROBE");
 				const bool okPath2 =
-					demo::Demo3DHostReady()
-						? demo::Demo3DHostOutNextPath(capPath, (int32)sizeof(capPath), 2)
-						: NkNextCapturePath("tutoriel", capPath, (int32)sizeof(capPath));
+					(probeOut && probeOut[0] && probeOut[0] != '1')
+						? (snprintf(capPath, sizeof(capPath), "%s", probeOut) > 0)
+						: demo::Demo3DHostReady()
+							? demo::Demo3DHostOutNextPath(capPath, (int32)sizeof(capPath), 2)
+							: NkNextCapturePath("tutoriel", capPath, (int32)sizeof(capPath));
 				if (okPath2) {
 					const bool okCap = NkCaptureWholeWindow(window, capPath);
 					// MEME RESOLUTION DE SORTIE que le rendu : la fenetre est
 					// photographiee a sa taille -- c'est sa nature -- puis
 					// ramenee au format demande. Sans cela, « tutoriel » etait
 					// le seul des trois a ignorer les reglages (Rihen).
-					if (okCap && demo::Demo3DHostReady()) {
+					// SONDE : PAS DE REDIMENSIONNEMENT. Un bicubique melange les pixels
+					// voisins -- la couleur mesuree ne serait plus celle qui a ete
+					// peinte, mais une moyenne. On mesure l'image telle qu'elle sort.
+					if (okCap && !std::getenv("NK_TOAST_PROBE") && demo::Demo3DHostReady()) {
 						int32 ew = 0, eh = 0;
 						demo::Demo3DHostOutEffectiveSize(&ew, &eh);
 						NkImage shot;

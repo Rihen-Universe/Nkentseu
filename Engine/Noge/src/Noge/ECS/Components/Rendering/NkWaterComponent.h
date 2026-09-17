@@ -29,6 +29,15 @@ namespace nkentseu {
 				// retrait) est honoré tel quel.
 				math::NkProjectedGridParams grid;
 				math::NkWaterParams waves;
+				// ── LA PERTURBATION PAR LES CORPS (2026-09-14) ──────────────────────
+				// EMPRUNTEE : la scene la possede, ce composant la DESIGNE. Pourquoi un
+				// pointeur et pas une valeur : ce composant est recopie par valeur par
+				// l'ECS, et un etat qui se duplique a chaque image est un etat qu'on
+				// perd. `nullptr` = aucun corps n'influence cette eau, et la surface
+				// vaut alors la valeur analytique AU BIT.
+				// ⚠️ Ce doit etre LA MEME que celle que la flottabilite interroge
+				// (`NkBuoyancySphere`), sinon un corps flotte a cote de sa propre trace.
+				const math::NkWaterDisturbance *disturbance = nullptr;
 				uint32 color = 0xFFFFFFFFu; // RGBA8, constant : l'eau n'a pas de couleur par sommet
 				bool enabled = true;
 
