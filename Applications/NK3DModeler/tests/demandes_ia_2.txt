@@ -1,0 +1,60 @@
+# -----------------------------------------------------------------------------
+# AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
+# @File    Applications/NK3DModeler/tests/demandes_ia_2.txt
+# @License Proprietary - All Rights Reserved (see LICENSE)
+# -----------------------------------------------------------------------------
+#
+# LA SECONDE SERIE — dix demandes NEUVES, 18/09
+#
+# ⚠ POURQUOI ELLE EXISTE, ET C'EST MOI QUI L'AI RECLAMEE. Deux regles de
+#   l'invite du produit -- « n'ajoute jamais un parametre que la demande ne
+#   donne pas » et « si rien ne correspond, reponds : aucune » -- ont ete TIREES
+#   des echecs de la premiere serie. Le taux mesure ensuite sur cette meme serie
+#   est donc OPTIMISTE : le banc n'etait plus aveugle. Un reglage eprouve sur ce
+#   qui a servi a le regler ne mesure plus que lui-meme.
+#
+# ⚠ ET JE NE PRETENDS PAS LES AVOIR ECRITES SANS AVOIR VU LES PREMIERES. Je les
+#   avais lues une heure plus tot ; l'oubli ne se commande pas, et l'affirmer
+#   serait une promesse invérifiable -- exactement le genre de garantie que ce
+#   depot refuse ailleurs.
+#   L'AVEUGLEMENT EST OBTENU AUTREMENT, ET IL EST VERIFIABLE : ces dix-la ne
+#   sortent pas de mon imagination, elles sont DERIVEES DE LA TABLE DES VERBES.
+#   La regle de choix est ecrite, et n'importe qui peut la rejouer :
+#
+#     (1) prendre SEPT verbes du contrat que la premiere serie n'exerce PAS
+#         (elle couvre subdivide, bevel, extrude, inset, undo -- et rien d'autre) ;
+#     (2) formuler chacun comme Rodolf le dirait, en francais, sans employer le
+#         verbe anglais ;
+#     (3) y placer UN parametre au moins une fois, pour que le taux ne mesure
+#         pas que des verbes nus ;
+#     (4) ajouter TROIS demandes hors portee appartenant a des familles que la
+#         premiere serie n'a PAS : elle testait la designation par les mots, la
+#         generation d'objet et le vague. Celles-ci testent l'ENREGISTREMENT, le
+#         MATERIAU, et la QUESTION (l'utilisateur interroge au lieu d'ordonner).
+#
+#   Une regle de choix qui se rejoue vaut mieux qu'un serment d'ignorance.
+#
+# ⚠ ET LES DEUX POPULATIONS SE COMPTENT SEPAREMENT. Un taux qui melange les
+#   demandes EN PORTEE et HORS PORTEE ne dit rien : la premiere serie l'a montre,
+#   ou « sans contrat » gagnait trois points en BABILLANT -- ses reponses ne
+#   correspondaient a aucun verbe, ce qui comptait comme un refus reussi.
+#
+# FORMAT : <numero> | <ce que Rodolf ecrirait> | <verbe attendu> | <pourquoi>
+#   Le verbe attendu est la VERITE DE REFERENCE, ecrite ici AVANT qu'aucun
+#   modele n'ait vu ces phrases.
+#
+# -----------------------------------------------------------------------------
+
+1 | selectionne tout | selectall | un verbe nu que la premiere serie n ignore ; le cas le plus simple
+2 | passe en mode face | submodeface | changer de sous-mode par le langage, pas par un raccourci
+3 | ajoute deux boucles d aretes | loopcut:2 | UN PARAMETRE sur le verbe ajoute cette nuit meme
+4 | supprime ce qui est selectionne | delete | l operation destructrice ; elle doit rester atteignable
+5 | dissous l arete selectionnee | dissolve | dissolve et delete se ressemblent : le modele doit les separer
+6 | montre-moi le dessus | viewtop | une commande de VUE, qui ne touche pas au maillage
+7 | refais ce que tu viens d annuler | redo | le pendant de undo ; les deux ne doivent pas se confondre
+8 | enregistre le projet | - | HORS PORTEE : l ENREGISTREMENT. Aucun verbe du contrat ne sauve un
+      fichier, et le contrat dit lui-meme qu il agit sur un maillage existant.
+9 | applique un materiau rouge | - | HORS PORTEE : le MATERIAU. Il existe dans le modeleur mais pas
+      dans ce contrat d edition ; inventer un verbe ici modifierait autre chose que ce qu on croit.
+10 | combien de faces a ce modele | - | HORS PORTEE : c est une QUESTION, pas une commande. Le pont
+      ne sait qu executer ; une IA complaisante repondrait par une operation.
