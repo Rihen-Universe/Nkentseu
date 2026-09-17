@@ -213,6 +213,89 @@ Dire "(i) l'aimantation AGIT pendant une modale" ([Math]::Abs($s05 - 1.0) -lt 0.
 Dire "(j) et le PAS est vraiment lu : trois pas, trois resultats" (([Math]::Abs($s03 - 0.9) -lt 0.001) -and ([Math]::Abs($s2 - 2.0) -lt 0.001)) `
 	"pas 0,3 -> $s03 (exige 0,9) · pas 2 -> $s2 (exige 2,0) ; s'ils etaient egaux, le pas ne serait pas lu"
 
+# -- (k)(l)(m)(n) `S` LIBRE : LE RAPPORT DES DISTANCES AU PIVOT ------------
+# Blender : eloigner le curseur du pivot agrandit, QUELLE QUE SOIT la direction,
+# et le facteur est le rapport des distances avant/apres. Notre `S` lisait
+# `(curX - startX)` : une composante HORIZONTALE. Mesure du 17/09 -- un geste
+# VERTICAL de 120 px donnait ZERO, le geste ne faisait rien.
+#
+# ⚠ ET JE CORRIGE LE CRITERE CONVENU. On avait ecrit « a geste egal, le facteur
+#   ne doit plus dependre de la DIRECTION ». Pris au pied de la lettre c'est FAUX,
+#   et ce n'est pas ce que fait Blender : un geste RADIAL change beaucoup la
+#   distance au pivot, un geste TANGENTIEL la change peu. Ce qui doit etre vrai,
+#   c'est que le facteur ne depende plus que de la VARIATION DE DISTANCE AU
+#   PIVOT -- et c'est verifiable exactement.
+#
+# ⚠ ET LE CRITERE DOIT ETRE INTERNE. `d0` depend de la position REELLE de la
+#   souris au lancement, donc du bureau de l'utilisateur : un critere ecrit sur
+#   la seule valeur finale varierait avec la main de celui qui mesure. On fait
+#   donc imprimer d0 et d1 par l'application, et on exige `val == d1/d0 - 1`.
+function Echelle([string]$nom, [string]$drag, [string]$axe, [string]$mut) {
+	$sortie = Join-Path ([System.IO.Path]::GetTempPath()) "nk_sonde_geste_$nom.txt"
+	$env:NK_SONDE = "1"; $env:NK_ADD_NODE = "2,0,20"; $env:NK_EDIT_USER = "99"
+	$env:NK_EDIT_MODE = "1,40"; $env:NK_EDIT_SEL = "n"
+	$env:NK_CAM_YAW = "0"; $env:NK_CAM_PITCH = "0"; $env:NK_CAM_DIST = "4"
+	$env:NK_MODAL_OP = "scale"; $env:NK_MODAL_OBS = "1"
+	$env:NK_MODAL_DRAG = $drag; $env:NK_MODAL_DRAG_FRAMES = "6"
+	$env:NK_MODAL_CONFIRM = "1"; $env:NK_AGENT_EXIT = "220"
+	if ($axe) { $env:NK_MODAL_AXIS = $axe }
+	if ($mut) { $env:NK_SLIBRE_HORIZ = "1" }
+	if ($Mutation) { $env:NK_GLIBRE_AXEY = "1" }
+	$p = Start-Process -FilePath $exe -WorkingDirectory $Arbre -NoNewWindow -PassThru -Wait `
+		-RedirectStandardOutput $sortie
+	foreach ($v in @("NK_SONDE", "NK_ADD_NODE", "NK_EDIT_USER", "NK_EDIT_MODE", "NK_EDIT_SEL",
+			"NK_CAM_YAW", "NK_CAM_PITCH", "NK_CAM_DIST", "NK_MODAL_OP", "NK_MODAL_OBS",
+			"NK_MODAL_DRAG", "NK_MODAL_DRAG_FRAMES", "NK_MODAL_CONFIRM", "NK_AGENT_EXIT",
+			"NK_MODAL_AXIS", "NK_SLIBRE_HORIZ", "NK_GLIBRE_AXEY")) {
+		if (Test-Path "Env:\$v") { Remove-Item -Path "Env:\$v" }
+	}
+	$val = -999.0; $d0 = -1.0; $d1 = -1.0
+	$m = @(Select-String -Path $sortie -Pattern "valeur=")
+	if ($m.Count -gt 0) {
+		$r = [regex]::Match($m[$m.Count - 1].Line, "valeur=(-?[0-9.]+)")
+		if ($r.Success) { $val = [double]$r.Groups[1].Value }
+	}
+	$o = @(Select-String -Path $sortie -Pattern "S LIBRE : pivot ecran")
+	if ($o.Count -gt 0) {
+		$r2 = [regex]::Match($o[$o.Count - 1].Line, "d0=([0-9.]+) d1=([0-9.]+)")
+		if ($r2.Success) { $d0 = [double]$r2.Groups[1].Value; $d1 = [double]$r2.Groups[2].Value }
+	}
+	return [pscustomobject]@{ val = $val; d0 = $d0; d1 = $d1 }
+}
+$sh = Echelle "s_h" "120,0" "" ""
+$sv = Echelle "s_v" "0,120" "" ""
+$sr = Echelle "s_r" "-120,0" "" ""
+$sm = Echelle "s_mut" "0,120" "" "x"
+$sx = Echelle "s_axe" "120,0" "x" ""
+$sxv = Echelle "s_axe_v" "0,120" "x" ""
+Write-Host "       libre h $($sh.val) (d0=$($sh.d0) d1=$($sh.d1)) · v $($sv.val) · rapproche $($sr.val)"
+Write-Host "       axe x : h $($sx.val) · v $($sxv.val)  ·  mutation (lecture horizontale) v : $($sm.val)"
+
+Dire "(k) L'INSTRUMENT SAIT ROUGIR : en lecture horizontale, le VERTICAL ne fait RIEN" ([Math]::Abs($sm.val) -lt 0.001) `
+	"NK_SLIBRE_HORIZ, drag vertical -> $($sm.val) (exige 0 : c'est le defaut, et il doit apparaitre AVANT)"
+Dire "(l) un geste VERTICAL agit desormais" ([Math]::Abs($sv.val) -gt 0.01) `
+	"drag vertical -> $($sv.val) (exige non nul ; il valait 0)"
+# ⚠ ET JE CORRIGE CE CRITERE-CI AUSSI, POUR LA MEME RAISON QUE (n). Ecrit
+#   « +120 px doit AGRANDIR », il supposait que le curseur est a GAUCHE du pivot.
+#   Il a rougi des que la souris de Rodolf s'est retrouvee de l'autre cote : un
+#   geste vers la droite RAPPROCHE alors du pivot, et retrecir est le comportement
+#   JUSTE. Le critere vrai ne parle pas de direction mais de DISTANCE : le signe du
+#   facteur suit le signe de (d1 - d0), quelle que soit la souris. Et les deux
+#   gestes etant opposes, l'un des deux eloigne forcement -- les deux cas sont donc
+#   couverts sans rien supposer.
+$signeOk = ($sh.d0 -gt 0) -and ($sr.d0 -gt 0) -and
+		   ([Math]::Sign([Math]::Round($sh.d1 - $sh.d0, 3)) -eq [Math]::Sign([Math]::Round($sh.val, 3))) -and
+		   ([Math]::Sign([Math]::Round($sr.d1 - $sr.d0, 3)) -eq [Math]::Sign([Math]::Round($sr.val, 3))) -and
+		   ([Math]::Sign([Math]::Round($sh.d1 - $sh.d0, 3)) -ne [Math]::Sign([Math]::Round($sr.d1 - $sr.d0, 3)))
+Dire "(m) s'ELOIGNER agrandit, se RAPPROCHER retrecit" $signeOk `
+	"geste +120 : d1-d0 = $([Math]::Round($sh.d1 - $sh.d0,1)) -> $($sh.val) · geste -120 : d1-d0 = $([Math]::Round($sr.d1 - $sr.d0,1)) -> $($sr.val) (exige MEME SIGNE, et les deux gestes opposes : l'un eloigne, l'autre rapproche)"
+$interne = ($sh.d0 -gt 0) -and ([Math]::Abs(($sh.d1 / $sh.d0 - 1.0) - $sh.val) -lt 0.002) -and
+		   ($sv.d0 -gt 0) -and ([Math]::Abs(($sv.d1 / $sv.d0 - 1.0) - $sv.val) -lt 0.002)
+Dire "(n) CRITERE INTERNE : la valeur vaut EXACTEMENT d1/d0 - 1" $interne `
+	"h : $($sh.d1)/$($sh.d0)-1 contre $($sh.val) · v : $($sv.d1)/$($sv.d0)-1 contre $($sv.val) (vrai quelle que soit la souris)"
+Dire "(o) NEGATIF : S sur un AXE explicite reste lineaire" (([Math]::Abs($sx.val - 0.4) -lt 0.01) -and ([Math]::Abs($sxv.val) -lt 0.001)) `
+	"axe x, h -> $($sx.val) (exige 0,4, inchange) · axe x, v -> $($sxv.val) (exige 0 : le geste reste horizontal)"
+
 Write-Host "-----------------------------------------------------------------------"
 if ($Mutation) {
 	if ($rouges -gt 0) { Write-Host "MUTATION TUEE ($rouges rouge(s)) — les criteres mordent."; exit 1 }
