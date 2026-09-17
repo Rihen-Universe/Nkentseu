@@ -678,11 +678,40 @@ static int MonterUnFichier(const char *chemin) {
 	uint32 nonGroupes = 0u;
 	for (uint32 i = 0; i < (uint32)m.rap.items.Size(); ++i) {
 		const NkString &r = m.rap.items[i].role;
+		// ⚠️ `Scroll` EST UN CONTENEUR, ET IL EST ARRIVE DANS CETTE LISTE APRES COUP.
+		//    Le 17/09, le monteur a appris a le monter, et ce compteur a saute de 4 a
+		//    5 sans qu'aucun widget utile n'apparaisse. Le but ecrit de la ligne est
+		//    de refuser de compter ce qui ne MONTRE rien : une zone defilante vide
+		//    est exactement le meme piege qu'un `Group` vide. *Une liste de noms
+		//    ecrite en dur se perime des qu'un role naît ; celle-ci se corrige ici, et
+		//    le jour ou elle se perimera encore, ce commentaire dit pourquoi.*
 		if (r.Compare("Group") != 0 && r.Compare("VBox") != 0 && r.Compare("HBox") != 0
-			&& r.Compare("Panel") != 0 && r.Compare("Window") != 0)
+			&& r.Compare("Panel") != 0 && r.Compare("Window") != 0 && r.Compare("Scroll") != 0)
 			++nonGroupes;
 	}
 	printf("  roles utiles: %u widget(s) qui ne sont pas un simple conteneur\n", nonGroupes);
+	// ⚠️ DEUX COMPTEURS QUE PERSONNE N'IMPRIMAIT N'AURAIENT SERVI A PERSONNE.
+	//    `apparencesLues` disait combien de blocs le document ecrit ; il ne disait
+	//    pas combien ont ete HONORES. Depuis le 17/09 le monteur peint l'apparence
+	//    au repos des quatre roles qui ont une surface, et compte a part ce qu'il
+	//    ne sait pas rendre. Les deux se lisent ici, cote a cote, parce qu'un
+	//    compteur qu'on n'imprime pas est un compteur que personne ne verifie.
+	printf("  debordement: %u widget(s) sortent de la region de leur conteneur ; \n"
+		   "               %u espace(s) flexible(s) non honore(s)\n",
+		   m.rap.debordements, m.rap.espacesFlexibles);
+	// ⚠️ UN COMPTE N'ACCUSE PERSONNE. On nomme les quatre premiers, avec leur
+	//    role : c'est ce qui a evite d'attribuer au `Spacer` trois debordements
+	//    que le temoin SANS `Spacer` rendait deja.
+	for (uint32 i = 0, vus = 0; i < (uint32)m.rap.items.Size() && vus < 4u; ++i)
+		if (m.rap.items[i].deborde) {
+			printf("      deborde : %s \"%s\" rect (%.0f,%.0f %.0fx%.0f)\n",
+				   m.rap.items[i].role.CStr(), m.rap.items[i].id.CStr(),
+				   m.rap.items[i].rect.x, m.rap.items[i].rect.y,
+				   m.rap.items[i].rect.w, m.rap.items[i].rect.h);
+			++vus;
+		}
+	printf("  apparence  : %u lue(s), %u peinte(s), %u NON peinte(s)\n",
+		   m.rap.apparencesLues, m.rap.apparencesPeintes, m.rap.apparencesNonPeintes);
 	const bool ok = m.lu && v.errors == 0u && m.rap.rolesInconnus == 0u
 					&& m.rap.hotesNonRemplis == 0u && m.rap.zonesSansPanneau == 0u
 					&& m.rap.montes > 0u;

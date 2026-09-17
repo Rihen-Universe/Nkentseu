@@ -9081,7 +9081,7 @@ namespace nkuidesign {
 		//    sommet du rect tourne le prend (la souris est ramenee par l'inverse).
 		{
 			static nkgui::NkGuiContext ctxE;
-			char det[520];
+			char det[800];
 			if (!ctxE.Init(600, 900)) {
 				check("74. le mode edition sous la matrice", false, "Init a refuse");
 			} else {
@@ -9111,6 +9111,18 @@ namespace nkuidesign {
 					NkMaterialiserSommets(n);
 					n.sommets[1].x = 0.4f; // le coin haut-droit coupe : un trace a coin coupe, tourne
 				}
+				// ⚠️ LE THEME, ET C'EST LE DEFAUT QUI RENDAIT CETTE SONDE ROUGE DEPUIS
+				//    TOUJOURS. Un `DesignState` neuf porte un theme NEUF, et le
+				//    constructeur de `NkTheme` peint TOUS les roles avec la sentinelle
+				//    magenta « ce role n'a jamais ete pose ». Mesure du 17/09 :
+				//    `accent_ui` valait 0xFFFF00FF, 43 roles portaient exactement cette
+				//    valeur, 3 688 des 4 754 sommets aussi, et toute la liste de dessin
+				//    ne comptait que 10 couleurs. Un critere qui selectionne « par la
+				//    couleur » dans cette scene retient 78 % de la geometrie : il
+				//    n'accuse personne. L'application, elle, charge un theme
+				//    (`gThemes.AddBuiltins()` puis `AppliquerTheme`) -- la sonde ne le
+				//    faisait pas, donc elle ne mesurait pas ce que l'ecran montre.
+				stE.theme = nkentseu::editorkit::NkTheme::Dark();
 				stE.Recompute(NkPaintRect{0.f, 0.f, 600.f, 900.f});
 				stE.SelectSingle(rc);
 				stE.modeForme.noeud = rc; // le mode edition de forme
@@ -9146,6 +9158,28 @@ namespace nkuidesign {
 							++n;
 					return n;
 				};
+				// ⚠️ LA PIECE A CONVICTION. « 3 » n'a jamais dit OU ni QUOI. On garde,
+				//    pour le PREMIER coin fautif, sa position droite, le sommet
+				//    d'accent le plus proche de cette position, et la distance de ce
+				//    coin au CONTOUR TOURNE. Si le coupable est sur le contour
+				//    tourne, alors ce critere compte la geometrie qu'il valide par
+				//    ailleurs -- et il ne peut pas distinguer ce qu'il pretend
+				//    distinguer.
+				float32 cDroitX = -1.f, cDroitY = -1.f, cAccX = -1.f, cAccY = -1.f, cDistAcc = -1.f;
+				auto accentLePlusProche = [&](float32 x, float32 y, float32 &ox, float32 &oy) {
+					float32 best = 1e30f;
+					for (uint32 i = 0; i < (uint32)ctxE.dl.vtx.Size(); ++i) {
+						if (ctxE.dl.vtx[i].col != accent)
+							continue;
+						const float32 d = NkLongueur2D(ctxE.dl.vtx[i].pos.x - x, ctxE.dl.vtx[i].pos.y - y);
+						if (d < best) {
+							best = d;
+							ox = ctxE.dl.vtx[i].pos.x;
+							oy = ctxE.dl.vtx[i].pos.y;
+						}
+					}
+					return best;
+				};
 				uint32 presTournes = 0u, presDroits = 0u;
 				for (uint32 i = 0; i < nbS0 && i < 4u; ++i) {
 					float32 tx = sx0[i * 2], ty = sx0[i * 2 + 1];
@@ -9153,9 +9187,21 @@ namespace nkuidesign {
 					if (accentPres(tx, ty) > 0u)
 						++presTournes;
 					// la position NON tournee : loin du sommet tourne (> 12 px) et sans poignee
-					if (NkLongueur2D(tx - sx0[i * 2], ty - sx0[i * 2 + 1]) > 12.f && accentPres(sx0[i * 2], sx0[i * 2 + 1]) > 0u)
+					if (NkLongueur2D(tx - sx0[i * 2], ty - sx0[i * 2 + 1]) > 12.f && accentPres(sx0[i * 2], sx0[i * 2 + 1]) > 0u) {
 						++presDroits;
+						if (cDistAcc < 0.f) {
+							cDroitX = sx0[i * 2];
+							cDroitY = sx0[i * 2 + 1];
+							cDistAcc = accentLePlusProche(cDroitX, cDroitY, cAccX, cAccY);
+						}
+					}
 				}
+				// ⚠️ LE NEGATIF EST PLUS BAS, APRES LES TESTS DE CLIC : pose ICI, il
+				//    changeait la selection avant eux et faisait passer `tire` de 0 a -1.
+				//    Un negatif qui deplace le critere voisin fabrique le signal qu'il
+				//    pretend mesurer.
+				uint32 presDroitsSansSel = 0u;
+				float32 cDistContour = -1.f;
 				const bool memeRepere = nbS0 == 4u && presTournes == 4u && presDroits == 0u;
 				const uint32 nF = presTournes, nA = presDroits;
 				const float32 fx0 = 0.f, fx1 = 0.f, fy0 = 0.f, fy1 = 0.f, ax0 = 0.f, ax1 = 0.f, ay0 = 0.f, ay1 = 0.f;
@@ -9190,11 +9236,136 @@ namespace nkuidesign {
 				const int32 tireDroit = stE.modeForme.tire;
 				image(qx, qy, false);
 				image(-1.f, -1.f, false);
+				// ⚠️ LE NEGATIF QUI NOMME LE COUPABLE (2026-09-17, soir). Ce critere
+				//    compte des sommets d'accent pres des positions NON tournees et
+				//    rend 3 depuis au moins `169581007` -- « 3 », sans jamais dire
+				//    QUI les peint. Un compteur qui accuse doit nommer, sinon il
+				//    envoie chercher partout. On rejoue donc la MEME scene SANS
+				//    SELECTION, en ne changeant QUE la selection :
+				//      tombe a 0 -> l'accent vient du CADRE DE SELECTION, et le mode
+				//                   edition, lui, dessine bien sous la matrice ;
+				//      reste a 3 -> il vient du MODE EDITION, et c'est le produit qui
+				//                   dessine dans le mauvais repere.
+				{
+					stE.SelectClear();
+					for (int32 k = 0; k < 4; ++k)
+						image(-1.f, -1.f, false);
+					for (uint32 i = 0; i < nbS0 && i < 4u; ++i) {
+						float32 tx = sx0[i * 2], ty = sx0[i * 2 + 1];
+						NkMatPoint(mE, tx, ty);
+						if (NkLongueur2D(tx - sx0[i * 2], ty - sx0[i * 2 + 1]) > 12.f
+							&& accentPres(sx0[i * 2], sx0[i * 2 + 1]) > 0u)
+							++presDroitsSansSel;
+					}
+					stE.SelectSingle(rc);
+					for (int32 k = 0; k < 4; ++k)
+						image(-1.f, -1.f, false);
+				}
+				// SECOND NEGATIF, et il borne le coupable : SANS selection ET SANS mode
+				// edition. Trois issues, trois coupables differents :
+				//   0 ici et 3 au-dessus -> c'est le MODE EDITION qui peint non tourne ;
+				//   3 ici                -> c'est un trace peint TOUJOURS (le lisere du
+				//                          noeud, la page), independant des deux modes ;
+				//   autre                -> les deux contribuent.
+				uint32 presDroitsNu = 0u;
+				{
+					const int32 gardeNoeud = stE.modeForme.noeud;
+					stE.SelectClear();
+					stE.modeForme.Quitter();
+					for (int32 k = 0; k < 4; ++k)
+						image(-1.f, -1.f, false);
+					for (uint32 i = 0; i < nbS0 && i < 4u; ++i) {
+						float32 tx = sx0[i * 2], ty = sx0[i * 2 + 1];
+						NkMatPoint(mE, tx, ty);
+						if (NkLongueur2D(tx - sx0[i * 2], ty - sx0[i * 2 + 1]) > 12.f
+							&& accentPres(sx0[i * 2], sx0[i * 2 + 1]) > 0u)
+							++presDroitsNu;
+					}
+					stE.modeForme.noeud = gardeNoeud;
+					stE.SelectSingle(rc);
+					for (int32 k = 0; k < 4; ++k)
+						image(-1.f, -1.f, false);
+				}
+				// LA MESURE QUI TRANCHE : le sommet d'accent incrimine est-il SUR le
+				// contour tourne ? S'il y est, ce critere compte la geometrie qu'il
+				// valide par ailleurs et ne distingue rien ; s'il en est loin, c'est
+				// bien un trace NON tourne, donc le produit.
+				if (cDistAcc >= 0.f) {
+					float32 tC = 0.f;
+					(void)NkSegmentLePlusProche(ctT, nbS, cAccX, cAccY, tC, cDistContour);
+				}
 				stE.modeForme.Quitter();
+				// ⚠️ LE ROLE, ET NON LA VALEUR -- la ligne qui tranche entre les deux
+				//    hypotheses restantes (R50). `accentPres` identifie la geometrie
+				//    PAR SA COULEUR : si DEUX roles du theme resolvent vers la MEME
+				//    valeur, ce critere ne peut pas distinguer ce qu'il pretend
+				//    distinguer, et son « 3 » n'accuse personne. On enumere donc TOUT
+				//    le registre et on NOMME les roles qui portent exactement la
+				//    couleur comptee.
+				//      un seul, `accent_ui` -> collision REFUTEE, c'est le PRODUIT qui
+				//                              peint a la boite NON TOURNEE ;
+				//      plusieurs            -> l'instrument est ambigu, il se repare
+				//                              avant le produit.
+				//
+				// ⚠️ ET UN CONTROLE POSITIF DANS LA MEME LIGNE, parce qu'un
+				//    enumerateur qui rendrait TOUJOURS « 1 » serait indiscernable de
+				//    la premiere issue. Le journal du theme annonce a chaque course
+				//    des replis (`canvas_dot` -> `border`) -- et un repli signifie
+				//    exactement que deux roles rendent la meme valeur. On compte donc
+				//    aussi les porteurs de la valeur de `border` : ATTENDU >= 2. S'il
+				//    rend 1, l'enumerateur est faux et AUCUNE des deux issues ne peut
+				//    etre conclue.
+				char rolesAccent[160];
+				uint32 nbRolesAccent = 0u, nbRolesBordure = 0u;
+				// ⚠️ ET LA MESURE QUI DIT SI LA COULEUR EST UN IDENTIFIANT : combien de
+				//    sommets de TOUTE la liste de dessin portent la couleur comptee, et
+				//    combien de couleurs DISTINCTES la liste contient-elle. Un critere
+				//    qui selectionne « par la couleur » dans une liste qui n'en a que
+				//    deux ou trois ne selectionne rien.
+				uint32 vtxAccent = 0u, couleursDistinctes = 0u;
+				{
+					uint32 vues[64];
+					for (uint32 i = 0; i < (uint32)ctxE.dl.vtx.Size(); ++i) {
+						const uint32 c = ctxE.dl.vtx[i].col;
+						if (c == accent)
+							++vtxAccent;
+						bool deja = false;
+						for (uint32 k = 0; k < couleursDistinctes; ++k)
+							if (vues[k] == c) { deja = true; break; }
+						if (!deja && couleursDistinctes < 64u)
+							vues[couleursDistinctes++] = c;
+					}
+				}
+				{
+					rolesAccent[0] = '\0';
+					uint32 ecrit = 0u;
+					const uint32 bordure = nkgui::NkGuiPackColor(nkentseu::editorkit::NkThemeUnpack(
+						stE.theme.Get(NkDesignResolveRole("border"))));
+					const uint16 total = nkentseu::editorkit::NkRoleRegistry::Total();
+					for (uint16 id = 0u; id < total; ++id) {
+						const uint32 c = nkgui::NkGuiPackColor(
+							nkentseu::editorkit::NkThemeUnpack(stE.theme.Get(id)));
+						if (c == bordure)
+							++nbRolesBordure;
+						if (c != accent)
+							continue;
+						++nbRolesAccent;
+						const char *nm = nkentseu::editorkit::NkRoleRegistry::Name(id);
+						if (!nm || ecrit + 24u >= sizeof(rolesAccent))
+							continue;
+						if (ecrit)
+							ecrit += (uint32)snprintf(rolesAccent + ecrit, sizeof(rolesAccent) - ecrit, ",");
+						ecrit += (uint32)snprintf(rolesAccent + ecrit, sizeof(rolesAccent) - ecrit, "%s", nm);
+					}
+				}
 				(void)fx0; (void)fx1; (void)fy0; (void)fy1; (void)ax0; (void)ax1; (void)ay0; (void)ay1;
-				snprintf(det, sizeof(det), "poignees pres des 4 sommets TOURNES : %u/4 ; pres des positions non tournees : %u (attendu 0) ; "
-										   "clic sur la position ecran du sommet 0 (%.0f,%.0f) -> tire=%d ; loin du contour tourne (%.0f,%.0f, a %.0f px du cote le plus proche) -> tire=%d",
-						 nF, nA, px, py, tire, qx, qy, ecart, tireDroit);
+				snprintf(det, sizeof(det), "poignees pres des 4 sommets TOURNES : %u/4 ; pres des positions non tournees : %u (attendu 0), dont %u SANS SELECTION et %u SANS SELECTION NI MODE EDITION ; 1er coin droit (%.1f,%.1f) accent le plus proche (%.1f,%.1f) a %.2f px, et a %.2f px du CONTOUR TOURNE ; "
+										   "clic sur la position ecran du sommet 0 (%.0f,%.0f) -> tire=%d ; loin du contour tourne (%.0f,%.0f, a %.0f px du cote le plus proche) -> tire=%d ; "
+										   "couleur comptee = 0x%08X, portee par %u role(s) [%s] (controle positif : %u role(s) portent celle de `border`) ; "
+										   "%u sommet(s) sur %u la portent, et la liste de dessin ne contient que %u couleur(s) distincte(s)",
+						 nF, nA, presDroitsSansSel, presDroitsNu, cDroitX, cDroitY, cAccX, cAccY, cDistAcc, cDistContour, px, py, tire, qx, qy, ecart, tireDroit,
+						 accent, nbRolesAccent, rolesAccent, nbRolesBordure,
+						 vtxAccent, (uint32)ctxE.dl.vtx.Size(), couleursDistinctes);
 				check("74. LE MODE EDITION SOUS LA MATRICE, sur la vraie toile : un rect tourne de 30° au coin coupe -- le "
 					  "poignees d'edition sont aux positions ECRAN tournees des sommets, aucune aux positions droites ; un clic "
 					  "sur la position ECRAN d'un sommet le prend, un clic loin du contour tourne ne prend rien",

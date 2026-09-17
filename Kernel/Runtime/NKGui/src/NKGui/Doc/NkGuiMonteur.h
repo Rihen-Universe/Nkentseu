@@ -126,7 +126,11 @@ namespace nkentseu {
 			//    document invalide pouvait atteindre. On ne le legalise pas, on le retire.
 			/// LA ZONE QUE L'APPLICATION REMPLIT -- viseur 3D, toile, editeur de texte.
 			/// Le document dit OU et QUOI ; l'hote garde QUAND et COMMENT.
-			Host
+			Host,
+			/// LA ZONE DEFILANTE. Elle etait au vocabulaire du VALIDATEUR
+			/// (`NkGuiValidate.h`, `axis` et `always`) et absente d'ici : un document
+			/// que le format accepte perdait tout son contenu au montage.
+			Scroll
 		};
 
 		/// Comparaison de noms sans <cstring> (le depot est zero-STL).
@@ -165,6 +169,7 @@ namespace nkentseu {
 			if (NkGMotEgal(n, "TreeItem")) return NkGuiRole::TreeItem;
 			if (NkGMotEgal(n, "DockSpace")) return NkGuiRole::DockSpace;
 			if (NkGMotEgal(n, "Host")) return NkGuiRole::Host;
+			if (NkGMotEgal(n, "Scroll")) return NkGuiRole::Scroll;
 			return NkGuiRole::Inconnu;
 		}
 
@@ -190,6 +195,11 @@ namespace nkentseu {
 				/// partagent leur `y` : sans cette information, tout releve
 				/// d'empilement vertical les compte comme un chevauchement.
 				bool axeHorizontal = false;
+				/// ⚠️ CE WIDGET SORT-IL DE LA REGION DE SON CONTENEUR ? Un COMPTE ne dit
+				///    pas QUI : le premier releve a rendu 4 debordements sur la sonde du
+				///    `Spacer` et 3 sur le temoin SANS `Spacer`. Sans le nom, on aurait
+				///    attribue les quatre au `Spacer`.
+				bool deborde = false;
 				/// ⚠️ LA VALEUR REELLEMENT MONTEE, et elle existe parce qu'un
 				///    releve de POSITIONS ne suffit pas. Le curseur de
 				///    `01_panneau_reglages` a affiche 0.00 pour un fichier qui
@@ -215,6 +225,29 @@ namespace nkentseu {
 				uint32 animations = 0;		   ///< blocs de section `animation`
 				uint32 rolesInconnus = 0;	   ///< hors vocabulaire du document 7
 				uint32 apparencesLues = 0;	   ///< blocs `appearance` rencontres
+				/// ⚠️ CE QUE L'APPARENCE AU REPOS A REELLEMENT PEINT (2026-09-17). Le
+				///    monteur la COMPTAIT sans jamais l'appliquer : une demande de vert
+				///    pur rendait 0 pixel vert sur 700 000 lus. Deux compteurs, pas un :
+				///    « lue » ne dit pas « honoree ».
+				uint32 apparencesPeintes = 0;
+				/// ⚠️ ET CELLES QU'ON NE SAIT PAS PEINDRE -- un `fill` sur un role sans
+				///    surface (`Group`, `Spacer`, `Text`...), ou une propriete que ce
+				///    monteur ne rend pas (`radius`, `shadow`, `font`, `stroke`). Un repli
+				///    MUET ferait passer un document a moitie honore pour un document
+				///    honore : celui-ci se compte.
+				uint32 apparencesNonPeintes = 0;
+				// ── LE DEBORDEMENT (2026-09-17) ──────────────────────────────
+				/// ⚠️ PERSONNE NE REGARDAIT SI UN WIDGET SORT DE SA REGION. Le montage
+				///    restait VERT pendant que l'image montrait un bouton a cheval sur le
+				///    bord du panneau (mesure du 17/09 : un `Spacer` sans taille vaut 120 px
+				///    en dur dans un flux horizontal, et pousse son voisin dehors). C'est la
+				///    famille du texte coupe : *la mesure qui manquait*, pas le pixel.
+				uint32 debordements = 0;
+				/// ⚠️ UN `Spacer` SANS `size` VEUT DIRE « PRENDS LA PLACE QUI RESTE », et
+				///    ce monteur ne sait pas l'honorer : pousser le voisin jusqu'au bord
+				///    demanderait de connaitre SA largeur avant de le monter, donc deux
+				///    passes. Il ne lui invente plus 120 px pour autant. Compte, et nomme.
+				uint32 espacesFlexibles = 0;
 				uint32 etatsNonAppliques = 0;  ///< `appearance(Hover)` et consorts
 				// ── LE PLACEMENT PAR WIDGET (2026-09-14) ─────────────────────
 				// `pos` est l'interrupteur : un widget qui l'ecrit est POSE.
@@ -726,6 +759,83 @@ namespace nkentseu {
 			return true;
 		}
 		
+		/// ── L'APPARENCE AU REPOS, LUE UNE FOIS ────────────────────────────────────
+		/// Ce que le document ecrit dans `appearance { ... }` SANS parenthese d'etat.
+		///
+		/// ⚠️ LE REPOS SEUL, ET C'EST UNE LIMITE ASSUMEE. `appearance(Hover)` decrit
+		///    un etat que ce monteur ne peut pas atteindre -- il monte l'etat au repos,
+		///    il n'a ni souris ni focus. Il les compte deja (`etatsNonAppliques`) ; les
+		///    peindre serait mentir sur ce qu'on voit.
+		struct NkGuiApparenceRepos {
+				NkColor fond{0, 0, 0, 0};
+				NkColor encre{0, 0, 0, 0};
+				float32 rayon = -1.f;
+				bool aFond = false;
+				bool aEncre = false;
+				/// Les proprietes ECRITES que ce monteur ne rend pas. Comptees, jamais tues.
+				uint32 nonRendues = 0;
+		};
+
+		/// Le lexeme d'etat d'un bloc dit-il LE REPOS ? `$state` porte la parenthese
+		/// entiere telle qu'ecrite : `(Normal)`, `(  Normal  )`, `(Hover)`.
+		inline bool NkGuiEtatEstRepos(NkStringView lexeme) noexcept {
+			// `$state` porte la parenthese entiere telle qu'ecrite :
+			// `(Normal)`, `(  Normal  )`, `(Hover)`.
+			for (uint32 i = 0; i + 5u < (uint32)lexeme.Size() + 1u; ++i) {
+				if (lexeme.Data()[i] == 'N' && i + 6u <= (uint32)lexeme.Size()) {
+					bool ok = true;
+					const char *m = "Normal";
+					for (uint32 j = 0; j < 6u; ++j)
+						if (lexeme.Data()[i + j] != m[j])
+							ok = false;
+					if (ok)
+						return true;
+				}
+			}
+			return false;
+		}
+
+		inline NkGuiApparenceRepos NkGuiLireApparenceRepos(const NkArchive &w) noexcept {
+			NkGuiApparenceRepos a;
+			const NkArchiveNode *corps = NkGMonteCorps(w);
+			if (!corps)
+				return a;
+			for (uint32 k = 0; k < (uint32)corps->array.Size(); ++k) {
+				if (!corps->array[k].IsObject() || !corps->array[k].object)
+					continue;
+				const NkArchive &ap = *corps->array[k].object;
+				if (!NkGMotEgal(NkGuiArchive::TypeOf(ap), "appearance"))
+					continue;
+				// ⚠️ LA PARENTHESE D'ETAT EST LE FILTRE, et elle se lit par la MEME porte
+				//    que le compteur `etatsNonAppliques` juste au-dessus. Deux lectures de
+				//    l'etat finiraient par ne plus etre d'accord sur ce qu'est « le repos ».
+				const NkStringView st = NkGuiArchive::StateOf(ap);
+				if (st.Size() > 0 && !NkGuiEtatEstRepos(st))
+					continue;
+				if (NkGA(ap, "radius"))
+					a.rayon = NkGNombre(ap, "radius", -1.f);
+				if (NkGA(ap, "font"))
+					++a.nonRendues; // la chasse : le monteur n'a qu'une fonte
+				const NkArchiveNode *c2 = NkGMonteCorps(ap);
+				if (!c2)
+					continue;
+				for (uint32 j = 0; j < (uint32)c2->array.Size(); ++j) {
+					if (!c2->array[j].IsObject() || !c2->array[j].object)
+						continue;
+					const NkArchive &sub = *c2->array[j].object;
+					const NkStringView ts = NkGuiArchive::TypeOf(sub);
+					const NkArchiveNode *nc = sub.FindNode(NkStringView("color"));
+					if (NkGMotEgal(ts, "fill") && nc)
+						a.aFond = NkGuiCouleur(nc->Lexeme(), a.fond);
+					else if (NkGMotEgal(ts, "text") && nc)
+						a.aEncre = NkGuiCouleur(nc->Lexeme(), a.encre);
+					else if (NkGMotEgal(ts, "shadow") || NkGMotEgal(ts, "stroke"))
+						++a.nonRendues;
+				}
+			}
+			return a;
+		}
+
 		// =====================================================================
 		//  LE CROCHET D'EXECUTION -- et pourquoi il est ici et pas ailleurs
 		// =====================================================================
@@ -1051,6 +1161,27 @@ namespace nkentseu {
 					const NkGuiRole role = NkGuiRoleDepuisNom(t);
 					if (role == NkGuiRole::Inconnu) {
 						++rap.rolesInconnus;
+						// ⚠️ IL NE DOIT PLUS EMPORTER SES ENFANTS. Le `return` sec qui
+						//    vivait ici jetait le SOUS-ARBRE ENTIER, pas seulement le
+						//    conteneur inconnu. Mesure du 17/09, deux documents qui ne
+						//    different QUE par le role du conteneur :
+						//      Panel > Scroll { 3 widgets } + 1  ->  2 montes, 1 utile
+						//      Panel > Group  { 3 widgets } + 1  ->  6 montes, 4 utiles
+						//    Quatre widgets sur six disparaissaient, et le format, lui,
+						//    ACCEPTE le document (`Scroll` est au vocabulaire du
+						//    validateur). 17 des 41 roles du format sont dans ce cas.
+						//
+						//    Perdre le contenu est le PIRE des deux echecs : le document
+						//    ne se presente pas comme une erreur, il se presente comme un
+						//    document plus pauvre -- et personne ne va chercher ce qui
+						//    n'est plus la. On monte donc le sous-arbre dans le flux du
+						//    parent, faute de savoir ce que le conteneur imposait.
+						//
+						// ⚠️ ET LE REPLI N'EST PAS MUET : `rolesInconnus` compte toujours,
+						//    donc le verdict d'un document qui nomme l'inconnaissable
+						//    reste REFUSE. Ce correctif change ce qu'on PERD, jamais ce
+						//    qu'on ANNONCE.
+						MonterCorps(ctx, w, etat, rap, prof + 1u, horizontal, parentAbsolu, hooks);
 						return;
 					}
 					++rap.widgets;
@@ -1100,6 +1231,25 @@ namespace nkentseu {
 					// un crochet, qui est du code ecrit par quelqu'un d'autre.
 					if (pl.pose && !estConteneur)
 						ctx.SetNextItemRect(pl.rect);
+					// ── L'APPARENCE AU REPOS ──────────────────────────────────────
+					// Elle etait COMPTEE et jamais appliquee : une demande de vert pur rendait
+					// 0 pixel vert sur 700 000 lus (mesure du 17/09, decodeur PNG independant).
+					// On la lit ici, une fois, et chaque role la rend a SA maniere.
+					//
+					// ⚠️ PAS DE SURCHARGE GLOBALE DU THEME. Un conteneur vert dont le theme
+					//    resterait surcharge pendant le montage de ses enfants TEINDRAIT ses
+					//    enfants. La surcharge ne vaut que pour les roles SANS enfants ; un
+					//    conteneur, lui, peint son rectangle et rend la main.
+					const NkGuiApparenceRepos app = NkGuiLireApparenceRepos(w);
+					rap.apparencesNonPeintes += app.nonRendues;
+					// ⚠️ ET CE QU'AUCUN ROLE NE SAURA PEINDRE SE COMPTE ICI, PAS PLUS LOIN.
+					//    Seuls quatre roles ont une surface a remplir. Un `fill` ecrit sur un
+					//    `Group`, un `Spacer` ou un `Text` est une demande que le monteur ne
+					//    tient pas : la compter ici, ou le role est connu, evite de la compter
+					//    dans chaque `case` -- et surtout d'en OUBLIER un en silence.
+					if (app.aFond && role != NkGuiRole::Button && role != NkGuiRole::RepeatButton
+						&& role != NkGuiRole::Panel && role != NkGuiRole::Window)
+						++rap.apparencesNonPeintes;
 					bool aDessine = true;
 					float32 valeurMontee = 0.f;
 					bool aValeurMontee = false;
@@ -1161,6 +1311,15 @@ namespace nkentseu {
 										++rap.flagsNonAppliques;
 							}
 							PanelBackground(ctx, r);
+							// ⚠️ PAR-DESSUS, ET AVANT LES ENFANTS. Le fond du theme est peint d'abord
+							//    (il porte l'ombre et le contour que la primitive dessine) ; la couleur
+							//    du document le recouvre. Peindre a la place aurait fait disparaitre ce
+							//    que la primitive ajoute autour.
+							if (app.aFond) {
+								ctx.DL().AddRectFilled(r, app.fond, app.rayon >= 0.f ? app.rayon : ctx.theme.rounding);
+								++rap.apparencesPeintes;
+							}
+
 							// ⚠️ LE `title` DU FICHIER ETAIT PERDU. Le monteur n'ouvre
 							//    pas `BeginPanel` (voir l'en-tete du fichier), mais ne
 							//    pas ouvrir un conteneur n'est pas une raison de jeter
@@ -1176,7 +1335,7 @@ namespace nkentseu {
 								const NkVec2 coin{r.x + ctx.layout.padding, r.y + ctx.layout.padding * 0.5f};
 								(void)TextAt(ctx, coin, titre.CStr());
 							}
-							Noter(rap, id, t, r, prof, true, horizontal);
+							Noter(rap, id, t, r, prof, true, horizontal, &ctx.layout.region);
 							// ── OUVRIR UNE REGION, OU NON ─────────────────────────
 							// ⚠️ STRICTEMENT ADDITIF, ET C'EST CETTE CONDITION QUI LE GARANTIT. Un
 							//    conteneur qui n'est ni POSE ni ABSOLU se comporte EXACTEMENT comme
@@ -1204,6 +1363,46 @@ namespace nkentseu {
 							++rap.montes;
 							return;
 						}
+						// ── LA ZONE DEFILANTE ────────────────────────────────
+						// Le format la connait depuis toujours (`axis`, `always`) ; le monteur,
+						// non -- et son contenu etait donc EMPORTE. `BeginChild` est la brique
+						// que NKGui a deja : elle rogne son contenu, tient la molette et pose
+						// une barre de defilement. On ne reecrit rien.
+						//
+						// ⚠️ `axis` EST LU, ET IL NE PEUT PAS TOUT DIRE. `BeginChild` defile
+						//    TOUJOURS verticalement et prend l'horizontal EN PLUS ; il n'existe
+						//    pas de mode « horizontal SEUL ». `axis = Horizontal` active donc
+						//    les deux, et ce n'est pas exactement ce que le document demande.
+						//    On l'ecrit ici plutot que de laisser croire a une fidelite qu'on
+						//    n'a pas -- le jour ou NKGui saura l'horizontal seul, la ligne a
+						//    changer est celle-ci.
+						//
+						// ⚠️ ET SI `BeginChild` REFUSE, ON MONTE QUAND MEME LE CONTENU, en flux.
+						//    Un `return` sec ici aurait reintroduit, pour ce seul role, le defaut
+						//    que ce lot corrige : perdre le sous-arbre sans le dire.
+						case NkGuiRole::Scroll: {
+							const NkString ax = NkGTexte(w, "axis", "Vertical");
+							const bool horiz = NkGMotEgal(NkStringView(ax.CStr()), "Horizontal")
+											   || NkGMotEgal(NkStringView(ax.CStr()), "Both");
+							NkRect r = pl.pose ? pl.rect : ctx.layout.region;
+							if (!pl.pose) {
+								// Comme un groupe absolu pose dans un flux : on part du curseur,
+								// jamais du bord de la region, sinon la zone recouvre ses aines.
+								r.w -= (ctx.layout.cursor.x - r.x);
+								r.h -= (ctx.layout.cursor.y - r.y);
+								r.x = ctx.layout.cursor.x;
+								r.y = ctx.layout.cursor.y;
+							}
+							if (BeginChild(ctx, lbl, r, true, horiz)) {
+								MonterCorps(ctx, w, etat, rap, prof + 1u, false, false, hooks);
+								EndChild(ctx);
+							} else {
+								MonterCorps(ctx, w, etat, rap, prof + 1u, horizontal, parentAbsolu, hooks);
+							}
+							Noter(rap, id, t, r, prof, true, horizontal, &ctx.layout.region);
+							++rap.montes;
+							return;
+						}
 						case NkGuiRole::Group: {
 							// ⚠️ UN `Group` PEUT DECLARER `placement = absolute` -- c'est l'un des
 							//    trois conteneurs NEUTRES (avec `Window` et `Panel`). Une `VBox` ne le
@@ -1222,7 +1421,7 @@ namespace nkentseu {
 								ctx.BeginLayout(r);
 								MonterCorps(ctx, w, etat, rap, prof + 1u, horizontal, enfantsAbsolus, hooks);
 								ctx.layout = sauve;
-								Noter(rap, id, t, r, prof, true, horizontal);
+								Noter(rap, id, t, r, prof, true, horizontal, &ctx.layout.region);
 								++rap.montes;
 								return;
 							}
@@ -1230,7 +1429,7 @@ namespace nkentseu {
 							BeginGroup(ctx);
 							MonterCorps(ctx, w, etat, rap, prof + 1u, horizontal, false, hooks);
 							EndGroup(ctx);
-							Noter(rap, id, t, BlocConsomme(ctx, c0), prof, true, horizontal);
+							Noter(rap, id, t, BlocConsomme(ctx, c0), prof, true, horizontal, &ctx.layout.region);
 							++rap.montes;
 							return;
 						}
@@ -1248,7 +1447,7 @@ namespace nkentseu {
 								MonterCorps(ctx, w, etat, rap, prof + 1u, false, false, hooks);
 								EndVBox(ctx);
 								ctx.layout = sauve;
-								Noter(rap, id, t, pl.rect, prof, true, horizontal);
+								Noter(rap, id, t, pl.rect, prof, true, horizontal, &ctx.layout.region);
 								++rap.montes;
 								return;
 							}
@@ -1256,7 +1455,7 @@ namespace nkentseu {
 							BeginVBox(ctx, gap);
 							MonterCorps(ctx, w, etat, rap, prof + 1u, false, false, hooks);
 							EndVBox(ctx);
-							Noter(rap, id, t, BlocConsomme(ctx, c0), prof, true, horizontal);
+							Noter(rap, id, t, BlocConsomme(ctx, c0), prof, true, horizontal, &ctx.layout.region);
 							++rap.montes;
 							return;
 						}
@@ -1274,7 +1473,7 @@ namespace nkentseu {
 								MonterCorps(ctx, w, etat, rap, prof + 1u, true, false, hooks);
 								EndHBox(ctx);
 								ctx.layout = sauve;
-								Noter(rap, id, t, pl.rect, prof, true, horizontal);
+								Noter(rap, id, t, pl.rect, prof, true, horizontal, &ctx.layout.region);
 								++rap.montes;
 								return;
 							}
@@ -1282,7 +1481,7 @@ namespace nkentseu {
 							BeginHBox(ctx, gap);
 							MonterCorps(ctx, w, etat, rap, prof + 1u, true, false, hooks);
 							EndHBox(ctx);
-							Noter(rap, id, t, BlocConsomme(ctx, c0), prof, true, horizontal);
+							Noter(rap, id, t, BlocConsomme(ctx, c0), prof, true, horizontal, &ctx.layout.region);
 							++rap.montes;
 							return;
 						}
@@ -1290,15 +1489,35 @@ namespace nkentseu {
 						// ── FEUILLES ─────────────────────────────────────────
 						case NkGuiRole::Text: {
 							const NkString s = NkGTexte(w, "text", "");
+							// ⚠️ UN `Text` N'A PAS DE SURFACE. Son apparence honoree est son ENCRE
+							//    (`text { color }`). Un `fill` ecrit sur lui demande un fond que NKGui
+							//    ne peint pas pour un texte : on le COMPTE plutot que de l'inventer
+							//    -- inventer un rectangle demanderait de mesurer le texte avant de le
+							//    dessiner, ce que ce monteur ne fait pas.
+							const NkColor sauve = ctx.theme.text;
+							if (app.aEncre) {
+								ctx.theme.text = app.encre;
+								++rap.apparencesPeintes;
+							}
 							if (NkGBooleen(w, "wrap", false))
 								TextWrapped(ctx, s.CStr());
 							else
 								Text(ctx, s.CStr());
+							ctx.theme.text = sauve;
 							break;
 						}
 						case NkGuiRole::Button: {
 							const NkString s = NkGTexte(w, "label", id.CStr());
+							// ⚠️ UNE FEUILLE : la surcharge ne peut fuir vers personne, et elle est
+							//    RENDUE juste apres. C'est ce qui la rend sure ici et interdite sur
+							//    un conteneur.
+							const NkColor sauve = ctx.theme.button;
+							if (app.aFond) {
+								ctx.theme.button = app.fond;
+								++rap.apparencesPeintes;
+							}
 							(void)Button(ctx, s.CStr());
+							ctx.theme.button = sauve;
 							break;
 						}
 						case NkGuiRole::RepeatButton: {
@@ -1421,6 +1640,28 @@ namespace nkentseu {
 							// `size = 12` est UN nombre : c'est l'axe du conteneur qui
 							// dit lequel des deux cotes il mesure.
 							const float32 s = NkGNombre(w, "size", 0.f);
+							// 🔴 SANS `size`, EN FLUX HORIZONTAL, NKGUI INVENTAIT 120 PIXELS.
+							//    `NextItemRect` porte, pour le flux horizontal, un `if (w <= 0.f)
+							//    w = 120.f; // pas de "remplir" en HBox`. Le monteur passait 0 pour
+							//    un `Spacer` sans taille ecrite : un bloc INVISIBLE de 120 px
+							//    poussait le widget suivant HORS de son panneau (mesure du 17/09 :
+							//    un panneau de 280 px, un bouton a (268, 66 de large) -- 44 px
+							//    dehors), et le montage restait vert.
+							//
+							// ⚠️ ON NE TOUCHE PAS AU 120 DE `NextItemRect` : cette valeur sert a
+							//    TOUS les appelants de NKGui dans cinq applications, et la changer
+							//    deplacerait des interfaces que personne n'a demande de bouger. Le
+							//    monteur, lui, SAIT que `Spacer` sans taille veut dire « le reste » :
+							//    c'est a lui de le dire.
+							//
+							// ⚠️ ET IL NE FAIT PAS SEMBLANT DE L'HONORER. Pousser le voisin jusqu'au
+							//    bord demanderait de connaitre SA largeur avant de le monter, donc
+							//    deux passes. On rend zero -- le voisin reste DEDANS -- et on COMPTE
+							//    la demande non tenue, plutot que de la taire ou de l'inventer.
+							if (horizontal && !NkGA(w, "size")) {
+								++rap.espacesFlexibles;
+								break;
+							}
 							Spacer(ctx, horizontal ? s : 0.f, horizontal ? 0.f : s);
 							break;
 						}
@@ -1568,7 +1809,7 @@ namespace nkentseu {
 									Noter(rap, nom, NkGuiArchive::TypeOf(z), r, prof + 1u, true, true);
 								}
 							}
-							Noter(rap, id, t, zone, prof, true, horizontal);
+							Noter(rap, id, t, zone, prof, true, horizontal, &ctx.layout.region);
 							++rap.montes;
 							return;
 						}
@@ -1635,7 +1876,7 @@ namespace nkentseu {
 												   {zone.x + 6.f, zone.y + 4.f}, cle.CStr(), trait);
 								}
 							}
-							Noter(rap, id, t, zone, prof, true, horizontal);
+							Noter(rap, id, t, zone, prof, true, horizontal, &ctx.layout.region);
 							++rap.montes;
 							return;
 						}
@@ -1713,7 +1954,7 @@ namespace nkentseu {
 								b.h = (zone.y + zone.h) - b.y;
 							}
 							MonterCorpsBorne(ctx, w, etat, rap, prof + 1u, hooks, a, b);
-							Noter(rap, id, t, zone, prof, true, horizontal);
+							Noter(rap, id, t, zone, prof, true, horizontal, &ctx.layout.region);
 							++rap.montes;
 							return;
 						}
@@ -1869,7 +2110,7 @@ namespace nkentseu {
 					}
 					if (aDessine)
 						++rap.montes;
-					Noter(rap, id, t, ctx.layout.prevItem, prof, false, horizontal);
+					Noter(rap, id, t, ctx.layout.prevItem, prof, false, horizontal, &ctx.layout.region);
 					if (rap.items.Size() > 0) {
 						NkGuiMonteItem &dernier = rap.items[(uint32)rap.items.Size() - 1u];
 						dernier.valeur = valeurMontee;
@@ -1895,21 +2136,13 @@ namespace nkentseu {
 					return r;
 				}
 
+				/// ⚠️ UNE SEULE LECTURE DE « LE REPOS » DANS TOUT LE FICHIER. Elle vit
+				///    desormais en fonction libre (`NkGuiEtatEstRepos`) parce que le lecteur
+				///    d'apparence, ecrit hors de cette classe, en a besoin lui aussi. Deux
+				///    copies auraient fini par ne plus etre d'accord sur ce qu'est le repos,
+				///    et le desaccord se serait vu en PIXELS, jamais dans un compteur.
 				static bool EtatEstRepos(NkStringView lexeme) noexcept {
-					// `$state` porte la parenthese entiere telle qu'ecrite :
-					// `(Normal)`, `(  Normal  )`, `(Hover)`.
-					for (uint32 i = 0; i + 5u < (uint32)lexeme.Size() + 1u; ++i) {
-						if (lexeme.Data()[i] == 'N' && i + 6u <= (uint32)lexeme.Size()) {
-							bool ok = true;
-							const char *m = "Normal";
-							for (uint32 j = 0; j < 6u; ++j)
-								if (lexeme.Data()[i + j] != m[j])
-									ok = false;
-							if (ok)
-								return true;
-						}
-					}
-					return false;
+					return NkGuiEtatEstRepos(lexeme);
 				}
 
 				static void CompterApparences(const NkArchive &w, NkGuiMonteRapport &rap) noexcept {
@@ -1967,9 +2200,14 @@ namespace nkentseu {
 				/// « 4 chevauchements » sur un empilement parfaitement correct.
 				/// `layout.prevItem`, lui, est pose par CHAQUE `NextItemRect` -- tous les
 				/// widgets auto-places y passent, interactifs ou non.
+				/// ⚠️ ELLE PREND LA REGION, ET CE N'EST PAS UN PARAMETRE DE CONFORT :
+				///    c'est le seul endroit du fichier par ou passent TOUS les widgets
+				///    montes, avec le rectangle qu'ils ont REELLEMENT pris. Compter le
+				///    debordement ailleurs aurait voulu dire le compter dans chaque `case`,
+				///    c'est-a-dire en oublier.
 				static void Noter(NkGuiMonteRapport &rap, const NkString &id, NkStringView role,
 								  const NkRect &r, uint32 prof, bool conteneur,
-								  bool axeHorizontal) noexcept {
+								  bool axeHorizontal, const NkRect *region = nullptr) noexcept {
 					NkGuiMonteItem it;
 					it.id = id;
 					it.role = NkString(role);
@@ -1977,6 +2215,13 @@ namespace nkentseu {
 					it.profondeur = prof;
 					it.conteneur = conteneur;
 					it.axeHorizontal = axeHorizontal;
+					// Un demi-pixel de tolerance : les rectangles sont en flottants et un
+					// bord qui touche exactement n'est pas un debordement.
+					if (region && (r.x + r.w > region->x + region->w + 0.5f
+						   || r.y + r.h > region->y + region->h + 0.5f)) {
+						++rap.debordements;
+						it.deborde = true;
+					}
 					rap.items.PushBack(it);
 				}
 
