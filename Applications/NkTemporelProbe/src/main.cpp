@@ -303,6 +303,14 @@ int main(int argc, char **argv) {
 	if (const char *v = getenv("NK_TEMPOREL_BLOOM"))
 		if (v[0])
 			cfg.postProcess.bloom = (v[0] != '0');
+	// NK_TEMPOREL_SSAO=0/1 : le flou SSAO est le dernier des trois sites du signe Y
+	// a n'avoir aucune mesure. Comme pour le bloom, la premiere question n'est pas
+	// « son resultat est-il au bon endroit » mais « produit-il quelque chose ».
+	if (const char *v = getenv("NK_TEMPOREL_SSAO"))
+		if (v[0]) {
+			cfg.postProcess.ssao = (v[0] != '0');
+			cfg.postProcess.hbao = false;
+		}
 	if (const char *v = getenv("NK_TEMPOREL_FXAA"))
 		if (v[0])
 			cfg.postProcess.fxaa = (v[0] != '0');
@@ -849,8 +857,11 @@ int main(int argc, char **argv) {
 			const size_t lus = fread(ref.Data(), 1, nPix * 4, f);
 			fclose(f);
 			if (lus == (size_t)nPix * 4) {
-				double sommeY = 0.0, sommeP = 0.0;
-				uint32 nDiff = 0;
+				// DEUX centres de masse, parce que deux effets OPPOSES se mesurent
+				// ici : le bloom AJOUTE de la lumiere, le SSAO en RETIRE. Un seul
+				// des deux compteurs serait aveugle a l'autre effet.
+				double sommeY = 0.0, sommeP = 0.0, sommeYr = 0.0, sommePr = 0.0;
+				uint32 nDiff = 0, nDiffR = 0;
 				double cmObjY = 0.0, cmObjP = 0.0;
 				for (uint32 y = 0; y < kH; ++y)
 					for (uint32 x = 0; x < kW; ++x) {
@@ -860,10 +871,14 @@ int main(int argc, char **argv) {
 						int d = 0;
 						for (int c = 0; c < 3; ++c)
 							d += (int)pm[c] - (int)pr[c];
-						if (d > 3) { // ce que le bloom AJOUTE, pas ce qu'il retire
+						if (d > 3) { // ce que l'effet AJOUTE
 							sommeY += (double)y * (double)d;
 							sommeP += (double)d;
 							nDiff++;
+						} else if (d < -3) { // ce qu'il RETIRE
+							sommeYr += (double)y * (double)(-d);
+							sommePr += (double)(-d);
+							nDiffR++;
 						}
 						// centre de masse de l'OBJET, pris sur la reference :
 						// luminance au-dessus du fond.
@@ -877,7 +892,9 @@ int main(int argc, char **argv) {
 				printf("     pixels ajoutes par le bloom : %u\n", nDiff);
 				printf("     CM_OBJET   (y, pixels)      : %.1f\n", cmObjP > 0 ? cmObjY / cmObjP : -1.0);
 				printf("     CM_AJOUT   (y, pixels)      : %.1f\n", sommeP > 0 ? sommeY / sommeP : -1.0);
-				printf("     miroir de CM_OBJET          : %.1f   (ce que donnerait un halo RETOURNE)\n",
+				printf("     pixels RETIRES              : %u\n", nDiffR);
+				printf("     CM_RETRAIT (y, pixels)      : %.1f\n", sommePr > 0 ? sommeYr / sommePr : -1.0);
+				printf("     miroir de CM_OBJET          : %.1f   (ce que donnerait un effet RETOURNE)\n",
 					   cmObjP > 0 ? (double)kH - cmObjY / cmObjP : -1.0);
 			}
 		}
