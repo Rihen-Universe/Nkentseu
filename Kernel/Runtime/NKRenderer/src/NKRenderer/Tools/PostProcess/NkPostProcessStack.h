@@ -150,7 +150,7 @@ namespace nkentseu {
 				//   rp         : render pass de la passe appelante (graph), pour le lazy
 				void RunTAAInPass(NkICommandBuffer *cmd, NkTextureHandle ldrIn, NkTextureHandle histIn,
 								  NkTextureHandle depth, const NkMat4f &reproj, bool useHistory,
-								  NkRenderPassHandle rp);
+								  NkRenderPassHandle rp, NkTextureHandle motion = NkTextureHandle{});
 
 				bool IsTAAEnabled() const;
 

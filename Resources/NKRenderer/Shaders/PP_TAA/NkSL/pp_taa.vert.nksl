@@ -18,7 +18,8 @@ layout(push_constant) uniform PC {
     // pixel : un seul produit matrice-vecteur au lieu de deux.
     mat4  reproj;
     vec4  p0;            // (blendHistory, yFlipUV, invResW, invResH)
-    vec4  p1;            // (ndcYSign, clampOn, debugMode, _) — lu par le FS seul
+    vec4  p1;            // (ndcYSign, clampOn, debugMode, motionOn) — lu par le FS seul
+    vec4  p2;            // (motionYSign, _, _, _) — lu par le FS seul
 } pc;
 
 @stage(vertex)

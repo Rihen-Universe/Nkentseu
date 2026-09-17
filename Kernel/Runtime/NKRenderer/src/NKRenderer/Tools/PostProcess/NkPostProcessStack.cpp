@@ -294,6 +294,12 @@ void main() {
 			taalay.Add(0, NkDescriptorType::NK_COMBINED_IMAGE_SAMPLER, ::nkentseu::NkShaderStage::NK_ALL_GRAPHICS);
 			taalay.Add(1, NkDescriptorType::NK_COMBINED_IMAGE_SAMPLER, ::nkentseu::NkShaderStage::NK_ALL_GRAPHICS);
 			taalay.Add(2, NkDescriptorType::NK_COMBINED_IMAGE_SAMPLER, ::nkentseu::NkShaderStage::NK_ALL_GRAPHICS);
+			// binding 3 : les VECTEURS DE MOUVEMENT (17/09/2026). Toujours declare,
+			// meme quand la passe qui les produit est eteinte : un slot non declare
+			// ferait diverger le layout du nuanceur et le pipeline echouerait au
+			// lieu de degrader. Quand la cible n'existe pas, on y lie la profondeur
+			// -- ce qui donne un deplacement lu comme nul, donc le repli PROFONDEUR.
+			taalay.Add(3, NkDescriptorType::NK_COMBINED_IMAGE_SAMPLER, ::nkentseu::NkShaderStage::NK_ALL_GRAPHICS);
 			mTAALayout = mDevice->CreateDescriptorSetLayout(taalay);
 			for (int i = 0; i < kTAADescSets; i++)
 				mTAASets[i] = mDevice->AllocateDescriptorSet(mTAALayout);
@@ -1723,11 +1729,16 @@ void main() {
 			pd.blend = NkBlendDesc::Opaque();
 			pd.debugName = "PP_TAA";
 			pd.renderPass = rp; // RP de la passe du graph (cf. GetPassRenderPass)
-			// 96 octets : mat4 reproj (64) + vec4 p0 (16) + vec4 p1 (16). Sous la
-			// garantie Vulkan (128) et sous les root constants DX12 (32 DWORDs).
+			// 112 octets : mat4 reproj (64) + vec4 p0 + vec4 p1 + vec4 p2 (48).
+			// Sous la garantie Vulkan (128) et sous les root constants DX12
+			// (32 DWORDs = 128). Il reste donc UN vec4 de marge, pas deux.
 			// p1 existe pour DISSOCIER yFlipUV (VS) de ndcYSign (FS) : ces deux
 			// valeurs divergent par backend, les confondre cassait GL et DX.
-			pd.AddPushConstant(::nkentseu::NkShaderStage::NK_ALL_GRAPHICS, 0, 96);
+			// p2 porte le signe Y des VECTEURS DE MOUVEMENT, qui est une TROISIEME
+			// convention Y, distincte des deux autres -- la cible de mouvement suit
+			// le NDC du dorsal sans retournement, ce qui ne coincide ni avec l'UV
+			// d'echantillonnage ni avec le NDC reconstruit.
+			pd.AddPushConstant(::nkentseu::NkShaderStage::NK_ALL_GRAPHICS, 0, 112);
 			if (mTAALayout.IsValid())
 				pd.descriptorSetLayouts.PushBack(mTAALayout);
 			mPipeTAA = mDevice->CreateGraphicsPipeline(pd);
@@ -1783,7 +1794,7 @@ void main() {
 
 		void NkPostProcessStack::RunTAAInPass(NkICommandBuffer *cmd, NkTextureHandle ldrIn, NkTextureHandle histIn,
 											  NkTextureHandle depth, const NkMat4f &reproj, bool useHistory,
-											  NkRenderPassHandle rp) {
+											  NkRenderPassHandle rp, NkTextureHandle motion) {
 			if (!cmd || !ldrIn.IsValid() || !IsTAAEnabled())
 				return;
 			if (!EnsureTAAPipeline(rp))
@@ -1803,14 +1814,25 @@ void main() {
 			// laisser un slot non initialise ; le shader verra depth >= 0.9999 comme
 			// du ciel et retombera sur l'image courante (donc pas d'accumulation).
 			mDevice->BindTextureSampler(set, 2, depth.IsValid() ? depth : ldrIn, samp);
+			// binding 3 : les vecteurs de mouvement. Absents, on lie la PROFONDEUR
+			// plutot que de laisser le slot vide -- un slot non initialise est un
+			// comportement indefini, et sur certains dorsaux une lecture de memoire
+			// recyclee. La profondeur relue dans les canaux .rg donne des valeurs
+			// proches de 1, tres au-dessus du seuil du nuanceur... c'est pourquoi le
+			// nuanceur ne LIT la cible que si `motionOn` vaut 1. Le repli de liaison
+			// protege le pipeline, le drapeau protege le calcul : les deux sont
+			// necessaires, et aucun ne remplace l'autre.
+			const bool motionOk = motion.IsValid();
+			mDevice->BindTextureSampler(set, 3, motionOk ? motion : (depth.IsValid() ? depth : ldrIn), samp);
 
 			cmd->BindGraphicsPipeline(mPipeTAA);
 			cmd->BindDescriptorSet(set, 0);
 
 			struct PC {
 					float32 reproj[16];
-					float32 blend, yFlipUV, invResW, invResH; // p0
-					float32 ndcYSign, clampOn, debugMode, _pad; // p1
+					float32 blend, yFlipUV, invResW, invResH;	  // p0
+					float32 ndcYSign, clampOn, debugMode, motionOn; // p1
+					float32 motionYSign, _pad0, _pad1, _pad2;	  // p2
 			} pc;
 
 			memcpy(pc.reproj, &reproj, sizeof(pc.reproj));
@@ -1860,9 +1882,43 @@ void main() {
 			if (const char *v = getenv("NK_TAA_DEBUG"))
 				if (v[0])
 					pc.debugMode = (float32)atof(v);
+			// ── LES VECTEURS DE MOUVEMENT ────────────────────────────────────────
+			// `motionOn` n'est vrai que si la cible EXISTE : sans elle, le nuanceur
+			// ne doit surtout pas lire le slot de repli (cf. la liaison plus haut).
+			pc.motionOn = motionOk ? 1.f : 0.f;
+			// ── LA TROISIEME CONVENTION Y, ET ELLE SUIT CELLE DES TEXTURES ───────
+			// Le vecteur est lu dans une TEXTURE -- la cible `MotionVec`, un
+			// transient du graphe comme ToneLDR. Il suit donc la convention
+			// d'ECHANTILLONNAGE de cette passe, `yFlipUV`, et NON celle du NDC
+			// reconstruit depuis la profondeur.
+			//
+			// ⚠️ J'AVAIS D'ABORD ECRIT `= ndcYSign`, ET LA MESURE M'A CONTREDIT.
+			// Mouvement VERTICAL, clamp desarme, erreur sur l'objet contre une
+			// reference sans TAA (17/09) :
+			//   OpenGL  : sans vecteurs 1 431 209 | YSIGN=+1 -> 1 334 962 (-6,7 %)
+			//                                     | YSIGN=-1 -> 1 430 199 (rien)
+			//   DX11 redresse (NK_TAA_YFLIP=-1) :
+			//             sans vecteurs 1 831 766 | YSIGN=-1 -> 1 559 882 (-14,8 %)
+			//                                     | YSIGN=+1 -> 2 059 030 (pire)
+			// Le bon signe vaut +1 la ou `yFlipUV` vaut +1 (GL) et -1 la ou il vaut
+			// -1 (DX redresse). C'est `yFlipUV`, pas `ndcYSign`.
+			//
+			// ⚠️ ET CE CORRECTIF EST BRIDE PAR UN DEFAUT QUI N'EST PAS LE SIEN.
+			// Avec la valeur que ce fichier pose aujourd'hui sur DX (`yFlipUV = +1`,
+			// mesuree FAUSSE sur cible hors ecran, cf. le canal rendu-temporel R2
+			// section 2.5), le mouvement vertical n'est pas corrige sur DX11 : il y
+			// est meme legerement degrade. Le benefice vertical des vecteurs y
+			// depend donc du reglement du retournement, qui est un autre chantier.
+			// NK_TAA_MOTION_YSIGN reste le levier pour refuter tout ceci.
+			pc.motionYSign = pc.yFlipUV;
+			if (const char *v = getenv("NK_TAA_MOTION_YSIGN"))
+				if (v[0])
+					pc.motionYSign = (float32)atof(v);
+			pc._pad0 = 0.f;
+			pc._pad1 = 0.f;
+			pc._pad2 = 0.f;
 			pc.invResW = mW > 0 ? 1.f / (float32)mW : 0.f;
 			pc.invResH = mH > 0 ? 1.f / (float32)mH : 0.f;
-			pc._pad = 0.f;
 			cmd->PushConstants(::nkentseu::NkShaderStage::NK_ALL_GRAPHICS, 0, sizeof(pc), &pc);
 			cmd->Draw(3, 1, 0, 0);
 
@@ -1882,10 +1938,10 @@ void main() {
 			static int sDiag = 0;
 			if (sDiag < 5) {
 				sDiag++;
-				logger.Info("[TAA] image={7} useHistory={0} blend={1} yFlip={2} ndcY={3} | ids ldr={4} hist={5} "
+				logger.Info("[TAA] image={7} useHistory={0} blend={1} yFlip={2} ndcY={3} motionOn={8} | ids ldr={4} hist={5} "
 							"depth={6}\n",
 							histOk ? 1 : 0, pc.blend, pc.yFlipUV, pc.ndcYSign, (uint32)ldrIn.id, (uint32)histIn.id,
-							(uint32)depth.id, sDiag);
+							(uint32)depth.id, sDiag, pc.motionOn);
 			}
 		}
 
