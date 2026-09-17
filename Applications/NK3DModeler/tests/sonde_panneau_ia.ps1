@@ -64,6 +64,11 @@ function Lancer([string]$par, [string]$texte, [bool]$mut, [bool]$shot) {
 	$env:NK_SONDE = "1"; $env:NK_ADD_NODE = "2,0,20"; $env:NK_EDIT_USER = "99"
 	$env:NK_EDIT_MODE = "1,40"; $env:NK_EDIT_SELMASK = "4"
 	$env:NK_VP_ACTION = "selectall,60"
+	# ⚠ ON QUITTE L'ACCUEIL (Rodolf, 17/09 : pas d'assistant au lanceur). Sans
+	#   cette ligne, ce banc mesurait le panneau PAR-DESSUS l'ecran de demarrage
+	#   -- un etat que l'application n'a plus le droit d'avoir, et ou toute
+	#   demande est desormais refusee avec son motif.
+	$env:NK_AGENT_SCENE = "30"
 	if ($par -eq "panneau") { $env:NK_AI_DEMANDE = "$texte,90" }
 	elseif ($texte) { $env:NK_VP_ACTION2 = "$texte,90" }
 	if ($mut) { $env:NK_PARAM_IGNORE = "1" }
@@ -72,7 +77,7 @@ function Lancer([string]$par, [string]$texte, [bool]$mut, [bool]$shot) {
 		#   l ECRAN D ACCUEIL : il faut AUSSI passer a la scene (NK_AGENT_SCENE)
 		#   et DEPLIER le groupe (replie par defaut, comme tous les autres).
 		#   Une image qui ne montre pas ce qu elle prouve ne prouve rien.
-		$env:NK_AGENT_SHOT = "150"; $env:NK_AGENT_SCENE = "30"
+		$env:NK_AGENT_SHOT = "150"
 		$env:NK_DEPLIER = "prop.g.edai"
 	}
 	$env:NK_EDIT_REPORT = "80,130"
@@ -98,7 +103,11 @@ function Lancer([string]$par, [string]$texte, [bool]$mut, [bool]$shot) {
 		if ($m.Success) { $r.refus = $m.Groups[1].Value.Trim() }
 	}
 	$r.soumise = (@(Select-String -Path $out -Pattern "-> soumise").Count -gt 0)
-	$r.vide = (@(Select-String -Path $out -Pattern "refusee \(vide\)").Count -gt 0)
+	# ⚠ ON CHERCHE LE MOTIF, PAS UN MOT DE CODE. La ligne disait « refusee
+	#   (vide) » quelle que soit la raison ; le jour ou un second refus est
+	#   apparu (« aucun projet ouvert »), ce marqueur aurait declare VIDE une
+	#   demande pleine. Le motif, lui, ne peut pas se tromper de cause.
+	$r.vide = (@(Select-String -Path $out -Pattern "refusee : .*demande est vide").Count -gt 0)
 	return $r
 }
 
