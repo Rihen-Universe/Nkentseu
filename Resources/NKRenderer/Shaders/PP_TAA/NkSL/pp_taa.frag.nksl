@@ -143,6 +143,13 @@ void main() {
     // en tient lieu. Limite connue, ecrite plutot que tue.
     float source = 0.0; // 0 = PROFONDEUR, 1 = VECTEUR
     if (pc.p1.w > 0.5) {
+        // ⚠️ HYPOTHESE ESSAYEE ET REFUTEE (17/09/2026) : que `uMotion`, ecrite par
+        // une passe GEOMETRIQUE, porte une orientation differente de `uCurrent`,
+        // ecrite par un triangle plein ecran. Un levier de retournement de cet UV a
+        // ete ajoute, mesure en A/B sur mouvement VERTICAL, et il n'a RIEN deplace
+        // sur OpenGL : 1 334 962 contre 1 337 632. Il a donc ete RETIRE -- un
+        // reglage qui ne deplace aucune mesure est indiscernable d'un placebo, et
+        // pire, il ferme le dossier. La lecture se fait au meme UV que le reste.
         vec2 mv = texture(uMotion, vUV).rg;
         // Le signe Y relie la convention de la cible de mouvement (NDC du dorsal,
         // sans retournement) a celle des UV d'echantillonnage de CETTE passe.
