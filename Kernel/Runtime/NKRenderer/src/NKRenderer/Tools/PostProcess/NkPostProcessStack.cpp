@@ -1423,6 +1423,20 @@ void main() {
 			pc.invW = ssaoW > 0 ? 1.0f / (float)ssaoW : 0.f;
 			pc.invH = ssaoH > 0 ? 1.0f / (float)ssaoH : 0.f;
 			pc.yFlipUV = isVK ? -1.f : +1.f;
+			// Levier de mutation, lu UNE FOIS, inerte sans la variable : il sert a
+			// prouver que le critere du centre de masse teste BIEN ce signe.
+			{
+				static int sMutInit = 0;
+				static float32 sMut = 0.f;
+				if (!sMutInit) {
+					sMutInit = 1;
+					const char *vmut = std::getenv("NK_TEMPOREL_SSAO_YSIGN");
+					if (vmut && vmut[0])
+						sMut = (float32)std::atof(vmut);
+				}
+				if (sMut != 0.f)
+					pc.yFlipUV = sMut;
+			}
 			pc._pad = 0.f;
 			cmd->PushConstants(::nkentseu::NkShaderStage::NK_ALL_GRAPHICS, 0, sizeof(pc), &pc);
 
