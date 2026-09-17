@@ -561,6 +561,69 @@ namespace {
 	// « maj+<nom> » : l'action porte Maj, exactement comme une touche enfoncee
 	// avec Maj -- le seul moyen de faire passer un modificateur par le chemin du
 	// bouton sans injecter d'evenement clavier.
+	// ── (b9) LES PARAMETRES D'UNE OPERATION, DONNES AVEC LE VERBE ───────────
+	// « bevel:0.2 » ou « bevel:0.2:4 » : apres le nom, les parametres de CETTE
+	// commande, DANS L'ORDRE DE LA TABLE `HostOpParams`. L'ordre n'est pas une
+	// convention inventee ici : c'est celui que le panneau de proprietes affiche
+	// deja, et deux ordres pour la meme liste finiraient par diverger.
+	//
+	// ⚠ ON NE BORNE PAS ICI. `Demo3DHostOpParamSet` porte le clamp, et son
+	//   commentaire dit pourquoi : « LE CLAMP EST ICI ET NULLE PART AILLEURS. Un
+	//   champ regle par deux chemins avec deux bornes differentes laisse entrer
+	//   par l'un ce que l'autre refuse. » Un second borneur ecrit ici serait
+	//   exactement ce defaut. Une valeur hors bornes est donc RAMENEE, pas
+	//   refusee : c'est ce que fait deja la molette, et une IA qui demande un
+	//   biseau de 99 doit obtenir le plus large possible, pas un echec muet.
+	//
+	// MUTATION : `NK_PARAM_IGNORE=1` lit les valeurs puis les jette.
+	int32 NkVpPoserParams(const char *apresNom, int32 cmd, const char *quiSuisJe) {
+		if (!apresNom || *apresNom != ':' || cmd < 0)
+			return 0;
+		static int sIgnore = -1;
+		if (sIgnore == -1) {
+			const char *v = std::getenv("NK_PARAM_IGNORE");
+			sIgnore = (v && v[0] && v[0] != '0') ? 1 : 0;
+		}
+		const int32 nPar = demo::Demo3DHostOpParamCount();
+		int32 poses = 0;
+		const char *c = apresNom;
+		for (int32 q = 0; q < nPar && *c == ':'; ++q) {
+			int32 pc = -1;
+			if (!demo::Demo3DHostOpParamInfo(q, &pc, nullptr, nullptr, nullptr, nullptr))
+				continue;
+			if (pc != cmd)
+				continue; // ce parametre appartient a une autre commande
+			++c; // passe le ':'
+			const float32 v = (float32)std::atof(c);
+			while (*c && *c != ':' && *c != ',')
+				++c;
+			if (sIgnore)
+				continue; // MUTATION : lu, puis jete
+			if (demo::Demo3DHostOpParamSet(q, v))
+				++poses;
+		}
+		// ⚠ UN PARAMETRE QUI N'A PAS TROUVE DE PLACE SE DIT. Sans cela, « bevel:1:2:3 »
+		//   poserait deux valeurs, jetterait la troisieme, et rapporterait un succes --
+		//   le quatrieme etat d'une commande, celui qu'on vient de corriger en (b6).
+		if (*c == ':')
+			std::printf("[nk3d] %s : parametre en trop, ignore (la commande n'en a pas autant)\n", quiSuisJe);
+		return poses;
+	}
+	
+	// Le verbe -> l'indice de commande de `NkMeshMenuTable`, qui est celui que la
+	// table des parametres porte dans son champ `cmd`. -1 = cette commande n'a
+	// aucun parametre reglable, et ce n'est pas une erreur.
+	int32 NkVpCmdDuVerbe(NkVpAction a) {
+		switch (a) {
+			case NkVpAction::Extrude: return 0;
+			case NkVpAction::Inset: return 1;
+			case NkVpAction::BevelEdge: return 2;
+			case NkVpAction::Subdivide: return 3;
+			case NkVpAction::LoopCut: return 4;
+			default: return -1;
+		}
+	}
+	
 	void NkVpPoserAction(NkModelerState &st, const char *vpa, const char *quiSuisJe) {
 		const bool majHook = (vpa[0] == 'm' || vpa[0] == 'M') && (vpa[1] == 'a' || vpa[1] == 'A') &&
 				(vpa[2] == 'j' || vpa[2] == 'J') && vpa[3] == '+';
@@ -578,7 +641,11 @@ namespace {
 				if (x != y)
 					return false;
 			}
-			return (*a == 0 || *a == ',');
+			// (b9) LE VERBE S'ARRETE AUSSI SUR ':'. « bevel:0.2:4 » nomme la commande
+			// PUIS ses parametres. Sans ce terminateur, « bevel:0.2 » ne serait pas
+			// reconnu comme `bevel` et tomberait dans le refus nomme -- ce qui aurait
+			// ete honnete, mais inutile.
+			return (*a == 0 || *a == ',' || *a == ':');
 		};
 		if (est("togglexray"))
 			st.pendingAction = NkVpAction::ToggleXray;
@@ -633,8 +700,20 @@ namespace {
 			st.pendingAction = NkVpAction::Dissolve;
 		else if (est("toggleedit"))
 			st.pendingAction = NkVpAction::ToggleEdit;
-		else
+		else {
 			printf("[nk3d] %s : nom inconnu, aucune action posee\n", quiSuisJe);
+			return; // rien a parametrer : il n'y a pas de commande
+		}
+		// (b9) LES PARAMETRES, UNE FOIS LE VERBE RECONNU. On les pose AVANT que
+		// l'action ne s'execute : l'operation lit `st->bevelOffset` & co. au moment
+		// ou elle construit sa commande, exactement comme apres un tour de molette.
+		{
+			const char *c = nomAct;
+			while (*c && *c != ':' && *c != ',')
+				++c;
+			if (*c == ':')
+				(void)NkVpPoserParams(c, NkVpCmdDuVerbe(st.pendingAction), quiSuisJe);
+		}
 	}
 
 } // namespace
@@ -2821,15 +2900,27 @@ int nkmain(const NkEntryState &entry) {
 				auto ecrire = [&](int32 q) {
 					uint32 vv = 0, ve = 0, vf = 0, vt = 0;
 					const bool ok = demo::Demo3DHostStats(&vv, &ve, &vf, &vt);
+					// (b9) LES PARAMETRES D'OPERATION SONT DANS LA MEME LIGNE QUE LES COMPTES,
+					// et c'est le meme motif que `annuler`/`refaire` plus haut : un parametre se
+					// juge par l'effet qu'il a eu sur le maillage AU MEME INSTANT. Les lire dans
+					// deux relevés distincts, c'est se demander ensuite s'ils parlaient du meme
+					// moment.
+					float32 pBevO = -1.f, pBevS = -1.f, pSubd = -1.f, pLoop = -1.f;
+					(void)demo::Demo3DHostOpParamGet(3, &pBevO);
+					(void)demo::Demo3DHostOpParamGet(4, &pBevS);
+					(void)demo::Demo3DHostOpParamGet(5, &pSubd);
+					(void)demo::Demo3DHostOpParamGet(6, &pLoop);
 					std::printf("[nk3d] EDIT RAPPORT frame=%d : v=%u e=%u f=%u t=%u | selection=%d "
-								"| selV=%d selE=%d selF=%d | masque=%d | annuler=%d refaire=%d (lu=%d)\n",
+								"| selV=%d selE=%d selF=%d | masque=%d | annuler=%d refaire=%d (lu=%d)"
+								" | bevOff=%.3f bevSeg=%.0f subdiv=%.0f loop=%.0f\n",
 								(int)q, vv, ve, vf, vt, (int)demo::Demo3DHostEditSelCount(),
 								(int)demo::Demo3DHostEditSelCountFor(1),
 								(int)demo::Demo3DHostEditSelCountFor(2),
 								(int)demo::Demo3DHostEditSelCountFor(4),
 								(int)demo::Demo3DHostEditSelMask(),
 								demo::Demo3DHostEditCanUndo() ? 1 : 0,
-								demo::Demo3DHostEditCanRedo() ? 1 : 0, ok ? 1 : 0);
+								demo::Demo3DHostEditCanRedo() ? 1 : 0, ok ? 1 : 0,
+						(double)pBevO, (double)pBevS, (double)pSubd, (double)pLoop);
 					std::fflush(stdout);
 				};
 				for (int32 i = 0; i < nq; ++i)
