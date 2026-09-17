@@ -223,26 +223,62 @@ int main(int argc, char **argv) {
 	const char *envBlend = getenv("NK_TAA_BLEND");
 	printf("\n=== NkTemporelProbe — NK_TAA=%s NK_TAA_BLEND=%s ===\n", envTaa ? envTaa : "(absent)",
 		   envBlend ? envBlend : "(absent)");
-	printf("    (aucune fenetre ouverte : peripherique DX11 sans surface)\n\n");
+	printf("    (peripherique SANS SURFACE ; sur OpenGL seul, NKRHI cree lui-meme une\n"
+		   "     fenetre CACHEE de 1x1 pour son contexte, qu'il detruit au Shutdown)\n\n");
+
+	// ── NK_TEMPOREL_API=dx11|dx12|gl|vk ─────────────────────────────────────
+	// Un correctif entierement C++ cote appelant DEVRAIT profiter aux six dorsaux.
+	// « Devrait » n'est pas mesure : la correspondance geometrique du TAA repose sur
+	// des conventions de repere qui, elles, DIFFERENT par dorsal (yFlipUV, ndcYSign,
+	// correction clip-Z). Ce banc doit donc pouvoir changer d'API.
+	// ⚠️ Sur OpenGL SEULEMENT, NKRHI cree lui-meme une fenetre CACHEE de 1x1 parce
+	// que GL exige une surface pour son contexte (NkOpenglDevice.cpp:388-399,
+	// WS_POPUP, detruite au Shutdown). Ce n'est pas moi qui l'ouvre et je ne la ferme
+	// pas a la main -- mais je ne pretendrai pas que zero fenetre a ete creee.
+	const char *envApi = getenv("NK_TEMPOREL_API");
+	NkGraphicsApi apiVoulue = NkGraphicsApi::NK_GFX_API_DX11;
+	const char *nomApi = "DX11";
+	if (envApi && envApi[0]) {
+		if (strcmp(envApi, "gl") == 0) {
+			apiVoulue = NkGraphicsApi::NK_GFX_API_OPENGL;
+			nomApi = "OpenGL";
+		} else if (strcmp(envApi, "vk") == 0) {
+			apiVoulue = NkGraphicsApi::NK_GFX_API_VULKAN;
+			nomApi = "Vulkan";
+		} else if (strcmp(envApi, "dx12") == 0) {
+			apiVoulue = NkGraphicsApi::NK_GFX_API_DX12;
+			nomApi = "DX12";
+		} else if (strcmp(envApi, "dx11") != 0) {
+			printf("[ECHEC] NK_TEMPOREL_API inconnu : %s (dx11|dx12|gl|vk)\n", envApi);
+			return 1;
+		}
+	}
+	printf("    dorsal demande : %s\n", nomApi);
 
 	NkDeviceInitInfo di;
-	di.api = NkGraphicsApi::NK_GFX_API_DX11;
+	di.api = apiVoulue;
 	di.width = 0; // pas de surface -> headless
 	di.height = 0;
 	NkIDevice *device = NkDeviceFactory::Create(di);
 	if (!device || !device->IsValid()) {
-		printf("[ECHEC] peripherique DX11 headless non cree\n");
+		printf("[ECHEC] peripherique %s headless non cree\n", nomApi);
 		return 1;
 	}
-	// TEMOIN D'IDENTITE : on LIT l'API obtenue, on ne croit pas celle demandee.
-	if (device->GetApi() != NkGraphicsApi::NK_GFX_API_DX11) {
-		printf("[ECHEC] le peripherique obtenu n'est pas DX11\n");
+	// ⚠️ TEMOIN D'IDENTITE, et il compte DOUBLE depuis qu'on compare deux dorsaux.
+	// On LIT l'API obtenue au lieu de croire celle qu'on a demandee. Sans lui, une
+	// retombee silencieuse sur DX11 ferait mesurer DEUX FOIS LE MEME CHEMIN, et
+	// l'egalite parfaite des deux courses passerait pour une confirmation alors
+	// qu'elle serait la signature d'un instrument.
+	if (device->GetApi() != apiVoulue) {
+		printf("[ECHEC] le peripherique obtenu n'est PAS %s : la fabrique est retombee\n"
+			   "        sur une autre API. Mesurer ici comparerait un dorsal a lui-meme.\n",
+			   nomApi);
 		return 1;
 	}
 
 	// ForGame, puis on RALLUME le TAA explicitement : le profil HIGH l'eteint
 	// (NkRendererConfig.h:718). C'est justement le fait mesure en R1.
-	NkRendererConfig cfg = NkRendererConfig::ForGame(NkGraphicsApi::NK_GFX_API_DX11, kW, kH);
+	NkRendererConfig cfg = NkRendererConfig::ForGame(apiVoulue, kW, kH);
 	cfg.postProcess.taa = true;
 	cfg.postProcess.fxaa = false; // le TAA a priorite de toute facon ; on l'ecrit
 	cfg.vsync = false;
