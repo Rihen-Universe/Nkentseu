@@ -278,16 +278,34 @@ int main(int argc, char **argv) {
 
 	// ForGame, puis on RALLUME le TAA explicitement : le profil HIGH l'eteint
 	// (NkRendererConfig.h:718). C'est justement le fait mesure en R1.
-	NkRendererConfig cfg = NkRendererConfig::ForGame(apiVoulue, kW, kH);
+	// NK_TEMPOREL_PROFIL=editor : le profil REEL du viseur du modeleur
+	// (NkViewport3D.cpp:726) et de NkAnimaEditor. Il sert a repondre a une
+	// question qui ne se deduit pas : aujourd'hui, l'image d'un viseur d'editeur
+	// sort-elle DROITE ? Ces trois applications redirigent toutes leur sortie par
+	// SetFinalColorTarget, et cinq dorsaux retournent l'image des qu'un blit d'ECRAN
+	// ecrit dans une cible hors ecran.
+	const char *envProfil = getenv("NK_TEMPOREL_PROFIL");
+	const bool profilEditeur = (envProfil && envProfil[0] == 'e');
+	NkRendererConfig cfg = profilEditeur ? NkRendererConfig::ForEditor(apiVoulue, kW, kH)
+										 : NkRendererConfig::ForGame(apiVoulue, kW, kH);
+	printf("    profil : %s\n", profilEditeur ? "ForEditor" : "ForGame");
 	cfg.postProcess.taa = true;
 	// NK_TEMPOREL_FXAA=1 : FXAA au lieu du TAA. C'est le candidat C1 du chantier
 	// « retournement DX11 » -- FXAA n'insere QU'UNE passe plein ecran apres le
 	// tonemap, la ou le TAA en insere TROIS. Si l'image est droite avec une et
 	// retournee avec trois, la faute est dans l'enchainement et non dans yFlipUV.
-	{
-		const char *v = getenv("NK_TEMPOREL_FXAA");
-		cfg.postProcess.fxaa = (v && v[0] && v[0] != '0');
-	}
+	// ⚠️ ABSENTE, LA VARIABLE NE TOUCHE PLUS A RIEN. Elle ECRASAIT le `fxaa` du
+	// preset, donc le profil editeur etait mesure sans son FXAA -- c'est-a-dire
+	// pas le profil editeur. Une option de banc qui modifie silencieusement la
+	// configuration qu'on croit mesurer est un instrument qui ment.
+	// NK_TEMPOREL_BLOOM=0/1 : le bloom, dont les deux passes portent l'ancienne
+	// forme du signe Y. Absente, la variable ne touche pas au preset.
+	if (const char *v = getenv("NK_TEMPOREL_BLOOM"))
+		if (v[0])
+			cfg.postProcess.bloom = (v[0] != '0');
+	if (const char *v = getenv("NK_TEMPOREL_FXAA"))
+		if (v[0])
+			cfg.postProcess.fxaa = (v[0] != '0');
 	cfg.vsync = false;
 
 	NkRenderer *r = NkRenderer::Create(device, cfg);
@@ -362,6 +380,11 @@ int main(int argc, char **argv) {
 	const char *envMove = getenv("NK_TEMPOREL_MOVE");
 	const float32 deplacementParImage = (envMove && envMove[0]) ? (float32)atof(envMove) : 0.f;
 	const float32 kDistCam = 4.28f;
+	// NK_TEMPOREL_OFFSET_Y : decale l'objet VERTICALEMENT, sans le faire bouger.
+	// Indispensable au critere du bloom : un objet CENTRE rendrait « halo droit » et
+	// « halo retourne » indiscernables, et le critere ne pourrait pas echouer.
+	const char *envOffY = getenv("NK_TEMPOREL_OFFSET_Y");
+	const float32 decalageY = (envOffY && envOffY[0]) ? (float32)atof(envOffY) : 0.f;
 	const char *envAxe = getenv("NK_TEMPOREL_MOVE_AXIS");
 	const bool axeVertical = (envAxe && (envAxe[0] == 'y' || envAxe[0] == 'Y'));
 
@@ -379,7 +402,15 @@ int main(int argc, char **argv) {
 	soleil.type = NkLightType::NK_DIRECTIONAL;
 	soleil.direction = {-0.4f, -0.8f, -0.45f};
 	soleil.color = {1.f, 1.f, 1.f};
-	soleil.intensity = 3.f;
+	// NK_TEMPOREL_LUM : le bloom ne se declenche qu'au-dessus d'un seuil de
+	// brillance HDR. A l'intensite nominale, la scene reste sous ce seuil et le
+	// bloom n'ajoute RIEN -- mesure : image identique au bit avec et sans lui,
+	// alors que ses onze passes tournent. Mesurer un halo demande donc d'abord de
+	// FABRIQUER un halo.
+	{
+		const char *v = getenv("NK_TEMPOREL_LUM");
+		soleil.intensity = (v && v[0]) ? (float32)atof(v) : 3.f;
+	}
 	ctx.lights.PushBack(soleil);
 
 	// Le plan de fond : un quad mis a l'echelle, place DERRIERE l'objet et
@@ -413,7 +444,9 @@ int main(int argc, char **argv) {
 	// de fond, sans un seul message, et le compteur (t0) verdissait dessus.
 	// Large volontairement : une AABB trop grande ne fait que désarmer le culling,
 	// ce qui est exactement ce qu'un banc veut.
-	dc.aabb = {{-1.5f, -1.5f, -1.5f}, {1.5f, 1.5f, 1.5f}};
+	dc.aabb = {{-1.5f, -1.5f + decalageY, -1.5f}, {1.5f, 1.5f + decalageY, 1.5f}};
+	if (decalageY != 0.f)
+		dc.transform[3][1] = decalageY;
 
 	const uint32 nPix = kW * kH;
 	NkVector<uint8> imgA, imgB;
@@ -792,6 +825,61 @@ int main(int argc, char **argv) {
 			printf("     total      : %6u  (doit valoir %u : une decomposition qui ne se\n",
 				   nVecteur + nProfondeur + nSortiTot, nPix);
 			printf("                          referme pas sur son total mesure autre chose)\n");
+		}
+	}
+
+	// -- (b1) LE CENTRE DE MASSE DE CE QUE LE BLOOM AJOUTE -------------------
+	// L'image AVEC bloom moins l'image SANS bloom donne exactement ce que le bloom
+	// ajoute. Un halo entoure sa source : le centre de masse de cet ajout doit donc
+	// tomber sur celui de l'objet. Si une passe du bloom est retournee, il tombe en
+	// H - y. C'est pourquoi l'objet est DECENTRE : centre, les deux hypotheses
+	// donneraient le meme nombre et le critere ne pourrait pas echouer.
+	if (getenv("NK_TEMPOREL_BLOOMCM")) {
+		FILE *f = fopen("Captures/temporel/bloom_ref.raw", "rb");
+		if (!f) {
+			FILE *w = fopen("Captures/temporel/bloom_ref.raw", "wb");
+			if (w) {
+				fwrite(imgB.Data(), 1, nPix * 4, w);
+				fclose(w);
+				printf("---- (b1) REFERENCE BLOOM ECRITE ----\n");
+			}
+		} else {
+			NkVector<uint8> ref;
+			ref.Resize(nPix * 4);
+			const size_t lus = fread(ref.Data(), 1, nPix * 4, f);
+			fclose(f);
+			if (lus == (size_t)nPix * 4) {
+				double sommeY = 0.0, sommeP = 0.0;
+				uint32 nDiff = 0;
+				double cmObjY = 0.0, cmObjP = 0.0;
+				for (uint32 y = 0; y < kH; ++y)
+					for (uint32 x = 0; x < kW; ++x) {
+						const uint32 k = y * kW + x;
+						const uint8 *pr = ref.Data() + k * 4;
+						const uint8 *pm = imgB.Data() + k * 4;
+						int d = 0;
+						for (int c = 0; c < 3; ++c)
+							d += (int)pm[c] - (int)pr[c];
+						if (d > 3) { // ce que le bloom AJOUTE, pas ce qu'il retire
+							sommeY += (double)y * (double)d;
+							sommeP += (double)d;
+							nDiff++;
+						}
+						// centre de masse de l'OBJET, pris sur la reference :
+						// luminance au-dessus du fond.
+						const double lum = ((double)pr[0] + pr[1] + pr[2]) / 3.0;
+						if (lum > 60.0) {
+							cmObjY += (double)y * lum;
+							cmObjP += lum;
+						}
+					}
+				printf("---- (b1) CENTRE DE MASSE ----\n");
+				printf("     pixels ajoutes par le bloom : %u\n", nDiff);
+				printf("     CM_OBJET   (y, pixels)      : %.1f\n", cmObjP > 0 ? cmObjY / cmObjP : -1.0);
+				printf("     CM_AJOUT   (y, pixels)      : %.1f\n", sommeP > 0 ? sommeY / sommeP : -1.0);
+				printf("     miroir de CM_OBJET          : %.1f   (ce que donnerait un halo RETOURNE)\n",
+					   cmObjP > 0 ? (double)kH - cmObjY / cmObjP : -1.0);
+			}
 		}
 	}
 
