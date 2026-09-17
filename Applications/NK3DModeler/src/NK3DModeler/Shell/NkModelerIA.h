@@ -217,8 +217,13 @@ namespace nkentseu {
 
 				void Preparer(const char *racine) {
 					dorsal.nom = NkString("assistant");
-					dorsal.invitePath = NkString("nk3dmodeler_invite.txt");
-					dorsal.sortiePath = NkString("nk3dmodeler_reponse.txt");
+					// ⚠️ DANS `logs/`, PAS A LA RACINE. Le dorsal ecrit deux fichiers de
+					//    travail a CHAQUE appel ; poses dans le repertoire courant, ils
+					//    salissent le dossier de projet de Rodolf et reapparaissent apres
+					//    chaque nettoyage. `logs/` existe deja et c'est la que vivent les
+					//    traces de l'application.
+					dorsal.invitePath = NkString("logs/nk3dmodeler_invite.txt");
+					dorsal.sortiePath = NkString("logs/nk3dmodeler_reponse.txt");
 					if (const char *g = std::getenv("NK_IA_CMD")) {
 						if (*g)
 							dorsal.gabarit = NkString(g);
