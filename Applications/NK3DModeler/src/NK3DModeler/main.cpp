@@ -725,6 +725,52 @@ int nkmain(const NkEntryState &entry) {
 		return ok ? 0 : 1;
 	}
 
+	// `--invite-ia "<demande>" <fichier>` ecrit L'INVITE EXACTE que le panneau
+	// enverrait, puis sort. Aucune fenetre, aucun appel de modele.
+	//
+	// ⚠️ IL EXISTE PARCE QU'UNE SONDE RETAPAIT L'INVITE. Le banc des trois taux
+	//    composait sa propre en-tete « reponds par une seule ligne... » a cote
+	//    de celle du produit : il mesurait donc un texte que Rodolf n'envoie
+	//    jamais, et ses taux ne parlaient pas de notre outillage. C'est la meme
+	//    faute que mesurer un chemin que l'utilisateur n'emprunte pas, commise
+	//    sur l'invite au lieu du clic.
+	//    Desormais : UNE SEULE AUTORITE, `NkIaEcrireContratDansInvite`, et deux
+	//    lecteurs -- le panneau et le banc.
+	// ⚠️ `NK_IA_SANS_CONTRAT=1` agit ici AUSSI, sinon la mutation ne porterait
+	//    que sur le produit et le banc mesurerait toujours la meme chose.
+	for (usize a = 0; a < entry.args.Size(); ++a) {
+		if (!(entry.args[a] == NkString("--invite-ia")))
+			continue;
+		const NkString dem = (a + 1u < entry.args.Size()) ? entry.args[a + 1u] : NkString("");
+		const NkString out = (a + 2u < entry.args.Size()) ? entry.args[a + 2u] : NkString("INVITE_IA.txt");
+		if (dem.Length() == 0) {
+			std::printf("[nk3d] --invite-ia : demande vide, rien n'est ecrit\n");
+			return 1;
+		}
+		nk3d::NkIaCmdDuVerbe = &NkVpCmdDuVerbe;
+		static char invite[16384];
+		const char *sc = std::getenv("NK_IA_SANS_CONTRAT");
+		const bool sansContrat = sc && sc[0] && sc[0] != '0';
+		nk3d::NkIaEcrireContratDansInvite(invite, sizeof(invite), !sansContrat);
+		const size_t lg = strlen(invite);
+		snprintf(invite + lg, sizeof(invite) - lg, "\nDemande : %s\nCommande :", dem.CStr());
+		FILE *f = nullptr;
+#ifdef _WIN32
+		fopen_s(&f, out.CStr(), "wb");
+#else
+		f = fopen(out.CStr(), "wb");
+#endif
+		if (!f) {
+			std::printf("[nk3d] --invite-ia : impossible d'ecrire %s\n", out.CStr());
+			return 1;
+		}
+		fwrite(invite, 1, strlen(invite), f);
+		fclose(f);
+		std::printf("[nk3d] invite IA (contrat %s) -> %s\n", sansContrat ? "ABSENT" : "donne", out.CStr());
+		std::fflush(stdout);
+		return 0;
+	}
+
 	// ── SONDE DE LA PORTE DU GENERATEUR, SANS FENETRE NI CARTE ──────────────
 	// `NK3DModeler.exe --sonde-genia [dossier]` eprouve la remontee du MOTIF du
 	// sous-processus (le defaut nomme par la navette « texte vers 3D ») et la
