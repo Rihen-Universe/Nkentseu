@@ -4676,6 +4676,52 @@ namespace nkentseu {
 				// mScale est un DELTA (Scale applique 1+s) : 0 = inchange.
 				scl = (st->modalAxis >= 0) ? dir * v : NkVec3f{v, v, v};
 			}
+			// ── L'AIMANTATION PENDANT UNE MODALE (Rodolf, 14/09) ────────────────
+			// « Est-ce que l'aimant/snap fonctionne aussi en edition mode ? » La
+			// reponse mesuree etait NON, et pas seulement en edition : l'aimantation
+			// etait reglee sur les deux GIZMOS -- donc elle agissait au DRAG, dans les
+			// deux modes -- mais la modale G/R/S ne passe pas par le drag. Elle calcule
+			// sa valeur et la pose ici : le pas du gizmo n'etait jamais consulte.
+			// Mesure du 17/09, avant : NK_SNAP_ON=1 avec un pas de 0,5 donnait
+			// 1,04211 -- exactement la meme valeur que sans aimantation.
+			//
+			// ⚠ UN SEUL ENDROIT, ET C'EST LA TRANSFORMATION FINALE QU'ON ARRONDIT,
+			//   pas la valeur du parametre. Arrondir `modalVal` marcherait pour un axe
+			//   contraint et donnerait, pour le geste LIBRE, une grille alignee sur la
+			//   CAMERA au lieu du MONDE -- deux comportements pour une seule notion.
+			//   Ici, les deux cas tombent juste avec la meme ligne.
+			// Ctrl INVERSE la bascule, comme au drag et comme chez Blender.
+			{
+				const bool ctrlTenu =
+					NkInput.IsKeyDown(NkKey::NK_LCTRL) || NkInput.IsKeyDown(NkKey::NK_RCTRL);
+				const bool aimante = (G.IsSnapEnabled() != ctrlTenu);
+				if (aimante) {
+					auto arrondi = [](float32 x, float32 pas) -> float32 {
+						if (!(pas > 1e-6f))
+							return x;
+						const float32 k = (x < 0.f) ? -0.5f : 0.5f;
+						return ((float32)(int32)(x / pas + k)) * pas;
+					};
+					if (st->modalOp == 9) {
+						const float32 pas = G.SnapTranslate();
+						tr.x = arrondi(tr.x, pas);
+						tr.y = arrondi(tr.y, pas);
+						tr.z = arrondi(tr.z, pas);
+					} else if (st->modalOp == 10) {
+						// La ROTATION s'arrondit en DEGRES, donc AVANT la matrice : arrondir
+						// la matrice n'aurait aucun sens.
+						const float32 pas = G.SnapRotateDeg();
+						const float32 va = arrondi(v, pas);
+						rot = NkMat4f::Rotation((libre && !st->modalPlane) ? st->modalVueFwd : dir,
+								NkAngle::FromRad(va * 0.01745329252f));
+					} else if (st->modalOp == 11) {
+						const float32 pas = G.SnapScale();
+						scl.x = arrondi(scl.x, pas);
+						scl.y = arrondi(scl.y, pas);
+						scl.z = arrondi(scl.z, pas);
+					}
+				}
+			}
 			if (st->editMode) {
 				// EDITION : une seule cible (0), consommee par ApplyAbout autour du
 				// pivot courant. On la pose explicitement plutot que de dependre de
@@ -5229,6 +5275,25 @@ namespace nkentseu {
 				bmax.z = NkMax(bmax.z, q.z);
 			}
 			const float32 diag = (st->modalSnap.VertCount() > 0) ? (bmax - bmin).Len() : 1.f;
+			// ══ POURQUOI LES ECHELLES CI-DESSOUS NE SONT **PAS** CELLES DE LA VUE ══
+			// ⚠ A LIRE AVANT DE LES « UNIFORMISER ». Le 17/09, la translation (op 9) a
+			//   recu une echelle indexee sur la VUE, pour que l'objet reste sous le
+			//   curseur a toute distance. La tentation suivante est de la mettre
+			//   PARTOUT -- « j'ai trouve une meilleure echelle, je la mets partout ».
+			//   Ce serait une faute, et c'est celle qui a coute le chantier des sept
+			//   retournements.
+			//
+			//   Le parametre du biseau, de l'inset, de l'extrusion ou du gonflement est
+			//   une LONGUEUR DE MATIERE : il vit dans le maillage, il doit rester le
+			//   meme quand on recule la camera, et il n'a aucune raison de dependre du
+			//   nombre de pixels. C'est la TAILLE DE L'OBJET qui le regle -- « 400 px
+			//   de course couvrent la diagonale » -- et c'est JUSTE.
+			//   Le parametre de la translation, lui, est un DEPLACEMENT A L'ECRAN.
+			//
+			//   La question devant chacune de ces lignes n'est donc pas « quelle est la
+			//   meilleure echelle ? » mais « CE PARAMETRE EST-IL UNE LONGUEUR DE
+			//   MATIERE OU UN DEPLACEMENT A L'ECRAN ? ». Deux reponses, deux echelles,
+			//   et elles n'ont pas a se ressembler.
 			// ── (b8 temps 2) COMBIEN DE PIXELS VAUT UNE UNITE, ICI ? ────────────
 			// A la distance d, la vue couvre 2 d tan(fov/2) unites sur sa hauteur H.
 			// Un pixel vaut donc (2 d thY) / H unites, et une unite vaut l'inverse.
